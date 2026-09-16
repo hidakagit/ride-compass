@@ -2296,10 +2296,10 @@ def _node_intersection_attributes(
 ) -> tuple[np.ndarray, np.ndarray]:
     """`lazy_graph.index_to_node_id`順の（信号の有無, 集まる道の最大階級）。
 
-    どちらも`road_nodes`の事前集計列（`precompute_road_node_intersections.py`）で、
-    ターンの費用が「信号が無いのに上位の道を渡る」場合だけ待ちを足すために読む。
-    バッチ未実行のDBでは既定値（信号なし・階級0）が入っており、そのときの結果は
-    この列の導入前と同じになる。
+    どちらも`road_nodes`の事前集計列（`precompute_road_node_intersections.py`と、
+    交差点分割が自分の作ったノードへ行う穴埋め）で、ターンの費用が「信号が無いのに上位の道を
+    渡る」場合だけ待ちを足すために読む。どちらも受けていないノードは既定値（信号なし・
+    階級0）で、そのときの結果はこの列の導入前と同じになる。
     """
     nodes = graph.nodes
     signals = np.fromiter(

@@ -277,6 +277,7 @@ class GraphService:
 
         save_started = time.monotonic()
         await self._repository.save_graph(primary_graph, way_ids_to_replace=primary_way_ids)
+        primary_graph = await self._with_intersection_attributes(primary_graph)
         # 「分割結果の保存」を1コミットで確定する（上記と同じ規約。surfaceは
         # road_edges.osm_way_id経由でosm_raw_ways.surfaceから導出するため、Edge単位の
         # 保存は不要）。
@@ -291,6 +292,28 @@ class GraphService:
         )
 
         return primary_graph, primary_surface_attributes
+
+    async def _with_intersection_attributes(self, graph: LeanRoadGraph) -> LeanRoadGraph:
+        """交差点分割で作ったノードへ、交差点属性（信号の有無・集まる道の最大階級）を載せる。
+
+        この2列はノード単位の事前集計で、分割した直後のノードはまだどの集計も受けていない
+        ——DBの行も既定値のままなので、ここで埋めないと**この経路で作ったグラフだけ**
+        ターンの費用が変わる（同じ地点でも候補の並びと到着予想が変わる）。
+        """
+        node_ids = list(graph.nodes)
+        if not node_ids:
+            return graph
+        await self._repository.recompute_node_intersection_attributes(node_ids)
+        attributes = await self._repository.get_node_intersection_attributes(node_ids)
+        nodes = {
+            node_id: (
+                replace(node, has_traffic_signals=found[0], max_highway_rank=found[1])
+                if (found := attributes.get(node_id)) is not None
+                else node
+            )
+            for node_id, node in graph.nodes.items()
+        }
+        return LeanRoadGraph(graph_version=graph.graph_version, nodes=nodes, edges=graph.edges)
 
     async def get_search_materials_for_bbox(
         self, bbox: BoundingBox

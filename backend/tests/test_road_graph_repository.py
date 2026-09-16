@@ -981,6 +981,42 @@ async def test_recompute_node_max_highway_rank_takes_the_highest_of_the_roads_th
     assert rank == HIGHWAY_RANK["primary"]
 
 
+async def test_recompute_node_max_highway_rank_scoped_to_nodes_leaves_the_others_alone(
+    road_graph_repository, road_graph_session
+):
+    """ノードを指定した再計算は、そのノードだけを埋める（分割直後の穴埋め用）。
+
+    全件版はroad_edges全行を走査するためリクエストの経路では使えない。指定した側が
+    正しく埋まり、指定しなかった側が触られないことを同時に見る。
+    """
+    await _save_cross(road_graph_repository, side_highway="residential")
+    await road_graph_session.commit()
+
+    await road_graph_repository.graph.recompute_node_max_highway_rank(["osm-node-2"])
+    await road_graph_session.commit()
+
+    _, scoped = await _node_attributes(road_graph_session, "2")
+    _, untouched = await _node_attributes(road_graph_session, "3")
+    assert scoped == HIGHWAY_RANK["primary"]
+    assert untouched == 0
+
+
+async def test_recompute_node_intersection_attributes_fills_both_columns_for_the_given_nodes(
+    road_graph_repository, road_graph_session
+):
+    """分割で作ったノードへ、信号の有無と最大階級をまとめて埋める。"""
+    await _save_cross(road_graph_repository, side_highway="residential")
+    await _insert_poi(road_graph_session, 9001, "traffic_signals", NODE2[0], NODE2[1])
+    await road_graph_session.commit()
+
+    await road_graph_repository.recompute_node_intersection_attributes(["osm-node-2"])
+    await road_graph_session.commit()
+
+    assert await road_graph_repository.get_node_intersection_attributes(["osm-node-2"]) == {
+        "osm-node-2": (True, HIGHWAY_RANK["primary"])
+    }
+
+
 async def test_recompute_node_max_highway_rank_is_zero_for_roads_outside_the_rank_table(
     road_graph_repository, road_graph_session
 ):

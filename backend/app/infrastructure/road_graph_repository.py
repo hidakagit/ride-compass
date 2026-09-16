@@ -163,6 +163,10 @@ _BULK_CHUNK_ROWS = 1000
 MAX_BIND_PARAMS_PER_STATEMENT = 32_767
 # IN句・削除等でIDリストを分割するサイズ（1要素=1パラメータのため上限に余裕を持たせる）
 _ID_CHUNK_SIZE = 10_000
+# 交差点属性の再計算・読み戻しの1回あたりnode数。信号の有無は半径での空間結合で、
+# 全件を1文にするとプランが全組み合わせ評価へ落ちる（precompute_road_node_intersections.py
+# と同じ事情。同じ理由で同じ大きさにしてある）。
+_NODE_ATTRIBUTE_CHUNK_SIZE = 20_000
 
 
 def _chunked(items: list, size: int) -> Iterator[list]:
@@ -1392,12 +1396,13 @@ _HIGHWAY_RANK_SQL_CASE = "CASE e.highway\n" + "\n".join(
     f"            WHEN '{highway}' THEN {rank}" for highway, rank in sorted(HIGHWAY_RANK.items())
 ) + "\n            ELSE 0\n        END"
 
-_RECOMPUTE_NODE_MAX_HIGHWAY_RANK_SQL = text(
-    """
+# 全件版（バッチ）とノード限定版（分割直後の穴埋め）で対象の絞り方だけが違うため、
+# 1つのテンプレートから組み立てる。
+_RECOMPUTE_NODE_MAX_HIGHWAY_RANK_TEMPLATE = """
     WITH endpoints AS (
-        SELECT from_node_id AS node_id, __RANK__ AS rank FROM road_edges e
+        SELECT from_node_id AS node_id, __RANK__ AS rank FROM road_edges e {from_scope}
         UNION ALL
-        SELECT to_node_id AS node_id, __RANK__ AS rank FROM road_edges e
+        SELECT to_node_id AS node_id, __RANK__ AS rank FROM road_edges e {to_scope}
     ),
     ranks AS (
         SELECT node_id, MAX(rank) AS max_rank FROM endpoints GROUP BY node_id
@@ -1405,9 +1410,20 @@ _RECOMPUTE_NODE_MAX_HIGHWAY_RANK_SQL = text(
     UPDATE road_nodes rn
     SET max_highway_rank = COALESCE(r.max_rank, 0)
     FROM ranks r
-    WHERE rn.node_id = r.node_id
+    WHERE rn.node_id = r.node_id {node_scope}
       AND rn.max_highway_rank IS DISTINCT FROM COALESCE(r.max_rank, 0)
     """.replace("__RANK__", _HIGHWAY_RANK_SQL_CASE)
+
+_RECOMPUTE_NODE_MAX_HIGHWAY_RANK_SQL = text(
+    _RECOMPUTE_NODE_MAX_HIGHWAY_RANK_TEMPLATE.format(from_scope="", to_scope="", node_scope="")
+)
+
+_RECOMPUTE_NODE_MAX_HIGHWAY_RANK_FOR_NODES_SQL = text(
+    _RECOMPUTE_NODE_MAX_HIGHWAY_RANK_TEMPLATE.format(
+        from_scope="WHERE e.from_node_id = ANY(:node_ids)",
+        to_scope="WHERE e.to_node_id = ANY(:node_ids)",
+        node_scope="AND rn.node_id = ANY(:node_ids)",
+    )
 )
 
 # ノードに信号があるか。信号は交差点そのもののノードではなく、流入路ごと・横断歩道位置ごとの
@@ -1469,9 +1485,48 @@ class DerivedGraphRepository(_SessionRepository):
         await self._session.execute(_RECOMPUTE_NODE_DEGREES_SQL)
         await self._session.execute(_RESET_UNREFERENCED_NODE_DEGREES_SQL)
 
-    async def recompute_node_max_highway_rank(self) -> None:
-        """road_nodes.max_highway_rankをroad_edges全件から再計算する。"""
-        await self._session.execute(_RECOMPUTE_NODE_MAX_HIGHWAY_RANK_SQL)
+    async def recompute_node_max_highway_rank(self, node_ids: list[str] | None = None) -> None:
+        """road_nodes.max_highway_rankをroad_edgesから再計算する。
+
+        `node_ids`を渡すとそのノードだけを対象にする（分割直後の穴埋め。全件版は
+        road_edges全行を走査するためリクエストの経路では使えない）。
+        """
+        if node_ids is None:
+            await self._session.execute(_RECOMPUTE_NODE_MAX_HIGHWAY_RANK_SQL)
+            return
+        if not node_ids:
+            return
+        for chunk in _chunked(node_ids, _NODE_ATTRIBUTE_CHUNK_SIZE):
+            await self._session.execute(
+                _RECOMPUTE_NODE_MAX_HIGHWAY_RANK_FOR_NODES_SQL, {"node_ids": list(chunk)}
+            )
+
+    async def recompute_node_intersection_attributes(self, node_ids: list[str]) -> None:
+        """渡したノードの交差点属性（信号の有無・集まる道の最大階級）を再計算する。
+
+        この2列は事前集計バッチ（`precompute_road_node_intersections.py`）が埋めるが、
+        **交差点分割が新しく作ったノードはそのバッチをまだ受けていない**。分割した側が
+        自分の作ったノードを埋めないと、ターンの費用が「信号が無いのに上位の道を渡る」
+        側へ倒れ、同じ地点でも構築経路によって所要時間が変わる。
+        """
+        if not node_ids:
+            return
+        await self.recompute_node_max_highway_rank(node_ids)
+        for chunk in _chunked(node_ids, _NODE_ATTRIBUTE_CHUNK_SIZE):
+            await self.recompute_node_traffic_signals(list(chunk))
+
+    async def get_node_intersection_attributes(
+        self, node_ids: list[str]
+    ) -> dict[str, tuple[bool, int]]:
+        """node_id → (信号があるか, 集まる道の最大階級)。行が無いnode_idは含めない。"""
+        out: dict[str, tuple[bool, int]] = {}
+        for chunk in _chunked(node_ids, _NODE_ATTRIBUTE_CHUNK_SIZE):
+            stmt = select(
+                RoadNodeRow.node_id, RoadNodeRow.has_traffic_signals, RoadNodeRow.max_highway_rank
+            ).where(RoadNodeRow.node_id == any_(cast(list(chunk), ARRAY(Text))))
+            for row in (await self._session.execute(stmt)).all():
+                out[row.node_id] = (bool(row.has_traffic_signals), int(row.max_highway_rank or 0))
+        return out
 
     async def recompute_node_traffic_signals(self, node_ids: list[str]) -> None:
         """渡したノードのroad_nodes.has_traffic_signalsをosm_raw_poisから再計算する。
@@ -2766,6 +2821,12 @@ class RoadGraphRepository:
 
     async def recompute_node_degrees(self) -> None:
         await self.graph.recompute_node_degrees()
+
+    async def recompute_node_intersection_attributes(self, node_ids: list[str]) -> None:
+        await self.graph.recompute_node_intersection_attributes(node_ids)
+
+    async def get_node_intersection_attributes(self, node_ids: list[str]) -> dict[str, tuple[bool, int]]:
+        return await self.graph.get_node_intersection_attributes(node_ids)
 
     # --- Road Attribute（AttributeRepository） ---
 

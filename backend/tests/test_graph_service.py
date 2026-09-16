@@ -3,11 +3,13 @@ import time
 from unittest import mock
 
 import pytest
+from dataclasses import replace
 
 from app.domain.attributes import EdgeAttributeCounts, EdgeMaterialBundle, EdgeMaterialsBatch, SearchMaterials
 from app.domain.graph import DirectedEdge, LeanRoadGraph, RoadGraphLike, WaySpec
 from app.domain.osm_adapter import osm_ways_to_way_specs
 from app.domain.region import ROAD_GRAPH_TILE_ZOOM, BoundingBox, tile_bounds_lonlat
+from app.domain.traffic import HIGHWAY_RANK
 from app.infrastructure import graph_material_cache, tile_score_matrix_cache
 from app.infrastructure.road_graph_repository import RoadGraphRepository
 from app.services import derived_data_revision_service, graph_service as graph_service_module
@@ -77,6 +79,10 @@ class FakeRoadGraphRepository:
         self.edges = {}
         self.cached_tiles = set()
         self.save_graph_call_count = 0
+        # 交差点属性（road_nodesの事前集計2列）。分割直後のノードも埋まることを再現する。
+        self.signal_node_ids: set[str] = set()
+        self._node_intersection_attributes: dict[str, tuple[bool, int]] = {}
+        self.recompute_node_intersection_attributes_call_count = 0
         self.save_raw_ways_call_count = 0
         self.get_way_specs_with_closure_call_count = 0
         # updated_at/split_at相当。実DBのタイムスタンプの代わりに単調増加クロックを使う
@@ -186,12 +192,43 @@ class FakeRoadGraphRepository:
         if not matched_edges:
             return None
         node_ids = {e.from_node_id for e in matched_edges.values()} | {e.to_node_id for e in matched_edges.values()}
-        matched_nodes = {nid: self.nodes[nid] for nid in node_ids if nid in self.nodes}
+        # 実装はroad_nodesの列（事前集計済みの交差点属性）を載せて返す。保存時点の
+        # LeanNodeをそのまま返すと、DBから読む経路だけ属性が付く実装との差が消える。
+        matched_nodes = {
+            nid: (
+                replace(self.nodes[nid], has_traffic_signals=found[0], max_highway_rank=found[1])
+                if (found := self._node_intersection_attributes.get(nid)) is not None
+                else self.nodes[nid]
+            )
+            for nid in node_ids
+            if nid in self.nodes
+        }
         # 改善計画T262: save_graphが実際にLeanRoadGraph（LeanNode/LeanEdge）を保存する
         # ようになったため、Fakeの内部ストア（self.nodes/self.edges）もLean型を保持する。
         # ここで改めてPydantic RoadGraphへ包み直すとValidationErrorになるため、
         # LeanRoadGraphのまま返す（呼び出し元はRoadGraphLikeとしてのみ扱うため実害無し）。
         return LeanRoadGraph(graph_version="cached", nodes=matched_nodes, edges=matched_edges)
+
+    async def recompute_node_intersection_attributes(self, node_ids: list[str]) -> None:
+        """実装（road_nodesの2列をroad_edges・osm_raw_poisから埋め直す）のインメモリ版。
+
+        信号は`self.signal_node_ids`（テストが置く）、最大階級は保存済みEdgeのhighwayから
+        導く——実装と同じく「分割で作ったノードもここで埋まる」ことを再現する。
+        """
+        self.recompute_node_intersection_attributes_call_count += 1
+        for node_id in node_ids:
+            rank = 0
+            for edge in self.edges.values():
+                if node_id in (edge.from_node_id, edge.to_node_id):
+                    rank = max(rank, HIGHWAY_RANK.get(edge.highway, 0))
+            self._node_intersection_attributes[node_id] = (node_id in self.signal_node_ids, rank)
+
+    async def get_node_intersection_attributes(self, node_ids: list[str]) -> dict[str, tuple[bool, int]]:
+        return {
+            node_id: value
+            for node_id in node_ids
+            if (value := self._node_intersection_attributes.get(node_id)) is not None
+        }
 
     async def save_graph(self, graph: RoadGraphLike, way_ids_to_replace: set[int] | None = None) -> None:
         self.save_graph_call_count += 1
@@ -1039,3 +1076,37 @@ async def test_maybe_warm_tile_cache_retries_after_cooldown_elapses(monkeypatch)
 # --- 改善計画T390: is_split_up_to_dateのRedis cache-aside（_ensure_split_up_to_date） ---
 
 
+
+
+async def test_intersection_attributes_are_the_same_whichever_path_built_the_graph():
+    """分割で作ったグラフと、DBから読み直したグラフで交差点属性が一致すること。
+
+    この2列（信号の有無・集まる道の最大階級）はターンの費用にしか使われず、片方の経路で
+    既定値のままになると「信号があるのに横断待ちを足す」側へ倒れる（T800が設計原則13の
+    二重計上として外した挙動へ戻る）。同じ地点・同じ条件でも、リクエストがどちらの経路に
+    当たったかで所要時間と候補の並びが変わる。
+    """
+    ways = [
+        {"id": 100, "tags": {"highway": "primary"}, "nodes": [1, 2]},
+        {"id": 101, "tags": {"highway": "residential"}, "nodes": [2, 3]},
+    ]
+    nodes = {1: (35.700, 139.700), 2: (35.701, 139.701), 3: (35.702, 139.702)}
+    repository = FakeRoadGraphRepository()
+    await _seed_tile(repository, ROAD_GRAPH_TILE_ZOOM, *BBOX_TILE, ways, nodes)
+    repository.signal_node_ids.add("osm-node-2")
+    service = GraphService(repository=repository)
+
+    built, _ = await service.get_or_build_graph_with_attributes(BBOX)
+    cached, _ = await service.get_or_build_graph_with_attributes(BBOX)
+
+    assert repository.save_graph_call_count == 1  # 2回目は省略パス（DBから読む側）
+    crossing = built.nodes["osm-node-2"]
+    assert crossing.has_traffic_signals is True
+    assert crossing.max_highway_rank == HIGHWAY_RANK["primary"]
+    assert {
+        node_id: (node.has_traffic_signals, node.max_highway_rank)
+        for node_id, node in built.nodes.items()
+    } == {
+        node_id: (node.has_traffic_signals, node.max_highway_rank)
+        for node_id, node in cached.nodes.items()
+    }
