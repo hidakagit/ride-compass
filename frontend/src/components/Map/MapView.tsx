@@ -1600,18 +1600,25 @@ export function layersUnderRoadSurface(
 // buildLayerDataSources自体はbuildStaticOverlayLayers等の他の関数と同じくこのファイルに
 // 残し、フックへ引数として渡す（フック側からMapView.tsxを逆importしないため）。
 
+// ルート系の当たり判定専用レイヤー。見た目の線は細くモバイルでタップしづらいため、
+// 幅の広い透明なレイヤーを別に持つ。`handleClick`はここに当たったら道路のポップアップを
+// 開かず、それぞれの専用ハンドラへ任せる。
+const ROUTE_HIT_LAYER_IDS = [DETAIL_HIT_LAYER_ID, ROUTES_HIT_LAYER_ID, SPLICE_HIT_LAYER_ID];
+
 // クリック判定・カーソル変更（handleClick/handleMouseMove）の対象レイヤー一覧。
 // 各レイヤーが自分で宣言した`interactive`から導く（対象外のkeyをここで数え上げない、
 // OverlayLayerEntryのコメント参照）。これへSTATIC_OVERLAY_LAYERSの対象外である
-// DETAIL_HIT_LAYER_ID（ルート詳細区間の当たり判定専用レイヤー。幅6pxの見た目の線
-// DETAIL_LAYER_ID自体はモバイルでタップしづらいため、幅24pxの当たり判定専用レイヤーを
-// 別に持つ）・ROAD_TILE_LAYER_ID（路面）・ROAD_TYPE_LAYER_ID（道路の種類）を加える。handleClick/handleMouseMoveの両方が
+// ルート系の当たり判定レイヤー（`ROUTE_HIT_LAYER_IDS`）・ROAD_TILE_LAYER_ID（路面）・
+// ROAD_TYPE_LAYER_ID（道路の種類）を加える。handleClick/handleMouseMoveの両方が
 // この同じ一覧を参照する必要があり、片方だけ増減すると「ポップアップは出るがカーソルが
 // 変わらない」という非対称な劣化になるため、この関数へ集約する。
+// **`handleClick`が特別扱いするレイヤーもここへ含める**——専用ハンドラが応じるレイヤーは
+// 利用者から見ればクリックできる場所で、カーソルが変わらない理由が無い（候補線と
+// 乗り換え帯で実際にそうなっていた）。
 // exportはテスト専用（MapView.overlayFilters.test.ts）。
 export function buildInteractiveLayerIds(staticOverlayLayers: readonly OverlayLayerEntry[]): string[] {
   return [
-    DETAIL_HIT_LAYER_ID,
+    ...ROUTE_HIT_LAYER_IDS,
     ROAD_TILE_LAYER_ID,
     ROAD_TYPE_LAYER_ID,
     ...staticOverlayLayers.filter((layer) => layer.interactive).map((layer) => layer.layerId),
@@ -1897,8 +1904,9 @@ interface MapViewProps {
    * trueでも非表示のまま（DYNAMIC_WEATHER_RENDERERS・applyDynamicWeatherState参照）。
    * 要素・ソースを追加してもこのプロパティ自体は変わらない。 */
   dynamicWeather: Partial<Record<DynamicWeatherLayerId, DynamicWeatherGroupState>>;
-  /** 道路の種類。太さ・線種で反映する。物理描画はshowRoadSurfaceと同じMapLibre線レイヤーへ
-   * 合成される（MapView.tsx: applyRoadLayerState参照）。 */
+  /** 道路の種類。色で反映する（太さ・線種は意味を運ばない）。路面の種類とは**別の独立した
+   * 線レイヤー**で、同時にONのときは並列トラックが横へ分離する
+   * （MapView.tsx: applyRoadLayerState参照）。 */
   showRoadType: boolean;
   /** 路面の種類。色で反映する。 */
   showRoadSurface: boolean;
@@ -2722,7 +2730,7 @@ export default function MapView({
       // 一切行わない。
       // 候補線（ROUTES_HIT_LAYER_ID）も同じ理由で専用ハンドラ（handleCandidateClick）を
       // 持つため、一般道路網向けのポップアップは開かない。
-      for (const hitLayerId of [DETAIL_HIT_LAYER_ID, ROUTES_HIT_LAYER_ID, SPLICE_HIT_LAYER_ID]) {
+      for (const hitLayerId of ROUTE_HIT_LAYER_IDS) {
         if (map.getLayer(hitLayerId) && map.queryRenderedFeatures(e.point, { layers: [hitLayerId] }).length > 0) {
           return;
         }

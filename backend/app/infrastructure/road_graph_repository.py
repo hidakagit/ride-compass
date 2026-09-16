@@ -2822,6 +2822,12 @@ class RoadGraphRepository:
     async def recompute_node_degrees(self) -> None:
         await self.graph.recompute_node_degrees()
 
+    async def recompute_node_max_highway_rank(self, node_ids: list[str] | None = None) -> None:
+        await self.graph.recompute_node_max_highway_rank(node_ids)
+
+    async def recompute_node_traffic_signals(self, node_ids: list[str]) -> None:
+        await self.graph.recompute_node_traffic_signals(node_ids)
+
     async def recompute_node_intersection_attributes(self, node_ids: list[str]) -> None:
         await self.graph.recompute_node_intersection_attributes(node_ids)
 

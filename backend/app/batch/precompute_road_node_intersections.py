@@ -6,7 +6,8 @@
 上位の道を渡る・そこへ入る**ときの待ちだけである。それを表すには交差点ノード単位で信号の
 有無が要る（Edgeへ畳み込むと、どちらの端の信号かが失われる）。
 
-実際の集計SQLは`road_graph_repository.py`の`DerivedGraphRepository`側にある
+実際の集計SQLは`road_graph_repository.py`の`DerivedGraphRepository`側にあり、
+ここからはファサード（`RoadGraphRepository`のフラットな契約）経由で呼ぶ
 （`recompute_node_max_highway_rank`・`recompute_node_traffic_signals`）。本バッチは
 そのメソッドを呼ぶだけで新しいSQLを持たない（既存の各precomputeバッチと同じ規約）。
 
@@ -33,7 +34,7 @@ from sqlalchemy import select
 
 from app.batch._common import batch_session_factory, run_chunked_precompute, run_simple_batch_cli
 from app.infrastructure.road_graph_models import RoadNodeRow
-from app.infrastructure.road_graph_repository import DerivedGraphRepository
+from app.infrastructure.road_graph_repository import RoadGraphRepository
 
 logger = logging.getLogger("ridecompass.precompute_road_node_intersections")
 
@@ -48,13 +49,13 @@ async def run(database_url: str | None, dry_run: bool) -> int:
     async with batch_session_factory(database_url) as session_factory:
         if not dry_run:
             async with session_factory() as session:
-                await DerivedGraphRepository(session).recompute_node_max_highway_rank()
+                await RoadGraphRepository(session).recompute_node_max_highway_rank()
                 await session.commit()
             logger.info("max_highway_rank更新完了: elapsed=%.1fs", time.perf_counter() - started)
 
         async def handle_chunk(node_ids: list[str]) -> int:
             async with session_factory() as session:
-                await DerivedGraphRepository(session).recompute_node_traffic_signals(node_ids)
+                await RoadGraphRepository(session).recompute_node_traffic_signals(node_ids)
                 await session.commit()
             return len(node_ids)
 

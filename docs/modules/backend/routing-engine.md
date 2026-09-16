@@ -636,9 +636,9 @@ edge_idをまとめて1回・`preview_segment`が1回、いずれも逐次に呼
   `build_search_graph_statics`**: `LazyRoadGraph`と同じNode/Edge index
   空間のCSR（圧縮行格納）**構造のみ**（Edge重みは持たない。タイル集合だけで決まる
   純粋な派生物のため`LazyRoadGraph`と同じキーでキャッシュされる）。`SearchGraphStatics`は
-  この構造とEdge実距離配列（m）を束ねる。両関数とも`reverse=True`（既定False）で
-  転置CSR（キー`v * node_count + u`、行・列を入れ替え）を返す（`edge_length_m`は向きに
-  依存しないため`reverse`の値に関わらず同じ配列になる）。`indptr`/`indices`/
+  この構造とEdge実距離配列（m）を束ねる。**どちらも転置は返さない**——逆向きが要るのは
+  Nodeではなく辺基準の遷移で、そちらは`TurnExpandedStructure.reverse_transitions()`が
+  最初に必要になった時点で1度だけ作って保持する。`indptr`/`indices`/
   `entry_edge_index`はint32（実データ規模のNode/Edge数はint32の値域に
   対して桁違いに小さい）。辺基準グラフの遷移は`build_turn_expanded_structure`が
   この3配列から導くため、Node対からCSRエントリ位置を引き直す整列キーは持たない。

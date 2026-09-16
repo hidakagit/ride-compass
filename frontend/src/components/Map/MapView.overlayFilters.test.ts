@@ -211,3 +211,16 @@ describe("路面ソースより先に積むレイヤー", () => {
     expect(hoisted).not.toContain("designation");
   });
 });
+
+describe("クリックできる場所とカーソルが変わる場所", () => {
+  it("ルート系の当たり判定レイヤーも対象に入る", () => {
+    // handleClickが専用ハンドラへ任せるレイヤー（候補線・乗り換え帯）は、利用者から見れば
+    // クリックできる場所である。カーソルの一覧から外れていると「押せるのにカーソルが
+    // 変わらない」という、この関数が防ぐと宣言している非対称がそのまま起きる。
+    const ids = buildInteractiveLayerIds(STATIC_OVERLAY_LAYERS);
+
+    expect(ids).toContain("route-candidates-hit");
+    expect(ids).toContain("route-splice-stretches-hit");
+    expect(ids).toContain("route-detail-segments-hit");
+  });
+});
