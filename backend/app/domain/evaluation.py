@@ -9,12 +9,12 @@ Route Engineから独立させ、Route Engine自身は「勾配がきつい」�
 
 | 表現 | 入口 | 呼ぶのは誰か |
 |---|---|---|
-| スカラー（Edge1本） | `compute_edge_cost` / `compute_edge_axis_scores` | `compute_edge_axis_scores`は区間表示から。`compute_edge_cost`は**テストだけ**（他2つの答え合わせに使うオラクル） |
+| スカラー（Edge1本） | `compute_edge_cost` / `compute_edge_axis_scores` | `compute_edge_axis_scores`は区間表示から。`compute_edge_cost`は**テストだけ**（他の表現の答え合わせに使うオラクル） |
 | ベクトル（Edge群） | `compute_edge_costs_bulk` | **テストだけ**。探索は静的行列を経由する形になり、bbox全体をここで評価する経路は残っていない |
 | タイル単位の静的行列 | `build_static_edge_score_matrix` | `GraphService`（タイルキャッシュ。動的軸の列はNaNのまま持つ） |
 
 **本番の呼び出し元が無い表現を残してあるのは、答え合わせの相手としてである**
-（`tests/test_evaluation_bulk.py`が3つを突き合わせる）。速い経路だけを残すと、速い経路が
+（`tests/test_evaluation_bulk.py`が突き合わせる）。速い経路だけを残すと、速い経路が
 間違ったときに気づく手立ても一緒に消える。用途が「オラクル」であることを明記しておかないと、
 次に読んだ人が現役の経路だと思って最適化や拡張の対象にする。
 
