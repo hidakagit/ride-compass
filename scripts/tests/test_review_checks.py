@@ -1323,3 +1323,74 @@ def test_python_sources_only_reads_the_scanned_prefixes(tmp_path, monkeypatch):
     got = review_checks.python_sources(["backend/app/zzz.py", "docs/zzz.py", "backend/app/none.py"])
 
     assert list(got) == ["backend/app/zzz.py"]
+
+
+# --- 位置引数の個数（call_arity） -------------------------------------------
+
+
+def test_call_arity_catches_one_argument_too_many():
+    """シグネチャを変えた側が呼び出し元を取り残した形（docs/tasks/T889.md）。"""
+    src = _src("def zzz(a, b):", "    return a + b", "", "", "VALUE = zzz(1, 2, 3)")
+
+    hits = review_checks.find_call_arity_mismatches({"backend/app/zzz.py": src})
+
+    assert len(hits) == 1
+    assert "`zzz`" in hits[0]
+
+
+def test_call_arity_catches_a_missing_required_argument():
+    src = _src("def zzz(a, b):", "    return a + b", "", "", "VALUE = zzz(1)")
+
+    assert len(review_checks.find_call_arity_mismatches({"backend/app/zzz.py": src})) == 1
+
+
+def test_call_arity_counts_keyword_arguments_as_supplied():
+    """`f(a, b, digits=3)`は位置2個でも欠けていない。"""
+    src = _src("def zzz(a, b, digits):", "    return a", "", "", "VALUE = zzz(1, 2, digits=3)")
+
+    assert review_checks.find_call_arity_mismatches({"backend/app/zzz.py": src}) == []
+
+
+def test_call_arity_allows_any_count_for_varargs():
+    src = _src("def zzz(a, *rest):", "    return a", "", "", "VALUE = zzz(1, 2, 3, 4)")
+
+    assert review_checks.find_call_arity_mismatches({"backend/app/zzz.py": src}) == []
+
+
+def test_call_arity_skips_decorated_functions():
+    """デコレータはシグネチャを変えうるため、定義側の宣言をそのまま信じない。"""
+    src = _src("import functools", "", "", "@functools.wraps", "def zzz(a, b):", "    return a",
+               "", "", "VALUE = zzz(1, 2, 3)")
+
+    assert review_checks.find_call_arity_mismatches({"backend/app/zzz.py": src}) == []
+
+
+def test_call_arity_skips_star_unpacking_at_the_call_site():
+    src = _src("def zzz(a, b):", "    return a", "", "", "ARGS = [1, 2]", "VALUE = zzz(*ARGS)")
+
+    assert review_checks.find_call_arity_mismatches({"backend/app/zzz.py": src}) == []
+
+
+def test_call_arity_resolves_names_imported_from_another_module():
+    """実際に壊れたのはこの形（別モジュールの関数を素の名前で呼ぶ）。"""
+    defs = _src("def zzz(a, b):", "    return a + b")
+    caller = _src("from app.domain.zzz_probe import zzz", "", "VALUE = zzz(1, 2, 3)")
+
+    hits = review_checks.find_call_arity_mismatches({
+        "backend/app/domain/zzz_probe.py": defs,
+        "backend/app/services/zzz_caller.py": caller,
+    })
+
+    assert len(hits) == 1
+    assert "backend/app/services/zzz_caller.py" in hits[0]
+
+
+def test_call_arity_ignores_a_same_named_function_from_an_unresolvable_import():
+    """どの定義を指すか決まらない綴りは見ない（誤検知を出さない側へ倒す）。"""
+    defs = _src("def zzz(a, b):", "    return a + b")
+    caller = _src("from third_party.zzz import zzz", "", "VALUE = zzz(1, 2, 3)")
+
+    assert review_checks.find_call_arity_mismatches({
+        "backend/app/domain/zzz_probe.py": defs,
+        "backend/app/services/zzz_caller.py": caller,
+    }) == []

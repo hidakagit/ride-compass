@@ -313,6 +313,155 @@ def find_bare_basemodel_violations(source_lines: dict[str, list[tuple[int, str]]
     return out
 
 
+
+# 位置引数の個数の照合。シグネチャを変えた側が呼び出し元の1つを取り残しても、呼ぶ経路を
+# 通るテストが無ければ誰も気づかない（本番の管理画面が毎回500を返していた実績。
+# docs/tasks/T889.md）。CIにbackendの型検査は無く、ruffもこの型は見ない。
+#
+# 見るのは**モジュール直下の関数**を**素の名前**で呼ぶ形だけ。メソッド呼び出し
+# （`obj.foo()`）は呼び先の型が静的に決まらないため対象外——取りこぼす方向の割り切りで、
+# 誤検知を出さないことを優先する。
+ARITY_SCAN_PREFIXES = ("backend/app/", "backend/scripts/", "backend/benchmarks/", "scripts/")
+
+
+class FunctionArity(NamedTuple):
+    """位置引数として渡せる個数の範囲と、定義の場所。`maximum`はNoneなら上限なし（*args）。
+
+    `names`は位置で渡せる引数の名前。呼び出し側がキーワードで渡したぶんを「足りている」と
+    数えるために要る（`f(a, b, digits=3)`は位置2個でも欠けていない）。
+    """
+
+    minimum: int
+    maximum: int | None
+    where: str
+    names: tuple[str, ...]
+
+
+def _module_dotted_name(path: str) -> str | None:
+    """importで書かれる綴り（`app.domain.axis_inspector`）。対応が決まるものだけ返す。"""
+    if path.startswith("backend/app/") and path.endswith(".py"):
+        return path.removeprefix("backend/").removesuffix(".py").replace("/", ".").removesuffix(".__init__")
+    return None
+
+
+def _function_arity(node: ast.FunctionDef | ast.AsyncFunctionDef, where: str) -> FunctionArity | None:
+    """位置引数の範囲。デコレータ付きは対象外（シグネチャを変えうる）。"""
+    if node.decorator_list:
+        return None
+    spec = node.args
+    positional = spec.posonlyargs + spec.args
+    required = len(positional) - len(spec.defaults)
+    return FunctionArity(
+        required, None if spec.vararg else len(positional), where,
+        tuple(a.arg for a in positional),
+    )
+
+
+def module_level_arities(sources: dict[str, str]) -> dict[str, dict[str, FunctionArity]]:
+    """{ファイル: {関数名: 位置引数の範囲}}。モジュール直下の関数だけ。"""
+    out: dict[str, dict[str, FunctionArity]] = {}
+    for path, text in sources.items():
+        try:
+            tree = ast.parse(text)
+        except SyntaxError:
+            continue
+        found: dict[str, FunctionArity] = {}
+        for node in tree.body:
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                arity = _function_arity(node, f"{path}:{node.lineno}")
+                if arity is not None:
+                    found[node.name] = arity
+        # 同じ名前を2回定義しているファイルは`module_redefinition`の担当。どちらの定義を
+        # 指すかが決まらないためここでは見ない。
+        out[path] = found
+    return out
+
+
+def _resolvable_functions(
+    path: str, tree: ast.Module, arities: dict[str, dict[str, FunctionArity]],
+    by_module: dict[str, str],
+) -> dict[str, FunctionArity]:
+    """このファイルの中で、素の名前がどの定義を指すかが決まるものだけ。
+
+    同じファイルのモジュール直下の定義と、`from <モジュール> import <名前>`で持ち込んだ
+    ものに限る（どちらも綴りから定義が一意に決まる）。
+    """
+    resolved = dict(arities.get(path, {}))
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.ImportFrom) or node.level or node.module is None:
+            continue
+        source = by_module.get(node.module)
+        if source is None:
+            continue
+        for alias in node.names:
+            if alias.asname:
+                continue
+            arity = arities.get(source, {}).get(alias.name)
+            if arity is not None:
+                resolved[alias.name] = arity
+    return resolved
+
+
+def find_call_arity_mismatches(
+    sources: dict[str, str], scope: list[str] | None = None
+) -> list[str]:
+    """モジュール直下の関数を、位置引数の個数が合わない形で呼んでいる箇所。
+
+    定義は`sources`全体から集め、呼び出しは`scope`のファイルだけを見る（差分実行で、
+    定義側の解決に必要なファイルを落とさないため）。
+    """
+    arities = module_level_arities(sources)
+    by_module = {m: p for p in sources if (m := _module_dotted_name(p)) is not None}
+    out: list[str] = []
+    for path in sorted(scope if scope is not None else sources):
+        text = sources.get(path)
+        if text is None:
+            continue
+        try:
+            tree = ast.parse(text)
+        except SyntaxError:
+            continue
+        resolved = _resolvable_functions(path, tree, arities, by_module)
+        if not resolved:
+            continue
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Call) or not isinstance(node.func, ast.Name):
+                continue
+            arity = resolved.get(node.func.id)
+            if arity is None or any(isinstance(a, ast.Starred) for a in node.args):
+                continue
+            given = len(node.args)
+            if any(k.arg is None for k in node.keywords):
+                # `**d`での展開は中身が静的に分からない。足りない側は判定できない。
+                supplied = arity.minimum
+            else:
+                supplied = given + sum(1 for k in node.keywords if k.arg in arity.names)
+            if supplied < arity.minimum or (arity.maximum is not None and given > arity.maximum):
+                allowed = (
+                    f"{arity.minimum}個以上"
+                    if arity.maximum is None
+                    else (f"{arity.minimum}個" if arity.minimum == arity.maximum
+                          else f"{arity.minimum}〜{arity.maximum}個")
+                )
+                out.append(
+                    f"{path}:{node.lineno}: `{node.func.id}`へ位置引数を{given}個渡しているが"
+                    f"定義は{allowed}（{arity.where}）"
+                )
+    return out
+
+
+def arity_sources(files: list[str]) -> dict[str, str]:
+    """位置引数の照合に使う.py（定義の解決に要るため常に全件読む）。"""
+    out = {}
+    for path in files:
+        if not path.endswith(".py") or not path.startswith(ARITY_SCAN_PREFIXES):
+            continue
+        full = REPO_ROOT / path
+        if full.exists():
+            out[path] = read_text(full)
+    return out
+
+
 # webアプリが読み込む層から`app/batch`をモジュールトップでimportすると、バッチへ依存を1行
 # 足しただけで本番webが起動時に落ちる。本番webイメージは`requirements.txt`しか入れない一方、
 # batchは`requirements-batch.txt`限定の依存（rasterio等）を使うためで、テストとCIはbatch依存が
@@ -2114,6 +2263,7 @@ DETECTOR_ENFORCEMENT: dict[str, frozenset[str]] = {
     "redis_skeleton": frozenset({"staged", "since", "full"}),
     "bare_basemodel": frozenset({"staged", "since", "full"}),
     "module_redefinition": frozenset({"staged", "since", "full"}),
+    "call_arity": frozenset({"staged", "since", "full"}),
     "web_layer_batch_import": frozenset({"staged", "since", "full"}),
     "undeclared_dead_refs": frozenset({"staged", "since", "full"}),
     # 免除した段落の中身は常に参考表示（0件で黙らないためのもので、ブロックはしない）。
@@ -2191,6 +2341,9 @@ def cmd_docs(args: argparse.Namespace) -> int:
             lambda: find_bare_basemodel_violations(source_lines))
         add("module_redefinition", "モジュール直下で同じ名前を2回定義（ステージ済み.py、docs/tasks/T883.md参照）",
             lambda: find_module_level_redefinitions(python_sources(diff_added_lines("*.py"))))
+        add("call_arity", "位置引数の個数が定義と合わない呼び出し（ステージ済み.py、docs/tasks/T893.md参照）",
+            lambda: find_call_arity_mismatches(
+                arity_sources(files + added), scope=[f for f in staged if f.endswith(".py")]))
         add("web_layer_batch_import", "webアプリが読む層からのapp.batchのトップレベルimport（ステージ済み追加行、docs/tasks/T814.md参照）",
             lambda: find_web_layer_batch_imports(source_lines))
         add("way_tag_allowlist", "許可リストに無いタグキーをway_tagsから読む（ステージ済み追加行、docs/tasks/T753.md参照）",
@@ -2284,6 +2437,15 @@ def cmd_docs(args: argparse.Namespace) -> int:
             lambda: find_redis_skeleton_violations(source_lines))
         add("module_redefinition", "モジュール直下で同じ名前を2回定義（全件、docs/tasks/T883.md参照）",
             lambda: find_module_level_redefinitions(python_sources(files)))
+        arity_scope = (
+            [f for f in git("diff", "--name-only", f"{args.since}..HEAD").splitlines() if f.endswith(".py")]
+            if args.since else None
+        )
+        add("call_arity",
+            "位置引数の個数が定義と合わない呼び出し（"
+            + (f"{args.since} 以降に変更された.py" if args.since else "全件")
+            + "、docs/tasks/T893.md参照）",
+            lambda: find_call_arity_mismatches(arity_sources(files), scope=arity_scope))
         add("bare_basemodel", "素のBaseModel継承（全件、docs/tasks/T721.md参照）",
             lambda: find_bare_basemodel_violations({
                              rel(p): list(enumerate(read_text(p).splitlines(), 1))
@@ -2941,6 +3103,10 @@ def guard_probe_mutations(wt: Path) -> dict[str, "Callable[[], None]"]:
             "from pydantic import BaseModel\n\n\nclass ZzzGuardProbe(BaseModel):\n    value: int = 0\n"),
         "module_redefinition": lambda: write(
             GUARD_PROBE_PY, "zzz_guard_probe = 1\n\n\nzzz_guard_probe = 1\n"),
+        "call_arity": lambda: write(
+            GUARD_PROBE_PY,
+            "def zzz_guard_probe(a, b):\n    return a + b\n\n\n"
+            "zzz_guard_probe_value = zzz_guard_probe(1, 2, 3)\n"),
         "web_layer_batch_import": lambda: write(
             GUARD_PROBE_PY,
             "from app.batch.precompute_way_landcover import ALGORITHM_VERSION\n\n\n"
@@ -3151,6 +3317,11 @@ def guard_probe_edges(wt: Path) -> dict[str, "EdgeProbe | str"]:
             lambda: write("backend/tests/test_zzz_guard_probe.py",
                           "import os\n\n\ndef test_zzz_guard_probe():\n"
                           '    os.environ["DATABASE_URL"] = "postgresql://zzz/guard"\n')),
+        "call_arity": EdgeProbe(
+            "メソッド・属性経由の呼び出し（`obj.foo()`は呼び先の型が静的に決まらない）", False,
+            lambda: write(GUARD_PROBE_PY,
+                          "class ZzzGuardProbe:\n    def run(self, a, b):\n        return a + b\n\n\n"
+                          "zzz_guard_probe_value = ZzzGuardProbe().run(1, 2, 3)\n")),
         "map_redraw_coverage": EdgeProbe(
             "入口から2ホップ先のモジュール（母集団は1ホップ固定）", False, two_hop_layer),
         "plan_vs_tasks": "母集団は台帳の全行とdocs/tasksの全ファイルで、外側が無い",
