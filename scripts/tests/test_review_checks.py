@@ -528,6 +528,17 @@ def test_every_enforced_detector_has_an_edge_case_or_declares_it_has_no_outside(
         assert isinstance(edge, str) or edge.where, f"{key}の外縁に説明が無い"
 
 
+def test_gap_edges_carry_a_control_placed_inside_the_population():
+    # 見逃されたという事実だけでは、その位置が母集団の外だからなのか、違反がそもそも
+    # 成立していないのかを区別できない。同じ違反を内側へ置く手順を1件ずつ持たせる。
+    edges = review_checks.guard_probe_edges(review_checks.REPO_ROOT)
+
+    assert review_checks.edges_without_control(edges) == [], (
+        "detected=False の外縁に、同じ違反を母集団の内側へ置く手順（control）が無い。"
+        "内側でも鳴らないなら、その外縁は何も試していない"
+    )
+
+
 def test_covered_edges_were_once_observed_as_a_real_hole():
     # 外縁を母集団の**内側**へ書いてしまうと初日から検知され、穴が埋まっているのと見分けが
     # つかない。「一度は見逃した」という観測の記録だけがこの2つを分ける。

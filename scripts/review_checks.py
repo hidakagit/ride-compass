@@ -3257,11 +3257,18 @@ class EdgeProbe(NamedTuple):
     **`detected=True`は`GUARD_EDGE_BASELINE`の記録を要求する**（`unproven_edges`）。検知
     されるという事実だけでは、その位置が母集団の**外**だったことは言えない——外縁のつもりで
     内側へ書いた違反も同じように検知され、穴が無いのと同じ見た目になる。
+
+    **`detected=False`は`control`を要求する**。見逃されたという事実だけでは、その位置が
+    母集団の外だからなのか、違反がそもそも成立していないのかを区別できない。`control`は
+    同じ違反を母集団の**内側**へ置く手順で、これが検知されて初めて「位置が外だから
+    見逃されている」と言える。**両方の本文を1つの素材から組み立てる**——別々に書くと、
+    位置以外の違い（綴り・記法のずれ）が混じっても気づけない。
     """
 
     where: str
     detected: bool
     mutate: "Callable[[], None]"
+    control: "Callable[[], None] | None" = None
     mode: str = "staged"
 
 
@@ -3310,6 +3317,21 @@ def guard_probe_edges(wt: Path) -> dict[str, "EdgeProbe | str"]:
     module_readme = wt / "docs/modules/README.md"
     ident = GUARD_PROBE_IDENT
 
+    def placed_write(inside: str, outside: str, text: str) -> tuple[
+        "Callable[[], None]", "Callable[[], None]"
+    ]:
+        """同じ本文を、母集団の外縁と内側の2箇所へ新規作成する手順の組。
+
+        本文を1つしか書かないので、位置以外の違い（綴り・記法のずれ）が入り込まない。
+        """
+        return (lambda: write(outside, text), lambda: write(inside, text))
+
+    def placed_append(inside: Path, outside: Path, text: str) -> tuple[
+        "Callable[[], None]", "Callable[[], None]"
+    ]:
+        """`placed_write`の追記版。"""
+        return (lambda: append(outside, text), lambda: append(inside, text))
+
     def comment_only_identifier_in(doc: Path) -> "Callable[[], None]":
         """実装のコメントにしか無い名前を作り、`doc`がそれを現行として名指しする。"""
 
@@ -3318,17 +3340,6 @@ def guard_probe_edges(wt: Path) -> dict[str, "EdgeProbe | str"]:
             append(doc, f"\n`{ident}`が処理する。\n")
 
         return run
-
-    def rename_documented_impl_file() -> None:
-        """記載済みの実装ファイルを改名する（追加ではないため`--diff-filter=A`に出ない）。"""
-        listed = subprocess.run(
-            ["git", "ls-files", "frontend/src/lib"], cwd=str(wt), capture_output=True,
-            text=True, encoding="utf-8", errors="replace").stdout.splitlines()
-        picked = next((f for f in sorted(listed) if f.endswith(".ts") and ".test." not in f), None)
-        if picked is None:
-            raise RuntimeError("改名できる実装ファイルが無く、外縁の違反を作れない")
-        subprocess.run(["git", "mv", picked, picked.replace(".ts", "ZzzGuardProbe.ts")],
-                       cwd=str(wt), capture_output=True, text=True)
 
     def two_hop_layer() -> None:
         """入口から2ホップの位置へ、sourceを作る描画を1つ足す。"""
@@ -3348,10 +3359,64 @@ def guard_probe_edges(wt: Path) -> dict[str, "EdgeProbe | str"]:
             encoding="utf-8",
         )
 
+    # ここから下は外縁とその対照の素材。**1つの素材から2箇所ぶんを組み立てる**——
+    # 別々に書くと、位置以外の違いが混じっても「外だから見逃されている」と読めてしまう。
+    dead_file_edge, dead_file_control = placed_append(
+        module_doc, module_readme, "\n存在しない`Map/zzzGuardProbeFile.ts`を参照する。\n")
+    narrative_edge, narrative_control = placed_append(
+        module_doc, module_readme, "\n以前はこの方式ではなく別の形だった。\n")
+    review_doc_edge, review_doc_control = placed_append(
+        wt / REVIEW_CONTEXT_DOC, wt / "CLAUDE.md", f"\n- `{ident}`が評価の値を組み立てる。\n")
+    source_narrative_edge, source_narrative_control = placed_write(
+        GUARD_PROBE_PY, "backend/scripts/zzz_guard_probe.py",
+        "# 改善計画T999でこの形に変更した。\nzzz_guard_probe = 1\n")
+    redis_edge, redis_control = placed_write(
+        GUARD_PROBE_PY, "backend/scripts/zzz_guard_probe.py",
+        "from app.infrastructure.redis_client import get_redis_client_or_none\n\n\n"
+        "async def zzz_guard_probe():\n    return get_redis_client_or_none()\n")
+    basemodel_edge, basemodel_control = placed_write(
+        GUARD_PROBE_PY, "backend/app/zzz_guard_probe/__init__.py",
+        "from pydantic import BaseModel\n\n\nclass ZzzGuardProbe(BaseModel):\n    value: int = 0\n")
+    redefinition_edge, redefinition_control = placed_write(
+        GUARD_PROBE_PY, "backend/benchmarks/zzz_guard_probe.py",
+        "zzz_guard_probe = 1\n\n\nzzz_guard_probe = 1\n")
+
+    # 位置ではなく**記法**が外側のもの。変える1点以外を共有する。
+    def comment_naming(quote: str) -> "Callable[[], None]":
+        return lambda: write(
+            GUARD_PROBE_TS, f"// {quote}{ident}{quote}が処理する。\nexport const zzzGuardProbe = 1;\n")
+
+    css_token = "--zzz-guard-probe-token"
+
+    def drift_sentence() -> str:
+        # 綴りは実行時のworktreeから選ぶ（母集団が変われば選ばれる定数も変わる）。
+        return f"`{drifted_constant_probe(wt)}`（999999）がこの値を決める。"
+
+    vacuous_body = (
+        "  const picked = [1, 2, 3].filter((n) => n > 9);\n"
+        "  for (const n of picked) {\n"
+        "    expect(n).toBeGreaterThan(0);\n"
+        "  }\n"
+    )
+    # テストが書き換える環境変数は、実装（lib/apiBaseUrl.ts）も読む名前を両方で使う。
+    watched_env = "NEXT_PUBLIC_API_URL"
+    # 引数の個数のずれは、定義と呼び出しの組を共有して形だけ変える。
+    arity_params, arity_args = "a, b", "1, 2, 3"
+
+    def renamed_impl_file() -> str:
+        """記載済みの実装ファイルを1つ選び、改名後のパスを返す。"""
+        listed = subprocess.run(
+            ["git", "ls-files", "frontend/src/lib"], cwd=str(wt), capture_output=True,
+            text=True, encoding="utf-8", errors="replace").stdout.splitlines()
+        picked = next((f for f in sorted(listed) if f.endswith(".ts") and ".test." not in f), None)
+        if picked is None:
+            raise RuntimeError("改名できる実装ファイルが無く、外縁の違反を作れない")
+        return picked
+
     return {
         "dead_file_refs": EdgeProbe(
             "docs/modules/README.md（名前で母集団から外れる）", False,
-            lambda: append(module_readme, "\n存在しない`Map/zzzGuardProbeFile.ts`を参照する。\n")),
+            dead_file_edge, dead_file_control),
         "dead_identifier_refs": EdgeProbe(
             "実装のコメントにしか無い名前（コードには綴りが無い）", True,
             comment_only_identifier_in(module_doc)),
@@ -3360,28 +3425,22 @@ def guard_probe_edges(wt: Path) -> dict[str, "EdgeProbe | str"]:
             comment_only_identifier_in(wt / ARCHITECTURE_DOC)),
         "source_comment_dead_identifier_refs": EdgeProbe(
             "バッククォートを付けずに綴った死んだ識別子", False,
-            lambda: write(GUARD_PROBE_TS,
-                          f"// {ident}が処理する。\nexport const zzzGuardProbe = 1;\n")),
+            comment_naming(""), comment_naming("`")),
         "narrative": EdgeProbe(
             "docs/modules/README.md（名前で母集団から外れる）", False,
-            lambda: append(module_readme, "\n以前はこの方式ではなく別の形だった。\n")),
+            narrative_edge, narrative_control),
         "source_narrative": EdgeProbe(
             "backend/scripts/（実装の母集団はbackend/app・frontend/srcのみ）", False,
-            lambda: write("backend/scripts/zzz_guard_probe.py",
-                          "# 改善計画T999でこの形に変更した。\nzzz_guard_probe = 1\n")),
+            source_narrative_edge, source_narrative_control),
         "redis_skeleton": EdgeProbe(
             "backend/scripts/（バッチ補助もRedisを触りうる）", False,
-            lambda: write("backend/scripts/zzz_guard_probe.py",
-                          "from app.infrastructure.redis_client import get_redis_client_or_none\n\n\n"
-                          "async def zzz_guard_probe():\n    return get_redis_client_or_none()\n")),
+            redis_edge, redis_control),
         "bare_basemodel": EdgeProbe(
             "backend/app配下の__init__.py（is_impl_fileが除外する）", False,
-            lambda: write("backend/app/zzz_guard_probe/__init__.py",
-                          "from pydantic import BaseModel\n\n\nclass ZzzGuardProbe(BaseModel):\n    value: int = 0\n")),
+            basemodel_edge, basemodel_control),
         "module_redefinition": EdgeProbe(
             "backend/benchmarks/（MODULE_REDEFINITION_PREFIXESの手書き4つの外）", False,
-            lambda: write("backend/benchmarks/zzz_guard_probe.py",
-                          "zzz_guard_probe = 1\n\n\nzzz_guard_probe = 1\n")),
+            redefinition_edge, redefinition_control),
         "web_layer_batch_import": EdgeProbe(
             "backend/app/main.py（api/services/infrastructure/domainのどれでもない）", True,
             lambda: append(wt / "backend/app/main.py",
@@ -3394,24 +3453,30 @@ def guard_probe_edges(wt: Path) -> dict[str, "EdgeProbe | str"]:
                            '    return tags.get("zzz_guard_probe")\n')),
         "undocumented_files": EdgeProbe(
             "実装ファイルの改名（追加ではないため--diff-filter=Aに出ない）", False,
-            rename_documented_impl_file),
+            # 外縁＝改名、対照＝同じパスを新規追加。どちらも記載の無いパスが現れる点は同じで、
+            # 違うのは「追加として現れるか」だけ。
+            lambda: subprocess.run(
+                ["git", "mv", renamed_impl_file(),
+                 renamed_impl_file().replace(".ts", "ZzzGuardProbe.ts")],
+                cwd=str(wt), capture_output=True, text=True),
+            lambda: write(renamed_impl_file().replace(".ts", "ZzzGuardProbe.ts"),
+                          "export const zzzGuardProbe = 1;\n")),
         "dead_doc_links": EdgeProbe(
             "名前は実在するが相対パスが解決しないリンク", True,
             lambda: append(module_doc, "\n詳細は[T889](../tasks/T889.md)参照。\n")),
         "undefined_css_tokens": EdgeProbe(
             "トークンを定義するCSS自身（名前で母集団から外れる）", False,
             lambda: append(wt / GLOBAL_TOKENS_CSS,
-                           "\n.zzz-guard-probe {\n  color: var(--zzz-guard-probe-token);\n}\n")),
+                           f"\n.zzz-guard-probe {{\n  color: var({css_token});\n}}\n"),
+            lambda: write(GUARD_PROBE_TS, f'export const zzzGuardProbe = "var({css_token})";\n')),
         "vacuous_test_loops": EdgeProbe(
             "frontend/e2e/*.spec.ts（TEST_FILE_REはtest_*.pyと*.test.ts(x)だけ）", False,
             lambda: write("frontend/e2e/zzzGuardProbe.spec.ts",
                           'import { expect, test } from "@playwright/test";\n\n'
-                          'test("zzz guard probe", () => {\n'
-                          "  const picked = [1, 2, 3].filter((n) => n > 9);\n"
-                          "  for (const n of picked) {\n"
-                          "    expect(n).toBeGreaterThan(0);\n"
-                          "  }\n"
-                          "});\n")),
+                          'test("zzz guard probe", () => {\n' + vacuous_body + "});\n"),
+            lambda: write(GUARD_PROBE_TEST_TS,
+                          'import { expect, it } from "vitest";\n\n'
+                          'it("zzz guard probe", () => {\n' + vacuous_body + "});\n")),
         "removed_axis_mentions": EdgeProbe(
             "アンダースコアを含まない、実在した軸のaxis_id", True,
             lambda: append(module_doc,
@@ -3419,21 +3484,30 @@ def guard_probe_edges(wt: Path) -> dict[str, "EdgeProbe | str"]:
         "doc_constant_drift": EdgeProbe(
             "実装コメントが書いた定数値（母集団は.mdのみ）", False,
             lambda: write(GUARD_PROBE_TS,
-                          f"// {drifted_constant_probe(wt)}（999999）がこの値を決める。\n"
-                          "export const zzzGuardProbe = 1;\n")),
+                          f"// {drift_sentence()}\nexport const zzzGuardProbe = 1;\n"),
+            lambda: append(module_doc, f"\n{drift_sentence()}\n")),
         "review_doc_dead_refs": EdgeProbe(
             "CLAUDE.md（母集団は.claude/commands/**.mdのみ）", False,
-            lambda: append(wt / "CLAUDE.md", f"\n- `{ident}`が評価の値を組み立てる。\n")),
+            review_doc_edge, review_doc_control),
         "cross_file_env_writes": EdgeProbe(
             "backendのテスト（母集団はfrontend/src/**のみ）", False,
             lambda: write("backend/tests/test_zzz_guard_probe.py",
                           "import os\n\n\ndef test_zzz_guard_probe():\n"
-                          '    os.environ["DATABASE_URL"] = "postgresql://zzz/guard"\n')),
+                          f'    os.environ["{watched_env}"] = "https://example.test"\n'),
+            lambda: write(GUARD_PROBE_TEST_TS,
+                          'import { it } from "vitest";\n\n'
+                          'it("zzz guard probe", () => {\n'
+                          f"  process.env.{watched_env} = \"https://example.test\";\n"
+                          "});\n")),
         "call_arity": EdgeProbe(
             "メソッド・属性経由の呼び出し（`obj.foo()`は呼び先の型が静的に決まらない）", False,
             lambda: write(GUARD_PROBE_PY,
-                          "class ZzzGuardProbe:\n    def run(self, a, b):\n        return a + b\n\n\n"
-                          "zzz_guard_probe_value = ZzzGuardProbe().run(1, 2, 3)\n")),
+                          f"class ZzzGuardProbe:\n    def run(self, {arity_params}):\n"
+                          "        return a + b\n\n\n"
+                          f"zzz_guard_probe_value = ZzzGuardProbe().run({arity_args})\n"),
+            lambda: write(GUARD_PROBE_PY,
+                          f"def zzz_guard_probe({arity_params}):\n    return a + b\n\n\n"
+                          f"zzz_guard_probe_value = zzz_guard_probe({arity_args})\n")),
         "map_redraw_coverage": EdgeProbe(
             "入口から2ホップ先のモジュール", True, two_hop_layer),
         "plan_vs_tasks": "母集団は台帳の全行とdocs/tasksの全ファイルで、外側が無い",
@@ -3460,6 +3534,14 @@ def unproven_edges(edges: dict[str, "EdgeProbe | str"]) -> list[str]:
     return sorted(
         key for key, edge in edges.items()
         if isinstance(edge, EdgeProbe) and edge.detected and key not in observed
+    )
+
+
+def edges_without_control(edges: dict[str, "EdgeProbe | str"]) -> list[str]:
+    """`detected=False`なのに、同じ違反を母集団の内側へ置く手順が無い外縁のキー。"""
+    return sorted(
+        key for key, edge in edges.items()
+        if isinstance(edge, EdgeProbe) and not edge.detected and edge.control is None
     )
 
 
@@ -3556,8 +3638,29 @@ def cmd_mutate(args: argparse.Namespace) -> int:
                 else:
                     rows.append((key, "PASS", label, f"{found}件 exit={proc.returncode}"))
 
+        def run_probe(make: "Callable[[], None]", mode: str, key: str) -> "bool | str":
+            """違反を1件作り、その検知器が鳴るかを返す。作れなければ理由の文字列を返す。"""
+            wt_run("git", "reset", "-q", "--hard", base)
+            wt_run("git", "clean", "-fdq")
+            try:
+                make()
+            except Exception as exc:  # noqa: BLE001 違反を作れないこと自体を結果として出す
+                return str(exc)[:80]
+            wt_run("git", "add", "-A")
+            probe_check: list[str] = []
+            if mode == "staged":
+                probe_check = ["--staged"]
+            elif mode == "since":
+                wt_run("git", "-c", "user.email=guard@local", "-c", "user.name=guard",
+                       "commit", "-q", "-m", "guard audit edge", "--no-verify")
+                probe_check = ["--since", base]
+            probe_proc = wt_run(sys.executable, "scripts/review_checks.py", "docs",
+                                "--keys", "--only", key, *probe_check)
+            return bool(probe_section_count(probe_proc.stdout, key))
+
         edges = guard_probe_edges(wt)
         unproven = set(unproven_edges(edges))
+        no_control = set(edges_without_control(edges))
         for key in declared:
             edge = edges.get(key)
             if edge is None:
@@ -3567,24 +3670,28 @@ def cmd_mutate(args: argparse.Namespace) -> int:
             if isinstance(edge, str):
                 edge_rows.append((key, "N/A", "-", edge))
                 continue
-            wt_run("git", "reset", "-q", "--hard", base)
-            wt_run("git", "clean", "-fdq")
-            try:
-                edge.mutate()
-            except Exception as exc:  # noqa: BLE001 違反を作れないこと自体を結果として出す
-                edge_rows.append((key, "SETUP-FAIL", edge.mode, str(exc)[:80]))
+            if key in no_control:
+                edge_rows.append((
+                    key, "NO-CONTROL", edge.mode,
+                    f"同じ違反を母集団の内側へ置く手順が無い（controlを1件足す）: {edge.where}"))
                 continue
-            wt_run("git", "add", "-A")
-            check: list[str] = []
-            if edge.mode == "staged":
-                check = ["--staged"]
-            elif edge.mode == "since":
-                wt_run("git", "-c", "user.email=guard@local", "-c", "user.name=guard",
-                       "commit", "-q", "-m", "guard audit edge", "--no-verify")
-                check = ["--since", base]
-            proc = wt_run(sys.executable, "scripts/review_checks.py", "docs",
-                          "--keys", "--only", key, *check)
-            detected = bool(probe_section_count(proc.stdout, key))
+            outcome = run_probe(edge.mutate, edge.mode, key)
+            if isinstance(outcome, str):
+                edge_rows.append((key, "SETUP-FAIL", edge.mode, outcome))
+                continue
+            detected = outcome
+            if not detected and edge.control is not None:
+                # 見逃されたのが「位置が外だから」なのか「違反がそもそも成立していない」
+                # のかを分ける。内側へ置いても鳴らないなら、この外縁は何も試していない。
+                control_outcome = run_probe(edge.control, edge.mode, key)
+                if isinstance(control_outcome, str):
+                    edge_rows.append((key, "SETUP-FAIL", edge.mode, f"対照: {control_outcome}"))
+                    continue
+                if not control_outcome:
+                    edge_rows.append((
+                        key, "UNREAL", edge.mode,
+                        f"内側へ置いても鳴らない＝違反が成立していない: {edge.where}"))
+                    continue
             if detected and key in unproven:
                 edge_rows.append((
                     key, "UNPROVEN", edge.mode,
@@ -3632,7 +3739,7 @@ def cmd_mutate(args: argparse.Namespace) -> int:
 
     bad = [r for r in rows if r[1] not in ("PASS", "SKIP")]
     edge_bad = [r for r in edge_rows
-                if r[1] in ("NO-EDGE", "SETUP-FAIL", "CHANGED", "UNPROVEN")]
+                if r[1] in ("NO-EDGE", "NO-CONTROL", "SETUP-FAIL", "CHANGED", "UNPROVEN", "UNREAL")]
     stale = stale_edge_gap_records(guard_probe_edges(REPO_ROOT))
     if stale:
         print(f"実在しない外縁の記録 {len(stale)}件: {', '.join(stale)}")
@@ -3643,7 +3750,7 @@ def cmd_mutate(args: argparse.Namespace) -> int:
         if bad:
             print(f"鳴らない検知器 {len(bad)}件。検知器があることと鳴ることは別物のため、これは違反として扱う。")
         if edge_bad:
-            print(f"外縁の期待値と実際が食い違う、未定義、または記録が無い {len(edge_bad)}件。")
+            print(f"外縁が期待と食い違う・未定義・記録が無い・違反が成立していない {len(edge_bad)}件。")
         return 1
     if stale:
         return 1
