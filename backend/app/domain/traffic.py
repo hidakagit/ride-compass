@@ -247,6 +247,14 @@ HIGHWAY_RANK: dict[str, int] = {
 }
 
 
+#: 「車列の切れ目を待つ」交差点とみなす最低の階級。生活道路・サービス道路（階級1）を
+#: 横切るのに待ちは要らない——待ちが要るのは通過交通のある道で、この表では tertiary 以上。
+#: **階級の大小だけで判定すると、自転車道（0）からサービス道路（1）へ出るだけで成立する**
+#: （自転車道・歩道は階級表に無く0になるため。[T800](../../../docs/tasks/T800.md)で
+#: この判定を入れてから、その形の発火が増えていた）。
+MAJOR_CROSSING_MIN_RANK = HIGHWAY_RANK["tertiary"]
+
+
 def highway_rank(highway: str | None) -> int:
     """OSMのhighwayタグ生値を階級順へ写す。自転車道・歩道・未知の値は0（最下位）。"""
     return HIGHWAY_RANK.get(highway or "", 0)

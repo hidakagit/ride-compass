@@ -16,6 +16,7 @@ from app.domain.routing import (
     turn_expanded_shortest_path,
     turn_seconds_for,
 )
+from app.domain.traffic import MAJOR_CROSSING_MIN_RANK
 
 SPEED_MS = 20.0 / 3.6
 
@@ -555,3 +556,32 @@ def test_one_to_all_gives_the_distance_along_the_path_when_turns_are_free():
         assert tree.node_cost[lazy_graph.node_id_to_index[node_id]] == pytest.approx(200.0 / SPEED_MS)
     # 起点は「戻ってくるコスト」になる（状態の空間に「まだ走っていない」が無いため）。
     assert tree.node_cost[lazy_graph.node_id_to_index["S"]] == pytest.approx(200.0 / SPEED_MS)
+
+
+def test_crossing_a_minor_road_from_a_cycleway_does_not_add_the_major_crossing_cost():
+    """自転車道から生活道路・サービス道路へ出るだけでは、横断の費用を足さない。
+
+    判定を「自分より上位か」だけにすると、自転車道（階級表に無く0）から
+    サービス道路（1）へ出る形がすべて成立する。ここが足すのは「車列の切れ目を待つ時間」で、
+    通過交通の無い道を横切るのに待ちは要らない（`MAJOR_CROSSING_MIN_RANK`）。
+    """
+    graph, lazy_graph, csr = _major_crossing_fixture()
+    spec = TurnCostSpec(left_seconds=0.0, right_seconds=0.0, major_crossing_seconds=8.0)
+    bearings = edge_bearings(graph, lazy_graph)
+    no_signal = np.zeros(len(lazy_graph.index_to_node_id), dtype=bool)
+
+    # 直進する側が自転車道（0）、交差する側がサービス道路（1）。
+    minor = np.array(
+        [1 if edge_id in ("P1-C", "C-P2") else 0 for edge_id in lazy_graph.edge_ids], dtype=np.int64)
+    # 交差する側だけをtertiary（MAJOR_CROSSING_MIN_RANK）へ上げた対照。
+    major = np.array(
+        [MAJOR_CROSSING_MIN_RANK if edge_id in ("P1-C", "C-P2") else 0
+         for edge_id in lazy_graph.edge_ids], dtype=np.int64)
+
+    crossing_minor = build_turn_expanded_structure(
+        csr, lazy_graph, bearings, minor, spec, node_has_signal=no_signal)
+    crossing_major = build_turn_expanded_structure(
+        csr, lazy_graph, bearings, major, spec, node_has_signal=no_signal)
+
+    assert _straight_cost(crossing_minor, lazy_graph) == 0.0
+    assert _straight_cost(crossing_major, lazy_graph) == spec.major_crossing_seconds

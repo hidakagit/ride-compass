@@ -1243,6 +1243,11 @@ function makeEnsureAttributeLineLayer(
 ): (map: MapLibreMap) => void {
   return (map: MapLibreMap) => {
     const applyData = () => {
+      // 参照するソースは自分で用意する（ramp軸・専用way値レイヤーと同じ）。
+      // map.setStyle()の後の作り直しはレイヤーごとのensureを順に呼ぶだけで、路面ソースを
+      // 作る処理がこれより後に来ることがある——順序に頼るとそのときだけレイヤーが落ち、
+      // 指定路線・トンネル・一方通行の色分けが戻らない。
+      ensureRoadSurfaceTileLayer(map);
       ensureLayerFromSpec(
         map,
         {

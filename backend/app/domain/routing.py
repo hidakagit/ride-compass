@@ -33,6 +33,7 @@ from app.domain.errors import RoutingError
 from app.domain.geo import KM_PER_DEGREE_LATITUDE, bearing_between, haversine_distance_km
 from app.domain.graph import RoadGraphLike
 from app.domain.route import Coordinates
+from app.domain.traffic import MAJOR_CROSSING_MIN_RANK
 
 logger = logging.getLogger("ridecompass.graph")
 
@@ -709,7 +710,12 @@ def build_turn_expanded_structure(
         np.maximum.at(node_rank, edge_from, edge_rank)
         if node_db_rank is not None:
             node_rank = np.maximum(node_rank, node_db_rank)
-        crosses_major = node_rank[edge_to[source]] > edge_rank[source]
+        # 「自分より上位」だけでなく「そもそも待ちの要る階級か」も見る
+        # （`MAJOR_CROSSING_MIN_RANK`、domain/traffic.py）。
+        target_node_rank = node_rank[edge_to[source]]
+        crosses_major = (target_node_rank > edge_rank[source]) & (
+            target_node_rank >= MAJOR_CROSSING_MIN_RANK
+        )
         # 信号のある交差点では足さない（待ちは停止密度の材料が走行モデルへ運ぶ）。
         # 未集計なら全ノードが「信号なし」で、この列の導入前と同じ結果になる。
         if node_has_signal is not None:

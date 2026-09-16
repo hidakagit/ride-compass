@@ -487,7 +487,23 @@ class RouteGenerator:
             )
             return []
 
-        traced = self._engine.build_traced_from_edge_ids(context, edge_ids, destination)
+        try:
+            traced = self._engine.build_traced_from_edge_ids(context, edge_ids, destination)
+        except RoutingError as exc:
+            # 経路の形が受け取れない（空・未知のEdge・つながっていない・起点や終点が違う）。
+            # **利用者へ届く理由を捨てない**——ここで素通しすると、呼び出し元の汎用catchが
+            # 「ルート生成に失敗しました」に潰し、画面からは原因が分からなくなる。
+            # 例外の本文は内部の識別子（node id・edge id）を含むためそのまま出さず、
+            # ログにだけ残して利用者には何が起きたかだけを伝える。
+            logger.warning(
+                "generate(spliced) engine=%s origin=%s edges=%d -> 経路の形が受け取れない: %s",
+                self.engine_name, origin_label, len(edge_ids), exc,
+            )
+            self.last_no_candidates_reason = (
+                "組み合わせた経路がつながっていないため評価できませんでした。"
+                "区間の選び直しか、ルートの再生成をお試しください。"
+            )
+            return []
 
         evaluate_started = time.monotonic()
         candidates = await self._evaluate_and_aggregate(context, [traced], start_time)

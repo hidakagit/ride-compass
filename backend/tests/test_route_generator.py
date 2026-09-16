@@ -1090,14 +1090,23 @@ async def test_generate_spliced_route_returns_empty_with_reason_when_no_context(
     assert "道路データが未整備" in generator.last_no_candidates_reason
 
 
-async def test_generate_spliced_route_propagates_a_path_that_does_not_hold_together():
-    # 成立しない列を黙って評価すると、経路になっていないルートが候補一覧へ並ぶ。
-    generator, _ = make_generator({}, build_traced_error=RoutingError("経路がつながっていません"))
+async def test_generate_spliced_route_reports_a_path_that_does_not_hold_together():
+    """成立しない列は候補にしない。**理由は利用者へ届く形で残す**。
 
-    with pytest.raises(RoutingError, match="経路がつながっていません"):
-        await generator.generate_spliced_route(
-            ORIGIN, DESTINATION, distance_km=10.0, edge_ids=["e1", "e9"]
-        )
+    候補を返さない点は変えていない（経路になっていないルートを一覧へ並べない）。変えたのは
+    伝え方で、例外のまま投げ上げると呼び出し元の汎用catchが「ルート生成に失敗しました」へ
+    潰し、画面から原因が消える。すぐ上の「道路データが未整備」と同じ経路
+    （`last_no_candidates_reason`）へ載せる。例外の本文は内部の識別子を含むため出さない。
+    """
+    generator, _ = make_generator({}, build_traced_error=RoutingError("経路がつながっていません node=X"))
+
+    candidates = await generator.generate_spliced_route(
+        ORIGIN, DESTINATION, distance_km=10.0, edge_ids=["e1", "e9"]
+    )
+
+    assert candidates == []
+    assert "つながっていない" in generator.last_no_candidates_reason
+    assert "node=X" not in generator.last_no_candidates_reason
 
 
 async def test_generate_spliced_route_runs_the_same_aggregation_as_other_candidates():

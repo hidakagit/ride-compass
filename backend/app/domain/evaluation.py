@@ -483,12 +483,19 @@ def _evaluate_axes_bulk(
             mid_lon=np.array([]),
             axis_arrays=empty_axis_arrays,
             axis_raw_arrays=empty_raw_arrays,
+            # **非空タイルと同じ絞り込みを掛ける**（下の計算フェーズと同じ
+            # `in MATERIAL_CATALOG`）。片方だけ素通しにすると、空タイルだけが余分な列を
+            # 持ち、`combine_static_edge_score_matrices`が列の対応を取れなくなる
+            # ——上の軸の列で書いたのと同じ形の食い違いが、材料の列で起きる。
             material_value_arrays={
-                material_id: np.array([]) for material_id in route_facing_material_ids()
+                material_id: np.array([])
+                for material_id in route_facing_material_ids()
+                if material_id in MATERIAL_CATALOG
             },
             categorical_material_arrays={
                 material_id: np.array([], dtype=object)
                 for material_id in route_facing_categorical_material_ids()
+                if material_id in MATERIAL_CATALOG
             },
         )
     edges = [graph.edges[edge_id] for edge_id in edge_ids]
@@ -605,6 +612,8 @@ def _evaluate_axes_bulk(
         assert raw is not None, f"route_facing_raw_axis_idsが返した{axis_id}の生値が作れない"
         axis_raw_arrays[axis_id] = raw
 
+    # 絞り込みの条件は空タイル分岐（上）と同じにする——`material_arrays`はここで
+    # `MATERIAL_CATALOG`全材料ぶん確保しているため、両者は同じ集合を指す。
     material_value_arrays = {
         material_id: material_arrays[material_id].astype(float, copy=False)
         for material_id in route_facing_material_ids()

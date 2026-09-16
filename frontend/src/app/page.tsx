@@ -1608,11 +1608,14 @@ export default function Home() {
     // 2回目のタップが入ると同じ組み合わせが2本一覧へ並ぶ。
     if (applyingRef.current) return;
     if (!editingRoute || appliedAlternatives.length === 0) return;
-    applyingRef.current = true;
     // 表示中の候補を作った条件をそのまま使う。いまのフォーム値を使うと、生成後に重みを
     // 変えてから合成したときに、その1本だけ別条件で評価された候補が同じ並びへ入る。
+    // **前提の確認は連打防止フラグを立てる前に済ませる**。フラグを立ててから抜ける経路が
+    // 1つでもあると、`finally`を通らないままフラグが立ちっぱなしになり、以後この操作が
+    // 二度と効かなくなる（判断原則16）。
     const generatedInput = generatedConditions?.input;
     if (!generatedInput) return;
+    applyingRef.current = true;
     setSplicing(true);
     setErrorMessage(null);
     setSpliceError(null);
