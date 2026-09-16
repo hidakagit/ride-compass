@@ -332,8 +332,8 @@ const ROUTE_OUTCOME_SHEET_TITLE_ID = "route-outcome-sheet-title";
 
 type MobileSheet = "routeSettings" | "routeOutcome" | null;
 
-/** 1グループが持てる選択肢の数。`spliceFeatureIndex`がこの位取りで2つの位置を1つの数へ
- *  畳むため、**超えると隣のグループの選択肢として引き戻される**（例外も表示の乱れも出ず、
+/** 1グループが持てる選択肢の数。`spliceFeatureIndex`がこの位取りでグループと選択肢の位置を
+ *  1つの数へ畳むため、**超えると隣のグループの選択肢として引き戻される**（例外も表示の乱れも出ず、
  *  黙って別の区間へ乗り換わる）。候補は生成数の上限（画面で最大8件）で決まるため実際には
  *  届かないが、届いたときに黙って壊れないよう組み立てる側で弾く。 */
 const SPLICE_OPTIONS_PER_GROUP = 100;
