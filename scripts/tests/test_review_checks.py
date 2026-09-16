@@ -516,6 +516,18 @@ def test_every_enforced_detector_has_a_way_to_produce_a_violation():
     assert enforced <= probes, f"違反の作り方が無い検知器: {sorted(enforced - probes)}"
 
 
+def test_every_enforced_detector_has_an_edge_case_or_declares_it_has_no_outside():
+    # 正例は母集団の内側へ違反を置くため、母集団が狭すぎることを検出できない。外縁の
+    # ケース（またはその検知器に外側が無いという宣言）を1件ずつ持たせ、穴の有無を測る。
+    enforced = {k for k, modes in review_checks.DETECTOR_ENFORCEMENT.items() if modes}
+    edges = review_checks.guard_probe_edges(review_checks.REPO_ROOT)
+
+    assert enforced <= set(edges), f"外縁のケースが無い検知器: {sorted(enforced - set(edges))}"
+    for key in sorted(enforced):
+        edge = edges[key]
+        assert isinstance(edge, str) or edge.where, f"{key}の外縁に説明が無い"
+
+
 def test_probe_section_count_reads_the_keyed_heading():
     out = "## [redis_skeleton] Redis骨格の自前実装（docs/caching.md参照）: 2件\n"
 

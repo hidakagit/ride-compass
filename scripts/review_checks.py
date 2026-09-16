@@ -49,7 +49,7 @@ import tempfile
 import tokenize
 from collections import defaultdict
 from pathlib import Path
-from typing import Callable
+from typing import Callable, NamedTuple
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 REVIEW_DIR = REPO_ROOT / ".claude" / "commands" / "review"
@@ -2755,16 +2755,15 @@ def removed_axis_probe_id(wt: Path) -> str:
     return sorted(gone)[0]
 
 
-def guard_probe_mutations(wt: Path) -> dict[str, "Callable[[], None]"]:
-    """検知器キー → その検知器だけが拾うはずの違反を1件作る手順。"""
-    module_doc = next(
-        p for p in sorted((wt / "docs/modules").rglob("*.md")) if p.name != "README.md"
-    )
-    arch = wt / ARCHITECTURE_DOC
-    plan = wt / "docs/improvement-plan.md"
+def probe_fs(wt: Path) -> tuple[
+    "Callable[[Path], str]", "Callable[[Path, str], None]", "Callable[[str, str], None]"
+]:
+    """プローブがworktreeを書き換えるための道具（読み・追記・新規作成）。
 
-    # ここは検査ではなく違反の作り込み側で、同じファイルを書き換えては読み直す。
-    # `read_text`は1回の実行中の内容を保持するため使わない。
+    ここは検査ではなく違反の作り込み側で、同じファイルを書き換えては読み直す。
+    `read_text`は1回の実行中の内容を保持するため使わない。
+    """
+
     def live_text(path: Path) -> str:
         return path.read_text(encoding="utf-8", errors="replace")
 
@@ -2775,6 +2774,19 @@ def guard_probe_mutations(wt: Path) -> dict[str, "Callable[[], None]"]:
         path = wt / rel
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(text, encoding="utf-8")
+
+    return live_text, append, write
+
+
+def guard_probe_mutations(wt: Path) -> dict[str, "Callable[[], None]"]:
+    """検知器キー → その検知器だけが拾うはずの違反を1件作る手順。"""
+    module_doc = next(
+        p for p in sorted((wt / "docs/modules").rglob("*.md")) if p.name != "README.md"
+    )
+    arch = wt / ARCHITECTURE_DOC
+    plan = wt / "docs/improvement-plan.md"
+
+    live_text, append, write = probe_fs(wt)
 
     def flip_plan_checkbox() -> None:
         text = live_text(plan)
@@ -2861,6 +2873,184 @@ def guard_probe_mutations(wt: Path) -> dict[str, "Callable[[], None]"]:
     }
 
 
+class EdgeProbe(NamedTuple):
+    """母集団の**外縁**へ置く違反（ネガティブケース）。
+
+    `where`は母集団のどの外側かを1行で述べる。`detected`はいまの検知器がそこを拾えるかの
+    **期待値**で、Falseは既知の穴。穴が埋まったときも、埋めたはずの穴がまた空いたときも、
+    期待値との食い違いとしてこの監査が落ちる。`mode`はその穴が現れる実行経路。
+    """
+
+    where: str
+    detected: bool
+    mutate: "Callable[[], None]"
+    mode: str = "staged"
+
+
+def removed_axis_edge_id(wt: Path) -> str:
+    """スナップショット履歴にあり現行の軸定義に無いidのうち、`_`を含まないものを1つ選ぶ。
+
+    `removed_axis_ids`は`_`を含む綴りだけを母集団に採るため、ここで選んだidはその母集団の
+    外側に落ちる。綴りを固定で書かない（外側かどうかは履歴から導く）。
+    """
+    saved = globals()["REPO_ROOT"]
+    try:
+        globals()["REPO_ROOT"] = wt
+        gone = sorted(a for a in (historical_axis_ids() - live_axis_ids()) if "_" not in a)
+    finally:
+        globals()["REPO_ROOT"] = saved
+    if not gone:
+        raise RuntimeError("`_`を含まない撤去済みaxis_idが履歴に無く、外縁の違反を作れない")
+    return gone[0]
+
+
+def map_redraw_one_hop_module(wt: Path) -> Path:
+    """再描画の入口が直接importしている同ディレクトリのモジュールを1つ選ぶ。
+
+    そこからさらにimportさせれば入口から2ホップになり、1ホップ固定の母集団の外へ出る。
+    """
+    text = (wt / MAP_REDRAW_FILE).read_text(encoding="utf-8", errors="replace")
+    for name in re.findall(r'from "\./([A-Za-z0-9_.]+)"', text):
+        path = (wt / MAP_REDRAW_FILE).parent / f"{name}.ts"
+        if path.exists():
+            return path
+    raise RuntimeError("再描画の入口が同ディレクトリの.tsをimportしておらず、2ホップを作れない")
+
+
+def guard_probe_edges(wt: Path) -> dict[str, "EdgeProbe | str"]:
+    """検知器キー → 母集団の外縁に置く違反、または外縁が無いことの宣言（その理由）。
+
+    正例（`guard_probe_mutations`）は母集団の**内側**へ違反を置くため、母集団が狭すぎる
+    ことを原理的に検出できない——プローブの素材そのものを母集団から取っている検知器では
+    なおさらで、落ちるidはプローブにも選ばれない。外縁のケースは「拾うべきなのに今の
+    母集団へ入らない位置」を1件ずつ固定し、穴が空いているかどうかを毎回測る。
+    """
+    _, append, write = probe_fs(wt)
+    module_doc = next(
+        p for p in sorted((wt / "docs/modules").rglob("*.md")) if p.name != "README.md"
+    )
+    module_readme = wt / "docs/modules/README.md"
+    ident = GUARD_PROBE_IDENT
+
+    def comment_only_identifier_in(doc: Path) -> "Callable[[], None]":
+        """実装のコメントにしか無い名前を作り、`doc`がそれを現行として名指しする。"""
+
+        def run() -> None:
+            write(GUARD_PROBE_TS, f"// {ident}が値を組み立てる。\nexport const zzzGuardProbe = 1;\n")
+            append(doc, f"\n`{ident}`が処理する。\n")
+
+        return run
+
+    def rename_documented_impl_file() -> None:
+        """記載済みの実装ファイルを改名する（追加ではないため`--diff-filter=A`に出ない）。"""
+        listed = subprocess.run(
+            ["git", "ls-files", "frontend/src/lib"], cwd=str(wt), capture_output=True,
+            text=True, encoding="utf-8", errors="replace").stdout.splitlines()
+        picked = next((f for f in sorted(listed) if f.endswith(".ts") and ".test." not in f), None)
+        if picked is None:
+            raise RuntimeError("改名できる実装ファイルが無く、外縁の違反を作れない")
+        subprocess.run(["git", "mv", picked, picked.replace(".ts", "ZzzGuardProbe.ts")],
+                       cwd=str(wt), capture_output=True, text=True)
+
+    def two_hop_layer() -> None:
+        """入口から2ホップの位置へ、sourceを作る描画を1つ足す。"""
+        probe = "frontend/src/components/Map/zzzGuardProbeLayers.ts"
+        write(probe, 'import type { Map as MapLibreMap } from "maplibre-gl";\n\n'
+                     "export function zzzGuardProbeLayer(map: MapLibreMap) {\n"
+                     '  map.addSource("zzz-guard-probe", { type: "geojson", data: null });\n'
+                     "}\n")
+        hop = map_redraw_one_hop_module(wt)
+        append(hop, '\nimport { zzzGuardProbeLayer } from "./zzzGuardProbeLayers";\n'
+                    "export const zzzGuardProbeRef = zzzGuardProbeLayer;\n")
+
+    return {
+        "dead_file_refs": EdgeProbe(
+            "docs/modules/README.md（名前で母集団から外れる）", False,
+            lambda: append(module_readme, "\n存在しない`Map/zzzGuardProbeFile.ts`を参照する。\n")),
+        "dead_identifier_refs": EdgeProbe(
+            "実装のコメントにしか無い名前（実在判定corpusがコメント込み）", False,
+            comment_only_identifier_in(module_doc)),
+        "undeclared_dead_refs": EdgeProbe(
+            "実装のコメントにしか無い名前（実在判定corpusがコメント込み）", False,
+            comment_only_identifier_in(wt / ARCHITECTURE_DOC)),
+        "source_comment_dead_identifier_refs": EdgeProbe(
+            "バッククォートを付けずに綴った死んだ識別子", False,
+            lambda: write(GUARD_PROBE_TS,
+                          f"// {ident}が処理する。\nexport const zzzGuardProbe = 1;\n")),
+        "narrative": EdgeProbe(
+            "docs/modules/README.md（名前で母集団から外れる）", False,
+            lambda: append(module_readme, "\n以前はこの方式ではなく別の形だった。\n")),
+        "source_narrative": EdgeProbe(
+            "backend/scripts/（実装の母集団はbackend/app・frontend/srcのみ）", False,
+            lambda: write("backend/scripts/zzz_guard_probe.py",
+                          "# 改善計画T999でこの形に変更した。\nzzz_guard_probe = 1\n")),
+        "redis_skeleton": EdgeProbe(
+            "backend/scripts/（バッチ補助もRedisを触りうる）", False,
+            lambda: write("backend/scripts/zzz_guard_probe.py",
+                          "from app.infrastructure.redis_client import get_redis_client_or_none\n\n\n"
+                          "async def zzz_guard_probe():\n    return get_redis_client_or_none()\n")),
+        "bare_basemodel": EdgeProbe(
+            "backend/app配下の__init__.py（is_impl_fileが除外する）", False,
+            lambda: write("backend/app/zzz_guard_probe/__init__.py",
+                          "from pydantic import BaseModel\n\n\nclass ZzzGuardProbe(BaseModel):\n    value: int = 0\n")),
+        "module_redefinition": EdgeProbe(
+            "backend/benchmarks/（MODULE_REDEFINITION_PREFIXESの手書き4つの外）", False,
+            lambda: write("backend/benchmarks/zzz_guard_probe.py",
+                          "zzz_guard_probe = 1\n\n\nzzz_guard_probe = 1\n")),
+        "web_layer_batch_import": EdgeProbe(
+            "backend/app/main.py（WEB_LAYER_DIRSの手書き4つの外）", False,
+            lambda: append(wt / "backend/app/main.py",
+                           "\n\nfrom app.batch.precompute_way_landcover import ALGORITHM_VERSION\n\n"
+                           "zzz_guard_probe = ALGORITHM_VERSION\n")),
+        "way_tag_allowlist": EdgeProbe(
+            "backend/app/domain/hard_filters.py（MATERIAL_TAG_READER_FILESの手書き3本の外）", False,
+            lambda: append(wt / "backend/app/domain/hard_filters.py",
+                           '\n\ndef _zzz_guard_probe(tags: dict[str, str]) -> str | None:\n'
+                           '    return tags.get("zzz_guard_probe")\n')),
+        "undocumented_files": EdgeProbe(
+            "実装ファイルの改名（追加ではないため--diff-filter=Aに出ない）", False,
+            rename_documented_impl_file),
+        "dead_doc_links": EdgeProbe(
+            "名前は実在するが相対パスが解決しないリンク", False,
+            lambda: append(module_doc, "\n詳細は[T889](../tasks/T889.md)参照。\n")),
+        "undefined_css_tokens": EdgeProbe(
+            "トークンを定義するCSS自身（名前で母集団から外れる）", False,
+            lambda: append(wt / GLOBAL_TOKENS_CSS,
+                           "\n.zzz-guard-probe {\n  color: var(--zzz-guard-probe-token);\n}\n")),
+        "vacuous_test_loops": EdgeProbe(
+            "frontend/e2e/*.spec.ts（TEST_FILE_REはtest_*.pyと*.test.ts(x)だけ）", False,
+            lambda: write("frontend/e2e/zzzGuardProbe.spec.ts",
+                          'import { expect, test } from "@playwright/test";\n\n'
+                          'test("zzz guard probe", () => {\n'
+                          "  const picked = [1, 2, 3].filter((n) => n > 9);\n"
+                          "  for (const n of picked) {\n"
+                          "    expect(n).toBeGreaterThan(0);\n"
+                          "  }\n"
+                          "});\n")),
+        "removed_axis_mentions": EdgeProbe(
+            "アンダースコアを含まないaxis_id（記法で母集団から外れる）", False,
+            lambda: append(module_doc,
+                           f"\n`{removed_axis_edge_id(wt)}`の色分けは現行の実装が組み立てる。\n")),
+        "doc_constant_drift": EdgeProbe(
+            "実装コメントが書いた定数値（母集団は.mdのみ）", False,
+            lambda: write(GUARD_PROBE_TS,
+                          f"// {drifted_constant_probe(wt)}（999999）がこの値を決める。\n"
+                          "export const zzzGuardProbe = 1;\n")),
+        "review_doc_dead_refs": EdgeProbe(
+            "CLAUDE.md（母集団は.claude/commands/**.mdのみ）", False,
+            lambda: append(wt / "CLAUDE.md", f"\n- `{ident}`が評価の値を組み立てる。\n")),
+        "cross_file_env_writes": EdgeProbe(
+            "backendのテスト（母集団はfrontend/src/**のみ）", False,
+            lambda: write("backend/tests/test_zzz_guard_probe.py",
+                          "import os\n\n\ndef test_zzz_guard_probe():\n"
+                          '    os.environ["DATABASE_URL"] = "postgresql://zzz/guard"\n')),
+        "map_redraw_coverage": EdgeProbe(
+            "入口から2ホップ先のモジュール（母集団は1ホップ固定）", False, two_hop_layer),
+        "plan_vs_tasks": "母集団は台帳の全行とdocs/tasksの全ファイルで、外側が無い",
+        "task_numbering": "母集団は台帳の全行とdocs/tasksの全ファイルで、外側が無い",
+    }
+
+
 def probe_section_count(stdout: str, key: str) -> int | None:
     """`docs --keys`の出力から、その検知器の節が報告した件数を読む。節が無ければNone。"""
     m = re.search(rf"^## \[{re.escape(key)}\] .*: (\d+)件$", stdout, re.M)
@@ -2878,6 +3068,7 @@ def cmd_mutate(args: argparse.Namespace) -> int:
     tmp = Path(tempfile.mkdtemp(prefix="rc-guard-"))
     wt = tmp / "wt"
     rows: list[tuple[str, str, str, str]] = []
+    edge_rows: list[tuple[str, str, str, str]] = []
     try:
         git("worktree", "add", "--detach", "--quiet", str(wt), "HEAD")
 
@@ -2888,12 +3079,14 @@ def cmd_mutate(args: argparse.Namespace) -> int:
         # 編集中の検知器を試せるよう、追跡ファイルの未コミット変更をworktreeへ持ち込む。
         diff = git("diff", "HEAD")
         if diff.strip():
+            # パッチはバイト列で渡す。テキストで渡すとWindowsで改行がCRLFへ変換され、
+            # LFで生成されたパッチの文脈行が1行も一致しなくなる。
             applied = subprocess.run(
-                ["git", "apply", "-"], cwd=str(wt), input=diff, capture_output=True,
-                text=True, encoding="utf-8", errors="replace")
+                ["git", "apply", "-"], cwd=str(wt), input=diff.encode("utf-8"),
+                capture_output=True)
             if applied.returncode != 0:
                 print("## 未コミット変更をworktreeへ適用できませんでした（追跡ファイルのみ対象）")
-                print(applied.stderr.strip()[:400])
+                print(applied.stderr.decode("utf-8", "replace").strip()[:400])
                 return 1
         wt_run("git", "add", "-A")
         wt_run("git", "-c", "user.email=guard@local", "-c", "user.name=guard",
@@ -2939,6 +3132,43 @@ def cmd_mutate(args: argparse.Namespace) -> int:
                     rows.append((key, "WARN", label, f"{found}件検知するがexit 0（参考扱い）"))
                 else:
                     rows.append((key, "PASS", label, f"{found}件 exit={proc.returncode}"))
+
+        edges = guard_probe_edges(wt)
+        for key in declared:
+            edge = edges.get(key)
+            if edge is None:
+                edge_rows.append(
+                    (key, "NO-EDGE", "-", "外縁のケースが未定義（guard_probe_edgesへ1件足す）"))
+                continue
+            if isinstance(edge, str):
+                edge_rows.append((key, "N/A", "-", edge))
+                continue
+            wt_run("git", "reset", "-q", "--hard", base)
+            wt_run("git", "clean", "-fdq")
+            try:
+                edge.mutate()
+            except Exception as exc:  # noqa: BLE001 違反を作れないこと自体を結果として出す
+                edge_rows.append((key, "SETUP-FAIL", edge.mode, str(exc)[:80]))
+                continue
+            wt_run("git", "add", "-A")
+            check: list[str] = []
+            if edge.mode == "staged":
+                check = ["--staged"]
+            elif edge.mode == "since":
+                wt_run("git", "-c", "user.email=guard@local", "-c", "user.name=guard",
+                       "commit", "-q", "-m", "guard audit edge", "--no-verify")
+                check = ["--since", base]
+            proc = wt_run(sys.executable, "scripts/review_checks.py", "docs",
+                          "--keys", "--only", key, *check)
+            detected = bool(probe_section_count(proc.stdout, key))
+            if detected == edge.detected:
+                edge_rows.append(
+                    (key, "COVERED" if detected else "GAP", edge.mode, edge.where))
+            else:
+                edge_rows.append((
+                    key, "CHANGED", edge.mode,
+                    f"期待={'検知' if edge.detected else '見逃し'} 実際="
+                    f"{'検知' if detected else '見逃し'}: {edge.where}"))
     finally:
         git("worktree", "remove", "--force", str(wt), check=False)
         shutil.rmtree(tmp, ignore_errors=True)
@@ -2951,11 +3181,26 @@ def cmd_mutate(args: argparse.Namespace) -> int:
     for key, verdict, label, detail in rows:
         print(f"| `{key}` | {label} | {verdict} | {detail} |")
     print()
+    print("## 母集団の外縁（拾うべきなのに母集団へ入らない位置）")
+    print()
+    print("| 検知器 | 経路 | 判定 | 外縁 |")
+    print("|---|---|---|---|")
+    for key, verdict, label, detail in edge_rows:
+        print(f"| `{key}` | {label} | {verdict} | {detail} |")
+    print()
+
     bad = [r for r in rows if r[1] not in ("PASS", "SKIP")]
-    if bad:
-        print(f"鳴らない検知器 {len(bad)}件。検知器があることと鳴ることは別物のため、これは違反として扱う。")
+    edge_bad = [r for r in edge_rows if r[1] in ("NO-EDGE", "SETUP-FAIL", "CHANGED")]
+    gaps = [r for r in edge_rows if r[1] == "GAP"]
+    if gaps:
+        print(f"既知の穴 {len(gaps)}件（期待どおり見逃す。埋めたら`detected=True`へ更新すること）。")
+    if bad or edge_bad:
+        if bad:
+            print(f"鳴らない検知器 {len(bad)}件。検知器があることと鳴ることは別物のため、これは違反として扱う。")
+        if edge_bad:
+            print(f"外縁の期待値と実際が食い違う、または外縁が未定義 {len(edge_bad)}件。")
         return 1
-    print(f"全{len(rows)}件PASS（検知器は実際に鳴る）")
+    print(f"正例 全{len(rows)}件PASS（検知器は実際に鳴る）／外縁 全{len(edge_rows)}件が期待どおり")
     return 0
 
 
