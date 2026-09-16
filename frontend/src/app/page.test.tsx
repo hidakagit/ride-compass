@@ -2040,10 +2040,28 @@ describe("土地被覆レイヤーのズーム不足の案内", () => {
   beforeEach(() => {
     window.localStorage.clear();
     vi.mocked(getAxisCatalog).mockRejectedValue(new Error("mock: unused in this test"));
+    // Homeのマウントは地点まわりの並列fetchを必ず発火させる。既定のvi.fn()はundefinedを
+    // 返し、フック側の`.then`がそこで落ちて未処理の拒否になる（テスト自体は緑のまま
+    // `vitest run`の終了コードだけが1になる）。本テストは天候を見ないため、解決しない
+    // Promiseを返してそのまま放置する。
+    for (const fetcher of [
+      getCurrentWeather,
+      getAmedasObservation,
+      getWeatherWarnings,
+      getWbgtStatus,
+      getFloodForecasts,
+    ]) {
+      vi.mocked(fetcher).mockImplementation((() => new Promise(() => {})) as never);
+    }
   });
   afterEach(() => {
     window.localStorage.clear();
     vi.mocked(getAxisCatalog).mockReset();
+    vi.mocked(getCurrentWeather).mockReset();
+    vi.mocked(getAmedasObservation).mockReset();
+    vi.mocked(getWeatherWarnings).mockReset();
+    vi.mocked(getWbgtStatus).mockReset();
+    vi.mocked(getFloodForecasts).mockReset();
   });
 
   it("最小ズームより広いと、凡例ではなく案内文が出る状態になる", async () => {
