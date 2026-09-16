@@ -68,7 +68,7 @@ import {
   type StaticFilterAxisId,
 } from "@/components/Map/staticAttributeLayers";
 import {
-  buildRoadSurfaceSharedLayerIds,
+  tileZoomTooWideLayerIds,
   type LayerDataStatusByLayer,
   type MapLayerId,
   type MapLayerVisibility,
@@ -1682,52 +1682,20 @@ export function setStaticOverlayFilters(
   });
 }
 
-// road_surfaceタイルを共有するレイヤー（mapLayers.ts: buildRoadSurfaceSharedLayerIds、
-// 軸スタジオの公開ramp軸を含む）のいずれかが表示ONかを判定する。road_surfaceソースを
-// 参照する箇所（ズーム範囲外判定・レイヤーデータ状態表示の抑制）が両方ともこのヘルパー
-// 経由でroadSurfaceSharedLayerIdsを参照するようにし、「対象レイヤーはどれか」を1箇所
-// （mapLayers.ts）だけが知っていればよい状態にする。road自体がOFFでもcarStress等の
-// ramp軸だけがONであればズーム範囲外の案内対象に含める必要があるため、road単体の表示
-// 状態ではなくこの判定を使う。MapView.segments.test.tsと同じ考え方でテスト可能に
-// exportしている。
-//
-// roadSurfaceSharedLayerIdsは第2引数として実行時に渡す——ビルド時静的フォールバック
-// ROAD_SURFACE_SHARED_LAYER_IDSを直接参照すると、軸スタジオで新規公開したramp軸を
-// 低ズームでONにしても「表示範囲が広すぎます」の案内が出ないまま何も表示されない状態に
-// なるため、呼び出し元がpropsのrampAxesから実行時に算出したリストを渡す。
-//
-// 第1引数は合流済みのRecordではなく**由来ごとに分かれた表示状態**を受け取り、合流を
-// この関数の中で行う。呼び出し側で組み立てる形にすると、どれか1つを合流し忘れても型が通り、
-// 第2引数が挙げるそのレイヤーidが常にundefined＝案内が一度も出ない状態になる。
-export interface RoadSurfaceGroupState {
-  /** 地図チップ由来の静的レイヤーの表示状態。キーは`MapLayerId`。 */
-  staticLayerVisibility: Readonly<Record<string, boolean>>;
-  /** ramp軸レイヤーの表示状態。キーは`axisMapLayerId`（"axis:car_stress"等）。 */
-  axisVisibility: Readonly<Record<string, boolean>>;
-  /** 専用way値配信軸レイヤーの表示状態。キーは`dedicatedWayValueMapLayerId`。 */
-  dedicatedWayValueVisibility: Readonly<Record<string, boolean>>;
-}
-
-export function isRoadSurfaceGroupVisible(
-  state: RoadSurfaceGroupState,
-  roadSurfaceSharedLayerIds: readonly MapLayerId[],
-): boolean {
-  const visibility: Record<string, boolean> = {
-    ...state.staticLayerVisibility,
-    ...state.dedicatedWayValueVisibility,
-    ...state.axisVisibility,
-  };
-  return roadSurfaceSharedLayerIds.some((id) => visibility[id]);
-}
-
-// 路面はvector sourceのminzoomにより、そのズームレベル未満ではタイルが要求・描画されない。
-// 「表示範囲が広すぎます」の案内は、この閾値を現在のズームと比較して判定する
-// （標高はラスタタイルのためこの判定の対象外）。
-// showRoadSurfaceGroupは isRoadSurfaceGroupVisible の結果（road_surfaceタイルを共有する
-// 各レイヤーのいずれかが表示ONか）——road自体がOFFでもcarStress等の他レイヤーが同じ
-// ソースを見ていればこの案内の対象に含める。
-function updateRoadZoomHint(map: MapLibreMap, showRoadSurfaceGroup: boolean, onChange: (tooWide: boolean) => void) {
-  onChange(showRoadSurfaceGroup && map.getZoom() < ROAD_TILE_MIN_ZOOM);
+// タイルの最小ズームを宣言したレイヤーのうち、いまのズームでは要求されないものを
+// 呼び出し側へ伝える（mapLayers.ts: tileZoomTooWideLayerIds）。レイヤーごとの閾値も
+// 「どのレイヤーが対象か」も記述子が持つため、ここは伝えるだけ。
+// 値が変わらない限り呼ばない——zoomイベントは1回のピンチ操作でも何十回と飛ぶ。
+function updateTileZoomHint(
+    map: MapLibreMap,
+    last: { current: string },
+    onChange: (tooWideLayerIds: readonly MapLayerId[]) => void,
+) {
+  const tooWide = tileZoomTooWideLayerIds(map.getZoom());
+  const key = tooWide.join(",");
+  if (key === last.current) return;
+  last.current = key;
+  onChange(tooWide);
 }
 
 // 全候補のgeometryを包含するbounds計算そのものは地図インスタンスに依存しない純粋な処理
@@ -1961,11 +1929,13 @@ interface MapViewProps {
   routeStyleModes: readonly RouteStyleMode[];
   routeStyleModeId: RouteStyleModeId;
   hiddenRouteLegendKeys: readonly string[];
-  onRegionZoomHintChange: (tooWide: boolean) => void;
+  /** タイルの最小ズームを宣言したレイヤーのうち、いまのズームでは要求されないもの。
+   * 呼び出し側はこのidのチップへ「ズームインすると表示されます」を出し、凡例を空にする。 */
+  onTileZoomTooWideChange: (tooWideLayerIds: readonly MapLayerId[]) => void;
   /** パン・ズーム確定（moveend/zoomend）のたびに現在のビューポート（bbox・
    * ズーム）を呼び出し側へ伝える。風の詳細格子（ヒートマップ用）のように「今見えている
    * 範囲だけ」を対象にフェッチしたいレイヤーが、page.tsx側でデバウンス・ズーム閾値判定
-   * したうえで使う想定。onRegionZoomHintChangeと違い道路タイル固有の判定を持たない、
+   * したうえで使う想定。onTileZoomTooWideChangeと違いレイヤーごとの閾値を持たない、
    * 汎用のビューポート通知（今後同種の「見えている範囲だけ取得」レイヤーが増えたら
    * 相乗りできる）。 */
   onViewportChange: (viewport: { west: number; south: number; east: number; north: number; zoom: number }) => void;
@@ -2090,11 +2060,9 @@ export type RedrawAllLayersProps = Pick<
   | "staticLegendHiddenKeysByAxis"
   | "experimentSlots"
   | "dedicatedWayValues"
-  | "onRegionZoomHintChange"
 > & {
   staticOverlayLayers: readonly OverlayLayerEntry[];
   staticFilterAxes: readonly StaticFilterAxis[];
-  roadSurfaceSharedLayerIds: readonly MapLayerId[];
   /** 詳細を見ている道（ポップアップが開いている間だけ非null）。 */
   inspectedWayId: number | null;
 };
@@ -2132,10 +2100,8 @@ export function redrawAllLayers(map: MapLibreMap, props: RedrawAllLayersProps) {
     experimentSlots,
     staticOverlayLayers,
     staticFilterAxes,
-    roadSurfaceSharedLayerIds,
     dedicatedWayValues,
     inspectedWayId,
-    onRegionZoomHintChange,
   } = props;
   setStaticOverlayVisibility(
     map,
@@ -2160,14 +2126,6 @@ export function redrawAllLayers(map: MapLibreMap, props: RedrawAllLayersProps) {
     roadHiddenKeysByMode,
   );
   applyRoadMaterialTrackOffsets(map, staticLayerVisibility);
-  updateRoadZoomHint(
-    map,
-    isRoadSurfaceGroupVisible(
-      { staticLayerVisibility, axisVisibility, dedicatedWayValueVisibility },
-      roadSurfaceSharedLayerIds,
-    ),
-    onRegionZoomHintChange,
-  );
 
   // applyRouteLayerVisibilityがrouteLayerOnを見て出し分けるため、「ルート」チップを
   // OFFにして候補線・ハロー・矢印を隠している間は、地図データの再読み込み
@@ -2218,7 +2176,7 @@ export default function MapView({
   routeStyleModes,
   routeStyleModeId,
   hiddenRouteLegendKeys,
-  onRegionZoomHintChange,
+  onTileZoomTooWideChange,
   onViewportChange,
   onLayerDataStatusChange,
   refreshToken,
@@ -2286,15 +2244,8 @@ export default function MapView({
   const interactiveLayerIds = useMemo(() => buildInteractiveLayerIds(staticOverlayLayers), [staticOverlayLayers]);
   const layerDataSources = useMemo(() => buildLayerDataSources(rampAxes), [rampAxes]);
   const staticFilterAxes = useMemo(() => buildStaticFilterAxes(rampAxes), [rampAxes]);
-  // isRoadSurfaceGroupVisibleへ渡すroadSurfaceSharedLayerIdsは、軸スタジオで新規公開した
-  // ramp軸（road_surfaceタイルを共有する軸）が実行時フェッチに含まれても対象になるよう、
-  // propsのrampAxesから毎回算出する。
-  const roadSurfaceSharedLayerIds = useMemo(
-    () => buildRoadSurfaceSharedLayerIds(rampAxes, dedicatedAxes),
-    [rampAxes, dedicatedAxes],
-  );
   // handleClick/handleMouseMove（地図初期化effect内、一度だけ登録されるクロージャ）が
-  // 最新のinteractiveLayerIdsを読めるようにするref（onRegionZoomHintChangeRef等と同じ
+  // 最新のinteractiveLayerIdsを読めるようにするref（onTileZoomTooWideChangeRef等と同じ
   // 「安定コールバックが最新値を読む」パターン）。
   const interactiveLayerIdsRef = useRef(interactiveLayerIds);
   useEffect(() => {
@@ -2316,14 +2267,16 @@ export default function MapView({
   // 初めて開いたユーザーには「壊れている」ように映りかねなかった。最初のidle
   // （表示中のタイル取得が一通り落ち着いたタイミング）までスケルトンを重ねて示す。
   const [initialTilesLoading, setInitialTilesLoading] = useState(true);
-  const onRegionZoomHintChangeRef = useRef(onRegionZoomHintChange);
+  const onTileZoomTooWideChangeRef = useRef(onTileZoomTooWideChange);
+  //: 直前に伝えたズーム不足レイヤーの並び（同じ内容で呼び直さないため）。
+  const lastTileZoomHintRef = useRef("");
   // 詳細を見ている道。propsではなくこのコンポーネントのstate由来のため、redrawPropsRefとは
   // 別に持つ。
   const inspectedWayIdRef = useRef<number | null>(null);
   const onViewportChangeRef = useRef(onViewportChange);
   const onLayerDataStatusChangeRef = useRef(onLayerDataStatusChange);
   // handleClick（地図初期化effect内、一度だけ登録されるクロージャ）が
-  // 最新のonPinPlace・武装中の役割を読めるようにするref（onRegionZoomHintChangeRefと同じパターン）。
+  // 最新のonPinPlace・武装中の役割を読めるようにするref（onTileZoomTooWideChangeRefと同じパターン）。
   const onPinPlaceRef = useRef(onPinPlace);
   const armedPinRoleRef = useRef(armedPinRole);
   const pointEditingEnabledRef = useRef(pointEditingEnabled);
@@ -2365,15 +2318,14 @@ export default function MapView({
     experimentSlots,
     staticOverlayLayers,
     staticFilterAxes,
-    roadSurfaceSharedLayerIds,
     dedicatedWayValues,
   });
 
   const selectedCandidate = routes.find((r) => r.id === selectedRouteId) ?? null;
 
   useEffect(() => {
-    onRegionZoomHintChangeRef.current = onRegionZoomHintChange;
-  }, [onRegionZoomHintChange]);
+    onTileZoomTooWideChangeRef.current = onTileZoomTooWideChange;
+  }, [onTileZoomTooWideChange]);
 
   useEffect(() => {
     onViewportChangeRef.current = onViewportChange;
@@ -2446,7 +2398,6 @@ export default function MapView({
       experimentSlots,
       staticOverlayLayers,
       staticFilterAxes,
-      roadSurfaceSharedLayerIds,
       dedicatedWayValues,
     };
   }, [
@@ -2466,7 +2417,6 @@ export default function MapView({
     staticLegendHiddenKeysByAxis,
     staticOverlayLayers,
     staticFilterAxes,
-    roadSurfaceSharedLayerIds,
     experimentSlots,
     dedicatedWayValues,
   ]);
@@ -2477,7 +2427,6 @@ export default function MapView({
     redrawAllLayers(map, {
       ...redrawPropsRef.current,
       inspectedWayId: inspectedWayIdRef.current,
-      onRegionZoomHintChange: onRegionZoomHintChangeRef.current,
     });
   }, []);
 
@@ -2715,25 +2664,10 @@ export default function MapView({
       map.getCanvas().style.cursor = features.length > 0 ? "pointer" : "";
     }
 
-    // 路面はベクタタイルのminzoom未満だと描画されないため、ズームのたびに現在のズームと
-    // 閾値を比較して「表示範囲が広すぎます」の案内を更新する（データ取得は発生しない、
-    // 単なる数値比較なので毎フレーム呼ばれても軽い）。専用のrefを持たず、常に最新の
-    // propsを保持するredrawPropsRef.currentを直接読む（getLayerVisibilityと同じ方式）。
+    // タイルはminzoom未満だと要求されないため、ズームのたびに現在のズームと各レイヤーの
+    // 閾値を比べて案内を更新する（データ取得は発生しない、単なる数値比較）。
     function handleZoom() {
-      const {
-        staticLayerVisibility,
-        axisVisibility,
-        dedicatedWayValueVisibility,
-        roadSurfaceSharedLayerIds,
-      } = redrawPropsRef.current;
-      updateRoadZoomHint(
-        map,
-        isRoadSurfaceGroupVisible(
-          { staticLayerVisibility, axisVisibility, dedicatedWayValueVisibility },
-          roadSurfaceSharedLayerIds,
-        ),
-        onRegionZoomHintChangeRef.current,
-      );
+      updateTileZoomHint(map, lastTileZoomHintRef, onTileZoomTooWideChangeRef.current);
     }
 
     // マップの表示イベント（load完了・パン/ズーム確定・エラー）をデバッグログに記録する。
@@ -3189,10 +3123,6 @@ export default function MapView({
   // ズームに応じて自動で行うため、明示的なfetchは不要）。色・太さ・線種は
   // showRoadSurface/showRoadTypeの組み合わせでapplyRoadLayerStateが都度再計算する
   // （固定ではなくなった、applyRoadLayerStateのコメント参照）。
-  // regionZoomTooWide（ズーム範囲外の案内）はroad_surfaceタイルを共有するdesignation/
-  // tunnel、およびramp軸・専用way値配信軸のON/OFFでも変わりうるため、いずれも依存配列に
-  // 含めてフラグが変わるたびに再評価する（road自体はOFFのままdesignation等や軸レイヤー
-  // だけONで表示範囲が広すぎる場合にも案内を出すため）。
   useEffect(() => {
     const map = mapRef.current;
     if (!map) return;
@@ -3203,23 +3133,8 @@ export default function MapView({
       roadHiddenKeysByMode,
     );
     applyRoadMaterialTrackOffsets(map, staticLayerVisibility);
-    updateRoadZoomHint(
-      map,
-      isRoadSurfaceGroupVisible(
-        { staticLayerVisibility, axisVisibility, dedicatedWayValueVisibility },
-        roadSurfaceSharedLayerIds,
-      ),
-      onRegionZoomHintChangeRef.current,
-    );
     recomputeLayerDataStatus();
-  }, [
-    staticLayerVisibility,
-    axisVisibility,
-    dedicatedWayValueVisibility,
-    roadHiddenKeysByMode,
-    roadSurfaceSharedLayerIds,
-    recomputeLayerDataStatus,
-  ]);
+  }, [staticLayerVisibility, roadHiddenKeysByMode, recomputeLayerDataStatus]);
 
   // 「地図の表示を再描画」ボタン: スタイルを取り直して地図を組み直す（押した人の地図
   // インスタンスだけに閉じた操作で、サーバー側のタイルキャッシュには触れない）。

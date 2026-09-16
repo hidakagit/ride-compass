@@ -371,10 +371,8 @@ describe("redrawAllLayers（map.setStyle()後の作り直し）", () => {
       experimentSlots: [],
       staticOverlayLayers: [],
       staticFilterAxes: [],
-      roadSurfaceSharedLayerIds: [],
       dedicatedWayValues: new Map(),
       inspectedWayId: null,
-      onRegionZoomHintChange: () => {},
       ...overrides,
     };
   }

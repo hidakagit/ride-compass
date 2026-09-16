@@ -25,6 +25,7 @@ import {
   type LayerDataStatusByLayer,
   type MapLayerId,
   buildDefaultLayerVisibility,
+  TILE_ZOOM_TOO_WIDE_SUMMARY,
   type MapLayerVisibility,
 } from "@/components/Map/mapLayers";
 import { axisMapLayerId, buildAxisRampLegend, dedicatedWayValueMapLayerId } from "@/components/Map/axisLayers";
@@ -69,7 +70,6 @@ import RideConditionBar from "@/components/RideConditionBar/RideConditionBar";
 import TravelBearingControl from "@/components/TravelBearingControl/TravelBearingControl";
 import { PRECIPITATION_INTENSITY_LEVELS } from "@/components/Map/precipitationNowcast";
 import { LANDCOVER_PAINTED_CLASSES } from "@/components/Map/landcoverClasses";
-import { LANDCOVER_TILE_MIN_ZOOM } from "@/services/regionApi";
 import { WIND_SPEED_LEGEND_LEVELS, type MapViewport } from "@/components/Map/windLayer";
 import { THUNDER_ACTIVITY_LEVELS, TORNADO_POTENTIAL_LEVELS } from "@/components/Map/thunderNowcast";
 import { RISK_LEVEL_COLORS } from "@/components/Map/riskMap";
@@ -759,7 +759,9 @@ export default function Home() {
     }
   }, []);
 
-  const [regionZoomTooWide, setRegionZoomTooWide] = useState(false);
+  // タイルの最小ズームを宣言したレイヤーのうち、いまのズームでは要求されないもの
+  // （MapView.tsx: onTileZoomTooWideChange）。どのレイヤーが対象かも閾値も記述子が持つ。
+  const [tileZoomTooWideLayerIds, setTileZoomTooWideLayerIds] = useState<readonly MapLayerId[]>([]);
   // レイヤーごとのデータ取得状態。MapViewが実際のタイル取得結果（sourcedata/
   // sourcedataloading/errorイベント）から算出する（動的気象レイヤーを除く、下記
   // layerDataStatusのuseMemo参照）。
@@ -1062,9 +1064,8 @@ export default function Home() {
   );
 
   // 地図上（MapOverlayControls）のサマリ行に出す「適用中の条件」の1行要約。
-  // 「道路情報」は路面の種類（roadSurface）・道路の種類（roadType）の論理2レイヤーの
-  // ため、軸ごとに個別のサマリ・内訳を持つ。ズーム不足の案内は絞り込みより優先する
-  // （ONにしたのに何も出ない状態の説明が先）。
+  // 「道路情報」は路面の種類（roadSurface）・道路の種類（roadType）へ分かれているため、
+  // 軸ごとに個別のサマリ・内訳を持つ。
   // 軸ごとのサマリ・内訳は`ROAD_FILTER_AXES`を走査して作る。軸を名指しして同じ形の
   // ブロックを並べると、軸を1つ足すたびに写経が増える（roadFilterAxes.tsの「軸定義を
   // 1つ足すだけでよい」が成り立たなくなる）。
@@ -1073,15 +1074,15 @@ export default function Home() {
     const legendDetailsByLayerId: Record<string, LegendFilterSummaryAxis[]> = {};
     for (const axis of ROAD_FILTER_AXES) {
       const hiddenKeys = roadHiddenKeysByMode[axis.id] ?? NO_HIDDEN_LEGEND_KEYS;
-      summaryByLayerId[axis.layerId] = regionZoomTooWide
-        ? "ズームインすると表示されます"
-        : summarizeLegendFilters([{ label: "", legend: axis.legend, hiddenKeys }]);
-      legendDetailsByLayerId[axis.layerId] = regionZoomTooWide
-        ? []
-        : [{ label: "", legend: axis.legend, hiddenKeys, axisId: axis.id }];
+      summaryByLayerId[axis.layerId] = summarizeLegendFilters([
+        { label: "", legend: axis.legend, hiddenKeys },
+      ]);
+      legendDetailsByLayerId[axis.layerId] = [
+        { label: "", legend: axis.legend, hiddenKeys, axisId: axis.id },
+      ];
     }
     return { summaryByLayerId, legendDetailsByLayerId };
-  }, [regionZoomTooWide, roadHiddenKeysByMode]);
+  }, [roadHiddenKeysByMode]);
 
   // ルートは色分けモード自体が「何の条件で色分け中か」の情報なので常に出す
   const routeSummary = hasDetail
@@ -1187,24 +1188,12 @@ export default function Home() {
     const summaryByLayerId: Partial<Record<MapLayerId, string | null>> = {
       ...roadAxisPanels.summaryByLayerId,
       route: routeSummary,
-      // 土地被覆はbackendが決めたズーム範囲より広いとタイル自体を要求しない。ONのまま
-      // 何も出ない状態を、道路レイヤーと同じ案内で説明する。
-      landcover:
-        mapViewport !== null && mapViewport.zoom < LANDCOVER_TILE_MIN_ZOOM
-          ? "ズームインすると表示されます"
-          : null,
     };
     const legendDetailsByLayerId: Partial<Record<MapLayerId, LegendFilterSummaryAxis[]>> = {
       ...roadAxisPanels.legendDetailsByLayerId,
       route: routeLegendDetails,
       precipitationNowcast: PRECIPITATION_LEGEND_DETAILS,
-      // ズーム不足のときは凡例を空にして案内文（summary）を出す。▶の中身は
-      // 「凡例があれば凡例、無ければsummary」で決まるため、凡例を出したままだと
-      // 案内文が一度も表示されない（道路系も同じ扱い、roadAxisPanels参照）。
-      landcover:
-        mapViewport !== null && mapViewport.zoom < LANDCOVER_TILE_MIN_ZOOM
-          ? []
-          : LANDCOVER_LEGEND_DETAILS,
+      landcover: LANDCOVER_LEGEND_DETAILS,
       windVector: WIND_LEGEND_DETAILS,
       disaster: disasterLegendDetails,
     };
@@ -1226,11 +1215,20 @@ export default function Home() {
         // しまい、地図チップから直接OFFへ戻せない状態が生じる。
         const disabledReason = layer.id === "route" && !selectedCandidate ? "ルートを生成・選択すると使えます" : null;
         const disabled = disabledReason !== null;
-        const summary =
-          layer.id in summaryByLayerId
+        // タイルの最小ズームを下回っているレイヤーは、絞り込みの要約より先に
+        // 「ONにしても何も出ない理由」を出す。凡例は空にする——▶の中身は「凡例があれば
+        // 凡例、無ければsummary」で決まるため、凡例を出したままだと案内が一度も
+        // 表示されない。**判定も配線もここ1箇所**で、レイヤー側は記述子へ最小ズームを
+        // 宣言するだけでよい。
+        const tileZoomTooWide = tileZoomTooWideLayerIds.includes(layer.id);
+        const summary = tileZoomTooWide
+          ? TILE_ZOOM_TOO_WIDE_SUMMARY
+          : layer.id in summaryByLayerId
             ? (summaryByLayerId[layer.id] ?? null)
             : (staticFilterSummaries[layer.id]?.summary ?? null);
-        const legendDetails = legendDetailsByLayerId[layer.id] ?? staticFilterSummaries[layer.id]?.legendDetails;
+        const legendDetails = tileZoomTooWide
+          ? []
+          : (legendDetailsByLayerId[layer.id] ?? staticFilterSummaries[layer.id]?.legendDetails);
         // 地図上チップの▶パネル本体には説明文を常時表示せず、凡例のみを表示する。折りたたみ中の
         // 「表示する項目を選ぶ」設定パネル（MapOverlayControls.tsx: renderVisibilitySettings）
         // 側は、各メンバー行に個別の情報アイコンを置き、押したメンバーだけ説明文を表示する
@@ -1264,6 +1262,7 @@ export default function Home() {
   }, [
     selectedCandidate,
     layerVisibility,
+    tileZoomTooWideLayerIds,
     layerDataStatus,
     roadAxisPanels,
     routeLegendDetails,
@@ -1271,7 +1270,6 @@ export default function Home() {
     staticFilterSummaries,
     disasterLegendDetails,
     mapLayers,
-    mapViewport,
   ]);
 
   // 全レイヤー一括OFF。地図下部中央の時刻スライダー隣に置き、layers/onToggleを既に
@@ -2323,7 +2321,7 @@ export default function Home() {
             routeStyleModes={routeStyleModes}
             routeStyleModeId={lens}
             hiddenRouteLegendKeys={hiddenRouteLegendKeys}
-            onRegionZoomHintChange={setRegionZoomTooWide}
+            onTileZoomTooWideChange={setTileZoomTooWideLayerIds}
             onViewportChange={handleViewportChange}
             onLayerDataStatusChange={setMapViewLayerDataStatus}
             refreshToken={refreshToken}

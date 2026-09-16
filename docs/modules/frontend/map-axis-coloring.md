@@ -286,7 +286,6 @@ isAxisStudioLayer`により地図上チップ（`MapOverlayControls.tsx`）に�
 | `MapLayerId`・`MapLayerDescriptor`（地図UIからの除外を含む） | `buildMapLayers(rampAxes, dedicatedAxes)` |
 | MapLibreの線レイヤー登録・色式の再適用 | `buildStaticOverlayLayers(..., dedicatedAxes, ...)` |
 | 表示ON/OFF（レンズ選択） | `page.tsx: dedicatedWayValueVisibility` |
-| 「表示範囲が広すぎます」判定の対象 | `buildRoadSurfaceSharedLayerIds(rampAxes, dedicatedAxes)` |
 | way値のフェッチとクエリパラメータの取捨 | `useDedicatedWayValues` + 軸カタログの`needsTime`/`needsSpeed` |
 | feature-stateキー・色式・凡例 | `dedicatedWayValueFeatureStateKey`/`dedicatedWayValueColorExpression`/`dedicatedWayValueLegend` |
 

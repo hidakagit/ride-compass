@@ -201,23 +201,24 @@ visibilityの設定）が`redrawAllLayers`から辿れるかを機械的に見�
 両者はキーが重ならない（`buildLayerDataSources`は動的気象レイヤーを含まない）ため、
 マージの優先順位を気にする必要はない。
 
-## 「表示範囲が広すぎます」の案内（`regionZoomTooWide`）
+## 「ズームインすると表示されます」の案内
 
-road_surfaceベクタタイルは`ROAD_TILE_MIN_ZOOM`未満ではタイル自体が要求されないため、
-そのズームでは道路が一本も塗られない。「データが無い地域」と区別できるよう案内を出す。
+ベクタタイルは配信元が決めた最小ズーム未満では要求されないため、そのズームでは
+ONにしても何も塗られない。「データが無い地域」と区別できるよう案内を出す。
 
-対象は**road_surfaceタイルを共有する全レイヤー**で、一覧は`mapLayers.ts:
-buildRoadSurfaceSharedLayerIds(rampAxes, dedicatedAxes)`が唯一の情報源
-（静的5レイヤー［roadType/roadSurface/designation/tunnel/oneway］＋ramp軸＋
-専用way値配信軸）。判定は`MapView.tsx: isRoadSurfaceGroupVisible`が行い、
-`updateRoadZoomHint`が現在のズームと閾値を比較して`onRegionZoomHintChange`へ通知する。
-`isRoadSurfaceGroupVisible`の第1引数は表示状態のRecordではなく**propsの形そのもの**
-（`RoadSurfaceGroupState`: 静的5レイヤーの個別boolean＋`axisVisibility`＋
-`dedicatedWayValueVisibility`）を受け取り、レイヤーidキーへの合流を関数の中で行う。
-軸レイヤーの表示状態は`page.tsx`からレイヤーidキーのRecordとして別propで届くため、
-呼び出し側で組み立てる形にすると合流し忘れても型が通り、対象一覧が挙げる軸レイヤーidが
-常にundefined＝案内が一度も出ない状態になる。呼び出しは3箇所
-（`redrawAllLayers`・`handleZoom`・路面レイヤー状態のeffect）ある。
+対象は**記述子が`tileMinZoom`を宣言したレイヤー**で、レイヤーごとの閾値も「どれが対象か」も
+記述子が持つ。`MapView.tsx: handleZoom`がズームのたびに`mapLayers.ts:
+tileZoomTooWideLayerIds(zoom)`を引き、結果が変わったときだけ`onTileZoomTooWideChange`で
+伝える（zoomイベントは1回のピンチ操作でも何十回と飛ぶ）。`page.tsx`は受け取ったidの
+チップへ`TILE_ZOOM_TOO_WIDE_SUMMARY`を出し、**凡例を空にする**——▶の中身は「凡例があれば
+凡例、無ければsummary」で決まるため、凡例を出したままだと案内が一度も表示されない。
+
+表示ON/OFFでは出し分けない。ONにする前に「いまの縮尺では出ない」と分かる方が、ONにして
+から何も起きない理由を探すより早い。
+
+**暗黙の前提**: 軸スタジオ由来のレイヤー（ramp軸・専用way値配信軸）も同じ路面タイルを
+共有するため同じズームで消えるが、地図上チップを持たないため案内の出し先が無い。
+レンズだけを選んだ状態でも、同じタイルを読む道路のチップ側に案内が出る。
 
 ## 最上位グルーピング（道路/環境/スポット）
 

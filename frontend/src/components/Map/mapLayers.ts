@@ -27,6 +27,7 @@
 // 「自転車インフラ」bicycle_infra_qualityが担う（地図レイヤーは持たない
 // [show_map_icon=false]）。
 
+import { LANDCOVER_TILE_MIN_ZOOM, ROAD_TILE_MIN_ZOOM } from "@/services/regionApi";
 import {
   axisMapLayerId,
   dedicatedWayValueMapLayerId,
@@ -194,6 +195,11 @@ export interface MapLayerDescriptor {
    * 地図を覆うと視界を圧迫する。design-principles.md「UI仕様」）。
    * `buildDefaultLayerVisibility`がこの宣言から初期値を導く。 */
   defaultOn?: boolean;
+  /** 配信元のタイルがこのズーム未満では要求されない（ONにしても地図には何も出ない）。
+   * 宣言すると、ズーム不足の間チップに案内を出し凡例を空にする扱いが自動で付く
+   * （`tileZoomTooWideLayerIds`）。省略時は判定しない——広いズームでも出るもの
+   * （国土地理院のラスタ等）はここを持たない。 */
+  tileMinZoom?: number;
 }
 
 // ramp軸のpanelHintは軸自身のデータ（axis.panelHint、AXIS_DEFINITIONS.panel_hint）から
@@ -220,6 +226,7 @@ export function buildMapLayers(
     },
     {
       id: "landcover",
+      tileMinZoom: LANDCOVER_TILE_MIN_ZOOM,
       // 塗るのは自然被覆だけ（建物は塗らない、domain/landcover.py: LANDCOVER_CLASSES）。
       // 「土地被覆」のままだと、都心でONにしても何も出ないことが名前と食い違う。
       label: "緑と水",
@@ -242,6 +249,7 @@ export function buildMapLayers(
       // 多重表現が壊れるため）。ON/OFF・凡例・絞り込み・データ状態は他のレイヤーと同じ
       // 汎用機構（roadType/roadSurfaceそれぞれ独立したMapLayerId）に乗る。
       id: "roadType",
+      tileMinZoom: ROAD_TILE_MIN_ZOOM,
       label: "道路の種類",
       chipLabel: "道路種別",
       kind: "static",
@@ -257,6 +265,7 @@ export function buildMapLayers(
     },
     {
       id: "roadSurface",
+      tileMinZoom: ROAD_TILE_MIN_ZOOM,
       label: "路面の種類",
       chipLabel: "路面",
       kind: "static",
@@ -265,6 +274,7 @@ export function buildMapLayers(
     },
     {
       id: "designation",
+      tileMinZoom: ROAD_TILE_MIN_ZOOM,
       // 外部静的データソース（国土数値情報 N10/N12）。指定路線コンフレーション機構が
       // road_edgesへ対応付けた緊急輸送道路・重要物流道路を色分け表示する。
       label: "指定路線[緊急輸送・重要物流]",
@@ -288,6 +298,7 @@ export function buildMapLayers(
       // トンネル（一次属性、OSMのtunnelタグ）。designationと同じroad_surfaceソースの
       // 独立レイヤー。
       id: "tunnel",
+      tileMinZoom: ROAD_TILE_MIN_ZOOM,
       label: "トンネル",
       kind: "static",
       category: "roadCondition",
@@ -303,6 +314,7 @@ export function buildMapLayers(
       // 上下線が分かれた道の片側はここへ出さない（道路としては双方向で、逆方向は数m隣に
       // ある。判定はbackend側、way_divided_carriageway）。
       id: "oneway",
+      tileMinZoom: ROAD_TILE_MIN_ZOOM,
       label: "一方通行",
       kind: "static",
       category: "roadCondition",
@@ -490,6 +502,19 @@ export function buildMapLayers(
 
 export type MapLayerVisibility = Record<MapLayerId, boolean>;
 
+/** チップ下に出す、ズーム不足の案内。 */
+export const TILE_ZOOM_TOO_WIDE_SUMMARY = "ズームインすると表示されます";
+
+/** そのズームではタイルが要求されず、ONにしても何も出ないレイヤーのid。
+ *
+ * 軸を空で呼ぶ——軸スタジオ由来のレイヤーは地図上チップを持たず、案内の出し先が無い
+ * （同じタイルを共有するため実際には消えるが、それは道路のチップ側の案内で分かる）。 */
+export function tileZoomTooWideLayerIds(zoom: number): readonly MapLayerId[] {
+  return buildMapLayers([], [])
+    .filter((layer) => layer.tileMinZoom !== undefined && zoom < layer.tileMinZoom)
+    .map((layer) => layer.id);
+}
+
 /** 地図チップ・サイドバーからON/OFFできるレイヤーの既定値を、記述子の`defaultOn`から導く。
  *
  * 軸スタジオ由来のレイヤー（ramp軸・専用way値配信軸）のキーは持たない——表示はレンズ
@@ -537,33 +562,3 @@ export function deriveFetchLayerStatus(
   return undefined;
 }
 
-// roadType/roadSurface/designation/tunnel/onewayは同じroad_surfaceベクタタイル
-// （MapView.tsx: ROAD_TILE_SOURCE_ID/ROAD_TILE_SOURCE_LAYER、LAYER_DATA_SOURCES参照）を
-// 共有しているため、そのタイルのminzoom未満（regionZoomTooWide）ではタイル自体が
-// 要求されず、同時にloading/emptyと判定される。「表示範囲が広すぎます」という案内が
-// 既にあるズーム範囲外の間は、レイヤーのデータ状態表示を二重に出さないための判定に使う
-// （MapView.tsx側のregionZoomTooWide算出・MapOverlayControls.tsx側の抑制の両方が参照する単一の
-// 定義。片方だけ更新して食い違うことを避けるための単一ソース）。
-// buildMapLayers()と同じ理由で関数化してあり、テスト（axisLayers.test.ts、
-// MapView.dataStatus.test.ts）からbuildRoadSurfaceSharedLayerIds(RAMP_AXES)として直接呼べる。
-export function buildRoadSurfaceSharedLayerIds(
-  rampAxes: readonly RampAxis[],
-  dedicatedAxes: readonly DedicatedWayValueAxis[],
-): readonly MapLayerId[] {
-  return [
-    "roadType",
-    "roadSurface",
-    "designation",
-    "tunnel",
-    "oneway",
-    // 専用way値配信軸（評価軸としての風・勾配等）も同じroad_surfaceタイル
-    // （ソース）を再利用する独立レイヤーのため、ズーム範囲外判定（regionZoomTooWide）は
-    // ここに含める。ただしデータ自体（wind_drag_ratio/勾配値）はタイルのプロパティでは
-    // なく別経路のfetchで来るため、loading/empty/error状態表示（useLayerDataStatus）の
-    // 対象には含めていない（MapView.tsx: getLayerVisibility参照）。
-    ...dedicatedAxes.map((axis) => dedicatedWayValueMapLayerId(axis.axisId)),
-    // 二次軸rampレイヤー（car_stress等）も同じroad_surfaceタイルへ焼き込まれた
-    // プロパティを読む。
-    ...rampAxes.map((axis) => axisMapLayerId(axis.axisId)),
-  ];
-}

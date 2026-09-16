@@ -4,11 +4,12 @@ import { DEDICATED_WAY_VALUE_AXES, dedicatedWayValueMapLayerId } from "./axisLay
 import {
   buildDefaultLayerVisibility,
   buildMapLayers,
-  buildRoadSurfaceSharedLayerIds,
   deriveFetchLayerStatus,
   isAxisStudioLayer,
   mapOverlayGroupFor,
+  tileZoomTooWideLayerIds,
 } from "./mapLayers";
+import { LANDCOVER_TILE_MIN_ZOOM, ROAD_TILE_MIN_ZOOM } from "@/services/regionApi";
 
 describe("mapLayers（改善計画T440: axis_idハードコード比較の撤去）", () => {
   it("isAxisStudioLayer: 専用way値配信軸の記述子は、axis_idのハードコード比較ではなく軸カタログ由来のフラグでtrueになる", () => {
@@ -29,22 +30,8 @@ describe("mapLayers（改善計画T440: axis_idハードコード比較の撤去
     expect(isAxisStudioLayer({ id: "roadType", dataNature: "raw" })).toBe(false);
   });
 
-  // 専用way値配信軸（dedicated_way_value_layer=true）はどれも同じroad_surfaceタイル
-  // （promoteId付きway_id）を共有するため、regionZoomTooWide判定
-  // （MapView.tsx: isRoadSurfaceGroupVisible）の対象として軸の件数に関係なく全件が
-  // 含まれていなければならない。
-  it("buildRoadSurfaceSharedLayerIds: 専用way値配信軸を件数によらず全件含む", () => {
-    const ids = buildRoadSurfaceSharedLayerIds([], DEDICATED_WAY_VALUE_AXES);
-    for (const axis of DEDICATED_WAY_VALUE_AXES) {
-      expect(ids).toContain(dedicatedWayValueMapLayerId(axis.axisId));
-    }
-    expect(DEDICATED_WAY_VALUE_AXES.map((axis) => axis.axisId)).toEqual(
-      expect.arrayContaining(["wind", "gradient"])
-    );
-  });
-
-  // 3件目の軸を軸スタジオで公開したときに、地図レイヤーの登録・ズーム範囲外判定・
-  // 地図UIからの除外がすべて自動で追従すること（軸ごとのハードコードが残っていないこと）。
+  // 3件目の軸を軸スタジオで公開したときに、地図レイヤーの登録・地図UIからの除外が
+  // すべて自動で追従すること（軸ごとのハードコードが残っていないこと）。
   it("軸スタジオで公開した3件目の専用way値配信軸へ自動追従する", () => {
     const extended = [
       ...DEDICATED_WAY_VALUE_AXES,
@@ -57,8 +44,6 @@ describe("mapLayers（改善計画T440: axis_idハードコード比較の撤去
     // 地図上チップ・サイドバーの両方から除外される（レンズだけが起動導線）。
     expect(isAxisStudioLayer(descriptor!)).toBe(true);
     expect(mapOverlayGroupFor(descriptor!)).toBeUndefined();
-    // 「表示範囲が広すぎます」判定の対象にも含まれる。
-    expect(buildRoadSurfaceSharedLayerIds([], extended)).toContain(layerId);
   });
 
   describe("災害チップ（雷・竜巻・落雷・キキクル4種を1つへ統合）", () => {
@@ -143,5 +128,48 @@ describe("既定ONのレイヤー", () => {
       if (!isAxisStudioLayer(layer)) continue;
       expect(visibility).not.toHaveProperty(layer.id);
     }
+  });
+});
+
+describe("タイルの最小ズーム（ズーム不足の案内）", () => {
+  it("宣言したレイヤーは、そのズームを下回ると全件が対象になる", () => {
+    // 同じタイルを共有するのに一部のレイヤーだけ案内が出ない、という状態を作らせない。
+    const declared = buildMapLayers([], []).filter((layer) => layer.tileMinZoom !== undefined);
+    expect(declared.length).toBeGreaterThan(0);
+
+    const widest = Math.min(...declared.map((layer) => layer.tileMinZoom!));
+    const tooWide = tileZoomTooWideLayerIds(widest - 0.5);
+
+    expect([...tooWide].sort()).toEqual(declared.map((layer) => layer.id).sort());
+  });
+
+  it("宣言していないレイヤーは、どれだけ広げても対象にならない", () => {
+    const undeclared = buildMapLayers([], [])
+      .filter((layer) => layer.tileMinZoom === undefined)
+      .map((layer) => layer.id);
+    expect(undeclared.length).toBeGreaterThan(0);
+
+    const tooWide = tileZoomTooWideLayerIds(0);
+
+    for (const id of undeclared) {
+      expect(tooWide).not.toContain(id);
+    }
+  });
+
+  it("充分に寄れば1件も対象にならない", () => {
+    const deepest = Math.max(
+      ...buildMapLayers([], [])
+        .filter((layer) => layer.tileMinZoom !== undefined)
+        .map((layer) => layer.tileMinZoom!),
+    );
+
+    expect(tileZoomTooWideLayerIds(deepest)).toEqual([]);
+  });
+
+  it("道路タイルと土地被覆タイルの閾値を、それぞれの配信元の値から取っている", () => {
+    const byId = Object.fromEntries(buildMapLayers([], []).map((layer) => [layer.id, layer]));
+
+    expect(byId.roadSurface.tileMinZoom).toBe(ROAD_TILE_MIN_ZOOM);
+    expect(byId.landcover.tileMinZoom).toBe(LANDCOVER_TILE_MIN_ZOOM);
   });
 });

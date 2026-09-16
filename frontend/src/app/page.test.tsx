@@ -526,11 +526,21 @@ async function renderFreshHome(options: RenderFreshHomeOptions = {}) {
   }
 
   if (options.exposeViewportChange) {
+    // 実物のMapViewはズームのたびに、記述子が宣言した最小ズームを下回ったレイヤーを
+    // 伝える（tileZoomTooWideLayerIds）。スタブもここだけは実物と同じ導出を使う——
+    // レイヤーidを手で並べると、宣言を足したときにこのテストだけが古くなる。
+    const { tileZoomTooWideLayerIds } = await import("@/components/Map/mapLayers");
     vi.doMock("@/components/Map/MapView", () => ({
       default: (props: {
         onViewportChange: (viewport: { zoom: number; latitude: number; longitude: number }) => void;
+        onTileZoomTooWideChange: (ids: readonly string[]) => void;
       }) => (
-        <button onClick={() => props.onViewportChange({ zoom: 5, latitude: 35.68, longitude: 139.76 })}>
+        <button
+          onClick={() => {
+            props.onViewportChange({ zoom: 5, latitude: 35.68, longitude: 139.76 });
+            props.onTileZoomTooWideChange(tileZoomTooWideLayerIds(5));
+          }}
+        >
           テスト用に広域へズームアウト
         </button>
       ),
@@ -2090,5 +2100,32 @@ describe("土地被覆レイヤーのズーム不足の案内", () => {
 
     const after = readPanels();
     expect(after.get("landcover")).toEqual({ summary: "ズームインすると表示されます", legendCount: 0 });
+  });
+
+  it("最小ズームを宣言したレイヤーは、どれも同じ案内になる", async () => {
+    // 以前は道路系と土地被覆で判定も配線も別々で、同じタイルを共有するのに
+    // designation/tunnel/onewayには案内が出ていなかった。
+    const { buildMapLayers } = await import("@/components/Map/mapLayers");
+    const declared = buildMapLayers([], [])
+      .filter((layer) => layer.tileMinZoom !== undefined)
+      .map((layer) => layer.id);
+    expect(declared.length).toBeGreaterThan(0);
+
+    const HomeFresh = await renderFreshHome({ exposeViewportChange: true });
+    render(<HomeFresh />);
+    await act(async () => {
+      screen.getByText("テスト用に広域へズームアウト").click();
+    });
+
+    const panels = new Map<string, [string, string | null, number]>(
+      (
+        JSON.parse(screen.getByTestId("overlay-layer-panels").textContent!) as Array<
+          [string, string | null, number]
+        >
+      ).map((row) => [row[0], row]),
+    );
+    for (const id of declared) {
+      expect(panels.get(id)).toEqual([id, "ズームインすると表示されます", 0]);
+    }
   });
 });
