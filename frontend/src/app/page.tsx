@@ -24,6 +24,7 @@ import {
   type LayerDataStatus,
   type LayerDataStatusByLayer,
   type MapLayerId,
+  buildDefaultLayerVisibility,
   type MapLayerVisibility,
 } from "@/components/Map/mapLayers";
 import { axisMapLayerId, buildAxisRampLegend, dedicatedWayValueMapLayerId } from "@/components/Map/axisLayers";
@@ -177,45 +178,14 @@ const ROUTE_MODE_STORAGE_KEY = "ridecompass:route-mode";
 const DISTANCE_STORAGE_KEY = "ridecompass:distance-km";
 const MAX_ROUTES_STORAGE_KEY = "ridecompass:max-routes";
 
-// 地図チップ・サイドバーからON/OFFできるレイヤーの既定値。
+// 地図チップ・サイドバーからON/OFFできるレイヤーの既定値。記述子の`defaultOn`から導く
+// （レイヤーを足してもここは変わらない。既定ONにするかはレイヤーの性質の側で宣言する）。
 //
-// 軸スタジオ由来のレイヤー（ramp軸`axis:${string}`・専用way値配信軸`${string}Axis`）の
-// キーは持たない。これらの表示はレンズ（lens→axisVisibility）だけが決めており、
-// ON/OFFの入口も地図チップ・サイドバーのどちらにも無い（mapLayers.ts: isAxisStudioLayer）。
-const DEFAULT_LAYER_VISIBILITY: MapLayerVisibility = {
-  elevation: false,
-  // 土地被覆。面で地図を覆うため、他の静的レイヤーと同じく既定OFF。
-  landcover: false,
-  // 「道路情報」（road）は論理2レイヤー（roadType/roadSurface）。旧保存値（road:
-  // boolean）からの移行処理はuseStoredStateのdeserialize（下記）参照。
-  roadType: false,
-  roadSurface: false,
-  designation: false,
-  tunnel: false,
-  oneway: false,
-  stopPoi: false,
-  supplyPoi: false,
-  accidents: false,
-  // 降水ナウキャスト。初期表示から地図を覆うと視界を圧迫するため既定OFF（design-principles.md「UI仕様」:
-  // 地図の視界を圧迫しない。他の静的レイヤーと同じ「明示的にONにして初めて出る」規約）。
-  precipitationNowcast: false,
-  // 風の矢印。precipitationNowcastと同じ理由で既定OFF。
-  windVector: false,
-  // 環境グループの勾配gridFill。同じ理由で既定OFF。
-  // 災害（雷・竜巻・落雷・キキクル等）。他の気象レイヤーとは異なり既定ONにする——
-  // 防災級の情報はユーザー操作を待たず表示すべき（予兆があってからチップをONにするのでは
-  // 手遅れ）という理由で、チップというUI要素は持たせつつ既定表示にしておく。
-  // **危険度が出ている間は広い範囲が塗られ、他の面レイヤー（土地被覆・標高図）は完全に
-  // 覆われる**（実機で確認: 注意報が出ている状態で地図全面が黄緑になり、基礎地図の色も
-  // 読めなくなる）。危険度ゼロの領域は配信元のタイルが透明なので、影響が出るのは
-  // 警戒度が上がっている間だけ——そのときは防災の情報を優先する、という判断でONのままに
-  // している。利用者は災害チップをOFFにすれば戻せる。
-  disaster: true,
-  // 線状降水帯予測マップはrasrf系統（降水短時間予報と同じ）のため「降水」チップの傘下へ
-  // 統合されており、個別のlayerVisibilityキーを持たない（frontend/src/hooks/
-  // useDynamicWeatherLayers.ts参照）。
-  route: true,
-};
+// 「道路情報」（road）はroadType/roadSurfaceという別々のレイヤーへ分かれている。
+// 旧保存値（road: boolean）からの移行処理はuseStoredStateのdeserialize（下記）参照。線状降水帯予測マップは
+// 「降水」チップの傘下へ統合されており、個別のキーを持たない（hooks/
+// useDynamicWeatherLayers.ts参照）。
+const DEFAULT_LAYER_VISIBILITY: MapLayerVisibility = buildDefaultLayerVisibility();
 
 // 「どのモードでも非表示カテゴリ無し」を表す共通の空配列。useStateの外に置いて参照を
 // 固定し、MapView側のエフェクト依存（hidden*LegendKeys）が毎レンダーで発火しないようにする。
@@ -2338,22 +2308,13 @@ export default function Home() {
             selectedRouteId={selectedRouteId}
             location={location}
             locationSource={locationSource}
-            showElevation={layerVisibility.elevation}
-            showLandcover={layerVisibility.landcover}
+            staticLayerVisibility={layerVisibility}
             dynamicWeather={dynamicWeather}
-            showRoadType={layerVisibility.roadType}
-            showRoadSurface={layerVisibility.roadSurface}
-            showDesignation={layerVisibility.designation}
-            showTunnel={layerVisibility.tunnel}
-            showOneway={layerVisibility.oneway}
             dedicatedWayValueVisibility={dedicatedWayValueVisibility}
             dedicatedAxes={axisCatalog.dedicatedAxes}
             dedicatedWayValues={dedicatedWayValues}
             dedicatedWayValueDisplays={dedicatedWayValueDisplays}
             dedicatedWayValueLoading={dedicatedWayValueLoading}
-            showStopPoi={layerVisibility.stopPoi}
-            showSupplyPoi={layerVisibility.supplyPoi}
-            showAccidents={layerVisibility.accidents}
             axisVisibility={axisVisibility}
             secondaryAxisCasingLayerIds={secondaryAxisCasingLayerIds}
             roadHiddenKeysByMode={debouncedRoadHiddenKeysByMode}

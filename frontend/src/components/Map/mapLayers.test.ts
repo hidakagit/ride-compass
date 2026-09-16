@@ -2,6 +2,7 @@
 import { describe, expect, it } from "vitest";
 import { DEDICATED_WAY_VALUE_AXES, dedicatedWayValueMapLayerId } from "./axisLayers";
 import {
+  buildDefaultLayerVisibility,
   buildMapLayers,
   buildRoadSurfaceSharedLayerIds,
   deriveFetchLayerStatus,
@@ -113,5 +114,34 @@ describe("deriveFetchLayerStatus", () => {
   it("エラーが最優先", () => {
     expect(deriveFetchLayerStatus(true, "failed", true, true)).toBe("error");
     expect(deriveFetchLayerStatus(false, "failed", false, false)).toBe("error");
+  });
+});
+
+describe("既定ONのレイヤー", () => {
+  it("記述子を持つレイヤーには必ず初期値がある（レイヤーを足しても書き足す場所が無い）", () => {
+    const visibility = buildDefaultLayerVisibility();
+
+    for (const layer of buildMapLayers([], [])) {
+      expect(visibility).toHaveProperty(layer.id);
+    }
+  });
+
+  it("地図を覆う静的レイヤーで既定ONなのは防災級のものだけ", () => {
+    // 既定ONは性質で決める。ここが「1つずつ手で書く」形に戻ると、防災系が2つ目に増えた
+    // ときに片方だけONという説明できない状態が生まれる。
+    const onByNature = buildMapLayers([], [])
+      .filter((layer) => layer.kind === "static" && layer.defaultOn === true)
+      .map((layer) => layer.category);
+
+    expect(new Set(onByNature)).toEqual(new Set(["disaster"]));
+  });
+
+  it("軸スタジオ由来のレイヤーは初期値を持たない（表示はレンズだけが決める）", () => {
+    const visibility = buildDefaultLayerVisibility();
+
+    for (const layer of buildMapLayers([], DEDICATED_WAY_VALUE_AXES)) {
+      if (!isAxisStudioLayer(layer)) continue;
+      expect(visibility).not.toHaveProperty(layer.id);
+    }
   });
 });

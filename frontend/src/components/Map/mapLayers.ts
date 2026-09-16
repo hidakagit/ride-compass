@@ -188,6 +188,12 @@ export interface MapLayerDescriptor {
    * アイコンから出す説明文。descriptionより詳しい判定基準・注意点を書く場所
    * （UI語彙のカタログ集約）。 */
   panelHint?: string;
+  /** 利用者の操作を待たずに既定で表示するか。**性質で決める**——防災級の情報は、予兆が
+   * 出てからチップをONにするのでは手遅れになるため、チップは持たせたまま既定表示にする。
+   * 省略時はOFF（明示的にONにして初めて出る、という地図レイヤーの原則。初期表示から
+   * 地図を覆うと視界を圧迫する。design-principles.md「UI仕様」）。
+   * `buildDefaultLayerVisibility`がこの宣言から初期値を導く。 */
+  defaultOn?: boolean;
 }
 
 // ramp軸のpanelHintは軸自身のデータ（axis.panelHint、AXIS_DEFINITIONS.panel_hint）から
@@ -453,6 +459,12 @@ export function buildMapLayers(
       kind: "static",
       category: "disaster",
       dataNature: "dynamic",
+      // 他の気象レイヤーと違い既定ONにする。**危険度が出ている間は広い範囲が塗られ、
+      // 他の面レイヤー（緑と水・標高図）は完全に覆われる**（注意報が出ている状態で地図
+      // 全面が黄緑になり、基礎地図の色も読めなくなる）。危険度ゼロの領域は配信元のタイルが
+      // 透明なので影響が出るのは警戒度が上がっている間だけで、そのときは防災の情報を
+      // 優先する。利用者は災害チップをOFFにすれば戻せる。
+      defaultOn: true,
       description:
         "気象庁の雷・竜巻・落雷とキキクル4種（土砂災害・大雨・浸水・洪水）をまとめて表示" +
         "[雷・竜巻・落雷は実況〜60分先、キキクルは現在の危険度のみ]",
@@ -470,11 +482,24 @@ export function buildMapLayers(
       label: "ルート",
       kind: "dynamic",
       description: "選択中ルート沿いの情報[風・勾配・路面・総合難易度]を色分け表示",
+      // 候補を出したら見えている必要がある（探索の結果そのもの）。
+      defaultOn: true,
     },
   ];
 }
 
 export type MapLayerVisibility = Record<MapLayerId, boolean>;
+
+/** 地図チップ・サイドバーからON/OFFできるレイヤーの既定値を、記述子の`defaultOn`から導く。
+ *
+ * 軸スタジオ由来のレイヤー（ramp軸・専用way値配信軸）のキーは持たない——表示はレンズ
+ * （axisVisibility）だけが決めており、ON/OFFの入口が地図チップにもサイドバーにも無い
+ * （`isAxisStudioLayer`）。そのため軸を空で呼ぶ。 */
+export function buildDefaultLayerVisibility(): MapLayerVisibility {
+  return Object.fromEntries(
+    buildMapLayers([], []).map((layer) => [layer.id, layer.defaultOn === true]),
+  ) as MapLayerVisibility;
+}
 
 // レイヤーごとのデータ取得状態。「表示OFF」「ズーム範囲外」（road専用のzoomWarning）は
 // どちらも既存の案内があるが、タイル取得失敗とそのレイヤーの対象データが0件の場合を

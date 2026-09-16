@@ -145,27 +145,36 @@ describe("isRoadSurfaceGroupVisible", () => {
   // （regionZoomTooWide）の対象になる。road自体がOFFでも、同じタイルを読む軸レイヤーだけ
   // ONの状態は起こりうる（レンズで軸を1本だけ選んだ状態）。
   const ALL_OFF = {
-    showRoadType: false,
-    showRoadSurface: false,
-    showDesignation: false,
-    showTunnel: false,
-    showOneway: false,
+    staticLayerVisibility: {},
     axisVisibility: {},
     dedicatedWayValueVisibility: {},
   } as const;
 
-  it("静的5レイヤーのいずれか1つでもONならtrue", () => {
-    expect(isRoadSurfaceGroupVisible({ ...ALL_OFF, showRoadType: true }, ROAD_SURFACE_SHARED_LAYER_IDS)).toBe(true);
-    expect(isRoadSurfaceGroupVisible({ ...ALL_OFF, showRoadSurface: true }, ROAD_SURFACE_SHARED_LAYER_IDS)).toBe(true);
-    expect(isRoadSurfaceGroupVisible({ ...ALL_OFF, showDesignation: true }, ROAD_SURFACE_SHARED_LAYER_IDS)).toBe(true);
-    expect(isRoadSurfaceGroupVisible({ ...ALL_OFF, showTunnel: true }, ROAD_SURFACE_SHARED_LAYER_IDS)).toBe(true);
-    expect(isRoadSurfaceGroupVisible({ ...ALL_OFF, showOneway: true }, ROAD_SURFACE_SHARED_LAYER_IDS)).toBe(true);
+  // road_surfaceタイルを共有する静的レイヤーは、共有レイヤーidの全体から軸由来のぶんを
+  // 引いて導く。ここで名前を並べ直すと、共有する側が増えたときにこのテストだけが古くなる。
+  const AXIS_SHARED_LAYER_IDS = new Set<string>([
+    ...RAMP_AXES.map((axis) => axisMapLayerId(axis.axisId)),
+    ...DEDICATED_WAY_VALUE_AXES.map((axis) => dedicatedWayValueMapLayerId(axis.axisId)),
+  ]);
+  const STATIC_SHARED_LAYER_IDS = ROAD_SURFACE_SHARED_LAYER_IDS.filter(
+    (id) => !AXIS_SHARED_LAYER_IDS.has(id),
+  );
+
+  it("路面タイルを共有する静的レイヤーのいずれか1つでもONならtrue", () => {
+    expect(STATIC_SHARED_LAYER_IDS.length).toBeGreaterThan(0);
+    for (const layerId of STATIC_SHARED_LAYER_IDS) {
+      expect(
+        isRoadSurfaceGroupVisible(
+          { ...ALL_OFF, staticLayerVisibility: { [layerId]: true } },
+          ROAD_SURFACE_SHARED_LAYER_IDS,
+        ),
+      ).toBe(true);
+    }
   });
 
-  // 本番の配線と同じ形で渡す: page.tsxのaxisVisibility/dedicatedWayValueVisibilityは
-  // どちらもレイヤーidキー（axisMapLayerId / dedicatedWayValueMapLayerId）のRecordで、
-  // 静的5レイヤーとは別のpropとして届く。この2つを渡さないと呼び出せない引数の形に
-  // なっているため、片方だけ配線した状態は型で落ちる。
+  // 本番の配線と同じ形で渡す: 静的レイヤー・ramp軸・専用way値配信軸の3つは別々のRecordと
+  // して届く。3つとも渡さないと呼び出せない引数の形になっているため、どれかだけ配線した
+  // 状態は型で落ちる。
   it("静的レイヤーが全てOFFでも、ramp軸レイヤーがONならtrue（レンズで軸だけ選んだ状態）", () => {
     const rampAxis = RAMP_AXES[0];
     expect(

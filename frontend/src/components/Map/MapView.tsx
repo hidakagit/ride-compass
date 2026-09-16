@@ -71,6 +71,7 @@ import {
   buildRoadSurfaceSharedLayerIds,
   type LayerDataStatusByLayer,
   type MapLayerId,
+  type MapLayerVisibility,
 } from "@/components/Map/mapLayers";
 import { WIND_CALM_THRESHOLD_MS, WIND_SPEED_COLOR_STOPS } from "@/components/Map/windLayer";
 import {
@@ -1695,16 +1696,12 @@ export function setStaticOverlayFilters(
 // 低ズームでONにしても「表示範囲が広すぎます」の案内が出ないまま何も表示されない状態に
 // なるため、呼び出し元がpropsのrampAxesから実行時に算出したリストを渡す。
 //
-// 第1引数は表示状態のRecordではなく**propsの形そのもの**を受け取り、レイヤーidキーへの
-// 合流をこの関数の中で行う。静的レイヤーは個別のbooleanで、軸レイヤーはレイヤーidキーの
-// Recordで来るため、呼び出し側で組み立てる形にすると軸のRecordを合流し忘れても型が通り、
-// 第2引数が挙げる軸レイヤーidが常にundefined＝案内が一度も出ない状態になる。
+// 第1引数は合流済みのRecordではなく**由来ごとに分かれた表示状態**を受け取り、合流を
+// この関数の中で行う。呼び出し側で組み立てる形にすると、どれか1つを合流し忘れても型が通り、
+// 第2引数が挙げるそのレイヤーidが常にundefined＝案内が一度も出ない状態になる。
 export interface RoadSurfaceGroupState {
-  showRoadType: boolean;
-  showRoadSurface: boolean;
-  showDesignation: boolean;
-  showTunnel: boolean;
-  showOneway: boolean;
+  /** 地図チップ由来の静的レイヤーの表示状態。キーは`MapLayerId`。 */
+  staticLayerVisibility: Readonly<Record<string, boolean>>;
   /** ramp軸レイヤーの表示状態。キーは`axisMapLayerId`（"axis:car_stress"等）。 */
   axisVisibility: Readonly<Record<string, boolean>>;
   /** 専用way値配信軸レイヤーの表示状態。キーは`dedicatedWayValueMapLayerId`。 */
@@ -1716,11 +1713,7 @@ export function isRoadSurfaceGroupVisible(
   roadSurfaceSharedLayerIds: readonly MapLayerId[],
 ): boolean {
   const visibility: Record<string, boolean> = {
-    roadType: state.showRoadType,
-    roadSurface: state.showRoadSurface,
-    designation: state.showDesignation,
-    tunnel: state.showTunnel,
-    oneway: state.showOneway,
+    ...state.staticLayerVisibility,
     ...state.dedicatedWayValueVisibility,
     ...state.axisVisibility,
   };
@@ -1900,8 +1893,13 @@ interface MapViewProps {
    * グレーで視覚的に区別する。実際のGPS取得（"geolocation"）と手動指定（"manual"）は
    * どちらも「意図した位置」という点で同格のため、赤で区別しない。 */
   locationSource: LocationSource;
-  showElevation: boolean;
-  showLandcover: boolean;
+  /** 地図チップ・サイドバーからON/OFFする静的レイヤーの表示状態（`MapLayerId`→boolean）。
+   * **レイヤーを1つ足してもこのpropは変わらない**——レイヤー専用のpropを増やす形だと、
+   * 型宣言・分割代入・依存配列・可視状態の対応表へ同じ名前を書き足すことになり、1箇所でも
+   * 忘れるとチップはONで凡例も出るのに地図には何も出ない（タイル要求すら飛ばないため
+   * ネットワークを見ても気づけない）。軸レイヤーの`axisVisibility`・
+   * `dedicatedWayValueVisibility`と同じ形（design-principles.md構造仕様3）。 */
+  staticLayerVisibility: MapLayerVisibility;
   /** 動的気象レイヤー。要素id（DynamicWeatherLayerId）ごとに、ソースキー→ON/OFFと
    * page.tsx側が各要素のデータ層関数（precipitationRenderPayload/windRenderPayload）から
    * 計算した「選択中の共有時刻に対応するペイロード」を渡す。payloadが未定（フェッチ未完了・
@@ -1909,21 +1907,6 @@ interface MapViewProps {
    * trueでも非表示のまま（DYNAMIC_WEATHER_RENDERERS・applyDynamicWeatherState参照）。
    * 要素・ソースを追加してもこのプロパティ自体は変わらない。 */
   dynamicWeather: Partial<Record<DynamicWeatherLayerId, DynamicWeatherGroupState>>;
-  /** 道路の種類。色で反映する（太さ・線種は意味を運ばない）。路面の種類とは**別の独立した
-   * 線レイヤー**で、同時にONのときは並列トラックが横へ分離する
-   * （MapView.tsx: applyRoadLayerState参照）。 */
-  showRoadType: boolean;
-  /** 路面の種類。色で反映する。 */
-  showRoadSurface: boolean;
-  /** 指定路線（外部静的データソース、KSJ N10/N12）。路面と同じソースを再利用する独立レイヤー。
-   * 自転車インフラは専用の地図レイヤーを持たず、評価軸bicycle_infra_qualityとして表現する。 */
-  showDesignation: boolean;
-  /** トンネル（一次属性、OSMのtunnelタグ）。designationと同じく路面と同じソースを
-   * 再利用する独立レイヤー。 */
-  showTunnel: boolean;
-  /** 一方通行（一次属性、OSM onewayタグ）。tunnelと同じく路面と同じソースを
-   * 再利用する独立レイヤー。評価軸には組み込まない表示専用。 */
-  showOneway: boolean;
   /** 専用way値配信軸（「評価軸」グループの風・勾配等）の表示フラグを、
    * レイヤーID（`${axisId}Axis`、mapLayers.ts: MapLayerId）→booleanの汎用Recordとして
    * 受け取る（axisVisibilityと同じ形）。designation/tunnel/onewayと同じく路面と同じ
@@ -1956,13 +1939,6 @@ interface MapViewProps {
    * 新設しない）で、windLoading/gradientLoadingのような別名propは持たない。未設定の軸idは
    * false（フェッチ中でない）扱い。 */
   dedicatedWayValueLoading?: ReadonlyMap<string, boolean>;
-  /** 事故（外部静的データソース、警察庁交通事故統計）。road_surfaceとは独立のソース。 */
-  showAccidents: boolean;
-  /** 停止要因POI。路面とは別の点データ用ベクタソースを使う。 */
-  showStopPoi: boolean;
-  /** 補給・休憩ポイントPOI（コンビニ・自販機・トイレ・給水・駐輪場）。
-   * 停止要因POIと同じベクタソース（region-poi-tiles）を共有する独立レイヤー。 */
-  showSupplyPoi: boolean;
   /** 二次軸rampレイヤーの表示フラグ。キーはaxisMapLayerId（"axis:accident"等、
    * mapLayers.tsのMapLayerIdと同じ）。カタログ駆動のため個別のshow*フラグは持たない。 */
   axisVisibility: Record<string, boolean>;
@@ -2106,18 +2082,9 @@ export type RedrawAllLayersProps = Pick<
   | "hiddenRouteLegendKeys"
   | "spliceStretches"
   | "splicedRoute"
-  | "showElevation"
-  | "showLandcover"
+  | "staticLayerVisibility"
   | "dynamicWeather"
-  | "showRoadType"
-  | "showRoadSurface"
-  | "showDesignation"
-  | "showTunnel"
-  | "showOneway"
   | "dedicatedWayValueVisibility"
-  | "showAccidents"
-  | "showStopPoi"
-  | "showSupplyPoi"
   | "axisVisibility"
   | "roadHiddenKeysByMode"
   | "staticLegendHiddenKeysByAxis"
@@ -2156,18 +2123,9 @@ export function redrawAllLayers(map: MapLibreMap, props: RedrawAllLayersProps) {
     hiddenRouteLegendKeys,
     spliceStretches,
     splicedRoute,
-    showElevation,
-    showLandcover,
+    staticLayerVisibility,
     dynamicWeather,
-    showRoadType,
-    showRoadSurface,
-    showDesignation,
-    showTunnel,
-    showOneway,
     dedicatedWayValueVisibility,
-    showAccidents,
-    showStopPoi,
-    showSupplyPoi,
     axisVisibility,
     roadHiddenKeysByMode,
     staticLegendHiddenKeysByAxis,
@@ -2181,18 +2139,7 @@ export function redrawAllLayers(map: MapLibreMap, props: RedrawAllLayersProps) {
   } = props;
   setStaticOverlayVisibility(
     map,
-    {
-      elevation: showElevation,
-      landcover: showLandcover,
-      designation: showDesignation,
-      tunnel: showTunnel,
-      oneway: showOneway,
-      ...dedicatedWayValueVisibility,
-      accidents: showAccidents,
-      stopPoi: showStopPoi,
-      supplyPoi: showSupplyPoi,
-      ...axisVisibility,
-    },
+    { ...staticLayerVisibility, ...dedicatedWayValueVisibility, ...axisVisibility },
     staticOverlayLayers,
   );
   for (const id of DYNAMIC_WEATHER_LAYER_IDS) {
@@ -2206,26 +2153,17 @@ export function redrawAllLayers(map: MapLibreMap, props: RedrawAllLayersProps) {
     applyAxisFeatureStateValues(map, dedicatedWayValueFeatureStateKey(axisId), values);
   }
   setStaticOverlayFilters(map, staticLegendHiddenKeysByAxis, staticOverlayLayers, staticFilterAxes);
-  applyRoadLayerState(map, showRoadSurface, showRoadType, roadHiddenKeysByMode);
-  applyRoadMaterialTrackOffsets(map, {
-    roadSurface: showRoadSurface,
-    roadType: showRoadType,
-    designation: showDesignation,
-    tunnel: showTunnel,
-    oneway: showOneway,
-  });
+  applyRoadLayerState(
+    map,
+    staticLayerVisibility.roadSurface,
+    staticLayerVisibility.roadType,
+    roadHiddenKeysByMode,
+  );
+  applyRoadMaterialTrackOffsets(map, staticLayerVisibility);
   updateRoadZoomHint(
     map,
     isRoadSurfaceGroupVisible(
-      {
-        showRoadType,
-        showRoadSurface,
-        showDesignation,
-        showTunnel,
-        showOneway,
-        axisVisibility,
-        dedicatedWayValueVisibility,
-      },
+      { staticLayerVisibility, axisVisibility, dedicatedWayValueVisibility },
       roadSurfaceSharedLayerIds,
     ),
     onRegionZoomHintChange,
@@ -2265,22 +2203,13 @@ export default function MapView({
   onSpliceStretchSelect,
   location,
   locationSource,
-  showElevation,
-  showLandcover,
+  staticLayerVisibility,
   dynamicWeather,
-  showRoadType,
-  showRoadSurface,
-  showDesignation,
-  showTunnel,
-  showOneway,
   dedicatedWayValueVisibility,
   dedicatedAxes,
   dedicatedWayValues,
   dedicatedWayValueDisplays,
   dedicatedWayValueLoading,
-  showAccidents,
-  showStopPoi,
-  showSupplyPoi,
   axisVisibility,
   secondaryAxisCasingLayerIds,
   roadHiddenKeysByMode,
@@ -2427,18 +2356,9 @@ export default function MapView({
     routeStyleModes,
     routeStyleModeId,
     hiddenRouteLegendKeys,
-    showElevation,
-    showLandcover,
+    staticLayerVisibility,
     dynamicWeather,
-    showRoadType,
-    showRoadSurface,
-    showDesignation,
-    showTunnel,
-    showOneway,
     dedicatedWayValueVisibility,
-    showAccidents,
-    showStopPoi,
-    showSupplyPoi,
     axisVisibility,
     roadHiddenKeysByMode,
     staticLegendHiddenKeysByAxis,
@@ -2517,18 +2437,9 @@ export default function MapView({
       routeStyleModes,
       routeStyleModeId,
       hiddenRouteLegendKeys,
-      showElevation,
-      showLandcover,
+      staticLayerVisibility,
       dynamicWeather,
-      showRoadType,
-      showRoadSurface,
-      showDesignation,
-      showTunnel,
-      showOneway,
       dedicatedWayValueVisibility,
-      showAccidents,
-      showStopPoi,
-      showSupplyPoi,
       axisVisibility,
       roadHiddenKeysByMode,
       staticLegendHiddenKeysByAxis,
@@ -2547,18 +2458,9 @@ export default function MapView({
     routeStyleModes,
     routeStyleModeId,
     hiddenRouteLegendKeys,
-    showElevation,
-    showLandcover,
+    staticLayerVisibility,
     dynamicWeather,
-    showRoadType,
-    showRoadSurface,
-    showDesignation,
-    showTunnel,
-    showOneway,
     dedicatedWayValueVisibility,
-    showAccidents,
-    showStopPoi,
-    showSupplyPoi,
     axisVisibility,
     roadHiddenKeysByMode,
     staticLegendHiddenKeysByAxis,
@@ -2584,32 +2486,8 @@ export default function MapView({
   // 安定した関数として渡す（redrawPropsRef自体を渡さないのは、フック側をrefの内部構造に
   // 依存させないため）。
   const getLayerVisibility = useCallback(() => {
-    const {
-      showElevation,
-      showLandcover,
-      showRoadType,
-      showRoadSurface,
-      showDesignation,
-      showTunnel,
-      showOneway,
-      showAccidents,
-      showStopPoi,
-      showSupplyPoi,
-      axisVisibility,
-    } = redrawPropsRef.current;
-    return {
-      elevation: showElevation,
-      landcover: showLandcover,
-      roadType: showRoadType,
-      roadSurface: showRoadSurface,
-      designation: showDesignation,
-      tunnel: showTunnel,
-      oneway: showOneway,
-      accidents: showAccidents,
-      stopPoi: showStopPoi,
-      supplyPoi: showSupplyPoi,
-      ...axisVisibility,
-    };
+    const { staticLayerVisibility, axisVisibility } = redrawPropsRef.current;
+    return { ...staticLayerVisibility, ...axisVisibility };
   }, []);
   // useLayerDataStatusは呼び出しのたびに新しいオブジェクトを返すため、依存配列に安定した
   // 参照を渡せるよう個々の関数を分割代入する（layerDataStatus.recomputeのようにプロパティ
@@ -2843,11 +2721,7 @@ export default function MapView({
     // propsを保持するredrawPropsRef.currentを直接読む（getLayerVisibilityと同じ方式）。
     function handleZoom() {
       const {
-        showRoadType,
-        showRoadSurface,
-        showDesignation,
-        showTunnel,
-        showOneway,
+        staticLayerVisibility,
         axisVisibility,
         dedicatedWayValueVisibility,
         roadSurfaceSharedLayerIds,
@@ -2855,15 +2729,7 @@ export default function MapView({
       updateRoadZoomHint(
         map,
         isRoadSurfaceGroupVisible(
-          {
-            showRoadType,
-            showRoadSurface,
-            showDesignation,
-            showTunnel,
-            showOneway,
-            axisVisibility,
-            dedicatedWayValueVisibility,
-          },
+          { staticLayerVisibility, axisVisibility, dedicatedWayValueVisibility },
           roadSurfaceSharedLayerIds,
         ),
         onRegionZoomHintChangeRef.current,
@@ -3244,18 +3110,7 @@ export default function MapView({
     if (!map) return;
     setStaticOverlayVisibility(
       map,
-      {
-        elevation: showElevation,
-        landcover: showLandcover,
-        designation: showDesignation,
-        tunnel: showTunnel,
-        oneway: showOneway,
-        ...dedicatedWayValueVisibility,
-        accidents: showAccidents,
-        stopPoi: showStopPoi,
-        supplyPoi: showSupplyPoi,
-        ...axisVisibility,
-      },
+      { ...staticLayerVisibility, ...dedicatedWayValueVisibility, ...axisVisibility },
       staticOverlayLayers,
     );
     // OFF→ONで新たに可視になったレイヤー、またはOFFになったレイヤーの状態表示を
@@ -3263,15 +3118,8 @@ export default function MapView({
     // 状態が更新されるようにするため）。
     recomputeLayerDataStatus();
   }, [
-    showElevation,
-    showLandcover,
-    showDesignation,
-    showTunnel,
-    showOneway,
+    staticLayerVisibility,
     dedicatedWayValueVisibility,
-    showAccidents,
-    showStopPoi,
-    showSupplyPoi,
     axisVisibility,
     recomputeLayerDataStatus,
     // staticOverlayLayersが変わる（軸スタジオの実行時フェッチで新しい軸が現れる・
@@ -3348,37 +3196,24 @@ export default function MapView({
   useEffect(() => {
     const map = mapRef.current;
     if (!map) return;
-    applyRoadLayerState(map, showRoadSurface, showRoadType, roadHiddenKeysByMode);
-    applyRoadMaterialTrackOffsets(map, {
-      roadSurface: showRoadSurface,
-      roadType: showRoadType,
-      designation: showDesignation,
-      tunnel: showTunnel,
-      oneway: showOneway,
-    });
+    applyRoadLayerState(
+      map,
+      staticLayerVisibility.roadSurface,
+      staticLayerVisibility.roadType,
+      roadHiddenKeysByMode,
+    );
+    applyRoadMaterialTrackOffsets(map, staticLayerVisibility);
     updateRoadZoomHint(
       map,
       isRoadSurfaceGroupVisible(
-        {
-          showRoadType,
-          showRoadSurface,
-          showDesignation,
-          showTunnel,
-          showOneway,
-          axisVisibility,
-          dedicatedWayValueVisibility,
-        },
+        { staticLayerVisibility, axisVisibility, dedicatedWayValueVisibility },
         roadSurfaceSharedLayerIds,
       ),
       onRegionZoomHintChangeRef.current,
     );
     recomputeLayerDataStatus();
   }, [
-    showRoadType,
-    showRoadSurface,
-    showDesignation,
-    showTunnel,
-    showOneway,
+    staticLayerVisibility,
     axisVisibility,
     dedicatedWayValueVisibility,
     roadHiddenKeysByMode,

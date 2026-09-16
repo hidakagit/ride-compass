@@ -61,6 +61,21 @@ backendから取り、タイル本体はrewrites経由に戻る。
 （6本程度）をタイル要求が埋め、API呼び出しが詰まるため、HTTP/2以上（多重化）で応答できる
 構成でのみ設定する（[docs/architecture.md](../../architecture.md)「同時接続数上限との競合」）。
 
+## 表示状態の渡し方（レイヤー専用のpropを持たない）
+
+`MapView`が受け取る静的レイヤーの表示状態は`staticLayerVisibility`
+（`MapLayerId`→boolean）1つで、**レイヤーを足してもこのpropは変わらない**。
+`axisVisibility`（ramp軸）・`dedicatedWayValueVisibility`（専用way値配信軸）と同じ形で、
+[design-principles.md](../../design-principles.md)構造仕様3に揃えてある。
+
+レイヤー専用のpropを増やす形だと、型宣言・分割代入・再描画対象の列挙・依存配列・可視状態の
+対応表へ同じ名前を書き足すことになり、**1箇所でも忘れるとチップはONで凡例も出るのに地図には
+何も出ない**（タイル要求すら飛ばないためネットワークを見ても気づけない）。
+
+既定でONにするかも同じく記述子側の宣言（`MapLayerDescriptor.defaultOn`）で決め、
+`buildDefaultLayerVisibility()`が初期値を導く。省略時はOFF——「明示的にONにして初めて出る」
+が地図レイヤーの原則で、既定ONは防災級の情報という**性質**だけが根拠になる。
+
 ## 表示層の実装（`MapView.tsx`）
 
 このモジュールが扱う静的レイヤーの実際のMapLibre実装（`addSource`/`addLayer`/
