@@ -1210,7 +1210,13 @@ export default function Home() {
       ...roadAxisPanels.legendDetailsByLayerId,
       route: routeLegendDetails,
       precipitationNowcast: PRECIPITATION_LEGEND_DETAILS,
-      landcover: LANDCOVER_LEGEND_DETAILS,
+      // ズーム不足のときは凡例を空にして案内文（summary）を出す。▶の中身は
+      // 「凡例があれば凡例、無ければsummary」で決まるため、凡例を出したままだと
+      // 案内文が一度も表示されない（道路系も同じ扱い、roadAxisPanels参照）。
+      landcover:
+        mapViewport !== null && mapViewport.zoom < LANDCOVER_TILE_MIN_ZOOM
+          ? []
+          : LANDCOVER_LEGEND_DETAILS,
       windVector: WIND_LEGEND_DETAILS,
       disaster: disasterLegendDetails,
     };

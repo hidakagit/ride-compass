@@ -1423,6 +1423,10 @@ type OverlayLayerEntry = {
   layerId: string;
   ensure: (map: MapLibreMap) => void;
   interactive: boolean;
+  // 路面ソースより先に積むか。面のラスタは路面の線の下へ置く。`addLayer`はbeforeId省略で
+  // 最上位へ積むため、ここで宣言しないレイヤーは**初回描画だけ**路面の上に乗り、
+  // 再描画で配列順どおりの重なりへ戻る（同じ場所を見ているのに色が変わる）。
+  underRoadSurface?: boolean;
 };
 
 // 軸スタジオが公開したramp軸（ビルド時静的フォールバックに限らず、実行時フェッチで
@@ -1475,8 +1479,20 @@ export function buildStaticOverlayLayers(
 ): readonly OverlayLayerEntry[] {
   return [
     // ラスタタイルのため地物クリック判定が効かない。
-    { key: "elevation", layerId: GSI_RELIEF_LAYER_ID, ensure: ensureGsiReliefLayer, interactive: false },
-    { key: "landcover", layerId: LANDCOVER_LAYER_ID, ensure: ensureLandcoverLayer, interactive: false },
+    {
+      key: "elevation",
+      layerId: GSI_RELIEF_LAYER_ID,
+      ensure: ensureGsiReliefLayer,
+      interactive: false,
+      underRoadSurface: true,
+    },
+    {
+      key: "landcover",
+      layerId: LANDCOVER_LAYER_ID,
+      ensure: ensureLandcoverLayer,
+      interactive: false,
+      underRoadSurface: true,
+    },
     ...axisOverlayLayers,
     {
       key: "designation",
@@ -1569,6 +1585,18 @@ export function buildLayerDataSources(rampAxes: readonly RampAxis[]): readonly L
 
 // レイヤーデータ状態（loading/empty/error）の算出・追跡（computeLayerDataStatus・
 // clearStaleTrackedSourceErrors・状態管理）はuseLayerDataStatus.tsに集約されている。
+/** 路面ソースより先に積むレイヤー（各エントリ自身の`underRoadSurface`宣言から導く）。
+ *
+ * ここをkeyの名指しで書くと、面のレイヤーを1つ足したときに**初回描画だけ**それが路面線の
+ * 上に乗る（`addLayer`はbeforeId省略で最上位へ積む）。再描画を押すと配列順どおりの重なりへ
+ * 戻るため、同じ場所を見ているのに色が変わる、という形でしか気づけない。
+ */
+export function layersUnderRoadSurface(
+  layers: readonly OverlayLayerEntry[],
+): readonly OverlayLayerEntry[] {
+  return layers.filter((layer) => layer.underRoadSurface);
+}
+
 // buildLayerDataSources自体はbuildStaticOverlayLayers等の他の関数と同じくこのファイルに
 // 残し、フックへ引数として渡す（フック側からMapView.tsxを逆importしないため）。
 
@@ -2657,15 +2685,17 @@ export default function MapView({
     // 登録（実行はスタイル読み込み完了後）のため、ここでの呼び出し順がそのまま発火順になる。
     // ensureAllStaticOverlayLayersをensureRoadSurfaceTileLayerより先に呼ぶと、
     // designation等のaddLayerがソース未作成のまま実行され
-    // 「source "region-road-surface-tiles" not found」エラーになる。標高を先に単独ensureして
-    // から路面ソースを作ることで「標高が最背面、その上に路面」の意図を保つ
-    // （ensureAllStaticOverlayLayers内でelevationが二重に呼ばれるが自身のガードで
-    // 無害化される）。
+    // 「source "region-road-surface-tiles" not found」エラーになる。路面より下に置く
+    // レイヤー（自身が`underRoadSurface`で宣言する）を先にensureしてから路面ソースを
+    // 作ることで、「面のラスタが最背面、その上に路面」の意図を保つ
+    // （ensureAllStaticOverlayLayers内で二重に呼ばれるが各自のガードで無害化される）。
     // staticOverlayLayersはredrawPropsRef.current経由で読む（このeffectは
     // マウント時のみ実行され、propsのrampAxesが後から変わっても再実行されないため。
     // 実行時フェッチで新しい軸が現れた場合の追従は、別途staticOverlayLayers変更時の
     // effectで対応する）。
-    redrawPropsRef.current.staticOverlayLayers.find((layer) => layer.key === "elevation")?.ensure(map);
+    for (const layer of layersUnderRoadSurface(redrawPropsRef.current.staticOverlayLayers)) {
+      layer.ensure(map);
+    }
     ensureRoadSurfaceTileLayer(map);
     ensureAllStaticOverlayLayers(map, redrawPropsRef.current.staticOverlayLayers);
 

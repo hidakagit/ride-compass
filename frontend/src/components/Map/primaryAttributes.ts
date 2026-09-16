@@ -51,6 +51,7 @@ export const PRIMARY_ATTRIBUTE_LAYER_IDS: Partial<Record<string, MapLayerId>> = 
   supply_poi: "supplyPoi",
   tunnel: "tunnel",
   oneway: "oneway",
+  landcover: "landcover",
 };
 
 // 表示レイヤーを意図的に持たない一次属性（lanes/maxspeed/lit/intersection、
@@ -59,8 +60,7 @@ export const PRIMARY_ATTRIBUTE_LAYER_IDS: Partial<Record<string, MapLayerId>> = 
 // car_stress軸の内部補正と公開軸bicycle_infra_qualityの両方が参照するため、
 // domain/registry_defaults.pyでshared=Trueとして登録されている）は一次属性としては
 // 存在するが、地図上に単独では表示しない（地図表示は評価軸bicycle_infra_quality側に
-// 委ねる。show_map_icon=falseのため専用レイヤーは持たない）。landcover（土地被覆の
-// クラス別割合が参照する一次属性）も同様に専用レイヤーを持たない扱いで登録されている。
+// 委ねる。show_map_icon=falseのため専用レイヤーは持たない）。
 // PRIMARY_ATTRIBUTE_LAYER_IDSにキーが無いことが「未対応（漏れ）」なのか「意図的にレイヤー
 // 無し」なのかを区別できないため、後者をここへ明示する（ドリフト検知テスト参照）。
 export const PRIMARY_ATTRIBUTES_WITHOUT_LAYER: ReadonlySet<string> = new Set([
@@ -72,7 +72,6 @@ export const PRIMARY_ATTRIBUTES_WITHOUT_LAYER: ReadonlySet<string> = new Set([
   "motor_vehicle_access",
   "geometry",
   "cycleway",
-  "landcover",
 ]);
 
 /** 一次属性id列のうち、表示レイヤーを持つものだけをMapLayerIdの重複無し配列で返す

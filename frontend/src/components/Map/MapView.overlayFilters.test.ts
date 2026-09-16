@@ -11,6 +11,7 @@ import {
   buildAxisOverlayLayers,
   buildInteractiveLayerIds,
   buildStaticOverlayLayers,
+  layersUnderRoadSurface,
   setStaticOverlayFilters,
 } from "./MapView";
 import { buildStaticFilterAxes, type StaticFilterAxisId } from "./staticAttributeLayers";
@@ -195,5 +196,18 @@ describe("凡例フィルタはensureの再実行で巻き戻らない", () => {
     entry.ensure(map as unknown as Parameters<typeof entry.ensure>[0]);
 
     expect(map.setFilterCalls.filter((call) => call.layerId === layerId)).toEqual(applied);
+  });
+});
+
+describe("路面ソースより先に積むレイヤー", () => {
+  it("面のラスタはすべて自分で宣言しており、名指しで選ばれていない", () => {
+    // 初回描画では、ここで選ばれたレイヤーだけが路面ソースより前に積まれる。選ばれない
+    // 面のレイヤーは初回だけ路面線の上に乗り、再描画で下へ戻る（T886で実際に起きた）。
+    const hoisted = layersUnderRoadSurface(STATIC_OVERLAY_LAYERS).map((layer) => layer.key);
+
+    expect(hoisted).toContain("elevation");
+    expect(hoisted).toContain("landcover");
+    // 線のレイヤーは路面ソースを共有するため、先に積むと「source not found」になる。
+    expect(hoisted).not.toContain("designation");
   });
 });

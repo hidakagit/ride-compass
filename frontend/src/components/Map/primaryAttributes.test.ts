@@ -61,3 +61,11 @@ describe("primaryAttributes", () => {
     expect(primaryAttributeIdsToLayerIds(["no_such_attr"])).toEqual([]);
   });
 });
+
+describe("土地被覆の一次属性", () => {
+  it("専用レイヤーを持つものとして対応表から引ける", () => {
+    // 推定指標レイヤーをONにしたとき、観測データ側（土地被覆の面）も連動してONになる。
+    // 「レイヤー無し」の一覧に残っていると、レイヤーが実在するのに連動しない。
+    expect(primaryAttributeIdsToLayerIds(["landcover"])).toEqual(["landcover"]);
+  });
+});

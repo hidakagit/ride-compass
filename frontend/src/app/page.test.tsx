@@ -32,7 +32,13 @@ vi.mock("@/components/RouteSettingsPanel/RouteSettingsPanel", async (importOrigi
 // レイヤーごとの切り替えボタンも描画する（onToggle(id, !on)を呼ぶだけの薄いスタブ）。
 vi.mock("@/components/MapOverlayControls/MapOverlayControls", () => ({
   default: (props: {
-    layers: Array<{ id: string; on: boolean; title?: string }>;
+    layers: Array<{
+      id: string;
+      on: boolean;
+      title?: string;
+      summary?: string | null;
+      legendDetails?: unknown[];
+    }>;
     onToggle: (id: string, on: boolean) => void;
   }) => (
     <>
@@ -43,6 +49,11 @@ vi.mock("@/components/MapOverlayControls/MapOverlayControls", () => ({
           exact-substring/new Map()アサーションが複数ある）とは別の独立したtestidへ出す
           （改善計画T478、T468のisDynamicGroupLayer回帰テスト用）。 */}
       <div data-testid="overlay-layer-titles">{JSON.stringify(props.layers.map((l) => [l.id, l.title]))}</div>
+      {/* ▶の中身は「凡例があれば凡例、無ければsummary」で決まる。案内文を出したい状態で
+          凡例が非空だと、案内文は一度も画面に出ない——その組み合わせを読めるようにする。 */}
+      <div data-testid="overlay-layer-panels">
+        {JSON.stringify(props.layers.map((l) => [l.id, l.summary ?? null, l.legendDetails?.length ?? 0]))}
+      </div>
       {props.layers.map((l) => (
         <button key={l.id} type="button" onClick={() => props.onToggle(l.id, !l.on)}>
           {`toggle:${l.id}`}
@@ -491,6 +502,9 @@ interface RenderFreshHomeOptions {
   exposeComparisonSlots?: boolean;
   exposeWeatherPanel?: boolean;
   exposeWarningBadges?: boolean;
+  /** trueならMapViewを、地図のズームを変えられるボタン付きスタブへ差し替える
+   * （ズーム不足の案内は実際のビューポート通知が来て初めて成立するため）。 */
+  exposeViewportChange?: boolean;
   /** trueならモバイルレイアウト（BottomSheet経由）でHomeを組み立てる。既定はfalse
    * （ファイル先頭の`vi.mock("@/hooks/useIsMobile", ...)`と同じデスクトップ判定）。 */
   mobile?: boolean;
@@ -511,7 +525,17 @@ async function renderFreshHome(options: RenderFreshHomeOptions = {}) {
     vi.doMock("@/components/RouteForm/RouteForm", () => ({ default: () => null }));
   }
 
-  if (options.exposeMapClickHandlers || options.exposeSegmentSelect) {
+  if (options.exposeViewportChange) {
+    vi.doMock("@/components/Map/MapView", () => ({
+      default: (props: {
+        onViewportChange: (viewport: { zoom: number; latitude: number; longitude: number }) => void;
+      }) => (
+        <button onClick={() => props.onViewportChange({ zoom: 5, latitude: 35.68, longitude: 139.76 })}>
+          テスト用に広域へズームアウト
+        </button>
+      ),
+    }));
+  } else if (options.exposeMapClickHandlers || options.exposeSegmentSelect) {
     vi.doMock("@/components/Map/MapView", () => ({
       default: (props: {
         onPinPlace: (role: "origin" | "waypoint" | "destination", c: { latitude: number; longitude: number }) => void;
@@ -2009,5 +2033,43 @@ describe("Home（app/page.tsx） 天候・警報・WBGT・氾濫予報の並列f
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(screen.getByTestId("weather-panel")).toHaveTextContent('"temp":25');
     expect(screen.getByTestId("weather-panel")).not.toHaveTextContent('"temp":5');
+  });
+});
+
+describe("土地被覆レイヤーのズーム不足の案内", () => {
+  beforeEach(() => {
+    window.localStorage.clear();
+    vi.mocked(getAxisCatalog).mockRejectedValue(new Error("mock: unused in this test"));
+  });
+  afterEach(() => {
+    window.localStorage.clear();
+    vi.mocked(getAxisCatalog).mockReset();
+  });
+
+  it("最小ズームより広いと、凡例ではなく案内文が出る状態になる", async () => {
+    // ▶の中身は「凡例があれば凡例、無ければsummary」で決まる（MapOverlayControls）。
+    // 案内文を入れても凡例が非空のままだと、ONにしたのに何も出ない理由を知る手立てが
+    // 画面から消える。道路系（regionZoomTooWide）と同じ扱いになっていることを見る。
+    const HomeFresh = await renderFreshHome({ exposeViewportChange: true });
+    render(<HomeFresh />);
+
+    const before = new Map(
+      JSON.parse(screen.getByTestId("overlay-layer-panels").textContent!).map(
+        ([id, summary, legendCount]: [string, string | null, number]) => [id, { summary, legendCount }],
+      ),
+    );
+    expect(before.get("landcover")).toEqual({ summary: null, legendCount: expect.any(Number) });
+    expect(before.get("landcover")!.legendCount).toBeGreaterThan(0);
+
+    await act(async () => {
+      screen.getByText("テスト用に広域へズームアウト").click();
+    });
+
+    const after = new Map(
+      JSON.parse(screen.getByTestId("overlay-layer-panels").textContent!).map(
+        ([id, summary, legendCount]: [string, string | null, number]) => [id, { summary, legendCount }],
+      ),
+    );
+    expect(after.get("landcover")).toEqual({ summary: "ズームインすると表示されます", legendCount: 0 });
   });
 });
