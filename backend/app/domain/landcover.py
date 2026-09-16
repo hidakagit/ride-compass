@@ -115,14 +115,20 @@ class LandcoverClass:
     #: 常時その色で覆われると他の赤の意味が薄れる。色相は自然な連想（水=青・樹木=緑）を
     #: 保ちつつ、下の道路・地名が読める彩度に落とす。
     color: str
+    #: 地図の面レイヤーで塗るか。Falseでも区間インスペクタの割合には出る（数値は他の
+    #: クラスに薄められない）。塗らないのは、**そのクラスが広い範囲を単色で覆ってしまい、
+    #: 基礎地図を隠すわりに何も足さない**場合に限る。
+    painted: bool = True
 
 
 #: 表示順。割合の大きくなりやすいクラスから並べ、同率のときの並びもこれで決まる。
 #: `LULC_INVALID_VALUES`（No Data・Clouds）は表示対象を持たないため含まない。
 LANDCOVER_CLASSES: tuple[LandcoverClass, ...] = (
-    # 建物は最も広く塗られるクラス（本番の道路周囲の平均で8割を超える）。地図の「地」に
-    # なるため無彩色にし、色を持つ他のクラスが市街地の中でも拾えるようにする。
-    LandcoverClass(LULC_BUILT, "built_percent", "建物", "#9AA0A6"),
+    # 建物は塗らない。既定の現在地（都心）では画素の85〜95%がこのクラスで、塗ると画面
+    # 全体が単色で覆われ基礎地図が濁るだけになる（関東本土全体では中央値3%で、都心だけが
+    # 極端に偏る）。建物があることは基礎地図から分かる。色は区間インスペクタの内訳が使う
+    # ——他のクラスと違って無彩色なのは、数値の表でも「地」として読ませるため。
+    LandcoverClass(LULC_BUILT, "built_percent", "建物", "#9AA0A6", painted=False),
     LandcoverClass(LULC_TREES, "trees_percent", "樹木", "#4C8C4A"),
     LandcoverClass(LULC_CROPS, "crops_percent", "農地", "#E0C066"),
     LandcoverClass(LULC_RANGELAND, "rangeland_percent", "草地", "#C3B78F"),

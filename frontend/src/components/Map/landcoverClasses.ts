@@ -13,6 +13,8 @@ export interface LandcoverClass {
   percentField: string;
   label: string;
   color: string;
+  /** 地図の面レイヤーで塗るか。falseでも区間インスペクタの割合には出る。 */
+  painted: boolean;
 }
 
 export const LANDCOVER_CLASSES: readonly LandcoverClass[] = landcoverClassesJson.map((cls) => ({
@@ -20,4 +22,11 @@ export const LANDCOVER_CLASSES: readonly LandcoverClass[] = landcoverClassesJson
   percentField: cls.percent_field,
   label: cls.label,
   color: cls.color,
+  painted: cls.painted,
 }));
+
+/** 地図の面レイヤーに実際に出るクラス。凡例はこちらを使う——塗らないクラスを凡例へ
+ * 並べると、色見本があるのに地図のどこにも無い、という読み方のできない表になる。 */
+export const LANDCOVER_PAINTED_CLASSES: readonly LandcoverClass[] = LANDCOVER_CLASSES.filter(
+  (cls) => cls.painted,
+);

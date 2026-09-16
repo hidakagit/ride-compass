@@ -160,6 +160,7 @@ def main() -> None:
                 "percent_field": cls.percent_field,
                 "label": cls.label,
                 "color": cls.color,
+                "painted": cls.painted,
             }
             for cls in LANDCOVER_CLASSES
         ],

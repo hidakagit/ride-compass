@@ -67,7 +67,7 @@ import HeaderMenu from "@/components/HeaderMenu/HeaderMenu";
 import RideConditionBar from "@/components/RideConditionBar/RideConditionBar";
 import TravelBearingControl from "@/components/TravelBearingControl/TravelBearingControl";
 import { PRECIPITATION_INTENSITY_LEVELS } from "@/components/Map/precipitationNowcast";
-import { LANDCOVER_CLASSES } from "@/components/Map/landcoverClasses";
+import { LANDCOVER_PAINTED_CLASSES } from "@/components/Map/landcoverClasses";
 import { LANDCOVER_TILE_MIN_ZOOM } from "@/services/regionApi";
 import { WIND_SPEED_LEGEND_LEVELS, type MapViewport } from "@/components/Map/windLayer";
 import { THUNDER_ACTIVITY_LEVELS, TORNADO_POTENTIAL_LEVELS } from "@/components/Map/thunderNowcast";
@@ -266,7 +266,7 @@ const WIND_LEGEND_DETAILS: LegendFilterSummaryAxis[] = [
 const LANDCOVER_LEGEND_DETAILS: LegendFilterSummaryAxis[] = [
   {
     label: "",
-    legend: LANDCOVER_CLASSES.map((cls) => ({
+    legend: LANDCOVER_PAINTED_CLASSES.map((cls) => ({
       key: cls.percentField,
       label: cls.label,
       color: cls.color,

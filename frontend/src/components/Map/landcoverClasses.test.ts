@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { describe, expect, it } from "vitest";
-import { LANDCOVER_CLASSES } from "./landcoverClasses";
+import { LANDCOVER_CLASSES, LANDCOVER_PAINTED_CLASSES } from "./landcoverClasses";
 import { buildMapLayers, mapOverlayGroupFor } from "./mapLayers";
 import { LANDCOVER_TILE_MAX_ZOOM, LANDCOVER_TILE_MIN_ZOOM, landcoverTileUrl } from "@/services/regionApi";
 
@@ -32,5 +32,22 @@ describe("土地被覆レイヤー", () => {
     const descriptor = buildMapLayers([], []).find((layer) => layer.id === "landcover");
     expect(descriptor).toBeDefined();
     expect(mapOverlayGroupFor(descriptor!)).toBe("environment");
+  });
+});
+
+describe("地図に塗るクラス", () => {
+  it("建物は塗らない（凡例にも出ない）", () => {
+    // 市街地では画素の大半が建物で、塗ると地図が単色で覆われるだけになる（T902）。
+    // 区間インスペクタの内訳には残るため、LANDCOVER_CLASSES自体からは消さない。
+    const built = LANDCOVER_CLASSES.find((cls) => cls.percentField === "built_percent");
+
+    expect(built).toBeDefined();
+    expect(built!.painted).toBe(false);
+    expect(LANDCOVER_PAINTED_CLASSES).not.toContain(built);
+  });
+
+  it("塗るクラスは1つ以上あり、すべてpaintedである", () => {
+    expect(LANDCOVER_PAINTED_CLASSES.length).toBeGreaterThan(0);
+    expect(LANDCOVER_PAINTED_CLASSES.every((cls) => cls.painted)).toBe(true);
   });
 });

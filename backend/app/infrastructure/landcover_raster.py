@@ -61,9 +61,10 @@ class _RasterSource:
 _sources: list[_RasterSource] | None = None
 _sources_lock = threading.Lock()
 
-#: 画素値→RGBA。`LANDCOVER_CLASSES`に無い値（No Data・Clouds）は透明のまま残る。
+#: 画素値→RGBA。`LANDCOVER_CLASSES`に無い値（No Data・Clouds）と、塗らないと宣言した
+#: クラスは透明のまま残る。
 _PALETTE = np.zeros((256, 4), dtype=np.uint8)
-for _cls in LANDCOVER_CLASSES:
+for _cls in (c for c in LANDCOVER_CLASSES if c.painted):
     _PALETTE[_cls.value] = (
         int(_cls.color[1:3], 16),
         int(_cls.color[3:5], 16),

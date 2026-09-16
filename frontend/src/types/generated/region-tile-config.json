@@ -14,7 +14,7 @@
   "road_tile_min_zoom": 12,
   "road_tile_max_zoom": 15,
   "landcover": {
-    "tile_version": "1-5088d5119668",
+    "tile_version": "1-e30a2b1df328",
     "min_zoom": 6,
     "max_zoom": 14
   }

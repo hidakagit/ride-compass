@@ -98,11 +98,25 @@ def test_render_tile_paints_classes_with_their_own_colors(synthetic_raster):
     colors = _colors(png)
     by_key = {cls.percent_field: cls for cls in LANDCOVER_CLASSES}
     assert _rgba(by_key["trees_percent"].color) in colors
-    assert _rgba(by_key["built_percent"].color) in colors
     # ラスタが覆わない部分は透明のまま残る（合成ラスタはタイルより小さい）。
     assert (0, 0, 0, 0) in colors
     # 混色は作らない。塗られている色はクラスの色そのものだけ。
     assert colors <= {(0, 0, 0, 0)} | {_rgba(cls.color) for cls in LANDCOVER_CLASSES}
+
+
+def test_render_tile_leaves_unpainted_classes_transparent(synthetic_raster):
+    """塗らないと宣言したクラスの画素は透明のまま残る。
+
+    建物は市街地で画素の大半を占め、塗ると地図が単色で覆われるだけになる
+    （docs/tasks/T902.md）。合成ラスタは建物の画素を含むが、色は出ない。
+    """
+    png = landcover_raster.render_tile(_TILE_Z, _TILE_X, _TILE_Y)
+    assert png is not None
+    colors = _colors(png)
+    unpainted = {_rgba(cls.color) for cls in LANDCOVER_CLASSES if not cls.painted}
+
+    assert unpainted, "塗らないクラスが1つも無いなら、このテストは何も確かめていない"
+    assert not (colors & unpainted)
 
 
 def test_render_tile_outside_raster_returns_none(synthetic_raster):
