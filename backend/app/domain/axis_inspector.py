@@ -138,8 +138,9 @@ def axis_inspector_breakdown(
     `RoadGraphRepository.get_way_attribute_counts`の戻り値で、Noneなら事故密度・
     停止密度は算出不能（available=False）として扱う。`way_landcover`は
     `RoadGraphRepository.get_way_landcover`の戻り値で、Noneまたは`percentages`がNone
-    （そのラスタ構成では値なし）なら開放度軸は算出不能として扱う（評価パイプラインへ配線済みの2列[trees/built]のみ使う、
-        """
+    （そのラスタ構成では値なし）なら、土地被覆を参照する軸は算出不能として扱う。
+    `WIRED_LANDCOVER_KEYS`のクラスだけを材料へ渡す。
+    """
     weights = (preference or RoutePreference()).weights
     # 行はあるが割合がNULL（そのラスタ構成では値なし）の場合も、行が無い場合と同じ欠損。
     landcover_percentages = way_landcover.percentages if way_landcover is not None else None

@@ -821,7 +821,7 @@ _SAMPLE_WAY_MATERIALS_IN_BBOX_SQL = text(
 
 
 
-# 区間インスペクタ（開放度軸）。_WAY_ATTRIBUTE_COUNTS_BY_OSM_WAY_ID_SQLと同じ完全一致
+# 区間インスペクタの土地被覆。_WAY_ATTRIBUTE_COUNTS_BY_OSM_WAY_ID_SQLと同じ完全一致
 # 1行取得パターン。表示に使うクラス以外も含めて全列を1回のSELECTで取る。
 _WAY_LANDCOVER_BY_OSM_WAY_ID_SQL = text(
     "SELECT valid_pixels, water_percent, trees_percent, flooded_veg_percent, crops_percent, "
@@ -2399,7 +2399,7 @@ class AttributeRepository(_SessionRepository):
 
     async def get_way_landcover(self, osm_way_id: int) -> WayLandcover | None:
         """osm_way_id完全一致で土地被覆（way_landcover）の1行を返す（区間インスペクタの
-        開放度軸内訳）。行が無い場合はNone（バッチ未実行・ラスタ範囲外・画素不足）。
+        土地被覆の内訳）。行が無い場合はNone（バッチ未実行・ラスタ範囲外・画素不足）。
         """
         result = await self._session.execute(_WAY_LANDCOVER_BY_OSM_WAY_ID_SQL, {"osm_way_id": osm_way_id})
         row = result.first()

@@ -193,7 +193,7 @@ const GSI_RELIEF_ATTRIBUTION =
 
 // 路面ベクタタイル（ROAD_TILE_SOURCE_ID）へ焼き込まれる生データの帰属表示。1つのMVTタイルへ
 // OSM（道路本体）・国土数値情報N10/N12（指定路線）・警察庁（事故密度）・Esri×Impact
-// Observatory×Microsoft（土地被覆、開放度軸[T624]）の4系統が混在するため、ソースは1つでも
+// Observatory×Microsoft（土地被覆）の4系統が混在するため、ソースは1つでも
 // 帰属表示は4者ぶんまとめて1文字列にする。
 const ROAD_TILE_ATTRIBUTION =
   '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noreferrer">OpenStreetMap contributors</a> / ' +

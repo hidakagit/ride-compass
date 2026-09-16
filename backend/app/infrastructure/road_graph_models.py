@@ -262,7 +262,7 @@ class WayAttributeCountsRow(Base):
 
 class WayLandcoverRow(Base):
     """道路centerline周囲100mリングの土地被覆クラス別割合のway単位事前集計
-    （開放度評価軸の材料）。地図タイル母集団はosm_raw_ways全域のため
+    （土地被覆の材料）。地図タイル母集団はosm_raw_ways全域のため
     way_attribute_countsと同じくWay単位（Edge単位ではない）。
 
     割合8列とvalid_pixelsがNULLの行は「計算済み・値なし」（ラスタ範囲外・境界またぎ・
