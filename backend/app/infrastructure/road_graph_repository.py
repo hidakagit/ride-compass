@@ -757,9 +757,21 @@ class WayMaterialSampleRow:
     accident_count: float | None
     intersection_count: int | None
     poi_counts: dict[str, int] | None
-    trees_percent: float | None
-    built_percent: float | None
+    # 配線済みクラス（`WIRED_LANDCOVER_KEYS`）→割合。way_landcoverの行が無ければNone。
+    landcover_percents: dict[str, float] | None
     is_designated: bool
+
+
+# 標本の土地被覆列。焼き込み列と同じく配線するクラスの並びから組み立てる——ここを手で
+# 並べると、クラスを1つ配線したときに分布プレビューだけが古い並びで材料を組み立てる。
+_LANDCOVER_SAMPLE_COLUMNS_SQL = "\n".join(f"        lc.{key}," for key in WIRED_LANDCOVER_KEYS)
+
+
+def _landcover_percents_or_none(row: object) -> dict[str, float] | None:
+    values = {key: getattr(row, key) for key in WIRED_LANDCOVER_KEYS}
+    if all(value is None for value in values.values()):
+        return None
+    return {key: float(value or 0.0) for key, value in values.items()}
 
 
 # 軸スタジオの分布プレビュー用。Way単位の材料をまとめて取る標本。取り方だけが2通りで、
@@ -774,8 +786,7 @@ _SAMPLE_WAY_MATERIALS_TEMPLATE = """
         wc.accident_count,
         wc.intersection_count,
         wc.poi_counts,
-        lc.trees_percent,
-        lc.built_percent,
+{landcover}
         EXISTS(
             SELECT 1 FROM designation_attributes da
             WHERE da.osm_way_id = w.osm_way_id AND da.kind = ANY(:kinds)
@@ -792,7 +803,9 @@ _SAMPLE_WAY_MATERIALS_TEMPLATE = """
 # 管理画面の応答時間に収まらない）。ページ単位のため地理的な偏りが残りうる点は、分布を
 # 「目安」として扱う前提で許容する。
 _SAMPLE_WAY_MATERIALS_SQL = text(
-    _SAMPLE_WAY_MATERIALS_TEMPLATE.format(sampling="TABLESAMPLE SYSTEM (:sample_percent)", area="")
+    _SAMPLE_WAY_MATERIALS_TEMPLATE.format(
+        sampling="TABLESAMPLE SYSTEM (:sample_percent)", area="", landcover=_LANDCOVER_SAMPLE_COLUMNS_SQL
+    )
 ).bindparams(bindparam("kinds", type_=ARRAY(Text())))
 
 # 範囲を絞って取る場合。抽選と併用しない——`TABLESAMPLE`は表全体のページから抽選するため、
@@ -802,6 +815,7 @@ _SAMPLE_WAY_MATERIALS_IN_BBOX_SQL = text(
     _SAMPLE_WAY_MATERIALS_TEMPLATE.format(
         sampling="",
         area="AND w.geom && ST_MakeEnvelope(:xmin, :ymin, :xmax, :ymax, 4326)",
+        landcover=_LANDCOVER_SAMPLE_COLUMNS_SQL,
     )
 ).bindparams(bindparam("kinds", type_=ARRAY(Text())))
 
@@ -2377,8 +2391,7 @@ class AttributeRepository(_SessionRepository):
                 accident_count=row.accident_count,
                 intersection_count=row.intersection_count,
                 poi_counts=row.poi_counts,
-                trees_percent=row.trees_percent,
-                built_percent=row.built_percent,
+                landcover_percents=_landcover_percents_or_none(row),
                 is_designated=row.is_designated,
             )
             for row in rows
