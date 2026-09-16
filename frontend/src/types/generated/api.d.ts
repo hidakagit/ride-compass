@@ -627,6 +627,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/admin/tuning": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Tuning Parameters */
+        get: operations["list_tuning_parameters_api_admin_tuning_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/admin/tuning/{param_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Update Tuning Parameter */
+        put: operations["update_tuning_parameter_api_admin_tuning__param_id__put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/axis-catalog": {
         parameters: {
             query?: never;
@@ -2243,6 +2277,40 @@ export interface components {
              */
             needs_runtime_scale: boolean;
         };
+        /**
+         * TuningParameterView
+         * @description 較正値1件の宣言と、いま効いている値。
+         */
+        TuningParameterView: {
+            /** Id */
+            id: string;
+            /** Label */
+            label: string;
+            /** Unit */
+            unit: string;
+            /** Description */
+            description: string;
+            /** Default */
+            default: number;
+            /** Minimum */
+            minimum: number;
+            /** Maximum */
+            maximum: number;
+            /** Effect */
+            effect: string;
+            /** Value */
+            value: number;
+            /** Overridden */
+            overridden: boolean;
+        };
+        /**
+         * TuningUpdateRequest
+         * @description 1件の上書き。`value`を省略すると既定へ戻す。
+         */
+        TuningUpdateRequest: {
+            /** Value */
+            value?: number | null;
+        };
         /** ValidationError */
         ValidationError: {
             /** Location */
@@ -3315,6 +3383,61 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ValueDistributionResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_tuning_parameters_api_admin_tuning_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TuningParameterView"][];
+                };
+            };
+        };
+    };
+    update_tuning_parameter_api_admin_tuning__param_id__put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                param_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TuningUpdateRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TuningParameterView"];
                 };
             };
             /** @description Validation Error */

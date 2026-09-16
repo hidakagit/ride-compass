@@ -397,6 +397,13 @@ async def get_axis_registry_admin_service():
         yield AxisRegistryAdminService(AxisDefinitionRepository(session))
 
 
+async def get_tuning_session():
+    # 較正値の管理API専用。読み書きとも1テーブルの軽量な操作のため、軸定義CRUDと同じ
+    # セッション工場で足りる。
+    async with get_session_factory()() as session:
+        yield session
+
+
 async def get_material_coverage_service():
     # 材料の欠損割合集計（管理API専用）。osm_raw_ways/road_edgesの全表走査を伴うため、
     # タイル配信用の短いcommand_timeout（20秒）ではなくルート生成用の長い

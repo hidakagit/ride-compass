@@ -34,6 +34,7 @@ from app.api.routers import (
     material_catalog,
     region,
     routes,
+    tuning_admin,
     weather,
 )
 
@@ -47,6 +48,7 @@ api_router.include_router(basemap.router)
 api_router.include_router(jma_tile.router)
 api_router.include_router(gsi_relief_tile.router)
 api_router.include_router(axis_admin.router)
+api_router.include_router(tuning_admin.router)
 api_router.include_router(axis_catalog.router)
 api_router.include_router(material_catalog.router)
 api_router.include_router(debug_admin.router)
