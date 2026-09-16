@@ -14,6 +14,7 @@
 
 import logging
 import threading
+import time
 from dataclasses import dataclass
 from io import BytesIO
 
@@ -60,6 +61,11 @@ class _RasterSource:
 
 _sources: list[_RasterSource] | None = None
 _sources_lock = threading.Lock()
+#: 1枚も開けなかったときに、次に開き直すまで待つ秒数。**失敗を記憶し続けない**——デプロイは
+#: ラスタの取得とコンテナ入れ替えを別のステップで行うため、起動時に無くても後から現れる。
+#: 毎回開き直すとタイル1枚ごとにI/Oとログが出るので、間隔を空けて試す。
+_RETRY_OPEN_AFTER_SECONDS = 60.0
+_last_open_attempt = 0.0
 
 #: 画素値→RGBA。`LANDCOVER_CLASSES`に無い値（No Data・Clouds）と、塗らないと宣言した
 #: クラスは透明のまま残る。
@@ -74,17 +80,27 @@ for _cls in (c for c in LANDCOVER_CLASSES if c.painted):
 
 
 def _open_sources() -> list[_RasterSource]:
-    """設定されたラスタを開く（プロセスで1度だけ）。開けなかったものは除く。"""
-    global _sources
+    """設定されたラスタを開く。1枚でも開けたらそれを保持し、以後は開き直さない。
+
+    **1枚も開けなかった場合は記憶しない**（`_RETRY_OPEN_AFTER_SECONDS`だけ空けて再挑戦する）。
+    デプロイはラスタの取得とコンテナ入れ替えを別のステップで行うため、起動時に無くても
+    後から現れる——記憶してしまうと、そのプロセスが生きている間ずっと配信できない。
+    """
+    global _sources, _last_open_attempt
     with _sources_lock:
-        if _sources is None:
-            opened: list[_RasterSource] = []
-            for path in settings.lulc_raster_paths_list:
-                try:
-                    opened.append(_RasterSource(rasterio.open(path), threading.Lock()))
-                except (OSError, rasterio.errors.RasterioIOError) as exc:
-                    logger.warning("土地被覆ラスタを開けません path=%s error=%r", path, exc)
-            _sources = opened
+        if _sources:
+            return _sources
+        now = time.monotonic()
+        if _sources is not None and now - _last_open_attempt < _RETRY_OPEN_AFTER_SECONDS:
+            return _sources
+        _last_open_attempt = now
+        opened: list[_RasterSource] = []
+        for path in settings.lulc_raster_paths_list:
+            try:
+                opened.append(_RasterSource(rasterio.open(path), threading.Lock()))
+            except (OSError, rasterio.errors.RasterioIOError) as exc:
+                logger.warning("土地被覆ラスタを開けません path=%s error=%r", path, exc)
+        _sources = opened
         return _sources
 
 
@@ -111,22 +127,25 @@ def _read_decimated(source: _RasterSource, bounds: tuple[float, float, float, fl
     戻り値は(画素配列, その配列に対応するtransform)。範囲が重ならなければNone。
     """
     dataset = source.dataset
-    window = dataset.window(*bounds).round_offsets().round_lengths()
-    try:
-        window = window.intersection(Window(0, 0, dataset.width, dataset.height))
-    except rasterio.errors.WindowError:
-        # 重なりが空。ゾーン単位のラスタに対しては、覆っていないタイルの方が普通に多い。
-        return None
-    if window.width <= 0 or window.height <= 0:
-        return None
-    scale = max(window.width, window.height) / _MAX_SOURCE_READ_SIDE
-    if scale > 1:
-        out_shape = (max(1, int(window.height / scale)), max(1, int(window.width / scale)))
-    else:
-        out_shape = (int(window.height), int(window.width))
+    # **datasetへ触る全体をロックで囲う**。`read`だけを囲っても、`window`・`transform`は
+    # 同じDatasetReaderの状態を読むため直列化にならない（docstringが宣言しているのは
+    # 「読み取りの直列化」で、1行だけではそれを満たさない）。
     with source.lock:
+        window = dataset.window(*bounds).round_offsets().round_lengths()
+        try:
+            window = window.intersection(Window(0, 0, dataset.width, dataset.height))
+        except rasterio.errors.WindowError:
+            # 重なりが空。ゾーン単位のラスタに対しては、覆っていないタイルの方が普通に多い。
+            return None
+        if window.width <= 0 or window.height <= 0:
+            return None
+        scale = max(window.width, window.height) / _MAX_SOURCE_READ_SIDE
+        if scale > 1:
+            out_shape = (max(1, int(window.height / scale)), max(1, int(window.width / scale)))
+        else:
+            out_shape = (int(window.height), int(window.width))
         data = dataset.read(1, window=window, out_shape=out_shape, resampling=Resampling.nearest)
-    base = window_transform(window, dataset.transform)
+        base = window_transform(window, dataset.transform)
     # 間引いて読むと1画素が覆う実距離が伸びる。読んだ配列の形へtransformを合わせないと、
     # 再投影が元の画素サイズのまま貼り付けてタイルの一部しか埋まらない。
     return data, base * base.scale(window.width / data.shape[1], window.height / data.shape[0])

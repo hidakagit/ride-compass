@@ -76,6 +76,10 @@ class WayMaterialCoverageSpec:
     missing_semantics: MissingSemantics
     population: Population = "way"
     in_scope: str = "TRUE"
+    #: 欠損判定に別の表が要る場合のJOIN句（`LEFT JOIN … ON …`をそのまま書く）。同じ句を
+    #: 宣言した材料どうしは1回のJOINを共有する。**相関サブクエリで書かない**——1材料につき
+    #: 1つずつ行ごとに評価され、材料を増やすほど所要が伸びる（実測、docs/tasks/T907.md）。
+    join: str | None = None
 
 
 @dataclass(frozen=True)
@@ -218,10 +222,8 @@ MATERIAL_COVERAGE_SPECS: dict[str, MaterialCoverageSpec] = {
 # 数えてしまう**ため、列のNULLも欠損として数える。
 MATERIAL_COVERAGE_SPECS.update({
     key: WayMaterialCoverageSpec(
-        missing_condition=(
-            "NOT EXISTS (SELECT 1 FROM way_landcover lc"
-            f" WHERE lc.osm_way_id = w.osm_way_id AND lc.{key} IS NOT NULL)"
-        ),
+        missing_condition=f"lc.{key} IS NULL",
+        join="LEFT JOIN way_landcover lc ON lc.osm_way_id = w.osm_way_id",
         # `precompute_way_landcover`の対象はgeomとhighwayを持つwayだけ。
         in_scope="w.geom IS NOT NULL AND w.highway IS NOT NULL",
         source=f"way_landcover.{key}（precompute_way_landcoverの計算済み値）の有無",
@@ -259,9 +261,17 @@ def build_way_coverage_sql(specs: dict[str, MaterialCoverageSpec] = MATERIAL_COV
         f"count(*) FILTER (WHERE ({spec.in_scope}) AND ({spec.missing_condition})) AS {material_id}"
         for material_id, spec in way_specs.items()
     )
+    # 同じJOIN句を宣言した材料は1回のJOINを共有する（宣言の重複は句の一意化で吸収する）。
+    joins = "".join(
+        f" {clause}" for clause in dict.fromkeys(
+            spec.join for spec in way_specs.values() if spec.join
+        )
+    )
     # AS w: infrastructure/osm_way_tag_sql.pyの共有SQL断片がosm_raw_waysをこのエイリアスで
     # 参照する前提のため（_ROAD_SURFACE_TILE_MVT_SQLと同じエイリアス）。
-    sql = f"SELECT count(*) AS total{', ' + columns if columns else ''} FROM osm_raw_ways AS w"  # noqa: S608 固定の内部辞書のみ使用
+    sql = (  # noqa: S608 固定の内部辞書のみ使用
+        f"SELECT count(*) AS total{', ' + columns if columns else ''} FROM osm_raw_ways AS w{joins}"
+    )
     statement = text(sql)
     if ":good_tags" in sql:
         statement = statement.bindparams(
