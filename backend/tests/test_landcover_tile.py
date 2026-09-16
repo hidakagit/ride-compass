@@ -23,7 +23,9 @@ from app.domain.landcover import (
     LULC_TREES,
     LandcoverPercentages,
 )
+from app.api import cache_policy
 from app.infrastructure import landcover_raster, rate_limiter, tile_cache
+from app.services import landcover_tile_service
 from app.main import app
 
 client = TestClient(app)
@@ -145,3 +147,35 @@ def test_landcover_tile_endpoint_without_raster_reports_unavailable(monkeypatch)
 def test_landcover_tile_endpoint_rejects_zoom_outside_range(z):
     response = client.get(f"/api/region/landcover-tiles/{z}/1/1.png")
     assert response.status_code == 400
+
+
+def test_tile_cache_path_changes_when_the_raster_set_changes(monkeypatch):
+    """ラスタを1枚足すとディスクキャッシュの鍵が変わる。
+
+    タイルの中身は「どのラスタを開いていたか」に従属する。鍵が同じだと、対応範囲を
+    広げても継ぎ目のタイルが古い絵（片側が透明のまま）を返し続け、利用者側からは
+    復旧できない。
+    """
+    monkeypatch.setattr(settings, "lulc_raster_paths", "/app/raster/54S_2024.tif")
+    before = landcover_tile_service._tile_cache_path(10, 1, 2)
+    monkeypatch.setattr(
+        settings, "lulc_raster_paths", "/app/raster/54S_2024.tif,/app/raster/53S_2024.tif"
+    )
+    after = landcover_tile_service._tile_cache_path(10, 1, 2)
+
+    assert before != after
+    # 世代（配色・クラス構成）そのものは変わらない——URLは同じまま、サーバー側の鍵だけが割れる。
+    assert landcover_tile_service.LANDCOVER_TILE_VERSION in before
+    assert landcover_tile_service.LANDCOVER_TILE_VERSION in after
+
+
+def test_landcover_tiles_are_not_served_as_immutable():
+    """開いているラスタの構成はURLに現れないため、内容が変わりうる。
+
+    `immutable`を付けるとブラウザは条件付きリクエストすら省き、ラスタを足しても
+    その利用者の画面は`max-age`のあいだ古いまま戻らない。
+    """
+    policy = cache_policy.policy_for_path("/api/region/landcover-tiles/10/1/2.png")
+
+    assert policy is not None
+    assert policy.immutable is False

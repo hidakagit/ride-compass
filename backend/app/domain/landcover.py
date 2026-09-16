@@ -8,8 +8,10 @@ Esri×Impact Observatory Sentinel-2 10m Annual LULCの画素値ヒストグラ�
 何が難易度に寄与しているか分からなくなるため（docs/tasks/T624.md「方針転換」参照）。
 """
 
+import hashlib
 from dataclasses import dataclass
 from datetime import datetime
+from pathlib import Path
 from typing import Mapping
 
 from app.domain.strict_model import StrictModel
@@ -139,3 +141,15 @@ LANDCOVER_CLASSES: tuple[LandcoverClass, ...] = (
 # UTMゾーン1枚ぶんで、これより広い表示では面が画面の一部を塗るだけになり読み取れない。
 LANDCOVER_TILE_MIN_ZOOM = 6
 LANDCOVER_TILE_MAX_ZOOM = 14
+
+
+def raster_set_fingerprint(raster_paths: list[str]) -> str:
+    """ラスタ構成の指紋（ファイル名の集合から決まる短い文字列）。
+
+    土地被覆の派生物は、どのラスタを開いていたかに従属する。「値なし」はその構成で
+    そう確定したという意味しか持たず、ラスタを1枚足せば境界またぎ・範囲外だった場所は
+    値を持ちうる。指紋を派生物の鍵へ入れておけば、構成が変わった時点で古い結果が
+    使われなくなる。順序には依存させない（同じ集合をどの順で渡しても同じ指紋になる）。
+    """
+    joined = "\n".join(sorted(Path(path).name for path in raster_paths))
+    return hashlib.sha256(joined.encode("utf-8")).hexdigest()[:16]

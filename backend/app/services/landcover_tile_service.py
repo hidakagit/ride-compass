@@ -11,7 +11,8 @@
 import asyncio
 import logging
 
-from app.domain.landcover import LANDCOVER_CLASSES
+from app.config import settings
+from app.domain.landcover import LANDCOVER_CLASSES, raster_set_fingerprint
 from app.infrastructure import landcover_raster
 from app.infrastructure.cache_identity import LANDCOVER_REVISION, cache_identity
 from app.services.tile_serving import TileResponse, serve_cached_tile
@@ -20,14 +21,27 @@ logger = logging.getLogger("ridecompass.landcover_tile")
 
 PNG_CONTENT_TYPE = "image/png"
 
-#: タイルURL・ディスクキャッシュのパスへ入る世代。
+#: タイルURLへ入る世代（配色・クラス構成と手書きリビジョンから決まる）。
+#:
+#: **どのラスタを開いているかはここへ入れられない**。この値は生成物
+#: （`region-tile-config.json`）を通してフロントのURLへ焼き込まれ、生成はビルド機で行う
+#: ——ラスタの置き場所は環境変数（`LULC_RASTER_PATHS`）で環境ごとに違うため、入れると
+#: 生成物がビルド機の設定で決まり、本番の実際の構成とずれる。ラスタ構成への追随は
+#: サーバー側のディスクキャッシュ（`_tile_cache_path`）で行い、ブラウザ側は
+#: `cache_policy.py`が`immutable`を付けないことで再検証できるようにしてある。
 LANDCOVER_TILE_VERSION = cache_identity(LANDCOVER_REVISION, LANDCOVER_CLASSES)
 
 _EMPTY_TILE = landcover_raster.empty_tile_png()
 
 
 def _tile_cache_path(z: int, x: int, y: int) -> str:
-    return f"region/landcover/v{LANDCOVER_TILE_VERSION}/{z}/{x}/{y}.png"
+    """ディスクキャッシュのパス。**開いているラスタの構成**も鍵に入れる。
+
+    タイルの中身はどのラスタを開いていたかに従属する。対応範囲を広げるためゾーンを1枚
+    足しても鍵が同じだと、継ぎ目のタイルは古い絵（片側が透明のまま）を返し続ける。
+    """
+    raster_set = raster_set_fingerprint(settings.lulc_raster_paths_list)
+    return f"region/landcover/v{LANDCOVER_TILE_VERSION}/{raster_set}/{z}/{x}/{y}.png"
 
 
 async def get_landcover_tile(z: int, x: int, y: int) -> TileResponse | None:

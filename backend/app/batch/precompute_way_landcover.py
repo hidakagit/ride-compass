@@ -18,7 +18,6 @@
 
 import argparse
 import asyncio
-import hashlib
 import logging
 import math
 import re
@@ -42,7 +41,7 @@ from app.domain.derived_data_versions import (
     WAY_LANDCOVER_DEFAULT_INNER_M,
     way_landcover_algorithm_version,
 )
-from app.domain.landcover import WayLandcover, class_percentages
+from app.domain.landcover import WayLandcover, class_percentages, raster_set_fingerprint
 from app.infrastructure.proj_data import pin_bundled_proj_data
 from app.infrastructure.road_graph_models import OsmRawWayRow, WayLandcoverRow
 from app.infrastructure.road_graph_repository import RoadGraphRepository
@@ -114,18 +113,6 @@ def count_pixels_in_ring(dataset, ring: BaseGeometry) -> dict[int, int] | None:
     mask = rasterio.features.geometry_mask([ring], out_shape=data.shape, transform=window_transform, invert=True)
     values, counts = np.unique(data[mask], return_counts=True)
     return {int(value): int(count) for value, count in zip(values, counts)}
-
-
-def raster_set_fingerprint(raster_paths: list[str]) -> str:
-    """ラスタ構成の指紋（ファイル名の集合から決まる短い文字列）。
-
-    「値なし」の行はこの構成でそう確定したという意味しか持たない——ラスタを1枚足せば、
-    境界またぎ・範囲外だったwayは値を持ちうる。指紋が変われば増分実行がその行を対象へ
-    戻すことで、ラスタ追加後の取りこぼしを防ぐ。順序には依存させない（同じ集合を
-    どの順で渡しても同じ指紋になる）。
-    """
-    joined = "\n".join(sorted(Path(path).name for path in raster_paths))
-    return hashlib.sha256(joined.encode("utf-8")).hexdigest()[:16]
 
 
 def _target_way_ids_stmt(recompute: bool, raster_set: str | None = None, algorithm: str | None = None):
