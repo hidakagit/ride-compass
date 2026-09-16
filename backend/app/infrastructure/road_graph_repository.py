@@ -105,6 +105,7 @@ from app.domain.traffic import (
     INTERSECTION_DEGREE_THRESHOLD,
     POI_COUNT_KINDS,
     POI_CLUSTER_EPS_M,
+    SIGNAL_MATCH_RADIUS_M,
     POI_ON_EDGE_TOLERANCE_M,
     STOP_POI_KINDS,
 )
@@ -1427,8 +1428,8 @@ _RECOMPUTE_NODE_MAX_HIGHWAY_RANK_FOR_NODES_SQL = text(
 )
 
 # ノードに信号があるか。信号は交差点そのもののノードではなく、流入路ごと・横断歩道位置ごとの
-# 別ノードとして描かれるため、`osm_node_id`の一致では大半を取りこぼす。同じ交差点の点を
-# まとめるのに使っている距離（`POI_CLUSTER_EPS_M`）を半径にして拾う。
+# 別ノードとして描かれるため、`osm_node_id`の一致では大半を取りこぼす。
+# `SIGNAL_MATCH_RADIUS_M`を半径にして拾う。
 # 判定に使うkindは`_POI_COUNT_KIND_EXPR`と同じ規則（`traffic_signals`と、信号付きの
 # `crossing`の2通りの書かれ方）。
 _RECOMPUTE_NODE_TRAFFIC_SIGNALS_SQL = text(
@@ -1455,6 +1456,20 @@ _RECOMPUTE_NODE_TRAFFIC_SIGNALS_SQL = text(
       AND rn.has_traffic_signals IS DISTINCT FROM f.has_signal
     """
 )
+
+
+def signal_radius_params() -> dict[str, float]:
+    """信号判定の半径を、上のSQLが取るパラメータへ落とす。
+
+    **`POI_CLUSTER_EPS_M`ではなく`SIGNAL_MATCH_RADIUS_M`を読む**——同じ値だが別の問いで、
+    片方を動かしたときにもう片方が一緒に動いてはいけない。
+    """
+    return {
+        "signal_radius_m": SIGNAL_MATCH_RADIUS_M,
+        # `&&`でGiST索引を先に効かせるための粗い矩形。緯度1度≒111kmで換算し、経度側が
+        # 狭くなる高緯度でも取りこぼさないよう余裕を持たせる。
+        "signal_radius_deg": SIGNAL_MATCH_RADIUS_M / 111_000.0 * 2.0,
+    }
 
 
 # road_edgesから一切参照されないnode（孤立点、通常は発生しないが防御的に0へ戻す）。
@@ -1537,14 +1552,7 @@ class DerivedGraphRepository(_SessionRepository):
         if not node_ids:
             return
         await self._session.execute(
-            _RECOMPUTE_NODE_TRAFFIC_SIGNALS_SQL,
-            {
-                "node_ids": node_ids,
-                "signal_radius_m": POI_CLUSTER_EPS_M,
-                # `&&`でGiST索引を先に効かせるための粗い矩形。緯度1度≒111kmで換算し、
-                # 経度側が狭くなる高緯度でも取りこぼさないよう余裕を持たせる。
-                "signal_radius_deg": POI_CLUSTER_EPS_M / 111_000.0 * 2.0,
-            },
+            _RECOMPUTE_NODE_TRAFFIC_SIGNALS_SQL, {"node_ids": node_ids, **signal_radius_params()}
         )
 
     async def get_graph_in_bbox(self, bbox: BoundingBox) -> RoadGraph | None:

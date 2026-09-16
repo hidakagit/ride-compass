@@ -1,3 +1,4 @@
+from app.domain import traffic
 from app.domain.traffic import classify_stop_poi, classify_supply_poi
 
 
@@ -146,3 +147,33 @@ class TestClassifySupplyPoi:
 
     def test_does_not_match_stop_poi_tags(self):
         assert classify_supply_poi({"highway": "traffic_signals"}) is None
+
+
+class TestSignalMatchRadius:
+    """信号判定の半径が、同じ交差点の点をまとめる距離から独立していること。
+
+    2つは同じ値だが問うていることが違う（あちらは「同じ停止か」、こちらは「この交差点に
+    信号があるか」）。まとめる距離を動かしたときに走行モデルの横断の費用まで動くと、
+    直した側が正しく動くぶんだけ較正が静かに巻き戻る。
+    """
+
+    def test_signal_radius_does_not_follow_the_poi_cluster_distance(self, monkeypatch):
+        from app.infrastructure import road_graph_repository
+
+        monkeypatch.setattr(road_graph_repository, "POI_CLUSTER_EPS_M", 999.0)
+
+        params = road_graph_repository.signal_radius_params()
+
+        assert params["signal_radius_m"] == traffic.SIGNAL_MATCH_RADIUS_M
+
+    def test_signal_radius_moves_with_its_own_constant(self, monkeypatch):
+        from app.infrastructure import road_graph_repository
+
+        monkeypatch.setattr(road_graph_repository, "SIGNAL_MATCH_RADIUS_M", 123.0)
+
+        params = road_graph_repository.signal_radius_params()
+
+        assert params["signal_radius_m"] == 123.0
+        # 粗い矩形（GiST索引用）も同じ値から導く。片方だけ古い値のままだと、索引で
+        # 落としたぶんは半径の判定まで届かない。
+        assert params["signal_radius_deg"] == 123.0 / 111_000.0 * 2.0
