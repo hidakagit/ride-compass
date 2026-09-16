@@ -31,6 +31,16 @@ async def _noop_refresh_axis_definitions(*args, **kwargs) -> None:
     return None
 
 
+async def _noop_refresh_tuning_values(*args, **kwargs) -> None:
+    """較正値の読み込みも止める。
+
+    このファイルのテストは**DBを触らない**契約で、lifespanが開くセッションはどれも
+    スタブへ差し替える。実接続を残すと、テストのイベントループが閉じた後に接続の後始末が
+    走り「Event loop is closed」になる。
+    """
+    return None
+
+
 async def _noop_refresh_amedas_job() -> None:
     return None
 
@@ -99,6 +109,7 @@ def test_lifespan_registers_amedas_job_with_immediate_next_run_time(monkeypatch,
     プリウォームジョブも登録されるようになった（`add_job`が2回呼ばれる）ため、
     呼び出しごとにkwargsを蓄積し、id="refresh_amedas"の回だけを拾う。"""
     monkeypatch.setattr(main_module, "refresh_axis_definitions", _noop_refresh_axis_definitions)
+    monkeypatch.setattr(main_module, "refresh_tuning_values", _noop_refresh_tuning_values)
     captured_calls: list[dict[str, object]] = []
     original_add_job = _isolated_scheduler.add_job
 
@@ -123,6 +134,7 @@ def test_lifespan_registers_jma_tile_prewarm_job_with_immediate_next_run_time(mo
     interval=settings.jma_tile_prewarm_interval_minutes分・next_run_time=起動直後で
     登録されることを確認する（アメダスジョブの回帰テストと同じ検証パターン）。"""
     monkeypatch.setattr(main_module, "refresh_axis_definitions", _noop_refresh_axis_definitions)
+    monkeypatch.setattr(main_module, "refresh_tuning_values", _noop_refresh_tuning_values)
     captured_calls: list[dict[str, object]] = []
     original_add_job = _isolated_scheduler.add_job
 
@@ -147,6 +159,7 @@ def test_lifespan_shuts_down_scheduler_before_closing_http_clients(monkeypatch, 
     明示close」の順序で実行されることを確認する（docs/modules/backend/
     cross-cutting-infrastructure.mdのlifespan図参照）。"""
     monkeypatch.setattr(main_module, "refresh_axis_definitions", _noop_refresh_axis_definitions)
+    monkeypatch.setattr(main_module, "refresh_tuning_values", _noop_refresh_tuning_values)
     call_order: list[str] = []
 
     original_shutdown = _isolated_scheduler.shutdown

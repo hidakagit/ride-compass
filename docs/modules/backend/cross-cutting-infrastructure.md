@@ -32,6 +32,7 @@ DB接続・マイグレーション・Redis・HTTPクライアント・レート
 | infrastructure | `debug_log.py` | 外部I/O（外部API・タイル/標高キャッシュ）イベントのログと集計 |
 | infrastructure | `debug_control.py` | `debug_mode`のランタイム切替・直近ログの保持 |
 | infrastructure | `job_registry.py` | 汎用の非同期ジョブレジストリ（プロセス内メモリのみ） |
+| infrastructure | `tuning_overrides.py` | 較正値の上書き（宣言の既定値から動かしたぶんだけをDBへ持つ）。起動時と管理APIの書き込み直後にプロセス内へ読み込む |
 
 ## Pydanticモデルの基底（`domain/strict_model.py`）
 
@@ -63,6 +64,9 @@ FastAPI(lifespan=lifespan)
         │       このコストを負わないようにする）
         ├─ (2) refresh_axis_definitions() を1回呼ぶ（軸スタジオ・評価軸定義参照）。
         │       失敗するとAxisDefinitionSyncErrorがここで捕捉されず起動自体が失敗する
+        ├─ (2') 同じセッションで refresh_tuning_values() を呼び、較正値の上書きを重ねる
+        │       （[ルーティングエンジン](routing-engine.md)参照）。行が無い・テーブルが
+        │       無い場合は宣言の既定値のまま進み、値が壊れている行だけが起動を止める
         ├─ (3) APSchedulerでJMAアメダス定期更新ジョブを登録（interval分ごと＋
         │       next_run_time=nowで起動直後にも1回即時実行、コールドスタート対策）
         ├─ (4) 同じくAPSchedulerでJMA動的タイルの定期プリウォームジョブを登録

@@ -19,6 +19,7 @@ from app.infrastructure.jma_tile_client import JmaTileClient
 from app.infrastructure.msm_client import refresh as refresh_msm
 from app.infrastructure.request_log import RequestIdLogFilter, request_log_middleware, unhandled_exception_handler
 from app.infrastructure.response_compression import ContentTypeGZipMiddleware
+from app.infrastructure.tuning_overrides import refresh_tuning_values
 from app.services.axis_registry_service import refresh_axis_definitions
 from app.services.jma_amedas_service import AMEDAS_REFRESH_INTERVAL_MINUTES, JmaAmedasService
 from app.services.jma_tile_prewarm_service import prewarm_jma_tiles
@@ -142,6 +143,10 @@ async def lifespan(app: FastAPI):
     # services/axis_registry_service.py参照）。
     async with get_session_factory()() as session:
         await refresh_axis_definitions(AxisDefinitionRepository(session))
+        # 較正値の上書き（domain/tuning.py: TUNING_VALUES）をDBから重ねる。行が1つも
+        # 無ければ宣言どおりの既定値のまま動くため、未migrationの環境でも失敗しない
+        # （壊れた値の行だけがTuningOverrideErrorで起動を止める）。
+        await refresh_tuning_values(session)
 
     # JMAアメダスの定期バッチ。next_run_time=nowで起動直後にも1回即時実行し、
     # 次の定期実行（interval分後）を待たずにデータを温める（コールドスタート時に
