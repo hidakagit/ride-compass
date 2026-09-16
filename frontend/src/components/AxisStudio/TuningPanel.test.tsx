@@ -1,4 +1,4 @@
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import TuningPanel from "./TuningPanel";
@@ -46,16 +46,17 @@ describe("TuningPanel", () => {
     expect(screen.getByLabelText("まだ知らない値")).toBeInTheDocument();
   });
 
-  it("効き方ごとに見出しを分け、別の操作が要る群には断りを出す", async () => {
+  it("効き方ごとに見出しを分ける（別の操作が要る群がそれと分かる）", async () => {
     // 同じ見た目で並べると「変えたのに効かない」に気づけない。
     vi.mocked(listTuningParameters).mockResolvedValue([
       parameter({ id: "signal.match_radius_m", label: "信号とみなす半径", effect: "node_attribute_batch" }),
+      parameter({ id: "stop.signal_seconds", label: "信号の待ち", effect: "immediate" }),
     ]);
 
     render(<TuningPanel />);
 
     expect(await screen.findByText("交差点の事前計算をやり直すまで効かない")).toBeInTheDocument();
-    expect(screen.getByText(/road_nodesの事前計算バッチを回すまで結果は変わりません/)).toBeInTheDocument();
+    expect(screen.getByText("次のルート生成から効く")).toBeInTheDocument();
   });
 
   it("知らない効き方が来ても落とさず「その他」へ出す", async () => {
@@ -98,7 +99,7 @@ describe("TuningPanel", () => {
     render(<TuningPanel />);
     await screen.findByLabelText("右折");
 
-    const buttons = screen.getAllByRole("button", { name: "既定へ戻す" });
+    const buttons = screen.getAllByRole("button", { name: /を既定へ戻す$/ });
     expect(buttons).toHaveLength(1);
 
     await user.click(buttons[0]);
@@ -129,17 +130,35 @@ describe("TuningPanel", () => {
     render(<TuningPanel />);
 
     expect(await screen.findByText("較正値の取得に失敗しました")).toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: "読み込む" }));
+    await user.click(screen.getByRole("button", { name: "読み込み直す" }));
 
     expect(await screen.findByLabelText("右折")).toBeInTheDocument();
   });
 
-  it("行には既定値も並べる（どれだけ動かしたかが分かる）", async () => {
+  it("説明と既定値・範囲は(i)の奥へ置く（21件が縦に並ぶため行に敷かない）", async () => {
+    const user = userEvent.setup();
     vi.mocked(listTuningParameters).mockResolvedValue([parameter({ value: 30, overridden: true })]);
 
     render(<TuningPanel />);
+    await screen.findByLabelText("右折");
 
-    const row = (await screen.findByLabelText("右折")).closest("div")!;
-    expect(within(row).getByText("既定 12秒")).toBeInTheDocument();
+    // 開く前は行に出ていない。
+    expect(screen.queryByText("右折1回の時間損失。")).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "右折の説明を表示" }));
+
+    expect(await screen.findByText("右折1回の時間損失。")).toBeInTheDocument();
+    expect(screen.getByText("既定 12秒（0〜120）")).toBeInTheDocument();
+  });
+
+  it("既定から動かしてある件数を出す", async () => {
+    vi.mocked(listTuningParameters).mockResolvedValue([
+      parameter({ value: 30, overridden: true }),
+      parameter({ id: "stop.signal_seconds", label: "信号の待ち", effect: "immediate" }),
+    ]);
+
+    render(<TuningPanel />);
+
+    expect(await screen.findByText("1件が既定から変更")).toBeInTheDocument();
   });
 });
