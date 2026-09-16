@@ -63,12 +63,11 @@
                                         osm_raw_ways.geom+tags → way_divided_carriageway
       └─ ①（osm_raw_ways更新）の後に再実行が必要（road_edges非依存）。判定は他のwayとの
          位置関係を見るため、対象wayだけでなく周辺のwayが揃っている必要がある
-
-【第2グループの続き（④の後であればよく、⑤〜⑪との前後関係なし）】
+```
 
 `precompute_elevation_attributes.py`のみ、`ElevationAttributeService.get_attributes_for_graph`
 が「未計算のEdgeのみ計算する」設計のため**増分実行が可能**（新規Edge追加後にバッチ全体を
-再実行しても安全、他の3つのprecomputeは全件洗い替え）。
+再実行しても安全、他のprecomputeは全件洗い替え）。
 
 ## 2. バッチ別の入出力・依存・再実行トリガー
 
@@ -140,8 +139,10 @@ VERSION`は保存形式（numpy配列）自体は無変更のため据え置き�
 
 ## 統合エントリポイント（改善計画T281段階2、実装済み）
 
-`python -m app.batch.refresh_derived`が④〜⑫（本ファイルの依存順序どおり、①〜③の生データ
-取込は対象外）を1コマンドで実行する。`app/batch/precompute_*.py`のファイル一覧と
+`python -m app.batch.refresh_derived`が派生計算バッチ（本ファイルの依存順序どおり、
+生データ取込は対象外）を1コマンドで実行する。**どの段が含まれるかの正本は
+`refresh_derived.py`の`_STAGES`**——ここへ範囲を書くと、段を1つ足したときにこちらだけが
+古くなる（実際に⑭が抜けたまま残っていた）。`app/batch/precompute_*.py`のファイル一覧と
 `_STAGES`の突き合わせを`tests/test_refresh_derived.py`が行い、登録漏れを機械的に止める。⑩precompute_way_landcoverだけラスタファイルの
 手動取得を要するため、未整備の環境では`--skip-landcover`でこの段だけスキップできる。詳細は
 [docs/modules/backend/static-road-attributes.md](modules/backend/static-road-attributes.md)
