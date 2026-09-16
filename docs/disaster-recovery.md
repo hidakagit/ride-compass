@@ -64,9 +64,13 @@ axis_admin API経由の変更が消える、`bootstrap_fresh_db.py`のdocstring�
 `import_designations.py`をそれぞれ実行する（相互に独立、順不同）。PBF取込には
 `pyosmium`（`requirements-batch.txt`）が必要——`requirements.txt`のみの本番webイメージ
 には含まれないため、バッチ実行用に別途これを含めたイメージ/環境を用意すること。
-ARM64のDebian系ベースイメージでは`libexpat1`（`apt-get install`）が無いと
-`import osmium`が`ImportError: libexpat.so.1: cannot open shared object file`で
-失敗する（python公式slimイメージには含まれない）。
+**python公式slimイメージには`libexpat1`が入っておらず、これを`apt-get install`しない
+イメージでは`import osmium`も`import rasterio`も
+`ImportError: libexpat.so.1: cannot open shared object file`で失敗する。** wheelが同梱する
+ネイティブライブラリ（osmiumのexpat、rasterioのGDAL）がこれへ動的リンクしており、manylinuxの
+ポリシーが「配布先にある前提」として同梱を許さないため、wheelを新しくしても解決しない。
+本番webイメージ（`backend/Dockerfile`）はrasterioを含むためこれをインストールする。
+バッチ実行用のイメージ/環境を別に用意する場合も同じ手当てが要る。
 
 ### 4. refresh_derived.py
 

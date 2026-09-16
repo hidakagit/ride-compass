@@ -2,6 +2,14 @@ FROM python:3.12-slim
 
 WORKDIR /app
 
+# rasterioのwheelが同梱するGDALはlibexpatへ動的リンクしており、python公式slimイメージには
+# 入っていない（`import rasterio`が`ImportError: libexpat.so.1`で落ちる）。manylinuxの
+# ポリシーが「配布先にある前提」として同梱を許さないライブラリのため、wheelを新しくしても
+# 解決しない。
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends libexpat1 \
+    && rm -rf /var/lib/apt/lists/*
+
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
