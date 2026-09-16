@@ -21,27 +21,12 @@ def _record_calls(monkeypatch, calls: list[str], *, fail_at: str | None = None, 
             return 1
         return 0
 
-    for label, module in [
-        ("④presplit_road_graph", refresh_derived.presplit_road_graph),
-        ("⑤precompute_road_node_degrees", refresh_derived.precompute_road_node_degrees),
-        ("⑥precompute_edge_attribute_counts", refresh_derived.precompute_edge_attribute_counts),
-        ("⑦precompute_elevation_attributes", refresh_derived.precompute_elevation_attributes),
-        ("⑧precompute_way_attribute_counts", refresh_derived.precompute_way_attribute_counts),
-        ("⑬precompute_way_divided_carriageway", refresh_derived.precompute_way_divided_carriageway),
-    ]:
-        monkeypatch.setattr(
-            module, "run", lambda db, dr, _label=label: _fake(_label, db, dr)
-        )
-    monkeypatch.setattr(
-        refresh_derived.match_designations,
-        "run_match",
-        lambda db, dr: _fake("⑨match_designations", db, dr),
-    )
-    monkeypatch.setattr(
-        refresh_derived.precompute_way_landcover,
-        "run_default",
-        lambda db, dr: _fake("⑩precompute_way_landcover", db, dr),
-    )
+    # **差し替える段は`_STAGES`から導く**。ここへ段を並べると、`_STAGES`へ足した段が
+    # 差し替えられないまま**実DBへ本物のSQLを投げる**——CIのテストDBにテーブルが
+    # 出来ているかは他のワーカーの進み方次第で、同じコードが通ったり落ちたりする
+    # （⑭が並べ忘れられており、実際にそうなっていた。docs/tasks/T900.md）。
+    for label, module, attr in refresh_derived._STAGES:
+        monkeypatch.setattr(module, attr, lambda db, dr, _label=label: _fake(_label, db, dr))
 
 
 async def test_run_calls_all_stages_in_dependency_order(monkeypatch):
@@ -51,16 +36,9 @@ async def test_run_calls_all_stages_in_dependency_order(monkeypatch):
     result = await refresh_derived.run(database_url=None, dry_run=False)
 
     assert result == 0
-    assert calls == [
-        "④presplit_road_graph",
-        "⑤precompute_road_node_degrees",
-        "⑥precompute_edge_attribute_counts",
-        "⑦precompute_elevation_attributes",
-        "⑧precompute_way_attribute_counts",
-        "⑨match_designations",
-        "⑩precompute_way_landcover",
-        "⑬precompute_way_divided_carriageway",
-    ]
+    # 期待する並びも`_STAGES`から導く（ここへ並べると、段を足したときに期待値の側だけが
+    # 古くなる。登録漏れは下のファイル一覧との突き合わせが見る）。
+    assert calls == [label for label, _, _ in refresh_derived._STAGES]
 
 
 async def test_run_propagates_database_url_and_dry_run_to_every_stage(monkeypatch):
@@ -124,15 +102,11 @@ async def test_run_skip_landcover_omits_only_that_stage(monkeypatch):
     result = await refresh_derived.run(database_url=None, dry_run=False, skip_landcover=True)
 
     assert result == 0
-    assert calls == [
-        "④presplit_road_graph",
-        "⑤precompute_road_node_degrees",
-        "⑥precompute_edge_attribute_counts",
-        "⑦precompute_elevation_attributes",
-        "⑧precompute_way_attribute_counts",
-        "⑨match_designations",
-        "⑬precompute_way_divided_carriageway",
-    ]
+    # 「土地被覆の段**だけ**が抜ける」ことを見る。抜ける段を名指しし、残りは`_STAGES`から
+    # 導く（残りを並べると、段を足したときにこの期待値の側だけが古くなる）。
+    skipped = [label for label, _, _ in refresh_derived._STAGES if "landcover" in label]
+    assert len(skipped) == 1
+    assert calls == [label for label, _, _ in refresh_derived._STAGES if label not in skipped]
 
 
 def test_every_precompute_batch_module_is_registered_as_a_stage():
