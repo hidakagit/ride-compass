@@ -56,13 +56,14 @@ describe("AdminPage（/admin、改善計画T270・T272・T397）", () => {
     vi.clearAllMocks();
   });
 
-  it("見出しと5つのタブを表示し、既定で軸スタジオタブが選択されている", () => {
+  it("見出しとタブを並び順どおりに表示し、既定で軸スタジオタブが選択されている", () => {
     render(<AdminPage />);
 
     expect(screen.getByRole("heading", { name: "軸スタジオ・研究/開発者ツール" })).toBeInTheDocument();
     expect(screen.getAllByRole("tab").map((tab) => tab.textContent)).toEqual([
       "軸スタジオ",
       "材料",
+      "較正値",
       "データ保守",
       "研究",
       "開発者",

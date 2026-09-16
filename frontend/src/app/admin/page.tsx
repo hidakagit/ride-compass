@@ -12,6 +12,7 @@ import MaterialCoveragePanel from "@/components/AxisStudio/MaterialCoveragePanel
 import DerivedDataFreshnessPanel from "@/components/AxisStudio/DerivedDataFreshnessPanel";
 import DbStatusPanel from "@/components/AxisStudio/DbStatusPanel";
 import TileCachePanel from "@/components/AxisStudio/TileCachePanel";
+import TuningPanel from "@/components/AxisStudio/TuningPanel";
 import { useDebugEnabled } from "@/hooks/useDebugLog";
 import styles from "./admin.module.css";
 
@@ -35,6 +36,9 @@ export default function AdminPage() {
           <Tabs.Trigger className={styles.tabTrigger} value="materials">
             材料
           </Tabs.Trigger>
+          <Tabs.Trigger className={styles.tabTrigger} value="tuning">
+            較正値
+          </Tabs.Trigger>
           <Tabs.Trigger className={styles.tabTrigger} value="maintenance">
             データ保守
           </Tabs.Trigger>
@@ -52,6 +56,10 @@ export default function AdminPage() {
 
         <Tabs.Content className={styles.tabPanel} value="materials">
           <MaterialCoveragePanel />
+        </Tabs.Content>
+
+        <Tabs.Content className={styles.tabPanel} value="tuning">
+          <TuningPanel />
         </Tabs.Content>
 
         <Tabs.Content className={styles.tabPanel} value="maintenance">

@@ -1,0 +1,86 @@
+.panel {
+  composes: panel from "../ui/adminPanel.module.css";
+}
+
+.heading {
+  composes: heading from "../ui/adminPanel.module.css";
+}
+
+.error {
+  composes: error from "../ui/adminPanel.module.css";
+}
+
+.lead {
+  margin: 0 0 var(--space-3);
+  font-size: 0.85rem;
+  line-height: 1.6;
+  color: var(--color-muted-strong);
+}
+
+.group {
+  margin-bottom: var(--space-4);
+}
+
+.groupHeading {
+  margin: 0 0 var(--space-1);
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+
+/* 効くまでに別の操作が要る群だけに付ける断り。1行で読み切れる長さにする。 */
+.groupNote {
+  margin: 0 0 var(--space-2);
+  font-size: 0.78rem;
+  line-height: 1.5;
+  color: var(--color-warning-strong);
+}
+
+.row {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: var(--space-1) var(--space-2);
+  padding: var(--space-2) 0;
+  border-top: 1px solid var(--color-border-muted);
+}
+
+.label {
+  flex: 1 1 12rem;
+  min-width: 0;
+  font-size: 0.85rem;
+}
+
+/* 既定から動かしてある行だけを目立たせる（どれを触ったかが一覧で分かる）。 */
+.overridden .label {
+  font-weight: 600;
+}
+
+.description {
+  flex-basis: 100%;
+  margin: 0;
+  font-size: 0.75rem;
+  line-height: 1.5;
+  color: var(--color-muted-strong);
+}
+
+.input {
+  width: 7rem;
+  padding: var(--space-1);
+  font-size: 0.85rem;
+  text-align: right;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+  color: var(--foreground);
+}
+
+.unit {
+  min-width: 3rem;
+  font-size: 0.78rem;
+  color: var(--color-muted-strong);
+}
+
+.default {
+  font-size: 0.75rem;
+  color: var(--color-muted-strong);
+}

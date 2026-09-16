@@ -8,7 +8,9 @@
 [評価・スコアリング（backend）](../backend/evaluation-scoring.md)「材料の欠損割合」節の
 APIを呼ぶ）・「データ保守」タブ（派生データ鮮度台帳の表示、
 [静的道路属性・タイル配信（backend）](../backend/static-road-attributes.md)
-「派生データ鮮度台帳」節のAPIを呼ぶ）も本モジュールが持つ。
+「派生データ鮮度台帳」節のAPIを呼ぶ）・「較正値」タブ（走ってみて決める値の編集、
+[ルーティングエンジン（backend）](../backend/routing-engine.md)「較正値」節のAPIを呼ぶ）も
+本モジュールが持つ。
 
 **対象ファイル**
 
@@ -42,6 +44,9 @@ APIを呼ぶ）・「データ保守」タブ（派生データ鮮度台帳の�
 | `services/derivedDataFreshnessApi.ts` | `DerivedDataFreshnessPanel`が使うAPIクライアント（`app/admin/api/derived-data-freshness/`経由、90秒タイムアウト） |
 | `app/admin/api/derived-data-freshness/route.ts` | `derivedDataFreshnessApi.ts`が叩くroute handler。`proxyToBackendAdmin`でbackend `GET /api/admin/derived-data/freshness`へ転送する |
 | `components/AxisStudio/TileCachePanel.tsx` | 「データ保守」タブの2枚目。サーバー側のタイルファイルキャッシュ（基礎地図・路面/事故/POIタイルが共有）を全消去する操作パネル。全利用者へ影響するため入口はここだけに持つ |
+| `components/AxisStudio/TuningPanel.tsx` | 「較正値」タブ本体。走ってみて決める値をデプロイなしで編集する。**並べる項目はbackendが宣言から導く**ため画面側に一覧を持たず、効き方（`effect`）ごとに見出しを分けて「変えたのに効かない」群に断りを出す |
+| `services/tuningApi.ts` | 較正値の一覧・更新（`/admin/api/tuning`経由） |
+| `app/admin/api/tuning/route.ts`・`[paramId]/route.ts` | `tuningApi.ts`が叩くNext.js route handler。`proxyToBackendAdmin`でbackend `/api/admin/tuning`（一覧取得・PUT更新）へそのまま転送する |
 | `services/basemapAdminApi.ts` | `TileCachePanel`が使うAPIクライアント（`app/admin/api/basemap-refresh/`経由） |
 | `app/admin/api/basemap-refresh/route.ts` | `basemapAdminApi.ts`が叩くroute handler。`proxyToBackendAdmin`でbackend `POST /api/admin/basemap/refresh`へ転送する |
 | `hooks/useMaterialCatalog.ts` | `GET /api/material-catalog`取得。取得完了まで・失敗時は`lib/axisMaterialsCatalog.ts`の静的フォールバックを返す |
