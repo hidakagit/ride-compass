@@ -477,6 +477,11 @@ class NodeSpatialIndex:
     graph: RoadGraphLike
     cell_size_deg: float
     buckets: dict[tuple[int, int], list[str]]
+    #: 非空セルが占める範囲（最小・最大のセル座標）。Nodeが1つも無ければNone。
+    #: **探索の打ち切りに要る**——この外側にはどれだけ広げてもセルが1つも無い。
+    #: 既定値を持たせない: 省略できると、渡し忘れた索引が黙って「Nodeが無い」ふるまいに
+    #: なる（`build_node_spatial_index`が唯一の作り手）。
+    cell_bounds: tuple[int, int, int, int] | None
 
 
 # 1セルの一辺（度）。緯度で約1.1km四方（東京付近では経度方向はcos(35°)倍で約0.9km四方）。
@@ -486,6 +491,9 @@ class NodeSpatialIndex:
 # でなければ正しく動作する。将来チューニングする場合はbenchmarks/bench_nearest_node.py
 # へ計測を追加する）。
 DEFAULT_NODE_INDEX_CELL_SIZE_DEG = 0.01
+#: 索引が覆う範囲のどれだけ外側までを「隣」として許すか（セル数）。範囲の縁をわずかに
+#: 外した点まで弾くと、読み込んだ地図の端をクリックしただけでスナップできなくなる。
+_NEIGHBOR_CELL_TOLERANCE = 1
 
 
 def build_node_spatial_index(
@@ -507,11 +515,26 @@ def build_node_spatial_index(
         node = graph.nodes[node_id]
         key = (math.floor(node.latitude / cell_size_deg), math.floor(node.longitude / cell_size_deg))
         buckets.setdefault(key, []).append(node_id)
-    return NodeSpatialIndex(graph=graph, cell_size_deg=cell_size_deg, buckets=buckets)
+    bounds = (
+        (
+            min(key[0] for key in buckets),
+            min(key[1] for key in buckets),
+            max(key[0] for key in buckets),
+            max(key[1] for key in buckets),
+        )
+        if buckets
+        else None
+    )
+    return NodeSpatialIndex(
+        graph=graph, cell_size_deg=cell_size_deg, buckets=buckets, cell_bounds=bounds
+    )
 
 
 def find_nearest_node_indexed(
-    index: NodeSpatialIndex, point: Coordinates, predicate: Callable[[str], bool] | None = None
+    index: NodeSpatialIndex,
+    point: Coordinates,
+    predicate: Callable[[str], bool] | None = None,
+    max_distance_km: float | None = None,
 ) -> str | None:
     """`build_node_spatial_index`が作った索引を使い、指定地点に最も近いNodeを総当たり
     より高速に探す。
@@ -528,8 +551,22 @@ def find_nearest_node_indexed(
     一番近いNodeがメインの道路網から孤立している場合に、アクセス可能な最寄りNodeへ
     改めて絞り込むために使う）。停止条件は「見つかった最近傍（`predicate`を満たすもの
     限定）の距離」を基準にするため、除外対象があっても安全性は変わらない。
+
+    **`predicate`が1つも真にならないとき、上の停止条件は成立しない。** そのため半径は
+    索引が占める範囲の外へ出た時点でも打ち切る——その外側にはどれだけ広げてもセルが
+    1つも無く、走査は結果を変えずに時間だけを使う。
+
+    索引が覆う範囲の外を指した点はNoneを返す（`_NEIGHBOR_CELL_TOLERANCE`セルだけ外側まで
+    は許す。範囲の縁をわずかに外した点は、すぐ隣にある道へ寄せるのが自然なため）。
+    **この判定が無いと、何十kmも離れた道へ黙って寄せた結果を返す**——呼び出し側はそれを
+    「利用者が指した地点」として扱うため、指した覚えのない場所を通るルートになる。
+
+    `max_distance_km`を渡すと、それより遠いNodeは返さない（Noneになる）。探索する
+    リング数もその距離ぶんで打ち切るため、`predicate`が1つも真にならない場合の走査量も
+    同時に抑えられる。「近くに無いなら寄せない」という意味を持つ呼び出しは、範囲の
+    広さではなく距離でこれを表す。
     """
-    if not index.graph.nodes:
+    if not index.graph.nodes or index.cell_bounds is None:
         return None
 
     cell_lat = math.floor(point.latitude / index.cell_size_deg)
@@ -542,7 +579,28 @@ def find_nearest_node_indexed(
     nearest_node_id: str | None = None
     nearest_distance: float | None = None
     radius = 0
-    max_radius = max(len(index.buckets), 1) + 1  # 理論上到達しない安全弁（無限ループ防止）
+    # 検索セルから、非空セルが占める範囲の一番遠い角までのリング数。ここを超えると
+    # どのリングも空になる。
+    min_cell_lat, min_cell_lon, max_cell_lat, max_cell_lon = index.cell_bounds
+    if (
+        cell_lat < min_cell_lat - _NEIGHBOR_CELL_TOLERANCE
+        or cell_lat > max_cell_lat + _NEIGHBOR_CELL_TOLERANCE
+        or cell_lon < min_cell_lon - _NEIGHBOR_CELL_TOLERANCE
+        or cell_lon > max_cell_lon + _NEIGHBOR_CELL_TOLERANCE
+    ):
+        return None
+    max_radius = max(
+        abs(cell_lat - min_cell_lat),
+        abs(cell_lat - max_cell_lat),
+        abs(cell_lon - min_cell_lon),
+        abs(cell_lon - max_cell_lon),
+    )
+    if max_distance_km is not None:
+        # 1セルの物理的な最小の幅で割る（切り上げ）。最小で割ることで、まだ範囲内にある
+        # Nodeをリング不足で取りこぼさない。
+        max_radius = min(
+            max_radius, math.ceil(max_distance_km / cell_size_km_lower_bound) + 1
+        )
     while radius <= max_radius:
         for dx in range(-radius, radius + 1):
             for dy in range(-radius, radius + 1):
@@ -561,6 +619,8 @@ def find_nearest_node_indexed(
         if nearest_distance is not None and radius * cell_size_km_lower_bound >= nearest_distance:
             break
         radius += 1
+    if max_distance_km is not None and (nearest_distance is None or nearest_distance > max_distance_km):
+        return None
     return nearest_node_id
 
 # --- ターン展開（状態＝有向Edge、辺＝ターン） ---

@@ -115,6 +115,70 @@ def test_find_nearest_node_indexed_with_predicate_skips_non_matching_candidates(
     assert find_nearest_node_indexed(index, point, predicate=lambda node_id: False) is None
 
 
+def test_find_nearest_node_indexed_does_not_return_a_node_beyond_the_given_distance():
+    # 「近くに無いなら寄せない」を距離で表せるようにする。索引の広さで決まっていた頃は、
+    # 同じ呼び出しが小さなグラフでは寄せず、本番規模では何十kmでも寄せた。
+    graph = RoadGraph(
+        graph_version="v1",
+        nodes={"far": _node("far", 35.80, 139.80)},
+        edges={},
+    )
+    index = build_node_spatial_index(graph, cell_size_deg=0.01)
+    point = Coordinates(latitude=35.795, longitude=139.80)  # farまで約0.56km
+
+    assert find_nearest_node_indexed(index, point) == "far"
+    assert find_nearest_node_indexed(index, point, max_distance_km=1.0) == "far"
+    assert find_nearest_node_indexed(index, point, max_distance_km=0.2) is None
+
+
+def test_find_nearest_node_indexed_returns_none_outside_the_area_the_index_covers():
+    # 読み込んだグラフの外を指した点は寄せない。寄せると、呼び出し側はその道を
+    # 「利用者が指した地点」として扱う。
+    graph = RoadGraph(
+        graph_version="v1",
+        nodes={"a": _node("a", 35.70, 139.70), "b": _node("b", 35.71, 139.70)},
+        edges={},
+    )
+    index = build_node_spatial_index(graph, cell_size_deg=0.01)
+
+    assert find_nearest_node_indexed(index, Coordinates(latitude=35.702, longitude=139.701)) == "a"
+    assert find_nearest_node_indexed(index, Coordinates(latitude=36.70, longitude=140.70)) is None
+
+
+def test_find_nearest_node_indexed_stops_at_the_index_extent_when_nothing_matches():
+    # 述語が1つも真にならないと「見つかった最近傍より外側は必ず遠い」という停止条件は
+    # 成立しない。索引が占める範囲の外まで広げ続けると走査量はバケット数の3乗で伸び、
+    # 実測で462バケット34秒・30km規模では分のオーダーになる（domain/routing.pyは
+    # イベントループ上から呼ばれるため、その間backend全体が止まる）。範囲の外へ出た
+    # 時点で打ち切ることを、見に行ったセル数で固定する。
+    class _CountingBuckets(dict):
+        def __init__(self, source):
+            super().__init__(source)
+            self.lookups = 0
+
+        def get(self, key, default=None):
+            self.lookups += 1
+            return super().get(key, default)
+
+    nodes = {
+        f"n{i}_{j}": _node(f"n{i}_{j}", 35.6 + i * 0.01, 139.7 + j * 0.01)
+        for i in range(20)
+        for j in range(20)
+    }
+    graph = RoadGraph(graph_version="v1", nodes=nodes, edges={})
+    index = build_node_spatial_index(graph, cell_size_deg=0.01)
+    index.buckets = _CountingBuckets(index.buckets)
+    point = Coordinates(latitude=35.70, longitude=139.80)
+
+    assert find_nearest_node_indexed(index, point, predicate=lambda _: False) is None
+
+    # 索引が占める範囲を外から包む正方形より広くは見に行かない（半径ごとのリングを
+    # 合計したセル数がこの上限）。打ち切りが無いと、この値はバケット数の2乗まで伸びる。
+    lat_min, lon_min, lat_max, lon_max = index.cell_bounds
+    extent = max(lat_max - lat_min, lon_max - lon_min)
+    assert index.buckets.lookups <= (2 * extent + 1) ** 2
+
+
 def test_build_node_spatial_index_with_node_ids_skips_isolated_nearest_node():
     # 改善計画T256回帰テスト: 地理的に最も近いNode（"isolated"）が幹線道路にしか
     # 接続していない場合、node_idsで絞った索引はそれを候補から除き、次に近い

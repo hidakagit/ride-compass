@@ -1782,6 +1782,9 @@ async def test_select_via_nodes_is_deterministic_for_tied_candidates():
 async def test_select_via_nodes_returns_empty_when_destination_is_unreachable():
     # 起点側("o"-"x")と目的地側("d"-"y")が互いに繋がっていない2つの連結成分。
     # 目的地はNode自体は存在する（スナップは成功する）が、起点から到達不能。
+    # 到達できる最寄りNode("x")は目的地から約20km離れており、
+    # MAX_DESTINATION_CORRECTION_KMを超えるため補正しない（補正してしまうと、利用者が
+    # 指した覚えのない場所を終点とするルートを返すことになる）。
     x_point = destination_point(ORIGIN, 0, 1.0)
     y_point = destination_point(DESTINATION_20KM, 0, 1.0)
     graph = RoadGraph(

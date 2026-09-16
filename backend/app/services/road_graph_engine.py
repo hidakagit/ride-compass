@@ -223,6 +223,13 @@ MAX_VIA_NODE_CANDIDATES_EXAMINED = 2000
 
 logger = logging.getLogger("ridecompass.graph")
 
+#: 目的地が起点から到達できないとき、「到達できる最寄りNode」へ寄せてよい上限（km）。
+#: 補正の狙いは、タップした先が本線から孤立した小塊だった場合にすぐ近くの本線へ移すこと
+#: なので、それより遠くへ動かすと利用者が指した覚えのない場所を通るルートになる
+#: （補正後の座標は`corrected_destination`として返すが、動いたことが分かっても
+#: 指した場所とは別物である事実は変わらない）。
+MAX_DESTINATION_CORRECTION_KM = 1.0
+
 
 @dataclass
 class LegCostArrays:
@@ -1399,11 +1406,12 @@ class RoadGraphEngine:
                 predicate=lambda node_id: np.isfinite(
                     forward_tree.node_cost[lazy_graph.node_id_to_index[node_id]]
                 ),
+                max_distance_km=MAX_DESTINATION_CORRECTION_KM,
             )
             if corrected_node is None:
-                # find_nearest_node_indexedは索引全体を走査するため、Noneは「アクセス可能な
-                # Nodeが1つも無い」ことを意味する。到達Node数が0なら壊れているのは目的地では
-                # なく起点側（またはコスト配列）であり、そちらを名指ししないと調査が空振りする。
+                # Noneは「この距離の中にアクセス可能なNodeが無い」。到達Node数が0なら壊れて
+                # いるのは目的地ではなく起点側（またはコスト配列）であり、そちらを名指ししないと
+                # 調査が空振りする。
                 reached_nodes = int(np.count_nonzero(np.isfinite(forward_tree.node_cost)))
                 if reached_nodes == 0:
                     finite_cost_ratio = float(np.mean(np.isfinite(outbound.cost_bins_lazy)))
