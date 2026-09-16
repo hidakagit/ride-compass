@@ -72,11 +72,10 @@ IMPL_EXCLUDE_RE = re.compile(
     r"|/__init__\.py$|/__pycache__/|\.json$|\.yml$|\.yaml$|\.md$|\.snap$"
     r"|^frontend/src/testing/)"
 )
-# 名前だけでは特定できないファイル名は「親ディレクトリ/名前」で照合する
-GENERIC_BASENAMES = {
-    "page.tsx", "layout.tsx", "route.ts", "index.ts", "index.tsx", "types.ts",
-    "utils.ts", "constants.ts", "config.py", "main.py", "models.py", "errors.py",
-}
+# 名前だけでは特定できないファイル名は「親ディレクトリ/名前」で照合する。
+# **どの名前がそれに当たるかは手で並べず、リポジトリ内で重複しているかで決める**
+# ——並べ忘れた名前（`region.py`・`weather.py`等）は、別ディレクトリの同名ファイルが
+# 文書に載っているだけで「記載済み」と誤判定される。
 # docs/modules/README.md「記載粒度」節の禁止パターン。
 # 唯一の定義元（scripts/pre-commit-docs-modules-history.shは2026-09-03のT561でこの関数を
 # 呼ぶだけの薄いラッパへ統合し、shell側に別定義のPATTERNを持たない）。
@@ -467,19 +466,18 @@ def arity_sources(files: list[str]) -> dict[str, str]:
 # batchは`requirements-batch.txt`限定の依存（rasterio等）を使うためで、テストとCIはbatch依存が
 # 入っているため緑のまま通る（本番でクラッシュループになった実績があり、docs/tasks/T630.md・
 # docs/tasks/T814.md参照）。関数内の遅延importは起動時に評価されないため対象外。
-WEB_LAYER_DIRS = (
-    "backend/app/api/",
-    "backend/app/services/",
-    "backend/app/infrastructure/",
-    "backend/app/domain/",
-)
+# 「webアプリが読む層」＝`backend/app`配下のうちbatch自身以外。ディレクトリを手で並べると、
+# 並べていない場所（`main.py`がまさにそれだった）が検査の外に落ちる——本番webが起動時に
+# 読む筆頭のファイルである。
+WEB_LAYER_ROOT = "backend/app/"
+WEB_LAYER_EXCLUDED = "backend/app/batch/"
 BATCH_TOPLEVEL_IMPORT_RE = re.compile(r"^(?:from|import)\s+app\.batch\b")
 
 
 def find_web_layer_batch_imports(source_lines: dict[str, list[tuple[int, str]]]) -> list[str]:
     out = []
     for path, lines in source_lines.items():
-        if not path.startswith(WEB_LAYER_DIRS):
+        if not path.startswith(WEB_LAYER_ROOT) or path.startswith(WEB_LAYER_EXCLUDED):
             continue
         for lineno, line in lines:
             if BATCH_TOPLEVEL_IMPORT_RE.match(line):
@@ -494,10 +492,15 @@ def find_web_layer_batch_imports(source_lines: dict[str, list[tuple[int, str]]])
 # 材料解決の経路がway_tagsから読んでよいキーは、取込時の許可リスト
 # （`domain/osm_adapter.py: ALLOWED_WAY_TAGS`）に載っているものだけ。highway/surface/oneway
 # は専用列でtags jsonbに入らないため、ここから読むと材料が全区間で欠損する。
-MATERIAL_TAG_READER_FILES = (
-    "backend/app/domain/axis_inspector.py",
-    "backend/app/domain/material_catalog.py",
-    "backend/app/domain/recipe.py",
+# 対象は`backend/app`配下のうち、下の2本以外すべて。読む側を手で3本並べていたため、
+# 同じようにway_tagsを読む`hard_filters.py`・`night.py`が検査の外にあった。
+#
+# 除外する2本は**way_tagsではないタグを読む**もので、許可リストの対象外である
+# （実測: この2本で9箇所。`osm_adapter.py`は取込時の生のOSMタグを読んで許可リスト自体を
+# 決める側、`traffic.py`はPOIノードのタグ［railway・barrier・shop等］を読む）。
+WAY_TAG_READER_EXCLUDED = (
+    "backend/app/domain/osm_adapter.py",
+    "backend/app/domain/traffic.py",
 )
 WAY_TAG_READ_RES = (
     re.compile(r'\b(?:ctx\.)?(?:way_)?tags\.get\(\s*"([^"]+)"'),
@@ -522,7 +525,7 @@ def find_way_tag_allowlist_violations(source_lines: dict[str, list[tuple[int, st
         return []
     out = []
     for path, lines in source_lines.items():
-        if path not in MATERIAL_TAG_READER_FILES:
+        if not path.startswith(WEB_LAYER_ROOT) or path in WAY_TAG_READER_EXCLUDED:
             continue
         for lineno, line in lines:
             for pattern in WAY_TAG_READ_RES:
@@ -652,8 +655,16 @@ MAP_REDRAW_SIDE_EFFECTS = (
 )
 
 
-# 入口のファイルが同じディレクトリから取り込むモジュール。母集団をこの経路で広げる。
-MAP_REDRAW_LOCAL_IMPORT_RE = re.compile(r'from "(?:@/components/Map/|\./)([\w.]+)"')
+# 入口から辿るimport。母集団をこの経路で広げる。同ディレクトリの相対import（`./x`）と、
+# 別ディレクトリの絶対import（`@/components/Map/x`・`@/hooks/x`）の両方を追う。
+# 描画の副作用はフックへも切り出されるため、`hooks/`を外すとそこが丸ごと死角になる。
+MAP_REDRAW_IMPORT_RE = re.compile(
+    r'(?:from|^\s*import)\s+"(@/[\w./]+|\.\.?/[\w./]+)"', re.M
+)
+# 追いかける絶対importの起点。ここに無い接頭辞（`@/lib/`等）は描画の副作用を持たない
+# 純ロジックとして母集団から外す——全体を追うと、地図と無関係なモジュールまで母集団に入る。
+MAP_ENTRY_IMPORT_ROOT = "@/components/Map/"
+MAP_REDRAW_IMPORT_ROOTS = (MAP_ENTRY_IMPORT_ROOT, "@/hooks/")
 
 
 def find_map_redraw_gaps() -> list[str]:
@@ -692,16 +703,48 @@ def rel_if_inside_repo(path: Path) -> str:
         return path.as_posix()
 
 
+def _resolve_map_import(spec: str, directory: Path, entry_dir: Path) -> Path | None:
+    """import指定子をファイルへ解決する。追う対象でなければNone。
+
+    `@/components/Map/...`は入口自身のディレクトリからの相対として解く——テストが
+    `REPO_ROOT`へ一時ディレクトリを差し込むため、絶対の位置を前提にすると解けない。
+    """
+    if spec.startswith("@/"):
+        if not spec.startswith(MAP_REDRAW_IMPORT_ROOTS):
+            return None
+        if spec.startswith(MAP_ENTRY_IMPORT_ROOT):
+            base = entry_dir / spec[len(MAP_ENTRY_IMPORT_ROOT):]
+        else:
+            base = REPO_ROOT / "frontend/src" / spec[2:]
+    else:
+        base = directory / spec
+    for suffix in (".ts", ".tsx"):
+        candidate = base.with_name(base.name + suffix)
+        if candidate.exists():
+            return candidate
+    return None
+
+
 def map_redraw_local_modules(source: str, directory: Path) -> list[tuple[str, str]]:
-    """入口のファイルが`directory`から取り込んでいるモジュールの、パスと中身。"""
-    out = []
-    for name in sorted(set(MAP_REDRAW_LOCAL_IMPORT_RE.findall(source))):
-        for suffix in (".ts", ".tsx"):
-            candidate = directory / (name + suffix)
-            if candidate.exists():
-                out.append((rel_if_inside_repo(candidate), read_text(candidate)))
-                break
-    return out
+    """入口から**辿り着ける**モジュールの、パスと中身（入口自身は含まない）。
+
+    1ホップに限ると、描画を2段に分けた瞬間に2段目が丸ごと検知の外へ出る——分けた本人は
+    気づくが、その後にそこへ副作用を足す人は気づけない。到達できる限り追う。
+    """
+    out: list[tuple[str, str]] = []
+    seen: set[Path] = set()
+    frontier = [(source, directory)]
+    while frontier:
+        text, base_dir = frontier.pop()
+        for spec in sorted(set(MAP_REDRAW_IMPORT_RE.findall(text))):
+            resolved = _resolve_map_import(spec, base_dir, directory)
+            if resolved is None or resolved in seen:
+                continue
+            seen.add(resolved)
+            body = read_text(resolved)
+            out.append((rel_if_inside_repo(resolved), body))
+            frontier.append((body, resolved.parent))
+    return sorted(out)
 
 
 def map_redraw_gaps_in(source: str, parts: list[tuple[str, str]] | None = None) -> list[str]:
@@ -709,8 +752,13 @@ def map_redraw_gaps_in(source: str, parts: list[tuple[str, str]] | None = None) 
 
     `parts`は連結前の(パス, 中身)。渡すと、連結後の行番号を元のファイルと行へ戻して報告する
     ——どのファイルを見ればよいかが分からないと、検知しても直しにくい。
+
+    **コメント・文字列の空白化はファイルごとに行う。** 連結してから空白化すると、あるファイルの
+    途中で状態がずれたまま次のファイルへ入り、そこから先が丸ごと文字列として潰れる
+    （実測: 連結してから空白化すると526宣言のうち186が消えていた。母集団に入れたつもりの
+    ファイルが、宣言として1つも見えていない状態になる）。
     """
-    code = blank_ts_noncode(source)
+    code = "\n".join(blank_ts_noncode(t) for _, t in parts) if parts else blank_ts_noncode(source)
     body, line_of = top_level_segments(code)
     if MAP_REDRAW_ENTRY not in body:
         return [
@@ -759,7 +807,14 @@ def map_redraw_gaps_in(source: str, parts: list[tuple[str, str]] | None = None) 
 SCAFFOLD_DEF_RES = (
     re.compile(r"^(?:export\s+)?(?:async\s+)?function\s+((?:make|fake|stub|build|create)[A-Za-z0-9_]*)\s*\(", re.M),
     re.compile(r"^const\s+((?:make|fake|stub|build|create)[A-Za-z0-9_]*)\s*=\s*(?:\(|async|function)", re.M),
+    # Python側。docstringは「テストの足場」一般を述べるのに配線がfrontendだけだと、
+    # backendに同じ形の写経があっても一度も報告されない。
+    re.compile(r"^(?:async\s+)?def\s+((?:make|fake|stub|build|create|_make|_fake|_build)[A-Za-z0-9_]*)\s*\(", re.M),
+    re.compile(r"^class\s+((?:Fake|Stub)[A-Za-z0-9_]*)\s*[:(]", re.M),
 )
+
+#: テストの足場を探すファイル。frontendの`*.test.ts(x)`とbackendの`test_*.py`。
+SCAFFOLD_TEST_FILE_RE = re.compile(r"(^|/)(test_[\w]+\.py|[\w.-]+\.test\.tsx?)$")
 
 
 def find_duplicate_test_scaffolds(test_files: list[str]) -> list[str]:
@@ -773,9 +828,14 @@ def find_duplicate_test_scaffolds(test_files: list[str]) -> list[str]:
                 by_name.setdefault(name, [])
                 if path not in by_name[name]:
                     by_name[name].append(path)
+    def _shared_place(paths: list[str]) -> str:
+        # 寄せ先は言語で違う。frontendの案内をbackendの重複へ出すと、読んだ人が
+        # 置き場所を探して見つからない。
+        return "frontend/src/testing" if any(p.startswith("frontend/") for p in paths) else "backend/tests の共有フィクスチャ"
+
     return [
         f"`{name}`が{len(paths)}ファイルに定義されている（{', '.join(sorted(paths))}）"
-        "——同じ用途の足場が既にあるかを見てから書く。共有するなら frontend/src/testing へ"
+        f"——同じ用途の足場が既にあるかを見てから書く。共有するなら {_shared_place(paths)} へ"
         for name, paths in sorted(by_name.items())
         if len(paths) > 1
     ]
@@ -1483,20 +1543,43 @@ def find_undocumented_files(candidates: list[str], modules_text: str, all_files:
     複数あれば「親ディレクトリ/名前」で照合する。
     """
     basename_count: dict[str, int] = defaultdict(int)
+    same_basename: dict[str, list[str]] = defaultdict(list)
     for f in all_files:
         if is_impl_file(f):
             basename_count[f.rsplit("/", 1)[-1]] += 1
+            same_basename[f.rsplit("/", 1)[-1]].append(f)
+    modules_lines = modules_text.splitlines()
     out = []
     for path in sorted(candidates):
         if not is_impl_file(path):
             continue
         name = path.rsplit("/", 1)[-1]
-        needles = [name]
-        if name in GENERIC_BASENAMES and basename_count.get(name, 0) > 1:
-            parent = path.rsplit("/", 2)[-2] if path.count("/") >= 2 else ""
-            needles = [f"{parent}/{name}"]
-        if not any(n in modules_text for n in needles):
-            out.append(f"{path}: 「{needles[0]}」が docs/modules/*.md のどこにも出現しない")
+        if basename_count.get(name, 0) <= 1:
+            if name not in modules_text:
+                out.append(f"{path}: 「{name}」が docs/modules/*.md のどこにも出現しない")
+            continue
+        # 同じ名前が複数ある場合は、名前だけでは「どちらの話か」が決まらない。**その
+        # ファイルにしか無い階層の語**が同じ行にあることを求める（対象ファイル表は
+        # `| infrastructure | db_status.py・… |`のように列で階層を表すため、
+        # `infrastructure/db_status.py`という綴りを求めると表に載っていても落ちる）。
+        others = {
+            seg
+            for other in same_basename[name]
+            if other != path
+            for seg in other.split("/")[:-1]
+        }
+        unique = [seg for seg in path.split("/")[:-1] if seg not in others]
+        if not unique:
+            # 一方のパスがもう一方の先頭に含まれる場合（`app/page.tsx`と
+            # `app/admin/page.tsx`）。区別できる語が無いため名前だけで見る。
+            if name not in modules_text:
+                out.append(f"{path}: 「{name}」が docs/modules/*.md のどこにも出現しない")
+            continue
+        if not any(name in line and any(seg in line for seg in unique) for line in modules_lines):
+            out.append(
+                f"{path}: 「{name}」が docs/modules/*.md のどこにも出現しない"
+                f"（同名が他にもあるため、{'・'.join(unique)} のいずれかと同じ行に要る）"
+            )
     return out
 
 
@@ -1808,7 +1891,13 @@ HISTORY_EXEMPT_DOC_PREFIXES = (
 
 
 def code_numeric_constants(files: list[str]) -> dict[str, tuple[str, float]]:
-    out: dict[str, tuple[str, float]] = {}
+    """定数名 → (定義しているファイル, 値)。
+
+    **同じ名前が違う値で複数のファイルにあるものは返さない。** 先に見つけた方で確定すると、
+    文書が別のファイルの定数を指しているときに、無関係な値と突き合わせて「ずれている」と
+    報告する（走査順はgitのファイル順で、文書が指す相手とは何の関係も無い）。
+    """
+    found: dict[str, list[tuple[str, float]]] = defaultdict(list)
     for f in files:
         if not f.endswith((".py", ".ts", ".tsx")) or "/types/generated/" in f:
             continue
@@ -1816,8 +1905,12 @@ def code_numeric_constants(files: list[str]) -> dict[str, tuple[str, float]]:
         if not path.exists():
             continue
         for m in CODE_CONSTANT_RE.finditer(read_text(path)):
-            out.setdefault(m.group(1), (f, float(m.group(2))))
-    return out
+            found[m.group(1)].append((f, float(m.group(2))))
+    return {
+        name: defs[0]
+        for name, defs in found.items()
+        if len({value for _, value in defs}) == 1
+    }
 
 
 def find_doc_constant_drift(files: list[str], scope: list[str] | None = None) -> list[str]:
@@ -2460,14 +2553,15 @@ def cmd_docs(args: argparse.Namespace) -> int:
                          }))
         add("way_tag_allowlist", "許可リストに無いタグキーをway_tagsから読む（全件、docs/tasks/T753.md参照）",
             lambda: find_way_tag_allowlist_violations({
-                             rel(REPO_ROOT / f): list(enumerate(read_text(REPO_ROOT / f).splitlines(), 1))
-                             for f in MATERIAL_TAG_READER_FILES
-                             if (REPO_ROOT / f).exists()
+                             rel(p): list(enumerate(read_text(p).splitlines(), 1))
+                             for p in (REPO_ROOT / f for f in files if f.startswith(WEB_LAYER_ROOT)
+                                       and f.endswith(".py"))
+                             if p.exists()
                          }))
         add("map_redraw_coverage", "map.setStyle()後の再描画から辿れないレイヤー（全件、docs/tasks/T825.md参照）",
             lambda: find_map_redraw_gaps())
         add("duplicate_test_scaffold", "同じ名前のテスト足場が複数ファイルにある（参考、docs/tasks/T771.md参照）",
-            lambda: find_duplicate_test_scaffolds([f for f in files if f.endswith(".test.ts") or f.endswith(".test.tsx")]),)
+            lambda: find_duplicate_test_scaffolds([f for f in files if SCAFFOLD_TEST_FILE_RE.search(f)]),)
         add("plan_vs_tasks", "improvement-plan.md [x]/[ ] と docs/tasks「状態:」の不一致",
             lambda: check_plan_vs_tasks())
         add("task_numbering", "タスク番号の衝突・台帳と見出しのずれ",
@@ -2492,8 +2586,6 @@ def cmd_docs(args: argparse.Namespace) -> int:
                 lambda: find_review_doc_dead_refs(files, scope=changed))
             add("cross_file_env_writes", "テストが書き換える環境変数を他の実装も読む（docs/testing.md参照）",
                 lambda: find_cross_file_env_writes(files))
-            add("map_redraw_coverage", "map.setStyle()後の再描画から辿れないレイヤー（docs/tasks/T825.md参照）",
-                lambda: find_map_redraw_gaps())
             add("count_narrative", f"個数を書いている行（参考、{args.since} 以降の追加行、docs/documentation.md参照）",
                 lambda: find_count_narratives(gather_added_source_lines(args.since),
                                                    diff_added_lines("docs/*.md", args.since)))
@@ -2544,6 +2636,13 @@ def cmd_docs(args: argparse.Namespace) -> int:
 def cmd_size(args: argparse.Namespace) -> int:
     files = git_files()
     counts = {f: count_lines(REPO_ROOT / f) for f in files if is_impl_file(f) and (REPO_ROOT / f).exists()}
+    # レビュー基盤自身も見る。ここを外すと、**計測している側のファイルだけが計測されない**
+    # ——`review_checks.py`は5日で997→2,996行になったが、どの表にも現れなかった。
+    counts.update({
+        f: count_lines(REPO_ROOT / f)
+        for f in files
+        if f.startswith("scripts/") and f.endswith(".py") and (REPO_ROOT / f).exists()
+    })
     arch = "docs/architecture.md"
     if (REPO_ROOT / arch).exists():
         counts[arch] = count_lines(REPO_ROOT / arch)
@@ -2554,6 +2653,7 @@ def cmd_size(args: argparse.Namespace) -> int:
     groups = {
         "backend": sorted((f for f in counts if f.startswith("backend/")), key=lambda f: -counts[f])[:top_n],
         "frontend": sorted((f for f in counts if f.startswith("frontend/")), key=lambda f: -counts[f])[:top_n],
+        "scripts": sorted((f for f in counts if f.startswith("scripts/")), key=lambda f: -counts[f])[:top_n],
         "docs": [arch] if arch in counts else [],
     }
     watched = sorted(set(sum(groups.values(), [])) | set(thresholds) | set(prev), key=lambda f: -counts.get(f, 0))
@@ -3232,9 +3332,16 @@ def guard_probe_edges(wt: Path) -> dict[str, "EdgeProbe | str"]:
                      "export function zzzGuardProbeLayer(map: MapLibreMap) {\n"
                      '  map.addSource("zzz-guard-probe", { type: "geojson", data: null });\n'
                      "}\n")
+        # 名前を書かない副作用importで繋ぐ。**名前を書くと到達したことになってしまう**
+        # ——連結したソースの上では、ファイル先頭の行も直前のファイルの最後の宣言の本文として
+        # 読まれるため、import文に綴りがあるだけで参照とみなされる（この外縁が何も試して
+        # いない状態になっていた）。
         hop = map_redraw_one_hop_module(wt)
-        append(hop, '\nimport { zzzGuardProbeLayer } from "./zzzGuardProbeLayers";\n'
-                    "export const zzzGuardProbeRef = zzzGuardProbeLayer;\n")
+        hop.write_text(
+            'import "./zzzGuardProbeLayers";\n'
+            + hop.read_text(encoding="utf-8", errors="replace"),
+            encoding="utf-8",
+        )
 
     return {
         "dead_file_refs": EdgeProbe(
@@ -3271,12 +3378,12 @@ def guard_probe_edges(wt: Path) -> dict[str, "EdgeProbe | str"]:
             lambda: write("backend/benchmarks/zzz_guard_probe.py",
                           "zzz_guard_probe = 1\n\n\nzzz_guard_probe = 1\n")),
         "web_layer_batch_import": EdgeProbe(
-            "backend/app/main.py（WEB_LAYER_DIRSの手書き4つの外）", False,
+            "backend/app/main.py（api/services/infrastructure/domainのどれでもない）", True,
             lambda: append(wt / "backend/app/main.py",
                            "\n\nfrom app.batch.precompute_way_landcover import ALGORITHM_VERSION\n\n"
                            "zzz_guard_probe = ALGORITHM_VERSION\n")),
         "way_tag_allowlist": EdgeProbe(
-            "backend/app/domain/hard_filters.py（MATERIAL_TAG_READER_FILESの手書き3本の外）", False,
+            "材料カタログを持たないがway_tagsを読むファイル（hard_filters.py）", True,
             lambda: append(wt / "backend/app/domain/hard_filters.py",
                            '\n\ndef _zzz_guard_probe(tags: dict[str, str]) -> str | None:\n'
                            '    return tags.get("zzz_guard_probe")\n')),
@@ -3323,7 +3430,7 @@ def guard_probe_edges(wt: Path) -> dict[str, "EdgeProbe | str"]:
                           "class ZzzGuardProbe:\n    def run(self, a, b):\n        return a + b\n\n\n"
                           "zzz_guard_probe_value = ZzzGuardProbe().run(1, 2, 3)\n")),
         "map_redraw_coverage": EdgeProbe(
-            "入口から2ホップ先のモジュール（母集団は1ホップ固定）", False, two_hop_layer),
+            "入口から2ホップ先のモジュール", True, two_hop_layer),
         "plan_vs_tasks": "母集団は台帳の全行とdocs/tasksの全ファイルで、外側が無い",
         "task_numbering": "母集団は台帳の全行とdocs/tasksの全ファイルで、外側が無い",
     }

@@ -1394,3 +1394,185 @@ def test_call_arity_ignores_a_same_named_function_from_an_unresolvable_import():
         "backend/app/domain/zzz_probe.py": defs,
         "backend/app/services/zzz_caller.py": caller,
     }) == []
+
+
+# --- 入口関数を直接呼ぶユニットテスト（mutateだけが担保していた検知器） -------
+#
+# `mutate`は実際に鳴るかを見るが、1検知器あたり1つの違反しか通さない。境界（何を拾い、
+# 何を拾わないか）はここで固定する。
+
+
+def _lines(*rows: str) -> dict[str, list[tuple[int, str]]]:
+    return {"docs/modules/backend/zzz.md": list(enumerate(rows, 1))}
+
+
+def test_find_dead_file_refs_reports_a_file_that_does_not_exist():
+    docs = _lines("実装は`Map/zzzGone.ts`が持つ。")
+
+    hits = review_checks.find_dead_file_refs(docs, ["frontend/src/components/Map/other.ts"])
+
+    assert len(hits) == 1
+    assert "zzzGone.ts" in hits[0]
+
+
+def test_find_dead_file_refs_accepts_a_file_that_exists():
+    docs = _lines("実装は`Map/other.ts`が持つ。")
+
+    assert review_checks.find_dead_file_refs(docs, ["frontend/src/components/Map/other.ts"]) == []
+
+
+def test_find_narrative_violations_reports_history_in_module_docs():
+    assert len(review_checks.find_narrative_violations(_lines("以前はこの方式ではなかった。"))) == 1
+
+
+def test_find_narrative_violations_accepts_a_present_tense_description():
+    assert review_checks.find_narrative_violations(_lines("この値はタイルの世代を決める。")) == []
+
+
+def test_find_redis_skeleton_violations_reports_a_hand_written_client():
+    src = {"backend/app/services/zzz.py": list(enumerate([
+        "from app.infrastructure.redis_client import get_redis_client_or_none",
+    ], 1))}
+
+    assert len(review_checks.find_redis_skeleton_violations(src)) == 1
+
+
+def test_find_web_layer_batch_imports_covers_main_py():
+    """`main.py`は本番webが起動時に読む筆頭のファイル。手書きのディレクトリ一覧では
+    ここが外れていた（docs/tasks/T905.md）。"""
+    src = {"backend/app/main.py": list(enumerate([
+        "from app.batch.precompute_way_landcover import ALGORITHM_VERSION",
+    ], 1))}
+
+    assert len(review_checks.find_web_layer_batch_imports(src)) == 1
+
+
+def test_find_web_layer_batch_imports_allows_batch_itself():
+    src = {"backend/app/batch/refresh_derived.py": list(enumerate([
+        "from app.batch.precompute_way_landcover import ALGORITHM_VERSION",
+    ], 1))}
+
+    assert review_checks.find_web_layer_batch_imports(src) == []
+
+
+def test_find_way_tag_allowlist_violations_covers_files_outside_the_material_catalog():
+    """`hard_filters.py`・`night.py`のように、材料カタログを持たないがway_tagsを読む
+    ファイルも対象（手書き3本の一覧では外れていた）。"""
+    src = {"backend/app/domain/hard_filters.py": list(enumerate([
+        'if tag_value_is(way_tags, "zzz_not_allowed", "yes"):',
+    ], 1))}
+
+    hits = review_checks.find_way_tag_allowlist_violations(src)
+
+    assert len(hits) == 1
+    assert "zzz_not_allowed" in hits[0]
+
+
+def test_find_way_tag_allowlist_violations_accepts_an_allowed_key():
+    src = {"backend/app/domain/night.py": list(enumerate([
+        'if tag_value_is(tags, "lit", "yes"):',
+    ], 1))}
+
+    assert review_checks.find_way_tag_allowlist_violations(src) == []
+
+
+def test_find_undocumented_files_reports_a_file_named_nowhere():
+    files = ["backend/app/services/zzz_alone.py"]
+
+    hits = review_checks.find_undocumented_files(files, "何も書いていない", files)
+
+    assert len(hits) == 1
+
+
+def test_find_undocumented_files_does_not_let_a_same_named_file_stand_in():
+    """同じ名前が複数あるとき、片方の記載でもう片方を「記載済み」にしない。
+
+    対象ファイル表は`| api | zzz.py・… |`のように列で階層を表すため、パスでの照合には
+    できない。その代わり、**そのファイルにしか無い階層の語**が同じ行にあることを求める。
+    """
+    files = ["backend/app/api/routers/zzz.py", "backend/app/domain/zzz.py"]
+    modules = "| api | `zzz.py`（タイル配信） |"
+
+    hits = review_checks.find_undocumented_files(files, modules, files)
+
+    assert [h.split(":")[0] for h in hits] == ["backend/app/domain/zzz.py"]
+
+
+def test_find_undocumented_files_accepts_both_when_each_row_names_its_layer():
+    files = ["backend/app/api/routers/zzz.py", "backend/app/domain/zzz.py"]
+    modules = "| api | `zzz.py`（タイル配信） |\n| domain | `zzz.py`（純関数） |"
+
+    assert review_checks.find_undocumented_files(files, modules, files) == []
+
+
+def test_check_dead_doc_links_reports_a_link_that_does_not_resolve(tmp_path, monkeypatch):
+    """名前だけの照合では通ってしまう「階層が1つ足りないリンク」を拾う。"""
+    root = tmp_path
+    (root / "docs" / "tasks").mkdir(parents=True)
+    (root / "docs" / "tasks" / "T001.md").write_text("# T001", encoding="utf-8")
+    (root / "docs" / "sub").mkdir()
+    (root / "docs" / "sub" / "a.md").write_text("詳細は[T001](tasks/T001.md)参照。", encoding="utf-8")
+    monkeypatch.setattr(review_checks, "REPO_ROOT", root)
+    monkeypatch.setattr(review_checks, "TASKS_DIR", root / "docs" / "tasks")
+    monkeypatch.setattr(review_checks, "HISTORY_DIR", root / "history")
+    review_checks.read_text.cache_clear()
+
+    hits = review_checks.check_dead_doc_links(["docs/sub/a.md"])
+
+    assert len(hits) == 1
+    assert "解決できない" in hits[0]
+
+
+def test_check_dead_doc_links_accepts_a_link_that_resolves(tmp_path, monkeypatch):
+    root = tmp_path
+    (root / "docs" / "tasks").mkdir(parents=True)
+    (root / "docs" / "tasks" / "T001.md").write_text("# T001", encoding="utf-8")
+    (root / "docs" / "sub").mkdir()
+    (root / "docs" / "sub" / "a.md").write_text("詳細は[T001](../tasks/T001.md)参照。", encoding="utf-8")
+    monkeypatch.setattr(review_checks, "REPO_ROOT", root)
+    monkeypatch.setattr(review_checks, "TASKS_DIR", root / "docs" / "tasks")
+    monkeypatch.setattr(review_checks, "HISTORY_DIR", root / "history")
+    review_checks.read_text.cache_clear()
+
+    assert review_checks.check_dead_doc_links(["docs/sub/a.md"]) == []
+
+
+def test_find_cross_file_env_writes_reports_a_shared_variable(tmp_path, monkeypatch):
+    root = tmp_path
+    (root / "frontend" / "src" / "lib").mkdir(parents=True)
+    (root / "frontend" / "src" / "lib" / "reader.ts").write_text(
+        "export const url = process.env.NEXT_PUBLIC_ZZZ;\n", encoding="utf-8")
+    (root / "frontend" / "src" / "lib" / "other.test.ts").write_text(
+        'it("x", () => { process.env.NEXT_PUBLIC_ZZZ = "a"; });\n', encoding="utf-8")
+    monkeypatch.setattr(review_checks, "REPO_ROOT", root)
+    review_checks.read_text.cache_clear()
+
+    hits = review_checks.find_cross_file_env_writes(
+        ["frontend/src/lib/reader.ts", "frontend/src/lib/other.test.ts"])
+
+    assert len(hits) == 1
+
+
+def test_find_source_comment_dead_identifier_refs_reports_a_name_only_in_comments(tmp_path, monkeypatch):
+    root = tmp_path
+    (root / "backend" / "app").mkdir(parents=True)
+    (root / "backend" / "app" / "zzz.py").write_text(
+        "# `zzz_gone_name`が値を組み立てる。\nvalue = 1\n", encoding="utf-8")
+    monkeypatch.setattr(review_checks, "REPO_ROOT", root)
+    review_checks.read_text.cache_clear()
+
+    hits = review_checks.find_source_comment_dead_identifier_refs(["backend/app/zzz.py"])
+
+    assert len(hits) == 1
+    assert "zzz_gone_name" in hits[0]
+
+
+def test_find_source_comment_dead_identifier_refs_accepts_a_name_in_code(tmp_path, monkeypatch):
+    root = tmp_path
+    (root / "backend" / "app").mkdir(parents=True)
+    (root / "backend" / "app" / "zzz.py").write_text(
+        "# `zzz_live_name`が値を組み立てる。\nzzz_live_name = 1\n", encoding="utf-8")
+    monkeypatch.setattr(review_checks, "REPO_ROOT", root)
+    review_checks.read_text.cache_clear()
+
+    assert review_checks.find_source_comment_dead_identifier_refs(["backend/app/zzz.py"]) == []
