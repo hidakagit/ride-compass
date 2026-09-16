@@ -246,7 +246,7 @@ page.tsx
   `ROAD_TILE_SOURCE_ID`/`ROAD_TILE_SOURCE_LAYER`を共有する独立レイヤーとして追加される
   （`designation`/`tunnel`/`oneway`と同型の構成）。
 - `dedicatedWayValues`はパン・ズームのたびに変わりうる値のため、「表示ON/OFF」を担う
-  一括effect（`STATIC_OVERLAY_LAYERS`ループ）とは別の専用effectで反映する（無関係な
+  一括effect（`buildStaticOverlayLayers`が返す配列のループ）とは別の専用effectで反映する（無関係な
   再実行を避けるため）。
 - **`map.setStyle()`（「地図の表示を再描画」ボタン経由のスタイル取り直し）は
   カスタムレイヤーを全て消すため、`redrawAllLayers`が全レイヤーを再構築する。この際

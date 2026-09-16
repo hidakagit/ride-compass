@@ -146,9 +146,9 @@ Step9の可視化はモード切替（総合難易度/標高/風/路面のいず
 
 「細かな設定はサイドバーで実施し、地図画面ではON/OFFと適用中の条件が簡潔に分かる程度にしたい」「今後の静的レイヤー追加（交通ストレス等、[static-road-attributes-plan.md](static-road-attributes-plan.md)）や動的レイヤー追加（天候等）を汎用的にやりやすくしたい」という要望を受け、レイヤー操作UIを再構成した（2026-08-15）。
 
-- **レイヤーカタログ**（[frontend/src/components/Map/mapLayers.ts](../frontend/src/components/Map/mapLayers.ts)、新規）: 各レイヤーの`id`/`label`/`kind`（static=地域固定・時間で不変 / dynamic=ルート・時間で変わる）/`description`を宣言する単一ソース。地図上のチップ行とサイドバーのセクション枠はこの配列の列挙で描画されるため、レイヤー追加は「カタログに1エントリ＋`page.tsx`に初期値とサマリ対応＋`MapLayersPanel`にセクション中身」で済む（詳細手順は同ファイル冒頭コメント）。
+- **レイヤーカタログ**（[frontend/src/components/Map/mapLayers.ts](../frontend/src/components/Map/mapLayers.ts)、新規）: 各レイヤーの`id`/`label`/`kind`（static=地域固定・時間で不変 / dynamic=ルート・時間で変わる）/`description`を宣言する単一ソース。地図上のチップ行とサイドバーのセクション枠はこの配列の列挙で描画されるため、レイヤー追加は「カタログに1エントリ＋`page.tsx`に初期値とサマリ対応＋サイドバーにセクション中身」で済む（この手順は本節が書かれた時点のもの。当時のサイドバー`MapLayersPanel`は撤去済みで、現在の分担は後述の節を参照）。
 - **地図上**（[frontend/src/components/MapOverlayControls/MapOverlayControls.tsx](../frontend/src/components/MapOverlayControls/MapOverlayControls.tsx)）: ON/OFFチップ行と、ONのレイヤーに効いている条件の1行サマリ（例:「路面: アスファルトのみ／幹線道路以外」「ルート: 色分け: 風の影響」。路面はズーム不足の案内を優先）だけを置く。サマリのタップでサイドバーが開き、該当レイヤーの設定セクションへスクロール・フォーカスする（`layerSectionDomId`）。旧実装にあった⚙ボタン＋絞り込みモーダル（`RoadFilterDialog`）は廃止。コンポーネント自体はレイヤー固有の知識を持たない汎用描画係になった（レイヤー追加時に変更不要）。サマリ文言は`legendFilter.ts`の`summarizeLegendFilters`（軸の凡例定義だけに依存する汎用関数）が生成する。
-- **サイドバー**（[frontend/src/components/MapLayersPanel/MapLayersPanel.tsx](../frontend/src/components/MapLayersPanel/MapLayersPanel.tsx)、新規。旧`MapLegendPanel`と旧`RoadFilterDialog`を統合して置き換え）: `kind`ごとのグループ見出し（「地域レイヤー（変わらないデータ）」「ルートレイヤー（時間・選択で変わるデータ）」）の下に、レイヤーごとのセクション（見出し＋表示スイッチ＋凡例・設定）を並べる。路面の絞り込み編集は`RoadFilterEditor`（同ディレクトリ）が担い、モーダル時代の**下書き→適用**方式を維持する（チェックのたびに地図へ即時反映すると複数条件の組み合わせ編集がしづらい、という過去のフィードバックによる。ルート凡例のような単純なチェックは即時反映のままで使い分け）。絞り込みはOFF中でも編集でき、適用するとレイヤーが自動でONになる（旧ダイアログと同じ挙動）。
+- **サイドバー**（当時の`MapLayersPanel.tsx`。旧`MapLegendPanel`と旧`RoadFilterDialog`を統合して置き換えたもので、**現在は撤去済み**）: `kind`ごとのグループ見出し（「地域レイヤー（変わらないデータ）」「ルートレイヤー（時間・選択で変わるデータ）」）の下に、レイヤーごとのセクション（見出し＋表示スイッチ＋凡例・設定）を並べる。路面の絞り込み編集は`RoadFilterEditor`（同ディレクトリ）が担い、モーダル時代の**下書き→適用**方式を維持する（チェックのたびに地図へ即時反映すると複数条件の組み合わせ編集がしづらい、という過去のフィードバックによる。ルート凡例のような単純なチェックは即時反映のままで使い分け）。絞り込みはOFF中でも編集でき、適用するとレイヤーが自動でONになる（旧ダイアログと同じ挙動）。
 - **状態管理**（`page.tsx`）: レイヤーON/OFFは個別のuseState（`showElevation`等）から`layerVisibility: Record<MapLayerId, boolean>`へ一般化した。`MapView`のprops（`showElevation`/`showRoad`/`routeLayerOn`）は従来のまま`layerVisibility`から導出して渡すため、`MapView.tsx`は無変更。
 
 ### 地域レイヤー（標高・路面の常時オーバーレイ）と地図タイルキャッシュの設計（Step10）
@@ -307,7 +307,7 @@ Step10の標高・路面は「地域に固定・時間で変わらない」重�
     JMA側に存在せず、正確な判定にはピクセル解析等の新規実装が必要なため）。
 - **night軸の動的化（T173）**: `domain/twilight.py: is_night`が`astral`ライブラリ（暦計算、
   外部通信なし）で市民薄明（太陽高度-6度）を判定し、区間の推定到達時刻がその外（夜間）なら
-  night軸の重み（`RoutePreference.weights["night"]`）をそのまま、日中なら0倍にして合成する（`night_difficulty`自体の算出は
+  night軸の重み（`RoutePreference.weights["night"]`）をそのまま、日中なら0倍にして合成する（night軸の難易度自体の算出は
   街灯・トンネルタグのみに基づき不変、重みの掛け替えだけで動的化）。`RoadGraphEngine`は
   出発時刻1点のみで全区間へ一様適用する（区間ごとの推定到達時刻は使わない）。風の
   探索コストは**到達時刻ごと**に持つ——レグを時刻ビンへ刻んでビンごとのコスト配列を
@@ -1512,7 +1512,7 @@ T278（上記）の自動導出は実装されていたが、導出結果の配�
   `STATIC_OVERLAY_LAYERS`/`LAYER_DATA_SOURCES`（`MapView.tsx`）は、`build*(RAMP_AXES)`を
   静的引数で事前計算してexportしたものだったが、上記の実行時フェッチ化で本体コードの
   消費者が全て`build*(catalog.rampAxes)`直呼びへ移行済みで、exportされた定数側は
-  テストからしか参照されなくなっていた。定数自体を削除し、テストは`build*(RAMP_AXES)`を
+  テストからしか参照されなくなっていた。定数自体を撤去し、テストは`build*(RAMP_AXES)`を
   明示的に呼ぶ形＋軸スタジオのGUI作成軸を含む拡張カタログでの反映確認テストへ書き換えた
   （`build*()`関数自体・`RAMP_AXES`フォールバック機構はそのまま存続）。
 - **materials統一（primary_attribute_id/primary_attribute_ids）**: 上記実装中に
@@ -1525,7 +1525,7 @@ T278（上記）の自動導出は実装されていたが、導出結果の配�
   `AxisCatalogEntry`へ`primary_attribute_ids: list[str]`を追加。バックエンドの
   `_primary_attribute_ids_for(definition)`（`axis_catalog.py`）は`car_stress`のような
   「他axis_idを`MaterialTerm.material`として参照する内部軸階層」（T292）を`visited`
-  集合で再帰的に解決する。フロントは`axisMaterials`/`axisMaterialLayerIds`を廃し、
+  集合で再帰的に解決する。フロントは`axisMaterials`/`axisMaterialLayerIds`を撤去し、
   ライブ/フォールバックいずれの`primary_attribute_ids`も直接渡せる純関数
   `primaryAttributeIdsToLayerIds(attrIds: readonly string[])`へ置き換えた。
 - 上記に伴い、既存軸だけを特別扱いしていた静的定義（旧`AXES_WITH_INPUTS`・
@@ -2151,7 +2151,7 @@ MapLibre expressionで行う」方式だが、風のように**道路自身に�
   計算結果は`(材料id, z, x, y, 時刻バケット, 向きバケット[5度刻み], 速度バケット[1km/h刻み])
   → 値`というタイル単位のキーで[dynamic_way_value_cache.py]
   (../backend/app/infrastructure/dynamic_way_value_cache.py)経由でRedisへキャッシュする
-  （TTLは風グリッドの新鮮判定TTL`WIND_GRID_CACHE_TTL_SECONDS`と同じ3時間）。
+  （TTLは呼び出し元が気象データの新鮮さから渡す。風は3時間）。
   `GET /api/region/dynamic-way-values/wind/{z}/{x}/{y}`（§4参照、`bearing_deg`・`speed_kmh`
   クエリパラメータ必須）が`{way_id: 地図表示値}`を返す（backendが軸定義で評価した難易度
   0〜100。勾配のような符号付き材料の軸だけ生値、`domain/dynamic_way_values.py:

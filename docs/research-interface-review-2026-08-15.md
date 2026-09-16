@@ -186,7 +186,7 @@
   `*_difficulty`（軸別・0-100絶対基準）と合成 `difficulty`。
 - 返却されないもの: **total_scoreの成分分解**。`RouteScorer.score` は
   `component_scores`（軸別の正規化スコア）を計算しているのに、合成後に捨てている
-  （[route_scorer.py:33-63](../backend/app/services/route_scorer.py#L33-L63)）。
+  （当時の`route_scorer.py:33-63`。このモジュールは撤去済み）。
   「Route A 87点 = 距離28 + 標高12 + 風30 + 路面17」という分解は、
   **新しい計算を一切追加せず**、計算済みの値を `RouteCandidate` に持たせるだけで返せる。
 - 区間レベルの説明可能性は良い: `RouteSegmentDetail` が生値（gradient_percent・

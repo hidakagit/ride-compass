@@ -5,7 +5,7 @@
 > ここでの指摘を踏まえて確定した原則は[docs/design-principles.md](design-principles.md)が
 > 唯一の正本で、このファイル末尾の原則一覧は当時のもの（[T724](tasks/T724.md)）。
 
-[roadbike_ridability_data_sources.md](../roadbike_ridability_data_sources.md)（外部API・オープンデータの収集結果）を、
+`roadbike_ridability_data_sources.md`（外部API・オープンデータの収集結果。リポジトリ外の資料）を、
 現行アーキテクチャ（[architecture.md](architecture.md)・[static-road-attributes-plan.md](static-road-attributes-plan.md)）に
 突き合わせ、「組み込めるか」「目的（ロードバイクの走りやすさ評価）に合致するか」を判定した。
 

@@ -1049,6 +1049,12 @@ EXTERNAL_VOCABULARY = frozenset({
     "toll_booth",             # OSMのタグ値
     "guard_rail",
     "jersey_barrier",
+    "NoReferencedTableError",  # SQLAlchemyの例外クラス
+    "APScheduler",            # ジョブスケジューラ（ライブラリ名）
+    "SSL",                    # プロトコル名
+    "Geofabrik",              # OSM抽出データの配布元
+    "BBBike",
+    "Overpass",               # OSMのクエリAPI
 })
 
 
@@ -1070,28 +1076,48 @@ def find_source_comment_dead_identifier_refs(files: list[str], scope: list[str] 
     # 走査するのは実装のコメントだけ（テストのコメントは母集団には要るが、対象にすると
     # テスト内の旧名まで一度に抱え込む。そちらは別タスクで扱う）。
     targets = corpus_files(files if scope is None else scope)
-    hits = find_dead_identifier_refs(
+    return sorted(find_dead_identifier_refs(
         {f: comment_lines[f] for f in targets if f in comment_lines}, corpus
-    )
-    return sorted(h for h in hits if not any(f"`{name}`" in h for name in EXTERNAL_VOCABULARY))
+    ))
 
 
 def source_corpus(files: list[str]) -> str:
-    """識別子の実在判定に使うソース全文（実装・スクリプト）。"""
+    """識別子の実在判定に使うコード（実装・スクリプト、**コメントを除く**）。
+
+    コメントを含めると、撤去済みの名前がどこかのコメントに1つでも残っているだけで
+    「実装に存在する」と判定される——名指しした側と支えている側がどちらも記述でしかない
+    のに、記述が記述を正当化してしまう。コメント側の検知器（`find_source_comment_
+    dead_identifier_refs`）は最初からコードだけを母集団にしており、doc側だけが
+    その扱いから外れていた。
+    """
     return _source_corpus(str(REPO_ROOT), tuple(files))
+
+
+# テストの中の関数・クラス定義。テストケース本体は母集団から外すが、**テスト側に定義された
+# 部品**（`FakeRoadGraphRepository`・個々のテスト関数名）はdocs/modulesが正当に名指しする。
+# 変数（`const`/`let`）は含めない——撤去された本番の定数を、テストが同じ名前のローカル変数
+# として持っているだけで「実在する」ことになり、改名・撤去の取り残しを見逃す（含めると
+# 実測で1件を見逃した）。
+TEST_DEFINITION_RE = re.compile(
+    r"^\s*(?:export\s+)?(?:async\s+)?(?:def|class|function)\s+([A-Za-z_][A-Za-z0-9_]*)",
+    re.M,
+)
 
 
 @functools.lru_cache(maxsize=8)
 def _source_corpus(repo_root: str, files: tuple[str, ...]) -> str:
     parts = []
+    for f in corpus_files(list(files)):
+        _, code = split_source_comments(f, read_text(REPO_ROOT / f))
+        parts.append(code)
+    # モジュール名（`export_openapi`等）はファイル名にしか現れない。実装として実在する
+    # のに本文へ綴りが無い、という理由で違反になるのを防ぐ。
+    parts.extend(Path(f).stem for f in corpus_files(list(files)))
     for f in files:
-        if not f.startswith(SOURCE_CORPUS_PREFIXES) or not f.endswith(SOURCE_CORPUS_SUFFIXES):
-            continue
-        if SOURCE_CORPUS_EXCLUDE_RE.search(f):
-            continue
-        path = REPO_ROOT / f
-        if path.exists():
-            parts.append(read_text(path))
+        if f.startswith(SOURCE_CORPUS_PREFIXES) and SOURCE_CORPUS_EXCLUDE_RE.search(f):
+            path = REPO_ROOT / f
+            if path.exists():
+                parts.extend(TEST_DEFINITION_RE.findall(read_text(path)))
     return "\n".join(parts)
 
 
@@ -1217,6 +1243,10 @@ def find_dead_identifier_refs(
     ファイル名の実在（find_dead_file_refs）だけでは、ファイルは残ったまま中の関数・定数が
     改名・削除された参照を検出できない。綴りの単純な包含判定で、改名の取り残しを拾う。
 
+    外部由来の語彙（`EXTERNAL_VOCABULARY`）は、名指しした側がdocsでもコメントでも同じく
+    対象外。ライブラリのクラス名・配信元JSONのフィールド名は、このリポジトリに綴りが無いのが
+    正常な状態で、実在判定で拾えるものではない。
+
     `include_fenced`はdocs/modules専用。コードフェンスの内側を裸の綴りまで見るため、
     工程名・タスク番号を図へ書く文書（architecture.md・レビュー手順書）へ当てると
     識別子でない語を拾う（実測: architecture.mdで17件、いずれも誤検知）。
@@ -1229,6 +1259,8 @@ def find_dead_identifier_refs(
             if lineno in fenced:
                 tokens |= set(FENCE_IDENT_RE.findall(line))
             for token in sorted(tokens):
+                if token in EXTERNAL_VOCABULARY:
+                    continue
                 if looks_like_identifier(token) and not identifier_exists(token, corpus):
                     out.append(f"{doc}:{lineno}: `{token}` が実装に存在しない")
     return out
@@ -1613,6 +1645,12 @@ DOC_CONSTANT_VALUE_RE = re.compile(
 # 単位の読み替え（秒↔分・ミリ秒↔秒・秒↔時間）。文書は人が読む単位で書くことがある。
 CONSTANT_UNIT_FACTORS = (1.0, 60.0, 1000.0, 3600.0, 0.001, 1.0 / 60.0)
 # 当時の記録（書き換えない文書）。現在の値と違っていて正しい。
+# 当時の記録として残す文書（後から書き換えない）。
+DOC_RECORD_PREFIXES = (
+    ".claude/commands/review/history/",
+    ".claude/commands/task/history/",
+    "docs/improvement-plan-archive/",
+)
 HISTORY_EXEMPT_DOC_PREFIXES = (
     ".claude/commands/review/history/",
     "docs/improvement-plan-archive/",
@@ -1667,7 +1705,6 @@ def find_doc_constant_drift(files: list[str], scope: list[str] | None = None) ->
 
 AXIS_SNAPSHOT = "backend/fixtures/axis_definitions_snapshot.json"
 AXIS_ID_USE_RE = re.compile(r'axis_id\s*[:=]\s*"([a-z][a-z0-9_]+)"')
-# 説明の中で現行として名指しされうるのは複合語の軸idだけ。1語のidは普通名詞と区別できない。
 AXIS_MENTION_TARGET_DOCS = ("docs/modules/", "CLAUDE.md", ARCHITECTURE_DOC)
 
 
@@ -1700,6 +1737,8 @@ def historical_axis_ids() -> frozenset[str]:
 # プロセスを起動して`docs`が数秒遅くなる（実測: 19改訂で3.7秒 → この形なら0.3秒。
 # 得られる集合は同じ）。
 SNAPSHOT_AXIS_ID_IN_DIFF_RE = re.compile(r'^[+-]\s*"axis_id":\s*"([a-z][a-z0-9_]+)"', re.M)
+# 表示ラベル（日本語）。idを消してもラベルは残りやすく、読み手が受け取るのはこちら。
+SNAPSHOT_AXIS_LABEL_IN_DIFF_RE = re.compile(r'^[+-]\s*"label":\s*"([^"]+)"', re.M)
 
 
 @functools.lru_cache(maxsize=4)
@@ -1713,6 +1752,41 @@ def _historical_axis_ids(repo_root: str) -> frozenset[str]:
     return frozenset(SNAPSHOT_AXIS_ID_IN_DIFF_RE.findall(patch))
 
 
+def live_axis_labels() -> set[str]:
+    try:
+        snapshot = json.loads(read_text(REPO_ROOT / AXIS_SNAPSHOT))
+    except (OSError, json.JSONDecodeError):
+        return set()
+    return {
+        label for entry in snapshot.get("axes", [])
+        if (label := entry["definition"].get("label"))
+    }
+
+
+def removed_axis_labels() -> set[str]:
+    """スナップショットのgit履歴にあり、現行のスナップショットに無い表示ラベル。
+
+    idを名指ししていなくてもラベルは残る（[T885](../docs/tasks/T885.md)の掃除がASCII idの
+    grepだったため、日本語ラベルだけが各所に残った）。読み手が「現行の軸」と受け取るのは
+    ラベルの方で、idと同じ重さで扱う。
+    """
+    if not live_axis_ids():
+        return set()
+    return {
+        label for label in _historical_axis_labels(str(REPO_ROOT))
+        if label and label not in live_axis_labels()
+    }
+
+
+@functools.lru_cache(maxsize=4)
+def _historical_axis_labels(repo_root: str) -> frozenset[str]:
+    try:
+        patch = git("log", "-p", "--format=", "--", AXIS_SNAPSHOT)
+    except (RuntimeError, OSError):
+        return frozenset()
+    return frozenset(SNAPSHOT_AXIS_LABEL_IN_DIFF_RE.findall(patch))
+
+
 def removed_axis_ids(files: list[str]) -> set[str]:
     """軸idとして書かれた綴りのうち、現在のスナップショットに無いもの。
 
@@ -1723,14 +1797,19 @@ def removed_axis_ids(files: list[str]) -> set[str]:
     live = live_axis_ids()
     if not live:
         return set()
-    mentioned: set[str] = set(historical_axis_ids())
+    in_source: set[str] = set()
     for f in files:
         if not f.endswith((".py", ".ts", ".tsx")) or "/types/generated/" in f:
             continue
         path = REPO_ROOT / f
         if path.exists():
-            mentioned |= set(AXIS_ID_USE_RE.findall(read_text(path)))
-    return {a for a in mentioned - live if "_" in a}
+            in_source |= set(AXIS_ID_USE_RE.findall(read_text(path)))
+    # **実際に公開されていた軸**（スナップショット履歴）は綴りの形に関わらず対象にする。
+    # 1語かどうかは、現行として名指ししてよいかと何の関係も無い。
+    # 一方、ソースの`axis_id="…"`にしか現れない綴り（テストのフィクスチャ）は、1語だと
+    # 普通名詞と区別できない——`signed`というフィクスチャ軸があるために「signed distance
+    # field」の説明が違反になる（実測）。フィクスチャ由来のものだけ複合語に限る。
+    return (set(historical_axis_ids()) - live) | {a for a in in_source - live if "_" in a}
 
 
 # コメントの折り返しで次の行の頭に付く飾り（`#`・`*`・`//`と空白）。
@@ -1739,13 +1818,14 @@ COMMENT_WRAP_JOIN_RE = re.compile(r"\n[#*/\s]*")
 
 
 def find_removed_axis_mentions(files: list[str], scope: list[str] | None = None) -> list[str]:
-    """現在の軸定義に無いaxis_idを、現行の説明（docs/modules・architecture.md・実装）が名指し。
+    """現在の軸定義に無いaxis_id・表示ラベルを、現行の説明（docs/modules・architecture.md・実装）が名指し。
 
     .mdは段落に撤去の断りがあれば免除する（`paragraphs_with_removal_marker`、
     architecture.mdの既存の扱いと同じ単位）。実装コードのコメントは免除しない——
     撤去済みの名前を語る経緯コメント自体が`docs/comments.md`で禁じられている。
     """
-    gone = removed_axis_ids(files)
+    # idと表示ラベルを同じ母集団に入れる。名指しの重さは綴りの言語では変わらない。
+    gone = removed_axis_ids(files) | removed_axis_labels()
     if not gone:
         return []
     # 全idを1本の選択肢へまとめ、1行につき1回の走査で済ませる。id1本ずつ`re.search`を
@@ -1944,8 +2024,8 @@ def check_dead_doc_links(md_files: list[str]) -> list[str]:
     existing_tasks = {p.name for p in TASKS_DIR.glob("*.md")}
     for f in md_files:
         p = REPO_ROOT / f
-        # history/ 配下は当時の記録（書き換えない）のため対象外
-        if not p.exists() or f.startswith(".claude/commands/review/history/"):
+        # history/・改善計画アーカイブは当時の記録（書き換えない）のため対象外
+        if not p.exists() or f.startswith(DOC_RECORD_PREFIXES):
             continue
         for lineno, line in enumerate(read_text(p).splitlines(), 1):
             for name in HISTORY_REF_RE.findall(line):
@@ -1954,6 +2034,33 @@ def check_dead_doc_links(md_files: list[str]) -> list[str]:
             for n in TASK_FILE_MENTION_RE.findall(line):
                 if f"T{n}.md" not in existing_tasks:
                     out.append(f"{f}:{lineno}: docs/tasks/T{n}.md が存在しない")
+            out.extend(unresolvable_links(f, p, lineno, line))
+    return out
+
+
+# リンク記法`[表示](行き先)`の行き先。
+MD_LINK_TARGET_RE = re.compile(r"\[[^\]]*\]\(([^)\s]+)\)")
+# リポジトリの外を指す綴りと、書き方の雛形として置いてある綴り。
+EXTERNAL_LINK_PREFIXES = ("http://", "https://", "#", "mailto:", "<")
+LINK_TEMPLATE_RE = re.compile(r"[Tt]xxx|<[^>]+>")
+
+
+def unresolvable_links(rel_path: str, path: Path, lineno: int, line: str) -> list[str]:
+    """行き先が実際には解決できないリンク。
+
+    名前だけを照合すると、`docs/tasks/T889.md`が実在する限り`../tasks/T889.md`
+    （階層が1つ足りない）も通る——リンクとして死んでいるのに、名前の検査では見つからない。
+    行き先を実際にファイルシステムで解決して確かめる。
+    """
+    out: list[str] = []
+    for target in MD_LINK_TARGET_RE.findall(line):
+        if target.startswith(EXTERNAL_LINK_PREFIXES) or LINK_TEMPLATE_RE.search(target):
+            continue
+        # `path.md#節`（アンカー）と`path.py:57`（行番号）はリンク先の一部ではない。
+        probe = target.split("#")[0].split(":")[0]
+        if not probe or (path.parent / probe).resolve().exists():
+            continue
+        out.append(f"{rel_path}:{lineno}: リンク先 {target} が解決できない")
     return out
 
 
@@ -2968,10 +3075,10 @@ def guard_probe_edges(wt: Path) -> dict[str, "EdgeProbe | str"]:
             "docs/modules/README.md（名前で母集団から外れる）", False,
             lambda: append(module_readme, "\n存在しない`Map/zzzGuardProbeFile.ts`を参照する。\n")),
         "dead_identifier_refs": EdgeProbe(
-            "実装のコメントにしか無い名前（実在判定corpusがコメント込み）", False,
+            "実装のコメントにしか無い名前（コードには綴りが無い）", True,
             comment_only_identifier_in(module_doc)),
         "undeclared_dead_refs": EdgeProbe(
-            "実装のコメントにしか無い名前（実在判定corpusがコメント込み）", False,
+            "実装のコメントにしか無い名前（コードには綴りが無い）", True,
             comment_only_identifier_in(wt / ARCHITECTURE_DOC)),
         "source_comment_dead_identifier_refs": EdgeProbe(
             "バッククォートを付けずに綴った死んだ識別子", False,
@@ -3011,7 +3118,7 @@ def guard_probe_edges(wt: Path) -> dict[str, "EdgeProbe | str"]:
             "実装ファイルの改名（追加ではないため--diff-filter=Aに出ない）", False,
             rename_documented_impl_file),
         "dead_doc_links": EdgeProbe(
-            "名前は実在するが相対パスが解決しないリンク", False,
+            "名前は実在するが相対パスが解決しないリンク", True,
             lambda: append(module_doc, "\n詳細は[T889](../tasks/T889.md)参照。\n")),
         "undefined_css_tokens": EdgeProbe(
             "トークンを定義するCSS自身（名前で母集団から外れる）", False,
@@ -3028,7 +3135,7 @@ def guard_probe_edges(wt: Path) -> dict[str, "EdgeProbe | str"]:
                           "  }\n"
                           "});\n")),
         "removed_axis_mentions": EdgeProbe(
-            "アンダースコアを含まないaxis_id（記法で母集団から外れる）", False,
+            "アンダースコアを含まない、実在した軸のaxis_id", True,
             lambda: append(module_doc,
                            f"\n`{removed_axis_edge_id(wt)}`の色分けは現行の実装が組み立てる。\n")),
         "doc_constant_drift": EdgeProbe(
