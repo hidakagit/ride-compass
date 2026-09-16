@@ -202,10 +202,14 @@ const DEFAULT_LAYER_VISIBILITY: MapLayerVisibility = {
   // 風の矢印。precipitationNowcastと同じ理由で既定OFF。
   windVector: false,
   // 環境グループの勾配gridFill。同じ理由で既定OFF。
-  // 災害（雷・竜巻・落雷・キキクル4種）。他の気象レイヤーとは異なり既定ONにする——
+  // 災害（雷・竜巻・落雷・キキクル等）。他の気象レイヤーとは異なり既定ONにする——
   // 防災級の情報はユーザー操作を待たず表示すべき（予兆があってからチップをONにするのでは
-  // 手遅れ）という理由で、チップというUI要素は持たせつつ既定表示にしておく。危険度ゼロの
-  // 領域は配信元のタイルが透明のため、平常時の地図の見た目は変わらない。
+  // 手遅れ）という理由で、チップというUI要素は持たせつつ既定表示にしておく。
+  // **危険度が出ている間は広い範囲が塗られ、他の面レイヤー（土地被覆・標高図）は完全に
+  // 覆われる**（実機で確認: 注意報が出ている状態で地図全面が黄緑になり、基礎地図の色も
+  // 読めなくなる）。危険度ゼロの領域は配信元のタイルが透明なので、影響が出るのは
+  // 警戒度が上がっている間だけ——そのときは防災の情報を優先する、という判断でONのままに
+  // している。利用者は災害チップをOFFにすれば戻せる。
   disaster: true,
   // 線状降水帯予測マップはrasrf系統（降水短時間予報と同じ）のため「降水」チップの傘下へ
   // 統合されており、個別のlayerVisibilityキーを持たない（frontend/src/hooks/
@@ -328,9 +332,22 @@ const ROUTE_OUTCOME_SHEET_TITLE_ID = "route-outcome-sheet-title";
 
 type MobileSheet = "routeSettings" | "routeOutcome" | null;
 
+/** 1グループが持てる選択肢の数。`spliceFeatureIndex`がこの位取りで2つの位置を1つの数へ
+ *  畳むため、**超えると隣のグループの選択肢として引き戻される**（例外も表示の乱れも出ず、
+ *  黙って別の区間へ乗り換わる）。候補は生成数の上限（画面で最大8件）で決まるため実際には
+ *  届かないが、届いたときに黙って壊れないよう組み立てる側で弾く。 */
+const SPLICE_OPTIONS_PER_GROUP = 100;
+
 /** 乗り換え候補の帯のid。グループの位置と選択肢の位置を1つの数にして、地図のタップから
  *  どの選択肢かを引き戻せるようにする。 */
-const spliceFeatureIndex = (groupIndex: number, optionIndex: number) => groupIndex * 100 + optionIndex;
+const spliceFeatureIndex = (groupIndex: number, optionIndex: number) => {
+  if (optionIndex >= SPLICE_OPTIONS_PER_GROUP) {
+    throw new Error(
+      `乗り換えの選択肢が1グループ${SPLICE_OPTIONS_PER_GROUP}件の上限を超えた（index=${optionIndex}）`,
+    );
+  }
+  return groupIndex * SPLICE_OPTIONS_PER_GROUP + optionIndex;
+};
 
 export default function Home() {
   const { location, locationSource, locationReady, locating, locateError, handleLocateMe, setManualLocation } =
@@ -878,7 +895,8 @@ export default function Home() {
   // 乗り換えた先の道の上にある分かれ道がそのまま次の帯になる。
   const handleSpliceStretchSelect = useCallback(
     (index: number) => {
-      const option = spliceGroups[Math.floor(index / 100)]?.options[index % 100];
+      const option =
+        spliceGroups[Math.floor(index / SPLICE_OPTIONS_PER_GROUP)]?.options[index % SPLICE_OPTIONS_PER_GROUP];
       if (!option) return;
       setSpliceError(null);
       setAppliedAlternatives((current) => [...current, option]);
@@ -1882,9 +1900,6 @@ export default function Home() {
               // 区間詳細（赤ピン）の置き場は候補タブの中身で、編集中はそこが編集面へ
               // 置き換わる。選択を残すと地図にピンだけが残り、消す導線も無くなる。
               setSelectedRouteSegment(null);
-              setAppliedAlternatives([]);
-              setSplicePreviews({});
-              setSpliceError(null);
             }}
             title="このルートを編集（区間の乗り換え）"
             aria-label="このルートを編集"

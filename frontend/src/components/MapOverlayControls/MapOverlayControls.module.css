@@ -179,7 +179,7 @@
 
 /* 地図上のON/OFFアイコンボタン。アイコン（icons.tsx、自作SVG）+短いラベルを縦に積んだ
    小さいボタンで、以前の文字だけの横スクロールチップより地図の占有面積が小さい。
-   サイドバー側（MapLayersPanel）の「表示」チップは引き続きLayerChip（テキストのみ）を使う。 */
+   以前のサイドバー側（撤去済み）の「表示」チップより、地図の占有面積が小さい。 */
 .iconChip {
   /* .iconStatusDot（下記）をアイコン右上へ絶対配置するための基準。 */
   position: relative;
@@ -515,18 +515,15 @@
   opacity: 0.5;
 }
 
-/* 「不明・他」等の受け皿カテゴリを、実際の判定値と同列に見せない区切り（改善計画T89、
-   MapLayersPanel.module.cssの.legendCheckboxRowFallbackと対応）。 */
+/* 「不明・他」等の受け皿カテゴリを、実際の判定値と同列に見せない区切り。 */
 .detailRowFallback {
   margin-top: 0.2rem;
   padding-top: 0.3rem;
   border-top: 1px dashed var(--color-border);
 }
 
-/* 改善計画: 長いラベル（「緊急輸送道路 かつ 重要物流道路[N10・N12]」等）がellipsisで
-   末尾（N12等の重要な部分）ごと見切れる不具合を実機（モバイル）で報告を受け修正。
-   1行nowrap+ellipsisをやめ、サイドバー側（MapLayersPanel.module.css: .legendCheckboxRow、
-   overflow指定なし）と同じ「折り返して全文表示する」方式に揃える。 */
+/* 長いラベル（「緊急輸送道路 かつ 重要物流道路[N10・N12]」等）は折り返して全文を出す。
+   1行nowrap+ellipsisにすると、末尾（N12等の重要な部分）ごと見切れる。 */
 .detailRowLabel {
   flex: 1;
   min-width: 0;

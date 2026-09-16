@@ -115,9 +115,8 @@
   margin-bottom: var(--space-2);
 }
 
-/* 以前はネイティブ<summary>の既定ディスクロージャ三角に任せていたが、Disclosure化（T254、
-   Radix Accordionのbuttonトリガー）でその既定表示が失われるため、他の折りたたみ
-   （MapLayersPanel.module.cssの.chevron等）と同じ視覚言語の代替インジケータを出す。 */
+/* Disclosure（Radix Accordionのbuttonトリガー）はネイティブ<summary>の三角を持たないため、
+   折りたたみであることを示す代替のインジケータを自前で出す。 */
 .blockChevron {
   flex-shrink: 0;
   width: 0.5rem;

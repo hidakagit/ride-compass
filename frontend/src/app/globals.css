@@ -440,9 +440,8 @@
      LayerChip（意図的に36pxのピル型、.chip）やRadioGroup.Item（32px、.modeItem）が
      既に持っていた自前サイズを詳細度で踏みつぶす不具合の温床だった（実機Playwrightで
      発覚）。「本当にメインの導線」だけがタップ領域を必要とするという方針に転換し、
-     ブランケットのbuttonルール自体を廃止した。44pxが必要な主要ボタン（例:
-     MapLayersPanel.module.cssのレイヤー見出し）は、そのコンポーネント自身のCSS
-     Modulesファイルで個別に持たせる（このファイルへ一律ルールとして書き戻さない）。
+     ブランケットのbuttonルール自体を廃止した。44pxが必要な主要ボタンは、そのコンポーネント
+     自身のCSS Modulesファイルで個別に持たせる（このファイルへ一律ルールとして書き戻さない）。
      .app-sidebarは`<aside>`要素がisMobile(=640px以下)時はそもそもレンダーされない
      （frontend/src/hooks/useIsMobile.tsのMOBILE_BREAKPOINT_PXと本メディアクエリの
      640pxが一致するよう自動検証されている）ため、このメディアクエリ内では常に

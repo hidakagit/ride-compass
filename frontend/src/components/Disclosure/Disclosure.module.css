@@ -23,7 +23,7 @@
   all: unset;
   /* display:blockのみ（width:100%は指定しない）。単独利用（見出し行全体が
      トリガー）ではブロック要素の既定挙動で親幅いっぱいに広がり、trailingと
-     横並びのflex行内で使う場合（MapLayersPanel等）はflexアイテムとして内容量に
+     横並びのflex行内で使う場合はflexアイテムとして内容量に
      応じた幅になる（width:100%を指定するとflex-basisとして扱われ、trailingの
      隣に並ばず行全体を占有してしまうため、あえて指定しない）。 */
   display: block;

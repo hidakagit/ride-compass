@@ -109,7 +109,7 @@ export default function RoadInspectorPopup({ properties, axes, axisColors }: Roa
 }
 
 /** 道路の周囲100mリングの土地被覆。走行中に読むものではないため畳んでおき、閉じている
- * 間は最も多いクラスだけを見せる。8クラスは合計100%になるため、開いたときは割合の
+ * 間は最も多いクラスだけを見せる。クラスの割合は合計100%になるため、開いたときは割合の
  * 大きい順に並べ、0%のクラスは出さない。 */
 function RoadLandcoverRows({ result }: { result: AxisInspectorResult }) {
   const landcover = result.landcover;
