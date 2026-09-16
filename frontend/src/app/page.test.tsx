@@ -2053,11 +2053,16 @@ describe("土地被覆レイヤーのズーム不足の案内", () => {
     const HomeFresh = await renderFreshHome({ exposeViewportChange: true });
     render(<HomeFresh />);
 
-    const before = new Map(
-      JSON.parse(screen.getByTestId("overlay-layer-panels").textContent!).map(
-        ([id, summary, legendCount]: [string, string | null, number]) => [id, { summary, legendCount }],
-      ),
-    );
+    const readPanels = () =>
+      new Map<string, { summary: string | null; legendCount: number }>(
+        (
+          JSON.parse(screen.getByTestId("overlay-layer-panels").textContent!) as Array<
+            [string, string | null, number]
+          >
+        ).map(([id, summary, legendCount]) => [id, { summary, legendCount }]),
+      );
+
+    const before = readPanels();
     expect(before.get("landcover")).toEqual({ summary: null, legendCount: expect.any(Number) });
     expect(before.get("landcover")!.legendCount).toBeGreaterThan(0);
 
@@ -2065,11 +2070,7 @@ describe("土地被覆レイヤーのズーム不足の案内", () => {
       screen.getByText("テスト用に広域へズームアウト").click();
     });
 
-    const after = new Map(
-      JSON.parse(screen.getByTestId("overlay-layer-panels").textContent!).map(
-        ([id, summary, legendCount]: [string, string | null, number]) => [id, { summary, legendCount }],
-      ),
-    );
+    const after = readPanels();
     expect(after.get("landcover")).toEqual({ summary: "ズームインすると表示されます", legendCount: 0 });
   });
 });
