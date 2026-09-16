@@ -528,6 +528,25 @@ def test_every_enforced_detector_has_an_edge_case_or_declares_it_has_no_outside(
         assert isinstance(edge, str) or edge.where, f"{key}の外縁に説明が無い"
 
 
+def test_covered_edges_were_once_observed_as_a_real_hole():
+    # 外縁を母集団の**内側**へ書いてしまうと初日から検知され、穴が埋まっているのと見分けが
+    # つかない。「一度は見逃した」という観測の記録だけがこの2つを分ける。
+    edges = review_checks.guard_probe_edges(review_checks.REPO_ROOT)
+
+    assert review_checks.unproven_edges(edges) == [], (
+        "見逃すと観測された記録が無いまま detected=True になっている外縁がある。"
+        "母集団の内側へ置いていないか確かめ、本当に穴なら`mutate --update`で記録を取る"
+    )
+
+
+def test_edge_gap_records_only_name_existing_edges():
+    # 記録へ先回りしてキーを書けば上のテストはすり抜けられる。記録の側にも「実在する外縁の
+    # ものだけ」を課して、観測せずに正当化する経路を塞ぐ。
+    edges = review_checks.guard_probe_edges(review_checks.REPO_ROOT)
+
+    assert review_checks.stale_edge_gap_records(edges) == []
+
+
 def test_probe_section_count_reads_the_keyed_heading():
     out = "## [redis_skeleton] Redis骨格の自前実装（docs/caching.md参照）: 2件\n"
 

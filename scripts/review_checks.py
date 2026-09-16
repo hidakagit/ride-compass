@@ -59,6 +59,7 @@ TASKS_DIR = REPO_ROOT / "docs" / "tasks"
 IMPROVEMENT_PLAN = REPO_ROOT / "docs" / "improvement-plan.md"
 SIZE_BASELINE = HISTORY_DIR / "size_watch.json"
 DUPLICATION_BASELINE = HISTORY_DIR / "duplication.json"
+GUARD_EDGE_BASELINE = HISTORY_DIR / "guard_edges.json"
 
 # --- 共通 -------------------------------------------------------------------
 
@@ -3252,6 +3253,10 @@ class EdgeProbe(NamedTuple):
     `where`は母集団のどの外側かを1行で述べる。`detected`はいまの検知器がそこを拾えるかの
     **期待値**で、Falseは既知の穴。穴が埋まったときも、埋めたはずの穴がまた空いたときも、
     期待値との食い違いとしてこの監査が落ちる。`mode`はその穴が現れる実行経路。
+
+    **`detected=True`は`GUARD_EDGE_BASELINE`の記録を要求する**（`unproven_edges`）。検知
+    されるという事実だけでは、その位置が母集団の**外**だったことは言えない——外縁のつもりで
+    内側へ書いた違反も同じように検知され、穴が無いのと同じ見た目になる。
     """
 
     where: str
@@ -3436,6 +3441,37 @@ def guard_probe_edges(wt: Path) -> dict[str, "EdgeProbe | str"]:
     }
 
 
+def observed_edge_gaps() -> dict[str, str]:
+    """検知器キー → その外縁が実際に見逃されると**観測された**コミット。
+
+    記録は`mutate --update`だけが足す（観測した結果を書く。宣言では足せない）。
+    """
+    return json.loads(read_text(GUARD_EDGE_BASELINE)) if GUARD_EDGE_BASELINE.exists() else {}
+
+
+def unproven_edges(edges: dict[str, "EdgeProbe | str"]) -> list[str]:
+    """`detected=True`なのに、穴として観測された記録が無い外縁のキー。
+
+    外縁を母集団の**内側**へ書いてしまうと初日から検知され、穴が埋まっているのと同じ見た目に
+    なる。「一度はGAPだった」という観測だけがこの2つを分けるため、記録の無いCOVEREDは
+    正当とみなさない。外側がそもそも無い検知器は`EdgeProbe`ではなく理由の文字列を置く。
+    """
+    observed = observed_edge_gaps()
+    return sorted(
+        key for key, edge in edges.items()
+        if isinstance(edge, EdgeProbe) and edge.detected and key not in observed
+    )
+
+
+def stale_edge_gap_records(edges: dict[str, "EdgeProbe | str"]) -> list[str]:
+    """記録にあるのに、対応する`EdgeProbe`が無いキー。
+
+    観測していないキーを記録へ先回りして書けば`unproven_edges`をすり抜けられるため、
+    記録の側にも「実在する外縁のものだけ」という制約を掛ける。
+    """
+    return sorted(k for k in observed_edge_gaps() if not isinstance(edges.get(k), EdgeProbe))
+
+
 def probe_section_count(stdout: str, key: str) -> int | None:
     """`docs --keys`の出力から、その検知器の節が報告した件数を読む。節が無ければNone。"""
     m = re.search(rf"^## \[{re.escape(key)}\] .*: (\d+)件$", stdout, re.M)
@@ -3454,6 +3490,8 @@ def cmd_mutate(args: argparse.Namespace) -> int:
     wt = tmp / "wt"
     rows: list[tuple[str, str, str, str]] = []
     edge_rows: list[tuple[str, str, str, str]] = []
+    #: 今回の実行で「実際に見逃した」と観測できた外縁（`--update`が記録へ足す）。
+    observed_now: dict[str, str] = {}
     try:
         git("worktree", "add", "--detach", "--quiet", str(wt), "HEAD")
 
@@ -3519,6 +3557,7 @@ def cmd_mutate(args: argparse.Namespace) -> int:
                     rows.append((key, "PASS", label, f"{found}件 exit={proc.returncode}"))
 
         edges = guard_probe_edges(wt)
+        unproven = set(unproven_edges(edges))
         for key in declared:
             edge = edges.get(key)
             if edge is None:
@@ -3546,9 +3585,15 @@ def cmd_mutate(args: argparse.Namespace) -> int:
             proc = wt_run(sys.executable, "scripts/review_checks.py", "docs",
                           "--keys", "--only", key, *check)
             detected = bool(probe_section_count(proc.stdout, key))
-            if detected == edge.detected:
+            if detected and key in unproven:
+                edge_rows.append((
+                    key, "UNPROVEN", edge.mode,
+                    f"見逃すと観測された記録が無い（内側へ書いていないか）: {edge.where}"))
+            elif detected == edge.detected:
                 edge_rows.append(
                     (key, "COVERED" if detected else "GAP", edge.mode, edge.where))
+                if not detected:
+                    observed_now[key] = base[:8]
             else:
                 edge_rows.append((
                     key, "CHANGED", edge.mode,
@@ -3574,8 +3619,23 @@ def cmd_mutate(args: argparse.Namespace) -> int:
         print(f"| `{key}` | {label} | {verdict} | {detail} |")
     print()
 
+    if args.update:
+        recorded = observed_edge_gaps()
+        added = {k: v for k, v in observed_now.items() if k not in recorded}
+        if added:
+            GUARD_EDGE_BASELINE.write_text(
+                json.dumps(dict(sorted((recorded | added).items())),
+                           ensure_ascii=False, indent=2) + "\n",
+                encoding="utf-8")
+            print(f"外縁の観測記録へ{len(added)}件追記: {', '.join(sorted(added))}")
+            print()
+
     bad = [r for r in rows if r[1] not in ("PASS", "SKIP")]
-    edge_bad = [r for r in edge_rows if r[1] in ("NO-EDGE", "SETUP-FAIL", "CHANGED")]
+    edge_bad = [r for r in edge_rows
+                if r[1] in ("NO-EDGE", "SETUP-FAIL", "CHANGED", "UNPROVEN")]
+    stale = stale_edge_gap_records(guard_probe_edges(REPO_ROOT))
+    if stale:
+        print(f"実在しない外縁の記録 {len(stale)}件: {', '.join(stale)}")
     gaps = [r for r in edge_rows if r[1] == "GAP"]
     if gaps:
         print(f"既知の穴 {len(gaps)}件（期待どおり見逃す。埋めたら`detected=True`へ更新すること）。")
@@ -3583,7 +3643,9 @@ def cmd_mutate(args: argparse.Namespace) -> int:
         if bad:
             print(f"鳴らない検知器 {len(bad)}件。検知器があることと鳴ることは別物のため、これは違反として扱う。")
         if edge_bad:
-            print(f"外縁の期待値と実際が食い違う、または外縁が未定義 {len(edge_bad)}件。")
+            print(f"外縁の期待値と実際が食い違う、未定義、または記録が無い {len(edge_bad)}件。")
+        return 1
+    if stale:
         return 1
     print(f"正例 全{len(rows)}件PASS（検知器は実際に鳴る）／外縁 全{len(edge_rows)}件が期待どおり")
     return 0
@@ -3602,6 +3664,8 @@ def main(argv: list[str] | None = None) -> int:
     p.set_defaults(func=cmd_docs)
     p = sub.add_parser("mutate", help="ガードの実効性監査（わざと違反を入れて落ちるか試す）")
     p.add_argument("--case", help="この検知器キーだけを試す（既定: 全件）")
+    p.add_argument("--update", action="store_true",
+                   help="今回GAPと観測した外縁を記録（history/guard_edges.json）へ足す")
     p.set_defaults(func=cmd_mutate)
     p = sub.add_parser("size", help="規模ウォッチ（complexity.md）")
     p.add_argument("--top", type=int, default=5)
