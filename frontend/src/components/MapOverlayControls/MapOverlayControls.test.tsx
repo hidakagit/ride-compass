@@ -2,6 +2,7 @@ import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import MapOverlayControls, { type OverlayLayerChip } from "./MapOverlayControls";
+import { MAP_OVERLAY_MAX_EXPANDED_GROUPS } from "@/components/Map/mapLayers";
 
 function baseLayers(): OverlayLayerChip[] {
   return [
@@ -390,6 +391,48 @@ describe("MapOverlayControls", () => {
       expect(screen.queryByRole("button", { name: "評価軸" })).not.toBeInTheDocument();
       // windAxis以外にメンバーが無いため環境グループ自体も出ない
       expect(screen.queryByRole("button", { name: "環境" })).not.toBeInTheDocument();
+    });
+  });
+
+  // 開いたグループのメンバーはチップ列へ縦に積まれるため、開くほど地図が縦に隠れる
+  // （375×812の実測: すべて畳んで画面の縦の23%、1グループ開いて54%、3グループすべてで72%）。
+  describe("同時に開けるグループの数", () => {
+    function allGroupLayers(): OverlayLayerChip[] {
+      return [
+        { id: "roadType", label: "道路の種類", on: false, category: "roadCondition" },
+        { id: "elevation", label: "標高図", on: false, category: "terrain" },
+        { id: "stopPoi", label: "停止要因", on: false, category: "trafficSafety" },
+      ];
+    }
+
+    it("別のグループを開くと、先に開いていたグループは畳まれる", async () => {
+      const user = userEvent.setup();
+      render(<MapOverlayControls {...baseProps()} layers={allGroupLayers()} />);
+
+      await user.click(screen.getByRole("button", { name: "道路" }));
+      expect(screen.getByRole("button", { name: "道路" })).toHaveAttribute("aria-expanded", "true");
+
+      await user.click(screen.getByRole("button", { name: "環境" }));
+
+      expect(screen.getByRole("button", { name: "環境" })).toHaveAttribute("aria-expanded", "true");
+      expect(screen.getByRole("button", { name: "道路" })).toHaveAttribute("aria-expanded", "false");
+      expect(screen.getByRole("button", { name: "スポット" })).toHaveAttribute("aria-expanded", "false");
+    });
+
+    it("上限を超えた保存済みの状態も、復元した時点で上限へ収まる", async () => {
+      // 上限を下げる前に保存された値が残っていると、次に開いたときだけ上限を超えた状態で
+      // 復元される（保存側だけを直しても、既に書かれた値は直らない）。
+      window.localStorage.setItem(
+        "ridecompass:map-overlay-expanded-groups",
+        JSON.stringify(["group:road", "group:environment", "group:spot"]),
+      );
+
+      render(<MapOverlayControls {...baseProps()} layers={allGroupLayers()} />);
+
+      const expanded = ["道路", "環境", "スポット"].filter(
+        (name) => screen.getByRole("button", { name }).getAttribute("aria-expanded") === "true",
+      );
+      expect(expanded).toHaveLength(MAP_OVERLAY_MAX_EXPANDED_GROUPS);
     });
   });
 

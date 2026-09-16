@@ -16,6 +16,7 @@ import {
   MAP_LAYER_CATEGORY_ORDER,
   MAP_OVERLAY_GROUP_LABELS,
   MAP_OVERLAY_GROUP_ORDER,
+  MAP_OVERLAY_MAX_EXPANDED_GROUPS,
   mapOverlayGroupFor,
   type LayerDataStatus,
   type MapLayerCategory,
@@ -194,8 +195,20 @@ function groupFromExpandKey(key: string): MapOverlayGroup | undefined {
 }
 
 // グループ本体の開閉キー（下記toggleExpandedのコメント参照）。floatingパネルを持たない
-// ため排他制御の対象外にする。
+// ため、floatingパネル系とは別の規則（同時に開ける数の上限）で畳む。
 const GROUP_VISIBILITY_KEYS = new Set(MAP_OVERLAY_GROUP_ORDER.map(groupExpandKey));
+
+/** 開いたままにできるグループ数の上限（`MAP_OVERLAY_MAX_EXPANDED_GROUPS`）を超えたぶんを、
+ * 古く開いたものから畳む。保存済みの状態にも同じ上限を効かせる——上限を下げる前に保存された
+ * 値が残っていると、次に開いたときだけ上限を超えた状態で復元される。 */
+function withinExpandedGroupLimit(keys: ReadonlySet<string>): Set<string> {
+  const next = new Set(keys);
+  const open = [...next].filter((key) => GROUP_VISIBILITY_KEYS.has(key));
+  for (const stale of open.slice(0, Math.max(0, open.length - MAP_OVERLAY_MAX_EXPANDED_GROUPS))) {
+    next.delete(stale);
+  }
+  return next;
+}
 
 // グループの開閉・表示項目の設定をlocalStorageへ永続化する（時間経過で変動する要素以外は
 // 次回訪問時も同じ状態を保つ）。page.tsxのlayerVisibility（各レイヤーのON/OFF自体）は
@@ -662,7 +675,10 @@ export default function MapOverlayControls({
     new Set(),
     {
       serialize: (v) => serializeStringSet(v, (key) => GROUP_VISIBILITY_KEYS.has(key)),
-      deserialize: (raw) => deserializeStringSet(raw, (key) => GROUP_VISIBILITY_KEYS.has(key)),
+      deserialize: (raw) => {
+        const restored = deserializeStringSet(raw, (key) => GROUP_VISIBILITY_KEYS.has(key));
+        return restored === null ? null : withinExpandedGroupLimit(restored);
+      },
     },
   );
   // 内訳パネルの表示位置（viewport基準のpx）。アイコン列（chipRow）は縦スクロール可能
@@ -795,6 +811,7 @@ export default function MapOverlayControls({
           }
         }
         next.add(id);
+        if (GROUP_VISIBILITY_KEYS.has(id)) return withinExpandedGroupLimit(next);
       }
       return next;
     });
