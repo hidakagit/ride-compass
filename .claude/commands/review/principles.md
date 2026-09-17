@@ -201,8 +201,8 @@ Findingsの件数から**機械的に**算出する（主観採点はしない�
         フルパス）／「diffではなく各ファイルを全文Readし、変更箇所の呼び出し元・呼び出し先も
         `Grep`で辿ること」という明示指示／このレンズ固有の確認観点（`overall.md`または
         `consistency.md`の該当節）／出力形式（`file`・`line`・`category`・`severity`・
-        `summary`・`failure_scenario`のMarkdown箇条書き、日本語）／「編集・削除は一切行わない
-        （読み取り専用）」の明記。
+        `summary`・`failure_scenario`のMarkdown箇条書き、日本語。`category`は次項の語彙で
+        始めること）／「編集・削除は一切行わない（読み取り専用）」の明記。
       - **`/review:all`でoverallとconsistencyを同時に実施する場合はシャードを共有する**:
         ドメインシャードを1回だけ切り、1シャード1Agentへ`overall.md`と`consistency.md`の
         両方の確認観点を渡し、出力を「overall」「consistency」の独立した2節に分けさせる。
@@ -215,6 +215,27 @@ Findingsの件数から**機械的に**算出する（主観採点はしない�
         overall/consistencyへ限定」参照）。
       - **レンズ構造（overall/complexity/consistency/ui）そのものを、ドメイン構造
         （backend/frontend等）へ置き換えてはならない**（経緯は_history.md同項参照）。
+   d-2. **個票の`category`は決められた語で始める**（回をまたいで数えられるようにするため）。
+      先頭に次のいずれかを置き、必要なら`/`に続けて自由記述を足す（例:
+      `doc-drift / 撤去済み軸の残存`）。**語彙が自由記述だった回は、同じ基準で数え直せない**
+      ——書式が毎回変わると、指摘の増減ではなく書式差を測ることになる。
+
+      | 語 | 指すもの |
+      |---|---|
+      | `doc-drift` | 文書・docstring・コメントが述べる内容が現在のコードと合わない（[documentation.md](../../../docs/documentation.md)「記述と実装の不一致」） |
+      | `contract` | 呼び出し側と呼ばれる側の取り決めの取りこぼし・反転 |
+      | `structure` | 設計原則・構造仕様への違反 |
+      | `duplication` | 同じ判断・同じ式・同じ一覧を2箇所以上が持つ |
+      | `dead` | 到達しないコード・撤去し残した実装 |
+      | `perf` | 性能・資源消費 |
+      | `test` | テストの欠落・非対称・空回り |
+      | `ui` | 画面の理解可能性・操作導線 |
+      | `other` | 上のどれでもない |
+
+      トレンドは`category`の先頭語で数える。`doc-drift`の比率は直近3回で3割前後に留まり、
+      増減していない（数値と集計方法は[documentation.md](../../../docs/documentation.md)
+      「なぜこの方針か」）。
+
    e. **集約**: 全シャード完了後、指摘を重複統合し、severity順に並べて標準Findings
       フォーマットへ統合する。**severityに関わらず、全Findingの個票（Evidence・Impact・
       Root Cause・Recommendation）を`history/`のファイルへ残す**——シャードの出力は
