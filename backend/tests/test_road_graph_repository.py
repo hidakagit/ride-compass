@@ -2616,3 +2616,30 @@ async def test_区間単位のタイルは同じ区間の逆方向を二重に�
     # wayごとに1本ずつ残る（逆方向は落ちるが、別のwayは残る）。
     assert len(keys) == 2
     assert {key.split("-")[1] for key in keys} == {"1", "2"}
+
+
+async def test_区間を持たないwayも区間単位のズームで出る(road_graph_repository, road_graph_session):
+    """落とすと、その道は引いた表示には出ているのに拡大すると消える。
+
+    データが無いことよりも壊れて見えるため、区間単位のズームでもway丸ごとで出す。
+    """
+    way_specs = [
+        WaySpec(osm_way_id=1, node_ids=[1, 2], highway="residential"),
+        WaySpec(osm_way_id=2, node_ids=[1, 2], highway="footway"),
+    ]
+    nodes = {1: NODE1, 2: NODE2}
+    await road_graph_repository.save_raw_ways(way_specs, nodes)
+    # way1だけを分割する（way2はedgeを1本も持たない）。
+    await road_graph_repository.save_graph(
+        build_road_graph([way_specs[0]], nodes, graph_version="v1")
+    )
+    await _mark_mvt_coverage(road_graph_session)
+
+    tile = await road_graph_repository.get_road_surface_tile_mvt(
+        MVT_Z, MVT_X, MVT_Y, _mvt_tile_bbox(), MVT_COVERAGE_TILE
+    )
+
+    keys = await _decode_feature_keys(tile)
+    # way1は区間の鍵で、way2はway丸ごとの鍵で出る。
+    assert any(key.startswith("way-1-") for key in keys)
+    assert "2" in keys

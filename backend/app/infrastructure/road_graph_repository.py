@@ -358,6 +358,20 @@ _TILE_FEATURE_SOURCE_SQL = """
             GREATEST(re.from_node_id, re.to_node_id),
             re.edge_id
     ) deduped_edges
+    UNION ALL
+    -- 区間を1本も持たないway（座標が判明しているノードが2点未満のway等、domain/graph.py:
+    -- build_road_graph参照）は、区間単位のズームでもway丸ごとで出す。**落とすと、その道は
+    -- ズームを上げたときだけ地図から消える**——引いた表示には出ているのに拡大すると無くなる
+    -- 見え方は、データが無いことよりも壊れて見える。
+    SELECT
+        w3.geom AS geom,
+        w3.osm_way_id AS osm_way_id,
+        w3.osm_way_id::text AS feature_key
+    FROM osm_raw_ways w3
+    WHERE :z >= EDGE_UNIT_MIN_ZOOM_VALUE
+      AND w3.geom IS NOT NULL
+      AND ST_Intersects(w3.geom, ST_MakeEnvelope(:xmin, :ymin, :xmax, :ymax, 4326))
+      AND NOT EXISTS (SELECT 1 FROM road_edges re2 WHERE re2.osm_way_id = w3.osm_way_id)
 """.replace("EDGE_UNIT_MIN_ZOOM_VALUE", str(EDGE_UNIT_MIN_ZOOM))
 
 
