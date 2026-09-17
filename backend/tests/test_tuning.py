@@ -15,8 +15,6 @@ from app.domain.traffic import POI_COUNT_KINDS, stop_seconds
 from app.domain.tuning import (
     TUNING_PARAMETERS,
     TUNING_PARAMETERS_BY_ID,
-    TuningKind,
-    calibration_parameters,
     stop_seconds_parameter_id,
     tuning_value,
 )
@@ -46,10 +44,6 @@ class TestDeclaration:
     def test_unknown_id_is_an_error_rather_than_a_silent_zero(self):
         with pytest.raises(KeyError):
             tuning_value("turn.no_such_value")
-
-    def test_the_admin_screen_gets_only_calibration_values(self):
-        # 物理定数や資源の上限を画面へ出すと、模型を壊せる・本番を止められる。
-        assert {p.kind for p in calibration_parameters()} == {TuningKind.CALIBRATION}
 
     def test_every_counted_stop_kind_has_a_declared_wait(self):
         # 片方だけ増えると、その種別が所要時間へ入らないまま静かに無視される。

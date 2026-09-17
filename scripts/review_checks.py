@@ -541,6 +541,97 @@ def find_way_tag_allowlist_violations(source_lines: dict[str, list[tuple[int, st
     return out
 
 
+
+# ルーティング評価が読む固定値の宣言（`domain/tuning.py`）。較正値は`TUNING_PARAMETERS`が
+# 既定ごと持ち、それ以外は`FIXED_VALUES`が名前と種別だけを持つ。この検査器はアプリを
+# importしないため、宣言はASTで読む。
+FIXED_VALUE_DECLARATION = "backend/app/domain/tuning.py"
+
+
+def _numeric_constant_value(node: ast.expr) -> bool:
+    """右辺が「数値そのもの」か（数値リテラル、またはリテラルだけの算術）。
+
+    名前を含む式（`RING_CENTER_RATIO = (MIN + MAX) / 2.0`のような導出）は、値を新しく
+    決めていないため対象にしない——宣言を求めても、既に宣言済みの値を言い直すだけになる。
+    """
+    has_number = False
+    for child in ast.walk(node):
+        if isinstance(child, ast.Constant):
+            if isinstance(child.value, bool) or not isinstance(child.value, (int, float)):
+                return False
+            has_number = True
+        elif not isinstance(child, (ast.BinOp, ast.UnaryOp, *_ARITHMETIC_OPS)):
+            return False
+    return has_number
+
+
+_ARITHMETIC_OPS = (ast.Add, ast.Sub, ast.Mult, ast.Div, ast.FloorDiv, ast.Pow, ast.Mod, ast.USub, ast.UAdd)
+
+
+def module_level_numeric_constants(path: Path) -> set[str]:
+    """モジュール直下で数値そのものを束ねている定数の名前。"""
+    names: set[str] = set()
+    for node in ast.parse(read_text(path)).body:
+        if isinstance(node, ast.Assign):
+            targets = node.targets
+        elif isinstance(node, ast.AnnAssign):
+            targets = [node.target]
+        else:
+            continue
+        name = getattr(targets[0], "id", "")
+        if not name or not name.lstrip("_").isupper() or node.value is None:
+            continue
+        if _numeric_constant_value(node.value):
+            names.add(name)
+    return names
+
+
+def declared_fixed_values() -> dict[str, set[str]]:
+    """`FIXED_VALUES`が挙げるモジュールと、そこで宣言済みの定数名。"""
+    for node in ast.walk(ast.parse(read_text(REPO_ROOT / FIXED_VALUE_DECLARATION))):
+        if not isinstance(node, ast.AnnAssign) or getattr(node.target, "id", "") != "FIXED_VALUES":
+            continue
+        assert isinstance(node.value, ast.Dict)
+        return {
+            module.value: {name.value for name in entries.keys}
+            for module, entries in zip(node.value.keys, node.value.values)
+            if isinstance(module, ast.Constant) and isinstance(entries, ast.Dict)
+        }
+    return {}
+
+
+def find_undeclared_fixed_values() -> list[str]:
+    """ルーティング評価のモジュール直下にある、どちらの宣言にも無い数値定数。
+
+    **マジックナンバーが静かに戻るのを止める**のが目的。較正値なら`TUNING_PARAMETERS`へ
+    （管理画面から変えられるようになる）、そうでないなら`FIXED_VALUES`へ種別付きで置く。
+    宣言にあって実装に無い側も違反にする——消えた定数の宣言が残ると、母集団が現実から
+    ずれたことに気づけない。
+    """
+    out = []
+    for module, declared in sorted(declared_fixed_values().items()):
+        path = REPO_ROOT / "backend" / module
+        if not path.exists():
+            out.append(
+                f"{FIXED_VALUE_DECLARATION}: `FIXED_VALUES`が挙げる`{module}`が無い"
+                "（改名・削除したら宣言も併せて直す）"
+            )
+            continue
+        actual = module_level_numeric_constants(path)
+        for name in sorted(actual - declared):
+            out.append(
+                f"backend/{module}: `{name}`が宣言に無い"
+                "（走ってみて決める値なら`TUNING_PARAMETERS`へ、そうでないなら"
+                "`FIXED_VALUES`へ種別付きで足す。docs/tasks/T805.md参照）"
+            )
+        for name in sorted(declared - actual):
+            out.append(
+                f"{FIXED_VALUE_DECLARATION}: `{module}`の`{name}`が実装に無い"
+                "（撤去・改名したら宣言も併せて直す）"
+            )
+    return out
+
+
 # docs/documentation.md「要素が1つ増えたときに嘘になる文は数え上げている」の機械的な手掛かり。
 # 増減しうる集合の大きさを表す助数詞だけを見る（長さ・時間・回数のように増えても嘘に
 # ならない単位は最初から入れない）。「1つ」は「1箇所へ寄せる」のような書き方が大半のため
@@ -2373,6 +2464,7 @@ DETECTOR_ENFORCEMENT: dict[str, frozenset[str]] = {
     "review_doc_dead_refs": frozenset({"staged", "since", "full"}),
     "cross_file_env_writes": frozenset({"staged", "since", "full"}),
     "way_tag_allowlist": frozenset({"staged", "since", "full"}),
+    "undeclared_fixed_values": frozenset({"staged", "since", "full"}),
     "map_redraw_coverage": frozenset({"staged", "since", "full"}),
     # 参考表示のみ。誤検出が多く（実測はdocs/tasks/T824.md）ブロックには使えないが、
     # 書いた本人の目へ入れるだけで直せる型のため、追加行に対してだけ出す。
@@ -2444,6 +2536,8 @@ def cmd_docs(args: argparse.Namespace) -> int:
             lambda: find_way_tag_allowlist_violations(source_lines))
         add("map_redraw_coverage", "map.setStyle()後の再描画から辿れないレイヤー（docs/tasks/T825.md参照）",
             lambda: find_map_redraw_gaps())
+        add("undeclared_fixed_values", "ルーティング評価の宣言に無い数値定数（docs/tasks/T805.md参照）",
+            lambda: find_undeclared_fixed_values())
         add("count_narrative", "個数を書いている行（参考、ステージ済み追加行、docs/documentation.md参照）",
             lambda: find_count_narratives(source_lines, diff_added_lines("docs/*.md")))
         arch_lines = diff_added_lines(ARCHITECTURE_DOC)
@@ -2561,6 +2655,8 @@ def cmd_docs(args: argparse.Namespace) -> int:
                          }))
         add("map_redraw_coverage", "map.setStyle()後の再描画から辿れないレイヤー（全件、docs/tasks/T825.md参照）",
             lambda: find_map_redraw_gaps())
+        add("undeclared_fixed_values", "ルーティング評価の宣言に無い数値定数（全件、docs/tasks/T805.md参照）",
+            lambda: find_undeclared_fixed_values())
         add("duplicate_test_scaffold", "同じ名前のテスト足場が複数ファイルにある（参考、docs/tasks/T771.md参照）",
             lambda: find_duplicate_test_scaffolds([f for f in files if SCAFFOLD_TEST_FILE_RE.search(f)]),)
         add("plan_vs_tasks", "improvement-plan.md [x]/[ ] と docs/tasks「状態:」の不一致",
@@ -3218,6 +3314,8 @@ def guard_probe_mutations(wt: Path) -> dict[str, "Callable[[], None]"]:
             '\nexport function zzzGuardProbeLayer(map: MapLibreMap) {\n'
             '  map.addSource("zzz-guard-probe", { type: "geojson", data: EMPTY_FEATURE_COLLECTION });\n'
             '}\n'),
+        "undeclared_fixed_values": lambda: append(
+            wt / "backend/app/domain/graph.py", "\n\nZZZ_GUARD_PROBE_RATIO = 0.42\n"),
         "way_tag_allowlist": lambda: append(
             wt / "backend/app/domain/axis_inspector.py",
             '\n\ndef _zzz_guard_probe(tags: dict[str, str]) -> str | None:\n    return tags.get("zzz_guard_probe")\n'),
@@ -3380,6 +3478,11 @@ def guard_probe_edges(wt: Path) -> dict[str, "EdgeProbe | str"]:
     redefinition_edge, redefinition_control = placed_write(
         GUARD_PROBE_PY, "backend/benchmarks/zzz_guard_probe.py",
         "zzz_guard_probe = 1\n\n\nzzz_guard_probe = 1\n")
+    # 母集団は`FIXED_VALUES`のキーそのもの。評価に関わるのに挙げられていない
+    # モジュールが外側。
+    fixed_value_edge, fixed_value_control = placed_append(
+        wt / "backend/app/domain/graph.py", wt / "backend/app/domain/hard_filters.py",
+        "\n\nZZZ_GUARD_PROBE_RATIO = 0.42\n")
 
     # 位置ではなく**記法**が外側のもの。変える1点以外を共有する。
     def comment_naming(quote: str) -> "Callable[[], None]":
@@ -3510,6 +3613,9 @@ def guard_probe_edges(wt: Path) -> dict[str, "EdgeProbe | str"]:
                           f"zzz_guard_probe_value = zzz_guard_probe({arity_args})\n")),
         "map_redraw_coverage": EdgeProbe(
             "入口から2ホップ先のモジュール", True, two_hop_layer),
+        "undeclared_fixed_values": EdgeProbe(
+            "宣言が挙げていないモジュール（`hard_filters.py`のように評価へ効くもの）", False,
+            fixed_value_edge, fixed_value_control),
         "plan_vs_tasks": "母集団は台帳の全行とdocs/tasksの全ファイルで、外側が無い",
         "task_numbering": "母集団は台帳の全行とdocs/tasksの全ファイルで、外側が無い",
     }

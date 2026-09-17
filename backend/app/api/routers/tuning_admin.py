@@ -4,8 +4,8 @@
 （`require_admin_basic_auth`）。
 
 **画面が並べる項目はこのAPIが宣言から導く**。較正値を1つ足しても、ここと画面の両方へ
-書き足す場所は無い（種別が`CALIBRATION`のものだけを返す——物理定数を出すと模型を壊せ、
-資源の上限を出すと本番を止められる）。
+書き足す場所は無い（`TUNING_PARAMETERS`に載っているものだけを返す——較正値ではない固定値は
+`FIXED_VALUES`の側にあり、物理定数を出すと模型を壊せ、資源の上限を出すと本番を止められる）。
 """
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -15,7 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.admin_auth import require_admin_basic_auth
 from app.api.dependencies import get_tuning_session
 from app.domain.strict_model import StrictModel
-from app.domain.tuning import TUNING_PARAMETERS_BY_ID, calibration_parameters, tuning_value
+from app.domain.tuning import TUNING_PARAMETERS, TUNING_PARAMETERS_BY_ID, tuning_value
 from app.infrastructure.tuning_overrides import (
     TuningOverrideError,
     clear_override,
@@ -73,7 +73,7 @@ async def list_tuning_parameters(
     _: None = Depends(require_admin_basic_auth),
 ) -> list[TuningParameterView]:
     overridden = set(await read_overrides(session))
-    return [_view(p.id, overridden) for p in calibration_parameters()]
+    return [_view(p.id, overridden) for p in TUNING_PARAMETERS]
 
 
 @router.put("/{param_id}", response_model=TuningParameterView)
@@ -84,8 +84,8 @@ async def update_tuning_parameter(
     _: None = Depends(require_admin_basic_auth),
 ) -> TuningParameterView:
     parameter = TUNING_PARAMETERS_BY_ID.get(param_id)
-    if parameter is None or parameter not in calibration_parameters():
-        # 宣言に無いid、または較正値ではないもの（物理定数・資源の上限）は書かせない。
+    if parameter is None:
+        # 較正値の宣言に無いidは書かせない（較正値ではない固定値はこの逆引きに載らない）。
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail=f"較正値がありません: {param_id}")
     try:
         if request.value is None:

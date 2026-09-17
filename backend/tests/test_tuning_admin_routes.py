@@ -9,7 +9,7 @@ from fastapi.testclient import TestClient
 
 from app.api.dependencies import get_tuning_session
 from app.domain import tuning
-from app.domain.tuning import TUNING_PARAMETERS, TUNING_PARAMETERS_BY_ID, TuningKind
+from app.domain.tuning import TUNING_PARAMETERS, TUNING_PARAMETERS_BY_ID
 from app.main import app
 from tests.admin_auth import AUTH_HEADERS
 
@@ -78,11 +78,13 @@ def test_requires_admin_auth(admin_credentials):
 
 
 def test_lists_exactly_the_declared_calibration_values(fake_overrides):
+    # 画面へ出るのは較正値の宣言に載っているものだけ。較正値ではない固定値（物理定数・
+    # 資源の上限）はFIXED_VALUESの側にあり、このAPIからは見えない。
     response = client.get("/api/admin/tuning", headers=AUTH_HEADERS)
 
     assert response.status_code == 200
     listed = {row["id"] for row in response.json()}
-    assert listed == {p.id for p in TUNING_PARAMETERS if p.kind is TuningKind.CALIBRATION}
+    assert listed == {p.id for p in TUNING_PARAMETERS}
 
 
 def test_each_row_carries_what_it_takes_for_the_change_to_apply(fake_overrides):

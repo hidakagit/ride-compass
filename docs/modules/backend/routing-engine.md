@@ -11,7 +11,7 @@
 
 | レイヤー | ファイル |
 |---|---|
-| domain | `routing.py`・`graph.py`・`route.py`・`geo.py`・`errors.py`・`cycling_speed.py`（自転車の走行モデル。平地・無風の巡航速度からホイール出力を逆算し、勾配・向かい風・転がり抵抗から区間ごとの速度を走行方程式で解く。速度の逆算は`v`の3次方程式になるため二分法で、numpyでベクトル化してある。候補の所要時間と基準線の探索コストがここから出る）・`tuning.py`（較正値の宣言。走ってみて決める値を1箇所で宣言し、エンジンが読む値・管理画面が並べる項目・変更が効くために何をやり直す必要があるかをそこから導く） |
+| domain | `routing.py`・`graph.py`・`route.py`・`geo.py`・`errors.py`・`cycling_speed.py`（自転車の走行モデル。平地・無風の巡航速度からホイール出力を逆算し、勾配・向かい風・転がり抵抗から区間ごとの速度を走行方程式で解く。速度の逆算は`v`の3次方程式になるため二分法で、numpyでベクトル化してある。候補の所要時間と基準線の探索コストがここから出る）・`tuning.py`（ルーティング評価が読む固定値の宣言。走ってみて決める値［較正値］は既定ごとここが持ち、エンジンが読む値・管理画面が並べる項目・変更が効くために何をやり直す必要があるかをそこから導く。較正値ではない固定値は名前と種別だけを持つ） |
 | services | `route_generator.py`（戦略層）・`road_graph_engine.py`・`graph_service.py` |
 | infrastructure | `road_graph_models.py`・`road_graph_repository.py`（4リポジトリ）・`graph_material_cache.py`・`tile_score_matrix_cache.py`・`search_graph_cache.py`・`tile_persistent_cache.py`・`cache_identity.py`（キャッシュ鍵の組み立て方の正本。手で書くリビジョンと、焼き込みSQL・pickleする列構成から導く署名を合成する。タイル配信側の世代も同じ関数を使う）・`derived_data_meta.py`（派生データの世代。バッチが中身を書き直すたびに進む単調カウンタで、デプロイを伴わない変化を表せる唯一の経路）・`cache_generation.py`（DBの世代とディスクへ書いた時点の記録を突き合わせる判断。軸定義と派生データが同じ実装を使う）・`osm_way_tag_sql.py`（`osm_raw_ways`のOSMタグ分類SQL断片の単一の情報源、[evaluation-scoring.md](evaluation-scoring.md)の`material_coverage.py`と共有） |
 | api | `routes.py` |
@@ -220,11 +220,18 @@ RouteGenerator.generate_loops(origin, distance_km, distance_tolerance_km, max_ro
 置いた値で、較正されていない。**`domain/tuning.py`が唯一の宣言**で、消費者はそこから読む
 （定数としても持つと二重になり、片方だけが変わる）。
 
-宣言は「何の値か」（`TuningKind`）と「変えたとき効くまでに何が要るか」（`TuningEffect`）を
-持つ。前者は管理画面へ出す範囲を決める——物理定数を出すと模型を壊せ、資源の上限を出すと
-本番を止められるため、出すのは`CALIBRATION`だけ。後者は**「変えたのに効かない」を宣言として
-持つ**ためのもので、ほとんどは次のリクエストから効くが、信号とみなす半径だけは
-`road_nodes`の事前計算バッチをやり直さないと効かない。
+較正値の宣言は「変えたとき効くまでに何が要るか」（`TuningEffect`）を持つ。これは
+**「変えたのに効かない」を宣言として持つ**ためのもので、ほとんどは次のリクエストから効くが、
+信号とみなす半径だけは`road_nodes`の事前計算バッチをやり直さないと効かない。
+
+**較正値ではない固定値は`FIXED_VALUES`が名前と種別（`FixedValueKind`）だけを持ち、値と
+根拠は使う側のモジュールへ置いたままにする**——根拠の文はその値の隣にあってこそ読めるもので、
+宣言へ写すと二重管理になる。種別がそのまま「なぜ画面から変えさせないか」で、物理定数を出すと
+模型を壊せ、資源の上限を出すと本番を止められる。2つの宣言を合わせたものが、ルーティング
+評価が読む固定値の母集団になる。`scripts/review_checks.py`の`undeclared_fixed_values`が、
+`FIXED_VALUES`の挙げるモジュール直下にどちらの宣言にも無い数値定数を見つけると落とす
+（宣言にあって実装に無い側も同じく落とす）。母集団はそのキーの並びそのもののため、
+評価に効くモジュールを新設したら空でも挙げる。
 
 **暗黙の前提**: 値の読み出しは呼ぶたびに行う。プロセス内に束ねる（import時に評価する・
 dataclassのフィールド既定値に置く）と、実行時に変えた値が効かない。
