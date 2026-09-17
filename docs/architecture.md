@@ -86,30 +86,32 @@ T274逆回り最適化自体は任意の周回Edge列に対して成り立つた
 `ElevationClient`（[backend/app/infrastructure/elevation_client.py](../backend/app/infrastructure/elevation_client.py)）は、以前はGSI点標高API（`getelevation.php`、1リクエスト=1地点）を緯度経度4桁丸めのSQLiteキャッシュ（`cache_db.py`の`elevation_cache`テーブル）でラップしていたが、T218aでRoad Graph全体（数万エッジ）へ標高を付与する必要が生じ、点API逐次呼び出しでは非現実的な回数（実測: 480エッジに対し2,880回）の外部呼び出しが必要になると判明した。T10でGSIのDEMタイル（`https://cyberjapandata.gsi.go.jp/xyz/{type}/{z}/{x}/{y}.txt`、z=14固定）を範囲ごと取得しローカルで双線形補間する方式へ切り替えた。**当初は`dem`（サフィックス無し）がDEM5A/5B/5C/10Bを統合しGSIサーバー側で優先順位フォールバックすると判断していたが、2026-08-23の再検証（ユーザー指摘）で誤りと判明**——実タイル比較の結果、`dem`はDEM5A等を統合したものではなくDEM10B相当の別データセット（z=15で404、DEM10Bの公式最大ズーム14と一致）であり、同一タイルで`dem5a`と異なる値を返すことを都心部で確認した。`dem5a`/`dem5b`/`dem5c`はそれぞれ独立にクエリでき非対応エリアではタイル丸ごと404を返すため、アプリ側で`DEM_TYPE_PRIORITY = ("dem5a", "dem5b", "dem5c", "dem")`の順に多段フォールバックする（`elevation_client.py`）。タイル本文（256行×256列のカンマ区切り、単位m、欠測は`"e"`）は`infrastructure/tile_cache.py`（基礎地図・路面タイルと共通のファイルキャッシュ、TTL無し。DEMは不変データのため）へ永続化し、さらにプロセス内メモリ（`_tile_grid_cache`、パース済みグリッド）にも保持する。呼び出し側インターフェース（`get_elevation(client, point, refresh=False) -> float | None`）はT10前後で変わらない。旧`elevation_cache`テーブル・`get_elevation`/`set_elevation`（`cache_db.py`）は削除済み。
 
 ### Road Graphエンジンの探索性能
-`RoadGraphEngine.prepare`（[backend/app/services/road_graph_engine.py](../backend/app/services/road_graph_engine.py)）は、リクエスト毎の重い処理を段階的に排除してきた。
 
-- **T218（Stage 0）**: 探索フェーズはEdgeのgeometry（形状点列）を必要としないため、`geom`列を一切SELECTしない軽量版`get_graph_topology_in_bbox`を新設（geometryは最終候補のみ`get_edges_with_geometry`で後付け取得）。風評価も`edge.bearing_deg`（`build_road_graph`が事前計算）を直接使う形にし、geometry依存を除去した。事前集計済み`edge_attribute_counts`（T144）への読み取り配線も行い、3種の空間結合クエリを1クエリへ集約した。
-- **T218a（Stage 0.5）**: `app/batch/precompute_elevation_attributes.py`（全道路網一括、T10のDEMタイル方式を利用）が事前計算した`elevation_attributes`（average_grade等）を、`prepare`が単純なキー参照で読み探索コストのgradient軸へ組み込む。0次ハードフィルタへ勾配しきい値（`max_average_grade_percent`）も追加した。
-- **T219（Stage 1）**: `GraphService.get_search_materials_for_bbox`が、トポロジ＋材料一式（surface/edge_attribute_counts/way_tags/elevation_attributes/designated_edge_ids）をz12タイル単位（`domain/region.py: ROAD_GRAPH_TILE_ZOOM`）でプロセス内メモリへLRUキャッシュする（`infrastructure/graph_material_cache.py`）。**無効化はバージョン管理せずプロセス寿命のみ**（PBF再取込・各precomputeバッチは手動・低頻度操作であり、デプロイのたびにプロセスが再起動される前提。T10のDEMタイルキャッシュと同じ割り切り）。ローカル実測（東京都心4km四方相当）でキャッシュヒット時は約7.2秒→約0.06秒（約100倍）。あわせて`find_nearest_node`（1リクエストにつき最大17回呼ばれる、`prepare`で1回＋`trace_loop`で方位ごとに2回）を、都度の線形探索から`NodeSpatialIndex`（緯度経度グリッドバケット、`domain/routing.py`）を1回だけ構築して使い回す方式へ変更した（外部ライブラリは追加していない）。
-- **T220（Stage 2）**: T219完了後の実測（キャッシュ温、69,216エッジ規模）で「evaluate_graph＋build＋Dijkstra24回」が約5.8秒と目標超過だったため着手。Dijkstra本体をNetworkX（Python実装）からscipy.sparse.csgraph（C実装）へ置換［当時の`domain/routing.py: SparseRoadGraph`/`build_sparse_graph`/`shortest_path_node_ids_sparse`はいずれも撤去済み］（同一ノード間の並行Edgeは後勝ちで1本化、NetworkX版と同じ挙動）。`_RoadGraphContext.nx_graph`は既存テスト・区間表示ロジック互換のため引き続き構築するが、`trace_loop`の探索本体は当時の`sparse_graph`（撤去済み）を使う。あわせて`compute_edge_cost`が毎Edge`preference_to_axis_weights`（撤去済み）を再計算していた（pydantic `model_dump`込みで無視できないオーバーヘッド）のを、`evaluate_graph`側で1回だけ計算し渡す形に変更。実測（同条件）で合計約5.8秒→約2.3秒（Dijkstra部分は約2.8秒→約0.08秒）。新規依存: `numpy`・`scipy`。
-- **T239（軸のテンプレート化）→T240（evaluate_graphのnumpyベクトル化）**: T220完了メモが提案した「軸を4テンプレートへ統一してからベクトル化する」の順で実施。T239で`domain/axis_templates.py`を新設し、7軸の変換ロジックが実質「区分線形補間・カテゴリ→定数・フラグ加算・レシピ→レベル→区分線形補間」の4パターンへ還元できることを確認、`domain/difficulty.py`・`domain/night.py`の各`*_difficulty`関数の内部実装をこれらのテンプレート呼び出しへ差し替えた（外部シグネチャ・挙動は不変）。T240で`EvaluationService.evaluate_graph`を、Edge毎に`compute_edge_cost`を呼ぶPythonループから、`domain/evaluation.py: compute_edge_costs_bulk`（抽出フェーズ＝1回のPythonループでnumpy配列へ集約、計算フェーズ＝7軸のdifficulty配列を`*_difficulty_array`関数で求め重み付き合成→costまでPythonループ無しの配列演算）へ切り替えた。**実装中に判明した重要な制約**: Python 3.12以降の組み込み`sum()`はfloat列をNeumaier補償加算（Kahan加算の改良版）で合計するため、単純な逐次`+=`やnumpyの`.sum(axis=1)`では合成difficultyの最終丸め（1桁）がスカラー版の`composite_difficulty`と.X5境界でごく稀に食い違う（実データで確認）。`compute_edge_costs_bulk`はNeumaier加算を配列でまとめて行う`_neumaier_accumulate`でこれを再現し、さらに`np.round`自体の内部誤差（×10→rint→÷10）がPython組み込み`round()`と食い違いうる問題を最終cost/difficultyの丸めのみ`axis_templates.py: round1_array`（要素ごとのPython`round()`）で回避している（軸別スコア単体の丸めは実データで不一致が出なかったため速度を優先し`np.round`のまま）。実データ12万Edge超（東京都心2エリア）でスカラー版との全Edge一致（cost/difficulty/allowed）を確認済み。**実測速度**: 68,120エッジで約1.18秒→約1.02秒、121,800エッジで約2.12秒→約1.83秒（約14%短縮）。抽出フェーズ（車ストレス等のタグ解析）とpydantic`model_construct`が依然としてEdge数に比例するコストの大半を占めており、「合成計算自体のベクトル化」による短縮効果は当初期待より小さいというのが実測に基づく正直な結論（ボトルネックの所在はcProfileで確認済み）。
-- **T11**: road_graphエンジンが返す`segments`はEdge単位（交差点間、1候補あたり150〜230件、
-  30km級）のままではAPIペイロード・フロント描画コストが嵩むため、`domain/route.py:
-  aggregate_segments_into_bins`で約500m単位（`SEGMENT_BIN_DISTANCE_KM`）へ集約してから
-  返す（road_graph_engine.py: `prepare`が生成した候補へ適用）。集約はgradient/wind_drag_ratio/car_stress等を
-  距離加重平均、road_surface_good等のカテゴリ値を距離加重多数決で代表値化し、
-  `RouteSegmentDetail`型自体は変えない（フロント型・OpenAPI契約への影響なし）。
-- **T274（周回ルートの逆回り候補評価）**: `evaluate_loops`は各方位につき、`trace_loop`が
-  確定した順方向の経路に加え、同じ物理形状を逆順に辿る「逆回り」候補も合成できる場合は
-  合成し、`distance_weighted_difficulty`（segmentsの距離加重平均）が低い方だけを最終候補
-  として残す（両方向を別候補として追加はしない）。逆回りEdge列（`_reverse_traced_edges`）は
-  `context.graph`から1リクエストにつき1回だけ構築する`(from_node_id, to_node_id) → Edge`
-  逆引き表（`_RoadGraphContext.node_pair_index`）を使い、標高（`_reverse_elevation_attribute`、
-  獲得標高↔喪失標高の入替・勾配の符号反転等の代数変換）も既に取得済みの順方向の値から
-  導出するため、追加のDB問い合わせ・GSI標高APIの再呼び出しは発生しない
-  （bearing_deg等の進行方向依存値のみ`context.graph`から引く。geometryは順方向で
-  hydrate済みの値を反転して使う）。経路中に一方通行（逆方向Edgeが存在しない）区間が
-  1つでもあれば逆回りは物理的に成立しないため、その方位は順方向のみを候補とする。
+リクエストごとの重い処理を持たない構造にしてある。**どれか1つでも崩すと、探索の前に
+数秒かかる状態へ戻る**（段階ごとの実測は[decisions/road-graph-migration.md](decisions/road-graph-migration.md)）。
+
+- **探索フェーズはEdgeのgeometry（形状点列）を読まない**。トポロジだけを引く経路を持ち、
+  `geom`列をSELECTしない。
+- **標高は事前計算済みの`elevation_attributes`をキー参照する**（`app/batch/
+  precompute_elevation_attributes.py`が全道路網ぶんを埋める）。探索中にGSIへ問い合わせない。
+- **材料は1クエリへ統合して取得する**（`GraphService.get_search_materials_for_bbox`）。
+  ボトルネックはラウンドトリップ回数ではなく、同じEdge集合に対してORMの行構築を何度も
+  繰り返すことにある。
+- **軸の評価はnumpyでベクトル化してある**（軸をテンプレートへ揃えたうえでの一括計算）。
+
+**返す区間の粒度**: エンジンの`segments`はEdge単位（交差点間）で、30km級では1候補あたり
+数百件になる。そのままではAPIのペイロードとフロントの描画コストが嵩むため、
+`domain/route.py: aggregate_segments_into_bins`が約500m単位（`SEGMENT_BIN_DISTANCE_KM`）へ
+集約してから返す。数値は距離加重平均、カテゴリ値は距離加重多数決で代表値にする
+（`RouteSegmentDetail`型そのものは変えない）。
+
+**周回の逆回り候補**: `evaluate_loops`は各方位について、確定した順方向の経路に加え、同じ
+物理形状を逆順に辿る候補も合成できる場合は合成し、距離加重difficultyが低い方だけを残す
+（両方向を別候補にはしない）。逆回りは**追加のDB問い合わせ・標高APIの再呼び出しを伴わない**
+——Edge列は1リクエストにつき1回だけ作る`(from_node_id, to_node_id) → Edge`の逆引き表から引き、
+標高は取得済みの順方向の値を代数的に変換する（獲得↔喪失の入替・勾配の符号反転）。経路に
+一方通行区間が1つでもあれば逆回りは成立しないため、その方位は順方向のみを候補とする。
+
 
 ### 風・降水予報のローカル同期（`msm_client.py`）
 `msm_client.py`（[backend/app/infrastructure/msm_client.py](../backend/app/infrastructure/msm_client.py)）は、気象庁MSM（メソ数値予報モデル）の前処理済みデータ（Open-MeteoがAWS Open Dataで公開する`.om`形式、CC-BY-4.0）をローカルへ同期し、風の格子点マップ・ルート評価の風をそのファイルから直接読む。REST APIを叩かないためレート制限・クォータの制約を受けない。同期は`main.py`のAPScheduler（既定30分間隔）が担い、ETagの条件付きGETで内容が変わったチャンクだけを取得する（3変数・日本全域・約114時間ぶんで34MB程度）。格子の原点・間隔・チャンク長・予報終端は配信元の`static/meta.json`と実データの形状から導出し、定数として持たない。詳細は[docs/modules/backend/weather-dynamic-layers.md](modules/backend/weather-dynamic-layers.md)参照。
@@ -139,7 +141,7 @@ Step9の可視化はモード切替（総合難易度/標高/風/路面のいず
   3. `route-selected-outline-line`（新規）: 選択中候補の全体ジオメトリを太め・低不透明度のハローで最背面に描画し、①②のどちらの表示中でも選択中候補を常時識別できるようにする（**訂正・改善計画T518/T524（2026-09-01）**: この「常時」は本節が書かれた時点の設計。T518以降は候補線・方向矢印と合わせ、地図上「ルート」チップ[`layerVisibility.route`]のON/OFFに連動する——チップOFFで完全非表示になる、詳細は[docs/tasks/T518.md](tasks/T518.md)参照）。
   4. `route-detail-segments-line`（既存を単純化）: 選択中候補のみ、色分けモード（`routeStyleModes.ts`。改善計画T440で動的化・改善計画T549で軸ごとの手動フラグも撤去し、現在は軸スタジオの公開軸から動的生成される各モード＋固定の総合難易度[`difficulty`]。いずれも`segments`に返却済みの値のみ使い追加取得なし）で色分け。ルートレイヤーがONかつ選択中候補にセグメントがある場合のみ表示（一時期は風のみに絞っていたが、その後勾配を追加し、研究インターフェース改善 §10-5で路面・総合難易度も追加、T440でモード集合自体が動的化された）。
   - ①②は`visibility`レイアウトプロパティで排他的に切り替え、③は（本節が書かれた時点では）常時、④は最前面（③の現状はT518/T524の訂正注記参照）。クリック/ホバーの`queryRenderedFeatures`は②④の両方を対象にし、②のポップアップには所属候補が分かるよう`direction_label`を付与している。
-- **静的レイヤーのON/OFF**: 「標高図」「路面」はそれぞれ独立にON/OFFできる。当初は同じ線の色を奪い合うという理由で`staticLayer: "none" | "elevation" | "road"`の単一値による排他制御にしていたが、Step10で標高がラスタタイル表示に変わったことで色の競合が解消されたため、Step10改訂時に独立制御へ変更した（詳細は後述の「地域レイヤー」設計を参照）。ON/OFFの操作UIはその後のUI再構成（第2段、後述）で地図上のチップ＋サイドバーのスイッチに変わったが、「独立して同時表示可」という性質は変わっていない。
+- **静的レイヤーのON/OFF**: 「標高図」「路面」はそれぞれ独立にON/OFFできる（標高はラスタ、路面は線で、色を奪い合わない）。
 - **`isStyleLoaded()`起因の描画スキップ**: 実装時、地図初期化直後や候補選択直後にレイヤーが表示されない不具合が実機確認（Playwright）で見つかった。原因は、各描画関数が使っていた「`map.isStyleLoaded()`がfalseなら`map.once("load", ...)`で待つ」というガード。`isStyleLoaded()`は初期スタイル読み込み後もタイル読み込み中は一時的にfalseを返すが、MapLibreの`load`イベントは初回読み込み時に一度しか発火しない。そのため、候補選択でカメラが動いてタイル読み込み中に描画関数が呼ばれると、`isStyleLoaded()===false`と判定されて`once("load", ...)`を登録するが、その`load`はもう二度と来ず、描画が永久にスキップされていた。スタイルが一度でも読み込まれたかどうかをmapインスタンス自身にフラグとして記録する`runWhenStyleReady`ヘルパーに置き換えて解消した。
 
 ### UI再構成（第2段）: 地図上はON/OFF＋条件サマリ、細かな設定はサイドバーへ集約
@@ -182,7 +184,7 @@ Step5-9で実装した標高・風・路面はいずれも「生成済みの候�
 - **ベクタタイルの取得はWeb Worker内で行われる（実機確認で発見・修正済み）**: MapLibreはラスタタイル（`Image`要素、メインスレッド）とベクタタイル（`fetch`、Web Worker内）でタイルの取得方法が異なる。ラスタタイルのURL（`MAP_STYLE`や地理院タイルのURL）は相対パス・絶対パスいずれもページのオリジンに対して解決されるが、ベクタタイルのURLをWorker内から相対パスのまま渡すと`Failed to construct 'Request': Failed to parse URL from ...`のエラーで取得自体が失敗することを実機確認した（Workerの実行コンテキストはページとは別のベースURL解決になるため）。そのため路面ベクタタイルのURLは`window.location.origin`を使って呼び出し時に明示的に絶対URL化している（[frontend/src/services/regionApi.ts](../frontend/src/services/regionApi.ts)の`roadSurfaceTileUrl()`）。`window`はクライアントサイドでのみ参照可能なため、モジュール読み込み時に評価される定数ではなく、呼び出し時に評価される関数として実装してある点に注意（Next.jsのクライアントコンポーネントも初回はサーバー側でレンダリングされるため、モジュールの最上位で`window`を参照するとSSR時にクラッシュする）。
 
 #### フロントエンドの表示制御（`MapView.tsx`）
-標高・路面は「変わらないデータ（表示中の地域全体）」として、選択中候補とは独立にON/OFFする（操作UIは「UI再構成（第2段）」参照。`MapView`へは従来どおり`showElevation`/`showRoad`のpropsで渡る）。標高がラスタタイル表示になったことで路面の線と色を奪い合わなくなったため、**両者は排他ではなく同時にON/OFFできる**（初期実装では同じ線の色を奪い合うため`staticLayer: "none" | "elevation" | "road"`の単一値で排他制御していたが、Step10改訂時に独立制御へ変更した）。標高・路面のいずれも、表示切替時はレイヤーのvisibilityを切り替えるだけ（当時の`setGsiReliefVisibility` / `setRoadSurfaceTileVisibility`はいずれも撤去済みで、現在は`setLayerVisibility`が汎用に担う）で、明示的なデータ取得コードは書いていない。路面がベクタタイルになったことで、Step10当初にあった「地図の`moveend`イベント（パン/ズーム終了、500msデバウンス）を検知してビューポートのbboxを`/api/region/road-surface`にfetchする」という独自ロジックは丸ごと不要になった。タイルの取得・キャッシュ・パン/ズームへの追随はすべてMapLibre自身が面倒を見るため、フロントエンドのコードはソースを一度登録するだけでよい（標高ラスタと全く同じ扱いになった）。「表示範囲が広すぎます」の案内も、bbox対角距離の計算ではなく、路面ベクタタイルの`minzoom`（`ROAD_TILE_MIN_ZOOM = 12`）と`map.getZoom()`を比較するだけの単純な判定（`updateRoadZoomHint`）に置き換わった。判定は`zoom`イベントと表示切替の両方をトリガーに行う（標高はラスタタイルのためこの判定の対象外）。
+標高・路面は「変わらないデータ（表示中の地域全体）」として、選択中候補とは独立にON/OFFする。
 
 既知の制約: PostGIS未取込範囲（またはDBなし構成）は常に空タイルになるため、その範囲では路面レイヤーが表示されない（Overpassフォールバックは改善計画T22で撤去済み）。取込済み範囲内であれば初回表示から高速（`ST_AsMVT`でPostGIS側がMVTバイナリまで生成するため、Pythonでの追加エンコード処理を挟まない）。
 
@@ -229,9 +231,7 @@ Step10の標高・路面は「地域に固定・時間で変わらない」重�
   （2026-08-20）で自前実装へ切替。[backend/app/domain/wind_grid.py](../backend/app/domain/wind_grid.py)が
   関東本土全域の固定格子点（原点固定・0.1°間隔・約624点）を生成し、既存の
   `msm_client.read_series`（気象庁MSM、CC-BY-4.0）が全格子点ぶんをまとめて補間する。フロントは結果をMapLibre標準のGeoJSON source + symbolレイヤーで描画
-  （矢印アイコンは`MapView.tsx: createWindArrowIcon`が独自定義。当初はヒートマップ状の
-  背景セル塗り（T180）も併用していたが、「背景色が他レイヤーと重なると見分けにくい」
-  フィードバックを受け撤去し、現在は矢印の大きさ・色コントラストのみで密度を表現する）。
+  （矢印アイコンは`MapView.tsx: createWindArrowIcon`が独自定義。密度は矢印の大きさと色のコントラストで表す——背景を面で塗ると他のレイヤーと重なって見分けがつかない）。
 - **詳細格子（T180・T185）**: ズームインした範囲だけ密な格子（`generate_wind_grid_detail_points`、
   `GET /api/weather/wind-grid-detail`）を追加取得する。座標は表示bboxの角ではなく固定原点
   からのオフセットで計算するため、近い範囲を見る別ユーザーとキャッシュを共有できる。
@@ -286,13 +286,8 @@ Step10の標高・路面は「地域に固定・時間で変わらない」重�
   訂正した:
   - **キキクル3種（土砂・大雨・浸水）**: 「防災」カテゴリとして`WarningBadge`
     （`frontend/src/components/WarningBadge`、T205）と同様の常時マウント（チップ無し・
-    `layerVisibility`自体を持たない）へ変更した。以前は「12時間後の雷が常時マップに警告
-    されているのは嫌」という実機フィードバックを受け「共有タイムラインのスライダーが
-    『現在』位置にある間だけ表示」（isAtNow判定）にしていたが、チップ・スライダーの
-    どちらとも接続しない独立表示になったことで当時の懸念は構造的に発生しなくなり、
-    isAtNowゲーティング自体を撤回した。`useDynamicWeatherLayers.ts`が常にフェッチし、
-    `frames[0]`があれば常に表示する。地図上チップ・「地図の見え方」パネルどちらにも
-    個別の行は現れない（色の意味を確認する専用の凡例表示は撤去済み、既知の制約）。
+    `layerVisibility`自体を持たない）。**防災情報は利用者の操作を待たずに出す**。
+
   - **線状降水帯予測マップ**: データソースが実はrisk系統ではなくrasrf系統（降水短時間予報
     と同じ）と判明したため「降水」チップ（`precipitationNowcast`グループ）の4つ目の
     ソース（`linearRainband`）へ再分類した。「今後3時間以内におそれ」という予報の性質に
@@ -317,8 +312,7 @@ Step10の標高・路面は「地域に固定・時間で変わらない」重�
   ②気象Gridの道路評価Gridからの分離③気象Gridの固定化④TTL付きDB永続キャッシュ⑤
   バックグラウンド更新⑥利用者増加時のOpen-Meteo自前運用）の実装到達点を調査・記録した
   （T194、④まで完了・⑤⑥は未着手のまま記録のみ）。④は旧`get_forecast_many`をL1（プロセス内
-  メモリ）→L2（当初は旧`cache_db.py`のSQLite、2026-08-30のT398でRedis
-  旧`wind_forecast_cache.py`へ移行）→実フェッチの順に問い合わせる形で実装し（T195）、
+  メモリ）→L2（Redis）→実フェッチの順に問い合わせる形で実装し（T195）、
   TTLを30分→3時間、失敗時のstaleフォールバック許容幅を3時間→24時間へ拡大した。あわせてOracle Cloud VM上のリレープロキシ（旧`OPEN_METEO_BASE_URL`、
   T179）で送信元IPを本番の共有IPから分離する経路も用意済みだが、本番では未有効化（T182の
   調査でクォータ枯渇は送信元IP非依存の現象と判明したため）。
@@ -336,13 +330,10 @@ redis_client.py`）。ローカル開発は`docker-compose.yml`のredisサービ
 Cloud VMへネイティブ（apt、PostgreSQLと同じ構成）で導入する想定（backendコンテナが
 `--network=host`のため追加設定なしで到達できる）。
 
-**メモリ上限（改善計画T393、2026-08-29）**: 本番`/etc/redis/redis.conf`へ
-`maxmemory 2gb`・`maxmemory-policy volatile-lru`を設定済み（VM全体11GB中、PostgreSQL・
-backendアプリ[コンテナ`--memory=6g`上限]との共存を考慮した保守的な値）。導入当初
-（T387）はこの上限が未設定（`maxmemory=0`＝無制限・`noeviction`）のままだったため、
-Redisの用途を広げる際に上限なくメモリを消費し、同居するVM全体のメモリを圧迫する
-リスクがあった。現行キーは全てTTL付きのため`volatile-lru`（TTL付きキーの中からLRUで
-退避）を選んでいる。
+**メモリ上限**: 本番`/etc/redis/redis.conf`へ`maxmemory 2gb`・`maxmemory-policy volatile-lru`を
+設定する（VM全体11GB中、PostgreSQL・backendアプリ[コンテナ`--memory=6g`上限]との共存を
+考慮した値）。**上限を外すと、用途を広げたときに同居するVM全体のメモリを圧迫する**。
+現行キーは全てTTL付きのため`volatile-lru`（TTL付きキーの中からLRUで退避）を選ぶ。
 
 - **アメダス（`app/services/jma_amedas_service.py`）**: 気象データはPostGISへ書き込まず
   Redis上で完結させる（気象データは短命でディスクI/O向きではないため）。JMAの観測値
@@ -394,7 +385,9 @@ Redisの用途を広げる際に上限なくメモリを消費し、同居する
 
 ### ルーティングエンジン
 
-**road_graph単一構成**。エンジンを切り替える設定（`routing_engine`）・複数値の`RouteGenerateResponse.engine`・`OpenRouteServiceEngine`はいずれも存在しない（切り替えが存在した期間の設計記録は[decisions/road-graph-migration.md](decisions/road-graph-migration.md)）。
+**road_graph単一構成**。エンジンを切り替える仕組み（設定の旧`routing_engine`、複数値の
+`RouteGenerateResponse.engine`、旧`OpenRouteServiceEngine`）は撤去済みで、探しても実装に
+無い（切り替えが存在した期間の設計記録は[decisions/road-graph-migration.md](decisions/road-graph-migration.md)）。
 
 ### 道路種別（highway）の3つのスコープと路面（surface）語彙の正準定義
 
@@ -1469,7 +1462,7 @@ T278（上記）の自動導出は実装されていたが、導出結果の配�
 - **`GET /api/axis-catalog`への`display`フィールド追加**: `axis_catalog.py`が
   `axis_display_for(definition)`（`axis_display.py`、`AXIS_DEFINITIONS`/`MATERIAL_CATALOG`
   のみを見る純関数、DB/IO無し）を全公開軸へ適用し、レスポンスへ`AxisDisplaySpec`
-  （`kind`/`tile_inputs`/`thresholds`/`unit`等）を含める。`STOP_DENSITY_DISPLAY`/
+  （`kind`/`tile_inputs`/`thresholds`/`unit`等）を含める。旧`STOP_DENSITY_DISPLAY`/
   旧`ACCIDENT_DISPLAY`/旧`CAR_STRESS_DISPLAY`（自動導出対象外の手書きdisplay）は
   `registry_defaults.py`から`axis_display.py`へ移設し単一ソース化した。
 - **フロントの実行時フェッチ化**: `RAMP_AXES`/`AXIS_LABELS`（`axisLayers.ts`）・
