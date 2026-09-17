@@ -10,8 +10,19 @@
 // （hooks/useDedicatedWayValues.ts）・DOM/MapLibre操作（MapView.tsx: map.setFeatureState）は
 // 別ファイルが持ち、このファイルはMapLibreインスタンスを一切知らない純粋関数のみを持つ。
 
-import { bandLabelsForBandCount, buildRangeLegendBands, type MapColorLegendBand } from "./mapColorLegend";
-import { bandColorsFor, buildSteppedColorExpression, valueScaleFor, type MapValueKind } from "./valueScale";
+import {
+  bandLabelsForBandCount,
+  buildRangeLegendBands,
+  LEGEND_NO_DATA_KEY,
+  type MapColorLegendBand,
+} from "./mapColorLegend";
+import {
+  bandColorsFor,
+  buildSteppedColorExpression,
+  COLOR_NO_DATA,
+  valueScaleFor,
+  type MapValueKind,
+} from "./valueScale";
 
 export type { TileXY } from "./dynamicWayValues";
 export { tilesCoveringViewport, mergeDynamicWayValues } from "./dynamicWayValues";
@@ -35,17 +46,24 @@ export function dedicatedWayValueFeatureStateKey(axisId: string): string {
   return `${axisId}Value`;
 }
 
-/** 値取得式（feature-state or geojsonプロパティ）を色へ変換するMapLibre expression。
- * 値の取得元だけが呼び出し側で異なり、評価軸グループの線（feature-state経由）と環境
- * グループの面（勾配gridFill、["get",...]経由）が同じ配色・しきい値を共有する。`loading`は
- * まだ値を受け取っていない対象の色をCOLOR_LOADING（フェッチ進行中）とCOLOR_NO_DATA
- * （取得済みだが値が無い）のどちらにするか（valueScale.ts参照）。 */
+/** 値取得式（feature-state or geojsonプロパティ）を色へ変換するMapLibre expression。値の
+ * 取得元だけを引数に取る形にしてあり、feature-state以外から値を読む呼び出し側を足せる。
+ * `loading`はまだ値を受け取っていない対象の色をCOLOR_LOADING（フェッチ進行中）と
+ * COLOR_NO_DATA（取得済みだが値が無い）のどちらにするか（valueScale.ts参照）。
+ * `hiddenBandKeys`は凡例で非表示にした段階のキー（同上）。 */
 export function buildDedicatedWayValueColorExpression(
   valueExpression: unknown[],
   display: DedicatedWayValueDisplay = DEFAULT_DEDICATED_WAY_VALUE_DISPLAY,
-  loading = false
+  loading = false,
+  hiddenBandKeys: readonly string[] = [],
 ): unknown[] {
-  return buildSteppedColorExpression(valueExpression, display.kind, display.boundaries, undefined, loading);
+  return buildSteppedColorExpression({
+    valueExpression,
+    kind: display.kind,
+    boundaries: display.boundaries,
+    loading,
+    hiddenBandKeys,
+  });
 }
 
 /** feature-state値を色へ変換するMapLibre expression。["feature-state", key]は該当キーが
@@ -53,23 +71,29 @@ export function buildDedicatedWayValueColorExpression(
 export function dedicatedWayValueColorExpression(
   axisId: string,
   display?: DedicatedWayValueDisplay,
-  loading = false
+  loading = false,
+  hiddenBandKeys: readonly string[] = [],
 ): unknown[] {
   return buildDedicatedWayValueColorExpression(
     ["feature-state", dedicatedWayValueFeatureStateKey(axisId)],
     display,
-    loading
+    loading,
+    hiddenBandKeys,
   );
 }
 
 /** 地図上の色分け凡例。色式と同じ配色・しきい値から段階ラベル付きの凡例を組み立てる。
  * 段階ラベル（bandLabels）は要素数が段階数と一致する間だけ数値レンジの前に添える
- * （不一致な保存データへの防御）。 */
+ * （不一致な保存データへの防御）。末尾の「データなし」は値を受け取れなかった道路の受け皿で、
+ * ルート確定後のルート線の凡例（`routeStyleModes.ts`）と段階の並び・キーを揃える。 */
 export function dedicatedWayValueLegend(
-  display: DedicatedWayValueDisplay = DEFAULT_DEDICATED_WAY_VALUE_DISPLAY
+  display: DedicatedWayValueDisplay = DEFAULT_DEDICATED_WAY_VALUE_DISPLAY,
 ): MapColorLegendBand[] {
   const boundaries = display.boundaries ?? valueScaleFor(display.kind).defaultBoundaries;
   const colors = bandColorsFor(display.kind, boundaries);
   const labels = bandLabelsForBandCount(display.bandLabels, boundaries.length + 1);
-  return buildRangeLegendBands(boundaries, colors, display.unit, labels);
+  return [
+    ...buildRangeLegendBands(boundaries, colors, display.unit, labels),
+    { key: LEGEND_NO_DATA_KEY, label: "データなし", color: COLOR_NO_DATA, isFallback: true },
+  ];
 }

@@ -37,6 +37,8 @@ import {
 import { WIND_SPEED_COLOR_STOPS, WIND_SPEED_LEGEND_LEVELS } from "@/components/Map/windLayer";
 import { PRECIPITATION_COLOR_STOPS, PRECIPITATION_INTENSITY_LEVELS } from "@/components/Map/precipitationNowcast";
 import { DETAIL_CASING_LAYER_ID, DETAIL_LAYER_ID, drawDetailSegments } from "./MapView.routes";
+import { legendBandKey } from "@/components/Map/mapColorLegend";
+import { COLOR_HIDDEN } from "@/components/Map/valueScale";
 
 // __rcStyleReady=trueでrunWhenStyleReadyの即時実行分岐を通す
 // （MapView.overlayFilters.test.ts/MapView.dataStatus.test.tsと同じ発想）。
@@ -399,6 +401,30 @@ describe("buildStaticOverlayLayers（windAxis/gradientAxisのensureが既存レ�
 
     const paintCalls = map.paintCalls.filter((c) => c.layerId === windEntry.layerId && c.name === "line-color");
     expect(paintCalls).toHaveLength(1);
+  });
+
+  it("凡例で非表示にした段階は、色式のその段階だけが透明になる（filterでは絞り込めないため）", () => {
+    const display = new Map([["gradient", { kind: "signed_material" as const, unit: "%", boundaries: [-1, 1] }]]);
+    const visible = buildStaticOverlayLayers([], DEDICATED_WAY_VALUE_AXES, display, undefined, undefined).find(
+      (l) => l.key === "gradientAxis",
+    )!;
+    const hidden = buildStaticOverlayLayers(
+      [],
+      DEDICATED_WAY_VALUE_AXES,
+      display,
+      undefined,
+      new Map([["gradient", [legendBandKey(1)]]]),
+    ).find((l) => l.key === "gradientAxis")!;
+
+    const map = fakeMap();
+    visible.ensure(map as unknown as Parameters<typeof visible.ensure>[0]);
+    const created = map.addedSpecs.find((spec) => spec.id === visible.layerId)!;
+    expect(JSON.stringify(created.paint)).not.toContain(COLOR_HIDDEN);
+
+    hidden.ensure(map as unknown as Parameters<typeof hidden.ensure>[0]);
+    const repaint = map.paintCalls.filter((c) => c.layerId === visible.layerId && c.name === "line-color");
+    expect(repaint).toHaveLength(1);
+    expect(JSON.stringify(repaint[0].value)).toContain(COLOR_HIDDEN);
   });
 
   it("gradientAxisレイヤーが既に存在する場合も、boundariesの変更を再適用する", () => {
