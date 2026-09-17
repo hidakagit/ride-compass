@@ -87,7 +87,11 @@ function rgbToHex([r, g, b]: readonly [number, number, number]): string {
   return (
     "#" +
     [r, g, b]
-      .map((v) => Math.max(0, Math.min(255, Math.round(v))).toString(16).padStart(2, "0"))
+      .map((v) =>
+        Math.max(0, Math.min(255, Math.round(v)))
+          .toString(16)
+          .padStart(2, "0"),
+      )
       .join("")
   );
 }
@@ -115,6 +119,25 @@ export function bandColorsFor(kind: MapValueKind, boundaries?: readonly number[]
   return interpolateColors(scale.colorLow, scale.colorHigh, resolved.length + 1);
 }
 
+/** 「帯の下限＋色」の並びを、そのままMapLibreのstep式へ組み立てる。
+ *
+ * **地図を連続補間（`interpolate`）で塗ると、凡例と一致しない**。凡例が並べられるのは帯ごとの
+ * 色見本1つだけで、それは帯の端の色でしかない。帯の中ほどの値はどの見本とも違う色になり、
+ * 「この色は凡例のどれか」が答えられなくなる。同じ配列が地図の帯と凡例の行の両方を決める形に
+ * しておけば、そのずれ自体が生まれない。
+ *
+ * `bands`は下限の昇順で、先頭の`from`は使わない（それより小さい値も先頭の色になる）。 */
+export function buildBandColorExpression(
+  numericExpression: unknown[],
+  bands: readonly { from: number; color: string }[],
+): unknown[] {
+  const expression: unknown[] = ["step", numericExpression, bands[0].color];
+  for (const band of bands.slice(1)) {
+    expression.push(band.from, band.color);
+  }
+  return expression;
+}
+
 /** 値取得式を段階分けの色へ変換するMapLibre expression。値がnull（データ欠落・未取得）なら
  * `loading`に応じてCOLOR_LOADING（フェッチ進行中）またはCOLOR_NO_DATA（取得済みだが値が
  * 無い）、それ以外は`["step", value, color0, boundary1, color1, ...]`。
@@ -126,7 +149,7 @@ export function buildSteppedColorExpression(
   kind: MapValueKind,
   boundaries?: readonly number[] | null,
   numericExpression: unknown[] = valueExpression,
-  loading = false
+  loading = false,
 ): unknown[] {
   const resolved = boundaries ?? valueScaleFor(kind).defaultBoundaries;
   const colors = bandColorsFor(kind, resolved);

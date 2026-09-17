@@ -30,7 +30,11 @@ import {
   ensureLayerFromSpec,
   dynamicWeatherIds,
   AREA_LAYER_OPACITY,
+  WIND_COLOR_SCALE_EXPRESSION,
+  PRECIPITATION_COLOR_SCALE_EXPRESSION,
 } from "./MapView";
+import { WIND_SPEED_COLOR_STOPS, WIND_SPEED_LEGEND_LEVELS } from "@/components/Map/windLayer";
+import { PRECIPITATION_COLOR_STOPS, PRECIPITATION_INTENSITY_LEVELS } from "@/components/Map/precipitationNowcast";
 import { DETAIL_CASING_LAYER_ID, DETAIL_LAYER_ID, drawDetailSegments } from "./MapView.routes";
 
 // __rcStyleReady=trueでrunWhenStyleReadyの即時実行分岐を通す
@@ -689,5 +693,49 @@ describe("ensureTerrainHillshadeLayer（起伏）", () => {
     expect(spec?.type).toBe("hillshade");
     expect(String(spec?.paint?.["hillshade-shadow-color"])).toContain(String(AREA_LAYER_OPACITY));
     expect(String(spec?.paint?.["hillshade-highlight-color"])).toContain(String(AREA_LAYER_OPACITY));
+  });
+});
+
+// 地図に出る色と凡例の行が一致すること（T915）。連続補間で塗っていたころは、帯の中ほどの
+// 値（風4.0m/s・降水6mm/h等）がどの色見本とも違う色になっていた（実測で最大ΔE 32）。
+describe("色の段（地図と凡例の一致）", () => {
+  /** step式（["step", 値, 色0, 下限1, 色1, …]）を、指定した値で評価する。
+   *
+   * **先頭が"step"であることを先に確かめる。** interpolate式は要素が1つずれるだけで
+   * 下限と色の対が同じ位置に並ぶため、種類を見ずに読むと連続補間のままでも同じ色を返し、
+   * この検査が何も守らなくなる。 */
+  function colorAt(expression: unknown, value: number): string {
+    const parts = expression as unknown[];
+    expect(parts[0]).toBe("step");
+    const [, , first, ...rest] = parts as [string, unknown, string, ...unknown[]];
+    let color = first;
+    for (let i = 0; i < rest.length; i += 2) {
+      if (value < (rest[i] as number)) break;
+      color = rest[i + 1] as string;
+    }
+    return color;
+  }
+
+  it("風: 帯の中ほどの値が、その帯の凡例の色そのもので塗られる", () => {
+    WIND_SPEED_COLOR_STOPS.forEach((stop, index) => {
+      const next = WIND_SPEED_COLOR_STOPS[index + 1];
+      const middle = next === undefined ? stop.speedMs + 5 : (stop.speedMs + next.speedMs) / 2;
+      expect(colorAt(WIND_COLOR_SCALE_EXPRESSION, middle)).toBe(stop.color);
+      // 凡例の先頭は「無風（矢印なし）」で帯を持たないため1つずらす。
+      expect(WIND_SPEED_LEGEND_LEVELS[index + 1].color).toBe(stop.color);
+    });
+  });
+
+  it("風: ユーザー報告の4.0m/sが「心地よい風」の帯の色になる", () => {
+    expect(colorAt(WIND_COLOR_SCALE_EXPRESSION, 4.0)).toBe(WIND_SPEED_COLOR_STOPS[2].color);
+  });
+
+  it("降水: 帯の中ほどの値が、その帯の凡例の色そのもので塗られる", () => {
+    PRECIPITATION_COLOR_STOPS.forEach((stop, index) => {
+      const next = PRECIPITATION_COLOR_STOPS[index + 1];
+      const middle = next === undefined ? stop.mmPerHour + 10 : (stop.mmPerHour + next.mmPerHour) / 2;
+      expect(colorAt(PRECIPITATION_COLOR_SCALE_EXPRESSION, middle)).toBe(stop.color);
+      expect(PRECIPITATION_INTENSITY_LEVELS[index].color).toBe(stop.color);
+    });
   });
 });

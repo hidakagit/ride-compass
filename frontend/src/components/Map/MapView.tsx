@@ -85,6 +85,7 @@ import { createLidenIcon } from "@/components/Map/lidenIcon";
 import { LIDEN_MARK_VALUE_PROPERTY } from "@/components/Map/lidenLayer";
 import { RISK_LEVEL_COLORS } from "@/components/Map/riskMap";
 import { createWindArrowIcon } from "@/components/Map/windArrowIcon";
+import { buildBandColorExpression } from "@/components/Map/valueScale";
 import {
   areaLayerAnchor,
   isAreaLayerType,
@@ -550,21 +551,17 @@ const WIND_ICON_HALO_WIDTH_PX = 1.5;
 // 風力階級準拠、windLayer.ts: WIND_SPEED_COLOR_STOPSのコメント参照）。矢印のicon-colorと
 // 地図チップの凡例（page.tsx）の2箇所で同じ配色を使うため、生データはwindLayer.tsを
 // 単一の情報源として持ち、MapLibre補間式への組み立てだけここで行う。
-const WIND_COLOR_SCALE_EXPRESSION = [
-  "interpolate",
-  ["linear"],
+export const WIND_COLOR_SCALE_EXPRESSION = buildBandColorExpression(
   ["to-number", ["get", "speed"]],
-  ...WIND_SPEED_COLOR_STOPS.flatMap((stop) => [stop.speedMs, stop.color]),
-] as unknown as maplibregl.ExpressionSpecification;
+  WIND_SPEED_COLOR_STOPS.map((stop) => ({ from: stop.speedMs, color: stop.color })),
+) as unknown as maplibregl.ExpressionSpecification;
 
 // 降水延長予報（gridFill、格子セルを指定色で塗る）のfill-color。PRECIPITATION_COLOR_STOPS
 // （precipitationNowcast.ts、地図チップの凡例と単一の情報源）をMapLibre補間式へ組み立てる。
-const PRECIPITATION_COLOR_SCALE_EXPRESSION = [
-  "interpolate",
-  ["linear"],
+export const PRECIPITATION_COLOR_SCALE_EXPRESSION = buildBandColorExpression(
   ["to-number", ["get", "mmPerHour"]],
-  ...PRECIPITATION_COLOR_STOPS.flatMap((stop) => [stop.mmPerHour, stop.color]),
-] as unknown as maplibregl.ExpressionSpecification;
+  PRECIPITATION_COLOR_STOPS.map((stop) => ({ from: stop.mmPerHour, color: stop.color })),
+) as unknown as maplibregl.ExpressionSpecification;
 
 // 洪水キキクルのline-color。配信元のフィーチャーが持つ`level`
 // プロパティ（1〜4）をRISK_LEVEL_COLORS（riskMap.ts、土砂・大雨・浸水の3種と共通の

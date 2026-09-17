@@ -80,6 +80,21 @@ MapView.tsx: DYNAMIC_WEATHER_RENDERERS（唯一の描画スペック情報源）
 `dynamicWeatherIds(id, source, sub)`が`region-dynamic-weather-${id}-${source}-${sub}`
 という命名規約でsource/layer idを機械的に決める（`-main`のみ、縁取り専用の別レイヤーは持たない）。
 
+## 色の段は帯で持ち、地図と凡例が同じ配列を読む
+
+風速（`windLayer.ts: WIND_SPEED_COLOR_STOPS`）・降水強度（`precipitationNowcast.ts:
+PRECIPITATION_COLOR_STOPS`）の色の段は**帯の下限＋色**で、地図はこの配列をそのまま
+`step`式へ組み立てて塗る（`valueScale.ts: buildBandColorExpression`）。凡例
+（`WIND_SPEED_LEGEND_LEVELS`・`PRECIPITATION_INTENSITY_LEVELS`）も同じ配列から帯の範囲を
+書き出すため、地図に出る色と凡例の行は1対1で対応する。
+
+**連続補間（`interpolate`）で塗ってはいけない。** 凡例が並べられるのは帯ごとの色見本1つ
+だけで、それは帯の端の色でしかない。帯の中ほどの値はどの見本とも違う色になり、「この色は
+凡例のどれか」が答えられなくなる。
+
+**凡例の行を束ねないこと。** 束ねた行は、地図が塗り分けている複数の帯を1つの色見本で代表する
+ことになり、束ねた中の値がまた見本と食い違う。粒度を粗くしたいなら段自体を減らす。
+
 ## 空タイル要求の間引き（在否インデックス）
 
 JMA動的タイルは疎で、平常時はほぼ全てのタイルが空である。`hooks/useJmaTileIndex.ts`が

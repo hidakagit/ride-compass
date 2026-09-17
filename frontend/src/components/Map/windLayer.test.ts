@@ -161,20 +161,33 @@ describe("windLayer", () => {
   });
 
   describe("WIND_SPEED_LEGEND_LEVELS", () => {
-    it("走行が難しい強風域は1行にまとめ、走行可能域より粗く見せる", () => {
-      const labels = WIND_SPEED_LEGEND_LEVELS.map((l) => l.label);
-      expect(labels.some((l) => l.includes("走行が難しい強風域"))).toBe(true);
+    // 凡例の行を束ねると、地図が塗り分けている複数の帯を1つの色見本で代表することになり、
+    // 束ねた中の値がまた見本と食い違う（T915）。行と帯は1対1に保つ。
+    it("無風以外の行は、地図が塗り分ける帯と1対1で対応する", () => {
+      const bands = WIND_SPEED_LEGEND_LEVELS.slice(1);
+      expect(bands).toHaveLength(WIND_SPEED_COLOR_STOPS.length);
+      expect(bands.map((level) => level.color)).toEqual(WIND_SPEED_COLOR_STOPS.map((stop) => stop.color));
     });
 
-    it("数値はWIND_SPEED_COLOR_STOPSと食い違わない（単一の情報源）", () => {
-      expect(WIND_SPEED_LEGEND_LEVELS[1].color).toBe(WIND_SPEED_COLOR_STOPS[0].color);
-      expect(WIND_SPEED_LEGEND_LEVELS.at(-1)?.color).toBe(WIND_SPEED_COLOR_STOPS[6].color);
+    it("各行のラベルが、その帯の範囲を下限〜上限で示す（最後は「以上」）", () => {
+      expect(WIND_SPEED_LEGEND_LEVELS[1].label).toContain(`〜${WIND_SPEED_COLOR_STOPS[1].speedMs}m/s`);
+      expect(WIND_SPEED_LEGEND_LEVELS[2].label).toContain(
+        `${WIND_SPEED_COLOR_STOPS[1].speedMs}〜${WIND_SPEED_COLOR_STOPS[2].speedMs}m/s`,
+      );
+      expect(WIND_SPEED_LEGEND_LEVELS.at(-1)?.label).toContain(`${WIND_SPEED_COLOR_STOPS.at(-1)?.speedMs}m/s以上`);
     });
   });
 
   describe("mergeWindGridKeepingStale（実機フィードバック「画面端が塗られないことがある」）", () => {
     function point(lat: number, lon: number, speed: number): WindGridPoint {
-      return { latitude: lat, longitude: lon, times: ["t0"], wind_speed_ms: [speed], wind_direction_deg: [0], precipitation_mm: [0] };
+      return {
+        latitude: lat,
+        longitude: lon,
+        times: ["t0"],
+        wind_speed_ms: [speed],
+        wind_direction_deg: [0],
+        precipitation_mm: [0],
+      };
     }
 
     it("nextに存在する地点はnextの値を優先する（更新される）", () => {
@@ -268,7 +281,9 @@ describe("windLayer", () => {
     });
 
     it("WIND_GRID_DETAIL_SPACING_STOPSの間隔値は生成物のdetail_allowed_spacings_degと順序一致する", () => {
-      expect(WIND_GRID_DETAIL_SPACING_STOPS.map((s) => s.spacingDeg)).toEqual(windGridConfig.detail_allowed_spacings_deg);
+      expect(WIND_GRID_DETAIL_SPACING_STOPS.map((s) => s.spacingDeg)).toEqual(
+        windGridConfig.detail_allowed_spacings_deg,
+      );
     });
 
     it("クリップ幅の安全率(WIND_DETAIL_MAX_BBOX_SPAN_SIDE_INTERVALS)がdetail_max_pointsの範囲内に収まる（backend側の上限が下がった場合に検知する）", () => {

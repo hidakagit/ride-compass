@@ -108,41 +108,41 @@ export const WIND_SPEED_COLOR_STOPS: readonly { speedMs: number; color: string }
 // 関東でごく普通に起きる弱風でも矢印が全滅するため、この値にしている。
 export const WIND_CALM_THRESHOLD_MS = 0.3;
 
-// 地図チップの凡例（page.tsx）用に、上記の生データへラベルを付けたもの。数値は
-// WIND_SPEED_COLOR_STOPS/WIND_CALM_THRESHOLD_MSからそのまま持ってくるため、閾値・色を
-// 変えてもここは自動で追従する（片側importで単一の情報源を保つ）。地図の色分け自体は
-// WIND_SPEED_COLOR_STOPSの区切りそのままだが、凡例は「ロードバイクで走行が難しい強風域」の
-// 中の細かい差（Bf7/Bf9境界）まで1行ずつ並べても実用上の情報量が薄いため、その帯は
-// 1行へまとめている（凡例上の粒度も「そこから先は粗い」という体験に合わせる）。
+// 風速の色の段（WIND_SPEED_COLOR_STOPS）は**帯の下限**で、地図はこの配列をそのまま
+// step式へ組み立てて塗る（valueScale.ts: buildBandColorExpression）。凡例もこの配列から
+// 帯の範囲を書き出すため、地図に出る色と凡例の行は1対1で対応する——連続補間で塗っていた
+// ころは、帯の中ほどの値（例: 4.0m/s）がどの色見本とも違う色になっていた。
+//
+// **行を束ねないこと。** 束ねた行は、地図が塗り分けている複数の帯を1つの色見本で代表する
+// ことになり、束ねた中の値がまた見本と食い違う。粒度を粗くしたいなら段自体を減らす。
+const bandLabel = (index: number): string => {
+  const from = WIND_SPEED_COLOR_STOPS[index].speedMs;
+  const next = WIND_SPEED_COLOR_STOPS[index + 1];
+  if (next === undefined) return `${from}m/s以上`;
+  if (index === 0) return `〜${next.speedMs}m/s`;
+  return `${from}〜${next.speedMs}m/s`;
+};
+
+// 段ごとの体感表現。ビューフォート風力階級の呼び名を、自転車で走るときの感じ方へ寄せたもの。
+const WIND_BAND_NAMES: readonly string[] = [
+  "微風",
+  "そよ風",
+  "心地よい風",
+  "やや強い風",
+  "強い風・向かい風がこたえ始める",
+  "かなり強い風",
+  "ロードバイクでの走行が難しい強風",
+  "暴風",
+  "猛烈な暴風",
+];
+
 export const WIND_SPEED_LEGEND_LEVELS: readonly { key: string; label: string; color: string }[] = [
   { key: "calm", label: `無風（矢印なし、${WIND_CALM_THRESHOLD_MS}m/s未満）`, color: "#9ca3af" },
-  { key: "bf1", label: "微風", color: WIND_SPEED_COLOR_STOPS[0].color },
-  { key: "bf2", label: `そよ風（〜${WIND_SPEED_COLOR_STOPS[1].speedMs}m/s）`, color: WIND_SPEED_COLOR_STOPS[1].color },
-  {
-    key: "bf3",
-    label: `心地よい風（〜${WIND_SPEED_COLOR_STOPS[2].speedMs}m/s）`,
-    color: WIND_SPEED_COLOR_STOPS[2].color,
-  },
-  {
-    key: "bf4",
-    label: `やや強い風（〜${WIND_SPEED_COLOR_STOPS[3].speedMs}m/s）`,
-    color: WIND_SPEED_COLOR_STOPS[3].color,
-  },
-  {
-    key: "bf5",
-    label: `強い風・向かい風がこたえ始める（〜${WIND_SPEED_COLOR_STOPS[4].speedMs}m/s）`,
-    color: WIND_SPEED_COLOR_STOPS[4].color,
-  },
-  {
-    key: "bf6",
-    label: `かなり強い風（〜${WIND_SPEED_COLOR_STOPS[5].speedMs}m/s）`,
-    color: WIND_SPEED_COLOR_STOPS[5].color,
-  },
-  {
-    key: "unrideable",
-    label: `ロードバイクでの走行が難しい強風域（${WIND_SPEED_COLOR_STOPS[6].speedMs}m/s以上）`,
-    color: WIND_SPEED_COLOR_STOPS[6].color,
-  },
+  ...WIND_SPEED_COLOR_STOPS.map((stop, index) => ({
+    key: `bf${index + 1}`,
+    label: `${WIND_BAND_NAMES[index]}（${bandLabel(index)}）`,
+    color: stop.color,
+  })),
 ];
 
 export interface WindPointFeatureProperties {
