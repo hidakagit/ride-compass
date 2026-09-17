@@ -151,7 +151,7 @@ export default function LensControl({
         </Popover.Trigger>
         <Popover.Portal>
           <Popover.Content className={styles.content} side="bottom" align="center" sideOffset={6} collisionPadding={8}>
-            <p className={styles.heading}>レンズ（地図を何で塗るか）</p>
+            <p className={styles.heading}>レンズ</p>
             <ul className={styles.list} role="radiogroup" aria-label="レンズ">
               {renderOption(LENS_NONE_ID, FIXED_LENS_LABELS[LENS_NONE_ID], LENS_NEUTRAL_COLOR)}
               {renderOption(LENS_DIFFICULTY_ID, FIXED_LENS_LABELS[LENS_DIFFICULTY_ID], LENS_NEUTRAL_COLOR)}
@@ -178,7 +178,7 @@ export default function LensControl({
                     }
                     aria-label="凡例の全段階をまとめて表示/非表示"
                   />
-                  凡例（チェックを外すと地図から消える）
+                  凡例
                 </label>
                 <LegendCheckboxList
                   legend={legend}
