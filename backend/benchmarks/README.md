@@ -21,13 +21,20 @@
 
 ## 実DB接続を伴うもの（`run_all.py`には含めない）
 
-`bench_postgis_prepare.py`・`bench_t917_edge_tile.py`は、合成データではなく取込済みの実データ・
+`bench_postgis_prepare.py`・`bench_t917_edge_tile.py`・`bench_t919_edge_landcover.py`は、
+合成データではなく取込済みの実データ・
 実PostGIS接続に対して測る（合成データのみに閉じるという上の方針からは外れる）。個別に実行し、
 `DATABASE_URL`をローカルDBへ明示的に上書きすること。対象タイル/bboxが取込範囲外ならSKIPする。
 
-`bench_t917_edge_tile.py`は、路面タイルの単位をway（現行）からedge（`road_edges`）へ移した
+`bench_t917_edge_tile.py`は、路面タイルの単位をway（当時）からedge（`road_edges`）へ移した
 ときにタイルがどれだけ重くなるかを測る（[T917](../../docs/tasks/T917.md)）。プロパティは3版とも
 同じ集合へ揃えてあるため**絶対バイト数は本番タイルと一致しない。way比だけを判断に使う**。
+
+`bench_t919_edge_landcover.py`は、wayの中で土地被覆が区間ごとにどれだけばらつくかを測る
+（[T919](../../docs/tasks/T919.md)）。**区間単位の集計テーブルを新設する価値があるかを
+決めるための計測で、行は書かない**。区間ごとの割合を出す計算は
+`precompute_way_landcover.py`と同じ関数を呼ぶため、**実装とほぼ同じ時間がかかる**
+（`--limit`で対象way数を絞る）。ラスタのパスが要る。
 
 ## わかったこと（実測値、開発機での参考値。絶対値はマシン依存だが相対的な傾向は再現する）
 
