@@ -30,6 +30,7 @@ edge版のSQLは**このモジュールが計測のために組み立てるも�
 from __future__ import annotations
 
 import asyncio
+import gzip
 import time
 from dataclasses import dataclass
 
@@ -37,6 +38,7 @@ from sqlalchemy import text
 
 from app.domain.region import ROAD_TILE_MAX_ZOOM, ROAD_TILE_MIN_ZOOM
 from app.infrastructure.database import get_session_factory
+from app.infrastructure.response_compression import DEFAULT_COMPRESS_LEVEL
 from app.infrastructure.vector_tile import ROAD_SURFACE_LAYER_NAME
 
 MVT_EXTENT = 4096
@@ -46,9 +48,12 @@ MVT_EXTENT = 4096
 # 通常のWeb Mercatorのタイル式で求めたもの。
 TARGET_TILES: list[tuple[str, int, int, int]] = [
     ("東京駅 z15", 15, 29105, 12903),
+    ("板橋区 z15", 15, 29100, 12895),
+    ("八王子 z15", 15, 29065, 12906),
     ("東京駅 z14", 14, 14552, 6451),
-    ("東京駅 z13", 13, 7276, 3225),
     ("板橋区 z14", 14, 14550, 6447),
+    ("八王子 z14", 14, 14532, 6453),
+    ("東京駅 z13", 13, 7276, 3225),
     ("八王子 z13", 13, 7266, 3226),
     ("東京駅 z12", 12, 3638, 1612),
 ]
@@ -72,37 +77,41 @@ def _tile_sql(geometry_source: str) -> str:
                 w.surface AS surface
             FROM ({geometry_source}) src
             JOIN osm_raw_ways w ON w.osm_way_id = src.osm_way_id
-            WHERE src.geom IS NOT NULL
-              AND ST_Intersects(
-                  src.geom, ST_Transform(ST_TileEnvelope(:z, :x, :y), 4326)
-              )
         ) AS mvt
     """
 
 
+# **空間フィルタは各sourceの中に置く**。外側に置くと、重複排除のDISTINCT ONが
+# road_edges全件に対して走ってから絞られ、タイルの中身に依存しない一定の時間
+# （実測8.3〜9.8秒）を測ることになる。同じ物理区間の両方向は同じ形状のため、
+# 先に絞ってから重複排除しても結果は変わらない。
+_TILE_BBOX = "ST_Transform(ST_TileEnvelope(:z, :x, :y), 4326)"
+
 # way版: 今の配信と同じ単位（osm_raw_ways 1行 = 1フィーチャー）。
-_WAY_SOURCE = """
+_WAY_SOURCE = f"""
     SELECT w.geom AS geom, w.osm_way_id AS osm_way_id, w.osm_way_id::text AS feature_key
     FROM osm_raw_ways w
+    WHERE w.geom IS NOT NULL AND ST_Intersects(w.geom, {_TILE_BBOX})
 """
 
 # edge版: road_edges 1行 = 1フィーチャー。forward/backwardの両方を含む。
-_EDGE_SOURCE_WITH_DUPLICATES = """
+_EDGE_SOURCE_WITH_DUPLICATES = f"""
     SELECT re.geom AS geom, re.osm_way_id AS osm_way_id, re.edge_id AS feature_key
     FROM road_edges re
-    WHERE re.osm_way_id IS NOT NULL
+    WHERE re.osm_way_id IS NOT NULL AND ST_Intersects(re.geom, {_TILE_BBOX})
 """
 
 # edge版（重複排除）: 同じ物理区間の逆方向を落とす。**両端ノードの組で見分ける**
 # ——geometryの正規化（ST_Normalize）はLINESTRINGの向きを揃えないため、形状では
 # forward/backwardを同一と判定できない。どちらを残すかはedge_id昇順で決定論的に固定する。
-_EDGE_SOURCE_DEDUPED = """
+_EDGE_SOURCE_DEDUPED = f"""
     SELECT DISTINCT ON (LEAST(re.from_node_id, re.to_node_id), GREATEST(re.from_node_id, re.to_node_id))
         re.geom AS geom, re.osm_way_id AS osm_way_id, re.edge_id AS feature_key
     FROM road_edges re
-    WHERE re.osm_way_id IS NOT NULL
+    WHERE re.osm_way_id IS NOT NULL AND ST_Intersects(re.geom, {_TILE_BBOX})
     ORDER BY LEAST(re.from_node_id, re.to_node_id), GREATEST(re.from_node_id, re.to_node_id), re.edge_id
 """
+
 
 _COVERAGE_SQL = text(
     """
@@ -117,7 +126,8 @@ _COVERAGE_SQL = text(
 class TileMeasurement:
     label: str
     variant: str
-    bytes_len: int
+    raw_bytes: int
+    gzip_bytes: int
     feature_count: int
     elapsed_s: float
 
@@ -134,18 +144,17 @@ async def _measure(session, label: str, variant: str, source: str, z: int, x: in
     params = {"layer_name": ROAD_SURFACE_LAYER_NAME, "extent": MVT_EXTENT, "z": z, "x": x, "y": y}
     started = time.perf_counter()
     result = await session.execute(text(_tile_sql(source)), params)
-    content = result.scalar_one()
+    content = result.scalar_one() or b""
     elapsed = time.perf_counter() - started
 
-    count_sql = text(
-        f"""
-        SELECT count(*) FROM ({source}) src
-        WHERE src.geom IS NOT NULL
-          AND ST_Intersects(src.geom, ST_Transform(ST_TileEnvelope(:z, :x, :y), 4326))
-        """
-    )
+    # 本番は`response_compression.py`がベクタタイルをgzipして返す。転送量で判断するため、
+    # 同じcompresslevelで縮めた後のバイト数も測る（重複したプロパティ索引はよく縮むため、
+    # 生バイトの比率は転送量の比率を過大に見せる）。
+    gzipped = gzip.compress(bytes(content), compresslevel=DEFAULT_COMPRESS_LEVEL)
+
+    count_sql = text(f"SELECT count(*) FROM ({source}) src")
     feature_count = (await session.execute(count_sql, {"z": z, "x": x, "y": y})).scalar_one()
-    return TileMeasurement(label, variant, len(content or b""), feature_count, elapsed)
+    return TileMeasurement(label, variant, len(content), len(gzipped), feature_count, elapsed)
 
 
 async def main() -> None:
@@ -176,7 +185,9 @@ async def main() -> None:
     print()
     print("プロパティは3版とも同じ集合へ揃えてある（比べたいのは単位の違いであって、")
     print("プロパティの多寡ではない）。本番タイルはLEFT JOINでより多くの列を持つため、")
-    print("**絶対バイト数は本番と一致しない。way比（最右列）だけを移行判断に使うこと**。")
+    print("**絶対バイト数は本番と一致しない。way比だけを移行判断に使うこと**。")
+    print(f"gzipは本番と同じcompresslevel={DEFAULT_COMPRESS_LEVEL}。**判断はgzip比で行う**")
+    print("（本番はベクタタイルを圧縮して配信するため、転送量はこちらが正しい）。")
     print()
     if skipped:
         for line in skipped:
@@ -186,7 +197,10 @@ async def main() -> None:
         print("計測できたタイルが無い。DATABASE_URLと取込範囲を確認すること。")
         return
 
-    header = f"{'タイル':<18}{'単位':<24}{'バイト':>10}{'features':>10}{'生成s':>9}{'way比':>8}"
+    header = (
+        f"{'タイル':<14}{'単位':<24}{'生バイト':>11}{'gzip':>10}"
+        f"{'features':>10}{'生成s':>8}{'gzip比':>8}"
+    )
     print(header)
     print("-" * len(header))
     baseline: dict[str, TileMeasurement] = {}
@@ -194,10 +208,10 @@ async def main() -> None:
         if row.variant.startswith("way"):
             baseline[row.label] = row
         base = baseline.get(row.label)
-        ratio = f"{row.bytes_len / base.bytes_len:.2f}x" if base and base.bytes_len else "-"
+        ratio = f"{row.gzip_bytes / base.gzip_bytes:.2f}x" if base and base.gzip_bytes else "-"
         print(
-            f"{row.label:<18}{row.variant:<24}{row.bytes_len:>10,}{row.feature_count:>10,}"
-            f"{row.elapsed_s:>9.3f}{ratio:>8}"
+            f"{row.label:<14}{row.variant:<24}{row.raw_bytes:>11,}{row.gzip_bytes:>10,}"
+            f"{row.feature_count:>10,}{row.elapsed_s:>8.3f}{ratio:>8}"
         )
 
 
