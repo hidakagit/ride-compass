@@ -85,7 +85,13 @@ import { createLidenIcon } from "@/components/Map/lidenIcon";
 import { LIDEN_MARK_VALUE_PROPERTY } from "@/components/Map/lidenLayer";
 import { RISK_LEVEL_COLORS } from "@/components/Map/riskMap";
 import { createWindArrowIcon } from "@/components/Map/windArrowIcon";
-import { runWhenStyleReady, setLayerVisibility, zoomAndPropertyIconSizeExpression } from "@/components/Map/mapStyleOps";
+import {
+  areaLayerAnchor,
+  isAreaLayerType,
+  runWhenStyleReady,
+  setLayerVisibility,
+  zoomAndPropertyIconSizeExpression,
+} from "@/components/Map/mapStyleOps";
 import {
   applyRouteLayerVisibility,
   DETAIL_HIT_LAYER_ID,
@@ -227,10 +233,15 @@ export const STOP_POI_SOURCE_LAYER = "stop_poi";
 // （既定ONの災害タイル等）が遅いセッションでは待ち続けてしまう。
 const INITIAL_TILES_OVERLAY_MAX_MS = 6000;
 // 面で塗るレイヤー（気象庁ナウキャスト系のラスタ・格子塗り・標高図）の不透明度。
-// 面は「どこか」を示すもので、下の道路・地名が読めなくなると経路の判断ができない。
 // 濃さはレイヤーごとに決めず1つの値を共有する——面が重なったときの濃さは重なりの数で
 // 決まるべきで、レイヤーごとの主張の強さで決まると、何が上に乗っているかを読めなくなる。
-const AREA_LAYER_OPACITY = 0.32;
+//
+// この値が決めるのは**面そのものが見えるか**だけである。下の道路・地名が読めるかは
+// 差し込み位置（mapStyleOps.ts: areaLayerAnchor、面は基礎地図の線・記号より下へ入る）が
+// 担う。両方をこの値で兼ねると、最も濃い色が下を潰さない値まで下げるほかなくなり、
+// 薄い色はその巻き添えで背景と区別が付かなくなる。値は「最も薄い階級が基礎地図の背景に
+// 対してΔE（CIE76）15以上」から決めている。
+const AREA_LAYER_OPACITY = 0.7;
 const GSI_RELIEF_SOURCE_ID = "gsi-relief";
 const GSI_RELIEF_LAYER_ID = "gsi-relief-raster";
 const LANDCOVER_SOURCE_ID = "landcover";
@@ -361,7 +372,10 @@ export function ensureLayerFromSpec(
   { specOwnsFilter }: { specOwnsFilter: boolean },
 ) {
   if (!map.getLayer(spec.id)) {
-    map.addLayer(spec);
+    // 面で塗るレイヤーは基礎地図の面の直後（＝道路・境界の線と地名の記号より下）へ差し込む。
+    // 面を最前面に積むと、下の情報を読めるかどうかが不透明度だけで決まり、最も濃い色に
+    // 合わせて下げるほかなくなる——薄い色はその巻き添えで背景と区別が付かなくなる。
+    map.addLayer(spec, isAreaLayerType(spec.type) ? areaLayerAnchor(map) : undefined);
     return;
   }
   const withProps = spec as unknown as {
@@ -392,25 +406,31 @@ export function ensureLayerFromSpec(
 // 関係なく表示中の地図全体に重ね描きする。互いに排他ではなく同時にON/OFFできる。
 
 // 標高ラスタは地図初期化時に一度だけソース/レイヤーを追加し（visibilityはデフォルトnone）、
-// 以降はvisibilityの切替のみで表示・非表示する。他の重ね描きレイヤー（route/road）より
-// 先に追加しておくことで、常にそれらの下（背景寄り）に描画されるようにしている。
+// 以降はvisibilityの切替のみで表示・非表示する。面で塗る種別のため差し込み位置は
+// ensureLayerFromSpecが基礎地図の線・記号の下へ決め、他の重ね描きレイヤー（route/road）
+// より先に追加することで面どうしの中でも最も背景寄りになる。
 function ensureGsiReliefLayer(map: MapLibreMap) {
   const applyData = () => {
-    if (map.getSource(GSI_RELIEF_SOURCE_ID)) return;
-    map.addSource(GSI_RELIEF_SOURCE_ID, {
-      type: "raster",
-      tiles: [`${tileBaseUrl()}${GSI_RELIEF_TILE_PATH}`],
-      tileSize: 256,
-      maxzoom: GSI_RELIEF_MAX_ZOOM,
-      attribution: GSI_RELIEF_ATTRIBUTION,
-    });
-    map.addLayer({
-      id: GSI_RELIEF_LAYER_ID,
-      type: "raster",
-      source: GSI_RELIEF_SOURCE_ID,
-      paint: { "raster-opacity": AREA_LAYER_OPACITY },
-      layout: { visibility: "none" },
-    });
+    if (!map.getSource(GSI_RELIEF_SOURCE_ID)) {
+      map.addSource(GSI_RELIEF_SOURCE_ID, {
+        type: "raster",
+        tiles: [`${tileBaseUrl()}${GSI_RELIEF_TILE_PATH}`],
+        tileSize: 256,
+        maxzoom: GSI_RELIEF_MAX_ZOOM,
+        attribution: GSI_RELIEF_ATTRIBUTION,
+      });
+    }
+    ensureLayerFromSpec(
+      map,
+      {
+        id: GSI_RELIEF_LAYER_ID,
+        type: "raster",
+        source: GSI_RELIEF_SOURCE_ID,
+        paint: { "raster-opacity": AREA_LAYER_OPACITY },
+        layout: { visibility: "none" },
+      },
+      { specOwnsFilter: true },
+    );
   };
   runWhenStyleReady(map, applyData);
 }
@@ -420,22 +440,27 @@ function ensureGsiReliefLayer(map: MapLibreMap) {
 // 拡大して見せる（maxzoomより上を要求しない）。
 function ensureLandcoverLayer(map: MapLibreMap) {
   const applyData = () => {
-    if (map.getSource(LANDCOVER_SOURCE_ID)) return;
-    map.addSource(LANDCOVER_SOURCE_ID, {
-      type: "raster",
-      tiles: [landcoverTileUrl()],
-      tileSize: 256,
-      minzoom: LANDCOVER_TILE_MIN_ZOOM,
-      maxzoom: LANDCOVER_TILE_MAX_ZOOM,
-      attribution: LANDCOVER_ATTRIBUTION,
-    });
-    map.addLayer({
-      id: LANDCOVER_LAYER_ID,
-      type: "raster",
-      source: LANDCOVER_SOURCE_ID,
-      paint: { "raster-opacity": AREA_LAYER_OPACITY },
-      layout: { visibility: "none" },
-    });
+    if (!map.getSource(LANDCOVER_SOURCE_ID)) {
+      map.addSource(LANDCOVER_SOURCE_ID, {
+        type: "raster",
+        tiles: [landcoverTileUrl()],
+        tileSize: 256,
+        minzoom: LANDCOVER_TILE_MIN_ZOOM,
+        maxzoom: LANDCOVER_TILE_MAX_ZOOM,
+        attribution: LANDCOVER_ATTRIBUTION,
+      });
+    }
+    ensureLayerFromSpec(
+      map,
+      {
+        id: LANDCOVER_LAYER_ID,
+        type: "raster",
+        source: LANDCOVER_SOURCE_ID,
+        paint: { "raster-opacity": AREA_LAYER_OPACITY },
+        layout: { visibility: "none" },
+      },
+      { specOwnsFilter: true },
+    );
   };
   runWhenStyleReady(map, applyData);
 }
@@ -1463,9 +1488,10 @@ export function buildAxisOverlayLayers(
   });
 }
 
-// map.addLayer()はbeforeId省略時にレイヤースタックの最上位へ積み上げるため、この配列の
-// 並び順がそのままensureAllStaticOverlayLayers（下記）でのensure()呼び出し順＝実際の
-// 描画の重なり順（先＝背面、後＝前面）になる。
+// この配列の並び順がそのままensureAllStaticOverlayLayers（下記）でのensure()呼び出し順＝
+// 実際の描画の重なり順（先＝背面、後＝前面）になる。線・記号は最上位へ積み上がり、面は
+// 基礎地図の線・記号の直前へ差し込まれる（ensureLayerFromSpec）ため、この並び順が効くのは
+// 面どうし・線どうしの間で、面が線を覆うことはない。
 // ramp軸（車の圧迫感・停止密度・事故密度等、推定/composite、SECONDARY_AXIS_CASING_
 // WIDTH/OPACITYの太く半透明な下敷き）をroad_surface本体の直上へまとめ、
 // designation・accidents・stopPoi・supplyPoi（観測/raw、通常の太さ・不透明度のくっきりした
@@ -1597,9 +1623,7 @@ export function buildLayerDataSources(rampAxes: readonly RampAxis[]): readonly L
  * 上に乗る（`addLayer`はbeforeId省略で最上位へ積む）。再描画を押すと配列順どおりの重なりへ
  * 戻るため、同じ場所を見ているのに色が変わる、という形でしか気づけない。
  */
-export function layersUnderRoadSurface(
-  layers: readonly OverlayLayerEntry[],
-): readonly OverlayLayerEntry[] {
+export function layersUnderRoadSurface(layers: readonly OverlayLayerEntry[]): readonly OverlayLayerEntry[] {
   return layers.filter((layer) => layer.underRoadSurface);
 }
 
@@ -1687,9 +1711,9 @@ export function setStaticOverlayFilters(
 // 「どのレイヤーが対象か」も記述子が持つため、ここは伝えるだけ。
 // 値が変わらない限り呼ばない——zoomイベントは1回のピンチ操作でも何十回と飛ぶ。
 function updateTileZoomHint(
-    map: MapLibreMap,
-    last: { current: string },
-    onChange: (tooWideLayerIds: readonly MapLayerId[]) => void,
+  map: MapLibreMap,
+  last: { current: string },
+  onChange: (tooWideLayerIds: readonly MapLayerId[]) => void,
 ) {
   const tooWide = tileZoomTooWideLayerIds(map.getZoom());
   const key = tooWide.join(",");
@@ -2119,12 +2143,7 @@ export function redrawAllLayers(map: MapLibreMap, props: RedrawAllLayersProps) {
     applyAxisFeatureStateValues(map, dedicatedWayValueFeatureStateKey(axisId), values);
   }
   setStaticOverlayFilters(map, staticLegendHiddenKeysByAxis, staticOverlayLayers, staticFilterAxes);
-  applyRoadLayerState(
-    map,
-    staticLayerVisibility.roadSurface,
-    staticLayerVisibility.roadType,
-    roadHiddenKeysByMode,
-  );
+  applyRoadLayerState(map, staticLayerVisibility.roadSurface, staticLayerVisibility.roadType, roadHiddenKeysByMode);
   applyRoadMaterialTrackOffsets(map, staticLayerVisibility);
 
   // applyRouteLayerVisibilityがrouteLayerOnを見て出し分けるため、「ルート」チップを
@@ -3126,12 +3145,7 @@ export default function MapView({
   useEffect(() => {
     const map = mapRef.current;
     if (!map) return;
-    applyRoadLayerState(
-      map,
-      staticLayerVisibility.roadSurface,
-      staticLayerVisibility.roadType,
-      roadHiddenKeysByMode,
-    );
+    applyRoadLayerState(map, staticLayerVisibility.roadSurface, staticLayerVisibility.roadType, roadHiddenKeysByMode);
     applyRoadMaterialTrackOffsets(map, staticLayerVisibility);
     recomputeLayerDataStatus();
   }, [staticLayerVisibility, roadHiddenKeysByMode, recomputeLayerDataStatus]);

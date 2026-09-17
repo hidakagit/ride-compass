@@ -23,7 +23,7 @@
 | `Map/secondaryAxes.ts` | 「推定指標（合成）」チップグループの軸一覧生成（略名・対応`MapLayerId`・アイコン・パネル説明）。`show_map_icon`による除外を持つ |
 | `Map/mapLayers.ts` | レイヤーカタログ本体（`MapLayerDescriptor[]`）・地図上チップの最上位グループ（`MAP_OVERLAY_GROUP_ORDER`が正本。現在は道路/環境/スポット）判定・軸スタジオ由来レイヤーの除外判定・`deriveFetchLayerStatus`（MapLibreのソースイベントを経由しないレイヤーのデータ状態判定） |
 | `Map/MapView.tsx`（静的レイヤーのsource/layer初期化・並列トラック分離・下敷き表現箇所のみ） | 表示層本体 |
-| `Map/mapStyleOps.ts` | 地図インスタンスへの低水準操作（レイヤーの表示切替・スタイル読み込み後の実行・ズーム依存のicon-size式）。レイヤー種を知らないものだけを置く |
+| `Map/mapStyleOps.ts` | 地図インスタンスへの低水準操作（レイヤーの表示切替・スタイル読み込み後の実行・面レイヤーの差し込み位置・ズーム依存のicon-size式）。このアプリのどのレイヤーかを知らないものだけを置く |
 | `Map/routeArrowIcon.ts`・`icons.tsx` | ルート矢印・アイコン集（下記「本モジュールとの関係」参照） |
 | `Map/popupEscape.ts` | ポップアップHTMLへOSMタグの生値を埋め込む前のエスケープ（`labelOrEscapedRaw`。対訳表に載る値は素通し、フォールバック側だけ潰す） |
 | `Map/RoadInspectorPopup.tsx` | 道をクリックしたときの詳細（**Reactで描き、MapLibreのPopupへportalで差し込む**）。事実（この道の属性）を先に出し、評価は押したときだけ取りに行く（backend `POST /api/region/axis-inspector`、[静的道路属性・タイル配信](../backend/static-road-attributes.md)参照）。軸ごとの効き方は**ルート結果と同じ`AxisContributionBar`**で出す——同じものを別の見た目で見せると読み方を2つ覚えることになる。寄与度はbackendが返す値をそのまま使い、フロントで重みを掛け直さない |
@@ -82,6 +82,14 @@ backendから取り、タイル本体はrewrites経由に戻る。
 `setPaintProperty`/`setFilter`呼び出し）はすべて`MapView.tsx`にある。
 `staticAttributeLayers.ts`等は色分け式・凡例の**定義**のみを持つ純粋なデータ層で、
 DOM/MapLibreを一切知らない。
+
+**面で塗るレイヤーは基礎地図の線・記号より下に入る**（`mapStyleOps.ts: areaLayerAnchor`）。
+追加するときに`type`が面（raster/fill等）なら、基礎地図が最後に面を描いた位置の直後を
+`beforeId`にする——差し込み位置の判断は`ensureLayerFromSpec`1箇所にあり、レイヤーごとに
+持たない。そのため下記の並び順が効くのは**面どうし・線どうしの相対順**であって、面と線の
+間ではない（面をどれだけ濃くしても、基礎地図の道路・地名とこのアプリの線レイヤーは
+その上に残る）。**暗黙の前提**: 差し込み位置はスタイル読み込み直後の並びから導いて記録する。
+足すたびに探し直すと、自分が足した線レイヤーが先に見つかって面が一段ずつ下がる。
 
 ```
 buildStaticOverlayLayers(axisOverlayLayers, dedicatedAxes,

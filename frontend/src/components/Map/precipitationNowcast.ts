@@ -133,14 +133,16 @@ export async function fetchNowcastFrames(): Promise<NowcastFrame[]> {
 // 気象庁の用語「ザーザー」寄りの体感表現に統一）へ細分化している。一方で色そのものは
 // 気象庁がタイル配色のカラーコードを公開していないため、同庁のナウキャスト・レーダー系
 // 地図で一般的な「弱い＝青→強い＝紫」の配色慣習に沿った近似値であり、実際のタイル画像の
-// 色と厳密には一致しない（凡例としての目安）。地図チップの凡例
+// 色と厳密には一致しない（凡例としての目安）。**弱い側の段は、面へ塗ったとき基礎地図の
+// 背景と区別が付く濃さから決める**——青を白へ寄せていくほど段は増やせるが、塗った結果が
+// 背景と同じなら「降っていない」と見分けが付かない。地図チップの凡例
 // （PRECIPITATION_INTENSITY_LEVELS）と延長予報の塗り（MapView.tsx側のfill-color）の
 // 両方がこの配列を単一の情報源として使う（windLayer.tsのWIND_SPEED_COLOR_STOPSと同じ
 // 「片側import」の考え方）。
 export const PRECIPITATION_COLOR_STOPS: readonly { mmPerHour: number; color: string }[] = [
-  { mmPerHour: 0, color: "#e0f2fe" },
-  { mmPerHour: 0.4, color: "#bae6fd" },
-  { mmPerHour: 2, color: "#7dd3fc" },
+  { mmPerHour: 0, color: "#b8e6fd" },
+  { mmPerHour: 0.4, color: "#93dafc" },
+  { mmPerHour: 2, color: "#68ccfb" },
   { mmPerHour: 4, color: "#38bdf8" },
   { mmPerHour: 10, color: "#3b82f6" },
   { mmPerHour: 20, color: "#eab308" },

@@ -4,7 +4,12 @@
 // （document.createElement("canvas")）に依存するため、既定のDOM環境のままにする
 // （このファイルはvitest-environmentディレクティブを持たない）。
 import { describe, expect, it } from "vitest";
-import { applyDynamicWeatherState, DYNAMIC_WEATHER_RENDERERS, dynamicWeatherIds, ensureDynamicWeatherLayer } from "./MapView";
+import {
+  applyDynamicWeatherState,
+  DYNAMIC_WEATHER_RENDERERS,
+  dynamicWeatherIds,
+  ensureDynamicWeatherLayer,
+} from "./MapView";
 
 // MapView.layerOps.test.ts等と同じ「実際のMapLibre Mapが必要とするメソッドだけを
 // 持つフェイク」パターン。ensureDynamicWeatherLayerが読むメソッドのみ実装する。
@@ -75,7 +80,10 @@ describe("applyDynamicWeatherState（setTilesの冗長呼び出し防止）", ()
     const { sourceId } = dynamicWeatherIds("disaster", "heavyRain", "raster");
     const { map, setTilesCalls } = fakeMapWithRasterSource(sourceId);
     const groupState = {
-      heavyRain: { visible: true, payload: { kind: "rasterTile" as const, tileUrlTemplate: "https://example.com/a.png" } },
+      heavyRain: {
+        visible: true,
+        payload: { kind: "rasterTile" as const, tileUrlTemplate: "https://example.com/a.png" },
+      },
     };
 
     applyDynamicWeatherState(map as never, "disaster", DYNAMIC_WEATHER_RENDERERS.disaster, groupState);
@@ -97,10 +105,7 @@ describe("applyDynamicWeatherState（setTilesの冗長呼び出し防止）", ()
       heavyRain: { visible: true, payload: { kind: "rasterTile", tileUrlTemplate: "https://example.com/b.png" } },
     });
 
-    expect(setTilesCalls).toEqual([
-      ["jmatile://https://example.com/a.png"],
-      ["jmatile://https://example.com/b.png"],
-    ]);
+    expect(setTilesCalls).toEqual([["jmatile://https://example.com/a.png"], ["jmatile://https://example.com/b.png"]]);
   });
 
   it("gridMark（GeoJSONSource）も内容が変わらない限りsetDataは1回しか呼ばれない", () => {
@@ -131,5 +136,54 @@ describe("applyDynamicWeatherState（setTilesの冗長呼び出し防止）", ()
     });
 
     expect(setDataCalls).toHaveLength(1);
+  });
+});
+
+// 面レイヤーが基礎地図の線・記号より下へ入ること（T912）。ここが最前面のままだと、
+// 下の道路・地名が読めるかどうかが不透明度だけで決まり、最も濃い色に合わせて下げる
+// ほかなくなる——薄い色はその巻き添えで背景と区別が付かなくなる。
+describe("ensureDynamicWeatherLayer（面と線・記号の重なり順、T912）", () => {
+  const ANCHOR = "road_motorway";
+
+  function fakeMapWithAnchor() {
+    const addLayerCalls: { spec: { id: string; type: string }; beforeId?: string }[] = [];
+    const sources = new Set<string>();
+    const images = new Set<string>();
+    return {
+      __rcStyleReady: true,
+      __rcAreaLayerAnchorId: ANCHOR,
+      addLayerCalls,
+      getLayer: (id: string) => (id === ANCHOR ? {} : undefined),
+      getSource: (id: string) => (sources.has(id) ? {} : undefined),
+      addSource: (id: string) => sources.add(id),
+      hasImage: (id: string) => images.has(id),
+      addImage: (id: string) => images.add(id),
+      addLayer: (spec: { id: string; type: string }, beforeId?: string) => addLayerCalls.push({ spec, beforeId }),
+    };
+  }
+
+  it("面（raster・fill）は差し込み位置の直前へ、線・記号（line・symbol）は最前面へ追加する", () => {
+    const map = fakeMapWithAnchor();
+
+    for (const id of ["precipitationNowcast", "disaster"] as const) {
+      ensureDynamicWeatherLayer(map as never, id, DYNAMIC_WEATHER_RENDERERS[id]);
+    }
+
+    const byKind = (types: string[]) => map.addLayerCalls.filter((c) => types.includes(c.spec.type));
+    const areas = byKind(["raster", "fill"]);
+    const marks = byKind(["line", "symbol"]);
+    expect(areas.length).toBeGreaterThan(0);
+    expect(marks.length).toBeGreaterThan(0);
+    expect(areas.every((c) => c.beforeId === ANCHOR)).toBe(true);
+    expect(marks.every((c) => c.beforeId === undefined)).toBe(true);
+  });
+
+  it("記録された差し込み位置が今のスタイルに無ければ、beforeIdを渡さない（addLayerが投げる）", () => {
+    const map = fakeMapWithAnchor();
+    map.__rcAreaLayerAnchorId = "消えたレイヤー";
+
+    ensureDynamicWeatherLayer(map as never, "disaster", DYNAMIC_WEATHER_RENDERERS.disaster);
+
+    expect(map.addLayerCalls.every((c) => c.beforeId === undefined)).toBe(true);
   });
 });
