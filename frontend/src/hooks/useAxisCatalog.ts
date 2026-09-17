@@ -6,6 +6,7 @@ import { PREFERENCE_AXES, preferenceAxisFromCatalog } from "@/lib/evaluationAxes
 import type { AxisCatalogEntry, RoutePreferenceWeights } from "@/types/route";
 import { getAxisCatalog } from "@/services/axisCatalogApi";
 import axisCatalogStatic from "@/types/generated/axis-catalog.json";
+import routeGenerateConfig from "@/types/generated/route-generate-config.json";
 import {
   AXIS_LABELS,
   DEDICATED_WAY_VALUE_AXES,
@@ -48,6 +49,10 @@ export interface AxisCatalog {
   /** ルート地図の色分けモード一覧（公開軸を無条件で動的に含む）。フェッチ完了までと
    * エラー時は静的フォールバック（routeStyleModes.ts: ROUTE_STYLE_MODES）。 */
   routeStyleModes: readonly RouteStyleMode[];
+  /** フロントが使う較正値（id → いま効いている値）。backendの`domain/tuning.py`が宣言し、
+   * 管理画面から変えた値が再デプロイなしにここへ届く。取得できるまではビルド時生成物
+   * （route-generate-config.json）の既定。 */
+  clientTuning: Readonly<Record<string, number>>;
   /** GET /api/axis-catalogの取得が成功し、他フィールドが実際のDB由来の値であることを表す。
    * falseの間（未取得・取得失敗）は他フィールドが静的フォールバック（ビルド時点の公開軸の
    * スナップショット）である可能性があるため、呼び出し側が「軸スタジオの現在の公開軸集合と
@@ -65,6 +70,7 @@ export interface AxisCatalog {
 }
 
 const FALLBACK_CATALOG: AxisCatalog = {
+  clientTuning: routeGenerateConfig.client_tuning,
   axes: PREFERENCE_AXES,
   defaultWeights: STATIC_DEFAULT_WEIGHTS,
   rampAxes: RAMP_AXES,
@@ -129,6 +135,7 @@ function toCatalogAxis(entry: AxisCatalogEntry): CatalogAxis {
 function buildCatalog(
   entries: readonly AxisCatalogEntry[],
   materialRuntimeScales: Readonly<Record<string, number>>,
+  clientTuning: Readonly<Record<string, number>>,
 ): AxisCatalog {
   const defaultWeights: RoutePreferenceWeights = {};
   for (const entry of entries) defaultWeights[entry.axis_id] = entry.default_weight;
@@ -138,6 +145,7 @@ function buildCatalog(
   // （`PreferenceAxisDef`のフィールドはすべてoptionalのため）。
   const axes: PreferenceAxisDef[] = catalogAxes.map(preferenceAxisFromCatalog);
   return {
+    clientTuning,
     axes,
     defaultWeights,
     rampAxes: rampAxesFromCatalogAxes(catalogAxes, materialRuntimeScales),
@@ -208,7 +216,15 @@ function loadAxisCatalog(): void {
       // 静的フォールバックに留まる、という区別に一本化する——「まだ取得中/取得失敗」と
       // 「取得成功したが軸が0件（全軸非公開）」を同一視すると、軸スタジオで全軸を
       // 非公開にしても静的フォールバックの軸が表示され続けてしまう）。
-      publishCatalog(buildCatalog(response.axes, response.material_runtime_scales ?? {}));
+      publishCatalog(
+        buildCatalog(
+          response.axes,
+          response.material_runtime_scales ?? {},
+          // 取れた値が空でも既定へ戻さない（宣言が1件も持たない状態と区別が付かないため、
+          // 空なら空のまま渡す）。使う側は自分が要るidが無ければ既定を持たない。
+          response.client_tuning ?? {},
+        ),
+      );
     })
     .catch(() => {
       // 他の呼び出し元が既に取得済みの正常なカタログは、この呼び出し元だけの失敗で

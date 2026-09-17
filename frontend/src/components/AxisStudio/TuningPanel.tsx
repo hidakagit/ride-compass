@@ -16,6 +16,7 @@ const EFFECT_GROUPS: { effect: string; title: string }[] = [
   { effect: "turn_structure", title: "次のルート生成から効く（1回だけ遅い）" },
   { effect: "node_attribute_batch", title: "交差点の事前計算をやり直すまで効かない" },
   { effect: "restart", title: "再起動まで効かない" },
+  { effect: "client_reload", title: "画面を読み込み直すと効く" },
 ];
 
 const OTHER_GROUP = "__other__";

@@ -2402,6 +2402,14 @@
             "type": "object",
             "title": "Material Runtime Scales",
             "default": {}
+          },
+          "client_tuning": {
+            "additionalProperties": {
+              "type": "number"
+            },
+            "type": "object",
+            "title": "Client Tuning",
+            "default": {}
           }
         },
         "additionalProperties": false,

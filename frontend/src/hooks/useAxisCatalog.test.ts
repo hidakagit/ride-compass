@@ -1,6 +1,7 @@
 import { renderHook, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { AxisCatalogResponse } from "@/types/route";
+import routeGenerateConfig from "@/types/generated/route-generate-config.json";
 
 // 改善計画T308: useAxisCatalogがrampAxes/axisLabels/secondaryAxesを実行時APIから
 // 導出することの回帰テスト。RouteSettingsPanel.test.tsxと同じモック方針。
@@ -104,6 +105,7 @@ function catalogResponse(): AxisCatalogResponse {
     // 改善計画T404: material_runtime_scalesはAxisCatalogResponseの必須フィールド
     // （既定{}だがopenapi-typescriptはdefault付きフィールドをoptionalにしない）。
     material_runtime_scales: {},
+    client_tuning: {},
   };
 }
 
@@ -139,8 +141,23 @@ describe("useAxisCatalog（改善計画T308: rampAxes/axisLabels/secondaryAxes�
     expect(guiSecondaryAxis?.primaryAttributeIds).toEqual(["lanes"]);
   });
 
+  it("取得できるまではビルド時の既定を、取得後はbackendの値を較正値として返す", async () => {
+    // 管理画面から変えた値を再デプロイなしに画面へ届けるための経路。
+    vi.mocked(getAxisCatalog).mockResolvedValue({
+      ...catalogResponse(),
+      client_tuning: { "splice.min_stretch_km": 0.5 },
+    });
+
+    const { result } = renderHook(() => useAxisCatalog());
+
+    expect(result.current.clientTuning["splice.min_stretch_km"]).toBe(
+      routeGenerateConfig.client_tuning["splice.min_stretch_km"],
+    );
+    await waitFor(() => expect(result.current.clientTuning["splice.min_stretch_km"]).toBe(0.5));
+  });
+
   it("改善計画T318フォローアップ: 全軸非公開でaxesが0件のレスポンスは、静的フォールバックへ戻さずそのまま空を返す", async () => {
-    vi.mocked(getAxisCatalog).mockResolvedValue({ axes: [], material_runtime_scales: {} });
+    vi.mocked(getAxisCatalog).mockResolvedValue({ axes: [], material_runtime_scales: {}, client_tuning: {} });
 
     const { result } = renderHook(() => useAxisCatalog());
 
@@ -231,6 +248,7 @@ describe("useAxisCatalog（改善計画T308: rampAxes/axisLabels/secondaryAxes�
     vi.mocked(getAxisCatalog).mockResolvedValueOnce({
       axes: [catalogResponse().axes[0]],
       material_runtime_scales: {},
+      client_tuning: {},
     });
     const second = renderHook(() => useAxisCatalog());
 

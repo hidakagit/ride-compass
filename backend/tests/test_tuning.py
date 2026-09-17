@@ -15,6 +15,8 @@ from app.domain.traffic import POI_COUNT_KINDS, stop_seconds
 from app.domain.tuning import (
     TUNING_PARAMETERS,
     TUNING_PARAMETERS_BY_ID,
+    TuningEffect,
+    client_tuning_values,
     stop_seconds_parameter_id,
     tuning_value,
 )
@@ -50,6 +52,22 @@ class TestDeclaration:
         declared = {p for p in TUNING_PARAMETERS_BY_ID if p.startswith("stop.")}
 
         assert declared == {stop_seconds_parameter_id(kind) for kind in POI_COUNT_KINDS}
+
+
+class TestReachesTheClient:
+    """フロントが使う値も、宣言を変えれば届くこと。"""
+
+    def test_what_goes_to_the_client_comes_from_the_declaration(self):
+        # 配信側とフロント側で別々に並べると、1つ足したときに片方だけが古くなる。
+        assert set(client_tuning_values()) == {
+            p.id for p in TUNING_PARAMETERS if p.effect is TuningEffect.CLIENT_RELOAD
+        }
+
+    def test_the_client_gets_the_value_in_effect_rather_than_the_default(self, override):
+        param_id = sorted(client_tuning_values())[0]
+        override(param_id, 9.5)
+
+        assert client_tuning_values()[param_id] == 9.5
 
 
 class TestReachesTheConsumers:

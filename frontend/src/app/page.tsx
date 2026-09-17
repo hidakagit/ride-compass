@@ -834,10 +834,10 @@ export default function Home() {
             candidateShapes.filter((item) => item.id !== editingRouteId),
             // 座標まで渡すと、2本が交差・接触する地点でも区間を割れる（Edge idの一致だけでは
             // 1本の長い区間になり、他候補1本との丸ごと入れ替えにしかならない）。
-            { baseShape: splicedShape },
+            { baseShape: splicedShape, minSplitLengthKm: axisCatalog.clientTuning["splice.min_stretch_km"] },
           )
         : [],
-    [splicedShape, candidateShapes, editingRouteId],
+    [splicedShape, candidateShapes, editingRouteId, axisCatalog.clientTuning],
   );
   // 地図へ渡す帯は相手側の形。まだ選んでいない道を破線で示す（適用済みの道はいまの経路の
   // 一部になるため、帯としては出ない）。indexは「グループの位置と選択肢の位置」を1つの数に

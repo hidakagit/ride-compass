@@ -57,6 +57,8 @@ class TuningEffect(Enum):
     NODE_ATTRIBUTE_BATCH = "node_attribute_batch"
     #: プロセスを入れ替えないと効かない（APIスキーマの既定値のように、import時に束ねられる）。
     RESTART = "restart"
+    #: 画面を読み込み直すと効く（フロントが起動時のカタログ取得で受け取る値）。
+    CLIENT_RELOAD = "client_reload"
 
 
 @dataclass(frozen=True)
@@ -189,6 +191,13 @@ TUNING_PARAMETERS: tuple[TuningParameter, ...] = (
         TuningEffect.IMMEDIATE,
         "平地の巡航に対して何倍まで踏むか。増え方をここで頭打ちにする。",
     ),
+    # --- 画面が使う値（カタログ取得でフロントへ配る） ---
+    TuningParameter(
+        "splice.min_stretch_km",
+        "区間を割る下限", "km", 0.2, 0.01, 5.0, TuningEffect.CLIENT_RELOAD,
+        "区間の乗り換えで、これより短い断片は作らない。"
+        "細かく割るほど選択肢が増え、1区間=1行の一覧が縦に伸びる。",
+    ),
     # --- 主観と時間の換算 ---
     TuningParameter(
         "evaluation.penalty_strength",
@@ -285,6 +294,19 @@ def tuning_value(param_id: str) -> float:
         raise KeyError(f"較正値の宣言に無いid: {param_id}") from None
 
 
+def client_tuning_values() -> dict[str, float]:
+    """フロントへ配る較正値（id → いま効いている値）。
+
+    **配る対象は宣言から導く**（効き方が`CLIENT_RELOAD`のもの）。配信側とフロント側で
+    別々に並べると、1つ足したときに片方だけが古くなる。
+    """
+    return {
+        p.id: tuning_value(p.id)
+        for p in TUNING_PARAMETERS
+        if p.effect is TuningEffect.CLIENT_RELOAD
+    }
+
+
 def stop_seconds_parameter_id(kind: str) -> str:
     """停止要因の種別から較正値のid（綴りを組み立てる場所を1つにする）。"""
     return f"stop.{kind}_seconds"
@@ -297,6 +319,7 @@ def turn_parameter_ids() -> tuple[str, ...]:
 
 __all__ = [
     "FIXED_VALUES",
+    "client_tuning_values",
     "TUNING_PARAMETERS",
     "TUNING_PARAMETERS_BY_ID",
     "TUNING_VALUES",

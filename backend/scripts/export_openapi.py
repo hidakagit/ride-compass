@@ -67,6 +67,7 @@ from app.domain.material_catalog import axis_studio_materials  # noqa: E402
 from app.domain.region import ROAD_TILE_MAX_ZOOM, ROAD_TILE_MIN_ZOOM  # noqa: E402
 from app.domain.traffic import STOP_POI_KINDS, SupplyPoiKind  # noqa: E402
 from app.services.route_generator import SPLICED_ROUTE_ID, DEFAULT_MAX_ROUTES, MAX_ROUTES  # noqa: E402
+from app.domain.tuning import client_tuning_values  # noqa: E402
 
 GENERATED_DIR = Path(__file__).resolve().parents[2] / "frontend" / "src" / "types" / "generated"
 OUTPUT_PATH = GENERATED_DIR / "openapi.json"
@@ -338,6 +339,9 @@ def main() -> None:
             "default_penalty_strength": DEFAULT_PENALTY_STRENGTH,
             "min_assumed_speed_kmh": MIN_ASSUMED_SPEED_KMH,
             "max_assumed_speed_kmh": MAX_ASSUMED_SPEED_KMH,
+            # フロントが使う較正値の**既定**（`domain/tuning.py`の宣言そのまま）。
+            # 実際に効いている値はGET /api/axis-catalogが返し、これはそれを取れるまでの値。
+            "client_tuning": client_tuning_values(),
             # 0次ハードフィルタのキー一覧と既定値。backendは`_check_filter_keys`で
             # **キー集合の完全一致**を要求するため、frontendが手書きで持っていると
             # 4つ目を足した瞬間にすべてのルート生成が422になる。

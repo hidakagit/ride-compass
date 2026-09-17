@@ -51,12 +51,14 @@ describe("TuningPanel", () => {
     vi.mocked(listTuningParameters).mockResolvedValue([
       parameter({ id: "signal.match_radius_m", label: "信号とみなす半径", effect: "node_attribute_batch" }),
       parameter({ id: "stop.signal_seconds", label: "信号の待ち", effect: "immediate" }),
+      parameter({ id: "splice.min_stretch_km", label: "区間を割る下限", effect: "client_reload" }),
     ]);
 
     render(<TuningPanel />);
 
     expect(await screen.findByText("交差点の事前計算をやり直すまで効かない")).toBeInTheDocument();
     expect(screen.getByText("次のルート生成から効く")).toBeInTheDocument();
+    expect(screen.getByText("画面を読み込み直すと効く")).toBeInTheDocument();
   });
 
   it("知らない効き方が来ても落とさず「その他」へ出す", async () => {

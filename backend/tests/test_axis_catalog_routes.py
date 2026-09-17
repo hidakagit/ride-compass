@@ -2,7 +2,9 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.api.dependencies import get_region_service
+from app.domain import tuning
 from app.domain.axis_definitions import AXIS_DEFINITIONS, AxisDefinition, BreakpointLinearShape, MaterialTerm
+from app.domain.tuning import TUNING_PARAMETERS, TuningEffect
 from app.main import app
 from app.services.region_service import RegionService
 
@@ -201,6 +203,25 @@ def test_get_axis_catalog_marks_accident_tile_input_as_needing_runtime_scale():
     # 挙動はtest_region_service.pyのget_accident_years_covered系テスト参照）。
     assert "material_runtime_scales" in body
     assert isinstance(body["material_runtime_scales"], dict)
+
+
+def test_get_axis_catalog_carries_the_calibration_values_the_client_needs(monkeypatch):
+    """フロントが使う較正値は、このカタログが**いま効いている値**で運ぶ。
+
+    ビルド時生成物（route-generate-config.json）だけで配ると、管理画面から変えても
+    次のデプロイまで画面に届かない。運ぶ対象は宣言（効き方がCLIENT_RELOAD）から導く。
+    """
+    expected = {
+        p.id for p in TUNING_PARAMETERS if p.effect is TuningEffect.CLIENT_RELOAD
+    }
+    assert expected, "画面へ配る較正値が宣言に1件も無い"
+    param_id = sorted(expected)[0]
+    monkeypatch.setitem(tuning.TUNING_VALUES, param_id, 9.5)
+
+    body = client.get("/api/axis-catalog").json()
+
+    assert set(body["client_tuning"]) == expected
+    assert body["client_tuning"][param_id] == 9.5
 
 
 def test_get_axis_catalog_includes_map_value_kind_and_unit():

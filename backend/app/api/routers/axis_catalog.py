@@ -48,6 +48,7 @@ from app.domain.dynamic_way_values import (
     map_value_unit,
 )
 from app.domain.registry import AxisDisplaySpec
+from app.domain.tuning import client_tuning_values
 from app.services.region_service import RegionService
 from app.domain.strict_model import StrictModel
 
@@ -192,6 +193,10 @@ class AxisCatalogResponse(StrictModel):
     # 0件のとき）はキー自体を含めない——フロント側はキーが無い場合、その材料の寄与を
     # 0として扱う（RegionService.get_accident_years_coveredのdocstring参照）。
     material_runtime_scales: dict[str, float] = {}
+    # フロントが使う較正値（id → いま効いている値、`domain/tuning.py`が宣言）。管理画面から
+    # 変えた値を**再デプロイなしに**画面へ届けるため、起動時に1回取るこのカタログへ相乗り
+    # させる（ビルド時生成物のroute-generate-config.jsonは取得できるまでの既定値を持つ）。
+    client_tuning: dict[str, float] = {}
 
 
 @router.get("/api/axis-catalog", response_model=AxisCatalogResponse)
@@ -214,6 +219,7 @@ async def get_axis_catalog(region_service: RegionService = Depends(get_region_se
         material_runtime_scales["accident_count_per_km_year"] = 1 / accident_years_covered
 
     return AxisCatalogResponse(
+        client_tuning=client_tuning_values(),
         axes=[
             AxisCatalogEntry(
                 axis_id=definition.axis_id,

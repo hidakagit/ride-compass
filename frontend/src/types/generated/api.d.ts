@@ -1050,6 +1050,13 @@ export interface components {
             material_runtime_scales: {
                 [key: string]: number;
             };
+            /**
+             * Client Tuning
+             * @default {}
+             */
+            client_tuning: {
+                [key: string]: number;
+            };
         };
         /**
          * AxisDefinitionPayload

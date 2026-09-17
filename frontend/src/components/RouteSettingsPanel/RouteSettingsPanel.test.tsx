@@ -76,6 +76,7 @@ function catalogResponse(axisIds: string[]): AxisCatalogResponse {
     // 改善計画T404: material_runtime_scalesはAxisCatalogResponseの必須フィールド
     // （既定{}だがopenapi-typescriptはdefault付きフィールドをoptionalにしない）。
     material_runtime_scales: {},
+    client_tuning: {},
   };
 }
 

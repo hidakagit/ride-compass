@@ -167,9 +167,6 @@ export interface RouteGeometryShape {
   nodeIds: readonly string[];
 }
 
-/** これより短くなる割り方はしない（km）。細かく割るほど選択肢が増え、1区間=1行のUIが縦に伸びる。 */
-export const MIN_SPLIT_STRETCH_KM = 0.2;
-
 /** `edgeIndex`のEdgeが始まるNode id。持っていなければundefined。 */
 function boundaryNode(shape: RouteGeometryShape, edgeIndex: number): string | undefined {
   return shape.nodeIds[edgeIndex];
@@ -299,12 +296,14 @@ function createsRevisit(
 export function stretchAlternativeGroups(
   baseEdgeIds: readonly string[],
   candidates: readonly { id: string; edgeIds: readonly string[]; shape?: RouteGeometryShape }[],
+  // 割る下限（km）は呼び出し側が渡す（backendの較正値。`domain/tuning.py`が宣言し、
+  // 起動時のカタログ取得でフロントへ届く）。渡さないときは下限なし＝共有地点すべてで割る。
   options: { baseShape?: RouteGeometryShape; minSplitLengthKm?: number } = {},
 ): StretchGroup[] {
   const alternatives: StretchAlternative[] = [];
   const seen = new Set<string>();
   const baseShape = options.baseShape;
-  const minSplitLengthKm = options.minSplitLengthKm ?? MIN_SPLIT_STRETCH_KM;
+  const minSplitLengthKm = options.minSplitLengthKm ?? 0;
   // 区間を割るために元ルートの累積距離を1回だけ求める（候補ごとに作り直さない）。
   const baseCumulativeKm = baseShape ? cumulativeDistancesKm(baseShape.coordinates) : [];
   // 折り返しの判定に使う元ルートのNode集合。候補ごとに作り直さない。
