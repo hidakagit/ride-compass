@@ -21,16 +21,40 @@ export function isAreaLayerType(type: string): boolean {
 }
 
 /** 面で塗るレイヤーを差し込む位置（このidのレイヤーの直前＝下へ入る）を、スタイルの並びから
- * 導く。基礎地図が最後に面を描いたレイヤーの次、つまり道路・境界の線と地名の記号が始まる
- * 位置を指す。基礎地図のレイヤーidを名指しせず並びから導くのは、配信元がidを変えても
- * 「面の上・線と記号の下」という関係だけは変わらないため。面しか持たないスタイルでは
- * undefined（差し込み先が無い＝最前面）になる。 */
+ * 導く。**基礎地図が線・記号を最も長く連ねて描く区間の先頭**を返す——道路網はどのスタイルでも
+ * 「casing→本体→橋→鉄道」と何十枚も続く最長の連なりになり、その手前が「土地の色を描き終えて
+ * 道路網を描き始める位置」になる。
+ *
+ * **「最後に面を描いたレイヤーの次」では足りない**。基礎地図は面と線を交互に描き、
+ * 道路より後ろにも面を置く（OpenFreeMap libertyでは建物のfill/fill-extrusionが道路・橋の
+ * 41枚より後ろにある）。その次を採ると差し込み位置が道路の後ろまで下がり、面が道路を
+ * 覆ったまま残る。道路より後ろの面は`basemapAreaLayersAfter`が前へ動かす。
+ *
+ * 線・記号を1枚も持たないスタイルではundefined（差し込み先が無く最前面になる）。 */
 export function areaLayerAnchorId(layers: readonly { id: string; type: string }[]): string | undefined {
-  let lastAreaIndex = -1;
+  let longest: { start: number; length: number } | undefined;
+  let runStart: number | undefined;
   layers.forEach((layer, index) => {
-    if (isAreaLayerType(layer.type)) lastAreaIndex = index;
+    if (isAreaLayerType(layer.type)) {
+      runStart = undefined;
+      return;
+    }
+    if (runStart === undefined) runStart = index;
+    const length = index - runStart + 1;
+    if (longest === undefined || length > longest.length) longest = { start: runStart, length };
   });
-  return layers[lastAreaIndex + 1]?.id;
+  return longest === undefined ? undefined : layers[longest.start].id;
+}
+
+/** `anchorId`より後ろにある面レイヤーのid（追加順のまま）。基礎地図が道路より後ろに置いて
+ * いる面（建物）を指す。 */
+export function basemapAreaLayersAfter(layers: readonly { id: string; type: string }[], anchorId: string): string[] {
+  const anchorIndex = layers.findIndex((layer) => layer.id === anchorId);
+  if (anchorIndex < 0) return [];
+  return layers
+    .slice(anchorIndex + 1)
+    .filter((layer) => isAreaLayerType(layer.type))
+    .map((layer) => layer.id);
 }
 
 interface StyleReadyTag {
@@ -39,31 +63,46 @@ interface StyleReadyTag {
   __rcAreaLayerAnchorId?: string;
 }
 
-/** 差し込み位置をスタイルの並びから求めてmapへ記録する。**このアプリのレイヤーを1枚も
- * 足していない時点で一度だけ**求めるため、`load`の購読者が複数いても最初の1人だけが実際に
- * 走る。位置が求まらないスタイル（面しか無い等）では面が最前面へ戻り、面の濃さだけで
- * 下の情報の読みやすさが決まる状態に落ちるため、黙って続けずログへ残す。 */
-function resolveAreaLayerAnchor(map: MapLibreMap) {
+/** 差し込み位置を求めて記録し、基礎地図が道路より後ろに置いている面をその手前へ動かす。
+ *
+ * **このアプリのレイヤーを1枚も足していない時点で呼ぶこと**（`style.load`）。後から呼ぶと、
+ * 自分で足した線レイヤーが最長の連なりを伸ばし、差し込み位置が地名側へずれる。同じスタイルに
+ * 対しては1度しか実行しない。
+ *
+ * 建物を道路より前へ動かすと、基礎地図そのものの見た目も「建物の上に道路」へ変わる。
+ * この地図はpitchを持たない（建物は平面の足元だけが描かれる）ため影響は小さく、面レイヤーが
+ * 建物に穴を開けられない利点が上回る。
+ *
+ * 位置が求まらないスタイルでは面が最前面へ戻る＝面の濃さだけで下の情報の読みやすさが
+ * 決まる状態に落ちるため、黙って続けずログへ残す。 */
+export function prepareBasemapForAreaLayers(map: MapLibreMap): void {
   const tagged = map as unknown as StyleReadyTag;
   if (tagged.__rcAreaLayerAnchorResolved) return;
   tagged.__rcAreaLayerAnchorResolved = true;
-  tagged.__rcAreaLayerAnchorId = areaLayerAnchorId(map.getStyle().layers ?? []);
-  const anchorId = tagged.__rcAreaLayerAnchorId;
-  debugLog(
-    "map:lifecycle",
-    anchorId === undefined ? "面レイヤーの差し込み位置が求まらず、面を最前面へ積む" : "面レイヤーの差し込み位置",
-    { anchorId: anchorId ?? null },
-    anchorId === undefined ? "warn" : "info",
-  );
+
+  const layers = map.getStyle().layers ?? [];
+  const anchorId = areaLayerAnchorId(layers);
+  tagged.__rcAreaLayerAnchorId = anchorId;
+  if (anchorId === undefined) {
+    debugLog("map:lifecycle", "面レイヤーの差し込み位置が求まらず、面を最前面へ積む", { anchorId: null }, "warn");
+    return;
+  }
+  const lowered = basemapAreaLayersAfter(layers, anchorId);
+  for (const layerId of lowered) map.moveLayer(layerId, anchorId);
+  debugLog("map:lifecycle", "面レイヤーの差し込み位置", { anchorId, lowered });
 }
 
-/** `areaLayerAnchorId`が返した位置。**スタイル読み込み直後（このアプリのレイヤーを1枚も
- * 足していない時点）に記録した値**を返す——差し込むたびに探し直すと、自分が足した線
- * レイヤーが先に見つかって面が一段ずつ下がっていく。記録した位置が今のスタイルに無いときは
+/** `prepareBasemapForAreaLayers`が記録した位置。記録が無い・今のスタイルに無いときは
  * undefined（差し込まず最前面へ）。 */
 export function areaLayerAnchor(map: MapLibreMap): string | undefined {
   const anchorId = (map as unknown as StyleReadyTag).__rcAreaLayerAnchorId;
   return anchorId !== undefined && map.getLayer(anchorId) ? anchorId : undefined;
+}
+
+/** スタイルが差し替わった（`map.setStyle()`）ときに呼ぶ。次の`prepareBasemapForAreaLayers`が
+ * 新しいスタイルに対して改めて走るようにする。 */
+export function resetBasemapAreaLayerPreparation(map: MapLibreMap): void {
+  (map as unknown as StyleReadyTag).__rcAreaLayerAnchorResolved = false;
 }
 
 // map.isStyleLoaded()はタイル読み込み中も一時的にfalseを返すため、
@@ -78,7 +117,9 @@ export function runWhenStyleReady(map: MapLibreMap, fn: () => void) {
   }
   map.once("load", () => {
     tagged.__rcStyleReady = true;
-    resolveAreaLayerAnchor(map);
+    // style.loadが来ない経路でも面の差し込み位置が未解決のまま残らないようにする
+    // （解決済みなら何もしない）。
+    prepareBasemapForAreaLayers(map);
     fn();
   });
 }

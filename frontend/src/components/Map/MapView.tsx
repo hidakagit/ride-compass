@@ -88,6 +88,8 @@ import { createWindArrowIcon } from "@/components/Map/windArrowIcon";
 import {
   areaLayerAnchor,
   isAreaLayerType,
+  prepareBasemapForAreaLayers,
+  resetBasemapAreaLayerPreparation,
   runWhenStyleReady,
   setLayerVisibility,
   zoomAndPropertyIconSizeExpression,
@@ -2525,6 +2527,15 @@ export default function MapView({
     map.on("styledata", collapseAttribution);
     map.on("sourcedata", collapseAttribution);
 
+    // 面レイヤーの差し込み位置は、基礎地図だけが載っているこの瞬間に決める必要がある
+    // （mapStyleOps.ts: prepareBasemapForAreaLayers）。地図生成直後に購読するため、
+    // 「変わらないデータを更新」がsetStyle後に登録するstyle.loadリスナー（再描画）より
+    // 先に走り、作り直したレイヤーが正しい位置へ入る。
+    function prepareBasemap() {
+      prepareBasemapForAreaLayers(map);
+    }
+    map.on("style.load", prepareBasemap);
+
     // MapLibre自体もコンテナの内蔵ResizeObserverでの自動追従を持つが、デバッグモード時は
     // デバッグログの流入（タイル要求ごとにdebugLog→DebugConsole再レンダー→自動スクロール、
     // モバイルのisMobile確定に伴うレイアウト変化と重なる）が内蔵ResizeObserverの通知を
@@ -2828,6 +2839,7 @@ export default function MapView({
       resizeObserver.disconnect();
       map.off("styledata", collapseAttribution);
       map.off("sourcedata", collapseAttribution);
+      map.off("style.load", prepareBasemap);
       map.off("click", handleClick);
       map.off("click", DETAIL_HIT_LAYER_ID, handleRouteSegmentClick);
       map.off("click", ROUTES_HIT_LAYER_ID, handleCandidateClick);
@@ -3168,6 +3180,7 @@ export default function MapView({
       redrawFromCurrentProps(map);
     });
     // クエリでスタイルURLを変えることで、ブラウザのHTTPキャッシュではなく取り直しにする。
+    resetBasemapAreaLayerPreparation(map);
     map.setStyle(`${mapStyleUrl()}?t=${Date.now()}`);
   }, [refreshToken, redrawFromCurrentProps]);
 
