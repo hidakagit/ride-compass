@@ -141,8 +141,14 @@ NULL列は行が無い場合と同じ欠損として扱われる——材料と�
 | `precompute_edge_attribute_counts.py` | `edge_attribute_counts`（Edge単位） | `road_edges`（ルート生成済みエリアのみ） | `precompute_road_node_degrees.py`（[routing-engine.md](routing-engine.md)）の後 |
 | `precompute_way_attribute_counts.py` | `way_attribute_counts`（Way単位） | `osm_raw_ways`全域 | `rebuild_raw_intersection_nodes`をバッチ内部で先に実行 |
 
-Way単位版は地図タイルの母集団になる（`road_edges`はルート生成済みエリアしかカバーしない
-ため）。両バッチとも`source_accident_import_run_id`/`source_osm_import_run_id`
+**地図タイルの密度（`accident_per_km`等）は、そのフィーチャーが表す単位と同じ側から引く**
+（`_density_column_sql`）。区間単位のフィーチャーを出すのは`road_edges`に行があるwayだけで、
+これはEdge単位版が覆う母集団そのものなので一致する。way丸ごとのフィーチャー（引いた表示・
+区間を持たないway）と、区間はあるがEdge単位版の行がまだ無いフィーチャーはWay単位版へ落ちる
+——件数と長さは必ず同じ側から取る（片方だけ区間にすると、区間の件数をway全体の長さで割った
+無意味な値になる）。
+
+両バッチとも`source_accident_import_run_id`/`source_osm_import_run_id`
 （実行時点の最新成功import run id）と`algorithm_version`（計算ロジック自体の版数、手動で
 上げる）を派生データの系譜として書き込む。
 
@@ -437,8 +443,9 @@ tile_cache/`）で、パスをSHA-256でハッシュ化したフラットなフ�
 | `GET /api/region/accident-tiles/{z}/{x}/{y}.pbf`（`accidents.py`） | 事故のMVTタイル |
 
 MVTエンコードはPostGIS側（`ST_AsMVT`、`road_graph_repository.py`）で行う。タイル内の
-wayへ付帯情報（`way_attribute_counts`・`designation_attributes`）を結合するJOINは、
-wayごとの主キー検索になる形（`designation_attributes`は`LEFT JOIN LATERAL`）を保つこと——
+フィーチャーへ付帯情報（`way_attribute_counts`・`edge_attribute_counts`・
+`designation_attributes`）を結合するJOINは、主キー検索になる形（`designation_attributes`は
+`LEFT JOIN LATERAL`）を保つこと——
 相関の無い集約サブクエリだとテーブル全体の集約が毎タイルの固定コストになる。
 
 **同時実行数制限**: 路面・POIタイルは`_region_tile_semaphore`

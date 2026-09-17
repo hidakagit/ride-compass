@@ -2147,6 +2147,85 @@ async def test_get_road_surface_tile_mvt_encodes_per_km_densities(road_graph_rep
     assert "poi_signal_per_km" not in features[101]
 
 
+async def test_区間単位のズームでは密度もその区間の実測から出る(road_graph_repository, road_graph_session):
+    """同じway内でも、区間ごとに事故密度が変わる。
+
+    密度をway全体の平均で焼くと、事故が1箇所へ固まっている長い道が、事故の無い区間まで
+    同じ色で塗られる。区間単位のフィーチャーには`edge_attribute_counts`（区間単位の
+    事前集計）の件数を**その区間の長さ**で割った値を載せる。
+    """
+    import mapbox_vector_tile
+
+    # NODE2を共有させてway_aを2区間へ分割させる（build_road_graphは交差点で切る）。
+    node_mid, node_end = (35.701, 139.701), (35.702, 139.702)
+    way_a = WaySpec(osm_way_id=100, node_ids=[1, 2, 3], highway="residential")
+    way_b = WaySpec(osm_way_id=101, node_ids=[2, 4], highway="residential")
+    nodes = {1: NODE1, 2: node_mid, 3: node_end, 4: (35.7005, 139.7015)}
+    graph = await _save_ways_and_edges(road_graph_repository, [way_a, way_b], nodes)
+    way_a_edges = sorted(e for e, edge in graph.edges.items() if edge.osm_way_id == 100)
+    assert len({(graph.edges[e].from_node_id, graph.edges[e].to_node_id) for e in way_a_edges}) >= 4
+
+    # way全体では事故2件。片方の区間へ2件とも寄せる。
+    await road_graph_session.execute(
+        text(
+            "INSERT INTO way_attribute_counts (osm_way_id, length_m, accident_count, "
+            "intersection_count, computed_at) VALUES (100, 300.0, 2.0, 0, now())"
+        )
+    )
+    loaded_edge = graph.edges[way_a_edges[0]]
+    for edge_id in way_a_edges:
+        await road_graph_session.execute(
+            text(
+                "INSERT INTO edge_attribute_counts (edge_id, accident_count, intersection_count, "
+                "computed_at) VALUES (:edge_id, :accidents, 0, now())"
+            ),
+            {"edge_id": edge_id, "accidents": 2.0 if edge_id == loaded_edge.edge_id else 0.0},
+        )
+    await road_graph_session.commit()
+    await _mark_mvt_coverage(road_graph_session)
+
+    tile = await road_graph_repository.get_road_surface_tile_mvt(
+        MVT_Z, MVT_X, MVT_Y, _mvt_tile_bbox(), MVT_COVERAGE_TILE
+    )
+
+    decoded = mapbox_vector_tile.decode(tile)
+    by_key = {f["properties"]["feature_key"]: f["properties"] for f in decoded["road_surface"]["features"]}
+    way_a_features = [props for key, props in by_key.items() if props["osm_way_id"] == 100]
+    densities = [props.get("accident_per_km", 0.0) for props in way_a_features]
+    # way平均なら全区間が同じ値になる。区間の実測で焼けていれば、寄せた区間だけが値を持つ。
+    assert sorted(densities) != [densities[0]] * len(densities)
+    assert sum(1 for d in densities if d > 0) == 1
+    assert max(densities) == pytest.approx(2.0 * 1000.0 / loaded_edge.distance_m, rel=0.01)
+
+
+async def test_区間の集計行がまだ無ければway集計へ落ちる(road_graph_repository, road_graph_session):
+    """`precompute_edge_attribute_counts`が未実行の区間でも密度は消えない。
+
+    区間側だけを見て欠損をそのまま出すと、バッチの実行漏れが「密度が無い道」として
+    地図へ出てしまう。way集計があるうちはそちらへ落とし、最悪でも従来の見え方を保つ。
+    """
+    import mapbox_vector_tile
+
+    way = WaySpec(osm_way_id=100, node_ids=[1, 2], highway="residential")
+    await _save_ways_and_edges(road_graph_repository, [way], {1: NODE1, 2: NODE2})
+    await road_graph_session.execute(
+        text(
+            "INSERT INTO way_attribute_counts (osm_way_id, length_m, accident_count, "
+            "intersection_count, computed_at) VALUES (100, 200.0, 4.0, 0, now())"
+        )
+    )
+    await road_graph_session.commit()
+    await _mark_mvt_coverage(road_graph_session)
+
+    tile = await road_graph_repository.get_road_surface_tile_mvt(
+        MVT_Z, MVT_X, MVT_Y, _mvt_tile_bbox(), MVT_COVERAGE_TILE
+    )
+
+    decoded = mapbox_vector_tile.decode(tile)
+    props = decoded["road_surface"]["features"][0]["properties"]
+    assert props["accident_per_km"] == pytest.approx(4.0 * 1000.0 / 200.0)
+
+
 async def test_get_road_surface_tile_mvt_encodes_landcover_trees_and_built_pct(
     road_graph_repository, road_graph_session
 ):

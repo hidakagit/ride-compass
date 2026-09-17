@@ -272,9 +272,12 @@ def _elevation_row_to_domain(row: ElevationAttributeRow) -> ElevationAttribute:
 #   domain/registry_defaults.py: inputs=["lit","tunnel"]）の入力として焼き込む
 #   （tunnelは上のtunnelプロパティを再利用）。night軸自体は専用の地図レイヤーを持たない。
 # - accident_per_km/intersection_per_km（「事実はタイルに、
-#   解釈はクライアントに」方針）: way_attribute_counts（way単位の事前集計。edge単位の
-#   edge_attribute_countsはroad_edges＝ルート生成済みエリアしかカバーしないため地図表示の
-#   母集団にできない、dev実測3.6%）をJOINし、km正規化した密度を焼き込む。これらはレシピに
+#   解釈はクライアントに」方針）: km正規化した密度を焼き込む。**そのフィーチャーが表す
+#   区間の実測から出す**（`_density_column_sql`）——区間単位のフィーチャーは
+#   edge_attribute_counts、way丸ごとのフィーチャーはway_attribute_counts。
+#   edge_attribute_countsがroad_edgesの範囲しか覆わないことは制約にならない: 区間単位の
+#   フィーチャーを出す枝の母集団がroad_edgesそのもので、両者は一致する（引いた表示や
+#   区間を持たないwayはそもそもway集計側へ落ちる）。これらはレシピに
 #   依存しない静的な事実のため、「最終値を焼かない」上記方針と矛盾しない（レシピ変更で
 #   タイルキャッシュが無効化されることはない。無効化が必要になるのはaccident_points/
 #   osm_raw_pois/osm_raw_waysの再取込時のみで、その場合はprecompute_way_attribute_counts
@@ -283,19 +286,42 @@ def _elevation_row_to_domain(row: ElevationAttributeRow) -> ElevationAttribute:
 #   キー省略し（大多数のwayが0のためタイルが軽くなる、tunnel/bridgeと同じ流儀）、
 #   フロントは欠損=0として扱う。二次軸スコア（レシピ依存の解釈）は引き続きフロント側で
 #   計算する。
+def _density_column_sql(edge_count_sql: str, way_count_sql: str, precision: int) -> str:
+    """件数をkm正規化した密度の式を組み立てる。
+
+    **そのフィーチャーが表す区間の実測から出す**。区間単位のフィーチャーは
+    `edge_attribute_counts`（`road_edges`と同じ母集団を`precompute_edge_attribute_counts`が
+    埋める）の件数をその区間の長さで割る。way丸ごとのフィーチャー（引いた表示・区間を
+    持たないway）と、区間はあるが集計行がまだ無いフィーチャーはway集計へ落ちる——件数と
+    長さは必ず同じ側から取る（片方だけedgeにすると、区間の件数をway全体の長さで割った
+    無意味な値になる）。
+
+    ST_AsMVTはnumeric型をtextへフォールバックするため（maxspeed_kmhのコメント参照）、
+    丸めた後にdouble precisionへキャストする。0はNULLIFでプロパティ自体を省く
+    （大多数が0のためタイルが軽くなる。フロントは欠損=0として扱う既存の流儀）。
+    """
+    return f"""
+                        NULLIF(
+                            round(
+                                (CASE WHEN ec.edge_id IS NOT NULL
+                                      THEN ({edge_count_sql}) * 1000.0 / NULLIF(src.length_m, 0)
+                                      ELSE ({way_count_sql}) * 1000.0 / NULLIF(wc.length_m, 0)
+                                 END)::numeric, {precision}
+                            ), 0
+                        )::double precision"""
+
+
 # 地図タイルへ焼き込む停止要因の種別別密度。列名は材料id（`poi_{kind}_per_km`）と同じにして
 # 対応を自明にする。MVTはjsonbを持てないため、ここだけキー一覧から列へ展開する
 # （手書きせず`POI_COUNT_KINDS`から生成するので、キーを増やしてもこの式は変わらない）。
-# 0件のキーはjsonbに載らないため0として読み、NULLIFでプロパティ自体を省く
-# （大多数のwayが0のためタイルが軽くなる。フロントは欠損=0として扱う既存の流儀）。
+# 0件のキーはjsonbに載らないため0として読む。
 _POI_TILE_COLUMNS_SQL = "".join(
-    f"""
-                        NULLIF(
-                            round(
-                                (COALESCE((wc.poi_counts->>'{kind}')::int, 0) * 1000.0
-                                 / NULLIF(wc.length_m, 0))::numeric, 1
-                            ), 0
-                        )::double precision AS poi_{kind}_per_km,"""
+    _density_column_sql(
+        f"COALESCE((ec.poi_counts->>'{kind}')::int, 0)",
+        f"COALESCE((wc.poi_counts->>'{kind}')::int, 0)",
+        precision=1,
+    )
+    + f" AS poi_{kind}_per_km,"
     for kind in POI_COUNT_KINDS
 )
 
@@ -337,13 +363,14 @@ _TILE_FEATURE_SOURCE_SQL = """
         w2.osm_way_id AS osm_way_id,
         w2.osm_way_id::text AS feature_key,
         NULL::text AS node_lo,
-        NULL::text AS node_hi
+        NULL::text AS node_hi,
+        NULL::double precision AS length_m
     FROM osm_raw_ways w2
     WHERE :z < EDGE_UNIT_MIN_ZOOM_VALUE
       AND w2.geom IS NOT NULL
       AND ST_Intersects(w2.geom, ST_MakeEnvelope(:xmin, :ymin, :xmax, :ymax, 4326))
     UNION ALL
-    SELECT geom, osm_way_id, feature_key, node_lo, node_hi FROM (
+    SELECT geom, osm_way_id, feature_key, node_lo, node_hi, length_m FROM (
         SELECT DISTINCT ON (
             re.osm_way_id, LEAST(re.from_node_id, re.to_node_id), GREATEST(re.from_node_id, re.to_node_id)
         )
@@ -354,7 +381,9 @@ _TILE_FEATURE_SOURCE_SQL = """
             -- 同定子。材料（標高属性等）は向きごとの行に付くため、代表の向きの行にだけ
             -- 無いと値が落ちる。
             LEAST(re.from_node_id, re.to_node_id) AS node_lo,
-            GREATEST(re.from_node_id, re.to_node_id) AS node_hi
+            GREATEST(re.from_node_id, re.to_node_id) AS node_hi,
+            -- 密度（件/km）の分母。way全体ではなくこの区間の長さで割る。
+            re.distance_m AS length_m
         FROM road_edges re
         WHERE :z >= EDGE_UNIT_MIN_ZOOM_VALUE
           AND re.osm_way_id IS NOT NULL
@@ -375,7 +404,8 @@ _TILE_FEATURE_SOURCE_SQL = """
         w3.osm_way_id AS osm_way_id,
         w3.osm_way_id::text AS feature_key,
         NULL::text AS node_lo,
-        NULL::text AS node_hi
+        NULL::text AS node_hi,
+        NULL::double precision AS length_m
     FROM osm_raw_ways w3
     WHERE :z >= EDGE_UNIT_MIN_ZOOM_VALUE
       AND w3.geom IS NOT NULL
@@ -475,19 +505,18 @@ _ROAD_SURFACE_TILE_MVT_SQL = (
                                  AND {BICYCLE_NORMALIZED_SQL} IN ('yes', 'designated')
                                 THEN true
                         END AS shared_pedestrian_path,
-                        -- 事前集計カウントのkm正規化密度（冒頭コメント参照）。
-                        -- ST_AsMVTはnumeric型をtextへフォールバックするため（maxspeed_kmhの
-                        -- コメント参照）、丸めた後にdouble precisionへキャストして焼き込む。
-                        NULLIF(
-                            round((wc.accident_count * 1000.0 / NULLIF(wc.length_m, 0))::numeric, 2), 0
-                        )::double precision AS accident_per_km,
-                        NULLIF(
-                            round((wc.intersection_count * 1000.0 / NULLIF(wc.length_m, 0))::numeric, 1), 0
-                        )::double precision AS intersection_per_km,{_POI_TILE_COLUMNS_SQL}
+                        -- 事前集計カウントのkm正規化密度（冒頭コメント・
+                        -- _density_column_sql参照）。
+                        {_density_column_sql("ec.accident_count", "wc.accident_count", 2)} AS accident_per_km,
+                        {_density_column_sql("ec.intersection_count", "wc.intersection_count", 1)}
+                            AS intersection_per_km,{_POI_TILE_COLUMNS_SQL}
 {_LANDCOVER_TILE_COLUMNS_SQL}
                     FROM ({_TILE_FEATURE_SOURCE_SQL}) src
                     JOIN osm_raw_ways w ON w.osm_way_id = src.osm_way_id
                     LEFT JOIN way_attribute_counts wc ON wc.osm_way_id = w.osm_way_id
+                    -- 区間単位のフィーチャーのときだけ一致する（feature_keyがedge_idの
+                    -- ときのみ。way丸ごとのフィーチャーではNULLになりway集計側へ落ちる）。
+                    LEFT JOIN edge_attribute_counts ec ON ec.edge_id = src.feature_key
                     LEFT JOIN way_landcover lc ON lc.osm_way_id = w.osm_way_id
                     LEFT JOIN way_divided_carriageway wdc ON wdc.osm_way_id = w.osm_way_id
                     LEFT JOIN LATERAL (

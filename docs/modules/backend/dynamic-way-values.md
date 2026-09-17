@@ -150,8 +150,14 @@ axis_id → dedicated_way_value_axes().get(axis_id)（無ければ404）
 自前で再計算できるためRedisは使わず、1エントリが190KBでキーが
 (タイル×向き×速度×時刻)の組み合わせで増えるためプロセス内メモリにも置かない。
 
-キーは`_key(axis_id, z, x, y, hour_bucket, bearing_deg, speed_kmh)`のタプル（第1要素は
-各サービスの`axis_id`属性がそのまま入る＝ルーティングキーと同じ名前空間）。
+キーは`_key(axis_id, z, x, y, hour_bucket, bearing_deg, speed_kmh)`のタプルへ**路面タイルの
+世代**（`ROAD_SURFACE_TILE_VERSION`）を加えたもの（`axis_id`は各サービスの`axis_id`属性が
+そのまま入る＝ルーティングキーと同じ名前空間）。
+
+**世代を鍵へ入れる理由**: ここに入る鍵は路面タイルの`feature_key`と一字一句一致して初めて
+意味を持つ（フロントが`setFeatureState`のidとして使う）。タイルの焼き方を変えたデプロイの
+直後、世代が鍵に無いと、前の版の鍵を持つエントリが**どの地物にも一致しないままTTLが切れる
+まで返り続け、色だけが静かに消える**（エラーにならない）。
 `bearing_bucket(bearing_deg)`が向きを`BEARING_BUCKET_DEG`（5度）刻み、
 `speed_bucket(speed_kmh)`が想定速度を1km/h刻みで離散バケット化するため、パン・ズームで
 同じタイルが再び視界に入っても、同じバケットの範囲内ではDBへの再問い合わせも再計算も

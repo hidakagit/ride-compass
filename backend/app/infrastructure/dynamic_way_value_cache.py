@@ -1,11 +1,17 @@
-"""動的＋向きあり材料の「way_id→値」配信専用のディスクキャッシュ。
-way_id別の動的値を配るレイヤーで、材料そのものの取得層とは別レイヤー。
+"""動的＋向きあり材料の「フィーチャー→値」配信専用のディスクキャッシュ。
+路面タイルのフィーチャー別の動的値を配るレイヤーで、材料そのものの取得層とは別レイヤー。
 
-キーは`(material_id, z, x, y, 時刻バケット, 向きバケット, 速度バケット)`。値は
-`{way_id: 値}`のJSONオブジェクト——風のように「タイル内全wayが同値」の場合も勾配のように
-「way単位で異なる値」の場合も同じ表現で吸収するため、材料側は「タイル単位でいくつ値を
-返すか」を意識せずこのモジュールを共有できる（風はdict.fromkeys(way_ids, penalty)で
-作った「全キー同値」のdictを渡すだけ）。
+キーは`(路面タイルの世代, material_id, z, x, y, 時刻バケット, 向きバケット, 速度バケット)`。
+値は`{feature_key: 値}`のdict——風のように「タイル内全フィーチャーが同値」の場合も勾配の
+ように「フィーチャー単位で異なる値」の場合も同じ表現で吸収するため、材料側は「タイル単位で
+いくつ値を返すか」を意識せずこのモジュールを共有できる（風は
+dict.fromkeys(feature_keys, penalty)で作った「全キー同値」のdictを渡すだけ）。
+
+**キーへ路面タイルの世代（`ROAD_SURFACE_TILE_VERSION`）を含める理由**: ここに入る鍵は
+路面タイルの`feature_key`と一字一句一致して初めて意味を持つ（フロントが`setFeatureState`の
+idとして使う）。タイルの焼き方が変われば鍵の中身も変わるため、世代をまたいだエントリは
+**どの地物にも一致しないまま生き残り、TTLが切れるまで色が静かに消える**。世代を鍵へ
+入れておけば、タイルを焼き直した版は自動的に別のエントリになる。
 
 時刻バケットは1時間丸め（`YYYY-MM-DDTHH`、時刻に依存しない材料はNone）、向きバケットは
 `BEARING_BUCKET_DEG`（5度）刻み（向きに依存しない材料はNone）、速度バケットは1km/h刻み
@@ -31,6 +37,7 @@ import asyncio
 import math
 
 from app.infrastructure import tile_persistent_cache
+from app.infrastructure.road_graph_repository import ROAD_SURFACE_TILE_VERSION
 
 _KEY_PREFIX = "dynway"
 
@@ -61,7 +68,10 @@ def _key(
 ) -> tuple:
     bearing_token = bearing_bucket(bearing_deg) if bearing_deg is not None else None
     speed_token = speed_bucket(speed_kmh) if speed_kmh is not None else None
-    return (_KEY_PREFIX, material_id, z, x, y, hour_bucket, bearing_token, speed_token)
+    return (
+        _KEY_PREFIX, ROAD_SURFACE_TILE_VERSION, material_id, z, x, y,
+        hour_bucket, bearing_token, speed_token,
+    )
 
 
 async def get_tile_values(
@@ -70,7 +80,7 @@ async def get_tile_values(
 ) -> dict[str, float] | None:
     """指定タイル・材料・時刻バケット・向きバケット・速度バケット（速度に依存しない材料は
     None）に対応する`{鍵: 値}`を返す。
-    未キャッシュ・Redis疎通不能・壊れたエントリはいずれもNoneへfail-openする（呼び出し元は
+    未キャッシュ・読み出し失敗・壊れたエントリはいずれもNoneへfail-openする（呼び出し元は
     実計算へ進む）。"""
     key = _key(material_id, z, x, y, hour_bucket, bearing_deg, speed_kmh)
     return await asyncio.to_thread(tile_persistent_cache.get_by_key, key)
@@ -87,7 +97,7 @@ async def set_tile_values(
     ttl_seconds: int,
     speed_kmh: float | None = None,
 ) -> None:
-    """新規に計算できた`{鍵: 値}`をRedisへ書き戻す（キャッシュの最適化であり、
+    """新規に計算できた`{鍵: 値}`をディスクへ書き戻す（キャッシュの最適化であり、
     書き込み失敗はレスポンス自体の成否には関与しない。失敗時は抑制付きWARNINGで記録する
     だけに留める）。"""
     key = _key(material_id, z, x, y, hour_bucket, bearing_deg, speed_kmh)
