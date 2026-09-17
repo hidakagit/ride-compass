@@ -227,8 +227,8 @@ RouteGenerator.generate_loops(origin, distance_km, distance_tolerance_km, max_ro
 **較正値ではない固定値は`FIXED_VALUES`が名前と種別（`FixedValueKind`）だけを持ち、値と
 根拠は使う側のモジュールへ置いたままにする**——根拠の文はその値の隣にあってこそ読めるもので、
 宣言へ写すと二重管理になる。種別がそのまま「なぜ画面から変えさせないか」で、物理定数を出すと
-模型を壊せ、資源の上限を出すと本番を止められる。2つの宣言を合わせたものが、ルーティング
-評価が読む固定値の母集団になる。`scripts/review_checks.py`の`undeclared_fixed_values`が、
+模型を壊せ、資源の上限を出すと本番を止められる。どちらかに載っているものが、ルーティング
+評価が読む固定値の母集団である。`scripts/review_checks.py`の`undeclared_fixed_values`が、
 `FIXED_VALUES`の挙げるモジュール直下にどちらの宣言にも無い数値定数を見つけると落とす
 （宣言にあって実装に無い側も同じく落とす）。母集団はそのキーの並びそのもののため、
 評価に効くモジュールを新設したら空でも挙げる。
