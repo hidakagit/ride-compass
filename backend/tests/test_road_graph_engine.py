@@ -2819,132 +2819,6 @@ async def test_candidate_carries_categorical_material_shares_from_the_path_edges
     assert abs(shares["residential"] - 0.5) < 0.05
 
 
-async def test_build_candidate_carries_the_path_edge_ids_in_order():
-    # 区間の乗り換え（docs/tasks/T621.md）は、フロントが候補どうしの共通部分を集合演算で
-    # 求めることに依存する。backendはステートレスのため、乗り換え後の経路もこのidの列で
-    # 受け取り直す。順序が崩れると「前半＋後半」の切り出しができない。
-    # segmentsは約500m単位へ畳まれてEdgeと1対1にならないため、畳む前の経路を持つのは
-    # edge_idsだけになる（200m級のEdgeを並べてその差を出す）。
-    coords = [ORIGIN]
-    for _ in range(4):
-        coords.append(destination_point(coords[-1], 90, 0.2))
-    names = ["o", "a", "b", "c", "d"]
-    edges = {
-        f"e-{i}": _edge(f"e-{i}", names[i], names[i + 1], coords[i], coords[i + 1], highway="residential")
-        for i in range(4)
-    }
-    graph = RoadGraph(
-        graph_version="test",
-        nodes={
-            name: Node(node_id=name, latitude=coord.latitude, longitude=coord.longitude)
-            for name, coord in zip(names, coords)
-        },
-        edges=edges,
-    )
-    weather = WeatherConditions(
-        temperature_c=20.0, wind_speed_ms=3.0, wind_direction_deg=90.0,
-        wind_direction_label="東", precipitation_mm=None, observed_at="t",
-        weather_code=None, is_day=None, sunrise=None, sunset=None,
-        precipitation_max_mm=None, wind_speed_max_ms=None,
-        temperature_max_c=None, temperature_min_c=None, today_periods=[],
-    )
-    preference = RoutePreference()
-    engine = RoadGraphEngine(
-        graph_service=None,
-        elevation_attribute_service=FakeElevationAttributeService({}),
-        weather_service=FakeWeatherService(weather),
-        route_preference=preference,
-    )
-    context = road_graph_engine._RoadGraphContext(
-        graph=graph, materials={}, accident_years_covered=0,
-        weather=weather, origin_node="o",
-        node_index=build_node_spatial_index(graph), night_active=False,
-        lazy_graph=road_graph_engine.build_lazy_road_graph(graph),
-        **_build_context_score_fields(graph, {}, preference, weather=weather, night_active=False),
-    )
-    path = [edges[f"e-{i}"] for i in range(4)]
-    traced = road_graph_engine.TracedLoop(
-        bearing=None, distance_km=0.8, data=[edge.edge_id for edge in path]
-    )
-
-    candidate = engine._build_candidate(
-        context, traced, path, {}, datetime.now(timezone.utc), [0, 0, 0, 0]
-    )
-
-    assert candidate.edge_ids == ["e-0", "e-1", "e-2", "e-3"]
-    # 畳まれたsegmentsからは経路のEdge列を復元できない
-    assert len(candidate.segments) < len(candidate.edge_ids)
-
-
-def test_build_candidate_marks_where_each_edge_starts_in_the_geometry():
-    # 隣接Edgeの境界点は重複させずに連結するため、座標列だけからはEdgeの境目を復元
-    # できない。区間を地図へ帯として描くにはこの対応が要る。
-    coords = [ORIGIN]
-    for _ in range(4):
-        coords.append(destination_point(coords[-1], 90, 0.2))
-    names = ["o", "a", "b", "c", "d"]
-    edges = {
-        f"e-{i}": _edge(f"e-{i}", names[i], names[i + 1], coords[i], coords[i + 1], highway="residential")
-        for i in range(4)
-    }
-    graph = RoadGraph(
-        graph_version="test",
-        nodes={
-            name: Node(node_id=name, latitude=coord.latitude, longitude=coord.longitude)
-            for name, coord in zip(names, coords)
-        },
-        edges=edges,
-    )
-    weather = WeatherConditions(
-        temperature_c=20.0, wind_speed_ms=3.0, wind_direction_deg=90.0,
-        wind_direction_label="東", precipitation_mm=None, observed_at="t",
-        weather_code=None, is_day=None, sunrise=None, sunset=None,
-        precipitation_max_mm=None, wind_speed_max_ms=None,
-        temperature_max_c=None, temperature_min_c=None, today_periods=[],
-    )
-    preference = RoutePreference()
-    engine = RoadGraphEngine(
-        graph_service=None,
-        elevation_attribute_service=FakeElevationAttributeService({}),
-        weather_service=FakeWeatherService(weather),
-        route_preference=preference,
-    )
-    context = road_graph_engine._RoadGraphContext(
-        graph=graph, materials={}, accident_years_covered=0,
-        weather=weather, origin_node="o",
-        node_index=build_node_spatial_index(graph), night_active=False,
-        lazy_graph=road_graph_engine.build_lazy_road_graph(graph),
-        **_build_context_score_fields(graph, {}, preference, weather=weather, night_active=False),
-    )
-    path = [edges[f"e-{i}"] for i in range(4)]
-    traced = road_graph_engine.TracedLoop(
-        bearing=None, distance_km=0.8, data=[edge.edge_id for edge in path]
-    )
-
-    candidate = engine._build_candidate(
-        context, traced, path, {}, datetime.now(timezone.utc), [0, 0, 0, 0]
-    )
-
-    offsets = candidate.edge_point_offsets
-    coordinates = candidate.geometry["coordinates"]
-    # Edgeより1件多く、先頭は0・末尾は最後の点
-    assert len(offsets) == len(candidate.edge_ids) + 1
-    assert offsets[0] == 0
-    assert offsets[-1] == len(coordinates) - 1
-    # 各Edgeの区切りが、そのEdgeの端点の座標と一致する
-    for index, edge in enumerate(path):
-        start_lat, start_lon = edge.geometry[0]
-        assert coordinates[offsets[index]] == pytest.approx([start_lon, start_lat])
-
-    # Node idも同じ形（Edgeより1件多い）で並び、各Edgeの端点と一致する
-    node_ids = candidate.node_ids
-    assert len(node_ids) == len(candidate.edge_ids) + 1
-    assert node_ids[0] == path[0].from_node_id
-    for index, edge in enumerate(path):
-        assert node_ids[index] == edge.from_node_id
-        assert node_ids[index + 1] == edge.to_node_id
-
-
 def _spliceable_context(edge_count: int = 4):
     """起点oから東へ200mずつ伸びる一本道のcontextと、そのEdge辞書を返す。"""
     coords = [ORIGIN]
@@ -2987,6 +2861,60 @@ def _spliceable_context(edge_count: int = 4):
         **_build_context_score_fields(graph, {}, preference, weather=weather, night_active=False),
     )
     return engine, context
+
+
+async def test_build_candidate_carries_the_path_edge_ids_in_order():
+    # 区間の乗り換え（docs/tasks/T621.md）は、フロントが候補どうしの共通部分を集合演算で
+    # 求めることに依存する。backendはステートレスのため、乗り換え後の経路もこのidの列で
+    # 受け取り直す。順序が崩れると「前半＋後半」の切り出しができない。
+    # segmentsは約500m単位へ畳まれてEdgeと1対1にならないため、畳む前の経路を持つのは
+    # edge_idsだけになる（200m級のEdgeを並べてその差を出す）。
+    engine, context = _spliceable_context()
+    path = [context.graph.edges[f"e-{i}"] for i in range(4)]
+    traced = road_graph_engine.TracedLoop(
+        bearing=None, distance_km=0.8, data=[edge.edge_id for edge in path]
+    )
+
+    candidate = engine._build_candidate(
+        context, traced, path, {}, datetime.now(timezone.utc), [0, 0, 0, 0]
+    )
+
+    assert candidate.edge_ids == ["e-0", "e-1", "e-2", "e-3"]
+    # 畳まれたsegmentsからは経路のEdge列を復元できない
+    assert len(candidate.segments) < len(candidate.edge_ids)
+
+
+def test_build_candidate_marks_where_each_edge_starts_in_the_geometry():
+    # 隣接Edgeの境界点は重複させずに連結するため、座標列だけからはEdgeの境目を復元
+    # できない。区間を地図へ帯として描くにはこの対応が要る。
+    engine, context = _spliceable_context()
+    path = [context.graph.edges[f"e-{i}"] for i in range(4)]
+    traced = road_graph_engine.TracedLoop(
+        bearing=None, distance_km=0.8, data=[edge.edge_id for edge in path]
+    )
+
+    candidate = engine._build_candidate(
+        context, traced, path, {}, datetime.now(timezone.utc), [0, 0, 0, 0]
+    )
+
+    offsets = candidate.edge_point_offsets
+    coordinates = candidate.geometry["coordinates"]
+    # Edgeより1件多く、先頭は0・末尾は最後の点
+    assert len(offsets) == len(candidate.edge_ids) + 1
+    assert offsets[0] == 0
+    assert offsets[-1] == len(coordinates) - 1
+    # 各Edgeの区切りが、そのEdgeの端点の座標と一致する
+    for index, edge in enumerate(path):
+        start_lat, start_lon = edge.geometry[0]
+        assert coordinates[offsets[index]] == pytest.approx([start_lon, start_lat])
+
+    # Node idも同じ形（Edgeより1件多い）で並び、各Edgeの端点と一致する
+    node_ids = candidate.node_ids
+    assert len(node_ids) == len(candidate.edge_ids) + 1
+    assert node_ids[0] == path[0].from_node_id
+    for index, edge in enumerate(path):
+        assert node_ids[index] == edge.from_node_id
+        assert node_ids[index + 1] == edge.to_node_id
 
 
 def test_build_traced_from_edge_ids_accepts_a_connected_path_from_the_origin():

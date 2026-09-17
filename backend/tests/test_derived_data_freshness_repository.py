@@ -10,7 +10,8 @@ import pytest
 from sqlalchemy import text
 
 from app.domain.attributes import ElevationAttribute
-from app.domain.graph import WaySpec, build_road_graph
+from app.domain.graph import WaySpec
+from tests.road_graph_scaffolds import single_way_graph, single_way_spec
 from app.infrastructure import accident_models  # noqa: F401  Base.metadataへaccident_*テーブルを登録するためのimport
 from app.infrastructure import designation_models  # noqa: F401  Base.metadataへdesignation_*テーブルを登録するためのimport
 from app.infrastructure.derived_data_freshness import (
@@ -38,10 +39,9 @@ async def _insert_import_run(session, table: str, columns_sql: str, values_sql: 
 
 
 async def _seed_one_way_and_edges(road_graph_repository, road_graph_session) -> list[str]:
-    way = WaySpec(osm_way_id=100, node_ids=[1, 2], highway="residential")
-    nodes = {1: NODE1, 2: NODE2}
+    way, nodes = single_way_spec()
     await road_graph_repository.save_raw_ways([way], nodes)
-    graph = build_road_graph([way], nodes, graph_version="v1")
+    graph = single_way_graph()
     await road_graph_repository.save_graph(graph)
     await road_graph_session.commit()
     return sorted(graph.edges.keys())

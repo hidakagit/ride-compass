@@ -10,7 +10,8 @@ import pytest
 from sqlalchemy import insert
 
 from app.domain.attributes import ElevationAttribute
-from app.domain.graph import WaySpec, build_road_graph
+from app.domain.graph import WaySpec
+from tests.road_graph_scaffolds import single_way_graph, single_way_spec
 from app.infrastructure import accident_models  # noqa: F401  Base.metadataへaccident_*テーブルを登録するためのimport
 from app.infrastructure import designation_models  # noqa: F401  Base.metadataへdesignation_*テーブルを登録するためのimport
 from app.infrastructure.material_coverage import MATERIAL_COVERAGE_SPECS, MaterialCoverageQuery
@@ -85,10 +86,9 @@ async def test_way_materials_are_counted_over_all_raw_ways(road_graph_repository
 async def test_edge_materials_are_counted_over_road_edges_using_derived_table_rows(
     road_graph_repository, road_graph_session,
 ):
-    way = WaySpec(osm_way_id=100, node_ids=[1, 2], highway="residential")
-    nodes = {1: NODE1, 2: NODE2}
+    way, nodes = single_way_spec()
     await road_graph_repository.save_raw_ways([way], nodes)
-    graph = build_road_graph([way], nodes, graph_version="v1")
+    graph = single_way_graph()
     await road_graph_repository.save_graph(graph)
     edge_ids = sorted(graph.edges.keys())
     assert len(edge_ids) == 2  # 双方向

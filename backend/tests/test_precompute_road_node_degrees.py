@@ -14,8 +14,8 @@ import pytest
 from sqlalchemy import text
 
 from app.batch.precompute_road_node_degrees import run
-from app.domain.graph import WaySpec, build_road_graph
 from tests.conftest import TEST_DATABASE_URL
+from tests.road_graph_scaffolds import three_way_junction_graph
 
 # road_graph_session/road_graph_repository（conftest.py）はDB接続確立コスト削減のため
 # ファイル単位で1本のエンジン・イベントループを使い回す設計。ファイル内の全テストの
@@ -26,21 +26,14 @@ pytestmark = [
     pytest.mark.postgis,
 ]
 
-NODE1 = (35.700, 139.700)
-NODE2 = (35.701, 139.701)
+# 端点3つは近接させる（このバッチの検証対象は次数の集計で、距離は関係しない）。
 NODE3 = (35.702, 139.700)
 NODE4 = (35.700, 139.702)
 
 
 async def _seed_y_junction(road_graph_repository, road_graph_session) -> None:
     """NODE2へ3本のWayが集まるY字（NODE2の次数3、端点3つは次数1）。"""
-    ways = [
-        WaySpec(osm_way_id=100, node_ids=[1, 2], highway="residential"),
-        WaySpec(osm_way_id=101, node_ids=[2, 3], highway="residential"),
-        WaySpec(osm_way_id=102, node_ids=[2, 4], highway="residential"),
-    ]
-    graph = build_road_graph(ways, {1: NODE1, 2: NODE2, 3: NODE3, 4: NODE4}, graph_version="v1")
-    await road_graph_repository.save_graph(graph)
+    await road_graph_repository.save_graph(three_way_junction_graph(NODE3, NODE4))
     await road_graph_session.commit()
 
 
