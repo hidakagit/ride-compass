@@ -262,8 +262,7 @@ GPX出力・「ルートをクリア」、下記`renderRouteOutcomeSectionBody`�
 `routes.length === 0`の間は何も描画しない（生成前は空）。見出しは描画しない
 （デスクトップは`Disclosure`の見出し、モバイルはBottomSheetの`title`が担う）。1件以上
 生成された後は、Radix Tabs（`@radix-ui/react-tabs`）1段のフラットなタブ列を描画する。タブの並び順は
-`routes`配列の並び順（backendが`overall_difficulty`昇順で返す、`route_generator.py`
-参照）をそのまま使い、フロント側での並べ替えは行わない。タブは
+`routes`配列の順序をそのまま使い、**フロント側では並べ替えない**（並び順は配る側が決める）。タブは
 **候補ごと**（`routes`の件数ぶん、「順位番号（1始まり） 距離km」に加えて総合難易度を
 数値と長さの両方で表示する——タブを開かずに候補どうしを見比べられるようにするため。経由地
 ルート（id: `route-waypoints`）は常に1件で順位の概念が無いため、`NON_DIRECTIONAL_ROUTE_IDS`
@@ -286,7 +285,7 @@ GPX出力・「ルートをクリア」、下記`renderRouteOutcomeSectionBody`�
 同じ入力（`GenerationInput`）から導出する**ため、payloadへフィールドを足したときに比較側へ
 足し忘れることが起きない。比較から外すのは`IGNORED_WHEN_COMPARING`に理由付きで列挙した
 ものだけで、現在は`lens_axis_id`（地図の見え方の選択で候補の選定には影響しない）。
-経由地を伴う目的地ルートでは`max_routes`も外す（backendが値を無視するため）。利用者が
+経由地を伴う目的地ルートでは`max_routes`も外す（この条件では候補数の指定が効かない）。利用者が
 出発時刻を選んでいない間は`start_time`も外す——共有時刻は「今」へ5分刻みで追従するので、
 放置するだけで値が変わる（何もしていないのに印が点くと、印が合図として機能しなくなる）。
 キーは並び順に依存しない形でJSON化する——`hard_filters`・`route_preference`は保存値からの
