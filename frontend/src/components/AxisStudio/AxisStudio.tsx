@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import * as Tabs from "@radix-ui/react-tabs";
 import { DialogContent, DialogRoot } from "@/components/ui/Dialog/Dialog";
 import { materialLabel } from "@/lib/axisMaterialsCatalog";
@@ -11,6 +11,9 @@ import {
   unpublishAxisDefinition,
   updateAxisDefinition,
 } from "@/services/axisAdminApi";
+import { rampColorForBand } from "@/components/Map/axisLayers";
+import { bandColorsFor } from "@/components/Map/valueScale";
+import { useAxisCatalog } from "@/hooks/useAxisCatalog";
 import type { AxisDefinitionPayload, AxisDefinitionResponse, AxisShape } from "@/types/route";
 import AxisComposer from "./AxisComposer";
 import styles from "./AxisStudio.module.css";
@@ -171,6 +174,24 @@ export default function AxisStudio() {
   }
 
   const editingDefinition = definitions?.find((d) => d.axis_id === editingAxisId) ?? null;
+  // 編集中の軸を地図がどの配色で塗るかは、軸の形ではなく「どの経路で地図に出ているか」で
+  // 決まる（ramp軸はタイルの重み付き和をrampColorForBandで、専用way値配信軸は
+  // 地図表示値の種類ごとの配色をbandColorsForで塗る）。判定を持たずに軸カタログの
+  // 実際の分類をそのまま引くことで、しきい値プレビューの色が地図とずれない。
+  const catalog = useAxisCatalog();
+  const previewAxisId = editingAxisId ?? duplicateFrom?.axis_id ?? null;
+  const previewCatalogAxis = catalog.axes.find((axis) => axis.axisId === previewAxisId);
+  const previewIsRamp = catalog.rampAxes.some((axis) => axis.axisId === previewAxisId);
+  const previewMapValueKind = previewCatalogAxis?.mapValueKind;
+  const mapBandColors = useMemo(() => {
+    if (previewIsRamp) {
+      return (boundaries: readonly number[]) =>
+        Array.from({ length: boundaries.length + 1 }, (_, index) => rampColorForBand(index, boundaries.length + 1));
+    }
+    if (previewMapValueKind) return (boundaries: readonly number[]) => bandColorsFor(previewMapValueKind, boundaries);
+    return undefined;
+  }, [previewIsRamp, previewMapValueKind]);
+  const mapValueUnit = previewCatalogAxis?.mapValueUnit ?? "";
   const composerTitle = editingDefinition
     ? editingDefinition.is_published
       ? `表示専用フィールドを編集: ${editingDefinition.label}`
@@ -295,7 +316,12 @@ export default function AxisStudio() {
         + 新しい軸を作る
       </button>
 
-      <DialogRoot open={composerOpen} onOpenChange={(open) => { if (!open) closeComposer(); }}>
+      <DialogRoot
+        open={composerOpen}
+        onOpenChange={(open) => {
+          if (!open) closeComposer();
+        }}
+      >
         {/* 既定のDialogContentは幅min(90vw,28rem)・高さ内容依存だが、AxisComposerは
             材料/折れ点/フラグの可変長リストを持つ比較的大きなフォームのため、幅と
             最大高さ+縦スクロールを拡張する。cn()のtwMergeで既定のTailwindユーティリティ
@@ -307,6 +333,8 @@ export default function AxisStudio() {
             editing={editingDefinition}
             duplicateFrom={duplicateFrom}
             otherAxes={definitions ?? []}
+            mapBandColors={mapBandColors}
+            mapValueUnit={mapValueUnit}
             onCancelEdit={closeComposer}
             onSave={handleSave}
           />

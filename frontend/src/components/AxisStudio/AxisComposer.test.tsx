@@ -77,6 +77,8 @@ function renderComposer(
   options: {
     editing?: AxisDefinitionResponse | null;
     duplicateFrom?: AxisDefinitionResponse | null;
+    mapBandColors?: (boundaries: readonly number[]) => readonly string[];
+    mapValueUnit?: string;
     onSave?: ReturnType<typeof makeSaveSpy>;
   } = {},
 ) {
@@ -86,6 +88,8 @@ function renderComposer(
     <AxisComposer
       editing={options.editing ?? null}
       duplicateFrom={options.duplicateFrom ?? null}
+      mapBandColors={options.mapBandColors}
+      mapValueUnit={options.mapValueUnit}
       onCancelEdit={vi.fn()}
       onSave={onSave}
     />,
@@ -437,15 +441,15 @@ describe("AxisComposer", () => {
   // kind="none"の注記
   // ============================================================
   describe("地図の色分けしきい値(display_thresholds_override)編集", () => {
-    it("既定は上書きオフで、「+ しきい値を自分で設定する」を押すと1件の入力欄が現れる", async () => {
+    it("既定は上書きオフで、「+ しきい値を自分で設定する」を押すとまとめ入力欄が現れる", async () => {
       const { user, onSave } = renderComposer();
 
       await goToShapeParams(user, "軸D");
       await clickNext(user); // shape_params -> display_publish
 
-      expect(screen.queryByLabelText("しきい値1")).not.toBeInTheDocument();
+      expect(screen.queryByLabelText("色分けのしきい値（まとめて入力）")).not.toBeInTheDocument();
       await user.click(screen.getByRole("button", { name: "+ しきい値を自分で設定する" }));
-      expect(screen.getByLabelText("しきい値1")).toHaveValue(1);
+      await user.type(screen.getByLabelText("色分けのしきい値（まとめて入力）"), "1");
 
       await user.click(screen.getByRole("button", { name: "作成する" }));
       await waitFor(() => expect(onSave).toHaveBeenCalledTimes(1));
@@ -453,23 +457,57 @@ describe("AxisComposer", () => {
       expect(payload.display_thresholds_override).toEqual([1]);
     });
 
-    it("しきい値を追加・編集・削除でき、「自動計算に戻す」でnullへ戻る", async () => {
+    it("境界値をまとめて貼り付けると、1件ずつ足さずに段階が決まる", async () => {
+      const { user, onSave } = renderComposer();
+
+      await goToShapeParams(user, "軸D2");
+      await clickNext(user);
+
+      await user.click(screen.getByRole("button", { name: "+ しきい値を自分で設定する" }));
+      await user.type(screen.getByLabelText("色分けのしきい値（まとめて入力）"), "-10, -5, -1, 1, 2, 3");
+      // 段階数（しきい値+1）とレンジが、入力した場で分かる。
+      expect(screen.getByLabelText("色分けプレビュー（7段階）")).toBeInTheDocument();
+      expect(screen.getByText("-10未満")).toBeInTheDocument();
+      expect(screen.getByText("3以上")).toBeInTheDocument();
+
+      await user.click(screen.getByRole("button", { name: "作成する" }));
+      await waitFor(() => expect(onSave).toHaveBeenCalledTimes(1));
+      const [payload] = onSave.mock.calls[0];
+      expect(payload.display_thresholds_override).toEqual([-10, -5, -1, 1, 2, 3]);
+    });
+
+    it("プレビューは親から渡された配色と単位で描き、地図と同じ段階の並びになる", async () => {
+      const { user } = renderComposer({
+        mapBandColors: (boundaries) => boundaries.map(() => "#111111").concat("#222222"),
+        mapValueUnit: "%",
+      });
+
+      await goToShapeParams(user, "軸D3");
+      await clickNext(user);
+      await user.click(screen.getByRole("button", { name: "+ しきい値を自分で設定する" }));
+      await user.type(screen.getByLabelText("色分けのしきい値（まとめて入力）"), "1, 4");
+
+      // 単位付きのレンジ表記（地図の凡例と同じbuildRangeLegendBands由来）。
+      expect(screen.getByText("1%未満")).toBeInTheDocument();
+      expect(screen.getByText("1〜4%")).toBeInTheDocument();
+      expect(screen.getByText("4%以上")).toBeInTheDocument();
+      const preview = screen.getByLabelText("色分けプレビュー（3段階）");
+      const swatchColors = [...preview.querySelectorAll("span[style]")].map((el) => el.getAttribute("style"));
+      expect(swatchColors).toEqual(["background: #111111;", "background: #111111;", "background: #222222;"]);
+      expect(screen.queryByText(/配色はまだ決まっていません/)).not.toBeInTheDocument();
+    });
+
+    it("しきい値を編集でき、「自動計算に戻す」でnullへ戻る", async () => {
       const { user, onSave } = renderComposer();
 
       await goToShapeParams(user, "軸E");
       await clickNext(user);
 
       await user.click(screen.getByRole("button", { name: "+ しきい値を自分で設定する" }));
-      await user.click(screen.getByRole("button", { name: "+ しきい値を追加" }));
-      const thresholdInput1 = screen.getByLabelText("しきい値1") as HTMLInputElement;
-      const thresholdInput2 = screen.getByLabelText("しきい値2") as HTMLInputElement;
-      await user.clear(thresholdInput1);
-      await user.type(thresholdInput1, "1");
-      await user.clear(thresholdInput2);
-      await user.type(thresholdInput2, "4");
+      await user.type(screen.getByLabelText("色分けのしきい値（まとめて入力）"), "1, 4");
 
       await user.click(screen.getByRole("button", { name: "自動計算に戻す" }));
-      expect(screen.queryByLabelText("しきい値1")).not.toBeInTheDocument();
+      expect(screen.queryByLabelText("色分けのしきい値（まとめて入力）")).not.toBeInTheDocument();
 
       await user.click(screen.getByRole("button", { name: "作成する" }));
       await waitFor(() => expect(onSave).toHaveBeenCalledTimes(1));
@@ -498,7 +536,7 @@ describe("AxisComposer", () => {
       await clickNext(user);
 
       await user.click(screen.getByRole("button", { name: "+ しきい値を自分で設定する" }));
-      await user.click(screen.getByRole("button", { name: "+ しきい値を追加" }));
+      await user.type(screen.getByLabelText("色分けのしきい値（まとめて入力）"), "1, 4");
       // この時点でしきい値2件(段階数3)。
       await user.click(screen.getByRole("button", { name: "+ 体感ラベルを設定する" }));
       expect(screen.getByLabelText("体感ラベル1")).toHaveValue("");
@@ -519,15 +557,15 @@ describe("AxisComposer", () => {
       await goToShapeParams(user, "軸H");
       await clickNext(user);
 
-      // 「+ しきい値を自分で設定する」の時点でしきい値1件(段階数2)のため、体感ラベルを
-      // 有効化すると最初から2件の入力欄（体感ラベル1・2）が現れる。
       await user.click(screen.getByRole("button", { name: "+ しきい値を自分で設定する" }));
+      await user.type(screen.getByLabelText("色分けのしきい値（まとめて入力）"), "1");
       await user.click(screen.getByRole("button", { name: "+ 体感ラベルを設定する" }));
       expect(screen.getByLabelText("体感ラベル1")).toBeInTheDocument();
       expect(screen.getByLabelText("体感ラベル2")).toBeInTheDocument();
       expect(screen.queryByLabelText("体感ラベル3")).not.toBeInTheDocument();
 
-      await user.click(screen.getByRole("button", { name: "+ しきい値を追加" }));
+      // 段階数が動いたら体感ラベルの件数も追従する（まとめ入力では何段階も一度に動く）。
+      await user.type(screen.getByLabelText("色分けのしきい値（まとめて入力）"), ", 4");
       expect(screen.getByLabelText("体感ラベル3")).toBeInTheDocument();
 
       await user.click(screen.getByRole("button", { name: "自動計算に戻す" }));
@@ -578,17 +616,12 @@ describe("AxisComposer", () => {
       await clickNext(user);
 
       await user.click(screen.getByRole("button", { name: "+ しきい値を自分で設定する" }));
-      await user.click(screen.getByRole("button", { name: "+ しきい値を追加" }));
-      const thresholdInput1 = screen.getByLabelText("しきい値1") as HTMLInputElement;
-      const thresholdInput2 = screen.getByLabelText("しきい値2") as HTMLInputElement;
-      await user.clear(thresholdInput1);
-      await user.type(thresholdInput1, "4");
-      await user.clear(thresholdInput2);
-      await user.type(thresholdInput2, "1");
+      await user.type(screen.getByLabelText("色分けのしきい値（まとめて入力）"), "4, 1");
 
+      // 入力した場でエラーが出て、そのまま保存もできない（読めない並びで黙って
+      // 直前の値を保存しない）。
+      expect(screen.getAllByText(/小さい順に並べてください/).length).toBeGreaterThan(0);
       await user.click(screen.getByRole("button", { name: "作成する" }));
-
-      expect(screen.getByText(/小さい順に並べてください/)).toBeInTheDocument();
       expect(onSave).not.toHaveBeenCalled();
     });
 
@@ -657,7 +690,7 @@ describe("AxisComposer", () => {
       expect(screen.queryByText(/まだ地図表示用のデータ取得経路が用意されていません/)).not.toBeInTheDocument();
     });
 
-    it("既存軸のdisplay_thresholds_overrideが編集フォームへ初期反映される", async () => {
+    it("既存軸のdisplay_thresholds_overrideがまとめ入力欄へ初期反映される", async () => {
       const editing = baseAxisDefinition({ display_thresholds_override: [1, 2, 4] });
       const { user } = renderComposer({ editing });
 
@@ -665,9 +698,7 @@ describe("AxisComposer", () => {
       await clickNext(user);
       await clickNext(user);
 
-      expect(screen.getByLabelText("しきい値1")).toHaveValue(1);
-      expect(screen.getByLabelText("しきい値2")).toHaveValue(2);
-      expect(screen.getByLabelText("しきい値3")).toHaveValue(4);
+      expect(screen.getByLabelText("色分けのしきい値（まとめて入力）")).toHaveValue("1, 2, 4");
     });
 
     it("改善計画T501回帰テスト: 複製元のdisplay_thresholds_overrideは複製先へ引き継がず自動計算(null)へリセットされる", async () => {

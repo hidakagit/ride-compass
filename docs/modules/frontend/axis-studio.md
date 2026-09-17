@@ -392,14 +392,27 @@ materialId ? state.values : []`）でリセットする——Reactの「propが�
   2つのリストが`AxisDefinitionPayload`の全フィールドを覆うことを型`_PayloadKeyCoverage`が
   静的に検査するため、backend側へフィールドが増えたときはどちらかへ追加しないとtscが
   通らない。`display_thresholds_override`/`display_band_labels_override`は
-  専用の編集UI（`display_publish`ステップの数値配列/文字列配列エディタ）を持つため、
-  このリストには含まない。`display_band_labels_override`の編集欄は
-  `display_thresholds_override`が有効（null以外）の間だけ現れ、段階数
-  （`displayThresholdsOverride.length+1`）と要素数を常に一致させる——しきい値を
-  追加/削除するとラベルの入力欄も連動して増減し（`addThresholdOverrideValue`/
-  `removeThresholdOverrideValue`参照）、しきい値の上書きを解除する（自動計算に戻す）と
-  ラベルの上書きも一緒にnullへ解除する（backend側のバリデーション「ラベルはしきい値の
-  上書きが設定済みでなければならない」との不整合を防ぐ）。
+  専用の編集UI（`display_publish`ステップ）を持つため、このリストには含まない。
+  `display_band_labels_override`の編集欄は`display_thresholds_override`が有効（null以外）の
+  間だけ現れ、段階数（`displayThresholdsOverride.length+1`）と要素数を常に一致させる
+  （`resizeBandLabels`）——しきい値の上書きを解除する（自動計算に戻す）とラベルの上書きも
+  一緒にnullへ解除する（backend側のバリデーション「ラベルはしきい値の上書きが設定済みで
+  なければならない」との不整合を防ぐ）。
+
+### 色分けしきい値の編集（まとめ入力とプレビュー）
+
+境界値は1つの入力欄へまとめて書く（`parseThresholdList`が区切りを問わず解釈する）。
+**入力欄の文字列はdraftとは別にコンポーネントが持ち、読めたときだけdraftへ反映する**
+——読めない途中の状態でdraftを書き換えると直前の並びが消える。読めないまま進もうとした
+場合は`validateStep`が止めるため、下書きの値が黙って保存されることはない。
+
+入力した内容は`renderBandPreview`がその場で段階の並びとして描く。段階ラベルの組み立ては
+地図の凡例と同じ`mapColorLegend.ts: buildRangeLegendBands`を通し、色は親（`AxisStudio`）が
+軸カタログの分類から決めて渡す（ramp軸は`rampColorForBand`、専用way値配信軸は
+`bandColorsFor`。[地図: 軸・ルート色分け](map-axis-coloring.md)参照）。**軸スタジオ側は
+「その軸がどちらの経路で地図に出るか」の判定を持たない**——カタログの実際の分類を引くため、
+プレビューの色と地図の色がずれない。地図に出る経路がまだ無い軸（下書き等）は色を持たず、
+その旨を注記する。
 - 軸スタジオが作る軸の`category`は常に`"推定"`固定（観測/動的は材料側の性質であり、
   材料を組み合わせて判定式を作る軸スタジオの仕組みからは生み出せないため）。
 

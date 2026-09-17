@@ -8,6 +8,9 @@ CLAUDE.md「コミット時の同期ルール」から参照される。個々�
 本番DBをゼロから再構築する手順（disaster recovery）・OSM更新時の派生データ再構築手順は
 [docs/disaster-recovery.md](disaster-recovery.md)参照。
 
+軸定義を「軸スタジオで変えるか、スクリプトで配るか」の分担は
+[decisions/axis-definition-maintenance-split.md](decisions/axis-definition-maintenance-split.md)。
+
 ## axis_admin API経由のDB変更は開発DB・本番DB両方への反映を完了条件にする
 
 - 対象: `axis_admin`のAPI（軸スタジオGUI、または直接API呼び出し）経由で
