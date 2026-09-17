@@ -2933,27 +2933,34 @@ TRIGGER_DAYS = 14
 TRIGGER_IMPL_LINES = 20_000
 
 
-def latest_target_commit() -> tuple[str | None, str | None]:
-    """history/ の直近 all/consistency/overall ファイルから対象コミットSHAを取る。"""
+def latest_target_commit() -> tuple[str | None, str | None, list[str]]:
+    """history/ の直近 all/consistency/overall ファイルから対象コミットSHAを取る。
+
+    **読めずに遡ったファイル名も返す**。記録の冒頭に「対象コミット」の行が無いと、
+    レビューを実施していても起点が古いままになり、変更行数のトリガーが鳴り続ける。
+    黙って遡ると、その原因（書式のずれ）に気づけない。
+    """
     cands = []
     for p in HISTORY_DIR.glob("*.md"):
         m = re.match(r"(\d{4}-\d{2}-\d{2})_(all|consistency|overall)\.md$", p.name)
         if m:
             cands.append((m.group(1), p))
+    skipped: list[str] = []
     for _, p in sorted(cands, reverse=True):
         for line in read_text(p).splitlines()[:40]:
             if "対象コミット" in line:
                 m = re.search(r"`([0-9a-f]{7,40})`", line)
                 if m:
-                    return m.group(1), p.name
-    return None, None
+                    return m.group(1), p.name, skipped
+        skipped.append(p.name)
+    return None, None, skipped
 
 
 def cmd_trigger(args: argparse.Namespace) -> int:
     today = dt.date.today()
     last = latest_history_date()
     days = (today - last).days if last else None
-    sha, src = latest_target_commit()
+    sha, src, skipped = latest_target_commit()
     lines = None
     if sha and git("cat-file", "-t", sha, check=False).strip() == "commit":
         stat = git("diff", "--shortstat", f"{sha}..HEAD", "--",
@@ -2973,6 +2980,9 @@ def cmd_trigger(args: argparse.Namespace) -> int:
             fired.append("変更行数")
     else:
         print("- 変更行数: 直近レビューの対象コミットを特定できず未計測")
+    if skipped:
+        print(f"- 注意: {'・'.join(skipped)} は冒頭に「対象コミット」の行が無く、起点として読めなかった"
+              "（実施済みでも起点が古いままになり、変更行数が過大に出る）")
     print("- 分割元タスク（複数のTxxxへ分割する規模Lのタスク）の完了直後かは自動判定できない。該当すれば量に関係なく実施する")
     print()
     print("判定: " + (f"**該当（{'・'.join(fired)}）** → /review:all（最低限 /review:consistency）を実施する" if fired
