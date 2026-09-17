@@ -1,9 +1,12 @@
-# 動的材料・way_id値配信（backend）
+# 動的材料・フィーチャー値配信（backend）
 
 ## 責務
 
 風・勾配のような「動的（時々刻々変わりうる）＋向きに依存する」材料について、ルート
-未確定時に視界内の全道路（way）へ値を配信する。ルート確定後の風の評価は、実際には
+未確定時に視界内の全道路へ値を配信する。配信の単位は路面タイルのフィーチャーと同じで、
+ズームによってway丸ごとにも区間（road_edges）にもなる——このモジュールはどちらかを
+知る必要がなく、タイルと同じ`feature_key`を鍵として扱う（[static-road-attributes.md]
+(static-road-attributes.md)の`EDGE_UNIT_MIN_ZOOM`参照）。ルート確定後の風の評価は、実際には
 ルーティングエンジンにより計算方法が異なる（後述「風の評価が2つの経路で非対称」）。
 
 **対象ファイル**
@@ -16,8 +19,9 @@
 | api | `region.py`（`GET /api/region/dynamic-way-values/{axis_id}/...`）・`dependencies.py`（`get_dedicated_way_value_service`） |
 
 勾配材料の入力（`elevation_attributes.average_grade`・`road_edges.bearing_deg`）を
-DBから取り出す`infrastructure/road_graph_repository.py: get_way_gradient_inputs_in_tile`・
-`get_way_ids_in_tile`は[routing-engine.md](routing-engine.md)が主管するファイルに属する。
+DBから取り出す`infrastructure/road_graph_repository.py:
+get_feature_gradient_inputs_in_tile`・`get_feature_keys_in_tile`は
+[routing-engine.md](routing-engine.md)が主管するファイルに属する。
 
 ## 2つのidの名前空間（読む前の前提）
 
@@ -56,7 +60,7 @@ def dedicated_way_value_axes() -> dict[str, DedicatedWayValueAxis]:
 （`dedicated_way_value_layer`・`dynamic_way_value_needs_time`/
 `dynamic_way_value_needs_bearing`）はこの関数の戻り値へ自動的に反映される。
 
-ただし**配信できる値があるかは別**で、way_id→値を実際に組み立てるサービス本体を
+ただし**配信できる値があるかは別**で、鍵→値を実際に組み立てるサービス本体を
 `api/dependencies.py`の`_DEDICATED_WAY_VALUE_SERVICE_FACTORIES`へ登録する必要がある
 （コード変更を伴う）。登録の無い`axis_id`に`dedicated_way_value_layer`を立てることは
 書き込み時に拒否され（`axis_admin.py:
@@ -138,7 +142,7 @@ axis_id → dedicated_way_value_axes().get(axis_id)（無ければ404）
 
 **キャッシュするのは勾配だけ**。風は「タイル中心1点の風を全wayへ配る」だけで計算が軽く、
 キャッシュが節約するのは1タイルあたり2.8ms（応答53msの5%）にとどまる一方、1エントリ
-190KBを保持することになるため、キャッシュせず都度計算する。勾配はway単位の計算で
+190KBを保持することになるため、キャッシュせず都度計算する。勾配はフィーチャー単位の計算で
 809msを節約できるためキャッシュする（[docs/caching.md](../../caching.md)
 「キャッシュしないという選択」参照）。
 
@@ -154,7 +158,7 @@ axis_id → dedicated_way_value_axes().get(axis_id)（無ければ404）
 発生しない。速度に依存しない材料（勾配）は速度バケットをNoneにし、速度が変わっても
 キャッシュが分割されない。
 
-値は`{way_id: 値}`のdict。TTLは呼び出し元が渡す（勾配=`GRADIENT_TILE_VALUES_TTL_SECONDS`
+値は`{feature_key: 値}`のdict。TTLは呼び出し元が渡す（勾配=`GRADIENT_TILE_VALUES_TTL_SECONDS`
 ＝24時間）。正本を持たないキャッシュで、読み書きに失敗しても未キャッシュ扱いで実計算へ進む。
 
 ## サービス実装
@@ -162,54 +166,58 @@ axis_id → dedicated_way_value_axes().get(axis_id)（無ければ404）
 ### `WindWayService`（`wind_way_service.py`）
 
 走行方位（`bearing_deg`）は**ユーザーがコンパススライダーで指定した単一の値**（全道路
-共通）を使う。道路自身のOSM格納方向は使わない。同じタイル内の全wayは常に同じ
+共通）を使う。道路自身のOSM格納方向は使わない。同じタイル内の全フィーチャーは常に同じ
 `wind_drag_ratio`値を持つ（風グリッドもタイル中心1点で代表させる近似のため）。
 
 ```
 get_way_values(z, x, y, at, bearing_deg, speed_kmh)
   ├─ bearing_deg・speed_kmh のいずれかがNoneなら即ValueError
   ├─ repository未接続 → {}
-  ├─ get_way_ids_in_tile → way_id一覧（カバレッジ外はNone→{}、DB障害も{}）
+  ├─ get_feature_keys_in_tile → 鍵の一覧（カバレッジ外はNone→{}、DB障害も{}）
   ├─ hour_bucket = at.strftime("%Y-%m-%dT%H")
   ├─ キャッシュhit → 値を1個取り出す（下記「暗黙の前提」参照）
   └─ キャッシュmiss →
        nearest_grid_point(タイル中心) → get_wind_grid([grid_point])
        → _nearest_time_index（範囲外はNone→{}）
        → wind_drag_ratio(speed, direction, bearing_deg, kmh_to_ms(speed_kmh))
-       → 全way_idへbroadcastしてキャッシュ書き込み
-  └─ 戻り値は常に dict.fromkeys(way_ids, penalty)   … 生値。難易度への変換はrouter側
+       → 全ての鍵へbroadcastしてキャッシュ書き込み
+  └─ 戻り値は常に dict.fromkeys(feature_keys, penalty)   … 生値。難易度への変換はrouter側
 ```
 
 **暗黙の前提**: キャッシュhit時は`next(iter(cached.values()), 0.0)`で代表値を取り出す。
-「タイル内の全way_idが同値」という前提の上に成り立つ最適化で、この前提が崩れる実装変更
-（way単位に風向きを変える等）が入ると、無警告で不正確な代表値を返す。
+「タイル内の全フィーチャーが同値」という前提の上に成り立つ最適化で、この前提が崩れる
+実装変更（区間ごとに風向きを変える等）が入ると、無警告で不正確な代表値を返す。
 
 ### `GradientWayService`（`gradient_way_service.py`）
 
 風と異なり、`gradient_percent`自体が道路の始点→終点方向を基準にした符号付き値のため
 **道路自身の向きが本質的に必要**。風はタイル単位のスカラー値1個へ縮小できるが、勾配は
-way_idごとに異なる値を返す。
+フィーチャーごとに異なる値を返す。
 
-入力は`RoadGraphRepository.get_way_gradient_inputs_in_tile`が返す`(gradient_percent,
-road_bearing_deg)`のway単位dict（`elevation_attributes.average_grade`と
-`road_edges.bearing_deg`をJOINしたSQL）。
+入力は`RoadGraphRepository.get_feature_gradient_inputs_in_tile`が返す`(gradient_percent,
+road_bearing_deg)`のフィーチャー単位dict（`elevation_attributes.average_grade`と
+`road_edges.bearing_deg`をJOINしたSQL）。区間単位のズームではその区間の実際の勾配が
+そのまま返り、way単位のズームではそのwayの**いちばん急な区間**が代表になる——区間の
+平均を取ると、崖を下って上り返す道が両端の標高差で平坦として塗られる。
 
 **暗黙の前提（モジュール間の隠れた依存）**: このJOINは`ea.average_grade IS NOT NULL
 AND re.bearing_deg IS NOT NULL`を要求するため、[elevation.md](elevation.md)の
 `precompute_elevation_attributes.py`バッチが該当Edgeに対してまだ実行されていない
-（または失敗した）場合、そのway_idは勾配タイルの結果から静かに除外される——エラーには
-ならず、単に地図上でその道路に勾配の色が付かないだけに留まる。
+（または失敗した）場合、その鍵は勾配タイルの結果から静かに除外される——エラーには
+ならず、単に地図上でその道路に勾配の色が付かないだけに留まる。なお標高属性は向きごとの
+edge行に付くため、JOINは**区間の両方向の行**を候補にする（代表に選ばれた向きにだけ
+属性が無くても値は落ちない。符号と向きが同時に反転し打ち消し合う）。
 
 ```python
 values = {
-    way_id: round(GradientCalculator.effective_gradient(gradient_percent, road_bearing_deg, bearing_deg), 1)
-    for way_id, (gradient_percent, road_bearing_deg) in inputs.items()
+    feature_key: round(GradientCalculator.effective_gradient(gradient_percent, road_bearing_deg, bearing_deg), 1)
+    for feature_key, (gradient_percent, road_bearing_deg) in inputs.items()
 }
 ```
 
 `at`引数はrouterとのインターフェース統一のためだけに受け取り、計算には使わない。
 
-両サービスとも`get_way_values(z, x, y, at, bearing_deg, speed_kmh) -> dict[int, float]`という
+両サービスとも`get_way_values(z, x, y, at, bearing_deg, speed_kmh) -> dict[str, float]`という
 同じシグネチャで`region.py`から材料非依存に呼ばれる（勾配は`at`・`speed_kmh`を無視する）。
 
 ## 純粋計算ロジック（domain層）

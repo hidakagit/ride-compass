@@ -1,15 +1,15 @@
-"""way_id→勾配（gradient_percent）配信層。wind_way_service.pyと同型の役割——「評価軸」
+"""鍵→勾配（gradient_percent）配信層。wind_way_service.pyと同型の役割——「評価軸」
 グループとしての勾配（ルート未確定時、視界内の全道路へユーザー指定の向きを一律適用する
 線表示）の基盤。「環境」グループの勾配（gridFill面表示）とも同じ入力（ユーザー指定の
 向き）を共有する。
 
 風とは異なり、gradient_percent自体が道路の始点→終点方向を基準にした符号付き値のため
 道路自身の向きが本質的に必要——そのため風はタイル単位のスカラー値1個（同じタイル内の
-全wayが同じ値）へ縮小できるが、勾配はway_idごとに異なる値を返す
-（`RoadGraphRepository.get_way_gradient_inputs_in_tile`が返すway単位の
+全wayが同じ値）へ縮小できるが、勾配は鍵ごとに異なる値を返す
+（`RoadGraphRepository.get_feature_gradient_inputs_in_tile`が返すway単位の
 `(gradient_percent, road_bearing_deg)`と、ユーザー指定の走行方位から
 `domain/gradient.py: GradientCalculator.effective_gradient`をway単位で計算する）。
-`infrastructure/dynamic_way_value_cache.py`は両者を同じ`dict[way_id, float]`表現で
+`infrastructure/dynamic_way_value_cache.py`は両者を同じ`dict[鍵, float]`表現で
 吸収するため、キャッシュ層自体は共有できる。
 
 勾配は時刻に依存しないため、`at`パラメータは受け取らず（インターフェース統一のため
@@ -53,8 +53,8 @@ class GradientWayService:
 
     async def get_way_values(
         self, z: int, x: int, y: int, at: datetime | None, bearing_deg: float | None, speed_kmh: float | None = None
-    ) -> dict[int, float]:
-        """指定タイル内のway_idごとの実効勾配（`GradientCalculator.effective_gradient`、
+    ) -> dict[str, float]:
+        """指定タイル内のフィーチャーごとの実効勾配（`GradientCalculator.effective_gradient`、
         正=登り・負=下り）を返す。repository未接続・取込範囲外・DB障害等はいずれも空dictへ
         倒す（他の動的配信層[wind_way_service.py]と同じグレースフルデグレード方針）。
 
@@ -85,7 +85,7 @@ class GradientWayService:
             fields["cache_status"] = "miss"
 
             try:
-                inputs = await self._repository.get_way_gradient_inputs_in_tile(
+                inputs = await self._repository.get_feature_gradient_inputs_in_tile(
                     z, x, y, bbox, (ROAD_GRAPH_TILE_ZOOM, ancestor_x, ancestor_y)
                 )
             except Exception as exc:  # noqa: BLE001 DB障害は空dictへ倒す（他タイル系と同じ方針）
@@ -99,11 +99,11 @@ class GradientWayService:
             if not inputs:
                 fields["postgis"] = "empty"
                 return {}
-            fields["way_count"] = len(inputs)
+            fields["feature_count"] = len(inputs)
 
             values = {
-                way_id: round(GradientCalculator.effective_gradient(gradient_percent, road_bearing_deg, bearing_deg), 1)
-                for way_id, (gradient_percent, road_bearing_deg) in inputs.items()
+                feature_key: round(GradientCalculator.effective_gradient(gradient_percent, road_bearing_deg, bearing_deg), 1)
+                for feature_key, (gradient_percent, road_bearing_deg) in inputs.items()
             }
             await set_tile_values(self.axis_id, z, x, y, None, bearing_deg, values, GRADIENT_TILE_VALUES_TTL_SECONDS)
             fields["computed"] = len(values)

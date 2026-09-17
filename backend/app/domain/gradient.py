@@ -16,7 +16,7 @@ import math
 # （forward/backward、domain/graph.py参照）を使っても値は変わらない——逆方向は
 # road_bearing_deg±180度・gradient_percentの符号反転の両方が起きるため、cos(±180度)=-1との
 # 積で符号が2回反転し元に戻る（backend/app/infrastructure/road_graph_repository.py:
-# get_way_gradient_inputs_in_tileがforward/backwardどちらの行を拾っても結果が一致する
+# get_feature_gradient_inputs_in_tileがforward/backwardどちらの行を拾っても結果が一致する
 # 理由、test_gradient.py: test_forward_and_backward_edge_agreeで検証）。
 
 

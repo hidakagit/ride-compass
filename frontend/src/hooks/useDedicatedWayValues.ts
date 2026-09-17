@@ -1,7 +1,7 @@
 "use client";
 
 // 専用way値配信軸（`dedicated_way_value_layer=true`の軸、現状: 風・勾配）の
-// way_id→値フェッチ・状態管理。
+// フィーチャー→値フェッチ・状態管理。
 // useWeatherGrid.ts（風の詳細格子）のdetailGrid取得effectと同じ「viewportをデバウンスして
 // から、タイル単位でまとめてfetchする」パターンを踏襲する——パン・ズームのたびに個別way_idを
 // 都度問い合わせず、表示中のタイル範囲ぶんをまとめて1回のリクエストで取得する。取得対象の
@@ -25,8 +25,9 @@ import { MAP_FETCH_DEBOUNCE_MS, useDebouncedValue } from "@/hooks/useDebouncedVa
 // 連続イベント数ぶんのfetchが発生してしまう）。
 
 export interface DedicatedWayValuesResult {
-  /** way_id→値（複数タイルを統合済み）。評価軸グループのsetFeatureStateにそのまま使える。 */
-  values: ReadonlyMap<number, number>;
+  /** feature_key→値（複数タイルを統合済み）。評価軸グループのsetFeatureStateにそのまま
+   * 使える（鍵は路面タイルの`feature_key`と同じ文字列）。 */
+  values: ReadonlyMap<string, number>;
   /** 現在のビューポートぶんのフェッチが進行中か。falseへ戻るまでの間、
    * まだ一度も値を受け取っていないway（feature-stateキー未設定）は「取得中」、フェッチ
    * 完了後になお値を持たないwayは「その範囲に値が無い」と呼び出し側が区別できるようにする

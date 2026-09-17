@@ -52,21 +52,30 @@ describe("dynamicWayValues", () => {
   });
 
   describe("mergeDynamicWayValues（複数タイル応答の統合）", () => {
-    it("複数タイル分のway_id→値を1つのMapへ統合する", () => {
+    it("複数タイル分のfeature_key→値を1つのMapへ統合する", () => {
       const merged = mergeDynamicWayValues([{ "1": 2.5, "2": -1.0 }, { "3": 0.5 }]);
 
       expect(merged).toEqual(
         new Map([
-          [1, 2.5],
-          [2, -1.0],
-          [3, 0.5],
+          ["1", 2.5],
+          ["2", -1.0],
+          ["3", 0.5],
         ]),
       );
     });
 
-    it("同じway_idが複数タイルに跨って現れた場合は後勝ちにする", () => {
+    it("鍵を数値へ変換せず文字列のまま保つ", () => {
+      // 区間単位のズームでは鍵がedge_id（数値ではない）になり、Number()を通すとNaNへ
+      // 潰れて全区間が同じ鍵になる。promoteIdで昇格したfeature.idと突き合わせる値なので、
+      // 1文字でも変わると色が一切付かない。
+      const merged = mergeDynamicWayValues([{ "w12-3": 2.5, "w12-4": -1.0 }]);
+
+      expect([...merged.keys()]).toEqual(["w12-3", "w12-4"]);
+    });
+
+    it("同じ鍵が複数タイルに跨って現れた場合は後勝ちにする", () => {
       const merged = mergeDynamicWayValues([{ "1": 1.0 }, { "1": 2.0 }]);
-      expect(merged.get(1)).toBe(2.0);
+      expect(merged.get("1")).toBe(2.0);
     });
 
     it("空配列は空のMapを返す", () => {

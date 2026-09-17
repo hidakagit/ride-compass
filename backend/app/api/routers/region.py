@@ -112,8 +112,8 @@ async def region_dedicated_way_values(
     at: datetime | None = None,
     speed_kmh: float | None = None,
     service=Depends(get_dedicated_way_value_service),
-) -> dict[int, float]:
-    """「評価軸」グループとしての動的＋向きあり材料（風・勾配）。指定タイル内のway_idごとの
+) -> dict[str, float]:
+    """「評価軸」グループとしての動的＋向きあり材料（風・勾配）。指定タイル内のフィーチャーごとの
     値（風=wind_drag_ratio[backend/app/domain/wind.py]、勾配=effective_gradient
     [backend/app/domain/gradient.py]）をまとめて返す軽量なJSONエンドポイント。この
     エンドポイントはルート未確定時（視界内の全道路への一律適用）専用——ルート確定後は

@@ -269,7 +269,7 @@ class FakeDynamicWayValueService:
     ],
 )
 def test_region_dedicated_way_values_returns_map_values_json(axis_id, material_id, speed_kmh, expected):
-    fake = FakeDynamicWayValueService(values={1: 2.0, 2: -1.5}, material_id=material_id)
+    fake = FakeDynamicWayValueService(values={"1": 2.0, "2": -1.5}, material_id=material_id)
     app.dependency_overrides[get_dedicated_way_value_service] = lambda: fake
 
     params = {"bearing_deg": 90}
@@ -314,7 +314,7 @@ def test_region_dedicated_way_values_needs_bearing_false_does_not_require_bearin
         dynamic_way_value_needs_bearing=False,
     )
     monkeypatch.setitem(AXIS_DEFINITIONS, "dummy_no_bearing", dummy_axis)
-    fake = FakeDynamicWayValueService(values={1: 1.0})
+    fake = FakeDynamicWayValueService(values={"1": 1.0})
     app.dependency_overrides[get_dedicated_way_value_service] = lambda: fake
 
     try:
@@ -337,7 +337,7 @@ def test_region_dedicated_way_values_needs_speed_requires_speed_kmh_and_passes_i
         dynamic_way_value_needs_speed=True,
     )
     monkeypatch.setitem(AXIS_DEFINITIONS, "dummy_needs_speed", dummy_axis)
-    fake = FakeDynamicWayValueService(values={1: 2.5}, material_id="wind_drag_ratio")
+    fake = FakeDynamicWayValueService(values={"1": 2.5}, material_id="wind_drag_ratio")
     app.dependency_overrides[get_dedicated_way_value_service] = lambda: fake
 
     try:

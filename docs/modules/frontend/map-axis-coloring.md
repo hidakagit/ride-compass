@@ -5,8 +5,8 @@
 評価軸（軸スタジオ管理）のdifficulty値を、(1) ルート確定前は視界内の全道路（評価軸
 グループの線、風・勾配とも）・環境グループの面（勾配のみ。風は矢印のみで面塗りを持たない、
 [地図: 動的気象レイヤー](dynamic-weather-layers.md)参照）、(2) ルート確定後は選択中
-ルートの線、それぞれ地図上で色分け表示する。専用のway_id→値配信レイヤー
-（[動的材料・way_id値配信（backend）](../backend/dynamic-way-values.md)）を持つ軸
+ルートの線、それぞれ地図上で色分け表示する。専用のフィーチャー→値配信レイヤー
+（[動的材料・フィーチャー値配信（backend）](../backend/dynamic-way-values.md)）を持つ軸
 （現状: 風・勾配）が対象。
 
 **対象ファイル**
@@ -47,7 +47,7 @@
 ```
 
 軸ごとに地図が塗る値の種類はbackendが軸定義から決める（`GET /api/axis-catalog`の
-`map_value_kind`/`map_value_unit`、[動的材料・way_id値配信（backend）](../backend/dynamic-way-values.md)
+`map_value_kind`/`map_value_unit`、[動的材料・フィーチャー値配信（backend）](../backend/dynamic-way-values.md)
 参照）。`difficulty`の軸はルート前（専用way値レイヤー）もルート後（ルート線）も
 軸スタジオのbreakpointsで評価済みの0〜100を塗り、`signed_material`の軸（勾配）は
 どちらも符号付き材料生値を塗る。
@@ -64,7 +64,7 @@ backend（`domain/dynamic_way_values.py: map_value_thresholds`）が軸の折れ
 
 | 判定 | 使う軸データ属性 | 関数・場所 |
 |---|---|---|
-| 専用way_id配信レイヤーを持つか | `AxisDefinition.dedicated_way_value_layer` | `axisLayers.ts: dedicatedWayValueAxesFromCatalogAxes`が抽出し、`useAxisCatalog`の`dedicatedAxes`として配る |
+| 専用のフィーチャー配信レイヤーを持つか | `AxisDefinition.dedicated_way_value_layer` | `axisLayers.ts: dedicatedWayValueAxesFromCatalogAxes`が抽出し、`useAxisCatalog`の`dedicatedAxes`として配る |
 | 地図レイヤーID・MapLibre layer id | 軸id（文字列合成） | `axisLayers.ts: dedicatedWayValueMapLayerId`（`${axisId}Axis`）・`dedicatedWayValueLineLayerId`（`region-${axisId}-axis-line`） |
 | フェッチに時刻／想定速度を載せるか | `AxisCatalogEntry.dynamic_way_value_needs_time` / `_needs_speed` | `useDedicatedWayValues`（載せない入力は依存キーからも外れるため、その入力が変わっても再フェッチしない） |
 | 符号付き材料を直接読むか／難易度を読むか | `AxisCatalogEntry.map_value_kind`（backend `domain/dynamic_way_values.py: map_value_kind`が`shape`から導出） | `routeStyleModes.ts: routeColorableModeFromAxis`・`dedicatedWayValueLayer.ts`（`DedicatedWayValueDisplay.kind`） |
@@ -165,7 +165,7 @@ backend（`domain/dynamic_way_values.py: map_value_thresholds`）が軸の折れ
 ## useDedicatedWayValues.ts（フェッチ・状態管理）
 
 viewportをデバウンス（500ms）してから、表示中のタイル範囲ぶんをまとめて1回の
-リクエストで取得する（パン・ズームのたびに個別way_idを都度問い合わせない）。
+リクエストで取得する（パン・ズームのたびに個別の道路を都度問い合わせない）。
 **`bearingDeg`（走行方位）もviewportと同じ500msでデバウンスする**——コンパススライダー
 （`WindBearingSlider`）はドラッグ中`onChange`を連続発火するため、素の値を依存配列に
 入れるとドラッグ1回で「可視タイル数×連続イベント数」ぶんのfetchが発生してしまうため。
@@ -179,16 +179,18 @@ viewportをデバウンス（500ms）してから、表示中のタイル範囲�
 戻り値は`ReadonlyMap<axisId, DedicatedWayValuesResult>`で、`dedicatedWayValuesFor(results,
 axisId)`が未取得・対象外の軸を空の結果へ倒して読み出す。1軸ぶんの結果は5種類:
 
-- `values: ReadonlyMap<number, number>`（way_id→値、複数タイル統合済み）——評価軸
-  グループの`setFeatureState`にそのまま使える。
+- `values: ReadonlyMap<string, number>`（feature_key→値、複数タイル統合済み）——評価軸
+  グループの`setFeatureState`にそのまま使える。**鍵は文字列のまま保つ**——路面タイルの
+  `feature_key`はズームによってway_idにもedge_idにもなり（backendの`EDGE_UNIT_MIN_ZOOM`）、
+  数値へ変換するとedge_idがNaNへ潰れて色が一切付かない。
 - `loading: boolean`（現在のビューポートぶんのフェッチが進行中か）——
-  `values`は古い値をそのまま残す設計（パン・ズームで一部way_idが最新の応答に含まれなく
+  `values`は古い値をそのまま残す設計（パン・ズームで一部の鍵が最新の応答に含まれなく
   なっても明示的に消さない）ため、`loading`だけを見て「まだ一度も値を受け取っていない
   wayが読込中なのか、取得済みだが値が無いのか」を呼び出し側（`valueScale.ts`の
   `COLOR_LOADING`/`COLOR_NO_DATA`）が判定する。
 - `error: boolean`（直近に完了したフェッチで、いずれかのタイルの取得が通信失敗したか）——
   `fetchDynamicWayValues`の`DynamicWayValuesResult.error`をタイル横断でOR集約する。
-  backendが正常応答で空オブジェクトを返した場合（対象範囲に本当にway_idが無い）は
+  backendが正常応答で空オブジェクトを返した場合（対象範囲に本当に道路が無い）は
   `false`のまま。地図の色分け自体は「取得失敗」と「本当に空」のどちらも同じ無彩色
   （`COLOR_NO_DATA`）になり見分けが付かないため、`page.tsx`が`lens`が
   専用way値配信軸を指す間だけ`error`/`loading`/`values`の有無から
@@ -240,8 +242,11 @@ page.tsx
           軸の件数に依存しない全称判定の純粋関数が持つ）
 ```
 
-- `promoteId: { [ROAD_TILE_SOURCE_LAYER]: "osm_way_id" }`（`ensureRoadSurfaceTileLayer`）が
+- `promoteId: { [ROAD_TILE_SOURCE_LAYER]: "feature_key" }`（`ensureRoadSurfaceTileLayer`）が
   MVTフィーチャーへ安定したidを持たせる前提条件——これが無いと`setFeatureState`が使えない。
+  **`osm_way_id`では代用できない**（タイルのフィーチャーはズームによってway丸ごとにも
+  区間にもなり、`feature_key`だけがその単位に追従する）。ここを取り違えても例外も警告も
+  出ず、ただ色が付かなくなるだけのため、`MapView.layerOps.test.ts`が固定している。
 - 専用way値配信軸のensure関数は`ROAD_TILE_LAYER_ID`（路面本体）と同じ
   `ROAD_TILE_SOURCE_ID`/`ROAD_TILE_SOURCE_LAYER`を共有する独立レイヤーとして追加される
   （`designation`/`tunnel`/`oneway`と同型の構成）。

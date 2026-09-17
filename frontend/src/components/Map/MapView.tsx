@@ -313,8 +313,8 @@ export const ROAD_TILE_LAYER_ID = "region-road-surface-tiles-line";
 // 同時表示は並列トラック（applyRoadMaterialTrackOffsets）で分ける。
 // exportはテスト専用（MapView.layerOps.test.ts）。
 export const ROAD_TYPE_LAYER_ID = "region-road-type-line";
-// クリックして詳細を見ている道の強調。路面タイルのfeature-state（promoteIdで
-// osm_way_idがfeature.idへ昇格済み）だけで塗るため、専用のソースも取得も増えない。
+// クリックして詳細を見ている道の強調。路面タイルのフィーチャーを`osm_way_id`で絞る
+// 独立レイヤーで塗るため、専用のソースも取得も増えない。
 // exportはテスト専用（MapView.layerOps.test.ts）。
 export const ROAD_INSPECT_LAYER_ID = "region-road-inspect-line";
 // 専用way値配信軸（「評価軸」グループの風・勾配等）のMapLibre layer idは
@@ -1109,7 +1109,8 @@ export function applyDynamicWeatherState(
 // 追加し、以降はvisibilityの切替・setPaintProperty/setFilterのみで表示・非表示・見た目を
 // 変える。標高ラスタの直後に追加することで、標高の上・ルート系レイヤーの下に描画される。
 // paintの初期値は仮の中立値（applyRoadLayerStateが呼び出し直後に必ず実際の値へ上書きする）。
-function ensureRoadSurfaceTileLayer(map: MapLibreMap) {
+// exportはテスト専用（MapView.layerOps.test.ts、promoteIdの固定）。
+export function ensureRoadSurfaceTileLayer(map: MapLibreMap) {
   const applyData = () => {
     if (map.getSource(ROAD_TILE_SOURCE_ID)) return;
     map.addSource(ROAD_TILE_SOURCE_ID, {
@@ -1117,12 +1118,13 @@ function ensureRoadSurfaceTileLayer(map: MapLibreMap) {
       tiles: [roadSurfaceTileUrl()],
       minzoom: ROAD_TILE_MIN_ZOOM,
       maxzoom: ROAD_TILE_MAX_ZOOM,
-      // way_id→wind_drag_ratio配信層（評価軸グループとしての風）がMapLibreの
-      // setFeatureStateでこのソースの地物へ後から値を差し込むために必要。MVTのフィーチャーは
-      // 既定では安定したidを持たないため、既存のosm_way_idプロパティ（区間インスペクタ用に
-      // 元から焼き込み済み、_ROAD_SURFACE_TILE_MVT_SQL参照）をfeature.idへ昇格させる
-      // （バックエンド側のタイル内容・世代は変更不要）。
-      promoteId: { [ROAD_TILE_SOURCE_LAYER]: "osm_way_id" },
+      // フィーチャー→値配信層（評価軸グループの風・勾配）がMapLibreのsetFeatureStateで
+      // このソースの地物へ後から値を差し込むために必要。MVTのフィーチャーは既定では安定した
+      // idを持たないため、タイルへ焼き込み済みの`feature_key`をfeature.idへ昇格させる。
+      // **`osm_way_id`ではなく`feature_key`を使う**——タイルのフィーチャーはズームによって
+      // way丸ごとにも区間にもなり（backendの`EDGE_UNIT_MIN_ZOOM`）、`feature_key`だけが
+      // その単位に追従する。配信APIの鍵も同じ列から作られる。
+      promoteId: { [ROAD_TILE_SOURCE_LAYER]: "feature_key" },
       attribution: ROAD_TILE_ATTRIBUTION,
     });
     for (const layerId of [ROAD_TILE_LAYER_ID, ROAD_TYPE_LAYER_ID]) {
@@ -1200,9 +1202,9 @@ function makeEnsureDedicatedWayValueLayer(layerId: string, colorExpression: unkn
   };
 }
 
-// useDedicatedWayValues（hooks）が取得した{way_id: 値}をMapLibreのsetFeatureStateで
+// useDedicatedWayValues（hooks）が取得した{feature_key: 値}をMapLibreのsetFeatureStateで
 // 地物へ差し込む。パン・ズームで
-// 表示範囲が変わり、直前に取得した一部のway_idが最新の応答に含まれなくなっても、
+// 表示範囲が変わり、直前に取得した一部の鍵が最新の応答に含まれなくなっても、
 // 明示的なremoveFeatureStateは行わない（windLayer.ts: mergeWindGridKeepingStaleと同じ
 // 判断——古い値が多少残る方が、穴が開いたように見えるより実用上マシという方針を踏襲する。
 // 値そのものはbackend側のRedis TTLの範囲でしか新鮮さを保証しないため、古い値が長時間
@@ -1212,12 +1214,12 @@ function makeEnsureDedicatedWayValueLayer(layerId: string, colorExpression: unkn
 export function applyAxisFeatureStateValues(
   map: MapLibreMap,
   featureStateKey: string,
-  values: ReadonlyMap<number, number>,
+  values: ReadonlyMap<string, number>,
 ) {
   if (!map.getSource(ROAD_TILE_SOURCE_ID)) return;
-  values.forEach((value, wayId) => {
+  values.forEach((value, featureKey) => {
     map.setFeatureState(
-      { source: ROAD_TILE_SOURCE_ID, sourceLayer: ROAD_TILE_SOURCE_LAYER, id: wayId },
+      { source: ROAD_TILE_SOURCE_ID, sourceLayer: ROAD_TILE_SOURCE_LAYER, id: featureKey },
       { [featureStateKey]: value },
     );
   });
@@ -1994,13 +1996,13 @@ interface MapViewProps {
   dedicatedAxes: readonly DedicatedWayValueAxis[];
   /** hooks/useDedicatedWayValues.tsが現在のビューポートに対して取得したway_id→値
    * （風=wind_drag_ratio[m/s、正=向かい風・負=追い風]、勾配=effective_gradient[%、
-   * 正=登り・負=下り]）を、axisId→(way_id→値)の汎用Mapとしてまとめて受け取る
+   * 正=登り・負=下り]）を、axisId→(feature_key→値)の汎用Mapとしてまとめて受け取る
    * （page.tsx: useDedicatedWayValuesの結果を軸id→valuesへ写して構築）。
    * show{Wind,Gradient}Axisがtrueの間、変化のたびにMapLibreのsetFeatureStateで
    * 路面タイルの地物へ差し込む（applyAxisFeatureStateValues参照）。軸ごとに別名のpropを
    * 新設せず（design-principles.md構造仕様3参照）汎用Mapへ統合してある。未設定の軸idは
    * 空Map扱い（get()がundefinedを返す）として処理される。 */
-  dedicatedWayValues: ReadonlyMap<string, ReadonlyMap<number, number>>;
+  dedicatedWayValues: ReadonlyMap<string, ReadonlyMap<string, number>>;
   /** `dedicated_way_value_layer`軸の地図表示宣言（種類・単位・しきい値・段階ラベル、
    * 軸カタログ由来）をaxisId→宣言の汎用Mapとして受け取る（page.tsx: axisCatalog.axesから
    * `dedicatedWayValueLayer===true`の軸を横断的に抽出して構築）。評価軸グループの線・
@@ -3267,8 +3269,9 @@ export default function MapView({
 
   // 道路クリックの詳細ポップアップ。中身はReactで描き、MapLibreのPopupは器として使う。
   // 開いている間はその道を地図上で強調する（どの線の話かが分からないと詳細だけ見ても
-  // 場所を取り違える）。強調は路面タイルのfeature-state（promoteIdでosm_way_idが
-  // feature.idへ昇格済み）で行い、専用のソースや取得を増やさない。
+  // 場所を取り違える）。強調は路面タイルを`osm_way_id`で絞る独立レイヤーで行い、
+  // 専用のソースや取得を増やさない（区間単位のズームではそのwayの区間すべてが光る——
+  // インスペクタが見せるのがway単位の属性のため）。
   useEffect(() => {
     const map = mapRef.current;
     // 再描画（map.setStyle()）は強調を初期値へ戻すため、redrawAllLayersが復元できるよう

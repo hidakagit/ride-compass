@@ -37,14 +37,14 @@ def use_fake_redis(monkeypatch):
 
 
 class FakeWayIdsRepository:
-    """RoadGraphRepositoryのうちget_way_ids_in_tileだけを実装したフェイク。"""
+    """RoadGraphRepositoryのうちget_feature_keys_in_tileだけを実装したフェイク。"""
 
     def __init__(self, way_ids: list[int] | None, error: Exception | None = None):
         self._way_ids = way_ids
         self._error = error
         self.calls: list[tuple[int, int, int, tuple[int, int, int]]] = []
 
-    async def get_way_ids_in_tile(self, z, x, y, bbox, coverage_tile):
+    async def get_feature_keys_in_tile(self, z, x, y, bbox, coverage_tile):
         self.calls.append((z, x, y, coverage_tile))
         if self._error is not None:
             raise self._error

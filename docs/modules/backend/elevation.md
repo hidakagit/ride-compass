@@ -108,8 +108,9 @@ Edgeは永続化しない。
 **暗黙の前提（モジュール間の隠れた依存）**: このバッチが対象Edgeに対して実行されて
 いない、または`elevation_attributes.average_grade`がNULLのままだと、
 [dynamic-way-values.md](dynamic-way-values.md)の勾配材料配信（`GradientWayService`・
-`get_way_gradient_inputs_in_tile`）はそのway_idを結果から黙って除外する（SQL側の
-`ea.average_grade IS NOT NULL`条件）。[routing-engine.md](routing-engine.md)のroad_graph
+`get_feature_gradient_inputs_in_tile`）はそのフィーチャーを結果から黙って除外する
+（SQL側の`ea.average_grade IS NOT NULL`条件。ただし区間の逆向きの行に属性があれば
+そちらが使われる）。[routing-engine.md](routing-engine.md)のroad_graph
 エンジンの探索コスト側も同様に「未計算のEdgeはNoneのまま＝評価スキップ」として扱う。
 このバッチの実行状態は、実行が漏れていても即座にはエラーとして顕在化せず、地図上の
 一部道路の勾配色・車ストレス評価が静かに欠落するという性質の障害モードを持つ。

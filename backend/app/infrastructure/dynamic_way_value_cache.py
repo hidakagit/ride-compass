@@ -67,9 +67,9 @@ def _key(
 async def get_tile_values(
     material_id: str, z: int, x: int, y: int, hour_bucket: str | None, bearing_deg: float | None,
     speed_kmh: float | None = None,
-) -> dict[int, float] | None:
+) -> dict[str, float] | None:
     """指定タイル・材料・時刻バケット・向きバケット・速度バケット（速度に依存しない材料は
-    None）に対応する`{way_id: 値}`を返す。
+    None）に対応する`{鍵: 値}`を返す。
     未キャッシュ・Redis疎通不能・壊れたエントリはいずれもNoneへfail-openする（呼び出し元は
     実計算へ進む）。"""
     key = _key(material_id, z, x, y, hour_bucket, bearing_deg, speed_kmh)
@@ -83,11 +83,11 @@ async def set_tile_values(
     y: int,
     hour_bucket: str | None,
     bearing_deg: float | None,
-    values: dict[int, float],
+    values: dict[str, float],
     ttl_seconds: int,
     speed_kmh: float | None = None,
 ) -> None:
-    """新規に計算できた`{way_id: 値}`をRedisへ書き戻す（キャッシュの最適化であり、
+    """新規に計算できた`{鍵: 値}`をRedisへ書き戻す（キャッシュの最適化であり、
     書き込み失敗はレスポンス自体の成否には関与しない。失敗時は抑制付きWARNINGで記録する
     だけに留める）。"""
     key = _key(material_id, z, x, y, hour_bucket, bearing_deg, speed_kmh)

@@ -1,4 +1,4 @@
-// way_id→動的値配信層（風・勾配）の材料非依存な共通ロジック。「評価軸」グループとして
+// フィーチャー→動的値配信層（風・勾配）の材料非依存な共通ロジック。「評価軸」グループとして
 // 動的＋向きあり材料を道路そのものを線で塗る表示にする際、どの材料でも共通して必要になる
 // タイル座標計算・複数タイル分の応答統合をここへ集約する。材料固有の値（配色・しきい値・
 // setFeatureStateキー）はdedicatedWayValueLayer.tsが軸カタログの宣言から組み立てる
@@ -72,14 +72,18 @@ export function tilesCoveringViewport(
   return tiles;
 }
 
-/** 複数タイルぶんの{way_id: 値}応答（JSONオブジェクトのキーは常に文字列）を、
- * way_id(number)キーのMapへ統合する。同じway_idが隣接タイルへ跨って複数回現れても値は
- * 同じはず（backend側のRedisキャッシュがタイル単位のため）だが、念のため後勝ちにする。 */
-export function mergeDynamicWayValues(responses: readonly Record<string, number>[]): Map<number, number> {
-  const merged = new Map<number, number>();
+/** 複数タイルぶんの{feature_key: 値}応答を1つのMapへ統合する。同じ鍵が隣接タイルへ跨って
+ * 複数回現れても値は同じはず（backend側のキャッシュがタイル単位のため）だが、念のため
+ * 後勝ちにする。
+ *
+ * **鍵は文字列のまま扱う**。路面タイルの`feature_key`はズームによってway_idにも
+ * edge_idにもなり（backendの`EDGE_UNIT_MIN_ZOOM`）、edge_idは数値ではない。数値へ
+ * 変換すると`setFeatureState`のidがタイル側のfeature.idと一致せず、色が一切付かない。 */
+export function mergeDynamicWayValues(responses: readonly Record<string, number>[]): Map<string, number> {
+  const merged = new Map<string, number>();
   for (const response of responses) {
-    for (const [wayId, value] of Object.entries(response)) {
-      merged.set(Number(wayId), value);
+    for (const [featureKey, value] of Object.entries(response)) {
+      merged.set(featureKey, value);
     }
   }
   return merged;

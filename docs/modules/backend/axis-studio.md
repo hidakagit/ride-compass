@@ -83,7 +83,7 @@ compute_edge_axis_scores`経由、下記「呼び出し元」参照）。周回�
 | `time_scope` | "always"\|"night_only" | 特定時間帯のみ重みを持つか |
 | `display_thresholds_override` | list[float]\|None | 色分けしきい値の上書き |
 | `display_band_labels_override` | list[str]\|None | 段階ごとの体感ラベルの上書き（例:「強い向かい風」）。設定する場合は`display_thresholds_override`も設定済みで要素数が段階数（しきい値数+1）と一致すること |
-| `dedicated_way_value_layer` | bool | 専用way_id→値配信レイヤーを持つか |
+| `dedicated_way_value_layer` | bool | 専用のフィーチャー→値配信レイヤーを持つか |
 | `dynamic_way_value_needs_time`/`dynamic_way_value_needs_bearing`/`dynamic_way_value_needs_speed` | bool | `dedicated_way_value_layer=True`の軸のみ意味を持つ。`GET /api/region/dynamic-way-values/...`の`at`/`bearing_deg`/`speed_kmh`クエリパラメータ必須判定（[dynamic-way-values.md](dynamic-way-values.md)参照） |
 
 ### `AxisShape`（評価式、2プリミティブ）
@@ -323,7 +323,7 @@ frontendの静的フォールバック（[軸スタジオ管理画面（frontend
   （`domain/axis_definitions.py`）を使い、**shapeの種別を問わず`priority_overrides`が
   参照する材料も含める**。動的軸かどうかを判定する`_axes_depending_on_materials`が
   同じ導出を根拠にしているため、検証側だけ`shape.terms`に絞ると素通りした軸が実行時に落ちる。
-- `dedicated_way_value_layer`を立てられるのは、way_id→値配信の実装
+- `dedicated_way_value_layer`を立てられるのは、フィーチャー→値配信の実装
   （`api/dependencies.py`の`_DEDICATED_WAY_VALUE_SERVICE_FACTORIES`）が登録済みの
   `axis_id`だけ。宣言だけでは配信できる値が無い（配信側は実装の無い材料を未知の
   `material_id`と同じく404で返す）。

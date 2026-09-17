@@ -20,6 +20,7 @@ import {
   SECONDARY_AXIS_CASING_WIDTH,
   TUNNEL_LAYER_ID,
   applyAxisFeatureStateValues,
+  ensureRoadSurfaceTileLayer,
   applyInspectedWay,
   applyRoadMaterialTrackOffsets,
   buildAxisOverlayLayers,
@@ -318,13 +319,30 @@ describe("shouldClearDedicatedWayValueFeatureState（専用way値配信軸が1�
   });
 });
 
+describe("ensureRoadSurfaceTileLayer（路面タイルのsource）", () => {
+  it("feature_keyをfeature.idへ昇格させる", () => {
+    // 動的値配信（風・勾配）の鍵はタイルの`feature_key`列から作られる。ここが別の列
+    // （`osm_way_id`等）だと、setFeatureStateのidがどの地物とも一致せず**エラーも警告も
+    // 出ないまま色が一切付かない**。`feature_key`はズームによってway_idにもedge_idにも
+    // なるため、way固有の列で代用できない。
+    const map = fakeMap();
+
+    ensureRoadSurfaceTileLayer(map as unknown as Parameters<typeof ensureRoadSurfaceTileLayer>[0]);
+
+    const source = map.addedSources.find((s) => s.id === ROAD_TILE_SOURCE_ID);
+    expect(source?.spec.promoteId).toEqual({ [ROAD_TILE_SOURCE_LAYER]: "feature_key" });
+  });
+});
+
 describe("applyAxisFeatureStateValues（改善計画T490）", () => {
-  it("road_surfaceソースが存在すれば全way_idぶんsetFeatureStateを呼ぶ", () => {
+  it("road_surfaceソースが存在すれば全フィーチャーぶんsetFeatureStateを呼ぶ", () => {
     const map = fakeMap();
     map.addSource(ROAD_TILE_SOURCE_ID);
+    // 鍵は路面タイルの`feature_key`そのもの。ズームによってway_idにもedge_idにもなるため、
+    // 数値化せず受け取った文字列のままidへ渡す。
     const values = new Map([
-      [123, 5],
-      [456, -2],
+      ["123", 5],
+      ["w456-7", -2],
     ]);
 
     applyAxisFeatureStateValues(
@@ -335,11 +353,11 @@ describe("applyAxisFeatureStateValues（改善計画T490）", () => {
 
     expect(map.setFeatureStateCalls).toEqual([
       {
-        target: { source: ROAD_TILE_SOURCE_ID, sourceLayer: ROAD_TILE_SOURCE_LAYER, id: 123 },
+        target: { source: ROAD_TILE_SOURCE_ID, sourceLayer: ROAD_TILE_SOURCE_LAYER, id: "123" },
         state: { windPenalty: 5 },
       },
       {
-        target: { source: ROAD_TILE_SOURCE_ID, sourceLayer: ROAD_TILE_SOURCE_LAYER, id: 456 },
+        target: { source: ROAD_TILE_SOURCE_ID, sourceLayer: ROAD_TILE_SOURCE_LAYER, id: "w456-7" },
         state: { windPenalty: -2 },
       },
     ]);
@@ -351,7 +369,7 @@ describe("applyAxisFeatureStateValues（改善計画T490）", () => {
     applyAxisFeatureStateValues(
       map as unknown as Parameters<typeof applyAxisFeatureStateValues>[0],
       "windPenalty",
-      new Map([[123, 5]]),
+      new Map([["123", 5]]),
     );
 
     expect(map.setFeatureStateCalls).toEqual([]);

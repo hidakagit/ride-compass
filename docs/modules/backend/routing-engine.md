@@ -854,12 +854,15 @@ DROP`前に軽いSELECTを1つ挟んで実トランザクションを確定さ�
 #### 派生delivery系クエリ（wind/gradient/road surface/POI）
 
 `_ROAD_SURFACE_TILE_MVT_SQL`（路面・道路種別・車ストレス材料タグ等をPostGIS側で
-ST_AsMVT丸ごと生成）・`_WAY_IDS_IN_TILE_SQL`（wind、道路自身の方位角は使わずway_id一覧
-のみ返す）・`_WAY_GRADIENT_INPUTS_IN_TILE_SQL`（gradient。wayが複数edgeに分割されている
-場合はDISTINCT ONで決定論的に代表1本を選ぶ——forward/backwardのどちらを拾ってもcos補正の
-結果は符号が2回反転して打ち消し合うため結果に影響しない）はいずれも同じ
-「road_graph_tilesのz12祖先タイルマーク」でカバレッジ判定し、1タイル1DB往復にまとめる
-設計を共有する。詳細は[dynamic-way-values.md](dynamic-way-values.md)参照。
+ST_AsMVT丸ごと生成）・`_FEATURE_KEYS_IN_TILE_SQL`（wind、道路自身の方位角は使わず鍵の
+一覧のみ返す）・`_FEATURE_GRADIENT_INPUTS_IN_TILE_SQL`（gradient。way単位のズームでは
+そのwayのいちばん急な区間を代表にし、区間単位のズームではその区間の実値をそのまま返す。
+JOINは区間の両方向の行を候補にする——標高属性は向きごとのedge行に付くため片方にしか
+無いことがあり、forward/backwardのどちらを拾ってもcos補正の結果は符号が2回反転して
+打ち消し合う）はいずれも同じ「road_graph_tilesのz12祖先タイルマーク」でカバレッジ判定し、
+1タイル1DB往復にまとめる設計を共有する。いずれも**同じ`_TILE_FEATURE_SOURCE_SQL`から
+フィーチャーを引く**——別々に組み立てると、代表の選び方がタイルとずれた瞬間に鍵が噛み合わず
+色が一切付かない。詳細は[dynamic-way-values.md](dynamic-way-values.md)参照。
 
 **material_catalogの動的値列挙**（`get_distinct_material_values`）: 軸スタジオ
 （AxisComposer.tsx）がhighway/surface/smoothnessのような開放的な多値材料の候補一覧を

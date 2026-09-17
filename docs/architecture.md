@@ -2131,7 +2131,7 @@ car_stress（内部軸5つの合成値、複数材料の重み付き結合のた
 不要になった。現在`kind=bespoke`の軸は無く、gradient/surface_qは`kind=none`（既存の
 標高図・道路情報レイヤーが代替）。night軸はT145a（データ充実待ちで保留）まで未生成。
 
-### 動的材料の状態別表現契約とway_id→動的値配信層（改善計画T405→T414→T423で汎用化）
+### 動的材料の状態別表現契約とフィーチャー→動的値配信層（改善計画T405→T414→T423で汎用化）
 
 上記の二次軸ランプレイヤーは「事実はタイルに焼き込み、解釈（重み・しきい値）はクライアント側の
 MapLibre expressionで行う」方式だが、風のように**道路自身に紐づかない外部条件（風向風速）が
@@ -2157,26 +2157,31 @@ MapLibre expressionで行う」方式だが、風のように**道路自身に�
   評価軸（線）だけが表示を持つ。
 - **評価軸（線）**: `WindWayService.get_way_values(z, x, y, at, bearing_deg, speed_kmh)`
   （[wind_way_service.py](../backend/app/services/wind_way_service.py)）が、指定タイル内の
-  way_id一覧（`RoadGraphRepository.get_way_ids_in_tile`）を取得し、最寄りの風グリッド格子点
+  フィーチャーの鍵一覧（`RoadGraphRepository.get_feature_keys_in_tile`）を取得し、
+  最寄りの風グリッド格子点
   （`domain/wind_grid.py: nearest_grid_point`）の風向風速と、**ユーザーが指定した単一の
   走行方位**（全道路共通、道路自身の向きは計算に使わない）・想定速度から`wind_drag_ratio`
   （材料`wind_drag_ratio`、走行速度依存の二乗則、`speed_kmh`必須）で1回だけ計算し、
-  タイル内の全way_idへ同じ値を割り当てる（同じタイル内の全wayは常に同じ値を持つ——
+  タイル内の全フィーチャーへ同じ値を割り当てる（同じタイル内の全道路は常に同じ値を持つ——
   風グリッドをタイル中心1点で代表させる既存の近似＋走行方位が全道路共通のため）。
   計算結果は`(材料id, z, x, y, 時刻バケット, 向きバケット[5度刻み], 速度バケット[1km/h刻み])
   → 値`というタイル単位のキーで[dynamic_way_value_cache.py]
   (../backend/app/infrastructure/dynamic_way_value_cache.py)経由でRedisへキャッシュする
   （TTLは呼び出し元が気象データの新鮮さから渡す。風は3時間）。
   `GET /api/region/dynamic-way-values/wind/{z}/{x}/{y}`（§4参照、`bearing_deg`・`speed_kmh`
-  クエリパラメータ必須）が`{way_id: 地図表示値}`を返す（backendが軸定義で評価した難易度
+  クエリパラメータ必須）が`{feature_key: 地図表示値}`を返す（backendが軸定義で評価した難易度
   0〜100。勾配のような符号付き材料の軸だけ生値、`domain/dynamic_way_values.py:
   transform_dedicated_way_values`）——静的なroad-surface-tiles（MVT、変更なし）とは
   完全に別経路のJSONエンドポイント。
   フロントは`ROAD_TILE_SOURCE_ID`のvector sourceへ`promoteId: { [ROAD_TILE_SOURCE_LAYER]:
-  "osm_way_id" }`を設定し、既存の`osm_way_id`プロパティをMapLibreの`feature.id`へ昇格させる。
+  "feature_key" }`を設定し、タイルの`feature_key`プロパティをMapLibreの`feature.id`へ
+  昇格させる。**`osm_way_id`ではなく`feature_key`**なのは、タイルのフィーチャーがズームに
+  よってway丸ごとにも区間にもなり（改善計画T918、`EDGE_UNIT_MIN_ZOOM`）、`feature_key`だけが
+  その単位に追従するため。鍵は文字列のまま扱う（区間単位ではedge_idが入り、数値化すると
+  一致しなくなる）。
   `hooks/useDedicatedWayValues.ts`が現在のビューポート（デバウンス後）を覆う道路タイル分を
   まとめてfetchし（`dynamicWayValues.ts: tilesCoveringViewport`）、`MapView.tsx`が
-  `map.setFeatureState({source, sourceLayer, id: wayId}, {windValue: value})`で道路タイル
+  `map.setFeatureState({source, sourceLayer, id: featureKey}, {windValue: value})`で道路タイル
   の地物へ後から値を差し込む。色分けは`["feature-state","windValue"]`を読むMapLibre
   expression（`dedicatedWayValueLayer.ts: dedicatedWayValueColorExpression`、しきい値・
   配色・単位は軸カタログの`map_value_kind`/`map_value_unit`/`display_thresholds_override`
@@ -2208,8 +2213,8 @@ T400.md「3.」節の実装（T352）で既に存在しており、T414で新規
 **風との違い（設計上の要点）**: 風は「道路自身の向きが不要」という訂正を経た材料（T414）だが、
 勾配は逆に**道路自身の向きが本質的に必要**——`gradient_percent`自体が道路の始点→終点方向を
 基準にした符号付き値のため。この違いを吸収するため、汎用化した配信機構は「1タイルにつき
-スカラー値1個をway_id一覧全件へbroadcastする」（風）と「1タイルにつきway_idごとに異なる値を
-持つ」（勾配）の両方を同じキャッシュ表現（`dict[way_id, float]`のJSON）で扱えるようにした。
+スカラー値1個を鍵の一覧全件へbroadcastする」（風）と「1タイルにつき鍵ごとに異なる値を
+持つ」（勾配）の両方を同じキャッシュ表現（`dict[feature_key, float]`のJSON）で扱えるようにした。
 
 **符号補正（確定済みの設計判断）**: `effective_gradient = gradient_percent × cos(道路自身の
 向き − ユーザー指定の向き)`という連続的なcos補正を採用した
@@ -2235,13 +2240,14 @@ effective_gradient`）。道路の向きと指定方向のなす角度に応じ�
   （改善計画T672）。
 - **キャッシュ層**: 旧`wind_way_penalty_cache.py`（風専用、キーは`(z,x,y,時刻,向き)`→
   スカラー値1個）を[dynamic_way_value_cache.py](../backend/app/infrastructure/dynamic_way_value_cache.py)
-  （材料id駆動、キーは`(axis_id,z,x,y,時刻,向き)`→`{way_id: 値}`のJSON）へ汎用化した。
-  風は従来どおり全way_idへ同値をbroadcastしたdictを渡すだけで動作は変わらない。
+  （材料id駆動、キーは`(axis_id,z,x,y,時刻,向き)`→`{feature_key: 値}`のJSON）へ汎用化した。
+  風は従来どおり全ての鍵へ同値をbroadcastしたdictを渡すだけで動作は変わらない。
 - **サービス層**: `WindWayService`（風専用、風グリッド取得＋旧`headwind_component_ms`）
   と[GradientWayService](../backend/app/services/gradient_way_service.py)（勾配専用、
-  `RoadGraphRepository.get_way_gradient_inputs_in_tile`でway単位の`(gradient_percent,
-  road_bearing_deg)`を取得しway単位で`GradientCalculator.effective_gradient`を計算）は、
-  どちらも`get_way_values(z, x, y, at, bearing_deg) -> dict[int, float]`という統一
+  `RoadGraphRepository.get_feature_gradient_inputs_in_tile`でフィーチャー単位の
+  `(gradient_percent, road_bearing_deg)`を取得しフィーチャー単位で
+  `GradientCalculator.effective_gradient`を計算）は、
+  どちらも`get_way_values(z, x, y, at, bearing_deg) -> dict[str, float]`という統一
   インターフェースを持つ（`at`は勾配側では無視するが、router側の材料非依存な呼び出しを
   可能にするため受け取る）。材料ごとの計算式自体は各サービスの専用ロジックのまま——
   2具体例しかない現時点で共通のProvider抽象を無理に導入せず、キャッシュ層という実際に
@@ -2269,7 +2275,7 @@ value/onChange/ariaLabelという既存propsが元々「向きだけ」を扱う
 `tile_property_direction_dependent=True`（方向依存材料）でもあり、方向依存材料を含む軸は
 `derive_ramp_inputs`がこの時点で`None`を返すよう既に設計されている。つまりabs対応を実装
 しても`gradient`のkind="ramp"化には一切寄与しない（2つの独立した制約が両方ともこの軸を
-弾く）——かつ`gradient`の地図表示は上記のとおりRedis経由のway_id→値配信という別経路に
+弾く）——かつ`gradient`の地図表示は上記のとおりRedis経由のフィーチャー→値配信という別経路に
 決着しており、そもそもramp（MVTタイル焼き込み）を必要としない。詳細は
 [domain/axis_display.py](../backend/app/domain/axis_display.py)のモジュールdocstring参照。
 
@@ -2321,7 +2327,7 @@ T352〜T434の間、"wind"は`supports_route_coloring`経由で動的に生成�
   `generatedRoutePreference`）。
 - プレルート側（地図上チップのグルーピング）の同種のaxis_idハードコード分岐
   （`mapLayers.ts: isAxisStudioLayer`）も、`AxisDefinition.dedicated_way_value_layer`
-  （この軸が専用のway_id→値配信レイヤーを持つかの宣言）で判定する。
+  （この軸が専用のフィーチャー→値配信レイヤーを持つかの宣言）で判定する。
   `isAxisStudioLayer`は`mapOverlayGroupFor`という広く呼ばれる純粋関数の内部で使われる
   ため、ライブなaxis-catalogを動的注入する設計は採らず、`RAMP_AXES`/`AXIS_LABELS`と同じ
   「ビルド時静的axis-catalog.jsonからの片側import」パターン

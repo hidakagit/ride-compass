@@ -136,23 +136,23 @@ def map_value_unit(definition: AxisDefinition) -> str:
 
 
 def transform_dedicated_way_values(
-    definition: AxisDefinition, material_id: str, values: dict[int, float]
-) -> dict[int, float]:
+    definition: AxisDefinition, material_id: str, values: dict[str, float]
+) -> dict[str, float]:
     """専用way値配信サービスが返した材料生値（`material_id`の値）を、地図が塗るべき値へ
     変換する。`map_value_kind`が`difficulty`なら軸スタジオの定義（breakpoints・
     priority_overrides）で評価した難易度、`signed_material`なら生値のまま。評価できない
     値（軸が他の材料も必須にしている等）はその道路を結果から除く（地図上は「データなし」）。
-    同じ材料値は1回だけ評価する（風のようにタイル内全wayが同値の場合、評価は1回で済む）。
+    同じ材料値は1回だけ評価する（風のようにタイル内が全て同値の場合、評価は1回で済む）。
     """
     if map_value_kind(definition) == "signed_material":
         return values
     evaluated: dict[float, float | None] = {}
-    result: dict[int, float] = {}
-    for way_id, value in values.items():
+    result: dict[str, float] = {}
+    for feature_key, value in values.items():
         if value not in evaluated:
             evaluated[value] = evaluate_axis_scalar(definition, {material_id: value})
         difficulty = evaluated[value]
         if difficulty is not None:
-            result[way_id] = difficulty
+            result[feature_key] = difficulty
     return result
 

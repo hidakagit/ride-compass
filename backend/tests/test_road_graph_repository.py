@@ -1556,7 +1556,9 @@ async def _save_ways_and_edges(repository, way_specs, nodes):
     EDGE_UNIT_MIN_ZOOM）。生のwayだけを入れても、その単位のタイルには1件も出ない。
     """
     await repository.save_raw_ways(way_specs, nodes)
-    await repository.save_graph(build_road_graph(way_specs, nodes, graph_version="v1"))
+    graph = build_road_graph(way_specs, nodes, graph_version="v1")
+    await repository.save_graph(graph)
+    return graph
 
 
 async def _mark_mvt_coverage(road_graph_session):
@@ -2182,92 +2184,106 @@ async def test_get_road_surface_tile_mvt_encodes_landcover_trees_and_built_pct(
 
 
 
-async def test_get_way_ids_in_tile_returns_none_when_uncovered(road_graph_repository):
+async def test_get_feature_keys_in_tile_returns_none_when_uncovered(road_graph_repository):
     way = WaySpec(osm_way_id=1, node_ids=[1, 2], highway="residential")
     await _save_ways_and_edges(road_graph_repository, [way], {1: NODE1, 2: NODE2})
 
-    result = await road_graph_repository.get_way_ids_in_tile(MVT_Z, MVT_X, MVT_Y, _mvt_tile_bbox(), MVT_COVERAGE_TILE)
+    result = await road_graph_repository.get_feature_keys_in_tile(MVT_Z, MVT_X, MVT_Y, _mvt_tile_bbox(), MVT_COVERAGE_TILE)
 
     assert result is None
 
 
-async def test_get_way_ids_in_tile_returns_empty_list_when_covered_but_no_ways(
+async def test_get_feature_keys_in_tile_returns_empty_list_when_covered_but_no_ways(
     road_graph_repository, road_graph_session
 ):
     await _mark_mvt_coverage(road_graph_session)
 
-    result = await road_graph_repository.get_way_ids_in_tile(MVT_Z, MVT_X, MVT_Y, _mvt_tile_bbox(), MVT_COVERAGE_TILE)
+    result = await road_graph_repository.get_feature_keys_in_tile(MVT_Z, MVT_X, MVT_Y, _mvt_tile_bbox(), MVT_COVERAGE_TILE)
 
     assert result == []
 
 
-async def test_get_way_ids_in_tile_returns_way_id(road_graph_repository, road_graph_session):
+async def test_get_feature_keys_in_tile_returns_tile_feature_keys(road_graph_repository, road_graph_session):
+    """鍵はタイルのフィーチャーと同じ単位で返る（MVT_Zは区間単位のズームなのでedge_id）。
+
+    値を色へ変えるのはフロントの`setFeatureState`で、鍵がタイル側の`feature_key`と
+    一字でも違えば色が一切付かないため、単位の一致そのものを固定する。
+    """
     way = WaySpec(osm_way_id=1, node_ids=[1, 2], highway="residential")
-    await _save_ways_and_edges(road_graph_repository, [way], {1: NODE1, 2: NODE2})
+    graph = await _save_ways_and_edges(road_graph_repository, [way], {1: NODE1, 2: NODE2})
     await _mark_mvt_coverage(road_graph_session)
 
-    result = await road_graph_repository.get_way_ids_in_tile(MVT_Z, MVT_X, MVT_Y, _mvt_tile_bbox(), MVT_COVERAGE_TILE)
+    result = await road_graph_repository.get_feature_keys_in_tile(MVT_Z, MVT_X, MVT_Y, _mvt_tile_bbox(), MVT_COVERAGE_TILE)
 
-    assert result == [1]
+    tile = await road_graph_repository.get_road_surface_tile_mvt(
+        MVT_Z, MVT_X, MVT_Y, _mvt_tile_bbox(), MVT_COVERAGE_TILE
+    )
+    assert result is not None
+    assert set(result) == set(await _decode_feature_keys(tile))
+    assert set(result) <= set(graph.edges)
 
 
-async def test_get_way_ids_in_tile_excludes_ways_outside_tile(road_graph_repository, road_graph_session):
+async def test_get_feature_keys_in_tile_excludes_ways_outside_tile(road_graph_repository, road_graph_session):
     way_inside = WaySpec(osm_way_id=1, node_ids=[1, 2], highway="residential")
     way_outside = WaySpec(osm_way_id=2, node_ids=[3, 4], highway="residential")
-    await _save_ways_and_edges(road_graph_repository, [way_inside, way_outside], {1: NODE1, 2: NODE2, 3: NODE3, 4: NODE4})
+    graph = await _save_ways_and_edges(
+        road_graph_repository, [way_inside, way_outside], {1: NODE1, 2: NODE2, 3: NODE3, 4: NODE4}
+    )
     await _mark_mvt_coverage(road_graph_session)
 
-    result = await road_graph_repository.get_way_ids_in_tile(MVT_Z, MVT_X, MVT_Y, _mvt_tile_bbox(), MVT_COVERAGE_TILE)
+    result = await road_graph_repository.get_feature_keys_in_tile(MVT_Z, MVT_X, MVT_Y, _mvt_tile_bbox(), MVT_COVERAGE_TILE)
 
     assert result is not None
-    assert set(result) == {1}
+    assert {graph.edges[key].osm_way_id for key in result} == {1}
 
 
-async def test_get_way_ids_in_tile_includes_zero_length_way(road_graph_repository, road_graph_session):
+async def test_get_feature_keys_in_tile_includes_zero_length_way(road_graph_repository, road_graph_session):
     """始点=終点（極端に短いway）は、旧get_way_bearings_in_tile（ST_Azimuth依存）では
-    NULLとして除外されていたが、bearing計算自体が無くなったget_way_ids_in_tileでは
+    NULLとして除外されていたが、bearing計算自体が無くなったget_feature_keys_in_tileでは
     除外理由が無いため、ジオメトリさえ存在すれば結果に含む。"""
     way = WaySpec(osm_way_id=1, node_ids=[1, 2], highway="residential")
-    await _save_ways_and_edges(road_graph_repository, [way], {1: NODE1, 2: NODE1})
+    graph = await _save_ways_and_edges(road_graph_repository, [way], {1: NODE1, 2: NODE1})
     await _mark_mvt_coverage(road_graph_session)
 
-    result = await road_graph_repository.get_way_ids_in_tile(MVT_Z, MVT_X, MVT_Y, _mvt_tile_bbox(), MVT_COVERAGE_TILE)
+    result = await road_graph_repository.get_feature_keys_in_tile(MVT_Z, MVT_X, MVT_Y, _mvt_tile_bbox(), MVT_COVERAGE_TILE)
 
-    assert result == [1]
+    assert result is not None
+    assert set(result) <= set(graph.edges)
+    assert {graph.edges[key].osm_way_id for key in result} == {1}
 
 
-# --- get_way_gradient_inputs_in_tile（改善計画T423、way_id→勾配配信層のway単位
-# (gradient_percent, bearing_deg)取得。get_way_ids_in_tileと異なりroad_edges・
+# --- get_feature_gradient_inputs_in_tile（改善計画T423、way_id→勾配配信層のway単位
+# (gradient_percent, bearing_deg)取得。get_feature_keys_in_tileと異なりroad_edges・
 # elevation_attributesをJOINするため、save_raw_ways（osm_raw_ways）ではなく
 # build_road_graph+save_graph（road_edges）+save_elevation_attributesでデータを用意する）---
 
 
-async def test_get_way_gradient_inputs_in_tile_returns_none_when_uncovered(road_graph_repository):
+async def test_get_feature_gradient_inputs_in_tile_returns_none_when_uncovered(road_graph_repository):
     ways = [WaySpec(osm_way_id=1, node_ids=[1, 2], highway="residential")]
     nodes = {1: NODE1, 2: NODE2}
     graph = build_road_graph(ways, nodes, graph_version="v1")
     await road_graph_repository.save_graph(graph)
 
-    result = await road_graph_repository.get_way_gradient_inputs_in_tile(
+    result = await road_graph_repository.get_feature_gradient_inputs_in_tile(
         MVT_Z, MVT_X, MVT_Y, _mvt_tile_bbox(), MVT_COVERAGE_TILE
     )
 
     assert result is None
 
 
-async def test_get_way_gradient_inputs_in_tile_returns_empty_dict_when_covered_but_no_edges(
+async def test_get_feature_gradient_inputs_in_tile_returns_empty_dict_when_covered_but_no_edges(
     road_graph_repository, road_graph_session
 ):
     await _mark_mvt_coverage(road_graph_session)
 
-    result = await road_graph_repository.get_way_gradient_inputs_in_tile(
+    result = await road_graph_repository.get_feature_gradient_inputs_in_tile(
         MVT_Z, MVT_X, MVT_Y, _mvt_tile_bbox(), MVT_COVERAGE_TILE
     )
 
     assert result == {}
 
 
-async def test_get_way_gradient_inputs_in_tile_returns_gradient_and_bearing(
+async def test_get_feature_gradient_inputs_in_tile_returns_gradient_and_bearing(
     road_graph_repository, road_graph_session
 ):
     from app.domain.geo import bearing_between
@@ -2290,13 +2306,14 @@ async def test_get_way_gradient_inputs_in_tile_returns_gradient_and_bearing(
     )
     await _mark_mvt_coverage(road_graph_session)
 
-    result = await road_graph_repository.get_way_gradient_inputs_in_tile(
+    result = await road_graph_repository.get_feature_gradient_inputs_in_tile(
         MVT_Z, MVT_X, MVT_Y, _mvt_tile_bbox(), MVT_COVERAGE_TILE
     )
 
     assert result is not None
-    assert set(result.keys()) == {1}
-    gradient_percent, road_bearing_deg = result[1]
+    assert set(result.keys()) <= set(graph.edges)
+    assert {graph.edges[key].osm_way_id for key in result} == {1}
+    gradient_percent, road_bearing_deg = next(iter(result.values()))
     assert gradient_percent == pytest.approx(4.5)
     # forward方向のedge（node1→node2）のbearing_degは、domain/geo.py: bearing_betweenが
     # 同じ2点から計算する値と一致するはず（migration 0013のコメント: ST_Azimuthと
@@ -2312,25 +2329,67 @@ async def test_get_way_gradient_inputs_in_tile_returns_gradient_and_bearing(
     )
 
 
-async def test_get_way_gradient_inputs_in_tile_excludes_edges_without_elevation_attribute(
+async def test_get_feature_gradient_inputs_in_tile_uses_the_reverse_direction_of_the_segment(
     road_graph_repository, road_graph_session
 ):
-    # elevation_attributesが無いedge（バッチ未実行等）は結果から除外する
-    # （_WAY_GRADIENT_INPUTS_IN_TILE_SQLのJOIN、NULLIFではなくINNER JOINのため）。
+    """代表に選ばれなかった向きの行にしか標高属性が無くても、その区間の勾配は配信される。
+
+    標高属性は向きごとのedge行に付き、探索が通った向きだけ埋まることがある。区間の代表
+    （_TILE_FEATURE_SOURCE_SQLのDISTINCT ON）はedge_id順で決まり、埋まっている向きとは
+    独立に選ばれるため、代表の行だけを見ると値が黙って落ちる。
+    """
     ways = [WaySpec(osm_way_id=1, node_ids=[1, 2], highway="residential")]
     nodes = {1: NODE1, 2: NODE2}
     graph = build_road_graph(ways, nodes, graph_version="v1")
     await road_graph_repository.save_graph(graph)
     await _mark_mvt_coverage(road_graph_session)
 
-    result = await road_graph_repository.get_way_gradient_inputs_in_tile(
+    representative = (
+        await road_graph_repository.get_feature_keys_in_tile(
+            MVT_Z, MVT_X, MVT_Y, _mvt_tile_bbox(), MVT_COVERAGE_TILE
+        )
+    )[0]
+    reverse = next(edge_id for edge_id in graph.edges if edge_id != representative)
+    await road_graph_repository.save_elevation_attributes(
+        [
+            ElevationAttribute(
+                edge_id=reverse,
+                average_grade=4.5,
+                data_source="gsi",
+                calculated_at=datetime(2026, 1, 1, tzinfo=timezone.utc).isoformat(),
+            )
+        ]
+    )
+
+    result = await road_graph_repository.get_feature_gradient_inputs_in_tile(
+        MVT_Z, MVT_X, MVT_Y, _mvt_tile_bbox(), MVT_COVERAGE_TILE
+    )
+
+    assert result is not None
+    assert set(result.keys()) == {representative}
+    gradient_percent, _ = result[representative]
+    assert gradient_percent == pytest.approx(4.5)
+
+
+async def test_get_feature_gradient_inputs_in_tile_excludes_edges_without_elevation_attribute(
+    road_graph_repository, road_graph_session
+):
+    # elevation_attributesが無いedge（バッチ未実行等）は結果から除外する
+    # （_FEATURE_GRADIENT_INPUTS_IN_TILE_SQLのJOIN、NULLIFではなくINNER JOINのため）。
+    ways = [WaySpec(osm_way_id=1, node_ids=[1, 2], highway="residential")]
+    nodes = {1: NODE1, 2: NODE2}
+    graph = build_road_graph(ways, nodes, graph_version="v1")
+    await road_graph_repository.save_graph(graph)
+    await _mark_mvt_coverage(road_graph_session)
+
+    result = await road_graph_repository.get_feature_gradient_inputs_in_tile(
         MVT_Z, MVT_X, MVT_Y, _mvt_tile_bbox(), MVT_COVERAGE_TILE
     )
 
     assert result == {}
 
 
-async def test_get_way_gradient_inputs_in_tile_excludes_edges_outside_tile(road_graph_repository, road_graph_session):
+async def test_get_feature_gradient_inputs_in_tile_excludes_edges_outside_tile(road_graph_repository, road_graph_session):
     ways = [WaySpec(osm_way_id=2, node_ids=[3, 4], highway="residential")]
     nodes = {3: NODE3, 4: NODE4}
     graph = build_road_graph(ways, nodes, graph_version="v1")
@@ -2348,7 +2407,7 @@ async def test_get_way_gradient_inputs_in_tile_excludes_edges_outside_tile(road_
     )
     await _mark_mvt_coverage(road_graph_session)
 
-    result = await road_graph_repository.get_way_gradient_inputs_in_tile(
+    result = await road_graph_repository.get_feature_gradient_inputs_in_tile(
         MVT_Z, MVT_X, MVT_Y, _mvt_tile_bbox(), MVT_COVERAGE_TILE
     )
 

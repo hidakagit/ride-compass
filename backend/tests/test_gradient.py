@@ -29,7 +29,7 @@ def test_downhill_road_same_direction():
 
 def test_forward_and_backward_edge_agree():
     # domain/gradient.pyのモジュールdocstring・road_graph_repository.py:
-    # _WAY_GRADIENT_INPUTS_IN_TILE_SQLのコメントで説明した性質: 同じway・同じ物理区間の
+    # _FEATURE_GRADIENT_INPUTS_IN_TILE_SQLのコメントで説明した性質: 同じway・同じ物理区間の
     # forward/backward2行（road_edges、向きが180度反転・gradient_percentの符号も反転）の
     # どちらを使ってeffective_gradientを計算しても、結果は一致する。
     gradient_percent = 4.5

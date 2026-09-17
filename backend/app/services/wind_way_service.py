@@ -1,4 +1,4 @@
-"""way_id→動的値配信層（風、「評価軸」グループ）。
+"""鍵→動的値配信層（風、「評価軸」グループ）。
 
 「評価軸」グループとしての風（ルート未確定時、視界内の全道路へユーザー指定の[時刻,向き]を
 一律適用する線表示）の基盤。「環境」グループの風（時刻＋方位スライダー＋`gridFill`面表示、
@@ -7,8 +7,8 @@ windLayer.ts/dynamicWeather.ts）とは別経路だが、**同じ[時刻,向き]
 走行方位（travel_bearing_deg）は**ユーザーがコンパススライダーで指定した単一の値**
 （全道路共通）を使う——道路自身のOSM格納方向は使わない。この結果、同じタイル内の全wayは
 常に同じ`wind_drag_ratio`値を持つ（風グリッドもタイル中心1点で代表させる既存の近似の
-ため）。対象タイルに存在するway_idの一覧（`get_way_ids_in_tile`）だけを取得すればよく、
-計算結果のキャッシュもway_idごとではなくタイル単位のスカラー値1個で足りる（way_id一覧
+ため）。対象タイルに存在するフィーチャーの鍵の一覧（`get_feature_keys_in_tile`）だけを取得すればよく、
+計算結果のキャッシュも鍵ごとではなくタイル単位のスカラー値1個で足りる（鍵の一覧
 全件へ同値をbroadcastしたdictとして`dynamic_way_value_cache.py`へ渡す）。
 
 制御フローの詳細はdocs/modules/backend/dynamic-way-values.md「`WindWayService`」節参照。
@@ -76,8 +76,8 @@ class WindWayService:
 
     async def get_way_values(
         self, z: int, x: int, y: int, at: datetime | None, bearing_deg: float | None, speed_kmh: float | None = None
-    ) -> dict[int, float]:
-        """指定タイル内のway_idごとの風の材料値（`material_id`）を返す（同じタイル内の
+    ) -> dict[str, float]:
+        """指定タイル内のフィーチャーごとの風の材料値（`material_id`）を返す（同じタイル内の
         全wayは同じ値を持つ——モジュールdocstring参照）。`speed_kmh`（想定速度）は
         必須。repository未接続・取込範囲外・風データ取得不能等はいずれも空dictへ倒す
         （地図表示という既存機能全体を落とさず、
@@ -104,18 +104,18 @@ class WindWayService:
 
         with log_external_call("region:wind-way-penalty", z=z, x=x, y=y) as fields:
             try:
-                way_ids = await self._repository.get_way_ids_in_tile(
+                feature_keys = await self._repository.get_feature_keys_in_tile(
                     z, x, y, bbox, (ROAD_GRAPH_TILE_ZOOM, ancestor_x, ancestor_y)
                 )
             except Exception as exc:  # noqa: BLE001 DB障害は空dictへ倒す（他タイル系と同じ方針）
                 fields["result"] = "error"
                 fields["warned"] = True
-                logger.warning("風の評価軸配信のway_id取得に失敗 z=%d x=%d y=%d error=%r", z, x, y, exc)
+                logger.warning("風の評価軸配信の鍵取得に失敗 z=%d x=%d y=%d error=%r", z, x, y, exc)
                 return {}
-            if not way_ids:
-                fields["postgis"] = "uncovered" if way_ids is None else "empty"
+            if not feature_keys:
+                fields["postgis"] = "uncovered" if feature_keys is None else "empty"
                 return {}
-            fields["way_count"] = len(way_ids)
+            fields["feature_count"] = len(feature_keys)
 
             # タイル中心1点の風から全wayへ同じ値を配るだけで計算が軽いため、値はキャッシュ
             # しない（節約は1タイルあたり2.8ms＝応答の5%で、1エントリ190KBを保持するのに
@@ -136,7 +136,7 @@ class WindWayService:
             wind_speed = wind_grid_point.wind_speed_ms[index]
             wind_direction = wind_grid_point.wind_direction_deg[index]
             penalty = round(wind_drag_ratio(wind_speed, wind_direction, bearing_deg, kmh_to_ms(speed_kmh)), 3)
-            fields["computed"] = len(way_ids)
+            fields["computed"] = len(feature_keys)
 
             # 同じタイル内の全wayが同じ値を持つため、ここで1回だけbroadcastする。
-            return dict.fromkeys(way_ids, penalty)
+            return dict.fromkeys(feature_keys, penalty)

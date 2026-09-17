@@ -60,8 +60,8 @@ describe("useDedicatedWayValues（専用way値配信軸のフェッチ・状態�
 
     await waitFor(() => expect(dedicatedWayValuesFor(result.current, "wind").values.size).toBe(2));
     const wind = dedicatedWayValuesFor(result.current, "wind");
-    expect(wind.values.get(1)).toBe(2.5);
-    expect(wind.values.get(2)).toBe(-1.0);
+    expect(wind.values.get("1")).toBe(2.5);
+    expect(wind.values.get("2")).toBe(-1.0);
     expect(wind.error).toBe(false);
     expect(fetchDynamicWayValues).toHaveBeenCalledWith("wind", 14, 14549, 6450, 90, at, 20);
   });
@@ -75,8 +75,8 @@ describe("useDedicatedWayValues（専用way値配信軸のフェッチ・状態�
     const { result } = renderHook(() => useDedicatedWayValues(BOTH, VIEWPORT, 45, undefined));
 
     await waitFor(() => expect(result.current.size).toBe(2));
-    expect(dedicatedWayValuesFor(result.current, "wind").values.get(1)).toBe(2.5);
-    expect(dedicatedWayValuesFor(result.current, "gradient").values.get(3)).toBe(4.5);
+    expect(dedicatedWayValuesFor(result.current, "wind").values.get("1")).toBe(2.5);
+    expect(dedicatedWayValuesFor(result.current, "gradient").values.get("3")).toBe(4.5);
   });
 
   it("時刻・想定速度は、それを必要とすると宣言した軸のリクエストにだけ載る", async () => {
@@ -139,7 +139,7 @@ describe("useDedicatedWayValues（専用way値配信軸のフェッチ・状態�
     resolveFetch({ values: { "1": 2.5 }, error: false });
 
     await waitFor(() => expect(dedicatedWayValuesFor(result.current, "wind").loading).toBe(false));
-    expect(dedicatedWayValuesFor(result.current, "wind").values.get(1)).toBe(2.5);
+    expect(dedicatedWayValuesFor(result.current, "wind").values.get("1")).toBe(2.5);
   });
 
   it("タイル取得が本当に空（backendが正常応答でerror:falseの空values）なら、例外を投げず空の結果に収束しerrorはfalseのまま", async () => {

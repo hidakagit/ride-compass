@@ -20,14 +20,14 @@ def use_fake_redis(monkeypatch):
 
 
 class FakeGradientInputsRepository:
-    """RoadGraphRepositoryのうちget_way_gradient_inputs_in_tileだけを実装したフェイク。"""
+    """RoadGraphRepositoryのうちget_feature_gradient_inputs_in_tileだけを実装したフェイク。"""
 
     def __init__(self, inputs: dict[int, tuple[float, float]] | None, error: Exception | None = None):
         self._inputs = inputs
         self._error = error
         self.calls: list[tuple[int, int, int, tuple[int, int, int]]] = []
 
-    async def get_way_gradient_inputs_in_tile(self, z, x, y, bbox, coverage_tile):
+    async def get_feature_gradient_inputs_in_tile(self, z, x, y, bbox, coverage_tile):
         self.calls.append((z, x, y, coverage_tile))
         if self._error is not None:
             raise self._error
