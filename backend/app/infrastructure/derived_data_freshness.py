@@ -25,7 +25,7 @@ from app.domain.derived_data_versions import (
     EDGE_ATTRIBUTE_COUNTS_ALGORITHM_VERSION as _EDGE_ALGORITHM_VERSION,
     WAY_ATTRIBUTE_COUNTS_ALGORITHM_VERSION as _WAY_ALGORITHM_VERSION,
     WAY_DIVIDED_CARRIAGEWAY_ALGORITHM_VERSION as _DIVIDED_CARRIAGEWAY_ALGORITHM_VERSION,
-    WAY_LANDCOVER_ALGORITHM_VERSION as _LANDCOVER_ALGORITHM_VERSION,
+    LANDCOVER_ALGORITHM_VERSION as _LANDCOVER_ALGORITHM_VERSION,
 )
 
 
@@ -81,6 +81,12 @@ GENERATION_FRESHNESS_SPECS: tuple[GenerationFreshnessSpec, ...] = (
         sources=(SourceRunSpec("OSM取込", "osm_import_runs", "source_osm_import_run_id"),),
         algorithm_version_current=_LANDCOVER_ALGORITHM_VERSION,
         algorithm_version_owner="precompute_way_landcover.ALGORITHM_VERSION",
+    ),
+    GenerationFreshnessSpec(
+        table_name="edge_landcover",
+        sources=(SourceRunSpec("OSM取込", "osm_import_runs", "source_osm_import_run_id"),),
+        algorithm_version_current=_LANDCOVER_ALGORITHM_VERSION,
+        algorithm_version_owner="precompute_edge_landcover.ALGORITHM_VERSION",
     ),
     GenerationFreshnessSpec(
         table_name="way_divided_carriageway",

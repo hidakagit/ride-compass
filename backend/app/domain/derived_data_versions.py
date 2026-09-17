@@ -16,15 +16,17 @@ WAY_ATTRIBUTE_COUNTS_ALGORITHM_VERSION = "v3"
 WAY_DIVIDED_CARRIAGEWAY_ALGORITHM_VERSION = "v1"
 
 # 土地被覆はリング径ごとに別のアルゴリズムとして扱う（`--buffer-m`/`--inner-m`へ既定と違う値を
-# 渡して実行した行は、鮮度台帳が古い版として検知する）。
-WAY_LANDCOVER_DEFAULT_BUFFER_M = 100.0
-WAY_LANDCOVER_DEFAULT_INNER_M = 10.0
+# 渡して実行した行は、鮮度台帳が古い版として検知する）。way単位（`way_landcover`）と区間単位
+# （`edge_landcover`）は同じリング径・同じ算出で母集団だけが違うため、版数の規則を共有する
+# （径を変えれば両方の行が同時に古くなる）。
+LANDCOVER_DEFAULT_BUFFER_M = 100.0
+LANDCOVER_DEFAULT_INNER_M = 10.0
 
 
-def way_landcover_algorithm_version(inner_m: float, buffer_m: float) -> str:
+def landcover_algorithm_version(inner_m: float, buffer_m: float) -> str:
     return f"v1-ring{int(inner_m)}-{int(buffer_m)}"
 
 
-WAY_LANDCOVER_ALGORITHM_VERSION = way_landcover_algorithm_version(
-    WAY_LANDCOVER_DEFAULT_INNER_M, WAY_LANDCOVER_DEFAULT_BUFFER_M
+LANDCOVER_ALGORITHM_VERSION = landcover_algorithm_version(
+    LANDCOVER_DEFAULT_INNER_M, LANDCOVER_DEFAULT_BUFFER_M
 )

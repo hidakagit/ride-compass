@@ -54,15 +54,9 @@ import shapely
 from shapely.geometry import LineString
 from sqlalchemy import text
 
-from app.batch.precompute_way_landcover import (
-    DEFAULT_BUFFER_M,
-    DEFAULT_INNER_M,
-    _RasterSource,
-    build_ring,
-    count_pixels_in_ring,
-)
+from app.batch._landcover import RasterSource, measure_ring
+from app.batch.precompute_way_landcover import DEFAULT_BUFFER_M, DEFAULT_INNER_M
 from app.domain.attributes import WIRED_LANDCOVER_KEYS
-from app.domain.landcover import class_percentages
 from app.infrastructure.database import get_session_factory
 
 # 抽出するway数の既定。全件回すと実装と同じ時間がかかるため、判断に足る規模で止める
@@ -121,17 +115,10 @@ class _ClassStats:
         return ordered[index]
 
 
-def _segment_percentages(sources: list[_RasterSource], line_wgs84: LineString, buffer_m: float, inner_m: float):
-    """1区間ぶんの割合。バッチと同じ手順（範囲へ完全に収まるラスタだけを使う）。"""
-    for source in sources:
-        ring = build_ring(source.to_raster_crs(line_wgs84), inner_m, buffer_m)
-        if not source.contains(ring):
-            continue
-        counts = count_pixels_in_ring(source.dataset, ring)
-        if counts is None:
-            continue
-        return class_percentages(counts)
-    return None
+def _segment_percentages(sources: list[RasterSource], line_wgs84: LineString, buffer_m: float, inner_m: float):
+    """1区間ぶんの割合。バッチ本体と同じ関数を呼ぶ（別の数え方をすると、測った差が実装で
+    再現しない）。"""
+    return measure_ring(sources, line_wgs84, inner_m, buffer_m).percentages
 
 
 async def _collect(raster_paths: list[str], limit: int, buffer_m: float, inner_m: float) -> None:
@@ -144,7 +131,7 @@ async def _collect(raster_paths: list[str], limit: int, buffer_m: float, inner_m
         print("app/batch/presplit_road_graph.py を先に流してください。")
         return
 
-    sources = [_RasterSource(path) for path in raster_paths]
+    sources = [RasterSource(path) for path in raster_paths]
     try:
         stats = {key: _ClassStats() for key in WIRED_LANDCOVER_KEYS}
         worst_ranges: list[float] = []

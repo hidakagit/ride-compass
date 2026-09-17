@@ -303,6 +303,44 @@ class WayLandcoverRow(Base):
     source_raster_set: Mapped[str | None] = mapped_column(String, nullable=True)
 
 
+class EdgeLandcoverRow(Base):
+    """`WayLandcoverRow`と同じ土地被覆の割合を、区間単位で持つ（migration 0044で実テーブルは
+    作成済み、ORMモデルはミラー）。バッチは`app/batch/precompute_edge_landcover.py`。
+
+    主キーはedge_idではなく「way＋両端ノードの組（小さい方・大きい方）」。`road_edges`は
+    forward/backwardを別行で持ち、路面タイルが代表として残す行は`edge_id`昇順で決まるため、
+    edge_idを鍵にすると代表の向きに行が無いときだけ値が落ちる。向きに依らない鍵なら
+    ラスタ読み出しも物理区間あたり1回で済む。
+
+    割合8列とvalid_pixelsのNULLの意味・増分実行のために行を残す理由は`WayLandcoverRow`と
+    同じ。区間を持たないwayや`presplit_road_graph.py`未実行の範囲には行が作れないため、
+    読み出し側は行が無ければway単位の値へ落とす。
+    """
+
+    __tablename__ = "edge_landcover"
+
+    osm_way_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("osm_raw_ways.osm_way_id", ondelete="CASCADE"), primary_key=True
+    )
+    node_lo: Mapped[str] = mapped_column(String, primary_key=True)
+    node_hi: Mapped[str] = mapped_column(String, primary_key=True)
+    valid_pixels: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    water_percent: Mapped[float | None] = mapped_column(Float, nullable=True)
+    trees_percent: Mapped[float | None] = mapped_column(Float, nullable=True)
+    flooded_veg_percent: Mapped[float | None] = mapped_column(Float, nullable=True)
+    crops_percent: Mapped[float | None] = mapped_column(Float, nullable=True)
+    built_percent: Mapped[float | None] = mapped_column(Float, nullable=True)
+    bare_percent: Mapped[float | None] = mapped_column(Float, nullable=True)
+    snow_ice_percent: Mapped[float | None] = mapped_column(Float, nullable=True)
+    rangeland_percent: Mapped[float | None] = mapped_column(Float, nullable=True)
+    data_source: Mapped[str] = mapped_column(String, nullable=False)
+    data_version: Mapped[str] = mapped_column(String, nullable=False)
+    computed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    source_osm_import_run_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    algorithm_version: Mapped[str | None] = mapped_column(String, nullable=True)
+    source_raster_set: Mapped[str | None] = mapped_column(String, nullable=True)
+
+
 class WayDividedCarriagewayRow(Base):
     """そのwayが「上下線が分かれた道の片側」か（migration 0040で実テーブルは作成済み、
     ORMモデルはミラー）。バッチは`app/batch/precompute_way_divided_carriageway.py`。

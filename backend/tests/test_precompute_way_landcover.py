@@ -15,11 +15,9 @@ from rasterio.transform import from_origin
 from shapely.geometry import LineString
 from sqlalchemy import text
 
+from app.batch._landcover import build_ring, count_pixels_in_ring, infer_data_version_from_filename
 from app.batch.precompute_way_landcover import (
     algorithm_version,
-    build_ring,
-    count_pixels_in_ring,
-    infer_data_version_from_filename,
     raster_set_fingerprint,
     run,
     run_default,
@@ -93,7 +91,7 @@ def test_raster_source_rejects_rings_that_stick_out_of_the_raster(tmp_path):
     一部だけ重なるラスタで割合を出すと、重なった側の土地被覆だけで100%を分け合う
     「もっともらしい数値」が正規の行として入り、NULLでないため鮮度台帳にも現れない。
     """
-    from app.batch.precompute_way_landcover import _RasterSource
+    from app.batch._landcover import RasterSource
 
     raster_path = tmp_path / "bounds.tif"
     transform = from_origin(382000, 3951800, 10, 10)  # x:[382000,383000] y:[3950800,3951800]
@@ -103,7 +101,7 @@ def test_raster_source_rejects_rings_that_stick_out_of_the_raster(tmp_path):
     ) as ds:
         ds.write(np.full((100, 100), 2, dtype=np.uint8), 1)
 
-    source = _RasterSource(str(raster_path))
+    source = RasterSource(str(raster_path))
     try:
         inside = build_ring(LineString([(382400, 3951300), (382500, 3951300)]), inner_m=10, outer_m=100)
         assert source.contains(inside)

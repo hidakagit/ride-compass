@@ -102,10 +102,11 @@ async def test_run_skip_landcover_omits_only_that_stage(monkeypatch):
     result = await refresh_derived.run(database_url=None, dry_run=False, skip_landcover=True)
 
     assert result == 0
-    # 「土地被覆の段**だけ**が抜ける」ことを見る。抜ける段を名指しし、残りは`_STAGES`から
-    # 導く（残りを並べると、段を足したときにこの期待値の側だけが古くなる）。
-    skipped = [label for label, _, _ in refresh_derived._STAGES if "landcover" in label]
-    assert len(skipped) == 1
+    # 「ラスタを要する段**だけ**が抜ける」ことを見る。抜ける段は正本
+    # （`_LANDCOVER_MODULES`）から導き、残りは`_STAGES`から導く（どちらも並べ直すと、
+    # 段を足したときにこの期待値の側だけが古くなる）。
+    skipped = [label for label, module, _ in refresh_derived._STAGES if module in refresh_derived._LANDCOVER_MODULES]
+    assert skipped
     assert calls == [label for label, _, _ in refresh_derived._STAGES if label not in skipped]
 
 

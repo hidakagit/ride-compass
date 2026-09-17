@@ -2781,3 +2781,135 @@ async def test_区間を持たないwayも区間単位のズームで出る(road
     # way1は区間の鍵で、way2はway丸ごとの鍵で出る。
     assert any(key.startswith("way-1-") for key in keys)
     assert "2" in keys
+
+
+# --- 土地被覆の単位（T919、road_graph_repository.py: _landcover_value_column） ---
+
+
+async def _insert_way_landcover(session, osm_way_id: int, trees_percent: float) -> None:
+    await session.execute(
+        text(
+            "INSERT INTO way_landcover (osm_way_id, valid_pixels, water_percent, trees_percent, "
+            "flooded_veg_percent, crops_percent, built_percent, bare_percent, snow_ice_percent, "
+            "rangeland_percent, data_source, data_version, computed_at) "
+            "VALUES (:way_id, 500, 0, :trees, 0, 0, 0, 0, 0, 0, 'esri-io-lulc', '2025', now())"
+        ),
+        {"way_id": osm_way_id, "trees": trees_percent},
+    )
+
+
+async def _insert_edge_landcover(session, osm_way_id: int, trees_percent: float) -> int:
+    """そのwayの全区間へ、区間単位の土地被覆を入れる。
+
+    鍵は`road_edges`の実際の行から導く（両方向が同じ1行を共有することを、テスト側でも
+    本番と同じ式で確かめるため）。戻り値は入れた区間数。
+    """
+    rows = (
+        await session.execute(
+            text(
+                "SELECT DISTINCT LEAST(from_node_id, to_node_id) AS node_lo, "
+                "GREATEST(from_node_id, to_node_id) AS node_hi "
+                "FROM road_edges WHERE osm_way_id = :way_id"
+            ),
+            {"way_id": osm_way_id},
+        )
+    ).all()
+    for row in rows:
+        await session.execute(
+            text(
+                "INSERT INTO edge_landcover (osm_way_id, node_lo, node_hi, valid_pixels, water_percent, "
+                "trees_percent, flooded_veg_percent, crops_percent, built_percent, bare_percent, "
+                "snow_ice_percent, rangeland_percent, data_source, data_version, computed_at) "
+                "VALUES (:way_id, :node_lo, :node_hi, 500, 0, :trees, 0, 0, 0, 0, 0, 0, "
+                "'esri-io-lulc', '2025', now())"
+            ),
+            {"way_id": osm_way_id, "node_lo": row.node_lo, "node_hi": row.node_hi, "trees": trees_percent},
+        )
+    return len(rows)
+
+
+async def test_区間の土地被覆があればタイルはその値で塗る(road_graph_repository, road_graph_session):
+    """区間単位のズームでは`edge_landcover`が`way_landcover`より優先される。
+
+    way平均を全区間へ複製したままだと、wayの片側だけが森を抜ける道は森に入っていない区間まで
+    同じ色になる。
+    """
+    import mapbox_vector_tile
+
+    way = WaySpec(osm_way_id=100, node_ids=[1, 2], highway="residential")
+    await _save_ways_and_edges(road_graph_repository, [way], {1: NODE1, 2: NODE2})
+    await _insert_way_landcover(road_graph_session, 100, 10.0)
+    assert await _insert_edge_landcover(road_graph_session, 100, 80.0) > 0
+    await road_graph_session.commit()
+    await _mark_mvt_coverage(road_graph_session)
+
+    tile = await road_graph_repository.get_road_surface_tile_mvt(
+        MVT_Z, MVT_X, MVT_Y, _mvt_tile_bbox(), MVT_COVERAGE_TILE
+    )
+
+    props = mapbox_vector_tile.decode(tile)["road_surface"]["features"][0]["properties"]
+    assert props["trees_pct"] == pytest.approx(80.0)
+
+
+async def test_区間の土地被覆が無ければway単位へ落ちる(road_graph_repository, road_graph_session):
+    """`precompute_edge_landcover`が未実行の区間でも色は消えない（密度と同じ落とし方）。"""
+    import mapbox_vector_tile
+
+    way = WaySpec(osm_way_id=100, node_ids=[1, 2], highway="residential")
+    await _save_ways_and_edges(road_graph_repository, [way], {1: NODE1, 2: NODE2})
+    await _insert_way_landcover(road_graph_session, 100, 10.0)
+    await road_graph_session.commit()
+    await _mark_mvt_coverage(road_graph_session)
+
+    tile = await road_graph_repository.get_road_surface_tile_mvt(
+        MVT_Z, MVT_X, MVT_Y, _mvt_tile_bbox(), MVT_COVERAGE_TILE
+    )
+
+    props = mapbox_vector_tile.decode(tile)["road_surface"]["features"][0]["properties"]
+    assert props["trees_pct"] == pytest.approx(10.0)
+
+
+async def test_引いた表示ではway単位の土地被覆で塗る(road_graph_repository, road_graph_session):
+    """way丸ごとを1フィーチャーにするズームでは、区間の行があってもway単位の値を使う
+    （フィーチャーが表す範囲と値の範囲を一致させる）。"""
+    import mapbox_vector_tile
+
+    way = WaySpec(osm_way_id=100, node_ids=[1, 2], highway="residential")
+    await _save_ways_and_edges(road_graph_repository, [way], {1: NODE1, 2: NODE2})
+    await _insert_way_landcover(road_graph_session, 100, 10.0)
+    await _insert_edge_landcover(road_graph_session, 100, 80.0)
+    await road_graph_session.commit()
+    await _mark_tile_cached(road_graph_session, zoom=12, x=WAY_UNIT_X >> 1, y=WAY_UNIT_Y >> 1)
+
+    tile = await road_graph_repository.get_road_surface_tile_mvt(
+        WAY_UNIT_Z, WAY_UNIT_X, WAY_UNIT_Y, _way_unit_tile_bbox(), (12, WAY_UNIT_X >> 1, WAY_UNIT_Y >> 1)
+    )
+
+    props = mapbox_vector_tile.decode(tile)["road_surface"]["features"][0]["properties"]
+    assert props["trees_pct"] == pytest.approx(10.0)
+
+
+async def test_区間の土地被覆は両方向のEdgeへ同じ値を与える(road_graph_repository, road_graph_session):
+    """評価側もタイルと同じ優先順で引く（地図に出ている値と採点が使う値を食い違わせない）。
+
+    `road_edges`はforward/backwardを別行で持つが、`edge_landcover`の鍵は向きに依らないため
+    1行を両方向が共有する。
+    """
+    way = WaySpec(osm_way_id=100, node_ids=[1, 2], highway="residential")
+    await _save_ways_and_edges(road_graph_repository, [way], {1: NODE1, 2: NODE2})
+    await _insert_way_landcover(road_graph_session, 100, 40.0)
+    assert await _insert_edge_landcover(road_graph_session, 100, 80.0) == 1
+    await road_graph_session.commit()
+
+    edge_ids = [
+        row.edge_id
+        for row in (
+            await road_graph_session.execute(text("SELECT edge_id FROM road_edges WHERE osm_way_id = 100"))
+        ).all()
+    ]
+    # forward/backwardの2行が、向きに依らない1つの鍵を共有する。
+    assert len(edge_ids) == 2
+    batch = await road_graph_repository.get_edge_materials_batch(edge_ids)
+
+    for edge_id in edge_ids:
+        assert batch.materials[edge_id].landcover_percents["trees_percent"] == pytest.approx(80.0)

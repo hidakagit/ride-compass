@@ -60,8 +60,10 @@ from sqlalchemy import (
     Boolean,
     Float,
     Text,
+    and_,
     any_,
     bindparam,
+    case,
     cast,
     delete,
     func,
@@ -83,7 +85,7 @@ from app.domain.attributes import (
     WayAttributeCounts,
     WIRED_LANDCOVER_KEYS,
 )
-from app.domain.landcover import LandcoverPercentages, WayLandcover
+from app.domain.landcover import EdgeLandcover, LandcoverPercentages, LandcoverRecord, WayLandcover
 from app.domain.graph import (
     DirectedEdge,
     EdgeLike,
@@ -134,6 +136,7 @@ from app.infrastructure import derived_data_meta
 from app.infrastructure.road_graph_models import (
     Base,
     EdgeAttributeCountsRow,
+    EdgeLandcoverRow,
     ElevationAttributeRow,
     OsmRawNodeRow,
     OsmRawWayRow,
@@ -311,6 +314,60 @@ def _density_column_sql(edge_count_sql: str, way_count_sql: str, precision: int)
                         )::double precision"""
 
 
+# 区間単位の土地被覆を、向きに依らない区間の同定子で引き当てる条件。road_edgesの
+# forward/backwardは同じ1行を共有する（`precompute_edge_landcover.py`参照）。
+_EDGE_LANDCOVER_JOIN_ON = and_(
+    EdgeLandcoverRow.osm_way_id == RoadEdgeRow.osm_way_id,
+    EdgeLandcoverRow.node_lo == func.least(RoadEdgeRow.from_node_id, RoadEdgeRow.to_node_id),
+    EdgeLandcoverRow.node_hi == func.greatest(RoadEdgeRow.from_node_id, RoadEdgeRow.to_node_id),
+)
+
+
+def _landcover_value_column(key: str):
+    """そのEdgeへ与える土地被覆1クラスの値。**区間単位の行があればそちら、無ければway単位**
+    へ落とす（路面タイルの同じ切り替えと揃える——揃えないと、地図に出ている値と採点が
+    使う値が食い違う）。区間の行が「計算済み・値なし」のときもway単位へは戻さない
+    （行の有無で決める。密度の`_density_column_sql`と同じ規則）。"""
+    return case(
+        (EdgeLandcoverRow.osm_way_id.is_not(None), getattr(EdgeLandcoverRow, key)),
+        else_=getattr(WayLandcoverRow, key),
+    ).label(key)
+
+
+# 土地被覆の派生行のうち、単位（way／区間）に依らない列。way_landcover・edge_landcoverは
+# 鍵だけが違い、値と系譜は同じ形で書く——片方だけ列が増えると、同じ道の同じ場所に別の
+# 内容の行ができる。
+_LANDCOVER_UPSERT_COLUMNS = [
+    "valid_pixels", "water_percent", "trees_percent", "flooded_veg_percent", "crops_percent",
+    "built_percent", "bare_percent", "snow_ice_percent", "rangeland_percent",
+    "data_source", "data_version", "computed_at", "source_osm_import_run_id", "algorithm_version",
+    "source_raster_set",
+]
+
+
+def _landcover_value_row(record: LandcoverRecord) -> dict:
+    """`_LANDCOVER_UPSERT_COLUMNS`ぶんの値。`percentages`がNoneの行は「計算済み・値なし」で、
+    割合列をNULLで書くことで増分実行が同じ対象を毎回やり直すのを避ける。"""
+    p = record.percentages
+    return {
+        "valid_pixels": p.valid_pixels if p else None,
+        "water_percent": p.water_percent if p else None,
+        "trees_percent": p.trees_percent if p else None,
+        "flooded_veg_percent": p.flooded_veg_percent if p else None,
+        "crops_percent": p.crops_percent if p else None,
+        "built_percent": p.built_percent if p else None,
+        "bare_percent": p.bare_percent if p else None,
+        "snow_ice_percent": p.snow_ice_percent if p else None,
+        "rangeland_percent": p.rangeland_percent if p else None,
+        "data_source": record.data_source,
+        "data_version": record.data_version,
+        "computed_at": record.computed_at,
+        "source_osm_import_run_id": record.source_osm_import_run_id,
+        "algorithm_version": record.algorithm_version,
+        "source_raster_set": record.source_raster_set,
+    }
+
+
 # 地図タイルへ焼き込む停止要因の種別別密度。列名は材料id（`poi_{kind}_per_km`）と同じにして
 # 対応を自明にする。MVTはjsonbを持てないため、ここだけキー一覧から列へ展開する
 # （手書きせず`POI_COUNT_KINDS`から生成するので、キーを増やしてもこの式は変わらない）。
@@ -330,10 +387,16 @@ _POI_TILE_COLUMNS_SQL = "".join(
 # クラスの並び（`WIRED_LANDCOVER_KEYS`）から組み立てる——手で並べると、クラスを1つ
 # 配線したときに「材料は地図レンズを持つのに列が無い」形で静かに空になる。
 # DBの列名は`<クラス>_percent`、タイルのプロパティ名は`<クラス>_pct`。
+#
+# **そのフィーチャーが表す単位から出す**（密度の`_density_column_sql`と同じ規則）。区間単位の
+# フィーチャーは`edge_landcover`、way丸ごとのフィーチャー（引いた表示・区間を持たないway）と
+# 区間の行がまだ無いフィーチャーは`way_landcover`へ落ちる。区間の行があって値がNULL
+# （その構成では値なし）のときもway側へは戻さない——戻すと、隣り合う区間が別の単位の値で
+# 塗られる。
 _LANDCOVER_COLUMN_SUFFIX = "_percent"
 _LANDCOVER_TILE_COLUMNS_SQL = ("," + "\n").join(
-    f"                        lc.{key}::double precision AS "
-    f"{key.removesuffix(_LANDCOVER_COLUMN_SUFFIX)}_pct"
+    f"                        (CASE WHEN elc.osm_way_id IS NOT NULL THEN elc.{key} ELSE lc.{key} END)"
+    f"::double precision AS {key.removesuffix(_LANDCOVER_COLUMN_SUFFIX)}_pct"
     for key in WIRED_LANDCOVER_KEYS
 )
 
@@ -518,6 +581,12 @@ _ROAD_SURFACE_TILE_MVT_SQL = (
                     -- ときのみ。way丸ごとのフィーチャーではNULLになりway集計側へ落ちる）。
                     LEFT JOIN edge_attribute_counts ec ON ec.edge_id = src.feature_key
                     LEFT JOIN way_landcover lc ON lc.osm_way_id = w.osm_way_id
+                    -- 区間単位のフィーチャーのときだけ一致する（way丸ごとのフィーチャーは
+                    -- node_lo/node_hiがNULLのため一致せず、way_landcover側へ落ちる）。
+                    LEFT JOIN edge_landcover elc
+                        ON elc.osm_way_id = src.osm_way_id
+                       AND elc.node_lo = src.node_lo
+                       AND elc.node_hi = src.node_hi
                     LEFT JOIN way_divided_carriageway wdc ON wdc.osm_way_id = w.osm_way_id
                     LEFT JOIN LATERAL (
                         -- 指定路線（designation_attributes、match_designations.pyが埋める
@@ -2402,40 +2471,18 @@ class AttributeRepository(_SessionRepository):
     async def save_way_landcover(self, records: list[WayLandcover]) -> None:
         if not records:
             return
-        # percentagesがNoneの行は「計算済み・値なし」。割合列をNULLで書くことで、
-        # 増分実行が同じwayを毎回やり直すのを避ける。
+        rows = [{"osm_way_id": r.osm_way_id, **_landcover_value_row(r)} for r in records]
+        await _bulk_upsert(self._session, WayLandcoverRow, rows, ["osm_way_id"], _LANDCOVER_UPSERT_COLUMNS)
+
+    async def save_edge_landcover(self, records: list[EdgeLandcover]) -> None:
+        if not records:
+            return
         rows = [
-            {
-                "osm_way_id": r.osm_way_id,
-                "valid_pixels": r.percentages.valid_pixels if r.percentages else None,
-                "water_percent": r.percentages.water_percent if r.percentages else None,
-                "trees_percent": r.percentages.trees_percent if r.percentages else None,
-                "flooded_veg_percent": r.percentages.flooded_veg_percent if r.percentages else None,
-                "crops_percent": r.percentages.crops_percent if r.percentages else None,
-                "built_percent": r.percentages.built_percent if r.percentages else None,
-                "bare_percent": r.percentages.bare_percent if r.percentages else None,
-                "snow_ice_percent": r.percentages.snow_ice_percent if r.percentages else None,
-                "rangeland_percent": r.percentages.rangeland_percent if r.percentages else None,
-                "data_source": r.data_source,
-                "data_version": r.data_version,
-                "computed_at": r.computed_at,
-                "source_osm_import_run_id": r.source_osm_import_run_id,
-                "algorithm_version": r.algorithm_version,
-                "source_raster_set": r.source_raster_set,
-            }
+            {"osm_way_id": r.osm_way_id, "node_lo": r.node_lo, "node_hi": r.node_hi, **_landcover_value_row(r)}
             for r in records
         ]
         await _bulk_upsert(
-            self._session,
-            WayLandcoverRow,
-            rows,
-            ["osm_way_id"],
-            [
-                "valid_pixels", "water_percent", "trees_percent", "flooded_veg_percent", "crops_percent",
-                "built_percent", "bare_percent", "snow_ice_percent", "rangeland_percent",
-                "data_source", "data_version", "computed_at", "source_osm_import_run_id", "algorithm_version",
-                "source_raster_set",
-            ],
+            self._session, EdgeLandcoverRow, rows, ["osm_way_id", "node_lo", "node_hi"], _LANDCOVER_UPSERT_COLUMNS
         )
 
     async def get_surface_attributes(self, edge_ids: list[str]) -> dict[str, str | None]:
@@ -2748,13 +2795,14 @@ class AttributeRepository(_SessionRepository):
                     ElevationAttributeRow.data_version,
                     ElevationAttributeRow.calculated_at,
                     designation_exists.label("is_designated"),
-                    *(getattr(WayLandcoverRow, key) for key in WIRED_LANDCOVER_KEYS),
+                    *(_landcover_value_column(key) for key in WIRED_LANDCOVER_KEYS),
                 )
                 .select_from(RoadEdgeRow)
                 .outerjoin(OsmRawWayRow, RoadEdgeRow.osm_way_id == OsmRawWayRow.osm_way_id)
                 .outerjoin(EdgeAttributeCountsRow, EdgeAttributeCountsRow.edge_id == RoadEdgeRow.edge_id)
                 .outerjoin(ElevationAttributeRow, ElevationAttributeRow.edge_id == RoadEdgeRow.edge_id)
                 .outerjoin(WayLandcoverRow, WayLandcoverRow.osm_way_id == RoadEdgeRow.osm_way_id)
+                .outerjoin(EdgeLandcoverRow, _EDGE_LANDCOVER_JOIN_ON)
                 .where(RoadEdgeRow.edge_id == any_(cast(id_chunk, ARRAY(Text))))
             )
             for row in await self._session.execute(stmt):
@@ -2966,6 +3014,9 @@ class RoadGraphRepository:
 
     async def save_way_landcover(self, records: list[WayLandcover]) -> None:
         await self.attributes.save_way_landcover(records)
+
+    async def save_edge_landcover(self, records: list[EdgeLandcover]) -> None:
+        await self.attributes.save_edge_landcover(records)
 
     async def save_edge_attribute_counts(self, rows: list[dict]) -> None:
         await self.attributes.save_edge_attribute_counts(rows)

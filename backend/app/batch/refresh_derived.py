@@ -17,17 +17,16 @@
 disaster recovery手順はこのコマンドの終了コードで次工程へ進むかを判断する）。
 
 各段は既存バッチの`run`/`run_match`関数をそのまま呼ぶだけで、新しいロジックは持たない
-（本バッチ自体は複数コマンドを畳む薄いオーケストレーションのみ）。⑩precompute_way_
-landcoverだけラスタファイル（`settings.lulc_raster_paths`、リポジトリにコミットしない
-手動取得データ）を要するため、未設定の環境では`--skip-landcover`で明示的にこの段だけ
-スキップできる（他の段と違い「ラスタを用意していないだけ」であり派生データの実際の
+（本バッチ自体は複数コマンドを畳む薄いオーケストレーションのみ）。土地被覆の段だけは
+ラスタファイル（`settings.lulc_raster_paths`、リポジトリにコミットしない手動取得データ）を
+要するため、未設定の環境では`--skip-landcover`で明示的にその段だけスキップできる（他の段と違い「ラスタを用意していないだけ」であり派生データの実際の
 障害ではないため、スキップ自体はWARNINGに留め処理は続行する）。
 
 実行方法（backendディレクトリから）:
     .venv\\Scripts\\python.exe -m app.batch.refresh_derived
     .venv\\Scripts\\python.exe -m app.batch.refresh_derived --database-url ...
     --dry-runで全段をdry-runモードで実行（DB書き込みなし）
-    --skip-landcoverでラスタ未整備環境向けに⑩だけスキップ
+    --skip-landcoverでラスタ未整備環境向けに土地被覆の段をスキップ
 """
 
 import argparse
@@ -40,6 +39,7 @@ from types import ModuleType
 from app.batch import (
     match_designations,
     precompute_edge_attribute_counts,
+    precompute_edge_landcover,
     precompute_elevation_attributes,
     precompute_road_node_degrees,
     precompute_road_node_intersections,
@@ -65,16 +65,22 @@ _STAGES: list[tuple[str, ModuleType, str]] = [
     ("⑧precompute_way_attribute_counts", precompute_way_attribute_counts, "run"),
     ("⑨match_designations", match_designations, "run_match"),
     ("⑩precompute_way_landcover", precompute_way_landcover, "run_default"),
+    ("⑪precompute_edge_landcover", precompute_edge_landcover, "run_default"),
     ("⑬precompute_way_divided_carriageway", precompute_way_divided_carriageway, "run"),
     ("⑭precompute_road_node_intersections", precompute_road_node_intersections, "run"),
 ]
+
+
+# ラスタファイルを要する段。`--skip-landcover`はここに載っている段をまとめて飛ばす
+# （どちらも同じ`settings.lulc_raster_paths`を読むため、片方だけ飛ばす意味が無い）。
+_LANDCOVER_MODULES = (precompute_way_landcover, precompute_edge_landcover)
 
 
 async def run(database_url: str | None, dry_run: bool, skip_landcover: bool = False) -> int:
     started = time.perf_counter()
     logger.info("派生データ再構築を開始します stages=%d dry_run=%s", len(_STAGES), dry_run)
     for label, module, attr_name in _STAGES:
-        if skip_landcover and module is precompute_way_landcover:
+        if skip_landcover and module in _LANDCOVER_MODULES:
             logger.warning("段階スキップ: %s（--skip-landcover指定）", label)
             continue
         stage_started = time.perf_counter()
@@ -98,7 +104,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--database-url", default=None, help="対象DB（省略時はsettings.database_url）")
     parser.add_argument("--dry-run", action="store_true", help="全段をdry-runモードで実行しDBへ書き込まない")
     parser.add_argument(
-        "--skip-landcover", action="store_true", help="ラスタ未整備の環境向けに⑩precompute_way_landcoverだけスキップする"
+        "--skip-landcover", action="store_true", help="ラスタ未整備の環境向けに土地被覆の段（⑩⑪）をスキップする"
     )
     args = parser.parse_args(argv)
 

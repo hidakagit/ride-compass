@@ -14,7 +14,7 @@ OSM由来の道路データ（PBF取込）・警察庁事故データ・国土�
 | services | `tile_serving.py`・`accident_service.py`・`region_service.py`・`landcover_tile_service.py`（土地被覆ラスタタイルの配信）・`derived_data_freshness_service.py`（派生データ鮮度台帳）・`db_status_service.py`（本番DB状態の判定。しきい値と根拠を持つ） |
 | infrastructure | `vector_tile.py`・`tile_cache.py`・`landcover_raster.py`（土地被覆GeoTIFFの読み取り・再投影・着色）・`accident_models.py`・`accident_repository.py`・`designation_models.py`・`derived_data_freshness.py`（派生データ鮮度台帳）・`db_status.py`（本番DBの状態＝取込runの最終実行・テーブルの実数と容量・統計とVACUUMの鮮度・接続）・`proj_data.py`（rasterioが参照するPROJデータをrasterio同梱のものへ固定する。別インストールの`proj.db`を掴むとEPSG解決が失敗するため、rasterioのimport前に呼ぶ） |
 | api | `region.py`（路面/POI/動的材料/土地被覆タイル・区間インスペクタ）・`accidents.py`（事故タイル）・`_tile_http.py`（両者が共有する座標検証と応答組み立て）・`derived_data_freshness.py`（`GET /api/admin/derived-data/freshness`、Basic認証必須）・`db_status.py`（`GET /api/admin/db-status`、同） |
-| batch | `import_pbf.py`・`pbf_source.py`・`profile.py`・`import_accidents.py`・`import_designations.py`・`match_designations.py`・`precompute_edge_attribute_counts.py`・`precompute_way_attribute_counts.py`・`precompute_way_landcover.py`（土地被覆クラス別割合のway単位事前集計、rasterio）・`precompute_way_divided_carriageway.py`（上下線が分かれた道の片側かのway単位判定）・`_common.py`（バッチ間共通ヘルパ。asyncpg用DSN変換・ダウンロード骨格・`batch_session_factory`[エンジン生成と破棄]・`run_simple_batch_cli`[`--database-url`/`--dry-run`だけを取るバッチの起動処理]・`stream_id_chunks`/`count_targets`[対象IDのチャンク取得と件数]・`run_chunked_precompute`[precompute系バッチが共有するドライバ。対象件数ログ→dry-runの早期return→0件の警告→チャンクループ→進捗ログまでを引き受け、バッチ側は1チャンクぶんの処理だけを書く]）・`refresh_derived.py`・`scripts/fetch_lulc_raster.py`（土地被覆ラスタの取得。デプロイが呼ぶ） |
+| batch | `import_pbf.py`・`pbf_source.py`・`profile.py`・`import_accidents.py`・`import_designations.py`・`match_designations.py`・`precompute_edge_attribute_counts.py`・`precompute_way_attribute_counts.py`・`precompute_way_landcover.py`（土地被覆クラス別割合のway単位事前集計、rasterio）・`precompute_edge_landcover.py`（同じ割合の区間単位事前集計）・`_landcover.py`（両者が共有するラスタ読み出し。線→リング→画素ヒストグラム→割合）・`precompute_way_divided_carriageway.py`（上下線が分かれた道の片側かのway単位判定）・`_common.py`（バッチ間共通ヘルパ。asyncpg用DSN変換・ダウンロード骨格・`batch_session_factory`[エンジン生成と破棄]・`run_simple_batch_cli`[`--database-url`/`--dry-run`だけを取るバッチの起動処理]・`stream_id_chunks`/`count_targets`[対象IDのチャンク取得と件数]・`run_chunked_precompute`[precompute系バッチが共有するドライバ。対象件数ログ→dry-runの早期return→0件の警告→チャンクループ→進捗ログまでを引き受け、バッチ側は1チャンクぶんの処理だけを書く]）・`refresh_derived.py`・`scripts/fetch_lulc_raster.py`（土地被覆ラスタの取得。デプロイが呼ぶ） |
 
 `api/routers/region.py`のうち`GET /api/region/dynamic-way-values/...`エンドポイントは
 [動的材料・way_id値配信](dynamic-way-values.md)の管轄、`domain/road.py`の
@@ -109,6 +109,22 @@ DELETE→INSERTで、**候補0件のkindはDELETEの対象から外す**——DE
 進捗ログの分母とdry-runの件数は`count_targets`の1回のCOUNTから得る。カーソルを持つ
 読み取りセッションは処理中ずっと開いたままになるため、チャンクの処理は必ず別セッションで
 行う。
+
+### 土地被覆をどちらの単位から出すか（`way_landcover`・`edge_landcover`）
+
+同じ割合を、別々の母集団で持つ。**読む側は「そのフィーチャー／Edgeが表す単位」で選ぶ**
+——区間の行があればそちら、無ければwayの行へ落とす。落とし先を用意するのは、`road_edges`が
+`presplit_road_graph.py`の埋める派生データで、区間を持たないwayや未splitの範囲には区間の行が
+作れないため。
+
+区間の行があって値がNULL（その構成では値なし）のときもway側へは戻さない。戻すと隣り合う
+区間が別の単位の値で塗られる。この規則は路面タイル（`_landcover_value_column`と
+`_LANDCOVER_TILE_COLUMNS_SQL`）と評価経路（`get_edge_materials_batch`）で同じにする
+——食い違うと、地図に出ている値と採点が使う値が別物になる。
+
+`edge_landcover`の鍵は**向きに依らない区間の同定子**（way＋両端ノードの小さい方・大きい方）。
+`road_edges`はforward/backwardを別行で持ち、タイルが代表として残す行は`edge_id`昇順で
+決まるため、edge_idを鍵にすると代表の向きに行が無いときだけ値が落ちる。
 
 ### `way_landcover`の「未計算」と「計算済み・値なし」（`precompute_way_landcover.py`）
 
@@ -244,7 +260,8 @@ OSMは中央分離帯のある道路の上下線を別々のwayとして持ち�
 `precompute_road_node_intersections.py`・
 `precompute_edge_attribute_counts.py`・`precompute_elevation_attributes.py`・
 `precompute_way_attribute_counts.py`・`match_designations.py`・
-`precompute_way_landcover.py`・`precompute_way_divided_carriageway.py`（依存DAGは
+`precompute_way_landcover.py`・`precompute_edge_landcover.py`・
+`precompute_way_divided_carriageway.py`（依存DAGは
 [docs/batch-pipeline-dependencies.md](../../batch-pipeline-dependencies.md)参照）を
 依存順に1コマンドで実行する薄いオーケストレーション。`app/batch/precompute_*.py`の
 ファイル一覧と登録済みの段（`_STAGES`）の突き合わせを`tests/test_refresh_derived.py`が
@@ -253,8 +270,8 @@ OSMは中央分離帯のある道路の上下線を別々のwayとして持ち�
 `run_match`/`run_default`関数をそのまま呼ぶだけで新しいロジックは持たず、いずれか1段が
 例外を送出するか非0の終了コードを返したら即座に停止し、後続を実行せずその終了コードを
 返す（disaster recovery手順はこのコマンドの終了コードで次工程へ進むかを判断する）。
-`precompute_way_landcover.py`だけはラスタファイルを要するため`--skip-landcover`で
-その段だけスキップできる。`import_pbf.py`・`import_accidents.py`・
+土地被覆の段だけはラスタファイルを要するため`--skip-landcover`で
+まとめてスキップできる。`import_pbf.py`・`import_accidents.py`・
 `import_designations.py`（生データ取込そのもの）は対象外。
 
 ### 派生データ鮮度台帳（`derived_data_freshness.py`・`derived_data_freshness_service.py`）
