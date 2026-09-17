@@ -178,7 +178,7 @@ Step5-9で実装した標高・風・路面はいずれも「生成済みの候�
 
 - **同一オリジン維持とURL書き換え**: レスポンスがJSON（スタイルJSON/TileJSON）の場合、内包するOpenFreeMap本体への絶対URLを、自分自身（`settings.basemap_public_base_url`、既定値`http://localhost:3000/api/basemap`）への絶対URLに書き換えてから返す。MapLibreは相対URLをスタイル自身の取得元ではなく**ページのオリジン**に対して解決してしまう（spriteURLに至っては相対URLを明示的に拒否する）ため、絶対URLへの書き換えが必須。書き換え先は既定ではバックエンド自身のURL（`:8000`）ではなく、フロントエンドのURL（`:3000`）である（後述の接続数上限の問題を避けるため）。本番のようにタイルをbackendへ直接取りに行かせる構成（frontendの`NEXT_PUBLIC_TILE_BASE_URL`、[frontend/src/lib/tileBaseUrl.ts](../frontend/src/lib/tileBaseUrl.ts)）では、backend側の`BASEMAP_PUBLIC_BASE_URL`も同じbackendオリジン（`https://<backend>/api/basemap`）へ揃える——frontendはスタイルJSONの取得先だけを`tileBaseUrl()`で決め、その中のタイル・スプライト・グリフのURLはbackendが書き込むため、片方だけ変えるとタイルだけRender経由に戻る。
 - **キャッシュとURL書き換えの整合性**: スタイルJSON/TileJSONは上流の内容（書き換え前）を`basemap-raw/`接頭辞のキャッシュキーで保存し、URL書き換えは返す直前に毎回行う。そのため`basemap_public_base_url`の設定値を変更しても、キャッシュを消さずに次の応答から新しいURLが返る（URL書き換え後の内容をキャッシュすると、設定変更後も古いURLを返し続けキャッシュの全消去が必要になる）。
-- **同時接続数上限との競合（実機確認で発見・回避済み）**: 当初、地図タイルもAPI呼び出しもバックエンドの同一オリジン（`:8000`）から直接取得する構成を試したところ、地図初期化時に発生する数十件のタイル/フォント/スプライトリクエストがブラウザのオリジン単位の同時接続数上限（HTTP/1.1で6本程度）を埋めてしまい、ルート生成等のAPI呼び出しが数十秒単位で詰まる現象を確認した。対策として、Next.jsの`rewrites()`（[frontend/next.config.ts](../frontend/next.config.ts)）で`/api/basemap/*`と`/api/region/road-surface-tiles/*`（路面ベクタタイル、Step10改訂で追加）の両方をバックエンドへプロキシし、ブラウザからは常にフロントエンドと同一オリジン（`:3000`）に見えるようにした。これにより「タイル群（`:3000`経由）」と「API呼び出し（`:8000`直接）」が別オリジン扱いになり、接続枠が競合しなくなる。なお路面・POI・事故のベクタタイル、基礎地図のスタイルJSON、国土地理院色別標高図、JMA動的タイルは、`NEXT_PUBLIC_TILE_BASE_URL`（[frontend/src/lib/tileBaseUrl.ts](../frontend/src/lib/tileBaseUrl.ts)）を設定するとrewritesを経由せずbackendへ直接取りに行く（基礎地図のタイル本体はbackend側`BASEMAP_PUBLIC_BASE_URL`で追随させる）。この場合はAPI呼び出しと同じオリジンへタイルが載るため、backend前段のnginxがHTTP/2以上（多重化）で応答できる構成が前提になる（改善計画T580: 本番VMのnginxをHTTP/3＋HTTP/2対応へ差し替えた上で設定する）。**フロントエンド側は`MapView.tsx`の`MAP_STYLE`定数（相対パス`/api/basemap/styles/liberty`）でこのrewriteを経由する必要があり、デバッグ目的で一時的にバックエンドへの絶対URLに変更した場合は元に戻し忘れないよう注意**（実際に前回セッションで戻し忘れており、動作確認時に発見・修正した）。
+- **タイルとAPIを同じオリジンに載せない**: 地図初期化で数十件のタイル/フォント/スプライトが同時に飛ぶため、APIと同居させるとブラウザのオリジン単位の同時接続数上限（HTTP/1.1で6本程度）を埋め、ルート生成が数十秒詰まる。Next.jsの`rewrites()`（[frontend/next.config.ts](../frontend/next.config.ts)）で`/api/basemap/*`と`/api/region/road-surface-tiles/*`（路面ベクタタイル、Step10改訂で追加）の両方をバックエンドへプロキシし、ブラウザからは常にフロントエンドと同一オリジン（`:3000`）に見えるようにした。これにより「タイル群（`:3000`経由）」と「API呼び出し（`:8000`直接）」が別オリジン扱いになり、接続枠が競合しなくなる。なお路面・POI・事故のベクタタイル、基礎地図のスタイルJSON、国土地理院色別標高図、JMA動的タイルは、`NEXT_PUBLIC_TILE_BASE_URL`（[frontend/src/lib/tileBaseUrl.ts](../frontend/src/lib/tileBaseUrl.ts)）を設定するとrewritesを経由せずbackendへ直接取りに行く（基礎地図のタイル本体はbackend側`BASEMAP_PUBLIC_BASE_URL`で追随させる）。この場合はAPI呼び出しと同じオリジンへタイルが載るため、backend前段のnginxがHTTP/2以上（多重化）で応答できる構成が前提になる（改善計画T580: 本番VMのnginxをHTTP/3＋HTTP/2対応へ差し替えた上で設定する）。**フロントエンド側は`MapView.tsx`の`MAP_STYLE`定数（相対パス`/api/basemap/styles/liberty`）でこのrewriteを経由する必要があり、デバッグ目的で一時的にバックエンドへの絶対URLに変更した場合は元に戻し忘れないよう注意**（実際に前回セッションで戻し忘れており、動作確認時に発見・修正した）。
 - **Windowsでのパスフラット化**: OpenFreeMapのURL構造には`planet`（TileJSON本体）と`planet/<version>/{z}/{x}/{y}.pbf`（実タイル）のように、同じセグメントがファイルとディレクトリ接頭辞の両方として使われるケースがある。パスをそのままディレクトリ階層にミラーリングすると、Windowsでは「同名のファイルがあるためディレクトリを作成できない」というエラーで実際にクラッシュすることを実機確認したため、`tile_cache.py`はパスをSHA-256でハッシュ化しフラットなファイル名（`<hash>.bin` / `<hash>.meta`）で保存する。副次的にディレクトリトラバーサル対策にもなる。
 - **イベントループのブロッキング回避**: `tile_cache`の読み書きは同期的なディスクI/O。基礎地図読み込み時は数十件のタイル/フォントリクエストが同時に来るため、`asyncio.to_thread`を介さず直接呼ぶとイベントループ全体をブロックし、同時に処理中の他のリクエスト（ルート生成等）が数十秒単位で詰まることを実機確認した。`BasemapClient.get`・`RegionService.get_road_surface_tile`はいずれも`tile_cache.get`/`set`を必ず`asyncio.to_thread`経由で呼ぶ。
 - **ベクタタイルの取得はWeb Worker内で行われる（実機確認で発見・修正済み）**: MapLibreはラスタタイル（`Image`要素、メインスレッド）とベクタタイル（`fetch`、Web Worker内）でタイルの取得方法が異なる。ラスタタイルのURL（`MAP_STYLE`や地理院タイルのURL）は相対パス・絶対パスいずれもページのオリジンに対して解決されるが、ベクタタイルのURLをWorker内から相対パスのまま渡すと`Failed to construct 'Request': Failed to parse URL from ...`のエラーで取得自体が失敗することを実機確認した（Workerの実行コンテキストはページとは別のベースURL解決になるため）。そのため路面ベクタタイルのURLは`window.location.origin`を使って呼び出し時に明示的に絶対URL化している（[frontend/src/services/regionApi.ts](../frontend/src/services/regionApi.ts)の`roadSurfaceTileUrl()`）。`window`はクライアントサイドでのみ参照可能なため、モジュール読み込み時に評価される定数ではなく、呼び出し時に評価される関数として実装してある点に注意（Next.jsのクライアントコンポーネントも初回はサーバー側でレンダリングされるため、モジュールの最上位で`window`を参照するとSSR時にクラッシュする）。
@@ -412,7 +412,7 @@ Cloud VMへネイティブ（apt、PostgreSQLと同じ構成）で導入する�
 - フロントの表示グループ（`roadFilterAxes.ts: SURFACE_GROUPS`）は、`backend/scripts/export_openapi.py` が書き出す `frontend/src/types/generated/surface-tags.json` と `roadFilterAxes.test.ts` で突き合わせて整合を検証する（「表示グループの全タグ＝正準分類済みタグ全体」「舗装系グループはgoodのみ・未舗装系はbadのみ」。CIのapi-contractジョブがドリフト検知）
 - 「石畳・敷石」グループのみgood/bad混在の意図的な中立グループ（材質として同類のため。色も良し悪しを示さない紫）
 - タグ集合を変更したら`export_openapi.py`を再実行して`region-tile-config.json`を更新すること（焼き込みSQLが変わり路面タイルの世代が自動で変わるため、frontendへ届ける生成物を追従させる）
-- ルート評価（`surface_q`軸のdifficulty）もこの正準集合に統一済み（改善計画T21、2026-08-15）。以前はopenrouteserviceエンジンだけ数値ID語彙の別定義を持っていたが、ORS産geometryのサンプル点を`RoadGraphRepository.get_nearest_surface_tags`で自前DBのEdgeへ空間マッチしてこの正準集合で判定する方式へ置き換え、数値ID語彙は削除した（詳細は「ルーティングエンジンの切り替え対応」）
+- ルート評価（`surface_q`軸のdifficulty）もこの正準集合を使う。
 
 ---
 
@@ -680,10 +680,8 @@ Response 502（MSMを読めない場合。同期未完了・予報終端が現�
 { "detail": "天候情報の取得に失敗しました" }
 Response 429（同一クライアントIPから1分あたり60リクエスト（`WEATHER_RATE_LIMIT_PER_MINUTE`）を超えた場合）:
 { "detail": "リクエストが多すぎます。しばらく待ってから再試行してください。" }
-# 改善計画T387フォローアップ（2026-08-29）: 以前はここでアメダス実測値を上書きマージ
-# していたが、常設ヘッダー（WeatherPanel）がGET /api/weather/amedasを直接呼ぶよう分離
-# したため削除した。このエンドポイントは常に予報（気象庁MSM）の値を返す
-# （今日の見通しTodayOutlook専用）。
+# このエンドポイントは常に予報（気象庁MSM）の値を返す（今日の見通しTodayOutlook専用）。
+# 実測値はマージしない——常設ヘッダー（WeatherPanel）がGET /api/weather/amedasを直接呼ぶ。
 
 GET /api/weather/amedas?latitude=...&longitude=...   # 最寄りアメダス観測所の直近観測値（改善計画T387、常設ヘッダー用）
 Response 200:
@@ -742,8 +740,7 @@ GET /api/region/road-surface-tiles/{z}/{x}/{y}.pbf   # 表示中ビューポー�
 Response 200（Content-Type: application/vnd.mapbox-vector-tile）: バイナリのMVT。レイヤー名`road_surface`、各地物（LineString）は`surface_good`（true=舗装/false=未舗装/null=不明）に加え、
   highway/surface/smoothness/tunnel/bridge/`designation`/`oneway`/`osm_way_id`、車の圧迫感（car_stress、改善計画T292で内部軸5つ+公開軸1つの階層構造へ再実装）が
   参照する材料タグ`maxspeed_kmh`/`lanes_count`/`motor_vehicle_no`と、night軸が
-  参照する`lit`（`shoulder`は改善計画T122でP1実測0.0%の死に補正と判明し撤去済み。かつて安全度
-  レシピが使っていたが軸自体はT148で削除、`lit`のみT139でnight軸へ転用され現在も使用中）、
+  参照する`lit`（`shoulder`は実測0.0%の死に補正と分かり撤去済み）、
   km正規化密度`accident_per_km`/`intersection_per_km`と、停止要因POIの種別別密度
   `poi_*_per_km`（P0/P1/T51/T74/T90/T292/T145b/T655。7章参照）プロパティを持つ。
   車の圧迫感の最終値は（改善計画T292以降）タイルへ焼き込まず、フロントエンド
@@ -771,10 +768,7 @@ Response 400/429: road-surface-tilesと同じ規約（同時実行数上限は`a
 
 POST /api/region/axis-inspector   # 区間インスペクタ（T146）。クリックされた道路（osm_way_id）について、一次属性→取得可能な二次軸スコア（車の圧迫感を含む全軸）の内訳→参考合成コストを返す
 Request: `{ "osm_way_id": number }`。GETでなくPOST+JSONボディなのは、
-  `/api/routes/generate`と同じ形に統一しているため（改善計画T292: かつての
-  レシピ上書きパラメータ（旧`car_stress_recipe`/`road_suitability_recipe`/
-  `motor_vehicle_density_recipe`）は、専用Pythonレシピの廃止（旧`POST /api/region/
-  car-stress-breakdown`・`CarStressBreakdown`も本エンドポイントへ統合・廃止）に伴い削除した）
+  `/api/routes/generate`と同じ形に統一しているため（レシピを個別に上書きするパラメータは持たない）
 Response 200: `AxisInspectorResult`（`highway`/`tags`/`is_designated`/`axes: AxisInspectorAxis[]`（axis_id・difficulty・weight・available）/`composite_difficulty`/`covered_weight_fraction`）。
   gradient/windは単独wayでは算出不能なため常に`available=false`（ルート内の正確な値はルート生成結果のsegmentsを見る）。取得できなかった軸は合成から除外し残りの重みで再正規化、`covered_weight_fraction`はその再正規化の対象になった重み割合（0-1）。該当wayが存在しない場合はnull。
   `axes`は公開軸（is_published=True）のみを返す（car_stressの内部軸5つはaxes.car_stressの
@@ -867,10 +861,10 @@ interface RouteSegmentDetail {
   cumulative_distance_km: number;
   distance_km: number;
   estimated_arrival_time: string | null;
-  car_stress: number | null;          // 0-4（T353以前は1-5）、P1残り（生値。T353で自転車インフラの
-                                       // 寄与はbicycle_infra_quality側へ分離済み）
-  axis_difficulties: { [axisId: string]: number };  // axis_id→difficulty(0-100)。改善計画T309で
-    // 固定7フィールド（elevation_difficulty等）から汎用dictへ置換。評価できなかった軸・
+  car_stress: number | null;          // 0-4、P1残り（生値。自転車インフラの寄与は
+                                       // bicycle_infra_quality側が持つ）
+  axis_difficulties: { [axisId: string]: number };  // axis_id→difficulty(0-100)。軸ごとの
+    // 固定フィールドは持たない。評価できなかった軸・
     // 非公開の軸はキー自体を持たない（`compute_edge_axis_scores`と同じ規約）。軸スタジオでの
     // 公開軸の増減にそのまま追従する
   axis_contributions: { [axisId: string]: number };  // axis_id→重み付き寄与度（改善計画T550）
@@ -1126,23 +1120,19 @@ axis_definitions_snapshot.py: load_axis_definitions_snapshot`でテーブルを�
 `refresh_axis_definitions`が呼ばれるまで）は空のままである点に注意**（`main.py`の
 lifespanが同期的にawaitするため、リクエストを受け付け始める時点では既に埋まっている）。
 
-**DBを唯一の実行時ソースとするfail-fast設計（改善計画T349、T350で単純化）**:
-DB未接続・テーブル未migration・0行（＝migration未適用）・未知の材料/軸参照
-（T294〜T295）のいずれかを検出すると`AxisDefinitionSyncError`を送出し、`main.py`の
-lifespanがこれを捕捉しないため**アプリの起動自体が失敗する**（fail-fast）。T349時点
-では「Pythonリテラルへ安全側フォールバックする」という選択肢自体が存在したが（当初は
-WARNING/ERRORログを出しコード内蔵の既定値のまま動作を続けていた。この設計は「検知が
-起動ログの目視のみに依存し、次に同種の障害が起きても気づかれないまま放置される」という
-構造的な弱点を持ち[T294→T295で2回、検知条件を1つ足す対応を繰り返したが解決しなかった]、
-複雑度平衡性レビュー[2026-08-26、F-1・P0。結果ファイル旧`history/2026-08-26_complexity.md`
-は保存されておらず未確認[T356]、詳細は改善計画T349本文参照]で指摘を受けてT349で
-撤去した）、T350で
-Pythonリテラル自体を撤去したことで「フォールバックしない」ではなく「フォールバック先が
-物理的に存在しない」という、より単純で取り違えようのない構造になった。これに伴い、
-`.github/workflows/deploy-backend.yml`へ`docker build`直後・旧コンテナ停止前に
-migration適用ステップ（`scripts/apply_migrations.py`）を追加し、通常のデプロイ経路では
-migration未適用のまま新コンテナが起動を試みてクラッシュループする事態を避けている
-（`backend/Dockerfile`も`migrations/`・`scripts/`をイメージへ同梱するよう変更済み）。
+**DBを唯一の実行時ソースとするfail-fast設計**:
+DB未接続・テーブル未migration・0行（＝migration未適用）・未知の材料/軸参照のいずれかを
+検出すると`AxisDefinitionSyncError`を送出し、`main.py`のlifespanがこれを捕捉しないため
+**アプリの起動自体が失敗する**。
+
+**フォールバック先が物理的に存在しない**（コード内蔵のPythonリテラルを持たない）。
+ログを出して既定値のまま動き続ける設計は、検知が起動ログの目視だけに依存し、同種の障害が
+次に起きても気づかれないまま放置される。
+
+デプロイは`docker build`直後・旧コンテナ停止前にmigrationを適用する
+（`.github/workflows/deploy-backend.yml`が`scripts/apply_migrations.py`を実行し、
+`backend/Dockerfile`が`migrations/`・`scripts/`をイメージへ同梱する）——順序を崩すと、
+migration未適用のまま新コンテナが起動を試みてクラッシュループする。
 
 **旧コンテナを止める前に済ませる**という同じ考え方が、その後に足したステップにも効いている
 ——新イメージが実際にimportできるかの起動確認と、コンテナへマウントするラスタの取得である。
@@ -1278,11 +1268,9 @@ UI側でも先回りして防ぐ）。公開済み軸には「非公開に戻す
 
 ### 管理画面の権限制御
 
-Phase 3のもう1件。以前は`/admin`ページ本体（軸スタジオ・研究モード・開発者ツールを
-まとめた独立URL、T270）自体には認可が一切無く、誰でも到達できた（軸CRUD APIだけが
-共有トークンで保護されていた）。ユーザー方針（2026-08-24、着手時に決定：「将来的には
-アカウント制としたいが、現状は動作確認・研究用のためBasic認証として後から拡張する」）
-に基づき、HTTP Basic認証で以下2箇所を独立に保護する:
+`/admin`（軸スタジオ・研究モード・開発者ツールをまとめた独立URL）は、**ページ本体とAPIを
+独立に保護する**——ページだけを守るとAPIへ直接到達でき、APIだけを守るとページは誰でも開ける。
+現在はHTTP Basic認証（アカウント制へ拡張できる形にしてある）:
 
 1. **`/admin`ページ本体**: `frontend/src/proxy.ts`（Next.js 16でファイル名が
    旧`middleware.ts`から`proxy.ts`へ改称された、`frontend/AGENTS.md`参照）が
@@ -1412,11 +1400,8 @@ DB化済みの`AXIS_DEFINITIONS`側を表示名の単一ソースにした。
 
 それ以外（複数材料の重み付き結合・abs前処理・他の軸を参照する材料・実行時スケール変換が
 必要な材料を含む軸）は`None`を返し自動導出対象外のまま（地図に出ない、既存軸を壊さない
-安全側の判断）。T278の時点の公開軸では`surface_q`（材料`surface_good`、以前はkind="none"に手書き
-固定していたが「既存の道路情報レイヤーと重複するため出したくない」という理由は
-UI側の表示/非表示切替で運用する方針へ変更）・`night`（材料`lit`・`has_tunnel`、
-以前はkind="bespoke"でフロントにexpressionが無く実質レイヤー無し）の2軸が対象になり、
-`registry_defaults.py`の`display`がこの自動導出値へ置き換わった。`gradient`（材料が
+安全側の判断）。**出したくないという理由で自動導出を止めない**——重複して見づらい等の事情はUI側の表示/非表示で運用する。
+`gradient`（材料が
 タイル非依存）・`stop_density`（このaxis_idは廃止。停止密度の軸は軸スタジオで作り直され別idになっている。複数材料の重み付き結合、既存thresholds`[1,2,4]`は
 統計的経験則で単純な折れ点流用では再現不可）・`car_stress`（改善計画T292以降、他の5内部軸
 [`car_stress_highway_base`等、`MaterialTerm.material`として他axis_idを参照]を合成する
@@ -1584,55 +1569,29 @@ ramp閾値の手書き上書きの5点は、既存6〜7軸限定の軸id→値�
   `show_map_icon=false`にして表示自体を止める、というのが新しい設計判断）。
   `MapLayersPanel.tsx: renderProxyAxisSection()`も同様に見出し（h3）のみへ簡略化した。
 
-#### `time_scope`・`supports_route_coloring`
+#### `time_scope`（時間帯で効く軸の宣言）
 
-`road_graph_engine.py`のT173ロジック（市民薄明の外なら
-`night`軸の重みそのまま、日中なら0倍）とfrontend `routeStyleModes.ts`の`RouteStyleModeId`
-（`"wind"`固定）が、それぞれ`"night"`/`"wind"`というaxis_idを直接ハードコード分岐して
-いた。これを`AxisDefinition`の2つの宣言的フィールドへ汎用化した
-（`migrations/0023_axis_definitions_time_scope_route_coloring.sql`でカラム追加、
-既存軸はnight/windのみ明示的にbackfill）。
+**軸のaxis_idでハードコード分岐しない**ための宣言的フィールド。
 
-- **`time_scope: "always" | "night_only"`（既定`"always"`）**: この軸の重みが常に有効か、
-  特定の時間帯でのみ有効かの宣言。`domain/axis_definitions.py: time_scoped_weights()`が
-  `AXIS_DEFINITIONS`を走査し、`time_scope`が`"always"`以外かつ現在の`active_scopes`に
-  含まれない軸の重みを0にする。`RoutePreference.with_time_scope()`（`evaluation.py`）が
-  これをラップし、road_graph_engine.pyの2箇所（探索コスト・区間表示）は`night_active`を
-  `active_scopes`へ変換して渡すだけになった。openrouteservice_engine.pyも同じ関数を
-  区間ごとに呼ぶ形へ置き換えた。将来別の時間帯依存軸（例: 通勤ラッシュ限定）を追加する
-  場合も、このフィールドへ新しい値を1つ増やすだけでよく、エンジン側のコード変更は不要。
-- **`supports_route_coloring: bool`（既定`false`）**: この軸のdifficulty（0-100、または
-  改善計画T440で追加した符号付き経路）を、ルート地図の色分けモード（`routeStyleModes.ts`）
-  の選択肢として使えるかの宣言。`GET /api/axis-catalog`
-  （`AxisCatalogEntry.supports_route_coloring`）経由でフロントへ渡り、
-  `routeStyleModesFromCatalogAxes()`が該当軸から色分けモードを動的に組み立てる
-  （`useAxisCatalog`の`routeStyleModes`フィールド、フェッチ完了までは静的axis-catalog.json
-  由来のフォールバック）。**T440（2026-08-30）でgradient/surface_qも
-  `supports_route_coloring=true`へ変更した**——当初`gradient`は「向き（登り/下り）を
-  区別するため符号付きの生材料`gradient_percent`を直接読む必要があり、単純な
-  `axis_difficulties[axis_id]`（abs差難易度）を3段階で塗るという本フラグの汎用機構では
-  表現できない」という理由でこの機構の対象外として固定エントリのまま据え置かれていたが、
-  この非対称自体がaxis_idのハードコード分岐（`if (axis.axis_id === "gradient")`）を
-  招いていた。現在は`routeColorableModeFromAxis`が軸データ（`shape.kind===
-  "breakpoint_linear" && shape.preprocess==="abs"`）を見て符号付き経路へ自動的に
-  振り分けるため、gradientも`supports_route_coloring`経由の同じ動的機構に完全に乗る。
-  `road`という名前のモードも無くなり、`surface_q`（旧`road_surface_good`と同一材料由来）が
-  同じ機構で現れる。固定のまま残るのは`difficulty`（全軸の重み付き合成コスト、単一軸に
-  紐づかないため軸スタジオと同期する対象にならない）のみ
-  （`RouteStyleModeId`型は`"difficulty" | (string & {})`という「固定1種＋任意の軸id」の
-  形になった）。
-- **削除禁止ガードの縮小**: `services/axis_registry_service.py: _CODE_COUPLED_AXIS_IDS`
-  から`night`/`wind`を除いた（`car_stress`/`gradient`はそれぞれ別の理由で対象外のまま
-  残る）。上記の汎用化により、これらのaxis_idを削除してもハードコード参照によるcrashが
-  起きなくなったため。
-- **軸スタジオの編集UI**: `display_override`と同様、現時点で編集UIを持たない
-  （`AxisComposer.tsx`は既存値をpayloadへ素通しするのみ、管理API直接編集のみ対応）。
-- **`supports_route_coloring`は改善計画T549（2026-09-03）で撤去**: この機構
-  （軸のdifficultyを汎用の3段階色分けとして使う仕組み）の対象外になる軸は技術的に
-  存在しないと判明したため、フィールド自体をDBカラム含め全面撤去し、
-  `routeStyleModesFromCatalogAxes()`は公開軸を無条件で対象にする設計へ変更した。
-  実際にユーザーが使っている軸だけへの絞り込みは旧`filterRouteStyleModesByPreference`
-  （route_preferenceの重み）のみが担う。`time_scope`は変更なし、本節の内容は現在も有効。
+`time_scope: "always" | "night_only"`（既定`"always"`）は、その軸の重みが常に有効か特定の
+時間帯だけかを宣言する。`domain/axis_definitions.py: time_scoped_weights()`が、現在の
+`active_scopes`に含まれない軸の重みを0にする。`RoutePreference.with_time_scope()`が
+これをラップし、エンジン側は`night_active`を`active_scopes`へ変換して渡すだけでよい。
+**別の時間帯依存軸（例: 通勤ラッシュ限定）を足すときも、この値を増やすだけでエンジンの
+コードは変えない。**
+
+**ルート地図の色分けモードは、軸を選ばない**。`routeStyleModesFromCatalogAxes()`は公開軸を
+無条件で対象にする（対象外になる軸は技術的に存在しないため、可否を宣言するフィールドを
+持たない）。符号付きで塗る軸（勾配のような登り/下りを区別するもの）は
+`routeColorableModeFromAxis`が軸データ（`shape.kind === "breakpoint_linear" &&
+shape.preprocess === "abs"`）から自動的に振り分ける。固定で残るモードは`difficulty`
+（全軸の重み付き合成コスト。単一の軸に紐づかないため軸スタジオと同期する対象にならない）
+だけで、型は`"difficulty" | (string & {})`という「固定1種＋任意の軸id」の形になる。
+実際に使っている軸だけへの絞り込みは`route_preference`の重みが担う。
+
+**軸の削除を妨げるハードコード参照を残さない**: `services/axis_registry_service.py:
+_CODE_COUPLED_AXIS_IDS`に残るのは、上の汎用化でも外せない軸だけである。
+
 
 ### 地図表示の導出（`axis_display_for`・`derive_ramp_inputs`）
 
