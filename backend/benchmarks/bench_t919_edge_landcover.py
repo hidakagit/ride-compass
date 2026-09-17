@@ -34,6 +34,10 @@ way全体の平均のまま全区間へ複製されている——`way_landcover
 **測る対象は地形の性質**（way内で土地被覆がどれだけばらつくか）のため、同じ地域なら開発DBと
 本番で同じ値になる。開発機のDBで回せばよい。
 
+`edge_landcover`が既に埋まっているDBに対しては、この計測器は要らない——同じレンジを
+テーブルへのSQL集計だけで出せる（ラスタを読まないぶん桁違いに速い）。この計測器が要るのは、
+まだ区間単位の行を作っていないDBで「作る価値があるか」を先に知りたいときである。
+
 実行方法（backend/ディレクトリから。.envのDATABASE_URLはSupabase向けのため、ローカルDBへ
 明示的に上書きする）:
     .venv\\Scripts\\python.exe scripts\\fetch_lulc_raster.py
@@ -59,8 +63,11 @@ from app.batch.precompute_way_landcover import DEFAULT_BUFFER_M, DEFAULT_INNER_M
 from app.domain.attributes import WIRED_LANDCOVER_KEYS
 from app.infrastructure.database import get_session_factory
 
-# 抽出するway数の既定。全件回すと実装と同じ時間がかかるため、判断に足る規模で止める
-# （母集団の偏りを避けるため、way_idではなく地理的な順序で散らす）。
+# 抽出するway数の既定。全件回すと実装と同じ時間がかかるため、判断に足る規模で止める。
+# 並びはway_id順で、地理的な順序では**ない**——地理順に並べてLIMITで切ると、その端から
+# 連続した一帯だけを見ることになり、かえって母集団を代表しない。way_id順の2,000件が
+# 母集団と同じ範囲へ散ることは実測で確認してある（採取分のbboxが母集団のbboxとほぼ一致し、
+# way内レンジ20pt以上の割合も1.5%対1.36%で一致した。docs/tasks/T919.md）。
 DEFAULT_SAMPLE_WAYS = 2000
 
 # このレンジ（ポイント）を超えたwayを「way平均では潰れている」と数える。
