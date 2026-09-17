@@ -544,3 +544,15 @@
   border-radius: 1px;
   flex-shrink: 0;
 }
+
+/* 詳細設定（折れ点の直接編集）。既定で畳み、簡単な入力では表せない形のためだけに開く。 */
+.advancedDetails > summary {
+  cursor: pointer;
+  font-size: var(--font-size-sm);
+  color: var(--color-muted);
+  padding: var(--space-1) 0;
+}
+
+.advancedDetails[open] > summary {
+  color: var(--foreground);
+}

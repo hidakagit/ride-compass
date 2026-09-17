@@ -56,36 +56,6 @@ import { MaterialRangeHint } from "./MaterialRangeHint";
 // ユーザーも迷わないようにする）。recipe_then_breakpoint_linear（かけあわせ評価）は
 // 他の軸を組み合わせる専用の入口として独立させているが、「純粋な重み付き結合
 // （nX + mY）」に絞り、折れ点の編集UIは出さない（条件判定等は含めない）。
-interface ShapeKindOption {
-  kind: ShapeKind;
-  title: string;
-  description: string;
-  advanced?: boolean;
-}
-
-const SHAPE_KIND_OPTIONS: ShapeKindOption[] = [
-  {
-    kind: "breakpoint_linear",
-    title: "なめらか評価",
-    description: "数値の大きさや、複数の要素の有無に応じて点数を変える（例: 勾配が急なほど、街灯なしが該当するほど）",
-  },
-  {
-    kind: "categorical",
-    title: "ぴったり評価",
-    description: "はい/いいえ、または種類ごとに点数を決める（例: 一方通行かどうか、道路の種類ごと）",
-  },
-  {
-    kind: "recipe_then_breakpoint_linear",
-    title: "かけあわせ評価",
-    description: "既にある軸のスコアに重みを掛けて合計する（例: 勾配の軸を2倍重視、風の軸を1倍）",
-    advanced: true,
-  },
-];
-
-function shapeKindOption(kind: ShapeKind): ShapeKindOption {
-  return SHAPE_KIND_OPTIONS.find((o) => o.kind === kind) ?? SHAPE_KIND_OPTIONS[0];
-}
-
 /** 材料選択セレクトの隣に置く情報アイコン(ⓘ)。選択中の材料の説明文
  * （backend/app/domain/material_catalog.py: MaterialSpec.description）をポップオーバーで
  * 表示する。材料が複数行並ぶ欄（terms/flags）でも行ごとに選択中の材料が違うため、
@@ -232,14 +202,10 @@ interface AxisComposerProps {
 
 // 4ステップのウィザード。ステップ自体の追加・削除はコード変更を要する（3テンプレート
 // 限定の方針と同様、際限のない動的ステップ化は目指さない）。
-const STEPS = ["basic", "shape_kind", "shape_params", "display_publish"] as const;
-type Step = (typeof STEPS)[number];
-const STEP_TITLES: Record<Step, string> = {
-  basic: "基本情報",
-  shape_kind: "点数のつけ方を選ぶ",
-  shape_params: "点数の詳細を設定",
-  display_publish: "地図表示・公開",
-};
+// 画面は1枚で、これは「どの節の検証か」を指す識別子にすぎない（順番を持たない）。
+// 節の前後関係はもう無く、材料の選択が後段の入力欄を具体化するだけ（[T924](docs/tasks/T924.md)）。
+const SECTIONS = ["basic", "shape_params", "display_publish"] as const;
+type Section = (typeof SECTIONS)[number];
 
 export default function AxisComposer({
   editing,
@@ -306,12 +272,10 @@ export default function AxisComposer({
           return { min: Math.min(...xs), max: Math.max(...xs) };
         })()
       : undefined;
-  // 公開済み軸を編集対象に開いた場合、材料・計算式・重み等のステップ（1〜3）を
-  // 一切見せず、常に最終ステップ（表示専用フィールドのみ）から動かさない。goNext/goBack
-  // はこのモードでは呼ばれない（対応するボタンを描画しない）ためstepIndexが動く余地はない。
+  // 公開済み軸は、backendが表示専用フィールドの差分しか受け付けない
+  // （`domain/axis_definitions.py: _COSMETIC_ONLY_FIELDS`）。編集できない節は
+  // 描画そのものを省き、いま何が変えられるかを画面の形で示す。
   const restrictedDisplayOnly = editing !== null && editing.is_published;
-  const [stepIndex, setStepIndex] = useState(() => (restrictedDisplayOnly ? STEPS.indexOf("display_publish") : 0));
-  const step = STEPS[stepIndex];
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const isNew = editing === null;
@@ -365,7 +329,7 @@ export default function AxisComposer({
 
   // ステップを進める前の検証。「表示名が無いまま次へ進んで、最後の保存時に
   // 初めてエラーが出る」という手戻りを避け、該当ステップに留まったまま原因を示す。
-  function validateStep(target: Step): string | null {
+  function validateSection(target: Section): string | null {
     if (target === "basic") {
       if (draft.label.trim() === "") return "表示名(label)を入力してください。";
     }
@@ -410,45 +374,19 @@ export default function AxisComposer({
     return null;
   }
 
-  function goNext() {
-    const err = validateStep(step);
-    if (err) {
-      setError(err);
-      return;
-    }
-    setError(null);
-    setStepIndex((i) => Math.min(i + 1, STEPS.length - 1));
-  }
-
-  function goBack() {
-    setError(null);
-    setStepIndex((i) => Math.max(i - 1, 0));
-  }
-
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    // 最終ステップ以外でのEnterキー送信は「次へ」として扱う
-    // （このコンポーネントは単一の<form>のまま、表示するステップだけを切り替える設計の
-    // ため、type="submit"ボタンが常にDOM上に無くても暗黙のフォーム送信は起こりうる）。
-    if (step !== "display_publish") {
-      goNext();
-      return;
-    }
     setError(null);
-    // basic・shape_paramsステップの検証を保存直前にも通す（ステップを戻って値を空へ
-    // 書き換えてから、戻らずに保存を試みた場合の安全網）。
-    //
-    // 制限モード（公開済み軸）は表示専用フィールドのステップしか描画しないため、それ以外の
-    // ステップの検証で落とすと「入力欄が無いのにそこへ誘導される」行き止まりになる
-    // （公開済み軸は削除もできず、複製して作り直す以外に手が無くなる）。このモードで
-    // 編集できない値はそもそも書き換えようがないので、編集できるステップだけを検証する
-    // （不正な既存軸はbackend側の検証が最終的に弾く）。
-    const stepsToValidate: readonly Step[] = restrictedDisplayOnly ? ["display_publish"] : STEPS;
-    for (const target of stepsToValidate) {
-      const err = validateStep(target);
+    // 画面は1枚なので、検証は保存の直前にまとめて行う。制限モード（公開済み軸）は
+    // 表示専用フィールドしか描画しないため、それ以外の節を検証すると「入力欄が無いのに
+    // そこへ誘導される」行き止まりになる（公開済み軸は削除もできず、複製して作り直す
+    // 以外に手が無くなる）。編集できない値はそもそも書き換えようがないので、編集できる
+    // 節だけを検証する（不正な既存軸はbackend側の検証が最終的に弾く）。
+    const sectionsToValidate: readonly Section[] = restrictedDisplayOnly ? ["display_publish"] : SECTIONS;
+    for (const target of sectionsToValidate) {
+      const err = validateSection(target);
       if (err) {
         setError(err);
-        setStepIndex(STEPS.indexOf(target));
         return;
       }
     }
@@ -521,6 +459,60 @@ export default function AxisComposer({
   // 入力欄の文字列はこのコンポーネントが持ち、読めた時だけdraftへ反映する——読めない
   // 途中の状態でdraftを書き換えると、直前に入っていた並びが消えてしまう。読めないまま
   // 次へ進もうとした場合はvalidateStepが止める（下書きの値で黙って保存させない）。
+  // 点数のもとになるもの（材料、または他の軸）。**これの型が点数のつけ方を決める**ため、
+  // 利用者に「なめらか評価／ぴったり評価」のような呼び名を選ばせない。
+  const primaryMaterialId =
+    draft.shapeKind === "categorical" ? draft.categoricalMaterial : (draft.terms[0]?.material ?? "");
+
+  function selectPrimaryMaterial(id: string) {
+    const isAxis = axisTermOptions.some((option) => option.id === id);
+    const dtype = materialOptions.find((m) => m.id === id)?.dtype;
+    setDraft((d) => {
+      if (isAxis) {
+        return {
+          ...d,
+          shapeKind: "recipe_then_breakpoint_linear",
+          terms: [{ material: id, weight: 1.0, required: true }],
+          preprocess: "identity",
+          breakpoints: [
+            [0, 0],
+            [100, 100],
+          ],
+        };
+      }
+      if (dtype === "boolean" || dtype === "categorical") {
+        return {
+          ...d,
+          shapeKind: "categorical",
+          categoricalMaterial: id,
+          categoricalRows:
+            dtype === "categorical" && d.categoricalRows.length === 0 ? [{ value: "", score: 0 }] : d.categoricalRows,
+        };
+      }
+      // 数値材料。既に数値で組んでいる場合は係数・折れ点を保ち、材料だけ入れ替える。
+      if (d.shapeKind === "breakpoint_linear") {
+        return { ...d, terms: d.terms.map((t, i) => (i === 0 ? { ...t, material: id } : t)) };
+      }
+      return {
+        ...d,
+        shapeKind: "breakpoint_linear",
+        terms: [{ material: id, weight: 1.0, required: true }],
+        breakpoints: [
+          [0, 0],
+          [10, 100],
+        ],
+      };
+    });
+  }
+
+  /** 「0点にする値」「100点にする値」「効き方」から材料の値→スコアの変換を作り直す。
+   * 折れ点の並びそのものは保存形式であって入力欄ではない——実在する軸の大半は2点の直線で、
+   * 曲線は実データを見て決めるもの（較正）。直接いじる口は下の詳細設定に残してある。 */
+  function applyScoringRange(zeroValue: number, hundredValue: number, shape: BreakpointShape) {
+    if (zeroValue === hundredValue) return;
+    setDraft((d) => ({ ...d, breakpoints: generateBreakpoints(zeroValue, hundredValue, shape) }));
+  }
+
   function applyThresholdText(text: string) {
     setThresholdText(text);
     const { values, error } = parseThresholdList(text);
@@ -682,84 +674,71 @@ export default function AxisComposer({
     );
   }
 
-  function renderShapeKindStep() {
-    return (
-      <>
-        <p className={styles.groupLabel}>この軸はどうやって点数をつけますか？</p>
-        <div className={styles.shapeKindOptions}>
-          {SHAPE_KIND_OPTIONS.map((option) => (
-            <label
-              key={option.kind}
-              className={
-                option.kind === draft.shapeKind
-                  ? `${styles.shapeKindOption} ${styles.shapeKindOptionSelected}`
-                  : styles.shapeKindOption
-              }
-            >
-              <input
-                type="radio"
-                name="shapeKind"
-                value={option.kind}
-                checked={draft.shapeKind === option.kind}
-                onChange={() =>
-                  setDraft((d) => {
-                    if (d.shapeKind === option.kind) return d;
-                    // 材料(terms)の選択候補が「軸一覧」⇔「材料一覧」で入れ替わるテンプレート
-                    // 切り替え時は、選択中のtermsを新しい候補一覧に存在しないidのまま
-                    // 持ち越さないよう、先頭の候補で作り直す（保存不能な組み合わせを防ぐ）。
-                    if (option.kind === "recipe_then_breakpoint_linear") {
-                      return {
-                        ...d,
-                        shapeKind: option.kind,
-                        terms: [{ material: axisTermOptions[0]?.id ?? "", weight: 1.0, required: true }],
-                        preprocess: "identity",
-                        breakpoints: [
-                          [0, 0],
-                          [100, 100],
-                        ],
-                      };
-                    }
-                    if (d.shapeKind === "recipe_then_breakpoint_linear" && option.kind === "breakpoint_linear") {
-                      // materialOptionsが空のときはfindも[0]も両方undefinedになりうる
-                      // ため、最終フォールバックは""（この分岐へ到達する時点で早期リターン済みの
-                      // はずだが、念のため無条件アクセスを排除する）。
-                      const firstMaterial =
-                        materialOptions.find((m) => m.dtype === "numeric" || m.dtype === "boolean")?.id ??
-                        materialOptions[0]?.id ??
-                        "";
-                      return {
-                        ...d,
-                        shapeKind: option.kind,
-                        terms: [{ material: firstMaterial, weight: 1.0, required: true }],
-                        breakpoints: [
-                          [0, 0],
-                          [10, 100],
-                        ],
-                      };
-                    }
-                    return { ...d, shapeKind: option.kind };
-                  })
-                }
-              />
-              <span className={styles.shapeKindOptionBody}>
-                <strong>
-                  {option.title}
-                  {option.advanced && <span className={styles.hint}>（上級者向け）</span>}
-                </strong>
-                <span className={styles.hint}>{option.description}</span>
-              </span>
-            </label>
-          ))}
-        </div>
-      </>
-    );
-  }
-
   function renderShapeParamsStep() {
     return (
       <>
-        <p className={styles.groupLabel}>選択中: {shapeKindOption(draft.shapeKind).title}</p>
-        {/* 「0=走りやすい・100=走りにくい」をこのステップの先頭で1回だけ伝える
+        <SectionLabel
+          label="何をもとに点数をつけるか"
+          description={
+            "点数のつけ方はここで選んだものの型が決めます——数値なら「この値で0点・この値で100点」、" +
+            "はい/いいえなら2つのスコア、種類なら値ごとのスコア、ほかの軸なら係数を掛けた合計です。"
+          }
+        />
+        <div className={styles.row}>
+          <select
+            aria-label="点数のもとになるもの"
+            value={primaryMaterialId}
+            onChange={(e) => selectPrimaryMaterial(e.target.value)}
+          >
+            <optgroup label="数値">
+              {materialOptions
+                .filter((m) => m.dtype === "numeric")
+                .map((m) => (
+                  <option key={m.id} value={m.id}>
+                    {materialOptionText(m)}
+                  </option>
+                ))}
+            </optgroup>
+            <optgroup label="はい・いいえ / 種類">
+              {materialOptions
+                .filter((m) => m.dtype === "boolean" || m.dtype === "categorical")
+                .map((m) => (
+                  <option key={m.id} value={m.id}>
+                    {materialOptionText(m)}
+                  </option>
+                ))}
+            </optgroup>
+            {axisTermOptions.length > 0 && (
+              <optgroup label="ほかの軸">
+                {axisTermOptions.map((m) => (
+                  <option key={m.id} value={m.id}>
+                    {materialOptionText(m)}
+                  </option>
+                ))}
+              </optgroup>
+            )}
+          </select>
+          <MaterialInfoButton
+            option={[...materialOptions, ...axisTermOptions].find((m) => m.id === primaryMaterialId)}
+          />
+          {draft.shapeKind !== "categorical" && draft.terms.length === 1 && (
+            <>
+              <label className={styles.inlineCheckbox}>
+                <Checkbox
+                  checked={draft.terms[0]?.required ?? true}
+                  onCheckedChange={(next) => updateTerm(0, { required: next })}
+                  aria-label="必須"
+                />
+                必須
+              </label>
+              <InfoPopoverButton
+                ariaLabel="「必須」の説明"
+                description="この材料のデータが無い区間は、軸全体を「評価不能」として扱います。チェックを外すと、データが無い分は0として他の材料だけで評価を続けます。"
+              />
+            </>
+          )}
+        </div>
+        {/* 「0=走りやすい・100=走りにくい」をこの節の先頭で1回だけ伝える
             （折れ点・カテゴリのスコア・true/falseスコアの入力欄では繰り返さない）。 */}
         <p className={styles.hint}>スコアは0(走りやすい)〜100(走りにくい)です。</p>
 
@@ -788,62 +767,63 @@ export default function AxisComposer({
                 分岐参照）。categoricalは非対応のまま（文字列材料と数値の掛け算はbackend側で
                 エラーになる）。recipe_then_breakpoint_linear（かけあわせ評価）は、材料の代わりに
                 他の軸(axisTermOptions)を候補にする。 */}
-            {draft.terms.map((term, i) => {
-              const termOptions =
-                draft.shapeKind === "recipe_then_breakpoint_linear"
-                  ? axisTermOptions
-                  : materialOptions.filter((m) => m.dtype === "numeric" || m.dtype === "boolean");
-              return (
-                <div key={i} className={styles.termRow}>
-                  <select value={term.material} onChange={(e) => updateTerm(i, { material: e.target.value })}>
-                    {termOptions.map((m) => (
-                      <option key={m.id} value={m.id}>
-                        {materialOptionText(m)}
-                      </option>
-                    ))}
-                  </select>
-                  <MaterialInfoButton option={termOptions.find((m) => m.id === term.material)} />
-                  {/* 典型的な係数の範囲（±10）に絞り、範囲外の値は数値欄から直接入力する想定にした。 */}
-                  <SliderNumberField
-                    label="係数"
-                    value={term.weight}
-                    onChange={(next) => updateTerm(i, { weight: next })}
-                    min={-10}
-                    max={10}
-                    step={0.1}
-                  />
-                  <label className={styles.inlineCheckbox}>
-                    <Checkbox
-                      checked={term.required}
-                      onCheckedChange={(next) => updateTerm(i, { required: next })}
-                      aria-label="必須"
+            {(draft.terms.length > 1 || (draft.terms[0]?.weight ?? 1) !== 1) &&
+              draft.terms.map((term, i) => {
+                const termOptions =
+                  draft.shapeKind === "recipe_then_breakpoint_linear"
+                    ? axisTermOptions
+                    : materialOptions.filter((m) => m.dtype === "numeric" || m.dtype === "boolean");
+                return (
+                  <div key={i} className={styles.termRow}>
+                    <select value={term.material} onChange={(e) => updateTerm(i, { material: e.target.value })}>
+                      {termOptions.map((m) => (
+                        <option key={m.id} value={m.id}>
+                          {materialOptionText(m)}
+                        </option>
+                      ))}
+                    </select>
+                    <MaterialInfoButton option={termOptions.find((m) => m.id === term.material)} />
+                    {/* 典型的な係数の範囲（±10）に絞り、範囲外の値は数値欄から直接入力する想定にした。 */}
+                    <SliderNumberField
+                      label="係数"
+                      value={term.weight}
+                      onChange={(next) => updateTerm(i, { weight: next })}
+                      min={-10}
+                      max={10}
+                      step={0.1}
                     />
-                    必須
-                  </label>
-                  <InfoPopoverButton
-                    ariaLabel="「必須」の説明"
-                    description="この材料のデータが無い区間は、軸全体を「評価不能」として扱います。チェックを外すと、データが無い分は0として他の材料だけで評価を続けます。"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setDraft((d) => ({ ...d, terms: d.terms.filter((_, j) => j !== i) }))}
-                    disabled={draft.terms.length <= 1}
-                  >
-                    削除
-                  </button>
-                  {/* 実データの分位は行の末尾で1行を占有させる（.termRowHintがflex-basis:100%）。
+                    <label className={styles.inlineCheckbox}>
+                      <Checkbox
+                        checked={term.required}
+                        onCheckedChange={(next) => updateTerm(i, { required: next })}
+                        aria-label="必須"
+                      />
+                      必須
+                    </label>
+                    <InfoPopoverButton
+                      ariaLabel="「必須」の説明"
+                      description="この材料のデータが無い区間は、軸全体を「評価不能」として扱います。チェックを外すと、データが無い分は0として他の材料だけで評価を続けます。"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setDraft((d) => ({ ...d, terms: d.terms.filter((_, j) => j !== i) }))}
+                      disabled={draft.terms.length <= 1}
+                    >
+                      削除
+                    </button>
+                    {/* 実データの分位は行の末尾で1行を占有させる（.termRowHintがflex-basis:100%）。
                       操作要素の間へ挟むと、狭幅の折り返しで説明文とスライダーが混ざる。
                       かけあわせ評価の行が持つのは軸idで、材料の分位は引けない。 */}
-                  {draft.shapeKind !== "recipe_then_breakpoint_linear" && (
-                    <MaterialRangeHint
-                      className={styles.termRowHint}
-                      materialId={term.material}
-                      unit={termOptions.find((m) => m.id === term.material)?.unit}
-                    />
-                  )}
-                </div>
-              );
-            })}
+                    {draft.shapeKind !== "recipe_then_breakpoint_linear" && (
+                      <MaterialRangeHint
+                        className={styles.termRowHint}
+                        materialId={term.material}
+                        unit={termOptions.find((m) => m.id === term.material)?.unit}
+                      />
+                    )}
+                  </div>
+                );
+              })}
             <button
               type="button"
               className={styles.addButton}
@@ -860,7 +840,7 @@ export default function AxisComposer({
                 })
               }
             >
-              + {draft.shapeKind === "recipe_then_breakpoint_linear" ? "軸を追加" : "材料を追加"}
+              + {draft.shapeKind === "recipe_then_breakpoint_linear" ? "軸を足して合計する" : "材料を足して合計する"}
             </button>
 
             {/* 「かけあわせ評価」は純粋な重み付き結合に絞り、下ごしらえ・折れ点の編集UIを
@@ -868,40 +848,30 @@ export default function AxisComposer({
                 buildShape/renderShapeKindStepのdefault設定参照）。 */}
             {draft.shapeKind === "breakpoint_linear" && (
               <>
-                <SectionLabel
-                  label="下ごしらえ"
-                  description={
-                    "材料の値×係数を合計してから、折れ点でスコアに変換する前に行う下ごしらえです。通常は「そのまま」で問題ありません。「絶対値」は合計がマイナスでもプラスとして扱います" +
-                    "（例: 勾配は上り+・下り−の符号付き数値ですが、絶対値を使うと上り・下りのどちらでも急なほど走りにくい、という軸にできます）。"
-                  }
-                />
-                <div className={styles.radioRow}>
-                  <label className={styles.inlineCheckbox}>
-                    <input
-                      type="radio"
-                      name="preprocess"
-                      checked={draft.preprocess === "identity"}
-                      onChange={() => setDraft((d) => ({ ...d, preprocess: "identity" }))}
-                    />
-                    そのまま
-                  </label>
-                  <label className={styles.inlineCheckbox}>
-                    <input
-                      type="radio"
-                      name="preprocess"
-                      checked={draft.preprocess === "abs"}
-                      onChange={() => setDraft((d) => ({ ...d, preprocess: "abs" }))}
-                    />
-                    絶対値
-                  </label>
-                </div>
+                <label className={styles.inlineCheckbox}>
+                  <Checkbox
+                    checked={draft.preprocess === "abs"}
+                    onCheckedChange={(next) => setDraft((d) => ({ ...d, preprocess: next ? "abs" : "identity" }))}
+                    aria-label="マイナス側も同じ強さとして扱う"
+                  />
+                  マイナス側も同じ強さとして扱う
+                  <InfoPopoverButton
+                    ariaLabel="「マイナス側も同じ強さとして扱う」の説明"
+                    description={
+                      "材料の値×係数の合計がマイナスでも、プラスと同じ大きさとして点数にします" +
+                      "（例: 勾配は上りが+・下りが−の符号付きですが、これを付けると上り・下りのどちらでも急なほど走りにくい軸になります）。" +
+                      "単一の数値材料でこれを付けた軸だけ、地図は符号つきの生値で塗ります。"
+                    }
+                  />
+                </label>
 
                 <SectionLabel
-                  label="折れ点を自動生成"
+                  label="何点にするか"
                   description={
-                    "「0点にする値」「100点にする値」「形」の3つから折れ点を作り直します。生成後も下の一覧・図で個別に調整できます。" +
+                    "この2つの値と効き方から、材料の値→スコアの変換を作ります。値の大小はどちら向きでも構いません" +
+                    "（0点にする値の方が大きくてもよい）。細かい形は実データを見ながら決めるもので、ここでは大枠だけ決めます。" +
                     (primaryMaterial && primaryMaterialReferencePoints.length > 0
-                      ? "値の欄の下のボタンは材料の参考点（目安）です。"
+                      ? "下のボタンは材料の参考点（目安）です。"
                       : "")
                   }
                 />
@@ -912,7 +882,10 @@ export default function AxisComposer({
                       step="0.1"
                       value={generatorZeroValue}
                       aria-label="0点にする値"
-                      onChange={setGeneratorZeroValue}
+                      onChange={(next) => {
+                        setGeneratorZeroValue(next);
+                        applyScoringRange(next, generatorHundredValue, generatorShape);
+                      }}
                     />
                   </span>
                   <span className={styles.sliderNumberField}>
@@ -921,13 +894,20 @@ export default function AxisComposer({
                       step="0.1"
                       value={generatorHundredValue}
                       aria-label="100点にする値"
-                      onChange={setGeneratorHundredValue}
+                      onChange={(next) => {
+                        setGeneratorHundredValue(next);
+                        applyScoringRange(generatorZeroValue, next, generatorShape);
+                      }}
                     />
                   </span>
                   <select
-                    aria-label="折れ点の形"
+                    aria-label="効き方"
                     value={generatorShape}
-                    onChange={(e) => setGeneratorShape(e.target.value as BreakpointShape)}
+                    onChange={(e) => {
+                      const next = e.target.value as BreakpointShape;
+                      setGeneratorShape(next);
+                      applyScoringRange(generatorZeroValue, generatorHundredValue, next);
+                    }}
                   >
                     {BREAKPOINT_SHAPE_OPTIONS.map((opt) => (
                       <option key={opt.id} value={opt.id}>
@@ -935,18 +915,6 @@ export default function AxisComposer({
                       </option>
                     ))}
                   </select>
-                  <button
-                    type="button"
-                    onClick={() =>
-                      setDraft((d) => ({
-                        ...d,
-                        breakpoints: generateBreakpoints(generatorZeroValue, generatorHundredValue, generatorShape),
-                      }))
-                    }
-                    disabled={generatorZeroValue === generatorHundredValue}
-                  >
-                    生成
-                  </button>
                 </div>
                 {primaryMaterial && primaryMaterialReferencePoints.length > 0 && (
                   <div className={styles.breakpointReferenceRow} role="group" aria-label="参考点から値を選ぶ">
@@ -958,8 +926,14 @@ export default function AxisComposer({
                           type="button"
                           className={styles.breakpointReferenceButton}
                           title={`${p.label}: ${p.value}${primaryMaterial.unit}`}
-                          onClick={() => setGeneratorZeroValue(x)}
-                          onDoubleClick={() => setGeneratorHundredValue(x)}
+                          onClick={() => {
+                            setGeneratorZeroValue(x);
+                            applyScoringRange(x, generatorHundredValue, generatorShape);
+                          }}
+                          onDoubleClick={() => {
+                            setGeneratorHundredValue(x);
+                            applyScoringRange(generatorZeroValue, x, generatorShape);
+                          }}
                         >
                           {p.label}
                         </button>
@@ -968,54 +942,60 @@ export default function AxisComposer({
                   </div>
                 )}
 
-                <SectionLabel
-                  label="折れ点"
-                  description="値が大きいほど走りにくくしたければ右肩上がりに、走りやすくしたければ右肩下がりに設定してください。図はドラッグ・矢印キーでも調整できます。"
-                />
-                <BreakpointCurveEditor
-                  breakpoints={draft.breakpoints}
-                  onChangePoint={updateBreakpoint}
-                  referenceRange={breakpointReferenceRange}
-                  distribution={valueDistribution.distribution}
-                />
                 <DistributionPreview
                   distribution={valueDistribution.distribution}
                   breakpoints={draft.breakpoints}
                   loading={valueDistribution.loading}
                   error={valueDistribution.error}
                 />
-                {draft.breakpoints.map((bp, i) => (
-                  <div key={i} className={styles.breakpointRow}>
-                    <NumberField
-                      step="0.1"
-                      value={bp[0]}
-                      aria-label="入力値"
-                      onChange={(next) => updateBreakpoint(i, 0, next)}
-                    />
-                    <span>→</span>
-                    <NumberField
-                      step="1"
-                      value={bp[1]}
-                      aria-label="スコア"
-                      onChange={(next) => updateBreakpoint(i, 1, next)}
-                    />
-                    <button
-                      type="button"
-                      onClick={() => setDraft((d) => ({ ...d, breakpoints: d.breakpoints.filter((_, j) => j !== i) }))}
-                      disabled={draft.breakpoints.length <= 2}
-                    >
-                      削除
-                    </button>
-                  </div>
-                ))}
-                <button
-                  type="button"
-                  className={styles.addButton}
-                  onClick={() => setDraft((d) => ({ ...d, breakpoints: insertBreakpointAtLargestGap(d.breakpoints) }))}
-                >
-                  + 折れ点を追加
-                </button>
-
+                <details className={styles.advancedDetails}>
+                  <summary>折れ点を直接いじる</summary>
+                  <SectionLabel
+                    label="折れ点"
+                    description="値が大きいほど走りにくくしたければ右肩上がりに、走りやすくしたければ右肩下がりに設定してください。図はドラッグ・矢印キーでも調整できます。"
+                  />
+                  <BreakpointCurveEditor
+                    breakpoints={draft.breakpoints}
+                    onChangePoint={updateBreakpoint}
+                    referenceRange={breakpointReferenceRange}
+                    distribution={valueDistribution.distribution}
+                  />
+                  {draft.breakpoints.map((bp, i) => (
+                    <div key={i} className={styles.breakpointRow}>
+                      <NumberField
+                        step="0.1"
+                        value={bp[0]}
+                        aria-label="入力値"
+                        onChange={(next) => updateBreakpoint(i, 0, next)}
+                      />
+                      <span>→</span>
+                      <NumberField
+                        step="1"
+                        value={bp[1]}
+                        aria-label="スコア"
+                        onChange={(next) => updateBreakpoint(i, 1, next)}
+                      />
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setDraft((d) => ({ ...d, breakpoints: d.breakpoints.filter((_, j) => j !== i) }))
+                        }
+                        disabled={draft.breakpoints.length <= 2}
+                      >
+                        削除
+                      </button>
+                    </div>
+                  ))}
+                  <button
+                    type="button"
+                    className={styles.addButton}
+                    onClick={() =>
+                      setDraft((d) => ({ ...d, breakpoints: insertBreakpointAtLargestGap(d.breakpoints) }))
+                    }
+                  >
+                    + 折れ点を追加
+                  </button>
+                </details>
                 {primaryMaterial && primaryMaterialReferencePoints.length > 0 && (
                   <div className={styles.breakpointPreview}>
                     <SectionLabel
@@ -1094,6 +1074,28 @@ export default function AxisComposer({
                   </label>
                   <MaterialInfoButton option={materialOptions.find((m) => m.id === draft.categoricalMaterial)} />
                 </div>
+                <button
+                  type="button"
+                  className={styles.addButton}
+                  onClick={() =>
+                    // 真偽材料を複数足して合計したい軸（街灯なし＋トンネル等）は、値ごとの
+                    // スコアではなく「値×係数の合計」の形になる。ここが唯一の移り口。
+                    setDraft((d) => ({
+                      ...d,
+                      shapeKind: "breakpoint_linear",
+                      terms: [
+                        { material: d.categoricalMaterial, weight: 1.0, required: true },
+                        { material: d.categoricalMaterial, weight: 1.0, required: false },
+                      ],
+                      breakpoints: [
+                        [0, 0],
+                        [1, 100],
+                      ],
+                    }))
+                  }
+                >
+                  + 材料を足して合計する
+                </button>
                 {selectedDtype === "categorical" ? (
                   <>
                     <SectionLabel
@@ -1371,68 +1373,24 @@ export default function AxisComposer({
     );
   }
 
-  // 公開済み軸は材料・計算式・重みのステップ自体を出さず、表示専用
-  // フィールドの編集画面のみを1画面で完結させる（ステッパー・戻る/次へボタンは不要）。
-  if (restrictedDisplayOnly) {
-    return (
-      <form onSubmit={handleSubmit} className={styles.composer}>
+  return (
+    <form onSubmit={handleSubmit} className={styles.composer}>
+      {restrictedDisplayOnly && (
         <p className={styles.hint}>
           公開済みの軸のため、地図表示に関わる項目のみ編集できます（材料・計算式・重みを変えたい場合は「複製して新規作成」してください）。
         </p>
+      )}
 
-        {renderDisplayPublishStep()}
-
-        {error && <p className={styles.errorText}>{error}</p>}
-
-        <div className={styles.row}>
-          <button type="submit" disabled={saving} className={styles.saveButton}>
-            {saving ? "保存中..." : "更新する"}
-          </button>
-          <button type="button" onClick={onCancelEdit} disabled={saving}>
-            編集をやめる
-          </button>
-        </div>
-      </form>
-    );
-  }
-
-  return (
-    <form onSubmit={handleSubmit} className={styles.composer}>
-      <p className={styles.stepIndicator}>
-        ステップ {stepIndex + 1}/{STEPS.length}: {STEP_TITLES[step]}
-      </p>
-
-      {step === "basic" && renderBasicStep()}
-      {step === "shape_kind" && renderShapeKindStep()}
-      {step === "shape_params" && renderShapeParamsStep()}
-      {step === "display_publish" && renderDisplayPublishStep()}
+      {!restrictedDisplayOnly && renderBasicStep()}
+      {!restrictedDisplayOnly && renderShapeParamsStep()}
+      {renderDisplayPublishStep()}
 
       {error && <p className={styles.errorText}>{error}</p>}
 
       <div className={styles.row}>
-        {stepIndex > 0 && (
-          <button type="button" onClick={goBack} disabled={saving}>
-            戻る
-          </button>
-        )}
-        {step !== "display_publish" ? (
-          // keyを付けずtype="button"↔"submit"を切り替えると、同じ場所（ツリー上の位置）に
-          // ある同じ要素種別(button)としてReactがDOMノードを再利用し、type属性だけを
-          // その場で書き換える（要素の作り直しをしない）。「次へ」クリックでgoNext()が
-          // stepIndexを進めてこの分岐が切り替わると、クリックを受けたその<button>自身の
-          // type属性が"button"→"submit"へ同期的に書き換わり、ブラウザ側のクリックの
-          // デフォルト動作判定（type="submit"ならフォーム送信）がこの書き換え後のtypeを
-          // 見てしまい、「次へ」を押しただけでフォームが暗黙に送信されてしまう。
-          // keyを変えることでReactに「別の要素」と認識させ、既存ノードを書き換えず必ず
-          // unmount→mountさせる（type属性がクリック後に書き変わる余地を無くす）。
-          <button key="next" type="button" onClick={goNext} className={styles.saveButton}>
-            次へ
-          </button>
-        ) : (
-          <button key="submit" type="submit" disabled={saving} className={styles.saveButton}>
-            {saving ? "保存中..." : isNew ? "作成する" : "更新する"}
-          </button>
-        )}
+        <button type="submit" disabled={saving} className={styles.saveButton}>
+          {saving ? "保存中..." : isNew ? "作成する" : "更新する"}
+        </button>
         {!isNew && (
           <button type="button" onClick={onCancelEdit} disabled={saving}>
             編集をやめる
