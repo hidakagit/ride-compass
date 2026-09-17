@@ -92,9 +92,10 @@ def count_pixels_in_ring(dataset, ring: BaseGeometry) -> dict[int, int] | None:
 
     PROJデータの固定（`pin_bundled_proj_data`）は`_RasterSource.__init__`が済ませている
     前提（way×ラスタごとに呼ぶとその回数だけstat syscallを発行するだけになる）。"""
-    # rasterioはrequirements-batch.txt限定の依存で本番webイメージには無いため、この
-    # モジュールをALGORITHM_VERSION参照のためだけにimportするderived_data_freshness.py
-    # 経由でもimportできるよう、ここでのみ読み込む（モジュール冒頭でimportしない）。
+    # このモジュールはALGORITHM_VERSION参照のためだけにderived_data_freshness.py経由でも
+    # importされる。そちらから読めなくならないよう、ラスタ処理の依存はここでのみ読み込む
+    # （モジュール冒頭でimportしない）。`_RasterSource`が使うpyprojは
+    # requirements-batch.txt限定で、本番webイメージには無い。
     import rasterio.errors
     import rasterio.features
 

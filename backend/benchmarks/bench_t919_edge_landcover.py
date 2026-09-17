@@ -24,10 +24,19 @@ way全体の平均のまま全区間へ複製されている——`way_landcover
 区間を2本以上持つwayだけを対象にする（1区間のwayはway平均と一致し、定義上ばらつかない）。
 
 前提: 対象範囲が`app/batch/import_pbf.py`で取込済みで、`presplit_road_graph.py`が
-`road_edges`を埋めていること。ラスタは`scripts/fetch_lulc_raster.py`が取得したもの。
+`road_edges`を埋めていること。ラスタは`scripts/fetch_lulc_raster.py`が取得する。
+
+**本番VM上では実行しない。** バッチはDBホスト上では走らせない前提で
+（docs/tasks/T624.md論点3。本番DBはbackendと同じVMに同居し、重いバッチでVM全体がOOMに
+なった実績がある）、これはバッチ本体と同じラスタ処理をする。本番イメージにも入っていない
+（`backend/Dockerfile`は`benchmarks/`をコピーせず、`pyproj`は`requirements-batch.txt`側）。
+
+**測る対象は地形の性質**（way内で土地被覆がどれだけばらつくか）のため、同じ地域なら開発DBと
+本番で同じ値になる。開発機のDBで回せばよい。
 
 実行方法（backend/ディレクトリから。.envのDATABASE_URLはSupabase向けのため、ローカルDBへ
 明示的に上書きする）:
+    .venv\\Scripts\\python.exe scripts\\fetch_lulc_raster.py
     $env:DATABASE_URL = "postgresql+asyncpg://ridecompass:ridecompass@localhost:5432/ridecompass"
     .venv\\Scripts\\python.exe -m benchmarks.bench_t919_edge_landcover --raster data\\lulc\\54S_2024.tif
 """
