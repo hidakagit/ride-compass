@@ -258,14 +258,25 @@ const GSI_TERRAIN_TILE_PATH = "/api/gsi-terrain-tile/{z}/{x}/{y}.png";
 const GSI_TERRAIN_MAX_ZOOM = 14;
 // 陰影の強さ。hillshadeレイヤーは不透明度のpaintプロパティを持たないため、面レイヤー共通の
 // 濃さ（AREA_LAYER_OPACITY）は影・光の色のalphaとして渡す。平坦な所は影も光も出ない
-// （MapLibreのhillshadeは傾きが0の画素を透明にする）ため、この値を上げても基礎地図の
-// 平地は濁らない。
+// （傾きが0の画素は透明になる）ため、この値を上げても基礎地図の平地は濁らない。
 const HILLSHADE_SHADOW_COLOR = `rgba(60, 50, 40, ${AREA_LAYER_OPACITY})`;
 const HILLSHADE_HIGHLIGHT_COLOR = `rgba(255, 252, 245, ${AREA_LAYER_OPACITY})`;
-// 稜線・谷線の強調。影と同系で、影より弱く乗せる。
-const HILLSHADE_ACCENT_COLOR = `rgba(60, 50, 40, ${AREA_LAYER_OPACITY * 0.5})`;
 // 北西からの斜め光（陰影図の慣例。真上からだと起伏が出ない）。
 const HILLSHADE_ILLUMINATION_DIRECTION = 315;
+// 陰影の計算方法。既定の`standard`は傾きのsinに比例して塗るため、関東平野の傾き（数度）では
+// 実効の不透明度が0.03を下回り、出ていても気づけない。`igor`は傾きのarctanに比例し、
+// 同じ傾きで倍以上の濃さになる。**`basic`・`multidirectional`は使えない**——平坦な画素にも
+// 光を塗るため、面レイヤの「値のある所だけ塗る」を満たさない。
+const HILLSHADE_METHOD = "igor";
+// 標高を読むときの垂直方向の強調倍率。**タイルの値は実際の標高のまま**で、読み方だけを
+// 変える（`raster-dem`のcustom encodingは`r*redFactor + g*greenFactor + b*blueFactor -
+// baseShift`で標高を復元する。mapbox encodingの係数を倍率倍したものを渡す）。
+// 倍率を上げるほど緩い斜面が読めるようになるが、上げすぎると急斜面との差が潰れる。
+const TERRAIN_VERTICAL_EXAGGERATION = 5;
+const TERRAIN_RGB_RED_FACTOR = 6553.6;
+const TERRAIN_RGB_GREEN_FACTOR = 25.6;
+const TERRAIN_RGB_BLUE_FACTOR = 0.1;
+const TERRAIN_RGB_BASE_SHIFT = 10000;
 const LANDCOVER_SOURCE_ID = "landcover";
 const LANDCOVER_LAYER_ID = "landcover-raster";
 // 土地被覆ラスタの帰属表示。路面タイルへ焼き込んだ割合（ROAD_TILE_ATTRIBUTION）と同じ
@@ -499,9 +510,14 @@ function ensureTerrainHillshadeLayer(map: MapLibreMap) {
         tiles: [`${tileBaseUrl()}${GSI_TERRAIN_TILE_PATH}`],
         tileSize: 256,
         maxzoom: GSI_TERRAIN_MAX_ZOOM,
-        // backendが配信元の独自エンコードをTerrain-RGBへ移して返すため、MapLibre側は
-        // 標準のmapbox encodingとして読む（app/domain/terrain_rgb.py参照）。
-        encoding: "mapbox",
+        // backendが配信元の独自エンコードをTerrain-RGBへ移して返す（app/domain/terrain_rgb.py）。
+        // 標準のmapbox encodingではなくcustomにするのは、係数へ垂直方向の強調倍率を
+        // 掛けるため（TERRAIN_VERTICAL_EXAGGERATION参照）。
+        encoding: "custom",
+        redFactor: TERRAIN_RGB_RED_FACTOR * TERRAIN_VERTICAL_EXAGGERATION,
+        greenFactor: TERRAIN_RGB_GREEN_FACTOR * TERRAIN_VERTICAL_EXAGGERATION,
+        blueFactor: TERRAIN_RGB_BLUE_FACTOR * TERRAIN_VERTICAL_EXAGGERATION,
+        baseShift: TERRAIN_RGB_BASE_SHIFT * TERRAIN_VERTICAL_EXAGGERATION,
         attribution: GSI_RELIEF_ATTRIBUTION,
       });
     }
@@ -512,9 +528,11 @@ function ensureTerrainHillshadeLayer(map: MapLibreMap) {
         type: "hillshade",
         source: GSI_TERRAIN_SOURCE_ID,
         paint: {
+          "hillshade-method": HILLSHADE_METHOD,
+          // igorは傾きの大きさを`exaggeration * 2`倍してから角度へ直す。上限の1にする。
+          "hillshade-exaggeration": 1,
           "hillshade-shadow-color": HILLSHADE_SHADOW_COLOR,
           "hillshade-highlight-color": HILLSHADE_HIGHLIGHT_COLOR,
-          "hillshade-accent-color": HILLSHADE_ACCENT_COLOR,
           "hillshade-illumination-direction": HILLSHADE_ILLUMINATION_DIRECTION,
           "hillshade-illumination-anchor": "map",
         },

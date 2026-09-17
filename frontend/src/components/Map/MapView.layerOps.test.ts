@@ -49,11 +49,13 @@ function fakeMap() {
   const setFeatureStateCalls: { target: unknown; state: unknown }[] = [];
   const removeFeatureStateCalls: { target: unknown }[] = [];
   const addedSpecs: { id: string; paint?: Record<string, unknown> }[] = [];
+  const addedSources: { id: string; spec: Record<string, unknown> }[] = [];
   return {
     __rcStyleReady: true,
     layers,
     sources,
     addedSpecs,
+    addedSources,
     paintCalls,
     layoutCalls,
     filterCalls,
@@ -65,7 +67,10 @@ function fakeMap() {
       layers.add(spec.id);
     },
     getSource: (id: string) => (sources.has(id) ? {} : undefined),
-    addSource: (id: string) => sources.add(id),
+    addSource: (id: string, spec?: Record<string, unknown>) => {
+      addedSources.push({ id, spec: spec ?? {} });
+      sources.add(id);
+    },
     setPaintProperty: (layerId: string, name: string, value: unknown) => paintCalls.push({ layerId, name, value }),
     setLayoutProperty: (layerId: string, name: string, value: unknown) => layoutCalls.push({ layerId, name, value }),
     setFilter: (layerId: string, filter: unknown) => filterCalls.push({ layerId, filter }),
@@ -693,6 +698,37 @@ describe("ensureTerrainHillshadeLayer（起伏）", () => {
     expect(spec?.type).toBe("hillshade");
     expect(String(spec?.paint?.["hillshade-shadow-color"])).toContain(String(AREA_LAYER_OPACITY));
     expect(String(spec?.paint?.["hillshade-highlight-color"])).toContain(String(AREA_LAYER_OPACITY));
+  });
+
+  // 平坦な画素にも光を塗る計算方法（basic・multidirectional）は、面レイヤの「値のある所だけ
+  // 塗る」を満たさない。既定のstandardは傾きのsinに比例するため、関東平野の傾き（数度）では
+  // 実効の不透明度が0.03を下回り、出ていても気づけない（T916）。
+  it("平坦な所を塗らず、緩い斜面でも読める計算方法を指定する", () => {
+    const map = fakeMap();
+
+    const entry = buildStaticOverlayLayers([], []).find((layer) => layer.key === "hillshade");
+    entry?.ensure(map as unknown as Parameters<typeof ensureLayerFromSpec>[0]);
+
+    const spec = map.addedSpecs.find((s) => s.id === entry?.layerId);
+    expect(spec?.paint?.["hillshade-method"]).toBe("igor");
+    expect(spec?.paint?.["hillshade-exaggeration"]).toBe(1);
+  });
+
+  // 標高の読み方だけを強調する（タイルの値は実際の標高のまま）。倍率が1へ戻ると、
+  // 緩い斜面が再び見えなくなる。
+  it("標高を垂直方向へ強調して読むcustom encodingのソースを作る", () => {
+    const map = fakeMap();
+
+    const entry = buildStaticOverlayLayers([], []).find((layer) => layer.key === "hillshade");
+    entry?.ensure(map as unknown as Parameters<typeof ensureLayerFromSpec>[0]);
+
+    const source = map.addedSources.find((added) => added.spec.type === "raster-dem")?.spec as
+      { encoding?: string; blueFactor?: number; baseShift?: number } | undefined;
+    expect(source?.encoding).toBe("custom");
+    // mapbox encodingの係数（blue=0.1・baseShift=10000）を同じ倍率で掛けたものになる。
+    const exaggeration = (source?.blueFactor ?? 0) / 0.1;
+    expect(exaggeration).toBeGreaterThan(1);
+    expect(source?.baseShift).toBeCloseTo(10000 * exaggeration, 6);
   });
 });
 
