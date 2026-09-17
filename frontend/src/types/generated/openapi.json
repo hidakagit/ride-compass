@@ -2466,6 +2466,14 @@
             "type": "object",
             "title": "Client Tuning",
             "default": {}
+          },
+          "tile_versions": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": "object",
+            "title": "Tile Versions",
+            "default": {}
           }
         },
         "additionalProperties": false,

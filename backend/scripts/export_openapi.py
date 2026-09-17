@@ -43,9 +43,7 @@ from app.infrastructure.vector_tile import (  # noqa: E402
     STOP_POI_LAYER_NAME,
 )
 from app.main import app  # noqa: E402
-from app.services.accident_service import ACCIDENT_TILE_VERSION  # noqa: E402
 from app.services.axis_registry_service import refresh_axis_definitions  # noqa: E402
-from app.services.region_service import POI_TILE_VERSION, ROAD_SURFACE_TILE_VERSION  # noqa: E402
 from app.domain.evaluation import DEFAULT_PENALTY_STRENGTH  # noqa: E402
 from app.domain.wind import ASSUMED_SPEED_KMH, MAX_ASSUMED_SPEED_KMH, MIN_ASSUMED_SPEED_KMH  # noqa: E402
 from app.domain.axis_display import raw_value_total_unit, raw_value_unit  # noqa: E402
@@ -131,12 +129,13 @@ def main() -> None:
     _write_json(
         REGION_TILE_CONFIG_PATH,
         {
-            "road_surface": {"layer_name": ROAD_SURFACE_LAYER_NAME, "tile_version": ROAD_SURFACE_TILE_VERSION},
-            "accident": {"layer_name": ACCIDENT_LAYER_NAME, "tile_version": ACCIDENT_TILE_VERSION},
-            "poi": {
-                "stop_poi_layer_name": STOP_POI_LAYER_NAME,
-                "tile_version": POI_TILE_VERSION,
-            },
+            # タイルの世代はここへ書かない。バッチが中身を作り直してもデプロイは起きず、
+            # ビルド時の値は次のデプロイまで古いままになる。世代は
+            # `GET /api/axis-catalog`の`tile_versions`が実行時に配る
+            # （`services/tile_version_service.py`）。
+            "road_surface": {"layer_name": ROAD_SURFACE_LAYER_NAME},
+            "accident": {"layer_name": ACCIDENT_LAYER_NAME},
+            "poi": {"stop_poi_layer_name": STOP_POI_LAYER_NAME},
             # 路面タイルを要求するズーム範囲。frontendのMapLibreソース設定
             # （minzoom/maxzoom）とタイル要求のガードがこの値を使う。手書きで複製すると、
             # backendだけ広げてもfrontendが要求せずレイヤーが黙って消える。

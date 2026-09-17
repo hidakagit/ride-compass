@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { debugLog } from "@/lib/debugLog";
 import regionTileConfig from "@/types/generated/region-tile-config.json";
 
@@ -9,11 +9,7 @@ vi.mock("@/lib/debugLog", () => ({ debugLog: vi.fn() }));
 // テストファイルをまたいで共有されるため（pool: vmThreads）、別ファイルが立てた
 // `NEXT_PUBLIC_TILE_BASE_URL`でこのファイルの期待値が変わらないようにするため。
 vi.mock("@/lib/tileBaseUrl", () => ({ tileBaseUrl: () => "https://tiles.test" }));
-import {
-  ACCIDENT_TILE_SOURCE_LAYER,
-  ROAD_TILE_SOURCE_LAYER,
-  STOP_POI_SOURCE_LAYER,
-} from "@/components/Map/MapView";
+import { ACCIDENT_TILE_SOURCE_LAYER, ROAD_TILE_SOURCE_LAYER, STOP_POI_SOURCE_LAYER } from "@/components/Map/MapView";
 import {
   ROAD_TILE_MAX_ZOOM,
   ROAD_TILE_MIN_ZOOM,
@@ -22,16 +18,21 @@ import {
   fetchDynamicWayValues,
   poiTileUrl,
   roadSurfaceTileUrl,
+  setTileVersions,
 } from "./regionApi";
 
-// ROAD_SURFACE_TILE_VERSION/POI_TILE_VERSION自体はregionApi.tsからexportされていないため、
-// 各tileUrl()の?v=から実際に使われている値を取り出して比較する
-// （2重に手書き定数を持たず、実際の挙動を検証対象にする）。
+// タイル世代は実行時にbackendから受け取る（setTileVersions）。各tileUrl()の?v=から
+// 実際に使われている値を取り出して比較する（2重に手書き定数を持たない）。
+const TILE_VERSIONS = { road_surface: "7-aaaa", poi: "7-bbbb", accident: "7-cccc" } as const;
 function tileVersionFromUrl(url: string): string {
   return new URL(url).searchParams.get("v") ?? "";
 }
 
 describe("regionApi", () => {
+  beforeEach(() => {
+    setTileVersions(TILE_VERSIONS);
+  });
+
   afterEach(() => {
     vi.unstubAllGlobals();
   });
@@ -45,7 +46,9 @@ describe("regionApi", () => {
 
   it("roadSurfaceTileUrlは配信オリジンとタイル世代クエリを使ったURLテンプレートを返す", () => {
     // ?v=はタイルへ焼き込むプロパティが変わった世代の切替でブラウザキャッシュをバストする
-    expect(roadSurfaceTileUrl()).toBe(`https://tiles.test/api/region/road-surface-tiles/{z}/{x}/{y}.pbf?v=${regionTileConfig.road_surface.tile_version}`);
+    expect(roadSurfaceTileUrl()).toBe(
+      `https://tiles.test/api/region/road-surface-tiles/{z}/{x}/{y}.pbf?v=${TILE_VERSIONS.road_surface}`,
+    );
   });
 
   // region-tile-config.jsonはbackendのvector_tile.ROAD_SURFACE_LAYER_NAME /
@@ -54,11 +57,11 @@ describe("regionApi", () => {
   // コミットし忘れた状態をCIで検出する。
   it("路面ベクタタイルのレイヤー名・世代がbackend生成物（region-tile-config.json）と一致する", () => {
     expect(ROAD_TILE_SOURCE_LAYER).toBe(regionTileConfig.road_surface.layer_name);
-    expect(tileVersionFromUrl(roadSurfaceTileUrl())).toBe(regionTileConfig.road_surface.tile_version);
+    expect(tileVersionFromUrl(roadSurfaceTileUrl())).toBe(TILE_VERSIONS.road_surface);
   });
 
   it("poiTileUrlは配信オリジンとタイル世代クエリを使ったURLテンプレートを返す", () => {
-    expect(poiTileUrl()).toBe(`https://tiles.test/api/region/poi-tiles/{z}/{x}/{y}.pbf?v=${regionTileConfig.poi.tile_version}`);
+    expect(poiTileUrl()).toBe(`https://tiles.test/api/region/poi-tiles/{z}/{x}/{y}.pbf?v=${TILE_VERSIONS.poi}`);
   });
 
   // 停止要因POIタイル（改善計画T54）も同じドリフト検知の対象にする。交差点密度
@@ -66,18 +69,20 @@ describe("regionApi", () => {
   // フロントから参照が無くなっていたため、バックエンド側の配信自体もT97で撤去済み。
   it("POIベクタタイルのレイヤー名・世代がbackend生成物と一致する", () => {
     expect(STOP_POI_SOURCE_LAYER).toBe(regionTileConfig.poi.stop_poi_layer_name);
-    expect(tileVersionFromUrl(poiTileUrl())).toBe(regionTileConfig.poi.tile_version);
+    expect(tileVersionFromUrl(poiTileUrl())).toBe(TILE_VERSIONS.poi);
   });
 
   // 外部静的データソース T50（警察庁事故データ）のMVTレイヤー名・世代も同じドリフト検知
   // の仕組みに乗せる（region-tile-config.jsonのaccidentキー、改善計画T19と同型）。
   it("事故ベクタタイルのレイヤー名・世代がbackend生成物（region-tile-config.json）と一致する", () => {
     expect(ACCIDENT_TILE_SOURCE_LAYER).toBe(regionTileConfig.accident.layer_name);
-    expect(tileVersionFromUrl(accidentTileUrl())).toBe(regionTileConfig.accident.tile_version);
+    expect(tileVersionFromUrl(accidentTileUrl())).toBe(TILE_VERSIONS.accident);
   });
 
   it("accidentTileUrlは配信オリジンとタイル世代クエリを使ったURLテンプレートを返す", () => {
-    expect(accidentTileUrl()).toBe(`https://tiles.test/api/region/accident-tiles/{z}/{x}/{y}.pbf?v=${regionTileConfig.accident.tile_version}`);
+    expect(accidentTileUrl()).toBe(
+      `https://tiles.test/api/region/accident-tiles/{z}/{x}/{y}.pbf?v=${TILE_VERSIONS.accident}`,
+    );
   });
 
   describe("fetchAxisInspector", () => {
@@ -172,7 +177,9 @@ describe("regionApi", () => {
       await fetchDynamicWayValues("gradient", 14, 14551, 6447, 90);
 
       const [url] = fetchMock.mock.calls[0];
-      expect(String(url)).toBe("http://localhost:8000/api/region/dynamic-way-values/gradient/14/14551/6447?bearing_deg=90");
+      expect(String(url)).toBe(
+        "http://localhost:8000/api/region/dynamic-way-values/gradient/14/14551/6447?bearing_deg=90",
+      );
     });
 
     it("speedKmhを渡すとspeed_kmhクエリパラメータとして付与する（走行速度依存の材料向け）", async () => {
@@ -188,7 +195,7 @@ describe("regionApi", () => {
 
       const [url] = fetchMock.mock.calls[0];
       expect(String(url)).toBe(
-        "http://localhost:8000/api/region/dynamic-way-values/wind/14/14551/6447?bearing_deg=90&speed_kmh=25"
+        "http://localhost:8000/api/region/dynamic-way-values/wind/14/14551/6447?bearing_deg=90&speed_kmh=25",
       );
     });
 
@@ -209,10 +216,7 @@ describe("regionApi", () => {
     });
 
     it("HTTPエラー時は例外を投げずerror:trueの空valuesを返す（本当に空のデータと区別する）", async () => {
-      vi.stubGlobal(
-        "fetch",
-        vi.fn().mockResolvedValue({ ok: false, status: 500, headers: new Headers() }),
-      );
+      vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: false, status: 500, headers: new Headers() }));
 
       await expect(fetchDynamicWayValues("wind", 14, 14551, 6447, 0)).resolves.toEqual({
         values: {},
@@ -229,6 +233,4 @@ describe("regionApi", () => {
       });
     });
   });
-
 });
-

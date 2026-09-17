@@ -1,7 +1,7 @@
 import logging
 
 from app.domain.region import tile_bounds_lonlat
-from app.infrastructure.accident_repository import ACCIDENT_TILE_VERSION, AccidentTileQuery
+from app.infrastructure.accident_repository import ACCIDENT_TILE_SHAPE, AccidentTileQuery
 from app.infrastructure.vector_tile import encode_empty_accident_tile
 from app.services.tile_serving import MVT_CONTENT_TYPE, TileResponse, serve_cached_tile
 
@@ -13,7 +13,7 @@ logger = logging.getLogger("ridecompass.accident")
 
 
 def _tile_cache_path(z: int, x: int, y: int) -> str:
-    return f"region/accidents/v{ACCIDENT_TILE_VERSION}/{z}/{x}/{y}.pbf"
+    return f"region/accidents/v{ACCIDENT_TILE_SHAPE}/{z}/{x}/{y}.pbf"
 
 
 class AccidentService:

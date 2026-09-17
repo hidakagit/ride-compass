@@ -1,15 +1,12 @@
 {
   "road_surface": {
-    "layer_name": "road_surface",
-    "tile_version": "26-f13b0e9b2c08"
+    "layer_name": "road_surface"
   },
   "accident": {
-    "layer_name": "accidents",
-    "tile_version": "1-8ef2fd83d324"
+    "layer_name": "accidents"
   },
   "poi": {
-    "stop_poi_layer_name": "stop_poi",
-    "tile_version": "4-cb80f1015645"
+    "stop_poi_layer_name": "stop_poi"
   },
   "road_tile_min_zoom": 12,
   "road_tile_max_zoom": 15,

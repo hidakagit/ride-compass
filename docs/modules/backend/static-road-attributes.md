@@ -11,7 +11,7 @@ OSM由来の道路データ（PBF取込）・警察庁事故データ・国土�
 | レイヤー | ファイル |
 |---|---|
 | domain | `road.py`・`attributes.py`・`designation.py`・`accident.py`・`traffic.py`・`osm_adapter.py`・`landcover.py`（土地被覆クラス別割合の算出、評価軸の材料）・`derived_data_versions.py`（事前計算バッチの系譜版数。バッチ本体ではなくここに置く——鮮度台帳がbatchをimportすると本番webに無い依存を連鎖で引き込む）（[region.py](routing-engine.md)は別モジュール管轄） |
-| services | `tile_serving.py`・`accident_service.py`・`region_service.py`・`landcover_tile_service.py`（土地被覆ラスタタイルの配信）・`derived_data_freshness_service.py`（派生データ鮮度台帳）・`db_status_service.py`（本番DB状態の判定。しきい値と根拠を持つ） |
+| services | `tile_serving.py`・`accident_service.py`・`region_service.py`・`landcover_tile_service.py`（土地被覆ラスタタイルの配信）・`derived_data_freshness_service.py`（派生データ鮮度台帳）・`tile_version_service.py`（配信するタイル世代の組み立て。形の署名とDBの派生データ世代から作る）・`db_status_service.py`（本番DB状態の判定。しきい値と根拠を持つ） |
 | infrastructure | `vector_tile.py`・`tile_cache.py`・`landcover_raster.py`（土地被覆GeoTIFFの読み取り・再投影・着色）・`accident_models.py`・`accident_repository.py`・`designation_models.py`・`derived_data_freshness.py`（派生データ鮮度台帳）・`db_status.py`（本番DBの状態＝取込runの最終実行・テーブルの実数と容量・統計とVACUUMの鮮度・接続）・`proj_data.py`（rasterioが参照するPROJデータをrasterio同梱のものへ固定する。別インストールの`proj.db`を掴むとEPSG解決が失敗するため、rasterioのimport前に呼ぶ） |
 | api | `region.py`（路面/POI/動的材料/土地被覆タイル・区間インスペクタ）・`accidents.py`（事故タイル）・`_tile_http.py`（両者が共有する座標検証と応答組み立て）・`derived_data_freshness.py`（`GET /api/admin/derived-data/freshness`、Basic認証必須）・`db_status.py`（`GET /api/admin/db-status`、同） |
 | batch | `import_pbf.py`・`pbf_source.py`・`profile.py`・`import_accidents.py`・`import_designations.py`・`match_designations.py`・`precompute_edge_attribute_counts.py`・`precompute_way_attribute_counts.py`・`precompute_way_landcover.py`（土地被覆クラス別割合のway単位事前集計、rasterio）・`precompute_edge_landcover.py`（同じ割合の区間単位事前集計）・`_landcover.py`（両者が共有するラスタ読み出し。線→リング→画素ヒストグラム→割合）・`precompute_way_divided_carriageway.py`（上下線が分かれた道の片側かのway単位判定）・`_common.py`（バッチ間共通ヘルパ。asyncpg用DSN変換・ダウンロード骨格・`batch_session_factory`[エンジン生成と破棄]・`run_simple_batch_cli`[`--database-url`/`--dry-run`だけを取るバッチの起動処理]・`stream_id_chunks`/`count_targets`[対象IDのチャンク取得と件数]・`run_chunked_precompute`[precompute系バッチが共有するドライバ。対象件数ログ→dry-runの早期return→0件の警告→チャンクループ→進捗ログまでを引き受け、バッチ側は1チャンクぶんの処理だけを書く]）・`refresh_derived.py`・`scripts/fetch_lulc_raster.py`（土地被覆ラスタの取得。デプロイが呼ぶ） |
@@ -388,10 +388,11 @@ OSMは中央分離帯のある道路の上下線を別々のwayとして持ち�
   鮮度確認（`is_split_up_to_date`）は絞らない——鮮度確認と実構築を別セッションに分けて
   いるのは、1セッションを保持したままsemaphore待ちにすると密集した未構築エリアへの
   一斉アクセスでDBコネクションプールが枯渇するため。
-- **タイル世代**（`ROAD_SURFACE_TILE_VERSION`・`POI_TILE_VERSION`・
-  `ACCIDENT_TILE_VERSION`）: 焼き込むMVT生成SQLの隣（`road_graph_repository.py`・
-  `accident_repository.py`）で`infrastructure/cache_identity.py`が導出する。SQLの署名が
-  鍵に入るため、プロパティを足す・消す・式を変えると世代が自動で変わり、旧世代の
+- **タイル世代**: 焼き込むMVT生成SQLから導く**形の署名**（`ROAD_SURFACE_TILE_SHAPE`等、
+  `infrastructure/cache_identity.py`）と、**DBの派生データ世代**（バッチが進める）の2つで
+  決まる。配信する世代は`tile_version_service.py`が実行時に組み立て、
+  `GET /api/axis-catalog`の`tile_versions`で配る（手で書く定数を持たない）。署名が
+  鍵に入るため、プロパティを足す・消す・式を変えると鍵が自動で変わり、旧世代の
   キャッシュ済みタイルにヒットしない。手で上げるのはSQLが読むテーブルの中身を作り直した
   ときだけ。frontendへは`export_openapi.py`が書き出す生成物経由で渡り、ドリフト検知
   テストが照合する。プロパティ削除を伴う変更はfrontendのデプロイより先に本番へ出さない

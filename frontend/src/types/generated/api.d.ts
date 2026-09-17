@@ -1080,6 +1080,13 @@ export interface components {
             client_tuning: {
                 [key: string]: number;
             };
+            /**
+             * Tile Versions
+             * @default {}
+             */
+            tile_versions: {
+                [key: string]: string;
+            };
         };
         /**
          * AxisDefinitionPayload

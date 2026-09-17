@@ -3,7 +3,8 @@
 // 重要ロジックのうち、exportされておらずテスト対象から漏れていた関数群の単体テスト。
 // MapView.overlayFilters.test.tsと同じ「実際のMapLibre Mapが必要とするメソッドだけを
 // 持つフェイク」パターンを使う。
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
+import { setTileVersions } from "@/services/regionApi";
 import { DEDICATED_WAY_VALUE_AXES, axisLineLayerId, axisMapLayerId, type RampAxis } from "@/components/Map/axisLayers";
 import { KNOWN_LINE_OPACITY } from "@/components/Map/roadFilterAxes";
 import {
@@ -91,6 +92,12 @@ function paintValue(map: ReturnType<typeof fakeMap>, layerId: string, name: stri
 
 // クリックして詳細を見ている道の強調。詳細だけ出しても、どの線の話かが分からないと
 // 場所を取り違える。対象はタイルへ焼き込み済みのosm_way_idで1本へ絞る。
+// タイル世代はbackendから実行時に届く（regionApi.setTileVersions）。届く前はソースを
+// 作らない仕様のため、ソース生成を見るテストでは先に渡しておく。
+beforeEach(() => {
+  setTileVersions({ road_surface: "1-test", poi: "1-test", accident: "1-test" });
+});
+
 describe("applyInspectedWay（詳細を見ている道の強調）", () => {
   it("対象のwayだけを描くフィルタにして表示する", () => {
     const map = fakeMap();

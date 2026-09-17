@@ -8,8 +8,8 @@ import pytest
 
 from app.domain.attributes import SearchMaterials
 from app.domain.graph import LeanRoadGraph
-from app.infrastructure import graph_material_cache, tile_score_matrix_cache
-from app.services import derived_data_revision_service
+from app.infrastructure import cache_identity, graph_material_cache, tile_cache, tile_score_matrix_cache
+from app.services import derived_data_revision_service, tile_version_service
 
 pytestmark = pytest.mark.asyncio
 
@@ -105,3 +105,38 @@ async def test_db_failure_does_not_break_the_caller():
     await derived_data_revision_service.ensure_caches_match_db(ExplodingRepository())
 
     assert graph_material_cache.get_tile_materials(12, 5, 6) is not None
+
+
+async def test_世代が変わったら焼き済みタイルも捨てる(monkeypatch):
+    """世代の変化はSQLが読むテーブルの中身が作り直されたことを表す。鍵（形の署名）は
+    変わらないため、消さないと古い中身のタイルを配り続ける。"""
+    cleared: list[bool] = []
+    monkeypatch.setattr(tile_cache, "clear_all", lambda: cleared.append(True))
+    derived_data_revision_service.reset_for_tests()
+    graph_material_cache.clear()
+
+    await derived_data_revision_service.ensure_caches_match_db(FakeRepository(5), force=True)
+    await derived_data_revision_service.ensure_caches_match_db(FakeRepository(6), force=True)
+
+    assert cleared, "世代が変わったのにタイルのディスクキャッシュを捨てていない"
+
+
+async def test_配信するタイル世代は読んだ世代を前置きする():
+    """タイルURLの世代は`<DBの世代>-<形の署名>`。形だけでは中身の作り直しを表せない。"""
+    derived_data_revision_service.reset_for_tests()
+    await derived_data_revision_service.ensure_caches_match_db(FakeRepository(9), force=True)
+
+    versions = tile_version_service.current_tile_versions()
+
+    assert set(versions) == set(tile_version_service.TILE_SHAPES)
+    for name, shape in tile_version_service.TILE_SHAPES.items():
+        assert versions[name] == f"9-{shape}"
+
+
+async def test_世代を読めないうちは印を前置きする():
+    """migration未適用のDB等。既定の世代を作らない——本物の世代と区別が付かなくなる。"""
+    derived_data_revision_service.reset_for_tests()
+
+    versions = tile_version_service.current_tile_versions()
+
+    assert all(v.startswith(f"{cache_identity.UNKNOWN_REVISION}-") for v in versions.values())

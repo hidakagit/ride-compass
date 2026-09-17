@@ -106,6 +106,7 @@ function catalogResponse(): AxisCatalogResponse {
     // （既定{}だがopenapi-typescriptはdefault付きフィールドをoptionalにしない）。
     material_runtime_scales: {},
     client_tuning: {},
+    tile_versions: {},
   };
 }
 
@@ -157,7 +158,12 @@ describe("useAxisCatalog（改善計画T308: rampAxes/axisLabels/secondaryAxes�
   });
 
   it("改善計画T318フォローアップ: 全軸非公開でaxesが0件のレスポンスは、静的フォールバックへ戻さずそのまま空を返す", async () => {
-    vi.mocked(getAxisCatalog).mockResolvedValue({ axes: [], material_runtime_scales: {}, client_tuning: {} });
+    vi.mocked(getAxisCatalog).mockResolvedValue({
+      axes: [],
+      material_runtime_scales: {},
+      client_tuning: {},
+      tile_versions: {},
+    });
 
     const { result } = renderHook(() => useAxisCatalog());
 
@@ -249,6 +255,7 @@ describe("useAxisCatalog（改善計画T308: rampAxes/axisLabels/secondaryAxes�
       axes: [catalogResponse().axes[0]],
       material_runtime_scales: {},
       client_tuning: {},
+      tile_versions: {},
     });
     const second = renderHook(() => useAxisCatalog());
 

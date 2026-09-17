@@ -1,0 +1,36 @@
+"""配信するタイルの世代を、DBの派生データ世代から実行時に組み立てる。
+
+タイルの中身は**焼き込むSQL**（形）と**SQLが読むテーブルの中身**（世代）の2つで決まる。
+形は`cache_identity.shape_digest`が自動で署名するが、中身が作り直されたことを知っているのは
+バッチが進める`derived_data_meta.revision`だけである。この2つを繋ぐのがここ。
+
+**手で書く定数を持たない。** 手で書くと、上げ忘れ（古い値を配り続ける）と、バッチ完了後に
+もう一度上げ直す必要（デプロイとバッチの間に配信されたタイルが、新しい鍵のまま古い値で
+キャッシュへ載る）の両方が起きる。
+
+世代はフロントへ`GET /api/axis-catalog`の応答で配る（較正値と同じ経路。起動時に1回取るものへ
+相乗りさせ、取得を増やさない）。フロントはタイルURLのクエリへ入れてブラウザのキャッシュを
+分ける。
+
+世代そのものの読み直しと、変化したときにキャッシュを捨てる判断は
+`derived_data_revision_service`が持つ（材料・スコア行列と同じ1箇所で決める）。ここはその
+結果を読むだけで、TTLも持たない。
+"""
+
+from app.infrastructure.accident_repository import ACCIDENT_TILE_SHAPE
+from app.infrastructure.cache_identity import tile_version
+from app.infrastructure.road_graph_repository import POI_TILE_SHAPE, ROAD_SURFACE_TILE_SHAPE
+from app.services import derived_data_revision_service
+
+#: 配信するタイルの系統と、その形の署名。フロントが受け取る辞書のキーでもある。
+TILE_SHAPES: dict[str, str] = {
+    "road_surface": ROAD_SURFACE_TILE_SHAPE,
+    "poi": POI_TILE_SHAPE,
+    "accident": ACCIDENT_TILE_SHAPE,
+}
+
+
+def current_tile_versions() -> dict[str, str]:
+    """系統名→配信する世代（`<DBの世代>-<形の署名>`）。"""
+    revision = derived_data_revision_service.current_revision()
+    return {name: tile_version(revision, shape) for name, shape in TILE_SHAPES.items()}

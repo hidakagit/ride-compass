@@ -156,6 +156,7 @@ function catalogWithGuiCreatedAxis(): AxisCatalogResponse {
     // （既定{}だがopenapi-typescriptはdefault付きフィールドをoptionalにしない）。
     material_runtime_scales: {},
     client_tuning: {},
+    tile_versions: {},
   };
 }
 
@@ -2085,9 +2086,7 @@ describe("土地被覆レイヤーのズーム不足の案内", () => {
     const readPanels = () =>
       new Map<string, { summary: string | null; legendCount: number }>(
         (
-          JSON.parse(screen.getByTestId("overlay-layer-panels").textContent!) as Array<
-            [string, string | null, number]
-          >
+          JSON.parse(screen.getByTestId("overlay-layer-panels").textContent!) as Array<[string, string | null, number]>
         ).map(([id, summary, legendCount]) => [id, { summary, legendCount }]),
       );
 
@@ -2120,9 +2119,7 @@ describe("土地被覆レイヤーのズーム不足の案内", () => {
 
     const panels = new Map<string, [string, string | null, number]>(
       (
-        JSON.parse(screen.getByTestId("overlay-layer-panels").textContent!) as Array<
-          [string, string | null, number]
-        >
+        JSON.parse(screen.getByTestId("overlay-layer-panels").textContent!) as Array<[string, string | null, number]>
       ).map((row) => [row[0], row]),
     );
     for (const id of declared) {

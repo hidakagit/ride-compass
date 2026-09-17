@@ -5,6 +5,7 @@ import type { PreferenceAxisDef } from "@/lib/evaluationAxes";
 import { PREFERENCE_AXES, preferenceAxisFromCatalog } from "@/lib/evaluationAxes";
 import type { AxisCatalogEntry, RoutePreferenceWeights } from "@/types/route";
 import { getAxisCatalog } from "@/services/axisCatalogApi";
+import { setTileVersions } from "@/services/regionApi";
 import axisCatalogStatic from "@/types/generated/axis-catalog.json";
 import routeGenerateConfig from "@/types/generated/route-generate-config.json";
 import {
@@ -18,7 +19,11 @@ import {
   type DedicatedWayValueAxis,
   type RampAxis,
 } from "@/components/Map/axisLayers";
-import { SECONDARY_AXES, secondaryAxesFromCatalogAxes, type SecondaryAxisSummary } from "@/components/Map/secondaryAxes";
+import {
+  SECONDARY_AXES,
+  secondaryAxesFromCatalogAxes,
+  type SecondaryAxisSummary,
+} from "@/components/Map/secondaryAxes";
 import {
   ROUTE_STYLE_MODES,
   routeStyleModesFromCatalogAxes,
@@ -216,6 +221,9 @@ function loadAxisCatalog(): void {
       // 静的フォールバックに留まる、という区別に一本化する——「まだ取得中/取得失敗」と
       // 「取得成功したが軸が0件（全軸非公開）」を同一視すると、軸スタジオで全軸を
       // 非公開にしても静的フォールバックの軸が表示され続けてしまう）。
+      // タイル世代は地図のソースURLに入るため、カタログを公開する前に渡す
+      // （`hasTileVersions()`がtrueになってから地図のレイヤーが作られる）。
+      setTileVersions(response.tile_versions ?? {});
       publishCatalog(
         buildCatalog(
           response.axes,

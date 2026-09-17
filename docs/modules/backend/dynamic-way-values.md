@@ -151,7 +151,7 @@ axis_id → dedicated_way_value_axes().get(axis_id)（無ければ404）
 (タイル×向き×速度×時刻)の組み合わせで増えるためプロセス内メモリにも置かない。
 
 キーは`_key(axis_id, z, x, y, hour_bucket, bearing_deg, speed_kmh)`のタプルへ**路面タイルの
-世代**（`ROAD_SURFACE_TILE_VERSION`）を加えたもの（`axis_id`は各サービスの`axis_id`属性が
+形の署名**（`ROAD_SURFACE_TILE_SHAPE`）を加えたもの（`axis_id`は各サービスの`axis_id`属性が
 そのまま入る＝ルーティングキーと同じ名前空間）。
 
 **世代を鍵へ入れる理由**: ここに入る鍵は路面タイルの`feature_key`と一字一句一致して初めて

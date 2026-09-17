@@ -49,6 +49,7 @@ from app.domain.dynamic_way_values import (
 )
 from app.domain.registry import AxisDisplaySpec
 from app.domain.tuning import client_tuning_values
+from app.services.tile_version_service import current_tile_versions
 from app.services.region_service import RegionService
 from app.domain.strict_model import StrictModel
 
@@ -197,6 +198,11 @@ class AxisCatalogResponse(StrictModel):
     # 変えた値を**再デプロイなしに**画面へ届けるため、起動時に1回取るこのカタログへ相乗り
     # させる（ビルド時生成物のroute-generate-config.jsonは取得できるまでの既定値を持つ）。
     client_tuning: dict[str, float] = {}
+    # 配信するタイルの世代（系統名 → `<DBの世代>-<形の署名>`、`services/
+    # tile_version_service.py`）。フロントはこれをタイルURLのクエリへ入れてブラウザの
+    # キャッシュを分ける。**ビルド時生成物では配れない**——バッチが中身を作り直しても
+    # デプロイは起きないため、次のデプロイまで古い値を配り続ける。
+    tile_versions: dict[str, str] = {}
 
 
 @router.get("/api/axis-catalog", response_model=AxisCatalogResponse)
@@ -220,6 +226,7 @@ async def get_axis_catalog(region_service: RegionService = Depends(get_region_se
 
     return AxisCatalogResponse(
         client_tuning=client_tuning_values(),
+        tile_versions=current_tile_versions(),
         axes=[
             AxisCatalogEntry(
                 axis_id=definition.axis_id,

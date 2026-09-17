@@ -9,8 +9,8 @@ from app.domain.region import ROAD_GRAPH_TILE_ZOOM, tile_ancestor, tile_bounds_l
 from app.infrastructure.database import get_session_factory
 from app.infrastructure.debug_log import error_type_label, log_external_call, log_throttled_warning
 from app.infrastructure.road_graph_repository import (
-    POI_TILE_VERSION,
-    ROAD_SURFACE_TILE_VERSION,
+    POI_TILE_SHAPE,
+    ROAD_SURFACE_TILE_SHAPE,
     RoadGraphRepository,
 )
 from app.infrastructure.vector_tile import encode_empty_poi_tile, encode_empty_road_surface_tile
@@ -98,11 +98,11 @@ def _maybe_trigger_graph_build(ancestor_tile: tuple[int, int, int]) -> None:
 
 
 def _tile_cache_path(z: int, x: int, y: int) -> str:
-    return f"region/road-surface/v{ROAD_SURFACE_TILE_VERSION}/{z}/{x}/{y}.pbf"
+    return f"region/road-surface/v{ROAD_SURFACE_TILE_SHAPE}/{z}/{x}/{y}.pbf"
 
 
 def _poi_tile_cache_path(z: int, x: int, y: int) -> str:
-    return f"region/poi/v{POI_TILE_VERSION}/{z}/{x}/{y}.pbf"
+    return f"region/poi/v{POI_TILE_SHAPE}/{z}/{x}/{y}.pbf"
 
 
 class RegionService:

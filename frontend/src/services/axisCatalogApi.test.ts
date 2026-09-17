@@ -10,7 +10,12 @@ describe("getAxisCatalog", () => {
   });
 
   it("成功時はJSONをそのまま返す", async () => {
-    const catalog: AxisCatalogResponse = { axes: [], material_runtime_scales: {}, client_tuning: {} };
+    const catalog: AxisCatalogResponse = {
+      axes: [],
+      material_runtime_scales: {},
+      client_tuning: {},
+      tile_versions: {},
+    };
     const fetchMock = vi.fn().mockResolvedValue(makeResponse({ json: async () => catalog }));
     vi.stubGlobal("fetch", fetchMock);
 

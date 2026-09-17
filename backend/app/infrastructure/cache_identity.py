@@ -22,19 +22,12 @@ import hashlib
 
 # --- 手で上げるリビジョン（形の変化は署名が捕まえるので、ここは「意味」だけ） ---
 
-# 路面ベクタタイル。焼き込むプロパティの増減・SQLの変更は署名側が捕まえる。ここを上げるのは
-# SQLが読むテーブルの中身を作り直したとき（PBF再取込・precomputeバッチ）で、**上げるのは
-# その実行が本番で終わった後**——デプロイとバッチのあいだに配信されたタイルは、新しい世代の
-# 鍵のまま古い値で焼かれてキャッシュへ載るため、先に上げても届かない。
-# プロパティ削除を伴う変更は、対応するfrontendのデプロイより先に本番へ出さないこと
-# （旧フロントの凡例フィルタが全地物に一致し、対象レイヤーが一時的に「不明・他」になる）。
-ROAD_SURFACE_REVISION = "26"
-
-# 停止要因POIタイル。上と同じ運用。
-POI_REVISION = "4"
-
-# 事故タイル。上と同じ運用。
-ACCIDENT_REVISION = "1"
+# **タイルへ焼く3系統（路面・停止要因POI・事故）の世代は、手で書く定数を持たない。**
+# これらの世代が表すのは「SQLが読むテーブルの中身が作り直されたか」で、それを知っている
+# のはバッチが進めるDBの世代（`derived_data_meta.revision`）だけである。手で書くと、
+# 上げ忘れ（古い値のまま配り続ける）と、バッチ完了後にもう一度上げ直す必要（デプロイと
+# バッチの間に焼かれたタイルが新しい鍵のまま古い値で残る）の両方が起きる。
+# 実行時の組み立ては`services/tile_version_service.py`が行う。
 
 # 土地被覆ラスタタイル。配色・クラス構成の変化は署名側（`LANDCOVER_CLASSES`）が捕まえる。
 # ここを上げるのは、同じ配色のまま元のGeoTIFFを別の年次・別の版へ差し替えたとき
@@ -99,3 +92,17 @@ def shape_digest(*sources: object) -> str:
 def cache_identity(revision: str, *shape_sources: object) -> str:
     """`<リビジョン>-<形の署名>`。タイルURL・ディスクパスへそのまま入れる。"""
     return f"{revision}-{shape_digest(*shape_sources)}"
+
+
+#: DBの世代を読めないときに使う印。**この値のタイルをディスクへ残さない**——世代が
+#: 分からないまま焼いたタイルは、後で世代が判明しても古いと判定できない。
+UNKNOWN_REVISION = "x"
+
+
+def tile_version(revision: int | None, shape: str) -> str:
+    """配信するタイルの世代。`<DBの世代>-<形の署名>`。
+
+    `revision`は`derived_data_meta.get_revision()`の値。Noneは世代を読めない状態
+    （migration未適用のテストDB等）で、`UNKNOWN_REVISION`を使う。
+    """
+    return f"{UNKNOWN_REVISION if revision is None else revision}-{shape}"

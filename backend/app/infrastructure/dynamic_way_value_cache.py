@@ -7,7 +7,7 @@
 いくつ値を返すか」を意識せずこのモジュールを共有できる（風は
 dict.fromkeys(feature_keys, penalty)で作った「全キー同値」のdictを渡すだけ）。
 
-**キーへ路面タイルの世代（`ROAD_SURFACE_TILE_VERSION`）を含める理由**: ここに入る鍵は
+**キーへ路面タイルの形の署名（`ROAD_SURFACE_TILE_SHAPE`）`）を含める理由**: ここに入る鍵は
 路面タイルの`feature_key`と一字一句一致して初めて意味を持つ（フロントが`setFeatureState`の
 idとして使う）。タイルの焼き方が変われば鍵の中身も変わるため、世代をまたいだエントリは
 **どの地物にも一致しないまま生き残り、TTLが切れるまで色が静かに消える**。世代を鍵へ
@@ -37,7 +37,7 @@ import asyncio
 import math
 
 from app.infrastructure import tile_persistent_cache
-from app.infrastructure.road_graph_repository import ROAD_SURFACE_TILE_VERSION
+from app.infrastructure.road_graph_repository import ROAD_SURFACE_TILE_SHAPE
 
 _KEY_PREFIX = "dynway"
 
@@ -69,7 +69,7 @@ def _key(
     bearing_token = bearing_bucket(bearing_deg) if bearing_deg is not None else None
     speed_token = speed_bucket(speed_kmh) if speed_kmh is not None else None
     return (
-        _KEY_PREFIX, ROAD_SURFACE_TILE_VERSION, material_id, z, x, y,
+        _KEY_PREFIX, ROAD_SURFACE_TILE_SHAPE, material_id, z, x, y,
         hour_bucket, bearing_token, speed_token,
     )
 

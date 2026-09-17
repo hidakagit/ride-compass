@@ -17,17 +17,27 @@ import logging
 import time
 
 from app.config import settings
-from app.infrastructure import graph_material_cache, tile_score_matrix_cache
+from app.infrastructure import graph_material_cache, tile_cache, tile_score_matrix_cache
 
 logger = logging.getLogger("ridecompass.derived_data_revision")
 
 #: 次にDBを読み直してよくなる時刻（`time.monotonic()`）。プロセス内のみ。
 _next_check_at: float = 0.0
 
+#: 最後に読んだ派生データ世代。配信するタイルの世代（`tile_version_service`）が読む。
+#: Noneは「まだ読めていない」で、読めるまで配信側は世代なしの印を使う。
+_current_revision: int | None = None
+
 
 def reset_for_tests() -> None:
-    global _next_check_at
+    global _next_check_at, _current_revision
     _next_check_at = 0.0
+    _current_revision = None
+
+
+def current_revision() -> int | None:
+    """最後に読んだ派生データ世代。読めていなければNone。"""
+    return _current_revision
 
 
 async def ensure_caches_match_db(repository, *, force: bool = False) -> None:
@@ -51,7 +61,15 @@ async def ensure_caches_match_db(repository, *, force: bool = False) -> None:
         # ログが溢れることもない。
         logger.warning("派生データ世代を読めませんでした（キャッシュの追随を見送ります）", exc_info=True)
         return
+    global _current_revision
+    _current_revision = revision
     if not graph_material_cache.sync_disk_cache_with_derived_data_revision(revision):
         return
     tile_score_matrix_cache.clear()
+    # 焼き済みのタイルも捨てる。世代が変わった＝SQLが読むテーブルの中身が作り直された
+    # ということで、鍵（形の署名）は変わらないため、消さないと古い中身のまま配り続ける。
+    # `tile_cache`はパスをハッシュ化してフラットに保つため系統ごとには消せず、基礎地図・
+    # DEMも一緒に落ちる（どちらも取り直せる不変データで、`POST /api/basemap/refresh`が
+    # 日常的に行っているのと同じ操作）。
+    tile_cache.clear_all()
     logger.info("派生データ世代の変化を検知しキャッシュを破棄しました revision=%s", revision)

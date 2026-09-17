@@ -31,6 +31,7 @@ import {
   ROAD_TILE_MAX_ZOOM,
   ROAD_TILE_MIN_ZOOM,
   accidentTileUrl,
+  hasTileVersions,
   landcoverTileUrl,
   poiTileUrl,
   roadSurfaceTileUrl,
@@ -1112,6 +1113,9 @@ export function applyDynamicWeatherState(
 // exportはテスト専用（MapView.layerOps.test.ts、promoteIdの固定）。
 export function ensureRoadSurfaceTileLayer(map: MapLibreMap) {
   const applyData = () => {
+    // タイル世代（`GET /api/axis-catalog`）が届く前にソースを作ると、世代の違う中身が
+    // ブラウザのキャッシュへ載って以後ずっと残る。届いた時点で再描画される。
+    if (!hasTileVersions()) return;
     if (map.getSource(ROAD_TILE_SOURCE_ID)) return;
     map.addSource(ROAD_TILE_SOURCE_ID, {
       type: "vector",
@@ -1381,6 +1385,7 @@ function makeEnsureAttributeLineLayer(
 // パターンだがソース自体を新規に持つ。円の色は自転車関連/その他（involves_bicycle）、
 // 大きさは死亡事故（fatal）の強調に使う（staticAttributeLayers.ts参照）。
 function ensureAccidentTileLayer(map: MapLibreMap) {
+  if (!hasTileVersions()) return;
   const applyData = () => {
     if (map.getSource(ACCIDENT_TILE_SOURCE_ID)) return;
     map.addSource(ACCIDENT_TILE_SOURCE_ID, {
@@ -1413,6 +1418,7 @@ function ensureAccidentTileLayer(map: MapLibreMap) {
 // インフラとは別のベクタソース（region-poi-tiles）を使う。ズーム範囲は路面と同じ
 // （regionApi.ts: ROAD_TILE_MIN_ZOOM/MAX_ZOOM、backend側も同じ範囲に準拠）。
 function ensurePoiTileSource(map: MapLibreMap) {
+  if (!hasTileVersions()) return;
   if (map.getSource(POI_TILE_SOURCE_ID)) return;
   map.addSource(POI_TILE_SOURCE_ID, {
     type: "vector",
@@ -2062,6 +2068,10 @@ interface MapViewProps {
    * 変わるたび・タイル取得の進行に応じて呼ばれる（値が変わらない限り呼ばない）。 */
   onLayerDataStatusChange: (status: LayerDataStatusByLayer) => void;
   refreshToken: number;
+  /** タイル世代（`GET /api/axis-catalog`の`tile_versions`）が届いたか。届く前に
+   * タイルのソースを作ると、世代の違う中身がブラウザのキャッシュへ載って以後ずっと
+   * 残るため、届いてから作る。falseからtrueへ変わった時点で描き直す。 */
+  tileVersionsReady: boolean;
   /** 実験スロット（研究インターフェース改善 §10-3）。デバッグモードOFF時は呼び出し側が
    * 空配列を渡すため、通常利用ではレイヤーは作られない。 */
   experimentSlots: ExperimentSlot[];
@@ -2295,6 +2305,7 @@ export default function MapView({
   onViewportChange,
   onLayerDataStatusChange,
   refreshToken,
+  tileVersionsReady,
   experimentSlots,
   rampAxes,
   axes,
@@ -3285,6 +3296,14 @@ export default function MapView({
     resetBasemapAreaLayerPreparation(map);
     map.setStyle(`${mapStyleUrl()}?t=${Date.now()}`);
   }, [refreshToken, redrawFromCurrentProps]);
+
+  // タイル世代が届いた時点で、まだ作れていなかったタイルのソースを作る
+  // （ensureRoadSurfaceTileLayer等は世代が無いあいだ何もせずに戻る）。
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !tileVersionsReady || !map.isStyleLoaded()) return;
+    redrawFromCurrentProps(map);
+  }, [tileVersionsReady, redrawFromCurrentProps]);
 
   // 道路クリックの詳細ポップアップ。中身はReactで描き、MapLibreのPopupは器として使う。
   // 開いている間はその道を地図上で強調する（どの線の話かが分からないと詳細だけ見ても

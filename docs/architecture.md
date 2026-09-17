@@ -1457,11 +1457,10 @@ T278（上記）の自動導出は実装されていたが、導出結果の配�
   （`kind`/`tile_inputs`/`thresholds`/`unit`等）を含める。旧`STOP_DENSITY_DISPLAY`/
   旧`ACCIDENT_DISPLAY`/旧`CAR_STRESS_DISPLAY`（自動導出対象外の手書きdisplay）は
   `registry_defaults.py`から`axis_display.py`へ移設し単一ソース化した。
-- **フロントの実行時フェッチ化**: `RAMP_AXES`/`AXIS_LABELS`（`axisLayers.ts`）・
-  `MAP_LAYERS`/`ROAD_SURFACE_SHARED_LAYER_IDS`（`mapLayers.ts`）・`SECONDARY_AXES`
-  （`secondaryAxes.ts`）・`STATIC_FILTER_AXES`（`staticAttributeLayers.ts`）を、
-  それぞれ`buildX(rampAxes)`形の純関数＋静的フォールバック定数（旧`axis-catalog.json`
-  ベースの値をそのまま計算した後方互換値）へ変換した。`useAxisCatalog.ts`が
+- **フロントの実行時フェッチ化**: 軸に依存する一覧（地図レイヤーのカタログ・ラベル・
+  二次軸・絞り込み軸）は、手書きの定数ではなく`buildX(rampAxes)`形の純関数が軸カタログから
+  組み立てる（`axisLayers.ts`・`mapLayers.ts`・`secondaryAxes.ts`・`staticAttributeLayers.ts`。
+  撤去済みの旧定数名は`docs/tasks/`側の記録を参照）。`useAxisCatalog.ts`が
   マウント時の`GET /api/axis-catalog`取得結果からこれらを`useMemo`で算出し、
   取得完了/失敗時は静的フォールバックを返す（`useMaterialCatalog.ts`と同型のパターン、
   T269の踏襲）。`page.tsx`/`MapView.tsx`/`MapOverlayControls.tsx`は
@@ -1471,10 +1470,8 @@ T278（上記）の自動導出は実装されていたが、導出結果の配�
   **再デプロイなしに**地図・凡例・チップへ現れるようになった（旧来の「axis-catalog.json
   へ反映されるのは再デプロイ後」という制約はライブ取得側では解消。ビルド時静的
   生成物自体は取得失敗時フォールバックとして引き続き生成・コミットする）。
-- **改善計画T321（デッドコード監査）**: 上記の`MAP_LAYERS`/`ROAD_SURFACE_SHARED_LAYER_IDS`
-  （`mapLayers.ts`）・`STATIC_FILTER_AXES`（`staticAttributeLayers.ts`）・
-  `STATIC_OVERLAY_LAYERS`/`LAYER_DATA_SOURCES`（`MapView.tsx`）は、`build*(RAMP_AXES)`を
-  静的引数で事前計算してexportしたものだったが、上記の実行時フェッチ化で本体コードの
+- **事前計算した静的な一覧を残さない**: `build*(RAMP_AXES)`を静的引数で先に計算して
+  exportした定数（撤去済み、名前は`docs/tasks/`側の記録を参照）は、上記の実行時フェッチ化で本体コードの
   消費者が全て`build*(catalog.rampAxes)`直呼びへ移行済みで、exportされた定数側は
   テストからしか参照されなくなっていた。定数自体を撤去し、テストは`build*(RAMP_AXES)`を
   明示的に呼ぶ形＋軸スタジオのGUI作成軸を含む拡張カタログでの反映確認テストへ書き換えた
@@ -1895,7 +1892,7 @@ T281段階3（鮮度台帳、自動比較の仕組み）に着手する際は、
 
 タイル配信の系統:
 
-1. **`road-surface-tiles`**（既存、`ROAD_SURFACE_TILE_VERSION`）: highway・surface_good・
+1. **`road-surface-tiles`**: highway・surface_good・
    smoothness・tunnel・bridgeに加え、`designation`・車ストレスの
    材料タグ（`maxspeed_kmh`/`lanes_count`/`motor_vehicle_no`。旧`cycleway_class`は
    改善計画T337で、`bicycle_infra`は改善計画T347で削除済み）と、night軸が参照する`lit`、改善計画T145b（下記
@@ -1929,7 +1926,7 @@ T281段階3（鮮度台帳、自動比較の仕組み）に着手する際は、
    停止密度が種別別密度`poi_*_per_km`だけを材料にする形へ移った結果、読み手の無くなった
    `stop_per_km`プロパティを削除**（v14/v16と同じく非互換変更だが未使用のため
    デプロイ順序制約なし、現行）。
-2. **`GET /api/region/poi-tiles/{z}/{x}/{y}.pbf`**（`POI_TILE_VERSION`、T54新規）:
+2. **`GET /api/region/poi-tiles/{z}/{x}/{y}.pbf`**:
    `osm_raw_pois`の点データを`kind`プロパティ付きで焼き込む1レイヤー（`stop_poi`）構成。
    停止要因（信号・横断歩道・一時停止・踏切）に加え、T101で補給・休憩ポイント
    （コンビニ・自販機・トイレ・給水・駐輪場）のkind値も同じテーブル・同じMVTクエリへ
@@ -1939,7 +1936,7 @@ T281段階3（鮮度台帳、自動比較の仕組み）に着手する際は、
    T96でフロント可視化を撤去、T97で配信自体も削除済み（ルーティング材料としては
    `_INTERSECTION_COUNTS_SQL`が別途独立に計算）。road-surface-tilesと同じ
    `ROAD_TILE_MIN_ZOOM`〜`MAX_ZOOM`のXYZタイル。
-3. **`GET /api/region/accident-tiles/{z}/{x}/{y}.pbf`**（`ACCIDENT_TILE_VERSION`、T50新規）:
+3. **`GET /api/region/accident-tiles/{z}/{x}/{y}.pbf`**:
    事故地点の点データ（`involves_bicycle`・`fatal`）。`AccidentService`
    （[backend/app/services/accident_service.py](../backend/app/services/accident_service.py)）・
    専用リポジトリ`infrastructure/accident_repository.py`が担当し、`region_service.py`とは

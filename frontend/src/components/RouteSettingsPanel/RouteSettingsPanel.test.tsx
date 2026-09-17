@@ -77,6 +77,7 @@ function catalogResponse(axisIds: string[]): AxisCatalogResponse {
     // （既定{}だがopenapi-typescriptはdefault付きフィールドをoptionalにしない）。
     material_runtime_scales: {},
     client_tuning: {},
+    tile_versions: {},
   };
 }
 

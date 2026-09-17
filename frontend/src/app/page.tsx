@@ -2339,6 +2339,7 @@ export default function Home() {
             onViewportChange={handleViewportChange}
             onLayerDataStatusChange={setMapViewLayerDataStatus}
             refreshToken={refreshToken}
+            tileVersionsReady={axisCatalog.loaded}
             // experimentSlots（研究モード中の生成履歴、1件目は常にEXPERIMENT_SLOT_
             // COLORS[0]="#16a34a"=緑）はdrawExperimentSlotsが無条件で描画するため、
             // 実際に「比較」タブを見ているとき以外に地図へ残ると選択中ルートの色分けと

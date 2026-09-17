@@ -74,16 +74,16 @@ async def test_different_tile_is_a_different_entry():
     assert result is None
 
 
-async def test_different_road_surface_tile_version_is_a_different_entry(monkeypatch):
+async def test_different_road_surface_tile_shape_is_a_different_entry(monkeypatch):
     """路面タイルを焼き直した版のエントリは、前の版のものを拾わない。
 
-    ここに入る鍵は路面タイルの`feature_key`と一致して初めて意味を持つ。世代が鍵に
+    ここに入る鍵は路面タイルの`feature_key`と一致して初めて意味を持つ。形の署名が鍵に
     入っていないと、焼き方を変えたデプロイの直後、**どの地物にも一致しないエントリが
     TTLの間そのまま返り続け、色だけが静かに消える**（エラーにならない）。
     """
     await dynamic_way_value_cache.set_tile_values("wind", Z, X, Y, HOUR, 0.0, {"1": 1.0}, TTL)
 
-    monkeypatch.setattr(dynamic_way_value_cache, "ROAD_SURFACE_TILE_VERSION", "99-deadbeefcafe")
+    monkeypatch.setattr(dynamic_way_value_cache, "ROAD_SURFACE_TILE_SHAPE", "deadbeefcafe")
     result = await dynamic_way_value_cache.get_tile_values("wind", Z, X, Y, HOUR, 0.0)
 
     assert result is None

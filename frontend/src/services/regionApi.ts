@@ -49,7 +49,40 @@ const POI_TILE_PATH = "/api/region/poi-tiles/{z}/{x}/{y}.pbf";
 // デプロイすること（逆順だと、新世代前提の凡例フィルタが全地物に一致し、対象レイヤーが
 // 一時的に全線「不明・他」表示になる。docs/architecture.md「Renderデプロイの反映確認」
 // 参照）。
-const ROAD_SURFACE_TILE_VERSION = regionTileConfig.road_surface.tile_version;
+// タイルの世代は**実行時にbackendから受け取る**（`GET /api/axis-catalog`の`tile_versions`、
+// backend: services/tile_version_service.py）。ビルド時生成物には持たない——バッチが
+// タイルの読み先を作り直してもデプロイは起きないため、生成物の値は次のデプロイまで
+// 古いままになる。
+//
+// 既定値は置かない。届く前にタイルを要求すると、世代の違う中身がブラウザのキャッシュへ
+// 載って以後ずっと残る。呼び出し側（page.tsx）はカタログの取得完了まで地図のレイヤーを
+// 作らず、`setTileVersions`で渡してから作る。
+let tileVersions: Readonly<Record<string, string>> | null = null;
+
+export function setTileVersions(versions: Readonly<Record<string, string>>): void {
+  tileVersions = versions;
+}
+
+/** 配信されるタイルの系統。1つでも欠けたら「未取得」として扱う。 */
+const TILE_KINDS = ["road_surface", "poi", "accident"] as const;
+type TileKind = (typeof TILE_KINDS)[number];
+
+export function hasTileVersions(): boolean {
+  // **空の辞書を「取得済み」と見なさない**。世代を返さない古いbackendが応答した場合
+  // （デプロイの順序が前後した窓）、取得済み扱いにするとURL組み立てで例外になる。
+  // 欠けているあいだはタイルを出さず、揃った時点で描き直す。
+  return TILE_KINDS.every((kind) => Boolean(tileVersions?.[kind]));
+}
+
+function tileVersion(kind: TileKind): string {
+  const version = tileVersions?.[kind];
+  if (!version) {
+    // 呼ぶ側の順序が崩れた場合にだけ起きる。黙って既定値を使うと、世代の違うタイルが
+    // キャッシュへ載ったことに誰も気づけない。
+    throw new Error(`タイル世代が未取得のまま${kind}のURLを組み立てようとしました`);
+  }
+  return version;
+}
 
 // 路面の地域レイヤー（Step10）のベクタタイルURL。オリジンは`tileBaseUrl()`
 // （lib/tileBaseUrl.ts: 既定はフロント自身のオリジン＝Next.jsのrewrites経由、
@@ -57,27 +90,20 @@ const ROAD_SURFACE_TILE_VERSION = regionTileConfig.road_surface.tile_version;
 // Web Worker内で行うため相対パスでは解決できず絶対URLが必要で、`window`をSSR時に参照しない
 // よう呼び出し時（クライアントサイドのみ）に評価する関数として提供する。
 export function roadSurfaceTileUrl(): string {
-  return `${tileBaseUrl()}${ROAD_SURFACE_TILE_PATH}?v=${ROAD_SURFACE_TILE_VERSION}`;
+  return `${tileBaseUrl()}${ROAD_SURFACE_TILE_PATH}?v=${tileVersion("road_surface")}`;
 }
-
-// 事故レイヤー（外部静的データソース）のタイル世代。正はbackend
-// （accident_service.py: ACCIDENT_TILE_VERSION）で、生成物経由で受け取る。
-const ACCIDENT_TILE_VERSION = regionTileConfig.accident.tile_version;
 
 export function accidentTileUrl(): string {
-  return `${tileBaseUrl()}${ACCIDENT_TILE_PATH}?v=${ACCIDENT_TILE_VERSION}`;
+  return `${tileBaseUrl()}${ACCIDENT_TILE_PATH}?v=${tileVersion("accident")}`;
 }
 
-// POIタイルの世代。正はbackend（region_service.py: POI_TILE_VERSION）で、生成物経由で
-// 受け取る。用途はROAD_SURFACE_TILE_VERSIONと同じ（ブラウザHTTPキャッシュのバスト）。
-// 停止要因POIと補給休憩POIが同じタイルを共有する（staticAttributeLayers.ts参照）。
-const POI_TILE_VERSION = regionTileConfig.poi.tile_version;
+// 停止要因POIと補給休憩POIは同じタイルを共有する（staticAttributeLayers.ts参照）。
 
 // 停止要因POIの地域レイヤーのベクタタイルURL。
 // roadSurfaceTileUrlと同じ理由（MapLibreのWeb Worker内取得のため絶対URL化が必要）で
 // 呼び出し時に評価する関数として提供する。
 export function poiTileUrl(): string {
-  return `${tileBaseUrl()}${POI_TILE_PATH}?v=${POI_TILE_VERSION}`;
+  return `${tileBaseUrl()}${POI_TILE_PATH}?v=${tileVersion("poi")}`;
 }
 
 // 土地被覆ラスタタイル（Esri×Impact Observatory 10m LULCをそのまま塗った面）。世代・
