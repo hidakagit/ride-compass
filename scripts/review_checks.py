@@ -670,6 +670,39 @@ def find_count_narratives(
     return out
 
 
+# 相手のレイヤーを主語にして、その挙動を断定するコメント（docs/comments.md「他所を写さない・
+# 代弁しない」）。相手が変わっても自分のテストは緑のままのため、陳腐化しても気づけない。
+# 「呼び出し側は」は対象外——レイヤーの名指しではなく、自分が課す契約の相手を指す一般語。
+CROSS_LAYER_SUBJECTS = {
+    "backend": r"フロント(?:エンド)?(?:は|が|側は|側が)|クライアント(?:は|が)",
+    "frontend": r"backend(?:は|が)|バックエンド(?:は|が)|サーバー(?:は|が)",
+}
+CROSS_LAYER_RE = {side: re.compile(pat) for side, pat in CROSS_LAYER_SUBJECTS.items()}
+# 生成物は契約そのものの写しで、手で保守しない。
+CROSS_LAYER_EXEMPT = ("types/generated/",)
+
+
+def find_cross_layer_claims(source_lines: dict[str, list[tuple[int, str]]]) -> list[str]:
+    """相手のレイヤーの挙動を断定するコメント（参考表示）。コメント部分だけを見る。"""
+    out: list[str] = []
+    for path, lines in sorted(source_lines.items()):
+        if any(part in path for part in CROSS_LAYER_EXEMPT):
+            continue
+        if path.startswith("backend/"):
+            pattern = CROSS_LAYER_RE["backend"]
+        elif path.startswith("frontend/"):
+            pattern = CROSS_LAYER_RE["frontend"]
+        else:
+            continue
+        jsx_state: dict[str, bool] = {}
+        for lineno, line in lines:
+            text = comment_only(line, path, jsx_state)
+            m = pattern.search(text) if text else None
+            if m:
+                out.append(f"{path}:{lineno}: 「{m.group(0)}」 {text.strip()[:80]}")
+    return out
+
+
 # map.setStyle()はカスタムのsource/layerを全て捨てるため、その後の再描画から辿り着けない
 # 描画は「消えたまま戻らない」。再描画の入口と、それが守るべきファイルを指す。
 MAP_REDRAW_FILE = "frontend/src/components/Map/MapView.tsx"
@@ -2469,6 +2502,7 @@ DETECTOR_ENFORCEMENT: dict[str, frozenset[str]] = {
     # 参考表示のみ。誤検出が多く（実測はdocs/tasks/T824.md）ブロックには使えないが、
     # 書いた本人の目へ入れるだけで直せる型のため、追加行に対してだけ出す。
     "count_narrative": frozenset(),
+    "cross_layer_claim": frozenset(),
     # 参考表示のみ（README「記載粒度」節は1リンクまで許可）。
     "task_links": frozenset(),
     # 参考表示のみ。節が完了済みフォローアップの記録であることもあり、残りかどうかは
@@ -2540,6 +2574,8 @@ def cmd_docs(args: argparse.Namespace) -> int:
             lambda: find_undeclared_fixed_values())
         add("count_narrative", "個数を書いている行（参考、ステージ済み追加行、docs/documentation.md参照）",
             lambda: find_count_narratives(source_lines, diff_added_lines("docs/*.md")))
+        add("cross_layer_claim", "相手のレイヤーの挙動を断定するコメント（参考、ステージ済み追加行、docs/comments.md参照）",
+            lambda: find_cross_layer_claims(source_lines))
         arch_lines = diff_added_lines(ARCHITECTURE_DOC)
         add("undeclared_dead_refs", "architecture.md が撤去済みの名前を断りなく名指し（ステージ済み追加行）",
             lambda: find_undeclared_dead_refs(arch_lines, files + added, source_corpus(files + added), revision=""))
@@ -2686,6 +2722,9 @@ def cmd_docs(args: argparse.Namespace) -> int:
             add("count_narrative", f"個数を書いている行（参考、{args.since} 以降の追加行、docs/documentation.md参照）",
                 lambda: find_count_narratives(gather_added_source_lines(args.since),
                                                    diff_added_lines("docs/*.md", args.since)))
+            add("cross_layer_claim",
+                f"相手のレイヤーの挙動を断定するコメント（参考、{args.since} 以降の追加行、docs/comments.md参照）",
+                lambda: find_cross_layer_claims(gather_added_source_lines(args.since)))
         else:
             add("vacuous_test_loops", "空の母集団でも通るテストのループ（全件）",
                 lambda: find_vacuous_test_loops(files))

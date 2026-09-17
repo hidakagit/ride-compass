@@ -1225,6 +1225,40 @@ def test_map_redraw_gaps_reports_a_missing_entry_instead_of_passing_silently():
     assert "redrawAllLayers" in gaps[0]
 
 
+# --- cross_layer_claim ------------------------------------------------------
+
+
+def test_cross_layer_claim_reports_assertions_about_the_other_side():
+    src = {
+        "backend/app/domain/zzz.py": [(3, "    # フロントは先頭から順に出す（並べ替えを持たない）。")],
+        "frontend/src/lib/zzz.ts": [(4, "// backendはキー集合の完全一致を要求する。")],
+    }
+
+    hits = review_checks.find_cross_layer_claims(src)
+
+    assert len(hits) == 2
+
+
+def test_cross_layer_claim_ignores_own_contract_and_generated_files():
+    # 「呼び出し側」は自分が課す契約の相手で、レイヤーの名指しではない。生成物は契約そのもの。
+    src = {
+        "backend/app/domain/zzz.py": [(1, "    # 呼び出し側は1回呼ぶだけでよい。")],
+        "frontend/src/types/generated/api.d.ts": [(2, " * backendは空配列を返す。")],
+    }
+
+    assert review_checks.find_cross_layer_claims(src) == []
+
+
+def test_cross_layer_claim_ignores_the_same_side_and_code_lines():
+    # 自分の側を主語にした説明と、コメントでない行は対象外。
+    src = {
+        "backend/app/domain/zzz.py": [(1, '    BACKEND_NOTE = "backendは〜"')],
+        "frontend/src/lib/zzz.ts": [(2, "// フロントは先頭から順に出す。")],
+    }
+
+    assert review_checks.find_cross_layer_claims(src) == []
+
+
 # --- count_narrative --------------------------------------------------------
 
 
