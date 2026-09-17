@@ -159,10 +159,40 @@ async def _measure(session, label: str, variant: str, source: str, z: int, x: in
     return TileMeasurement(label, variant, len(content), len(gzipped), feature_count, elapsed)
 
 
+# edgeを1本も持たないway。**この単位ではズームを上げたときだけ地図から消える**
+# （T918段階1）。座標が判明しているノードが2点未満のway等（domain/graph.py:
+# build_road_graph）。対処の要否はこの件数で決まるため、費用と一緒に測る。
+_WAYS_WITHOUT_EDGES_SQL = text(
+    f"""
+    SELECT
+        count(*) AS way_count,
+        count(*) FILTER (WHERE NOT EXISTS (
+            SELECT 1 FROM road_edges re WHERE re.osm_way_id = w.osm_way_id
+        )) AS without_edges
+    FROM osm_raw_ways w
+    WHERE w.geom IS NOT NULL AND ST_Intersects(w.geom, {_TILE_BBOX})
+    """
+)
+
+
+async def _report_ways_without_edges(session, tiles: list[tuple[str, int, int, int]]) -> None:
+    print()
+    print("## edgeを1本も持たないway（ズームを上げると消える道）")
+    print()
+    header = f"{'タイル':<14}{'way総数':>10}{'edge無し':>10}{'割合':>8}"
+    print(header)
+    print("-" * len(header))
+    for label, z, x, y in tiles:
+        row = (await session.execute(_WAYS_WITHOUT_EDGES_SQL, {"z": z, "x": x, "y": y})).one()
+        share = f"{row.without_edges / row.way_count:.1%}" if row.way_count else "-"
+        print(f"{label:<14}{row.way_count:>10,}{row.without_edges:>10,}{share:>8}")
+
+
 async def main() -> None:
     session_factory = get_session_factory()
     rows: list[TileMeasurement] = []
     skipped: list[str] = []
+    measured_tiles: list[tuple[str, int, int, int]] = []
 
     async with session_factory() as session:
         for label, z, x, y in TARGET_TILES:
@@ -176,6 +206,7 @@ async def main() -> None:
             if not covered:
                 skipped.append(f"{label}: 取込範囲外（road_graph_tilesにz{cz}/{cx}/{cy}が無い）")
                 continue
+            measured_tiles.append((label, z, x, y))
             for variant, source in (
                 ("way（現行の単位）", _WAY_SOURCE),
                 ("edge（両方向そのまま）", _EDGE_SOURCE_WITH_DUPLICATES),
@@ -215,6 +246,9 @@ async def main() -> None:
             f"{row.label:<14}{row.variant:<24}{row.raw_bytes:>11,}{row.gzip_bytes:>10,}"
             f"{row.feature_count:>10,}{row.elapsed_s:>8.3f}{ratio:>8}"
         )
+
+    async with session_factory() as session:
+        await _report_ways_without_edges(session, measured_tiles)
 
 
 if __name__ == "__main__":
