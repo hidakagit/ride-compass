@@ -105,11 +105,13 @@ _EDGE_SOURCE_WITH_DUPLICATES = f"""
 # ——geometryの正規化（ST_Normalize）はLINESTRINGの向きを揃えないため、形状では
 # forward/backwardを同一と判定できない。どちらを残すかはedge_id昇順で決定論的に固定する。
 _EDGE_SOURCE_DEDUPED = f"""
-    SELECT DISTINCT ON (LEAST(re.from_node_id, re.to_node_id), GREATEST(re.from_node_id, re.to_node_id))
+    SELECT DISTINCT ON (
+        re.osm_way_id, LEAST(re.from_node_id, re.to_node_id), GREATEST(re.from_node_id, re.to_node_id)
+    )
         re.geom AS geom, re.osm_way_id AS osm_way_id, re.edge_id AS feature_key
     FROM road_edges re
     WHERE re.osm_way_id IS NOT NULL AND ST_Intersects(re.geom, {_TILE_BBOX})
-    ORDER BY LEAST(re.from_node_id, re.to_node_id), GREATEST(re.from_node_id, re.to_node_id), re.edge_id
+    ORDER BY re.osm_way_id, LEAST(re.from_node_id, re.to_node_id), GREATEST(re.from_node_id, re.to_node_id), re.edge_id
 """
 
 

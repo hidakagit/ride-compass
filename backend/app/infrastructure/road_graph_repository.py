@@ -311,6 +311,56 @@ _LANDCOVER_TILE_COLUMNS_SQL = ("," + "\n").join(
     for key in WIRED_LANDCOVER_KEYS
 )
 
+# 路面タイルが1フィーチャーとして焼く単位。**区間が読めるズームでは区間（road_edges）、
+# それより引いた表示ではway丸ごと（osm_raw_ways）**にする。境界の根拠は
+# docs/tasks/T917.mdの実測——gzip後の費用はz14で1.48倍・z12で1.81倍（1画面9タイルで
+# +90KB / +2.4MB）へ増える一方、z12は1pxが約38mで、交差点で切った区間は数pxにしかならず
+# 塗り分けても読めない。費用が跳ね上がるズームと、区間単位の情報量が消えるズームが
+# 一致している。
+#
+# どちらの単位も`feature_key`という同じ名前のプロパティで出す。フロントは`promoteId`で
+# これをfeature.idへ昇格させるだけでよく、中身がway_idかedge_idかを知らなくてよい
+# （値の配信もタイル単位のため、そのズームの鍵で返せば噛み合う）。
+EDGE_UNIT_MIN_ZOOM = 14
+
+# 同じ物理区間の逆方向（road_edgesはforward/backwardを別行で持つ）を落とす。**wayと両端ノードの
+# 組で見分ける**——PostGISのジオメトリ正規化はLINESTRINGの向きを揃えないため形状では
+# 同一と判定できず、
+# 一方でノードの組だけだと同じノード対を共有する別々のwayまで1本へ潰れる。残す側はedge_id
+# 昇順で決定論的に固定する。
+#
+# 空間フィルタは各枝の中に置く。外へ出すと重複排除がroad_edges全件に対して走り、タイルの
+# 中身に依存しない固定コスト（実測8秒台）になる。
+_TILE_FEATURE_SOURCE_SQL = """
+    SELECT
+        w2.geom AS geom,
+        w2.osm_way_id AS osm_way_id,
+        w2.osm_way_id::text AS feature_key
+    FROM osm_raw_ways w2
+    WHERE :z < EDGE_UNIT_MIN_ZOOM_VALUE
+      AND w2.geom IS NOT NULL
+      AND ST_Intersects(w2.geom, ST_MakeEnvelope(:xmin, :ymin, :xmax, :ymax, 4326))
+    UNION ALL
+    SELECT geom, osm_way_id, feature_key FROM (
+        SELECT DISTINCT ON (
+            re.osm_way_id, LEAST(re.from_node_id, re.to_node_id), GREATEST(re.from_node_id, re.to_node_id)
+        )
+            re.geom AS geom,
+            re.osm_way_id AS osm_way_id,
+            re.edge_id AS feature_key
+        FROM road_edges re
+        WHERE :z >= EDGE_UNIT_MIN_ZOOM_VALUE
+          AND re.osm_way_id IS NOT NULL
+          AND ST_Intersects(re.geom, ST_MakeEnvelope(:xmin, :ymin, :xmax, :ymax, 4326))
+        ORDER BY
+            re.osm_way_id,
+            LEAST(re.from_node_id, re.to_node_id),
+            GREATEST(re.from_node_id, re.to_node_id),
+            re.edge_id
+    ) deduped_edges
+""".replace("EDGE_UNIT_MIN_ZOOM_VALUE", str(EDGE_UNIT_MIN_ZOOM))
+
+
 _ROAD_SURFACE_TILE_MVT_SQL = (
     text(
         f"""
@@ -326,8 +376,11 @@ _ROAD_SURFACE_TILE_MVT_SQL = (
                 SELECT ST_AsMVT(mvt.*, :layer_name, :extent, 'geom') FROM (
                     SELECT
                         ST_AsMVTGeom(
-                            ST_Transform(w.geom, 3857), ST_TileEnvelope(:z, :x, :y), :extent, 256, true
+                            ST_Transform(src.geom, 3857), ST_TileEnvelope(:z, :x, :y), :extent, 256, true
                         ) AS geom,
+                        -- このフィーチャーが表す単位の識別子（EDGE_UNIT_MIN_ZOOM参照）。
+                        -- 値の配信（dynamic-way-values）はこの鍵で返る。
+                        src.feature_key AS feature_key,
                         -- 区間インスペクタ（クリック時の車ストレス内訳表示）が、ポップアップに
                         -- 出た値と同じ行を曖昧さ無く引き直すための識別子。空間マッチ
                         -- (半径内最近傍)だと交差点付近で別の道路を拾いうるため、
@@ -409,7 +462,8 @@ _ROAD_SURFACE_TILE_MVT_SQL = (
                             round((wc.intersection_count * 1000.0 / NULLIF(wc.length_m, 0))::numeric, 1), 0
                         )::double precision AS intersection_per_km,{_POI_TILE_COLUMNS_SQL}
 {_LANDCOVER_TILE_COLUMNS_SQL}
-                    FROM osm_raw_ways w
+                    FROM ({_TILE_FEATURE_SOURCE_SQL}) src
+                    JOIN osm_raw_ways w ON w.osm_way_id = src.osm_way_id
                     LEFT JOIN way_attribute_counts wc ON wc.osm_way_id = w.osm_way_id
                     LEFT JOIN way_landcover lc ON lc.osm_way_id = w.osm_way_id
                     LEFT JOIN way_divided_carriageway wdc ON wdc.osm_way_id = w.osm_way_id
@@ -427,8 +481,6 @@ _ROAD_SURFACE_TILE_MVT_SQL = (
                         FROM designation_attributes
                         WHERE osm_way_id = w.osm_way_id
                     ) d ON true
-                    WHERE w.geom IS NOT NULL
-                      AND ST_Intersects(w.geom, ST_MakeEnvelope(:xmin, :ymin, :xmax, :ymax, 4326))
                 ) mvt
                 WHERE mvt.geom IS NOT NULL
             ) END AS tile

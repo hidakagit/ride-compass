@@ -1549,6 +1549,16 @@ def _mvt_tile_bbox():
     return bbox
 
 
+async def _save_ways_and_edges(repository, way_specs, nodes):
+    """MVTの検証用に、生のwayとそれを分割したedgeの両方を入れる。
+
+    **z14以上のタイルはroad_edgesから焼く**（road_graph_repository.py:
+    EDGE_UNIT_MIN_ZOOM）。生のwayだけを入れても、その単位のタイルには1件も出ない。
+    """
+    await repository.save_raw_ways(way_specs, nodes)
+    await repository.save_graph(build_road_graph(way_specs, nodes, graph_version="v1"))
+
+
 async def _mark_mvt_coverage(road_graph_session):
     zoom, x, y = MVT_COVERAGE_TILE
     await _mark_tile_cached(road_graph_session, zoom=zoom, x=x, y=y)
@@ -1557,7 +1567,7 @@ async def _mark_mvt_coverage(road_graph_session):
 async def test_get_road_surface_tile_mvt_returns_none_when_uncovered(road_graph_repository):
     """z12祖先タイルが未マーク（取込範囲外）ならNone（wayの有無に関わらずフォールバック判定へ）。"""
     way = WaySpec(osm_way_id=1, node_ids=[1, 2], highway="residential", surface="asphalt")
-    await road_graph_repository.save_raw_ways([way], {1: NODE1, 2: NODE2})
+    await _save_ways_and_edges(road_graph_repository, [way], {1: NODE1, 2: NODE2})
 
     tile = await road_graph_repository.get_road_surface_tile_mvt(
         MVT_Z, MVT_X, MVT_Y, _mvt_tile_bbox(), MVT_COVERAGE_TILE
@@ -1590,7 +1600,7 @@ async def test_get_road_surface_tile_mvt_encodes_layer_and_surface_classificatio
         WaySpec(osm_way_id=3, node_ids=[1, 2], highway="residential"),  # タグ無し→不明
         WaySpec(osm_way_id=4, node_ids=[1, 2], highway="residential", surface="mystery_tag"),  # 未知→不明
     ]
-    await road_graph_repository.save_raw_ways(way_specs, {1: NODE1, 2: NODE2})
+    await _save_ways_and_edges(road_graph_repository, way_specs, {1: NODE1, 2: NODE2})
     await _mark_mvt_coverage(road_graph_session)
 
     tile = await road_graph_repository.get_road_surface_tile_mvt(
@@ -1599,8 +1609,13 @@ async def test_get_road_surface_tile_mvt_encodes_layer_and_surface_classificatio
 
     decoded = mapbox_vector_tile.decode(tile)
     assert set(decoded.keys()) == {"road_surface"}
+    raw_properties = [feature["properties"] for feature in decoded["road_surface"]["features"]]
+    # feature_key（そのフィーチャーが表す単位の識別子、road_graph_repository.py:
+    # EDGE_UNIT_MIN_ZOOM参照）はどのフィーチャーも必ず持つ。値そのものはこのテストの
+    # 関心ではないため、下の属性比較からは外す。
+    assert all(props.get("feature_key") for props in raw_properties)
     properties = sorted(
-        (feature["properties"] for feature in decoded["road_surface"]["features"]),
+        ({key: value for key, value in props.items() if key != "feature_key"} for props in raw_properties),
         key=lambda p: p.get("surface") or "",
     )
     # 不明（タグ無し・未知タグ）はsurface_goodキー自体が省略される（フロントエンドの
@@ -1640,7 +1655,7 @@ async def test_get_road_surface_tile_mvt_excludes_ways_outside_tile(road_graph_r
         WaySpec(osm_way_id=1, node_ids=[1, 2], highway="residential", surface="asphalt"),  # タイル内
         WaySpec(osm_way_id=2, node_ids=[3, 4], highway="residential", surface="asphalt"),  # タイル外(35.75付近)
     ]
-    await road_graph_repository.save_raw_ways(way_specs, {1: NODE1, 2: NODE2, 3: NODE3, 4: NODE4})
+    await _save_ways_and_edges(road_graph_repository, way_specs, {1: NODE1, 2: NODE2, 3: NODE3, 4: NODE4})
     await _mark_mvt_coverage(road_graph_session)
 
     tile = await road_graph_repository.get_road_surface_tile_mvt(
@@ -1666,7 +1681,7 @@ async def test_get_road_surface_tile_mvt_encodes_smoothness_tunnel_bridge(road_g
         ),
         WaySpec(osm_way_id=3, node_ids=[1, 2], highway="residential", tags={"tunnel": "no"}),
     ]
-    await road_graph_repository.save_raw_ways(way_specs, {1: NODE1, 2: NODE2})
+    await _save_ways_and_edges(road_graph_repository, way_specs, {1: NODE1, 2: NODE2})
     await _mark_mvt_coverage(road_graph_session)
 
     tile = await road_graph_repository.get_road_surface_tile_mvt(
@@ -1698,7 +1713,7 @@ async def test_get_road_surface_tile_mvt_encodes_road_name_and_ref(road_graph_re
         WaySpec(osm_way_id=3, node_ids=[1, 2], highway="residential", tags={"name": "  "}),
         WaySpec(osm_way_id=4, node_ids=[1, 2], highway="residential"),
     ]
-    await road_graph_repository.save_raw_ways(way_specs, {1: NODE1, 2: NODE2})
+    await _save_ways_and_edges(road_graph_repository, way_specs, {1: NODE1, 2: NODE2})
     await _mark_mvt_coverage(road_graph_session)
 
     tile = await road_graph_repository.get_road_surface_tile_mvt(
@@ -1727,7 +1742,7 @@ async def test_get_road_surface_tile_mvt_encodes_oneway(road_graph_repository, r
         WaySpec(osm_way_id=2, node_ids=[1, 2], highway="residential", direction="backward"),
         WaySpec(osm_way_id=3, node_ids=[1, 2], highway="residential", direction="both"),
     ]
-    await road_graph_repository.save_raw_ways(way_specs, {1: NODE1, 2: NODE2})
+    await _save_ways_and_edges(road_graph_repository, way_specs, {1: NODE1, 2: NODE2})
     await _mark_mvt_coverage(road_graph_session)
 
     tile = await road_graph_repository.get_road_surface_tile_mvt(
@@ -1780,7 +1795,7 @@ async def test_get_road_surface_tile_mvt_car_stress_ingredients(road_graph_repos
         WaySpec(osm_way_id=i + 1, node_ids=[1, 2], highway=highway, tags=tags)
         for i, (highway, tags, _expected) in enumerate(fixtures)
     ]
-    await road_graph_repository.save_raw_ways(way_specs, {1: NODE1, 2: NODE2})
+    await _save_ways_and_edges(road_graph_repository, way_specs, {1: NODE1, 2: NODE2})
     await _mark_mvt_coverage(road_graph_session)
 
     tile = await road_graph_repository.get_road_surface_tile_mvt(
@@ -1836,7 +1851,7 @@ async def test_get_road_surface_tile_mvt_designation_matches_designation_kinds(
     # （凡例で「緊急輸送道路」を非表示にしてもbothカテゴリとして表示され続ける）。
     both_way = WaySpec(osm_way_id=203, node_ids=[1, 2], highway="unclassified")
     ways = [ert_way, cl_way, plain_way, both_way]
-    await road_graph_repository.save_raw_ways(ways, {1: NODE1, 2: NODE2})
+    await _save_ways_and_edges(road_graph_repository, ways, {1: NODE1, 2: NODE2})
     graph = build_road_graph(ways, {1: NODE1, 2: NODE2}, graph_version="v1")
     await road_graph_repository.save_graph(graph)
     await _insert_designation_attribute(road_graph_session, 200, "emergency_transport")
@@ -1899,7 +1914,7 @@ async def test_get_road_surface_tile_mvt_bicycle_infra_flags_match_domain_recipe
     )
     plain_way = WaySpec(osm_way_id=215, node_ids=[1, 2], highway="residential")
     ways = [cycleway_way, track_way, lane_way, shared_way, shared_path_way, plain_way]
-    await road_graph_repository.save_raw_ways(ways, {1: NODE1, 2: NODE2})
+    await _save_ways_and_edges(road_graph_repository, ways, {1: NODE1, 2: NODE2})
     graph = build_road_graph(ways, {1: NODE1, 2: NODE2}, graph_version="v1")
     await road_graph_repository.save_graph(graph)
     await _mark_mvt_coverage(road_graph_session)
@@ -1940,7 +1955,7 @@ async def test_get_distinct_material_values_returns_sorted_deduped_values(
         WaySpec(osm_way_id=302, node_ids=[1, 2], highway="residential", tags={"smoothness": " Good "}),
         WaySpec(osm_way_id=303, node_ids=[1, 2], highway="track"),  # surface/smoothnessタグ無し
     ]
-    await road_graph_repository.save_raw_ways(ways, {1: NODE1, 2: NODE2})
+    await _save_ways_and_edges(road_graph_repository, ways, {1: NODE1, 2: NODE2})
     await road_graph_session.commit()
 
     highway_values = await road_graph_repository.get_distinct_material_values("highway")
@@ -2024,7 +2039,7 @@ async def test_rebuild_raw_intersection_nodes_detects_degree3_from_raw_ways(
     way_b = WaySpec(osm_way_id=101, node_ids=[2, 3], highway="residential")
     way_c = WaySpec(osm_way_id=102, node_ids=[2, 4], highway="residential")
     nodes = {1: NODE1, 2: NODE2, 3: NODE3, 4: NODE4}
-    await road_graph_repository.save_raw_ways([way_a, way_b, way_c], nodes)
+    await _save_ways_and_edges(road_graph_repository, [way_a, way_b, way_c], nodes)
 
     await road_graph_repository.rebuild_raw_intersection_nodes()
     await road_graph_session.commit()
@@ -2046,7 +2061,7 @@ async def test_recompute_way_attribute_counts_computes_per_way_facts(
     way_b = WaySpec(osm_way_id=101, node_ids=[2, 3], highway="residential")
     way_c = WaySpec(osm_way_id=102, node_ids=[2, 4], highway="residential")
     nodes = {1: NODE1, 2: NODE2, 3: NODE3, 4: NODE4}
-    await road_graph_repository.save_raw_ways([way_a, way_b, way_c], nodes)
+    await _save_ways_and_edges(road_graph_repository, [way_a, way_b, way_c], nodes)
     await road_graph_repository.rebuild_raw_intersection_nodes()
 
     # way_a近傍: 停止POI1件（signal）＋補給POI1件（除外されるべき）＋自転車事故1件。
@@ -2100,7 +2115,7 @@ async def test_get_road_surface_tile_mvt_encodes_per_km_densities(road_graph_rep
     way_b = WaySpec(osm_way_id=101, node_ids=[2, 3], highway="residential")
     way_c = WaySpec(osm_way_id=102, node_ids=[2, 4], highway="residential")
     nodes = {1: NODE1, 2: NODE2, 3: NODE3, 4: NODE4}
-    await road_graph_repository.save_raw_ways([way_a, way_b, way_c], nodes)
+    await _save_ways_and_edges(road_graph_repository, [way_a, way_b, way_c], nodes)
     await road_graph_repository.rebuild_raw_intersection_nodes()
     # 種別別カウント（poi_counts）はwayの構成ノードだけを数えるため、信号はway_aの
     # 2番目のノード（osm_node_id=2）へ置く。
@@ -2141,7 +2156,7 @@ async def test_get_road_surface_tile_mvt_encodes_landcover_trees_and_built_pct(
     way_a = WaySpec(osm_way_id=100, node_ids=[1, 2], highway="residential")
     way_b = WaySpec(osm_way_id=101, node_ids=[2, 3], highway="residential")
     nodes = {1: NODE1, 2: NODE2, 3: NODE3}
-    await road_graph_repository.save_raw_ways([way_a, way_b], nodes)
+    await _save_ways_and_edges(road_graph_repository, [way_a, way_b], nodes)
     await road_graph_session.execute(
         text(
             "INSERT INTO way_landcover (osm_way_id, valid_pixels, water_percent, trees_percent, "
@@ -2169,7 +2184,7 @@ async def test_get_road_surface_tile_mvt_encodes_landcover_trees_and_built_pct(
 
 async def test_get_way_ids_in_tile_returns_none_when_uncovered(road_graph_repository):
     way = WaySpec(osm_way_id=1, node_ids=[1, 2], highway="residential")
-    await road_graph_repository.save_raw_ways([way], {1: NODE1, 2: NODE2})
+    await _save_ways_and_edges(road_graph_repository, [way], {1: NODE1, 2: NODE2})
 
     result = await road_graph_repository.get_way_ids_in_tile(MVT_Z, MVT_X, MVT_Y, _mvt_tile_bbox(), MVT_COVERAGE_TILE)
 
@@ -2188,7 +2203,7 @@ async def test_get_way_ids_in_tile_returns_empty_list_when_covered_but_no_ways(
 
 async def test_get_way_ids_in_tile_returns_way_id(road_graph_repository, road_graph_session):
     way = WaySpec(osm_way_id=1, node_ids=[1, 2], highway="residential")
-    await road_graph_repository.save_raw_ways([way], {1: NODE1, 2: NODE2})
+    await _save_ways_and_edges(road_graph_repository, [way], {1: NODE1, 2: NODE2})
     await _mark_mvt_coverage(road_graph_session)
 
     result = await road_graph_repository.get_way_ids_in_tile(MVT_Z, MVT_X, MVT_Y, _mvt_tile_bbox(), MVT_COVERAGE_TILE)
@@ -2199,7 +2214,7 @@ async def test_get_way_ids_in_tile_returns_way_id(road_graph_repository, road_gr
 async def test_get_way_ids_in_tile_excludes_ways_outside_tile(road_graph_repository, road_graph_session):
     way_inside = WaySpec(osm_way_id=1, node_ids=[1, 2], highway="residential")
     way_outside = WaySpec(osm_way_id=2, node_ids=[3, 4], highway="residential")
-    await road_graph_repository.save_raw_ways([way_inside, way_outside], {1: NODE1, 2: NODE2, 3: NODE3, 4: NODE4})
+    await _save_ways_and_edges(road_graph_repository, [way_inside, way_outside], {1: NODE1, 2: NODE2, 3: NODE3, 4: NODE4})
     await _mark_mvt_coverage(road_graph_session)
 
     result = await road_graph_repository.get_way_ids_in_tile(MVT_Z, MVT_X, MVT_Y, _mvt_tile_bbox(), MVT_COVERAGE_TILE)
@@ -2213,7 +2228,7 @@ async def test_get_way_ids_in_tile_includes_zero_length_way(road_graph_repositor
     NULLとして除外されていたが、bearing計算自体が無くなったget_way_ids_in_tileでは
     除外理由が無いため、ジオメトリさえ存在すれば結果に含む。"""
     way = WaySpec(osm_way_id=1, node_ids=[1, 2], highway="residential")
-    await road_graph_repository.save_raw_ways([way], {1: NODE1, 2: NODE1})
+    await _save_ways_and_edges(road_graph_repository, [way], {1: NODE1, 2: NODE1})
     await _mark_mvt_coverage(road_graph_session)
 
     result = await road_graph_repository.get_way_ids_in_tile(MVT_Z, MVT_X, MVT_Y, _mvt_tile_bbox(), MVT_COVERAGE_TILE)
@@ -2435,7 +2450,7 @@ async def test_way_attribute_counts_ignore_a_junction_that_is_not_a_node_of_the_
         10: (NODE2[0], NODE2[1] + 0.00022),
         11: (NODE2[0] + 0.0005, NODE2[1] + 0.00022),
     }
-    await road_graph_repository.save_raw_ways([main_a, main_b, main_c, quiet], nodes)
+    await _save_ways_and_edges(road_graph_repository, [main_a, main_b, main_c, quiet], nodes)
     await road_graph_repository.rebuild_raw_intersection_nodes()
     await road_graph_session.commit()
 
@@ -2467,7 +2482,7 @@ async def test_accident_counts_go_only_to_the_nearest_road(road_graph_repository
         10: (NODE1[0], NODE1[1] + 0.00022),
         11: (NODE1[0] + 0.0005, NODE1[1] + 0.00022),
     }
-    await road_graph_repository.save_raw_ways([main, quiet], nodes)
+    await _save_ways_and_edges(road_graph_repository, [main, quiet], nodes)
     graph = build_road_graph([main, quiet], nodes, graph_version="v1")
     await road_graph_repository.save_graph(graph)
     # 幹線の線上で起きた事故。裏道からも30m以内にある。
@@ -2497,7 +2512,7 @@ async def test_way_accident_counts_go_only_to_the_nearest_road(
         10: (NODE1[0], NODE1[1] + 0.00022),
         11: (NODE1[0] + 0.0005, NODE1[1] + 0.00022),
     }
-    await road_graph_repository.save_raw_ways([main, quiet], nodes)
+    await _save_ways_and_edges(road_graph_repository, [main, quiet], nodes)
     await road_graph_repository.rebuild_raw_intersection_nodes()
     await _insert_accident(
         road_graph_session, "2023-1", 2023, NODE1[0] + 0.0002, NODE1[1], involves_bicycle=True
@@ -2515,3 +2530,89 @@ async def test_way_accident_counts_go_only_to_the_nearest_road(
         ).all()
     )
     assert rows == {100: 1.0, 200: 0.0}
+
+
+# --- 単位の切り替え（T918、road_graph_repository.py: EDGE_UNIT_MIN_ZOOM） ---
+
+# EDGE_UNIT_MIN_ZOOM未満のタイル。MVT_Z/X/Yと同じ地点のz13祖先。
+WAY_UNIT_Z, WAY_UNIT_X, WAY_UNIT_Y = 13, MVT_X >> 1, MVT_Y >> 1
+
+
+def _way_unit_tile_bbox():
+    from app.domain.region import tile_bounds_lonlat
+
+    bbox = tile_bounds_lonlat(WAY_UNIT_Z, WAY_UNIT_X, WAY_UNIT_Y)
+    assert bbox.min_latitude <= NODE1[0] <= bbox.max_latitude
+    assert bbox.min_longitude <= NODE1[1] <= bbox.max_longitude
+    return bbox
+
+
+async def _decode_feature_keys(tile) -> list[str]:
+    import mapbox_vector_tile
+
+    decoded = mapbox_vector_tile.decode(tile)
+    return [feature["properties"]["feature_key"] for feature in decoded["road_surface"]["features"]]
+
+
+async def test_タイルの単位はEDGE_UNIT_MIN_ZOOMを境に切り替わる(road_graph_repository, road_graph_session):
+    """引いた表示ではway丸ごと、区間が読めるズームでは区間（road_edges）を1フィーチャーにする。
+
+    費用と情報量がズームで逆向きに効くため（docs/tasks/T917.md）。どちらの単位でも識別子は
+    `feature_key`という同じ名前で出る——フロントは`promoteId`で昇格させるだけでよく、
+    中身がway_idかedge_idかを知らなくてよい。
+    """
+    from app.infrastructure.road_graph_repository import EDGE_UNIT_MIN_ZOOM
+
+    assert WAY_UNIT_Z < EDGE_UNIT_MIN_ZOOM <= MVT_Z
+    # way1を交差点（ノード2）で2区間へ割るために、そこで交わるway2を置く。座標はすべて
+    # MVT_Z/X/Yのタイル内（NODE1/NODE2の近傍）。
+    node_a, node_b, node_c, node_d = NODE1, NODE2, (35.7015, 139.7015), (35.7005, 139.7015)
+    way_specs = [
+        WaySpec(osm_way_id=1, node_ids=[1, 2, 3], highway="residential", surface="asphalt"),
+        WaySpec(osm_way_id=2, node_ids=[2, 4], highway="residential"),
+    ]
+    nodes = {1: node_a, 2: node_b, 3: node_c, 4: node_d}
+    await _save_ways_and_edges(road_graph_repository, way_specs, nodes)
+    await _mark_mvt_coverage(road_graph_session)
+    await _mark_tile_cached(road_graph_session, zoom=12, x=WAY_UNIT_X >> 1, y=WAY_UNIT_Y >> 1)
+
+    way_unit = await road_graph_repository.get_road_surface_tile_mvt(
+        WAY_UNIT_Z, WAY_UNIT_X, WAY_UNIT_Y, _way_unit_tile_bbox(), (12, WAY_UNIT_X >> 1, WAY_UNIT_Y >> 1)
+    )
+    edge_unit = await road_graph_repository.get_road_surface_tile_mvt(
+        MVT_Z, MVT_X, MVT_Y, _mvt_tile_bbox(), MVT_COVERAGE_TILE
+    )
+
+    # 引いた表示: wayの本数だけフィーチャーが出て、鍵はosm_way_id。
+    assert sorted(await _decode_feature_keys(way_unit)) == ["1", "2"]
+    # 区間が読めるズーム: way1が交差点で切られたぶんフィーチャーが増え、鍵はedge_id。
+    edge_keys = await _decode_feature_keys(edge_unit)
+    assert len(edge_keys) > 2
+    assert all(key.startswith("way-") for key in edge_keys)
+    assert len([key for key in edge_keys if key.startswith("way-1-")]) >= 2
+
+
+async def test_区間単位のタイルは同じ区間の逆方向を二重に出さない(road_graph_repository, road_graph_session):
+    """road_edgesはforward/backwardを別行で持つ。そのまま焼くと同じ形状が2本入る。
+
+    見分けるのは**wayと両端ノードの組**——ST_NormalizeはLINESTRINGの向きを揃えないため
+    形状では同一と判定できず、ノードの組だけだと同じノード対を共有する別々のwayまで
+    1本へ潰れる。
+    """
+    way_specs = [
+        WaySpec(osm_way_id=1, node_ids=[1, 2], highway="residential"),
+        # 同じノード対を共有する別のway。潰れてはいけない。
+        WaySpec(osm_way_id=2, node_ids=[1, 2], highway="cycleway"),
+    ]
+    await _save_ways_and_edges(road_graph_repository, way_specs, {1: NODE1, 2: NODE2})
+    await _mark_mvt_coverage(road_graph_session)
+
+    tile = await road_graph_repository.get_road_surface_tile_mvt(
+        MVT_Z, MVT_X, MVT_Y, _mvt_tile_bbox(), MVT_COVERAGE_TILE
+    )
+
+    keys = await _decode_feature_keys(tile)
+    assert len(keys) == len(set(keys))
+    # wayごとに1本ずつ残る（逆方向は落ちるが、別のwayは残る）。
+    assert len(keys) == 2
+    assert {key.split("-")[1] for key in keys} == {"1", "2"}
