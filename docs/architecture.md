@@ -17,14 +17,14 @@
 | Frontend | Next.js (App Router) + TypeScript + MapLibre GL JS | React 19 / Next.js 16 |
 | Frontendスタイリング | Tailwind CSS v4（新規UI）+ CSS Modules（既存、機能改修時に段階移行）+ Radix UI + `frontend/src/components/ui/` | T252でTailwind併用導入、T299でRadix UI + 自前UIコンポーネント層（Button/Input/Card/Dialog/Checkbox）を新設。使い分け基準・Design Token一覧・意図的に作らないものは[frontend-design-system.md](frontend-design-system.md)参照 |
 | Backend | Python + FastAPI | pytest でロジックを単体テスト |
-| DB | PostgreSQL + PostGIS | PBF取込済みの生OSM層・Road Graph・路面タイル生成（ST_AsMVT）の第一系統として使用。Overpassフォールバックは改善計画T22で撤去済みのため、取込範囲外はOverpassへ問い合わせず「データ未整備」として扱う。`GraphService`は改善計画T222でDBなし構成（Overpassのみで動作する経路）自体を撤去済みのため、周回ルート生成には`DATABASE_URL`への実接続が必須（`road_graph_use_repository`は他の一部サービス[ElevationAttributeService/RegionService/AccidentService]のみに引き続き効く設定として残る。既定値はtrue[改善計画T283、2026-08-29——以前は既定falseだったため、新環境構築時にこの設定を明示し忘れると「ルート生成は動くのに地図レイヤーがすべて空」という気づきにくい縮退になっていた。DB未接続環境では既存の空タイルフォールバックが効くため、既定trueのままでも安全側に倒れる]）。SQLAlchemy+GeoAlchemy2経由（`infrastructure/database.py`, `road_graph_models.py`, `road_graph_repository.py`）。dev環境はネイティブのPostgreSQL 18.6＋PostGIS 3.6.2（Windowsサービス）で実接続検証済み（[decisions/road-graph-migration.md](decisions/road-graph-migration.md)「実PostGISでの動作検証（Phase 0）」参照） |
+| DB | PostgreSQL + PostGIS | PBF取込済みの生OSM層・Road Graph・路面タイル生成（ST_AsMVT）の第一系統として使用。取込範囲外はOverpassへ問い合わせず「データ未整備」として扱う（フォールバックを持たない）。`GraphService`は改善計画T222でDBなし構成（Overpassのみで動作する経路）自体を撤去済みのため、周回ルート生成には`DATABASE_URL`への実接続が必須（`road_graph_use_repository`は他の一部サービス[ElevationAttributeService/RegionService/AccidentService]のみに引き続き効く設定として残る。既定値はtrue）。SQLAlchemy+GeoAlchemy2経由（`infrastructure/database.py`, `road_graph_models.py`, `road_graph_repository.py`）。dev環境はネイティブのPostgreSQL 18.6＋PostGIS 3.6.2（Windowsサービス）で実接続検証済み（[decisions/road-graph-migration.md](decisions/road-graph-migration.md)「実PostGISでの動作検証（Phase 0）」参照） |
 | ルーティングエンジン（周回ルート生成、`/api/routes/generate`） | **road_graph単一構成**（改善計画T462でopenrouteserviceエンジンを完全撤去、切替設定自体が廃止済み） | 周回生成戦略は単一の`RouteGenerator`（[backend/app/services/route_generator.py](../backend/app/services/route_generator.py)）が持ち、経路計算・評価を`RoadGraphEngine`（[backend/app/services/road_graph_engine.py](../backend/app/services/road_graph_engine.py)、自前ホスト・外部APIキー不要、`GraphService`・`domain/routing.py`の探索［一対全木・2点間探索ともnumbaでJITしたDijkstra/A*。出発からの経過時間をラベルとして持ち回るため、コストを辺の静的な属性とみなすライブラリは使えない］を使う）へ委譲する。改善計画T236（経路品質比較、致命的な差異なし）・T241（道路グラフの連結性、致命的な問題ではない）・T242〜T246（本番DBのmigration未適用・DELETE性能問題という本番実行不能の原因を解消、実データで検証済み）を経て既定値を`road_graph`へ切り替え（改善計画T247、2026-08-23）、以降の運用実績を踏まえてopenrouteserviceエンジン・`config.py`の`routing_engine`設定自体を完全撤去した（改善計画T462、2026-08-31）。詳細は[decisions/road-graph-migration.md](decisions/road-graph-migration.md)、撤去の経緯は下記「ルーティングエンジンの切り替え対応」節参照 |
 | ルーティングエンジン（単一区間確認、`/api/routes/preview`） | **road_graph単一構成**（改善計画T462で切替設定を廃止） | Step3の疎通確認用エンドポイント。`dependencies.py: get_preview_builder`が`RoadGraphEngine.preview_segment`（評価軸重み付きコストで最短経路を1回探索、generateと同じコスト式）を組み立てる。`RoutingService`/`ORSClient`はT462で削除済み。previewはリクエストボディでの評価重み上書きに対応しない（既定値のみ使用） |
 | 地図タイル | OpenFreeMap（`https://tiles.openfreemap.org/styles/liberty`、APIキー不要） | `tile.openstreetmap.org` は bulk/非ブラウザアクセスをブロックするポリシーがあり不採用（後述）。Step10でバックエンド経由のプロキシ＋ファイルキャッシュ（`BasemapClient`）を追加 |
 | 天候 | **気象庁MSM**（Open-MeteoがAWS Open Dataで公開する前処理済み`.om`ファイルをローカル同期。外部の気象予報APIには依存しない） | `WeatherService`（[backend/app/services/weather_service.py](../backend/app/services/weather_service.py)）が`msm_client`経由で読む。`get_wind_grid`/`get_wind_forecast_series`が風の格子点マップとルート評価の風を、`get_conditions`が「今日の見通し」パネル用の現在値・日次集計・時間帯別の流れを組み立てる（天気コードは雲量・降水・気温から導出、日の出/日没は`domain/twilight.py`で計算） |
 | 標高 | **国土地理院（GSI）DEMタイル**（APIキー不要、日本国内限定） | `ElevationClient`（[backend/app/infrastructure/elevation_client.py](../backend/app/infrastructure/elevation_client.py)）がDEMタイルを取得し双線形補間、`ElevationAttributeService`（[backend/app/services/elevation_attribute_service.py](../backend/app/services/elevation_attribute_service.py)）がEdge単位の標高属性を求めて`elevation_attributes`へ永続化する（事前計算は`batch/precompute_elevation_attributes.py`）。ルート単位の獲得標高・最高/最低標高・最大勾配は`services/elevation_aggregation.py`が区間の属性から集約する |
 | 標高（地域レイヤー） | **国土地理院 色別標高図**（ラスタタイル、APIキー不要） | `MapView.tsx`がMapLibreのraster sourceとして`GET /api/gsi-relief-tile/{path:path}`（`GsiTileClient`、改善計画T572）経由で重ね描き。候補ルートに紐づかない「地域全体」の標高表示用で、Step5の標高API（点ごとの数値取得）とは別用途 |
-| 路面（地域レイヤー） | **PostGIS**（`ST_AsMVT`、`road_graph_use_repository=true`時）／DBなし構成では常に空タイル | `RegionService`（[backend/app/services/region_service.py](../backend/app/services/region_service.py)）が候補ルートに紐づかない「地域全体」の路面レイヤーを提供する。PBF取込済み範囲はPostGIS側（`road_graph_repository.py`の`_ROAD_SURFACE_TILE_MVT_SQL`）でMVT生成まで完結し、取込範囲外・DB障害・DBなし構成は空タイル（`infrastructure/vector_tile.py: encode_empty_road_surface_tile`）を返す。Overpass APIによる取得は改善計画T22で撤去済み（当初はOverpass API＋自前Python MVTエンコードだったが、PostGIS移行に伴い不要になった。経緯は[decisions/pre-static-attributes-gate.md](decisions/pre-static-attributes-gate.md)参照） |
+| 路面（地域レイヤー） | **PostGIS**（`ST_AsMVT`、`road_graph_use_repository=true`時）／DBなし構成では常に空タイル | `RegionService`（[backend/app/services/region_service.py](../backend/app/services/region_service.py)）が候補ルートに紐づかない「地域全体」の路面レイヤーを提供する。PBF取込済み範囲はPostGIS側（`road_graph_repository.py`の`_ROAD_SURFACE_TILE_MVT_SQL`）でMVT生成まで完結し、取込範囲外・DB障害・DBなし構成は空タイル（`infrastructure/vector_tile.py: encode_empty_road_surface_tile`）を返す。Overpass APIによる取得は改善計画T22で撤去済み |
 
 ### 地図タイルプロバイダに関する注記
 当初 `tile.openstreetmap.org` のラスタタイルを想定していたが、bulk/プログラム的アクセスに対してブロックポリシー（`x-blocked` ヘッダーで拒否）があり、本番はもちろん開発環境でも安定して使えないことを実機検証で確認した。そのため、MapLibre GL JS向けにAPIキー無しで提供されている OpenFreeMap のベクタースタイルに切り替えた。本番運用時は利用規約を再確認し、必要に応じて専用プロバイダ（MapTiler等、APIキー方式）へ切り替えることを推奨する。
@@ -83,7 +83,13 @@ T274逆回り最適化自体は任意の周回Edge列に対して成り立つた
 **外部呼び出しの前提**: `httpx.AsyncClient`はリクエストあたり1つをFastAPIの依存性注入（`yield`付き）で作り、呼び出しをまたいで使い回す——呼び出しごとに生成するとTLSハンドシェイクを毎回やり直し、1リクエストが数十倍の時間になる。同時実行を絞る`asyncio.Semaphore`も**サービス側で1つだけ**持つ（呼び出しごとに作ると、意図した上限が候補の数だけ倍化する）。
 
 ### 標高DEMタイルキャッシュ（`elevation_client.py`）
-`ElevationClient`（[backend/app/infrastructure/elevation_client.py](../backend/app/infrastructure/elevation_client.py)）は、以前はGSI点標高API（`getelevation.php`、1リクエスト=1地点）を緯度経度4桁丸めのSQLiteキャッシュ（`cache_db.py`の`elevation_cache`テーブル）でラップしていたが、T218aでRoad Graph全体（数万エッジ）へ標高を付与する必要が生じ、点API逐次呼び出しでは非現実的な回数（実測: 480エッジに対し2,880回）の外部呼び出しが必要になると判明した。T10でGSIのDEMタイル（`https://cyberjapandata.gsi.go.jp/xyz/{type}/{z}/{x}/{y}.txt`、z=14固定）を範囲ごと取得しローカルで双線形補間する方式へ切り替えた。**当初は`dem`（サフィックス無し）がDEM5A/5B/5C/10Bを統合しGSIサーバー側で優先順位フォールバックすると判断していたが、2026-08-23の再検証（ユーザー指摘）で誤りと判明**——実タイル比較の結果、`dem`はDEM5A等を統合したものではなくDEM10B相当の別データセット（z=15で404、DEM10Bの公式最大ズーム14と一致）であり、同一タイルで`dem5a`と異なる値を返すことを都心部で確認した。`dem5a`/`dem5b`/`dem5c`はそれぞれ独立にクエリでき非対応エリアではタイル丸ごと404を返すため、アプリ側で`DEM_TYPE_PRIORITY = ("dem5a", "dem5b", "dem5c", "dem")`の順に多段フォールバックする（`elevation_client.py`）。タイル本文（256行×256列のカンマ区切り、単位m、欠測は`"e"`）は`infrastructure/tile_cache.py`（基礎地図・路面タイルと共通のファイルキャッシュ、TTL無し。DEMは不変データのため）へ永続化し、さらにプロセス内メモリ（`_tile_grid_cache`、パース済みグリッド）にも保持する。呼び出し側インターフェース（`get_elevation(client, point, refresh=False) -> float | None`）はT10前後で変わらない。旧`elevation_cache`テーブル・`get_elevation`/`set_elevation`（`cache_db.py`）は削除済み。
+`ElevationClient`（[backend/app/infrastructure/elevation_client.py](../backend/app/infrastructure/elevation_client.py)）は、GSIのDEMタイル（`https://cyberjapandata.gsi.go.jp/xyz/{type}/{z}/{x}/{y}.txt`、z=14固定）を範囲ごと取得し、ローカルで双線形補間する。**点ごとのAPIは使わない**——Road Graph全体（数万エッジ）へ標高を付与するには非現実的な回数の外部呼び出しになる（実測で480エッジに対し2,880回）。
+
+**`dem`（サフィックス無し）はDEM5A/5B/5Cを統合したものではない**。DEM10B相当の別データセットで、同じタイルでも`dem5a`と違う値を返す。`dem5a`/`dem5b`/`dem5c`はそれぞれ独立にクエリでき、非対応エリアはタイル丸ごと404を返すため、アプリ側が`DEM_TYPE_PRIORITY`の順に多段フォールバックする。
+
+タイル本文（256行×256列のカンマ区切り、単位m、欠測は`"e"`）は`infrastructure/tile_cache.py`（基礎地図・路面タイルと共通のファイルキャッシュ、TTL無し——DEMは不変データのため）へ永続化し、さらにプロセス内メモリ（パース済みグリッド）にも保持する。
+
+呼び出し側インターフェース（`get_elevation(client, point, refresh=False) -> float | None`）はT10前後で変わらない。旧`elevation_cache`テーブル・`get_elevation`/`set_elevation`（`cache_db.py`）は削除済み。
 
 ### Road Graphエンジンの探索性能
 
@@ -149,9 +155,10 @@ Step9の可視化はモード切替（総合難易度/標高/風/路面のいず
 「細かな設定はサイドバーで実施し、地図画面ではON/OFFと適用中の条件が簡潔に分かる程度にしたい」「今後の静的レイヤー追加（交通ストレス等、[static-road-attributes-plan.md](static-road-attributes-plan.md)）や動的レイヤー追加（天候等）を汎用的にやりやすくしたい」という要望を受け、レイヤー操作UIを再構成した（2026-08-15）。
 
 - **レイヤーカタログ**（[frontend/src/components/Map/mapLayers.ts](../frontend/src/components/Map/mapLayers.ts)、新規）: 各レイヤーの`id`/`label`/`kind`（static=地域固定・時間で不変 / dynamic=ルート・時間で変わる）/`description`を宣言する単一ソース。地図上のチップ行とサイドバーのセクション枠はこの配列の列挙で描画されるため、レイヤー追加は「カタログに1エントリ＋`page.tsx`に初期値とサマリ対応＋サイドバーにセクション中身」で済む（この手順は本節が書かれた時点のもの。当時のサイドバー`MapLayersPanel`は撤去済みで、現在の分担は後述の節を参照）。
-- **地図上**（[frontend/src/components/MapOverlayControls/MapOverlayControls.tsx](../frontend/src/components/MapOverlayControls/MapOverlayControls.tsx)）: ON/OFFチップ行と、ONのレイヤーに効いている条件の1行サマリ（例:「路面: アスファルトのみ／幹線道路以外」「ルート: 色分け: 風の影響」。路面はズーム不足の案内を優先）だけを置く。サマリのタップでサイドバーが開き、該当レイヤーの設定セクションへスクロール・フォーカスする（`layerSectionDomId`）。旧実装にあった⚙ボタン＋絞り込みモーダル（`RoadFilterDialog`）は廃止。コンポーネント自体はレイヤー固有の知識を持たない汎用描画係になった（レイヤー追加時に変更不要）。サマリ文言は`legendFilter.ts`の`summarizeLegendFilters`（軸の凡例定義だけに依存する汎用関数）が生成する。
-- **サイドバー**（当時の`MapLayersPanel.tsx`。旧`MapLegendPanel`と旧`RoadFilterDialog`を統合して置き換えたもので、**現在は撤去済み**）: `kind`ごとのグループ見出し（「地域レイヤー（変わらないデータ）」「ルートレイヤー（時間・選択で変わるデータ）」）の下に、レイヤーごとのセクション（見出し＋表示スイッチ＋凡例・設定）を並べる。路面の絞り込み編集は`RoadFilterEditor`（同ディレクトリ）が担い、モーダル時代の**下書き→適用**方式を維持する（チェックのたびに地図へ即時反映すると複数条件の組み合わせ編集がしづらい、という過去のフィードバックによる。ルート凡例のような単純なチェックは即時反映のままで使い分け）。絞り込みはOFF中でも編集でき、適用するとレイヤーが自動でONになる（旧ダイアログと同じ挙動）。
-- **状態管理**（`page.tsx`）: レイヤーON/OFFは個別のuseStateから`layerVisibility: Record<MapLayerId, boolean>`へ一般化した。この時点では`MapView`側はレイヤーごとの個別propのままで、`layerVisibility`から導出して渡していた（`MapView.tsx`は無変更）。**その個別propは撤去済み**で、現在は`staticLayerVisibility`1つを渡す（[静的レイヤー・道路表示](modules/frontend/static-map-layers.md)参照）。
+- **地図上**（[frontend/src/components/MapOverlayControls/MapOverlayControls.tsx](../frontend/src/components/MapOverlayControls/MapOverlayControls.tsx)）: ON/OFFチップ行と、ONのレイヤーに効いている条件の1行サマリ（例:「路面: アスファルトのみ／幹線道路以外」「ルート: 色分け: 風の影響」。路面はズーム不足の案内を優先）だけを置く。サマリのタップでサイドバーが開き、該当レイヤーの設定セクションへスクロール・フォーカスする。コンポーネント自体はレイヤー固有の知識を持たない汎用描画係になった（レイヤー追加時に変更不要）。サマリ文言は`legendFilter.ts`の`summarizeLegendFilters`（軸の凡例定義だけに依存する汎用関数）が生成する。
+
+- **状態管理**（`page.tsx`）: レイヤーON/OFFは`layerVisibility: Record<MapLayerId, boolean>`でまとめて持つ（レイヤーごとに個別のstateを作らない）。
+
 
 ### 地域レイヤー（標高・路面の常時オーバーレイ）と地図タイルキャッシュの設計（Step10）
 Step5-9で実装した標高・風・路面はいずれも「生成済みの候補ルート沿い」に限定した評価だった。ユーザーから「候補を出す前に、そもそもどのあたりが走りやすい地形・路面なのか地図で見たい」という要望を受け、候補ルートの有無に関わらず**表示中の地図の範囲全体（ビューポート）**に標高・路面を重ね描きする機能を追加した。
@@ -178,7 +185,7 @@ Step5-9で実装した標高・風・路面はいずれも「生成済みの候�
 
 - **同一オリジン維持とURL書き換え**: レスポンスがJSON（スタイルJSON/TileJSON）の場合、内包するOpenFreeMap本体への絶対URLを、自分自身（`settings.basemap_public_base_url`、既定値`http://localhost:3000/api/basemap`）への絶対URLに書き換えてから返す。MapLibreは相対URLをスタイル自身の取得元ではなく**ページのオリジン**に対して解決してしまう（spriteURLに至っては相対URLを明示的に拒否する）ため、絶対URLへの書き換えが必須。書き換え先は既定ではバックエンド自身のURL（`:8000`）ではなく、フロントエンドのURL（`:3000`）である（後述の接続数上限の問題を避けるため）。本番のようにタイルをbackendへ直接取りに行かせる構成（frontendの`NEXT_PUBLIC_TILE_BASE_URL`、[frontend/src/lib/tileBaseUrl.ts](../frontend/src/lib/tileBaseUrl.ts)）では、backend側の`BASEMAP_PUBLIC_BASE_URL`も同じbackendオリジン（`https://<backend>/api/basemap`）へ揃える——frontendはスタイルJSONの取得先だけを`tileBaseUrl()`で決め、その中のタイル・スプライト・グリフのURLはbackendが書き込むため、片方だけ変えるとタイルだけRender経由に戻る。
 - **キャッシュとURL書き換えの整合性**: スタイルJSON/TileJSONは上流の内容（書き換え前）を`basemap-raw/`接頭辞のキャッシュキーで保存し、URL書き換えは返す直前に毎回行う。そのため`basemap_public_base_url`の設定値を変更しても、キャッシュを消さずに次の応答から新しいURLが返る（URL書き換え後の内容をキャッシュすると、設定変更後も古いURLを返し続けキャッシュの全消去が必要になる）。
-- **タイルとAPIを同じオリジンに載せない**: 地図初期化で数十件のタイル/フォント/スプライトが同時に飛ぶため、APIと同居させるとブラウザのオリジン単位の同時接続数上限（HTTP/1.1で6本程度）を埋め、ルート生成が数十秒詰まる。Next.jsの`rewrites()`（[frontend/next.config.ts](../frontend/next.config.ts)）で`/api/basemap/*`と`/api/region/road-surface-tiles/*`（路面ベクタタイル、Step10改訂で追加）の両方をバックエンドへプロキシし、ブラウザからは常にフロントエンドと同一オリジン（`:3000`）に見えるようにした。これにより「タイル群（`:3000`経由）」と「API呼び出し（`:8000`直接）」が別オリジン扱いになり、接続枠が競合しなくなる。なお路面・POI・事故のベクタタイル、基礎地図のスタイルJSON、国土地理院色別標高図、JMA動的タイルは、`NEXT_PUBLIC_TILE_BASE_URL`（[frontend/src/lib/tileBaseUrl.ts](../frontend/src/lib/tileBaseUrl.ts)）を設定するとrewritesを経由せずbackendへ直接取りに行く（基礎地図のタイル本体はbackend側`BASEMAP_PUBLIC_BASE_URL`で追随させる）。この場合はAPI呼び出しと同じオリジンへタイルが載るため、backend前段のnginxがHTTP/2以上（多重化）で応答できる構成が前提になる（改善計画T580: 本番VMのnginxをHTTP/3＋HTTP/2対応へ差し替えた上で設定する）。**フロントエンド側は`MapView.tsx`の`MAP_STYLE`定数（相対パス`/api/basemap/styles/liberty`）でこのrewriteを経由する必要があり、デバッグ目的で一時的にバックエンドへの絶対URLに変更した場合は元に戻し忘れないよう注意**（実際に前回セッションで戻し忘れており、動作確認時に発見・修正した）。
+- **タイルとAPIを同じオリジンに載せない**: 地図初期化で数十件のタイル/フォント/スプライトが同時に飛ぶため、APIと同居させるとブラウザのオリジン単位の同時接続数上限（HTTP/1.1で6本程度）を埋め、ルート生成が数十秒詰まる。Next.jsの`rewrites()`（[frontend/next.config.ts](../frontend/next.config.ts)）で`/api/basemap/*`と`/api/region/road-surface-tiles/*`（路面ベクタタイル、Step10改訂で追加）の両方をバックエンドへプロキシし、ブラウザからは常にフロントエンドと同一オリジン（`:3000`）に見えるようにした。これにより「タイル群（`:3000`経由）」と「API呼び出し（`:8000`直接）」が別オリジン扱いになり、接続枠が競合しなくなる。なお路面・POI・事故のベクタタイル、基礎地図のスタイルJSON、国土地理院色別標高図、JMA動的タイルは、`NEXT_PUBLIC_TILE_BASE_URL`（[frontend/src/lib/tileBaseUrl.ts](../frontend/src/lib/tileBaseUrl.ts)）を設定するとrewritesを経由せずbackendへ直接取りに行く（基礎地図のタイル本体はbackend側`BASEMAP_PUBLIC_BASE_URL`で追随させる）。この場合はAPI呼び出しと同じオリジンへタイルが載るため、backend前段のnginxがHTTP/2以上（多重化）で応答できる構成が前提になる（改善計画T580: 本番VMのnginxをHTTP/3＋HTTP/2対応へ差し替えた上で設定する）。**フロントエンド側は`MapView.tsx`の`MAP_STYLE`定数（相対パス`/api/basemap/styles/liberty`）でこのrewriteを経由する必要があり、デバッグ目的で一時的にバックエンドへの絶対URLへ書き換えたときは、必ず元へ戻す**（実際に前回セッションで戻し忘れており、動作確認時に発見・修正した）。
 - **Windowsでのパスフラット化**: OpenFreeMapのURL構造には`planet`（TileJSON本体）と`planet/<version>/{z}/{x}/{y}.pbf`（実タイル）のように、同じセグメントがファイルとディレクトリ接頭辞の両方として使われるケースがある。パスをそのままディレクトリ階層にミラーリングすると、Windowsでは「同名のファイルがあるためディレクトリを作成できない」というエラーで実際にクラッシュすることを実機確認したため、`tile_cache.py`はパスをSHA-256でハッシュ化しフラットなファイル名（`<hash>.bin` / `<hash>.meta`）で保存する。副次的にディレクトリトラバーサル対策にもなる。
 - **イベントループのブロッキング回避**: `tile_cache`の読み書きは同期的なディスクI/O。基礎地図読み込み時は数十件のタイル/フォントリクエストが同時に来るため、`asyncio.to_thread`を介さず直接呼ぶとイベントループ全体をブロックし、同時に処理中の他のリクエスト（ルート生成等）が数十秒単位で詰まることを実機確認した。`BasemapClient.get`・`RegionService.get_road_surface_tile`はいずれも`tile_cache.get`/`set`を必ず`asyncio.to_thread`経由で呼ぶ。
 - **ベクタタイルの取得はWeb Worker内で行われる（実機確認で発見・修正済み）**: MapLibreはラスタタイル（`Image`要素、メインスレッド）とベクタタイル（`fetch`、Web Worker内）でタイルの取得方法が異なる。ラスタタイルのURL（`MAP_STYLE`や地理院タイルのURL）は相対パス・絶対パスいずれもページのオリジンに対して解決されるが、ベクタタイルのURLをWorker内から相対パスのまま渡すと`Failed to construct 'Request': Failed to parse URL from ...`のエラーで取得自体が失敗することを実機確認した（Workerの実行コンテキストはページとは別のベースURL解決になるため）。そのため路面ベクタタイルのURLは`window.location.origin`を使って呼び出し時に明示的に絶対URL化している（[frontend/src/services/regionApi.ts](../frontend/src/services/regionApi.ts)の`roadSurfaceTileUrl()`）。`window`はクライアントサイドでのみ参照可能なため、モジュール読み込み時に評価される定数ではなく、呼び出し時に評価される関数として実装してある点に注意（Next.jsのクライアントコンポーネントも初回はサーバー側でレンダリングされるため、モジュールの最上位で`window`を参照するとSSR時にクラッシュする）。
@@ -1563,11 +1570,8 @@ ramp閾値の手書き上書きの5点は、既存6〜7軸限定の軸id→値�
   フィルタへ`axis.show_map_icon !== false`を足すだけで、`show_map_icon=false`の軸は
   地図上チップ（`MapOverlayControls.tsx`）から丸ごと除外される。専用レイヤーの有無（`display.kind`）に関わらず一律に効く
   ため、kind別の分岐を新設する必要が無い。
-- `show_map_icon=true`のまま専用レイヤーを持たない軸（例: gradient）は、以前は
-  無効化タイルのツールチップ・展開パネルに`proxy_hint`の文言を出していたが、その表示は
-  単純に撤去した（代替の説明文は用意しない——存在理由が自明でなくなった場合は
-  `show_map_icon=false`にして表示自体を止める、というのが新しい設計判断）。
-  `MapLayersPanel.tsx: renderProxyAxisSection()`も同様に見出し（h3）のみへ簡略化した。
+- `show_map_icon=true`のまま専用レイヤーを持たない軸（例: gradient）へ、代替の説明文は
+  用意しない。**存在理由が自明でなくなったら`show_map_icon=false`にして表示自体を止める**。
 
 #### `time_scope`（時間帯で効く軸の宣言）
 
@@ -1794,18 +1798,7 @@ osm_way_id完全一致の1行取得）はこの対に属さない別系統で、
 年重複なし）でハードコードせず動的取得する。地図表示は`GET /api/region/accident-tiles`
 （後述、`AccidentService`/`AccidentTileQuery`）。
 
-改善計画（事故密度の精度改善、既定挙動として反映）: `get_accident_counts`
-（`road_graph_repository.py`）の`bicycle_only`既定値を`False`→`True`へ変更した
-（自転車ルート案内アプリで自動車同士のみの事故まで数えていたのは実質バグに近いという
-判断）。あわせて単純COUNTから死亡事故を`ACCIDENT_FATAL_WEIGHT`（`domain/accident.py`、
-暫定値3.0）件分として積算するSUMへ変更し、戻り値がint→floatになった。当時
-`GraphService.get_accident_counts`（repository層への薄いラッパー）に欠けていた
-`bicycle_only`引数も追加し、road_graph_engine経由のルート生成にも既定値変更が実際に
-反映されるようにした（この`GraphService`側ラッパー自体は、T219以降
-`get_search_materials_for_bbox`/`get_edge_attribute_counts`が探索フェーズの読み取り経路を
-一本化したことでランタイム呼び出し元が無くなり、改善計画T226で削除済み。repository層の
-`get_accident_counts`は現在も存在し、`bicycle_only`の既定値もそのまま有効。サンプル点列版
-旧`get_nearest_accident_counts`はopenrouteserviceエンジン専用だったため改善計画T462で削除）。
+`get_accident_counts`（`road_graph_repository.py`）は**既定で自転車が関与した事故だけを数える**（`bicycle_only=True`）——自転車ルート案内で自動車同士の事故まで数えると、避けるべき場所がずれる。件数は単純COUNTではなく、死亡事故を`ACCIDENT_FATAL_WEIGHT`（`domain/accident.py`）件分として積算するSUMで、戻り値はfloat。
 
 ### 指定路線コンフレーション機構（T51、国土数値情報 N10/N12）
 
@@ -1820,19 +1813,13 @@ osm_way_id完全一致の1行取得）はこの対に属さない別系統で、
 （`DESIGNATION_IMPORT_KINDS`＝取込対象kind、`CAR_STRESS_DESIGNATION_KINDS`＝
 車ストレス+1補正の対象kind。現状は同一集合だが概念的に別軸として別定数）。
 
-改善計画T74（2026-08-16）: マッチング対象は当初`road_edges`（ルート生成地点周辺のみ遅延構築）
-だったが、`route_designations`が関東全域投入済みなのに表示がルート生成履歴のあるエリアに
-限られる不具合の根本対応として`osm_raw_ways`（関東全域自己完結）基準へ変更した。副作用として
-評価粒度もedge単位any-matchからway単位ratio-matchへ統一されている。
+マッチング対象は`osm_raw_ways`（関東全域で自己完結）を基準にする。**`road_edges`基準にすると、データは全域にあるのに表示がルート生成履歴のあるエリアだけに限られる**（road_edgesは遅延構築のため）。評価粒度もway単位のratio-matchで揃う。
 
 該当区間は新しい評価軸を増やさず、**車ストレスへの+1補正のみ**として組み込む
-（内部軸`car_stress_designation_adjustment`、大型車交通の代理指標。改善計画T292で
-旧`car_stress_breakdown`の`designation_adjustment`からAXIS_DEFINITIONSへ移行済み）。
+（内部軸`car_stress_designation_adjustment`、大型車交通の代理指標）。
 `AttributeRepository.get_designated_edge_ids`（RoadGraphEngine、Edge集合の積集合。呼び出し時点で
 `road_edges`は構築済みのため、`road_edges.osm_way_id`経由で`designation_attributes`へJOINする）で
-提供する（サンプル点列版旧`get_nearest_way_tags`が返す3要素目`is_designated`はopenrouteservice
-エンジン専用だったため改善計画T462で削除。旧`get_nearest_designated_flags`は改善計画T76で
-旧`get_nearest_way_tags`へ統合済みだった）。
+提供する。
 地図表示は`road-surface-tiles`のMVTに`designation`プロパティ（`emergency_transport`/
 `critical_logistics`/両方該当時は`both`/未該当はプロパティ欠落、`designation_attributes`を
 osm_way_id単位へ集約してから`osm_raw_ways`へJOIN）として焼き込む。改善計画T338
@@ -1904,8 +1891,7 @@ T281段階3（鮮度台帳、自動比較の仕組み）に着手する際は、
 に集約（`STATIC_FILTER_AXES`が絞り込みUIのカタログ、事故のみ当事者×重大度の2軸）。
 地図上チップ（`MapOverlayControls.tsx`）最上位のグルーピング（道路/環境/スポット）は
 改善計画T406/T418により`MapOverlayGroup`が担う（「地図チップの最上位グルーピング
-（道路/環境/スポット、改善計画T406/T418）」節参照）。かつて同じグルーピングを持っていた
-サイドバーの設定パネルは改善計画T769で撤去し、凡例・絞り込みはチップの▶パネルへ移した。
+（道路/環境/スポット）」節参照）。凡例・絞り込みはチップの▶パネルが持つ（同じグルーピングを別のパネルへ二重に持たない）。
 
 タイル配信の系統:
 
@@ -2136,7 +2122,7 @@ effective_gradient`）。道路の向きと指定方向のなす角度に応じ�
 
 **向き指定UI**: `WindBearingSlider`をそのまま再利用した（新規コンポーネント無し）——
 value/onChange/ariaLabelという既存propsが元々「向きだけ」を扱う汎用的な形（時刻は
-コンポーネントの外[`DynamicLayerTimeSlider`]で完結）だったため、コード変更は不要だった。
+コンポーネントの外[`DynamicLayerTimeSlider`]で完結する）。
 `page.tsx`は風・勾配で単一の共有state`travelBearingDeg`を持ち、地図上の
 `TravelBearingControl`1箇所からのみ`WindBearingSlider`をマウントする
 （詳細は[docs/modules/frontend/page-composition.md](modules/frontend/page-composition.md)
@@ -2248,9 +2234,7 @@ T352〜T434の間、"wind"は`supports_route_coloring`経由で動的に生成�
 独立に「軸スタジオ由来レイヤー同士は1つだけ選べる」という排他制御を維持する。
 
 **最上位のグルーピングは`mapOverlayGroupFor`が単一ソース**で、道路/環境/スポットの3分類。
-かつてはサイドバーの設定パネルが独立した設計判断として`MapLayerDataNature`[観測/推定/動的]の
-見出しを使っていたが、改善計画T413（2026-08-30）で地図上チップと揃え、T769でパネル自体を
-撤去して▶パネルへ移した。
+見出しは地図上チップと揃える（`MapLayerDataNature`[観測/推定/動的]で別立てにしない）。
 
 道路/環境/スポットグループの地図チップはタイル状のマトリックス（▶=メンバー個々の凡例展開／
 ▼=グループ自体の縦積み展開、T169）。グループ見出しのⓘボタンから「表示する項目を選ぶ」
@@ -2293,8 +2277,7 @@ bicycle_infra_qualityは正規化フラグ材料を直接参照するが、こ�
 
 ### 地図タイル閲覧起点の道路グラフ構築
 
-上記のタイルは実際にはroad_nodes/road_edges（派生グラフ）を読むが、以前は`RouteGenerator`
-（ルート生成）経由でしか構築されず、地図を眺めるだけの利用では永遠に空のままだった。
+上記のタイルはroad_nodes/road_edges（派生グラフ）を読む。**構築の起点をルート生成だけにしない**——地図を眺めるだけの利用では永遠に空のままになる。
 `RegionService`（[backend/app/services/region_service.py](../backend/app/services/region_service.py)）
 がタイル配信のたびに、対象z12祖先タイルの道路グラフが未構築・古ければ
 `GraphService.get_or_build_graph_with_attributes`をバックグラウンドタスク
