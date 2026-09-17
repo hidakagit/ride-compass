@@ -46,10 +46,7 @@ describe("buildShape", () => {
       },
       OPTIONS,
     );
-    const asBoolean = buildShape(
-      { ...base, categoricalMaterial: boolean.id, trueScore: 80, falseScore: 0 },
-      OPTIONS,
-    );
+    const asBoolean = buildShape({ ...base, categoricalMaterial: boolean.id, trueScore: 80, falseScore: 0 }, OPTIONS);
 
     expect(asCategorical).toEqual({ kind: "categorical", material: categorical.id, mapping: { a: 10, b: 20 } });
     expect(asBoolean).toEqual({ kind: "categorical", material: boolean.id, mapping: { true: 80, false: 0 } });

@@ -34,22 +34,14 @@ vi.mock("@/services/materialCatalogApi", () => ({
   }),
 }));
 
-async function clickNext(user: ReturnType<typeof userEvent.setup>) {
-  await user.click(screen.getByRole("button", { name: "次へ" }));
-}
-
 describe("AxisComposer 値の候補セレクト", () => {
   it("動的値一覧に対応する材料(highway)を選ぶと候補セレクトが現れ、選ぶと生のタグ値ではなくラベルが読み取り専用表示される", async () => {
     const onSave = vi.fn().mockResolvedValue(undefined);
     const user = userEvent.setup();
     render(<AxisComposer editing={null} duplicateFrom={null} onCancelEdit={vi.fn()} onSave={onSave} />);
 
-    await user.type(screen.getByRole("textbox", { name: "表示名(label)" }), "軸E");
-    await clickNext(user);
-    await user.click(screen.getByRole("radio", { name: /ぴったり評価/ }));
-    await clickNext(user);
-
-    await user.selectOptions(screen.getByRole("combobox", { name: "材料(material)" }), "highway");
+    await user.type(screen.getByRole("textbox", { name: "表示名" }), "軸E");
+    await user.selectOptions(screen.getByRole("combobox", { name: "点数のもとになるもの" }), "highway");
 
     const candidateSelect = await screen.findByRole("combobox", { name: "値の候補" });
     // 改善計画T345フォローアップ（ユーザー指摘: 候補が存在する材料では生のタグ値を
@@ -69,7 +61,6 @@ describe("AxisComposer 値の候補セレクト", () => {
     // 候補セレクト自体は選択の起点（value=""）へ戻る（連続で別の値も選べるようにするため）。
     expect(candidateSelect).toHaveValue("");
 
-    await clickNext(user);
     await user.click(screen.getByRole("button", { name: "作成する" }));
 
     await waitFor(() => expect(onSave).toHaveBeenCalledTimes(1));
@@ -83,12 +74,8 @@ describe("AxisComposer 値の候補セレクト", () => {
     const user = userEvent.setup();
     render(<AxisComposer editing={null} duplicateFrom={null} onCancelEdit={vi.fn()} onSave={onSave} />);
 
-    await user.type(screen.getByRole("textbox", { name: "表示名(label)" }), "軸G");
-    await clickNext(user);
-    await user.click(screen.getByRole("radio", { name: /ぴったり評価/ }));
-    await clickNext(user);
-
-    await user.selectOptions(screen.getByRole("combobox", { name: "材料(material)" }), "highway");
+    await user.type(screen.getByRole("textbox", { name: "表示名" }), "軸G");
+    await user.selectOptions(screen.getByRole("combobox", { name: "点数のもとになるもの" }), "highway");
 
     const candidateSelect = await screen.findByRole("combobox", { name: "値の候補" });
     // 候補セレクトはbackendが返すlabel（"住宅街の道路 - residential"）をそのまま表示する。
@@ -102,12 +89,9 @@ describe("AxisComposer 値の候補セレクト", () => {
     const user = userEvent.setup();
     render(<AxisComposer editing={null} duplicateFrom={null} onCancelEdit={vi.fn()} onSave={onSave} />);
 
-    await user.type(screen.getByRole("textbox", { name: "表示名(label)" }), "軸F");
-    await clickNext(user);
-    await user.click(screen.getByRole("radio", { name: /ぴったり評価/ }));
-    await clickNext(user);
+    await user.type(screen.getByRole("textbox", { name: "表示名" }), "軸F");
 
-    await user.selectOptions(screen.getByRole("combobox", { name: "材料(material)" }), "tracktype");
+    await user.selectOptions(screen.getByRole("combobox", { name: "点数のもとになるもの" }), "tracktype");
 
     await waitFor(() => expect(screen.getAllByLabelText("値").length).toBeGreaterThan(0));
     expect(screen.queryByRole("combobox", { name: "値の候補" })).not.toBeInTheDocument();

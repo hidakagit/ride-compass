@@ -162,7 +162,9 @@ export function BreakpointCurveEditor({
       })}
       {yTicks.map((y) => {
         const [, sy] = toScreen([xMin, y]);
-        return <line key={`y-${y}`} x1={padding} y1={sy} x2={width - padding} y2={sy} className={styles.curveGridline} />;
+        return (
+          <line key={`y-${y}`} x1={padding} y1={sy} x2={width - padding} y2={sy} className={styles.curveGridline} />
+        );
       })}
       {xTicks.map((x) => {
         const [sx] = toScreen([x, yMin]);
@@ -175,7 +177,13 @@ export function BreakpointCurveEditor({
           </g>
         );
       })}
-      <line x1={padding} y1={height - padding} x2={width - padding} y2={height - padding} className={styles.curveAxis} />
+      <line
+        x1={padding}
+        y1={height - padding}
+        x2={width - padding}
+        y2={height - padding}
+        className={styles.curveAxis}
+      />
       <line x1={padding} y1={padding} x2={padding} y2={height - padding} className={styles.curveAxis} />
       <polyline points={polyline} className={styles.curveLine} />
       {points.map(([x, y], i) => (

@@ -17,7 +17,11 @@ APIを呼ぶ）・「データ保守」タブ（派生データ鮮度台帳の�
 | ファイル | 責務 |
 |---|---|
 | `components/AxisStudio/AxisStudio.tsx` | トップレベル。一覧取得・作成/更新/削除/複製/非公開化の状態管理 |
-| `components/AxisStudio/AxisComposer.tsx` | 4ステップウィザードのフォーム本体 |
+| `components/AxisStudio/AxisComposer.tsx` | 1画面フォームの本体。draftの状態・保存前の検証・保存と、節の組み立てだけを持つ |
+| `components/AxisStudio/AxisScoringSection.tsx` | 「点数の決め方」の節。材料の選択と、その材料の型に応じた点数入力（0点/100点・効き方、はい/いいえ、値ごと、他軸の係数）。折れ点の直接編集は畳んだ詳細設定の中 |
+| `components/AxisStudio/AxisMapDisplaySection.tsx` | 「地図表示・公開」の節。アイコン・チップ略称・パネル補足・色分けしきい値のまとめ入力と段階プレビュー・公開チェック |
+| `components/AxisStudio/AxisFormFields.tsx` | 上記2節とAxisComposerが共有する入力部品（`InfoPopoverButton`・`MaterialInfoButton`・`SectionLabel`・`NumberField`・`SliderNumberField`） |
+| `components/AxisStudio/axisScoring.ts` | 材料の生値を折れ点の横軸（weight倍・preprocess="abs"なら絶対値）へ移す`toBreakpointX`。節と効き目プレビューが同じ変換を共有する |
 | `components/AxisStudio/axisDraft.ts` | Draft（フォームの内部状態）とbackendのpayloadの相互変換。`buildShape`・`draftFromExisting`・`pickPassthroughFields`・`PASSTHROUGH_PAYLOAD_KEYS`。変更理由はbackendのpayloadスキーマで、フォームUIの増減とは独立している |
 | `components/AxisStudio/BreakpointCurveEditor.tsx` | 折れ点をドラッグ・矢印キーで調整できるSVGの曲線エディタ。背景へ実データの分布を重ねる |
 | `components/AxisStudio/curveDistributionOverlay.ts` | 曲線エディタの背景へ分布を重ねるための純粋関数（DOM非依存。階級のクリップ・按分、分位線、表示範囲外の割合） |
@@ -71,7 +75,7 @@ listAxisDefinitions() ──→ definitions（全軸）
 - 公開済みタブに削除ボタンは出さない（backendの`AxisPublishedImmutableError`と対応。
   削除は先に「非公開に戻す」という導線）。「表示だけ編集」ボタンは
   `AxisComposer`を制限モード（`editing.is_published`を見て自動判定、材料・計算式・
-  重みのステップを一切出さず表示専用フィールドのみ編集できる1画面フォーム）で開く。
+  重みの節を一切出さず表示専用フィールドのみ編集できる）で開く。
   材料・計算式・重みを変えたい場合は引き続き「複製して新規作成」に導線を残す。
 ### 折れ点の効き方を実データで見せる
 
@@ -133,31 +137,38 @@ listAxisDefinitions() ──→ definitions（全軸）
   （`app/admin/api/material-coverage/`）とも共有する汎用プロキシ（転送タイムアウトは
   既定15秒、`timeoutMs`オプションで呼び出し元route handlerが延長できる）。
 
-## AxisComposer.tsx（4ステップウィザード）
+## AxisComposer.tsx（1画面のフォーム）
 
-| Step | 見出し |
-|---|---|
-| `basic` | 基本情報 |
-| `shape_kind` | 点数のつけ方を選ぶ |
-| `shape_params` | 点数の詳細を設定 |
-| `display_publish` | 地図表示・公開 |
+**画面は1枚で、節の順番を持たない。** 軸を作るのに本当に前後関係があるのは
+「材料を選ぶ→その材料の型で点数の入力欄が決まる」ところだけで、それは節を分けなくても
+**選んだ材料に応じて入力欄を出し分ける**だけで表せる。スマホで開いたときに、開いてすぐ
+色分けまで一続きに見えることを優先する。
 
-ステップ自体の追加・削除はコード変更を要する（動的ステップ化は目指さない設計判断）。
-各ステップへ進む前に`validateStep`が該当ステップ内で完結する検証を行い（例: `basic`は
-表示名必須、`shape_params`は折れ点のx昇順・categorical材料のスコア行1件以上、
-`display_publish`はchip_labelの4文字制限・display_thresholds_overrideの昇順）、
-最終保存直前にも全ステップを再検証する（戻って値を空にしたまま進んだ場合の安全網）。
+| 節 | 見出し | 出る条件 |
+|---|---|---|
+| `basic` | （見出しなし。表示名・説明・既定重み） | 下書き軸のみ |
+| `shape_params` | 点数の決め方（`AxisScoringSection`） | 下書き軸のみ |
+| `display_publish` | 地図表示・公開（`AxisMapDisplaySection`） | 常に |
+
+`SECTIONS`は「どの節の検証か」を指す識別子で、順番の意味を持たない。保存時に
+`validateSection`が各節の検証（`basic`は表示名必須、`shape_params`は折れ点のx昇順・
+categorical材料のスコア行1件以上、`display_publish`はchip_labelの4文字制限・
+display_thresholds_overrideの昇順）をまとめて行い、最初に見つかった原因を文章で出す。
+
+**`noValidate`を付ける。** 検証は`validateSection`が行い原因を文章で示す。ブラウザの制約
+検証（`step`・`min`/`max`）へ任せると、小数の刻みが浮動小数の誤差で不一致と判定された
+とき、何の表示も無いまま送信だけが止まる——1画面で全ての欄が同時に検証対象へ入るぶん、
+この止まり方が起きやすい。数値入力欄の`step`も`any`にする。
 
 **制限モード**: `editing`が公開済み軸（`editing.is_published`）の場合、
-`restrictedDisplayOnly`が`true`になり通常の4ステップ構成を迂回する——`stepIndex`の
-初期値を`display_publish`へ固定し、ステッパー・戻る/次へボタンを描画せず
-`renderDisplayPublishStep()`（表示専用フィールドのみ）を単独の1画面フォームとして表示する。
-このステップ内の`公開する`チェックボックスもこのモードでは非表示にする（is_published自体は
-変更させない。切替は`AxisStudio.tsx`の「非公開に戻す」ボタンへ導線を一本化）。他ステップの
-入力欄が無いぶん、`draft`の該当フィールド（label・shape・default_weight等）は
-`draftFromExisting`が読み込んだ既存値のまま素通しで保存される。backend側は
-`is_cosmetic_only_update`でこの差分が表示専用フィールドのみであることを再検証する
-（[軸スタジオ・評価軸定義（backend）](../backend/axis-studio.md)参照）。
+`restrictedDisplayOnly`が`true`になり、`basic`・`shape_params`の節を**描画そのものごと
+省く**（backendが表示専用フィールドの差分しか受け付けない——
+`domain/axis_definitions.py: _COSMETIC_ONLY_FIELDS`——ため、いま何が変えられるかを画面の
+形で示す）。検証も`display_publish`だけに絞る——描画していない節を検証すると「入力欄が
+無いのにそこへ誘導される」行き止まりになる。`公開する`チェックボックスもこのモードでは
+非表示にする（is_published自体は変更させない。切替は`AxisStudio.tsx`の「非公開に戻す」
+ボタンへ導線を一本化）。入力欄の無い節の`draft`フィールド（label・shape・
+default_weight等）は`draftFromExisting`が読み込んだ既存値のまま素通しで保存される。
 
 ### Draft⇔payloadの変換は別ファイル（`axisDraft.ts`）
 
@@ -174,29 +185,48 @@ listAxisDefinitions() ──→ definitions（全軸）
 `Draft`は「今は選ばれていないkindの入力値」も保持する（kindを切り替えて戻したときに
 打ち直しにならないようにするため）。保存時に`buildShape`が選択中のkindぶんだけを取り出す。
 
-### `shape_kind`ステップの3カード（フロントUI専用の分類）
+### 点数の決め方は材料から導く（`AxisScoringSection.tsx`）
 
-| カード | 説明 | backend `AxisShape.kind`への対応 |
+**「なめらか評価／ぴったり評価」のような呼び名を利用者に選ばせない。** 選ぶのは
+「点数のもとになるもの」（材料、または他の軸）1つだけで、その型が点数の入力欄を決める。
+呼び名の3択は、選んだ材料と矛盾する組み合わせを選べてしまう（数値材料に「ぴったり評価」
+を当てる等）うえ、名前の意味を覚える必要がある——材料は一覧から選べば型が確定するので、
+その情報を利用者へ聞き直していたことになる。
+
+セレクトは`<optgroup>`で「数値」「はい・いいえ / 種類」「ほかの軸」に分け、
+`selectPrimaryMaterial(id)`が選ばれた型に応じて`draft.shapeKind`・`terms`・
+`categoricalRows`・`breakpoints`をまとめて組み替える。数値材料の間の入れ替えでは係数と
+折れ点を保つ（材料だけ差し替えたい場合に打ち直しにならないようにする）。
+
+| 選んだもの | 出る入力欄 | `draft.shapeKind` |
 |---|---|---|
-| なめらか評価 | 数値の大きさ・複数要素の有無で点数を変える | `breakpoint_linear` |
-| ぴったり評価 | はい/いいえ、種類ごとに点数を決める | `categorical` |
-| かけあわせ評価 | 既にある軸のスコアに重みを掛けて合計する | `breakpoint_linear`（他axis_idをmaterialとして参照、折れ点編集UIは出さない） |
+| 数値の材料 | 「何点にするか」（0点にする値・100点にする値・効き方） | `breakpoint_linear` |
+| はい/いいえ・種類の材料 | 該当時/非該当時のスコア、または値ごとのスコア行 | `categorical` |
+| ほかの軸 | 係数を掛けた合計 | `recipe_then_breakpoint_linear` |
 
 **フロント側の`ShapeKind`型（`"breakpoint_linear" | "recipe_then_breakpoint_linear" |
-"categorical"`）は3種のUIカードの選択肢であり、backendの`AxisShape`型（2プリミティブ:
-`BreakpointLinearShape` | `CategoricalShape`）とは別の型**——`buildShape(draft, materialOptions)`が
-送信直前に`draft.shapeKind`を`shape.kind`（常に`"breakpoint_linear"`または`"categorical"`の
-2値）へ正規化する。既存軸を編集/複製する際は、逆に`draftFromExisting`が`shape.terms`の
-構造（材料idか他axis_id参照か）からどのカードで作られたかを推定し直す（保存済みの
-`kind`だけでは判別できないため）。
+"categorical"`）は入力欄の出し分けを決める内部の分類であり、backendの`AxisShape`型
+（`BreakpointLinearShape` | `CategoricalShape`）とは別の型**——
+`buildShape(draft, materialOptions)`が送信直前に`draft.shapeKind`を`shape.kind`
+（`"breakpoint_linear"`か`"categorical"`）へ正規化する。既存軸を編集/複製する際は、逆に`draftFromExisting`が`shape.terms`の構造（材料idか他axis_id参照か）から推定し
+直す（保存済みの`kind`だけでは判別できないため）。
 
-「かけあわせ評価」カード選択中は`materialOptions`ではなく`otherAxes`（編集中の軸自身を
-除く全軸、`AxisStudio.tsx`が渡す）を材料候補にする——`MaterialTerm.material`が他axis_idを
-指せる設計（backend「軸の階層」）に対応するGUI導線。
+「ほかの軸」を選んでいる間は`materialOptions`ではなく`otherAxes`（編集中の軸自身を除く
+全軸、`AxisStudio.tsx`が渡す）を候補にする——`MaterialTerm.material`が他axis_idを指せる
+設計（backend「軸の階層」）に対応するGUI導線。
+
+**材料を1行ずつ並べる編集欄（係数つき）は、要るときだけ出す**（`showTermRows`）。単一の
+数値材料では係数は「0点/100点にする値」へ吸収されるため出さない。はい/いいえの材料を
+足し合わせる軸（街灯なし−50＋トンネル+50等）は係数そのものが点数の配分なので、1件でも出す。
+
+**折れ点の並びは保存形式であって入力欄ではない。** 実在する軸の大半は2点の直線で、曲線は
+実データを見て決めるもの（較正）。そのため既定の入力は「0点にする値・100点にする値・
+効き方」だけにし（`applyScoringRange`が`generateBreakpoints`で折れ点を作り直す）、折れ点の
+表と曲線エディタは`<details>折れ点を直接いじる</details>`の中に畳む。
 
 ### 折れ点エディタ・スライダー・数値入力
 
-- `breakpointTools.ts`（DOM非依存の純粋関数、`AxisComposer.tsx`が使う単一の実装）:
+- `breakpointTools.ts`（DOM非依存の純粋関数、`AxisScoringSection.tsx`が使う単一の実装）:
   - `generateBreakpoints(zeroValue, hundredValue, shape)`: 「0点にする値」「100点にする値」
     「形」（一定/後半で急/前半で急/S字）の3入力から6点の折れ点を生成する。
     `zeroValue > hundredValue`（値が大きいほど走りやすい軸）でも常にx昇順で返す。
@@ -213,20 +243,21 @@ listAxisDefinitions() ──→ definitions（全軸）
   `draft.terms.length === 1`かつ他軸参照ではない（`shapeKind === "breakpoint_linear"`）
   場合にのみ、そのterm1件の材料が持つ`referencePoints`（`GET /api/material-catalog`の
   `reference_points`、下記「useMaterialCatalog.ts / useMaterialValues.ts」節参照）から出す。
-  複数termの組み合わせ・他軸参照（かけあわせ評価）は参考点の対応が取れないため対象外
-  （`AxisComposer.tsx: primaryMaterial`）。参考点の生値は折れ点の横軸（`weight`を掛け、
-  `preprocess="abs"`なら絶対値を取った後の値）へ変換してから使う
-  （`toBreakpointX`、backend: `evaluate_axis_scalar`の`total`計算と同じ変換）。
+  複数termの組み合わせ・他軸参照は参考点の対応が取れないため対象外
+  （`AxisScoringSection.tsx: primaryMaterial`）。参考点の生値は折れ点の横軸（`weight`を
+  掛け、`preprocess="abs"`なら絶対値を取った後の値）へ変換してから使う
+  （`axisScoring.ts: toBreakpointX`、backend: `evaluate_axis_scalar`の`total`計算と同じ
+  変換）。
 - `BreakpointCurveEditor`（`BreakpointCurveEditor.tsx`）: SVGでbreakpointsをドラッグ・
   矢印キー調整できる曲線プレビュー。
   同じ`draft.breakpoints` stateを数値入力行と共有し、常に同期する。`referenceRange`
   （参考点の値域）を渡すとその範囲＋10%余白へ横軸を固定する——参考点が無い材料は
   従来どおりbreakpoints自体の値から自動スケールする。目盛り線・ドラッグ中の値ラベル
   （フォーカス中の点の上に表示）・矢印キーでの微調整（Shift併用で10倍刻み）を持つ。
-- `SliderNumberField`: 係数・スコアをスライダー（大まかな目安）＋数値入力（正確な値）の
+- `SliderNumberField`（`AxisFormFields.tsx`）: 係数・スコアをスライダー（大まかな目安）＋数値入力（正確な値）の
   組み合わせで編集する。スライダーの範囲は材料ごとに大きく異なる値の目安にすぎず、
   範囲外の値は数値入力欄から直接指定できる。
-- `NumberField`: このファイル内の数値入力（`SliderNumberField`の数値欄・既定重み・
+- `NumberField`（`AxisFormFields.tsx`）: フォーム内の数値入力（`SliderNumberField`の数値欄・既定重み・
   折れ点の入力値/スコア・地図の色分けしきい値）が共通で使う`<input type="number">`
   ラッパー。DOM値をコンポーネント自身のローカル文字列stateで保持し、有限数として
   パースできた時点でだけ`onChange`で親へ伝える（「-」や末尾の小数点のような未確定の
@@ -345,14 +376,14 @@ listAxisDefinitions() ──→ definitions（全軸）
 ## 材料が0件のときの防御
 
 `useMaterialCatalog()`は取得成功かつ0件のとき、静的フォールバックへは留まらず空配列を
-そのまま返す仕様（後述）。この場合`AxisComposer`はウィザード自体を表示せず、「材料
+そのまま返す仕様（後述）。この場合`AxisComposer`はフォーム自体を表示せず、「材料
 カタログを取得できませんでした（0件の応答）」というエラー画面＋「閉じる」ボタンのみを
 出す（`emptyDraft`が`materialOptions[0]`への無条件アクセスでクラッシュするのを防ぐガード。
 フック呼び出し自体はこのガードより前で完了させ、Rules of Hooksには反しない）。
 
 ## 材料説明ポップオーバー
 
-`InfoPopoverButton`/`MaterialInfoButton`（`AxisComposer.tsx`内で定義）が、材料選択欄の隣に
+`InfoPopoverButton`/`MaterialInfoButton`（`AxisFormFields.tsx`）が、材料選択欄の隣に
 (ⓘ)アイコンを置き、backend `material_catalog.py: MaterialSpec.description`をポップオーバー
 表示する。外枠（開閉state・Radix Popover・開閉に追随するアクセシブル名）は共通部品
 `Map/InfoPopover.tsx`が持ち、ここはラベル文言を持たない小型トリガーとしての薄いラッパー。
@@ -392,7 +423,7 @@ materialId ? state.values : []`）でリセットする——Reactの「propが�
   2つのリストが`AxisDefinitionPayload`の全フィールドを覆うことを型`_PayloadKeyCoverage`が
   静的に検査するため、backend側へフィールドが増えたときはどちらかへ追加しないとtscが
   通らない。`display_thresholds_override`/`display_band_labels_override`は
-  専用の編集UI（`display_publish`ステップ）を持つため、このリストには含まない。
+  専用の編集UI（`display_publish`の節）を持つため、このリストには含まない。
   `display_band_labels_override`の編集欄は`display_thresholds_override`が有効（null以外）の
   間だけ現れ、段階数（`displayThresholdsOverride.length+1`）と要素数を常に一致させる
   （`resizeBandLabels`）——しきい値の上書きを解除する（自動計算に戻す）とラベルの上書きも
@@ -403,8 +434,9 @@ materialId ? state.values : []`）でリセットする——Reactの「propが�
 
 境界値は1つの入力欄へまとめて書く（`parseThresholdList`が区切りを問わず解釈する）。
 **入力欄の文字列はdraftとは別にコンポーネントが持ち、読めたときだけdraftへ反映する**
-——読めない途中の状態でdraftを書き換えると直前の並びが消える。読めないまま進もうとした
-場合は`validateStep`が止めるため、下書きの値が黙って保存されることはない。
+——読めない途中の状態でdraftを書き換えると直前の並びが消える。読めないまま保存しようと
+した場合は`validateSection`が止めるため（節が`onThresholdErrorChange`で親へ伝える）、
+下書きの値が黙って保存されることはない。
 
 入力した内容は`renderBandPreview`がその場で段階の並びとして描く。段階ラベルの組み立ては
 地図の凡例と同じ`mapColorLegend.ts: buildRangeLegendBands`を通し、色は親（`AxisStudio`）が
@@ -421,6 +453,6 @@ materialId ? state.values : []`）でリセットする——Reactの「propが�
 frontendのこの画面は、backendの[軸スタジオ・評価軸定義（backend）](../backend/axis-studio.md)が
 定義する`AxisDefinitionPayload`のバリデーション規則（chip_label 4文字制限・
 display_thresholds_override昇順・shape.breakpoints x昇順・材料/軸参照の既知性）の一部を
-`AxisComposer.tsx: validateStep`でも先回りしてチェックする（保存時のエラーで初めて気づく
+`AxisComposer.tsx: validateSection`でも先回りしてチェックする（保存時のエラーで初めて気づく
 手戻りを避けるため）。ただし最終防衛はbackend側であり、frontendの検証はUX上の先回りに
 すぎない。

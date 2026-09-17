@@ -112,7 +112,9 @@ describe("MaterialCoveragePanel", () => {
     expect(surfaceCells[2].textContent).toContain("85.0%");
     expect(surfaceCells[2].textContent).toContain("850 / 1,000");
 
-    const gradientCells = within(unknownRows[0]).getAllByRole("cell").map((cell) => cell.textContent);
+    const gradientCells = within(unknownRows[0])
+      .getAllByRole("cell")
+      .map((cell) => cell.textContent);
     expect(gradientCells[1]).toBe("Edge");
     expect(gradientCells[2]).toContain("88.4%");
     expect(gradientCells[2]).toContain("3,536 / 4,000");

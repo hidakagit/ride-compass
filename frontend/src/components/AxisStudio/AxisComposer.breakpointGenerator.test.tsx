@@ -36,15 +36,9 @@ vi.mock("@/services/materialCatalogApi", () => ({
   getMaterialValues: vi.fn().mockRejectedValue(new Error("network unavailable in test")),
 }));
 
-async function clickNext(user: ReturnType<typeof userEvent.setup>) {
-  await user.click(screen.getByRole("button", { name: "次へ" }));
-}
-
 async function openBreakpointStep(user: ReturnType<typeof userEvent.setup>, label: string) {
   render(<AxisComposer editing={null} duplicateFrom={null} onCancelEdit={vi.fn()} onSave={vi.fn()} />);
-  await user.type(screen.getByRole("textbox", { name: "表示名(label)" }), label);
-  await clickNext(user); // basic -> shape_kind（既定でbreakpoint_linearが選択済み）
-  await clickNext(user); // shape_kind -> shape_params
+  await user.type(screen.getByRole("textbox", { name: "表示名" }), label);
   // 材料カタログの実行時取得が解決し、参考点付きの折れ点自動生成UIが現れるのを待つ。
   await waitFor(() => expect(screen.getByRole("group", { name: "参考点から値を選ぶ" })).toBeInTheDocument());
 }
@@ -61,13 +55,11 @@ describe("AxisComposer 折れ点の自動生成・効き目プレビュー", () 
     expect(screen.getByRole("spinbutton", { name: "100点にする値" })).toHaveValue(9);
   });
 
-  it("「生成」を押すと一定(flat)の形で折れ点を作り直す", async () => {
+  it("0点・100点にする値を入れると、その場で折れ点が作り直される", async () => {
     const onSave = vi.fn().mockResolvedValue(undefined);
     const user = userEvent.setup();
     render(<AxisComposer editing={null} duplicateFrom={null} onCancelEdit={vi.fn()} onSave={onSave} />);
-    await user.type(screen.getByRole("textbox", { name: "表示名(label)" }), "軸F");
-    await clickNext(user);
-    await clickNext(user);
+    await user.type(screen.getByRole("textbox", { name: "表示名" }), "軸F");
     await waitFor(() => expect(screen.getByRole("group", { name: "参考点から値を選ぶ" })).toBeInTheDocument());
 
     const zeroInput = screen.getByRole("spinbutton", { name: "0点にする値" });
@@ -76,9 +68,7 @@ describe("AxisComposer 折れ点の自動生成・効き目プレビュー", () 
     const hundredInput = screen.getByRole("spinbutton", { name: "100点にする値" });
     await user.clear(hundredInput);
     await user.type(hundredInput, "10");
-    await user.click(screen.getByRole("button", { name: "生成" }));
 
-    await clickNext(user);
     await user.click(screen.getByRole("button", { name: "作成する" }));
 
     await waitFor(() => expect(onSave).toHaveBeenCalledTimes(1));
@@ -103,6 +93,7 @@ describe("AxisComposer 折れ点の自動生成・効き目プレビュー", () 
     expect(rows.find((r) => r.textContent?.includes("きつい坂"))?.textContent).toContain("90");
 
     // 折れ点[10,100]をスコア50へ変更すると、プレビューも追従する。
+    await user.click(screen.getByText("折れ点を直接いじる"));
     const scoreInputs = screen.getAllByRole("spinbutton", { name: "スコア" });
     await user.clear(scoreInputs[1]);
     await user.type(scoreInputs[1], "50");

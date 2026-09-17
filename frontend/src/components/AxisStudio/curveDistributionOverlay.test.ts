@@ -1,18 +1,10 @@
 // @vitest-environment node
 import { describe, expect, it } from "vitest";
 
-import {
-  maxBarShare,
-  offRangeShare,
-  quantileMarkers,
-  visibleBars,
-} from "./curveDistributionOverlay";
+import { maxBarShare, offRangeShare, quantileMarkers, visibleBars } from "./curveDistributionOverlay";
 import type { ValueDistribution } from "./scoreDistribution";
 
-function distribution(
-  bins: [number, number, number][],
-  quantiles: Record<string, number> = {},
-): ValueDistribution {
+function distribution(bins: [number, number, number][], quantiles: Record<string, number> = {}): ValueDistribution {
   return { sample_ways: 100, total_km: 10, quantiles, bins, zero_share: 0 };
 }
 
@@ -85,7 +77,10 @@ describe("quantileMarkers", () => {
   it("表示範囲に入る分位だけを返す", () => {
     const d = distribution([], { p10: -5, p50: 3, p90: 8, p99: 40 });
 
-    expect(quantileMarkers(d, 0, 10)).toEqual([{ label: "p50", value: 3 }, { label: "p90", value: 8 }]);
+    expect(quantileMarkers(d, 0, 10)).toEqual([
+      { label: "p50", value: 3 },
+      { label: "p90", value: 8 },
+    ]);
   });
 
   it("p25/p75は描かない（線だらけにしない）", () => {
@@ -106,7 +101,12 @@ describe("maxBarShare", () => {
   });
 
   it("最大の割合を返す", () => {
-    expect(maxBarShare([{ from: 0, to: 1, share: 0.2 }, { from: 1, to: 2, share: 0.5 }])).toBe(0.5);
+    expect(
+      maxBarShare([
+        { from: 0, to: 1, share: 0.2 },
+        { from: 1, to: 2, share: 0.5 },
+      ]),
+    ).toBe(0.5);
   });
 });
 

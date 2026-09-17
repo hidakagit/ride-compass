@@ -51,10 +51,7 @@ export function DistributionPreview({ distribution, breakpoints, loading, error 
             <div key={band.label} className={styles.row}>
               <span>{band.label}</span>
               <span className={styles.barTrack}>
-                <span
-                  className={styles.barFill}
-                  style={{ width: `${(band.share / maxShare) * 100}%` }}
-                />
+                <span className={styles.barFill} style={{ width: `${(band.share / maxShare) * 100}%` }} />
               </span>
               <span className={styles.share}>{(band.share * 100).toFixed(1)}%</span>
             </div>

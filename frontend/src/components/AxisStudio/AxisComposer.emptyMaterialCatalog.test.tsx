@@ -35,14 +35,14 @@ describe("AxisComposer 材料カタログ0件時のフォールバック(T424)",
 
     // マウント直後は取得完了前のためAXIS_MATERIAL_OPTIONS静的フォールバックで
     // 通常のウィザード（「表示名(label)」欄）が見えている。
-    expect(screen.getByRole("textbox", { name: "表示名(label)" })).toBeInTheDocument();
+    expect(screen.getByRole("textbox", { name: "表示名" })).toBeInTheDocument();
 
     // getMaterialCatalogが解決し材料0件がsetMaterialsされると、通常のウィザードUIから
     // 空状態のエラーメッセージへ切り替わる（クラッシュしない）。
     await waitFor(() => {
       expect(screen.getByText(/材料カタログを取得できませんでした/)).toBeInTheDocument();
     });
-    expect(screen.queryByRole("textbox", { name: "表示名(label)" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("textbox", { name: "表示名" })).not.toBeInTheDocument();
   });
 
   it("編集モードで材料カタログが0件でも、draftFromExisting()の初期化でクラッシュしない", async () => {

@@ -32,25 +32,19 @@ describe("DistributionPreview", () => {
   });
 
   it("読込中・分布なし・失敗をそれぞれ言葉で示す（黙って空にしない）", () => {
-    const { rerender } = render(
-      <DistributionPreview distribution={null} breakpoints={BP} loading error={null} />,
-    );
+    const { rerender } = render(<DistributionPreview distribution={null} breakpoints={BP} loading error={null} />);
     expect(screen.getByText(/集計中/)).toBeInTheDocument();
 
     rerender(<DistributionPreview distribution={null} breakpoints={BP} loading={false} error={null} />);
     expect(screen.getByText(/材料を選ぶと/)).toBeInTheDocument();
 
-    rerender(
-      <DistributionPreview distribution={null} breakpoints={BP} loading={false} error="取得に失敗しました" />,
-    );
+    rerender(<DistributionPreview distribution={null} breakpoints={BP} loading={false} error="取得に失敗しました" />);
     expect(screen.getByText("取得に失敗しました")).toBeInTheDocument();
   });
 
   it("折れ点が実データに合っていないと警告を出す（満点への張り付き）", () => {
     // 生値がすべて折れ点の上限を超える＝全部が満点になる分布。
-    render(
-      <DistributionPreview distribution={dist([[10, 12, 1.0]])} breakpoints={BP} loading={false} error={null} />,
-    );
+    render(<DistributionPreview distribution={dist([[10, 12, 1.0]])} breakpoints={BP} loading={false} error={null} />);
     expect(screen.getByText(/満点に張り付きます/)).toBeInTheDocument();
     expect(screen.getByText("100.0%")).toBeInTheDocument();
   });

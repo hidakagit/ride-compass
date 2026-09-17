@@ -90,7 +90,15 @@ describe("interpolateBreakpointScore", () => {
 
   it("小数1桁へ丸める(backend: evaluate_breakpoint_linearと同じ丸め)", () => {
     expect(interpolateBreakpointScore(breakpoints, 1)).toBe(10);
-    expect(interpolateBreakpointScore([[0, 0], [3, 1]], 1)).toBeCloseTo(0.3, 5);
+    expect(
+      interpolateBreakpointScore(
+        [
+          [0, 0],
+          [3, 1],
+        ],
+        1,
+      ),
+    ).toBeCloseTo(0.3, 5);
   });
 
   it("xが昇順でなくても内部でソートしてから補間する", () => {

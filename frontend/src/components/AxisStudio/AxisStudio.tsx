@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import * as Tabs from "@radix-ui/react-tabs";
 import { DialogContent, DialogRoot } from "@/components/ui/Dialog/Dialog";
 import { materialLabel } from "@/lib/axisMaterialsCatalog";
@@ -183,14 +183,14 @@ export default function AxisStudio() {
   const previewCatalogAxis = catalog.axes.find((axis) => axis.axisId === previewAxisId);
   const previewIsRamp = catalog.rampAxes.some((axis) => axis.axisId === previewAxisId);
   const previewMapValueKind = previewCatalogAxis?.mapValueKind;
-  const mapBandColors = useMemo(() => {
-    if (previewIsRamp) {
-      return (boundaries: readonly number[]) =>
-        Array.from({ length: boundaries.length + 1 }, (_, index) => rampColorForBand(index, boundaries.length + 1));
-    }
-    if (previewMapValueKind) return (boundaries: readonly number[]) => bandColorsFor(previewMapValueKind, boundaries);
-    return undefined;
-  }, [previewIsRamp, previewMapValueKind]);
+  // 軸カタログの分類をそのまま引くだけの軽い導出のため、参照の安定化はしない
+  // （渡し先は節のコンポーネントで、再描画の重さは持たない）。
+  const mapBandColors = previewIsRamp
+    ? (boundaries: readonly number[]) =>
+        Array.from({ length: boundaries.length + 1 }, (_, index) => rampColorForBand(index, boundaries.length + 1))
+    : previewMapValueKind
+      ? (boundaries: readonly number[]) => bandColorsFor(previewMapValueKind, boundaries)
+      : undefined;
   const mapValueUnit = previewCatalogAxis?.mapValueUnit ?? "";
   const composerTitle = editingDefinition
     ? editingDefinition.is_published

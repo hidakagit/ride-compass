@@ -78,12 +78,15 @@ describe("AxisStudio", () => {
 
     // 改善計画T305: axis_idはフォームから撤去し、モーダル見出しも表示名(label)基準にした。
     expect(screen.getByRole("dialog", { name: "軸を編集: 勾配" })).toBeInTheDocument();
-    expect(screen.getByRole("textbox", { name: "表示名(label)" })).toHaveValue("勾配");
+    expect(screen.getByRole("textbox", { name: "表示名" })).toHaveValue("勾配");
     expect(screen.queryByRole("textbox", { name: "axis_id" })).not.toBeInTheDocument();
   });
 
   it("「+ 新しい軸を作る」を押すと空のモーダルが開く", async () => {
-    vi.mocked(listAxisDefinitions).mockResolvedValue([baseAxisDefinition(), baseAxisDefinition({ axis_id: "surface_q", label: "舗装状況" })]);
+    vi.mocked(listAxisDefinitions).mockResolvedValue([
+      baseAxisDefinition(),
+      baseAxisDefinition({ axis_id: "surface_q", label: "舗装状況" }),
+    ]);
     const user = userEvent.setup();
     render(<AxisStudio />);
 
@@ -91,13 +94,11 @@ describe("AxisStudio", () => {
     await user.click(screen.getByRole("button", { name: "+ 新しい軸を作る" }));
 
     expect(screen.getByRole("dialog", { name: "新しい軸を作る" })).toBeInTheDocument();
-    expect(screen.getByRole("textbox", { name: "表示名(label)" })).toHaveValue("");
+    expect(screen.getByRole("textbox", { name: "表示名" })).toHaveValue("");
   });
 
   // 改善計画T318（ユーザー判断: 「軸スタジオで、地図マップ上にアイコン表示するかどうか
   // ON/OFFできるようにして。ヘッダのT310等の文字は消して」）。
-  // 改善計画T332でウィザード化された後は、この項目は最終ステップ（地図表示・公開）に
-  // あるため、表示名を入力して3ステップ分「次へ」を押してから確認する。
   it("フォームに地図上アイコン表示のON/OFFチェックボックスがあり、既定でONで、見出しに開発用のタスク番号表記が残っていない", async () => {
     vi.mocked(listAxisDefinitions).mockResolvedValue([baseAxisDefinition()]);
     const user = userEvent.setup();
@@ -105,12 +106,9 @@ describe("AxisStudio", () => {
 
     await waitFor(() => expect(screen.getByText("勾配")).toBeInTheDocument());
     await user.click(screen.getByRole("button", { name: "+ 新しい軸を作る" }));
-    await user.type(screen.getByRole("textbox", { name: "表示名(label)" }), "新軸");
-    await user.click(screen.getByRole("button", { name: "次へ" }));
-    await user.click(screen.getByRole("button", { name: "次へ" }));
-    await user.click(screen.getByRole("button", { name: "次へ" }));
+    await user.type(screen.getByRole("textbox", { name: "表示名" }), "新軸");
 
-    const toggle = screen.getByRole("checkbox", { name: "地図上にアイコンを表示する(show_map_icon)" });
+    const toggle = screen.getByRole("checkbox", { name: "地図に出す" });
     expect(toggle).toHaveAttribute("aria-checked", "true");
     expect(screen.queryByText(/改善計画T310/)).not.toBeInTheDocument();
   });
@@ -130,66 +128,40 @@ describe("AxisStudio", () => {
     expect(screen.getByText("勾配")).toBeInTheDocument();
   });
 
-  // 改善計画T322: 「ぴったり評価」の材料選択にcategorical dtype材料（tracktype等）も
-  // 現れ、選ぶと値ごとのスコア行編集UIへ切り替わる回帰テスト。改善計画T332で
-  // ウィザード化された後は、表示名入力→点数のつけ方カード選択→材料選択、という
-  // 3ステップに分かれている（改善計画T397でカード名を「ぴったり評価」へ変更）。
-  it("「ぴったり評価」でcategorical材料を選ぶと値ごとのスコア行が編集できる", async () => {
+  // 種類の材料（tracktype等）を選ぶと、値ごとのスコア行の編集へ切り替わる回帰テスト。
+  it("種類の材料を選ぶと値ごとのスコア行が編集できる", async () => {
     vi.mocked(listAxisDefinitions).mockResolvedValue([baseAxisDefinition()]);
     const user = userEvent.setup();
     render(<AxisStudio />);
 
     await waitFor(() => expect(screen.getByText("勾配")).toBeInTheDocument());
     await user.click(screen.getByRole("button", { name: "+ 新しい軸を作る" }));
-    await user.type(screen.getByRole("textbox", { name: "表示名(label)" }), "新軸");
-    await user.click(screen.getByRole("button", { name: "次へ" }));
-    await user.click(screen.getByRole("radio", { name: /ぴったり評価/ }));
-    await user.click(screen.getByRole("button", { name: "次へ" }));
+    await user.type(screen.getByRole("textbox", { name: "表示名" }), "新軸");
 
-    const materialSelect = screen.getByRole("combobox", { name: "材料(material)" });
+    const materialSelect = screen.getByRole("combobox", { name: "点数のもとになるもの" });
     // 静的フォールバック(AXIS_MATERIAL_OPTIONS)にはcategorical材料として未舗装路グレードを含む
     // （改善計画T345さらなるフォローアップ2: labelは「論理名 - 物理名」形式）。
     expect(screen.getByRole("option", { name: "未舗装路グレード(tracktype) - tracktype" })).toBeInTheDocument();
     await user.selectOptions(materialSelect, "tracktype");
 
-    expect(screen.queryByText("該当時(true)のスコア")).not.toBeInTheDocument();
+    expect(screen.queryByText("はいのときのスコア")).not.toBeInTheDocument();
     const valueInput = screen.getByLabelText("値");
     await user.type(valueInput, "separated");
     await user.click(screen.getByRole("button", { name: "+ 値を追加" }));
     expect(screen.getAllByLabelText("値")).toHaveLength(2);
   });
 
-  // 改善計画T332（軸スタジオのウィザード化）: 表示名が空のまま「次へ」を押すと、
-  // ステップは進まずエラーが表示される回帰テスト。
-  it("ウィザードの1ステップ目で表示名が空のまま「次へ」を押すと進まずエラーが出る", async () => {
+  // 表示名が空のまま保存しようとすると、保存されずエラーが表示される回帰テスト。
+  it("表示名が空のまま保存しようとすると進まずエラーが出る", async () => {
     vi.mocked(listAxisDefinitions).mockResolvedValue([baseAxisDefinition()]);
     const user = userEvent.setup();
     render(<AxisStudio />);
 
     await waitFor(() => expect(screen.getByText("勾配")).toBeInTheDocument());
     await user.click(screen.getByRole("button", { name: "+ 新しい軸を作る" }));
-    await user.click(screen.getByRole("button", { name: "次へ" }));
+    await user.click(screen.getByRole("button", { name: "作成する" }));
 
-    expect(screen.getByText("表示名(label)を入力してください。")).toBeInTheDocument();
-    expect(screen.getByText("ステップ 1/4: 基本情報")).toBeInTheDocument();
-  });
-
-  // 改善計画T332: 「戻る」で前のステップに戻っても入力済みの値は失われない回帰テスト。
-  it("ウィザードで「次へ」→「戻る」しても表示名の入力内容が残る", async () => {
-    vi.mocked(listAxisDefinitions).mockResolvedValue([baseAxisDefinition()]);
-    const user = userEvent.setup();
-    render(<AxisStudio />);
-
-    await waitFor(() => expect(screen.getByText("勾配")).toBeInTheDocument());
-    await user.click(screen.getByRole("button", { name: "+ 新しい軸を作る" }));
-    await user.type(screen.getByRole("textbox", { name: "表示名(label)" }), "私の軸");
-    await user.click(screen.getByRole("button", { name: "次へ" }));
-    expect(screen.getByText("ステップ 2/4: 点数のつけ方を選ぶ")).toBeInTheDocument();
-
-    await user.click(screen.getByRole("button", { name: "戻る" }));
-
-    expect(screen.getByText("ステップ 1/4: 基本情報")).toBeInTheDocument();
-    expect(screen.getByRole("textbox", { name: "表示名(label)" })).toHaveValue("私の軸");
+    expect(screen.getByText("表示名を入力してください。")).toBeInTheDocument();
   });
 
   // 改善計画T327（UIレビュー2026-08-25 F-5）: 点数の詳細ステップに、スコアの向き
@@ -199,17 +171,14 @@ describe("AxisStudio", () => {
   // （ユーザー指摘: 説明文が多く見にくい）で、折れ点・カテゴリ等3箇所に重複していた
   // この文言をステップ先頭の1箇所へ統合・短縮した（AxisComposer.tsx:
   // renderShapeParamsStep冒頭参照）。
-  it("点数の詳細ステップにスコアの向きを説明する文言がある", async () => {
+  it("点数の節にスコアの向きを説明する文言がある", async () => {
     vi.mocked(listAxisDefinitions).mockResolvedValue([baseAxisDefinition()]);
     const user = userEvent.setup();
     render(<AxisStudio />);
 
     await waitFor(() => expect(screen.getByText("勾配")).toBeInTheDocument());
     await user.click(screen.getByRole("button", { name: "+ 新しい軸を作る" }));
-    await user.type(screen.getByRole("textbox", { name: "表示名(label)" }), "新軸");
-    await user.click(screen.getByRole("button", { name: "次へ" }));
-    // 既定の選択（なめらか評価）のまま次へ。
-    await user.click(screen.getByRole("button", { name: "次へ" }));
+    await user.type(screen.getByRole("textbox", { name: "表示名" }), "新軸");
 
     expect(screen.getByText(/スコアは0\(走りやすい\)〜100\(走りにくい\)/)).toBeInTheDocument();
   });
@@ -305,7 +274,10 @@ describe("AxisStudio", () => {
   });
 
   it("他の軸から参照されていない軸の削除は確認ダイアログを出さない", async () => {
-    vi.mocked(listAxisDefinitions).mockResolvedValue([baseAxisDefinition(), baseAxisDefinition({ axis_id: "surface_q", label: "舗装状況" })]);
+    vi.mocked(listAxisDefinitions).mockResolvedValue([
+      baseAxisDefinition(),
+      baseAxisDefinition({ axis_id: "surface_q", label: "舗装状況" }),
+    ]);
     vi.mocked(deleteAxisDefinition).mockResolvedValue(undefined);
     const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
     const user = userEvent.setup();
@@ -378,8 +350,8 @@ describe("AxisStudio", () => {
 
     expect(screen.getByRole("dialog", { name: "「勾配」を複製して新しい軸を作る" })).toBeInTheDocument();
     // 複製元の値（表示名・既定重み）は引き継がれる
-    expect(screen.getByRole("textbox", { name: "表示名(label)" })).toHaveValue("勾配");
-    expect(screen.getByRole("spinbutton", { name: "既定重み(default_weight)" })).toHaveValue(0.42);
+    expect(screen.getByRole("textbox", { name: "表示名" })).toHaveValue("勾配");
+    expect(screen.getByRole("spinbutton", { name: "既定重み" })).toHaveValue(0.42);
   });
 
   it("「非公開に戻す」を押すとunpublishAxisDefinitionが呼ばれ、一覧が再読み込みされる", async () => {
@@ -389,7 +361,9 @@ describe("AxisStudio", () => {
     vi.mocked(listAxisDefinitions)
       .mockResolvedValueOnce([baseAxisDefinition({ axis_id: "gradient", is_published: true })])
       .mockResolvedValueOnce([baseAxisDefinition({ axis_id: "gradient", is_published: false })]);
-    vi.mocked(unpublishAxisDefinition).mockResolvedValue(baseAxisDefinition({ axis_id: "gradient", is_published: false }));
+    vi.mocked(unpublishAxisDefinition).mockResolvedValue(
+      baseAxisDefinition({ axis_id: "gradient", is_published: false }),
+    );
     const user = userEvent.setup();
     render(<AxisStudio />);
 
@@ -405,7 +379,7 @@ describe("AxisStudio", () => {
     expect(vi.mocked(listAxisDefinitions).mock.calls.length).toBe(callsBeforeUnpublish + 1);
   });
 
-  it("ウィザードを最後まで完了して保存すると、createAxisDefinitionが呼ばれモーダルが閉じて一覧が再読み込みされる", async () => {
+  it("表示名を入れて保存すると、createAxisDefinitionが呼ばれモーダルが閉じて一覧が再読み込みされる", async () => {
     vi.mocked(listAxisDefinitions)
       .mockResolvedValueOnce([baseAxisDefinition()])
       .mockResolvedValueOnce([baseAxisDefinition(), baseAxisDefinition({ axis_id: "new_axis", label: "新軸" })]);
@@ -416,10 +390,7 @@ describe("AxisStudio", () => {
     await waitFor(() => expect(screen.getByText("勾配")).toBeInTheDocument());
     const callsBeforeSave = vi.mocked(listAxisDefinitions).mock.calls.length;
     await user.click(screen.getByRole("button", { name: "+ 新しい軸を作る" }));
-    await user.type(screen.getByRole("textbox", { name: "表示名(label)" }), "新軸");
-    await user.click(screen.getByRole("button", { name: "次へ" })); // 1/4 -> 2/4
-    await user.click(screen.getByRole("button", { name: "次へ" })); // 2/4 -> 3/4（既定のbreakpoint_linearのまま）
-    await user.click(screen.getByRole("button", { name: "次へ" })); // 3/4 -> 4/4（既定の材料・折れ点のまま）
+    await user.type(screen.getByRole("textbox", { name: "表示名" }), "新軸");
     await user.click(screen.getByRole("button", { name: "作成する" }));
 
     await waitFor(() => expect(createAxisDefinition).toHaveBeenCalledTimes(1));
