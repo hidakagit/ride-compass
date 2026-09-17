@@ -58,7 +58,6 @@ type EditedPayloadKey =
   | "axis_id"
   | "label"
   | "description"
-  | "category"
   | "default_weight"
   | "shape"
   | "is_published"
@@ -73,6 +72,7 @@ type EditedPayloadKey =
  * （送らないとサーバー側の既定値で上書きされ、公開済み軸を非公開へ戻して軽微な編集を
  * しただけでこの値が黙って失われる——エラーも警告も出ない静かなデータ破壊になる）。 */
 export const PASSTHROUGH_PAYLOAD_KEYS = [
+  "category",
   "priority_overrides",
   "time_scope",
   "dedicated_way_value_layer",
@@ -99,6 +99,13 @@ type _PayloadKeyCoverage = [
 
 /** 新規軸の素通しフィールド初期値（既存軸は`pickPassthroughFields`が実値で置き換える）。 */
 const DEFAULT_PASSTHROUGH_FIELDS: PassthroughFields = {
+  // 軸スタジオが作る軸は常に「推定」（複数材料を判定式で合成する軸）。「観測」
+  // （タグ・POIをそのまま読む）「動的」（気象等、時々刻々変わる外部データ由来）は
+  // どちらも材料そのものの性質で、材料を組み合わせて判定式を作る仕組みからは生み出せない。
+  // 既存軸を編集するときは既存の値を素通しする——この画面が編集欄を持たない以上、
+  // 定数で上書きしてよい理由が無い（「観測」の公開済み軸は、表示専用の編集でも
+  // categoryが書き換わるぶん見た目だけの更新と見なされずbackendに拒否される）。
+  category: "推定",
   priority_overrides: [],
   time_scope: "always",
   dedicated_way_value_layer: false,

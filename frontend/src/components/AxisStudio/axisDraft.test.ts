@@ -111,6 +111,9 @@ describe("draftFromExisting → buildShape の往復", () => {
 describe("編集欄を持たないフィールドの素通し", () => {
   it("既存値をそのまま拾う（拾わないとサーバー側の既定値で上書きされる）", () => {
     const values = {
+      // 既定値（新規軸の"推定"）と違う値を置く——同じ値だと素通しが効いているのか
+      // 既定値が偶然一致しているだけなのか区別できない。
+      category: "観測" as const,
       priority_overrides: [{ material: "motor_vehicle_no", equals: "true", value: 100 }],
       time_scope: "night_only" as const,
       dedicated_way_value_layer: true,

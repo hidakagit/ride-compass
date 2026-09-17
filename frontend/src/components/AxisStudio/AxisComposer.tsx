@@ -184,11 +184,6 @@ export default function AxisComposer({
       axis_id: draft.axisId,
       label: draft.label.trim(),
       description: draft.description,
-      // 軸スタジオが作る軸は常に「推定」（複数材料を判定式で合成する軸）。「観測」
-      // （タグ・POIをそのまま読む）「動的」（気象等、時々刻々変わる外部データ由来）は
-      // どちらもそれ自体が材料の性質であり、材料を組み合わせて判定式を作る軸スタジオの
-      // 仕組みからこれらを生み出すのは概念上おかしい。
-      category: "推定",
       default_weight: draft.defaultWeight,
       shape: buildShape(draft, materialOptions),
       is_published: draft.isPublished,

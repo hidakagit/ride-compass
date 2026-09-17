@@ -377,6 +377,7 @@ describe("AxisComposer", () => {
       // すべての素通し対象へ既定値と異なる値を入れる。素通しが1件でも落ちれば、
       // その値はサーバー側の既定値相当（false/"always"/[]）へ静かに戻る。
       const nonDefaultPassthrough: Partial<AxisDefinitionResponse> = {
+        category: "観測",
         priority_overrides: [{ material: "has_tunnel", equals: "true", value: -1000 }],
         time_scope: "night_only",
         dedicated_way_value_layer: true,

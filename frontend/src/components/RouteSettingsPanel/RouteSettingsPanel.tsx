@@ -18,8 +18,8 @@ import styles from "./RouteSettingsPanel.module.css";
 // 軸が増えても伸びるのはチップの領域だけで、そこは高さ上限と内部スクロールを持つ。
 //
 // 軸はカテゴリ（観測/推定/動的）で分けず、公開済みの軸を常にフラットな1本のリストとして
-// 表示する（軸スタジオは常にcategory="推定"固定で軸を作るため）。軸の`category`データ
-// 自体はbackend側にそのまま残す（他の用途のために消さない）。
+// 表示する（軸スタジオが新規に作る軸は常に"推定"のため、分けても大半が1つの群に寄る）。
+// 軸の`category`データ自体はbackend側にそのまま残す（他の用途のために消さない）。
 //
 // 軸の一覧・既定重みはuseAxisCatalog経由でGET /api/axis-catalogから取得する
 // （is_published=Trueのみ）。軸スタジオがDBへ追加した軸も、コード変更・再デプロイなしに
@@ -164,7 +164,7 @@ export default function RouteSettingsPanel({
     axisIdA: string,
     startWeightA: number,
     axisIdB: string,
-    startWeightB: number
+    startWeightB: number,
   ) {
     const bar = stackBarRef.current;
     if (!bar || total <= 0) return;
@@ -203,7 +203,7 @@ export default function RouteSettingsPanel({
     axisIdA: string,
     weightA: number,
     axisIdB: string,
-    weightB: number
+    weightB: number,
   ) {
     let rawDelta = 0;
     if (e.key === "ArrowLeft" || e.key === "ArrowDown") rawDelta = -WEIGHT_STEP;
@@ -259,8 +259,7 @@ export default function RouteSettingsPanel({
       {catalog.failed && (
         <p className={styles.catalogErrorNotice} role="status">
           <span>
-            軸一覧を取得できませんでした。このまま生成すると重み配分は反映されず、
-            サーバー既定の配分で探索します。
+            軸一覧を取得できませんでした。このまま生成すると重み配分は反映されず、 サーバー既定の配分で探索します。
           </span>
           <button type="button" className={styles.catalogErrorRetry} onClick={retryAxisCatalogFetch}>
             再試行
@@ -327,11 +326,9 @@ export default function RouteSettingsPanel({
         </div>
       </div>
 
-
       <div className={styles.legendRow}>
         {orderedAxes.map(({ axis, index, weight }) => renderLegendChip(axis, index, weight))}
       </div>
-
     </div>
   );
 }
