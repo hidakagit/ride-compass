@@ -48,7 +48,8 @@ class CachePolicy:
 # 時間の調整はここだけで行う。同じ秒数でも意味が違うものは別の定数として持つ
 # （片方だけを後から動かせるようにするため）。
 
-#: 配信元が更新しない静的データ（国土地理院の色別標高図タイル）。
+#: 配信元が更新しない静的データ（国土地理院の標高タイル。色別標高図と、
+#: それをTerrain-RGBへ変換したもの）。
 PERMANENT = CachePolicy(max_age_seconds=24 * 60 * 60, immutable=True)
 #: URLに`basetime`/`validtime`を含み内容が確定して以後変化しないタイル（気象庁）。
 #: `max-age`は`jma_tile_redis_cache.py`のTTLと揃える。
@@ -95,6 +96,9 @@ _ROUTE_POLICIES: Final[tuple[tuple[str, CachePolicy], ...]] = (
     ("/api/jma-tile-index", LIVE),
     ("/api/jma-tile/", HANDLER_MANAGED),
     ("/api/gsi-relief-tile/", PERMANENT),
+    # 同じ国土地理院のDEMタイルを、MapLibreが読めるTerrain-RGBへ変換して返す。
+    # 変換は決定的で、元のタイルと同じく配信元が更新しない。
+    ("/api/gsi-terrain-tile/", PERMANENT),
     ("/api/basemap/", BASEMAP),
     ("/api/region/road-surface-tiles/", BATCH_TILE),
     ("/api/region/accident-tiles/", BATCH_TILE),
