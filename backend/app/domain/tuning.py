@@ -121,8 +121,11 @@ TUNING_PARAMETERS: tuple[TuningParameter, ...] = (
         "turn.major_crossing_seconds",
         "上位の道の横断", "秒", 8.0, 0.0, 300.0,
         TuningEffect.TURN_STRUCTURE,
-        "信号の無い交差点で、上位の階級の道を直進で渡るときに足す"
-        "（信号のある交差点の待ちは停止要因の側が数える）。",
+        "信号の無い交差点で、上位の階級の道を直進で渡るときに足す。"
+        "一時停止で止まるぶん（stop.stop_seconds）とは別で、義務の停止を超えて相手の"
+        "流れが途切れるのを待つぶんを表す（止まること自体は交通ルール上、車が来ていなくても"
+        "発生する）。信号のある交差点では足さない——signal_secondsが赤で待つ時間、"
+        "すなわち渡れるようになるまでの待ちそのものを表すため。",
     ),
     TuningParameter(
         "turn.major_turn_seconds",
@@ -131,10 +134,17 @@ TUNING_PARAMETERS: tuple[TuningParameter, ...] = (
         "信号の無い交差点で、上位の階級の道へ右左折で入るときに足す。",
     ),
     # --- 停止要因の待ち（種別はPOI_COUNT_KINDSが正本） ---
-    _stop_parameter("signal", "信号", 21.0, "一般的な信号サイクルからの見積もり。"),
+    _stop_parameter("signal", "信号", 21.0,
+                    "一般的な信号サイクルからの見積もり。赤で待つ時間、すなわち渡れるように"
+                    "なるまでの待ちそのものを表すため、信号のある交差点では"
+                    "turn.major_crossing_secondsを足さない。"),
     _stop_parameter("crossing", "信号なし横断歩道", 0.0,
                     "自転車が止まる前提を置いていないため既定は0秒。"),
-    _stop_parameter("stop", "一時停止・徐行", 8.0, "標識・標示で減速して止まるぶん。"),
+    _stop_parameter("stop", "一時停止・徐行", 8.0,
+                    "標識・標示で減速して止まるぶん。交通ルール上、車が来ていなくても止まる"
+                    "ため相手の交通と無関係に発生する。相手の流れが途切れるのを待つぶんは"
+                    "含まず、そちらはturn.major_crossing_secondsが上位の道を渡るときだけ"
+                    "足す。"),
     _stop_parameter("level_crossing", "踏切", 25.0, "遮断機の待ちを含む見積もり。"),
     _stop_parameter("barrier", "車止め・減速構造", 8.0, "ボラード等で減速するぶん。"),
     # --- 交差点の信号判定 ---
