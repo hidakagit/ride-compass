@@ -20,30 +20,23 @@ export function isAreaLayerType(type: string): boolean {
   return AREA_LAYER_TYPES.has(type);
 }
 
-/** 面で塗るレイヤーを差し込む位置（このidのレイヤーの直前＝下へ入る）を、スタイルの並びから
- * 導く。**基礎地図が線・記号を最も長く連ねて描く区間の先頭**を返す——道路網はどのスタイルでも
- * 「casing→本体→橋→鉄道」と何十枚も続く最長の連なりになり、その手前が「土地の色を描き終えて
- * 道路網を描き始める位置」になる。
+/** 基礎地図のベクタタイルが道路網を収めているレイヤー名（OpenMapTilesスキーマ。
+ * 基礎地図はこのスキーマのタイルを配る）。スタイルの並び順やレイヤーidと違い、
+ * これはスキーマが公開している語彙で、配色や見せ方を変えても名前は変わらない。 */
+const ROAD_NETWORK_SOURCE_LAYER = "transportation";
+
+/** 面で塗るレイヤーを差し込む位置（このidのレイヤーの直前＝下へ入る）。基礎地図が道路網
+ * （`source-layer`が`transportation`）を描き始める最初のレイヤーを返す。面はその下、つまり
+ * 土地の塗り（公園・土地利用・水面・建物）の上・道路と地名の下に入る。
  *
- * **「最後に面を描いたレイヤーの次」では足りない**。基礎地図は面と線を交互に描き、
- * 道路より後ろにも面を置く（OpenFreeMap libertyでは建物のfill/fill-extrusionが道路・橋の
- * 41枚より後ろにある）。その次を採ると差し込み位置が道路の後ろまで下がり、面が道路を
- * 覆ったまま残る。道路より後ろの面は`basemapAreaLayersAfter`が前へ動かす。
+ * **並び順から導いてはいけない**。基礎地図は面と線を交互に描き、道路網より後ろにも面を置く
+ * （libertyでは建物のfill/fill-extrusionが道路・橋の41枚より後ろ）。「最後に面を描いた
+ * レイヤーの次」を採ると位置が道路の後ろまで下がり、面が道路を覆ったまま残る（実機で
+ * `boundary_3`が返った）。道路網より後ろの面は`basemapAreaLayersAfter`が前へ動かす。
  *
- * 線・記号を1枚も持たないスタイルではundefined（差し込み先が無く最前面になる）。 */
-export function areaLayerAnchorId(layers: readonly { id: string; type: string }[]): string | undefined {
-  let longest: { start: number; length: number } | undefined;
-  let runStart: number | undefined;
-  layers.forEach((layer, index) => {
-    if (isAreaLayerType(layer.type)) {
-      runStart = undefined;
-      return;
-    }
-    if (runStart === undefined) runStart = index;
-    const length = index - runStart + 1;
-    if (longest === undefined || length > longest.length) longest = { start: runStart, length };
-  });
-  return longest === undefined ? undefined : layers[longest.start].id;
+ * 道路網を持たないスタイルではundefined（差し込み先が無く最前面になる）。 */
+export function areaLayerAnchorId(layers: readonly { id: string; "source-layer"?: string }[]): string | undefined {
+  return layers.find((layer) => layer["source-layer"] === ROAD_NETWORK_SOURCE_LAYER)?.id;
 }
 
 /** `anchorId`より後ろにある面レイヤーのid（追加順のまま）。基礎地図が道路より後ろに置いて
