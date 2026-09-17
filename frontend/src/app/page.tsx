@@ -312,9 +312,7 @@ const SPLICE_OPTIONS_PER_GROUP = 100;
  *  どの選択肢かを引き戻せるようにする。 */
 const spliceFeatureIndex = (groupIndex: number, optionIndex: number) => {
   if (optionIndex >= SPLICE_OPTIONS_PER_GROUP) {
-    throw new Error(
-      `乗り換えの選択肢が1グループ${SPLICE_OPTIONS_PER_GROUP}件の上限を超えた（index=${optionIndex}）`,
-    );
+    throw new Error(`乗り換えの選択肢が1グループ${SPLICE_OPTIONS_PER_GROUP}件の上限を超えた（index=${optionIndex}）`);
   }
   return groupIndex * SPLICE_OPTIONS_PER_GROUP + optionIndex;
 };
@@ -995,6 +993,10 @@ export default function Home() {
     (key: string) => toggleHiddenLegendKey(lens, key),
     [lens, toggleHiddenLegendKey],
   );
+  const handleLensLegendSetHidden = useCallback(
+    (hiddenKeys: string[]) => setHiddenLegendKeysForAxis(lens, hiddenKeys),
+    [lens, setHiddenLegendKeysForAxis],
+  );
   // RouteAxisProfileの軸チップの色ドットを、RouteSettingsPanelの凡例チップと同じ色に
   // する（同じ軸なら両パネルで同じ色、という視覚的な一貫性のため）。
   // stackBarColorForIndexは表示順index・軸総数（catalog.axes.length）から色相環を
@@ -1074,12 +1076,8 @@ export default function Home() {
     const legendDetailsByLayerId: Record<string, LegendFilterSummaryAxis[]> = {};
     for (const axis of ROAD_FILTER_AXES) {
       const hiddenKeys = roadHiddenKeysByMode[axis.id] ?? NO_HIDDEN_LEGEND_KEYS;
-      summaryByLayerId[axis.layerId] = summarizeLegendFilters([
-        { label: "", legend: axis.legend, hiddenKeys },
-      ]);
-      legendDetailsByLayerId[axis.layerId] = [
-        { label: "", legend: axis.legend, hiddenKeys, axisId: axis.id },
-      ];
+      summaryByLayerId[axis.layerId] = summarizeLegendFilters([{ label: "", legend: axis.legend, hiddenKeys }]);
+      legendDetailsByLayerId[axis.layerId] = [{ label: "", legend: axis.legend, hiddenKeys, axisId: axis.id }];
     }
     return { summaryByLayerId, legendDetailsByLayerId };
   }, [roadHiddenKeysByMode]);
@@ -1432,8 +1430,9 @@ export default function Home() {
       routeOnly: !rampAxisIds.has(axis.axisId) && !axis.dedicatedWayValueLayer,
     }));
   }, [axisCatalog.axes, axisCatalog.rampAxes, axisChipColors, generatedRoutePreference, routePreference]);
-  // 現在のレンズの凡例。ルート後はルート線のモード凡例（段階の非表示切替つき）、ルート前は
-  // ramp軸・専用配信の凡例（読み取り専用）。どちらも塗る手段が無ければ空。
+  // 現在のレンズの凡例。ルート後はルート線のモード凡例、ルート前はramp軸・専用配信の凡例。
+  // どちらも塗る手段が無ければ空。段階の表示ON/OFFはどの経路でも効く（ramp軸は
+  // staticFilterAxesのfilter、専用配信は色式の透明化、ルート線はモードのfilter）。
   const lensLegend = useMemo<LegendEntry[]>(() => {
     if (lens === LENS_NONE_ID) return [];
     if (hasDetail) return getRouteStyleMode(routeStyleModes, lens).legend;
@@ -1441,15 +1440,29 @@ export default function Home() {
     if (rampAxis) return buildAxisRampLegend(rampAxis);
     const axis = axisCatalog.axes.find((a) => a.axisId === lens);
     if (axis?.dedicatedWayValueLayer) {
-      return dedicatedWayValueLegend(dedicatedWayValueDisplays.get(lens)).map((band, index) => ({
-        key: `band-${index}`,
-        label: band.label,
-        color: band.color,
+      // 専用way値配信軸の段階はfilter述語を持てない（値がfeature-state経由で入る）。
+      // 絞り込みは色式側（dedicatedWayValueHiddenBands）が担うため、ここは空のfilterで渡す。
+      return dedicatedWayValueLegend(dedicatedWayValueDisplays.get(lens)).map((band) => ({
+        ...band,
         filter: [],
       }));
     }
     return [];
   }, [lens, hasDetail, routeStyleModes, axisCatalog.rampAxes, axisCatalog.axes, dedicatedWayValueDisplays]);
+
+  // 専用way値配信軸ごとの非表示段階（ルート確定前の全道路の塗り側の絞り込み）。保存先は
+  // ルート線と同じhiddenLegendKeysByMode[軸id]で、段階キーも共通（mapColorLegend.ts:
+  // legendBandKey）——ルート生成の前後で同じ段階が隠れたままになる。
+  const dedicatedWayValueHiddenBands = useMemo(
+    () =>
+      new Map(
+        axisCatalog.dedicatedAxes.map((axis) => [
+          axis.axisId,
+          hiddenLegendKeysByMode[axis.axisId] ?? NO_HIDDEN_LEGEND_KEYS,
+        ]),
+      ),
+    [axisCatalog.dedicatedAxes, hiddenLegendKeysByMode],
+  );
 
   // 現在のフォーム値から生成リクエストの入力一式を組み立てる。生成時（handleGenerate）と
   // dirty判定の両方がこの1つの関数を通るため、送る値を足したときに比較側へ足し忘れる形の
@@ -2309,6 +2322,7 @@ export default function Home() {
             staticLayerVisibility={layerVisibility}
             dynamicWeather={dynamicWeather}
             dedicatedWayValueVisibility={dedicatedWayValueVisibility}
+            dedicatedWayValueHiddenBands={dedicatedWayValueHiddenBands}
             dedicatedAxes={axisCatalog.dedicatedAxes}
             dedicatedWayValues={dedicatedWayValues}
             dedicatedWayValueDisplays={dedicatedWayValueDisplays}
@@ -2350,7 +2364,6 @@ export default function Home() {
             onWaypointRemove={handleWaypointRemove}
             onWaypointMove={handleWaypointMove}
             destination={routeMode === "destination" ? destination : null}
-
             onDestinationClear={handleDestinationClear}
             armedPinRole={pinPlacementArmedRole}
             pointEditingEnabled={pointEditingEnabled}
@@ -2364,8 +2377,9 @@ export default function Home() {
             onLensChange={handleLensChange}
             axisOptions={lensOptions}
             legend={lensLegend}
-            hiddenLegendKeys={hasDetail ? hiddenRouteLegendKeys : undefined}
-            onToggleLegendKey={hasDetail ? handleRouteLegendToggle : undefined}
+            hiddenLegendKeys={hiddenRouteLegendKeys}
+            onToggleLegendKey={handleRouteLegendToggle}
+            onSetHiddenLegendKeys={handleLensLegendSetHidden}
             keepAfterRoute={lensKeepAfterRoute}
             onKeepAfterRouteChange={setLensKeepAfterRoute}
             hasDetail={hasDetail}

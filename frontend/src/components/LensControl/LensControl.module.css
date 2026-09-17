@@ -46,8 +46,11 @@
   font-size: 0.7rem;
 }
 
+/* 段階数は軸スタジオのしきい値の個数で決まり、細かい軸では色見本が横幅に収まらない
+   （見本自体は潰すと色が読めないので縮めない）。折り返して全段階を見せる。 */
 .swatchRow {
   display: flex;
+  flex-wrap: wrap;
   gap: 2px;
   justify-content: center;
 }
@@ -86,10 +89,11 @@
   composes: statusDot_error from "../ui/statusDot.module.css";
 }
 
-
 .content {
   z-index: var(--z-top-popover);
-  width: min(18rem, calc(100vw - 1.5rem));
+  /* 軸の一覧・凡例とも2列へ流すため、単列時（18rem）より広く取る。段階の細かい軸では
+     縦に伸びる方が読みにくい（画面下のシート・地図が隠れる）。 */
+  width: min(24rem, calc(100vw - 1.5rem));
   max-height: 70vh;
   overflow-y: auto;
   padding: 0.6rem 0.7rem;
@@ -105,15 +109,18 @@
   font-weight: 600;
 }
 
+/* 軸の一覧も公開軸の本数ぶん縦に伸びるため、幅が許す限り列へ流す（凡例と同じ理由）。 */
 .list {
   list-style: none;
   margin: 0;
   padding: 0;
-  display: flex;
-  flex-direction: column;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(9rem, 1fr));
+  column-gap: 0.3rem;
 }
 
 .groupLabel {
+  grid-column: 1 / -1;
   margin-top: 0.4rem;
   padding: 0.15rem 0;
   font-size: var(--font-size-xs);
@@ -171,18 +178,33 @@
   border-top: 1px solid var(--color-border);
 }
 
+/* 段階数は軸スタジオのしきい値の個数で決まる。1列固定だと段階の細かい軸でポップオーバーが
+   画面いっぱいに伸びるため、幅が許す限り列へ流す。 */
 .legendList {
   list-style: none;
   margin: 0;
   padding: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 0.15rem;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(9rem, 1fr));
+  gap: 0.15rem 0.5rem;
 }
 
 .legendRow {
   display: flex;
   align-items: center;
-  gap: 0.4rem;
+  gap: 0.3rem;
   font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+/* 凡例の見出し兼「全段階の表示/非表示」。見出し行をそのまま一括操作に使い、
+   ボタン行を足して縦へ伸ばさない（MapOverlayControlsの▶パネルと同じ考え方）。 */
+.legendHeaderRow {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin: 0 0 0.3rem;
+  font-weight: 600;
+  color: var(--color-muted);
+  cursor: pointer;
 }

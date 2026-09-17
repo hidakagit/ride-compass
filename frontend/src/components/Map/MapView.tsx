@@ -1179,8 +1179,9 @@ function makeEnsureDedicatedWayValueLayer(layerId: string, colorExpression: unkn
   return (map: MapLibreMap) => {
     ensureRoadSurfaceTileLayer(map);
     const applyData = () => {
-      // specOwnsFilter: 専用way値レイヤーはSTATIC_FILTER_AXESの対象外で、外から絞り込みを
-      // 与える経路が無い。
+      // specOwnsFilter: 専用way値レイヤーはSTATIC_FILTER_AXESの対象外。凡例で非表示にした
+      // 段階はfilterではなく色式側で透明にする（値がfeature-state経由で入るため、
+      // MapLibreのfilterからは読めない。dedicatedWayValueLayer.ts参照）。
       ensureLayerFromSpec(
         map,
         {
@@ -1585,6 +1586,9 @@ export function buildStaticOverlayLayers(
   // 同じ軸id→booleanの汎用Mapとして、フェッチ進行中かどうかを受け取る
   // （MapViewProps.dedicatedWayValueLoading参照）。
   dedicatedWayValueLoading?: ReadonlyMap<string, boolean>,
+  // 同じ軸id→非表示段階キーの汎用Mapとして、凡例の表示ON/OFFを受け取る
+  // （MapViewProps.dedicatedWayValueHiddenBands参照）。
+  dedicatedWayValueHiddenBands?: ReadonlyMap<string, readonly string[]>,
 ): readonly OverlayLayerEntry[] {
   return [
     // ラスタタイルのため地物クリック判定が効かない。
@@ -1645,6 +1649,7 @@ export function buildStaticOverlayLayers(
           axis.axisId,
           dedicatedWayValueDisplays?.get(axis.axisId),
           dedicatedWayValueLoading?.get(axis.axisId) ?? false,
+          dedicatedWayValueHiddenBands?.get(axis.axisId) ?? [],
         ),
       ),
       interactive: true,
@@ -2016,6 +2021,11 @@ interface MapViewProps {
    * 新設しない）で、windLoading/gradientLoadingのような別名propは持たない。未設定の軸idは
    * false（フェッチ中でない）扱い。 */
   dedicatedWayValueLoading?: ReadonlyMap<string, boolean>;
+  /** `dedicated_way_value_layer`軸ごとに、凡例で非表示にした段階のキー
+   * （mapColorLegend.ts: legendBandKey・LEGEND_NO_DATA_KEY）をaxisId→キー配列の汎用Mapと
+   * して受け取る。ルート確定後のルート線がhiddenRouteLegendKeysで同じ段階を隠すのと対に
+   * なる、ルート確定前の全道路の塗り側の絞り込み。未設定の軸idは非表示なし扱い。 */
+  dedicatedWayValueHiddenBands?: ReadonlyMap<string, readonly string[]>;
   /** 二次軸rampレイヤーの表示フラグ。キーはaxisMapLayerId（"axis:accident"等、
    * mapLayers.tsのMapLayerIdと同じ）。カタログ駆動のため個別のshow*フラグは持たない。 */
   axisVisibility: Record<string, boolean>;
@@ -2272,6 +2282,7 @@ export default function MapView({
   dedicatedWayValues,
   dedicatedWayValueDisplays,
   dedicatedWayValueLoading,
+  dedicatedWayValueHiddenBands,
   axisVisibility,
   secondaryAxisCasingLayerIds,
   roadHiddenKeysByMode,
@@ -2335,6 +2346,7 @@ export default function MapView({
   // 依存に置くと、パン・ズームのたびに全オーバーレイ層のspecを組み直してpaint/filterを
   // 再適用することになる（公開ramp軸が増えるほど線形に増える）。中身が同じ間は同じ参照を使う。
   const stableDedicatedWayValueLoading = useStableMap(dedicatedWayValueLoading);
+  const stableDedicatedWayValueHiddenBands = useStableMap(dedicatedWayValueHiddenBands);
   const staticOverlayLayers = useMemo(
     () =>
       buildStaticOverlayLayers(
@@ -2342,8 +2354,15 @@ export default function MapView({
         dedicatedAxes,
         dedicatedWayValueDisplays,
         stableDedicatedWayValueLoading,
+        stableDedicatedWayValueHiddenBands,
       ),
-    [axisOverlayLayers, dedicatedAxes, dedicatedWayValueDisplays, stableDedicatedWayValueLoading],
+    [
+      axisOverlayLayers,
+      dedicatedAxes,
+      dedicatedWayValueDisplays,
+      stableDedicatedWayValueLoading,
+      stableDedicatedWayValueHiddenBands,
+    ],
   );
   const interactiveLayerIds = useMemo(() => buildInteractiveLayerIds(staticOverlayLayers), [staticOverlayLayers]);
   const layerDataSources = useMemo(() => buildLayerDataSources(rampAxes), [rampAxes]);
