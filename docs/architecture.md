@@ -78,9 +78,9 @@ T274逆回り最適化自体は任意の周回Edge列に対して成り立つた
 [docs/modules/backend/routing-engine.md](modules/backend/routing-engine.md)参照。
 
 ### 標高計算のアルゴリズムと既知の制約（Step5）
-`ElevationService`（`elevation_service.py`）は撤去済みで、現在は`ElevationAttributeService`＋`elevation_aggregation.py`が担う。当時の`ElevationService`は、各ルートのGeoJSON LineStringから始点・終点を含む点列（当初は12点固定。現在はエンジンが距離連動の約1km間隔・12〜32点を決めて渡す［当時の`sample_count_for_distance`は撤去済み］。Step9で点列を直接受け取るシグネチャへ変更）をサンプリングし、国土地理院の標高API（1リクエスト=1地点）に問い合わせる。獲得標高は連続区間の正の標高差の合計、最大勾配は`|標高差| / 水平距離`の最大値（%、水平距離は`haversine_distance_km`で算出）。標高が取得できない区間（海上・データ範囲外・通信エラー）は`None`として扱い、有効な点が2点未満なら標高関連フィールドはすべて`None`を返す（ルート自体は除外しない）。
+標高の集約は`ElevationAttributeService`＋`elevation_aggregation.py`が担う。エンジンが距離連動の約1km間隔・12〜32点を決めて渡し、点列から獲得標高・勾配を出す。**点列は経路の形状点そのものではなく間引いたもの**のため、間引きの間隔より短い起伏は集約に現れない。
 
-**パフォーマンス上の落とし穴（実機で発見・修正済み）**: 当初 `ElevationClient` がリクエストごとに新規`httpx.AsyncClient`を生成しておりTLSハンドシェイクを毎回やり直していたため、15km生成（8候補×12点=最大96リクエスト）に**約57秒**かかっていた。`httpx.AsyncClient`をFastAPIの依存性注入（`yield`付き）で1リクエストあたり1つ生成して使い回す形に直したところ**約7秒**まで短縮した。あわせて、同時リクエスト数を制限する`asyncio.Semaphore`が当時の`get_profile`（撤去済み）呼び出しごとに新規生成されており、意図していた「サービス全体で最大5並列」ではなく実質「候補ごとに最大5並列」（合計で最大40並列）になっていた点も、`ElevationService.__init__`でSemaphoreを1つだけ生成する形に修正した。
+**外部呼び出しの前提**: `httpx.AsyncClient`はリクエストあたり1つをFastAPIの依存性注入（`yield`付き）で作り、呼び出しをまたいで使い回す——呼び出しごとに生成するとTLSハンドシェイクを毎回やり直し、1リクエストが数十倍の時間になる。同時実行を絞る`asyncio.Semaphore`も**サービス側で1つだけ**持つ（呼び出しごとに作ると、意図した上限が候補の数だけ倍化する）。
 
 ### 標高DEMタイルキャッシュ（改善計画T10、`elevation_client.py`）
 `ElevationClient`（[backend/app/infrastructure/elevation_client.py](../backend/app/infrastructure/elevation_client.py)）は、以前はGSI点標高API（`getelevation.php`、1リクエスト=1地点）を緯度経度4桁丸めのSQLiteキャッシュ（`cache_db.py`の`elevation_cache`テーブル）でラップしていたが、T218aでRoad Graph全体（数万エッジ）へ標高を付与する必要が生じ、点API逐次呼び出しでは非現実的な回数（実測: 480エッジに対し2,880回）の外部呼び出しが必要になると判明した。T10でGSIのDEMタイル（`https://cyberjapandata.gsi.go.jp/xyz/{type}/{z}/{x}/{y}.txt`、z=14固定）を範囲ごと取得しローカルで双線形補間する方式へ切り替えた。**当初は`dem`（サフィックス無し）がDEM5A/5B/5C/10Bを統合しGSIサーバー側で優先順位フォールバックすると判断していたが、2026-08-23の再検証（ユーザー指摘）で誤りと判明**——実タイル比較の結果、`dem`はDEM5A等を統合したものではなくDEM10B相当の別データセット（z=15で404、DEM10Bの公式最大ズーム14と一致）であり、同一タイルで`dem5a`と異なる値を返すことを都心部で確認した。`dem5a`/`dem5b`/`dem5c`はそれぞれ独立にクエリでき非対応エリアではタイル丸ごと404を返すため、アプリ側で`DEM_TYPE_PRIORITY = ("dem5a", "dem5b", "dem5c", "dem")`の順に多段フォールバックする（`elevation_client.py`）。タイル本文（256行×256列のカンマ区切り、単位m、欠測は`"e"`）は`infrastructure/tile_cache.py`（基礎地図・路面タイルと共通のファイルキャッシュ、TTL無し。DEMは不変データのため）へ永続化し、さらにプロセス内メモリ（`_tile_grid_cache`、パース済みグリッド）にも保持する。呼び出し側インターフェース（`get_elevation(client, point, refresh=False) -> float | None`）はT10前後で変わらない。旧`elevation_cache`テーブル・`get_elevation`/`set_elevation`（`cache_db.py`）は削除済み。
@@ -155,16 +155,16 @@ Step9の可視化はモード切替（総合難易度/標高/風/路面のいず
 Step5-9で実装した標高・風・路面はいずれも「生成済みの候補ルート沿い」に限定した評価だった。ユーザーから「候補を出す前に、そもそもどのあたりが走りやすい地形・路面なのか地図で見たい」という要望を受け、候補ルートの有無に関わらず**表示中の地図の範囲全体（ビューポート）**に標高・路面を重ね描きする機能を追加した。
 
 #### 標高オーバーレイ（国土地理院 色別標高図、ラスタタイル）
-初期実装では、標高もリクエストされたbboxを固定間隔（約500m）のグリッド点に分解し、既存の`ElevationClient`（Step5と共通の国土地理院標高API）へ問い合わせて`circle`レイヤーの点として描画していた。しかし実際にブラウザで確認したところ「疎らな点では地形の起伏が直感的に分かりにくい」ことが分かり、標高の点取得・グリッド生成・専用APIエンドポイント（`GET /api/region/elevation`）は撤去し、代わりに国土地理院が公開する**色別標高図**（ラスタタイル、APIキー不要、zoom 5-15）をMapLibreの`raster`ソースとして`MapView.tsx`が重ね描きする方式に変更した。
+国土地理院が公開する**色別標高図**（ラスタタイル、APIキー不要、zoom 5-15）をMapLibreの`raster`ソースとして`MapView.tsx`が重ね描きする。**点の集合ではなく面で塗る**——疎らな点では地形の起伏が直感的に読めない。
 
 - **バックエンド経由プロキシ＋キャッシュ**（改善計画T572）: `GsiTileClient`
   （[backend/app/infrastructure/gsi_tile_client.py](../backend/app/infrastructure/gsi_tile_client.py)）が`BasemapClient`と同じ「pathを丸ごとプロキシ＋`tile_cache.py`の永続ファイルキャッシュ」方式で国土地理院（`cyberjapandata.gsi.go.jp`）のタイルを中継する（`GET /api/gsi-relief-tile/{path:path}`、`next.config.ts`の`/api/gsi-relief-tile/*`rewritesで同一オリジン化）。地理院タイルは`basetime`/`validtime`のような時刻依存パラメータを持たない静的データのため、JMAタイル系のようなTTL付きキャッシュの分岐は不要。
 - **レイヤー順序**: `ensureGsiReliefLayer`（`MapView.tsx`）は地図初期化直後に一度だけソース/レイヤーを追加し、以降はvisibilityの切替のみで表示・非表示を行う。面で塗るレイヤーは基礎地図の道路網の直前へ差し込まれる（`mapStyleOps.ts: areaLayerAnchor`）ため、基礎地図の道路線・ラベルも、後から追加される路面・ルート系のレイヤーも、必ずこのラスタの上に重なる。不透明度は面で塗るレイヤー共通の値（`AREA_LAYER_OPACITY`）で、こちらは面そのものが背景と区別できる濃さだけを決める。
 - **起伏（陰影）は別レイヤー**: 色別標高図が「この場所が何mか」を面で塗るのに対し、起伏は「どこに坂があるか」だけを塗る。`GET /api/gsi-terrain-tile/{z}/{x}/{y}.png`が地理院の標高タイル（`xyz/dem_png`、z14まで）をTerrain-RGBへ移して返し（[backend/app/domain/terrain_rgb.py](../backend/app/domain/terrain_rgb.py)）、フロントは`raster-dem`ソース＋`hillshade`レイヤーとして描く。傾きが0の画素は透明になるため、平地では基礎地図の土地の色がそのまま残る。`hillshade`は不透明度のpaintプロパティを持たないため、面レイヤー共通の濃さは影・光の色のalphaとして渡す。計算方法は`igor`（既定の`standard`は傾きのsinに比例し、関東平野の傾きでは実効の不透明度が0.03を下回る。`basic`・`multidirectional`は平坦な画素にも光を塗るため使えない）。標高は`raster-dem`のcustom encodingの係数で垂直方向へ強調して読む——タイルの値は実際の標高のままで、読み方だけを変える。
-- **ビューポート制限は不要**: 標高グリッドAPI（撤去済み）はGSIの点別APIへの問い合わせ数を抑えるため`MAX_REGION_DIAGONAL_KM`のズーム制限を課していたが、ラスタタイルはズームレベルに応じてタイルが自動的に切り替わる標準的なXYZタイルのため、この種の制限は不要になった（後述の路面データのみ制限が残る）。
+- **ビューポート制限を持たない**: ラスタタイルはズームに応じて自動的に切り替わる標準的なXYZタイルのため、範囲を制限する必要がない（後述の路面データのみズーム範囲の制限を持つ）。
 
 #### 路面データ：自前生成のベクタタイル（`GET /api/region/road-surface-tiles/{z}/{x}/{y}.pbf`）
-標準的なXYZベクタタイル（MVT）として配信する（当初はビューポート単位のGeoJSON→固定グリッドセルキャッシュ、その後Overpassのタイル単位問い合わせを経て、現在はPostGIS第一系統。経緯は[decisions/pre-static-attributes-gate.md](decisions/pre-static-attributes-gate.md)参照）。
+標準的なXYZベクタタイル（MVT）として配信し、PostGISを第一系統とする（この方式に至る経緯は[decisions/pre-static-attributes-gate.md](decisions/pre-static-attributes-gate.md)参照）。
 
 - **タイル範囲の算出**: `domain/region.py`の`tile_bounds_lonlat(z, x, y)`が、標準的なスライピータイル座標式（Web Mercator）からタイルが覆う緯度経度範囲を求める。MapLibre自身が使うタイル座標系そのものなので、キャッシュの単位とMapLibreが要求するタイルが一対一に対応する。
 - **MVT生成**: `RegionService.get_road_surface_tile(z, x, y)`（[backend/app/services/region_service.py](../backend/app/services/region_service.py)）が、`repository`（PostGIS、`road_graph_use_repository=true`時）を渡されていればまずPostGIS側（`road_graph_repository.py`の`_ROAD_SURFACE_TILE_MVT_SQL`、`ST_AsMVT`）へ問い合わせる。要求タイルのz12祖先タイルが取込済みマークされていれば、SQL側でMVTバイナリまで丸ごと生成して返す（Pythonでの再エンコードは発生しない）。カバレッジ外・DB障害・`repository`未接続（DBなし構成）の場合は、`infrastructure/vector_tile.py`の`encode_empty_road_surface_tile`が返す道路フィーチャ0件の空タイルにフォールバックする（Overpassへの問い合わせは改善計画T22で撤去済み。ログ方針: 常時WARNING）。
@@ -243,9 +243,7 @@ Step10の標高・路面は「地域に固定・時間で変わらない」重�
 - **応答の時刻配列を1本化（T203）**: `wind-grid`/`wind-grid-detail`の応答は`WindGridResponse
   {times: list[str], points: list[WindGridPoint]}`形（`WindGridPoint`自体は`times`を
   持たない）。全地点が同じforecast_days・timezoneで一括取得されるためhourly.timeは
-  全地点で共通であり、以前は624地点ぶん同じ`times`配列を複製していた（非圧縮応答の
-  約54%を占めていた、実測）。当時バックエンドはGZipMiddlewareを持たず非圧縮配信
-  だったため実装した（現在は`ContentTypeGZipMiddleware`がJSON・MVT応答をgzipする）。フロント内部（windLayer.ts/useWeatherGrid.ts/precipitationNowcast.ts）
+  全地点で共通で、応答は`times`を1本だけ持つ（地点ごとに複製しない）。フロント内部（windLayer.ts/useWeatherGrid.ts/precipitationNowcast.ts）
   は「各点がtimesを持つ」既存表現のまま変えておらず、`services/weatherApi.ts`の
   `toWindGridPoints`がバックエンド応答を受け取った直後にtimesを各点へ合成し直すことで、
   ワイヤーフォーマット（削減対象）とフロント内部データモデル（既存ロジック）を分離した。
@@ -361,20 +359,14 @@ Redisの用途を広げる際に上限なくメモリを消費し、同居する
   そのもの・当日（JST）の値を`get_nearest_observation`が都度計算して合成する
   （Redisにはキャッシュしない。計算コストが無視できるほど軽いため）。
 - **`GET /api/weather`と`GET /api/weather/amedas`は完全に独立**（2026-08-29、方針
-  「常設エリアは実測値、今日の見通しは予測値」）: 当初は`/api/weather`が内部でアメダスの
-  現在値を上書きマージしていたが、frontend側で常設ヘッダー（WeatherPanel、実測値専用）と
-  今日の見通し（TodayOutlook、予報専用）のデータ取得自体を分離した
-  （`useWeatherConditions.ts`のweather/amedasが独立フェッチ）結果、`/api/weather`側の
-  マージは誰も参照しなくなったため削除した。`/api/weather`は常に予報（現在はMSM）の値を
-  返す（TodayOutlook専用）。
-- **降水ナウキャスト・MSMのRedis化は見送り済み（2026-08-29）**: 当初はナウキャストの
-  タイムスタンプ解決ヘルパー（旧`jma_tile_service.py`）とMSMのRedis保存スケルトン
-  （旧`jma_msm_service.py`）も実装したが、(1) ナウキャストはフロントエンド
+  「常設エリアは実測値、今日の見通しは予測値」）: 実測と予報は取得経路から分かれており
+  （`useWeatherConditions.ts`のweather/amedasが独立フェッチ）、`/api/weather`は常に予報の
+  値を返す（TodayOutlook専用、マージしない）。
+- **降水ナウキャスト・MSMはRedisを経由しない**: ナウキャストはフロントエンド
   （[precipitationNowcast.ts](../frontend/src/components/Map/precipitationNowcast.ts)）が
-  既に独自に`targetTimes_N1/N2.json`を直接取得しタイルURLを組み立てており、バックエンド側
-  ヘルパーは完全に重複・未使用だったため削除、(2) MSMはGRIB2解析が
-  [T389](tasks/T389.md)（JMBSCとの有償契約が前提、保留中）に切り出されており実体を伴わない
-  スケルトンのままだったため削除した。
+  `targetTimes_N1/N2.json`を直接取得してタイルURLを組み立てるため、バックエンド側に
+  解決の経路を持たない。MSMのGRIB2解析は[T389](tasks/T389.md)（有償契約が前提、保留中）で
+  扱う。
 - **JMA動的タイル本体のRedis cache-aside（`app/infrastructure/jma_tile_redis_cache.py`、
   改善計画T510）**: 上記「降水ナウキャスト・MSMのRedis化は見送り済み」とは別物——あちらは
   「タイムスタンプ解決ヘルパー・GRIB2解析スケルトン」という新規機構の話で、こちらは
@@ -398,23 +390,7 @@ Redisの用途を広げる際に上限なくメモリを消費し、同居する
   無料の代替が見つからずOpen-Meteo依存を継続していたが、T645でMSMのローカル同期へ移行し、
   weather_code相当は雲量・降水・気温からの導出（`domain/weather.py: derive_weather_code`）
   へ置き換え、UV指数は表示ごと廃止してOpen-Meteo依存を解消した。
-- **ルート生成の経路にRedisを置かない（[T652](tasks/T652.md)）**: 以前は
-  `road_graph_tiles`（取込完了マーカー）・split鮮度マーカー・edge geometryの3つを
-  Redis cache-asideで肩代わりしていたが、いずれも撤去しPostGISへ素直に問い合わせる。
-  ルート生成の呼び出し経路（router→`route_generator`→`road_graph_engine`→
-  `graph_service`→repository→天候）にRedisは現れない。
-  - **理由は速度ではなく構造**: split鮮度は「splitは最新」という危険側の判断を、単調で
-    ないまま保持していた。その正しさは別プロセスのバッチ（PBF取込・事前split）からの
-    push無効化に依存し、その無効化はfail-openのため失敗しても誰も気づけない。版をキーへ
-    入れる正攻法は、版を読むのに同じテーブルを引く必要があり成立しない。肩代わりして
-    いた時間は本番実測で1.1ms・5.8ms・75msで、ルート生成1回（13.9秒）に対する寄与は
-    0.2〜0.3秒だった。
-  - **タイル単位のキャッシュはプロセス内に残る**: `graph_material_cache.py`（z12タイル
-    単位の道路グラフトポロジ・材料一式）と`tile_score_matrix_cache.py`（静的スコア行列）
-    は単一ワーカーのプロセス内LRU＋ディスク永続化で、Redisを経由しない。単一ワーカー
-    稼働の現状でこれをRedis化すると「dict参照」を「ネットワーク往復」へ変える純粋な
-    悪化になる（[T388](tasks/T388.md)のjob_registryと同じ「マルチワーカー化まではトリガー
-    未到達」の構図）。
+- **ルート生成の経路にRedisを置かない（[T652](tasks/T652.md)）**: 探索が読む材料は自前のPostGISから復元でき、Redisは外部への負荷を肩代わりするものだけに使う（docs/caching.md）。
 
 ### ルーティングエンジンの切り替え対応（openrouteservice ⇄ Road Graph、2026-08-23〜2026-08-31の間存在した仕組み。改善計画T462でopenrouteserviceエンジンを完全撤去し、以降はroad_graphが唯一のエンジン）
 
@@ -1114,7 +1090,7 @@ shape_params調整のみAPI」という使い分けだったが、T353がAPI直�
 （本番/dev）の内容が乖離する不整合が発生した（T360）。「軸定義の変更経路がmigrationと
 APIの2つ存在する限り、両者の同期漏れは構造的に再発し続ける」という根本原因に対応し、
 `backend/migrations/`は`axis_definitions`/`axis_registry_meta`の**テーブル構造（DDL）
-のみ**を管理する運用へ変更した（0014〜0022の過去の行データ入りmigrationは、この
+のみ**を管理する（0014〜0022の過去の行データ入りmigrationは、この
 プロジェクトの標準運用どおり書き換えず、以降の新規migrationへ軸の行データを追加する
 こともしない）。T348で導入した旧`backend/scripts/generate_axis_migration_sql.py`は
 T350時点で既に撤去済み。
@@ -1189,8 +1165,7 @@ CRUDのみを提供する（GUI編集画面は改善計画T270で実装済み、
 「材料の排他帰属チェック・軸カタログ公開API」「Stage E実装」節参照）。書き込みでルート生成の
 振る舞いを直接変えられるため、他のバックエンドAPI（認証機構が無い）と異なりHTTP Basic認証
 （`require_admin_basic_auth`、環境変数`ADMIN_BASIC_AUTH_USERNAME`/`ADMIN_BASIC_AUTH_
-PASSWORD`。以前は共有トークンheader[X-Admin-Token]だったが改善計画T272でBasic認証へ
-差し替え済み、下記「軸の公開フローと統治ルール」節の次「管理画面の権限制御」節参照）に
+PASSWORD`。下記「軸の公開フローと統治ルール」節の次「管理画面の権限制御」節参照）に
 よる認可を要求する。認可判定はこの1関数へ集約し差し替え可能にしている。
 妥当性検証は型・範囲チェックのみ（極端な重み設定への意味的な歯止めは設けない、
 2026-08-24ユーザー判断）。ただし「最後の1軸は削除できない」制約だけは例外的に持つ
@@ -1214,9 +1189,7 @@ PASSWORD`。以前は共有トークンheader[X-Admin-Token]だったが改善�
 Python内蔵の既定値というフォールバック先が無くなったため、CIの`api-contract`ジョブ
 （`.github/workflows/ci.yml`）にも`postgres`サービスコンテナを追加し、本番と同じ
 ブートストラップ経路（`create_tables`→`apply_pending_migrations`、`backend/scripts/
-bootstrap_ci_db.py`）でmigration適用後のDBから生成するよう変更した（以前はDB接続に
-失敗してもコード内蔵の既定値へ黙ってフォールバックできていたが、そのフォールバック
-自体が撤去対象だったため、生成そのものに実DBが必須になった）。
+bootstrap_ci_db.py`）でmigration適用後のDBから生成する（生成には実DBが要る）。
 
 ### shapeの2プリミティブ化（改善計画T396）
 
