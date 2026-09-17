@@ -13,7 +13,7 @@
 |---|---|
 | domain | `routing.py`・`graph.py`・`route.py`・`geo.py`・`errors.py`・`cycling_speed.py`（自転車の走行モデル。平地・無風の巡航速度からホイール出力を逆算し、勾配・向かい風・転がり抵抗から区間ごとの速度を走行方程式で解く。速度の逆算は`v`の3次方程式になるため二分法で、numpyでベクトル化してある。候補の所要時間と基準線の探索コストがここから出る）・`tuning.py`（ルーティング評価が読む固定値の宣言。走ってみて決める値［較正値］は既定ごとここが持ち、エンジンが読む値・管理画面が並べる項目・変更が効くために何をやり直す必要があるかをそこから導く。較正値ではない固定値は名前と種別だけを持つ） |
 | services | `route_generator.py`（戦略層）・`road_graph_engine.py`・`graph_service.py` |
-| infrastructure | `road_graph_models.py`・`road_graph_repository.py`（4リポジトリ）・`graph_material_cache.py`・`tile_score_matrix_cache.py`・`search_graph_cache.py`・`tile_persistent_cache.py`・`cache_identity.py`（キャッシュ鍵の組み立て方の正本。手で書くリビジョンと、焼き込みSQL・pickleする列構成から導く署名を合成する。タイル配信側の世代も同じ関数を使う）・`derived_data_meta.py`（派生データの世代。バッチが中身を書き直すたびに進む単調カウンタで、デプロイを伴わない変化を表せる唯一の経路）・`cache_generation.py`（DBの世代とディスクへ書いた時点の記録を突き合わせる判断。軸定義と派生データが同じ実装を使う）・`osm_way_tag_sql.py`（`osm_raw_ways`のOSMタグ分類SQL断片の単一の情報源、[evaluation-scoring.md](evaluation-scoring.md)の`material_coverage.py`と共有） |
+| infrastructure | `road_graph_models.py`・`road_graph_repository.py`（責務ごとに分割）・`graph_material_cache.py`・`tile_score_matrix_cache.py`・`search_graph_cache.py`・`tile_persistent_cache.py`・`cache_identity.py`（キャッシュ鍵の組み立て方の正本。手で書くリビジョンと、焼き込みSQL・pickleする列構成から導く署名を合成する。タイル配信側の世代も同じ関数を使う）・`derived_data_meta.py`（派生データの世代。バッチが中身を書き直すたびに進む単調カウンタで、デプロイを伴わない変化を表せる唯一の経路）・`cache_generation.py`（DBの世代とディスクへ書いた時点の記録を突き合わせる判断。軸定義と派生データが同じ実装を使う）・`osm_way_tag_sql.py`（`osm_raw_ways`のOSMタグ分類SQL断片の単一の情報源、[evaluation-scoring.md](evaluation-scoring.md)の`material_coverage.py`と共有） |
 | api | `routes.py` |
 | batch | `precompute_road_node_degrees.py`・`precompute_road_node_intersections.py`・`presplit_road_graph.py` |
 
@@ -209,7 +209,7 @@ RouteGenerator.generate_loops(origin, distance_km, distance_tolerance_km, max_ro
 `engine.build_traced_from_edge_ids`が確かめ、成立しなければ`RoutingError`で落とす
 （グラフを知るのはエンジンのため戦略層には置けない）。終点は起点と同じ
 `find_nearest_node_indexed`で解くため、比べる相手は元の候補が実際に終わったNodeになる
-——目的地が孤立していてbackendが補正した場合、フロントは補正後の地点を条件として持ち直す。
+——目的地が孤立していて補正した場合、補正後の地点を条件として返す。
 **同じ地点を2度通る列はここでは落とさない**。走れはするので「経路として成立しない」形では
 なく、選択肢として出さない側（フロント）で止める。レグは合成経路自身の距離の半分で
 切る——via-nodeが無く前向き木・後ろ向き木の境目が存在しないため。
@@ -445,36 +445,33 @@ Nodeごとのコストは、そのNodeへ入る区間の最小を採る（木を
 
 ### `select_loop_turnarounds`（折返し点選定）
 
-起点からの一対全Dijkstra（`domain/routing.py: build_turn_expanded_tree`、
-軸重み付きコスト、コスト上限で打ち切り）を1回求め、木に沿った
-往路の実距離が`[max(0, (目標−許容)/2.0), (目標+許容)/2.3]`（下限が上限を超える狭い
-許容では両方とも`(目標∓許容)/2.0`へ対称化）に入るNodeを「リング」として抽出する
-（最短実距離ではなく軸コスト最適経路の実距離で定義する——重みを極端に振った設定ほど
-往路が遠回りするため）。往路の距離加重平均difficulty（`overall_difficulty`と同じ
-物差し、小数1桁へ丸めた値）の昇順、同点（丸め後のdifficultyが等しい）は「リング中心
-（`目標/((2.0+2.3)/2)`、上下限の算術平均ではなく目標距離ベースで決める——許容が目標
-以上で下限が0クランプされる場合に算術平均だと中心が0付近まで下がってしまうため）に
-近い順」で並べる。同点の候補は`domain/routing.py: select_diverse_by_overlap`へ
-グループ（`tie_groups`）として渡し、グループ内の試行順は`_order_by_bearing_spread`
-（`prefer`）が「採用済み候補との方位（`geo.py: bearing_between_array`）の角距離の
-最小値が最大」の順に決め、1件採用するたびに残り候補へ対して決め直す（最遠点貪欲法。
-方位は生成機構ではなく同点タイブレーク専用で、比較対象は採用済み候補[最大`pool_size`件]
-だけのため計算量は走査件数×採用件数に留まる）。採用済みが無い時点ではリング中心近さ順。
-difficulty群自体の順序（主キー）・同点でない候補間の順序はこの並べ替えでは変わらない。
-`select_diverse_by_overlap`は上位から、既採用候補と往路の重複率が
-`TURNAROUND_MAX_OVERLAP_RATIO`（0.6）を超えるもの・`MIN_TURNAROUND_SEPARATION_KM`
-（1.5km）より近いものを飛ばして`pool_size`件採る（埋まらなければ
-`TURNAROUND_RELAXED_OVERLAP_RATIO`＝0.85へ緩めてやり直す）。
+起点からの一対全Dijkstra（`domain/routing.py: build_turn_expanded_tree`、軸重み付き
+コスト、コスト上限で打ち切り）を1回求め、木に沿った往路の実距離が目標の半分付近に入る
+Nodeを「リング」として抽出する。**距離は最短実距離ではなく軸コスト最適経路の実距離で
+定義する**——重みを極端に振った設定ほど往路が遠回りするため。
+
+並びは往路の距離加重平均difficulty（`overall_difficulty`と同じ物差し）の昇順、同点は
+リング中心に近い順。**リング中心は上下限の算術平均ではなく目標距離から決める**——許容が
+目標以上で下限が0へクランプされる場合、算術平均だと中心が0付近まで下がる。
+
+同点の候補は`select_diverse_by_overlap`へグループ（`tie_groups`）として渡し、グループ内の
+試行順は最遠点貪欲法（採用済み候補との方位の角距離の最小値が最大の順、1件採るたびに
+決め直す）で決める。**方位は生成機構ではなく同点タイブレーク専用**で、比較対象が採用済み
+候補だけのため計算量は走査件数×採用件数に留まる。difficulty群自体の順序・同点でない
+候補間の順序はこの並べ替えでは変わらない。
+
+`select_diverse_by_overlap`は上位から、既採用候補と往路が重複しすぎるもの・近すぎるものを
+飛ばして`pool_size`件採る（埋まらなければ重複の条件を緩めてやり直す）。しきい値は
+同ファイルの定数が持つ。
 
 ### `trace_loop_from_turnaround`（復路探索）
 
 往路は一対全木上の経路そのもの（`turn_expanded_path_edge_indices`で復元、A*での再探索はしない
 ——同じコスト配列でA*をかけ直しても同じ経路になるため）。復路探索の間だけ、往路Edge＋
-同一Node対の逆方向Edgeのコストを共有`cost_lazy`上で`RETRACE_PENALTY_MULTIPLIER`
-（8.0、infにはしない——復路が往路を戻る以外に道が無い区間[袋小路等]は通れる必要がある）
-倍に**差し替え**、A*（復路の目的地は常に起点のため、ヒューリスティック配列は
-リクエストで1回だけ計算し全候補で共有する）で探索した後、`try`/`finally`で元の値へ
-復元する。この差し替えはawaitを挟まない同期区間で完結し、復路探索が同期・直列実行
+同一Node対の逆方向Edgeのコストを共有`cost_lazy`上で`RETRACE_PENALTY_MULTIPLIER`倍へ
+**差し替え**（infにはしない——復路が往路を戻る以外に道が無い区間[袋小路等]は通れる必要が
+ある）、A*（復路の目的地は常に起点のため、ヒューリスティック配列はリクエストで1回だけ
+計算し全候補で共有する）で探索した後、`try`/`finally`で元の値へ復元する。この差し替えはawaitを挟まない同期区間で完結し、復路探索が同期・直列実行
 （並列化すると共有`cost_lazy`の書き換えが競合するため両立しない）である前提の上で
 安全。
 
@@ -624,30 +621,13 @@ Edge単位の軸別スコア算出も発生しない（`_get_or_build_tile_score
 加え、`infrastructure/tile_persistent_cache.py`へディスク永続化する（`backend/data/
 tile_persistent_cache/`、DEMタイルディスクキャッシュ`tile_cache.py`と同じ考え方）。
 メモリmissでもディスクがあればDBへ問い合わせずに復元し、復元した値はメモリへも載せ直す。
-ディスク側の無効化はバージョン文字列をキーへ含める方式
-（`graph_material_cache.py: TILE_MATERIALS_CACHE_VERSION`・`tile_score_matrix_cache.py:
-TILE_SCORE_MATRIX_CACHE_VERSION`）。この文字列は`infrastructure/cache_identity.py`が
-「手で書くリビジョン＋形の署名」として組み立てる——pickleする`dataclass`の列構成が署名に
-入るため、列を足す・消す・並べ替えると鍵が自動で変わり、古いキャッシュを復元して最後の列が
-欠けたまま実体化する事故が起きない。形は同じまま読み先のデータを作り直したとき（PBF再取込・
-`presplit_road_graph.py`・関連precomputeバッチ、`docs/batch-pipeline-dependencies.md`参照）は
-バージョン文字列ではなくDBの世代が表す——バッチの入口が`derived_data_meta.revision`を進め、
-`services/derived_data_revision_service.py`がTTL付きで読み直して、ディスクへ書いた時点の
-記録と違えば材料とスコア行列の両方を捨てる。バッチはデプロイを伴わないため、コード内の
-定数では表せない。スコア行列側の鍵は材料側の世代も材料に含める
-複合で、材料世代を上げれば機械的に追従する——スコア行列は材料からの派生物で、材料の
-`edge_id`集合が変われば必ず無効になるため（片方だけ上がった状態だと、`graph`には在るが
+ディスク側の鍵の組み立て方と、何が変わったら捨てるかは
+`infrastructure/cache_identity.py`が正本（このモジュールはその結果を使うだけ）。
+**このモジュール側の前提は「スコア行列は材料からの派生物」という点**——材料の`edge_id`集合が
+変わればスコア行列は必ず無効で、材料だけ世代が上がった状態を許すと`graph`には在るが
 `score_matrix.edge_ids`には無い`edge_id`が生じ、`full_edge_row`引きがbbox単位で
-KeyErrorになる）。`cache_identity.SCORE_MATRIX_REVISION`を単独で上げるのは、同じ材料・
-同じ列から違う値を作るようになったときに限る。軸定義編集
-（`refresh_axis_definitions`、アプリ起動時にも必ず1回呼ばれる）は
-`tile_score_matrix_cache.sync_disk_cache_with_axis_revision(revision)`が
-`axis_registry_meta.revision`の変化を見て判定する別経路（バージョン文字列は据え置いた
-まま）——revisionがディスクへ最後に永続化した時点の記録と一致すればメモリだけ
-クリアし、不一致（軸定義が実際に変わった）ならメモリ・ディスク両方を即座に削除する。
-軸定義が変わっていないアプリ起動のたびにディスクキャッシュを丸ごと再構築しないための
-区別で、`graph_material_cache`（軸編集では変化せず、派生データの世代の変化だけで捨てる）
-とは無効化の粒度が異なる。
+KeyErrorになる。軸定義の編集で捨てる粒度は材料とスコア行列で異なり、そちらは
+`tile_score_matrix_cache.sync_disk_cache_with_axis_revision`が持つ。
 
 **キャッシュ表現**: `graph_material_cache`が保持する`SearchMaterials.materials`は、
 タイルキャッシュ経由（`_get_or_build_tile_materials`）の場合`domain/attributes.py:
@@ -810,7 +790,7 @@ edge_idをまとめて1回・`preview_segment`が1回、いずれも逐次に呼
 
 ## infrastructure層
 
-### `road_graph_repository.py`（4リポジトリ構成）
+### `road_graph_repository.py`（責務ごとに分けたリポジトリ構成）
 
 変更理由が異なる操作を1クラスに同居させない設計:
 
@@ -983,7 +963,8 @@ DB側の値は**その下限を上げるためだけ**に使う（bboxの外へ�
   `TILE_MATERIALS_CACHE_VERSION`/`TILE_SCORE_MATRIX_CACHE_VERSION`のバージョン文字列で行う
   （`infrastructure/cache_identity.py`が列構成の署名から導出する）。形が変わらないまま
   読み先のデータを作り直した場合はこの文字列が動かないため、DBの`derived_data_meta.revision`
-  （バッチの入口が進める）とディスクの記録を突き合わせて捨てる別経路が要る
+  （バッチの入口が進め、`services/derived_data_revision_service.py`がTTL付きで読み直す）と
+  ディスクの記録を突き合わせて捨てる別経路が要る
   （`docs/batch-pipeline-dependencies.md`「3. ランタイム側の読み取り元」参照）。
 - **`tile_score_matrix_cache`（タイル単位の静的Edge×公開軸スコア行列）は
   `graph_material_cache`とは別枠**——軸スタジオでの軸定義編集
