@@ -134,6 +134,11 @@ class RegionService:
     def __init__(self, repository: RoadGraphRepository | None = None):
         self._repository = repository
 
+    @property
+    def repository(self) -> RoadGraphRepository | None:
+        """DBの口。`None`はDBなし構成。"""
+        return self._repository
+
     async def _tile_from_repository(
         self, repository_method: str, z: int, x: int, y: int, fields: dict, label: str
     ) -> bytes | None:

@@ -226,7 +226,7 @@ async def get_axis_catalog(region_service: RegionService = Depends(get_region_se
 
     return AxisCatalogResponse(
         client_tuning=client_tuning_values(),
-        tile_versions=current_tile_versions(),
+        tile_versions=await current_tile_versions(region_service.repository),
         axes=[
             AxisCatalogEntry(
                 axis_id=definition.axis_id,

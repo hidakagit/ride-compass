@@ -13,8 +13,11 @@
 分ける。
 
 世代そのものの読み直しと、変化したときにキャッシュを捨てる判断は
-`derived_data_revision_service`が持つ（材料・スコア行列と同じ1箇所で決める）。ここはその
-結果を読むだけで、TTLも持たない。
+`derived_data_revision_service`が持つ（材料・スコア行列と同じ1箇所で決める）。ここはTTLを
+持たず、読む前にその判断を促すだけ。
+
+**促さずに読むと`x-`（まだ誰も読んでいない印）を配る。** 世代を読む経路はルート生成の
+材料取得で、このカタログは起動直後に取られるため、促さない限り誰も読んでいない状態になる。
 """
 
 from app.infrastructure.accident_repository import ACCIDENT_TILE_SHAPE
@@ -30,7 +33,13 @@ TILE_SHAPES: dict[str, str] = {
 }
 
 
-def current_tile_versions() -> dict[str, str]:
-    """系統名→配信する世代（`<DBの世代>-<形の署名>`）。"""
+async def current_tile_versions(repository) -> dict[str, str]:
+    """系統名→配信する世代（`<DBの世代>-<形の署名>`）。
+
+    `repository`はDBの世代を読める口（`get_derived_data_revision`）。`None`（DBなし構成）
+    なら世代は不明のままにする。TTLの内側なら読み直さないため、リクエストごとに呼んでよい。
+    """
+    if repository is not None:
+        await derived_data_revision_service.ensure_caches_match_db(repository)
     revision = derived_data_revision_service.current_revision()
     return {name: tile_version(revision, shape) for name, shape in TILE_SHAPES.items()}

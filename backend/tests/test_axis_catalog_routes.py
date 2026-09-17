@@ -275,3 +275,34 @@ def test_get_axis_catalog_includes_material_breakdown():
     assert highway["value_labels"]["residential"]
     # 他の型では空（走行中に見る画面へ不要なデータを載せない）。
     assert maxspeed["value_labels"] == {}
+
+
+def test_タイル世代はDBの派生データ世代を前置きして配る():
+    """フロントはこの世代でブラウザのキャッシュを分ける。
+
+    世代を読む経路はルート生成の材料取得のため、**カタログ側が自分で読み直しを促さないと**
+    「まだ誰も読んでいない」印（`x-`）のまま配ってしまう（起動直後に取られるのがこの
+    エンドポイントであるため、実際にそうなった）。
+    """
+    from app.services import derived_data_revision_service
+
+    class RepositoryWithRevision:
+        async def get_derived_data_revision(self):
+            return 42
+
+    class RegionServiceWithRevision(RegionService):
+        @property
+        def repository(self):
+            return RepositoryWithRevision()
+
+    derived_data_revision_service.reset_for_tests()
+    app.dependency_overrides[get_region_service] = lambda: RegionServiceWithRevision()
+    try:
+        versions = client.get("/api/axis-catalog").json()["tile_versions"]
+    finally:
+        app.dependency_overrides[get_region_service] = lambda: RegionService()
+        derived_data_revision_service.reset_for_tests()
+
+    assert versions, "タイル世代が配られていない"
+    for name, version in versions.items():
+        assert version.startswith("42-"), f"{name}がDBの世代を前置きしていない: {version}"
