@@ -4,6 +4,8 @@
 // 色分けがルートの有無でスケール・配色を変えないことをコード上で保証する。
 // MapLibre・DOMに依存しない純粋関数のみ。
 
+import { LEGEND_NO_DATA_KEY, legendBandKey } from "./mapColorLegend";
+
 /** backend `GET /api/axis-catalog` の `map_value_kind`（domain/dynamic_way_values.py:
  * map_value_kind）と同じ語彙。`difficulty`は軸スタジオのbreakpointsで評価済みの0〜100、
  * `signed_material`は単一材料の符号付き生値（勾配のように向きの符号が意味を持つ軸）。 */
@@ -15,25 +17,46 @@ export const COLOR_NO_DATA = "#9ca3af";
 /** フェッチ進行中で、まだそのwayの値を一度も受け取っていない状態の色。
  * COLOR_NO_DATAより明るくし、「取得中」と「取得済みだが値が無い」を見分けられるようにする。 */
 export const COLOR_LOADING = "#d1d5db";
+/** 凡例で非表示にした段階の色。線は描かれるが透明で、下の路面レイヤーがそのまま見える。 */
+export const COLOR_HIDDEN = "rgba(0,0,0,0)";
 /** 符号付き材料の負側（下り坂等、走行が楽になる側）の色。 */
 export const COLOR_SIGNED_LOW = "#0284c7";
+/** 符号付き材料の0付近（平坦）の色。難易度スケールの「易しい」と同じ緑にして、
+ * 「楽な区間」の色をスケールの種類をまたいで揃える。 */
+export const COLOR_SIGNED_FLAT = COLOR_EASY;
+/** 符号付き材料の正側が赤へ向かう途中に置く色。段階数が増えても隣同士が見分けられるよう、
+ * 色相だけでなく明度も動かす経路（緑→黄→赤→暗赤）にするための中継点。 */
+const COLOR_SIGNED_CLIMB_MID = "#eab308";
+const COLOR_SIGNED_CLIMB_EXTREME = "#7f1d1d";
+
+/** 符号付き材料の配色は0（平坦）を境に2方向へ分ける。1つの2色補間で全段階を塗ると、
+ * 0付近の段階が両端のどちらかの色に寄り（勾配では平坦帯が濃い青になる）、段階を細かく
+ * するほど隣と見分けられなくなる。 */
+const SIGNED_DESCENT_ANCHORS: readonly string[] = [COLOR_SIGNED_LOW, COLOR_SIGNED_FLAT];
+const SIGNED_CLIMB_ANCHORS: readonly string[] = [
+  COLOR_SIGNED_FLAT,
+  COLOR_SIGNED_CLIMB_MID,
+  COLOR_HARD,
+  COLOR_SIGNED_CLIMB_EXTREME,
+];
 
 /** 軸カタログのmap_value_thresholdsが未設定のときの既定の段階境界。値そのものは
  * 色分けロジックの前提にならず、境界値の個数がそのまま段階数を決める。 */
 export const DEFAULT_DIFFICULTY_BOUNDARIES: readonly number[] = [33, 66];
-export const SIGNED_MATERIAL_BOUNDARIES: readonly number[] = [-2, 2, 6, 10];
+/** 符号付き材料（勾配）の既定の段階境界。上り側は1%刻み——登坂は1%の差で体感が変わり、
+ * 配信値も0.1%まで保持している（backend `services/gradient_way_service.py`）。下り側は
+ * 踏まずに済む点で差が小さいため粗い。 */
+export const SIGNED_MATERIAL_BOUNDARIES: readonly number[] = [-10, -5, -1, 1, 2, 3, 4, 5, 6, 7, 8, 10, 13];
 
 export interface ValueScale {
   defaultBoundaries: readonly number[];
-  colorLow: string;
-  colorHigh: string;
 }
 
 export function valueScaleFor(kind: MapValueKind): ValueScale {
   if (kind === "signed_material") {
-    return { defaultBoundaries: SIGNED_MATERIAL_BOUNDARIES, colorLow: COLOR_SIGNED_LOW, colorHigh: COLOR_HARD };
+    return { defaultBoundaries: SIGNED_MATERIAL_BOUNDARIES };
   }
-  return { defaultBoundaries: DEFAULT_DIFFICULTY_BOUNDARIES, colorLow: COLOR_EASY, colorHigh: COLOR_HARD };
+  return { defaultBoundaries: DEFAULT_DIFFICULTY_BOUNDARIES };
 }
 
 function hexToRgb(hex: string): [number, number, number] {
@@ -96,27 +119,53 @@ function rgbToHex([r, g, b]: readonly [number, number, number]): string {
   );
 }
 
-/** 2色（colorLow/colorHigh）の間をHSL色空間でcount色に均等補間する。境界値の個数
- * （＝段階数）は軸スタジオが決めるため任意のcountに対応する。RGB直接補間だと中間色が
- * 濁るため（緑↔赤の中間が茶色がかる）、色相を短い経路で回るHSL補間にしている。 */
-export function interpolateColors(colorLow: string, colorHigh: string, count: number): string[] {
-  if (count <= 1) return [colorLow];
+/** 2色の間をHSL色空間で位置t（0〜1）の1色へ混ぜる。RGB直接補間だと中間色が濁るため
+ * （緑↔赤の中間が茶色がかる）、色相を短い経路で回る。 */
+function mixColors(colorLow: string, colorHigh: string, t: number): string {
   const [h1, s1, l1] = rgbToHsl(hexToRgb(colorLow));
   const [h2, s2, l2] = rgbToHsl(hexToRgb(colorHigh));
   let dh = h2 - h1;
   if (dh > 180) dh -= 360;
   if (dh < -180) dh += 360;
-  return Array.from({ length: count }, (_, i) => {
-    const t = i / (count - 1);
-    return rgbToHex(hslToRgb(h1 + dh * t, s1 + (s2 - s1) * t, l1 + (l2 - l1) * t));
+  return rgbToHex(hslToRgb(h1 + dh * t, s1 + (s2 - s1) * t, l1 + (l2 - l1) * t));
+}
+
+/** 2色（colorLow/colorHigh）の間をHSL色空間でcount色に均等補間する。境界値の個数
+ * （＝段階数）は軸スタジオが決めるため任意のcountに対応する。 */
+export function interpolateColors(colorLow: string, colorHigh: string, count: number): string[] {
+  return interpolateColorStops([colorLow, colorHigh], count);
+}
+
+/** 中継点を並べた配色（anchors）の上をcount色に均等補間する。2色補間では色相が一本道に
+ * なり、段階数が増えるほど隣同士が近づく——中継点を置くと同じ段階数でも色差を稼げる。 */
+export function interpolateColorStops(anchors: readonly string[], count: number): string[] {
+  if (count <= 1) return [anchors[0]];
+  const segments = anchors.length - 1;
+  return Array.from({ length: count }, (_, index) => {
+    const position = (index / (count - 1)) * segments;
+    const segment = Math.min(Math.floor(position), segments - 1);
+    return mixColors(anchors[segment], anchors[segment + 1], position - segment);
   });
 }
 
-/** 種類とboundaries（未指定なら種類の既定値）から段階ごとの色配列を求める。 */
+/** 符号付き材料の段階色。0を含む段階（平坦）を境に、下り側・上り側それぞれ別の配色の上を
+ * 補間する。0を含む段階が無い（境界に0がある）場合は、0から始まる段階を平坦側として扱う。 */
+function signedBandColors(boundaries: readonly number[]): string[] {
+  const bandCount = boundaries.length + 1;
+  const firstPositive = boundaries.findIndex((boundary) => boundary > 0);
+  const flatIndex = firstPositive < 0 ? bandCount - 1 : firstPositive;
+  const descent = interpolateColorStops(SIGNED_DESCENT_ANCHORS, flatIndex + 1).slice(0, flatIndex);
+  const climb = interpolateColorStops(SIGNED_CLIMB_ANCHORS, bandCount - flatIndex).slice(1);
+  return [...descent, COLOR_SIGNED_FLAT, ...climb];
+}
+
+/** 種類とboundaries（未指定なら種類の既定値）から段階ごとの色配列を求める。ルート確定前の
+ * 全道路の塗り・ルート確定後のルート線・凡例がいずれもこの1つの関数を通るため、同じ軸の
+ * 同じ段階はどこでも同じ色になる。 */
 export function bandColorsFor(kind: MapValueKind, boundaries?: readonly number[] | null): string[] {
-  const scale = valueScaleFor(kind);
-  const resolved = boundaries ?? scale.defaultBoundaries;
-  return interpolateColors(scale.colorLow, scale.colorHigh, resolved.length + 1);
+  const resolved = boundaries ?? valueScaleFor(kind).defaultBoundaries;
+  if (kind === "signed_material") return signedBandColors(resolved);
+  return interpolateColors(COLOR_EASY, COLOR_HARD, resolved.length + 1);
 }
 
 /** 「帯の下限＋色」の並びを、そのままMapLibreのstep式へ組み立てる。
@@ -143,19 +192,31 @@ export function buildBandColorExpression(
  * 無い）、それ以外は`["step", value, color0, boundary1, color1, ...]`。
  * `numericExpression`はstep式に渡す数値化済みの式（geojsonプロパティは`["to-number", ...]`で
  * 包む必要があり、feature-stateはそのままでよい）。null判定は数値化前の式で行う
- * （to-numberがnull→0へ変換してしまう前に判定するため）。 */
-export function buildSteppedColorExpression(
-  valueExpression: unknown[],
-  kind: MapValueKind,
-  boundaries?: readonly number[] | null,
-  numericExpression: unknown[] = valueExpression,
-  loading = false,
-): unknown[] {
+ * （to-numberがnull→0へ変換してしまう前に判定するため）。
+ *
+ * `hiddenBandKeys`（凡例で非表示にした段階）の色はCOLOR_HIDDEN（透明）にする。**この値は
+ * feature-state経由で入るため、MapLibreのfilterでは絞り込めない**——filterはfeature-stateを
+ * 読めないので、線そのものを間引くのではなく色を透明にして下の路面レイヤーを見せる。
+ * フェッチ進行中の色は非表示指定があっても残す（読込中であることの手がかりまで消えると、
+ * 「まだ来ていない」と「隠した」が区別できなくなる）。 */
+export function buildSteppedColorExpression(options: {
+  valueExpression: unknown[];
+  kind: MapValueKind;
+  boundaries?: readonly number[] | null;
+  numericExpression?: unknown[];
+  loading?: boolean;
+  hiddenBandKeys?: readonly string[];
+}): unknown[] {
+  const { valueExpression, kind, boundaries, loading = false, hiddenBandKeys = [] } = options;
+  const numericExpression = options.numericExpression ?? valueExpression;
   const resolved = boundaries ?? valueScaleFor(kind).defaultBoundaries;
-  const colors = bandColorsFor(kind, resolved);
+  const colors = bandColorsFor(kind, resolved).map((color, index) =>
+    hiddenBandKeys.includes(legendBandKey(index)) ? COLOR_HIDDEN : color,
+  );
+  const noDataColor = hiddenBandKeys.includes(LEGEND_NO_DATA_KEY) ? COLOR_HIDDEN : COLOR_NO_DATA;
   const stepExpression: unknown[] = ["step", numericExpression, colors[0]];
   resolved.forEach((boundary, index) => {
     stepExpression.push(boundary, colors[index + 1]);
   });
-  return ["case", ["==", valueExpression, null], loading ? COLOR_LOADING : COLOR_NO_DATA, stepExpression];
+  return ["case", ["==", valueExpression, null], loading ? COLOR_LOADING : noDataColor, stepExpression];
 }

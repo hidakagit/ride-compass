@@ -34,9 +34,13 @@ export interface LensControlProps {
   /** 現在のレンズの凡例（キー付き）。ルート未確定時の全道路の凡例・ルート後のルート線の凡例の
    * いずれも呼び出し側が組み立てる。 */
   legend: readonly LegendEntry[];
-  /** ルート後だけ凡例の段階を非表示にできる（undefinedなら読み取り専用の凡例）。 */
-  hiddenLegendKeys?: readonly string[];
-  onToggleLegendKey?: (key: string) => void;
+  /** 凡例で非表示にしている段階のキー。ルート確定の前後を問わず絞り込める
+   * （ルート前は全道路の塗り、ルート後はルート線。同じ段階キーを共有する）。 */
+  hiddenLegendKeys: readonly string[];
+  onToggleLegendKey: (key: string) => void;
+  /** 全段階の表示/非表示をまとめて置き換える（見出しのチェックから呼ぶ）。段階の細かい軸で
+   * 「1つだけ見たい」を1つずつ外させないため。 */
+  onSetHiddenLegendKeys: (hiddenKeys: string[]) => void;
   keepAfterRoute: boolean;
   onKeepAfterRouteChange: (keep: boolean) => void;
   /** ルート確定済みか（ルート前は「ルート後のみ」バッジを出す）。 */
@@ -58,6 +62,7 @@ export default function LensControl({
   legend,
   hiddenLegendKeys,
   onToggleLegendKey,
+  onSetHiddenLegendKeys,
   keepAfterRoute,
   onKeepAfterRouteChange,
   hasDetail,
@@ -122,10 +127,7 @@ export default function LensControl({
               <span aria-hidden="true" className={styles.dot} style={{ background: current.color }} />
               <span className={styles.pillLabel}>{current.label}</span>
               {dataStatus && (
-                <span
-                  aria-hidden="true"
-                  className={`${styles.statusDot} ${styles[`statusDot_${dataStatus}`]}`}
-                />
+                <span aria-hidden="true" className={`${styles.statusDot} ${styles[`statusDot_${dataStatus}`]}`} />
               )}
               <span aria-hidden="true" className={styles.chevron}>
                 ▾
@@ -134,9 +136,14 @@ export default function LensControl({
             {legend.length > 0 && (
               <span className={styles.swatchRow} aria-hidden="true">
                 {legend
-                  .filter((entry) => !hiddenLegendKeys?.includes(entry.key))
+                  .filter((entry) => !hiddenLegendKeys.includes(entry.key))
                   .map((entry) => (
-                    <span key={entry.key} className={styles.swatch} style={{ background: entry.color }} title={entry.label} />
+                    <span
+                      key={entry.key}
+                      className={styles.swatch}
+                      style={{ background: entry.color }}
+                      title={entry.label}
+                    />
                   ))}
               </span>
             )}
@@ -163,26 +170,24 @@ export default function LensControl({
             </label>
             {legend.length > 0 && (
               <div className={styles.legendBlock}>
-                <p className={styles.heading}>凡例</p>
-                {hiddenLegendKeys && onToggleLegendKey ? (
-                  <LegendCheckboxList
-                    legend={legend}
-                    hiddenKeys={hiddenLegendKeys}
-                    onToggle={onToggleLegendKey}
-                    listClassName={styles.legendList}
-                    rowClassName={styles.legendRow}
-                    swatchClassName={styles.swatch}
+                <label className={styles.legendHeaderRow}>
+                  <Checkbox
+                    checked={hiddenLegendKeys.length === 0}
+                    onCheckedChange={() =>
+                      onSetHiddenLegendKeys(hiddenLegendKeys.length === 0 ? legend.map((entry) => entry.key) : [])
+                    }
+                    aria-label="凡例の全段階をまとめて表示/非表示"
                   />
-                ) : (
-                  <ul className={styles.legendList}>
-                    {legend.map((entry) => (
-                      <li key={entry.key} className={styles.legendRow}>
-                        <span aria-hidden="true" className={styles.swatch} style={{ background: entry.color }} />
-                        <span>{entry.label}</span>
-                      </li>
-                    ))}
-                  </ul>
-                )}
+                  凡例（チェックを外すと地図から消える）
+                </label>
+                <LegendCheckboxList
+                  legend={legend}
+                  hiddenKeys={hiddenLegendKeys}
+                  onToggle={onToggleLegendKey}
+                  listClassName={styles.legendList}
+                  rowClassName={styles.legendRow}
+                  swatchClassName={styles.swatch}
+                />
               </div>
             )}
           </Popover.Content>

@@ -3,9 +3,8 @@
 ## 責務
 
 評価軸（軸スタジオ管理）のdifficulty値を、(1) ルート確定前は視界内の全道路（評価軸
-グループの線、風・勾配とも）・環境グループの面（勾配のみ。風は矢印のみで面塗りを持たない、
-[地図: 動的気象レイヤー](dynamic-weather-layers.md)参照）、(2) ルート確定後は選択中
-ルートの線、それぞれ地図上で色分け表示する。専用のフィーチャー→値配信レイヤー
+グループの線、風・勾配とも）、(2) ルート確定後は選択中ルートの線、それぞれ地図上で
+色分け表示する。専用のフィーチャー→値配信レイヤー
 （[動的材料・フィーチャー値配信（backend）](../backend/dynamic-way-values.md)）を持つ軸
 （現状: 風・勾配）が対象。
 
@@ -32,17 +31,16 @@
 [地図: 動的気象レイヤー](dynamic-weather-layers.md)の管轄。本ドキュメントは専用way値
 配信軸/ルート確定後の色分け（DETAIL_LAYER_ID）に関わる箇所のみを扱う。**
 
-## ルート確定前後で同じスケール（3つの表示、1つの表示宣言）
+## ルート確定前後で同じスケール（表示は複数、表示宣言は1つ）
 
 ```
-                          [評価軸グループ（線）]                [環境グループ（面、勾配のみ）]
-              （useDedicatedWayValues、    │   │
-               backendが軸定義で評価した   │   │
-               地図表示値）                 ▼   ▼
-                                  同じ表示宣言（種類・単位・しきい値・段階ラベル）
+ルート確定前  ── 評価軸グループ（線） ───────┐
+              （useDedicatedWayValues、    │
+               backendが軸定義で評価した   ▼
+               地図表示値）        同じ表示宣言（種類・単位・しきい値・段階ラベル）
                                             ▲
-ルート確定後  ── RouteSegmentDetailの ──────┘   （環境グループは非表示、評価軸グループが
-              axis_difficulties /              「地図の色分け」モードへ役割を譲る）
+ルート確定後  ── RouteSegmentDetailの ──────┘
+              axis_difficulties /
               符号付き材料の直読み
 ```
 
@@ -93,14 +91,28 @@ backend（`domain/dynamic_way_values.py: map_value_thresholds`）が軸の折れ
 
 ## valueScale.ts（ルート前後で共有する葉モジュール）
 
-- `valueScaleFor(kind)`: 種類ごとの既定しきい値（`DEFAULT_DIFFICULTY_BOUNDARIES=[33,66]`・
-  `SIGNED_MATERIAL_BOUNDARIES=[-2,2,6,10]`）と配色（難易度は`COLOR_EASY→COLOR_HARD`、
-  符号付き材料は`COLOR_SIGNED_LOW→COLOR_HARD`）。
-- `interpolateColors(colorLow, colorHigh, count)`: 2色の間をHSL色空間でcount色に均等
-  補間する（固定の色配列を持たないため、しきい値の個数が変わっても色が自動追従する）。
-- `buildSteppedColorExpression(valueExpression, kind, boundaries?, numericExpression?, loading?)`:
+- `valueScaleFor(kind)`: 種類ごとの既定しきい値（軸カタログの`map_value_thresholds`が
+  未設定のときだけ使う）。
+- `interpolateColorStops(anchors, count)`: 中継点を並べた配色の上をHSL色空間でcount色に
+  均等補間する。`interpolateColors(low, high, count)`は中継点を持たない場合の別名。
+  固定の色配列を持たないため、しきい値の個数が変わっても色が自動追従する。
+- `bandColorsFor(kind, boundaries)`: 段階ごとの色。**ルート前の全道路の塗り・ルート後の
+  ルート線・凡例がすべてこの1つの関数を通る**ため、同じ軸の同じ段階はどこでも同じ色になる。
+  - 難易度: `COLOR_EASY→COLOR_HARD`の1本の補間。
+  - 符号付き材料: **0を含む段階（`boundaries`から求める）を境に、下り側と上り側で別の配色を
+    補間する**。一本の補間だと0付近の段階が片方の端の色へ寄り、段階を細かくするほど隣と
+    見分けられなくなる。境界がすべて正／すべて負／ちょうど0を含む場合も、この判定だけで
+    決まる（片側が0段階になる）。この配色は「0が最も楽で、負側は正側と質が違う」ことを
+    前提にする——`signed_material`は「絶対値で評価すると宣言した軸」（backend
+    `domain/dynamic_way_values.py: map_value_kind`）なので、負側も同じだけ辛い軸が必要に
+    なったら配色を足すのではなく種類を増やす側になる。
+- `buildSteppedColorExpression({valueExpression, kind, boundaries?, numericExpression?, loading?, hiddenBandKeys?})`:
   null→`loading`がtrueなら`COLOR_LOADING`（フェッチ進行中でまだ値を受け取っていない）、
   falseなら`COLOR_NO_DATA`（取得済みだが値が無い）。それ以外は`["step", ...]`の色式。
+  `hiddenBandKeys`（凡例で非表示にした段階）の色は`COLOR_HIDDEN`（透明）にする。
+  **feature-state経由の値はMapLibreの`filter`から読めない**ため、線を間引くのではなく
+  透明にして下の路面レイヤーを見せる。フェッチ進行中の色だけは非表示指定があっても残す
+  （「まだ来ていない」と「隠した」が区別できなくなるため）。
 
 ## routeStyleModes.ts（ルート確定後）
 
@@ -158,9 +170,23 @@ backend（`domain/dynamic_way_values.py: map_value_thresholds`）が軸の折れ
   `page.tsx`が現在のレンズに応じて凡例を1つ組み立てる（`lensLegend`: ルート後はルート線
   モードの凡例、ルート前はramp軸なら`axisLayers.ts: buildAxisRampLegend`、専用配信軸なら
   この関数）。`LensControl`（`components/LensControl/`）が地図上部中央のピルとポップオーバーに
-  表示する（モバイルのBottomSheetが画面下側を覆っても隠れないための配置）。ルート後だけ
-  凡例の段階を非表示にできる（`hiddenLegendKeysByMode[lens]`）。専用way値レイヤーには
-  絞り込み機構自体が無いため`MapColorLegendBand`（`{label, color}`のみ）という軽量な型を使う。
+  表示する（モバイルのBottomSheetが画面下側を覆っても隠れないための配置）。
+  `MapColorLegendBand`は`{key, label, color}`で、MapLibreのfilter述語を持たない
+  （専用way値レイヤーの段階はfilterでは絞り込めないため。上記`valueScale.ts`参照）。
+
+### 段階の表示ON/OFF（凡例のチェック）
+
+保存先はレンズを問わず`page.tsx: hiddenLegendKeysByMode[軸id]`1箇所で、地図上チップの
+▶パネルの絞り込み・「絞り込みをすべて解除する」もこの同じ場所を読み書きする。段階キーは
+`mapColorLegend.ts: legendBandKey`/`LEGEND_NO_DATA_KEY`が唯一の出どころで、ルート前と
+ルート後が同じキーを使う——**ルート生成をまたいでも同じ段階が隠れたまま**になる
+（専用way値配信軸の場合。ramp軸はルート前とルート後で塗る値のスケール自体が違うため、
+ramp凡例側のキー[`${axisId}-${index}`]と別になる）。効かせ方だけがレンズの種類で異なる。
+
+| レンズ | ルート確定前 | ルート確定後 |
+|---|---|---|
+| 専用way値配信軸 | 色式で透明にする（`dedicatedWayValueHiddenBands`→`buildStaticOverlayLayers`） | ルート線モードのfilter（`hiddenRouteLegendKeys`） |
+| ramp軸 | タイルのプロパティへのfilter（`staticFilterAxes`経由、[静的レイヤー](static-map-layers.md)） | 同上 |
 
 ## useDedicatedWayValues.ts（フェッチ・状態管理）
 

@@ -2275,8 +2275,9 @@ T352〜T434の間、"wind"は`supports_route_coloring`経由で動的に生成�
 - `buildRangeSteppedMode`: 境界値配列（軸スタジオの`display_thresholds_override`、
   未設定時は経路ごとの既定値）の**長さがそのまま段階数を決める**汎用関数。ラベルは
   境界値の実際の数字から機械的に生成する（「易しい/普通/難しい」「下り/上り」のような
-  固定語彙は使わない）。色は`interpolateColors(colorLow, colorHigh, count)`
-  （2色の間をHSL色空間で均等補間、新設）で生成するため、固定の色配列を持たない。
+  固定語彙は使わない）。色は`bandColorsFor(kind, boundaries)`
+  （HSL色空間の補間、符号付き材料は0を境に下り側・上り側で別の配色）で生成するため、
+  固定の色配列を持たない。
 - `AxisCatalogEntry`（`GET /api/axis-catalog`）へ`shape`・`display_thresholds_override`を
   追加した——「個別フィールドを都度追加するのではなく、軸スタジオで決められること全部を
   まとめて返す」方針（ユーザー指摘を受けた設計判断）。

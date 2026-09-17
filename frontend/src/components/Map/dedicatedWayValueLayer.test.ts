@@ -10,14 +10,16 @@ import {
   type DedicatedWayValueDisplay,
 } from "./dedicatedWayValueLayer";
 import {
-  COLOR_HARD,
+  COLOR_HIDDEN,
   COLOR_LOADING,
   COLOR_NO_DATA,
+  COLOR_SIGNED_FLAT,
   COLOR_SIGNED_LOW,
   DEFAULT_DIFFICULTY_BOUNDARIES,
   SIGNED_MATERIAL_BOUNDARIES,
   bandColorsFor,
 } from "./valueScale";
+import { LEGEND_NO_DATA_KEY, legendBandKey } from "./mapColorLegend";
 
 const difficultyDisplay: DedicatedWayValueDisplay = { kind: "difficulty", unit: "" };
 const signedDisplay: DedicatedWayValueDisplay = { kind: "signed_material", unit: "%" };
@@ -40,7 +42,10 @@ describe("dedicatedWayValueLayer", () => {
       const signedStep = dedicatedWayValueColorExpression("gradient", signedDisplay)[3] as unknown[];
       expect(signedStep).toHaveLength(3 + SIGNED_MATERIAL_BOUNDARIES.length * 2);
 
-      const custom = dedicatedWayValueColorExpression("wind", { ...difficultyDisplay, boundaries: [10, 20, 30, 40, 50] })[3] as unknown[];
+      const custom = dedicatedWayValueColorExpression("wind", {
+        ...difficultyDisplay,
+        boundaries: [10, 20, 30, 40, 50],
+      })[3] as unknown[];
       expect(custom).toHaveLength(3 + 5 * 2);
     });
 
@@ -63,26 +68,62 @@ describe("dedicatedWayValueLayer", () => {
     });
   });
 
-  describe("dedicatedWayValueLegend", () => {
-    it("段階数はboundaries.length+1で、境界値と単位からラベルを機械的に組み立てる", () => {
-      const legend = dedicatedWayValueLegend({ ...signedDisplay, boundaries: [0, 5] });
-      expect(legend.map((b) => b.label)).toEqual(["0%未満", "0〜5%", "5%以上"]);
+  describe("段階の表示ON/OFF（hiddenBandKeys）", () => {
+    it("非表示にした段階の色だけが透明になり、他の段階の色は変わらない", () => {
+      const visible = dedicatedWayValueColorExpression("gradient", signedDisplay)[3] as unknown[];
+      const hidden = dedicatedWayValueColorExpression("gradient", signedDisplay, false, [
+        legendBandKey(0),
+      ])[3] as unknown[];
+      expect(hidden[2]).toBe(COLOR_HIDDEN);
+      expect(hidden.slice(3)).toEqual(visible.slice(3));
     });
 
-    it("難易度スケールは単位なし・緑→赤、符号付き材料は青→赤で色式と同じ配色", () => {
+    it("データなしを非表示にするとnull側が透明になる。ただしフェッチ中の色は残す", () => {
+      const hidden = dedicatedWayValueColorExpression("gradient", signedDisplay, false, [LEGEND_NO_DATA_KEY]);
+      expect(hidden[2]).toBe(COLOR_HIDDEN);
+      const loading = dedicatedWayValueColorExpression("gradient", signedDisplay, true, [LEGEND_NO_DATA_KEY]);
+      expect(loading[2]).toBe(COLOR_LOADING);
+    });
+
+    it("凡例の段階キーと色式の段階の並びが一致する（同じキーで同じ段階を隠せる）", () => {
+      const legend = dedicatedWayValueLegend(signedDisplay);
+      const lastBandIndex = SIGNED_MATERIAL_BOUNDARIES.length;
+      const hidden = dedicatedWayValueColorExpression("gradient", signedDisplay, false, [
+        legendBandKey(lastBandIndex),
+      ])[3] as unknown[];
+      expect(legend[lastBandIndex].key).toBe(legendBandKey(lastBandIndex));
+      expect(hidden[hidden.length - 1]).toBe(COLOR_HIDDEN);
+    });
+  });
+
+  describe("dedicatedWayValueLegend", () => {
+    it("段階数はboundaries.length+1で、境界値と単位からラベルを機械的に組み立てる（末尾はデータなし）", () => {
+      const legend = dedicatedWayValueLegend({ ...signedDisplay, boundaries: [0, 5] });
+      expect(legend.map((b) => b.label)).toEqual(["0%未満", "0〜5%", "5%以上", "データなし"]);
+      expect(legend[legend.length - 1].key).toBe(LEGEND_NO_DATA_KEY);
+      expect(legend[legend.length - 1].color).toBe(COLOR_NO_DATA);
+    });
+
+    it("難易度スケールは単位なし・緑→赤、符号付き材料は0を境に下り側・上り側で色式と同じ配色", () => {
       const difficulty = dedicatedWayValueLegend({ ...difficultyDisplay, boundaries: [33, 66] });
-      expect(difficulty.map((b) => b.label)).toEqual(["33未満", "33〜66", "66以上"]);
-      expect(difficulty.map((b) => b.color)).toEqual(bandColorsFor("difficulty", [33, 66]));
+      expect(difficulty.slice(0, -1).map((b) => b.label)).toEqual(["33未満", "33〜66", "66以上"]);
+      expect(difficulty.slice(0, -1).map((b) => b.color)).toEqual(bandColorsFor("difficulty", [33, 66]));
 
       const signed = dedicatedWayValueLegend(signedDisplay);
       expect(signed[0].color).toBe(COLOR_SIGNED_LOW);
-      expect(signed[signed.length - 1].color).toBe(COLOR_HARD);
-      expect(signed).toHaveLength(SIGNED_MATERIAL_BOUNDARIES.length + 1);
+      // 0をまたぐ段階（平坦）が配色の分かれ目。
+      const flatIndex = SIGNED_MATERIAL_BOUNDARIES.findIndex((boundary) => boundary > 0);
+      expect(signed[flatIndex].color).toBe(COLOR_SIGNED_FLAT);
+      expect(signed).toHaveLength(SIGNED_MATERIAL_BOUNDARIES.length + 2);
     });
 
     it("bandLabelsは要素数が段階数と一致する間だけ数値レンジの前に添える", () => {
       const labels = ["追い風・無風", "弱い向かい風", "向かい風", "強い向かい風", "非常に強い"];
-      const legend = dedicatedWayValueLegend({ ...difficultyDisplay, boundaries: [20, 40, 60, 80], bandLabels: labels });
+      const legend = dedicatedWayValueLegend({
+        ...difficultyDisplay,
+        boundaries: [20, 40, 60, 80],
+        bandLabels: labels,
+      });
       expect(legend[0].label).toBe("追い風・無風（20未満）");
       expect(legend[4].label).toBe("非常に強い（80以上）");
 

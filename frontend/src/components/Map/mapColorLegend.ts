@@ -1,17 +1,32 @@
 // 地図上の色分け凡例の共通型・ラベル生成。
 //
 // 色分けを実際に塗る側（axisLayers.ts: buildAxisRampColorExpression・
-// dedicatedWayValueLayer.ts: buildDedicatedWayValueColorExpression）とは別に、この凡例は「今どう塗られているか」を
-// 読み手（LegendEntryのfilter述語によるカテゴリ絞り込み）ではなく見せるためだけの
-// 軽量な型を持つ。ramp軸の凡例（axisLayers.ts: buildAxisRampLegend）は▶パネル・
-// MapOverlayControlsの絞り込み機構と共有するLegendEntry（filter必須）を返すが、
-// 専用way値配信軸にはそのような絞り込み機構自体が無いため、意味の無いfilterを
-// 捏造せずに済むこの専用の軽量型を使う。
+// dedicatedWayValueLayer.ts: buildDedicatedWayValueColorExpression）とは別に、段階の
+// ラベル・色・安定キーだけを持つ軽量な型。ramp軸の凡例（axisLayers.ts:
+// buildAxisRampLegend）は▶パネル・MapOverlayControlsの絞り込み機構と共有する
+// LegendEntry（MapLibreのfilter述語が必須）を返すが、専用way値配信軸の値は
+// feature-state経由で入るためfilterでは絞り込めない（MapLibreのfilterはfeature-stateを
+// 読めない）。段階の表示ON/OFFは色式側で透明にして実現する（valueScale.ts:
+// buildSteppedColorExpression）ため、ここでは述語を持たないこの型を使う。
 
 export interface MapColorLegendBand {
+  /** 段階の安定識別子（表示ON/OFFの保存キー）。`legendBandKey`が唯一の出どころ。 */
+  key: string;
   label: string;
   color: string;
+  /** 「データなし」の受け皿段階（数値レンジを持たない）。 */
+  isFallback?: boolean;
 }
+
+/** 段階の安定キー。**ルート確定前の全道路の塗りとルート確定後のルート線が同じ段階を同じ
+ * キーで指す**ため、片方で非表示にした段階はもう片方でも非表示のまま引き継がれる
+ * （どちらも同じ`map_value_thresholds`で同じ順に段階を並べる）。 */
+export function legendBandKey(index: number): string {
+  return `step-${index}`;
+}
+
+/** 値が無い地物（取得済みだが値が無い）の段階キー。数値段階と同じ仕組みで非表示にできる。 */
+export const LEGEND_NO_DATA_KEY = "nodata";
 
 /** 段階の体感ラベル（軸スタジオの`display_band_labels_override`）を、その段階数へ添えて
  * よいかの判定。ルート前（`dedicatedWayValueLegend`）とルート後（`routeStyleModes.ts`）が
@@ -59,6 +74,6 @@ export function buildRangeLegendBands(
     const upper = index === boundaries.length ? null : boundaries[index];
     const rangeLabel = rangeStepLabel(lower, upper, unit);
     const label = labels ? `${labels[index]}（${rangeLabel}）` : rangeLabel;
-    return { label, color };
+    return { key: legendBandKey(index), label, color };
   });
 }

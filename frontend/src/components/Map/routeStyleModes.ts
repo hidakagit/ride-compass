@@ -10,15 +10,13 @@
 
 import { debugLog } from "@/lib/debugLog";
 import type { LegendEntry } from "./legendFilter";
-import { bandLabelsForBandCount } from "./mapColorLegend";
+import { bandLabelsForBandCount, LEGEND_NO_DATA_KEY, legendBandKey } from "./mapColorLegend";
 import type { CatalogAxis } from "./axisLayers";
 import axisCatalog from "@/types/generated/axis-catalog.json";
 import {
-  COLOR_EASY,
-  COLOR_HARD,
+  bandColorsFor,
   COLOR_NO_DATA,
   DEFAULT_DIFFICULTY_BOUNDARIES,
-  interpolateColors,
   valueScaleFor,
   type MapValueKind,
 } from "./valueScale";
@@ -77,7 +75,7 @@ function buildSteppedMode(
     if (i < boundaries.length) conditions.push(["<", value, boundaries[i]]);
     return { key, label, color, filter: ["all", ...conditions] };
   });
-  legend.push({ key: "nodata", label: "データなし", color: COLOR_NO_DATA, filter: noData });
+  legend.push({ key: LEGEND_NO_DATA_KEY, label: "データなし", color: COLOR_NO_DATA, filter: noData, isFallback: true });
 
   return {
     legend,
@@ -101,17 +99,16 @@ function buildRangeSteppedMode(options: {
   id: string;
   label: string;
   valueExpression: unknown[];
+  kind: MapValueKind;
   boundaries: readonly number[];
-  colorLow: string;
-  colorHigh: string;
   unit: string;
   bandLabels?: readonly string[] | null;
 }): RouteStyleMode {
-  const { id, label, valueExpression, boundaries, colorLow, colorHigh, unit, bandLabels } = options;
-  const colors = interpolateColors(colorLow, colorHigh, boundaries.length + 1);
+  const { id, label, valueExpression, kind, boundaries, unit, bandLabels } = options;
+  const colors = bandColorsFor(kind, boundaries);
   const labels = bandLabelsForBandCount(bandLabels, boundaries.length + 1);
   const steps = colors.map((color, i) => ({
-    key: `step-${i}`,
+    key: legendBandKey(i),
     label: labels ? `${labels[i]}（${rangeLabel(boundaries, i, unit)}）` : rangeLabel(boundaries, i, unit),
     color,
   }));
@@ -128,8 +125,7 @@ function buildRangeSteppedMode(options: {
 // 専用way値レイヤー（dedicatedWayValueLayer.ts）と同じスケール・配色になる。
 export function routeColorableModeFromAxis(axis: CatalogAxis): RouteStyleMode {
   const kind: MapValueKind = axis.map_value_kind ?? "difficulty";
-  const scale = valueScaleFor(kind);
-  const boundaries = axis.map_value_thresholds ?? scale.defaultBoundaries;
+  const boundaries = axis.map_value_thresholds ?? valueScaleFor(kind).defaultBoundaries;
   // backendは`map_value_kind`が`signed_material`になる条件としてterms 1件を要求するが
   // （domain/dynamic_way_values.py）、その不変条件はカタログのJSONには現れない。
   // 材料が引けないときは難易度モードへ倒す（塗れないより、軸の難易度で塗る方が近い）。
@@ -139,9 +135,8 @@ export function routeColorableModeFromAxis(axis: CatalogAxis): RouteStyleMode {
       id: axis.axis_id,
       label: axis.label,
       valueExpression: ["get", signedMaterial, ["get", "material_values"]],
+      kind,
       boundaries,
-      colorLow: scale.colorLow,
-      colorHigh: scale.colorHigh,
       unit: axis.map_value_unit ?? "",
       bandLabels: axis.display_band_labels_override,
     });
@@ -150,9 +145,8 @@ export function routeColorableModeFromAxis(axis: CatalogAxis): RouteStyleMode {
     id: axis.axis_id,
     label: `${axis.label}の影響`,
     valueExpression: ["get", axis.axis_id, ["get", "axis_difficulties"]],
+    kind: "difficulty",
     boundaries,
-    colorLow: scale.colorLow,
-    colorHigh: scale.colorHigh,
     unit: axis.map_value_unit ?? "",
     bandLabels: axis.display_band_labels_override,
   });
@@ -170,8 +164,8 @@ const DIFFICULTY_MODE: RouteStyleMode = {
   // （研究インターフェース改善 §10-5）。
   ...buildSteppedMode(
     ["get", "difficulty"],
-    interpolateColors(COLOR_EASY, COLOR_HARD, DEFAULT_DIFFICULTY_BOUNDARIES.length + 1).map((color, i) => ({
-      key: `step-${i}`,
+    bandColorsFor("difficulty", DEFAULT_DIFFICULTY_BOUNDARIES).map((color, i) => ({
+      key: legendBandKey(i),
       label: rangeLabel(DEFAULT_DIFFICULTY_BOUNDARIES, i, ""),
       color,
     })),
