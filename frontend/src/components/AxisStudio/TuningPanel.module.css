@@ -8,6 +8,10 @@
 
 .error {
   composes: error from "../ui/adminPanel.module.css";
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
 }
 
 .controls {
@@ -24,12 +28,17 @@
   gap: var(--space-1);
 }
 
+/* 行より小さく弱い添え書き（見出し脇・保存ボタン脇）。 */
+.note {
+  color: var(--color-muted);
+  font-size: var(--font-size-xs);
+}
+
 /* 行の群につける見出し。行そのものより小さく弱く出し、行の連なりを切らない
    （DerivedDataFreshnessPanelのgroupTitleと同じ扱い）。 */
 .groupTitle {
+  composes: note;
   margin: var(--space-2) 0 0;
-  color: var(--color-muted);
-  font-size: var(--font-size-xs);
 }
 
 .rows {
@@ -48,9 +57,9 @@
   border-bottom: 1px solid var(--color-border);
 }
 
-/* 既定から動かしてある行だけに付ける印（他パネルのmarkStaleと同じ0.5remの点）。 */
+/* DBへ保存してある行だけに付ける印（他パネルのmarkStaleと同じ0.5remの点）。 */
 .mark,
-.markOverridden {
+.markSaved {
   flex: none;
   width: 0.5rem;
   height: 0.5rem;
@@ -61,7 +70,7 @@
   background: transparent;
 }
 
-.markOverridden {
+.markSaved {
   background: var(--color-accent);
 }
 
@@ -85,6 +94,12 @@
   text-align: right;
 }
 
+/* まだ送っていない行。保存ボタンが何を書き込むのかを、行の側でも分かるようにする。 */
+.inputEdited {
+  composes: input;
+  border-color: var(--color-accent);
+}
+
 .unit {
   flex: none;
   min-width: 2.2rem;
@@ -92,32 +107,6 @@
   font-size: var(--font-size-xs);
 }
 
-/* 既定へ戻す。動かしてある行にだけ出るため、出ない行のぶんの幅は空けておく
-   （行ごとに入力欄の位置がずれると、縦に読めなくなる）。 */
-.reset,
-.resetPlaceholder {
+.retry {
   flex: none;
-  width: 1.6rem;
-}
-
-.reset {
-  padding: 0;
-  border: none;
-  background: none;
-  color: var(--color-muted-strong);
-  font-size: var(--font-size-xs);
-  cursor: pointer;
-}
-
-.reset:hover {
-  color: var(--foreground);
-}
-
-.srOnly {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  overflow: hidden;
-  clip: rect(0 0 0 0);
-  white-space: nowrap;
 }

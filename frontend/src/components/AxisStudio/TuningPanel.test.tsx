@@ -14,7 +14,7 @@ function parameter(overrides: Partial<TuningParameter> = {}): TuningParameter {
     id: "turn.right_seconds",
     label: "右折",
     unit: "秒",
-    description: "右折1回の時間損失。",
+    description: "右折1回の損失。",
     default: 12,
     minimum: 0,
     maximum: 120,
@@ -71,7 +71,7 @@ describe("TuningPanel", () => {
     expect(screen.getByLabelText("未知の効き方")).toBeInTheDocument();
   });
 
-  it("確定したときだけ送る（1文字ごとには送らない）", async () => {
+  it("打っただけでは送らず、保存を押したときに送る", async () => {
     const user = userEvent.setup();
     vi.mocked(listTuningParameters).mockResolvedValue([parameter()]);
     vi.mocked(updateTuningParameter).mockResolvedValue(parameter({ value: 30, overridden: true }));
@@ -80,34 +80,56 @@ describe("TuningPanel", () => {
     const input = await screen.findByLabelText("右折");
     await user.clear(input);
     await user.type(input, "30");
+    await user.tab();
 
     expect(updateTuningParameter).not.toHaveBeenCalled();
 
-    await user.tab();
+    await user.click(screen.getByRole("button", { name: "DBへ保存" }));
 
     await waitFor(() => expect(updateTuningParameter).toHaveBeenCalledWith("turn.right_seconds", 30));
   });
 
-  it("既定から動かしてある行だけに「既定へ戻す」を出し、押すとnullを送る", async () => {
+  it("保存できるのは値を変えた行があるときだけで、送るのもその行だけ", async () => {
     const user = userEvent.setup();
     vi.mocked(listTuningParameters).mockResolvedValue([
-      parameter({ value: 30, overridden: true }),
-      parameter({ id: "stop.signal_seconds", label: "信号の待ち", effect: "immediate", value: 21 }),
+      parameter(),
+      parameter({ id: "stop.signal_seconds", label: "信号の待ち", effect: "immediate", default: 21, value: 21 }),
     ]);
-    vi.mocked(updateTuningParameter).mockResolvedValue(parameter());
+    vi.mocked(updateTuningParameter).mockResolvedValue(parameter({ value: 30, overridden: true }));
 
     render(<TuningPanel />);
     await screen.findByLabelText("右折");
 
-    const buttons = screen.getAllByRole("button", { name: /を既定へ戻す$/ });
-    expect(buttons).toHaveLength(1);
+    const save = screen.getByRole("button", { name: "DBへ保存" });
+    expect(save).toBeDisabled();
 
-    await user.click(buttons[0]);
+    const input = screen.getByLabelText("右折");
+    await user.clear(input);
+    await user.type(input, "30");
+
+    expect(screen.getByText("1件が未保存")).toBeInTheDocument();
+    await user.click(save);
+
+    await waitFor(() => expect(updateTuningParameter).toHaveBeenCalledTimes(1));
+    expect(updateTuningParameter).toHaveBeenCalledWith("turn.right_seconds", 30);
+  });
+
+  it("既定と同じ値にして保存すると、上書きを消す（nullを送る）", async () => {
+    // DBへ残すのは既定から動かしたぶんだけにする。
+    const user = userEvent.setup();
+    vi.mocked(listTuningParameters).mockResolvedValue([parameter({ value: 30, overridden: true })]);
+    vi.mocked(updateTuningParameter).mockResolvedValue(parameter());
+
+    render(<TuningPanel />);
+    const input = await screen.findByLabelText("右折");
+    await user.clear(input);
+    await user.type(input, "12");
+    await user.click(screen.getByRole("button", { name: "DBへ保存" }));
 
     await waitFor(() => expect(updateTuningParameter).toHaveBeenCalledWith("turn.right_seconds", null));
   });
 
-  it("更新に失敗したら理由を出し、入力を元の値へ戻す", async () => {
+  it("保存に失敗したら理由を出し、打った値は消さない", async () => {
     const user = userEvent.setup();
     vi.mocked(listTuningParameters).mockResolvedValue([parameter()]);
     vi.mocked(updateTuningParameter).mockRejectedValue(new Error("較正値が宣言の範囲の外"));
@@ -116,13 +138,13 @@ describe("TuningPanel", () => {
     const input = await screen.findByLabelText("右折");
     await user.clear(input);
     await user.type(input, "999");
-    await user.tab();
+    await user.click(screen.getByRole("button", { name: "DBへ保存" }));
 
     expect(await screen.findByText("較正値が宣言の範囲の外")).toBeInTheDocument();
-    await waitFor(() => expect(input).toHaveValue(12));
+    expect(input).toHaveValue(999);
   });
 
-  it("取得に失敗したら理由を出し、読み込み直せる", async () => {
+  it("取得に失敗したときだけ読み込み直すボタンを出す", async () => {
     const user = userEvent.setup();
     vi.mocked(listTuningParameters).mockRejectedValueOnce(new Error("較正値の取得に失敗しました"));
     vi.mocked(listTuningParameters).mockResolvedValueOnce([parameter()]);
@@ -133,9 +155,10 @@ describe("TuningPanel", () => {
     await user.click(screen.getByRole("button", { name: "読み込み直す" }));
 
     expect(await screen.findByLabelText("右折")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "読み込み直す" })).not.toBeInTheDocument();
   });
 
-  it("説明と既定値・範囲は(i)の奥へ置く（21件が縦に並ぶため行に敷かない）", async () => {
+  it("説明と既定値・範囲は(i)の奥へ置く（縦に長い一覧の行に敷かない）", async () => {
     const user = userEvent.setup();
     vi.mocked(listTuningParameters).mockResolvedValue([parameter({ value: 30, overridden: true })]);
 
@@ -143,22 +166,11 @@ describe("TuningPanel", () => {
     await screen.findByLabelText("右折");
 
     // 開く前は行に出ていない。
-    expect(screen.queryByText("右折1回の時間損失。")).not.toBeInTheDocument();
+    expect(screen.queryByText("右折1回の損失。")).not.toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "右折の説明を表示" }));
 
-    expect(await screen.findByText("右折1回の時間損失。")).toBeInTheDocument();
+    expect(await screen.findByText("右折1回の損失。")).toBeInTheDocument();
     expect(screen.getByText("既定 12秒（0〜120）")).toBeInTheDocument();
-  });
-
-  it("既定から動かしてある件数を出す", async () => {
-    vi.mocked(listTuningParameters).mockResolvedValue([
-      parameter({ value: 30, overridden: true }),
-      parameter({ id: "stop.signal_seconds", label: "信号の待ち", effect: "immediate" }),
-    ]);
-
-    render(<TuningPanel />);
-
-    expect(await screen.findByText("1件が既定から変更")).toBeInTheDocument();
   });
 });

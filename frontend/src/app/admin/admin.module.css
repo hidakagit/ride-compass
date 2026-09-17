@@ -23,17 +23,22 @@
   gap: var(--space-3);
 }
 
+/* 狭い画面ではタブが1行に収まらない。1つずつを折り返すとタブ1本が2行ぶんの高さになり、
+   本文の前に画面の上端を使い切るため、折り返さずに列ごと横へ流す。 */
 .tabList {
   display: flex;
-  gap: var(--space-2);
+  gap: var(--space-1);
   border-bottom: 1px solid var(--color-border);
+  overflow-x: auto;
 }
 
 .tabTrigger {
-  font-size: var(--font-size-md);
+  flex: none;
+  white-space: nowrap;
+  font-size: var(--font-size-sm);
   font-weight: 700;
   color: var(--color-muted);
-  padding: 0.4rem 0.7rem;
+  padding: 0.35rem 0.5rem;
   border-radius: var(--radius-sm) var(--radius-sm) 0 0;
   border-bottom: 2px solid transparent;
   margin-bottom: -1px;

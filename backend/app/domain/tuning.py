@@ -94,34 +94,34 @@ TUNING_PARAMETERS: tuple[TuningParameter, ...] = (
         "turn.left_seconds",
         TuningKind.CALIBRATION,
         "左折", "秒", 2.0, 0.0, 120.0, TuningEffect.TURN_STRUCTURE,
-        "左折1回の時間損失。探索のコストも秒のため、走行時間と直接比べられる。",
+        "左折1回の損失。探索のコストも秒で、走行時間と直接比べられる。",
     ),
     TuningParameter(
         "turn.right_seconds",
         TuningKind.CALIBRATION,
         "右折", "秒", 12.0, 0.0, 120.0, TuningEffect.TURN_STRUCTURE,
-        "右折1回の時間損失。対向を待つぶん左折より大きい。",
+        "右折1回の損失。対向を待つぶん左折より大きい。",
     ),
     TuningParameter(
         "turn.uturn_seconds",
         TuningKind.CALIBRATION,
         "Uターン", "秒", 60.0, 0.0, 600.0, TuningEffect.TURN_STRUCTURE,
-        "来た道を折り返す1回の時間損失。実質的に選ばせないための大きな値。",
+        "折り返し1回の損失。実質的に選ばせないための大きな値。",
     ),
     TuningParameter(
         "turn.straight_max_deg",
         TuningKind.CALIBRATION,
         "直進とみなす方位差", "度", 30.0, 0.0, 90.0,
         TuningEffect.TURN_STRUCTURE,
-        "この角度までの曲がりは直進とみなし、ターンの費用を足さない。",
+        "この角度までの曲がりは直進とみなし、費用を足さない。",
     ),
     TuningParameter(
         "turn.major_crossing_seconds",
         TuningKind.CALIBRATION,
         "上位の道の横断", "秒", 8.0, 0.0, 300.0,
         TuningEffect.TURN_STRUCTURE,
-        "信号の無い交差点で、進入した道より上位の階級の道を直進で渡るときに足す。"
-        "信号のある交差点の待ちは停止要因の側が数えるため、ここでは足さない。",
+        "信号の無い交差点で、上位の階級の道を直進で渡るときに足す"
+        "（信号のある交差点の待ちは停止要因の側が数える）。",
     ),
     TuningParameter(
         "turn.major_turn_seconds",
@@ -132,26 +132,25 @@ TUNING_PARAMETERS: tuple[TuningParameter, ...] = (
     ),
     # --- 停止要因の待ち（種別はPOI_COUNT_KINDSが正本） ---
     _stop_parameter("signal", "信号", 21.0, "一般的な信号サイクルからの見積もり。"),
-    _stop_parameter("crossing", "信号なしの横断歩道", 0.0,
-                    "信号の無い横断歩道。自転車が止まる前提を置いていないため既定は0秒。"),
-    _stop_parameter("stop", "一時停止・徐行", 8.0, "一時停止の標識・標示で減速して止まるぶん。"),
+    _stop_parameter("crossing", "信号なし横断歩道", 0.0,
+                    "自転車が止まる前提を置いていないため既定は0秒。"),
+    _stop_parameter("stop", "一時停止・徐行", 8.0, "標識・標示で減速して止まるぶん。"),
     _stop_parameter("level_crossing", "踏切", 25.0, "遮断機の待ちを含む見積もり。"),
-    _stop_parameter("barrier", "車止め・減速構造", 8.0, "車止め・ボラード等で減速するぶん。"),
+    _stop_parameter("barrier", "車止め・減速構造", 8.0, "ボラード等で減速するぶん。"),
     # --- 交差点の信号判定 ---
     TuningParameter(
         "signal.match_radius_m",
         TuningKind.CALIBRATION,
         "信号とみなす半径", "m", 40.0, 1.0, 200.0,
         TuningEffect.NODE_ATTRIBUTE_BATCH,
-        "交差点ノードから何m以内の信号を、その交差点の信号とみなすか。"
-        "広げるほど「信号が無いのに上位の道を渡る」とみなす交差点が減り、横断の費用が付かなくなる"
-        "（幹線が集まる交差点で信号ありとみなす割合は10mで37.4%・60mで67.9%、頭打ちが無い）。",
+        "交差点から何m以内の信号を、その交差点のものとみなすか。"
+        "広げるほど横断の費用が付く交差点が減る（頭打ちが無い）。",
     ),
     # --- 走行モデル ---
     TuningParameter(
         "speed.cda_m2",
         TuningKind.CALIBRATION,
-        "空気抵抗係数×前面投影面積", "m²", 0.32, 0.1, 1.0, TuningEffect.IMMEDIATE,
+        "空気抵抗 CdA", "m²", 0.32, 0.1, 1.0, TuningEffect.IMMEDIATE,
         "ロードバイクのブラケットポジションの標準値。",
     ),
     TuningParameter(
@@ -164,34 +163,34 @@ TUNING_PARAMETERS: tuple[TuningParameter, ...] = (
         "speed.unpaved_crr",
         TuningKind.CALIBRATION,
         "転がり抵抗（未舗装）", "", 0.015, 0.001, 0.1, TuningEffect.IMMEDIATE,
-        "砂利・締固めの一般的な値域（0.012〜0.020）の中ほど。"
+        "砂利・締固めの値域（0.012〜0.020）の中ほど。"
         "平地・無風で巡航20km/hの人が約14km/hになる。",
     ),
     TuningParameter(
         "speed.mass_kg",
         TuningKind.CALIBRATION,
         "総質量", "kg", 80.0, 30.0, 200.0, TuningEffect.IMMEDIATE,
-        "体重＋車体＋装備の目安。",
+        "体重＋車体＋装備。",
     ),
     TuningParameter(
         "speed.max_descent_kmh",
         TuningKind.CALIBRATION,
         "下りの速度上限", "km/h", 45.0, 10.0, 100.0,
         TuningEffect.IMMEDIATE,
-        "下りで際限なく速くならないための上限。入れないと急勾配で所要時間が発散する。",
+        "入れないと急勾配で所要時間が発散する。",
     ),
     TuningParameter(
         "speed.walking_kmh",
         TuningKind.CALIBRATION,
         "押して歩く速度", "km/h", 4.5, 1.0, 10.0, TuningEffect.IMMEDIATE,
-        "登りでこれ以下になったら押して歩くとみなす下限。",
+        "登りでこれ以下になったら押して歩くとみなす。",
     ),
     TuningParameter(
         "speed.climb_power_per_grade",
         TuningKind.CALIBRATION,
         "登りの出力の増え方", "W/%", 25.0, 0.0, 200.0,
         TuningEffect.IMMEDIATE,
-        "勾配1%あたり何W余分に踏むか。勾配5%で時速10km・10%で時速6km前後という実感に"
+        "勾配1%あたり何W余分に踏むか。勾配5%で時速10km前後という実感に"
         "合わせた暫定値で、根拠は薄い。",
     ),
     TuningParameter(
@@ -199,7 +198,7 @@ TUNING_PARAMETERS: tuple[TuningParameter, ...] = (
         TuningKind.CALIBRATION,
         "登りの出力の上限倍率", "倍", 2.5, 1.0, 10.0,
         TuningEffect.IMMEDIATE,
-        "平地の巡航に対して何倍まで踏むか。上の増え方をここで頭打ちにする。",
+        "平地の巡航に対して何倍まで踏むか。増え方をここで頭打ちにする。",
     ),
     # --- 主観と時間の換算 ---
     TuningParameter(
@@ -207,8 +206,8 @@ TUNING_PARAMETERS: tuple[TuningParameter, ...] = (
         TuningKind.CALIBRATION,
         "主観と時間の換算レート", "", 0.7, 0.0, 5.0,
         TuningEffect.RESTART,
-        "評価軸の難易度を所要時間の割増しへ換算する強さの既定値。"
-        "リクエストごとに上書きできるため、ここで決めるのは省略されたときの値だけ。",
+        "難易度を所要時間の割増しへ換算する強さ。"
+        "リクエストごとに上書きできるため、ここで決めるのは省略されたときの値。",
     ),
 )
 
