@@ -116,7 +116,7 @@ class Settings(BaseSettings):
     # 経由するため、basemapと同水準の上限にする。
     jma_tile_rate_limit_per_minute: int = 300
     # 国土地理院 色別標高図タイルのプロキシ。basemap/jma-tileと同水準の上限。
-    gsi_relief_tile_rate_limit_per_minute: int = 300
+    gsi_tile_rate_limit_per_minute: int = 300
     # JMA動的タイルの定期プリウォーム間隔。JMA側の実更新間隔（5〜10分おき、
     # jma_tile_client.pyのコメント参照）に合わせ、アメダス（AMEDAS_REFRESH_INTERVAL_MINUTES）
     # と同じ10分にした。

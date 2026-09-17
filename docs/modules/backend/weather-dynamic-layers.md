@@ -24,8 +24,10 @@ MSMは数値予報モデルの出力で観測値・公式発表の代わりに�
 |---|---|
 | domain | `msm.py`（MSM格子の幾何・双一次補間）・`jma_tile_specs.py`（配信元のズーム仕様レジストリ）・`weather.py`・`jma_amedas.py`・`jma_area.py`・`jma_warning.py`・`wbgt.py`・`wbgt_points.py`・`twilight.py`・`night.py`・`flood_forecast.py` |
 | services | `weather_service.py`・`jma_amedas_service.py`・`wbgt_service.py`・`warning_service.py`・`flood_service.py`・`jma_tile_prewarm_service.py`（定期プリウォームバッチ） |
-| infrastructure | `msm_client.py`（MSMの同期・読み出し）・`jma_tile_client.py`・`jma_tile_redis_cache.py`（タイル本体のRedis cache-aside）・`jma_tile_interpolation.py`（配信元が持たないズームの補間）・`jma_tile_index.py`（在否インデックス）・`jma_tile_content.py`（タイルが空かどうかの判定。キャッシュと在否インデックスが共有する）・`jma_amedas_client.py`・`jma_warning_client.py`・`wbgt_client.py`・`flood_client.py`・`basemap_client.py`・`gsi_relief_tile_client.py`・`simple_api_client.py`（後者4クライアントが共有する定型文、後述） |
-| api | `weather.py`・`jma_tile.py`・`basemap.py`・`gsi_relief_tile.py` |
+| infrastructure | `msm_client.py`（MSMの同期・読み出し）・`jma_tile_client.py`・`jma_tile_redis_cache.py`（タイル本体のRedis cache-aside）・`jma_tile_interpolation.py`（配信元が持たないズームの補間）・`jma_tile_index.py`（在否インデックス）・`jma_tile_content.py`（タイルが空かどうかの判定。キャッシュと在否インデックスが共有する）・`jma_amedas_client.py`・`jma_warning_client.py`・`wbgt_client.py`・`flood_client.py`・`basemap_client.py`・`gsi_tile_client.py`・`simple_api_client.py`（後者4クライアントが共有する定型文、後述） |
+| api | `weather.py`・`jma_tile.py`・`basemap.py`・`gsi_tile.py` |
+| services | `terrain_tile_service.py`（標高タイルの変換と配信） |
+| domain | `terrain_rgb.py`（標高タイルのエンコード変換、純関数） |
 
 ## domain層: 2つの異なる役割
 
@@ -260,7 +262,7 @@ URLも変わるため、ブラウザキャッシュ（`api/cache_policy.py`）�
 固定文字列`error_type="unexpected_shape"`として記録される。呼び出し元によって
 捕捉すべき例外の範囲が異なる（例: `fetch_municipality_code`は`AttributeError`も対象に
 含める）ため、`catch`引数で個別に指定できる。`jma_tile_client.py`/`elevation_client.py`/
-`basemap_client.py`/`gsi_relief_tile_client.py`（TTLCache以外のキャッシュバックエンド）は
+`basemap_client.py`/`gsi_tile_client.py`（TTLCache以外のキャッシュバックエンド）は
 対象外のまま各自の実装を維持する。
 
 ## 基礎地図プロキシ（`basemap_client.py`・`api/routers/basemap.py`）
@@ -275,21 +277,35 @@ OpenFreeMapのスタイルJSON・TileJSON・スプライト・グリフ・タイ
 （`require_admin_basic_auth`）の内側に置き、入口は管理画面`/admin`の「データ保守」タブ
 （`TileCachePanel.tsx`）だけに持つ。
 
-## 色別標高図タイルプロキシ（`gsi_relief_tile_client.py`・`api/routers/gsi_relief_tile.py`）
+## 地理院タイルプロキシ（`gsi_tile_client.py`・`api/routers/gsi_tile.py`）
 
-国土地理院の色別標高図タイル（`{z}/{x}/{y}.png`）を透過的にプロキシしつつ`tile_cache`
-（ファイル）へキャッシュする。`basemap_client.py`と同じ「pathを丸ごとプロキシ＋
-`tile_cache`の永続ファイルキャッシュ」方式だが、タイルはPNG単体でJSON応答を持たないため
-URL書き換えは不要。地理院タイルは`basetime`/`validtime`のような時刻依存パラメータを持たない
-静的データのため、TTL付きキャッシュも不要。
+国土地理院のタイルを**パスで指定して**透過的にプロキシしつつ`tile_cache`（ファイル）へ
+キャッシュする。`basemap_client.py`と同じ「pathを丸ごとプロキシ＋`tile_cache`の永続ファイル
+キャッシュ」方式だが、タイルはPNG単体でJSON応答を持たないためURL書き換えは不要。地理院タイルは
+`basetime`/`validtime`のような時刻依存パラメータを持たない静的データのため、TTL付きキャッシュも
+不要。クライアントは製品ごとの解釈を持たない——現在は色別標高図（`xyz/relief/…`、
+`GET /api/gsi-relief-tile/{path}`がそのまま中継）と標高タイル（`xyz/dem_png/…`、下記）が使う。
+
+### 標高タイルの変換（`services/terrain_tile_service.py`・`domain/terrain_rgb.py`）
+
+`GET /api/gsi-terrain-tile/{z}/{x}/{y}.png`は、地理院の標高タイルをMapLibreの`raster-dem`が
+読むTerrain-RGBへ移して返す（フロントはこれを`hillshade`レイヤーの入力にする）。
+**配信元のエンコードのままでは渡せない**——地理院はセンチメートル単位の符号付き整数を2の補数で
+置き、標高が無い画素に決め打ちの値（2^23）を入れるが、Terrain-RGBは-10000mを原点とする0.1m
+刻みの符号なし整数で、無効値の表し方を持たない。無効値をそのまま大きな数として渡すと、標高の
+ある画素との境界がすべて数万メートルの崖になり陰影が黒い縁で埋まるため、海抜0mへ倒す。
+
+変換後のタイルはキャッシュしない（ネットワークを使う変換前の取得だけが`tile_cache`に載る。
+変換自体はタイル1枚ぶんの配列演算とPNGの書き出しで、同じものを二重に置く価値が無い）。
+配信元が実データを持つのはz14まで（`TERRAIN_TILE_MAX_ZOOM`）。
 
 **恒久404のキャッシュ**: 色別標高図の整備区域外（404）は珍しくない正常系
 （`elevation_client.py`のDEMタイル・`_CoverageGap`と同じ状況）で、他の失敗（タイムアウト・
 5xx等）と区別して502・WARNINGログ・`/api/debug/stats`のerror集計へは乗せない。確認済みの
-404は`ReliefTileNotFound`センチネルとしてプロセス内メモリのみ（上限付きLRU、キー=path）に
+404は`GsiTileNotFound`センチネルとしてプロセス内メモリのみ（上限付きLRU、キー=path）に
 記憶し、`tile_cache.py`の永続ファイルキャッシュへは書かない（将来GSI側の整備区域が広がった
-場合、プロセス再起動だけで再取得の機会が来るようにするため）。`api/routers/gsi_relief_tile.py`
-は`ReliefTileNotFound`を受け取ると404（それ以外の`None`は502）を返す。
+場合、プロセス再起動だけで再取得の機会が来るようにするため）。`api/routers/gsi_tile.py`
+は`GsiTileNotFound`を受け取ると404（それ以外の`None`は502）を返す。
 
 ## 気象庁MSMの同期と読み出し（`msm_client.py`・`domain/msm.py`）
 

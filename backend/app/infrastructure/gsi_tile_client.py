@@ -8,8 +8,8 @@ from app.infrastructure.debug_log import error_type_label, log_external_call
 
 UPSTREAM_HOST = "https://cyberjapandata.gsi.go.jp"
 
-# 色別標高図タイルも、DEMタイル（elevation_client.py: _CoverageGap）と同じ
-# GSIホストの整備区域外で404を返す（恒久的に正しい事実、再フェッチしても変わらない）。
+# 地理院のタイルは、DEMタイル（elevation_client.py: _CoverageGap）と同じく
+# 整備区域外で404を返す（恒久的に正しい事実、再フェッチしても変わらない）。
 # プロセス内メモリのみに留める（tile_cache.pyの永続ファイルキャッシュへは書かない——
 # 将来GSI側の整備区域が広がった場合、プロセス再起動だけで再取得の機会が来るようにする）。
 # 上限付きLRU（cachetools.LRUCache、キー=path。docs/caching.md参照）。
@@ -17,21 +17,23 @@ _NOT_FOUND_MAX_ENTRIES = 2000
 _not_found_paths: LRUCache = LRUCache(maxsize=_NOT_FOUND_MAX_ENTRIES)
 
 
-class ReliefTileNotFound:
-    """指定パスの色別標高図タイルが上流（GSI）に存在しないこと（404）を確認済みという
+class GsiTileNotFound:
+    """指定パスのタイルが上流（GSI）に存在しないこと（404）を確認済みという
     キャッシュ済みの事実を表すセンチネル（elevation_client.py: _CoverageGapと同じ設計）。"""
 
 
-RELIEF_TILE_NOT_FOUND = ReliefTileNotFound()
+GSI_TILE_NOT_FOUND = GsiTileNotFound()
 
 
 def _remember_not_found(path: str) -> None:
     _not_found_paths[path] = None
 
 
-class GsiReliefTileClient:
-    """国土地理院 色別標高図タイル（`{z}/{x}/{y}.png`）を透過的にプロキシしつつ
-    ファイルシステムにキャッシュする。`basemap_client.py`と同じ
+class GsiTileClient:
+    """国土地理院のタイル（色別標高図`xyz/relief/…`・標高タイル`xyz/dem_png/…`）を
+    パスで指定して透過的にプロキシしつつファイルシステムにキャッシュする。
+    製品ごとの解釈は持たない——標高タイルをMapLibreが読む形へ移す変換は
+    `services/terrain_tile_service.py`が担う。`basemap_client.py`と同じ
     「pathを丸ごとプロキシ＋`tile_cache`の永続ファイルキャッシュ」方式だが、
     タイルはPNG単体でJSON応答（basemapのスタイルJSON等）を持たないため、URL書き換えは
     不要。地理院タイルは`basetime`/`validtime`のような時刻依存パラメータを持たない
@@ -41,9 +43,9 @@ class GsiReliefTileClient:
     def __init__(self, http_client: httpx.AsyncClient):
         self._http_client = http_client
 
-    async def get(self, path: str) -> tuple[bytes, str] | ReliefTileNotFound | None:
+    async def get(self, path: str) -> tuple[bytes, str] | GsiTileNotFound | None:
         if path in _not_found_paths:
-            return RELIEF_TILE_NOT_FOUND
+            return GSI_TILE_NOT_FOUND
         with log_external_call("gsi-relief-tile", path=path) as fields:
             # tile_cacheの読み書きは同期的なディスクI/O。basemap_client.pyと同じ理由
             # （多数のタイルリクエストが同時に来るとイベントループをブロックする）で
@@ -64,7 +66,7 @@ class GsiReliefTileClient:
                     fields["result"] = "ok"
                     fields["status"] = 404
                     _remember_not_found(path)
-                    return RELIEF_TILE_NOT_FOUND
+                    return GSI_TILE_NOT_FOUND
                 fields["result"] = "error"
                 fields["error"] = repr(exc)
                 fields["error_type"] = error_type_label(exc)

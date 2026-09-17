@@ -543,6 +543,29 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/gsi-terrain-tile/{z}/{x}/{y}.png": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Gsi Terrain Tile
+         * @description 地理院の標高タイルをTerrain-RGBへ移して返す（MapLibreの`raster-dem`が読む形）。
+         *
+         *     整備区域外の404は上のプロキシと同じく正常系。MapLibreはそのタイルの陰影を描かないだけで、
+         *     地図全体は成立する。
+         */
+        get: operations["gsi_terrain_tile_api_gsi_terrain_tile__z___x___y__png_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/admin/axis-definitions": {
         parameters: {
             query?: never;
@@ -3166,6 +3189,39 @@ export interface operations {
             header?: never;
             path: {
                 path: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    gsi_terrain_tile_api_gsi_terrain_tile__z___x___y__png_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                z: number;
+                x: number;
+                y: number;
             };
             cookie?: never;
         };

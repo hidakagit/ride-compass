@@ -39,6 +39,7 @@ import {
 
 export type MapLayerId =
   | "elevation"
+  | "hillshade"
   | "landcover"
   | "roadType"
   | "roadSurface"
@@ -223,6 +224,17 @@ export function buildMapLayers(
       description: "国土地理院の色別標高図を重ねる",
       // ラスタタイルのため他レイヤーのような凡例ベースの絞り込みを持たず、操作はON/OFFだけ。
       panelHint: "国土地理院の色別標高図を重ねる",
+    },
+    {
+      id: "hillshade",
+      // 「標高図」が何mかを塗るのに対し、こちらは坂の在りかだけを塗る。名前もその違いで
+      // 分ける——どちらも「標高」と呼ぶと、ONにして何が出るのかが区別できない。
+      label: "起伏",
+      kind: "static",
+      category: "terrain",
+      description: "斜面に陰影を付ける[平地は塗らない]",
+      // 陰影のため凡例ベースの絞り込みを持たず、操作はON/OFFだけ。
+      panelHint: "国土地理院の標高データから斜面の陰影を作る。平らな所は塗らないため、下の地図の色が残る",
     },
     {
       id: "landcover",
@@ -573,4 +585,3 @@ export function deriveFetchLayerStatus(
   if (!hasPayload) return "empty";
   return undefined;
 }
-

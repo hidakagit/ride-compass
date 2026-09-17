@@ -28,6 +28,25 @@ export function ElevationIcon({ size = 16 }: IconProps) {
   );
 }
 
+/** 起伏（陰影）: 同じ山並みの片斜面だけに陰が乗った形。ElevationIcon（輪郭だけの山並み＝
+ * 標高そのもの）と対にして、「塗るのは斜面だけ」を形で示す。 */
+export function HillshadeIcon({ size = 16 }: IconProps) {
+  return (
+    <svg width={size} height={size} {...svgProps}>
+      <path d="M1.5 15.5 6 8l3 3.5 2.5-4 5.5 8H1.5Z" fill="currentColor" opacity="0.28" stroke="none" />
+      <path
+        d="M1.5 15.5 6 8l3 3.5 2.5-4 5.5 8H1.5Z"
+        stroke="currentColor"
+        strokeWidth="1.6"
+        strokeLinejoin="round"
+        strokeLinecap="round"
+      />
+      <path d="M6 8 1.5 15.5h4.7Z" fill="currentColor" stroke="none" />
+      <path d="M11.5 7.5 9 11.5h5Z" fill="currentColor" stroke="none" />
+    </svg>
+  );
+}
+
 /** 土地被覆: 用途の違う区画が並ぶ様子を表す、大きさの違う4区画 */
 export function LandcoverIcon({ size = 16 }: IconProps) {
   return (

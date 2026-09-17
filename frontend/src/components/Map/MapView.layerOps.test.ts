@@ -29,6 +29,7 @@ import {
   shouldClearDedicatedWayValueFeatureState,
   ensureLayerFromSpec,
   dynamicWeatherIds,
+  AREA_LAYER_OPACITY,
 } from "./MapView";
 import { DETAIL_CASING_LAYER_ID, DETAIL_LAYER_ID, drawDetailSegments } from "./MapView.routes";
 
@@ -670,5 +671,23 @@ describe("区間色分け線の縁取り（T770）", () => {
     const lineFilter = map.filterCalls.find((c) => c.layerId === DETAIL_LAYER_ID);
 
     expect(casingFilter?.filter).toEqual(lineFilter?.filter);
+  });
+});
+
+// 起伏（陰影）のレイヤー登録（T914）。hillshadeは不透明度のpaintプロパティを持たないため、
+// 面レイヤー共通の濃さが影・光の色のalphaとして渡っていることを固定する——ここが素の色に
+// 戻ると、平地は透明のままでも斜面だけが他の面レイヤーより濃くなる。
+describe("ensureTerrainHillshadeLayer（起伏）", () => {
+  it("raster-demソースとhillshadeレイヤーを作り、共通の濃さを影・光の色へ載せる", () => {
+    const map = fakeMap();
+
+    const entry = buildStaticOverlayLayers([], []).find((layer) => layer.key === "hillshade");
+    entry?.ensure(map as unknown as Parameters<typeof ensureLayerFromSpec>[0]);
+
+    const spec = map.addedSpecs.find((s) => s.id === entry?.layerId) as
+      { id: string; type?: string; paint?: Record<string, unknown> } | undefined;
+    expect(spec?.type).toBe("hillshade");
+    expect(String(spec?.paint?.["hillshade-shadow-color"])).toContain(String(AREA_LAYER_OPACITY));
+    expect(String(spec?.paint?.["hillshade-highlight-color"])).toContain(String(AREA_LAYER_OPACITY));
   });
 });

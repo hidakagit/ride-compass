@@ -246,9 +246,25 @@ const INITIAL_TILES_OVERLAY_MAX_MS = 6000;
 // 背景と区別できなくなり、上げると面の下にある基礎地図の土地の塗り（公園・土地利用・建物）の
 // 違いが潰れ、全面を覆う面（標高図・緑と水）で地図が一様な色になる。どちらも1つの値が決める
 // ため、片側だけを見て動かさないこと。
-const AREA_LAYER_OPACITY = 0.55;
+export const AREA_LAYER_OPACITY = 0.55;
 const GSI_RELIEF_SOURCE_ID = "gsi-relief";
 const GSI_RELIEF_LAYER_ID = "gsi-relief-raster";
+const GSI_TERRAIN_SOURCE_ID = "gsi-terrain";
+const GSI_TERRAIN_LAYER_ID = "gsi-terrain-hillshade";
+const GSI_TERRAIN_TILE_PATH = "/api/gsi-terrain-tile/{z}/{x}/{y}.png";
+// 配信元が実データを持つ上限（backend services/terrain_tile_service.py と同じ値）。
+// これより上はMapLibreが拡大して見せる。
+const GSI_TERRAIN_MAX_ZOOM = 14;
+// 陰影の強さ。hillshadeレイヤーは不透明度のpaintプロパティを持たないため、面レイヤー共通の
+// 濃さ（AREA_LAYER_OPACITY）は影・光の色のalphaとして渡す。平坦な所は影も光も出ない
+// （MapLibreのhillshadeは傾きが0の画素を透明にする）ため、この値を上げても基礎地図の
+// 平地は濁らない。
+const HILLSHADE_SHADOW_COLOR = `rgba(60, 50, 40, ${AREA_LAYER_OPACITY})`;
+const HILLSHADE_HIGHLIGHT_COLOR = `rgba(255, 252, 245, ${AREA_LAYER_OPACITY})`;
+// 稜線・谷線の強調。影と同系で、影より弱く乗せる。
+const HILLSHADE_ACCENT_COLOR = `rgba(60, 50, 40, ${AREA_LAYER_OPACITY * 0.5})`;
+// 北西からの斜め光（陰影図の慣例。真上からだと起伏が出ない）。
+const HILLSHADE_ILLUMINATION_DIRECTION = 315;
 const LANDCOVER_SOURCE_ID = "landcover";
 const LANDCOVER_LAYER_ID = "landcover-raster";
 // 土地被覆ラスタの帰属表示。路面タイルへ焼き込んだ割合（ROAD_TILE_ATTRIBUTION）と同じ
@@ -462,6 +478,45 @@ function ensureLandcoverLayer(map: MapLibreMap) {
         type: "raster",
         source: LANDCOVER_SOURCE_ID,
         paint: { "raster-opacity": AREA_LAYER_OPACITY },
+        layout: { visibility: "none" },
+      },
+      { specOwnsFilter: true },
+    );
+  };
+  runWhenStyleReady(map, applyData);
+}
+
+// 起伏（陰影）。標高タイル（DEM）をraster-demソースとして読み、MapLibreのhillshadeが
+// 傾きから影を作る。色別標高図（上）が「この場所が何mか」を面で塗るのに対し、こちらは
+// 「どこに坂があるか」だけを塗る——傾きが0の画素は透明になるため、平地では基礎地図の
+// 土地の色がそのまま残る。
+function ensureTerrainHillshadeLayer(map: MapLibreMap) {
+  const applyData = () => {
+    if (!map.getSource(GSI_TERRAIN_SOURCE_ID)) {
+      map.addSource(GSI_TERRAIN_SOURCE_ID, {
+        type: "raster-dem",
+        tiles: [`${tileBaseUrl()}${GSI_TERRAIN_TILE_PATH}`],
+        tileSize: 256,
+        maxzoom: GSI_TERRAIN_MAX_ZOOM,
+        // backendが配信元の独自エンコードをTerrain-RGBへ移して返すため、MapLibre側は
+        // 標準のmapbox encodingとして読む（app/domain/terrain_rgb.py参照）。
+        encoding: "mapbox",
+        attribution: GSI_RELIEF_ATTRIBUTION,
+      });
+    }
+    ensureLayerFromSpec(
+      map,
+      {
+        id: GSI_TERRAIN_LAYER_ID,
+        type: "hillshade",
+        source: GSI_TERRAIN_SOURCE_ID,
+        paint: {
+          "hillshade-shadow-color": HILLSHADE_SHADOW_COLOR,
+          "hillshade-highlight-color": HILLSHADE_HIGHLIGHT_COLOR,
+          "hillshade-accent-color": HILLSHADE_ACCENT_COLOR,
+          "hillshade-illumination-direction": HILLSHADE_ILLUMINATION_DIRECTION,
+          "hillshade-illumination-anchor": "map",
+        },
         layout: { visibility: "none" },
       },
       { specOwnsFilter: true },
@@ -1524,6 +1579,13 @@ export function buildStaticOverlayLayers(
       underRoadSurface: true,
     },
     {
+      key: "hillshade",
+      layerId: GSI_TERRAIN_LAYER_ID,
+      ensure: ensureTerrainHillshadeLayer,
+      interactive: false,
+      underRoadSurface: true,
+    },
+    {
       key: "landcover",
       layerId: LANDCOVER_LAYER_ID,
       ensure: ensureLandcoverLayer,
@@ -1608,6 +1670,7 @@ export function buildLayerDataSources(rampAxes: readonly RampAxis[]): readonly L
     { key: "stopPoi", sourceId: POI_TILE_SOURCE_ID, sourceLayer: STOP_POI_SOURCE_LAYER },
     { key: "supplyPoi", sourceId: POI_TILE_SOURCE_ID, sourceLayer: STOP_POI_SOURCE_LAYER },
     { key: "elevation", sourceId: GSI_RELIEF_SOURCE_ID },
+    { key: "hillshade", sourceId: GSI_TERRAIN_SOURCE_ID },
     { key: "landcover", sourceId: LANDCOVER_SOURCE_ID },
     // 二次軸rampレイヤー（car_stressを含む）はroad_surfaceタイルへ
     // 焼き込み済みのプロパティを読む（designation等と同じソース共有。

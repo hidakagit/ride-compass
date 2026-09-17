@@ -42,7 +42,7 @@ RideCompassのログはRender（本番）のログストリームだけで障害
   `fields["status"]`、クォータ系ヘッダがあれば`fields["quota_remaining"]`等で残す。
 - 「取得できないのが正常」なケース（GSIの整備区域外等）は`fields["result"]="ok"`のまま
   理由を別フィールドへ残し（`fields["status"]=404`等）、WARNINGでログを埋めない
-  （`gsi_relief_tile_client.py`の404分岐が実例）。
+  （`gsi_tile_client.py`の404分岐が実例）。
 - 呼び出し元が例外を自前でcatchし、対象ID等より詳細な文脈付きの独自WARNINGを既に
   出している場合は、`fields["result"]="error"`に加えて`fields["warned"]=True`を設定する。
   `log_external_call`自身の二重WARNING出力だけ抑制しつつ、`/api/debug/stats`のerror集計には

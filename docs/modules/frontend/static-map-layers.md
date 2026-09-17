@@ -45,7 +45,7 @@
 rewritesでbackendへプロキシ）。`window`をSSR時に参照しないよう、モジュール定数ではなく
 呼び出し時に評価する関数になっている。適用範囲は路面/POI/事故のベクタタイルに限らず、
 基礎地図のスタイルJSON（`MapView.tsx: mapStyleUrl`）・国土地理院色別標高図（同
-`GSI_RELIEF_TILE_PATH`）・土地被覆ラスタ（`regionApi.ts: landcoverTileUrl`）・JMA動的タイル
+`GSI_RELIEF_TILE_PATH`・`GSI_TERRAIN_TILE_PATH`）・土地被覆ラスタ（`regionApi.ts: landcoverTileUrl`）・JMA動的タイル
 （`riskMap.ts`・`precipitationNowcast.ts`・`thunderNowcast.ts`のURLテンプレート）も同じ
 関数でオリジンを決める。JMAの`targetTimes`
 JSONやlidenのGeoJSONのようにアプリのfetch()で読む小さなデータは対象外（相対パスのまま）。
@@ -115,7 +115,9 @@ buildStaticOverlayLayers(axisOverlayLayers, dedicatedAxes,
                          dedicatedWayValueDisplays?, dedicatedWayValueLoading?)
 が描画順（＝重なり順、背面→前面）を決める:
 
-  elevation（標高ラスタ）
+  elevation（色別標高図ラスタ）
+    │
+  hillshade（起伏、標高タイル→raster-dem→陰影）
     │
   landcover（土地被覆ラスタ）
     │

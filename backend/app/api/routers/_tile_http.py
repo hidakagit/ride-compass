@@ -1,7 +1,7 @@
-"""地域タイル系エンドポイント（路面・POI・事故）で共通のHTTP層。
+"""z/x/yで配るタイルのエンドポイントで共通のHTTP層。
 
-region.py（路面/POIタイル）とaccidents.py（事故タイル）が、座標検証と応答の組み立てを
-それぞれ個別に実装するのを避けるため共有する。レート制限は地域タイル系に限らず全router
+region.py（路面/POI/土地被覆タイル）・accidents.py（事故タイル）・gsi_tile.py（標高タイル）が、
+座標検証と応答の組み立てをそれぞれ個別に実装するのを避けるため共有する。レート制限は地域タイル系に限らず全router
 共通の`app.api.dependencies.enforce_rate_limit`を使う（本モジュールの対象外）。
 """
 
@@ -18,10 +18,10 @@ def validate_tile_coords(
     min_zoom: int = ROAD_TILE_MIN_ZOOM,
     max_zoom: int = ROAD_TILE_MAX_ZOOM,
 ) -> None:
-    """地域タイルで共通のズーム/座標範囲チェック。
+    """タイルで共通のズーム/座標範囲チェック。
 
     既定は路面レイヤーのズーム範囲（POI・事故タイルもこれに準拠する）。元データの分解能が
-    違うレイヤー（土地被覆ラスタ）は自分の範囲を渡す。
+    違うレイヤー（土地被覆ラスタ・標高タイル）は自分の範囲を渡す。
     """
     # MapLibre側もsourceのminzoom/maxzoomでこの範囲外は要求しないが、
     # 直接APIを叩かれた場合の安全弁として範囲外は拒否する。

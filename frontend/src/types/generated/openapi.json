@@ -1109,6 +1109,62 @@
         }
       }
     },
+    "/api/gsi-terrain-tile/{z}/{x}/{y}.png": {
+      "get": {
+        "summary": "Gsi Terrain Tile",
+        "description": "地理院の標高タイルをTerrain-RGBへ移して返す（MapLibreの`raster-dem`が読む形）。\n\n整備区域外の404は上のプロキシと同じく正常系。MapLibreはそのタイルの陰影を描かないだけで、\n地図全体は成立する。",
+        "operationId": "gsi_terrain_tile_api_gsi_terrain_tile__z___x___y__png_get",
+        "parameters": [
+          {
+            "name": "z",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Z"
+            }
+          },
+          {
+            "name": "x",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "X"
+            }
+          },
+          {
+            "name": "y",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Y"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/admin/axis-definitions": {
       "get": {
         "tags": [

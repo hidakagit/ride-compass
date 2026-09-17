@@ -144,7 +144,7 @@ road_graph一本のため、DATABASE_URLへの実接続なしで動く構成は�
 
 `check_rate_limit`→超過時の記録→`HTTPException(429)`という一連の処理を
 `enforce_rate_limit(request, prefix, limit_per_minute)`へ集約している。`weather.py`・
-`basemap.py`・`jma_tile.py`・`gsi_relief_tile.py`・`accidents.py`・`routes.py`の各routerが
+`basemap.py`・`jma_tile.py`・`gsi_tile.py`・`accidents.py`・`routes.py`の各routerが
 これを直接呼び、`region.py`は路面・POI・専用way値配信で同じ上限を共有するため
 `_check_tile_rate_limit`という薄いラッパー経由で呼ぶ。`prefix`はレート制限キー・
 rejection集計カテゴリの両方を兼ねる。

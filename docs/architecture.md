@@ -23,7 +23,7 @@
 | 地図タイル | OpenFreeMap（`https://tiles.openfreemap.org/styles/liberty`、APIキー不要） | `tile.openstreetmap.org` は bulk/非ブラウザアクセスをブロックするポリシーがあり不採用（後述）。Step10でバックエンド経由のプロキシ＋ファイルキャッシュ（`BasemapClient`）を追加 |
 | 天候 | **気象庁MSM**（Open-MeteoがAWS Open Dataで公開する前処理済み`.om`ファイルをローカル同期。外部の気象予報APIには依存しない） | `WeatherService`（[backend/app/services/weather_service.py](../backend/app/services/weather_service.py)）が`msm_client`経由で読む。`get_wind_grid`/`get_wind_forecast_series`が風の格子点マップとルート評価の風を、`get_conditions`が「今日の見通し」パネル用の現在値・日次集計・時間帯別の流れを組み立てる（天気コードは雲量・降水・気温から導出、日の出/日没は`domain/twilight.py`で計算） |
 | 標高 | **国土地理院（GSI）DEMタイル**（APIキー不要、日本国内限定） | `ElevationClient`（[backend/app/infrastructure/elevation_client.py](../backend/app/infrastructure/elevation_client.py)）がDEMタイルを取得し双線形補間、`ElevationAttributeService`（[backend/app/services/elevation_attribute_service.py](../backend/app/services/elevation_attribute_service.py)）がEdge単位の標高属性を求めて`elevation_attributes`へ永続化する（事前計算は`batch/precompute_elevation_attributes.py`）。ルート単位の獲得標高・最高/最低標高・最大勾配は`services/elevation_aggregation.py`が区間の属性から集約する |
-| 標高（地域レイヤー） | **国土地理院 色別標高図**（ラスタタイル、APIキー不要） | `MapView.tsx`がMapLibreのraster sourceとして`GET /api/gsi-relief-tile/{path:path}`（`GsiReliefTileClient`、改善計画T572）経由で重ね描き。候補ルートに紐づかない「地域全体」の標高表示用で、Step5の標高API（点ごとの数値取得）とは別用途 |
+| 標高（地域レイヤー） | **国土地理院 色別標高図**（ラスタタイル、APIキー不要） | `MapView.tsx`がMapLibreのraster sourceとして`GET /api/gsi-relief-tile/{path:path}`（`GsiTileClient`、改善計画T572）経由で重ね描き。候補ルートに紐づかない「地域全体」の標高表示用で、Step5の標高API（点ごとの数値取得）とは別用途 |
 | 路面（地域レイヤー） | **PostGIS**（`ST_AsMVT`、`road_graph_use_repository=true`時）／DBなし構成では常に空タイル | `RegionService`（[backend/app/services/region_service.py](../backend/app/services/region_service.py)）が候補ルートに紐づかない「地域全体」の路面レイヤーを提供する。PBF取込済み範囲はPostGIS側（`road_graph_repository.py`の`_ROAD_SURFACE_TILE_MVT_SQL`）でMVT生成まで完結し、取込範囲外・DB障害・DBなし構成は空タイル（`infrastructure/vector_tile.py: encode_empty_road_surface_tile`）を返す。Overpass APIによる取得は改善計画T22で撤去済み（当初はOverpass API＋自前Python MVTエンコードだったが、PostGIS移行に伴い不要になった。経緯は[decisions/pre-static-attributes-gate.md](decisions/pre-static-attributes-gate.md)参照） |
 
 ### 地図タイルプロバイダに関する注記
@@ -157,9 +157,10 @@ Step5-9で実装した標高・風・路面はいずれも「生成済みの候�
 #### 標高オーバーレイ（国土地理院 色別標高図、ラスタタイル）
 初期実装では、標高もリクエストされたbboxを固定間隔（約500m）のグリッド点に分解し、既存の`ElevationClient`（Step5と共通の国土地理院標高API）へ問い合わせて`circle`レイヤーの点として描画していた。しかし実際にブラウザで確認したところ「疎らな点では地形の起伏が直感的に分かりにくい」ことが分かり、標高の点取得・グリッド生成・専用APIエンドポイント（`GET /api/region/elevation`）は撤去し、代わりに国土地理院が公開する**色別標高図**（ラスタタイル、APIキー不要、zoom 5-15）をMapLibreの`raster`ソースとして`MapView.tsx`が重ね描きする方式に変更した。
 
-- **バックエンド経由プロキシ＋キャッシュ**（改善計画T572）: `GsiReliefTileClient`
-  （[backend/app/infrastructure/gsi_relief_tile_client.py](../backend/app/infrastructure/gsi_relief_tile_client.py)）が`BasemapClient`と同じ「pathを丸ごとプロキシ＋`tile_cache.py`の永続ファイルキャッシュ」方式で国土地理院（`cyberjapandata.gsi.go.jp`）のタイルを中継する（`GET /api/gsi-relief-tile/{path:path}`、`next.config.ts`の`/api/gsi-relief-tile/*`rewritesで同一オリジン化）。地理院タイルは`basetime`/`validtime`のような時刻依存パラメータを持たない静的データのため、JMAタイル系のようなTTL付きキャッシュの分岐は不要。
+- **バックエンド経由プロキシ＋キャッシュ**（改善計画T572）: `GsiTileClient`
+  （[backend/app/infrastructure/gsi_tile_client.py](../backend/app/infrastructure/gsi_tile_client.py)）が`BasemapClient`と同じ「pathを丸ごとプロキシ＋`tile_cache.py`の永続ファイルキャッシュ」方式で国土地理院（`cyberjapandata.gsi.go.jp`）のタイルを中継する（`GET /api/gsi-relief-tile/{path:path}`、`next.config.ts`の`/api/gsi-relief-tile/*`rewritesで同一オリジン化）。地理院タイルは`basetime`/`validtime`のような時刻依存パラメータを持たない静的データのため、JMAタイル系のようなTTL付きキャッシュの分岐は不要。
 - **レイヤー順序**: `ensureGsiReliefLayer`（`MapView.tsx`）は地図初期化直後に一度だけソース/レイヤーを追加し、以降はvisibilityの切替のみで表示・非表示を行う。面で塗るレイヤーは基礎地図の道路網の直前へ差し込まれる（`mapStyleOps.ts: areaLayerAnchor`）ため、基礎地図の道路線・ラベルも、後から追加される路面・ルート系のレイヤーも、必ずこのラスタの上に重なる。不透明度は面で塗るレイヤー共通の値（`AREA_LAYER_OPACITY`）で、こちらは面そのものが背景と区別できる濃さだけを決める。
+- **起伏（陰影）は別レイヤー**: 色別標高図が「この場所が何mか」を面で塗るのに対し、起伏は「どこに坂があるか」だけを塗る。`GET /api/gsi-terrain-tile/{z}/{x}/{y}.png`が地理院の標高タイル（`xyz/dem_png`、z14まで）をTerrain-RGBへ移して返し（[backend/app/domain/terrain_rgb.py](../backend/app/domain/terrain_rgb.py)）、フロントは`raster-dem`ソース＋`hillshade`レイヤーとして描く。MapLibreのhillshadeは傾きが0の画素を透明にするため、平地では基礎地図の土地の色がそのまま残る。`hillshade`は不透明度のpaintプロパティを持たないため、面レイヤー共通の濃さは影・光の色のalphaとして渡す。
 - **ビューポート制限は不要**: 標高グリッドAPI（撤去済み）はGSIの点別APIへの問い合わせ数を抑えるため`MAX_REGION_DIAGONAL_KM`のズーム制限を課していたが、ラスタタイルはズームレベルに応じてタイルが自動的に切り替わる標準的なXYZタイルのため、この種の制限は不要になった（後述の路面データのみ制限が残る）。
 
 #### 路面データ：自前生成のベクタタイル（`GET /api/region/road-surface-tiles/{z}/{x}/{y}.pbf`）

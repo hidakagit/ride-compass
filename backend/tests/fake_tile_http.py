@@ -1,6 +1,6 @@
 """タイル・バイナリ配信のクライアントのテストが共有するHTTPフェイク。
 
-`jma_tile_client`・`gsi_relief_tile_client`・`basemap_client`は上流のレスポンスを
+`jma_tile_client`・`gsi_tile_client`・`basemap_client`は上流のレスポンスを
 バイト列のまま通す設計のため、フェイク側も`content`と`content-type`だけを持てば足りる。
 """
 
