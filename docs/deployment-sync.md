@@ -8,13 +8,18 @@ CLAUDE.md「コミット時の同期ルール」から参照される。個々�
 本番DBをゼロから再構築する手順（disaster recovery）・OSM更新時の派生データ再構築手順は
 [docs/disaster-recovery.md](disaster-recovery.md)参照。
 
-## axis_admin API経由のDB変更は開発DB・本番DB両方への反映を完了条件にする
+軸定義を軸スタジオに何をさせるかは
+[decisions/axis-definition-maintenance-split.md](decisions/axis-definition-maintenance-split.md)。
 
-- 対象: `axis_admin`のAPI（軸スタジオGUI、または直接API呼び出し）経由で
+## 本番へ効かせたい軸定義の変更は、本番の管理画面で行う
+
+- 対象: `axis_admin`のAPI（各環境の軸スタジオGUI、または直接API呼び出し）経由で
   `axis_definitions`等のDB行データを変更する全ての作業。
-- ルール: 開発DBのみの変更でタスクを完了扱いにしない。本番DBへの反映（必要なら
-  `dump_axis_definitions_snapshot.py`によるスナップショットの再ダンプも）を完了条件として
-  明記する。
+- ルール: **DBは環境ごとに独立していて、その環境の管理画面がそのDBをメンテナンスする**。
+  開発DBへの変更は開発環境にしか効かないため、開発DBだけ変えてタスクを完了扱いにしない
+  ——本番へ効かせるなら本番の軸スタジオで行う。環境間で内容を転送する仕組みは持たない
+  （上記の決定文書参照）。`dump_axis_definitions_snapshot.py`によるスナップショットの
+  再ダンプが要る場合は、それも完了条件へ含める。
 - 背景: 開発DBのみ反映してタスクを完了扱いにした結果、本番だけ古い軸定義のまま取り残される
   反映漏れが繰り返し発生した実績（T294・T353・T360・T396・T440系列[T455で発覚・修正]・
   T458[過去`[x]`タスクの監査で発覚・修正]、計6回）。

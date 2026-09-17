@@ -124,7 +124,6 @@
   padding: var(--space-3);
 }
 
-
 .row {
   display: flex;
   gap: var(--space-3);
@@ -496,4 +495,52 @@
 .breakpointPreviewTable th {
   color: var(--color-muted);
   font-weight: 500;
+}
+
+/* 色分けしきい値のまとめ入力欄と、その結果の段階プレビュー（AxisComposer）。 */
+.thresholdListInput {
+  width: 100%;
+  font-variant-numeric: tabular-nums;
+}
+
+.thresholdError {
+  margin: 0.25rem 0 0;
+  color: var(--color-danger);
+  font-size: var(--font-size-sm);
+}
+
+.bandPreview {
+  margin-top: 0.5rem;
+}
+
+.bandPreviewHeading {
+  margin: 0 0 0.25rem;
+  font-size: var(--font-size-sm);
+  color: var(--color-muted);
+}
+
+/* 段階数は軸が決めるため、幅が許す限り列へ流す（レンズの凡例と同じ考え方）。 */
+.bandPreviewList {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(10rem, 1fr));
+  gap: 0.15rem 0.5rem;
+}
+
+.bandPreviewRow {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: var(--font-size-sm);
+  font-variant-numeric: tabular-nums;
+}
+
+.bandPreviewSwatch {
+  display: inline-block;
+  width: 0.9rem;
+  height: 0.5rem;
+  border-radius: 1px;
+  flex-shrink: 0;
 }
