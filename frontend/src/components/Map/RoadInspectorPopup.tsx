@@ -3,6 +3,7 @@
 import { useState } from "react";
 import AxisContributionBar from "@/components/RouteAxisProfile/AxisContributionBar";
 import type { PreferenceAxisDef } from "@/lib/evaluationAxes";
+import { isDebugEnabled } from "@/lib/debugLog";
 import { fetchAxisInspector } from "@/services/regionApi";
 import type { AxisInspectorResult } from "@/types/traffic";
 import { LANDCOVER_CLASSES } from "./landcoverClasses";
@@ -68,6 +69,10 @@ export default function RoadInspectorPopup({ properties, axes, axisColors }: Roa
           {state === "loading" ? "評価を取得中…" : "この道の評価を見る"}
         </button>
       )}
+      {/* デバッグログONのときだけ道の識別子を出す。値がおかしい道を見つけたとき、
+          地図で押した1本をそのままbackendの調査（scripts/measure_gradient_outliers.py
+          --way）へ渡せるようにする。一般の利用者には読めない値のため常時は出さない。 */}
+      {isDebugEnabled() && wayId != null && <p className={styles.note}>OSM way id: {wayId}</p>}
       {state === "error" && <p className={styles.note}>評価を取得できませんでした。</p>}
       {result !== null && (
         <div className={styles.result}>

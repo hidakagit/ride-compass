@@ -1,6 +1,7 @@
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { setDebugEnabled } from "@/lib/debugLog";
 import type { PreferenceAxisDef } from "@/lib/evaluationAxes";
 import { fetchAxisInspector } from "@/services/regionApi";
 import RoadInspectorPopup from "./RoadInspectorPopup";
@@ -132,5 +133,22 @@ describe("RoadInspectorPopup", () => {
 
     expect(container.querySelector("img")).toBeNull();
     expect(container.textContent).toContain(attack);
+  });
+});
+
+describe("道の識別子", () => {
+  it("デバッグログOFFでは出さない（一般の利用者には読めない値のため）", () => {
+    setDebugEnabled(false);
+    render(<RoadInspectorPopup properties={{ osm_way_id: 4242 }} axes={AXES} axisColors={AXIS_COLORS} />);
+
+    expect(screen.queryByText(/OSM way id/)).not.toBeInTheDocument();
+  });
+
+  it("デバッグログONなら出す（地図で押した1本を、そのままbackendの調査へ渡せるようにする）", () => {
+    setDebugEnabled(true);
+    render(<RoadInspectorPopup properties={{ osm_way_id: 4242 }} axes={AXES} axisColors={AXIS_COLORS} />);
+
+    expect(screen.getByText("OSM way id: 4242")).toBeInTheDocument();
+    setDebugEnabled(false);
   });
 });
