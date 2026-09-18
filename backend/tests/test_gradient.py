@@ -6,21 +6,27 @@ from app.domain.gradient import LENS_PERPENDICULAR_BAND_DEG, GradientCalculator
 
 
 def test_same_direction_keeps_gradient_unchanged():
-    # 走行方位が道路自身の向きと完全に一致（差0度）なら、cos(0)=1でそのまま。
+    # 走行方位が道路自身の向きと一致するなら、そのまま辿る＝道路自身の勾配。
     assert GradientCalculator.effective_gradient(5.0, 90.0, 90.0) == 5.0
 
 
 def test_opposite_direction_flips_sign():
-    # 道路を逆走する想定（差180度）なら、登り坂は下り坂として表れる（cos(180度)=-1）。
+    # 道路を逆向きに辿る想定（差180度）なら、登り坂は下り坂として表れる。
     result = GradientCalculator.effective_gradient(5.0, 90.0, 270.0)
     assert math.isclose(result, -5.0, abs_tol=1e-9)
 
 
-def test_perpendicular_direction_has_no_effect():
-    # 走行方位が道路の向きと直角（差90度）なら、その道路の勾配はほぼ無関係
-    # （cos(90度)=0）。
-    result = GradientCalculator.effective_gradient(5.0, 0.0, 90.0)
-    assert math.isclose(result, 0.0, abs_tol=1e-9)
+def test_magnitude_does_not_shrink_with_the_bearing():
+    """走行方位は符号だけを決め、坂の急さは変えない。
+
+    角度差を係数に掛けると、同じ坂が方位次第で緩く見える。15%の坂はどの方位を選んでいても
+    15%の坂で、緩い坂と同じ色で塗ってよい理由が無い。
+    """
+    for travel_bearing_deg in (0.0, 30.0, 60.0, 74.0):
+        assert GradientCalculator.effective_gradient(15.0, 0.0, travel_bearing_deg) == 15.0
+    # 逆向き寄りでも、入れ替わるのは符号だけ。
+    for travel_bearing_deg in (106.0, 150.0, 180.0):
+        assert GradientCalculator.effective_gradient(15.0, 0.0, travel_bearing_deg) == -15.0
 
 
 def test_downhill_road_same_direction():
@@ -43,7 +49,7 @@ def test_forward_and_backward_edge_agree():
 
 
 def test_swapping_road_and_travel_bearing_is_symmetric():
-    # cosは偶関数のため、road_bearing_degとtravel_bearing_degを入れ替えても結果は同じ。
+    # 符号の判定は角度差のcosの向きだけで決まり、cosは偶関数のため入れ替えても結果は同じ。
     a = GradientCalculator.effective_gradient(5.0, 30.0, 200.0)
     b = GradientCalculator.effective_gradient(5.0, 200.0, 30.0)
     assert math.isclose(a, b, abs_tol=1e-9)

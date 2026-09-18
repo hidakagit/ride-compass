@@ -120,10 +120,14 @@ async def test_different_bearing_bucket_recomputes():
     repository = FakeGradientInputsRepository(inputs={1: (5.0, 30.0)})
     service = GradientWayService(repository=repository)
 
+    # 走行方位は符号を決める（domain/gradient.py）。値が変わる組み合わせにするため、
+    # 道路の向きを挟んで反対側の方位を選ぶ。
     first = await service.get_way_values(Z, X, Y, None, 0.0)
-    second = await service.get_way_values(Z, X, Y, None, 90.0)
+    second = await service.get_way_values(Z, X, Y, None, 180.0)
 
     assert first != second
+    # 値が違うことだけでなく、向きバケットが違えば実際に作り直していることを見る。
+    assert len(repository.calls) == 2
 
 
 async def test_repository_error_returns_empty_dict():
