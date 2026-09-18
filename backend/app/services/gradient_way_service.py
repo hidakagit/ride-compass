@@ -101,9 +101,13 @@ class GradientWayService:
                 return {}
             fields["feature_count"] = len(inputs)
 
+            # 指定方位に対して直角に近い道路は値を持たせない（地図では「データなし」、
+            # domain/gradient.py: shows_gradient参照）。0%として配ると、実際には急な坂の
+            # 道が凡例の「平坦」の段へ入り、平坦な道と区別できなくなる。
             values = {
                 feature_key: round(GradientCalculator.effective_gradient(gradient_percent, road_bearing_deg, bearing_deg), 1)
                 for feature_key, (gradient_percent, road_bearing_deg) in inputs.items()
+                if GradientCalculator.shows_gradient(road_bearing_deg, bearing_deg)
             }
             await set_tile_values(self.axis_id, z, x, y, None, bearing_deg, values, GRADIENT_TILE_VALUES_TTL_SECONDS)
             fields["computed"] = len(values)

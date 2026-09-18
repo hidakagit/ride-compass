@@ -2,7 +2,7 @@
 
 import math
 
-from app.domain.gradient import GradientCalculator
+from app.domain.gradient import LENS_PERPENDICULAR_BAND_DEG, GradientCalculator
 
 
 def test_same_direction_keeps_gradient_unchanged():
@@ -47,3 +47,29 @@ def test_swapping_road_and_travel_bearing_is_symmetric():
     a = GradientCalculator.effective_gradient(5.0, 30.0, 200.0)
     b = GradientCalculator.effective_gradient(5.0, 200.0, 30.0)
     assert math.isclose(a, b, abs_tol=1e-9)
+
+
+def test_perpendicular_road_has_no_gradient_to_show():
+    """直角に近い道路は「示せない」であって「平坦」ではない。
+
+    0%として配ると凡例の平坦な段へ入り、実際には急な坂の道が平坦な道と同じ色で塗られる。
+    """
+    assert GradientCalculator.shows_gradient(road_bearing_deg=90.0, travel_bearing_deg=0.0) is False
+    assert GradientCalculator.shows_gradient(road_bearing_deg=270.0, travel_bearing_deg=0.0) is False
+
+
+def test_road_along_travel_direction_shows_gradient():
+    assert GradientCalculator.shows_gradient(road_bearing_deg=0.0, travel_bearing_deg=0.0) is True
+    # 逆走（180度）も、符号が反転するだけで示せる。
+    assert GradientCalculator.shows_gradient(road_bearing_deg=180.0, travel_bearing_deg=0.0) is True
+
+
+def test_perpendicular_band_is_symmetric_around_the_right_angle():
+    """直角の左右で判定が食い違わない（cosの大小で比べると浮動小数の差でずれる）。"""
+    band = LENS_PERPENDICULAR_BAND_DEG
+    for offset in (band, band / 2, 0.0):
+        assert GradientCalculator.shows_gradient(90.0 - offset, 0.0) is False
+        assert GradientCalculator.shows_gradient(90.0 + offset, 0.0) is False
+    for offset in (band + 1.0, 45.0):
+        assert GradientCalculator.shows_gradient(90.0 - offset, 0.0) is True
+        assert GradientCalculator.shows_gradient(90.0 + offset, 0.0) is True

@@ -11,6 +11,12 @@ import math
 # （cos(90°)=0、二値反転案[±90°で符号切替]は境界で表示が急に切り替わる不自然さがあるため
 # 不採用）。風のwind_drag_ratioと同じ「走行方位との角度差を係数にする」考え方の応用。
 #
+# ただし**直角に近い範囲は値を0として配らず、そもそも値を持たないものとして扱う**
+# （`shows_gradient`）。0%として配ると、その道は地図の凡例で「平坦」の段へ入り、実際には
+# 急な坂である道が平坦な道と同じ色で塗られる——読み手はそれを区別できない。指定方向へは
+# ほとんど進まない道について言えるのは「この向きでの勾配は示せない」であって「平坦だ」
+# ではない。
+#
 # road_bearing_deg（道路自身の向き）とtravel_bearing_deg（ユーザー指定の走行方位）を
 # 入れ替えても結果は同じになる（cosは偶関数のため）。また、同じ道路の逆方向のroad_edges行
 # （forward/backward、domain/graph.py参照）を使っても値は変わらない——逆方向は
@@ -18,6 +24,11 @@ import math
 # 積で符号が2回反転し元に戻る（backend/app/infrastructure/road_graph_repository.py:
 # get_feature_gradient_inputs_in_tileがforward/backwardどちらの行を拾っても結果が一致する
 # 理由、test_gradient.py: test_forward_and_backward_edge_agreeで検証）。
+
+
+#: 直角からこの角度以内の道路は、その走行方位での勾配を示さない（地図では「データなし」）。
+#: 実地を見て決め直す値で、最初の値には根拠が無い。
+LENS_PERPENDICULAR_BAND_DEG = 15.0
 
 
 class GradientCalculator:
@@ -32,3 +43,16 @@ class GradientCalculator:
     def effective_gradient(gradient_percent: float, road_bearing_deg: float, travel_bearing_deg: float) -> float:
         diff = math.radians(road_bearing_deg - travel_bearing_deg)
         return gradient_percent * math.cos(diff)
+
+    @staticmethod
+    def shows_gradient(road_bearing_deg: float, travel_bearing_deg: float) -> bool:
+        """その走行方位でこの道路の勾配を示せるか（モジュール冒頭のコメント参照）。
+
+        直角に近いほど`effective_gradient`は0へ近づくが、0は「平坦」を意味する値として
+        既に使われている。示せない範囲はこの判定で先に落とし、値そのものを配らない。
+        """
+        # 角度そのもので比べる（cosの大小で比べると、直角の左右で浮動小数の差だけ
+        # 判定が食い違う）。180度で畳むのは、逆走（符号が反転するだけ）を同じ扱いに
+        # するため。
+        folded = (road_bearing_deg - travel_bearing_deg) % 180
+        return abs(folded - 90) > LENS_PERPENDICULAR_BAND_DEG
