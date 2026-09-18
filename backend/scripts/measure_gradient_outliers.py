@@ -53,11 +53,14 @@ _LENGTH_BUCKETS_SQL = text(
     )
     SELECT
         CASE
-            WHEN distance_m < 25 THEN '1) 25m未満'
-            WHEN distance_m < 50 THEN '2) 25〜50m'
-            WHEN distance_m < 100 THEN '3) 50〜100m'
-            WHEN distance_m < 250 THEN '4) 100〜250m'
-            ELSE '5) 250m以上'
+            WHEN distance_m < 5 THEN '1) 5m未満'
+            WHEN distance_m < 10 THEN '2) 5〜10m'
+            WHEN distance_m < 15 THEN '3) 10〜15m'
+            WHEN distance_m < 25 THEN '4) 15〜25m'
+            WHEN distance_m < 50 THEN '5) 25〜50m'
+            WHEN distance_m < 100 THEN '6) 50〜100m'
+            WHEN distance_m < 250 THEN '7) 100〜250m'
+            ELSE '8) 250m以上'
         END AS bucket,
         count(*) AS edges,
         round(avg(abs_grade)::numeric, 2) AS avg_abs_grade,
@@ -131,7 +134,7 @@ _HARD_FILTER_SQL = text(
         JOIN elevation_attributes ea ON ea.edge_id = re.edge_id
         WHERE ea.average_grade IS NOT NULL
     ), thresholds AS (
-        SELECT unnest(ARRAY[8, 10, 12, 15, 20]) AS threshold
+        SELECT unnest(ARRAY[8, 10, 12, 15, 20, 25, 30, 40, 50, 100]) AS threshold
     )
     SELECT
         t.threshold,
@@ -144,6 +147,77 @@ _HARD_FILTER_SQL = text(
     ORDER BY t.threshold
     """
 )
+
+# 対処案ごとに「勾配なし」へ落ちる件数と割合。**緩和は影響を測ってから入れる**ため、
+# 候補を横に並べて同じ母集団に対する割合で比べられるようにする。
+_MITIGATION_IMPACT_SQL = text(
+    """
+    WITH edges AS (
+        SELECT
+            abs(ea.average_grade) AS abs_grade,
+            re.distance_m,
+            coalesce(w.tags ->> 'tunnel', 'no') NOT IN ('no', '') AS is_tunnel,
+            coalesce(w.tags ->> 'bridge', 'no') NOT IN ('no', '') AS is_bridge
+        FROM road_edges re
+        JOIN elevation_attributes ea ON ea.edge_id = re.edge_id
+        LEFT JOIN osm_raw_ways w ON w.osm_way_id = re.osm_way_id
+        WHERE ea.average_grade IS NOT NULL
+    ), total AS (
+        SELECT count(*) AS edges, sum(distance_m) AS distance_m FROM edges
+    ), candidates AS (
+        SELECT '1) 下限長 5m未満'   AS candidate, distance_m <  5 AS hit, distance_m FROM edges
+        UNION ALL SELECT '2) 下限長 10m未満',  distance_m < 10, distance_m FROM edges
+        UNION ALL SELECT '3) 下限長 15m未満',  distance_m < 15, distance_m FROM edges
+        UNION ALL SELECT '4) 下限長 20m未満',  distance_m < 20, distance_m FROM edges
+        UNION ALL SELECT '5) 下限長 25m未満',  distance_m < 25, distance_m FROM edges
+        UNION ALL SELECT '6) 上限 40%超',      abs_grade > 40, distance_m FROM edges
+        UNION ALL SELECT '7) 上限 30%超',      abs_grade > 30, distance_m FROM edges
+        UNION ALL SELECT '8) 上限 25%超',      abs_grade > 25, distance_m FROM edges
+        UNION ALL SELECT '9) 上限 20%超',      abs_grade > 20, distance_m FROM edges
+        UNION ALL SELECT 'A) 橋・トンネル',     is_tunnel OR is_bridge, distance_m FROM edges
+    )
+    SELECT
+        c.candidate,
+        count(*) FILTER (WHERE c.hit) AS blanked_edges,
+        round((100.0 * count(*) FILTER (WHERE c.hit)) / (SELECT edges FROM total), 3) AS blanked_ratio,
+        round((coalesce(sum(c.distance_m) FILTER (WHERE c.hit), 0) / 1000)::numeric, 1) AS blanked_km,
+        round(((100.0 * coalesce(sum(c.distance_m) FILTER (WHERE c.hit), 0))
+               / (SELECT distance_m FROM total))::numeric, 3) AS blanked_km_ratio
+    FROM candidates c
+    GROUP BY c.candidate
+    ORDER BY c.candidate
+    """
+)
+
+# 橋・トンネルの急さが、構造物であること自体によるのか、短さと重なっているだけなのか。
+_STRUCTURE_BY_LENGTH_SQL = text(
+    """
+    WITH edges AS (
+        SELECT
+            abs(ea.average_grade) AS abs_grade,
+            re.distance_m,
+            CASE
+                WHEN coalesce(w.tags ->> 'tunnel', 'no') NOT IN ('no', '') THEN '2) トンネル'
+                WHEN coalesce(w.tags ->> 'bridge', 'no') NOT IN ('no', '') THEN '3) 橋'
+                ELSE '1) どちらでもない'
+            END AS structure
+        FROM road_edges re
+        JOIN elevation_attributes ea ON ea.edge_id = re.edge_id
+        LEFT JOIN osm_raw_ways w ON w.osm_way_id = re.osm_way_id
+        WHERE ea.average_grade IS NOT NULL
+    )
+    SELECT
+        structure,
+        CASE WHEN distance_m < 25 THEN '短(25m未満)' ELSE '長(25m以上)' END AS length_class,
+        count(*) AS edges,
+        round(avg(abs_grade)::numeric, 2) AS avg_abs_grade,
+        round((100.0 * count(*) FILTER (WHERE abs_grade > 10)) / count(*), 2) AS over_10pct_ratio
+    FROM edges
+    GROUP BY structure, length_class
+    ORDER BY structure, length_class
+    """
+)
+
 
 # 最も急な区間の内訳。原因を目で確かめるための一覧。
 _TOP_EDGES_SQL = text(
@@ -188,7 +262,9 @@ async def measure(database_url: str | None, top: int) -> list[str]:
                 ("区間長の帯ごとの|勾配|（短い帯ほど大きければ、区間長が原因）", _LENGTH_BUCKETS_SQL, {}),
                 ("橋・トンネルの別（DEMは路面ではなく地表面を返す）", _STRUCTURE_SQL, {}),
                 ("way単位ズームの代表: 最大 - 長さ重み付き平均", _WAY_REPRESENTATIVE_SQL, {}),
+                ("橋・トンネル × 区間長（構造物自体か、短さとの重なりか）", _STRUCTURE_BY_LENGTH_SQL, {}),
                 ("ハードフィルタで落ちる区間（max_average_grade_percent）", _HARD_FILTER_SQL, {}),
+                ("対処案ごとに勾配なしへ落ちる件数（緩和は影響を測ってから入れる）", _MITIGATION_IMPACT_SQL, {}),
                 (f"最も急な区間 上位{top}件", _TOP_EDGES_SQL, {"top": top}),
             ):
                 rows = [dict(r) for r in (await session.execute(statement, params)).mappings().all()]
