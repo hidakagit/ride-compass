@@ -21,7 +21,7 @@ describe("mapLayers（改善計画T440: axis_idハードコード比較の撤去
     }
   });
 
-  it("isAxisStudioLayer: dataNature===\"composite\"（ramp軸）もtrue", () => {
+  it('isAxisStudioLayer: dataNature==="composite"（ramp軸）もtrue', () => {
     expect(isAxisStudioLayer({ id: "roadType", dataNature: "composite" })).toBe(true);
   });
 
@@ -50,7 +50,7 @@ describe("mapLayers（改善計画T440: axis_idハードコード比較の撤去
     const layers = buildMapLayers([], DEDICATED_WAY_VALUE_AXES);
     const byId = Object.fromEntries(layers.map((layer) => [layer.id, layer]));
 
-    it("category=\"disaster\"・dataNature=\"dynamic\"のMapLayerDescriptorを1つだけ持つ", () => {
+    it('category="disaster"・dataNature="dynamic"のMapLayerDescriptorを1つだけ持つ', () => {
       expect(byId.disaster).toBeDefined();
       expect(byId.disaster.category).toBe("disaster");
       expect(byId.disaster.dataNature).toBe("dynamic");
@@ -73,7 +73,6 @@ describe("mapLayers（改善計画T440: axis_idハードコード比較の撤去
     });
   });
 });
-
 
 // --- deriveFetchLayerStatus（"empty"は「読込済みだが値なし」だけを指す） ---
 
@@ -171,5 +170,15 @@ describe("タイルの最小ズーム（ズーム不足の案内）", () => {
 
     expect(byId.roadSurface.tileMinZoom).toBe(ROAD_TILE_MIN_ZOOM);
     expect(byId.landcover.tileMinZoom).toBe(LANDCOVER_TILE_MIN_ZOOM);
+  });
+
+  it("POIタイル由来のレイヤーも閾値を宣言している（ONにしても何も出ないズームで案内が出る）", () => {
+    // POIタイルは道路タイルと同じズーム範囲で配信される。宣言が無いと、広域でONにした
+    // 利用者には「出ない理由」が何も示されない。
+    const byId = Object.fromEntries(buildMapLayers([], []).map((layer) => [layer.id, layer]));
+
+    expect(byId.stopPoi.tileMinZoom).toBe(ROAD_TILE_MIN_ZOOM);
+    expect(byId.supplyPoi.tileMinZoom).toBe(ROAD_TILE_MIN_ZOOM);
+    expect(tileZoomTooWideLayerIds(ROAD_TILE_MIN_ZOOM - 0.5)).toEqual(expect.arrayContaining(["stopPoi", "supplyPoi"]));
   });
 });

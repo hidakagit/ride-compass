@@ -1,0 +1,130 @@
+"""`amenity=vending_machine`が何を売る機械なのかを、PBFから数える（改善計画T935）。
+
+取込は`amenity`の値だけを見ており、`vending`（何を売るか）を見ていない。さらに
+`vending`は`ALLOWED_NODE_TAGS`（`domain/osm_adapter.py`）に無いためDBへ保存されておらず、
+取込済みのデータからは後から判別できない。補給休憩レイヤーに出ている自販機のうち
+どれだけが補給に使えるのかは、PBFを読み直さないと分からない。
+
+`measure_poi_freshness.py`・`measure_tag_coverage.py`と同じ「PBF1パス読み・単発実行・
+結果を標準出力」の形式。DBもネットワークも使わない。
+
+実行方法（backendディレクトリから）:
+    .venv\\Scripts\\python.exe scripts\\measure_vending_types.py --pbf data/pbf/kanto-latest.osm.pbf
+    .venv\\Scripts\\python.exe scripts\\measure_vending_types.py --top 40
+"""
+
+import argparse
+import sys
+from collections import Counter
+from pathlib import Path
+from typing import Any
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+# 自転車の補給に使える（飲み物・食べ物が買える）と見なす`vending`の値。OSM wikiで
+# 使用実績のある値のうち、口に入るものを売る機械だけを挙げている。複数の値は`;`で
+# 連結されるため、分割した要素のどれかがここにあれば補給に使えると数える。
+SUPPLY_VENDING_VALUES: frozenset[str] = frozenset(
+    {
+        "drinks",
+        "coffee",
+        "water",
+        "milk",
+        "food",
+        "sweets",
+        "ice_cream",
+        "chewing_gums",
+        "bread",
+        "fruit",
+        "vegetables",
+        "eggs",
+    }
+)
+
+
+def classify(vending: str | None) -> str:
+    """`vending`の値を「補給に使える／使えない／不明」の3つへ分ける（純粋関数）。
+
+    値が無いものを「使えない」へ寄せない。日本では飲料の自販機に`vending`を付けない
+    慣習があり、不明を使えない側へ数えると絞り込みの効果を過大に見積もる。
+    """
+    if not vending:
+        return "不明（vendingタグ無し）"
+    parts = {part.strip().lower() for part in vending.split(";") if part.strip()}
+    if parts & SUPPLY_VENDING_VALUES:
+        return "補給に使える"
+    return "補給に使えない"
+
+
+class VendingCounter:
+    """`vending`の値の分布と3分類の内訳を集計する（PBF I/Oから独立、単体テスト対象）。"""
+
+    def __init__(self) -> None:
+        self.by_value: Counter[str] = Counter()
+        self.by_class: Counter[str] = Counter()
+
+    def add(self, tags: dict[str, str]) -> None:
+        vending = tags.get("vending")
+        self.by_value[vending or "(タグ無し)"] += 1
+        self.by_class[classify(vending)] += 1
+
+    @property
+    def total(self) -> int:
+        return sum(self.by_value.values())
+
+    def _pct(self, count: int) -> float:
+        return (count / self.total * 100) if self.total else 0.0
+
+    def report_lines(self, top: int) -> list[str]:
+        if not self.total:
+            return ["（amenity=vending_machineのnodeが見つかりませんでした）"]
+        lines = [f"amenity=vending_machine: {self.total}件", "", "## 補給に使えるか"]
+        for name in ("補給に使える", "補給に使えない", "不明（vendingタグ無し）"):
+            count = self.by_class[name]
+            lines.append(f"  {name}: {count}件（{self._pct(count):.1f}%）")
+        lines.extend(["", f"## vendingの値（上位{top}）"])
+        for value, count in self.by_value.most_common(top):
+            lines.append(f"  {value}: {count}件（{self._pct(count):.1f}%）")
+        remaining = len(self.by_value) - top
+        if remaining > 0:
+            lines.append(f"  （残り{remaining}種類は省略）")
+        return lines
+
+
+def measure(pbf_path: Path) -> VendingCounter:
+    # 遅延import: pyosmium（requirements-batch.txt）はこのスクリプト実行時にのみ必要。
+    from app.batch import pbf_source
+
+    counter = VendingCounter()
+
+    def node_tag_filter(tags: dict[str, str]) -> bool:
+        return tags.get("amenity") == "vending_machine"
+
+    def node_sink(raw_node: dict[str, Any]) -> None:
+        counter.add(raw_node["tags"])
+
+    def way_sink(_raw_way: dict, _coords: dict[int, tuple[float, float]]) -> None:
+        return None
+
+    pbf_source.stream_ways(pbf_path, lambda _tags: False, way_sink, node_tag_filter, node_sink)
+    return counter
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--pbf", default="data/pbf/kanto-latest.osm.pbf", help="計測対象のPBFファイル")
+    parser.add_argument("--top", type=int, default=25, help="vendingの値の表示件数")
+    args = parser.parse_args(argv)
+
+    pbf_path = Path(args.pbf)
+    if not pbf_path.is_file():
+        print(f"PBFファイルが見つかりません: {pbf_path}", file=sys.stderr)
+        return 1
+
+    for line in measure(pbf_path).report_lines(args.top):
+        print(line)
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

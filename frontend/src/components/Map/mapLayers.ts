@@ -341,6 +341,7 @@ export function buildMapLayers(
       label: "停止要因",
       kind: "static",
       category: "trafficSafety",
+      tileMinZoom: ROAD_TILE_MIN_ZOOM,
       description: "信号・横断歩道・一時停止・踏切の位置を種別ごとに色分け表示",
       panelHint:
         "信号・横断歩道・一時停止・踏切の位置です。評価の「停止密度」軸が近傍のこれらを" +
@@ -355,6 +356,7 @@ export function buildMapLayers(
       chipLabel: "補給休憩",
       kind: "static",
       category: "amenity",
+      tileMinZoom: ROAD_TILE_MIN_ZOOM,
       description: "コンビニ・自販機・トイレ・給水・駐輪場の位置を種別ごとに色分け表示",
       // 実店舗とどれだけ合っているかの目安として、backend/scripts/measure_poi_freshness.pyで
       // OSM側の最終編集日時を計測している。コンビニは関東全域で直近2年以内の編集が62.4%と
