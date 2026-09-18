@@ -27,7 +27,7 @@ DB接続・マイグレーション・Redis・HTTPクライアント・レート
 | infrastructure | `redis_json_cache.py` | RedisへJSONで持つcache-asideの共通骨格 |
 | infrastructure | `http_client.py` | 外部API向け共有HTTPクライアント |
 | infrastructure | `rate_limiter.py` | プロセス内メモリのみの固定窓レート制限 |
-| infrastructure | `request_log.py` | リクエストIDの付与、1リクエスト=1行のHTTPアクセスサマリログ |
+| infrastructure | `request_log.py` | リクエストIDの付与、1リクエスト=1行のHTTPアクセスサマリログ、ログ1行の書式とJSTでの時刻整形 |
 | infrastructure | `response_compression.py` | 応答のgzip圧縮（対象content-typeのみ） |
 | infrastructure | `debug_log.py` | 外部I/O（外部API・タイル/標高キャッシュ）イベントのログと集計 |
 | infrastructure | `debug_control.py` | `debug_mode`のランタイム切替・直近ログの保持 |
@@ -291,6 +291,21 @@ Basic認証必須）はサーバー側のファイルキャッシュしか消せ
 
 未処理例外はスタックトレース付きERRORで記録してから再送出する（`HTTPException`は
 FastAPI側で処理済みのためここには来ない）。
+
+### ログ1行の書式と時刻（`LOG_FORMAT`・`JstLogFormatter`）
+
+書式はこのモジュールが1つだけ持ち、標準出力（`main.py`のルートハンドラ）と管理画面の
+リングバッファ（`debug_control.py`）の双方が同じものを使う。同じ行をそれぞれで組み立てると、
+片方だけ直したとき`docker logs`と管理画面で表記が食い違う。
+
+時刻は**JSTで、オフセット（`+0900`）を付けて**書く。コンテナはTZを設定していないため
+既定の整形はUTCの壁時計をオフセット無しで書き、ブラウザ側のデバッグログ（利用者の
+ローカル時刻）と9時間ずれる——**ずれていること自体より、行が自分の時間帯を名乗らないため
+読み手が気づけないことが問題**（実際に9時間離れた窓を見て「該当ログなし」と読みかけた）。
+時間帯は`domain/time_zone.py: JST`をそのまま使い、ログ用に別の定義を持たない。
+
+コンテナの`TZ`ではなく整形する側を変える。`TZ`を動かすと素の`datetime.now()`の意味まで
+変わり、スケジューラ・DBへ書く時刻へ波及する。
 
 ## 非同期ジョブレジストリ詳細（`job_registry.py`）
 

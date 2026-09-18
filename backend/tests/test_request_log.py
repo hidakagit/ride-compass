@@ -2,9 +2,11 @@
 
 docs/logging.mdの方針のうち「全レスポンスにX-Request-IDが付く」「クライアント指定の
 X-Request-IDを引き継ぐ」「アクセスサマリのレベルはステータス・経路で変わる」
-「未処理例外はスタックトレース付きERRORで残る」を守る。
+「未処理例外はスタックトレース付きERRORで残る」を守る。ログ行の時刻がJSTで、
+オフセットを名乗ることも併せて検査する（書式はこのモジュールが1つだけ持つ）。
 """
 
+import calendar
 import logging
 
 import pytest
@@ -12,7 +14,13 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from app.main import app as main_app
-from app.infrastructure.request_log import request_log_middleware, unhandled_exception_handler
+from app.infrastructure.request_log import (
+    LOG_FORMAT,
+    JstLogFormatter,
+    RequestIdLogFilter,
+    request_log_middleware,
+    unhandled_exception_handler,
+)
 
 
 def test_response_has_generated_request_id():
@@ -112,3 +120,30 @@ def test_unhandled_exception_response_has_request_id_header():
 
     assert response.status_code == 500
     assert response.headers["X-Request-ID"] == "req-for-500-1"
+
+
+def _formatted_line(created_utc: tuple[int, int, int, int, int, int], msecs: float) -> str:
+    """UTCの壁時計を与えて、1レコードを整形した行を返す。"""
+    record = logging.LogRecord("ridecompass.test", logging.INFO, "/x", 1, "本文", (), None)
+    record.created = calendar.timegm((*created_utc, 0, 0, 0)) + msecs / 1000
+    record.msecs = msecs
+    RequestIdLogFilter().filter(record)
+    return JstLogFormatter(LOG_FORMAT).format(record)
+
+
+def test_log_time_is_written_in_jst():
+    """コンテナのTZ（UTC）ではなくJSTの壁時計で書く。
+
+    ずれたままだと、ブラウザ側のデバッグログ（利用者のローカル時刻）が示す時刻で
+    backendのログを探したとき、9時間離れた窓を見て「該当ログなし」と読んでしまう。
+    """
+    line = _formatted_line((2026, 9, 18, 0, 0, 30), 840)
+
+    assert line.startswith("2026-09-18 09:00:30,840")
+
+
+def test_log_time_names_its_offset():
+    """行が自分の時間帯を名乗る。ずれていること自体より、読み手が気づけないことが問題。"""
+    line = _formatted_line((2026, 9, 18, 0, 0, 30), 840)
+
+    assert "+0900" in line

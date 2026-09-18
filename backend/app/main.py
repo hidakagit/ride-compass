@@ -17,7 +17,13 @@ from app.infrastructure.http_client import close_all_http_clients, get_http_clie
 from app.infrastructure import graph_material_cache, tile_score_matrix_cache
 from app.infrastructure.jma_tile_client import JmaTileClient
 from app.infrastructure.msm_client import refresh as refresh_msm
-from app.infrastructure.request_log import RequestIdLogFilter, request_log_middleware, unhandled_exception_handler
+from app.infrastructure.request_log import (
+    LOG_FORMAT,
+    JstLogFormatter,
+    RequestIdLogFilter,
+    request_log_middleware,
+    unhandled_exception_handler,
+)
 from app.infrastructure.response_compression import ContentTypeGZipMiddleware
 from app.infrastructure.tuning_overrides import refresh_tuning_values
 from app.services.axis_registry_service import refresh_axis_definitions
@@ -29,12 +35,12 @@ from app.services.jma_tile_prewarm_service import prewarm_jma_tiles
 #   実運用(debug_mode=False)の調査に足る情報を本番のログに残す。
 # - DEBUG(外部API/タイルキャッシュのイベント単位ログ等)はdebug_mode有効時のみ出力する。
 # %(request_id)sはRequestIdLogFilterが全レコードへ注入する(request_log.py参照)。
-logging.basicConfig(
-    level=logging.DEBUG if settings.debug_mode else logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(name)s [req:%(request_id)s]: %(message)s",
-)
+logging.basicConfig(level=logging.DEBUG if settings.debug_mode else logging.INFO)
 for _handler in logging.getLogger().handlers:
     _handler.addFilter(RequestIdLogFilter())
+    # 時刻はJST＋オフセット付き（JstLogFormatterのdocstring参照）。書式は
+    # request_log.pyが1つだけ持ち、管理画面のリングバッファと同じ行になる。
+    _handler.setFormatter(JstLogFormatter(LOG_FORMAT))
 
 # debug_modeをSSH不要で切り替え・確認できるよう、直近ログをメモリに
 # 保持するハンドラをルートロガーへ追加する（api/routers/debug_admin.py経由で取得）。

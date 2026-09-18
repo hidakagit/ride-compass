@@ -29,9 +29,12 @@ import contextvars
 import logging
 import time
 import uuid
+from datetime import datetime
 
 from fastapi import Request, Response
 from fastapi.responses import PlainTextResponse
+
+from app.domain.time_zone import JST
 
 access_logger = logging.getLogger("ridecompass.access")
 
@@ -40,6 +43,30 @@ request_id_var: contextvars.ContextVar[str] = contextvars.ContextVar("request_id
 # タイル系は通常操作でも毎分数百リクエストになるため、成功時のアクセスログは
 # DEBUG(debug_mode時のみ実質出力)へ落とし、Renderのログを埋めないようにする。
 HIGH_FREQUENCY_PATH_PREFIXES = ("/api/basemap", "/api/region/road-surface-tiles")
+
+
+#: ログ1行の書式。標準出力（main.py）と管理画面のリングバッファ（debug_control.py）が
+#: 同じ行を出すよう、ここだけに置く。`%(request_id)s`は下の`RequestIdLogFilter`が入れる。
+LOG_FORMAT = "%(asctime)s [%(levelname)s] %(name)s [req:%(request_id)s]: %(message)s"
+
+
+class JstLogFormatter(logging.Formatter):
+    """時刻をJSTで、**オフセット付き**で出すフォーマッタ。
+
+    コンテナのタイムゾーンはUTCのため、既定の整形はUTCの壁時計をオフセット無しで書く。
+    ブラウザ側のデバッグログ（利用者のローカル時刻）と並べたとき、どちらの時間帯か
+    行から読めず、9時間離れた窓を見ていることに気づけない。時間帯はアプリ全体の正本
+    （`domain/time_zone.py: JST`）を使い、ここに別の定義を持たない。
+
+    コンテナの`TZ`ではなく整形する側を変えるのは、`TZ`が素の`datetime.now()`の意味まで
+    変えてしまうため（スケジューラ・DBへ書く時刻へ波及する）。
+    """
+
+    def formatTime(self, record: logging.LogRecord, datefmt: str | None = None) -> str:
+        at = datetime.fromtimestamp(record.created, JST)
+        if datefmt:
+            return at.strftime(datefmt)
+        return f"{at.strftime('%Y-%m-%d %H:%M:%S')},{int(record.msecs):03d}{at.strftime('%z')}"
 
 
 class RequestIdLogFilter(logging.Filter):

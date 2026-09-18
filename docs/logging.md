@@ -71,6 +71,15 @@ RideCompassのログはRender（本番）のログストリームだけで障害
   検索すれば当該リクエストの全ログが引ける。
 - 新しいfetch呼び出しを追加する場合も同じパターンでrequestIdをdebugLogへ含めること。
 
+### ログの時刻
+
+- backendのログ行は**JST＋オフセット付き**（`2026-09-18 09:00:30,840+0900`）。整形は
+  `request_log.py: JstLogFormatter`が行い、書式（`LOG_FORMAT`）も同モジュールが1つだけ持つ。
+- フロントのデバッグログはブラウザのローカル時刻。両者を並べて読むために時間帯を揃えてある。
+- コンテナの`TZ`は変えない（素の`datetime.now()`の意味まで変わり、スケジューラ・DBへ書く
+  時刻へ波及するため）。詳細は[modules/backend/cross-cutting-infrastructure.md]
+  (modules/backend/cross-cutting-infrastructure.md)参照。
+
 ### 処理ステージのサマリ
 
 複数ステージからなる高コスト処理（ルート生成等）は、ステージ別所要時間と

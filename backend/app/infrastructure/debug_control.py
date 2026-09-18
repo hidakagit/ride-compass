@@ -13,15 +13,12 @@ import logging
 from collections import deque
 
 from app.config import settings
-from app.infrastructure.request_log import RequestIdLogFilter
+from app.infrastructure.request_log import LOG_FORMAT, JstLogFormatter, RequestIdLogFilter
 
 # 直近何件のログレコードをメモリに保持するか。1レコード=数百バイト程度のため、
 # 1000件でも数百KB規模に収まる（プロセス再起動でリセットされる、既存の
 # /api/debug/statsの集計と同じ「プロセス内スナップショット」という性質）。
 _RING_BUFFER_MAX_SIZE = 1000
-
-_LOG_FORMAT = "%(asctime)s [%(levelname)s] %(name)s [req:%(request_id)s]: %(message)s"
-
 
 class _LogRingBufferHandler(logging.Handler):
     """直近`_RING_BUFFER_MAX_SIZE`件の整形済みログ行を、レベル（`record.levelno`）と
@@ -41,7 +38,7 @@ class _LogRingBufferHandler(logging.Handler):
 
 
 _ring_buffer_handler = _LogRingBufferHandler(_RING_BUFFER_MAX_SIZE)
-_ring_buffer_handler.setFormatter(logging.Formatter(_LOG_FORMAT))
+_ring_buffer_handler.setFormatter(JstLogFormatter(LOG_FORMAT))
 _ring_buffer_handler.addFilter(RequestIdLogFilter())
 
 
