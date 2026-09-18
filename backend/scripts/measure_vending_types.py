@@ -27,6 +27,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 SUPPLY_VENDING_VALUES: frozenset[str] = frozenset(
     {
         "drinks",
+        "beverages",
         "coffee",
         "water",
         "milk",
@@ -48,9 +49,9 @@ def classify(vending: str | None) -> str:
     値が無いものを「使えない」へ寄せない。日本では飲料の自販機に`vending`を付けない
     慣習があり、不明を使えない側へ数えると絞り込みの効果を過大に見積もる。
     """
-    if not vending:
+    parts = {part.strip().lower() for part in (vending or "").split(";") if part.strip()}
+    if not parts:
         return "不明（vendingタグ無し）"
-    parts = {part.strip().lower() for part in vending.split(";") if part.strip()}
     if parts & SUPPLY_VENDING_VALUES:
         return "補給に使える"
     return "補給に使えない"
