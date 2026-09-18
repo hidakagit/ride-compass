@@ -724,13 +724,37 @@ _FEATURE_GRADIENT_INPUTS_IN_TILE_SQL = text(
 )
 
 
-# 停止要因POI（osm_raw_pois）を1タイルへ焼き込む。_ROAD_SURFACE_TILE_MVT_SQLと同じ
+# 信号は2通りの書かれ方をする。流入路ごとに立つ`highway=traffic_signals`と、横断歩道位置に
+# 立つ`highway=crossing`＋`crossing=*signals*`で、後者も利用者から見れば信号である。
+# 数える側（_POI_COUNT_KIND_EXPR）と地図へ出す側（_POI_TILE_KIND_EXPR）の両方がこの規則を
+# 要るため、述語を1つだけ持つ。
+_SIGNAL_CROSSING_PREDICATE = "p.kind = 'crossing' AND p.tags->>'crossing' LIKE '%signals%'"
+
+# 地図へ出すkind。取込時の`kind`をそのまま使わず、信号の2通りの書かれ方だけを1つへ寄せる
+# （`_POI_COUNT_KIND_EXPR`と同じ述語を共有する）。それ以外を取込時のまま残すのは、数える側の
+# 集計キーと違って地図では「徐行」と「一時停止」・「ハンプ」と「車止め」を別の点として
+# 見分けたいため。
+_POI_TILE_KIND_EXPR = f"""CASE
+                        WHEN p.kind = 'traffic_signals' OR ({_SIGNAL_CROSSING_PREDICATE})
+                            THEN 'traffic_signals'
+                        ELSE p.kind
+                    END"""
+
+# クラスタ化のためにタイルの外側も読む幅（度）。タイル境界で塊が切れると、同じ交差点が
+# 隣り合うタイルで別々の点になる。`POI_CLUSTER_EPS_M`（40m≒0.00036度）より十分広く取る。
+_POI_TILE_CLUSTER_PAD_DEG = 0.001
+
+# 停止要因POI・補給POI（osm_raw_pois）を1タイルへ焼き込む。_ROAD_SURFACE_TILE_MVT_SQLと同じ
 # カバレッジ判定（road_graph_tilesのz12祖先タイルマーク）を再利用しつつ、対象データソースが
-# 別テーブルの点データのため道路（way）とは独立のクエリにする。osm_raw_pois内のkindタグを
-# そのまま焼き込むだけ（GiST索引を使うST_Intersects、集計SQLと同じosm_raw_pois）。
+# 別テーブルの点データのため道路（way）とは独立のクエリにする。
 # 材料`intersection_count_per_km`の値は`_INTERSECTION_COUNTS_SQL`が独立に計算する。
+#
+# 停止要因は`_POI_COUNTS_BODY`（数える側）と同じepsでまとめてから出す。日本のOSMは1つの
+# 信号交差点を流入路ごと・横断歩道位置ごとの複数ノードで描くため、生のまま出すと同じ交差点が
+# 複数の点になる。まとめた点の位置は構成ノードの重心＝交差点の真ん中になる。
+# 補給POIはまとめない（別々の実体のため）。`cluster_key`をノードidにして1点1塊に落とす。
 _POI_TILE_MVT_SQL = text(
-    """
+    f"""
     WITH coverage AS (
         SELECT EXISTS(
             SELECT 1 FROM road_graph_tiles
@@ -743,11 +767,36 @@ _POI_TILE_MVT_SQL = text(
             SELECT ST_AsMVT(mvt.*, :stop_poi_layer, :extent, 'geom') FROM (
                 SELECT
                     ST_AsMVTGeom(
-                        ST_Transform(p.geom, 3857), ST_TileEnvelope(:z, :x, :y), :extent, 256, true
+                        ST_Transform(grouped.geom, 3857),
+                        ST_TileEnvelope(:z, :x, :y), :extent, 256, true
                     ) AS geom,
-                    p.kind AS kind
-                FROM osm_raw_pois p
-                WHERE ST_Intersects(p.geom, ST_MakeEnvelope(:xmin, :ymin, :xmax, :ymax, 4326))
+                    grouped.kind AS kind
+                FROM (
+                    SELECT clustered.kind AS kind,
+                           ST_Centroid(ST_Collect(clustered.geom)) AS geom
+                    FROM (
+                        SELECT {_POI_TILE_KIND_EXPR} AS kind,
+                               p.geom AS geom,
+                               CASE WHEN p.kind = ANY(:stop_kinds) THEN
+                                   'c' || ST_ClusterDBSCAN(
+                                       ST_Transform(p.geom, 3857),
+                                       eps := :cluster_eps_m, minpoints := 1
+                                   ) OVER (PARTITION BY {_POI_TILE_KIND_EXPR})
+                               ELSE 'n' || p.osm_node_id END AS cluster_key
+                        FROM osm_raw_pois p
+                        WHERE ST_Intersects(
+                            p.geom,
+                            ST_Expand(
+                                ST_MakeEnvelope(:xmin, :ymin, :xmax, :ymax, 4326),
+                                :cluster_pad_deg
+                            )
+                        )
+                    ) clustered
+                    GROUP BY clustered.kind, clustered.cluster_key
+                ) grouped
+                WHERE ST_Intersects(
+                    grouped.geom, ST_MakeEnvelope(:xmin, :ymin, :xmax, :ymax, 4326)
+                )
             ) mvt
             WHERE mvt.geom IS NOT NULL
         ) END AS tile
@@ -755,6 +804,9 @@ _POI_TILE_MVT_SQL = text(
     """
 ).bindparams(
     bindparam("stop_poi_layer", value=STOP_POI_LAYER_NAME, type_=Text()),
+    bindparam("stop_kinds", value=sorted(STOP_POI_KINDS), type_=ARRAY(Text())),
+    bindparam("cluster_eps_m", value=POI_CLUSTER_EPS_M, type_=Float()),
+    bindparam("cluster_pad_deg", value=_POI_TILE_CLUSTER_PAD_DEG, type_=Float()),
 )
 
 
@@ -776,9 +828,9 @@ _POI_TILE_MVT_SQL = text(
 # 集計バッチの再実行だけで済む。
 # SQL本文へは`__POI_KIND__`の位置へ差し込む（f-stringにすると本文中の`{}`をすべて
 # エスケープする必要があり読みにくくなるため）。
-_POI_COUNT_KIND_EXPR = """CASE
+_POI_COUNT_KIND_EXPR = f"""CASE
                     WHEN p.kind = 'traffic_signals' THEN 'signal'
-                    WHEN p.kind = 'crossing' AND p.tags->>'crossing' LIKE '%signals%' THEN 'signal'
+                    WHEN {_SIGNAL_CROSSING_PREDICATE} THEN 'signal'
                     WHEN p.kind = 'crossing' THEN 'crossing'
                     WHEN p.kind IN ('level_crossing', 'railway_crossing') THEN 'level_crossing'
                     WHEN p.kind IN ('barrier', 'traffic_calming') THEN 'barrier'

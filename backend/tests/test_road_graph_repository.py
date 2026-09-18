@@ -1997,7 +1997,8 @@ async def test_get_poi_tile_mvt_returns_empty_bytes_when_covered_but_no_data(roa
 
 
 async def test_get_poi_tile_mvt_encodes_stop_poi_kind(road_graph_repository, road_graph_session):
-    """osm_raw_poisのkindがそのままstop_poiレイヤーのkindプロパティへ焼き込まれる。"""
+    """osm_raw_poisのkindがstop_poiレイヤーのkindプロパティへ焼き込まれる
+    （離れた別々の点はまとまらない）。"""
     import mapbox_vector_tile
 
     await road_graph_session.execute(
@@ -2026,6 +2027,142 @@ async def test_get_poi_tile_mvt_encodes_stop_poi_kind(road_graph_repository, roa
     decoded = mapbox_vector_tile.decode(tile)
     kinds = sorted(f["properties"]["kind"] for f in decoded["stop_poi"]["features"])
     assert kinds == ["level_crossing", "traffic_signals"]
+
+
+# 1つの交差点を描く複数ノードの間隔（緯度差・約11m）。POI_CLUSTER_EPS_M（40m）より十分近い。
+INTERSECTION_NODE_SPACING_DEG = 11.0 / 111_000.0
+
+
+async def _insert_pois(road_graph_session, rows: list[dict]) -> None:
+    await road_graph_session.execute(
+        insert(OsmRawPoiRow),
+        [
+            {
+                "osm_node_id": row["osm_node_id"],
+                "kind": row["kind"],
+                "tags": row.get("tags", {}),
+                "geom": from_shape(Point(row["lon"], row["lat"]), srid=4326),
+                "updated_at": datetime.now(timezone.utc),
+            }
+            for row in rows
+        ],
+    )
+
+
+async def test_get_poi_tile_mvt_merges_signal_nodes_of_same_intersection(
+    road_graph_repository, road_graph_session
+):
+    """同じ交差点を描く複数の信号ノードは1点へまとまり、位置は構成ノードの重心になる。
+
+    重心であることは、まとめた点と「重心の位置に置いた別種別の点」の座標が一致することで
+    確かめる（タイル座標へ変換したあとで比べるため、経緯度→タイル座標の式を書き写さずに済む）。
+    """
+    import mapbox_vector_tile
+
+    lat, lon = NODE1
+    north = lat + INTERSECTION_NODE_SPACING_DEG
+    south = lat - INTERSECTION_NODE_SPACING_DEG
+    await _insert_pois(
+        road_graph_session,
+        [
+            {"osm_node_id": 1, "kind": "traffic_signals", "lat": north, "lon": lon},
+            {"osm_node_id": 2, "kind": "traffic_signals", "lat": south, "lon": lon},
+            # 上2つの重心＝(lat, lon)に置く目印。まとめの対象外の種別を使う。
+            {"osm_node_id": 3, "kind": "barrier", "lat": lat, "lon": lon},
+        ],
+    )
+    await _mark_mvt_coverage(road_graph_session)
+
+    tile = await road_graph_repository.get_poi_tile_mvt(MVT_Z, MVT_X, MVT_Y, _mvt_tile_bbox(), MVT_COVERAGE_TILE)
+
+    features = mapbox_vector_tile.decode(tile)["stop_poi"]["features"]
+    by_kind = {f["properties"]["kind"]: f["geometry"]["coordinates"] for f in features}
+    assert sorted(by_kind) == ["barrier", "traffic_signals"]
+    assert by_kind["traffic_signals"] == by_kind["barrier"]
+
+
+async def test_get_poi_tile_mvt_treats_signalised_crossing_as_signal(
+    road_graph_repository, road_graph_session
+):
+    """`highway=crossing`＋`crossing=*signals*`は信号として出す（数える側と同じ規則）。
+
+    信号として扱われない場合、同じ交差点の`highway=traffic_signals`とまとまらず2点になる。
+    """
+    import mapbox_vector_tile
+
+    lat, lon = NODE1
+    await _insert_pois(
+        road_graph_session,
+        [
+            {"osm_node_id": 1, "kind": "traffic_signals", "lat": lat, "lon": lon},
+            {
+                "osm_node_id": 2,
+                "kind": "crossing",
+                "tags": {"crossing": "traffic_signals"},
+                "lat": lat + INTERSECTION_NODE_SPACING_DEG,
+                "lon": lon,
+            },
+        ],
+    )
+    await _mark_mvt_coverage(road_graph_session)
+
+    tile = await road_graph_repository.get_poi_tile_mvt(MVT_Z, MVT_X, MVT_Y, _mvt_tile_bbox(), MVT_COVERAGE_TILE)
+
+    features = mapbox_vector_tile.decode(tile)["stop_poi"]["features"]
+    assert [f["properties"]["kind"] for f in features] == ["traffic_signals"]
+
+
+async def test_get_poi_tile_mvt_keeps_unsignalised_crossing_separate(
+    road_graph_repository, road_graph_session
+):
+    """`crossing`タグが信号を示さない横断歩道は信号へ寄せない（横断歩道のまま別の点で出る）。"""
+    import mapbox_vector_tile
+
+    lat, lon = NODE1
+    await _insert_pois(
+        road_graph_session,
+        [
+            {"osm_node_id": 1, "kind": "traffic_signals", "lat": lat, "lon": lon},
+            {
+                "osm_node_id": 2,
+                "kind": "crossing",
+                "tags": {"crossing": "unmarked"},
+                "lat": lat + INTERSECTION_NODE_SPACING_DEG,
+                "lon": lon,
+            },
+        ],
+    )
+    await _mark_mvt_coverage(road_graph_session)
+
+    tile = await road_graph_repository.get_poi_tile_mvt(MVT_Z, MVT_X, MVT_Y, _mvt_tile_bbox(), MVT_COVERAGE_TILE)
+
+    features = mapbox_vector_tile.decode(tile)["stop_poi"]["features"]
+    assert sorted(f["properties"]["kind"] for f in features) == ["crossing", "traffic_signals"]
+
+
+async def test_get_poi_tile_mvt_keeps_supply_pois_separate(road_graph_repository, road_graph_session):
+    """補給POIはまとめない——近くにある2台の自販機は別々の実体で、1点へ畳むと嘘になる。"""
+    import mapbox_vector_tile
+
+    lat, lon = NODE1
+    await _insert_pois(
+        road_graph_session,
+        [
+            {"osm_node_id": 1, "kind": "vending_machine", "lat": lat, "lon": lon},
+            {
+                "osm_node_id": 2,
+                "kind": "vending_machine",
+                "lat": lat + INTERSECTION_NODE_SPACING_DEG,
+                "lon": lon,
+            },
+        ],
+    )
+    await _mark_mvt_coverage(road_graph_session)
+
+    tile = await road_graph_repository.get_poi_tile_mvt(MVT_Z, MVT_X, MVT_Y, _mvt_tile_bbox(), MVT_COVERAGE_TILE)
+
+    features = mapbox_vector_tile.decode(tile)["stop_poi"]["features"]
+    assert [f["properties"]["kind"] for f in features] == ["vending_machine"] * 2
 
 
 # --- way_attribute_counts / raw_intersection_nodes（改善計画T145b「事実はタイルに、解釈は
