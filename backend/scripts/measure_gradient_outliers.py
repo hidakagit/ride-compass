@@ -241,6 +241,52 @@ _TOP_EDGES_SQL = text(
 )
 
 
+# 地図で見えている1本の道を、集計ではなく現物で確かめるための一覧。地図の色が「長く一様」な
+# 場合、原因は短い区間のノイズではなく、wayの代表の選び方かedgeの分かれ方にある——それは
+# 分布では見えず、その道のedgeを並べて初めて分かる。
+_NEAR_EDGES_SQL = text(
+    """
+    SELECT
+        re.edge_id,
+        re.osm_way_id,
+        re.highway,
+        round(re.distance_m::numeric, 1) AS distance_m,
+        round(ea.average_grade::numeric, 1) AS average_grade,
+        round(ea.start_elevation_m::numeric, 1) AS start_elev,
+        round(ea.end_elevation_m::numeric, 1) AS end_elev,
+        round(re.bearing_deg::numeric, 0) AS bearing_deg,
+        coalesce(w.tags ->> 'tunnel', '') AS tunnel,
+        coalesce(w.tags ->> 'bridge', '') AS bridge,
+        round(ST_Distance(re.geom::geography, ST_SetSRID(ST_MakePoint(:lon, :lat), 4326)::geography)::numeric, 1)
+            AS distance_from_point_m
+    FROM road_edges re
+    LEFT JOIN elevation_attributes ea ON ea.edge_id = re.edge_id
+    LEFT JOIN osm_raw_ways w ON w.osm_way_id = re.osm_way_id
+    WHERE ST_DWithin(re.geom::geography, ST_SetSRID(ST_MakePoint(:lon, :lat), 4326)::geography, :radius_m)
+    ORDER BY abs(coalesce(ea.average_grade, 0)) DESC, re.edge_id
+    LIMIT :limit
+    """
+)
+
+# 指定した1本のwayの全区間。way単位ズームの代表（最急）が道全体をどう染めるかを現物で見る。
+_WAY_EDGES_SQL = text(
+    """
+    SELECT
+        re.edge_id,
+        re.highway,
+        round(re.distance_m::numeric, 1) AS distance_m,
+        round(ea.average_grade::numeric, 1) AS average_grade,
+        round(ea.start_elevation_m::numeric, 1) AS start_elev,
+        round(ea.end_elevation_m::numeric, 1) AS end_elev,
+        round(re.bearing_deg::numeric, 0) AS bearing_deg
+    FROM road_edges re
+    LEFT JOIN elevation_attributes ea ON ea.edge_id = re.edge_id
+    WHERE re.osm_way_id = :osm_way_id
+    ORDER BY abs(coalesce(ea.average_grade, 0)) DESC, re.edge_id
+    """
+)
+
+
 def _table(title: str, rows: list[dict]) -> list[str]:
     if not rows:
         return [f"## {title}", "  （該当行なし）", ""]
@@ -250,6 +296,36 @@ def _table(title: str, rows: list[dict]) -> list[str]:
     separator = "  " + "-+-".join("-" * w for w in widths)
     body = ["  " + " | ".join(str(r[c]).ljust(w) for c, w in zip(columns, widths)) for r in rows]
     return [f"## {title}", header, separator, *body, ""]
+
+
+async def inspect(database_url: str | None, args) -> list[str]:
+    """地図で見えている1本を現物で確かめる（--near / --way）。集計は出さない。"""
+    engine = create_async_engine(database_url or settings.database_url)
+    session_factory = async_sessionmaker(engine, expire_on_commit=False)
+    try:
+        async with session_factory() as session:
+            lines: list[str] = []
+            if args.near:
+                lon, lat = (float(v) for v in args.near.split(","))
+                rows = [
+                    dict(r)
+                    for r in (
+                        await session.execute(
+                            _NEAR_EDGES_SQL,
+                            {"lon": lon, "lat": lat, "radius_m": args.radius_m, "limit": args.top},
+                        )
+                    ).mappings().all()
+                ]
+                lines.extend(_table(f"({lat}, {lon}) から{args.radius_m}m以内の区間（|勾配|降順）", rows))
+            if args.way:
+                rows = [
+                    dict(r)
+                    for r in (await session.execute(_WAY_EDGES_SQL, {"osm_way_id": args.way})).mappings().all()
+                ]
+                lines.extend(_table(f"way {args.way} の全区間（|勾配|降順）", rows))
+            return lines
+    finally:
+        await engine.dispose()
 
 
 async def measure(database_url: str | None, top: int) -> list[str]:
@@ -278,9 +354,15 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--database-url", default=None, help="対象DB（省略時はsettings.database_url）")
     parser.add_argument("--top", type=int, default=20, help="「最も急な区間」の表示件数")
+    parser.add_argument("--near", default=None, help="現物確認: 経度,緯度（例 139.80,35.73）。集計の代わりにこの周辺を出す")
+    parser.add_argument("--radius-m", type=float, default=200.0, help="--nearの半径（m）")
+    parser.add_argument("--way", type=int, default=None, help="現物確認: このosm_way_idの全区間を出す")
     args = parser.parse_args(argv)
 
-    for line in asyncio.run(measure(args.database_url, args.top)):
+    lines = asyncio.run(inspect(args.database_url, args)) if (args.near or args.way) else asyncio.run(
+        measure(args.database_url, args.top)
+    )
+    for line in lines:
         print(line)
     return 0
 
