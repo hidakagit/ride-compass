@@ -653,9 +653,20 @@ _FEATURE_KEYS_IN_TILE_SQL = text(
 # 勾配は「道路自身の向き」が本質的に必要な材料（風とは異なる性質）のため、鍵ごとに
 # `(gradient_percent, road_bearing_deg)`を返す。
 #
-# **区間単位のズームでは、その区間の実際の値がそのまま返る**（近似が無くなる）。way単位の
-# ズームでは、そのwayの**いちばん急な区間**を代表にする——区間の平均を取ると、崖を下って
-# 上り返す道が両端の標高差で0%になり、実際は坂なのに平坦として塗られる。
+# 値は**そのフィーチャーに属する区間の、長さで重み付けた平均**。区間単位のズームでは属する
+# 区間が1本なのでその区間の値そのものになり、way単位のズームではwayの全区間をならした値に
+# なる。1区間の外れ値がway全体を染めることは無い（19mの区間の値で2kmの幹線が塗られていた。
+# [T931](docs/tasks/T931.md)）。
+#
+# **符号付きで平均するため、結果はwayの両端の標高差と一致する**（各区間の勾配へ長さを掛けると
+# 長さが約分され、標高差の総和だけが残る）。崖を下って上り返す道は打ち消し合って0%になる。
+# 絶対値で平均すれば打ち消さないが符号が失われ、レンズの登り／下りの塗り分けができない。
+#
+# 向きを揃えてから平均する。`road_edges`は同じ区間を両方向2行で持ち、符号は行ごとに逆のため、
+# そのまま足すと必ず0になる。**フィーチャーの基準方位（ジオメトリの始点→終点）とのcosの符号**で
+# 各行を揃えると、両方向の行が同じ値を返すようになり、重複は重みの分母と分子へ同じだけ効いて
+# 打ち消える（重複排除が要らない）。基準方位が定まらない閉じた道（始点＝終点）は値を返さない
+# ——どちら向きに辿るかが決まらず、0%として配ると平坦と読まれる（domain/gradient.py参照）。
 #
 # 候補には**その区間の両方向の行**が入る（区間単位のズームではnode_lo/node_hiで、way単位の
 # ズームではosm_way_idで引く）。標高属性は向きごとの行に付き、片方向にしか無いことがある。
@@ -678,11 +689,22 @@ _FEATURE_GRADIENT_INPUTS_IN_TILE_SQL = text(
                 '{{}}'::jsonb
             )
             FROM (
-                SELECT DISTINCT ON (src.feature_key)
+                SELECT
                     src.feature_key,
-                    ea.average_grade,
-                    re.bearing_deg
+                    round(
+                        (sum(ea.average_grade * sign(cos(radians(re.bearing_deg) - ref.azimuth)) * re.distance_m)
+                         / nullif(sum(re.distance_m), 0))::numeric,
+                        2
+                    )::double precision AS average_grade,
+                    degrees(ref.azimuth) AS bearing_deg
                 FROM ({_TILE_FEATURE_SOURCE_SQL}) src
+                CROSS JOIN LATERAL (
+                    -- geographyへキャストする。geometry(4326)のままだと経度緯度を平面として
+                    -- 扱った角度になり、緯度35度では真の方位と数度ずれる（domain/geo.py:
+                    -- bearing_between・road_edges.bearing_degと定義が合わなくなる）。
+                    SELECT ST_Azimuth(ST_StartPoint(src.geom)::geography, ST_EndPoint(src.geom)::geography)
+                        AS azimuth
+                ) ref
                 JOIN road_edges re
                   ON re.osm_way_id = src.osm_way_id
                  AND (
@@ -693,7 +715,8 @@ _FEATURE_GRADIENT_INPUTS_IN_TILE_SQL = text(
                 JOIN elevation_attributes ea ON ea.edge_id = re.edge_id
                 WHERE ea.average_grade IS NOT NULL
                   AND re.bearing_deg IS NOT NULL
-                ORDER BY src.feature_key, abs(ea.average_grade) DESC, re.edge_id
+                  AND ref.azimuth IS NOT NULL
+                GROUP BY src.feature_key, ref.azimuth
             ) t
         ) END AS feature_gradient_inputs
     FROM coverage

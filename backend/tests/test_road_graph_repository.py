@@ -2366,6 +2366,7 @@ async def test_get_feature_gradient_inputs_in_tile_returns_gradient_and_bearing(
     road_graph_repository, road_graph_session
 ):
     from app.domain.geo import bearing_between
+    from app.domain.gradient import GradientCalculator
     from app.domain.route import Coordinates
 
     ways = [WaySpec(osm_way_id=1, node_ids=[1, 2], highway="residential")]
@@ -2393,18 +2394,19 @@ async def test_get_feature_gradient_inputs_in_tile_returns_gradient_and_bearing(
     assert set(result.keys()) <= set(graph.edges)
     assert {graph.edges[key].osm_way_id for key in result} == {1}
     gradient_percent, road_bearing_deg = next(iter(result.values()))
-    assert gradient_percent == pytest.approx(4.5)
-    # forward方向のedge（node1→node2）のbearing_degは、domain/geo.py: bearing_betweenが
-    # 同じ2点から計算する値と一致するはず（migration 0013のコメント: ST_Azimuthと
-    # bearing_betweenは同じ定義）。
-    expected_bearing = bearing_between(
+    # node1→node2の向きへ走る想定で読むと、保存した+4.5%がそのまま出る。
+    # **返る`(勾配, 向き)`の組で確かめる**——どちらの向きの行を代表にしても
+    # `effective_gradient`の結果は変わらない（domain/gradient.pyのモジュールdocstring）ため、
+    # 生の符号だけを見ると表現の違いを欠陥と読んでしまう。
+    forward_bearing = bearing_between(
         Coordinates(latitude=NODE1[0], longitude=NODE1[1]), Coordinates(latitude=NODE2[0], longitude=NODE2[1])
     )
-    # forward/backwardどちらのedge行を拾うかは決定論的だがどちらでもよい
-    # （domain/gradient.pyのモジュールdocstring参照、符号反転しても打ち消し合う）ため、
-    # 順方向・逆方向どちらの向きに近いかだけを確認する。
-    assert road_bearing_deg == pytest.approx(expected_bearing) or road_bearing_deg == pytest.approx(
-        (expected_bearing + 180) % 360
+    assert GradientCalculator.effective_gradient(
+        gradient_percent, road_bearing_deg, forward_bearing
+    ) == pytest.approx(4.5)
+    # 返る向きは、その区間の順方向か逆方向のどちらか（表現はどちらでもよい）。
+    assert road_bearing_deg == pytest.approx(forward_bearing, abs=1.0) or road_bearing_deg == pytest.approx(
+        (forward_bearing + 180) % 360, abs=1.0
     )
 
 
@@ -2417,6 +2419,10 @@ async def test_get_feature_gradient_inputs_in_tile_uses_the_reverse_direction_of
     （_TILE_FEATURE_SOURCE_SQLのDISTINCT ON）はedge_id順で決まり、埋まっている向きとは
     独立に選ばれるため、代表の行だけを見ると値が黙って落ちる。
     """
+    from app.domain.geo import bearing_between
+    from app.domain.gradient import GradientCalculator
+    from app.domain.route import Coordinates
+
     ways = [WaySpec(osm_way_id=1, node_ids=[1, 2], highway="residential")]
     nodes = {1: NODE1, 2: NODE2}
     graph = build_road_graph(ways, nodes, graph_version="v1")
@@ -2446,8 +2452,19 @@ async def test_get_feature_gradient_inputs_in_tile_uses_the_reverse_direction_of
 
     assert result is not None
     assert set(result.keys()) == {representative}
-    gradient_percent, _ = result[representative]
-    assert gradient_percent == pytest.approx(4.5)
+    gradient_percent, road_bearing_deg = result[representative]
+    # 標高属性が付いているのは代表に選ばれなかった側の行で、それがnode1→node2とnode2→node1の
+    # どちらかはedge_id順で決まる。**どちらでも、その区間を両方向に読めば±4.5%が出る**
+    # ——それがこのテストの主題（代表の行にしか目を向けないと値が黙って落ちる）で、
+    # どちらの向きを正にするかは表現の違いにすぎない（domain/gradient.pyのdocstring）。
+    forward_bearing = bearing_between(
+        Coordinates(latitude=NODE1[0], longitude=NODE1[1]), Coordinates(latitude=NODE2[0], longitude=NODE2[1])
+    )
+    both_directions = sorted(
+        GradientCalculator.effective_gradient(gradient_percent, road_bearing_deg, travel)
+        for travel in (forward_bearing, (forward_bearing + 180) % 360)
+    )
+    assert both_directions == [pytest.approx(-4.5), pytest.approx(4.5)]
 
 
 async def test_get_feature_gradient_inputs_in_tile_excludes_edges_without_elevation_attribute(
@@ -2913,3 +2930,60 @@ async def test_区間の土地被覆は両方向のEdgeへ同じ値を与える(
 
     for edge_id in edge_ids:
         assert batch.materials[edge_id].landcover_percents["trees_percent"] == pytest.approx(80.0)
+
+
+async def test_get_feature_gradient_inputs_in_tile_does_not_let_one_segment_paint_the_whole_way(
+    road_graph_repository, road_graph_session
+):
+    """way単位のズームでは、そのwayの区間を長さで重み付けて平均する（[T931](docs/tasks/T931.md)）。
+
+    実機で、2kmの平坦な幹線が19mの1区間（+15.3%）の色で全長塗られていた。いちばん急な区間を
+    代表にしていたためで、1区間の外れ値がway全体を染めていた。
+    """
+    from app.domain.gradient import GradientCalculator
+    from app.domain.region import tile_bounds_lonlat
+
+    way_zoom = 13
+    zoom_x, zoom_y = MVT_X >> 1, MVT_Y >> 1
+    bbox = tile_bounds_lonlat(way_zoom, zoom_x, zoom_y)
+    # way1を2区間へ分けるため、中間ノード(2)を別のwayと共有させる（build_road_graphは
+    # 端点と、複数wayが参照するノードでしか分割しない）。短いほう（NODE1-NODE2、約140m）
+    # だけが急で、長いほう（NODE2-NODE3、約7km）は平坦。
+    ways = [
+        WaySpec(osm_way_id=1, node_ids=[1, 2, 3], highway="residential"),
+        WaySpec(osm_way_id=2, node_ids=[2, 4], highway="residential"),
+    ]
+    nodes = {1: NODE1, 2: NODE2, 3: NODE3, 4: (NODE2[0] + 0.001, NODE2[1])}
+    # way単位のズームは生のway（osm_raw_ways）から引くため、edgeだけでなくwayも入れる。
+    graph = await _save_ways_and_edges(road_graph_repository, ways, nodes)
+    await _mark_mvt_coverage(road_graph_session)
+    steep = [
+        edge_id
+        for edge_id, edge in graph.edges.items()
+        if {edge.from_node_id, edge.to_node_id} == {"osm-node-1", "osm-node-2"}
+    ]
+    assert steep, "短い区間のedgeが見つからない（このテストの前提が崩れている）"
+    await road_graph_repository.save_elevation_attributes(
+        [
+            ElevationAttribute(
+                edge_id=edge_id,
+                average_grade=15.3 if edge_id in steep else 0.2,
+                data_source="gsi",
+                calculated_at=datetime(2026, 1, 1, tzinfo=timezone.utc).isoformat(),
+            )
+            for edge_id in graph.edges
+        ]
+    )
+
+    result = await road_graph_repository.get_feature_gradient_inputs_in_tile(
+        way_zoom, zoom_x, zoom_y, bbox, MVT_COVERAGE_TILE
+    )
+
+    assert result is not None
+    assert "1" in result, "way単位のズームでは鍵がosm_way_id"
+    gradient_percent, road_bearing_deg = result["1"]
+    # 短い区間の15.3%ではなく、長さで重み付けた平均（ほぼ平坦な長い区間が支配する）。
+    assert abs(gradient_percent) < 2.0, f"1区間の外れ値がway全体を染めている: {gradient_percent}"
+    # 向きと組で読んでも、どちらへ走っても急坂にはならない。
+    for travel in (road_bearing_deg, (road_bearing_deg + 180) % 360):
+        assert abs(GradientCalculator.effective_gradient(gradient_percent, road_bearing_deg, travel)) < 2.0
