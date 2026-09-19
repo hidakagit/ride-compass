@@ -198,7 +198,9 @@
       "dedicated_way_value_layer": false,
       "map_value_kind": "difficulty",
       "map_value_unit": "",
-      "map_value_thresholds": null,
+      "map_value_thresholds": [
+        40.0
+      ],
       "raw_value_unit": null,
       "raw_value_total_unit": null,
       "material_breakdown": [],
@@ -405,7 +407,9 @@
       "dedicated_way_value_layer": false,
       "map_value_kind": "difficulty",
       "map_value_unit": "",
-      "map_value_thresholds": null,
+      "map_value_thresholds": [
+        100.0
+      ],
       "raw_value_unit": null,
       "raw_value_total_unit": null,
       "material_breakdown": [
@@ -538,7 +542,9 @@
       "dedicated_way_value_layer": false,
       "map_value_kind": "difficulty",
       "map_value_unit": "",
-      "map_value_thresholds": null,
+      "map_value_thresholds": [
+        100.0
+      ],
       "raw_value_unit": "件/(km・年)",
       "raw_value_total_unit": null,
       "material_breakdown": [],
@@ -625,7 +631,10 @@
       "dedicated_way_value_layer": false,
       "map_value_kind": "difficulty",
       "map_value_unit": "",
-      "map_value_thresholds": null,
+      "map_value_thresholds": [
+        25.0,
+        75.0
+      ],
       "raw_value_unit": null,
       "raw_value_total_unit": null,
       "material_breakdown": [
@@ -725,16 +734,6 @@
         ],
         "thresholds": [
           -14.5,
-          -13.5,
-          -12.5,
-          -11.5,
-          -10.5,
-          -9.5,
-          -8.5,
-          -7.5,
-          -6.5,
-          -5.5,
-          -4.5,
           -3.5,
           -2.5,
           -1.5,
@@ -797,7 +796,13 @@
       "dedicated_way_value_layer": false,
       "map_value_kind": "difficulty",
       "map_value_unit": "",
-      "map_value_thresholds": null,
+      "map_value_thresholds": [
+        0.0,
+        8.3,
+        25.0,
+        50.0,
+        83.3
+      ],
       "raw_value_unit": null,
       "raw_value_total_unit": null,
       "material_breakdown": [

@@ -61,6 +61,7 @@ from app.domain.axis_definitions import (
     BreakpointLinearShape,
     CategoricalShape,
 )
+from app.domain.axis_templates import evaluate_breakpoint_linear
 from app.domain.material_catalog import MATERIAL_CATALOG, MaterialSpec
 from app.domain.registry import AxisDisplaySpec, TileInputSpec
 from app.domain.strict_model import StrictModel
@@ -76,6 +77,31 @@ def _adjacent_midpoint_thresholds(scores: list[float]) -> list[float]:
     （bool2値の`[(lower+upper)/2]`をN値へ一般化したもの）。"""
     ordered = sorted(set(scores))
     return [(a + b) / 2 for a, b in zip(ordered, ordered[1:])]
+
+
+def _drop_thresholds_that_share_a_score(
+    thresholds: list[float], shape: "BreakpointLinearShape"
+) -> list[float]:
+    """折れ線が同じスコアへ写す境界を落とす。
+
+    **地図に出す段は、評価が区別できる差より細かくしない。** 真偽値材料の部分和は
+    組合せのぶんだけ値が並ぶが、折れ線が飽和する範囲に落ちた値は同じ難易度になる——
+    そこへ境界を引くと、色は変わるのに評価は同じ、という見分けを地図が見せることになる。
+
+    同じ理由で、ルート確定後のルート線は難易度で塗るためその段を作れない。畳まずに置くと
+    **前後で段の数が食い違い**、ルート前に隠した段がルート生成で別の段に化ける
+    （`domain/dynamic_way_values.py: map_value_thresholds`と対で読むこと）。
+    """
+    kept: list[float] = []
+    seen: list[float] = []
+    for threshold in thresholds:
+        total = abs(threshold) if shape.preprocess == "abs" else threshold
+        score = round(evaluate_breakpoint_linear(total, shape.breakpoints), 1)
+        if seen and score <= seen[-1]:
+            continue
+        seen.append(score)
+        kept.append(threshold)
+    return kept
 
 
 def _boolean_terms_thresholds(weights: list[float], cap: float | None) -> list[float]:
@@ -527,6 +553,33 @@ def primary_attribute_ids_for(definition: AxisDefinition) -> list[str]:
     return list(seen)
 
 
+def ramp_band_thresholds(definition: AxisDefinition) -> list[float] | None:
+    """地図がこの軸で塗る段の境界（ramp表示を持たない軸はNone）。
+
+    **段を決めるのはここだけ。** ルート確定前の全道路は材料の重み付き和を、確定後の
+    ルート線は難易度を塗るが、段は同じでなければならない——段の識別子は前後で同じ保存先へ
+    書かれるため、数が違うと前に隠した段が生成後に別の段へ化ける。ルート線側の境界は
+    `domain/dynamic_way_values.py: map_value_thresholds`がここの値を折れ線で写して作る。
+
+    上書き（軸スタジオのGUIが編集する`display_thresholds_override`）があればそれを、
+    無ければ自動導出の値を使う。どちらも**折れ線が同じスコアへ写す境界は落とす**——
+    評価が区別できない差に境界を引くと、色は変わるのに評価は同じ、という見分けを地図が
+    見せることになり、しかもルート線側ではその段を作れない。
+    """
+    ramp = derive_ramp_inputs(definition)
+    if ramp is None:
+        return None
+    thresholds = (
+        list(definition.display_thresholds_override)
+        if definition.display_thresholds_override is not None
+        else list(ramp.thresholds)
+    )
+    shape = definition.shape
+    if isinstance(shape, BreakpointLinearShape):
+        return _drop_thresholds_that_share_a_score(thresholds, shape)
+    return thresholds
+
+
 def axis_display_for(definition: AxisDefinition) -> AxisDisplaySpec:
     """軸の地図表示宣言。`GET /api/axis-catalog`が公開軸すべてに対して呼ぶ想定の純粋関数
     （`AXIS_DEFINITIONS`・`MATERIAL_CATALOG`というプロセス内メモリだけを見る、DB/IO無し）。
@@ -546,12 +599,8 @@ def axis_display_for(definition: AxisDefinition) -> AxisDisplaySpec:
     描画方法」節参照）。
     """
     ramp = derive_ramp_inputs(definition)
-    if ramp is not None:
-        thresholds = (
-            list(definition.display_thresholds_override)
-            if definition.display_thresholds_override is not None
-            else ramp.thresholds
-        )
+    thresholds = ramp_band_thresholds(definition)
+    if ramp is not None and thresholds is not None:
         return AxisDisplaySpec(
             kind="ramp",
             label=definition.label,

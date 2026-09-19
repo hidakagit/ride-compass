@@ -22,6 +22,7 @@
 // 寄与値を直接指定する（weightは無視。domain/axis_display.py: derive_ramp_inputs参照）。
 
 import type { LegendEntry } from "./legendFilter";
+import { LEGEND_NO_DATA_KEY, legendBandKey, rangeStepLabel } from "./mapColorLegend";
 import type { MapValueKind } from "./valueScale";
 import type { components } from "@/types/generated/api";
 import axisCatalog from "@/types/generated/axis-catalog.json";
@@ -483,16 +484,12 @@ function axisRampBand(thresholds: readonly number[], index: number): { lower: nu
 }
 
 /** 段階ラベル（例: 「1回/km未満」「1〜2回/km」「4回/km以上」）。thresholds.length+1件。
+ * 範囲の文字起こしは`mapColorLegend.ts: rangeStepLabel`に任せる（表記規則を書き直さない）。
  * 改善計画T513: `axis.bandLabelsOverride`の要素数が段階数と一致する間は、数値レンジの
  * 前に体感ラベルを添える（`mapColorLegend.ts: buildRangeLegendBands`と同じ考え方）。 */
 function axisRampBandLabel(axis: RampAxis, index: number, lower: number | null, upper: number | null): string {
   const bandCount = axis.thresholds.length + 1;
-  const rangeLabel =
-    lower === null
-      ? `${upper}${axis.unit}未満`
-      : upper === null
-        ? `${lower}${axis.unit}以上`
-        : `${lower}〜${upper}${axis.unit}`;
+  const rangeLabel = rangeStepLabel(lower, upper, axis.unit);
   if (axis.bandLabelsOverride && axis.bandLabelsOverride.length === bandCount) {
     return `${axis.bandLabelsOverride[index]}（${rangeLabel}）`;
   }
@@ -522,7 +519,10 @@ export function buildAxisRampLegend(axis: RampAxis): LegendEntry[] {
     if (lower !== null) filterParts.push([">=", valueExpression, lower]);
     if (upper !== null) filterParts.push(["<", valueExpression, upper]);
     return {
-      key: `${axis.axisId}-${index}`,
+      // 段の識別子はルート確定前後で共通（`mapColorLegend.ts: legendBandKey`）。**軸idを
+      // 混ぜない**——非表示にした段の保存先は前後で同じ`hiddenLegendKeysByMode[軸id]`
+      // なので、別の綴りにすると隠した段がルート生成で黙って戻る。
+      key: legendBandKey(index),
       label: axisRampBandLabel(axis, index, lower, upper),
       color: rampColorForBand(index, bandCount),
       filter: filterParts,
@@ -532,7 +532,8 @@ export function buildAxisRampLegend(axis: RampAxis): LegendEntry[] {
   return [
     ...bands,
     {
-      key: `${axis.axisId}-unknown`,
+      // 値を持たない道の受け皿もルート線側と同じキー（ルート線は「データなし」と呼ぶ）。
+      key: LEGEND_NO_DATA_KEY,
       label: "不明",
       color: COLOR_UNKNOWN,
       filter: ["all", unknownExpression],

@@ -10,7 +10,7 @@ import {
   routeColorableModeFromAxis,
   routeStyleModesFromCatalogAxes,
 } from "./routeStyleModes";
-import type { CatalogAxis } from "./axisLayers";
+import { buildAxisRampLegend, rampAxesFromCatalogAxes, type CatalogAxis } from "./axisLayers";
 import { interpolateColors } from "./valueScale";
 import axisCatalog from "@/types/generated/axis-catalog.json";
 
@@ -20,9 +20,7 @@ const AXES = axisCatalog.axes as CatalogAxis[];
  * 実際に色を切り替える境界値。宣言ではなく組み立て結果から読むため、境界が式へ渡る
  * 途中で変換されていればその後の値が見える。 */
 function steppedBoundariesOf(mode: { colorExpression: unknown[] }): number[] {
-  const step = mode.colorExpression.find(
-    (part): part is unknown[] => Array.isArray(part) && part[0] === "step"
-  );
+  const step = mode.colorExpression.find((part): part is unknown[] => Array.isArray(part) && part[0] === "step");
   if (!step) return [];
   return step.slice(3).filter((part): part is number => typeof part === "number");
 }
@@ -34,11 +32,7 @@ describe("routeStyleModes", () => {
   // 軸idを名指しせずカタログ順をそのまま期待するのは、公開軸の集合が軸スタジオ（DB）で
   // 決まり生成物の再取り込みで変わるため（GUI作成軸のidは固定値ですらない）。
   it("公開軸すべて（カタログ順）+ difficulty（総合難易度）+ none（レンズなし）を定義する", () => {
-    expect(ROUTE_STYLE_MODES.map((m) => m.id)).toEqual([
-      ...AXES.map((axis) => axis.axis_id),
-      "difficulty",
-      "none",
-    ]);
+    expect(ROUTE_STYLE_MODES.map((m) => m.id)).toEqual([...AXES.map((axis) => axis.axis_id), "difficulty", "none"]);
     expect(DEFAULT_ROUTE_STYLE_MODE_ID).toBe("difficulty");
   });
 
@@ -62,11 +56,7 @@ describe("routeStyleModes", () => {
     expect((wind.colorExpression[3] as unknown[])[0]).toBe("step");
 
     const gradient = getRouteStyleMode(ROUTE_STYLE_MODES, "gradient");
-    expect(gradient.colorExpression[1]).toEqual([
-      "==",
-      ["get", "gradient_percent", ["get", "material_values"]],
-      null,
-    ]);
+    expect(gradient.colorExpression[1]).toEqual(["==", ["get", "gradient_percent", ["get", "material_values"]], null]);
   });
 
   // 改善計画T466: id未検出時のmodes[0]無警告フォールバックへ警告ログを追加した回帰テスト。
@@ -80,7 +70,7 @@ describe("routeStyleModes", () => {
       "map:route-style-mode",
       expect.stringContaining("not-a-real-mode-id"),
       expect.objectContaining({ requestedId: "not-a-real-mode-id" }),
-      "warn"
+      "warn",
     );
 
     debugLogSpy.mockRestore();
@@ -95,15 +85,11 @@ describe("routeStyleModes", () => {
     debugLogSpy.mockRestore();
   });
 
-  it("gradient(map_value_kind===\"signed_material\")はgradient_percentを符号付きのまま直接読む——軸idのハードコード分岐ではなくbackendの宣言で判定する", () => {
+  it('gradient(map_value_kind==="signed_material")はgradient_percentを符号付きのまま直接読む——軸idのハードコード分岐ではなくbackendの宣言で判定する', () => {
     expect(gradientAxis.map_value_kind).toBe("signed_material");
     const mode = routeColorableModeFromAxis(gradientAxis);
     expect(mode.id).toBe("gradient");
-    expect(mode.colorExpression[1]).toEqual([
-      "==",
-      ["get", "gradient_percent", ["get", "material_values"]],
-      null,
-    ]);
+    expect(mode.colorExpression[1]).toEqual(["==", ["get", "gradient_percent", ["get", "material_values"]], null]);
   });
 
   it("改善計画T440: gradientのしきい値はカタログのmap_value_thresholds由来で、段階数はその長さ+1になる（固定5カテゴリを仮定しない）", () => {
@@ -116,7 +102,7 @@ describe("routeStyleModes", () => {
       "-2〜2%",
       "2〜6%",
       "6〜10%",
-      "10%超",
+      "10%以上",
       "データなし",
     ]);
   });
@@ -129,10 +115,10 @@ describe("routeStyleModes", () => {
     };
     const mode = routeColorableModeFromAxis(axis);
     expect(mode.legend.map((e) => e.key)).toEqual(["step-0", "step-1", "step-2", "nodata"]);
-    expect(mode.legend.map((e) => e.label)).toEqual(["0%未満", "0〜5%", "5%超", "データなし"]);
+    expect(mode.legend.map((e) => e.label)).toEqual(["0%未満", "0〜5%", "5%以上", "データなし"]);
   });
 
-  it("windはmap_value_kind===\"difficulty\"のため難易度経路を使う（axis_difficulties経由）", () => {
+  it('windはmap_value_kind==="difficulty"のため難易度経路を使う（axis_difficulties経由）', () => {
     expect(windAxis.map_value_kind).toBe("difficulty");
     const wind = routeColorableModeFromAxis(windAxis);
     expect(wind.id).toBe("wind");
@@ -183,21 +169,13 @@ describe("routeStyleModes", () => {
   it("改善計画T440/T549: gradient軸が軸カタログから消える（軸スタジオでunpublish）と、対応するモードも一覧から消える", () => {
     const axesWithoutGradient = AXES.filter((axis) => axis.axis_id !== "gradient");
     const modes = routeStyleModesFromCatalogAxes(axesWithoutGradient);
-    expect(modes.map((m) => m.id)).toEqual([
-      ...axesWithoutGradient.map((axis) => axis.axis_id),
-      "difficulty",
-      "none",
-    ]);
+    expect(modes.map((m) => m.id)).toEqual([...axesWithoutGradient.map((axis) => axis.axis_id), "difficulty", "none"]);
   });
 
   it("改善計画T440/T549: surface_q軸が軸カタログから消えると、対応するモードも一覧から消える", () => {
     const axesWithoutSurfaceQ = AXES.filter((axis) => axis.axis_id !== "surface_q");
     const modes = routeStyleModesFromCatalogAxes(axesWithoutSurfaceQ);
-    expect(modes.map((m) => m.id)).toEqual([
-      ...axesWithoutSurfaceQ.map((axis) => axis.axis_id),
-      "difficulty",
-      "none",
-    ]);
+    expect(modes.map((m) => m.id)).toEqual([...axesWithoutSurfaceQ.map((axis) => axis.axis_id), "difficulty", "none"]);
   });
 
   it("改善計画T440: difficultyはどの軸にも対応しないため、軸が0件でも一覧から消えない", () => {
@@ -229,11 +207,14 @@ describe("routeStyleModes", () => {
     for (const axis of AXES) {
       if (axis.display?.kind !== "ramp") continue;
       if ((axis.map_value_kind ?? "difficulty") !== "difficulty") continue;
+      // 分類の軸（`categorical`）は自動導出のしきい値が初めからスコアと同じスケールで、
+      // 写す対象ではない（`domain/dynamic_way_values.py: map_value_thresholds`）。
+      // 一致していても「変換されていない証拠」にならないため、この検査の対象外。
+      if (axis.shape?.kind !== "breakpoint_linear") continue;
       const materialScale = axis.display.thresholds ?? [];
       if (materialScale.length === 0) continue;
       const routeBoundaries = steppedBoundariesOf(routeColorableModeFromAxis(axis));
-      if (routeBoundaries.length === materialScale.length
-          && routeBoundaries.every((b, i) => b === materialScale[i])) {
+      if (routeBoundaries.length === materialScale.length && routeBoundaries.every((b, i) => b === materialScale[i])) {
         offenders.push(`${axis.axis_id}: ${routeBoundaries.join(", ")}`);
       }
     }
@@ -250,8 +231,7 @@ describe("routeStyleModes", () => {
     for (const axis of AXES) {
       const labels = axis.display_band_labels_override;
       if (!labels || labels.length === 0) continue;
-      const collapsed =
-        (axis.map_value_thresholds?.length ?? 0) < (axis.display_thresholds_override?.length ?? 0);
+      const collapsed = (axis.map_value_thresholds?.length ?? 0) < (axis.display_thresholds_override?.length ?? 0);
       const legend = routeColorableModeFromAxis(axis).legend;
       const showsLabels = legend.some((entry) => entry.label.startsWith(labels[0]));
       expect(showsLabels, `${axis.axis_id}（畳まれた=${collapsed}）`).toBe(!collapsed);
@@ -263,7 +243,62 @@ describe("routeStyleModes", () => {
   it("体感ラベルを持つ軸の凡例は「ラベル（数値レンジ）」の形で、ルート前と同じ表記になる", () => {
     const wind = getRouteStyleMode(ROUTE_STYLE_MODES, "wind");
     const labels = windAxis.display_band_labels_override!;
-    expect(wind.legend[0].label).toBe(`${labels[0]}（${windAxis.map_value_thresholds![0]}未満）`);
+    const boundaries = windAxis.map_value_thresholds!;
+    const unit = windAxis.map_value_unit ?? "";
+    // **先頭帯だけを見ない**。表記がずれるのは端（最上位帯の「以上／超」）なので、
+    // 先頭だけ比べると本題を外す。データなしの受け皿は数値レンジを持たないため除く。
+    const ranges = [
+      `${boundaries[0]}${unit}未満`,
+      ...boundaries.slice(1).map((b, i) => `${boundaries[i]}〜${b}${unit}`),
+      `${boundaries[boundaries.length - 1]}${unit}以上`,
+    ];
+
+    expect(wind.legend.filter((e) => !e.isFallback).map((e) => e.label)).toEqual(
+      ranges.map((range, i) => `${labels[i]}（${range}）`),
+    );
+  });
+
+  // 本題。ルート確定前の全道路の塗りと、確定後のルート線は**同じ段**で塗る。段の識別子は
+  // 前後で同じ保存先（`page.tsx: hiddenLegendKeysByMode[軸id]`）へ書かれるため、綴りか
+  // 段数のどちらかがずれると、前に隠した段が生成後に別の段へ化けるか黙って戻る。
+  //
+  // 母集団は軸カタログから導く——ここに軸idを並べると、軸スタジオで公開を増やしたときに
+  // このテストだけが古くなる。
+  it("公開軸の凡例キーは、ルート確定の前後で一致する", () => {
+    const rampAxes = rampAxesFromCatalogAxes(AXES);
+    expect(rampAxes.length).toBeGreaterThan(0);
+
+    // 比べるのは**数値の段**だけ。「データなし」の受け皿は量の段ではなく量の不在で、
+    // ルート前は値を持たない道が在りうる軸にしか出ない（出ない軸に空の行を足すと、
+    // 該当が1本も無い凡例が並ぶ）。受け皿どうしの綴りは下の別テストで固定する。
+    const bandKeys = (legend: readonly { key: string; isFallback?: boolean }[]) =>
+      legend.filter((entry) => !entry.isFallback).map((entry) => entry.key);
+
+    const mismatches = rampAxes
+      .map((axis) => ({
+        axisId: axis.axisId,
+        before: bandKeys(buildAxisRampLegend(axis)),
+        after: bandKeys(getRouteStyleMode(ROUTE_STYLE_MODES, axis.axisId).legend),
+      }))
+      .filter(({ before, after }) => [...before].sort().join() !== [...after].sort().join())
+      .map(({ axisId, before, after }) => `${axisId}: 前=${before.join("/")} 後=${after.join("/")}`);
+
+    expect(mismatches).toEqual([]);
+  });
+
+  it("「データなし」の受け皿は、前後で同じ綴りを使う", () => {
+    // 綴りが分かれると、ルート前に隠した受け皿がルート生成で戻る（隠した本人には
+    // 「一部非表示」の表示だけが残る）。
+    const withFallback = rampAxesFromCatalogAxes(AXES)
+      .map((axis) => ({
+        axisId: axis.axisId,
+        before: buildAxisRampLegend(axis).find((entry) => entry.isFallback)?.key,
+        after: getRouteStyleMode(ROUTE_STYLE_MODES, axis.axisId).legend.find((entry) => entry.isFallback)?.key,
+      }))
+      .filter(({ before }) => before !== undefined);
+
+    expect(withFallback.length).toBeGreaterThan(0);
+    expect(withFallback.filter(({ before, after }) => before !== after)).toEqual([]);
   });
 
   it("isRouteStyleModeIdは既知のIDのみtrue（localStorageの壊れた値を弾く）", () => {

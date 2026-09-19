@@ -2,6 +2,7 @@
 （改善計画T423、T458でAXIS_DEFINITIONS由来の動的導出へ変更）。"""
 
 from app.domain.axis_definitions import AXIS_DEFINITIONS, AxisDefinition, BreakpointLinearShape, MaterialTerm
+from app.domain.axis_display import derive_ramp_inputs, ramp_band_thresholds
 from app.domain.dynamic_way_values import (
     dedicated_way_value_axes,
     map_value_kind,
@@ -126,9 +127,35 @@ def test_map_value_thresholds_collapses_boundaries_that_saturate_to_the_same_sco
     assert map_value_thresholds(_ramp_axis([-50.0, -20.0, -10.0, 0.0])) == [65.0, 100.0]
 
 
-def test_map_value_thresholds_is_none_without_override():
-    # 上書きが無ければNone（読む側が map_value_kind ごとの既定値を使う）。
-    assert map_value_thresholds(_ramp_axis(None)) is None
+def test_map_value_thresholds_maps_the_auto_derived_thresholds_when_there_is_no_override():
+    # 上書きが無い軸も、ルート確定前の全道路は自動導出のしきい値で塗る。同じ段を難易度側で
+    # 言い直さずNoneで済ませると、その軸だけがルート後に既定値へ転落し、段の数も意味も
+    # 食い違う（T939）。写した結果はルート前の段数（しきい値+1）と対応する。
+    auto = derive_ramp_inputs(_ramp_axis(None))
+    assert auto is not None
+
+    mapped = map_value_thresholds(_ramp_axis(None))
+
+    assert mapped == [30.0, 100.0]
+    assert len(mapped) == len(auto.thresholds)
+
+
+def test_map_value_thresholds_is_none_when_the_axis_has_no_ramp_display():
+    # 地図に段そのものが無い軸（自動導出できず上書きも無い）は従来どおりNoneで、
+    # 読む側が map_value_kind ごとの既定値を使う。
+    not_derivable = AxisDefinition(
+        axis_id="not_derivable",
+        shape=BreakpointLinearShape(
+            terms=[MaterialTerm(material="gradient_percent")],
+            preprocess="abs",
+            breakpoints=[(0.0, 0.0), (15.0, 100.0)],
+        ),
+        default_weight=0.15,
+        label="ramp表示を持たない軸",
+    )
+    assert derive_ramp_inputs(not_derivable) is None
+
+    assert map_value_thresholds(not_derivable) is None
 
 
 def test_map_value_thresholds_keeps_material_scale_for_signed_material_axes():
@@ -177,3 +204,43 @@ def test_transform_drops_ways_the_axis_cannot_evaluate_from_one_material():
         dedicated_way_value_layer=True,
     )
     assert transform_dedicated_way_values(two_materials, "wind_drag_ratio", {1: 3.0}) == {}
+
+
+def _saturating_axis() -> AxisDefinition:
+    """折れ線に平らな区間がある軸（5〜10の範囲はどこでも難易度50）。"""
+    return AxisDefinition(
+        axis_id="saturating_axis",
+        shape=BreakpointLinearShape(
+            terms=[MaterialTerm(material="trees_percent", weight=1.0)],
+            breakpoints=[(0.0, 0.0), (5.0, 50.0), (10.0, 50.0), (15.0, 100.0)],
+        ),
+        default_weight=0.1,
+        label="飽和する軸",
+    )
+
+
+def test_ramp_display_drops_thresholds_that_map_to_the_same_score():
+    # 5と10の間は難易度が動かない。ここへ境界を引くと、色は変わるのに評価は同じ、という
+    # 見分けを地図が見せることになる——しかもルート線は難易度で塗るためその段を作れず、
+    # 前後で段の数が食い違う（T939）。
+    bands = ramp_band_thresholds(_saturating_axis())
+
+    assert bands == [5.0, 15.0]
+
+
+def test_every_axis_with_a_ramp_display_has_the_same_bands_before_and_after_a_route():
+    """ルート確定前の全道路の塗りと、確定後のルート線は同じ数の段で塗る。
+
+    段の識別子は前後で同じ保存先へ書かれるため、数が違うと前に隠した段が生成後に別の段へ
+    化ける。母集団は宣言から導く——軸idを並べると、公開を増やしたときにここだけが古くなる。
+    """
+    mismatches = []
+    for definition in AXIS_DEFINITIONS.values():
+        bands = ramp_band_thresholds(definition)
+        if bands is None:
+            continue
+        mapped = map_value_thresholds(definition)
+        if mapped is None or len(mapped) != len(bands):
+            mismatches.append(f"{definition.axis_id}: 前={bands} 後={mapped}")
+
+    assert mismatches == []

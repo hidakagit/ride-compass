@@ -35,7 +35,11 @@ import { dedicatedWayValueLegend, type DedicatedWayValueDisplay } from "@/compon
 import LensControl, { type LensOption } from "@/components/LensControl/LensControl";
 import type { LegendEntry } from "@/components/Map/legendFilter";
 import { primaryAttributeIdsToLayerIds } from "@/components/Map/primaryAttributes";
-import { summarizeLegendFilters, type LegendFilterSummaryAxis } from "@/components/Map/legendFilter";
+import {
+  hasVisibleHiddenKeys,
+  summarizeLegendFilters,
+  type LegendFilterSummaryAxis,
+} from "@/components/Map/legendFilter";
 import type { DisasterSourceKey } from "@/components/Map/dynamicWeather";
 import { ROAD_FILTER_AXES, type RoadFilterAxisId } from "@/components/Map/roadFilterAxes";
 import { buildStaticFilterAxes, type StaticFilterAxisId } from "@/components/Map/staticAttributeLayers";
@@ -1087,7 +1091,11 @@ export default function Home() {
 
   // ルートは色分けモード自体が「何の条件で色分け中か」の情報なので常に出す
   const routeSummary = hasDetail
-    ? `レンズ: ${getRouteStyleMode(routeStyleModes, lens).label}${hiddenRouteLegendKeys.length > 0 ? "・一部非表示" : ""}`
+    ? `レンズ: ${getRouteStyleMode(routeStyleModes, lens).label}${
+        hasVisibleHiddenKeys(getRouteStyleMode(routeStyleModes, lens).legend, hiddenRouteLegendKeys)
+          ? "・一部非表示"
+          : ""
+      }`
     : null;
   const routeLegendDetails = useMemo<LegendFilterSummaryAxis[]>(
     () =>
