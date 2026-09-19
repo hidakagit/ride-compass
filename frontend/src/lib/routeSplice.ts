@@ -296,14 +296,16 @@ function createsRevisit(
 export function stretchAlternativeGroups(
   baseEdgeIds: readonly string[],
   candidates: readonly { id: string; edgeIds: readonly string[]; shape?: RouteGeometryShape }[],
-  // 割る下限（km）は呼び出し側が渡す（backendの較正値。`domain/tuning.py`が宣言し、
-  // 起動時のカタログ取得でフロントへ届く）。渡さないときは下限なし＝共有地点すべてで割る。
-  options: { baseShape?: RouteGeometryShape; minSplitLengthKm?: number } = {},
+  // 割る下限（km）は**省略できない**。backendの較正値（`domain/tuning.py`が宣言し、
+  // 起動時のカタログ取得で届く）で、ここに既定を持つと**届かなかったときに下限なし＝
+  // 共有地点すべてで区間を割る**という、較正したのとは別の切り方で黙って動く。
+  // backend側の`tuning_value`は宣言に無いidをその場で落とす。受ける側も同じにする。
+  options: { baseShape?: RouteGeometryShape; minSplitLengthKm: number },
 ): StretchGroup[] {
   const alternatives: StretchAlternative[] = [];
   const seen = new Set<string>();
   const baseShape = options.baseShape;
-  const minSplitLengthKm = options.minSplitLengthKm ?? 0;
+  const minSplitLengthKm = options.minSplitLengthKm;
   // 区間を割るために元ルートの累積距離を1回だけ求める（候補ごとに作り直さない）。
   const baseCumulativeKm = baseShape ? cumulativeDistancesKm(baseShape.coordinates) : [];
   // 折り返しの判定に使う元ルートのNode集合。候補ごとに作り直さない。

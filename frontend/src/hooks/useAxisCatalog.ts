@@ -74,6 +74,20 @@ export interface AxisCatalog {
   failed: boolean;
 }
 
+/** フロントが読む較正値のid。**ここに並んだidは、ビルド時生成物
+ * （route-generate-config.json）に必ず在る**ことをテストが固定する——backendの宣言から
+ * 消す/綴りを変えると、フロントは引けないまま黙って別の値で動くため。 */
+export const CLIENT_TUNING_IDS = {
+  /** 区間を割る下限（km）。これ未満の共有区間では割らない（`lib/routeSplice.ts`）。 */
+  minStretchKm: "splice.min_stretch_km",
+} as const;
+
+/** 較正値を1つ引く。**引けなければ`undefined`**——ここで既定を作らない。既定を作ると、
+ * 宣言から消えた値を「0」等として使い続け、較正したのとは別の挙動で黙って動く。 */
+export function clientTuningValue(catalog: AxisCatalog, id: string): number | undefined {
+  return Object.hasOwn(catalog.clientTuning, id) ? catalog.clientTuning[id] : undefined;
+}
+
 const FALLBACK_CATALOG: AxisCatalog = {
   clientTuning: routeGenerateConfig.client_tuning,
   axes: PREFERENCE_AXES,

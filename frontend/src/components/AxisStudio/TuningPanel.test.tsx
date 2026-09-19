@@ -19,6 +19,7 @@ function parameter(overrides: Partial<TuningParameter> = {}): TuningParameter {
     minimum: 0,
     maximum: 120,
     effect: "turn_structure",
+    effect_title: "次のルート生成から効く（1回だけ遅い）",
     value: 12,
     overridden: false,
     ...overrides,
@@ -49,9 +50,24 @@ describe("TuningPanel", () => {
   it("効き方ごとに見出しを分ける（別の操作が要る群がそれと分かる）", async () => {
     // 同じ見た目で並べると「変えたのに効かない」に気づけない。
     vi.mocked(listTuningParameters).mockResolvedValue([
-      parameter({ id: "signal.match_radius_m", label: "信号とみなす半径", effect: "node_attribute_batch" }),
-      parameter({ id: "stop.signal_seconds", label: "信号の待ち", effect: "immediate" }),
-      parameter({ id: "splice.min_stretch_km", label: "区間を割る下限", effect: "client_reload" }),
+      parameter({
+        id: "signal.match_radius_m",
+        label: "信号とみなす半径",
+        effect: "node_attribute_batch",
+        effect_title: "交差点の事前計算をやり直すまで効かない",
+      }),
+      parameter({
+        id: "stop.signal_seconds",
+        label: "信号の待ち",
+        effect: "immediate",
+        effect_title: "次のルート生成から効く",
+      }),
+      parameter({
+        id: "splice.min_stretch_km",
+        label: "区間を割る下限",
+        effect: "client_reload",
+        effect_title: "画面を読み込み直すと効く",
+      }),
     ]);
 
     render(<TuningPanel />);
@@ -61,16 +77,23 @@ describe("TuningPanel", () => {
     expect(screen.getByText("画面を読み込み直すと効く")).toBeInTheDocument();
   });
 
-  it("知らない効き方が来ても落とさず「その他」へ出す", async () => {
-    // backendが先に増えてもこの画面は動き続ける。
+  it("backendが効き方を足したら、その見出しのまま出る（画面に対応表を持たない）", async () => {
+    // 以前は画面側が効き方→見出しの対応表を持っており、知らない効き方は名前の無い
+    // まとまり（「その他」）へ落ちた。値は出るが「何をすれば効くのか」だけが失われる。
     vi.mocked(listTuningParameters).mockResolvedValue([
-      parameter({ id: "zzz.unknown_effect", label: "未知の効き方", effect: "zzz_future" }),
+      parameter({
+        id: "zzz.unknown_effect",
+        label: "未知の効き方",
+        effect: "zzz_future",
+        effect_title: "まだこの画面が知らない操作が要る",
+      }),
     ]);
 
     render(<TuningPanel />);
 
-    expect(await screen.findByText("その他")).toBeInTheDocument();
+    expect(await screen.findByText("まだこの画面が知らない操作が要る")).toBeInTheDocument();
     expect(screen.getByLabelText("未知の効き方")).toBeInTheDocument();
+    expect(screen.queryByText("その他")).not.toBeInTheDocument();
   });
 
   it("打っただけでは送らず、保存を押したときに送る", async () => {

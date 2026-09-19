@@ -10,7 +10,12 @@ vi.mock("@/services/axisCatalogApi", () => ({
 }));
 
 import { getAxisCatalog } from "@/services/axisCatalogApi";
-import { __resetAxisCatalogStoreForTests, retryAxisCatalogFetch, useAxisCatalog } from "./useAxisCatalog";
+import {
+  CLIENT_TUNING_IDS,
+  __resetAxisCatalogStoreForTests,
+  retryAxisCatalogFetch,
+  useAxisCatalog,
+} from "./useAxisCatalog";
 
 // 改善計画T527: フェッチ結果をモジュールレベルの共有ストアへ変更したため、前のテストの
 // 解決済みカタログが次のテストの初期値へ持ち越されないよう、テストごとにリセットする。
@@ -155,6 +160,18 @@ describe("useAxisCatalog（改善計画T308: rampAxes/axisLabels/secondaryAxes�
       routeGenerateConfig.client_tuning["splice.min_stretch_km"],
     );
     await waitFor(() => expect(result.current.clientTuning["splice.min_stretch_km"]).toBe(0.5));
+  });
+
+  it("フロントが読む較正値は、どれもビルド時生成物に在る", () => {
+    // backendの宣言（domain/tuning.py）から消す・綴りを変えると、フロントは引けないまま
+    // 黙って別の値で動く。生成物はexport_openapi.pyが宣言から作るため、ここで突き合わせると
+    // その変更がフロント側のCIで落ちる。
+    const ids = Object.values(CLIENT_TUNING_IDS);
+
+    expect(ids.length).toBeGreaterThan(0);
+    for (const id of ids) {
+      expect(Object.hasOwn(routeGenerateConfig.client_tuning, id)).toBe(true);
+    }
   });
 
   it("改善計画T318フォローアップ: 全軸非公開でaxesが0件のレスポンスは、静的フォールバックへ戻さずそのまま空を返す", async () => {

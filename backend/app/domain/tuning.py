@@ -47,16 +47,32 @@ class TuningEffect(Enum):
 
     **「変えたのに効かない」を宣言として持つ**。変更の反映に別の操作が要る値が混ざっている
     のに画面が同じ見た目だと、効いていないことに気づけない。
+
+    **利用者へ見せる言い方（`title`）もここが持つ**。画面側に対応表を置くと、効き方を
+    1つ足したときに画面がそれを知らず、名前の無いまとまり（「その他」）へ落とす——
+    値は出るが「何をすれば効くのか」だけが失われる、という形で壊れる。メンバーは値と
+    見出しの2つを必ず書くので、書き忘れはこのクラスの定義時に落ちる。
+
+    宣言の順がそのまま画面の並び順になる（`api/routers/tuning_admin.py`）。
     """
 
+    def __new__(cls, value: str, title: str) -> "TuningEffect":
+        member = object.__new__(cls)
+        member._value_ = value
+        member.title = title
+        return member
+
+    #: 利用者へ見せる、効くまでに何が要るかの言い方。
+    title: str
+
     #: 次のリクエストから効く（リクエストごとのコスト合成が読む）。
-    IMMEDIATE = "immediate"
+    IMMEDIATE = ("immediate", "次のルート生成から効く")
     #: 探索木のプロセス内キャッシュが値で鍵を持つため、作り直しは自動で起きる。
-    TURN_STRUCTURE = "turn_structure"
+    TURN_STRUCTURE = ("turn_structure", "次のルート生成から効く（1回だけ遅い）")
     #: `road_nodes`の事前計算バッチをやり直さないと効かない。
-    NODE_ATTRIBUTE_BATCH = "node_attribute_batch"
+    NODE_ATTRIBUTE_BATCH = ("node_attribute_batch", "交差点の事前計算をやり直すまで効かない")
     #: 画面を読み込み直すと効く（フロントが起動時のカタログ取得で受け取る値）。
-    CLIENT_RELOAD = "client_reload"
+    CLIENT_RELOAD = ("client_reload", "画面を読み込み直すと効く")
 
 
 @dataclass(frozen=True)
