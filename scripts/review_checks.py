@@ -2541,17 +2541,22 @@ def cmd_docs(args: argparse.Namespace) -> int:
     # 見ないため、他の検知器のためにソース全文を読み直す必要がない。
     sections: list[tuple[str, str, list[str] | None]] = []
     only = getattr(args, "only", None)
+    staged = ([l for l in git("diff", "--cached", "--name-only").splitlines() if l]
+              if args.staged else [])
+    # ステージ済みの変更が検知器の読む場所の外なら、中身は計算しない（pre-commitの
+    # 待ち時間を節約する）。**ここで関数を抜けてはいけない**——抜けると下の
+    # `unwired_detectors`（宣言だけあって呼ばれない検知器を見つける、実行経路そのものの
+    # 検査）まで飛ばすことになり、配線の切れた検知器が静かに素通りする。
+    skip = args.staged and not staged_paths_need_check(staged)
 
     def add(key: str, title: str, compute: "Callable[[], list[str]]") -> None:
-        sections.append((key, title, None if (only and key != only) else compute()))
+        sections.append((key, title, None if (skip or (only and key != only)) else compute()))
 
     if args.staged:
-        staged = [l for l in git("diff", "--cached", "--name-only").splitlines() if l]
-        if not staged_paths_need_check(staged):
-            return 0
-        doc_lines = diff_added_lines("docs/modules/*.md")
+        doc_lines = {} if skip else diff_added_lines("docs/modules/*.md")
         doc_lines = {k: v for k, v in doc_lines.items() if not k.endswith("README.md")}
-        added = [l for l in git("diff", "--cached", "--name-only", "--diff-filter=A").splitlines() if l]
+        added = ([] if skip else
+                 [l for l in git("diff", "--cached", "--name-only", "--diff-filter=A").splitlines() if l])
         add("dead_file_refs", "docs/modules の死んだ参照（ステージ済み追加行）",
             lambda: find_dead_file_refs(doc_lines, files + added))
         add("dead_identifier_refs", "docs/modules の死んだ識別子参照（ステージ済み追加行）",
@@ -2559,7 +2564,7 @@ def cmd_docs(args: argparse.Namespace) -> int:
                                                    include_fenced=True))
         add("narrative", "docs/modules の記載粒度違反（ステージ済み追加行）",
             lambda: find_narrative_violations(doc_lines))
-        source_lines = gather_added_source_lines(None)
+        source_lines = {} if skip else gather_added_source_lines(None)
         add("source_narrative", "ソースコードの経緯コメント（ステージ済み追加行、docs/comments.md参照）",
             lambda: find_source_narrative_violations(source_lines))
         add("redis_skeleton", "Redis骨格の自前実装（ステージ済み追加行、docs/caching.md参照）",
@@ -2583,7 +2588,7 @@ def cmd_docs(args: argparse.Namespace) -> int:
             lambda: find_count_narratives(source_lines, diff_added_lines("docs/*.md")))
         add("cross_layer_claim", "相手のレイヤーの挙動を断定するコメント（参考、ステージ済み追加行、docs/comments.md参照）",
             lambda: find_cross_layer_claims(source_lines))
-        arch_lines = diff_added_lines(ARCHITECTURE_DOC)
+        arch_lines = {} if skip else diff_added_lines(ARCHITECTURE_DOC)
         add("undeclared_dead_refs", "architecture.md が撤去済みの名前を断りなく名指し（ステージ済み追加行）",
             lambda: find_undeclared_dead_refs(arch_lines, files + added, source_corpus(files + added), revision=""))
         add("undeclared_dead_refs_exempted", "architecture.md の免除した段落の中に残る実在しない名前（参考、ステージ済み追加行）",
@@ -3819,8 +3824,8 @@ def stale_gap_notes(edges: dict[str, "EdgeProbe | str"]) -> list[str]:
     )
 
 
-#: `--staged`のとき、ここに1つも当たらなければ検査を丸ごと飛ばす（pre-commitの待ち時間を
-#: 節約するための早期脱出）。**この判定は検知器側に置く**——シェルのラッパが別に同じ規則を
+#: `--staged`のとき、ここに1つも当たらなければ検知器の計算を飛ばす（pre-commitの待ち時間を
+#: 節約する）。**飛ばすのは計算だけで、検知器の配線の検査は必ず通る**。**この判定は検知器側に置く**——シェルのラッパが別に同じ規則を
 #: 持つと、`mutate`はラッパを通らないため「pre-commit PASS」と報告しながら実際のフックは
 #: 検査を起動しない、という食い違いが起きる（docs/tasks/T936.md）。
 #: 検知器が読む場所より狭くしないこと。狭めた瞬間、狭めた先は誰も検査しなくなる。

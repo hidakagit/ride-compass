@@ -39,9 +39,9 @@ export function buildGenerateRequest(input: GenerationInput): RouteGenerateReque
     distance_km: input.distanceKm,
     distance_tolerance_km: input.distanceToleranceKm,
     route_type: "loop",
-    // 主観と時間の換算レート（P）は**送らない**。画面から変える手段が無いのに値を送ると、
-    // backendが較正値から読み直す道（`domain/evaluation.py: resolve_penalty_strength`）を
-    // 塞ぎ、管理画面で調整しても効かない。画面から変えられるようになるまでは省略する。
+    // 主観と時間の換算レート（P）は**送らない**。このAPIでは省略が「較正値から読む」の
+    // 合図で、画面から変える手段が無いのに値を載せると、管理画面で調整しても効かなくなる。
+    // 画面から変えられるようになるまでは省略する。
     // hard_filtersは一般向けルート設定画面（RouteSettingsPanel）が常時操作する対象の
     // ため、重み上書きのようなトグルを介さず常に送る（既定値はbackendの
     // DEFAULT_HARD_FILTERSと一致するため挙動は変わらない）。
