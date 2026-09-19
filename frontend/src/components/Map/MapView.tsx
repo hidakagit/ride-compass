@@ -358,7 +358,7 @@ export const ROAD_MATERIAL_TRACK_LAYER_IDS = [
 // いずれも同じroad_surfaceソース上の独立レイヤーとして重ねて描画される。2次は太く半透明な
 // 「下敷き」、1次（designation等）は細くくっきりした「上書き」として重ねることで、下に
 // 赤い区間があってもその上に事故地点の点や道路種別の線が乗って見えるようにする（描画順序は
-// STATIC_OVERLAY_LAYERS参照。1次より下・road_surfaceより上に置く）。
+// buildStaticOverlayLayers()参照。1次より下・road_surfaceより上に置く）。
 // 幅は1次「素材」線が全部ONになったときの最大帯幅（トラック数×オフセット間隔＋自身の
 // 太さ）から式で算出する。この式にすることで、上記2定数（トラック本数・オフセット間隔）の
 // 変更に自動で追従する。
@@ -1188,7 +1188,7 @@ function makeEnsureDedicatedWayValueLayer(
   return (map: MapLibreMap) => {
     ensureRoadSurfaceTileLayer(map);
     const applyData = () => {
-      // specOwnsFilter: 専用way値レイヤーはSTATIC_FILTER_AXESの対象外。凡例で非表示にした
+      // specOwnsFilter: 専用way値レイヤーはbuildStaticFilterAxes()の対象外。凡例で非表示にした
       // 段階はfilterではなく色式側で透明にする（値がfeature-state経由で入るため、
       // MapLibreのfilterからは読めない。dedicatedWayValueLayer.ts参照）。
       ensureLayerFromSpec(
@@ -1463,7 +1463,7 @@ function ensureStopPoiLayer(map: MapLibreMap) {
 // 補給・休憩ポイントPOI。停止要因POIと同じregion-poi-tiles
 // （source-layer: stop_poi）を共有する独立レイヤー。バックエンドのMVT SQLはkindを
 // 無条件で焼き込むため、この時点（addLayer）ではfilterを付けない。実際のkind値による
-// 絞り込みはsetStaticOverlayFilters側のbaseFilter（STATIC_FILTER_AXES: supplyPoi）が
+// 絞り込みはsetStaticOverlayFilters側のbaseFilter（buildStaticFilterAxes(): supplyPoi）が
 // 常時ANDで適用する（同じ仕組みでstopPoi側もsupplyPoiのkindを除外している）。
 function ensureSupplyPoiLayer(map: MapLibreMap) {
   const applyData = () => {
@@ -1563,7 +1563,7 @@ type OverlayLayerEntry = {
 // 不透明度（1次と同じ、DEFAULT_ROAD_LINE_WIDTH/KNOWN_LINE_OPACITY）に戻す（常に太く
 // 半透明にすると、道路網が密な都市部では下敷きの重なりだけで地図全体がぼやけて
 // 見えてしまう）。casingLayerKeysは、どの2次レイヤーの材料が現在表示中かをpage.tsx側
-// （axisMaterialLayerIds）が判定して渡す（このファイルはレイヤー固有の材料関係を
+// （`secondaryAxisCasingLayerIds`）が判定して渡す（このファイルはレイヤー固有の材料関係を
 // 知らない汎用描画係のまま、という方針を保つ）。キーはaxisMapLayerId（"axis:car_stress"等）。
 export function buildAxisOverlayLayers(
   rampAxes: readonly RampAxis[],
@@ -1575,7 +1575,7 @@ export function buildAxisOverlayLayers(
       key,
       layerId: axisLineLayerId(axis.axisId),
       ensure: makeEnsureAxisRampLayer(axis, casingLayerKeys.has(key)),
-      // 内訳ポップアップ（axisInspectorPopup等）に対応する専用表示を持たない。
+      // 区間インスペクタのポップアップに対応する専用表示を持たない。
       interactive: false,
     };
   });
@@ -1712,7 +1712,7 @@ export function buildLayerDataSources(rampAxes: readonly RampAxis[]): readonly L
     { key: "landcover", sourceId: LANDCOVER_SOURCE_ID },
     // 二次軸rampレイヤー（car_stressを含む）はroad_surfaceタイルへ
     // 焼き込み済みのプロパティを読む（designation等と同じソース共有。
-    // ROAD_SURFACE_SHARED_LAYER_IDSにも登録済み）
+    // roadSurfaceSharedLayerIdsにも登録済み）
     ...rampAxes.map((axis) => ({
       key: axisMapLayerId(axis.axisId) as MapLayerId,
       sourceId: ROAD_TILE_SOURCE_ID,
@@ -1754,7 +1754,7 @@ const ROUTE_HIT_LAYER_IDS = [DETAIL_HIT_LAYER_ID, ROUTES_HIT_LAYER_ID, SPLICE_HI
 
 // クリック判定・カーソル変更（handleClick/handleMouseMove）の対象レイヤー一覧。
 // 各レイヤーが自分で宣言した`interactive`から導く（対象外のkeyをここで数え上げない、
-// OverlayLayerEntryのコメント参照）。これへSTATIC_OVERLAY_LAYERSの対象外である
+// OverlayLayerEntryのコメント参照）。これへbuildStaticOverlayLayers()の対象外である
 // ルート系の当たり判定レイヤー（`ROUTE_HIT_LAYER_IDS`）・ROAD_TILE_LAYER_ID（路面）・
 // ROAD_TYPE_LAYER_ID（道路の種類）を加える。handleClick/handleMouseMoveの両方が
 // この同じ一覧を参照する必要があり、片方だけ増減すると「ポップアップは出るがカーソルが
@@ -1790,7 +1790,7 @@ function setStaticOverlayVisibility(
 }
 
 // 標高を除く各レイヤー（指定路線・事故・停止要因POI等）の絞り込み。
-// STATIC_FILTER_AXES（staticAttributeLayers.ts）のlayerIdでSTATIC_OVERLAY_LAYERSのkeyと
+// buildStaticFilterAxes()（staticAttributeLayers.ts）のlayerIdでbuildStaticOverlayLayers()のkeyと
 // 突き合わせ、そのレイヤーが持つ軸ぶんを道路情報と同じ
 // buildCombinedLegendFilterExpressionでAND束ねする。軸を持たない標高はスキップする（setFilterはvector/circleレイヤー用で
 // ラスタレイヤーには使えないため）。
@@ -2058,14 +2058,14 @@ interface MapViewProps {
   axisVisibility: Record<string, boolean>;
   /** 2次（ramp軸、車の圧迫感を含む）のうち、材料（1次）が同時に表示されているためcasing
    * （太く半透明な下敷き）で描くべきレイヤーのkey集合（"axis:car_stress"/"axis:accident"等、
-   * STATIC_OVERLAY_LAYERSのkeyと同じ）。page.tsx側がaxisMaterialLayerIdsとlayerVisibility
+   * buildStaticOverlayLayers()のkeyと同じ）。page.tsx側が一次属性の表示状態とlayerVisibility
    * から算出する（buildAxisOverlayLayers参照）。 */
   secondaryAxisCasingLayerIds: readonly string[];
   /** 路面の各軸（路面の種類・道路の種類）それぞれの非表示カテゴリキー。軸ごとに独立した
    * レイヤーを持つため、絞り込みもレイヤーごとに独立して効く。 */
   roadHiddenKeysByMode: Record<RoadFilterAxisId, readonly string[]>;
   /** 自転車インフラ・指定路線・停止要因POI・事故（当事者/重大度）の絞り込み軸
-   * （STATIC_FILTER_AXES参照。事故のみ2軸を持ち、他は1軸。車の圧迫感は
+   * （buildStaticFilterAxes()参照。事故のみ2軸を持ち、他は1軸。車の圧迫感は
    * axisVisibility側と同様RAMP_AXES由来のためここには手書きされていない）。 */
   staticLegendHiddenKeysByAxis: Record<StaticFilterAxisId, readonly string[]>;
   routeLayerOn: boolean;
@@ -3229,7 +3229,7 @@ export default function MapView({
 
   // way_id→動的値配信層（風=wind_drag_ratio・勾配=effective_gradient）。
   // hooks/useDedicatedWayValues.tsが現在のビューポートに対して取得した値を
-  // MapLibreのsetFeatureStateへ反映する。上のSTATIC_OVERLAY_LAYERS一括effect（表示ON/OFFの
+  // MapLibreのsetFeatureStateへ反映する。上のbuildStaticOverlayLayers()一括effect（表示ON/OFFの
   // 切替）とは別のeffectにする理由は動的気象レイヤーと同じ——dedicatedWayValuesはパン・
   // ズームのたびに変わりうる値のため、他のshow*系フラグ群と同居させると無関係な再実行が
   // 増える。どの軸も表示されていない間も値自体はhooks側でenabled=falseにより
@@ -3263,7 +3263,7 @@ export default function MapView({
 
   // 動的気象レイヤー（降水ナウキャスト・風の矢印）。いずれもpayloadが地図上の時刻
   // スライダー操作のたびに変わるため、
-  // 上のSTATIC_OVERLAY_LAYERS一括effect（依存が多く再実行コストの大きいshowX系フラグ群）とは
+  // 上のbuildStaticOverlayLayers()一括effect（依存が多く再実行コストの大きいshowX系フラグ群）とは
   // 分けた専用effectにまとめる（DYNAMIC_WEATHER_LAYER_IDSで回すため、要素が増えてもこの
   // effect自体は変わらない）。
   useEffect(() => {

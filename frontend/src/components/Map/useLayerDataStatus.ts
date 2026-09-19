@@ -4,7 +4,7 @@
 // まとめてある。
 //
 // MapView.tsxとの循環import回避のため、対象レイヤーの(source, source-layer)対応表
-// （MapView.tsx: LAYER_DATA_SOURCES）はこのモジュールが持たず、呼び出し側から引数で渡す
+// （MapView.tsx: buildLayerDataSources()）はこのモジュールが持たず、呼び出し側から引数で渡す
 // （このモジュール自体はMapView.tsxを一切importしない）。
 import { useCallback, useMemo, useRef, type RefObject } from "react";
 import type { LayerDataStatusByLayer, MapLayerId } from "@/components/Map/mapLayers";

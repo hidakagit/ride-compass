@@ -17,12 +17,10 @@
 //
 // categoryはkind:"static"レイヤーのみが持つ中分類で、▶パネル（MapOverlayControls）の
 // グループ見出しに使う。staticをflatな一覧のまま並べると、増えるほど見つけにくくなる
-// ため、kindより一段細かい単位で分ける:
-// - roadCondition（道路状態）: 道路の種類・路面の種類・指定路線
-// - trafficSafety（交通・安全）: 車ストレス・事故・停止要因
-// - terrain（地形・土地）: 標高図・土地被覆
-// - amenity（補給・施設）: 補給・休憩ポイント。安全・リスクの指標ではなくtrafficSafetyへ
-//   含めるのは意味的に不適切なため独立カテゴリにした
+// ため、kindより一段細かい単位で分ける。区分は`MapLayerCategory`が正本で、並び順は
+// `MAP_LAYER_CATEGORY_ORDER`が決める。例: 道路状態（道路の種類・路面の種類・指定路線）、
+// 交通・安全（車ストレス・事故・停止要因）、地形・土地、補給・施設。
+// 補給・休憩ポイントを交通・安全へ含めないのは、安全・リスクの指標ではないため。
 // 「自転車インフラ」の専用地図レイヤー・カテゴリは持たない。評価軸側は公開軸
 // 「自転車インフラ」bicycle_infra_qualityが担う（地図レイヤーは持たない
 // [show_map_icon=false]）。
@@ -174,7 +172,7 @@ export interface MapLayerDescriptor {
    * dataNature==="composite"で同じ判定を受けるためこのフラグを持たない（isAxisStudioLayer参照）。 */
   axisStudioLayer?: boolean;
   /** 地図上チップ・サイドバーどちらの最上位グルーピング（mapOverlayGroupFor）も、
-   * これ自体（roadCondition/trafficSafety/terrain/amenity/weather）を入力の一部として
+   * これ自体（`MapLayerCategory`の値）を入力の一部として
    * 使う。合わせてサイドバーの表示順（MAP_LAYER_CATEGORY_ORDER）・地図上チップの
    * 「道路」「環境」「スポット」各グループ内のトピック別小見出しにも使う。
    * kind:"static"のレイヤーのみ持つ（dynamicは今のところroute1種のみのため不要）。 */
@@ -400,7 +398,7 @@ export function buildMapLayers(
     // 二次軸の汎用rampレイヤー（「事実はタイルに、解釈はクライアントに」）。backendレジストリ
     // 生成物（axis-catalog.json）のkind="ramp"軸から自動生成する。新しい軸はbackendの
     // レジストリ登録＋タイルへの事実焼き込みだけでここへ現れる（このファイルの編集は不要）。
-    // 凡例（段階・色・絞り込み）はSTATIC_FILTER_AXES（staticAttributeLayers.ts、
+    // 凡例（段階・色・絞り込み）はbuildStaticFilterAxes()（staticAttributeLayers.ts、
     // axisLayers.ts: buildAxisRampLegend由来）が他の静的レイヤーと同じ仕組みで提供する。
     ...rampAxes.map((axis): MapLayerDescriptor => ({
       id: axisMapLayerId(axis.axisId),
@@ -479,8 +477,8 @@ export function buildMapLayers(
     // 地図UIに現れない（isAxisStudioLayer）ため実際には表示されないが、他の記述子と同じ
     // 型を満たすため軸自身のデータから埋める（軸ごとの手書き文言をここへ持たない）。
     // このエントリの実際の用途は、(1) MapLayerIdとしての存在、(2) road_surfaceタイルを
-    // 共有するレイヤーとしてbuildRoadSurfaceSharedLayerIds（下記）へ含め、regionZoomTooWide判定
-    // （「表示範囲が広すぎます」バナー）の対象にすることの2点。
+    // 共有するレイヤーとしてroadSurfaceSharedLayerIds（下記）へ含め、ズーム不足の案内
+    // （`tileZoomTooWideLayerIds`）の対象にすることの2点。
     ...dedicatedAxes.map((axis): MapLayerDescriptor => ({
       id: dedicatedWayValueMapLayerId(axis.axisId),
       label: `${axis.label}（評価軸）`,
@@ -587,7 +585,7 @@ export function buildDefaultLayerVisibility(): MapLayerVisibility {
   ) as MapLayerVisibility;
 }
 
-// レイヤーごとのデータ取得状態。「表示OFF」「ズーム範囲外」（road専用のzoomWarning）は
+// レイヤーごとのデータ取得状態。「表示OFF」「ズーム範囲外」（`tileZoomTooWideLayerIds`）は
 // どちらも既存の案内があるが、タイル取得失敗とそのレイヤーの対象データが0件の場合を
 // 区別する表示に使う。表示ONかつ正常時（既知件数のデータが描画できている状態）は
 // undefined（=キー自体を持たない）とし、特別な表示を出さない。MapView.tsxの

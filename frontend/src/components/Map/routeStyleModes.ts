@@ -46,8 +46,6 @@ export interface RouteStyleMode {
   colorExpression: unknown[];
 }
 
-export { COLOR_NO_DATA };
-
 // 数値プロパティの段階分け（凡例カテゴリ）から色式とフィルタ述語付き凡例を組み立てる。
 // boundaries[i]は「カテゴリiとi+1の境界値」（カテゴリ数-1個）。値がnull（データ欠落）の
 // カテゴリは別枠で扱う。GeoJSONのproperties値はnullが明示的に入るため、to-numberが

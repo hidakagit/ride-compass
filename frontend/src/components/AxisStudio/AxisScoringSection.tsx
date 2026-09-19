@@ -24,7 +24,6 @@ import { buildShape, type CategoricalRowDraft, type Draft, type TermDraft } from
 import { BreakpointCurveEditor } from "./BreakpointCurveEditor";
 import { DistributionPreview } from "./DistributionPreview";
 import { MaterialRangeHint } from "./MaterialRangeHint";
-import { toBreakpointX } from "./axisScoring";
 
 export interface AxisScoringSectionProps {
   draft: Draft;
@@ -33,6 +32,14 @@ export interface AxisScoringSectionProps {
   materialOptions: readonly AxisMaterialOption[];
   /** 「ほかの軸」を材料として選ぶための候補（他の軸の一覧）。 */
   axisTermOptions: readonly AxisMaterialOption[];
+}
+
+/** 材料の生値を折れ点の横軸(x)の値へ変換する。backend: domain/axis_definitions.py:
+ * evaluate_axis_scalarの`total = value * weight`→`abs()`（preprocess="abs"の場合）と
+ * 同じ変換（`terms`が1件のbreakpoint_linear軸限定、複数termの合計は対応しない）。 */
+function toBreakpointX(value: number, weight: number, preprocess: "identity" | "abs"): number {
+  const total = value * weight;
+  return preprocess === "abs" ? Math.abs(total) : total;
 }
 
 export function AxisScoringSection({ draft, setDraft, materialOptions, axisTermOptions }: AxisScoringSectionProps) {

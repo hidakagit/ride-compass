@@ -281,41 +281,6 @@
   font-size: var(--font-size-sm);
 }
 
-/* 改善計画T332: 軸コンポーザーのウィザード化（ステップ表示・カード選択）。 */
-.stepIndicator {
-  margin: 0;
-  font-size: var(--font-size-sm);
-  font-weight: 700;
-  color: var(--color-muted);
-}
-
-.shapeKindOptions {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-2);
-}
-
-.shapeKindOption {
-  display: flex;
-  align-items: flex-start;
-  gap: var(--space-2);
-  border: 1px solid var(--color-border-strong);
-  border-radius: var(--radius-sm);
-  padding: var(--space-2);
-  cursor: pointer;
-}
-
-.shapeKindOptionSelected {
-  border-color: var(--color-accent);
-  background: var(--color-surface-2);
-}
-
-.shapeKindOptionBody {
-  display: flex;
-  flex-direction: column;
-  gap: 0.15rem;
-}
-
 /* 改善計画T397フォローアップ: 見出し＋(ⓘ)ポップオーバーの行（AxisComposer.tsx:
    SectionLabel）。 */
 .sectionLabelRow {
@@ -347,13 +312,6 @@
   border: 1px solid var(--color-border-strong);
   background: var(--color-surface);
   padding: 0.2rem 0.4rem;
-}
-
-/* 改善計画T397: 下ごしらえ（そのまま/絶対値）のラジオボタン行。選択肢が2つしかない
-   ため、ドロップダウンではなく常に両方を見せるラジオボタンにした。 */
-.radioRow {
-  display: flex;
-  gap: var(--space-3);
 }
 
 /* 改善計画T397: 折れ点(breakpoints)のドラッグ式曲線プレビュー（AxisComposer.tsx:

@@ -25,9 +25,6 @@ import {
   type MapValueKind,
 } from "./valueScale";
 
-export type { TileXY } from "./dynamicWayValues";
-export { tilesCoveringViewport, mergeDynamicWayValues } from "./dynamicWayValues";
-
 /** 軸カタログ（GET /api/axis-catalog）から軸ごとに組み立てる表示宣言。しきい値は
  * map_value_thresholds（地図が塗る値のスケールへ揃えた境界）、段階ラベルは
  * display_band_labels_override（未設定ならそれぞれ種類の既定値・数値レンジのみ）。 */

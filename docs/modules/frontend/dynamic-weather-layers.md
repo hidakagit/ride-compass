@@ -156,7 +156,7 @@ JMAタイル系ソースの`minzoom`/`maxzoom`は`jmaZoomRange(elementId)`が
 | `disaster` | `flood` | vector | `riskMap.ts: fetchCurrentRiskFrames`（`floodRenderPayload`） |
 | `disaster` | `liden` | gridMark | `lidenLayer.ts`（配信元GeoJSONをそのまま使う唯一の要素、下記参照） |
 
-`disaster`（災害）は7要素を1チップへまとめたグループで、全ソースが1つの`showDisaster`に
+`disaster`（災害）は`DISASTER_SOURCES`のソースを1チップへまとめたグループで、全ソースが1つの`showDisaster`に
 連動する。`DYNAMIC_WEATHER_RENDERERS`のキー順がMapLibreのレイヤー追加順＝重なり順になる
 ため、面（キキクル3種・雷・竜巻のラスタ）を下に、局所的で見落としやすい線（洪水）・点
 （落雷）を上に置く。面同士が重なった領域は混色し危険度5段階を読み取れなくなるが、危険度
@@ -166,7 +166,7 @@ JMAタイル系ソースの`minzoom`/`maxzoom`は`jmaZoomRange(elementId)`が
 面をどれだけ濃くしても線・点はその上に残る。気象庁は危険度を
 ラスタ画像でしか配信せず現在の警戒レベルを返すAPIを持たないため、「重なっているなら最も
 危険な1枚だけ出す」といった自動制御は実装できない。代わりに、チップの▶パネルの
-「表示する情報」で7要素を個別に間引ける——非表示キーは他の凡例絞り込みと同じ
+「表示する情報」でソースを個別に間引ける——非表示キーは他の凡例絞り込みと同じ
 `hiddenLegendKeysByMode`へ保存され、`hiddenDisasterSources`としてこのフックへ渡る。
 ソースごとの`visible`だけでなく、1本の`targetTimes`JSONを共有する要素がすべて非表示なら
 そのフェッチ自体も行わない（「表示中のものだけ叩く」方針）。

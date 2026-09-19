@@ -65,8 +65,7 @@ export function trimWindGridToCurrentAndFuture(
  * 再取得のたびにどの地点が欠けるかが変わりうる。前回成功していた地点をそのまま
  * 残すことで、1地点の一時的な失敗が地図上の「その場所だけ描画されていない」穴として
  * 見えてしまうのを防ぐ（多少古い値が残る方が穴が開くより実用上マシという判断。
- * バックエンド側のstale fallback＝weather_client.pyのSTALE_FALLBACK_MAX_AGE_SECONDSと
- * 同じ考え方をフロント側にも及ぼす）。地点の同一性は緯度経度（固定ラティス由来でどちらも
+ * バックエンドが古い値を残して穴を防ぐのと同じ考え方をフロント側にも及ぼす）。地点の同一性は緯度経度（固定ラティス由来でどちらも
  * 同じ丸め精度）で判定する。呼び出し側は生（trim前）の格子を渡すこと（trim後は「現在」の
  * 位置が取得のたびにずれ、古い地点だけindexの意味が食い違ってしまうため）。 */
 export function mergeWindGridKeepingStale(
