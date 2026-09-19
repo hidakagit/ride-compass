@@ -21,10 +21,10 @@ from app.domain.material_catalog import (
     EXTRACTABLE_MATERIAL_IDS,
     MATERIAL_CATALOG,
     MaterialExtractionContext,
+    material_value_sql,
 )
 from app.domain.road import BAD_OSM_SURFACE_TAGS, GOOD_OSM_SURFACE_TAGS
 from app.domain.material_sql import (
-    MATERIAL_VALUE_SQL,
     BICYCLE_NORMALIZED_SQL,
     BRIDGE_NORMALIZED_SQL,
     CYCLEWAY_TAGS_ARRAY_SQL,
@@ -291,11 +291,11 @@ def test_every_sql_derived_material_is_in_the_catalog():
     assert set(_SQL_BY_MATERIAL) <= set(MATERIAL_CATALOG)
 
 
-def test_material_value_sql_covers_exactly_the_extractable_materials():
-    """SQL式とextractorは同じ材料集合を覆う。
+def test_value_sql_and_extractor_cover_the_same_materials():
+    """`value_sql`とextractorは同じ材料集合を覆う。
 
-    材料を1つ増やしたとき、片方だけ書いて気付かないままになるのを止める。SQLで求められない
+    どちらも`MaterialSpec`のフィールドだが、片方だけ書いても構文は通る。SQLで求められない
     材料（リクエスト時に決まる風、評価へ配線していないDEFER材料）はextractorも持たないため、
     両者は常に一致する。
     """
-    assert set(MATERIAL_VALUE_SQL) == set(EXTRACTABLE_MATERIAL_IDS)
+    assert set(material_value_sql()) == set(EXTRACTABLE_MATERIAL_IDS)

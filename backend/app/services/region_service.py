@@ -338,9 +338,8 @@ class RegionService:
 
     async def get_material_values(self, material_id: str) -> list[str] | None:
         """軸スタジオ（AxisComposer.tsx）の値入力UX向け。指定した材料id
-        （highway/surface/smoothness、`infrastructure/road_graph_repository.py:
-        _MATERIAL_VALUE_COLUMN_EXPR`参照）についてDBへ実際に取り込まれている値の一覧を
-        返す。
+        （`MaterialSpec.value_sql`を持つcategorical材料）についてDBへ実際に取り込まれて
+        いる値の一覧を返す。
 
         **取得できなかったとき（`repository`未注入・DB例外・タイムアウト）はNone**、
         取得できて値が無いときは空リストを返す。両方を空リストへ倒すと、画面は

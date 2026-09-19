@@ -11,15 +11,13 @@ import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
 
-from app.domain.material_catalog import MATERIAL_CATALOG, MaterialDType
+from app.domain.material_catalog import MATERIAL_CATALOG, MaterialDType, MissingSemantics, Population
 from app.infrastructure.debug_log import log_external_call
 from app.infrastructure.material_coverage import (
     MATERIAL_COVERAGE_EXCLUSIONS,
     MATERIAL_COVERAGE_SPECS,
     MaterialCoverageCounts,
     MaterialCoverageQuery,
-    MissingSemantics,
-    Population,
 )
 
 logger = logging.getLogger("ridecompass.material_coverage")

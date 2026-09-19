@@ -562,7 +562,7 @@ def _evaluate_axes_from_material_arrays(
 ) -> BulkAxisEvaluation:
     """材料と区間の列が揃っている状態から先（計算フェーズと軸の評価）。
 
-    材料をどこで導いたか——`MATERIAL_VALUE_SQL`でDBが導いたか、extractorがEdgeごとに
+    材料をどこで導いたか——`MaterialSpec.value_sql`でDBが導いたか、extractorがEdgeごとに
     導いたか——をここは知らない。呼び出し元は`material_arrays`へ**`MATERIAL_CATALOG`全材料
     ぶんの列**を渡す（`_empty_material_arrays`へ重ねる）。
 
@@ -1053,7 +1053,7 @@ def build_static_edge_score_matrix(
     `edge_metrics_from_bundles`が、それぞれ同じ`metrics`を組み立てる。
     """
     if isinstance(materials, EdgeMaterialArrays):
-        # 材料はDBが導出済み（`MATERIAL_VALUE_SQL`）。`accident_years_covered`は
+        # 材料はDBが導出済み（`MaterialSpec.value_sql`）。`accident_years_covered`は
         # その導出の中で既に効いているためここでは使わない。
         arrays = _empty_material_arrays(len(materials))
         arrays.update(materials.columns())

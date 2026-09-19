@@ -116,10 +116,13 @@ from app.domain.tuning import tuning_value
 from app.infrastructure.cache_identity import shape_digest
 from app.infrastructure.designation_models import DesignationAttributeRow
 from app.domain.hard_filters import HARD_FILTER_VALUE_SQL
-from app.domain.material_catalog import MATERIAL_CATALOG, material_array_group
+from app.domain.material_catalog import (
+    MATERIAL_CATALOG,
+    material_array_group,
+    material_value_sql,
+)
 from app.domain.material_sql import (
     LANDCOVER_SQL_KEYS,
-    MATERIAL_VALUE_SQL,
     BICYCLE_NORMALIZED_SQL,
     BRIDGE_NORMALIZED_SQL,
     CYCLEWAY_TAGS_ARRAY_SQL,
@@ -1016,23 +1019,47 @@ _WAY_ALIAS_LANDCOVER_NULLS = ", ".join(
     f"NULL::double precision AS {key}_percent" for key in LANDCOVER_SQL_KEYS
 )
 
-_WAY_MATERIAL_ALIASES_TEMPLATE = f"""
-FROM osm_raw_ways w {{sampling}}
-LEFT JOIN way_attribute_counts c ON c.osm_way_id = w.osm_way_id
-LEFT JOIN way_landcover wl ON wl.osm_way_id = w.osm_way_id
-CROSS JOIN LATERAL (
-    SELECT w.highway AS highway, COALESCE(c.length_m, 0)::double precision AS distance_m
-) re
-CROSS JOIN LATERAL (SELECT NULL::double precision AS average_grade) e
-CROSS JOIN LATERAL (SELECT {_WAY_ALIAS_LANDCOVER_NULLS}) el
-LEFT JOIN LATERAL (
-    SELECT bool_or(kind = ANY(:designation_kinds)) AS is_designated
-    FROM designation_attributes da WHERE da.osm_way_id = w.osm_way_id
-) d ON true
-"""
+# エイリアスごとのFROM句。式が実際に参照するものだけを組み立てる——使わないJOINを
+# 足すと、一部の材料のDISTINCTを引くだけの軸スタジオの値列挙まで重くなる。
+_WAY_ALIAS_CLAUSES: dict[str, str] = {
+    "c": "LEFT JOIN way_attribute_counts c ON c.osm_way_id = w.osm_way_id",
+    "wl": "LEFT JOIN way_landcover wl ON wl.osm_way_id = w.osm_way_id",
+    "re": (
+        "CROSS JOIN LATERAL (SELECT w.highway AS highway,"
+        " COALESCE(c.length_m, 0)::double precision AS distance_m) re"
+    ),
+    "e": "CROSS JOIN LATERAL (SELECT NULL::double precision AS average_grade) e",
+    "el": f"CROSS JOIN LATERAL (SELECT {_WAY_ALIAS_LANDCOVER_NULLS}) el",
+    "d": (
+        "LEFT JOIN LATERAL (SELECT bool_or(kind = ANY(:designation_kinds)) AS is_designated"
+        " FROM designation_attributes da WHERE da.osm_way_id = w.osm_way_id) d ON true"
+    ),
+}
+
+# `re`はcを、`el`はwlを前提にするため、必要になったら一緒に入れる。
+_WAY_ALIAS_REQUIRES: dict[str, tuple[str, ...]] = {"re": ("c",), "el": ("wl",)}
+
+
+def _way_from_clause(expressions: list[str], sampling: str = "") -> str:
+    """式が参照するエイリアスだけを含むFROM句。
+
+    材料の式は区間向けのエイリアス（re/c/e/el/wl/d）を前提にする。**way1本を指すときも
+    同じ式を使う**——wayの行から同じ名前のエイリアスを組み立てるだけで、式を2組持たない
+    （区間インスペクタ・軸スタジオ・分布プレビュー）。way粒度では標高とEdge単位の土地被覆が
+    存在しないため`e`と`el`はNULLだけの1行で、土地被覆はway側（`wl`）へ落ちる。
+    """
+    needed: set[str] = set()
+    for alias in _WAY_ALIAS_CLAUSES:
+        if any(f"{alias}." in expr for expr in expressions):
+            needed.add(alias)
+            needed.update(_WAY_ALIAS_REQUIRES.get(alias, ()))
+    ordered = [name for name in _WAY_ALIAS_CLAUSES if name in needed]
+    joined = "\n".join(_WAY_ALIAS_CLAUSES[name] for name in ordered)
+    return f"\nFROM osm_raw_ways w {sampling}\n{joined}"
+
 
 _WAY_MATERIAL_SELECT_SQL = ", ".join(
-    f"({expr}) AS m_{name}" for name, expr in sorted(MATERIAL_VALUE_SQL.items())
+    f"({expr}) AS m_{name}" for name, expr in sorted(material_value_sql().items())
 )
 
 
@@ -1049,7 +1076,7 @@ def _way_material_binds(statement):
 _WAY_MATERIAL_VALUES_SQL = _way_material_binds(
     text(
         f"SELECT {_WAY_MATERIAL_SELECT_SQL}"
-        + _WAY_MATERIAL_ALIASES_TEMPLATE.format(sampling="")
+        + _way_from_clause(list(material_value_sql().values()))
         + " WHERE w.osm_way_id = :osm_way_id"
     )
 )
@@ -1067,7 +1094,7 @@ def _sample_way_materials_sql(sampling: str, area: str):
     return _way_material_binds(
         text(
             f"SELECT ST_Length(w.geom::geography) AS length_m, {_WAY_MATERIAL_SELECT_SQL}"
-            + _WAY_MATERIAL_ALIASES_TEMPLATE.format(sampling=sampling)
+            + _way_from_clause(list(material_value_sql().values()), sampling)
             + f" WHERE w.geom IS NOT NULL AND w.highway IS NOT NULL {area} LIMIT :limit"
         )
     )
@@ -1131,7 +1158,7 @@ LEFT JOIN LATERAL (
 
 # 材料の式と付随列を1つの内包から並べる（別々に書くと`ORDER BY`がずれても気付けない）。
 MATERIAL_ARRAY_COLUMN_ORDER: tuple[str, ...] = (
-    *sorted(MATERIAL_VALUE_SQL),
+    *sorted(material_value_sql()),
     *_EXTRA_MATERIAL_ARRAY_COLUMNS,
 )
 
@@ -1140,7 +1167,7 @@ _EDGE_MATERIAL_ARRAYS_SQL = text(
     + ", ".join(
         f"array_agg(({expr}) ORDER BY ids.ord) AS c_{name}"
         for name, expr in (
-            *sorted(MATERIAL_VALUE_SQL.items()),
+            *sorted(material_value_sql().items()),
             *_EXTRA_MATERIAL_ARRAY_COLUMNS.items(),
         )
     )
@@ -2279,15 +2306,6 @@ class DerivedGraphRepository(_SessionRepository):
         )
 
 
-# get_distinct_material_valuesが対応する材料id→SQL式（正規化含む）。
-# 新しい材料をこの一覧へ追加する場合、_ROAD_SURFACE_TILE_MVT_SQLの対応する正規化式と
-# 揃えること（test_road_graph_repository.pyの整合性テスト参照）。値はosm_raw_waysの列名
-# ・JSONB参照のみで構成された固定リテラルで、外部入力を連結しない（SQLインジェクション対象外）。
-_MATERIAL_VALUE_COLUMN_EXPR: dict[str, str] = {
-    "highway": HIGHWAY_SQL,
-    "surface": SURFACE_NORMALIZED_SQL,
-    "smoothness": SMOOTHNESS_NORMALIZED_SQL,
-}
 
 
 class RawOsmRepository(_SessionRepository):
@@ -2522,13 +2540,19 @@ class RawOsmRepository(_SessionRepository):
         持つ材料は本APIを使う必要が無い）。未対応の`material_id`は空リストを返す
         （呼び出し元のrouterが404を判断する）。
         """
-        column_expr = _MATERIAL_VALUE_COLUMN_EXPR.get(material_id)
-        if column_expr is None:
+        spec = MATERIAL_CATALOG.get(material_id)
+        # 値の求め方は`MaterialSpec.value_sql`が唯一持つ。ここへ式を書かない。
+        # カテゴリ以外（真偽・数値）は「取りうる値の一覧」に意味が無いため対象外。
+        if spec is None or spec.value_sql is None or spec.dtype != "categorical":
             return []
+        column_expr = spec.value_sql
         result = await self._session.execute(
-            text(
-                f"SELECT DISTINCT {column_expr} AS value FROM osm_raw_ways AS w "  # noqa: S608 固定の内部辞書のみ使用、外部入力を連結しない
-                f"WHERE {column_expr} IS NOT NULL ORDER BY value"
+            _way_material_binds(
+                text(
+                    f"SELECT DISTINCT {column_expr} AS value"  # noqa: S608 カタログの宣言のみ、外部入力を連結しない
+                    + _way_from_clause([column_expr])
+                    + f" WHERE {column_expr} IS NOT NULL ORDER BY value"
+                )
             )
         )
         return [row.value for row in result]
@@ -3150,7 +3174,7 @@ class AttributeRepository(_SessionRepository):
     async def get_edge_material_arrays(
         self, edge_ids: list[str], accident_years_covered: int
     ) -> EdgeMaterialArrays:
-        """材料を**DB側で導出し、dtypeごとの行列として**受け取る（`MATERIAL_VALUE_SQL`）。
+        """材料を**DB側で導出し、dtypeごとの行列として**受け取る（`MaterialSpec.value_sql`）。
 
         `get_edge_materials_batch`が行を1本ずつ受けてPythonでオブジェクトを組むのに対し、
         こちらは区間数に比例するPythonの仕事を持たない。
@@ -3165,7 +3189,7 @@ class AttributeRepository(_SessionRepository):
         ときはこの表のキャッシュも一緒に無効になる。
         """
         groups = {g: [] for g in ("numeric", "boolean", "categorical")}
-        for material_id in sorted(MATERIAL_VALUE_SQL):
+        for material_id in sorted(material_value_sql()):
             groups[material_array_group(MATERIAL_CATALOG[material_id])].append(material_id)
         numeric_ids = tuple(groups["numeric"])
         boolean_ids = tuple(groups["boolean"])

@@ -41,14 +41,6 @@ def _counts(way_total: int = 10, edge_total: int = 4, **missing_overrides: int) 
 # --- 宣言テーブルの網羅性 ---
 
 
-def test_every_catalog_material_is_either_covered_or_explicitly_excluded():
-    covered = set(MATERIAL_COVERAGE_SPECS)
-    excluded = set(MATERIAL_COVERAGE_EXCLUSIONS)
-
-    assert covered | excluded == set(MATERIAL_CATALOG)
-    assert covered & excluded == set()
-
-
 def test_exclusion_reasons_are_non_empty():
     for material_id, reason in MATERIAL_COVERAGE_EXCLUSIONS.items():
         assert reason.strip() != "", material_id

@@ -1,6 +1,6 @@
 """テストが`EdgeMaterialArrays`（本番が使う材料の形）を組み立てるための足場。
 
-本番は材料をDBに導出させて列で受け取る（`domain/material_sql.py: MATERIAL_VALUE_SQL`）。
+本番は材料をDBに導出させて列で受け取る（`MaterialSpec.value_sql`）。
 DBを持たないテストが同じ形を用意できるよう、ここで組み立てる。
 
 `from_bundles`は`EdgeMaterialBundle`（Python側のextractorが読む形）から変換する。
@@ -19,15 +19,15 @@ from app.domain.material_catalog import (
     MATERIAL_CATALOG,
     MaterialExtractionContext,
     material_array_group,
+    material_value_sql,
     resolve_materials,
 )
-from app.domain.material_sql import MATERIAL_VALUE_SQL
 from app.domain.recipe import tag_value_is
 
 
 def _grouped_ids() -> tuple[tuple[str, ...], tuple[str, ...], tuple[str, ...]]:
     groups: dict[str, list[str]] = {"numeric": [], "boolean": [], "categorical": []}
-    for material_id in sorted(MATERIAL_VALUE_SQL):
+    for material_id in sorted(material_value_sql()):
         groups[material_array_group(MATERIAL_CATALOG[material_id])].append(material_id)
     return tuple(groups["numeric"]), tuple(groups["boolean"]), tuple(groups["categorical"])
 

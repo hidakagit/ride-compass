@@ -51,10 +51,105 @@ from app.domain.attributes import (
 )
 from app.domain.designation import CAR_STRESS_DESIGNATION_KINDS
 from app.domain.recipe import bicycle_infra_flags_or_none, parse_lanes, parse_maxspeed, tag_value_is
+from app.domain.material_sql import (
+    BICYCLE_NORMALIZED_SQL,
+    HIGHWAY_SQL_FOR_EDGE,
+    LANES_COUNT_CASE_SQL,
+    MAXSPEED_KMH_CASE_SQL,
+    SMOOTHNESS_NORMALIZED_SQL,
+    SURFACE_GOOD_CASE_SQL,
+    SURFACE_NORMALIZED_SQL,
+    cycleway_has_value_sql,
+    landcover_value_sql,
+    poi_density_value_sql,
+    BRIDGE_NORMALIZED_SQL,
+    CYCLEWAY_TAG_NAMES,
+    HIGHWAY_SQL,
+    LIT_NORMALIZED_SQL,
+    MOTOR_VEHICLE_NORMALIZED_SQL,
+    TUNNEL_NORMALIZED_SQL,
+    normalized_tag_sql,
+    tag_is_value_sql,
+    way_present_or_null_sql,
+)
 from app.domain.road import classify_osm_surface
 from app.domain.traffic import POI_COUNT_KINDS
 from app.domain.wind import WIND_DRAG_REFERENCE_SPEED_MS, wind_drag_ratio
 from app.domain.strict_model import StrictModel
+
+Population = Literal["way", "edge"]
+# "unknown": 欠損は不明値（NaN/None）として扱われ、その材料を使う軸は評価対象外になる。
+# "definite": 欠損は確定値（タグ不在=非該当等）として扱われ、軸は通常どおり評価される。
+MissingSemantics = Literal["unknown", "definite"]
+
+
+@dataclass(frozen=True)
+class WayMaterialCoverageSpec:
+    """`osm_raw_ways`全行を母集団とする材料。`missing_condition`は`osm_raw_ways`の列・
+    JSONB参照のみで構成したSQL真偽式（trueなら欠損）で、外部入力を連結しない。
+
+    `in_scope`は担当バッチが処理できる行の条件。**対象外の行を欠損に数えると、欠損率が
+    構造的に0へ到達しない**——運用者は「もう一度流せば0になるはず」と読むが決してならず、
+    未実行なのか対象外なのかを画面から区別できない（母集団は全件のままにする。
+    `derived_data_freshness.py`の完成度と同じ扱い）。"""
+
+    missing_condition: str
+    source: str
+    missing_semantics: MissingSemantics
+    population: Population = "way"
+    in_scope: str = "TRUE"
+    #: 欠損判定に別の表が要る場合のJOIN句（`LEFT JOIN … ON …`をそのまま書く）。同じ句を
+    #: 宣言した材料どうしは1回のJOINを共有する。**相関サブクエリで書かない**——1材料につき
+    #: 1つずつ行ごとに評価され、材料を増やすほど所要が伸びる。
+    join: str | None = None
+
+
+@dataclass(frozen=True)
+class EdgeMaterialCoverageSpec:
+    """`road_edges`全行を母集団とする材料。`in_scope`の意味は`WayMaterialCoverageSpec`と同じ。
+
+    `present_count_sql`は「値を持つEdge数」を1行1列で
+    返すSELECT文（派生テーブル側だけを数える。FK CASCADEにより行は必ず既存Edgeに対応する）。"""
+
+    present_count_sql: str
+    source: str
+    missing_semantics: MissingSemantics
+    population: Population = "edge"
+
+
+@dataclass(frozen=True)
+class CoverageExcluded:
+    """欠損率を測らない材料と、その理由。`MaterialSpec.coverage`が
+    `WayMaterialCoverageSpec`/`EdgeMaterialCoverageSpec`とこの型のいずれかを必ず持つため、
+    「どちらの一覧にも載っていない材料」は型として作れない。"""
+
+    reason: str
+
+
+MaterialCoverage = WayMaterialCoverageSpec | EdgeMaterialCoverageSpec | CoverageExcluded
+
+
+def landcover_coverage(column: str) -> WayMaterialCoverageSpec:
+    """土地被覆1クラスの欠損判定。クラスごとに書き写すと、増えたときここだけ取り残される。
+
+    `way_landcover`は「行が無い＝未計算」と「列がNULL＝算出不能（ラスタ範囲外等）」を
+    区別する（migration 0037）。**行の有無だけで数えると、値がNULLの行を「データあり」と
+    数えてしまう**ため、列のNULLも欠損として数える。
+    """
+    return WayMaterialCoverageSpec(
+        missing_condition=f"lc.{column} IS NULL",
+        join="LEFT JOIN way_landcover lc ON lc.osm_way_id = w.osm_way_id",
+        # `precompute_way_landcover`の対象はgeomとhighwayを持つwayだけ。
+        in_scope="w.geom IS NOT NULL AND w.highway IS NOT NULL",
+        source=f"way_landcover.{column}（precompute_way_landcoverの計算済み値）の有無",
+        missing_semantics="unknown",
+    )
+
+_CYCLEWAY_TAGS_ALL_ABSENT = " AND ".join(f"tags->>'{tag}' IS NULL" for tag in CYCLEWAY_TAG_NAMES)
+_CYCLEWAY_SOURCE = "osm_raw_ways.tags の cycleway / cycleway:left / cycleway:right / cycleway:both（いずれも無い場合に欠損）"
+_EDGE_ATTRIBUTE_COUNTS_PRESENT_SQL = "SELECT count(*) FROM edge_attribute_counts"
+_EDGE_ATTRIBUTE_COUNTS_SOURCE = "edge_attribute_counts（Edge単位の事前集計行）の有無"
+
 
 MaterialDType = Literal["numeric", "boolean", "categorical"]
 
@@ -174,6 +269,17 @@ class MaterialSpec(StrictModel):
     # is_designatedのdocstring参照）。GET /api/material-catalogの公開レスポンスには
     # 含めない（tile_propertyと同じくbackend内部専用）。
     extractor: MaterialExtractor | None = None
+    # この材料の値をDBから求めるSQL式。読み出し側（`road_graph_repository.py`）が
+    # エイリアス（区間なら`re`/`c`/`e`/`el`/`wl`/`d`、wayなら同名の別ソース）を用意し、
+    # この式をそのまま並べる。Noneは「SQLでは求められない」——リクエスト時に決まる風、
+    # 評価へ配線していないDEFER材料。**材料の値の求め方をここ以外へ書かない**
+    # （設計原則 構造仕様8。別の辞書へ分けると、材料を増やしたとき片方が取り残される）。
+    value_sql: str | None = None
+    # 欠損率の測り方（`/admin`の材料タブ）。`CoverageExcluded`を含む3択で、**どれかを必ず
+    # 持つ**——「どちらの一覧にも載っていない材料」を型として作れなくする。中身は
+    # `value_sql`から導けない（「値がいくつか」と「元データがあるか」は別の問い。
+    # 例: `lit`の値は欠損をfalseへ畳むが、欠損率はタグの有無を数える）。
+    coverage: MaterialCoverage
     # dtype="boolean"の材料でextractorがNoneを返した（＝欠損）ときの配列上の扱い。
     # "false": bool配列、欠損はFalse（「タグ不在=非該当」とみなす多数派、motor_vehicle_no等）。
     # "nan": float配列、欠損はNaN（「不明を非該当と混同しない」判断がある少数派、
@@ -559,6 +665,12 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
         primary_attribute_id="elevation",
         extractor=_extract_gradient_percent,
         reference_points=_GRADIENT_PERCENT_REFERENCE_POINTS,
+        value_sql="e.average_grade",
+        coverage=EdgeMaterialCoverageSpec(
+                present_count_sql="SELECT count(*) FROM elevation_attributes WHERE average_grade IS NOT NULL",
+                source="elevation_attributes.average_grade（precompute_elevation_attributesの計算済み行）の有無",
+                missing_semantics="unknown",
+            ),
     ),
     "wind_drag_ratio": MaterialSpec(
         material_id="wind_drag_ratio",
@@ -577,6 +689,7 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
         tile_property=None,
         tile_property_direction_dependent=True,
         reference_points=_wind_drag_ratio_reference_points(),
+        coverage=CoverageExcluded(reason="出発時刻の気象予報・想定速度から都度計算する動的材料で、DBに静的な値を持たない"),
     ),
     "trees_percent": MaterialSpec(
         material_id="trees_percent",
@@ -587,6 +700,8 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
         tile_property="trees_pct",
         primary_attribute_id="landcover",
         extractor=keyed_value_extractor(METRIC_GROUP_LANDCOVER, METRIC_KEY_TREES_PERCENT),
+        value_sql=landcover_value_sql("trees"),
+        coverage=landcover_coverage("trees_percent"),
     ),
     "built_percent": MaterialSpec(
         material_id="built_percent",
@@ -597,6 +712,8 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
         tile_property="built_pct",
         primary_attribute_id="landcover",
         extractor=keyed_value_extractor(METRIC_GROUP_LANDCOVER, METRIC_KEY_BUILT_PERCENT),
+        value_sql=landcover_value_sql("built"),
+        coverage=landcover_coverage("built_percent"),
     ),
     "crops_percent": MaterialSpec(
         material_id="crops_percent",
@@ -607,6 +724,8 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
         tile_property="crops_pct",
         primary_attribute_id="landcover",
         extractor=keyed_value_extractor(METRIC_GROUP_LANDCOVER, METRIC_KEY_CROPS_PERCENT),
+        value_sql=landcover_value_sql("crops"),
+        coverage=landcover_coverage("crops_percent"),
     ),
     "rangeland_percent": MaterialSpec(
         material_id="rangeland_percent",
@@ -617,6 +736,8 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
         tile_property="rangeland_pct",
         primary_attribute_id="landcover",
         extractor=keyed_value_extractor(METRIC_GROUP_LANDCOVER, METRIC_KEY_RANGELAND_PERCENT),
+        value_sql=landcover_value_sql("rangeland"),
+        coverage=landcover_coverage("rangeland_percent"),
     ),
     "water_percent": MaterialSpec(
         material_id="water_percent",
@@ -627,6 +748,8 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
         tile_property="water_pct",
         primary_attribute_id="landcover",
         extractor=keyed_value_extractor(METRIC_GROUP_LANDCOVER, METRIC_KEY_WATER_PERCENT),
+        value_sql=landcover_value_sql("water"),
+        coverage=landcover_coverage("water_percent"),
     ),
     "bare_percent": MaterialSpec(
         material_id="bare_percent",
@@ -637,6 +760,8 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
         tile_property="bare_pct",
         primary_attribute_id="landcover",
         extractor=keyed_value_extractor(METRIC_GROUP_LANDCOVER, METRIC_KEY_BARE_PERCENT),
+        value_sql=landcover_value_sql("bare"),
+        coverage=landcover_coverage("bare_percent"),
     ),
     "flooded_veg_percent": MaterialSpec(
         material_id="flooded_veg_percent",
@@ -647,6 +772,8 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
         tile_property="flooded_veg_pct",
         primary_attribute_id="landcover",
         extractor=keyed_value_extractor(METRIC_GROUP_LANDCOVER, METRIC_KEY_FLOODED_VEG_PERCENT),
+        value_sql=landcover_value_sql("flooded_veg"),
+        coverage=landcover_coverage("flooded_veg_percent"),
     ),
     "snow_ice_percent": MaterialSpec(
         material_id="snow_ice_percent",
@@ -657,6 +784,8 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
         tile_property="snow_ice_pct",
         primary_attribute_id="landcover",
         extractor=keyed_value_extractor(METRIC_GROUP_LANDCOVER, METRIC_KEY_SNOW_ICE_PERCENT),
+        value_sql=landcover_value_sql("snow_ice"),
+        coverage=landcover_coverage("snow_ice_percent"),
     ),
     "surface_good": MaterialSpec(
         material_id="surface_good",
@@ -669,6 +798,12 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
         # 「路面タグ不明」を「路面が悪い」と混同しないための唯一の例外（他のboolean材料は
         # bool_default既定の"false"のまま）。
         bool_default="nan",
+        value_sql=SURFACE_GOOD_CASE_SQL,
+        coverage=WayMaterialCoverageSpec(
+                missing_condition=f"({SURFACE_GOOD_CASE_SQL}) IS NULL",
+                source="osm_raw_ways.surface（良否いずれの分類にも該当しない値も欠損に含む）",
+                missing_semantics="unknown",
+            ),
     ),
     "intersection_count_per_km": MaterialSpec(
         material_id="intersection_count_per_km",
@@ -682,6 +817,12 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
         primary_attribute_id="intersection",
         extractor=keyed_density_extractor(METRIC_GROUP_COUNTS, METRIC_KEY_INTERSECTION),
         reference_points=_INTERSECTION_COUNT_PER_KM_REFERENCE_POINTS,
+        value_sql="CASE WHEN re.distance_m > 0 THEN c.intersection_count / (re.distance_m / 1000.0) END",
+        coverage=EdgeMaterialCoverageSpec(
+                present_count_sql=_EDGE_ATTRIBUTE_COUNTS_PRESENT_SQL,
+                source=_EDGE_ATTRIBUTE_COUNTS_SOURCE,
+                missing_semantics="unknown",
+            ),
     ),
     "accident_count_per_km_year": MaterialSpec(
         material_id="accident_count_per_km_year",
@@ -700,6 +841,13 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
         primary_attribute_id="accident_point",
         extractor=_extract_accident_count_per_km_year,
         reference_points=_ACCIDENT_COUNT_PER_KM_YEAR_REFERENCE_POINTS,
+        value_sql="CASE WHEN re.distance_m > 0 AND :accident_years > 0 "
+        "THEN c.accident_count / (re.distance_m / 1000.0) / :accident_years END",
+        coverage=EdgeMaterialCoverageSpec(
+                present_count_sql=_EDGE_ATTRIBUTE_COUNTS_PRESENT_SQL,
+                source=_EDGE_ATTRIBUTE_COUNTS_SOURCE,
+                missing_semantics="unknown",
+            ),
     ),
     "lit": MaterialSpec(
         material_id="lit",
@@ -709,6 +857,12 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
         tile_property="lit",
         primary_attribute_id="lit",
         extractor=tag_equals_extractor("lit", "yes"),
+        value_sql=tag_is_value_sql("lit", "yes"),
+        coverage=WayMaterialCoverageSpec(
+                missing_condition=f"{LIT_NORMALIZED_SQL} IS NULL",
+                source="osm_raw_ways.tags->>'lit'（タグ不在は街灯なし扱い）",
+                missing_semantics="definite",
+            ),
     ),
     "has_tunnel": MaterialSpec(
         material_id="has_tunnel",
@@ -718,6 +872,12 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
         tile_property="tunnel",
         primary_attribute_id="tunnel",
         extractor=tag_equals_extractor("tunnel", "yes"),
+        value_sql=tag_is_value_sql("tunnel", "yes"),
+        coverage=WayMaterialCoverageSpec(
+                missing_condition=f"{TUNNEL_NORMALIZED_SQL} IS NULL",
+                source="osm_raw_ways.tags->>'tunnel'（タグ不在は非該当扱い）",
+                missing_semantics="definite",
+            ),
     ),
     # --- MVTタイルに焼き込み済みだが評価軸には未使用の生データ ---
     "bridge": MaterialSpec(
@@ -730,6 +890,12 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
         # bridgeに対応する一次属性は未登録（表示専用のtunnel/onewayと異なり一次属性
         # レジストリに追加されていない）。
         extractor=tag_equals_extractor("bridge", "yes"),
+        value_sql=tag_is_value_sql("bridge", "yes"),
+        coverage=WayMaterialCoverageSpec(
+                missing_condition=f"{BRIDGE_NORMALIZED_SQL} IS NULL",
+                source="osm_raw_ways.tags->>'bridge'（タグ不在は非該当扱い）",
+                missing_semantics="definite",
+            ),
     ),
     "motor_vehicle_no": MaterialSpec(
         material_id="motor_vehicle_no",
@@ -742,6 +908,12 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
         tile_property="motor_vehicle_no",
         primary_attribute_id="motor_vehicle_access",
         extractor=tag_equals_extractor("motor_vehicle", "no"),
+        value_sql=tag_is_value_sql("motor_vehicle", "no"),
+        coverage=WayMaterialCoverageSpec(
+                missing_condition=f"{MOTOR_VEHICLE_NORMALIZED_SQL} IS NULL",
+                source="osm_raw_ways.tags->>'motor_vehicle'（タグ不在は通行可扱い）",
+                missing_semantics="definite",
+            ),
     ),
     "oneway": MaterialSpec(
         material_id="oneway",
@@ -756,6 +928,7 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
         # そこまでする理由が今は無い、DEFER）。
         tile_property="oneway",
         primary_attribute_id="oneway",
+        coverage=CoverageExcluded(reason="osm_raw_ways.directionはNOT NULL列で、タグ不在は双方向(both)に解決済み（欠損の概念が無い）"),
     ),
     "maxspeed_kmh": MaterialSpec(
         material_id="maxspeed_kmh",
@@ -767,6 +940,12 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
         primary_attribute_id="maxspeed",
         extractor=way_tag_parser_extractor(parse_maxspeed),
         reference_points=_MAXSPEED_KMH_REFERENCE_POINTS,
+        value_sql=MAXSPEED_KMH_CASE_SQL,
+        coverage=WayMaterialCoverageSpec(
+                missing_condition=f"({MAXSPEED_KMH_CASE_SQL}) IS NULL",
+                source="osm_raw_ways.tags->>'maxspeed'（数値として解釈できない値も欠損に含む）",
+                missing_semantics="unknown",
+            ),
     ),
     "lanes_count": MaterialSpec(
         material_id="lanes_count",
@@ -777,6 +956,12 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
         primary_attribute_id="lanes",
         extractor=way_tag_parser_extractor(parse_lanes),
         reference_points=_LANES_COUNT_REFERENCE_POINTS,
+        value_sql=LANES_COUNT_CASE_SQL,
+        coverage=WayMaterialCoverageSpec(
+                missing_condition=f"({LANES_COUNT_CASE_SQL}) IS NULL",
+                source="osm_raw_ways.tags->>'lanes'（数値として解釈できない値も欠損に含む）",
+                missing_semantics="unknown",
+            ),
     ),
     "highway": MaterialSpec(
         material_id="highway",
@@ -791,6 +976,12 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
         primary_attribute_id="highway",
         extractor=_extract_highway,
         value_labels=_HIGHWAY_VALUE_LABELS,
+        value_sql=HIGHWAY_SQL_FOR_EDGE,
+        coverage=WayMaterialCoverageSpec(
+                missing_condition=f"{HIGHWAY_SQL} IS NULL",
+                source="osm_raw_ways.highway",
+                missing_semantics="unknown",
+            ),
     ),
     "surface": MaterialSpec(
         material_id="surface",
@@ -804,6 +995,12 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
         primary_attribute_id="surface",
         extractor=_extract_surface,
         value_labels=_SURFACE_VALUE_LABELS,
+        value_sql=SURFACE_NORMALIZED_SQL,
+        coverage=WayMaterialCoverageSpec(
+                missing_condition=f"{SURFACE_NORMALIZED_SQL} IS NULL",
+                source="osm_raw_ways.surface",
+                missing_semantics="unknown",
+            ),
     ),
     # 自転車インフラを評価軸から切り離すための正規化フラグ材料群
     # （_extract_highway_is_cycleway等のdocstring参照）。公開軸「自転車インフラ」
@@ -831,6 +1028,12 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
         # まとめて"nan"にしても副作用は無い。
         bool_default="nan",
         extractor=_extract_highway_is_cycleway,
+        value_sql=way_present_or_null_sql(f"{HIGHWAY_SQL_FOR_EDGE} = 'cycleway'"),
+        coverage=WayMaterialCoverageSpec(
+                missing_condition=f"{HIGHWAY_SQL} IS NULL",
+                source="osm_raw_ways.highway",
+                missing_semantics="definite",
+            ),
     ),
     "cycleway_has_track": MaterialSpec(
         material_id="cycleway_has_track",
@@ -841,6 +1044,12 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
         primary_attribute_id="cycleway",
         bool_default="nan",
         extractor=_extract_cycleway_has_track,
+        value_sql=cycleway_has_value_sql("track"),
+        coverage=WayMaterialCoverageSpec(
+                missing_condition=_CYCLEWAY_TAGS_ALL_ABSENT,
+                source=_CYCLEWAY_SOURCE,
+                missing_semantics="definite",
+            ),
     ),
     "cycleway_has_lane": MaterialSpec(
         material_id="cycleway_has_lane",
@@ -851,6 +1060,12 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
         primary_attribute_id="cycleway",
         bool_default="nan",
         extractor=_extract_cycleway_has_lane,
+        value_sql=cycleway_has_value_sql("lane"),
+        coverage=WayMaterialCoverageSpec(
+                missing_condition=_CYCLEWAY_TAGS_ALL_ABSENT,
+                source=_CYCLEWAY_SOURCE,
+                missing_semantics="definite",
+            ),
     ),
     "cycleway_has_shared": MaterialSpec(
         material_id="cycleway_has_shared",
@@ -861,6 +1076,12 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
         bool_default="nan",
         primary_attribute_id="cycleway",
         extractor=_extract_cycleway_has_shared,
+        value_sql=cycleway_has_value_sql("share_busway", "shared_lane"),
+        coverage=WayMaterialCoverageSpec(
+                missing_condition=_CYCLEWAY_TAGS_ALL_ABSENT,
+                source=_CYCLEWAY_SOURCE,
+                missing_semantics="definite",
+            ),
     ),
     "shared_pedestrian_path": MaterialSpec(
         material_id="shared_pedestrian_path",
@@ -871,6 +1092,15 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
         primary_attribute_id="cycleway",
         bool_default="nan",
         extractor=_extract_shared_pedestrian_path,
+        value_sql=way_present_or_null_sql(
+            f"{HIGHWAY_SQL_FOR_EDGE} IN ('footway', 'path') "
+            f"AND {BICYCLE_NORMALIZED_SQL} IN ('yes', 'designated')"
+        ),
+        coverage=WayMaterialCoverageSpec(
+                missing_condition=f"{BICYCLE_NORMALIZED_SQL} IS NULL",
+                source="osm_raw_ways.tags->>'bicycle'（highway=footway/pathとの組み合わせで判定、タグ不在は非該当扱い）",
+                missing_semantics="definite",
+            ),
     ),
     "designation": MaterialSpec(
         material_id="designation",
@@ -889,6 +1119,7 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
         # 引き続きこの3値プロパティを使う。評価軸で種別を
         # 区別したい場合はis_emergency_transport/is_critical_logistics（下記）を使う。
         display_only=True,
+        coverage=CoverageExcluded(reason="designation_attributes行の有無がそのまま該当/非該当の確定値（欠損の概念が無い）"),
     ),
     "is_emergency_transport": MaterialSpec(
         material_id="is_emergency_transport",
@@ -910,6 +1141,7 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
         # per-edge kindをcompute_edge_costs_bulk/3つのスカラー評価経路へ運ぶ配線は、
         # 実際にそのニーズが出るまで新設しない）。
         extractor=None,
+        coverage=CoverageExcluded(reason="designation_attributes行の有無がそのまま該当/非該当の確定値（欠損の概念が無い）"),
     ),
     "is_critical_logistics": MaterialSpec(
         material_id="is_critical_logistics",
@@ -920,6 +1152,7 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
         tile_property="is_critical_logistics",
         primary_attribute_id="designation",
         extractor=None,
+        coverage=CoverageExcluded(reason="designation_attributes行の有無がそのまま該当/非該当の確定値（欠損の概念が無い）"),
     ),
     "is_designated": MaterialSpec(
         material_id="is_designated",
@@ -949,6 +1182,10 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
         tile_property_categorical_true_values=(*sorted(CAR_STRESS_DESIGNATION_KINDS), "both"),
         primary_attribute_id="designation",
         extractor=_extract_is_designated,
+        # 該当kindの行が無いことは「指定路線でない」の確定値で、データの欠損ではない
+        # （`match_designations`が全wayを処理する）。wayの行自体が無いときだけ不明。
+        value_sql=way_present_or_null_sql("d.is_designated"),
+        coverage=CoverageExcluded(reason="designation_attributes行の有無がそのまま該当/非該当の確定値（欠損の概念が無い）"),
     ),
     "smoothness": MaterialSpec(
         material_id="smoothness",
@@ -962,6 +1199,12 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
         # smoothnessに対応する一次属性は未登録（bridgeと同じくレジストリ未追加）。
         extractor=raw_way_tag_extractor("smoothness", normalize=True),
         value_labels=_SMOOTHNESS_VALUE_LABELS,
+        value_sql=SMOOTHNESS_NORMALIZED_SQL,
+        coverage=WayMaterialCoverageSpec(
+                missing_condition=f"{SMOOTHNESS_NORMALIZED_SQL} IS NULL",
+                source="osm_raw_ways.tags->>'smoothness'",
+                missing_semantics="unknown",
+            ),
     ),
     # 専用のPython関数を書かず、汎用ファクトリ（raw_way_tag_extractor）への宣言追加だけで
     # 抽出可能にした材料。tracktypeはOSMの未舗装路面グレード（grade1[良好]〜grade5[粗悪]）で、
@@ -975,6 +1218,12 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
         dtype="categorical",
         tile_property=None,
         extractor=raw_way_tag_extractor("tracktype", normalize=True),
+        value_sql="w.tags->>'tracktype'",
+        coverage=WayMaterialCoverageSpec(
+                missing_condition=f"{normalized_tag_sql('tracktype')} IS NULL",
+                source="osm_raw_ways.tags->>'tracktype'",
+                missing_semantics="unknown",
+            ),
     ),
     # --- 停止要因POIの種別別密度。`domain/traffic.py: POI_COUNT_KINDS`から生成する ---
     # 材料を1件ずつ手書きせず一覧から作るため、キーを増やすときに触るのはその一覧だけで済む。
@@ -990,6 +1239,14 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
             additive=True,
             total_unit="回",
             tile_property=f"poi_{kind}_per_km",
+            value_sql=poi_density_value_sql(kind),
+            # 値は`edge_attribute_counts`の行が持つJSONBのキーで、行があれば載っていない
+            # キーは0件と確定できる（欠損は行そのものの不在だけ）。
+            coverage=EdgeMaterialCoverageSpec(
+                present_count_sql=_EDGE_ATTRIBUTE_COUNTS_PRESENT_SQL,
+                source=_EDGE_ATTRIBUTE_COUNTS_SOURCE,
+                missing_semantics="unknown",
+            ),
             primary_attribute_id="stop_poi",
             extractor=keyed_density_extractor(METRIC_GROUP_POI, kind, absent_key=0.0),
             reference_points=_POI_COUNT_PER_KM_REFERENCE_POINTS,
@@ -1078,3 +1335,30 @@ def material_array_group(spec: MaterialSpec) -> MaterialArrayGroup:
     if spec.dtype == "boolean" and spec.bool_default == "false":
         return "boolean"
     return "numeric"
+
+
+def material_value_sql() -> dict[str, str]:
+    """材料id→値を求めるSQL式。カタログから導く（別の辞書を持たない）。"""
+    return {
+        material_id: spec.value_sql
+        for material_id, spec in MATERIAL_CATALOG.items()
+        if spec.value_sql is not None
+    }
+
+
+def material_coverage_specs() -> dict[str, WayMaterialCoverageSpec | EdgeMaterialCoverageSpec]:
+    """欠損率を測る材料id→測り方。カタログから導く（別の辞書を持たない）。"""
+    return {
+        material_id: spec.coverage
+        for material_id, spec in MATERIAL_CATALOG.items()
+        if spec.coverage is not None and not isinstance(spec.coverage, CoverageExcluded)
+    }
+
+
+def material_coverage_exclusions() -> dict[str, str]:
+    """欠損率を測らない材料id→その理由。"""
+    return {
+        material_id: spec.coverage.reason
+        for material_id, spec in MATERIAL_CATALOG.items()
+        if isinstance(spec.coverage, CoverageExcluded)
+    }

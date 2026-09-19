@@ -617,7 +617,7 @@ def surface_by_edge_id(graph: RoadGraph, surface_by_way_id: dict[int, str | None
 class EdgeMaterialArrays:
     """タイル1枚ぶんの材料を、**dtypeごとに1つの2次元配列**で保持する表現。
 
-    値はDBが導出したものをそのまま受ける（`domain/material_sql.py: MATERIAL_VALUE_SQL`）。
+    値はDBが導出したものをそのまま受ける（`MaterialSpec.value_sql`）。
     区間ごとのPythonオブジェクトを経由しないため、構築も復元もEdge数に比例しない。
 
     材料ごとに別々の配列を持たず、`StaticEdgeScoreMatrix`と同じ「値の行列＋idの並び」の形に
