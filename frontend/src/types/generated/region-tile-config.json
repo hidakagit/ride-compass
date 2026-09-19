@@ -1,4 +1,9 @@
 {
+  "tile_version_kinds": [
+    "accident",
+    "poi",
+    "road_surface"
+  ],
   "road_surface": {
     "layer_name": "road_surface"
   },

@@ -1,5 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 
+from app.api.cache_policy import GSI_TILE_NOT_FOUND
 from app.api.dependencies import enforce_rate_limit, get_gsi_tile_client
 from app.api.routers._tile_http import validate_tile_coords
 from app.config import settings
@@ -24,7 +25,11 @@ async def gsi_relief_tile_proxy(
     if isinstance(result, GsiTileNotFound):
         # 整備区域外（珍しくない正常系）だと確認済みのため、502（上流障害）
         # ではなく404を返す。
-        raise HTTPException(status_code=404, detail="指定されたタイルは存在しません")
+        raise HTTPException(
+            status_code=404,
+            detail="指定されたタイルは存在しません",
+            headers={"Cache-Control": GSI_TILE_NOT_FOUND.header()},
+        )
     if result is None:
         raise HTTPException(status_code=502, detail="地理院タイルの取得に失敗しました")
     content, content_type = result
@@ -48,7 +53,11 @@ async def gsi_terrain_tile(
     validate_tile_coords(z, x, y, TERRAIN_TILE_MIN_ZOOM, TERRAIN_TILE_MAX_ZOOM)
     result = await get_terrain_rgb_tile(gsi_tile_client, z, x, y)
     if isinstance(result, GsiTileNotFound):
-        raise HTTPException(status_code=404, detail="指定されたタイルは存在しません")
+        raise HTTPException(
+            status_code=404,
+            detail="指定されたタイルは存在しません",
+            headers={"Cache-Control": GSI_TILE_NOT_FOUND.header()},
+        )
     if result is None:
         raise HTTPException(status_code=502, detail="地理院タイルの取得に失敗しました")
     return Response(content=result, media_type=PNG_CONTENT_TYPE)

@@ -13,6 +13,7 @@ import { ACCIDENT_TILE_SOURCE_LAYER, ROAD_TILE_SOURCE_LAYER, STOP_POI_SOURCE_LAY
 import {
   ROAD_TILE_MAX_ZOOM,
   ROAD_TILE_MIN_ZOOM,
+  TILE_KINDS,
   accidentTileUrl,
   fetchAxisInspector,
   fetchDynamicWayValues,
@@ -55,9 +56,15 @@ describe("regionApi", () => {
   // region_service.ROAD_SURFACE_TILE_VERSIONからbackend/scripts/export_openapi.pyが生成する
   // （CIのapi-contractジョブがドリフト検知、改善計画T19）。片側だけ値を変えて再生成・
   // コミットし忘れた状態をCIで検出する。
-  it("路面ベクタタイルのレイヤー名・世代がbackend生成物（region-tile-config.json）と一致する", () => {
+  it("路面ベクタタイルのレイヤー名がbackend生成物（region-tile-config.json）と一致する", () => {
     expect(ROAD_TILE_SOURCE_LAYER).toBe(regionTileConfig.road_surface.layer_name);
-    expect(tileVersionFromUrl(roadSurfaceTileUrl())).toBe(TILE_VERSIONS.road_surface);
+  });
+
+  // **世代を配る系統の集合が片側だけ増えると、足りない側は「揃った」と判定したまま
+  // 配られない世代を待ち続ける**（hasTileVersionsが常にfalse／余分な系統のURLが組めない）。
+  // 上の?v=の照合は自分が入れた定数と比べるだけで、この食い違いは捕まえられない。
+  it("世代を配るタイルの系統がbackend生成物と一致する", () => {
+    expect([...TILE_KINDS].sort()).toEqual([...regionTileConfig.tile_version_kinds].sort());
   });
 
   it("poiTileUrlは配信オリジンとタイル世代クエリを使ったURLテンプレートを返す", () => {
@@ -67,16 +74,14 @@ describe("regionApi", () => {
   // 停止要因POIタイル（改善計画T54）も同じドリフト検知の対象にする。交差点密度
   // （intersection）レイヤーは地図の独立可視化レイヤーとしては提供しない判断（T96）で
   // フロントから参照が無くなっていたため、バックエンド側の配信自体もT97で撤去済み。
-  it("POIベクタタイルのレイヤー名・世代がbackend生成物と一致する", () => {
+  it("POIベクタタイルのレイヤー名がbackend生成物と一致する", () => {
     expect(STOP_POI_SOURCE_LAYER).toBe(regionTileConfig.poi.stop_poi_layer_name);
-    expect(tileVersionFromUrl(poiTileUrl())).toBe(TILE_VERSIONS.poi);
   });
 
   // 外部静的データソース T50（警察庁事故データ）のMVTレイヤー名・世代も同じドリフト検知
   // の仕組みに乗せる（region-tile-config.jsonのaccidentキー、改善計画T19と同型）。
-  it("事故ベクタタイルのレイヤー名・世代がbackend生成物（region-tile-config.json）と一致する", () => {
+  it("事故ベクタタイルのレイヤー名がbackend生成物（region-tile-config.json）と一致する", () => {
     expect(ACCIDENT_TILE_SOURCE_LAYER).toBe(regionTileConfig.accident.layer_name);
-    expect(tileVersionFromUrl(accidentTileUrl())).toBe(TILE_VERSIONS.accident);
   });
 
   it("accidentTileUrlは配信オリジンとタイル世代クエリを使ったURLテンプレートを返す", () => {

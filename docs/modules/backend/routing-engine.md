@@ -377,8 +377,10 @@ NaN）へ動的軸（風、`domain/dynamic_materials.py: evaluate_dynamic_axis_a
 したかは「入る区間×出る区間」の対で決まり、Nodeを状態にすると表せないため。ターンの費用は
 進入・退出の方位差から秒で決め（`TurnCostSpec`）、そのままコストへ足す（探索のコストも
 秒のため換算は要らない）。
-加えて、**信号が無く、かつ交差点に集まる道の最大階級が進入した区間より上位なら**、
-横断（直進）・右左折にそれぞれ費用を足す（`domain/traffic.py: highway_rank`で比べる）。
+加えて、**信号が無く、交差点に集まる道の最大階級が進入した区間より上位で、かつその階級が
+そもそも待ちの要る階級（`MAJOR_CROSSING_MIN_RANK`）なら**、横断（直進）・右左折にそれぞれ
+費用を足す（`domain/traffic.py: highway_rank`で比べる）。階級の条件が無いと、自転車道
+（階級0）からサービス道路（階級1）へ出るだけで「待ちが要る」と判定される。
 これは車列の切れ目を待つ時間で、信号のある交差点の待ちとは別物——そちらは停止密度の材料が
 走行モデルへ運ぶ（`domain/traffic.py: stop_seconds`）ため、ここで足すと二重に数える
 （`docs/design-principles.md`構造仕様13）。探索側は階級の意味を知らず、比較結果だけを使う。
@@ -499,7 +501,8 @@ Nodeを「リング」として抽出する。**距離は最短実距離では�
    `RouteGenerator.last_destination_correction`→`GenerationConditions.
    corrected_destination`経由でレスポンスへエコーされる）。再スナップも失敗した場合は
    候補0件として扱う。**このとき壊れているのが目的地側とは限らない**——
-   `find_nearest_node_indexed`は索引全体を走査するため、候補が1つも見つからないのは
+   `find_nearest_node_indexed`は条件（`predicate`）を満たすNodeが1つも無ければ索引の
+   範囲を使い切ってNoneを返すため、候補が1つも見つからないのは
    「前向き木がどのNodeへも届かなかった」ときにも起きる（起点が孤立している・合成コストが
    全Edgeで非有限、等）。到達Node数を見てどちら側かを判定し、警告と
    `_RoadGraphContext.no_candidates_side`（`RouteGenerator`が利用者向けの文面を選ぶ）で
@@ -841,9 +844,9 @@ DROP`前に軽いSELECTを1つ挟んで実トランザクションを確定さ�
 `_ROAD_SURFACE_TILE_MVT_SQL`（路面・道路種別・車ストレス材料タグ等をPostGIS側で
 ST_AsMVT丸ごと生成）・`_FEATURE_KEYS_IN_TILE_SQL`（wind、道路自身の方位角は使わず鍵の
 一覧のみ返す）・`_FEATURE_GRADIENT_INPUTS_IN_TILE_SQL`（gradient。way単位のズームでは
-そのwayのいちばん急な区間を代表にし、区間単位のズームではその区間の実値をそのまま返す。
-JOINは区間の両方向の行を候補にする——標高属性は向きごとのedge行に付くため片方にしか
-無いことがあり、forward/backwardのどちらを拾ってもcos補正の結果は符号が2回反転して
+区間を長さで重み付けて平均した値を代表にし、区間単位のズームではその区間の実値をそのまま
+返す。JOINは区間の両方向の行を候補にする——標高属性は向きごとのedge行に付くため片方にしか
+無いことがあり、forward/backwardのどちらを拾っても向きと勾配の符号が二重に反転して
 打ち消し合う）はいずれも同じ「road_graph_tilesのz12祖先タイルマーク」でカバレッジ判定し、
 1タイル1DB往復にまとめる設計を共有する。いずれも**同じ`_TILE_FEATURE_SOURCE_SQL`から
 フィーチャーを引く**——別々に組み立てると、代表の選び方がタイルとずれた瞬間に鍵が噛み合わず

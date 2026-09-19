@@ -62,6 +62,29 @@ def test_gsi_relief_tile_proxy_returns_404_when_tile_not_found_upstream():
     assert response.status_code == 404
 
 
+def test_整備区域外の404はブラウザへもキャッシュさせる():
+    """`raster-dem`は整備区域外のタイルも視界へ入るたび要求する。
+
+    サーバー側は同じ事実をプロセス内に持って上流へ問い合わせ直さないが、それだけでは
+    ブラウザからの要求は減らない——沿岸部を連続してパンする利用者は404だけでレート制限に
+    達しうる。恒久404はブラウザにも伝える。
+    """
+    from app.api.cache_policy import GSI_TILE_NOT_FOUND
+    from app.infrastructure.gsi_tile_client import GSI_TILE_NOT_FOUND as NOT_FOUND_SENTINEL
+
+    app.dependency_overrides[get_gsi_tile_client] = lambda: FakeGsiTileClient(NOT_FOUND_SENTINEL)
+
+    try:
+        relief = client.get("/api/gsi-relief-tile/xyz/relief/12/3637/1612.png")
+        terrain = client.get("/api/gsi-terrain-tile/13/7276/3225.png")
+    finally:
+        app.dependency_overrides.clear()
+
+    for response in (relief, terrain):
+        assert response.status_code == 404
+        assert response.headers["cache-control"] == GSI_TILE_NOT_FOUND.header()
+
+
 def test_gsi_relief_tile_proxy_is_rate_limited_per_client():
     app.dependency_overrides[get_gsi_tile_client] = lambda: FakeGsiTileClient((b"x", "image/png"))
 

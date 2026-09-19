@@ -16,31 +16,29 @@
     --dry-runで対象件数のログのみ（DB書き込み・ラスタ読み込みなし）
 """
 
-import argparse
-import asyncio
+import functools
 import logging
-import math
 import sys
-import time
-from datetime import datetime, timezone
 
 import shapely
 from shapely.geometry import LineString
 from sqlalchemy import and_, or_, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.batch._common import with_derived_data_revision_bump, batch_session_factory, count_targets, stream_id_chunks
-from app.batch._landcover import NoValueReason, RasterSource, infer_data_version_from_filename, measure_ring
-from app.config import settings
+from app.batch._landcover import (
+    LandcoverPlan,
+    landcover_batch_main,
+    run_landcover_batch,
+    run_with_configured_rasters,
+)
 from app.domain.derived_data_versions import (
     LANDCOVER_ALGORITHM_VERSION,
     LANDCOVER_DEFAULT_BUFFER_M,
     LANDCOVER_DEFAULT_INNER_M,
     landcover_algorithm_version,
 )
-from app.domain.landcover import WayLandcover, raster_set_fingerprint
+from app.domain.landcover import WayLandcover
 from app.infrastructure.road_graph_models import OsmRawWayRow, WayLandcoverRow
-from app.infrastructure.road_graph_repository import RoadGraphRepository
 
 logger = logging.getLogger("ridecompass.precompute_way_landcover")
 
@@ -94,184 +92,53 @@ def _target_way_ids_stmt(recompute: bool, raster_set: str | None = None, algorit
     return stmt.order_by(OsmRawWayRow.geom)
 
 
-async def _fetch_way_geometries(session: AsyncSession, way_ids: list[int]) -> dict[int, LineString]:
+async def _fetch_way_geometries(
+    session: AsyncSession, way_ids: list[int]
+) -> list[tuple[int, LineString]]:
+    """way idから、wayのジオメトリを引く（引けなかったidは含めない）。"""
     stmt = select(OsmRawWayRow.osm_way_id, OsmRawWayRow.geom).where(OsmRawWayRow.osm_way_id.in_(way_ids))
     rows = (await session.execute(stmt)).all()
-    way_ids_ordered = [row.osm_way_id for row in rows]
     geometries = shapely.from_wkb([bytes(row.geom.data) for row in rows])
-    return dict(zip(way_ids_ordered, geometries))
+    return [(row.osm_way_id, geom) for row, geom in zip(rows, geometries)]
 
 
-async def run(
-    database_url: str | None,
-    raster_paths: list[str],
-    buffer_m: float,
-    inner_m: float,
-    data_version: str | None,
-    recompute: bool,
-    dry_run: bool,
-) -> int:
-    started = time.perf_counter()
-    # 増分実行の対象判定に指紋・アルゴリズム版が要るため、ラスタが要らないdry-runでも
-    # 先に決める（`--raster`無しのdry-runは指紋が空集合になり、値なし行を全件対象と数える）。
-    version = algorithm_version(inner_m, buffer_m)
-    raster_set = raster_set_fingerprint(raster_paths)
-    stmt = _target_way_ids_stmt(recompute, raster_set, version)
-    async with batch_session_factory(database_url) as session_factory:
-        target_count = await count_targets(session_factory, stmt)
-
-        logger.info("対象way数: %d件（chunk_size=%d）", target_count, CHUNK_SIZE)
-        if dry_run:
-            logger.info("dry-run完了: DB書き込み・ラスタ読み込みなし elapsed=%.1fs", time.perf_counter() - started)
-            return 0
-        if target_count == 0:
-            logger.warning("対象wayが0件のため更新をスキップします（osm_raw_waysが空、または全件計算済みの可能性）")
-            return 0
-        total_chunks = math.ceil(target_count / CHUNK_SIZE)
-        if not raster_paths:
-            raise ValueError("--rasterが1件も指定されていません（dry-run以外では必須）")
-
-        resolved_data_version = data_version or infer_data_version_from_filename(raster_paths[0])
-        if not resolved_data_version:
-            raise ValueError("--data-versionが未指定で、ファイル名からも推定できませんでした")
-
-        sources = [RasterSource(path) for path in raster_paths]
-        try:
-            now = datetime.now(timezone.utc)
-            total_written = 0
-            total_out_of_range = 0
-            total_partial_coverage = 0
-            total_low_pixels = 0
-            chunk_index = -1
-            async for chunk in stream_id_chunks(session_factory, stmt, CHUNK_SIZE):
-                chunk_index += 1
-                chunk_started = time.perf_counter()
-                chunk_out_of_range = 0
-                chunk_partial_coverage = 0
-                chunk_low_pixels = 0
-                async with session_factory() as session:
-                    geometries = await _fetch_way_geometries(session, chunk)
-                    source_osm_import_run_id = (await session.execute(_LATEST_SUCCEEDED_OSM_RUN_ID_SQL)).scalar_one()
-
-                    records: list[WayLandcover] = []
-
-                    def no_value_record(way_id: int) -> WayLandcover:
-                        """「この構成では値なし」を表す行（割合列はNULL）。
-
-                        行を残さないと増分実行が毎回同じwayをラスタ読み込みからやり直す。
-                        材料としての扱いは行が無い場合と同じ欠損のまま。
-                        """
-                        return WayLandcover(
-                            osm_way_id=way_id,
-                            percentages=None,
-                            data_source=DATA_SOURCE,
-                            data_version=resolved_data_version,
-                            computed_at=now,
-                            source_osm_import_run_id=source_osm_import_run_id,
-                            algorithm_version=version,
-                            source_raster_set=raster_set,
-                        )
-
-                    for way_id in chunk:
-                        line = geometries.get(way_id)
-                        if line is None:
-                            continue
-                        measured = measure_ring(sources, line, inner_m, buffer_m)
-                        if measured.percentages is None:
-                            if measured.reason is NoValueReason.PARTIAL_COVERAGE:
-                                chunk_partial_coverage += 1
-                            elif measured.reason is NoValueReason.LOW_PIXELS:
-                                chunk_low_pixels += 1
-                            else:
-                                chunk_out_of_range += 1
-                            records.append(no_value_record(way_id))
-                            continue
-                        records.append(
-                            WayLandcover(
-                                osm_way_id=way_id,
-                                percentages=measured.percentages,
-                                data_source=DATA_SOURCE,
-                                data_version=resolved_data_version,
-                                computed_at=now,
-                                source_osm_import_run_id=source_osm_import_run_id,
-                                algorithm_version=version,
-                                source_raster_set=raster_set,
-                            )
-                        )
-
-                    repository = RoadGraphRepository(session)
-                    await repository.save_way_landcover(records)
-                    await session.commit()
-
-                # 「書込」は値を持つ行の件数。値なしの行（範囲外・境界またぎ・画素不足）も
-                # 同じUPSERTで書くが、内訳の3件数と二重に数えないよう分けて出す。
-                chunk_written = len(records) - chunk_out_of_range - chunk_partial_coverage - chunk_low_pixels
-                total_written += chunk_written
-                total_out_of_range += chunk_out_of_range
-                total_partial_coverage += chunk_partial_coverage
-                total_low_pixels += chunk_low_pixels
-                logger.info(
-                    "chunk %d/%d 完了: %d件書込（値なしで記録: 範囲外%d件・境界またぎ%d件・画素不足%d件） elapsed=%.1fs",
-                    chunk_index + 1, total_chunks, chunk_written, chunk_out_of_range, chunk_partial_coverage,
-                    chunk_low_pixels, time.perf_counter() - chunk_started,
-                )
-
-            log_completion = logger.warning if total_partial_coverage else logger.info
-            log_completion(
-                "土地被覆事前計算完了: 対象=%d件 書込=%d件 値なしで記録（範囲外=%d件 境界またぎ=%d件 "
-                "画素不足=%d件） elapsed=%.1fs",
-                target_count, total_written, total_out_of_range, total_partial_coverage, total_low_pixels,
-                time.perf_counter() - started,
-            )
-            return 0
-        finally:
-            for source in sources:
-                source.close()
-
-
-async def run_default(database_url: str | None, dry_run: bool) -> int:
-    """`refresh_derived.py`（`(database_url, dry_run)`の統一シグネチャで各段を呼ぶ）向けの
-    薄いラッパー。ラスタパスは`settings.lulc_raster_paths_list`から読み、既定のリング径
-    （`DEFAULT_INNER_M`/`DEFAULT_BUFFER_M`）・増分実行（`--recompute`無し相当）を使う。
-    dry-run以外でラスタパスが未設定なら失敗させる（黙って飛ばすと「バッチ未実行で軸が
-    静かに欠落する」既知の障害モードを再生産するため。呼び出し元の`refresh_derived.py`が
-    ラスタ未整備の環境向けに`--skip-landcover`でこの段自体をスキップする経路を持つ）。"""
-    raster_paths = settings.lulc_raster_paths_list
-    if not raster_paths and not dry_run:
-        raise ValueError(
-            "settings.lulc_raster_paths（環境変数LULC_RASTER_PATHS）が未設定です。"
-            "ラスタを用意できない環境ではrefresh_derived.pyの--skip-landcoverを使ってください。"
-        )
-    return await run(database_url, raster_paths, DEFAULT_BUFFER_M, DEFAULT_INNER_M, None, False, dry_run)
-
-
-def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description="way_landcover事前集計バッチ")
-    parser.add_argument("--raster", action="append", default=[], help="Esri LULC GeoTIFFのパス（複数指定可）")
-    parser.add_argument("--buffer-m", type=float, default=DEFAULT_BUFFER_M, help="リング外径(m)")
-    parser.add_argument("--inner-m", type=float, default=DEFAULT_INNER_M, help="リング内径・道路面除外幅(m)")
-    parser.add_argument("--data-version", default=None, help="使用したラスタの年（省略時はファイル名から推定）")
-    parser.add_argument("--recompute", action="store_true", help="既存行の有無に関わらず対象way全件を再計算する")
-    parser.add_argument("--dry-run", action="store_true", help="対象件数のみログ出力しDB書き込み・ラスタ読み込みを行わない")
-    parser.add_argument("--database-url", default=None, help="対象DB（省略時はsettings.database_url）")
-    args = parser.parse_args(argv)
-
-    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
-    return asyncio.run(
-        with_derived_data_revision_bump(
-            run(
-                args.database_url,
-                args.raster,
-                args.buffer_m,
-                args.inner_m,
-                args.data_version,
-                args.recompute,
-                args.dry_run,
-            ),
-            database_url=args.database_url,
-            dry_run=args.dry_run,
-        )
+def _plan(version: str, raster_set: str, recompute: bool) -> LandcoverPlan:
+    return LandcoverPlan(
+        label="way",
+        logger=logger,
+        chunk_size=CHUNK_SIZE,
+        empty_warning="対象wayが0件のため更新をスキップします（osm_raw_waysが空、または全件計算済みの可能性）",
+        target_stmt=_target_way_ids_stmt(recompute, raster_set, version),
+        fetch=_fetch_way_geometries,
+        build=lambda key, percentages, stamp: WayLandcover(
+            osm_way_id=key,
+            percentages=percentages,
+            data_source=DATA_SOURCE,
+            data_version=stamp.data_version,
+            computed_at=stamp.computed_at,
+            source_osm_import_run_id=stamp.source_osm_import_run_id,
+            algorithm_version=stamp.algorithm_version,
+            source_raster_set=stamp.source_raster_set,
+        ),
+        save=lambda repository, records: repository.save_way_landcover(records),
     )
+
+
+# このモジュールが持つのは母集団の違い（`_plan`）だけで、実行・CLI・`refresh_derived.py`
+# 向けの口は共有側にある。いずれも`_plan`を渡すだけの束ねのため、関数として書き直さない
+# （書き直すと2本のバッチで同じ定型が並び、片方だけ引数が増えても気づけない）。
+run = functools.partial(run_landcover_batch, _plan)
+run_default = functools.partial(
+    run_with_configured_rasters, _plan, buffer_m=DEFAULT_BUFFER_M, inner_m=DEFAULT_INNER_M
+)
+main = functools.partial(
+    landcover_batch_main,
+    description="way_landcover事前集計バッチ",
+    recompute_help="既存行の有無に関わらず対象way全件を再計算する",
+    make_plan=_plan,
+    buffer_m=DEFAULT_BUFFER_M,
+    inner_m=DEFAULT_INNER_M,
+)
 
 
 if __name__ == "__main__":

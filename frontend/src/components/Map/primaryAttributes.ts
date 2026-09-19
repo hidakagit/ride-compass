@@ -61,7 +61,7 @@ export const PRIMARY_ATTRIBUTE_LAYER_IDS: Partial<Record<string, MapLayerId>> = 
 // car_stress軸の内部補正と公開軸bicycle_infra_qualityの両方が参照するため、
 // domain/registry_defaults.pyでshared=Trueとして登録されている）は一次属性としては
 // 存在するが、地図上に単独では表示しない（地図表示は評価軸bicycle_infra_quality側に
-// 委ねる。show_map_icon=falseのため専用レイヤーは持たない）。
+// 委ねる。ramp軸が地図レンズを自動で得るため、一次属性の側に専用レイヤーを足さない）。
 // PRIMARY_ATTRIBUTE_LAYER_IDSにキーが無いことが「未対応（漏れ）」なのか「意図的にレイヤー
 // 無し」なのかを区別できないため、後者をここへ明示する（ドリフト検知テスト参照）。
 export const PRIMARY_ATTRIBUTES_WITHOUT_LAYER: ReadonlySet<string> = new Set([

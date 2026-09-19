@@ -2132,13 +2132,16 @@ T400.md「3.」節の実装（T352）で既に存在しており、T414で新規
 スカラー値1個を鍵の一覧全件へbroadcastする」（風）と「1タイルにつき鍵ごとに異なる値を
 持つ」（勾配）の両方を同じキャッシュ表現（`dict[feature_key, float]`のJSON）で扱えるようにした。
 
-**符号補正（確定済みの設計判断）**: `effective_gradient = gradient_percent × cos(道路自身の
-向き − ユーザー指定の向き)`という連続的なcos補正を採用した
-（[domain/gradient.py](../backend/app/domain/gradient.py): `GradientCalculator.
-effective_gradient`）。道路の向きと指定方向のなす角度に応じて滑らかに変化し、二値反転案
-（±90°で符号切替）のような境界での不自然な急変が無い。同じ道路の逆方向のroad_edges行
-（forward/backward）のどちらを使っても、道路の向き±180度・gradient_percentの符号反転が
-同時に起きるため計算結果は変わらない（cosは偶関数）。
+**符号補正**: `effective_gradient`は**走行方位で符号だけを決め、坂の急さは変えない**
+（道路の向き寄りならそのまま、逆向き寄りなら登り下りを入れ替える。
+[domain/gradient.py](../backend/app/domain/gradient.py): `GradientCalculator.
+effective_gradient`）。角度差を係数に掛ける（cos投影）形は採らない——道路は道路に沿って
+しか走れず、辿る以上は坂の急さをそのまま受けるため、15%の坂はどの方位を選んでいても15%の
+坂である。代わりに、**どちら向きに辿るかが決まらない直角付近の帯**
+（`LENS_PERPENDICULAR_BAND_DEG`）は`shows_gradient`が落とし、値そのものを配らない。
+**この判定を取り除くと、直角付近の急坂が符号を選べないまま「平坦」の段の色で塗られる。**
+同じ道路の逆方向のroad_edges行（forward/backward）のどちらを使っても結果は変わらない
+（道路の向き±180度と`gradient_percent`の符号反転が同時に起き、二重に反転して相殺する）。
 
 **T411の実施内容（汎用化）**:
 - **エンドポイント**: `GET /api/region/dynamic-way-values/wind/{z}/{x}/{y}`という風専用の

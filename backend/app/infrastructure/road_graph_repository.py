@@ -880,10 +880,6 @@ def _poi_counts_body(node_ids: str, exclude_node: str, extra_filter: str = "") -
     )
 
 
-# Edge単位の種別別カウント。wayは複数の区間へ分割されるため、wayの構成ノードのうち
-# 「この区間の線上にあるもの」だけへ絞る（`ST_DWithin`の許容は浮動小数の誤差ぶん）。
-# タイルURL・キャッシュパスへ入る世代。焼き込むSQLから署名を導出するため、プロパティを
-# 足す・消す・式を変えれば鍵が自動で変わる（手で上げるのはSQLが読むテーブルの中身を作り
 # タイルのディスク／Redisキャッシュの鍵に入る**形の署名**。焼き込むSQLから導出するため、
 # 列や分類タグを変えれば自動的に別の鍵になる。DBの中身が作り直されたことは署名では表せず、
 # そちらは`services/tile_version_service.py`が世代の変化として扱う。
@@ -891,6 +887,8 @@ ROAD_SURFACE_TILE_SHAPE = shape_digest(_ROAD_SURFACE_TILE_MVT_SQL)
 POI_TILE_SHAPE = shape_digest(_POI_TILE_MVT_SQL)
 
 
+# Edge単位の種別別カウント。wayは複数の区間へ分割されるため、wayの構成ノードのうち
+# 「この区間の線上にあるもの」だけへ絞る（`ST_DWithin`の許容は浮動小数の誤差ぶん）。
 _POI_COUNTS_BY_KIND_SQL = text(
     """
     SELECT e.edge_id,

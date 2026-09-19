@@ -171,9 +171,12 @@ Reactの外（モジュール評価時に初期値を決めるシングルトン
 ## page.tsxが橋渡しする主なデータフロー
 
 - `routePreference`（`RouteSettingsPanel`が編集）→ `syncRoutePreferenceKeys`による
-  キー整合補正 → ルート生成リクエスト。整合補正は`RouteSettingsPanel`のマウント時
-  （`useEffect`）と、`handleGenerate`内（送信直前、パネル未マウント経路の穴埋め）の
-  2箇所で行う。
+  キー整合補正 → ルート生成リクエスト。整合補正は役割の違う経路へ分かれる: `RouteSettingsPanel`の
+  マウント時（`useEffect`）は**stateを書き換える**、`buildCurrentGenerationInput`は
+  **送る値だけを整える**（stateは触らない。パネルを開かずに生成する経路の穴埋め）。
+  後者は軸カタログ取得済みのときだけ行う——未取得のまま整合させると静的フォールバックに
+  合わせて書き換えてしまうため、その場合は`route_preference`自体を送らずbackendの既定へ
+  委ねる。
 - `layerVisibility`（`MapOverlayControls`が持つ）→ `MapView`の
   一次属性・気象・スポットの表示制御。
 - `lens`（レンズ、`LensControl`が唯一の入口）→ 全道路の塗りは`axisVisibility`（ramp軸）と
@@ -219,8 +222,9 @@ Reactの外（モジュール評価時に初期値を決めるシングルトン
   （シートは排他表示のため勝手に開かず、タブのドットで知らせる）。
   **ルートの編集は「ルート結果」の中のモード**（`editingRouteId`）で、独立した置き場を
   持たない——別の置き場にすると、どのルートを編集しているのかを編集側で選び直す形になる。
-  入口は候補の中身の「このルートを編集」で、乗り換えできない生成（周回・候補1件）では入口
-  自体を出さない。編集の元は押した候補に固定し、作ったら同じ場所が一覧へ戻る
+  入口は「ルート結果」ヘッダの操作アイコン列（`renderRouteResultHeaderActions`）で、
+  乗り換えできない生成（周回・候補1件）と編集中には出さない——押しても何もできない入口を
+  残さない。編集の元は押した候補に固定し、作ったら同じ場所が一覧へ戻る
   （[route-settings-and-results.md](route-settings-and-results.md)参照）。
 - モバイル: 下部タブバー（ルート設定/ルート結果）+`BottomSheet`（2枚が`mobileSheet`で
   排他表示、高さ`mobileSheetHeightVh`を共有）。デスクトップと同じく
@@ -267,10 +271,12 @@ GPX出力・「ルートをクリア」、下記`renderRouteOutcomeSectionBody`�
 数値と長さの両方で表示する——タブを開かずに候補どうしを見比べられるようにするため。経由地
 ルート（id: `route-waypoints`）は常に1件で順位の概念が無いため、`NON_DIRECTIONAL_ROUTE_IDS`
 の判定でdirection_label[固定文言]をそのまま表示する。
-`RouteCandidate.is_fastest`が立つ候補[目的地モードのみ]は順位番号の代わりに
-「最速」と示し、他の候補には距離の後ろへ基準線からの超過時間[`+12分`]を添える
+基準線（一覧の中で所要時間が最小の候補。`fastestRouteId`）には順位番号に加えて
+「最速」を添え、他の候補には距離の後ろへ基準線からの超過時間[`+12分`]を添える
 [`lib/routeTabLabel.ts`]——軸設定に沿ったルートを走る対価であり、候補を見比べる
-タブ列に無いと比較のたびにタブを開き直すことになるため）＋「比較」
+タブ列に無いと比較のたびにタブを開き直すことになるため。**backendの`is_fastest`は
+この表示に使わない**——目的地モードでしか付かず、主用途の周回では基準線が一度も
+決まらない）＋「比較」
 （`ComparisonPanel`、`researchEnabled`の間だけ末尾に追加。実験スロット2件未満の
 自己ガードは`ComparisonPanel`自身が持つため、非アクティブ中も状態更新を止めないよう
 `forceMount`でマウントし続け、`[data-state="inactive"]`のCSSで非表示にする）で構成
@@ -299,11 +305,11 @@ destinationCorrected`）。補正時は地図上の目的地ピンも
 （ピンの位置と生成されたルートの終点がずれて見えないようにする）。
 
 「ルート結果」ヘッダの操作枠は`renderRouteResultHeaderActions()`という1つのヘルパーで、
-「GPX出力」（`DownloadIcon`、
-`selectedCandidate`をタップで`lib/gpxExport.ts: downloadGpx`へ渡す。候補が未選択の間は
-disabled）・「ルートをクリア」（`ClearRoutesIcon`＝ゴミ箱のアイコンボタン、
-`handleRoutesClear`。**バツ印は使わない**——シートの閉じる✕の隣に並ぶため、同じ形だと
-どちらがどちらか分からない）をこの順で横並びにする操作アイコンのみを持つ。総合難易度の説明は
+**選択中の候補に対する操作**を横並びにする（区間の乗り換えの入口・「GPX出力」・
+「ルートをクリア」）。「GPX出力」（`DownloadIcon`、`selectedCandidate`をタップで
+`lib/gpxExport.ts: downloadGpx`へ渡す）は候補が未選択の間はdisabled。「ルートをクリア」
+（`ClearRoutesIcon`＝ゴミ箱のアイコンボタン、`handleRoutesClear`）に**バツ印は使わない**
+——シートの閉じる✕の隣に並ぶため、同じ形だとどちらがどちらか分からない。総合難易度の説明は
 `RouteAxisProfile`側（総合難易度の表示の隣、`InfoPopover`）にあり、候補タブごとに
 繰り返し表示される。デスクトップは「ルート結果」`Disclosure`の`trailing`、モバイルは
 BottomSheetの`headerAction`propとして同じヘルパーを渡す（`routes.length > 0`の間のみ）。

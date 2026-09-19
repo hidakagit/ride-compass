@@ -21,11 +21,14 @@
 // `MAP_LAYER_CATEGORY_ORDER`が決める。例: 道路状態（道路の種類・路面の種類・指定路線）、
 // 交通・安全（車ストレス・事故・停止要因）、地形・土地、補給・施設。
 // 補給・休憩ポイントを交通・安全へ含めないのは、安全・リスクの指標ではないため。
-// 「自転車インフラ」の専用地図レイヤー・カテゴリは持たない。評価軸側は公開軸
-// 「自転車インフラ」bicycle_infra_qualityが担う（地図レイヤーは持たない
-// [show_map_icon=false]）。
+// 「自転車インフラ」の専用地図レイヤー・カテゴリは持たない。公開軸
+// bicycle_infra_qualityがramp軸として地図レンズを自動で得る（axisLayers.ts）ため、
+// 静的レイヤー側で重ねて持つ必要が無い。ramp軸は軸スタジオ由来のレイヤーとして
+// この区分の外に置く（isAxisStudioLayer）。
 
 import { LANDCOVER_TILE_MIN_ZOOM, ROAD_TILE_MIN_ZOOM } from "@/services/regionApi";
+import { legendKindList } from "./legendFilter";
+import { STOP_POI_LEGEND, SUPPLY_POI_LEGEND } from "./staticAttributeLayers";
 import {
   axisMapLayerId,
   dedicatedWayValueMapLayerId,
@@ -351,9 +354,9 @@ export function buildMapLayers(
       category: "trafficSafety",
       tileMinZoom: ROAD_TILE_MIN_ZOOM,
       tileNeedsVersion: true,
-      description: "信号・横断歩道・一時停止・踏切の位置を種別ごとに色分け表示",
+      description: `${legendKindList(STOP_POI_LEGEND)}の位置を種別ごとに色分け表示`,
       panelHint:
-        "信号・横断歩道・一時停止・踏切の位置です。評価の「停止密度」軸が近傍のこれらを" +
+        `${legendKindList(STOP_POI_LEGEND)}の位置です。評価の「停止密度」軸が近傍のこれらを` +
         "数えて算出しているものを、種別ごとの色分けで直接確認できます。",
     },
     {
@@ -367,7 +370,7 @@ export function buildMapLayers(
       category: "amenity",
       tileMinZoom: ROAD_TILE_MIN_ZOOM,
       tileNeedsVersion: true,
-      description: "コンビニ・自販機・トイレ・給水・駐輪場の位置を種別ごとに色分け表示",
+      description: `${legendKindList(SUPPLY_POI_LEGEND)}の位置を種別ごとに色分け表示`,
       // 実店舗とどれだけ合っているかの目安として、backend/scripts/measure_poi_freshness.pyで
       // OSM側の最終編集日時を計測している。コンビニは関東全域で直近2年以内の編集が62.4%と
       // 明確に新しいが、自販機・トイレ・給水・駐輪場は5年以上未編集が58〜59%と高く、
@@ -375,7 +378,7 @@ export function buildMapLayers(
       // 対象にしつつ、利用者へは正直にこの差を伝える（コンビニを優先的な目安、他4種は
       // 参考程度に）。
       panelHint:
-        "コンビニ・自販機・トイレ・給水・駐輪場の位置です。自販機は飲み物が買えると分かって" +
+        `${legendKindList(SUPPLY_POI_LEGEND)}の位置です。自販機は飲み物が買えると分かって` +
         "いるものだけを「飲料自販機」として出し、売っているものが分からないものは薄い色の" +
         "「自販機(中身不明)」として区別します（たばこ・切符の機械は出しません）。" +
         "コンビニはOSMデータの更新が比較的新しく目安として使いやすい一方、自販機・トイレ・" +

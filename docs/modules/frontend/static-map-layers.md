@@ -113,7 +113,8 @@ DOM/MapLibreを一切知らない。
 
 ```
 buildStaticOverlayLayers(axisOverlayLayers, dedicatedAxes,
-                         dedicatedWayValueDisplays?, dedicatedWayValueLoading?)
+                         dedicatedWayValueDisplays?, dedicatedWayValueLoading?,
+                         dedicatedWayValueHiddenBands?)
 が描画順（＝重なり順、背面→前面）を決める:
 
   elevation（色別標高図ラスタ）
@@ -328,8 +329,10 @@ ramp軸[`dataNature==="composite"`]）に該当するものは`undefined`（地�
 
 `LegendFilterSummaryAxis.axisId`（`legendFilter.ts`）を持つ軸だけがユーザー操作で
 絞り込める。`axisId`は非表示キーの保存先（`page.tsx: hiddenLegendKeysByMode`のキー）を
-指し、地図上チップの▶パネル（`MapOverlayControls`）がこのIDの状態を書き換える。
-描画には`LegendCheckboxList`を使う。
+指す。書き換える場所は▶パネル（`MapOverlayControls`）だけではない——レンズの凡例
+（`LensControl`）も同じキーの状態を書き換える（保存先が1つなので、片方で隠した段は
+もう片方でも隠れたままになる。[地図: 軸・ルート色分け](map-axis-coloring.md)参照）。
+描画にはどちらも`LegendCheckboxList`を使う。
 
 `axisId`を持たない軸は読み取り専用の凡例として描画される。配信元が色を焼き込み済みの
 ラスタタイル（降水ナウキャスト・風・災害の危険度凡例）がこれにあたり、カテゴリ単位で
@@ -383,7 +386,7 @@ backendが既に1つの分類値（`kind`=列挙文字列・`tunnel`/`oneway`/`i
 |---|---|---|
 | 指定路線・トンネル・一方通行 | `ROAD_TILE_SOURCE_ID`（路面と同じ） | 独立レイヤー（並列トラック対象） |
 | 停止要因POI・補給休憩POI | `region-poi-tiles`（点データ） | 同一source-layer`stop_poi`を`kind`値集合で分ける（`baseFilter`必須） |
-| 事故 | `region-accident-tiles`（点データ、別ソース） | 独立 |
+| 事故 | `region-accidents`（点データ、別ソース） | 独立 |
 
 停止要因POIは**バックエンドで交差点単位にまとめられた点**が届く（[静的道路属性](../backend/static-road-attributes.md)）。
 1つの交差点に立つ複数の信号ノードは1点で、位置は交差点の真ん中になる。届く`kind`は取込時の

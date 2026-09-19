@@ -49,7 +49,6 @@ from app.domain.dynamic_way_values import (
 )
 from app.domain.registry import AxisDisplaySpec
 from app.domain.tuning import client_tuning_values
-from app.services.tile_version_service import current_tile_versions
 from app.services.region_service import RegionService
 from app.domain.strict_model import StrictModel
 
@@ -226,7 +225,7 @@ async def get_axis_catalog(region_service: RegionService = Depends(get_region_se
 
     return AxisCatalogResponse(
         client_tuning=client_tuning_values(),
-        tile_versions=await current_tile_versions(region_service.repository),
+        tile_versions=await region_service.tile_versions(),
         axes=[
             AxisCatalogEntry(
                 axis_id=definition.axis_id,

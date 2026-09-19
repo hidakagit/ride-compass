@@ -108,7 +108,8 @@ axis_id → dedicated_way_value_axes().get(axis_id)（無ければ404）
         → get_dedicated_way_value_service(axis_id) が WindWayService/GradientWayService を組み立て
         → service.get_way_values(z, x, y, at, bearing_deg, speed_kmh)   … 材料の生値（キャッシュ対象）
         → transform_dedicated_way_values(AXIS_DEFINITIONS[axis_id], service.material_id, 生値)
-        → {way_id: 地図表示値} の辞書（JSON）
+        → {フィーチャーの鍵: 地図表示値} の辞書（JSON。鍵はタイルが焼いた`feature_key`と
+          同じもので、ズームによって区間・wayのどちらかになる）
 ```
 
 - 応答は材料の生値ではなく**地図が塗る値**。`map_value_kind(definition)`が`difficulty`の軸
@@ -200,19 +201,15 @@ get_way_values(z, x, y, at, bearing_deg, speed_kmh)
   ├─ bearing_deg・speed_kmh のいずれかがNoneなら即ValueError
   ├─ repository未接続 → {}
   ├─ get_feature_keys_in_tile → 鍵の一覧（カバレッジ外はNone→{}、DB障害も{}）
-  ├─ hour_bucket = at.strftime("%Y-%m-%dT%H")
-  ├─ キャッシュhit → 値を1個取り出す（下記「暗黙の前提」参照）
-  └─ キャッシュmiss →
-       nearest_grid_point(タイル中心) → get_wind_grid([grid_point])
-       → _nearest_time_index（範囲外はNone→{}）
-       → wind_drag_ratio(speed, direction, bearing_deg, kmh_to_ms(speed_kmh))
-       → 全ての鍵へbroadcastしてキャッシュ書き込み
+  ├─ nearest_grid_point(タイル中心) → get_wind_grid([grid_point])
+  ├─ _nearest_time_index（範囲外はNone→{}）
+  ├─ wind_drag_ratio(speed, direction, bearing_deg, kmh_to_ms(speed_kmh))
   └─ 戻り値は常に dict.fromkeys(feature_keys, penalty)   … 生値。難易度への変換はrouter側
 ```
 
-**暗黙の前提**: キャッシュhit時は`next(iter(cached.values()), 0.0)`で代表値を取り出す。
-「タイル内の全フィーチャーが同値」という前提の上に成り立つ最適化で、この前提が崩れる
-実装変更（区間ごとに風向きを変える等）が入ると、無警告で不正確な代表値を返す。
+**この値はキャッシュしない**。タイル中心1点の風を全フィーチャーへ配るだけで計算が軽く、
+節約（1タイルあたり2.8ms＝応答の5%）が保持コスト（1エントリ190KB）に見合わない
+（docs/caching.md「キャッシュしないという選択」）。
 
 ### `GradientWayService`（`gradient_way_service.py`）
 
@@ -223,8 +220,8 @@ get_way_values(z, x, y, at, bearing_deg, speed_kmh)
 入力は`RoadGraphRepository.get_feature_gradient_inputs_in_tile`が返す`(gradient_percent,
 road_bearing_deg)`のフィーチャー単位dict（`elevation_attributes.average_grade`と
 `road_edges.bearing_deg`をJOINしたSQL）。区間単位のズームではその区間の実際の勾配が
-そのまま返り、way単位のズームではそのwayの**いちばん急な区間**が代表になる——区間の
-平均を取ると、崖を下って上り返す道が両端の標高差で平坦として塗られる。
+そのまま返り、way単位のズームでは**区間を長さで重み付けて平均した値**が代表になる
+（上の「フィーチャーの値」節と同じ規則。1区間の外れ値がway全体を染めない）。
 
 **暗黙の前提（モジュール間の隠れた依存）**: このJOINは`ea.average_grade IS NOT NULL
 AND re.bearing_deg IS NOT NULL`を要求するため、[elevation.md](elevation.md)の
@@ -251,13 +248,14 @@ values = {
 | 関数 | 意味 | 符号 |
 |---|---|---|
 | `wind_drag_ratio_array`／`wind_drag_ratio`（`wind.py`） | 走行方位・風向風速・走行速度から、相対風速ベクトルの二乗則で無風時に対する空気抵抗の増分（時速20km無風の抵抗を1とする倍率、`WIND_DRAG_REFERENCE_SPEED_MS`） | 正=向かい風、負=追い風、純横風は小さな正。速いほど同じ風で大きい |
-| `GradientCalculator.effective_gradient`（`gradient.py`） | 道路自身の勾配・向きと走行方位から実効勾配 | 正=登り、負=下り、0付近=道路をほぼ横切るだけ |
+| `GradientCalculator.effective_gradient`（`gradient.py`） | 道路自身の勾配・向きと走行方位から実効勾配 | 正=登り、負=下り（大きさは道路自身の勾配のまま。直角付近は`shows_gradient`が落とす） |
 
-`wind_drag_ratio_array`と`effective_gradient`はいずれも走行方位との角度差を係数として
-物理量へ反映するモデル。同じ道路の逆方向
-（forward/backward）の`road_edges`行を使っても勾配の結果は変わらない（cosの偶関数性と
-符号の二重反転が相殺するため、`test_gradient.py: test_forward_and_backward_edge_agree`で
-検証済み）。`wind_drag_ratio_array`は横風0のとき1次元式`sign(x)·x² − v²`（x=走行速度+
+`wind_drag_ratio_array`は走行方位との角度差を係数として物理量へ反映するが、
+**`effective_gradient`は角度で大きさを変えない**——道路自身の勾配をそのまま使い、走行方位で
+決めるのは符号（登り／下り）だけ。示せない向き（直角に近く、どちら向きに辿るかが決まらない）
+は`shows_gradient`が先に落とす。同じ道路の逆方向（forward/backward）の`road_edges`行を
+使っても勾配の結果は変わらない（向きと勾配の符号が二重に反転して相殺する。
+`test_gradient.py: test_forward_and_backward_edge_agree`で検証済み）。`wind_drag_ratio_array`は横風0のとき1次元式`sign(x)·x² − v²`（x=走行速度+
 向かい風成分）と一致し、追い風が走行速度を超える領域も連続。引数はスカラー・配列どちらも
 受け付け（numpyのブロードキャスト）、`domain/dynamic_materials.py: DYNAMIC_MATERIAL_EVALUATORS`が
 探索・区間表示の唯一の呼び出し元（[evaluation-scoring.md](evaluation-scoring.md)参照）。
