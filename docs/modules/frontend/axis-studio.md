@@ -158,6 +158,14 @@ listAxisDefinitions() ──→ definitions（全軸）
 | `shape_params` | 点数の決め方（`AxisScoringSection`） | 下書き軸のみ |
 | `display_publish` | 地図表示・公開（`AxisMapDisplaySection`） | 常に |
 
+**暗黙の前提**: 下書きは材料カタログから導くが、そのカタログは実行時フェッチで後から
+入れ替わる。**入れ替わったら導出し直す**——`useState`の初期化はマウント時に1度しか
+走らないため、ビルド時フォールバックの材料で固定されたままになる。backendをデプロイ
+してからfrontendをデプロイするまでの窓では、新しい材料を使う軸の編集画面が
+「組み合わせる軸」として開く（`axisDraft.ts: draftFromExisting`が、材料として引けない
+項目を軸参照とみなすため）。導出し直すのは**利用者がまだ触っていないとき**だけで、
+判定はいまの下書きが最後に導出したものと同じ実体かで行う（触った後に入れ替えると入力が消える）。
+
 `SECTIONS`は「どの節の検証か」を指す識別子で、順番の意味を持たない。保存時に
 `validateSection`が各節の検証（`basic`は表示名必須、`shape_params`は折れ点のx昇順・
 categorical材料のスコア行1件以上、`display_publish`はchip_labelの4文字制限・

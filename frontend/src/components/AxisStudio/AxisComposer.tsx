@@ -4,7 +4,7 @@
 // AxisScoringSection（点数の決め方）・AxisMapDisplaySection（地図の色分け・公開）が持ち、
 // ここは状態・検証・保存と、その組み立てだけを担う。
 
-import { useState } from "react";
+import { useCallback, useState } from "react";
 import { FieldLabel } from "@/components/Map/recipeControls";
 import { useMaterialCatalog } from "@/hooks/useMaterialCatalog";
 import type { AxisDefinitionPayload, AxisDefinitionResponse } from "@/types/route";
@@ -58,11 +58,28 @@ export default function AxisComposer({
   onSave,
 }: AxisComposerProps) {
   const materialOptions = useMaterialCatalog();
-  const [draft, setDraft] = useState<Draft>(() => {
+  const deriveDraft = useCallback((): Draft => {
     if (editing) return draftFromExisting(editing, materialOptions);
     if (duplicateFrom) return draftFromDuplicate(duplicateFrom, materialOptions);
     return emptyDraft(materialOptions);
-  });
+  }, [editing, duplicateFrom, materialOptions]);
+  // 材料カタログは実行時フェッチで後から入れ替わる。**入れ替わったら下書きを作り直す**
+  // ——`useState`の初期化はマウント時に1度しか走らないため、ビルド時フォールバックの
+  // 材料で固定されたままになる。backendをデプロイしてからfrontendをデプロイするまでの
+  // 窓では、新しい材料を使う軸の編集画面が「組み合わせる軸」の画面として開く
+  // （`axisDraft.ts: draftFromExisting`が材料として引けない項目を軸参照とみなすため）。
+  //
+  // 作り直すのは**利用者がまだ触っていないとき**だけ（触った後に入れ替えると入力が消える）。
+  // 触ったかどうかは、いまの下書きが最後に導出したものと同じ実体かで判定する。
+  const [derived, setDerived] = useState(() => deriveDraft());
+  const [draft, setDraft] = useState<Draft>(derived);
+  const [derivedFrom, setDerivedFrom] = useState(() => deriveDraft);
+  if (derivedFrom !== deriveDraft) {
+    const next = deriveDraft();
+    setDerivedFrom(() => deriveDraft);
+    setDerived(next);
+    if (draft === derived) setDraft(next);
+  }
   // categorical材料の値入力欄に候補選択を添えるための実データ値一覧。
   // dtype="categorical"の材料を選んでいる間だけ取得する（boolean材料選択中・
   // categorical材料でも動的値一覧に対応していない場合[bicycle_infra等]は空配列が返り、
