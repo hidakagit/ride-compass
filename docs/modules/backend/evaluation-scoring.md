@@ -11,7 +11,7 @@
 
 | レイヤー | ファイル |
 |---|---|
-| domain | `evaluation.py`（Edge Costの算出。スカラー／ベクトル／タイル静的行列の3表現）・`hard_filters.py`（0次フィルタ）・`route_preference.py`（重み指定）・`dynamic_materials.py`（風などリクエスト時に決まる材料）・`axis_inspector.py`（区間インスペクタ、Way単位の材料解決）・`difficulty.py`・`material_catalog.py`・`material_sql.py`（材料の値をSQLで導出する式）・`recipe.py` |
+| domain | `evaluation.py`（Edge Costの算出。スカラー／ベクトル／タイル静的行列の3表現）・`hard_filters.py`（0次フィルタ）・`route_preference.py`（重み指定）・`dynamic_materials.py`（風などリクエスト時に決まる材料）・`axis_inspector.py`（区間インスペクタ）・`difficulty.py`・`material_catalog.py`・`material_sql.py`（材料の値をSQLで導出する式）・`recipe.py` |
 | services | `evaluation_service.py`・`material_coverage_service.py` |
 | infrastructure | `material_coverage.py`（材料ごとの欠損割合の集計クエリ） |
 | api | `material_catalog.py`（材料カタログ・材料値一覧・欠損割合のエンドポイント） |
@@ -73,13 +73,13 @@ APIが受け取る重みの形を変えるとき、`dynamic_materials.py`は動�
 |---|---|---|---|
 | スカラー | `evaluation.py: compute_edge_axis_scores` | Edge1本 | 引数の`metrics`等をそのまま1件の辞書として渡す |
 | ベクトル | `evaluation.py: _evaluate_axes_bulk` | Edge群 | Edgeごとにcontextを作り、`resolve_materials`と同じextractorをnumpy配列へ書き込む |
-| Way単位 | `axis_inspector.py: way_scalar_materials` | Way1本 | 合成キー`"way"`1件だけの辞書を作って渡す（区間インスペクタ・軸スタジオのプレビュー） |
+| Way単位 | `road_graph_repository.py: get_way_material_values` / `sample_way_material_values` | Way1本 / way標本 | 同じ`value_sql`をway粒度のエイリアス（`_way_from_clause`）へ当てて引く（区間インスペクタ・軸スタジオのプレビュー） |
 
 **暗黙の前提（Way単位）**: `osm_raw_ways`の専用列（`highway`・`surface`）はtags jsonbに
-入らない（`domain/osm_adapter.py: ALLOWED_WAY_TAGS`が除いている）。Way単位の経路はこれらを
-tagsからではなく引数で受け取る——tagsから読むとその材料が全区間で欠損し、軸が丸ごと
-「データなし」になる。`scripts/review_checks.py`の検知器`way_tag_allowlist`が、材料解決の
-経路が許可リストに無いキーをtagsから読んでいないかを機械的に見る。
+入らない（`domain/osm_adapter.py: ALLOWED_WAY_TAGS`が除いている）。値式はこれらを列から
+読む——tagsから読むとその材料が全区間で欠損し、軸が丸ごと「データなし」になる。
+`scripts/review_checks.py`の検知器`way_tag_allowlist`が、材料解決の経路が許可リストに
+無いキーをtagsから読んでいないかを機械的に見る。
 
 **暗黙の前提**: `MaterialExtractionContext`は道路オブジェクトそのものを持たず、extractorが
 実際に読む値（`highway`）だけを持つ。Edge/Wayという異なる粒度から同じextractorを
@@ -419,16 +419,14 @@ extractorが受け取るcontextは、**材料の数が増えてもフィール�
   値がNULLの行を「データあり」と数えてしまう。判定は評価が実際に読む**列**のNULLまで見る。
 - `missing_semantics`: `"unknown"`（欠損は不明値[NaN/None]として扱われ、その材料を使う軸は
   評価対象外になる）／`"definite"`（欠損は確定値[タグ不在=非該当等]として扱われ、軸は
-  通常どおり評価される）。`MaterialSpec.bool_default`からは導出しない——`bool_default="nan"`
-  でもextractorがタグ不在を確定値として扱う材料（自転車インフラ系5材料）があり、実際の
-  扱いはextractorの実装で決まるため、宣言テーブル側に明示する。
-- `MATERIAL_COVERAGE_EXCLUSIONS: dict[str, str]`: 集計対象外の材料とその理由（動的計算材料の
+  通常どおり評価される）。`MaterialSpec.bool_default`からは導出しない——前者はタグの不在を
+  どう読むかで、後者は「wayの行そのものが無い」を配列上どう表すかであり、別の欠損を指す。
+- `CoverageExcluded(reason=...)`: 集計対象外の材料とその理由（動的計算材料の
   `wind_drag_ratio`、NOT NULL列由来の`oneway`、行の有無がそのまま確定値の`designation`系）。
   管理画面はこの理由をそのまま表示する。
-- **暗黙の前提**: `MATERIAL_CATALOG`の全材料は`MATERIAL_COVERAGE_SPECS`か
-  `MATERIAL_COVERAGE_EXCLUSIONS`のどちらか一方に必ず載る（`test_material_coverage.py`が
-  網羅性を検証し、`build_material_coverage_report`はどちらにも無い材料で`ValueError`を
-  送出する）。材料を追加したら、どちらかへ1件追加する。
+- **どちらか一方を必ず持つことは型が保証する**: `MaterialSpec.coverage`は必須で、
+  way単位・Edge単位・対象外の3択（`MaterialCoverage`）のいずれかしか取れない。
+  「どちらの一覧にも載っていない材料」を作れないため、網羅性を確かめるテストは要らない。
 - `MaterialCoverageService.get_material_coverage`はDB例外を握りつぶさず伝播させ、router側で
   503へ変換する（診断用APIのため空レポートへ倒して「欠損0件」に見せない）。
   `api/dependencies.py: get_material_coverage_service`はルート生成用の長い
@@ -438,10 +436,11 @@ extractorが受け取るcontextは、**材料の数が増えてもフィール�
 ## 区間インスペクタ（`axis_inspector_breakdown`）
 
 単独でクリックされたway（ルート文脈が無い）について、「一次属性→二次軸→三次合成コスト」を
-算出する。gradient/windの材料（勾配%・風ペナルティ）は単独wayでは算出不能（ルート沿いの
-標高・出発時刻という区間contextが必要）なため常に`available=False`で返す（データ欠損では
-なく原理的に算出不能という区別）。`covered_weight_fraction`（全軸の重み合計に対する取得
-できた軸の重み合計の割合）をフロントの「参考値」表示に使う。
+算出する。材料値は`RoadGraphRepository.get_way_material_values`が返したものをそのまま受け
+取り、この関数は合成だけを行う。gradient/windの材料（勾配%・風ペナルティ）は単独wayでは
+算出不能（ルート沿いの標高・出発時刻という区間contextが必要）なため常に`available=False`で
+返す（データ欠損ではなく原理的に算出不能という区別）。`covered_weight_fraction`（全軸の
+重み合計に対する取得できた軸の重み合計の割合）をフロントの「参考値」表示に使う。
 
 ## タグ正規化（`domain/recipe.py`）
 

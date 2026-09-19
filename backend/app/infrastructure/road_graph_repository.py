@@ -49,7 +49,6 @@ import asyncio
 import logging
 import time
 from collections.abc import Iterable, Iterator
-from dataclasses import dataclass
 from datetime import datetime, timezone
 
 import shapely
@@ -84,7 +83,6 @@ from app.domain.attributes import (
     EdgeMaterialBundle,
     EdgeMaterialsBatch,
     ElevationAttribute,
-    WayAttributeCounts,
     WIRED_LANDCOVER_KEYS,
 )
 from app.domain.landcover import EdgeLandcover, LandcoverPercentages, LandcoverRecord, WayLandcover
@@ -1108,6 +1106,19 @@ _SAMPLE_WAY_MATERIAL_VALUES_IN_BBOX_SQL = _sample_way_materials_sql(
 )
 
 
+_WAY_MATERIAL_COLUMN_PREFIX = "m_"
+
+
+def _material_values_from_row(row: object) -> dict[str, object]:
+    """way向けクエリの1行から材料id→値の辞書を作る。列別名は`_WAY_MATERIAL_SELECT_SQL`が
+    `m_<材料id>`で付けるため、材料の一覧をここへ書かない。"""
+    return {
+        key[len(_WAY_MATERIAL_COLUMN_PREFIX) :]: value
+        for key, value in row._mapping.items()
+        if key.startswith(_WAY_MATERIAL_COLUMN_PREFIX)
+    }
+
+
 _HARD_FILTER_COLUMN_PREFIX = "hf_"
 
 # 材料ではないが、材料と同じ1回のクエリで求まるため一緒に受け取る列。
@@ -1185,44 +1196,6 @@ _ACCIDENT_YEARS_COVERED_SQL = text(
     "SELECT COUNT(DISTINCT occurred_year) FROM accident_import_runs WHERE status = 'succeeded'"
 )
 
-# 区間インスペクタ。_WAY_TAGS_BY_OSM_WAY_IDと同じ完全一致1行取得パターン。
-# way_attribute_counts（事前集計）が該当osm_way_idを持たない場合（highway無し等で
-# バッチのWHERE対象外だったway）は行自体が無くNoneを返す＝呼び出し元は「データ無し」として
-# 扱う（0件と区別する。get_accident_counts等の「edge_id自体は必ず含まれ0埋め」とは異なる
-# 単純な1行SELECTのため区別不要）。
-_WAY_ATTRIBUTE_COUNTS_BY_OSM_WAY_ID_SQL = text(
-    "SELECT length_m, accident_count, intersection_count, poi_counts "
-    "FROM way_attribute_counts WHERE osm_way_id = :osm_way_id"
-)
-
-
-@dataclass(frozen=True, slots=True)
-class WayMaterialSampleRow:
-    """`sample_way_rows`が返す1行（軸スタジオの分布プレビューの母集団）。
-
-    SQLの列別名と1対1で、値の解釈はしない。生の`Row`を返すと列別名がinfrastructureの
-    外側の暗黙の契約になり、SQLを編集しても型では何も落ちない。
-    """
-
-    length_m: float | None
-    highway: str | None
-    tags: dict[str, str] | None
-    # 舗装は専用列。tags jsonbには入らない（`domain/osm_adapter.py: ALLOWED_WAY_TAGS`）。
-    surface: str | None
-    counts_length_m: float | None
-    accident_count: float | None
-    intersection_count: int | None
-    poi_counts: dict[str, int] | None
-    # 配線済みクラス（`WIRED_LANDCOVER_KEYS`）→割合。way_landcoverの行が無ければNone。
-    landcover_percents: dict[str, float] | None
-    is_designated: bool
-
-
-# 標本の土地被覆列。焼き込み列と同じく配線するクラスの並びから組み立てる——ここを手で
-# 並べると、クラスを1つ配線したときに分布プレビューだけが古い並びで材料を組み立てる。
-_LANDCOVER_SAMPLE_COLUMNS_SQL = "\n".join(f"        lc.{key}," for key in WIRED_LANDCOVER_KEYS)
-
-
 def _landcover_record(model, row: object, **keys):
     """土地被覆の行を`LandcoverRecord`（way単位／区間単位で共通の部分）へ組み立てる。
 
@@ -1258,55 +1231,8 @@ def _landcover_percents_or_none(row: object) -> dict[str, float] | None:
     return {key: float(value or 0.0) for key, value in values.items()}
 
 
-# 軸スタジオの分布プレビュー用。Way単位の材料をまとめて取る標本。取り方だけが2通りで、
-# 取る列は共通のため1つのテンプレートから組み立てる。
-_SAMPLE_WAY_MATERIALS_TEMPLATE = """
-    SELECT
-        ST_Length(w.geom::geography) AS length_m,
-        w.highway,
-        w.tags,
-        w.surface,
-        wc.length_m AS counts_length_m,
-        wc.accident_count,
-        wc.intersection_count,
-        wc.poi_counts,
-{landcover}
-        EXISTS(
-            SELECT 1 FROM designation_attributes da
-            WHERE da.osm_way_id = w.osm_way_id AND da.kind = ANY(:kinds)
-        ) AS is_designated
-    FROM osm_raw_ways w {sampling}
-    LEFT JOIN way_attribute_counts wc ON wc.osm_way_id = w.osm_way_id
-    LEFT JOIN way_landcover lc ON lc.osm_way_id = w.osm_way_id
-    WHERE w.geom IS NOT NULL AND w.highway IS NOT NULL {area}
-    LIMIT :limit
-"""
-
-# 全域から取る場合。`TABLESAMPLE SYSTEM`はページ単位の抽選で、全表走査を避けつつ広い
-# 範囲から拾える（行単位のBERNOULLIや`ORDER BY random()`は数百万行の全走査になり、
-# 管理画面の応答時間に収まらない）。ページ単位のため地理的な偏りが残りうる点は、分布を
-# 「目安」として扱う前提で許容する。
-_SAMPLE_WAY_MATERIALS_SQL = text(
-    _SAMPLE_WAY_MATERIALS_TEMPLATE.format(
-        sampling="TABLESAMPLE SYSTEM (:sample_percent)", area="", landcover=_LANDCOVER_SAMPLE_COLUMNS_SQL
-    )
-).bindparams(bindparam("kinds", type_=ARRAY(Text())))
-
-# 範囲を絞って取る場合。抽選と併用しない——`TABLESAMPLE`は表全体のページから抽選するため、
-# 狭い範囲を重ねると当たるページがほとんど残らず、標本が範囲の広さに関係なく数本まで
-# 落ちる。範囲内は空間索引で直接引き、多すぎる場合は`LIMIT`で頭打ちにする。
-_SAMPLE_WAY_MATERIALS_IN_BBOX_SQL = text(
-    _SAMPLE_WAY_MATERIALS_TEMPLATE.format(
-        sampling="",
-        area="AND w.geom && ST_MakeEnvelope(:xmin, :ymin, :xmax, :ymax, 4326)",
-        landcover=_LANDCOVER_SAMPLE_COLUMNS_SQL,
-    )
-).bindparams(bindparam("kinds", type_=ARRAY(Text())))
-
-
-
-# 区間インスペクタの土地被覆。_WAY_ATTRIBUTE_COUNTS_BY_OSM_WAY_ID_SQLと同じ完全一致
-# 1行取得パターン。表示に使うクラス以外も含めて全列を1回のSELECTで取る。
+# 区間インスペクタの土地被覆。完全一致の1行取得で、表示に使うクラス以外も含めて
+# 全列を1回のSELECTで取る。
 _WAY_LANDCOVER_BY_OSM_WAY_ID_SQL = text(
     "SELECT valid_pixels, water_percent, trees_percent, flooded_veg_percent, crops_percent, "
     "built_percent, bare_percent, snow_ice_percent, rangeland_percent, "
@@ -2885,46 +2811,39 @@ class AttributeRepository(_SessionRepository):
             return None
         return (row.highway, row.tags or {}, row.is_designated, row.surface)
 
-    async def get_way_attribute_counts(self, osm_way_id: int) -> WayAttributeCounts | None:
-        """osm_way_id完全一致で事前集計（way_attribute_counts）の1行を返す（区間インスペクタ）。
-        行が無い場合はNone（データ無し。呼び出し元は該当軸をスコア算出不能として扱う）。
-        """
-        result = await self._session.execute(
-            _WAY_ATTRIBUTE_COUNTS_BY_OSM_WAY_ID_SQL, {"osm_way_id": osm_way_id}
-        )
-        row = result.first()
-        if row is None:
-            return None
-        return WayAttributeCounts(
-            length_m=row.length_m,
-            accident_count=row.accident_count,
-            intersection_count=row.intersection_count,
-            poi_counts=None if row.poi_counts is None else dict(row.poi_counts),
-        )
+    async def get_way_material_values(
+        self, osm_way_id: int, accident_years_covered: int
+    ) -> dict[str, object] | None:
+        """way1本ぶんの材料値（材料id→スカラー）。行が無ければNone。
 
-    async def sample_way_rows(
+        区間インスペクタが使う。式は区間の評価と同じ`MaterialSpec.value_sql`で、
+        way粒度のエイリアスを`_way_from_clause`が用意する。
+        """
+        rows = await self._session.execute(
+            _WAY_MATERIAL_VALUES_SQL,
+            {"osm_way_id": osm_way_id, "accident_years": accident_years_covered},
+        )
+        row = rows.first()
+        return None if row is None else _material_values_from_row(row)
+
+    async def sample_way_material_values(
         self,
+        accident_years_covered: int,
         sample_percent: float = 2.0,
         limit: int = 20_000,
         bbox: BoundingBox | None = None,
-    ) -> list[WayMaterialSampleRow]:
-        """Way単位の材料の元データを標本として取る（軸スタジオの分布プレビュー）。材料値への
-        組み立ては呼び出し元（`axis_preview_service.py`）が区間インスペクタと同じ
-        `way_scalar_materials`で行う——ここで組み立てるとinfrastructureが評価ドメインへ
-        依存する。
+    ) -> list[tuple[float, dict[str, object]]]:
+        """way標本を`(延長m, 材料値)`の並びで返す（軸スタジオの分布プレビュー）。
 
         `bbox`を渡すとその範囲内のwayだけを対象にし、抽選（`sample_percent`）は使わない。
         軸の分布は地域で大きく変わるため、全域の平均だけでは市街地の偏りが見えない。
         """
-        params: dict[str, object] = {
-            "limit": limit,
-            "kinds": sorted(CAR_STRESS_DESIGNATION_KINDS),
-        }
+        params: dict[str, object] = {"limit": limit, "accident_years": accident_years_covered}
         if bbox is None:
-            statement = _SAMPLE_WAY_MATERIALS_SQL
+            statement = _SAMPLE_WAY_MATERIAL_VALUES_SQL
             params["sample_percent"] = sample_percent
         else:
-            statement = _SAMPLE_WAY_MATERIALS_IN_BBOX_SQL
+            statement = _SAMPLE_WAY_MATERIAL_VALUES_IN_BBOX_SQL
             params.update(
                 xmin=bbox.min_longitude,
                 ymin=bbox.min_latitude,
@@ -2933,19 +2852,9 @@ class AttributeRepository(_SessionRepository):
             )
         rows = await self._session.execute(statement, params)
         return [
-            WayMaterialSampleRow(
-                length_m=row.length_m,
-                highway=row.highway,
-                tags=row.tags,
-                surface=row.surface,
-                counts_length_m=row.counts_length_m,
-                accident_count=row.accident_count,
-                intersection_count=row.intersection_count,
-                poi_counts=row.poi_counts,
-                landcover_percents=_landcover_percents_or_none(row),
-                is_designated=row.is_designated,
-            )
+            (float(row.length_m), _material_values_from_row(row))
             for row in rows
+            if row.length_m and row.length_m > 0
         ]
 
     async def get_feature_landcover(self, osm_way_id: int, edge_id: str | None) -> WayLandcover | None:
@@ -3447,16 +3356,21 @@ class RoadGraphRepository:
     ) -> tuple[str | None, dict[str, str], bool, str | None] | None:
         return await self.attributes.get_way_tags_by_osm_way_id(osm_way_id)
 
-    async def get_way_attribute_counts(self, osm_way_id: int) -> WayAttributeCounts | None:
-        return await self.attributes.get_way_attribute_counts(osm_way_id)
+    async def get_way_material_values(
+        self, osm_way_id: int, accident_years_covered: int
+    ) -> dict[str, object] | None:
+        return await self.attributes.get_way_material_values(osm_way_id, accident_years_covered)
 
-    async def sample_way_rows(
+    async def sample_way_material_values(
         self,
+        accident_years_covered: int,
         sample_percent: float = 2.0,
         limit: int = 20_000,
         bbox: BoundingBox | None = None,
-    ) -> list[WayMaterialSampleRow]:
-        return await self.attributes.sample_way_rows(sample_percent, limit, bbox)
+    ) -> list[tuple[float, dict[str, object]]]:
+        return await self.attributes.sample_way_material_values(
+            accident_years_covered, sample_percent, limit, bbox
+        )
 
     async def get_feature_landcover(self, osm_way_id: int, edge_id: str | None) -> WayLandcover | None:
         return await self.attributes.get_feature_landcover(osm_way_id, edge_id)

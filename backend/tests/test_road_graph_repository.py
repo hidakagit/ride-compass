@@ -13,7 +13,7 @@ from geoalchemy2.shape import from_shape
 from shapely.geometry import Point
 from sqlalchemy import insert, text
 
-from app.domain.attributes import ElevationAttribute, WayAttributeCounts, WIRED_LANDCOVER_KEYS
+from app.domain.attributes import ElevationAttribute, WIRED_LANDCOVER_KEYS
 from app.domain.graph import RoadGraph, WaySpec, build_road_graph
 from tests.road_graph_scaffolds import single_way_graph, single_way_spec, three_way_junction_graph
 from app.domain.traffic import HIGHWAY_RANK
@@ -882,36 +882,6 @@ async def test_get_way_tags_by_osm_way_id_returns_highway_tags_and_is_designated
 
 async def test_get_way_tags_by_osm_way_id_returns_none_when_way_not_found(road_graph_repository):
     assert await road_graph_repository.get_way_tags_by_osm_way_id(999) is None
-
-
-async def test_get_way_attribute_counts_returns_row_when_present(road_graph_repository, road_graph_session):
-    """区間インスペクタ（改善計画T146）。way_attribute_counts（T145b事前集計）に該当行が
-    あればWayAttributeCountsを返す。"""
-    way = WaySpec(osm_way_id=100, node_ids=[1, 2], highway="residential")
-    nodes = {1: NODE1, 2: NODE2}
-    await road_graph_repository.save_raw_ways([way], nodes)
-    await road_graph_session.execute(
-        text(
-            "INSERT INTO way_attribute_counts (osm_way_id, length_m, accident_count, "
-            "intersection_count, computed_at) VALUES (100, 500.0, 1.5, 3, now())"
-        )
-    )
-    await road_graph_session.commit()
-
-    result = await road_graph_repository.get_way_attribute_counts(100)
-
-    assert result == WayAttributeCounts(length_m=500.0, accident_count=1.5, intersection_count=3)
-
-
-async def test_get_way_attribute_counts_returns_none_when_row_missing(road_graph_repository, road_graph_session):
-    """該当wayがosm_raw_waysに存在しても、way_attribute_countsバッチ未実行/対象外
-    （highway無し等）なら行が無くNone（0件と区別、呼び出し元は算出不能として扱う）。"""
-    way = WaySpec(osm_way_id=100, node_ids=[1, 2], highway="residential")
-    nodes = {1: NODE1, 2: NODE2}
-    await road_graph_repository.save_raw_ways([way], nodes)
-    await road_graph_session.commit()
-
-    assert await road_graph_repository.get_way_attribute_counts(100) is None
 
 
 async def test_get_way_landcover_returns_row_when_present(road_graph_repository, road_graph_session):
@@ -2647,7 +2617,7 @@ async def test_get_feature_gradient_inputs_in_tile_excludes_edges_outside_tile(r
     assert result == {}
 
 
-async def test_sample_way_rows_without_bbox_covers_every_area(road_graph_repository):
+async def test_sample_way_material_values_without_bbox_covers_every_area(road_graph_repository):
     """抽選100%なら全域が対象。bbox指定の効果を見る前提を固定する。"""
     await road_graph_repository.save_raw_ways(
         [
@@ -2657,12 +2627,12 @@ async def test_sample_way_rows_without_bbox_covers_every_area(road_graph_reposit
         {1: NODE1, 2: NODE2, 3: NODE3, 4: NODE4},
     )
 
-    rows = await road_graph_repository.sample_way_rows(sample_percent=100.0)
+    rows = await road_graph_repository.sample_way_material_values(3, sample_percent=100.0)
 
     assert len(rows) == 2
 
 
-async def test_sample_way_rows_with_bbox_excludes_ways_outside_it(road_graph_repository):
+async def test_sample_way_material_values_with_bbox_excludes_ways_outside_it(road_graph_repository):
     """bboxを渡すとその範囲内のwayだけが母集団になる。
 
     全域の平均だけを見ると市街地の偏りが消えるため、地域を絞って測れることが
@@ -2676,14 +2646,15 @@ async def test_sample_way_rows_with_bbox_excludes_ways_outside_it(road_graph_rep
         {1: NODE1, 2: NODE2, 3: NODE3, 4: NODE4},
     )
 
-    rows = await road_graph_repository.sample_way_rows(bbox=BBOX_AROUND_NODE1_2)
+    rows = await road_graph_repository.sample_way_material_values(3, bbox=BBOX_AROUND_NODE1_2)
 
     assert len(rows) == 1
-    assert rows[0].highway == "residential"
-    assert rows[0].length_m is not None and rows[0].length_m > 0
+    length_m, materials = rows[0]
+    assert length_m > 0
+    assert materials["highway"] == "residential"
 
 
-async def test_sample_way_rows_with_bbox_does_not_thin_the_sample_by_sample_percent(
+async def test_sample_way_material_values_with_bbox_does_not_thin_the_sample_by_sample_percent(
     road_graph_repository,
 ):
     """bbox指定時は抽選率を無視する。併用すると標本が範囲の広さと無関係に消える。"""
@@ -2692,8 +2663,8 @@ async def test_sample_way_rows_with_bbox_does_not_thin_the_sample_by_sample_perc
         {1: NODE1, 2: NODE2},
     )
 
-    rows = await road_graph_repository.sample_way_rows(
-        sample_percent=0.0001, bbox=BBOX_AROUND_NODE1_2
+    rows = await road_graph_repository.sample_way_material_values(
+        3, sample_percent=0.0001, bbox=BBOX_AROUND_NODE1_2
     )
 
     assert len(rows) == 1

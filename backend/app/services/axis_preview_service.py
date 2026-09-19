@@ -18,9 +18,7 @@ from dataclasses import dataclass
 
 from cachetools import TTLCache
 
-from app.domain.attributes import WayAttributeCounts
 from app.domain.axis_definitions import AxisShape, BreakpointLinearShape
-from app.domain.axis_inspector import way_scalar_materials
 from app.domain.material_catalog import material_dtype
 from app.domain.region import BoundingBox
 from app.infrastructure.road_graph_repository import RoadGraphRepository
@@ -63,36 +61,15 @@ async def load_way_sample(
     limit: int,
     bbox: BoundingBox | None = None,
 ) -> list[tuple[float, dict[str, object]]]:
-    """way標本を`(延長m, 材料辞書)`の並びで返す。`bbox`を渡すとその範囲内だけを対象にする。
+    """way標本を`(延長m, 材料値)`の並びで返す。`bbox`を渡すとその範囲内だけを対象にする。
 
     分布プレビュー（このサービス）と飽和度の実測スクリプト
     （`backend/scripts/measure_axis_saturation.py`）が同じ標本の作り方を使う。
-    材料の解決経路が増えたときに片方だけ取り残されないよう、組み立てはここ1箇所に置く。
     """
-    rows = await repository.sample_way_rows(sample_percent, limit, bbox)
     accident_years = await repository.get_accident_years_covered()
-    sample: list[tuple[float, dict[str, object]]] = []
-    for row in rows:
-        if not row.length_m or row.length_m <= 0:
-            continue
-        counts = None
-        if row.counts_length_m is not None:
-            counts = WayAttributeCounts(
-                length_m=row.counts_length_m,
-                accident_count=row.accident_count,
-                intersection_count=row.intersection_count,
-                poi_counts=None if row.poi_counts is None else dict(row.poi_counts),
-            )
-        sample.append(
-            (
-                float(row.length_m),
-                way_scalar_materials(
-                    row.highway, dict(row.tags or {}), bool(row.is_designated),
-                    counts, accident_years, row.landcover_percents, row.surface,
-                ),
-            )
-        )
-    return sample
+    return await repository.sample_way_material_values(
+        accident_years, sample_percent, limit, bbox
+    )
 
 
 def weighted_quantiles(

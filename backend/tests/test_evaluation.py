@@ -9,8 +9,8 @@ from app.domain.attributes import (
     EdgeMaterialBundle,
     EdgeMaterialTable,
     ElevationAttribute,
-    WayAttributeCounts,
 )
+from app.domain.material_catalog import MATERIAL_CATALOG
 from app.domain.landcover import LandcoverPercentages, WayLandcover
 from app.domain.axis_definitions import (
     AXIS_DEFINITIONS,
@@ -20,7 +20,7 @@ from app.domain.axis_definitions import (
     MaterialTerm,
     time_scoped_weights,
 )
-from app.domain.axis_inspector import axis_inspector_breakdown, way_scalar_materials
+from app.domain.axis_inspector import axis_inspector_breakdown
 from app.domain.dynamic_materials import compute_dynamic_edge_materials
 from app.domain.evaluation import (
     build_static_edge_score_matrix,
@@ -591,36 +591,51 @@ def test_compute_edge_cost_equals_composing_axis_scores_and_cost_functions():
 # --- axis_inspector_breakdown（区間インスペクタ、改善計画T146） ---
 
 
-def test_way_scalar_materials_reads_surface_from_dedicated_column_not_tags():
-    """舗装は`osm_raw_ways.surface`の専用列で、tags jsonbには入らない
-    （`domain/osm_adapter.py: ALLOWED_WAY_TAGS`がhighway/surface/onewayを除いている）。
-    tags側へ入れても材料にはならず、専用列から渡したときだけ解決される。
+def _way_materials(**overrides) -> dict[str, object]:
+    """way1本ぶんの材料値（リポジトリが返す形）。既定は全て欠損で、軸が要る材料だけ渡す。
+
+    どの材料がどの軸を成立させるかを、このファイルの中で見えるようにするための入力。
+    材料の値の求め方そのものは`MaterialSpec.value_sql`の仕事で、
+    `tests/test_material_sql.py`が別に検証する。
     """
-    from_column = way_scalar_materials(
-        "residential", {}, False, None, accident_years_covered=2, surface="asphalt"
-    )
-    assert from_column["surface_good"] is not None
-
-    from_tags = way_scalar_materials("residential", {"surface": "asphalt"}, False, None, accident_years_covered=2)
-    assert from_tags["surface_good"] is None
+    materials: dict[str, object] = {material_id: None for material_id in MATERIAL_CATALOG}
+    materials.update(overrides)
+    return materials
 
 
-def test_axis_inspector_breakdown_computes_available_axes_from_way_counts():
-    """way_countsがある場合、car_stress/surface_q/stop_density/accident/nightが算出され、
-    gradient/windはルート文脈が無いため常にavailable=Falseになる。
+# 自転車インフラを何も持たない道（bicycle_infra_qualityはこの5材料が揃って初めて算出できる）。
+_NO_BICYCLE_INFRA = {
+    "cycleway_has_lane": False,
+    "cycleway_has_shared": False,
+    "cycleway_has_track": False,
+    "highway_is_cycleway": False,
+    "shared_pedestrian_path": False,
+}
+_RESIDENTIAL_PAVED = {
+    "highway": "residential",
+    "surface_good": True,
+    "surface": "asphalt",
+    **_NO_BICYCLE_INFRA,
+}
 
-    停止密度が要るのは種別別の`poi_counts`。
-    """
+
+def test_axis_inspector_breakdown_computes_available_axes_from_materials():
+    """材料が揃っている軸だけがavailableになる。way単体では求まらない勾配・風は常に欠損。"""
     result = axis_inspector_breakdown(
         highway="residential",
         tags={"lit": "yes"},
-        surface="asphalt",
         is_designated=False,
-        way_counts=WayAttributeCounts(
-            length_m=1000.0, accident_count=2.0, intersection_count=6,
-            poi_counts={"signal": 4},
+        materials=_way_materials(
+            **_RESIDENTIAL_PAVED,
+            lit=True,
+            has_tunnel=False,
+            accident_count_per_km_year=1.0,
+            intersection_count_per_km=6.0,
+            poi_signal_per_km=4.0,
+            poi_stop_per_km=0.0,
+            poi_crossing_per_km=0.0,
+            poi_level_crossing_per_km=0.0,
         ),
-        accident_years_covered=2,
     )
 
     by_id = {axis.axis_id: axis for axis in result.axes}
@@ -638,7 +653,6 @@ def test_axis_inspector_breakdown_computes_available_axes_from_way_counts():
     assert by_id["gradient"].difficulty is None
     assert by_id["wind"].available is False
     assert result.composite_difficulty is not None
-    # 全8軸（改善計画T347でbicycle_infra_quality追加）の重み合計1.23のうち
     # gradient(0.15)+wind(0.26)を除いた0.82ぶんが取得できている。
     assert result.covered_weight_fraction == pytest.approx(0.82 / 1.23, abs=0.001)
 
@@ -652,12 +666,15 @@ def test_axis_inspector_contributions_sum_to_the_composite():
     result = axis_inspector_breakdown(
         highway="residential",
         tags={"lit": "yes"},
-        surface="asphalt",
         is_designated=False,
-        way_counts=WayAttributeCounts(
-            length_m=1000.0, accident_count=2.0, intersection_count=6, poi_counts={"signal": 4},
+        materials=_way_materials(
+            **_RESIDENTIAL_PAVED,
+            lit=True,
+            has_tunnel=False,
+            accident_count_per_km_year=1.0,
+            intersection_count_per_km=6.0,
+            poi_signal_per_km=4.0,
         ),
-        accident_years_covered=2,
     )
 
     by_id = {axis.axis_id: axis for axis in result.axes}
@@ -669,62 +686,61 @@ def test_axis_inspector_contributions_sum_to_the_composite():
 def test_axis_inspector_contributions_are_none_when_nothing_is_available():
     """1軸も算出できなければ合成もNoneで、寄与度も全てNone（0ではない）。"""
     result = axis_inspector_breakdown(
-        highway=None, tags={}, surface=None, is_designated=False, way_counts=None, accident_years_covered=0,
+        highway=None, tags={}, is_designated=False, materials=_way_materials(),
     )
 
     if result.composite_difficulty is None:
         assert all(axis.contribution is None for axis in result.axes)
 
 
-def test_axis_inspector_breakdown_way_landcover_feeds_openness_only():
-    """way_landcoverは開放度軸（trees_percent/built_percentを参照する唯一の公開軸）だけを
-    変え、他の軸のスコアには影響しない。土地被覆を渡さない場合、開放度は算出不能
-    （available=False）になる。"""
-    landcover = WayLandcover(
+def _landcover(percentages: LandcoverPercentages | None) -> WayLandcover:
+    return WayLandcover(
         osm_way_id=100,
-        percentages=LandcoverPercentages(
-            valid_pixels=500, water_percent=0, trees_percent=40.0, flooded_veg_percent=0,
-            crops_percent=0, built_percent=25.0, bare_percent=0, snow_ice_percent=0, rangeland_percent=35.0,
-        ),
-        data_source="esri-io-lulc", data_version="2025", computed_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
+        percentages=percentages,
+        data_source="esri-io-lulc",
+        data_version="2025",
+        computed_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
     )
-    without_landcover = axis_inspector_breakdown(
-        highway="residential", tags={}, surface="asphalt", is_designated=False, way_counts=None,
-        accident_years_covered=0,
+
+
+_LANDCOVER_PERCENTAGES = LandcoverPercentages(
+    valid_pixels=500, water_percent=0, trees_percent=40.0, flooded_veg_percent=0,
+    crops_percent=0, built_percent=25.0, bare_percent=0, snow_ice_percent=0, rangeland_percent=35.0,
+)
+
+
+def test_axis_inspector_breakdown_openness_follows_the_landcover_materials():
+    """開放度は土地被覆の材料だけを見て、他の軸のスコアには影響しない。材料が欠損なら
+    算出不能（available=False）になる。"""
+    without = axis_inspector_breakdown(
+        highway="residential", tags={}, is_designated=False,
+        materials=_way_materials(**_RESIDENTIAL_PAVED),
     )
     with_landcover = axis_inspector_breakdown(
-        highway="residential", tags={}, surface="asphalt", is_designated=False, way_counts=None,
-        accident_years_covered=0, way_landcover=landcover,
+        highway="residential", tags={}, is_designated=False,
+        materials=_way_materials(**_RESIDENTIAL_PAVED, trees_percent=40.0, built_percent=25.0),
     )
 
     def by_id(result):
         return {axis.axis_id: axis for axis in result.axes}
 
-    assert by_id(without_landcover)["openness"].available is False
+    assert by_id(without)["openness"].available is False
     assert by_id(with_landcover)["openness"].available is True
     others_with = [axis for axis in with_landcover.axes if axis.axis_id != "openness"]
-    others_without = [axis for axis in without_landcover.axes if axis.axis_id != "openness"]
+    others_without = [axis for axis in without.axes if axis.axis_id != "openness"]
     assert others_with == others_without
 
 
 def test_axis_inspector_breakdown_returns_every_landcover_class():
-    """軸が材料に使うのは2クラスだけだが、内訳は8クラスすべて返す。
+    """軸が材料に使うのは一部のクラスだけだが、内訳は全クラス返す。
 
     「この道が何で覆われているか」は軸の点数からは読み取れないため、区間インスペクタは
     材料に使っていないクラス（農地・草地等）も見せる。
     """
-    landcover = WayLandcover(
-        osm_way_id=100,
-        percentages=LandcoverPercentages(
-            valid_pixels=500, water_percent=0, trees_percent=40.0, flooded_veg_percent=0,
-            crops_percent=0, built_percent=25.0, bare_percent=0, snow_ice_percent=0, rangeland_percent=35.0,
-        ),
-        data_source="esri-io-lulc", data_version="2025", computed_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
-    )
-
     result = axis_inspector_breakdown(
-        highway="residential", tags={}, surface="asphalt", is_designated=False, way_counts=None,
-        accident_years_covered=0, way_landcover=landcover,
+        highway="residential", tags={}, is_designated=False,
+        materials=_way_materials(**_RESIDENTIAL_PAVED),
+        way_landcover=_landcover(_LANDCOVER_PERCENTAGES),
     )
 
     assert result.landcover is not None
@@ -735,8 +751,8 @@ def test_axis_inspector_breakdown_returns_every_landcover_class():
 
 def test_axis_inspector_breakdown_has_no_landcover_when_it_was_not_given():
     result = axis_inspector_breakdown(
-        highway="residential", tags={}, surface="asphalt", is_designated=False, way_counts=None,
-        accident_years_covered=0,
+        highway="residential", tags={}, is_designated=False,
+        materials=_way_materials(**_RESIDENTIAL_PAVED),
     )
 
     assert result.landcover is None
@@ -745,42 +761,28 @@ def test_axis_inspector_breakdown_has_no_landcover_when_it_was_not_given():
 def test_axis_inspector_breakdown_treats_no_value_landcover_row_as_missing():
     """割合がNULLの行（そのラスタ構成では値なし、T688）は、行が無い場合と同じ欠損。
 
-    行を残すのは増分実行が毎回やり直さないためで、材料としての意味は変えない。
-    ここが区別されないと、開放度が「算出不能」ではなく0として評価される。
+    行を残すのは増分実行が毎回やり直さないためで、表示の意味は変えない。
     """
-    no_value = WayLandcover(
-        osm_way_id=100,
-        percentages=None,
-        data_source="esri-io-lulc", data_version="2025", computed_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
-        source_raster_set="deadbeefdeadbeef",
-    )
-
     result = axis_inspector_breakdown(
-        highway="residential", tags={}, surface="asphalt", is_designated=False, way_counts=None,
-        accident_years_covered=0, way_landcover=no_value,
+        highway="residential", tags={}, is_designated=False,
+        materials=_way_materials(**_RESIDENTIAL_PAVED),
+        way_landcover=_landcover(None),
     )
 
-    openness = next(axis for axis in result.axes if axis.axis_id == "openness")
-    assert openness.available is False
+    assert result.landcover is None
 
 
-
-def test_axis_inspector_breakdown_bicycle_infra_quality_reflects_bicycle_infra_tags():
-    """改善計画T353回帰テスト: compute_edge_axis_scores版と同じ理由
-    （car_stress_bicycle_infra_adjustment内部軸の廃止に伴い、正規化フラグ材料を
-    bicycle_infra_quality公開軸が直接持つようになったため、axis_inspector_breakdownが
-    手組みするmaterials辞書にも新materialsを混ぜ込む必要がある）。cycleway=trackタグの
-    有無で区間インスペクタのbicycle_infra_quality表示が変わること、car_stressは
-    変わらないことを確認する。"""
+def test_axis_inspector_breakdown_bicycle_infra_quality_reflects_bicycle_infra_materials():
+    """cycleway=trackの有無でbicycle_infra_qualityが変わり、car_stressは変わらない（T353）。"""
     without_track = axis_inspector_breakdown(
-        highway="residential", tags={}, is_designated=False, way_counts=None, accident_years_covered=0
+        highway="residential", tags={}, is_designated=False,
+        materials=_way_materials(highway="residential", **_NO_BICYCLE_INFRA),
     )
     with_track = axis_inspector_breakdown(
-        highway="residential",
-        tags={"cycleway": "track"},
-        is_designated=False,
-        way_counts=None,
-        accident_years_covered=0,
+        highway="residential", tags={"cycleway": "track"}, is_designated=False,
+        materials=_way_materials(
+            highway="residential", **{**_NO_BICYCLE_INFRA, "cycleway_has_track": True},
+        ),
     )
 
     def difficulty(result, axis_id: str) -> float:
@@ -790,22 +792,15 @@ def test_axis_inspector_breakdown_bicycle_infra_quality_reflects_bicycle_infra_t
     with_infra = difficulty(with_track, "bicycle_infra_quality")
     assert without_infra == 100.0
     assert with_infra == 0.0
-    assert with_infra < without_infra
     # car_stressはhighway種別のみで決まり、自転車インフラの有無では変化しない（T353）。
     assert difficulty(without_track, "car_stress") == difficulty(with_track, "car_stress") == 50.0
 
 
-def test_axis_inspector_breakdown_way_counts_none_marks_count_based_axes_unavailable():
-    """way_attribute_countsに行が無い（way_counts=None）場合、事故密度・停止密度は
-    算出不能（available=False）だが、タグだけで決まる車ストレス・路面・夜間は
-    引き続き算出できる。"""
+def test_axis_inspector_breakdown_missing_count_materials_mark_those_axes_unavailable():
+    """事故・停止の材料が欠損なら、その軸だけがavailable=Falseになる。"""
     result = axis_inspector_breakdown(
-        highway="residential",
-        tags={},
-        surface="asphalt",
-        is_designated=False,
-        way_counts=None,
-        accident_years_covered=3,
+        highway="residential", tags={}, is_designated=False,
+        materials=_way_materials(**_RESIDENTIAL_PAVED),
     )
 
     by_id = {axis.axis_id: axis for axis in result.axes}
@@ -817,19 +812,16 @@ def test_axis_inspector_breakdown_way_counts_none_marks_count_based_axes_unavail
 
 
 def test_axis_inspector_breakdown_unknown_highway_yields_no_usable_composite():
-    """判定基準未登録のhighway・タグ無し・way_counts無しでは、車ストレス・路面・
-    停止密度・事故密度すべてavailable=Falseになる。night_difficultyだけはタグが
-    空辞書でも常に加点式でスコアを返す（lit無し=+50）ため唯一availableになるが、
-    night_weightの既定値は0.0のため合成コストへは効かない。改善計画T347:
-    bicycle_infra_qualityはcar_stressのhighway基準値ゲートに依存しない
-    （highwayの値そのものは判定基準未登録でも、cyclewayタグが無ければ「専用インフラ
-    無し」として算出できる）ため、唯一weight>0で合成に効く軸としてavailableになる。"""
+    """判定基準未登録のhighway・材料ほぼ欠損では、車ストレス・路面・停止密度・事故密度が
+    すべてavailable=Falseになる。night_difficultyだけは常に加点式でスコアを返すが、
+    既定の重みが0.0のため合成コストへは効かない。改善計画T347: bicycle_infra_qualityは
+    car_stressのhighway基準値ゲートに依存しないため、唯一weight>0で合成に効く軸として
+    availableになる。"""
     result = axis_inspector_breakdown(
         highway="motorway",  # car_stress_levelの判定基準に未登録
         tags={},
         is_designated=False,
-        way_counts=None,
-        accident_years_covered=0,
+        materials=_way_materials(highway="motorway", lit=False, has_tunnel=False, **_NO_BICYCLE_INFRA),
     )
 
     by_id = {axis.axis_id: axis for axis in result.axes}
@@ -847,7 +839,7 @@ def test_axis_inspector_breakdown_unknown_highway_yields_no_usable_composite():
 def test_axis_inspector_breakdown_weights_match_route_preference_weights():
     """各軸のweightはRoutePreference.weightsと一致する（既定route_preference使用時）。"""
     result = axis_inspector_breakdown(
-        highway="residential", tags={}, is_designated=False, way_counts=None, accident_years_covered=0,
+        highway="residential", tags={}, is_designated=False, materials=_way_materials(),
     )
 
     expected_weights = RoutePreference().weights
