@@ -15,7 +15,7 @@
 // 交差点密度（次数3以上のroad_node）はバックエンドのpoi-tilesが引き続き焼き込むが、
 // 道路網を見れば概ね自明という判断で地図上の独立可視化レイヤーとしては提供しない
 // （材料`intersection_count_per_km`としては軸スタジオから引き続き選べる）。
-// 各レイヤーの絞り込みはSTATIC_FILTER_AXES（ファイル末尾）にカタログ化し、
+// 各レイヤーの絞り込みはbuildStaticFilterAxes()（ファイル末尾）にカタログ化し、
 // legendFilter.tsの汎用機構（roadFilterAxes.tsの「路面」レイヤーと同じbuildLegendFilterExpression/
 // buildCombinedLegendFilterExpression）をそのまま流用する。属性値のカテゴリをそのまま絞り込み軸に
 // 機械的展開するのではなく、レイヤーごとにアプリの目的（安全・快適なルート判断）に沿った軸を選ぶ:
@@ -325,7 +325,7 @@ export const SUPPLY_POI_KINDS: readonly string[] = SUPPLY_POI_CATEGORIES.flatMap
 // 一致させ、チェック操作時にそのレイヤーを自動でONにする判定（MapOverlayControls.tsx）に使う。
 // ramp軸（surface_q/accident等、axisLayers.ts参照）はaxis-catalog.json由来の動的なIDのため
 // リテラル列挙できず、RampAxis["axisId"]（string）を足しあわせる（軸追加時にここへの
-// コード変更なしにSTATIC_FILTER_AXESへ含められる）。
+// コード変更なしにbuildStaticFilterAxes()へ含められる）。
 export type StaticFilterAxisId =
   | "designation"
   | "tunnel"

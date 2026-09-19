@@ -17,9 +17,10 @@ import { buildShape, draftFromDuplicate, draftFromExisting, emptyDraft, type Dra
 
 interface AxisComposerProps {
   /** 編集対象。nullなら新規作成（下記duplicateFromが無ければ空欄から）。公開済み軸も
-   * 渡りうる——その場合は材料・計算式・重み等の編集UIを一切出さず、表示専用フィールド
-   * （icon_id・chip_label・panel_hint・show_map_icon・display_thresholds_override）だけを
-   * 編集する制限モードへ自動的に切り替わる（下記`restrictedDisplayOnly`参照）。 */
+   * 渡りうる——その場合は材料・計算式・重み等の編集UIを一切出さず、**評価に影響しない
+   * 表示専用フィールドだけ**を編集する制限モードへ自動的に切り替わる（どのフィールドが
+   * それに当たるかは下記`restrictedDisplayOnly`の分岐が決める。ここへ並べると、backendが
+   * 1つ足したときにこの注釈だけが古くなる）。 */
   editing: AxisDefinitionResponse | null;
   /** 複製元。editingがnullのとき、この軸の内容（axis_id/is_published除く）で新規作成
    * フォームを初期化する。 */

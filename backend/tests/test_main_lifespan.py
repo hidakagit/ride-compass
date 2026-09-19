@@ -14,6 +14,7 @@ APSchedulerが`ConflictingIdError`を送出するため、テストごとに新�
 差し替えて分離する。
 """
 
+import inspect
 from datetime import datetime
 
 import pytest
@@ -41,12 +42,24 @@ async def _noop_refresh_tuning_values(*args, **kwargs) -> None:
     return None
 
 
-async def _noop_refresh_amedas_job() -> None:
+async def _noop_job(*args, **kwargs) -> None:
+    """スケジューラへ載せる代わりの何もしない仕事。`__module__`がこのテストファイルに
+    なることを、下の「本物が1本も載っていない」テストが手掛かりに使う。"""
     return None
 
 
-async def _noop_prewarm_jma_tile_job() -> None:
-    return None
+def _startup_job_attribute_names() -> list[str]:
+    """`lifespan`がスケジューラへ載せるジョブの属性名。
+
+    **名前を並べない。** 並べると、ジョブを1本足したときに無害化から漏れて本物が走る
+    ——実際に`_prune_stale_disk_generations_job`が漏れており、このファイルを実行すると
+    開発機の`backend/data/tile_cache`に対して実際の削除が走りうる状態だった（T951）。
+    """
+    return [
+        name
+        for name, obj in vars(main_module).items()
+        if name.endswith("_job") and inspect.iscoroutinefunction(obj)
+    ]
 
 
 @pytest.fixture(autouse=True)
@@ -56,13 +69,12 @@ def _isolated_scheduler(monkeypatch):
     lifespan()は`_scheduler`をモジュールグローバルとして参照するため、モジュール属性を
     差し替えるだけで呼び出し先へ反映される。
 
-    `_refresh_amedas_job`・`_prewarm_jma_tile_job`（改善計画T510）も無害化する:
-    `next_run_time=datetime.now()`（起動直後にも即時実行）のため、TestClientの
-    context manager内でイベントループが回っている間に実際にジョブが発火しうる
-    （実測で確認済み）。本物のジョブはJMAへの実HTTP問い合わせを行うため、lifespanの
-    結線自体を検証する本ファイルの目的に対しては不要かつ望ましくない副作用
-    （外部依存・フレークの原因、無効化を忘れて後続テストへ実HTTP呼び出しが漏れ込んだ
-    実績あり）になる。
+**起動時ジョブはすべて無害化する**（改善計画T510・T951）: いずれも起動直後にも
+    即時実行される登録のため、TestClientのcontext manager内でイベントループが回っている
+    間に実際に発火しうる（実測で確認済み）。本物は外部への実HTTP問い合わせや**実ディスクの
+    削除**を行い、lifespanの結線自体を検証する本ファイルの目的に対しては不要かつ望ましく
+    ない副作用（外部依存・フレークの原因、無効化を忘れて後続テストへ実HTTP呼び出しが
+    漏れ込んだ実績あり）になる。対象は`main.py`の宣言から導く。
 
     `get_http_client`も軽量なダミーへ差し替える: `httpx.AsyncClient`の生成はSSL
     コンテキスト構築を伴い、`infrastructure/http_client.py`のモジュールdocstringが
@@ -74,8 +86,8 @@ def _isolated_scheduler(monkeypatch):
     実際には使わないため、ダミーへ差し替えて安全にこのコストを避けられる。"""
     fresh_scheduler = AsyncIOScheduler()
     monkeypatch.setattr(main_module, "_scheduler", fresh_scheduler)
-    monkeypatch.setattr(main_module, "_refresh_amedas_job", _noop_refresh_amedas_job)
-    monkeypatch.setattr(main_module, "_prewarm_jma_tile_job", _noop_prewarm_jma_tile_job)
+    for name in _startup_job_attribute_names():
+        monkeypatch.setattr(main_module, name, _noop_job)
     monkeypatch.setattr(main_module, "get_http_client", lambda timeout: None)
     yield fresh_scheduler
     if fresh_scheduler.running:
@@ -95,6 +107,24 @@ def test_lifespan_fails_fast_when_refresh_axis_definitions_raises(monkeypatch):
     with pytest.raises(AxisDefinitionSyncError):
         with TestClient(app):
             pass
+
+
+def test_no_real_startup_job_is_scheduled_in_this_file(monkeypatch, _isolated_scheduler):
+    """このファイルの実行で、本物の起動時ジョブが1本も載らないこと。
+
+    載ると、テストを流しただけで外部への実HTTP問い合わせや**開発機の実ディスクの削除**が
+    走る（`_prune_stale_disk_generations_job`は`backend/data/tile_cache`へ
+    `prune_to_size_limit`を掛ける）。無害化は`main.py`の宣言から導くが、**導出が空振り
+    しても静かに通る**ため、載った結果の側からも確かめる。
+    """
+    monkeypatch.setattr(main_module, "refresh_axis_definitions", _noop_refresh_axis_definitions)
+    monkeypatch.setattr(main_module, "refresh_tuning_values", _noop_refresh_tuning_values)
+
+    with TestClient(app):
+        scheduled = [(job.id, job.func) for job in _isolated_scheduler.get_jobs()]
+
+    assert scheduled, "起動時ジョブが1本も載っていない（導出が空振りしている可能性）"
+    assert [job_id for job_id, func in scheduled if func.__module__ != __name__] == []
 
 
 def test_lifespan_registers_amedas_job_with_immediate_next_run_time(monkeypatch, _isolated_scheduler):

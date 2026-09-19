@@ -54,7 +54,7 @@ PERMANENT = CachePolicy(max_age_seconds=24 * 60 * 60, immutable=True)
 #: URLに`basetime`/`validtime`を含み内容が確定して以後変化しないタイル（気象庁）。
 #: `max-age`は`jma_tile_redis_cache.py`のTTLと揃える。
 IMMUTABLE_TILE = CachePolicy(max_age_seconds=20 * 60, immutable=True)
-#: 取込バッチが走るまで変化しないタイル（路面・事故・POI）。
+#: 取込バッチが走るまで変化しないタイル（路面・事故・POI・土地被覆など）。
 BATCH_TILE = CachePolicy(max_age_seconds=60 * 60)
 #: 基礎地図（OpenFreeMap）。管理画面のタイルキャッシュ全消去
 #: （`POST /api/admin/basemap/refresh`）はサーバー側のファイルキャッシュしか消せず

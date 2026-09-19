@@ -222,7 +222,8 @@ RouteGenerator.generate_loops(origin, distance_km, distance_tolerance_km, max_ro
 
 較正値の宣言は「変えたとき効くまでに何が要るか」（`TuningEffect`）を持つ。これは
 **「変えたのに効かない」を宣言として持つ**ためのもので、ほとんどは次のリクエストから効くが、
-信号とみなす半径だけは`road_nodes`の事前計算バッチをやり直さないと効かない。
+たとえば信号とみなす半径は`road_nodes`の事前計算バッチをやり直さないと効かない
+（どの値がどの効き方かは`TuningEffect`の宣言が持つ）。
 
 **較正値ではない固定値は`FIXED_VALUES`が名前と種別（`FixedValueKind`）だけを持ち、値と
 根拠は使う側のモジュールへ置いたままにする**——根拠の文はその値の隣にあってこそ読めるもので、

@@ -1,4 +1,4 @@
-// backendのadmin API群（axis_admin.py・debug_admin.py、いずれもHTTP Basic認証必須）への
+// backendのadmin API群（`/api/admin/**`、いずれもHTTP Basic認証必須）への
 // サーバー側プロキシ（改善計画T305、T517で軸CRUD専用から汎用へ改名）。
 // `frontend/src/app/admin/api/`配下の各route handlerからのみ呼ぶこと（route handlerは常に
 // サーバー側実行のため、"use client"コンポーネントから直接importしない限り

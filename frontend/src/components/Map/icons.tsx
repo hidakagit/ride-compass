@@ -667,25 +667,6 @@ export function RedrawMapIcon({ size = 16 }: IconProps) {
   );
 }
 
-/** ルート編集（モバイル下部タブ・サイドバー）: 分岐点で2本へ分かれる線。この画面が持つ
- * 操作が「分岐点で区間を乗り換える」ことそのものを表す。 */
-export function RouteEditIcon({ size = 16 }: IconProps) {
-  return (
-    <svg width={size} height={size} {...svgProps}>
-      <path d="M2.5 10h4" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
-      <path d="M6.5 10 10 4.5h7" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
-      <path
-        d="M6.5 10 10 15.5h7"
-        stroke="currentColor"
-        strokeWidth="1.6"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-      <circle cx="6.5" cy="10" r="1.8" fill="currentColor" />
-    </svg>
-  );
-}
-
 /** ルート設定（モバイル下部タブ）: 高さ違いのスライダー3本 */
 export function RouteSettingsIcon({ size = 16 }: IconProps) {
   return (
@@ -776,15 +757,6 @@ export function MenuIcon({ size = 16 }: IconProps) {
 }
 
 // ルート結果ヘッダの操作枠（保存・GPX出力）。機能実装まではdisabledの占位として使う。
-export function SaveIcon({ size = 16 }: IconProps) {
-  return (
-    <svg width={size} height={size} {...svgProps}>
-      <path d="M4 3h9l3 3v11H4z" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round" />
-      <path d="M7 3v4h5V3M7 17v-5h6v5" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round" />
-    </svg>
-  );
-}
-
 export function DownloadIcon({ size = 16 }: IconProps) {
   return (
     <svg width={size} height={size} {...svgProps}>

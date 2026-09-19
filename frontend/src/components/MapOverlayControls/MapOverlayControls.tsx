@@ -850,9 +850,9 @@ export default function MapOverlayControls({
   // 軸タイルがON/OFFに関わらず▼を出すのと揃える。legendDetailsはレイヤー定義由来の固定
   // 内容でありON/OFFで内容が変わらないため、OFF中に「オンにすると何が出るか」を先に
   // 確認できる利点もある）。
-  // legendDetailsが空でもsummaryがあれば▶を出す（道路種別・路面はregionZoomTooWide中
+  // legendDetailsが空でもsummaryがあれば▶を出す（道路種別・路面はズーム不足の間
   // legendDetailsが空配列になる＝ズームインを促す案内文（summary、page.tsx:
-  // roadTypeSummary/roadSurfaceSummary参照）だけが内容になる想定のため、canExpandを
+  // overlayLayersの組み立て参照）だけが内容になる想定のため、canExpandを
   // legendDetailsの有無だけで判定すると▶自体が消えて案内文を開けなくなる。単独チップ側
   // （本ファイル末尾のcanExpand= hasLegendDetails || Boolean(layer.summary)）と同じ
   // 判定へ揃える）。

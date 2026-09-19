@@ -965,7 +965,7 @@ export default function Home() {
   // staticFilterSummaries、下記）は、軸スタジオで新規公開したramp軸の凡例・絞り込み
   // 操作をこの画面のサマリ表示・▶パネルへ反映できるよう、mapLayers/
   // roadSurfaceSharedLayerIdsと同じくaxisCatalog.rampAxesから都度組み立てる
-  // （ビルド時静的STATIC_FILTER_AXESは使わない）。
+  // （ビルド時静的buildStaticFilterAxes()は使わない）。
   const staticFilterAxes = useMemo(() => buildStaticFilterAxes(axisCatalog.rampAxes), [axisCatalog.rampAxes]);
   // 道路情報以外の絞り込み可能レイヤー（車ストレス・自転車インフラ・指定路線・
   // 停止要因POI・事故の当事者/重大度）。roadHiddenKeysByModeと同じ理由でuseMemoにより

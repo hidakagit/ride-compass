@@ -342,7 +342,7 @@ ramp軸[`dataNature==="composite"`]）に該当するものは`undefined`（地�
 見ないと、隠れている段は1つも無いのに「一部非表示」だけが出る。
 
 例外として、災害チップの「表示する情報」だけは`axisId`を持ちながら地物の絞り込みではなく
-**レイヤーソースの表示切替**に使う（`useDynamicWeatherLayers`が非表示キーを見て7要素の
+**レイヤーソースの表示切替**に使う（`useDynamicWeatherLayers`が非表示キーを見て各ソースの
 `visible`を決める、[動的気象レイヤー](dynamic-weather-layers.md)参照）。UIとしては
 他の絞り込みと同じチェックボックス行で、反映先だけが異なる。
 

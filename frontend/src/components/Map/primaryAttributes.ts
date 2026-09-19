@@ -54,8 +54,9 @@ export const PRIMARY_ATTRIBUTE_LAYER_IDS: Partial<Record<string, MapLayerId>> = 
   landcover: "landcover",
 };
 
-// 表示レイヤーを意図的に持たない一次属性（lanes/maxspeed/lit/intersection、
-// +評価軸から参照されないbicycle_access・区間の共通コンテキストgeometry）。cycleway
+// 表示レイヤーを意図的に持たない一次属性。**どれがそれに当たるかは下の
+// `PRIMARY_ATTRIBUTES_WITHOUT_LAYER`が正本**で、ここへ並べると1つ増えたときに
+// この注釈だけが古くなる。cycleway
 // （highway_is_cycleway/cycleway_has_track等の正規化フラグ材料4種が参照する一次属性。
 // car_stress軸の内部補正と公開軸bicycle_infra_qualityの両方が参照するため、
 // domain/registry_defaults.pyでshared=Trueとして登録されている）は一次属性としては
