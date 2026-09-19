@@ -1269,6 +1269,7 @@ export default function Home() {
         const isDynamicGroupLayer = layer.dataNature === "dynamic";
         return {
           id: layer.id,
+          icon: layer.icon,
           label: layer.label,
           chipLabel: layer.chipLabel ?? layer.label,
           on: layerVisibility[layer.id],

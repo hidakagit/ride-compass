@@ -27,33 +27,16 @@ import {
 import type { LegendEntry, LegendFilterSummaryAxis } from "@/components/Map/legendFilter";
 import LegendCheckboxList from "@/components/Map/LegendCheckboxList";
 import { Checkbox } from "@/components/ui/Checkbox/Checkbox";
-import {
-  AccidentIcon,
-  AxisRampIcon,
-  DesignationIcon,
-  ElevationIcon,
-  HillshadeIcon,
-  LandcoverIcon,
-  EnvironmentDataIcon,
-  InfoIcon,
-  RaindropIcon,
-  RoadIcon,
-  RoadSurfaceIcon,
-  ShieldIcon,
-  SpotDataIcon,
-  StopPoiIcon,
-  SupplyPoiIcon,
-  TunnelIcon,
-  OnewayIcon,
-  RouteIcon,
-  WindIcon,
-} from "@/components/Map/icons";
+import { EnvironmentDataIcon, InfoIcon, RoadIcon, SpotDataIcon, type MapIconComponent } from "@/components/Map/icons";
 import styles from "./MapOverlayControls.module.css";
 
 /** 地図上のチップ1つ分の表示状態。page.tsxがMAP_LAYERS（レイヤーカタログ）から組み立てる。 */
 export interface OverlayLayerChip {
   id: MapLayerId;
   label: string;
+  /** チップ・設定パネルの行頭に出すアイコン。mapLayers.ts:
+   * MapLayerDescriptor.iconをそのまま渡す。 */
+  icon: MapIconComponent;
   /** アイコンチップ下に出す短縮表記（未指定ならlabelを使う） */
   chipLabel?: string;
   on: boolean;
@@ -131,32 +114,6 @@ function buildChipGroups(layers: readonly OverlayLayerChip[]): ChipGroup[] {
   }
   return groups;
 }
-
-// レイヤーIDごとの自作アイコン（icons.tsx）。地図上は小さいアイコン+短いラベルの
-// 縦並びで表示する（文字だけのチップはスペースを圧迫するため）。
-const LAYER_ICONS: Record<MapLayerId, (props: { size?: number }) => ReactElement> = {
-  elevation: ElevationIcon,
-  hillshade: HillshadeIcon,
-  landcover: LandcoverIcon,
-  roadType: RoadIcon,
-  roadSurface: RoadSurfaceIcon,
-  designation: DesignationIcon,
-  tunnel: TunnelIcon,
-  oneway: OnewayIcon,
-  stopPoi: StopPoiIcon,
-  supplyPoi: SupplyPoiIcon,
-  accidents: AccidentIcon,
-  precipitationNowcast: RaindropIcon,
-  windVector: WindIcon,
-  // 勾配の環境グループ面表示。専用アイコンは持たず、同じ地形データを扱うelevation（標高図）と
-  // 同じElevationIconを流用する（windVectorがWindIconを共有するのと同じパターン）。
-  // 専用way値配信軸（評価軸としての風・勾配）は地図上チップとして出ないため、この辞書に
-  // 項目を持たない（引けなかった場合の既定はAxisRampIcon）。
-  // 災害（雷・竜巻・落雷・キキクル等を1チップへまとめたグループ）。個々の要素ではなく
-  // 防災情報全体を表すShieldIconを使う。
-  disaster: ShieldIcon,
-  route: RouteIcon,
-};
 
 // 最上位グループチップ（道路/環境/スポット）を代表するアイコン。
 // 道路=RoadIcon（個別メンバーroadTypeと共用、群のテーマそのもの）・
@@ -858,7 +815,7 @@ export default function MapOverlayControls({
   // 判定へ揃える）。
   function renderRawMemberTile(member: OverlayLayerChip, groupTint: MapOverlayGroup) {
     const key = `member:${member.id}`;
-    const Icon = LAYER_ICONS[member.id] ?? AxisRampIcon;
+    const Icon = member.icon;
     const hasLegend = Boolean(member.legendDetails && member.legendDetails.length > 0);
     const canExpand = Boolean(!member.disabled && (hasLegend || member.summary));
     return (
@@ -1122,7 +1079,7 @@ export default function MapOverlayControls({
                         flatGroup,
                         orderObservedMembers(group.members).map((member) => ({
                           key: member.id,
-                          Icon: LAYER_ICONS[member.id] ?? AxisRampIcon,
+                          Icon: member.icon,
                           label: member.chipLabel ?? member.label,
                           layerId: member.id,
                           on: member.on,
@@ -1135,10 +1092,7 @@ export default function MapOverlayControls({
 
             // どのグループにも属さない単独チップ（route等）。
             const layer = group.members[0];
-            // 二次軸rampレイヤーはレジストリ生成物から自動で増えるためレイヤーIDごとの
-            // 専用アイコンを持たず、共通のAxisRampIconへフォールバックする
-            // （undefinedのままJSXへ渡すとReactが「Element type is invalid」で落ちる）。
-            const Icon = LAYER_ICONS[layer.id] ?? AxisRampIcon;
+            const Icon = layer.icon;
             const hasLegendDetails = Boolean(layer.legendDetails && layer.legendDetails.length > 0);
             const canExpand = layer.on && !layer.disabled && (hasLegendDetails || Boolean(layer.summary));
             const isExpanded = canExpand && expandedIds.has(layer.id);

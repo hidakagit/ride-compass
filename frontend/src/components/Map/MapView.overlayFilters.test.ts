@@ -12,13 +12,21 @@ import {
   buildInteractiveLayerIds,
   buildStaticOverlayLayers,
   layersUnderRoadSurface,
+  sortedByPaintTier,
   setStaticOverlayFilters,
 } from "./MapView";
 import { buildStaticFilterAxes, type StaticFilterAxisId } from "./staticAttributeLayers";
+import { buildMapLayers, MAP_LAYER_PAINT_TIER_ORDER } from "./mapLayers";
+import { isAreaLayerType } from "./mapStyleOps";
 
 // ビルド時静的フォールバック（RAMP_AXES、軸スタジオが公開したGUI作成軸を含まない）を
 // 入力に組み立てた結果。以前のSTATIC_OVERLAY_LAYERS/STATIC_FILTER_AXES定数と同じ内容。
-const STATIC_OVERLAY_LAYERS = buildStaticOverlayLayers(buildAxisOverlayLayers(RAMP_AXES), DEDICATED_WAY_VALUE_AXES);
+const CATALOG = buildMapLayers(RAMP_AXES, DEDICATED_WAY_VALUE_AXES);
+const STATIC_OVERLAY_LAYERS = buildStaticOverlayLayers(
+  CATALOG,
+  buildAxisOverlayLayers(RAMP_AXES),
+  DEDICATED_WAY_VALUE_AXES,
+);
 const STATIC_FILTER_AXES = buildStaticFilterAxes(RAMP_AXES);
 
 // setStaticOverlayFiltersが読む最小限のmapフェイク。__rcStyleReady=trueでrunWhenStyleReadyの
@@ -27,10 +35,15 @@ function fakeMap() {
   const layers = new Set<string>();
   const sources = new Set<string>();
   const setFilterCalls: { layerId: string; filter: unknown }[] = [];
+  const addedSpecs: { id: string; type?: string }[] = [];
   return {
     __rcStyleReady: true,
+    addedSpecs,
     getLayer: (id: string) => (layers.has(id) ? {} : undefined),
-    addLayer: (spec: { id: string }) => layers.add(spec.id),
+    addLayer: (spec: { id: string; type?: string }) => {
+      addedSpecs.push(spec);
+      layers.add(spec.id);
+    },
     getSource: (id: string) => (sources.has(id) ? {} : undefined),
     addSource: (id: string) => sources.add(id),
     setFilter: (layerId: string, filter: unknown) => setFilterCalls.push({ layerId, filter }),
@@ -199,14 +212,46 @@ describe("凡例フィルタはensureの再実行で巻き戻らない", () => {
   });
 });
 
-describe("路面ソースより先に積むレイヤー", () => {
-  it("面のラスタはすべて自分で宣言しており、名指しで選ばれていない", () => {
+describe("重なりの段", () => {
+  it("作る側がどの順で並べても、重なりは段の順になる", () => {
+    // **作る側の配列の並びを見ても、並べ替えが効いているかは分からない**——今の並びは
+    // たまたま段の順と一致しているため、並べ替えを外しても結果が変わらない。効いて
+    // いることを見るには、段の順と食い違う並びを通す必要がある。
+    const shuffled = [...STATIC_OVERLAY_LAYERS].reverse();
+    const tiers = sortedByPaintTier(shuffled).map((layer) => MAP_LAYER_PAINT_TIER_ORDER.indexOf(layer.paintTier));
+
+    expect(tiers.length).toBeGreaterThan(0);
+    expect([...tiers].sort((a, b) => a - b)).toEqual(tiers);
+  });
+
+  it("同じ段の中では、カタログに現れる順を保つ", () => {
+    // 段だけでは前後が決まらない組（観測の線どうし等）は、カタログの並びが決める。
+    const rawLines = STATIC_OVERLAY_LAYERS.filter((layer) => layer.paintTier === "rawLine").map((l) => l.key);
+    const inCatalog = CATALOG.filter((layer) => rawLines.includes(layer.id)).map((layer) => layer.id);
+
+    expect(rawLines.length).toBeGreaterThan(1);
+    expect(rawLines).toEqual(inCatalog);
+  });
+
+  it("面で塗るレイヤーはすべて路面ソースより先に積まれる", () => {
     // 初回描画では、ここで選ばれたレイヤーだけが路面ソースより前に積まれる。選ばれない
     // 面のレイヤーは初回だけ路面線の上に乗り、再描画で下へ戻る（T886で実際に起きた）。
+    //
+    // **母集団は「実際に地図へ積まれるレイヤーの型」から導く**。記述子の`paintTier`だけで
+    // 両辺を作ると、宣言を書き換えても両辺が一緒に動くため落ちない（名指しで2件並べて
+    // いた元の形と同じく、起伏が抜けても気づけない）。
+    const map = fakeMap();
+    for (const entry of STATIC_OVERLAY_LAYERS) {
+      entry.ensure(map as unknown as Parameters<typeof entry.ensure>[0]);
+    }
+    const typeByLayerId = new Map(map.addedSpecs.map((spec) => [spec.id, spec.type ?? ""]));
+    const paintsArea = STATIC_OVERLAY_LAYERS.filter((entry) =>
+      isAreaLayerType(typeByLayerId.get(entry.layerId) ?? ""),
+    ).map((entry) => entry.key);
     const hoisted = layersUnderRoadSurface(STATIC_OVERLAY_LAYERS).map((layer) => layer.key);
 
-    expect(hoisted).toContain("elevation");
-    expect(hoisted).toContain("landcover");
+    expect(paintsArea.length).toBeGreaterThan(0);
+    expect([...hoisted].sort()).toEqual([...paintsArea].sort());
     // 線のレイヤーは路面ソースを共有するため、先に積むと「source not found」になる。
     expect(hoisted).not.toContain("designation");
   });

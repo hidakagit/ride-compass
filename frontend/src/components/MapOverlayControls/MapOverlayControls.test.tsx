@@ -4,11 +4,14 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import MapOverlayControls, { type OverlayLayerChip } from "./MapOverlayControls";
 import { MAP_OVERLAY_MAX_EXPANDED_GROUPS } from "@/components/Map/mapLayers";
 
+// このコンポーネントは渡されたアイコンをそのまま描くだけで、形を見ない。
+const TestIcon = () => <svg />;
+
 function baseLayers(): OverlayLayerChip[] {
   return [
-    { id: "elevation", label: "標高図", on: false },
-    { id: "roadSurface", label: "路面", on: false },
-    { id: "route", label: "ルート", on: false },
+    { id: "elevation", icon: TestIcon, label: "標高図", on: false },
+    { id: "roadSurface", icon: TestIcon, label: "路面", on: false },
+    { id: "route", icon: TestIcon, label: "ルート", on: false },
   ];
 }
 
@@ -289,15 +292,16 @@ describe("MapOverlayControls", () => {
 
   it("OFF・disabled・凡例無しのレイヤーには▶が出ない", () => {
     const layers: OverlayLayerChip[] = [
-      { id: "elevation", label: "標高図", on: true, summary: null, legendDetails: [] }, // 凡例無し
+      { id: "elevation", icon: TestIcon, label: "標高図", on: true, summary: null, legendDetails: [] }, // 凡例無し
       {
         id: "roadSurface",
+        icon: TestIcon,
         label: "路面",
         on: false,
         summary: null,
         legendDetails: [{ label: "路面の種類", legend: [], hiddenKeys: [] }],
       }, // OFF
-      { id: "route", label: "ルート", on: true, disabled: true, summary: "色分け: 風の影響" }, // disabled
+      { id: "route", icon: TestIcon, label: "ルート", on: true, disabled: true, summary: "色分け: 風の影響" }, // disabled
     ];
     render(<MapOverlayControls {...baseProps()} layers={layers} />);
 
@@ -321,12 +325,19 @@ describe("MapOverlayControls", () => {
   describe("最上位グループ束ね（改善計画T406/T418）", () => {
     function groupedLayers(): OverlayLayerChip[] {
       return [
-        { id: "route", label: "ルート", on: false }, // どのグループにも属さない→単独のまま
-        { id: "roadType", label: "道路の種類", on: false, category: "roadCondition" },
-        { id: "designation", label: "指定路線", on: true, category: "roadCondition" },
-        { id: "axis:car_stress", label: "車の圧迫感", on: true, category: "trafficSafety", dataNature: "composite" },
-        { id: "accidents", label: "事故地点", on: false, category: "trafficSafety" }, // dataNature省略→composite以外扱い
-        { id: "elevation", label: "標高図", on: false, category: "terrain" },
+        { id: "route", icon: TestIcon, label: "ルート", on: false }, // どのグループにも属さない→単独のまま
+        { id: "roadType", icon: TestIcon, label: "道路の種類", on: false, category: "roadCondition" },
+        { id: "designation", icon: TestIcon, label: "指定路線", on: true, category: "roadCondition" },
+        {
+          id: "axis:car_stress",
+          icon: TestIcon,
+          label: "車の圧迫感",
+          on: true,
+          category: "trafficSafety",
+          dataNature: "composite",
+        },
+        { id: "accidents", icon: TestIcon, label: "事故地点", on: false, category: "trafficSafety" }, // dataNature省略→composite以外扱い
+        { id: "elevation", icon: TestIcon, label: "標高図", on: false, category: "terrain" },
       ];
     }
 
@@ -360,8 +371,15 @@ describe("MapOverlayControls", () => {
   describe("軸スタジオ由来レイヤーの撤去（改善計画T418）", () => {
     it("ramp軸（dataNature=composite）はどのグループにも束ねられず、単独チップとしても出ない", () => {
       const layers: OverlayLayerChip[] = [
-        { id: "route", label: "ルート", on: false },
-        { id: "axis:car_stress", label: "車の圧迫感", on: true, category: "trafficSafety", dataNature: "composite" },
+        { id: "route", icon: TestIcon, label: "ルート", on: false },
+        {
+          id: "axis:car_stress",
+          icon: TestIcon,
+          label: "車の圧迫感",
+          on: true,
+          category: "trafficSafety",
+          dataNature: "composite",
+        },
       ];
       render(<MapOverlayControls {...baseProps()} layers={layers} />);
 
@@ -373,9 +391,10 @@ describe("MapOverlayControls", () => {
 
     it("専用way値配信軸はどのグループにも束ねられず、単独チップとしても出ない", () => {
       const layers: OverlayLayerChip[] = [
-        { id: "route", label: "ルート", on: false },
+        { id: "route", icon: TestIcon, label: "ルート", on: false },
         {
           id: "windAxis",
+          icon: TestIcon,
           axisStudioLayer: true,
           label: "風（評価軸）",
           chipLabel: "風軸",
@@ -399,9 +418,9 @@ describe("MapOverlayControls", () => {
   describe("同時に開けるグループの数", () => {
     function allGroupLayers(): OverlayLayerChip[] {
       return [
-        { id: "roadType", label: "道路の種類", on: false, category: "roadCondition" },
-        { id: "elevation", label: "標高図", on: false, category: "terrain" },
-        { id: "stopPoi", label: "停止要因", on: false, category: "trafficSafety" },
+        { id: "roadType", icon: TestIcon, label: "道路の種類", on: false, category: "roadCondition" },
+        { id: "elevation", icon: TestIcon, label: "標高図", on: false, category: "terrain" },
+        { id: "stopPoi", icon: TestIcon, label: "停止要因", on: false, category: "trafficSafety" },
       ];
     }
 
@@ -441,9 +460,9 @@ describe("MapOverlayControls", () => {
   describe("道路グループ（改善計画T406）", () => {
     function roadLayers(): OverlayLayerChip[] {
       return [
-        { id: "elevation", label: "標高図", on: false, category: "terrain" }, // 環境グループ側の対照用
-        { id: "roadType", label: "道路の種類", on: false, category: "roadCondition" },
-        { id: "designation", label: "指定路線", on: true, category: "roadCondition" },
+        { id: "elevation", icon: TestIcon, label: "標高図", on: false, category: "terrain" }, // 環境グループ側の対照用
+        { id: "roadType", icon: TestIcon, label: "道路の種類", on: false, category: "roadCondition" },
+        { id: "designation", icon: TestIcon, label: "指定路線", on: true, category: "roadCondition" },
       ];
     }
 
@@ -568,12 +587,13 @@ describe("MapOverlayControls", () => {
       const layers: OverlayLayerChip[] = [
         {
           id: "designation",
+          icon: TestIcon,
           label: "指定路線",
           on: false,
           category: "roadCondition",
           panelHint: "これはテスト用の説明文です。",
         },
-        { id: "roadType", label: "道路の種類", on: false, category: "roadCondition" }, // panelHint未設定
+        { id: "roadType", icon: TestIcon, label: "道路の種類", on: false, category: "roadCondition" }, // panelHint未設定
       ];
       render(<MapOverlayControls {...baseProps()} layers={layers} />);
 
@@ -675,9 +695,10 @@ describe("MapOverlayControls", () => {
   describe("環境グループ（改善計画T406）", () => {
     function environmentLayers(): OverlayLayerChip[] {
       return [
-        { id: "route", label: "ルート", on: false }, // どのグループにも属さない→単独のまま
+        { id: "route", icon: TestIcon, label: "ルート", on: false }, // どのグループにも属さない→単独のまま
         {
           id: "precipitationNowcast",
+          icon: TestIcon,
           label: "降水ナウキャスト",
           chipLabel: "降水",
           on: false,
@@ -690,7 +711,7 @@ describe("MapOverlayControls", () => {
     it("terrain（標高図）・weather（降水等）どちらのcategoryのチップも「環境」へ束ねられ、個別ボタンは出ない", () => {
       const layers: OverlayLayerChip[] = [
         ...environmentLayers(),
-        { id: "elevation", label: "標高図", on: false, category: "terrain" },
+        { id: "elevation", icon: TestIcon, label: "標高図", on: false, category: "terrain" },
       ];
       render(<MapOverlayControls {...baseProps()} layers={layers} />);
 
@@ -732,6 +753,7 @@ describe("MapOverlayControls", () => {
       const layers: OverlayLayerChip[] = [
         {
           id: "precipitationNowcast",
+          icon: TestIcon,
           label: "降水ナウキャスト",
           chipLabel: "降水",
           on: true,
@@ -747,6 +769,7 @@ describe("MapOverlayControls", () => {
         },
         {
           id: "windVector",
+          icon: TestIcon,
           label: "風（矢印）",
           chipLabel: "風",
           on: true,
@@ -782,6 +805,7 @@ describe("MapOverlayControls", () => {
       const layers: OverlayLayerChip[] = [
         {
           id: "windVector",
+          icon: TestIcon,
           label: "風（矢印）",
           on: false,
           category: "weather",
@@ -790,6 +814,7 @@ describe("MapOverlayControls", () => {
         },
         {
           id: "precipitationNowcast",
+          icon: TestIcon,
           label: "降水ナウキャスト",
           on: false,
           category: "weather",
@@ -816,17 +841,31 @@ describe("MapOverlayControls", () => {
   describe("スポットグループ（改善計画T406）", () => {
     function spotLayers(): OverlayLayerChip[] {
       return [
-        { id: "route", label: "ルート", on: false },
-        { id: "stopPoi", label: "停止要因", on: false, category: "trafficSafety" },
-        { id: "accidents", label: "事故地点", on: true, category: "trafficSafety" },
-        { id: "supplyPoi", label: "補給・休憩ポイント", chipLabel: "補給休憩", on: false, category: "amenity" },
+        { id: "route", icon: TestIcon, label: "ルート", on: false },
+        { id: "stopPoi", icon: TestIcon, label: "停止要因", on: false, category: "trafficSafety" },
+        { id: "accidents", icon: TestIcon, label: "事故地点", on: true, category: "trafficSafety" },
+        {
+          id: "supplyPoi",
+          icon: TestIcon,
+          label: "補給・休憩ポイント",
+          chipLabel: "補給休憩",
+          on: false,
+          category: "amenity",
+        },
       ];
     }
 
     it("trafficSafety/amenity（非composite）のチップは「スポット」へ束ねられ、車の圧迫感（composite）は含まれない", () => {
       const layers: OverlayLayerChip[] = [
         ...spotLayers(),
-        { id: "axis:car_stress", label: "車の圧迫感", on: false, category: "trafficSafety", dataNature: "composite" },
+        {
+          id: "axis:car_stress",
+          icon: TestIcon,
+          label: "車の圧迫感",
+          on: false,
+          category: "trafficSafety",
+          dataNature: "composite",
+        },
       ];
       render(<MapOverlayControls {...baseProps()} layers={layers} />);
 
@@ -865,7 +904,7 @@ describe("MapOverlayControls", () => {
   describe("レイヤーのデータ取得状態（改善計画T87/T606: 地図上チップの状態ドット）", () => {
     it("dataStatusを渡すとON中のチップに状態ドットが描画され、titleへ状態文言が反映される", () => {
       const layers: OverlayLayerChip[] = [
-        { id: "route", label: "ルート", on: true, title: "選択中ルート", dataStatus: "loading" },
+        { id: "route", icon: TestIcon, label: "ルート", on: true, title: "選択中ルート", dataStatus: "loading" },
       ];
       render(
         <MapOverlayControls
@@ -882,7 +921,9 @@ describe("MapOverlayControls", () => {
     });
 
     it("OFF中のチップはdataStatusがあってもドットを出さない（LayerChipと同じ抑制条件）", () => {
-      const layers: OverlayLayerChip[] = [{ id: "route", label: "ルート", on: false, dataStatus: "error" }];
+      const layers: OverlayLayerChip[] = [
+        { id: "route", icon: TestIcon, label: "ルート", on: false, dataStatus: "error" },
+      ];
       render(
         <MapOverlayControls
           layers={layers}
@@ -897,7 +938,7 @@ describe("MapOverlayControls", () => {
     });
 
     it("dataStatus未指定（正常）のチップはドットを出さない", () => {
-      const layers: OverlayLayerChip[] = [{ id: "route", label: "ルート", on: true }];
+      const layers: OverlayLayerChip[] = [{ id: "route", icon: TestIcon, label: "ルート", on: true }];
       render(
         <MapOverlayControls
           layers={layers}
@@ -938,8 +979,8 @@ describe("MapOverlayControls", () => {
     it("親が新しい配列参照でレンダーしてもResizeObserverは再構築されず、グループの展開/収納は壊れない", async () => {
       const user = userEvent.setup();
       const layers1: OverlayLayerChip[] = [
-        { id: "roadType", label: "道路の種類", on: false, category: "roadCondition" },
-        { id: "designation", label: "指定路線", on: true, category: "roadCondition" },
+        { id: "roadType", icon: TestIcon, label: "道路の種類", on: false, category: "roadCondition" },
+        { id: "designation", icon: TestIcon, label: "指定路線", on: true, category: "roadCondition" },
       ];
       const { rerender } = render(
         <MapOverlayControls
