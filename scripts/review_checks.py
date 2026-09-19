@@ -1221,6 +1221,46 @@ def paragraphs_with_removal_marker(doc: str, revision: str | None = None) -> set
     return marked
 
 
+#: DBの表の名前を宣言している2つの場所。**両方を母集団にする**——migrationのDDLだけでは
+#: ORMの`__tablename__`しか持たない表が漏れ、ORMだけでは`way_geometry`のようにモデルを
+#: 持たない表が漏れる。
+TABLE_DDL_RE = re.compile(
+    r"""CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?["']?([A-Za-z_][A-Za-z0-9_.]*)""", re.I)
+TABLENAME_RE = re.compile(r"""__tablename__\s*=\s*["']([a-z0-9_]+)["']""")
+
+
+def declared_tables(files: list[str]) -> dict[str, str]:
+    """表の名前 → それを宣言しているファイル（同じ名前が複数あれば最初のもの）。"""
+    found: dict[str, str] = {}
+    for f in sorted(files):
+        if f.startswith("backend/migrations/") and f.endswith(".sql"):
+            pattern = TABLE_DDL_RE
+        elif f.startswith("backend/app/") and f.endswith(".py"):
+            pattern = TABLENAME_RE
+        else:
+            continue
+        for m in pattern.finditer(read_text(REPO_ROOT / f)):
+            found.setdefault(m.group(1).rsplit(".", 1)[-1], f)
+    return found
+
+
+def find_undocumented_tables(files: list[str], scope: list[str] | None = None) -> list[str]:
+    """architecture.mdがその名前を1度も書いていない表。
+
+    追従漏れは「既存の節の書き換え」ではなく「**節を起こす必要がある変更**」で丸ごと
+    落ちる（T942で実測: 表18件中6件が1文字も無く、いずれも新テーブルを伴うタスク）。
+    名前が1度でも出ていれば通す——どう書くべきかは検知器には決められないが、「この表が
+    あることを文書が知らない」だけは機械的に分かる。
+    """
+    architecture = read_text(REPO_ROOT / ARCHITECTURE_DOC)
+    return [
+        f"`{name}`（{origin}）が {ARCHITECTURE_DOC} に1度も出てこない"
+        "——表を足したら、それが何を持ちどう使われるかを書く節も足す"
+        for name, origin in sorted(declared_tables(files).items())
+        if (scope is None or origin in scope) and name not in architecture
+    ]
+
+
 def find_undeclared_dead_refs(
     doc_lines: dict[str, list[tuple[int, str]]], files: list[str], corpus: str,
     revision: str | None = None,
@@ -2492,6 +2532,7 @@ DETECTOR_ENFORCEMENT: dict[str, frozenset[str]] = {
     # 免除した段落の中身は常に参考表示（0件で黙らないためのもので、ブロックはしない）。
     "undeclared_dead_refs_exempted": frozenset(),
     "undocumented_files": frozenset({"staged", "since", "full"}),
+    "undocumented_tables": frozenset({"staged", "since", "full"}),
     "plan_vs_tasks": frozenset({"staged", "since", "full"}),
     "task_numbering": frozenset({"staged", "since", "full"}),
     "dead_doc_links": frozenset({"staged", "since", "full"}),
@@ -2596,6 +2637,8 @@ def cmd_docs(args: argparse.Namespace) -> int:
                 arch_lines, files + added, source_corpus(files + added), revision=""))
         add("undocumented_files", "新規実装ファイルの docs/modules 記載漏れ（ステージ済み新規ファイル）",
             lambda: find_undocumented_files(added, modules_text, files + added))
+        add("undocumented_tables", "architecture.md に名前が無いDBの表（ステージ済み変更ファイルが宣言するもの）",
+            lambda: find_undocumented_tables(files + added, scope=staged + added))
         add("plan_vs_tasks", "improvement-plan.md [x]/[ ] と docs/tasks「状態:」の不一致",
             lambda: check_plan_vs_tasks())
         add("task_numbering", "タスク番号の衝突・台帳と見出しのずれ",
@@ -2669,6 +2712,12 @@ def cmd_docs(args: argparse.Namespace) -> int:
                 lambda: find_dead_refs_inside_exempted_paragraphs(arch_all, files, source_corpus(files)))
         add("undocumented_files", title,
             lambda: find_undocumented_files(added, modules_text, files))
+        # `added`は--sinceなら変更ファイル、全件なら`files`そのもの。どちらでも
+        # 「その範囲のファイルが宣言する表」に絞る、という同じ意味になる。
+        add("undocumented_tables",
+            "architecture.md に名前が無いDBの表"
+            + (f"（{args.since} 以降に変更されたファイルが宣言するもの）" if args.since else "（全件）"),
+            lambda: find_undocumented_tables(files, scope=added))
         add("redis_skeleton", "Redis骨格の自前実装（docs/caching.md参照）",
             lambda: find_redis_skeleton_violations(source_lines))
         add("module_redefinition", "モジュール直下で同じ名前を2回定義（全件、docs/tasks/T883.md参照）",
@@ -3271,6 +3320,7 @@ GUARD_PROBE_TS = "frontend/src/lib/zzzGuardProbe.ts"
 GUARD_PROBE_TEST_TS = "frontend/src/lib/zzzGuardProbe.test.ts"
 REVIEW_CONTEXT_DOC = ".claude/commands/review/context.md"
 GUARD_PROBE_PY = "backend/app/services/zzz_guard_probe.py"
+GUARD_PROBE_MIGRATION = "backend/migrations/9999_zzz_guard_probe.sql"
 # 実在しない識別子の綴りは実行時に組み立てる。このファイル自身が実在判定のコーパス
 # （`source_corpus`はscripts/も読む）に入っているため、綴りをそのまま書くと
 # 「実装に存在する名前」になってしまい、実在判定の検知器が鳴らない。
@@ -3409,6 +3459,9 @@ def guard_probe_mutations(wt: Path) -> dict[str, "Callable[[], None]"]:
             GUARD_PROBE_TS,
             f"// `{GUARD_PROBE_IDENT}`が処理する。\nexport const zzzGuardProbe = 1;\n"),
         "undocumented_files": lambda: write(GUARD_PROBE_TS, "export const zzzGuardProbe = 1;\n"),
+        "undocumented_tables": lambda: write(
+            GUARD_PROBE_MIGRATION,
+            "CREATE TABLE IF NOT EXISTS zzz_guard_probe_table (id integer PRIMARY KEY);\n"),
         "undefined_css_tokens": lambda: write(
             GUARD_PROBE_TS, 'export const zzzGuardProbe = "var(--zzz-guard-probe-token)";\n'),
         "redis_skeleton": lambda: write(
@@ -3677,6 +3730,12 @@ def guard_probe_edges(wt: Path) -> dict[str, "EdgeProbe | str"]:
             lambda: append(wt / "backend/app/domain/hard_filters.py",
                            '\n\ndef _zzz_guard_probe(tags: dict[str, str]) -> str | None:\n'
                            '    return tags.get("zzz_guard_probe")\n')),
+        "undocumented_tables": EdgeProbe(
+            "アプリ自身が生SQLで作る表（migrations/にもORMにも無い）", False,
+            lambda: append(wt / "backend/app/infrastructure/migrate.py",
+                           '\n\nZZZ_GUARD_PROBE_DDL = "CREATE TABLE zzz_guard_probe_table (id int)"\n'),
+            lambda: write(GUARD_PROBE_MIGRATION,
+                          "CREATE TABLE zzz_guard_probe_table (id integer);\n")),
         "undocumented_files": EdgeProbe(
             "実装ファイルの改名（追加ではないため--diff-filter=Aに出ない）", False,
             # 外縁＝改名、対照＝同じパスを新規追加。どちらも記載の無いパスが現れる点は同じで、
@@ -3775,6 +3834,8 @@ EDGE_GAP_NOTES: dict[str, str] = {
     "module_redefinition":
         "backend/benchmarks/は29ファイル。計測用スクリプトで、同名の再定義が起きても"
         "本番の挙動には効かない。",
+    "undocumented_tables":
+        "アプリ自身が生SQLで作る表が外。実在するのは`schema_migrations`（migrate.pyがブートストラップ時に作る）1つで、migrationで管理する表ではない。母集団へ入れるには任意のSQL文字列を読むことになり、検知器の性質が変わる。",
     "undocumented_files":
         "改名が`--diff-filter=A`に出ないという検知の方式そのものの限界で、対象パスを広げても"
         "閉じない（直近50コミットで実装ファイルの改名は14件）。閉じるには改名も対象にする"

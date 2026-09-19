@@ -795,14 +795,56 @@ Response 200:
 { "status": "ok" }
 Response 401（認証情報が無い・誤っている場合）:
 { "detail": "Not authenticated" }
+
+GET /api/admin/tuning   # 較正値（走ってみて決める値）の一覧（HTTP Basic認可要、管理画面/adminの「較正値」タブ）
+Response 200: 宣言（domain/tuning.py）の項目ごとに、id・ラベル・単位・既定値・範囲・
+# 説明・いま効いている値・既定から動かしてあるか・変えたとき効くまでに何が要るか（effect）。
+# **並べる項目は宣言から導く**ため、画面もこのAPIも項目の一覧を持たない。
+
+PUT /api/admin/tuning/{param_id}   # 1件を上書きする（既定と同じ値を送ると上書きを消す）
+Response 200: 更新後の同じ形
+Response 404（宣言に無いid）／422（宣言の範囲の外）
 ```
 
 標高の地域オーバーレイ（Step10）は`GET /api/gsi-relief-tile/{path:path}`（改善計画T572）を
 経由する。JSON応答を持つAPIではなく、`BasemapClient`と同じ「pathを丸ごとプロキシ」方式の
 ラスタタイル配信のため、上記のようなJSONレスポンス例は無い（詳細は「標高オーバーレイ
-（国土地理院 色別標高図、ラスタタイル）」を参照）。
+（国土地理院 色別標高図、ラスタタイル）」を参照）。起伏（陰影）は
+`GET /api/gsi-terrain-tile/{z}/{x}/{y}.png`で、地理院の標高タイルをTerrain-RGBへ移して
+返す（同じく丸ごとプロキシではなく**変換して**返すため、上流のpathをそのまま受けない。
+詳細は1章「起伏（陰影）は別レイヤー」を参照）。
 
 これで仕様書18章に記載の最終形のレスポンス項目（距離・標高・風・道路特性・総合スコア）に加え、区間ごとの詳細（`segments`）、候補ルートに紐づかない地域全体の標高・路面レイヤー（Step10）も出揃った。
+
+### 較正値（走ってみて決める値）のDB化と管理API
+
+ターンの秒数・停止要因の待ち・走行モデルの標準値・信号とみなす半径・主観と時間の換算レートは、
+いずれも実感に合わせて置いた値で較正されていない。**変えるたびにデプロイするのでは実走で
+確かめられない**ため、宣言（`backend/app/domain/tuning.py`）と、そこから動かしたぶんだけを
+持つ`tuning_overrides`テーブル（migration `0043_add_tuning_overrides.sql`）へ分けた
+（[T805](tasks/T805.md)）。
+
+- **行が1つも無くても宣言どおりに動く**。`axis_definitions`のような「行そのものが定義」の
+  形ではないため、fresh bootstrap（CI・新規環境・disaster recovery）でスナップショットの
+  投入が要らない。
+- 読み込みはアプリ起動時と管理APIの書き込み直後の2つだけで、ポーリングはしない（単一
+  プロセス前提）。プロセス内の値は**中身ごと差し替える**（辞書を作り直すと、import済みの
+  参照が古い辞書を指したままになる）。
+- 宣言から消えたidの行は警告して無視し、値が宣言の範囲の外・数値でない行は落とす
+  （パラメータを1つ減らしただけで本番の起動が失敗するのは割に合わないが、間違った値が
+  静かに効く方が悪い）。
+
+宣言は「変えたとき効くまでに何が要るか」（`TuningEffect`）を各項目へ持つ。**「変えたのに
+効かない」を宣言として持つ**ためのもので、ほとんどは次のルート生成から効くが、たとえば
+信号とみなす半径は`road_nodes`の事前計算バッチをやり直すまで効かない。管理画面はこの値で
+見出しを分け、効かない群がそれと分かるようにする。**「プロセスを入れ替えれば効く」という
+効き方は置けない**——上書きを読むのは全importの後のため、import時に束ねた値は起動を
+やり直しても同じ順序で束ね直るだけである（[T940](tasks/T940.md)。詳細は
+[docs/modules/backend/routing-engine.md](modules/backend/routing-engine.md)「較正値」節）。
+
+画面は`/admin`の「較正値」タブで、APIは`GET/PUT /api/admin/tuning`（4章参照）。
+フロントが使う値（`CLIENT_RELOAD`の効き方を持つもの）は`GET /api/axis-catalog`が
+一緒に配る。
 
 ---
 
@@ -1803,7 +1845,9 @@ osm_way_id完全一致の1行取得）はこの対に属さない別系統で、
 `app/batch/import_designations.py`が国土数値情報のN10（緊急輸送道路）・N12（重要物流道路）を
 都道府県別ZIP（公開URLから直接取得、`backend/data/designations/`）から取込み、
 `route_designations`（線データ、`kind`=`emergency_transport`/`critical_logistics`）へ
-`(kind, pref_code)`単位でDELETE→INSERTする（migration `0007_add_route_designations.sql`）。
+`(kind, pref_code)`単位でDELETE→INSERTする（migration `0007_add_route_designations.sql`。
+取込バッチ自体の実行記録は同じmigrationの`designation_import_runs`が持ち、`designation_attributes`の
+系譜の列と同じく「この計算はどのデータ世代までを見ていたか」を後から辿る材料になる）。
 `app/batch/match_designations.py`が`route_designations`を`DESIGNATION_BUFFER_WIDTH_M=20m`で
 バッファし、`osm_raw_ways`との交差長比が`DESIGNATION_MATCH_MIN_RATIO=0.5`以上のWayを
 `designation_attributes`（osm_way_id基準のWay派生の事前計算）へ書き込む事前計算バッチ
@@ -1811,7 +1855,8 @@ osm_way_id完全一致の1行取得）はこの対に属さない別系統で、
 （`DESIGNATION_IMPORT_KINDS`＝取込対象kind、`CAR_STRESS_DESIGNATION_KINDS`＝
 車ストレス+1補正の対象kind。現状は同一集合だが概念的に別軸として別定数）。
 
-マッチング対象は`osm_raw_ways`（関東全域で自己完結）を基準にする。**`road_edges`基準にすると、データは全域にあるのに表示がルート生成履歴のあるエリアだけに限られる**（road_edgesは遅延構築のため）。評価粒度もway単位のratio-matchで揃う。
+マッチング対象は`osm_raw_ways`（対になる`osm_raw_nodes`とともに、タイル取得のたびに
+取得元タイルに依存しない形で蓄積する生のOSMデータ。関東全域で自己完結）を基準にする。**`road_edges`基準にすると、データは全域にあるのに表示がルート生成履歴のあるエリアだけに限られる**（road_edgesは遅延構築のため）。評価粒度もway単位のratio-matchで揃う。
 
 該当区間は新しい評価軸を増やさず、**車ストレスへの+1補正のみ**として組み込む
 （内部軸`car_stress_designation_adjustment`、大型車交通の代理指標）。
@@ -1835,7 +1880,12 @@ T350のDB設計書レビューで、`edge_attribute_counts`/`way_attribute_count
 `osm_import_runs`の内容から計算したか、(b) 「入力データが古い」のか「計算ロジックが
 変わった」のかを区別する手段が無いと判明した（[docs/tasks/T351.md](tasks/T351.md)参照）。
 以下の列を追加した（[T624](tasks/T624.md)で新設した`way_landcover`もosm起点の派生データ
-としてこのパターンへ合流している）:
+としてこのパターンへ合流している。以後に増えた`edge_landcover`（区間単位の土地被覆、
+[T919](tasks/T919.md)）・`way_geometry`（wayの折れ線から測るスカラー。現在の中身は
+道の曲がり具合＝度/km、[T691](tasks/T691.md)）・`way_divided_carriageway`（上下線が分かれた道の片側か）も
+同じ形で、いずれも`source_osm_import_run_id`と`algorithm_version`を持つ。
+`raw_intersection_nodes`（次数3以上の生OSMノード）はこれらの集計が参照する側の派生データ
+で、バッチが全再構築するため世代の列を持たない）:
 
 - **`source_accident_import_run_id`/`source_osm_import_run_id`**（`edge_attribute_counts`・
   `way_attribute_counts`・`designation_attributes`のうちaccident/osm各データに依存する列のみ。
@@ -1876,7 +1926,7 @@ T281段階3（鮮度台帳、自動比較の仕組み）に着手する際は、
 ### 静的レイヤー・タイル配信（フロント固定レイヤー＋レジストリ駆動の二次軸ランプレイヤー）
 
 [frontend/src/components/Map/mapLayers.ts](../frontend/src/components/Map/mapLayers.ts)の
-`MAP_LAYERS`カタログは標高図・土地被覆・道路の種類・路面の種類（T165で「道路情報」から論理分割）・
+`buildMapLayers()`が実行時に組み立てるカタログは標高図・土地被覆・道路の種類・路面の種類（T165で「道路情報」から論理分割）・
 車ストレス・自転車インフラ・指定路線・停止要因POI・補給休憩ポイント（T101）・
 事故（警察庁統計）・ルートの固定レイヤー（旧・安全度レイヤーは改善計画T148で削除）に加え、
 降水ナウキャスト・風（矢印）の2レイヤーが`kind="static"`（選択候補と無関係に常設）・
@@ -1886,7 +1936,9 @@ T281段階3（鮮度台帳、自動比較の仕組み）に着手する際は、
 地図上の独立可視化レイヤーとしては提供しない（旧`intersection_weight`のルーティング材料
 としては引き続き使う）。色分け・凡例・絞り込み軸の定義は
 [frontend/src/components/Map/staticAttributeLayers.ts](../frontend/src/components/Map/staticAttributeLayers.ts)
-に集約（`STATIC_FILTER_AXES`が絞り込みUIのカタログ、事故のみ当事者×重大度の2軸）。
+に集約（`buildStaticFilterAxes()`が絞り込みUIのカタログを軸カタログから組み立てる。
+ビルド時の静的な定数ではない——公開軸は軸スタジオから増減するため、
+`GET /api/axis-catalog`の実行時の中身に合わせないとレイヤーだけが残る）。
 地図上チップ（`MapOverlayControls.tsx`）最上位のグルーピング（道路/環境/スポット）は
 改善計画T406/T418により`MapOverlayGroup`が担う（「地図チップの最上位グルーピング
 （道路/環境/スポット）」節参照）。凡例・絞り込みはチップの▶パネルが持つ（同じグルーピングを別のパネルへ二重に持たない）。
@@ -1966,6 +2018,16 @@ DBから焼くタイル（上記のうちPNGラスタ以外）の世代は焼き
 分類に使うタグ集合を変えれば自動で変わる。frontendへは`export_openapi.py`が
 書き出す`generated/region-tile-config.json`が届け、ドリフト検知テスト
 （`regionApi.test.ts`）が照合する。
+
+**ただしタイルの中身は、焼き込むSQL（形）と、そのSQLが読むテーブルの中身（世代）の
+2つで決まる**。形は上記が自動で署名するが、中身が作り直されたことを知っているのは
+バッチが進める`derived_data_meta.revision`だけで、これはビルド時の生成物には入らない
+（バッチはデプロイを伴わない）。この2つを繋いで実行時に世代を組み立てるのが
+`app/services/tile_version_service.py`で、**手で書く定数を持たない**——手で書くと、
+上げ忘れ（古い値を配り続ける）と、バッチ完了後にもう一度上げ直す必要（デプロイとバッチの
+間に配信されたタイルが、新しい鍵のまま古い値でキャッシュへ載る）の両方が起きる。
+組み立てた世代は`GET /api/axis-catalog`の応答へ相乗りさせてフロントへ配り、フロントは
+タイルURLのクエリへ入れてブラウザのキャッシュを分ける（[T848](tasks/T848.md)）。
 
 ### レジストリ駆動の二次軸ランプレイヤー
 

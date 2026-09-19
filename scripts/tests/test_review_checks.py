@@ -1693,3 +1693,36 @@ def test_stale_gap_notes_accepts_a_reason_for_a_gap_that_is_still_open(monkeypat
     monkeypatch.setitem(review_checks.EDGE_GAP_NOTES, "zzz_probe", "測った理由")
 
     assert "zzz_probe" not in review_checks.stale_gap_notes({"zzz_probe": _edge(False)})
+
+
+#: 表名の宣言は2箇所にある。テストは実在するファイルを使う——正規表現だけを合わせても、
+#: 実際の書き方（`IF NOT EXISTS`・引用符・スキーマ修飾）から外れれば意味がない。
+_DDL_FILE = "backend/migrations/0036_add_way_geometry.sql"
+_ORM_FILE = "backend/app/infrastructure/tuning_overrides.py"
+
+
+def test_declared_tables_reads_both_the_migration_ddl_and_the_orm():
+    found = review_checks.declared_tables([_DDL_FILE, _ORM_FILE])
+
+    assert found == {"way_geometry": _DDL_FILE, "tuning_overrides": _ORM_FILE}
+
+
+def test_find_undocumented_tables_is_quiet_when_the_document_names_them():
+    assert review_checks.find_undocumented_tables([_DDL_FILE, _ORM_FILE]) == []
+
+
+def test_find_undocumented_tables_reports_a_table_the_document_never_names(monkeypatch):
+    # 文書の側を「その名前を書いていない文書」へ差し替えて、拾うことを見る。
+    monkeypatch.setattr(review_checks, "ARCHITECTURE_DOC", "docs/design-principles.md")
+
+    hits = review_checks.find_undocumented_tables([_DDL_FILE, _ORM_FILE])
+
+    assert len(hits) == 2
+
+
+def test_find_undocumented_tables_only_looks_at_the_given_scope(monkeypatch):
+    monkeypatch.setattr(review_checks, "ARCHITECTURE_DOC", "docs/design-principles.md")
+
+    hits = review_checks.find_undocumented_tables([_DDL_FILE, _ORM_FILE], scope=[_ORM_FILE])
+
+    assert [h for h in hits if "way_geometry" in h] == []
