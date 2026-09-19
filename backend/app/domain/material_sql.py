@@ -1,15 +1,15 @@
-"""`osm_raw_ways`のOSMタグから材料の値・欠損を判定するSQL断片の単一の情報源。
+"""材料の値をSQLで導出する式の、単一の情報源。
 
-`road_graph_repository.py: _ROAD_SURFACE_TILE_MVT_SQL`（地図タイル配信、Road Graphを
-構築せず`osm_raw_ways`を直接クエリする経路）と`material_coverage.py`
-（材料ごとの欠損割合集計、DB全体を対象にした集計クエリ）は、いずれも
-`domain/material_catalog.py`のPython版extractorとは別に、SQL側で同じOSMタグ分類ロジックを
-必要とする（両者ともRoad Graphオブジェクトを構築せずosm_raw_waysへ直接アクセスするため、
-`_evaluate_axes_bulk`のPython extractorをそのまま使えない）。同じ判定式を呼び出し側ごとに
-独立して書くと、一方だけ変更してもう一方が古いまま残るドリフトを招くため、ここへ集約する。
+材料が何から導かれるかはdomainの知識のため、式をここに置く。参照する側
+（`road_graph_repository.py`のタイル配信・材料の読み出し、`material_coverage.py`の
+欠損割合集計）はいずれもRoad Graphのオブジェクトを構築せずDBを直接引くため、
+`material_catalog.py`のPython extractorをそのまま使えない。同じ判定式を呼び出し側ごとに
+独立して書くとドリフトするため、ここへ集約する。
 
-全断片は`osm_raw_ways`のテーブルエイリアスを`w`固定で参照する（両呼び出し元とも
-`FROM osm_raw_ways AS w`を前提にする）。
+式はテーブルのエイリアスを固定で参照する（`w`＝`osm_raw_ways`）。FROM句は読み出し側が
+組み立てる。
+
+人が書いた期待値との突き合わせは`tests/test_material_sql.py`。
 """
 
 

@@ -1,4 +1,4 @@
-"""`osm_way_tag_sql.py`の導出SQLを、人が書いた期待値で検証する。
+"""`material_sql.py`の導出SQLを、人が書いた期待値で検証する。
 
 地図タイル配信（`_ROAD_SURFACE_TILE_MVT_SQL`）・材料カバレッジ集計・軸スタジオの値列挙は、
 `material_catalog.py`のPython extractorを通らずこのSQL断片だけで材料を導出する。
@@ -19,7 +19,7 @@ from sqlalchemy import ARRAY, Text, bindparam, text
 from app.domain.graph import DirectedEdge
 from app.domain.material_catalog import MATERIAL_CATALOG, MaterialExtractionContext
 from app.domain.road import BAD_OSM_SURFACE_TAGS, GOOD_OSM_SURFACE_TAGS
-from app.infrastructure.osm_way_tag_sql import (
+from app.domain.material_sql import (
     BICYCLE_NORMALIZED_SQL,
     BRIDGE_NORMALIZED_SQL,
     CYCLEWAY_TAGS_ARRAY_SQL,
@@ -34,7 +34,7 @@ from app.infrastructure.osm_way_tag_sql import (
     TUNNEL_NORMALIZED_SQL,
 )
 
-# 材料id → タイルSQLが焼いているのと同じ式。式をここへ書き写さず`osm_way_tag_sql.py`の
+# 材料id → タイルSQLが焼いているのと同じ式。式をここへ書き写さず`material_sql.py`の
 # 断片から組み立てる（写した側だけが古くなるのを防ぐ）。
 _SQL_BY_MATERIAL: dict[str, str] = {
     "surface_good": SURFACE_GOOD_CASE_SQL,

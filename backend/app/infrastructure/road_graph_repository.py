@@ -113,7 +113,7 @@ from app.domain.traffic import (
 from app.domain.tuning import tuning_value
 from app.infrastructure.cache_identity import shape_digest
 from app.infrastructure.designation_models import DesignationAttributeRow
-from app.infrastructure.osm_way_tag_sql import (
+from app.domain.material_sql import (
     BICYCLE_NORMALIZED_SQL,
     BRIDGE_NORMALIZED_SQL,
     CYCLEWAY_TAGS_ARRAY_SQL,
@@ -2345,7 +2345,7 @@ class RawOsmRepository(_SessionRepository):
         smoothnessのようなオープンエンドな多値材料は事前に全量を静的に列挙できないため、
         実際にDBへ取り込まれている値をここで動的取得する。
 
-        正規化は`infrastructure/osm_way_tag_sql.py`の共有断片（`_ROAD_SURFACE_TILE_MVT_SQL`
+        正規化は`domain/material_sql.py`の共有断片（`_ROAD_SURFACE_TILE_MVT_SQL`
         [RoadSurfaceTileQuery]・`material_coverage.py`と共通）を使う（surface/smoothnessは
         `lower(btrim(...))`、highwayは生値のまま——OSM取込プロファイル
         [`batch/import_profile.yaml`のhighway許可リスト]で既に許可リスト化された正準値の
@@ -2521,7 +2521,7 @@ class AttributeRepository(_SessionRepository):
 
         DEMが返すのは地表面の標高で桁や坑道の高さではないため、勾配を算出してよいかの
         判定に使う（`domain/attributes.py: compute_elevation_attribute`）。タグの正規化は
-        地図タイル側と同じ式（`osm_way_tag_sql.py`）を共有する。
+        地図タイル側と同じ式（`material_sql.py`）を共有する。
         """
         if not edge_ids:
             return set()
