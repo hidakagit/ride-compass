@@ -14,6 +14,7 @@ import logging
 import numpy as np
 import pytest
 
+from tests.material_arrays_scaffold import empty_material_arrays, material_arrays_from_bundles
 from app.domain.attributes import EdgeAttributeCounts, EdgeMaterialBundle, ElevationAttribute, SearchMaterials
 from app.domain.errors import RoutingError
 from app.domain import routing
@@ -237,8 +238,11 @@ class FakeGraphService:
             )
             for edge_id in edge_ids
         }
-        score_matrix = build_static_edge_score_matrix(graph, materials, self._accident_years_covered)
-        return SearchMaterials(graph=graph, materials=materials), score_matrix, self._tile_set
+        arrays = material_arrays_from_bundles(
+            graph, edge_ids, materials, self._accident_years_covered
+        )
+        score_matrix = build_static_edge_score_matrix(graph, arrays, self._accident_years_covered)
+        return SearchMaterials(graph=graph, materials=arrays), score_matrix, self._tile_set
 
     async def get_edges_with_geometry(self, edge_ids):
         # 主経路（hydrated優先、road_graph_engine.py:341,386の`hydrated.get(edge_id) or
@@ -2176,7 +2180,7 @@ def _build_context_score_fields(
     active_scopes = frozenset({"night_only"}) if night_active else frozenset()
     weights = preference.with_time_scope(active_scopes).weights
     hard_filter_excluded = compute_hard_filter_excluded(
-        score_matrix.highway_filter_flags, score_matrix.no_bicycle, score_matrix.gradient_percent,
+        score_matrix.hard_filter_flags, score_matrix.gradient_percent,
     )
     composer = road_graph_engine._LegCostComposer(
         score_matrix, weights, penalty_strength, hard_filter_excluded, weather, wind_series,
@@ -2509,7 +2513,7 @@ async def test_build_best_candidate_uses_reverse_loop_when_it_has_lower_wind_dif
         route_preference=preference,
     )
     context = road_graph_engine._RoadGraphContext(
-        graph=graph, materials={}, accident_years_covered=0,
+        graph=graph, materials=empty_material_arrays(list(graph.edges)), accident_years_covered=0,
         weather=weather, origin_node="o",
         node_index=build_node_spatial_index(graph), night_active=False,
         # 改善計画T537: _build_best_candidate→_reverse_traced_edgesがlazy_graph
@@ -2552,7 +2556,7 @@ async def test_build_best_candidate_falls_back_to_forward_when_loop_has_one_way_
         route_preference=preference,
     )
     context = road_graph_engine._RoadGraphContext(
-        graph=graph, materials={}, accident_years_covered=0,
+        graph=graph, materials=empty_material_arrays(list(graph.edges)), accident_years_covered=0,
         weather=None, origin_node="o",
         node_index=build_node_spatial_index(graph), night_active=False,
         # 改善計画T537: _build_best_candidate→_reverse_traced_edgesがlazy_graph
@@ -2721,7 +2725,7 @@ async def test_build_best_candidate_does_not_reverse_waypoint_route_even_when_re
         route_preference=preference,
     )
     context = road_graph_engine._RoadGraphContext(
-        graph=graph, materials={}, accident_years_covered=0,
+        graph=graph, materials=empty_material_arrays(list(graph.edges)), accident_years_covered=0,
         weather=weather, origin_node="o",
         node_index=build_node_spatial_index(graph), night_active=False,
         # 改善計画T537: _build_best_candidate→_reverse_traced_edgesがlazy_graph
@@ -2854,7 +2858,7 @@ def _spliceable_context(edge_count: int = 4):
         route_preference=preference,
     )
     context = road_graph_engine._RoadGraphContext(
-        graph=graph, materials={}, accident_years_covered=0,
+        graph=graph, materials=empty_material_arrays(list(graph.edges)), accident_years_covered=0,
         weather=weather, origin_node="o",
         node_index=build_node_spatial_index(graph), night_active=False,
         lazy_graph=road_graph_engine.build_lazy_road_graph(graph),

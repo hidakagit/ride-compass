@@ -115,8 +115,10 @@ from app.domain.traffic import (
 from app.domain.tuning import tuning_value
 from app.infrastructure.cache_identity import shape_digest
 from app.infrastructure.designation_models import DesignationAttributeRow
-from app.domain.material_catalog import MATERIAL_CATALOG, material_array
+from app.domain.hard_filters import HARD_FILTER_VALUE_SQL
+from app.domain.material_catalog import MATERIAL_CATALOG, material_array_group
 from app.domain.material_sql import (
+    LANDCOVER_SQL_KEYS,
     MATERIAL_VALUE_SQL,
     BICYCLE_NORMALIZED_SQL,
     BRIDGE_NORMALIZED_SQL,
@@ -993,10 +995,107 @@ def _float_array(values: list) -> np.ndarray:
     return np.array([np.nan if v is None else float(v) for v in values], dtype=np.float64)
 
 
+def _shared_strings(values: list) -> list:
+    """同じ文字列は同じオブジェクトを指すようにする。
+
+    DBドライバは行ごとに別々のstrを返すため、`asphalt`のような少数の値が区間数ぶん
+    重複して残る。pickleはオブジェクトの同一性で重複を省くので、共有させるだけで
+    ディスクの実体が縮む（区間数ぶんのコピーが1つになる）。
+    """
+    pool: dict[object, object] = {}
+    return [pool.setdefault(v, v) for v in values]
+
+
+# 材料の式は区間向けのエイリアス（re/c/e/el/wl/d）を前提にする。**way1本を指すときも
+# 同じ式を使う**——wayの行から同じ名前のエイリアスを組み立てるだけで、式を2組持たない
+# （区間インスペクタ・軸スタジオのプレビュー）。
+#
+# way粒度では標高（ルート文脈が要る）と区間単位の土地被覆が存在しないため、`e`と`el`は
+# NULLだけの1行を与える。`el`がNULLなので土地被覆はway側（`wl`）へ落ちる。
+_WAY_ALIAS_LANDCOVER_NULLS = ", ".join(
+    f"NULL::double precision AS {key}_percent" for key in LANDCOVER_SQL_KEYS
+)
+
+_WAY_MATERIAL_ALIASES_TEMPLATE = f"""
+FROM osm_raw_ways w {{sampling}}
+LEFT JOIN way_attribute_counts c ON c.osm_way_id = w.osm_way_id
+LEFT JOIN way_landcover wl ON wl.osm_way_id = w.osm_way_id
+CROSS JOIN LATERAL (
+    SELECT w.highway AS highway, COALESCE(c.length_m, 0)::double precision AS distance_m
+) re
+CROSS JOIN LATERAL (SELECT NULL::double precision AS average_grade) e
+CROSS JOIN LATERAL (SELECT {_WAY_ALIAS_LANDCOVER_NULLS}) el
+LEFT JOIN LATERAL (
+    SELECT bool_or(kind = ANY(:designation_kinds)) AS is_designated
+    FROM designation_attributes da WHERE da.osm_way_id = w.osm_way_id
+) d ON true
+"""
+
+_WAY_MATERIAL_SELECT_SQL = ", ".join(
+    f"({expr}) AS m_{name}" for name, expr in sorted(MATERIAL_VALUE_SQL.items())
+)
+
+
+def _way_material_binds(statement):
+    return statement.bindparams(
+        bindparam("good_tags", value=sorted(GOOD_OSM_SURFACE_TAGS), type_=ARRAY(Text())),
+        bindparam("bad_tags", value=sorted(BAD_OSM_SURFACE_TAGS), type_=ARRAY(Text())),
+        bindparam(
+            "designation_kinds", value=sorted(CAR_STRESS_DESIGNATION_KINDS), type_=ARRAY(Text())
+        ),
+    )
+
+
+_WAY_MATERIAL_VALUES_SQL = _way_material_binds(
+    text(
+        f"SELECT {_WAY_MATERIAL_SELECT_SQL}"
+        + _WAY_MATERIAL_ALIASES_TEMPLATE.format(sampling="")
+        + " WHERE w.osm_way_id = :osm_way_id"
+    )
+)
+
+# 軸スタジオの分布プレビューが使うway標本。材料の式は上と同じものを使い、抽選と範囲の
+# 絞り込みだけを差し替える。`TABLESAMPLE SYSTEM`はページ単位の抽選で、全表走査を避けつつ
+# 広い範囲から拾える（行単位のBERNOULLIや`ORDER BY random()`は数百万行の全走査になり、
+# 管理画面の応答時間に収まらない）。ページ単位のため地理的な偏りが残りうる点は、分布を
+# 「目安」として扱う前提で許容する。
+#
+# 範囲を絞るときは抽選と併用しない——`TABLESAMPLE`は表全体のページから抽選するため、
+# 狭い範囲を重ねると当たるページがほとんど残らず、標本が範囲の広さに関係なく数本まで
+# 落ちる。範囲内は空間索引で直接引き、多すぎる場合は`LIMIT`で頭打ちにする。
+def _sample_way_materials_sql(sampling: str, area: str):
+    return _way_material_binds(
+        text(
+            f"SELECT ST_Length(w.geom::geography) AS length_m, {_WAY_MATERIAL_SELECT_SQL}"
+            + _WAY_MATERIAL_ALIASES_TEMPLATE.format(sampling=sampling)
+            + f" WHERE w.geom IS NOT NULL AND w.highway IS NOT NULL {area} LIMIT :limit"
+        )
+    )
+
+
+_SAMPLE_WAY_MATERIAL_VALUES_SQL = _sample_way_materials_sql(
+    "TABLESAMPLE SYSTEM (:sample_percent)", ""
+)
+_SAMPLE_WAY_MATERIAL_VALUES_IN_BBOX_SQL = _sample_way_materials_sql(
+    "", "AND w.geom && ST_MakeEnvelope(:xmin, :ymin, :xmax, :ymax, 4326)"
+)
+
+
+_HARD_FILTER_COLUMN_PREFIX = "hf_"
+
 # 材料ではないが、材料と同じ1回のクエリで求まるため一緒に受け取る列。
-# no_bicycleは0次ハードフィルタの生フラグ、標高の残りは経路確定後の表示用。
 _EXTRA_MATERIAL_ARRAY_COLUMNS: dict[str, str] = {
-    "no_bicycle": f"COALESCE({BICYCLE_NORMALIZED_SQL} = 'no', false)",
+    # 0次ハードフィルタはレジストリ（`HARD_FILTER_VALUE_SQL`）から列を作る。個別に
+    # 書き足さない——フィルタを1つ増やしたときここが取り残されると、そのフィルタは
+    # 常に「該当しない」になって黙って素通りする。
+    **{f"{_HARD_FILTER_COLUMN_PREFIX}{name}": expr for name, expr in HARD_FILTER_VALUE_SQL.items()},
+    # 探索と軸の評価が使う、区間そのものの値。グラフのオブジェクトからPythonで
+    # 組み直すより、材料と同じ1回のクエリで列として受けるほうが安い。中点は
+    # `road_nodes`から取る（グラフが持つNodeの緯度経度と同じ列）。
+    "distance_m": "re.distance_m",
+    "bearing_deg": "re.bearing_deg",
+    "mid_lat": "(ST_Y(nf.geom) + ST_Y(nt.geom)) / 2",
+    "mid_lon": "(ST_X(nf.geom) + ST_X(nt.geom)) / 2",
     "elevation_present": "e.calculated_at IS NOT NULL",
     "elevation_start_m": "e.start_elevation_m",
     "elevation_end_m": "e.end_elevation_m",
@@ -1022,6 +1121,8 @@ LEFT JOIN edge_landcover el
        ON el.osm_way_id = re.osm_way_id
       AND el.node_lo = LEAST(re.from_node_id, re.to_node_id)
       AND el.node_hi = GREATEST(re.from_node_id, re.to_node_id)
+LEFT JOIN road_nodes nf ON nf.node_id = re.from_node_id
+LEFT JOIN road_nodes nt ON nt.node_id = re.to_node_id
 LEFT JOIN LATERAL (
     SELECT bool_or(kind = ANY(:designation_kinds)) AS is_designated
     FROM designation_attributes da WHERE da.osm_way_id = re.osm_way_id
@@ -3049,7 +3150,7 @@ class AttributeRepository(_SessionRepository):
     async def get_edge_material_arrays(
         self, edge_ids: list[str], accident_years_covered: int
     ) -> EdgeMaterialArrays:
-        """材料を**DB側で導出し、列ごとの配列として**受け取る（`MATERIAL_VALUE_SQL`）。
+        """材料を**DB側で導出し、dtypeごとの行列として**受け取る（`MATERIAL_VALUE_SQL`）。
 
         `get_edge_materials_batch`が行を1本ずつ受けてPythonでオブジェクトを組むのに対し、
         こちらは区間数に比例するPythonの仕事を持たない。
@@ -3063,27 +3164,15 @@ class AttributeRepository(_SessionRepository):
         `derived_data_meta.revision`を上げる（`import_accidents.py`）ため、年数が変わった
         ときはこの表のキャッシュも一緒に無効になる。
         """
-        if not edge_ids:
-            empty_float = np.empty(0, dtype=np.float64)
-            return EdgeMaterialArrays(
-                edge_ids=[],
-                material_ids=tuple(sorted(MATERIAL_VALUE_SQL)),
-                values={m: np.empty(0) for m in sorted(MATERIAL_VALUE_SQL)},
-                no_bicycle=np.empty(0, dtype=bool),
-                elevation_present=np.empty(0, dtype=bool),
-                elevation_start_m=empty_float,
-                elevation_end_m=empty_float,
-                elevation_gain_m=empty_float,
-                elevation_loss_m=empty_float,
-                elevation_max_grade=empty_float,
-                elevation_min_grade=empty_float,
-                elevation_data_source=[],
-                elevation_data_version=[],
-                elevation_calculated_at=[],
-            )
+        groups = {g: [] for g in ("numeric", "boolean", "categorical")}
+        for material_id in sorted(MATERIAL_VALUE_SQL):
+            groups[material_array_group(MATERIAL_CATALOG[material_id])].append(material_id)
+        numeric_ids = tuple(groups["numeric"])
+        boolean_ids = tuple(groups["boolean"])
+        categorical_ids = tuple(groups["categorical"])
 
-        material_ids = tuple(sorted(MATERIAL_VALUE_SQL))
-        raw: dict[str, list] = {name: [] for name in (*material_ids, *_EXTRA_MATERIAL_ARRAY_COLUMNS)}
+        n = len(edge_ids)
+        raw: dict[str, list] = {name: [] for name in MATERIAL_ARRAY_COLUMN_ORDER}
         for id_chunk in _chunked(edge_ids, 50_000):
             row = (
                 await self._session.execute(
@@ -3094,11 +3183,37 @@ class AttributeRepository(_SessionRepository):
             for name in raw:
                 raw[name].extend(getattr(row, f"c_{name}"))
 
+        hard_filter_ids = tuple(sorted(HARD_FILTER_VALUE_SQL))
+        hard_filter_flags = np.empty((n, len(hard_filter_ids)), dtype=bool)
+        for i, name in enumerate(hard_filter_ids):
+            hard_filter_flags[:, i] = [
+                bool(v) for v in raw[f"{_HARD_FILTER_COLUMN_PREFIX}{name}"]
+            ]
+
+        numeric_values = np.empty((n, len(numeric_ids)), dtype=np.float64)
+        for i, material_id in enumerate(numeric_ids):
+            numeric_values[:, i] = _float_array(raw[material_id])
+        boolean_values = np.empty((n, len(boolean_ids)), dtype=bool)
+        for i, material_id in enumerate(boolean_ids):
+            boolean_values[:, i] = [bool(v) for v in raw[material_id]]
+        categorical_values = np.empty((n, len(categorical_ids)), dtype=object)
+        for i, material_id in enumerate(categorical_ids):
+            categorical_values[:, i] = _shared_strings(raw[material_id])
+
         return EdgeMaterialArrays(
             edge_ids=list(edge_ids),
-            material_ids=material_ids,
-            values={m: material_array(MATERIAL_CATALOG[m], raw[m]) for m in material_ids},
-            no_bicycle=np.array([bool(v) for v in raw["no_bicycle"]], dtype=bool),
+            numeric_ids=numeric_ids,
+            numeric_values=numeric_values,
+            boolean_ids=boolean_ids,
+            boolean_values=boolean_values,
+            categorical_ids=categorical_ids,
+            categorical_values=categorical_values,
+            hard_filter_ids=hard_filter_ids,
+            hard_filter_flags=hard_filter_flags,
+            distance_m=_float_array(raw["distance_m"]),
+            bearing_deg=_float_array(raw["bearing_deg"]),
+            mid_lat=_float_array(raw["mid_lat"]),
+            mid_lon=_float_array(raw["mid_lon"]),
             elevation_present=np.array([bool(v) for v in raw["elevation_present"]], dtype=bool),
             elevation_start_m=_float_array(raw["elevation_start_m"]),
             elevation_end_m=_float_array(raw["elevation_end_m"]),
@@ -3106,11 +3221,11 @@ class AttributeRepository(_SessionRepository):
             elevation_loss_m=_float_array(raw["elevation_loss_m"]),
             elevation_max_grade=_float_array(raw["elevation_max_grade"]),
             elevation_min_grade=_float_array(raw["elevation_min_grade"]),
-            elevation_data_source=raw["elevation_data_source"],
-            elevation_data_version=raw["elevation_data_version"],
-            elevation_calculated_at=[
-                None if v is None else v.isoformat() for v in raw["elevation_calculated_at"]
-            ],
+            elevation_data_source=_shared_strings(raw["elevation_data_source"]),
+            elevation_data_version=_shared_strings(raw["elevation_data_version"]),
+            elevation_calculated_at=_shared_strings(
+                [None if v is None else v.isoformat() for v in raw["elevation_calculated_at"]]
+            ),
         )
 
     async def rebuild_raw_intersection_nodes(self) -> None:

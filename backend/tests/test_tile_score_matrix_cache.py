@@ -18,7 +18,7 @@ from app.domain.evaluation import (
     route_facing_material_ids,
     route_facing_raw_axis_ids,
 )
-from app.domain.hard_filters import HARD_FILTER_HIGHWAY_TYPES
+from app.domain.hard_filters import HARD_FILTER_NAMES
 from app.infrastructure import graph_material_cache, tile_persistent_cache, tile_score_matrix_cache
 
 
@@ -51,8 +51,7 @@ def _sample_matrix(edge_id: str = "edge-1", score: float = 50.0) -> StaticEdgeSc
         bearing_deg=np.array([np.nan]),
         # 0次フィルタのキー集合は宣言から作る（読み出し時のガードが現在の宣言と突き合わせる。
         # ここを固定値で書くと、宣言が増えたときフィクスチャ側の古さと区別できない）。
-        highway_filter_flags={name: np.array([False]) for name in HARD_FILTER_HIGHWAY_TYPES},
-        no_bicycle=np.array([False]),
+        hard_filter_flags={name: np.array([False]) for name in HARD_FILTER_NAMES},
         gradient_percent=np.array([np.nan]),
         mid_lat=np.array([35.0]),
         mid_lon=np.array([139.0]),
@@ -69,8 +68,7 @@ def _empty_matrix() -> StaticEdgeScoreMatrix:
         axis_scores=np.zeros((0, 1)),
         distance_m=np.zeros(0),
         bearing_deg=np.zeros(0),
-        highway_filter_flags={"motorway": np.zeros(0, dtype=bool), "trunk": np.zeros(0, dtype=bool)},
-        no_bicycle=np.zeros(0, dtype=bool),
+        hard_filter_flags={name: np.zeros(0, dtype=bool) for name in HARD_FILTER_NAMES},
         gradient_percent=np.zeros(0),
         mid_lat=np.zeros(0),
         mid_lon=np.zeros(0),
@@ -384,7 +382,7 @@ def test_matrix_with_a_stale_hard_filter_key_set_is_not_restored():
     ルートが無警告で出る（`.items()`で回すため例外にもならない）。
     """
     stale = dataclasses.replace(
-        _sample_matrix(), highway_filter_flags={"zzz_removed_filter": np.array([False])}
+        _sample_matrix(), hard_filter_flags={"zzz_removed_filter": np.array([False])}
     )
 
     assert tile_score_matrix_cache._columns_match_current_predicates(stale) is False

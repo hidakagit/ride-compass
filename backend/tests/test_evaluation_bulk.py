@@ -732,8 +732,10 @@ def test_combine_rejects_matrices_whose_columns_disagree():
             axis_scores=np.array([[1.0]]),
             distance_m=np.array([1.0]),
             bearing_deg=np.array([np.nan]),
-            highway_filter_flags={"motorway": np.array([False])},
-            no_bicycle=np.array([False]),
+            hard_filter_flags={
+                "motorway": np.array([False]),
+                "no_bicycle": np.array([False]),
+            },
             gradient_percent=np.array([np.nan]),
             mid_lat=np.array([35.0]),
             mid_lon=np.array([139.0]),

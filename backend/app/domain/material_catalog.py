@@ -1061,3 +1061,20 @@ def material_array(spec: MaterialSpec, values: list[object]) -> "np.ndarray":
         [np.nan if v is None else float(v) for v in values],
         dtype=np.float64,
     )
+
+
+MaterialArrayGroup = Literal["numeric", "boolean", "categorical"]
+
+
+def material_array_group(spec: MaterialSpec) -> MaterialArrayGroup:
+    """その材料の値をどのdtypeの行列へ載せるか。
+
+    真偽の材料でも`bool_default="nan"`のもの（「不明」を「非該当」と混同してはいけない
+    材料）はNaNを持てる必要があるため数値側へ載る。この判定はここだけが持つ——
+    載せる側と読む側がそれぞれ判定すると、食い違ったとき列が静かに別の行列へ行く。
+    """
+    if spec.dtype == "categorical":
+        return "categorical"
+    if spec.dtype == "boolean" and spec.bool_default == "false":
+        return "boolean"
+    return "numeric"

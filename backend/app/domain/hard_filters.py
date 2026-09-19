@@ -12,6 +12,7 @@ import numpy as np
 
 from app.domain.attributes import ElevationAttribute
 from app.domain.graph import EdgeLike, RoadGraphLike
+from app.domain.material_sql import BICYCLE_NORMALIZED_SQL, HIGHWAY_SQL_FOR_EDGE
 from app.domain.recipe import tag_value_is
 
 
@@ -39,12 +40,42 @@ HARD_FILTER_HIGHWAY_TYPES: dict[str, frozenset[str]] = {
 # （`is_edge_allowed`はレジストリを回すため判定側は無変更）。タグ由来のフィルタを増やす
 # 場合はここへ名前を足すのに加え、`is_edge_allowed`へ判定を1本書く必要がある
 # （`no_bicycle`が唯一の実例）。
-HARD_FILTER_NAMES: frozenset[str] = frozenset({"no_bicycle", *HARD_FILTER_HIGHWAY_TYPES})
+# タグ由来のフィルタ。名前→「該当するか」をSQLで表す式。**名前をここ以外へ書かない**
+# ——`HARD_FILTER_NAMES`も`HARD_FILTER_VALUE_SQL`もここから導く。
+HARD_FILTER_TAG_PREDICATE_SQL: dict[str, str] = {
+    "no_bicycle": f"COALESCE({BICYCLE_NORMALIZED_SQL} = 'no', false)",
+}
+
+HARD_FILTER_NAMES: frozenset[str] = frozenset(
+    {*HARD_FILTER_TAG_PREDICATE_SQL, *HARD_FILTER_HIGHWAY_TYPES}
+)
 
 # 現時点の既定レシピは全フィルタを常時有効にする（is_edge_allowedの`hard_filters`
 # 省略時のデフォルト値としても使う）。「受け付けるキー」と「既定でONのキー」は別の概念で、
 # 今はたまたま一致している。
 DEFAULT_HARD_FILTERS: frozenset[str] = HARD_FILTER_NAMES
+
+
+def _highway_is_one_of_sql(highway_types: frozenset[str]) -> str:
+    listed = ", ".join(f"'{value}'" for value in sorted(highway_types))
+    return f"COALESCE({HIGHWAY_SQL_FOR_EDGE} IN ({listed}), false)"
+
+
+# フィルタ名→「その区間が該当するか」をSQLで表す式。材料を読むクエリがこの名前のまま
+# 列として受け取る（`infrastructure/road_graph_repository.py`）。
+#
+# **フィルタごとに専用の列を作らない**（設計原則 構造仕様8「拡張可能なレジストリは常に
+# 1本道の追加点を持つ」）。highway由来のフィルタは上のレジストリから式を導くため、
+# `HARD_FILTER_HIGHWAY_TYPES`へ1行足すだけで列も増える。タグ由来のフィルタだけを
+# 個別に書く（`no_bicycle`が唯一の実例、`HARD_FILTER_NAMES`のコメントと同じ構造）。
+#
+# キー集合は`HARD_FILTER_NAMES`と同じものから導くため、ずれようがない
+# （設計原則 構造仕様12「チェックの母集団は導出する。手で列挙しない」——
+# 手書きの2本を突き合わせるテストを置くのではなく、1本から導く）。
+HARD_FILTER_VALUE_SQL: dict[str, str] = {
+    **{name: _highway_is_one_of_sql(types) for name, types in HARD_FILTER_HIGHWAY_TYPES.items()},
+    **HARD_FILTER_TAG_PREDICATE_SQL,
+}
 
 
 def is_edge_allowed(
@@ -105,11 +136,11 @@ def compute_routable_node_ids(
     なくコスト（`math.inf`）で表現するため、「実際に経路探索可能なNode」の判定は
     Hard Constraintだけを別途・軽量に評価して得る必要がある。
 
-    この判定は`StaticEdgeScoreMatrix`の`highway_filter_flags`/`no_bicycle`/
-    `gradient_percent`列から`compute_hard_filter_excluded`が求める`excluded`配列と
+    この判定は`StaticEdgeScoreMatrix`の`hard_filter_flags`/`gradient_percent`列から
+    `compute_hard_filter_excluded`が求める`excluded`配列と
     全く同じ内容（呼び出し元`road_graph_engine.py: _build_search_graph`がコスト配列を
     `inf`にする判定に使うのと同じ配列）である。呼び出し元がその配列をそのまま渡すことで、
-    本関数は`EdgeMaterialTable`/`EdgeMaterialBundle`辞書への依存を持たない（タイル材料
+    本関数は材料の表への依存を持たない（タイル材料
     キャッシュの復元コストとは独立になる）。`edge_ids`は`hard_filter_excluded`と同じ
     行順（`StaticEdgeScoreMatrix.edge_ids`）。
     """
@@ -127,8 +158,7 @@ def compute_routable_node_ids(
 
 
 def compute_hard_filter_excluded(
-    highway_filter_flags: Mapping[str, np.ndarray],
-    no_bicycle: np.ndarray,
+    hard_filter_flags: Mapping[str, np.ndarray],
     gradient_percent: np.ndarray,
     hard_filters: frozenset[str] | None = None,
     max_average_grade_percent: float | None = None,
@@ -138,17 +168,15 @@ def compute_hard_filter_excluded(
     （`is_edge_allowed`のベクトル版）。省略時（既定None）は`DEFAULT_HARD_FILTERS`
     （全フィルタ常時有効）を使う。
 
-    `highway_filter_flags`は`HARD_FILTER_HIGHWAY_TYPES`のフィルタ名→該当フラグ配列
+    `hard_filter_flags`は`HARD_FILTER_NAMES`のフィルタ名→該当フラグ配列
     （スカラー版`is_edge_allowed`が同じレジストリをそのままループするのと対称）。
     フィルタを1つ増やしてもこの関数は変わらない。
     """
     active_hard_filters = hard_filters if hard_filters is not None else DEFAULT_HARD_FILTERS
-    excluded = np.zeros(len(no_bicycle), dtype=bool)
-    for filter_name, flags in highway_filter_flags.items():
+    excluded = np.zeros(len(gradient_percent), dtype=bool)
+    for filter_name, flags in hard_filter_flags.items():
         if filter_name in active_hard_filters:
             excluded |= flags
-    if "no_bicycle" in active_hard_filters:
-        excluded |= no_bicycle
     # 勾配の〇次ハードフィルタ（NaNとの比較は常にFalseになるため、勾配不明のEdgeへは
     # 適用されない）。
     if max_average_grade_percent is not None:

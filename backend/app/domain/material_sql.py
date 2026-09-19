@@ -31,6 +31,9 @@ def positive_integer_tag_sql(tag: str) -> str:
 
 
 HIGHWAY_SQL = "w.highway"
+# 区間（road_edges）側のhighway。splitのときwayから写したもので、探索・0次フィルタは
+# こちらを見る（way側はタイル配信が見る）。
+HIGHWAY_SQL_FOR_EDGE = "re.highway"
 SURFACE_NORMALIZED_SQL = "lower(btrim(w.surface))"
 # :good_tags/:bad_tags バインドパラメータを要する（domain/road.py:
 # GOOD_OSM_SURFACE_TAGS/BAD_OSM_SURFACE_TAGS、呼び出し元がbindparamsで渡す）。
@@ -70,7 +73,7 @@ CYCLEWAY_TAGS_ARRAY_SQL = "ARRAY[" + ", ".join(f"lower(btrim(w.tags->>'{tag}'))"
 # いればタグ不在をFalseとして返し、読み出し経路のway_tagsは該当Wayが無くても空辞書になる
 # ため、NULLを残すと意味がずれる（`EdgeMaterialBundle.way_tags`のdocstring参照）。
 
-_LANDCOVER_SQL_KEYS = (
+LANDCOVER_SQL_KEYS = (
     "trees", "built", "crops", "rangeland", "water", "bare", "flooded_veg", "snow_ice",
 )
 
@@ -84,7 +87,17 @@ def _cycleway_has(*values: str) -> str:
     return f"COALESCE({CYCLEWAY_TAGS_ARRAY_SQL} && ARRAY[{listed}], false)"
 
 
-def _landcover(key: str) -> str:
+def poi_density_value_sql(kind: str) -> str:
+    """停止要因POIの種別別密度。`poi_counts`がNULLなら未集計＝欠損、行があって載っていない
+    種別は0件と確定できる。"""
+    return (
+        "CASE WHEN c.poi_counts IS NOT NULL AND re.distance_m > 0 "
+        f"THEN COALESCE((c.poi_counts->>'{kind}')::double precision, 0) "
+        "/ (re.distance_m / 1000.0) END"
+    )
+
+
+def landcover_value_sql(key: str) -> str:
     """区間単位の土地被覆。行が無ければway単位へ落とす（読み出し側と同じ規約）。"""
     return f"COALESCE(el.{key}_percent, wl.{key}_percent)"
 
@@ -96,7 +109,7 @@ MATERIAL_VALUE_SQL: dict[str, str] = {
     "surface_good": SURFACE_GOOD_CASE_SQL,
     "surface": SURFACE_NORMALIZED_SQL,
     # 区間のhighwayはsplit時にwayから写したもの。探索がグラフ側で見ているのと同じ列を使う。
-    "highway": "re.highway",
+    "highway": HIGHWAY_SQL_FOR_EDGE,
     "smoothness": SMOOTHNESS_NORMALIZED_SQL,
     "tracktype": "w.tags->>'tracktype'",
     "maxspeed_kmh": MAXSPEED_KMH_CASE_SQL,
@@ -105,7 +118,7 @@ MATERIAL_VALUE_SQL: dict[str, str] = {
     "bridge": _tag_is("bridge", "yes"),
     "motor_vehicle_no": _tag_is("motor_vehicle", "no"),
     "lit": _tag_is("lit", "yes"),
-    "highway_is_cycleway": "COALESCE(re.highway = 'cycleway', false)",
+    "highway_is_cycleway": "COALESCE(" + HIGHWAY_SQL_FOR_EDGE + " = 'cycleway', false)",
     "cycleway_has_track": _cycleway_has("track"),
     "cycleway_has_lane": _cycleway_has("lane"),
     "cycleway_has_shared": _cycleway_has("share_busway", "shared_lane"),
@@ -123,20 +136,13 @@ MATERIAL_VALUE_SQL: dict[str, str] = {
         "CASE WHEN re.distance_m > 0 AND :accident_years > 0 "
         "THEN c.accident_count / (re.distance_m / 1000.0) / :accident_years END"
     ),
-    **{f"{key}_percent": _landcover(key) for key in _LANDCOVER_SQL_KEYS},
-    # 停止要因POIの種別別密度。`poi_counts`がNULLなら未集計＝欠損、行があって載っていない
-    # 種別は0件と確定できる（`keyed_density_extractor`の`absent_key`と同じ規約）。
-    **{
-        f"poi_{kind}_per_km": (
-            "CASE WHEN c.poi_counts IS NOT NULL AND re.distance_m > 0 "
-            f"THEN COALESCE((c.poi_counts->>'{kind}')::double precision, 0) "
-            "/ (re.distance_m / 1000.0) END"
-        )
-        for kind in POI_COUNT_KINDS
-    },
+    **{f"{key}_percent": landcover_value_sql(key) for key in LANDCOVER_SQL_KEYS},
+    **{f"poi_{kind}_per_km": poi_density_value_sql(kind) for kind in POI_COUNT_KINDS},
 }
 
 
 # `EdgeMaterialArrays`が標高属性を組み立てるとき、勾配だけは材料の列から読む
 # （表示用の標高列と重複して持たないため）。
 MATERIAL_ID_GRADIENT_PERCENT = "gradient_percent"
+
+

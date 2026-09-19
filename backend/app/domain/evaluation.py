@@ -38,6 +38,7 @@ import numpy as np
 
 from app.domain.attributes import (
     EdgeKeyedMetrics,
+    EdgeMaterialArrays,
     EdgeMaterialBundle,
     EdgeMaterialTable,
     ElevationAttribute,
@@ -63,6 +64,8 @@ from app.domain.dynamic_materials import (
 )
 from app.domain.graph import EdgeLike, RoadGraphLike
 from app.domain.hard_filters import (
+    HARD_FILTER_NAMES,
+    HARD_FILTER_TAG_PREDICATE_SQL,
     HARD_FILTER_HIGHWAY_TYPES,
     compute_hard_filter_excluded,
     is_edge_allowed,
@@ -396,8 +399,8 @@ class BulkAxisEvaluation:
 
     `axis_arrays`は公開軸のみ・依存順（`topological_axis_order`のサブセット）。重み付き
     合成（Neumaier加算・cost算出）は含まない——`weights`が定まった時点で呼び出し元が
-    `compose_costs_from_axis_matrix`へ渡す。0次フィルタは`highway_filter_flags`/
-    `no_bicycle`/`gradient_percent`の生フラグのみを持ち、`hard_filters`/
+    `compose_costs_from_axis_matrix`へ渡す。0次フィルタは`hard_filter_flags`/
+    `gradient_percent`の生フラグのみを持ち、`hard_filters`/
     `max_average_grade_percent`（リクエストごとに変わりうる）による絞り込みは
     `compute_hard_filter_excluded`が別途行う。
     """
@@ -409,8 +412,8 @@ class BulkAxisEvaluation:
     # （リクエストごとに変わる有効/無効の絞り込みは`compute_hard_filter_excluded`が行う）。
     # フィルタを1つ増やしてもこの構造は変わらない——専用フィールドへ潰すと、
     # dataclass・結合・受け渡しの全段で1本ずつ追加が要る。
-    highway_filter_flags: dict[str, np.ndarray]
-    no_bicycle: np.ndarray
+    # 0次フィルタ名→該当フラグ（`HARD_FILTER_NAMES`と同じキー集合）。
+    hard_filter_flags: dict[str, np.ndarray]
     gradient_percent: np.ndarray
     # Edge中点の緯度経度（from/toノードの平均）。探索前に各Edgeの通過予定時刻を基準点からの
     # 直線距離で推定するために使う。
@@ -454,105 +457,20 @@ def _evaluate_axes_bulk(
     designated_edge_ids = designated_edge_ids or set()
     metrics = metrics or {}
 
+
     edge_ids = list(graph.edges.keys())
     n = len(edge_ids)
-    if n == 0:
-        # axis_arraysを空dict{}のまま返すと、build_static_edge_score_matrixが構築する
-        # axis_scoresの列数が0になり、他タイル（列数=公開軸数、例えば8）と
-        # combine_static_edge_score_matricesでnp.concatenateする際に「dimension 1の
-        # サイズ不一致」でValueErrorになる（bbox内の1タイルがEdge0件[空タイル、道路
-        # データが疎らな区画]の場合に起こりうる）。Edge0件でも「公開軸それぞれに対応
-        # する長さ0の配列」を持たせることで、他タイルと同じ列数（shape=(0, 公開軸数)）に
-        # 揃える。列の並び順は非空タイルの計算フェーズ（下記for文）と同じ
-        # topological_axis_orderを使い、is_published判定も同じにする——
-        # combine_static_edge_score_matricesは最初のタイルのaxis_idsをそのまま全体の
-        # axis_idsとして採用するため、列の並びが全タイルで一致している必要がある。
-        empty_axis_arrays = {
-            axis_id: np.array([])
-            for axis_id in topological_axis_order(AXIS_DEFINITIONS)
-            if AXIS_DEFINITIONS[axis_id].is_published
-        }
-        empty_raw_arrays = {axis_id: np.array([]) for axis_id in route_facing_raw_axis_ids()}
-        return BulkAxisEvaluation(
-            edge_ids=[],
-            distance_m=np.array([]),
-            bearing_deg=np.array([]),
-            highway_filter_flags={name: np.array([], dtype=bool) for name in HARD_FILTER_HIGHWAY_TYPES},
-            no_bicycle=np.array([], dtype=bool),
-            gradient_percent=np.array([]),
-            mid_lat=np.array([]),
-            mid_lon=np.array([]),
-            axis_arrays=empty_axis_arrays,
-            axis_raw_arrays=empty_raw_arrays,
-            # **非空タイルと同じ絞り込みを掛ける**（下の計算フェーズと同じ
-            # `in MATERIAL_CATALOG`）。片方だけ素通しにすると、空タイルだけが余分な列を
-            # 持ち、`combine_static_edge_score_matrices`が列の対応を取れなくなる
-            # ——上の軸の列で書いたのと同じ形の食い違いが、材料の列で起きる。
-            material_value_arrays={
-                material_id: np.array([])
-                for material_id in route_facing_material_ids()
-                if material_id in MATERIAL_CATALOG
-            },
-            categorical_material_arrays={
-                material_id: np.array([], dtype=object)
-                for material_id in route_facing_categorical_material_ids()
-                if material_id in MATERIAL_CATALOG
-            },
-        )
-    edges = [graph.edges[edge_id] for edge_id in edge_ids]
-
-    distance_m = np.array([edge.distance_m for edge in edges], dtype=float)
-    nodes = graph.nodes
-    mid_lat = np.array(
-        [(nodes[edge.from_node_id].latitude + nodes[edge.to_node_id].latitude) / 2 for edge in edges], dtype=float
-    )
-    mid_lon = np.array(
-        [(nodes[edge.from_node_id].longitude + nodes[edge.to_node_id].longitude) / 2 for edge in edges], dtype=float
-    )
-    bearing_deg = np.array(
-        [edge.bearing_deg if edge.bearing_deg is not None else np.nan for edge in edges], dtype=float
-    )
-
-    # --- 抽出フェーズ（MATERIAL_CATALOGのextractor宣言へ委譲） ---
-    extractable_materials = [MATERIAL_CATALOG[material_id] for material_id in EXTRACTABLE_MATERIAL_IDS]
-    # 配列はMATERIAL_CATALOG全材料ぶん確保する（抽出ループはextractable_materialsのみ
-    # 回す＝extractor未設定材料[oneway/designation/is_emergency_transport/
-    # is_critical_logistics等、トリガー付きDEFER]は既定値[NaN/False]の
-    # まま残る）。全材料ぶん確保しないと、そのような材料をMaterialTerm等で参照する
-    # GUI作成軸（`_check_materials_are_known`はis_known_materialのみ検証しextractor
-    # 有無は見ないため、軸スタジオから素朴に作成できてしまう）を評価した際に
-    # evaluate_axis_arrayの`materials[term.material]`がKeyErrorで/api/routes/generate
-    # 自体を落とす（スカラー版evaluate_axis_scalarは`materials.get(...)`のためこの経路
-    # では発生しない非対称性がある）。全材料ぶん確保することで「材料はあるがデータが
-    # 無い」という既存の意味論（欠損）へ揃え、スカラー版と同じグレースフルデグレード
-    # （その軸だけ恒久的に欠損扱い）にする。
-    material_arrays: dict[str, np.ndarray] = {}
-    for spec in MATERIAL_CATALOG.values():
-        if spec.dtype == "categorical":
-            # np.emptyのdtype=objectは要素をNone初期化する（Python object配列のcalloc特性）。
-            material_arrays[spec.material_id] = np.empty(n, dtype=object)
-        elif spec.dtype == "boolean" and spec.bool_default == "false":
-            material_arrays[spec.material_id] = np.zeros(n, dtype=bool)
-        else:  # numeric、またはbool_default="nan"のboolean（surface_good等）
-            material_arrays[spec.material_id] = np.full(n, np.nan)
-
-    # 0次フィルタ判定用の生フラグ（highway種別・bicycle=noタグ）は
-    # `hard_filters`（リクエストごとに変わりうる）を前提とせず、該当するかどうかの
-    # 生の判定結果のみ持つ。有効/無効の絞り込みは呼び出し元（`compute_hard_filter_excluded`）
-    # が行う——タイル単位でキャッシュする`build_static_edge_score_matrix`は
-    # `hard_filters`をまだ知らない時点でこの関数を呼ぶため。
-    highway_filter_flags: dict[str, np.ndarray] = {
-        filter_name: np.zeros(n, dtype=bool) for filter_name in HARD_FILTER_HIGHWAY_TYPES
+    material_arrays = _empty_material_arrays(n)
+    tag_hard_filter_flags = {
+        name: np.zeros(n, dtype=bool) for name in HARD_FILTER_TAG_PREDICATE_SQL
     }
-    no_bicycle = np.zeros(n, dtype=bool)
-
+    no_bicycle = tag_hard_filter_flags["no_bicycle"]
+    # --- 抽出フェーズ（MATERIAL_CATALOGのextractor宣言へ委譲） ---
+    edges = [graph.edges[edge_id] for edge_id in edge_ids]
+    extractable_materials = [MATERIAL_CATALOG[material_id] for material_id in EXTRACTABLE_MATERIAL_IDS]
     for i, (edge_id, edge) in enumerate(zip(edge_ids, edges)):
         edge_way_tags = way_tags.get(edge_id) if way_tags is not None else None
 
-        if edge.highway is not None:
-            for filter_name, highway_types in HARD_FILTER_HIGHWAY_TYPES.items():
-                if edge.highway in highway_types:
-                    highway_filter_flags[filter_name][i] = True
         if edge_way_tags is not None and tag_value_is(edge_way_tags, "bicycle", "no"):
             no_bicycle[i] = True
 
@@ -580,6 +498,121 @@ def _evaluate_axes_bulk(
             elif value is not None:  # numeric
                 array[i] = float(value)
 
+
+    edges = [graph.edges[edge_id] for edge_id in edge_ids]
+    nodes = graph.nodes
+    return _evaluate_axes_from_material_arrays(
+        edge_ids,
+        material_arrays,
+        hard_filter_flags={
+            **{
+                name: np.array([edge.highway in types for edge in edges], dtype=bool)
+                for name, types in HARD_FILTER_HIGHWAY_TYPES.items()
+            },
+            **tag_hard_filter_flags,
+        },
+        distance_m=np.array([edge.distance_m for edge in edges], dtype=float),
+        bearing_deg=np.array(
+            [edge.bearing_deg if edge.bearing_deg is not None else np.nan for edge in edges], dtype=float
+        ),
+        mid_lat=np.array(
+            [(nodes[e.from_node_id].latitude + nodes[e.to_node_id].latitude) / 2 for e in edges], dtype=float
+        ),
+        mid_lon=np.array(
+            [(nodes[e.from_node_id].longitude + nodes[e.to_node_id].longitude) / 2 for e in edges], dtype=float
+        ),
+        weather=weather,
+        travel_speed_ms=travel_speed_ms,
+    )
+
+
+def _empty_material_arrays(n: int) -> dict[str, np.ndarray]:
+    """`MATERIAL_CATALOG`全材料ぶんの配列を、材料ごとの既定値（NaN/False/None）で確保する。
+
+    **extractorやSQL式を持たない材料の列も確保する**。持たない材料（トリガー付きDEFER）を
+    `MaterialTerm`等で参照する軸は軸スタジオから素朴に作れてしまい
+    （`_check_materials_are_known`はextractorの有無を見ない）、列が無いと
+    `evaluate_axis_array`の`materials[term.material]`がKeyErrorで/api/routes/generate
+    自体を落とす。確保しておけば「材料はあるがデータが無い」という既存の意味論へ揃い、
+    スカラー版と同じグレースフルデグレード（その軸だけ恒久的に欠損扱い）になる。
+    """
+    arrays: dict[str, np.ndarray] = {}
+    for spec in MATERIAL_CATALOG.values():
+        if spec.dtype == "categorical":
+            # np.emptyのdtype=objectは要素をNone初期化する（Python object配列のcalloc特性）。
+            arrays[spec.material_id] = np.empty(n, dtype=object)
+        elif spec.dtype == "boolean" and spec.bool_default == "false":
+            arrays[spec.material_id] = np.zeros(n, dtype=bool)
+        else:  # numeric、またはbool_default="nan"のboolean（surface_good等）
+            arrays[spec.material_id] = np.full(n, np.nan)
+    return arrays
+
+
+def _evaluate_axes_from_material_arrays(
+    edge_ids: list[str],
+    material_arrays: dict[str, np.ndarray],
+    *,
+    hard_filter_flags: Mapping[str, np.ndarray],
+    distance_m: np.ndarray,
+    bearing_deg: np.ndarray,
+    mid_lat: np.ndarray,
+    mid_lon: np.ndarray,
+    weather: WeatherConditions | None = None,
+    travel_speed_ms: float | None = None,
+) -> BulkAxisEvaluation:
+    """材料と区間の列が揃っている状態から先（計算フェーズと軸の評価）。
+
+    材料をどこで導いたか——`MATERIAL_VALUE_SQL`でDBが導いたか、extractorがEdgeごとに
+    導いたか——をここは知らない。呼び出し元は`material_arrays`へ**`MATERIAL_CATALOG`全材料
+    ぶんの列**を渡す（`_empty_material_arrays`へ重ねる）。
+
+    0次ハードフィルタの生フラグと区間そのものの列（距離・方位・中点）は材料ではないため
+    別に受け取る。フィルタは`HARD_FILTER_NAMES`と同じキー集合の辞書で渡す。
+    """
+    n = len(edge_ids)
+
+    if n == 0:
+        # axis_arraysを空dict{}のまま返すと、build_static_edge_score_matrixが構築する
+        # axis_scoresの列数が0になり、他タイル（列数=公開軸数、例えば8）と
+        # combine_static_edge_score_matricesでnp.concatenateする際に「dimension 1の
+        # サイズ不一致」でValueErrorになる（bbox内の1タイルがEdge0件[空タイル、道路
+        # データが疎らな区画]の場合に起こりうる）。Edge0件でも「公開軸それぞれに対応
+        # する長さ0の配列」を持たせることで、他タイルと同じ列数（shape=(0, 公開軸数)）に
+        # 揃える。列の並び順は非空タイルの計算フェーズ（下記for文）と同じ
+        # topological_axis_orderを使い、is_published判定も同じにする——
+        # combine_static_edge_score_matricesは最初のタイルのaxis_idsをそのまま全体の
+        # axis_idsとして採用するため、列の並びが全タイルで一致している必要がある。
+        empty_axis_arrays = {
+            axis_id: np.array([])
+            for axis_id in topological_axis_order(AXIS_DEFINITIONS)
+            if AXIS_DEFINITIONS[axis_id].is_published
+        }
+        empty_raw_arrays = {axis_id: np.array([]) for axis_id in route_facing_raw_axis_ids()}
+        return BulkAxisEvaluation(
+            edge_ids=[],
+            distance_m=np.array([]),
+            bearing_deg=np.array([]),
+            hard_filter_flags={name: np.array([], dtype=bool) for name in HARD_FILTER_NAMES},
+            gradient_percent=np.array([]),
+            mid_lat=np.array([]),
+            mid_lon=np.array([]),
+            axis_arrays=empty_axis_arrays,
+            axis_raw_arrays=empty_raw_arrays,
+            # **非空タイルと同じ絞り込みを掛ける**（下の計算フェーズと同じ
+            # `in MATERIAL_CATALOG`）。片方だけ素通しにすると、空タイルだけが余分な列を
+            # 持ち、`combine_static_edge_score_matrices`が列の対応を取れなくなる
+            # ——上の軸の列で書いたのと同じ形の食い違いが、材料の列で起きる。
+            material_value_arrays={
+                material_id: np.array([])
+                for material_id in route_facing_material_ids()
+                if material_id in MATERIAL_CATALOG
+            },
+            categorical_material_arrays={
+                material_id: np.array([], dtype=object)
+                for material_id in route_facing_categorical_material_ids()
+                if material_id in MATERIAL_CATALOG
+            },
+        )
     # --- 計算フェーズ（Pythonループ無し） ---
     # 動的材料はEdge単位のPythonループを経由しない完全ベクトル化計算のためextractorを
     # 持たない（material_catalog.pyのextractorフィールド説明参照）。
@@ -630,8 +663,7 @@ def _evaluate_axes_bulk(
         edge_ids=edge_ids,
         distance_m=distance_m,
         bearing_deg=bearing_deg,
-        highway_filter_flags=highway_filter_flags,
-        no_bicycle=no_bicycle,
+        hard_filter_flags=dict(hard_filter_flags),
         gradient_percent=material_arrays["gradient_percent"],
         mid_lat=mid_lat,
         mid_lon=mid_lon,
@@ -881,7 +913,7 @@ def compute_edge_costs_bulk(
         return {}
 
     hard_filter_excluded = compute_hard_filter_excluded(
-        evaluation.highway_filter_flags, evaluation.no_bicycle, evaluation.gradient_percent,
+        evaluation.hard_filter_flags, evaluation.gradient_percent,
         hard_filters, max_average_grade_percent,
     )
     # axis_contributions（3個目の戻り値）はEdgeCostResultが持たない
@@ -933,8 +965,8 @@ class StaticEdgeScoreMatrix:
     # （リクエストごとに変わる有効/無効の絞り込みは`compute_hard_filter_excluded`が行う）。
     # フィルタを1つ増やしてもこの構造は変わらない——専用フィールドへ潰すと、
     # dataclass・結合・受け渡しの全段で1本ずつ追加が要る。
-    highway_filter_flags: dict[str, np.ndarray]
-    no_bicycle: np.ndarray
+    # 0次フィルタ名→該当フラグ（`HARD_FILTER_NAMES`と同じキー集合）。
+    hard_filter_flags: dict[str, np.ndarray]
     gradient_percent: np.ndarray
     # Edge中点の緯度経度（`BulkAxisEvaluation.mid_lat`/`mid_lon`と同じ）。
     mid_lat: np.ndarray
@@ -954,45 +986,8 @@ class StaticEdgeScoreMatrix:
     categorical_material_values: np.ndarray = field(default_factory=lambda: np.empty((0, 0), dtype=object))
 
 
-def build_static_edge_score_matrix(
-    graph: RoadGraphLike,
-    materials: "EdgeMaterialTable | Mapping[str, EdgeMaterialBundle]",
-    accident_years_covered: int = 0,
-) -> StaticEdgeScoreMatrix:
-    """タイル読込時（`GraphService._get_or_build_tile_materials`）に1回だけ呼び、
-    `StaticEdgeScoreMatrix`を構築する。`_evaluate_axes_bulk`（`compute_edge_costs_bulk`
-    と共有する抽出＋計算フェーズ）へ`weather=None`で渡すことで、動的軸の列は自然にNaNのまま
-    持たせる。
-
-    `materials`は`EdgeMaterialTable`（タイルキャッシュ経路が持つ列指向表現）
-    または`dict[str, EdgeMaterialBundle]`（`_build_search_materials_uncached`等、テスト・
-    タイルキャッシュを経由しない経路）のいずれかを受け取る。`_evaluate_axes_bulk`が
-    要求する形（way_tags・elevation_attributes・surface_attributes・designated_edge_idsと、
-    数値の束`metrics`）へここで分解する。タイル読込時に1回だけ発生する変換で、探索の
-    ホットパスには乗らない。`EdgeMaterialTable`は`to_legacy_dicts()`が、bundleの辞書は
-    `edge_metrics_from_bundles`が、それぞれ同じ`metrics`を組み立てる。
-    """
-    if isinstance(materials, EdgeMaterialTable):
-        legacy = materials.to_legacy_dicts()
-        elevation_attributes = legacy.elevation_attributes
-        surface_attributes = legacy.surface_attributes
-        way_tags = legacy.way_tags
-        designated_edge_ids = legacy.designated_edge_ids
-        metrics = legacy.metrics
-    else:
-        elevation_attributes = {
-            edge_id: bundle.elevation_attribute
-            for edge_id, bundle in materials.items() if bundle.elevation_attribute is not None
-        }
-        surface_attributes = {edge_id: bundle.surface for edge_id, bundle in materials.items()}
-        way_tags = {edge_id: bundle.way_tags for edge_id, bundle in materials.items()}
-        designated_edge_ids = {edge_id for edge_id, bundle in materials.items() if bundle.is_designated}
-        metrics = edge_metrics_from_bundles(materials)
-
-    evaluation = _evaluate_axes_bulk(
-        graph, elevation_attributes, surface_attributes, None, None, way_tags,
-        accident_years_covered, designated_edge_ids, metrics,
-    )
+def _static_edge_score_matrix_from(evaluation: BulkAxisEvaluation) -> StaticEdgeScoreMatrix:
+    """軸ごとの配列を行列へ束ねる。材料をどこで導いたかに依らない共通の後段。"""
     axis_ids = list(evaluation.axis_arrays.keys())
     axis_scores = (
         np.stack([evaluation.axis_arrays[axis_id] for axis_id in axis_ids], axis=1)
@@ -1032,12 +1027,70 @@ def build_static_edge_score_matrix(
         categorical_material_values=categorical_material_values,
         distance_m=evaluation.distance_m,
         bearing_deg=evaluation.bearing_deg,
-        highway_filter_flags=evaluation.highway_filter_flags,
-        no_bicycle=evaluation.no_bicycle,
+        hard_filter_flags=evaluation.hard_filter_flags,
         gradient_percent=evaluation.gradient_percent,
         mid_lat=evaluation.mid_lat,
         mid_lon=evaluation.mid_lon,
     )
+
+
+def build_static_edge_score_matrix(
+    graph: RoadGraphLike,
+    materials: "EdgeMaterialArrays | EdgeMaterialTable | Mapping[str, EdgeMaterialBundle]",
+    accident_years_covered: int = 0,
+) -> StaticEdgeScoreMatrix:
+    """タイル読込時（`GraphService._get_or_build_tile_materials`）に1回だけ呼び、
+    `StaticEdgeScoreMatrix`を構築する。`_evaluate_axes_bulk`（`compute_edge_costs_bulk`
+    と共有する抽出＋計算フェーズ）へ`weather=None`で渡すことで、動的軸の列は自然にNaNのまま
+    持たせる。
+
+    `materials`は`EdgeMaterialTable`（タイルキャッシュ経路が持つ列指向表現）
+    または`dict[str, EdgeMaterialBundle]`（`_build_search_materials_uncached`等、テスト・
+    タイルキャッシュを経由しない経路）のいずれかを受け取る。`_evaluate_axes_bulk`が
+    要求する形（way_tags・elevation_attributes・surface_attributes・designated_edge_idsと、
+    数値の束`metrics`）へここで分解する。タイル読込時に1回だけ発生する変換で、探索の
+    ホットパスには乗らない。`EdgeMaterialTable`は`to_legacy_dicts()`が、bundleの辞書は
+    `edge_metrics_from_bundles`が、それぞれ同じ`metrics`を組み立てる。
+    """
+    if isinstance(materials, EdgeMaterialArrays):
+        # 材料はDBが導出済み（`MATERIAL_VALUE_SQL`）。`accident_years_covered`は
+        # その導出の中で既に効いているためここでは使わない。
+        arrays = _empty_material_arrays(len(materials))
+        arrays.update(materials.columns())
+        return _static_edge_score_matrix_from(
+            _evaluate_axes_from_material_arrays(
+                materials.edge_ids,
+                arrays,
+                hard_filter_flags=materials.hard_filter_columns(),
+                distance_m=materials.distance_m,
+                bearing_deg=materials.bearing_deg,
+                mid_lat=materials.mid_lat,
+                mid_lon=materials.mid_lon,
+            )
+        )
+
+    if isinstance(materials, EdgeMaterialTable):
+        legacy = materials.to_legacy_dicts()
+        elevation_attributes = legacy.elevation_attributes
+        surface_attributes = legacy.surface_attributes
+        way_tags = legacy.way_tags
+        designated_edge_ids = legacy.designated_edge_ids
+        metrics = legacy.metrics
+    else:
+        elevation_attributes = {
+            edge_id: bundle.elevation_attribute
+            for edge_id, bundle in materials.items() if bundle.elevation_attribute is not None
+        }
+        surface_attributes = {edge_id: bundle.surface for edge_id, bundle in materials.items()}
+        way_tags = {edge_id: bundle.way_tags for edge_id, bundle in materials.items()}
+        designated_edge_ids = {edge_id for edge_id, bundle in materials.items() if bundle.is_designated}
+        metrics = edge_metrics_from_bundles(materials)
+
+    evaluation = _evaluate_axes_bulk(
+        graph, elevation_attributes, surface_attributes, None, None, way_tags,
+        accident_years_covered, designated_edge_ids, metrics,
+    )
+    return _static_edge_score_matrix_from(evaluation)
 
 
 def combine_static_edge_score_matrices(matrices: list[StaticEdgeScoreMatrix]) -> StaticEdgeScoreMatrix:
@@ -1056,8 +1109,7 @@ def combine_static_edge_score_matrices(matrices: list[StaticEdgeScoreMatrix]) ->
         return StaticEdgeScoreMatrix(
             edge_ids=[], axis_ids=[], axis_scores=np.empty((0, 0)),
             distance_m=np.array([]), bearing_deg=np.array([]),
-            highway_filter_flags={name: np.array([], dtype=bool) for name in HARD_FILTER_HIGHWAY_TYPES},
-            no_bicycle=np.array([], dtype=bool), gradient_percent=np.array([]),
+            hard_filter_flags={name: np.array([], dtype=bool) for name in HARD_FILTER_NAMES}, gradient_percent=np.array([]),
             mid_lat=np.array([]), mid_lon=np.array([]),
         )
     if len(matrices) == 1:
@@ -1094,13 +1146,12 @@ def combine_static_edge_score_matrices(matrices: list[StaticEdgeScoreMatrix]) ->
     )
     distance_m = np.concatenate([matrix.distance_m for matrix in matrices])
     bearing_deg = np.concatenate([matrix.bearing_deg for matrix in matrices])
-    # フィルタ名の集合は全タイルで同じ（`_evaluate_axes_bulk`が
-    # `HARD_FILTER_HIGHWAY_TYPES`から一律に作る）ため、先頭タイルのキーで揃える。
-    highway_filter_flags = {
-        name: np.concatenate([matrix.highway_filter_flags[name] for matrix in matrices])
-        for name in matrices[0].highway_filter_flags
+    # フィルタ名の集合は全タイルで同じ（`HARD_FILTER_NAMES`から一律に作る）ため、
+    # 先頭タイルのキーで揃える。
+    hard_filter_flags = {
+        name: np.concatenate([matrix.hard_filter_flags[name] for matrix in matrices])
+        for name in matrices[0].hard_filter_flags
     }
-    no_bicycle = np.concatenate([matrix.no_bicycle for matrix in matrices])
     gradient_percent = np.concatenate([matrix.gradient_percent for matrix in matrices])
     mid_lat = np.concatenate([matrix.mid_lat for matrix in matrices])
     mid_lon = np.concatenate([matrix.mid_lon for matrix in matrices])
@@ -1122,8 +1173,7 @@ def combine_static_edge_score_matrices(matrices: list[StaticEdgeScoreMatrix]) ->
         categorical_material_values=categorical_material_values[final_indices],
         distance_m=distance_m[final_indices],
         bearing_deg=bearing_deg[final_indices],
-        highway_filter_flags={name: flags[final_indices] for name, flags in highway_filter_flags.items()},
-        no_bicycle=no_bicycle[final_indices],
+        hard_filter_flags={name: flags[final_indices] for name, flags in hard_filter_flags.items()},
         gradient_percent=gradient_percent[final_indices],
         mid_lat=mid_lat[final_indices],
         mid_lon=mid_lon[final_indices],

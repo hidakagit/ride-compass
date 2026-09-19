@@ -1053,10 +1053,9 @@ def _assert_matrices_equal(a, b) -> None:
         left, right = getattr(a, name), getattr(b, name)
         both_nan = np.isnan(left) & np.isnan(right)
         assert ((left == right) | both_nan).all(), name
-    assert set(a.highway_filter_flags) == set(b.highway_filter_flags)
-    for name, flags_a in a.highway_filter_flags.items():
-        assert (flags_a == b.highway_filter_flags[name]).all()
-    assert (a.no_bicycle == b.no_bicycle).all()
+    assert set(a.hard_filter_flags) == set(b.hard_filter_flags)
+    for name, flags_a in a.hard_filter_flags.items():
+        assert (flags_a == b.hard_filter_flags[name]).all()
 
 
 def test_build_static_edge_score_matrix_matches_between_table_and_dict_materials():
@@ -1127,7 +1126,7 @@ def test_compute_routable_node_ids_matches_hard_filter_excluded_from_score_matri
     table = EdgeMaterialTable.from_bundles(edge_ids, bundles)
     matrix = build_static_edge_score_matrix(graph, table)
     excluded = compute_hard_filter_excluded(
-        matrix.highway_filter_flags, matrix.no_bicycle, matrix.gradient_percent,
+        matrix.hard_filter_flags, matrix.gradient_percent,
     )
 
     routable = compute_routable_node_ids(graph, matrix.edge_ids, excluded)

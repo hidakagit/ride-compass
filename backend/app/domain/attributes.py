@@ -615,13 +615,18 @@ def surface_by_edge_id(graph: RoadGraph, surface_by_way_id: dict[int, str | None
 
 @dataclass(frozen=True, slots=True)
 class EdgeMaterialArrays:
-    """タイル1枚ぶんの材料を、材料id→numpy配列で保持する表現。
+    """タイル1枚ぶんの材料を、**dtypeごとに1つの2次元配列**で保持する表現。
 
     値はDBが導出したものをそのまま受ける（`domain/material_sql.py: MATERIAL_VALUE_SQL`）。
     区間ごとのPythonオブジェクトを経由しないため、構築も復元もEdge数に比例しない。
 
-    `material_ids`は`values`が持つ列の並びで、**ディスクから復元したときに現在の材料集合と
-    突き合わせるためにある**。材料を1つ増やしてもdataclassのフィールドは変わらず
+    材料ごとに別々の配列を持たず、`StaticEdgeScoreMatrix`と同じ「値の行列＋idの並び」の形に
+    する。材料が増えてもフィールドは増えず、列の追加は`*_ids`が1つ伸びるだけになる。
+    dtypeで3つに分かれるのは、真偽とカテゴリを数値の行列へ混ぜられないため（分け方は
+    `MaterialSpec.dtype`と`bool_default`が決める。`material_array_group`が唯一の判定）。
+
+    `*_ids`は列の並びで、**ディスクから復元したときに現在の材料集合と突き合わせるために
+    ある**。材料を1つ増やしてもdataclassのフィールドは変わらず
     `cache_identity.shape_digest`が動かないため、鍵だけでは古い表を弾けない
     （`tile_score_matrix_cache`が可変長の列に対して行っているのと同じ、読み出し時の検証）。
 
@@ -635,9 +640,22 @@ class EdgeMaterialArrays:
     """
 
     edge_ids: list[str]
-    material_ids: tuple[str, ...]
-    values: dict[str, np.ndarray]
-    no_bicycle: np.ndarray  # dtype=bool
+    numeric_ids: tuple[str, ...]
+    numeric_values: np.ndarray  # shape=(n, len(numeric_ids)), float64, NaN=欠損
+    boolean_ids: tuple[str, ...]
+    boolean_values: np.ndarray  # shape=(n, len(boolean_ids)), bool
+    categorical_ids: tuple[str, ...]
+    categorical_values: np.ndarray  # shape=(n, len(categorical_ids)), object
+    # 0次ハードフィルタの生フラグ。フィルタ名がそのまま列で、`domain/hard_filters.py:
+    # HARD_FILTER_VALUE_SQL`から生成する。**フィルタごとに専用のフィールドを作らない**
+    # （材料と同じ「値の行列＋idの並び」、設計原則 構造仕様8）。
+    hard_filter_ids: tuple[str, ...]
+    hard_filter_flags: np.ndarray  # shape=(n, len(hard_filter_ids)), bool
+    # 区間そのものの値。グラフのオブジェクトから組み直さず、材料と同じクエリで受ける。
+    distance_m: np.ndarray  # dtype=float64
+    bearing_deg: np.ndarray  # dtype=float64, NaN=方位が決まらない
+    mid_lat: np.ndarray  # dtype=float64
+    mid_lon: np.ndarray  # dtype=float64
     elevation_present: np.ndarray  # dtype=bool
     elevation_start_m: np.ndarray  # dtype=float64, NaN=欠損
     elevation_end_m: np.ndarray
@@ -657,6 +675,33 @@ class EdgeMaterialArrays:
     def __len__(self) -> int:
         return len(self.edge_ids)
 
+    @property
+    def material_ids(self) -> tuple[str, ...]:
+        """持っている材料の全id（復元時に現在の材料集合と突き合わせる用）。"""
+        return (*self.numeric_ids, *self.boolean_ids, *self.categorical_ids)
+
+    def columns(self) -> dict[str, np.ndarray]:
+        """材料id→その列。行列の列はビューのためコピーしない。"""
+        return {
+            **{m: self.numeric_values[:, i] for i, m in enumerate(self.numeric_ids)},
+            **{m: self.boolean_values[:, i] for i, m in enumerate(self.boolean_ids)},
+            **{m: self.categorical_values[:, i] for i, m in enumerate(self.categorical_ids)},
+        }
+
+    def hard_filter_columns(self) -> dict[str, np.ndarray]:
+        """0次フィルタ名→該当フラグ。行列の列はビューのためコピーしない。"""
+        return {name: self.hard_filter_flags[:, i] for i, name in enumerate(self.hard_filter_ids)}
+
+    def column(self, material_id: str) -> np.ndarray:
+        for ids, matrix in (
+            (self.numeric_ids, self.numeric_values),
+            (self.boolean_ids, self.boolean_values),
+            (self.categorical_ids, self.categorical_values),
+        ):
+            if material_id in ids:
+                return matrix[:, ids.index(material_id)]
+        raise KeyError(material_id)
+
     def elevation_attribute(self, edge_id: str) -> ElevationAttribute | None:
         """行が無い、または標高が未計算ならNone。"""
         i = self._row_index.get(edge_id)
@@ -668,7 +713,7 @@ class EdgeMaterialArrays:
             end_elevation_m=_none_if_nan(self.elevation_end_m[i]),
             elevation_gain_m=_none_if_nan(self.elevation_gain_m[i]),
             elevation_loss_m=_none_if_nan(self.elevation_loss_m[i]),
-            average_grade=_none_if_nan(self.values[MATERIAL_ID_GRADIENT_PERCENT][i]),
+            average_grade=_none_if_nan(self.column(MATERIAL_ID_GRADIENT_PERCENT)[i]),
             max_grade=_none_if_nan(self.elevation_max_grade[i]),
             min_grade=_none_if_nan(self.elevation_min_grade[i]),
             data_source=self.elevation_data_source[i],

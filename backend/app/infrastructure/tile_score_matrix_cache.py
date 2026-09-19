@@ -53,7 +53,7 @@ from app.domain.evaluation import (
     route_facing_material_ids,
     route_facing_raw_axis_ids,
 )
-from app.domain.hard_filters import HARD_FILTER_HIGHWAY_TYPES
+from app.domain.hard_filters import HARD_FILTER_NAMES
 from app.infrastructure import cache_generation, tile_persistent_cache
 from app.infrastructure.cache_identity import SCORE_MATRIX_REVISION, cache_identity
 from app.infrastructure.graph_material_cache import TILE_MATERIALS_CACHE_VERSION
@@ -94,7 +94,7 @@ def _remember(key: tuple[int, int, int], matrix: StaticEdgeScoreMatrix) -> None:
 def _columns_match_current_predicates(matrix: StaticEdgeScoreMatrix) -> bool:
     """復元した行列の可変長の列が、いまの述語の出力と一致するか。
 
-    `raw_axis_ids`/`material_ids`/`categorical_material_ids`/`highway_filter_flags`は
+    `raw_axis_ids`/`material_ids`/`categorical_material_ids`/`hard_filter_flags`は
     `dataclasses.fields()`には
     現れない**中身で決まる列**で、鍵の署名（列名の並び）では捕まえられない。列を決める
     述語（`axis_display.py`の生値可否判定・`MaterialSpec`の該当フィールド）はこのモジュールを
@@ -109,7 +109,7 @@ def _columns_match_current_predicates(matrix: StaticEdgeScoreMatrix) -> bool:
         matrix.raw_axis_ids == route_facing_raw_axis_ids()
         and matrix.material_ids == route_facing_material_ids()
         and matrix.categorical_material_ids == route_facing_categorical_material_ids()
-        and matrix.highway_filter_flags.keys() == HARD_FILTER_HIGHWAY_TYPES.keys()
+        and matrix.hard_filter_flags.keys() == HARD_FILTER_NAMES
     )
 
 
