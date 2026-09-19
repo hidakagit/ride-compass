@@ -77,6 +77,7 @@ import {
 import { WIND_CALM_THRESHOLD_MS, WIND_SPEED_COLOR_STOPS } from "@/components/Map/windLayer";
 import {
   dedicatedWayValueColorExpression,
+  dedicatedWayValueOpacityExpression,
   dedicatedWayValueFeatureStateKey,
   type DedicatedWayValueDisplay,
 } from "@/components/Map/dedicatedWayValueLayer";
@@ -1179,7 +1180,11 @@ export function ensureRoadSurfaceTileLayer(map: MapLibreMap) {
 // （軸カタログのmap_value_thresholds、実行時フェッチで後から変わりうる）に
 // 依存するため、レイヤーが既に存在する場合もsetPaintPropertyで再適用する
 // （初回作成時の値のまま固定させず、フェッチ完了後の値を反映させるため）。
-function makeEnsureDedicatedWayValueLayer(layerId: string, colorExpression: unknown[]): (map: MapLibreMap) => void {
+function makeEnsureDedicatedWayValueLayer(
+  layerId: string,
+  colorExpression: unknown[],
+  opacityExpression: unknown[],
+): (map: MapLibreMap) => void {
   return (map: MapLibreMap) => {
     ensureRoadSurfaceTileLayer(map);
     const applyData = () => {
@@ -1196,6 +1201,8 @@ function makeEnsureDedicatedWayValueLayer(layerId: string, colorExpression: unkn
           paint: {
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
             "line-color": colorExpression as any,
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            "line-opacity": opacityExpression as any,
             "line-width": DEFAULT_ROAD_LINE_WIDTH,
           },
           layout: { visibility: "none" },
@@ -1657,6 +1664,7 @@ export function buildStaticOverlayLayers(
           dedicatedWayValueLoading?.get(axis.axisId) ?? false,
           dedicatedWayValueHiddenBands?.get(axis.axisId) ?? [],
         ),
+        dedicatedWayValueOpacityExpression(axis.axisId, dedicatedWayValueLoading?.get(axis.axisId) ?? false),
       ),
       interactive: true,
     })),

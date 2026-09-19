@@ -6,7 +6,8 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { setTileVersions } from "@/services/regionApi";
 import { DEDICATED_WAY_VALUE_AXES, axisLineLayerId, axisMapLayerId, type RampAxis } from "@/components/Map/axisLayers";
-import { KNOWN_LINE_OPACITY } from "@/components/Map/roadFilterAxes";
+import { dedicatedWayValueOpacityExpression } from "@/components/Map/dedicatedWayValueLayer";
+import { FALLBACK_LINE_OPACITY, KNOWN_LINE_OPACITY } from "@/components/Map/roadFilterAxes";
 import {
   DEFAULT_ROAD_LINE_WIDTH,
   DESIGNATION_LAYER_ID,
@@ -408,6 +409,49 @@ describe("buildStaticOverlayLayers（windAxis/gradientAxisのensureが既存レ�
 
     const paintCalls = map.paintCalls.filter((c) => c.layerId === windEntry.layerId && c.name === "line-color");
     expect(paintCalls).toHaveLength(1);
+  });
+
+  it("値を受け取れなかった道を薄くするline-opacityが、実際にpaintへ届く（T954）", () => {
+    const map = fakeMap();
+    const entry = buildStaticOverlayLayers([], DEDICATED_WAY_VALUE_AXES, undefined).find(
+      (l) => l.key === "gradientAxis",
+    )!;
+
+    entry.ensure(map as unknown as Parameters<typeof entry.ensure>[0]);
+
+    // 式の形ではなく「addLayerのpaintに載ったか」を見る——載らなければMapLibreの既定
+    // （line-opacity=1）で塗られ、値の無い道が濃いまま残る。
+    const spec = map.addedSpecs.find((s) => s.id === entry.layerId)!;
+    expect(spec.paint?.["line-opacity"]).toEqual(dedicatedWayValueOpacityExpression("gradient", false));
+    // 値がある側は濃く、無い側は薄い（式を評価せず、両端の値だけを確かめる）。
+    const expression = spec.paint?.["line-opacity"] as unknown[];
+    expect(expression[expression.length - 1]).toBe(KNOWN_LINE_OPACITY);
+    expect(expression[2]).toBe(FALLBACK_LINE_OPACITY);
+  });
+
+  it("取得中から取得完了へ変わると、line-opacityも既存レイヤーへ再適用される（T954）", () => {
+    const map = fakeMap();
+    const loading = buildStaticOverlayLayers(
+      [],
+      DEDICATED_WAY_VALUE_AXES,
+      undefined,
+      new Map([["gradient", true]]),
+      undefined,
+    ).find((l) => l.key === "gradientAxis")!;
+    loading.ensure(map as unknown as Parameters<typeof loading.ensure>[0]);
+
+    const settled = buildStaticOverlayLayers(
+      [],
+      DEDICATED_WAY_VALUE_AXES,
+      undefined,
+      new Map([["gradient", false]]),
+      undefined,
+    ).find((l) => l.key === "gradientAxis")!;
+    settled.ensure(map as unknown as Parameters<typeof settled.ensure>[0]);
+
+    const opacityCalls = map.paintCalls.filter((c) => c.layerId === loading.layerId && c.name === "line-opacity");
+    expect(opacityCalls).toHaveLength(1);
+    expect(opacityCalls[0].value).toEqual(dedicatedWayValueOpacityExpression("gradient", false));
   });
 
   it("凡例で非表示にした段階は、色式のその段階だけが透明になる（filterでは絞り込めないため）", () => {

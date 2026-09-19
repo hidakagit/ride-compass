@@ -113,6 +113,28 @@ backend（`domain/dynamic_way_values.py: map_value_thresholds`）が軸の折れ
   **feature-state経由の値はMapLibreの`filter`から読めない**ため、線を間引くのではなく
   透明にして下の路面レイヤーを見せる。フェッチ進行中の色だけは非表示指定があっても残す
   （「まだ来ていない」と「隠した」が区別できなくなるため）。
+- `buildDedicatedWayValueOpacityExpression(valueExpression, loading?)`:
+  値を受け取れなかった道は`FALLBACK_LINE_OPACITY`で薄く、値を持つ道は
+  `KNOWN_LINE_OPACITY`で濃く塗る（`roadFilterAxes.ts`の定数をそのまま使い、
+  地図全体の「薄い＝対象外、濃い＝分類あり」という読み方に揃える）。
+  **暗黙の前提**: 値が無い道には2種類あり、標高が計算されていない道と、
+  勾配のように向きを指定する軸で**その向きに対して直角に近く値を示せない道**
+  （backend `domain/gradient.py: shows_gradient`）が同じnullとして届く。配信側が
+  種類を持たないため地図では区別できない。方位を1つ指定すると後者が街区の
+  半分近くを占めうるため、薄くしないと値のある道がそこへ埋もれる。
+  `loading`のあいだは薄くしない——`COLOR_LOADING`が見えなくなり「取得中」と
+  「対象外」の区別が付かなくなる。
+- `buildDedicatedWayValueOpacityExpression(valueExpression, loading?)`:
+  値を受け取れなかった道は`FALLBACK_LINE_OPACITY`で薄く、値を持つ道は
+  `KNOWN_LINE_OPACITY`で濃く塗る（`roadFilterAxes.ts`の定数をそのまま使い、
+  地図全体の「薄い＝対象外、濃い＝分類あり」という読み方に揃える）。
+  **暗黙の前提**: 値が無い道には2種類あり、標高が計算されていない道と、
+  勾配のように向きを指定する軸で**その向きに対して直角に近く値を示せない道**
+  （backend `domain/gradient.py: shows_gradient`）が同じnullとして届く。配信側が
+  種類を持たないため地図では区別できない。方位を1つ指定すると後者が街区の
+  半分近くを占めうるため、薄くしないと値のある道がそこへ埋もれる。
+  `loading`のあいだは薄くしない——`COLOR_LOADING`が見えなくなり「取得中」と
+  「対象外」の区別が付かなくなる。
 
 ## routeStyleModes.ts（ルート確定後）
 
@@ -315,10 +337,10 @@ isAxisStudioLayer`により地図上チップ（`MapOverlayControls.tsx`）に�
 | 追従するもの | 導出元 |
 |---|---|
 | `MapLayerId`・`MapLayerDescriptor`（地図UIからの除外を含む） | `buildMapLayers(rampAxes, dedicatedAxes)` |
-| MapLibreの線レイヤー登録・色式の再適用 | `buildStaticOverlayLayers(..., dedicatedAxes, ...)` |
+| MapLibreの線レイヤー登録・色式と濃さの再適用 | `buildStaticOverlayLayers(..., dedicatedAxes, ...)` |
 | 表示ON/OFF（レンズ選択） | `page.tsx: dedicatedWayValueVisibility` |
 | way値のフェッチとクエリパラメータの取捨 | `useDedicatedWayValues` + 軸カタログの`needsTime`/`needsSpeed` |
-| feature-stateキー・色式・凡例 | `dedicatedWayValueFeatureStateKey`/`dedicatedWayValueColorExpression`/`dedicatedWayValueLegend` |
+| feature-stateキー・色式・濃さ・凡例 | `dedicatedWayValueFeatureStateKey`/`dedicatedWayValueColorExpression`/`dedicatedWayValueOpacityExpression`/`dedicatedWayValueLegend` |
 
 **追従しないもの**: 値を組み立てるbackendのサービス本体（`_DEDICATED_WAY_VALUE_SERVICE_
 FACTORIES`への登録、[dynamic-way-values.md](../backend/dynamic-way-values.md)参照）。

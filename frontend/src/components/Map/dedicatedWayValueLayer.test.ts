@@ -4,11 +4,14 @@
 import { describe, expect, it } from "vitest";
 import {
   buildDedicatedWayValueColorExpression,
+  buildDedicatedWayValueOpacityExpression,
   dedicatedWayValueColorExpression,
+  dedicatedWayValueOpacityExpression,
   dedicatedWayValueFeatureStateKey,
   dedicatedWayValueLegend,
   type DedicatedWayValueDisplay,
 } from "./dedicatedWayValueLayer";
+import { FALLBACK_LINE_OPACITY, KNOWN_LINE_OPACITY } from "./roadFilterAxes";
 import {
   COLOR_HIDDEN,
   COLOR_LOADING,
@@ -129,6 +132,33 @@ describe("dedicatedWayValueLayer", () => {
 
       const mismatch = dedicatedWayValueLegend({ ...difficultyDisplay, boundaries: [33, 66], bandLabels: ["a", "b"] });
       expect(mismatch[0].label).toBe("33未満");
+    });
+  });
+  describe("線の濃さ", () => {
+    // 地図全体の「薄い＝対象外、濃い＝分類あり」という読み方（roadFilterAxes.ts）を
+    // このレイヤーにも効かせる。方位を指定すると値を示せない道が街区の半分近くを
+    // 占めうるため、濃いまま塗ると値のある道がそこへ埋もれる。
+    const value = ["feature-state", "gradientValue"];
+
+    it("値を受け取れなかった道は薄く、値を持つ道は濃く塗る", () => {
+      const expression = buildDedicatedWayValueOpacityExpression(value);
+
+      expect(expression).toEqual(["case", ["==", value, null], FALLBACK_LINE_OPACITY, KNOWN_LINE_OPACITY]);
+      expect(FALLBACK_LINE_OPACITY).toBeLessThan(KNOWN_LINE_OPACITY);
+    });
+
+    it("取得中は薄くしない（「取得中」と「対象外」が見分けられなくなるため）", () => {
+      const expression = buildDedicatedWayValueOpacityExpression(value, true);
+
+      expect(expression).toEqual(["case", ["==", value, null], KNOWN_LINE_OPACITY, KNOWN_LINE_OPACITY]);
+    });
+
+    it("軸idから組み立てた式は、色式と同じ値の取得元を読む", () => {
+      const axisId = "gradient";
+
+      expect(dedicatedWayValueOpacityExpression(axisId)).toEqual(
+        buildDedicatedWayValueOpacityExpression(["feature-state", dedicatedWayValueFeatureStateKey(axisId)]),
+      );
     });
   });
 });

@@ -16,6 +16,7 @@ import {
   LEGEND_NO_DATA_KEY,
   type MapColorLegendBand,
 } from "./mapColorLegend";
+import { FALLBACK_LINE_OPACITY, KNOWN_LINE_OPACITY } from "./roadFilterAxes";
 import {
   bandColorsFor,
   buildSteppedColorExpression,
@@ -80,6 +81,34 @@ export function dedicatedWayValueColorExpression(
     loading,
     hiddenBandKeys,
   );
+}
+
+/** 値の有無で線の濃さを決めるMapLibre expression。値を受け取れなかった道は
+ * `FALLBACK_LINE_OPACITY`で薄くし、値を持つ道だけが浮かび上がるようにする——
+ * 地図全体の「薄い＝対象外、濃い＝分類あり」という読み方（roadFilterAxes.ts）を
+ * このレイヤーにも揃える。**薄くするのであって消さない**
+ * （docs/design-principles.md「消さずに薄くする」）。
+ *
+ * 値が無い道は2種類ある。標高が計算されていない道と、勾配のように向きを指定する軸で
+ * **その向きに対して直角に近く、値を示せない道**（domain/gradient.py: shows_gradient）。
+ * 方位を1つ指定すると後者が街区の半分近くを占めうるため、濃いまま塗ると値のある道が
+ * そこへ埋もれる。どちらも利用者にとっては「いま見ている条件の対象外」なので同じ薄さで
+ * 足りる（分けるなら配信側が種類を持つ必要がある）。
+ *
+ * `loading`（まだ一度も値を受け取っていない）のあいだは薄くしない——取得中を示す
+ * COLOR_LOADINGが見えなくなり、「取得中」と「対象外」の区別が付かなくなる。 */
+export function buildDedicatedWayValueOpacityExpression(valueExpression: unknown[], loading = false): unknown[] {
+  return [
+    "case",
+    ["==", valueExpression, null],
+    loading ? KNOWN_LINE_OPACITY : FALLBACK_LINE_OPACITY,
+    KNOWN_LINE_OPACITY,
+  ];
+}
+
+/** feature-state値から線の濃さを決めるMapLibre expression（色式と同じ値の取得元を使う）。 */
+export function dedicatedWayValueOpacityExpression(axisId: string, loading = false): unknown[] {
+  return buildDedicatedWayValueOpacityExpression(["feature-state", dedicatedWayValueFeatureStateKey(axisId)], loading);
 }
 
 /** 地図上の色分け凡例。色式と同じ配色・しきい値から段階ラベル付きの凡例を組み立てる。
