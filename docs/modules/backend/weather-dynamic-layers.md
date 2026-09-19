@@ -7,6 +7,11 @@
 として配信する。外部の気象予報APIには依存しない（予報はMSMのファイルをローカルへ同期して
 読む）。
 
+**外部タイルのプロキシ配信もここが持つ**（基礎地図・国土地理院）。気象のデータではないが、
+「外部のタイルを中継し`tile_cache`へ永続化する」という仕組みを気象庁タイルと共有しており、
+片方だけを別の文書へ移すと同じ仕組みの説明が二手に分かれる。標高そのものの取得（DEM→
+Edge属性、ルート評価の入力）は[elevation.md](elevation.md)が持つ。
+
 **予報と実測の住み分け**: 予報（風・降水の格子点マップ、ルート評価が使う時刻別の風）は
 気象庁MSMの前処理済みファイルをローカルへ同期して読む。実測（現在の気温・風速、降水
 ナウキャスト）と防災情報（警報・注意報・洪水・キキクル）は気象庁の公開APIから取る。
@@ -22,12 +27,10 @@ MSMは数値予報モデルの出力で観測値・公式発表の代わりに�
 
 | レイヤー | ファイル |
 |---|---|
-| domain | `msm.py`（MSM格子の幾何・双一次補間）・`jma_tile_specs.py`（配信元のズーム仕様レジストリ）・`weather.py`・`jma_amedas.py`・`jma_area.py`・`jma_warning.py`・`wbgt.py`・`wbgt_points.py`・`twilight.py`・`night.py`・`flood_forecast.py` |
-| services | `weather_service.py`・`jma_amedas_service.py`・`wbgt_service.py`・`warning_service.py`・`flood_service.py`・`jma_tile_prewarm_service.py`（定期プリウォームバッチ） |
+| domain | `msm.py`（MSM格子の幾何・双一次補間）・`jma_tile_specs.py`（配信元のズーム仕様レジストリ）・`weather.py`・`jma_amedas.py`・`jma_area.py`・`jma_warning.py`・`wbgt.py`・`wbgt_points.py`・`twilight.py`・`night.py`・`flood_forecast.py`・`terrain_rgb.py`（標高タイルのエンコード変換、純関数） |
+| services | `weather_service.py`・`jma_amedas_service.py`・`wbgt_service.py`・`warning_service.py`・`flood_service.py`・`jma_tile_prewarm_service.py`（定期プリウォームバッチ）・`terrain_tile_service.py`（地理院の標高タイルをTerrain-RGBへ変換して配信） |
 | infrastructure | `msm_client.py`（MSMの同期・読み出し）・`jma_tile_client.py`・`jma_tile_redis_cache.py`（タイル本体のRedis cache-aside）・`jma_tile_interpolation.py`（配信元が持たないズームの補間）・`jma_tile_index.py`（在否インデックス）・`jma_tile_content.py`（タイルが空かどうかの判定。キャッシュと在否インデックスが共有する）・`jma_amedas_client.py`・`jma_warning_client.py`・`wbgt_client.py`・`flood_client.py`・`basemap_client.py`・`gsi_tile_client.py`・`simple_api_client.py`（後者4クライアントが共有する定型文、後述） |
 | api | `weather.py`・`jma_tile.py`・`basemap.py`・`gsi_tile.py` |
-| services | `terrain_tile_service.py`（標高タイルの変換と配信） |
-| domain | `terrain_rgb.py`（標高タイルのエンコード変換、純関数） |
 
 ## domain層: 2つの異なる役割
 

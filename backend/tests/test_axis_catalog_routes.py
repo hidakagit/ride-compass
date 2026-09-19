@@ -292,13 +292,10 @@ def test_タイル世代はDBの派生データ世代を前置きして配る():
         async def get_derived_data_revision(self):
             return 42
 
-    class RegionServiceWithRevision(RegionService):
-        @property
-        def repository(self):
-            return RepositoryWithRevision()
-
     derived_data_revision_service.reset_for_tests()
-    app.dependency_overrides[get_region_service] = lambda: RegionServiceWithRevision()
+    app.dependency_overrides[get_region_service] = lambda: RegionService(
+        repository=RepositoryWithRevision()
+    )
     try:
         versions = client.get("/api/axis-catalog").json()["tile_versions"]
     finally:

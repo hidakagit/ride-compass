@@ -3,6 +3,19 @@
 // モード（routeStyleModes.ts、有向・選択ルート基準）の両系統が同じ凡例UI
 // （MapOverlayControls）とフィルタ機構を共有するため、ここへ切り出している。
 
+/** 凡例に出る種別名を、説明文へ差し込める並びにする（受け皿カテゴリは除く）。
+ *
+ * **説明文が凡例と別に種別を数え上げると、種別を足したときに説明文だけが古くなる**
+ * ——「車止めのある道を避けたい」利用者は、説明文にその語が無ければレイヤーを開かない。
+ * 区切りが読点なのは、ラベル自体が中黒を含むため（「車止め・ゲート」）。
+ */
+export function legendKindList(legend: readonly LegendEntry[]): string {
+  return legend
+    .filter((entry) => entry.isFallback !== true)
+    .map((entry) => entry.label)
+    .join("、");
+}
+
 export interface LegendEntry {
   /** カテゴリの安定識別子（表示/非表示状態のキー。ラベル文言の変更に影響されない） */
   key: string;

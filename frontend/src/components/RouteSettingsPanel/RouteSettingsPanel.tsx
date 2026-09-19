@@ -262,8 +262,10 @@ export default function RouteSettingsPanel({
       {catalog.failed && (
         <p className={styles.catalogErrorNotice} role="status">
           <span>
-            軸一覧を取得できませんでした。地図の道路・POI・事故は表示できず、このまま生成すると
-            重み配分は反映されずサーバー既定の配分で探索します。
+            {/* JSXは行の折り返しを半角スペース1つに畳む。日本語の文の途中では読点の直後に
+                不自然な空きが出るため、文字列として繋ぐ。 */}
+            {"軸一覧を取得できませんでした。地図の道路・POI・事故は表示できず、このまま生成すると" +
+              "重み配分は反映されずサーバー既定の配分で探索します。"}
           </span>
           <button type="button" className={styles.catalogErrorRetry} onClick={retryAxisCatalogFetch}>
             再試行

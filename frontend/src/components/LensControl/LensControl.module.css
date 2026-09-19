@@ -189,12 +189,15 @@
   gap: 0.15rem 0.5rem;
 }
 
+/* 段階の細かい軸のラベルは1列ぶんに収まらない（390px幅の実測で、停止密度の行が
+   セルから30〜42pxはみ出していた）。折り返しを許し、区切りの無い数値の並びでも
+   セルの外へ出さない。 */
 .legendRow {
   display: flex;
   align-items: center;
   gap: 0.3rem;
   font-variant-numeric: tabular-nums;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
 }
 
 /* 凡例の見出し兼「全段階の表示/非表示」。見出し行をそのまま一括操作に使い、

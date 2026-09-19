@@ -18,7 +18,7 @@ test("モバイル: 観測値の取得に失敗してもヘッダーが幅に収
   await openMobileApp(page);
   // installApiMocksより後に登録して優先させる（Playwrightは後勝ち）。
   await page.route("**/api/weather/amedas*", (route) =>
-    route.fulfill({ status: 503, json: { detail: "アメダス観測値の取得に失敗しました" } })
+    route.fulfill({ status: 503, json: { detail: "アメダス観測値の取得に失敗しました" } }),
   );
   await page.reload();
 
@@ -59,4 +59,29 @@ test("モバイル: ルート結果を見ている間は地図タップでピン
   await expect(settingsAgain.getByRole("button", { name: "経由地をクリア" })).toHaveCount(0);
   await page.locator(".app-map-pane canvas").click({ position: { x: 240, y: 220 } });
   await expect(settingsAgain.getByRole("button", { name: "経由地をクリア" })).toBeVisible({ timeout: 5000 });
+});
+
+// レンズの凡例は段階の細かい軸ほど1行が長い。2列グリッド＋`white-space: nowrap`は、幅が
+// 足りないと行がセルからはみ出し、値の右側が読めなくなる。要素はariaツリーに存在するため
+// 役割・名前ベースでは捕まらない（ヘッダーの溢れと同じ）。幅を実測して押さえる。
+test("モバイル: レンズの凡例が、段階の細かい軸でも幅に収まる", async ({ page }) => {
+  await openMobileApp(page);
+
+  await page.getByRole("button", { name: /^レンズ:/ }).click();
+  await page.getByRole("radio", { name: "停止密度" }).click();
+  await page.getByRole("button", { name: /^レンズ:/ }).click();
+  await expect(page.getByLabel("凡例の全段階をまとめて表示/非表示")).toBeVisible();
+
+  const rows = await page.evaluate(() => {
+    const header = [...document.querySelectorAll("label")].find((el) => el.textContent?.trim() === "凡例");
+    const list = header?.parentElement?.lastElementChild;
+    return [...((list?.children ?? []) as HTMLCollectionOf<HTMLElement>)].map((row) => ({
+      label: row.textContent?.trim() ?? "",
+      overflowPx: row.scrollWidth - row.clientWidth,
+      beyondViewportPx: Math.round(row.getBoundingClientRect().right - window.innerWidth),
+    }));
+  });
+
+  expect(rows.length).toBeGreaterThan(0);
+  expect(rows.filter((row) => row.overflowPx > 0 || row.beyondViewportPx > 0)).toEqual([]);
 });

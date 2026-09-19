@@ -85,6 +85,12 @@ JMA_TARGET_TIMES = CachePolicy(max_age_seconds=60)
 #: しても変わらない（`jma_tile_redis_cache.py: EmptyTile`と同じ理由）。疎な格子状タイルでは
 #: 404が正常系として多数発生するため、再要求させない効果はタイル本体と変わらない。
 JMA_TILE_NOT_FOUND = CachePolicy(max_age_seconds=10 * 60)
+#: 地理院タイルの恒久404（整備区域外）。同じ事実は`gsi_tile_client.py`がプロセス内に
+#: 持ち、上流へ問い合わせ直さない。**ブラウザにも伝える**——MapLibreの`raster-dem`は
+#: 整備区域外のタイルも視界へ入るたび要求するため、伝えないと沿岸部を連続してパンする
+#: 利用者が404だけでレート制限に達しうる。プロセス内の記録は再起動で消える（整備区域が
+#: 広がったときに取り直す機会）ため、ブラウザへもそれより長い寿命は渡さない。
+GSI_TILE_NOT_FOUND = CachePolicy(max_age_seconds=60 * 60)
 
 
 # --- パスとポリシーの対応表 ---------------------------------------------------

@@ -202,6 +202,9 @@ const GSI_RELIEF_TILE_PATH = "/api/gsi-relief-tile/xyz/relief/{z}/{x}/{y}.png";
 const GSI_RELIEF_MAX_ZOOM = 15;
 const GSI_RELIEF_ATTRIBUTION =
   '<a href="https://maps.gsi.go.jp/development/ichiran.html" target="_blank" rel="noreferrer">地理院タイル(色別標高図)</a>';
+// 陰影起伏が読むのは標高タイル（`xyz/dem_png`）で、色別標高図とは別の製品。
+const GSI_TERRAIN_ATTRIBUTION =
+  '<a href="https://maps.gsi.go.jp/development/ichiran.html" target="_blank" rel="noreferrer">地理院タイル(標高タイル)</a>';
 
 // 路面ベクタタイル（ROAD_TILE_SOURCE_ID）へ焼き込まれる生データの帰属表示。1つのMVTタイルへ
 // OSM（道路本体）・国土数値情報N10/N12（指定路線）・警察庁（事故密度）・Esri×Impact
@@ -520,7 +523,7 @@ function ensureTerrainHillshadeLayer(map: MapLibreMap) {
         greenFactor: TERRAIN_RGB_GREEN_FACTOR * TERRAIN_VERTICAL_EXAGGERATION,
         blueFactor: TERRAIN_RGB_BLUE_FACTOR * TERRAIN_VERTICAL_EXAGGERATION,
         baseShift: TERRAIN_RGB_BASE_SHIFT * TERRAIN_VERTICAL_EXAGGERATION,
-        attribution: GSI_RELIEF_ATTRIBUTION,
+        attribution: GSI_TERRAIN_ATTRIBUTION,
       });
     }
     ensureLayerFromSpec(

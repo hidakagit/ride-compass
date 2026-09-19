@@ -15,6 +15,7 @@ from app.infrastructure.road_graph_repository import (
 )
 from app.infrastructure.vector_tile import encode_empty_poi_tile, encode_empty_road_surface_tile
 from app.services.graph_service import GraphService
+from app.services.tile_version_service import current_tile_versions
 from app.services import derived_data_revision_service
 from app.services.tile_serving import MVT_CONTENT_TYPE, TileResponse, serve_cached_tile
 
@@ -113,8 +114,8 @@ class RegionService:
     標高は国土地理院の色別標高図（ラスタタイル）をフロントエンドから直接重ね描きするため、
     バックエンド側の地域取得はベクタタイルのみを扱う。
     生成したタイル（MVTバイナリ）はz/x/y単位で基礎地図タイルと同じファイルキャッシュ
-    （infrastructure/tile_cache.py）に永続化する。「地図データを再読み込み」ボタンで
-    基礎地図タイルと一緒にまとめてキャッシュを消去できる。
+    （infrastructure/tile_cache.py）に永続化する。基礎地図タイルと同じキャッシュのため、
+    管理画面からの一括クリア（`api/routers/basemap.py: basemap_refresh`）で両方とも消える。
 
     データソース（docs/osm-pbf-import.md Phase 2）:
     `repository`（RoadGraphRepository）を渡すと、要求タイルのz12祖先タイルが取得済みマーク
@@ -135,10 +136,16 @@ class RegionService:
     def __init__(self, repository: RoadGraphRepository | None = None):
         self._repository = repository
 
-    @property
-    def repository(self) -> RoadGraphRepository | None:
-        """DBの口。`None`はDBなし構成。"""
-        return self._repository
+    async def tile_versions(self) -> dict[str, str]:
+        """系統名→配信する世代（`services/tile_version_service.py`）。
+
+        DBの口（`repository`）を外へ出さずにここで閉じる。**外へ出すと、呼び出し側が
+        どのセッション設定（タイムアウト）の上で動いているのかが見えないまま
+        infrastructureを直接触ることになる**——このサービスを作る依存
+        （`api/dependencies.py: get_region_service`）と、repositoryを直接配る依存とでは
+        タイムアウトが違う。
+        """
+        return await current_tile_versions(self._repository)
 
     async def _tile_from_repository(
         self, repository_method: str, z: int, x: int, y: int, fields: dict, label: str

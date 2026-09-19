@@ -76,8 +76,11 @@ export function buildRangeLegendBands(
   labels?: readonly string[],
 ): MapColorLegendBand[] {
   return colors.map((color, index) => {
-    const lower = index === 0 ? null : boundaries[index - 1];
-    const upper = index === boundaries.length ? null : boundaries[index];
+    // 境界が段階数に足りない組み合わせでも、無い端は「無い」として扱う（`??`）。
+    // 添字で引いた`undefined`をそのまま文字にすると「undefined〜undefined%」という
+    // 読めないラベルが凡例に出る——範囲を言えないなら、言わない方が読み手を誤らせない。
+    const lower = index === 0 ? null : (boundaries[index - 1] ?? null);
+    const upper = index >= boundaries.length ? null : (boundaries[index] ?? null);
     const rangeLabel = rangeStepLabel(lower, upper, unit);
     const label = labels ? `${labels[index]}（${rangeLabel}）` : rangeLabel;
     return { key: legendBandKey(index), label, color };
