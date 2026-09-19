@@ -917,9 +917,10 @@ interface RouteGenerateRequest {
   route_preference?: RoutePreferenceWeights; // 評価重みの上書き（研究用・省略可、§10-1。Edge評価・
     // 区間難易度の重み、axis_idキーの辞書。
     // 改善計画T292でcar_stress_recipe等の専用Pythonレシピ上書きは廃止し、公開軸の重みのみで表現する）
-  penalty_strength?: number;         // コスト式の割増率の強さ（改善計画T218・T12 ADR原則1、
-    // 省略時は`domain/evaluation.py: DEFAULT_PENALTY_STRENGTH`。値はそちらが唯一の正本で、
-    // ここへ数値を書き写さない）
+  penalty_strength?: number | null;  // コスト式の割増率の強さ（改善計画T218・T12 ADR原則1、
+    // 省略時はリクエスト処理時に較正値から読む（`domain/evaluation.py:
+    // resolve_penalty_strength`）。スキーマ側に既定値を置かないのは、import時に束ねると
+    // 管理画面から変えた値が効かなくなるため。ここへ数値を書き写さない）
   max_average_grade_percent?: number | null; // 0次ハードフィルタの勾配しきい値（改善計画T218a・T12 ADR原則5、省略時は除外なし）
   hard_filters?: HardFilterOverride; // 0次ハードフィルタの個別ON/OFF（改善計画T266）。
     // 一般向けルート設定画面（frontend/src/components/RouteSettingsPanel、改善計画T267）が

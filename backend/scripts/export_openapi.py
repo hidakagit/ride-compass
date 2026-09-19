@@ -44,7 +44,6 @@ from app.infrastructure.vector_tile import (  # noqa: E402
 )
 from app.main import app  # noqa: E402
 from app.services.axis_registry_service import refresh_axis_definitions  # noqa: E402
-from app.domain.evaluation import DEFAULT_PENALTY_STRENGTH  # noqa: E402
 from app.domain.wind import ASSUMED_SPEED_KMH, MAX_ASSUMED_SPEED_KMH, MIN_ASSUMED_SPEED_KMH  # noqa: E402
 from app.domain.axis_display import raw_value_total_unit, raw_value_unit  # noqa: E402
 from app.api.routers.axis_catalog import _material_breakdown as material_breakdown_for  # noqa: E402
@@ -332,10 +331,6 @@ def main() -> None:
             "default_assumed_speed_kmh": ASSUMED_SPEED_KMH,
             "default_distance_tolerance_km": DEFAULT_DISTANCE_TOLERANCE_KM,
             "spliced_route_id": SPLICED_ROUTE_ID,
-            # 主観と時間の換算レート（P）の既定。生成物のdefaultは`RouteGenerateRequest`の
-            # スキーマにも出るが、openapi-typescriptは既定値を持つ項目も必須として出す
-            # ため、frontendは値を送らざるを得ない。手書きせずここから配る。
-            "default_penalty_strength": DEFAULT_PENALTY_STRENGTH,
             "min_assumed_speed_kmh": MIN_ASSUMED_SPEED_KMH,
             "max_assumed_speed_kmh": MAX_ASSUMED_SPEED_KMH,
             # フロントが使う較正値の**既定**（`domain/tuning.py`の宣言そのまま）。

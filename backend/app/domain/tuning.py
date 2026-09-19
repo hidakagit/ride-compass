@@ -55,8 +55,6 @@ class TuningEffect(Enum):
     TURN_STRUCTURE = "turn_structure"
     #: `road_nodes`の事前計算バッチをやり直さないと効かない。
     NODE_ATTRIBUTE_BATCH = "node_attribute_batch"
-    #: プロセスを入れ替えないと効かない（APIスキーマの既定値のように、import時に束ねられる）。
-    RESTART = "restart"
     #: 画面を読み込み直すと効く（フロントが起動時のカタログ取得で受け取る値）。
     CLIENT_RELOAD = "client_reload"
 
@@ -212,7 +210,7 @@ TUNING_PARAMETERS: tuple[TuningParameter, ...] = (
     TuningParameter(
         "evaluation.penalty_strength",
         "主観と時間の換算レート", "", 0.7, 0.0, 5.0,
-        TuningEffect.RESTART,
+        TuningEffect.IMMEDIATE,
         "難易度を所要時間の割増しへ換算する強さ。"
         "リクエストごとに上書きできるため、ここで決めるのは省略されたときの値。",
     ),

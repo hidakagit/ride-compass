@@ -5,11 +5,11 @@ import pytest
 from fastapi import BackgroundTasks
 from fastapi.testclient import TestClient
 
-from app.domain.evaluation import DEFAULT_PENALTY_STRENGTH
 from app.api.dependencies import RouteGenerationSetup, _assemble_route_generation_setup
 from app.api.routers import routes as routes_module
 from app.api.routers.routes import _generate_semaphore
 from app.config import settings
+from app.domain.evaluation import resolve_penalty_strength
 from app.domain.hard_filters import DEFAULT_HARD_FILTERS
 from app.domain.route_preference import RoutePreference
 from app.domain.route import RouteCandidate
@@ -92,7 +92,7 @@ def fake_open_route_generation_setup(
     @asynccontextmanager
     async def _open(
         preference_override=None,
-        penalty_strength: float = 1.0,
+        penalty_strength: float | None = None,
         max_average_grade_percent: float | None = None,
         hard_filters_override: frozenset[str] | None = None,
         assumed_speed_kmh: float = ASSUMED_SPEED_KMH,
@@ -108,7 +108,9 @@ def fake_open_route_generation_setup(
         yield RouteGenerationSetup(
             generator=generator or FakeRouteGenerator(candidates, no_candidates_reason),
             route_preference=preference_override or RoutePreference(),
-            penalty_strength=penalty_strength,
+            # 本物と同じく、省略されたら較正値から解決する（フェイクだけが
+            # リテラルを持つと、その値でしか通らないテストになる）。
+            penalty_strength=resolve_penalty_strength(penalty_strength),
             assumed_speed_kmh=assumed_speed_kmh,
             max_average_grade_percent=max_average_grade_percent,
             hard_filters=hard_filters_override if hard_filters_override is not None else DEFAULT_HARD_FILTERS,
@@ -563,23 +565,44 @@ def test_generate_routes_with_spliced_edge_ids_evaluates_the_given_path_only(mon
 
 
 class TestPenaltyStrengthDefault:
-    """主観的割増のレートの既定値が、正本1つから届くこと（改善計画T817）。
+    """主観的割増のレートを省略したとき、**必ず**較正値の解決を通ること。
 
-    正本は`domain/evaluation.py: DEFAULT_PENALTY_STRENGTH`。工場側にリテラルの既定値が
-    残っていると、APIハンドラを経由しない呼び出し（検証スクリプト・テスト）だけが別の
-    レートで探索し、悪路回避の強さが静かに食い違う。
+    どこかにリテラルの既定値が残っていると、そこを通る呼び出しだけが別のレートで探索し、
+    悪路回避の強さが静かに食い違う。値をimport時に束ねると管理画面から変えても効かない
+    ——プロセスを入れ替えても、同じ順序で束ね直すだけで直らない。
+
+    **母集団は署名から導く**。`penalty_strength`を受ける入口を1つ足したとき、リテラルの
+    既定値を置いたらここが落ちる。
     """
 
-    def test_request_model_default_comes_from_the_domain_constant(self):
-        from app.api.routers.routes import RouteGenerateRequest
-
-        assert RouteGenerateRequest.model_fields["penalty_strength"].default == DEFAULT_PENALTY_STRENGTH
-
-    def test_setup_factories_default_to_the_domain_constant(self):
-        import inspect
-
+    def _entry_points(self):
+        """`penalty_strength`を受け取る、APIの入口になりうる関数すべて。"""
         from app.api import dependencies
 
-        for factory in (dependencies._assemble_route_generation_setup, dependencies.open_route_generation_setup):
-            signature = inspect.signature(factory)
-            assert signature.parameters["penalty_strength"].default == DEFAULT_PENALTY_STRENGTH, factory.__name__
+        for name, obj in vars(dependencies).items():
+            if not inspect.isfunction(obj) or obj.__module__ != dependencies.__name__:
+                continue
+            parameter = inspect.signature(obj).parameters.get("penalty_strength")
+            if parameter is not None:
+                yield f"{name}()", parameter.default
+
+    def test_no_entry_point_carries_a_literal_default(self):
+        from app.api.routers.routes import RouteGenerateRequest
+
+        entry_points = list(self._entry_points())
+        entry_points.append(
+            ("RouteGenerateRequest.penalty_strength", RouteGenerateRequest.model_fields["penalty_strength"].default)
+        )
+
+        assert [name for name, default in entry_points if default not in (None, inspect.Parameter.empty)] == []
+        # 導出が空振りしていないこと（署名を変えたときに「0件だから通った」にならないように）。
+        assert len(entry_points) >= 3
+
+    def test_the_omitted_rate_comes_from_the_tuning_value(self, monkeypatch):
+        from app.domain import tuning
+        from app.domain.evaluation import resolve_penalty_strength
+
+        monkeypatch.setitem(tuning.TUNING_VALUES, "evaluation.penalty_strength", 1.25)
+
+        assert resolve_penalty_strength(None) == 1.25
+        assert resolve_penalty_strength(0.3) == 0.3

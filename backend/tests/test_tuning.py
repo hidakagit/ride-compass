@@ -9,7 +9,13 @@ import numpy as np
 import pytest
 
 from app.domain import tuning
-from app.domain.cycling_speed import RiderProfile, climb_power_ratio, crr_for_surface
+from app.domain.cycling_speed import (
+    RiderProfile,
+    climb_power_ratio,
+    crr_for_surface,
+    speed_ms,
+)
+from app.domain.evaluation import resolve_penalty_strength
 from app.domain.routing import current_turn_cost
 from app.domain.traffic import POI_COUNT_KINDS, stop_seconds
 from app.domain.tuning import (
@@ -19,6 +25,7 @@ from app.domain.tuning import (
     client_tuning_values,
     stop_seconds_parameter_id,
     tuning_value,
+    turn_parameter_ids,
 )
 from app.infrastructure.road_graph_repository import signal_radius_params
 
@@ -70,39 +77,80 @@ class TestReachesTheClient:
         assert client_tuning_values()[param_id] == 9.5
 
 
+def _turn_probe(param_id: str):
+    """`turn.right_seconds` → `current_turn_cost().right_seconds`。"""
+    field = param_id.split(".", 1)[1]
+    return lambda: float(getattr(current_turn_cost(), field))
+
+
+def _speed_kmh_at(grade: float) -> float:
+    """その勾配での走行速度（km/h）。
+
+    極端な勾配では解が探索範囲の外へ出るため、二分法は**上下限そのもの**（歩く速さ・
+    最高速度）へ収束する——その2つはここを通さないと観測できない。
+    """
+    profile = RiderProfile(cruise_speed_kmh=20.0)
+    solved = speed_ms(profile, np.array([grade]), np.zeros(1))
+    return float(solved[0]) * 3.6
+
+
+#: 較正値id → (上書きする値, その値が届いたことを観測する読み出し)。
+#: そのまま読み返せる値ばかりではない——上下限として効く値は、頭打ちになる入力を1つ
+#: 通して初めて「届いた」と言える。
+CONSUMER_PROBES: dict[str, tuple[float, object]] = {
+    **{pid: (91.0 + i, _turn_probe(pid)) for i, pid in enumerate(turn_parameter_ids())},
+    **{
+        stop_seconds_parameter_id(kind): (51.0 + i, lambda kind=kind: stop_seconds(kind))
+        for i, kind in enumerate(POI_COUNT_KINDS)
+    },
+    "signal.match_radius_m": (12.0, lambda: signal_radius_params()["signal_radius_m"]),
+    "speed.cda_m2": (0.5, lambda: RiderProfile(cruise_speed_kmh=20.0).cda_m2),
+    "speed.crr": (0.009, lambda: RiderProfile(cruise_speed_kmh=20.0).crr),
+    "speed.mass_kg": (70.0, lambda: RiderProfile(cruise_speed_kmh=20.0).mass_kg),
+    "speed.unpaved_crr": (0.077, lambda: float(crr_for_surface(np.array([0.0]), 1)[0])),
+    # 勾配100%では`1 + 係数 × 1.0`が上限を超えるため、上限の側が観測できる。
+    "speed.max_climb_power_ratio": (9.0, lambda: float(climb_power_ratio(np.array([1.0]))[0])),
+    # 逆に上限（既定2.5）へ届かない係数を入れれば、係数の側が観測できる。
+    "speed.climb_power_per_grade": (
+        0.5,
+        lambda: float(climb_power_ratio(np.array([1.0]))[0]) - 1.0,
+    ),
+    # 登れない急勾配では歩く速さで、止まらない急な下りでは最高速度で頭打ちになる。
+    "speed.walking_kmh": (36.0, lambda: _speed_kmh_at(1.0)),
+    "speed.max_descent_kmh": (7.2, lambda: _speed_kmh_at(-1.0)),
+    "splice.min_stretch_km": (0.9, lambda: client_tuning_values()["splice.min_stretch_km"]),
+    # リクエストが省略したときの値は、**呼ばれた時点で**較正値から読む。
+    "evaluation.penalty_strength": (1.5, lambda: resolve_penalty_strength(None)),
+}
+
+
 class TestReachesTheConsumers:
     """宣言を変えると、実際に読んでいる側まで届くこと。
 
-    届かない値が混ざっていると、管理画面から変えても何も起きない——しかも画面の見た目は
-    変えられたのと同じになる。
+    届かない値が混ざっていると、管理画面から変えても何も起きない——それでいて画面の
+    表示は変えられたのと同じになる。
+
+    **母集団は`TUNING_PARAMETERS`から導く**。手で選んだ数件を並べていたときは、
+    唯一実際に届かなかった1件がちょうどその外にあった（`evaluation.penalty_strength`
+    がimport時に束ねられていた）。
     """
 
-    def test_turn_cost(self, override):
-        override("turn.right_seconds", 99.0)
+    def test_every_declared_value_has_a_probe(self):
+        missing = sorted(p.id for p in TUNING_PARAMETERS if p.id not in CONSUMER_PROBES)
 
-        assert current_turn_cost().right_seconds == 99.0
+        assert missing == [], (
+            f"届くことを確かめる読み出しが無い較正値: {missing}。"
+            "CONSUMER_PROBESへ「上書きした値が観測できる読み出し」を1件足すこと。"
+        )
 
-    def test_stop_wait(self, override):
-        override("stop.signal_seconds", 55.0)
+    def test_no_probe_outlives_the_value_it_watches(self):
+        declared = {p.id for p in TUNING_PARAMETERS}
 
-        assert stop_seconds("signal") == 55.0
+        assert sorted(k for k in CONSUMER_PROBES if k not in declared) == []
 
-    def test_rider_profile(self, override):
-        override("speed.cda_m2", 0.5)
+    @pytest.mark.parametrize("param_id", sorted(CONSUMER_PROBES))
+    def test_reaches_its_consumer(self, override, param_id):
+        sentinel, observe = CONSUMER_PROBES[param_id]
+        override(param_id, sentinel)
 
-        assert RiderProfile(cruise_speed_kmh=20.0).cda_m2 == 0.5
-
-    def test_unpaved_rolling_resistance(self, override):
-        override("speed.unpaved_crr", 0.077)
-
-        assert crr_for_surface(np.array([0.0]), 1)[0] == 0.077
-
-    def test_climb_power_ceiling(self, override):
-        override("speed.max_climb_power_ratio", 9.0)
-
-        assert climb_power_ratio(np.array([1.0]))[0] == 9.0
-
-    def test_signal_match_radius(self, override):
-        override("signal.match_radius_m", 12.0)
-
-        assert signal_radius_params()["signal_radius_m"] == 12.0
+        assert observe() == pytest.approx(sentinel, rel=2e-3)

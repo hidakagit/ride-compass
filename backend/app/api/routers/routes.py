@@ -17,7 +17,6 @@ from app.api.dependencies import (
 from app.config import settings
 from app.domain.axis_definitions import AXIS_DEFINITIONS
 from app.domain.errors import RoutingError
-from app.domain.evaluation import DEFAULT_PENALTY_STRENGTH
 from app.domain.hard_filters import HARD_FILTER_NAMES
 from app.domain.route_preference import RoutePreference
 from app.domain.geo import haversine_distance_km
@@ -155,9 +154,10 @@ class RouteGenerateRequest(StrictModel):
     # §10-1）。省略時はAXIS_DEFINITIONS由来の既定値（load_route_preference）を使う。
     # 実際に適用された値はレスポンスのconditionsへエコーされる。
     route_preference: RoutePreferenceWeights | None = None
-    # T12 ADR原則1: 主観的割増と時間の換算レート（P）。省略時は
-    # `domain/evaluation.py: DEFAULT_PENALTY_STRENGTH`（値の意味と根拠はそちら）。
-    penalty_strength: float = Field(ge=0, default=DEFAULT_PENALTY_STRENGTH)
+    # T12 ADR原則1: 主観的割増と時間の換算レート（P）。**省略が既定**で、そのとき使う値は
+    # リクエスト処理時に較正値から読む（`domain/evaluation.py: resolve_penalty_strength`、
+    # 値の意味と根拠もそちら）。ここへ既定値を書くとimport時に束ねられ、DBの上書きが効かない。
+    penalty_strength: float | None = Field(ge=0, default=None)
     # T12 ADR原則5: 0次ハードフィルタの勾配しきい値（%、絶対値。省略時は
     # 除外なし。domain/hard_filters.py: is_edge_allowed参照）。
     max_average_grade_percent: float | None = Field(ge=0, default=None)

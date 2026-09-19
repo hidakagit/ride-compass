@@ -15,7 +15,7 @@ from fastapi import Depends, HTTPException, Request
 from app.config import settings
 from app.domain.dynamic_way_values import dedicated_way_value_axes
 from app.domain.errors import RoutingError
-from app.domain.evaluation import DEFAULT_PENALTY_STRENGTH
+from app.domain.evaluation import resolve_penalty_strength
 from app.domain.hard_filters import DEFAULT_HARD_FILTERS
 from app.domain.route_preference import RoutePreference
 from app.domain.route import Coordinates, RouteSegment
@@ -165,7 +165,7 @@ def _assemble_route_generation_setup(
     elevation_attribute_service: ElevationAttributeService,
     weather_service: WeatherService,
     preference_override: RoutePreference | None = None,
-    penalty_strength: float = DEFAULT_PENALTY_STRENGTH,
+    penalty_strength: float | None = None,
     max_average_grade_percent: float | None = None,
     hard_filters_override: frozenset[str] | None = None,
     assumed_speed_kmh: float = ASSUMED_SPEED_KMH,
@@ -179,12 +179,15 @@ def _assemble_route_generation_setup(
     """
     preference = preference_override or load_route_preference()
     hard_filters = hard_filters_override if hard_filters_override is not None else DEFAULT_HARD_FILTERS
+    # 省略されたときの値はここで1度だけ決める。以後は解決済みの値だけを回し、
+    # レスポンスのconditionsへも同じ値をエコーする（画面が見る値と探索が使う値を分けない）。
+    resolved_penalty_strength = resolve_penalty_strength(penalty_strength)
     engine = RoadGraphEngine(
         graph_service,
         elevation_attribute_service,
         weather_service,
         preference,
-        penalty_strength,
+        resolved_penalty_strength,
         max_average_grade_percent,
         hard_filters,
         assumed_speed_kmh,
@@ -193,7 +196,7 @@ def _assemble_route_generation_setup(
     return RouteGenerationSetup(
         generator=RouteGenerator(engine),
         route_preference=preference,
-        penalty_strength=penalty_strength,
+        penalty_strength=resolved_penalty_strength,
         assumed_speed_kmh=assumed_speed_kmh,
         max_average_grade_percent=max_average_grade_percent,
         hard_filters=hard_filters,
@@ -203,7 +206,7 @@ def _assemble_route_generation_setup(
 @asynccontextmanager
 async def open_route_generation_setup(
     preference_override: RoutePreference | None = None,
-    penalty_strength: float = DEFAULT_PENALTY_STRENGTH,
+    penalty_strength: float | None = None,
     max_average_grade_percent: float | None = None,
     hard_filters_override: frozenset[str] | None = None,
     assumed_speed_kmh: float = ASSUMED_SPEED_KMH,

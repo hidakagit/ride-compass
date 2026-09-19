@@ -2048,11 +2048,8 @@ export interface components {
              */
             route_type: "loop";
             route_preference?: components["schemas"]["RoutePreferenceWeights"] | null;
-            /**
-             * Penalty Strength
-             * @default 0.7
-             */
-            penalty_strength: number;
+            /** Penalty Strength */
+            penalty_strength?: number | null;
             /** Max Average Grade Percent */
             max_average_grade_percent?: number | null;
             hard_filters?: components["schemas"]["HardFilterOverride"] | null;

@@ -648,7 +648,18 @@ def _evaluate_axes_bulk(
 # 走行モデルへ入っている現象を写した軸の既定重みは0のため（docs/design-principles.md
 # 構造仕様13）、difficultyは主観的な軸だけの加重平均になり、物理の軸で薄まらないぶん
 # 値が大きく出る。Pはその物差しに合わせた値で、**実走での較正が要る暫定値**。
-DEFAULT_PENALTY_STRENGTH = tuning_value("evaluation.penalty_strength")
+def resolve_penalty_strength(requested: float | None) -> float:
+    """リクエストが省略したときの換算レート（P）を、**呼ばれた時点で**較正値から読む。
+
+    **モジュール直下で束ねない**。`TUNING_VALUES`へDBの上書きを重ねる
+    `refresh_tuning_values`は起動時のlifespan（＝全importの後）で走るため、import時に
+    束ねた値にはDBの上書きが一度も入らない——プロセスを入れ替えても同じ順序を繰り返す
+    だけで、管理画面は変えた値を「いま効いている値」として表示しながら、探索はずっと
+    宣言の既定値で動く。
+    """
+    if requested is not None:
+        return requested
+    return tuning_value("evaluation.penalty_strength")
 
 
 def axis_contributions_at_row(

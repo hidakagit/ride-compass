@@ -1496,10 +1496,6 @@ export default function Home() {
         assumedSpeedKmh,
         startTime: dynamicLayerTargetTime,
         startTimePinned: departureTimePinned,
-        // 主観と時間の換算レート。画面から変える手段はまだ無いが、手書きするとbackend側で
-        // 調整しても効かないため生成物から読む（domain/evaluation.py:
-        // DEFAULT_PENALTY_STRENGTH）。
-        penaltyStrength: routeGenerateConfig.default_penalty_strength,
         hardFilters,
         // 軸カタログ未取得のまま軸idを送ると、backendは存在しない軸idを黙って無視する
         // （road_graph_engine.py: AXIS_DEFINITIONS.get(lens_axis_id)、422にはならない）。

@@ -9,7 +9,6 @@ const BASE: GenerationInput = {
   maxRoutes: 8,
   assumedSpeedKmh: 20,
   startTime: new Date("2026-09-08T09:00:00+09:00"),
-  penaltyStrength: 1.0,
   hardFilters: { motorway: true, no_bicycle: true, trunk: true },
   lensAxisId: null,
   routePreference: null,
@@ -32,6 +31,11 @@ describe("buildGenerateRequest", () => {
     expect(request.waypoints).toBeUndefined();
     expect(request.destination).toBeUndefined();
     expect(request.start_time).toBe(BASE.startTime.toISOString());
+  });
+
+  it("主観と時間の換算レートは送らない（backendが較正値から読み直せなくなるため）", () => {
+    // 画面から変える手段が無いのに送ると、管理画面で調整しても探索は送られた値で動く。
+    expect(buildGenerateRequest(BASE)).not.toHaveProperty("penalty_strength");
   });
 
   // 上の`toBeUndefined()`が「省略された」ことを意味するには、値があれば載る対の確認が要る
