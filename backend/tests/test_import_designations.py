@@ -21,7 +21,7 @@ from app.batch.import_designations import (
     run_import,
 )
 from app.domain.designation import DESIGNATION_IMPORT_KINDS
-from tests.conftest import TEST_DATABASE_URL
+from tests.conftest import postgis_database_url
 
 # xdist_group="postgis": designation_connは同じridecompass_test DBの
 # route_designationsテーブルを無条件DELETEで初期化する。他のpostgis系テスト
@@ -168,7 +168,7 @@ class TestParseN10Gml:
 @pytest_asyncio.fixture
 async def designation_conn():
     try:
-        conn = await asyncpg.connect(asyncpg_dsn(TEST_DATABASE_URL))
+        conn = await asyncpg.connect(asyncpg_dsn(postgis_database_url()))
     except Exception as exc:  # noqa: BLE001
         pytest.skip(f"ridecompass_test DBに接続できないためスキップ: {exc}")
     try:
@@ -304,7 +304,7 @@ class TestRunImportOrchestration:
         self._patch_network_to_fail_fast(monkeypatch)
         _write_n10_zip(tmp_path / "N10-15_13_GML.zip", "13")
 
-        result = await run_import(TEST_DATABASE_URL, dry_run=False)
+        result = await run_import(postgis_database_url(), dry_run=False)
 
         assert result == 0
         rows = await designation_conn.fetch("SELECT kind, pref_code, name, source FROM route_designations")
@@ -327,7 +327,7 @@ class TestRunImportOrchestration:
         self._patch_network_to_fail_fast(monkeypatch)
         _write_n10_zip(tmp_path / "N10-15_13_GML.zip", "13")
 
-        result = await run_import(TEST_DATABASE_URL, dry_run=True)
+        result = await run_import(postgis_database_url(), dry_run=True)
 
         assert result == 0
         assert await designation_conn.fetchval("SELECT count(*) FROM route_designations") == 0
@@ -339,7 +339,7 @@ class TestRunImportOrchestration:
         monkeypatch.setattr(import_designations, "DATA_DIR", tmp_path)
         self._patch_network_to_fail_fast(monkeypatch)
 
-        result = await run_import(TEST_DATABASE_URL, dry_run=False)
+        result = await run_import(postgis_database_url(), dry_run=False)
 
         assert result == 1
 
@@ -356,7 +356,7 @@ class TestRunImportOrchestration:
         monkeypatch.setattr(asyncpg.Connection, "executemany", _boom)
 
         with pytest.raises(RuntimeError):
-            await run_import(TEST_DATABASE_URL, dry_run=False)
+            await run_import(postgis_database_url(), dry_run=False)
 
         run_row = await designation_conn.fetchrow("SELECT status FROM designation_import_runs")
         assert run_row["status"] == "failed"

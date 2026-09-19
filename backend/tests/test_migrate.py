@@ -14,7 +14,7 @@ from app.infrastructure.axis_definitions_snapshot import (
 from app.infrastructure.migrate import MIGRATIONS_DIR, _split_statements, apply_pending_migrations
 from app.infrastructure.road_graph_repository import create_tables
 from app.services.axis_registry_service import _find_unknown_references
-from tests.conftest import TEST_DATABASE_URL
+from tests.conftest import postgis_database_url
 
 # xdist_group="postgis": migration_engineは同じridecompass_test DBに対して
 # `CREATE TABLE IF NOT EXISTS schema_migrations`を実行する。他のpostgis系テストと
@@ -43,7 +43,7 @@ async def migration_engine():
     skip方針を使う（conftest.pyのroad_graph_sessionとは別に、schema_migrations専用の
     後始末を行うため独自にengineだけ用意する）。
     """
-    engine = create_async_engine(TEST_DATABASE_URL)
+    engine = create_async_engine(postgis_database_url())
     try:
         async with engine.connect() as conn:
             await conn.execute(text("SELECT 1"))
@@ -178,12 +178,12 @@ async def _drop_all_public_tables(engine) -> None:
 async def bootstrap_engine():
     """まっさらな状態からのブートストラップ経路検証専用engine。
 
-    migration_engineフィクスチャと同じTEST_DATABASE_URLへ接続するが、テスト開始時に
+    migration_engineフィクスチャと同じpostgis_database_url()へ接続するが、テスト開始時に
     publicスキーマの既存テーブルを明示的に全てDROPしてから使う点が異なる
     （create_tables()→apply_pending_migrations()の一連の流れを「テーブルが1つも無い」
     前提から検証するため）。
     """
-    engine = create_async_engine(TEST_DATABASE_URL)
+    engine = create_async_engine(postgis_database_url())
     try:
         async with engine.connect() as conn:
             await conn.execute(text("SELECT 1"))
@@ -197,7 +197,7 @@ async def bootstrap_engine():
 
     # 後片付け（2026-08-28追加）: このフィクスチャを使うテストはapply_pending_migrationsを
     # 実際に実行するため、schema_migrationsテーブルが実データとして作成・全件記録された
-    # 状態のままengineが破棄される。TEST_DATABASE_URLは実在の永続PostgreSQLのため、
+    # 状態のままengineが破棄される。postgis_database_url()は実在の永続PostgreSQLのため、
     # 後始末しないと同じセッション内で後に実行される他のpostgis系テストファイル
     # （road_graph_session/road_graph_engineフィクスチャはBase.metadata.create_allのみで
     # schema_migrationsを作らない前提）が、意図せず「migration適用済み」状態を観測してしまう

@@ -14,7 +14,7 @@ import pytest
 from sqlalchemy import text
 
 from app.batch.precompute_road_node_degrees import run
-from tests.conftest import TEST_DATABASE_URL
+from tests.conftest import postgis_database_url
 from tests.road_graph_scaffolds import three_way_junction_graph
 
 # road_graph_session/road_graph_repository（conftest.py）はDB接続確立コスト削減のため
@@ -49,7 +49,7 @@ async def _degrees_by_osm_node_id(road_graph_session) -> dict[int, int]:
 async def test_run_writes_global_degrees(road_graph_repository, road_graph_session):
     await _seed_y_junction(road_graph_repository, road_graph_session)
 
-    assert await run(TEST_DATABASE_URL, dry_run=False) == 0
+    assert await run(postgis_database_url(), dry_run=False) == 0
 
     await road_graph_session.rollback()  # バッチ側の別エンジンによる更新を読み直す
     assert await _degrees_by_osm_node_id(road_graph_session) == {1: 1, 2: 3, 3: 1, 4: 1}
@@ -58,7 +58,7 @@ async def test_run_writes_global_degrees(road_graph_repository, road_graph_sessi
 async def test_run_dry_run_leaves_degrees_untouched(road_graph_repository, road_graph_session):
     await _seed_y_junction(road_graph_repository, road_graph_session)
 
-    assert await run(TEST_DATABASE_URL, dry_run=True) == 0
+    assert await run(postgis_database_url(), dry_run=True) == 0
 
     await road_graph_session.rollback()
     # 未計算の初期値（road_nodes.degreeのDEFAULT 0）のまま。
@@ -67,6 +67,6 @@ async def test_run_dry_run_leaves_degrees_untouched(road_graph_repository, road_
 
 async def test_run_warns_and_skips_when_no_edges(road_graph_session, caplog):
     with caplog.at_level(logging.WARNING, logger="ridecompass.precompute_road_node_degrees"):
-        assert await run(TEST_DATABASE_URL, dry_run=False) == 0
+        assert await run(postgis_database_url(), dry_run=False) == 0
 
     assert any("road_edgesが0件" in r.getMessage() for r in caplog.records)

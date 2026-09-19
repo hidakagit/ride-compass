@@ -15,7 +15,7 @@ import pytest
 from sqlalchemy import text
 
 from app.batch.precompute_way_divided_carriageway import run
-from tests.conftest import TEST_DATABASE_URL
+from tests.conftest import postgis_database_url
 
 pytestmark = [
     pytest.mark.asyncio(loop_scope="module"),
@@ -94,7 +94,7 @@ async def test_each_condition_decides_what_it_should(road_graph_session):
                   highway="primary", direction="forward", tags={"ref": "県道2号"})
     await road_graph_session.commit()
 
-    assert await run(TEST_DATABASE_URL, dry_run=False) == 0
+    assert await run(postgis_database_url(), dry_run=False) == 0
 
     await road_graph_session.rollback()  # バッチ側の別エンジンによる書き込みを読み直す
     divided = await _divided(road_graph_session)
@@ -126,7 +126,7 @@ async def test_travel_bearing_is_geodesic_not_planar(road_graph_session):
                   highway="secondary", direction="forward", tags={"ref": "国道9号"})
     await road_graph_session.commit()
 
-    assert await run(TEST_DATABASE_URL, dry_run=False) == 0
+    assert await run(postgis_database_url(), dry_run=False) == 0
 
     await road_graph_session.rollback()
     divided = await _divided(road_graph_session)

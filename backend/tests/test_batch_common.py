@@ -17,7 +17,7 @@ from app.batch._common import (
     status_count,
     stream_id_chunks,
 )
-from tests.conftest import TEST_DATABASE_URL
+from tests.conftest import postgis_database_url
 
 
 def test_asyncpg_dsn_normalizes_driver_and_ssl_param():
@@ -56,7 +56,7 @@ class TestReapStaleRunningImportRuns:
         )
 
     async def test_marks_old_running_rows_as_failed(self, road_graph_repository, road_graph_session):
-        conn = await asyncpg.connect(asyncpg_dsn(TEST_DATABASE_URL))
+        conn = await asyncpg.connect(asyncpg_dsn(postgis_database_url()))
         try:
             stale_id = await self._insert_run(
                 conn, started_at=datetime.now(timezone.utc) - timedelta(hours=12), status="running"
@@ -72,7 +72,7 @@ class TestReapStaleRunningImportRuns:
             await conn.close()
 
     async def test_leaves_recent_running_rows_untouched(self, road_graph_repository, road_graph_session):
-        conn = await asyncpg.connect(asyncpg_dsn(TEST_DATABASE_URL))
+        conn = await asyncpg.connect(asyncpg_dsn(postgis_database_url()))
         try:
             recent_id = await self._insert_run(conn, started_at=datetime.now(timezone.utc), status="running")
 
@@ -85,7 +85,7 @@ class TestReapStaleRunningImportRuns:
             await conn.close()
 
     async def test_leaves_succeeded_rows_untouched(self, road_graph_repository, road_graph_session):
-        conn = await asyncpg.connect(asyncpg_dsn(TEST_DATABASE_URL))
+        conn = await asyncpg.connect(asyncpg_dsn(postgis_database_url()))
         try:
             succeeded_id = await self._insert_run(
                 conn, started_at=datetime.now(timezone.utc) - timedelta(hours=12), status="succeeded"

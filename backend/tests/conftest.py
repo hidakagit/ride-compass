@@ -1,15 +1,21 @@
+import asyncio
+import hashlib
 import os
+import re
+from pathlib import Path
 
 from app.infrastructure.proj_data import pin_bundled_proj_data
 
 # rasterioをimportする前に呼ぶ必要があるため、他のimportより先に置く。
 pin_bundled_proj_data()
 
+import asyncpg
 import pytest
 import pytest_asyncio
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 
+from app.batch._common import asyncpg_dsn
 from app.infrastructure import redis_client, tile_persistent_cache, tile_score_matrix_cache
 from app.infrastructure.road_graph_models import Base
 from app.infrastructure.road_graph_repository import RoadGraphRepository
@@ -101,11 +107,159 @@ def _realistic_axis_definitions():
 # road_graph_repository.pyのPostGIS統合テスト専用の接続先。開発機で稼働中の実DB
 # (ridecompass, backend/.envのDATABASE_URLが指す先)とは別のテスト専用DBを使う
 # (docs/osm-pbf-import.md関連の進行中データに触れないため)。ローカルでのみ実行する
-# 前提で、環境変数TEST_DATABASE_URLで上書き可能にしておく。
-TEST_DATABASE_URL = os.environ.get(
-    "TEST_DATABASE_URL",
-    "postgresql+asyncpg://ridecompass:ridecompass@localhost:5432/ridecompass_test",
-)
+# 前提で、環境変数postgis_database_url()で上書き可能にしておく（CIはこの経路で注入する）。
+TEST_DATABASE_SERVER = "postgresql+asyncpg://ridecompass:ridecompass@localhost:5432"
+#: 作業ツリーの場所を書いておくDB。消してよいかの判断に使う（drop_orphan_test_databases.py）。
+TEST_DATABASE_MAINTENANCE = f"{TEST_DATABASE_SERVER}/postgres"
+WORKTREE_ROOT = Path(__file__).resolve().parents[2]
+
+
+def default_test_database_name(root: Path) -> str:
+    """その作業ツリー専用のテストDB名。
+
+    同じDBを複数のセッションが同時に書き換えると、変更と無関係なテストが落ちる
+    （落ちたファイルを単独で回すと通るため、毎回切り分けに時間を取られる）。名前は
+    チェックアウトの場所から導くので、**同じ作業ツリーでは同じDBを再利用する**
+    ——PostGIS拡張とテーブルの作成を毎回払わずに済む。ディレクトリ名だけでは別の場所に
+    同名の作業ツリーがあると衝突するため、絶対パスのダイジェストを添える。
+    """
+    slug = re.sub(r"[^a-z0-9]+", "_", root.name.lower()).strip("_")[:24] or "wt"
+    return f"ridecompass_test_{slug}_{hashlib.sha1(str(root).encode('utf-8')).hexdigest()[:8]}"
+
+
+#: 作業ツリー専用のDBを作れない環境（ロールにCREATEDBが無い等）での退避先。
+#: **分離できないことより、PostGISテストが丸ごと走らなくなる方が害が大きい。**
+SHARED_TEST_DATABASE = "ridecompass_test"
+#: 複製元。`CREATE EXTENSION postgis`はsuperuserを要求する（postgisはtrusted拡張ではない）
+#: ため、空のDBを作っても拡張を入れられない。**拡張を持つDBを複製する**ことで、
+#: superuserなしで使えるDBを増やせる。
+TEMPLATE_TEST_DATABASE = "ridecompass_test_template"
+#: 同時に作ろうとして競り負けたときの例外。PostgreSQLは競争の負け側へ、宣言的な
+#: 42P04（duplicate_database）ではなく23505（unique_violation、pg_databaseの一意索引違反）を
+#: 返すことがある。**片方だけを捕まえると、並行実行のときだけ退避してしまう。**
+ALREADY_CREATED = (asyncpg.DuplicateDatabaseError, asyncpg.UniqueViolationError)
+#: 拡張が持ち込んだ表（`spatial_ref_sys`等）以外の、アプリ側の表。落とす対象を名前で
+#: 並べずに依存関係から導く（表が増えてもこの問い合わせは追従する）。
+APP_TABLES_SQL = """
+SELECT c.relname FROM pg_class c
+JOIN pg_namespace n ON n.oid = c.relnamespace
+WHERE n.nspname = 'public' AND c.relkind = 'r'
+  AND NOT EXISTS (
+    SELECT 1 FROM pg_depend d JOIN pg_extension e ON e.oid = d.refobjid
+    WHERE d.objid = c.oid AND d.deptype = 'e')
+"""
+
+
+async def _ensure_template_database(conn) -> None:
+    """拡張を持つ複製元を用意する（既にあれば何もしない）。
+
+    中身の掃除は複製した側で行う。ここで掃除すると、**掃除の途中の姿を別のセッションが
+    複製しうる**——並行セッションを前提にする以上、順序に依存する形にしない。
+    """
+    if await conn.fetchval("SELECT 1 FROM pg_database WHERE datname = $1", TEMPLATE_TEST_DATABASE):
+        return
+    try:
+        await conn.execute(
+            f'CREATE DATABASE "{TEMPLATE_TEST_DATABASE}" TEMPLATE "{SHARED_TEST_DATABASE}"')
+    except ALREADY_CREATED:
+        return  # 別のセッションが同時に作った。それを使う
+    await conn.execute(f"COMMENT ON DATABASE \"{TEMPLATE_TEST_DATABASE}\" IS $rc$(template)$rc$")
+
+
+async def _clear_app_tables(url: str) -> None:
+    """複製に引き継がれたアプリ側の表を落とす。
+
+    テストは自分でテーブルを作る（`Base.metadata.create_all`）ので、複製元に残っていた
+    表と行が初期状態に混ざらないようにする。落とす対象は名前で並べず、**拡張が持ち込んだ
+    表（`spatial_ref_sys`等）ではないこと**から導く。
+    """
+    conn = await asyncpg.connect(asyncpg_dsn(url))
+    try:
+        for row in await conn.fetch(APP_TABLES_SQL):
+            await conn.execute(f'DROP TABLE IF EXISTS public."{row["relname"]}" CASCADE')
+    finally:
+        await conn.close()
+
+
+async def _create_database_if_absent(name: str, owner_path: str) -> bool:
+    conn = await asyncpg.connect(asyncpg_dsn(TEST_DATABASE_MAINTENANCE))
+    try:
+        if await conn.fetchval("SELECT 1 FROM pg_database WHERE datname = $1", name):
+            return False
+        await _ensure_template_database(conn)
+        for _ in range(10):
+            try:
+                # CREATE DATABASEはトランザクションの中で実行できないため、asyncpgの
+                # 暗黙のトランザクションに入らない単発のexecuteで発行する。
+                await conn.execute(f'CREATE DATABASE "{name}" TEMPLATE "{TEMPLATE_TEST_DATABASE}"')
+                break
+            except ALREADY_CREATED:
+                return False  # 別のセッションが同時に作った。それを使う
+            except asyncpg.ObjectInUseError:
+                # 複製元へ誰かが繋いでいる間は複製できない。掴んでいるのは作った直後の
+                # 掃除だけで、すぐ離れる。
+                await asyncio.sleep(0.5)
+        else:
+            raise RuntimeError(f"複製元 {TEMPLATE_TEST_DATABASE} が使用中のままで複製できません")
+        # **なぜこのDBがあるのかをDB自身に持たせる**。作業ツリーが消えたら、この記録だけを
+        # 見て捨ててよいと判断できる（残骸を名前から推測しない）。
+        await conn.execute(f"COMMENT ON DATABASE \"{name}\" IS $rc${owner_path}$rc$")
+    finally:
+        await conn.close()
+    await _clear_app_tables(f"{TEST_DATABASE_SERVER}/{name}")
+    return True
+
+
+#: この実行の接続先。`pytest_collection_modifyitems`が1回だけ決める。
+_RESOLVED_DATABASE_URL: str | None = None
+
+
+def postgis_database_url() -> str:
+    """PostGIS統合テストの接続先。
+
+    定数ではないのは、**用意を試みるまで行き先が決まらない**ため（作業ツリー専用のDBを
+    作れない環境では共有DBへ退避する）。名前を`test_`で始めないのは、pytestが
+    テスト関数として収集してしまうため。
+    """
+    if _RESOLVED_DATABASE_URL is not None:
+        return _RESOLVED_DATABASE_URL
+    # フックを経ていない呼び出し（pytest外からのimport等）。DBを作らずに行き先だけ答える。
+    return os.environ.get("TEST_DATABASE_URL") or (
+        f"{TEST_DATABASE_SERVER}/{default_test_database_name(WORKTREE_ROOT)}"
+    )
+
+
+def _prepare_worktree_database() -> str:
+    name = default_test_database_name(WORKTREE_ROOT)
+    try:
+        created = asyncio.run(_create_database_if_absent(name, str(WORKTREE_ROOT)))
+    except Exception as exc:  # noqa: BLE001 作れない理由はそのまま伝える
+        print(
+            f"作業ツリー専用のテストDBを用意できないため、共有の{SHARED_TEST_DATABASE}を使います"
+            f"（並行セッションと衝突しうる）: {exc}\n"
+            f"  分けるには: psql -U postgres -c \"ALTER ROLE ridecompass CREATEDB;\""
+        )
+        return f"{TEST_DATABASE_SERVER}/{SHARED_TEST_DATABASE}"
+    if created:
+        print(f"テストDB {name} を作成しました（この作業ツリー専用）")
+    return f"{TEST_DATABASE_SERVER}/{name}"
+
+
+def pytest_collection_modifyitems(config, items):
+    """PostGISテストが1件でも選ばれていれば、この実行の接続先を決めて用意する。
+
+    ここで済ませるのは、**同期のまま・イベントループの外で・1回だけ**行える唯一の場所だから
+    （`asyncio.run`は実行中のループの中からは呼べず、フィクスチャの中では遅い）。
+    `-m "not postgis"`の実行には接続を1本も足さない。
+    """
+    global _RESOLVED_DATABASE_URL
+    explicit = os.environ.get("TEST_DATABASE_URL")
+    if explicit:
+        _RESOLVED_DATABASE_URL = explicit
+        return
+    if not any(item.get_closest_marker("postgis") for item in items):
+        return
+    _RESOLVED_DATABASE_URL = _prepare_worktree_database()
 
 
 # ローカル環境では新規DB接続の確立自体に1〜2秒かかる（実測、asyncpg接続確立コスト。
@@ -123,7 +277,7 @@ async def road_graph_engine():
     """テストファイル単位で使い回すエンジン。PostGIS拡張の有効化とテーブル一式
     （8テーブル、GiST空間インデックス込み）の作成もこの中で1回だけ行う。
     """
-    engine = create_async_engine(TEST_DATABASE_URL)
+    engine = create_async_engine(postgis_database_url())
     try:
         async with engine.begin() as conn:
             await conn.execute(text("CREATE EXTENSION IF NOT EXISTS postgis"))

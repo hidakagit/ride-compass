@@ -17,7 +17,7 @@ from app.domain.graph import WaySpec, build_road_graph
 from app.infrastructure import accident_models  # noqa: F401  road_graph_sessionの後始末対象へaccident_*テーブルを登録するためのimport
 from app.infrastructure.road_graph_models import EdgeAttributeCountsRow
 from app.infrastructure.road_graph_repository import MAX_BIND_PARAMS_PER_STATEMENT, RoadGraphRepository
-from tests.conftest import TEST_DATABASE_URL
+from tests.conftest import postgis_database_url
 
 NODE1 = (35.700, 139.700)
 NODE2 = (35.701, 139.701)
@@ -53,7 +53,7 @@ class TestRunOrchestration:
     async def test_writes_zero_counts_when_no_related_data_seeded(self, road_graph_repository, road_graph_session):
         await _seed_one_way(road_graph_repository, road_graph_session)
 
-        result = await run(TEST_DATABASE_URL, dry_run=False)
+        result = await run(postgis_database_url(), dry_run=False)
 
         assert result == 0
         rows = (await road_graph_session.execute(select(EdgeAttributeCountsRow))).scalars().all()
@@ -71,8 +71,8 @@ class TestRunOrchestration:
     async def test_rerun_upserts_without_duplicating(self, road_graph_repository, road_graph_session):
         await _seed_one_way(road_graph_repository, road_graph_session)
 
-        assert await run(TEST_DATABASE_URL, dry_run=False) == 0
-        assert await run(TEST_DATABASE_URL, dry_run=False) == 0  # 再実行
+        assert await run(postgis_database_url(), dry_run=False) == 0
+        assert await run(postgis_database_url(), dry_run=False) == 0  # 再実行
 
         rows = (await road_graph_session.execute(select(EdgeAttributeCountsRow))).scalars().all()
         assert len(rows) == 2  # 重複INSERTされない（ON CONFLICT DO UPDATE）
@@ -80,7 +80,7 @@ class TestRunOrchestration:
     async def test_dry_run_does_not_write(self, road_graph_repository, road_graph_session):
         await _seed_one_way(road_graph_repository, road_graph_session)
 
-        result = await run(TEST_DATABASE_URL, dry_run=True)
+        result = await run(postgis_database_url(), dry_run=True)
 
         assert result == 0
         rows = (await road_graph_session.execute(select(EdgeAttributeCountsRow))).scalars().all()
@@ -109,7 +109,7 @@ class TestRunOrchestration:
         ).scalar_one()
         await road_graph_session.commit()
 
-        assert await run(TEST_DATABASE_URL, dry_run=False) == 0
+        assert await run(postgis_database_url(), dry_run=False) == 0
 
         rows = (await road_graph_session.execute(select(EdgeAttributeCountsRow))).scalars().all()
         assert {r.source_accident_import_run_id for r in rows} == {accident_run_id}

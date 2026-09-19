@@ -14,7 +14,7 @@ from app.batch._common import asyncpg_dsn
 from app.batch.match_designations import _write_matches, run_match
 from app.domain.designation import DESIGNATION_MATCH_MIN_RATIO
 from app.domain.graph import WaySpec
-from tests.conftest import TEST_DATABASE_URL
+from tests.conftest import postgis_database_url
 
 # road_graph_session/road_graph_repository（conftest.py）はDB接続確立コスト削減のため
 # ファイル単位で1本のエンジン・イベントループを使い回す設計。ファイル内の全テストの
@@ -37,7 +37,7 @@ OSM_WAY_ID = 100
 async def designation_conn(road_graph_session):
     # road_graph_sessionはテーブル作成・後始末のためだけに依存する(接続不可時のskipも
     # このフィクスチャ経由で効く)。実際の読み書きはbatch側と同じasyncpg直結で行う。
-    conn = await asyncpg.connect(asyncpg_dsn(TEST_DATABASE_URL))
+    conn = await asyncpg.connect(asyncpg_dsn(postgis_database_url()))
     try:
         yield conn
     finally:
@@ -206,7 +206,7 @@ class TestRunMatch:
         await road_graph_session.commit()
         await _seed_route_designation(designation_conn, DESIG_KIND, DESIG_LINE)
 
-        result = await run_match(TEST_DATABASE_URL, dry_run=False)
+        result = await run_match(postgis_database_url(), dry_run=False)
 
         assert result == 0
         row = await designation_conn.fetchrow(
@@ -239,7 +239,7 @@ class TestRunMatch:
         await road_graph_session.commit()
         await _seed_route_designation(designation_conn, DESIG_KIND, DESIG_LINE)
 
-        result = await run_match(TEST_DATABASE_URL, dry_run=False)
+        result = await run_match(postgis_database_url(), dry_run=False)
 
         assert result == 0
         rows = await designation_conn.fetch(
@@ -272,7 +272,7 @@ class TestRunMatch:
         # 別kindの指定路線も同じWay区間に重ねる（kindごとに別行になることの確認）。
         id_d = await _seed_route_designation(designation_conn, "critical_logistics", DESIG_LINE)
 
-        result = await run_match(TEST_DATABASE_URL, dry_run=False)
+        result = await run_match(postgis_database_url(), dry_run=False)
 
         assert result == 0
         rows = await designation_conn.fetch(
@@ -309,7 +309,7 @@ class TestRunMatch:
             "VALUES ('test.pbf', 'hash', 'succeeded', now(), now()) RETURNING id"
         )
 
-        result = await run_match(TEST_DATABASE_URL, dry_run=False)
+        result = await run_match(postgis_database_url(), dry_run=False)
 
         assert result == 0
         row = await designation_conn.fetchrow(

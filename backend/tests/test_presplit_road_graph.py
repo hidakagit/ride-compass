@@ -12,7 +12,7 @@ from app.batch.presplit_road_graph import _fetch_all_tiles, run
 from app.domain.graph import WaySpec
 from app.domain.region import tile_bounds_lonlat, tiles_covering_bbox
 from app.infrastructure.road_graph_models import RoadEdgeRow
-from tests.conftest import TEST_DATABASE_URL
+from tests.conftest import postgis_database_url
 
 pytestmark = [
     pytest.mark.asyncio(loop_scope="module"),
@@ -66,7 +66,7 @@ async def test_run_splits_unsplit_tile_and_is_idempotent(road_graph_repository, 
     ).scalars().all()
     assert before == []
 
-    assert await run(TEST_DATABASE_URL, dry_run=False) == 0
+    assert await run(postgis_database_url(), dry_run=False) == 0
 
     after = (
         await road_graph_session.execute(select(RoadEdgeRow).where(RoadEdgeRow.osm_way_id == OSM_WAY_ID))
@@ -74,7 +74,7 @@ async def test_run_splits_unsplit_tile_and_is_idempotent(road_graph_repository, 
     assert len(after) >= 1
 
     # 再実行してもis_split_up_to_date判定によりスキップされ、エラーなく完走する（冪等性）。
-    assert await run(TEST_DATABASE_URL, dry_run=False) == 0
+    assert await run(postgis_database_url(), dry_run=False) == 0
     after_second = (
         await road_graph_session.execute(select(RoadEdgeRow).where(RoadEdgeRow.osm_way_id == OSM_WAY_ID))
     ).scalars().all()
@@ -89,7 +89,7 @@ async def test_run_dry_run_does_not_write(road_graph_repository, road_graph_sess
         await _mark_tile_cached(road_graph_session, ZOOM, x, y)
     await road_graph_session.commit()
 
-    assert await run(TEST_DATABASE_URL, dry_run=True) == 0
+    assert await run(postgis_database_url(), dry_run=True) == 0
 
     after = (
         await road_graph_session.execute(select(RoadEdgeRow).where(RoadEdgeRow.osm_way_id == OSM_WAY_ID + 1))

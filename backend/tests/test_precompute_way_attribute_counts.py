@@ -14,7 +14,7 @@ from sqlalchemy import select, text
 from app.batch.precompute_way_attribute_counts import ALGORITHM_VERSION, run
 from app.domain.graph import WaySpec
 from app.infrastructure.road_graph_models import WayAttributeCountsRow
-from tests.conftest import TEST_DATABASE_URL
+from tests.conftest import postgis_database_url
 
 NODE1 = (35.700, 139.700)
 NODE2 = (35.701, 139.701)
@@ -56,7 +56,7 @@ class TestSourceTracking:
         ).scalar_one()
         await road_graph_session.commit()
 
-        assert await run(TEST_DATABASE_URL, dry_run=False) == 0
+        assert await run(postgis_database_url(), dry_run=False) == 0
 
         row = (
             await road_graph_session.execute(

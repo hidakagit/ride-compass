@@ -32,11 +32,52 @@ backend/.venv/Scripts/python.exe -m pytest backend/tests -q -m postgis
 `EOFError: expected 1 bytes, got 0`のINTERNALERRORになる。リポジトリのパスに含まれる
 非ASCII文字がサロゲート化するためで、UTF-8モードにすると解消する。
 
-**postgisを並列化しても速くならない**: テストDBは1つで、DBを使うテストは
-`xdist_group(name="postgis")`により1ワーカーへ固定される（衝突を避けるための設計、後述）。
-実測で直列6分20秒（2,189件）に対し`-n auto --dist loadgroup`は7分00秒——postgisの
-285件が4分23秒を占め、残りを並列化しても全体は縮まずワーカー起動のぶん増える。
-縮めるならワーカーごとにテストDBを分ける必要があり、それ自体が別タスク。
+### テストDBは作業ツリーごとに分かれる
+
+並行セッション（複数のClaude Code・複数の作業ツリー）が同じDBの同じ行を書き換えると、
+**変更と無関係なテストが落ちる**。落ちたファイルを単独で回すと通るため、毎回切り分けに
+時間を取られ、慣れると逆に本物の回帰を「どうせ競合」と見送る。
+
+そこで`tests/conftest.py: postgis_database_url`が、チェックアウトの場所からDB名を導き
+（`ridecompass_test_<ディレクトリ名>_<パスのダイジェスト>`）、無ければ作る。同じ作業ツリー
+では同じDBを再利用するので、PostGIS拡張とテーブルの作成を毎回払わない。
+
+#### 環境ごとに必要な作業
+
+| 環境 | 必要な作業 | 理由 |
+|---|---|---|
+| 開発機（ローカルPostgreSQL） | **一度だけ**ロールへ`CREATEDB`を付ける（下記） | DBを作る権限が既定では無い |
+| CI（GitHub Actions） | 何もしない | `TEST_DATABASE_URL`を注入しており、そちらが優先される。DBは実行ごとの使い捨てコンテナで元から分離されている |
+| 本番（Oracle VM） | 何もしない | テストDBは本番に存在しない |
+
+権限を付けない場合も動く——共有DB（`ridecompass_test`）へ退避し、その旨を1行出す。
+**分離されないだけで、テストが走らなくなることはない。**
+
+開発機での手順（PostgreSQLをインストールした機械で1回だけ。`postgres`ロールのパスワードを
+プロンプトで聞かれる）:
+
+```bash
+"/c/Program Files/PostgreSQL/18/bin/psql.exe" -U postgres -d postgres -c "ALTER ROLE ridecompass CREATEDB;"
+```
+
+`psql`はPATHに入っていないため絶対パスで呼ぶ。元に戻すときは`NOCREATEDB`を同じ形で流す。
+付いたかどうかは`SELECT rolcreatedb FROM pg_roles WHERE rolname='ridecompass';`で確かめる。
+
+#### 残骸の片付け
+
+作業ツリーを消してもDBは残る。**どのDBがどの作業ツリーのものかは、DB自身のコメントに
+書いてある**——名前から推測しない。
+
+```bash
+backend/.venv/Scripts/python.exe backend/scripts/drop_orphan_test_databases.py         # 一覧
+backend/.venv/Scripts/python.exe backend/scripts/drop_orphan_test_databases.py --drop  # 落とす
+```
+
+**postgisを並列化しても速くならない**: DBを使うテストは`xdist_group(name="postgis")`により
+1ワーカーへ固定される（同じDBへの同時TRUNCATEを避けるための設計、後述）。実測で直列6分20秒
+（2,189件）に対し`-n auto --dist loadgroup`は7分00秒——postgisの285件が4分23秒を占め、残りを
+並列化しても全体は縮まずワーカー起動のぶん増える。縮めるには**ワーカーごとに**DBを分ける
+必要があり（作業ツリーごとの分離とは別の軸）、それ自体が別タスク。
 
 **`-m postgis`を完了前に必ず1回通す**: 手元の既定実行（`-m "not postgis"`）から外れるため、
 実装を変えてテストを直し忘れてもCIまで気づけない。実際にこの型で3件の赤が生まれている
@@ -99,7 +140,7 @@ CIは`-n auto --dist loadgroup`でDB以外のテストを並列化している�
 実スキップは各fixtureの`try/except pytest.skip()`が別途担う）の両方を付け、`pytestmark`が
 既にリストでなければ
 `pytestmark = [pytest.mark.asyncio(loop_scope="module"), pytest.mark.xdist_group(name="postgis"), pytest.mark.postgis]`
-の形にする。xdist_groupを付けないと、同じridecompass_test DBへ複数workerが同時接続し、
+の形にする。xdist_groupを付けないと、同じテストDBへ複数workerが同時接続し、
 他ファイルのTRUNCATEでテストデータが消える形のflakyな失敗を起こしうる（postgisマーカーの
 付け忘れは`pytest -m "not postgis"`が該当テストを除外し損ねるだけで実行結果自体は壊れないため、
 気づかれにくい。改善計画T429で発覚: マーカー未登録のままこの説明だけが独り歩きし、
