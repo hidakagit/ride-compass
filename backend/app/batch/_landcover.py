@@ -130,6 +130,8 @@ class LandcoverPlan:
     build: "Callable[[object, LandcoverPercentages | None, LandcoverStamp], object]"
     #: 行の並び → 保存。
     save: "Callable[[RoadGraphRepository, list], Awaitable[None]]"
+    #: 計算の前に1回だけ行う後始末（省略可）。母集団から外れた行の回収など。
+    prepare: "Callable[..., Awaitable[None]] | None" = None
 
 
 async def run_landcover_batch(
@@ -161,6 +163,8 @@ async def run_landcover_batch(
     chunk_size = plan.chunk_size
     algorithm_version = version
     async with batch_session_factory(database_url) as session_factory:
+        if plan.prepare is not None and not dry_run:
+            await plan.prepare(session_factory)
         target_count = await count_targets(session_factory, plan.target_stmt)
 
         logger.info("対象%s数: %d件（chunk_size=%d）", plan.label, target_count, chunk_size)

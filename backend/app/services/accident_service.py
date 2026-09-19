@@ -5,6 +5,7 @@ from app.infrastructure.accident_repository import ACCIDENT_TILE_SHAPE, Accident
 from app.infrastructure.vector_tile import encode_empty_accident_tile
 from app.services import derived_data_revision_service
 from app.services.tile_serving import MVT_CONTENT_TYPE, TileResponse, serve_cached_tile
+from app.services.tile_version_service import served_tile_version
 
 logger = logging.getLogger("ridecompass.accident")
 
@@ -14,7 +15,7 @@ logger = logging.getLogger("ridecompass.accident")
 
 
 def _tile_cache_path(z: int, x: int, y: int) -> str:
-    return f"region/accidents/v{ACCIDENT_TILE_SHAPE}/{z}/{x}/{y}.pbf"
+    return f"region/accidents/v{served_tile_version(ACCIDENT_TILE_SHAPE)}/{z}/{x}/{y}.pbf"
 
 
 class AccidentService:

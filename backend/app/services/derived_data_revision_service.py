@@ -17,7 +17,7 @@ import logging
 import time
 
 from app.config import settings
-from app.infrastructure import graph_material_cache, tile_cache, tile_score_matrix_cache
+from app.infrastructure import graph_material_cache, tile_score_matrix_cache
 
 logger = logging.getLogger("ridecompass.derived_data_revision")
 
@@ -66,10 +66,10 @@ async def ensure_caches_match_db(repository, *, force: bool = False) -> None:
     if not graph_material_cache.sync_disk_cache_with_derived_data_revision(revision):
         return
     tile_score_matrix_cache.clear()
-    # 焼き済みのタイルも捨てる。世代が変わった＝SQLが読むテーブルの中身が作り直された
-    # ということで、鍵（形の署名）は変わらないため、消さないと古い中身のまま配り続ける。
-    # `tile_cache`はパスをハッシュ化してフラットに保つため系統ごとには消せず、基礎地図・
-    # DEMも一緒に落ちる（どちらも取り直せる不変データで、`POST /api/basemap/refresh`が
-    # 日常的に行っているのと同じ操作）。
-    tile_cache.clear_all()
+    # **焼き済みのタイルはここで消さない。** 世代はタイルのキャッシュパスに入っている
+    # （`tile_version_service.served_tile_version`）ため、世代が変われば別の鍵になり、
+    # 古い中身は誰からも引かれなくなる。`tile_cache.clear_all()`は基礎地図・標高タイルまで
+    # 巻き添えにするうえ、公開GETの中でイベントループを止めて`rmtree`することになる
+    # （`docs/caching.md`「全消しは運用操作としてのみ残す」）。引かれなくなったものは
+    # `prune_to_size_limit`が古い順に回収する。
     logger.info("派生データ世代の変化を検知しキャッシュを破棄しました revision=%s", revision)

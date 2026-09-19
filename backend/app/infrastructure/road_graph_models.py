@@ -384,8 +384,12 @@ class OsmImportRunRow(Base):
     status: Mapped[str] = mapped_column(String, nullable=False)  # running | succeeded | failed
     started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # 「この取込が何を書いたか」。鮮度台帳が、書いていないものの派生テーブルまで
+    # 古い判定にしないために使う（`--pois-only`はway・nodeを1行も書かない）。
+    # NULLは「不明」で、判定側は安全側（書いたものとして扱う＝古い判定へ倒す）。
     way_count: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     node_count: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    poi_count: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
 
 
 class RoadGraphTileRow(Base):

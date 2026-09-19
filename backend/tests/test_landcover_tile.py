@@ -84,6 +84,24 @@ def _rgba(color: str) -> tuple[int, int, int, int]:
     return (int(color[1:3], 16), int(color[3:5], 16), int(color[5:7], 16), 255)
 
 
+def test_tile_cache_key_follows_the_rasters_actually_opened(synthetic_raster, monkeypatch):
+    """欠けたゾーンの絵を「完全な構成」の鍵で残さない。
+
+    デプロイはラスタの取得とコンテナ入れ替えを別のステップで行うため、**設定に並んでいても
+    まだ置かれていない**ことがある。そのとき設定の側で鍵を作ると、片側が透明なタイルが
+    正しい鍵で恒久的に残り、ラスタが揃っても返り続ける。
+    """
+    opened_only = landcover_tile_service._tile_cache_path(_TILE_Z, _TILE_X, _TILE_Y)
+
+    # 設定にだけ、まだ置かれていないゾーンを足す（開ける側は変わらない）。
+    monkeypatch.setattr(
+        settings, "lulc_raster_paths", f"{settings.lulc_raster_paths},/not/yet/placed_54T.tif"
+    )
+    configured_but_missing = landcover_tile_service._tile_cache_path(_TILE_Z, _TILE_X, _TILE_Y)
+
+    assert configured_but_missing == opened_only
+
+
 def test_class_registry_covers_every_percent_column():
     """割合8列と表示クラスが1対1であること（列を足して表示だけ取り残さない）。"""
     percent_fields = {name for name in LandcoverPercentages.model_fields if name.endswith("_percent")}
@@ -163,18 +181,25 @@ def test_landcover_tile_endpoint_rejects_zoom_outside_range(z):
     assert response.status_code == 400
 
 
-def test_tile_cache_path_changes_when_the_raster_set_changes(monkeypatch):
+def test_tile_cache_path_changes_when_the_raster_set_changes(synthetic_raster, tmp_path, monkeypatch):
     """ラスタを1枚足すとディスクキャッシュの鍵が変わる。
 
     タイルの中身は「どのラスタを開いていたか」に従属する。鍵が同じだと、対応範囲を
     広げても継ぎ目のタイルが古い絵（片側が透明のまま）を返し続け、利用者側からは
     復旧できない。
     """
-    monkeypatch.setattr(settings, "lulc_raster_paths", "/app/raster/54S_2024.tif")
     before = landcover_tile_service._tile_cache_path(10, 1, 2)
-    monkeypatch.setattr(
-        settings, "lulc_raster_paths", "/app/raster/54S_2024.tif,/app/raster/53S_2024.tif"
-    )
+    # 2枚目を**実際に開ける形で**足す。鍵は開けているラスタから作るため、置かれていない
+    # パスを並べても鍵は変わらない（それ自体は別のテストが押さえる）。
+    second = tmp_path / "53S_synthetic.tif"
+    with rasterio.open(
+        second, "w", driver="GTiff", width=_SIZE_PX, height=_SIZE_PX, count=1, dtype="uint8",
+        crs="EPSG:32654", transform=from_origin(_ORIGIN_EASTING, _ORIGIN_NORTHING, _PIXEL_M, _PIXEL_M),
+        nodata=0,
+    ) as dataset:
+        dataset.write(np.full((_SIZE_PX, _SIZE_PX), LULC_TREES, dtype=np.uint8), 1)
+    monkeypatch.setattr(settings, "lulc_raster_paths", f"{settings.lulc_raster_paths},{second}")
+    landcover_raster.reset_sources_for_testing()
     after = landcover_tile_service._tile_cache_path(10, 1, 2)
 
     assert before != after

@@ -39,20 +39,17 @@ const ROAD_SURFACE_TILE_PATH = "/api/region/road-surface-tiles/{z}/{x}/{y}.pbf";
 const ACCIDENT_TILE_PATH = "/api/region/accident-tiles/{z}/{x}/{y}.pbf";
 const POI_TILE_PATH = "/api/region/poi-tiles/{z}/{x}/{y}.pbf";
 
-// タイル内容の世代。タイルへ焼き込むプロパティが増えた（内容の互換性が変わった）ときに
-// 上げると、URLが変わることでブラウザHTTPキャッシュ（Cache-Control: max-age=3600）に残る
-// 旧世代タイルを踏まなくなる。バックエンドのファイルキャッシュ側の世代
-// （region_service.pyの_tile_cache_path）と対で更新すること。
-// プロパティの追加・削除のみ（既存プロパティの意味を変えない）なら後方互換で、世代を
-// 上げるだけでよい。既存プロパティの意味自体を変える非互換変更は、backend
-// （road_graph_repository.py）がこの世代へ切り替わるより先にこの変更を含むfrontendを
-// デプロイすること（逆順だと、新世代前提の凡例フィルタが全地物に一致し、対象レイヤーが
-// 一時的に全線「不明・他」表示になる。docs/architecture.md「Renderデプロイの反映確認」
-// 参照）。
-// タイルの世代は**実行時にbackendから受け取る**（`GET /api/axis-catalog`の`tile_versions`、
-// backend: services/tile_version_service.py）。ビルド時生成物には持たない——バッチが
-// タイルの読み先を作り直してもデプロイは起きないため、生成物の値は次のデプロイまで
-// 古いままになる。
+// **世代は手で上げない。** 焼き込むSQLの署名とDBの派生データ世代からbackendが導き、
+// 実行時に配る（`GET /api/axis-catalog`の`tile_versions`、backend:
+// services/tile_version_service.py）。
+//
+// 既存プロパティの**意味自体**を変える非互換変更のときだけ、デプロイの順序に注意が要る
+// ——backendがその世代へ切り替わるより先に、変更を含むfrontendをデプロイする（逆順だと、
+// 新世代前提の凡例フィルタが全地物に一致し、対象レイヤーが一時的に全線「不明・他」表示に
+// なる。docs/architecture.md「Renderデプロイの反映確認」参照）。
+//
+// ビルド時生成物には持たない——バッチがタイルの読み先を作り直してもデプロイは起きない
+// ため、生成物の値は次のデプロイまで古いままになる。
 //
 // 既定値は置かない。届く前にタイルを要求すると、世代の違う中身がブラウザのキャッシュへ
 // 載って以後ずっと残る。呼び出し側（page.tsx）はカタログの取得完了まで地図のレイヤーを
