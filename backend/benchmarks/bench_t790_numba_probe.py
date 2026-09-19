@@ -17,6 +17,7 @@ import time
 
 import numpy as np
 from numba import njit
+from benchmarks._revision import announce_revision
 
 TIME_BIN_FACTORS = (1.00, 1.01, 1.02, 1.03, 1.04, 1.05)
 TIME_BIN_HOURS = 0.5
@@ -240,4 +241,5 @@ def main() -> None:
 
 
 if __name__ == "__main__":
+    announce_revision()
     main()

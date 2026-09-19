@@ -26,6 +26,7 @@ from app.infrastructure.database import get_route_generation_session_factory
 from app.infrastructure.road_graph_repository import RoadGraphRepository
 from app.services.road_graph_engine import PREVIEW_BBOX_MARGIN_KM, _bbox_covering_points
 from benchmarks._route_generation_service import refresh_axis_registry, route_generator_session
+from benchmarks._revision import announce_revision
 
 
 def _coordinate_from_env(name: str, default: Coordinates) -> Coordinates:
@@ -131,4 +132,5 @@ async def main() -> None:
 
 
 if __name__ == "__main__":
+    announce_revision()
     asyncio.run(main())

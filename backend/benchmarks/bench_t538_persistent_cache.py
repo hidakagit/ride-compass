@@ -29,6 +29,7 @@ from app.infrastructure.database import get_route_generation_session_factory, ge
 from app.infrastructure.road_graph_repository import RoadGraphRepository
 from app.services.axis_registry_service import refresh_axis_definitions
 from app.services.graph_service import GraphService
+from benchmarks._revision import announce_revision
 
 # 東京駅相当、T536/T537ベンチマークと同じ規模感になるよう半径10km相当のbboxを直接指定する
 # （経緯度でおおよそ±0.09度、道路密度の高い都心部）。
@@ -73,4 +74,5 @@ async def main() -> None:
 
 
 if __name__ == "__main__":
+    announce_revision()
     asyncio.run(main())

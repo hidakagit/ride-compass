@@ -17,6 +17,7 @@ import numpy as np
 
 from benchmarks._harness import BenchmarkResult, measure, print_report
 from benchmarks._synthetic import GRID_SPACING_DEG, TOKYO_LAT, TOKYO_LON, make_grid_graph
+from benchmarks._revision import announce_revision
 
 POOL_SIZE = 24  # RouteGenerator.turnaround_pool_size(8)と同じ想定
 
@@ -81,4 +82,5 @@ def run() -> list[BenchmarkResult]:
 
 
 if __name__ == "__main__":
+    announce_revision()
     print_report("RoadGraphEngine trace phase: one-to-all tree + return-leg A* x pool", run())

@@ -28,6 +28,7 @@ from shapely import wkb as shapely_wkb
 from sqlalchemy import text
 
 from benchmarks._harness import BenchmarkResult, print_report
+from benchmarks._revision import announce_revision
 
 ORIGIN_LAT = 35.681
 ORIGIN_LON = 139.767
@@ -231,6 +232,7 @@ async def run() -> list[BenchmarkResult]:
 
 
 if __name__ == "__main__":
+    announce_revision()
     print_report(
         "save_graph bulk UPSERT: 現行(chunk ON CONFLICT) vs COPY方式（T248/T259）",
         asyncio.run(run()),

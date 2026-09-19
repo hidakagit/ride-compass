@@ -7,7 +7,7 @@
 計測対象が構造的に無くなったベンチマークはこの一覧から外す（モジュール自体も残さない）。
 
 実行前に作業コピーの素性を出し、配信元と違うコミットなら止める（`_revision.py`）。意図した
-計測なら`BENCH_SKIP_REVISION_CHECK=1`を付ける。
+計測なら`BENCH_SKIP_REVISION_CHECK=1`を付ける。個別モジュールは素性を出すだけで止めない。
 """
 
 from __future__ import annotations
@@ -26,7 +26,7 @@ from benchmarks import (
 
 def main() -> None:
     # どのコードを測ったかを数字と同じ出力に残し、作業コピーが配信元と違えばここで止める
-    # （_revision.py参照）。個別の`bench_*`モジュールは手元での反復用のため呼ばない。
+    # （_revision.py参照）。個別の`bench_*`は手元の反復でも使うため止めず、素性だけを出す。
     require_current_revision()
     started = time.perf_counter()
 

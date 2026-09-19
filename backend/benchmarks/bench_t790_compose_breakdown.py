@@ -23,6 +23,7 @@ from app.domain.route import Coordinates
 from app.domain.route_preference import RoutePreference
 from app.services import road_graph_engine as engine_module
 from benchmarks._route_generation_service import refresh_axis_registry, route_generator_session
+from benchmarks._revision import announce_revision
 
 logging.basicConfig(level=logging.WARNING, format="%(message)s")
 
@@ -98,4 +99,5 @@ async def main() -> None:
 
 
 if __name__ == "__main__":
+    announce_revision()
     asyncio.run(main())

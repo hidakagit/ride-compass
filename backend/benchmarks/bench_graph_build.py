@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from benchmarks._harness import BenchmarkResult, measure, print_report
 from benchmarks._synthetic import make_grid_way_specs
+from benchmarks._revision import announce_revision
 
 
 def run() -> list[BenchmarkResult]:
@@ -30,4 +31,5 @@ def run() -> list[BenchmarkResult]:
 
 
 if __name__ == "__main__":
+    announce_revision()
     print_report("build_road_graph: construction scaling", run())

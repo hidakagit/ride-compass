@@ -186,6 +186,13 @@ def python_comment_lines(path: str) -> set[int] | None:
     return lines
 
 
+#: ソースのコメント専用の追加分。経緯の言い回しを書かずに`docs/tasks/Txxx.md`を指すだけの
+#: コメントも、指した先が実態と食い違ったときに追従されない（docs/comments.md
+#: 「書いてはいけないコメント」②）。docs/modules側は「記載粒度」節がリンクを1本まで
+#: 許容するため、この綴りは共有の`NARRATIVE_PATTERN`ではなくソース側だけに足す。
+SOURCE_NARRATIVE_PATTERN = re.compile(NARRATIVE_PATTERN.pattern + r"|tasks/T[0-9]{3,4}\.md")
+
+
 def find_source_narrative_violations(source_lines: dict[str, list[tuple[int, str]]]) -> list[str]:
     out = []
     for path, lines in source_lines.items():
@@ -197,7 +204,7 @@ def find_source_narrative_violations(source_lines: dict[str, list[tuple[int, str
             text = comment_only(line, path, jsx_state)
             if not text:
                 continue
-            m = NARRATIVE_PATTERN.search(text)
+            m = SOURCE_NARRATIVE_PATTERN.search(text)
             if m:
                 out.append(f"{path}:{lineno}: 「{m.group(0)}」 {text.strip()[:80]}")
     return out
@@ -1077,6 +1084,23 @@ def read_text(path: Path) -> str:
 def count_lines(path: Path) -> int:
     with path.open("rb") as f:
         return sum(1 for _ in f)
+
+
+def measured_line_counts() -> dict[str, int]:
+    """規模を測る対象 {パス: 行数}。`size`と`metrics`はどちらもここから母集団を取る。
+
+    レビュー基盤自身（`scripts/`）も見る。ここを外すと**計測している側のファイルだけが
+    計測されない**——`review_checks.py`は5日で997→2,996行になったが、どの表にも現れなかった。
+    """
+    files = git_files()
+    counts = {f: count_lines(REPO_ROOT / f) for f in files
+              if is_impl_file(f) and (REPO_ROOT / f).exists()}
+    counts.update({
+        f: count_lines(REPO_ROOT / f)
+        for f in files
+        if f.startswith("scripts/") and f.endswith(".py") and (REPO_ROOT / f).exists()
+    })
+    return counts
 
 
 def module_docs() -> list[Path]:
@@ -1994,6 +2018,31 @@ def find_cross_file_env_writes(files: list[str]) -> list[str]:
 # （`check_plan_vs_tasks`）も含めどの検査も通ってしまう。
 
 
+def task_heading_violations() -> list[str]:
+    """docs/tasks/Txxx.md の先頭見出しとファイル名のずれ。
+
+    番号の照合は`check_task_numbering`だけが呼ぶ。同じ突き合わせを別の検知器でも書くと、
+    片方を直してもう片方を直し忘れたときに全テストが緑のまま通る。
+    """
+    violations: list[str] = []
+    for task_path in sorted(TASKS_DIR.glob("T*.md")):
+        name = TASK_FILE_RE.search(task_path.name)
+        if not name:
+            continue
+        heading = next((ln for ln in read_text(task_path).splitlines() if ln.startswith("# ")), "")
+        head_num = TASK_HEADING_RE.match(heading)
+        if head_num is None:
+            violations.append(
+                f"docs/tasks/{task_path.name}: 先頭の見出しが「# T{name.group(1)}. …」の形になっていない"
+            )
+        elif head_num.group(1) != name.group(1):
+            violations.append(
+                f"docs/tasks/{task_path.name}: 見出しがT{head_num.group(1)}でファイル名と一致しない"
+                "（振り直しの置換漏れ、または別タスクの本文で上書きした）"
+            )
+    return violations
+
+
 def check_task_numbering() -> list[str]:
     violations: list[str] = []
     first_line_of: dict[str, int] = {}
@@ -2014,21 +2063,7 @@ def check_task_numbering() -> list[str]:
             )
         else:
             first_line_of[num] = lineno
-    for task_path in sorted(TASKS_DIR.glob("T*.md")):
-        name = TASK_FILE_RE.search(task_path.name)
-        if not name:
-            continue
-        heading = next((ln for ln in read_text(task_path).splitlines() if ln.startswith("# ")), "")
-        head_num = TASK_HEADING_RE.match(heading)
-        if head_num is None:
-            violations.append(
-                f"docs/tasks/{task_path.name}: 先頭の見出しが「# T{name.group(1)}. …」の形になっていない"
-            )
-        elif head_num.group(1) != name.group(1):
-            violations.append(
-                f"docs/tasks/{task_path.name}: 見出しがT{head_num.group(1)}でファイル名と一致しない"
-                "（振り直しの置換漏れ、または別タスクの本文で上書きした）"
-            )
+    violations.extend(task_heading_violations())
     return violations
 
 
@@ -2053,19 +2088,6 @@ def check_plan_vs_tasks() -> list[str]:
             violations.append(f"docs/improvement-plan.md:{lineno}: T{num} は [x] だが docs/tasks/T{num}.md の「状態:」行は未完了のまま")
         elif not checked and kind == "done":
             violations.append(f"docs/improvement-plan.md:{lineno}: T{num} は [ ] だが docs/tasks/T{num}.md の「状態:」行は完了")
-    for task_path in sorted(TASKS_DIR.glob("T*.md")):
-        name = TASK_FILE_RE.search(task_path.name)
-        if not name:
-            continue
-        heading = next((ln for ln in read_text(task_path).splitlines() if ln.startswith("# ")), "")
-        head_num = TASK_HEADING_RE.match(heading)
-        if head_num is None:
-            violations.append(f"docs/tasks/{task_path.name}: 先頭の見出しが「# T{name.group(1)}. …」の形になっていない")
-        elif head_num.group(1) != name.group(1):
-            violations.append(
-                f"docs/tasks/{task_path.name}: 見出しがT{head_num.group(1)}でファイル名と一致しない"
-                "（振り直しの置換漏れ、または別タスクの本文で上書きした）"
-            )
     return violations
 
 
@@ -2881,15 +2903,7 @@ def cmd_docs(args: argparse.Namespace) -> int:
 # --- size -------------------------------------------------------------------
 
 def cmd_size(args: argparse.Namespace) -> int:
-    files = git_files()
-    counts = {f: count_lines(REPO_ROOT / f) for f in files if is_impl_file(f) and (REPO_ROOT / f).exists()}
-    # レビュー基盤自身も見る。ここを外すと、**計測している側のファイルだけが計測されない**
-    # ——`review_checks.py`は5日で997→2,996行になったが、どの表にも現れなかった。
-    counts.update({
-        f: count_lines(REPO_ROOT / f)
-        for f in files
-        if f.startswith("scripts/") and f.endswith(".py") and (REPO_ROOT / f).exists()
-    })
+    counts = measured_line_counts()
     arch = "docs/architecture.md"
     if (REPO_ROOT / arch).exists():
         counts[arch] = count_lines(REPO_ROOT / arch)
@@ -3008,7 +3022,7 @@ def cmd_metrics(args: argparse.Namespace) -> int:
 
     # 1. 規模
     print("## 1. 規模")
-    impl = {f: count_lines(REPO_ROOT / f) for f in git_files() if is_impl_file(f) and (REPO_ROOT / f).exists()}
+    impl = measured_line_counts()
     tests = {
         f: count_lines(REPO_ROOT / f) for f in git_files()
         if (REPO_ROOT / f).exists() and (
@@ -3026,6 +3040,8 @@ def cmd_metrics(args: argparse.Namespace) -> int:
     print(f"- ファイル数: 実装 backend {sum(f.startswith('backend/') for f in impl)}・frontend "
           f"{sum(f.startswith('frontend/') for f in impl)}／テスト backend "
           f"{sum(f.startswith('backend/') for f in tests)}・frontend {sum(f.startswith('frontend/') for f in tests)}")
+    s_impl = {f: v for f, v in impl.items() if f.startswith("scripts/")}
+    print(f"- レビュー基盤（行）: scripts/ {sum(s_impl.values()):,}（{len(s_impl)}ファイル）")
     if args.full and npx():
         print("- cloc:")
         out = run([npx(), "--yes", "cloc", ".", "--quiet",
@@ -3464,6 +3480,103 @@ def probe_fs(wt: Path) -> tuple[
     return live_text, append, write
 
 
+#: 参考表示のみの検知器を試す経路の候補。上から順に試し、その検知器の節がある最初の
+#: 経路で判定する（どの経路へ配線されているかは検知器ごとに違う）。
+REFERENCE_PROBE_MODES = (("staged", "pre-commit"), ("since", "CI"), ("full", "全件"))
+
+
+def guard_probe_reference_mutations(wt: Path) -> dict[str, "Callable[[], str]"]:
+    """参考表示のみの検知器 → 違反を1件作り、**その1件が出力に現れる目印**を返す手順。
+
+    参考表示は件数が0でもexit 0のため、強制する検知器と同じ「落ちるか」では試せない。
+    代わりに作った1件が出力へ現れるかを直接見る——目印はその1件だけが持つ綴りにする
+    （既存の参考件数に紛れると、検知器が黙っていても通ってしまう）。
+    """
+    module_doc = next(
+        p for p in sorted((wt / "docs/modules").rglob("*.md")) if p.name != "README.md"
+    )
+    arch = wt / ARCHITECTURE_DOC
+    plan = wt / "docs/improvement-plan.md"
+    live_text, append, write = probe_fs(wt)
+    #: 撤去済みにしたい名前。このファイル自身が実在判定のコーパスに入るため綴りを組み立てる。
+    stale_ident = "zzz" + "StalePremise" + "Name"
+
+    def commit(message: str) -> None:
+        for cmd in (["git", "add", "-A"],
+                    ["git", "-c", "user.email=guard@local", "-c", "user.name=guard",
+                     "commit", "-q", "-m", message, "--no-verify"]):
+            subprocess.run(cmd, cwd=str(wt), capture_output=True, text=True,
+                           encoding="utf-8", errors="replace")
+
+    def first_open_entry() -> "re.Match[str]":
+        m = re.search(r"^- \[ \] \[T(\d{3,4})\]\(tasks/T\d{3,4}\.md\)\.?\s*(.*)$",
+                      live_text(plan), re.M)
+        if m is None:
+            raise RuntimeError("docs/improvement-plan.md に未完了行が無く、この違反を作れない")
+        return m
+
+    def close_task_leaving_a_section() -> str:
+        """未完了エントリを1つ`[x]`にし、そのタスクへ受け皿の無い残りの節を足す。"""
+        m = first_open_entry()
+        text = live_text(plan)
+        plan.write_text(
+            text[: m.start()] + m.group(0).replace("- [ ]", "- [x]", 1) + text[m.end():],
+            encoding="utf-8")
+        task = wt / f"docs/tasks/T{m.group(1)}.md"
+        append(task, "\n## 積み残し\n\n- 残りの後始末が手つかずのまま残っている。\n")
+        return f"docs/tasks/T{m.group(1)}.md:"
+
+    def add_overlapping_entry() -> str:
+        """既存の未完了エントリと同じ語を持つ行を、別番号で1本足す。"""
+        m = first_open_entry()
+        text = live_text(plan)
+        clone = f"\n- [ ] [T9998](tasks/T9998.md). {m.group(2)}\n"
+        plan.write_text(text[: m.end()] + clone + text[m.end():], encoding="utf-8")
+        return "T9998と"
+
+    def duplicate_scaffold() -> str:
+        """同じ名前の足場を持つテストファイルを2本置く。"""
+        name = "make" + "ZzzGuardProbe" + "Fixture"
+        for suffix in ("A", "B"):
+            write(f"frontend/src/lib/zzzGuardProbe{suffix}.test.ts",
+                  f"export function {name}() {{\n  return 1;\n}}\n")
+        return name
+
+    def removed_name_as_a_premise() -> str:
+        """実装から撤去された名前を作り、未完了タスクの本文がそれを前提にする形にする。"""
+        probe = "scripts/zzz_guard_probe_stale.py"
+        write(probe, f"{stale_ident} = 1\n")
+        commit("guard audit: 撤去される名前を履歴へ入れる")
+        (wt / probe).unlink()
+        commit("guard audit: その名前を撤去する")
+        write("docs/tasks/T9998.md",
+              "# T9998. 撤去済みの名前を前提にするタスク 規模S\n\n状態: 未着手\n\n"
+              f"`{stale_ident}`が出す値を読み替える。\n")
+        append(plan, "\n- [ ] [T9998](tasks/T9998.md). 撤去済みの名前を前提にするタスク 規模S\n")
+        return stale_ident
+
+    return {
+        # 免除した段落の中に、撤去の断りが無い実在しない名前が残る形。
+        # 撤去の断りと、断られていない名前を**同じ段落の別の行**へ置く。1行に両方書くと
+        # その行自体が断りの行として除かれ、違反が成立しない。
+        "undeclared_dead_refs_exempted": lambda: (
+            append(arch, f"\n`zzzGoneName`は撤去済み。\n`{GUARD_PROBE_IDENT}`が現在の実装で値を組み立てる。\n")
+            or GUARD_PROBE_IDENT),
+        "count_narrative": lambda: (
+            write(GUARD_PROBE_TS, "// 3種類の値を持つ。\nexport const zzzGuardProbe = 1;\n")
+            or "zzzGuardProbe.ts"),
+        "cross_layer_claim": lambda: (
+            write(GUARD_PROBE_TS, "// backendはこの値を必ず返す。\nexport const zzzGuardProbe = 1;\n")
+            or "zzzGuardProbe.ts"),
+        "task_links": lambda: (
+            append(module_doc, "\n詳細は[T798](../../tasks/T798.md)参照。\n") or "[T798]リンク"),
+        "unfiled_deferrals": close_task_leaving_a_section,
+        "plan_entry_overlap": add_overlapping_entry,
+        "duplicate_test_scaffold": duplicate_scaffold,
+        "stale_task_premises": removed_name_as_a_premise,
+    }
+
+
 def guard_probe_mutations(wt: Path) -> dict[str, "Callable[[], None]"]:
     """検知器キー → その検知器だけが拾うはずの違反を1件作る手順。"""
     module_doc = next(
@@ -3499,10 +3612,6 @@ def guard_probe_mutations(wt: Path) -> dict[str, "Callable[[], None]"]:
         "undeclared_dead_refs": lambda: append(arch, f"\n`{GUARD_PROBE_IDENT}`が現在の実装で値を組み立てる。\n"),
         "plan_vs_tasks": flip_plan_checkbox,
         "task_numbering": duplicate_plan_number,
-        # 参考出力なのでDETECTOR_ENFORCEMENTは空だが、違反の作り方は定義しておく
-        # （`mutate --case`で単体で試せるようにするため）。
-        "undeclared_dead_refs_exempted": lambda: append(
-            arch, f"\n`zzzGoneName`は撤去済み。`{GUARD_PROBE_IDENT}`が現在の実装で値を組み立てる。\n"),
         "source_narrative": lambda: write(
             GUARD_PROBE_TS, "// 改善計画T999でこの形に変更した。\nexport const zzzGuardProbe = 1;\n"),
         "source_comment_dead_identifier_refs": lambda: write(
@@ -3868,8 +3977,8 @@ EDGE_GAP_NOTES: dict[str, str] = {
         "（「以前は」等）を規約の説明として正当に含む。母集団へ入れると規約の本文が違反になる。",
     "source_narrative":
         "母集団外（scripts/・backend/scripts/・backend/tests/・backend/benchmarks/・"
-        "frontend/e2e/の225ファイル）に既存の経緯コメントが765件あり、母集団内の参考値60件の"
-        "12.75倍。広げるには既存分の一掃（T567）が先に要る。",
+        "frontend/e2e/の226ファイル）に既存の経緯コメントが829件あり、母集団内の参考値105件の"
+        "7.9倍。広げるには既存分の一掃（T567）が先に要る。",
     "source_comment_dead_identifier_refs":
         "バッククォート無しの綴りまで拾うと770件・342種、複合語（`_`か2つ以上の大文字切れ目）"
         "へ絞っても104件・78種で、大半がruffのコード・英単語・タスク番号・テストのモジュール名。"
@@ -3995,13 +4104,51 @@ def probe_section_count(stdout: str, key: str) -> int | None:
     return int(m.group(1)) if m else None
 
 
+def probe_reference_detector(
+    wt_run: "Callable[..., subprocess.CompletedProcess]", base: str, key: str,
+    make: "Callable[[], str]",
+) -> tuple[str, str, str, str]:
+    """参考表示のみの検知器を1つ試す。違反を1件作り、それが出力へ現れるかを見る。
+
+    節がある最初の経路で判定する。どこにも節が無ければ配線が切れている
+    ——参考表示は件数0でもexit 0のため、この形でしか黙ったことに気づけない。
+    """
+    for mode, label in REFERENCE_PROBE_MODES:
+        wt_run("git", "reset", "-q", "--hard", base)
+        wt_run("git", "clean", "-fdq")
+        try:
+            marker = make()
+        except Exception as exc:  # noqa: BLE001 違反を作れないこと自体を結果として出す
+            return (key, "SETUP-FAIL", label, str(exc)[:80])
+        wt_run("git", "add", "-A")
+        check: list[str] = []
+        if mode == "staged":
+            check = ["--staged"]
+        elif mode == "since":
+            wt_run("git", "-c", "user.email=guard@local", "-c", "user.name=guard",
+                   "commit", "-q", "-m", "guard audit reference", "--no-verify")
+            check = ["--since", base]
+        proc = wt_run(sys.executable, "scripts/review_checks.py", "docs",
+                      "--keys", "--only", key, *check)
+        if probe_section_count(proc.stdout, key) is None:
+            continue
+        if marker not in proc.stdout:
+            return (key, "MISS", label, f"違反を1件作っても出力に現れない（目印 {marker[:40]}）")
+        if proc.returncode != 0:
+            return (key, "WARN", label, f"参考表示の宣言だがexit={proc.returncode}")
+        return (key, "REF-PASS", label, f"作った1件が出力に現れる（目印 {marker[:40]}）")
+    return (key, "MISS", "-", "どの経路にも節が無い（配線されていない）")
+
+
 def cmd_mutate(args: argparse.Namespace) -> int:
     declared = sorted(k for k, modes in DETECTOR_ENFORCEMENT.items() if modes)
+    reference = sorted(k for k, modes in DETECTOR_ENFORCEMENT.items() if not modes)
     if args.case:
         if args.case not in DETECTOR_ENFORCEMENT:
             print(f"未知の検知器キー: {args.case}（既知: {', '.join(sorted(DETECTOR_ENFORCEMENT))}）")
             return 2
-        declared = [args.case]
+        declared = [args.case] if DETECTOR_ENFORCEMENT[args.case] else []
+        reference = [args.case] if not DETECTOR_ENFORCEMENT[args.case] else []
 
     tmp = Path(tempfile.mkdtemp(prefix="rc-guard-"))
     wt = tmp / "wt"
@@ -4072,6 +4219,15 @@ def cmd_mutate(args: argparse.Namespace) -> int:
                     rows.append((key, "WARN", label, f"{found}件検知するがexit 0（参考扱い）"))
                 else:
                     rows.append((key, "PASS", label, f"{found}件 exit={proc.returncode}"))
+
+        reference_mutations = guard_probe_reference_mutations(wt)
+        for key in reference:
+            make = reference_mutations.get(key)
+            if make is None:
+                rows.append((key, "NO-CASE", "-",
+                             "違反の作り方が未定義（guard_probe_reference_mutationsへ1件足す）"))
+                continue
+            rows.append(probe_reference_detector(wt_run, base, key, make))
 
         def run_probe(make: "Callable[[], None]", mode: str, key: str) -> "bool | str":
             """違反を1件作り、その検知器が鳴るかを返す。作れなければ理由の文字列を返す。"""
@@ -4172,7 +4328,7 @@ def cmd_mutate(args: argparse.Namespace) -> int:
             print(f"外縁の観測記録へ{len(added)}件追記: {', '.join(sorted(added))}")
             print()
 
-    bad = [r for r in rows if r[1] not in ("PASS", "SKIP")]
+    bad = [r for r in rows if r[1] not in ("PASS", "SKIP", "REF-PASS")]
     edge_bad = [r for r in edge_rows
                 if r[1] in ("NO-EDGE", "NO-CONTROL", "SETUP-FAIL", "CHANGED", "UNPROVEN", "UNREAL")]
     stale = stale_edge_gap_records(guard_probe_edges(REPO_ROOT))

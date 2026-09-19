@@ -30,6 +30,7 @@ from app.services.elevation_attribute_service import ElevationAttributeService
 from app.services.graph_service import GraphService
 from app.services.road_graph_engine import RoadGraphEngine
 from app.services.weather_service import WeatherService
+from benchmarks._revision import announce_revision
 
 # T536ベンチマークと同じ起点（東京駅相当）・distance_km。
 ORIGIN = Coordinates(latitude=35.6812, longitude=139.7671)
@@ -72,4 +73,5 @@ async def main() -> None:
 
 
 if __name__ == "__main__":
+    announce_revision()
     asyncio.run(main())
