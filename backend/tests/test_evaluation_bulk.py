@@ -98,6 +98,32 @@ def test_hard_filters_empty_allows_bicycle_no_edge(preference):
     assert included["e0"].allowed is True
 
 
+# 風はリクエスト時にしか決まらないため、静的スコア行列の段階では必ず欠損する。
+_WIND_ONLY_AXIS = {
+    "wind_only_axis": AxisDefinition(
+        axis_id="wind_only_axis",
+        shape=BreakpointLinearShape(
+            terms=[MaterialTerm(material="wind_drag_ratio")], breakpoints=[(0.0, 0.0), (2.0, 100.0)]
+        ),
+        default_weight=1.0,
+        label="テスト用風軸",
+        is_published=True,
+    )
+}
+
+
+@pytest.mark.parametrize("preference", [_WIND_ONLY_AXIS], indirect=True)
+def test_cost_is_the_base_when_no_weighted_axis_can_be_evaluated(preference):
+    """重みを持つ軸がどれも算出できなければ、difficultyは求まらず割増もかからない。"""
+    graph = _one_edge_graph()
+
+    results = edge_costs(graph, material_arrays(graph, ["e0"]), preference)
+
+    assert results["e0"].allowed is True
+    assert results["e0"].difficulty is None
+    assert results["e0"].cost == pytest.approx(100.0)
+
+
 # --- 値式を持たない材料を参照する軸 ---
 
 

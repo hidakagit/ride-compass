@@ -1008,7 +1008,7 @@ cycleway補正（内部軸`car_stress_bicycle_infra_adjustment`）が既に自�
 （night軸の既定重みは0.0。街灯・トンネルを気にするユーザーが研究モードで個別に重みを上げる
 想定）。事故実績は元から独立軸（`accident`）。
 `domain/safety.py`・`safety_recipe.yaml`・`POST /api/region/safety-breakdown`・地図の安全度レイヤーは撤去済み
-（跡地の`recipe.py`判定プリミティブ・`lit`タイルプロパティは車ストレス・night軸へ転用済みのため残る）。
+（跡地の`lit`タイルプロパティは車ストレス・night軸へ転用済みのため残る）。
 
 続く改善計画T149（設計プロンプト改訂2026-08-18「現行9軸からの帰属先」）で、交差点密度
 （旧`intersection_weight`）の独立軸を廃止し停止密度側へ統合した。`domain/difficulty.py:
@@ -1059,7 +1059,7 @@ stop_difficulty`が、停止要因POI（信号・横断歩道・一時停止・�
 | 軸 | 生値の単位 | 算出元 |
 |---|---|---|
 | 勾配 | %（区間勾配） | Step5（旧`ElevationService`/`ElevationAttribute`） |
-| 舗装質 | good/bad/unknown | Step8（`domain/road.py: classify_osm_surface`） |
+| 舗装質 | good/bad/unknown | Step8（`domain/road.py`の路面語彙） |
 | 風 | `wind_drag_ratio`（無次元、相対風速の二乗則、走行速度依存） | `domain/wind.py`（`wind_drag_ratio_array`） |
 | 停止密度（交差点密度込み） | 回/km | P1（信号・横断歩道・一時停止・踏切・車止め・減速構造、`osm_raw_pois`。T149で旧`intersection_weight`を合算） |
 | 車の圧迫感 | 0-4 | 推定（改善計画T292で`axis_definitions`の内部軸＋公開軸1つの階層構造へ再設計（旧専用Pythonレシピ`car_stress_level`から移行）。改善計画T150で呼称をtraffic→car_stressへ統一。改善計画T353で自転車インフラ由来の調整を`bicycle_infra_quality`側へ完全分離し、表示スケールも0-4へ再較正） |
@@ -1711,14 +1711,14 @@ transform_fn文字列の動的解決ではなく「材料辞書＋shapeテンプ
 
 ### 〇次: ハード制約
 
-8軸の難易度計算に入る前段として、`domain/hard_filters.py: is_edge_allowed`が対象Edgeを
-探索グラフから丸ごと除外するかどうかを判定する（設計プロンプト「評価システムの層構造
+難易度計算に入る前段として、`domain/hard_filters.py: compute_hard_filter_excluded`が
+対象Edgeを探索グラフから丸ごと除外するかどうかを判定する（設計プロンプト「評価システムの層構造
 再設計」の〇次フィルタ、仕様書29章のHard Constraintと同じ概念）。**スコア・重みには
 一切登場しない**点が8軸との決定的な違い（該当Edgeは`EdgeCostResult.allowed=False`で
 `cost`/`difficulty`ともNoneになり、Dijkstra探索の候補にすら入らない）。
 
 フィルタは名前付きで管理する（`HARD_FILTER_HIGHWAY_TYPES: dict[str, frozenset[str]]`、
-`DEFAULT_HARD_FILTERS: frozenset[str]`）。`is_edge_allowed`は`hard_filters`引数
+`DEFAULT_HARD_FILTERS: frozenset[str]`）。判定は`hard_filters`引数
 （省略時`DEFAULT_HARD_FILTERS`）で有効なフィルタの集合を受け取り、将来T141で
 レシピJSON化した際の`hard_filters: list[str]`フィールドをそのまま渡せる形にしてある
 （現時点ではまだどの呼び出し元も上書きしておらず、常に全フィルタ有効＝従来と同じ動作）。

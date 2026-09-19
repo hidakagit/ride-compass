@@ -41,17 +41,6 @@ def test_returns_result_per_edge():
     assert results["edge-2"].cost is None
 
 
-def test_edge_without_any_material_has_no_difficulty():
-    """材料が1つも無ければ、difficultyは求まらず割増もかからない。"""
-    graph = _make_graph(_edge("edge-1", 50.0))
-
-    results = _costs(graph, {})
-
-    assert results["edge-1"].allowed is True
-    assert results["edge-1"].difficulty is None
-    assert results["edge-1"].cost == 50.0
-
-
 def test_empty_graph_returns_empty_dict():
     graph = RoadGraph(graph_version="v1", nodes={}, edges={})
 

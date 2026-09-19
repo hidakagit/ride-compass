@@ -78,23 +78,6 @@ class ElevationAttribute(StrictModel):
     calculated_at: str
 
 
-class EdgeAttributeCounts(StrictModel):
-    """Edge単位の事前集計カウント（`edge_attribute_counts`）。事故密度・停止密度・
-    交差点密度の評価材料（domain/difficulty.py参照）で、事前計算済みの値をそのまま
-    読むことで探索フェーズのDBアクセス（PostGIS空間結合）を避ける。
-
-    accident_countはdouble precision（死亡事故の重み付けSUM、domain/accident.py:
-    ACCIDENT_FATAL_WEIGHT参照）。bicycle_only=trueで集計済みの値のみ保持する
-    （road_graph_models.py: EdgeAttributeCountsRowのdocstring参照）。
-    """
-
-    accident_count: float
-    intersection_count: int
-    # 停止要因POIの種別別カウント（`domain/traffic.py: POI_COUNT_KINDS`がキーの単一ソース）。
-    # **Noneは「未集計」**で、種別別の材料はすべて欠損（軸は算出不能）になる。空辞書は
-    # 「集計済みで0件」で、材料は0になる。この2つを取り違えると、集計前のDBで全区間が
-    # 「停止要因ゼロ＝最も易しい」と評価され、ルート選択が静かに歪む。
-    poi_counts: dict[str, int] | None = None
 
 
 class WayAttributeCounts(StrictModel):

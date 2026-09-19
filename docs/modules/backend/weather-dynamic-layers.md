@@ -27,7 +27,7 @@ MSMは数値予報モデルの出力で観測値・公式発表の代わりに�
 
 | レイヤー | ファイル |
 |---|---|
-| domain | `msm.py`（MSM格子の幾何・双一次補間）・`jma_tile_specs.py`（配信元のズーム仕様レジストリ）・`weather.py`・`jma_amedas.py`・`jma_area.py`・`jma_warning.py`・`wbgt.py`・`wbgt_points.py`・`twilight.py`・`night.py`・`flood_forecast.py`・`terrain_rgb.py`（標高タイルのエンコード変換、純関数） |
+| domain | `msm.py`（MSM格子の幾何・双一次補間）・`jma_tile_specs.py`（配信元のズーム仕様レジストリ）・`weather.py`・`jma_amedas.py`・`jma_area.py`・`jma_warning.py`・`wbgt.py`・`wbgt_points.py`・`twilight.py`・`flood_forecast.py`・`terrain_rgb.py`（標高タイルのエンコード変換、純関数） |
 | services | `weather_service.py`・`jma_amedas_service.py`・`wbgt_service.py`・`warning_service.py`・`flood_service.py`・`jma_tile_prewarm_service.py`（定期プリウォームバッチ）・`terrain_tile_service.py`（地理院の標高タイルをTerrain-RGBへ変換して配信） |
 | infrastructure | `msm_client.py`（MSMの同期・読み出し）・`jma_tile_client.py`・`jma_tile_redis_cache.py`（タイル本体のRedis cache-aside）・`jma_tile_interpolation.py`（配信元が持たないズームの補間）・`jma_tile_index.py`（在否インデックス）・`jma_tile_content.py`（タイルが空かどうかの判定。キャッシュと在否インデックスが共有する）・`jma_amedas_client.py`・`jma_warning_client.py`・`wbgt_client.py`・`flood_client.py`・`basemap_client.py`・`gsi_tile_client.py`・`simple_api_client.py`（後者4クライアントが共有する定型文、後述） |
 | api | `weather.py`・`jma_tile.py`・`basemap.py`・`gsi_tile.py` |
@@ -44,9 +44,8 @@ MSMは数値予報モデルの出力で観測値・公式発表の代わりに�
 | `wbgt_points.py` | 緯度経度→最寄りWBGT情報提供地点（約840地点の総当たり最近傍探索） | `wbgt_service.py` |
 | `flood_forecast.py` | JMA指定河川洪水予報コード表・アクティブ予報抽出 | `flood_service.py` |
 | `twilight.py` | 市民薄明による夜間判定（`is_night`）・日の出日没計算（`sunrise_sunset_jst`） | `jma_amedas_service.py`（表示用）・[routing-engine.md](routing-engine.md)のroad_graphエンジン（night軸の動的化） |
-| `night.py` | way_tagsからnight軸材料フラグ（`lit`・`has_tunnel`）を解決 | road_graphエンジン |
 
-`twilight.py`・`night.py`の2ファイルは外部APIに依存しないローカルの天文計算のみで、
+`twilight.py`は外部APIに依存しないローカルの天文計算のみで、
 実際の主消費者は[routing-engine.md](routing-engine.md)が主管する`road_graph_engine.py`
 である。
 

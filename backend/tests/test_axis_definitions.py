@@ -1,4 +1,3 @@
-import itertools
 
 import numpy as np
 import pytest
@@ -19,7 +18,6 @@ from app.domain.axis_definitions import (
     axis_raw_value_array,
     evaluate_axis_scalar,
 )
-from app.domain.recipe import bicycle_infra_flags, cycleway_values
 
 # 改善計画T350: 本ファイルは実際のcar_stress内部軸階層（highway基準値+5補正の加重合成、
 # -1000マイナス項の安全マージン等）そのものを検証するため、本番相当の14軸が必要。
@@ -37,28 +35,6 @@ _OLD_BICYCLE_INFRA_MAPPING = {
 }
 
 
-def _classify_bicycle_infrastructure_reference(tags: dict[str, str], highway: str | None) -> str:
-    """改善計画T347で削除したdomain/traffic.py: classify_bicycle_infrastructure
-    （優先順位付き分類）の複製。本番コードとしては「Pythonに生データ加工ロジックを
-    持たせない」設計原則に反するとして削除したが、このテストファイルが検証している
-    「正規化フラグの線形結合が旧分類とどれだけ一致するか（decisions/material-
-    normalization-for-axis-composition.md、実データ検証0.0127%ズレ）」という
-    回帰保証自体は引き続き価値があるため、テスト専用の参照実装としてここにだけ残す
-    （本番からは呼ばれない）。"""
-    values = cycleway_values(tags)
-    if highway == "cycleway" or "track" in values:
-        return "separated"
-    if "lane" in values:
-        return "lane"
-    if any(v in ("share_busway", "shared_lane") for v in values):
-        return "shared_busway"
-    if highway in ("path", "footway") and tags.get("bicycle") in ("yes", "designated", "permissive"):
-        return "shared_pedestrian"
-    if tags.get("bicycle") == "no":
-        return "prohibited"
-    if highway is not None:
-        return "roadway"
-    return "unknown"
 
 
 def test_bicycle_infra_quality_flag_combinations():
@@ -99,86 +75,6 @@ def test_bicycle_infra_quality_flag_combinations():
     assert score(highway_is_cycleway=True, cycleway_has_lane=True) == 0.0
 
 
-def test_bicycle_infra_quality_matches_bicycle_infra_mapping_for_single_flags():
-    """改善計画T353回帰テスト: bicycle_infra_qualityへ移植した正規化フラグ材料の
-    線形結合が、旧bicycle_infra材料ベースのスコア（_OLD_BICYCLE_INFRA_MAPPING、
-    0-100スケールへ再変換）と一致することを、cycleway系タグ・highway・bicycleタグの
-    組み合わせを網羅する形で検証する。
-
-    旧`car_stress_bicycle_infra_adjustment`時代のテスト（改善計画T336）は「正規化
-    フラグが1つでも成立すれば1件もズレない」ことを担保していたが、これは旧内部軸が
-    breakpointsによる飽和（優先順位保持の近似）を持っていたため成立していた。
-    bicycle_infra_qualityは単純な線形結合（飽和なし）のため、**複数の正規化フラグが
-    同時成立するケースでは新たにズレうる**（T353の設計変更で意図的に受け入れた差分、
-    実データでは4フラグ同時成立が86,642件中1件のみで実害僅少）。本テストは「ちょうど
-    1つの正規化フラグが成立するケース」に絞ってズレ0件を担保し、複数成立時のズレは
-    別途カウントのみ行う（0件になった場合はこのアサーションごと更新してよい）。
-
-    改善計画T359: `shared_pedestrian`分類（highway=footway/pathかつbicycle=yes/
-    designated/permissive）は、T336時点では正規化フラグでは表現しない「近似対象外」
-    として`shared_busway`相当(66.7)へ丸めていたが、`shared_pedestrian_path`材料の
-    正式追加によりyes/designatedのケースは正確に評価されるようになった（王子-荒川
-    ルート検索の調査で発覚）。ただし`permissive`は対象外のまま（ユーザー方針でyes/
-    designatedのみを対象にしたため）で、そこだけズレが残る。
-    """
-    axis = AXIS_DEFINITIONS["bicycle_infra_quality"]
-    # 旧内部軸スケール(-2〜1)から、bicycle_infra_qualityの実スケール(0〜100)への
-    # 再変換（同じbreakpoints[[-2,0],[-1,33.3],[0,66.7],[1,100]]で変換した対応値）。
-    old_mapping_rescaled = {
-        "separated": 0.0,
-        "lane": 33.3,
-        "shared_busway": 66.7,
-        "roadway": 100.0,
-    }
-    cycleway_values_domain = [None, "no", "track", "lane", "share_busway", "shared_lane", "opposite_lane", "separate"]
-    highways = ["cycleway", "path", "footway", "residential", "primary", "trunk", "living_street"]
-    bicycles = [None, "yes", "designated", "permissive", "no", "dismount"]
-
-    mismatches_single_flag = []
-    mismatches_multiple_flags = 0
-    mismatches_without_infra_flag = 0
-    total = 0
-    for cw, cwl, cwr, cwb, highway, bicycle in itertools.product(
-        cycleway_values_domain, cycleway_values_domain, cycleway_values_domain, cycleway_values_domain,
-        highways, bicycles,
-    ):
-        tags = {
-            k: v
-            for k, v in {
-                "cycleway": cw,
-                "cycleway:left": cwl,
-                "cycleway:right": cwr,
-                "cycleway:both": cwb,
-                "bicycle": bicycle,
-            }.items()
-            if v is not None
-        }
-        total += 1
-        classification = _classify_bicycle_infrastructure_reference(tags, highway)
-        if classification == "shared_pedestrian":
-            # T359で正式実装したのはyes/designatedのみ（permissiveは対象外のまま）。
-            old_score = 0.0 if bicycle in ("yes", "designated") else 66.7
-        else:
-            old_score = old_mapping_rescaled.get(classification, 100.0)
-        flags = bicycle_infra_flags(tags, highway)
-        new_score = evaluate_axis_scalar(axis, flags)
-        flags_true_count = sum(flags.values())
-        if old_score != new_score:
-            if flags_true_count == 1:
-                mismatches_single_flag.append((tags, highway, old_score, new_score))
-            elif flags_true_count > 1:
-                mismatches_multiple_flags += 1
-            else:
-                mismatches_without_infra_flag += 1
-
-    assert total > 0
-    # ちょうど1つの正規化フラグが成立するケースは1件もズレない。
-    assert mismatches_single_flag == []
-    # 複数フラグ同時成立（優先順位保持を失った分、T353で意図的に受け入れた差分）と、
-    # bicycle由来の分岐（正規化フラグが全て不成立、roadway側へ丸められるケース）は
-    # ズレうる。
-    assert mismatches_multiple_flags > 0
-    assert mismatches_without_infra_flag > 0
 
 
 def test_car_stress_lanes_adjustment_applies_regardless_of_separated_cycleway():

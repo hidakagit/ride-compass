@@ -317,9 +317,7 @@ class _LegCostComposer:
             material_id: score_matrix.categorical_material_values[:, i]
             for i, material_id in enumerate(score_matrix.categorical_material_ids)
         }
-        self._static_axis_scores = {
-            axis_id: score_matrix.axis_scores[:, i] for i, axis_id in enumerate(score_matrix.axis_ids)
-        }
+        self._static_axis_scores = score_matrix.axis_arrays()
         # 時刻で変わる（風に依存する）公開軸と、それ以外。ビンごとの合成では後者の重み付き和を
         # 使い回す——合成の時間は軸数にほぼ比例するため、毎回全軸を足し直すと本数ぶん効く。
         dynamic_axes = set(dynamic_axis_topological_order(AXIS_DEFINITIONS))

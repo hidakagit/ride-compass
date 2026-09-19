@@ -7,6 +7,8 @@
 -- 「wayそのものが無くなったとき」だけで、そのとき区間を残す意味は無い。
 ALTER TABLE road_edges ALTER COLUMN osm_way_id SET NOT NULL;
 
+ALTER TABLE road_edges DROP CONSTRAINT IF EXISTS road_edges_osm_way_id_fkey;
+
 ALTER TABLE road_edges
     ADD CONSTRAINT road_edges_osm_way_id_fkey
     FOREIGN KEY (osm_way_id) REFERENCES osm_raw_ways (osm_way_id) ON DELETE CASCADE;

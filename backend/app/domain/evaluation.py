@@ -42,7 +42,7 @@ from app.domain.axis_definitions import (
 )
 from app.domain.axis_display import axis_material_shares, raw_value_unit
 from app.domain.axis_templates import round1_array
-from app.domain.difficulty import composite_difficulty, distance_weighted_difficulty_array
+from app.domain.difficulty import distance_weighted_difficulty_array
 from app.domain.dynamic_materials import (
     DynamicAxisRequestContext,
     evaluate_dynamic_material_arrays,
@@ -62,40 +62,6 @@ from app.domain.tuning import tuning_value
 
 
 
-def compute_cost_from_axis_scores(
-    distance_m: float,
-    axis_scores: dict[str, float],
-    weights: dict[str, float],
-    penalty_strength: float = 1.0,
-    bbox_mean_difficulty: float | None = None,
-) -> tuple[float, float | None]:
-    """三次: 重みベクトル×軸別スコアのみからコストを算出する純関数
-    （`cost = length × (1 + P × Σᵢ wᵢ × axisᵢ / 100)`、設計プロンプト「評価システムの
-    層構造再設計」の三次そのもの。シグネチャに一次属性名を一切含まない）。
-
-    `axis_scores`にキーが存在しない軸は合成から除外され、残りの軸の重みで再正規化される
-    （`domain/difficulty.py: composite_difficulty`と同じ「データ無しは除外」方針）。
-    `weights`に対応するキーが無い軸は重み0として扱う。
-
-    `penalty_strength`（P、T12 ADR原則1）は割増率の強さを調整するリクエストパラメータ。
-    既定1.0の挙動は最悪でも下地2倍。P=0で常に`cost=下地`（難易度を一切考慮しない）、
-    Pを上げるほど悪路が強く避けられる（P=4なら最悪の道は5倍相当）。`cost >= 下地`
-    （P>=0の間は常に成り立つ）という不変条件は維持し、下地の下界がコストの下界でも
-    あるというA*の前提を崩さない。
-
-    `bbox_mean_difficulty`: 重み付き軸すべてが欠損（`difficulty is None`）のときに
-    コスト計算だけへ代入する値（呼び出し元がbboxの実データから求めた距離加重平均
-    difficulty、`domain/difficulty.py: distance_weighted_difficulty_array`参照）。省略時
-    （既定None）は`cost=distance_m`（割増なし）。戻り値の`difficulty`（表示用）はこの
-    代入の影響を受けず、欠損なら常にNoneのまま返す——探索コストのみ補完し表示は変えない
-    という方針（`compose_costs_from_axis_matrix`と同じ）を、Edge単位のこの関数でも保つ。
-    """
-    scored_weights = [(score, weights.get(axis_id, 0.0)) for axis_id, score in axis_scores.items()]
-    difficulty = composite_difficulty(scored_weights)
-    cost_difficulty = difficulty if difficulty is not None else bbox_mean_difficulty
-    penalty_multiplier = 1.0 + penalty_strength * (cost_difficulty / 100) if cost_difficulty is not None else 1.0
-    cost = round(distance_m * penalty_multiplier, 1)
-    return cost, difficulty
 
 
 
@@ -523,8 +489,8 @@ def compose_costs_from_axis_matrix(
     ビンでは要らない。`static_sums`と併用できないのは、寄与度は`axis_arrays`へ渡した軸ぶん
     しか作れず、和へ畳んだ軸の内訳が黙って欠けるため。
 
-    Neumaier加算・`round1_array`はスカラー版`composite_difficulty`/
-    `compute_cost_from_axis_scores`とビット単位で一致させるために必須
+    Neumaier加算・`round1_array`はスカラー版`composite_difficulty`と
+    ビット単位で一致させるために必須
     （`_neumaier_accumulate`のdocstring参照）。0次フィルタによる除外（cost=inf/None）は
     呼び出し元の責務（`compute_hard_filter_excluded`参照、Edgeの通行可否そのものであり
     軸別スコアの合成とは独立した判定のため）。戻り値は`(cost, composite_difficulty,
@@ -647,6 +613,11 @@ class StaticEdgeScoreMatrix:
     # `categorical_material_ids`の順）。数値の行列へは載せられないため別に持つ。
     categorical_material_ids: list[str] = field(default_factory=list)
     categorical_material_values: np.ndarray = field(default_factory=lambda: np.empty((0, 0), dtype=object))
+
+    def axis_arrays(self) -> dict[str, np.ndarray]:
+        """軸id→スコア配列。合成（`compose_costs_from_axis_matrix`）と動的軸の上書き
+        （`evaluate_dynamic_axis_arrays`）はこの形で受け取る。"""
+        return {axis_id: self.axis_scores[:, i] for i, axis_id in enumerate(self.axis_ids)}
 
 
 def _static_edge_score_matrix_from(evaluation: BulkAxisEvaluation) -> StaticEdgeScoreMatrix:

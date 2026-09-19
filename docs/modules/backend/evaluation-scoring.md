@@ -11,7 +11,7 @@
 
 | レイヤー | ファイル |
 |---|---|
-| domain | `evaluation.py`（Edge Costの算出。スカラー／ベクトル／タイル静的行列の3表現）・`hard_filters.py`（0次フィルタ）・`route_preference.py`（重み指定）・`dynamic_materials.py`（風などリクエスト時に決まる材料）・`axis_inspector.py`（区間インスペクタ）・`difficulty.py`・`material_catalog.py`・`material_sql.py`（材料の値をSQLで導出する式）・`recipe.py` |
+| domain | `evaluation.py`（Edge Costの算出。スカラー／ベクトル／タイル静的行列の3表現）・`hard_filters.py`（0次フィルタ）・`route_preference.py`（重み指定）・`dynamic_materials.py`（風などリクエスト時に決まる材料）・`axis_inspector.py`（区間インスペクタ）・`difficulty.py`・`material_catalog.py`・`material_sql.py`（材料の値をSQLで導出する式） |
 | services | `evaluation_service.py`・`material_coverage_service.py` |
 | infrastructure | `material_coverage.py`（材料ごとの欠損割合の集計クエリ） |
 | api | `material_catalog.py`（材料カタログ・材料値一覧・欠損割合のエンドポイント） |
@@ -32,8 +32,8 @@ APIが受け取る重みの形を変えるとき、`dynamic_materials.py`は動�
 
 **タイルへ焼く式だけは符号化が違う**。`CASE WHEN 条件 THEN true END`で「該当しない」を
 NULLへ畳み、フィーチャーからキーを省いてタイルを軽くする。材料の値を求める式は
-「wayの行が無い＝不明（NULL）」と「タグが無い＝非該当（false）」を分ける
-（`way_present_or_null_sql`）。例外は`surface_good`で、タイル側も`true`/`false`/NULLを
+タグが無ければ非該当（false）へ畳む（`tag_absent_is_false_sql`）——wayの行は必ずある
+（`road_edges.osm_way_id`がNOT NULL + FK）。例外は`surface_good`で、`true`/`false`/NULLを
 区別する（「路面タグ不明」を「路面が悪い」と混同しないという要求が符号化より優先された）。
 
 ## 0次ハードフィルタ（`domain/hard_filters.py`）
@@ -45,8 +45,7 @@ NULLへ畳み、フィーチャーからキーを省いてタイルを軽くす�
 
 - highwayタグ由来（`motorway`/`trunk`）・`bicycle=no`タグ（`no_bicycle`）の2系統。
   highway種別のフィルタは`HARD_FILTER_HIGHWAY_TYPES`（フィルタ名→対象highway値）が唯一の
-  レジストリで、スカラー版`is_edge_allowed`もベクトル版`compute_hard_filter_excluded`も
-  この辞書をループする（`compute_hard_filter_excluded`が受け取るのはフィルタ名→該当フラグ配列の
+  レジストリで、`compute_hard_filter_excluded`はこの辞書をループする（`compute_hard_filter_excluded`が受け取るのはフィルタ名→該当フラグ配列の
   `hard_filter_flags`で、フィルタごとの専用引数・専用フィールドは持たない。タグ由来の
   フィルタは`HARD_FILTER_TAG_PREDICATE_SQL`が名前と判定式をまとめて持ち、
   `HARD_FILTER_NAMES`も読み出し用のSQLの列もそこから導く）。
@@ -107,8 +106,7 @@ tagsから読んでいないかを機械的に見る。
 ```
 
 way1本を指す区間インスペクタだけはスカラーで評価する（`axis_inspector_breakdown`→
-`evaluate_axes_scalar`）。三次のみを直接使いたい場合は
-`compute_cost_from_axis_scores`（スカラー）を使う。
+`evaluate_axes_scalar`）。
 
 - 評価できなかった軸は合成から除外され、残りの重みで再正規化される。
 - `penalty_strength`（P、既定1.0）は**主観的割増と時間の換算レート**。探索のコストは
@@ -117,16 +115,6 @@ way1本を指す区間インスペクタだけはスカラーで評価する（`
   `select_fastest_route`が返す基準線と同じ物差し）、Pを上げるほど悪路が強く避けられる。
   `cost >= 下地`という不変条件はP>=0の間常に成り立つ（下地は探索では区間ごとの
   所要時間、Edge単位の評価では距離）。
-- `bbox_mean_difficulty`（既定None）は、重み付き軸がすべて欠損（`difficulty is None`）の
-  ときにコスト計算だけへ代入する値。戻り値の`difficulty`（表示用）はこの代入の影響を
-  受けずNoneのまま。呼び出し元がbboxの実データから求めた値を渡す想定で、この関数自身は
-  固定値を持たない（後述「探索コストの既定経路」節参照）。
-
-## 軸の評価と重み付き合成（配列演算）
-
-材料の行列から軸別スコアを求める`_evaluate_axes_from_material_arrays`と、重み付き合成を
-行う`compose_costs_from_axis_matrix`に分かれる。どちらもPythonループを持たない。
-
 - **`_evaluate_axes_from_material_arrays`**: `AXIS_DEFINITIONS`を軸ごとに適用して
   difficulty配列を求める（`BulkAxisEvaluation`: 公開軸別配列に加え、0次フィルタ判定用の
   生フラグ`hard_filter_flags`/`gradient_percent`も返す——`hard_filters`はリクエストごとに
@@ -182,10 +170,8 @@ bbox全体ぶんのコストをリクエストにつき1回だけnumpyで合成�
   軸名のハードコードは呼び出し側に一切現れない）。動的材料が増えたら
   `REQUEST_DYNAMIC_MATERIAL_IDS`とこの辞書へ1エントリずつ追加するだけでよい（CLAUDE.md
   原則1、フロントの`RAMP_AXES`/`buildAxisOverlayLayers`と同種の汎用ディスパッチ）。
-  `evaluate_dynamic_material_arrays`が全動的材料を評価する唯一の経路で、スカラー経路
-  （`compute_dynamic_edge_materials`、Edge1本を長さ1の配列で呼ぶ薄いラッパー）と
-  静的行列への動的軸合成（`evaluate_dynamic_axis_arrays`）がどちらもここを通るため、
-  式が乖離しない。
+  `evaluate_dynamic_material_arrays`が全動的材料を評価する唯一の経路で、静的行列への
+  動的軸合成（`evaluate_dynamic_axis_arrays`）もここを通るため、式が乖離しない。
   `DynamicAxisRequestContext`は出発時点のスナップショット（`weather`）・走行速度
   （`travel_speed_ms`、m/s。既定値を持たない必須フィールドで、伝播漏れは構築時点で
   失敗する）に加え、時刻依存の材料向けに起点の時別予報（`wind_series`）・出発時刻
@@ -348,7 +334,7 @@ MaterialSpec]`が単一ソース。
 
 **行の有無と値の有無を分ける。** `w`の行が無い（未取込の地域・PBF再取込の途中）ときは
 タグ由来の材料がすべて不明（NULL）になり、行があればタグが無くても非該当（false）として
-確定する（`way_present_or_null_sql`）。件数も同じで、集計行が無ければ不明、行があれば
+確定する（`tag_absent_is_false_sql`）。件数も同じで、集計行が無ければ不明、行があれば
 載っていないキーは0件。集計前を0件として読むと、全区間が「停止要因ゼロ＝最も易しい」と
 評価されてルート選択が静かに歪む。
 
@@ -410,10 +396,8 @@ MaterialSpec]`が単一ソース。
 返す（データ欠損ではなく原理的に算出不能という区別）。`covered_weight_fraction`（全軸の
 重み合計に対する取得できた軸の重み合計の割合）をフロントの「参考値」表示に使う。
 
-## タグ正規化（`domain/recipe.py`）
 
 OSMタグ由来の材料タグを正規化する純関数群（`parse_lanes`・`parse_maxspeed`・
-`cycleway_values`・`tag_value_is`）。`domain/evaluation.py`・`domain/traffic.py`が
 同じ実装を参照する正準1箇所。
 
 `bicycle_infra_flags(tags, highway)`/`bicycle_infra_flags_or_none(tags, highway)`は

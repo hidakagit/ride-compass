@@ -228,12 +228,12 @@ def _elevation_row_to_domain(row: ElevationAttributeRow) -> ElevationAttribute:
 # パン操作のバースト時に複数リクエストの待ち行列がフロントエンド（Next.jsのrewrites
 # プロキシ、デフォルト30秒タイムアウト）の制限に抵触しうる。
 #
-# surface_goodの分類はdomain/road.pyのclassify_osm_surfaceと同義（タグ集合も同じ定数を
+# surface_goodの分類はdomain/road.pyのタグ集合と同義（同じ定数を
 # バインドする）: 良い=true / 悪い=false / 不明(タグ無し・未知タグ)=NULL。
 # ST_AsMVTはNULL値のプロパティをfeatureから省略するため、MVT上は「キー無し」になり、
 # Python実装（mapbox_vector_tileもNone値を省略）ともフロントエンドの
 # ["get","surface_good"]==null判定（不明=グレー表示）とも互換。
-# lower(btrim())はclassify_osm_surfaceのstrip().lower()に対応する（btrimはASCII空白のみ
+# lower(btrim())はタグ値の正規化に対応する（btrimはASCII空白のみ
 # だが、OSMのsurfaceタグに全角空白等が入るケースは実データ上考慮しない）。
 #
 # surface（正規化済み生タグ）とhighway（OSM道路種別）もプロパティとして焼き込む。

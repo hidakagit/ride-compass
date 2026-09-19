@@ -8,7 +8,6 @@
 import pytest
 from pydantic import ValidationError
 
-from app.domain.attributes import EdgeAttributeCounts
 from app.domain.region import BoundingBox
 from app.domain.route_preference import RoutePreference
 from app.domain.strict_model import StrictModel
@@ -41,7 +40,6 @@ def test_subclasses_keep_their_own_config_and_still_forbid_extras():
 @pytest.mark.parametrize(
     ("model", "kwargs", "typo"),
     [
-        (EdgeAttributeCounts, {"accident_count": 0.0, "intersection_count": 0}, "stop_count"),
         (BoundingBox, {"min_latitude": 35.0, "min_longitude": 139.0,
           "max_latitude": 36.0, "max_longitude": 140.0}, "min_lat"),
         (RoutePreference, {}, "stop_weight"),
@@ -50,8 +48,7 @@ def test_subclasses_keep_their_own_config_and_still_forbid_extras():
 def test_representative_models_reject_removed_or_mistyped_fields(model, kwargs, typo):
     """撤去済み・typoしたフィールド名を渡すと落ちる。
 
-    `stop_count`は実際に撤去した列（T719）で、これが素通りしたために古い引数を渡す
-    テストが通り続けた。`stop_weight`も同じく過去に存在した名前。
+    `stop_weight`は過去に存在した名前で、素通りすると古い引数を渡すテストが通り続ける。
     """
     model(**kwargs)
     with pytest.raises(ValidationError):

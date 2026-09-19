@@ -1,4 +1,3 @@
-import inspect
 from datetime import datetime, timezone
 
 import numpy as np
@@ -19,22 +18,19 @@ from app.domain.axis_definitions import (
     time_scoped_weights,
 )
 from app.domain.axis_inspector import axis_inspector_breakdown
-from app.domain.dynamic_materials import compute_dynamic_edge_materials
 from app.domain.evaluation import (
     build_static_edge_score_matrix,
     combine_static_edge_score_matrices,
     compose_costs_from_axis_matrix,
-    compute_cost_from_axis_scores,
     has_route_facing_raw_value,
 )
 from app.domain.axis_display import raw_value_unit
 from app.domain import evaluation as evaluation_module
-from app.domain.hard_filters import compute_routable_node_ids, is_edge_allowed
+from app.domain.hard_filters import compute_routable_node_ids
 from app.domain.route_preference import RoutePreference
-from app.domain.difficulty import distance_weighted_difficulty_array
 from app.domain.graph import DirectedEdge, Node, RoadGraph
 from app.domain.weather import WeatherConditions
-from app.domain.wind import kmh_to_ms, wind_drag_ratio
+from app.domain.wind import kmh_to_ms
 from tests.realistic_axis_fixtures import axis_definitions_snapshot
 
 V20 = kmh_to_ms(20.0)
@@ -61,103 +57,38 @@ def _elevation_attr(average_grade: float | None) -> ElevationAttribute:
     return ElevationAttribute(edge_id="edge-1", average_grade=average_grade, data_source="test", calculated_at="t")
 
 
-def test_is_edge_allowed_excludes_motorway():
-    assert is_edge_allowed(_edge(highway="motorway")) is False
-    assert is_edge_allowed(_edge(highway="motorway_link")) is False
 
 
-def test_is_edge_allowed_excludes_trunk():
-    # 改善計画T140: trunk/trunk_linkの除外は既存動作（挙動変更なし）。以前は単体テストが
-    # 無く、motorwayのみ回帰確認されていた抜けを埋める。
-    assert is_edge_allowed(_edge(highway="trunk")) is False
-    assert is_edge_allowed(_edge(highway="trunk_link")) is False
 
 
-def test_is_edge_allowed_allows_residential():
-    assert is_edge_allowed(_edge(highway="residential")) is True
 
 
-def test_is_edge_allowed_allows_unknown_highway():
-    assert is_edge_allowed(_edge(highway=None)) is True
 
 
-def test_is_edge_allowed_excludes_bicycle_no():
-    # 改善計画T100: bicycle=noのHard Constraint化。highway自体は許可種別でも除外する。
-    assert is_edge_allowed(_edge(highway="residential"), {"bicycle": "no"}) is False
 
 
-def test_is_edge_allowed_bicycle_no_is_case_and_whitespace_insensitive():
-    assert is_edge_allowed(_edge(highway="residential"), {"bicycle": " NO "}) is False
 
 
-def test_is_edge_allowed_allows_bicycle_yes():
-    assert is_edge_allowed(_edge(highway="residential"), {"bicycle": "yes"}) is True
 
 
-def test_is_edge_allowed_allows_missing_way_tags():
-    # way_tags=None（未取得）は判断材料が無いため除外しない（highway不明時と同じ方針）。
-    assert is_edge_allowed(_edge(highway="residential"), None) is True
 
 
-def test_is_edge_allowed_allows_way_tags_without_bicycle_key():
-    assert is_edge_allowed(_edge(highway="residential"), {"lanes": "2"}) is True
 
 
-def test_is_edge_allowed_hard_filters_override_disables_trunk_exclusion():
-    # 改善計画T140: hard_filters引数で名前付きフィルタを個別に無効化できる
-    # （T141でレシピJSON化した際の`hard_filters: list[str]`をそのまま渡す想定）。
-    custom_filters = frozenset({"no_bicycle", "motorway"})
-    assert is_edge_allowed(_edge(highway="trunk"), hard_filters=custom_filters) is True
-    assert is_edge_allowed(_edge(highway="motorway"), hard_filters=custom_filters) is False
 
 
-def test_is_edge_allowed_hard_filters_override_disables_no_bicycle():
-    custom_filters = frozenset({"motorway", "trunk"})
-    assert is_edge_allowed(_edge(highway="residential"), {"bicycle": "no"}, hard_filters=custom_filters) is True
 
 
-def test_is_edge_allowed_empty_hard_filters_allows_everything():
-    assert is_edge_allowed(_edge(highway="motorway"), {"bicycle": "no"}, hard_filters=frozenset()) is True
 
 
-def test_is_edge_allowed_excludes_edge_exceeding_max_average_grade_percent():
-    # 改善計画T218a・T12 ADR原則5: 0次ハードフィルタの勾配しきい値。
-    steep_uphill = _elevation_attr(average_grade=9.0)
-    assert (
-        is_edge_allowed(
-            _edge(), elevation_attribute=steep_uphill, max_average_grade_percent=8.0
-        )
-        is False
-    )
 
 
-def test_is_edge_allowed_excludes_edge_exceeding_max_average_grade_percent_downhill():
-    # 下り（負のaverage_grade）も絶対値で判定する。
-    steep_downhill = _elevation_attr(average_grade=-9.0)
-    assert (
-        is_edge_allowed(
-            _edge(), elevation_attribute=steep_downhill, max_average_grade_percent=8.0
-        )
-        is False
-    )
 
 
-def test_is_edge_allowed_allows_edge_within_max_average_grade_percent():
-    gentle = _elevation_attr(average_grade=5.0)
-    assert (
-        is_edge_allowed(_edge(), elevation_attribute=gentle, max_average_grade_percent=8.0) is True
-    )
 
 
-def test_is_edge_allowed_max_average_grade_percent_none_disables_gradient_filter():
-    steep = _elevation_attr(average_grade=99.0)
-    assert is_edge_allowed(_edge(), elevation_attribute=steep, max_average_grade_percent=None) is True
 
 
-def test_is_edge_allowed_allows_edge_without_elevation_attribute_even_with_threshold_set():
-    # 事前計算バッチ未実行のEdge（elevation_attribute=None）は判断材料が無いため除外しない
-    # （他のHard Constraint同様、不明な場合は許可しSoft Constraint側に委ねる）。
-    assert is_edge_allowed(_edge(), elevation_attribute=None, max_average_grade_percent=1.0) is True
 
 
 
@@ -190,43 +121,12 @@ def _wind(wind_speed_ms: float, wind_direction_deg: float) -> WeatherConditions:
     )
 
 
-def test_compute_dynamic_edge_materials_headwind_is_positive():
-    # bearing=0（北向きに進む）のEdgeに北から吹いてくる風（wind_direction_deg=0）は正面からの
-    # 向かい風。
-    edge = _edge(bearing_deg=0.0)
-    wind = _wind(wind_speed_ms=5.0, wind_direction_deg=0.0)
-
-    materials = compute_dynamic_edge_materials(edge, wind, V20)
-
-    assert set(materials) == {"wind_drag_ratio"}
-    assert materials["wind_drag_ratio"] == pytest.approx(wind_drag_ratio(5.0, 0.0, 0.0, V20))
-    assert materials["wind_drag_ratio"] > 0
 
 
-def test_compute_dynamic_edge_materials_tailwind_is_negative():
-    edge = _edge(bearing_deg=0.0)
-    wind = _wind(wind_speed_ms=5.0, wind_direction_deg=180.0)  # 南から北へ吹く=追い風
-
-    materials = compute_dynamic_edge_materials(edge, wind, V20)
-
-    assert materials["wind_drag_ratio"] < 0
 
 
-def test_compute_dynamic_edge_materials_returns_none_without_wind():
-    edge = _edge(bearing_deg=0.0)
-
-    assert compute_dynamic_edge_materials(edge, None, V20) == {"wind_drag_ratio": None}
-    # 風が無ければ走行速度も要らない（静的評価の経路）。
-    assert compute_dynamic_edge_materials(edge, None, None) == {"wind_drag_ratio": None}
 
 
-def test_compute_dynamic_edge_materials_returns_none_without_bearing():
-    # bearing_deg未計算（None）のEdgeは風評価を行わない（探索フェーズの軽量グラフは
-    # geometryを持たずbearing_degのみで判定するため、このNoneガードが唯一の「データ無し」経路）。
-    edge = _edge(bearing_deg=None)
-    wind = _wind(wind_speed_ms=5.0, wind_direction_deg=0.0)
-
-    assert compute_dynamic_edge_materials(edge, wind, V20) == {"wind_drag_ratio": None}
 
 
 
@@ -244,18 +144,6 @@ def test_compute_dynamic_edge_materials_returns_none_without_bearing():
 # --- 改善計画T142: 二次(compute_edge_axis_scores)・三次(compute_cost_from_axis_scores)の分離 ---
 
 
-def test_compute_cost_from_axis_scores_signature_has_no_primary_attribute_names():
-    # T142の完了条件そのもの: 三次のコードのシグネチャに一次属性名(highway/lanes等)が
-    # 一切現れないことをコードレビューではなくテストでも機械的に確認する。
-    params = set(inspect.signature(compute_cost_from_axis_scores).parameters)
-    # 改善計画T218・T12 ADR原則1: penalty_strength（P）はコスト式の割増率の強さを
-    # 調整するリクエストパラメータであり、一次属性名ではないため許容する。改善計画T552:
-    # bbox_mean_difficultyは重み付き軸が全欠損のEdgeへ探索コスト算出だけで代入する
-    # bbox内平均difficulty（呼び出し元のリクエストごとの実データ由来）であり、同じ理由で
-    # 一次属性名ではない。
-    assert params == {"distance_m", "axis_scores", "weights", "penalty_strength", "bbox_mean_difficulty"}
-    primary_attribute_names = {"highway", "lanes", "maxspeed", "cycleway", "surface", "way_tags", "edge"}
-    assert params.isdisjoint(primary_attribute_names)
 
 
 
@@ -359,56 +247,14 @@ def test_time_scoped_weights_works_with_a_single_night_only_axis():
         assert inactive == {"only_axis": 0.0}
 
 
-def test_compute_cost_from_axis_scores_matches_composite_difficulty_semantics():
-    cost, difficulty = compute_cost_from_axis_scores(
-        distance_m=100.0,
-        axis_scores={"gradient": 0.0, "surface_q": 100.0},
-        weights={"gradient": 1.0, "surface_q": 1.0},
-    )
-
-    assert difficulty == 50.0
-    assert cost == 150.0  # 100 * (1 + 50/100)
 
 
-def test_compute_cost_from_axis_scores_excludes_axes_missing_from_scores():
-    # weightsにキーがあってもaxis_scoresに無ければ合成対象外(残りの重みで再正規化)。
-    cost, difficulty = compute_cost_from_axis_scores(
-        distance_m=100.0,
-        axis_scores={"gradient": 40.0},
-        weights={"gradient": 1.0, "surface_q": 1.0},
-    )
-
-    assert difficulty == 40.0
-    assert cost == 140.0
 
 
-def test_compute_cost_from_axis_scores_empty_scores_returns_distance_only():
-    cost, difficulty = compute_cost_from_axis_scores(distance_m=100.0, axis_scores={}, weights={"gradient": 1.0})
-
-    assert difficulty is None
-    assert cost == 100.0
 
 
-def test_compute_cost_from_axis_scores_fills_cost_with_bbox_mean_when_missing():
-    # 改善計画T552: 重み付き軸が全欠損（axis_scoresが空）でもbbox_mean_difficultyを
-    # 渡せばcostだけそれを反映する。表示用のdifficultyはNoneのまま変わらない。
-    cost, difficulty = compute_cost_from_axis_scores(
-        distance_m=100.0, axis_scores={}, weights={"gradient": 1.0}, bbox_mean_difficulty=30.0,
-    )
-
-    assert difficulty is None
-    assert cost == 130.0  # 100 * (1 + 30/100)
 
 
-def test_compute_cost_from_axis_scores_ignores_bbox_mean_when_difficulty_available():
-    # 一部でも軸データがあればcompute_cost_from_axis_scores自身のdifficultyを使い、
-    # bbox_mean_difficultyは無視される。
-    cost, difficulty = compute_cost_from_axis_scores(
-        distance_m=100.0, axis_scores={"gradient": 40.0}, weights={"gradient": 1.0}, bbox_mean_difficulty=90.0,
-    )
-
-    assert difficulty == 40.0
-    assert cost == 140.0
 
 
 
@@ -879,31 +725,6 @@ def test_compose_costs_from_axis_matrix_cost_equals_distance_when_all_edges_miss
     assert cost.tolist() == distance_m.tolist()
 
 
-def test_compose_costs_from_axis_matrix_bbox_mean_fallback_matches_scalar_oracle():
-    # 改善計画T552: bulk版が自動で求めるbbox内平均difficultyを、スカラー版
-    # compute_cost_from_axis_scoresへbbox_mean_difficultyとして明示的に渡した場合の
-    # costとビット単位で一致すること（tests/test_evaluation_bulk.pyのオラクル方針と
-    # 同じ考え方を、この関数ペア単体でも検証する）。
-    distance_m = np.array([100.0, 200.0, 300.0])
-    axis_arrays = {"wind": np.array([80.0, 20.0, np.nan]), "car_stress": np.array([10.0, 40.0, np.nan])}
-    weights = {"wind": 0.6, "car_stress": 0.4}
-    penalty_strength = 2.5
-
-    bulk_cost, bulk_composite, _, _ = compose_costs_from_axis_matrix(
-        distance_m, axis_arrays, weights, penalty_strength
-    )
-    bbox_mean = distance_weighted_difficulty_array(bulk_composite, distance_m)
-
-    for i in range(len(distance_m)):
-        axis_scores = {axis_id: float(arr[i]) for axis_id, arr in axis_arrays.items() if not np.isnan(arr[i])}
-        scalar_cost, scalar_difficulty = compute_cost_from_axis_scores(
-            float(distance_m[i]), axis_scores, weights, penalty_strength, bbox_mean_difficulty=bbox_mean,
-        )
-        assert scalar_cost == pytest.approx(float(bulk_cost[i]), abs=1e-9)
-        if np.isnan(bulk_composite[i]):
-            assert scalar_difficulty is None
-        else:
-            assert scalar_difficulty == pytest.approx(float(bulk_composite[i]), abs=1e-9)
 
 
 # --- 動的材料（風）の3経路一致 ---

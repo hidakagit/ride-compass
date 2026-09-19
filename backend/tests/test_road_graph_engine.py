@@ -16,7 +16,7 @@ import pytest
 
 from app.domain.traffic import POI_COUNT_KINDS
 from tests.material_arrays import material_arrays
-from app.domain.attributes import EdgeAttributeCounts, EdgeMaterialArrays, ElevationAttribute, SearchMaterials
+from app.domain.attributes import EdgeMaterialArrays, ElevationAttribute, SearchMaterials
 from app.domain.errors import RoutingError
 from app.domain import routing
 from app.domain.evaluation import build_static_edge_score_matrix
@@ -155,14 +155,11 @@ class FakeGraphService:
         surface_attributes: dict | None = None,
         stop_data_available: bool = True,
         materials: dict | None = None,
-        intersection_counts: dict | None = None,
-        accident_counts: dict | None = None,
         accident_years_covered: int = 0,
         designated_edge_ids: set | None = None,
         elevation_attributes_for_search: dict | None = None,
         edges_with_geometry: dict | None = None,
         tile_set: frozenset[tuple[int, int, int]] | None = None,
-        poi_counts: dict | None = None,
     ):
         self._graph = graph
         # 改善計画T537: search_graph_cache（探索用グラフ・索引のタイル集合キーLRU）の
@@ -173,11 +170,6 @@ class FakeGraphService:
         self._surface_attributes = surface_attributes or {}
         # 区間id→(材料id→値)。DBが導出した材料（`MaterialSpec.value_sql`）の形で渡す。
         self._materials = materials or {}
-        self._intersection_counts = intersection_counts or {}
-        # 停止要因POIの種別別カウント（停止密度軸が読むのはこちら）。
-        # 未指定のedge_idは空辞書＝「集計済みで0件」を返す（Noneの「未集計」とは別）。
-        self._poi_counts = poi_counts or {}
-        self._accident_counts = accident_counts or {}
         self._accident_years_covered = accident_years_covered
         self._designated_edge_ids = designated_edge_ids or set()
         # 改善計画T218a: 探索コスト（prepare）が読む事前計算済みgradient。既定{}は
@@ -250,21 +242,6 @@ class FakeGraphService:
         self.geometry_requests.append(list(edge_ids))
         return {edge_id: self._edges_with_geometry[edge_id] for edge_id in edge_ids if edge_id in self._edges_with_geometry}
 
-    async def get_edge_attribute_counts(self, edge_ids):
-        # `stop_data_available=False`はrepository未注入を模す。edge_attribute_countsは
-        # 一度バックフィルされれば対象の全Edgeに行を持つ（0件はゼロとして明示的に持つ、
-        # 行自体が欠けることはない）ため、指定edge_idは全件存在する形にする。
-        if not self._stop_data_available:
-            return {}
-        return {
-            edge_id: EdgeAttributeCounts(
-                accident_count=self._accident_counts.get(edge_id, 0),
-                intersection_count=self._intersection_counts.get(edge_id, 0),
-                poi_counts=self._poi_counts.get(edge_id, {}),
-            )
-            for edge_id in edge_ids
-        }
-
     async def get_accident_years_covered(self):
         return self._accident_years_covered
 
@@ -322,8 +299,6 @@ def make_generator(
     surface_attributes: dict | None = None,
     stop_data_available: bool = True,
     materials: dict | None = None,
-    intersection_counts: dict | None = None,
-    accident_counts: dict | None = None,
     accident_years_covered: int = 0,
     designated_edge_ids: set | None = None,
     weather: WeatherConditions | None = None,
@@ -337,12 +312,11 @@ def make_generator(
     wind_series: WindForecastSeries | None = None,
     assumed_speed_kmh: float = ASSUMED_SPEED_KMH,
     lens_axis_id: str | None = None,
-    poi_counts: dict | None = None,
 ) -> tuple[RouteGenerator, FakeGraphService, FakeElevationAttributeService]:
     graph_service = FakeGraphService(
-        graph, surface_attributes, stop_data_available, materials, intersection_counts,
-        accident_counts, accident_years_covered, designated_edge_ids, elevation_attributes_for_search,
-        edges_with_geometry, tile_set, poi_counts,
+        graph, surface_attributes, stop_data_available, materials,
+        accident_years_covered, designated_edge_ids, elevation_attributes_for_search,
+        edges_with_geometry, tile_set,
     )
     elevation_service = FakeElevationAttributeService(elevation_attributes)
     preference = route_preference or RoutePreference()
@@ -1043,12 +1017,10 @@ async def test_candidate_aggregates_accident_density_from_path_edges():
 
 
 async def test_candidate_accident_axis_is_absent_when_years_covered_is_zero():
-    # accident_years_covered=0（事故データ未取込）は、件数があっても密度を算出できないため
-    # axis_difficulties自体にaccidentキーを持たない。
+    # 事故データ未取込のとき、値式は密度を算出できずNULLを返す（材料が欠損）。
+    # その軸はaxis_difficulties自体にキーを持たない。
     graph = build_loop_graph(ORIGIN, distance_km=30.0)
-    edge_ids = sorted(eid for eid in graph.edges if eid.startswith("e-0-"))
-    accident_counts = {edge_ids[0]: 2, f"{edge_ids[0]}-rev": 2}
-    generator, _, _ = make_generator(graph, accident_counts=accident_counts, accident_years_covered=0)
+    generator, _, _ = make_generator(graph, accident_years_covered=0)
 
     candidates = await generator.generate_loops(ORIGIN, distance_km=30.0, distance_tolerance_km=10.0)
     candidate = _candidate_for_bearing(candidates, 0)

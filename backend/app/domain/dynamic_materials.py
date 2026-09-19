@@ -17,34 +17,10 @@ from app.domain.axis_definitions import (
     dynamic_axis_topological_order,
     evaluate_axis_array,
 )
-from app.domain.graph import EdgeLike
 from app.domain.weather import WeatherConditions
 from app.domain.wind import WindForecastSeries, wind_drag_ratio_array
 
 
-def compute_dynamic_edge_materials(
-    edge: EdgeLike, weather: WeatherConditions | None, travel_speed_ms: float | None
-) -> dict[str, float | None]:
-    """Edge1本ぶんの動的材料（`REQUEST_DYNAMIC_MATERIAL_IDS`の各材料id→値）を、Edgeの
-    進行方向（`edge.bearing_deg`、from_node→to_node）・出発時点の風・走行速度から求める。
-    風が無い、またはbearing未計算のEdgeは全材料None（データ無し）。
-
-    `DYNAMIC_MATERIAL_EVALUATORS`（配列版）を長さ1の配列で呼ぶ薄いラッパーのため、
-    スカラー経路とbulk/動的軸経路の式が乖離しない。風はEdgeに永続保存しない（動的データで
-    ありRoad Attributeとして扱わない）。
-    """
-    if weather is None or edge.bearing_deg is None:
-        return {material_id: None for material_id in REQUEST_DYNAMIC_MATERIAL_IDS}
-    if travel_speed_ms is None:
-        raise ValueError("compute_dynamic_edge_materials: travel_speed_ms is required when weather is given")
-    context = DynamicAxisRequestContext(
-        bearing_deg=np.array([edge.bearing_deg], dtype=float), weather=weather, travel_speed_ms=travel_speed_ms,
-    )
-    result: dict[str, float | None] = {}
-    for material_id, array in evaluate_dynamic_material_arrays(context).items():
-        value = float(array[0])
-        result[material_id] = None if np.isnan(value) else value
-    return result
 
 
 @dataclass(frozen=True, slots=True)
@@ -110,9 +86,8 @@ DYNAMIC_MATERIAL_EVALUATORS: dict[str, Callable[[DynamicAxisRequestContext], np.
 
 def evaluate_dynamic_material_arrays(context: DynamicAxisRequestContext) -> dict[str, np.ndarray]:
     """`REQUEST_DYNAMIC_MATERIAL_IDS`の全材料を`context`から評価する（材料id→配列、
-    `context.bearing_deg`と同じ行順）。スカラー経路（`compute_dynamic_edge_materials`）・
-    bulk経路（`_evaluate_axes_bulk`）・静的行列への動的軸合成（`evaluate_dynamic_axis_arrays`）
-    の3経路がすべてここを通る。"""
+    `context.bearing_deg`と同じ行順）。動的材料を評価する唯一の経路で、
+    静的行列への動的軸合成（`evaluate_dynamic_axis_arrays`）もここを通る。"""
     return {
         material_id: DYNAMIC_MATERIAL_EVALUATORS[material_id](context)
         for material_id in REQUEST_DYNAMIC_MATERIAL_IDS
