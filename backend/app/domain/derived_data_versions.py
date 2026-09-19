@@ -13,7 +13,7 @@
 
 EDGE_ATTRIBUTE_COUNTS_ALGORITHM_VERSION = "v3"
 WAY_ATTRIBUTE_COUNTS_ALGORITHM_VERSION = "v3"
-WAY_DIVIDED_CARRIAGEWAY_ALGORITHM_VERSION = "v1"
+WAY_DIVIDED_CARRIAGEWAY_ALGORITHM_VERSION = "v2"
 
 # 土地被覆はリング径ごとに別のアルゴリズムとして扱う（`--buffer-m`/`--inner-m`へ既定と違う値を
 # 渡して実行した行は、鮮度台帳が古い版として検知する）。way単位（`way_landcover`）と区間単位

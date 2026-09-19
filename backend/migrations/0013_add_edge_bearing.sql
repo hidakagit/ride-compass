@@ -12,9 +12,11 @@
 -- （PostGISのST_Azimuth/ST_StartPoint/ST_EndPointはgeomから直接計算できるため、
 -- アプリケーション側でgeometryをdecodeするバッチは不要）。
 --
--- ST_Azimuth(a, b)は「aからbを見た方位角（ラジアン、北=0、時計回り）」を返し、
--- domain/geo.py: bearing_between()と同じ定義（0=北、時計回り、0-360度）。degrees()で
--- 度へ変換する。road_edgesの各行は既にfrom_node→to_nodeの向きにgeomが格納されている
+-- ST_Azimuth(a, b)は「aからbを見た方位角（ラジアン、北=0、時計回り）」を返す。degrees()で
+-- 度へ変換する。**geometry型のまま呼ぶ下のバックフィルは経度緯度を平面として扱った角度を
+-- 返し、domain/geo.py: bearing_between()（球面）とは一致しない**（緯度35度で最大約6度ずれる。
+-- 一致させるにはgeographyへキャストする必要がある）。この式はここに残すが、値としては
+-- 以後の再構築でPython側の算出に置き換わる。road_edgesの各行は既にfrom_node→to_nodeの向きにgeomが格納されている
 -- （domain/graph.py: build_road_graphがforward/backwardを別Edge行として持つ設計）ため、
 -- 各行のST_StartPoint/ST_EndPointをそのまま使えば向きの補正は不要。
 ALTER TABLE road_edges ADD COLUMN IF NOT EXISTS bearing_deg double precision;

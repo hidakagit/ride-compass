@@ -1224,8 +1224,13 @@ DIVIDED_CARRIAGEWAY_TAG_VALUES = ("dual", "triple", "2")
 #
 # また、進行方位が反対であることは条件2・3の両方に要る。これが無いと、同じ道を分割した
 # 連続する区間が端点を共有して距離0になり、すべて相方ありになる。
+# geographyへキャストする。geometry(4326)のままだと経度緯度を平面として扱った角度になり、
+# 緯度35度では方位の差が0.81〜1.23倍に歪む（南北の道で大きく、東西の道で小さく出る）。
+# 許容角との比較がその倍率ぶんずれる。
 _WAY_TRAVEL_BEARING_SQL = """
-    degrees(ST_Azimuth(ST_StartPoint({alias}.geom), ST_EndPoint({alias}.geom)))
+    degrees(ST_Azimuth(
+        ST_StartPoint({alias}.geom)::geography, ST_EndPoint({alias}.geom)::geography
+    ))
         + CASE WHEN {alias}.direction = 'backward' THEN 180 ELSE 0 END
 """
 

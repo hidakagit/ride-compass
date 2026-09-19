@@ -105,3 +105,31 @@ async def test_each_condition_decides_what_it_should(road_graph_session):
     assert divided[9031] is False and divided[9032] is False, "街区を挟んだ並走を対にしている"
     assert divided[9041] is False and divided[9042] is False, "連続する区間を相方と見なしている"
     assert divided[9051] is False, "双方向の道を上下線分離にしている"
+
+
+# 東西に伸びる道と、それに対して測地線方位で48度ずれた相方。許容角は45度なので、
+# 測地線方位で測れば「対向ではない」が正しい。経度緯度を平面として扱うと方位の差が
+# 緯度の余弦ぶん縮んで42度に見え、許容角の内側へ入ってしまう。
+_EAST_WEST_WKT = "LINESTRING(139.700 35.700, 139.701 35.700)"
+_OFF_BY_48_DEG_WKT = "LINESTRING(139.7005000 35.6998200, 139.7002039 35.7000870)"
+
+
+async def test_travel_bearing_is_geodesic_not_planar(road_graph_session):
+    """方位は測地線で測る。平面近似だと東西方向の道で許容角の内側へ誤って入る。
+
+    相方は同じrefを持ち40m以内に居るので、方位の判定だけが結果を分ける
+    （highwayを変えてあるため条件3では対にならない）。
+    """
+    await _insert(road_graph_session, 9061, _EAST_WEST_WKT,
+                  highway="primary", direction="forward", tags={"ref": "国道9号"})
+    await _insert(road_graph_session, 9062, _OFF_BY_48_DEG_WKT,
+                  highway="secondary", direction="forward", tags={"ref": "国道9号"})
+    await road_graph_session.commit()
+
+    assert await run(TEST_DATABASE_URL, dry_run=False) == 0
+
+    await road_graph_session.rollback()
+    divided = await _divided(road_graph_session)
+
+    assert divided[9061] is False, "48度ずれた相方を対向と見なしている（平面近似のまま）"
+    assert divided[9062] is False
