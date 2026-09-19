@@ -65,6 +65,7 @@ from app.domain.region import ROAD_TILE_MAX_ZOOM, ROAD_TILE_MIN_ZOOM  # noqa: E4
 from app.domain.traffic import STOP_POI_KINDS, SupplyPoiKind  # noqa: E402
 from app.services.route_generator import SPLICED_ROUTE_ID, DEFAULT_MAX_ROUTES, MAX_ROUTES  # noqa: E402
 from app.domain.tuning import client_tuning_values  # noqa: E402
+from app.services.tile_version_service import TILE_SHAPES  # noqa: E402
 
 GENERATED_DIR = Path(__file__).resolve().parents[2] / "frontend" / "src" / "types" / "generated"
 OUTPUT_PATH = GENERATED_DIR / "openapi.json"
@@ -132,6 +133,10 @@ def main() -> None:
             # ビルド時の値は次のデプロイまで古いままになる。世代は
             # `GET /api/axis-catalog`の`tile_versions`が実行時に配る
             # （`services/tile_version_service.py`）。
+            # 実行時に世代が配られる系統の名前。**frontendはこの一覧を手で持たず、
+            # ここから照合する**——片側だけ系統を足すと、足りない側は「世代が揃った」と
+            # 判定したまま配られない世代を待ち続ける（`regionApi.ts: TILE_KINDS`）。
+            "tile_version_kinds": sorted(TILE_SHAPES),
             "road_surface": {"layer_name": ROAD_SURFACE_LAYER_NAME},
             "accident": {"layer_name": ACCIDENT_LAYER_NAME},
             "poi": {"stop_poi_layer_name": STOP_POI_LAYER_NAME},

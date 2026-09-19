@@ -77,8 +77,10 @@ export function subscribeTileVersions(listener: () => void): () => void {
   };
 }
 
-/** 配信されるタイルの系統。1つでも欠けたら「未取得」として扱う。 */
-const TILE_KINDS = ["road_surface", "poi", "accident"] as const;
+/** 配信されるタイルの系統。1つでも欠けたら「未取得」として扱う。
+ *  backendの`tile_version_service.py: TILE_SHAPES`と同じ集合でなければならず、
+ *  一致は生成物（`region-tile-config.json: tile_version_kinds`）との照合が固定する。 */
+export const TILE_KINDS = ["road_surface", "poi", "accident"] as const;
 type TileKind = (typeof TILE_KINDS)[number];
 
 export function hasTileVersions(): boolean {

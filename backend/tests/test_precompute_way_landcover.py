@@ -16,12 +16,9 @@ from shapely.geometry import LineString
 from sqlalchemy import text
 
 from app.batch._landcover import build_ring, count_pixels_in_ring, infer_data_version_from_filename
-from app.batch.precompute_way_landcover import (
-    algorithm_version,
-    raster_set_fingerprint,
-    run,
-    run_default,
-)
+from app.batch.precompute_way_landcover import run, run_default
+from app.domain.derived_data_versions import landcover_algorithm_version as algorithm_version
+from app.domain.landcover import raster_set_fingerprint
 from app.config import settings
 from app.domain.graph import WaySpec
 from tests.conftest import postgis_database_url

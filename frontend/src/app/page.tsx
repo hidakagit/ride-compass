@@ -588,8 +588,9 @@ export default function Home() {
   // （useDynamicWeatherLayers/useWeatherGrid内のwindDetailフェッチeffect参照）。
   const [mapViewport, setMapViewport] = useState<MapViewport | null>(null);
 
-  // 地図レイヤーのON/OFF（MAP_LAYERSのid単位。レイヤーを追加したらDEFAULT_LAYER_VISIBILITYへ
-  // 初期値を1つ足す）。localStorageへの保存・復元はuseStoredState参照。既知のレイヤーID
+  // 地図レイヤーのON/OFF（MAP_LAYERSのid単位。既定値はレイヤー記述子の`defaultOn`から
+  // 導かれるため、レイヤーを足してもここへ足すものは無い）。
+  // localStorageへの保存・復元はuseStoredState参照。既知のレイヤーID
   // かつboolean値のものだけ採用する（レイヤーの増減や壊れた保存値があっても、残りの設定は
   // 活かしてデフォルトで埋める）。
   //
@@ -2268,9 +2269,10 @@ export default function Home() {
 
             {!sidebarCollapsed && (
               <>
-                {/* サイドバーはモバイルの下部タブと同じ「ルート設定（生成ボタンで反映）／
-                    ルート結果（読むだけ）／ルート編集（結果から派生して作る）」の3区分・
-                    同じ順序。各区分は独立して開閉し、開閉状態はlocalStorageへ保存する。 */}
+                {/* サイドバーはモバイルの下部タブと同じ区分・同じ順序（「ルート設定」＝
+                    生成ボタンで反映／「ルート結果」＝読むだけ）。ルートの編集は
+                    「ルート結果」の中のモードで、独立した区分を持たない。各区分は独立して
+                    開閉し、開閉状態はlocalStorageへ保存する。 */}
                 {/* タブ列（見出し行）とタブの中身（本文）の両方を囲む。 */}
                 <Tabs.Root value={settingsTab} onValueChange={(value) => setSettingsTab(value as SettingsTab)}>
                   <Disclosure
@@ -2513,8 +2515,8 @@ export default function Home() {
         </div>
       </div>
 
-      {/* モバイル: 下部タブバー＋部分シート3枚（「ルート設定」「ルート結果」「地図の
-          見え方」）。各タブはアイコン+1行ラベル（地図上のiconChip、
+      {/* モバイル: 下部タブバー＋部分シート（「ルート設定」「ルート結果」。地図の見え方は
+          シートではなく地図上のチップで操作する）。各タブはアイコン+1行ラベル（地図上のiconChip、
           MapOverlayControls.module.cssと同じ構成）。「ルート結果」タブには、設定変更後
           未反映（conditionsDirty）に気づけるよう小さいバッジを付ける。シート表示中も
           地図の上側が見えたままパン/ズームできる（暗幕なし、詳細はBottomSheetの
