@@ -1,9 +1,8 @@
 """`amenity=vending_machine`が何を売る機械なのかを、PBFから数える（改善計画T935）。
 
-取込は`amenity`の値だけを見ており、`vending`（何を売るか）を見ていない。さらに
-`vending`は`ALLOWED_NODE_TAGS`（`domain/osm_adapter.py`）に無いためDBへ保存されておらず、
-取込済みのデータからは後から判別できない。補給休憩レイヤーに出ている自販機のうち
-どれだけが補給に使えるのかは、PBFを読み直さないと分からない。
+取込側（`domain/traffic.py: classify_vending_machine`）が飲料と分かるもの・分からないもの・
+口に入らないものへ分けるときの判定を、取り込む前のPBF全体に対して当ててみる器。
+「この判定で何件が残り、何件が落ちるか」を再取込の前に知るために使う。
 
 `measure_poi_freshness.py`・`measure_tag_coverage.py`と同じ「PBF1パス読み・単発実行・
 結果を標準出力」の形式。DBもネットワークも使わない。
@@ -21,33 +20,14 @@ from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-# 自転車の補給に使える（飲み物・食べ物が買える）と見なす`vending`の値。OSM wikiで
-# 使用実績のある値のうち、口に入るものを売る機械だけを挙げている。複数の値は`;`で
-# 連結されるため、分割した要素のどれかがここにあれば補給に使えると数える。
-SUPPLY_VENDING_VALUES: frozenset[str] = frozenset(
-    {
-        "drinks",
-        "beverages",
-        "coffee",
-        "water",
-        "milk",
-        "food",
-        "sweets",
-        "ice_cream",
-        "chewing_gums",
-        "bread",
-        "fruit",
-        "vegetables",
-        "eggs",
-    }
-)
+from app.domain.traffic import SUPPLY_VENDING_VALUES  # noqa: E402
 
 
 def classify(vending: str | None) -> str:
     """`vending`の値を「補給に使える／使えない／不明」の3つへ分ける（純粋関数）。
 
-    値が無いものを「使えない」へ寄せない。日本では飲料の自販機に`vending`を付けない
-    慣習があり、不明を使えない側へ数えると絞り込みの効果を過大に見積もる。
+    判定に使う値の集合は取込側（`domain/traffic.py: classify_vending_machine`）と共有する
+    ——別々に持つと、計測が「これだけ残る」と言った件数と実際に取り込まれる件数がずれる。
     """
     parts = {part.strip().lower() for part in (vending or "").split(";") if part.strip()}
     if not parts:

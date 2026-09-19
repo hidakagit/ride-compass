@@ -199,14 +199,45 @@ def classify_stop_poi(tags: dict[str, str]) -> StopPoiKind | None:
     return None
 
 
-SupplyPoiKind = Literal["convenience", "vending_machine", "toilets", "drinking_water", "bicycle_parking"]
+SupplyPoiKind = Literal[
+    "convenience", "vending_drinks", "vending_unknown", "toilets", "drinking_water", "bicycle_parking"
+]
 
 _AMENITY_SUPPLY_KINDS: dict[str, SupplyPoiKind] = {
-    "vending_machine": "vending_machine",
     "toilets": "toilets",
     "drinking_water": "drinking_water",
     "bicycle_parking": "bicycle_parking",
 }
+
+# 自販機のうち「口に入るものが買える」と言い切れる`vending`の値。OSM wikiで使用実績のある値の
+# うち飲食物を売る機械だけを挙げる。複数の値は`;`で連結されるため、分割した要素のどれかが
+# ここにあれば飲料自販機として扱う。
+SUPPLY_VENDING_VALUES: frozenset[str] = frozenset(
+    {
+        "drinks", "beverages", "coffee", "water", "milk", "food", "sweets",
+        "ice_cream", "chewing_gums", "bread", "fruit", "vegetables", "eggs",
+    }
+)
+
+
+def classify_vending_machine(tags: dict[str, str]) -> SupplyPoiKind | None:
+    """`amenity=vending_machine`を、売っているもので3つへ分ける（純粋関数）。
+
+    補給レイヤーの点は「ここで飲み物が買える」という約束として読まれる。たばこ・切符・
+    パーキング券の機械を同じ点で出すと、当てにした利用者が買えない。**約束できるものだけを
+    出す**ため、飲食物と分かっているものと、分からないものを別の種別にし、口に入らないものは
+    取り込まない（Noneを返す）。
+
+    `vending`が無いものを「買えない」側へ寄せない。日本では飲料の自販機にこのタグを付けない
+    慣習があり、関東の実データでも値の78.7%が`drinks`である一方9.5%がタグ無しで、その多くは
+    飲料と考えるのが自然である。分からないことを分からないまま出す。
+    """
+    values = {v.strip().lower() for v in (tags.get("vending") or "").split(";") if v.strip()}
+    if not values:
+        return "vending_unknown"
+    if values & SUPPLY_VENDING_VALUES:
+        return "vending_drinks"
+    return None
 
 
 def classify_supply_poi(tags: dict[str, str]) -> SupplyPoiKind | None:
@@ -226,6 +257,8 @@ def classify_supply_poi(tags: dict[str, str]) -> SupplyPoiKind | None:
     if (tags.get("shop") or "").strip().lower() == "convenience":
         return "convenience"
     amenity = (tags.get("amenity") or "").strip().lower()
+    if amenity == "vending_machine":
+        return classify_vending_machine(tags)
     return _AMENITY_SUPPLY_KINDS.get(amenity)
 
 

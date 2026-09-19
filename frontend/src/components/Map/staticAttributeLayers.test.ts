@@ -127,11 +127,10 @@ describe("staticAttributeLayers", () => {
   // 改善計画T101: 補給・休憩ポイントPOI。停止要因POIと同じベクタタイル（kindプロパティ）を
   // 共有するため、STOP_POI_KINDS/SUPPLY_POI_KINDSが重複しないことも合わせて検証する
   // （重複するとbaseFilterによる2レイヤー分離が壊れ、両方に同じ地物が出てしまう）。
-  it("補給・休憩ポイントの凡例キーはbackend/app/domain/traffic.pyのSupplyPoiKind5値+不明と一致する", () => {
+  it("補給・休憩ポイントの凡例キーはSupplyPoiKindの全値+不明と一致する", () => {
+    // 種別を書き写すと片側の変更しか検知できないため、生成物（poi-kinds.json）から組む。
     const keys = SUPPLY_POI_LEGEND.map((e) => e.key);
-    expect(new Set(keys)).toEqual(
-      new Set(["convenience", "vending_machine", "toilets", "drinking_water", "bicycle_parking", "unknown"]),
-    );
+    expect(new Set(keys)).toEqual(new Set([...poiKinds.supply, "unknown"]));
     expect(new Set(keys).size).toBe(keys.length);
   });
 

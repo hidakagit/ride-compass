@@ -292,11 +292,17 @@ export const STOP_POI_COLOR_EXPRESSION: unknown[] = stopPoiDefs.colorExpression;
 // バックエンドのMVT SQLはosm_raw_pois.kindを無条件で焼き込むため、2つの独立レイヤーの分離は
 // フロント側のkind値によるフィルタで行う。STOP_POI_KINDS/SUPPLY_POI_KINDSをMapView.tsxの
 // レイヤーfilterへ渡し、setStaticOverlayFiltersのbaseFilter（legendFilter.ts参照）で
-// 互いの領域を侵さないようにする）。backend/app/domain/traffic.py: SupplyPoiKindの5値
-// （convenience/vending_machine/toilets/drinking_water/bicycle_parking）と1:1対応。
+// 互いの領域を侵さないようにする）。backend/app/domain/traffic.py: SupplyPoiKindと1:1対応で、
+// キーの網羅は生成物（poi-kinds.json）との照合テストが強制する。
+//
+// 自販機を2つに分けているのは、この点が「ここで飲み物が買える」という約束として読まれる
+// ため。OSMの`vending`が飲食物を示すものだけを「飲料自販機」とし、タグが無く判断できない
+// ものは別の色・別のラベルで出す（口に入らないものを売る機械はそもそも取り込まない）。
+// 不明側を薄い色にするのは、同じ確からしさに見せないため。
 const SUPPLY_POI_CATEGORIES: CategoryDef[] = [
   { key: "convenience", label: "コンビニ", color: COLOR_NEUTRAL_INDIGO },
-  { key: "vending_machine", label: "自販機", color: "#0891b2" },
+  { key: "vending_drinks", label: "飲料自販機", color: "#0891b2" },
+  { key: "vending_unknown", label: "自販機(中身不明)", color: "#7dd3fc" },
   { key: "toilets", label: "トイレ", color: "#2563eb" },
   { key: "drinking_water", label: "給水", color: "#0d9488" },
   { key: "bicycle_parking", label: "駐輪場", color: COLOR_NEUTRAL_STONE },

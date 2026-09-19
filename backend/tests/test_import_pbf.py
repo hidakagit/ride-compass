@@ -290,3 +290,30 @@ class TestRunImportOrchestration:
         assert await pbf_import_conn.fetchval("SELECT count(*) FROM osm_import_runs") == 2
 
 
+
+    async def test_pois_only_leaves_ways_untouched(self, pbf_import_conn, tmp_path, monkeypatch):
+        """`--pois-only`はwayに触れない。
+
+        wayを書くと`updated_at`が進んで道路グラフの分割が全域で古くなり、POIの拾い方を
+        変えただけのために再構築が走る。POIの分類を変えたときの取り直しはこの経路で行う。
+        """
+        self._patch_pbf_source(monkeypatch)
+        pbf_path = tmp_path / "fake.osm.pbf"
+        pbf_path.write_bytes(b"")
+
+        assert await run_import(
+            str(pbf_path), str(DEFAULT_PROFILE_PATH), _TEST_BBOX_TEXT, TEST_DATABASE_URL, dry_run=False
+        ) == 0
+        before = await pbf_import_conn.fetchval("SELECT max(updated_at) FROM osm_raw_ways")
+        way_count = await pbf_import_conn.fetchval("SELECT count(*) FROM osm_raw_ways")
+        await pbf_import_conn.execute("DELETE FROM osm_raw_pois")
+
+        assert await run_import(
+            str(pbf_path), str(DEFAULT_PROFILE_PATH), _TEST_BBOX_TEXT, TEST_DATABASE_URL,
+            dry_run=False, pois_only=True,
+        ) == 0
+
+        assert await pbf_import_conn.fetchval("SELECT max(updated_at) FROM osm_raw_ways") == before
+        assert await pbf_import_conn.fetchval("SELECT count(*) FROM osm_raw_ways") == way_count
+        # POIは取り直されている（--pois-onlyが何もしないのではないことの確認）。
+        assert await pbf_import_conn.fetchval("SELECT count(*) FROM osm_raw_pois") > 0

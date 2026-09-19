@@ -165,10 +165,13 @@ def _parse_pbf_timestamp(raw: str | None) -> datetime | None:
 class _Producer:
     """osmiumのストリーム読み取り（ブロッキング）を別スレッドで回し、チャンクをキューへ送る。"""
 
-    def __init__(self, pbf_path: Path, profile: ImportProfile, bbox: BoundingBox | None):
+    def __init__(
+        self, pbf_path: Path, profile: ImportProfile, bbox: BoundingBox | None, pois_only: bool = False
+    ):
         self._pbf_path = pbf_path
         self._profile = profile
         self._bbox = bbox
+        self._pois_only = pois_only
         self.queue: queue.Queue[Chunk | None] = queue.Queue(maxsize=_QUEUE_MAX_CHUNKS)
         self.abort = threading.Event()
         self.error: BaseException | None = None
@@ -219,6 +222,8 @@ class _Producer:
         from app.batch import pbf_source
 
         def tag_filter(tags: dict[str, str]) -> bool:
+            if self._pois_only:
+                return False
             return matching_rule(self._profile, "way", tags) is not None
 
         def node_tag_filter(tags: dict[str, str]) -> bool:
@@ -272,6 +277,7 @@ async def run_import(
     bbox_text: str | None,
     database_url: str | None,
     dry_run: bool,
+    pois_only: bool = False,
 ) -> int:
     started = time.perf_counter()
     run_started_at = datetime.now(timezone.utc)
@@ -293,7 +299,7 @@ async def run_import(
             *header_bbox,
         )
 
-    producer = _Producer(pbf_path, profile, bbox)
+    producer = _Producer(pbf_path, profile, bbox, pois_only=pois_only)
     producer_task = asyncio.create_task(asyncio.to_thread(producer.run))
     total_ways = 0
     total_nodes = 0
@@ -465,12 +471,21 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument("--database-url", default=None, help="取込先DB（省略時はsettings.database_url）")
     parser.add_argument("--dry-run", action="store_true", help="件数集計のみでDBへ書き込まない")
+    parser.add_argument(
+        "--pois-only",
+        action="store_true",
+        help="POI（osm_raw_pois）だけを取り直す。wayに触れないため道路グラフの作り直しを起こさない"
+        "（POIの拾い方・分類を変えたときに使う）",
+    )
     args = parser.parse_args(argv)
 
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
     return asyncio.run(
         with_derived_data_revision_bump(
-            run_import(args.pbf, args.profile, args.bbox, args.database_url, args.dry_run),
+            run_import(
+                args.pbf, args.profile, args.bbox, args.database_url, args.dry_run,
+                pois_only=args.pois_only,
+            ),
             database_url=args.database_url,
             dry_run=args.dry_run,
         )

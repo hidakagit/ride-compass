@@ -138,6 +138,11 @@ elements:
   # OSM側の最終編集が明確に古い（5年以上未編集が58〜59%）と判明したため、取込自体は
   # 5種すべて対象にしつつ、表示側で「鮮度に注意」と案内する方針にした
   # （domain/traffic.py: classify_supply_poi、frontend mapLayers.ts: supplyPoiのpanelHint）。
+  # 自販機はここで拾ったうえで、`vending`（何を売るか）を見て分類器が3つへ分ける
+  # ——飲料と分かるもの・分からないもの・口に入らないもの（取り込まない）。このマッチ構文は
+  # 「キーのANDと値のOR」しか書けず「タグが無いか、この集合のどれか」を表せないため、
+  # 判定は`domain/traffic.py: classify_vending_machine`が持つ。ここが拾う件数は
+  # 実際に入る件数より多い。
   - name: supply_amenity_nodes
     element_type: node
     match:

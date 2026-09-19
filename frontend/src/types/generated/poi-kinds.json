@@ -14,6 +14,7 @@
     "convenience",
     "drinking_water",
     "toilets",
-    "vending_machine"
+    "vending_drinks",
+    "vending_unknown"
   ]
 }

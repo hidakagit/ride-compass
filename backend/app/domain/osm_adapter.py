@@ -151,6 +151,9 @@ ALLOWED_NODE_TAGS = frozenset(
         "crossing",
         "shop",
         "amenity",
+        # 自販機が何を売るか（domain/traffic.py: classify_vending_machine）。保持しないと
+        # 取込後に飲料かどうかを引き直せず、判定を変えるたびにPBF再取込が要る。
+        "vending",
         "barrier",
         "traffic_calming",
         "bicycle",

@@ -121,8 +121,25 @@ class TestClassifySupplyPoi:
     def test_convenience_store(self):
         assert classify_supply_poi({"shop": "convenience"}) == "convenience"
 
-    def test_vending_machine(self):
-        assert classify_supply_poi({"amenity": "vending_machine"}) == "vending_machine"
+    def test_vending_machine_selling_drinks(self):
+        assert classify_supply_poi({"amenity": "vending_machine", "vending": "drinks"}) == "vending_drinks"
+
+    def test_vending_machine_selling_drinks_among_others(self):
+        """複数の値は`;`で連結される。1つでも飲食物があれば飲料自販機として扱う。"""
+        assert (
+            classify_supply_poi({"amenity": "vending_machine", "vending": "cigarettes;drinks"})
+            == "vending_drinks"
+        )
+
+    def test_vending_machine_without_vending_tag_is_unknown(self):
+        """タグが無いものを「買えない」側へ寄せない（日本では飲料でも付けない慣習がある）。"""
+        assert classify_supply_poi({"amenity": "vending_machine"}) == "vending_unknown"
+        assert classify_supply_poi({"amenity": "vending_machine", "vending": " "}) == "vending_unknown"
+
+    def test_vending_machine_selling_nothing_edible_is_not_a_supply_poi(self):
+        """たばこ・切符・パーキング券の機械は取り込まない（当てにされると買えない）。"""
+        for value in ("cigarettes", "parking_tickets", "public_transport_tickets", "condoms"):
+            assert classify_supply_poi({"amenity": "vending_machine", "vending": value}) is None
 
     def test_toilets(self):
         assert classify_supply_poi({"amenity": "toilets"}) == "toilets"
