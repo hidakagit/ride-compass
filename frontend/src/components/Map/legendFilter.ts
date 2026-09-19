@@ -95,6 +95,15 @@ function summarizeLegendFilterParts(axes: readonly LegendFilterSummaryAxis[]): s
   return parts;
 }
 
+/** いま描いている凡例に**実在する**非表示キーだけを数える。
+ *
+ * 保存先（`page.tsx: hiddenLegendKeysByMode[軸id]`）はルート確定の前後で共有される。
+ * 段の綴りが変わった版で保存された値・段数が変わった軸の値は相手側に無く、**隠れている段は
+ * 1つも無いのに「一部非表示」だけが出る**。生の配列の長さを見ないこと。 */
+export function hasVisibleHiddenKeys(legend: readonly LegendEntry[], hiddenKeys: readonly string[]): boolean {
+  return legend.some((entry) => hiddenKeys.includes(entry.key));
+}
+
 // 適用中の絞り込みを地図上に1行で示すための要約文を作る（絞り込み無しならnull）。
 export function summarizeLegendFilters(axes: readonly LegendFilterSummaryAxis[]): string | null {
   const parts = summarizeLegendFilterParts(axes);

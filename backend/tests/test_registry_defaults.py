@@ -188,7 +188,11 @@ def test_gradient_stop_density_car_stress_accident_kind_unchanged_by_t278():
     対象からは外し専用テスト（test_car_stress_ramp_display）で検証する。"""
     assert _axis("gradient").display.kind == "none"
     assert _axis("stop_density").display.kind == "ramp"
-    assert _axis("stop_density").display.thresholds == [2.0, 4.0, 7.0, 12.0]
+    # 上書きは[2.0, 4.0, 7.0, 12.0]だが、この軸の折れ線は5.0で100へ達するため7.0と12.0は
+    # 同じ難易度になる。**評価が区別できない差に段の境界は引かない**——引くと色だけが
+    # 変わってルート線側にはその段が作れず、前後で段の数が食い違う（T939、
+    # `domain/axis_display.py: ramp_band_thresholds`）。
+    assert _axis("stop_density").display.thresholds == [2.0, 4.0, 7.0]
     assert _axis("accident").display.kind == "ramp"
     # 改善計画T404: 旧display_override時代の閾値[0.4, 0.8, 1.5]はタイル生値（年正規化前、
     # 収録3年分）のスケールだった。derive_ramp_inputsの自動導出＋display_thresholds_

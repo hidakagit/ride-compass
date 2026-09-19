@@ -1,6 +1,11 @@
 // @vitest-environment node
 import { describe, expect, it } from "vitest";
-import { buildCombinedLegendFilterExpression, summarizeLegendFilters, type LegendEntry } from "./legendFilter";
+import {
+  buildCombinedLegendFilterExpression,
+  hasVisibleHiddenKeys,
+  summarizeLegendFilters,
+  type LegendEntry,
+} from "./legendFilter";
 
 function makeLegend(labels: string[]): LegendEntry[] {
   return labels.map((label, i) => ({
@@ -19,9 +24,9 @@ describe("summarizeLegendFilters", () => {
   });
 
   it("表示中カテゴリが2件以下なら「◯・◯のみ」", () => {
-    expect(
-      summarizeLegendFilters([{ label: "路面の種類", legend: legend5, hiddenKeys: ["k2", "k3", "k4"] }]),
-    ).toBe("A・Bのみ");
+    expect(summarizeLegendFilters([{ label: "路面の種類", legend: legend5, hiddenKeys: ["k2", "k3", "k4"] }])).toBe(
+      "A・Bのみ",
+    );
   });
 
   it("除外カテゴリが2件以下（表示中は3件以上）なら「◯以外」", () => {
@@ -30,16 +35,14 @@ describe("summarizeLegendFilters", () => {
 
   it("表示中・除外とも3件以上なら軸名のフォールバック文言", () => {
     const legend7 = makeLegend(["A", "B", "C", "D", "E", "F", "G"]);
-    expect(
-      summarizeLegendFilters([{ label: "路面の種類", legend: legend7, hiddenKeys: ["k0", "k1", "k2"] }]),
-    ).toBe("路面の種類を絞り込み中");
+    expect(summarizeLegendFilters([{ label: "路面の種類", legend: legend7, hiddenKeys: ["k0", "k1", "k2"] }])).toBe(
+      "路面の種類を絞り込み中",
+    );
   });
 
   it("全カテゴリ非表示は「すべて非表示」", () => {
     expect(
-      summarizeLegendFilters([
-        { label: "路面の種類", legend: legend5, hiddenKeys: ["k0", "k1", "k2", "k3", "k4"] },
-      ]),
+      summarizeLegendFilters([{ label: "路面の種類", legend: legend5, hiddenKeys: ["k0", "k1", "k2", "k3", "k4"] }]),
     ).toBe("路面の種類をすべて非表示");
   });
 
@@ -76,9 +79,7 @@ describe("buildCombinedLegendFilterExpression", () => {
 
   it("baseFilterのみ（非表示操作なし）でもbaseFilterがそのまま適用される", () => {
     const baseFilter = ["in", ["get", "kind"], ["literal", ["x", "y"]]];
-    expect(buildCombinedLegendFilterExpression([{ legend: legend3, hiddenKeys: [], baseFilter }])).toEqual(
-      baseFilter,
-    );
+    expect(buildCombinedLegendFilterExpression([{ legend: legend3, hiddenKeys: [], baseFilter }])).toEqual(baseFilter);
   });
 
   it("baseFilterと凡例の非表示フィルタが両方あればANDで束ねる", () => {
@@ -94,5 +95,26 @@ describe("buildCombinedLegendFilterExpression", () => {
       { legend: legend3, hiddenKeys: ["k0"] },
     ]);
     expect(result).toEqual(["all", baseFilter, ["all", ["!", legend3[0].filter]]]);
+  });
+});
+
+describe("hasVisibleHiddenKeys（「一部非表示」を出すか）", () => {
+  const legend = [
+    { key: "step-0", label: "低", color: "#111", filter: ["all"] },
+    { key: "step-1", label: "高", color: "#222", filter: ["all"] },
+  ];
+
+  it("いまの凡例に無いキーだけが残っていても出さない", () => {
+    // 段の綴りが変わった版で保存された値・段数が変わった軸の値がこれに当たる。
+    // 生の配列の長さを見ると、隠れている段は1つも無いのに表示だけが出る。
+    expect(hasVisibleHiddenKeys(legend, ["car_stress-1", "step-9"])).toBe(false);
+  });
+
+  it("いまの凡例にあるキーが1つでもあれば出す", () => {
+    expect(hasVisibleHiddenKeys(legend, ["car_stress-1", "step-1"])).toBe(true);
+  });
+
+  it("何も隠していなければ出さない", () => {
+    expect(hasVisibleHiddenKeys(legend, [])).toBe(false);
   });
 });

@@ -10,7 +10,7 @@
 
 import { debugLog } from "@/lib/debugLog";
 import type { LegendEntry } from "./legendFilter";
-import { bandLabelsForBandCount, LEGEND_NO_DATA_KEY, legendBandKey } from "./mapColorLegend";
+import { bandLabelsForBandCount, LEGEND_NO_DATA_KEY, legendBandKey, rangeStepLabel } from "./mapColorLegend";
 import type { CatalogAxis } from "./axisLayers";
 import axisCatalog from "@/types/generated/axis-catalog.json";
 import {
@@ -83,11 +83,15 @@ function buildSteppedMode(
   };
 }
 
+/** 境界値配列の`stepIndex`番目の段階を文字にする。表記規則は
+ * `mapColorLegend.ts: rangeStepLabel`が唯一の出どころで、ここは段階indexを上下の境界へ
+ * 直すだけ（`axisLayers.ts: axisRampBand`と同じ直し方）。 */
 function rangeLabel(boundaries: readonly number[], stepIndex: number, unit: string): string {
-  if (boundaries.length === 0) return "";
-  if (stepIndex === 0) return `${boundaries[0]}${unit}未満`;
-  if (stepIndex === boundaries.length) return `${boundaries[boundaries.length - 1]}${unit}超`;
-  return `${boundaries[stepIndex - 1]}〜${boundaries[stepIndex]}${unit}`;
+  return rangeStepLabel(
+    stepIndex === 0 ? null : boundaries[stepIndex - 1],
+    stepIndex === boundaries.length ? null : boundaries[stepIndex],
+    unit,
+  );
 }
 
 // 「固定N段階」という前提を持たず、境界値配列（軸カタログのmap_value_thresholds、

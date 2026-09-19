@@ -45,10 +45,16 @@ export function bandLabelsForBandCount(
   return labels;
 }
 
-/** 段階ラベル（例: 「-2%未満」「-2〜2%」「10%以上」）。axisLayers.ts: axisRampBandLabelと
- * 同じ表記規則（未満/以上/〜）を、RampAxis型に依存せずunit文字列を直接受け取る形で
- * 共有する。 */
-function rangeStepLabel(lower: number | null, upper: number | null, unit: string): string {
+/** 段階ラベル（例: 「-2%未満」「-2〜2%」「10%以上」）。**段階の範囲を文字にするのは
+ * ここだけ**——同じ表記規則を各所で書き直すと、片方だけが述語とずれる（実際、ルート線側
+ * だけが最上位帯を「超」と書き、ちょうど境界値の区間がその行で数えられていた）。
+ *
+ * 語は述語に合わせる。境界の判定は`>= lower`・`< upper`のため、最上位帯は「以上」で
+ * あって「超」ではない。
+ *
+ * 段階が1つしか無い（境界が無い）軸は範囲を言えないため空文字を返す。 */
+export function rangeStepLabel(lower: number | null, upper: number | null, unit: string): string {
+  if (lower === null && upper === null) return "";
   if (lower === null) return `${upper}${unit}未満`;
   if (upper === null) return `${lower}${unit}以上`;
   return `${lower}〜${upper}${unit}`;

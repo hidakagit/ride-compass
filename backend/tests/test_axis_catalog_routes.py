@@ -115,7 +115,9 @@ def test_get_axis_catalog_includes_display_for_hand_written_and_auto_derived_axe
     # realistic_axis_fixtures.py参照）を組み合わせる。
     stop_density_display = entries_by_id["stop_density"]["display"]
     assert stop_density_display["kind"] == "ramp"
-    assert stop_density_display["thresholds"] == [2.0, 4.0, 7.0, 12.0]
+    # 末尾が落ちるのは折れ線が飽和した先の境界だから（T939、test_registry_defaults.pyの
+    # 同じ軸の注釈参照）。
+    assert stop_density_display["thresholds"] == [2.0, 4.0, 7.0]
 
     # surface_qは手書きoverrideが無いためderive_ramp_inputsによる自動導出。
     surface_q_display = entries_by_id["surface_q"]["display"]
