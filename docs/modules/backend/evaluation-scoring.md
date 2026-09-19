@@ -30,10 +30,10 @@ APIが受け取る重みの形を変えるとき、`dynamic_materials.py`は動�
 地図配信・カバレッジ集計・軸スタジオの値列挙はSQLだけを通り、探索はPythonだけを通る。
 `tests/test_material_sql.py`が同じ期待値を両方へ当て、片方だけを変えたときに落ちる。
 
-真偽の材料では**両者の表現力が違う**。タイルSQLは`CASE WHEN 条件 THEN true END`で
-「該当しない」と「判定できない」をどちらもNULLへ畳む（キーを省いてタイルを軽くするための
-符号化）のに対し、extractorはway_tagsがあればFalse、無ければNoneを返し区別する。
-例外は`surface_good`だけで、SQL側も`true`/`false`/NULLを区別する（「路面タグ不明」を
+**タイルへ焼く式と、材料の値を求める式は別物**。前者は`CASE WHEN 条件 THEN true END`で
+「該当しない」をNULLへ畳む（キーを省いてタイルを軽くするための符号化）。後者
+（`MATERIAL_VALUE_SQL`）は`COALESCE(..., false)`で閉じ、extractorと同じ2値を返す。
+例外は`surface_good`で、タイル側も`true`/`false`/NULLを区別する（「路面タグ不明」を
 「路面が悪い」と混同しないという要求が符号化より優先された）。
 
 ## 0次ハードフィルタ（`domain/hard_filters.py`）
