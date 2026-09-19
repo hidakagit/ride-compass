@@ -171,6 +171,25 @@ function withinExpandedGroupLimit(keys: ReadonlySet<string>): Set<string> {
   return next;
 }
 
+/** 展開中のグループの「表示項目を選ぶ」パネルのキーを落とす。
+ *
+ * このパネルは折りたたみ中にだけ描かれるため、展開の間は開いたままのキーが画面に出ない。
+ * 残しておくと、**次にそのグループを畳んだ瞬間、ⓘを押していないのにパネルが開いた状態で
+ * 戻ってくる**。グループを畳む経路ごとに片割れの後始末を置くのではなく、開いた側を正規化
+ * することで、畳む経路が増えても揃う（上限を超えて自動で畳まれる経路がこれに当たる）。 */
+function withoutExpandedGroupPanels(keys: ReadonlySet<string>): Set<string> {
+  const next = new Set(keys);
+  for (const key of keys) {
+    if (GROUP_VISIBILITY_KEYS.has(key)) next.delete(groupPanelKey(key));
+  }
+  return next;
+}
+
+/** グループの「表示項目を選ぶ」パネルのキー。`expandedIds`等の既存Setへそのまま同居する。 */
+function groupPanelKey(groupKey: string): string {
+  return `${groupKey}:legend`;
+}
+
 // グループの開閉・表示項目の設定をlocalStorageへ永続化する（時間経過で変動する要素以外は
 // 次回訪問時も同じ状態を保つ）。page.tsxのlayerVisibility（各レイヤーのON/OFF自体）は
 // 既にuseStoredStateで永続化済みのため、ここではMapOverlayControls固有の「見せ方」の
@@ -772,9 +791,9 @@ export default function MapOverlayControls({
           }
         }
         next.add(id);
-        if (GROUP_VISIBILITY_KEYS.has(id)) return withinExpandedGroupLimit(next);
+        if (GROUP_VISIBILITY_KEYS.has(id)) return withoutExpandedGroupPanels(withinExpandedGroupLimit(next));
       }
-      return next;
+      return withoutExpandedGroupPanels(next);
     });
   };
 
@@ -809,12 +828,6 @@ export default function MapOverlayControls({
   // 軸タイルがON/OFFに関わらず▼を出すのと揃える。legendDetailsはレイヤー定義由来の固定
   // 内容でありON/OFFで内容が変わらないため、OFF中に「オンにすると何が出るか」を先に
   // 確認できる利点もある）。
-  // legendDetailsが空でもsummaryがあれば▶を出す（道路種別・路面はズーム不足の間
-  // legendDetailsが空配列になる＝ズームインを促す案内文（summary、page.tsx:
-  // overlayLayersの組み立て参照）だけが内容になる想定のため、canExpandを
-  // legendDetailsの有無だけで判定すると▶自体が消えて案内文を開けなくなる。単独チップ側
-  // （本ファイル末尾のcanExpand= hasLegendDetails || Boolean(layer.summary)）と同じ
-  // 判定へ揃える）。
   /** ▶を開いたときの中身。**案内文があるときは凡例を出さない**——案内が出るのは
    * 「ONにしても何も出ない」状態だけで、そのときの凡例は地図に存在しない色見本の表になる。
    * グループのメンバーと単独チップで同じ判断をするため、ここ1箇所に置く。 */
@@ -906,7 +919,7 @@ export default function MapOverlayControls({
       description?: string;
     }[],
   ) {
-    const legendKey = `${groupKey}:legend`;
+    const legendKey = groupPanelKey(groupKey);
     const isOpen = expandedIds.has(legendKey);
     const rect = panelRects[legendKey];
     return (
@@ -988,22 +1001,6 @@ export default function MapOverlayControls({
     );
   }
 
-  // グループ見出しをタップしたとき（展開↔折りたたみのどちらの向きでも）、開いたままの
-  // 凡例（renderVisibilitySettings）があれば閉じる。展開後は凡例ボタン自体を描画しない
-  // ため見た目には現れないが、開いたままのbooleanを放置すると、後で見出しを再度タップして
-  // 折りたたみに戻したときに、ユーザーがⓘを押していないのに凡例が開いたまま再出現して
-  // しまう（stateがexpandedIdsに残り続けるため）。見出しタップのたびに明示的に閉じることで
-  // 「凡例は自分でⓘを押したときだけ開く」という状態を保つ。
-  function closeGroupLegend(groupKey: string) {
-    const legendKey = `${groupKey}:legend`;
-    setExpandedIds((prev) => {
-      if (!prev.has(legendKey)) return prev;
-      const next = new Set(prev);
-      next.delete(legendKey);
-      return next;
-    });
-  }
-
   const chipGroups = buildChipGroups(layers);
 
   return (
@@ -1048,10 +1045,7 @@ export default function MapOverlayControls({
                   // 決める）ため、activeは常にfalse。見た目のactiveは展開状態(isExpanded)が決める。
                   active={false}
                   title={`${label}[${group.members.length}件をタップで一覧]`}
-                  onTap={() => {
-                    toggleExpanded(group.key);
-                    closeGroupLegend(group.key);
-                  }}
+                  onTap={() => toggleExpanded(group.key)}
                   canExpand
                   isExpanded={isExpanded}
                   onExpandToggle={() => toggleExpanded(group.key)}

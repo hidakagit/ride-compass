@@ -1556,9 +1556,14 @@ type OverlayLayerEntry = {
   layerId: string;
   ensure: (map: MapLibreMap) => void;
   interactive: boolean;
-  // 重なりの段（mapLayers.ts: MapLayerPaintTier）。記述子の宣言から入れる。
+  // 重なりの段（mapLayers.ts: MapLayerPaintTier）。記述子の宣言から`buildStaticOverlayLayers`が
+  // 入れるため、エントリを作る側は持たない（`OverlayLayerSpec`）。
   paintTier: MapLayerPaintTier;
 };
+
+/** 段を入れる前のエントリ。**どこに重なるかを作る側に書かせない**ための型で、段は
+ * レイヤーカタログの宣言だけが決める。 */
+type OverlayLayerSpec = Omit<OverlayLayerEntry, "paintTier">;
 
 // 軸スタジオが公開したramp軸（ビルド時静的フォールバックに限らず、実行時フェッチで
 // 増減しうる）を反映できるよう関数化してある。呼び出し側（コンポーネント内、useMemo経由）が
@@ -1597,7 +1602,7 @@ function paintTierOf(layers: readonly MapLayerDescriptor[], key: string): MapLay
 export function buildAxisOverlayLayers(
   rampAxes: readonly RampAxis[],
   casingLayerKeys: ReadonlySet<string> = new Set(),
-): readonly OverlayLayerEntry[] {
+): readonly OverlayLayerSpec[] {
   return rampAxes.map((axis) => {
     const key = axisMapLayerId(axis.axisId) as string;
     return {
@@ -1606,7 +1611,6 @@ export function buildAxisOverlayLayers(
       ensure: makeEnsureAxisRampLayer(axis, casingLayerKeys.has(key)),
       // 区間インスペクタのポップアップに対応する専用表示を持たない。
       interactive: false,
-      paintTier: "estimateLine" as const,
     };
   });
 }
@@ -1623,7 +1627,7 @@ export function buildAxisOverlayLayers(
 export function buildStaticOverlayLayers(
   // レイヤーカタログ（mapLayers.ts: buildMapLayers）。重なり順をここから引く。
   layers: readonly MapLayerDescriptor[],
-  axisOverlayLayers: readonly OverlayLayerEntry[],
+  axisOverlayLayers: readonly OverlayLayerSpec[],
   // 専用way値配信軸の一覧（軸カタログ由来）。レイヤーの登録自体をこの一覧から導出するため、
   // 軸スタジオで3件目を公開すれば地図レイヤーもそのまま増える。
   dedicatedAxes: readonly DedicatedWayValueAxis[],
@@ -1637,26 +1641,22 @@ export function buildStaticOverlayLayers(
   // （MapViewProps.dedicatedWayValueHiddenBands参照）。
   dedicatedWayValueHiddenBands?: ReadonlyMap<string, readonly string[]>,
 ): readonly OverlayLayerEntry[] {
-  const tier = (key: string) => paintTierOf(layers, key);
-  return sortedByPaintTier([
+  const specs: readonly OverlayLayerSpec[] = [
     // ラスタタイルのため地物クリック判定が効かない。
     {
       key: "elevation",
-      paintTier: tier("elevation"),
       layerId: GSI_RELIEF_LAYER_ID,
       ensure: ensureGsiReliefLayer,
       interactive: false,
     },
     {
       key: "hillshade",
-      paintTier: tier("hillshade"),
       layerId: GSI_TERRAIN_LAYER_ID,
       ensure: ensureTerrainHillshadeLayer,
       interactive: false,
     },
     {
       key: "landcover",
-      paintTier: tier("landcover"),
       layerId: LANDCOVER_LAYER_ID,
       ensure: ensureLandcoverLayer,
       interactive: false,
@@ -1664,7 +1664,6 @@ export function buildStaticOverlayLayers(
     ...axisOverlayLayers,
     {
       key: "designation",
-      paintTier: tier("designation"),
       layerId: DESIGNATION_LAYER_ID,
       ensure: makeEnsureAttributeLineLayer(
         DESIGNATION_LAYER_ID,
@@ -1675,14 +1674,12 @@ export function buildStaticOverlayLayers(
     },
     {
       key: "tunnel",
-      paintTier: tier("tunnel"),
       layerId: TUNNEL_LAYER_ID,
       ensure: makeEnsureAttributeLineLayer(TUNNEL_LAYER_ID, TUNNEL_COLOR_EXPRESSION, TUNNEL_OPACITY_EXPRESSION),
       interactive: true,
     },
     {
       key: "oneway",
-      paintTier: tier("oneway"),
       layerId: ONEWAY_LAYER_ID,
       ensure: makeEnsureAttributeLineLayer(ONEWAY_LAYER_ID, ONEWAY_COLOR_EXPRESSION, ONEWAY_OPACITY_EXPRESSION),
       interactive: true,
@@ -1693,7 +1690,6 @@ export function buildStaticOverlayLayers(
     // （setStaticOverlayVisibilityがvisibility辞書をこのkeyで引くため）。
     ...dedicatedAxes.map((axis) => ({
       key: dedicatedWayValueMapLayerId(axis.axisId) as string,
-      paintTier: "lensLine" as const,
       layerId: dedicatedWayValueLineLayerId(axis.axisId),
       ensure: makeEnsureDedicatedWayValueLayer(
         dedicatedWayValueLineLayerId(axis.axisId),
@@ -1712,23 +1708,22 @@ export function buildStaticOverlayLayers(
       layerId: ACCIDENT_LAYER_ID,
       ensure: ensureAccidentTileLayer,
       interactive: true,
-      paintTier: tier("accidents"),
     },
     {
       key: "stopPoi",
       layerId: STOP_POI_LAYER_ID,
       ensure: ensureStopPoiLayer,
       interactive: true,
-      paintTier: tier("stopPoi"),
     },
     {
       key: "supplyPoi",
       layerId: SUPPLY_POI_LAYER_ID,
       ensure: ensureSupplyPoiLayer,
       interactive: true,
-      paintTier: tier("supplyPoi"),
     },
-  ]);
+  ];
+  // 段はカタログの宣言だけが決める。作る側の並びは順序に関係しない。
+  return sortedByPaintTier(specs.map((spec) => ({ ...spec, paintTier: paintTierOf(layers, spec.key) })));
 }
 
 type StaticOverlayKey = string;

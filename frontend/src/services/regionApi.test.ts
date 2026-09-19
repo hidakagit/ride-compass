@@ -22,12 +22,8 @@ import {
   setTileVersions,
 } from "./regionApi";
 
-// タイル世代は実行時にbackendから受け取る（setTileVersions）。各tileUrl()の?v=から
-// 実際に使われている値を取り出して比較する（2重に手書き定数を持たない）。
+// タイル世代は実行時にbackendから受け取る（setTileVersions）。
 const TILE_VERSIONS = { road_surface: "7-aaaa", poi: "7-bbbb", accident: "7-cccc" } as const;
-function tileVersionFromUrl(url: string): string {
-  return new URL(url).searchParams.get("v") ?? "";
-}
 
 describe("regionApi", () => {
   beforeEach(() => {

@@ -574,6 +574,22 @@ describe("MapOverlayControls", () => {
       expect(screen.queryByRole("button", { name: "道路の表示項目を設定" })).not.toBeInTheDocument();
     });
 
+    // 設定パネルは折りたたみ中にだけ出る。開いたままのキーを残すと、次にそのグループを
+    // 畳んだ瞬間、ⓘを押していないのに設定パネルが開いた状態で戻ってくる。
+    it("設定パネルを開いたままグループを開くと、畳み直したときに再出現しない", async () => {
+      const user = userEvent.setup();
+      render(<MapOverlayControls {...baseProps()} layers={roadLayers()} />);
+
+      await user.click(screen.getByRole("button", { name: "道路の表示項目を設定" }));
+      expect(screen.getByText("道路の種類")).toBeInTheDocument();
+
+      await user.click(screen.getByRole("button", { name: "道路" }));
+      expect(screen.getByRole("button", { name: "道路" })).toHaveAttribute("aria-expanded", "true");
+
+      await user.click(screen.getByRole("button", { name: "道路" }));
+      expect(screen.queryByText("道路の種類")).not.toBeInTheDocument();
+    });
+
     it("表示項目の設定で非表示に選ぶと、グループを開いてもそのメンバーだけが出ない", async () => {
       const user = userEvent.setup();
       render(<MapOverlayControls {...baseProps()} layers={roadLayers()} />);

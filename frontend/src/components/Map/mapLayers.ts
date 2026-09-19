@@ -46,7 +46,10 @@ import {
   WindIcon,
   type MapIconComponent,
 } from "./icons";
-import { legendKindList } from "./legendFilter";
+import { legendKindList, type LegendEntry } from "./legendFilter";
+import { LANDCOVER_PAINTED_CLASSES } from "./landcoverClasses";
+import { PRECIPITATION_INTENSITY_LEVELS } from "./precipitationNowcast";
+import { WIND_SPEED_LEGEND_LEVELS } from "./windLayer";
 import { STOP_POI_LEGEND, SUPPLY_POI_LEGEND } from "./staticAttributeLayers";
 import {
   axisMapLayerId,
@@ -142,6 +145,21 @@ export type MapLayerDataNature = "raw" | "composite" | "dynamic";
  * - `lensLine`: レンズ（専用way値配信軸）の線。見たいものを選んで出すため事実の線より上。
  * - `point`: 点データ（事故・停止要因POI・補給POI・風の矢印）。線に隠れないよう最上位側。
  * - `route`: 選択中のルート。探索の結果そのものなので常に一番上。 */
+/** 絞り込めない表示専用の凡例の1ブロック。
+ *
+ * 配信元が色を焼き込んだラスタ等、カテゴリ単位で選べないレイヤーが持つ。絞り込める
+ * 凡例（`hiddenKeys`と保存先の`axisId`を持つ）はここではなく`buildStaticFilterAxes`が出す
+ * ——型の上で分けてあるので、ここへ絞り込めるつもりの凡例を書いても黙って読み専用にはならない。 */
+export interface ReadOnlyLegendBlock {
+  /** ブロックの見出し。単一ブロックのレイヤーは空文字列。 */
+  label: string;
+  legend: readonly LegendEntry[];
+}
+
+/** 表示専用凡例の`LegendEntry.filter`に入れるダミー。この凡例は描画へ適用されないため
+ * 式自体に意味が無く、一致しない式を入れてある。 */
+export const UNUSED_LEGEND_FILTER: unknown[] = ["==", 1, 0];
+
 export type MapLayerPaintTier = "area" | "estimateLine" | "rawLine" | "lensLine" | "point" | "route";
 
 /** 重なり順（先頭＝背面）。 */
@@ -244,6 +262,11 @@ export interface MapLayerDescriptor {
    * **省略できない。** 描画側の配列の並びで順序を決める形だと、レイヤーを足す人が
    * 挿す位置を選ぶことになる。 */
   paintTier: MapLayerPaintTier;
+  /** 絞り込めない表示専用の凡例。▶を開いたときの中身になる。
+   *
+   * 省略したレイヤーは、絞り込める凡例（`buildStaticFilterAxes`）か、画面の状態から
+   * 組み立てる凡例（ルートのレンズ・災害の要素トグル）を持つ。 */
+  readOnlyLegend?: readonly ReadOnlyLegendBlock[];
   /** 軸スタジオの軸から生成したレイヤーか（専用way値配信軸）。ramp軸は
    * dataNature==="composite"で同じ判定を受けるためこのフラグを持たない（isAxisStudioLayer参照）。 */
   axisStudioLayer?: boolean;
@@ -319,6 +342,19 @@ export function buildMapLayers(
     {
       id: "landcover",
       paintTier: "area",
+      // 色・表示名はbackendのレジストリ（domain/landcover.py: LANDCOVER_CLASSES）由来の
+      // 生成物がそのまま単一の情報源で、地図タイルの塗りと同じ値を使う。
+      readOnlyLegend: [
+        {
+          label: "",
+          legend: LANDCOVER_PAINTED_CLASSES.map((cls) => ({
+            key: cls.percentField,
+            label: cls.label,
+            color: cls.color,
+            filter: UNUSED_LEGEND_FILTER,
+          })),
+        },
+      ],
       dataSource: "landcoverRaster",
       icon: LandcoverIcon,
       tileMinZoom: LANDCOVER_TILE_MIN_ZOOM,
@@ -530,6 +566,29 @@ export function buildMapLayers(
       // で切り替えられる。
       id: "precipitationNowcast",
       paintTier: "area",
+      // 線状降水帯予測マップは「降水」チップの傘下（4つ目のソース）へ統合されているため、
+      // 専用の凡例ブロックをここへ並べる（実データはriskMap.tsが単一の情報源）。
+      readOnlyLegend: [
+        {
+          label: "",
+          legend: PRECIPITATION_INTENSITY_LEVELS.map((level) => ({ ...level, filter: UNUSED_LEGEND_FILTER })),
+        },
+        {
+          label: "線状降水帯予測マップ（現在〜3時間先のみ）",
+          // 色は配信元タイルの実際の塗り色（rgb(255,40,0)）に合わせる。凡例と地図で色が
+          // 違うと、どの塗りがこの凡例に対応するのか読み取れない。
+          // 予測領域は格子単位で塗られ矩形に見えるため、形状も書いておく——降水ナウキャストの
+          // 細かい雨域と重なると、矩形の塗りが描画不具合のように見える。
+          legend: [
+            {
+              key: "linearRainband",
+              label: "今後3時間以内に大雨のおそれ（矩形の予測領域）",
+              color: "#ff2800",
+              filter: UNUSED_LEGEND_FILTER,
+            },
+          ],
+        },
+      ],
       dataSource: "ownFetch",
       icon: RaindropIcon,
       label: "降水ナウキャスト",
@@ -561,6 +620,15 @@ export function buildMapLayers(
       // GPLv2ライブラリ・気象庁の非公式配信のどちらにも依存しない。
       id: "windVector",
       paintTier: "point",
+      // 矢印（風速そのもの、向きに依存しない）の配色専用で、道路の色分け（風の評価軸、
+      // 走行方位に対する向かい風/追い風）とは別の配色系統のため、「地図の色の凡例」との
+      // 混同を避けて「矢印（風速）」と明示する。
+      readOnlyLegend: [
+        {
+          label: "矢印（風速）",
+          legend: WIND_SPEED_LEGEND_LEVELS.map((level) => ({ ...level, filter: UNUSED_LEGEND_FILTER })),
+        },
+      ],
       dataSource: "ownFetch",
       icon: WindIcon,
       label: "風（矢印）",
@@ -580,9 +648,12 @@ export function buildMapLayers(
     // ramp軸と同じく軸カタログから自動生成する。label/chipLabel/panelHintはこの記述子が
     // 地図UIに現れない（isAxisStudioLayer）ため実際には表示されないが、他の記述子と同じ
     // 型を満たすため軸自身のデータから埋める（軸ごとの手書き文言をここへ持たない）。
-    // このエントリの実際の用途は、(1) MapLayerIdとしての存在、(2) road_surfaceタイルを
-    // 共有するレイヤーとしてroadSurfaceSharedLayerIds（下記）へ含め、ズーム不足の案内
-    // （`tileZoomTooWideLayerIds`）の対象にすることの2点。
+    // このエントリは地図の組み立てに実際に使う——重なりの段（`paintTier`）と情報源
+    // （`dataSource`）をここから引く（MapView: buildStaticOverlayLayers）。無いと
+    // そのレイヤーを描こうとした時点で落ちる。
+    // ズーム不足の案内（`tileZoomTooWideLayerIds`）の対象には入らない。案内の出し先は
+    // チップで、このレイヤーはチップを持たないため出す場所が無い（同じタイルを共有する
+    // ので実際には一緒に消えるが、それは道路のチップ側の案内で分かる）。
     ...dedicatedAxes.map((axis): MapLayerDescriptor => ({
       id: dedicatedWayValueMapLayerId(axis.axisId),
       paintTier: "lensLine",

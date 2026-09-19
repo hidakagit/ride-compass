@@ -6,6 +6,7 @@
 // 3本のfetch effectと、そこから導出する共有タイムライン・条件バー向けの共有時刻・
 // MapView向けのdynamicWeatherプロパティを、この1フックへまとめてある。
 import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from "react";
+import type { MapLayerVisibility } from "@/components/Map/mapLayers";
 import {
   fetchNowcastFrames,
   fetchRasrfFrames,
@@ -91,10 +92,12 @@ const EMPTY_THUNDER_NOWCAST_FRAMES: ThunderNowcastFrame[] = [];
 const EMPTY_LIDEN_FRAMES: LidenFrame[] = [];
 
 export interface UseDynamicWeatherLayersOptions {
-  showWindVector: boolean;
-  showPrecipitationNowcast: boolean;
-  /** 災害チップ（雷・竜巻・落雷・キキクル等をまとめた1グループ）。 */
-  showDisaster: boolean;
+  /** 全レイヤーの表示状態（`MapLayerId`→boolean）。**動的気象レイヤーを足してもこの境界は
+   * 変わらない**——レイヤーごとのbooleanを並べる形だと、1つ足すたびに呼ぶ側の宣言・
+   * ここの宣言・分割代入へ同じ名前を書き足すことになり、どれか1つを忘れると「チップはONなのに
+   * 取りに行かない」が静かに起きる（`MapView`の`staticLayerVisibility`と同じ形、
+   * docs/modules/frontend/static-map-layers.md「表示状態の渡し方」）。 */
+  visibility: MapLayerVisibility;
   /** 災害チップ配下で非表示に選ばれている要素のソースキー（▶パネルの「表示する情報」）。
    * 面同士が重なると混色して危険度を読み取れないため、要素単位で間引けるようにしている。
    * 全要素が非表示になった系統はフェッチ自体も行わない（「表示中のものだけ叩く」方針）。 */
@@ -132,12 +135,14 @@ export interface UseDynamicWeatherLayersResult {
  * 各要素は対応するshow*がtrueの間だけフェッチし、OFFの間はfetch自体しない
  * （他の外部APIと同じ「表示中のものだけ叩く」方針）。 */
 export function useDynamicWeatherLayers({
-  showWindVector,
-  showPrecipitationNowcast,
-  showDisaster,
+  visibility,
   hiddenDisasterSources,
   mapViewport,
 }: UseDynamicWeatherLayersOptions): UseDynamicWeatherLayersResult {
+  const showWindVector = visibility.windVector;
+  const showPrecipitationNowcast = visibility.precipitationNowcast;
+  // 災害チップ（雷・竜巻・落雷・キキクル等をまとめた1グループ）。
+  const showDisaster = visibility.disaster;
   // 動的気象レイヤーが指す対象時刻（T183再設計）。ONの全レイヤーのフレーム時刻を統合した
   // 1本のタイムライン（下記timeline）上の1点で、各レイヤーはこの時刻に対応する自分の
   // フレームを描画する。

@@ -42,13 +42,21 @@ vi.mock("@/components/Map/jmaTileProtocol", () => ({
 
 const EMPTY_CURRENT_RISK_FRAMES = { land: [], heavyRain: [], inundation: [], flood: [] };
 
+// 表示状態はレイヤーごとのbooleanではなく`MapLayerVisibility`1つで渡る。テストも
+// そのまま同じ形で組み、必要なレイヤーだけ`shown()`でONにする。
+import { buildDefaultLayerVisibility, type MapLayerId } from "@/components/Map/mapLayers";
+
 const BASE_OPTIONS = {
-  showWindVector: false,
-  showPrecipitationNowcast: false,
-  showDisaster: false,
+  visibility: buildDefaultLayerVisibility(),
   hiddenDisasterSources: [],
   mapViewport: null,
 };
+
+function shown(...layerIds: MapLayerId[]) {
+  const visibility = { ...buildDefaultLayerVisibility() };
+  for (const id of layerIds) visibility[id] = true;
+  return { ...BASE_OPTIONS, visibility };
+}
 
 const FIVE_MIN_MS = 5 * 60 * 1000;
 
@@ -84,9 +92,7 @@ describe("useDynamicWeatherLayers（改善計画T425: キキクル・線状降�
   it("全フェッチ成功時はどのレイヤーもerrorにならない（フレーム0件のためempty）", async () => {
     stubHappyPath();
 
-    const { result } = renderHook(() =>
-      useDynamicWeatherLayers({ ...BASE_OPTIONS, showPrecipitationNowcast: true, showDisaster: true }),
-    );
+    const { result } = renderHook(() => useDynamicWeatherLayers(shown("precipitationNowcast", "disaster")));
 
     await waitFor(() => expect(fetchCurrentRiskFrames).toHaveBeenCalled());
     await waitFor(() => expect(fetchLinearRainbandFrames).toHaveBeenCalled());
@@ -98,7 +104,7 @@ describe("useDynamicWeatherLayers（改善計画T425: キキクル・線状降�
     stubHappyPath();
     vi.mocked(fetchCurrentRiskFrames).mockRejectedValue(new Error("kikkuru boom"));
 
-    const { result } = renderHook(() => useDynamicWeatherLayers({ ...BASE_OPTIONS, showDisaster: true }));
+    const { result } = renderHook(() => useDynamicWeatherLayers(shown("disaster")));
 
     await waitFor(() => expect(result.current.dynamicWeatherDataStatus.disaster).toBe("error"));
   });
@@ -107,7 +113,7 @@ describe("useDynamicWeatherLayers（改善計画T425: キキクル・線状降�
     stubHappyPath();
     vi.mocked(fetchLinearRainbandFrames).mockRejectedValue(new Error("linear rainband boom"));
 
-    const { result } = renderHook(() => useDynamicWeatherLayers({ ...BASE_OPTIONS, showPrecipitationNowcast: true }));
+    const { result } = renderHook(() => useDynamicWeatherLayers(shown("precipitationNowcast")));
 
     await waitFor(() => expect(result.current.dynamicWeatherDataStatus.precipitationNowcast).toBe("error"));
   });
@@ -115,7 +121,7 @@ describe("useDynamicWeatherLayers（改善計画T425: キキクル・線状降�
   it("線状降水帯予測マップの取得失敗は、降水チップOFF時はフェッチ自体走らずdynamicWeatherDataStatusに反映されない", async () => {
     stubHappyPath();
 
-    renderHook(() => useDynamicWeatherLayers({ ...BASE_OPTIONS, showDisaster: true }));
+    renderHook(() => useDynamicWeatherLayers(shown("disaster")));
 
     await waitFor(() => expect(fetchCurrentRiskFrames).toHaveBeenCalled());
     expect(fetchLinearRainbandFrames).not.toHaveBeenCalled();
@@ -130,7 +136,7 @@ describe("useDynamicWeatherLayers（改善計画T425: キキクル・線状降�
         }),
       );
 
-      const { result } = renderHook(() => useDynamicWeatherLayers({ ...BASE_OPTIONS, showDisaster: true }));
+      const { result } = renderHook(() => useDynamicWeatherLayers(shown("disaster")));
 
       await waitFor(() => expect(result.current.dynamicWeatherDataStatus.disaster).toBe("loading"));
 
@@ -151,7 +157,7 @@ describe("useDynamicWeatherLayers（改善計画T425: キキクル・線状降�
         error: "wind grid boom",
       });
 
-      const { result } = renderHook(() => useDynamicWeatherLayers({ ...BASE_OPTIONS, showWindVector: true }));
+      const { result } = renderHook(() => useDynamicWeatherLayers(shown("windVector")));
 
       await waitFor(() => expect(result.current.dynamicWeatherDataStatus.windVector).toBe("error"));
     });
@@ -184,7 +190,7 @@ describe("useDynamicWeatherLayers（改善計画T425: キキクル・線状降�
         land: [RISK_FRAME],
       });
 
-      const { result, rerender } = renderHook(() => useDynamicWeatherLayers({ ...BASE_OPTIONS, showDisaster: true }));
+      const { result, rerender } = renderHook(() => useDynamicWeatherLayers(shown("disaster")));
       await waitFor(() => expect(result.current.dynamicWeather.disaster?.landslide?.payload).toBeDefined());
 
       const payload = result.current.dynamicWeather.disaster?.landslide?.payload;
@@ -213,7 +219,7 @@ describe("useDynamicWeatherLayers（改善計画T425: キキクル・線状降�
     it("ONにすると3本のフェッチがまとめて走る", async () => {
       stubHappyPath();
 
-      renderHook(() => useDynamicWeatherLayers({ ...BASE_OPTIONS, showDisaster: true }));
+      renderHook(() => useDynamicWeatherLayers(shown("disaster")));
 
       await waitFor(() => expect(fetchCurrentRiskFrames).toHaveBeenCalled());
       expect(fetchThunderNowcastFrames).toHaveBeenCalled();
@@ -225,7 +231,7 @@ describe("useDynamicWeatherLayers（改善計画T425: キキクル・線状降�
       const frame = [{ time: new Date(), ref: { basetime: "0", validtime: "0", member: "" } }];
       vi.mocked(fetchCurrentRiskFrames).mockResolvedValue({ land: frame, heavyRain: frame, inundation: [], flood: [] });
 
-      const { result } = renderHook(() => useDynamicWeatherLayers({ ...BASE_OPTIONS, showDisaster: true }));
+      const { result } = renderHook(() => useDynamicWeatherLayers(shown("disaster")));
 
       await waitFor(() => expect(result.current.dynamicWeather.disaster?.landslide?.payload).toBeDefined());
       const disaster = result.current.dynamicWeather.disaster;
@@ -246,8 +252,7 @@ describe("useDynamicWeatherLayers（改善計画T425: キキクル・線状降�
 
       const { result } = renderHook(() =>
         useDynamicWeatherLayers({
-          ...BASE_OPTIONS,
-          showDisaster: true,
+          ...shown("disaster"),
           hiddenDisasterSources: ["thunder", "tornado", "liden"],
         }),
       );
@@ -266,8 +271,7 @@ describe("useDynamicWeatherLayers（改善計画T425: キキクル・線状降�
 
       renderHook(() =>
         useDynamicWeatherLayers({
-          ...BASE_OPTIONS,
-          showDisaster: true,
+          ...shown("disaster"),
           hiddenDisasterSources: ["heavyRain", "landslide", "inundation", "flood", "liden"],
         }),
       );
@@ -284,7 +288,7 @@ describe("useDynamicWeatherLayers（改善計画T425: キキクル・線状降�
       stubHappyPath();
       vi.mocked(fetchLidenFrames).mockRejectedValue(new Error("liden boom"));
 
-      const { result } = renderHook(() => useDynamicWeatherLayers({ ...BASE_OPTIONS, showDisaster: true }));
+      const { result } = renderHook(() => useDynamicWeatherLayers(shown("disaster")));
 
       await waitFor(() => expect(result.current.dynamicWeatherDataStatus.disaster).toBe("error"));
     });
@@ -299,7 +303,7 @@ describe("useDynamicWeatherLayers（改善計画T425: キキクル・線状降�
       const geojson = { type: "FeatureCollection" as const, features: [] };
       vi.mocked(fetchLidenGeojson).mockResolvedValue(geojson);
 
-      const { result } = renderHook(() => useDynamicWeatherLayers({ ...BASE_OPTIONS, showDisaster: true }));
+      const { result } = renderHook(() => useDynamicWeatherLayers(shown("disaster")));
 
       await waitFor(() =>
         expect(result.current.dynamicWeather.disaster?.liden?.payload).toEqual({ kind: "gridMark", geojson }),
@@ -317,7 +321,7 @@ describe("useDynamicWeatherLayers（改善計画T425: キキクル・線状降�
       const geojson = { type: "FeatureCollection" as const, features: [] };
       vi.mocked(fetchLidenGeojson).mockResolvedValue(geojson);
 
-      const { result } = renderHook(() => useDynamicWeatherLayers({ ...BASE_OPTIONS, showDisaster: true }));
+      const { result } = renderHook(() => useDynamicWeatherLayers(shown("disaster")));
 
       await waitFor(() =>
         expect(result.current.dynamicWeather.disaster?.liden?.payload).toEqual({ kind: "gridMark", geojson }),
@@ -362,7 +366,7 @@ describe("共有時刻の「今」への追従（改善計画T859）", () => {
     stubHappyPath();
     vi.mocked(fetchNowcastFrames).mockImplementation(async () => nowcastFramesForNow());
 
-    const { result } = renderHook(() => useDynamicWeatherLayers({ ...BASE_OPTIONS, showPrecipitationNowcast: true }));
+    const { result } = renderHook(() => useDynamicWeatherLayers(shown("precipitationNowcast")));
 
     await act(async () => {
       await vi.advanceTimersByTimeAsync(0);
