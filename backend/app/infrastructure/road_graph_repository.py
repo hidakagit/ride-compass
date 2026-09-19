@@ -1055,13 +1055,19 @@ _WAY_MATERIAL_SELECT_SQL = ", ".join(
 
 
 def _way_material_binds(statement):
-    return statement.bindparams(
+    """材料の値式が使う配列パラメータのうち、**その文が実際に参照するものだけ**を束ねる。
+
+    材料1件だけを引く場合（軸スタジオの値列挙）は式が使わないパラメータがあり、
+    無条件に束ねるとSQLAlchemyが「その名前のパラメータは無い」と落ちる。
+    """
+    candidates = (
         bindparam("good_tags", value=sorted(GOOD_OSM_SURFACE_TAGS), type_=ARRAY(Text())),
         bindparam("bad_tags", value=sorted(BAD_OSM_SURFACE_TAGS), type_=ARRAY(Text())),
         bindparam(
             "designation_kinds", value=sorted(CAR_STRESS_DESIGNATION_KINDS), type_=ARRAY(Text())
         ),
     )
+    return statement.bindparams(*(b for b in candidates if f":{b.key}" in statement.text))
 
 
 _WAY_MATERIAL_VALUES_SQL = _way_material_binds(

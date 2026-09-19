@@ -26,6 +26,7 @@ NODE2 = (35.701, 139.701)
 async def _seed_one_way(road_graph_repository, road_graph_session) -> None:
     way = WaySpec(osm_way_id=100, node_ids=[1, 2], highway="residential")
     graph = build_road_graph([way], {1: NODE1, 2: NODE2}, graph_version="v1")
+    await road_graph_repository.save_raw_ways([way], {1: NODE1, 2: NODE2})
     await road_graph_repository.save_graph(graph)
     await road_graph_session.commit()
 
