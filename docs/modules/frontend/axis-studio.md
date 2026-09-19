@@ -21,7 +21,6 @@ APIを呼ぶ）・「データ保守」タブ（派生データ鮮度台帳の�
 | `components/AxisStudio/AxisScoringSection.tsx` | 「点数の決め方」の節。材料の選択と、その材料の型に応じた点数入力（0点/100点・効き方、はい/いいえ、値ごと、他軸の係数）。折れ点の直接編集は畳んだ詳細設定の中 |
 | `components/AxisStudio/AxisMapDisplaySection.tsx` | 「地図表示・公開」の節。アイコン・チップ略称・パネル補足・色分けしきい値のまとめ入力と段階プレビュー・公開チェック |
 | `components/AxisStudio/AxisFormFields.tsx` | 上記2節とAxisComposerが共有する入力部品（`InfoPopoverButton`・`MaterialInfoButton`・`SectionLabel`・`NumberField`・`SliderNumberField`） |
-| `components/AxisStudio/axisScoring.ts` | 材料の生値を折れ点の横軸（weight倍・preprocess="abs"なら絶対値）へ移す`toBreakpointX`。節と効き目プレビューが同じ変換を共有する |
 | `components/AxisStudio/axisDraft.ts` | Draft（フォームの内部状態）とbackendのpayloadの相互変換。`buildShape`・`draftFromExisting`・`pickPassthroughFields`・`PASSTHROUGH_PAYLOAD_KEYS`。変更理由はbackendのpayloadスキーマで、フォームUIの増減とは独立している |
 | `components/AxisStudio/BreakpointCurveEditor.tsx` | 折れ点をドラッグ・矢印キーで調整できるSVGの曲線エディタ。背景へ実データの分布を重ねる |
 | `components/AxisStudio/curveDistributionOverlay.ts` | 曲線エディタの背景へ分布を重ねるための純粋関数（DOM非依存。階級のクリップ・按分、分位線、表示範囲外の割合） |
@@ -261,7 +260,7 @@ default_weight等）は`draftFromExisting`が読み込んだ既存値のまま�
   複数termの組み合わせ・他軸参照は参考点の対応が取れないため対象外
   （`AxisScoringSection.tsx: primaryMaterial`）。参考点の生値は折れ点の横軸（`weight`を
   掛け、`preprocess="abs"`なら絶対値を取った後の値）へ変換してから使う
-  （`axisScoring.ts: toBreakpointX`、backend: `evaluate_axis_scalar`の`total`計算と同じ
+  （`AxisScoringSection.tsx: toBreakpointX`、backend: `evaluate_axis_scalar`の`total`計算と同じ
   変換）。
 - `BreakpointCurveEditor`（`BreakpointCurveEditor.tsx`）: SVGでbreakpointsをドラッグ・
   矢印キー調整できる曲線プレビュー。
