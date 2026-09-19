@@ -255,11 +255,15 @@ export default function RouteSettingsPanel({
       {/* 軸カタログを取得できていない間、重み配分は編集できるが送信時に省略され
           （page.tsx: handleGenerateの`axisCatalog.loaded`ガード）、backendの既定配分で
           探索される。黙って捨てると「重みを変えたのに結果が変わらない」を実験の差だと
-          取り違えるため、何が起きるかと再試行導線を先に見せる。 */}
+          取り違えるため、何が起きるかと再試行導線を先に見せる。
+          **影響は重み配分だけではない**——同じ応答がタイル世代も運ぶため、地図の道路・POI・
+          事故も出ない（世代の違う中身をブラウザのキャッシュへ残さないよう、届くまでソースを
+          作らない）。地図側のチップにも理由を出すが、この再試行導線はここにしかない。 */}
       {catalog.failed && (
         <p className={styles.catalogErrorNotice} role="status">
           <span>
-            軸一覧を取得できませんでした。このまま生成すると重み配分は反映されず、 サーバー既定の配分で探索します。
+            軸一覧を取得できませんでした。地図の道路・POI・事故は表示できず、このまま生成すると
+            重み配分は反映されずサーバー既定の配分で探索します。
           </span>
           <button type="button" className={styles.catalogErrorRetry} onClick={retryAxisCatalogFetch}>
             再試行

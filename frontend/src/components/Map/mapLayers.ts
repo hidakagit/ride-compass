@@ -196,6 +196,11 @@ export interface MapLayerDescriptor {
    * 地図を覆うと視界を圧迫する。design-principles.md「UI仕様」）。
    * `buildDefaultLayerVisibility`がこの宣言から初期値を導く。 */
   defaultOn?: boolean;
+  /** 配信元のタイルが世代（`GET /api/axis-catalog`の`tile_versions`）を持ち、それが届くまで
+   * 要求できない。宣言すると、世代が無いあいだチップに理由を出し凡例を空にする扱いが自動で
+   * 付く（`tileVersionGatedLayerIds`）。省略時は判定しない——国土地理院のラスタ・土地被覆は
+   * 世代を持たない別系統のため持たない。 */
+  tileNeedsVersion?: true;
   /** 配信元のタイルがこのズーム未満では要求されない（ONにしても地図には何も出ない）。
    * 宣言すると、ズーム不足の間チップに案内を出し凡例を空にする扱いが自動で付く
    * （`tileZoomTooWideLayerIds`）。省略時は判定しない——広いズームでも出るもの
@@ -262,6 +267,7 @@ export function buildMapLayers(
       // 汎用機構（roadType/roadSurfaceそれぞれ独立したMapLayerId）に乗る。
       id: "roadType",
       tileMinZoom: ROAD_TILE_MIN_ZOOM,
+      tileNeedsVersion: true,
       label: "道路の種類",
       chipLabel: "道路種別",
       kind: "static",
@@ -278,6 +284,7 @@ export function buildMapLayers(
     {
       id: "roadSurface",
       tileMinZoom: ROAD_TILE_MIN_ZOOM,
+      tileNeedsVersion: true,
       label: "路面の種類",
       chipLabel: "路面",
       kind: "static",
@@ -287,6 +294,7 @@ export function buildMapLayers(
     {
       id: "designation",
       tileMinZoom: ROAD_TILE_MIN_ZOOM,
+      tileNeedsVersion: true,
       // 外部静的データソース（国土数値情報 N10/N12）。指定路線コンフレーション機構が
       // road_edgesへ対応付けた緊急輸送道路・重要物流道路を色分け表示する。
       label: "指定路線[緊急輸送・重要物流]",
@@ -311,6 +319,7 @@ export function buildMapLayers(
       // 独立レイヤー。
       id: "tunnel",
       tileMinZoom: ROAD_TILE_MIN_ZOOM,
+      tileNeedsVersion: true,
       label: "トンネル",
       kind: "static",
       category: "roadCondition",
@@ -327,6 +336,7 @@ export function buildMapLayers(
       // ある。判定はbackend側、way_divided_carriageway）。
       id: "oneway",
       tileMinZoom: ROAD_TILE_MIN_ZOOM,
+      tileNeedsVersion: true,
       label: "一方通行",
       kind: "static",
       category: "roadCondition",
@@ -342,6 +352,7 @@ export function buildMapLayers(
       kind: "static",
       category: "trafficSafety",
       tileMinZoom: ROAD_TILE_MIN_ZOOM,
+      tileNeedsVersion: true,
       description: "信号・横断歩道・一時停止・踏切の位置を種別ごとに色分け表示",
       panelHint:
         "信号・横断歩道・一時停止・踏切の位置です。評価の「停止密度」軸が近傍のこれらを" +
@@ -357,6 +368,7 @@ export function buildMapLayers(
       kind: "static",
       category: "amenity",
       tileMinZoom: ROAD_TILE_MIN_ZOOM,
+      tileNeedsVersion: true,
       description: "コンビニ・自販機・トイレ・給水・駐輪場の位置を種別ごとに色分け表示",
       // 実店舗とどれだけ合っているかの目安として、backend/scripts/measure_poi_freshness.pyで
       // OSM側の最終編集日時を計測している。コンビニは関東全域で直近2年以内の編集が62.4%と
@@ -374,6 +386,7 @@ export function buildMapLayers(
     },
     {
       id: "accidents",
+      tileNeedsVersion: true,
       label: "事故[警察庁統計]",
       chipLabel: "事故",
       kind: "static",
@@ -398,6 +411,8 @@ export function buildMapLayers(
       // ramp軸は定義上「一次属性（tile_inputs）を重み付けで合成した二次軸スコア」
       // （axisLayers.ts冒頭コメント参照）のため、常にcomposite（生データではない）。
       dataNature: "composite",
+      // 路面タイルへ焼き込んだ値を読むため、世代が届くまでは他の路面系と同じく描けない。
+      tileNeedsVersion: true,
       // unit=""（真偽値材料由来の自動導出軸でkm単位等が無い場合）は空の[]を出さない。
       description: `${axis.label}${axis.unit ? `[${axis.unit}]` : ""}をway単位の事前集計から色分け表示`,
       // axis.note（backendレジストリの実装メモ、registry_defaults.py）は開発者向けに
@@ -533,6 +548,23 @@ export type MapLayerVisibility = Record<MapLayerId, boolean>;
 
 /** チップ下に出す、ズーム不足の案内。 */
 export const TILE_ZOOM_TOO_WIDE_SUMMARY = "ズームインすると表示されます";
+
+/** チップ下に出す、タイル世代が届いていないときの案内。
+ *
+ * この状態では地図に何も描けない（世代の違う中身をブラウザのキャッシュへ残さないため、
+ * 届くまでソースを作らない）。**何も出ないこと自体は正しい挙動**で、直すべきなのは
+ * 「出ない理由が画面のどこにも無い」ことだけである。 */
+export const TILE_VERSIONS_MISSING_SUMMARY = "配信情報を取得できず表示できません";
+
+/** タイル世代が届くまで何も描けないレイヤーのid。
+ *
+ * 軸を空で呼ばない——ramp軸は路面タイルへ焼き込んだ値を読むため、軸スタジオで公開が増えれば
+ * そのまま対象になる。判定は記述子の宣言1つで、ここにidを並べない。 */
+export function tileVersionGatedLayerIds(rampAxes: readonly RampAxis[]): readonly MapLayerId[] {
+  return buildMapLayers(rampAxes, [])
+    .filter((layer) => layer.tileNeedsVersion === true)
+    .map((layer) => layer.id);
+}
 
 /** そのズームではタイルが要求されず、ONにしても何も出ないレイヤーのid。
  *

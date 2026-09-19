@@ -26,6 +26,8 @@ import {
   type MapLayerId,
   buildDefaultLayerVisibility,
   TILE_ZOOM_TOO_WIDE_SUMMARY,
+  TILE_VERSIONS_MISSING_SUMMARY,
+  tileVersionGatedLayerIds,
   type MapLayerVisibility,
 } from "@/components/Map/mapLayers";
 import { axisMapLayerId, buildAxisRampLegend, dedicatedWayValueMapLayerId } from "@/components/Map/axisLayers";
@@ -77,6 +79,7 @@ import { useDynamicWeatherLayers } from "@/hooks/useDynamicWeatherLayers";
 import { dedicatedWayValuesFor, useDedicatedWayValues } from "@/hooks/useDedicatedWayValues";
 import { useWeatherConditions } from "@/hooks/useWeatherConditions";
 import { useAxisCatalog } from "@/hooks/useAxisCatalog";
+import { useTileVersionsReady } from "@/hooks/useTileVersionsReady";
 import { useMaterialCatalog } from "@/hooks/useMaterialCatalog";
 import { syncHardFilterKeys } from "@/lib/hardFilterSync";
 import { buildGenerateRequest, generationConditionsKey, type GenerationInput } from "@/lib/generationRequest";
@@ -1178,6 +1181,18 @@ export default function Home() {
     [mapViewLayerDataStatus, dynamicWeatherDataStatus],
   );
 
+  // タイル世代が届いていないあいだ、それを要るレイヤーは地図に何も描けない。**どのレイヤーが
+  // それに当たるかは数え上げない**——ソース対応表から引く（MapView: tileVersionGatedLayerIds）。
+  const tileVersionsReady = useTileVersionsReady();
+  const tileVersionGatedIds = useMemo(
+    () => (tileVersionsReady ? [] : tileVersionGatedLayerIds(axisCatalog.rampAxes)),
+    [tileVersionsReady, axisCatalog.rampAxes],
+  );
+  // 取得が終わっていない間の「まだ出ていない」と、取得が終わったのに世代が無い
+  // （カタログの取得失敗・世代を返さない版のbackendが応答）とを分ける。後者は利用者の
+  // 操作では直らないため、理由を出して再読み込みを促す。
+  const tileVersionsFailed = !tileVersionsReady && (axisCatalog.loaded || axisCatalog.failed);
+
   // 地図上のチップ行はレイヤーカタログ（mapLayers）から組み立てる。レイヤーを追加したら
   // summaryの対応をここへ1行足すだけでよい（チップ・凡例パネルの描画は汎用）。
   const overlayLayers = useMemo<OverlayLayerChip[]>(() => {
@@ -1219,14 +1234,22 @@ export default function Home() {
         // 表示されない。**判定も配線もここ1箇所**で、レイヤー側は記述子へ最小ズームを
         // 宣言するだけでよい。
         const tileZoomTooWide = tileZoomTooWideLayerIds.includes(layer.id);
-        const summary = tileZoomTooWide
-          ? TILE_ZOOM_TOO_WIDE_SUMMARY
-          : layer.id in summaryByLayerId
-            ? (summaryByLayerId[layer.id] ?? null)
-            : (staticFilterSummaries[layer.id]?.summary ?? null);
-        const legendDetails = tileZoomTooWide
-          ? []
-          : (legendDetailsByLayerId[layer.id] ?? staticFilterSummaries[layer.id]?.legendDetails);
+        // 世代が無いレイヤーもズーム不足と同じ扱いにする——どちらも「ONにしても何も出ない」で、
+        // 違うのは理由だけ。凡例を空にするのも同じ理由（▶の中身は「凡例があれば凡例、
+        // 無ければsummary」で決まるため、凡例を出したままだと案内が一度も表示されない）。
+        const tileVersionsGated = tileVersionGatedIds.includes(layer.id);
+        const summary =
+          tileVersionsGated && tileVersionsFailed
+            ? TILE_VERSIONS_MISSING_SUMMARY
+            : tileZoomTooWide
+              ? TILE_ZOOM_TOO_WIDE_SUMMARY
+              : layer.id in summaryByLayerId
+                ? (summaryByLayerId[layer.id] ?? null)
+                : (staticFilterSummaries[layer.id]?.summary ?? null);
+        const legendDetails =
+          tileZoomTooWide || (tileVersionsGated && tileVersionsFailed)
+            ? []
+            : (legendDetailsByLayerId[layer.id] ?? staticFilterSummaries[layer.id]?.legendDetails);
         // 地図上チップの▶パネル本体には説明文を常時表示せず、凡例のみを表示する。折りたたみ中の
         // 「表示する項目を選ぶ」設定パネル（MapOverlayControls.tsx: renderVisibilitySettings）
         // 側は、各メンバー行に個別の情報アイコンを置き、押したメンバーだけ説明文を表示する
@@ -1254,13 +1277,17 @@ export default function Home() {
           // レイヤーのデータ取得状態。LayerChip（サイドバー）と同じくOFF中の抑制は
           // ChipButton自身が`active && dataStatus != null`で行うため、ここでは
           // layerVisibilityで抑制せずそのまま渡す。
-          dataStatus: layerDataStatus[layer.id],
+          // ソースが1つも作られていないためMapLibreのイベントは何も言わない。
+          // 世代待ちは読み込み中、届かないと分かった後はエラーとして見せる。
+          dataStatus: tileVersionsGated ? (tileVersionsFailed ? "error" : "loading") : layerDataStatus[layer.id],
         };
       });
   }, [
     selectedCandidate,
     layerVisibility,
     tileZoomTooWideLayerIds,
+    tileVersionGatedIds,
+    tileVersionsFailed,
     layerDataStatus,
     roadAxisPanels,
     routeLegendDetails,
@@ -2335,7 +2362,7 @@ export default function Home() {
             onViewportChange={handleViewportChange}
             onLayerDataStatusChange={setMapViewLayerDataStatus}
             refreshToken={refreshToken}
-            tileVersionsReady={axisCatalog.loaded}
+            tileVersionsReady={tileVersionsReady}
             // experimentSlots（研究モード中の生成履歴、1件目は常にEXPERIMENT_SLOT_
             // COLORS[0]="#16a34a"=緑）はdrawExperimentSlotsが無条件で描画するため、
             // 実際に「比較」タブを見ているとき以外に地図へ残ると選択中ルートの色分けと

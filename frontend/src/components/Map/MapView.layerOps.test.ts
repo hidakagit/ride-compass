@@ -5,9 +5,16 @@
 // 持つフェイク」パターンを使う。
 import { beforeEach, describe, expect, it } from "vitest";
 import { setTileVersions } from "@/services/regionApi";
-import { DEDICATED_WAY_VALUE_AXES, axisLineLayerId, axisMapLayerId, type RampAxis } from "@/components/Map/axisLayers";
+import {
+  DEDICATED_WAY_VALUE_AXES,
+  RAMP_AXES,
+  axisLineLayerId,
+  axisMapLayerId,
+  type RampAxis,
+} from "@/components/Map/axisLayers";
 import { dedicatedWayValueOpacityExpression } from "@/components/Map/dedicatedWayValueLayer";
 import { FALLBACK_LINE_OPACITY, KNOWN_LINE_OPACITY } from "@/components/Map/roadFilterAxes";
+import { tileVersionGatedLayerIds } from "@/components/Map/mapLayers";
 import {
   DEFAULT_ROAD_LINE_WIDTH,
   DESIGNATION_LAYER_ID,
@@ -26,7 +33,9 @@ import {
   applyInspectedWay,
   applyRoadMaterialTrackOffsets,
   buildAxisOverlayLayers,
+  buildLayerDataSources,
   buildStaticOverlayLayers,
+  TILE_VERSION_GATED_SOURCE_IDS,
   clearRoadTileFeatureState,
   ensureDynamicWeatherLayer,
   shouldClearDedicatedWayValueFeatureState,
@@ -868,5 +877,77 @@ describe("色の段（地図と凡例の一致）", () => {
       expect(colorAt(PRECIPITATION_COLOR_SCALE_EXPRESSION, middle)).toBe(stop.color);
       expect(PRECIPITATION_INTENSITY_LEVELS[index].color).toBe(stop.color);
     });
+  });
+});
+
+// タイル世代が届く前にソースを作ると、世代の違う中身がブラウザのキャッシュへ載って以後
+// ずっと残る。上のbeforeEachが常に世代を入れてしまうため、**世代ゼロを通る経路を通る
+// テストがfrontend全体で1件も無かった**（T938）。
+describe("タイル世代が届いていないとき", () => {
+  const gatedSourceIds = new Set(TILE_VERSION_GATED_SOURCE_IDS);
+
+  it("世代を要るソースは1つも作られない", () => {
+    setTileVersions({});
+    const map = fakeMap();
+
+    for (const entry of buildStaticOverlayLayers([], DEDICATED_WAY_VALUE_AXES, undefined)) {
+      entry.ensure(map as unknown as Parameters<typeof entry.ensure>[0]);
+    }
+
+    expect([...map.sources].filter((id) => gatedSourceIds.has(id))).toEqual([]);
+  });
+
+  it("世代が届いた後に同じ呼び出しを繰り返すと作られる", () => {
+    setTileVersions({});
+    const map = fakeMap();
+    const entries = buildStaticOverlayLayers([], DEDICATED_WAY_VALUE_AXES, undefined);
+    for (const entry of entries) entry.ensure(map as unknown as Parameters<typeof entry.ensure>[0]);
+
+    setTileVersions({ road_surface: "1-test", poi: "1-test", accident: "1-test" });
+    for (const entry of entries) entry.ensure(map as unknown as Parameters<typeof entry.ensure>[0]);
+
+    // 上の否定側が「そもそもこの経路でソースを作らない」ことで通っていないことを示す。
+    expect([...map.sources].filter((id) => gatedSourceIds.has(id)).sort()).toEqual([...gatedSourceIds].sort());
+  });
+
+  it("世代を要らないソース（国土地理院のラスタ等）は作られる", () => {
+    setTileVersions({});
+    const map = fakeMap();
+
+    for (const entry of buildStaticOverlayLayers([], DEDICATED_WAY_VALUE_AXES, undefined)) {
+      entry.ensure(map as unknown as Parameters<typeof entry.ensure>[0]);
+    }
+
+    expect([...map.sources].filter((id) => !gatedSourceIds.has(id)).length).toBeGreaterThan(0);
+  });
+});
+
+describe("tileVersionGatedLayerIds（世代が無いと何も描けないレイヤー）", () => {
+  // 宣言は2箇所にある——どのソースが世代を要るか（MapView）と、どのチップに理由を出すか
+  // （mapLayersの記述子）。**ずれると、描けていないのにチップが黙る**。
+  it("チップ側の宣言が、世代を要るソースを使うレイヤーと一致する", () => {
+    const gated = new Set(TILE_VERSION_GATED_SOURCE_IDS);
+    const fromSources = buildLayerDataSources(RAMP_AXES)
+      .filter((source) => gated.has(source.sourceId))
+      .map((source) => source.key);
+
+    expect([...tileVersionGatedLayerIds(RAMP_AXES)].sort()).toEqual([...new Set(fromSources)].sort());
+  });
+
+  it("路面タイルを共有するレイヤーを含み、別系統のラスタは含まない", () => {
+    const ids = tileVersionGatedLayerIds(RAMP_AXES);
+
+    expect(ids).toContain("roadSurface");
+    expect(ids).toContain("accidents");
+    expect(ids).toContain("stopPoi");
+    // 国土地理院のラスタ・土地被覆は世代を持たないソースのため対象外。
+    expect(ids).not.toContain("elevation");
+    expect(ids).not.toContain("landcover");
+  });
+
+  it("実行時に増えたramp軸も自動で対象になる", () => {
+    const ids = tileVersionGatedLayerIds(RAMP_AXES);
+
+    expect(ids).toContain(axisMapLayerId(RAMP_AXES[0].axisId));
   });
 });

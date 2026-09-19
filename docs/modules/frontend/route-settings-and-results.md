@@ -48,6 +48,10 @@ useAxisCatalog() ──→ catalog.axes（公開軸一覧、is_published=Trueの
 
 - 軸の一覧・既定重みは`useAxisCatalog`経由（取得完了まで・失敗時は既存軸の静的
   フォールバック）。軸スタジオでの追加が再デプロイなしに反映される。
+- 取得に失敗したときの告知はこのパネルにあり、**再試行導線はここにしかない**。影響は
+  重み配分だけではない——同じ応答がタイル世代も運ぶため、地図の道路・POI・事故も出ない
+  （[静的地図レイヤー](static-map-layers.md)「配信情報を取得できず表示できません」節）。
+  告知の文面はその両方を述べる。
 - **カタログ1件→`PreferenceAxisDef`の変換は`evaluationAxes.ts: preferenceAxisFromCatalog`
   1本**で、実行時API経路と静的フォールバックの両方がこれを通る。並び順だけを
   `SECONDARY_AXES`からなぞり、中身は必ずカタログから組み立てる——経路ごとに組み立てを

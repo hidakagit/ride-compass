@@ -1392,8 +1392,10 @@ function makeEnsureAttributeLineLayer(
 // パターンだがソース自体を新規に持つ。円の色は自転車関連/その他（involves_bicycle）、
 // 大きさは死亡事故（fatal）の強調に使う（staticAttributeLayers.ts参照）。
 function ensureAccidentTileLayer(map: MapLibreMap) {
-  if (!hasTileVersions()) return;
   const applyData = () => {
+    // 判定は`ensureRoadSurfaceTileLayer`と同じく**遅延実行の中**で行う。外で判定すると、
+    // スタイルの準備を待っている間に世代が届いても、待ち始めた時点の答えのまま戻る。
+    if (!hasTileVersions()) return;
     if (map.getSource(ACCIDENT_TILE_SOURCE_ID)) return;
     map.addSource(ACCIDENT_TILE_SOURCE_ID, {
       type: "vector",
@@ -1733,6 +1735,17 @@ export function layersUnderRoadSurface(layers: readonly OverlayLayerEntry[]): re
 
 // buildLayerDataSources自体はbuildStaticOverlayLayers等の他の関数と同じくこのファイルに
 // 残し、フックへ引数として渡す（フック側からMapView.tsxを逆importしないため）。
+
+/** タイル世代（`GET /api/axis-catalog`）が届くまで作れないソース。
+ *
+ * 縮退をどのチップへ出すかは`mapLayers.ts`の記述子が宣言する（`tileVersionGatedLayerIds`）。
+ * **2つの宣言がずれると、描けていないのにチップが黙る**——`MapView.layerOps.test.ts`が
+ * 両者を突き合わせて落とす。 */
+export const TILE_VERSION_GATED_SOURCE_IDS: readonly string[] = [
+  ROAD_TILE_SOURCE_ID,
+  ACCIDENT_TILE_SOURCE_ID,
+  POI_TILE_SOURCE_ID,
+];
 
 // ルート系の当たり判定専用レイヤー。見た目の線は細くモバイルでタップしづらいため、
 // 幅の広い透明なレイヤーを別に持つ。`handleClick`はここに当たったら道路のポップアップを
@@ -3309,8 +3322,11 @@ export default function MapView({
   // （ensureRoadSurfaceTileLayer等は世代が無いあいだ何もせずに戻る）。
   useEffect(() => {
     const map = mapRef.current;
-    if (!map || !tileVersionsReady || !map.isStyleLoaded()) return;
-    redrawFromCurrentProps(map);
+    if (!map || !tileVersionsReady) return;
+    // `map.isStyleLoaded()`で早期returnしない。スタイルの準備中に世代が届くと、この効果は
+    // 二度と走らないためタイルが永久に出ない（mapStyleOps.tsが同じ理由で
+    // `runWhenStyleReady`を用意している）。
+    runWhenStyleReady(map, () => redrawFromCurrentProps(map));
   }, [tileVersionsReady, redrawFromCurrentProps]);
 
   // 道路クリックの詳細ポップアップ。中身はReactで描き、MapLibreのPopupは器として使う。

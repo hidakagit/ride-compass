@@ -58,9 +58,23 @@ const POI_TILE_PATH = "/api/region/poi-tiles/{z}/{x}/{y}.pbf";
 // 載って以後ずっと残る。呼び出し側（page.tsx）はカタログの取得完了まで地図のレイヤーを
 // 作らず、`setTileVersions`で渡してから作る。
 let tileVersions: Readonly<Record<string, string>> | null = null;
+const tileVersionListeners = new Set<() => void>();
 
 export function setTileVersions(versions: Readonly<Record<string, string>>): void {
   tileVersions = versions;
+  tileVersionListeners.forEach((listener) => listener());
+}
+
+/** 世代が入れ替わったことを購読する（`useSyncExternalStore`用）。
+ *
+ * **カタログの到着と同一視しない**。世代を返さない版のbackendが200で応答すると、
+ * カタログは「取得済み」なのに世代は揃わない——そこでURLを組み立てると例外になる。
+ * 揃ったかどうかは`hasTileVersions()`だけが答えられる。 */
+export function subscribeTileVersions(listener: () => void): () => void {
+  tileVersionListeners.add(listener);
+  return () => {
+    tileVersionListeners.delete(listener);
+  };
 }
 
 /** 配信されるタイルの系統。1つでも欠けたら「未取得」として扱う。 */

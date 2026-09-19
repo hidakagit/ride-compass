@@ -29,7 +29,8 @@
 | `Map/RoadInspectorPopup.tsx` | 道をクリックしたときの詳細（**Reactで描き、MapLibreのPopupへportalで差し込む**）。事実（この道の属性）を先に出し、評価は押したときだけ取りに行く（backend `POST /api/region/axis-inspector`、[静的道路属性・タイル配信](../backend/static-road-attributes.md)参照）。軸ごとの効き方は**ルート結果と同じ`AxisContributionBar`**で出す——同じものを別の見た目で見せると読み方を2つ覚えることになる。寄与度はbackendが返す値をそのまま使い、フロントで重みを掛け直さない。**デバッグログONのときだけ`osm_way_id`を出す**——値がおかしい道を見つけたとき、地図で押した1本をそのままbackendの調査（`scripts/measure_gradient_outliers.py --way`）へ渡せるようにする |
 | `Map/roadFacts.ts` | クリックした道の「事実」（道路名・路面・路面状態・指定路線・トンネル・橋・一方通行）をタイルのプロパティから組み立てる純関数。該当しない項目は行ごと出さない（「なし」が並ぶと該当する項目が埋もれる） |
 | `types/traffic.ts` | 停止要因POI・補給休憩POIの`kind`列挙型定義 |
-| `services/regionApi.ts`（`roadSurfaceTileUrl`/`poiTileUrl`/`accidentTileUrl`とタイル世代定数） | ベクタタイルのURLテンプレート（`fetchDynamicWayValues`は[地図: 軸・ルート色分け](map-axis-coloring.md)の管轄） |
+| `services/regionApi.ts`（`roadSurfaceTileUrl`/`poiTileUrl`/`accidentTileUrl`とタイル世代の保持） | ベクタタイルのURLテンプレート（`fetchDynamicWayValues`は[地図: 軸・ルート色分け](map-axis-coloring.md)の管轄）。世代はbackendから実行時に届き、**揃うまでURLを組み立てない**（揃ったことは`subscribeTileVersions`で購読できる） |
+| `hooks/useTileVersionsReady.ts` | タイル世代が揃ったかを購読する薄いフック。地図がソースを作れるかの判定と、チップの縮退表示がこれ1つを見る |
 | `lib/tileBaseUrl.ts` | タイル配信元オリジンの決定（既定はフロント自身のオリジン＝rewrites経由、`NEXT_PUBLIC_TILE_BASE_URL`設定時はbackend直接）。路面/POI/事故タイル・基礎地図スタイル（`MapView.tsx: mapStyleUrl`）・国土地理院色別標高図・JMA動的タイル（[動的気象レイヤー](dynamic-weather-layers.md)）が共通に使う |
 | `components/MapOverlayControls/` | 地図上チップ（フローティングUI）。グループの開閉キー（`group:<グループ>`）は`MAP_OVERLAY_GROUP_ORDER`から生成・逆引きし、キー文字列を手で並べない——グループを増やしたとき見出しが「グループ本体」と認識されず2件目以降がチップ列から消えるのを防ぐ |
 | `Map/LayerChip.tsx` | ON/OFFトグルの共通部品（`RouteSettingsPanel/HardFilterPanel.tsx`が使う） |
@@ -260,6 +261,32 @@ tileZoomTooWideLayerIds(zoom)`を引き、結果が変わったときだけ`onTi
 
 表示ON/OFFでは出し分けない。ONにする前に「いまの縮尺では出ない」と分かる方が、ONにして
 から何も起きない理由を探すより早い。
+
+## 「配信情報を取得できず表示できません」の案内
+
+タイルの世代は`GET /api/axis-catalog`が運ぶ。**届くまでソースを作らない**——先に作ると
+世代の違う中身がブラウザのキャッシュへ載って以後ずっと残る。したがってカタログの取得が
+失敗した間、道路・POI・事故は地図から**丸ごと消える**。これ自体は正しい挙動で、直すべきは
+「消えた理由が画面のどこにも無い」ことだけである（利用者からは「この地域にデータが無い」と
+見える）。
+
+ズーム不足と同じ仕組みに乗せる。対象は**記述子が`tileNeedsVersion`を宣言したレイヤー**で、
+`mapLayers.ts: tileVersionGatedLayerIds`が引く（ramp軸は路面タイルへ焼き込んだ値を読むため、
+軸スタジオで公開が増えればそのまま対象になる）。`page.tsx`がそのチップへ
+`TILE_VERSIONS_MISSING_SUMMARY`を出し、凡例を空にし、状態ドットを付ける——まだ取得中なら
+`loading`、取得が終わったのに世代が無ければ`error`。
+
+**暗黙の前提**: 「世代が揃ったか」を軸カタログの取得完了で代用しない。世代を返さない版の
+backendが200で応答する窓では、カタログは取得済みなのに世代は無く、そこでURLを組み立てた側が
+例外になる。判定は`hasTileVersions()`だけが答えられる。
+
+宣言は2箇所にある——どのソースが世代を要るか（`MapView.tsx:
+TILE_VERSION_GATED_SOURCE_IDS`）と、どのチップに理由を出すか（記述子の
+`tileNeedsVersion`）。ずれると、描けていないのにチップが黙る。`MapView.layerOps.test.ts`が
+両者を突き合わせて落とす。
+
+同じ失敗の再試行導線は[ルート設定・結果パネル](route-settings-and-results.md)にしかない
+（軸一覧の取得失敗として告知する）。地図側は理由を出すだけで、再試行ボタンは置かない。
 
 **暗黙の前提**: 軸スタジオ由来のレイヤー（ramp軸・専用way値配信軸）も同じ路面タイルを
 共有するため同じズームで消えるが、地図上チップを持たないため案内の出し先が無い。

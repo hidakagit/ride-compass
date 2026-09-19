@@ -13,7 +13,14 @@ import { makeRouteCandidate } from "@/testing/routeFixtures";
 // MapOverlayControlsだけは、実際に組み立てられたlayers（id・on）をそのまま可視化する
 // スタブにして、テストからlayerVisibilityの実効値を検証できるようにする。
 
-vi.mock("@/components/Map/MapView", () => ({ default: () => null }));
+// 地図本体は描かないが、**世代が揃ったと伝えたかどうか**だけは読めるようにする。
+// ここがカタログの取得完了で代用されていると、世代を返さない版のbackendが応答した窓で
+// URL組み立てが例外になる（T938）。
+vi.mock("@/components/Map/MapView", () => ({
+  default: (props: { tileVersionsReady?: boolean }) => (
+    <div data-testid="map-tile-versions-ready">{String(props.tileVersionsReady)}</div>
+  ),
+}));
 vi.mock("@/components/RouteForm/RouteForm", () => ({ default: () => null }));
 vi.mock("@/components/WeatherPanel/WeatherPanel", () => ({ default: () => null }));
 vi.mock("@/components/WarningBadge/WarningBadge", () => ({ default: () => null }));
@@ -38,6 +45,7 @@ vi.mock("@/components/MapOverlayControls/MapOverlayControls", () => ({
       title?: string;
       summary?: string | null;
       legendDetails?: unknown[];
+      dataStatus?: string | null;
     }>;
     onToggle: (id: string, on: boolean) => void;
   }) => (
@@ -53,6 +61,10 @@ vi.mock("@/components/MapOverlayControls/MapOverlayControls", () => ({
           凡例が非空だと、案内文は一度も画面に出ない——その組み合わせを読めるようにする。 */}
       <div data-testid="overlay-layer-panels">
         {JSON.stringify(props.layers.map((l) => [l.id, l.summary ?? null, l.legendDetails?.length ?? 0]))}
+      </div>
+      {/* チップ上の状態ドット。案内文とは別の経路で出るため、既存のtestidへ混ぜない。 */}
+      <div data-testid="overlay-layer-status">
+        {JSON.stringify(props.layers.map((l) => [l.id, l.dataStatus ?? null]))}
       </div>
       {props.layers.map((l) => (
         <button key={l.id} type="button" onClick={() => props.onToggle(l.id, !l.on)}>
@@ -93,6 +105,7 @@ vi.mock("@/services/axisCatalogApi", () => ({
 import { getAxisCatalog } from "@/services/axisCatalogApi";
 import axisCatalogStatic from "@/types/generated/axis-catalog.json";
 import { __resetAxisCatalogStoreForTests } from "@/hooks/useAxisCatalog";
+import { setTileVersions } from "@/services/regionApi";
 import Home from "./page";
 
 // 改善計画T527: useAxisCatalogのフェッチ結果はモジュールレベルの共有ストアのため、
@@ -156,7 +169,10 @@ function catalogWithGuiCreatedAxis(): AxisCatalogResponse {
     // （既定{}だがopenapi-typescriptはdefault付きフィールドをoptionalにしない）。
     material_runtime_scales: {},
     client_tuning: {},
-    tile_versions: {},
+    // 世代はbackendが常に返す。**空にしない**——空は「世代を返さない版が応答した」という
+    // 別の状態で、地図が1つも描けない縮退の合図になる（T938。その状態自体は下の
+    // 「タイル世代が届かないとき」で別に確かめる）。
+    tile_versions: { road_surface: "1-test", poi: "1-test", accident: "1-test" },
   };
 }
 
@@ -2048,10 +2064,92 @@ describe("Home（app/page.tsx） 天候・警報・WBGT・氾濫予報の並列f
   });
 });
 
+describe("タイル世代が届かないとき（T938）", () => {
+  beforeEach(() => {
+    window.localStorage.clear();
+    // タイル世代はモジュールレベルの共有状態で、カタログのリセットでは戻らない。
+    setTileVersions({});
+    // 本テストは天候を見ない。解決しないPromiseを返して未処理の拒否を作らない
+    // （下の「土地被覆レイヤーのズーム不足の案内」と同じ扱い）。
+    for (const fetcher of [
+      getCurrentWeather,
+      getAmedasObservation,
+      getWeatherWarnings,
+      getWbgtStatus,
+      getFloodForecasts,
+    ]) {
+      vi.mocked(fetcher).mockImplementation((() => new Promise(() => {})) as never);
+    }
+  });
+  afterEach(() => {
+    window.localStorage.clear();
+    vi.mocked(getAxisCatalog).mockReset();
+  });
+
+  // 世代が無いあいだ地図のソースは作られない（世代の違う中身をブラウザのキャッシュへ
+  // 残さないため）。**何も出ないこと自体は正しい挙動**で、直すべきなのは理由が
+  // 画面のどこにも無いことだけ。
+  async function panelsAndStatus() {
+    // `renderFreshHome`は使わない——`vi.resetModules()`後の動的importでは先頭の
+    // `vi.mock("@/components/Map/MapView")`が効かず、世代フラグを読む器が描かれない。
+    render(<Home />);
+    await act(async () => {});
+    const panels = new Map(
+      (
+        JSON.parse(screen.getByTestId("overlay-layer-panels").textContent!) as Array<[string, string | null, number]>
+      ).map((row) => [row[0], row]),
+    );
+    const status = new Map(
+      (JSON.parse(screen.getByTestId("overlay-layer-status").textContent!) as Array<[string, string | null]>).map(
+        (row) => [row[0], row[1]],
+      ),
+    );
+    return { panels, status };
+  }
+
+  it("カタログの取得に失敗すると、世代を要るチップへ理由が出て凡例は空になる", async () => {
+    vi.mocked(getAxisCatalog).mockRejectedValue(new Error("catalog down"));
+
+    const { panels, status } = await panelsAndStatus();
+
+    expect(panels.get("roadSurface")).toEqual(["roadSurface", "配信情報を取得できず表示できません", 0]);
+    expect(panels.get("accidents")).toEqual(["accidents", "配信情報を取得できず表示できません", 0]);
+    expect(status.get("roadSurface")).toBe("error");
+    // 世代を持たない別系統（国土地理院のラスタ）は巻き込まない。
+    expect(panels.get("elevation")?.[1]).not.toBe("配信情報を取得できず表示できません");
+    expect(status.get("elevation")).not.toBe("error");
+  });
+
+  it("200で返っても世代が空なら同じ扱いにする（世代を返さない版が応答した窓）", async () => {
+    vi.mocked(getAxisCatalog).mockResolvedValue({ ...catalogWithGuiCreatedAxis(), tile_versions: {} });
+
+    const { panels, status } = await panelsAndStatus();
+
+    expect(panels.get("roadSurface")).toEqual(["roadSurface", "配信情報を取得できず表示できません", 0]);
+    expect(status.get("roadSurface")).toBe("error");
+    // カタログは「取得済み」なのに世代は揃っていない。ここをカタログ側で代用すると、
+    // 地図はURLを組み立てようとして例外になる。
+    expect(screen.getByTestId("map-tile-versions-ready").textContent).toBe("false");
+  });
+
+  it("世代が揃えば理由は消える", async () => {
+    vi.mocked(getAxisCatalog).mockResolvedValue(catalogWithGuiCreatedAxis());
+
+    const { panels, status } = await panelsAndStatus();
+
+    expect(panels.get("roadSurface")?.[1]).not.toBe("配信情報を取得できず表示できません");
+    expect(status.get("roadSurface")).not.toBe("error");
+    expect(screen.getByTestId("map-tile-versions-ready").textContent).toBe("true");
+  });
+});
+
 describe("土地被覆レイヤーのズーム不足の案内", () => {
   beforeEach(() => {
     window.localStorage.clear();
-    vi.mocked(getAxisCatalog).mockRejectedValue(new Error("mock: unused in this test"));
+    // カタログは**成功させる**。失敗するとタイル世代も届かず、道路系のチップはズーム不足
+    // ではなく「配信情報を取得できず表示できません」になる（T938）。ここで見たいのは
+    // ズームの案内のほうで、縮退の側は下の describe が別に確かめる。
+    vi.mocked(getAxisCatalog).mockResolvedValue(catalogWithGuiCreatedAxis());
     // Homeのマウントは地点まわりの並列fetchを必ず発火させる。既定のvi.fn()はundefinedを
     // 返し、フック側の`.then`がそこで落ちて未処理の拒否になる（テスト自体は緑のまま
     // `vitest run`の終了コードだけが1になる）。本テストは天候を見ないため、解決しない
