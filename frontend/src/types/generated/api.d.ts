@@ -1302,6 +1302,8 @@ export interface components {
         AxisInspectorRequest: {
             /** Osm Way Id */
             osm_way_id: number;
+            /** Feature Key */
+            feature_key?: string | null;
         };
         /** AxisInspectorResult */
         AxisInspectorResult: {

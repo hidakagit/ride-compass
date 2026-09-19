@@ -344,6 +344,10 @@ _LANDCOVER_UPSERT_COLUMNS = [
     "source_raster_set",
 ]
 
+#: 上のうち割合そのものの列。**1クラスを名指しで欠損判定に使わない**——クラスを1つ足した
+#: ときに、その列だけNULLでも「値あり」と読まれる。
+_LANDCOVER_PERCENT_COLUMNS = tuple(c for c in _LANDCOVER_UPSERT_COLUMNS if c.endswith("_percent"))
+
 
 def _landcover_value_row(record: LandcoverRecord) -> dict:
     """`_LANDCOVER_UPSERT_COLUMNS`ぶんの値。`percentages`がNoneの行は「計算済み・値なし」で、
@@ -1024,6 +1028,34 @@ class WayMaterialSampleRow:
 # 標本の土地被覆列。焼き込み列と同じく配線するクラスの並びから組み立てる——ここを手で
 # 並べると、クラスを1つ配線したときに分布プレビューだけが古い並びで材料を組み立てる。
 _LANDCOVER_SAMPLE_COLUMNS_SQL = "\n".join(f"        lc.{key}," for key in WIRED_LANDCOVER_KEYS)
+
+
+def _landcover_record(model, row: object, **keys):
+    """土地被覆の行を`LandcoverRecord`（way単位／区間単位で共通の部分）へ組み立てる。
+
+    割合列がすべてNULLの行は「計算済み・値なし」で、呼び出し側からは行が無い場合と同じ
+    欠損として扱えるよう`percentages`自体をNoneで返す（増分実行がやり直さないために行は
+    残す）。**判定に使うクラスは宣言から導く**——1つ名指しすると、そのクラスだけNULLの行を
+    「値あり」と読む。
+    """
+    percentages = (
+        None
+        if all(getattr(row, column) is None for column in _LANDCOVER_PERCENT_COLUMNS)
+        else LandcoverPercentages(
+            valid_pixels=row.valid_pixels,
+            **{column: getattr(row, column) for column in _LANDCOVER_PERCENT_COLUMNS},
+        )
+    )
+    return model(
+        **keys,
+        percentages=percentages,
+        data_source=row.data_source,
+        data_version=row.data_version,
+        computed_at=row.computed_at,
+        source_osm_import_run_id=row.source_osm_import_run_id,
+        algorithm_version=row.algorithm_version,
+        source_raster_set=row.source_raster_set,
+    )
 
 
 def _landcover_percents_or_none(row: object) -> dict[str, float] | None:
@@ -2726,40 +2758,41 @@ class AttributeRepository(_SessionRepository):
             for row in rows
         ]
 
+    async def get_feature_landcover(self, osm_way_id: int, edge_id: str | None) -> WayLandcover | None:
+        """地図でクリックされたフィーチャー1つぶんの土地被覆（区間インスペクタの内訳）。
+
+        **地図が塗っている値と同じ単位で読む。** `edge_id`（タイルが焼いた`feature_key`）で
+        区間が特定できるときは区間単位の行を、できないときはway単位の行を使う——切り替えの
+        規則は評価経路（`_landcover_value_column`）と同じもので、揃えないと同じ道の同じ場所で
+        地図の色と内訳の数字が食い違う。
+
+        区間の行が「計算済み・値なし」のときもway単位へは戻さない（行の有無で決める）。
+        way単位のズームでクリックされたフィーチャーの`feature_key`はosm_way_idの文字列で、
+        `road_edges`に一致する行が無いためそのままway単位の読み出しへ落ちる。
+        """
+        if edge_id is not None:
+            stmt = (
+                select(*(_landcover_value_column(column) for column in _LANDCOVER_UPSERT_COLUMNS))
+                .select_from(RoadEdgeRow)
+                .outerjoin(WayLandcoverRow, WayLandcoverRow.osm_way_id == RoadEdgeRow.osm_way_id)
+                .outerjoin(EdgeLandcoverRow, _EDGE_LANDCOVER_JOIN_ON)
+                .where(RoadEdgeRow.edge_id == edge_id)
+                .limit(1)
+            )
+            row = (await self._session.execute(stmt)).first()
+            if row is not None:
+                return _landcover_record(WayLandcover, row, osm_way_id=osm_way_id)
+        return await self.get_way_landcover(osm_way_id)
+
     async def get_way_landcover(self, osm_way_id: int) -> WayLandcover | None:
-        """osm_way_id完全一致で土地被覆（way_landcover）の1行を返す（区間インスペクタの
-        土地被覆の内訳）。行が無い場合はNone（バッチ未実行・ラスタ範囲外・画素不足）。
+        """osm_way_id完全一致で土地被覆（way_landcover）の1行を返す。行が無い場合はNone
+        （バッチ未実行・ラスタ範囲外・画素不足）。
         """
         result = await self._session.execute(_WAY_LANDCOVER_BY_OSM_WAY_ID_SQL, {"osm_way_id": osm_way_id})
         row = result.first()
         if row is None:
             return None
-        return WayLandcover(
-            osm_way_id=osm_way_id,
-            # 割合列がNULLの行は「計算済み・値なし」。呼び出し側からは行が無い場合と同じ
-            # 欠損として扱えるよう、percentages自体をNoneで返す。
-            percentages=(
-                None
-                if row.trees_percent is None
-                else LandcoverPercentages(
-                    valid_pixels=row.valid_pixels,
-                    water_percent=row.water_percent,
-                    trees_percent=row.trees_percent,
-                    flooded_veg_percent=row.flooded_veg_percent,
-                    crops_percent=row.crops_percent,
-                    built_percent=row.built_percent,
-                    bare_percent=row.bare_percent,
-                    snow_ice_percent=row.snow_ice_percent,
-                    rangeland_percent=row.rangeland_percent,
-                )
-            ),
-            data_source=row.data_source,
-            data_version=row.data_version,
-            computed_at=row.computed_at,
-            source_osm_import_run_id=row.source_osm_import_run_id,
-            algorithm_version=row.algorithm_version,
-            source_raster_set=row.source_raster_set,
-        )
+        return _landcover_record(WayLandcover, row, osm_way_id=osm_way_id)
 
     async def get_intersection_counts(
         self, edge_ids: list[str]
@@ -2943,11 +2976,7 @@ class AttributeRepository(_SessionRepository):
                     attribute_counts=attribute_counts,
                     elevation_attribute=elevation_attribute,
                     is_designated=bool(row.is_designated),
-                    landcover_percents=(
-                        {key: getattr(row, key) for key in WIRED_LANDCOVER_KEYS}
-                        if row.trees_percent is not None
-                        else None
-                    ),
+                    landcover_percents=_landcover_percents_or_none(row),
                 )
 
         return EdgeMaterialsBatch(materials=materials)
@@ -3157,6 +3186,9 @@ class RoadGraphRepository:
         bbox: BoundingBox | None = None,
     ) -> list[WayMaterialSampleRow]:
         return await self.attributes.sample_way_rows(sample_percent, limit, bbox)
+
+    async def get_feature_landcover(self, osm_way_id: int, edge_id: str | None) -> WayLandcover | None:
+        return await self.attributes.get_feature_landcover(osm_way_id, edge_id)
 
     async def get_way_landcover(self, osm_way_id: int) -> WayLandcover | None:
         return await self.attributes.get_way_landcover(osm_way_id)

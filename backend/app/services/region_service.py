@@ -261,7 +261,7 @@ class RegionService:
             y=y,
         )
 
-    async def get_axis_inspector(self, osm_way_id: int) -> AxisInspectorResult | None:
+    async def get_axis_inspector(self, osm_way_id: int, edge_id: str | None = None) -> AxisInspectorResult | None:
         """区間インスペクタ。クリックされた道路（osm_way_id）について、一次属性→二次軸
         スコア→三次合成コスト（取得可能な軸だけの参考値）を返す（詳細はdocs/modules/backend/
         static-road-attributes.md参照）。
@@ -284,7 +284,8 @@ class RegionService:
                     fields["lookup"] = "not_found"
                     return None
                 way_counts = await self._repository.get_way_attribute_counts(osm_way_id)
-                way_landcover = await self._repository.get_way_landcover(osm_way_id)
+                # 地図が塗っている値と同じ単位で読む（区間が特定できるときは区間単位）。
+                way_landcover = await self._repository.get_feature_landcover(osm_way_id, edge_id)
                 accident_years_covered = await self._repository.get_accident_years_covered()
             except Exception as exc:  # noqa: BLE001 DB障害は安全側(None)へ倒す（他タイル系と同じ方針）
                 fields["result"] = "error"

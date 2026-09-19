@@ -53,7 +53,7 @@ class FakeRegionRepository:
         self.way_attribute_counts_calls: list[int] = []
         # 改善計画T624: 開放度軸（区間インスペクタ）用フェイク応答。
         self.way_landcover_result: WayLandcover | None = None
-        self.way_landcover_calls: list[int] = []
+        self.way_landcover_calls: list[tuple[int, str | None]] = []
         self.accident_years_covered_result: int = 3
         # 改善計画T340: 材料の実データ値一覧フェイク応答。
         self.distinct_material_values_result: list[str] = []
@@ -71,8 +71,9 @@ class FakeRegionRepository:
             raise self._error
         return self.way_attribute_counts_result
 
-    async def get_way_landcover(self, osm_way_id):
-        self.way_landcover_calls.append(osm_way_id)
+    async def get_feature_landcover(self, osm_way_id, edge_id):
+        # 本物と同じく、区間が特定できるかを呼び出し側から受け取る（T941）。
+        self.way_landcover_calls.append((osm_way_id, edge_id))
         if self._error is not None:
             raise self._error
         return self.way_landcover_result

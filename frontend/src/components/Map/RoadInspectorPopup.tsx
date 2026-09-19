@@ -34,7 +34,7 @@ export default function RoadInspectorPopup({ properties, axes, axisColors }: Roa
   const load = () => {
     if (wayId == null) return;
     setState("loading");
-    fetchAxisInspector(wayId)
+    fetchAxisInspector(wayId, properties.feature_key)
       .then((value) => {
         if (value === null) {
           setState("error");

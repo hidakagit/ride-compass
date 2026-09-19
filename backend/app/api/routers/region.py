@@ -159,6 +159,11 @@ async def region_dedicated_way_values(
 
 class AxisInspectorRequest(StrictModel):
     osm_way_id: int
+    # クリックされたフィーチャーの識別子（路面タイルが焼く`feature_key`）。区間単位の
+    # ズームでは区間のid、way単位のズームではosm_way_idの文字列になる。**どちらでも
+    # そのまま送ってよい**——後者は`road_edges`に一致せず、way単位の読み出しへ落ちる。
+    # 省略すると区間が特定できず、地図が区間単位で塗っていても内訳はway単位になる。
+    feature_key: str | None = None
 
 
 @router.post("/api/region/axis-inspector")
@@ -179,4 +184,4 @@ async def region_axis_inspector(
     # （road_tile_rate_limit_per_minuteと結合）を流用せず、専用の設定値を直接使う
     # （config.py: axis_inspector_rate_limit_per_minuteのコメント参照）。
     enforce_rate_limit(http_request, "axis-inspector", settings.axis_inspector_rate_limit_per_minute)
-    return await region_service.get_axis_inspector(body.osm_way_id)
+    return await region_service.get_axis_inspector(body.osm_way_id, body.feature_key)

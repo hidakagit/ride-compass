@@ -2913,6 +2913,17 @@
           "osm_way_id": {
             "type": "integer",
             "title": "Osm Way Id"
+          },
+          "feature_key": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Feature Key"
           }
         },
         "additionalProperties": false,

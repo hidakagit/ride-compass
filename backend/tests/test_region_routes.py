@@ -40,8 +40,8 @@ class FakeRegionService:
         self.last_poi_request = (z, x, y)
         return TileResponse(self._tile_bytes, cacheable=self._cacheable)
 
-    async def get_axis_inspector(self, osm_way_id):
-        self.last_axis_inspector_request = osm_way_id
+    async def get_axis_inspector(self, osm_way_id, edge_id=None):
+        self.last_axis_inspector_request = (osm_way_id, edge_id)
         return self._axis_inspector_result
 
 
@@ -201,7 +201,27 @@ def test_region_axis_inspector_returns_result_json():
 
     assert response.status_code == 200
     assert response.json() == result.model_dump()
-    assert fake.last_axis_inspector_request == 12345
+    assert fake.last_axis_inspector_request == (12345, None)
+
+
+def test_region_axis_inspector_passes_the_clicked_feature_key_through():
+    """クリックされたフィーチャーの識別子がサービス層まで届く。
+
+    届かないと、地図が区間単位で塗っている道でも内訳だけがway単位になり、同じ場所で
+    色と数字が食い違う（T941）。
+    """
+    fake = FakeRegionService(axis_inspector_result=None)
+    app.dependency_overrides[get_region_service] = lambda: fake
+    client = TestClient(app)
+    try:
+        client.post(
+            "/api/region/axis-inspector",
+            json={"osm_way_id": 12345, "feature_key": "way-12345-seg0-fwd"},
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert fake.last_axis_inspector_request == (12345, "way-12345-seg0-fwd")
 
 
 def test_region_axis_inspector_returns_null_when_service_returns_none():

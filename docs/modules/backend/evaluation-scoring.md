@@ -321,14 +321,21 @@ MaterialSpec]`が単一ソース。
 - 風の材料は`wind_drag_ratio`（無次元。相対風速ベクトルの二乗則で求めた、時速20kmで無風の
   ときの空気抵抗を1とする進行方向の抵抗増分。`domain/wind.py: wind_drag_ratio_array`、
   基準速度`WIND_DRAG_REFERENCE_SPEED_MS`は`ASSUMED_SPEED_KMH`とは独立の定数）。
-- 土地被覆の割合材料はWay単位の派生テーブル`way_landcover`
-  （[静的道路属性・タイル配信](static-road-attributes.md)）が持つクラス別の割合で、
+- 土地被覆の割合材料は`way_landcover`／`edge_landcover`（way単位・区間単位、
+  [静的道路属性・タイル配信](static-road-attributes.md)）が持つクラス別の割合で、
   **どのクラスを評価パイプラインへ配線するかは`attributes.py: WIRED_LANDCOVER_KEYS`が
   単一の正本**。Edge束・列指向テーブル・SQLの読み出し列・タイルの焼き込み列・
   カバレッジ台帳の宣言はすべてこの並びから導かれるため、クラスを1つ配線するのは
   この並びへ1行足すだけで済む（バッチ再実行も不要——DBには8クラスすべてが入っている）。
-  Way単位の値を`road_edges.osm_way_id`経由でEdgeへ展開し、
-  `MaterialExtractionContext.metrics`の`landcover`群として渡す（下記「材料へ値を届ける」節）。
+  **区間単位の行があればそちら、無ければway単位へ落とす**（`_landcover_value_column`）。
+  区間の行が「計算済み・値なし」のときもway単位へは戻さない——行の有無で決める。
+  この切り替えは路面タイル・区間インスペクタ（`get_feature_landcover`）と同じ規則で、
+  **揃えないと同じ道の同じ場所で地図の色と採点・内訳の数字が食い違う**。
+  値は`MaterialExtractionContext.metrics`の`landcover`群として渡す（下記「材料へ値を届ける」節）。
+
+  **欠損判定に1クラスを名指ししない。** 判定も読み出し列も`WIRED_LANDCOVER_KEYS`
+  （行→レコードの組み立ては`_LANDCOVER_PERCENT_COLUMNS`）から導く——名指しすると、
+  クラスを1つ足して既存行を埋め戻す前に、その列がNULLというだけで行ごと捨てる。
   **1つの軸で複数のクラスを足さないこと**——割合の合計が100%へ固定されているため
   同じ地面を二重に数える（[設計原則](../../design-principles.md)構造仕様14）。
 - `raw_way_tag_extractor`/`tag_equals_extractor`/`way_tag_parser_extractor`/

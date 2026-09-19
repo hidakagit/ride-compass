@@ -10,6 +10,10 @@ import { DESIGNATION_LABELS } from "./staticAttributeLayers";
 export interface RoadSurfacePopupProperties {
   /** 区間インスペクタで全軸の内訳を引き直すための識別子。 */
   osm_way_id?: number | null;
+  /** クリックされたフィーチャーそのものの識別子。区間単位のズームでは区間のid、
+   * way単位のズームではosm_way_idの文字列。**内訳を地図の色と同じ単位で計算させる**
+   * ためにそのまま送る（どちらでもbackendが受け取れる）。 */
+  feature_key?: string | null;
   /** OSMの道路名・路線番号（表示専用の生値）。対訳表を持たない第三者編集データ。 */
   name?: string | null;
   ref?: string | null;

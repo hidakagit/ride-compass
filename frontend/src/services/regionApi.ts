@@ -149,11 +149,16 @@ export const ROAD_TILE_MAX_ZOOM = regionTileConfig.road_tile_max_zoom;
 // POST+JSONボディなのはosm_way_idを本文で渡す既存の設計を踏襲（backend/app/api/routers/
 // region.py参照）。改善計画T292: 車ストレス専用の内訳取得（旧fetchCarStressBreakdown、
 // レシピ上書きパラメータ）は専用Pythonレシピの廃止に伴い削除し、このAPIへ一本化した。
-export async function fetchAxisInspector(osmWayId: number): Promise<AxisInspectorResult | null> {
+export async function fetchAxisInspector(
+  osmWayId: number,
+  featureKey?: string | null,
+): Promise<AxisInspectorResult | null> {
   const { response, durationMs, requestId } = await postAndCheckOk("/api/region/axis-inspector", {
     category: "api:axis-inspector",
     errorLabel: "内訳取得",
-    body: { osm_way_id: osmWayId },
+    // クリックされたフィーチャーの識別子。区間単位のズームで押した道は、内訳も
+    // 区間単位で計算される（送らないと地図の色と内訳の数字が食い違う）。
+    body: { osm_way_id: osmWayId, ...(featureKey != null ? { feature_key: featureKey } : {}) },
   });
   const data: AxisInspectorResult | null = await response.json();
   debugLog("api:axis-inspector", "成功", { durationMs, requestId, composite: data?.composite_difficulty });

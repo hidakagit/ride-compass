@@ -3150,3 +3150,117 @@ async def test_get_edge_ids_on_structure_finds_bridge_and_tunnel_ways(road_graph
 
 async def test_get_edge_ids_on_structure_returns_empty_for_no_edges(road_graph_repository):
     assert await road_graph_repository.get_edge_ids_on_structure([]) == set()
+
+
+async def _way_with_one_edge(road_graph_repository, road_graph_session):
+    """1本道を保存し、(edge_id, node_lo, node_hi)を返す。"""
+    way, nodes = single_way_spec()
+    await road_graph_repository.save_raw_ways([way], nodes)
+    graph = build_road_graph([way], nodes, graph_version="v1")
+    await road_graph_repository.save_graph(graph)
+    await road_graph_session.commit()
+    edge = next(iter(graph.edges.values()))
+    node_lo, node_hi = sorted([edge.from_node_id, edge.to_node_id])
+    return next(iter(graph.edges)), node_lo, node_hi
+
+
+async def _insert_landcover(session, table: str, keys: str, values: str) -> None:
+    await session.execute(
+        text(
+            f"INSERT INTO {table} ({keys}, valid_pixels, water_percent, trees_percent, "
+            "flooded_veg_percent, crops_percent, built_percent, bare_percent, snow_ice_percent, "
+            f"rangeland_percent, data_source, data_version, computed_at) VALUES ({values}, now())"
+        )
+    )
+    await session.commit()
+
+
+async def test_get_feature_landcover_reads_the_edge_row_when_the_edge_is_known(
+    road_graph_repository, road_graph_session
+):
+    """区間インスペクタは、地図が区間単位で塗っている道では区間単位の値を読む。
+
+    way単位の行と区間単位の行の両方があるとき、区間の行が勝つ——勝たないと、同じ道の
+    同じ場所で地図の色と内訳の数字が食い違う（改善計画T941）。
+    """
+    edge_id, node_lo, node_hi = await _way_with_one_edge(road_graph_repository, road_graph_session)
+    await _insert_landcover(
+        road_graph_session, "way_landcover", "osm_way_id",
+        "100, 500, 0, 40.0, 0, 0, 25.0, 0, 0, 35.0, 'esri-io-lulc', '2025'",
+    )
+    await _insert_landcover(
+        road_graph_session, "edge_landcover", "osm_way_id, node_lo, node_hi",
+        f"100, '{node_lo}', '{node_hi}', 400, 0, 10.0, 0, 0, 80.0, 0, 0, 10.0, 'esri-io-lulc', '2025'",
+    )
+
+    result = await road_graph_repository.get_feature_landcover(100, edge_id)
+
+    assert result is not None and result.percentages is not None
+    assert result.percentages.trees_percent == 10.0
+    assert result.percentages.built_percent == 80.0
+
+
+async def test_get_feature_landcover_does_not_fall_back_when_the_edge_row_has_no_value(
+    road_graph_repository, road_graph_session
+):
+    """区間の行が「計算済み・値なし」ならway単位へは戻さない（行の有無で決める）。
+
+    戻すと、区間ごとに値の有無が違う道で「この区間の値」と「この道全体の値」が混ざり、
+    どちらを見ているのか読み手に分からなくなる。
+    """
+    edge_id, node_lo, node_hi = await _way_with_one_edge(road_graph_repository, road_graph_session)
+    await _insert_landcover(
+        road_graph_session, "way_landcover", "osm_way_id",
+        "100, 500, 0, 40.0, 0, 0, 25.0, 0, 0, 35.0, 'esri-io-lulc', '2025'",
+    )
+    await _insert_landcover(
+        road_graph_session, "edge_landcover", "osm_way_id, node_lo, node_hi",
+        f"100, '{node_lo}', '{node_hi}', NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, "
+        "'esri-io-lulc', '2025'",
+    )
+
+    result = await road_graph_repository.get_feature_landcover(100, edge_id)
+
+    assert result is not None
+    assert result.percentages is None
+
+
+async def test_get_feature_landcover_falls_back_to_the_way_row_without_an_edge(
+    road_graph_repository, road_graph_session
+):
+    """way単位のズームで押した道（`feature_key`がosm_way_idの文字列）はway単位で読む。"""
+    await _way_with_one_edge(road_graph_repository, road_graph_session)
+    await _insert_landcover(
+        road_graph_session, "way_landcover", "osm_way_id",
+        "100, 500, 0, 40.0, 0, 0, 25.0, 0, 0, 35.0, 'esri-io-lulc', '2025'",
+    )
+
+    from_way_key = await road_graph_repository.get_feature_landcover(100, "100")
+    without_key = await road_graph_repository.get_feature_landcover(100, None)
+
+    for result in (from_way_key, without_key):
+        assert result is not None and result.percentages is not None
+        assert result.percentages.trees_percent == 40.0
+
+
+async def test_edge_materials_keep_classes_that_are_present_when_another_is_null(
+    road_graph_repository, road_graph_session
+):
+    """一部のクラスだけがNULLの行でも、値のあるクラスは材料として渡す。
+
+    クラスを1つ足して既存行を埋め戻す前は、この形が実際に現れる。欠損判定を1クラスの
+    名指しで書くと、**その1クラスがNULLというだけで行ごと捨てる**（他のクラスの値は
+    揃っているのに、その区間の土地被覆の材料が全部落ちる）。判定は
+    `WIRED_LANDCOVER_KEYS`から導く（`_landcover_percents_or_none`）。
+    """
+    edge_id, node_lo, node_hi = await _way_with_one_edge(road_graph_repository, road_graph_session)
+    await _insert_landcover(
+        road_graph_session, "edge_landcover", "osm_way_id, node_lo, node_hi",
+        f"100, '{node_lo}', '{node_hi}', 400, 15.0, NULL, 0, 0, 80.0, 0, 0, 5.0, 'esri-io-lulc', '2025'",
+    )
+
+    batch = await road_graph_repository.get_edge_materials_batch([edge_id])
+
+    percents = batch.materials[edge_id].landcover_percents
+    assert percents is not None
+    assert percents["built_percent"] == 80.0
