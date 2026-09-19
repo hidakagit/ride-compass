@@ -249,7 +249,9 @@ CronCreate等）に付随する進捗・ログ・通知メッセージも例外�
   記載漏れ、経緯記述、写経、`状態:`行との照合など）は`scripts/review_checks.py docs`が
   機械的にブロックする。pre-commit（`scripts/pre-commit.sh`を`.git/hooks/`へ手動導入）と
   CI（`.github/workflows/docs-consistency.yml`）が`--staged`/`--since`で自動実行するため、
-  違反の判定はこの2経路が正（フル実行は既存分を参考件数として含む）。**何をどの経路で
+  違反の判定はこの2経路が正（フル実行は既存分を参考件数として含む）。**pushする前に
+  CIと同じ`--since <masterの先端>`で確認する**——`--staged`では出ない検知器があり、
+  pre-commitが「違反なし」でもCIが赤くなる。**何をどの経路で
   強制しているかの正本は`review_checks.py`の`DETECTOR_ENFORCEMENT`であり、その中身を
   このファイルの手順として書き写さない**——写した側だけが古くなる。
 - **検査器にできず、人が見るしかないのは次の2つだけ**（どちらも上の「修正の原則」に従い、

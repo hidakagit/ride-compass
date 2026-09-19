@@ -47,7 +47,9 @@ APIが受け取る重みの形を変えるとき、`dynamic_materials.py`は動�
   highway種別のフィルタは`HARD_FILTER_HIGHWAY_TYPES`（フィルタ名→対象highway値）が唯一の
   レジストリで、スカラー版`is_edge_allowed`もベクトル版`compute_hard_filter_excluded`も
   この辞書をループする（`compute_hard_filter_excluded`が受け取るのはフィルタ名→該当フラグ配列の
-  `highway_filter_flags`で、フィルタごとの専用引数・専用フィールドは持たない）。
+  `hard_filter_flags`で、フィルタごとの専用引数・専用フィールドは持たない。タグ由来の
+  フィルタは`HARD_FILTER_TAG_PREDICATE_SQL`が名前と判定式をまとめて持ち、
+  `HARD_FILTER_NAMES`も読み出し用のSQLの列もそこから導く）。
   フィルタを1件増やしても変わるのはこの辞書だけ。
   highwayタグが無い・way_tagsが未取得の場合は除外しない（判断材料が無いEdgeまで一律
   除外すると探索対象が過度に狭まるため、不明な場合は許可しSoft Constraint側へ委ねる）。
@@ -140,7 +142,7 @@ bbox全体を一括評価するこの形自体は本番のルート生成では�
   `MATERIAL_CATALOG`の`extractor`宣言を使いEdge単位の辞書・タグアクセスをnumpy配列へ
   落とし込み、`AXIS_DEFINITIONS`を軸ごとに適用してdifficulty配列を求める
   （`BulkAxisEvaluation`: 公開軸別配列に加え、0次フィルタ判定用の生フラグ
-  `highway_filter_flags`/`no_bicycle`/`gradient_percent`も返す——`hard_filters`は
+  `hard_filter_flags`/`gradient_percent`も返す——`hard_filters`は
   リクエストごとに変わりうるため、除外判定そのものはこの関数では確定させない）。
   動的材料（`REQUEST_DYNAMIC_MATERIAL_IDS`、風）は抽出ループを通らず、
   `evaluate_dynamic_material_arrays`（後述）がbearing配列・`weather`・`travel_speed_ms`から

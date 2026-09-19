@@ -1070,8 +1070,8 @@ def material_array_group(spec: MaterialSpec) -> MaterialArrayGroup:
     """その材料の値をどのdtypeの行列へ載せるか。
 
     真偽の材料でも`bool_default="nan"`のもの（「不明」を「非該当」と混同してはいけない
-    材料）はNaNを持てる必要があるため数値側へ載る。この判定を2箇所に置かない——
-    載せる側と読む側で食い違うと、列が静かに別の行列へ行く。
+    材料）はNaNを持てる必要があるため数値側へ載る。この判定はここだけが持つ——
+    載せる側と読む側がそれぞれ判定すると、食い違ったとき列が静かに別の行列へ行く。
     """
     if spec.dtype == "categorical":
         return "categorical"

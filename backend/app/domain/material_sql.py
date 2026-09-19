@@ -87,7 +87,17 @@ def _cycleway_has(*values: str) -> str:
     return f"COALESCE({CYCLEWAY_TAGS_ARRAY_SQL} && ARRAY[{listed}], false)"
 
 
-def _landcover(key: str) -> str:
+def poi_density_value_sql(kind: str) -> str:
+    """停止要因POIの種別別密度。`poi_counts`がNULLなら未集計＝欠損、行があって載っていない
+    種別は0件と確定できる。"""
+    return (
+        "CASE WHEN c.poi_counts IS NOT NULL AND re.distance_m > 0 "
+        f"THEN COALESCE((c.poi_counts->>'{kind}')::double precision, 0) "
+        "/ (re.distance_m / 1000.0) END"
+    )
+
+
+def landcover_value_sql(key: str) -> str:
     """区間単位の土地被覆。行が無ければway単位へ落とす（読み出し側と同じ規約）。"""
     return f"COALESCE(el.{key}_percent, wl.{key}_percent)"
 
@@ -126,17 +136,8 @@ MATERIAL_VALUE_SQL: dict[str, str] = {
         "CASE WHEN re.distance_m > 0 AND :accident_years > 0 "
         "THEN c.accident_count / (re.distance_m / 1000.0) / :accident_years END"
     ),
-    **{f"{key}_percent": _landcover(key) for key in LANDCOVER_SQL_KEYS},
-    # 停止要因POIの種別別密度。`poi_counts`がNULLなら未集計＝欠損、行があって載っていない
-    # 種別は0件と確定できる（`keyed_density_extractor`の`absent_key`と同じ規約）。
-    **{
-        f"poi_{kind}_per_km": (
-            "CASE WHEN c.poi_counts IS NOT NULL AND re.distance_m > 0 "
-            f"THEN COALESCE((c.poi_counts->>'{kind}')::double precision, 0) "
-            "/ (re.distance_m / 1000.0) END"
-        )
-        for kind in POI_COUNT_KINDS
-    },
+    **{f"{key}_percent": landcover_value_sql(key) for key in LANDCOVER_SQL_KEYS},
+    **{f"poi_{kind}_per_km": poi_density_value_sql(kind) for kind in POI_COUNT_KINDS},
 }
 
 

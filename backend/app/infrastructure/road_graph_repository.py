@@ -1016,8 +1016,8 @@ _WAY_ALIAS_LANDCOVER_NULLS = ", ".join(
     f"NULL::double precision AS {key}_percent" for key in LANDCOVER_SQL_KEYS
 )
 
-_WAY_MATERIAL_ALIASES_SQL = f"""
-FROM osm_raw_ways w
+_WAY_MATERIAL_ALIASES_TEMPLATE = f"""
+FROM osm_raw_ways w {{sampling}}
 LEFT JOIN way_attribute_counts c ON c.osm_way_id = w.osm_way_id
 LEFT JOIN way_landcover wl ON wl.osm_way_id = w.osm_way_id
 CROSS JOIN LATERAL (
@@ -1048,9 +1048,36 @@ def _way_material_binds(statement):
 
 _WAY_MATERIAL_VALUES_SQL = _way_material_binds(
     text(
-        f"SELECT {_WAY_MATERIAL_SELECT_SQL}{_WAY_MATERIAL_ALIASES_SQL}"
-        " WHERE w.osm_way_id = :osm_way_id"
+        f"SELECT {_WAY_MATERIAL_SELECT_SQL}"
+        + _WAY_MATERIAL_ALIASES_TEMPLATE.format(sampling="")
+        + " WHERE w.osm_way_id = :osm_way_id"
     )
+)
+
+# 軸スタジオの分布プレビューが使うway標本。材料の式は上と同じものを使い、抽選と範囲の
+# 絞り込みだけを差し替える。`TABLESAMPLE SYSTEM`はページ単位の抽選で、全表走査を避けつつ
+# 広い範囲から拾える（行単位のBERNOULLIや`ORDER BY random()`は数百万行の全走査になり、
+# 管理画面の応答時間に収まらない）。ページ単位のため地理的な偏りが残りうる点は、分布を
+# 「目安」として扱う前提で許容する。
+#
+# 範囲を絞るときは抽選と併用しない——`TABLESAMPLE`は表全体のページから抽選するため、
+# 狭い範囲を重ねると当たるページがほとんど残らず、標本が範囲の広さに関係なく数本まで
+# 落ちる。範囲内は空間索引で直接引き、多すぎる場合は`LIMIT`で頭打ちにする。
+def _sample_way_materials_sql(sampling: str, area: str):
+    return _way_material_binds(
+        text(
+            f"SELECT ST_Length(w.geom::geography) AS length_m, {_WAY_MATERIAL_SELECT_SQL}"
+            + _WAY_MATERIAL_ALIASES_TEMPLATE.format(sampling=sampling)
+            + f" WHERE w.geom IS NOT NULL AND w.highway IS NOT NULL {area} LIMIT :limit"
+        )
+    )
+
+
+_SAMPLE_WAY_MATERIAL_VALUES_SQL = _sample_way_materials_sql(
+    "TABLESAMPLE SYSTEM (:sample_percent)", ""
+)
+_SAMPLE_WAY_MATERIAL_VALUES_IN_BBOX_SQL = _sample_way_materials_sql(
+    "", "AND w.geom && ST_MakeEnvelope(:xmin, :ymin, :xmax, :ymax, 4326)"
 )
 
 
