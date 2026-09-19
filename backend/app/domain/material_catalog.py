@@ -245,7 +245,11 @@ def _extract_surface_good(ctx: MaterialExtractionContext) -> bool | None:
 
 
 def _extract_surface(ctx: MaterialExtractionContext) -> str | None:
-    return ctx.surface_attributes.get(ctx.edge_id)
+    raw = ctx.surface_attributes.get(ctx.edge_id)
+    # 地図が塗る値（osm_way_tag_sql.py: SURFACE_NORMALIZED_SQL）と同じ正規化を掛ける。
+    # 軸のCategoricalShapeは正規化後の値で折れ点を持つため、揃っていないと同じ道が
+    # 地図と探索で違う分類になる。
+    return None if raw is None else raw.strip().lower()
 
 
 def _per_km(count: float | None, distance_km: float) -> float | None:

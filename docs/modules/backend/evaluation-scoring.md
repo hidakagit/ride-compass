@@ -26,6 +26,16 @@ APIが受け取る重みの形を変えるとき、`dynamic_materials.py`は動�
 `material_coverage.py`が共有する）は[routing-engine.md](routing-engine.md)が主管するため
 対象表には加えず参照のみ行う。
 
+**材料の導出は、この断片（SQL）と`material_catalog.py`のextractor（Python）の2か所にある。**
+地図配信・カバレッジ集計・軸スタジオの値列挙はSQLだけを通り、探索はPythonだけを通る。
+`tests/test_osm_way_tag_sql.py`が同じ期待値を両方へ当て、片方だけを変えたときに落ちる。
+
+真偽の材料では**両者の表現力が違う**。タイルSQLは`CASE WHEN 条件 THEN true END`で
+「該当しない」と「判定できない」をどちらもNULLへ畳む（キーを省いてタイルを軽くするための
+符号化）のに対し、extractorはway_tagsがあればFalse、無ければNoneを返し区別する。
+例外は`surface_good`だけで、SQL側も`true`/`false`/NULLを区別する（「路面タグ不明」を
+「路面が悪い」と混同しないという要求が符号化より優先された）。
+
 ## 0次ハードフィルタ（`domain/hard_filters.py`）
 
 `DEFAULT_HARD_FILTERS: frozenset[str] = frozenset({"no_bicycle", "motorway", "trunk"})`。
