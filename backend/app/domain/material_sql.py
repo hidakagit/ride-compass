@@ -135,3 +135,8 @@ MATERIAL_VALUE_SQL: dict[str, str] = {
         for kind in POI_COUNT_KINDS
     },
 }
+
+
+# `EdgeMaterialArrays`が標高属性を組み立てるとき、勾配だけは材料の列から読む
+# （表示用の標高列と重複して持たないため）。
+MATERIAL_ID_GRADIENT_PERCENT = "gradient_percent"

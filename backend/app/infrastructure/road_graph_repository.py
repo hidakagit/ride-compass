@@ -55,6 +55,7 @@ from datetime import datetime, timezone
 import shapely
 from geoalchemy2.shape import from_shape
 from shapely.geometry import LineString, Point
+import numpy as np
 from sqlalchemy import (
     BigInteger,
     Boolean,
@@ -78,6 +79,7 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession
 
 from app.domain.attributes import (
+    EdgeMaterialArrays,
     EdgeAttributeCounts,
     EdgeMaterialBundle,
     EdgeMaterialsBatch,
@@ -113,7 +115,9 @@ from app.domain.traffic import (
 from app.domain.tuning import tuning_value
 from app.infrastructure.cache_identity import shape_digest
 from app.infrastructure.designation_models import DesignationAttributeRow
+from app.domain.material_catalog import MATERIAL_CATALOG, material_array
 from app.domain.material_sql import (
+    MATERIAL_VALUE_SQL,
     BICYCLE_NORMALIZED_SQL,
     BRIDGE_NORMALIZED_SQL,
     CYCLEWAY_TAGS_ARRAY_SQL,
@@ -984,6 +988,67 @@ _DESIGNATED_EDGE_IDS_SQL = text(
     "JOIN designation_attributes da ON da.osm_way_id = e.osm_way_id "
     "WHERE e.edge_id = ANY(CAST(:edge_ids AS text[])) AND da.kind = ANY(:kinds)"
 ).bindparams(bindparam("kinds", type_=ARRAY(Text())))
+
+def _float_array(values: list) -> np.ndarray:
+    return np.array([np.nan if v is None else float(v) for v in values], dtype=np.float64)
+
+
+# 材料ではないが、材料と同じ1回のクエリで求まるため一緒に受け取る列。
+# no_bicycleは0次ハードフィルタの生フラグ、標高の残りは経路確定後の表示用。
+_EXTRA_MATERIAL_ARRAY_COLUMNS: dict[str, str] = {
+    "no_bicycle": f"COALESCE({BICYCLE_NORMALIZED_SQL} = 'no', false)",
+    "elevation_present": "e.calculated_at IS NOT NULL",
+    "elevation_start_m": "e.start_elevation_m",
+    "elevation_end_m": "e.end_elevation_m",
+    "elevation_gain_m": "e.elevation_gain_m",
+    "elevation_loss_m": "e.elevation_loss_m",
+    "elevation_max_grade": "e.max_grade",
+    "elevation_min_grade": "e.min_grade",
+    "elevation_data_source": "e.data_source",
+    "elevation_data_version": "e.data_version",
+    "elevation_calculated_at": "e.calculated_at",
+}
+
+# 列の並びは`edge_ids`の位置で固定する。**road_edgesへLEFT JOINする**——行が無い区間で
+# 配列が短くなると、以降の列と静かにずれる。
+_EDGE_MATERIAL_ARRAYS_FROM = """
+FROM unnest(CAST(:edge_ids AS text[])) WITH ORDINALITY AS ids(edge_id, ord)
+LEFT JOIN road_edges re ON re.edge_id = ids.edge_id
+LEFT JOIN osm_raw_ways w ON w.osm_way_id = re.osm_way_id
+LEFT JOIN edge_attribute_counts c ON c.edge_id = re.edge_id
+LEFT JOIN elevation_attributes e ON e.edge_id = re.edge_id
+LEFT JOIN way_landcover wl ON wl.osm_way_id = re.osm_way_id
+LEFT JOIN edge_landcover el
+       ON el.osm_way_id = re.osm_way_id
+      AND el.node_lo = LEAST(re.from_node_id, re.to_node_id)
+      AND el.node_hi = GREATEST(re.from_node_id, re.to_node_id)
+LEFT JOIN LATERAL (
+    SELECT bool_or(kind = ANY(:designation_kinds)) AS is_designated
+    FROM designation_attributes da WHERE da.osm_way_id = re.osm_way_id
+) d ON true
+"""
+
+# 材料の式と付随列を1つの内包から並べる（別々に書くと`ORDER BY`がずれても気付けない）。
+MATERIAL_ARRAY_COLUMN_ORDER: tuple[str, ...] = (
+    *sorted(MATERIAL_VALUE_SQL),
+    *_EXTRA_MATERIAL_ARRAY_COLUMNS,
+)
+
+_EDGE_MATERIAL_ARRAYS_SQL = text(
+    "SELECT "
+    + ", ".join(
+        f"array_agg(({expr}) ORDER BY ids.ord) AS c_{name}"
+        for name, expr in (
+            *sorted(MATERIAL_VALUE_SQL.items()),
+            *_EXTRA_MATERIAL_ARRAY_COLUMNS.items(),
+        )
+    )
+    + _EDGE_MATERIAL_ARRAYS_FROM
+).bindparams(
+    bindparam("good_tags", value=sorted(GOOD_OSM_SURFACE_TAGS), type_=ARRAY(Text())),
+    bindparam("bad_tags", value=sorted(BAD_OSM_SURFACE_TAGS), type_=ARRAY(Text())),
+    bindparam("designation_kinds", value=sorted(CAR_STRESS_DESIGNATION_KINDS), type_=ARRAY(Text())),
+)
 
 # 事故データの収録年数（accident_import_runsの成功run数、年重複なしのdistinct件数）。
 # domain/evaluation.py: compute_edge_axis_scoresの「件/(km・年)」正規化に使う。
@@ -2981,6 +3046,73 @@ class AttributeRepository(_SessionRepository):
 
         return EdgeMaterialsBatch(materials=materials)
 
+    async def get_edge_material_arrays(
+        self, edge_ids: list[str], accident_years_covered: int
+    ) -> EdgeMaterialArrays:
+        """材料を**DB側で導出し、列ごとの配列として**受け取る（`MATERIAL_VALUE_SQL`）。
+
+        `get_edge_materials_batch`が行を1本ずつ受けてPythonでオブジェクトを組むのに対し、
+        こちらは区間数に比例するPythonの仕事を持たない。
+
+        **すべての列が同じ`ORDER BY`を持つ**必要がある（1つでも違うと値が列の間で静かに
+        ずれ、エラーは出ない）。並びは`edge_ids`の位置（`WITH ORDINALITY`）で固定し、
+        列の式を1つのリスト内包から組み立てて取り違えられないようにする。`road_edges`へ
+        LEFT JOINするのは、行が無い区間で配列が短くなり以降の列とずれるのを防ぐため。
+
+        `accident_years_covered`は`accident_count_per_km_year`の分母。事故データの取込は
+        `derived_data_meta.revision`を上げる（`import_accidents.py`）ため、年数が変わった
+        ときはこの表のキャッシュも一緒に無効になる。
+        """
+        if not edge_ids:
+            empty_float = np.empty(0, dtype=np.float64)
+            return EdgeMaterialArrays(
+                edge_ids=[],
+                material_ids=tuple(sorted(MATERIAL_VALUE_SQL)),
+                values={m: np.empty(0) for m in sorted(MATERIAL_VALUE_SQL)},
+                no_bicycle=np.empty(0, dtype=bool),
+                elevation_present=np.empty(0, dtype=bool),
+                elevation_start_m=empty_float,
+                elevation_end_m=empty_float,
+                elevation_gain_m=empty_float,
+                elevation_loss_m=empty_float,
+                elevation_max_grade=empty_float,
+                elevation_min_grade=empty_float,
+                elevation_data_source=[],
+                elevation_data_version=[],
+                elevation_calculated_at=[],
+            )
+
+        material_ids = tuple(sorted(MATERIAL_VALUE_SQL))
+        raw: dict[str, list] = {name: [] for name in (*material_ids, *_EXTRA_MATERIAL_ARRAY_COLUMNS)}
+        for id_chunk in _chunked(edge_ids, 50_000):
+            row = (
+                await self._session.execute(
+                    _EDGE_MATERIAL_ARRAYS_SQL,
+                    {"edge_ids": id_chunk, "accident_years": accident_years_covered},
+                )
+            ).one()
+            for name in raw:
+                raw[name].extend(getattr(row, f"c_{name}"))
+
+        return EdgeMaterialArrays(
+            edge_ids=list(edge_ids),
+            material_ids=material_ids,
+            values={m: material_array(MATERIAL_CATALOG[m], raw[m]) for m in material_ids},
+            no_bicycle=np.array([bool(v) for v in raw["no_bicycle"]], dtype=bool),
+            elevation_present=np.array([bool(v) for v in raw["elevation_present"]], dtype=bool),
+            elevation_start_m=_float_array(raw["elevation_start_m"]),
+            elevation_end_m=_float_array(raw["elevation_end_m"]),
+            elevation_gain_m=_float_array(raw["elevation_gain_m"]),
+            elevation_loss_m=_float_array(raw["elevation_loss_m"]),
+            elevation_max_grade=_float_array(raw["elevation_max_grade"]),
+            elevation_min_grade=_float_array(raw["elevation_min_grade"]),
+            elevation_data_source=raw["elevation_data_source"],
+            elevation_data_version=raw["elevation_data_version"],
+            elevation_calculated_at=[
+                None if v is None else v.isoformat() for v in raw["elevation_calculated_at"]
+            ],
+        )
+
     async def rebuild_raw_intersection_nodes(self) -> None:
         """raw_intersection_nodes（次数3以上の生OSMノード）を全再構築する。
 
@@ -3214,6 +3346,11 @@ class RoadGraphRepository:
 
     async def get_edge_materials_batch(self, edge_ids: list[str]) -> EdgeMaterialsBatch:
         return await self.attributes.get_edge_materials_batch(edge_ids)
+
+    async def get_edge_material_arrays(
+        self, edge_ids: list[str], accident_years_covered: int
+    ) -> EdgeMaterialArrays:
+        return await self.attributes.get_edge_material_arrays(edge_ids, accident_years_covered)
 
     async def rebuild_raw_intersection_nodes(self) -> None:
         await self.attributes.rebuild_raw_intersection_nodes()
