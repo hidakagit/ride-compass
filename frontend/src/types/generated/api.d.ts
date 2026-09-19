@@ -2334,6 +2334,8 @@ export interface components {
             maximum: number;
             /** Effect */
             effect: string;
+            /** Effect Title */
+            effect_title: string;
             /** Value */
             value: number;
             /** Overridden */

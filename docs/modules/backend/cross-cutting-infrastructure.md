@@ -33,7 +33,8 @@ DB接続・マイグレーション・Redis・HTTPクライアント・レート
 | infrastructure | `debug_control.py` | `debug_mode`のランタイム切替・直近ログの保持 |
 | infrastructure | `job_registry.py` | 汎用の非同期ジョブレジストリ（プロセス内メモリのみ） |
 | infrastructure | `tuning_overrides.py` | 較正値の上書き（宣言の既定値から動かしたぶんだけをDBへ持つ）。起動時と管理APIの書き込み直後にプロセス内へ読み込む |
-| api | `tuning_admin.py` | 較正値の一覧・更新（管理画面用、`require_admin_basic_auth`の内側）。並べる項目は宣言から導く |
+| services | `tuning_service.py` | 較正値の上書きの取引境界（構造仕様7）。書いた直後にプロセス内の値まで反映するところまでを持つ |
+| api | `tuning_admin.py` | 較正値の一覧・更新（管理画面用、`require_admin_basic_auth`の内側）。並べる項目も、効き方ごとの見出しと並び順も宣言から導く |
 
 ## Pydanticモデルの基底（`domain/strict_model.py`）
 

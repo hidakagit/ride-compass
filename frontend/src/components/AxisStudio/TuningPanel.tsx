@@ -8,18 +8,6 @@ import floatingPopoverStyles from "@/components/ui/floatingPopover.module.css";
 import { listTuningParameters, updateTuningParameter, type TuningParameter } from "@/services/tuningApi";
 import styles from "./TuningPanel.module.css";
 
-/** 変えたとき効くまでに何が要るか（backendの`TuningEffect`）。**画面はこの値でまとめる**
- * ——項目の名前で振り分けると、較正値を1つ足したときにここだけが古くなる。見出しは
- * 「効き方」1つにつき1本で、項目が増えても増えない。 */
-const EFFECT_GROUPS: { effect: string; title: string }[] = [
-  { effect: "immediate", title: "次のルート生成から効く" },
-  { effect: "turn_structure", title: "次のルート生成から効く（1回だけ遅い）" },
-  { effect: "node_attribute_batch", title: "交差点の事前計算をやり直すまで効かない" },
-  { effect: "client_reload", title: "画面を読み込み直すと効く" },
-];
-
-const OTHER_GROUP = "__other__";
-
 /** 1件ぶんの行。入力中の値は親がまとめて持ち、この行は表示だけを担う
  * （保存はDBへの書き込みのため、押した時にまとめて送る）。 */
 function TuningRow({
@@ -142,14 +130,19 @@ export default function TuningPanel() {
     }
   };
 
-  // 宣言に無い効き方が来ても落とさない（backendが先に増えてもこの画面は動き続ける）。
-  const known = new Set(EFFECT_GROUPS.map((group) => group.effect));
-  const groups = [...EFFECT_GROUPS, { effect: OTHER_GROUP, title: "その他" }]
-    .map((group) => ({
-      ...group,
-      rows: rows.filter((p) => (group.effect === OTHER_GROUP ? !known.has(p.effect) : p.effect === group.effect)),
-    }))
-    .filter((group) => group.rows.length > 0);
+  // 効き方ごとにまとめる。**効き方の一覧も見出しも持たない**——どちらもbackendの宣言
+  // （`TuningEffect`）が持ち、APIが値（`effect`）と見出し（`effect_title`）を各項目へ
+  // 添えて返す。並び順も返ってきた順のまま使う。効き方を1つ足しても、この画面に
+  // 書き足す場所は無い。
+  const groups: { effect: string; title: string; rows: TuningParameter[] }[] = [];
+  for (const row of rows) {
+    const group = groups.find((candidate) => candidate.effect === row.effect);
+    if (group) {
+      group.rows.push(row);
+      continue;
+    }
+    groups.push({ effect: row.effect, title: row.effect_title, rows: [row] });
+  }
 
   return (
     <Card className={styles.panel}>

@@ -59,12 +59,15 @@ def fake_overrides(monkeypatch, admin_credentials):
         tuning.TUNING_VALUES.clear()
         tuning.TUNING_VALUES.update(merged)
 
-    import app.api.routers.tuning_admin as module
+    # 差し替えるのは**サービス層が使うinfrastructure**（取引の区切りはサービスが持つ、
+    # design-principles.md構造仕様7）。ルーター側へ当てると、サービスを通る経路
+    # （commit/rollbackの位置）がテストから外れる。
+    import app.services.tuning_service as service
 
-    monkeypatch.setattr(module, "read_overrides", _read)
-    monkeypatch.setattr(module, "set_override", _set)
-    monkeypatch.setattr(module, "clear_override", _clear)
-    monkeypatch.setattr(module, "refresh_tuning_values", _refresh)
+    monkeypatch.setattr(service, "read_overrides", _read)
+    monkeypatch.setattr(service, "set_override", _set)
+    monkeypatch.setattr(service, "clear_override", _clear)
+    monkeypatch.setattr(service, "refresh_tuning_values", _refresh)
     app.dependency_overrides[get_tuning_session] = lambda: session
     yield session
     app.dependency_overrides.pop(get_tuning_session, None)

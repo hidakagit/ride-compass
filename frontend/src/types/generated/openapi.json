@@ -5308,6 +5308,10 @@
             "type": "string",
             "title": "Effect"
           },
+          "effect_title": {
+            "type": "string",
+            "title": "Effect Title"
+          },
           "value": {
             "type": "number",
             "title": "Value"
@@ -5328,6 +5332,7 @@
           "minimum",
           "maximum",
           "effect",
+          "effect_title",
           "value",
           "overridden"
         ],
