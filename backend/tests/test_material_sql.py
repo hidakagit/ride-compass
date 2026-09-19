@@ -1,4 +1,4 @@
-"""`osm_way_tag_sql.py`の導出SQLを、人が書いた期待値で検証する。
+"""`material_sql.py`の導出SQLを、人が書いた期待値で検証する。
 
 地図タイル配信（`_ROAD_SURFACE_TILE_MVT_SQL`）・材料カバレッジ集計・軸スタジオの値列挙は、
 `material_catalog.py`のPython extractorを通らずこのSQL断片だけで材料を導出する。
@@ -17,9 +17,14 @@ import pytest
 from sqlalchemy import ARRAY, Text, bindparam, text
 
 from app.domain.graph import DirectedEdge
-from app.domain.material_catalog import MATERIAL_CATALOG, MaterialExtractionContext
+from app.domain.material_catalog import (
+    EXTRACTABLE_MATERIAL_IDS,
+    MATERIAL_CATALOG,
+    MaterialExtractionContext,
+)
 from app.domain.road import BAD_OSM_SURFACE_TAGS, GOOD_OSM_SURFACE_TAGS
-from app.infrastructure.osm_way_tag_sql import (
+from app.domain.material_sql import (
+    MATERIAL_VALUE_SQL,
     BICYCLE_NORMALIZED_SQL,
     BRIDGE_NORMALIZED_SQL,
     CYCLEWAY_TAGS_ARRAY_SQL,
@@ -34,7 +39,7 @@ from app.infrastructure.osm_way_tag_sql import (
     TUNNEL_NORMALIZED_SQL,
 )
 
-# 材料id → タイルSQLが焼いているのと同じ式。式をここへ書き写さず`osm_way_tag_sql.py`の
+# 材料id → タイルSQLが焼いているのと同じ式。式をここへ書き写さず`material_sql.py`の
 # 断片から組み立てる（写した側だけが古くなるのを防ぐ）。
 _SQL_BY_MATERIAL: dict[str, str] = {
     "surface_good": SURFACE_GOOD_CASE_SQL,
@@ -65,10 +70,10 @@ _SQL_BY_MATERIAL: dict[str, str] = {
 # （フィーチャーからキーを省いてタイルを軽くするための符号化）。Pythonのextractorは
 # way_tagsがあればFalse、無ければNoneを返し、この2つを区別する。
 #
-# したがって真偽の材料で今の両者に言えるのは「SQLがtrueを返すのはPythonがTrueのときだけ」
-# までで、FalseとNoneの区別はSQL側に無い。[T956](docs/tasks/T956.md)で導出をSQLへ移すときは
-# `CASE WHEN w.tags IS NULL THEN NULL ELSE 条件 END`へ変え、falseを表せるようにする。
-# 例外は`surface_good`だけで、SQL側も`CASE WHEN 良 THEN true WHEN 悪 THEN false END`。
+# したがってタイルの式について言えるのは「trueを返すのはPythonがTrueのときだけ」までで、
+# ここはそこまでを固定する。**材料の値を求める式（`MATERIAL_VALUE_SQL`）は別物**で、
+# そちらは`COALESCE(..., false)`で閉じextractorと同じ2値を返す。
+# 例外は`surface_good`だけで、タイルの式も`CASE WHEN 良 THEN true WHEN 悪 THEN false END`。
 # 「路面タグ不明」を「路面が悪い」と混同しないという要求が、タイルを軽くする符号化より
 # 優先された唯一の材料である。
 _SQL_EXPRESSES_FALSE = frozenset({"surface_good"})
@@ -284,3 +289,13 @@ def test_python_extractor_matches_the_same_expectations(case: _Case):
 def test_every_sql_derived_material_is_in_the_catalog():
     """SQLだけが知っている材料を作らない（カタログが材料の登録先の唯一）。"""
     assert set(_SQL_BY_MATERIAL) <= set(MATERIAL_CATALOG)
+
+
+def test_material_value_sql_covers_exactly_the_extractable_materials():
+    """SQL式とextractorは同じ材料集合を覆う。
+
+    材料を1つ増やしたとき、片方だけ書いて気付かないままになるのを止める。SQLで求められない
+    材料（リクエスト時に決まる風、評価へ配線していないDEFER材料）はextractorも持たないため、
+    両者は常に一致する。
+    """
+    assert set(MATERIAL_VALUE_SQL) == set(EXTRACTABLE_MATERIAL_IDS)

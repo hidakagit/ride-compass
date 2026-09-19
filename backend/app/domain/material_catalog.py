@@ -26,6 +26,8 @@ _ROAD_SURFACE_TILE_MVT_SQL`）に既に焼き込まれているプロパティ�
 """
 
 from dataclasses import dataclass
+
+import numpy as np
 from typing import Callable, Literal, Mapping
 
 from pydantic import ConfigDict
@@ -246,7 +248,7 @@ def _extract_surface_good(ctx: MaterialExtractionContext) -> bool | None:
 
 def _extract_surface(ctx: MaterialExtractionContext) -> str | None:
     raw = ctx.surface_attributes.get(ctx.edge_id)
-    # 地図が塗る値（osm_way_tag_sql.py: SURFACE_NORMALIZED_SQL）と同じ正規化を掛ける。
+    # 地図が塗る値（material_sql.py: SURFACE_NORMALIZED_SQL）と同じ正規化を掛ける。
     # 軸のCategoricalShapeは正規化後の値で折れ点を持つため、揃っていないと同じ道が
     # 地図と探索で違う分類になる。
     return None if raw is None else raw.strip().lower()
@@ -1040,3 +1042,22 @@ def material_dtype(material_id: str) -> MaterialDType | None:
     （呼び出し側は`is_known_material`で存在確認済みの前提だが、念のため例外にはしない）。"""
     spec = MATERIAL_CATALOG.get(material_id)
     return spec.dtype if spec is not None else None
+
+
+def material_array(spec: MaterialSpec, values: list[object]) -> "np.ndarray":
+    """DBが返した1材料ぶんの値の並びを、評価が使う配列へ写す。
+
+    欠損の表し方は材料の宣言で決まる（`MaterialSpec.bool_default`）。SQLから受けても
+    Pythonのextractorから受けても同じ配列になるよう、写し方はここ1箇所に置く。
+    """
+    if spec.dtype == "categorical":
+        array = np.empty(len(values), dtype=object)
+        array[:] = values
+        return array
+    if spec.dtype == "boolean" and spec.bool_default == "false":
+        return np.array([bool(v) for v in values], dtype=bool)
+    # numeric、またはbool_default="nan"のboolean（不明を非該当と混同しない材料）
+    return np.array(
+        [np.nan if v is None else float(v) for v in values],
+        dtype=np.float64,
+    )

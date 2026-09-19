@@ -9,7 +9,7 @@ Edge単位の派生テーブルの行有無）ため、材料id→「どの母�
 母集団は2種類:
 
 - `"way"`: `osm_raw_ways`全行（OSMタグ由来の材料）。欠損判定式は`infrastructure/
-  osm_way_tag_sql.py`の共有SQL断片を`road_graph_repository.py: _ROAD_SURFACE_TILE_MVT_SQL`
+  material_sql.py`の共有SQL断片を`road_graph_repository.py: _ROAD_SURFACE_TILE_MVT_SQL`
   （地図タイル配信）と共通で使う——両者ともRoad Graphを構築せず`osm_raw_ways`を直接
   クエリする経路のため、独立に書くと片方だけ変更されるドリフトを招く。
 - `"edge"`: `road_edges`全行（Edge単位の派生テーブル由来の材料）。派生テーブル
@@ -39,7 +39,7 @@ from sqlalchemy.types import Text
 from app.domain.attributes import WIRED_LANDCOVER_KEYS
 from app.domain.road import BAD_OSM_SURFACE_TAGS, GOOD_OSM_SURFACE_TAGS
 from app.domain.traffic import POI_COUNT_KINDS
-from app.infrastructure.osm_way_tag_sql import (
+from app.domain.material_sql import (
     BICYCLE_NORMALIZED_SQL,
     BRIDGE_NORMALIZED_SQL,
     CYCLEWAY_TAG_NAMES,
@@ -267,7 +267,7 @@ def build_way_coverage_sql(specs: dict[str, MaterialCoverageSpec] = MATERIAL_COV
             spec.join for spec in way_specs.values() if spec.join
         )
     )
-    # AS w: infrastructure/osm_way_tag_sql.pyの共有SQL断片がosm_raw_waysをこのエイリアスで
+    # AS w: domain/material_sql.pyの共有SQL断片がosm_raw_waysをこのエイリアスで
     # 参照する前提のため（_ROAD_SURFACE_TILE_MVT_SQLと同じエイリアス）。
     sql = (  # noqa: S608 固定の内部辞書のみ使用
         f"SELECT count(*) AS total{', ' + columns if columns else ''} FROM osm_raw_ways AS w{joins}"

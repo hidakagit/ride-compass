@@ -7,6 +7,7 @@ import numpy as np
 
 from app.domain.geo import haversine_distance_km
 from app.domain.graph import RoadGraph, RoadGraphLike
+from app.domain.material_sql import MATERIAL_ID_GRADIENT_PERCENT
 from app.domain.route import Coordinates
 from app.domain.strict_model import StrictModel
 
@@ -610,3 +611,67 @@ def surface_by_edge_id(graph: RoadGraph, surface_by_way_id: dict[int, str | None
         edge_id: surface_by_way_id.get(edge.osm_way_id) if edge.osm_way_id is not None else None
         for edge_id, edge in graph.edges.items()
     }
+
+
+@dataclass(frozen=True, slots=True)
+class EdgeMaterialArrays:
+    """タイル1枚ぶんの材料を、材料id→numpy配列で保持する表現。
+
+    値はDBが導出したものをそのまま受ける（`domain/material_sql.py: MATERIAL_VALUE_SQL`）。
+    区間ごとのPythonオブジェクトを経由しないため、構築も復元もEdge数に比例しない。
+
+    `material_ids`は`values`が持つ列の並びで、**ディスクから復元したときに現在の材料集合と
+    突き合わせるためにある**。材料を1つ増やしてもdataclassのフィールドは変わらず
+    `cache_identity.shape_digest`が動かないため、鍵だけでは古い表を弾けない
+    （`tile_score_matrix_cache`が可変長の列に対して行っているのと同じ、読み出し時の検証）。
+
+    `no_bicycle`は材料ではなく0次ハードフィルタの生フラグ。同じ1回のクエリで求まるため
+    ここへ持たせる（別に引くとタイルごとにもう1往復増える）。
+
+    標高の列は**材料ではない表示用の値**（`data_source`・`calculated_at`等）。経路が確定した
+    あとの数百区間について`elevation_attribute()`が`ElevationAttribute`を組み立てる
+    （`road_graph_engine.py: _fetch_elevation_attributes`）。勾配そのものは材料
+    `gradient_percent`にあるため、ここでは重複して持たない。
+    """
+
+    edge_ids: list[str]
+    material_ids: tuple[str, ...]
+    values: dict[str, np.ndarray]
+    no_bicycle: np.ndarray  # dtype=bool
+    elevation_present: np.ndarray  # dtype=bool
+    elevation_start_m: np.ndarray  # dtype=float64, NaN=欠損
+    elevation_end_m: np.ndarray
+    elevation_gain_m: np.ndarray
+    elevation_loss_m: np.ndarray
+    elevation_max_grade: np.ndarray
+    elevation_min_grade: np.ndarray
+    elevation_data_source: list[str | None]
+    elevation_data_version: list[str | None]
+    elevation_calculated_at: list[str | None]
+    _row_index: dict[str, int] | None = field(default=None)
+
+    def __post_init__(self) -> None:
+        if self._row_index is None:
+            object.__setattr__(self, "_row_index", {edge_id: i for i, edge_id in enumerate(self.edge_ids)})
+
+    def __len__(self) -> int:
+        return len(self.edge_ids)
+
+    def elevation_attribute(self, edge_id: str) -> ElevationAttribute | None:
+        """行が無い、または標高が未計算ならNone。"""
+        i = self._row_index.get(edge_id)
+        if i is None or not self.elevation_present[i]:
+            return None
+        return ElevationAttribute(
+            edge_id=edge_id,
+            start_elevation_m=_none_if_nan(self.elevation_start_m[i]),
+            end_elevation_m=_none_if_nan(self.elevation_end_m[i]),
+            elevation_gain_m=_none_if_nan(self.elevation_gain_m[i]),
+            elevation_loss_m=_none_if_nan(self.elevation_loss_m[i]),
+            average_grade=_none_if_nan(self.values[MATERIAL_ID_GRADIENT_PERCENT][i]),
+            max_grade=_none_if_nan(self.elevation_max_grade[i]),
+            min_grade=_none_if_nan(self.elevation_min_grade[i]),
+            data_source=self.elevation_data_source[i],
+            data_version=self.elevation_data_version[i],
+            calculated_at=self.elevation_calculated_at[i],
+        )

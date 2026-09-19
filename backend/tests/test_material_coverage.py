@@ -14,7 +14,7 @@ from app.infrastructure.material_coverage import (
     WayMaterialCoverageSpec,
     build_way_coverage_sql,
 )
-from app.infrastructure.osm_way_tag_sql import (
+from app.domain.material_sql import (
     BRIDGE_NORMALIZED_SQL,
     LANES_COUNT_CASE_SQL,
     LIT_NORMALIZED_SQL,
@@ -66,7 +66,7 @@ def test_specs_carry_source_description_and_population():
             assert spec.present_count_sql.lstrip().upper().startswith("SELECT COUNT(*)")
 
 
-# --- way母集団の判定式は infrastructure/osm_way_tag_sql.py の共有SQL断片を
+# --- way母集団の判定式は domain/material_sql.py の共有SQL断片を
 # _ROAD_SURFACE_TILE_MVT_SQLと文字どおり同じ定数から組み立てる（同じPython定数を
 # 使う以上ドリフトしようがないため、両クエリの文字列を突き合わせる契約テストは不要）。
 
@@ -87,7 +87,7 @@ def test_specs_carry_source_description_and_population():
 )
 def test_way_missing_condition_uses_shared_fragment_also_used_by_mvt_sql(material_id: str, fragment: str):
     """`MATERIAL_COVERAGE_SPECS`の判定式と`_ROAD_SURFACE_TILE_MVT_SQL`が、同じ
-    `osm_way_tag_sql.py`の定数を実際に使っていることを確認する（両クエリが同じ
+    `material_sql.py`の定数を実際に使っていることを確認する（両クエリが同じ
     Python文字列を参照する構成そのものが一致を保証するため、独立した2つの文字列を
     突き合わせる旧方式より確実）。"""
     spec = MATERIAL_COVERAGE_SPECS[material_id]

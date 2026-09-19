@@ -11,7 +11,7 @@
 
 | レイヤー | ファイル |
 |---|---|
-| domain | `evaluation.py`（Edge Costの算出。スカラー／ベクトル／タイル静的行列の3表現）・`hard_filters.py`（0次フィルタ）・`route_preference.py`（重み指定）・`dynamic_materials.py`（風などリクエスト時に決まる材料）・`axis_inspector.py`（区間インスペクタ、Way単位の材料解決）・`difficulty.py`・`material_catalog.py`・`recipe.py` |
+| domain | `evaluation.py`（Edge Costの算出。スカラー／ベクトル／タイル静的行列の3表現）・`hard_filters.py`（0次フィルタ）・`route_preference.py`（重み指定）・`dynamic_materials.py`（風などリクエスト時に決まる材料）・`axis_inspector.py`（区間インスペクタ、Way単位の材料解決）・`difficulty.py`・`material_catalog.py`・`material_sql.py`（材料の値をSQLで導出する式）・`recipe.py` |
 | services | `evaluation_service.py`・`material_coverage_service.py` |
 | infrastructure | `material_coverage.py`（材料ごとの欠損割合の集計クエリ） |
 | api | `material_catalog.py`（材料カタログ・材料値一覧・欠損割合のエンドポイント） |
@@ -21,19 +21,19 @@ domainのファイルは**変更理由で分けてある**。`evaluation.py`が�
 APIが受け取る重みの形を変えるとき、`dynamic_materials.py`は動的材料を増やすとき、
 `axis_inspector.py`は区間インスペクタの内訳表示を変えるとき。
 
-`infrastructure/osm_way_tag_sql.py`（`osm_raw_ways`のOSMタグ分類SQL断片の単一の情報源、
+`material_sql.py`が**domainにある**のは、材料が何から導かれるかがdomainの知識だから。
 [routing-engine.md](routing-engine.md)の`_ROAD_SURFACE_TILE_MVT_SQL`と本モジュールの
-`material_coverage.py`が共有する）は[routing-engine.md](routing-engine.md)が主管するため
-対象表には加えず参照のみ行う。
+`material_coverage.py`が同じ式を参照する——infrastructureの各所がそれぞれSQLを書くと、
+一方だけ変わったときに気付けない。
 
 **材料の導出は、この断片（SQL）と`material_catalog.py`のextractor（Python）の2か所にある。**
 地図配信・カバレッジ集計・軸スタジオの値列挙はSQLだけを通り、探索はPythonだけを通る。
-`tests/test_osm_way_tag_sql.py`が同じ期待値を両方へ当て、片方だけを変えたときに落ちる。
+`tests/test_material_sql.py`が同じ期待値を両方へ当て、片方だけを変えたときに落ちる。
 
-真偽の材料では**両者の表現力が違う**。タイルSQLは`CASE WHEN 条件 THEN true END`で
-「該当しない」と「判定できない」をどちらもNULLへ畳む（キーを省いてタイルを軽くするための
-符号化）のに対し、extractorはway_tagsがあればFalse、無ければNoneを返し区別する。
-例外は`surface_good`だけで、SQL側も`true`/`false`/NULLを区別する（「路面タグ不明」を
+**タイルへ焼く式と、材料の値を求める式は別物**。前者は`CASE WHEN 条件 THEN true END`で
+「該当しない」をNULLへ畳む（キーを省いてタイルを軽くするための符号化）。後者
+（`MATERIAL_VALUE_SQL`）は`COALESCE(..., false)`で閉じ、extractorと同じ2値を返す。
+例外は`surface_good`で、タイル側も`true`/`false`/NULLを区別する（「路面タグ不明」を
 「路面が悪い」と混同しないという要求が符号化より優先された）。
 
 ## 0次ハードフィルタ（`domain/hard_filters.py`）
@@ -409,7 +409,7 @@ extractorが受け取るcontextは、**材料の数が増えてもフィール�
 
 | 母集団 | 対象 | 判定 |
 |---|---|---|
-| `"way"` | `osm_raw_ways`全行 | `missing_condition`（`osm_raw_ways`の列・`tags` JSONBのみで構成したSQL真偽式、`infrastructure/osm_way_tag_sql.py`の共有断片から組み立てる）。全way材料を`count(*) FILTER`で1回の走査にまとめる（`build_way_coverage_sql`、`FROM osm_raw_ways AS w`）。判定式は[routing-engine.md](routing-engine.md)の`_ROAD_SURFACE_TILE_MVT_SQL`と同じPython定数を参照するため、独立した2つの文字列を突き合わせる形の整合性テストは持たない（同じ定数を使う構成自体が一致を保証する） |
+| `"way"` | `osm_raw_ways`全行 | `missing_condition`（`osm_raw_ways`の列・`tags` JSONBのみで構成したSQL真偽式、`domain/material_sql.py`の共有断片から組み立てる）。全way材料を`count(*) FILTER`で1回の走査にまとめる（`build_way_coverage_sql`、`FROM osm_raw_ways AS w`）。判定式は[routing-engine.md](routing-engine.md)の`_ROAD_SURFACE_TILE_MVT_SQL`と同じPython定数を参照するため、独立した2つの文字列を突き合わせる形の整合性テストは持たない（同じ定数を使う構成自体が一致を保証する） |
 | `"edge"` | `road_edges`全行 | `present_count_sql`（「値ありEdge数」を返すSELECT）。`elevation_attributes`・`edge_attribute_counts`は`edge_id`が`road_edges`へのFK（ON DELETE CASCADE）のため、派生テーブルの行数をそのまま使いJOINを省く |
 
 - **「行がある」と「値がある」を混同しない**。派生テーブルが「行が無い＝未計算」と
