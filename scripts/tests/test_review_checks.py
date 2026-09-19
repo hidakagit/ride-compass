@@ -1726,3 +1726,24 @@ def test_find_undocumented_tables_only_looks_at_the_given_scope(monkeypatch):
     hits = review_checks.find_undocumented_tables([_DDL_FILE, _ORM_FILE], scope=[_ORM_FILE])
 
     assert [h for h in hits if "way_geometry" in h] == []
+
+
+def test_find_stale_task_premises_ignores_a_name_that_never_existed(monkeypatch):
+    """未完了タスクは「これから作るもの」の名前を正当に書く。実在しないだけでは挙げない。"""
+    monkeypatch.setattr(review_checks, "open_task_files", lambda: ["docs/tasks/T943.md"])
+    monkeypatch.setattr(
+        review_checks, "read_text", lambda p: "`zzzNeverExistedIdent`を新設する。")
+
+    assert review_checks.find_stale_task_premises([]) == []
+
+
+def test_find_stale_task_premises_reports_a_name_the_repository_once_had(monkeypatch):
+    """撤去された名前は、そのタスクの前提が崩れた合図になる。"""
+    monkeypatch.setattr(review_checks, "open_task_files", lambda: ["docs/tasks/T629.md"])
+    # `MapLayersPanel`は実際に撤去済み。pickaxeが履歴から見つけることまで込みで確かめる。
+    monkeypatch.setattr(
+        review_checks, "read_text", lambda p: "`MapLayersPanel`の再編に着手するとき。")
+
+    hits = review_checks.find_stale_task_premises([])
+
+    assert len(hits) == 1 and "MapLayersPanel" in hits[0]

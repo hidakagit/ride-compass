@@ -1491,7 +1491,7 @@ T940 → T941 → T942 → T943 を推奨。
 - [x] [T940](tasks/T940.md). 較正値`evaluation.penalty_strength`の`RESTART`が実現不能で、管理画面は効かない値を「効いている」と表示する 規模S
 - [ ] [T941](tasks/T941.md). 区間インスペクタだけが土地被覆をway単位で読み、地図の色と内訳が食い違う 規模M
 - [x] [T942](tasks/T942.md). architecture.mdにT805（較正値）・edge_landcover・tile_version_serviceが存在しない 規模S
-- [ ] [T943](tasks/T943.md). トリガー付きタスク6件の前提が、この期間の完了タスクで無効化された 規模S
+- [x] [T943](tasks/T943.md). トリガー付きタスク6件の前提が、この期間の完了タスクで無効化された 規模S
 
 ### 第2段: P2/P3を型ごとに束ねたもの
 

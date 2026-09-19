@@ -1261,6 +1261,46 @@ def find_undocumented_tables(files: list[str], scope: list[str] | None = None) -
     ]
 
 
+def open_task_files() -> list[str]:
+    """台帳が未完了（`- [ ]`）として挙げているタスクのファイル。"""
+    plan = read_text(REPO_ROOT / PLAN_DOC)
+    return [
+        f"docs/tasks/T{n}.md"
+        for n in re.findall(r"^- \[ \] \[T(\d{3,4})\]\(tasks/T\d{3,4}\.md\)", plan, re.M)
+        if (REPO_ROOT / f"docs/tasks/T{n}.md").exists()
+    ]
+
+
+def find_stale_task_premises(files: list[str]) -> list[str]:
+    """未完了タスクの本文が、**かつて実装にあって撤去された**名前を前提にしている箇所。
+
+    未完了タスクは「これから作るもの」の名前を正当に書くため、実在しないことだけでは
+    違反にならない。**撤去された**（履歴のどこかで実装から消された）ことが、前提が
+    無効になった合図になる。判定はgitのpickaxeで、実装のパスに限る。
+
+    参考出力に留める。実測（T943、未完了49件）では27件の候補のうち12件が「かつてあった」
+    側で、うち真に前提が崩れているのは7件（58%）だった。残りはテストの補助関数名・外部の
+    製品コード・**その撤去自体を扱うタスク**で、これは人にしか見分けられない。
+    """
+    corpus = source_corpus(files)
+    named: dict[str, set[str]] = {}
+    for task in open_task_files():
+        for m in DOC_IDENT_RE.finditer(read_text(REPO_ROOT / task)):
+            ident = m.group(1)
+            if ident not in corpus:
+                named.setdefault(ident, set()).add(task)
+    hits = []
+    for ident, tasks in sorted(named.items()):
+        if not git("log", "-S", ident, "--oneline", "-1", "--",
+                   "backend", "frontend", "scripts", check=False).strip():
+            continue
+        hits.append(
+            f"{'・'.join(sorted(tasks))}: `{ident}` は実装から撤去済み"
+            "——そのタスクの前提・トリガーがまだ成り立つかを見ること"
+        )
+    return hits
+
+
 def find_undeclared_dead_refs(
     doc_lines: dict[str, list[tuple[int, str]]], files: list[str], corpus: str,
     revision: str | None = None,
@@ -2560,6 +2600,10 @@ DETECTOR_ENFORCEMENT: dict[str, frozenset[str]] = {
     # 参考表示のみ。近い語を持つ2件を別々に進めるのが正しいこともあり、人にしか決められない。
     # 起票の瞬間に既存の未完了エントリへ目を向けるのが目的。
     "plan_entry_overlap": frozenset(),
+    # 参考表示のみ。「これから作る名前」と「撤去された名前」はgitの履歴で分けられるが、
+    # 残る誤りの側（テストの補助関数名・外部の製品コード・撤去自体を扱うタスク）は
+    # 人にしか見分けられない（実測はdocs/tasks/T943.md）。
+    "stale_task_premises": frozenset(),
 }
 
 
@@ -2764,6 +2808,12 @@ def cmd_docs(args: argparse.Namespace) -> int:
             add("unfiled_deferrals", f"[x]化したタスクの、別タスクへ渡していない残り（{args.since} 以降、参考、人が判断する）",
                 lambda: find_unfiled_deferrals(args.since))
         md_files = [f for f in files if f.endswith(".md") and (f.startswith((".claude/", "docs/")) or f == "CLAUDE.md")]
+        # 全件走査（周期レビュー）のときだけ走らせる。候補1つにつきgitのpickaxeを1回
+        # 引くため25秒かかり（実測）、毎コミットのCIが払う時間ではない。撤去済みかどうかは
+        # 差分ではなく履歴で決まるので、周期的に見れば取りこぼさない。
+        if not args.since:
+            add("stale_task_premises", "未完了タスクが前提にする、撤去済みの名前（参考、人が判断する）",
+                lambda: find_stale_task_premises(files))
         add("dead_doc_links", "history/・docs/tasks への死んだリンク（.claude・docs 全件）",
             lambda: check_dead_doc_links(md_files))
         add("undefined_css_tokens", "未定義のCSSトークン（全件）",
