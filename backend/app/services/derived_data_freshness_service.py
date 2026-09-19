@@ -77,7 +77,7 @@ def build_freshness_report(counts: DerivedDataFreshnessCounts, computed_at: date
         sources: list[SourceFreshnessEntry] = []
         table_is_stale = False
         for source_spec in spec.sources:
-            latest_available = counts.latest_succeeded_run_id.get(source_spec.run_table)
+            latest_available = gen_counts.latest_available.get(source_spec.source_column)
             earliest_reflected = gen_counts.source_min[source_spec.source_column]
             is_stale = latest_available is not None and (
                 earliest_reflected is None or earliest_reflected < latest_available

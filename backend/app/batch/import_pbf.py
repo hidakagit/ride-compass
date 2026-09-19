@@ -415,9 +415,9 @@ async def run_import(
                 )
 
             await conn.execute(
-                "UPDATE osm_import_runs SET status='succeeded', finished_at=$2, way_count=$3, node_count=$4 "
-                "WHERE id=$1",
-                run_id, datetime.now(timezone.utc), total_ways, total_nodes,
+                "UPDATE osm_import_runs SET status='succeeded', finished_at=$2, way_count=$3, node_count=$4, "
+                "poi_count=$5 WHERE id=$1",
+                run_id, datetime.now(timezone.utc), total_ways, total_nodes, total_pois,
             )
             # 取込のたびに現在のDBサイズをサマリへ出す（増え方を追えるようにするため。
             # 上限そのものは運用の判断で、このバッチは持たない）。

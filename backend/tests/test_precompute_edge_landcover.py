@@ -108,6 +108,37 @@ async def test_増分実行は計算済みの区間を対象にしない(road_gr
     assert first == second
 
 
+async def test_今の切り方に無い区間の行は消す(road_graph_repository, road_graph_session, tmp_path):
+    """再splitで切り方が変わると、古い鍵の行が取り残される。
+
+    鍵は（way＋両端ノード）で`edge_id`ではないため、兄弟の`edge_attribute_counts`のような
+    FK ON DELETE CASCADEを張れない。取り残した行は**切り方が元へ戻った瞬間に、古いラスタ・
+    古いアルゴリズム版の値が生きた値として復活する**（増分実行は「値を持つ行がある」ので
+    再計算対象から外す）。
+    """
+    way = WaySpec(osm_way_id=105, node_ids=[1, 2], highway="residential")
+    await _save_way_with_edges(road_graph_repository, road_graph_session, [way], {1: NODE1, 2: NODE2})
+    raster = _write_all_trees_raster(tmp_path / "54S_2025.tif")
+    # 今の切り方には無い区間の行（過去のsplitの残骸）。
+    await road_graph_session.execute(
+        text(
+            "INSERT INTO edge_landcover (osm_way_id, node_lo, node_hi, data_source, data_version, "
+            "computed_at, algorithm_version, trees_percent) "
+            "VALUES (105, 'gone-lo', 'gone-hi', 'test', '2020', now(), 'v0', 99.0)"
+        )
+    )
+    await road_graph_session.commit()
+
+    assert await run(postgis_database_url(), [raster], 100.0, 10.0, None, False, False) == 0
+
+    orphans = (
+        await road_graph_session.execute(
+            text("SELECT count(*) FROM edge_landcover WHERE node_lo = 'gone-lo'")
+        )
+    ).scalar_one()
+    assert orphans == 0
+
+
 async def test_ラスタ範囲外の区間も値なしで記録する(road_graph_repository, road_graph_session, tmp_path):
     """行を残さないと、増分実行が毎回同じ区間をラスタ読み込みからやり直す
     （way単位と同じ扱い）。"""

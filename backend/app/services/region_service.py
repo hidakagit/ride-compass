@@ -15,9 +15,9 @@ from app.infrastructure.road_graph_repository import (
 )
 from app.infrastructure.vector_tile import encode_empty_poi_tile, encode_empty_road_surface_tile
 from app.services.graph_service import GraphService
-from app.services.tile_version_service import current_tile_versions
 from app.services import derived_data_revision_service
 from app.services.tile_serving import MVT_CONTENT_TYPE, TileResponse, serve_cached_tile
+from app.services.tile_version_service import current_tile_versions, served_tile_version
 
 logger = logging.getLogger("ridecompass.region")
 
@@ -100,11 +100,11 @@ def _maybe_trigger_graph_build(ancestor_tile: tuple[int, int, int]) -> None:
 
 
 def _tile_cache_path(z: int, x: int, y: int) -> str:
-    return f"region/road-surface/v{ROAD_SURFACE_TILE_SHAPE}/{z}/{x}/{y}.pbf"
+    return f"region/road-surface/v{served_tile_version(ROAD_SURFACE_TILE_SHAPE)}/{z}/{x}/{y}.pbf"
 
 
 def _poi_tile_cache_path(z: int, x: int, y: int) -> str:
-    return f"region/poi/v{POI_TILE_SHAPE}/{z}/{x}/{y}.pbf"
+    return f"region/poi/v{served_tile_version(POI_TILE_SHAPE)}/{z}/{x}/{y}.pbf"
 
 
 class RegionService:

@@ -115,7 +115,11 @@ def set_accident_years_covered(value: int) -> None:
 
 
 def clear() -> None:
-    """テスト用。キャッシュを全消去する（本番コードパスからは呼ばない）。
+    """キャッシュを全消去する。
+
+    **本番でも呼ばれる**——DBの派生データ世代が変わったときに
+    `sync_disk_cache_with_derived_data_revision`が`clear`として渡す（材料はテーブルの
+    中身そのものなので、作り直されたら捨てるしかない）。テストの後始末にも使う。
 
     メモリLRUだけでなくディスク永続化キャッシュ（tile_persistent_cache）も
     削除する。片方だけ残すとテスト間の汚染経路が増える（ディスクが前のテストの内容を

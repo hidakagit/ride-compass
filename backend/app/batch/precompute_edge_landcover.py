@@ -80,6 +80,35 @@ def _representative_edges():
     )
 
 
+#: 今の区間の切り方に対応しない行を消すSQL。
+#:
+#: `edge_landcover`の鍵は（way＋両端ノード）で`road_edges.edge_id`ではないため、兄弟の
+#: `edge_attribute_counts`のようなFK ON DELETE CASCADEを張れない。再splitで切り方が変わると
+#: 古い行が取り残され、**切り方が元へ戻ったときに古いラスタ・古いアルゴリズム版の値が
+#: 生きた値として復活する**（増分実行は「値を持つ行がある」ので再計算対象から外す）。
+#: 拾い直せる合図は他に無いので、計算の前に毎回掃除する。
+_DELETE_ORPHAN_EDGE_LANDCOVER_SQL = text(
+    """
+    DELETE FROM edge_landcover el
+    WHERE NOT EXISTS (
+        SELECT 1 FROM road_edges re
+        WHERE re.osm_way_id = el.osm_way_id
+          AND least(re.from_node_id, re.to_node_id) = el.node_lo
+          AND greatest(re.from_node_id, re.to_node_id) = el.node_hi
+    )
+    """
+)
+
+
+async def _delete_orphan_rows(session_factory, logger_) -> int:
+    async with session_factory() as session:
+        deleted = (await session.execute(_DELETE_ORPHAN_EDGE_LANDCOVER_SQL)).rowcount or 0
+        await session.commit()
+    if deleted:
+        logger_.warning("今の区間の切り方に対応しないedge_landcoverを削除しました rows=%d", deleted)
+    return deleted
+
+
 def _target_edge_ids_stmt(recompute: bool, raster_set: str | None = None, algorithm: str | None = None):
     """対象区間の代表`edge_id`を地理的順序で選ぶselect。`recompute=False`（既定）では
     既に結果を持つ区間をanti-joinで除外する（`precompute_way_landcover.py`と同じ考え方——
@@ -153,6 +182,7 @@ def _plan(version: str, raster_set: str, recompute: bool) -> LandcoverPlan:
             source_raster_set=stamp.source_raster_set,
         ),
         save=lambda repository, records: repository.save_edge_landcover(records),
+        prepare=lambda session_factory: _delete_orphan_rows(session_factory, logger),
     )
 
 

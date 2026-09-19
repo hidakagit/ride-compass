@@ -2,6 +2,7 @@
 services/derived_data_freshness_service.py）のDB非依存テスト。
 実DBでの集計はtest_derived_data_freshness_repository.py（postgis）が担う。"""
 
+from dataclasses import replace
 from datetime import datetime, timezone
 
 from app.batch.precompute_edge_attribute_counts import ALGORITHM_VERSION as EDGE_ALGORITHM_VERSION
@@ -45,6 +46,7 @@ def _edge_counts(
     row_count: int = 5,
 ) -> GenerationFreshnessCounts:
     return GenerationFreshnessCounts(
+        latest_available={},
         table_name="edge_attribute_counts",
         row_count=row_count,
         source_min={
@@ -64,6 +66,7 @@ def _way_counts(**kwargs) -> GenerationFreshnessCounts:
     kwargs.setdefault("algorithm_version_min", WAY_ALGORITHM_VERSION)
     counts = _edge_counts(**kwargs)
     return GenerationFreshnessCounts(
+        latest_available={},
         table_name="way_attribute_counts",
         row_count=counts.row_count,
         source_min=counts.source_min,
@@ -77,6 +80,7 @@ def _designation_counts(
     *, osm_min: int | None = 10, osm_null: int = 0, row_count: int = 5
 ) -> GenerationFreshnessCounts:
     return GenerationFreshnessCounts(
+        latest_available={},
         table_name="designation_attributes",
         row_count=row_count,
         source_min={"source_osm_import_run_id": osm_min},
@@ -95,6 +99,7 @@ def _landcover_counts(
     row_count: int = 5,
 ) -> GenerationFreshnessCounts:
     return GenerationFreshnessCounts(
+        latest_available={},
         table_name="way_landcover",
         row_count=row_count,
         source_min={"source_osm_import_run_id": osm_min},
@@ -112,6 +117,7 @@ def _default_counts(spec, *, latest: int = 10) -> GenerationFreshnessCounts:
     `build_freshness_report`のzip(strict=True)が落ちるまで気づけない。
     """
     return GenerationFreshnessCounts(
+        latest_available={source.source_column: latest for source in spec.sources},
         table_name=spec.table_name,
         row_count=5,
         source_min={source.source_column: latest for source in spec.sources},
@@ -137,12 +143,24 @@ def _counts(
         for counts in (edge, way, designation, landcover)
         if counts is not None
     }
+    def _with_latest(counts: GenerationFreshnessCounts, spec) -> GenerationFreshnessCounts:
+        # 高水位はテーブルごとに持つ（同じ取込runでも、何を書いたかで古くなるテーブルが
+        # 変わる）。テストの側で書き並べず、specの情報源から組み立てる。
+        return replace(
+            counts,
+            latest_available={
+                source.source_column: (
+                    latest_accident if source.run_table == "accident_import_runs" else latest_osm
+                )
+                for source in spec.sources
+            },
+        )
+
     return DerivedDataFreshnessCounts(
         generations=tuple(
-            overrides.get(spec.table_name) or _default_counts(spec)
+            _with_latest(overrides.get(spec.table_name) or _default_counts(spec), spec)
             for spec in GENERATION_FRESHNESS_SPECS
         ),
-        latest_succeeded_run_id={"accident_import_runs": latest_accident, "osm_import_runs": latest_osm},
         completeness=tuple(
             CompletenessCounts(label=spec.label, population=population, uncalculated=uncalculated)
             for spec in COMPLETENESS_SPECS

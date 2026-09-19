@@ -24,6 +24,7 @@ from app.domain.gradient import GradientCalculator
 from app.domain.region import ROAD_GRAPH_TILE_ZOOM, tile_ancestor, tile_bounds_lonlat
 from app.infrastructure.debug_log import log_external_call
 from app.infrastructure.dynamic_way_value_cache import get_tile_values, set_tile_values
+from app.services import derived_data_revision_service
 from app.infrastructure.road_graph_repository import RoadGraphRepository
 
 logger = logging.getLogger("ridecompass.gradient_way")
@@ -76,7 +77,10 @@ class GradientWayService:
         ancestor_x, ancestor_y = tile_ancestor(z, x, y, ROAD_GRAPH_TILE_ZOOM)
 
         with log_external_call("region:gradient-way-values", z=z, x=x, y=y) as fields:
-            cached = await get_tile_values(self.axis_id, z, x, y, None, bearing_deg)
+            # 世代は鍵の一部（`dynamic_way_value_cache`のdocstring参照）。渡し忘れると
+            # 世代をまたいだ値を配る。
+            revision = derived_data_revision_service.current_revision()
+            cached = await get_tile_values(self.axis_id, z, x, y, None, bearing_deg, revision=revision)
             if cached is not None:
                 fields["cache_hit"] = len(cached)
                 fields["cache_status"] = "hit"
@@ -108,6 +112,9 @@ class GradientWayService:
                 for feature_key, (gradient_percent, road_bearing_deg) in inputs.items()
                 if GradientCalculator.shows_gradient(road_bearing_deg, bearing_deg)
             }
-            await set_tile_values(self.axis_id, z, x, y, None, bearing_deg, values, GRADIENT_TILE_VALUES_TTL_SECONDS)
+            await set_tile_values(
+                self.axis_id, z, x, y, None, bearing_deg, values, GRADIENT_TILE_VALUES_TTL_SECONDS,
+                revision=revision,
+            )
             fields["computed"] = len(values)
             return values

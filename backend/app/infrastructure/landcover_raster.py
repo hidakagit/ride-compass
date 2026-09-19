@@ -163,6 +163,16 @@ def has_sources() -> bool:
     return bool(_open_sources())
 
 
+def opened_raster_paths() -> list[str]:
+    """**実際に開けている**ラスタのパス。
+
+    設定された一覧とは違いうる（起動時に1枚だけ置かれていない等）。タイルの中身は
+    開けている側に従うため、キャッシュの鍵はこちらから作る——設定の側で鍵を作ると、
+    欠けたゾーンの継ぎ目が「完全な構成」の鍵で恒久的に残る。
+    """
+    return [source.dataset.name for source in _open_sources()]
+
+
 def render_tile(z: int, x: int, y: int) -> bytes | None:
     """1タイルぶんのPNG（RGBA、256x256）を返す。
 

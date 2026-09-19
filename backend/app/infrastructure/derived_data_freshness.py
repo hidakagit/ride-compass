@@ -36,6 +36,11 @@ class SourceRunSpec:
     label: str
     run_table: str
     source_column: str
+    #: **その取込runが何を書いたときに、この派生テーブルが古くなるか**（runの件数列）。
+    #: 空なら成功したrunすべてが高水位になる。`--pois-only`の取込はway・nodeを1行も
+    #: 書かずに成功行を残すため、これが無いとway由来の派生テーブルまで一斉に古い判定に
+    #: なる（逆に、POIを数える`edge_attribute_counts`は本当に古くなる）。
+    wrote_columns: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -56,7 +61,10 @@ GENERATION_FRESHNESS_SPECS: tuple[GenerationFreshnessSpec, ...] = (
         table_name="edge_attribute_counts",
         sources=(
             SourceRunSpec("事故取込", "accident_import_runs", "source_accident_import_run_id"),
-            SourceRunSpec("OSM取込", "osm_import_runs", "source_osm_import_run_id"),
+            # 区間ごとの停止要因POIの数を持つため、way・POIのどちらが入れ替わっても古くなる。
+            SourceRunSpec(
+                "OSM取込", "osm_import_runs", "source_osm_import_run_id", ("way_count", "poi_count")
+            ),
         ),
         algorithm_version_current=_EDGE_ALGORITHM_VERSION,
         algorithm_version_owner="precompute_edge_attribute_counts.ALGORITHM_VERSION",
@@ -65,32 +73,32 @@ GENERATION_FRESHNESS_SPECS: tuple[GenerationFreshnessSpec, ...] = (
         table_name="way_attribute_counts",
         sources=(
             SourceRunSpec("事故取込", "accident_import_runs", "source_accident_import_run_id"),
-            SourceRunSpec("OSM取込", "osm_import_runs", "source_osm_import_run_id"),
+            SourceRunSpec("OSM取込", "osm_import_runs", "source_osm_import_run_id", ("way_count",)),
         ),
         algorithm_version_current=_WAY_ALGORITHM_VERSION,
         algorithm_version_owner="precompute_way_attribute_counts.ALGORITHM_VERSION",
     ),
     GenerationFreshnessSpec(
         table_name="designation_attributes",
-        sources=(SourceRunSpec("OSM取込", "osm_import_runs", "source_osm_import_run_id"),),
+        sources=(SourceRunSpec("OSM取込", "osm_import_runs", "source_osm_import_run_id", ("way_count",)),),
         algorithm_version_current=None,
         algorithm_version_owner=None,
     ),
     GenerationFreshnessSpec(
         table_name="way_landcover",
-        sources=(SourceRunSpec("OSM取込", "osm_import_runs", "source_osm_import_run_id"),),
+        sources=(SourceRunSpec("OSM取込", "osm_import_runs", "source_osm_import_run_id", ("way_count",)),),
         algorithm_version_current=_LANDCOVER_ALGORITHM_VERSION,
         algorithm_version_owner="precompute_way_landcover.ALGORITHM_VERSION",
     ),
     GenerationFreshnessSpec(
         table_name="edge_landcover",
-        sources=(SourceRunSpec("OSM取込", "osm_import_runs", "source_osm_import_run_id"),),
+        sources=(SourceRunSpec("OSM取込", "osm_import_runs", "source_osm_import_run_id", ("way_count",)),),
         algorithm_version_current=_LANDCOVER_ALGORITHM_VERSION,
         algorithm_version_owner="precompute_edge_landcover.ALGORITHM_VERSION",
     ),
     GenerationFreshnessSpec(
         table_name="way_divided_carriageway",
-        sources=(SourceRunSpec("OSM取込", "osm_import_runs", "source_osm_import_run_id"),),
+        sources=(SourceRunSpec("OSM取込", "osm_import_runs", "source_osm_import_run_id", ("way_count",)),),
         algorithm_version_current=_DIVIDED_CARRIAGEWAY_ALGORITHM_VERSION,
         algorithm_version_owner="precompute_way_divided_carriageway.ALGORITHM_VERSION",
     ),
@@ -205,7 +213,17 @@ def build_generation_freshness_sql(spec: GenerationFreshnessSpec):
     return text(sql)
 
 
-_LATEST_SUCCEEDED_RUN_ID_SQL_TEMPLATE = "SELECT MAX(id) FROM {run_table} WHERE status = 'succeeded'"
+def _latest_succeeded_run_id_sql(source: "SourceRunSpec") -> str:
+    """その派生テーブルにとっての高水位を返すSQL。
+
+    件数列がNULLのrunは「不明」として**書いたものとして数える**（安全側＝古い判定へ倒す）。
+    列を足す前の行と、件数を記録しない経路の両方がここに当たる。
+    """
+    sql = f"SELECT MAX(id) FROM {source.run_table} WHERE status = 'succeeded'"  # noqa: S608 固定の内部辞書のみ
+    if not source.wrote_columns:
+        return sql
+    wrote = " OR ".join(f"COALESCE({column}, 1) > 0" for column in source.wrote_columns)
+    return f"{sql} AND ({wrote})"
 
 
 @dataclass(frozen=True)
@@ -214,6 +232,8 @@ class GenerationFreshnessCounts:
 
     table_name: str
     row_count: int
+    #: 情報源の列 → そのテーブルにとっての高水位（`SourceRunSpec.wrote_columns`で絞ったもの）。
+    latest_available: dict[str, int | None]
     source_min: dict[str, int | None]
     source_null_count: dict[str, int]
     algorithm_version_min: str | None
@@ -232,7 +252,6 @@ class CompletenessCounts:
 @dataclass(frozen=True)
 class DerivedDataFreshnessCounts:
     generations: tuple[GenerationFreshnessCounts, ...]
-    latest_succeeded_run_id: dict[str, int | None]
     completeness: tuple[CompletenessCounts, ...]
 
 
@@ -245,14 +264,18 @@ class DerivedDataFreshnessQuery:
         self._session = session
 
     async def get_freshness_counts(self) -> DerivedDataFreshnessCounts:
-        latest_succeeded_run_id: dict[str, int | None] = {}
+        # 高水位は**テーブルごとに違う**（同じ取込runでも、何を書いたかで古くなる
+        # テーブルが変わる）。問い合わせ自体はSQLが同じなら使い回す。
+        by_sql: dict[str, int | None] = {}
         generations: list[GenerationFreshnessCounts] = []
 
         for spec in GENERATION_FRESHNESS_SPECS:
+            latest_available: dict[str, int | None] = {}
             for source in spec.sources:
-                if source.run_table not in latest_succeeded_run_id:
-                    sql = text(_LATEST_SUCCEEDED_RUN_ID_SQL_TEMPLATE.format(run_table=source.run_table))
-                    latest_succeeded_run_id[source.run_table] = (await self._session.execute(sql)).scalar_one()
+                sql_text = _latest_succeeded_run_id_sql(source)
+                if sql_text not in by_sql:
+                    by_sql[sql_text] = (await self._session.execute(text(sql_text))).scalar_one()
+                latest_available[source.source_column] = by_sql[sql_text]
 
             row = (await self._session.execute(build_generation_freshness_sql(spec))).mappings().one()
             source_min = {source.source_column: row[f"{source.source_column}_min"] for source in spec.sources}
@@ -264,6 +287,7 @@ class DerivedDataFreshnessQuery:
                 GenerationFreshnessCounts(
                     table_name=spec.table_name,
                     row_count=int(row["row_count"]),
+                    latest_available=latest_available,
                     source_min=source_min,
                     source_null_count=source_null_count,
                     algorithm_version_min=row["algorithm_version_min"] if has_algorithm_version else None,
@@ -286,6 +310,5 @@ class DerivedDataFreshnessQuery:
 
         return DerivedDataFreshnessCounts(
             generations=tuple(generations),
-            latest_succeeded_run_id=latest_succeeded_run_id,
             completeness=tuple(completeness),
         )

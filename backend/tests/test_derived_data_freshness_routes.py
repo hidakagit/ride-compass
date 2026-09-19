@@ -44,6 +44,7 @@ def _fresh_counts() -> DerivedDataFreshnessCounts:
         return GenerationFreshnessCounts(
             table_name=spec.table_name,
             row_count=5,
+            latest_available=sources,
             source_min=sources,
             source_null_count=dict.fromkeys(sources, 0),
             algorithm_version_min=spec.algorithm_version_current,
@@ -52,7 +53,6 @@ def _fresh_counts() -> DerivedDataFreshnessCounts:
 
     return DerivedDataFreshnessCounts(
         generations=tuple(_generation(spec) for spec in GENERATION_FRESHNESS_SPECS),
-        latest_succeeded_run_id=dict(_LATEST_RUN_ID),
         completeness=tuple(
             CompletenessCounts(label=spec.label, population=100, uncalculated=3)
             for spec in COMPLETENESS_SPECS
