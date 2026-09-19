@@ -6,6 +6,7 @@ import pytest
 from app.domain.attributes import WayAttributeCounts
 from app.domain.landcover import WayLandcover
 from app.infrastructure import tile_cache
+from app.services import derived_data_revision_service
 from app.infrastructure.debug_log import get_stats, reset_stats
 from app.infrastructure.road_graph_repository import RoadGraphRepository
 from app.services import region_service as region_service_module
@@ -18,6 +19,18 @@ from app.services.region_service import RegionService
 @pytest.fixture(autouse=True)
 def use_temp_tile_cache(tmp_path, monkeypatch):
     monkeypatch.setattr(tile_cache, "CACHE_DIR", tmp_path / "tile_cache")
+    yield
+
+
+@pytest.fixture(autouse=True)
+def known_derived_data_revision(monkeypatch):
+    """世代が読めている状態を既定にする。
+
+    読めていないあいだタイルはディスクへ残さない（改善計画T929、
+    `services/tile_serving.py: serve_cached_tile`の`persist`）ため、キャッシュの挙動を
+    見るテストはこの前提を明示する必要がある。
+    """
+    monkeypatch.setattr(derived_data_revision_service, "current_revision", lambda: 1)
     yield
 
 
@@ -529,3 +542,23 @@ async def test_no_repository_stays_cacheable():
     tile = await service.get_road_surface_tile(Z, X, Y)
 
     assert tile.cacheable is True
+
+
+async def test_tile_is_not_persisted_while_the_revision_is_unknown(monkeypatch):
+    """世代が読めていないあいだ、焼いたタイルはディスクへ残さない。
+
+    ディスクの鍵は形の署名だけで世代を持たない。世代不明のまま焼いたものを残すと、後で世代が
+    判明しても正しいものと区別できず、古い中身を配り続ける
+    （`infrastructure/cache_identity.py: UNKNOWN_REVISION`が宣言していた性質）。
+    応答そのものは返る——キャッシュしないだけで、利用者には同じ絵が出る。
+    """
+    monkeypatch.setattr(derived_data_revision_service, "current_revision", lambda: None)
+    repository = FakeRegionRepository(covered=True, tile=b"fake-mvt-tile")
+    service = RegionService(repository=repository)
+
+    first = (await service.get_road_surface_tile(Z, X, Y)).content
+    second = (await service.get_road_surface_tile(Z, X, Y)).content
+
+    assert first == second == b"fake-mvt-tile"
+    # 残していないので2回目もDBへ行く（残していれば1回で済む）。
+    assert len(repository.mvt_calls) == 2

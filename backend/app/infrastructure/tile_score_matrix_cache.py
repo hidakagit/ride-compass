@@ -185,8 +185,8 @@ def sync_disk_cache_with_axis_revision(revision: int | None) -> None:
     判断してディスクキャッシュを温存する（メモリだけクリアする）。不一致
     （軸編集が実際にあった）または未記録（初回デプロイ）の場合は`clear()`でメモリ・
     ディスク両方を削除し、新しいrevisionを記録し直す。`revision`がNone
-    （`axis_registry_meta`に行が無い等、想定外の状態）の場合は安全側に倒して常に`clear()`する
-    （記録もしない——次回呼び出し時も同じ安全側判定になる）。
+    （`axis_registry_meta`に行が無い等、想定外の状態）の場合も安全側に倒して`clear()`するが、
+    **読めなかったことを記録する**ため、状態が変わらない限り2度目以降は消さない。
 
     アプリ起動時（`main.py`のlifespan）・軸編集API成功直後のいずれも`refresh_axis_
     definitions`から同じ経路で呼ばれるため、本関数が両者を区別する（起動時は大半の場合

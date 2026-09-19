@@ -21,21 +21,27 @@ logger = logging.getLogger("ridecompass.cache_generation")
 _REVISION_MARKER_TILE = (-1, 0, 0)
 
 
+#: 世代を読めなかったことの記録。実際の世代（int）とは別の型にして取り違えを防ぐ。
+_UNKNOWN_REVISION_MARK = "unknown"
+
+
 def sync_with_revision(
     namespace: str, version: str, revision: int | None, clear: Callable[[], None]
 ) -> bool:
     """`revision`がディスクへ最後に書いた時点の記録と食い違っていれば`clear`を呼ぶ。
 
     捨てたときTrueを返す（呼び出し側が、そこから作られる他のキャッシュも一緒に捨てるため）。
-    `revision`がNone——記録の行が無い等の想定外——のときは常に捨てる。**記録し直さない**ので、
-    次回も同じ安全側の判定になる。
+
+    `revision`がNone——記録の行が無い等の想定外——のときも一度は捨てる（安全側）。ただし
+    **「読めなかった」ことを記録する**ため、状態が変わらない限り2度目は捨てない。記録しないと
+    確認のたびに全消去が走り、確認の発火点が増えるほど消える頻度が上がる。
     """
     zoom, x, y = _REVISION_MARKER_TILE
-    if revision is not None and tile_persistent_cache.get(namespace, version, zoom, x, y) == revision:
+    current = revision if revision is not None else _UNKNOWN_REVISION_MARK
+    if tile_persistent_cache.get(namespace, version, zoom, x, y) == current:
         return False
     clear()
-    if revision is not None:
-        tile_persistent_cache.set(namespace, version, zoom, x, y, revision)
+    tile_persistent_cache.set(namespace, version, zoom, x, y, current)
     return True
 
 

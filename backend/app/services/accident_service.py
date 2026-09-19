@@ -3,6 +3,7 @@ import logging
 from app.domain.region import tile_bounds_lonlat
 from app.infrastructure.accident_repository import ACCIDENT_TILE_SHAPE, AccidentTileQuery
 from app.infrastructure.vector_tile import encode_empty_accident_tile
+from app.services import derived_data_revision_service
 from app.services.tile_serving import MVT_CONTENT_TYPE, TileResponse, serve_cached_tile
 
 logger = logging.getLogger("ridecompass.accident")
@@ -56,4 +57,6 @@ class AccidentService:
             content_type=MVT_CONTENT_TYPE,
             external_call_name="accident:tile",
             fetch_tile=fetch_tile,
+            # 世代を読めていない間はディスクへ残さない（tile_servingのdocstring参照）。
+            persist=derived_data_revision_service.current_revision() is not None,
         )

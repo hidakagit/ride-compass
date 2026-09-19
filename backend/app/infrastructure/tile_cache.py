@@ -80,3 +80,43 @@ def set(path: str, content: bytes, content_type: str) -> None:
 
 def clear_all() -> None:
     shutil.rmtree(CACHE_DIR, ignore_errors=True)
+
+
+def prune_to_size_limit(max_bytes: int) -> int:
+    """合計が`max_bytes`を超えていたら、最終更新の古いものから消す（解放バイト数を返す）。
+
+    この置き場は**鍵に世代を持たない**（パスをハッシュ化してフラットに保つ。`cache_key`参照）
+    ため、`tile_persistent_cache`のように世代単位では消せない。形の署名が変わったタイルは
+    書かれなくなるだけで残り続けるので、古い順の退避で頭打ちにする。現に読まれているタイルは
+    書き直されて新しくなるため、消えるのは「もう誰も要求していないもの」から順になる。
+
+    削除は`.bin`と対の`.meta`をまとめて行う。途中の失敗（別プロセスが同じファイルを消した等）は
+    握りつぶす——掃除の失敗が配信を止める理由にはならない。
+    """
+    try:
+        entries = []
+        total = 0
+        for path in CACHE_DIR.glob("*.bin"):
+            try:
+                stat = path.stat()
+            except OSError:
+                continue
+            entries.append((stat.st_mtime, stat.st_size, path))
+            total += stat.st_size
+        if total <= max_bytes:
+            return 0
+
+        freed = 0
+        for _mtime, size, path in sorted(entries):
+            if total - freed <= max_bytes:
+                break
+            for target in (path, path.with_suffix(".meta")):
+                try:
+                    freed += target.stat().st_size
+                    target.unlink()
+                except OSError:
+                    pass
+        return freed
+    except OSError:
+        logger.warning("tile cache prune failed", exc_info=True)
+        return 0

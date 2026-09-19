@@ -306,15 +306,18 @@ class TestSyncDiskCacheWithAxisRevision:
         assert restored is not None
         assert restored.axis_scores[0, 0] == 99.0
 
-    def test_none_revision_is_conservative_and_always_clears(self):
+    def test_none_revision_clears_once_then_stops(self):
         # axis_registry_metaに行が無い等の想定外の状態ではrevisionがNoneになりうる。
-        # 安全側に倒し、毎回clear()する（マーカーも記録しない）。
+        # 安全側に倒して消すが、読めなかったことを記録し、繰り返しては消さない（改善計画T929）。
         tile_score_matrix_cache.set(12, 5, 6, _sample_matrix())
 
         tile_score_matrix_cache.sync_disk_cache_with_axis_revision(None)
-
         assert tile_score_matrix_cache.get(12, 5, 6) is None
-        assert tile_score_matrix_cache.read_persisted_axis_revision() is None
+
+        # 2度目は消さない。消していれば、間に書いた値がここで失われる。
+        tile_score_matrix_cache.set(12, 5, 6, _sample_matrix())
+        tile_score_matrix_cache.sync_disk_cache_with_axis_revision(None)
+        assert tile_score_matrix_cache.get(12, 5, 6) is not None
 
     def test_revision_marker_does_not_collide_with_real_tile_coordinates(self):
         # 予約座標(zoom=-1, x=0, y=0)が実タイル(zoom=12等)と独立して扱われることの確認。

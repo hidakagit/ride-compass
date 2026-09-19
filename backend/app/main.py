@@ -14,7 +14,7 @@ from app.infrastructure.axis_definition_repository import AxisDefinitionReposito
 from app.infrastructure.database import get_session_factory
 from app.infrastructure.debug_control import install_ring_buffer_handler
 from app.infrastructure.http_client import close_all_http_clients, get_http_client
-from app.infrastructure import graph_material_cache, tile_score_matrix_cache
+from app.infrastructure import graph_material_cache, tile_cache, tile_score_matrix_cache
 from app.infrastructure.jma_tile_client import JmaTileClient
 from app.infrastructure.msm_client import refresh as refresh_msm
 from app.infrastructure.request_log import (
@@ -124,6 +124,11 @@ async def _prune_stale_disk_generations_job() -> None:
         freed = 0
         for prune in (graph_material_cache.prune_stale_disk_generations, tile_score_matrix_cache.prune_stale_disk_generations):
             freed += await asyncio.to_thread(prune)
+        # 焼き済みタイルの置き場は鍵に世代を持たないため、世代単位では消せない。古い順で
+        # 上限まで落とす（infrastructure/tile_cache.py: prune_to_size_limit）。
+        freed += await asyncio.to_thread(
+            tile_cache.prune_to_size_limit, settings.tile_cache_size_limit_mb * 1024 * 1024
+        )
         if freed:
             logger.info("ディスク永続キャッシュの旧世代を削除しました freed_mb=%.1f", freed / 1e6)
     except Exception:

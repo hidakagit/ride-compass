@@ -165,6 +165,13 @@ class Settings(BaseSettings):
     # 約310MBのため、2世代ぶんに余裕を持たせた値（本番VMのディスクは48GB）。
     tile_persistent_cache_size_limit_mb: int = 1024
 
+    # 焼き済みタイル・外部タイルの置き場（infrastructure/tile_cache.py）の容量上限（MB）。
+    # この置き場は鍵に世代を持たないため、形の署名が変わった旧世代は書かれなくなるだけで
+    # 残り続ける。起動時に古い順で上限まで落とす。**現状これは発火しない**——本番の実測は
+    # 数十MB規模（docs/caching.md「現在のディスク保持」）で、上限は伸び続けたときの
+    # 頭打ちとして置いている。実測に対して1桁の余裕があり、通常の運用では何も消えない。
+    tile_cache_size_limit_mb: int = 512
+
     # タイル材料キャッシュ（graph_material_cache.py・tile_score_matrix_cache.py）の
     # ディスク永続化キャッシュ（infrastructure/tile_persistent_cache.py）読み込みの
     # 同時実行数上限。案C1（列指向EdgeMaterialTable化）で残るCPUコストは`LeanEdge`等の

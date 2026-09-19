@@ -15,6 +15,7 @@ from app.infrastructure.road_graph_repository import (
 )
 from app.infrastructure.vector_tile import encode_empty_poi_tile, encode_empty_road_surface_tile
 from app.services.graph_service import GraphService
+from app.services import derived_data_revision_service
 from app.services.tile_serving import MVT_CONTENT_TYPE, TileResponse, serve_cached_tile
 
 logger = logging.getLogger("ridecompass.region")
@@ -229,6 +230,8 @@ class RegionService:
             content_type=MVT_CONTENT_TYPE,
             external_call_name=external_call_name,
             fetch_tile=fetch_tile,
+            # 世代を読めていない間はディスクへ残さない（tile_servingのdocstring参照）。
+            persist=derived_data_revision_service.current_revision() is not None,
         )
 
     async def get_road_surface_tile(self, z: int, x: int, y: int) -> TileResponse:

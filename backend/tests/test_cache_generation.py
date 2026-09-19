@@ -54,11 +54,26 @@ def test_changed_revision_clears_and_records_the_new_one():
     assert cache_generation.read_persisted_revision(NAMESPACE, VERSION) == 2
 
 
-def test_unreadable_revision_always_clears_and_records_nothing():
-    # 記録し直さないため、次回も同じ安全側の判定になる（読めない状態が続く間ずっと捨てる）。
+def test_unreadable_revision_clears_once_and_remembers_that_it_was_unreadable():
+    """読めないときも一度は捨てる（安全側）が、繰り返しては捨てない。
+
+    記録しないと、確認のたびに全消去が走る。確認の発火点はページを開くたび（TTL 300秒）まで
+    広がっており、`derived_data_meta`の行が無い環境では5分ごとに全タイルが消え続ける。
+    """
     cleared = []
     _sync(1, cleared)
 
     assert _sync(None, cleared) is True
-    assert cache_generation.read_persisted_revision(NAMESPACE, VERSION) is None
-    assert _sync(None, cleared) is True
+    assert _sync(None, cleared) is False
+    assert _sync(None, cleared) is False
+    assert cleared == [1, None]
+
+
+def test_revision_becoming_readable_again_clears_once():
+    """読めない状態から復帰したら、記録が食い違うので1度だけ捨てて記録し直す。"""
+    cleared = []
+    _sync(None, cleared)
+
+    assert _sync(3, cleared) is True
+    assert cache_generation.read_persisted_revision(NAMESPACE, VERSION) == 3
+    assert _sync(3, cleared) is False

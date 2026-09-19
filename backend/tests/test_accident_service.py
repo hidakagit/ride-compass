@@ -1,12 +1,25 @@
 import pytest
 
 from app.infrastructure import tile_cache
+from app.services import derived_data_revision_service
 from app.services.accident_service import AccidentService
 
 
 @pytest.fixture(autouse=True)
 def use_temp_tile_cache(tmp_path, monkeypatch):
     monkeypatch.setattr(tile_cache, "CACHE_DIR", tmp_path / "tile_cache")
+    yield
+
+
+@pytest.fixture(autouse=True)
+def known_derived_data_revision(monkeypatch):
+    """世代が読めている状態を既定にする。
+
+    読めていないあいだタイルはディスクへ残さない（改善計画T929、
+    `services/tile_serving.py: serve_cached_tile`の`persist`）ため、キャッシュの挙動を
+    見るテストはこの前提を明示する必要がある。
+    """
+    monkeypatch.setattr(derived_data_revision_service, "current_revision", lambda: 1)
     yield
 
 

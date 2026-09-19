@@ -1,3 +1,6 @@
+import os
+import shutil
+
 import pytest
 
 from app.infrastructure import tile_cache
@@ -65,3 +68,51 @@ def test_set_writes_meta_before_bin_so_get_never_sees_default_content_type():
     assert result is not None
     assert result[1] == "application/json"
     assert result[1] != "application/octet-stream"
+
+
+# --- prune_to_size_limit（改善計画T929: この置き場は鍵に世代を持たないため、世代単位では
+# 消せない。古い順の退避で頭打ちにする） ---
+
+
+def _write(path: str, size: int, mtime: float) -> None:
+    tile_cache.set(path, b"x" * size, "application/octet-stream")
+    key = tile_cache.cache_key(path)
+    for suffix in (".bin", ".meta"):
+        target = tile_cache.CACHE_DIR / f"{key}{suffix}"
+        os.utime(target, (mtime, mtime))
+
+
+def test_prune_to_size_limit_keeps_everything_under_the_limit():
+    _write("a", 100, 1000)
+    _write("b", 100, 2000)
+
+    assert tile_cache.prune_to_size_limit(10_000) == 0
+    assert tile_cache.get("a") is not None
+    assert tile_cache.get("b") is not None
+
+
+def test_prune_to_size_limit_drops_the_oldest_first():
+    _write("old", 100, 1000)
+    _write("new", 100, 2000)
+
+    freed = tile_cache.prune_to_size_limit(150)
+
+    assert freed > 0
+    assert tile_cache.get("old") is None, "古い方が残っている"
+    assert tile_cache.get("new") is not None, "新しい方まで消している"
+
+
+def test_prune_to_size_limit_removes_the_paired_meta():
+    _write("old", 100, 1000)
+    _write("new", 100, 2000)
+
+    tile_cache.prune_to_size_limit(150)
+
+    key = tile_cache.cache_key("old")
+    assert not (tile_cache.CACHE_DIR / f"{key}.meta").exists()
+
+
+def test_prune_to_size_limit_on_missing_directory_is_a_noop():
+    shutil.rmtree(tile_cache.CACHE_DIR, ignore_errors=True)
+
+    assert tile_cache.prune_to_size_limit(0) == 0

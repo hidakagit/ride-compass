@@ -53,6 +53,7 @@ async def serve_cached_tile(
     external_call_name: str,
     fetch_tile: Callable[[dict], Awaitable[bytes | None]],
     source_label: str = "postgis",
+    persist: bool = True,
 ) -> TileResponse:
     """キャッシュヒットならそれを返す。ミス時は`fetch_tile(fields)`を1回呼び、
     tile bytesが返れば`tile_cache`へ書いて返す。`None`が返れば「取得不可」として
@@ -61,6 +62,10 @@ async def serve_cached_tile(
     取得不可が一時的な失敗（`fetch_tile`が`fields["postgis"] = "error"`を立てた場合）
     だったときは`cacheable=False`で返す。呼び出し元のルーターはこれを見て
     `Cache-Control: no-store`を明示する（`TileResponse`のdocstring参照）。
+
+    `persist=False`はディスクへ書かずに返す。**どの世代の中身か分からないまま焼いたタイルを
+    残さない**ため——ディスクの鍵は形の署名だけで世代を持たず、残すと後で世代が判明しても
+    正しいものと区別できない（`infrastructure/cache_identity.py: UNKNOWN_REVISION`）。
     """
     with log_external_call(external_call_name, z=z, x=x, y=y) as fields:
         cached = await asyncio.to_thread(tile_cache.get, cache_path)
@@ -81,5 +86,7 @@ async def serve_cached_tile(
         # 実際の取得元と食い違わないよう、呼び出し元が名乗る。
         fields["source"] = source_label
         fields["tile_bytes"] = len(tile_bytes)
-        await asyncio.to_thread(tile_cache.set, cache_path, tile_bytes, content_type)
+        fields["persisted"] = persist
+        if persist:
+            await asyncio.to_thread(tile_cache.set, cache_path, tile_bytes, content_type)
         return TileResponse(tile_bytes)

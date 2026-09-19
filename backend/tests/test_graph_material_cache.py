@@ -277,12 +277,15 @@ class TestSyncDiskCacheWithDerivedDataRevision:
         assert graph_material_cache.get_tile_materials(12, 5, 6) is None
         assert graph_material_cache.read_persisted_revision() == 6
 
-    def test_none_revision_always_clears_and_records_nothing(self):
-        # 行が無い等の想定外。安全側（常に消す）へ倒し、記録もしない。
+    def test_none_revision_clears_once_then_stops(self):
+        # 行が無い等の想定外。安全側（消す）へ倒すが、読めなかったことを記録して
+        # 繰り返しの全消去を止める（改善計画T929）。
         graph_material_cache.sync_disk_cache_with_derived_data_revision(5)
 
         assert graph_material_cache.sync_disk_cache_with_derived_data_revision(None) is True
-        assert graph_material_cache.read_persisted_revision() is None
+        assert graph_material_cache.sync_disk_cache_with_derived_data_revision(None) is False
+        # 記録されているのは実際の世代ではない（intとしては読めない）。
+        assert graph_material_cache.read_persisted_revision() != 5
 
 
 def test_cache_version_is_the_shape_of_everything_the_cached_value_pickles():
