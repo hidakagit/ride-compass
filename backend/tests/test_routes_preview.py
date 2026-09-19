@@ -2,9 +2,10 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.api.dependencies import get_preview_builder
-from app.config import settings
-from app.domain.attributes import EdgeMaterialBundle, SearchMaterials
+from app.domain.attributes import SearchMaterials
 from app.domain.evaluation import build_static_edge_score_matrix
+from tests.material_arrays import material_arrays
+from app.config import settings
 from app.domain.errors import RoutingError
 from app.domain.graph import DirectedEdge, Node, RoadGraph
 from app.domain.route import Coordinates, RouteSegment
@@ -154,17 +155,10 @@ class _FakeGraphServiceForPreview:
     async def get_search_materials_for_bbox(self, bbox):
         if self._graph is None or not self._graph.edges:
             return None
-        materials = {
-            edge_id: EdgeMaterialBundle(
-                surface=None, way_tags={"highway": edge.highway}, attribute_counts=None,
-                elevation_attribute=None, is_designated=False,
-            )
-            for edge_id, edge in self._graph.edges.items()
-        }
-        # 改善計画T536→T537: get_search_materials_for_bboxは(SearchMaterials,
-        # StaticEdgeScoreMatrix, タイル集合|None)の3タプルを返す契約になった
-        # （road_graph_engine.py: _build_search_graph参照）。このfakeはタイルキャッシュを
-        # 持たないため3つ目は常にNone（search_graph_cache経由のキャッシュはバイパスされる）。
+        materials = material_arrays(self._graph, list(self._graph.edges))
+        # get_search_materials_for_bboxは(SearchMaterials, StaticEdgeScoreMatrix,
+        # タイル集合|None)の3タプルを返す契約（road_graph_engine.py: _build_search_graph）。
+        # このfakeはタイルキャッシュを持たないため3つ目は常にNone。
         score_matrix = build_static_edge_score_matrix(self._graph, materials, 0)
         return SearchMaterials(graph=self._graph, materials=materials), score_matrix, None
 
@@ -173,6 +167,8 @@ class _FakeGraphServiceForPreview:
 
     async def get_edges_with_geometry(self, edge_ids):
         return {}
+
+
 
 
 class _FakeWeatherServiceForPreview:

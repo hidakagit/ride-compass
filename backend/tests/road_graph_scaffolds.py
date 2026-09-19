@@ -27,11 +27,31 @@ def single_way_graph() -> RoadGraph:
     return build_road_graph([way], nodes, graph_version="v1")
 
 
-def three_way_junction_graph(node3=NODE3, node4=NODE4) -> RoadGraph:
-    """NODE2へ3本のwayが集まる交差点（NODE2の次数3、端点3つは次数1）。"""
+def three_way_junction_spec(
+    node3=NODE3, node4=NODE4
+) -> tuple[list[WaySpec], dict[int, tuple[float, float]]]:
+    """NODE2へ3本のwayが集まる交差点の生way（生wayとして保存する側が使う）。"""
     ways = [
         WaySpec(osm_way_id=100, node_ids=[1, 2], highway="residential"),
         WaySpec(osm_way_id=101, node_ids=[2, 3], highway="residential"),
         WaySpec(osm_way_id=102, node_ids=[2, 4], highway="residential"),
     ]
-    return build_road_graph(ways, {1: NODE1, 2: NODE2, 3: node3, 4: node4}, graph_version="v1")
+    return ways, {1: NODE1, 2: NODE2, 3: node3, 4: node4}
+
+
+def three_way_junction_graph(node3=NODE3, node4=NODE4) -> RoadGraph:
+    """NODE2へ3本のwayが集まる交差点（NODE2の次数3、端点3つは次数1）。"""
+    ways, nodes = three_way_junction_spec(node3, node4)
+    return build_road_graph(ways, nodes, graph_version="v1")
+
+
+async def save_ways_and_graph(repository, ways, nodes, graph_version: str = "v1") -> RoadGraph:
+    """生wayを永続化してから、その派生のグラフを保存する（本番と同じ順）。
+
+    区間は`osm_raw_ways`の派生行（`road_edges.osm_way_id`がNOT NULL + FK）のため、
+    wayを入れずに`save_graph`を呼ぶ状態は本番では作れない。
+    """
+    await repository.save_raw_ways(ways, nodes)
+    graph = build_road_graph(ways, nodes, graph_version=graph_version)
+    await repository.save_graph(graph)
+    return graph

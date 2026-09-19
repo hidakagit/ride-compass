@@ -46,8 +46,14 @@ from app.api.dependencies import (
     get_region_service,
     get_road_graph_repository,
 )
-from app.domain.material_catalog import MATERIAL_CATALOG, MaterialDType, axis_studio_materials, is_known_material
-from app.infrastructure.material_coverage import MissingSemantics, Population
+from app.domain.material_catalog import (
+    MATERIAL_CATALOG,
+    MaterialDType,
+    MissingSemantics,
+    Population,
+    axis_studio_materials,
+    is_known_material,
+)
 from app.infrastructure.road_graph_repository import RoadGraphRepository
 from app.services.axis_preview_service import material_value_distribution
 from app.services.material_coverage_service import MaterialCoverageService

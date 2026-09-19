@@ -145,7 +145,12 @@ class RoadEdgeRow(Base):
     to_node_id: Mapped[str] = mapped_column(String, ForeignKey("road_nodes.node_id"), nullable=False)
     geom = mapped_column(Geometry(geometry_type="LINESTRING", srid=4326, spatial_index=True), nullable=False)
     distance_m: Mapped[float] = mapped_column(Float, nullable=False)
-    osm_way_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    # 区間はwayを交差点で切って作る派生行のため、対応するwayの行が必ずある
+    # （兄弟の派生表と同じ制約。DBが持つことで、読み出し側が「wayの行が無い区間」を
+    # 吸収する必要が無くなる）。
+    osm_way_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("osm_raw_ways.osm_way_id", ondelete="CASCADE"), nullable=False
+    )
     highway: Mapped[str | None] = mapped_column(String, nullable=True)
     # from_node→to_node方向の方位角（度、北=0、時計回り）。domain/graph.py:
     # build_road_graphが算出し、探索時の風評価（DYNAMIC_MATERIAL_EVALUATORS）が

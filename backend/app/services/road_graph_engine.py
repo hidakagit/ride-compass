@@ -317,9 +317,7 @@ class _LegCostComposer:
             material_id: score_matrix.categorical_material_values[:, i]
             for i, material_id in enumerate(score_matrix.categorical_material_ids)
         }
-        self._static_axis_scores = {
-            axis_id: score_matrix.axis_scores[:, i] for i, axis_id in enumerate(score_matrix.axis_ids)
-        }
+        self._static_axis_scores = score_matrix.axis_arrays()
         # 時刻で変わる（風に依存する）公開軸と、それ以外。ビンごとの合成では後者の重み付き和を
         # 使い回す——合成の時間は軸数にほぼ比例するため、毎回全軸を足し直すと本数ぶん効く。
         dynamic_axes = set(dynamic_axis_topological_order(AXIS_DEFINITIONS))
@@ -704,12 +702,6 @@ class RoadGraphEngine:
         # 到達予想時刻・所要時間の算出に使う。
         self._assumed_speed_kmh = assumed_speed_kmh
         self._elevation_attribute_service = elevation_attribute_service
-        # bbox全体の一括評価（compute_edge_costs_bulk）は本エンジンから不要
-        # （探索コストは_build_search_graphがbbox全体ぶんリクエストにつき1回だけ
-        # ベクトル合成する）。compute_edge_costs_bulkは回帰テストオラクルとして残る
-        # ——静的スコア行列（StaticEdgeScoreMatrix）が同じ抽出・計算フェーズ
-        # （_evaluate_axes_bulk）を共有するため、両者の一致は引き続き
-        # tests/test_evaluation_bulk.pyで検証する。
         self._weather_service = weather_service
         self._route_preference = route_preference
         # コスト式`所要時間 × (1 + P × difficulty/100)`のP＝「主観 vs 時間」の換算レート。

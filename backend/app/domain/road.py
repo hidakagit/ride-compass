@@ -1,6 +1,6 @@
 # 路面評価の正準定義:
 # 「走行しやすい舗装路面か」を 良い(True) / 悪い(False) / 不明(None) の3値で判定する。
-# OSMタグ語彙（classify_osm_surface）が唯一の判定源。
+# OSMタグ語彙がここだけの判定源。
 
 # OSMのsurfaceタグ（自由記述に近い文字列）による判定。
 #
@@ -49,13 +49,3 @@ BAD_OSM_SURFACE_TAGS = {
 }
 
 
-def classify_osm_surface(surface_tag: str | None) -> bool | None:
-    """OSMのsurfaceタグから、走行しやすい舗装路面かどうかを判定する。タグが無い/未知の場合はNone。"""
-    if surface_tag is None:
-        return None
-    normalized = surface_tag.strip().lower()
-    if normalized in GOOD_OSM_SURFACE_TAGS:
-        return True
-    if normalized in BAD_OSM_SURFACE_TAGS:
-        return False
-    return None

@@ -50,7 +50,7 @@ class TileInputSpec(StrictModel):
 
     `has_unknown_fallback`: タイルプロパティが
     欠損している場合の意味が「true/falseどちらでもない不明」（例: surface_good、
-    未分類の路面。`domain/road.py: classify_osm_surface`が3値[良/不明/悪]に分類する
+    未分類の路面。`surface_good`の値式が3値[良/不明/悪]に分類する
     うちの「不明」に対応）であればTrueにする。既定Falseは「欠損=falseとみなしてよい
     真偽値材料」（例: lit・has_tunnel⟵tunnel。タグ不在は「無し」の安全側既定と
     元々の軸定義でそう決めている）を表し、フロントは通常どおり`true_value`/

@@ -2,12 +2,11 @@ import asyncio
 import time
 from unittest import mock
 
-import numpy as np
 import pytest
 from dataclasses import replace
 
-from app.domain.attributes import EdgeAttributeCounts, EdgeMaterialBundle, EdgeMaterialsBatch, SearchMaterials
-from tests.material_arrays_scaffold import material_arrays_from_bundles
+from app.domain.attributes import SearchMaterials
+from tests.material_arrays import material_arrays
 
 from app.domain.graph import DirectedEdge, LeanRoadGraph, RoadGraphLike, WaySpec
 from app.domain.osm_adapter import osm_ways_to_way_specs
@@ -99,8 +98,8 @@ class FakeRoadGraphRepository:
         self._raw_way_touched_at: dict[int, int] = {}
         self._way_split_at: dict[int, int] = {}
         # 改善計画T219: get_search_materials_for_bboxのタイルキャッシュ経路用。
-        self.edge_attribute_counts: dict = {}
-        self.way_tags: dict = {}
+        # 区間id→(材料id→値)。DBが導出した材料（`MaterialSpec.value_sql`）の形。
+        self.materials: dict = {}
         self.elevation_attributes: dict = {}
         self.designated_edge_ids: set = set()
         self._accident_years_covered = 0
@@ -109,7 +108,7 @@ class FakeRoadGraphRepository:
         self.get_designated_edge_ids_call_count = 0
         self.get_accident_years_covered_call_count = 0
         self.get_cached_tiles_call_count = 0
-        self.get_edge_materials_batch_call_count = 0
+        self.material_arrays_call_count = 0
         # 改善計画T218: trace_loop/preview_segmentの主経路（hydrated優先）が委譲する
         # GraphService.get_edges_with_geometryのFake用ストア。
         self.edges_with_geometry: dict = {}
@@ -286,32 +285,15 @@ class FakeRoadGraphRepository:
         self.get_designated_edge_ids_call_count += 1
         return {edge_id for edge_id in edge_ids if edge_id in self.designated_edge_ids}
 
-    async def get_edge_materials_batch(self, edge_ids) -> EdgeMaterialsBatch:
-        # 改善計画T248・T533: 実装（AttributeRepository.get_edge_materials_batch）は材料を
-        # 1回のJOINクエリへ統合し、戻り値もEdge単位で1オブジェクト（EdgeMaterialBundle）へ
-        # 統合するが、Fakeでは個別メソッドの導出ロジックをそのまま束ねるだけでよい
-        # （呼び出し回数の計測はこのメソッド専用のカウンタで行う）。
-        self.get_edge_materials_batch_call_count += 1
-        surface_attributes = await self.get_surface_attributes(edge_ids)
-        materials = {
-            edge_id: EdgeMaterialBundle(
-                surface=surface_attributes.get(edge_id),
-                way_tags=self.way_tags.get(edge_id, {}),
-                attribute_counts=self.edge_attribute_counts.get(edge_id),
-                elevation_attribute=self.elevation_attributes.get(edge_id),
-                is_designated=edge_id in self.designated_edge_ids,
-            )
-            for edge_id in edge_ids
-        }
-        return EdgeMaterialsBatch(materials=materials)
-
     async def get_edge_material_arrays(self, edge_ids, accident_years_covered):
-        # 本物は材料をDB側で導出して列で返す。Fakeは個別メソッドの導出をそのまま束ねた
-        # bundleから同じ形へ変換する（呼び出し回数のカウンタは共有する——呼び出し元から
-        # 見て「材料をDBから取った回数」という意味は同じため）。
-        batch = await self.get_edge_materials_batch(edge_ids)
-        return material_arrays_from_bundles(
-            _EdgesAsGraph(self.edges), list(edge_ids), batch.materials, accident_years_covered
+        # 本物は材料をDB側で導出して列で返す。Fakeはテストが渡した材料値をそのまま
+        # 同じ形へ詰める。
+        self.material_arrays_call_count += 1
+        return material_arrays(
+            _EdgesAsGraph(self.edges),
+            list(edge_ids),
+            self.materials,
+            elevation=self.elevation_attributes,
         )
 
     async def get_accident_years_covered(self) -> int:
@@ -584,10 +566,16 @@ async def _seeded_service_with_materials() -> tuple[GraphService, FakeRoadGraphR
     nodes = {1: (35.700, 139.700), 2: (35.701, 139.701)}
     repository = FakeRoadGraphRepository()
     await _seed_tile(repository, ROAD_GRAPH_TILE_ZOOM, *BBOX_TILE, ways, nodes)
-    repository.edge_attribute_counts = {
-        "way-100-seg0-fwd": EdgeAttributeCounts(accident_count=1.0, intersection_count=3),
+    repository.materials = {
+        "way-100-seg0-fwd": {
+            "highway": "residential",
+            "surface": "asphalt",
+            "surface_good": True,
+            "accident_count_per_km_year": 1.0,
+            "intersection_count_per_km": 3.0,
+            "is_designated": True,
+        },
     }
-    repository.way_tags = {"way-100-seg0-fwd": {"highway": "residential"}}
     repository.designated_edge_ids = {"way-100-seg0-fwd"}
     service = GraphService(repository=repository)
     return service, repository
@@ -638,16 +626,7 @@ async def test_get_search_materials_for_bbox_builds_materials_on_first_call():
     # 古いbbox限定の再構築経路（_build_search_materials_uncached）を通るため、
     # タイル集合はNone（search_graph_cache経由のキャッシュ対象外）。
     assert tile_set is None
-    edge_id = next(iter(materials.graph.edges))
-    row = materials.materials.edge_ids.index(edge_id)
-    columns = materials.materials.columns()
-    assert columns["surface"][row] == "asphalt"
-    assert columns["is_designated"][row]
-    # 件数は密度（件/km）として届く。
-    distance_km = materials.graph.edges[edge_id].distance_m / 1000
-    assert columns["intersection_count_per_km"][row] == pytest.approx(3 / distance_km)
-    # 事故は収録年数でも割るため、このFakeの収録年数0では正規化できず欠損になる。
-    assert np.isnan(columns["accident_count_per_km_year"][row])
+    assert materials.materials.edge_ids == list(materials.graph.edges)
 
 
 async def test_get_search_materials_for_bbox_second_call_uses_tile_cache_without_db_access():
@@ -656,23 +635,23 @@ async def test_get_search_materials_for_bbox_second_call_uses_tile_cache_without
     # 1回目は生データがまだ「split済み」と認識されていないため、既存の低速経路
     # （closure再計算＋save_graph、タイルキャッシュの対象外。材料も個別に非キャッシュで
     # 取得される）を通る（test_with_repository_cached_tile_computes_split_on_first_read
-    # と同じ前提）。改善計画T248: 材料5種は`get_edge_materials_batch`の1回へ統合済み。
+    # と同じ前提）。材料はDBが1回のクエリで導出する。
     first = await service.get_search_materials_for_bbox(BBOX)
     assert repository.get_graph_topology_in_bbox_call_count == 0
-    assert repository.get_edge_materials_batch_call_count == 1
+    assert repository.material_arrays_call_count == 1
 
     # 2回目はis_split_up_to_date=Trueとなりタイルキャッシュ経路を通る。この時点では
     # まだタイルキャッシュが空のため、材料取得がもう1回呼ばれてタイル単位でキャッシュ
     # される（1回目の非キャッシュ取得とは独立のため呼び出し回数は2に増える）。
     second = await service.get_search_materials_for_bbox(BBOX)
     assert repository.get_graph_topology_in_bbox_call_count == 1
-    assert repository.get_edge_materials_batch_call_count == 2
+    assert repository.material_arrays_call_count == 2
 
     # 3回目はタイルキャッシュがヒットするため、DBへ一切アクセスしない
     # （改善計画T219の完了条件: 同一エリア2回目以降はDBへ一切アクセスしない）。
     third = await service.get_search_materials_for_bbox(BBOX)
     assert repository.get_graph_topology_in_bbox_call_count == 1
-    assert repository.get_edge_materials_batch_call_count == 2
+    assert repository.material_arrays_call_count == 2
 
     assert first is not None and second is not None and third is not None
     first_materials, _first_score_matrix, first_tile_set = first
@@ -701,7 +680,7 @@ async def test_get_search_materials_for_bbox_survives_process_restart_via_disk_c
     await service.get_search_materials_for_bbox(BBOX)
     third = await service.get_search_materials_for_bbox(BBOX)
     assert repository.get_graph_topology_in_bbox_call_count == 1
-    assert repository.get_edge_materials_batch_call_count == 2
+    assert repository.material_arrays_call_count == 2
 
     # プロセス再起動を模す: メモリLRUだけを空にする（ディスクは温存）。新しいGraphService
     # インスタンス（＝新しいrepositoryセッション相当）で、旧repositoryへのDBアクセスが
@@ -713,7 +692,7 @@ async def test_get_search_materials_for_bbox_survives_process_restart_via_disk_c
     fourth = await restarted_service.get_search_materials_for_bbox(BBOX)
 
     assert repository.get_graph_topology_in_bbox_call_count == 1
-    assert repository.get_edge_materials_batch_call_count == 2
+    assert repository.material_arrays_call_count == 2
     assert fourth is not None
     fourth_materials, fourth_score_matrix, fourth_tile_set = fourth
     third_materials, third_score_matrix, third_tile_set = third
@@ -852,12 +831,12 @@ async def test_get_search_materials_for_bbox_two_tile_bbox_merges_both_tiles_and
     assert built is not None
     materials, _score_matrix, tile_set = built
     # 材料の列はタイルごとに分かれたまま（`_CombinedEdgeMaterials`、bbox全体ぶんを
-    # 連結しない）。両タイルの材料が揃っていることは、タイルごとの表を見て確かめる。
-    surfaces: set[str | None] = set()
-    for tile_x, tile_y in ((3637, 1612), (3638, 1612)):
+    # 連結しない）。両タイルぶんが揃っていることは、タイルごとの表が自分のwayの区間を
+    # 持つことで確かめる。
+    for tile_x, tile_y, osm_way_id in ((3637, 1612, 100), (3638, 1612, 200)):
         tile = await service._get_or_build_tile_materials(tile_x, tile_y, 1)
-        surfaces |= set(tile.materials.columns()["surface"])
-    assert surfaces == {"asphalt", "gravel"}
+        assert tile.materials.edge_ids
+        assert all(e.startswith(f"way-{osm_way_id}-") for e in tile.materials.edge_ids)
     assert repository.get_graph_topology_in_bbox_call_count == 2  # 2タイルぶん
     # 改善計画T537: 2タイルにまたがるbboxでもタイル集合が両タイル分そろって返る。
     assert tile_set == frozenset({(ROAD_GRAPH_TILE_ZOOM, 3637, 1612), (ROAD_GRAPH_TILE_ZOOM, 3638, 1612)})

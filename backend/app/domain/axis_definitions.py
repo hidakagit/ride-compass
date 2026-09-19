@@ -6,8 +6,8 @@
 どのパラメータで通すか」だけを持つ。
 
 - 既存テンプレート＋既存材料の組み合わせで表現できる新しい軸は、`AXIS_DEFINITIONS`へ
-  1エントリ追加するだけで、スカラー評価（`compute_edge_axis_scores`・区間表示）と
-  配列評価（`compute_edge_costs_bulk`のベクトル化経路）の両方へ同時に反映される
+  1エントリ追加するだけで、スカラー評価（区間インスペクタ）と
+  配列評価（`build_static_edge_score_matrix`）の両方へ同時に反映される
   （`evaluate_axis_scalar`/`evaluate_axis_array`が同じ定義データを読む）。
 - breakpoints等の変換パラメータの単一ソースはここ（定数の片側import原則、
   docs/complexity-review-2026-08-16.md）。`domain/difficulty.py`・`domain/night.py`の
@@ -481,7 +481,7 @@ def topological_axis_order(definitions: dict[str, AxisDefinition]) -> list[str]:
     ビット一致要件——3次合成の対象は公開軸のみだが、軸単位のdifficulty
     計算自体の再現性のため安定ソートにする）。
 
-    `compute_edge_axis_scores`等がEdge単位（1ルート候補あたり
+    スカラー評価がEdge単位（1ルート候補あたり
     最大数百回）で呼ぶホットパスのため、結果をプロセス内メモリでメモ化する。キーは
     各軸の`materials`（依存関係を決める唯一の入力）から導出した内容ベースの値であり、
     `AXIS_DEFINITIONS`自体のオブジェクト同一性には依存しない（`refresh_axis_definitions`
@@ -670,18 +670,18 @@ def evaluate_axis_scalar(definition: AxisDefinition, materials: Mapping[str, obj
 
 def evaluate_axes_scalar(materials: Mapping[str, object]) -> tuple[dict[str, float | None], dict[str, object]]:
     """`AXIS_DEFINITIONS`の全軸を依存順（内部軸→公開軸）で評価する共通ループ
-    （コードレビュー指摘の修正: 同じ「`topological_axis_order`で依存順に並べ、
+    （同じ「`topological_axis_order`で依存順に並べ、
     `evaluate_axis_scalar`の結果を次の軸のmaterialとして混ぜ込みながら進め、公開軸だけを
-    返す」という組み立てを、`compute_edge_axis_scores`[domain/evaluation.py]・
-    `axis_inspector_breakdown`[domain/axis_inspector.py]・`evaluate_axis_difficulties`
+    返す」という組み立てを、`axis_inspector_breakdown`[domain/axis_inspector.py]・
+    `evaluate_axes_scalar`の呼び出し元
     [domain/difficulty.py]が共有する）。
 
     戻り値は`(公開軸のみのdifficulty辞書, 評価済みの内部軸も含む全materials辞書)`。
     前者は内部軸（`is_published=False`）を含まないが、値が算出不能だった公開軸は
     `None`のままキーを残す（`axis_inspector_breakdown`の`available=False`判定・
-    `evaluate_axis_difficulties`の`composite_difficulty`への受け渡しがこれを前提にする
+    呼び出し元の`composite_difficulty`への受け渡しがこれを前提にする
     ため、値がNoneのキーを黙って落とさない）。呼び出し元でNoneのキー自体を除きたい場合は
-    呼び出し側でフィルタする（`compute_edge_axis_scores`参照）。
+    呼び出し側でフィルタする。
     """
     scores: dict[str, float | None] = {}
     materials_with_axes: dict[str, object] = dict(materials)
@@ -735,8 +735,7 @@ def axis_raw_value_array(
     """折れ点を通す前の生値（欠損=NaN）。`CategoricalShape`の軸はNoneを返す。
 
     得点（0〜100）は目盛りの引き方に依存する相対評価のため、軸単体では経路の良し悪しを
-    判断できない。生値をその単位とともに添えると、他の軸を見ずに判断できる
-    （docs/tasks/T687.md参照）。
+    判断できない。生値をその単位とともに添えると、他の軸を見ずに判断できる。
     """
     shape = definition.shape
     if not has_axis_raw_value_array(definition):
@@ -756,7 +755,7 @@ def has_axis_raw_value_array(definition: AxisDefinition) -> bool:
 
 
 def evaluate_axis_array(definition: AxisDefinition, materials: Mapping[str, np.ndarray]) -> np.ndarray:
-    """`evaluate_axis_scalar`の配列版（欠損=NaN、`compute_edge_costs_bulk`のベクトル化経路用）。
+    """`evaluate_axis_scalar`の配列版（欠損=NaN、静的スコア行列の構築で使う）。
 
     `materials`は材料id→同一形状のnumpy配列（フラグ材料はbool配列、それ以外はfloat配列で
     欠損はNaN。categorical材料はdtype=object の文字列配列）。requiredな材料のNaNは演算で

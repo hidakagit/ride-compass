@@ -7,13 +7,10 @@ preview-distribution`と`GET /api/admin/material-catalog/{id}/distribution`の�
 import pytest
 
 from app.domain.axis_definitions import BreakpointLinearShape, CategoricalShape, MaterialTerm
-from app.domain.attributes import WIRED_LANDCOVER_KEYS
-from app.infrastructure.road_graph_repository import WayMaterialSampleRow
 from app.services.axis_preview_service import (
     HISTOGRAM_BINS,
     _distribution,
     _raw_value,
-    load_way_sample,
 )
 
 
@@ -119,60 +116,3 @@ class TestRawValue:
         assert _raw_value(shape, {"highway": "primary"}) is None
 
 
-class TestLoadWaySample:
-    """標本行から材料辞書を組み立てる経路（`load_way_sample`）。
-
-    ルーターのテストは分布関数ごとmonkeypatchし、上のテストは純関数だけを見るため、
-    両者の境目にあるこの組み立てだけがどのテストからも実行されていなかった。
-    """
-
-    @staticmethod
-    def _row(**overrides):
-        fields = dict(
-            length_m=120.0,
-            highway="residential",
-            tags={"lit": "yes"},
-            surface="asphalt",
-            counts_length_m=120.0,
-            accident_count=1.0,
-            intersection_count=2,
-            poi_counts={"drink": 1},
-            landcover_percents={key: 12.5 for key in WIRED_LANDCOVER_KEYS},
-            is_designated=False,
-        )
-        fields.update(overrides)
-        return WayMaterialSampleRow(**fields)
-
-    class _Repository:
-        def __init__(self, rows):
-            self._rows = rows
-
-        async def sample_way_rows(self, sample_percent, limit, bbox):
-            return self._rows
-
-        async def get_accident_years_covered(self):
-            return 3
-
-    async def test_sample_rows_are_assembled_into_material_dicts(self):
-        sample = await load_way_sample(self._Repository([self._row()]), 2.0, 10, None)
-        assert len(sample) == 1
-        length_m, materials = sample[0]
-        assert length_m == 120.0
-        # 土地被覆は配線済みクラスぶんが材料として解決される（クラスを1つ増やしても
-        # ここは並びから導かれるため追従が要らない）。
-        for key in WIRED_LANDCOVER_KEYS:
-            assert materials[key] == pytest.approx(12.5)
-        # 舗装は専用列（tags jsonbには入らない）から解決される。
-        assert materials["surface"] == "asphalt"
-        assert materials["surface_good"] == 1.0
-
-    async def test_rows_without_landcover_resolve_to_missing_materials(self):
-        sample = await load_way_sample(
-            self._Repository([self._row(landcover_percents=None)]), 2.0, 10, None
-        )
-        _, materials = sample[0]
-        assert all(materials[key] is None for key in WIRED_LANDCOVER_KEYS)
-
-    async def test_zero_length_rows_are_dropped(self):
-        sample = await load_way_sample(self._Repository([self._row(length_m=0.0)]), 2.0, 10, None)
-        assert sample == []

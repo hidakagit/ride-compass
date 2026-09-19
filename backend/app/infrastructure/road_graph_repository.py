@@ -49,7 +49,6 @@ import asyncio
 import logging
 import time
 from collections.abc import Iterable, Iterator
-from dataclasses import dataclass
 from datetime import datetime, timezone
 
 import shapely
@@ -80,11 +79,7 @@ from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession
 
 from app.domain.attributes import (
     EdgeMaterialArrays,
-    EdgeAttributeCounts,
-    EdgeMaterialBundle,
-    EdgeMaterialsBatch,
     ElevationAttribute,
-    WayAttributeCounts,
     WIRED_LANDCOVER_KEYS,
 )
 from app.domain.landcover import EdgeLandcover, LandcoverPercentages, LandcoverRecord, WayLandcover
@@ -114,12 +109,14 @@ from app.domain.traffic import (
 )
 from app.domain.tuning import tuning_value
 from app.infrastructure.cache_identity import shape_digest
-from app.infrastructure.designation_models import DesignationAttributeRow
-from app.domain.hard_filters import HARD_FILTER_VALUE_SQL
-from app.domain.material_catalog import MATERIAL_CATALOG, material_array_group
+from app.domain.hard_filters import HARD_FILTER_VALUE_SQL, hard_filter_columns
+from app.domain.material_catalog import (
+    MATERIAL_CATALOG,
+    material_array_columns,
+    material_value_sql,
+)
 from app.domain.material_sql import (
     LANDCOVER_SQL_KEYS,
-    MATERIAL_VALUE_SQL,
     BICYCLE_NORMALIZED_SQL,
     BRIDGE_NORMALIZED_SQL,
     CYCLEWAY_TAGS_ARRAY_SQL,
@@ -231,12 +228,12 @@ def _elevation_row_to_domain(row: ElevationAttributeRow) -> ElevationAttribute:
 # パン操作のバースト時に複数リクエストの待ち行列がフロントエンド（Next.jsのrewrites
 # プロキシ、デフォルト30秒タイムアウト）の制限に抵触しうる。
 #
-# surface_goodの分類はdomain/road.pyのclassify_osm_surfaceと同義（タグ集合も同じ定数を
+# surface_goodの分類はdomain/road.pyのタグ集合と同義（同じ定数を
 # バインドする）: 良い=true / 悪い=false / 不明(タグ無し・未知タグ)=NULL。
 # ST_AsMVTはNULL値のプロパティをfeatureから省略するため、MVT上は「キー無し」になり、
 # Python実装（mapbox_vector_tileもNone値を省略）ともフロントエンドの
 # ["get","surface_good"]==null判定（不明=グレー表示）とも互換。
-# lower(btrim())はclassify_osm_surfaceのstrip().lower()に対応する（btrimはASCII空白のみ
+# lower(btrim())はタグ値の正規化に対応する（btrimはASCII空白のみ
 # だが、OSMのsurfaceタグに全角空白等が入るケースは実データ上考慮しない）。
 #
 # surface（正規化済み生タグ）とhighway（OSM道路種別）もプロパティとして焼き込む。
@@ -411,8 +408,8 @@ _LANDCOVER_TILE_COLUMNS_SQL = ("," + "\n").join(
 )
 
 # 路面タイルが1フィーチャーとして焼く単位。**区間が読めるズームでは区間（road_edges）、
-# それより引いた表示ではway丸ごと（osm_raw_ways）**にする。境界の根拠は
-# docs/tasks/T917.mdの実測——gzip後の費用はz14で1.48倍・z12で1.81倍（1画面9タイルで
+# それより引いた表示ではway丸ごと（osm_raw_ways）**にする。区間で焼くと
+# gzip後の費用はz14で1.48倍・z12で1.81倍（1画面9タイルで
 # +90KB / +2.4MB）へ増える一方、z12は1pxが約38mで、交差点で切った区間は数pxにしかならず
 # 塗り分けても読めない。費用が跳ね上がるズームと、区間単位の情報量が消えるズームが
 # 一致している。
@@ -665,8 +662,7 @@ _FEATURE_KEYS_IN_TILE_SQL = text(
 #
 # 値は**そのフィーチャーに属する区間の、長さで重み付けた平均**。区間単位のズームでは属する
 # 区間が1本なのでその区間の値そのものになり、way単位のズームではwayの全区間をならした値に
-# なる。1区間の外れ値がway全体を染めることは無い（19mの区間の値で2kmの幹線が塗られていた。
-# [T931](docs/tasks/T931.md)）。
+# なる。1区間の外れ値がway全体を染めることは無い。
 #
 # **符号付きで平均するため、結果はwayの両端の標高差と一致する**（各区間の勾配へ長さを掛けると
 # 長さが約分され、標高差の総和だけが残る）。崖を下って上り返す道は打ち消し合って0%になる。
@@ -1014,40 +1010,70 @@ _WAY_ALIAS_LANDCOVER_NULLS = ", ".join(
     f"NULL::double precision AS {key}_percent" for key in LANDCOVER_SQL_KEYS
 )
 
-_WAY_MATERIAL_ALIASES_TEMPLATE = f"""
-FROM osm_raw_ways w {{sampling}}
-LEFT JOIN way_attribute_counts c ON c.osm_way_id = w.osm_way_id
-LEFT JOIN way_landcover wl ON wl.osm_way_id = w.osm_way_id
-CROSS JOIN LATERAL (
-    SELECT w.highway AS highway, COALESCE(c.length_m, 0)::double precision AS distance_m
-) re
-CROSS JOIN LATERAL (SELECT NULL::double precision AS average_grade) e
-CROSS JOIN LATERAL (SELECT {_WAY_ALIAS_LANDCOVER_NULLS}) el
-LEFT JOIN LATERAL (
-    SELECT bool_or(kind = ANY(:designation_kinds)) AS is_designated
-    FROM designation_attributes da WHERE da.osm_way_id = w.osm_way_id
-) d ON true
-"""
+# エイリアスごとのFROM句。式が実際に参照するものだけを組み立てる——使わないJOINを
+# 足すと、一部の材料のDISTINCTを引くだけの軸スタジオの値列挙まで重くなる。
+_WAY_ALIAS_CLAUSES: dict[str, str] = {
+    "c": "LEFT JOIN way_attribute_counts c ON c.osm_way_id = w.osm_way_id",
+    "wl": "LEFT JOIN way_landcover wl ON wl.osm_way_id = w.osm_way_id",
+    "re": (
+        "CROSS JOIN LATERAL (SELECT w.highway AS highway,"
+        " COALESCE(c.length_m, 0)::double precision AS distance_m) re"
+    ),
+    "e": "CROSS JOIN LATERAL (SELECT NULL::double precision AS average_grade) e",
+    "el": f"CROSS JOIN LATERAL (SELECT {_WAY_ALIAS_LANDCOVER_NULLS}) el",
+    "d": (
+        "LEFT JOIN LATERAL (SELECT bool_or(kind = ANY(:designation_kinds)) AS is_designated"
+        " FROM designation_attributes da WHERE da.osm_way_id = w.osm_way_id) d ON true"
+    ),
+}
+
+# `re`はcを、`el`はwlを前提にするため、必要になったら一緒に入れる。
+_WAY_ALIAS_REQUIRES: dict[str, tuple[str, ...]] = {"re": ("c",), "el": ("wl",)}
+
+
+def _way_from_clause(expressions: list[str], sampling: str = "") -> str:
+    """式が参照するエイリアスだけを含むFROM句。
+
+    材料の式は区間向けのエイリアス（re/c/e/el/wl/d）を前提にする。**way1本を指すときも
+    同じ式を使う**——wayの行から同じ名前のエイリアスを組み立てるだけで、式を2組持たない
+    （区間インスペクタ・軸スタジオ・分布プレビュー）。way粒度では標高とEdge単位の土地被覆が
+    存在しないため`e`と`el`はNULLだけの1行で、土地被覆はway側（`wl`）へ落ちる。
+    """
+    needed: set[str] = set()
+    for alias in _WAY_ALIAS_CLAUSES:
+        if any(f"{alias}." in expr for expr in expressions):
+            needed.add(alias)
+            needed.update(_WAY_ALIAS_REQUIRES.get(alias, ()))
+    ordered = [name for name in _WAY_ALIAS_CLAUSES if name in needed]
+    joined = "\n".join(_WAY_ALIAS_CLAUSES[name] for name in ordered)
+    return f"\nFROM osm_raw_ways w {sampling}\n{joined}"
+
 
 _WAY_MATERIAL_SELECT_SQL = ", ".join(
-    f"({expr}) AS m_{name}" for name, expr in sorted(MATERIAL_VALUE_SQL.items())
+    f"({expr}) AS m_{name}" for name, expr in sorted(material_value_sql().items())
 )
 
 
 def _way_material_binds(statement):
-    return statement.bindparams(
+    """材料の値式が使う配列パラメータのうち、**その文が実際に参照するものだけ**を束ねる。
+
+    材料1件だけを引く場合（軸スタジオの値列挙）は式が使わないパラメータがあり、
+    無条件に束ねるとSQLAlchemyが「その名前のパラメータは無い」と落ちる。
+    """
+    candidates = (
         bindparam("good_tags", value=sorted(GOOD_OSM_SURFACE_TAGS), type_=ARRAY(Text())),
         bindparam("bad_tags", value=sorted(BAD_OSM_SURFACE_TAGS), type_=ARRAY(Text())),
         bindparam(
             "designation_kinds", value=sorted(CAR_STRESS_DESIGNATION_KINDS), type_=ARRAY(Text())
         ),
     )
+    return statement.bindparams(*(b for b in candidates if f":{b.key}" in statement.text))
 
 
 _WAY_MATERIAL_VALUES_SQL = _way_material_binds(
     text(
         f"SELECT {_WAY_MATERIAL_SELECT_SQL}"
-        + _WAY_MATERIAL_ALIASES_TEMPLATE.format(sampling="")
+        + _way_from_clause(list(material_value_sql().values()))
         + " WHERE w.osm_way_id = :osm_way_id"
     )
 )
@@ -1065,7 +1091,7 @@ def _sample_way_materials_sql(sampling: str, area: str):
     return _way_material_binds(
         text(
             f"SELECT ST_Length(w.geom::geography) AS length_m, {_WAY_MATERIAL_SELECT_SQL}"
-            + _WAY_MATERIAL_ALIASES_TEMPLATE.format(sampling=sampling)
+            + _way_from_clause(list(material_value_sql().values()), sampling)
             + f" WHERE w.geom IS NOT NULL AND w.highway IS NOT NULL {area} LIMIT :limit"
         )
     )
@@ -1077,6 +1103,19 @@ _SAMPLE_WAY_MATERIAL_VALUES_SQL = _sample_way_materials_sql(
 _SAMPLE_WAY_MATERIAL_VALUES_IN_BBOX_SQL = _sample_way_materials_sql(
     "", "AND w.geom && ST_MakeEnvelope(:xmin, :ymin, :xmax, :ymax, 4326)"
 )
+
+
+_WAY_MATERIAL_COLUMN_PREFIX = "m_"
+
+
+def _material_values_from_row(row: object) -> dict[str, object]:
+    """way向けクエリの1行から材料id→値の辞書を作る。列別名は`_WAY_MATERIAL_SELECT_SQL`が
+    `m_<材料id>`で付けるため、材料の一覧をここへ書かない。"""
+    return {
+        key[len(_WAY_MATERIAL_COLUMN_PREFIX) :]: value
+        for key, value in row._mapping.items()
+        if key.startswith(_WAY_MATERIAL_COLUMN_PREFIX)
+    }
 
 
 _HARD_FILTER_COLUMN_PREFIX = "hf_"
@@ -1129,7 +1168,7 @@ LEFT JOIN LATERAL (
 
 # 材料の式と付随列を1つの内包から並べる（別々に書くと`ORDER BY`がずれても気付けない）。
 MATERIAL_ARRAY_COLUMN_ORDER: tuple[str, ...] = (
-    *sorted(MATERIAL_VALUE_SQL),
+    *sorted(material_value_sql()),
     *_EXTRA_MATERIAL_ARRAY_COLUMNS,
 )
 
@@ -1138,7 +1177,7 @@ _EDGE_MATERIAL_ARRAYS_SQL = text(
     + ", ".join(
         f"array_agg(({expr}) ORDER BY ids.ord) AS c_{name}"
         for name, expr in (
-            *sorted(MATERIAL_VALUE_SQL.items()),
+            *sorted(material_value_sql().items()),
             *_EXTRA_MATERIAL_ARRAY_COLUMNS.items(),
         )
     )
@@ -1155,44 +1194,6 @@ _EDGE_MATERIAL_ARRAYS_SQL = text(
 _ACCIDENT_YEARS_COVERED_SQL = text(
     "SELECT COUNT(DISTINCT occurred_year) FROM accident_import_runs WHERE status = 'succeeded'"
 )
-
-# 区間インスペクタ。_WAY_TAGS_BY_OSM_WAY_IDと同じ完全一致1行取得パターン。
-# way_attribute_counts（事前集計）が該当osm_way_idを持たない場合（highway無し等で
-# バッチのWHERE対象外だったway）は行自体が無くNoneを返す＝呼び出し元は「データ無し」として
-# 扱う（0件と区別する。get_accident_counts等の「edge_id自体は必ず含まれ0埋め」とは異なる
-# 単純な1行SELECTのため区別不要）。
-_WAY_ATTRIBUTE_COUNTS_BY_OSM_WAY_ID_SQL = text(
-    "SELECT length_m, accident_count, intersection_count, poi_counts "
-    "FROM way_attribute_counts WHERE osm_way_id = :osm_way_id"
-)
-
-
-@dataclass(frozen=True, slots=True)
-class WayMaterialSampleRow:
-    """`sample_way_rows`が返す1行（軸スタジオの分布プレビューの母集団）。
-
-    SQLの列別名と1対1で、値の解釈はしない。生の`Row`を返すと列別名がinfrastructureの
-    外側の暗黙の契約になり、SQLを編集しても型では何も落ちない。
-    """
-
-    length_m: float | None
-    highway: str | None
-    tags: dict[str, str] | None
-    # 舗装は専用列。tags jsonbには入らない（`domain/osm_adapter.py: ALLOWED_WAY_TAGS`）。
-    surface: str | None
-    counts_length_m: float | None
-    accident_count: float | None
-    intersection_count: int | None
-    poi_counts: dict[str, int] | None
-    # 配線済みクラス（`WIRED_LANDCOVER_KEYS`）→割合。way_landcoverの行が無ければNone。
-    landcover_percents: dict[str, float] | None
-    is_designated: bool
-
-
-# 標本の土地被覆列。焼き込み列と同じく配線するクラスの並びから組み立てる——ここを手で
-# 並べると、クラスを1つ配線したときに分布プレビューだけが古い並びで材料を組み立てる。
-_LANDCOVER_SAMPLE_COLUMNS_SQL = "\n".join(f"        lc.{key}," for key in WIRED_LANDCOVER_KEYS)
-
 
 def _landcover_record(model, row: object, **keys):
     """土地被覆の行を`LandcoverRecord`（way単位／区間単位で共通の部分）へ組み立てる。
@@ -1229,55 +1230,8 @@ def _landcover_percents_or_none(row: object) -> dict[str, float] | None:
     return {key: float(value or 0.0) for key, value in values.items()}
 
 
-# 軸スタジオの分布プレビュー用。Way単位の材料をまとめて取る標本。取り方だけが2通りで、
-# 取る列は共通のため1つのテンプレートから組み立てる。
-_SAMPLE_WAY_MATERIALS_TEMPLATE = """
-    SELECT
-        ST_Length(w.geom::geography) AS length_m,
-        w.highway,
-        w.tags,
-        w.surface,
-        wc.length_m AS counts_length_m,
-        wc.accident_count,
-        wc.intersection_count,
-        wc.poi_counts,
-{landcover}
-        EXISTS(
-            SELECT 1 FROM designation_attributes da
-            WHERE da.osm_way_id = w.osm_way_id AND da.kind = ANY(:kinds)
-        ) AS is_designated
-    FROM osm_raw_ways w {sampling}
-    LEFT JOIN way_attribute_counts wc ON wc.osm_way_id = w.osm_way_id
-    LEFT JOIN way_landcover lc ON lc.osm_way_id = w.osm_way_id
-    WHERE w.geom IS NOT NULL AND w.highway IS NOT NULL {area}
-    LIMIT :limit
-"""
-
-# 全域から取る場合。`TABLESAMPLE SYSTEM`はページ単位の抽選で、全表走査を避けつつ広い
-# 範囲から拾える（行単位のBERNOULLIや`ORDER BY random()`は数百万行の全走査になり、
-# 管理画面の応答時間に収まらない）。ページ単位のため地理的な偏りが残りうる点は、分布を
-# 「目安」として扱う前提で許容する。
-_SAMPLE_WAY_MATERIALS_SQL = text(
-    _SAMPLE_WAY_MATERIALS_TEMPLATE.format(
-        sampling="TABLESAMPLE SYSTEM (:sample_percent)", area="", landcover=_LANDCOVER_SAMPLE_COLUMNS_SQL
-    )
-).bindparams(bindparam("kinds", type_=ARRAY(Text())))
-
-# 範囲を絞って取る場合。抽選と併用しない——`TABLESAMPLE`は表全体のページから抽選するため、
-# 狭い範囲を重ねると当たるページがほとんど残らず、標本が範囲の広さに関係なく数本まで
-# 落ちる。範囲内は空間索引で直接引き、多すぎる場合は`LIMIT`で頭打ちにする。
-_SAMPLE_WAY_MATERIALS_IN_BBOX_SQL = text(
-    _SAMPLE_WAY_MATERIALS_TEMPLATE.format(
-        sampling="",
-        area="AND w.geom && ST_MakeEnvelope(:xmin, :ymin, :xmax, :ymax, 4326)",
-        landcover=_LANDCOVER_SAMPLE_COLUMNS_SQL,
-    )
-).bindparams(bindparam("kinds", type_=ARRAY(Text())))
-
-
-
-# 区間インスペクタの土地被覆。_WAY_ATTRIBUTE_COUNTS_BY_OSM_WAY_ID_SQLと同じ完全一致
-# 1行取得パターン。表示に使うクラス以外も含めて全列を1回のSELECTで取る。
+# 区間インスペクタの土地被覆。完全一致の1行取得で、表示に使うクラス以外も含めて
+# 全列を1回のSELECTで取る。
 _WAY_LANDCOVER_BY_OSM_WAY_ID_SQL = text(
     "SELECT valid_pixels, water_percent, trees_percent, flooded_veg_percent, crops_percent, "
     "built_percent, bare_percent, snow_ice_percent, rangeland_percent, "
@@ -2277,15 +2231,6 @@ class DerivedGraphRepository(_SessionRepository):
         )
 
 
-# get_distinct_material_valuesが対応する材料id→SQL式（正規化含む）。
-# 新しい材料をこの一覧へ追加する場合、_ROAD_SURFACE_TILE_MVT_SQLの対応する正規化式と
-# 揃えること（test_road_graph_repository.pyの整合性テスト参照）。値はosm_raw_waysの列名
-# ・JSONB参照のみで構成された固定リテラルで、外部入力を連結しない（SQLインジェクション対象外）。
-_MATERIAL_VALUE_COLUMN_EXPR: dict[str, str] = {
-    "highway": HIGHWAY_SQL,
-    "surface": SURFACE_NORMALIZED_SQL,
-    "smoothness": SMOOTHNESS_NORMALIZED_SQL,
-}
 
 
 class RawOsmRepository(_SessionRepository):
@@ -2520,13 +2465,19 @@ class RawOsmRepository(_SessionRepository):
         持つ材料は本APIを使う必要が無い）。未対応の`material_id`は空リストを返す
         （呼び出し元のrouterが404を判断する）。
         """
-        column_expr = _MATERIAL_VALUE_COLUMN_EXPR.get(material_id)
-        if column_expr is None:
+        spec = MATERIAL_CATALOG.get(material_id)
+        # 値の求め方は`MaterialSpec.value_sql`が唯一持つ。ここへ式を書かない。
+        # カテゴリ以外（真偽・数値）は「取りうる値の一覧」に意味が無いため対象外。
+        if spec is None or spec.value_sql is None or spec.dtype != "categorical":
             return []
+        column_expr = spec.value_sql
         result = await self._session.execute(
-            text(
-                f"SELECT DISTINCT {column_expr} AS value FROM osm_raw_ways AS w "  # noqa: S608 固定の内部辞書のみ使用、外部入力を連結しない
-                f"WHERE {column_expr} IS NOT NULL ORDER BY value"
+            _way_material_binds(
+                text(
+                    f"SELECT DISTINCT {column_expr} AS value"  # noqa: S608 カタログの宣言のみ、外部入力を連結しない
+                    + _way_from_clause([column_expr])
+                    + f" WHERE {column_expr} IS NOT NULL ORDER BY value"
+                )
             )
         )
         return [row.value for row in result]
@@ -2859,46 +2810,39 @@ class AttributeRepository(_SessionRepository):
             return None
         return (row.highway, row.tags or {}, row.is_designated, row.surface)
 
-    async def get_way_attribute_counts(self, osm_way_id: int) -> WayAttributeCounts | None:
-        """osm_way_id完全一致で事前集計（way_attribute_counts）の1行を返す（区間インスペクタ）。
-        行が無い場合はNone（データ無し。呼び出し元は該当軸をスコア算出不能として扱う）。
-        """
-        result = await self._session.execute(
-            _WAY_ATTRIBUTE_COUNTS_BY_OSM_WAY_ID_SQL, {"osm_way_id": osm_way_id}
-        )
-        row = result.first()
-        if row is None:
-            return None
-        return WayAttributeCounts(
-            length_m=row.length_m,
-            accident_count=row.accident_count,
-            intersection_count=row.intersection_count,
-            poi_counts=None if row.poi_counts is None else dict(row.poi_counts),
-        )
+    async def get_way_material_values(
+        self, osm_way_id: int, accident_years_covered: int
+    ) -> dict[str, object] | None:
+        """way1本ぶんの材料値（材料id→スカラー）。行が無ければNone。
 
-    async def sample_way_rows(
+        区間インスペクタが使う。式は区間の評価と同じ`MaterialSpec.value_sql`で、
+        way粒度のエイリアスを`_way_from_clause`が用意する。
+        """
+        rows = await self._session.execute(
+            _WAY_MATERIAL_VALUES_SQL,
+            {"osm_way_id": osm_way_id, "accident_years": accident_years_covered},
+        )
+        row = rows.first()
+        return None if row is None else _material_values_from_row(row)
+
+    async def sample_way_material_values(
         self,
+        accident_years_covered: int,
         sample_percent: float = 2.0,
         limit: int = 20_000,
         bbox: BoundingBox | None = None,
-    ) -> list[WayMaterialSampleRow]:
-        """Way単位の材料の元データを標本として取る（軸スタジオの分布プレビュー）。材料値への
-        組み立ては呼び出し元（`axis_preview_service.py`）が区間インスペクタと同じ
-        `way_scalar_materials`で行う——ここで組み立てるとinfrastructureが評価ドメインへ
-        依存する。
+    ) -> list[tuple[float, dict[str, object]]]:
+        """way標本を`(延長m, 材料値)`の並びで返す（軸スタジオの分布プレビュー）。
 
         `bbox`を渡すとその範囲内のwayだけを対象にし、抽選（`sample_percent`）は使わない。
         軸の分布は地域で大きく変わるため、全域の平均だけでは市街地の偏りが見えない。
         """
-        params: dict[str, object] = {
-            "limit": limit,
-            "kinds": sorted(CAR_STRESS_DESIGNATION_KINDS),
-        }
+        params: dict[str, object] = {"limit": limit, "accident_years": accident_years_covered}
         if bbox is None:
-            statement = _SAMPLE_WAY_MATERIALS_SQL
+            statement = _SAMPLE_WAY_MATERIAL_VALUES_SQL
             params["sample_percent"] = sample_percent
         else:
-            statement = _SAMPLE_WAY_MATERIALS_IN_BBOX_SQL
+            statement = _SAMPLE_WAY_MATERIAL_VALUES_IN_BBOX_SQL
             params.update(
                 xmin=bbox.min_longitude,
                 ymin=bbox.min_latitude,
@@ -2907,19 +2851,9 @@ class AttributeRepository(_SessionRepository):
             )
         rows = await self._session.execute(statement, params)
         return [
-            WayMaterialSampleRow(
-                length_m=row.length_m,
-                highway=row.highway,
-                tags=row.tags,
-                surface=row.surface,
-                counts_length_m=row.counts_length_m,
-                accident_count=row.accident_count,
-                intersection_count=row.intersection_count,
-                poi_counts=row.poi_counts,
-                landcover_percents=_landcover_percents_or_none(row),
-                is_designated=row.is_designated,
-            )
+            (float(row.length_m), _material_values_from_row(row))
             for row in rows
+            if row.length_m and row.length_m > 0
         ]
 
     async def get_feature_landcover(self, osm_way_id: int, edge_id: str | None) -> WayLandcover | None:
@@ -3041,117 +2975,12 @@ class AttributeRepository(_SessionRepository):
             result.update(edge_id for (edge_id,) in rows.all())
         return result
 
-    async def get_edge_materials_batch(self, edge_ids: list[str]) -> EdgeMaterialsBatch:
-        """探索フェーズ（`RoadGraphEngine.prepare`）が必要とする材料一式（surface・
-        edge_attribute_counts・way_tags・elevation_attributes・designated_edge_ids・
-        way_landcoverの配線済みクラス）を1回のJOINクエリへ統合して取得する。ボトルネックは
-        ラウンドトリップ回数ではなく同じEdge集合に対してSQLAlchemy ORMの行構築を複数回
-        繰り返すオーバーヘッドのため、個別クエリの束ではなく1クエリへ統合する
-        （dev DB、71,791 Edgeで個別5クエリ8.33秒→統合1クエリ1.30秒、6.4倍）。
-        `graph_service.py`の`_build_search_materials_uncached`・
-        `_get_or_build_tile_materials`の両方から呼ばれる。
-
-        戻り値はEdge単位で`EdgeMaterialBundle`（1オブジェクト）へ統合する
-        （`domain/attributes.py: EdgeMaterialBundle`のdocstring参照）。各材料の
-        「該当行なし」の扱い: surface・way_tagsはLEFT JOINでNone/{}を明示的に持つ
-        （bundle自体はedge_idsに含まれる全Edgeぶん必ず存在する）。attribute_counts・
-        elevation_attributeは対象テーブルへの行が無ければNone（NOT NULL列を「行の有無」の
-        判定に使う）。`poi_counts`はNULL許容で、行があってもNULLでありうる
-        （NULL＝種別別の集計が未実行、空辞書＝集計済みで0件）。is_designatedはEXISTS副問い合わせで判定する（対象kindの
-        designation_attributes行が1つでもあれば該当、の意味）。`landcover_percents`は
-        way_landcover行が無ければ全クラスまとめてNone
-        （`WayLandcoverRow`のLEFT JOIN、`EdgeMaterialBundle`のdocstring参照）。
-        """
-        if not edge_ids:
-            return EdgeMaterialsBatch(materials={})
-
-        materials: dict[str, EdgeMaterialBundle] = {}
-
-        designation_kinds = sorted(CAR_STRESS_DESIGNATION_KINDS)
-        designation_exists = (
-            select(DesignationAttributeRow.osm_way_id)
-            .where(
-                DesignationAttributeRow.osm_way_id == RoadEdgeRow.osm_way_id,
-                DesignationAttributeRow.kind == any_(cast(designation_kinds, ARRAY(Text))),
-            )
-            .exists()
-        )
-
-        for id_chunk in _chunked(edge_ids, 50_000):
-            stmt = (
-                select(
-                    RoadEdgeRow.edge_id,
-                    OsmRawWayRow.surface,
-                    OsmRawWayRow.tags,
-                    EdgeAttributeCountsRow.accident_count,
-                    EdgeAttributeCountsRow.intersection_count,
-                    EdgeAttributeCountsRow.poi_counts,
-                    ElevationAttributeRow.start_elevation_m,
-                    ElevationAttributeRow.end_elevation_m,
-                    ElevationAttributeRow.elevation_gain_m,
-                    ElevationAttributeRow.elevation_loss_m,
-                    ElevationAttributeRow.average_grade,
-                    ElevationAttributeRow.max_grade,
-                    ElevationAttributeRow.min_grade,
-                    ElevationAttributeRow.data_source,
-                    ElevationAttributeRow.data_version,
-                    ElevationAttributeRow.calculated_at,
-                    designation_exists.label("is_designated"),
-                    *(_landcover_value_column(key) for key in WIRED_LANDCOVER_KEYS),
-                )
-                .select_from(RoadEdgeRow)
-                .outerjoin(OsmRawWayRow, RoadEdgeRow.osm_way_id == OsmRawWayRow.osm_way_id)
-                .outerjoin(EdgeAttributeCountsRow, EdgeAttributeCountsRow.edge_id == RoadEdgeRow.edge_id)
-                .outerjoin(ElevationAttributeRow, ElevationAttributeRow.edge_id == RoadEdgeRow.edge_id)
-                .outerjoin(WayLandcoverRow, WayLandcoverRow.osm_way_id == RoadEdgeRow.osm_way_id)
-                .outerjoin(EdgeLandcoverRow, _EDGE_LANDCOVER_JOIN_ON)
-                .where(RoadEdgeRow.edge_id == any_(cast(id_chunk, ARRAY(Text))))
-            )
-            for row in await self._session.execute(stmt):
-                attribute_counts = (
-                    EdgeAttributeCounts(
-                        poi_counts=None if row.poi_counts is None else dict(row.poi_counts),
-                        accident_count=row.accident_count,
-                        intersection_count=row.intersection_count,
-                    )
-                    if row.intersection_count is not None
-                    else None
-                )
-                elevation_attribute = (
-                    ElevationAttribute(
-                        edge_id=row.edge_id,
-                        start_elevation_m=row.start_elevation_m,
-                        end_elevation_m=row.end_elevation_m,
-                        elevation_gain_m=row.elevation_gain_m,
-                        elevation_loss_m=row.elevation_loss_m,
-                        average_grade=row.average_grade,
-                        max_grade=row.max_grade,
-                        min_grade=row.min_grade,
-                        data_source=row.data_source,
-                        data_version=row.data_version,
-                        calculated_at=row.calculated_at.isoformat(),
-                    )
-                    if row.calculated_at is not None
-                    else None
-                )
-                materials[row.edge_id] = EdgeMaterialBundle(
-                    surface=row.surface,
-                    way_tags=row.tags or {},
-                    attribute_counts=attribute_counts,
-                    elevation_attribute=elevation_attribute,
-                    is_designated=bool(row.is_designated),
-                    landcover_percents=_landcover_percents_or_none(row),
-                )
-
-        return EdgeMaterialsBatch(materials=materials)
-
     async def get_edge_material_arrays(
         self, edge_ids: list[str], accident_years_covered: int
     ) -> EdgeMaterialArrays:
-        """材料を**DB側で導出し、dtypeごとの行列として**受け取る（`MATERIAL_VALUE_SQL`）。
+        """材料を**DB側で導出し、dtypeごとの行列として**受け取る（`MaterialSpec.value_sql`）。
 
-        `get_edge_materials_batch`が行を1本ずつ受けてPythonでオブジェクトを組むのに対し、
-        こちらは区間数に比例するPythonの仕事を持たない。
+        区間数に比例するPythonの仕事を持たない。
 
         **すべての列が同じ`ORDER BY`を持つ**必要がある（1つでも違うと値が列の間で静かに
         ずれ、エラーは出ない）。並びは`edge_ids`の位置（`WITH ORDINALITY`）で固定し、
@@ -3162,12 +2991,7 @@ class AttributeRepository(_SessionRepository):
         `derived_data_meta.revision`を上げる（`import_accidents.py`）ため、年数が変わった
         ときはこの表のキャッシュも一緒に無効になる。
         """
-        groups = {g: [] for g in ("numeric", "boolean", "categorical")}
-        for material_id in sorted(MATERIAL_VALUE_SQL):
-            groups[material_array_group(MATERIAL_CATALOG[material_id])].append(material_id)
-        numeric_ids = tuple(groups["numeric"])
-        boolean_ids = tuple(groups["boolean"])
-        categorical_ids = tuple(groups["categorical"])
+        numeric_ids, boolean_ids, categorical_ids = material_array_columns()
 
         n = len(edge_ids)
         raw: dict[str, list] = {name: [] for name in MATERIAL_ARRAY_COLUMN_ORDER}
@@ -3181,7 +3005,7 @@ class AttributeRepository(_SessionRepository):
             for name in raw:
                 raw[name].extend(getattr(row, f"c_{name}"))
 
-        hard_filter_ids = tuple(sorted(HARD_FILTER_VALUE_SQL))
+        hard_filter_ids = hard_filter_columns()
         hard_filter_flags = np.empty((n, len(hard_filter_ids)), dtype=bool)
         for i, name in enumerate(hard_filter_ids):
             hard_filter_flags[:, i] = [
@@ -3421,16 +3245,21 @@ class RoadGraphRepository:
     ) -> tuple[str | None, dict[str, str], bool, str | None] | None:
         return await self.attributes.get_way_tags_by_osm_way_id(osm_way_id)
 
-    async def get_way_attribute_counts(self, osm_way_id: int) -> WayAttributeCounts | None:
-        return await self.attributes.get_way_attribute_counts(osm_way_id)
+    async def get_way_material_values(
+        self, osm_way_id: int, accident_years_covered: int
+    ) -> dict[str, object] | None:
+        return await self.attributes.get_way_material_values(osm_way_id, accident_years_covered)
 
-    async def sample_way_rows(
+    async def sample_way_material_values(
         self,
+        accident_years_covered: int,
         sample_percent: float = 2.0,
         limit: int = 20_000,
         bbox: BoundingBox | None = None,
-    ) -> list[WayMaterialSampleRow]:
-        return await self.attributes.sample_way_rows(sample_percent, limit, bbox)
+    ) -> list[tuple[float, dict[str, object]]]:
+        return await self.attributes.sample_way_material_values(
+            accident_years_covered, sample_percent, limit, bbox
+        )
 
     async def get_feature_landcover(self, osm_way_id: int, edge_id: str | None) -> WayLandcover | None:
         return await self.attributes.get_feature_landcover(osm_way_id, edge_id)
@@ -3456,9 +3285,6 @@ class RoadGraphRepository:
 
     async def get_designated_edge_ids(self, edge_ids: list[str]) -> set[str]:
         return await self.attributes.get_designated_edge_ids(edge_ids)
-
-    async def get_edge_materials_batch(self, edge_ids: list[str]) -> EdgeMaterialsBatch:
-        return await self.attributes.get_edge_materials_batch(edge_ids)
 
     async def get_edge_material_arrays(
         self, edge_ids: list[str], accident_years_covered: int

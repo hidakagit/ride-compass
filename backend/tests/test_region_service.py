@@ -3,7 +3,6 @@ import time
 
 import pytest
 
-from app.domain.attributes import WayAttributeCounts
 from app.domain.landcover import WayLandcover
 from app.infrastructure import tile_cache
 from app.services import derived_data_revision_service
@@ -49,8 +48,8 @@ class FakeRegionRepository:
         self.way_tags_by_osm_way_id_result: tuple[str | None, dict[str, str], bool] | None = None
         self.way_tags_by_osm_way_id_calls: list[int] = []
         # 区間インスペクタ（改善計画T146）用フェイク応答。
-        self.way_attribute_counts_result: WayAttributeCounts | None = None
-        self.way_attribute_counts_calls: list[int] = []
+        self.way_material_values_result: dict[str, object] | None = None
+        self.way_material_values_calls: list[tuple[int, int]] = []
         # 改善計画T624: 開放度軸（区間インスペクタ）用フェイク応答。
         self.way_landcover_result: WayLandcover | None = None
         self.way_landcover_calls: list[tuple[int, str | None]] = []
@@ -65,11 +64,11 @@ class FakeRegionRepository:
             raise self._error
         return self.way_tags_by_osm_way_id_result
 
-    async def get_way_attribute_counts(self, osm_way_id):
-        self.way_attribute_counts_calls.append(osm_way_id)
+    async def get_way_material_values(self, osm_way_id, accident_years_covered):
+        self.way_material_values_calls.append((osm_way_id, accident_years_covered))
         if self._error is not None:
             raise self._error
-        return self.way_attribute_counts_result
+        return self.way_material_values_result
 
     async def get_feature_landcover(self, osm_way_id, edge_id):
         # 本物と同じく、区間が特定できるかを呼び出し側から受け取る（T941）。
@@ -360,11 +359,16 @@ async def test_graph_build_trigger_skips_recently_checked_tile(monkeypatch):
 async def test_axis_inspector_computes_available_axes_from_way_tags_and_counts():
     repository = FakeRegionRepository()
     repository.way_tags_by_osm_way_id_result = ("residential", {}, False, "asphalt")
-    repository.way_attribute_counts_result = WayAttributeCounts(
-        length_m=1000.0, accident_count=2.0, intersection_count=6,
-        # 停止密度が読むのは種別別のPOI件数（T655）。
-        poi_counts={"signal": 4},
-    )
+    repository.way_material_values_result = {
+        "highway": "residential",
+        "surface_good": True,
+        "accident_count_per_km_year": 1.0,
+        # 停止密度が読むのは種別別のPOI密度（T655）。
+        "poi_signal_per_km": 4.0,
+        "poi_stop_per_km": 0.0,
+        "poi_crossing_per_km": 0.0,
+        "poi_level_crossing_per_km": 0.0,
+    }
     repository.accident_years_covered_result = 2
     service = RegionService(repository=repository)
 
@@ -379,7 +383,7 @@ async def test_axis_inspector_computes_available_axes_from_way_tags_and_counts()
     assert by_id["accident"].available is True
     assert result.composite_difficulty is not None
     assert repository.way_tags_by_osm_way_id_calls == [12345]
-    assert repository.way_attribute_counts_calls == [12345]
+    assert repository.way_material_values_calls == [(12345, 2)]
 
 
 async def test_axis_inspector_way_not_found_returns_none():
@@ -387,9 +391,9 @@ async def test_axis_inspector_way_not_found_returns_none():
     service = RegionService(repository=repository)
 
     assert await service.get_axis_inspector(12345) is None
-    # way自体が見つからない場合はway_attribute_counts/accident_years_coveredを
-    # 引きに行かない（無駄なDB往復をしない）。
-    assert repository.way_attribute_counts_calls == []
+    # way自体が見つからない場合は材料値・accident_years_coveredを引きに行かない
+    # （無駄なDB往復をしない）。
+    assert repository.way_material_values_calls == []
 
 
 async def test_axis_inspector_no_repository_returns_none():
@@ -418,12 +422,12 @@ async def test_axis_inspector_db_error_is_counted_in_debug_stats():
     reset_stats()
 
 
-async def test_axis_inspector_missing_way_attribute_counts_still_returns_tag_based_axes():
+async def test_axis_inspector_missing_count_materials_still_returns_tag_based_axes():
     """way_attribute_counts側にまだ行が無い（新規way等）場合でも、タグだけで決まる
     車ストレス・路面・夜間は算出でき、Noneのままにはならない。"""
     repository = FakeRegionRepository()
     repository.way_tags_by_osm_way_id_result = ("residential", {}, False, "asphalt")
-    repository.way_attribute_counts_result = None
+    repository.way_material_values_result = {"highway": "residential", "surface_good": True}
     service = RegionService(repository=repository)
 
     result = await service.get_axis_inspector(12345)

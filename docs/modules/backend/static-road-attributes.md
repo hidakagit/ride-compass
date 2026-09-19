@@ -121,7 +121,7 @@ DELETE→INSERTで、**候補0件のkindはDELETEの対象から外す**——DE
 
 区間の行があって値がNULL（その構成では値なし）のときもway側へは戻さない。戻すと隣り合う
 区間が別の単位の値で塗られる。この規則は路面タイル（`_landcover_value_column`と
-`_LANDCOVER_TILE_COLUMNS_SQL`）と評価経路（`get_edge_materials_batch`）で同じにする
+`_LANDCOVER_TILE_COLUMNS_SQL`）と評価経路（`get_edge_material_arrays`）で同じにする
 ——食い違うと、地図に出ている値と採点が使う値が別物になる。
 
 `edge_landcover`の鍵は**向きに依らない区間の同定子**（way＋両端ノードの小さい方・大きい方）。
@@ -498,7 +498,7 @@ PBF取込時にしか変わらないため、再訪時の同一タイル再取�
 
 | ファイル | 役割 |
 |---|---|
-| `road.py` | 路面語彙の正準定義（`GOOD_OSM_SURFACE_TAGS`/`BAD_OSM_SURFACE_TAGS`）・`classify_osm_surface`。両ルーティングエンジン・PostGIS側MVT生成SQLが共有する単一ソース |
+| `road.py` | 路面語彙の正準定義（`GOOD_OSM_SURFACE_TAGS`/`BAD_OSM_SURFACE_TAGS`）。材料の値式とPostGIS側MVT生成SQLが共有する単一ソース |
 | `attributes.py` | `ElevationAttribute`/`EdgeAttributeCounts`等のモデルと標高計算（[elevation.md](elevation.md)が主に扱う） |
 | `designation.py` | 指定路線コンフレーション機構の正準定数（バッファ幅・マッチ閾値・対象kind） |
 | `accident.py` | 警察庁データ取込の純関数群（都道府県コード変換・当事者種別判定・度分秒座標変換） |

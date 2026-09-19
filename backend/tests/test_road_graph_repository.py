@@ -8,14 +8,20 @@ import json
 import logging
 from datetime import datetime, timezone
 
+import numpy as np
 import pytest
 from geoalchemy2.shape import from_shape
 from shapely.geometry import Point
 from sqlalchemy import insert, text
 
-from app.domain.attributes import ElevationAttribute, WayAttributeCounts, WIRED_LANDCOVER_KEYS
+from app.domain.attributes import ElevationAttribute, WIRED_LANDCOVER_KEYS
 from app.domain.graph import RoadGraph, WaySpec, build_road_graph
-from tests.road_graph_scaffolds import single_way_graph, single_way_spec, three_way_junction_graph
+from tests.road_graph_scaffolds import (
+    save_ways_and_graph,
+    single_way_graph,
+    single_way_spec,
+    three_way_junction_spec,
+)
 from app.domain.traffic import HIGHWAY_RANK
 from app.domain.landcover import LULC_BUILT, LULC_TREES, LULC_WATER, WayLandcover, class_percentages
 from app.domain.region import BoundingBox
@@ -66,9 +72,8 @@ async def test_get_graph_in_bbox_returns_none_when_nothing_saved(road_graph_repo
 async def test_save_graph_and_get_graph_in_bbox_roundtrip(road_graph_repository):
     ways = [WaySpec(osm_way_id=100, node_ids=[1, 2], highway="residential")]
     nodes = {1: NODE1, 2: NODE2}
-    graph = build_road_graph(ways, nodes, graph_version="v1")
 
-    await road_graph_repository.save_graph(graph)
+    await save_ways_and_graph(road_graph_repository, ways, nodes)
     result = await road_graph_repository.get_graph_in_bbox(BBOX_AROUND_NODE1_2)
 
     assert result is not None
@@ -84,8 +89,7 @@ async def test_get_graph_in_bbox_only_returns_edges_intersecting_bbox(road_graph
         WaySpec(osm_way_id=200, node_ids=[3, 4], highway="residential"),
     ]
     nodes = {1: NODE1, 2: NODE2, 3: NODE3, 4: NODE4}
-    graph = build_road_graph(ways, nodes, graph_version="v1")
-    await road_graph_repository.save_graph(graph)
+    await save_ways_and_graph(road_graph_repository, ways, nodes)
 
     result_1_2 = await road_graph_repository.get_graph_in_bbox(BBOX_AROUND_NODE1_2)
     result_3_4 = await road_graph_repository.get_graph_in_bbox(BBOX_AROUND_NODE3_4)
@@ -108,8 +112,7 @@ async def test_get_graph_topology_in_bbox_matches_get_graph_in_bbox_coordinates(
     # get_graph_in_bbox（shapely decode経由）と同じ座標値を返すことを確認する。
     ways = [WaySpec(osm_way_id=100, node_ids=[1, 2], highway="residential")]
     nodes = {1: NODE1, 2: NODE2}
-    graph = build_road_graph(ways, nodes, graph_version="v1")
-    await road_graph_repository.save_graph(graph)
+    await save_ways_and_graph(road_graph_repository, ways, nodes)
 
     topology = await road_graph_repository.get_graph_topology_in_bbox(BBOX_AROUND_NODE1_2)
     full = await road_graph_repository.get_graph_in_bbox(BBOX_AROUND_NODE1_2)
@@ -149,8 +152,7 @@ async def test_get_graph_topology_in_bbox_only_returns_edges_intersecting_bbox(r
         WaySpec(osm_way_id=200, node_ids=[3, 4], highway="residential"),
     ]
     nodes = {1: NODE1, 2: NODE2, 3: NODE3, 4: NODE4}
-    graph = build_road_graph(ways, nodes, graph_version="v1")
-    await road_graph_repository.save_graph(graph)
+    await save_ways_and_graph(road_graph_repository, ways, nodes)
 
     result_1_2 = await road_graph_repository.get_graph_topology_in_bbox(BBOX_AROUND_NODE1_2)
     result_far = await road_graph_repository.get_graph_topology_in_bbox(BBOX_FAR_AWAY)
@@ -165,8 +167,7 @@ async def test_get_edges_with_geometry_returns_hydrated_geometry_for_requested_e
     # edge_idだけを渡して実ジオメトリを取得し直す用途。
     ways = [WaySpec(osm_way_id=100, node_ids=[1, 2], highway="residential")]
     nodes = {1: NODE1, 2: NODE2}
-    graph = build_road_graph(ways, nodes, graph_version="v1")
-    await road_graph_repository.save_graph(graph)
+    await save_ways_and_graph(road_graph_repository, ways, nodes)
     topology = await road_graph_repository.get_graph_topology_in_bbox(BBOX_AROUND_NODE1_2)
     edge_id = next(iter(topology.edges))
 
@@ -186,8 +187,7 @@ async def test_get_edges_with_geometry_returns_hydrated_geometry_for_requested_e
 async def test_get_edges_with_geometry_ignores_edge_ids_not_found(road_graph_repository):
     ways = [WaySpec(osm_way_id=100, node_ids=[1, 2], highway="residential")]
     nodes = {1: NODE1, 2: NODE2}
-    graph = build_road_graph(ways, nodes, graph_version="v1")
-    await road_graph_repository.save_graph(graph)
+    graph = await save_ways_and_graph(road_graph_repository, ways, nodes)
     edge_id = next(iter(graph.edges))
 
     hydrated = await road_graph_repository.get_edges_with_geometry([edge_id, "does-not-exist"])
@@ -205,9 +205,9 @@ async def test_get_edges_with_geometry_returns_empty_dict_for_empty_input(road_g
 async def test_save_graph_upserts_same_edge_without_duplicating(road_graph_repository):
     ways = [WaySpec(osm_way_id=100, node_ids=[1, 2], highway="residential")]
     nodes = {1: NODE1, 2: NODE2}
-    graph = build_road_graph(ways, nodes, graph_version="v1")
 
-    await road_graph_repository.save_graph(graph)
+    graph = await save_ways_and_graph(road_graph_repository, ways, nodes)
+    await road_graph_repository.save_raw_ways(ways, nodes)
     await road_graph_repository.save_graph(graph)  # 同じ内容を再度保存
 
     result = await road_graph_repository.get_graph_in_bbox(BBOX_AROUND_NODE1_2)
@@ -221,8 +221,7 @@ async def test_save_graph_with_way_ids_to_replace_deletes_then_reinserts_only_ta
         WaySpec(osm_way_id=200, node_ids=[3, 4], highway="residential"),
     ]
     nodes_v1 = {1: NODE1, 2: NODE2, 3: NODE3, 4: NODE4}
-    graph_v1 = build_road_graph(ways_v1, nodes_v1, graph_version="v1")
-    await road_graph_repository.save_graph(graph_v1)
+    await save_ways_and_graph(road_graph_repository, ways_v1, nodes_v1)
 
     before = await road_graph_repository.get_graph_in_bbox(BBOX_AROUND_NODE1_2)
     assert len(before.edges) == 2  # way100は1区間(seg0)のみ、双方向で2Edge
@@ -239,6 +238,7 @@ async def test_save_graph_with_way_ids_to_replace_deletes_then_reinserts_only_ta
     nodes_v2 = {1: NODE1, 2: NODE2, 6: node6, 7: node7}
     graph_v2 = build_road_graph(ways_v2, nodes_v2, graph_version="v2")
 
+    await road_graph_repository.save_raw_ways(ways_v2, nodes_v2)
     await road_graph_repository.save_graph(graph_v2, way_ids_to_replace={100})
 
     after = await road_graph_repository.get_graph_in_bbox(BBOX_AROUND_NODE1_2)
@@ -281,6 +281,7 @@ async def test_save_graph_with_way_ids_to_replace_handles_edge_count_beyond_asyn
     assert len(graph.edges) == way_count * 2
 
     way_ids = {w.osm_way_id for w in ways}
+    await road_graph_repository.save_raw_ways(ways, nodes)
     await road_graph_repository.save_graph(graph, way_ids_to_replace=way_ids)
 
     edge_count = await road_graph_session.scalar(
@@ -381,6 +382,7 @@ async def test_is_split_up_to_date_returns_true_after_save_raw_ways_and_save_gra
     nodes = {1: NODE1, 2: NODE2}
     await road_graph_repository.save_raw_ways([way], nodes)
     graph = build_road_graph([way], nodes, graph_version="v1")
+    await road_graph_repository.save_raw_ways([way], nodes)
     await road_graph_repository.save_graph(graph, way_ids_to_replace={100})
 
     assert await road_graph_repository.is_split_up_to_date(BBOX_AROUND_NODE1_2) is True
@@ -393,6 +395,7 @@ async def test_is_split_up_to_date_returns_false_after_way_content_changes_witho
     nodes = {1: NODE1, 2: NODE2}
     await road_graph_repository.save_raw_ways([way], nodes)
     graph = build_road_graph([way], nodes, graph_version="v1")
+    await road_graph_repository.save_raw_ways([way], nodes)
     await road_graph_repository.save_graph(graph, way_ids_to_replace={100})
     assert await road_graph_repository.is_split_up_to_date(BBOX_AROUND_NODE1_2) is True
 
@@ -411,6 +414,7 @@ async def test_is_split_up_to_date_stays_true_after_semantically_identical_resav
     nodes = {1: NODE1, 2: NODE2}
     await road_graph_repository.save_raw_ways([way], nodes)
     graph = build_road_graph([way], nodes, graph_version="v1")
+    await road_graph_repository.save_raw_ways([way], nodes)
     await road_graph_repository.save_graph(graph, way_ids_to_replace={100})
     assert await road_graph_repository.is_split_up_to_date(BBOX_AROUND_NODE1_2) is True
 
@@ -427,6 +431,7 @@ async def test_is_split_up_to_date_true_again_after_resave_reflects_new_split(ro
     nodes = {1: NODE1, 2: NODE2}
     await road_graph_repository.save_raw_ways([way], nodes)
     graph = build_road_graph([way], nodes, graph_version="v1")
+    await road_graph_repository.save_raw_ways([way], nodes)
     await road_graph_repository.save_graph(graph, way_ids_to_replace={100})
 
     changed_way = WaySpec(osm_way_id=100, node_ids=[1, 2], highway="residential", surface="gravel")
@@ -434,6 +439,7 @@ async def test_is_split_up_to_date_true_again_after_resave_reflects_new_split(ro
     assert await road_graph_repository.is_split_up_to_date(BBOX_AROUND_NODE1_2) is False
 
     graph_v2 = build_road_graph([changed_way], nodes, graph_version="v2")
+    await road_graph_repository.save_raw_ways([changed_way], nodes)
     await road_graph_repository.save_graph(graph_v2, way_ids_to_replace={100})
 
     assert await road_graph_repository.is_split_up_to_date(BBOX_AROUND_NODE1_2) is True
@@ -447,10 +453,12 @@ async def test_save_graph_stamps_split_at_only_for_way_ids_to_replace(road_graph
     nodes = {1: NODE1, 2: NODE2, 3: NODE3, 4: NODE4}
     await road_graph_repository.save_raw_ways(ways, nodes)
     graph = build_road_graph(ways, nodes, graph_version="v1")
+    await road_graph_repository.save_raw_ways(ways, nodes)
     await road_graph_repository.save_graph(graph, way_ids_to_replace={100, 200})
     assert await road_graph_repository.is_split_up_to_date(BBOX_AROUND_NODE3_4) is True
 
     # way100だけを再split（way200には触れない）
+    await road_graph_repository.save_raw_ways(ways, nodes)
     await road_graph_repository.save_graph(graph, way_ids_to_replace={100})
 
     # way200の生データを変更する。split_atが更新されていなければ（＝100だけの
@@ -480,6 +488,7 @@ async def test_is_split_up_to_date_true_for_way_that_produces_zero_edges_after_s
     way100_edges = {eid: e for eid, e in graph.edges.items() if e.osm_way_id == 100}
     assert way100_edges == {}  # 前提の確認: 本当に0 Edge
 
+    await road_graph_repository.save_raw_ways([way100, way101], nodes)
     await road_graph_repository.save_graph(graph, way_ids_to_replace={100})
 
     assert await road_graph_repository.is_split_up_to_date(BBOX_AROUND_NODE1_2) is True
@@ -496,8 +505,7 @@ async def test_save_elevation_attributes_with_empty_list_is_a_noop(road_graph_re
 async def test_elevation_attributes_roundtrip(road_graph_repository):
     ways = [WaySpec(osm_way_id=100, node_ids=[1, 2], highway="residential")]
     nodes = {1: NODE1, 2: NODE2}
-    graph = build_road_graph(ways, nodes, graph_version="v1")
-    await road_graph_repository.save_graph(graph)
+    graph = await save_ways_and_graph(road_graph_repository, ways, nodes)
     edge_id = next(iter(graph.edges))
 
     attribute = ElevationAttribute(
@@ -526,8 +534,7 @@ async def test_elevation_attributes_roundtrip(road_graph_repository):
 async def test_elevation_attributes_upsert_overwrites_previous_value(road_graph_repository):
     ways = [WaySpec(osm_way_id=100, node_ids=[1, 2], highway="residential")]
     nodes = {1: NODE1, 2: NODE2}
-    graph = build_road_graph(ways, nodes, graph_version="v1")
-    await road_graph_repository.save_graph(graph)
+    graph = await save_ways_and_graph(road_graph_repository, ways, nodes)
     edge_id = next(iter(graph.edges))
     now_iso = datetime(2026, 1, 1, tzinfo=timezone.utc).isoformat()
 
@@ -610,8 +617,7 @@ async def test_get_surface_attributes_joins_via_osm_way_id(road_graph_repository
     way = WaySpec(osm_way_id=100, node_ids=[1, 2], highway="residential", surface="asphalt")
     nodes = {1: NODE1, 2: NODE2}
     await road_graph_repository.save_raw_ways([way], nodes)
-    graph = build_road_graph([way], nodes, graph_version="v1")
-    await road_graph_repository.save_graph(graph)
+    graph = await save_ways_and_graph(road_graph_repository, [way], nodes)
     edge_id = next(iter(graph.edges))
 
     result = await road_graph_repository.get_surface_attributes([edge_id, "nonexistent-edge"])
@@ -625,6 +631,7 @@ async def test_get_surface_attributes_is_none_when_raw_way_not_found(road_graph_
     ways = [WaySpec(osm_way_id=100, node_ids=[1, 2], highway="residential")]
     nodes = {1: NODE1, 2: NODE2}
     graph = build_road_graph(ways, nodes, graph_version="v1")
+    await road_graph_repository.save_raw_ways(ways, nodes)
     await road_graph_repository.save_graph(graph)  # save_raw_waysを呼ばない＝osm_raw_ways側は空
     edge_id = next(iter(graph.edges))
 
@@ -665,8 +672,7 @@ POI_WAY_NODES = {
 
 async def _build_poi_way(road_graph_repository, road_graph_session):
     way = WaySpec(osm_way_id=100, node_ids=[1, 2, 3, 4, 5], highway="residential")
-    graph = build_road_graph([way], POI_WAY_NODES, graph_version="v1")
-    await road_graph_repository.save_graph(graph)
+    graph = await save_ways_and_graph(road_graph_repository, [way], POI_WAY_NODES)
     # 数え方がwayの構成ノード（osm_raw_ways.node_ids）に依存するため、Road Graphだけでなく
     # 生wayも保存する。
     await road_graph_repository.save_raw_ways([way], POI_WAY_NODES)
@@ -749,9 +755,6 @@ async def test_unaggregated_poi_counts_are_unknown_not_zero(road_graph_repositor
     ここを0として読むと、集計バッチを流す前のDBで全区間が「停止要因ゼロ＝最も易しい」と
     評価され、ルート選択が静かに歪む（実際に本番で起きた）。
     """
-    from app.domain.attributes import METRIC_GROUP_POI, edge_metrics_from_bundles
-    from app.domain.material_catalog import MATERIAL_CATALOG, MaterialExtractionContext
-
     forward, _ = await _build_poi_way(road_graph_repository, road_graph_session)
     await road_graph_session.execute(
         text(
@@ -763,39 +766,20 @@ async def test_unaggregated_poi_counts_are_unknown_not_zero(road_graph_repositor
     )
     await road_graph_session.commit()
 
-    batch = await road_graph_repository.get_edge_materials_batch([forward])
-    assert batch.materials[forward].attribute_counts.poi_counts is None
+    arrays = await road_graph_repository.get_edge_material_arrays([forward], 1)
 
-    metrics = edge_metrics_from_bundles(batch.materials)
-    assert forward not in metrics[METRIC_GROUP_POI]
-
-    ctx = MaterialExtractionContext(
-        edge_id=forward,
-        highway=None,
-        way_tags={},
-        distance_km=0.1,
-        elevation_attributes={},
-        surface_attributes={},
-        designated_edge_ids=set(),
-        metrics=metrics,
-        accident_years_covered=1,
-    )
-    assert MATERIAL_CATALOG["poi_signal_per_km"].extractor(ctx) is None
+    assert np.isnan(arrays.column("poi_signal_per_km")[0])
 
 
-async def test_poi_counts_reach_the_material_extractor_end_to_end(
+async def test_poi_counts_reach_the_material_value_end_to_end(
     road_graph_repository, road_graph_session
 ):
     """DBのpoi_countsが、材料の値としてルート評価まで届くことを端から端まで確認する。
 
-    集計SQL・`edge_attribute_counts`の列・`get_edge_materials_batch`のSELECT・
-    `EdgeMaterialBundle`・`edge_metrics_from_bundles`・extractorのどこか1つでも
-    配線が抜けていると、軸が「データなし」になって静かに評価から外れる。実際に外れた
-    ことがあるため、途中の各層ではなく通しで固定する。
+    集計SQL・`edge_attribute_counts`の列・材料の値式のどこか1つでも配線が抜けていると、
+    軸が「データなし」になって静かに評価から外れる。実際に外れたことがあるため、
+    途中の各層ではなく通しで固定する。
     """
-    from app.domain.attributes import METRIC_GROUP_POI, edge_metrics_from_bundles
-    from app.domain.material_catalog import MATERIAL_CATALOG, MaterialExtractionContext
-
     forward, _ = await _build_poi_way(road_graph_repository, road_graph_session)
     counts = await road_graph_repository.get_poi_counts_by_kind([forward])
     await road_graph_session.execute(
@@ -808,29 +792,12 @@ async def test_poi_counts_reach_the_material_extractor_end_to_end(
     )
     await road_graph_session.commit()
 
-    batch = await road_graph_repository.get_edge_materials_batch([forward])
-    bundle = batch.materials[forward]
-    assert bundle.attribute_counts is not None
-    assert bundle.attribute_counts.poi_counts == counts[forward]
+    arrays = await road_graph_repository.get_edge_material_arrays([forward], 1)
 
-    metrics = edge_metrics_from_bundles(batch.materials)
-    assert metrics[METRIC_GROUP_POI][forward]["signal"] == 1.0
-
-    ctx = MaterialExtractionContext(
-        edge_id=forward,
-        highway=None,  # poi系のextractorはedge_id・distance_km・metricsだけを見る
-        way_tags={},
-        distance_km=0.1,
-        elevation_attributes={},
-        surface_attributes={},
-        designated_edge_ids=set(),
-        metrics=metrics,
-        accident_years_covered=1,
-    )
-    signal_density = MATERIAL_CATALOG["poi_signal_per_km"].extractor(ctx)
-    assert signal_density is not None and signal_density > 0
+    assert arrays.column("poi_signal_per_km")[0] > 0
     # 0件のキーは「不明」ではなく0（行があるため確定できる）。
-    assert MATERIAL_CATALOG["poi_level_crossing_per_km"].extractor(ctx) > 0
+    assert arrays.column("poi_level_crossing_per_km")[0] > 0
+
 
 
 async def test_get_poi_counts_by_kind_returns_empty_dict_for_empty_input(road_graph_repository):
@@ -884,36 +851,6 @@ async def test_get_way_tags_by_osm_way_id_returns_none_when_way_not_found(road_g
     assert await road_graph_repository.get_way_tags_by_osm_way_id(999) is None
 
 
-async def test_get_way_attribute_counts_returns_row_when_present(road_graph_repository, road_graph_session):
-    """区間インスペクタ（改善計画T146）。way_attribute_counts（T145b事前集計）に該当行が
-    あればWayAttributeCountsを返す。"""
-    way = WaySpec(osm_way_id=100, node_ids=[1, 2], highway="residential")
-    nodes = {1: NODE1, 2: NODE2}
-    await road_graph_repository.save_raw_ways([way], nodes)
-    await road_graph_session.execute(
-        text(
-            "INSERT INTO way_attribute_counts (osm_way_id, length_m, accident_count, "
-            "intersection_count, computed_at) VALUES (100, 500.0, 1.5, 3, now())"
-        )
-    )
-    await road_graph_session.commit()
-
-    result = await road_graph_repository.get_way_attribute_counts(100)
-
-    assert result == WayAttributeCounts(length_m=500.0, accident_count=1.5, intersection_count=3)
-
-
-async def test_get_way_attribute_counts_returns_none_when_row_missing(road_graph_repository, road_graph_session):
-    """該当wayがosm_raw_waysに存在しても、way_attribute_countsバッチ未実行/対象外
-    （highway無し等）なら行が無くNone（0件と区別、呼び出し元は算出不能として扱う）。"""
-    way = WaySpec(osm_way_id=100, node_ids=[1, 2], highway="residential")
-    nodes = {1: NODE1, 2: NODE2}
-    await road_graph_repository.save_raw_ways([way], nodes)
-    await road_graph_session.commit()
-
-    assert await road_graph_repository.get_way_attribute_counts(100) is None
-
-
 async def test_get_way_landcover_returns_row_when_present(road_graph_repository, road_graph_session):
     """区間インスペクタ（開放度軸、改善計画T624）。way_landcoverに該当行があれば
     WayLandcoverを返す。"""
@@ -956,8 +893,7 @@ async def _save_cross(road_graph_repository, side_highway: str):
         WaySpec(osm_way_id=102, node_ids=[2, 4], highway=side_highway),
     ]
     nodes = {1: NODE1, 2: NODE2, 3: NODE3, 4: NODE4}
-    graph = build_road_graph(ways, nodes, graph_version="v1")
-    await road_graph_repository.save_graph(graph)
+    graph = await save_ways_and_graph(road_graph_repository, ways, nodes)
     return graph
 
 
@@ -1027,6 +963,7 @@ async def test_recompute_node_max_highway_rank_is_zero_for_roads_outside_the_ran
         WaySpec(osm_way_id=101, node_ids=[2, 3], highway="footway"),
     ]
     graph = build_road_graph(ways, {1: NODE1, 2: NODE2, 3: NODE3}, graph_version="v1")
+    await road_graph_repository.save_raw_ways(ways, {1: NODE1, 2: NODE2, 3: NODE3})
     await road_graph_repository.save_graph(graph)
 
     await road_graph_repository.graph.recompute_node_max_highway_rank()
@@ -1098,8 +1035,7 @@ async def _saved_three_way_junction(road_graph_repository) -> RoadGraph:
 
     次数は`road_nodes.degree`（DB全体の事前集計）から引くため、保存だけでは交差点にならない。
     """
-    graph = three_way_junction_graph()
-    await road_graph_repository.save_graph(graph)
+    graph = await save_ways_and_graph(road_graph_repository, *three_way_junction_spec())
     await road_graph_repository.recompute_node_degrees()
     return graph
 
@@ -1130,6 +1066,7 @@ async def test_get_intersection_counts_degree_2_pass_through_node_is_not_an_inte
     way_b = WaySpec(osm_way_id=101, node_ids=[2, 3], highway="residential")
     nodes = {1: NODE1, 2: NODE2, 3: NODE3}
     graph = build_road_graph([way_a, way_b], nodes, graph_version="v1")
+    await road_graph_repository.save_raw_ways([way_a, way_b], nodes)
     await road_graph_repository.save_graph(graph)
     await road_graph_repository.recompute_node_degrees()
     edge_ids = list(graph.edges.keys())
@@ -1147,6 +1084,7 @@ async def test_get_intersection_counts_edge_far_from_any_intersection_is_zero(ro
     way_isolated = WaySpec(osm_way_id=200, node_ids=[5, 6], highway="residential")
     nodes = {1: NODE1, 2: NODE2, 3: NODE3, 4: NODE4, 5: (35.600, 139.600), 6: (35.601, 139.601)}
     graph = build_road_graph([way_a, way_b, way_c, way_isolated], nodes, graph_version="v1")
+    await road_graph_repository.save_raw_ways([way_a, way_b, way_c, way_isolated], nodes)
     await road_graph_repository.save_graph(graph)
     await road_graph_repository.recompute_node_degrees()
     isolated_edge_ids = [
@@ -1338,6 +1276,7 @@ async def test_save_graph_resplit_does_not_affect_designation_attributes(
     nodes_v1 = {1: NODE1, 2: NODE2, 6: node6, 7: node7}
     await road_graph_repository.save_raw_ways([way100, way300], nodes_v1)
     graph_v1 = build_road_graph([way100, way300], nodes_v1, graph_version="v1")
+    await road_graph_repository.save_raw_ways([way100, way300], nodes_v1)
     await road_graph_repository.save_graph(graph_v1, way_ids_to_replace={100})
     way100_edges_v1 = sorted(eid for eid in graph_v1.edges if eid.startswith("way-100-"))
     assert len(way100_edges_v1) == 4  # [1,6]/[6,2]の2segment、双方向で4Edge（前提確認）
@@ -1352,6 +1291,7 @@ async def test_save_graph_resplit_does_not_affect_designation_attributes(
     new_edge_ids = list(graph_v2.edges.keys())
     assert len(new_edge_ids) == 2  # [1,2]の1segment、双方向で2Edge（実際に再split発生の確認）
 
+    await road_graph_repository.save_raw_ways([way100_alone], nodes_v2)
     await road_graph_repository.save_graph(graph_v2, way_ids_to_replace={100})
 
     # osm_way_id=100自体は変わっていないため、再split後の新edge_id全件がdesignatedと判定される。
@@ -1368,6 +1308,7 @@ async def test_get_designated_edge_ids_returns_matching_edges(road_graph_reposit
     nodes = {1: NODE1, 2: NODE2, 3: NODE3, 4: NODE4}
     await road_graph_repository.save_raw_ways([way_a, way_b], nodes)
     graph = build_road_graph([way_a, way_b], nodes, graph_version="v1")
+    await road_graph_repository.save_raw_ways([way_a, way_b], nodes)
     await road_graph_repository.save_graph(graph)
     edge_ids = list(graph.edges.keys())
     designated_edge_id = next(e for e in edge_ids if e.startswith("way-100-"))
@@ -1385,8 +1326,7 @@ async def test_get_designated_edge_ids_ignores_kinds_outside_car_stress_set(road
     way = WaySpec(osm_way_id=100, node_ids=[1, 2], highway="residential")
     nodes = {1: NODE1, 2: NODE2}
     await road_graph_repository.save_raw_ways([way], nodes)
-    graph = build_road_graph([way], nodes, graph_version="v1")
-    await road_graph_repository.save_graph(graph)
+    graph = await save_ways_and_graph(road_graph_repository, [way], nodes)
     edge_id = next(iter(graph.edges))
 
     # national_cycle_routeはCAR_STRESS_DESIGNATION_KINDSに含まれない（今回未実装のkind）。
@@ -1398,29 +1338,21 @@ async def test_get_designated_edge_ids_ignores_kinds_outside_car_stress_set(road
     assert result == set()
 
 
-async def test_get_edge_materials_batch_returns_empty_for_empty_input(road_graph_repository):
-    batch = await road_graph_repository.get_edge_materials_batch([])
-    assert batch.materials == {}
-
-
-async def test_get_edge_materials_batch_combines_all_five_materials_correctly(road_graph_repository, road_graph_session):
-    # 改善計画T248: 5メソッド個別呼び出しと同じ意味（該当行なしの扱い含む）を、
-    # 1回のJOINクエリへ統合した後も保つことを確認する回帰テスト。改善計画T533:
-    # 戻り値はEdge単位でEdgeMaterialBundleへ統合済み（domain/attributes.py参照）。
+async def test_material_arrays_combine_every_source_table(road_graph_repository, road_graph_session):
+    """材料の値が、元データの表（専用列・タグ・件数・標高・指定路線・土地被覆）から
+    1回のクエリで揃うことを確認する。該当行が無い区間は欠損になる。"""
     way = WaySpec(
         osm_way_id=100, node_ids=[1, 2], highway="residential", surface="asphalt",
         tags={"lanes": "2"},
     )
     nodes = {1: NODE1, 2: NODE2}
-    await road_graph_repository.save_raw_ways([way], nodes)
-    graph = build_road_graph([way], nodes, graph_version="v1")
-    await road_graph_repository.save_graph(graph)
+    graph = await save_ways_and_graph(road_graph_repository, [way], nodes)
     edge_ids = list(graph.edges.keys())
     fwd_edge_id = next(e for e in edge_ids if e.endswith("-fwd"))
     bwd_edge_id = next(e for e in edge_ids if e.endswith("-bwd"))
 
     # edge_attribute_counts・elevation_attributesはfwd側のみに投入し、
-    # 「該当行が無いEdge」の扱い（key自体を含めない）をbwd側で検証する。
+    # 「該当行が無いEdge」の扱い（欠損）をbwd側で検証する。
     await road_graph_session.execute(
         insert(EdgeAttributeCountsRow).values(
             edge_id=fwd_edge_id, accident_count=1.5, intersection_count=3,
@@ -1447,36 +1379,29 @@ async def test_get_edge_materials_batch_combines_all_five_materials_correctly(ro
     )
     await road_graph_session.commit()
 
-    batch = await road_graph_repository.get_edge_materials_batch(
-        [fwd_edge_id, bwd_edge_id, "nonexistent-edge"]
-    )
+    arrays = await road_graph_repository.get_edge_material_arrays([fwd_edge_id, bwd_edge_id], 1)
 
-    # bundle自体（surface・way_tagsに相当）は実在するEdgeなら両方とも必ずkeyを持つ
-    # （存在しないEdgeのみ除外される）。
-    assert set(batch.materials.keys()) == {fwd_edge_id, bwd_edge_id}
-    assert batch.materials[fwd_edge_id].surface == "asphalt"
-    assert batch.materials[bwd_edge_id].surface == "asphalt"
-    assert batch.materials[fwd_edge_id].way_tags == {"lanes": "2"}
+    assert arrays.edge_ids == [fwd_edge_id, bwd_edge_id]
+    fwd, bwd = 0, 1
+    # wayの専用列・タグはosm_way_id単位のため両方向とも同じ値。
+    assert arrays.column("surface")[fwd] == "asphalt"
+    assert arrays.column("surface")[bwd] == "asphalt"
+    assert arrays.column("lanes_count")[fwd] == 2
+    # 件数・標高は該当行が無いbwdだと欠損。
+    assert arrays.column("intersection_count_per_km")[fwd] > 0
+    assert np.isnan(arrays.column("intersection_count_per_km")[bwd])
+    assert arrays.column("gradient_percent")[fwd] == 1.2
+    assert np.isnan(arrays.column("gradient_percent")[bwd])
+    # designation・way_landcoverはosm_way_id単位のため両方向とも該当する。
+    assert bool(arrays.column("is_designated")[fwd]) is True
+    assert bool(arrays.column("is_designated")[bwd]) is True
+    for row in (fwd, bwd):
+        assert arrays.column("trees_percent")[row] == 40.0
+        assert arrays.column("built_percent")[row] == 25.0
+    # 配線したクラスは全部そろって届く（一部だけ欠けることはない）。
+    for key in WIRED_LANDCOVER_KEYS:
+        assert not np.isnan(arrays.column(key)[fwd]), key
 
-    # attribute_counts・elevation_attributeは該当行が無いbwdだとNoneのまま。
-    fwd_counts = batch.materials[fwd_edge_id].attribute_counts
-    assert (fwd_counts.accident_count, fwd_counts.intersection_count) == (1.5, 3)
-    assert batch.materials[bwd_edge_id].attribute_counts is None
-    assert batch.materials[fwd_edge_id].elevation_attribute.start_elevation_m == 10.0
-    assert batch.materials[bwd_edge_id].elevation_attribute is None
-
-    # designationはosm_way_id単位のためfwd・bwd両方。
-    assert batch.materials[fwd_edge_id].is_designated is True
-    assert batch.materials[bwd_edge_id].is_designated is True
-
-    # way_landcoverもosm_way_id単位のためfwd・bwd両方が同じ値を持つ。
-    for edge_id in (fwd_edge_id, bwd_edge_id):
-        percents = batch.materials[edge_id].landcover_percents
-        assert percents is not None
-        assert percents["trees_percent"] == 40.0
-        assert percents["built_percent"] == 25.0
-        # 配線したクラスは全部そろって届く（一部だけ欠けることはない）。
-        assert set(percents) == set(WIRED_LANDCOVER_KEYS)
 
 
 
@@ -1556,8 +1481,7 @@ async def _save_ways_and_edges(repository, way_specs, nodes):
     EDGE_UNIT_MIN_ZOOM）。生のwayだけを入れても、その単位のタイルには1件も出ない。
     """
     await repository.save_raw_ways(way_specs, nodes)
-    graph = build_road_graph(way_specs, nodes, graph_version="v1")
-    await repository.save_graph(graph)
+    graph = await save_ways_and_graph(repository, way_specs, nodes)
     return graph
 
 
@@ -1855,6 +1779,7 @@ async def test_get_road_surface_tile_mvt_designation_matches_designation_kinds(
     ways = [ert_way, cl_way, plain_way, both_way]
     await _save_ways_and_edges(road_graph_repository, ways, {1: NODE1, 2: NODE2})
     graph = build_road_graph(ways, {1: NODE1, 2: NODE2}, graph_version="v1")
+    await road_graph_repository.save_raw_ways(ways, {1: NODE1, 2: NODE2})
     await road_graph_repository.save_graph(graph)
     await _insert_designation_attribute(road_graph_session, 200, "emergency_transport")
     await _insert_designation_attribute(road_graph_session, 202, "critical_logistics")
@@ -1890,56 +1815,6 @@ async def test_get_road_surface_tile_mvt_designation_matches_designation_kinds(
     assert both.get("is_critical_logistics") is True
 
 
-async def test_get_road_surface_tile_mvt_bicycle_infra_flags_match_domain_recipe(
-    road_graph_repository, road_graph_session,
-):
-    """改善計画T367: 公開軸「自転車インフラ」（bicycle_infra_quality）が参照する
-    5正規化フラグ材料（domain/recipe.py: bicycle_infra_flagsと同じ判定式）が
-    _ROAD_SURFACE_TILE_MVT_SQLへ正しく焼き込まれることを確認する（SQL⇔Python
-    二重実装のドリフト検知、test_get_road_surface_tile_mvt_designation_matches_
-    designation_kindsと同じ考え方）。
-    """
-    import mapbox_vector_tile
-
-    from app.domain.recipe import bicycle_infra_flags
-
-    cycleway_way = WaySpec(osm_way_id=210, node_ids=[1, 2], highway="cycleway")
-    track_way = WaySpec(osm_way_id=211, node_ids=[1, 2], highway="residential", tags={"cycleway": "track"})
-    lane_way = WaySpec(
-        osm_way_id=212, node_ids=[1, 2], highway="residential", tags={"cycleway:right": "lane"}
-    )
-    shared_way = WaySpec(
-        osm_way_id=213, node_ids=[1, 2], highway="residential", tags={"cycleway": "shared_lane"}
-    )
-    shared_path_way = WaySpec(
-        osm_way_id=214, node_ids=[1, 2], highway="footway", tags={"bicycle": "designated"}
-    )
-    plain_way = WaySpec(osm_way_id=215, node_ids=[1, 2], highway="residential")
-    ways = [cycleway_way, track_way, lane_way, shared_way, shared_path_way, plain_way]
-    await _save_ways_and_edges(road_graph_repository, ways, {1: NODE1, 2: NODE2})
-    graph = build_road_graph(ways, {1: NODE1, 2: NODE2}, graph_version="v1")
-    await road_graph_repository.save_graph(graph)
-    await _mark_mvt_coverage(road_graph_session)
-
-    tile = await road_graph_repository.get_road_surface_tile_mvt(
-        MVT_Z, MVT_X, MVT_Y, _mvt_tile_bbox(), MVT_COVERAGE_TILE
-    )
-    decoded = mapbox_vector_tile.decode(tile)
-    properties_by_way_id = {
-        f["properties"].get("osm_way_id"): f["properties"] for f in decoded["road_surface"]["features"]
-    }
-
-    for way in ways:
-        expected = bicycle_infra_flags(way.tags or {}, way.highway)
-        actual = properties_by_way_id[way.osm_way_id]
-        for flag, expected_value in expected.items():
-            # タイル側は真偽値プロパティをtrueのときだけ焼き込み、falseはキー省略
-            # （他の真偽値材料[tunnel/bridge等]と同じ規約、NULLIFではなくCASE式自体が
-            # ELSE無し=NULLのため）。
-            if expected_value:
-                assert actual.get(flag) is True, f"way={way.osm_way_id} flag={flag}"
-            else:
-                assert flag not in actual, f"way={way.osm_way_id} flag={flag}"
 
 
 # --- get_distinct_material_values（改善計画T340: 軸スタジオの値入力UX改善） ---
@@ -2477,8 +2352,7 @@ async def test_get_feature_keys_in_tile_includes_zero_length_way(road_graph_repo
 async def test_get_feature_gradient_inputs_in_tile_returns_none_when_uncovered(road_graph_repository):
     ways = [WaySpec(osm_way_id=1, node_ids=[1, 2], highway="residential")]
     nodes = {1: NODE1, 2: NODE2}
-    graph = build_road_graph(ways, nodes, graph_version="v1")
-    await road_graph_repository.save_graph(graph)
+    await save_ways_and_graph(road_graph_repository, ways, nodes)
 
     result = await road_graph_repository.get_feature_gradient_inputs_in_tile(
         MVT_Z, MVT_X, MVT_Y, _mvt_tile_bbox(), MVT_COVERAGE_TILE
@@ -2508,8 +2382,7 @@ async def test_get_feature_gradient_inputs_in_tile_returns_gradient_and_bearing(
 
     ways = [WaySpec(osm_way_id=1, node_ids=[1, 2], highway="residential")]
     nodes = {1: NODE1, 2: NODE2}
-    graph = build_road_graph(ways, nodes, graph_version="v1")
-    await road_graph_repository.save_graph(graph)
+    graph = await save_ways_and_graph(road_graph_repository, ways, nodes)
     edge_id = next(iter(graph.edges))
     await road_graph_repository.save_elevation_attributes(
         [
@@ -2562,8 +2435,7 @@ async def test_get_feature_gradient_inputs_in_tile_uses_the_reverse_direction_of
 
     ways = [WaySpec(osm_way_id=1, node_ids=[1, 2], highway="residential")]
     nodes = {1: NODE1, 2: NODE2}
-    graph = build_road_graph(ways, nodes, graph_version="v1")
-    await road_graph_repository.save_graph(graph)
+    graph = await save_ways_and_graph(road_graph_repository, ways, nodes)
     await _mark_mvt_coverage(road_graph_session)
 
     representative = (
@@ -2611,8 +2483,7 @@ async def test_get_feature_gradient_inputs_in_tile_excludes_edges_without_elevat
     # （_FEATURE_GRADIENT_INPUTS_IN_TILE_SQLのJOIN、NULLIFではなくINNER JOINのため）。
     ways = [WaySpec(osm_way_id=1, node_ids=[1, 2], highway="residential")]
     nodes = {1: NODE1, 2: NODE2}
-    graph = build_road_graph(ways, nodes, graph_version="v1")
-    await road_graph_repository.save_graph(graph)
+    await save_ways_and_graph(road_graph_repository, ways, nodes)
     await _mark_mvt_coverage(road_graph_session)
 
     result = await road_graph_repository.get_feature_gradient_inputs_in_tile(
@@ -2625,8 +2496,7 @@ async def test_get_feature_gradient_inputs_in_tile_excludes_edges_without_elevat
 async def test_get_feature_gradient_inputs_in_tile_excludes_edges_outside_tile(road_graph_repository, road_graph_session):
     ways = [WaySpec(osm_way_id=2, node_ids=[3, 4], highway="residential")]
     nodes = {3: NODE3, 4: NODE4}
-    graph = build_road_graph(ways, nodes, graph_version="v1")
-    await road_graph_repository.save_graph(graph)
+    graph = await save_ways_and_graph(road_graph_repository, ways, nodes)
     edge_id = next(iter(graph.edges))
     await road_graph_repository.save_elevation_attributes(
         [
@@ -2647,7 +2517,7 @@ async def test_get_feature_gradient_inputs_in_tile_excludes_edges_outside_tile(r
     assert result == {}
 
 
-async def test_sample_way_rows_without_bbox_covers_every_area(road_graph_repository):
+async def test_sample_way_material_values_without_bbox_covers_every_area(road_graph_repository):
     """抽選100%なら全域が対象。bbox指定の効果を見る前提を固定する。"""
     await road_graph_repository.save_raw_ways(
         [
@@ -2657,12 +2527,12 @@ async def test_sample_way_rows_without_bbox_covers_every_area(road_graph_reposit
         {1: NODE1, 2: NODE2, 3: NODE3, 4: NODE4},
     )
 
-    rows = await road_graph_repository.sample_way_rows(sample_percent=100.0)
+    rows = await road_graph_repository.sample_way_material_values(3, sample_percent=100.0)
 
     assert len(rows) == 2
 
 
-async def test_sample_way_rows_with_bbox_excludes_ways_outside_it(road_graph_repository):
+async def test_sample_way_material_values_with_bbox_excludes_ways_outside_it(road_graph_repository):
     """bboxを渡すとその範囲内のwayだけが母集団になる。
 
     全域の平均だけを見ると市街地の偏りが消えるため、地域を絞って測れることが
@@ -2676,14 +2546,15 @@ async def test_sample_way_rows_with_bbox_excludes_ways_outside_it(road_graph_rep
         {1: NODE1, 2: NODE2, 3: NODE3, 4: NODE4},
     )
 
-    rows = await road_graph_repository.sample_way_rows(bbox=BBOX_AROUND_NODE1_2)
+    rows = await road_graph_repository.sample_way_material_values(3, bbox=BBOX_AROUND_NODE1_2)
 
     assert len(rows) == 1
-    assert rows[0].highway == "residential"
-    assert rows[0].length_m is not None and rows[0].length_m > 0
+    length_m, materials = rows[0]
+    assert length_m > 0
+    assert materials["highway"] == "residential"
 
 
-async def test_sample_way_rows_with_bbox_does_not_thin_the_sample_by_sample_percent(
+async def test_sample_way_material_values_with_bbox_does_not_thin_the_sample_by_sample_percent(
     road_graph_repository,
 ):
     """bbox指定時は抽選率を無視する。併用すると標本が範囲の広さと無関係に消える。"""
@@ -2692,8 +2563,8 @@ async def test_sample_way_rows_with_bbox_does_not_thin_the_sample_by_sample_perc
         {1: NODE1, 2: NODE2},
     )
 
-    rows = await road_graph_repository.sample_way_rows(
-        sample_percent=0.0001, bbox=BBOX_AROUND_NODE1_2
+    rows = await road_graph_repository.sample_way_material_values(
+        3, sample_percent=0.0001, bbox=BBOX_AROUND_NODE1_2
     )
 
     assert len(rows) == 1
@@ -2718,6 +2589,7 @@ async def test_intersection_counts_ignore_a_junction_on_a_parallel_road_nearby(
         11: (NODE2[0] + 0.0005, NODE2[1] + 0.00022),
     }
     graph = build_road_graph([quiet, main_a, main_b, main_c], nodes, graph_version="v1")
+    await road_graph_repository.save_raw_ways([quiet, main_a, main_b, main_c], nodes)
     await road_graph_repository.save_graph(graph)
     await road_graph_repository.recompute_node_degrees()
     quiet_edge_ids = [edge_id for edge_id, edge in graph.edges.items() if edge.osm_way_id == 200]
@@ -2776,6 +2648,7 @@ async def test_accident_counts_go_only_to_the_nearest_road(road_graph_repository
     }
     await _save_ways_and_edges(road_graph_repository, [main, quiet], nodes)
     graph = build_road_graph([main, quiet], nodes, graph_version="v1")
+    await road_graph_repository.save_raw_ways([main, quiet], nodes)
     await road_graph_repository.save_graph(graph)
     # 幹線の線上で起きた事故。裏道からも30m以内にある。
     await _insert_accident(
@@ -3063,10 +2936,10 @@ async def test_区間の土地被覆は両方向のEdgeへ同じ値を与える(
     ]
     # forward/backwardの2行が、向きに依らない1つの鍵を共有する。
     assert len(edge_ids) == 2
-    batch = await road_graph_repository.get_edge_materials_batch(edge_ids)
+    arrays = await road_graph_repository.get_edge_material_arrays(edge_ids, 1)
 
-    for edge_id in edge_ids:
-        assert batch.materials[edge_id].landcover_percents["trees_percent"] == pytest.approx(80.0)
+    for row in range(len(edge_ids)):
+        assert arrays.column("trees_percent")[row] == pytest.approx(80.0)
 
 
 async def test_get_feature_gradient_inputs_in_tile_does_not_let_one_segment_paint_the_whole_way(
@@ -3155,9 +3028,7 @@ async def test_get_edge_ids_on_structure_returns_empty_for_no_edges(road_graph_r
 async def _way_with_one_edge(road_graph_repository, road_graph_session):
     """1本道を保存し、(edge_id, node_lo, node_hi)を返す。"""
     way, nodes = single_way_spec()
-    await road_graph_repository.save_raw_ways([way], nodes)
-    graph = build_road_graph([way], nodes, graph_version="v1")
-    await road_graph_repository.save_graph(graph)
+    graph = await save_ways_and_graph(road_graph_repository, [way], nodes)
     await road_graph_session.commit()
     edge = next(iter(graph.edges.values()))
     node_lo, node_hi = sorted([edge.from_node_id, edge.to_node_id])
@@ -3251,7 +3122,7 @@ async def test_edge_materials_keep_classes_that_are_present_when_another_is_null
     クラスを1つ足して既存行を埋め戻す前は、この形が実際に現れる。欠損判定を1クラスの
     名指しで書くと、**その1クラスがNULLというだけで行ごと捨てる**（他のクラスの値は
     揃っているのに、その区間の土地被覆の材料が全部落ちる）。判定は
-    `WIRED_LANDCOVER_KEYS`から導く（`_landcover_percents_or_none`）。
+    `WIRED_LANDCOVER_KEYS`から導く。
     """
     edge_id, node_lo, node_hi = await _way_with_one_edge(road_graph_repository, road_graph_session)
     await _insert_landcover(
@@ -3259,8 +3130,6 @@ async def test_edge_materials_keep_classes_that_are_present_when_another_is_null
         f"100, '{node_lo}', '{node_hi}', 400, 15.0, NULL, 0, 0, 80.0, 0, 0, 5.0, 'esri-io-lulc', '2025'",
     )
 
-    batch = await road_graph_repository.get_edge_materials_batch([edge_id])
+    arrays = await road_graph_repository.get_edge_material_arrays([edge_id], 1)
 
-    percents = batch.materials[edge_id].landcover_percents
-    assert percents is not None
-    assert percents["built_percent"] == 80.0
+    assert arrays.column("built_percent")[0] == 80.0

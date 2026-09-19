@@ -5,7 +5,7 @@ Esri×Impact Observatory Sentinel-2 10m Annual LULCの画素値ヒストグラ�
 変換するだけの純関数群。どのクラスが「遮蔽」でどのクラスが「開放」かという判断は
 一切行わない——その判断は評価軸（`domain/axis_definitions.py: AXIS_DEFINITIONS`）の
 `terms`（重み付き線形結合）が表現する。材料段階で分類を固定すると、軸定義を見ただけでは
-何が難易度に寄与しているか分からなくなるため（docs/tasks/T624.md「方針転換」参照）。
+何が難易度に寄与しているか分からなくなるため。
 """
 
 import hashlib
@@ -97,7 +97,7 @@ class LandcoverRecord(StrictModel):
 class WayLandcover(LandcoverRecord):
     """`way_landcover`テーブル1行分。バッチ（`precompute_way_landcover.py`）の書き込みと、
     区間インスペクタ（`domain/axis_inspector.py`）のWay1本ぶんの入力に使う。評価経路の
-    材料はこの行から配線済みクラスの割合だけを取り出したもの（`EdgeMaterialBundle`の
+    材料はこの行から配線済みクラスの割合だけを取り出したもの（材料の
     `landcover_percents`）で、系譜情報は運ばない。"""
 
     osm_way_id: int

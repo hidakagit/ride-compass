@@ -26,8 +26,9 @@ compute_edge_axis_scores`経由、下記「呼び出し元」参照）。周回�
 - 母集団はWay単位（`osm_raw_ways`のページ単位抽選、`TABLESAMPLE SYSTEM`）で、**延長で
   重み付ける**。本数で数えると短い道が多数を占めて実際に走る距離の感覚と合わない。
   ページ単位の抽選のため地理的な偏りが残りうる点は、分布を「目安」として扱う前提で許容する。
-- 材料値の組み立ては区間インスペクタと同じ`domain/axis_inspector.py: way_scalar_materials`へ
-  委ねる。同じ材料を2箇所で組み立てると、材料を増やしたときに片方だけ取り残される。
+- 材料値はDB側が`MaterialSpec.value_sql`で求める（`RoadGraphRepository.
+  sample_way_material_values`）。評価が読むのと同じ式をway粒度のエイリアスへ当てるため、
+  材料を増やしてもプレビューだけ取り残されることがない。
 - Way単位で値を持たない材料はここに現れない。Edge単位（`road_edges`）にしか無い材料は
   Way単位の事前集計を用意して初めて分布を見られる
   （[静的道路属性・タイル配信](static-road-attributes.md)参照）。

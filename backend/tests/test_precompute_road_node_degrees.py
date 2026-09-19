@@ -15,7 +15,7 @@ from sqlalchemy import text
 
 from app.batch.precompute_road_node_degrees import run
 from tests.conftest import postgis_database_url
-from tests.road_graph_scaffolds import three_way_junction_graph
+from tests.road_graph_scaffolds import three_way_junction_spec, three_way_junction_graph
 
 # road_graph_session/road_graph_repository（conftest.py）はDB接続確立コスト削減のため
 # ファイル単位で1本のエンジン・イベントループを使い回す設計。ファイル内の全テストの
@@ -33,6 +33,8 @@ NODE4 = (35.700, 139.702)
 
 async def _seed_y_junction(road_graph_repository, road_graph_session) -> None:
     """NODE2へ3本のWayが集まるY字（NODE2の次数3、端点3つは次数1）。"""
+    # 区間はwayの派生行（`road_edges.osm_way_id`がFK）のため、本番と同じく先にwayを入れる。
+    await road_graph_repository.save_raw_ways(*three_way_junction_spec(NODE3, NODE4))
     await road_graph_repository.save_graph(three_way_junction_graph(NODE3, NODE4))
     await road_graph_session.commit()
 

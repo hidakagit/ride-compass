@@ -510,7 +510,7 @@ class GraphService:
                 graph = LeanRoadGraph(graph_version="tile-cache-empty", nodes={}, edges={})
 
             edge_ids = list(graph.edges.keys())
-            # 材料はDB側で導出させ、列ごとの配列として受け取る（`MATERIAL_VALUE_SQL`）。
+            # 材料はDB側で導出させ、列ごとの配列として受け取る（`MaterialSpec.value_sql`）。
             # 区間ごとのPythonオブジェクトを作らないため、構築もディスクからの復元も
             # Edge数に比例しない。
             materials = SearchMaterials(

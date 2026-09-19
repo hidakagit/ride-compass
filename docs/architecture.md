@@ -914,7 +914,7 @@ interface RouteSegmentDetail {
                                        // bicycle_infra_quality側が持つ）
   axis_difficulties: { [axisId: string]: number };  // axis_id→difficulty(0-100)。軸ごとの
     // 固定フィールドは持たない。評価できなかった軸・
-    // 非公開の軸はキー自体を持たない（`compute_edge_axis_scores`と同じ規約）。軸スタジオでの
+    // 非公開の軸はキー自体を持たない（評価経路と同じ規約）。軸スタジオでの
     // 公開軸の増減にそのまま追従する
   axis_contributions: { [axisId: string]: number };  // axis_id→重み付き寄与度（改善計画T550）
   material_values: { [materialId: string]: number };  // 材料id→値（改善計画T592で
@@ -1008,7 +1008,7 @@ cycleway補正（内部軸`car_stress_bicycle_infra_adjustment`）が既に自�
 （night軸の既定重みは0.0。街灯・トンネルを気にするユーザーが研究モードで個別に重みを上げる
 想定）。事故実績は元から独立軸（`accident`）。
 `domain/safety.py`・`safety_recipe.yaml`・`POST /api/region/safety-breakdown`・地図の安全度レイヤーは撤去済み
-（跡地の`recipe.py`判定プリミティブ・`lit`タイルプロパティは車ストレス・night軸へ転用済みのため残る）。
+（跡地の`lit`タイルプロパティは車ストレス・night軸へ転用済みのため残る）。
 
 続く改善計画T149（設計プロンプト改訂2026-08-18「現行9軸からの帰属先」）で、交差点密度
 （旧`intersection_weight`）の独立軸を廃止し停止密度側へ統合した。`domain/difficulty.py:
@@ -1043,7 +1043,7 @@ stop_difficulty`が、停止要因POI（信号・横断歩道・一時停止・�
 
 ### 評価軸の算出元と重み
 
-`domain/difficulty.py: evaluate_axis_difficulties`が材料値の辞書と重み辞書から軸別difficulty・
+`domain/axis_definitions.py: evaluate_axes_scalar`と`domain/difficulty.py: composite_difficulty`が材料値の辞書と重み辞書から軸別difficulty・
 合成difficulty（区間の`difficulty`、絶対基準0-100）を算出する（改善計画T221 Stage B/Cで
 `AXIS_DEFINITIONS`をループする形へ再編、軸ごとの変換パラメータは
 `domain/axis_definitions.py`が単一ソース）。重みは
@@ -1059,7 +1059,7 @@ stop_difficulty`が、停止要因POI（信号・横断歩道・一時停止・�
 | 軸 | 生値の単位 | 算出元 |
 |---|---|---|
 | 勾配 | %（区間勾配） | Step5（旧`ElevationService`/`ElevationAttribute`） |
-| 舗装質 | good/bad/unknown | Step8（`domain/road.py: classify_osm_surface`） |
+| 舗装質 | good/bad/unknown | Step8（`domain/road.py`の路面語彙） |
 | 風 | `wind_drag_ratio`（無次元、相対風速の二乗則、走行速度依存） | `domain/wind.py`（`wind_drag_ratio_array`） |
 | 停止密度（交差点密度込み） | 回/km | P1（信号・横断歩道・一時停止・踏切・車止め・減速構造、`osm_raw_pois`。T149で旧`intersection_weight`を合算） |
 | 車の圧迫感 | 0-4 | 推定（改善計画T292で`axis_definitions`の内部軸＋公開軸1つの階層構造へ再設計（旧専用Pythonレシピ`car_stress_level`から移行）。改善計画T150で呼称をtraffic→car_stressへ統一。改善計画T353で自転車インフラ由来の調整を`bicycle_infra_quality`側へ完全分離し、表示スケールも0-4へ再較正） |
@@ -1082,15 +1082,14 @@ APIの`route_preference`・フロントの重みUIもすべて同じaxis_idキ�
 「並び順はoverall_difficultyのみでよい」というさらなるユーザー判断を受けT548でtotal_score
 自体を撤去した）。**軸を追加するときは
 必ずこの1本道を通す**（`CLAUDE.md`参照）: 取込（`import_profile.yaml`/`ALLOWED_WAY_TAGS`等）
-→ 材料の解決（既存材料で足りない場合のみ。スカラー経路`compute_edge_axis_scores`は
-引き続き手書き。配列経路`compute_edge_costs_bulk`は改善計画T280で`domain/material_catalog.py:
-MaterialSpec.extractor`宣言駆動化済みのため、抽出方法がタグ判定・件数密度等の既知パターンに
-収まる材料なら`material_catalog.py`へ抽出関数を1件足すだけで済み、`compute_edge_costs_bulk`
-自体の変更は不要。既知パターンに収まらない場合や`AttributeRepository`側の事前集計が
-無い場合は従来どおりファサード対称委譲から必要）→
+→ 材料の解決（既存材料で足りない場合のみ。材料の値の求め方は
+`domain/material_catalog.py: MaterialSpec.value_sql`が唯一の宣言で、DBが導出する。
+既存のエイリアス（区間の行・集計表・派生表）で書ける式なら1エントリ足すだけで済み、
+読み出し側の変更は不要。新しい元データが要る場合は`AttributeRepository`側の事前集計から
+必要）→
 `domain/axis_definitions.py: AXIS_DEFINITIONS`への定義データ追加（改善計画T221 Stage B/C。
 既存テンプレート＋既存材料の組み合わせならこの1エントリでスカラー/配列両経路の評価・
-区間インスペクタ・`evaluate_axis_difficulties`・既定重み（改善計画T316で
+区間インスペクタ・既定重み（改善計画T316で
 旧`route_preference.yaml`の手書きミラーを撤廃したため、この1エントリだけで自動反映される）
 へ同時反映される）→ フロント`evaluationAxes.ts`のカタログ。エンジンファイルに軸固有の知識（SQL・タグ解釈）を
 書き足さない。区間詳細表示（`RouteSegmentDetail.axis_difficulties`、改善計画T309で
@@ -1412,11 +1411,10 @@ DB化済みの`AXIS_DEFINITIONS`側を表示名の単一ソースにした。
 （`axis_admin.py: AxisDefinitionPayload`）の`_check_materials_are_known`が、shapeが参照する
 材料idの実在を422で検証する。
 
-抽出ロジックは汎用パターン（単一タグ生値取得・タグ値一致判定・数値パース・件数密度計算）を
-パラメータ化したextractorファクトリ関数（`raw_way_tag_extractor`/`tag_equals_extractor`/
-`way_tag_parser_extractor`/`keyed_value_extractor`/`keyed_density_extractor`）で宣言的に組み立てる（`MaterialSpec`宣言の
-場で`extractor=tag_equals_extractor("bridge", "yes")`のように直接呼ぶ）。優先順位付き分類等の
-複雑な組み合わせロジック（`bicycle_infra`）のみ専用関数を持つ。
+材料の値はSQL式（`MaterialSpec.value_sql`）として宣言し、DBが導出する。共通の判定
+（タグの正規化・タグ値の一致・数値パース・件数の密度化・wayの行の有無）は
+`domain/material_sql.py`の組み立て関数から作るため、材料ごとに式を書き写さない。
+評価・地図タイル・欠損率の集計はすべてこの同じ式を読む。
 
 `GET /api/admin/material-catalog/{material_id}/values`（HTTP Basic認可要）が、DBに実際に取り込まれている値の
 一覧（`RawOsmRepository.get_distinct_material_values`、DB未接続時は空リストへグレースフル
@@ -1708,19 +1706,19 @@ transform_fn文字列の動的解決ではなく「材料辞書＋shapeテンプ
 
 旧`domain/recipe_definition.py`（T141、`Recipe`/旧`RecipeComponents`等でレシピをJSON/DB
 レコード形式へ統合する宣言的インフラとして新設）は、T142が別方式
-（`compute_edge_axis_scores`）を採用したため一度も配線されず孤立していたため、
+（材料カタログ駆動の評価）を採用したため一度も配線されず孤立していたため、
 改善計画T155で削除済み。
 
 ### 〇次: ハード制約
 
-8軸の難易度計算に入る前段として、`domain/hard_filters.py: is_edge_allowed`が対象Edgeを
-探索グラフから丸ごと除外するかどうかを判定する（設計プロンプト「評価システムの層構造
+難易度計算に入る前段として、`domain/hard_filters.py: compute_hard_filter_excluded`が
+対象Edgeを探索グラフから丸ごと除外するかどうかを判定する（設計プロンプト「評価システムの層構造
 再設計」の〇次フィルタ、仕様書29章のHard Constraintと同じ概念）。**スコア・重みには
 一切登場しない**点が8軸との決定的な違い（該当Edgeは`EdgeCostResult.allowed=False`で
 `cost`/`difficulty`ともNoneになり、Dijkstra探索の候補にすら入らない）。
 
 フィルタは名前付きで管理する（`HARD_FILTER_HIGHWAY_TYPES: dict[str, frozenset[str]]`、
-`DEFAULT_HARD_FILTERS: frozenset[str]`）。`is_edge_allowed`は`hard_filters`引数
+`DEFAULT_HARD_FILTERS: frozenset[str]`）。判定は`hard_filters`引数
 （省略時`DEFAULT_HARD_FILTERS`）で有効なフィルタの集合を受け取り、将来T141で
 レシピJSON化した際の`hard_filters: list[str]`フィールドをそのまま渡せる形にしてある
 （現時点ではまだどの呼び出し元も上書きしておらず、常に全フィルタ有効＝従来と同じ動作）。
@@ -1869,7 +1867,7 @@ osm_way_id単位へ集約してから`osm_raw_ways`へJOIN）として焼き込�
 フォローアップ（2026-08-26）: この3値へCASE式で畳み込む前の生フラグ（`is_ert`/`is_cl`）を
 `is_emergency_transport`/`is_critical_logistics`という2つの真偽値タイルプロパティとしても
 併せて焼き込み、`material_catalog.py`の同名の正規化材料（軸スタジオで選択可能、ただし
-`extractor`は種別ごとのper-edge kind配線が未整備なためトリガー付きDEFER）が参照する
+値式は種別ごとのper-edge kind配線が未整備なためトリガー付きDEFER）が参照する
 （「表示専用材料の除外」節参照）。
 
 ### 派生データの系譜追跡
@@ -2232,7 +2230,7 @@ T352〜T434の間、"wind"は`supports_route_coloring`経由で動的に生成�
 - `road`という名前の専用モードは無くなり、`surface_q`が他の動的モードと同じ
   `${axis.label}の影響`という汎用ラベルで現れる。旧`road_surface_good`
   （route_generator側が表示する真偽値）と`surface_q`軸が読む材料`surface_good`
-  （`material_catalog.py: _extract_surface_good`）は、どちらも`classify_osm_surface()`
+  （`material_catalog.py`の`surface_good`）は、どちらも`classify_osm_surface()`
   由来の同一材料で、`surface_q`軸の`true_value=0.0/false_value=80.0`という材料設計
   により、汎用の絶対値差難易度経路（abs差3段階相当）へそのまま乗せても実質2値
   （0か80）にしかならず表示は壊れない。

@@ -12,7 +12,7 @@ from app.domain.axis_display import (
     raw_value_total_unit,
     raw_value_unit,
 )
-from app.domain.material_catalog import MATERIAL_CATALOG, MaterialSpec
+from app.domain.material_catalog import MATERIAL_CATALOG, CoverageExcluded, MaterialSpec
 from app.domain.registry import TileInputSpec
 
 # 改善計画T350: AXIS_DEFINITIONSのPython literal撤去に伴い、本ファイルのテストは
@@ -570,6 +570,7 @@ def test_direction_dependent_material_is_not_auto_derived(monkeypatch):
             dtype="numeric",
             tile_property="test_direction_dependent_property",
             tile_property_direction_dependent=True,
+            coverage=CoverageExcluded(reason="テスト専用の材料。"),
         ),
     )
     definition = AxisDefinition(

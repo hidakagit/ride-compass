@@ -290,10 +290,12 @@ class RegionService:
                 if way_tags_result is None:
                     fields["lookup"] = "not_found"
                     return None
-                way_counts = await self._repository.get_way_attribute_counts(osm_way_id)
+                accident_years_covered = await self._repository.get_accident_years_covered()
+                materials = await self._repository.get_way_material_values(
+                    osm_way_id, accident_years_covered
+                )
                 # 地図が塗っている値と同じ単位で読む（区間が特定できるときは区間単位）。
                 way_landcover = await self._repository.get_feature_landcover(osm_way_id, edge_id)
-                accident_years_covered = await self._repository.get_accident_years_covered()
             except Exception as exc:  # noqa: BLE001 DB障害は安全側(None)へ倒す（他タイル系と同じ方針）
                 fields["result"] = "error"
                 fields["warned"] = True
@@ -306,11 +308,9 @@ class RegionService:
                 )
                 return None
             fields["lookup"] = "ok"
-            fields["way_counts_available"] = way_counts is not None
-            highway, tags, is_designated, surface = way_tags_result
+            highway, tags, is_designated, _surface = way_tags_result
             return axis_inspector_breakdown(
-                highway, tags, is_designated, way_counts, accident_years_covered, way_landcover,
-                RoutePreference(), surface,
+                highway, tags, is_designated, materials or {}, way_landcover, RoutePreference(),
             )
 
     async def get_accident_years_covered(self) -> int:
@@ -345,9 +345,8 @@ class RegionService:
 
     async def get_material_values(self, material_id: str) -> list[str] | None:
         """軸スタジオ（AxisComposer.tsx）の値入力UX向け。指定した材料id
-        （highway/surface/smoothness、`infrastructure/road_graph_repository.py:
-        _MATERIAL_VALUE_COLUMN_EXPR`参照）についてDBへ実際に取り込まれている値の一覧を
-        返す。
+        （`MaterialSpec.value_sql`を持つcategorical材料）についてDBへ実際に取り込まれて
+        いる値の一覧を返す。
 
         **取得できなかったとき（`repository`未注入・DB例外・タイムアウト）はNone**、
         取得できて値が無いときは空リストを返す。両方を空リストへ倒すと、画面は

@@ -174,7 +174,7 @@ class Settings(BaseSettings):
 
     # タイル材料キャッシュ（graph_material_cache.py・tile_score_matrix_cache.py）の
     # ディスク永続化キャッシュ（infrastructure/tile_persistent_cache.py）読み込みの
-    # 同時実行数上限。案C1（列指向EdgeMaterialTable化）で残るCPUコストは`LeanEdge`等の
+    # 同時実行数上限。案C1（列指向化）で残るCPUコストは`LeanEdge`等の
     # 再構築を伴うPythonループのためGILで直列化される——コア数を増やして効くのは
     # ファイルI/O・numpy部分のみで、コア数に比例して線形に速くなるのは案C2（グラフ側も
     # 完全列指向化する将来の別タスク）まで進めた場合に限る。既定は

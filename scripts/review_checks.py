@@ -1078,6 +1078,10 @@ def is_impl_file(path: str) -> bool:
 # 使えない——その必要が出たら`read_text.cache_clear()`を呼ぶこと。
 @functools.lru_cache(maxsize=None)
 def read_text(path: Path) -> str:
+    # gitが把握しているがまだ削除をステージしていないファイルを検査対象に含む経路が
+    # あるため、消えているファイルは空として扱う（検査全体を落とさない）。
+    if not path.exists():
+        return ""
     return path.read_text(encoding="utf-8", errors="replace")
 
 
@@ -1136,7 +1140,7 @@ def find_dead_file_refs(doc_lines: dict[str, list[tuple[int, str]]], files: list
 
 
 # docs/modulesがバッククォートで名指しする識別子（関数・定数・型・フック名）。
-# `road_graph_repository.py: sample_way_rows`のような「ファイル名: 識別子」形式も拾う。
+# `road_graph_repository.py: sample_way_material_values`のような「ファイル名: 識別子」形式も拾う。
 DOC_IDENT_RE = re.compile(r"`([A-Za-z_][A-Za-z0-9_]{2,})`")
 DOC_QUALIFIED_IDENT_RE = re.compile(
     r"`[A-Za-z0-9_./\-]+\.(?:py|ts|tsx|css):\s*([A-Za-z_][A-Za-z0-9_]{2,})`"

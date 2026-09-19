@@ -4,21 +4,13 @@ Road Attribute（`domain/attributes.py`）とRoute PreferenceからEdge Costを�
 Route Engineから独立させ、Route Engine自身は「勾配がきつい」「路面が悪い」といった
 評価の中身を一切知らない設計を目指す（仕様書33章）。
 
-**同じ評価を3つの表現で持つ**のがこのモジュールの責務で、3つは常に同じ結果を返す
-（`tests/test_evaluation_bulk.py`が突き合わせる）:
+評価はタイル単位の静的スコア行列（`build_static_edge_score_matrix`）へ一本化してある。
+入力はDBが導出した材料の行列（`EdgeMaterialArrays`）で、このモジュールは材料の値を
+どう求めるかを知らない。way1本を指す区間インスペクタだけがスカラーで評価する
+（`domain/axis_inspector.py`→`evaluate_axes_scalar`）。
 
-| 表現 | 入口 | 呼ぶのは誰か |
-|---|---|---|
-| スカラー（Edge1本） | `compute_edge_cost` / `compute_edge_axis_scores` | `compute_edge_axis_scores`は区間表示から。`compute_edge_cost`は**テストだけ**（他の表現の答え合わせに使うオラクル） |
-| ベクトル（Edge群） | `compute_edge_costs_bulk` | **テストだけ**。探索は静的行列を経由する形になり、bbox全体をここで評価する経路は残っていない |
-| タイル単位の静的行列 | `build_static_edge_score_matrix` | `GraphService`（タイルキャッシュ。動的軸の列はNaNのまま持つ） |
-
-**本番の呼び出し元が無い表現を残してあるのは、答え合わせの相手としてである**
-（`tests/test_evaluation_bulk.py`が突き合わせる）。速い経路だけを残すと、速い経路が
-間違ったときに気づく手立ても一緒に消える。用途が「オラクル」であることを明記しておかないと、
-次に読んだ人が現役の経路だと思って最適化や拡張の対象にする。
-
-材料の解決はどの表現も`MATERIAL_CATALOG`のextractor宣言1つ（`resolve_materials`）を通る。
+三次（重み付き合成）は`compose_costs_from_axis_matrix`が単独で使える——軸別スコアが
+既にあるなら、材料からやり直さずここだけを呼ぶ。
 
 変更理由の異なる以下は別モジュールにある:
 `domain/route_preference.py`（重み指定）・`domain/hard_filters.py`（0次フィルタ）・
@@ -37,12 +29,7 @@ from typing import Mapping, NamedTuple
 import numpy as np
 
 from app.domain.attributes import (
-    EdgeKeyedMetrics,
     EdgeMaterialArrays,
-    EdgeMaterialBundle,
-    EdgeMaterialTable,
-    ElevationAttribute,
-    edge_metrics_from_bundles,
 )
 from app.domain.axis_definitions import (
     AXIS_DEFINITIONS,
@@ -50,220 +37,32 @@ from app.domain.axis_definitions import (
     AxisDefinition,
     axis_raw_value_array,
     has_axis_raw_value_array,
-    evaluate_axes_scalar,
     evaluate_axis_array,
     topological_axis_order,
 )
 from app.domain.axis_display import axis_material_shares, raw_value_unit
 from app.domain.axis_templates import round1_array
-from app.domain.difficulty import composite_difficulty, distance_weighted_difficulty_array
+from app.domain.difficulty import distance_weighted_difficulty_array
 from app.domain.dynamic_materials import (
     DynamicAxisRequestContext,
-    compute_dynamic_edge_materials,
     evaluate_dynamic_material_arrays,
 )
-from app.domain.graph import EdgeLike, RoadGraphLike
+from app.domain.graph import RoadGraphLike
 from app.domain.hard_filters import (
     HARD_FILTER_NAMES,
-    HARD_FILTER_TAG_PREDICATE_SQL,
-    HARD_FILTER_HIGHWAY_TYPES,
-    compute_hard_filter_excluded,
-    is_edge_allowed,
 )
 from app.domain.material_catalog import (
-    EXTRACTABLE_MATERIAL_IDS,
     MATERIAL_CATALOG,
-    MaterialExtractionContext,
-    resolve_materials,
 )
-from app.domain.route_preference import RoutePreference
 from app.domain.cycling_speed import ROLLING_RESISTANCE_MATERIAL_ID
 from app.domain.traffic import stop_count_material_ids
-from app.domain.recipe import tag_value_is
 from app.domain.weather import WeatherConditions
 from app.domain.tuning import tuning_value
-from app.domain.strict_model import StrictModel
 
 
-class EdgeCostResult(StrictModel):
-    """Edge Costの算出結果。
-
-    difficultyは0-100（大きいほど走りにくい、domain/difficulty.pyと同じ絶対基準）。
-    costは距離ベース（メートル相当、小さいほど良い）。**探索が最小化するコストとは単位が
-    違う**——探索は秒で測る（`domain/routing.py`）。allowed=FalseはHard Constraintによる
-    除外を表し、この場合
-    cost/difficultyはNoneになる。
-
-    Road Graphへ恒久保存しない（仕様書32章）。このモデルは呼び出しごとの計算結果を
-    表すだけであり、Route Preference・出発時刻（風）が変われば同じEdgeでも異なる
-    結果になりうる。
-    """
-
-    edge_id: str
-    cost: float | None
-    difficulty: float | None
-    allowed: bool
 
 
-def compute_edge_axis_scores(
-    edge: EdgeLike,
-    elevation_attribute: ElevationAttribute | None,
-    surface_type: str | None,
-    weather: WeatherConditions | None = None,
-    way_tags: dict[str, str] | None = None,
-    metrics: Mapping[str, EdgeKeyedMetrics] | None = None,
-    accident_years_covered: int = 0,
-    is_designated: bool = False,
-    travel_speed_ms: float | None = None,
-) -> dict[str, float]:
-    """二次: 一次属性から軸別スコア（axis_id→0-100のdifficulty）を算出する
-    （設計プロンプト「評価システムの層構造再設計」の二次そのもの）。
 
-    返り値のキーは`AXIS_DEFINITIONS`の公開axis_idで、評価できなかった軸（Noneのdifficulty）は
-    キー自体を辞書へ含めない（三次側の`compute_cost_from_axis_scores`が「データ無しは合成から
-    除外」する既存方針と対応する）。Hard Constraintの判定（`is_edge_allowed`）はここでは
-    行わない（呼び出し元の責務、`compute_edge_cost`のdocstring参照）。
-
-    材料の解決は`MATERIAL_CATALOG`のextractor宣言（`resolve_materials`）へ委ねる。
-    ベクトル化経路（`_evaluate_axes_bulk`）と同じ1つの宣言を読むため、材料を1つ増やしても
-    この関数は変わらない。
-
-    `metrics`は件数・土地被覆のような「材料と一緒に増える数値」の束
-    （群名→edge_id→{キー: 値}、`domain/attributes.py: edge_metrics_from_bundles`が組み立てる）。
-    ベクトル化経路が受け取るものと同じ形をEdge1本ぶんで渡す——スカラー引数（件数を1つずつ
-    受け取る形）にすると、群が増えるたびにこの関数の引数も増え、追従漏れがそのまま
-    「この経路でだけ材料が欠損する」事故になるため。
-    `way_tags`はこのEdgeのosm_way_idに対応する許可リストタグ（静的道路属性P0）。Noneは
-    データ未取得（repository未注入等）を表し、タグ由来の材料はすべて欠損になる
-    （highway由来の車ストレス内部軸もway_tags未取得時は意図的にNoneにして評価しない。
-    「way_tags無し=car_stress未評価」を一貫させるため）。
-    `accident_years_covered`は事故データの収録年数（`AttributeRepository.
-    get_accident_years_covered`）で、密度を件/(km・年)へ正規化するために使う。
-    `is_designated`はこのEdgeがKSJ N10/N12（緊急輸送道路・重要物流道路）に該当するか。
-    `travel_speed_ms`は風の材料（走行速度依存）に使う走行速度（m/s）。`weather`を渡すときは
-    必須（省略すると即座に失敗する）。
-    """
-    materials = resolve_materials(
-        MaterialExtractionContext(
-            edge_id=edge.edge_id,
-            highway=edge.highway,
-            way_tags=way_tags,
-            distance_km=edge.distance_m / 1000,
-            elevation_attributes={edge.edge_id: elevation_attribute} if elevation_attribute is not None else {},
-            surface_attributes={edge.edge_id: surface_type},
-            designated_edge_ids={edge.edge_id} if is_designated else set(),
-            metrics=metrics or {},
-            accident_years_covered=accident_years_covered,
-        )
-    )
-    materials.update(compute_dynamic_edge_materials(edge, weather, travel_speed_ms))
-    # 軸は他の軸のdifficultyをmaterialとして参照できる（内部軸→公開軸の階層構造）。
-    # 依存先（参照される軸）を先に評価し、結果をmaterialsへ混ぜ込みながら
-    # 進めることで、参照する側は追加のAPIなしに`materials.get(axis_id)`で読める
-    # （`evaluate_axes_scalar`参照）。ここでは値が算出できなかった公開軸のキー自体を
-    # 呼び出し元（RouteSegmentDetail構築側）へ渡さないよう、Noneのキーを落とす
-    # （`axis_inspector_breakdown`はavailable判定のためNoneのキーを残したまま返す点が
-    # 異なる）。
-    scores, _ = evaluate_axes_scalar(materials)
-    return {axis_id: value for axis_id, value in scores.items() if value is not None}
-
-
-def compute_cost_from_axis_scores(
-    distance_m: float,
-    axis_scores: dict[str, float],
-    weights: dict[str, float],
-    penalty_strength: float = 1.0,
-    bbox_mean_difficulty: float | None = None,
-) -> tuple[float, float | None]:
-    """三次: 重みベクトル×軸別スコアのみからコストを算出する純関数
-    （`cost = length × (1 + P × Σᵢ wᵢ × axisᵢ / 100)`、設計プロンプト「評価システムの
-    層構造再設計」の三次そのもの。シグネチャに一次属性名を一切含まない）。
-
-    `axis_scores`にキーが存在しない軸は合成から除外され、残りの軸の重みで再正規化される
-    （`domain/difficulty.py: composite_difficulty`と同じ「データ無しは除外」方針）。
-    `weights`に対応するキーが無い軸は重み0として扱う。
-
-    `penalty_strength`（P、T12 ADR原則1）は割増率の強さを調整するリクエストパラメータ。
-    既定1.0の挙動は最悪でも下地2倍。P=0で常に`cost=下地`（難易度を一切考慮しない）、
-    Pを上げるほど悪路が強く避けられる（P=4なら最悪の道は5倍相当）。`cost >= 下地`
-    （P>=0の間は常に成り立つ）という不変条件は維持し、下地の下界がコストの下界でも
-    あるというA*の前提を崩さない。
-
-    `bbox_mean_difficulty`: 重み付き軸すべてが欠損（`difficulty is None`）のときに
-    コスト計算だけへ代入する値（呼び出し元がbboxの実データから求めた距離加重平均
-    difficulty、`domain/difficulty.py: distance_weighted_difficulty_array`参照）。省略時
-    （既定None）は`cost=distance_m`（割増なし）。戻り値の`difficulty`（表示用）はこの
-    代入の影響を受けず、欠損なら常にNoneのまま返す——探索コストのみ補完し表示は変えない
-    という方針（`compose_costs_from_axis_matrix`と同じ）を、Edge単位のこの関数でも保つ。
-    """
-    scored_weights = [(score, weights.get(axis_id, 0.0)) for axis_id, score in axis_scores.items()]
-    difficulty = composite_difficulty(scored_weights)
-    cost_difficulty = difficulty if difficulty is not None else bbox_mean_difficulty
-    penalty_multiplier = 1.0 + penalty_strength * (cost_difficulty / 100) if cost_difficulty is not None else 1.0
-    cost = round(distance_m * penalty_multiplier, 1)
-    return cost, difficulty
-
-
-def compute_edge_cost(
-    edge: EdgeLike,
-    elevation_attribute: ElevationAttribute | None,
-    surface_type: str | None,
-    preference: RoutePreference,
-    weather: WeatherConditions | None = None,
-    way_tags: dict[str, str] | None = None,
-    metrics: Mapping[str, EdgeKeyedMetrics] | None = None,
-    accident_years_covered: int = 0,
-    is_designated: bool = False,
-    penalty_strength: float = 1.0,
-    max_average_grade_percent: float | None = None,
-    weights: dict[str, float] | None = None,
-    hard_filters: frozenset[str] | None = None,
-    bbox_mean_difficulty: float | None = None,
-    travel_speed_ms: float | None = None,
-) -> EdgeCostResult:
-    """RouteEngineが利用できるEdge Costを算出する（仕様書31章）。
-
-    一次属性から一気通貫でコストを算出する薄い合成関数（一次属性→二次[軸別スコア]は
-    `compute_edge_axis_scores`、軸別スコア→三次[コスト合成]は`compute_cost_from_axis_scores`
-    が担う）。三次のみを直接使いたい場合（例: レジストリ・Recipe駆動の呼び出し）は
-    `compute_cost_from_axis_scores`を直接使う。
-
-    パラメータの意味は`compute_edge_axis_scores`のdocstring参照（Hard Constraint判定
-    `is_edge_allowed`はこの関数が担う。`max_average_grade_percent`はis_edge_allowedへ
-    そのまま渡す）。
-
-    `weights`: 呼び出し元が事前解決した重み辞書を渡すとそのまま使う。省略時（既定None）は
-    `preference.weights`を使う。
-
-    `hard_filters`はそのまま`is_edge_allowed`へ渡す（省略時は`DEFAULT_HARD_FILTERS`）。
-
-    `bbox_mean_difficulty`はそのまま`compute_cost_from_axis_scores`へ渡す（同関数の
-    docstring参照）。`travel_speed_ms`はそのまま`compute_edge_axis_scores`へ渡す
-    （`weather`を渡すときは必須）。
-    """
-    if not is_edge_allowed(
-        edge,
-        way_tags,
-        hard_filters=hard_filters,
-        elevation_attribute=elevation_attribute,
-        max_average_grade_percent=max_average_grade_percent,
-    ):
-        # bulk版（compute_edge_costs_bulk）と同じmodel_construct最適化。この関数は
-        # lazy評価で探索のホットパス（訪れたEdgeごとに最大24回）になりうるため、
-        # Pydanticバリデーションのコストを避ける（edge_id/cost/difficulty/allowedは
-        # すべて内部で計算済みの値で、外部入力の検証は元々不要）。
-        return EdgeCostResult.model_construct(edge_id=edge.edge_id, cost=None, difficulty=None, allowed=False)
-
-    axis_scores = compute_edge_axis_scores(
-        edge, elevation_attribute, surface_type, weather, way_tags, metrics,
-        accident_years_covered, is_designated, travel_speed_ms=travel_speed_ms,
-    )
-    resolved_weights = weights if weights is not None else preference.weights
-    cost, difficulty = compute_cost_from_axis_scores(
-        edge.distance_m, axis_scores, resolved_weights, penalty_strength, bbox_mean_difficulty
-    )
-
-    return EdgeCostResult.model_construct(edge_id=edge.edge_id, cost=cost, difficulty=difficulty, allowed=True)
 
 
 def _neumaier_accumulate(terms: list[np.ndarray]) -> np.ndarray:
@@ -272,8 +71,8 @@ def _neumaier_accumulate(terms: list[np.ndarray]) -> np.ndarray:
     Python組み込み`sum()`はPython 3.12以降、float列を単純な逐次`+=`ではなく
     Neumaier補償加算で合計するよう変更されている（丸め誤差を打ち消す補正項cを
     別途積算し、最後に本体へ足し込む）。スカラー版`composite_difficulty`の
-    `sum(score*weight for score,weight in available)`と本関数（`compute_edge_costs_bulk`の
-    重み付き合成）をビット単位で一致させるには、単純な逐次`+=`ではこのNeumaier補正が
+    `sum(score*weight for score,weight in available)`と本関数（配列側の重み付き合成）を
+    ビット単位で一致させるには、単純な逐次`+=`ではこのNeumaier補正が
     再現できず、ちょうど.X5境界の値で最終丸め結果が食い違う（例えば単純逐次加算は
     0.8200000000000001、`sum()`は0.82のように異なる浮動小数点値になることがあり、
     composite=41.25の丸めが41.3 vs 41.2に分かれる場合がある）。本関数はNeumaier加算を
@@ -329,8 +128,8 @@ def route_facing_material_ids() -> list[str]:
 
     単位が定まらない軸（合成軸・真偽値やカテゴリの材料を持つ軸）は`axis_raw_arrays`へ
     載らず、得点だけしか出せない。材料まで分解すれば較正に依存しない絶対の事実を出せる
-    （`axis_display.py: axis_material_shares`、docs/tasks/T689.md参照）ため、分解された
-    葉の材料を軸の生値と同じ形で列として持つ。
+    （`axis_display.py: axis_material_shares`）ため、分解された葉の材料を軸の生値と
+    同じ形で列として持つ。
 
     `has_route_facing_raw_value`と同じ理由でこの述語は**ここ1箇所だけが持つ**——空タイル
     （列だけを揃える分岐）と通常のタイルが別々に条件を書くと、片方だけ変えた瞬間に
@@ -340,7 +139,7 @@ def route_facing_material_ids() -> list[str]:
     対象外:
 
     - categorical材料（`highway`等）。列は数値行列のため文字列を載せられない。
-      値ごとの延長割合は別の器が要る（[T718](docs/tasks/T718.md)）。
+      値ごとの延長割合は別の器（`merge_material_category_shares`）が要る。
     - 動的材料（風）。静的スコア行列は`weather=None`で組み立てるため全行NaNになる。
     - 分解しない軸（参照材料が1件）。軸単位の生値（`axis_raw_arrays`）で足りる。
 
@@ -372,8 +171,7 @@ def route_facing_categorical_material_ids() -> list[str]:
 
     `route_facing_material_ids`のcategorical版。数値行列には文字列を載せられないため、
     列は別に持つ（`StaticEdgeScoreMatrix.categorical_material_values`）。区間ごとの値を
-    ルート集約で「値ごとの延長割合」へ畳むのは`merge_material_category_shares`
-    （docs/tasks/T718.md参照）。
+    ルート集約で「値ごとの延長割合」へ畳むのは`merge_material_category_shares`。
 
     述語をここ1箇所に置く理由は`has_route_facing_raw_value`と同じ——空タイル（列だけを
     揃える分岐）と通常のタイルが別々に条件を書くと列がずれる。
@@ -393,9 +191,8 @@ def route_facing_categorical_material_ids() -> list[str]:
 
 @dataclass(frozen=True, slots=True)
 class BulkAxisEvaluation:
-    """`compute_edge_costs_bulk`の抽出＋計算フェーズ（`_evaluate_axes_bulk`）の結果。
-    bbox全体一括評価（`compute_edge_costs_bulk`本体）と、タイル単位の静的スコア行列構築
-    （`build_static_edge_score_matrix`）の両方から共有する。
+    """材料の行列へ`AXIS_DEFINITIONS`を適用した結果
+    （`_evaluate_axes_from_material_arrays`）。
 
     `axis_arrays`は公開軸のみ・依存順（`topological_axis_order`のサブセット）。重み付き
     合成（Neumaier加算・cost算出）は含まない——`weights`が定まった時点で呼び出し元が
@@ -429,101 +226,6 @@ class BulkAxisEvaluation:
     # 内訳として見せるcategorical材料の値（文字列のobject配列）。数値と同じ行列へは
     # 載せられないため別に持つ。
     categorical_material_arrays: dict[str, np.ndarray] = field(default_factory=dict)
-
-
-def _evaluate_axes_bulk(
-    graph: RoadGraphLike,
-    elevation_attributes: dict[str, ElevationAttribute],
-    surface_attributes: dict[str, str | None],
-    weather: WeatherConditions | None,
-    travel_speed_ms: float | None,
-    way_tags: dict[str, dict[str, str]] | None,
-    accident_years_covered: int,
-    designated_edge_ids: set[str] | None,
-    metrics: Mapping[str, EdgeKeyedMetrics] | None = None,
-) -> BulkAxisEvaluation:
-    """`compute_edge_costs_bulk`と`build_static_edge_score_matrix`が共有する抽出フェーズ
-    （`MATERIAL_CATALOG`のextractor宣言経由でEdge単位の辞書・タグアクセスをnumpy配列へ
-    落とし込む）と計算フェーズ（`AXIS_DEFINITIONS`を軸ごとに適用してdifficulty配列を
-    求める）。
-
-    動的材料（`REQUEST_DYNAMIC_MATERIAL_IDS`）は`DYNAMIC_MATERIAL_EVALUATORS`が
-    bearing配列・`weather`・`travel_speed_ms`から求める（`weather`を渡すときは
-    `travel_speed_ms`が必須）。`weather=None`で呼ぶと動的材料がNaN配列になり、それに
-    依存する軸の列は`evaluate_axis_array`のrequired項がNaNを演算で自然に伝播させるため、
-    動的軸を特別扱いする分岐は不要。`build_static_edge_score_matrix`（タイル単位の
-    静的スコア行列）がこの性質を使う。
-    """
-    designated_edge_ids = designated_edge_ids or set()
-    metrics = metrics or {}
-
-
-    edge_ids = list(graph.edges.keys())
-    n = len(edge_ids)
-    material_arrays = _empty_material_arrays(n)
-    tag_hard_filter_flags = {
-        name: np.zeros(n, dtype=bool) for name in HARD_FILTER_TAG_PREDICATE_SQL
-    }
-    no_bicycle = tag_hard_filter_flags["no_bicycle"]
-    # --- 抽出フェーズ（MATERIAL_CATALOGのextractor宣言へ委譲） ---
-    edges = [graph.edges[edge_id] for edge_id in edge_ids]
-    extractable_materials = [MATERIAL_CATALOG[material_id] for material_id in EXTRACTABLE_MATERIAL_IDS]
-    for i, (edge_id, edge) in enumerate(zip(edge_ids, edges)):
-        edge_way_tags = way_tags.get(edge_id) if way_tags is not None else None
-
-        if edge_way_tags is not None and tag_value_is(edge_way_tags, "bicycle", "no"):
-            no_bicycle[i] = True
-
-        ctx = MaterialExtractionContext(
-            edge_id=edge_id,
-            highway=edge.highway,
-            way_tags=edge_way_tags,
-            distance_km=edge.distance_m / 1000,
-            elevation_attributes=elevation_attributes,
-            surface_attributes=surface_attributes,
-            designated_edge_ids=designated_edge_ids,
-            metrics=metrics,
-            accident_years_covered=accident_years_covered,
-        )
-        for spec in extractable_materials:
-            value = spec.extractor(ctx)
-            array = material_arrays[spec.material_id]
-            if spec.dtype == "categorical":
-                array[i] = value
-            elif spec.dtype == "boolean" and spec.bool_default == "false":
-                array[i] = bool(value) if value is not None else False
-            elif spec.dtype == "boolean":  # bool_default="nan"
-                if value is not None:
-                    array[i] = 1.0 if value else 0.0
-            elif value is not None:  # numeric
-                array[i] = float(value)
-
-
-    edges = [graph.edges[edge_id] for edge_id in edge_ids]
-    nodes = graph.nodes
-    return _evaluate_axes_from_material_arrays(
-        edge_ids,
-        material_arrays,
-        hard_filter_flags={
-            **{
-                name: np.array([edge.highway in types for edge in edges], dtype=bool)
-                for name, types in HARD_FILTER_HIGHWAY_TYPES.items()
-            },
-            **tag_hard_filter_flags,
-        },
-        distance_m=np.array([edge.distance_m for edge in edges], dtype=float),
-        bearing_deg=np.array(
-            [edge.bearing_deg if edge.bearing_deg is not None else np.nan for edge in edges], dtype=float
-        ),
-        mid_lat=np.array(
-            [(nodes[e.from_node_id].latitude + nodes[e.to_node_id].latitude) / 2 for e in edges], dtype=float
-        ),
-        mid_lon=np.array(
-            [(nodes[e.from_node_id].longitude + nodes[e.to_node_id].longitude) / 2 for e in edges], dtype=float
-        ),
-        weather=weather,
-        travel_speed_ms=travel_speed_ms,
-    )
 
 
 def _empty_material_arrays(n: int) -> dict[str, np.ndarray]:
@@ -562,7 +264,7 @@ def _evaluate_axes_from_material_arrays(
 ) -> BulkAxisEvaluation:
     """材料と区間の列が揃っている状態から先（計算フェーズと軸の評価）。
 
-    材料をどこで導いたか——`MATERIAL_VALUE_SQL`でDBが導いたか、extractorがEdgeごとに
+    材料をどこで導いたか——`MaterialSpec.value_sql`でDBが導いたか、extractorがEdgeごとに
     導いたか——をここは知らない。呼び出し元は`material_arrays`へ**`MATERIAL_CATALOG`全材料
     ぶんの列**を渡す（`_empty_material_arrays`へ重ねる）。
 
@@ -771,15 +473,14 @@ def compose_costs_from_axis_matrix(
     static_sums: tuple[np.ndarray, np.ndarray] | None = None,
     with_contributions: bool = True,
 ) -> AxisComposition:
-    """`_evaluate_axes_bulk`/`evaluate_dynamic_axis_arrays`が求めた軸別スコア配列群から、
-    重み付き合成のcost・composite difficulty配列・軸別寄与度配列を求める
-    （`compute_edge_costs_bulk`から切り出した合成フェーズ）。
+    """`_evaluate_axes_from_material_arrays`/`evaluate_dynamic_axis_arrays`が求めた軸別
+    スコア配列群から、重み付き合成のcost・composite difficulty配列・軸別寄与度配列を
+    求める。
 
     `base`は割増を掛ける下地で、探索は区間ごとの所要時間（秒）を渡す——コストは
     `所要時間 × (1 + P × difficulty/100)`＝**体感の所要時間**になり、`penalty_strength`は
     「difficulty 100の道は体感で何倍の時間に感じるか−1」を意味する。省略時は`distance_m`
-    を下地にする（Edge単位の評価をそのまま返す`compute_edge_costs_bulk`が使う。この経路の
-    costは表示・回帰オラクル用で探索には渡らない）。difficultyの合成自体は下地に依らない。
+    を下地にする（距離そのものを下地にしたいとき）。difficultyの合成自体は下地に依らない。
 
     `static_sums`は`axis_arrays`に**含めなかった**軸ぶんの`(重み付きスコアの和, 重みの和)`。
     時刻ビンごとに合成し直すとき、時刻で変わらない軸の和を1回だけ求めて使い回すために渡す
@@ -788,8 +489,8 @@ def compose_costs_from_axis_matrix(
     ビンでは要らない。`static_sums`と併用できないのは、寄与度は`axis_arrays`へ渡した軸ぶん
     しか作れず、和へ畳んだ軸の内訳が黙って欠けるため。
 
-    Neumaier加算・`round1_array`はスカラー版`composite_difficulty`/
-    `compute_cost_from_axis_scores`とビット単位で一致させるために必須
+    Neumaier加算・`round1_array`はスカラー版`composite_difficulty`と
+    ビット単位で一致させるために必須
     （`_neumaier_accumulate`のdocstring参照）。0次フィルタによる除外（cost=inf/None）は
     呼び出し元の責務（`compute_hard_filter_excluded`参照、Edgeの通行可否そのものであり
     軸別スコアの合成とは独立した判定のため）。戻り値は`(cost, composite_difficulty,
@@ -867,77 +568,6 @@ def compose_costs_from_axis_matrix(
     return AxisComposition(cost, composite, axis_contributions, weighted_weight_sums)
 
 
-def compute_edge_costs_bulk(
-    graph: RoadGraphLike,
-    elevation_attributes: dict[str, ElevationAttribute],
-    surface_attributes: dict[str, str | None],
-    preference: RoutePreference,
-    weather: WeatherConditions | None = None,
-    way_tags: dict[str, dict[str, str]] | None = None,
-    accident_years_covered: int = 0,
-    designated_edge_ids: set[str] | None = None,
-    penalty_strength: float = 1.0,
-    max_average_grade_percent: float | None = None,
-    weights: dict[str, float] | None = None,
-    hard_filters: frozenset[str] | None = None,
-    travel_speed_ms: float | None = None,
-    metrics: Mapping[str, EdgeKeyedMetrics] | None = None,
-) -> dict[str, EdgeCostResult]:
-    """`compute_edge_cost`を全Edge分ループするのと同じ結果を、numpyのベクトル演算で
-    算出する（bbox全体を一括評価する`compute_edge_costs_bulk`専用）。
-
-    抽出＋計算フェーズは`_evaluate_axes_bulk`（`build_static_edge_score_matrix`と共有）、
-    重み付き合成フェーズは`compose_costs_from_axis_matrix`（同じく共有）が担う薄い
-    ラッパー。
-
-    材料を1件追加するときはmaterial_catalog.pyへ抽出関数を書いてカタログへ登録するだけで
-    よく、この関数自体の変更は不要。スカラー版`compute_edge_cost`は削除せず、本関数との
-    出力一致を検証する回帰テストのオラクルとして残す。
-
-    `intersection_count`/`accident_count`は実データ上ゼロ以上の整数
-    （PostGIS事前集計、`domain/attributes.py: EdgeAttributeCounts`）であることを前提とし、
-    「負値ならNone」という防御的ガードはここでは再現しない（実データでは到達しない
-    分岐のため、ベクトル化の単純さを優先した）。
-
-    `hard_filters`: `is_edge_allowed`と同じフィルタ名集合による上書き。省略時
-    （既定None）は`DEFAULT_HARD_FILTERS`（全フィルタ常時有効）を使う。`travel_speed_ms`は
-    風の材料に使う走行速度（m/s）で、`weather`を渡すときは必須。
-    """
-    resolved_weights = weights if weights is not None else preference.weights
-
-    evaluation = _evaluate_axes_bulk(
-        graph, elevation_attributes, surface_attributes, weather, travel_speed_ms, way_tags,
-        accident_years_covered, designated_edge_ids, metrics,
-    )
-    if not evaluation.edge_ids:
-        return {}
-
-    hard_filter_excluded = compute_hard_filter_excluded(
-        evaluation.hard_filter_flags, evaluation.gradient_percent,
-        hard_filters, max_average_grade_percent,
-    )
-    # axis_contributions（3個目の戻り値）はEdgeCostResultが持たない
-    # フィールドのため、この回帰テストオラクル経路では使わない。
-    composed = compose_costs_from_axis_matrix(
-        evaluation.distance_m, evaluation.axis_arrays, resolved_weights, penalty_strength,
-        with_contributions=False,
-    )
-    cost, composite = composed.cost, composed.difficulty
-
-    # --- 出力構築（EdgeCostResult.model_construct: 値は内部計算済みでバリデーション不要） ---
-    results: dict[str, EdgeCostResult] = {}
-    for i, edge_id in enumerate(evaluation.edge_ids):
-        if hard_filter_excluded[i]:
-            results[edge_id] = EdgeCostResult.model_construct(
-                edge_id=edge_id, cost=None, difficulty=None, allowed=False
-            )
-        else:
-            difficulty_value = None if np.isnan(composite[i]) else float(composite[i])
-            results[edge_id] = EdgeCostResult.model_construct(
-                edge_id=edge_id, cost=float(cost[i]), difficulty=difficulty_value, allowed=True
-            )
-    return results
-
 
 @dataclass(frozen=True, slots=True)
 class StaticEdgeScoreMatrix:
@@ -950,7 +580,7 @@ class StaticEdgeScoreMatrix:
     呼ぶことで自然にそうなる）。リクエスト時に`evaluate_dynamic_axis_arrays`が該当列だけを
     実際の動的データ（風・走行速度）で上書きする。
 
-    既知の制約（意図的なスコープ限定、docs/tasks/T536.md参照）: 動的軸が参照できる材料は
+    既知の制約（意図的なスコープ限定）: 動的軸が参照できる材料は
     `REQUEST_DYNAMIC_MATERIAL_IDS`のみを前提にしている（風軸が風の材料1つだけを参照する
     構成と一致）。将来、動的材料と他の静的材料を組み合わせる軸が必要になった場合は
     別途設計が要る。
@@ -972,8 +602,7 @@ class StaticEdgeScoreMatrix:
     mid_lat: np.ndarray
     mid_lon: np.ndarray
     # 折れ点を通す前の生値。単位が定まる軸だけを持つため`axis_ids`とは別の並びで、
-    # 対応する列は`raw_axis_ids`の順。軸単体で経路を判断するための絶対値
-    # （docs/tasks/T687.md参照）。
+    # 対応する列は`raw_axis_ids`の順。軸単体で経路を判断するための絶対値。
     raw_axis_ids: list[str] = field(default_factory=list)
     axis_raw_values: np.ndarray = field(default_factory=lambda: np.empty((0, 0)))
     # 内訳として見せる材料の値。対応する列は`material_ids`の順
@@ -984,6 +613,11 @@ class StaticEdgeScoreMatrix:
     # `categorical_material_ids`の順）。数値の行列へは載せられないため別に持つ。
     categorical_material_ids: list[str] = field(default_factory=list)
     categorical_material_values: np.ndarray = field(default_factory=lambda: np.empty((0, 0), dtype=object))
+
+    def axis_arrays(self) -> dict[str, np.ndarray]:
+        """軸id→スコア配列。合成（`compose_costs_from_axis_matrix`）と動的軸の上書き
+        （`evaluate_dynamic_axis_arrays`）はこの形で受け取る。"""
+        return {axis_id: self.axis_scores[:, i] for i, axis_id in enumerate(self.axis_ids)}
 
 
 def _static_edge_score_matrix_from(evaluation: BulkAxisEvaluation) -> StaticEdgeScoreMatrix:
@@ -1036,61 +670,30 @@ def _static_edge_score_matrix_from(evaluation: BulkAxisEvaluation) -> StaticEdge
 
 def build_static_edge_score_matrix(
     graph: RoadGraphLike,
-    materials: "EdgeMaterialArrays | EdgeMaterialTable | Mapping[str, EdgeMaterialBundle]",
+    materials: EdgeMaterialArrays,
     accident_years_covered: int = 0,
 ) -> StaticEdgeScoreMatrix:
     """タイル読込時（`GraphService._get_or_build_tile_materials`）に1回だけ呼び、
-    `StaticEdgeScoreMatrix`を構築する。`_evaluate_axes_bulk`（`compute_edge_costs_bulk`
-    と共有する抽出＋計算フェーズ）へ`weather=None`で渡すことで、動的軸の列は自然にNaNのまま
-    持たせる。
+    `StaticEdgeScoreMatrix`を構築する。
 
-    `materials`は`EdgeMaterialTable`（タイルキャッシュ経路が持つ列指向表現）
-    または`dict[str, EdgeMaterialBundle]`（`_build_search_materials_uncached`等、テスト・
-    タイルキャッシュを経由しない経路）のいずれかを受け取る。`_evaluate_axes_bulk`が
-    要求する形（way_tags・elevation_attributes・surface_attributes・designated_edge_idsと、
-    数値の束`metrics`）へここで分解する。タイル読込時に1回だけ発生する変換で、探索の
-    ホットパスには乗らない。`EdgeMaterialTable`は`to_legacy_dicts()`が、bundleの辞書は
-    `edge_metrics_from_bundles`が、それぞれ同じ`metrics`を組み立てる。
+    材料はDBが導出済み（`MaterialSpec.value_sql`）で、`accident_years_covered`はその導出の
+    中で既に効いているためここでは使わない（引数は呼び出し側の読みやすさのために残す）。
+    動的軸（風）の列はここではNaNのままで、リクエスト時に
+    `evaluate_dynamic_axis_arrays`が埋める。
     """
-    if isinstance(materials, EdgeMaterialArrays):
-        # 材料はDBが導出済み（`MATERIAL_VALUE_SQL`）。`accident_years_covered`は
-        # その導出の中で既に効いているためここでは使わない。
-        arrays = _empty_material_arrays(len(materials))
-        arrays.update(materials.columns())
-        return _static_edge_score_matrix_from(
-            _evaluate_axes_from_material_arrays(
-                materials.edge_ids,
-                arrays,
-                hard_filter_flags=materials.hard_filter_columns(),
-                distance_m=materials.distance_m,
-                bearing_deg=materials.bearing_deg,
-                mid_lat=materials.mid_lat,
-                mid_lon=materials.mid_lon,
-            )
+    arrays = _empty_material_arrays(len(materials))
+    arrays.update(materials.columns())
+    return _static_edge_score_matrix_from(
+        _evaluate_axes_from_material_arrays(
+            materials.edge_ids,
+            arrays,
+            hard_filter_flags=materials.hard_filter_columns(),
+            distance_m=materials.distance_m,
+            bearing_deg=materials.bearing_deg,
+            mid_lat=materials.mid_lat,
+            mid_lon=materials.mid_lon,
         )
-
-    if isinstance(materials, EdgeMaterialTable):
-        legacy = materials.to_legacy_dicts()
-        elevation_attributes = legacy.elevation_attributes
-        surface_attributes = legacy.surface_attributes
-        way_tags = legacy.way_tags
-        designated_edge_ids = legacy.designated_edge_ids
-        metrics = legacy.metrics
-    else:
-        elevation_attributes = {
-            edge_id: bundle.elevation_attribute
-            for edge_id, bundle in materials.items() if bundle.elevation_attribute is not None
-        }
-        surface_attributes = {edge_id: bundle.surface for edge_id, bundle in materials.items()}
-        way_tags = {edge_id: bundle.way_tags for edge_id, bundle in materials.items()}
-        designated_edge_ids = {edge_id for edge_id, bundle in materials.items() if bundle.is_designated}
-        metrics = edge_metrics_from_bundles(materials)
-
-    evaluation = _evaluate_axes_bulk(
-        graph, elevation_attributes, surface_attributes, None, None, way_tags,
-        accident_years_covered, designated_edge_ids, metrics,
     )
-    return _static_edge_score_matrix_from(evaluation)
 
 
 def combine_static_edge_score_matrices(matrices: list[StaticEdgeScoreMatrix]) -> StaticEdgeScoreMatrix:

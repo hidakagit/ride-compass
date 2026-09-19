@@ -11,7 +11,7 @@
 
 | レイヤー | ファイル |
 |---|---|
-| domain | `evaluation.py`（Edge Costの算出。スカラー／ベクトル／タイル静的行列の3表現）・`hard_filters.py`（0次フィルタ）・`route_preference.py`（重み指定）・`dynamic_materials.py`（風などリクエスト時に決まる材料）・`axis_inspector.py`（区間インスペクタ、Way単位の材料解決）・`difficulty.py`・`material_catalog.py`・`material_sql.py`（材料の値をSQLで導出する式）・`recipe.py` |
+| domain | `evaluation.py`（Edge Costの算出。スカラー／ベクトル／タイル静的行列の3表現）・`hard_filters.py`（0次フィルタ）・`route_preference.py`（重み指定）・`dynamic_materials.py`（風などリクエスト時に決まる材料）・`axis_inspector.py`（区間インスペクタ）・`difficulty.py`・`material_catalog.py`・`material_sql.py`（材料の値をSQLで導出する式） |
 | services | `evaluation_service.py`・`material_coverage_service.py` |
 | infrastructure | `material_coverage.py`（材料ごとの欠損割合の集計クエリ） |
 | api | `material_catalog.py`（材料カタログ・材料値一覧・欠損割合のエンドポイント） |
@@ -26,15 +26,15 @@ APIが受け取る重みの形を変えるとき、`dynamic_materials.py`は動�
 `material_coverage.py`が同じ式を参照する——infrastructureの各所がそれぞれSQLを書くと、
 一方だけ変わったときに気付けない。
 
-**材料の導出は、この断片（SQL）と`material_catalog.py`のextractor（Python）の2か所にある。**
-地図配信・カバレッジ集計・軸スタジオの値列挙はSQLだけを通り、探索はPythonだけを通る。
-`tests/test_material_sql.py`が同じ期待値を両方へ当て、片方だけを変えたときに落ちる。
+**材料の導出は`MaterialSpec.value_sql`1本**。評価・地図タイル配信・欠損率の集計・
+軸スタジオの値列挙は、すべて同じ式を読む。入力に対するあるべき値は
+`tests/test_material_values.py`が期待値の表で固定する。
 
-**タイルへ焼く式と、材料の値を求める式は別物**。前者は`CASE WHEN 条件 THEN true END`で
-「該当しない」をNULLへ畳む（キーを省いてタイルを軽くするための符号化）。後者
-（`MATERIAL_VALUE_SQL`）は`COALESCE(..., false)`で閉じ、extractorと同じ2値を返す。
-例外は`surface_good`で、タイル側も`true`/`false`/NULLを区別する（「路面タグ不明」を
-「路面が悪い」と混同しないという要求が符号化より優先された）。
+**タイルへ焼く式だけは符号化が違う**。`CASE WHEN 条件 THEN true END`で「該当しない」を
+NULLへ畳み、フィーチャーからキーを省いてタイルを軽くする。材料の値を求める式は
+タグが無ければ非該当（false）へ畳む（`tag_absent_is_false_sql`）——wayの行は必ずある
+（`road_edges.osm_way_id`がNOT NULL + FK）。例外は`surface_good`で、`true`/`false`/NULLを
+区別する（「路面タグ不明」を「路面が悪い」と混同しないという要求が符号化より優先された）。
 
 ## 0次ハードフィルタ（`domain/hard_filters.py`）
 
@@ -45,8 +45,7 @@ APIが受け取る重みの形を変えるとき、`dynamic_materials.py`は動�
 
 - highwayタグ由来（`motorway`/`trunk`）・`bicycle=no`タグ（`no_bicycle`）の2系統。
   highway種別のフィルタは`HARD_FILTER_HIGHWAY_TYPES`（フィルタ名→対象highway値）が唯一の
-  レジストリで、スカラー版`is_edge_allowed`もベクトル版`compute_hard_filter_excluded`も
-  この辞書をループする（`compute_hard_filter_excluded`が受け取るのはフィルタ名→該当フラグ配列の
+  レジストリで、`compute_hard_filter_excluded`はこの辞書をループする（`compute_hard_filter_excluded`が受け取るのはフィルタ名→該当フラグ配列の
   `hard_filter_flags`で、フィルタごとの専用引数・専用フィールドは持たない。タグ由来の
   フィルタは`HARD_FILTER_TAG_PREDICATE_SQL`が名前と判定式をまとめて持ち、
   `HARD_FILTER_NAMES`も読み出し用のSQLの列もそこから導く）。
@@ -63,117 +62,84 @@ APIが受け取る重みの形を変えるとき、`dynamic_materials.py`は動�
 評価を優先確定する仕組み）とは別の概念——0次フィルタは道路そのものを探索グラフから
 除外する。
 
-## 材料解決の1本道（3つの評価経路が同じ宣言を読む）
+## 材料の求め方は1本（読む経路は粒度ごとに分かれる）
 
-材料値の組み立ては`MATERIAL_CATALOG`のextractor宣言1つに集約され、
-`material_catalog.py: resolve_materials(ctx)`だけが「どの材料をどう抽出するか」を知る。
-評価経路は3つあるが、**どの経路も材料の一覧を持たない**。
+材料の値の求め方は`MaterialSpec.value_sql`だけが知っている。読む経路は粒度ごとに分かれるが、
+**どの経路も材料の一覧を持たず、式も持たない**——DBが値を返し、受け取る側は列を並べるだけ。
 
-| 経路 | 入口 | 粒度 | `MaterialExtractionContext`の作り方 |
-|---|---|---|---|
-| スカラー | `evaluation.py: compute_edge_axis_scores` | Edge1本 | 引数の`metrics`等をそのまま1件の辞書として渡す |
-| ベクトル | `evaluation.py: _evaluate_axes_bulk` | Edge群 | Edgeごとにcontextを作り、`resolve_materials`と同じextractorをnumpy配列へ書き込む |
-| Way単位 | `axis_inspector.py: way_scalar_materials` | Way1本 | 合成キー`"way"`1件だけの辞書を作って渡す（区間インスペクタ・軸スタジオのプレビュー） |
+| 経路 | 入口 | 粒度 |
+|---|---|---|
+| 区間の評価 | `road_graph_repository.py: get_edge_material_arrays` | 区間群（タイル1枚ぶん） |
+| way1本 | `road_graph_repository.py: get_way_material_values` | way1本（区間インスペクタ） |
+| way標本 | `road_graph_repository.py: sample_way_material_values` | way標本（軸スタジオの分布プレビュー） |
 
-**暗黙の前提（Way単位）**: `osm_raw_ways`の専用列（`highway`・`surface`）はtags jsonbに
-入らない（`domain/osm_adapter.py: ALLOWED_WAY_TAGS`が除いている）。Way単位の経路はこれらを
-tagsからではなく引数で受け取る——tagsから読むとその材料が全区間で欠損し、軸が丸ごと
-「データなし」になる。`scripts/review_checks.py`の検知器`way_tag_allowlist`が、材料解決の
-経路が許可リストに無いキーをtagsから読んでいないかを機械的に見る。
+way粒度の経路も**区間向けと同じ式**を使う。`_way_from_clause`がwayの行から
+同じ名前のエイリアス（`re`/`c`/`e`/`el`/`wl`/`d`）を組み立てるだけで、式を2組持たない。
+way粒度では標高と区間単位の土地被覆が存在しないため`e`と`el`はNULLだけの1行になり、
+土地被覆はway側（`wl`）へ落ちる。
 
-**暗黙の前提**: `MaterialExtractionContext`は道路オブジェクトそのものを持たず、extractorが
-実際に読む値（`highway`）だけを持つ。Edge/Wayという異なる粒度から同じextractorを
-呼べるのはこのためで、`EdgeLike`をフィールドに戻すとWay単位の経路が同じ宣言を使えなくなる。
+**暗黙の前提**: `osm_raw_ways`の専用列（`highway`・`surface`）はtags jsonbに入らない
+（`domain/osm_adapter.py: ALLOWED_WAY_TAGS`が除いている）。値式はこれらを列から読む
+——tagsから読むとその材料が全区間で欠損し、軸が丸ごと「データなし」になる。
+`scripts/review_checks.py`の検知器`way_tag_allowlist`が、許可リストに無いキーを
+tagsから読んでいないかを機械的に見る。
 
-**この1本道が壊れたときに起きること**: 経路ごとに材料の一覧を手書きすると、材料を
-1件増やしたときに一部の経路だけ取り残され、その経路でだけ材料が欠損する（＝その材料を
-使う軸が丸ごと「データなし」になる）。合成コストは他の軸で決まるため、スカラー／ベクトルの
-突き合わせテストでも気付けない。`tests/test_evaluation_bulk.py:
-test_every_extractable_material_reaches_both_paths`が、材料1件＝軸1本の合成軸を全材料ぶん
-作って両経路を突き合わせることでこれを機械的に検出する。
+**この1本道が壊れたときに起きること**: 経路ごとに式を書くと、片方だけ変更されたときに
+同じ道の同じ場所で地図の色と採点・内訳の数字が食い違う。合成コストは他の軸でも決まるため、
+食い違ってもルートは返り続け、誰も気づかない。
 
 ## 材料の解決から合成コストまで（3段階）
 
 ```
-一次: Edge/way_tags/elevation_attribute等の生データ
-        │  compute_edge_axis_scores(edge, elevation_attribute, surface_type, weather, ..., travel_speed_ms)
-        │  MATERIAL_CATALOGの各extractorが材料値（材料id→スカラー値）を組み立て、
-        │  動的材料（風）はcompute_dynamic_edge_materialsが風・走行速度から求める
+一次: 材料の値（DBが`MaterialSpec.value_sql`で導出、`EdgeMaterialArrays`）
+        │  動的材料（風）だけはリクエスト時に`evaluate_dynamic_material_arrays`が
+        │  bearing配列・天候・走行速度から求める
         ▼
   二次: 軸id → difficulty(0-100) の辞書
         │  domain/axis_definitions.py: evaluate_axes_scalar が AXIS_DEFINITIONS を評価
         │  （軸が他の軸のdifficultyをmaterialとして参照する階層構造も含む）
         ▼
-  三次: compute_cost_from_axis_scores(distance_m, axis_scores, weights, penalty_strength)
-        │  cost = length × (1 + P × Σᵢ wᵢ × axisᵢ / 100)
+  三次: compose_costs_from_axis_matrix(distance_m, axis_arrays, weights, penalty_strength)
+        │  cost = 下地 × (1 + P × Σᵢ wᵢ × axisᵢ / 100)
         ▼
-  EdgeCostResult（cost・difficulty・allowed）
+  cost・difficulty配列（0次フィルタの除外は`compute_hard_filter_excluded`が別途判定）
 ```
 
-`compute_edge_cost`はこの3段を一気通貫でまとめる薄い合成関数。三次のみを直接使いたい
-場合（レジストリ・Recipe駆動の呼び出し）は`compute_cost_from_axis_scores`を直接使う。
+way1本を指す区間インスペクタだけはスカラーで評価する（`axis_inspector_breakdown`→
+`evaluate_axes_scalar`）。
 
-- 評価できなかった軸（Noneのdifficulty）はキー自体を辞書へ含めない
-  （`compute_cost_from_axis_scores`は「データ無しは合成から除外し残りの重みで再正規化」）。
-- `weights`省略時は`preference.weights`を使う。
+- 評価できなかった軸は合成から除外され、残りの重みで再正規化される。
 - `penalty_strength`（P、既定1.0）は**主観的割増と時間の換算レート**。探索のコストは
   `所要時間 × (1 + P × difficulty/100)`＝体感の所要時間で、P=1は「難易度100の道は
   体感で2倍の時間」を意味する。P=0で`cost=下地`（好みを一切考慮しない＝時間最短、
   `select_fastest_route`が返す基準線と同じ物差し）、Pを上げるほど悪路が強く避けられる。
   `cost >= 下地`という不変条件はP>=0の間常に成り立つ（下地は探索では区間ごとの
   所要時間、Edge単位の評価では距離）。
-- `bbox_mean_difficulty`（既定None）は、重み付き軸がすべて欠損（`difficulty is None`）の
-  ときにコスト計算だけへ代入する値。戻り値の`difficulty`（表示用）はこの代入の影響を
-  受けずNoneのまま。呼び出し元がbboxの実データから求めた値を渡す想定で、この関数自身は
-  固定値を持たない（後述「探索コストの既定経路」節参照）。
-
-## `compute_edge_costs_bulk`（numpyベクトル化版）
-
-`compute_edge_cost`を全Edge分ループするのと同じ結果を、Pythonループ無しのnumpy配列演算で
-算出する。抽出・計算フェーズ（`_evaluate_axes_bulk`）と重み付き合成フェーズ
-（`compose_costs_from_axis_matrix`）に分かれており、道路グラフ探索のホットパス
-（`build_static_edge_score_matrix`、次節）と共有する構造になっている。
-bbox全体を一括評価するこの形自体は本番のルート生成では呼ばれず（探索コストの既定経路は
-次節）、回帰テストオラクルとしての利用が主。テストから呼ぶための薄い入口は使う側
-（`tests/test_evaluation_service.py`）に置く——実装側へ中継を持つと、引数が増えるたびに
-本番へ読み手の居ない定義を揃える固定費が残る。
-
-- **`_evaluate_axes_bulk`（抽出＋計算フェーズ、Pythonループ1回＋配列演算）**:
-  `MATERIAL_CATALOG`の`extractor`宣言を使いEdge単位の辞書・タグアクセスをnumpy配列へ
-  落とし込み、`AXIS_DEFINITIONS`を軸ごとに適用してdifficulty配列を求める
-  （`BulkAxisEvaluation`: 公開軸別配列に加え、0次フィルタ判定用の生フラグ
-  `hard_filter_flags`/`gradient_percent`も返す——`hard_filters`は
-  リクエストごとに変わりうるため、除外判定そのものはこの関数では確定させない）。
-  動的材料（`REQUEST_DYNAMIC_MATERIAL_IDS`、風）は抽出ループを通らず、
-  `evaluate_dynamic_material_arrays`（後述）がbearing配列・`weather`・`travel_speed_ms`から
-  ベクトル計算する（`weather`を渡すときは`travel_speed_ms`が必須で、無ければ`ValueError`）。
-  `weather=None`で呼ぶと動的材料がNaN配列になり、それに依存する軸の列は自然にNaNへ
-  伝播する（動的軸の特別扱いが不要）。静的な材料を1件追加する際は`material_catalog.py`へ
-  抽出関数を登録するだけでよく、この関数自体の変更は不要。
-- **`compose_costs_from_axis_matrix`（重み付き合成フェーズ）**: 軸別スコア配列群と
-  重み辞書からNeumaier加算→`round1_array`丸め→cost算出まで配列演算で行う。
-  0次フィルタによる除外（`compute_hard_filter_excluded`が`hard_filters`/
-  `max_average_grade_percent`を反映して別途判定）はここには含まれない。重み付き軸が
-  すべて欠損のEdgeはcost算出だけbbox内平均difficultyを代入する（表示用の戻り値には
-  影響しない、詳細は後述「探索コストの既定経路」節参照）。
-- スカラー経路（`compute_edge_axis_scores`）と同じ軸定義データを読むため、軸の追加は
-  定義データの追加だけで両経路へ同時に反映される。スカラー版`compute_edge_cost`は
-  削除せず、本関数との出力一致を検証する回帰テストのオラクルとして残る。
+- **`_evaluate_axes_from_material_arrays`**: `AXIS_DEFINITIONS`を軸ごとに適用して
+  difficulty配列を求める（`BulkAxisEvaluation`: 公開軸別配列に加え、0次フィルタ判定用の
+  生フラグ`hard_filter_flags`/`gradient_percent`も返す——`hard_filters`はリクエストごとに
+  変わりうるため、除外判定そのものはここでは確定させない）。動的材料
+  （`REQUEST_DYNAMIC_MATERIAL_IDS`、風）の列はNaNのままで、それに依存する軸の列も自然に
+  NaNへ伝播する（動的軸の特別扱いが不要）。
+- **`compose_costs_from_axis_matrix`**: 軸別スコア配列群と重み辞書からNeumaier加算→
+  `round1_array`丸め→cost算出まで配列演算で行う。0次フィルタによる除外
+  （`compute_hard_filter_excluded`が`hard_filters`/`max_average_grade_percent`を反映して
+  別途判定）はここには含まれない。重み付き軸がすべて欠損のEdgeはcost算出だけbbox内平均
+  difficultyを代入する（表示用の戻り値には影響しない、詳細は後述「探索コストの既定経路」節）。
 
 **暗黙の前提（浮動小数点の一致）**: `_neumaier_accumulate`（Neumaier補償加算のnumpy版）は
 Python組み込み`sum()`（Python 3.12以降、Neumaier補償加算を使う）とビット単位で同じ
 結果を返すために存在する。単純な逐次`+=`ではちょうど.X5境界の値で最終丸め結果が
-`compute_edge_cost`（スカラー版）と食い違う。最終丸めも同じ理由で`compute_edge_cost`の
-`round(x, 1)`とビット単位で一致させる必要がある（`round1_array`）。`×10→np.rint→÷10`を
-配列全体でまとめて計算し、計算後の値がちょうど`.5`に乗った要素だけ、その要素の元の値へ
-Pythonの`round()`（10進の正しい丸め）を個別に適用して結果を決め直す。
+スカラー経路（`composite_difficulty`）と食い違う。最終丸めも同じ理由で`round(x, 1)`と
+ビット単位で一致させる必要がある（`round1_array`）。`×10→np.rint→÷10`を配列全体で
+まとめて計算し、計算後の値がちょうど`.5`に乗った要素だけ、その要素の元の値へPythonの
+`round()`（10進の正しい丸め）を個別に適用して結果を決め直す。
 
-**暗黙の前提**: `material_arrays`は`MATERIAL_CATALOG`の全材料ぶん確保する
-（`extractor`未設定の材料も既定値[NaN/False]で確保）。抽出ループ自体は`extractor`を
-持つ材料のみ回す。全材料ぶん確保しないと、`extractor`未配線の材料を軸スタジオで
-GUI作成した軸を評価した際に`evaluate_axis_array`が`KeyError`で`/api/routes/generate`
-自体を落とす（スカラー版`evaluate_axes_scalar`は`materials.get(...)`のためこの経路では
-発生しない非対称性がある）。
+**暗黙の前提**: 軸が読む材料の配列は`MATERIAL_CATALOG`の全材料ぶん確保する
+（`value_sql`を持たない材料も既定値[NaN/False]で確保）。確保しないと、値式が無い材料を
+軸スタジオでGUI作成した軸を評価した際に`evaluate_axis_array`が`KeyError`で
+`/api/routes/generate`自体を落とす（スカラー版`evaluate_axes_scalar`は
+`materials.get(...)`のためこの経路では発生しない非対称性がある）。
 
 ## タイル単位の静的スコア行列と動的軸合成（探索コストの既定経路）
 
@@ -183,8 +149,7 @@ bbox全体ぶんのコストをリクエストにつき1回だけnumpyで合成�
 `list.__getitem__`だけを渡す。
 
 - **`build_static_edge_score_matrix`**: タイル読込時（`GraphService.
-  _get_or_build_tile_materials`）に1回だけ呼び、`_evaluate_axes_bulk`を`wind=None`で
-  実行して`StaticEdgeScoreMatrix`（Edge×公開軸の静的スコア行列＋distance_m・
+  _get_or_build_tile_materials`）に1回だけ呼び、材料の行列から`StaticEdgeScoreMatrix`（Edge×公開軸の静的スコア行列＋distance_m・
   bearing_deg・0次フィルタ判定用の生配列）を構築する。`infrastructure/
   tile_score_matrix_cache.py`（タイル単位、`graph_material_cache`とは別枠のLRU）へ
   キャッシュされる。
@@ -205,10 +170,8 @@ bbox全体ぶんのコストをリクエストにつき1回だけnumpyで合成�
   軸名のハードコードは呼び出し側に一切現れない）。動的材料が増えたら
   `REQUEST_DYNAMIC_MATERIAL_IDS`とこの辞書へ1エントリずつ追加するだけでよい（CLAUDE.md
   原則1、フロントの`RAMP_AXES`/`buildAxisOverlayLayers`と同種の汎用ディスパッチ）。
-  `evaluate_dynamic_material_arrays`が全動的材料を評価する唯一の経路で、スカラー経路
-  （`compute_dynamic_edge_materials`、Edge1本を長さ1の配列で呼ぶ薄いラッパー）・
-  bulk経路（`_evaluate_axes_bulk`）・静的行列への動的軸合成
-  （`evaluate_dynamic_axis_arrays`）の3経路がすべてここを通るため、式が乖離しない。
+  `evaluate_dynamic_material_arrays`が全動的材料を評価する唯一の経路で、静的行列への
+  動的軸合成（`evaluate_dynamic_axis_arrays`）もここを通るため、式が乖離しない。
   `DynamicAxisRequestContext`は出発時点のスナップショット（`weather`）・走行速度
   （`travel_speed_ms`、m/s。既定値を持たない必須フィールドで、伝播漏れは構築時点で
   失敗する）に加え、時刻依存の材料向けに起点の時別予報（`wind_series`）・出発時刻
@@ -319,8 +282,9 @@ MaterialSpec]`が単一ソース。
 | `tile_property_needs_runtime_scale` | タイル側の生値と材料の値がスケール不一致（実行時に変動する係数での変換が必要）か。`derive_ramp_inputs`はこれがTrueの材料を含む軸のramp自動導出を拒否する |
 | `tile_property_direction_dependent` | 値が進行方向によって変わる（有向）か。地図のrampレイヤーは単色の線という前提のため、これがTrueの材料を含む軸もramp自動導出を拒否する |
 | `primary_attribute_id` | 対応する一次属性id（[軸スタジオ](axis-studio.md)・frontendの`primaryAttributes.ts`が使う名前空間）。材料idと名前が異なるため明示的に対応させる |
-| `extractor` | `compute_edge_costs_bulk`の抽出フェーズへ載せる関数。`None`は「専用の計算経路を持つため汎用抽出の対象外」または「トリガー付きDEFER」（利用ニーズが出た時点で配線） |
-| `bool_default` | `dtype="boolean"`でextractorが欠損を返したときの配列上の扱い。`"false"`（タグ不在=非該当とみなす多数派）と`"nan"`（不明を非該当と混同しない少数派）の2種で、材料ごとに固定する（数値的に等価ではない） |
+| `value_sql` | その材料の値をDBから求めるSQL式。`None`は「SQLでは求められない」（リクエスト時に決まる風、評価へ配線していないトリガー付きDEFER） |
+| `coverage` | 欠損率の測り方。way単位・区間単位・対象外の3択で、**どれかを必ず持つ**（どちらの一覧にも載っていない材料を型として作れなくする） |
+| `bool_default` | `dtype="boolean"`の材料が欠損を取りうるときの配列上の扱い。`"false"`（真偽の行列へ載せる多数派）か`"nan"`（不明を非該当と混同しないため数値の行列へ載せる少数派）を材料ごとに固定する（数値的に等価ではない） |
 | `display_only` | 軸スタジオの材料選択肢（`GET /api/material-catalog`公開レスポンス）から除外し、地図表示専用に限定するか |
 | `value_labels` | categorical材料の値ごとの日本語ラベル対訳表（`GET /api/admin/material-catalog/{id}/values`が返す） |
 | `reference_points` | 軸スタジオの折れ点編集を助ける「値の目安」一覧（`MaterialReferencePoint`のlabel/value）。値域が直感的でない材料（風等）ほど有用で、真偽値・categorical材料や単純な材料は空リストのままでよい。換算式はbackendだけが持ち、値はここで計算済みのものを持たせる |
@@ -343,53 +307,43 @@ MaterialSpec]`が単一ソース。
   区間の行が「計算済み・値なし」のときもway単位へは戻さない——行の有無で決める。
   この切り替えは路面タイル・区間インスペクタ（`get_feature_landcover`）と同じ規則で、
   **揃えないと同じ道の同じ場所で地図の色と採点・内訳の数字が食い違う**。
-  値は`MaterialExtractionContext.metrics`の`landcover`群として渡す（下記「材料へ値を届ける」節）。
+  値式は区間単位の列（`el`）とway単位の列（`wl`）を`COALESCE`で繋いでこの規則を表す。
 
   **欠損判定に1クラスを名指ししない。** 判定も読み出し列も`WIRED_LANDCOVER_KEYS`
   （行→レコードの組み立ては`_LANDCOVER_PERCENT_COLUMNS`）から導く——名指しすると、
   クラスを1つ足して既存行を埋め戻す前に、その列がNULLというだけで行ごと捨てる。
   **1つの軸で複数のクラスを足さないこと**——割合の合計が100%へ固定されているため
   同じ地面を二重に数える（[設計原則](../../design-principles.md)構造仕様14）。
-- `raw_way_tag_extractor`/`tag_equals_extractor`/`way_tag_parser_extractor`/
-  `keyed_value_extractor`/`keyed_density_extractor`という汎用extractorファクトリが
-  用意されており、「単一タグの生値取得」「タグ値の単純一致判定」「数値パース」
-  「数値の束から1つ取り出す」「同じく1kmあたりへ正規化する」というパターンに収まる
-  新規材料は専用のPython関数を書かず、これらへパラメータを渡すだけでカタログへ登録できる。
-  優先順位付き分類のような複雑なロジックは専用関数のままでよい。
+- 値式は`domain/material_sql.py`の組み立て関数から作る（タグの正規化・タグ値の一致・
+  数値パース・件数の密度化・wayの行の有無）。同じ判定を材料ごとに書き写さないため、
+  判定を直すと全材料へ同時に効く。
 
-### 材料へ値を届ける（`MaterialExtractionContext`）
+### 値式が参照するエイリアス
 
-extractorが受け取るcontextは、**材料の数が増えてもフィールドが増えない**形で設計する。
-束ねる窓口は2つある。
+値式は**材料の数が増えてもエイリアスが増えない**形で設計する。元データの出どころごとに
+1つのエイリアスを用意し、材料はそのどれかの列を指す。
 
-| 窓口 | 形 | ここから生える材料 |
+| エイリアス | 元データ | ここから生える材料 |
 |---|---|---|
-| `way_tags` | `{タグ名: 値}` | `surface`・`lit`・`maxspeed_kmh`・`bridge`・`smoothness`等 |
-| `metrics` | `{群名: {edge_id: {キー: 値}}}` | `intersection_count_per_km`・`accident_count_per_km_year`・`trees_percent`・`built_percent`・`poi_*_per_km` |
+| `w` | `osm_raw_ways`（専用列とtags jsonb） | `surface`・`lit`・`maxspeed_kmh`・`bridge`・`smoothness`等 |
+| `re` | 区間の行（`road_edges`） | `highway`・距離（密度の分母） |
+| `c` | 件数の集計（`edge_attribute_counts`） | `intersection_count_per_km`・`accident_count_per_km_year`・`poi_*_per_km` |
+| `e` | 標高（`elevation_attributes`） | `gradient_percent` |
+| `el`／`wl` | 土地被覆（区間単位／way単位） | `trees_percent`・`built_percent`等 |
+| `d` | 指定路線（`designation_attributes`） | `is_designated` |
 
-`metrics`の群（`domain/attributes.py`の`METRIC_GROUP_*`）はデータ源の単位で、`counts`
-（`edge_attribute_counts`の3列）・`landcover`（`way_landcover`の割合列）・`poi`
-（`edge_attribute_counts.poi_counts`、停止要因の種別別カウント）・`geometry`
-（折れ線そのものから求まる量。Edge粒度の呼び出しでは`road_edges`の列が、Way粒度の
-呼び出し［区間インスペクタ・軸スタジオの分布プレビュー、`way_scalar_materials`］では
-がある。保存形式が
-列でもJSONBでも、contextへ載る時点でこの1つの形へ揃える（`edge_metrics_from_bundles`と
-`EdgeMaterialTable.to_legacy_dicts`が唯一の変換箇所）。
+**行の有無と値の有無を分ける。** `w`の行が無い（未取込の地域・PBF再取込の途中）ときは
+タグ由来の材料がすべて不明（NULL）になり、行があればタグが無くても非該当（false）として
+確定する（`tag_absent_is_false_sql`）。件数も同じで、集計行が無ければ不明、行があれば
+載っていないキーは0件。集計前を0件として読むと、全区間が「停止要因ゼロ＝最も易しい」と
+評価されてルート選択が静かに歪む。
 
-`MaterialDType`は`numeric`/`boolean`/`categorical`の3種のままで、群を増やしても増えない。
+`MaterialDType`（`numeric`/`boolean`/`categorical`）は、元データの出どころを
+増やしても増えない。
 
-群の中には、キーが無いことを「不明」ではなく確定値として読むものがある。件数の集計
-（`poi`群）は行があれば載っていないキーを0件と確定できるため、
-`keyed_density_extractor(..., absent_key=0.0)`で読む。行そのものが無い場合は常に欠損。
-
-この「行の有無」は**集計済みかどうか**を表す。`poi`群では、DB側の列がNULL（未集計）なら
-群へ行を作らず、材料を欠損にする。集計前を0件として読むと、全区間が「停止要因ゼロ＝
-最も易しい」と評価されてルート選択が静かに歪む。
-
-**フィールドを足してよいかの判定基準**: その材料の兄弟が今後増えるなら、contextへ
-フィールドを足さず`metrics`の群にする。増えないもの（`elevation_attributes`・
-`surface_attributes`・`designated_edge_ids`・`accident_years_covered`）だけが独立した
-フィールドを持つ。
+**エイリアスを足してよいかの判定基準**: その材料の兄弟が今後増えるなら、既存の
+エイリアスの列として足す。新しいエイリアスを足すのは、元データの表そのものが増えるとき
+だけ（`_way_from_clause`・区間向けのFROM句の両方へ同じ名前で用意する必要がある）。
 
 ### 材料カタログのAPI（`api/routers/material_catalog.py`）
 
@@ -419,16 +373,14 @@ extractorが受け取るcontextは、**材料の数が増えてもフィール�
   値がNULLの行を「データあり」と数えてしまう。判定は評価が実際に読む**列**のNULLまで見る。
 - `missing_semantics`: `"unknown"`（欠損は不明値[NaN/None]として扱われ、その材料を使う軸は
   評価対象外になる）／`"definite"`（欠損は確定値[タグ不在=非該当等]として扱われ、軸は
-  通常どおり評価される）。`MaterialSpec.bool_default`からは導出しない——`bool_default="nan"`
-  でもextractorがタグ不在を確定値として扱う材料（自転車インフラ系5材料）があり、実際の
-  扱いはextractorの実装で決まるため、宣言テーブル側に明示する。
-- `MATERIAL_COVERAGE_EXCLUSIONS: dict[str, str]`: 集計対象外の材料とその理由（動的計算材料の
+  通常どおり評価される）。`MaterialSpec.bool_default`からは導出しない——前者はタグの不在を
+  どう読むかで、後者は「wayの行そのものが無い」を配列上どう表すかであり、別の欠損を指す。
+- `CoverageExcluded(reason=...)`: 集計対象外の材料とその理由（動的計算材料の
   `wind_drag_ratio`、NOT NULL列由来の`oneway`、行の有無がそのまま確定値の`designation`系）。
   管理画面はこの理由をそのまま表示する。
-- **暗黙の前提**: `MATERIAL_CATALOG`の全材料は`MATERIAL_COVERAGE_SPECS`か
-  `MATERIAL_COVERAGE_EXCLUSIONS`のどちらか一方に必ず載る（`test_material_coverage.py`が
-  網羅性を検証し、`build_material_coverage_report`はどちらにも無い材料で`ValueError`を
-  送出する）。材料を追加したら、どちらかへ1件追加する。
+- **どちらか一方を必ず持つことは型が保証する**: `MaterialSpec.coverage`は必須で、
+  way単位・Edge単位・対象外の3択（`MaterialCoverage`）のいずれかしか取れない。
+  「どちらの一覧にも載っていない材料」を作れないため、網羅性を確かめるテストは要らない。
 - `MaterialCoverageService.get_material_coverage`はDB例外を握りつぶさず伝播させ、router側で
   503へ変換する（診断用APIのため空レポートへ倒して「欠損0件」に見せない）。
   `api/dependencies.py: get_material_coverage_service`はルート生成用の長い
@@ -438,15 +390,14 @@ extractorが受け取るcontextは、**材料の数が増えてもフィール�
 ## 区間インスペクタ（`axis_inspector_breakdown`）
 
 単独でクリックされたway（ルート文脈が無い）について、「一次属性→二次軸→三次合成コスト」を
-算出する。gradient/windの材料（勾配%・風ペナルティ）は単独wayでは算出不能（ルート沿いの
-標高・出発時刻という区間contextが必要）なため常に`available=False`で返す（データ欠損では
-なく原理的に算出不能という区別）。`covered_weight_fraction`（全軸の重み合計に対する取得
-できた軸の重み合計の割合）をフロントの「参考値」表示に使う。
+算出する。材料値は`RoadGraphRepository.get_way_material_values`が返したものをそのまま受け
+取り、この関数は合成だけを行う。gradient/windの材料（勾配%・風ペナルティ）は単独wayでは
+算出不能（ルート沿いの標高・出発時刻という区間contextが必要）なため常に`available=False`で
+返す（データ欠損ではなく原理的に算出不能という区別）。`covered_weight_fraction`（全軸の
+重み合計に対する取得できた軸の重み合計の割合）をフロントの「参考値」表示に使う。
 
-## タグ正規化（`domain/recipe.py`）
 
 OSMタグ由来の材料タグを正規化する純関数群（`parse_lanes`・`parse_maxspeed`・
-`cycleway_values`・`tag_value_is`）。`domain/evaluation.py`・`domain/traffic.py`が
 同じ実装を参照する正準1箇所。
 
 `bicycle_infra_flags(tags, highway)`/`bicycle_infra_flags_or_none(tags, highway)`は
@@ -475,4 +426,4 @@ OSMタグ由来の材料タグを正規化する純関数群（`parse_lanes`・`
 
 `load_route_preference()`が既定の`RoutePreference`（`RoutePreference()`、
 `default_axis_weights()`由来）を返す。このモジュールが持つのはそれだけで、評価そのものは
-domainの`compute_edge_costs_bulk`が行う。状態を持たないためクラスではなくモジュール関数。
+domainが行う。状態を持たないためクラスではなくモジュール関数。

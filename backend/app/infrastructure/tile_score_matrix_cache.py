@@ -6,7 +6,7 @@ build_static_edge_score_matrix`の結果（`StaticEdgeScoreMatrix`）をここ�
 一切行わずこの行列から配列演算でコストを合成できる（本行列はEdgeあたり公開軸の
 数×8バイト程度で収まる）。
 
-**`infrastructure/graph_material_cache.py`（`EdgeMaterialBundle`等の材料そのもの）とは
+**`infrastructure/graph_material_cache.py`（材料そのもの）とは
 意図的に別のキャッシュとして持つ**。軸スタジオでの軸定義編集（`AxisRegistryAdminService`
 経由の`refresh_axis_definitions`）はこちらだけを`clear()`し、材料キャッシュ（DBアクセスを
 伴う取得）は温存する——軸編集直後の最初のリクエストがDBへ再問い合わせせずに済み、
@@ -15,7 +15,7 @@ build_static_edge_score_matrix`の結果（`StaticEdgeScoreMatrix`）をここ�
 **無効化方針**: プロセス内メモリのLRU（タイル単位、
 `graph_material_cache`と同じ`DEFAULT_MAX_TILES`）に加え、`infrastructure/
 tile_persistent_cache.py`へも同じ内容をディスク永続化する（`graph_material_cache.py`と
-同じ動機・設計、docs/tasks/T538.md）。無効化経路は2種類ある:
+同じ動機・設計）。無効化経路:
 
 1. **列構成・材料世代・構築ロジックの変化**: `TILE_SCORE_MATRIX_CACHE_VERSION`が
    `StaticEdgeScoreMatrix`の列構成と材料側の世代
