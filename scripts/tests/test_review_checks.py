@@ -1640,3 +1640,27 @@ def test_find_source_comment_dead_identifier_refs_accepts_a_name_in_code(tmp_pat
     review_checks.read_text.cache_clear()
 
     assert review_checks.find_source_comment_dead_identifier_refs(["backend/app/zzz.py"]) == []
+
+
+def test_count_categories_separates_the_fixed_vocabulary_from_free_text(tmp_path):
+    shard = tmp_path / "2026-01-01_all_shards.md"
+    shard.write_text(
+        "- file: a.py / line: 1 / category: doc-drift / severity: P2\n"
+        "  `category`: `contract` / severity: P1\n"
+        "  **category**: 重複（値のコピー）\n"
+        "- category: doc-drift / 撤去済み軸の残存\n",
+        encoding="utf-8")
+    review_checks.read_text.cache_clear()
+
+    known, unknown = review_checks.count_categories(shard)
+
+    assert known == {"doc-drift": 2, "contract": 1}
+    assert sum(unknown.values()) == 1
+
+
+def test_count_categories_counts_nothing_when_no_entry_names_a_category(tmp_path):
+    shard = tmp_path / "2026-01-02_all_shards.md"
+    shard.write_text("- file: a.py / line: 1 / severity: P2 / summary: ...\n", encoding="utf-8")
+    review_checks.read_text.cache_clear()
+
+    assert review_checks.count_categories(shard) == ({}, {})

@@ -2995,6 +2995,65 @@ def latest_target_commit() -> tuple[str | None, str | None, list[str]]:
     return None, None, skipped
 
 
+# --- レビュー指摘の category 集計（principles.md 共通実行手順4d-2） ---------
+#
+# 語彙を固定した目的は「回をまたいで数えられること」で、数えるのは機械の仕事。
+# 読むのは`history/*_all_shards.md`（統合前の一次出力）で、統合後の本文は数えない
+# ——統合で重複を寄せた後の件数は、回ごとの寄せ方に左右されるため比較にならない。
+CATEGORY_VOCABULARY = (
+    "doc-drift", "contract", "structure", "duplication", "dead", "perf", "test", "ui", "other",
+)
+# `category: structure` / `**category**: 重複` / `` `category`: `doc-drift` `` のどれも拾う。
+# 先頭語だけを見る（`doc-drift / 撤去済み軸の残存`のように`/`で自由記述が続く）。
+CATEGORY_RE = re.compile(r"`?\*{0,2}category\*{0,2}`?\s*[:：]\s*`?\*{0,2}\s*([^\s/|`*、。]+)")
+
+
+def count_categories(path: Path) -> tuple[dict[str, int], dict[str, int]]:
+    """1ファイル分の(語彙内の件数, 語彙外の件数)。"""
+    known: dict[str, int] = {}
+    unknown: dict[str, int] = {}
+    for line in read_text(path).splitlines():
+        m = CATEGORY_RE.search(line)
+        if not m:
+            continue
+        token = m.group(1).strip().strip("`*")
+        bucket = known if token in CATEGORY_VOCABULARY else unknown
+        bucket[token] = bucket.get(token, 0) + 1
+    return known, unknown
+
+
+def cmd_categories(args: argparse.Namespace) -> int:
+    shard_files = sorted(HISTORY_DIR.glob("*_all_shards.md"))
+    if not shard_files:
+        print("集計対象がありません（history/*_all_shards.md が0件）")
+        return 0
+    if args.limit:
+        shard_files = shard_files[-args.limit:]
+    rows = []
+    for path in shard_files:
+        known, unknown = count_categories(path)
+        rows.append((path.name.split("_")[0], known, unknown))
+    print("## 指摘の category 内訳（history/*_all_shards.md、統合前の一次出力）")
+    header = "| 日付 | " + " | ".join(CATEGORY_VOCABULARY) + " | 語彙内計 | 語彙外 |"
+    print(header)
+    print("|---|" + "---:|" * (len(CATEGORY_VOCABULARY) + 2))
+    for date, known, unknown in rows:
+        cells = [str(known.get(word, 0)) for word in CATEGORY_VOCABULARY]
+        total = sum(known.values())
+        print(f"| {date} | " + " | ".join(cells) + f" | {total} | {sum(unknown.values())} |")
+    last_date, last_known, last_unknown = rows[-1]
+    total = sum(last_known.values())
+    if total:
+        share = 100.0 * last_known.get("doc-drift", 0) / total
+        print(f"\n`doc-drift`の比率（{last_date}）: {share:.0f}%（{last_known.get('doc-drift', 0)}/{total}）")
+    if last_unknown:
+        top = sorted(last_unknown.items(), key=lambda kv: -kv[1])[:5]
+        shown = "・".join(f"{word}({count})" for word, count in top)
+        print(f"**語彙外が{sum(last_unknown.values())}件ある**（{shown}）"
+              "——固定語彙で始めていない個票は、回をまたいで数えられない。")
+    return 0
+
+
 def cmd_trigger(args: argparse.Namespace) -> int:
     today = dt.date.today()
     last = latest_history_date()
@@ -3941,6 +4000,9 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--top", type=int, default=10, help="表に出す上位件数")
     p.add_argument("--update", action="store_true", help="前回値ファイル（history/duplication.json）を今回値で更新する")
     p.set_defaults(func=cmd_duplication)
+    p = sub.add_parser("categories", help="指摘の category 内訳（principles.md 4d-2）")
+    p.add_argument("--limit", type=int, default=0, help="直近N回だけを出す（既定: 全件）")
+    p.set_defaults(func=cmd_categories)
     p = sub.add_parser("trigger", help="周期レビューのトリガー判定")
     p.set_defaults(func=cmd_trigger)
     args = parser.parse_args(argv)
