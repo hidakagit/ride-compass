@@ -40,6 +40,7 @@ from app.domain.region import ROAD_TILE_MAX_ZOOM, ROAD_TILE_MIN_ZOOM
 from app.infrastructure.database import get_session_factory
 from app.infrastructure.response_compression import DEFAULT_COMPRESS_LEVEL
 from app.infrastructure.vector_tile import ROAD_SURFACE_LAYER_NAME
+from benchmarks._revision import announce_revision
 
 MVT_EXTENT = 4096
 
@@ -252,4 +253,5 @@ async def main() -> None:
 
 
 if __name__ == "__main__":
+    announce_revision()
     asyncio.run(main())

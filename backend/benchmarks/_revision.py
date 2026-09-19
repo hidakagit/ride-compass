@@ -73,6 +73,21 @@ def stale_reason(state: RevisionState) -> str | None:
     return None
 
 
+def announce_revision() -> RevisionState:
+    """素性を1行出し、古ければ警告を出す（止めない）。
+
+    個別のベンチは手元の反復でも使うため、配信元と違うコミットでも測れる方を採る。
+    止めないぶん、**どのコードを測ったかは必ず出力へ残る**——数字だけが後から引用されると、
+    古い作業コピーの数字かどうかを見分ける手段が無くなる。
+    """
+    state = read_revision_state()
+    print(describe(state))
+    reason = stale_reason(state)
+    if reason is not None:
+        print(f"警告: {reason}")
+    return state
+
+
 def require_current_revision() -> RevisionState:
     """素性を1行出し、古ければ止める。`BENCH_SKIP_REVISION_CHECK=1`で止めない。"""
     state = read_revision_state()

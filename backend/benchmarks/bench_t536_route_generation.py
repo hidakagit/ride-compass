@@ -27,6 +27,7 @@ from app.domain.route_preference import RoutePreference
 from app.domain.route import Coordinates
 from app.services.route_generator import TURNAROUND_RADIUS_RATIO
 from benchmarks._route_generation_service import assert_read_only_path, refresh_axis_registry, route_generator_session
+from benchmarks._revision import announce_revision
 
 # T522.mdと同じ起点（東京駅相当）。distance_kmはdev機で現実的な時間に収めるため
 # 本番調査（30km）より小さくする——本スクリプトの目的は倍率の方向性確認であり、
@@ -63,4 +64,5 @@ async def main() -> None:
 
 
 if __name__ == "__main__":
+    announce_revision()
     asyncio.run(main())

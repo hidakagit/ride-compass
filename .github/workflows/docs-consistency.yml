@@ -53,7 +53,10 @@ jobs:
           python -m pip install --quiet pytest
           python -m pytest scripts/tests/test_review_checks.py -q
       # 検知器が「ある」ことと「鳴る」ことは別物。わざと違反を入れて本当に落ちるかを
-      # pre-commit経路・CI経路の両方で試す（使い捨てworktree内で完結、約20秒）。
+      # pre-commit経路・CI経路の両方で試す（使い捨てworktree内で完結）。参考表示のみの
+      # 検知器も、作った1件が出力へ現れるかを同じ仕組みで試す——件数0でもexit 0のため、
+      # 黙ったことに気づく経路が他に無い。全件スキャンにしか無い検知器を含むぶん、
+      # このワークフローで最も時間のかかる手順になる。
       - name: ガードの実効性監査
         run: |
           git config --global user.email "guard@local"

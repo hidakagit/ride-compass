@@ -9,6 +9,7 @@
 
 import argparse
 import importlib.util
+import inspect
 import sys
 from pathlib import Path
 
@@ -324,6 +325,20 @@ def test_narrative_pattern_catches_past_tense_phrases():
         assert review_checks.NARRATIVE_PATTERN.search(text), text
 
 
+def test_source_comment_pointing_at_a_task_document_is_flagged():
+    # 経緯の言い回しを書かずにdocs/tasks/Txxx.mdを指すだけでも、指した先が実態と
+    # 食い違ったときに追従されない（Markdownリンクの形で素通りしていた）。
+    lines = {"frontend/src/zzzProbe.ts": [(1, "// 詳細は[T800](../../docs/tasks/T800.md)参照。")]}
+
+    assert review_checks.find_source_narrative_violations(lines)
+
+
+def test_docs_narrative_pattern_still_allows_a_task_link():
+    # docs/modules側は「記載粒度」節がリンクを1本まで許容する。ソース専用の綴りを
+    # 共有パターンへ足すと、その許容が記載粒度違反に化ける。
+    assert review_checks.NARRATIVE_PATTERN.search("詳細は[T800](../../tasks/T800.md)参照。") is None
+
+
 def test_narrative_pattern_does_not_flag_tokoro_wa():
     # 「今のところは」は`たところ`であって`たころ`ではない（誤検出しない）。
     for text in ("今のところは1箇所だけで足りる", "見たところは同じ形をしている"):
@@ -514,6 +529,32 @@ def test_every_enforced_detector_has_a_way_to_produce_a_violation():
     probes = set(review_checks.guard_probe_mutations(review_checks.REPO_ROOT))
 
     assert enforced <= probes, f"違反の作り方が無い検知器: {sorted(enforced - probes)}"
+
+
+def test_every_reference_detector_has_a_way_to_produce_a_violation():
+    # 参考表示は件数0でもexit 0のため、黙っても誰も気づかない。違反を1件作って出力へ
+    # 現れるかを`mutate`が試せるよう、強制する検知器と同じく作り方を1件ずつ持たせる。
+    reference = {k for k, modes in review_checks.DETECTOR_ENFORCEMENT.items() if not modes}
+    probes = set(review_checks.guard_probe_reference_mutations(review_checks.REPO_ROOT))
+
+    assert reference <= probes, f"違反の作り方が無い参考表示の検知器: {sorted(reference - probes)}"
+
+
+def test_reference_and_enforced_probes_do_not_overlap():
+    # 同じキーを両方へ書くと、片方だけを直したときに古い方が使われ続ける。
+    enforced = set(review_checks.guard_probe_mutations(review_checks.REPO_ROOT))
+    reference = set(review_checks.guard_probe_reference_mutations(review_checks.REPO_ROOT))
+
+    assert not (enforced & reference), f"両方に定義がある: {sorted(enforced & reference)}"
+
+
+def test_size_and_metrics_look_at_the_same_population():
+    # 片方だけがscripts/を外していたため、リポジトリ最大の単一ファイルがメトリクス履歴に
+    # 一度も現れなかった。母集団は1つの関数から取る。
+    src = inspect.getsource(review_checks.cmd_size) + inspect.getsource(review_checks.cmd_metrics)
+
+    assert src.count("measured_line_counts()") == 2
+    assert "is_impl_file" not in src, "母集団を自前で組み立て直している"
 
 
 def test_every_enforced_detector_has_an_edge_case_or_declares_it_has_no_outside():

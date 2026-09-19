@@ -40,6 +40,7 @@ from app.domain.route_preference import RoutePreference
 from app.domain.routing import find_nearest_node_indexed, turn_expanded_shortest_path
 from app.services.road_graph_engine import _estimate_distances_m, _origin_states
 from benchmarks._route_generation_service import refresh_axis_registry, route_generator_session
+from benchmarks._revision import announce_revision
 
 logging.basicConfig(level=logging.WARNING, format="%(message)s")
 
@@ -126,4 +127,5 @@ async def main() -> None:
 
 
 if __name__ == "__main__":
+    announce_revision()
     asyncio.run(main())

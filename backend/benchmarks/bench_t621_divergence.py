@@ -43,6 +43,7 @@ from benchmarks._route_generation_service import (
     refresh_axis_registry,
     route_generator_session,
 )
+from benchmarks._revision import announce_revision
 
 logging.basicConfig(level=logging.WARNING, format="%(asctime)s %(message)s")
 logging.getLogger("ridecompass.generate").setLevel(logging.INFO)
@@ -194,4 +195,5 @@ async def main() -> None:
 
 
 if __name__ == "__main__":
+    announce_revision()
     asyncio.run(main())

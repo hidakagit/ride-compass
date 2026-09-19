@@ -37,6 +37,7 @@ from app.domain.geo import haversine_distance_km
 from app.domain.route import Coordinates
 from app.services.route_generator import TURNAROUND_RADIUS_RATIO
 from benchmarks._route_generation_service import assert_read_only_path, refresh_axis_registry, route_generator_session
+from benchmarks._revision import announce_revision
 
 logging.basicConfig(level=logging.WARNING, format="%(asctime)s %(message)s")
 logging.getLogger("ridecompass.generate").setLevel(logging.INFO)
@@ -103,4 +104,5 @@ async def main() -> None:
 
 
 if __name__ == "__main__":
+    announce_revision()
     asyncio.run(main())

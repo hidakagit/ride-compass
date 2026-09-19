@@ -33,6 +33,7 @@ import gc
 import time
 
 from benchmarks._harness import BenchmarkResult, print_report
+from benchmarks._revision import announce_revision
 
 # 取込済み範囲内（docs/osm-pbf-import.md記載のTokyo抽出カバー範囲）の東京駅。
 # scripts/verify_phase1_e2e.pyと同じ起点。
@@ -235,6 +236,7 @@ async def run() -> list[BenchmarkResult]:
 
 
 if __name__ == "__main__":
+    announce_revision()
     print_report(
         "PostGIS-backed GraphService.get_or_build_graph_with_attributes: real local DB, real Tokyo import data",
         asyncio.run(run()),

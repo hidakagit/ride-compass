@@ -62,6 +62,7 @@ from app.batch._landcover import RasterSource, measure_ring
 from app.batch.precompute_way_landcover import DEFAULT_BUFFER_M, DEFAULT_INNER_M
 from app.domain.attributes import WIRED_LANDCOVER_KEYS
 from app.infrastructure.database import get_session_factory
+from benchmarks._revision import announce_revision
 
 # 抽出するway数の既定。全件回すと実装と同じ時間がかかるため、判断に足る規模で止める。
 # 並びはway_id順で、地理的な順序では**ない**——地理順に並べてLIMITで切ると、その端から
@@ -235,4 +236,5 @@ def main(argv: list[str] | None = None) -> int:
 
 
 if __name__ == "__main__":
+    announce_revision()
     sys.exit(main())

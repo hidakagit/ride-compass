@@ -13,6 +13,7 @@ from __future__ import annotations
 
 from benchmarks._harness import BenchmarkResult, measure, print_report
 from benchmarks._synthetic import grid_point, make_grid_graph
+from benchmarks._revision import announce_revision
 
 CALLS_PER_ROUTE_GENERATION_REQUEST = 1  # prepareが起点をスナップする1回のみ（周回リクエスト）
 
@@ -41,4 +42,5 @@ def run() -> list[BenchmarkResult]:
 
 
 if __name__ == "__main__":
+    announce_revision()
     print_report("find_nearest_node_indexed: grid bucket index scaling", run())
