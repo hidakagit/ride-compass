@@ -27,7 +27,7 @@ from app.batch.import_pbf import (
 from app.domain.graph import WaySpec
 from app.domain.osm_adapter import POISpec
 from app.domain.region import BoundingBox
-from tests.conftest import TEST_DATABASE_URL
+from tests.conftest import postgis_database_url
 
 # xdist_group="postgis": pbf_import_connは同じridecompass_test DBのosm_raw_ways等を
 # 無条件DELETEで初期化する。他のpostgis系テストと別workerで並走すると互いのDELETEで
@@ -117,7 +117,7 @@ class TestBuildPoiRecord:
 @pytest_asyncio.fixture
 async def pbf_import_conn():
     try:
-        conn = await asyncpg.connect(asyncpg_dsn(TEST_DATABASE_URL))
+        conn = await asyncpg.connect(asyncpg_dsn(postgis_database_url()))
     except Exception as exc:  # noqa: BLE001
         pytest.skip(f"ridecompass_test DBに接続できないためスキップ: {exc}")
 
@@ -196,7 +196,7 @@ class TestRunImportOrchestration:
         pbf_path.write_bytes(b"")  # is_file()チェックのみ通ればよい（中身はpbf_source側でモック済み）
 
         result = await run_import(
-            str(pbf_path), str(DEFAULT_PROFILE_PATH), _TEST_BBOX_TEXT, TEST_DATABASE_URL, dry_run=False
+            str(pbf_path), str(DEFAULT_PROFILE_PATH), _TEST_BBOX_TEXT, postgis_database_url(), dry_run=False
         )
 
         assert result == 0
@@ -236,7 +236,7 @@ class TestRunImportOrchestration:
         pbf_path.write_bytes(b"")
 
         result = await run_import(
-            str(pbf_path), str(DEFAULT_PROFILE_PATH), _TEST_BBOX_TEXT, TEST_DATABASE_URL, dry_run=True
+            str(pbf_path), str(DEFAULT_PROFILE_PATH), _TEST_BBOX_TEXT, postgis_database_url(), dry_run=True
         )
 
         assert result == 0
@@ -245,7 +245,7 @@ class TestRunImportOrchestration:
         # PBFファイル自体が存在しない場合、pbf_source（pyosmium）のimportにすら
         # 到達せずrun_importが1を返すことを確認する（モック不要・DB fixture不要）。
         result = await run_import(
-            str(tmp_path / "missing.osm.pbf"), str(DEFAULT_PROFILE_PATH), None, TEST_DATABASE_URL, dry_run=False
+            str(tmp_path / "missing.osm.pbf"), str(DEFAULT_PROFILE_PATH), None, postgis_database_url(), dry_run=False
         )
 
         assert result == 1
@@ -260,7 +260,7 @@ class TestRunImportOrchestration:
 
         with pytest.raises(RuntimeError, match="pbf読み取りに失敗しました"):
             await run_import(
-                str(pbf_path), str(DEFAULT_PROFILE_PATH), _TEST_BBOX_TEXT, TEST_DATABASE_URL, dry_run=False
+                str(pbf_path), str(DEFAULT_PROFILE_PATH), _TEST_BBOX_TEXT, postgis_database_url(), dry_run=False
             )
 
         run_row = await pbf_import_conn.fetchrow("SELECT status FROM osm_import_runs")
@@ -277,10 +277,10 @@ class TestRunImportOrchestration:
         pbf_path.write_bytes(b"")
 
         first = await run_import(
-            str(pbf_path), str(DEFAULT_PROFILE_PATH), _TEST_BBOX_TEXT, TEST_DATABASE_URL, dry_run=False
+            str(pbf_path), str(DEFAULT_PROFILE_PATH), _TEST_BBOX_TEXT, postgis_database_url(), dry_run=False
         )
         second = await run_import(
-            str(pbf_path), str(DEFAULT_PROFILE_PATH), _TEST_BBOX_TEXT, TEST_DATABASE_URL, dry_run=False
+            str(pbf_path), str(DEFAULT_PROFILE_PATH), _TEST_BBOX_TEXT, postgis_database_url(), dry_run=False
         )
 
         assert first == 0
@@ -302,14 +302,14 @@ class TestRunImportOrchestration:
         pbf_path.write_bytes(b"")
 
         assert await run_import(
-            str(pbf_path), str(DEFAULT_PROFILE_PATH), _TEST_BBOX_TEXT, TEST_DATABASE_URL, dry_run=False
+            str(pbf_path), str(DEFAULT_PROFILE_PATH), _TEST_BBOX_TEXT, postgis_database_url(), dry_run=False
         ) == 0
         before = await pbf_import_conn.fetchval("SELECT max(updated_at) FROM osm_raw_ways")
         way_count = await pbf_import_conn.fetchval("SELECT count(*) FROM osm_raw_ways")
         await pbf_import_conn.execute("DELETE FROM osm_raw_pois")
 
         assert await run_import(
-            str(pbf_path), str(DEFAULT_PROFILE_PATH), _TEST_BBOX_TEXT, TEST_DATABASE_URL,
+            str(pbf_path), str(DEFAULT_PROFILE_PATH), _TEST_BBOX_TEXT, postgis_database_url(),
             dry_run=False, pois_only=True,
         ) == 0
 

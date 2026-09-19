@@ -8,7 +8,7 @@ import pytest_asyncio
 from app.batch import import_accidents
 from app.batch._common import asyncpg_dsn
 from app.batch.import_accidents import _REQUIRED_COLUMNS, iter_kanto_rows, parse_years, run_import
-from tests.conftest import TEST_DATABASE_URL
+from tests.conftest import postgis_database_url
 
 # xdist_group="postgis": accident_connは同じridecompass_test DBのaccident_points/
 # accident_import_runsテーブルを無条件DELETEで初期化する。他のpostgis系テストと別workerで
@@ -131,7 +131,7 @@ class TestIterKantoRows:
 @pytest_asyncio.fixture
 async def accident_conn():
     try:
-        conn = await asyncpg.connect(asyncpg_dsn(TEST_DATABASE_URL))
+        conn = await asyncpg.connect(asyncpg_dsn(postgis_database_url()))
     except Exception as exc:  # noqa: BLE001
         pytest.skip(f"ridecompass_test DBに接続できないためスキップ: {exc}")
     try:
@@ -172,7 +172,7 @@ class TestRunImportOrchestration:
             ],
         )
 
-        result = await run_import([2023], TEST_DATABASE_URL, dry_run=False)
+        result = await run_import([2023], postgis_database_url(), dry_run=False)
 
         assert result == 0
         points = await accident_conn.fetch(
@@ -193,12 +193,12 @@ class TestRunImportOrchestration:
         monkeypatch.setattr(import_accidents, "DATA_DIR", tmp_path)
         csv_path = tmp_path / "honhyo_2023.csv"
         _write_csv(csv_path, [_make_row(prefecture_code="30", death_count="000")])
-        assert await run_import([2023], TEST_DATABASE_URL, dry_run=False) == 0
+        assert await run_import([2023], postgis_database_url(), dry_run=False) == 0
 
         # 同じaccident_idで死者数だけ変わった再取込（年次CSVの更新を想定）。
         csv_path.unlink()
         _write_csv(csv_path, [_make_row(prefecture_code="30", death_count="001")])
-        assert await run_import([2023], TEST_DATABASE_URL, dry_run=False) == 0
+        assert await run_import([2023], postgis_database_url(), dry_run=False) == 0
 
         rows = await accident_conn.fetch("SELECT accident_id, fatal FROM accident_points")
         assert len(rows) == 1  # 重複INSERTされない（ON CONFLICT DO UPDATE）
@@ -210,7 +210,7 @@ class TestRunImportOrchestration:
         monkeypatch.setattr(import_accidents, "DATA_DIR", tmp_path)
         _write_csv(tmp_path / "honhyo_2023.csv", [_make_row(prefecture_code="30")])
 
-        result = await run_import([2023], TEST_DATABASE_URL, dry_run=True)
+        result = await run_import([2023], postgis_database_url(), dry_run=True)
 
         assert result == 0
         assert await accident_conn.fetchval("SELECT count(*) FROM accident_points") == 0
@@ -227,7 +227,7 @@ class TestRunImportOrchestration:
 
         monkeypatch.setattr(httpx.AsyncClient, "stream", _raise_connect_error)
 
-        result = await run_import([2023], TEST_DATABASE_URL, dry_run=False)
+        result = await run_import([2023], postgis_database_url(), dry_run=False)
 
         assert result == 1
 
@@ -243,7 +243,7 @@ class TestRunImportOrchestration:
         monkeypatch.setattr(asyncpg.Connection, "copy_records_to_table", _boom)
 
         with pytest.raises(RuntimeError):
-            await run_import([2023], TEST_DATABASE_URL, dry_run=False)
+            await run_import([2023], postgis_database_url(), dry_run=False)
 
         run_row = await accident_conn.fetchrow("SELECT status FROM accident_import_runs")
         assert run_row["status"] == "failed"

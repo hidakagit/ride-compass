@@ -17,7 +17,7 @@ from sqlalchemy import text
 
 from app.batch.precompute_edge_landcover import run
 from app.domain.graph import WaySpec, build_road_graph
-from tests.conftest import TEST_DATABASE_URL
+from tests.conftest import postgis_database_url
 from tests.road_graph_scaffolds import NODE1, NODE2, NODE3
 
 pytestmark = [
@@ -53,7 +53,7 @@ async def test_物理区間ごとに1行だけ書く(road_graph_repository, road
     way = WaySpec(osm_way_id=100, node_ids=[1, 2], highway="residential")
     await _save_way_with_edges(road_graph_repository, road_graph_session, [way], {1: NODE1, 2: NODE2})
 
-    assert await run(TEST_DATABASE_URL, [_write_all_trees_raster(tmp_path / "54S_2025.tif")], 100.0, 10.0,
+    assert await run(postgis_database_url(), [_write_all_trees_raster(tmp_path / "54S_2025.tif")], 100.0, 10.0,
                      None, False, False) == 0
 
     rows = (
@@ -79,7 +79,7 @@ async def test_区間を2本持つwayは区間ごとに行を持つ(road_graph_r
         road_graph_repository, road_graph_session, [way, crossing], {1: NODE1, 2: NODE2, 3: NODE3}
     )
 
-    assert await run(TEST_DATABASE_URL, [_write_all_trees_raster(tmp_path / "54S_2025.tif")], 100.0, 10.0,
+    assert await run(postgis_database_url(), [_write_all_trees_raster(tmp_path / "54S_2025.tif")], 100.0, 10.0,
                      None, False, False) == 0
 
     count = (
@@ -96,12 +96,12 @@ async def test_増分実行は計算済みの区間を対象にしない(road_gr
     await _save_way_with_edges(road_graph_repository, road_graph_session, [way], {1: NODE1, 2: NODE2})
     raster = _write_all_trees_raster(tmp_path / "54S_2025.tif")
 
-    assert await run(TEST_DATABASE_URL, [raster], 100.0, 10.0, None, False, False) == 0
+    assert await run(postgis_database_url(), [raster], 100.0, 10.0, None, False, False) == 0
     first = (
         await road_graph_session.execute(text("SELECT computed_at FROM edge_landcover WHERE osm_way_id = 103"))
     ).scalar_one()
 
-    assert await run(TEST_DATABASE_URL, [raster], 100.0, 10.0, None, False, False) == 0
+    assert await run(postgis_database_url(), [raster], 100.0, 10.0, None, False, False) == 0
     second = (
         await road_graph_session.execute(text("SELECT computed_at FROM edge_landcover WHERE osm_way_id = 103"))
     ).scalar_one()
@@ -121,7 +121,7 @@ async def test_ラスタ範囲外の区間も値なしで記録する(road_graph
     ) as ds:
         ds.write(np.full((50, 50), 2, dtype=np.uint8), 1)
 
-    assert await run(TEST_DATABASE_URL, [str(far_path)], 100.0, 10.0, None, False, False) == 0
+    assert await run(postgis_database_url(), [str(far_path)], 100.0, 10.0, None, False, False) == 0
 
     row = (
         await road_graph_session.execute(

@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import create_async_engine
 from app.api.routers import health as health_router
 from app.config import settings
 from app.main import app
-from tests.conftest import TEST_DATABASE_URL
+from tests.conftest import postgis_database_url
 
 # road_graph_session/road_graph_repositoryフィクスチャ（conftest.py）を素通りで使うためだけの
 # import。designation_models/accident_modelsをBase.metadataへ登録する（このファイル単体実行時も
@@ -107,7 +107,7 @@ async def db_status_test_engine(road_graph_session):
     # road_graph_session（conftest.py）へテーブル作成・接続不可時のskipを委譲しつつ、
     # db_status()が使うget_engine()だけ別途ridecompass_test向けに差し替える
     # （health.pyのget_engineはアプリ全体のシングルトンでsettings.database_url固定のため）。
-    engine = create_async_engine(TEST_DATABASE_URL)
+    engine = create_async_engine(postgis_database_url())
     yield engine
     await engine.dispose()
 

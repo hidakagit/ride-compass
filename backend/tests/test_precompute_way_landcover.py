@@ -24,7 +24,7 @@ from app.batch.precompute_way_landcover import (
 )
 from app.config import settings
 from app.domain.graph import WaySpec
-from tests.conftest import TEST_DATABASE_URL
+from tests.conftest import postgis_database_url
 
 NODE1 = (35.700, 139.700)
 NODE2 = (35.701, 139.701)
@@ -128,11 +128,11 @@ class TestRunIntegration:
     async def test_run_default_raises_when_raster_paths_unset_and_not_dry_run(self, monkeypatch):
         monkeypatch.setattr(settings, "lulc_raster_paths", "")
         with pytest.raises(ValueError, match="lulc_raster_paths"):
-            await run_default(TEST_DATABASE_URL, False)
+            await run_default(postgis_database_url(), False)
 
     async def test_run_default_dry_run_does_not_require_raster_paths(self, monkeypatch):
         monkeypatch.setattr(settings, "lulc_raster_paths", "")
-        assert await run_default(TEST_DATABASE_URL, True) == 0
+        assert await run_default(postgis_database_url(), True) == 0
 
     async def test_run_writes_percentages_for_way_within_raster_bounds(
         self, road_graph_repository, road_graph_session, tmp_path
@@ -150,7 +150,7 @@ class TestRunIntegration:
         ) as ds:
             ds.write(data, 1)
 
-        exit_code = await run(TEST_DATABASE_URL, [str(raster_path)], 100.0, 10.0, None, False, False)
+        exit_code = await run(postgis_database_url(), [str(raster_path)], 100.0, 10.0, None, False, False)
         assert exit_code == 0
 
         row = (
@@ -183,7 +183,7 @@ class TestRunIntegration:
         ) as ds:
             ds.write(np.full((100, 100), 2, dtype=np.uint8), 1)
 
-        exit_code = await run(TEST_DATABASE_URL, [str(raster_path)], 100.0, 10.0, "2025", False, False)
+        exit_code = await run(postgis_database_url(), [str(raster_path)], 100.0, 10.0, "2025", False, False)
         assert exit_code == 0
 
         row = (
@@ -221,7 +221,7 @@ class TestRunIntegration:
         ) as ds:
             ds.write(np.full((100, 100), 2, dtype=np.uint8), 1)
 
-        exit_code = await run(TEST_DATABASE_URL, [str(raster_path)], 100.0, 10.0, "2025", False, False)
+        exit_code = await run(postgis_database_url(), [str(raster_path)], 100.0, 10.0, "2025", False, False)
         assert exit_code == 0
 
         row = (
@@ -237,7 +237,7 @@ class TestRunIntegration:
         await road_graph_repository.save_raw_ways([way], {5: NODE1, 6: NODE2})
         await road_graph_session.commit()
 
-        exit_code = await run(TEST_DATABASE_URL, [], 100.0, 10.0, "2025", False, True)
+        exit_code = await run(postgis_database_url(), [], 100.0, 10.0, "2025", False, True)
         assert exit_code == 0
 
         result = await road_graph_session.execute(
@@ -259,13 +259,13 @@ class TestRunIntegration:
             crs="EPSG:32654", transform=transform,
         ) as ds:
             ds.write(np.full((100, 100), 2, dtype=np.uint8), 1)
-        await run(TEST_DATABASE_URL, [str(raster_path)], 100.0, 10.0, "2025", False, False)
+        await run(postgis_database_url(), [str(raster_path)], 100.0, 10.0, "2025", False, False)
 
         # 2回目（--recompute無し）は増分実行のため対象0件（既に行がある）→ラスタを別内容に
         # 差し替えても反映されないことを確認する。
         with rasterio.open(raster_path, "r+") as ds:
             ds.write(np.full((100, 100), 7, dtype=np.uint8), 1)
-        await run(TEST_DATABASE_URL, [str(raster_path)], 100.0, 10.0, "2025", False, False)
+        await run(postgis_database_url(), [str(raster_path)], 100.0, 10.0, "2025", False, False)
         row = (
             await road_graph_session.execute(
                 text("SELECT trees_percent, built_percent FROM way_landcover WHERE osm_way_id = 103")
@@ -274,7 +274,7 @@ class TestRunIntegration:
         assert row.trees_percent == 100.0
 
         # --recomputeありなら新しいラスタ内容が反映される。
-        await run(TEST_DATABASE_URL, [str(raster_path)], 100.0, 10.0, "2025", True, False)
+        await run(postgis_database_url(), [str(raster_path)], 100.0, 10.0, "2025", True, False)
         row = (
             await road_graph_session.execute(
                 text("SELECT trees_percent, built_percent FROM way_landcover WHERE osm_way_id = 103")
@@ -302,7 +302,7 @@ class TestRunIntegration:
         ) as ds:
             ds.write(np.full((100, 100), 2, dtype=np.uint8), 1)
 
-        await run(TEST_DATABASE_URL, [str(raster_path)], 100.0, 10.0, "2025", False, False)
+        await run(postgis_database_url(), [str(raster_path)], 100.0, 10.0, "2025", False, False)
         first = (
             await road_graph_session.execute(
                 text("SELECT computed_at FROM way_landcover WHERE osm_way_id = 105")
@@ -310,7 +310,7 @@ class TestRunIntegration:
         ).one()
 
         # 同じ構成での2回目は対象0件のため、行の内容（computed_at）が動かない。
-        await run(TEST_DATABASE_URL, [str(raster_path)], 100.0, 10.0, "2025", False, False)
+        await run(postgis_database_url(), [str(raster_path)], 100.0, 10.0, "2025", False, False)
         second = (
             await road_graph_session.execute(
                 text("SELECT computed_at FROM way_landcover WHERE osm_way_id = 105")
@@ -338,7 +338,7 @@ class TestRunIntegration:
             crs="EPSG:32654", transform=from_origin(382000, 3951800, 10, 10),
         ) as ds:
             ds.write(np.full((100, 100), 2, dtype=np.uint8), 1)
-        await run(TEST_DATABASE_URL, [str(far_raster)], 100.0, 10.0, "2025", False, False)
+        await run(postgis_database_url(), [str(far_raster)], 100.0, 10.0, "2025", False, False)
         assert (
             await road_graph_session.execute(
                 text("SELECT trees_percent FROM way_landcover WHERE osm_way_id = 106")
@@ -352,7 +352,7 @@ class TestRunIntegration:
             crs="EPSG:32654", transform=from_origin(-6000, 3832500, 10, 10),
         ) as ds:
             ds.write(np.full((200, 200), 2, dtype=np.uint8), 1)
-        await run(TEST_DATABASE_URL, [str(far_raster), str(near_raster)], 100.0, 10.0, "2025", False, False)
+        await run(postgis_database_url(), [str(far_raster), str(near_raster)], 100.0, 10.0, "2025", False, False)
 
         row = (
             await road_graph_session.execute(
