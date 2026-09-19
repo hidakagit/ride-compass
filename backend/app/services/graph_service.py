@@ -5,7 +5,12 @@ from collections import Counter
 from dataclasses import replace
 
 from app.config import settings
-from app.domain.attributes import EdgeMaterialBundle, EdgeMaterialTable, SearchMaterials, surface_by_edge_id
+from app.domain.attributes import (
+    EdgeMaterialArrays,
+    ElevationAttribute,
+    SearchMaterials,
+    surface_by_edge_id,
+)
 from app.domain.evaluation import (
     StaticEdgeScoreMatrix,
     build_static_edge_score_matrix,
@@ -30,47 +35,29 @@ _tile_cache_load_semaphore = asyncio.Semaphore(settings.tile_cache_load_max_conc
 
 
 class _CombinedEdgeMaterials:
-    """複数タイルの材料（`_get_or_build_tile_materials`が返す`SearchMaterials.materials`、
-    `EdgeMaterialTable`または`dict[str, EdgeMaterialBundle]`）を、Edge単位で即座に復元
-    せず遅延結合するビュー。
+    """複数タイルの材料を、どのタイルが持っているかだけ覚えて遅延で引くビュー。
 
-    `_build_search_materials_from_tile_cache`が複数z12タイルの材料を1つの
-    `SearchMaterials`へ結合する際、`dict.update`でbbox全体（数十万Edge）ぶんの
-    `EdgeMaterialBundle`を即座に復元・結合すると、`EdgeMaterialTable`導入の目的
-    （Edge単位のPythonオブジェクト再構築を経路上のEdge[数百本]だけに限定し、
-    ディスク復元コストと切り離す）を結合時点で台無しにしてしまうため、本クラスは
-    `owner_by_edge_id`（edge_id→タイルindex、`combined_edges`の結合と同じ避けられない
-    O(Edge数)コストだが中身は軽量なint）だけを持ち、実際のEdgeMaterialBundle復元は
-    `get(edge_id)`が呼ばれた時点で該当タイルへ1回だけ委譲する。
+    `_build_search_materials_from_tile_cache`が複数z12タイルを1つの`SearchMaterials`へ
+    まとめるときに使う。列を連結すると、bbox全体（数十万Edge）ぶんの配列を作り直すことに
+    なるため連結しない——探索は各タイルのスコア行列を結合したものを見ており、ここから
+    引かれるのは**経路が確定したあとの数百区間の標高属性だけ**である。
     """
 
     __slots__ = ("_tile_materials", "_owner_by_edge_id")
 
     def __init__(
         self,
-        tile_materials: list["dict[str, EdgeMaterialBundle] | EdgeMaterialTable"],
+        tile_materials: list[EdgeMaterialArrays],
         owner_by_edge_id: dict[str, int],
     ) -> None:
         self._tile_materials = tile_materials
         self._owner_by_edge_id = owner_by_edge_id
 
-    def get(self, edge_id: str) -> EdgeMaterialBundle | None:
+    def elevation_attribute(self, edge_id: str) -> ElevationAttribute | None:
         owner = self._owner_by_edge_id.get(edge_id)
         if owner is None:
             return None
-        return self._tile_materials[owner].get(edge_id)
-
-    def __getitem__(self, edge_id: str) -> EdgeMaterialBundle:
-        bundle = self.get(edge_id)
-        if bundle is None:
-            raise KeyError(edge_id)
-        return bundle
-
-    def values(self):
-        for edge_id in self._owner_by_edge_id:
-            bundle = self.get(edge_id)
-            if bundle is not None:
-                yield bundle
+        return self._tile_materials[owner].elevation_attribute(edge_id)
 
     def __len__(self) -> int:
         return len(self._owner_by_edge_id)
@@ -122,8 +109,8 @@ async def _warm_tile_cache_background(x: int, y: int, attempted_at: float) -> No
     try:
         async with get_session_factory()() as session:
             service = GraphService(repository=RoadGraphRepository(session))
-            materials = await service._get_or_build_tile_materials(x, y)
             accident_years_covered = await service.get_accident_years_covered()
+            materials = await service._get_or_build_tile_materials(x, y, accident_years_covered)
             await service._get_or_build_tile_score_matrix(x, y, materials, accident_years_covered)
     except Exception as exc:  # noqa: BLE001 バックグラウンド温めの失敗は元のレスポンスに影響させない
         logger.warning(
@@ -378,17 +365,13 @@ class GraphService:
         built = await self.get_or_build_graph_with_attributes(bbox)
         if built is None:
             return None
-        graph, surface_attributes = built
+        graph, _surface_attributes = built
         edge_ids = list(graph.edges.keys())
         # get_or_build_graph_with_attributesのrebuild内訳（closure_ms/build_ms/save_ms）は
         # 別途ログ済みのため、その合計とprepare_ms全体との差分がこのバッチ取得由来かを
         # ここで確認する。
         materials_started = time.monotonic()
-        # surface_attributesはget_or_build_graph_with_attributesが既に取得済みのため、
-        # get_edge_materials_batchが返すbundle.surfaceは使わずここで上書きする
-        # （get_edge_materials_batch側のsurface取得自体は捨てる二重取得になるが、
-        # このメソッド自体が低頻度・重い処理のuncachedフォールバック経路のため許容する）。
-        batch = await self._repository.get_edge_materials_batch(edge_ids)
+        materials = await self._repository.get_edge_material_arrays(edge_ids, accident_years_covered)
         materials_ms = round((time.monotonic() - materials_started) * 1000)
         # isinstanceで実リポジトリのときだけ発火させる（region_service.pyの
         # _maybe_trigger_graph_build呼び出し箇所と同じ理由。テストのFakeRoadGraphRepositoryは
@@ -396,10 +379,6 @@ class GraphService:
         # 開こうとしない）。
         if isinstance(self._repository, RoadGraphRepository):
             _maybe_warm_tile_cache(bbox)
-        materials = {
-            edge_id: replace(bundle, surface=surface_attributes.get(edge_id))
-            for edge_id, bundle in batch.materials.items()
-        }
         # このbboxはタイル境界と一致しないため結果をタイルキャッシュへ書き込まないのは
         # materials同様だが、静的スコア行列自体はこの応答（探索コスト）が使うため、
         # ここで1回だけ構築する（応答後のバックグラウンド温め成功後は次回以降正規の
@@ -420,15 +399,9 @@ class GraphService:
         # LeanRoadGraphを返す）のため、結合後もLeanRoadGraphで統一する。
         combined_nodes: dict[str, LeanNode] = {}
         combined_edges: dict[str, LeanEdge] = {}
-        # 複数タイルの材料（EdgeMaterialTable/dict、_get_or_build_tile_materialsが返す
-        # SearchMaterials.materials）を`dict.update`で即座にEdge単位のEdgeMaterialBundle
-        # へ復元・結合すると、`EdgeMaterialTable`導入の目的（Edge単位のPythonオブジェクト
-        # 再構築を経路上のEdge[数百本]だけに限定し、ディスク復元コストと切り離す）を
-        # 結合時点で台無しにしてしまう（bbox全体[数十万Edge]ぶん毎回復元することになる
-        # ため）。owner_by_edge_id（edge_id→タイルindexの軽量な辞書、combined_edgesの
-        # 結合と同じO(Edge数)の避けられないコスト）だけをここで構築し、実際の
-        # EdgeMaterialBundle復元は`_CombinedEdgeMaterials.get(edge_id)`が呼ばれた
-        # 時点まで遅延する。
+        # 材料の列は連結しない（`_CombinedEdgeMaterials`参照）。owner_by_edge_id
+        # （edge_id→タイルindexの軽量な辞書、combined_edgesの結合と同じO(Edge数)の
+        # 避けられないコスト）だけをここで構築する。
 
         tiles = tiles_covering_bbox(bbox, ROAD_GRAPH_TILE_ZOOM)
         materials_stage_started = time.monotonic()
@@ -444,7 +417,7 @@ class GraphService:
         # _get_or_build_tile_materials内でself._repository_lockにより直列化される。
         tile_materials_list = await asyncio.gather(
             *(
-                self._get_or_build_tile_materials(x, y, stats)
+                self._get_or_build_tile_materials(x, y, accident_years_covered, stats)
                 for (x, y), stats in zip(tiles, materials_read_stats)
             )
         )
@@ -500,7 +473,7 @@ class GraphService:
         )
 
     async def _get_or_build_tile_materials(
-        self, x: int, y: int, read_stats: dict[str, object] | None = None
+        self, x: int, y: int, accident_years_covered: int, read_stats: dict[str, object] | None = None
     ) -> SearchMaterials:
         # get_tile_materials自体はメモリLRU miss時にtile_persistent_cache経由で
         # ディスクのpickleファイルを同期的に読む。asyncio.to_threadでスレッドプールへ
@@ -537,15 +510,14 @@ class GraphService:
                 graph = LeanRoadGraph(graph_version="tile-cache-empty", nodes={}, edges={})
 
             edge_ids = list(graph.edges.keys())
-            # 材料を個別に取得する代わりに1回のJOINクエリへ統合し（dev DB、71,791 Edgeで
-            # 個別5クエリ8.33秒→統合1クエリ1.30秒、6.4倍）、戻り値もEdge単位で1オブジェクトへ
-            # 統合する（EdgeMaterialBundle参照）。
-            batch = await self._repository.get_edge_materials_batch(edge_ids)
-            # DB冷パス自体（行→bundle構築）は無変更にし、キャッシュへ入れる直前に
-            # from_bundles()で列指向テーブル化する（ディスク永続化されるのはこの
-            # EdgeMaterialTableで、以後の復元コストがEdge数に依存しなくなる）。
+            # 材料はDB側で導出させ、列ごとの配列として受け取る（`MATERIAL_VALUE_SQL`）。
+            # 区間ごとのPythonオブジェクトを作らないため、構築もディスクからの復元も
+            # Edge数に比例しない。
             materials = SearchMaterials(
-                graph=graph, materials=EdgeMaterialTable.from_bundles(edge_ids, batch.materials)
+                graph=graph,
+                materials=await self._repository.get_edge_material_arrays(
+                    edge_ids, accident_years_covered
+                ),
             )
             if read_stats is not None:
                 read_stats["source"] = "db"

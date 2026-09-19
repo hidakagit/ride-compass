@@ -70,7 +70,7 @@ from app.domain.cycling_speed import (
 )
 from app.domain.traffic import stop_count_material_ids, POI_COUNT_KINDS, highway_rank, stop_seconds
 from app.domain.tuning import tuning_value
-from app.domain.attributes import EdgeMaterialBundle, ElevationAttribute
+from app.domain.attributes import EdgeMaterialArrays, ElevationAttribute
 from app.domain.axis_definitions import (
     AXIS_DEFINITIONS,
     REQUEST_DYNAMIC_MATERIAL_IDS,
@@ -575,11 +575,10 @@ class _RoadGraphContext:
     """prepareで構築し、全方位のtrace_loop/evaluate_loopsで共有するリクエスト単位の状態。"""
 
     graph: RoadGraphLike
-    # Edge単位で`EdgeMaterialBundle`へ統合した1辞書（`domain/attributes.py:
-    # EdgeMaterialBundle`のdocstring参照）。Edge単位の材料アクセスは探索コスト算出の
+    # 材料の列（`domain/attributes.py: EdgeMaterialArrays`）。Edge単位の材料アクセスは探索コスト算出の
     # ホットパスからは外れているが、`_build_segment_details`の表示用フィールド
     # （surface等）取得には引き続き使う。
-    materials: dict[str, EdgeMaterialBundle]
+    materials: EdgeMaterialArrays
     accident_years_covered: int
     weather: WeatherConditions | None
     origin_node: str
@@ -652,8 +651,7 @@ class _SearchGraph:
     # 返した場合のみ設定される（split鮮度が古いbbox限定の再構築経路ではNone）。
     # prepare/preview_segmentがroutable Node索引のキャッシュキーとして使い回す。
     tile_set: frozenset[tuple[int, int, int]] | None
-    # _RoadGraphContextと同じ理由でEdgeMaterialBundleへ統合済み。
-    materials: dict[str, EdgeMaterialBundle]
+    materials: EdgeMaterialArrays
     accident_years_covered: int
     weather: WeatherConditions | None
     night_active: bool
@@ -667,7 +665,7 @@ class _SearchGraph:
     # `score_matrix.edge_ids`と、それに対応する0次フィルタ除外配列
     # （`compute_hard_filter_excluded`、cost_arrayをinfにするのに使ったのと同じ配列）。
     # `_get_or_build_node_index`がroutable Node判定にこの配列をそのまま使い回すことで、
-    # `materials`（EdgeMaterialBundle辞書/EdgeMaterialTable）への依存を持たない。
+    # `materials`（`EdgeMaterialArrays`）への依存を持たない。
     edge_ids: list[str]
     hard_filter_excluded: np.ndarray
 
@@ -757,7 +755,7 @@ class RoadGraphEngine:
             return None
         graph = search_materials.graph
         # surface・edge_attribute_counts（stop/intersection/accident件数）・
-        # way_tags・elevation_attribute・is_designatedは、Edge単位で`EdgeMaterialBundle`へ
+        # way_tags・elevation_attribute・is_designatedは、材料の列へ
         # 統合済みの1辞書としてそのまま使う（表示用[_build_segment_details]の
         # 一部フィールド取得にのみ使う）。
         edge_materials = search_materials.materials
@@ -787,7 +785,7 @@ class RoadGraphEngine:
         preference = self._route_preference.with_time_scope(active_scopes)
         weights = preference.weights
         hard_filter_excluded = compute_hard_filter_excluded(
-            score_matrix.highway_filter_flags, score_matrix.no_bicycle,
+            score_matrix.hard_filter_flags,
             score_matrix.gradient_percent, self._hard_filters, self._max_average_grade_percent,
         )
         full_edge_row = {edge_id: i for i, edge_id in enumerate(score_matrix.edge_ids)}
@@ -880,7 +878,7 @@ class RoadGraphEngine:
         `hard_filter_excluded`は`_build_search_graph`がコスト配列を
         `inf`にするのに使ったのと同じ配列（`compute_hard_filter_excluded`の戻り値、
         `edge_ids`と同じ行順）。呼び出し元がこれをそのまま渡すため、
-        `compute_routable_node_ids`はEdgeMaterialBundle辞書/EdgeMaterialTableへ一切
+        `compute_routable_node_ids`は`EdgeMaterialArrays`へ一切
         アクセスしない（タイル材料キャッシュの復元コストと完全に独立になる）。
         """
         key = None
@@ -1887,7 +1885,7 @@ class RoadGraphEngine:
     async def _fetch_elevation_attributes(
         self, context: _RoadGraphContext, edges_in_path: list[EdgeLike]
     ) -> dict[str, ElevationAttribute]:
-        # context.materials（EdgeMaterialBundle、探索フェーズで既にDBから取得・
+        # context.materials（探索フェーズで既にDBから取得・
         # タイル単位でプロセス内キャッシュ済み）が対象Edgeの標高を既に持っていれば、
         # それをそのまま使いElevationAttributeServiceへの問い合わせ自体を避ける
         # （evaluate_loopsはasyncio.gatherで候補を並行評価するが、
@@ -1898,9 +1896,9 @@ class RoadGraphEngine:
         cached: dict[str, ElevationAttribute] = {}
         missing_edges: list[EdgeLike] = []
         for edge in edges_in_path:
-            bundle = context.materials.get(edge.edge_id)
-            if bundle is not None and bundle.elevation_attribute is not None:
-                cached[edge.edge_id] = bundle.elevation_attribute
+            attribute = context.materials.elevation_attribute(edge.edge_id)
+            if attribute is not None:
+                cached[edge.edge_id] = attribute
             else:
                 missing_edges.append(edge)
 

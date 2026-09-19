@@ -2,10 +2,13 @@ import asyncio
 import time
 from unittest import mock
 
+import numpy as np
 import pytest
 from dataclasses import replace
 
 from app.domain.attributes import EdgeAttributeCounts, EdgeMaterialBundle, EdgeMaterialsBatch, SearchMaterials
+from tests.material_arrays_scaffold import material_arrays_from_bundles
+
 from app.domain.graph import DirectedEdge, LeanRoadGraph, RoadGraphLike, WaySpec
 from app.domain.osm_adapter import osm_ways_to_way_specs
 from app.domain.region import ROAD_GRAPH_TILE_ZOOM, BoundingBox, tile_bounds_lonlat
@@ -14,6 +17,11 @@ from app.infrastructure import graph_material_cache, tile_score_matrix_cache
 from app.infrastructure.road_graph_repository import RoadGraphRepository
 from app.services import derived_data_revision_service, graph_service as graph_service_module
 from app.services.graph_service import GraphService
+class _EdgesAsGraph:
+    """材料の組み立てがhighway/distance_mを読むためだけの最小のグラフ。"""
+
+    def __init__(self, edges):
+        self.edges = edges
 
 
 @pytest.fixture(autouse=True)
@@ -296,6 +304,15 @@ class FakeRoadGraphRepository:
             for edge_id in edge_ids
         }
         return EdgeMaterialsBatch(materials=materials)
+
+    async def get_edge_material_arrays(self, edge_ids, accident_years_covered):
+        # 本物は材料をDB側で導出して列で返す。Fakeは個別メソッドの導出をそのまま束ねた
+        # bundleから同じ形へ変換する（呼び出し回数のカウンタは共有する——呼び出し元から
+        # 見て「材料をDBから取った回数」という意味は同じため）。
+        batch = await self.get_edge_materials_batch(edge_ids)
+        return material_arrays_from_bundles(
+            _EdgesAsGraph(self.edges), list(edge_ids), batch.materials, accident_years_covered
+        )
 
     async def get_accident_years_covered(self) -> int:
         self.get_accident_years_covered_call_count += 1
@@ -622,12 +639,15 @@ async def test_get_search_materials_for_bbox_builds_materials_on_first_call():
     # タイル集合はNone（search_graph_cache経由のキャッシュ対象外）。
     assert tile_set is None
     edge_id = next(iter(materials.graph.edges))
-    bundle = materials.materials[edge_id]
-    assert bundle.surface == "asphalt"
-    counts = bundle.attribute_counts
-    assert (counts.accident_count, counts.intersection_count) == (1.0, 3)
-    assert bundle.way_tags == {"highway": "residential"}
-    assert bundle.is_designated
+    row = materials.materials.edge_ids.index(edge_id)
+    columns = materials.materials.columns()
+    assert columns["surface"][row] == "asphalt"
+    assert columns["is_designated"][row]
+    # 件数は密度（件/km）として届く。
+    distance_km = materials.graph.edges[edge_id].distance_m / 1000
+    assert columns["intersection_count_per_km"][row] == pytest.approx(3 / distance_km)
+    # 事故は収録年数でも割るため、このFakeの収録年数0では正規化できず欠損になる。
+    assert np.isnan(columns["accident_count_per_km_year"][row])
 
 
 async def test_get_search_materials_for_bbox_second_call_uses_tile_cache_without_db_access():
@@ -711,7 +731,7 @@ async def test_score_matrix_cache_miss_is_reported_as_computed_not_db():
     """
     tile_score_matrix_cache.clear()
     service, repository = await _seeded_service_with_materials()
-    materials = await service._get_or_build_tile_materials(*BBOX_TILE)
+    materials = await service._get_or_build_tile_materials(*BBOX_TILE, accident_years_covered=1)
 
     stats: dict[str, object] = {}
     await service._get_or_build_tile_score_matrix(*BBOX_TILE, materials, 1, stats)
@@ -831,7 +851,12 @@ async def test_get_search_materials_for_bbox_two_tile_bbox_merges_both_tiles_and
     built = await service.get_search_materials_for_bbox(TWO_TILE_BBOX)
     assert built is not None
     materials, _score_matrix, tile_set = built
-    surfaces = {bundle.surface for bundle in materials.materials.values()}
+    # 材料の列はタイルごとに分かれたまま（`_CombinedEdgeMaterials`、bbox全体ぶんを
+    # 連結しない）。両タイルの材料が揃っていることは、タイルごとの表を見て確かめる。
+    surfaces: set[str | None] = set()
+    for tile_x, tile_y in ((3637, 1612), (3638, 1612)):
+        tile = await service._get_or_build_tile_materials(tile_x, tile_y, 1)
+        surfaces |= set(tile.materials.columns()["surface"])
     assert surfaces == {"asphalt", "gravel"}
     assert repository.get_graph_topology_in_bbox_call_count == 2  # 2タイルぶん
     # 改善計画T537: 2タイルにまたがるbboxでもタイル集合が両タイル分そろって返る。
