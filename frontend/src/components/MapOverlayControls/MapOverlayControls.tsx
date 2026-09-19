@@ -27,43 +27,28 @@ import {
 import type { LegendEntry, LegendFilterSummaryAxis } from "@/components/Map/legendFilter";
 import LegendCheckboxList from "@/components/Map/LegendCheckboxList";
 import { Checkbox } from "@/components/ui/Checkbox/Checkbox";
-import {
-  AccidentIcon,
-  AxisRampIcon,
-  DesignationIcon,
-  ElevationIcon,
-  HillshadeIcon,
-  LandcoverIcon,
-  EnvironmentDataIcon,
-  InfoIcon,
-  RaindropIcon,
-  RoadIcon,
-  RoadSurfaceIcon,
-  ShieldIcon,
-  SpotDataIcon,
-  StopPoiIcon,
-  SupplyPoiIcon,
-  TunnelIcon,
-  OnewayIcon,
-  RouteIcon,
-  WindIcon,
-} from "@/components/Map/icons";
+import { EnvironmentDataIcon, InfoIcon, RoadIcon, SpotDataIcon, type MapIconComponent } from "@/components/Map/icons";
 import styles from "./MapOverlayControls.module.css";
 
 /** 地図上のチップ1つ分の表示状態。page.tsxがMAP_LAYERS（レイヤーカタログ）から組み立てる。 */
 export interface OverlayLayerChip {
   id: MapLayerId;
   label: string;
+  /** チップ・設定パネルの行頭に出すアイコン。mapLayers.ts:
+   * MapLayerDescriptor.iconをそのまま渡す。 */
+  icon: MapIconComponent;
   /** アイコンチップ下に出す短縮表記（未指定ならlabelを使う） */
   chipLabel?: string;
   on: boolean;
   disabled?: boolean;
   /** チップのtitle（ONにすると何が出るか、disabledなら使えない理由） */
   title?: string;
-  /** ▶を開いたときに出す案内文。legendDetailsが無い（描く凡例が無い）ときの
-   * 唯一の表示内容として使う（例:「ズームインすると表示されます」）。legendDetailsが
-   * あるときは軸ごとの内訳だけで十分なため使わない。 */
-  summary?: string | null;
+  /** ▶を開いたとき、**凡例の代わりに**出す案内文（例:「ズームインすると表示されます」）。
+   *
+   * **これがあるときは凡例を出さない**——案内が出るのは「ONにしても何も出ない」
+   * 状態だけで、そのときの凡例は地図に存在しない色見本の表になる。呼ぶ側が凡例を空へ
+   * 揃える形にはしないこと（揃え忘れたレイヤーで案内が黙って落ちる）。 */
+  notice?: string | null;
   /** ▶を開いたときに出す、軸ごとの全カテゴリ内訳（表示中/非表示のいずれも含む）。
    * 絞り込み中かどうかに関わらず、レイヤーがONで凡例を持つならこれだけで開閉できる。 */
   legendDetails?: readonly LegendFilterSummaryAxis[];
@@ -132,32 +117,6 @@ function buildChipGroups(layers: readonly OverlayLayerChip[]): ChipGroup[] {
   return groups;
 }
 
-// レイヤーIDごとの自作アイコン（icons.tsx）。地図上は小さいアイコン+短いラベルの
-// 縦並びで表示する（文字だけのチップはスペースを圧迫するため）。
-const LAYER_ICONS: Record<MapLayerId, (props: { size?: number }) => ReactElement> = {
-  elevation: ElevationIcon,
-  hillshade: HillshadeIcon,
-  landcover: LandcoverIcon,
-  roadType: RoadIcon,
-  roadSurface: RoadSurfaceIcon,
-  designation: DesignationIcon,
-  tunnel: TunnelIcon,
-  oneway: OnewayIcon,
-  stopPoi: StopPoiIcon,
-  supplyPoi: SupplyPoiIcon,
-  accidents: AccidentIcon,
-  precipitationNowcast: RaindropIcon,
-  windVector: WindIcon,
-  // 勾配の環境グループ面表示。専用アイコンは持たず、同じ地形データを扱うelevation（標高図）と
-  // 同じElevationIconを流用する（windVectorがWindIconを共有するのと同じパターン）。
-  // 専用way値配信軸（評価軸としての風・勾配）は地図上チップとして出ないため、この辞書に
-  // 項目を持たない（引けなかった場合の既定はAxisRampIcon）。
-  // 災害（雷・竜巻・落雷・キキクル等を1チップへまとめたグループ）。個々の要素ではなく
-  // 防災情報全体を表すShieldIconを使う。
-  disaster: ShieldIcon,
-  route: RouteIcon,
-};
-
 // 最上位グループチップ（道路/環境/スポット）を代表するアイコン。
 // 道路=RoadIcon（個別メンバーroadTypeと共用、群のテーマそのもの）・
 // 環境=EnvironmentDataIcon（雲、terrain+weatherを併せて表す新規アイコン）・
@@ -210,6 +169,25 @@ function withinExpandedGroupLimit(keys: ReadonlySet<string>): Set<string> {
     next.delete(stale);
   }
   return next;
+}
+
+/** 展開中のグループの「表示項目を選ぶ」パネルのキーを落とす。
+ *
+ * このパネルは折りたたみ中にだけ描かれるため、展開の間は開いたままのキーが画面に出ない。
+ * 残しておくと、**次にそのグループを畳んだ瞬間、ⓘを押していないのにパネルが開いた状態で
+ * 戻ってくる**。グループを畳む経路ごとに片割れの後始末を置くのではなく、開いた側を正規化
+ * することで、畳む経路が増えても揃う（上限を超えて自動で畳まれる経路がこれに当たる）。 */
+function withoutExpandedGroupPanels(keys: ReadonlySet<string>): Set<string> {
+  const next = new Set(keys);
+  for (const key of keys) {
+    if (GROUP_VISIBILITY_KEYS.has(key)) next.delete(groupPanelKey(key));
+  }
+  return next;
+}
+
+/** グループの「表示項目を選ぶ」パネルのキー。`expandedIds`等の既存Setへそのまま同居する。 */
+function groupPanelKey(groupKey: string): string {
+  return `${groupKey}:legend`;
 }
 
 // グループの開閉・表示項目の設定をlocalStorageへ永続化する（時間経過で変動する要素以外は
@@ -813,9 +791,9 @@ export default function MapOverlayControls({
           }
         }
         next.add(id);
-        if (GROUP_VISIBILITY_KEYS.has(id)) return withinExpandedGroupLimit(next);
+        if (GROUP_VISIBILITY_KEYS.has(id)) return withoutExpandedGroupPanels(withinExpandedGroupLimit(next));
       }
-      return next;
+      return withoutExpandedGroupPanels(next);
     });
   };
 
@@ -850,17 +828,26 @@ export default function MapOverlayControls({
   // 軸タイルがON/OFFに関わらず▼を出すのと揃える。legendDetailsはレイヤー定義由来の固定
   // 内容でありON/OFFで内容が変わらないため、OFF中に「オンにすると何が出るか」を先に
   // 確認できる利点もある）。
-  // legendDetailsが空でもsummaryがあれば▶を出す（道路種別・路面はズーム不足の間
-  // legendDetailsが空配列になる＝ズームインを促す案内文（summary、page.tsx:
-  // overlayLayersの組み立て参照）だけが内容になる想定のため、canExpandを
-  // legendDetailsの有無だけで判定すると▶自体が消えて案内文を開けなくなる。単独チップ側
-  // （本ファイル末尾のcanExpand= hasLegendDetails || Boolean(layer.summary)）と同じ
-  // 判定へ揃える）。
+  /** ▶を開いたときの中身。**案内文があるときは凡例を出さない**——案内が出るのは
+   * 「ONにしても何も出ない」状態だけで、そのときの凡例は地図に存在しない色見本の表になる。
+   * グループのメンバーと単独チップで同じ判断をするため、ここ1箇所に置く。 */
+  function panelContentFor(layer: OverlayLayerChip) {
+    return layer.notice ? (
+      <p className={styles.detailNotice}>{layer.notice}</p>
+    ) : (
+      renderLegendDetails(layer.legendDetails ?? [], onLegendEntryToggle, onLegendAxisSetHidden)
+    );
+  }
+
+  /** ▶自体を出すか。案内文も凡例も無ければ開いても空になる。 */
+  function canExpandPanel(layer: OverlayLayerChip) {
+    return Boolean(layer.notice) || Boolean(layer.legendDetails && layer.legendDetails.length > 0);
+  }
+
   function renderRawMemberTile(member: OverlayLayerChip, groupTint: MapOverlayGroup) {
     const key = `member:${member.id}`;
-    const Icon = LAYER_ICONS[member.id] ?? AxisRampIcon;
-    const hasLegend = Boolean(member.legendDetails && member.legendDetails.length > 0);
-    const canExpand = Boolean(!member.disabled && (hasLegend || member.summary));
+    const Icon = member.icon;
+    const canExpand = !member.disabled && canExpandPanel(member);
     return (
       <ChipButton
         key={key}
@@ -877,17 +864,7 @@ export default function MapOverlayControls({
         expandDirection="right"
         groupTint={groupTint}
         dataStatus={member.dataStatus}
-        panelContent={
-          canExpand ? (
-            hasLegend ? (
-              renderLegendDetails(member.legendDetails!, onLegendEntryToggle, onLegendAxisSetHidden)
-            ) : (
-              <p className={styles.detailNotice}>{member.summary}</p>
-            )
-          ) : (
-            <></>
-          )
-        }
+        panelContent={canExpand ? panelContentFor(member) : <></>}
         panelRect={panelRects[key]}
         registerRow={(el) => {
           rowRefs.current[key] = el;
@@ -942,7 +919,7 @@ export default function MapOverlayControls({
       description?: string;
     }[],
   ) {
-    const legendKey = `${groupKey}:legend`;
+    const legendKey = groupPanelKey(groupKey);
     const isOpen = expandedIds.has(legendKey);
     const rect = panelRects[legendKey];
     return (
@@ -1024,22 +1001,6 @@ export default function MapOverlayControls({
     );
   }
 
-  // グループ見出しをタップしたとき（展開↔折りたたみのどちらの向きでも）、開いたままの
-  // 凡例（renderVisibilitySettings）があれば閉じる。展開後は凡例ボタン自体を描画しない
-  // ため見た目には現れないが、開いたままのbooleanを放置すると、後で見出しを再度タップして
-  // 折りたたみに戻したときに、ユーザーがⓘを押していないのに凡例が開いたまま再出現して
-  // しまう（stateがexpandedIdsに残り続けるため）。見出しタップのたびに明示的に閉じることで
-  // 「凡例は自分でⓘを押したときだけ開く」という状態を保つ。
-  function closeGroupLegend(groupKey: string) {
-    const legendKey = `${groupKey}:legend`;
-    setExpandedIds((prev) => {
-      if (!prev.has(legendKey)) return prev;
-      const next = new Set(prev);
-      next.delete(legendKey);
-      return next;
-    });
-  }
-
   const chipGroups = buildChipGroups(layers);
 
   return (
@@ -1084,10 +1045,7 @@ export default function MapOverlayControls({
                   // 決める）ため、activeは常にfalse。見た目のactiveは展開状態(isExpanded)が決める。
                   active={false}
                   title={`${label}[${group.members.length}件をタップで一覧]`}
-                  onTap={() => {
-                    toggleExpanded(group.key);
-                    closeGroupLegend(group.key);
-                  }}
+                  onTap={() => toggleExpanded(group.key)}
                   canExpand
                   isExpanded={isExpanded}
                   onExpandToggle={() => toggleExpanded(group.key)}
@@ -1122,7 +1080,7 @@ export default function MapOverlayControls({
                         flatGroup,
                         orderObservedMembers(group.members).map((member) => ({
                           key: member.id,
-                          Icon: LAYER_ICONS[member.id] ?? AxisRampIcon,
+                          Icon: member.icon,
                           label: member.chipLabel ?? member.label,
                           layerId: member.id,
                           on: member.on,
@@ -1135,19 +1093,10 @@ export default function MapOverlayControls({
 
             // どのグループにも属さない単独チップ（route等）。
             const layer = group.members[0];
-            // 二次軸rampレイヤーはレジストリ生成物から自動で増えるためレイヤーIDごとの
-            // 専用アイコンを持たず、共通のAxisRampIconへフォールバックする
-            // （undefinedのままJSXへ渡すとReactが「Element type is invalid」で落ちる）。
-            const Icon = LAYER_ICONS[layer.id] ?? AxisRampIcon;
-            const hasLegendDetails = Boolean(layer.legendDetails && layer.legendDetails.length > 0);
-            const canExpand = layer.on && !layer.disabled && (hasLegendDetails || Boolean(layer.summary));
+            const Icon = layer.icon;
+            const canExpand = layer.on && !layer.disabled && canExpandPanel(layer);
             const isExpanded = canExpand && expandedIds.has(layer.id);
-            const panelContent =
-              layer.legendDetails && layer.legendDetails.length > 0 ? (
-                renderLegendDetails(layer.legendDetails, onLegendEntryToggle, onLegendAxisSetHidden)
-              ) : (
-                <p className={styles.detailNotice}>{layer.summary}</p>
-              );
+            const panelContent = panelContentFor(layer);
             return (
               <ChipButton
                 key={layer.id}

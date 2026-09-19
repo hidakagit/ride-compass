@@ -155,7 +155,7 @@ Step9の可視化はモード切替（総合難易度/標高/風/路面のいず
 「細かな設定はサイドバーで実施し、地図画面ではON/OFFと適用中の条件が簡潔に分かる程度にしたい」「今後の静的レイヤー追加（交通ストレス等、[static-road-attributes-plan.md](static-road-attributes-plan.md)）や動的レイヤー追加（天候等）を汎用的にやりやすくしたい」という要望を受け、レイヤー操作UIを再構成した（2026-08-15）。
 
 - **レイヤーカタログ**（[frontend/src/components/Map/mapLayers.ts](../frontend/src/components/Map/mapLayers.ts)、新規）: 各レイヤーの`id`/`label`/`kind`（static=地域固定・時間で不変 / dynamic=ルート・時間で変わる）/`description`を宣言する単一ソース。地図上のチップ行とサイドバーのセクション枠はこの配列の列挙で描画されるため、レイヤー追加は「カタログに1エントリ＋`page.tsx`に初期値とサマリ対応＋サイドバーにセクション中身」で済む（この手順は本節が書かれた時点のもの。当時のサイドバー`MapLayersPanel`は撤去済みで、現在の分担は後述の節を参照）。
-- **地図上**（[frontend/src/components/MapOverlayControls/MapOverlayControls.tsx](../frontend/src/components/MapOverlayControls/MapOverlayControls.tsx)）: ON/OFFチップ行と、ONのレイヤーに効いている条件の1行サマリ（例:「路面: アスファルトのみ／幹線道路以外」「ルート: 色分け: 風の影響」。路面はズーム不足の案内を優先）だけを置く。サマリのタップでサイドバーが開き、該当レイヤーの設定セクションへスクロール・フォーカスする。コンポーネント自体はレイヤー固有の知識を持たない汎用描画係になった（レイヤー追加時に変更不要）。サマリ文言は`legendFilter.ts`の`summarizeLegendFilters`（軸の凡例定義だけに依存する汎用関数）が生成する。
+- **地図上**（[frontend/src/components/MapOverlayControls/MapOverlayControls.tsx](../frontend/src/components/MapOverlayControls/MapOverlayControls.tsx)）: ON/OFFチップ行と、ONのレイヤーに効いている条件の1行サマリ（例:「路面: アスファルトのみ／幹線道路以外」「ルート: 色分け: 風の影響」。路面はズーム不足の案内を優先）だけを置く。サマリのタップでサイドバーが開き、該当レイヤーの設定セクションへスクロール・フォーカスする。コンポーネント自体はレイヤー固有の知識を持たない汎用描画係になった（レイヤー追加時に変更不要）。**この1行サマリは現在は無い**——凡例を持つレイヤーは▶の中身が必ず凡例になり、サマリが画面へ出る経路が残っていなかったため撤去した（[T945](tasks/T945.md)）。いま▶の中身に出る文言は「ONにしても何も出ない」ときの案内だけで、レイヤーカタログが宣言する。
 
 - **状態管理**（`page.tsx`）: レイヤーON/OFFは`layerVisibility: Record<MapLayerId, boolean>`でまとめて持つ（レイヤーごとに個別のstateを作らない）。
 

@@ -10,7 +10,6 @@
 // 未知/未設定のicon_idはAxisRampIcon（汎用フォールバック）へ倒す——パレットに無い値でも
 // 動作は壊れない。
 
-import type { ReactElement } from "react";
 import {
   AccidentDensityAxisIcon,
   AxisRampIcon,
@@ -25,9 +24,10 @@ import {
   TargetIcon,
   ThermometerIcon,
   WindIcon,
+  type MapIconComponent,
 } from "./icons";
 
-export type AxisIconComponent = (props: { size?: number }) => ReactElement;
+export type AxisIconComponent = MapIconComponent;
 
 interface AxisIconPaletteEntry {
   /** パレット選択UI（AxisComposer.tsx）に出す短い名前。 */

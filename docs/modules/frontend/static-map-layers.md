@@ -17,7 +17,7 @@
 |---|---|
 | `Map/staticAttributeLayers.ts` | 指定路線・トンネル・一方通行・停止要因POI・補給休憩POI・事故の色分け定義、絞り込み軸カタログ`buildStaticFilterAxes` |
 | `Map/roadFilterAxes.ts` | 路面レイヤー（路面の種類=`surface`・道路の種類=`highway`）の絞り込み軸と配色。**線レイヤーで意味を運ぶのは色だけで、太さ・線種は情報を持たない**——1本の線へ複数の意味を載せると、色の意味が他方のON/OFFで入れ替わる。同時表示は並列トラックで分ける |
-| `Map/legendFilter.ts` | カテゴリ絞り込みの汎用機構（凡例フィルタ式の組み立て・AND束ね・要約文生成） |
+| `Map/legendFilter.ts` | カテゴリ絞り込みの汎用機構（凡例フィルタ式の組み立て・AND束ね） |
 | `Map/landcoverClasses.ts` | 土地被覆のクラス（表示名・色・割合列・地図に塗るか）。backendのレジストリ由来の生成物（`landcover-classes.json`）を読むだけの薄い層で、凡例（`page.tsx`）と区間インスペクタ（`RoadInspectorPopup.tsx`）が共有する。色は地図タイルの塗りと同じ値のため、凡例と地図がずれない。**凡例は塗るクラスだけ**（`LANDCOVER_PAINTED_CLASSES`）——塗らないクラスを並べると色見本があるのに地図のどこにも無い表になる。区間インスペクタは数値なので全クラスを出す |
 | `Map/primaryAttributes.ts` | 一次属性のカタログと、二次軸→一次属性の導出（軸増減時の観測データ連動表示に使用） |
 | `Map/secondaryAxes.ts` | 「推定指標（合成）」チップグループの軸一覧生成（略名・対応`MapLayerId`・アイコン・パネル説明）。`show_map_icon`による除外を持つ |
@@ -73,9 +73,34 @@ backendから取り、タイル本体はrewrites経由に戻る。
 対応表へ同じ名前を書き足すことになり、**1箇所でも忘れるとチップはONで凡例も出るのに地図には
 何も出ない**（タイル要求すら飛ばないためネットワークを見ても気づけない）。
 
+同じ形は動的気象レイヤーのフック（`hooks/useDynamicWeatherLayers.ts`）の境界にも効いていて、
+そちらも`MapLayerVisibility`1つを受け取る。
+
 既定でONにするかも同じく記述子側の宣言（`MapLayerDescriptor.defaultOn`）で決め、
 `buildDefaultLayerVisibility()`が初期値を導く。省略時はOFF——「明示的にONにして初めて出る」
 が地図レイヤーの原則で、既定ONは防災級の情報という**性質**だけが根拠になる。
+
+## レイヤーを1枚足すときに触る場所
+
+記述子（`mapLayers.ts: MapLayerDescriptor`）を1エントリ足し、`MapView.tsx`へ描画コードを
+書く。アイコン・情報源・重なりの段・表示専用の凡例はすべて記述子の宣言で、**描画側に
+レイヤーidの対応表を持たない**——対応表に書き足す形だと、忘れても汎用の既定値で描けて
+しまい「他のレイヤーと見分けが付かないアイコン」「状態ドットが永久に出ない」「初回描画だけ
+重なりがずれる」という、画面を細かく見ないと気づけない壊れ方になる。記述子の側は必須
+フィールドのため、書き忘れは型検査が落とす。
+
+**描画コードの書き忘れだけは機械が検知しない**。記述子だけ足すと、チップはONになり凡例も
+出るのに地図には何も出ない。
+
+## 表示専用の凡例（`MapLayerDescriptor.readOnlyLegend`）
+
+配信元が色を焼き込み済みでカテゴリ単位に選べないレイヤー（土地被覆・降水ナウキャスト・
+風の矢印等）は、▶パネルに出す凡例を記述子が宣言する。絞り込める凡例は`hiddenKeys`と保存先の
+`axisId`を持ち、`buildStaticFilterAxes`が出す——**型の上で分けてあるので、ここへ絞り込める
+つもりの凡例を書いても黙って読み取り専用にはならない**。
+
+画面の状態からしか作れない凡例（選択中の候補とレンズで変わるルート、要素ごとの表示ON/OFFを
+持つ災害）だけは`page.tsx`が組み立てる。
 
 ## 表示層の実装（`MapView.tsx`）
 
@@ -111,30 +136,21 @@ DOM/MapLibreを一切知らない。
 **暗黙の前提**: 建物を道路の手前へ動かすと、面レイヤーを1枚も出していないときの基礎地図も
 「建物の上に道路」へ変わる。この地図はpitchを持たないため影響は小さい。
 
-```
-buildStaticOverlayLayers(axisOverlayLayers, dedicatedAxes,
-                         dedicatedWayValueDisplays?, dedicatedWayValueLoading?,
-                         dedicatedWayValueHiddenBands?)
-が描画順（＝重なり順、背面→前面）を決める:
+重なり順は**レイヤーカタログの宣言だけ**が決める（`mapLayers.ts: MapLayerPaintTier`と
+`MAP_LAYER_PAINT_TIER_ORDER`）。記述子が自分の段を宣言し、`buildStaticOverlayLayers`が
+その順へ並べ替えてから`ensure`を呼ぶ——**作る側の配列の並びは順序に関係せず、レイヤーを
+足す人が挿す位置を選ばない**。同じ段の中はカタログに現れる順を保つ。
 
-  elevation（色別標高図ラスタ）
-    │
-  hillshade（起伏、標高タイル→raster-dem→陰影）
-    │
-  landcover（土地被覆ラスタ）
-    │
-  axisOverlayLayers（二次ramp軸: car_stress・accident等）
-    │  ← 「材料が同時に表示されているときだけ」太く半透明な下敷きにする
-    │    （buildAxisOverlayLayersの第2引数casingLayerKeys）
-    ▼
-  designation → tunnel → oneway
-    │  ← ROAD_MATERIAL_TRACK_LAYER_IDS（路面・道路の種類・指定路線・トンネル・一方通行）を
-    │    line-offsetで並列トラックへ分離（applyRoadMaterialTrackOffsets）
-    ▼
-  専用way値配信軸（軸カタログ順、評価軸グループの線。本モジュール対象外）
-    ▼
-  accidents → stopPoi → supplyPoi（点データ、別ソース）
-```
+段は背面から順に、面で塗るもの・推定指標の線・観測した事実の線・レンズの線・点データ・
+ルート。この並びは「後から追加される側が先の側を塗り潰さない」ために決めてあり、たとえば
+観測した事実の線は推定指標の線より前面に来る。
+
+面の段だけは路面ソースより先に`ensure`する（`layersUnderRoadSurface`）。`addLayer`は
+beforeId省略で最上位へ積むため、ここへ入らない面のレイヤーは**初回描画だけ**路面線の上に
+乗り、再描画で段どおりの重なりへ戻る（同じ場所を見ているのに色が変わる、という形でしか
+気づけない）。段が決めるのはこのアプリが足したレイヤーどうしの前後だけで、基礎地図に対する
+位置は`ensureLayerFromSpec`が`areaLayerAnchor`から決める（上記）。
+
 
 「道路情報」の各軸は**それぞれ独立した線レイヤー**（`ROAD_TILE_LAYER_ID`=路面の種類、
 `ROAD_TYPE_LAYER_ID`=道路の種類）で、同じベクタソースを共有する。`applyRoadLayerState`は
@@ -257,8 +273,9 @@ ONにしても何も塗られない。「データが無い地域」と区別で
 記述子が持つ。`MapView.tsx: handleZoom`がズームのたびに`mapLayers.ts:
 tileZoomTooWideLayerIds(zoom)`を引き、結果が変わったときだけ`onTileZoomTooWideChange`で
 伝える（zoomイベントは1回のピンチ操作でも何十回と飛ぶ）。`page.tsx`は受け取ったidの
-チップへ`TILE_ZOOM_TOO_WIDE_SUMMARY`を出し、**凡例を空にする**——▶の中身は「凡例があれば
-凡例、無ければsummary」で決まるため、凡例を出したままだと案内が一度も表示されない。
+チップへ`TILE_ZOOM_TOO_WIDE_NOTICE`を出す。▶の中身は**案内文があれば案内文、無ければ凡例**
+の順で決まるため、呼ぶ側が凡例を空へ揃える必要はない（揃える形だと、揃え忘れたレイヤーで
+案内が黙って落ちる）。
 
 表示ON/OFFでは出し分けない。ONにする前に「いまの縮尺では出ない」と分かる方が、ONにして
 から何も起きない理由を探すより早い。
@@ -271,20 +288,20 @@ tileZoomTooWideLayerIds(zoom)`を引き、結果が変わったときだけ`onTi
 「消えた理由が画面のどこにも無い」ことだけである（利用者からは「この地域にデータが無い」と
 見える）。
 
-ズーム不足と同じ仕組みに乗せる。対象は**記述子が`tileNeedsVersion`を宣言したレイヤー**で、
+ズーム不足と同じ仕組みに乗せる。対象は**記述子が宣言した情報源が世代を要るレイヤー**で、
 `mapLayers.ts: tileVersionGatedLayerIds`が引く（ramp軸は路面タイルへ焼き込んだ値を読むため、
 軸スタジオで公開が増えればそのまま対象になる）。`page.tsx`がそのチップへ
-`TILE_VERSIONS_MISSING_SUMMARY`を出し、凡例を空にし、状態ドットを付ける——まだ取得中なら
+`TILE_VERSIONS_MISSING_NOTICE`を出し、状態ドットを付ける——まだ取得中なら
 `loading`、取得が終わったのに世代が無ければ`error`。
 
 **暗黙の前提**: 「世代が揃ったか」を軸カタログの取得完了で代用しない。世代を返さない版の
 backendが200で応答する窓では、カタログは取得済みなのに世代は無く、そこでURLを組み立てた側が
 例外になる。判定は`hasTileVersions()`だけが答えられる。
 
-宣言は2箇所にある——どのソースが世代を要るか（`MapView.tsx:
-TILE_VERSION_GATED_SOURCE_IDS`）と、どのチップに理由を出すか（記述子の
-`tileNeedsVersion`）。ずれると、描けていないのにチップが黙る。`MapView.layerOps.test.ts`が
-両者を突き合わせて落とす。
+宣言は1つ。どの情報源が世代を要るかを`mapLayers.ts: TILE_VERSION_GATED_SOURCES`が持ち、
+どのレイヤーがその情報源を読むかは記述子の`dataSource`が持つ。`MapView.tsx:
+TILE_VERSION_GATED_SOURCE_IDS`はそれを実際のMapLibreのソース名へ置き換えるだけで、
+レイヤーごとの宣言は無い——2つ持たせるとずれたときに「描けていないのにチップが黙る」。
 
 同じ失敗の再試行導線は[ルート設定・結果パネル](route-settings-and-results.md)にしかない
 （軸一覧の取得失敗として告知する）。地図側は理由を出すだけで、再試行ボタンは置かない。
@@ -340,9 +357,9 @@ ramp軸[`dataNature==="composite"`]）に該当するものは`undefined`（地�
 
 **保存された非表示キーの長さを、そのまま「絞り込み中か」の判定に使わない。** この保存先は
 ルート確定の前後・`LensControl`・地図上チップのどこから操作しても同じ1つで、段の綴りが
-変わった版で保存された値や、段数が変わった軸の値は相手側の凡例に存在しない。数えるときは
-いま描いている凡例に実在するキーだけを見る（`legendFilter.ts: hasVisibleHiddenKeys`）——
-見ないと、隠れている段は1つも無いのに「一部非表示」だけが出る。
+変わった版で保存された値や、段数が変わった軸の値は相手側の凡例に存在しない。数えるなら
+いま描いている凡例に実在するキーだけを見ること——見ないと、隠れている段は1つも無いのに
+「一部非表示」だけが出る。
 
 例外として、災害チップの「表示する情報」だけは`axisId`を持ちながら地物の絞り込みではなく
 **レイヤーソースの表示切替**に使う（`useDynamicWeatherLayers`が非表示キーを見て各ソースの

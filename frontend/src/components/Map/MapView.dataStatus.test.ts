@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { describe, expect, it } from "vitest";
-import { RAMP_AXES } from "./axisLayers";
+import { DEDICATED_WAY_VALUE_AXES, RAMP_AXES } from "./axisLayers";
 import { buildLayerDataSources, ROAD_TILE_SOURCE_ID } from "./MapView";
 import { buildMapLayers } from "./mapLayers";
 import { ROAD_TILE_MIN_ZOOM } from "@/services/regionApi";
@@ -10,7 +10,7 @@ import { createFakeDataStatusMap } from "@/testing/fakeDataStatusMap";
 // ビルド時静的フォールバック（RAMP_AXES、軸スタジオが公開したGUI作成軸を含まない）を
 // 入力に組み立てた結果。以前のLAYER_DATA_SOURCES/ROAD_SURFACE_SHARED_LAYER_IDS定数と
 // 同じ内容。
-const LAYER_DATA_SOURCES = buildLayerDataSources(RAMP_AXES);
+const LAYER_DATA_SOURCES = buildLayerDataSources(buildMapLayers(RAMP_AXES, DEDICATED_WAY_VALUE_AXES));
 
 const fakeMap = createFakeDataStatusMap(LAYER_DATA_SOURCES.map((e) => e.sourceId));
 
@@ -47,7 +47,12 @@ describe("computeLayerDataStatus", () => {
 
   it("erroredSourceIdsに含まれるsourceはisSourceLoaded/querySourceFeaturesの結果に関わらずerror", () => {
     const map = fakeMap({});
-    const status = computeLayerDataStatus(map, new Set([sourceIdFor("accidents")]), { accidents: true }, LAYER_DATA_SOURCES);
+    const status = computeLayerDataStatus(
+      map,
+      new Set([sourceIdFor("accidents")]),
+      { accidents: true },
+      LAYER_DATA_SOURCES,
+    );
     expect(status).toEqual({ accidents: "error" });
   });
 
@@ -79,7 +84,12 @@ describe("computeLayerDataStatus", () => {
     const map = fakeMap({});
     const ok = computeLayerDataStatus(map, new Set(), { elevation: true }, LAYER_DATA_SOURCES);
     expect(ok).toEqual({});
-    const errored = computeLayerDataStatus(map, new Set([sourceIdFor("elevation")]), { elevation: true }, LAYER_DATA_SOURCES);
+    const errored = computeLayerDataStatus(
+      map,
+      new Set([sourceIdFor("elevation")]),
+      { elevation: true },
+      LAYER_DATA_SOURCES,
+    );
     expect(errored).toEqual({ elevation: "error" });
   });
 

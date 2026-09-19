@@ -1,11 +1,17 @@
 // 地図上のアイコンボタン（MapOverlayControls）で使う自作SVGアイコン集。
 // 外部アイコンライブラリは使わず、既存の現在地アイコン（page.tsx）と同じ線画スタイル
 // （stroke=currentColor、丸端、フォント非依存）に揃えている。
+import type { ReactElement } from "react";
+
 // サイズは呼び出し側のCSSで決まる（デフォルトは16px）ため、ここでは形だけを定義する。
 
 interface IconProps {
   size?: number;
 }
+
+/** このファイルのアイコン1つぶん。軸カタログ（axisIconPalette.tsx）とレイヤー
+ * カタログ（mapLayers.ts）のどちらもこの型で持つ。 */
+export type MapIconComponent = (props: IconProps) => ReactElement;
 
 const svgProps = {
   viewBox: "0 0 20 20",

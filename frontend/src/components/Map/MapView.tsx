@@ -69,8 +69,14 @@ import {
   type StaticFilterAxisId,
 } from "@/components/Map/staticAttributeLayers";
 import {
+  buildMapLayers,
+  MAP_LAYER_PAINT_TIER_ORDER,
+  TILE_VERSION_GATED_SOURCES,
   tileZoomTooWideLayerIds,
   type LayerDataStatusByLayer,
+  type MapLayerDataSource,
+  type MapLayerDescriptor,
+  type MapLayerPaintTier,
   type MapLayerId,
   type MapLayerVisibility,
 } from "@/components/Map/mapLayers";
@@ -1550,11 +1556,14 @@ type OverlayLayerEntry = {
   layerId: string;
   ensure: (map: MapLibreMap) => void;
   interactive: boolean;
-  // 路面ソースより先に積むか。面のラスタは路面の線の下へ置く。`addLayer`はbeforeId省略で
-  // 最上位へ積むため、ここで宣言しないレイヤーは**初回描画だけ**路面の上に乗り、
-  // 再描画で配列順どおりの重なりへ戻る（同じ場所を見ているのに色が変わる）。
-  underRoadSurface?: boolean;
+  // 重なりの段（mapLayers.ts: MapLayerPaintTier）。記述子の宣言から`buildStaticOverlayLayers`が
+  // 入れるため、エントリを作る側は持たない（`OverlayLayerSpec`）。
+  paintTier: MapLayerPaintTier;
 };
+
+/** 段を入れる前のエントリ。**どこに重なるかを作る側に書かせない**ための型で、段は
+ * レイヤーカタログの宣言だけが決める。 */
+type OverlayLayerSpec = Omit<OverlayLayerEntry, "paintTier">;
 
 // 軸スタジオが公開したramp軸（ビルド時静的フォールバックに限らず、実行時フェッチで
 // 増減しうる）を反映できるよう関数化してある。呼び出し側（コンポーネント内、useMemo経由）が
@@ -1568,10 +1577,32 @@ type OverlayLayerEntry = {
 // 見えてしまう）。casingLayerKeysは、どの2次レイヤーの材料が現在表示中かをpage.tsx側
 // （`secondaryAxisCasingLayerIds`）が判定して渡す（このファイルはレイヤー固有の材料関係を
 // 知らない汎用描画係のまま、という方針を保つ）。キーはaxisMapLayerId（"axis:car_stress"等）。
+/** 記述子の宣言した段で並べ直す（先頭＝背面）。同じ段の中はカタログ順を保つ。
+ *
+ * **作る側の配列の並びは順序に関係しない**——レイヤーを足す人が挿す位置を選ばないようにする
+ * ため。この関数を経ずに並べると、挿す位置の間違いは「観測データが推定の下へ潜る」等の
+ * 見た目だけに出る。 */
+export function sortedByPaintTier(entries: readonly OverlayLayerEntry[]): readonly OverlayLayerEntry[] {
+  return [...entries].sort(
+    (a, b) => MAP_LAYER_PAINT_TIER_ORDER.indexOf(a.paintTier) - MAP_LAYER_PAINT_TIER_ORDER.indexOf(b.paintTier),
+  );
+}
+
+/** レイヤーカタログが宣言した段を引く。
+ *
+ * 見つからないのはカタログに無いレイヤーを描こうとしているときだけで、そのレイヤーは
+ * チップも表示状態も持たない（出したところで誰もONにできない）。黙ってどこかの段へ
+ * 置くと、重なり順だけがずれた地図として出るためその場で落とす。 */
+function paintTierOf(layers: readonly MapLayerDescriptor[], key: string): MapLayerPaintTier {
+  const tier = layers.find((layer) => layer.id === key)?.paintTier;
+  if (tier === undefined) throw new Error(`レイヤーカタログに無いレイヤーを描こうとしています: ${key}`);
+  return tier;
+}
+
 export function buildAxisOverlayLayers(
   rampAxes: readonly RampAxis[],
   casingLayerKeys: ReadonlySet<string> = new Set(),
-): readonly OverlayLayerEntry[] {
+): readonly OverlayLayerSpec[] {
   return rampAxes.map((axis) => {
     const key = axisMapLayerId(axis.axisId) as string;
     return {
@@ -1594,7 +1625,9 @@ export function buildAxisOverlayLayers(
 // 上書き）をその上に置く——観測データと推定を同時に表示したとき、後から追加される側が
 // 先に追加された側を塗り潰さないようにする並び順である。
 export function buildStaticOverlayLayers(
-  axisOverlayLayers: readonly OverlayLayerEntry[],
+  // レイヤーカタログ（mapLayers.ts: buildMapLayers）。重なり順をここから引く。
+  layers: readonly MapLayerDescriptor[],
+  axisOverlayLayers: readonly OverlayLayerSpec[],
   // 専用way値配信軸の一覧（軸カタログ由来）。レイヤーの登録自体をこの一覧から導出するため、
   // 軸スタジオで3件目を公開すれば地図レイヤーもそのまま増える。
   dedicatedAxes: readonly DedicatedWayValueAxis[],
@@ -1608,28 +1641,25 @@ export function buildStaticOverlayLayers(
   // （MapViewProps.dedicatedWayValueHiddenBands参照）。
   dedicatedWayValueHiddenBands?: ReadonlyMap<string, readonly string[]>,
 ): readonly OverlayLayerEntry[] {
-  return [
+  const specs: readonly OverlayLayerSpec[] = [
     // ラスタタイルのため地物クリック判定が効かない。
     {
       key: "elevation",
       layerId: GSI_RELIEF_LAYER_ID,
       ensure: ensureGsiReliefLayer,
       interactive: false,
-      underRoadSurface: true,
     },
     {
       key: "hillshade",
       layerId: GSI_TERRAIN_LAYER_ID,
       ensure: ensureTerrainHillshadeLayer,
       interactive: false,
-      underRoadSurface: true,
     },
     {
       key: "landcover",
       layerId: LANDCOVER_LAYER_ID,
       ensure: ensureLandcoverLayer,
       interactive: false,
-      underRoadSurface: true,
     },
     ...axisOverlayLayers,
     {
@@ -1673,67 +1703,77 @@ export function buildStaticOverlayLayers(
       ),
       interactive: true,
     })),
-    { key: "accidents", layerId: ACCIDENT_LAYER_ID, ensure: ensureAccidentTileLayer, interactive: true },
-    { key: "stopPoi", layerId: STOP_POI_LAYER_ID, ensure: ensureStopPoiLayer, interactive: true },
-    { key: "supplyPoi", layerId: SUPPLY_POI_LAYER_ID, ensure: ensureSupplyPoiLayer, interactive: true },
+    {
+      key: "accidents",
+      layerId: ACCIDENT_LAYER_ID,
+      ensure: ensureAccidentTileLayer,
+      interactive: true,
+    },
+    {
+      key: "stopPoi",
+      layerId: STOP_POI_LAYER_ID,
+      ensure: ensureStopPoiLayer,
+      interactive: true,
+    },
+    {
+      key: "supplyPoi",
+      layerId: SUPPLY_POI_LAYER_ID,
+      ensure: ensureSupplyPoiLayer,
+      interactive: true,
+    },
   ];
+  // 段はカタログの宣言だけが決める。作る側の並びは順序に関係しない。
+  return sortedByPaintTier(specs.map((spec) => ({ ...spec, paintTier: paintTierOf(layers, spec.key) })));
 }
 
 type StaticOverlayKey = string;
 
-// レイヤーごとのデータ取得状態の算出元となる(source, source-layer)対応表。
-// roadType/roadSurface/designation/tunnel/oneway/車の圧迫感等のramp軸は同じroad_surface
-// タイルを再利用しているため（road_edgesが未構築の地点では、これらのレイヤーが同時に
-// empty/errorになるのが正しい挙動）、あえて同じ
-// sourceId/sourceLayerを指す。elevationは国土地理院のラスタタイルで
-// source-layerを持たないため、取得失敗のみ検知しempty判定はしない。routeは自前データ
-// （選択中候補のgeometryをそのままGeoJSON化するのみ）のためこの表の対象外。
-// MapView.segments.test.tsと同じ考え方で、computeLayerDataStatusのテスト
-// （MapView.dataStatus.test.ts）からbuildLayerDataSources(RAMP_AXES)経由で
-// 個別レイヤーのsourceIdを参照できるようexportしている。
-// 動的気象レイヤー（降水ナウキャスト・風・雷/竜巻・雷放電位置データ・キキクル4種）は
-// この表の対象外——実際の外部フェッチが自前のJSコード（`usePolledFetch`等）で
-// 行われ、結果をsetData/setTilesで流し込むだけのため、MapLibreのソースイベントは外部
-// フェッチの待ち時間・失敗を観測できない。データ取得状態は`useDynamicWeatherLayers.ts`が
-// 各要素のフェッチ自身のloading/errorから直接算出する（`dynamicWeatherDataStatus`）。
 type LayerDataSource = { key: MapLayerId; sourceId: string; sourceLayer?: string };
 
-// buildAxisOverlayLayers等と同じ理由で関数化してある。テスト
-// （MapView.dataStatus.test.ts）からbuild*(RAMP_AXES)として直接呼べるようexportしている。
-export function buildLayerDataSources(rampAxes: readonly RampAxis[]): readonly LayerDataSource[] {
-  return [
-    { key: "roadType", sourceId: ROAD_TILE_SOURCE_ID, sourceLayer: ROAD_TILE_SOURCE_LAYER },
-    { key: "roadSurface", sourceId: ROAD_TILE_SOURCE_ID, sourceLayer: ROAD_TILE_SOURCE_LAYER },
-    { key: "designation", sourceId: ROAD_TILE_SOURCE_ID, sourceLayer: ROAD_TILE_SOURCE_LAYER },
-    { key: "tunnel", sourceId: ROAD_TILE_SOURCE_ID, sourceLayer: ROAD_TILE_SOURCE_LAYER },
-    { key: "oneway", sourceId: ROAD_TILE_SOURCE_ID, sourceLayer: ROAD_TILE_SOURCE_LAYER },
-    { key: "accidents", sourceId: ACCIDENT_TILE_SOURCE_ID, sourceLayer: ACCIDENT_TILE_SOURCE_LAYER },
-    { key: "stopPoi", sourceId: POI_TILE_SOURCE_ID, sourceLayer: STOP_POI_SOURCE_LAYER },
-    { key: "supplyPoi", sourceId: POI_TILE_SOURCE_ID, sourceLayer: STOP_POI_SOURCE_LAYER },
-    { key: "elevation", sourceId: GSI_RELIEF_SOURCE_ID },
-    { key: "hillshade", sourceId: GSI_TERRAIN_SOURCE_ID },
-    { key: "landcover", sourceId: LANDCOVER_SOURCE_ID },
-    // 二次軸rampレイヤー（car_stressを含む）はroad_surfaceタイルへ
-    // 焼き込み済みのプロパティを読む（designation等と同じソース共有。
-    // roadSurfaceSharedLayerIdsにも登録済み）
-    ...rampAxes.map((axis) => ({
-      key: axisMapLayerId(axis.axisId) as MapLayerId,
-      sourceId: ROAD_TILE_SOURCE_ID,
-      sourceLayer: ROAD_TILE_SOURCE_LAYER,
-    })),
-  ];
-}
+// 情報源の名前（`MapLayerDataSource`）→ 実際のMapLibreの(source, source-layer)。
+// **レイヤーごとではなく情報源ごとの表**で、新しい配信元を増やしたときだけ伸びる
+// （どのレイヤーがどれを読むかは記述子側の宣言）。同じタイルを読むレイヤーが
+// 同時にempty/errorになるのは正しい振る舞い（road_edgesが未構築の地点）。
+// 国土地理院のラスタタイル・土地被覆ラスタはsource-layerを持たないため、取得失敗のみ
+// 検知しempty判定はしない。
+const TILE_SOURCE_BY_DATA_SOURCE: Record<
+  Exclude<MapLayerDataSource, "ownFetch">,
+  { sourceId: string; sourceLayer?: string }
+> = {
+  roadTiles: { sourceId: ROAD_TILE_SOURCE_ID, sourceLayer: ROAD_TILE_SOURCE_LAYER },
+  accidentTiles: { sourceId: ACCIDENT_TILE_SOURCE_ID, sourceLayer: ACCIDENT_TILE_SOURCE_LAYER },
+  poiTiles: { sourceId: POI_TILE_SOURCE_ID, sourceLayer: STOP_POI_SOURCE_LAYER },
+  gsiRelief: { sourceId: GSI_RELIEF_SOURCE_ID },
+  gsiTerrain: { sourceId: GSI_TERRAIN_SOURCE_ID },
+  landcoverRaster: { sourceId: LANDCOVER_SOURCE_ID },
+};
 
+/** レイヤーごとのデータ取得状態の算出元。母集団はレイヤーカタログそのもので、
+ * ここでは数え上げない——名指しで並べると、新しいレイヤーはここへ書き足すまで
+ * 取得状態を持たず、チップの状態ドットが永久に出ない。
+ *
+ * 自前のJSで取りに行くもの（`ownFetch`。動的気象レイヤー・ルート）は除く——MapLibreの
+ * ソースイベントはその待ち時間・失敗を観測できない（`useDynamicWeatherLayers.ts`が
+ * フェッチ自身のloading/errorから出す）。 */
+export function buildLayerDataSources(layers: readonly MapLayerDescriptor[]): readonly LayerDataSource[] {
+  return layers.flatMap((layer) =>
+    layer.dataSource === "ownFetch" ? [] : [{ key: layer.id, ...TILE_SOURCE_BY_DATA_SOURCE[layer.dataSource] }],
+  );
+}
 // レイヤーデータ状態（loading/empty/error）の算出・追跡（computeLayerDataStatus・
 // clearStaleTrackedSourceErrors・状態管理）はuseLayerDataStatus.tsに集約されている。
-/** 路面ソースより先に積むレイヤー（各エントリ自身の`underRoadSurface`宣言から導く）。
+/** 路面ソースより先に積むレイヤー（面で塗る段のもの）。
  *
  * ここをkeyの名指しで書くと、面のレイヤーを1つ足したときに**初回描画だけ**それが路面線の
- * 上に乗る（`addLayer`はbeforeId省略で最上位へ積む）。再描画を押すと配列順どおりの重なりへ
+ * 上に乗る（`addLayer`はbeforeId省略で最上位へ積む）。再描画を押すと段どおりの重なりへ
  * 戻るため、同じ場所を見ているのに色が変わる、という形でしか気づけない。
+ *
+ * これが決めるのは**このアプリが足したレイヤーどうしの前後**だけで、基礎地図に対する
+ * 位置ではない。面は`ensureLayerFromSpec`が`mapStyleOps.ts: areaLayerAnchor`の返す位置へ
+ * 差し込むため、基礎地図の道路網・地名は面をどれだけ濃くしても上に残る。
  */
 export function layersUnderRoadSurface(layers: readonly OverlayLayerEntry[]): readonly OverlayLayerEntry[] {
-  return layers.filter((layer) => layer.underRoadSurface);
+  return layers.filter((layer) => layer.paintTier === "area");
 }
 
 // buildLayerDataSources自体はbuildStaticOverlayLayers等の他の関数と同じくこのファイルに
@@ -1741,14 +1781,11 @@ export function layersUnderRoadSurface(layers: readonly OverlayLayerEntry[]): re
 
 /** タイル世代（`GET /api/axis-catalog`）が届くまで作れないソース。
  *
- * 縮退をどのチップへ出すかは`mapLayers.ts`の記述子が宣言する（`tileVersionGatedLayerIds`）。
- * **2つの宣言がずれると、描けていないのにチップが黙る**——`MapView.layerOps.test.ts`が
- * 両者を突き合わせて落とす。 */
-export const TILE_VERSION_GATED_SOURCE_IDS: readonly string[] = [
-  ROAD_TILE_SOURCE_ID,
-  ACCIDENT_TILE_SOURCE_ID,
-  POI_TILE_SOURCE_ID,
-];
+ * どの情報源が世代を要るかは`mapLayers.ts`が宣言し、ここはそれを実際のMapLibreの
+ * ソース名へ置き換えるだけ。 */
+export const TILE_VERSION_GATED_SOURCE_IDS: readonly string[] = Object.entries(TILE_SOURCE_BY_DATA_SOURCE)
+  .filter(([source]) => TILE_VERSION_GATED_SOURCES.has(source as MapLayerDataSource))
+  .map(([, tileSource]) => tileSource.sourceId);
 
 // ルート系の当たり判定専用レイヤー。見た目の線は細くモバイルでタップしづらいため、
 // 幅の広い透明なレイヤーを別に持つ。`handleClick`はここに当たったら道路のポップアップを
@@ -2382,9 +2419,11 @@ export default function MapView({
   // 再適用することになる（公開ramp軸が増えるほど線形に増える）。中身が同じ間は同じ参照を使う。
   const stableDedicatedWayValueLoading = useStableMap(dedicatedWayValueLoading);
   const stableDedicatedWayValueHiddenBands = useStableMap(dedicatedWayValueHiddenBands);
+  const mapLayerCatalog = useMemo(() => buildMapLayers(rampAxes, dedicatedAxes), [rampAxes, dedicatedAxes]);
   const staticOverlayLayers = useMemo(
     () =>
       buildStaticOverlayLayers(
+        mapLayerCatalog,
         axisOverlayLayers,
         dedicatedAxes,
         dedicatedWayValueDisplays,
@@ -2392,6 +2431,7 @@ export default function MapView({
         stableDedicatedWayValueHiddenBands,
       ),
     [
+      mapLayerCatalog,
       axisOverlayLayers,
       dedicatedAxes,
       dedicatedWayValueDisplays,
@@ -2400,7 +2440,7 @@ export default function MapView({
     ],
   );
   const interactiveLayerIds = useMemo(() => buildInteractiveLayerIds(staticOverlayLayers), [staticOverlayLayers]);
-  const layerDataSources = useMemo(() => buildLayerDataSources(rampAxes), [rampAxes]);
+  const layerDataSources = useMemo(() => buildLayerDataSources(mapLayerCatalog), [mapLayerCatalog]);
   const staticFilterAxes = useMemo(() => buildStaticFilterAxes(rampAxes), [rampAxes]);
   // handleClick/handleMouseMove（地図初期化effect内、一度だけ登録されるクロージャ）が
   // 最新のinteractiveLayerIdsを読めるようにするref（onTileZoomTooWideChangeRef等と同じ
@@ -2693,8 +2733,8 @@ export default function MapView({
     // ensureAllStaticOverlayLayersをensureRoadSurfaceTileLayerより先に呼ぶと、
     // designation等のaddLayerがソース未作成のまま実行され
     // 「source "region-road-surface-tiles" not found」エラーになる。路面より下に置く
-    // レイヤー（自身が`underRoadSurface`で宣言する）を先にensureしてから路面ソースを
-    // 作ることで、「面のラスタが最背面、その上に路面」の意図を保つ
+    // レイヤー（記述子が面の段を宣言しているもの、`layersUnderRoadSurface`）を先にensureして
+    // から路面ソースを作ることで、「面のラスタが最背面、その上に路面」の意図を保つ
     // （ensureAllStaticOverlayLayers内で二重に呼ばれるが各自のガードで無害化される）。
     // staticOverlayLayersはredrawPropsRef.current経由で読む（このeffectは
     // マウント時のみ実行され、propsのrampAxesが後から変わっても再実行されないため。

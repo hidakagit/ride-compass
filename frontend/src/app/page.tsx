@@ -25,8 +25,9 @@ import {
   type LayerDataStatusByLayer,
   type MapLayerId,
   buildDefaultLayerVisibility,
-  TILE_ZOOM_TOO_WIDE_SUMMARY,
-  TILE_VERSIONS_MISSING_SUMMARY,
+  TILE_ZOOM_TOO_WIDE_NOTICE,
+  UNUSED_LEGEND_FILTER,
+  TILE_VERSIONS_MISSING_NOTICE,
   tileVersionGatedLayerIds,
   type MapLayerVisibility,
 } from "@/components/Map/mapLayers";
@@ -35,11 +36,7 @@ import { dedicatedWayValueLegend, type DedicatedWayValueDisplay } from "@/compon
 import LensControl, { type LensOption } from "@/components/LensControl/LensControl";
 import type { LegendEntry } from "@/components/Map/legendFilter";
 import { primaryAttributeIdsToLayerIds } from "@/components/Map/primaryAttributes";
-import {
-  hasVisibleHiddenKeys,
-  summarizeLegendFilters,
-  type LegendFilterSummaryAxis,
-} from "@/components/Map/legendFilter";
+import { type LegendFilterSummaryAxis } from "@/components/Map/legendFilter";
 import type { DisasterSourceKey } from "@/components/Map/dynamicWeather";
 import { ROAD_FILTER_AXES, type RoadFilterAxisId } from "@/components/Map/roadFilterAxes";
 import { buildStaticFilterAxes, type StaticFilterAxisId } from "@/components/Map/staticAttributeLayers";
@@ -74,9 +71,7 @@ import WarningBadgeList from "@/components/WarningBadge/WarningBadge";
 import HeaderMenu from "@/components/HeaderMenu/HeaderMenu";
 import RideConditionBar from "@/components/RideConditionBar/RideConditionBar";
 import TravelBearingControl from "@/components/TravelBearingControl/TravelBearingControl";
-import { PRECIPITATION_INTENSITY_LEVELS } from "@/components/Map/precipitationNowcast";
-import { LANDCOVER_PAINTED_CLASSES } from "@/components/Map/landcoverClasses";
-import { WIND_SPEED_LEGEND_LEVELS, type MapViewport } from "@/components/Map/windLayer";
+import type { MapViewport } from "@/components/Map/windLayer";
 import { THUNDER_ACTIVITY_LEVELS, TORNADO_POTENTIAL_LEVELS } from "@/components/Map/thunderNowcast";
 import { RISK_LEVEL_COLORS } from "@/components/Map/riskMap";
 import { useDynamicWeatherLayers } from "@/hooks/useDynamicWeatherLayers";
@@ -197,65 +192,6 @@ const DEFAULT_LAYER_VISIBILITY: MapLayerVisibility = buildDefaultLayerVisibility
 // 「どのモードでも非表示カテゴリ無し」を表す共通の空配列。useStateの外に置いて参照を
 // 固定し、MapView側のエフェクト依存（hidden*LegendKeys）が毎レンダーで発火しないようにする。
 const NO_HIDDEN_LEGEND_KEYS: string[] = [];
-
-// 降水ナウキャスト・風の凡例。地図チップの▶パネル（MapOverlayControls:
-// renderLegendDetails）は表示専用でLegendEntry.filterを実際には適用しない（道路種別等の
-// ようなカテゴリ絞り込みができるレイヤーではないため）ため、filterは一致することのない
-// ダミー値にしている。色・階級の実データはprecipitationNowcast.ts/windLayer.ts側
-// （実際の描画・凡例双方の単一の情報源）から持ってくる。他レイヤーと違い絞り込み状態を
-// 持たないため、useMemoではなくモジュール直下の固定値でよい。
-const UNUSED_LEGEND_FILTER: unknown[] = ["==", 1, 0];
-// 線状降水帯予測マップは「降水」チップの傘下（4つ目のソース）へ統合されているため、
-// 専用の凡例ブロックを`accidents`の「当事者/重大度」と同じ複数ブロックパターンで
-// このPRECIPITATION_LEGEND_DETAILS自体へ追加する（実データはriskMap.tsが単一の情報源）。
-const PRECIPITATION_LEGEND_DETAILS: LegendFilterSummaryAxis[] = [
-  {
-    label: "",
-    legend: PRECIPITATION_INTENSITY_LEVELS.map((level) => ({ ...level, filter: UNUSED_LEGEND_FILTER })),
-    hiddenKeys: NO_HIDDEN_LEGEND_KEYS,
-  },
-  {
-    label: "線状降水帯予測マップ（現在〜3時間先のみ）",
-    // 色は配信元タイルの実際の塗り色（rgb(255,40,0)）に合わせる。凡例と地図で色が
-    // 違うと、どの塗りがこの凡例に対応するのか読み取れない。
-    // 予測領域は格子単位で塗られ矩形に見えるため、形状も書いておく——降水ナウキャストの
-    // 細かい雨域と重なると、矩形の塗りが描画不具合のように見える。
-    legend: [
-      {
-        key: "linearRainband",
-        label: "今後3時間以内に大雨のおそれ（矩形の予測領域）",
-        color: "#ff2800",
-        filter: UNUSED_LEGEND_FILTER,
-      },
-    ],
-    hiddenKeys: NO_HIDDEN_LEGEND_KEYS,
-  },
-];
-// この凡例は矢印（風速そのもの、向きに依存しない）の配色専用で、道路の色分け（風の評価軸、
-// 走行方位に対する向かい風/追い風）とは別の配色系統のため、「地図の色の凡例」との混同を
-// 避けて「矢印（風速）」と明示する。
-const WIND_LEGEND_DETAILS: LegendFilterSummaryAxis[] = [
-  {
-    label: "矢印（風速）",
-    legend: WIND_SPEED_LEGEND_LEVELS.map((level) => ({ ...level, filter: UNUSED_LEGEND_FILTER })),
-    hiddenKeys: NO_HIDDEN_LEGEND_KEYS,
-  },
-];
-// 土地被覆の凡例。色・表示名はbackendのレジストリ（domain/landcover.py:
-// LANDCOVER_CLASSES）由来の生成物がそのまま単一の情報源で、地図タイルの塗りと同じ値を使う。
-// ラスタのため絞り込みはできず、降水・風と同じ表示専用の凡例にする。
-const LANDCOVER_LEGEND_DETAILS: LegendFilterSummaryAxis[] = [
-  {
-    label: "",
-    legend: LANDCOVER_PAINTED_CLASSES.map((cls) => ({
-      key: cls.percentField,
-      label: cls.label,
-      color: cls.color,
-      filter: UNUSED_LEGEND_FILTER,
-    })),
-    hiddenKeys: NO_HIDDEN_LEGEND_KEYS,
-  },
-];
 
 // 災害チップの要素トグルの保存先ID（hiddenLegendKeysByModeのキー）。実際の絞り込み軸
 // （路面の種類等）のIDと衝突しないよう、レイヤーIDそのものを使う。
@@ -962,8 +898,8 @@ export default function Home() {
       ) as unknown as Record<RoadFilterAxisId, readonly string[]>,
     [hiddenLegendKeysByMode],
   );
-  // このファイル自身の凡例・絞り込みサマリ計算（staticLegendHiddenKeysByAxis・
-  // staticFilterSummaries、下記）は、軸スタジオで新規公開したramp軸の凡例・絞り込み
+  // このファイル自身の凡例・絞り込み計算（staticLegendHiddenKeysByAxis・
+  // staticFilterLegendDetails、下記）は、軸スタジオで新規公開したramp軸の凡例・絞り込み
   // 操作をこの画面のサマリ表示・▶パネルへ反映できるよう、mapLayers/
   // roadSurfaceSharedLayerIdsと同じくaxisCatalog.rampAxesから都度組み立てる
   // （ビルド時静的buildStaticFilterAxes()は使わない）。
@@ -1080,24 +1016,14 @@ export default function Home() {
   // ブロックを並べると、軸を1つ足すたびに写経が増える（roadFilterAxes.tsの「軸定義を
   // 1つ足すだけでよい」が成り立たなくなる）。
   const roadAxisPanels = useMemo(() => {
-    const summaryByLayerId: Record<string, string | null> = {};
     const legendDetailsByLayerId: Record<string, LegendFilterSummaryAxis[]> = {};
     for (const axis of ROAD_FILTER_AXES) {
       const hiddenKeys = roadHiddenKeysByMode[axis.id] ?? NO_HIDDEN_LEGEND_KEYS;
-      summaryByLayerId[axis.layerId] = summarizeLegendFilters([{ label: "", legend: axis.legend, hiddenKeys }]);
       legendDetailsByLayerId[axis.layerId] = [{ label: "", legend: axis.legend, hiddenKeys, axisId: axis.id }];
     }
-    return { summaryByLayerId, legendDetailsByLayerId };
+    return { legendDetailsByLayerId };
   }, [roadHiddenKeysByMode]);
 
-  // ルートは色分けモード自体が「何の条件で色分け中か」の情報なので常に出す
-  const routeSummary = hasDetail
-    ? `レンズ: ${getRouteStyleMode(routeStyleModes, lens).label}${
-        hasVisibleHiddenKeys(getRouteStyleMode(routeStyleModes, lens).legend, hiddenRouteLegendKeys)
-          ? "・一部非表示"
-          : ""
-      }`
-    : null;
   const routeLegendDetails = useMemo<LegendFilterSummaryAxis[]>(
     () =>
       hasDetail
@@ -1113,19 +1039,10 @@ export default function Home() {
     [hasDetail, lens, hiddenRouteLegendKeys, routeStyleModes],
   );
 
-  // 道路情報以外の絞り込み可能レイヤーも、道路情報と同じ要約関数（summarizeLegendFilters）
-  // でチップ下に適用中の絞り込みを表示する。レイヤーごとに
-  // 保有する軸ぶん（事故のみ2軸、他は1軸）をまとめて渡す。
-  const staticFilterSummaries = useMemo(() => {
-    const result: Partial<
-      Record<
-        MapLayerId,
-        {
-          summary: string | null;
-          legendDetails: LegendFilterSummaryAxis[];
-        }
-      >
-    > = {};
+  // 道路情報以外の絞り込み可能レイヤーの▶パネルの中身。1つのレイヤーが複数の軸を持つ
+  // ことがある（事故は当事者と重大度）ため、そのレイヤーの軸をまとめて渡す。
+  const staticFilterLegendDetails = useMemo(() => {
+    const result: Partial<Record<MapLayerId, LegendFilterSummaryAxis[]>> = {};
     const layerIds = new Set(staticFilterAxes.map((axis) => axis.layerId));
     for (const layerId of layerIds) {
       const axes = staticFilterAxes
@@ -1136,10 +1053,7 @@ export default function Home() {
           hiddenKeys: staticLegendHiddenKeysByAxis[axis.axisId] ?? NO_HIDDEN_LEGEND_KEYS,
           axisId: axis.axisId,
         }));
-      result[layerId] = {
-        summary: summarizeLegendFilters(axes),
-        legendDetails: axes,
-      };
+      result[layerId] = axes;
     }
     return result;
   }, [staticFilterAxes, staticLegendHiddenKeysByAxis]);
@@ -1148,9 +1062,6 @@ export default function Home() {
   // フェッチ・共有タイムライン・MapView向け描画ペイロードは`useDynamicWeatherLayers`
   // フックが持つ。各要素は対応するshow*がtrueの間だけフェッチする。overlayLayers
   // （下記）がdataStatusとして参照するため、その手前で定義する。
-  const showPrecipitationNowcast = layerVisibility.precipitationNowcast;
-  const showWindVector = layerVisibility.windVector;
-  const showDisaster = layerVisibility.disaster;
   // 災害チップ配下のソースのうち、▶パネルで非表示に選ばれているもの。面同士が重なると
   // 混色して危険度を読み取れないため、ユーザーがその場で絞り込めるようにしている
   // （保存先はサイドバーの絞り込みと同じhiddenLegendKeysByMode）。
@@ -1175,9 +1086,7 @@ export default function Home() {
     handleDynamicLayerNow,
     departureTimePinned,
   } = useDynamicWeatherLayers({
-    showWindVector,
-    showPrecipitationNowcast,
-    showDisaster,
+    visibility: layerVisibility,
     hiddenDisasterSources,
     mapViewport,
   });
@@ -1203,20 +1112,17 @@ export default function Home() {
   const tileVersionsFailed = !tileVersionsReady && (axisCatalog.loaded || axisCatalog.failed);
 
   // 地図上のチップ行はレイヤーカタログ（mapLayers）から組み立てる。レイヤーを追加したら
-  // summaryの対応をここへ1行足すだけでよい（チップ・凡例パネルの描画は汎用）。
+  // 凡例の対応をここへ1行足すだけでよい（チップ・凡例パネルの描画は汎用）。
   const overlayLayers = useMemo<OverlayLayerChip[]>(() => {
-    // summary/legendDetailsはlayer.id→値のルックアップで組み立て、無ければ
-    // staticFilterSummariesをフォールバックとして最後に見る。
-    const summaryByLayerId: Partial<Record<MapLayerId, string | null>> = {
-      ...roadAxisPanels.summaryByLayerId,
-      route: routeSummary,
-    };
+    // 凡例はlayer.id→値のルックアップで組み立て、無ければstaticFilterLegendDetailsを
+    // フォールバックとして最後に見る。
+    // 残るのは**この画面の状態からしか作れない凡例**だけ。配信元が色を持つ表示専用の
+    // 凡例は記述子が宣言し（`readOnlyLegend`）、絞り込める凡例は`staticFilterAxes`が出す。
     const legendDetailsByLayerId: Partial<Record<MapLayerId, LegendFilterSummaryAxis[]>> = {
       ...roadAxisPanels.legendDetailsByLayerId,
+      // 選択中の候補とレンズで中身が変わる。
       route: routeLegendDetails,
-      precipitationNowcast: PRECIPITATION_LEGEND_DETAILS,
-      landcover: LANDCOVER_LEGEND_DETAILS,
-      windVector: WIND_LEGEND_DETAILS,
+      // 要素ごとの表示ON/OFF（hiddenDisasterSources）を持つ。
       disaster: disasterLegendDetails,
     };
     // 専用way値配信軸（`${axisId}Axis`）・ramp軸（`axis:${string}`）は除く。これらの
@@ -1237,28 +1143,22 @@ export default function Home() {
         // しまい、地図チップから直接OFFへ戻せない状態が生じる。
         const disabledReason = layer.id === "route" && !selectedCandidate ? "ルートを生成・選択すると使えます" : null;
         const disabled = disabledReason !== null;
-        // タイルの最小ズームを下回っているレイヤーは、絞り込みの要約より先に
-        // 「ONにしても何も出ない理由」を出す。凡例は空にする——▶の中身は「凡例があれば
-        // 凡例、無ければsummary」で決まるため、凡例を出したままだと案内が一度も
-        // 表示されない。**判定も配線もここ1箇所**で、レイヤー側は記述子へ最小ズームを
-        // 宣言するだけでよい。
+        // タイルの最小ズームを下回っているレイヤーは「ONにしても何も出ない理由」を出す。
+        // **判定も配線もここ1箇所**で、レイヤー側は記述子へ最小ズームを宣言するだけでよい。
         const tileZoomTooWide = tileZoomTooWideLayerIds.includes(layer.id);
         // 世代が無いレイヤーもズーム不足と同じ扱いにする——どちらも「ONにしても何も出ない」で、
-        // 違うのは理由だけ。凡例を空にするのも同じ理由（▶の中身は「凡例があれば凡例、
-        // 無ければsummary」で決まるため、凡例を出したままだと案内が一度も表示されない）。
+        // 違うのは理由だけ。
         const tileVersionsGated = tileVersionGatedIds.includes(layer.id);
-        const summary =
+        const notice =
           tileVersionsGated && tileVersionsFailed
-            ? TILE_VERSIONS_MISSING_SUMMARY
+            ? TILE_VERSIONS_MISSING_NOTICE
             : tileZoomTooWide
-              ? TILE_ZOOM_TOO_WIDE_SUMMARY
-              : layer.id in summaryByLayerId
-                ? (summaryByLayerId[layer.id] ?? null)
-                : (staticFilterSummaries[layer.id]?.summary ?? null);
+              ? TILE_ZOOM_TOO_WIDE_NOTICE
+              : null;
         const legendDetails =
-          tileZoomTooWide || (tileVersionsGated && tileVersionsFailed)
-            ? []
-            : (legendDetailsByLayerId[layer.id] ?? staticFilterSummaries[layer.id]?.legendDetails);
+          legendDetailsByLayerId[layer.id] ??
+          staticFilterLegendDetails[layer.id] ??
+          layer.readOnlyLegend?.map((block) => ({ ...block, hiddenKeys: NO_HIDDEN_LEGEND_KEYS }));
         // 地図上チップの▶パネル本体には説明文を常時表示せず、凡例のみを表示する。折りたたみ中の
         // 「表示する項目を選ぶ」設定パネル（MapOverlayControls.tsx: renderVisibilitySettings）
         // 側は、各メンバー行に個別の情報アイコンを置き、押したメンバーだけ説明文を表示する
@@ -1269,13 +1169,14 @@ export default function Home() {
         const isDynamicGroupLayer = layer.dataNature === "dynamic";
         return {
           id: layer.id,
+          icon: layer.icon,
           label: layer.label,
           chipLabel: layer.chipLabel ?? layer.label,
+          notice,
           on: layerVisibility[layer.id],
           disabled,
           // 絞り込みを持たない動的グループには案内を付けない（開いても設定が無い）。
           title: disabledReason ?? (isDynamicGroupLayer ? layer.description : `${layer.description}[設定は▶から]`),
-          summary,
           legendDetails,
           // 地図上チップのカテゴリ束ね（MapOverlayControls.tsx）用。
           category: layer.category,
@@ -1300,8 +1201,7 @@ export default function Home() {
     layerDataStatus,
     roadAxisPanels,
     routeLegendDetails,
-    routeSummary,
-    staticFilterSummaries,
+    staticFilterLegendDetails,
     disasterLegendDetails,
     mapLayers,
   ]);

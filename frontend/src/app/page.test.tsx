@@ -43,7 +43,7 @@ vi.mock("@/components/MapOverlayControls/MapOverlayControls", () => ({
       id: string;
       on: boolean;
       title?: string;
-      summary?: string | null;
+      notice?: string | null;
       legendDetails?: unknown[];
       dataStatus?: string | null;
     }>;
@@ -57,10 +57,10 @@ vi.mock("@/components/MapOverlayControls/MapOverlayControls", () => ({
           exact-substring/new Map()アサーションが複数ある）とは別の独立したtestidへ出す
           （改善計画T478、T468のisDynamicGroupLayer回帰テスト用）。 */}
       <div data-testid="overlay-layer-titles">{JSON.stringify(props.layers.map((l) => [l.id, l.title]))}</div>
-      {/* ▶の中身は「凡例があれば凡例、無ければsummary」で決まる。案内文を出したい状態で
-          凡例が非空だと、案内文は一度も画面に出ない——その組み合わせを読めるようにする。 */}
+      {/* ▶の中身は「案内文があれば案内文、無ければ凡例」で決まる。案内文が入っているかを
+          読めるようにする（凡例の件数も併記するが、案内文はそれに勝つ）。 */}
       <div data-testid="overlay-layer-panels">
-        {JSON.stringify(props.layers.map((l) => [l.id, l.summary ?? null, l.legendDetails?.length ?? 0]))}
+        {JSON.stringify(props.layers.map((l) => [l.id, l.notice ?? null, l.legendDetails?.length ?? 0]))}
       </div>
       {/* チップ上の状態ドット。案内文とは別の経路で出るため、既存のtestidへ混ぜない。 */}
       <div data-testid="overlay-layer-status">
@@ -2107,13 +2107,13 @@ describe("タイル世代が届かないとき（T938）", () => {
     return { panels, status };
   }
 
-  it("カタログの取得に失敗すると、世代を要るチップへ理由が出て凡例は空になる", async () => {
+  it("カタログの取得に失敗すると、世代を要るチップへ理由が出る", async () => {
     vi.mocked(getAxisCatalog).mockRejectedValue(new Error("catalog down"));
 
     const { panels, status } = await panelsAndStatus();
 
-    expect(panels.get("roadSurface")).toEqual(["roadSurface", "配信情報を取得できず表示できません", 0]);
-    expect(panels.get("accidents")).toEqual(["accidents", "配信情報を取得できず表示できません", 0]);
+    expect(panels.get("roadSurface")?.[1]).toBe("配信情報を取得できず表示できません");
+    expect(panels.get("accidents")?.[1]).toBe("配信情報を取得できず表示できません");
     expect(status.get("roadSurface")).toBe("error");
     // 世代を持たない別系統（国土地理院のラスタ）は巻き込まない。
     expect(panels.get("elevation")?.[1]).not.toBe("配信情報を取得できず表示できません");
@@ -2125,7 +2125,7 @@ describe("タイル世代が届かないとき（T938）", () => {
 
     const { panels, status } = await panelsAndStatus();
 
-    expect(panels.get("roadSurface")).toEqual(["roadSurface", "配信情報を取得できず表示できません", 0]);
+    expect(panels.get("roadSurface")?.[1]).toBe("配信情報を取得できず表示できません");
     expect(status.get("roadSurface")).toBe("error");
     // カタログは「取得済み」なのに世代は揃っていない。ここをカタログ側で代用すると、
     // 地図はURLを組み立てようとして例外になる。
@@ -2175,29 +2175,28 @@ describe("土地被覆レイヤーのズーム不足の案内", () => {
   });
 
   it("最小ズームより広いと、凡例ではなく案内文が出る状態になる", async () => {
-    // ▶の中身は「凡例があれば凡例、無ければsummary」で決まる（MapOverlayControls）。
-    // 案内文を入れても凡例が非空のままだと、ONにしたのに何も出ない理由を知る手立てが
-    // 画面から消える。道路系（regionZoomTooWide）と同じ扱いになっていることを見る。
+    // ▶の中身は「案内文があれば案内文、無ければ凡例」で決まる（MapOverlayControls）。
+    // 案内文が入らないと、ONにしたのに何も出ない理由を知る手立てが画面から消える。
+    // 道路系（regionZoomTooWide）と同じ扱いになっていることを見る。
     const HomeFresh = await renderFreshHome({ exposeViewportChange: true });
     render(<HomeFresh />);
 
     const readPanels = () =>
-      new Map<string, { summary: string | null; legendCount: number }>(
+      new Map<string, { notice: string | null; legendCount: number }>(
         (
           JSON.parse(screen.getByTestId("overlay-layer-panels").textContent!) as Array<[string, string | null, number]>
-        ).map(([id, summary, legendCount]) => [id, { summary, legendCount }]),
+        ).map(([id, notice, legendCount]) => [id, { notice, legendCount }]),
       );
 
     const before = readPanels();
-    expect(before.get("landcover")).toEqual({ summary: null, legendCount: expect.any(Number) });
+    expect(before.get("landcover")!.notice).toBeNull();
     expect(before.get("landcover")!.legendCount).toBeGreaterThan(0);
 
     await act(async () => {
       screen.getByText("テスト用に広域へズームアウト").click();
     });
 
-    const after = readPanels();
-    expect(after.get("landcover")).toEqual({ summary: "ズームインすると表示されます", legendCount: 0 });
+    expect(readPanels().get("landcover")!.notice).toBe("ズームインすると表示されます");
   });
 
   it("最小ズームを宣言したレイヤーは、どれも同じ案内になる", async () => {
@@ -2215,13 +2214,13 @@ describe("土地被覆レイヤーのズーム不足の案内", () => {
       screen.getByText("テスト用に広域へズームアウト").click();
     });
 
-    const panels = new Map<string, [string, string | null, number]>(
+    const notices = new Map<string, string | null>(
       (
         JSON.parse(screen.getByTestId("overlay-layer-panels").textContent!) as Array<[string, string | null, number]>
-      ).map((row) => [row[0], row]),
+      ).map((row) => [row[0], row[1]]),
     );
     for (const id of declared) {
-      expect(panels.get(id)).toEqual([id, "ズームインすると表示されます", 0]);
+      expect(notices.get(id)).toBe("ズームインすると表示されます");
     }
   });
 });

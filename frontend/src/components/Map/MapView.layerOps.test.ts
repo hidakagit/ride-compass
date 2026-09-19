@@ -14,7 +14,12 @@ import {
 } from "@/components/Map/axisLayers";
 import { dedicatedWayValueOpacityExpression } from "@/components/Map/dedicatedWayValueLayer";
 import { FALLBACK_LINE_OPACITY, KNOWN_LINE_OPACITY } from "@/components/Map/roadFilterAxes";
-import { tileVersionGatedLayerIds } from "@/components/Map/mapLayers";
+import { buildMapLayers, tileVersionGatedLayerIds } from "@/components/Map/mapLayers";
+
+// このファイルのテストが使うレイヤーカタログ。重なり順の正本（mapLayers.ts:
+// MapLayerPaintTier）をここから引く。
+const CATALOG = buildMapLayers(RAMP_AXES, DEDICATED_WAY_VALUE_AXES);
+
 import {
   DEFAULT_ROAD_LINE_WIDTH,
   DESIGNATION_LAYER_ID,
@@ -33,7 +38,6 @@ import {
   applyInspectedWay,
   applyRoadMaterialTrackOffsets,
   buildAxisOverlayLayers,
-  buildLayerDataSources,
   buildStaticOverlayLayers,
   TILE_VERSION_GATED_SOURCE_IDS,
   clearRoadTileFeatureState,
@@ -398,7 +402,7 @@ describe("applyAxisFeatureStateValues（改善計画T490）", () => {
 describe("buildStaticOverlayLayers（windAxis/gradientAxisのensureが既存レイヤーの色式を再適用する、T587）", () => {
   it("windAxisレイヤーが既に存在する場合、dedicatedWayValueDisplaysの変更をline-colorへ再適用する", () => {
     const map = fakeMap();
-    const windEntry = buildStaticOverlayLayers([], DEDICATED_WAY_VALUE_AXES, undefined).find(
+    const windEntry = buildStaticOverlayLayers(CATALOG, [], DEDICATED_WAY_VALUE_AXES, undefined).find(
       (l) => l.key === "windAxis",
     )!;
     // 1回目: axisCatalogのフェッチ未完了を想定（boundaries未設定）でレイヤーを新規作成する。
@@ -410,6 +414,7 @@ describe("buildStaticOverlayLayers（windAxis/gradientAxisのensureが既存レ�
     // のuseMemo再計算→effect再実行で起きる）。既存レイヤーがあってもsetPaintPropertyで
     // line-colorが更新されなければならない。
     const windEntryAfter = buildStaticOverlayLayers(
+      CATALOG,
       [],
       DEDICATED_WAY_VALUE_AXES,
       new Map([["wind", { kind: "difficulty" as const, unit: "", boundaries: [10, 20, 30, 40, 50] }]]),
@@ -422,7 +427,7 @@ describe("buildStaticOverlayLayers（windAxis/gradientAxisのensureが既存レ�
 
   it("値を受け取れなかった道を薄くするline-opacityが、実際にpaintへ届く（T954）", () => {
     const map = fakeMap();
-    const entry = buildStaticOverlayLayers([], DEDICATED_WAY_VALUE_AXES, undefined).find(
+    const entry = buildStaticOverlayLayers(CATALOG, [], DEDICATED_WAY_VALUE_AXES, undefined).find(
       (l) => l.key === "gradientAxis",
     )!;
 
@@ -441,6 +446,7 @@ describe("buildStaticOverlayLayers（windAxis/gradientAxisのensureが既存レ�
   it("取得中から取得完了へ変わると、line-opacityも既存レイヤーへ再適用される（T954）", () => {
     const map = fakeMap();
     const loading = buildStaticOverlayLayers(
+      CATALOG,
       [],
       DEDICATED_WAY_VALUE_AXES,
       undefined,
@@ -450,6 +456,7 @@ describe("buildStaticOverlayLayers（windAxis/gradientAxisのensureが既存レ�
     loading.ensure(map as unknown as Parameters<typeof loading.ensure>[0]);
 
     const settled = buildStaticOverlayLayers(
+      CATALOG,
       [],
       DEDICATED_WAY_VALUE_AXES,
       undefined,
@@ -465,10 +472,11 @@ describe("buildStaticOverlayLayers（windAxis/gradientAxisのensureが既存レ�
 
   it("凡例で非表示にした段階は、色式のその段階だけが透明になる（filterでは絞り込めないため）", () => {
     const display = new Map([["gradient", { kind: "signed_material" as const, unit: "%", boundaries: [-1, 1] }]]);
-    const visible = buildStaticOverlayLayers([], DEDICATED_WAY_VALUE_AXES, display, undefined, undefined).find(
+    const visible = buildStaticOverlayLayers(CATALOG, [], DEDICATED_WAY_VALUE_AXES, display, undefined, undefined).find(
       (l) => l.key === "gradientAxis",
     )!;
     const hidden = buildStaticOverlayLayers(
+      CATALOG,
       [],
       DEDICATED_WAY_VALUE_AXES,
       display,
@@ -489,12 +497,13 @@ describe("buildStaticOverlayLayers（windAxis/gradientAxisのensureが既存レ�
 
   it("gradientAxisレイヤーが既に存在する場合も、boundariesの変更を再適用する", () => {
     const map = fakeMap();
-    const before = buildStaticOverlayLayers([], DEDICATED_WAY_VALUE_AXES, undefined);
+    const before = buildStaticOverlayLayers(CATALOG, [], DEDICATED_WAY_VALUE_AXES, undefined);
     const gradientAxisEntry = before.find((l) => l.key === "gradientAxis")!;
     gradientAxisEntry.ensure(map as unknown as Parameters<typeof gradientAxisEntry.ensure>[0]);
     expect(map.layers.has(gradientAxisEntry.layerId)).toBe(true);
 
     const after = buildStaticOverlayLayers(
+      CATALOG,
       [],
       DEDICATED_WAY_VALUE_AXES,
       new Map([["gradient", { kind: "signed_material" as const, unit: "%", boundaries: [-10, -5, 0, 5, 10] }]]),
@@ -510,6 +519,7 @@ describe("buildStaticOverlayLayers（windAxis/gradientAxisのensureが既存レ�
   it("dedicatedWayValueLoadingの変更（フェッチ開始/完了）もwindAxis/gradientAxisのline-colorへ再適用する（改善計画T607）", () => {
     const map = fakeMap();
     const before = buildStaticOverlayLayers(
+      CATALOG,
       [],
       DEDICATED_WAY_VALUE_AXES,
       undefined,
@@ -524,6 +534,7 @@ describe("buildStaticOverlayLayers（windAxis/gradientAxisのensureが既存レ�
     gradientAxisEntry.ensure(map as unknown as Parameters<typeof gradientAxisEntry.ensure>[0]);
 
     const after = buildStaticOverlayLayers(
+      CATALOG,
       [],
       DEDICATED_WAY_VALUE_AXES,
       undefined,
@@ -628,7 +639,8 @@ describe("ensureLayerFromSpec（既存レイヤーへspecの全設定を再適�
   // T587は色式の再適用だけを直したため、filter・layoutが初回の値で固定される取り残しが
   // 残っていた。ensure系がspecを組み立ててこの1関数へ渡す形にすることで、
   // 「色は追随するのに間引き条件とサイズ曲線だけ古い」という片側の取り残しが起きない。
-  const attributeEntry = () => buildStaticOverlayLayers([], [], undefined).find((l) => l.key === "designation")!;
+  const attributeEntry = () =>
+    buildStaticOverlayLayers(CATALOG, [], [], undefined).find((l) => l.key === "designation")!;
 
   it("既存レイヤーにはpaintだけでなくlayout・filterも再適用する", () => {
     const map = fakeMap();
@@ -794,7 +806,7 @@ describe("ensureTerrainHillshadeLayer（起伏）", () => {
   it("raster-demソースとhillshadeレイヤーを作り、共通の濃さを影・光の色へ載せる", () => {
     const map = fakeMap();
 
-    const entry = buildStaticOverlayLayers([], []).find((layer) => layer.key === "hillshade");
+    const entry = buildStaticOverlayLayers(CATALOG, [], []).find((layer) => layer.key === "hillshade");
     entry?.ensure(map as unknown as Parameters<typeof ensureLayerFromSpec>[0]);
 
     const spec = map.addedSpecs.find((s) => s.id === entry?.layerId) as
@@ -810,7 +822,7 @@ describe("ensureTerrainHillshadeLayer（起伏）", () => {
   it("平坦な所を塗らず、緩い斜面でも読める計算方法を指定する", () => {
     const map = fakeMap();
 
-    const entry = buildStaticOverlayLayers([], []).find((layer) => layer.key === "hillshade");
+    const entry = buildStaticOverlayLayers(CATALOG, [], []).find((layer) => layer.key === "hillshade");
     entry?.ensure(map as unknown as Parameters<typeof ensureLayerFromSpec>[0]);
 
     const spec = map.addedSpecs.find((s) => s.id === entry?.layerId);
@@ -823,7 +835,7 @@ describe("ensureTerrainHillshadeLayer（起伏）", () => {
   it("標高を垂直方向へ強調して読むcustom encodingのソースを作る", () => {
     const map = fakeMap();
 
-    const entry = buildStaticOverlayLayers([], []).find((layer) => layer.key === "hillshade");
+    const entry = buildStaticOverlayLayers(CATALOG, [], []).find((layer) => layer.key === "hillshade");
     entry?.ensure(map as unknown as Parameters<typeof ensureLayerFromSpec>[0]);
 
     const source = map.addedSources.find((added) => added.spec.type === "raster-dem")?.spec as
@@ -890,7 +902,7 @@ describe("タイル世代が届いていないとき", () => {
     setTileVersions({});
     const map = fakeMap();
 
-    for (const entry of buildStaticOverlayLayers([], DEDICATED_WAY_VALUE_AXES, undefined)) {
+    for (const entry of buildStaticOverlayLayers(CATALOG, [], DEDICATED_WAY_VALUE_AXES, undefined)) {
       entry.ensure(map as unknown as Parameters<typeof entry.ensure>[0]);
     }
 
@@ -900,7 +912,7 @@ describe("タイル世代が届いていないとき", () => {
   it("世代が届いた後に同じ呼び出しを繰り返すと作られる", () => {
     setTileVersions({});
     const map = fakeMap();
-    const entries = buildStaticOverlayLayers([], DEDICATED_WAY_VALUE_AXES, undefined);
+    const entries = buildStaticOverlayLayers(CATALOG, [], DEDICATED_WAY_VALUE_AXES, undefined);
     for (const entry of entries) entry.ensure(map as unknown as Parameters<typeof entry.ensure>[0]);
 
     setTileVersions({ road_surface: "1-test", poi: "1-test", accident: "1-test" });
@@ -914,7 +926,7 @@ describe("タイル世代が届いていないとき", () => {
     setTileVersions({});
     const map = fakeMap();
 
-    for (const entry of buildStaticOverlayLayers([], DEDICATED_WAY_VALUE_AXES, undefined)) {
+    for (const entry of buildStaticOverlayLayers(CATALOG, [], DEDICATED_WAY_VALUE_AXES, undefined)) {
       entry.ensure(map as unknown as Parameters<typeof entry.ensure>[0]);
     }
 
@@ -923,17 +935,6 @@ describe("タイル世代が届いていないとき", () => {
 });
 
 describe("tileVersionGatedLayerIds（世代が無いと何も描けないレイヤー）", () => {
-  // 宣言は2箇所にある——どのソースが世代を要るか（MapView）と、どのチップに理由を出すか
-  // （mapLayersの記述子）。**ずれると、描けていないのにチップが黙る**。
-  it("チップ側の宣言が、世代を要るソースを使うレイヤーと一致する", () => {
-    const gated = new Set(TILE_VERSION_GATED_SOURCE_IDS);
-    const fromSources = buildLayerDataSources(RAMP_AXES)
-      .filter((source) => gated.has(source.sourceId))
-      .map((source) => source.key);
-
-    expect([...tileVersionGatedLayerIds(RAMP_AXES)].sort()).toEqual([...new Set(fromSources)].sort());
-  });
-
   it("路面タイルを共有するレイヤーを含み、別系統のラスタは含まない", () => {
     const ids = tileVersionGatedLayerIds(RAMP_AXES);
 
