@@ -185,10 +185,14 @@ describe("stretchAlternativeGroups", () => {
   const base = ["s", "a1", "a2", "m", "a3", "e"];
 
   it("候補ごとの差分を、元の区間ごとにまとめる", () => {
-    const groups = stretchAlternativeGroups(base, [
-      { id: "c1", edgeIds: ["s", "b1", "m", "a3", "e"] },
-      { id: "c2", edgeIds: ["s", "a1", "a2", "m", "c3", "e"] },
-    ]);
+    const groups = stretchAlternativeGroups(
+      base,
+      [
+        { id: "c1", edgeIds: ["s", "b1", "m", "a3", "e"] },
+        { id: "c2", edgeIds: ["s", "a1", "a2", "m", "c3", "e"] },
+      ],
+      { minSplitLengthKm: 0 },
+    );
 
     expect(groups).toHaveLength(2);
     expect(groups[0].stretch).toEqual({ start: 1, end: 3 });
@@ -199,10 +203,14 @@ describe("stretchAlternativeGroups", () => {
   });
 
   it("同じ区間の別の道は同じグループへ入り、選べる代替として並ぶ", () => {
-    const groups = stretchAlternativeGroups(base, [
-      { id: "c1", edgeIds: ["s", "b1", "m", "a3", "e"] },
-      { id: "c2", edgeIds: ["s", "x1", "x2", "m", "a3", "e"] },
-    ]);
+    const groups = stretchAlternativeGroups(
+      base,
+      [
+        { id: "c1", edgeIds: ["s", "b1", "m", "a3", "e"] },
+        { id: "c2", edgeIds: ["s", "x1", "x2", "m", "a3", "e"] },
+      ],
+      { minSplitLengthKm: 0 },
+    );
 
     expect(groups).toHaveLength(1);
     expect(groups[0].options.map((o) => o.candidateId)).toEqual(["c1", "c2"]);
@@ -210,10 +218,14 @@ describe("stretchAlternativeGroups", () => {
   });
 
   it("同じ区間を同じ道へ差し替える代替は1つにまとめる", () => {
-    const groups = stretchAlternativeGroups(base, [
-      { id: "c1", edgeIds: ["s", "b1", "m", "a3", "e"] },
-      { id: "c2", edgeIds: ["s", "b1", "m", "a3", "e"] },
-    ]);
+    const groups = stretchAlternativeGroups(
+      base,
+      [
+        { id: "c1", edgeIds: ["s", "b1", "m", "a3", "e"] },
+        { id: "c2", edgeIds: ["s", "b1", "m", "a3", "e"] },
+      ],
+      { minSplitLengthKm: 0 },
+    );
 
     expect(groups).toHaveLength(1);
     expect(groups[0].options).toHaveLength(1);
@@ -226,6 +238,7 @@ describe("stretchAlternativeGroups", () => {
         { id: "c1", edgeIds: ["s", "b1", "a3", "e"] },
         { id: "c2", edgeIds: ["s", "a1", "c1", "e"] },
       ],
+      { minSplitLengthKm: 0 },
     );
 
     expect(groups).toHaveLength(1);
@@ -283,7 +296,9 @@ describe("splitPairedStretch", () => {
   });
 
   it("座標を持たない候補では割らない（グループの作りは従来どおり）", () => {
-    const groups = stretchAlternativeGroups(["s", "a1", "a2", "e"], [{ id: "c1", edgeIds: ["s", "b1", "b2", "e"] }]);
+    const groups = stretchAlternativeGroups(["s", "a1", "a2", "e"], [{ id: "c1", edgeIds: ["s", "b1", "b2", "e"] }], {
+      minSplitLengthKm: 0,
+    });
 
     expect(groups).toHaveLength(1);
     expect(groups[0].stretch).toEqual({ start: 1, end: 3 });
@@ -440,7 +455,9 @@ describe("buildSplicedShape", () => {
 describe("spliceEdgeIdsFromAlternatives", () => {
   it("選んだ代替を差し替える（後ろから適用するので位置がずれない）", () => {
     const base = ["s", "a1", "m", "a2", "e"];
-    const groups = stretchAlternativeGroups(base, [{ id: "c1", edgeIds: ["s", "b1", "m", "b2", "e"] }]);
+    const groups = stretchAlternativeGroups(base, [{ id: "c1", edgeIds: ["s", "b1", "m", "b2", "e"] }], {
+      minSplitLengthKm: 0,
+    });
     const chosen = groups.map((group) => group.options[0]);
 
     expect(spliceEdgeIdsFromAlternatives(base, chosen)).toEqual(["s", "b1", "m", "b2", "e"]);

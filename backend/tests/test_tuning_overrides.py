@@ -4,13 +4,17 @@
 壊れた行の扱いが2通りに分かれること（宣言から消えたidは無視、範囲の外は落とす）を固定する。
 """
 
+from datetime import UTC, datetime
+
 import pytest
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.domain import tuning
 from app.domain.tuning import TUNING_PARAMETERS, TUNING_PARAMETERS_BY_ID
 from app.infrastructure.tuning_overrides import (
     TuningOverrideError,
+    TuningOverrideRow,
     clear_override,
     merge_overrides,
     read_overrides,
@@ -98,3 +102,33 @@ async def test_an_empty_table_leaves_every_declared_default(road_graph_session: 
 async def test_writing_an_undeclared_id_is_rejected(road_graph_session: AsyncSession):
     with pytest.raises(TuningOverrideError):
         await set_override(road_graph_session, "turn.no_such_value", 1.0)
+
+
+@pytest.mark.asyncio(loop_scope="module")
+@pytest.mark.xdist_group(name="postgis")
+@pytest.mark.postgis
+async def test_the_row_records_when_it_was_changed(road_graph_session: AsyncSession):
+    """`updated_at`が実際のDBに在って、書いた行へ値が入る。
+
+    この列はmigration 0043が`CREATE TABLE`で宣言していたのにORMが持っておらず、
+    fresh bootstrap（`create_tables()`→`apply_pending_migrations()`）で作ったDBには
+    存在しなかった。**同じコードが環境によって違うスキーマの上で動く**状態で、
+    この行を読む経路を通らない限り気づけない。
+    """
+    default = TUNING_PARAMETERS_BY_ID[_PARAM].default
+    before = datetime.now(UTC)
+    try:
+        await set_override(road_graph_session, _PARAM, default + 3.0)
+        await road_graph_session.commit()
+
+        row = (
+            await road_graph_session.execute(
+                select(TuningOverrideRow).where(TuningOverrideRow.param_id == _PARAM)
+            )
+        ).scalar_one()
+
+        assert row.updated_at >= before
+    finally:
+        await clear_override(road_graph_session, _PARAM)
+        await road_graph_session.commit()
+        await refresh_tuning_values(road_graph_session)

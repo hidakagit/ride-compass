@@ -77,7 +77,7 @@ import { RISK_LEVEL_COLORS } from "@/components/Map/riskMap";
 import { useDynamicWeatherLayers } from "@/hooks/useDynamicWeatherLayers";
 import { dedicatedWayValuesFor, useDedicatedWayValues } from "@/hooks/useDedicatedWayValues";
 import { useWeatherConditions } from "@/hooks/useWeatherConditions";
-import { useAxisCatalog } from "@/hooks/useAxisCatalog";
+import { CLIENT_TUNING_IDS, clientTuningValue, useAxisCatalog } from "@/hooks/useAxisCatalog";
 import { useTileVersionsReady } from "@/hooks/useTileVersionsReady";
 import { useMaterialCatalog } from "@/hooks/useMaterialCatalog";
 import { syncHardFilterKeys } from "@/lib/hardFilterSync";
@@ -768,18 +768,21 @@ export default function Home() {
       shapeOf,
     );
   }, [editingRoute, appliedAlternatives, candidateShapes]);
+  // 区間を割る下限（km）。**引けないときは乗り換えの候補を作らない**——ここで既定を
+  // 作ると、較正したのとは別の切り方（下限なし＝共有地点すべてで割る）で黙って動く。
+  const minStretchKm = clientTuningValue(axisCatalog, CLIENT_TUNING_IDS.minStretchKm);
   const spliceGroups = useMemo(
     () =>
-      splicedShape
+      splicedShape && minStretchKm !== undefined
         ? stretchAlternativeGroups(
             splicedShape.edgeIds,
             candidateShapes.filter((item) => item.id !== editingRouteId),
             // 座標まで渡すと、2本が交差・接触する地点でも区間を割れる（Edge idの一致だけでは
             // 1本の長い区間になり、他候補1本との丸ごと入れ替えにしかならない）。
-            { baseShape: splicedShape, minSplitLengthKm: axisCatalog.clientTuning["splice.min_stretch_km"] },
+            { baseShape: splicedShape, minSplitLengthKm: minStretchKm },
           )
         : [],
-    [splicedShape, candidateShapes, editingRouteId, axisCatalog.clientTuning],
+    [splicedShape, candidateShapes, editingRouteId, minStretchKm],
   );
   // 地図へ渡す帯は相手側の形。まだ選んでいない道を破線で示す（適用済みの道はいまの経路の
   // 一部になるため、帯としては出ない）。indexは「グループの位置と選択肢の位置」を1つの数に

@@ -18,8 +18,9 @@
 
 import logging
 import math
+from datetime import datetime
 
-from sqlalchemy import Float, String, delete, select
+from sqlalchemy import DateTime, Float, String, delete, func, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.exc import ProgrammingError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -29,6 +30,9 @@ from app.domain.tuning import TUNING_PARAMETERS, TUNING_PARAMETERS_BY_ID, TUNING
 from app.infrastructure.road_graph_models import Base
 
 logger = logging.getLogger("ridecompass.tuning")
+
+#: PostgreSQLの「その表は無い」（undefined_table）。`read_overrides`が受け止める唯一の失敗。
+_UNDEFINED_TABLE = "42P01"
 
 
 class TuningOverrideError(RuntimeError):
@@ -40,6 +44,10 @@ class TuningOverrideRow(Base):
 
     param_id: Mapped[str] = mapped_column(String, primary_key=True)
     value: Mapped[float] = mapped_column(Float, nullable=False)
+    #: いつこの値へ動かしたか。書き込み側は値を渡さずDB側の既定（`now()`）に任せる
+    #: ——アプリのプロセスの時計ではなくDBの時計で揃える。
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now())
 
 
 def merge_overrides(overrides: dict[str, float]) -> dict[str, float]:
@@ -73,10 +81,16 @@ async def read_overrides(session: AsyncSession) -> dict[str, float]:
     繋いだ開発・検証環境）。既定値の唯一の正本は宣言の側で、このテーブルは差分を持つだけの
     ため、無い状態と空の状態は同じ意味になる。上書きを**書く**側は同じようには倒れない
     （テーブルが無ければ書き込みがそのまま失敗する）。
+
+    **受け止めるのは「表が無い」だけ**（SQLSTATE 42P01）。列が足りない・型が合わない等も
+    まとめて飲み込むと、**表はあるのに上書きが全件無視されて既定値へ戻る**——利用者からは
+    較正した覚えの無い挙動に見え、ログを読むまで気づけない。
     """
     try:
         rows = (await session.execute(select(TuningOverrideRow))).scalars().all()
-    except ProgrammingError:
+    except ProgrammingError as error:
+        if getattr(getattr(error, "orig", None), "sqlstate", None) != _UNDEFINED_TABLE:
+            raise
         await session.rollback()
         logger.warning("較正値の上書きのテーブルがありません（宣言の既定値で動きます）")
         return {}
