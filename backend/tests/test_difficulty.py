@@ -6,7 +6,6 @@ from app.domain.difficulty import (
     difficulty_load,
     distance_weighted_difficulty,
     distance_weighted_difficulty_array,
-    evaluate_axis_difficulties,
 )
 
 # 改善計画T350: 本ファイルはevaluate_axis_scalarの折れ点補間そのものが検証対象
@@ -235,53 +234,8 @@ def test_accident_axis_missing_material_is_none():
     assert evaluate_axis_scalar(AXIS_DEFINITIONS["accident"], {}) is None
 
 
-def test_evaluate_axis_difficulties_returns_all_seven_axes_and_composite():
-    # 改善計画T221 Stage B: 材料値の辞書＋axis_idキーの重み辞書を渡す形
-    # （domain/axis_definitions.py: AXIS_DEFINITIONS参照）。
-    weights = {axis_id: 1.0 for axis_id in
-               ("gradient", "wind", "surface_q", "stop_density", "car_stress", "accident", "night")}
-    materials = {
-        "gradient_percent": 6.0,
-        "wind_drag_ratio": 4.0,
-        "surface_good": True,
-        "poi_signal_per_km": 2.0,
-        # 改善計画T292: car_stressは内部軸4つ+公開軸1つの階層構造になったため、
-        # 単一のcar_stress_level材料ではなくhighwayを渡す（highway基準値=2、
-        # 他の補正材料[maxspeed_kmh/lanes_count/is_designated/motor_vehicle_no]は
-        # 省略=補正なしのため、breakpoints(0,0)-(4,100)で(2-0)/4*100=50.0になる。
-        # 改善計画T353: 自転車インフラ調整[旧bicycle_infra]はcar_stressから排除し
-        # bicycle_infra_quality公開軸専用になったため、この計算には登場しない）。
-        "highway": "residential",
-        "accident_count_per_km_year": 0.25,
-        "lit": True,
-        "has_tunnel": False,
-    }
-    result = evaluate_axis_difficulties(materials, weights)
-
-    assert result.axes["gradient"] == evaluate_axis_scalar(
-        AXIS_DEFINITIONS["gradient"], materials
-    )
-    assert result.axes["wind"] == evaluate_axis_scalar(AXIS_DEFINITIONS["wind"], materials)
-    assert result.axes["surface_q"] == evaluate_axis_scalar(AXIS_DEFINITIONS["surface_q"], materials)
-    assert result.axes["stop_density"] == evaluate_axis_scalar(
-        AXIS_DEFINITIONS["stop_density"], materials
-    )
-    assert result.axes["car_stress"] == 50.0
-    assert result.axes["accident"] == evaluate_axis_scalar(AXIS_DEFINITIONS["accident"], materials)
-    assert result.axes["night"] == evaluate_axis_scalar(AXIS_DEFINITIONS["night"], materials)
-    assert result.composite is not None
 
 
-def test_evaluate_axis_difficulties_all_none_inputs_yield_none_composite():
-    # 改善計画T347: bicycle_infra_qualityが公開軸として加わった。
-    weights = {axis_id: 1.0 for axis_id in
-               ("gradient", "wind", "surface_q", "stop_density", "car_stress", "accident", "night",
-                "bicycle_infra_quality", "openness")}
-    result = evaluate_axis_difficulties({}, weights)
-
-    assert all(value is None for value in result.axes.values())
-    assert set(result.axes.keys()) == set(weights.keys())
-    assert result.composite is None
 
 
 def test_difficulty_load_grows_with_distance():

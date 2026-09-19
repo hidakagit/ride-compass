@@ -6,7 +6,7 @@ build_static_edge_score_matrix`の結果（`StaticEdgeScoreMatrix`）をここ�
 一切行わずこの行列から配列演算でコストを合成できる（本行列はEdgeあたり公開軸の
 数×8バイト程度で収まる）。
 
-**`infrastructure/graph_material_cache.py`（`EdgeMaterialBundle`等の材料そのもの）とは
+**`infrastructure/graph_material_cache.py`（材料そのもの）とは
 意図的に別のキャッシュとして持つ**。軸スタジオでの軸定義編集（`AxisRegistryAdminService`
 経由の`refresh_axis_definitions`）はこちらだけを`clear()`し、材料キャッシュ（DBアクセスを
 伴う取得）は温存する——軸編集直後の最初のリクエストがDBへ再問い合わせせずに済み、

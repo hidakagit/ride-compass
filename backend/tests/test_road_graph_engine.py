@@ -14,14 +14,14 @@ import logging
 import numpy as np
 import pytest
 
-from tests.material_arrays_scaffold import empty_material_arrays, material_arrays_from_bundles
-from app.domain.attributes import EdgeAttributeCounts, EdgeMaterialBundle, ElevationAttribute, SearchMaterials
+from app.domain.traffic import POI_COUNT_KINDS
+from tests.material_arrays import material_arrays
+from app.domain.attributes import EdgeAttributeCounts, EdgeMaterialArrays, ElevationAttribute, SearchMaterials
 from app.domain.errors import RoutingError
 from app.domain import routing
 from app.domain.evaluation import build_static_edge_score_matrix
 from app.domain.hard_filters import compute_hard_filter_excluded
 from app.domain.route_preference import RoutePreference
-from tests.metrics_fixtures import edge_metrics
 from app.domain.geo import bearing_between, compass_label, haversine_distance_km
 from app.domain.graph import DirectedEdge, LeanEdge, Node, RoadGraph
 from app.domain.route import Coordinates, RouteCandidate, RouteSegmentDetail
@@ -154,7 +154,7 @@ class FakeGraphService:
         graph: RoadGraph | None,
         surface_attributes: dict | None = None,
         stop_data_available: bool = True,
-        way_tags: dict | None = None,
+        materials: dict | None = None,
         intersection_counts: dict | None = None,
         accident_counts: dict | None = None,
         accident_years_covered: int = 0,
@@ -171,7 +171,8 @@ class FakeGraphService:
         # get_search_materials_for_bboxの戻り値3つ目に使う。
         self._tile_set = tile_set
         self._surface_attributes = surface_attributes or {}
-        self._way_tags = way_tags or {}
+        # 区間id→(材料id→値)。DBが導出した材料（`MaterialSpec.value_sql`）の形で渡す。
+        self._materials = materials or {}
         self._intersection_counts = intersection_counts or {}
         # 停止要因POIの種別別カウント（停止密度軸が読むのはこちら）。
         # 未指定のedge_idは空辞書＝「集計済みで0件」を返す（Noneの「未集計」とは別）。
@@ -224,23 +225,18 @@ class FakeGraphService:
             return None
         graph, surface_attributes = built
         edge_ids = list(graph.edges.keys())
-        edge_attribute_counts = await self.get_edge_attribute_counts(edge_ids)
-        way_tags = await self.get_way_tags(edge_ids)
         elevation_attributes = await self.get_elevation_attributes(edge_ids)
-        designated_edge_ids = await self.get_designated_edge_ids(edge_ids)
-        materials = {
-            edge_id: EdgeMaterialBundle(
-                surface=surface_attributes.get(edge_id),
-                way_tags=way_tags.get(edge_id, {}),
-                attribute_counts=edge_attribute_counts.get(edge_id),
-                elevation_attribute=elevation_attributes.get(edge_id),
-                is_designated=edge_id in designated_edge_ids,
-            )
-            for edge_id in edge_ids
-        }
-        arrays = material_arrays_from_bundles(
-            graph, edge_ids, materials, self._accident_years_covered
+        # 停止要因POIの集計行があるかを材料の形で表す（SQLの`c.poi_counts IS NOT NULL`と
+        # 同じ区別——行があれば0件でも0.0、行が無ければ欠損）。
+        aggregated = (
+            {f"poi_{kind}_per_km": 0.0 for kind in POI_COUNT_KINDS}
+            if self._stop_data_available
+            else {}
         )
+        materials = {
+            edge_id: {**aggregated, **self._materials.get(edge_id, {})} for edge_id in edge_ids
+        }
+        arrays = material_arrays(graph, edge_ids, materials, elevation=elevation_attributes)
         score_matrix = build_static_edge_score_matrix(graph, arrays, self._accident_years_covered)
         return SearchMaterials(graph=graph, materials=arrays), score_matrix, self._tile_set
 
@@ -268,11 +264,6 @@ class FakeGraphService:
             )
             for edge_id in edge_ids
         }
-
-    async def get_way_tags(self, edge_ids):
-        # 静的道路属性P1残り。既定は{}（未設定時は「repository未注入」相当で既存
-        # アサーションに影響しない）。way_tagsに指定されたedge_idのみ実値を返す。
-        return {edge_id: self._way_tags[edge_id] for edge_id in edge_ids if edge_id in self._way_tags}
 
     async def get_accident_years_covered(self):
         return self._accident_years_covered
@@ -319,7 +310,7 @@ def make_generator(
     elevation_attributes: dict | None = None,
     surface_attributes: dict | None = None,
     stop_data_available: bool = True,
-    way_tags: dict | None = None,
+    materials: dict | None = None,
     intersection_counts: dict | None = None,
     accident_counts: dict | None = None,
     accident_years_covered: int = 0,
@@ -338,7 +329,7 @@ def make_generator(
     poi_counts: dict | None = None,
 ) -> tuple[RouteGenerator, FakeGraphService, FakeElevationAttributeService]:
     graph_service = FakeGraphService(
-        graph, surface_attributes, stop_data_available, way_tags, intersection_counts,
+        graph, surface_attributes, stop_data_available, materials, intersection_counts,
         accident_counts, accident_years_covered, designated_edge_ids, elevation_attributes_for_search,
         edges_with_geometry, tile_set, poi_counts,
     )
@@ -660,7 +651,7 @@ async def test_turnarounds_are_ranked_by_outbound_axis_difficulty():
                  "car_stress": 0.0, "accident": 0.0, "night": 0.0, "bicycle_infra_quality": 1.0}
     )
     generator, _, _ = make_generator(
-        graph, way_tags={"e-90-spoke1": {"cycleway": "track"}}, route_preference=preference,
+        graph, materials={"e-90-spoke1": {"cycleway_has_track": True}}, route_preference=preference,
     )
     engine = generator._engine
     context = await _prepare_context(generator)
@@ -860,7 +851,7 @@ async def test_elevation_attribute_service_is_queried_only_with_path_edges_not_w
 
 async def test_elevation_attribute_service_is_not_queried_when_materials_already_has_precomputed_data():
     # 改善計画T522派生（評価ロジックの入口〜出口見直し）: context.materials
-    # （探索フェーズで既に取得済みのEdgeMaterialBundle）が経路上の全Edgeの標高を
+    # （探索フェーズで既に取得済みの材料）が経路上の全Edgeの標高を
     # 既に持っていれば、ElevationAttributeServiceへは一切問い合わせない
     # （同じelevation_attributesテーブルを候補確定後にもう一度読み直す重複DB往復の解消）。
     graph = build_loop_graph(ORIGIN, distance_km=30.0)
@@ -925,8 +916,11 @@ async def test_elevation_is_not_fetched_for_candidates_rejected_by_distance_filt
 async def test_candidate_aggregates_surface_axis_from_path_edges():
     graph = build_loop_graph(ORIGIN, distance_km=30.0)
     edge_ids = sorted(eid for eid in graph.edges if eid.startswith("e-0-"))
-    surface_attributes = {edge_ids[0]: "asphalt", edge_ids[1]: "gravel"}
-    generator, _, _ = make_generator(graph, surface_attributes=surface_attributes)
+    materials = {
+        edge_ids[0]: {"surface": "asphalt", "surface_good": True},
+        edge_ids[1]: {"surface": "gravel", "surface_good": False},
+    }
+    generator, _, _ = make_generator(graph, materials=materials)
 
     candidates = await generator.generate_loops(ORIGIN, distance_km=30.0, distance_tolerance_km=10.0)
     candidate = _candidate_for_bearing(candidates, 0)
@@ -939,8 +933,10 @@ async def test_candidate_aggregates_stop_density_from_path_edges():
     graph = build_loop_graph(ORIGIN, distance_km=30.0)
     edge_ids = sorted(eid for eid in graph.edges if eid.startswith("e-0-"))
     # 停止密度が読むのは種別別のPOI密度（`poi_counts`）。
-    poi_counts = {edge_ids[0]: {"signal": 3}, f"{edge_ids[0]}-rev": {"signal": 3}}
-    generator, _, _ = make_generator(graph, poi_counts=poi_counts)
+    materials = {
+        edge_ids[0]: {"poi_signal_per_km": 3.0}, f"{edge_ids[0]}-rev": {"poi_signal_per_km": 3.0},
+    }
+    generator, _, _ = make_generator(graph, materials=materials)
 
     candidates = await generator.generate_loops(ORIGIN, distance_km=30.0, distance_tolerance_km=10.0)
     candidate = _candidate_for_bearing(candidates, 0)
@@ -978,8 +974,8 @@ async def test_candidate_reflects_bicycle_infra_from_way_tags():
     # 独立難易度軸（infra_difficulty）は廃止し車ストレス側へ統合済みのため、ここでは検証しない。
     graph = build_loop_graph(ORIGIN, distance_km=30.0)
     edge_ids = sorted(eid for eid in graph.edges if eid.startswith("e-0-"))
-    way_tags = {edge_ids[0]: {"cycleway": "track"}, f"{edge_ids[0]}-rev": {"cycleway": "track"}}
-    generator, _, _ = make_generator(graph, way_tags=way_tags)
+    way_tags = {edge_ids[0]: {"cycleway_has_track": True}, f"{edge_ids[0]}-rev": {"cycleway_has_track": True}}
+    generator, _, _ = make_generator(graph, materials=way_tags)
 
     candidates = await generator.generate_loops(ORIGIN, distance_km=30.0, distance_tolerance_km=10.0)
     candidate = _candidate_for_bearing(candidates, 0)
@@ -1000,8 +996,11 @@ async def test_intersection_density_does_not_contribute_to_stop_density():
     """
     graph = build_loop_graph(ORIGIN, distance_km=30.0)
     edge_ids = sorted(eid for eid in graph.edges if eid.startswith("e-0-"))
-    intersection_counts = {edge_ids[0]: 20, f"{edge_ids[0]}-rev": 20}
-    generator, _, _ = make_generator(graph, intersection_counts=intersection_counts)
+    materials = {
+        edge_ids[0]: {"intersection_count_per_km": 20.0},
+        f"{edge_ids[0]}-rev": {"intersection_count_per_km": 20.0},
+    }
+    generator, _, _ = make_generator(graph, materials=materials)
 
     candidates = await generator.generate_loops(ORIGIN, distance_km=30.0, distance_tolerance_km=10.0)
     candidate = _candidate_for_bearing(candidates, 0)
@@ -1016,8 +1015,11 @@ async def test_candidate_aggregates_accident_density_from_path_edges():
     # accident_years_coveredも指定する。
     graph = build_loop_graph(ORIGIN, distance_km=30.0)
     edge_ids = sorted(eid for eid in graph.edges if eid.startswith("e-0-"))
-    accident_counts = {edge_ids[0]: 2, f"{edge_ids[0]}-rev": 2}
-    generator, _, _ = make_generator(graph, accident_counts=accident_counts, accident_years_covered=2)
+    materials = {
+        edge_ids[0]: {"accident_count_per_km_year": 1.0},
+        f"{edge_ids[0]}-rev": {"accident_count_per_km_year": 1.0},
+    }
+    generator, _, _ = make_generator(graph, materials=materials, accident_years_covered=2)
 
     candidates = await generator.generate_loops(ORIGIN, distance_km=30.0, distance_tolerance_km=10.0)
     candidate = _candidate_for_bearing(candidates, 0)
@@ -1167,73 +1169,6 @@ async def test_engine_name_is_road_graph():
     assert generator.engine_name == "road_graph"
 
 
-async def test_build_segment_details_axis_difficulties_match_scalar_oracle():
-    # 改善計画T536: 区間表示（_build_segment_details）は、探索コスト算出時に
-    # StaticEdgeScoreMatrix経由でbbox全体ぶん合成済みの軸別スコア配列・合成difficulty
-    # 配列（context.axis_arrays/context.difficulty_array）からそのまま読む（探索と表示の
-    # 二重計算を解消、docs/tasks/T536.md参照）。以前（T143）は非キャッシュの
-    # compute_edge_axis_scoresを区間ごとに再計算しており、本テストはそれを呼ぶことだけを
-    # 検証していたが、T536でその呼び出し自体が無くなったため、代わりに
-    # _build_segment_detailsの出力が非キャッシュのスカラー版オラクル
-    # （compute_edge_axis_scores/compute_cost_from_axis_scores）とビット単位で一致する
-    # ことを確認する（T536完了条件「新方式が現行compute_edge_cost経路とビット単位で
-    # 一致する回帰テスト」の、区間表示レイヤーでの確認）。
-    from app.domain.evaluation import compute_cost_from_axis_scores, compute_edge_axis_scores
-
-    node_a = Node(node_id="a", latitude=ORIGIN.latitude, longitude=ORIGIN.longitude)
-    node_b = Node(node_id="b", latitude=ORIGIN.latitude + 0.01, longitude=ORIGIN.longitude)
-    coord_b = Coordinates(latitude=node_b.latitude, longitude=node_b.longitude)
-    edge = _edge("e1", "a", "b", ORIGIN, coord_b, highway="residential")
-    graph = RoadGraph(graph_version="test", nodes={"a": node_a, "b": node_b}, edges={"e1": edge})
-    way_tags = {"e1": {"highway": "residential", "lit": "yes", "surface": "gravel"}}
-    elevation_attr = ElevationAttribute(
-        edge_id="e1", average_grade=6.0, data_source="test", calculated_at="t"
-    )
-    counts = EdgeAttributeCounts(accident_count=1.0, intersection_count=2)
-    materials = {
-        "e1": EdgeMaterialBundle(
-            surface="gravel", way_tags=way_tags["e1"], attribute_counts=counts,
-            elevation_attribute=elevation_attr, is_designated=True,
-        )
-    }
-    weather = WeatherConditions(
-        temperature_c=20.0, wind_speed_ms=5.0, wind_direction_deg=90.0,
-        wind_direction_label="東", precipitation_mm=None, observed_at="t",
-        weather_code=None, is_day=None, sunrise=None, sunset=None,
-        precipitation_max_mm=None, wind_speed_max_ms=None,
-        temperature_max_c=None, temperature_min_c=None, today_periods=[],
-    )
-    preference = RoutePreference()
-
-    generator, _, _ = make_generator(None, route_preference=preference)
-    engine = generator._engine
-
-    context = road_graph_engine._RoadGraphContext(
-        graph=graph, materials=materials, accident_years_covered=5,
-        weather=weather, origin_node="a",
-        node_index=build_node_spatial_index(graph), night_active=False,
-        lazy_graph=None,
-        **_build_context_score_fields(
-            graph, materials, preference, weather=weather, night_active=False, accident_years_covered=5,
-        ),
-    )
-
-    segments = engine._build_segment_details([edge], {"e1": elevation_attr}, context, datetime.now(timezone.utc), [0])
-    assert len(segments) == 1
-    segment = segments[0]
-
-    oracle_axis_scores = compute_edge_axis_scores(
-        edge, elevation_attr, "gravel", weather=weather, way_tags=way_tags["e1"],
-        metrics=edge_metrics("e1", intersection=2, accident=1.0),
-        accident_years_covered=5, is_designated=True,
-        travel_speed_ms=kmh_to_ms(ASSUMED_SPEED_KMH),
-    )
-    _, oracle_difficulty = compute_cost_from_axis_scores(
-        edge.distance_m, oracle_axis_scores, preference.weights, 1.0
-    )
-
-    assert segment.axis_difficulties == oracle_axis_scores
-    assert segment.difficulty == oracle_difficulty
 
 
 # 改善計画T173: night軸の動的化（prepare実行時点の起点が市民薄明の外かどうかで、
@@ -1245,13 +1180,13 @@ async def test_prepare_applies_night_weight_when_origin_is_in_civil_twilight_dar
     coord_b = Coordinates(latitude=node_b.latitude, longitude=node_b.longitude)
     edge = _edge("e1", "a", "b", ORIGIN, coord_b, highway="residential")
     graph = RoadGraph(graph_version="test", nodes={"a": node_a, "b": node_b}, edges={"e1": edge})
-    # way_tags={}（litタグ無し）はnight_difficulty=50.0（test_night.py参照）。他の軸の重みを
+    # materials={}（litタグ無し）はnight_difficulty=50.0（test_night.py参照）。他の軸の重みを
     # 0にし、night重みだけが探索コストへ効くようにする（差分をnight軸だけに起因させる）。
     preference = RoutePreference(
         weights={"gradient": 0.0, "wind": 0.0, "surface_q": 0.0, "stop_density": 0.0,
                  "car_stress": 0.0, "accident": 0.0, "night": 1.0, "bicycle_infra_quality": 0.0}
     )
-    generator, _, _ = make_generator(graph, way_tags={"e1": {}}, route_preference=preference)
+    generator, _, _ = make_generator(graph, materials={"e1": {}}, route_preference=preference)
     engine = generator._engine
 
     # 東京、2024-06-21 12:00 JST（明らかに昼）= UTC 03:00
@@ -1293,7 +1228,7 @@ async def test_prepare_does_not_crash_when_night_axis_is_unpublished(monkeypatch
 
     preference = RoutePreference()
     assert "night" not in preference.weights  # night非公開のため既定値に含まれない前提の確認
-    generator, _, _ = make_generator(graph, way_tags={"e1": {}}, route_preference=preference)
+    generator, _, _ = make_generator(graph, materials={"e1": {}}, route_preference=preference)
     engine = generator._engine
 
     daytime = datetime(2024, 6, 21, 3, 0, tzinfo=timezone.utc)
@@ -1318,12 +1253,10 @@ async def test_search_cost_slows_down_on_gravel_even_when_the_surface_axis_is_of
     )
 
     paved_generator, _, _ = make_generator(
-        graph, way_tags={"e1": {}}, route_preference=preference,
-        surface_attributes={"e1": "asphalt"},
+        graph, materials={"e1": {"surface": "asphalt", "surface_good": True}}, route_preference=preference,
     )
     gravel_generator, _, _ = make_generator(
-        graph, way_tags={"e1": {}}, route_preference=preference,
-        surface_attributes={"e1": "gravel"},
+        graph, materials={"e1": {"surface": "gravel", "surface_good": False}}, route_preference=preference,
     )
     paved_context = await paved_generator._engine.prepare(ORIGIN, radius_km=1.0)
     gravel_context = await gravel_generator._engine.prepare(ORIGIN, radius_km=1.0)
@@ -1352,9 +1285,9 @@ async def test_search_cost_slows_down_on_a_climb_even_when_the_gradient_axis_is_
     )
     climb = ElevationAttribute(edge_id="e1", average_grade=8.0, data_source="test", calculated_at="t")
 
-    flat_generator, _, _ = make_generator(graph, way_tags={"e1": {}}, route_preference=preference)
+    flat_generator, _, _ = make_generator(graph, materials={"e1": {}}, route_preference=preference)
     climb_generator, _, _ = make_generator(
-        graph, way_tags={"e1": {}}, route_preference=preference,
+        graph, materials={"e1": {}}, route_preference=preference,
         elevation_attributes_for_search={"e1": climb},
     )
     flat_context = await flat_generator._engine.prepare(ORIGIN, radius_km=1.0)
@@ -1385,9 +1318,9 @@ async def test_prepare_applies_precomputed_gradient_to_search_cost():
         edge_id="e1", average_grade=10.0, data_source="test", calculated_at="t"
     )
 
-    flat_generator, _, _ = make_generator(graph, way_tags={"e1": {}}, route_preference=preference)
+    flat_generator, _, _ = make_generator(graph, materials={"e1": {}}, route_preference=preference)
     steep_generator, _, _ = make_generator(
-        graph, way_tags={"e1": {}}, route_preference=preference,
+        graph, materials={"e1": {}}, route_preference=preference,
         elevation_attributes_for_search={"e1": steep_climb},
     )
 
@@ -1427,7 +1360,7 @@ async def test_prepare_excludes_edge_exceeding_max_average_grade_percent_from_se
     steep_climb = ElevationAttribute(edge_id="e1", average_grade=15.0, data_source="test", calculated_at="t")
 
     generator, _, _ = make_generator(
-        graph, way_tags={"e1": {}, "e2": {}},
+        graph, materials={"e1": {}, "e2": {}},
         elevation_attributes_for_search={"e1": steep_climb},
         max_average_grade_percent=8.0,
     )
@@ -1460,7 +1393,7 @@ async def test_prepare_hard_filters_override_restricts_exclusion_to_specified_fi
     )
 
     generator, _, _ = make_generator(
-        graph, way_tags={"e1": {}, "e2": {}}, hard_filters=frozenset({"motorway"}),
+        graph, materials={"e1": {}, "e2": {}}, hard_filters=frozenset({"motorway"}),
     )
 
     context = await generator._engine.prepare(ORIGIN, radius_km=1.0)
@@ -1494,7 +1427,7 @@ async def test_prepare_snaps_origin_away_from_node_isolated_by_hard_constraint()
             "e_ok": _edge("e_ok", "b", "c", b_coord, c_coord, highway="residential"),
         },
     )
-    generator, _, _ = make_generator(graph, way_tags={"e_trunk": {}, "e_ok": {}})
+    generator, _, _ = make_generator(graph, materials={"e_trunk": {}, "e_ok": {}})
 
     context = await generator._engine.prepare(ORIGIN, radius_km=1.0)
 
@@ -1578,11 +1511,13 @@ async def test_select_fastest_route_avoids_gravel_because_it_is_actually_slower(
     # 舗装の遠回り（約20.9km）の方が早く着くなら、基準線は遠回りを選ぶ。軸の重みを使わない
     # ことと、実際に遅いことを無視することは別である。
     graph = build_destination_graph(ORIGIN, DESTINATION_20KM, offsets_km=[0.0, 3.0])
-    surface_attributes = {
-        "e-0-out": "gravel", "e-0-in": "gravel",
-        "e-1-out": "asphalt", "e-1-in": "asphalt",
+    materials = {
+        "e-0-out": {"surface": "gravel", "surface_good": False},
+        "e-0-in": {"surface": "gravel", "surface_good": False},
+        "e-1-out": {"surface": "asphalt", "surface_good": True},
+        "e-1-in": {"surface": "asphalt", "surface_good": True},
     }
-    generator, _, _ = make_generator(graph, surface_attributes=surface_attributes)
+    generator, _, _ = make_generator(graph, materials=materials)
     engine = generator._engine
     context = await _prepare_destination_context(generator, DESTINATION_20KM)
 
@@ -1950,7 +1885,7 @@ async def test_prepare_caches_empty_routable_index_when_hard_filter_excludes_all
     coord_b = Coordinates(latitude=node_b.latitude, longitude=node_b.longitude)
     edge = _edge("e1", "a", "b", ORIGIN, coord_b, highway="motorway")  # 既定Hard Constraintで除外
     graph = RoadGraph(graph_version="test", nodes={"a": node_a, "b": node_b}, edges={"e1": edge})
-    generator, _, _ = make_generator(graph, way_tags={"e1": {}}, tile_set=_TILE_SET_A)
+    generator, _, _ = make_generator(graph, materials={"e1": {}}, tile_set=_TILE_SET_A)
 
     build_index_calls = []
     original = road_graph_engine.build_node_spatial_index
@@ -2084,7 +2019,7 @@ async def test_preview_segment_builds_and_caches_search_statics():
         graph_version="test", nodes={"a": node_a, "b": node_b},
         edges={"e1": _edge("e1", "a", "b", coord_a, coord_b, highway="residential")},
     )
-    generator, _, _ = make_generator(graph, tile_set=_TILE_SET_A, way_tags={"e1": {"highway": "residential"}})
+    generator, _, _ = make_generator(graph, tile_set=_TILE_SET_A, materials={"e1": {"highway": "residential"}})
 
     segment = await generator._engine.preview_segment(coord_a, coord_b)
 
@@ -2108,7 +2043,7 @@ async def test_preview_segment_rebuilds_stale_lazy_graph_after_resplit():
         edges={"e1-v1": _edge("e1-v1", "a", "b", coord_a, coord_b, highway="residential")},
     )
     generator_v1, _, _ = make_generator(
-        graph_v1, tile_set=_TILE_SET_A, way_tags={"e1-v1": {"highway": "residential"}}
+        graph_v1, tile_set=_TILE_SET_A, materials={"e1-v1": {"highway": "residential"}}
     )
     first = await generator_v1._engine.preview_segment(coord_a, coord_b)
     assert first is not None
@@ -2121,7 +2056,7 @@ async def test_preview_segment_rebuilds_stale_lazy_graph_after_resplit():
         edges={"e1-v2": _edge("e1-v2", "a", "b", coord_a, coord_b, highway="residential")},
     )
     generator_v2, _, _ = make_generator(
-        graph_v2, tile_set=_TILE_SET_A, way_tags={"e1-v2": {"highway": "residential"}}
+        graph_v2, tile_set=_TILE_SET_A, materials={"e1-v2": {"highway": "residential"}}
     )
 
     second = await generator_v2._engine.preview_segment(coord_a, coord_b)
@@ -2138,7 +2073,7 @@ async def test_preview_segment_reuses_cached_node_index_across_calls(monkeypatch
     coord_b = Coordinates(latitude=node_b.latitude, longitude=node_b.longitude)
     edge = _edge("e1", "a", "b", coord_a, coord_b, highway="residential")
     graph = RoadGraph(graph_version="test", nodes={"a": node_a, "b": node_b}, edges={"e1": edge})
-    generator, _, _ = make_generator(graph, way_tags={"e1": {}}, tile_set=_TILE_SET_A)
+    generator, _, _ = make_generator(graph, materials={"e1": {}}, tile_set=_TILE_SET_A)
 
     build_index_calls = []
     original = road_graph_engine.build_node_spatial_index
@@ -2159,7 +2094,7 @@ async def test_preview_segment_reuses_cached_node_index_across_calls(monkeypatch
 
 def _build_context_score_fields(
     graph: RoadGraph,
-    materials: dict,
+    materials: EdgeMaterialArrays,
     preference: RoutePreference,
     *,
     weather: WeatherConditions | None = None,
@@ -2219,16 +2154,11 @@ async def test_build_segment_details_night_difficulty_follows_context_night_acti
         weights={"gradient": 0.0, "wind": 0.0, "surface_q": 0.0, "stop_density": 0.0,
                  "car_stress": 0.0, "accident": 0.0, "night": 1.0, "bicycle_infra_quality": 0.0}
     )
-    generator, _, _ = make_generator(None, way_tags=way_tags, route_preference=preference)
+    generator, _, _ = make_generator(None, materials=way_tags, route_preference=preference)
     engine = generator._engine
 
     base_graph = RoadGraph(graph_version="test", nodes={"a": node_a, "b": node_b}, edges={"e1": edge})
-    materials = {
-        "e1": EdgeMaterialBundle(
-            surface=None, way_tags=way_tags["e1"], attribute_counts=None,
-            elevation_attribute=None, is_designated=False,
-        )
-    }
+    materials = material_arrays(base_graph, ["e1"], way_tags)
     base_kwargs = dict(
         graph=base_graph,
         materials=materials, accident_years_covered=0,
@@ -2269,7 +2199,7 @@ async def test_preview_segment_returns_route_segment_when_path_exists():
     graph = RoadGraph(graph_version="test", nodes={"a": node_a, "b": node_b, "c": node_c}, edges={"e-ab": edge_ab, "e-bc": edge_bc})
     way_tags = {"e-ab": {"highway": "residential"}, "e-bc": {"highway": "residential"}}
 
-    generator, _, _ = make_generator(graph, way_tags=way_tags)
+    generator, _, _ = make_generator(graph, materials=way_tags)
 
     segment = await generator._engine.preview_segment(coord_a, coord_c)
 
@@ -2292,7 +2222,7 @@ async def test_preview_segment_returns_none_when_no_path_exists():
     graph = RoadGraph(graph_version="test", nodes={"a": node_a, "b": node_b, "c": node_c}, edges={"e-ab": edge_ab})
     way_tags = {"e-ab": {"highway": "residential"}}
 
-    generator, _, _ = make_generator(graph, way_tags=way_tags)
+    generator, _, _ = make_generator(graph, materials=way_tags)
 
     segment = await generator._engine.preview_segment(coord_a, coord_c)
 
@@ -2513,14 +2443,14 @@ async def test_build_best_candidate_uses_reverse_loop_when_it_has_lower_wind_dif
         route_preference=preference,
     )
     context = road_graph_engine._RoadGraphContext(
-        graph=graph, materials=empty_material_arrays(list(graph.edges)), accident_years_covered=0,
+        graph=graph, materials=material_arrays(graph, list(graph.edges)), accident_years_covered=0,
         weather=weather, origin_node="o",
         node_index=build_node_spatial_index(graph), night_active=False,
         # 改善計画T537: _build_best_candidate→_reverse_traced_edgesがlazy_graph
         # （LazyRoadGraph.edge_index_by_node_pair）を逆回り候補の逆引きに使うため、
         # 旧`node_pair_index`引数の代わりに実際のlazy_graphを渡す。
         lazy_graph=road_graph_engine.build_lazy_road_graph(graph),
-        **_build_context_score_fields(graph, {}, preference, weather=weather, night_active=False),
+        **_build_context_score_fields(graph, material_arrays(graph, list(graph.edges)), preference, weather=weather, night_active=False),
     )
     traced = road_graph_engine.TracedLoop(
         bearing=90, distance_km=round(edge_fwd.distance_m / 1000, 2), data=[edge_fwd]
@@ -2556,14 +2486,14 @@ async def test_build_best_candidate_falls_back_to_forward_when_loop_has_one_way_
         route_preference=preference,
     )
     context = road_graph_engine._RoadGraphContext(
-        graph=graph, materials=empty_material_arrays(list(graph.edges)), accident_years_covered=0,
+        graph=graph, materials=material_arrays(graph, list(graph.edges)), accident_years_covered=0,
         weather=None, origin_node="o",
         node_index=build_node_spatial_index(graph), night_active=False,
         # 改善計画T537: _build_best_candidate→_reverse_traced_edgesがlazy_graph
         # （LazyRoadGraph.edge_index_by_node_pair）を逆回り候補の逆引きに使うため、
         # 旧`node_pair_index`引数の代わりに実際のlazy_graphを渡す。
         lazy_graph=road_graph_engine.build_lazy_road_graph(graph),
-        **_build_context_score_fields(graph, {}, preference, weather=None, night_active=False),
+        **_build_context_score_fields(graph, material_arrays(graph, list(graph.edges)), preference, weather=None, night_active=False),
     )
     traced = road_graph_engine.TracedLoop(
         bearing=90, distance_km=round(edge_fwd.distance_m / 1000, 2), data=[edge_fwd]
@@ -2725,14 +2655,14 @@ async def test_build_best_candidate_does_not_reverse_waypoint_route_even_when_re
         route_preference=preference,
     )
     context = road_graph_engine._RoadGraphContext(
-        graph=graph, materials=empty_material_arrays(list(graph.edges)), accident_years_covered=0,
+        graph=graph, materials=material_arrays(graph, list(graph.edges)), accident_years_covered=0,
         weather=weather, origin_node="o",
         node_index=build_node_spatial_index(graph), night_active=False,
         # 改善計画T537: _build_best_candidate→_reverse_traced_edgesがlazy_graph
         # （LazyRoadGraph.edge_index_by_node_pair）を逆回り候補の逆引きに使うため、
         # 旧`node_pair_index`引数の代わりに実際のlazy_graphを渡す。
         lazy_graph=road_graph_engine.build_lazy_road_graph(graph),
-        **_build_context_score_fields(graph, {}, preference, weather=weather, night_active=False),
+        **_build_context_score_fields(graph, material_arrays(graph, list(graph.edges)), preference, weather=weather, night_active=False),
     )
     traced = road_graph_engine.TracedLoop(
         bearing=None, distance_km=round(edge_fwd.distance_m / 1000, 2), data=[edge_fwd]
@@ -2858,11 +2788,11 @@ def _spliceable_context(edge_count: int = 4):
         route_preference=preference,
     )
     context = road_graph_engine._RoadGraphContext(
-        graph=graph, materials=empty_material_arrays(list(graph.edges)), accident_years_covered=0,
+        graph=graph, materials=material_arrays(graph, list(graph.edges)), accident_years_covered=0,
         weather=weather, origin_node="o",
         node_index=build_node_spatial_index(graph), night_active=False,
         lazy_graph=road_graph_engine.build_lazy_road_graph(graph),
-        **_build_context_score_fields(graph, {}, preference, weather=weather, night_active=False),
+        **_build_context_score_fields(graph, material_arrays(graph, list(graph.edges)), preference, weather=weather, night_active=False),
     )
     return engine, context
 
@@ -3047,13 +2977,8 @@ async def test_turn_seconds_along_keeps_the_known_transitions_when_an_edge_is_un
     bc = _edge("bc", "b", "c", coord_b, coord_c, highway="residential")
     graph = RoadGraph(graph_version="test", nodes={"a": node_a, "b": node_b, "c": node_c},
                       edges={"ab": ab, "bc": bc})
-    materials = {
-        edge_id: EdgeMaterialBundle(
-            surface=None, way_tags={}, attribute_counts=None, elevation_attribute=None, is_designated=False,
-        )
-        for edge_id in ("ab", "bc")
-    }
-    generator, _, _ = make_generator(None, way_tags={"ab": {}, "bc": {}})
+    materials = material_arrays(graph, ["ab", "bc"])
+    generator, _, _ = make_generator(None, materials={"ab": {}, "bc": {}})
     engine = generator._engine
     score_fields = _build_context_score_fields(graph, materials, RoutePreference())
     context = road_graph_engine._RoadGraphContext(

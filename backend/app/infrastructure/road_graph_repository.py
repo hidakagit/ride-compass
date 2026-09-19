@@ -79,9 +79,6 @@ from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession
 
 from app.domain.attributes import (
     EdgeMaterialArrays,
-    EdgeAttributeCounts,
-    EdgeMaterialBundle,
-    EdgeMaterialsBatch,
     ElevationAttribute,
     WIRED_LANDCOVER_KEYS,
 )
@@ -112,11 +109,10 @@ from app.domain.traffic import (
 )
 from app.domain.tuning import tuning_value
 from app.infrastructure.cache_identity import shape_digest
-from app.infrastructure.designation_models import DesignationAttributeRow
-from app.domain.hard_filters import HARD_FILTER_VALUE_SQL
+from app.domain.hard_filters import HARD_FILTER_VALUE_SQL, hard_filter_columns
 from app.domain.material_catalog import (
     MATERIAL_CATALOG,
-    material_array_group,
+    material_array_columns,
     material_value_sql,
 )
 from app.domain.material_sql import (
@@ -2976,117 +2972,12 @@ class AttributeRepository(_SessionRepository):
             result.update(edge_id for (edge_id,) in rows.all())
         return result
 
-    async def get_edge_materials_batch(self, edge_ids: list[str]) -> EdgeMaterialsBatch:
-        """探索フェーズ（`RoadGraphEngine.prepare`）が必要とする材料一式（surface・
-        edge_attribute_counts・way_tags・elevation_attributes・designated_edge_ids・
-        way_landcoverの配線済みクラス）を1回のJOINクエリへ統合して取得する。ボトルネックは
-        ラウンドトリップ回数ではなく同じEdge集合に対してSQLAlchemy ORMの行構築を複数回
-        繰り返すオーバーヘッドのため、個別クエリの束ではなく1クエリへ統合する
-        （dev DB、71,791 Edgeで個別5クエリ8.33秒→統合1クエリ1.30秒、6.4倍）。
-        `graph_service.py`の`_build_search_materials_uncached`・
-        `_get_or_build_tile_materials`の両方から呼ばれる。
-
-        戻り値はEdge単位で`EdgeMaterialBundle`（1オブジェクト）へ統合する
-        （`domain/attributes.py: EdgeMaterialBundle`のdocstring参照）。各材料の
-        「該当行なし」の扱い: surface・way_tagsはLEFT JOINでNone/{}を明示的に持つ
-        （bundle自体はedge_idsに含まれる全Edgeぶん必ず存在する）。attribute_counts・
-        elevation_attributeは対象テーブルへの行が無ければNone（NOT NULL列を「行の有無」の
-        判定に使う）。`poi_counts`はNULL許容で、行があってもNULLでありうる
-        （NULL＝種別別の集計が未実行、空辞書＝集計済みで0件）。is_designatedはEXISTS副問い合わせで判定する（対象kindの
-        designation_attributes行が1つでもあれば該当、の意味）。`landcover_percents`は
-        way_landcover行が無ければ全クラスまとめてNone
-        （`WayLandcoverRow`のLEFT JOIN、`EdgeMaterialBundle`のdocstring参照）。
-        """
-        if not edge_ids:
-            return EdgeMaterialsBatch(materials={})
-
-        materials: dict[str, EdgeMaterialBundle] = {}
-
-        designation_kinds = sorted(CAR_STRESS_DESIGNATION_KINDS)
-        designation_exists = (
-            select(DesignationAttributeRow.osm_way_id)
-            .where(
-                DesignationAttributeRow.osm_way_id == RoadEdgeRow.osm_way_id,
-                DesignationAttributeRow.kind == any_(cast(designation_kinds, ARRAY(Text))),
-            )
-            .exists()
-        )
-
-        for id_chunk in _chunked(edge_ids, 50_000):
-            stmt = (
-                select(
-                    RoadEdgeRow.edge_id,
-                    OsmRawWayRow.surface,
-                    OsmRawWayRow.tags,
-                    EdgeAttributeCountsRow.accident_count,
-                    EdgeAttributeCountsRow.intersection_count,
-                    EdgeAttributeCountsRow.poi_counts,
-                    ElevationAttributeRow.start_elevation_m,
-                    ElevationAttributeRow.end_elevation_m,
-                    ElevationAttributeRow.elevation_gain_m,
-                    ElevationAttributeRow.elevation_loss_m,
-                    ElevationAttributeRow.average_grade,
-                    ElevationAttributeRow.max_grade,
-                    ElevationAttributeRow.min_grade,
-                    ElevationAttributeRow.data_source,
-                    ElevationAttributeRow.data_version,
-                    ElevationAttributeRow.calculated_at,
-                    designation_exists.label("is_designated"),
-                    *(_landcover_value_column(key) for key in WIRED_LANDCOVER_KEYS),
-                )
-                .select_from(RoadEdgeRow)
-                .outerjoin(OsmRawWayRow, RoadEdgeRow.osm_way_id == OsmRawWayRow.osm_way_id)
-                .outerjoin(EdgeAttributeCountsRow, EdgeAttributeCountsRow.edge_id == RoadEdgeRow.edge_id)
-                .outerjoin(ElevationAttributeRow, ElevationAttributeRow.edge_id == RoadEdgeRow.edge_id)
-                .outerjoin(WayLandcoverRow, WayLandcoverRow.osm_way_id == RoadEdgeRow.osm_way_id)
-                .outerjoin(EdgeLandcoverRow, _EDGE_LANDCOVER_JOIN_ON)
-                .where(RoadEdgeRow.edge_id == any_(cast(id_chunk, ARRAY(Text))))
-            )
-            for row in await self._session.execute(stmt):
-                attribute_counts = (
-                    EdgeAttributeCounts(
-                        poi_counts=None if row.poi_counts is None else dict(row.poi_counts),
-                        accident_count=row.accident_count,
-                        intersection_count=row.intersection_count,
-                    )
-                    if row.intersection_count is not None
-                    else None
-                )
-                elevation_attribute = (
-                    ElevationAttribute(
-                        edge_id=row.edge_id,
-                        start_elevation_m=row.start_elevation_m,
-                        end_elevation_m=row.end_elevation_m,
-                        elevation_gain_m=row.elevation_gain_m,
-                        elevation_loss_m=row.elevation_loss_m,
-                        average_grade=row.average_grade,
-                        max_grade=row.max_grade,
-                        min_grade=row.min_grade,
-                        data_source=row.data_source,
-                        data_version=row.data_version,
-                        calculated_at=row.calculated_at.isoformat(),
-                    )
-                    if row.calculated_at is not None
-                    else None
-                )
-                materials[row.edge_id] = EdgeMaterialBundle(
-                    surface=row.surface,
-                    way_tags=row.tags or {},
-                    attribute_counts=attribute_counts,
-                    elevation_attribute=elevation_attribute,
-                    is_designated=bool(row.is_designated),
-                    landcover_percents=_landcover_percents_or_none(row),
-                )
-
-        return EdgeMaterialsBatch(materials=materials)
-
     async def get_edge_material_arrays(
         self, edge_ids: list[str], accident_years_covered: int
     ) -> EdgeMaterialArrays:
         """材料を**DB側で導出し、dtypeごとの行列として**受け取る（`MaterialSpec.value_sql`）。
 
-        `get_edge_materials_batch`が行を1本ずつ受けてPythonでオブジェクトを組むのに対し、
-        こちらは区間数に比例するPythonの仕事を持たない。
+        区間数に比例するPythonの仕事を持たない。
 
         **すべての列が同じ`ORDER BY`を持つ**必要がある（1つでも違うと値が列の間で静かに
         ずれ、エラーは出ない）。並びは`edge_ids`の位置（`WITH ORDINALITY`）で固定し、
@@ -3097,12 +2988,7 @@ class AttributeRepository(_SessionRepository):
         `derived_data_meta.revision`を上げる（`import_accidents.py`）ため、年数が変わった
         ときはこの表のキャッシュも一緒に無効になる。
         """
-        groups = {g: [] for g in ("numeric", "boolean", "categorical")}
-        for material_id in sorted(material_value_sql()):
-            groups[material_array_group(MATERIAL_CATALOG[material_id])].append(material_id)
-        numeric_ids = tuple(groups["numeric"])
-        boolean_ids = tuple(groups["boolean"])
-        categorical_ids = tuple(groups["categorical"])
+        numeric_ids, boolean_ids, categorical_ids = material_array_columns()
 
         n = len(edge_ids)
         raw: dict[str, list] = {name: [] for name in MATERIAL_ARRAY_COLUMN_ORDER}
@@ -3116,7 +3002,7 @@ class AttributeRepository(_SessionRepository):
             for name in raw:
                 raw[name].extend(getattr(row, f"c_{name}"))
 
-        hard_filter_ids = tuple(sorted(HARD_FILTER_VALUE_SQL))
+        hard_filter_ids = hard_filter_columns()
         hard_filter_flags = np.empty((n, len(hard_filter_ids)), dtype=bool)
         for i, name in enumerate(hard_filter_ids):
             hard_filter_flags[:, i] = [
@@ -3396,9 +3282,6 @@ class RoadGraphRepository:
 
     async def get_designated_edge_ids(self, edge_ids: list[str]) -> set[str]:
         return await self.attributes.get_designated_edge_ids(edge_ids)
-
-    async def get_edge_materials_batch(self, edge_ids: list[str]) -> EdgeMaterialsBatch:
-        return await self.attributes.get_edge_materials_batch(edge_ids)
 
     async def get_edge_material_arrays(
         self, edge_ids: list[str], accident_years_covered: int

@@ -346,10 +346,9 @@ idを`route-destination-00..`へ振り直すが、
 - **waypoints指定（経由地・目的地）**: `_bbox_covering_points(origin, waypoints, ...)`
   （起点＋全経由地＋目的地を包含する矩形）。
 
-`GraphService.get_search_materials_for_bbox`でトポロジ＋材料（surface・
-edge_attribute_counts・way_tags・elevation_attributes・designated_edge_ids・
-way_landcoverの配線済みクラス[T624]、Edge単位で
-`EdgeMaterialBundle`へ統合済み）＋`StaticEdgeScoreMatrix`（タイル単位で
+`GraphService.get_search_materials_for_bbox`でトポロジ＋材料（`EdgeMaterialArrays`、
+DBが`MaterialSpec.value_sql`で導出した値をdtypeごとの行列で持つ）
+＋`StaticEdgeScoreMatrix`（タイル単位で
 キャッシュ済みの「Edge×公開軸」静的スコア行列）をまとめて取得し、`_build_search_graph`が
 探索用グラフ（`domain/routing.py: LazyRoadGraph`、`NodeSpatialIndex`）とbbox全体ぶんの
 コスト配列を構築する。データ未整備（対象タイル未取込）ならNoneを返し、呼び出し元
@@ -639,25 +638,22 @@ tile_persistent_cache/`、DEMタイルディスクキャッシュ`tile_cache.py`
 KeyErrorになる。軸定義の編集で捨てる粒度は材料とスコア行列で異なり、そちらは
 `tile_score_matrix_cache.sync_disk_cache_with_axis_revision`が持つ。
 
-**キャッシュ表現**: `graph_material_cache`が保持する`SearchMaterials.materials`は、
-タイルキャッシュ経由（`_get_or_build_tile_materials`）の場合`domain/attributes.py:
-EdgeMaterialTable`（列指向、numpy配列＋リスト、`EdgeMaterialBundle`と1対1のビュー）を
-持つ（`_build_search_materials_uncached`はタイルキャッシュへ書き込まれないため、
-`dict[str, EdgeMaterialBundle]`のまま）。`EdgeMaterialTable.get(edge_id)`は必要になった
-Edgeだけをその場で`EdgeMaterialBundle`へ組み立てる——探索フェーズが実際に材料を引くのは
-経路上のEdge（数百本）だけで、bbox全体（数十万Edge）を毎回復元する構造ではない。複数
-タイルを結合する`_build_search_materials_from_tile_cache`も、結合直後に全EdgeをEdge
-MaterialBundleへ復元せず、`edge_id→タイルindex`の遅延ビュー（`_CombinedEdgeMaterials`）で
-`.get(edge_id)`を該当タイルへ委譲する（同じ理由）。`LeanRoadGraph`（トポロジ側）も
-`__reduce__`でNode/Edgeを列（tupleのリスト）へ分解してpickle化し、復元時に`LeanNode`/
-`LeanEdge`をコンストラクタ呼び出しで作り直す。正準定義は引き続き`EdgeMaterialBundle`
-1箇所（design-principles.md構造仕様4）——`EdgeMaterialTable`は軸定義も材料カタログも知らない。
+**キャッシュ表現**: `graph_material_cache`が保持する`SearchMaterials.materials`は
+`domain/attributes.py: EdgeMaterialArrays`（dtypeごとの2次元配列＋列id）。Edge単位の
+オブジェクトを持たないため、復元はnumpy配列のunpickleだけで済み、区間数に比例する
+Pythonの仕事が無い。列の並びは`material_array_columns()`が唯一の定義元で、組み立てる側
+（リポジトリ）と読む側が同じ並びを導く。複数タイルを結合する
+`_build_search_materials_from_tile_cache`はタイルごとの表を持ったまま
+`edge_id→タイルindex`の遅延ビュー（`_CombinedEdgeMaterials`）で委譲する——bbox全体ぶんを
+1つの配列へ連結し直すコストを払わない。`LeanRoadGraph`（トポロジ側）も`__reduce__`で
+Node/Edgeを列（tupleのリスト）へ分解してpickle化し、復元時に`LeanNode`/`LeanEdge`を
+コンストラクタ呼び出しで作り直す。
 
 **並列度設定が効く範囲**: `config.py: tile_cache_load_max_concurrent`（既定
 `min(4, os.cpu_count())`）が、`graph_service.py`の`_get_or_build_tile_materials`・
 `_get_or_build_tile_score_matrix`が行うディスク永続化キャッシュ読み込み
-（`asyncio.to_thread`経由）の同時実行数を縛る。Edgeの再構築自体は`LeanEdge`/
-`EdgeMaterialBundle`のコンストラクタ呼び出しを伴うPythonループのためGILで直列化される
+（`asyncio.to_thread`経由）の同時実行数を縛る。材料側は列のまま復元するが、グラフ側の
+Edgeの再構築は`LeanEdge`のコンストラクタ呼び出しを伴うPythonループのためGILで直列化される
 ——この設定が効くのはファイルI/O・numpy配列の復元部分のみで、コア数に比例して線形に
 速くなるのはグラフ側も完全列指向化する将来の別案（`LeanEdge`オブジェクト自体を持たない
 設計）まで進めた場合に限る。
@@ -738,7 +734,7 @@ edge_idをまとめて1回・`preview_segment`が1回、いずれも逐次に呼
   lazy評価ではEdgeコストを事前計算しないため、Hard Constraintだけを軽量に評価する
   専用関数として0次フィルタのモジュール（`domain/hard_filters.py`）に置く
   （`domain/routing.py`側には持たない）。
-  入力は`EdgeMaterialBundle`辞書ではなく、`StaticEdgeScoreMatrix`の生配列
+  入力は材料の表ではなく、`StaticEdgeScoreMatrix`の生配列
   （`edge_ids`＋`compute_hard_filter_excluded`が返す`excluded`配列、`_build_search_graph`が
   コスト配列を`inf`にするのに使うのと同じ配列）——タイル材料キャッシュの復元コストと
   完全に独立している。
@@ -855,7 +851,7 @@ JOINは区間の両方向の行を候補にする——標高属性は向きご�
 
 **material_catalogの動的値列挙**（`get_distinct_material_values`）: 軸スタジオ
 （AxisComposer.tsx）がhighway/surface/smoothnessのような開放的な多値材料の候補一覧を
-動的取得するための経路。正規化式（`_MATERIAL_VALUE_COLUMN_EXPR`）は`domain/material_sql.py`の共有断片を
+動的取得するための経路。値式（`MaterialSpec.value_sql`）は`domain/material_sql.py`の共有断片を
 `_ROAD_SURFACE_TILE_MVT_SQL`・`material_coverage.py`
 （[evaluation-scoring.md](evaluation-scoring.md)）と共通で参照する。詳細は
 [axis-studio.md](axis-studio.md)参照。

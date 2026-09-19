@@ -6,50 +6,11 @@
 # 各軸の変換パラメータ（breakpoints等）と計算本体は`domain/axis_definitions.py`
 # （軸定義データ＋汎用評価関数）が持つ。
 
-from typing import Mapping, NamedTuple
 
 import numpy as np
 
-from app.domain.axis_definitions import evaluate_axes_scalar
 
 
-class AxisDifficulties(NamedTuple):
-    """全評価軸の難易度（axis_idキーの辞書、評価不能な軸はNone）と重み付き合成値。
-
-    キー集合は`AXIS_DEFINITIONS`（domain/axis_definitions.py）が決める（軸の追加は
-    定義データの追加だけで反映される）。
-
-    「生値セット→軸別difficulty→composite_difficulty」という組み立てを複数箇所で
-    共通化する役割を持つ。呼び出し元は軸別辞書（RouteSegmentDetail用）・compositeのみ
-    （EdgeCostResult用）のどちらか一方、または両方を使う。
-    """
-
-    axes: dict[str, float | None]
-    composite: float | None
-
-
-def evaluate_axis_difficulties(
-    materials: Mapping[str, object], weights: Mapping[str, float]
-) -> AxisDifficulties:
-    """材料値の辞書と重み辞書から、全軸のdifficultyと合成difficultyをまとめて算出する
-    （`AXIS_DEFINITIONS`をループする）。
-
-    `materials`は材料id→解決済みスカラー値（欠損はNone）。各軸が何を参照するかは
-    `domain/axis_definitions.py: AXIS_DEFINITIONS`参照。`weights`はaxis_id→合成重み
-    （キーが無い軸は重み0として扱う）。
-
-    軸が他の軸のdifficultyをmaterialとして参照できる（内部軸→公開軸の
-    階層構造）ため、依存先を先に評価し結果をmaterialsへ混ぜ込みながら進める
-    （`domain/axis_definitions.py: evaluate_axes_scalar`が
-    `compute_edge_axis_scores`/`axis_inspector_breakdown`[domain/evaluation.py]と
-    共有する実装）。内部軸（is_published=False）は実装詳細のため、返り値のaxesには
-    含めない。
-    """
-    axes, _ = evaluate_axes_scalar(materials)
-    composite = composite_difficulty(
-        [(axes[axis_id], weights.get(axis_id, 0.0)) for axis_id in axes]
-    )
-    return AxisDifficulties(axes=axes, composite=composite)
 
 
 def composite_difficulty(scored_weights: list[tuple[float | None, float]]) -> float | None:

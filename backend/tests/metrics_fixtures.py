@@ -1,7 +1,6 @@
 """`MaterialExtractionContext.metrics`（群名→edge_id→{キー: 値}）をテストから組み立てる糖衣。
 
-スカラー経路（`compute_edge_cost`/`compute_edge_axis_scores`）とベクトル経路
-（`compute_edge_costs_bulk`）は同じ形の`metrics`を受け取るため、パリティテストは
+スカラー経路と配列経路は同じ形の`metrics`を受け取るため、テストは
 **同じ1つの辞書**を両方へ渡せる（件数をスカラー引数と`metrics`の2通りで作ると、
 片方だけ更新して食い違ったまま「一致した」と誤判定しうる）。
 """

@@ -6,7 +6,7 @@
 
 import dataclasses
 
-from app.domain.attributes import EdgeMaterialTable
+from app.domain.attributes import EdgeMaterialArrays
 from app.domain.evaluation import StaticEdgeScoreMatrix
 from app.infrastructure import cache_identity as ci
 
@@ -23,23 +23,23 @@ class TestShapeDigest:
         # pickleは状態を列の位置で持つため、列が1つ増えた新コードが旧キャッシュを復元すると
         # 最後の列が設定されないまま実体化し、最初にその列へ触れた場所でAttributeErrorになる
         # （test_graph_material_cache.py: test_old_pickle_...が壊れ方そのものを固定している）。
-        for table in (EdgeMaterialTable, StaticEdgeScoreMatrix):
+        for table in (EdgeMaterialArrays, StaticEdgeScoreMatrix):
             assert ci.shape_digest(table) != ci.shape_digest(_with_extra_column(table))
 
     def test_reordering_columns_changes_the_digest(self):
         reordered = dataclasses.make_dataclass(
             "Reordered",
-            [(f.name, object) for f in reversed(dataclasses.fields(EdgeMaterialTable))],
+            [(f.name, object) for f in reversed(dataclasses.fields(EdgeMaterialArrays))],
             frozen=True, slots=True)
 
-        assert ci.shape_digest(EdgeMaterialTable) != ci.shape_digest(reordered)
+        assert ci.shape_digest(EdgeMaterialArrays) != ci.shape_digest(reordered)
 
     def test_changing_the_sql_changes_the_digest(self):
         assert ci.shape_digest("SELECT a FROM t") != ci.shape_digest("SELECT a, b FROM t")
 
     def test_the_same_shape_gives_the_same_digest(self):
         # 鍵が安定しないと、内容が変わっていないのにデプロイのたびに冷パスを踏む。
-        assert ci.shape_digest(EdgeMaterialTable) == ci.shape_digest(EdgeMaterialTable)
+        assert ci.shape_digest(EdgeMaterialArrays) == ci.shape_digest(EdgeMaterialArrays)
 
     def test_sources_are_separated(self):
         # 区切り無しで連結すると、("ab", "c")と("a", "bc")が同じ鍵になる。

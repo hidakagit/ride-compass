@@ -7,7 +7,7 @@
 --
 -- 列を残しても読み手が無い一方、毎回の集計バッチはこの列のためにPostGIS空間結合
 -- （osm_raw_poisとの近接カウント）を1本多く実行し続ける。またUPSERTのバインド
--- パラメータ数・`EdgeMaterialTable`のpickle列数という「列数への暗黙の依存」の対象が
+-- パラメータ数・材料の表のpickle列数という「列数への暗黙の依存」の対象が
 -- 増えたままになる。
 -- `IF EXISTS`はfresh bootstrap（`create_tables()`→`apply_pending_migrations()`）のため。
 -- そこではORMの現在の定義からテーブルが作られ、0010/0012の`CREATE TABLE IF NOT EXISTS`が

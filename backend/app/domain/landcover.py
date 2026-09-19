@@ -97,7 +97,7 @@ class LandcoverRecord(StrictModel):
 class WayLandcover(LandcoverRecord):
     """`way_landcover`テーブル1行分。バッチ（`precompute_way_landcover.py`）の書き込みと、
     区間インスペクタ（`domain/axis_inspector.py`）のWay1本ぶんの入力に使う。評価経路の
-    材料はこの行から配線済みクラスの割合だけを取り出したもの（`EdgeMaterialBundle`の
+    材料はこの行から配線済みクラスの割合だけを取り出したもの（材料の
     `landcover_percents`）で、系譜情報は運ばない。"""
 
     osm_way_id: int

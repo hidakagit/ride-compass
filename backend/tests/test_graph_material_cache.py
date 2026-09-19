@@ -224,13 +224,14 @@ def test_old_pickle_with_fewer_columns_loses_the_last_column():
     """
     import dataclasses
 
-    from app.domain.attributes import EdgeMaterialTable
+    from app.domain.attributes import EdgeMaterialArrays
+    from tests.material_arrays import material_arrays
 
-    fields = dataclasses.fields(EdgeMaterialTable)
-    table = EdgeMaterialTable.from_bundles([], {})
+    fields = dataclasses.fields(EdgeMaterialArrays)
+    table = material_arrays(None, [])
     truncated = table.__getstate__()[:-1]  # 旧版のpickle状態（列が1つ少ない）を模す
 
-    restored = object.__new__(EdgeMaterialTable)
+    restored = object.__new__(EdgeMaterialArrays)
     restored.__setstate__(truncated)
 
     assert not hasattr(restored, fields[-1].name)
@@ -298,11 +299,11 @@ def test_cache_version_is_the_shape_of_everything_the_cached_value_pickles():
     """
     import dataclasses
 
-    from app.domain.attributes import EdgeMaterialTable
+    from app.domain.attributes import EdgeMaterialArrays
     from app.domain.graph import LeanEdge, LeanNode
     from app.infrastructure.cache_identity import shape_digest
 
-    pickled = (EdgeMaterialTable, LeanNode, LeanEdge)
+    pickled = (EdgeMaterialArrays, LeanNode, LeanEdge)
     assert all(dataclasses.is_dataclass(cls) for cls in pickled)
     assert graph_material_cache.TILE_MATERIALS_CACHE_VERSION == shape_digest(*pickled)
     # 1つでも欠けると鍵が変わる＝どれも署名に効いている。

@@ -9,7 +9,7 @@ import generatedMaterials from "@/types/generated/material-catalog.json";
 // 導出する**——手書きだと、APIが落ちているときにだけ選択肢が古いというドリフトが
 // 起き、通常経路では気づけない。
 //
-// これはbackend側`compute_edge_axis_scores`/`compute_edge_costs_bulk`が組み立てる
+// これはbackend側の評価経路が組み立てる
 // 材料辞書のキーそのものであり、backend/app/domain/registry_defaults.pyの一次属性
 // （OSM生タグ等）とは別の語彙のため、あちらのカタログをそのまま流用できない（両者は
 // 将来統合の余地がある課題として docs/decisions/t221-axis-registry.md「T12との関係」に

@@ -4,7 +4,7 @@
 唯一の正本になったため、プロセス起動直後は空のままで、`services/axis_registry_service.py:
 refresh_axis_definitions`がDBから読み込むまで埋まらない。road_graph_engine・
 evaluation_service・route_generator等、ルート生成の実処理を
-テストするファイルの多くは、DBを介さず`RoutePreference()`や`compute_edge_cost`等を直接
+テストするファイルの多くは、DBを介さず`RoutePreference()`や評価の純関数を直接
 呼ぶため、グローバルな`AXIS_DEFINITIONS`に「car_stress/night/gradient/wind等の実在の
 axis_idを持つ、一貫した軸システム」が入っていることを暗黙に前提にしている
 （`road_graph_engine.py`等が"car_stress"をハードコード参照するため、単なるダミー軸では

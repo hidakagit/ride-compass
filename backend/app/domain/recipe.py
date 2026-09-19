@@ -49,7 +49,7 @@ def tag_value_is(tags: dict[str, str], key: str, expected: str) -> bool:
 def bicycle_infra_flags(tags: dict[str, str], highway: str | None) -> dict[str, bool]:
     """`domain/material_catalog.py`のhighway_is_cycleway/cycleway_has_track/
     cycleway_has_lane/cycleway_has_shared材料（正規化フラグ材料id→真偽値）と同じキーを
-    まとめて返す。`domain/evaluation.py: axis_inspector_breakdown`/`compute_edge_axis_scores`が
+    まとめて返す。`domain/axis_inspector.py: axis_inspector_breakdown`が
     手組みするmaterials辞書へそのまま`**bicycle_infra_flags(tags, highway)`で混ぜ込める
     （材料抽出を1箇所にまとめ、複数箇所への手書き複製を避ける）。
 
@@ -75,7 +75,7 @@ def bicycle_infra_flags(tags: dict[str, str], highway: str | None) -> dict[str, 
 
 def bicycle_infra_flags_or_none(tags: dict[str, str] | None, highway: str | None) -> dict[str, bool] | None:
     """`bicycle_infra_flags`を「データ欠損はNone」の規約に倒すラッパー。呼び出し元
-    （material_catalog.pyのextractor・evaluation.py: compute_edge_axis_scores・
+    （material_catalog.pyの`value_sql`・domain/evaluation.py・
     road_graph_engine.pyの_build_segment_details）が同じガード条件を複数箇所で
     手書きしないよう、ここへ1箇所へ集約する（design-principles.md構造仕様4: 正準定義は1箇所）。
 

@@ -34,7 +34,7 @@ import hashlib
 # （画素が変わるのにURLが変わらないため）。
 LANDCOVER_REVISION = "1"
 
-# Road Graph探索用の材料（`EdgeMaterialTable`・`SearchMaterials`）はここにリビジョンを持たない。
+# Road Graph探索用の材料（`EdgeMaterialArrays`・`SearchMaterials`）はここにリビジョンを持たない。
 # 形の署名だけで鍵を作り、中身の作り直しはDBの`derived_data_meta.revision`が表す
 # （`graph_material_cache.sync_disk_cache_with_derived_data_revision`）。バッチの実行は
 # デプロイを伴わないため、手で書き換える定数では表せない。

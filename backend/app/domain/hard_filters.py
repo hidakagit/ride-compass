@@ -78,6 +78,11 @@ HARD_FILTER_VALUE_SQL: dict[str, str] = {
 }
 
 
+def hard_filter_columns() -> tuple[str, ...]:
+    """0次フィルタの列の並び。組み立てる側と読む側が別々に並べると意味がずれる。"""
+    return tuple(sorted(HARD_FILTER_VALUE_SQL))
+
+
 def is_edge_allowed(
     edge: EdgeLike,
     way_tags: dict[str, str] | None = None,

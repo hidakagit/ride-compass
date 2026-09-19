@@ -704,12 +704,6 @@ class RoadGraphEngine:
         # 到達予想時刻・所要時間の算出に使う。
         self._assumed_speed_kmh = assumed_speed_kmh
         self._elevation_attribute_service = elevation_attribute_service
-        # bbox全体の一括評価（compute_edge_costs_bulk）は本エンジンから不要
-        # （探索コストは_build_search_graphがbbox全体ぶんリクエストにつき1回だけ
-        # ベクトル合成する）。compute_edge_costs_bulkは回帰テストオラクルとして残る
-        # ——静的スコア行列（StaticEdgeScoreMatrix）が同じ抽出・計算フェーズ
-        # （_evaluate_axes_bulk）を共有するため、両者の一致は引き続き
-        # tests/test_evaluation_bulk.pyで検証する。
         self._weather_service = weather_service
         self._route_preference = route_preference
         # コスト式`所要時間 × (1 + P × difficulty/100)`のP＝「主観 vs 時間」の換算レート。

@@ -5,12 +5,10 @@ import numpy as np
 import pytest
 
 from app.domain.attributes import (
-    EdgeAttributeCounts,
-    EdgeMaterialBundle,
-    EdgeMaterialTable,
     ElevationAttribute,
 )
 from app.domain.material_catalog import MATERIAL_CATALOG
+from tests.material_arrays import material_arrays
 from app.domain.landcover import LandcoverPercentages, WayLandcover
 from app.domain.axis_definitions import (
     AXIS_DEFINITIONS,
@@ -27,15 +25,12 @@ from app.domain.evaluation import (
     combine_static_edge_score_matrices,
     compose_costs_from_axis_matrix,
     compute_cost_from_axis_scores,
-    compute_edge_axis_scores,
-    compute_edge_cost,
     has_route_facing_raw_value,
 )
 from app.domain.axis_display import raw_value_unit
 from app.domain import evaluation as evaluation_module
-from app.domain.hard_filters import compute_hard_filter_excluded, compute_routable_node_ids, is_edge_allowed
+from app.domain.hard_filters import compute_routable_node_ids, is_edge_allowed
 from app.domain.route_preference import RoutePreference
-from tests.metrics_fixtures import edge_metrics
 from app.domain.difficulty import distance_weighted_difficulty_array
 from app.domain.graph import DirectedEdge, Node, RoadGraph
 from app.domain.weather import WeatherConditions
@@ -165,58 +160,14 @@ def test_is_edge_allowed_allows_edge_without_elevation_attribute_even_with_thres
     assert is_edge_allowed(_edge(), elevation_attribute=None, max_average_grade_percent=1.0) is True
 
 
-def test_compute_edge_cost_excludes_disallowed_edge():
-    edge = _edge(highway="motorway")
-    result = compute_edge_cost(edge, None, None, RoutePreference())
-
-    assert result.allowed is False
-    assert result.cost is None
 
 
-def test_compute_edge_cost_excludes_bicycle_no_edge():
-    # 改善計画T100: way_tags経由でbicycle=noが渡るとcompute_edge_cost全体がHard Constraintで
-    # 除外される（is_edge_allowedのテストと同じ判定を、実際の呼び出し経路で確認）。
-    edge = _edge(highway="residential")
-    result = compute_edge_cost(edge, None, None, RoutePreference(), way_tags={"bicycle": "no"})
-
-    assert result.allowed is False
-    assert result.cost is None
-    assert result.difficulty is None
-    assert result.difficulty is None
-    assert result.edge_id == "edge-1"
 
 
-def test_compute_edge_cost_flat_and_paved_has_low_difficulty_and_cost_near_distance():
-    edge = _edge(distance_m=100.0)
-    elevation = _elevation_attr(average_grade=0.0)
-    surface = "asphalt"
-
-    result = compute_edge_cost(edge, elevation, surface, RoutePreference())
-
-    assert result.allowed is True
-    assert result.difficulty == 0.0
-    assert result.cost == 100.0  # ペナルティ倍率1.0
 
 
-def test_compute_edge_cost_steep_and_unpaved_costs_more_than_flat_and_paved():
-    edge = _edge(distance_m=100.0)
-
-    easy_result = compute_edge_cost(edge, _elevation_attr(0.0), "asphalt", RoutePreference())
-    hard_result = compute_edge_cost(edge, _elevation_attr(12.0), "gravel", RoutePreference())
-
-    assert hard_result.difficulty > easy_result.difficulty
-    assert hard_result.cost > easy_result.cost
-    assert hard_result.cost > edge.distance_m  # ペナルティが加算されている
 
 
-def test_compute_edge_cost_missing_attributes_falls_back_to_distance_only():
-    edge = _edge(distance_m=250.0)
-
-    result = compute_edge_cost(edge, None, None, RoutePreference())
-
-    assert result.allowed is True
-    assert result.difficulty is None
-    assert result.cost == 250.0
 
 
 def _wind(wind_speed_ms: float, wind_direction_deg: float) -> WeatherConditions:
@@ -278,86 +229,16 @@ def test_compute_dynamic_edge_materials_returns_none_without_bearing():
     assert compute_dynamic_edge_materials(edge, wind, V20) == {"wind_drag_ratio": None}
 
 
-def test_compute_dynamic_edge_materials_requires_travel_speed_when_wind_is_given():
-    edge = _edge(bearing_deg=0.0)
-    wind = _wind(wind_speed_ms=5.0, wind_direction_deg=0.0)
-
-    with pytest.raises(ValueError, match="travel_speed_ms"):
-        compute_dynamic_edge_materials(edge, wind, None)
-    with pytest.raises(ValueError, match="travel_speed_ms"):
-        compute_edge_axis_scores(edge, None, None, weather=wind)
 
 
-def test_compute_edge_cost_headwind_costs_more_than_tailwind():
-    edge = _edge(distance_m=100.0, bearing_deg=0.0)
-    elevation = _elevation_attr(0.0)
-    surface = "asphalt"
-
-    headwind_result = compute_edge_cost(
-        edge, elevation, surface, RoutePreference(), weather=_wind(8.0, 0.0), travel_speed_ms=V20
-    )
-    tailwind_result = compute_edge_cost(
-        edge, elevation, surface, RoutePreference(), weather=_wind(8.0, 180.0), travel_speed_ms=V20
-    )
-
-    assert headwind_result.difficulty > tailwind_result.difficulty
-    assert headwind_result.cost > tailwind_result.cost
 
 
-def test_compute_edge_cost_without_wind_ignores_wind_weight():
-    edge = _edge(distance_m=100.0)
-    elevation = _elevation_attr(0.0)
-    surface = "asphalt"
-
-    result = compute_edge_cost(edge, elevation, surface, RoutePreference())  # windを渡さない
-
-    # 標高・路面がどちらも「易しい」なら、風が無視される限りdifficultyは0のはず
-    assert result.difficulty == 0.0
 
 
-def test_compute_edge_cost_without_poi_counts_ignores_stop_weight():
-    edge = _edge(distance_m=100.0)
-    elevation = _elevation_attr(0.0)
-    surface = "asphalt"
-
-    result = compute_edge_cost(edge, elevation, surface, RoutePreference())  # metricsを渡さない
-
-    assert result.difficulty == 0.0
 
 
-def test_compute_edge_cost_more_stops_costs_more():
-    edge = _edge(distance_m=1000.0)
-    elevation = _elevation_attr(0.0)
-    surface = "asphalt"
-
-    # 停止密度は停止要因POIの種別別密度で評価する。
-    no_stops = compute_edge_cost(
-        edge, elevation, surface, RoutePreference(), metrics=edge_metrics(edge.edge_id, poi={"signal": 0})
-    )
-    many_stops = compute_edge_cost(
-        edge, elevation, surface, RoutePreference(), metrics=edge_metrics(edge.edge_id, poi={"signal": 4})
-    )
-
-    assert many_stops.difficulty > no_stops.difficulty
-    assert many_stops.cost > no_stops.cost
 
 
-def test_compute_edge_cost_respects_custom_weights():
-    edge = _edge(distance_m=100.0)
-    elevation = _elevation_attr(average_grade=12.0)  # 激坂
-    surface = "asphalt"  # 舗装路（易しい）
-
-    elevation_focused = compute_edge_cost(
-        edge, elevation, surface, RoutePreference(weights={"gradient": 1.0, "surface_q": 0.0})
-    )
-    road_focused = compute_edge_cost(
-        edge, elevation, surface, RoutePreference(weights={"gradient": 0.0, "surface_q": 1.0})
-    )
-
-    # 勾配を全く考慮しない重みなら、舗装路のroad_difficulty(0)がそのままdifficultyになる
-    assert road_focused.difficulty == 0.0
-    # 勾配だけを考慮する重みなら、激坂のgradient_difficultyがそのままdifficultyになる
-    assert elevation_focused.difficulty > road_focused.difficulty
 
 
 # --- 改善計画T142: 二次(compute_edge_axis_scores)・三次(compute_cost_from_axis_scores)の分離 ---
@@ -377,43 +258,10 @@ def test_compute_cost_from_axis_scores_signature_has_no_primary_attribute_names(
     assert params.isdisjoint(primary_attribute_names)
 
 
-def test_compute_edge_axis_scores_returns_axis_id_keyed_scores():
-    edge = _edge(distance_m=100.0)
-    scores = compute_edge_axis_scores(edge, _elevation_attr(0.0), "asphalt")
-
-    assert scores["gradient"] == 0.0
-    assert scores["surface_q"] == 0.0
-    assert "wind" not in scores  # windを渡していないためキー自体が無い
 
 
-def test_compute_edge_axis_scores_omits_none_axes():
-    edge = _edge(distance_m=100.0)
-    scores = compute_edge_axis_scores(edge, None, None)
-
-    assert scores == {}
 
 
-def test_compute_edge_axis_scores_bicycle_infra_quality_reflects_bicycle_infra_tags():
-    """改善計画T353回帰テスト: car_stress_bicycle_infra_adjustment（1材料1軸原則T268
-    違反のため廃止）が担っていた「compute_edge_axis_scoresが手組みするmaterials辞書に
-    正規化フラグ材料（highway_is_cycleway等）を混ぜ込む」役割は、bicycle_infra_quality
-    公開軸が直接引き継いだ。混ぜ込み忘れがあると、この関数経由のbicycle_infra_quality
-    評価だけが常に「データなし」に固定されてしまう（required=Trueなterms→全欠損）。
-    cycleway=trackタグの有無でbicycle_infra_qualityスコアが変わること（分離自転車道は
-    易しい側=値が小さい）を確認する。
-
-    あわせて、T353の設計変更どおりcar_stressは自転車インフラの有無に一切影響されない
-    こと（trackの有無で値が変わらない）も回帰確認する——旧設計ではここが変動していた。"""
-    edge = _edge(distance_m=100.0, highway="residential")
-
-    without_track = compute_edge_axis_scores(edge, None, None, way_tags={})
-    with_track = compute_edge_axis_scores(edge, None, None, way_tags={"cycleway": "track"})
-
-    assert without_track["bicycle_infra_quality"] == 100.0
-    assert with_track["bicycle_infra_quality"] == 0.0
-    assert with_track["bicycle_infra_quality"] < without_track["bicycle_infra_quality"]
-    # car_stressはhighway種別のみで決まり、自転車インフラの有無では変化しない（T353）。
-    assert without_track["car_stress"] == with_track["car_stress"] == 50.0
 
 
 def test_route_preference_weights_fill_defaults_and_reject_unknown_axis():
@@ -563,29 +411,6 @@ def test_compute_cost_from_axis_scores_ignores_bbox_mean_when_difficulty_availab
     assert cost == 140.0
 
 
-def test_compute_edge_cost_equals_composing_axis_scores_and_cost_functions():
-    # compute_edge_costは分離後もcompute_edge_axis_scores + compute_cost_from_axis_scoresを
-    # 合成した薄いラッパーであり、結果が完全に一致することを確認する（改善計画T142の
-    # 回帰確認: 分離前後で同じ結果を返す）。
-    edge = _edge(distance_m=250.0, highway="secondary")
-    elevation = _elevation_attr(average_grade=5.0)
-    surface = "gravel"
-    preference = RoutePreference()
-    way_tags = {"maxspeed": "50"}
-
-    metrics = edge_metrics(edge.edge_id, intersection=2)
-
-    direct = compute_edge_cost(
-        edge, elevation, surface, preference, way_tags=way_tags, metrics=metrics, is_designated=True
-    )
-
-    axis_scores = compute_edge_axis_scores(
-        edge, elevation, surface, way_tags=way_tags, metrics=metrics, is_designated=True
-    )
-    composed_cost, composed_difficulty = compute_cost_from_axis_scores(edge.distance_m, axis_scores, preference.weights)
-
-    assert direct.cost == composed_cost
-    assert direct.difficulty == composed_difficulty
 
 
 # --- axis_inspector_breakdown（区間インスペクタ、改善計画T146） ---
@@ -850,50 +675,6 @@ def test_axis_inspector_breakdown_weights_match_route_preference_weights():
 # --- 改善計画T536フォローアップ: 空タイル（Edge0件）混在時のcombine_static_edge_score_matrices ---
 
 
-def test_build_static_edge_score_matrix_for_empty_graph_matches_axis_ids_of_nonempty_graph():
-    # 改善計画T536フォローアップ回帰（2026-09-02、本番Oracle VMの使い捨てコンテナ・
-    # 東京駅30km・split済み条件で実際に発生した障害）: Edge0件のグラフから構築した
-    # StaticEdgeScoreMatrixは、axis_scoresの列数が0（=公開軸の集合と食い違う）に
-    # なっていた（_evaluate_axes_bulkのn==0早期returnがaxis_arrays={}を返していたため）。
-    # 修正後は空グラフでもaxis_idsが非空グラフと同じ公開軸集合・同じ順序になる。
-    graph = RoadGraph(
-        graph_version="v1",
-        nodes={
-            "node-1": Node(node_id="node-1", latitude=35.70, longitude=139.70),
-            "node-2": Node(node_id="node-2", latitude=35.71, longitude=139.71),
-        },
-        edges={"edge-1": _edge()},
-    )
-    materials = {
-        "edge-1": EdgeMaterialBundle(
-            surface="asphalt", way_tags={}, attribute_counts=None, elevation_attribute=None, is_designated=False
-        )
-    }
-    nonempty_matrix = build_static_edge_score_matrix(graph, materials)
-
-    empty_graph = RoadGraph(graph_version="v1", nodes={}, edges={})
-    empty_matrix = build_static_edge_score_matrix(empty_graph, {})
-
-    assert len(nonempty_matrix.axis_ids) > 0
-    assert empty_matrix.axis_ids == nonempty_matrix.axis_ids
-    assert empty_matrix.axis_scores.shape == (0, len(nonempty_matrix.axis_ids))
-    # 生値の列（raw_axis_ids）も同じ理由で揃っている必要がある。列を決める述語は
-    # 空タイル分岐と通常分岐で別々に書かれていた（`has_route_facing_raw_value`へ集約済み）。
-    # 片側だけ変えるとタイルをまたいだnp.concatenateが失敗するか、ずれた列で合成される。
-    assert len(nonempty_matrix.raw_axis_ids) > 0
-    assert empty_matrix.raw_axis_ids == nonempty_matrix.raw_axis_ids
-    assert empty_matrix.axis_raw_values.shape == (0, len(nonempty_matrix.raw_axis_ids))
-    # 内訳の材料列（material_ids）も同じ理由で揃っている必要がある
-    # （列を決める述語は`route_facing_material_ids`へ集約してある）。
-    assert len(nonempty_matrix.material_ids) > 0
-    assert empty_matrix.material_ids == nonempty_matrix.material_ids
-    assert empty_matrix.material_values.shape == (0, len(nonempty_matrix.material_ids))
-    # categorical材料の列（`route_facing_categorical_material_ids`）も同じ理由で揃える。
-    assert len(nonempty_matrix.categorical_material_ids) > 0
-    assert empty_matrix.categorical_material_ids == nonempty_matrix.categorical_material_ids
-    assert empty_matrix.categorical_material_values.shape == (
-        0, len(nonempty_matrix.categorical_material_ids)
-    )
 
 
 def test_has_route_facing_raw_value_excludes_dynamic_material_axes(monkeypatch):
@@ -940,46 +721,13 @@ def test_has_route_facing_raw_value_excludes_axes_without_a_unit():
     assert has_route_facing_raw_value(categorical_axis) is False
 
 
-def test_combine_static_edge_score_matrices_handles_empty_tile_mixed_with_nonempty_tile():
-    # 上記バグの本体（combine_static_edge_score_matrices側）の直接回帰確認。修正前は
-    # np.concatenateが「dimension 1のサイズ不一致」でValueErrorを送出していた。
-    # 空タイルの登場順（先/後）どちらでも正しく結合できることを確認する
-    # （combine_static_edge_score_matricesはmatrices[0].axis_idsを全体のaxis_idsとして
-    # 採用するため、先頭が空タイルの場合も列数・列順が揃っている必要がある）。
-    graph = RoadGraph(
-        graph_version="v1",
-        nodes={
-            "node-1": Node(node_id="node-1", latitude=35.70, longitude=139.70),
-            "node-2": Node(node_id="node-2", latitude=35.71, longitude=139.71),
-        },
-        edges={"edge-1": _edge()},
-    )
-    materials = {
-        "edge-1": EdgeMaterialBundle(
-            surface="asphalt", way_tags={}, attribute_counts=None, elevation_attribute=None, is_designated=False
-        )
-    }
-    nonempty_matrix = build_static_edge_score_matrix(graph, materials)
-    empty_matrix = build_static_edge_score_matrix(RoadGraph(graph_version="v1", nodes={}, edges={}), {})
-
-    combined = combine_static_edge_score_matrices([nonempty_matrix, empty_matrix])
-    assert combined.edge_ids == ["edge-1"]
-    assert combined.axis_scores.shape == (1, len(nonempty_matrix.axis_ids))
-
-    combined_reversed = combine_static_edge_score_matrices([empty_matrix, nonempty_matrix])
-    assert combined_reversed.edge_ids == ["edge-1"]
-    assert combined_reversed.axis_scores.shape == (1, len(nonempty_matrix.axis_ids))
-    # 値そのものも登場順に関わらず一致する（列の並びがずれていないことの確認、NaNは
-    # NaN同士で一致とみなす）。
-    left, right = combined.axis_scores, combined_reversed.axis_scores
-    both_nan = np.isnan(left) & np.isnan(right)
-    assert ((left == right) | both_nan).all()
 
 
 def test_combine_static_edge_score_matrices_handles_all_empty_tiles():
     # bbox内の全タイルがEdge0件（道路データの無い区画）の場合も例外なく空の結合結果を返す。
-    empty_matrix_a = build_static_edge_score_matrix(RoadGraph(graph_version="v1", nodes={}, edges={}), {})
-    empty_matrix_b = build_static_edge_score_matrix(RoadGraph(graph_version="v1", nodes={}, edges={}), {})
+    empty_graph = RoadGraph(graph_version="v1", nodes={}, edges={})
+    empty_matrix_a = build_static_edge_score_matrix(empty_graph, material_arrays(empty_graph, []))
+    empty_matrix_b = build_static_edge_score_matrix(empty_graph, material_arrays(empty_graph, []))
 
     combined = combine_static_edge_score_matrices([empty_matrix_a, empty_matrix_b])
 
@@ -990,52 +738,6 @@ def test_combine_static_edge_score_matrices_handles_all_empty_tiles():
 # --- 改善計画T546: EdgeMaterialTable経由でもbuild_static_edge_score_matrixが一致すること ---
 
 
-def _diverse_graph_and_bundles(n: int) -> tuple[RoadGraph, dict[str, EdgeMaterialBundle]]:
-    """標高・件数・タグ・指定路線の有無を組み合わせた、実データ規模相当のfixture。"""
-    nodes = {f"node-{i}": Node(node_id=f"node-{i}", latitude=35.70 + i * 0.0001, longitude=139.70) for i in range(n + 1)}
-    edges = {
-        f"edge-{i}": _edge(
-            edge_id=f"edge-{i}", from_node_id=f"node-{i}", to_node_id=f"node-{i + 1}",
-            highway="residential" if i % 5 else "trunk", osm_way_id=i,
-        )
-        for i in range(n)
-    }
-    graph = RoadGraph(graph_version="v1", nodes=nodes, edges=edges)
-
-    bundles: dict[str, EdgeMaterialBundle] = {}
-    for i in range(n):
-        edge_id = f"edge-{i}"
-        remainder = i % 4
-        if remainder == 0:
-            bundles[edge_id] = EdgeMaterialBundle(
-                surface="asphalt",
-                way_tags={"highway": "residential", "bicycle": "no" if i % 20 == 0 else "yes"},
-                attribute_counts=EdgeAttributeCounts(
-                    accident_count=float(i % 3), intersection_count=i % 2
-                ),
-                elevation_attribute=ElevationAttribute(
-                    edge_id=edge_id, average_grade=(i % 11) - 5, data_source="test", calculated_at="t",
-                ),
-                is_designated=(i % 13 == 0),
-            )
-        elif remainder == 1:
-            bundles[edge_id] = EdgeMaterialBundle(
-                surface=None, way_tags={}, attribute_counts=None, elevation_attribute=None, is_designated=False,
-            )
-        elif remainder == 2:
-            bundles[edge_id] = EdgeMaterialBundle(
-                surface="gravel", way_tags={"surface": "gravel"}, attribute_counts=None,
-                # 行はあるが有効点不足で全フィールドNone（境界ケース）。
-                elevation_attribute=ElevationAttribute(edge_id=edge_id, data_source="test", calculated_at="t"),
-                is_designated=False,
-            )
-        else:
-            bundles[edge_id] = EdgeMaterialBundle(
-                surface=None, way_tags={"motor_vehicle": "no"},
-                attribute_counts=EdgeAttributeCounts(accident_count=0.0, intersection_count=0),
-                elevation_attribute=None, is_designated=(i % 7 == 0),
-            )
-    return graph, bundles
 
 
 def _assert_matrices_equal(a, b) -> None:
@@ -1050,30 +752,8 @@ def _assert_matrices_equal(a, b) -> None:
         assert (flags_a == b.hard_filter_flags[name]).all()
 
 
-def test_build_static_edge_score_matrix_matches_between_table_and_dict_materials():
-    """改善計画T546「実装リスク」節が要求する回帰: 軸編集後の経路
-    （`to_legacy_dicts()`経由で構築したスコア行列）が、bundleの生dictから直接構築した
-    行列と一致することを、実データ規模相当のfixtureで確認する（ずれるとルートの軸別
-    色分けだけが変わる、という指摘への対応）。"""
-    graph, bundles = _diverse_graph_and_bundles(2_000)
-    edge_ids = list(graph.edges.keys())
-    table = EdgeMaterialTable.from_bundles(edge_ids, bundles)
-
-    matrix_from_table = build_static_edge_score_matrix(graph, table, accident_years_covered=3)
-    matrix_from_dict = build_static_edge_score_matrix(graph, bundles, accident_years_covered=3)
-
-    _assert_matrices_equal(matrix_from_table, matrix_from_dict)
 
 
-def test_build_static_edge_score_matrix_with_empty_edge_material_table():
-    graph = RoadGraph(graph_version="v1", nodes={}, edges={})
-    table = EdgeMaterialTable.from_bundles([], {})
-
-    matrix = build_static_edge_score_matrix(graph, table)
-
-    assert matrix.edge_ids == []
-    assert len(matrix.axis_ids) > 0
-    assert matrix.axis_scores.shape == (0, len(matrix.axis_ids))
 
 
 # --- 改善計画T546: compute_routable_node_ids（スコア行列の生配列ベース版） ---
@@ -1109,28 +789,6 @@ def test_compute_routable_node_ids_excludes_edges_marked_excluded():
     assert routable == set()
 
 
-def test_compute_routable_node_ids_matches_hard_filter_excluded_from_score_matrix():
-    """`compute_hard_filter_excluded`が返す配列をそのまま渡す実際の呼び出し形（
-    `road_graph_engine.py: _get_or_build_node_index`と同じ経路）で、motorway等の
-    0次フィルタがそのままroutable判定へ反映されることを確認する。"""
-    graph, bundles = _diverse_graph_and_bundles(50)
-    edge_ids = list(graph.edges.keys())
-    table = EdgeMaterialTable.from_bundles(edge_ids, bundles)
-    matrix = build_static_edge_score_matrix(graph, table)
-    excluded = compute_hard_filter_excluded(
-        matrix.hard_filter_flags, matrix.gradient_percent,
-    )
-
-    routable = compute_routable_node_ids(graph, matrix.edge_ids, excluded)
-
-    # trunk（highwayが5の倍数でないedge、_diverse_graph_and_bundles参照）は既定
-    # DEFAULT_HARD_FILTERSで除外されるため、trunkのみに接続するNodeはroutableに含まれない。
-    for i, edge_id in enumerate(matrix.edge_ids):
-        edge = graph.edges[edge_id]
-        if excluded[i]:
-            continue
-        assert edge.from_node_id in routable
-        assert edge.to_node_id in routable
 
 
 def test_compute_routable_node_ids_empty_inputs_return_empty_set():
@@ -1284,65 +942,8 @@ def test_dynamic_material_evaluators_cover_every_request_dynamic_material():
     assert set(DYNAMIC_MATERIAL_EVALUATORS) == set(REQUEST_DYNAMIC_MATERIAL_IDS)
 
 
-@pytest.mark.parametrize("speed_kmh", [12.0, 20.0, 45.0])
-def test_dynamic_materials_agree_across_scalar_bulk_and_static_matrix_paths(speed_kmh):
-    """同じ風・同じ走行速度に対し、スカラー経路（compute_edge_axis_scores）・bulk経路
-    （_evaluate_axes_bulk）・静的行列＋動的軸合成（build_static_edge_score_matrix→
-    evaluate_dynamic_axis_arrays）が同じ軸difficultyを返す。"""
-    from app.domain.dynamic_materials import DynamicAxisRequestContext, evaluate_dynamic_axis_arrays
-    from app.domain.evaluation import _evaluate_axes_bulk
-
-    graph = _bearing_graph()
-    weather = _wind(wind_speed_ms=6.0, wind_direction_deg=30.0)
-    travel_speed_ms = kmh_to_ms(speed_kmh)
-
-    with axis_definitions_snapshot():
-        AXIS_DEFINITIONS.clear()
-        AXIS_DEFINITIONS["axis_wind_drag_ratio"] = _wind_axis_on("wind_drag_ratio", [(0.0, 0.0), (5.0, 100.0)])
-
-        scalar = {
-            edge_id: compute_edge_axis_scores(edge, None, None, weather=weather, travel_speed_ms=travel_speed_ms)
-            for edge_id, edge in graph.edges.items()
-        }
-        bulk = _evaluate_axes_bulk(graph, {}, {}, weather, travel_speed_ms, None, 0, None)
-        matrix = build_static_edge_score_matrix(graph, {})
-        static_scores = {axis_id: matrix.axis_scores[:, i] for i, axis_id in enumerate(matrix.axis_ids)}
-        assert all(np.all(np.isnan(arr)) for arr in static_scores.values())  # 動的軸の列は静的行列ではNaN
-        resolved = evaluate_dynamic_axis_arrays(
-            static_scores,
-            DynamicAxisRequestContext(bearing_deg=matrix.bearing_deg, weather=weather, travel_speed_ms=travel_speed_ms),
-        )
-
-    for row, edge_id in enumerate(bulk.edge_ids):
-        assert matrix.edge_ids[row] == edge_id
-        for axis_id in ("axis_wind_drag_ratio",):
-            bulk_value = float(bulk.axis_arrays[axis_id][row])
-            resolved_value = float(resolved[axis_id][row])
-            if axis_id in scalar[edge_id]:
-                assert bulk_value == pytest.approx(scalar[edge_id][axis_id], abs=1e-9)
-                assert resolved_value == pytest.approx(scalar[edge_id][axis_id], abs=1e-9)
-            else:  # bearing未計算のEdgeは3経路ともデータ無し
-                assert np.isnan(bulk_value) and np.isnan(resolved_value)
-    # 材料値そのものも3経路で一致する（区間表示が読む値）。
-    for row, edge_id in enumerate(bulk.edge_ids):
-        expected = compute_dynamic_edge_materials(graph.edges[edge_id], weather, travel_speed_ms)
-        for material_id, value in expected.items():
-            if value is None:
-                assert np.isnan(resolved[material_id][row])
-            else:
-                assert float(resolved[material_id][row]) == pytest.approx(value, abs=1e-12)
 
 
-def test_faster_travel_speed_raises_wind_drag_ratio_axis_difficulty():
-    # 向かい風3m/sで10km/h→30km/hにすると材料値が約2.3倍になり、軸difficultyも上がる。
-    edge = _edge(bearing_deg=0.0)
-    weather = _wind(wind_speed_ms=3.0, wind_direction_deg=0.0)
-    with axis_definitions_snapshot():
-        AXIS_DEFINITIONS.clear()
-        AXIS_DEFINITIONS["axis_wind_drag_ratio"] = _wind_axis_on("wind_drag_ratio", [(0.0, 0.0), (5.0, 100.0)])
-        slow = compute_edge_axis_scores(edge, None, None, weather=weather, travel_speed_ms=kmh_to_ms(10.0))
-        fast = compute_edge_axis_scores(edge, None, None, weather=weather, travel_speed_ms=kmh_to_ms(30.0))
-    assert fast["axis_wind_drag_ratio"] / slow["axis_wind_drag_ratio"] == pytest.approx(2.3, abs=0.05)
 
 
 # --- 内訳の材料列（T689） ---
@@ -1367,35 +968,6 @@ def test_route_facing_material_ids_excludes_undecomposable_and_categorical_mater
     assert "wind_drag_ratio" not in material_ids
 
 
-def test_boolean_breakdown_materials_are_carried_as_zero_or_one():
-    # 真偽値材料は0/1のfloatで運ぶ。距離加重平均がそのまま「該当区間の延長割合」になる
-    # ため、割合を出すための専用の機構を持たずに済む。
-    graph = RoadGraph(
-        graph_version="v1",
-        nodes={
-            "node-1": Node(node_id="node-1", latitude=35.70, longitude=139.70),
-            "node-2": Node(node_id="node-2", latitude=35.71, longitude=139.71),
-        },
-        edges={"edge-1": _edge()},
-    )
-    materials = {
-        "edge-1": EdgeMaterialBundle(
-            surface="asphalt",
-            way_tags={"lit": "yes", "tunnel": "yes"},
-            attribute_counts=None,
-            elevation_attribute=None,
-            is_designated=False,
-        )
-    }
-
-    matrix = build_static_edge_score_matrix(graph, materials)
-
-    values = {
-        material_id: matrix.material_values[0, i]
-        for i, material_id in enumerate(matrix.material_ids)
-    }
-    assert values["lit"] == 1.0
-    assert values["has_tunnel"] == 1.0
 
 
 # --- 内訳のcategorical材料（T718） ---
@@ -1412,26 +984,3 @@ def test_route_facing_categorical_material_ids_holds_only_categorical_leaves():
     assert not set(categorical) & set(route_facing_material_ids())
 
 
-def test_categorical_breakdown_material_is_carried_as_its_raw_value():
-    graph = RoadGraph(
-        graph_version="v1",
-        nodes={
-            "node-1": Node(node_id="node-1", latitude=35.70, longitude=139.70),
-            "node-2": Node(node_id="node-2", latitude=35.71, longitude=139.71),
-        },
-        edges={"edge-1": _edge()},
-    )
-    materials = {
-        "edge-1": EdgeMaterialBundle(
-            surface="asphalt", way_tags={}, attribute_counts=None, elevation_attribute=None, is_designated=False
-        )
-    }
-
-    matrix = build_static_edge_score_matrix(graph, materials)
-
-    values = {
-        material_id: matrix.categorical_material_values[0, i]
-        for i, material_id in enumerate(matrix.categorical_material_ids)
-    }
-    # `_edge()`のhighwayがそのまま列へ載る（数値へ変換しない）。
-    assert values["highway"] == graph.edges["edge-1"].highway

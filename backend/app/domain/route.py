@@ -44,7 +44,7 @@ class RouteSegmentDetail(StrictModel):
     estimated_arrival_time: str | None = None
     # axis_id→difficulty(0-100)の汎用dict。軸スタジオで公開軸を自由に増減できる設計と
     # 整合するよう固定フィールドにはしない。評価できなかった軸（欠損データ等）は
-    # キー自体を含めない（`compute_edge_axis_scores`・`evaluate_axis_difficulties`と
+    # キー自体を含めない（`evaluate_axes_scalar`の呼び出し元と
     # 同じ「データ無しはキーを持たない」規約）。
     axis_difficulties: dict[str, float] = Field(default_factory=dict)
     # 「重み付き寄与度」（この区間の合成に使ったのと同じ重み配分で

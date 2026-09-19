@@ -1082,12 +1082,11 @@ APIの`route_preference`・フロントの重みUIもすべて同じaxis_idキ�
 「並び順はoverall_difficultyのみでよい」というさらなるユーザー判断を受けT548でtotal_score
 自体を撤去した）。**軸を追加するときは
 必ずこの1本道を通す**（`CLAUDE.md`参照）: 取込（`import_profile.yaml`/`ALLOWED_WAY_TAGS`等）
-→ 材料の解決（既存材料で足りない場合のみ。スカラー経路`compute_edge_axis_scores`は
-引き続き手書き。配列経路`compute_edge_costs_bulk`は改善計画T280で`domain/material_catalog.py:
-MaterialSpec.extractor`宣言駆動化済みのため、抽出方法がタグ判定・件数密度等の既知パターンに
-収まる材料なら`material_catalog.py`へ抽出関数を1件足すだけで済み、`compute_edge_costs_bulk`
-自体の変更は不要。既知パターンに収まらない場合や`AttributeRepository`側の事前集計が
-無い場合は従来どおりファサード対称委譲から必要）→
+→ 材料の解決（既存材料で足りない場合のみ。材料の値の求め方は
+`domain/material_catalog.py: MaterialSpec.value_sql`が唯一の宣言で、DBが導出する。
+既存のエイリアス（区間の行・集計表・派生表）で書ける式なら1エントリ足すだけで済み、
+読み出し側の変更は不要。新しい元データが要る場合は`AttributeRepository`側の事前集計から
+必要）→
 `domain/axis_definitions.py: AXIS_DEFINITIONS`への定義データ追加（改善計画T221 Stage B/C。
 既存テンプレート＋既存材料の組み合わせならこの1エントリでスカラー/配列両経路の評価・
 区間インスペクタ・`evaluate_axis_difficulties`・既定重み（改善計画T316で
@@ -1412,11 +1411,10 @@ DB化済みの`AXIS_DEFINITIONS`側を表示名の単一ソースにした。
 （`axis_admin.py: AxisDefinitionPayload`）の`_check_materials_are_known`が、shapeが参照する
 材料idの実在を422で検証する。
 
-抽出ロジックは汎用パターン（単一タグ生値取得・タグ値一致判定・数値パース・件数密度計算）を
-パラメータ化したextractorファクトリ関数（`raw_way_tag_extractor`/`tag_equals_extractor`/
-`way_tag_parser_extractor`/`keyed_value_extractor`/`keyed_density_extractor`）で宣言的に組み立てる（`MaterialSpec`宣言の
-場で`extractor=tag_equals_extractor("bridge", "yes")`のように直接呼ぶ）。優先順位付き分類等の
-複雑な組み合わせロジック（`bicycle_infra`）のみ専用関数を持つ。
+材料の値はSQL式（`MaterialSpec.value_sql`）として宣言し、DBが導出する。共通の判定
+（タグの正規化・タグ値の一致・数値パース・件数の密度化・wayの行の有無）は
+`domain/material_sql.py`の組み立て関数から作るため、材料ごとに式を書き写さない。
+評価・地図タイル・欠損率の集計はすべてこの同じ式を読む。
 
 `GET /api/admin/material-catalog/{material_id}/values`（HTTP Basic認可要）が、DBに実際に取り込まれている値の
 一覧（`RawOsmRepository.get_distinct_material_values`、DB未接続時は空リストへグレースフル
@@ -1869,7 +1867,7 @@ osm_way_id単位へ集約してから`osm_raw_ways`へJOIN）として焼き込�
 フォローアップ（2026-08-26）: この3値へCASE式で畳み込む前の生フラグ（`is_ert`/`is_cl`）を
 `is_emergency_transport`/`is_critical_logistics`という2つの真偽値タイルプロパティとしても
 併せて焼き込み、`material_catalog.py`の同名の正規化材料（軸スタジオで選択可能、ただし
-`extractor`は種別ごとのper-edge kind配線が未整備なためトリガー付きDEFER）が参照する
+値式は種別ごとのper-edge kind配線が未整備なためトリガー付きDEFER）が参照する
 （「表示専用材料の除外」節参照）。
 
 ### 派生データの系譜追跡

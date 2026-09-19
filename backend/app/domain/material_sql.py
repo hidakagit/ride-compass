@@ -80,9 +80,21 @@ LANDCOVER_SQL_KEYS = (
 )
 
 
+_WAY_PRESENT_PREFIX = "CASE WHEN w.osm_way_id IS NULL THEN NULL ELSE COALESCE("
+
+
 def way_present_or_null_sql(condition: str) -> str:
     """wayの行が無ければNULL（不明）、あればタグの有無で真偽（非該当はfalse）。"""
-    return f"CASE WHEN w.osm_way_id IS NULL THEN NULL ELSE COALESCE({condition}, false) END"
+    return f"{_WAY_PRESENT_PREFIX}{condition}, false) END"
+
+
+def folds_tag_absence_to_false(value_sql: str) -> bool:
+    """その値式が、wayの行さえあればタグの不在をfalseへ畳むものか。
+
+    「wayの行が無い（不明）」と「タグが無い（非該当）」を分ける材料の判定を、値式の
+    組み立て方から導く——材料の一覧を別に持つと、材料を1つ足したとき片方が取り残される。
+    """
+    return value_sql.startswith(_WAY_PRESENT_PREFIX)
 
 
 def tag_is_value_sql(tag: str, expected: str) -> str:

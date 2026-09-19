@@ -14,7 +14,6 @@
 import numpy as np
 import pytest
 
-from app.domain.attributes import ElevationAttribute
 from app.domain.axis_definitions import (
     AXIS_DEFINITIONS,
     AxisDefinition,
@@ -28,7 +27,6 @@ from app.domain.axis_definitions import (
     evaluate_axis_scalar,
     topological_axis_order,
 )
-from app.domain.evaluation import compute_edge_axis_scores
 from app.domain.graph import DirectedEdge
 
 
@@ -386,89 +384,8 @@ def _edge() -> DirectedEdge:
     )
 
 
-def test_compute_edge_axis_scores_resolves_internal_axis_reference(isolated_axis_definitions):
-    # internal_a（非公開）はgradient_percentから、public_b（公開）はinternal_aの結果値
-    # そのものから計算する2段構成。1回のcompute_edge_axis_scores呼び出しで両方の値が
-    # 正しく（依存順に）解決されることを確認する。
-    isolated_axis_definitions.clear()
-    isolated_axis_definitions.update(
-        {
-            "internal_a": AxisDefinition(
-                axis_id="internal_a",
-                shape=BreakpointLinearShape(
-                    terms=[MaterialTerm(material="gradient_percent")],
-                    preprocess="abs",
-                    breakpoints=[(0.0, 0.0), (10.0, 100.0)],
-                ),
-                default_weight=0.1,
-                label="内部軸A",
-                is_published=False,
-            ),
-            "public_b": AxisDefinition(
-                axis_id="public_b",
-                shape=BreakpointLinearShape(
-                    terms=[MaterialTerm(material="internal_a")],
-                    breakpoints=[(0.0, 0.0), (100.0, 100.0)],
-                ),
-                default_weight=0.1,
-                label="公開軸B",
-                is_published=True,
-            ),
-        }
-    )
-    elevation = ElevationAttribute(edge_id="edge-1", average_grade=5.0, data_source="test", calculated_at="t")
-
-    scores = compute_edge_axis_scores(_edge(), elevation, surface_type=None)
-
-    # 改善計画T292: compute_edge_axis_scoresの返り値は公開軸のみに絞る（内部軸は
-    # 実装詳細のため含めない）。internal_aが正しく計算されたことは、それを参照する
-    # public_bの値（50.0）を通じて間接的に確認する。
-    assert "internal_a" not in scores
-    assert scores["public_b"] == 50.0
 
 
-def test_compute_edge_axis_scores_resolves_priority_override_through_hierarchy(isolated_axis_definitions):
-    # internal_a（0次条件でsurface_good=trueなら0固定、bool材料での0次条件）
-    # →public_bが内部軸の結果をそのまま材料として使う。0次条件が階層越しでも
-    # 正しく効くことを確認する（surface_goodはcompute_edge_axis_scoresが実際に
-    # 解決するbool材料、改善計画T292）。
-    isolated_axis_definitions.clear()
-    isolated_axis_definitions.update(
-        {
-            "internal_a": AxisDefinition(
-                axis_id="internal_a",
-                shape=BreakpointLinearShape(
-                    terms=[MaterialTerm(material="gradient_percent")],
-                    preprocess="abs",
-                    breakpoints=[(0.0, 0.0), (10.0, 100.0)],
-                ),
-                default_weight=0.1,
-                label="内部軸A",
-                is_published=False,
-                priority_overrides=[PriorityCondition(material="surface_good", equals="true", value=0.0)],
-            ),
-            "public_b": AxisDefinition(
-                axis_id="public_b",
-                shape=BreakpointLinearShape(
-                    terms=[MaterialTerm(material="internal_a")],
-                    breakpoints=[(0.0, 0.0), (100.0, 100.0)],
-                ),
-                default_weight=0.1,
-                label="公開軸B",
-                is_published=True,
-            ),
-        }
-    )
-    elevation = ElevationAttribute(edge_id="edge-1", average_grade=5.0, data_source="test", calculated_at="t")
-
-    # surface_type="asphalt"はclassify_osm_surfaceでTrue(良路面)と判定される
-    # （domain/road.py: GOOD_OSM_SURFACE_TAGS）ため、materials["surface_good"]=Trueになる。
-    overridden = compute_edge_axis_scores(_edge(), elevation, surface_type="asphalt")
-    assert overridden["public_b"] == 0.0
-
-    # 非舗装（surface_good=False）なら0次条件が発火せず通常のshape計算になる。
-    not_overridden = compute_edge_axis_scores(_edge(), elevation, surface_type="ground")
-    assert not_overridden["public_b"] == 50.0
 
 
 # --- dynamic_axis_topological_order（改善計画T534: 軸別スコアの事前計算キャッシュ） ---
