@@ -21,6 +21,9 @@ export interface AxisMapDisplaySectionProps {
   editing: AxisDefinitionResponse | null;
   /** 公開済み軸は表示専用フィールドしか変えられないため、公開の切り替えを出さない。 */
   restrictedDisplayOnly: boolean;
+  /** 「調整する」で一時的に下書きへ戻した軸か。保存が必ず公開へ戻すため、
+   * 切り替えの代わりにその事実を出す。 */
+  republishing?: boolean;
   /** 段階プレビューの配色・単位（親が軸カタログから渡す）。 */
   mapBandColors?: (boundaries: readonly number[]) => readonly string[];
   mapValueUnit: string;
@@ -33,6 +36,7 @@ export function AxisMapDisplaySection({
   setDraft,
   editing,
   restrictedDisplayOnly,
+  republishing = false,
   mapBandColors,
   mapValueUnit,
   onThresholdErrorChange,
@@ -280,15 +284,24 @@ export function AxisMapDisplaySection({
             is_cosmetic_only_updateの表示専用フィールドのみという前提から外れ、backend側で
             拒否される）。公開状態の切り替えは「非公開に戻す」専用ボタン（AxisStudio.tsx）
             に導線を一本化済み。 */}
-        {!restrictedDisplayOnly && (
-          <label className={styles.inlineCheckbox}>
-            <Checkbox
-              checked={draft.isPublished}
-              onCheckedChange={(next) => setDraft((d) => ({ ...d, isPublished: next }))}
-              aria-label="公開する"
-            />
-            公開する（一般向けルート設定画面に表示。公開後は更新・削除ができなくなります——改良は複製から）
-          </label>
+        {/* 「調整する」の最中は、保存が必ず公開へ戻す。切り替えを出すと、チェックを外して
+            保存しても公開へ戻り、画面の操作結果が無言で反転する（design-principles.md
+            「1つの状態は1つの場所でだけ操作する」）。ここでは事実だけを示す。 */}
+        {republishing ? (
+          <p className={styles.hint}>
+            「調整する」で一時的に下書きへ戻しています。保存すると公開へ戻ります。
+          </p>
+        ) : (
+          !restrictedDisplayOnly && (
+            <label className={styles.inlineCheckbox}>
+              <Checkbox
+                checked={draft.isPublished}
+                onCheckedChange={(next) => setDraft((d) => ({ ...d, isPublished: next }))}
+                aria-label="公開する"
+              />
+              公開する（一般向けルート設定画面に表示。公開後は更新・削除ができなくなります——改良は複製から）
+            </label>
+          )
         )}
       </>
     );

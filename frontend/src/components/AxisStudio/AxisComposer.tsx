@@ -34,6 +34,10 @@ interface AxisComposerProps {
    * この軸以外を含む全軸一覧（AxisStudio.tsxが一覧取得済みのものをそのまま渡す）。
    * 省略時（テスト等）は参考表示自体を出さない。 */
   otherAxes?: readonly AxisDefinitionResponse[];
+  /** 「調整する」で一時的に下書きへ戻した軸を編集中か。**保存すると必ず公開へ戻る**ため、
+   * 公開の切り替えを操作させない（操作させると、チェックを外して保存しても公開へ戻り、
+   * 画面の操作結果が無言で反転する）。 */
+  republishing?: boolean;
   onCancelEdit: () => void;
   onSave: (payload: AxisDefinitionPayload, isNew: boolean) => Promise<void>;
 }
@@ -48,6 +52,7 @@ export default function AxisComposer({
   otherAxes,
   mapBandColors,
   mapValueUnit = "",
+  republishing = false,
   onCancelEdit,
   onSave,
 }: AxisComposerProps) {
@@ -305,6 +310,7 @@ export default function AxisComposer({
         setDraft={setDraft}
         editing={editing}
         restrictedDisplayOnly={restrictedDisplayOnly}
+        republishing={republishing}
         mapBandColors={mapBandColors}
         mapValueUnit={mapValueUnit}
         onThresholdErrorChange={setThresholdError}

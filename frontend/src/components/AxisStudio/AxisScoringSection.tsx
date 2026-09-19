@@ -11,6 +11,7 @@ import {
   generateBreakpoints,
   insertBreakpointAtLargestGap,
   interpolateBreakpointScore,
+  generatorSettingsFrom,
   type BreakpointShape,
 } from "./breakpointTools";
 import { materialOptionText, type AxisMaterialOption } from "@/lib/axisMaterialsCatalog";
@@ -39,11 +40,16 @@ export function AxisScoringSection({ draft, setDraft, materialOptions, axisTermO
   const { values: categoricalMaterialValues, unavailable: categoricalValuesUnavailable } = useMaterialValues(
     selectedCategoricalDtype === "categorical" ? draft.categoricalMaterial : null,
   );
-  // 折れ点の自動生成フォーム（範囲＋形の3入力）の下書き。draft.breakpointsとは別の
-  // 使い捨て入力欄で、「生成」を押すまでdraft.breakpointsへは反映しない。
-  const [generatorZeroValue, setGeneratorZeroValue] = useState(0);
-  const [generatorHundredValue, setGeneratorHundredValue] = useState(10);
-  const [generatorShape, setGeneratorShape] = useState<BreakpointShape>("flat");
+  // 折れ点の自動生成フォーム（範囲＋形の3入力）。**入力のたびにdraft.breakpointsを
+  // 作り直す**ため、初期値はいまの折れ点から復元する（breakpointTools.ts:
+  // generatorSettingsFrom）。固定値にすると、既存の軸を開いて効き方だけを変えたときに
+  // 無関係な範囲で折れ点が作り直され、較正済みの端点が黙って消える。
+  // このコンポーネントは軸ごとに作り直される（AxisStudio.tsxがAxisComposerへkeyを渡す）
+  // ため、初期化関数だけで足りる。
+  const [generatorSeed] = useState(() => generatorSettingsFrom(draft.breakpoints));
+  const [generatorZeroValue, setGeneratorZeroValue] = useState(generatorSeed.zeroValue);
+  const [generatorHundredValue, setGeneratorHundredValue] = useState(generatorSeed.hundredValue);
+  const [generatorShape, setGeneratorShape] = useState<BreakpointShape>(generatorSeed.shape);
   // breakpoint_linearで単一材料（他軸参照ではない）のtermを1つだけ持つ場合にのみ、その
   // 材料の参考点（reference_points）を「効き目プレビュー」「自動生成の値の目安」
   // 「曲線エディタの横軸固定」に使う。複数termの組み合わせ・他軸参照は参考点の対応が

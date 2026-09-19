@@ -1,7 +1,9 @@
 // @vitest-environment node
 import { describe, expect, it } from "vitest";
 import {
+  BREAKPOINT_SHAPE_OPTIONS,
   generateBreakpoints,
+  generatorSettingsFrom,
   insertBreakpointAtLargestGap,
   interpolateBreakpointScore,
   niceStep,
@@ -160,5 +162,56 @@ describe("niceStep/snapToStep", () => {
     expect(snapToStep(7.3, 5)).toBe(5);
     expect(snapToStep(8.3, 5)).toBe(10);
     expect(snapToStep(3, 0)).toBe(3); // step<=0は素通し
+  });
+});
+describe("generatorSettingsFrom（自動生成フォームの復元）", () => {
+  // 生成フォームの3入力を固定値で持つと、既存の軸を開いたときに無関係な範囲が表示され、
+  // どれか1つに触れた瞬間にその範囲で折れ点が作り直される（較正済みの端点が黙って消える）。
+  it("自動生成した折れ点からは、生成に使った3入力をそのまま復元する", () => {
+    for (const { id } of BREAKPOINT_SHAPE_OPTIONS) {
+      const generated = generateBreakpoints(-2, 12, id);
+
+      expect(generatorSettingsFrom(generated)).toEqual({
+        zeroValue: -2,
+        hundredValue: 12,
+        shape: id,
+        matched: true,
+      });
+    }
+  });
+
+  it("値が小さいほど点数が高い軸（0点側が右）でも向きごと復元する", () => {
+    const descending = generateBreakpoints(30, 5, "front_loaded");
+
+    expect(generatorSettingsFrom(descending)).toMatchObject({
+      zeroValue: 30,
+      hundredValue: 5,
+      matched: true,
+    });
+  });
+
+  it("手で編集した折れ点は、効き方を復元できないが端点は点数から復元する", () => {
+    // 生成物と一致しない（中間点のyが生成の形と違う）。
+    const handEdited: [number, number][] = [
+      [-2, 0],
+      [3, 77],
+      [12, 100],
+    ];
+
+    expect(generatorSettingsFrom(handEdited)).toEqual({
+      zeroValue: -2,
+      hundredValue: 12,
+      shape: "flat",
+      matched: false,
+    });
+  });
+
+  it("折れ点が足りないときは既定値を返す（新規作成の初期状態）", () => {
+    expect(generatorSettingsFrom([])).toEqual({
+      zeroValue: 0,
+      hundredValue: 10,
+      shape: "flat",
+      matched: false,
+    });
   });
 });

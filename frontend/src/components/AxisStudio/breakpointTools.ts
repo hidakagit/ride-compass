@@ -51,6 +51,49 @@ export function generateBreakpoints(
   return sortBreakpoints(points);
 }
 
+/** いまの折れ点から、自動生成フォームの3入力（0点・100点・効き方）を復元する。
+ *
+ * 生成フォームは**使い捨ての入力欄ではない**——`draft.breakpoints`と別に固定の初期値を
+ * 持たせると、既存の軸を開いたときに入力欄がその軸と無関係な値（0と10）を表示し、
+ * どれか1つに触れた瞬間にその値で折れ点が作り直される。較正済みの端点が黙って消えるため、
+ * 入力欄は必ずいまの折れ点から導く。
+ *
+ * `matched`は「いまの折れ点が、この3入力から生成したものとぴったり一致するか」。
+ * falseなら手で編集された（あるいは別の手順で作られた）折れ点で、効き方は復元できない
+ * ——そのときも端点だけは正しく復元し、効き方は`flat`を初期値にする。 */
+export function generatorSettingsFrom(breakpoints: readonly [number, number][]): {
+  zeroValue: number;
+  hundredValue: number;
+  shape: BreakpointShape;
+  matched: boolean;
+} {
+  const sorted = sortBreakpoints(breakpoints);
+  if (sorted.length < 2) {
+    return { zeroValue: 0, hundredValue: 10, shape: "flat", matched: false };
+  }
+  const lowX = sorted[0][0];
+  const highX = sorted[sorted.length - 1][0];
+  // 生成した折れ点と総当たりで突き合わせる。向きは2通り（値が大きいほど点数が高い軸と、
+  // 低いほど高い軸）あり、どちらが0点側かは折れ点そのものからしか分からない。
+  for (const { id } of BREAKPOINT_SHAPE_OPTIONS) {
+    for (const [zeroValue, hundredValue] of [[lowX, highX], [highX, lowX]] as const) {
+      const candidate = generateBreakpoints(zeroValue, hundredValue, id);
+      if (candidate.length !== sorted.length) continue;
+      if (candidate.every(([x, y], i) => x === sorted[i][0] && y === sorted[i][1])) {
+        return { zeroValue, hundredValue, shape: id, matched: true };
+      }
+    }
+  }
+  // 一致しない＝手で編集された折れ点。端点は「点数が低い側が0点」として復元する。
+  const zeroSide = sorted[0][1] <= sorted[sorted.length - 1][1] ? 0 : sorted.length - 1;
+  return {
+    zeroValue: sorted[zeroSide][0],
+    hundredValue: sorted[zeroSide === 0 ? sorted.length - 1 : 0][0],
+    shape: "flat",
+    matched: false,
+  };
+}
+
 /** 折れ点をx昇順へ並べ替える（ドラッグ・数値入力・自動生成のいずれの後も呼ぶ）。 */
 export function sortBreakpoints(breakpoints: readonly [number, number][]): [number, number][] {
   return [...breakpoints].sort((a, b) => a[0] - b[0]);

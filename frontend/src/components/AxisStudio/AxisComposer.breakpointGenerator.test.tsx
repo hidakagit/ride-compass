@@ -8,6 +8,7 @@ import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import AxisComposer from "./AxisComposer";
+import { baseAxisDefinition } from "@/testing/axisDefinitionFixtures";
 
 // 分布プレビューの2フック（useAxisValueDistribution/useMaterialDistribution）は
 // マウント直後にフェッチする。モックしないとテストが実HTTPを発火する
@@ -114,5 +115,25 @@ describe("AxisComposer 折れ点の自動生成・効き目プレビュー", () 
     await user.keyboard("{ArrowDown}");
 
     expect(screen.getAllByRole("spinbutton", { name: "スコア" })[1]).toHaveValue(99);
+  });
+  it("既存の軸を開くと、生成フォームはその軸の端点を出す（固定値0と10ではない）", async () => {
+    // 固定値のままだと、効き方だけを変えたつもりで0〜10の折れ点へ作り直され、
+    // 較正済みの端点（-2と12）が黙って消える。
+    const editing = baseAxisDefinition({
+      shape: {
+        kind: "breakpoint_linear" as const,
+        terms: [{ material: "gradient_percent", weight: 1, required: true }],
+        preprocess: "identity" as const,
+        breakpoints: [
+          [-2, 0],
+          [12, 100],
+        ] as [number, number][],
+      },
+    });
+
+    render(<AxisComposer editing={editing} duplicateFrom={null} onCancelEdit={vi.fn()} onSave={vi.fn()} />);
+
+    expect(await screen.findByRole("spinbutton", { name: "0点にする値" })).toHaveValue(-2);
+    expect(screen.getByRole("spinbutton", { name: "100点にする値" })).toHaveValue(12);
   });
 });

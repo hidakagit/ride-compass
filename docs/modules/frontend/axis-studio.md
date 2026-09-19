@@ -114,6 +114,15 @@ listAxisDefinitions() ──→ definitions（全軸）
 （黙って非公開になると一般ユーザー向けの軸カタログから消えたことに気づけない）。
 材料・計算式を変えない表示専用の編集は従来どおり「表示だけ編集」を使う。
 
+**暗黙の前提**: 中断の通知を出すかは`closeComposer(republished)`の**引数**で決める。
+`setRepublishAxisId(null)`の直後に呼んでも、その関数が読む状態はそのレンダーの
+クロージャのままで、再公開に**成功した**直後に「下書きのまま残った」と通知してしまう。
+
+調整中は`公開する`チェックボックスを出さず、「保存すると公開へ戻ります」という事実だけを
+示す（`AxisMapDisplaySection`の`republishing`）。保存が無条件に公開へ戻すため、操作できる
+チェックボックスを置くと、外して保存しても公開へ戻り**画面の操作結果が無言で反転する**
+（design-principles.md「1つの状態は1つの場所でだけ操作する」）。
+
 - 削除前チェック: `axesReferencing(axisId, definitions)`が、削除しようとしている軸を
   他の軸が材料として参照していないか調べ、参照があれば確認ダイアログ（`window.confirm`）で
   警告する（一律拒否はしない、最終判断はユーザーに委ねる）。
@@ -230,6 +239,12 @@ default_weight等）は`draftFromExisting`が読み込んだ既存値のまま�
   - `generateBreakpoints(zeroValue, hundredValue, shape)`: 「0点にする値」「100点にする値」
     「形」（一定/後半で急/前半で急/S字）の3入力から6点の折れ点を生成する。
     `zeroValue > hundredValue`（値が大きいほど走りやすい軸）でも常にx昇順で返す。
+  - `generatorSettingsFrom(breakpoints)`: 上の逆。いまの折れ点から3入力を復元する。
+    **生成フォームは使い捨ての入力欄ではない**——3入力は`onChange`のたびに
+    `draft.breakpoints`を作り直すため、固定の初期値を持たせると既存の軸を開いたときに
+    その軸と無関係な範囲が表示され、どれか1つに触れた瞬間に較正済みの端点が黙って消える。
+    生成物と総当たりで突き合わせて一致すれば効き方まで復元し（`matched`）、手で編集された
+    折れ点なら端点だけを点数の低い側/高い側から復元する。
   - `interpolateBreakpointScore(breakpoints, x)`: 区分線形補間。backend:
     `domain/axis_templates.py: evaluate_breakpoint_linear`（`np.interp`、両端クランプ・
     小数1桁丸め）と同じ結果になるよう実装を揃える——効き目プレビュー表が実際の評価結果と

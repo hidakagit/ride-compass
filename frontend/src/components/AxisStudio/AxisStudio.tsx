@@ -83,32 +83,37 @@ export default function AxisStudio() {
     Promise.resolve().then(() => reload());
   }, []);
 
-  function closeComposer() {
-    if (republishAxisId !== null) {
+  /** モーダルを閉じる。`republished`は「保存で公開へ戻したか」で、**呼び出し側が渡す**
+   * ——`setRepublishAxisId(null)`の直後に呼んでも、この関数が読む`republishAxisId`は
+   * そのレンダーのクロージャのままで、再公開に成功した直後に「下書きのまま残った」と
+   * 通知してしまう（Reactのstate更新は次のレンダーまで反映されない）。 */
+  function closeComposer(republished = false) {
+    if (republishAxisId !== null && !republished) {
       setNotice(
         `「調整する」で下書きへ戻したまま編集を終えました。この軸は一般ユーザーには表示されません。` +
           `下書きタブで編集を保存すると公開へ戻ります。`,
       );
-      setRepublishAxisId(null);
     }
+    setRepublishAxisId(null);
     setEditingAxisId(null);
     setDuplicateFrom(null);
     setCreatingNew(false);
   }
 
   async function handleSave(payload: AxisDefinitionPayload, isNew: boolean) {
+    let republished = false;
     if (isNew) {
       await createAxisDefinition(payload);
     } else {
       // 「調整する」で一時的に下書きへ戻した軸は、保存と同時に公開へ戻す
       // （公開済み軸は不変という原則は保ったまま、unpublish→更新→再公開という
       // 正規の手順をボタン1つに畳んだもの）。
-      const republish = republishAxisId === payload.axis_id;
-      await updateAxisDefinition(payload.axis_id, republish ? { ...payload, is_published: true } : payload);
-      if (republish) setRepublishAxisId(null);
+      republished = republishAxisId === payload.axis_id;
+      await updateAxisDefinition(
+        payload.axis_id, republished ? { ...payload, is_published: true } : payload);
     }
     await reload();
-    closeComposer();
+    closeComposer(republished);
   }
 
   async function handleAdjustPublished(def: AxisDefinitionResponse) {
@@ -335,7 +340,8 @@ export default function AxisStudio() {
             otherAxes={definitions ?? []}
             mapBandColors={mapBandColors}
             mapValueUnit={mapValueUnit}
-            onCancelEdit={closeComposer}
+            republishing={republishAxisId !== null && republishAxisId === editingAxisId}
+            onCancelEdit={() => closeComposer()}
             onSave={handleSave}
           />
         </DialogContent>
