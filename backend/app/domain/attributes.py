@@ -520,6 +520,13 @@ def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+# 舗装された公道としてありうる平均勾配の上限（%）。世界でも最急の公道が35%前後のため、
+# これを超える値は道の起伏ではなくDEMの読み違い（両端が路面でない地物を指した等）である。
+# 超えた区間は値を持たせず「データなし」にする——0次ハードフィルタは値の無い区間を
+# 除外しない（`domain/hard_filters.py`）ので、誤った値で黙って経路から外すより安全側になる。
+MAX_PLAUSIBLE_AVERAGE_GRADE_PERCENT = 40.0
+
+
 def compute_elevation_attribute(
     edge_id: str,
     points: list[Coordinates],
@@ -566,6 +573,8 @@ def compute_elevation_attribute(
     start_elevation = valid[0][2]
     end_elevation = valid[-1][2]
     average_grade = (end_elevation - start_elevation) / total_distance_m * 100 if total_distance_m > 0 else None
+    if average_grade is not None and abs(average_grade) > MAX_PLAUSIBLE_AVERAGE_GRADE_PERCENT:
+        average_grade = None
 
     return ElevationAttribute(
         edge_id=edge_id,

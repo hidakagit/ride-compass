@@ -7,6 +7,7 @@ from app.domain.attributes import (
     EdgeMaterialBundle,
     EdgeMaterialTable,
     ElevationAttribute,
+    MAX_PLAUSIBLE_AVERAGE_GRADE_PERCENT,
     compute_elevation_attribute,
     edge_metrics_from_bundles,
     surface_by_edge_id,
@@ -370,3 +371,33 @@ def test_edge_material_table_getitem_and_values_mimic_dict_interface():
     assert sorted(table.values(), key=lambda b: b.surface or "") == sorted(
         bundles.values(), key=lambda b: b.surface or ""
     )
+
+
+# P1から約11m北。舗装公道としてありえない勾配を短い区間で作るために使う。
+P_NEAR = Coordinates(latitude=35.7001, longitude=139.700)
+
+
+def test_compute_elevation_attribute_blanks_physically_impossible_grade():
+    """ありえない急勾配は値を持たせない。DEMが路面でない地物を指したときに出る。"""
+    attr = compute_elevation_attribute("edge-x", [P1, P_NEAR], [2.1, 7.1], data_source="test")
+
+    # 5.0m ÷ 約11.1m ＝ 約45%。
+    assert attr.average_grade is None
+    # 標高そのものは残す（値が出せないのは勾配だけ）。
+    assert attr.start_elevation_m == 2.1
+    assert attr.end_elevation_m == 7.1
+
+
+def test_compute_elevation_attribute_keeps_steep_but_possible_grade():
+    """上限の内側は急でもそのまま残す（実在する激坂を消さない）。"""
+    attr = compute_elevation_attribute("edge-y", [P1, P_NEAR], [2.1, 6.0], data_source="test")
+
+    # 3.9m ÷ 約11.1m ＝ 約35%。
+    assert attr.average_grade is not None
+    assert 30 < attr.average_grade < MAX_PLAUSIBLE_AVERAGE_GRADE_PERCENT
+
+
+def test_compute_elevation_attribute_blanks_impossible_downhill_too():
+    attr = compute_elevation_attribute("edge-z", [P1, P_NEAR], [7.1, 2.1], data_source="test")
+
+    assert attr.average_grade is None
