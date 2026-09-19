@@ -2484,6 +2484,30 @@ class AttributeRepository(_SessionRepository):
     （他のリポジトリには触れない。docs/design-review-2026-08-15.md 設計原則6）。
     """
 
+    async def get_edge_ids_on_structure(self, edge_ids: list[str]) -> set[str]:
+        """指定Edgeのうち、橋・高架・トンネルのwayに属するものを返す。
+
+        DEMが返すのは地表面の標高で桁や坑道の高さではないため、勾配を算出してよいかの
+        判定に使う（`domain/attributes.py: compute_elevation_attribute`）。タグの正規化は
+        地図タイル側と同じ式（`osm_way_tag_sql.py`）を共有する。
+        """
+        if not edge_ids:
+            return set()
+        found: set[str] = set()
+        for id_chunk in _chunked(edge_ids, 50_000):
+            rows = await self._session.execute(
+                text(
+                    "SELECT re.edge_id FROM road_edges re "
+                    "JOIN osm_raw_ways w ON w.osm_way_id = re.osm_way_id "
+                    "WHERE re.edge_id = ANY(:edge_ids) "
+                    f"  AND (coalesce({TUNNEL_NORMALIZED_SQL}, '') NOT IN ('', 'no') "
+                    f"       OR coalesce({BRIDGE_NORMALIZED_SQL}, '') NOT IN ('', 'no'))"
+                ).bindparams(bindparam("edge_ids", type_=ARRAY(Text()))),
+                {"edge_ids": list(id_chunk)},
+            )
+            found.update(row[0] for row in rows)
+        return found
+
     async def get_elevation_attributes(self, edge_ids: list[str]) -> dict[str, ElevationAttribute]:
         if not edge_ids:
             return {}
@@ -3086,6 +3110,9 @@ class RoadGraphRepository:
         return await self.graph.get_node_intersection_attributes(node_ids)
 
     # --- Road Attribute（AttributeRepository） ---
+
+    async def get_edge_ids_on_structure(self, edge_ids: list[str]) -> set[str]:
+        return await self.attributes.get_edge_ids_on_structure(edge_ids)
 
     async def get_elevation_attributes(self, edge_ids: list[str]) -> dict[str, ElevationAttribute]:
         return await self.attributes.get_elevation_attributes(edge_ids)

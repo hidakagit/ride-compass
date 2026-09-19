@@ -3124,3 +3124,29 @@ async def test_get_feature_gradient_inputs_in_tile_does_not_let_one_segment_pain
     # 向きと組で読んでも、どちらへ走っても急坂にはならない。
     for travel in (road_bearing_deg, (road_bearing_deg + 180) % 360):
         assert abs(GradientCalculator.effective_gradient(gradient_percent, road_bearing_deg, travel)) < 2.0
+
+
+# --- get_edge_ids_on_structure（改善計画T931: DEMは地表面を返すため橋・トンネルでは
+# 勾配を出さない。その判定に使うway属性の引き当て） ---
+
+
+async def test_get_edge_ids_on_structure_finds_bridge_and_tunnel_ways(road_graph_repository):
+    """橋・トンネルのwayに属するedgeだけを返す（tunnel=noは構造物ではない）。"""
+    ways = [
+        WaySpec(osm_way_id=1, node_ids=[1, 2], highway="primary", tags={"bridge": "yes"}),
+        WaySpec(osm_way_id=2, node_ids=[2, 3], highway="primary", tags={"tunnel": "yes"}),
+        WaySpec(osm_way_id=3, node_ids=[3, 4], highway="primary", tags={}),
+        WaySpec(osm_way_id=4, node_ids=[1, 3], highway="primary", tags={"tunnel": "no"}),
+    ]
+    graph = await _save_ways_and_edges(
+        road_graph_repository, ways, {1: NODE1, 2: NODE2, 3: NODE3, 4: NODE4}
+    )
+    way_of = {eid: edge.osm_way_id for eid, edge in graph.edges.items()}
+
+    found = await road_graph_repository.get_edge_ids_on_structure(list(graph.edges))
+
+    assert {way_of[eid] for eid in found} == {1, 2}
+
+
+async def test_get_edge_ids_on_structure_returns_empty_for_no_edges(road_graph_repository):
+    assert await road_graph_repository.get_edge_ids_on_structure([]) == set()

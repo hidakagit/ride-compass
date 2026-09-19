@@ -115,6 +115,19 @@ Edgeは永続化しない。
 このバッチの実行状態は、実行が漏れていても即座にはエラーとして顕在化せず、地図上の
 一部道路の勾配色・車ストレス評価が静かに欠落するという性質の障害モードを持つ。
 
+**勾配を出さない区間**: `average_grade`がNULLなのは「まだ計算していない」だけではない。
+次の2つは、計算したうえで**値を持たせない**と決めた区間である。
+
+- **舗装公道としてありえない急勾配**（`MAX_PLAUSIBLE_AVERAGE_GRADE_PERCENT`）。道の起伏では
+  なくDEMの読み違いで、丸めても上限で切っても直らない。
+- **橋・高架・トンネル**。DEMが返すのは地表面の標高で、桁や坑道の高さではない——谷を渡る橋
+  なら谷底の起伏を、山を抜けるトンネルなら山の起伏を、そのまま道の勾配として受け取る。
+  **測り間違いではなく別のものを測っている**ため、値の側では直せない。判定は
+  `AttributeRepository.get_edge_ids_on_structure`が`osm_raw_ways`のタグから引く。
+
+どちらも標高そのもの（start/end・gain/loss）は残す。0次ハードフィルタは値の無い区間を
+除外しない（`domain/hard_filters.py`）ため、誤った値で黙って経路から外すより安全側になる。
+
 **同時実行制御**: `ElevationAttributeService`は、`repository`が内包するSQLAlchemyの
 `AsyncSession`が複数コルーチンからの同時使用不可であることを踏まえ、
 `self._repository_lock`（`asyncio.Lock`）でrepositoryアクセスだけを直列化する。これは

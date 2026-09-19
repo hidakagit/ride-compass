@@ -401,3 +401,24 @@ def test_compute_elevation_attribute_blanks_impossible_downhill_too():
     attr = compute_elevation_attribute("edge-z", [P1, P_NEAR], [7.1, 2.1], data_source="test")
 
     assert attr.average_grade is None
+
+
+def test_compute_elevation_attribute_blanks_grade_on_structure():
+    """橋・トンネルでは勾配を出さない。DEMは桁や坑道ではなく地表面を返すため。"""
+    attr = compute_elevation_attribute(
+        "edge-bridge", [P1, P2], [10.0, 22.0], data_source="test", dem_reflects_road_surface=False
+    )
+
+    assert attr.average_grade is None
+    # 標高そのものは残す（消えるのは勾配だけ）。
+    assert attr.start_elevation_m == 10.0
+    assert attr.end_elevation_m == 22.0
+    assert attr.elevation_gain_m == 12.0
+
+
+def test_compute_elevation_attribute_keeps_grade_off_structure():
+    attr = compute_elevation_attribute(
+        "edge-ground", [P1, P2], [10.0, 22.0], data_source="test", dem_reflects_road_surface=True
+    )
+
+    assert attr.average_grade is not None

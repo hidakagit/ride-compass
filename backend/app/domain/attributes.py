@@ -532,6 +532,7 @@ def compute_elevation_attribute(
     points: list[Coordinates],
     elevations: list[float | None],
     data_source: str,
+    dem_reflects_road_surface: bool = True,
 ) -> ElevationAttribute:
     """Edgeの形状点列とそれぞれの標高値からElevationAttributeを算出する。
 
@@ -541,6 +542,12 @@ def compute_elevation_attribute(
     distance_m（座標は両点とも既知のため常に正確）とgain/loss/grade（欠損を挟むと
     信頼できない）を分離し、元の点列でも真に隣接していたペアのみgain/loss/gradeへ
     寄与させる。
+
+    `dem_reflects_road_surface=False`（橋・高架・トンネル）では`average_grade`を持たせない。
+    DEMが返すのは地表面の標高で、桁や坑道の高さではない——谷を渡る橋なら谷底の起伏を、
+    山を抜けるトンネルなら山の起伏を、そのまま道の勾配として受け取ってしまう。これは
+    測り間違いではなく別のものを測っており、値を丸める・上限で切るのでは直らない。
+    標高そのもの（start/end_elevation_m・gain/loss）は残す。
     """
     valid = [(i, p, e) for i, (p, e) in enumerate(zip(points, elevations)) if e is not None]
     if len(valid) < 2:
@@ -574,6 +581,8 @@ def compute_elevation_attribute(
     end_elevation = valid[-1][2]
     average_grade = (end_elevation - start_elevation) / total_distance_m * 100 if total_distance_m > 0 else None
     if average_grade is not None and abs(average_grade) > MAX_PLAUSIBLE_AVERAGE_GRADE_PERCENT:
+        average_grade = None
+    if not dem_reflects_road_surface:
         average_grade = None
 
     return ElevationAttribute(

@@ -132,10 +132,15 @@ class FakeElevationAttributeRepository:
         self.attributes = {}
         self.save_call_count = 0
         self.get_call_count = 0
+        #: 橋・トンネルのwayに属するedge_id（テストごとに差し込む）。
+        self.edge_ids_on_structure: set[str] = set()
 
     async def get_elevation_attributes(self, edge_ids):
         self.get_call_count += 1
         return {eid: self.attributes[eid] for eid in edge_ids if eid in self.attributes}
+
+    async def get_edge_ids_on_structure(self, edge_ids):
+        return {eid for eid in edge_ids if eid in self.edge_ids_on_structure}
 
     async def save_elevation_attributes(self, attributes):
         self.save_call_count += 1
@@ -376,3 +381,33 @@ async def test_with_repository_partial_cache_only_fetches_missing_edges():
     assert attributes["edge-1"].elevation_gain_m == 999.0  # キャッシュ値がそのまま使われる
     assert attributes["edge-2"].elevation_loss_m == 5.0  # edge-2は新規計算
     assert client.call_count == 2  # edge-2の2点分のみ問い合わせ（edge-1分は問い合わせない）
+
+
+async def test_edges_on_structure_get_no_grade():
+    """橋・トンネルのwayに属する区間は、勾配を持たないまま永続化される。
+
+    DEMは地表面を返すため、谷を渡る橋なら谷底の起伏を道の勾配として受け取ってしまう。
+    """
+    bridge = DirectedEdge(
+        edge_id="edge-bridge", from_node_id="node-1", to_node_id="node-2",
+        geometry=[[35.700, 139.700], [35.701, 139.700]], distance_m=100.0,
+    )
+    ground = DirectedEdge(
+        edge_id="edge-ground", from_node_id="node-2", to_node_id="node-3",
+        geometry=[[35.701, 139.700], [35.702, 139.700]], distance_m=100.0,
+    )
+    graph = _make_graph(bridge, ground)
+    client = FakeElevationClient(
+        {(35.700, 139.700): 10.0, (35.701, 139.700): 22.0, (35.702, 139.700): 34.0}
+    )
+    repository = FakeElevationAttributeRepository()
+    repository.edge_ids_on_structure = {"edge-bridge"}
+    service = ElevationAttributeService(client, http_client=None, repository=repository)
+
+    attributes = await service.get_attributes_for_graph(graph)
+
+    assert attributes["edge-bridge"].average_grade is None
+    assert attributes["edge-ground"].average_grade is not None
+    # 標高そのものは橋でも残る（勾配だけが出せない）。
+    assert attributes["edge-bridge"].start_elevation_m == 10.0
+    assert repository.attributes["edge-bridge"].average_grade is None

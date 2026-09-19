@@ -110,12 +110,25 @@ class ElevationAttributeService:
         lookups = await self._client.get_elevations_with_coverage(self._http_client, all_points)
         elevations = [value for value, _ in lookups]
 
+        # 橋・高架・トンネルの区間は勾配を出さない（DEMは地表面を返すため）。
+        # repositoryが無い構成では判定材料が無く、従来どおり全て路面として扱う。
+        on_structure: set[str] = set()
+        if self._repository is not None and edges:
+            async with self._repository_lock:
+                on_structure = await self._repository.get_edge_ids_on_structure(
+                    [e.edge_id for e in edges]
+                )
+
         computed: dict[str, ElevationAttribute] = {}
         resolved_edges: dict[str, bool] = {}
         for edge, (start, end) in zip(edges, edge_point_ranges):
             points = all_points[start:end]
             computed[edge.edge_id] = compute_elevation_attribute(
-                edge.edge_id, points, elevations[start:end], data_source=DATA_SOURCE
+                edge.edge_id,
+                points,
+                elevations[start:end],
+                data_source=DATA_SOURCE,
+                dem_reflects_road_surface=edge.edge_id not in on_structure,
             )
             resolved_edges[edge.edge_id] = all(resolved for _, resolved in lookups[start:end])
         return computed, resolved_edges
