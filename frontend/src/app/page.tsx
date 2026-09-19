@@ -1039,8 +1039,8 @@ export default function Home() {
     [hasDetail, lens, hiddenRouteLegendKeys, routeStyleModes],
   );
 
-  // 道路情報以外の絞り込み可能レイヤーの▶パネルの中身。レイヤーごとに保有する軸ぶん
-  // （事故のみ2軸、他は1軸）をまとめて渡す。
+  // 道路情報以外の絞り込み可能レイヤーの▶パネルの中身。1つのレイヤーが複数の軸を持つ
+  // ことがある（事故は当事者と重大度）ため、そのレイヤーの軸をまとめて渡す。
   const staticFilterLegendDetails = useMemo(() => {
     const result: Partial<Record<MapLayerId, LegendFilterSummaryAxis[]>> = {};
     const layerIds = new Set(staticFilterAxes.map((axis) => axis.layerId));

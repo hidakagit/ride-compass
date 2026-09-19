@@ -566,7 +566,7 @@ export function buildMapLayers(
       // で切り替えられる。
       id: "precipitationNowcast",
       paintTier: "area",
-      // 線状降水帯予測マップは「降水」チップの傘下（4つ目のソース）へ統合されているため、
+      // 線状降水帯予測マップは「降水」チップの傘下のソースとして統合されているため、
       // 専用の凡例ブロックをここへ並べる（実データはriskMap.tsが単一の情報源）。
       readOnlyLegend: [
         {
