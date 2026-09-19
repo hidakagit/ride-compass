@@ -25,17 +25,6 @@ vi.mock("@/services/materialCatalogApi", () => ({
   getMaterialValues: vi.fn().mockRejectedValue(new Error("network unavailable in test")),
 }));
 
-// backendの_COSMETIC_ONLY_FIELDSと対になる一覧。ここを増やすだけでは意味が無く、
-// backend側にも同じフィールドが入っていなければ保存は拒否される。
-const COSMETIC_FIELDS = [
-  "icon_id",
-  "chip_label",
-  "panel_hint",
-  "show_map_icon",
-  "display_thresholds_override",
-  "display_band_labels_override",
-];
-
 const snapshot = JSON.parse(
   readFileSync(resolve(process.cwd(), "../backend/fixtures/axis_definitions_snapshot.json"), "utf-8"),
 ) as { axes: { definition: Record<string, unknown> }[] };
@@ -58,8 +47,10 @@ describe("AxisComposer 公開済み軸の表示だけ編集", () => {
 
       await waitFor(() => expect(onSave).toHaveBeenCalledTimes(1));
       const [payload] = onSave.mock.calls[0];
+      // **除外を持たない**。触っていないのだから、表示専用フィールドも含めて1つも
+      // 変わらないのが正しい。ここへ除外リストを置くと、backendの宣言の手写しになり、
+      // 片側へ1つ足したときにこの回帰テストがその1つを見ないまま緑になる。
       for (const key of Object.keys(definition)) {
-        if (COSMETIC_FIELDS.includes(key)) continue;
         expect({ [key]: payload[key] }).toEqual({ [key]: definition[key] });
       }
     });

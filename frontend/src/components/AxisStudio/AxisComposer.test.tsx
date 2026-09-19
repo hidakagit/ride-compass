@@ -1,9 +1,8 @@
-// AxisComposer.tsx（軸スタジオの中核フォーム、T270で新設・T332で4ステップウィザードへ
-// 再構成）自体には今までテストが無かった（AxisStudio.test.tsxはAxisStudio経由の統合的な
-// 導線確認が主で、buildShape()の4テンプレート・priority_overridesの素通し保持・
-// draftFromExisting往復までは踏み込んでいない）。ここではAxisComposerを
-// 単体でレンダリングし（Dialog等の呼び出し元の関心事を持ち込まない）、ウィザードを
-// userEventで実際に操作してonSaveへ渡るpayloadを検証する。
+// AxisComposer.tsx（軸スタジオの中核フォーム）の単体テスト。AxisStudio.test.tsxは
+// AxisStudio経由の統合的な導線確認が主で、buildShape()のテンプレート・
+// priority_overridesの素通し保持・draftFromExisting往復までは踏み込んでいない。
+// ここではAxisComposerを単体でレンダリングし（Dialog等の呼び出し元の関心事を
+// 持ち込まない）、フォームをuserEventで実際に操作してonSaveへ渡るpayloadを検証する。
 //
 // 最優先の観点: このフォームが編集欄を持たないフィールド（AxisComposer.tsxの
 // PASSTHROUGH_PAYLOAD_KEYS、priority_overrides等）は、編集フォームを経由しても元の値の
@@ -392,7 +391,7 @@ describe("AxisComposer", () => {
       const editing = baseAxisDefinition(nonDefaultPassthrough);
       const { user, onSave } = renderComposer({ editing });
 
-      // 「基本情報」ステップでラベルと重みだけを変更する。shape・display系の欄には触れない。
+      // 「基本情報」の節でラベルと重みだけを変更する。shape・display系の欄には触れない。
       await user.type(screen.getByRole("textbox", { name: "表示名" }), "改");
       const weightInput = screen.getByRole("spinbutton", { name: "既定重み" });
       await user.clear(weightInput);
@@ -577,7 +576,7 @@ describe("AxisComposer", () => {
       expect(screen.queryByRole("button", { name: "+ 体感ラベルを設定する" })).not.toBeInTheDocument();
     });
 
-    it("しきい値が降順・同値だと保存直前の検証でエラーになりステップが進まない", async () => {
+    it("しきい値が降順・同値だと保存直前の検証でエラーになり保存されない", async () => {
       const { user, onSave } = renderComposer();
 
       await fillBasics(user, "軸F");
@@ -666,16 +665,14 @@ describe("AxisComposer", () => {
 
   // ============================================================
   // 改善計画T501: 公開済み軸を編集対象に開いた場合の制限モード
-  // （表示専用フィールドのみ編集、材料・計算式・重みのステップは出さない）
+  // （表示専用フィールドのみ編集、材料・計算式・重みの節は出さない）
   // ============================================================
   describe("公開済み軸の表示専用フィールド編集(制限モード)", () => {
-    it("ステッパー・戻る/次へボタンを出さず、表示専用フィールドの編集画面のみを表示する", async () => {
+    it("表示専用フィールドの編集画面のみを表示する", async () => {
       const editing = baseAxisDefinition({ is_published: true });
       renderComposer({ editing });
 
       expect(screen.getByLabelText("チップの略称")).toBeInTheDocument();
-      expect(screen.queryByRole("button", { name: "次へ" })).not.toBeInTheDocument();
-      expect(screen.queryByRole("button", { name: "戻る" })).not.toBeInTheDocument();
       expect(screen.queryByRole("checkbox", { name: "公開する" })).not.toBeInTheDocument();
       expect(screen.getByRole("button", { name: "更新する" })).toBeInTheDocument();
     });
@@ -855,11 +852,6 @@ describe("AxisComposer", () => {
     });
   });
 
-  // ============================================================
-  // 実機不具合の回帰テスト: ウィザードの最終ステップ(4/4)へ「次へ」で遷移すると
-  // 未変更のまま暗黙に保存されて（ユーザーの目には）モーダルが勝手に閉じる不具合
-  // （本番環境で再現、原因はAxisComposer.tsx 1017行目付近参照）。
-  // ============================================================
   describe("画面の構成", () => {
     it("全ての節が1画面に並び、保存ボタンを押すまでonSaveは呼ばれない", async () => {
       const { user, onSave } = renderComposer();
@@ -870,7 +862,6 @@ describe("AxisComposer", () => {
       expect(screen.getByRole("textbox", { name: "表示名" })).toBeInTheDocument();
       expect(screen.getByRole("combobox", { name: "点数のもとになるもの" })).toBeInTheDocument();
       expect(screen.getByText("地図の色分けしきい値(任意)")).toBeInTheDocument();
-      expect(screen.queryByRole("button", { name: "次へ" })).not.toBeInTheDocument();
       expect(onSave).not.toHaveBeenCalled();
     });
   });
