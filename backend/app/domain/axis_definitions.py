@@ -670,7 +670,7 @@ def evaluate_axis_scalar(definition: AxisDefinition, materials: Mapping[str, obj
 
 def evaluate_axes_scalar(materials: Mapping[str, object]) -> tuple[dict[str, float | None], dict[str, object]]:
     """`AXIS_DEFINITIONS`の全軸を依存順（内部軸→公開軸）で評価する共通ループ
-    （コードレビュー指摘の修正: 同じ「`topological_axis_order`で依存順に並べ、
+    （同じ「`topological_axis_order`で依存順に並べ、
     `evaluate_axis_scalar`の結果を次の軸のmaterialとして混ぜ込みながら進め、公開軸だけを
     返す」という組み立てを、`axis_inspector_breakdown`[domain/axis_inspector.py]・
     `evaluate_axes_scalar`の呼び出し元
@@ -735,8 +735,7 @@ def axis_raw_value_array(
     """折れ点を通す前の生値（欠損=NaN）。`CategoricalShape`の軸はNoneを返す。
 
     得点（0〜100）は目盛りの引き方に依存する相対評価のため、軸単体では経路の良し悪しを
-    判断できない。生値をその単位とともに添えると、他の軸を見ずに判断できる
-    （docs/tasks/T687.md参照）。
+    判断できない。生値をその単位とともに添えると、他の軸を見ずに判断できる。
     """
     shape = definition.shape
     if not has_axis_raw_value_array(definition):

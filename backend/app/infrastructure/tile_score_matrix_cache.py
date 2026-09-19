@@ -15,7 +15,7 @@ build_static_edge_score_matrix`の結果（`StaticEdgeScoreMatrix`）をここ�
 **無効化方針**: プロセス内メモリのLRU（タイル単位、
 `graph_material_cache`と同じ`DEFAULT_MAX_TILES`）に加え、`infrastructure/
 tile_persistent_cache.py`へも同じ内容をディスク永続化する（`graph_material_cache.py`と
-同じ動機・設計、docs/tasks/T538.md）。無効化経路は2種類ある:
+同じ動機・設計）。無効化経路:
 
 1. **列構成・材料世代・構築ロジックの変化**: `TILE_SCORE_MATRIX_CACHE_VERSION`が
    `StaticEdgeScoreMatrix`の列構成と材料側の世代

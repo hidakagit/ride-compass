@@ -914,7 +914,7 @@ interface RouteSegmentDetail {
                                        // bicycle_infra_quality側が持つ）
   axis_difficulties: { [axisId: string]: number };  // axis_id→difficulty(0-100)。軸ごとの
     // 固定フィールドは持たない。評価できなかった軸・
-    // 非公開の軸はキー自体を持たない（`compute_edge_axis_scores`と同じ規約）。軸スタジオでの
+    // 非公開の軸はキー自体を持たない（評価経路と同じ規約）。軸スタジオでの
     // 公開軸の増減にそのまま追従する
   axis_contributions: { [axisId: string]: number };  // axis_id→重み付き寄与度（改善計画T550）
   material_values: { [materialId: string]: number };  // 材料id→値（改善計画T592で
@@ -1043,7 +1043,7 @@ stop_difficulty`が、停止要因POI（信号・横断歩道・一時停止・�
 
 ### 評価軸の算出元と重み
 
-`domain/difficulty.py: evaluate_axis_difficulties`が材料値の辞書と重み辞書から軸別difficulty・
+`domain/axis_definitions.py: evaluate_axes_scalar`と`domain/difficulty.py: composite_difficulty`が材料値の辞書と重み辞書から軸別difficulty・
 合成difficulty（区間の`difficulty`、絶対基準0-100）を算出する（改善計画T221 Stage B/Cで
 `AXIS_DEFINITIONS`をループする形へ再編、軸ごとの変換パラメータは
 `domain/axis_definitions.py`が単一ソース）。重みは
@@ -1089,7 +1089,7 @@ APIの`route_preference`・フロントの重みUIもすべて同じaxis_idキ�
 必要）→
 `domain/axis_definitions.py: AXIS_DEFINITIONS`への定義データ追加（改善計画T221 Stage B/C。
 既存テンプレート＋既存材料の組み合わせならこの1エントリでスカラー/配列両経路の評価・
-区間インスペクタ・`evaluate_axis_difficulties`・既定重み（改善計画T316で
+区間インスペクタ・既定重み（改善計画T316で
 旧`route_preference.yaml`の手書きミラーを撤廃したため、この1エントリだけで自動反映される）
 へ同時反映される）→ フロント`evaluationAxes.ts`のカタログ。エンジンファイルに軸固有の知識（SQL・タグ解釈）を
 書き足さない。区間詳細表示（`RouteSegmentDetail.axis_difficulties`、改善計画T309で
@@ -1706,7 +1706,7 @@ transform_fn文字列の動的解決ではなく「材料辞書＋shapeテンプ
 
 旧`domain/recipe_definition.py`（T141、`Recipe`/旧`RecipeComponents`等でレシピをJSON/DB
 レコード形式へ統合する宣言的インフラとして新設）は、T142が別方式
-（`compute_edge_axis_scores`）を採用したため一度も配線されず孤立していたため、
+（材料カタログ駆動の評価）を採用したため一度も配線されず孤立していたため、
 改善計画T155で削除済み。
 
 ### 〇次: ハード制約
@@ -2230,7 +2230,7 @@ T352〜T434の間、"wind"は`supports_route_coloring`経由で動的に生成�
 - `road`という名前の専用モードは無くなり、`surface_q`が他の動的モードと同じ
   `${axis.label}の影響`という汎用ラベルで現れる。旧`road_surface_good`
   （route_generator側が表示する真偽値）と`surface_q`軸が読む材料`surface_good`
-  （`material_catalog.py: _extract_surface_good`）は、どちらも`classify_osm_surface()`
+  （`material_catalog.py`の`surface_good`）は、どちらも`classify_osm_surface()`
   由来の同一材料で、`surface_q`軸の`true_value=0.0/false_value=80.0`という材料設計
   により、汎用の絶対値差難易度経路（abs差3段階相当）へそのまま乗せても実質2値
   （0か80）にしかならず表示は壊れない。

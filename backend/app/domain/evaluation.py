@@ -162,8 +162,8 @@ def route_facing_material_ids() -> list[str]:
 
     単位が定まらない軸（合成軸・真偽値やカテゴリの材料を持つ軸）は`axis_raw_arrays`へ
     載らず、得点だけしか出せない。材料まで分解すれば較正に依存しない絶対の事実を出せる
-    （`axis_display.py: axis_material_shares`、docs/tasks/T689.md参照）ため、分解された
-    葉の材料を軸の生値と同じ形で列として持つ。
+    （`axis_display.py: axis_material_shares`）ため、分解された葉の材料を軸の生値と
+    同じ形で列として持つ。
 
     `has_route_facing_raw_value`と同じ理由でこの述語は**ここ1箇所だけが持つ**——空タイル
     （列だけを揃える分岐）と通常のタイルが別々に条件を書くと、片方だけ変えた瞬間に
@@ -173,7 +173,7 @@ def route_facing_material_ids() -> list[str]:
     対象外:
 
     - categorical材料（`highway`等）。列は数値行列のため文字列を載せられない。
-      値ごとの延長割合は別の器が要る（[T718](docs/tasks/T718.md)）。
+      値ごとの延長割合は別の器（`merge_material_category_shares`）が要る。
     - 動的材料（風）。静的スコア行列は`weather=None`で組み立てるため全行NaNになる。
     - 分解しない軸（参照材料が1件）。軸単位の生値（`axis_raw_arrays`）で足りる。
 
@@ -205,8 +205,7 @@ def route_facing_categorical_material_ids() -> list[str]:
 
     `route_facing_material_ids`のcategorical版。数値行列には文字列を載せられないため、
     列は別に持つ（`StaticEdgeScoreMatrix.categorical_material_values`）。区間ごとの値を
-    ルート集約で「値ごとの延長割合」へ畳むのは`merge_material_category_shares`
-    （docs/tasks/T718.md参照）。
+    ルート集約で「値ごとの延長割合」へ畳むのは`merge_material_category_shares`。
 
     述語をここ1箇所に置く理由は`has_route_facing_raw_value`と同じ——空タイル（列だけを
     揃える分岐）と通常のタイルが別々に条件を書くと列がずれる。
@@ -615,7 +614,7 @@ class StaticEdgeScoreMatrix:
     呼ぶことで自然にそうなる）。リクエスト時に`evaluate_dynamic_axis_arrays`が該当列だけを
     実際の動的データ（風・走行速度）で上書きする。
 
-    既知の制約（意図的なスコープ限定、docs/tasks/T536.md参照）: 動的軸が参照できる材料は
+    既知の制約（意図的なスコープ限定）: 動的軸が参照できる材料は
     `REQUEST_DYNAMIC_MATERIAL_IDS`のみを前提にしている（風軸が風の材料1つだけを参照する
     構成と一致）。将来、動的材料と他の静的材料を組み合わせる軸が必要になった場合は
     別途設計が要る。
@@ -637,8 +636,7 @@ class StaticEdgeScoreMatrix:
     mid_lat: np.ndarray
     mid_lon: np.ndarray
     # 折れ点を通す前の生値。単位が定まる軸だけを持つため`axis_ids`とは別の並びで、
-    # 対応する列は`raw_axis_ids`の順。軸単体で経路を判断するための絶対値
-    # （docs/tasks/T687.md参照）。
+    # 対応する列は`raw_axis_ids`の順。軸単体で経路を判断するための絶対値。
     raw_axis_ids: list[str] = field(default_factory=list)
     axis_raw_values: np.ndarray = field(default_factory=lambda: np.empty((0, 0)))
     # 内訳として見せる材料の値。対応する列は`material_ids`の順

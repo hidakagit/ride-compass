@@ -135,7 +135,7 @@ def compute_routable_node_ids(
     hard_filter_excluded: np.ndarray,
 ) -> set[str]:
     """0次ハードフィルタで除外されなかった（`hard_filter_excluded[i]`がFalse）Edgeが
-    1本以上あるNode ID集合を返す（設計の背景はdocs/tasks/T529.mdも参照）。
+    1本以上あるNode ID集合を返す。
 
     探索用グラフ（`domain/routing.py: LazyRoadGraph`）はHard Constraintをグラフ構造では
     なくコスト（`math.inf`）で表現するため、「実際に経路探索可能なNode」の判定は

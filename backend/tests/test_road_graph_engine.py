@@ -304,6 +304,17 @@ class FakeWeatherService:
         return self._wind_series
 
 
+# 自転車インフラを何も持たない道。bicycle_infra_qualityはこの5材料が揃って初めて算出でき、
+# 1つでも欠けると軸ごと算出不能になる。
+_NO_BICYCLE_INFRA = {
+    "cycleway_has_lane": False,
+    "cycleway_has_shared": False,
+    "cycleway_has_track": False,
+    "highway_is_cycleway": False,
+    "shared_pedestrian_path": False,
+}
+
+
 def make_generator(
     graph: RoadGraph | None,
     *,
@@ -651,7 +662,7 @@ async def test_turnarounds_are_ranked_by_outbound_axis_difficulty():
                  "car_stress": 0.0, "accident": 0.0, "night": 0.0, "bicycle_infra_quality": 1.0}
     )
     generator, _, _ = make_generator(
-        graph, materials={"e-90-spoke1": {"cycleway_has_track": True}}, route_preference=preference,
+        graph, materials={"e-90-spoke1": {**_NO_BICYCLE_INFRA, "cycleway_has_track": True}}, route_preference=preference,
     )
     engine = generator._engine
     context = await _prepare_context(generator)
@@ -974,7 +985,8 @@ async def test_candidate_reflects_bicycle_infra_from_way_tags():
     # 独立難易度軸（infra_difficulty）は廃止し車ストレス側へ統合済みのため、ここでは検証しない。
     graph = build_loop_graph(ORIGIN, distance_km=30.0)
     edge_ids = sorted(eid for eid in graph.edges if eid.startswith("e-0-"))
-    way_tags = {edge_ids[0]: {"cycleway_has_track": True}, f"{edge_ids[0]}-rev": {"cycleway_has_track": True}}
+    with_track = {**_NO_BICYCLE_INFRA, "cycleway_has_track": True}
+    way_tags = {edge_ids[0]: with_track, f"{edge_ids[0]}-rev": with_track}
     generator, _, _ = make_generator(graph, materials=way_tags)
 
     candidates = await generator.generate_loops(ORIGIN, distance_km=30.0, distance_tolerance_km=10.0)

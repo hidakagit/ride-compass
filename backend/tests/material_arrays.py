@@ -15,8 +15,7 @@ import numpy as np
 from app.domain.attributes import EdgeMaterialArrays, ElevationAttribute
 from app.domain.graph import RoadGraphLike
 from app.domain.hard_filters import HARD_FILTER_HIGHWAY_TYPES, hard_filter_columns
-from app.domain.material_catalog import material_array_columns, material_value_sql
-from app.domain.material_sql import folds_tag_absence_to_false
+from app.domain.material_catalog import material_array_columns
 
 
 def material_arrays(
@@ -26,12 +25,8 @@ def material_arrays(
     *,
     elevation: Mapping[str, ElevationAttribute] | None = None,
     no_bicycle_edge_ids: Collection[str] = (),
-    way_present: bool = True,
 ) -> EdgeMaterialArrays:
     """導出済みの材料値から`EdgeMaterialArrays`を組み立てる。
-
-    `way_present=False`は「osm_raw_waysにその区間のwayの行が無い」（未取込・再取込中）を
-    表し、タグ由来の材料がすべて不明になる。
 
     `graph`は区間の行そのものが持つ値（`highway`・距離・方位・中点）を読むために使い、
     Noneならそれらを既定値として扱う。`highway`材料と、`elevation`を渡した区間の
@@ -40,17 +35,11 @@ def material_arrays(
     """
     materials = materials or {}
     elevation = elevation or {}
-    # wayの行がある区間は、タグの不在をfalseへ畳む材料が必ず真偽を持つ（SQLと同じ）。
-    tag_absent_false = (
-        {m: False for m, sql in material_value_sql().items() if folds_tag_absence_to_false(sql)}
-        if way_present
-        else {}
-    )
     numeric_ids, boolean_ids, categorical_ids = material_array_columns()
     n = len(edge_ids)
 
     def _values(edge_id: str) -> dict[str, object]:
-        row = {**tag_absent_false, **(materials.get(edge_id) or {})}
+        row = dict(materials.get(edge_id) or {})
         # 区間そのものが持つ値はSQLも区間の行から読む（`highway`は`re.highway`、
         # `gradient_percent`は`e.average_grade`）。明示的に渡した値が優先される。
         if "highway" not in row:

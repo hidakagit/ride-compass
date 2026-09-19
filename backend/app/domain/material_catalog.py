@@ -52,7 +52,7 @@ from app.domain.material_sql import (
     TUNNEL_NORMALIZED_SQL,
     normalized_tag_sql,
     tag_is_value_sql,
-    way_present_or_null_sql,
+    tag_absent_is_false_sql,
 )
 from app.domain.traffic import POI_COUNT_KINDS
 from app.domain.wind import WIND_DRAG_REFERENCE_SPEED_MS, wind_drag_ratio
@@ -809,14 +809,7 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
         # primary_attribute_id="cycleway"へ寄せる（highway自体はcar_stress_highway_baseが
         # 単独で使う一次属性のまま、排他チェック対象を維持する）。
         primary_attribute_id="cycleway",
-        # bool_default既定の"false"のままだと、compute_edge_costs_bulk（配列評価経路）が
-        # 「データ欠損（extractorがNoneを返す）」を「確定でFalse」へ丸めてしまい、公開軸
-        # bicycle_infra_qualityがhighway未解決の区間を「roadway確定」と誤評価する
-        # （surface_goodと同じ「不明をFalseと混同してはいけない」ケース）。この群は常に
-        # bicycle_infra_flagsから一括で算出される（個別に欠損することはない）ため、
-        # まとめて"nan"にしても副作用は無い。
-        bool_default="nan",
-        value_sql=way_present_or_null_sql(f"{HIGHWAY_SQL_FOR_EDGE} = 'cycleway'"),
+        value_sql=tag_absent_is_false_sql(f"{HIGHWAY_SQL_FOR_EDGE} = 'cycleway'"),
         coverage=WayMaterialCoverageSpec(
                 missing_condition=f"{HIGHWAY_SQL} IS NULL",
                 source="osm_raw_ways.highway",
@@ -830,7 +823,6 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
         dtype="boolean",
         tile_property="cycleway_has_track",
         primary_attribute_id="cycleway",
-        bool_default="nan",
         value_sql=cycleway_has_value_sql("track"),
         coverage=WayMaterialCoverageSpec(
                 missing_condition=_CYCLEWAY_TAGS_ALL_ABSENT,
@@ -845,7 +837,6 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
         dtype="boolean",
         tile_property="cycleway_has_lane",
         primary_attribute_id="cycleway",
-        bool_default="nan",
         value_sql=cycleway_has_value_sql("lane"),
         coverage=WayMaterialCoverageSpec(
                 missing_condition=_CYCLEWAY_TAGS_ALL_ABSENT,
@@ -859,7 +850,6 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
         description="バス専用レーン共用など、簡易な自転車レーン(cycleway=share_busway/shared_lane)を併設しているかどうか。",
         dtype="boolean",
         tile_property="cycleway_has_shared",
-        bool_default="nan",
         primary_attribute_id="cycleway",
         value_sql=cycleway_has_value_sql("share_busway", "shared_lane"),
         coverage=WayMaterialCoverageSpec(
@@ -875,8 +865,7 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
         dtype="boolean",
         tile_property="shared_pedestrian_path",
         primary_attribute_id="cycleway",
-        bool_default="nan",
-        value_sql=way_present_or_null_sql(
+        value_sql=tag_absent_is_false_sql(
             f"{HIGHWAY_SQL_FOR_EDGE} IN ('footway', 'path') "
             f"AND {BICYCLE_NORMALIZED_SQL} IN ('yes', 'designated')"
         ),
@@ -957,7 +946,7 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
         primary_attribute_id="designation",
         # 該当kindの行が無いことは「指定路線でない」の確定値で、データの欠損ではない
         # （`match_designations`が全wayを処理する）。wayの行自体が無いときだけ不明。
-        value_sql=way_present_or_null_sql("d.is_designated"),
+        value_sql=tag_absent_is_false_sql("d.is_designated"),
         coverage=CoverageExcluded(reason="designation_attributes行の有無がそのまま該当/非該当の確定値（欠損の概念が無い）"),
     ),
     "smoothness": MaterialSpec(

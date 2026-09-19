@@ -5,9 +5,9 @@
 
 元データは4種類の出どころを持つ。表の1件はそのすべてを指定できる。
 
-- `osm_raw_ways`の行（`w`）: 専用列（highway/surface）とtags jsonb。**行が無い**場合
-  （未取込の地域・PBF再取込の途中）はタグ由来の材料がすべて不明になる。
-- 区間の行（`re`）: highway・距離。区間はwayの行が無くても存在しうる。
+- `osm_raw_ways`の行（`w`）: 専用列（highway/surface）とtags jsonb。区間はwayの派生
+  （`road_edges.osm_way_id`がNOT NULL + FK）のため、**行は必ずある**。
+- 区間の行（`re`）: highway・距離。
 - 集計・派生の表（`c`/`e`/`el`/`wl`/`d`）: 件数・標高・土地被覆・指定路線。
   **行の有無と値の有無を分ける**——行が無ければ不明、行があればキーが無くても0件。
 
@@ -38,8 +38,6 @@ pytestmark = [
 class _Case:
     label: str
     expected: dict[str, object]
-    # osm_raw_waysの行。way_present=Falseは「その区間のwayの行が無い」。
-    way_present: bool = True
     highway: str | None = "residential"
     surface: str | None = None
     tags: dict[str, str] = field(default_factory=dict)
@@ -76,25 +74,6 @@ _CASES: list[_Case] = [
             "cycleway_has_lane": False,
             "cycleway_has_shared": False,
             "shared_pedestrian_path": False,
-        },
-    ),
-    _Case(
-        label="wayの行が無い区間はタグ由来の材料がすべて不明",
-        way_present=False,
-        tags={"lit": "yes", "tunnel": "yes"},
-        expected={
-            "lit": None,
-            "has_tunnel": None,
-            "bridge": None,
-            "motor_vehicle_no": None,
-            "highway_is_cycleway": None,
-            "cycleway_has_track": None,
-            "cycleway_has_lane": None,
-            "cycleway_has_shared": None,
-            "shared_pedestrian_path": None,
-            "is_designated": None,
-            # 種別と距離は区間の行が持つため、wayの行が無くても求まる。
-            "highway": "residential",
         },
     ),
     _Case(
@@ -306,7 +285,7 @@ _SELECT_SQL = text(
 
 def _params(case: _Case) -> dict[str, object]:
     params: dict[str, object] = {
-        "osm_way_id": 1 if case.way_present else None,
+        "osm_way_id": 1,
         "tags": json.dumps(case.tags),
         "surface": case.surface,
         "highway": case.highway,

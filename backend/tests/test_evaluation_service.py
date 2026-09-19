@@ -21,10 +21,10 @@ def _edge(edge_id: str, distance_m: float, highway: str | None = None) -> Direct
     )
 
 
-def _costs(graph, materials, preference=None, *, way_present=True):
+def _costs(graph, materials, preference=None):
     return edge_costs(
         graph,
-        material_arrays(graph, list(graph.edges), materials, way_present=way_present),
+        material_arrays(graph, list(graph.edges), materials),
         preference if preference is not None else load_route_preference(),
     )
 
@@ -42,10 +42,10 @@ def test_returns_result_per_edge():
 
 
 def test_edge_without_any_material_has_no_difficulty():
-    """材料が1つも無ければ（wayの行が未取込）、difficultyは求まらず割増もかからない。"""
+    """材料が1つも無ければ、difficultyは求まらず割増もかからない。"""
     graph = _make_graph(_edge("edge-1", 50.0))
 
-    results = _costs(graph, {}, way_present=False)
+    results = _costs(graph, {})
 
     assert results["edge-1"].allowed is True
     assert results["edge-1"].difficulty is None
