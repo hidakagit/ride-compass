@@ -25,10 +25,9 @@ set -eu
 REPO_ROOT="$(git rev-parse --show-toplevel)"
 cd "$REPO_ROOT"
 
-CHANGED="$(git diff --cached --name-only)"
-if ! printf '%s\n' "$CHANGED" | grep -qE '^docs/modules/|^docs/improvement-plan\.md$|^docs/tasks/|^backend/app/|^frontend/src/|^\.claude/commands/review/'; then
-    exit 0
-fi
+# 検査を起動するかの判定は検知器側（review_checks.py: STAGED_GATE_PREFIXES）が持つ。
+# ここに同じ規則をもう1つ置くと、mutateはラッパを通らないため「pre-commit PASS」と
+# 報告しながら実際のフックは検査を起動しない、という食い違いが起きる（T936）。
 
 PYTHON=""
 for cand in "$REPO_ROOT/backend/.venv/Scripts/python.exe" "$REPO_ROOT/backend/.venv/bin/python"; do

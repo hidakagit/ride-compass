@@ -49,7 +49,7 @@ import tempfile
 import tokenize
 from collections import defaultdict
 from pathlib import Path
-from typing import Callable, NamedTuple
+from typing import Callable, Iterable, NamedTuple
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 REVIEW_DIR = REPO_ROOT / ".claude" / "commands" / "review"
@@ -1369,6 +1369,10 @@ def corpus_files(files: list[str], include_tests: bool = False) -> list[str]:
 # 外部システムの語彙。**このリポジトリのコードには存在しなくて当然**で、改名の取り残しでは
 # ない。コメントが外部の仕様を説明するために名指しするもので、綴りを変えると説明が嘘になる。
 EXTERNAL_VOCABULARY = frozenset({
+    # Pythonのデータモデル（pickle/copyがslotted dataclass・Pydanticモデルで呼ぶ）。
+    "__setstate__",
+    # OpenFreeMapのスタイルが持つレイヤー名（基礎地図の配信物であり、こちらの実装には無い）。
+    "boundary_3",
     "zoomUse",                # JMAの配信設定JSONが持つフィールド名
     "maxNativeZoom",
     "n_live_tup",             # PostgreSQL pg_stat_user_tables の列
@@ -1398,15 +1402,16 @@ def find_source_comment_dead_identifier_refs(files: list[str], scope: list[str] 
     母集団はコメントを除いた本文。コメント同士が互いを「実在する」と支え合うのを防ぐ。
     改名・撤去のたびに、取り残されたコメントがその場で分かる。
     """
-    # 母集団にはテストも含める。コメントはテスト側の部品（`FakeRoadGraphRepository`等）を
-    # 正当に名指しするため、除くと正しい記述が違反になる。実測: 除くと46件、含めると31件。
+    # 実在判定はdoc側と同じ`source_corpus`を使う。テストの**定義**（`FakeRoadGraphRepository`
+    # 等のクラス・関数）はそこに入るため、コメントがテスト側の部品を名指しするのは通る。
+    # 一方でテストの**ローカル変数**は入らない——旧実装はテストのコード全文をcorpusにして
+    # いたため、撤去した本番の定数をテストが同名のローカル`const`として持っているだけで
+    # 「実在する」と判定していた（撤去済みの定数名をテストが束ね直して持つ形が実在する）。
     comment_lines: dict[str, list[tuple[int, str]]] = {}
-    code_parts: list[str] = []
     for f in corpus_files(files, include_tests=True):
-        comments, code = split_source_comments(f, read_text(REPO_ROOT / f))
+        comments, _ = split_source_comments(f, read_text(REPO_ROOT / f))
         comment_lines[f] = comments
-        code_parts.append(code)
-    corpus = "\n".join(code_parts)
+    corpus = source_corpus(files)
     # 走査するのは実装のコメントだけ（テストのコメントは母集団には要るが、対象にすると
     # テスト内の旧名まで一度に抱え込む。そちらは別タスクで扱う）。
     targets = corpus_files(files if scope is None else scope)
@@ -2542,6 +2547,8 @@ def cmd_docs(args: argparse.Namespace) -> int:
 
     if args.staged:
         staged = [l for l in git("diff", "--cached", "--name-only").splitlines() if l]
+        if not staged_paths_need_check(staged):
+            return 0
         doc_lines = diff_added_lines("docs/modules/*.md")
         doc_lines = {k: v for k, v in doc_lines.items() if not k.endswith("README.md")}
         added = [l for l in git("diff", "--cached", "--name-only", "--diff-filter=A").splitlines() if l]
@@ -3464,6 +3471,9 @@ class EdgeProbe(NamedTuple):
     されるという事実だけでは、その位置が母集団の**外**だったことは言えない——外縁のつもりで
     内側へ書いた違反も同じように検知され、穴が無いのと同じ見た目になる。
 
+    **`detected=False`は`EDGE_GAP_NOTES`の記述も要求する**——穴を開けたまま置くなら、
+    閉じない理由と母集団の外の大きさを数字で書く。書かなければこの監査が落ちる。
+
     **`detected=False`は`control`を要求する**。見逃されたという事実だけでは、その位置が
     母集団の外だからなのか、違反がそもそも成立していないのかを区別できない。`control`は
     同じ違反を母集団の**内側**へ置く手順で、これが検知されて初めて「位置が外だから
@@ -3729,6 +3739,101 @@ def guard_probe_edges(wt: Path) -> dict[str, "EdgeProbe | str"]:
     }
 
 
+#: 開けたままにする外縁（`detected=False`）の、**閉じない理由と母集団の外の大きさの実測**。
+#: ここに無い穴は監査が落ちる——穴を宣言しただけで通っていた状態を、宣言に数字を要求する形へ
+#: 変えるため（docs/tasks/T798.md「緩和は影響を測ってから入れる」）。逆に、穴でなくなった
+#: キーの理由が残っているのも落とす（直したのに理由だけが残ると、次に読む人が穴だと思う）。
+#: 数字は`docs/tasks/T936.md`へ測った日付とコマンドごと残す。
+EDGE_GAP_NOTES: dict[str, str] = {
+    "dead_file_refs":
+        "索引（docs/modules/README.md）は他のモジュール文書を指すだけで、実装ファイルを"
+        "名指しする対象ファイル表を持たない（参照行24行はすべて文書へのリンク）。"
+        "母集団へ入れてもリンク切れ検知（dead_doc_links）と重複する。",
+    "narrative":
+        "索引（docs/modules/README.md）は記載粒度の規約そのものを書く文書で、禁止パターン"
+        "（「以前は」等）を規約の説明として正当に含む。母集団へ入れると規約の本文が違反になる。",
+    "source_narrative":
+        "母集団外（scripts/・backend/scripts/・backend/tests/・backend/benchmarks/・"
+        "frontend/e2e/の225ファイル）に既存の経緯コメントが765件あり、母集団内の参考値60件の"
+        "12.75倍。広げるには既存分の一掃（T567）が先に要る。",
+    "source_comment_dead_identifier_refs":
+        "バッククォート無しの綴りまで拾うと770件・342種、複合語（`_`か2つ以上の大文字切れ目）"
+        "へ絞っても104件・78種で、大半がruffのコード・英単語・タスク番号・テストのモジュール名。"
+        "この比率では強制にできない。撤去済み識別子の履歴から母集団を導く形へ寄せるのが筋で"
+        "（T943の再発防止の検討対象）、その設計が決まるまで開けておく。",
+    "redis_skeleton":
+        "backend/scripts/は17ファイルで、現時点でRedisを触るものは1つも無い。"
+        "広げる価値より、広げた先で何を実装とみなすかの線引きが先に要る。",
+    "bare_basemodel":
+        "backend/app配下の__init__.pyは7ファイルで、いずれも再エクスポートのみ。"
+        "モデルを定義する場所ではないため、外れていて実害が出る形が今は無い。",
+    "module_redefinition":
+        "backend/benchmarks/は29ファイル。計測用スクリプトで、同名の再定義が起きても"
+        "本番の挙動には効かない。",
+    "undocumented_files":
+        "改名が`--diff-filter=A`に出ないという検知の方式そのものの限界で、対象パスを広げても"
+        "閉じない（直近50コミットで実装ファイルの改名は14件）。閉じるには改名も対象にする"
+        "検知器の作り直しが要る。",
+    "undefined_css_tokens":
+        "トークンを定義する側（frontend/src/app/globals.css、CSS47ファイル中1ファイル）を"
+        "母集団へ入れると、定義行そのものが「未定義のトークンを使っている」と読まれる。",
+    "vacuous_test_loops":
+        "frontend/e2e/*.spec.tsは3ファイル。Playwrightのスモークで、空の母集団でも通る"
+        "ループという型自体がまだ現れていない。",
+    "doc_constant_drift":
+        "実装コメント（.py/.ts/.tsxの735ファイル）を母集団へ入れると、定数を定義する行の"
+        "直上のコメントが必ず「文書が書いた値」として読まれる。文書と実装を突き合わせる"
+        "検知器の前提（片方が文書であること）が崩れる。",
+    "review_doc_dead_refs":
+        "CLAUDE.mdと.claude/commands/task/の5ファイルが外。CLAUDE.mdは全セッションが"
+        "読む正本で、撤去済みの名前を断りなく書く実害は大きい——ここは閉じる価値があるが、"
+        "母集団を広げた時点の件数を測っていない。次に触るときに測ってから広げる。",
+    "cross_file_env_writes":
+        "backend/tests（171ファイル）が外。frontendはvitestがプロセスを共有するため"
+        "環境変数の書き換えが他のテストへ漏れるが、backendのpytestは同じ性質を持つかを"
+        "測っていない（xdistの分離単位次第）。測ってから広げる。",
+    "call_arity":
+        "メソッド・属性経由の呼び出し（`obj.foo()`）は呼び先の型が静的に決まらない。"
+        "backend/app配下で3,121箇所（全呼び出し11,745箇所の26%）が外だが、"
+        "閉じるには型解決が要り、検知器の性質が変わる。",
+    "undeclared_fixed_values":
+        "宣言（domain/tuning.py: FIXED_VALUES）が挙げていないモジュールが外。"
+        "backend/app配下でモジュール直下に数値定数を持つがこの宣言に入らないのは"
+        "60ファイル・141定数。広げると宣言側を先に埋める必要がある。",
+}
+
+
+def edges_without_gap_note(edges: dict[str, "EdgeProbe | str"]) -> list[str]:
+    """`detected=False`なのに、閉じない理由と実測が書かれていない外縁のキー。"""
+    return sorted(
+        key for key, edge in edges.items()
+        if isinstance(edge, EdgeProbe) and not edge.detected and key not in EDGE_GAP_NOTES
+    )
+
+
+def stale_gap_notes(edges: dict[str, "EdgeProbe | str"]) -> list[str]:
+    """穴ではなくなった（または宣言が消えた）のに理由だけが残っているキー。"""
+    return sorted(
+        key for key in EDGE_GAP_NOTES
+        if not (isinstance(edges.get(key), EdgeProbe) and not edges[key].detected)
+    )
+
+
+#: `--staged`のとき、ここに1つも当たらなければ検査を丸ごと飛ばす（pre-commitの待ち時間を
+#: 節約するための早期脱出）。**この判定は検知器側に置く**——シェルのラッパが別に同じ規則を
+#: 持つと、`mutate`はラッパを通らないため「pre-commit PASS」と報告しながら実際のフックは
+#: 検査を起動しない、という食い違いが起きる（docs/tasks/T936.md）。
+#: 検知器が読む場所より狭くしないこと。狭めた瞬間、狭めた先は誰も検査しなくなる。
+STAGED_GATE_PREFIXES = (
+    "docs/", "backend/", "frontend/", "scripts/", ".claude/commands/", "CLAUDE.md",
+)
+
+
+def staged_paths_need_check(paths: "Iterable[str]") -> bool:
+    """ステージ済みのパスに、どれか1つでも検知器が読む場所が含まれるか。"""
+    return any(p.startswith(STAGED_GATE_PREFIXES) for p in paths if p)
+
+
 def observed_edge_gaps() -> dict[str, str]:
     """検知器キー → その外縁が実際に見逃されると**観測された**コミット。
 
@@ -3957,9 +4062,23 @@ def cmd_mutate(args: argparse.Namespace) -> int:
     stale = stale_edge_gap_records(guard_probe_edges(REPO_ROOT))
     if stale:
         print(f"実在しない外縁の記録 {len(stale)}件: {', '.join(stale)}")
+    edges_now = guard_probe_edges(REPO_ROOT)
+    unjustified = edges_without_gap_note(edges_now)
+    stale_notes = stale_gap_notes(edges_now)
     gaps = [r for r in edge_rows if r[1] == "GAP"]
     if gaps:
         print(f"既知の穴 {len(gaps)}件（期待どおり見逃す。埋めたら`detected=True`へ更新すること）。")
+        for key, _verdict, _mode, _where in gaps:
+            note = EDGE_GAP_NOTES.get(key)
+            print(f"  - `{key}`: {note if note else '**閉じない理由と実測が未記入**'}")
+    if unjustified:
+        print(f"理由と実測が書かれていない穴 {len(unjustified)}件: {', '.join(unjustified)}"
+              "（EDGE_GAP_NOTESへ、閉じない理由と母集団の外の大きさの実測を書く）。")
+    if stale_notes:
+        print(f"穴ではなくなったのに理由が残っている {len(stale_notes)}件: {', '.join(stale_notes)}"
+              "（EDGE_GAP_NOTESから消す）。")
+    if unjustified or stale_notes:
+        return 1
     if bad or edge_bad:
         if bad:
             print(f"鳴らない検知器 {len(bad)}件。検知器があることと鳴ることは別物のため、これは違反として扱う。")

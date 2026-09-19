@@ -1664,3 +1664,32 @@ def test_count_categories_counts_nothing_when_no_entry_names_a_category(tmp_path
     review_checks.read_text.cache_clear()
 
     assert review_checks.count_categories(shard) == ({}, {})
+
+
+def _edge(detected):
+    return review_checks.EdgeProbe("どこか", detected, lambda: None, lambda: None)
+
+
+def test_edges_without_gap_note_reports_a_gap_left_without_a_reason(monkeypatch):
+    monkeypatch.setitem(review_checks.EDGE_GAP_NOTES, "zzz_probe", "測った理由")
+    edges = {"zzz_probe": _edge(False), "zzz_other": _edge(False)}
+
+    assert review_checks.edges_without_gap_note(edges) == ["zzz_other"]
+
+
+def test_edges_without_gap_note_accepts_a_closed_edge_without_a_reason():
+    assert review_checks.edges_without_gap_note({"zzz_closed": _edge(True)}) == []
+
+
+def test_stale_gap_notes_reports_a_reason_left_after_the_gap_was_closed(monkeypatch):
+    monkeypatch.setitem(review_checks.EDGE_GAP_NOTES, "zzz_probe", "測った理由")
+
+    # 他の実在キーもこのedges辞書には無いため一緒に挙がる。見るのは「閉じた穴の理由が
+    # 挙がること」だけで、全体の一致は見ない。
+    assert "zzz_probe" in review_checks.stale_gap_notes({"zzz_probe": _edge(True)})
+
+
+def test_stale_gap_notes_accepts_a_reason_for_a_gap_that_is_still_open(monkeypatch):
+    monkeypatch.setitem(review_checks.EDGE_GAP_NOTES, "zzz_probe", "測った理由")
+
+    assert "zzz_probe" not in review_checks.stale_gap_notes({"zzz_probe": _edge(False)})
