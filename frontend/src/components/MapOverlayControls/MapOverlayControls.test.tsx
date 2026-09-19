@@ -84,7 +84,6 @@ describe("MapOverlayControls", () => {
     layers[1] = {
       ...layers[1],
       on: true,
-      summary: null, // 絞り込み無し
       legendDetails: [
         {
           label: "路面の種類",
@@ -225,7 +224,6 @@ describe("MapOverlayControls", () => {
     layers[1] = {
       ...layers[1],
       on: true,
-      summary: "コンクリート以外",
       legendDetails: [
         {
           label: "路面の種類",
@@ -241,19 +239,42 @@ describe("MapOverlayControls", () => {
     await user.click(screen.getByRole("button", { name: "路面の凡例を表示" }));
 
     expect(screen.getByText("非表示")).toBeInTheDocument();
-    // 1行要約テキストそのものは表示しない（▶を押した本人には自明という実機フィードバック対応）
-    expect(screen.queryByText("コンクリート以外")).not.toBeInTheDocument();
   });
 
-  it("legendDetailsが空でもsummaryがあれば▶が出て、開くと案内文が出る", async () => {
+  it("凡例が無くても案内文があれば▶が出て、開くと案内文が出る", async () => {
     const user = userEvent.setup();
     const layers = baseLayers();
-    layers[1] = { ...layers[1], on: true, summary: "ズームインすると表示されます", legendDetails: [] };
+    layers[1] = { ...layers[1], on: true, notice: "ズームインすると表示されます", legendDetails: [] };
     render(<MapOverlayControls {...baseProps()} layers={layers} />);
 
     const toggle = screen.getByRole("button", { name: "路面の凡例を表示" });
     await user.click(toggle);
     expect(screen.getByText("ズームインすると表示されます")).toBeInTheDocument();
+  });
+
+  // 案内が出るのは「ONにしても何も出ない」状態だけで、そのときの凡例は地図に存在しない
+  // 色見本の表になる。呼ぶ側が凡例を空へ揃える形だと、揃え忘れたレイヤーで案内が黙って
+  // 落ちる——**凡例が非空でも案内が勝つ**ことをここで固定する。
+  it("凡例があっても、案内文があるときは案内文を出す", async () => {
+    const user = userEvent.setup();
+    const layers = baseLayers();
+    layers[1] = {
+      ...layers[1],
+      on: true,
+      notice: "ズームインすると表示されます",
+      legendDetails: [
+        {
+          label: "路面の種類",
+          legend: [{ key: "asphalt", label: "アスファルト", color: "#16a34a", filter: ["literal", true] }],
+          hiddenKeys: [],
+        },
+      ],
+    };
+    render(<MapOverlayControls {...baseProps()} layers={layers} />);
+
+    await user.click(screen.getByRole("button", { name: "路面の凡例を表示" }));
+    expect(screen.getByText("ズームインすると表示されます")).toBeInTheDocument();
+    expect(screen.queryByText("アスファルト")).not.toBeInTheDocument();
   });
 
   // 線レイヤーは太さ・線種で意味を運ばない（T858）。どのカテゴリも同じ色ドットで描かれ、
@@ -264,7 +285,6 @@ describe("MapOverlayControls", () => {
     layers[1] = {
       ...layers[1],
       on: true,
-      summary: null,
       legendDetails: [
         {
           label: "道路の種類",
@@ -292,16 +312,22 @@ describe("MapOverlayControls", () => {
 
   it("OFF・disabled・凡例無しのレイヤーには▶が出ない", () => {
     const layers: OverlayLayerChip[] = [
-      { id: "elevation", icon: TestIcon, label: "標高図", on: true, summary: null, legendDetails: [] }, // 凡例無し
+      { id: "elevation", icon: TestIcon, label: "標高図", on: true, legendDetails: [] }, // 凡例無し
       {
         id: "roadSurface",
         icon: TestIcon,
         label: "路面",
         on: false,
-        summary: null,
         legendDetails: [{ label: "路面の種類", legend: [], hiddenKeys: [] }],
       }, // OFF
-      { id: "route", icon: TestIcon, label: "ルート", on: true, disabled: true, summary: "色分け: 風の影響" }, // disabled
+      {
+        id: "route",
+        icon: TestIcon,
+        label: "ルート",
+        on: true,
+        disabled: true,
+        notice: "配信情報を取得できず表示できません",
+      }, // disabled
     ];
     render(<MapOverlayControls {...baseProps()} layers={layers} />);
 

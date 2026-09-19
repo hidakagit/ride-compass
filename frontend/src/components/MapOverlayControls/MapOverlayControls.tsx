@@ -43,10 +43,12 @@ export interface OverlayLayerChip {
   disabled?: boolean;
   /** チップのtitle（ONにすると何が出るか、disabledなら使えない理由） */
   title?: string;
-  /** ▶を開いたときに出す案内文。legendDetailsが無い（描く凡例が無い）ときの
-   * 唯一の表示内容として使う（例:「ズームインすると表示されます」）。legendDetailsが
-   * あるときは軸ごとの内訳だけで十分なため使わない。 */
-  summary?: string | null;
+  /** ▶を開いたとき、**凡例の代わりに**出す案内文（例:「ズームインすると表示されます」）。
+   *
+   * **これがあるときは凡例を出さない**——案内が出るのは「ONにしても何も出ない」
+   * 状態だけで、そのときの凡例は地図に存在しない色見本の表になる。呼ぶ側が凡例を空へ
+   * 揃える形にはしないこと（揃え忘れたレイヤーで案内が黙って落ちる）。 */
+  notice?: string | null;
   /** ▶を開いたときに出す、軸ごとの全カテゴリ内訳（表示中/非表示のいずれも含む）。
    * 絞り込み中かどうかに関わらず、レイヤーがONで凡例を持つならこれだけで開閉できる。 */
   legendDetails?: readonly LegendFilterSummaryAxis[];
@@ -813,11 +815,26 @@ export default function MapOverlayControls({
   // legendDetailsの有無だけで判定すると▶自体が消えて案内文を開けなくなる。単独チップ側
   // （本ファイル末尾のcanExpand= hasLegendDetails || Boolean(layer.summary)）と同じ
   // 判定へ揃える）。
+  /** ▶を開いたときの中身。**案内文があるときは凡例を出さない**——案内が出るのは
+   * 「ONにしても何も出ない」状態だけで、そのときの凡例は地図に存在しない色見本の表になる。
+   * グループのメンバーと単独チップで同じ判断をするため、ここ1箇所に置く。 */
+  function panelContentFor(layer: OverlayLayerChip) {
+    return layer.notice ? (
+      <p className={styles.detailNotice}>{layer.notice}</p>
+    ) : (
+      renderLegendDetails(layer.legendDetails ?? [], onLegendEntryToggle, onLegendAxisSetHidden)
+    );
+  }
+
+  /** ▶自体を出すか。案内文も凡例も無ければ開いても空になる。 */
+  function canExpandPanel(layer: OverlayLayerChip) {
+    return Boolean(layer.notice) || Boolean(layer.legendDetails && layer.legendDetails.length > 0);
+  }
+
   function renderRawMemberTile(member: OverlayLayerChip, groupTint: MapOverlayGroup) {
     const key = `member:${member.id}`;
     const Icon = member.icon;
-    const hasLegend = Boolean(member.legendDetails && member.legendDetails.length > 0);
-    const canExpand = Boolean(!member.disabled && (hasLegend || member.summary));
+    const canExpand = !member.disabled && canExpandPanel(member);
     return (
       <ChipButton
         key={key}
@@ -834,17 +851,7 @@ export default function MapOverlayControls({
         expandDirection="right"
         groupTint={groupTint}
         dataStatus={member.dataStatus}
-        panelContent={
-          canExpand ? (
-            hasLegend ? (
-              renderLegendDetails(member.legendDetails!, onLegendEntryToggle, onLegendAxisSetHidden)
-            ) : (
-              <p className={styles.detailNotice}>{member.summary}</p>
-            )
-          ) : (
-            <></>
-          )
-        }
+        panelContent={canExpand ? panelContentFor(member) : <></>}
         panelRect={panelRects[key]}
         registerRow={(el) => {
           rowRefs.current[key] = el;
@@ -1093,15 +1100,9 @@ export default function MapOverlayControls({
             // どのグループにも属さない単独チップ（route等）。
             const layer = group.members[0];
             const Icon = layer.icon;
-            const hasLegendDetails = Boolean(layer.legendDetails && layer.legendDetails.length > 0);
-            const canExpand = layer.on && !layer.disabled && (hasLegendDetails || Boolean(layer.summary));
+            const canExpand = layer.on && !layer.disabled && canExpandPanel(layer);
             const isExpanded = canExpand && expandedIds.has(layer.id);
-            const panelContent =
-              layer.legendDetails && layer.legendDetails.length > 0 ? (
-                renderLegendDetails(layer.legendDetails, onLegendEntryToggle, onLegendAxisSetHidden)
-              ) : (
-                <p className={styles.detailNotice}>{layer.summary}</p>
-              );
+            const panelContent = panelContentFor(layer);
             return (
               <ChipButton
                 key={layer.id}

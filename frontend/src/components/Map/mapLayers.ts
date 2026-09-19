@@ -660,14 +660,14 @@ export const MAP_OVERLAY_MAX_EXPANDED_GROUPS = 1;
 export type MapLayerVisibility = Record<MapLayerId, boolean>;
 
 /** チップ下に出す、ズーム不足の案内。 */
-export const TILE_ZOOM_TOO_WIDE_SUMMARY = "ズームインすると表示されます";
+export const TILE_ZOOM_TOO_WIDE_NOTICE = "ズームインすると表示されます";
 
 /** チップ下に出す、タイル世代が届いていないときの案内。
  *
  * この状態では地図に何も描けない（世代の違う中身をブラウザのキャッシュへ残さないため、
  * 届くまでソースを作らない）。**何も出ないこと自体は正しい挙動**で、直すべきなのは
  * 「出ない理由が画面のどこにも無い」ことだけである。 */
-export const TILE_VERSIONS_MISSING_SUMMARY = "配信情報を取得できず表示できません";
+export const TILE_VERSIONS_MISSING_NOTICE = "配信情報を取得できず表示できません";
 
 /** 世代（`GET /api/axis-catalog`の`tile_versions`）が届くまで要求できない情報源。
  *

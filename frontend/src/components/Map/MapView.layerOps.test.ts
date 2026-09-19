@@ -38,7 +38,6 @@ import {
   applyInspectedWay,
   applyRoadMaterialTrackOffsets,
   buildAxisOverlayLayers,
-  buildLayerDataSources,
   buildStaticOverlayLayers,
   TILE_VERSION_GATED_SOURCE_IDS,
   clearRoadTileFeatureState,
