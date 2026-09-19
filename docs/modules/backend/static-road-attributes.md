@@ -121,7 +121,7 @@ DELETE→INSERTで、**候補0件のkindはDELETEの対象から外す**——DE
 
 区間の行があって値がNULL（その構成では値なし）のときもway側へは戻さない。戻すと隣り合う
 区間が別の単位の値で塗られる。この規則は路面タイル（`_landcover_value_column`と
-`_LANDCOVER_TILE_COLUMNS_SQL`）と評価経路（`get_edge_materials_batch`）で同じにする
+`_LANDCOVER_TILE_COLUMNS_SQL`）と評価経路（`get_edge_material_arrays`）で同じにする
 ——食い違うと、地図に出ている値と採点が使う値が別物になる。
 
 `edge_landcover`の鍵は**向きに依らない区間の同定子**（way＋両端ノードの小さい方・大きい方）。
