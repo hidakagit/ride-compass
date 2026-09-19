@@ -93,13 +93,16 @@ docs/complexity-review-2026-08-16.md の **Keep List** が正（ただし「エ�
   精査で判断する）
 - Repositoryファサードのフラット委譲契約（対称追加の規約。委譲メソッド削除の提案はT18で棄却済み）
 - PBF取込バッチのasyncpg COPY直行（Repository迂回）
-- `AxisComposer.tsx`（規模ウォッチの発火が2026-08-27統合レビュー第8回で確認済み、
-  T270新設[474行]から3日で1,123行[+137%]。改善計画T355で個別の閾値付きKEEPへ
-  昇格——churnが継続中のためすぐには分割せず監視のみ先行する運用。**現在有効な閾値の
+- `AxisComposer.tsx`（改善計画T355で個別の閾値付きKEEPへ昇格——churnが継続中のため
+  すぐには分割せず監視のみ先行する運用にした。**この運用が結末まで至った唯一の例**で、
+  T924のウィザード撤去により1,424行→327行へ実質的に分割された。**現在有効な閾値の
   正本は`history/size_watch.json`**（T355は登録時点の経緯記録）
 - `road_graph_repository.py` / `road_graph_engine.py`（規模ウォッチの発火が2回連続で
   行き場のないまま繰り返されたため、改善計画T357で個別の閾値付きKEEPへ昇格。**現在有効な
   閾値の正本は`history/size_watch.json`**（T357は登録時点の経緯記録）
+- `scripts/review_checks.py` / `scripts/tests/test_review_checks.py` /
+  `AxisScoringSection.tsx`（改善計画T952で個別の閾値付きKEEPへ。`review_checks.py`は
+  検知器群とmutateが同じ理由で動くため分けず、切るなら計測群だけを出す）
 
 ## タスク・レビュー履歴の基盤
 
