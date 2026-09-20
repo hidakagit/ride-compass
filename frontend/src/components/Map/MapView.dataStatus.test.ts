@@ -35,13 +35,13 @@ function sourceIdFor(key: string): string {
 describe("computeLayerDataStatus", () => {
   it("表示OFFのレイヤーはキー自体を持たない", () => {
     const map = fakeMap({});
-    const status = computeLayerDataStatus(map, new Set(), { "axis:car_stress": false }, LAYER_DATA_SOURCES);
+    const status = computeLayerDataStatus(map, new Set(), { "axis:ramp": false }, LAYER_DATA_SOURCES);
     expect(status).toEqual({});
   });
 
   it("ソース未追加（初期化直後）のレイヤーもキー自体を持たない", () => {
     const map = fakeMap({ addedSourceIds: [] });
-    const status = computeLayerDataStatus(map, new Set(), { "axis:car_stress": true }, LAYER_DATA_SOURCES);
+    const status = computeLayerDataStatus(map, new Set(), { "axis:ramp": true }, LAYER_DATA_SOURCES);
     expect(status).toEqual({});
   });
 
@@ -72,24 +72,24 @@ describe("computeLayerDataStatus", () => {
 
   it("読込済みかつフィーチャーがあれば正常（キー自体を持たない）", () => {
     const map = fakeMap({});
-    const status = computeLayerDataStatus(map, new Set(), { "axis:car_stress": true }, LAYER_DATA_SOURCES);
+    const status = computeLayerDataStatus(map, new Set(), { "axis:ramp": true }, LAYER_DATA_SOURCES);
     expect(status).toEqual({});
   });
 
-  it("roadType/roadSurface/axis:car_stress/designationは同じroad_surfaceタイルを再利用するため、同時にemptyになる（road_edges未構築地点を想定）", () => {
+  it("roadType/roadSurface/axis:ramp/designationは同じroad_surfaceタイルを再利用するため、同時にemptyになる（road_edges未構築地点を想定）", () => {
     const map = fakeMap({
       emptySourceLayers: [{ sourceId: sourceIdFor("roadType"), sourceLayer: "road_surface" }],
     });
     const status = computeLayerDataStatus(
       map,
       new Set(),
-      { roadType: true, roadSurface: true, "axis:car_stress": true, designation: true },
+      { roadType: true, roadSurface: true, "axis:ramp": true, designation: true },
       LAYER_DATA_SOURCES,
     );
     expect(status).toEqual({
       roadType: "empty",
       roadSurface: "empty",
-      "axis:car_stress": "empty",
+      "axis:ramp": "empty",
       designation: "empty",
     });
   });
@@ -107,7 +107,7 @@ describe("computeLayerDataStatus", () => {
     expect(errored).toEqual({ elevation: "error" });
   });
 
-  // レビュー指摘: roadType/roadSurface/axis:car_stress/designationが同じ
+  // レビュー指摘: roadType/roadSurface/axis:ramp/designationが同じ
   // (sourceId, sourceLayer)を共有するため、素朴に実装するとquerySourceFeaturesが同じ引数で
   // 複数回呼ばれていた（road_surfaceは実測6,273件、sourcedata等の高頻度イベントのたびに
   // 呼ばれるため無視できないコスト）。1回のcomputeLayerDataStatus呼び出し内では
@@ -118,7 +118,7 @@ describe("computeLayerDataStatus", () => {
     computeLayerDataStatus(
       map,
       new Set(),
-      { roadType: true, roadSurface: true, "axis:car_stress": true, designation: true },
+      { roadType: true, roadSurface: true, "axis:ramp": true, designation: true },
       LAYER_DATA_SOURCES,
     );
     expect(calls).toHaveLength(1);

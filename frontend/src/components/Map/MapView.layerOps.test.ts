@@ -19,11 +19,8 @@ const RAMP_AXES = rampAxesFromCatalogAxes([
   catalogAxis({ axis_id: "ramp", display: { tile_inputs: [{ property: "v", weight: 1 }], thresholds: [50] } }),
 ]);
 const DEDICATED_WAY_VALUE_AXES = dedicatedWayValueAxesFromCatalogAxes([
-  catalogAxis({
-    axis_id: "ded",
-    dedicated_way_value_layer: true,
-    display: { tile_inputs: [{ property: "v", weight: 1 }], thresholds: [50] },
-  }),
+  catalogAxis({ axis_id: "ded1", dedicated_way_value_layer: true }),
+  catalogAxis({ axis_id: "ded2", dedicated_way_value_layer: true }),
 ]);
 
 // このファイルのテストが使うレイヤーカタログ。重なり順の正本（mapLayers.ts:
@@ -334,21 +331,21 @@ describe("clearRoadTileFeatureState（改善計画T490）", () => {
 
 describe("shouldClearDedicatedWayValueFeatureState（専用way値配信軸が1つも表示されていないかの判定、改善計画T490）", () => {
   it("全軸OFFのときだけtrue", () => {
-    expect(shouldClearDedicatedWayValueFeatureState({ windAxis: false, gradientAxis: false })).toBe(true);
+    expect(shouldClearDedicatedWayValueFeatureState({ ded1Axis: false, ded2Axis: false })).toBe(true);
     expect(shouldClearDedicatedWayValueFeatureState({})).toBe(true);
   });
 
   it("1つでもONならfalse（まだONの軸を巻き添えにしない）", () => {
-    expect(shouldClearDedicatedWayValueFeatureState({ windAxis: true, gradientAxis: false })).toBe(false);
-    expect(shouldClearDedicatedWayValueFeatureState({ windAxis: false, gradientAxis: true })).toBe(false);
-    expect(shouldClearDedicatedWayValueFeatureState({ windAxis: true, gradientAxis: true })).toBe(false);
+    expect(shouldClearDedicatedWayValueFeatureState({ ded1Axis: true, ded2Axis: false })).toBe(false);
+    expect(shouldClearDedicatedWayValueFeatureState({ ded1Axis: false, ded2Axis: true })).toBe(false);
+    expect(shouldClearDedicatedWayValueFeatureState({ ded1Axis: true, ded2Axis: true })).toBe(false);
   });
 
   // 3件目の軸が公開されても、既存2軸をOFFにした瞬間に3件目の色分けが巻き添えで消えない。
   it("3件目の軸だけONでもfalse", () => {
-    expect(
-      shouldClearDedicatedWayValueFeatureState({ windAxis: false, gradientAxis: false, surface_tempAxis: true }),
-    ).toBe(false);
+    expect(shouldClearDedicatedWayValueFeatureState({ ded1Axis: false, ded2Axis: false, surface_tempAxis: true })).toBe(
+      false,
+    );
   });
 });
 
@@ -409,11 +406,11 @@ describe("applyAxisFeatureStateValues（改善計画T490）", () => {
   });
 });
 
-describe("buildStaticOverlayLayers（windAxis/gradientAxisのensureが既存レイヤーの色式を再適用する、T587）", () => {
-  it("windAxisレイヤーが既に存在する場合、dedicatedWayValueDisplaysの変更をline-colorへ再適用する", () => {
+describe("buildStaticOverlayLayers（ded1Axis/ded2Axisのensureが既存レイヤーの色式を再適用する、T587）", () => {
+  it("ded1Axisレイヤーが既に存在する場合、dedicatedWayValueDisplaysの変更をline-colorへ再適用する", () => {
     const map = fakeMap();
     const windEntry = buildStaticOverlayLayers(CATALOG, [], DEDICATED_WAY_VALUE_AXES, undefined).find(
-      (l) => l.key === "windAxis",
+      (l) => l.key === "ded1Axis",
     )!;
     // 1回目: axisCatalogのフェッチ未完了を想定（boundaries未設定）でレイヤーを新規作成する。
     windEntry.ensure(map as unknown as Parameters<typeof windEntry.ensure>[0]);
@@ -427,8 +424,8 @@ describe("buildStaticOverlayLayers（windAxis/gradientAxisのensureが既存レ�
       CATALOG,
       [],
       DEDICATED_WAY_VALUE_AXES,
-      new Map([["wind", { kind: "difficulty" as const, unit: "", boundaries: [10, 20, 30, 40, 50] }]]),
-    ).find((l) => l.key === "windAxis")!;
+      new Map([["ded1", { kind: "difficulty" as const, unit: "", boundaries: [10, 20, 30, 40, 50] }]]),
+    ).find((l) => l.key === "ded1Axis")!;
     windEntryAfter.ensure(map as unknown as Parameters<typeof windEntryAfter.ensure>[0]);
 
     const paintCalls = map.paintCalls.filter((c) => c.layerId === windEntry.layerId && c.name === "line-color");
@@ -438,7 +435,7 @@ describe("buildStaticOverlayLayers（windAxis/gradientAxisのensureが既存レ�
   it("値を受け取れなかった道を薄くするline-opacityが、実際にpaintへ届く（T954）", () => {
     const map = fakeMap();
     const entry = buildStaticOverlayLayers(CATALOG, [], DEDICATED_WAY_VALUE_AXES, undefined).find(
-      (l) => l.key === "gradientAxis",
+      (l) => l.key === "ded2Axis",
     )!;
 
     entry.ensure(map as unknown as Parameters<typeof entry.ensure>[0]);
@@ -446,7 +443,7 @@ describe("buildStaticOverlayLayers（windAxis/gradientAxisのensureが既存レ�
     // 式の形ではなく「addLayerのpaintに載ったか」を見る——載らなければMapLibreの既定
     // （line-opacity=1）で塗られ、値の無い道が濃いまま残る。
     const spec = map.addedSpecs.find((s) => s.id === entry.layerId)!;
-    expect(spec.paint?.["line-opacity"]).toEqual(dedicatedWayValueOpacityExpression("gradient", false));
+    expect(spec.paint?.["line-opacity"]).toEqual(dedicatedWayValueOpacityExpression("ded2", false));
     // 値がある側は濃く、無い側は薄い（式を評価せず、両端の値だけを確かめる）。
     const expression = spec.paint?.["line-opacity"] as unknown[];
     expect(expression[expression.length - 1]).toBe(KNOWN_LINE_OPACITY);
@@ -460,9 +457,9 @@ describe("buildStaticOverlayLayers（windAxis/gradientAxisのensureが既存レ�
       [],
       DEDICATED_WAY_VALUE_AXES,
       undefined,
-      new Map([["gradient", true]]),
+      new Map([["ded2", true]]),
       undefined,
-    ).find((l) => l.key === "gradientAxis")!;
+    ).find((l) => l.key === "ded2Axis")!;
     loading.ensure(map as unknown as Parameters<typeof loading.ensure>[0]);
 
     const settled = buildStaticOverlayLayers(
@@ -470,20 +467,20 @@ describe("buildStaticOverlayLayers（windAxis/gradientAxisのensureが既存レ�
       [],
       DEDICATED_WAY_VALUE_AXES,
       undefined,
-      new Map([["gradient", false]]),
+      new Map([["ded2", false]]),
       undefined,
-    ).find((l) => l.key === "gradientAxis")!;
+    ).find((l) => l.key === "ded2Axis")!;
     settled.ensure(map as unknown as Parameters<typeof settled.ensure>[0]);
 
     const opacityCalls = map.paintCalls.filter((c) => c.layerId === loading.layerId && c.name === "line-opacity");
     expect(opacityCalls).toHaveLength(1);
-    expect(opacityCalls[0].value).toEqual(dedicatedWayValueOpacityExpression("gradient", false));
+    expect(opacityCalls[0].value).toEqual(dedicatedWayValueOpacityExpression("ded2", false));
   });
 
   it("凡例で非表示にした段階は、色式のその段階だけが透明になる（filterでは絞り込めないため）", () => {
-    const display = new Map([["gradient", { kind: "signed_material" as const, unit: "%", boundaries: [-1, 1] }]]);
+    const display = new Map([["ded2", { kind: "signed_material" as const, unit: "%", boundaries: [-1, 1] }]]);
     const visible = buildStaticOverlayLayers(CATALOG, [], DEDICATED_WAY_VALUE_AXES, display, undefined, undefined).find(
-      (l) => l.key === "gradientAxis",
+      (l) => l.key === "ded2Axis",
     )!;
     const hidden = buildStaticOverlayLayers(
       CATALOG,
@@ -491,8 +488,8 @@ describe("buildStaticOverlayLayers（windAxis/gradientAxisのensureが既存レ�
       DEDICATED_WAY_VALUE_AXES,
       display,
       undefined,
-      new Map([["gradient", [legendBandKey(1)]]]),
-    ).find((l) => l.key === "gradientAxis")!;
+      new Map([["ded2", [legendBandKey(1)]]]),
+    ).find((l) => l.key === "ded2Axis")!;
 
     const map = fakeMap();
     visible.ensure(map as unknown as Parameters<typeof visible.ensure>[0]);
@@ -505,28 +502,28 @@ describe("buildStaticOverlayLayers（windAxis/gradientAxisのensureが既存レ�
     expect(JSON.stringify(repaint[0].value)).toContain(COLOR_HIDDEN);
   });
 
-  it("gradientAxisレイヤーが既に存在する場合も、boundariesの変更を再適用する", () => {
+  it("ded2Axisレイヤーが既に存在する場合も、boundariesの変更を再適用する", () => {
     const map = fakeMap();
     const before = buildStaticOverlayLayers(CATALOG, [], DEDICATED_WAY_VALUE_AXES, undefined);
-    const gradientAxisEntry = before.find((l) => l.key === "gradientAxis")!;
-    gradientAxisEntry.ensure(map as unknown as Parameters<typeof gradientAxisEntry.ensure>[0]);
-    expect(map.layers.has(gradientAxisEntry.layerId)).toBe(true);
+    const ded2AxisEntry = before.find((l) => l.key === "ded2Axis")!;
+    ded2AxisEntry.ensure(map as unknown as Parameters<typeof ded2AxisEntry.ensure>[0]);
+    expect(map.layers.has(ded2AxisEntry.layerId)).toBe(true);
 
     const after = buildStaticOverlayLayers(
       CATALOG,
       [],
       DEDICATED_WAY_VALUE_AXES,
-      new Map([["gradient", { kind: "signed_material" as const, unit: "%", boundaries: [-10, -5, 0, 5, 10] }]]),
+      new Map([["ded2", { kind: "signed_material" as const, unit: "%", boundaries: [-10, -5, 0, 5, 10] }]]),
     );
-    const gradientAxisEntryAfter = after.find((l) => l.key === "gradientAxis")!;
-    gradientAxisEntryAfter.ensure(map as unknown as Parameters<typeof gradientAxisEntryAfter.ensure>[0]);
+    const ded2AxisEntryAfter = after.find((l) => l.key === "ded2Axis")!;
+    ded2AxisEntryAfter.ensure(map as unknown as Parameters<typeof ded2AxisEntryAfter.ensure>[0]);
 
-    expect(
-      map.paintCalls.filter((c) => c.layerId === gradientAxisEntry.layerId && c.name === "line-color"),
-    ).toHaveLength(1);
+    expect(map.paintCalls.filter((c) => c.layerId === ded2AxisEntry.layerId && c.name === "line-color")).toHaveLength(
+      1,
+    );
   });
 
-  it("dedicatedWayValueLoadingの変更（フェッチ開始/完了）もwindAxis/gradientAxisのline-colorへ再適用する（改善計画T607）", () => {
+  it("dedicatedWayValueLoadingの変更（フェッチ開始/完了）もded1Axis/ded2Axisのline-colorへ再適用する（改善計画T607）", () => {
     const map = fakeMap();
     const before = buildStaticOverlayLayers(
       CATALOG,
@@ -534,14 +531,14 @@ describe("buildStaticOverlayLayers（windAxis/gradientAxisのensureが既存レ�
       DEDICATED_WAY_VALUE_AXES,
       undefined,
       new Map([
-        ["wind", false],
-        ["gradient", false],
+        ["ded1", false],
+        ["ded2", false],
       ]),
     );
-    const windEntry = before.find((l) => l.key === "windAxis")!;
-    const gradientAxisEntry = before.find((l) => l.key === "gradientAxis")!;
+    const windEntry = before.find((l) => l.key === "ded1Axis")!;
+    const ded2AxisEntry = before.find((l) => l.key === "ded2Axis")!;
     windEntry.ensure(map as unknown as Parameters<typeof windEntry.ensure>[0]);
-    gradientAxisEntry.ensure(map as unknown as Parameters<typeof gradientAxisEntry.ensure>[0]);
+    ded2AxisEntry.ensure(map as unknown as Parameters<typeof ded2AxisEntry.ensure>[0]);
 
     const after = buildStaticOverlayLayers(
       CATALOG,
@@ -549,19 +546,19 @@ describe("buildStaticOverlayLayers（windAxis/gradientAxisのensureが既存レ�
       DEDICATED_WAY_VALUE_AXES,
       undefined,
       new Map([
-        ["wind", true],
-        ["gradient", true],
+        ["ded1", true],
+        ["ded2", true],
       ]),
     );
-    const windEntryAfter = after.find((l) => l.key === "windAxis")!;
-    const gradientAxisEntryAfter = after.find((l) => l.key === "gradientAxis")!;
+    const windEntryAfter = after.find((l) => l.key === "ded1Axis")!;
+    const ded2AxisEntryAfter = after.find((l) => l.key === "ded2Axis")!;
     windEntryAfter.ensure(map as unknown as Parameters<typeof windEntryAfter.ensure>[0]);
-    gradientAxisEntryAfter.ensure(map as unknown as Parameters<typeof gradientAxisEntryAfter.ensure>[0]);
+    ded2AxisEntryAfter.ensure(map as unknown as Parameters<typeof ded2AxisEntryAfter.ensure>[0]);
 
     expect(map.paintCalls.filter((c) => c.layerId === windEntry.layerId && c.name === "line-color")).toHaveLength(1);
-    expect(
-      map.paintCalls.filter((c) => c.layerId === gradientAxisEntry.layerId && c.name === "line-color"),
-    ).toHaveLength(1);
+    expect(map.paintCalls.filter((c) => c.layerId === ded2AxisEntry.layerId && c.name === "line-color")).toHaveLength(
+      1,
+    );
   });
 });
 

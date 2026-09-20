@@ -1,6 +1,6 @@
 import { expect, type Page } from "@playwright/test";
 import type { RouteCandidate, RouteGenerateResponse } from "@/types/route";
-import { CATALOG_AXES } from "@/components/Map/__fixtures__/catalogAxes";
+import { catalogAxis } from "@/components/Map/__fixtures__/catalogAxes";
 import { makeRouteCandidate as makeCandidate } from "@/testing/routeFixtures";
 import type { AmedasObservation, WeatherConditions } from "@/types/weather";
 
@@ -201,7 +201,7 @@ export async function installApiMocks(page: Page): Promise<void> {
   await page.route(`${API_BASE}/api/axis-catalog*`, (route) =>
     route.fulfill({
       json: {
-        axes: CATALOG_AXES.map((axis) => ({ ...axis, default_weight: 0 })),
+        axes: [{ ...catalogAxis({ axis_id: "ramp", display: { tile_inputs: [{ property: "v", weight: 1 }], thresholds: [50] } }), default_weight: 0 }],
         tile_versions: {},
         material_runtime_scales: {},
         client_tuning: {},

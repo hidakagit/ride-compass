@@ -168,7 +168,8 @@ describe("RouteSettingsPanel", () => {
   });
 
   it("routePreferenceがカタログと既に一致している場合は呼び出さない", async () => {
-    // 取得前は軸が0件のため差分は生じない。取得後の内容と一致させておく。
+    // 軸は取得完了で初めて現れる（ビルド時の写しを持たない）。取得前の0件と突き合わせて
+    // 空へ潰さないことも、ここで一緒に押さえている。
     vi.mocked(getAxisCatalog).mockResolvedValue(catalogResponse(["gradient", "surface_q"]));
     const onRoutePreferenceChange = vi.fn();
 

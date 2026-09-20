@@ -84,7 +84,7 @@ function hiddenKeys(
 }
 
 // 改善計画T292: 車ストレス（車の圧迫感）は専用Pythonレシピの廃止に伴い、他の推定軸
-// （停止密度・事故密度等）と同じ汎用ramp機構（axis:car_stress、axisLineLayerId経由）へ
+// （停止密度・事故密度等）と同じ汎用ramp機構（axis:ramp、axisLineLayerId経由）へ
 // 統合された。setStaticOverlayFiltersはレシピ引数を取らなくなり、車の圧迫感専用の
 // フィルタ差し替えロジックも不要になった（STATIC_FILTER_AXESの静的なlegendをそのまま使う）。
 describe("setStaticOverlayFilters（改善計画T292: 車の圧迫感を含むramp軸の汎用フィルタ適用）", () => {
@@ -102,7 +102,7 @@ describe("setStaticOverlayFilters（改善計画T292: 車の圧迫感を含むra
     expect(evaluateFilter(filter, { designation: "critical_logistics" })).toBe(true);
   });
 
-  it("車の圧迫感（axis:car_stress）のrampレイヤーにもフィルタが設定される", () => {
+  it("ramp軸のrampレイヤーにもフィルタが設定される", () => {
     const map = fakeMap();
     setStaticOverlayFilters(
       map as unknown as Parameters<typeof setStaticOverlayFilters>[0],
@@ -111,7 +111,7 @@ describe("setStaticOverlayFilters（改善計画T292: 車の圧迫感を含むra
       STATIC_FILTER_AXES,
     );
 
-    const layerId = axisLineLayerId("car_stress");
+    const layerId = axisLineLayerId(RAMP_AXES[0].axisId);
     expect(map.setFilterCalls.some((c) => c.layerId === layerId)).toBe(true);
   });
 });

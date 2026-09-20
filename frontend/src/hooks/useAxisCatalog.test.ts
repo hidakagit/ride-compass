@@ -174,7 +174,7 @@ describe("useAxisCatalog（改善計画T308: rampAxes/axisLabels/secondaryAxes�
     }
   });
 
-  it("改善計画T318フォローアップ: 全軸非公開でaxesが0件のレスポンスは、静的フォールバックへ戻さずそのまま空を返す", async () => {
+  it("改善計画T318フォローアップ: 全軸非公開でaxesが0件のレスポンスは、そのまま空を返す", async () => {
     vi.mocked(getAxisCatalog).mockResolvedValue({
       axes: [],
       material_runtime_scales: {},
@@ -192,18 +192,6 @@ describe("useAxisCatalog（改善計画T308: rampAxes/axisLabels/secondaryAxes�
     expect(result.current.axisLabels).toEqual({ wind: "風" });
     expect(result.current.secondaryAxes).toEqual([]);
     expect(result.current.defaultWeights).toEqual({});
-  });
-
-  it("フェッチ失敗時は静的フォールバック（既存7軸）のrampAxesを返す", async () => {
-    vi.mocked(getAxisCatalog).mockRejectedValue(new Error("network error"));
-
-    const { result } = renderHook(() => useAxisCatalog());
-
-    // フォールバックは初期値としてすでにセットされているため、フェッチが失敗して
-    // 何も変わらないことを確認する（catchブロックが状態を書き換えない）。
-    await waitFor(() => expect(vi.mocked(getAxisCatalog)).toHaveBeenCalled());
-    expect(result.current.rampAxes.length).toBeGreaterThan(0);
-    expect(result.current.rampAxes.every((axis) => axis.axisId !== "gui_published_axis")).toBe(true);
   });
 
   it("フェッチ失敗はfailed=trueとして表面化する（未取得[両方false]と区別できる）", async () => {
@@ -295,7 +283,7 @@ describe("useAxisCatalog（改善計画T308: rampAxes/axisLabels/secondaryAxes�
     await waitFor(() => expect(vi.mocked(getAxisCatalog).mock.calls.length - callsBefore).toBe(1));
 
     // secondの再フェッチが失敗しても、firstが既に取得していた2軸のカタログのまま
-    // （静的フォールバックの7軸へ巻き戻らない）。
+    // （取得前の空へ巻き戻らない）。
     expect(first.result.current.loaded).toBe(true);
     expect(first.result.current.failed).toBe(false);
     expect(first.result.current.axes).toHaveLength(2);

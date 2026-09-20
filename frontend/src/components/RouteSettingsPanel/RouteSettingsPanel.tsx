@@ -83,10 +83,13 @@ export default function RouteSettingsPanel({
   // どちらも値を変えずキーの追加/削除だけなのでoverrideEnabledは動かさない、
   // handlePreferenceChangeではなくonRoutePreferenceChangeを直接使う。
   useEffect(() => {
+    // **取得が確定するまで同期しない。** 軸はDBが持ち、取得できるまでは0件である。
+    // その状態で突き合わせると「公開軸が1つも無い」と読み、保存済みの重みを全部消す。
+    if (!catalog.loaded) return;
     const synced = syncRoutePreferenceKeys(routePreference, catalog.defaultWeights);
     if (synced) onRoutePreferenceChange(synced);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [catalog.defaultWeights]);
+  }, [catalog.defaultWeights, catalog.loaded]);
 
   // チェックを外した軸の重みを覚えておき、再度チェックしたときに元へ戻す
   // （routePreference自体は常に0を含む「実際に送る値」のため、ここでしか保持できない）。
