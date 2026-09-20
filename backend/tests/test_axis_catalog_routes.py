@@ -53,8 +53,7 @@ def test_get_axis_catalog_requires_no_auth_and_returns_builtin_axes():
     assert response.status_code == 200
     body = response.json()
     axis_ids = {entry["axis_id"] for entry in body["axes"]}
-    # 改善計画T292: car_stress軸を支える内部軸（is_published=False）は一般公開しない
-    # ため比較対象から除く（endpoint自体が既にis_published絞り込み済み、T271）。
+    # 内部軸（is_published=False）は一般公開しない。
     published_axis_ids = {axis_id for axis_id, d in AXIS_DEFINITIONS.items() if d.is_published}
     assert axis_ids == published_axis_ids
 
@@ -80,16 +79,12 @@ def test_get_axis_catalog_reflects_display_fields():
     body = response.json()
     entries_by_id = {entry["axis_id"]: entry for entry in body["axes"]}
     gradient = entries_by_id["gradient"]
-    car_stress = entries_by_id["car_stress"]
 
     assert gradient["icon_id"] == "incline"
     assert gradient["chip_label"] == "勾配"
     # 改善計画T318: show_map_iconは既定Trueのため、明示的にfalseへ変更していない
     # 既存軸は全て地図上に表示される。
     assert gradient["show_map_icon"] is True
-    assert car_stress["icon_id"] == "warning-triangle"
-    assert car_stress["chip_label"] == "圧迫感"
-    assert car_stress["panel_hint"] is not None
     # wind等、T310で値を持たない軸は素直にnull（未設定=フロント側の汎用フォールバック）。
     assert entries_by_id["wind"]["icon_id"] is None
 
@@ -171,18 +166,6 @@ def test_get_axis_catalog_primary_attribute_ids_match_legacy_static_inputs():
     assert set(entries_by_id["stop_density"]["primary_attribute_ids"]) == {"stop_poi"}
     assert set(entries_by_id["night"]["primary_attribute_ids"]) == {"lit", "tunnel"}
     assert set(entries_by_id["accident"]["primary_attribute_ids"]) == {"accident_point"}
-    # car_stress: AxisDefinition.materialsは内部軸id(car_stress_highway_base等)を返すため
-    # 再帰的に解決する必要がある（domain/axis_definitions.py T292階層構造、
-    # api/routers/axis_catalog.py: _primary_attribute_ids_for参照）。改善計画T353で
-    # car_stress_bicycle_infra_adjustment内部軸を廃止したため、cycleway（自転車インフラ系
-    # 材料由来）はcar_stressのprimary_attribute_idsから外れbicycle_infra_quality専用になった。
-    assert set(entries_by_id["car_stress"]["primary_attribute_ids"]) == {
-        "highway",
-        "maxspeed",
-        "lanes",
-        "designation",
-        "motor_vehicle_access",
-    }
 
 
 def test_get_axis_catalog_marks_accident_tile_input_as_needing_runtime_scale():
@@ -239,11 +222,10 @@ def test_get_axis_catalog_includes_map_value_kind_and_unit():
 
 def test_get_axis_catalog_includes_raw_value_unit():
     # 得点の隣へ生値を出すための単位（domain/axis_display.py: raw_value_unit）。
-    # 勾配は単一材料をそのまま使うので%、車の圧迫感は内部軸の合成で単位が定まらずnull。
+    # 勾配は単一材料をそのまま使うので%、内部軸を合成する軸は単位が定まらずnull。
     response = client.get("/api/axis-catalog")
     entries_by_id = {entry["axis_id"]: entry for entry in response.json()["axes"]}
     assert entries_by_id["gradient"]["raw_value_unit"] == "%"
-    assert entries_by_id["car_stress"]["raw_value_unit"] is None
     # 停止密度は材料ごとに重みを変えて足す（交差点は0.3倍）ため、和は「回/km」では
     # 読めない——生値の単位はnullになる。
     assert entries_by_id["stop_density"]["raw_value_unit"] is None
@@ -261,22 +243,11 @@ def test_get_axis_catalog_includes_material_breakdown():
     assert [entry["material_id"] for entry in night] == ["lit", "has_tunnel"]
     assert [entry["dtype"] for entry in night] == ["boolean", "boolean"]
     assert [entry["share"] for entry in night] == [0.5, 0.5]
-    # 軸参照を辿った先の材料が並ぶ（内部軸の得点は内訳に出さない）。
-    car_stress = entries_by_id["car_stress"]["material_breakdown"]
-    assert [entry["material_id"] for entry in car_stress] == [
-        "highway", "maxspeed_kmh", "lanes_count", "is_designated", "motor_vehicle_no",
-    ]
-    assert entries_by_id["car_stress"]["raw_value_unit"] is None
     # 材料の表示名・単位はbackendが返す（フロントは対応表を持たない）。
-    maxspeed = next(entry for entry in car_stress if entry["material_id"] == "maxspeed_kmh")
-    assert maxspeed["unit"] == "km/h"
-    assert maxspeed["label"]
-    # categorical材料は「タグ生値→論理名」の対訳を添える（フロントは対応表を持たない）。
-    highway = next(entry for entry in car_stress if entry["material_id"] == "highway")
-    assert highway["dtype"] == "categorical"
-    assert highway["value_labels"]["residential"]
-    # 他の型では空（走行中に見る画面へ不要なデータを載せない）。
-    assert maxspeed["value_labels"] == {}
+    lit = next(entry for entry in night if entry["material_id"] == "lit")
+    assert lit["label"]
+    # 真偽値材料に対訳は要らない（走行中に見る画面へ不要なデータを載せない）。
+    assert lit["value_labels"] == {}
 
 
 def test_タイル世代はDBの派生データ世代を前置きして配る():

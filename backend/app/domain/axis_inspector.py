@@ -32,7 +32,6 @@ class AxisInspectorAxis(StrictModel):
 class AxisInspectorResult(StrictModel):
     highway: str | None
     tags: dict[str, str]
-    is_designated: bool
     axes: list[AxisInspectorAxis]
     # 取得可能な軸だけの加重平均（`composite_difficulty`と同じ「データ無しは除外し
     # 残りの重みで再正規化」方針）。1つも取得できなければNone。
@@ -49,7 +48,6 @@ class AxisInspectorResult(StrictModel):
 def axis_inspector_breakdown(
     highway: str | None,
     tags: dict[str, str],
-    is_designated: bool,
     materials: dict[str, object],
     landcover: LandcoverPercentages | None = None,
     preference: RoutePreference | None = None,
@@ -85,7 +83,6 @@ def axis_inspector_breakdown(
     return AxisInspectorResult(
         highway=highway,
         tags=tags,
-        is_designated=is_designated,
         axes=axes,
         composite_difficulty=composite,
         covered_weight_fraction=covered_fraction,

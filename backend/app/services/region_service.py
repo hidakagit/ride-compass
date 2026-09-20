@@ -51,7 +51,7 @@ class RegionService:
     カバレッジ内（生データ取込済み）でも、実際にタイル描画が読むroad_nodes/road_edges
     （道路グラフ）は、地図を眺めるだけ（ルート生成を経ない）の利用では構築されない
     ままになりうる。このタイル配信側でも、カバレッジ内と分かったz12祖先タイルについて
-    未構築・古ければバックグラウンドで構築する（`_maybe_trigger_graph_build`。応答自体は
+    未構築・古ければバックグラウンドで構築する（応答自体は
     待たせず即座に返し、次回以降のアクセスから反映される）。
     """
 
@@ -220,9 +220,9 @@ class RegionService:
                 )
                 return None
             fields["lookup"] = "ok"
-            highway, tags, is_designated, _surface = way_tags_result
+            highway, tags, _surface = way_tags_result
             return axis_inspector_breakdown(
-                highway, tags, is_designated, materials or {}, way_landcover, RoutePreference(),
+                highway, tags, materials or {}, way_landcover, RoutePreference(),
             )
 
     async def get_accident_years_covered(self) -> int:

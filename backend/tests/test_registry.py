@@ -68,11 +68,11 @@ class TestRegisterAxis:
 
     def test_overlapping_non_shared_input_raises_axis_input_conflict(self):
         register_primary_attribute(_attr("highway"))
-        register_axis(AxisSpec(axis_id="car_stress", inputs=["highway"]))
+        register_axis(AxisSpec(axis_id="axis_b", inputs=["highway"]))
         with pytest.raises(AxisInputConflictError) as exc_info:
             register_axis(AxisSpec(axis_id="safety", inputs=["highway"]))
         assert exc_info.value.new_axis_id == "safety"
-        assert exc_info.value.existing_axis_id == "car_stress"
+        assert exc_info.value.existing_axis_id == "axis_b"
         assert exc_info.value.overlapping_attrs == {"highway"}
         # 衝突した軸は登録されないまま(部分登録によるレジストリの不整合を防ぐ)
         assert "safety" not in {axis.axis_id for axis in all_axes()}
@@ -80,7 +80,7 @@ class TestRegisterAxis:
     def test_shared_input_does_not_conflict(self):
         register_primary_attribute(_attr("highway"))
         register_primary_attribute(_attr("geometry", shared=True))
-        register_axis(AxisSpec(axis_id="car_stress", inputs=["highway", "geometry"]))
+        register_axis(AxisSpec(axis_id="axis_b", inputs=["highway", "geometry"]))
         # 2つ目の軸も"geometry"(shared)を使うが、highwayを使わなければ衝突しない
         register_axis(AxisSpec(axis_id="gradient", inputs=["geometry"]))
-        assert {axis.axis_id for axis in all_axes()} == {"car_stress", "gradient"}
+        assert {axis.axis_id for axis in all_axes()} == {"axis_b", "gradient"}

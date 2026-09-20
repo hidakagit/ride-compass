@@ -1,29 +1,9 @@
-"""統合寄りのテスト向け、本番相当の13軸データ（改善計画T350、T353で14→13軸）。
+"""統合寄りのテスト向け、本番相当の軸データ。
 
-`domain/axis_definitions.py: AXIS_DEFINITIONS`のPython literalをT350で撤去し、DBが
-唯一の正本になったため、プロセス起動直後は空のままで、`services/axis_registry_service.py:
-refresh_axis_definitions`がDBから読み込むまで埋まらない。road_graph_engine・
-evaluation_service・route_generator等、ルート生成の実処理を
-テストするファイルの多くは、DBを介さず`RoutePreference()`や評価の純関数を直接
-呼ぶため、グローバルな`AXIS_DEFINITIONS`に「car_stress/night/gradient/wind等の実在の
-axis_idを持つ、一貫した軸システム」が入っていることを暗黙に前提にしている
-（`road_graph_engine.py`等が"car_stress"をハードコード参照するため、単なるダミー軸では
-代替できない）。
-
-**改善計画T352の完了確認（2026-08-28）**: 以前はnightの重み掛け替えロジックが
-axis_idの直接ハードコードで、この「フルセット必須」の一因だった。T352で`time_scope`
-という性質ベースの宣言的フィールドへ汎用化した結果、nightは（car_stressと異なり）
-**もはや実在を前提としない**——存在しない場合は単に「この性質を持つ軸が無い」として
-何も掛け替えず動作する（KeyError等では落ちない、`test_evaluation.py:
-test_with_time_scope_*`・`test_axis_registry_service.py:
-test_delete_allows_axis_id_after_t352_generalization`で裏付け済み）。ルート地図の
-色分けモードも改善計画T549で全公開軸を無条件で対象に
-する設計へ変更され、windは同様の理由で対象から外れた。それでも本
-autouseフィクスチャ自体は撤去・縮小していない——car_stressのハードコード
-（T352の対象外、`services/axis_registry_service.py: _CODE_COUPLED_AXIS_IDS`参照）が
-残る以上、多くの既存テストが暗黙に「一貫した軸システム」を前提にし続けており、
-個々のテストを1軸ずつに絞り込む監査は本タスクのスコープ外と判断した
-（改善計画T352完了メモ参照）。
+`AXIS_DEFINITIONS`はDBが唯一の正本で、プロセス起動直後は空のまま
+`refresh_axis_definitions`がDBから読み込むまで埋まらない。ルート生成の実処理を
+テストするファイルの多くはDBを介さず評価の純関数を直接呼ぶため、
+「実在のaxis_idを持つ、一貫した軸システム」が入っていることを暗黙に前提にしている。
 
 本モジュールは、撤去前のPython literalと同じ構造（axis_id・shape・材料参照・階層）を
 テストコード側に複製した「テスト専用の固定フィクスチャ」。DBの現在値を検証する目的では
@@ -44,23 +24,6 @@ from app.domain.axis_definitions import (
     CategoricalShape,
     MaterialTerm,
 )
-_CAR_STRESS_HIGHWAY_BASE_MAPPING: dict[str, float] = {
-    "cycleway": 1.0,
-    "living_street": 1.0,
-    "footway": 1.0,
-    "path": 1.0,
-    "residential": 2.0,
-    "unclassified": 2.0,
-    "track": 2.0,
-    "tertiary": 3.0,
-    "tertiary_link": 3.0,
-    "secondary": 3.0,
-    "secondary_link": 3.0,
-    "primary": 4.0,
-    "primary_link": 4.0,
-    "trunk": 4.0,
-    "trunk_link": 4.0,
-}
 _CAR_STRESS_BICYCLE_INFRA_FLAG_WEIGHTS: list[tuple[str, float]] = [
     ("highway_is_cycleway", -4.0),
     ("cycleway_has_track", -4.0),
@@ -74,23 +37,6 @@ _BICYCLE_INFRA_AXIS_BREAKPOINTS: list[tuple[float, float]] = [
     (-1.0, 66.7),
     (0.0, 100.0),
 ]
-_CAR_STRESS_MAXSPEED_BREAKPOINTS: list[tuple[float, float]] = [
-    (0.0, -1.0),
-    (30.0, -1.0),
-    (31.0, 0.0),
-    (59.0, 0.0),
-    (60.0, 1.0),
-    (999.0, 1.0),
-]
-_CAR_STRESS_LANES_BREAKPOINTS: list[tuple[float, float]] = [
-    (0.0, -1.0),
-    (1.0, -1.0),
-    (2.0, 0.0),
-    (3.0, 0.0),
-    (4.0, 1.0),
-    (99.0, 1.0),
-]
-_CAR_STRESS_MOTOR_VEHICLE_NO_MAPPING: dict[bool, float] = {True: -1000.0, False: 0.0}
 _UNSIGNALED_INTERSECTION_WEIGHT = 0.3
 
 REALISTIC_AXIS_DEFINITIONS: dict[str, AxisDefinition] = {
@@ -173,85 +119,6 @@ REALISTIC_AXIS_DEFINITIONS: dict[str, AxisDefinition] = {
             "83m〜143mで1回停止",
             "83m以下で1回停止",
         ],
-    ),
-    "car_stress_highway_base": AxisDefinition(
-        axis_id="car_stress_highway_base",
-        shape=CategoricalShape(material="highway", mapping=_CAR_STRESS_HIGHWAY_BASE_MAPPING),
-        default_weight=0.0,
-        label="車ストレス内部軸: highway基準値",
-        description="highway種別による車の圧迫感の基準値(1-4、非公開)",
-        category="推定",
-        is_published=False,
-    ),
-    "car_stress_maxspeed_adjustment": AxisDefinition(
-        axis_id="car_stress_maxspeed_adjustment",
-        shape=BreakpointLinearShape(
-            terms=[MaterialTerm(material="maxspeed_kmh")],
-            breakpoints=_CAR_STRESS_MAXSPEED_BREAKPOINTS,
-        ),
-        default_weight=0.0,
-        label="車ストレス内部軸: 制限速度補正",
-        description="制限速度による補正(非公開)",
-        category="推定",
-        is_published=False,
-    ),
-    "car_stress_lanes_adjustment": AxisDefinition(
-        axis_id="car_stress_lanes_adjustment",
-        shape=BreakpointLinearShape(
-            terms=[MaterialTerm(material="lanes_count")],
-            breakpoints=_CAR_STRESS_LANES_BREAKPOINTS,
-        ),
-        default_weight=0.0,
-        label="車ストレス内部軸: 車線数補正",
-        description="車線数による補正(非公開)",
-        category="推定",
-        is_published=False,
-    ),
-    "car_stress_designation_adjustment": AxisDefinition(
-        axis_id="car_stress_designation_adjustment",
-        shape=CategoricalShape(material="is_designated", mapping={True: 1.0, False: 0.0}),
-        default_weight=0.0,
-        label="車ストレス内部軸: 指定路線補正",
-        description="指定路線(緊急輸送道路・重要物流道路)該当による補正(非公開)",
-        category="推定",
-        is_published=False,
-    ),
-    "car_stress_motor_vehicle_no_adjustment": AxisDefinition(
-        axis_id="car_stress_motor_vehicle_no_adjustment",
-        shape=CategoricalShape(material="motor_vehicle_no", mapping=_CAR_STRESS_MOTOR_VEHICLE_NO_MAPPING),
-        default_weight=0.0,
-        label="車ストレス内部軸: 自動車通行不可の優先確定",
-        description="motor_vehicle=noの区間を最良値へ強制する内部軸(非公開)",
-        category="推定",
-        is_published=False,
-    ),
-    "car_stress": AxisDefinition(
-        axis_id="car_stress",
-        shape=BreakpointLinearShape(
-            terms=[
-                MaterialTerm(material="car_stress_highway_base", required=True),
-                MaterialTerm(material="car_stress_maxspeed_adjustment", required=False),
-                MaterialTerm(material="car_stress_lanes_adjustment", required=False),
-                MaterialTerm(material="car_stress_designation_adjustment", required=False),
-                MaterialTerm(material="car_stress_motor_vehicle_no_adjustment", required=False),
-            ],
-            breakpoints=[(0.0, 0.0), (4.0, 100.0)],
-        ),
-        default_weight=0.20,
-        label="車の圧迫感",
-        description="推定される車の圧迫感(1-5)が低いほど易しい。自動車との近さ・速さ・車線数の指標で、信号や交差点の頻度は含まない(別軸)。自転車インフラの有無は別軸(自転車インフラ)で評価します。",
-        category="推定",
-        is_published=True,
-        icon_id="warning-triangle",
-        chip_label="圧迫感",
-        panel_hint="道路種別・制限速度・車線数・指定路線・自動車通行可否から推定した"
-        "車の圧迫感の目安です。実際の交通量そのものは加味していません。内訳は区間をクリックして"
-        "確認できます。",
-        # 改善計画T404: 5つの内部軸参照はderive_ramp_inputsが再帰的に解決してtile_inputsを
-        # 自動導出できるようになった（_resolve_referenced_axis_tile_input参照）。色分けの
-        # 段階だけをdisplay_thresholds_overrideで細かく刻む（旧display_override廃止方針、
-        # 本番DBもT404で同じ内容へ移行済み。docs/tasks/T404.md参照）。
-        display_thresholds_override=[2.0, 3.0, 4.0],
     ),
     "accident": AxisDefinition(
         axis_id="accident",

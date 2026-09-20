@@ -47,16 +47,6 @@ class AxisDefinitionSyncError(RuntimeError):
     """
 
 
-# `AXIS_DEFINITIONS`以外のコードがaxis_idを文字列として直接ハードコード
-# 参照している軸。削除されると、is_publishedの状態に関わらずアプリが壊れる。
-# is_publishedとは独立の制約で、下書きへ戻した後（unpublish→delete）でも
-# 削除できないようにする。現時点で該当する軸は無い——各軸の性質（`time_scope`・
-# `dedicated_way_value_layer`等の宣言的フィールド）を汎用ロジックが読む設計に
-# なっているため、axis_idを直接ハードコード参照するコードは存在しない。将来、
-# axis_idをハードコード参照するコードが増えた場合はここへ追加する。
-_CODE_COUPLED_AXIS_IDS: frozenset[str] = frozenset()
-
-
 def _find_unknown_references(definitions: dict[str, AxisDefinition]) -> dict[str, list[str]]:
     """各軸のshapeが参照する材料id・軸idのうち、`MATERIAL_CATALOG`にも同じ`definitions`内の
     軸idにも存在しないものを検出する。
@@ -218,8 +208,6 @@ class AxisRegistryAdminService:
             raise ValueError("最後の1軸は削除できません")
         # is_publishedの状態（下書きへ戻した後含む）に関わらず、
         # コードが名前で直接依存している軸は削除させない。
-        if axis_id in _CODE_COUPLED_AXIS_IDS and axis_id in existing:
-            raise ValueError(f"axis_id={axis_id} はコードから直接参照されているため削除できません")
         if axis_id in existing:
             # 公開済み軸の削除も不変制約の対象（updateと同じ理由）。
             check_publish_immutability(existing[axis_id], "deleted")

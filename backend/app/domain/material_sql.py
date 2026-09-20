@@ -21,7 +21,6 @@
 人が書いた期待値との突き合わせは`tests/test_material_sql.py`。
 """
 
-from app.domain.designation import DESIGNATION_IMPORT_KINDS
 
 def ways_source_sql(sampling: str = "") -> str:
     """`w`の別名が指す副問い合わせ。生データは`source_features`に1つの形で入っている
@@ -124,15 +123,6 @@ def landcover_value_sql(key: str) -> str:
     return f"em.lc_{key}"
 
 
-def designation_column_sql(kind: str) -> str:
-    """指定路線の種別に対応する`way_materials`の列。種別が増えても対応表は要らない。"""
-    return f"wm.designation_{kind}"
-
-
-def designation_any_sql() -> str:
-    """いずれかの種別の指定路線か。指定が無ければどの列もNULL。"""
-    return " OR ".join(f"{designation_column_sql(k)} IS NOT NULL"
-                       for k in DESIGNATION_IMPORT_KINDS)
 
 
 # `EdgeMaterialArrays`が標高属性を組み立てるとき、勾配だけは材料の列から読む

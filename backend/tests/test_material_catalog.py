@@ -68,7 +68,6 @@ from app.domain.material_catalog import MATERIAL_CATALOG
 
 def test_all_materials_have_a_non_empty_description():
     # 改善計画T345: 軸スタジオの情報アイコンが表示する説明文。display_only材料
-    # （designation、軸スタジオの選択肢からは除外される）も含め、MATERIAL_CATALOG
     # 登録済みの全材料が空でない説明文を持つことを確認する（新規材料追加時に
     # description記入漏れを検知する）。
     for spec in MATERIAL_CATALOG.values():

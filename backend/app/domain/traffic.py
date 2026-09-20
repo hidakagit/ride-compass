@@ -197,7 +197,7 @@ SUPPLY_VENDING_VALUES: frozenset[str] = frozenset(
 
 # 交差点で「自分が走ってきた道より上位の道と交わるか」を判定するための階級順（大きいほど
 # 上位）。**優先関係の判定だけに使う**——値そのものに意味は無く、比較結果だけが使われる。
-# 評価軸が持つhighwayの重み付け（`car_stress_highway_base`、DBの軸定義）とは別の関心事で、
+# 評価軸が持つhighwayの重み付け（DBの軸定義）とは別の関心事で、
 # あちらは「その道を走るときの圧迫感」、こちらは「その道を横断・合流するときの待ち」。
 HIGHWAY_RANK: dict[str, int] = {
     "motorway": 6, "motorway_link": 6,

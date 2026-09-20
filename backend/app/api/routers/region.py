@@ -173,7 +173,7 @@ async def region_axis_inspector(
     region_service: RegionService = Depends(get_region_service),
 ) -> AxisInspectorResult | None:
     """区間インスペクタ。クリックされた道路（osm_way_id）について、
-    一次属性（highway/tags/is_designated）→二次軸スコア（取得可能な軸のみ）→
+    一次属性（highway/tags）→二次軸スコア（取得可能な軸のみ）→
     合成コスト（取得可能な軸だけの参考値、既定route_preference重み）を返す。
     POST+JSONボディ・osm_way_id完全一致で引く理由はRegionService.get_axis_inspectorの
     docstring参照（交差点付近での取り違え対策）。gradient/wind軸は単独wayでは算出不能

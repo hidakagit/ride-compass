@@ -19,10 +19,6 @@ from app.domain.axis_definitions import (
     evaluate_axis_scalar,
 )
 
-# 改善計画T350: 本ファイルは実際のcar_stress内部軸階層（highway基準値+5補正の加重合成、
-# -1000マイナス項の安全マージン等）そのものを検証するため、本番相当の14軸が必要。
-# tests/conftest.pyのセッションスコープautouseフィクスチャが全テスト共通で用意する
-# （tests/realistic_axis_fixtures.py参照）。
 
 # 改善計画T292由来の旧`_CAR_STRESS_BICYCLE_INFRA_MAPPING`と同じ5値
 # （axis_definitions.py参照、地図表示ramp用に現在も定数として維持している）。
@@ -38,7 +34,7 @@ _OLD_BICYCLE_INFRA_MAPPING = {
 
 
 def test_bicycle_infra_quality_flag_combinations():
-    """改善計画T353回帰テスト: 旧内部軸car_stress_bicycle_infra_adjustment（1材料1軸
+    """旧内部軸（1材料1軸
     原則T268違反のため廃止）が持っていた「正規化フラグ材料の線形結合」を、公開軸
     bicycle_infra_qualityが直接引き継いだ後も、単独成立時の値が正しいスケール
     （0=最も走りやすい・100=最も走りにくい）で計算されること。
@@ -75,25 +71,6 @@ def test_bicycle_infra_quality_flag_combinations():
     assert score(highway_is_cycleway=True, cycleway_has_lane=True) == 0.0
 
 
-
-
-def test_car_stress_lanes_adjustment_applies_regardless_of_separated_cycleway():
-    # 改善計画T292回帰テスト: 旧car_stress_levelは「分離自転車道(cycleway=track)がある
-    # 区間ではlanes_low(-1)補正を無効化する」という条件分岐を持っていたが、実データ確認
-    # （dev DB 2026-08-19、該当ほぼ皆無）によりユーザー承認の上で撤廃し常時適用にした
-    # （axis_definitions.py: car_stress_lanes_adjustmentのコメント参照）。この単純化を
-    # 将来誤って部分的に復活させないための回帰テスト。
-    lanes_adjustment = AXIS_DEFINITIONS["car_stress_lanes_adjustment"]
-
-    # lanes_countだけを材料とするaxisのため、分離自転車道の正規化フラグ（cycleway_has_track
-    # 等）が立っているかどうかに関わらず同じ結果になることを確認する。
-    with_separated_cycleway = evaluate_axis_scalar(
-        lanes_adjustment, {"lanes_count": 1.0, "cycleway_has_track": True}
-    )
-    without_cycleway = evaluate_axis_scalar(lanes_adjustment, {"lanes_count": 1.0, "cycleway_has_track": False})
-
-    assert with_separated_cycleway == -1.0
-    assert without_cycleway == -1.0
 
 
 def _definition(axis_id: str, material: str, is_published: bool = False) -> AxisDefinition:
@@ -148,7 +125,6 @@ PUBLISHED_AXIS_IDS = frozenset(
         "wind",
         "surface_q",
         "stop_density",
-        "car_stress",
         "accident",
         "night",
         "bicycle_infra_quality",
@@ -160,16 +136,13 @@ PUBLISHED_AXIS_IDS = frozenset(
 def test_builtin_seven_axes_are_all_published():
     # 改善計画T271完了条件: 既存7軸（本番稼働中、一般ユーザーへ既に公開済み）は
     # is_published=Trueでなければならない（backfill漏れ・既定値の取り違えを防ぐ）。
-    # 改善計画T292: car_stress軸を支える内部軸（is_published=False、他の公開軸から
-    # 参照される専用の推定軸）がAXIS_DEFINITIONSへ加わったため、対象を公開軸へ絞る。
     # 改善計画T347でbicycle_infra_qualityが加わり公開軸は8つになった（関数名は歴史的名残）。
     for axis_id in PUBLISHED_AXIS_IDS:
         assert AXIS_DEFINITIONS[axis_id].is_published is True
 
 
 def test_internal_axes_are_not_published():
-    # 上のテストと対になる確認: 公開軸（PUBLISHED_AXIS_IDS）以外（car_stressを支える
-    # 内部軸）はis_published=Falseのまま運用する（改善計画T292、内部軸の恒久的な終着点）。
+    # 上のテストと対になる確認: 公開軸以外はis_published=Falseのまま運用する。
     for axis_id, definition in AXIS_DEFINITIONS.items():
         if axis_id not in PUBLISHED_AXIS_IDS:
             assert definition.is_published is False, axis_id
@@ -285,62 +258,6 @@ def test_check_internal_axis_not_published_skips_self_comparison():
     candidate = existing["public_axis"]
 
     check_internal_axis_not_published(candidate, existing)  # 例外が出ないことを確認
-
-
-def test_car_stress_internal_axes_reject_publish_attempt():
-    # 実障害の直接的な回帰テスト: car_stressを支える内部軸6つのいずれかを、実際の
-    # AXIS_DEFINITIONS構成の中でis_published=Trueにして保存しようとすると拒否される。
-    others = {aid: d for aid, d in AXIS_DEFINITIONS.items() if aid != "car_stress_highway_base"}
-    candidate = AXIS_DEFINITIONS["car_stress_highway_base"].model_copy(update={"is_published": True})
-
-    with pytest.raises(AxisInternalAxisPublishError) as exc_info:
-        check_internal_axis_not_published(candidate, others)
-
-    assert exc_info.value.axis_id == "car_stress_highway_base"
-    assert exc_info.value.referencing_axis_id == "car_stress"
-
-
-# --- car_stress_motor_vehicle_no_adjustmentの-1000固定マイナス項（改善計画T292） ---
-
-
-def _axis_max_abs_output(definition: AxisDefinition) -> float:
-    """1軸が取りうる出力の絶対値の最大（car_stressのBreakpointLinear合成へ加算する
-    「点数」としての最大寄与）。car_stress内部軸はCategoricalShapeとBreakpointLinearShapeの
-    どちらかのため、この2種類だけを扱う（新しい種類の内部軸が増えたら、このテストの
-    メンテナンス時に対応を追加する必要があることを示すため、既知の2種類以外は
-    AssertionErrorで明示的に落とす）。
-    """
-    shape = definition.shape
-    if isinstance(shape, CategoricalShape):
-        return max(abs(v) for v in shape.mapping.values())
-    if isinstance(shape, BreakpointLinearShape):
-        return max(abs(y) for _, y in shape.breakpoints)
-    raise AssertionError(f"car_stress内部軸に想定外のshape種別: {type(shape).__name__}")
-
-
-def test_car_stress_motor_vehicle_no_adjustment_dominates_other_internal_axes():
-    # コードレビュー指摘の修正確認(finding #4): car_stress_motor_vehicle_no_adjustmentの
-    # -1000は「他の全内部軸(motor_vehicle_no補正自身を除く)が同時に最大値を取っても
-    # 上回れない」という安全マージンの上で成り立つ設計（axis_definitions.pyの
-    # car_stress_motor_vehicle_no_adjustment定義直前のコメント参照）。この不変条件を
-    # コード側で検証せず定数だけ変更すると、他の内部軸の点数レンジ次第で
-    # motor_vehicle=noの「必ず最良値へ張り付く」保証が黙って壊れる（旧ロジックとの
-    # 不一致が再発する）ため、将来の軸編集を検知する回帰テストとして固定する。
-    motor_vehicle_no_axis = AXIS_DEFINITIONS["car_stress_motor_vehicle_no_adjustment"]
-    assert isinstance(motor_vehicle_no_axis.shape, CategoricalShape)
-    guard_value = motor_vehicle_no_axis.shape.mapping[True]
-
-    car_stress = AXIS_DEFINITIONS["car_stress"]
-    assert isinstance(car_stress.shape, BreakpointLinearShape)
-    other_axis_ids = [
-        term.material
-        for term in car_stress.shape.terms
-        if term.material != "car_stress_motor_vehicle_no_adjustment"
-    ]
-    max_other_total = sum(_axis_max_abs_output(AXIS_DEFINITIONS[axis_id]) for axis_id in other_axis_ids)
-
-    assert guard_value < 0
-    assert abs(guard_value) > max_other_total
 
 
 # --- 折れ点を通す前の生値（軸単体で経路を判断するための絶対値、docs/tasks/T687.md） ---

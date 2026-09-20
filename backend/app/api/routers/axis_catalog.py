@@ -119,7 +119,7 @@ class AxisCatalogEntry(StrictModel):
     # この軸が参照する材料を、対応する一次属性id（domain/registry.py:
     # PrimaryAttributeSpec.attr_id、frontend側はprimaryAttributes.tsのキーと同じ名前空間）へ
     # 解決したもの（重複除去、対応が無い材料[動的気象・未登録一次属性]・他の軸を参照する
-    # 材料[car_stress等の階層構造]は除く）。フロント側の「材料が同時表示中は太い下敷きで
+    # 材料[階層構造]は除く）。フロント側の「材料が同時表示中は太い下敷きで
     # 強調する」機能（axisMaterialLayerIds、page.tsx: secondaryAxisCasingLayerIds）・
     # 「軸の下に材料一覧を出す」機能（MapOverlayControls.tsx: renderMaterialsNote）が、
     # 軸スタジオの公開軸に対しても同じ仕組みで動くようにするために必要。

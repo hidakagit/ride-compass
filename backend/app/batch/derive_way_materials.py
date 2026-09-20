@@ -1,4 +1,4 @@
-"""道1本の性質（上下線分離・指定路線）を埋める。区間粒度の対応物を持たない値。
+"""道1本の性質（通行方向・上下線分離）を埋める。区間粒度の対応物を持たない値。
 
 **通行方向はここでタグから決める**。引き当ての表は`domain/traffic.py`が持ち、
 このバッチはそれをSQLへ渡すだけで、タグを読むために行を取り出さない。
@@ -21,19 +21,11 @@ import asyncpg  # noqa: E402
 from app.batch._common import asyncpg_dsn, with_derived_data_revision_bump  # noqa: E402
 from app.config import settings  # noqa: E402
 from app.domain import divided_carriageway as dc  # noqa: E402
-from app.domain.designation import (  # noqa: E402
-    DESIGNATION_BUFFER_WIDTH_M,
-    DESIGNATION_IMPORT_KINDS,
-    DESIGNATION_MATCH_MIN_RATIO,
-)
 from app.domain.traffic import direction_sql  # noqa: E402
 
 logger = logging.getLogger("ridecompass.derive_way_materials")
 
 
-def designation_column(kind: str) -> str:
-    """指定路線の種別に対応する`way_materials`の列名。種別が増えても対応表は要らない。"""
-    return f"designation_{kind}"
 
 
 #: 判定に要るものを1つの表へまとめ、索引を張る。相方探しは自分自身を何度も引くため、
@@ -109,35 +101,6 @@ WHERE v.osm_way_id = m.osm_way_id
 """
 
 
-#: 帯は指定路線1本ごとに決まるので、先に1回だけ作る（`MATERIALIZED`でインライン化を禁じ、
-#: 道との突き合わせの中で行ごとに作り直されるのを防ぐ）。
-#:
-#: 突き合わせは`geometry`同士の`ST_Intersects`にする。`::geography`を挟むとPostGISが
-#: GiSTを使わず総当たりに落ちる。
-#:
-#: 同じ道へ複数の指定路線が寄与しうるため、交差をまとめてから測る（二重計上を避ける）。
-#: `ST_Intersection`の格子（1e-7度、OSMの座標精度と同じ桁）は必須——省くと、交差して
-#: いるのに空の線が返ることがある（線が帯の中心軸と完全に重なるとき）。
-_MATCH_DESIGNATIONS = """
-WITH buffered AS MATERIALIZED (
-    SELECT natural_key, attrs->>'kind' AS kind,
-           ST_Buffer(geom::geography, $1)::geometry AS buffer_geom
-    FROM source_features WHERE source = 'designation' AND attrs->>'kind' = $2
-),
-matched AS (
-    SELECT w.natural_key::bigint AS osm_way_id,
-           ST_Length(w.geom::geography) AS way_length_m,
-           ST_Union(ST_CollectionExtract(ST_Intersection(w.geom, b.buffer_geom, 1e-7), 2))
-               AS unioned
-    FROM buffered b
-    JOIN source_features w ON w.source = 'osm_way' AND ST_Intersects(w.geom, b.buffer_geom)
-    GROUP BY w.source, w.natural_key
-)
-SELECT osm_way_id, ST_Length(unioned::geography) / NULLIF(way_length_m, 0) AS ratio
-FROM matched
-"""
-
-
 #: 引き当てる側が期待する形（`id`・`tags`）へ生データを写す。
 _SOURCE_WAYS = ("SELECT natural_key::bigint AS id, attrs AS tags FROM source_features"
                 " WHERE source = 'osm_way'")
@@ -165,30 +128,12 @@ async def derive_divided(conn: asyncpg.Connection) -> int:
     return divided
 
 
-async def derive_designations(conn: asyncpg.Connection) -> dict[str, int]:
-    started = time.perf_counter()
-    matched: dict[str, int] = {}
-    for kind in DESIGNATION_IMPORT_KINDS:
-        rows = await conn.fetch(_MATCH_DESIGNATIONS, DESIGNATION_BUFFER_WIDTH_M, kind)
-        hits = [(r["osm_way_id"], r["ratio"]) for r in rows
-                if r["ratio"] is not None and r["ratio"] >= DESIGNATION_MATCH_MIN_RATIO]
-        column = designation_column(kind)
-        await conn.execute(f"UPDATE way_materials SET {column} = NULL")
-        await conn.executemany(
-            f"UPDATE way_materials SET {column} = $2 WHERE osm_way_id = $1", hits)
-        matched[kind] = len(hits)
-        if not hits:
-            logger.warning("指定路線 kind=%s のマッチが0件です（取込済みか確認すること）", kind)
-    logger.info("指定路線: %s / %.1f秒", matched, time.perf_counter() - started)
-    return matched
-
 
 async def derive(conn: asyncpg.Connection) -> None:
     async with conn.transaction():
         count = await _load_directions(conn)
         logger.info("通行方向を決めた: %d本", count)
         await derive_divided(conn)
-        await derive_designations(conn)
 
 
 async def run(database_url: str) -> int:

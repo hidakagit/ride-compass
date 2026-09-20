@@ -31,7 +31,7 @@ way_id→値配信（`gradient_way_service.py`）という別経路のため、�
 **軸参照の再帰解決**: `MaterialTerm.material`が材料idではなく他の軸id（軸階層）を指す
 場合、`_resolve_referenced_axis_tile_input()`がその参照先の軸を再帰的に解決し、末端の
 材料（タイル焼き込み済み・方向非依存）まで辿れればフラットな`tile_inputs`へ展開する
-（car_stressが5つの内部軸を参照する構成の自動導出を可能にする、詳細は同関数のdocstring
+（他の軸を参照する構成の自動導出を可能にする、詳細は同関数のdocstring
 参照）。
 
 **実行時スケール変換の定数化**: `tile_property_needs_runtime_scale=True`な材料
@@ -44,7 +44,7 @@ way_id→値配信（`gradient_way_service.py`）という別経路のため、�
 
 auto-derive自体は成功しても、`derive_ramp_inputs`が返す`thresholds`は元の
 `AxisDefinition.shape.breakpoints`のX軸スケールをそのまま流用するため、複数材料の
-組み合わせ（car_stress）や単純な線形正規化（accident）では1〜2段階の
+組み合わせや単純な線形正規化（accident）では
 粗い色分けしか作れないことがある。この「色分け粒度の好み」は自動導出の能力とは
 別問題のため、`AxisDefinition.display_thresholds_override`（軸スタジオのGUIが編集する
 軽量な数値配列）で上書きする（`axis_display_for()`参照）。
@@ -129,27 +129,12 @@ def _boolean_score_tile_input(spec: MaterialSpec, true_score: float, false_score
     変換する共通ヘルパー。
 
     `has_unknown_fallback`は`spec.bool_default`から決める——固定でTrueにすると、
-    bool_default="false"（欠損=確定false、例: motor_vehicle_no・is_designated）の材料でも
+    bool_default="false"（欠損=確定false、例: motor_vehicle_no）の材料でも
     「不明」[灰色]表示になってしまう（surface_good等bool_default="nan"[欠損=真に不明]の
     材料でのみ正しい）。
 
-    `spec.tile_property_categorical_true_values`が設定されている材料（
-    is_designated等）は、タイル側が真偽値プロパティではなく複数値の文字列
-    （categorical）プロパティのため、`categories`ベースで表現する（該当時は
-    `true_score`、非該当[categories未登録の値・欠損]時は寄与0）。`categories`は
-    未登録を常に0扱いする仕組みしか持たないため、`false_score`が厳密に0.0の
-    場合のみ数学的に正確に表現できる——それ以外は安全側でNoneを返し自動導出を諦める。
     """
     has_unknown_fallback = spec.bool_default == "nan"
-    if spec.tile_property_categorical_true_values is not None:
-        if false_score != 0.0:
-            return None
-        assert spec.tile_property is not None  # 呼び出し元で保証済み
-        return TileInputSpec(
-            property=spec.tile_property,
-            categories={value: true_score for value in spec.tile_property_categorical_true_values},
-            has_unknown_fallback=has_unknown_fallback,
-        )
     assert spec.tile_property is not None  # 呼び出し元で保証済み
     return TileInputSpec(
         property=spec.tile_property,
@@ -180,7 +165,7 @@ def _rescale_tile_input(tile_input: TileInputSpec, weight: float) -> TileInputSp
 
 def _resolve_referenced_axis_tile_input(axis_id: str, weight: float, visited: frozenset[str]) -> TileInputSpec | None:
     """`MaterialTerm.material`が他の軸を指す場合（軸階層、例:
-    car_stressが参照する5つの内部軸）に、その参照先の軸を再帰的に解決し、外側の
+    他の軸を参照する項）に、その参照先の軸を再帰的に解決し、外側の
     重み(`weight`)を乗せた1件のTileInputSpecへ変換する。
 
     安全に変換できるケースを限定する（`derive_ramp_inputs`本体と同じ「安全に自動導出
@@ -197,9 +182,9 @@ def _resolve_referenced_axis_tile_input(axis_id: str, weight: float, visited: fr
       weight=weight)`へ変換できる（内側の`term.weight!=1.0`や複数termは「重み付けして
       から折れ点変換」という順序を`TileInputSpec.breakpoints`は表現できないため対象外、
       安全側でNone）。この分岐の内側termはさらに別の軸を参照する2段階以上のネストには
-      対応しない（car_stressの現行構成には存在しない。将来必要になれば拡張する）。
+      対応しない（将来必要になれば拡張する）。
     - それ以外（複数termの`BreakpointLinearShape`・非identity前処理・内側`term.weight!=1.0`
-      の単一term）は安全に変換できないためNone（car_stressの現行5内部軸には該当しないが、
+      の単一term）は安全に変換できないためNone（
       将来別の軸がこのパターンに当てはまった場合の安全弁）。
 
     循環参照は軸スタジオ側で拒否済みだが、`visited`集合で安全側に保護する
@@ -417,7 +402,7 @@ def derive_ramp_inputs(definition: AxisDefinition, _visited: frozenset[str] = fr
                 return None
             return RampInputs(tile_inputs=[tile_input], thresholds=[(lower + upper) / 2])
         # bool2値以外（str N値）のramp化。`registry.py: TileInputSpec.
-        # categories`が既にN値文字列材料に対応済みのため（car_stress_highway_base等の
+        # categories`が既にN値文字列材料に対応済みのため（
         # 手書き登録が実例）、bool2値と同じ理屈で一般化する。
         if any(isinstance(key, bool) for key in shape.mapping):
             # bool/strの混在は想定外の構成（現行AXIS_DEFINITIONSに実例なし）。安全側でNone。
@@ -468,7 +453,7 @@ def derive_ramp_inputs(definition: AxisDefinition, _visited: frozenset[str] = fr
         for term in shape.terms:
             spec = specs.get(term.material)
             if spec is None:
-                # 材料ではなく他の軸を指す（軸階層、例: car_stressの
+                # 材料ではなく他の軸を指す（軸階層の
                 # 5つの内部軸参照）。参照先を再帰的に解決する。
                 resolved = _resolve_referenced_axis_tile_input(term.material, term.weight, visited)
                 if resolved is None:
@@ -523,7 +508,7 @@ def derive_ramp_inputs(definition: AxisDefinition, _visited: frozenset[str] = fr
 
 def primary_attribute_ids_for(definition: AxisDefinition) -> list[str]:
     """軸が参照する材料を一次属性idへ解決する。`AxisDefinition.materials`は材料idだけで
-    なく他の軸id（階層構造、例: car_stressが参照する内部軸）も返しうるため、
+    なく他の軸id（階層構造の内部軸）も返しうるため、
     材料id側で見つからないエントリはAXIS_DEFINITIONSの軸として再帰的に解決する
     （内部軸自体も内部軸を参照しうる想定はないが、循環参照は軸スタジオ側で拒否済み
     [test_create_rejects_direct_cycle_between_two_axes]のため`visited`で安全側に保護する）。

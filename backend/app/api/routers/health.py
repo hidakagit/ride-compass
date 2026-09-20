@@ -62,24 +62,20 @@ class DebugStatsResponse(StrictModel):
 # migration適用状況・データ投入バッチの最終実行状況・主要テーブル行数を1エンドポイントで
 # 確認できるようにする。「デプロイの反映確認」（/healthのcommit）と同じ思想の、DB版の反映確認。
 #
-# *_import_runsテーブル（osm_import_runs/accident_import_runs/designation_import_runs）は
+# *_import_runsテーブル（osm_import_runs/accident_import_runs）は
 # いずれも「1回のバッチ実行につき1行以上、status(running|succeeded|failed)・started_at・
 # finished_atを持つ」同型（各モデルのdocstring参照）のため、直近1行を取るクエリを共通化する。
 _IMPORT_RUN_TABLES = {
     "osm": "osm_import_runs",
     "accident": "accident_import_runs",
-    "designation": "designation_import_runs",
 }
 
 # import_runsが指す生データ・派生データの主要テーブル。0件やテーブル欠落自体が
-# 「バッチが本番で一度も走っていない」の直接的なシグナルになる（実例:
-# designation_attributesがtable無し→migration未適用、route_designations=0件→取込未実行）。
+# 「バッチが本番で一度も走っていない」の直接的なシグナルになる。
 _KEY_TABLES = (
     "osm_raw_ways",
     "osm_raw_pois",
     "road_edges",
-    "route_designations",
-    "designation_attributes",
     "accident_points",
     "way_landcover",
 )

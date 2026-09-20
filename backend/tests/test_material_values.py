@@ -9,7 +9,6 @@
   （`road_edges.osm_way_id`がNOT NULL + FK）のため、**行は必ずある**。
 - 区間の行（`re`）: 距離。
 - 区間に付く値（`em`）: 件数・標高・土地被覆。**未計算はNULL**で、0件とは別物。
-- 道に付く値（`wm`）: 指定路線。
 
 区間の値が無いときに道の値へ落とすのは読み出し側（`road_graph_repository`）の仕事で、
 材料の式は区間の値だけを読む。
@@ -52,7 +51,6 @@ class _Case:
     average_grade: float | None = None
     landcover: dict[str, float] | None = None
     # 道に付く値（`wm`）。
-    is_designated: bool | None = None
     accident_years: int = 1
 
 
@@ -166,11 +164,6 @@ _CASES: list[_Case] = [
         poi_counts={},
         expected={"poi_signal_per_km": 0.0},
     ),
-    # --- 指定路線 ---
-    _Case(
-        label="どの路線にも該当しなければ非該当（不明ではない）",
-        expected={"is_designated": False},
-    ),
 ]
 
 
@@ -192,12 +185,9 @@ _SELECT_SQL = text(
     "CAST(:surface AS text) AS surface, CAST(:highway AS text) AS highway), "
     "re AS (SELECT CAST(:distance_m AS double precision) AS distance_m), "
     f"em AS (SELECT {_em_columns()}), "
-    "wm AS (SELECT CAST(:designation_emergency_transport AS text) "
-    "AS designation_emergency_transport, "
-    "CAST(:designation_critical_logistics AS text) AS designation_critical_logistics) "
     "SELECT "
     + ", ".join(f"({expr}) AS m_{name}" for name, expr in sorted(material_value_sql().items()))
-    + " FROM w, re, em, wm"
+    + " FROM w, re, em"
 ).bindparams(
     bindparam("good_tags", value=sorted(GOOD_OSM_SURFACE_TAGS), type_=ARRAY(Text())),
     bindparam("bad_tags", value=sorted(BAD_OSM_SURFACE_TAGS), type_=ARRAY(Text())),
@@ -215,9 +205,6 @@ def _params(case: _Case) -> dict[str, object]:
         "intersection_count": case.intersection_count,
         "average_grade": case.average_grade,
         "accident_years": case.accident_years,
-        # 指定路線は該当した路線名が入る列。該当しなければNULL。
-        "designation_emergency_transport": "緊急輸送道路" if case.is_designated else None,
-        "designation_critical_logistics": None,
     }
     for key in LANDCOVER_SQL_KEYS:
         params[f"lc_{key}"] = (

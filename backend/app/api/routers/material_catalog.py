@@ -10,8 +10,6 @@ GUIから行わない（`domain/material_catalog.py`へのコード変更＋デ�
 折れ点編集を助ける「値の目安」一覧）だけを返す。実際に返す項目は
 `MaterialCatalogEntry`が正本。
 
-`MaterialSpec.display_only=True`の材料（designation）は`axis_studio_materials()`が
-このレスポンスから除外する。構造的なAND条件（"both"）を素朴なCategoricalShapeが
 正しく表現できず誤解を招くため。地図表示（`tile_property`経由）には影響しない。
 
 `GET /api/admin/material-catalog/{material_id}/values`（読み取り専用だがHTTP Basic認可要）は、
@@ -51,7 +49,6 @@ from app.domain.material_catalog import (
     MaterialDType,
     MissingSemantics,
     Population,
-    axis_studio_materials,
     is_known_material,
 )
 from app.infrastructure.road_graph_repository import RoadGraphRepository
@@ -162,7 +159,7 @@ async def get_material_catalog() -> MaterialCatalogResponse:
                     MaterialReferencePointEntry(label=p.label, value=p.value) for p in m.reference_points
                 ],
             )
-            for m in axis_studio_materials()
+            for m in MATERIAL_CATALOG.values()
         ]
     )
 

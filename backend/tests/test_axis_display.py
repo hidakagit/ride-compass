@@ -51,7 +51,7 @@ def test_categorical_shape_derives_two_band_ramp():
 
 def test_categorical_shape_with_str_multi_value_material_derives_ramp():
     # 改善計画T292でCategoricalShape.mappingがstr多値材料（highway等、3値以上）にも
-    # 対応した当初は、export_openapi.pyの自動ramp化ループがcar_stress_highway_base等の
+    # 対応した当初は、export_openapi.pyの自動ramp化ループが内部軸の
     # 内部軸へderive_ramp_inputsを呼んでKeyError(shape.mapping[True])でクラッシュする
     # 実障害があったため、str多値のmappingは自動導出対象外（None）にしていた。
     # 改善計画T308で、`registry.py: TileInputSpec.categories`（既にN値文字列材料に
@@ -146,7 +146,7 @@ def test_multi_term_breakpoint_linear_derives_ramp_with_coarser_thresholds():
     # （統計的経験則による4段階）とは**一致しない**——stop_densityのbreakpointsは
     # [(0.0, 0.0), (4.0, 100.0)]の2点（1本の線形区間）しか無く、この関数が流用できる
     # x値は[4.0]の1つだけ（2段階）に留まる。改善計画T404: 以前は既存7軸のうち
-    # stop_density/accident/car_stressについてはこの粗さを理由に手書きdisplay_overrideを
+    # 一部の軸についてはこの粗さを理由に手書きdisplay_overrideを
     # 使い続けていたが、T404で「tile_inputsの自動導出」と「色分け段階の細かさ」を
     # 分離し、後者だけをdisplay_thresholds_override（軽量な数値配列の上書き）で
     # 差し替える設計へ移行した（下のtest_axis_display_for_combines_auto_derived_
@@ -200,7 +200,7 @@ def test_axis_referencing_unknown_axis_is_not_auto_derived():
     # という「本当に未知」なケース。実在の軸を参照するケースは下の
     # test_axis_referencing_categorical_axis_is_recursively_resolved等を参照）。
     definition = AxisDefinition(
-        axis_id="synthetic_car_stress",
+        axis_id="synthetic_categorical",
         shape=BreakpointLinearShape(
             terms=[MaterialTerm(material="synthetic_internal_axis_that_does_not_exist", required=True)],
             breakpoints=[(1.0, 0.0), (5.0, 100.0)],
@@ -215,7 +215,7 @@ def test_axis_referencing_unknown_axis_is_not_auto_derived():
 
 
 def test_axis_referencing_categorical_axis_is_recursively_resolved(monkeypatch):
-    # 改善計画T404: car_stress_highway_baseを模した内部軸（CategoricalShape、str多値材料）
+    # 多値の文字列材料を使う内部軸（CategoricalShape）
     # をAXIS_DEFINITIONSへ一時登録し、それを参照する外側の軸が再帰的に解決できることを
     # 検証する。
     internal = AxisDefinition(
@@ -228,7 +228,7 @@ def test_axis_referencing_categorical_axis_is_recursively_resolved(monkeypatch):
     monkeypatch.setitem(AXIS_DEFINITIONS, internal.axis_id, internal)
 
     outer = AxisDefinition(
-        axis_id="synthetic_car_stress",
+        axis_id="synthetic_categorical",
         shape=BreakpointLinearShape(
             terms=[MaterialTerm(material=internal.axis_id, weight=1.0, required=True)],
             breakpoints=[(0.0, 0.0), (4.0, 100.0)],
@@ -266,7 +266,7 @@ def test_axis_referencing_categorical_axis_rescales_by_outer_weight(monkeypatch)
     monkeypatch.setitem(AXIS_DEFINITIONS, internal.axis_id, internal)
 
     outer = AxisDefinition(
-        axis_id="synthetic_car_stress2",
+        axis_id="synthetic_categorical2",
         shape=BreakpointLinearShape(
             terms=[MaterialTerm(material=internal.axis_id, weight=2.0, required=False)],
             breakpoints=[(0.0, 0.0), (4.0, 100.0)],
@@ -290,7 +290,7 @@ def test_axis_referencing_categorical_axis_rescales_by_outer_weight(monkeypatch)
 
 
 def test_axis_referencing_single_term_breakpoint_linear_axis_is_recursively_resolved(monkeypatch):
-    # 改善計画T404: car_stress_maxspeed_adjustmentを模した内部軸（単一term・weight=1.0・
+    # 単一term・weight=1.0の内部軸（
     # preprocess="identity"のBreakpointLinearShape）をAXIS_DEFINITIONSへ一時登録し、
     # TileInputSpec.breakpoints（自己変換材料）として展開されることを検証する。
     internal = AxisDefinition(
@@ -306,7 +306,7 @@ def test_axis_referencing_single_term_breakpoint_linear_axis_is_recursively_reso
     monkeypatch.setitem(AXIS_DEFINITIONS, internal.axis_id, internal)
 
     outer = AxisDefinition(
-        axis_id="synthetic_car_stress3",
+        axis_id="synthetic_numeric",
         shape=BreakpointLinearShape(
             terms=[MaterialTerm(material=internal.axis_id, weight=1.0, required=False)],
             breakpoints=[(0.0, 0.0), (4.0, 100.0)],
@@ -390,66 +390,17 @@ def test_circular_axis_reference_is_not_auto_derived(monkeypatch):
     assert ramp is None
 
 
-def test_boolean_material_with_categorical_true_values_derives_categories_tile_input():
-    # 改善計画T404: is_designatedのように、dtype="boolean"だがタイル側は真偽値
-    # プロパティではなく複数値の文字列(categorical)プロパティ("designation")の
-    # tile_property_categorical_true_valuesで表現される材料の自動導出を検証する。
-    assert MATERIAL_CATALOG["is_designated"].tile_property == "designation"
-    assert MATERIAL_CATALOG["is_designated"].tile_property_categorical_true_values is not None
-
-    definition = AxisDefinition(
-        axis_id="synthetic_designation_adjustment",
-        shape=CategoricalShape(material="is_designated", mapping={True: 1.0, False: 0.0}),
-        default_weight=0.0,
-        label="内部軸(指定路線補正)",
-        is_published=False,
-    )
-
-    ramp = derive_ramp_inputs(definition)
-
-    assert ramp is not None
-    assert len(ramp.tile_inputs) == 1
-    tile_input = ramp.tile_inputs[0]
-    assert tile_input.property == "designation"
-    assert tile_input.boolean is False
-    assert tile_input.categories == {
-        value: 1.0 for value in MATERIAL_CATALOG["is_designated"].tile_property_categorical_true_values
-    }
-    # is_designatedのbool_defaultは既定"false"（欠損=確定該当なし）のため不明表示にしない。
-    assert tile_input.has_unknown_fallback is False
-
-
-def test_categorical_true_values_material_with_nonzero_false_score_is_not_auto_derived():
-    # 改善計画T404: categories未該当は常に寄与0扱いのため、false_score!=0.0を
-    # categoriesで正確に表現する手段が無い。安全側でNoneを返すことを検証する。
-    definition = AxisDefinition(
-        axis_id="synthetic_designation_nonzero_false",
-        shape=CategoricalShape(material="is_designated", mapping={True: 1.0, False: -5.0}),
-        default_weight=0.0,
-        label="内部軸(指定路線補正、非対応ケース)",
-        is_published=False,
-    )
-
-    ramp = derive_ramp_inputs(definition)
-
-    assert ramp is None
-
-
-def test_car_stress_like_multi_axis_reference_derives_full_ramp(monkeypatch):
-    # 改善計画T404: 実際のcar_stress軸（5つの内部軸参照: highway_base/maxspeed_adjustment/
-    # lanes_adjustment/designation_adjustment/motor_vehicle_no_adjustment）を模した
-    # 合成データで、dev DBのdisplay_override（本タスクで廃止・display_thresholds_override
-    # へ移行済み、docs/tasks/T404.md参照）が手作業で構築していたtile_inputs構成と
-    # 数学的に同一の結果が自動導出できることを検証する。
+def test_multi_axis_reference_derives_full_ramp(monkeypatch):
+    # 複数の内部軸を参照する軸から、tile_inputs一式を自動導出できることを確かめる。
     highway_base = AxisDefinition(
-        axis_id="t_car_stress_highway_base",
+        axis_id="t_base",
         shape=CategoricalShape(material="highway", mapping={"residential": 2.0, "primary": 4.0, "cycleway": 1.0}),
         default_weight=0.0,
         label="道路基準",
         is_published=False,
     )
     maxspeed_adjustment = AxisDefinition(
-        axis_id="t_car_stress_maxspeed_adjustment",
+        axis_id="t_numeric_adjustment",
         shape=BreakpointLinearShape(
             terms=[MaterialTerm(material="maxspeed_kmh", weight=1.0, required=True)],
             breakpoints=[(0.0, -1.0), (30.0, -1.0), (60.0, 1.0), (999.0, 1.0)],
@@ -459,7 +410,7 @@ def test_car_stress_like_multi_axis_reference_derives_full_ramp(monkeypatch):
         is_published=False,
     )
     lanes_adjustment = AxisDefinition(
-        axis_id="t_car_stress_lanes_adjustment",
+        axis_id="t_numeric_adjustment2",
         shape=BreakpointLinearShape(
             terms=[MaterialTerm(material="lanes_count", weight=1.0, required=True)],
             breakpoints=[(0.0, -1.0), (1.0, -1.0), (4.0, 1.0), (99.0, 1.0)],
@@ -468,15 +419,8 @@ def test_car_stress_like_multi_axis_reference_derives_full_ramp(monkeypatch):
         label="車線数補正",
         is_published=False,
     )
-    designation_adjustment = AxisDefinition(
-        axis_id="t_car_stress_designation_adjustment",
-        shape=CategoricalShape(material="is_designated", mapping={True: 1.0, False: 0.0}),
-        default_weight=0.0,
-        label="指定路線補正",
-        is_published=False,
-    )
     motor_vehicle_no_adjustment = AxisDefinition(
-        axis_id="t_car_stress_motor_vehicle_no_adjustment",
+        axis_id="t_boolean_adjustment",
         shape=CategoricalShape(material="motor_vehicle_no", mapping={True: -1000.0, False: 0.0}),
         default_weight=0.0,
         label="自動車通行不可補正",
@@ -486,40 +430,34 @@ def test_car_stress_like_multi_axis_reference_derives_full_ramp(monkeypatch):
         highway_base,
         maxspeed_adjustment,
         lanes_adjustment,
-        designation_adjustment,
         motor_vehicle_no_adjustment,
     ):
         monkeypatch.setitem(AXIS_DEFINITIONS, internal.axis_id, internal)
 
-    car_stress = AxisDefinition(
-        axis_id="t_car_stress",
+    composite = AxisDefinition(
+        axis_id="t_composite",
         shape=BreakpointLinearShape(
             terms=[
                 MaterialTerm(material=highway_base.axis_id, weight=1.0, required=True),
                 MaterialTerm(material=maxspeed_adjustment.axis_id, weight=1.0, required=False),
                 MaterialTerm(material=lanes_adjustment.axis_id, weight=1.0, required=False),
-                MaterialTerm(material=designation_adjustment.axis_id, weight=1.0, required=False),
                 MaterialTerm(material=motor_vehicle_no_adjustment.axis_id, weight=1.0, required=False),
             ],
             breakpoints=[(0.0, 0.0), (4.0, 100.0)],
         ),
         default_weight=0.2,
-        label="車の圧迫感",
+        label="合成軸",
         category="推定",
     )
 
-    ramp = derive_ramp_inputs(car_stress)
+    ramp = derive_ramp_inputs(composite)
 
     assert ramp is not None
-    assert len(ramp.tile_inputs) == 5
+    assert len(ramp.tile_inputs) == 4
     by_property = {t.property: t for t in ramp.tile_inputs}
     assert by_property["highway"].categories == {"residential": 2.0, "primary": 4.0, "cycleway": 1.0}
     assert by_property["maxspeed_kmh"].breakpoints == maxspeed_adjustment.shape.breakpoints
     assert by_property["lanes_count"].breakpoints == lanes_adjustment.shape.breakpoints
-    assert by_property["designation"].categories == {
-        value: 1.0 for value in MATERIAL_CATALOG["is_designated"].tile_property_categorical_true_values
-    }
-    assert by_property["designation"].has_unknown_fallback is False
     assert by_property["motor_vehicle_no"].boolean is True
     assert by_property["motor_vehicle_no"].true_value == -1000.0
     assert by_property["motor_vehicle_no"].has_unknown_fallback is False
@@ -954,7 +892,7 @@ def test_negative_weights_are_compared_by_absolute_value():
 
 
 def test_axis_references_are_followed_down_to_materials(monkeypatch):
-    # 車の圧迫感と同じ構成: 内部軸を経由しても、結果に現れるのは葉の材料だけ
+    # 内部軸を経由しても、結果に現れるのは葉の材料だけ
     # （途中の軸の得点は較正依存のため内訳へ出さない）。
     inner_a = _linear_axis("inner_a", [("maxspeed_kmh", 1.0)], published=False)
     inner_b = AxisDefinition(

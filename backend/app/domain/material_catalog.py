@@ -31,7 +31,6 @@ from typing import Literal
 
 from pydantic import ConfigDict
 
-from app.domain.designation import CAR_STRESS_DESIGNATION_KINDS
 from app.domain.material_sql import (
     BICYCLE_NORMALIZED_SQL,
     LANES_COUNT_CASE_SQL,
@@ -40,7 +39,6 @@ from app.domain.material_sql import (
     SURFACE_GOOD_CASE_SQL,
     SURFACE_NORMALIZED_SQL,
     cycleway_has_value_sql,
-    designation_any_sql,
     landcover_value_sql,
     poi_density_value_sql,
     BRIDGE_NORMALIZED_SQL,
@@ -189,19 +187,6 @@ class MaterialSpec(StrictModel):
     # 値が変わる材料（gradient_percent・wind_drag_ratio）は方向を持たないMVTプロパティへ
     # 焼き込めないため、`tile_property=None`と両輪で「この材料はramp化しない」を宣言する。
     tile_property_direction_dependent: bool = False
-    # この材料がdtype="boolean"だが、タイル側には対応する真偽値プロパティが
-    # 無く、代わりに複数値の文字列(categorical)プロパティ`tile_property`の値がここに列挙する
-    # 「いずれか」に該当する場合にtrueとみなせる場合に設定する（例: is_designated——
-    # 評価時はdesignated_edge_idsから都度算出するタイル非依存の材料だが、地図表示の
-    # 自動導出（derive_ramp_inputs、axis_display.py）向けには、同じ情報を持つ既存の
-    # タイルプロパティ"designation"[3値categorical、emergency_transport/critical_logistics/
-    # both]を「trueに該当するどれか」として流用できる）。設定する場合は`tile_property`も
-    # 必ずそのcategoricalプロパティ名にすること。derive_ramp_inputsはこの材料が
-    # CategoricalShapeのbool2値mappingに使われた場合、`categories={v: true_score for v in
-    # tile_property_categorical_true_values}`というTileInputSpecへ変換する（categories
-    # 未該当は常に寄与0扱いのため、false_score=0.0の場合のみ安全に表現できる。それ以外は
-    # 安全側でNoneを返し自動導出を諦める）。
-    tile_property_categorical_true_values: tuple[str, ...] | None = None
     # この材料の由来となる一次属性id（domain/registry.py:
     # PrimaryAttributeSpec.attr_id、frontend側はprimaryAttributes.ts:
     # PRIMARY_ATTRIBUTE_LAYER_IDS/PRIMARY_ATTRIBUTE_CHIP_LABELSのキー）。材料id（例:
@@ -231,21 +216,6 @@ class MaterialSpec(StrictModel):
     # 見て分岐するため、この2表現は数値的に等価ではなく、材料ごとに固定する必要がある
     # （統一すると当該分岐が壊れるため）。
     bool_default: Literal["false", "nan"] = "false"
-    # この材料を軸スタジオ（`GET /api/material-catalog`の公開レスポンス）
-    # から除外し、地図表示（tile_property・primary_attribute_id経由の凡例等）専用に
-    # 限定する場合True。「登録されているが評価軸から未参照」な材料は他にも複数ある
-    # （bridge/oneway/smoothness等）が、これらは単に軸がまだ無いだけで正規化フラグ・
-    # 線形結合による評価軸化に技術的な障害は無い。designationはそれらと異なり、
-    # 3値中"both"が実データで35.01%という高頻度で発生する構造的AND条件
-    # （decisions/material-normalization-for-axis-composition.md参照）を持ち、
-    # CategoricalShapeで素朴に値ごとスコアを付けても「AND条件」という実態を正しく
-    # 表現できない（線形結合による近似も不向きと検証済み）。ユーザーが軸スタジオで
-    # 誤って使い、意図と異なる評価軸を作ってしまうことを防ぐため、選択肢自体から
-    # 除外する（評価目的で指定路線を使いたい場合は既に単純化済みの`is_designated`
-    # [真偽値]を使う）。地図表示（`car_stress`の自動導出ramp表示[`derive_ramp_inputs`]・
-    # `staticAttributeLayers.ts`の凡例）は本フラグと無関係にtile_property経由で
-    # 引き続き動作する。
-    display_only: bool = False
     # 材料の値（OSMタグ生値）ごとの日本語ラベル対訳表（タグ値→ラベル）。
     # highway/surface/smoothnessのようなオープンエンドな多値材料だけが持つ（他は空dict）。
     # 軸スタジオ（AxisComposer.tsx）の「値の候補」セレクトが`GET /api/material-catalog/
@@ -408,7 +378,7 @@ _SMOOTHNESS_VALUE_LABELS: dict[str, str] = {
 }
 
 
-# 現行の公開軸＋car_stressを支える内部軸が参照する材料（AXIS_DEFINITIONSのコメントと
+# 現行の公開軸と内部軸が参照する材料（AXIS_DEFINITIONSのコメントと
 # 1:1対応）＋MVTタイルに焼き込み済みだが評価軸には未使用の生データを含む
 # （カタログ冒頭の注記参照）。
 MATERIAL_CATALOG: dict[str, MaterialSpec] = {
@@ -657,7 +627,7 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
         label="自動車通行不可",
         description="OSMのタグ(motor_vehicle=no)から判定した、自動車が通行できない区間かどうか。",
         dtype="boolean",
-        # OSMのmotor_vehicleタグがnoの区間（car_stress_motor_vehicle_no_adjustment内部軸
+        # OSMのmotor_vehicleタグがnoの区間（内部軸
         # [domain/axis_definitions.py]でも参照される材料だが、軸合成前の生の真偽値自体は
         # 独立して材料登録していなかった）。
         tile_property="motor_vehicle_no",
@@ -756,9 +726,7 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
     # （_extract_highway_is_cycleway等のdocstring参照）。公開軸「自転車インフラ」
     # （bicycle_infra_quality）がこれらを重み付き線形結合する（domain/axis_definitions.py
     # 参照）。この群の材料はそれぞれ専用のtile_propertyを持ち、_ROAD_SURFACE_TILE_MVT_SQL
-    # （road_graph_repository.py）へ焼き込む（is_emergency_transport/is_critical_logistics
-    # と同じ「複雑な分類の生値は表示専用として残し、評価用の正規化材料は別途タイルへ
-    # 焼き込む」設計）。
+    # （road_graph_repository.py）へ焼き込む。
     "highway_is_cycleway": MaterialSpec(
         material_id="highway_is_cycleway",
         label="道路種別が自転車道",
@@ -767,7 +735,7 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
         tile_property="highway_is_cycleway",
         # 判定式はhighway生タグを見るが、意味的にはこの群の他の材料と同じ「自転車走行環境の
         # 分類」という1つのまとまりのため、cycleway_has_track等と同じ
-        # primary_attribute_id="cycleway"へ寄せる（highway自体はcar_stress_highway_baseが
+        # primary_attribute_id="cycleway"へ寄せる（highway自体は別の軸が
         # 単独で使う一次属性のまま、排他チェック対象を維持する）。
         primary_attribute_id="cycleway",
         value_sql=tag_absent_is_false_sql(f"{HIGHWAY_SQL} = 'cycleway'"),
@@ -836,80 +804,6 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
                 missing_semantics="definite",
             ),
     ),
-    "designation": MaterialSpec(
-        material_id="designation",
-        label="指定路線",
-        description="指定路線の種別（緊急輸送道路[N10]・重要物流道路[N12]・両方該当）。3値の複合判定のため評価軸では使えません（地図表示専用）。評価で使う場合は緊急輸送道路該当[N10]・重要物流道路該当[N12]・指定路線該当のいずれかを使ってください。",
-        dtype="categorical",
-        # 国土数値情報N10/N12該当区分（emergency_transport/critical_logistics/both、
-        # 外部静的データソースT51）。未該当はタイル側でプロパティ省略。
-        # extractor未設定（種別ごとのper-edge kindがcompute_edge_costs_bulkへ
-        # 配線されていない。is_designatedのコメントにある既存DEFERとまとめて扱う）。
-        tile_property="designation",
-        primary_attribute_id="designation",
-        # display_onlyのdocstring参照（"both"のAND条件が実データで35.01%と
-        # 構造的に頻発するため、軸スタジオでの評価軸材料としての選択肢からは除外する）。
-        # 地図表示（staticAttributeLayers.tsの凡例、車ストレス表示の自動導出ramp表示等）は
-        # 引き続きこの3値プロパティを使う。評価軸で種別を
-        # 区別したい場合はis_emergency_transport/is_critical_logistics（下記）を使う。
-        display_only=True,
-        coverage=CoverageExcluded(reason="designation_attributes行の有無がそのまま該当/非該当の確定値（欠損の概念が無い）"),
-    ),
-    "is_emergency_transport": MaterialSpec(
-        material_id="is_emergency_transport",
-        label="緊急輸送道路該当[N10]（真偽）",
-        description="緊急輸送道路[N10]に指定されているかどうか。現時点では評価軸の材料として配線されておらず、選んでもこの軸は常に「データなし」として扱われます（地図表示専用。評価で使う場合は指定路線該当を使ってください）。",
-        dtype="boolean",
-        # designation（3値、優先順位付き分類）を正規化フラグへ分解した材料。
-        # is_ert/is_clは_ROAD_SURFACE_TILE_MVT_SQLが既に計算していた中間値で、'both'/
-        # 'emergency_transport'/'critical_logistics'へ畳み込む前の生フラグをそのまま
-        # 2材料として個別に焼き込む。
-        tile_property="is_emergency_transport",
-        primary_attribute_id="designation",
-        coverage=CoverageExcluded(reason="designation_attributes行の有無がそのまま該当/非該当の確定値（欠損の概念が無い）"),
-    ),
-    "is_critical_logistics": MaterialSpec(
-        material_id="is_critical_logistics",
-        label="重要物流道路該当[N12]（真偽）",
-        description="重要物流道路[N12]に指定されているかどうか。現時点では評価軸の材料として配線されておらず、選んでもこの軸は常に「データなし」として扱われます（地図表示専用。評価で使う場合は指定路線該当を使ってください）。",
-        dtype="boolean",
-        # is_emergency_transportと対をなす材料。コメントは同上参照。
-        tile_property="is_critical_logistics",
-        primary_attribute_id="designation",
-        coverage=CoverageExcluded(reason="designation_attributes行の有無がそのまま該当/非該当の確定値（欠損の概念が無い）"),
-    ),
-    "is_designated": MaterialSpec(
-        material_id="is_designated",
-        label="指定路線該当（真偽）",
-        description="緊急輸送道路・重要物流道路のいずれかに指定されているかどうか（種別は区別しません）。",
-        dtype="boolean",
-        # car_stress軸の内部軸（designation由来の調整軸）が使う簡略化された真偽値材料。
-        # 指定路線の種別（emergency_transport/critical_logistics/both、材料
-        # "designation"、正規化フラグ版のis_emergency_transport/is_critical_logisticsも
-        # 別途ある）は評価パイプライン側で種別ごとに区別して保持していない
-        # （domain/designation.py: 補正量が種別によらず一律+1のため、種別を評価まで
-        # 運ぶ配線を新設する理由が無い）。評価時（extractor）はcar_stress_designation_
-        # adjustment内部軸と同じくタイル非依存（designated_edge_idsから都度算出）のまま
-        # 変更しない。
-        #
-        # 一方、地図表示の自動導出（derive_ramp_inputs、axis_display.py）向けに
-        # `tile_property`は"designation"（3値categorical、既に他の材料"designation"が使う
-        # 同じタイルプロパティ）を指す。指定路線該当=このプロパティが既知の3値
-        # （emergency_transport/critical_logistics/both、_ROAD_SURFACE_TILE_MVT_SQL
-        # [road_graph_repository.py]のCASE式が書き込む値と1:1）のいずれかであることと
-        # 同値なため、`tile_property_categorical_true_values`で表現する。評価用の
-        # extractorはdesignated_edge_ids由来のまま変えないため、この2つの経路
-        # （評価/地図表示）が別ソースを見ている点はis_designated材料に限った既知の
-        # 非対称——値そのものは常に一致する（両方ともKSJ N10/N12マッチング結果由来）ため
-        # 実害はない。
-        tile_property="designation",
-        tile_property_categorical_true_values=(*sorted(CAR_STRESS_DESIGNATION_KINDS), "both"),
-        primary_attribute_id="designation",
-        # 該当kindの割合がNULLなことは「指定路線でない」の確定値で、データの欠損では
-        # ない（`derive_way_materials`が全wayを処理する）。wayの行が無いときだけ不明。
-        value_sql=tag_absent_is_false_sql(designation_any_sql()),
-        coverage=CoverageExcluded(reason="designation_attributes行の有無がそのまま該当/非該当の確定値（欠損の概念が無い）"),
-    ),
     "smoothness": MaterialSpec(
         material_id="smoothness",
         label="路面の状態",
@@ -960,8 +854,7 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
             total_unit="回",
             tile_property=f"poi_{kind}_per_km",
             value_sql=poi_density_value_sql(kind),
-            # 値は`edge_attribute_counts`の行が持つJSONBのキーで、行があれば載っていない
-            # キーは0件と確定できる（欠損は行そのものの不在だけ）。
+            # 行があれば載っていないキーは0件と確定できる（欠損は行そのものの不在だけ）。
             coverage=EdgeMaterialCoverageSpec(
                 present_count_sql=_EDGE_COUNTS_PRESENT_SQL,
                 source=_EDGE_COUNTS_SOURCE,
@@ -974,13 +867,6 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
     },
 }
 
-
-def axis_studio_materials() -> list[MaterialSpec]:
-    """軸スタジオの材料選択肢（`GET /api/material-catalog`公開レスポンス）
-    向けに`display_only`材料を除外した一覧。`display_only`は選択肢からの除外のみを
-    意味し、材料idとしての正当性（`is_known_material`）には影響しない
-    （designationのdocstring参照）。"""
-    return [spec for spec in MATERIAL_CATALOG.values() if not spec.display_only]
 
 
 def is_known_material(material_id: str) -> bool:

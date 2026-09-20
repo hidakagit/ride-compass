@@ -45,7 +45,6 @@ def test_default_primary_attributes_are_registered():
         "motor_vehicle_access",
         "lit",
         "tunnel",
-        "designation",
         "elevation",
         "stop_poi",
         "supply_poi",
@@ -63,7 +62,7 @@ def test_default_axes_are_registered_without_conflict():
     # 公開軸として加わった。
     axis_ids = {axis.axis_id for axis in registry.all_axes()}
     assert axis_ids == {
-        "gradient", "wind", "surface_q", "stop_density", "accident", "car_stress", "night",
+        "gradient", "wind", "surface_q", "stop_density", "accident", "night",
         "bicycle_infra_quality", "openness",
     }
 
@@ -83,22 +82,14 @@ def test_intersection_density_is_not_a_standalone_axis_nor_a_stop_density_input(
 
 def test_safety_and_bicycle_infra_axes_are_deliberately_not_registered():
     """安全度（旧`domain/safety.py`）は難易度合成からT139で外れ、そもそも軸として登録した
-    ことがなく、T148で`domain/safety.py`自体も削除済み。自転車インフラはT138でcar_stressへ
+    ことがなく、T148で`domain/safety.py`自体も削除済み。自転車インフラはT138で別軸へ
     統合済みのため独立軸を持たない（モジュールdocstring参照）。"""
     axis_ids = {axis.axis_id for axis in registry.all_axes()}
     assert axis_ids.isdisjoint({"traffic_stress", "safety", "bicycle_infra"})
 
 
 def test_cycleway_axis_input_belongs_exclusively_to_bicycle_infra_quality():
-    # 改善計画T353: car_stress内部軸car_stress_bicycle_infra_adjustment（1材料1軸原則
-    # T268違反のため廃止）を経由してcar_stressが間接的に持っていたcycleway系材料は、
-    # bicycle_infra_quality公開軸だけが直接持つ形に一本化された。car_stress自体は
-    # 自転車インフラの有無に一切影響されなくなったため、cyclewayという一次属性の入力元は
-    # bicycle_infra_qualityのみに戻った（改善計画T347時点の「両軸が共有」という前提は
-    # 本タスクで解消）。
-    car_stress_axis = _axis("car_stress")
     bicycle_infra_quality_axis = _axis("bicycle_infra_quality")
-    assert "cycleway" not in car_stress_axis.inputs
     assert "cycleway" in bicycle_infra_quality_axis.inputs
     for axis in registry.all_axes():
         if axis.axis_id != "bicycle_infra_quality":
@@ -126,20 +117,6 @@ def test_register_defaults_is_idempotent_guarded():
     （二重登録によるレジストリ不整合を防ぐ、モジュールdocstring参照）。"""
     with pytest.raises(ValueError, match="already registered"):
         register_defaults()
-
-
-def test_car_stress_axis_includes_motor_vehicle_access():
-    """car_stress_level（domain/traffic.py）はmotor_vehicle=noを他の補正に関わらず1固定に
-    する分岐でmotor_vehicle_accessを実際に消費しているが、登録軸のinputsには記載が
-    無かった（排他違反ではないが不完全）。地図レイヤー階層の次数反転検討（改善計画T163）で
-    発覚し追加した。"""
-    car_stress_axis = _axis("car_stress")
-    assert "motor_vehicle_access" in car_stress_axis.inputs
-    for axis in registry.all_axes():
-        if axis.axis_id != "car_stress":
-            assert "motor_vehicle_access" not in axis.inputs
-
-
 def test_all_primary_attributes_have_non_empty_labels():
     """一次属性の正式名（label、改善計画T163）は地図チップ・サイドバー・研究タブが表示する
     「観測データ」側の名称の単一ソース。pydanticのrequired制約は空文字を通すため、
@@ -178,14 +155,13 @@ def test_surface_q_and_night_kind_is_auto_derived_ramp():
         assert axis.display.thresholds == ramp.thresholds
 
 
-def test_gradient_stop_density_car_stress_accident_kind_unchanged_by_t278():
+def test_gradient_stop_density_accident_kind_unchanged_by_t278():
     """改善計画T278・T404の自動導出対象外/対象の境界回帰防止テスト。gradientは
     方向依存材料（gradient_percent）のためkind="none"のまま変わらない。stop_density/
     accidentは改善計画T404でderive_ramp_inputsの自動導出対象になった（実行時スケール
     変換が必要な材料も含むよう緩和、tests/realistic_axis_fixtures.py参照）が、色分けの
     段階自体はdisplay_thresholds_override（軽量な数値配列の上書き）で従来と同じ細かさを
-    保つ。car_stressは改善計画T292で"bespoke"から"ramp"へ変更されたため、本テストの
-    対象からは外し専用テスト（test_car_stress_ramp_display）で検証する。"""
+    保つ。"""
     assert _axis("gradient").display.kind == "none"
     assert _axis("stop_density").display.kind == "ramp"
     # 上書きは[2.0, 4.0, 7.0, 12.0]だが、この軸の折れ線は5.0で100へ達するため7.0と12.0は
@@ -199,31 +175,6 @@ def test_gradient_stop_density_car_stress_accident_kind_unchanged_by_t278():
     # overrideは材料スケール（年正規化後）で表現するため、収録年数3で割った値になる
     # （tests/realistic_axis_fixtures.py参照、本番DBの実際の移行値と同じ）。
     assert _axis("accident").display.thresholds == [0.133, 0.267, 0.5]
-
-
-def test_car_stress_ramp_display():
-    """改善計画T292: car_stressは内部軸5つ+公開軸1つの階層構造への再実装に伴い
-    kind="bespoke"からkind="ramp"へ変更した。改善計画T404: derive_ramp_inputsが
-    軸参照を再帰的に解決してtile_inputsを自動導出できるようになった
-    （_resolve_referenced_axis_tile_input参照、旧・本ファイルへ直接手書きしていた
-    display_overrideは廃止しdisplay_thresholds_overrideへ移行済み）。内部軸5つぶんの
-    tile_inputsが揃っていることを確認する。"""
-    display = _axis("car_stress").display
-    assert display.kind == "ramp"
-    assert display.thresholds == [2.0, 3.0, 4.0]
-    properties = {ti.property for ti in display.tile_inputs}
-    # 改善計画T347: bicycle_infraタイルプロパティ自体を削除したため6→5材料へ。
-    assert properties == {"highway", "maxspeed_kmh", "lanes_count", "designation", "motor_vehicle_no"}
-    highway_input = next(ti for ti in display.tile_inputs if ti.property == "highway")
-    assert highway_input.categories is not None
-    assert highway_input.has_unknown_fallback is True
-    maxspeed_input = next(ti for ti in display.tile_inputs if ti.property == "maxspeed_kmh")
-    assert maxspeed_input.breakpoints is not None
-    motor_vehicle_input = next(ti for ti in display.tile_inputs if ti.property == "motor_vehicle_no")
-    assert motor_vehicle_input.boolean is True
-    assert motor_vehicle_input.true_value == -1000.0
-
-
 def test_register_defaults_does_not_crash_when_a_builtin_axis_is_removed(monkeypatch):
     """改善計画T320: `_register_axes()`はAXIS_DEFINITIONSをそのまま走査するだけで、
     特定のaxis_id（"gradient"等）を直接indexingしない。そのため、組み込み軸が軸スタジオで
@@ -239,7 +190,7 @@ def test_register_defaults_does_not_crash_when_a_builtin_axis_is_removed(monkeyp
     axis_ids = {axis.axis_id for axis in registry.all_axes()}
     assert "gradient" not in axis_ids
     assert axis_ids == {
-        "wind", "surface_q", "stop_density", "accident", "car_stress", "night", "bicycle_infra_quality",
+        "wind", "surface_q", "stop_density", "accident", "night", "bicycle_infra_quality",
         "openness",
     }
 
@@ -256,11 +207,6 @@ def test_registry_axis_ids_match_axis_definitions():
     なったため、windも含め比較対象は「公開軸すべて」で一致する（以前はwindだけ意図的に
     表示カタログから除外されていたが、GET /api/axis-catalogという実行時APIは元々windも
     含めて返しており、静的生成物側だけの片手落ちだった）。
-
-    改善計画T292: car_stress軸を支える内部軸6つ（is_published=False、他の公開軸から
-    参照される専用の推定軸）もAXIS_DEFINITIONSに含まれるが、`is_published=False`のため
-    `_register_axes()`のループ自体が最初からスキップする（表示カタログ・一般ユーザー向けの
-    軸選択・地図レイヤー用には登録しない、内部軸は恒久的に非公開のまま運用する設計）。
 
     各軸のaxis_idフィールドが辞書キーと一致することも合わせて確認する。
     """

@@ -264,7 +264,7 @@ async def test_axis_difficulties_is_distance_weighted_average_of_segments():
         {0: 30.0},
         {
             0: [
-                make_segment(1.0, 0.0, axis_difficulties={"wind": 80.0, "car_stress": 10.0}),
+                make_segment(1.0, 0.0, axis_difficulties={"wind": 80.0, "axis_b": 10.0}),
                 make_segment(3.0, 100.0, axis_difficulties={"wind": 20.0}),
             ]
         },
@@ -275,8 +275,8 @@ async def test_axis_difficulties_is_distance_weighted_average_of_segments():
 
     # wind: (80*1.0 + 20*3.0) / 4.0 = 35.0
     assert candidates[0].axis_difficulties["wind"] == 35.0
-    # car_stressは片方の区間にしか無いため、持つ区間だけで平均され10.0のまま
-    assert candidates[0].axis_difficulties["car_stress"] == 10.0
+    # axis_bは片方の区間にしか無いため、持つ区間だけで平均され10.0のまま
+    assert candidates[0].axis_difficulties["axis_b"] == 10.0
 
 
 async def test_axis_raw_values_is_distance_weighted_average_of_segments():
@@ -331,7 +331,7 @@ async def test_axis_contributions_is_distance_weighted_average_of_segments():
         {0: 30.0},
         {
             0: [
-                make_segment(1.0, 0.0, axis_contributions={"wind": 80.0, "car_stress": 10.0}),
+                make_segment(1.0, 0.0, axis_contributions={"wind": 80.0, "axis_b": 10.0}),
                 make_segment(3.0, 100.0, axis_contributions={"wind": 20.0}),
             ]
         },
@@ -342,8 +342,8 @@ async def test_axis_contributions_is_distance_weighted_average_of_segments():
 
     # wind: (80*1.0 + 20*3.0) / 4.0 = 35.0
     assert candidates[0].axis_contributions["wind"] == 35.0
-    # car_stressは片方の区間にしか無いため、持つ区間だけで平均され10.0のまま
-    assert candidates[0].axis_contributions["car_stress"] == 10.0
+    # axis_bは片方の区間にしか無いため、持つ区間だけで平均され10.0のまま
+    assert candidates[0].axis_contributions["axis_b"] == 10.0
 
 
 async def test_material_values_is_distance_weighted_average_of_segments():
@@ -379,11 +379,11 @@ async def test_axis_contributions_sum_matches_overall_difficulty():
             0: [
                 make_segment(
                     1.0, 60.0,
-                    axis_contributions={"wind": 40.0, "car_stress": 20.0},
+                    axis_contributions={"wind": 40.0, "axis_b": 20.0},
                 ),
                 make_segment(
                     3.0, 30.0,
-                    axis_contributions={"wind": 10.0, "car_stress": 20.0},
+                    axis_contributions={"wind": 10.0, "axis_b": 20.0},
                 ),
             ]
         },

@@ -13,47 +13,6 @@ from app.services.region_service import RegionService
 from tests.admin_auth import AUTH_HEADERS, basic_auth_header
 
 client = TestClient(app)
-
-
-def test_get_material_catalog_requires_no_auth_and_returns_all_non_display_only_materials():
-    # 改善計画T277: 読み取り専用・認可不要。改善計画T290でMATERIAL_CATALOGへ
-    # 11材料（categorical 6件込み）を追加した後も、公開APIが全材料を漏れなく返すことを
-    # 確認する（GET /api/material-catalog自体を検証する専用テストが従来無かった穴埋め）。
-    # 改善計画T338: display_only=Trueの材料（designation）は公開レスポンスから除外される
-    # ため、比較対象からも除く（test_designation_is_excluded_as_display_only参照）。
-    response = client.get("/api/material-catalog")
-
-    assert response.status_code == 200
-    body = response.json()
-    material_ids = {entry["material_id"] for entry in body["materials"]}
-    expected_ids = {m.material_id for m in MATERIAL_CATALOG.values() if not m.display_only}
-    assert material_ids == expected_ids
-
-
-def test_designation_is_excluded_as_display_only():
-    # 改善計画T338回帰テスト: designationは"both"が実データで35.01%と構造的に頻発する
-    # AND条件（decisions/material-normalization-for-axis-composition.md参照）のため、
-    # 軸スタジオの材料選択肢からは除外する（地図表示専用）。MATERIAL_CATALOGへの登録
-    # 自体は維持する（is_known_materialはTrueのまま、地図表示のtile_property経由の
-    # 参照にも影響しない）。
-    response = client.get("/api/material-catalog")
-
-    material_ids = {entry["material_id"] for entry in response.json()["materials"]}
-    assert "designation" not in material_ids
-    assert "designation" in MATERIAL_CATALOG
-    assert MATERIAL_CATALOG["designation"].display_only is True
-
-
-def test_is_emergency_transport_and_is_critical_logistics_are_selectable():
-    # 改善計画T338フォローアップ（2026-08-26）: designationの正規化フラグ版は
-    # designationと異なり軸スタジオの選択肢に現れる（display_only=False）。
-    response = client.get("/api/material-catalog")
-
-    entries_by_id = {entry["material_id"]: entry for entry in response.json()["materials"]}
-    assert entries_by_id["is_emergency_transport"]["dtype"] == "boolean"
-    assert entries_by_id["is_critical_logistics"]["dtype"] == "boolean"
-
-
 def test_get_material_catalog_reflects_material_catalog_content():
     response = client.get("/api/material-catalog")
 
@@ -141,7 +100,6 @@ def test_get_material_catalog_response_excludes_internal_tile_fields():
     for entry in response.json()["materials"]:
         assert "tile_property" not in entry
         assert "tile_property_needs_runtime_scale" not in entry
-        assert "display_only" not in entry
 
 
 # --- 材料の実データ値一覧（改善計画T340） ---

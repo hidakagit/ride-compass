@@ -34,7 +34,7 @@ def test_derives_only_dedicated_way_value_layer_axes():
     fake_definitions = {
         "wind": _axis("wind", dedicated_way_value_layer=True, dynamic_way_value_needs_time=True, dynamic_way_value_needs_bearing=True),
         "gradient": _axis("gradient", dedicated_way_value_layer=True, dynamic_way_value_needs_bearing=True),
-        "car_stress": _axis("car_stress", dedicated_way_value_layer=False),
+        "surface_q": _axis("surface_q", dedicated_way_value_layer=False),
     }
     with axis_definitions_snapshot():
         AXIS_DEFINITIONS.clear()
@@ -78,7 +78,7 @@ def test_axis_id_matches_dict_key():
 def test_map_value_kind_is_signed_material_only_for_single_abs_term_axes():
     assert map_value_kind(AXIS_DEFINITIONS["gradient"]) == "signed_material"
     assert map_value_kind(AXIS_DEFINITIONS["wind"]) == "difficulty"
-    assert map_value_kind(AXIS_DEFINITIONS["car_stress"]) == "difficulty"
+    assert map_value_kind(AXIS_DEFINITIONS["stop_density"]) == "difficulty"
 
 
 def test_map_value_unit_comes_from_material_catalog_for_signed_material_only():

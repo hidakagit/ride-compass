@@ -44,7 +44,6 @@ from app.domain.material_sql import (
     SURFACE_NORMALIZED_SQL,
     TUNNEL_NORMALIZED_SQL,
     WAYS_SOURCE_SQL,
-    designation_column_sql,
     ways_lookup_sql,
     ways_source_sql,
 )
@@ -222,18 +221,6 @@ _LANDCOVER_TILE_COLUMNS_SQL = (",\n").join(
     for name in (key.removesuffix("_percent") for key in WIRED_LANDCOVER_KEYS)
 )
 
-#: 指定路線の3値（地図表示専用）。種別が増えたら分岐も増える形にせず、該当した種別名を
-#: そのまま出し、2つ以上該当したら'both'にする。
-_DESIGNATION_TILE_SQL = """
-                        CASE
-                            WHEN wm.designation_emergency_transport IS NOT NULL
-                                 AND wm.designation_critical_logistics IS NOT NULL THEN 'both'
-                            WHEN wm.designation_emergency_transport IS NOT NULL
-                                THEN 'emergency_transport'
-                            WHEN wm.designation_critical_logistics IS NOT NULL
-                                THEN 'critical_logistics'
-                        END"""
-
 #: タイルが材料を引くためのJOIN。区間単位のフィーチャーだけが`em`に一致し、way丸ごとの
 #: フィーチャーは`wm`側へ落ちる。
 _TILE_MATERIAL_JOINS = f"""
@@ -292,13 +279,6 @@ _ROAD_SURFACE_TILE_MVT_SQL = text(
                     {LANES_COUNT_CASE_SQL} AS lanes_count,
                     CASE WHEN {MOTOR_VEHICLE_NORMALIZED_SQL} = 'no' THEN true END AS motor_vehicle_no,
                     CASE WHEN {LIT_NORMALIZED_SQL} = 'yes' THEN true END AS lit,
-                    {_DESIGNATION_TILE_SQL} AS designation,
-                    -- 上のdesignation（3値、表示専用）が畳み込む前の正規化フラグを、
-                    -- 評価軸の材料として個別に焼き込む。
-                    CASE WHEN {designation_column_sql("emergency_transport")} IS NOT NULL
-                         THEN true END AS is_emergency_transport,
-                    CASE WHEN {designation_column_sql("critical_logistics")} IS NOT NULL
-                         THEN true END AS is_critical_logistics,
                     CASE WHEN {HIGHWAY_SQL} = 'cycleway' THEN true END AS highway_is_cycleway,
                     CASE WHEN 'track' = ANY({CYCLEWAY_TAGS_ARRAY_SQL}) THEN true END AS cycleway_has_track,
                     CASE WHEN 'lane' = ANY({CYCLEWAY_TAGS_ARRAY_SQL}) THEN true END AS cycleway_has_lane,
@@ -1009,24 +989,20 @@ class RoadGraphRepository:
 
     async def get_way_tags_by_osm_way_id(
         self, osm_way_id: int
-    ) -> tuple[str | None, dict[str, str], bool, str | None] | None:
-        """osm_way_id完全一致で(highway, tags, is_designated, surface)を返す。
+    ) -> tuple[str | None, dict[str, str], str | None] | None:
+        """osm_way_id完全一致で(highway, tags, surface)を返す。
 
         空間マッチ（半径内最近傍）は、交差点付近など複数の道路が近接する場所で、実際に
         クリックされたフィーチャーとは別の道路を拾いうる。フィーチャーが指す行そのものを
         引き直すことで、この不整合を構造的に防ぐ。
         """
         row = (await self._session.execute(text(f"""
-            SELECT w.highway, w.tags, w.surface,
-                   ({designation_column_sql("emergency_transport")} IS NOT NULL
-                    OR {designation_column_sql("critical_logistics")} IS NOT NULL)
-                       AS is_designated
+            SELECT w.highway, w.tags, w.surface
             FROM {ways_lookup_sql(":osm_way_id")} w
-            LEFT JOIN way_materials wm ON wm.osm_way_id = w.osm_way_id
         """), {"osm_way_id": str(osm_way_id)})).first()
         if row is None:
             return None
-        return (row.highway, row.tags or {}, bool(row.is_designated), row.surface)
+        return (row.highway, row.tags or {}, row.surface)
 
     async def get_feature_landcover(
         self, osm_way_id: int, feature_key: str | None

@@ -63,15 +63,14 @@ class TileInputSpec(StrictModel):
     場合に使う。タイルプロパティの文字列値を`categories`辞書で引いた点数を寄与値とする
     （`weight`と併用可、寄与値=`categories[value] * weight`）。`has_unknown_fallback=False`
     （既定）の場合、未登録値は0扱い（寄与なし。値の種類は多いが取りうる値のごく一部だけを
-    圧迫感等の点数に反映すれば足りる材料向け、例: `designation`は評価側のmappingが
-    全既知値をカバーしており「未登録＝存在しない値」しか起こらない）。
+    圧迫感等の点数に反映すれば足りる材料向け）。
     `has_unknown_fallback=True`の場合、未登録値は0扱いではなく
     「不明」（灰色）へ倒す。これは`CategoricalShape`の評価側の実際の意味論（`domain/
     axis_templates.py: evaluate_categorical`は未登録値に`mapping.get(value, None)`で
     Noneを返し、`required=True`の材料でNoneは軸全体を評価不能にする——「未登録値=寄与0
     [最良側]」ではなく「未登録値=評価不能」）に合わせるため。典型例: `highway`
-    （`car_stress_highway_base`。footway/path等、highway基準値が定義されていない道路種別は
-    評価側でcar_stress軸全体を評価しない[required=True]。プロパティの**欠損**のみを
+    （footway/path等、基準値が定義されていない道路種別は
+    評価側でその軸全体を評価しない[required=True]。プロパティの**欠損**のみを
     「不明」判定すると、「値はあるが未登録」のケースを見落とし、実際には未評価のはずの
     区間が0点=最良[緑]色で表示されてしまう。`axisLayers.ts: buildAxisRampUnknownExpression`
     参照）。boolean材料の`has_unknown_fallback=True`はタイルプロパティが完全に欠損している
@@ -79,7 +78,7 @@ class TileInputSpec(StrictModel):
 
     自己変換材料（`breakpoints`）: 材料自身が
     `BreakpointLinearShape.breakpoints`（区分線形）で変換される軸（例:
-    `car_stress_maxspeed_adjustment`）の寄与値を、フロントの`interpolate`
+    数値材料の内部軸）の寄与値を、フロントの`interpolate`
     expressionでタイルプロパティの生値から直接求める場合に使う（`weight`と併用可）。
 
     `needs_runtime_scale`: この材料のタイル生値が実行時にしか決まらない

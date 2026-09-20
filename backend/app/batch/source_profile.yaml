@@ -59,13 +59,6 @@ sources:
       years: [2024]
     columns: all
 
-  - name: designation
-    adapter: ksj_designation
-    rows:
-      prefectures: from_target
-      kinds: [emergency_transport, critical_logistics]
-    columns: all
-
   # --- ラスタ ---------------------------------------------------------------
   # ズームは元データの分解能から導く。UIの都合で決めない。
   # 配信元がそれ以上を持たないことは実測で確認済み（z16以降は404）。

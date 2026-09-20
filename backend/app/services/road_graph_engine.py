@@ -738,7 +738,7 @@ class RoadGraphEngine:
             return None
         graph = search_materials.graph
         # surface・edge_attribute_counts（stop/intersection/accident件数）・
-        # way_tags・elevation_attribute・is_designatedは、材料の列へ
+        # way_tags・elevation_attributeは、材料の列へ
         # 統合済みの1辞書としてそのまま使う（表示用[_build_segment_details]の
         # 一部フィールド取得にのみ使う）。
         edge_materials = search_materials.materials
@@ -2262,8 +2262,7 @@ def _node_intersection_attributes(
 ) -> tuple[np.ndarray, np.ndarray]:
     """`lazy_graph.index_to_node_id`順の（信号の有無, 集まる道の最大階級）。
 
-    どちらも`road_nodes`の事前集計列（`precompute_road_node_intersections.py`と、
-    交差点分割が自分の作ったノードへ行う穴埋め）で、ターンの費用が「信号が無いのに上位の道を
+    どちらもノードの事前集計列で、ターンの費用が「信号が無いのに上位の道を
     渡る」場合だけ待ちを足すために読む。どちらも受けていないノードは既定値（信号なし・
     階級0）で、そのときの結果はこの列の導入前と同じになる。
     """

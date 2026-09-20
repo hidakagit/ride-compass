@@ -21,7 +21,6 @@ from sqlalchemy import (
     BigInteger,
     CheckConstraint,
     Boolean,
-    Float,
     ForeignKey,
     ForeignKeyConstraint,
     Integer,
@@ -198,7 +197,7 @@ class WayMaterialRow(Base):
     タイルが道1本を1フィーチャーとして塗るため。区間から集約して作ると都心のz12で
     実測1.2秒かかり、タイル生成が倍になる。
 
-    `divided`と指定路線のマッチ率は道1本の性質で、区間粒度の対応物を持たない。
+    `direction`と`divided`は道1本の性質で、区間粒度の対応物を持たない。
     """
 
     __tablename__ = "way_materials"
@@ -231,13 +230,6 @@ class WayMaterialRow(Base):
 
     #: 上下線が分かれた道の片側か。
     divided: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
-    # 指定路線のマッチ率（0〜1）。指定が無ければNULL。列名は`designation_`＋種別名で、
-    # 種別が増えたときに列を機械的に決められるようにする（`domain/designation.py:
-    # DESIGNATION_IMPORT_KINDS`）。
-    designation_emergency_transport: Mapped[float | None] = mapped_column(
-        Float, nullable=True, info=ABSENT_OK)
-    designation_critical_logistics: Mapped[float | None] = mapped_column(
-        Float, nullable=True, info=ABSENT_OK)
 
     source_run_id: Mapped[int] = mapped_column(
         BigInteger, ForeignKey("source_runs.run_id"), nullable=False

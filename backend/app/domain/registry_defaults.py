@@ -67,7 +67,6 @@ def _register_primary_attributes() -> None:
     register_primary_attribute(PrimaryAttributeSpec(attr_id="lit", label="街灯"))
     register_primary_attribute(PrimaryAttributeSpec(attr_id="tunnel", label="トンネル"))
     register_primary_attribute(PrimaryAttributeSpec(attr_id="oneway", label="一方通行"))
-    register_primary_attribute(PrimaryAttributeSpec(attr_id="designation", label="指定路線"))
     register_primary_attribute(PrimaryAttributeSpec(attr_id="elevation", label="標高"))
     register_primary_attribute(PrimaryAttributeSpec(attr_id="stop_poi", label="停止要因"))
     register_primary_attribute(PrimaryAttributeSpec(attr_id="supply_poi", label="補給・休憩ポイント"))
