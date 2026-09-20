@@ -6,6 +6,7 @@
 """
 
 from app.batch.source_adapters import gsi_dem_tile  # noqa: F401
+from app.batch.source_adapters import ksj_designation  # noqa: F401
 from app.batch.source_adapters import npa_honhyo  # noqa: F401
 
-__all__ = ["gsi_dem_tile", "npa_honhyo"]
+__all__ = ["gsi_dem_tile", "ksj_designation", "npa_honhyo"]
