@@ -18,7 +18,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 import asyncpg  # noqa: E402
 
 from app.batch import source_adapters  # noqa: F401,E402  アダプタの登録が目的
-from app.batch._common import asyncpg_dsn  # noqa: E402
+from app.batch._common import asyncpg_dsn, with_derived_data_revision_bump  # noqa: E402
 from app.batch.ingest import ingest_source  # noqa: E402
 from app.batch.source_profile import load_source_profile  # noqa: E402
 from app.config import settings  # noqa: E402
@@ -55,7 +55,11 @@ def main() -> int:
     if unknown:
         parser.error(f"プロファイルに無いソースです: {unknown}")
 
-    return asyncio.run(run(names, args.database_url or settings.database_url))
+    database_url = args.database_url or settings.database_url
+    # 生データが入れ替わると、それを読んで作ったキャッシュは古くなる。派生の世代を
+    # 進めて下流を作り直させる（ソース別の世代へ移すまでは、既存の仕組みに乗せる）。
+    return asyncio.run(with_derived_data_revision_bump(
+        run(names, database_url), database_url=database_url, dry_run=False))
 
 
 if __name__ == "__main__":

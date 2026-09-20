@@ -13,7 +13,7 @@
 
 import csv
 import logging
-from collections.abc import Iterator
+from collections.abc import AsyncIterator
 from pathlib import Path
 
 import httpx
@@ -55,7 +55,7 @@ def _download(year: int) -> Path:
 
 
 @register_adapter("npa_honhyo")
-def read_npa_honhyo(spec: SourceSpec, target: Target) -> Iterator[SourceRecord]:
+async def read_npa_honhyo(spec: SourceSpec, target: Target) -> AsyncIterator[SourceRecord]:
     years = spec.rows.get("years") or []
     min_lat, min_lon, max_lat, max_lon = target.bbox
     skipped = 0

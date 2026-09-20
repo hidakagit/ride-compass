@@ -13,7 +13,7 @@
 
 import logging
 import time
-from collections.abc import Callable, Iterator
+from collections.abc import AsyncIterator, Callable
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any
@@ -43,7 +43,10 @@ class SourceRecord:
 
 
 #: プロファイルの`adapter`名 → 実装。**ソースを足す唯一の追加点**。
-SourceAdapter = Callable[[SourceSpec, Target], Iterator[SourceRecord]]
+#:
+#: 非同期にするのは、外部からタイル単位で取るソースが並行取得を要るため。同期で足りる
+#: ソース（ローカルのCSVを読むだけ等）も同じ契約に乗せ、経路を2本にしない。
+SourceAdapter = Callable[[SourceSpec, Target], AsyncIterator[SourceRecord]]
 ADAPTERS: dict[str, SourceAdapter] = {}
 
 
@@ -137,7 +140,7 @@ async def ingest_source(
 
     written = 0
     batch: list[tuple[str, bytes, str, bytes | None]] = []
-    for record in adapter(spec, profile.target):
+    async for record in adapter(spec, profile.target):
         batch.append((record.natural_key, record.geom_wkb, _json(record.attrs), record.payload))
         if len(batch) >= COPY_CHUNK:
             await conn.copy_records_to_table(

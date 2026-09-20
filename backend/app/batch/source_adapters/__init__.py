@@ -5,6 +5,7 @@
 （`app/batch/ingest.py`）はアダプタ名だけを見て呼び、外部の形を一切知らない。
 """
 
+from app.batch.source_adapters import gsi_dem_tile  # noqa: F401
 from app.batch.source_adapters import npa_honhyo  # noqa: F401
 
-__all__ = ["npa_honhyo"]
+__all__ = ["gsi_dem_tile", "npa_honhyo"]
