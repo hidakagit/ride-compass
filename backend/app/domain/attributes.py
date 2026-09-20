@@ -22,7 +22,7 @@ METRIC_GROUP_LANDCOVER = "landcover"
 # 群の中身が増えてもこの定数は増えない。
 METRIC_GROUP_POI = "poi"
 
-# `METRIC_GROUP_COUNTS`のキー。`EdgeAttributeCounts`のカウント列に対応する。
+# `METRIC_GROUP_COUNTS`のキー。`edge_materials`のカウント列に対応する。
 METRIC_KEY_ACCIDENT = "accident"
 METRIC_KEY_INTERSECTION = "intersection"
 
@@ -76,9 +76,9 @@ class ElevationAttribute(StrictModel):
 
 
 class WayAttributeCounts(StrictModel):
-    """区間インスペクタ用のway単位集計（`way_attribute_counts`テーブル）。
+    """区間インスペクタ用のway単位集計（`way_materials`）。
 
-    `EdgeAttributeCounts`と同じカウントに、per_km換算へ使う`length_m`を加えたもの。
+    区間のカウントに、per_km換算へ使う`length_m`を加えたもの。
     """
 
     length_m: float
@@ -151,11 +151,12 @@ def compute_elevation_values(
     信頼できない）を分離し、元の点列でも真に隣接していたペアのみgain/loss/gradeへ
     寄与させる。
 
-    `dem_reflects_road_surface=False`（橋・高架・トンネル）では`average_grade`を持たせない。
-    DEMが返すのは地表面の標高で、桁や坑道の高さではない——谷を渡る橋なら谷底の起伏を、
-    山を抜けるトンネルなら山の起伏を、そのまま道の勾配として受け取ってしまう。これは
-    測り間違いではなく別のものを測っており、値を丸める・上限で切るのでは直らない。
-    標高そのもの（start/end_elevation_m・gain/loss）は残す。
+    `dem_reflects_road_surface=False`（橋・高架・トンネル）では**両端だけ**を使い、中間の
+    形状点を無視する。配信元が「元となる標高モデルデータ標高点の値は、地表面の測定値に
+    基づいているため、構造物（建物、高架橋等）の高さを反映したものではありません」と
+    明記しているため（https://maps.gsi.go.jp/development/hyokochi.html ）、中間の点は
+    桁や坑道ではなく下の地形を指す。谷を渡る平らな橋で、谷底の起伏がそのまま獲得標高へ
+    積まれてしまう。両端（橋台・坑口）は道が地面と接する位置なので使える。
     """
     valid = [(i, p, e) for i, (p, e) in enumerate(zip(points, elevations)) if e is not None]
     if len(valid) < 2:
@@ -191,7 +192,11 @@ def compute_elevation_values(
     if average_grade is not None and abs(average_grade) > MAX_PLAUSIBLE_AVERAGE_GRADE_PERCENT:
         average_grade = None
     if not dem_reflects_road_surface:
-        average_grade = None
+        # 中間の頂点は下の地形なので捨て、両端だけで組み直す。
+        difference = end_elevation - start_elevation
+        gain = max(0.0, difference)
+        loss = max(0.0, -difference)
+        max_grade = min_grade = average_grade
 
     return ElevationValues(
         start_elevation_m=round(start_elevation, 1),

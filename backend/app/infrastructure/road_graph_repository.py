@@ -562,25 +562,45 @@ def _material_values_from_row(row: object) -> dict[str, object]:
 #: 逆向きに辿ったときに入れ替わる／符号が反転する列。標高は地形の物理量で進行方向に
 #: 依存しないため、この変換は厳密に正しい（形状点列を逆順に辿ると各区間の差分の符号が
 #: すべて反転し、最大と最小も入れ替わる）。
+#: 逆向きで入れ替わる語の対。列名がこの規則に従う限り、対応表を手で並べる必要がない。
+_REVERSING_TOKEN_PAIRS = (("start_", "end_"), ("_gain_", "_loss_"), ("max_", "min_"))
+
+
+def reversed_material_expression(name: str) -> str | None:
+    """逆向きの枝でこの列へ入る式。向きで変わらない列はNone。
+
+    対になる語を入れ替え、`_grade`で終わる量は符号を返す。形状点列を逆順に辿ると各区間の
+    差分の符号がすべて反転し、最大と最小も入れ替わる。
+    """
+    swapped = name
+    for first, second in _REVERSING_TOKEN_PAIRS:
+        if first in swapped:
+            swapped = swapped.replace(first, second, 1)
+            break
+        if second in swapped:
+            swapped = swapped.replace(second, first, 1)
+            break
+    negated = name.endswith("_grade")
+    if swapped == name and not negated:
+        return None
+    return ("-" if negated else "") + "m." + swapped
+
+
 _REVERSED_ELEVATION_COLUMNS: dict[str, str] = {
-    "start_elevation_m": "m.end_elevation_m",
-    "end_elevation_m": "m.start_elevation_m",
-    "elevation_gain_m": "m.elevation_loss_m",
-    "elevation_loss_m": "m.elevation_gain_m",
-    "average_grade": "-m.average_grade",
-    "max_grade": "-m.min_grade",
-    "min_grade": "-m.max_grade",
+    column.name: expression
+    for column in EdgeMaterialRow.__table__.columns
+    if (expression := reversed_material_expression(column.name)) is not None
 }
 
-#: 向きで変わりうる列を取りこぼしていないかを、列名の形から検査する。標高の列を1つ足して
-#: 上の表へ書き忘れると、その列だけ逆向きで順方向の値を返す（エラーにならない）。
-_DIRECTION_SENSITIVE_SUFFIXES = ("_elevation_m", "_grade")
-_unmapped = [
-    c.name for c in EdgeMaterialRow.__table__.columns
-    if c.name.endswith(_DIRECTION_SENSITIVE_SUFFIXES) and c.name not in _REVERSED_ELEVATION_COLUMNS
-]
-if _unmapped:
-    raise RuntimeError(f"向きで反転する列が_REVERSED_ELEVATION_COLUMNSに無い: {_unmapped}")
+#: 入れ替え先の列が無ければSQLは実行時に落ちる。import時に気づけるようにする。
+_material_columns = {c.name for c in EdgeMaterialRow.__table__.columns}
+_missing_partners = sorted(
+    expression.lstrip("-").removeprefix("m.")
+    for expression in _REVERSED_ELEVATION_COLUMNS.values()
+    if expression.lstrip("-").removeprefix("m.") not in _material_columns
+)
+if _missing_partners:
+    raise RuntimeError(f"逆向きの列が存在しない: {_missing_partners}")
 
 #: 向きを解いた`em`。材料の式は向きを知らずに済み、逆向きの区間でも正しい値を読む。
 _EDGE_MATERIALS_LATERAL = "LEFT JOIN LATERAL (SELECT " + ", ".join(
@@ -601,10 +621,8 @@ _EXTRA_MATERIAL_ARRAY_COLUMNS: dict[str, str] = {
     # 素通りする。
     **{f"{_HARD_FILTER_COLUMN_PREFIX}{name}": expr for name, expr in HARD_FILTER_VALUE_SQL.items()},
     "distance_m": "re.distance_m",
-    # 逆向きの方位は+180°ではない。形状の終点→始点で測り直す（球面上では往路と復路の
-    # 方位はちょうど反対を向かない）。
-    "bearing_deg": ("CASE WHEN ids.forward THEN re.bearing_deg ELSE degrees(ST_Azimuth("
-                    "ST_EndPoint(re.geom)::geography, ST_StartPoint(re.geom)::geography)) END"),
+    # 逆向きの方位は+180°ではない。両向きぶんを列で持つ（`road_edges`）。
+    "bearing_deg": "CASE WHEN ids.forward THEN re.bearing_deg ELSE re.reverse_bearing_deg END",
     "mid_lat": "(ST_Y(nf.geom) + ST_Y(nt.geom)) / 2",
     "mid_lon": "(ST_X(nf.geom) + ST_X(nt.geom)) / 2",
     "elevation_present": "em.start_elevation_m IS NOT NULL",
@@ -664,9 +682,7 @@ _EDGE_MATERIAL_ARRAYS_SQL = text(
 # 持たない）。親のbboxで引くぶん区間を少し多く拾うが、グラフを読む粒度では誤差の範囲。
 _TOPOLOGY_EDGES_SQL = text(f"""
 SELECT re.osm_way_id, re.segment_index, re.from_node_id, re.to_node_id,
-       re.distance_m, re.bearing_deg,
-       degrees(ST_Azimuth(ST_EndPoint(re.geom)::geography,
-                          ST_StartPoint(re.geom)::geography)) AS reverse_bearing_deg,
+       re.distance_m, re.bearing_deg, re.reverse_bearing_deg,
        w.highway, wm.direction
 FROM road_edges re
 JOIN {WAYS_SOURCE_SQL} w ON w.osm_way_id = re.osm_way_id
@@ -686,9 +702,7 @@ WHERE n.source = 'osm_node' AND n.natural_key = ANY(:node_keys)
 
 _EDGE_GEOMETRIES_SQL = text("""
 SELECT re.osm_way_id, re.segment_index, re.from_node_id, re.to_node_id,
-       re.distance_m, re.bearing_deg,
-       degrees(ST_Azimuth(ST_EndPoint(re.geom)::geography,
-                          ST_StartPoint(re.geom)::geography)) AS reverse_bearing_deg,
+       re.distance_m, re.bearing_deg, re.reverse_bearing_deg,
        ST_AsBinary(re.geom) AS wkb
 FROM unnest(CAST(:way_ids AS bigint[]), CAST(:segment_indexes AS int[]))
      AS ids(osm_way_id, segment_index)
