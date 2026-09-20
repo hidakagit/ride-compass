@@ -6,11 +6,31 @@
 `material_catalog.py`のPython extractorをそのまま使えない。同じ判定式を呼び出し側ごとに
 独立して書くとドリフトするため、ここへ集約する。
 
-式はテーブルのエイリアスを固定で参照する（`w`＝`osm_raw_ways`）。FROM句は読み出し側が
-組み立てる。
+式はテーブルのエイリアスを固定で参照する。FROM句は読み出し側が組み立てる:
+
+| 別名 | 何 |
+|---|---|
+| `w` | 道の生データ（`WAYS_SOURCE_SQL`。タグは`w.tags`、よく使うものは列としても出す） |
+| `re` | `road_edges`（区間の形） |
+| `em` | `edge_materials`（区間に付く値） |
+| `wm` | `way_materials`（道1本に付く値） |
+
+**未計算はNULL**。値の列がNULLなら、その材料はまだ計算されていない。「タグが無い」は
+別で、そちらは非該当（false）になる（`tag_absent_is_false_sql`）。
 
 人が書いた期待値との突き合わせは`tests/test_material_sql.py`。
 """
+
+from app.domain.designation import DESIGNATION_IMPORT_KINDS
+
+#: `w`の別名が指す副問い合わせ。生データは`source_features`に1つの形で入っているため、
+#: よく引くタグを列として出し、式の側が`attrs`の構造を知らなくて済むようにする。
+WAYS_SOURCE_SQL = """
+(SELECT natural_key::bigint AS osm_way_id, geom, attrs AS tags,
+        attrs->>'highway' AS highway, attrs->>'surface' AS surface
+ FROM source_features WHERE source = 'osm_way')
+"""
+
 
 def normalized_tag_sql(tag: str) -> str:
     """`tags`JSONBの1キーを正規化して参照する式（小文字化・前後空白除去）。"""
@@ -28,9 +48,6 @@ def positive_integer_tag_sql(tag: str) -> str:
 
 
 HIGHWAY_SQL = "w.highway"
-# 区間（road_edges）側のhighway。splitのときwayから写したもので、探索・0次フィルタは
-# こちらを見る（way側はタイル配信が見る）。
-HIGHWAY_SQL_FOR_EDGE = "re.highway"
 SURFACE_NORMALIZED_SQL = "lower(btrim(w.surface))"
 # :good_tags/:bad_tags バインドパラメータを要する（domain/road.py:
 # GOOD_OSM_SURFACE_TAGS/BAD_OSM_SURFACE_TAGS、呼び出し元がbindparamsで渡す）。
@@ -53,28 +70,6 @@ CYCLEWAY_TAG_NAMES = ("cycleway", "cycleway:left", "cycleway:right", "cycleway:b
 CYCLEWAY_TAGS_ARRAY_SQL = "ARRAY[" + ", ".join(f"lower(btrim(w.tags->>'{tag}'))" for tag in CYCLEWAY_TAG_NAMES) + "]"
 
 
-# --- 区間単位の材料の値を求める式 ---------------------------------------------
-#
-# 読み出し側が用意するエイリアス:
-#   w  osm_raw_ways（LEFT JOIN、道路データの無い区間ではNULL行）
-#   re road_edges
-#   c  edge_attribute_counts（LEFT JOIN）
-#   e  elevation_attributes（LEFT JOIN）
-#   el edge_landcover（LEFT JOIN）
-#   wl way_landcover（LEFT JOIN、elが無い区間のフォールバック）
-#   d  指定路線のLATERAL（`is_designated`）
-#
-# 束ねるバインドパラメータ: :good_tags・:bad_tags・:accident_years
-#
-# **「wayが無い」と「タグが無い」を分ける。** 前者は不明（NULL）、後者は非該当（false）。
-# 材料ごとの宣言もこれらを別々に指している——`MaterialSpec.bool_default="nan"`は前者を
-# 守るためにあり、カバレッジの`missing_semantics="definite"`は後者が確定値だと言っている。
-# `COALESCE(条件, false)`だけで閉じると、wayの行が無い区間まで「非該当」と答えてしまい、
-# 前者の宣言が働かない。
-#
-# 本番では現在wayの行が無い区間は0件だが、これは「いまPBFが最新だから」であって、
-# 遅延構築や再取込の途中では起きる（`docs/batch-pipeline-dependencies.md`）。
-
 LANDCOVER_SQL_KEYS = (
     "trees", "built", "crops", "rangeland", "water", "bare", "flooded_veg", "snow_ice",
 )
@@ -96,24 +91,28 @@ def cycleway_has_value_sql(*values: str) -> str:
 
 
 def poi_density_value_sql(kind: str) -> str:
-    """停止要因POIの種別別密度。`poi_counts`がNULLなら未集計＝欠損、行があって載っていない
-    種別は0件と確定できる。"""
-    return (
-        "CASE WHEN c.poi_counts IS NOT NULL AND re.distance_m > 0 "
-        f"THEN COALESCE((c.poi_counts->>'{kind}')::double precision, 0) "
-        "/ (re.distance_m / 1000.0) END"
-    )
+    """停止要因POIの種別別密度。列がNULLなら未計算＝欠損。"""
+    return (f"CASE WHEN em.poi_{kind} IS NOT NULL AND re.distance_m > 0 "
+            f"THEN em.poi_{kind} / (re.distance_m / 1000.0) END")
 
 
 def landcover_value_sql(key: str) -> str:
-    """区間単位の土地被覆。行が無ければway単位へ落とす（読み出し側と同じ規約）。"""
-    return f"COALESCE(el.{key}_percent, wl.{key}_percent)"
+    """区間単位の土地被覆。道1本の値へは落とさない——区間の値は全区間ぶん計算されており、
+    落とす先は「同じ道の平均」でしかない（区間ごとの違いを消す）。"""
+    return f"em.lc_{key}"
 
 
+def designation_column_sql(kind: str) -> str:
+    """指定路線の種別に対応する`way_materials`の列。種別が増えても対応表は要らない。"""
+    return f"wm.designation_{kind}"
+
+
+def designation_any_sql() -> str:
+    """いずれかの種別の指定路線か。指定が無ければどの列もNULL。"""
+    return " OR ".join(f"{designation_column_sql(k)} IS NOT NULL"
+                       for k in DESIGNATION_IMPORT_KINDS)
 
 
 # `EdgeMaterialArrays`が標高属性を組み立てるとき、勾配だけは材料の列から読む
 # （表示用の標高列と重複して持たないため）。
 MATERIAL_ID_GRADIENT_PERCENT = "gradient_percent"
-
-

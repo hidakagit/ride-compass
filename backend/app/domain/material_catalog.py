@@ -35,13 +35,13 @@ from pydantic import ConfigDict
 from app.domain.designation import CAR_STRESS_DESIGNATION_KINDS
 from app.domain.material_sql import (
     BICYCLE_NORMALIZED_SQL,
-    HIGHWAY_SQL_FOR_EDGE,
     LANES_COUNT_CASE_SQL,
     MAXSPEED_KMH_CASE_SQL,
     SMOOTHNESS_NORMALIZED_SQL,
     SURFACE_GOOD_CASE_SQL,
     SURFACE_NORMALIZED_SQL,
     cycleway_has_value_sql,
+    designation_any_sql,
     landcover_value_sql,
     poi_density_value_sql,
     BRIDGE_NORMALIZED_SQL,
@@ -128,8 +128,8 @@ def landcover_coverage(column: str) -> WayMaterialCoverageSpec:
 
 _CYCLEWAY_TAGS_ALL_ABSENT = " AND ".join(f"tags->>'{tag}' IS NULL" for tag in CYCLEWAY_TAG_NAMES)
 _CYCLEWAY_SOURCE = "osm_raw_ways.tags の cycleway / cycleway:left / cycleway:right / cycleway:both（いずれも無い場合に欠損）"
-_EDGE_ATTRIBUTE_COUNTS_PRESENT_SQL = "SELECT count(*) FROM edge_attribute_counts"
-_EDGE_ATTRIBUTE_COUNTS_SOURCE = "edge_attribute_counts（Edge単位の事前集計行）の有無"
+_EDGE_COUNTS_PRESENT_SQL = ("SELECT count(*) FROM edge_materials WHERE intersection_count IS NOT NULL")
+_EDGE_COUNTS_SOURCE = "edge_materialsの数の列が埋まっているか"
 
 
 MaterialDType = Literal["numeric", "boolean", "categorical"]
@@ -475,7 +475,7 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
         tile_property_direction_dependent=True,
         primary_attribute_id="elevation",
         reference_points=_GRADIENT_PERCENT_REFERENCE_POINTS,
-        value_sql="e.average_grade",
+        value_sql="em.average_grade",
         coverage=EdgeMaterialCoverageSpec(
                 present_count_sql="SELECT count(*) FROM elevation_attributes WHERE average_grade IS NOT NULL",
                 source="elevation_attributes.average_grade（precompute_elevation_attributesの計算済み行）の有無",
@@ -617,10 +617,10 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
         tile_property="intersection_per_km",
         primary_attribute_id="intersection",
         reference_points=_INTERSECTION_COUNT_PER_KM_REFERENCE_POINTS,
-        value_sql="CASE WHEN re.distance_m > 0 THEN c.intersection_count / (re.distance_m / 1000.0) END",
+        value_sql="CASE WHEN re.distance_m > 0 THEN em.intersection_count / (re.distance_m / 1000.0) END",
         coverage=EdgeMaterialCoverageSpec(
-                present_count_sql=_EDGE_ATTRIBUTE_COUNTS_PRESENT_SQL,
-                source=_EDGE_ATTRIBUTE_COUNTS_SOURCE,
+                present_count_sql=_EDGE_COUNTS_PRESENT_SQL,
+                source=_EDGE_COUNTS_SOURCE,
                 missing_semantics="unknown",
             ),
     ),
@@ -641,10 +641,10 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
         primary_attribute_id="accident_point",
         reference_points=_ACCIDENT_COUNT_PER_KM_YEAR_REFERENCE_POINTS,
         value_sql="CASE WHEN re.distance_m > 0 AND :accident_years > 0 "
-        "THEN c.accident_count / (re.distance_m / 1000.0) / :accident_years END",
+        "THEN em.accident_count / (re.distance_m / 1000.0) / :accident_years END",
         coverage=EdgeMaterialCoverageSpec(
-                present_count_sql=_EDGE_ATTRIBUTE_COUNTS_PRESENT_SQL,
-                source=_EDGE_ATTRIBUTE_COUNTS_SOURCE,
+                present_count_sql=_EDGE_COUNTS_PRESENT_SQL,
+                source=_EDGE_COUNTS_SOURCE,
                 missing_semantics="unknown",
             ),
     ),
@@ -766,7 +766,7 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
         tile_property="highway",
         primary_attribute_id="highway",
         value_labels=_HIGHWAY_VALUE_LABELS,
-        value_sql=HIGHWAY_SQL_FOR_EDGE,
+        value_sql=HIGHWAY_SQL,
         coverage=WayMaterialCoverageSpec(
                 missing_condition=f"{HIGHWAY_SQL} IS NULL",
                 source="osm_raw_ways.highway",
@@ -809,7 +809,7 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
         # primary_attribute_id="cycleway"へ寄せる（highway自体はcar_stress_highway_baseが
         # 単独で使う一次属性のまま、排他チェック対象を維持する）。
         primary_attribute_id="cycleway",
-        value_sql=tag_absent_is_false_sql(f"{HIGHWAY_SQL_FOR_EDGE} = 'cycleway'"),
+        value_sql=tag_absent_is_false_sql(f"{HIGHWAY_SQL} = 'cycleway'"),
         coverage=WayMaterialCoverageSpec(
                 missing_condition=f"{HIGHWAY_SQL} IS NULL",
                 source="osm_raw_ways.highway",
@@ -866,7 +866,7 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
         tile_property="shared_pedestrian_path",
         primary_attribute_id="cycleway",
         value_sql=tag_absent_is_false_sql(
-            f"{HIGHWAY_SQL_FOR_EDGE} IN ('footway', 'path') "
+            f"{HIGHWAY_SQL} IN ('footway', 'path') "
             f"AND {BICYCLE_NORMALIZED_SQL} IN ('yes', 'designated')"
         ),
         coverage=WayMaterialCoverageSpec(
@@ -946,7 +946,7 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
         primary_attribute_id="designation",
         # 該当kindの行が無いことは「指定路線でない」の確定値で、データの欠損ではない
         # （`match_designations`が全wayを処理する）。wayの行自体が無いときだけ不明。
-        value_sql=tag_absent_is_false_sql("d.is_designated"),
+        value_sql=tag_absent_is_false_sql(designation_any_sql()),
         coverage=CoverageExcluded(reason="designation_attributes行の有無がそのまま該当/非該当の確定値（欠損の概念が無い）"),
     ),
     "smoothness": MaterialSpec(
@@ -1002,8 +1002,8 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
             # 値は`edge_attribute_counts`の行が持つJSONBのキーで、行があれば載っていない
             # キーは0件と確定できる（欠損は行そのものの不在だけ）。
             coverage=EdgeMaterialCoverageSpec(
-                present_count_sql=_EDGE_ATTRIBUTE_COUNTS_PRESENT_SQL,
-                source=_EDGE_ATTRIBUTE_COUNTS_SOURCE,
+                present_count_sql=_EDGE_COUNTS_PRESENT_SQL,
+                source=_EDGE_COUNTS_SOURCE,
                 missing_semantics="unknown",
             ),
             primary_attribute_id="stop_poi",

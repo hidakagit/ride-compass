@@ -10,7 +10,7 @@ from typing import Mapping
 import numpy as np
 
 from app.domain.graph import RoadGraphLike
-from app.domain.material_sql import BICYCLE_NORMALIZED_SQL, HIGHWAY_SQL_FOR_EDGE
+from app.domain.material_sql import BICYCLE_NORMALIZED_SQL, HIGHWAY_SQL
 
 
 # 〇次: ハード制約（設計プロンプト「評価システムの層構造再設計」の〇次フィルタ。
@@ -54,7 +54,7 @@ DEFAULT_HARD_FILTERS: frozenset[str] = HARD_FILTER_NAMES
 
 def _highway_is_one_of_sql(highway_types: frozenset[str]) -> str:
     listed = ", ".join(f"'{value}'" for value in sorted(highway_types))
-    return f"COALESCE({HIGHWAY_SQL_FOR_EDGE} IN ({listed}), false)"
+    return f"COALESCE({HIGHWAY_SQL} IN ({listed}), false)"
 
 
 # フィルタ名→「その区間が該当するか」をSQLで表す式。材料を読むクエリがこの名前のまま

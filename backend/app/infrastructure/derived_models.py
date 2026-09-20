@@ -150,6 +150,10 @@ class WayMaterialRow(Base):
     lc_snow_ice: Mapped[float | None] = mapped_column(REAL, nullable=True)
     lc_rangeland: Mapped[float | None] = mapped_column(REAL, nullable=True)
 
+    #: 通行方向（forward/backward/both）。タグからの判断なので、生データではなくここに置く。
+    #: 探索が有向グラフをメモリ上で組むときに、逆向きの枝を作ってよいかを決める。
+    direction: Mapped[str] = mapped_column(String, nullable=False, server_default="both")
+
     #: 上下線が分かれた道の片側か。
     divided: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
     # 指定路線のマッチ率（0〜1）。指定が無ければNULL。列名は`designation_`＋種別名で、

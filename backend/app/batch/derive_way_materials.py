@@ -50,7 +50,7 @@ SELECT s.natural_key::bigint AS osm_way_id, s.geom,
        degrees(ST_Azimuth(ST_StartPoint(s.geom)::geography, ST_EndPoint(s.geom)::geography))
            + CASE WHEN d.direction = 'backward' THEN 180 ELSE 0 END AS travel_deg
 FROM source_features s
-JOIN _way_direction d ON d.osm_way_id = s.natural_key::bigint
+JOIN way_materials d ON d.osm_way_id = s.natural_key::bigint
 WHERE s.source = 'osm_way'
 """
 
@@ -148,11 +148,8 @@ async def _load_directions(conn: asyncpg.Connection) -> int:
         attrs = row["attrs"]
         tags = json.loads(attrs) if isinstance(attrs, str) else dict(attrs)
         directions.append((int(row["natural_key"]), resolve_direction(tags)))
-    await conn.execute(
-        "CREATE TEMP TABLE _way_direction (osm_way_id bigint PRIMARY KEY, direction text) "
-        "ON COMMIT DROP")
-    await conn.copy_records_to_table(
-        "_way_direction", records=directions, columns=["osm_way_id", "direction"])
+    await conn.executemany(
+        "UPDATE way_materials SET direction = $2 WHERE osm_way_id = $1", directions)
     return len(directions)
 
 
