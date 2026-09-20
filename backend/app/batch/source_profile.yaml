@@ -44,7 +44,9 @@ sources:
   # wayが参照する頂点。位置だけでなくタグも持つ——POIかどうかの判定は派生側で行う。
   - name: osm_node
     adapter: osm_pbf_node
-    rows: referenced_by_way
+    rows:
+      # どのwayの頂点を採るかは osm_way の絞り込みに従う（同じ条件を2度書かない）。
+      referenced_by: osm_way
     tags: all
 
   # --- 年次の統計 -----------------------------------------------------------

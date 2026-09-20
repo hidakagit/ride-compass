@@ -16,13 +16,14 @@ from shapely.geometry import LineString
 
 from app.batch.import_designations import _download_zip, extract_features
 from app.batch.ingest import SourceRecord, register_adapter
-from app.batch.source_profile import SourceSpec, Target
+from app.batch.source_profile import SourceProfile, SourceSpec
 
 logger = logging.getLogger("ridecompass.ingest.ksj_designation")
 
 
 @register_adapter("ksj_designation")
-async def read_ksj_designations(spec: SourceSpec, target: Target) -> AsyncIterator[SourceRecord]:
+async def read_ksj_designations(spec: SourceSpec, profile: SourceProfile) -> AsyncIterator[SourceRecord]:
+    target = profile.target
     kinds = spec.rows.get("kinds") or []
     prefectures = target.prefectures
     if prefectures is None:

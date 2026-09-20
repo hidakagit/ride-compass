@@ -21,7 +21,7 @@ import shapely
 from shapely.geometry import box
 
 from app.batch.ingest import SourceRecord, register_adapter
-from app.batch.source_profile import SourceSpec, Target
+from app.batch.source_profile import SourceProfile, SourceSpec
 from app.domain.region import BoundingBox, tiles_covering_bbox
 from app.infrastructure.elevation_client import (
     DEM_MISSING_MARKER,
@@ -91,7 +91,8 @@ async def _fetch_one(client: httpx.AsyncClient, product: str, z: int, x: int, y:
 
 
 @register_adapter("gsi_dem_tile")
-async def read_gsi_dem_tiles(spec: SourceSpec, target: Target) -> AsyncIterator[SourceRecord]:
+async def read_gsi_dem_tiles(spec: SourceSpec, profile: SourceProfile) -> AsyncIterator[SourceRecord]:
+    target = profile.target
     product = str(spec.grid.get("product", DEM_TYPE_PRIORITY[0]))
     zoom = int(spec.grid["zoom"])
     min_lat, min_lon, max_lat, max_lon = target.bbox

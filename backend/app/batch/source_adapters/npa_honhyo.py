@@ -21,7 +21,7 @@ import shapely
 from shapely.geometry import Point
 
 from app.batch.ingest import SourceRecord, register_adapter
-from app.batch.source_profile import SourceSpec, Target
+from app.batch.source_profile import SourceProfile, SourceSpec
 from app.domain.accident import latitude_from_raw, longitude_from_raw
 
 logger = logging.getLogger("ridecompass.ingest.npa_honhyo")
@@ -55,7 +55,8 @@ def _download(year: int) -> Path:
 
 
 @register_adapter("npa_honhyo")
-async def read_npa_honhyo(spec: SourceSpec, target: Target) -> AsyncIterator[SourceRecord]:
+async def read_npa_honhyo(spec: SourceSpec, profile: SourceProfile) -> AsyncIterator[SourceRecord]:
+    target = profile.target
     years = spec.rows.get("years") or []
     min_lat, min_lon, max_lat, max_lon = target.bbox
     skipped = 0
