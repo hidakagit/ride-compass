@@ -23,7 +23,7 @@
   レベルdictへpushするまでは空のまま。本モジュールが持つのは型定義（`AxisDefinition`等）
   と評価用の純粋関数（`evaluate_axis_scalar`等）のみで、実データは持たない。**行データ
   （軸の新規追加・既存軸の値変更）は`api/routers/axis_admin.py`経由（create/update/
-  unpublish→再publish）で行い、`backend/migrations/`の手書きSQLでは行わない**
+  unpublish→再publish）で行う**
   （migrationは`axis_definitions`テーブルの**構造**変更のみに使う）。
 
 欠損値の表現はスカラー経路がNone、配列経路がNaN（`*_difficulty`関数・`*_difficulty_array`
@@ -299,7 +299,7 @@ class AxisDefinition(StrictModel):
 # `axis_definitions`DBテーブルが唯一の正本で、起動時（app/services/
 # axis_registry_service.py: refresh_axis_definitions）にDBから読み込みこの辞書を
 # in-placeで書き換えるまでは空のまま。新規軸の追加・既存軸の変更は`api/routers/
-# axis_admin.py`経由で行い、`backend/migrations/`の手書きSQLでは行わない
+# axis_admin.py`経由で行う
 # （モジュールdocstring参照）。
 AXIS_DEFINITIONS: dict[str, AxisDefinition] = {}
 

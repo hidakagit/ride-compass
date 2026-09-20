@@ -111,7 +111,7 @@ async def test_the_row_records_when_it_was_changed(road_graph_session: AsyncSess
     """`updated_at`が実際のDBに在って、書いた行へ値が入る。
 
     この列はmigration 0043が`CREATE TABLE`で宣言していたのにORMが持っておらず、
-    fresh bootstrap（`create_tables()`→`apply_pending_migrations()`）で作ったDBには
+    fresh bootstrap（`create_tables()`）で作ったDBには
     存在しなかった。**同じコードが環境によって違うスキーマの上で動く**状態で、
     この行を読む経路を通らない限り気づけない。
     """

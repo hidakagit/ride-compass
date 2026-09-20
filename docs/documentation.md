@@ -74,7 +74,7 @@
 ## 全件が必要なときは、生成物かコードを指す
 
 一覧そのものが必要な場面（デバッグ・棚卸し）はある。そのときは文書へ写さず、
-**生成物**（`axis-catalog.json`・`region-tile-config.json`・`material-catalog.json`）か、
+**生成物**（`region-tile-config.json`・`material-catalog.json`等）か、
 **それを定義しているコード**（`MATERIAL_CATALOG`・`_STAGES`）を指す。
 
 ## 例外: 機械が完全性を保証している表
@@ -104,7 +104,7 @@
 （強制する経路は同ファイルの`DETECTOR_ENFORCEMENT`が持つ）。
 
 - **axis_id**: 軸は軸スタジオのGUIから追加・削除でき、作り直した軸は生成された別idを持つ。
-  `backend/fixtures/axis_definitions_snapshot.json`に無いidを現行として名指しすると違反。
+  本番DBの軸定義に無いidを現行として名指しすると違反。
   当時の記録として残すなら、同じ段落に廃止・撤去の断りを書く。
 - **数値の定数**: 「`NAME`（600）」のように名前の直後へ値を書くと、定数を変えたときに
   文書側は何も壊れない。実装の値と合わなければ違反（秒↔分のような単位の読み替えは許す）。

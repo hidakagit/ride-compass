@@ -168,13 +168,13 @@ class AxisDefinitionRepository:
 
     async def count(self) -> int:
         """行数のみ（fresh bootstrap用スナップショット読み込み前の状態確認に使う。
-        `infrastructure/axis_definitions_snapshot.py`参照）。"""
+        一括投入の経路が使う）。"""
         return await self._session.scalar(select(func.count()).select_from(AxisDefinitionRow)) or 0
 
     async def delete_all(self) -> int:
         """全行を削除する（fresh bootstrap専用のスナップショット読み込みが、
         投入前にテーブルを丸ごと空にするために使う。`upsert`/`delete`と違い個別revisionの
-        +1は行わない——呼び出し側[`load_axis_definitions_snapshot`]がこの後の一括投入の
+        +1は行わない——呼び出し側がこの後の一括投入の
         締めくくりでスナップショット由来のrevisionへ直接セットするため、ここでの
         中間的なrevision操作は無意味）。"""
         result = await self._session.execute(delete(AxisDefinitionRow))

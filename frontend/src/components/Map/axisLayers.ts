@@ -2,9 +2,9 @@
 //
 // 改善計画T308: 軸の地図表示情報（display）は`GET /api/axis-catalog`が実行時に返す
 // （`domain/axis_display.py: axis_display_for()`が軸スタジオの公開状態を都度反映する）。
-// `RAMP_AXES`/`AXIS_LABELS`（本ファイル下部）はビルド時静的生成物axis-catalog.json由来の
-// **フォールバック専用**の値で、`useAxisCatalog`フック（hooks/useAxisCatalog.ts）が
-// マウント時に上記APIを取得できるまで・失敗時に使う。新しい軸は、
+// **ビルド時の写しは持たない**。`useAxisCatalog`フック（hooks/useAxisCatalog.ts）が
+// マウント時にそのAPIを取得し、届くまでは軸0件で描く——写しを持つと、API障害時に
+// 古い軸で地図が描かれ、伝播の失敗が見えなくなる。新しい軸は、
 //   1. 軸スタジオ（GUI）またはbackendのAXIS_DEFINITIONSへ軸を追加・公開する
 //   2. タイルへ事実プロパティを焼き込む（way_attribute_counts等、材料がタイル非依存でなければ）
 // だけで、再デプロイなしに地図レイヤーとして現れる（軸スタジオでの公開操作が
@@ -25,7 +25,6 @@ import type { LegendEntry } from "./legendFilter";
 import { LEGEND_NO_DATA_KEY, legendBandKey, rangeStepLabel } from "./mapColorLegend";
 import type { MapValueKind } from "./valueScale";
 import type { components } from "@/types/generated/api";
-import axisCatalog from "@/types/generated/axis-catalog.json";
 
 // 改善計画T440: AxisDefinition.shapeのフロント側型（GET /api/axis-catalog:
 // AxisCatalogEntry.shapeと同じ、OpenAPI生成物由来）。
@@ -258,11 +257,6 @@ export function rampAxesFromCatalogAxes(
     }));
 }
 
-// ビルド時静的json由来のフォールバック専用値（モジュール先頭の注記参照）。
-export const AXIS_LABELS: Record<string, string> = axisLabelsFromCatalogAxes(axisCatalog.axes as CatalogAxis[]);
-
-export const RAMP_AXES: readonly RampAxis[] = rampAxesFromCatalogAxes(axisCatalog.axes as CatalogAxis[]);
-
 /** mapLayers.ts のレイヤーID（チップ・パネル・visibility状態のキー） */
 export type AxisMapLayerId = `axis:${string}`;
 
@@ -310,10 +304,6 @@ export function dedicatedWayValueAxesFromCatalogAxes(axes: readonly CatalogAxis[
       needsSpeed: axis.dynamic_way_value_needs_speed ?? false,
     }));
 }
-
-export const DEDICATED_WAY_VALUE_AXES: readonly DedicatedWayValueAxis[] = dedicatedWayValueAxesFromCatalogAxes(
-  axisCatalog.axes as CatalogAxis[],
-);
 
 /** mapLayers.ts のレイヤーID（visibility状態のキー）。ramp軸の`axis:${axisId}`とは
  * 別の名前空間——同じ軸がramp・専用配信の両方を持ちうるため衝突させられない。 */

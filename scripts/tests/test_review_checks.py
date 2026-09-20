@@ -1560,27 +1560,6 @@ def test_find_web_layer_batch_imports_allows_batch_itself():
     assert review_checks.find_web_layer_batch_imports(src) == []
 
 
-def test_find_way_tag_allowlist_violations_covers_files_outside_the_material_catalog():
-    """`hard_filters.py`・`night.py`のように、材料カタログを持たないがway_tagsを読む
-    ファイルも対象（手書き3本の一覧では外れていた）。"""
-    src = {"backend/app/domain/hard_filters.py": list(enumerate([
-        'if tag_value_is(way_tags, "zzz_not_allowed", "yes"):',
-    ], 1))}
-
-    hits = review_checks.find_way_tag_allowlist_violations(src)
-
-    assert len(hits) == 1
-    assert "zzz_not_allowed" in hits[0]
-
-
-def test_find_way_tag_allowlist_violations_accepts_an_allowed_key():
-    src = {"backend/app/domain/night.py": list(enumerate([
-        'if tag_value_is(tags, "lit", "yes"):',
-    ], 1))}
-
-    assert review_checks.find_way_tag_allowlist_violations(src) == []
-
-
 def test_find_undocumented_files_reports_a_file_named_nowhere():
     files = ["backend/app/services/zzz_alone.py"]
 
@@ -1738,35 +1717,35 @@ def test_stale_gap_notes_accepts_a_reason_for_a_gap_that_is_still_open(monkeypat
 
 #: 表名の宣言は2箇所にある。テストは実在するファイルを使う——正規表現だけを合わせても、
 #: 実際の書き方（`IF NOT EXISTS`・引用符・スキーマ修飾）から外れれば意味がない。
-_DDL_FILE = "backend/migrations/0036_add_way_geometry.sql"
 _ORM_FILE = "backend/app/infrastructure/tuning_overrides.py"
 
 
-def test_declared_tables_reads_both_the_migration_ddl_and_the_orm():
-    found = review_checks.declared_tables([_DDL_FILE, _ORM_FILE])
+def test_declared_tables_reads_the_orm_declarations():
+    """スキーマの宣言はORMだけが持つ（migrationは撤去済み）。"""
+    found = review_checks.declared_tables([_ORM_FILE])
 
-    assert found == {"way_geometry": _DDL_FILE, "tuning_overrides": _ORM_FILE}
+    assert found == {"tuning_overrides": _ORM_FILE}
 
 
 def test_find_undocumented_tables_is_quiet_when_the_document_names_them():
-    assert review_checks.find_undocumented_tables([_DDL_FILE, _ORM_FILE]) == []
+    assert review_checks.find_undocumented_tables([_ORM_FILE]) == []
 
 
 def test_find_undocumented_tables_reports_a_table_the_document_never_names(monkeypatch):
     # 文書の側を「その名前を書いていない文書」へ差し替えて、拾うことを見る。
     monkeypatch.setattr(review_checks, "ARCHITECTURE_DOC", "docs/design-principles.md")
 
-    hits = review_checks.find_undocumented_tables([_DDL_FILE, _ORM_FILE])
+    hits = review_checks.find_undocumented_tables([_ORM_FILE])
 
-    assert len(hits) == 2
+    assert len(hits) == 1
 
 
 def test_find_undocumented_tables_only_looks_at_the_given_scope(monkeypatch):
     monkeypatch.setattr(review_checks, "ARCHITECTURE_DOC", "docs/design-principles.md")
 
-    hits = review_checks.find_undocumented_tables([_DDL_FILE, _ORM_FILE], scope=[_ORM_FILE])
+    hits = review_checks.find_undocumented_tables([_ORM_FILE], scope=[_ORM_FILE])
 
-    assert [h for h in hits if "way_geometry" in h] == []
+    assert [h for h in hits if "tuning_overrides" in h] != []
 
 
 # 綴りは実行時に組み立てる。このファイル自身が`scripts/`にあり、判定に使うgitのpickaxeは

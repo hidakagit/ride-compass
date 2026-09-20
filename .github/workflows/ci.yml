@@ -8,8 +8,8 @@
 #   サービスコンテナ（docker-compose.ymlと同じイメージ）+ TEST_DATABASE_URL 注入で実行する
 #   （改善計画T233、consistencyレビュー2026-08-23 F-1: 統合テスト約100件がCIで一度も検証
 #   されず、T224の回帰テスト自身もその中に含まれていたことが発覚したため追加）。
-#   API契約チェック（export_openapi.py）は同じコンテナに対しmigration適用後の状態で行う
-#   （ステップ順序の制約はbackendジョブ内のコメント参照——pytestより後に実行必須）。
+#   API契約チェック（export_openapi.py）はDBを読まない——生成物はすべてコードの宣言から
+#   決まる。軸定義はDBが正本で、実行時の GET /api/axis-catalog が配る。
 # - frontend: eslint → tsc --noEmit → vitest の順。型エラー・lintは実行の速い順に先へ置き、
 #   失敗を早く返す。
 # - e2e: クリティカルパス（ルート生成→表示、レイヤー切替）のPlaywrightスモークテスト
@@ -44,21 +44,9 @@ jobs:
   # backend単体テスト（PostGIS統合テスト込み）＋API契約のドリフト検知（改善計画T4）を
   # 1ジョブに統合（改善計画T350のcode-review対応、2026-08-27）。
   #
-  # 統合の背景: T350でaxis_definitions.pyのAXIS_DEFINITIONS（Python literal）を撤去し
-  # axis_definitionsテーブルが14軸全ての唯一の正本になったことで、API契約チェック
-  # （backend/scripts/export_openapi.py）にも実DB＋migration適用が必須になった。
-  # 当初はapi-contractジョブへ専用のpostgresサービスコンテナを別途追加したが、
-  # code-reviewで「backendジョブと2つの独立したpostgresコンテナが並行起動し、
-  # GitHub Actions無償枠を不必要に消費している」と指摘され、1つのジョブ・1つの
-  # コンテナへ統合した。
-  #
-  # ステップ順序の制約（重要）: pytestの実行を必ずmigration適用（scripts/
-  # bootstrap_ci_db.py）より先に行うこと。tests/test_health.pyの
-  # test_db_status_returns_table_row_counts_and_import_run_status_for_empty_test_dbは
-  # 「ridecompass_test DBがBase.metadata.create_allのみでapply_pending_migrationsを
-  # 経由していない（＝migration未適用）」状態を前提にpending_migrationsが非空である
-  # ことを検証している。先にbootstrap_ci_db.pyでmigrationを適用してしまうと、
-  # このテストが常に失敗するようになる（ローカルで実際に再現・確認済み）。
+  # 統合の背景: ジョブを分けると、backendジョブと独立したpostgresコンテナが並行起動し、
+  # GitHub Actionsの無償枠を余計に消費する。1ジョブ・1コンテナへ統合してある。
+
   backend:
     runs-on: ubuntu-latest
     defaults:
@@ -113,13 +101,11 @@ jobs:
       # PostGIS統合テストは全ファイルxdist_group="postgis"で同一workerへ固定済み
       # （同じridecompass_test DBへの同時TRUNCATEレースを防ぐ、docs/testing.mdパターン2）
       # なので、それら以外のテストだけが安全に並列化される。上記コメント参照:
-      # このステップは必ずbootstrap_ci_db.py（次のステップ）より先に実行すること。
       - run: python -m pytest -q -n auto --dist loadgroup
-      # ここから改善計画T4のAPI契約ドリフト検知（旧api-contractジョブ）。
-      # 差分が出た場合は、backendのモデル変更に対して
-      # backend/scripts/export_openapi.py → cd frontend && npm run generate:api
-      # の実行とコミットが漏れている。
-      - run: python scripts/bootstrap_ci_db.py
+      # API契約ドリフト検知（改善計画T4）。差分が出た場合は、backendの宣言を変えたのに
+      # backend/scripts/export_openapi.py → cd frontend && npm run generate:api の
+      # 実行とコミットが漏れている。**生成物はすべてコードの宣言から決まり、DBを読まない**
+      # ——軸定義はDBが正本で、実行時の GET /api/axis-catalog が配る。
       - run: python scripts/export_openapi.py
       - run: npm ci
         working-directory: frontend

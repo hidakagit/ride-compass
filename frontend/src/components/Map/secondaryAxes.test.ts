@@ -4,21 +4,10 @@
 // DOM不要のためnode環境で実行する。
 
 import { describe, expect, it } from "vitest";
-import { secondaryAxesFromCatalogAxes, SECONDARY_AXES } from "./secondaryAxes";
+import { secondaryAxesFromCatalogAxes } from "./secondaryAxes";
 import type { CatalogAxis } from "./axisLayers";
-import axisCatalog from "@/types/generated/axis-catalog.json";
 
 describe("secondaryAxesFromCatalogAxes（改善計画T310）", () => {
-  it("既存軸（静的フォールバック）はchip_label/icon_idが軸自身のデータから反映される", () => {
-    const gradient = SECONDARY_AXES.find((axis) => axis.axisId === "gradient")!;
-    expect(gradient.chipLabel).toBe("勾配");
-    expect(gradient.iconId).toBe("incline");
-
-    const carStress = SECONDARY_AXES.find((axis) => axis.axisId === "car_stress")!;
-    expect(carStress.chipLabel).toBe("圧迫感");
-    expect(carStress.iconId).toBe("warning-triangle");
-  });
-
   it("chip_label未設定の軸はdisplay.labelへフォールバックする", () => {
     const catalogAxes: CatalogAxis[] = [
       {
@@ -167,20 +156,7 @@ describe("secondaryAxesFromCatalogAxes（改善計画T310）", () => {
   // 地図向けの一覧から軸を外す唯一のスイッチは`show_map_icon`（軸スタジオから設定する）。
   // 軸id・categoryをコード側で名指しする除外を足すと、軸スタジオ側で値が変わった時点で
   // 黙って効かなくなるため、除外の経路はこれ1本に保つ。
-  describe("show_map_icon による除外（実データ）", () => {
-    it("show_map_icon===falseの既存軸は一覧から落ち、それ以外の表示可能な軸は残る", () => {
-      const catalogAxes = axisCatalog.axes as CatalogAxis[];
-      const shown = catalogAxes.filter((axis) => axis.display !== null && axis.show_map_icon !== false);
-      // 母集団が空だとこのテストは何も確かめずに緑になる。0件になったら実データ側を見直す。
-      expect(shown.length).toBeGreaterThan(0);
-      for (const axis of shown) {
-        expect(SECONDARY_AXES.some((entry) => entry.axisId === axis.axis_id)).toBe(true);
-      }
-      // 現在の公開軸はすべて地図へ出す（show_map_icon===falseの軸が無い）。除外そのものは
-      // 下のフィクスチャで固定する——実データに該当が無いことと、仕組みが無いことは別。
-      expect(catalogAxes.every((axis) => axis.show_map_icon !== false)).toBe(true);
-    });
-
+  describe("show_map_icon による除外", () => {
     it("show_map_icon===falseの軸は一覧から落ちる", () => {
       const catalogAxes: CatalogAxis[] = [
         {

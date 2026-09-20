@@ -1,11 +1,25 @@
 // @vitest-environment node
 import { describe, expect, it } from "vitest";
-import { DEDICATED_WAY_VALUE_AXES, RAMP_AXES } from "./axisLayers";
 import { buildLayerDataSources, ROAD_TILE_SOURCE_ID } from "./MapView";
 import { buildMapLayers } from "./mapLayers";
 import { ROAD_TILE_MIN_ZOOM } from "@/services/regionApi";
 import { clearStaleTrackedSourceErrors, computeLayerDataStatus } from "./useLayerDataStatus";
 import { createFakeDataStatusMap } from "@/testing/fakeDataStatusMap";
+import { rampAxesFromCatalogAxes, dedicatedWayValueAxesFromCatalogAxes } from "./axisLayers";
+import { catalogAxis } from "./__fixtures__/catalogAxes";
+
+// 軸カタログはDBが配るため、ビルド時の一覧を当てにしない。変換が分岐する形を
+// 一通り含む合成入力から、本番と同じ関数で作る。
+const RAMP_AXES = rampAxesFromCatalogAxes([
+  catalogAxis({ axis_id: "ramp", display: { tile_inputs: [{ property: "v", weight: 1 }], thresholds: [50] } }),
+]);
+const DEDICATED_WAY_VALUE_AXES = dedicatedWayValueAxesFromCatalogAxes([
+  catalogAxis({
+    axis_id: "ded",
+    dedicated_way_value_layer: true,
+    display: { tile_inputs: [{ property: "v", weight: 1 }], thresholds: [50] },
+  }),
+]);
 
 // ビルド時静的フォールバック（RAMP_AXES、軸スタジオが公開したGUI作成軸を含まない）を
 // 入力に組み立てた結果。以前のLAYER_DATA_SOURCES/ROAD_SURFACE_SHARED_LAYER_IDS定数と

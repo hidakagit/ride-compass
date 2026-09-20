@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { describe, expect, it } from "vitest";
-import { DEDICATED_WAY_VALUE_AXES, dedicatedWayValueMapLayerId } from "./axisLayers";
+import { dedicatedWayValueMapLayerId } from "./axisLayers";
 import {
   buildDefaultLayerVisibility,
   buildMapLayers,
@@ -10,6 +10,18 @@ import {
   tileZoomTooWideLayerIds,
 } from "./mapLayers";
 import { LANDCOVER_TILE_MIN_ZOOM, ROAD_TILE_MIN_ZOOM } from "@/services/regionApi";
+import { dedicatedWayValueAxesFromCatalogAxes } from "./axisLayers";
+import { catalogAxis } from "./__fixtures__/catalogAxes";
+
+// 軸カタログはDBが配るため、ビルド時の一覧を当てにしない。変換が分岐する形を
+// 一通り含む合成入力から、本番と同じ関数で作る。
+const DEDICATED_WAY_VALUE_AXES = dedicatedWayValueAxesFromCatalogAxes([
+  catalogAxis({
+    axis_id: "ded",
+    dedicated_way_value_layer: true,
+    display: { tile_inputs: [{ property: "v", weight: 1 }], thresholds: [50] },
+  }),
+]);
 
 describe("mapLayers（改善計画T440: axis_idハードコード比較の撤去）", () => {
   it("isAxisStudioLayer: 専用way値配信軸の記述子は、axis_idのハードコード比較ではなく軸カタログ由来のフラグでtrueになる", () => {

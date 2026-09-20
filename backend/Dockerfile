@@ -14,16 +14,8 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 COPY app ./app
-# migrations/scripts: 改善計画T349でfail-fast化した都合上、デプロイパイプライン側で
-# `python scripts/apply_migrations.py`（backend/app/infrastructure/migrate.py参照）を
-# 起動前に実行してmigrationを適用する必要があり、そのためにイメージへ同梱する
-# （以前はappディレクトリのみで、DB未接続時は起動を止めない安全側フォールバックが
-# あったためmigration適用漏れがあっても気づかれなかった）。
-COPY migrations ./migrations
+# scripts: デプロイが起動前に実行する運用スクリプト（土地被覆ラスタの取得等）を同梱する。
 COPY scripts ./scripts
-# axis_definitionsのfresh bootstrap用スナップショット（改善計画T361）。
-# scripts/bootstrap_fresh_db.py・scripts/dump_axis_definitions_snapshot.pyが読み書きする。
-COPY fixtures ./fixtures
 
 EXPOSE 8000
 

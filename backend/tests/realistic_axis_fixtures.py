@@ -17,7 +17,7 @@ axis_idの直接ハードコードで、この「フルセット必須」の一�
 何も掛け替えず動作する（KeyError等では落ちない、`test_evaluation.py:
 test_with_time_scope_*`・`test_axis_registry_service.py:
 test_delete_allows_axis_id_after_t352_generalization`で裏付け済み）。ルート地図の
-色分けモード（旧`supports_route_coloring`）も改善計画T549で全公開軸を無条件で対象に
+色分けモードも改善計画T549で全公開軸を無条件で対象に
 する設計へ変更され、windは同様の理由で対象から外れた。それでも本
 autouseフィクスチャ自体は撤去・縮小していない——car_stressのハードコード
 （T352の対象外、`services/axis_registry_service.py: _CODE_COUPLED_AXIS_IDS`参照）が
@@ -32,7 +32,7 @@ autouseフィクスチャ自体は撤去・縮小していない——car_stress
 （値そのものを検証したいテストは、testファイル内でさらに局所的な合成軸を定義すること。
 `tests/test_difficulty.py`・`tests/test_axis_display.py`・`tests/test_evaluation_bulk.py`
 参照）。DBの実データとは完全に独立しており、DB側の値が変わってもこのフィクスチャは
-追従不要（追従すべきなのはDBの構造検証を行う`tests/test_migrate.py`のみ）。
+追従不要。
 """
 
 from contextlib import contextmanager

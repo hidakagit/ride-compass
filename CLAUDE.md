@@ -81,7 +81,7 @@ CronCreate等）に付随する進捗・ログ・通知メッセージも例外�
 - 書く: その要素群が何をするか・増えたときに何が起きるか・実装を読んだだけでは
   分からないこと（暗黙の前提・外部システムの挙動・実測値）
 - **代表例は許容する**。挙動を分かりやすくするためなら「◯◯等」「例:」の形で挙げてよい
-- 全件が必要なら生成物（axis-catalog.json等）かそれを定義するコードを指す
+- 全件が必要なら生成物（material-catalog.json等）かそれを定義するコードを指す
 - 例外は**機械が完全性を検査している表**だけ（現在はdocs/modules/*.mdの対象ファイル表。
   `find_undocumented_files`が検査する）。同じ一覧を検査の無い場所へ二重に持たない
 
@@ -99,6 +99,10 @@ CronCreate等）に付随する進捗・ログ・通知メッセージも例外�
   消した時点で既に死んでいた参照を最後に発見し、重いスイートを回し直すことになる。
   **重いスイートで初めて分かる事実（別タスクが終わるまでグリーンにならない等）は、早く
   知るほど計画を変えられる。**
+  **段階（A/B/C…）を切って進めるときは、次の段階へ移る前にこの①②を通す。**段階Cで
+  撤去したものの参照が段階Aの終盤で出てくる、という形の手戻りはこれで止まる。
+  **1件直すたびに検査を回し直さない**——出た指摘は全部直してから、次の1回を回す。
+  1つ直して回す、を繰り返すと、同じ検査を何度も待つことになる。
 - **テスト結果はpassedの件数だけで判断しない。警告も結果の一部として読む。**
   backendは`pytest.ini`の`filterwarnings = error`で機械的に止まる。無視するものは理由付きの
   `ignore`行として足す（詳細はdocs/testing.md「警告は既定でエラー」参照）。
@@ -238,32 +242,10 @@ T536でそれを置き換えた`compute_edge_costs_bulk`まで同じ理由で残
 - **評価軸（`axis_definitions`テーブル）の新規追加・削除・既存軸の`shape_params`調整は、
   すべて`axis_admin`のAPI（軸スタジオのGUI、または直接API呼び出し。新規追加=POST、
   削除=unpublish→DELETE、公開軸の調整=unpublish→PUT→republish）経由で行う。
-  `backend/migrations/`は`axis_definitions`/`axis_registry_meta`の**テーブル構造
-  （DDL）のみ**を管理し、以後の新規migrationへ軸の行データ（INSERT/UPDATE/DELETE）を
-  追加することはない**（経緯は[T361](docs/tasks/T361.md)参照）。
-  **新しいmigrationは[docs/migration-template.sql](docs/migration-template.sql)の雛形に
-  従う**（冪等に書く・適用側が`;`で文を分割するため`DO $$`は使えない・`migrations/*.sql`は
-  全て適用対象のため雛形自体をそこへ置かない）。0014〜0022（過去に追加した行データ入りの
-  migration）はこのプロジェクトの標準運用どおり書き換えない。fresh bootstrap（CI・
-  新規環境・disaster recovery、まっさらなDBへ`create_tables()`→
-  `apply_pending_migrations()`を適用した直後）は、`backend/fixtures/
-  axis_definitions_snapshot.json`（現在の実DBの内容を`backend/scripts/
-  dump_axis_definitions_snapshot.py`でダンプしたスナップショット）を`backend/scripts/
-  bootstrap_fresh_db.py`（新規環境用）・`backend/scripts/bootstrap_ci_db.py`（CI用）が
-  読み込み、テーブルを丸ごと置き換えて実データを用意する
-  （`app/infrastructure/axis_definitions_snapshot.py: load_axis_definitions_snapshot`）。
-  このロードは無条件にテーブルを空にしてから投入するfresh bootstrap専用の操作のため、
-  通常のアプリ起動経路（`main.py`のlifespan・`refresh_axis_definitions`）や、稼働中の
-  DBに対して繰り返し実行される`app/batch/import_pbf.py`等からは呼ばない（誤って本番の
-  生きた軸データをスナップショットの内容で上書きする事故を防ぐため）。スナップショットの
-  更新は手動運用（本番/devでAPI経由の軸変更を行った後、`dump_axis_definitions_snapshot.py`
-  を都度手動実行してリフレッシュしコミットする。自動化はしていない——低頻度な操作の
-  ためデプロイパイプラインへ組み込むリスクの方が上回ると判断した）。
-  `domain/axis_definitions.py: AXIS_DEFINITIONS`のPython literalは撤去済みでDBが
-  唯一の正本。`tests/test_migrate.py`のブートストラップテストは、
-  まっさらなDBへ全migration適用→スナップショット読み込みまでの一連の流れを検証する
-  （DB接続が要るため`pytest -m "not postgis"`実行時はスキップされる。ローカル
-  PostgreSQLを起動して`pytest tests/test_migrate.py`を実行し確認すること）。
+  **正本は本番DBだけ**で、リポジトリは軸の写しを持たない——スキーマはORMの宣言から
+  `create_tables()`が作り、軸の中身は実行時の`GET /api/axis-catalog`がフロントへ配る。
+  ビルド時の生成物（`frontend/src/types/generated/`）はすべてコードの宣言から決まり、
+  DBを読まない。取り直せない管理データのバックアップは[T972](docs/tasks/T972.md)。
 - **axis_admin API経由のDB行データ変更を完了扱いにする条件は[docs/deployment-sync.md]
   (docs/deployment-sync.md)参照**（開発DBのみの反映で完了扱いにしない）。
 - **既存DBの行データを新しいコードが読めなくなる変更（Pydanticモデルの破壊的変更等）を

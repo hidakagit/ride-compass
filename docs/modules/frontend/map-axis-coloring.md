@@ -17,6 +17,7 @@
 | `Map/valueScale.ts` | 地図表示値の種類（`MapValueKind`: 難易度／符号付き材料）ごとの既定しきい値・配色、HSL補間、段階分け色式。ルート前後の色分けが共有する葉モジュール |
 | `Map/dynamicWayValues.ts` | タイル座標計算・複数タイル応答の統合（材料非依存の共通部分） |
 | `Map/axisLayers.ts` | `rampColorForBand`/`COLOR_UNKNOWN`（ramp軸の共有色ヘルパー）。ramp軸自体の全面的な生成ロジックは主に[地図: 静的レイヤー・道路表示](static-map-layers.md)の管轄 |
+| `Map/__fixtures__/catalogAxes.ts` | 軸カタログの変換関数へ渡す合成入力（テスト専用）。**実際の公開軸を入力に使わない**——公開軸はDBが持ち軸スタジオで増減するため、実物を当てにすると変換の正しさではなく「いま何が公開されているか」を検証するテストになる |
 | `Map/mapColorLegend.ts` | 地図上の色分け凡例（`MapColorLegendBand`型・`buildRangeLegendBands`・`rangeStepLabel`）の共通ロジック。`dedicatedWayValueLegend`が使う |
 | `components/LensControl/LensControl.tsx` | レンズ（地図を何で塗るか）の唯一の入口。地図上部中央のピルが現在のレンズと凡例を示し、タップで単一選択の一覧（なし／総合難易度／評価に使用中の軸／未使用の軸）と「ルート後も周囲の道路を薄く塗る」トグルを開く（`page.tsx`が選択肢・凡例を組み立てる） |
 | `Map/mapLayers.ts` | `isAxisStudioLayer`（レイヤーID判定） |

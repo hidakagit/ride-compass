@@ -12,7 +12,6 @@ frontendのnpm run generate:apiを実行して生成物を同じコミットに�
     .venv\\Scripts\\python.exe scripts\\export_openapi.py
 """
 
-import asyncio
 import json
 import sys
 from pathlib import Path
@@ -20,9 +19,7 @@ from typing import get_args
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from app.domain.axis_definitions import AXIS_DEFINITIONS, default_axis_weights  # noqa: E402
 from app.domain.registry import (  # noqa: E402
-    all_axes,
     all_primary_attributes,
     reset_registry_for_testing,
 )
@@ -35,23 +32,13 @@ from app.domain.wind_grid import (  # noqa: E402
     WIND_GRID_SPACING_DEG,
 )
 from app.api.routers.routes import DEFAULT_DISTANCE_TOLERANCE_KM, MAX_ROUTE_DISTANCE_KM  # noqa: E402
-from app.infrastructure.axis_definition_repository import AxisDefinitionRepository  # noqa: E402
-from app.infrastructure.database import get_session_factory  # noqa: E402
 from app.infrastructure.vector_tile import (  # noqa: E402
     ACCIDENT_LAYER_NAME,
     ROAD_SURFACE_LAYER_NAME,
     STOP_POI_LAYER_NAME,
 )
 from app.main import app  # noqa: E402
-from app.services.axis_registry_service import refresh_axis_definitions  # noqa: E402
 from app.domain.wind import ASSUMED_SPEED_KMH, MAX_ASSUMED_SPEED_KMH, MIN_ASSUMED_SPEED_KMH  # noqa: E402
-from app.domain.axis_display import raw_value_total_unit, raw_value_unit  # noqa: E402
-from app.api.routers.axis_catalog import _material_breakdown as material_breakdown_for  # noqa: E402
-from app.domain.dynamic_way_values import (  # noqa: E402
-    map_value_kind,
-    map_value_thresholds,
-    map_value_unit,
-)
 from app.domain.hard_filters import DEFAULT_HARD_FILTERS, HARD_FILTER_NAMES  # noqa: E402
 from app.domain.landcover import (  # noqa: E402
     LANDCOVER_CLASSES,
@@ -71,7 +58,7 @@ GENERATED_DIR = Path(__file__).resolve().parents[2] / "frontend" / "src" / "type
 OUTPUT_PATH = GENERATED_DIR / "openapi.json"
 SURFACE_TAGS_PATH = GENERATED_DIR / "surface-tags.json"
 REGION_TILE_CONFIG_PATH = GENERATED_DIR / "region-tile-config.json"
-AXIS_CATALOG_PATH = GENERATED_DIR / "axis-catalog.json"
+PRIMARY_ATTRIBUTES_PATH = GENERATED_DIR / "primary-attributes.json"
 WIND_GRID_CONFIG_PATH = GENERATED_DIR / "wind-grid-config.json"
 ROUTE_GENERATE_CONFIG_PATH = GENERATED_DIR / "route-generate-config.json"
 JMA_TILE_CONFIG_PATH = GENERATED_DIR / "jma-tile-config.json"
@@ -88,31 +75,8 @@ def _write_json(path: Path, data: dict | list) -> None:
     print(f"wrote {path}")
 
 
-async def _load_axis_definitions_from_db() -> None:
-    """DBの軸定義でAXIS_DEFINITIONSをin-place更新する（改善計画T278のバグ修正）。
-
-    以前は本スクリプトがAXIS_DEFINITIONSをコード内蔵の静的辞書のまま一切DBへ
-    問い合わせなかったため、軸スタジオがDBのみに作った新規軸（コード内蔵の既定値には
-    存在しない）が生成物へ一切反映されなかった。
-
-    改善計画T350: `AXIS_DEFINITIONS`のPython literal撤去に伴い、DB読み込み失敗時に
-    フォールバックする「コード内蔵の既定値」自体が存在しなくなった。以前はCIの
-    `api-contract`ジョブがDB接続を持たなかったため、この関数が例外を捕捉して
-    「空のAXIS_DEFINITIONSのまま生成を続行し、コード内蔵の既定値ぶんの内容だけ
-    出力する」というフォールバックを行っていたが、その出力自体が「空のカタログ」に
-    なってしまい、生成失敗をエラーなく見逃す方が実害が大きいと判断してfail-fast化した
-    （`api-contract`ジョブは同じ改善計画T350でpostgresサービスコンテナを追加済みのため、
-    通常の実行経路では影響しない）。DB接続が無い環境でこのスクリプトを実行すると
-    例外がそのまま送出され、`main()`を異常終了させる。
-    """
-    session_factory = get_session_factory()
-    async with session_factory() as session:
-        await refresh_axis_definitions(AxisDefinitionRepository(session))
-
-
 def main() -> None:
     GENERATED_DIR.mkdir(parents=True, exist_ok=True)
-    asyncio.run(_load_axis_definitions_from_db())
     _write_json(OUTPUT_PATH, app.openapi())
     # 路面語彙の正準タグ集合（domain/road.py）。フロントの表示グループ定義
     # （roadFilterAxes.ts）が正準分類とずれていないことをroadFilterAxes.test.tsが
@@ -203,101 +167,21 @@ def main() -> None:
             for spec in axis_studio_materials()
         ],
     )
-    # 二次軸カタログ（改善計画T145b「事実はタイルに、解釈はクライアントに」）。
-    # レジストリ（domain/registry_defaults.py）の全軸と表示宣言（AxisDisplaySpec）を
-    # 書き出し、フロントの汎用レイヤーファクトリ（axisLayers.ts）がkind="ramp"の軸から
-    # レイヤー・凡例を自動生成する。新しい軸はレジストリへの登録（＋タイルへの事実の
-    # 焼き込み）だけで地図レイヤーが現れる。
-    # 一次属性カタログ（改善計画T163、地図レイヤー階層の次数反転）も同じレジストリから
-    # 書き出す。各軸のprimary_attribute_idsは既にattr_idのリストとして含まれているため、
-    # フロントはこのprimary_attributesのlabel（正式名）とprimary_attribute_idsの組み合わせ
-    # だけで2次→1次・1次→2次の双方向導出ができる（片側import、設計原則2）。
-    #
-    # `all_axes()`は組み込み・軸スタジオ作成を問わず全公開軸を含む
-    # （`domain/registry_defaults.py`の`_register_axes()`が`AXIS_DEFINITIONS`を走査して
-    # 一様に登録するため）。ここで軸の出どころによる場合分けをしないこと。
+    # **軸そのものはここへ書き出さない。** 軸定義の正本は本番DBで、実行時の
+    # `GET /api/axis-catalog`が配る。ビルド時に写しを持つと、API障害時に古い軸で
+    # 地図が描かれ、伝播の失敗が見えなくなる。
     reset_registry_for_testing()
     register_defaults()
     _write_json(
-        AXIS_CATALOG_PATH,
-        {
-            "axes": [
-                {
-                    "axis_id": axis.axis_id,
-                    # 改善計画T352: ルート地図の色分けモード（frontend routeStyleModes.ts）が
-                    # 軸ラベルを動的に組み立てるための値。display.labelは
-                    # kind="none"の軸（例: wind）でも設定されているが、実行時API
-                    # （GET /api/axis-catalog: AxisCatalogEntry.label）と揃えるため
-                    # 独立したトップレベルフィールドとして書き出す。
-                    "label": AXIS_DEFINITIONS[axis.axis_id].label,
-                    # 実行時API（GET /api/axis-catalog: AxisCatalogEntry.description）と同じ
-                    # 説明文。これが無いとフォールバック側だけが軸ごとの説明文を手書きで
-                    # 持つことになり、軸を1本足すたびにfrontendのコード変更が要る
-                    # （docs/design-principles.md 構造仕様2）。
-                    "description": AXIS_DEFINITIONS[axis.axis_id].description,
-                    # コードレビュー指摘の修正: 軸自身の分類（観測/推定/動的、domain/
-                    # axis_definitions.py: AxisDefinition.category）を書き出す。これが無いと
-                    # フロント側でwind（category="動的"）を推定指標チップグループから除外
-                    # できない（secondaryAxes.ts参照）。
-                    "category": AXIS_DEFINITIONS[axis.axis_id].category,
-                    # 改善計画T308: GET /api/axis-catalog（実行時API）のprimary_attribute_ids
-                    # と同じ値をキー名も揃えて書き出す（frontend側のCatalogAxis型・
-                    # secondaryAxesFromCatalogAxes等が実行時API/静的生成物どちらの入力も
-                    # 同じ変換関数で処理できるようにするため）。死コード監査（過去の監査）で、
-                    # 同じ値を重複して書き出していた旧inputsキー（唯一の読み手だった
-                    # frontend/src/lib/evaluationAxes.test.tsはprimary_attribute_ids読みへ
-                    # 移行済み）は削除した。
-                    "primary_attribute_ids": axis.inputs,
-                    # 改善計画T310: registry.py側のAxisSpecはicon_id等を持たないため、
-                    # AXIS_DEFINITIONS側（単一ソース、domain/axis_definitions.py）を都度引く。
-                    "icon_id": AXIS_DEFINITIONS[axis.axis_id].icon_id,
-                    "chip_label": AXIS_DEFINITIONS[axis.axis_id].chip_label,
-                    "panel_hint": AXIS_DEFINITIONS[axis.axis_id].panel_hint,
-                    "show_map_icon": AXIS_DEFINITIONS[axis.axis_id].show_map_icon,
-                    "display": axis.display.model_dump() if axis.display is not None else None,
-                    # 改善計画T440: GET /api/axis-catalog（AxisCatalogEntry）と同じ「軸スタジオで
-                    # 決められること全部返す」方針を静的フォールバックにも揃える。
-                    "shape": AXIS_DEFINITIONS[axis.axis_id].shape.model_dump(),
-                    "display_thresholds_override": AXIS_DEFINITIONS[axis.axis_id].display_thresholds_override,
-                    "display_band_labels_override": AXIS_DEFINITIONS[axis.axis_id].display_band_labels_override,
-                    "dedicated_way_value_layer": AXIS_DEFINITIONS[axis.axis_id].dedicated_way_value_layer,
-                    "map_value_kind": map_value_kind(AXIS_DEFINITIONS[axis.axis_id]),
-                    "map_value_unit": map_value_unit(AXIS_DEFINITIONS[axis.axis_id]),
-                    "map_value_thresholds": map_value_thresholds(AXIS_DEFINITIONS[axis.axis_id]),
-                    # 実行時API（AxisCatalogEntry.raw_value_unit）と同じ、折れ点を通す前の
-                    # 生値の単位。ルート結果が得点の隣に生値を出すために要る。
-                    "raw_value_unit": raw_value_unit(AXIS_DEFINITIONS[axis.axis_id]),
-                    # 同じく実行時API（AxisCatalogEntry.raw_value_total_unit）と揃える。
-                    # 生値へ距離を掛けた総量を出す軸だけが単位を持つ。
-                    "raw_value_total_unit": raw_value_total_unit(AXIS_DEFINITIONS[axis.axis_id]),
-                    # 同じく実行時API（AxisCatalogEntry.material_breakdown）と揃える。
-                    # 単位が定まらない軸の内訳を材料まで分解した並び。
-                    "material_breakdown": [
-                        entry.model_dump()
-                        for entry in material_breakdown_for(AXIS_DEFINITIONS[axis.axis_id])
-                    ],
-                    "dynamic_way_value_needs_time": AXIS_DEFINITIONS[axis.axis_id].dynamic_way_value_needs_time,
-                    "dynamic_way_value_needs_bearing": AXIS_DEFINITIONS[axis.axis_id].dynamic_way_value_needs_bearing,
-                    "dynamic_way_value_needs_speed": AXIS_DEFINITIONS[axis.axis_id].dynamic_way_value_needs_speed,
-                }
-                for axis in all_axes()
-            ],
-            "primary_attributes": [
-                {
-                    "attr_id": attr.attr_id,
-                    "label": attr.label,
-                    "shared": attr.shared,
-                }
-                for attr in all_primary_attributes()
-            ],
-            # 区間難易度の重み（route_preference）の既定値（改善計画T221 Stage B）。
-            # domain/axis_definitions.py: AXIS_DEFINITIONSのdefault_weightを書き出し、
-            # フロント（evaluationAxes.ts: DEFAULT_ROUTE_PREFERENCE）はこの値を読む
-            # （以前はroute_preference.yamlの手書きミラーで、値の変更時にドリフトしうる
-            # 手動同期ペアだった）。表示カタログのaxes[]と異なりwindを含む全軸を持つ
-            # （windはレイヤー表示を持たないためaxes[]には無いが、重みの軸としては存在する）。
-            "preference_defaults": default_axis_weights(),
-        },
+        PRIMARY_ATTRIBUTES_PATH,
+        # 一次属性カタログ（地図レイヤー階層の次数反転）。レジストリ
+        # （`domain/registry.py`）だけから決まり、DBを読まない。各軸の
+        # `primary_attribute_ids`は実行時の`GET /api/axis-catalog`が配るため、フロントは
+        # この一覧のlabel（正式名）と突き合わせて1次↔2次の双方向導出ができる。
+        [
+            {"attr_id": attr.attr_id, "label": attr.label, "shared": attr.shared}
+            for attr in all_primary_attributes()
+        ],
     )
     # 風・降水延長予報の格子間隔（改善計画T198、統合レビュー2026-08-22指摘F-B）。
     # domain/wind_grid.pyの定数群をfrontend/src/components/Map/windLayer.tsが

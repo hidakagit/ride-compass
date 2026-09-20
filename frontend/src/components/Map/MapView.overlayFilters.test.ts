@@ -3,7 +3,7 @@
 // Map/*.test.tsと違いjsdom環境が必要（既定のまま。node環境docblockを付けない）。
 import { createExpression } from "@maplibre/maplibre-gl-style-spec";
 import { describe, expect, it } from "vitest";
-import { DEDICATED_WAY_VALUE_AXES, RAMP_AXES, axisLineLayerId } from "@/components/Map/axisLayers";
+import { axisLineLayerId } from "@/components/Map/axisLayers";
 import {
   DESIGNATION_LAYER_ID,
   STOP_POI_LAYER_ID,
@@ -18,6 +18,21 @@ import {
 import { buildStaticFilterAxes, type StaticFilterAxisId } from "./staticAttributeLayers";
 import { buildMapLayers, MAP_LAYER_PAINT_TIER_ORDER } from "./mapLayers";
 import { isAreaLayerType } from "./mapStyleOps";
+import { rampAxesFromCatalogAxes, dedicatedWayValueAxesFromCatalogAxes } from "@/components/Map/axisLayers";
+import { catalogAxis } from "@/components/Map/__fixtures__/catalogAxes";
+
+// 軸カタログはDBが配るため、ビルド時の一覧を当てにしない。変換が分岐する形を
+// 一通り含む合成入力から、本番と同じ関数で作る。
+const RAMP_AXES = rampAxesFromCatalogAxes([
+  catalogAxis({ axis_id: "ramp", display: { tile_inputs: [{ property: "v", weight: 1 }], thresholds: [50] } }),
+]);
+const DEDICATED_WAY_VALUE_AXES = dedicatedWayValueAxesFromCatalogAxes([
+  catalogAxis({
+    axis_id: "ded",
+    dedicated_way_value_layer: true,
+    display: { tile_inputs: [{ property: "v", weight: 1 }], thresholds: [50] },
+  }),
+]);
 
 // ビルド時静的フォールバック（RAMP_AXES、軸スタジオが公開したGUI作成軸を含まない）を
 // 入力に組み立てた結果。以前のSTATIC_OVERLAY_LAYERS/STATIC_FILTER_AXES定数と同じ内容。

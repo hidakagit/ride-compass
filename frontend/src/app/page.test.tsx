@@ -103,7 +103,6 @@ vi.mock("@/services/axisCatalogApi", () => ({
 }));
 
 import { getAxisCatalog } from "@/services/axisCatalogApi";
-import axisCatalogStatic from "@/types/generated/axis-catalog.json";
 import { __resetAxisCatalogStoreForTests } from "@/hooks/useAxisCatalog";
 import { setTileVersions } from "@/services/regionApi";
 import Home from "./page";
@@ -806,10 +805,9 @@ describe("Home（app/page.tsx） handleGenerateハンドラ", () => {
 
   it("軸カタログの取得に失敗した状態ではlens_axis_id/route_preferenceを送らない", async () => {
     const user = userEvent.setup();
-    // ビルド時静的カタログに実在する軸をレンズとして保存済みにする（未知idなら
-    // page.tsx側のフォールバックで総合難易度へ戻り、このテストが恒真になる）。
-    const staticAxisId = axisCatalogStatic.axes[0].axis_id;
-    window.localStorage.setItem("ridecompass:route-style-mode", staticAxisId);
+    // レンズを保存済みにしておく。軸カタログの取得が失敗する以上どのidも解決できないが、
+    // 「保存はされている」状態から送信されないことを見るために置く。
+    window.localStorage.setItem("ridecompass:route-style-mode", "gradient");
     // 重み上書きをONにしておく（OFFのままだとカタログの成否に関わらずroute_preferenceは
     // 送られず、下の`toBeUndefined()`がカタログ失敗を何も確かめない恒真になる）。
     window.localStorage.setItem("ridecompass:weight-override-enabled", "true");

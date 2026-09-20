@@ -83,7 +83,6 @@ import { useMaterialCatalog } from "@/hooks/useMaterialCatalog";
 import { syncHardFilterKeys } from "@/lib/hardFilterSync";
 import { buildGenerateRequest, generationConditionsKey, type GenerationInput } from "@/lib/generationRequest";
 import { syncRoutePreferenceKeys } from "@/lib/routePreferenceSync";
-import { DEFAULT_ROUTE_PREFERENCE } from "@/lib/evaluationAxes";
 import { formatMaterialValue, materialCatalogLabel } from "@/lib/axisMaterialsCatalog";
 import { downloadGpx } from "@/lib/gpxExport";
 import { baselineDistanceKm, loadBarHeightRatio } from "@/lib/difficultyLoadBar";
@@ -474,9 +473,12 @@ export default function Home() {
     WEIGHT_OVERRIDE_ENABLED_STORAGE_KEY,
     false,
   );
+  // 初期値は空。既定重みは実行時の軸カタログが配り、送信直前に
+  // `syncRoutePreferenceKeys`が当てる。**ビルド時の写しを初期値にしない**——
+  // 軸の増減が次のデプロイまで届かず、利用者が設定していない重みで走ることになる。
   const [routePreference, setRoutePreference] = useStoredJsonState<RoutePreferenceWeights>(
     ROUTE_PREFERENCE_STORAGE_KEY,
-    DEFAULT_ROUTE_PREFERENCE,
+    {},
   );
   // 0次ハードフィルタ。一般向けルート設定画面（RouteSettingsPanel）が
   // 常時操作するため、weightOverrideEnabledのような別トグルは持たず常にリクエストへ含める

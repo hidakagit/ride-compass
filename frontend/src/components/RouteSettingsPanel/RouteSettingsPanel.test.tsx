@@ -16,7 +16,6 @@ vi.mock("@/services/axisCatalogApi", () => ({
 
 import { getAxisCatalog } from "@/services/axisCatalogApi";
 import { __resetAxisCatalogStoreForTests } from "@/hooks/useAxisCatalog";
-import axisCatalogStatic from "@/types/generated/axis-catalog.json";
 
 // GET /api/axis-catalogの応答を軸id一覧から組み立てるヘルパ。このパネルのテストは
 // 軸の表示宣言（display.kind・dedicated_way_value_layer）を見ないため、どちらも固定値。
@@ -169,18 +168,13 @@ describe("RouteSettingsPanel", () => {
   });
 
   it("routePreferenceがカタログと既に一致している場合は呼び出さない", async () => {
-    // マウント直後はフェッチ完了までの一瞬、静的フォールバックカタログ
-    // （axis-catalog.json、useAxisCatalog.tsのFALLBACK_CATALOG）がそのまま使われる
-    // ため、この初期状態とも一致させておかないと「フェッチ前の一瞬だけ差分が
-    // あるから呼ばれる」という別の要因で誤検知する。フォールバックと同じ内容を
-    // 返すモックにしておくことで、フェッチ前後どちらの時点でも一致した状態を保つ。
-    const staticDefaults = axisCatalogStatic.preference_defaults as Record<string, number>;
-    vi.mocked(getAxisCatalog).mockResolvedValue(catalogResponse(Object.keys(staticDefaults)));
+    // 取得前は軸が0件のため差分は生じない。取得後の内容と一致させておく。
+    vi.mocked(getAxisCatalog).mockResolvedValue(catalogResponse(["gradient", "surface_q"]));
     const onRoutePreferenceChange = vi.fn();
 
     render(
       <RouteSettingsPanel
-        routePreference={staticDefaults}
+        routePreference={{ gradient: 0.1, surface_q: 0.1 }}
         onRoutePreferenceChange={onRoutePreferenceChange}
         overrideEnabled={false}
         onOverrideEnabledChange={vi.fn()}
@@ -199,8 +193,7 @@ describe("RouteSettingsPanel", () => {
   // 追従せず、一度チェックを外して戻すと古いフォールバック値へ復元されていた。
   it("フェッチ完了で既定重みが変わった場合、チェックを外して戻すと新しい既定値へ復元される（古いフォールバック値ではない）", async () => {
     const user = userEvent.setup();
-    // 静的フォールバック（axis-catalog.json: preference_defaults.gradient）とは異なる値を
-    // 実行時フェッチの応答として返し、フェッチ前後で既定重みが変わる状況を再現する。
+    // 取得前（軸0件）と取得後で既定重みが変わる状況を再現する。
     const response = catalogResponse(["gradient"]);
     response.axes[0].default_weight = 0.42;
     vi.mocked(getAxisCatalog).mockResolvedValue(response);
@@ -301,10 +294,7 @@ describe("RouteSettingsPanel", () => {
       );
 
       const handle = await screen.findByRole("slider", { name: "ラベル[gradient]とラベル[surface_q]の配分" });
-      // フェッチ完了前は静的フォールバックカタログ（axis-catalog.json）が一瞬使われ、
-      // routePreferenceに無いキーを補うsyncRoutePreferenceKeys由来の1回がここで既に
-      // 呼ばれている（「フェッチ完了で既定重みが変わった場合…」テストの前提と同じ）。
-      // その呼び出し回数を基準にし、キー操作の結果「新規呼び出しが増えないこと」を見る。
+      // 取得完了までに呼ばれた回数を基準にし、キー操作で新規呼び出しが増えないことを見る。
       await waitFor(() => expect(getAxisCatalog).toHaveBeenCalled());
       await new Promise((resolve) => setTimeout(resolve, 0));
       const callCountBeforeKeyDown = onRoutePreferenceChange.mock.calls.length;

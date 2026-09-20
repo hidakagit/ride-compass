@@ -14,7 +14,6 @@
 import type { MapLayerId } from "./mapLayers";
 import type { MapValueKind } from "./valueScale";
 import { axisMapLayerId, type CatalogAxis } from "./axisLayers";
-import axisCatalog from "@/types/generated/axis-catalog.json";
 
 // 改善計画T308: 実行時API（GET /api/axis-catalog）から取得したエントリからも同じ形へ
 // 変換できるよう、静的jsonの走査ロジックを共通関数として切り出す（axisLayers.tsの
@@ -157,9 +156,3 @@ export function secondaryAxesFromCatalogAxes(axes: readonly CatalogAxis[]): Seco
       }))
   );
 }
-
-// ビルド時静的json由来のフォールバック専用値（モジュール先頭の注記参照）。
-/** 二次軸(推定指標)を、axis-catalog.jsonの並び順(確定命名表と同じ順)で返す。 */
-export const SECONDARY_AXES: readonly SecondaryAxisSummary[] = secondaryAxesFromCatalogAxes(
-  axisCatalog.axes as CatalogAxis[],
-);

@@ -5,16 +5,26 @@
 // 持つフェイク」パターンを使う。
 import { beforeEach, describe, expect, it } from "vitest";
 import { setTileVersions } from "@/services/regionApi";
-import {
-  DEDICATED_WAY_VALUE_AXES,
-  RAMP_AXES,
-  axisLineLayerId,
-  axisMapLayerId,
-  type RampAxis,
-} from "@/components/Map/axisLayers";
+import { axisLineLayerId, axisMapLayerId, type RampAxis } from "@/components/Map/axisLayers";
 import { dedicatedWayValueOpacityExpression } from "@/components/Map/dedicatedWayValueLayer";
 import { FALLBACK_LINE_OPACITY, KNOWN_LINE_OPACITY } from "@/components/Map/roadFilterAxes";
 import { buildMapLayers, tileVersionGatedLayerIds } from "@/components/Map/mapLayers";
+
+import { rampAxesFromCatalogAxes, dedicatedWayValueAxesFromCatalogAxes } from "@/components/Map/axisLayers";
+import { catalogAxis } from "@/components/Map/__fixtures__/catalogAxes";
+
+// 軸カタログはDBが配るため、ビルド時の一覧を当てにしない。変換が分岐する形を
+// 一通り含む合成入力から、本番と同じ関数で作る。
+const RAMP_AXES = rampAxesFromCatalogAxes([
+  catalogAxis({ axis_id: "ramp", display: { tile_inputs: [{ property: "v", weight: 1 }], thresholds: [50] } }),
+]);
+const DEDICATED_WAY_VALUE_AXES = dedicatedWayValueAxesFromCatalogAxes([
+  catalogAxis({
+    axis_id: "ded",
+    dedicated_way_value_layer: true,
+    display: { tile_inputs: [{ property: "v", weight: 1 }], thresholds: [50] },
+  }),
+]);
 
 // このファイルのテストが使うレイヤーカタログ。重なり順の正本（mapLayers.ts:
 // MapLayerPaintTier）をここから引く。

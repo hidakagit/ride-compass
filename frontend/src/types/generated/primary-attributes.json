@@ -1,0 +1,92 @@
+[
+  {
+    "attr_id": "highway",
+    "label": "道路の種類",
+    "shared": false
+  },
+  {
+    "attr_id": "lanes",
+    "label": "車線数",
+    "shared": false
+  },
+  {
+    "attr_id": "maxspeed",
+    "label": "制限速度",
+    "shared": false
+  },
+  {
+    "attr_id": "cycleway",
+    "label": "自転車インフラ",
+    "shared": false
+  },
+  {
+    "attr_id": "surface",
+    "label": "路面の種類",
+    "shared": false
+  },
+  {
+    "attr_id": "bicycle_access",
+    "label": "自転車通行可否",
+    "shared": false
+  },
+  {
+    "attr_id": "motor_vehicle_access",
+    "label": "自動車通行可否",
+    "shared": false
+  },
+  {
+    "attr_id": "lit",
+    "label": "街灯",
+    "shared": false
+  },
+  {
+    "attr_id": "tunnel",
+    "label": "トンネル",
+    "shared": false
+  },
+  {
+    "attr_id": "oneway",
+    "label": "一方通行",
+    "shared": false
+  },
+  {
+    "attr_id": "designation",
+    "label": "指定路線",
+    "shared": false
+  },
+  {
+    "attr_id": "elevation",
+    "label": "標高",
+    "shared": false
+  },
+  {
+    "attr_id": "stop_poi",
+    "label": "停止要因",
+    "shared": false
+  },
+  {
+    "attr_id": "supply_poi",
+    "label": "補給・休憩ポイント",
+    "shared": false
+  },
+  {
+    "attr_id": "accident_point",
+    "label": "事故地点",
+    "shared": false
+  },
+  {
+    "attr_id": "intersection",
+    "label": "交差点",
+    "shared": false
+  },
+  {
+    "attr_id": "landcover",
+    "label": "土地被覆",
+    "shared": false
+  },
+  {
+    "attr_id": "geometry",
+    "label": "区間形状",
+    "shared": true
+  }
+]

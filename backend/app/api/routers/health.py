@@ -8,7 +8,6 @@ from app.config import settings
 from app.infrastructure.msm_client import freshness as msm_freshness
 from app.infrastructure.database import get_engine
 from app.infrastructure.debug_log import get_stats
-from app.infrastructure.migrate import list_pending_migrations
 from app.version import STARTED_AT
 from app.domain.strict_model import StrictModel
 
@@ -172,7 +171,6 @@ async def db_status() -> dict:
 
     try:
         async with get_engine().connect() as conn:
-            pending_migrations = await list_pending_migrations(get_engine())
             import_runs = {
                 key: await _latest_import_run(conn, table) for key, table in _IMPORT_RUN_TABLES.items()
             }
@@ -190,7 +188,6 @@ async def db_status() -> dict:
         "commit": settings.git_commit,
         "database_configured": True,
         "reachable": True,
-        "pending_migrations": pending_migrations,
         "import_runs": import_runs,
         "table_row_counts": table_row_counts,
     }

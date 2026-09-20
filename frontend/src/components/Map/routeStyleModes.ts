@@ -12,7 +12,6 @@ import { debugLog } from "@/lib/debugLog";
 import type { LegendEntry } from "./legendFilter";
 import { bandLabelsForBandCount, LEGEND_NO_DATA_KEY, legendBandKey, rangeStepLabel } from "./mapColorLegend";
 import type { CatalogAxis } from "./axisLayers";
-import axisCatalog from "@/types/generated/axis-catalog.json";
 import {
   bandColorsFor,
   COLOR_NO_DATA,
@@ -201,11 +200,9 @@ export function routeStyleModesFromCatalogAxes(axes: readonly CatalogAxis[]): Ro
   return [...dynamicModes, DIFFICULTY_MODE, NONE_MODE];
 }
 
-// ビルド時静的json由来のフォールバック専用値（axisLayers.tsのRAMP_AXES/AXIS_LABELSと
-// 同じ位置付け）。useAxisCatalogがGET /api/axis-catalog取得完了までの間・失敗時に使う。
-export const ROUTE_STYLE_MODES: readonly RouteStyleMode[] = routeStyleModesFromCatalogAxes(
-  axisCatalog.axes as CatalogAxis[],
-);
+/** 軸カタログを取得できていない間のモード一覧。難易度・「なし」は軸に依存しないため
+ * 常に存在する。**ビルド時の軸の写しではなく、軸0件から同じ関数で導く。** */
+export const ROUTE_STYLE_MODES_WITHOUT_AXES: readonly RouteStyleMode[] = routeStyleModesFromCatalogAxes([]);
 
 // 既定のレンズは総合難易度（軸の公開状態に依存せず常に存在するモード）。
 export const DEFAULT_ROUTE_STYLE_MODE_ID: RouteStyleModeId = LENS_DIFFICULTY_ID;

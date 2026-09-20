@@ -8,16 +8,8 @@
 import type { RoutePreferenceWeights } from "@/types/route";
 import type { MapValueKind } from "@/components/Map/valueScale";
 import type { CatalogAxis } from "@/components/Map/axisLayers";
-import { SECONDARY_AXES } from "@/components/Map/secondaryAxes";
 import type { AxisMaterialBreakdown } from "@/components/Map/secondaryAxes";
 import { materialBreakdownFromCatalog } from "@/components/Map/secondaryAxes";
-import axisCatalog from "@/types/generated/axis-catalog.json";
-
-// 区間難易度の重み（route_preference）の既定値。「既定値に戻す」ボタンの起点、および
-// 上書き有効化の直後に送る初期値として使う。axis-catalog.jsonのpreference_defaults
-// （backend domain/axis_definitions.py: AXIS_DEFINITIONSのdefault_weightを生成物として
-// 書き出したもの）から読むことで、軸の増減・既定値変更に自動追従する。
-export const DEFAULT_ROUTE_PREFERENCE: RoutePreferenceWeights = axisCatalog.preference_defaults;
 
 export interface PreferenceAxisDef {
   /** route_preference（axis_idキーの重み辞書）のキー。backend
@@ -96,20 +88,6 @@ export function preferenceAxisFromCatalog(axis: CatalogAxis): PreferenceAxisDef 
     materialBreakdown: materialBreakdownFromCatalog(axis.material_breakdown),
   };
 }
-
-const SECONDARY_AXIS_ORDER = new Map(SECONDARY_AXES.map((axis, index) => [axis.axisId, index]));
-
-export const PREFERENCE_AXES: readonly PreferenceAxisDef[] = (axisCatalog.axes as CatalogAxis[])
-  .map((axis, catalogIndex) => ({ axis, catalogIndex }))
-  .sort((a, b) => {
-    const orderA = SECONDARY_AXIS_ORDER.get(a.axis.axis_id);
-    const orderB = SECONDARY_AXIS_ORDER.get(b.axis.axis_id);
-    if (orderA !== undefined && orderB !== undefined) return orderA - orderB;
-    if (orderA !== undefined) return -1;
-    if (orderB !== undefined) return 1;
-    return a.catalogIndex - b.catalogIndex;
-  })
-  .map(({ axis }) => preferenceAxisFromCatalog(axis));
 
 // 軸の分類（観測/推定/動的）は一般向けルート設定画面（RouteSettingsPanel）の表示では
 // 使わず、公開済みの軸をフラットな1本のリストとして扱う。分類データ自体（backend側の

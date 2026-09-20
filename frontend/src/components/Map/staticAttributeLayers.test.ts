@@ -27,8 +27,15 @@ import {
   TUNNEL_OPACITY_EXPRESSION,
   buildStaticFilterAxes,
 } from "./staticAttributeLayers";
-import { RAMP_AXES } from "./axisLayers";
 import poiKinds from "@/types/generated/poi-kinds.json";
+import { rampAxesFromCatalogAxes } from "./axisLayers";
+import { catalogAxis } from "./__fixtures__/catalogAxes";
+
+// 軸カタログはDBが配るため、ビルド時の一覧を当てにしない。変換が分岐する形を
+// 一通り含む合成入力から、本番と同じ関数で作る。
+const RAMP_AXES = rampAxesFromCatalogAxes([
+  catalogAxis({ axis_id: "ramp", display: { tile_inputs: [{ property: "v", weight: 1 }], thresholds: [50] } }),
+]);
 
 // 改善計画T292: 車ストレス（車の圧迫感）専用の凡例・色分け式（CAR_STRESS_LEGEND・
 // CAR_STRESS_COLOR_EXPRESSION・buildCarStressLegend・buildCarStressColorExpression）は

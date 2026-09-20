@@ -2,16 +2,12 @@
 
 import { useEffect, useSyncExternalStore } from "react";
 import type { PreferenceAxisDef } from "@/lib/evaluationAxes";
-import { PREFERENCE_AXES, preferenceAxisFromCatalog } from "@/lib/evaluationAxes";
+import { preferenceAxisFromCatalog } from "@/lib/evaluationAxes";
 import type { AxisCatalogEntry, RoutePreferenceWeights } from "@/types/route";
 import { getAxisCatalog } from "@/services/axisCatalogApi";
 import { setTileVersions } from "@/services/regionApi";
-import axisCatalogStatic from "@/types/generated/axis-catalog.json";
 import routeGenerateConfig from "@/types/generated/route-generate-config.json";
 import {
-  AXIS_LABELS,
-  DEDICATED_WAY_VALUE_AXES,
-  RAMP_AXES,
   axisLabelsFromCatalogAxes,
   dedicatedWayValueAxesFromCatalogAxes,
   rampAxesFromCatalogAxes,
@@ -19,20 +15,12 @@ import {
   type DedicatedWayValueAxis,
   type RampAxis,
 } from "@/components/Map/axisLayers";
+import { secondaryAxesFromCatalogAxes, type SecondaryAxisSummary } from "@/components/Map/secondaryAxes";
 import {
-  SECONDARY_AXES,
-  secondaryAxesFromCatalogAxes,
-  type SecondaryAxisSummary,
-} from "@/components/Map/secondaryAxes";
-import {
-  ROUTE_STYLE_MODES,
+  ROUTE_STYLE_MODES_WITHOUT_AXES,
   routeStyleModesFromCatalogAxes,
   type RouteStyleMode,
 } from "@/components/Map/routeStyleModes";
-
-// ビルド時静的生成物（ビルド時点の公開軸の既定重み、開発中のフォールバック用）。
-// GET /api/axis-catalogはこれと同じ形の情報をDBの最新内容から動的に返す。
-const STATIC_DEFAULT_WEIGHTS: RoutePreferenceWeights = axisCatalogStatic.preference_defaults;
 
 export interface AxisCatalog {
   /** axisId・label・descriptionの一覧（フェッチ成功時はDB由来、失敗時は静的フォールバック）。 */
@@ -88,15 +76,18 @@ export function clientTuningValue(catalog: AxisCatalog, id: string): number | un
   return Object.hasOwn(catalog.clientTuning, id) ? catalog.clientTuning[id] : undefined;
 }
 
-const FALLBACK_CATALOG: AxisCatalog = {
+// 軸は`GET /api/axis-catalog`が配るものだけを使う。**ビルド時の写しを持たない**——
+// 持つと、APIが失敗したときに古い軸で地図が描かれ、伝播の失敗が見えなくなる。
+// 取得できるまでは軸が1つも無い状態で、呼び出し側は`loaded`で区別する。
+const EMPTY_CATALOG: AxisCatalog = {
   clientTuning: routeGenerateConfig.client_tuning,
-  axes: PREFERENCE_AXES,
-  defaultWeights: STATIC_DEFAULT_WEIGHTS,
-  rampAxes: RAMP_AXES,
-  dedicatedAxes: DEDICATED_WAY_VALUE_AXES,
-  axisLabels: AXIS_LABELS,
-  secondaryAxes: SECONDARY_AXES,
-  routeStyleModes: ROUTE_STYLE_MODES,
+  axes: [],
+  defaultWeights: {},
+  rampAxes: [],
+  dedicatedAxes: [],
+  axisLabels: {},
+  secondaryAxes: [],
+  routeStyleModes: ROUTE_STYLE_MODES_WITHOUT_AXES,
   loaded: false,
   failed: false,
 };
@@ -199,7 +190,7 @@ function fetchAxisCatalogDeduped(): ReturnType<typeof getAxisCatalog> {
 // 単一ストアとして持ち、全呼び出し元がuseSyncExternalStoreで同じオブジェクト参照を
 // 購読することで、2インスタンス間で`axes`配列が食い違うことは構造的に起こらない
 // （どちらかのフェッチが解決すれば全呼び出し元へ即座に反映される）。
-let sharedCatalog: AxisCatalog = FALLBACK_CATALOG;
+let sharedCatalog: AxisCatalog = EMPTY_CATALOG;
 const catalogListeners = new Set<() => void>();
 
 function publishCatalog(next: AxisCatalog): void {
@@ -219,12 +210,12 @@ function getCatalogSnapshot(): AxisCatalog {
 }
 
 function getCatalogServerSnapshot(): AxisCatalog {
-  return FALLBACK_CATALOG;
+  return EMPTY_CATALOG;
 }
 
 /** テスト専用: モジュールレベルの共有ストアをリセットする。本番コードからは呼ばない。 */
 export function __resetAxisCatalogStoreForTests(): void {
-  sharedCatalog = FALLBACK_CATALOG;
+  sharedCatalog = EMPTY_CATALOG;
   inFlightCatalogFetch = null;
 }
 

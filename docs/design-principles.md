@@ -69,13 +69,12 @@
    1箇所（レジストリ・カタログ・宣言テーブル）への追加だけで下流の全消費者へ伝播する構造に
    する（`docs/modules/backend/axis-studio.md`・`evaluation-scoring.md`・
    `docs/modules/frontend/dynamic-weather-layers.md`参照）。
-9. **軸カタログはbackendからfrontendへの片側importのみで流れる**。`axis-catalog.json`
-   （`export_openapi.py`がビルド時にDBから書き出す静的生成物）は、frontend側で
-   (a) 実行時API（`GET /api/axis-catalog`）フェッチ完了までの一時的なフォールバック、
-   (b) ビルド時にしか導出できない定数（`axisLayers.ts: DEDICATED_WAY_VALUE_AXES`等）の生成源、
-   の2用途にのみ使う。frontendからbackend側の生成物へ書き戻す経路は持たない
-   （`docs/modules/frontend/axis-studio.md`・`map-axis-coloring.md`・
-   `static-map-layers.md`参照）。
+9. **軸カタログはbackendからfrontendへ、実行時にだけ流れる**。軸の正本は本番DBで、
+   frontendは`GET /api/axis-catalog`が返したものだけを使う。**ビルド時の写しを持たない**
+   ——持つと、APIが失敗したときにビルド時点の軸で地図が描かれ、伝播の失敗が見えなくなる。
+   取得できるまでは軸が0件の状態で、`useAxisCatalog`の`loaded`が確定を表す。frontendから
+   backend側の生成物へ書き戻す経路は持たない（`docs/modules/frontend/axis-studio.md`・
+   `map-axis-coloring.md`・`static-map-layers.md`参照）。
 10. **探索コストと表示difficultyの一致**: Edge単位のコスト計算は1回だけ行い、探索
     （経路選択）と区間表示（`RouteSegmentDetail`のdifficulty・axis_difficulties）が
     同じ算出結果を共有する（二重計算を持たない）。唯一の意図的な例外: 重み付き軸が
@@ -156,7 +155,7 @@
     10本が`CASE WHEN ... IS NULL`で吸収していた。兄弟の派生表5本は同じFKを既に持っており、
     本番の違反行は0件だった（[T956](tasks/T956.md)、migration 0046で是正）。
 
-一般的なソフトウェア工学の慣習（数値定数の片側import・スキーマ変更はmigrations/のみ・
+一般的なソフトウェア工学の慣習（数値定数の片側import・スキーマはORMの宣言から・
 フォールバック経路へ新機能を実装しない・空間JOINのGiST索引利用・UIの語彙表カタログ集約等）は
 RideCompass固有の仕様ではないため、このファイルには置かない。レビュー観点として
 `.claude/commands/review/overall.md`・`complexity.md`の各確認観点に集約している

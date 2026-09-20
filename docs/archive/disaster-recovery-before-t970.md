@@ -1,6 +1,16 @@
-# 本番DB再構築（disaster recovery）・OSM更新時の派生データ再構築手順
+# 【凍結】本番DB再構築（disaster recovery）・派生データ再構築手順（T970以前）
 
-CLAUDE.md「コミット時の同期ルール」・[deployment-sync.md](deployment-sync.md)から参照される
+**この手順はもう使えない。** T970のデータ層の作り直しで、ここが名指しする
+`bootstrap_fresh_db.py`・`import_pbf.py`・`import_accidents.py`・`import_designations.py`・
+`refresh_derived.py`・`migrations/`はすべて撤去された。現在の入口は
+`app.batch.ingest_cli`（取込）と`app.batch.derive_cli`（派生）で、スキーマはORMの宣言から
+`create_tables()`が作る。
+
+**差し替えは[T972](../tasks/T972.md)が持つ**——復旧手順はバックアップの形が決まって
+初めて書けるため、そちらと一緒に作り直す。以下は当時の記録として残す。
+
+
+CLAUDE.md「コミット時の同期ルール」・[deployment-sync.md](../deployment-sync.md)から参照される
 作業標準。「本番DBを失った場合にゼロから再構築する手順」と「OSMデータ更新時に派生データを
 最新化する定常運用手順」の両方を扱う（後者は前者の一部でもある）。
 
@@ -20,7 +30,7 @@ CLAUDE.md「コミット時の同期ルール」・[deployment-sync.md](deployme
 ```
 
 `refresh_derived.py`（`app/batch/refresh_derived.py`）は依存DAG
-（[batch-pipeline-dependencies.md](batch-pipeline-dependencies.md)）の派生計算バッチを
+（[batch-pipeline-dependencies.md](../batch-pipeline-dependencies.md)）の派生計算バッチを
 依存順に1コマンドで実行する（**含まれる段の正本は`refresh_derived.py`の`_STAGES`**。
 ここへ書き写すと段を足したときにこちらだけが古くなる）。生データ取込そのものは対象外
 ——個別のファイル・年次・kind指定を要するため。⑩`precompute_way_landcover`だけラスタファイルの手動取得
@@ -52,7 +62,7 @@ DATABASE_URL=postgresql+asyncpg://<user>:<pass>@<host>:<port>/<db> \
 ```
 
 `create_tables()`→`apply_pending_migrations()`→`axis_definitions_snapshot.json`の投入、を
-1コマンドで行う（[T361](tasks/T361.md)）。まっさらなDB専用（稼働中DBに対して実行すると
+1コマンドで行う（[T361](../tasks/T361.md)）。まっさらなDB専用（稼働中DBに対して実行すると
 axis_admin API経由の変更が消える、`bootstrap_fresh_db.py`のdocstring参照）。
 
 ### 3. 生データ取込
@@ -120,7 +130,7 @@ seconds`）でこれを読み直して、ディスクへ書いた時点の記録
 本番VMのnginxはUbuntu配布版ではなくnginx.org公式パッケージ（1.30系、QUIC/HTTP/3同梱）で、
 設定は`/etc/nginx/conf.d/`（`ridecompass-backend.conf`）にある。
 リポジトリ追加・パッケージ差し替え・server blockの全文・UDP 443開放（iptables＋OCI
-セキュリティリスト）の手順は[T580](tasks/T580.md)「VM側の作業手順」参照。TLS証明書は
+セキュリティリスト）の手順は[T580](../tasks/T580.md)「VM側の作業手順」参照。TLS証明書は
 certbot（`sslip.io`ドメイン、HTTP-01）で、port 80のserver blockを残しておく必要がある。
 
 ## 既知のリスク・対策（2026-09-04、本番実行時のOOMインシデントを受けて追記）
@@ -142,11 +152,11 @@ SSH・HTTPともに6時間14分（02:06〜08:20 UTC）応答不能になった�
 - **本番backendコンテナ自体のメモリ保護は未実施**（今回のインシデントで確認できた残課題。
   `docker run --oom-score-adj=<負の値>`等でOOM Killerの標的になりにくくする対策は
   今回は実施していない、次回検討）。
-- 全国規模（[T127](tasks/T127.md)が扱う所要時間の不確実性）への外挿では、この種の
+- 全国規模（[T127](../tasks/T127.md)が扱う所要時間の不確実性）への外挿では、この種の
   リソース枯渇リスクがさらに増す。全国投入を検討する際は、この節の対策を前提に
   含めること。
 
-## 検証実績（2026-09-04、[T573](tasks/T573.md)）
+## 検証実績（2026-09-04、[T573](../tasks/T573.md)）
 
 既存本番VM上に別ポートの使い捨てPostgreSQL 18+PostGIS 3.6クラスタを作成し、
 最新masterのコードで以下を実施・成功を確認した。
@@ -162,11 +172,11 @@ SSH・HTTPともに6時間14分（02:06〜08:20 UTC）応答不能になった�
 - `import_accidents.py`・`import_designations.py`は実行していない（⑨`match_designations`
   はcandidates=0で正常終了したが、これは③未実行のため指定路線データが無いことによる
   ——route_designationsテーブルが空の状態での「候補0件」であり、バグではない）。
-- 全国規模（東京都心の小規模bboxのみ検証、[T127](tasks/T127.md)が扱う94万way超からの
+- 全国規模（東京都心の小規模bboxのみ検証、[T127](../tasks/T127.md)が扱う94万way超からの
   非線形減速問題は未検証のまま）。
 - 完全な新規VM（既存VM上の別クラスタで検証したため、VM自体のセットアップ手順は含まれない）。
 - Redis（`graph_material_cache`等）・タイル永続キャッシュ（`tile_persistent_cache`）の
   初期化・版数確認手順（新規環境なので原理的に空の状態から始まり、既存キャッシュとの
   版数不一致は発生しない——この検証項目は「稼働中DBの更新後」のシナリオ向け、
-  [batch-pipeline-dependencies.md](batch-pipeline-dependencies.md)「改善計画T538追記」
+  [batch-pipeline-dependencies.md](../batch-pipeline-dependencies.md)「改善計画T538追記」
   参照）。

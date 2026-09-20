@@ -5,8 +5,11 @@ CLAUDE.md「コミット時の同期ルール」から参照される。個々�
 ここに書かない（`docs/modules/*.md`が正）。ここに書くのは「作業として何を完了条件に
 含めるべきか」という運用ルールのみ。
 
-本番DBをゼロから再構築する手順（disaster recovery）・OSM更新時の派生データ再構築手順は
-[docs/disaster-recovery.md](disaster-recovery.md)参照。
+本番DBをゼロから再構築する手順（disaster recovery）は**現在ない**——T970でデータ層を
+作り直した際に旧手順が指す入口が全て入れ替わったため、バックアップの形と合わせて
+[T972](tasks/T972.md)で作り直す（当時の手順は
+[archive](archive/disaster-recovery-before-t970.md)）。派生データの作り直しは
+`python -m app.batch.derive_cli`。
 
 軸定義を軸スタジオに何をさせるかは
 [decisions/axis-definition-maintenance-split.md](decisions/axis-definition-maintenance-split.md)。
@@ -18,8 +21,7 @@ CLAUDE.md「コミット時の同期ルール」から参照される。個々�
 - ルール: **DBは環境ごとに独立していて、その環境の管理画面がそのDBをメンテナンスする**。
   開発DBへの変更は開発環境にしか効かないため、開発DBだけ変えてタスクを完了扱いにしない
   ——本番へ効かせるなら本番の軸スタジオで行う。環境間で内容を転送する仕組みは持たない
-  （上記の決定文書参照）。`dump_axis_definitions_snapshot.py`によるスナップショットの
-  再ダンプが要る場合は、それも完了条件へ含める。
+  （上記の決定文書参照）。**リポジトリは軸の写しを持たない**ため、再ダンプの手順は無い。
 - 背景: 開発DBのみ反映してタスクを完了扱いにした結果、本番だけ古い軸定義のまま取り残される
   反映漏れが繰り返し発生した実績（T294・T353・T360・T396・T440系列[T455で発覚・修正]・
   T458[過去`[x]`タスクの監査で発覚・修正]、計6回）。

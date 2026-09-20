@@ -497,58 +497,6 @@ def find_web_layer_batch_imports(source_lines: dict[str, list[tuple[int, str]]])
     return out
 
 
-# 材料解決の経路がway_tagsから読んでよいキーは、取込時の許可リスト
-# （`domain/osm_adapter.py: ALLOWED_WAY_TAGS`）に載っているものだけ。highway/surface/oneway
-# は専用列でtags jsonbに入らないため、ここから読むと材料が全区間で欠損する。
-# 対象は`backend/app`配下のうち、下の2本以外すべて。読む側を手で3本並べていたため、
-# 同じようにway_tagsを読む`hard_filters.py`・`night.py`が検査の外にあった。
-#
-# 除外する2本は**way_tagsではないタグを読む**もので、許可リストの対象外である
-# （実測: この2本で9箇所。`osm_adapter.py`は取込時の生のOSMタグを読んで許可リスト自体を
-# 決める側、`traffic.py`はPOIノードのタグ［railway・barrier・shop等］を読む）。
-WAY_TAG_READER_EXCLUDED = (
-    "backend/app/domain/osm_adapter.py",
-    "backend/app/domain/traffic.py",
-)
-WAY_TAG_READ_RES = (
-    re.compile(r'\b(?:ctx\.)?(?:way_)?tags\.get\(\s*"([^"]+)"'),
-    re.compile(r'tag_value_is\(\s*(?:ctx\.)?(?:way_)?tags\s*,\s*"([^"]+)"'),
-)
-
-
-def allowed_way_tags() -> set[str]:
-    """取込時にtags jsonbへ残すキー（`ALLOWED_WAY_TAGS`）を実装から読む。"""
-    text = read_text(REPO_ROOT / "backend/app/domain/osm_adapter.py")
-    start = text.find("ALLOWED_WAY_TAGS")
-    end = text.find("def _filter_allowed_tags", start)
-    if start < 0 or end < 0:
-        return set()
-    return set(re.findall(r'"([^"]+)",', text[start:end]))
-
-
-def find_way_tag_allowlist_violations(source_lines: dict[str, list[tuple[int, str]]]) -> list[str]:
-    """材料解決の経路が、tags jsonbに入らないキーをway_tagsから読んでいる箇所。"""
-    allowed = allowed_way_tags()
-    if not allowed:
-        return []
-    out = []
-    for path, lines in source_lines.items():
-        if not path.startswith(WEB_LAYER_ROOT) or path in WAY_TAG_READER_EXCLUDED:
-            continue
-        for lineno, line in lines:
-            for pattern in WAY_TAG_READ_RES:
-                for m in pattern.finditer(line):
-                    key = m.group(1)
-                    if key not in allowed:
-                        out.append(
-                            f"{path}:{lineno}: way_tagsから`{key}`を読んでいる"
-                            "（ALLOWED_WAY_TAGSに無いキーはtags jsonbへ入らず、材料が常に欠損する。"
-                            "専用列なら引数で渡す。docs/tasks/T753.md参照）"
-                        )
-    return out
-
-
-
 # ルーティング評価が読む固定値の宣言（`domain/tuning.py`）。較正値は`TUNING_PARAMETERS`が
 # 既定ごと持ち、それ以外は`FIXED_VALUES`が名前と種別だけを持つ。この検査器はアプリを
 # importしないため、宣言はASTで読む。
@@ -1061,8 +1009,23 @@ def git(*args: str, check: bool = True) -> str:
     return run(["git", *args], check=check)
 
 
+#: 当時の記録として凍結した文書。**検知器の対象に入れない**——直せない指摘が出続けるか、
+#: 歴史を書き換えることになる。ここに入れるのは「もうメンテナンスしない」と決めたものだけで、
+#: 現役の文書を静かに逃がす場所にしない。
+FROZEN_DOC_PREFIXES = (
+    "docs/archive/",
+    "docs/improvement-plan-archive/",
+    ".claude/commands/review/history/",
+    ".claude/commands/task/history/",
+)
+
+
+def is_frozen_doc(path: str) -> bool:
+    return path.startswith(FROZEN_DOC_PREFIXES)
+
+
 def git_files() -> list[str]:
-    return [line for line in git("ls-files").splitlines() if line]
+    return [line for line in git("ls-files").splitlines() if line and not is_frozen_doc(line)]
 
 
 def is_impl_file(path: str) -> bool:
@@ -1249,25 +1212,21 @@ def paragraphs_with_removal_marker(doc: str, revision: str | None = None) -> set
     return marked
 
 
-#: DBの表の名前を宣言している2つの場所。**両方を母集団にする**——migrationのDDLだけでは
-#: ORMの`__tablename__`しか持たない表が漏れ、ORMだけでは`way_geometry`のようにモデルを
-#: 持たない表が漏れる。
-TABLE_DDL_RE = re.compile(
-    r"""CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?["']?([A-Za-z_][A-Za-z0-9_.]*)""", re.I)
+#: DBの表の名前はORMの`__tablename__`だけが宣言する。
 TABLENAME_RE = re.compile(r"""__tablename__\s*=\s*["']([a-z0-9_]+)["']""")
 
 
 def declared_tables(files: list[str]) -> dict[str, str]:
-    """表の名前 → それを宣言しているファイル（同じ名前が複数あれば最初のもの）。"""
+    """表の名前 → それを宣言しているファイル（同じ名前が複数あれば最初のもの）。
+
+    宣言はORMだけが持つ（積み上げ式のmigrationは撤去済みで、スキーマは
+    `create_tables()`がORMの宣言から作る）。
+    """
     found: dict[str, str] = {}
     for f in sorted(files):
-        if f.startswith("backend/migrations/") and f.endswith(".sql"):
-            pattern = TABLE_DDL_RE
-        elif f.startswith("backend/app/") and f.endswith(".py"):
-            pattern = TABLENAME_RE
-        else:
+        if not (f.startswith("backend/app/") and f.endswith(".py")):
             continue
-        for m in pattern.finditer(read_text(REPO_ROOT / f)):
+        for m in TABLENAME_RE.finditer(read_text(REPO_ROOT / f)):
             found.setdefault(m.group(1).rsplit(".", 1)[-1], f)
     return found
 
@@ -1509,14 +1468,20 @@ def find_source_comment_dead_identifier_refs(files: list[str], scope: list[str] 
 
     母集団はコメントを除いた本文。コメント同士が互いを「実在する」と支え合うのを防ぐ。
     改名・撤去のたびに、取り残されたコメントがその場で分かる。
+
+    **レビュー基盤自身（`scripts/`）は対象にしない。** ここの文章は「もう存在しないもの」を
+    例として名指しする（撤去した軸id・検知器が拾う形の見本）。在るべきものが無いのか、
+    無いことを説明しているのかを綴りからは区別できず、鳴るたびに文章を捻じ曲げることになる。
     """
-    # 実在判定はdoc側と同じ`source_corpus`を使う。テストの**定義**（`FakeRoadGraphRepository`
-    # 等のクラス・関数）はそこに入るため、コメントがテスト側の部品を名指しするのは通る。
+    # 実在判定はdoc側と同じ`source_corpus`を使う。テスト側で定義したクラス・関数は
+    # そこに入るため、コメントがテストの部品を名指しするのは通る。
     # 一方でテストの**ローカル変数**は入らない——旧実装はテストのコード全文をcorpusにして
     # いたため、撤去した本番の定数をテストが同名のローカル`const`として持っているだけで
     # 「実在する」と判定していた（撤去済みの定数名をテストが束ね直して持つ形が実在する）。
     comment_lines: dict[str, list[tuple[int, str]]] = {}
     for f in corpus_files(files, include_tests=True):
+        if f.startswith("scripts/"):
+            continue
         comments, _ = split_source_comments(f, read_text(REPO_ROOT / f))
         comment_lines[f] = comments
     corpus = source_corpus(files)
@@ -2202,8 +2167,7 @@ def historical_axis_ids() -> frozenset[str]:
     見逃した後になる（設計原則 構造仕様12）。「実際にDBへ存在したidの全体」という性質から
     導く。
 
-    **限界**: スナップショット導入より前に廃止された軸は履歴に無い（例:
-    `car_stress_bicycle_infra_adjustment`）。母集団を綴りの形から導く案も測ったが、
+    **限界**: 履歴の記録より前に廃止された軸は母集団に入らない。綴りの形から導く案も測ったが、
     材料id・テーブル名・サービス名が軸idと同じ命名規則を共有するため誤検知が
     実測117件（コメント内に限っても50件）になり採らなかった（docs/tasks/T871.md）。
     """
@@ -2560,7 +2524,7 @@ def diff_added_lines(pathspec: str, base_ref: str | None = None) -> dict[str, li
         elif line.startswith("+") and not line.startswith("+++") and current:
             out[current].append((lineno, line[1:]))
             lineno += 1
-    return out
+    return {path: lines for path, lines in out.items() if not is_frozen_doc(path)}
 
 
 def gather_added_source_lines(base_ref: str | None) -> dict[str, list[tuple[int, str]]]:
@@ -2608,7 +2572,6 @@ DETECTOR_ENFORCEMENT: dict[str, frozenset[str]] = {
     "doc_constant_drift": frozenset({"staged", "since", "full"}),
     "review_doc_dead_refs": frozenset({"staged", "since", "full"}),
     "cross_file_env_writes": frozenset({"staged", "since", "full"}),
-    "way_tag_allowlist": frozenset({"staged", "since", "full"}),
     "undeclared_fixed_values": frozenset({"staged", "since", "full"}),
     "map_redraw_coverage": frozenset({"staged", "since", "full"}),
     # 参考表示のみ。誤検出が多く（実測はdocs/tasks/T824.md）ブロックには使えないが、
@@ -2652,7 +2615,8 @@ def cmd_docs(args: argparse.Namespace) -> int:
     # 見ないため、他の検知器のためにソース全文を読み直す必要がない。
     sections: list[tuple[str, str, list[str] | None]] = []
     only = getattr(args, "only", None)
-    staged = ([l for l in git("diff", "--cached", "--name-only").splitlines() if l]
+    staged = ([l for l in git("diff", "--cached", "--name-only").splitlines()
+               if l and not is_frozen_doc(l)]
               if args.staged else [])
     # ステージ済みの変更が検知器の読む場所の外なら、中身は計算しない（pre-commitの
     # 待ち時間を節約する）。**ここで関数を抜けてはいけない**——抜けると下の
@@ -2689,8 +2653,6 @@ def cmd_docs(args: argparse.Namespace) -> int:
                 arity_sources(files + added), scope=[f for f in staged if f.endswith(".py")]))
         add("web_layer_batch_import", "webアプリが読む層からのapp.batchのトップレベルimport（ステージ済み追加行、docs/tasks/T814.md参照）",
             lambda: find_web_layer_batch_imports(source_lines))
-        add("way_tag_allowlist", "許可リストに無いタグキーをway_tagsから読む（ステージ済み追加行、docs/tasks/T753.md参照）",
-            lambda: find_way_tag_allowlist_violations(source_lines))
         add("map_redraw_coverage", "map.setStyle()後の再描画から辿れないレイヤー（docs/tasks/T825.md参照）",
             lambda: find_map_redraw_gaps())
         add("undeclared_fixed_values", "ルーティング評価の宣言に無い数値定数（docs/tasks/T805.md参照）",
@@ -2811,13 +2773,6 @@ def cmd_docs(args: argparse.Namespace) -> int:
             lambda: find_web_layer_batch_imports({
                              rel(p): list(enumerate(read_text(p).splitlines(), 1))
                              for p in (REPO_ROOT / f for f in files if f.startswith("backend/app/"))
-                             if p.exists()
-                         }))
-        add("way_tag_allowlist", "許可リストに無いタグキーをway_tagsから読む（全件、docs/tasks/T753.md参照）",
-            lambda: find_way_tag_allowlist_violations({
-                             rel(p): list(enumerate(read_text(p).splitlines(), 1))
-                             for p in (REPO_ROOT / f for f in files if f.startswith(WEB_LAYER_ROOT)
-                                       and f.endswith(".py"))
                              if p.exists()
                          }))
         add("map_redraw_coverage", "map.setStyle()後の再描画から辿れないレイヤー（全件、docs/tasks/T825.md参照）",
@@ -3652,9 +3607,6 @@ def guard_probe_mutations(wt: Path) -> dict[str, "Callable[[], None]"]:
             '}\n'),
         "undeclared_fixed_values": lambda: append(
             wt / "backend/app/domain/graph.py", "\n\nZZZ_GUARD_PROBE_RATIO = 0.42\n"),
-        "way_tag_allowlist": lambda: append(
-            wt / "backend/app/domain/axis_inspector.py",
-            '\n\ndef _zzz_guard_probe(tags: dict[str, str]) -> str | None:\n    return tags.get("zzz_guard_probe")\n'),
         "review_doc_dead_refs": lambda: append(
             wt / REVIEW_CONTEXT_DOC, f"\n- `{GUARD_PROBE_IDENT}`が評価の値を組み立てる。\n"),
         "doc_constant_drift": lambda: append(
@@ -3888,11 +3840,6 @@ def guard_probe_edges(wt: Path) -> dict[str, "EdgeProbe | str"]:
             lambda: append(wt / "backend/app/main.py",
                            "\n\nfrom app.batch.precompute_way_landcover import ALGORITHM_VERSION\n\n"
                            "zzz_guard_probe = ALGORITHM_VERSION\n")),
-        "way_tag_allowlist": EdgeProbe(
-            "材料カタログを持たないがway_tagsを読むファイル（hard_filters.py）", True,
-            lambda: append(wt / "backend/app/domain/hard_filters.py",
-                           '\n\ndef _zzz_guard_probe(tags: dict[str, str]) -> str | None:\n'
-                           '    return tags.get("zzz_guard_probe")\n')),
         "undocumented_tables": EdgeProbe(
             "アプリ自身が生SQLで作る表（migrations/にもORMにも無い）", False,
             lambda: append(wt / "backend/app/infrastructure/migrate.py",

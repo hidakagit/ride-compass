@@ -57,7 +57,7 @@ async def _guard_db_errors(awaitable: Awaitable[_T]) -> _T:
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail=(
                 "軸定義DBへのアクセスに失敗しました。migration未適用の可能性があります"
-                "（backend/scripts/apply_migrations.pyの適用状況を確認してください）"
+                "（テーブルが作られているか確認してください）"
             ),
         ) from exc
 

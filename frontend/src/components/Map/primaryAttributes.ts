@@ -11,7 +11,7 @@
 // 変換、PRIMARY_ATTRIBUTE_LAYER_IDSを引くだけの純粋関数）だけを残す。
 
 import type { MapLayerId } from "./mapLayers";
-import axisCatalog from "@/types/generated/axis-catalog.json";
+import primaryAttributeCatalog from "@/types/generated/primary-attributes.json";
 
 interface CatalogPrimaryAttribute {
   attr_id: string;
@@ -26,9 +26,10 @@ export interface PrimaryAttribute {
   shared: boolean;
 }
 
-/** 一次属性の一覧（正式名付き）。axis-catalog.json: primary_attributes[]をそのまま反映する。 */
+/** 一次属性の一覧（正式名付き）。`primary-attributes.json`（backendのレジストリ宣言から
+ * 生成、DBを読まない）をそのまま反映する。 */
 export const PRIMARY_ATTRIBUTES: readonly PrimaryAttribute[] = (
-  axisCatalog.primary_attributes as CatalogPrimaryAttribute[]
+  primaryAttributeCatalog as CatalogPrimaryAttribute[]
 ).map((attr) => ({ attrId: attr.attr_id, label: attr.label, shared: attr.shared }));
 
 /** attr_id→正式名の辞書（区間インスペクタ・研究タブが引く）。 */
