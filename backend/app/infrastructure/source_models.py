@@ -85,9 +85,10 @@ class SourceFeatureRow(Base):
 
 # 圧縮しない指定は型では表せないので、表を作った直後に当てる。親へ当てれば以後の
 # パーティションも引き継ぐ。
-event.listen(
-    SourceFeatureRow.__table__,
-    "after_create",
-    DDL("ALTER TABLE source_features ALTER COLUMN payload SET STORAGE EXTERNAL;"
-        "ALTER TABLE source_features ALTER COLUMN rast SET STORAGE EXTERNAL"),
-)
+for _column in ("payload", "rast"):
+    # 1文ずつ当てる。`;`でつなぐと、準備された文に複数コマンドは入らないと言って落ちる。
+    event.listen(
+        SourceFeatureRow.__table__,
+        "after_create",
+        DDL(f"ALTER TABLE source_features ALTER COLUMN {_column} SET STORAGE EXTERNAL"),
+    )

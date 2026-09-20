@@ -69,16 +69,40 @@ CACHED_GRAPH_VERSION = "cached"
 _ID_CHUNK_SIZE = 50_000
 
 
+#: スキーマが依存する拡張。**アプリの権限では入れられない**（どちらもスーパーユーザーを
+#: 要求し、trustedでもない）ため、DBを作る人が先に入れる。`raster`は面のソースの列の型で、
+#: 画素の数え上げをDB側で行うために要る。
+REQUIRED_EXTENSIONS = ("postgis", "postgis_raster")
+
+
 async def create_tables(engine: AsyncEngine) -> None:
     """ORMが宣言するスキーマを作る（まっさらなDB向け）。
 
     実DBとの差は`backend/scripts/schema_gap.py`が測る。積み上げ式のmigrationは持たない
     ——正本は実DBで、ORMの宣言は「あるべき姿」である。
+
+    拡張は**入れずに要求する**。入れるふりをすると、権限が無い環境で「機能拡張を作成する
+    権限がありません」とだけ出て、何をすればよいかが伝わらない。
     """
+    # `Base.metadata`には**importしたモジュールの表しか載らない**。ここで全部を読み込んで
+    # おかないと、呼び出し側のimport次第で表が静かに欠ける。
+    from app.infrastructure import (  # noqa: F401
+        axis_definition_models,
+        derived_data_meta,
+        derived_models,
+        source_models,
+        tuning_overrides,
+    )
+
     async with engine.begin() as conn:
-        await conn.execute(text("CREATE EXTENSION IF NOT EXISTS postgis"))
-        # 面のソースは`raster`列で持ち、画素の数え上げをDB側で行う。
-        await conn.execute(text("CREATE EXTENSION IF NOT EXISTS postgis_raster"))
+        installed = set(
+            (await conn.execute(text("SELECT extname FROM pg_extension"))).scalars())
+        missing = [name for name in REQUIRED_EXTENSIONS if name not in installed]
+        if missing:
+            commands = " ".join(f"CREATE EXTENSION {name};" for name in missing)
+            raise RuntimeError(
+                f"このDBに拡張 {', '.join(missing)} が入っていません。"
+                f"スーパーユーザーで先に実行してください: {commands}")
         await conn.run_sync(Base.metadata.create_all)
 
 
