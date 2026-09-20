@@ -220,6 +220,18 @@ SUPPLY_VENDING_VALUES: frozenset[str] = frozenset(
 )
 
 
+def is_traffic_signal(tags: dict[str, str]) -> bool:
+    """そのノードが信号か。
+
+    信号は`highway=traffic_signals`のほか、**信号付きの横断歩道**としても書かれる
+    （`highway=crossing`＋`crossing`の値に`signals`を含む）。どちらも自転車にとっては
+    止まる点で、片方だけを見ると大半を取りこぼす。
+    """
+    if tags.get("highway") == "traffic_signals":
+        return True
+    return tags.get("highway") == "crossing" and "signals" in (tags.get("crossing") or "")
+
+
 def classify_vending_machine(tags: dict[str, str]) -> SupplyPoiKind | None:
     """`amenity=vending_machine`を、売っているもので3つへ分ける（純粋関数）。
 

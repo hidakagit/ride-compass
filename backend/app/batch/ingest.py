@@ -65,14 +65,20 @@ def partition_table_name(source: str) -> str:
 
 
 async def ensure_partition(conn: asyncpg.Connection, source: str) -> None:
-    """そのソースの子パーティションを用意する。
+    """そのソースの子パーティションと、その空間索引を用意する。
 
     どのソースが在るかはデータで決まるため、宣言（ORMモデル）ではなく取込の側が作る。
+
+    生データは範囲や近さで引かれる（事故を区間へ割り当てる、信号を交差点へ割り当てる）。
+    索引が無いと総なめになるため、パーティションと一緒に張る。
     """
+    table = partition_table_name(source)
     await conn.execute(
-        f'CREATE TABLE IF NOT EXISTS "{partition_table_name(source)}" '
+        f'CREATE TABLE IF NOT EXISTS "{table}" '
         f"PARTITION OF source_features FOR VALUES IN ($tag${source}$tag$)"
     )
+    await conn.execute(f'CREATE INDEX IF NOT EXISTS "{table}_geom_idx" '
+                       f'ON "{table}" USING GIST (geom)')
 
 
 async def _open_run(conn: asyncpg.Connection, spec: SourceSpec, profile: SourceProfile,
