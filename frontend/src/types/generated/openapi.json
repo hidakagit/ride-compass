@@ -1884,7 +1884,7 @@
     "/api/admin/derived-data/freshness": {
       "get": {
         "summary": "Get Derived Data Freshness",
-        "description": "`edge_attribute_counts`・`way_attribute_counts`・`designation_attributes`の\n鮮度不整合（`is_stale`）と、`elevation_attributes`の完成度を返す。\n\nDB例外は`get_material_coverage`と同じく503へ変換する（診断用APIのため\n空レポートへ倒さない）。",
+        "description": "派生データの表ごとの鮮度と、値の列ごとの未計算件数を返す。",
         "operationId": "get_derived_data_freshness_api_admin_derived_data_freshness_get",
         "responses": {
           "200": {
@@ -1916,30 +1916,6 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/DbStatusResponse"
-                }
-              }
-            }
-          }
-        },
-        "security": [
-          {
-            "HTTPBasic": []
-          }
-        ]
-      }
-    },
-    "/api/admin/road-graph-tiles": {
-      "get": {
-        "summary": "Get Road Graph Tiles",
-        "description": "split済みタイルの全件。ここに無い範囲は初回のルート生成でsplitが走る（冷パス）。\n\n件数が多くなるため`GET /api/admin/db-status`とは分けてある（地図を開いたときだけ要る）。",
-        "operationId": "get_road_graph_tiles_api_admin_road_graph_tiles_get",
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/RoadGraphTilesResponse"
                 }
               }
             }
@@ -2042,47 +2018,6 @@
           "additions"
         ],
         "title": "ActiveWarning"
-      },
-      "AlgorithmVersionFreshnessEntry": {
-        "properties": {
-          "owner": {
-            "type": "string",
-            "title": "Owner"
-          },
-          "current_version": {
-            "type": "string",
-            "title": "Current Version"
-          },
-          "oldest_version": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Oldest Version"
-          },
-          "null_count": {
-            "type": "integer",
-            "title": "Null Count"
-          },
-          "is_stale": {
-            "type": "boolean",
-            "title": "Is Stale"
-          }
-        },
-        "additionalProperties": false,
-        "type": "object",
-        "required": [
-          "owner",
-          "current_version",
-          "oldest_version",
-          "null_count",
-          "is_stale"
-        ],
-        "title": "AlgorithmVersionFreshnessEntry"
       },
       "AmedasObservation": {
         "properties": {
@@ -3156,27 +3091,15 @@
         "title": "CategoricalShape",
         "description": "カテゴリ値→定数のマッピング（丸めなし。mappingの値がそのままスコアになる）。\n\n`mapping`のキーはbool（真偽2値の材料）とstr（MATERIAL_CATALOGのdtype=\"categorical\"材料、\n3値以上）の両方を許容する（混在は想定しないが型上は許容）。\n\nキー型は`union_mode=\"left_to_right\"`でbool判定を先に試す（既定のsmart modeだと\nJSON文字列\"true\"/\"false\"がboolへ強制変換されずstr型のまま残り、\n`infrastructure/axis_definition_repository.py`のDB往復でsurface_q等の真偽値材料が\n壊れる。\"true\"/\"false\"以外の文字列キーはbool変換に失敗してstrへフォールバックするため\n通常のcategorical材料には影響しない）。"
       },
-      "CompletenessEntry": {
+      "ColumnEntry": {
         "properties": {
-          "label": {
+          "column": {
             "type": "string",
-            "title": "Label"
+            "title": "Column"
           },
-          "population": {
+          "null_count": {
             "type": "integer",
-            "title": "Population"
-          },
-          "uncalculated_count": {
-            "type": "integer",
-            "title": "Uncalculated Count"
-          },
-          "owner": {
-            "type": "string",
-            "title": "Owner"
-          },
-          "note": {
-            "type": "string",
-            "title": "Note"
+            "title": "Null Count"
           },
           "is_incomplete": {
             "type": "boolean",
@@ -3186,15 +3109,12 @@
         "additionalProperties": false,
         "type": "object",
         "required": [
-          "label",
-          "population",
-          "uncalculated_count",
-          "owner",
-          "note",
+          "column",
+          "null_count",
           "is_incomplete"
         ],
-        "title": "CompletenessEntry",
-        "description": "系譜列を持たない派生データの完成度。世代比較ができないため、母集団のうち未計算の行数で見る。"
+        "title": "ColumnEntry",
+        "description": "値の列1本ぶんの完成度。\n\nNULLが「まだ計算していない」を意味する列と、「確定して値が無い」を意味する列がある。\n件数は常に返し、鳴らすかどうか（`is_incomplete`）だけを区別する。"
       },
       "ConnectionEntry": {
         "properties": {
@@ -3278,7 +3198,7 @@
           },
           "tables": {
             "items": {
-              "$ref": "#/components/schemas/TableEntry"
+              "$ref": "#/components/schemas/app__api__routers__db_status__TableEntry"
             },
             "type": "array",
             "title": "Tables"
@@ -3399,27 +3319,19 @@
             "type": "string",
             "title": "Computed At"
           },
-          "generations": {
+          "tables": {
             "items": {
-              "$ref": "#/components/schemas/GenerationFreshnessEntry"
+              "$ref": "#/components/schemas/app__api__routers__derived_data_freshness__TableEntry"
             },
             "type": "array",
-            "title": "Generations"
-          },
-          "completeness": {
-            "items": {
-              "$ref": "#/components/schemas/CompletenessEntry"
-            },
-            "type": "array",
-            "title": "Completeness"
+            "title": "Tables"
           }
         },
         "additionalProperties": false,
         "type": "object",
         "required": [
           "computed_at",
-          "generations",
-          "completeness"
+          "tables"
         ],
         "title": "DerivedDataFreshnessResponse"
       },
@@ -3666,49 +3578,6 @@
         ],
         "title": "GenerationConditions",
         "description": "この生成に実際に適用された条件のエコー（実験の記録・再現用、研究IF改善 §10-6）。\n\nroute_preference は「リクエストで上書きされた値」または「既定値」のうち実際に\n使われた方。レスポンスJSONを保存すれば、同じ条件をroute_preferenceとしてそのまま\n再送して再現できる。"
-      },
-      "GenerationFreshnessEntry": {
-        "properties": {
-          "table_name": {
-            "type": "string",
-            "title": "Table Name"
-          },
-          "row_count": {
-            "type": "integer",
-            "title": "Row Count"
-          },
-          "sources": {
-            "items": {
-              "$ref": "#/components/schemas/SourceFreshnessEntry"
-            },
-            "type": "array",
-            "title": "Sources"
-          },
-          "algorithm_version": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/AlgorithmVersionFreshnessEntry"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "is_stale": {
-            "type": "boolean",
-            "title": "Is Stale"
-          }
-        },
-        "additionalProperties": false,
-        "type": "object",
-        "required": [
-          "table_name",
-          "row_count",
-          "sources",
-          "algorithm_version",
-          "is_stale"
-        ],
-        "title": "GenerationFreshnessEntry"
       },
       "HTTPValidationError": {
         "properties": {
@@ -4428,53 +4297,6 @@
         "title": "PriorityCondition",
         "description": "0次条件: 探索除外のハードフィルタ（`domain/evaluation.py:\nDEFAULT_HARD_FILTERS`、道路そのものを探索グラフから除外する）とは別の、\n**評価を優先確定する**条件。`material`の値が`equals`と一致する場合、軸の通常計算\n（shape評価）を丸ごとスキップし、`value`をそのままdifficultyとして返す。\n\n典型例: `motor_vehicle_no`（自動車通行不可）が立っている区間は、highway種別・\n自転車インフラ等の通常の判定に関わらず「車の圧迫感が最も低い」で確定する。\n自転車通行禁止（`bicycle=no`）はこれとは異なり、既存の0次ハードフィルタ\n（`no_bicycle`）で道路そのものが探索から除外されるため、この機構は使わない\n（「探索除外」と「評価の優先確定」は別の概念）。\n\n軸固有のPythonコードへベタ書きせず、`AxisDefinition`が共通で持てる宣言的な\n仕組みにすることで、将来の軸追加でも同型のケースをコード変更なしに表現できる\n（各推定軸に重複して持たせない）。"
       },
-      "RoadGraphTileEntry": {
-        "properties": {
-          "zoom": {
-            "type": "integer",
-            "title": "Zoom"
-          },
-          "x": {
-            "type": "integer",
-            "title": "X"
-          },
-          "y": {
-            "type": "integer",
-            "title": "Y"
-          },
-          "fetched_at": {
-            "type": "string",
-            "title": "Fetched At"
-          }
-        },
-        "additionalProperties": false,
-        "type": "object",
-        "required": [
-          "zoom",
-          "x",
-          "y",
-          "fetched_at"
-        ],
-        "title": "RoadGraphTileEntry",
-        "description": "split済みタイル1件。frontendがXYZ座標から境界ポリゴンを組み立てる\n（`Map/dynamicWayValues.ts: tileBoundsLonLat`）ため、ここではGeoJSONにしない。"
-      },
-      "RoadGraphTilesResponse": {
-        "properties": {
-          "tiles": {
-            "items": {
-              "$ref": "#/components/schemas/RoadGraphTileEntry"
-            },
-            "type": "array",
-            "title": "Tiles"
-          }
-        },
-        "additionalProperties": false,
-        "type": "object",
-        "required": [
-          "tiles"
-        ],
-        "title": "RoadGraphTilesResponse"
-      },
       "RouteCandidate": {
         "properties": {
           "id": {
@@ -5073,123 +4895,6 @@
         ],
         "title": "RouteSegmentDetail",
         "description": "周回ルートの1区間（サンプル点i→i+1）の詳細。地図上の難易度レイヤー描画に使う。\n\n符号付き材料（`material_values`に入る`gradient_percent`等）の正準定義:\n**符号付き・進行方向基準**（登り=正、下り=負、ElevationAttribute.average_gradeから\n算出）。フロントの勾配色分け（routeStyleModes.ts）はこの符号を前提に「下り」\nカテゴリを持つため、絶対値で返してはならない。\n\ngeometryはこの区間が実際に通る道なり形状（GeoJSON LineString、ルート全体geometryの\n部分列）。地図の区間色分けを道路形状に沿って描くために使う。フロントは\ngeometryがnullの場合のみ始点・終点の直線で代替描画する（MapView.tsx:\nsegmentsToFeatureCollection）。"
-      },
-      "SourceFreshnessEntry": {
-        "properties": {
-          "label": {
-            "type": "string",
-            "title": "Label"
-          },
-          "run_table": {
-            "type": "string",
-            "title": "Run Table"
-          },
-          "latest_available_run_id": {
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Latest Available Run Id"
-          },
-          "earliest_reflected_run_id": {
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Earliest Reflected Run Id"
-          },
-          "null_count": {
-            "type": "integer",
-            "title": "Null Count"
-          },
-          "is_stale": {
-            "type": "boolean",
-            "title": "Is Stale"
-          }
-        },
-        "additionalProperties": false,
-        "type": "object",
-        "required": [
-          "label",
-          "run_table",
-          "latest_available_run_id",
-          "earliest_reflected_run_id",
-          "null_count",
-          "is_stale"
-        ],
-        "title": "SourceFreshnessEntry"
-      },
-      "TableEntry": {
-        "properties": {
-          "table_name": {
-            "type": "string",
-            "title": "Table Name"
-          },
-          "row_count": {
-            "type": "integer",
-            "title": "Row Count"
-          },
-          "total_bytes": {
-            "type": "integer",
-            "title": "Total Bytes"
-          },
-          "dead_tuples": {
-            "type": "integer",
-            "title": "Dead Tuples"
-          },
-          "analyzed_at": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Analyzed At"
-          },
-          "vacuumed_at": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Vacuumed At"
-          },
-          "needs_attention": {
-            "type": "boolean",
-            "title": "Needs Attention"
-          },
-          "note": {
-            "type": "string",
-            "title": "Note"
-          }
-        },
-        "additionalProperties": false,
-        "type": "object",
-        "required": [
-          "table_name",
-          "row_count",
-          "total_bytes",
-          "dead_tuples",
-          "analyzed_at",
-          "vacuumed_at",
-          "needs_attention",
-          "note"
-        ],
-        "title": "TableEntry",
-        "description": "テーブル1つの実数・容量とメンテナンス状態。行数は統計値ではなく実数を数えている\n（統計はANALYZE前のテーブルで大きくずれ、取り込み漏れの検出に使えないため）。"
       },
       "TileInputSpec": {
         "properties": {
@@ -5826,6 +5531,138 @@
         ],
         "title": "WindGridResponse",
         "description": "`/api/weather/wind-grid`・`wind-grid-detail`の応答本体。`times`は全格子点で共通の\n時刻配列を1本だけ持つ（各`WindGridPoint`は自分の値配列のみを持ち、インデックスは\n`times`と揃っている）。`WindGridPoint`ごとに`times`を複製すると、624地点では\n非圧縮応答の約54%（gzip圧縮下でも約9%）を時刻文字列の重複が占める。全地点取得失敗等で\n`points`が空の場合は`times`も空になる。"
+      },
+      "app__api__routers__db_status__TableEntry": {
+        "properties": {
+          "table_name": {
+            "type": "string",
+            "title": "Table Name"
+          },
+          "row_count": {
+            "type": "integer",
+            "title": "Row Count"
+          },
+          "total_bytes": {
+            "type": "integer",
+            "title": "Total Bytes"
+          },
+          "dead_tuples": {
+            "type": "integer",
+            "title": "Dead Tuples"
+          },
+          "analyzed_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Analyzed At"
+          },
+          "vacuumed_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Vacuumed At"
+          },
+          "needs_attention": {
+            "type": "boolean",
+            "title": "Needs Attention"
+          },
+          "note": {
+            "type": "string",
+            "title": "Note"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "table_name",
+          "row_count",
+          "total_bytes",
+          "dead_tuples",
+          "analyzed_at",
+          "vacuumed_at",
+          "needs_attention",
+          "note"
+        ],
+        "title": "TableEntry",
+        "description": "テーブル1つの実数・容量とメンテナンス状態。行数は統計値ではなく実数を数えている\n（統計はANALYZE前のテーブルで大きくずれ、取り込み漏れの検出に使えないため）。"
+      },
+      "app__api__routers__derived_data_freshness__TableEntry": {
+        "properties": {
+          "table_name": {
+            "type": "string",
+            "title": "Table Name"
+          },
+          "row_count": {
+            "type": "integer",
+            "title": "Row Count"
+          },
+          "source": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source"
+          },
+          "oldest_run_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Oldest Run Id"
+          },
+          "latest_run_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Latest Run Id"
+          },
+          "is_stale": {
+            "type": "boolean",
+            "title": "Is Stale"
+          },
+          "columns": {
+            "items": {
+              "$ref": "#/components/schemas/ColumnEntry"
+            },
+            "type": "array",
+            "title": "Columns"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "table_name",
+          "row_count",
+          "source",
+          "oldest_run_id",
+          "latest_run_id",
+          "is_stale",
+          "columns"
+        ],
+        "title": "TableEntry"
       }
     },
     "securitySchemes": {

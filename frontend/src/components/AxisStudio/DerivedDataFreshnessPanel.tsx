@@ -9,21 +9,20 @@ import { getDerivedDataFreshness } from "@/services/derivedDataFreshnessApi";
 import type { DerivedDataFreshnessResponse } from "@/types/route";
 import styles from "./DerivedDataFreshnessPanel.module.css";
 
-/** 派生データを依存順に作り直す単一の入口（`backend/app/batch/refresh_derived.py`）を、
+/** 派生データを段の順に作り直す単一の入口（`backend/app/batch/derive_cli.py`）を、
  * **本番へ効かせるために実際に打つ形**で置く。古い・未計算がどれであっても打つのはこの1つ
  * なので、行ごとにバッチ名を散らさず画面に1つだけ置く。手順の正本は
  * `docs/disaster-recovery.md`。
  *
  * 稼働中のbackendコンテナの中では走らせない——そのコンテナのメモリ上限まで使い切ると
  * コンテナごとOOM killされ、サービス全体が止まる。別のコンテナを`--memory`付きで立てれば、
- * 上限を超えても止まるのはバッチだけで済む。`--skip-landcover`は、土地被覆のラスタが
- * VM上に無く回せないため。 */
+ * 上限を超えても止まるのはバッチだけで済む。 */
 export const REBUILD_COMMAND = [
   "sudo docker run --rm --network=host --memory=4g \\",
   "  -v /home/ubuntu/ridecompass-cache-data:/app/data \\",
   "  --env-file /home/ubuntu/ridecompass-backend.env \\",
   "  ridecompass-backend:latest \\",
-  "  python -m app.batch.refresh_derived --skip-landcover",
+  "  python -m app.batch.derive_cli",
 ].join("\n");
 
 function formatRunId(value: number | null): string {
@@ -39,12 +38,12 @@ function formatComputedAt(iso: string): string {
   return Number.isNaN(date.getTime()) ? iso : date.toLocaleString("ja-JP");
 }
 
-/** 1件ぶんの状態。世代比較（取込runが古いか）と完成度（未計算が残っているか）は判定の方式が
- * 違うが、読み手が知りたいのは「作り直しが要るかどうか」で同じ。行の見た目を揃え、方式の
- * 違いは開いた先の中身で表す。 */
+/** 表1つぶんの状態。「取込が新しくなったのに派生が古い」と「値の列に未計算が残っている」は
+ * 判定の方式が違うが、読み手が知りたいのは「作り直しが要るかどうか」で同じ。行の見た目を
+ * 揃え、方式の違いは開いた先の中身で表す。 */
 interface FreshnessRow {
   name: string;
-  /** 名前の右に出す規模（行数・未計算件数）。 */
+  /** 名前の右に出す規模（行数）。 */
   scale: string;
   needsRebuild: boolean;
   detail: { label: string; value: string }[];
@@ -52,47 +51,29 @@ interface FreshnessRow {
 }
 
 export function rowsFromReport(report: DerivedDataFreshnessResponse): FreshnessRow[] {
-  const generations: FreshnessRow[] = report.generations.map((generation) => ({
-    name: generation.table_name,
-    scale: `${formatCount(generation.row_count)}行`,
-    needsRebuild: generation.is_stale,
-    detail: [
-      ...generation.sources.map((source) => ({
-        label: source.label,
-        value:
-          `最新 ${formatRunId(source.latest_available_run_id)} / ` +
-          `反映 ${formatRunId(source.earliest_reflected_run_id)}` +
-          (source.null_count > 0 ? ` / 未記録 ${formatCount(source.null_count)}` : ""),
-      })),
-      ...(generation.algorithm_version
-        ? [
-            {
-              label: "版数",
-              value:
-                `現在 ${generation.algorithm_version.current_version} / ` +
-                `記録 ${generation.algorithm_version.oldest_version ?? "-"}` +
-                (generation.algorithm_version.null_count > 0
-                  ? ` / 未記録 ${formatCount(generation.algorithm_version.null_count)}`
-                  : ""),
-            },
-          ]
-        : []),
-    ],
-  }));
-
-  const completeness: FreshnessRow[] = report.completeness.map((entry) => ({
-    name: entry.label,
-    scale: entry.is_incomplete ? `未計算 ${formatCount(entry.uncalculated_count)}` : "未計算なし",
-    needsRebuild: entry.is_incomplete,
-    detail: [
-      { label: "母集団", value: `${formatCount(entry.population)}件` },
-      { label: "未計算", value: `${formatCount(entry.uncalculated_count)}件` },
-      { label: "担当バッチ", value: entry.owner },
-    ],
-    note: entry.note || undefined,
-  }));
-
-  return [...generations, ...completeness];
+  return report.tables.map((table) => {
+    const incomplete = table.columns.filter((column) => column.is_incomplete);
+    const absent = table.columns.filter((column) => !column.is_incomplete && column.null_count > 0);
+    return {
+      name: table.table_name,
+      scale: `${formatCount(table.row_count)}行`,
+      needsRebuild: table.is_stale || incomplete.length > 0,
+      detail: [
+        {
+          label: table.source ?? "取込",
+          value: `最新 ${formatRunId(table.latest_run_id)} / 反映 ${formatRunId(table.oldest_run_id)}`,
+        },
+        ...incomplete.map((column) => ({
+          label: column.column,
+          value: `未計算 ${formatCount(column.null_count)}件`,
+        })),
+        ...absent.map((column) => ({
+          label: column.column,
+          value: `値なし ${formatCount(column.null_count)}件（確定）`,
+        })),
+      ],
+    };
+  });
 }
 
 function CopyButton({ text }: { text: string }) {
@@ -141,9 +122,10 @@ export default function DerivedDataFreshnessPanel() {
           contentClassName={floatingPopoverStyles.floatingPopover}
         >
           取り込んだ生データ（OSM・事故など）が新しくなったのに、そこから計算した派生データが
-          古いまま残っていないかを機械判定する。対象はbackendの宣言が決めるため、バッチが増減しても
-          一覧は自動で追従する。系譜を持たない派生データは世代を比べられないため、代わりに未計算が
-          何件残っているかを数える。DB全体の走査を伴うため集計には時間がかかる。
+          古いまま残っていないかを機械判定する。対象はbackendの宣言（ORM）が決めるため、表や列が
+          増減しても一覧は自動で追従する。あわせて値の列ごとに未計算の件数を数える——「確定して
+          値が無い」列（橋の勾配・指定のない道など）は数に出すが作り直しの対象にはしない。
+          DB全体の走査を伴うため集計には時間がかかる。
         </InfoPopover>
       </div>
       <div className={styles.controls}>

@@ -32,6 +32,11 @@ from sqlalchemy.orm import Mapped, mapped_column
 
 from app.infrastructure.orm_base import Base
 
+#: NULLが「まだ計算していない」ではなく「確定して値が無い」を意味する列に付ける印。
+#: 鮮度台帳（`derived_data_freshness.py`）はこの印のある列を未計算として数えない——
+#: 付け忘れても安全側（未計算として鳴る）に倒れる。
+ABSENT_OK = {"null_means_absent": True}
+
 
 class RoadEdgeRow(Base):
     """道を交差点で切った区間1本。**向きでは分けない**。
@@ -99,7 +104,8 @@ class EdgeMaterialRow(Base):
     end_elevation_m: Mapped[float | None] = mapped_column(REAL, nullable=True)
     elevation_gain_m: Mapped[float | None] = mapped_column(REAL, nullable=True)
     elevation_loss_m: Mapped[float | None] = mapped_column(REAL, nullable=True)
-    average_grade: Mapped[float | None] = mapped_column(REAL, nullable=True)
+    # 橋・高架・トンネルは値を持たない（地表面の標高は道の勾配ではない）。
+    average_grade: Mapped[float | None] = mapped_column(REAL, nullable=True, info=ABSENT_OK)
     max_grade: Mapped[float | None] = mapped_column(REAL, nullable=True)
     min_grade: Mapped[float | None] = mapped_column(REAL, nullable=True)
 
@@ -159,8 +165,10 @@ class WayMaterialRow(Base):
     # 指定路線のマッチ率（0〜1）。指定が無ければNULL。列名は`designation_`＋種別名で、
     # 種別が増えたときに列を機械的に決められるようにする（`domain/designation.py:
     # DESIGNATION_IMPORT_KINDS`）。
-    designation_emergency_transport: Mapped[float | None] = mapped_column(Float, nullable=True)
-    designation_critical_logistics: Mapped[float | None] = mapped_column(Float, nullable=True)
+    designation_emergency_transport: Mapped[float | None] = mapped_column(
+        Float, nullable=True, info=ABSENT_OK)
+    designation_critical_logistics: Mapped[float | None] = mapped_column(
+        Float, nullable=True, info=ABSENT_OK)
 
     source_run_id: Mapped[int] = mapped_column(
         BigInteger, ForeignKey("source_runs.run_id"), nullable=False
@@ -182,8 +190,9 @@ class NodeMaterialRow(Base):
 
     osm_node_id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=False)
 
-    #: 分類器が付ける種別（信号・横断歩道・車止め・コンビニ等）。付かない点はNULL。
-    kind: Mapped[str | None] = mapped_column(String, nullable=True)
+    #: 分類器が付ける種別（信号・横断歩道・車止め・コンビニ等）。ただの形状頂点・
+    #: 交差点はどの種別にも当たらずNULLになる。
+    kind: Mapped[str | None] = mapped_column(String, nullable=True, info=ABSENT_OK)
     # 既定値はDB側に持つ。ORMの`default=`はPython経由の挿入にしか効かず、取込や導出が
     # 生SQLで書く行に適用されない。
     branch_count: Mapped[int] = mapped_column(

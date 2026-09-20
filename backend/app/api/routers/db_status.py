@@ -70,21 +70,6 @@ class DbStatusResponse(StrictModel):
     database_bytes: int
 
 
-class RoadGraphTileEntry(StrictModel):
-    """split済みタイル1件。frontendがXYZ座標から境界ポリゴンを組み立てる
-    （`Map/dynamicWayValues.ts: tileBoundsLonLat`）ため、ここではGeoJSONにしない。"""
-
-    zoom: int
-    x: int
-    y: int
-    fetched_at: str
-
-
-class RoadGraphTilesResponse(StrictModel):
-    #: `domain/region.py: ROAD_GRAPH_TILE_ZOOM`。frontendが座標変換に使う。
-    tiles: list[RoadGraphTileEntry]
-
-
 def _iso(value) -> str | None:
     return None if value is None else value.isoformat()
 
@@ -144,31 +129,4 @@ async def get_db_status(
             note=report.connections.note,
         ),
         database_bytes=report.database_bytes,
-    )
-
-
-@router.get(
-    "/api/admin/road-graph-tiles",
-    response_model=RoadGraphTilesResponse,
-    dependencies=[Depends(require_admin_basic_auth)],
-)
-async def get_road_graph_tiles(
-    service: DbStatusService = Depends(get_db_status_service),
-) -> RoadGraphTilesResponse:
-    """split済みタイルの全件。ここに無い範囲は初回のルート生成でsplitが走る（冷パス）。
-
-    件数が多くなるため`GET /api/admin/db-status`とは分けてある（地図を開いたときだけ要る）。
-    """
-    try:
-        tiles = await service.get_road_graph_tiles()
-    except DBAPIError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="split済みタイルの取得に失敗しました（DB接続・migration適用状況を確認してください）",
-        ) from exc
-    return RoadGraphTilesResponse(
-        tiles=[
-            RoadGraphTileEntry(zoom=tile.zoom, x=tile.x, y=tile.y, fetched_at=tile.fetched_at.isoformat())
-            for tile in tiles
-        ]
     )

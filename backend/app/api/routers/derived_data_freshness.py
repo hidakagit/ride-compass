@@ -1,16 +1,12 @@
 """派生データ鮮度台帳の管理API。
 
-`GET /api/admin/derived-data/freshness`（Basic認証必須）は、`edge_attribute_counts`・
-`way_attribute_counts`・`designation_attributes`について「参照している生データの世代が
-最新の取込より古いままではないか」を機械判定して返す管理画面向けの集計API
-（`services/derived_data_freshness_service.py`・`infrastructure/derived_data_freshness.py`）。
-`elevation_attributes`は世代比較ではなく完成度（`road_edges`との行数差分）を別枠で返す
-——`source_*_import_run_id`列を持たないため他3件と同じ判定はできない。
+`GET /api/admin/derived-data/freshness`（Basic認証必須）は、派生データの表ごとに
+**鮮度**（その行がどの取込世代から作られたか）と**完成度**（値の列にNULLが何件あるか）を
+返す。対象の表・列は宣言（ORM）から導くため、表や列を足しても増やす手当ては要らない。
 
-`material_catalog.py`の`GET /api/admin/material-catalog/coverage`（材料の欠損割合、
-完成度）とは別の切り口——本APIは「行はあるが古い世代のままではないか」という鮮度を見る。
-認可を要求する理由・DB例外の扱いは`get_material_coverage`と同じ（全表走査を伴うため
-認可なしに公開しない、DB例外は503へ変換し空レポートへ倒さない）。
+`GET /api/admin/material-catalog/coverage`（材料の欠損割合）とは別の切り口——あちらは
+「材料として値が取れるか」を材料の宣言から見る。認可を要求する理由・DB例外の扱いは
+同じ（全表走査を伴うため認可なしに公開しない、DB例外は503へ変換し空レポートへ倒さない）。
 """
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -18,55 +14,39 @@ from sqlalchemy.exc import DBAPIError
 
 from app.api.admin_auth import require_admin_basic_auth
 from app.api.dependencies import get_derived_data_freshness_service
-from app.services.derived_data_freshness_service import DerivedDataFreshnessService
 from app.domain.strict_model import StrictModel
+from app.services.derived_data_freshness_service import DerivedDataFreshnessService
 
 router = APIRouter()
 
 
-class SourceFreshnessEntry(StrictModel):
-    label: str
-    run_table: str
-    latest_available_run_id: int | None
-    earliest_reflected_run_id: int | None
+class ColumnEntry(StrictModel):
+    """値の列1本ぶんの完成度。
+
+    NULLが「まだ計算していない」を意味する列と、「確定して値が無い」を意味する列がある。
+    件数は常に返し、鳴らすかどうか（`is_incomplete`）だけを区別する。
+    """
+
+    column: str
     null_count: int
-    is_stale: bool
+    is_incomplete: bool
 
 
-class AlgorithmVersionFreshnessEntry(StrictModel):
-    owner: str
-    current_version: str
-    oldest_version: str | None
-    null_count: int
-    is_stale: bool
-
-
-class GenerationFreshnessEntry(StrictModel):
+class TableEntry(StrictModel):
     table_name: str
     row_count: int
-    sources: list[SourceFreshnessEntry]
-    algorithm_version: AlgorithmVersionFreshnessEntry | None
+    #: その行を作った取込のソース名（`source_runs.source`）。行が無ければNone。
+    source: str | None
+    oldest_run_id: int | None
+    latest_run_id: int | None
+    #: 生データを取り直したのに派生を流し直していない。
     is_stale: bool
-
-
-class CompletenessEntry(StrictModel):
-    """系譜列を持たない派生データの完成度。世代比較ができないため、母集団のうち未計算の行数で見る。"""
-
-    #: 画面に出す名前（対象のテーブル、または列まで含む）。
-    label: str
-    population: int
-    uncalculated_count: int
-    #: 未計算を解消するために再実行するバッチ。
-    owner: str
-    #: 判定の但し書き（未計算を厳密に表せない列がある）。無ければ空文字。
-    note: str
-    is_incomplete: bool
+    columns: list[ColumnEntry]
 
 
 class DerivedDataFreshnessResponse(StrictModel):
     computed_at: str
-    generations: list[GenerationFreshnessEntry]
-    completeness: list[CompletenessEntry]
+    tables: list[TableEntry]
 
 
 @router.get(
@@ -77,60 +57,33 @@ class DerivedDataFreshnessResponse(StrictModel):
 async def get_derived_data_freshness(
     service: DerivedDataFreshnessService = Depends(get_derived_data_freshness_service),
 ) -> DerivedDataFreshnessResponse:
-    """`edge_attribute_counts`・`way_attribute_counts`・`designation_attributes`の
-    鮮度不整合（`is_stale`）と、`elevation_attributes`の完成度を返す。
-
-    DB例外は`get_material_coverage`と同じく503へ変換する（診断用APIのため
-    空レポートへ倒さない）。
-    """
+    """派生データの表ごとの鮮度と、値の列ごとの未計算件数を返す。"""
     try:
         report = await service.get_freshness_report()
     except DBAPIError as exc:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="派生データ鮮度台帳の集計に失敗しました（DB接続・migration適用状況を確認してください）",
+            detail="派生データ鮮度台帳の集計に失敗しました（DB接続の状況を確認してください）",
         ) from exc
     return DerivedDataFreshnessResponse(
         computed_at=report.computed_at.isoformat(),
-        generations=[
-            GenerationFreshnessEntry(
-                table_name=entry.table_name,
-                row_count=entry.row_count,
-                sources=[
-                    SourceFreshnessEntry(
-                        label=source.label,
-                        run_table=source.run_table,
-                        latest_available_run_id=source.latest_available_run_id,
-                        earliest_reflected_run_id=source.earliest_reflected_run_id,
-                        null_count=source.null_count,
-                        is_stale=source.is_stale,
+        tables=[
+            TableEntry(
+                table_name=table.table_name,
+                row_count=table.row_count,
+                source=table.source,
+                oldest_run_id=table.oldest_run_id,
+                latest_run_id=table.latest_run_id,
+                is_stale=table.is_stale,
+                columns=[
+                    ColumnEntry(
+                        column=column.column,
+                        null_count=column.null_count,
+                        is_incomplete=column.is_incomplete,
                     )
-                    for source in entry.sources
+                    for column in table.columns
                 ],
-                algorithm_version=(
-                    AlgorithmVersionFreshnessEntry(
-                        owner=entry.algorithm_version.owner,
-                        current_version=entry.algorithm_version.current_version,
-                        oldest_version=entry.algorithm_version.oldest_version,
-                        null_count=entry.algorithm_version.null_count,
-                        is_stale=entry.algorithm_version.is_stale,
-                    )
-                    if entry.algorithm_version is not None
-                    else None
-                ),
-                is_stale=entry.is_stale,
             )
-            for entry in report.generations
-        ],
-        completeness=[
-            CompletenessEntry(
-                label=entry.label,
-                population=entry.population,
-                uncalculated_count=entry.uncalculated_count,
-                owner=entry.owner,
-                note=entry.note,
-                is_incomplete=entry.is_incomplete,
-            )
-            for entry in report.completeness
+            for table in report.tables
         ],
     )

@@ -23,7 +23,7 @@ compute_edge_axis_scores`経由、下記「呼び出し元」参照）。周回�
 
 軸スタジオが折れ点を編集している最中に、**その設定で実データがどう分布するか**を返す。
 
-- 母集団はWay単位（`osm_raw_ways`のページ単位抽選、`TABLESAMPLE SYSTEM`）で、**延長で
+- 母集団はWay単位（生データのページ単位抽選、`TABLESAMPLE SYSTEM`）で、**延長で
   重み付ける**。本数で数えると短い道が多数を占めて実際に走る距離の感覚と合わない。
   ページ単位の抽選のため地理的な偏りが残りうる点は、分布を「目安」として扱う前提で許容する。
 - 材料値はDB側が`MaterialSpec.value_sql`で求める（`RoadGraphRepository.
@@ -185,7 +185,7 @@ axis_definitions_snapshot.json`（`dump_axis_definitions_snapshot.py`で現在�
 ダンプした手動更新のスナップショット）を読み書きする。`load_axis_definitions_snapshot`は
 テーブルを**無条件に**丸ごと空にしてから投入する——`bootstrap_ci_db.py`・
 `bootstrap_fresh_db.py`という専用スクリプトからのみ呼ぶ設計で、通常のアプリ起動経路
-（`refresh_axis_definitions`）や稼働中DBに対して繰り返し実行される`import_pbf.py`等
+（`refresh_axis_definitions`）や稼働中DBに対して繰り返し実行される取込バッチ
 からは呼ばない（誤って本番の生きた軸データをスナップショットで上書きする事故を防ぐ）。
 
 **暗黙の前提**: スナップショットの更新は完全手動（本番/devでAPI経由の軸変更を行った後、

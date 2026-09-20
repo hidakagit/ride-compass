@@ -42,8 +42,7 @@ APIを呼ぶ）・「データ保守」タブ（派生データ鮮度台帳の�
 | `app/admin/api/material-values/[materialId]/route.ts` | `materialCatalogApi.ts: getMaterialValues`が叩くroute handler。`proxyToBackendAdmin`でbackend `GET /api/admin/material-catalog/{material_id}/values`へ転送する（Next.js 16の`params`はPromise） |
 | `components/AxisStudio/DerivedDataFreshnessPanel.tsx` | 「データ保守」タブ本体。backendの`GENERATION_FRESHNESS_SPECS`が挙げるテーブルの鮮度不整合（テーブルごとに比較対象・最新取込run・反映済み最古run・NULL件数）と、系譜列を持たない派生データの完成度（別枠、`COMPLETENESS_SPECS`が決める）を表示。集計は「集計する」ボタン押下時のみ |
 | `components/AxisStudio/DbStatusPanel.tsx` | 「データ保守」タブ・本番DBの状態。取込runの最終実行・テーブルの実数と容量・統計とVACUUMの鮮度・接続を1件1行で出す |
-| `components/AxisStudio/SplitCoverageMap.tsx` | split済み範囲（`road_graph_tiles`）を示す軽量な地図。開いたときだけMapLibreを初期化する |
-| `services/dbStatusApi.ts`・`app/admin/api/db-status/route.ts`・`app/admin/api/road-graph-tiles/route.ts` | 上記および`road-graph-tiles`のAPIクライアントと、/adminのBasic認証セッションを再利用する同一オリジンのroute handler |
+| `services/dbStatusApi.ts`・`app/admin/api/db-status/route.ts` | 上記のAPIクライアントと、/adminのBasic認証セッションを再利用する同一オリジンのroute handler |
 | `services/derivedDataFreshnessApi.ts` | `DerivedDataFreshnessPanel`が使うAPIクライアント（`app/admin/api/derived-data-freshness/`経由、90秒タイムアウト） |
 | `app/admin/api/derived-data-freshness/route.ts` | `derivedDataFreshnessApi.ts`が叩くroute handler。`proxyToBackendAdmin`でbackend `GET /api/admin/derived-data/freshness`へ転送する |
 | `components/AxisStudio/TileCachePanel.tsx` | 「データ保守」タブの2枚目。サーバー側のタイルファイルキャッシュ（基礎地図・路面/事故/POIタイルが共有）を全消去する操作パネル。全利用者へ影響するため入口はここだけに持つ |
@@ -336,8 +335,8 @@ default_weight等）は`draftFromExisting`が読み込んだ既存値のまま�
 「冗長なものは削る」。読むのは1度きりなのに場所は常に取り続ける）。集計前はボタンだけを出す
 ——押すまで一覧は無いため、そこに無いものの説明を先に読ませない。
 
-- 集計後の先頭に**作り直しが要る件数と、次に打つ1コマンド**（`app/batch/refresh_derived.py`、
-  派生データを依存順に作り直す単一の入口）をコピーできる形で置く。**行ごとにバッチ名を
+- 集計後の先頭に**作り直しが要る件数と、次に打つ1コマンド**（`app/batch/derive_cli.py`、
+  派生データを段の順に作り直す単一の入口）をコピーできる形で置く。**行ごとにバッチ名を
   散らさない**——古い理由がどれであっても利用者が打つのは同じ1コマンドのため。
 - そのコマンドは**本番でそのまま打てる形**（稼働中のbackendコンテナではなく、別コンテナを
   メモリ上限付きで立てる`docker run`）で出す。バッチのモジュール名だけを出すと、手元へ
@@ -374,11 +373,6 @@ default_weight等）は`draftFromExisting`が読み込んだ既存値のまま�
   有無）を自分で名乗る**——「その他」では、隠れた側が重要でないのか見るべきものが埋もれて
   いるのかが読めない。
 - 描画は`StatusRows`として取得と分けてある（認証の要る画面を通さず見え方を確かめるため）。
-- 最後の行が**split済み範囲の地図**（`SplitCoverageMap.tsx`）。`<details>`の中に置き、
-  **開いたときだけMapLibreを初期化する**——閉じたまま使う人に初期化の重さを払わせない。
-  ベースマップとタイル境界の面だけを持ち、`MapView`の機構（レイヤー群・レンズ・ルート線）は
-  使わない。座標→境界ポリゴンの変換は`Map/dynamicWayValues.ts: tileBoundsLonLat`を再利用する
-  （同じ規則を2箇所へ書き写さない）。塗られていない範囲は初回のルート生成でsplitが走る＝冷パス。
 
 ## TileCachePanel.tsx（「データ保守」タブの2枚目）
 

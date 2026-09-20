@@ -1,18 +1,14 @@
-"""派生データ（precomputeバッチの出力）の鮮度台帳を求める読み取り専用リポジトリ。
+"""派生データの鮮度と完成度を測る読み取り専用リポジトリ。
 
-`GET /api/admin/derived-data/freshness`（`api/routers/derived_data_freshness.py`）の
-データ源。`material_coverage.py`（材料ごとの欠損割合）が「値がNULL/未取得か」という
-完成度を見るのに対し、本モジュールは「行は存在するが、参照している生データの世代が
-最新の取込より古いままではないか」という鮮度を見る——別の切り口のため判定ロジックは
-独立している。
+`GET /api/admin/derived-data/freshness`のデータ源。2つの問いを分けて見る。
 
-`edge_attribute_counts`・`way_attribute_counts`・`designation_attributes`は
-`source_*_import_run_id`列（高水位マーク方式——行単位の厳密な系譜ではなく「このバッチが
-どのデータ世代までを見ていたか」を表す）を持つため、対応する`*_import_runs`テーブルの
-最新成功run idと突き合わせて鮮度不整合を判定できる。`elevation_attributes`はこの列を
-持たない（road_edgesのgeometryにのみ依存しOSMタグを参照しないため）。`road_edges`との
-行数差分による完成度チェックのみを行い、鮮度ではなく完成度である点を呼び出し側
-（サービス層・API）で明示する。
+- **鮮度**: その行はどの取込世代から作られたか（`source_run_id`）。同じソースの最新の
+  成功runより古ければ、生データを取り直したのに派生を流し直していない。
+- **完成度**: 値の列がNULLの行が何件あるか。NULLは「まだ計算していない」で、値が0で
+  あることとは別の状態。
+
+**対象は宣言から導く**——`source_run_id`を持つ表が派生データで、その表の主キーと
+`source_run_id`以外の列が値である。表を1つ足しても、列を1つ足しても、ここは変わらない。
 """
 
 from dataclasses import dataclass
@@ -20,295 +16,115 @@ from dataclasses import dataclass
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.domain.traffic import HIGHWAY_RANK
-from app.domain.derived_data_versions import (
-    EDGE_ATTRIBUTE_COUNTS_ALGORITHM_VERSION as _EDGE_ALGORITHM_VERSION,
-    WAY_ATTRIBUTE_COUNTS_ALGORITHM_VERSION as _WAY_ALGORITHM_VERSION,
-    WAY_DIVIDED_CARRIAGEWAY_ALGORITHM_VERSION as _DIVIDED_CARRIAGEWAY_ALGORITHM_VERSION,
-    LANDCOVER_ALGORITHM_VERSION as _LANDCOVER_ALGORITHM_VERSION,
-)
+from app.infrastructure import derived_models  # noqa: F401  Base.metadataへの登録が目的
+from app.infrastructure import source_models  # noqa: F401  同上（外部キーの解決に要る）
+from app.infrastructure.orm_base import Base
+
+#: 系譜の列。これを持つ表が派生データ。
+SOURCE_RUN_COLUMN = "source_run_id"
 
 
-@dataclass(frozen=True)
-class SourceRunSpec:
-    """派生テーブルの1列が参照する生データ取込runの情報源。"""
-
-    label: str
-    run_table: str
-    source_column: str
-    #: **その取込runが何を書いたときに、この派生テーブルが古くなるか**（runの件数列）。
-    #: 空なら成功したrunすべてが高水位になる。`--pois-only`の取込はway・nodeを1行も
-    #: 書かずに成功行を残すため、これが無いとway由来の派生テーブルまで一斉に古い判定に
-    #: なる（逆に、POIを数える`edge_attribute_counts`は本当に古くなる）。
-    wrote_columns: tuple[str, ...] = ()
+def derived_tables() -> list:
+    """`source_run_id`を持つ表（＝派生データ）。"""
+    return [table for table in Base.metadata.sorted_tables
+            if SOURCE_RUN_COLUMN in table.c]
 
 
-@dataclass(frozen=True)
-class GenerationFreshnessSpec:
-    """世代比較が可能な派生テーブル1件の宣言。`algorithm_version_current`が
-    Noneの材料（designation_attributes）はalgorithm_version比較の対象外。"""
-
-    table_name: str
-    sources: tuple[SourceRunSpec, ...]
-    algorithm_version_current: str | None
-    algorithm_version_owner: str | None
+def value_columns(table) -> list[str]:
+    """その表の「値」の列。鍵と系譜を除いたもの。"""
+    keys = {column.name for column in table.primary_key.columns} | {SOURCE_RUN_COLUMN}
+    return [column.name for column in table.columns if column.name not in keys]
 
 
-# 版数は`domain/derived_data_versions.py`が単一の情報源（値を複製しない。batchからimportすると
-# 本番webイメージに無い依存を連鎖で引き込む——モジュールのdocstring参照）。
-GENERATION_FRESHNESS_SPECS: tuple[GenerationFreshnessSpec, ...] = (
-    GenerationFreshnessSpec(
-        table_name="edge_attribute_counts",
-        sources=(
-            SourceRunSpec("事故取込", "accident_import_runs", "source_accident_import_run_id"),
-            # 区間ごとの停止要因POIの数を持つため、way・POIのどちらが入れ替わっても古くなる。
-            SourceRunSpec(
-                "OSM取込", "osm_import_runs", "source_osm_import_run_id", ("way_count", "poi_count")
-            ),
-        ),
-        algorithm_version_current=_EDGE_ALGORITHM_VERSION,
-        algorithm_version_owner="precompute_edge_attribute_counts.ALGORITHM_VERSION",
-    ),
-    GenerationFreshnessSpec(
-        table_name="way_attribute_counts",
-        sources=(
-            SourceRunSpec("事故取込", "accident_import_runs", "source_accident_import_run_id"),
-            SourceRunSpec("OSM取込", "osm_import_runs", "source_osm_import_run_id", ("way_count",)),
-        ),
-        algorithm_version_current=_WAY_ALGORITHM_VERSION,
-        algorithm_version_owner="precompute_way_attribute_counts.ALGORITHM_VERSION",
-    ),
-    GenerationFreshnessSpec(
-        table_name="designation_attributes",
-        sources=(SourceRunSpec("OSM取込", "osm_import_runs", "source_osm_import_run_id", ("way_count",)),),
-        algorithm_version_current=None,
-        algorithm_version_owner=None,
-    ),
-    GenerationFreshnessSpec(
-        table_name="way_landcover",
-        sources=(SourceRunSpec("OSM取込", "osm_import_runs", "source_osm_import_run_id", ("way_count",)),),
-        algorithm_version_current=_LANDCOVER_ALGORITHM_VERSION,
-        algorithm_version_owner="precompute_way_landcover.ALGORITHM_VERSION",
-    ),
-    GenerationFreshnessSpec(
-        table_name="edge_landcover",
-        sources=(SourceRunSpec("OSM取込", "osm_import_runs", "source_osm_import_run_id", ("way_count",)),),
-        algorithm_version_current=_LANDCOVER_ALGORITHM_VERSION,
-        algorithm_version_owner="precompute_edge_landcover.ALGORITHM_VERSION",
-    ),
-    GenerationFreshnessSpec(
-        table_name="way_divided_carriageway",
-        sources=(SourceRunSpec("OSM取込", "osm_import_runs", "source_osm_import_run_id", ("way_count",)),),
-        algorithm_version_current=_DIVIDED_CARRIAGEWAY_ALGORITHM_VERSION,
-        algorithm_version_owner="precompute_way_divided_carriageway.ALGORITHM_VERSION",
-    ),
-)
+def counts_as_uncalculated(table, name: str) -> bool:
+    """その列のNULLを「未計算」として数えてよいか。
 
-# 世代台帳（`GENERATION_FRESHNESS_SPECS`）へ載せない事前計算バッチと、その理由。
-# `tests/test_derived_data_freshness.py`が`app/batch/precompute_*.py`側から母集団を引いて
-# 突き合わせるため、新しいバッチはここか台帳のどちらかへ必ず現れる——どちらにも無いまま
-# 増えると、その派生テーブルの陳腐化が管理画面から見えないまま残る。
-# **理由を書けば消えるのは検査であって実害ではない**。ここに並ぶバッチの出力は、再実行を
-# 忘れても管理画面のどこにも現れない。
-PRECOMPUTE_NOT_IN_LEDGER: dict[str, str] = {}
-
-
-@dataclass(frozen=True)
-class CompletenessSpec:
-    """世代比較ができない派生データ1件の宣言。
-
-    `road_edges`・`road_nodes`の列へ直接書くバッチは、その列に系譜
-    （`source_*_import_run_id`・`algorithm_version`）を持たないため世代比較の台帳に載せられない。
-    代わりに「母集団のうち、まだ計算されていない行が何件あるか」を数える。**取込で母集団が
-    増えたのにバッチを再実行していない状態**は、この件数が0でないこととして現れる。
-
-    `uncalculated`は母集団テーブルに対する述語で、specの内部定数のみから組み立てる
-    （外部入力を連結しない）。未計算を厳密に表せない列があるため`note`で但し書きを添える
-    ——`road_nodes.degree`は`NOT NULL DEFAULT 0`で、未計算と本当に次数0の行を区別できない。
-
-    `in_scope`は**担当バッチが処理できる行**の条件で、この宣言が唯一の情報源である。バッチは
-    対象を選ぶselectをここから組み立て、台帳は未計算の判定へANDで掛ける。両者が別々にこの
-    条件を持つと、バッチが永久に計算しない行を台帳が未計算と数え続け、台帳は「すべて最新」へ
-    到達できなくなる——常に出続ける警告は読まれなくなる。
+    NULLが「確定して値が無い」を意味する列（橋の勾配・指定のない道・POIでないノード）は
+    数えない。印は列の宣言（`ABSENT_OK`）が持つ——印の無い列は未計算として数える側へ
+    倒れるので、付け忘れは鳴りすぎる方向にしか外れない。
     """
-
-    label: str
-    population_table: str
-    uncalculated: str
-    owner: str
-    note: str = ""
-    #: 担当バッチが処理できる行（母集団に対する述語）。全行が対象なら既定のまま。
-    in_scope: str = "TRUE"
-
-
-COMPLETENESS_SPECS: tuple[CompletenessSpec, ...] = (
-    CompletenessSpec(
-        label="elevation_attributes",
-        population_table="road_edges",
-        uncalculated=(
-            "NOT EXISTS (SELECT 1 FROM elevation_attributes ea WHERE ea.edge_id = road_edges.edge_id)"
-        ),
-        owner="precompute_elevation_attributes",
-    ),
-    CompletenessSpec(
-        label="road_nodes.degree",
-        population_table="road_nodes",
-        uncalculated="degree = 0",
-        owner="precompute_road_node_degrees",
-        note="この列はNOT NULL DEFAULT 0のため、未計算と本当に次数0の行を区別できない（0件が正常とは限らない）",
-    ),
-    CompletenessSpec(
-        label="road_nodes.max_highway_rank",
-        population_table="road_nodes",
-        # この列もNOT NULL DEFAULT 0で、未計算と「順位表に無い道しか集まらない」を値だけでは
-        # 区別できない。**順位の付く道が接しているのに0**なら未計算だと言い切れるため、そこへ
-        # 絞る（自転車道・歩道だけのノードは常に0が正しく、そのままでは0件へ到達できない）。
-        # 信号の列も同じバッチが同時に書くため、片方が計算済みならもう片方も計算済み。
-        uncalculated=(
-            "max_highway_rank = 0 AND EXISTS ("
-            "SELECT 1 FROM road_edges e"
-            " WHERE (e.from_node_id = road_nodes.node_id OR e.to_node_id = road_nodes.node_id)"
-            f" AND e.highway IN ({', '.join(repr(h) for h in sorted(HIGHWAY_RANK))}))"
-        ),
-        owner="precompute_road_node_intersections",
-        note="has_traffic_signalsも同じバッチが同時に書くため、この件数が0なら両方が計算済み",
-    ),
-)
-
-
-def build_completeness_sql(spec: CompletenessSpec):
-    """1件ぶんの母集団件数と未計算件数（1回の走査でまとめる）。
-    テーブル名・述語はspecの内部定数のみから生成する（外部入力を連結しない）。
-
-    未計算は**担当バッチが処理できる行に限る**（`in_scope`）。対象外の行まで数えると、
-    作り直しても減らない件数が残り続ける。母集団は対象外の行も含めた全件のままにする
-    ——「全体のうち何件か」を読むための数だから。"""
-    return text(
-        f"SELECT count(*) AS population, "  # noqa: S608 固定の内部宣言のみ使用
-        f"count(*) FILTER (WHERE ({spec.in_scope}) AND ({spec.uncalculated})) AS uncalculated "
-        f"FROM {spec.population_table}"
-    )
-
-
-def completeness_spec(label: str) -> CompletenessSpec:
-    """ラベルで宣言を引く。担当バッチが自分の対象条件をここから取るために使う
-    （バッチ側に同じ述語を書かない）。"""
-    return next(spec for spec in COMPLETENESS_SPECS if spec.label == label)
-
-
-def build_generation_freshness_sql(spec: GenerationFreshnessSpec):
-    """1テーブルぶんの集計SELECT文（MIN・NULL件数を1回の走査でまとめる）。
-    列名はspecの内部定数のみから生成する（外部入力を連結しない）。"""
-    columns = []
-    for source in spec.sources:
-        columns.append(f"MIN({source.source_column}) AS {source.source_column}_min")
-        columns.append(
-            f"count(*) FILTER (WHERE {source.source_column} IS NULL) AS {source.source_column}_null_count"
-        )
-    if spec.algorithm_version_current is not None:
-        columns.append("MIN(algorithm_version) AS algorithm_version_min")
-        columns.append("count(*) FILTER (WHERE algorithm_version IS NULL) AS algorithm_version_null_count")
-    columns_sql = ", ".join(columns)
-    sql = f"SELECT count(*) AS row_count, {columns_sql} FROM {spec.table_name}"  # noqa: S608 固定の内部辞書のみ使用
-    return text(sql)
-
-
-def _latest_succeeded_run_id_sql(source: "SourceRunSpec") -> str:
-    """その派生テーブルにとっての高水位を返すSQL。
-
-    件数列がNULLのrunは「不明」として**書いたものとして数える**（安全側＝古い判定へ倒す）。
-    列を足す前の行と、件数を記録しない経路の両方がここに当たる。
-    """
-    sql = f"SELECT MAX(id) FROM {source.run_table} WHERE status = 'succeeded'"  # noqa: S608 固定の内部辞書のみ
-    if not source.wrote_columns:
-        return sql
-    wrote = " OR ".join(f"COALESCE({column}, 1) > 0" for column in source.wrote_columns)
-    return f"{sql} AND ({wrote})"
+    return not table.c[name].info.get("null_means_absent", False)
 
 
 @dataclass(frozen=True)
-class GenerationFreshnessCounts:
-    """1テーブルぶんの集計結果の生値。"""
+class ColumnCompleteness:
+    column: str
+    null_count: int
+    #: NULLを未計算として数えてよい列か（`counts_as_uncalculated`）。
+    counts_as_uncalculated: bool
 
+
+@dataclass(frozen=True)
+class TableFreshness:
     table_name: str
     row_count: int
-    #: 情報源の列 → そのテーブルにとっての高水位（`SourceRunSpec.wrote_columns`で絞ったもの）。
-    latest_available: dict[str, int | None]
-    source_min: dict[str, int | None]
-    source_null_count: dict[str, int]
-    algorithm_version_min: str | None
-    algorithm_version_null_count: int
+    #: その表の行が指すいちばん古い取込run。行が無ければNone。
+    oldest_run_id: int | None
+    #: その取込runのソース名（`source_runs.source`）。
+    source: str | None
+    #: 同じソースの最新の成功run。
+    latest_run_id: int | None
+    columns: tuple[ColumnCompleteness, ...]
+
+    @property
+    def is_stale(self) -> bool:
+        return (self.oldest_run_id is not None and self.latest_run_id is not None
+                and self.oldest_run_id < self.latest_run_id)
 
 
 @dataclass(frozen=True)
-class CompletenessCounts:
-    """完成度1件ぶんの集計結果の生値。"""
-
-    label: str
-    population: int
-    uncalculated: int
+class DerivedDataFreshness:
+    tables: tuple[TableFreshness, ...]
 
 
-@dataclass(frozen=True)
-class DerivedDataFreshnessCounts:
-    generations: tuple[GenerationFreshnessCounts, ...]
-    completeness: tuple[CompletenessCounts, ...]
+def build_table_sql(table) -> str:
+    """1表ぶんの集計（行数・最古の世代・列ごとの未計算件数）を1回の走査で求める。
+
+    列名は宣言からのみ組み立てる（外部入力を連結しない）。
+    """
+    nulls = ", ".join(
+        f"count(*) FILTER (WHERE {name} IS NULL) AS null_{name}" for name in value_columns(table))
+    columns = f"count(*) AS row_count, min({SOURCE_RUN_COLUMN}) AS oldest_run_id"
+    if nulls:
+        columns = f"{columns}, {nulls}"
+    return f"SELECT {columns} FROM {table.name}"  # noqa: S608 宣言のみ
+
+
+#: その取込runのソースと、同じソースの最新の成功run。
+_RUN_SOURCE_SQL = text("""
+SELECT r.source,
+       (SELECT max(run_id) FROM source_runs l
+         WHERE l.source = r.source AND l.status = 'succeeded') AS latest_run_id
+FROM source_runs r WHERE r.run_id = :run_id
+""")
 
 
 class DerivedDataFreshnessQuery:
-    """読み取り専用でcommit対象の書き込みは無い。全表走査を伴うため管理API専用
-    （`api/dependencies.py: get_derived_data_freshness_service`が長い
-    command_timeoutのセッションを渡す）。"""
+    """読み取り専用。全表走査を伴うため管理API専用。"""
 
     def __init__(self, session: AsyncSession):
         self._session = session
 
-    async def get_freshness_counts(self) -> DerivedDataFreshnessCounts:
-        # 高水位は**テーブルごとに違う**（同じ取込runでも、何を書いたかで古くなる
-        # テーブルが変わる）。問い合わせ自体はSQLが同じなら使い回す。
-        by_sql: dict[str, int | None] = {}
-        generations: list[GenerationFreshnessCounts] = []
-
-        for spec in GENERATION_FRESHNESS_SPECS:
-            latest_available: dict[str, int | None] = {}
-            for source in spec.sources:
-                sql_text = _latest_succeeded_run_id_sql(source)
-                if sql_text not in by_sql:
-                    by_sql[sql_text] = (await self._session.execute(text(sql_text))).scalar_one()
-                latest_available[source.source_column] = by_sql[sql_text]
-
-            row = (await self._session.execute(build_generation_freshness_sql(spec))).mappings().one()
-            source_min = {source.source_column: row[f"{source.source_column}_min"] for source in spec.sources}
-            source_null_count = {
-                source.source_column: int(row[f"{source.source_column}_null_count"]) for source in spec.sources
-            }
-            has_algorithm_version = spec.algorithm_version_current is not None
-            generations.append(
-                GenerationFreshnessCounts(
-                    table_name=spec.table_name,
-                    row_count=int(row["row_count"]),
-                    latest_available=latest_available,
-                    source_min=source_min,
-                    source_null_count=source_null_count,
-                    algorithm_version_min=row["algorithm_version_min"] if has_algorithm_version else None,
-                    algorithm_version_null_count=(
-                        int(row["algorithm_version_null_count"]) if has_algorithm_version else 0
-                    ),
-                )
-            )
-
-        completeness: list[CompletenessCounts] = []
-        for spec in COMPLETENESS_SPECS:
-            row = (await self._session.execute(build_completeness_sql(spec))).mappings().one()
-            completeness.append(
-                CompletenessCounts(
-                    label=spec.label,
-                    population=int(row["population"]),
-                    uncalculated=int(row["uncalculated"]),
-                )
-            )
-
-        return DerivedDataFreshnessCounts(
-            generations=tuple(generations),
-            completeness=tuple(completeness),
-        )
+    async def get_freshness(self) -> DerivedDataFreshness:
+        tables: list[TableFreshness] = []
+        for table in derived_tables():
+            row = (await self._session.execute(text(build_table_sql(table)))).mappings().one()
+            oldest = row["oldest_run_id"]
+            source = latest = None
+            if oldest is not None:
+                run = (await self._session.execute(_RUN_SOURCE_SQL, {"run_id": oldest})).first()
+                if run is not None:
+                    source, latest = run.source, run.latest_run_id
+            tables.append(TableFreshness(
+                table_name=table.name,
+                row_count=int(row["row_count"]),
+                oldest_run_id=oldest,
+                source=source,
+                latest_run_id=latest,
+                columns=tuple(
+                    ColumnCompleteness(
+                        column=name, null_count=int(row[f"null_{name}"]),
+                        counts_as_uncalculated=counts_as_uncalculated(table, name))
+                    for name in value_columns(table)),
+            ))
+        return DerivedDataFreshness(tables=tuple(tables))

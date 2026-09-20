@@ -111,7 +111,5 @@ export type MaterialCoverageResponse = Schemas["MaterialCoverageResponse"];
 
 // 派生データ鮮度台帳。GET /api/admin/derived-data/freshness（Basic認証必須、
 // 管理画面「データ保守」タブが同一オリジンのroute handler経由で取得する）のレスポンス。
-export type GenerationFreshnessEntry = Schemas["GenerationFreshnessEntry"];
 export type DerivedDataFreshnessResponse = Schemas["DerivedDataFreshnessResponse"];
 export type DbStatusResponse = Schemas["DbStatusResponse"];
-export type RoadGraphTilesResponse = Schemas["RoadGraphTilesResponse"];

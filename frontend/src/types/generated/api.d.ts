@@ -863,11 +863,7 @@ export interface paths {
         };
         /**
          * Get Derived Data Freshness
-         * @description `edge_attribute_counts`・`way_attribute_counts`・`designation_attributes`の
-         *     鮮度不整合（`is_stale`）と、`elevation_attributes`の完成度を返す。
-         *
-         *     DB例外は`get_material_coverage`と同じく503へ変換する（診断用APIのため
-         *     空レポートへ倒さない）。
+         * @description 派生データの表ごとの鮮度と、値の列ごとの未計算件数を返す。
          */
         get: operations["get_derived_data_freshness_api_admin_derived_data_freshness_get"];
         put?: never;
@@ -887,28 +883,6 @@ export interface paths {
         };
         /** Get Db Status */
         get: operations["get_db_status_api_admin_db_status_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/admin/road-graph-tiles": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Get Road Graph Tiles
-         * @description split済みタイルの全件。ここに無い範囲は初回のルート生成でsplitが走る（冷パス）。
-         *
-         *     件数が多くなるため`GET /api/admin/db-status`とは分けてある（地図を開いたときだけ要る）。
-         */
-        get: operations["get_road_graph_tiles_api_admin_road_graph_tiles_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -954,19 +928,6 @@ export interface components {
             level: "advisory" | "warning" | "severe_warning" | "emergency_warning";
             /** Additions */
             additions: string[];
-        };
-        /** AlgorithmVersionFreshnessEntry */
-        AlgorithmVersionFreshnessEntry: {
-            /** Owner */
-            owner: string;
-            /** Current Version */
-            current_version: string;
-            /** Oldest Version */
-            oldest_version: string | null;
-            /** Null Count */
-            null_count: number;
-            /** Is Stale */
-            is_stale: boolean;
         };
         /**
          * AmedasObservation
@@ -1413,20 +1374,17 @@ export interface components {
             };
         };
         /**
-         * CompletenessEntry
-         * @description 系譜列を持たない派生データの完成度。世代比較ができないため、母集団のうち未計算の行数で見る。
+         * ColumnEntry
+         * @description 値の列1本ぶんの完成度。
+         *
+         *     NULLが「まだ計算していない」を意味する列と、「確定して値が無い」を意味する列がある。
+         *     件数は常に返し、鳴らすかどうか（`is_incomplete`）だけを区別する。
          */
-        CompletenessEntry: {
-            /** Label */
-            label: string;
-            /** Population */
-            population: number;
-            /** Uncalculated Count */
-            uncalculated_count: number;
-            /** Owner */
-            owner: string;
-            /** Note */
-            note: string;
+        ColumnEntry: {
+            /** Column */
+            column: string;
+            /** Null Count */
+            null_count: number;
             /** Is Incomplete */
             is_incomplete: boolean;
         };
@@ -1461,7 +1419,7 @@ export interface components {
             /** Imports */
             imports: components["schemas"]["ImportRunEntry"][];
             /** Tables */
-            tables: components["schemas"]["TableEntry"][];
+            tables: components["schemas"]["app__api__routers__db_status__TableEntry"][];
             connections: components["schemas"]["ConnectionEntry"];
             /** Database Bytes */
             database_bytes: number;
@@ -1500,10 +1458,8 @@ export interface components {
         DerivedDataFreshnessResponse: {
             /** Computed At */
             computed_at: string;
-            /** Generations */
-            generations: components["schemas"]["GenerationFreshnessEntry"][];
-            /** Completeness */
-            completeness: components["schemas"]["CompletenessEntry"][];
+            /** Tables */
+            tables: components["schemas"]["app__api__routers__derived_data_freshness__TableEntry"][];
         };
         /** ExternalCallStatsResponse */
         ExternalCallStatsResponse: {
@@ -1583,18 +1539,6 @@ export interface components {
             corrected_destination?: components["schemas"]["Coordinates"] | null;
             /** Generated At */
             generated_at: string;
-        };
-        /** GenerationFreshnessEntry */
-        GenerationFreshnessEntry: {
-            /** Table Name */
-            table_name: string;
-            /** Row Count */
-            row_count: number;
-            /** Sources */
-            sources: components["schemas"]["SourceFreshnessEntry"][];
-            algorithm_version: components["schemas"]["AlgorithmVersionFreshnessEntry"] | null;
-            /** Is Stale */
-            is_stale: boolean;
         };
         /** HTTPValidationError */
         HTTPValidationError: {
@@ -1913,26 +1857,6 @@ export interface components {
             value: number;
         };
         /**
-         * RoadGraphTileEntry
-         * @description split済みタイル1件。frontendがXYZ座標から境界ポリゴンを組み立てる
-         *     （`Map/dynamicWayValues.ts: tileBoundsLonLat`）ため、ここではGeoJSONにしない。
-         */
-        RoadGraphTileEntry: {
-            /** Zoom */
-            zoom: number;
-            /** X */
-            x: number;
-            /** Y */
-            y: number;
-            /** Fetched At */
-            fetched_at: string;
-        };
-        /** RoadGraphTilesResponse */
-        RoadGraphTilesResponse: {
-            /** Tiles */
-            tiles: components["schemas"]["RoadGraphTileEntry"][];
-        };
-        /**
          * RouteCandidate
          * @description `overall_difficulty`: segmentsの`difficulty`（絶対基準0-100）の距離加重平均
          *     （domain/difficulty.py: distance_weighted_difficulty）。異なる実験（重み・条件）間の
@@ -2175,44 +2099,6 @@ export interface components {
             };
             /** Difficulty */
             difficulty?: number | null;
-        };
-        /** SourceFreshnessEntry */
-        SourceFreshnessEntry: {
-            /** Label */
-            label: string;
-            /** Run Table */
-            run_table: string;
-            /** Latest Available Run Id */
-            latest_available_run_id: number | null;
-            /** Earliest Reflected Run Id */
-            earliest_reflected_run_id: number | null;
-            /** Null Count */
-            null_count: number;
-            /** Is Stale */
-            is_stale: boolean;
-        };
-        /**
-         * TableEntry
-         * @description テーブル1つの実数・容量とメンテナンス状態。行数は統計値ではなく実数を数えている
-         *     （統計はANALYZE前のテーブルで大きくずれ、取り込み漏れの検出に使えないため）。
-         */
-        TableEntry: {
-            /** Table Name */
-            table_name: string;
-            /** Row Count */
-            row_count: number;
-            /** Total Bytes */
-            total_bytes: number;
-            /** Dead Tuples */
-            dead_tuples: number;
-            /** Analyzed At */
-            analyzed_at: string | null;
-            /** Vacuumed At */
-            vacuumed_at: string | null;
-            /** Needs Attention */
-            needs_attention: boolean;
-            /** Note */
-            note: string;
         };
         /**
          * TileInputSpec
@@ -2496,6 +2382,46 @@ export interface components {
             times: string[];
             /** Points */
             points: components["schemas"]["WindGridPoint"][];
+        };
+        /**
+         * TableEntry
+         * @description テーブル1つの実数・容量とメンテナンス状態。行数は統計値ではなく実数を数えている
+         *     （統計はANALYZE前のテーブルで大きくずれ、取り込み漏れの検出に使えないため）。
+         */
+        app__api__routers__db_status__TableEntry: {
+            /** Table Name */
+            table_name: string;
+            /** Row Count */
+            row_count: number;
+            /** Total Bytes */
+            total_bytes: number;
+            /** Dead Tuples */
+            dead_tuples: number;
+            /** Analyzed At */
+            analyzed_at: string | null;
+            /** Vacuumed At */
+            vacuumed_at: string | null;
+            /** Needs Attention */
+            needs_attention: boolean;
+            /** Note */
+            note: string;
+        };
+        /** TableEntry */
+        app__api__routers__derived_data_freshness__TableEntry: {
+            /** Table Name */
+            table_name: string;
+            /** Row Count */
+            row_count: number;
+            /** Source */
+            source: string | null;
+            /** Oldest Run Id */
+            oldest_run_id: number | null;
+            /** Latest Run Id */
+            latest_run_id: number | null;
+            /** Is Stale */
+            is_stale: boolean;
+            /** Columns */
+            columns: components["schemas"]["ColumnEntry"][];
         };
     };
     responses: never;
@@ -3766,26 +3692,6 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["DbStatusResponse"];
-                };
-            };
-        };
-    };
-    get_road_graph_tiles_api_admin_road_graph_tiles_get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["RoadGraphTilesResponse"];
                 };
             };
         };

@@ -6,7 +6,6 @@ import { Card } from "@/components/ui/Card/Card";
 import InfoPopover from "@/components/Map/InfoPopover";
 import floatingPopoverStyles from "@/components/ui/floatingPopover.module.css";
 import { getDbStatus } from "@/services/dbStatusApi";
-import SplitCoverageMap from "./SplitCoverageMap";
 import type { DbStatusResponse } from "@/types/route";
 import styles from "./DerivedDataFreshnessPanel.module.css";
 
@@ -283,9 +282,7 @@ export function SplitCoverageRow() {
         <span className={styles.rowName}>split済み範囲</span>
         <span className={styles.rowScale}>地図で見る</span>
       </summary>
-      <div className={styles.detail}>
-        <SplitCoverageMap />
-      </div>
+      <div className={styles.detail}></div>
     </details>
   );
 }

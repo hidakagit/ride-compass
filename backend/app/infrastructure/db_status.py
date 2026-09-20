@@ -20,27 +20,6 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 
-@dataclass(frozen=True)
-class ImportRunSpec:
-    """生データ取込の記録テーブル1件の宣言。
-
-    テーブルごとに「何件取り込んだか」の列名と、runを識別する列が違う（PBF名・対象年・
-    種別）。読み手が見たいのは「いつ・何を・どこまで」なので、列名の違いは宣言で吸収する。
-    """
-
-    label: str
-    table: str
-    count_column: str
-    #: runを識別する列（画面へそのまま出す）。テーブルごとに意味が違うため宣言で持つ。
-    identity_columns: tuple[str, ...]
-
-
-IMPORT_RUN_SPECS: tuple[ImportRunSpec, ...] = (
-    ImportRunSpec("OSM取込", "osm_import_runs", "way_count", ("pbf_name", "bbox")),
-    ImportRunSpec("事故取込", "accident_import_runs", "accident_count", ("occurred_year", "file_name")),
-    ImportRunSpec("指定路線取込", "designation_import_runs", "designation_count", ("kind", "source")),
-)
-
 # PostGISが作る付属テーブル。アプリのデータではないため一覧から外す。
 _EXCLUDED_TABLES = ("spatial_ref_sys",)
 
@@ -73,12 +52,13 @@ WHERE datname = current_database() AND pid <> pg_backend_pid()
 
 @dataclass(frozen=True)
 class ImportRunCounts:
-    """取込1種別ぶんの生値。`latest`は成否を問わない最新、`latest_succeeded`は成功した最新。"""
+    """取込1ソースぶんの生値。`latest`は成否を問わない最新、`latest_succeeded`は成功した最新。"""
 
     label: str
     latest_id: int | None
     latest_status: str | None
     latest_finished_at: datetime | None
+    #: そのrunが何を取りに行ったか（`source_runs.origin`をそのまま文字列化したもの）。
     latest_identity: dict[str, str]
     latest_item_count: int | None
     latest_succeeded_id: int | None
@@ -105,17 +85,6 @@ class ConnectionCounts:
 
 
 @dataclass(frozen=True)
-class RoadGraphTile:
-    """split済みタイル1件（`domain/region.py: ROAD_GRAPH_TILE_ZOOM`のXYZ座標）。
-    ここに無い範囲は、初回のルート生成でsplitが走る＝冷パスになる。"""
-
-    zoom: int
-    x: int
-    y: int
-    fetched_at: datetime
-
-
-@dataclass(frozen=True)
 class DbStatusCounts:
     imports: tuple[ImportRunCounts, ...]
     tables: tuple[TableCounts, ...]
@@ -123,31 +92,23 @@ class DbStatusCounts:
     database_bytes: int
 
 
-def build_latest_import_run_sql(spec: ImportRunSpec):
-    """1種別ぶんの「最新run」と「成功した最新run」を1回で引く。
-    テーブル名・列名はspecの内部宣言のみから組み立てる（外部入力を連結しない）。"""
-    identity = ", ".join(f"latest.{column}::text AS {column}" for column in spec.identity_columns)
-    return text(  # noqa: S608 固定の内部宣言のみ使用
-        f"""
-        WITH latest AS (
-            SELECT * FROM {spec.table} ORDER BY id DESC LIMIT 1
-        ), latest_succeeded AS (
-            SELECT id, finished_at FROM {spec.table} WHERE status = 'succeeded' ORDER BY id DESC LIMIT 1
-        )
-        SELECT latest.id AS latest_id,
-               latest.status AS latest_status,
-               latest.finished_at AS latest_finished_at,
-               latest.{spec.count_column} AS latest_item_count,
-               {identity},
-               (SELECT id FROM latest_succeeded) AS latest_succeeded_id,
-               (SELECT finished_at FROM latest_succeeded) AS latest_succeeded_finished_at
-        FROM latest
-        """
-    )
-
-
-_ROAD_GRAPH_TILES_SQL = """
-SELECT zoom, x, y, fetched_at FROM road_graph_tiles ORDER BY zoom, x, y
+#: ソースごとの最新run（成否を問わない）と、成功した最新run。取込の記録は`source_runs`
+#: 1つだけなので、ソースが増えても宣言は要らない。
+_IMPORT_RUNS_SQL = """
+SELECT DISTINCT ON (source)
+       source,
+       run_id AS latest_id,
+       status AS latest_status,
+       finished_at AS latest_finished_at,
+       counts AS latest_counts,
+       origin AS latest_origin,
+       (SELECT max(run_id) FROM source_runs s
+         WHERE s.source = r.source AND s.status = 'succeeded') AS latest_succeeded_id,
+       (SELECT finished_at FROM source_runs s
+         WHERE s.source = r.source AND s.status = 'succeeded'
+         ORDER BY run_id DESC LIMIT 1) AS latest_succeeded_finished_at
+FROM source_runs r
+ORDER BY source, run_id DESC
 """
 
 
@@ -158,49 +119,22 @@ class DbStatusQuery:
     def __init__(self, session: AsyncSession):
         self._session = session
 
-    async def fetch_road_graph_tiles(self) -> tuple[RoadGraphTile, ...]:
-        """split済みタイルの全件。鮮度の集計（`fetch_counts`）とは分けて呼ぶ——地図を開いた
-        ときだけ要る一方、本番では全域ぶんの件数になるため毎回運ぶと無駄になる。"""
-        rows = (await self._session.execute(text(_ROAD_GRAPH_TILES_SQL))).mappings().all()
-        return tuple(
-            RoadGraphTile(zoom=int(row["zoom"]), x=int(row["x"]), y=int(row["y"]), fetched_at=row["fetched_at"])
-            for row in rows
-        )
-
     async def fetch_counts(self) -> DbStatusCounts:
-        imports: list[ImportRunCounts] = []
-        for spec in IMPORT_RUN_SPECS:
-            row = (await self._session.execute(build_latest_import_run_sql(spec))).mappings().one_or_none()
-            if row is None:
-                imports.append(
-                    ImportRunCounts(
-                        label=spec.label,
-                        latest_id=None,
-                        latest_status=None,
-                        latest_finished_at=None,
-                        latest_identity={},
-                        latest_item_count=None,
-                        latest_succeeded_id=None,
-                        latest_succeeded_finished_at=None,
-                    )
-                )
-                continue
-            imports.append(
-                ImportRunCounts(
-                    label=spec.label,
-                    latest_id=int(row["latest_id"]),
-                    latest_status=str(row["latest_status"]),
-                    latest_finished_at=row["latest_finished_at"],
-                    latest_identity={
-                        column: str(row[column]) for column in spec.identity_columns if row[column] is not None
-                    },
-                    latest_item_count=None if row["latest_item_count"] is None else int(row["latest_item_count"]),
-                    latest_succeeded_id=(
-                        None if row["latest_succeeded_id"] is None else int(row["latest_succeeded_id"])
-                    ),
-                    latest_succeeded_finished_at=row["latest_succeeded_finished_at"],
-                )
+        imports = tuple(
+            ImportRunCounts(
+                label=row["source"],
+                latest_id=int(row["latest_id"]),
+                latest_status=str(row["latest_status"]),
+                latest_finished_at=row["latest_finished_at"],
+                latest_identity={key: str(value)
+                                 for key, value in (row["latest_origin"] or {}).items()},
+                latest_item_count=(row["latest_counts"] or {}).get("records"),
+                latest_succeeded_id=(None if row["latest_succeeded_id"] is None
+                                     else int(row["latest_succeeded_id"])),
+                latest_succeeded_finished_at=row["latest_succeeded_finished_at"],
             )
+            for row in (await self._session.execute(text(_IMPORT_RUNS_SQL))).mappings().all()
+        )
 
         table_rows = (
             await self._session.execute(text(_TABLE_STATS_SQL), {"excluded": list(_EXCLUDED_TABLES)})
@@ -226,7 +160,7 @@ class DbStatusQuery:
         )
 
         return DbStatusCounts(
-            imports=tuple(imports),
+            imports=imports,
             tables=tables,
             connections=ConnectionCounts(
                 total=int(connection_row["total"]),

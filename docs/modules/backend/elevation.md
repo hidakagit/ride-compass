@@ -2,171 +2,77 @@
 
 ## 責務
 
-国土地理院DEMタイルから標高を取得し、Road GraphのEdge単位属性（勾配計算の入力）へ
-供給する。
+国土地理院のDEMタイルから標高を取り、道の勾配を出す。取込・派生・経路の集計の3段に
+分かれており、**実行時に国土地理院へ問い合わせる経路は持たない**。
 
 **対象ファイル**
 
 | レイヤー | ファイル |
 |---|---|
-| domain | `attributes.py`（`ElevationAttribute`・`compute_elevation_attribute`） |
-| services | `elevation_aggregation.py`・`elevation_attribute_service.py` |
-| infrastructure | `elevation_client.py` |
-| batch | `precompute_elevation_attributes.py` |
+| domain | `attributes.py`（`ElevationValues`・`compute_elevation_values`） |
+| services | `elevation_aggregation.py` |
+| infrastructure | `elevation_client.py`（タイルのURL・形式・整備区域の扱い） |
+| batch | `source_adapters/gsi_dem_tile.py`（取込）・`derive_raster_materials.py`（派生） |
 
-`api/dependencies.py`の`get_elevation_attribute_service`、
-`infrastructure/road_graph_repository.py: AttributeRepository.get_elevation_attributes`/
-`save_elevation_attributes`は[routing-engine.md](routing-engine.md)が主管するファイルに
-属するため対象表には加えず参照のみ行う。
+## 3段に分かれている
 
-## ElevationAttributeService（`elevation_attribute_service.py`）
+```
+国土地理院 DEMタイル（テキスト、256×256）
+   │ source_adapters/gsi_dem_tile.py: int16へ詰めてタイル1枚=1行
+   ▼
+source_features(source='dem')          ← 生データ。取り直さない限り変わらない
+   │ derive_raster_materials.py: 区間の形状点で標高を読み、勾配を出す
+   ▼
+edge_materials（start/end・gain/loss・average/max/min）
+   │ 探索フェーズが材料として読む（road_graph_repository.py）
+   ▼
+経路の集計（elevation_aggregation.py）
+```
 
-Road GraphのDirected Edgeへ標高属性（`ElevationAttribute`）を紐付ける。複数Edgeぶんの
-形状点（geometry）をまとめ、1回の`ElevationClient.get_elevations`呼び出しで国土地理院
-APIへ問い合わせる。計算ロジック自体はdomain層（`domain/attributes.py:
-compute_elevation_attribute`）に委譲する。GSIへの同時リクエスト数の制限
-（`MAX_CONCURRENT_REQUESTS = 5`）は`ElevationClient`側（タイル単位）が持つ。
+値の出し方そのものは`domain/attributes.py: compute_elevation_values`が持つ。派生バッチは
+画素を読んで渡すだけで、上限も欠測の扱いもそこには無い。
 
-`ElevationAttributeService.get_attributes_for_graph`が返す標高属性（`elevation_gain_m`・
-`min_elevation_m`・`max_elevation_m`）の最終集約（合計/最小/最大・空ならNone・
-小数1桁丸め）は`elevation_aggregation.py`（`sum_or_none`・`min_or_none`・
-`max_or_none`）に集約されており、`road_graph_engine.py: _aggregate_elevation`
-（モジュールレベル関数、`RoadGraphEngine`のメソッドではない。[routing-engine.md]
-(routing-engine.md)）がEdge単位の標高属性をルート単位へ集約する際にこれを使う。
+## 勾配を出さない区間
 
-## DEMタイル方式（`infrastructure/elevation_client.py`）
-
-GSIのDEMタイル（テキスト形式、256行×256列カンマ区切り、欠測は`"e"`）を範囲ごと取得し
-ローカルで双線形補間（`_bilinear_interpolate`）する。呼び出し側インターフェースは
-`get_elevation(client, point, refresh=False)`（1地点）と`get_elevations(client, points,
-refresh=False)`（複数地点）。`get_elevation`は内部的に`get_elevations`
-（要素数1）を呼ぶ薄いラッパー。`get_elevations`は地点ごとにasyncioタスクを生成せず、
-`DEM_TYPE_PRIORITY`を1ラウンドずつ進めながらそのラウンドで未取得のタイルだけをまとめて
-1回のフェッチへ束ねる（`_load_tile_grid`、同一タイルへの同時フェッチはsingle-flightで
-重複排除）。
-
-`type`は単一のDEM種別ではなく`DEM_TYPE_PRIORITY = ("dem5a", "dem5b", "dem5c", "dem")`
-（優先順位付き複数種別）をタイル単位でクライアント側から順に試す。`dem`（サフィックス無し）
-はdem5a/b/cをGSIサーバー側で自動フォールバックした統合種別ではなく、それらより粗い
-別データセット（DEM10B相当）——同一タイルでdem5aと異なる値を返すため、クライアント側の
-明示的な優先順位フォールバックが必要になる。非対応エリアはタイル丸ごと404を返す（黙って
-粗いデータへ劣化するのではなく明示的に判別できる）。全種別を`DEM_ZOOM=14`固定で扱う
-（種別ごとにズームを変えるとタイル座標系の扱いが複雑になるため。DEM5A/5B/5CはGSI仕様上
-z=15にも対応するが14でも取得できる）。
-
-一時的な通信エラーと恒久的なカバレッジ外（404）は`_CoverageGap`センチネルで区別し、
-恒久的な欠損のみを`_tile_grid_cache`（プロセス内メモリ）へ永続的にキャッシュする
-（通信エラーは永続キャッシュしない）。
-
-キャッシュは2段: 生タイル本文は`tile_cache.py`（ファイルキャッシュ、TTLなし。DEMは不変
-データのため）。パース済みグリッド（256×256の`float|None`二次元配列）はさらにプロセス内
-メモリ（`_tile_grid_cache`）にも保持し、1リクエスト内で近接する複数のサンプル点が同じ
-タイルを共有する場合にファイル読み出し・パースを都度繰り返さないようにする。`_tile_grid_cache`
-は上限つきLRU（`cachetools.LRUCache`、上限は`DEFAULT_MAX_TILE_GRIDS`。プロセス内キャッシュを
-`cachetools`へ統一する方針どおりで、`graph_material_cache.py`のタイル材料キャッシュと同じ）。
-上限に達すると最も長く使われていないタイルから追い出されるが、ファイル層（`tile_cache.py`）
-は上限なく永続化済みのため、追い出されてもネットワーク呼び出し無しのローカル再パースだけで
-復元できる。
-
-## 事前計算バッチ（`batch/precompute_elevation_attributes.py`）
-
-Road Graphの全Edgeに対して`ElevationAttributeService`をあらかじめ実行し、
-`elevation_attributes`テーブルへ永続化する。実際の計算ロジックは本バッチが独自に持つ
-のではなく`ElevationAttributeService.get_attributes_for_graph`をそのまま呼ぶ。
-`CHUNK_SIZE = 2_000`。
-
-`ElevationAttributeService`は`repository`を渡すと、Edgeごとに先にPostGISで既存の
-Attributeを確認し（`get_elevation_attributes`）、既に永続化済みならGSIへ問い合わせない
-——本バッチは再実行しても未計算分だけを埋める形で安全に再実行できる。`_target_edge_ids_stmt`
-自体もanti-joinで計算済みEdgeを最初から除外し、かつ地理的順序（`ORDER BY geom`）で
-選ぶ（この対象IDは`_common.py: run_chunked_precompute`→`stream_id_chunks`がサーバーサイドカーソルで
-`CHUNK_SIZE`件ずつ読み進め、Python側へ全件を載せない）——`ElevationClient`の
-プロセス内タイルグリッドキャッシュ（`_tile_grid_cache`）が
-近接するEdgeで同じDEMタイルを共有できるようにするため（DB取得順は地理的に無関係なため、
-順序を変えないとLRU上限に達するたびディスクからの再パースが多発する）。geometryの取得
-（`RoadGraphRepository.get_edges_with_geometry`）はDBへ直接問い合わせる——全道路網一括
-バッチはbboxに収まらず反復性も無いため、Redisを挟んでも書き込むだけで再利用されない。
-
-### 標高が1つも得られなかったEdgeの扱い
-
-Edgeの形状点から有効な標高が2点未満しか得られないと、`compute_elevation_attribute`は
-全フィールドNoneのAttributeを返す。これを**理由で分けて**扱う。
-
-- **一時障害でタイルを読めなかった**（タイムアウト・5xx等）: 永続化しない。
-  `get_elevation_attributes`のキャッシュ判定は行の存在だけを見るため、記録すると
-  復旧後も二度と再問い合わせされない。
-- **DEMを読み切ったうえで値が無い**（海上・整備区域外。欠測画素`"e"`と404の両方）:
-  `data_source`を`gsi-dem:no-coverage`にして永続化する。記録しないと毎回の再計算対象に
-  残り続け、派生データの鮮度台帳も「未計算」と数え続ける——**「試したが値が無い」と
-  「まだ試していない」が区別できない**。
-
-両者の区別は`ElevationClient.get_elevations_with_coverage`が地点ごとに返す
-「読み切ったか」で行う（記録の有無で一時障害と整備区域外を分ける`_CoverageGap`と同じ
-考え方を、呼び出し側まで通したもの）。Edgeの形状点が1点でも読み切れなければ、その
-Edgeは永続化しない。
-
-**暗黙の前提（モジュール間の隠れた依存）**: このバッチが対象Edgeに対して実行されて
-いない、または`elevation_attributes.average_grade`がNULLのままだと、
-[dynamic-way-values.md](dynamic-way-values.md)の勾配材料配信（`GradientWayService`・
-`get_feature_gradient_inputs_in_tile`）はそのフィーチャーを結果から黙って除外する
-（SQL側の`ea.average_grade IS NOT NULL`条件。ただし区間の逆向きの行に属性があれば
-そちらが使われる）。[routing-engine.md](routing-engine.md)のroad_graph
-エンジンの探索コスト側も同様に「未計算のEdgeはNoneのまま＝評価スキップ」として扱う。
-このバッチの実行状態は、実行が漏れていても即座にはエラーとして顕在化せず、地図上の
-一部道路の勾配色・車ストレス評価が静かに欠落するという性質の障害モードを持つ。
-
-**勾配を出さない区間**: `average_grade`がNULLなのは「まだ計算していない」だけではない。
-次の2つは、計算したうえで**値を持たせない**と決めた区間である。
+`average_grade`がNULLなのは「まだ計算していない」だけではない。次の2つは、計算したうえで
+**値を持たせない**と決めた区間である。
 
 - **舗装公道としてありえない急勾配**（`MAX_PLAUSIBLE_AVERAGE_GRADE_PERCENT`）。道の起伏では
   なくDEMの読み違いで、丸めても上限で切っても直らない。
 - **橋・高架・トンネル**。DEMが返すのは地表面の標高で、桁や坑道の高さではない——谷を渡る橋
   なら谷底の起伏を、山を抜けるトンネルなら山の起伏を、そのまま道の勾配として受け取る。
-  **測り間違いではなく別のものを測っている**ため、値の側では直せない。判定は
-  `AttributeRepository.get_edge_ids_on_structure`が`osm_raw_ways`のタグから引く。
+  **測り間違いではなく別のものを測っている**ため、値の側では直せない。
 
 どちらも標高そのもの（start/end・gain/loss）は残す。0次ハードフィルタは値の無い区間を
 除外しない（`domain/hard_filters.py`）ため、誤った値で黙って経路から外すより安全側になる。
 
-**同時実行制御**: `ElevationAttributeService`は、`repository`が内包するSQLAlchemyの
-`AsyncSession`が複数コルーチンからの同時使用不可であることを踏まえ、
-`self._repository_lock`（`asyncio.Lock`）でrepositoryアクセスだけを直列化する。これは
-`RoadGraphEngine.evaluate_loops`が候補（方位）ごとに`asyncio.gather`で並列に本サービスを
-呼ぶために必要な保護。GSIへのHTTP問い合わせ（`_compute_attributes`→
-`ElevationClient.get_elevations`）自体はロック外で並列に走る（同時リクエスト数の制限は
-`ElevationClient.MAX_CONCURRENT_REQUESTS`がタイル単位で行う）。
+この列のNULLは鮮度台帳で「未計算」として数えない（`derived_models.py: ABSENT_OK`）。
 
-`repository`指定時のもう一つの前提: `elevation_attributes`テーブルは
-`road_edges.edge_id`への外部キー（ON DELETE CASCADE）を持つため、渡す`graph`は事前に
-同じ`repository`経由でDBへ保存済み（`road_edges`にそのedge_idの行が存在する状態）で
-なければならない。DB未保存のRoadGraphを`repository`指定時に渡すと
-`save_elevation_attributes`が外部キー制約違反で失敗する。
+## 欠測点の扱い
 
-## データフロー図
+標高が読めなかった点は除外して評価する。**除外後に隣り合う2点でも、元の点列では間に
+欠損点を挟んでいることがある**——そのまま隣接扱いすると、欠損区間の実際の起伏が均された
+平均勾配として混入する。距離（両点とも既知なので常に正確）と、獲得/喪失・勾配（欠損を
+挟むと信頼できない）を分けて積む。
 
-```
-[バッチ事前計算＋探索時参照]
-precompute_elevation_attributes.py（オフライン、CHUNK_SIZE=2000）
-  → target_stmt（未計算Edgeのみanti-join、地理的順序=ORDER BY geom。対象条件は
-     derived_data_freshness.completeness_spec が持つ宣言から組み立てる）
-  → RoadGraphRepository.get_edges_with_geometry（DBへ直接問い合わせる）
-  → ElevationAttributeService.get_attributes_for_graph
-       → repository.get_elevation_attributes（既存分をスキップ）
-       → 未計算分のみ ElevationAttributeService._compute_attributes が
-         Edge横断で形状点をまとめ ElevationClient.get_elevations を1回呼ぶ
-       → domain/attributes.py: compute_elevation_attribute で ElevationAttribute 算出
-       → repository.save_elevation_attributes → repository.commit（サービス層がcommit）
-  → elevation_attributes テーブルへ永続化
-       │
-       ├─→ RoadGraphEngine.prepare 時に読み取り専用でキー参照（探索コスト・axis_difficulties）
-       └─→ dynamic-way-values.md: GradientWayService が average_grade + road_edges.bearing_deg
-            をJOINして勾配材料を配信（未計算Edgeは静かに除外）
+整備区域外のタイルは配信元が404を返す。取込はそのタイルを行として作らないため、そこに
+落ちる区間は標高を持たない——「試したが値が無い」と「まだ試していない」は、タイルの行が
+在るかどうかで区別できる。
 
-[ElevationClientの内部]
-get_elevations(points) → DEM_TYPE_PRIORITYを1ラウンドずつ進行
-  → ラウンドごとに未取得タイルをまとめて _load_tile_grid（single-flightで重複排除）
-       → tile_cache（ファイル、無期限）→ ミス時GSI DEMタイルHTTP取得
-         （MAX_CONCURRENT_REQUESTSで同時数を制限）
-  → _tile_grid_cache（プロセス内メモリ、上限つきLRU、恒久キャッシュは404[_CoverageGap]のみ）
-  → _bilinear_interpolate で各点の標高を補間
-```
+## 向きと標高
+
+区間は向きを持たない1行で、標高も順方向の値だけを持つ。逆向きは読み出し時に導く
+（始点↔終点、上り↔下り、平均勾配は符号反転、最大↔最小は入れ替えて符号反転）。地形の
+物理量は進行方向に依存しないため、この変換は厳密に正しい。変換はSQLが行う
+（`road_graph_repository.py: _REVERSED_ELEVATION_COLUMNS`）ので、材料の式も評価も向きを
+知らない。
+
+## 経路の集計（`elevation_aggregation.py`）
+
+確定した経路の区間ぶんの値から、累積標高・最大勾配などを組み立てる。区間の値は探索
+フェーズで読んだ材料がそのまま持っているため、ここでDBへ問い合わせ直さない。
+
+## タイルの読み方（`infrastructure/elevation_client.py`）
+
+配信元のURL・ズーム・製品の優先順（細かい製品が全域を覆わないため粗い側へ落ちる）・
+欠測の記法を持つ。取込のアダプタがこれを使い、web側は読まない。

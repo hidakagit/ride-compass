@@ -155,55 +155,30 @@ OSMは中央分離帯のある道路の上下線を別々のwayとして持ち�
 
 ### 派生データ鮮度台帳（`derived_data_freshness.py`・`derived_data_freshness_service.py`）
 
-`edge_attribute_counts`・`way_attribute_counts`・`designation_attributes`が参照している
-`source_*_import_run_id`（上記「事前集計バッチ」参照）を、対応する`*_import_runs`の
-最新成功run（`MAX(id) WHERE status='succeeded'`）と突き合わせ、テーブルに実際反映
-されている世代が古いままではないかを機械判定する（`algorithm_version`を持つテーブルは
-その不一致も検知する）。台帳に載せる対象は`GENERATION_FRESHNESS_SPECS`の宣言だが、
-その**網羅性は`app/batch/precompute_*.py`側から引いて検査する**——`ALGORITHM_VERSION`を
-宣言するバッチが台帳に無ければテストが落ちる。台帳に並ぶ名前を書き写す形の検査だと、
-新しいバッチが載らなくても「今あるものが今あるものと一致する」で通ってしまい、その
-派生テーブルの陳腐化が管理画面から見えないまま残る。版数そのものは
-`domain/derived_data_versions.py`が持ち、台帳もバッチもそこから読む——**台帳がバッチを
-モジュールトップでimportすると、バッチへ`requirements-batch.txt`限定の依存を1行足しただけで
-本番webイメージが起動できなくなる**（テストとCIはbatch依存が入っているため緑のまま通る。
-`scripts/review_checks.py`の`web_layer_batch_import`がこの向きのimportを機械的に弾く）。
-系譜列を持たない派生データ——`elevation_attributes`（[elevation.md](elevation.md)参照）と、
-`road_edges`・`road_nodes`の列へ直接書くもの——は世代比較ができないため、`COMPLETENESS_SPECS`
-の宣言に従って**母集団のうち未計算が何件残っているか**を別枠で数える。取込で母集団が増えたのに
-バッチを再実行していない状態がこの件数として現れる。未計算を厳密に表せない列は宣言が`note`で
-但し書きを持ち、画面へそのまま出す——`road_nodes.degree`は`NOT NULL DEFAULT 0`で、未計算と
-本当に次数0の行を区別できない（0件が正常とは限らない）。**担当バッチが処理できる行の条件
-（`in_scope`）もこの宣言が唯一の情報源で、バッチは対象を選ぶselectをここから組み立てる**
-（`target_stmt`）——条件を両者が別々に持つと、バッチが永久に計算しない行を台帳が未計算として
-数え続け、台帳は「すべて最新」へ到達できなくなる。バッチ側へ条件を書き写すと、宣言と
-突き合わせるテストが落ちる。`GET /api/admin/derived-data/freshness`
-（Basic認証必須）が`/admin`「データ保守」タブ（[axis-studio.md](../frontend/axis-studio.md)）へ
-返す。[evaluation-scoring.md](evaluation-scoring.md)の材料欠損割合（`/admin`「材料」タブ）
-とは別の切り口——材料側は完成度、本節は鮮度を見る。詳細な設計判断は
-[docs/tasks/T571.md](../../tasks/T571.md)参照。
+派生データについて2つの問いを分けて見る。
+
+- **鮮度**: その行はどの取込世代から作られたか（`source_run_id`）。同じソースの最新の成功
+  runより古ければ、生データを取り直したのに派生を流し直していない。
+- **完成度**: 値の列にNULLが何件あるか。
+
+**対象は宣言から導く**。`source_run_id`を持つ表が派生データで、主キーと`source_run_id`
+以外の列が値である。表を1つ足しても列を1つ足しても、台帳の側に手当ては要らない。
+
+NULLの意味は列によって違う。「まだ計算していない」と「確定して値が無い」（橋の勾配・
+指定のない道・POIでないノード）を分けるため、後者は列の宣言へ印を付ける
+（`derived_models.py: ABSENT_OK`）。**印が無い列は未計算として数える側へ倒れる**ので、
+付け忘れは鳴りすぎる方向にしか外れない。
 
 ### 本番DBの状態（`db_status.py`・`db_status_service.py`）
 
-鮮度台帳が拠って立つ**土台**の側を見る。`GET /api/admin/db-status`（Basic認証必須）が、
-生データ取込の最終実行（成否と、派生データが基準にしている成功run）・テーブルの実数と容量・
-統計とVACUUMの鮮度・接続とトランザクションの状態を返す。
+鮮度台帳が「派生が生データに追いついているか」を見るのに対し、こちらは**その判定の土台が
+健全か**を見る——取込runそのものが失敗していないか、行が本当に入っているか、プランナが
+使う統計が取れているか、トランザクションが放置されていないか。
 
-**行数は統計値（`n_live_tup`）ではなく実数を数える。** 統計はANALYZEされていないテーブルでは
-桁が変わるほどずれるため、「取り込んだつもりが入っていない」の検出に使えない。1クエリで全
-テーブルぶんを数えるのに`query_to_xml`を使う。
+取込の記録は`source_runs`1つだけなので、ソースが増えても宣言は要らない。全テーブルの
+行数は統計値（`n_live_tup`）ではなく**実数**を数える——統計はANALYZEされていない
+テーブルでは桁が変わるほどずれ、「取り込んだつもりが入っていない」の検出には使えない。
 
-「注意が要るか」の判定としきい値はサービス層が持つ。**しきい値には規模の条件を併せて持たせる**
-——小さいテーブルの統計欠落はプランナがどう推定しても全走査で足り、割合だけで見た不要行は
-回収できる容量が無い。どちらも注意を出しても打つ手が無く、本当に見るべき行を埋もれさせる
-（規模の条件が無いと、1万行未満の小さなテーブルだけで注意が3倍に膨らむ）。
-
-未適用migrationの一覧は`GET /api/debug/db-status`が既に返すため、ここでは重ねて持たない。
-
-`GET /api/admin/road-graph-tiles`はsplit済みタイル（`road_graph_tiles`、
-`ROAD_GRAPH_TILE_ZOOM`のXYZ座標）を返す。**DB状態の集計とは分けてある**——地図を開いたときだけ
-要る一方、全域ぶんの件数になるため毎回運ぶと無駄になる。GeoJSONにはせず座標のまま返し、
-境界ポリゴンはfrontendが組み立てる（`Map/dynamicWayValues.ts: tileBoundsLonLat`が既にある）。
 
 ## タイル配信
 
