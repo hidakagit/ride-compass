@@ -15,7 +15,7 @@ from sqlalchemy import BigInteger, DateTime, ForeignKey, LargeBinary, String
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
-from app.infrastructure.road_graph_models import Base
+from app.infrastructure.orm_base import Base
 
 
 class SourceRunRow(Base):

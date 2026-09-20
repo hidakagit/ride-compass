@@ -18,7 +18,7 @@ from sqlalchemy import Integer, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Mapped, mapped_column
 
-from app.infrastructure.road_graph_models import Base
+from app.infrastructure.orm_base import Base
 
 
 class DerivedDataMetaRow(Base):

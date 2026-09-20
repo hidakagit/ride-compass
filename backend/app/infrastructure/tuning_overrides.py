@@ -27,7 +27,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.domain.tuning import TUNING_PARAMETERS, TUNING_PARAMETERS_BY_ID, TUNING_VALUES
-from app.infrastructure.road_graph_models import Base
+from app.infrastructure.orm_base import Base
 
 logger = logging.getLogger("ridecompass.tuning")
 

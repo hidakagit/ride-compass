@@ -3,8 +3,7 @@
 配布は都道府県別のZIPで、キーはJIS X 0401。プロファイルも同じ採番で書くため、
 ここに採番の対応表を持たない。
 
-ZIPの中身の読み方（N10はJPGIS/GML、N12は素のGeoJSON）は`import_designations.py`が
-持っているものを使う——同じ外部仕様を2度読み解かない。
+ZIPの中身の読み方（N10はJPGIS/GML、N12は素のGeoJSON）は`_ksj_zip.py`が持つ。
 """
 
 import logging
@@ -14,7 +13,7 @@ import httpx
 import shapely
 from shapely.geometry import LineString
 
-from app.batch.import_designations import _download_zip, extract_features
+from app.batch.source_adapters._ksj_zip import _download_zip, extract_features
 from app.batch.ingest import SourceRecord, register_adapter
 from app.batch.source_profile import SourceProfile, SourceSpec
 

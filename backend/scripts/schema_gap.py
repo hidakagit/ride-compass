@@ -3,7 +3,7 @@
 **正本は実DBで、ORMの宣言は「あるべき姿」である。**一致は誰も保証していないので測る。
 
 比べるのは表・列・NULL許容・外部キー。列名だけでは足りない——ずれていたのは制約の側で、
-本番にあってORMが宣言していない外部キーが6表で9本あった（2026-09-20実測）。
+本番にあってORMが宣言していない外部キーが6表で8本あった（2026-09-20実測）。
 
 実行方法（backendディレクトリから）:
     .venv\\Scripts\\python.exe scripts\\schema_gap.py                    # settings.database_url
@@ -25,12 +25,12 @@ from sqlalchemy import text  # noqa: E402
 from sqlalchemy.ext.asyncio import create_async_engine  # noqa: E402
 
 # Base.metadataへ全モデルを登録するためのimport（副作用が目的）。
-from app.infrastructure import accident_models  # noqa: F401,E402
 from app.infrastructure import axis_definition_models  # noqa: F401,E402
-from app.infrastructure import designation_models  # noqa: F401,E402
+from app.infrastructure import derived_data_meta  # noqa: F401,E402
+from app.infrastructure import derived_models  # noqa: F401,E402
 from app.infrastructure import source_models  # noqa: F401,E402
 from app.infrastructure import tuning_overrides  # noqa: F401,E402
-from app.infrastructure.road_graph_models import Base  # noqa: E402
+from app.infrastructure.orm_base import Base  # noqa: E402
 
 #: PostGISが持ち込む表。アプリのスキーマではないので母集団から外す。
 _NOT_OURS = frozenset({"spatial_ref_sys"})

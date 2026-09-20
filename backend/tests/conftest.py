@@ -17,7 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 
 from app.batch._common import asyncpg_dsn
 from app.infrastructure import redis_client, tile_persistent_cache, tile_score_matrix_cache
-from app.infrastructure.road_graph_models import Base
+from app.infrastructure.orm_base import Base
 from app.infrastructure.road_graph_repository import RoadGraphRepository
 from app.config import settings
 from tests.realistic_axis_fixtures import realistic_axis_definitions
