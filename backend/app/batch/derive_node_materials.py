@@ -4,6 +4,9 @@
 入れるだけで、「これはPOIか」「どの種別か」という判断は派生の側の仕事である。判断が
 変わったら、生データを取り直さずにここを流し直せばよい。
 
+**処理はDB内で完結する。**タグを読むためだけに行を取り出さない。タグから種別への
+引き当ては`domain/traffic.py`が表と式で持ち、このバッチはそれをSQLへ渡すだけである。
+
 `branch_count`は`derive_topology.py`が先に埋める。このバッチは種別・信号の有無・
 集まる道の最大階級を足す。
 
@@ -26,35 +29,30 @@ from app.batch._common import asyncpg_dsn, with_derived_data_revision_bump  # no
 from app.config import settings  # noqa: E402
 from app.domain.traffic import (  # noqa: E402
     HIGHWAY_RANK,
-    classify_stop_poi,
-    classify_supply_poi,
-    is_traffic_signal,
+    TRAFFIC_SIGNAL_SQL,
+    tag_kind_sql,
 )
 
 logger = logging.getLogger("ridecompass.derive_node_materials")
-
-CHUNK = 20_000
 
 #: 信号とみなす半径（m）。交差点そのものではなく流入路ごとに信号ノードが置かれるため、
 #: `osm_node_id`の一致では大半を取りこぼす。
 SIGNAL_RADIUS_M = 25.0
 
+#: タグから種別・信号を判定する側が期待する形（`id`・`tags`）へ生データを写す。
+#: タグの無いノード（形状の頂点）はどの規則にも当たらないので、先に落とす。
+_SOURCE_NODES = ("SELECT natural_key::bigint AS id, attrs AS tags FROM source_features"
+                 " WHERE source = 'osm_node' AND attrs <> '{}'::jsonb")
 
-def classify(tags: dict[str, str]) -> str | None:
-    """タグから種別を1つ決める。停止要因を先に見て、無ければ補給・休憩を見る。"""
-    stop = classify_stop_poi(tags)
-    if stop is not None:
-        return str(stop)
-    supply = classify_supply_poi(tags)
-    if supply is not None:
-        return str(supply)
-    return None
-
-
-_UPSERT_KIND = """
+_UPSERT_KIND = f"""
 INSERT INTO node_materials (osm_node_id, kind, source_run_id)
-VALUES ($1, $2, $3)
+SELECT id, kind, $1 FROM ({tag_kind_sql(_SOURCE_NODES)}) k
 ON CONFLICT (osm_node_id) DO UPDATE SET kind = EXCLUDED.kind
+"""
+
+_SIGNAL_NODES = f"""
+CREATE TEMP TABLE _signal_nodes ON COMMIT DROP AS
+SELECT s.id AS osm_node_id FROM ({_SOURCE_NODES}) s WHERE {TRAFFIC_SIGNAL_SQL}
 """
 
 #: 信号は流入路ごとに別ノードで置かれるため、半径で拾う。
@@ -103,41 +101,21 @@ async def derive(conn: asyncpg.Connection) -> int:
     run_id = await _latest_run(conn, "osm_node")
     started = time.perf_counter()
 
-    rows = await conn.fetch(
-        "SELECT natural_key, attrs FROM source_features "
-        "WHERE source = 'osm_node' AND attrs <> '{}'::jsonb")
-    import json
-
-    classified = []
-    signals: list[tuple[int]] = []
-    for row in rows:
-        attrs = row["attrs"]
-        tags = json.loads(attrs) if isinstance(attrs, str) else dict(attrs)
-        node_id = int(row["natural_key"])
-        kind = classify(tags)
-        if kind is not None:
-            classified.append((node_id, kind, run_id))
-        if is_traffic_signal(tags):
-            signals.append((node_id,))
-    logger.info("タグを持つノード %d点 / 種別が付いた %d点 / 信号 %d点",
-                len(rows), len(classified), len(signals))
-
     values = ", ".join(f"('{h}', {r})" for h, r in sorted(HIGHWAY_RANK.items()))
     async with conn.transaction():
-        for start in range(0, len(classified), CHUNK):
-            await conn.executemany(_UPSERT_KIND, classified[start:start + CHUNK])
-        await conn.execute("CREATE TEMP TABLE _signal_nodes (osm_node_id bigint PRIMARY KEY) "
-                           "ON COMMIT DROP")
-        await conn.executemany("INSERT INTO _signal_nodes VALUES ($1) ON CONFLICT DO NOTHING",
-                               signals)
+        classified = int((await conn.execute(_UPSERT_KIND, run_id)).split()[-1])
+        await conn.execute(_SIGNAL_NODES)
+        await conn.execute("CREATE UNIQUE INDEX ON _signal_nodes (osm_node_id)")
+        signals = await conn.fetchval("SELECT count(*) FROM _signal_nodes")
+        await conn.execute("ANALYZE _signal_nodes")
         # 緯度が高いほど1度は短い。取りこぼさないよう余裕を持たせる。
         await conn.execute(_UPDATE_SIGNALS, SIGNAL_RADIUS_M,
                            SIGNAL_RADIUS_M / 111_000.0 * 2.0)
         await conn.execute(_UPDATE_MAX_RANK_TEMPLATE.format(values=values))
 
-    elapsed = time.perf_counter() - started
-    logger.info("ノードの値を埋めた: %d点 / %.1f秒", len(classified), elapsed)
-    return len(classified)
+    logger.info("ノードの値を埋めた: 種別が付いた %d点 / 信号 %d点 / %.1f秒",
+                classified, signals, time.perf_counter() - started)
+    return classified
 
 
 async def run(database_url: str) -> int:

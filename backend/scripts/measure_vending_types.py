@@ -1,6 +1,6 @@
 """`amenity=vending_machine`が何を売る機械なのかを、PBFから数える（改善計画T935）。
 
-取込側（`domain/traffic.py: classify_vending_machine`）が飲料と分かるもの・分からないもの・
+派生側（`domain/traffic.py: tag_kind_sql`）が飲料と分かるもの・分からないもの・
 口に入らないものへ分けるときの判定を、取り込む前のPBF全体に対して当ててみる器。
 「この判定で何件が残り、何件が落ちるか」を再取込の前に知るために使う。
 
@@ -26,7 +26,7 @@ from app.domain.traffic import SUPPLY_VENDING_VALUES  # noqa: E402
 def classify(vending: str | None) -> str:
     """`vending`の値を「補給に使える／使えない／不明」の3つへ分ける（純粋関数）。
 
-    判定に使う値の集合は取込側（`domain/traffic.py: classify_vending_machine`）と共有する
+    判定に使う値の集合は派生側（`domain/traffic.py: SUPPLY_VENDING_VALUES`）と共有する
     ——別々に持つと、計測が「これだけ残る」と言った件数と実際に取り込まれる件数がずれる。
     """
     parts = {part.strip().lower() for part in (vending or "").split(";") if part.strip()}

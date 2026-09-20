@@ -1,12 +1,33 @@
-"""通行方向の解決（`domain/traffic.py: resolve_direction`）。
+"""通行方向の引き当て（`domain/traffic.py: direction_sql`）。
 
 タグの生値から「どちら向きに走れるか」を決める判断で、派生バッチ（`derive_way_materials`）
-だけが呼ぶ。結果は`way_materials.direction`に入り、探索が逆向きの枝を作ってよいかを決める。
+だけが使う。結果は`way_materials.direction`に入り、探索が逆向きの枝を作ってよいかを決める。
+
+**判定はDB側で行うため、DBへ通して確かめる。**規則の表だけを見て通るテストにすると、
+表が実際にどう引き当てられるか（優先順位・値の正規化）を押さえられない。
 """
 
-import pytest
+import json
 
-from app.domain.traffic import resolve_direction
+import pytest
+from sqlalchemy import text
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.domain.traffic import direction_sql
+
+# road_graph_session（conftest.py）はファイル単位でエンジン・イベントループを共有する設計
+# のため、docs/testing.mdのパターン2どおりloop_scope="module"・xdist_group="postgis"が必須。
+pytestmark = [
+    pytest.mark.asyncio(loop_scope="module"),
+    pytest.mark.xdist_group(name="postgis"),
+    pytest.mark.postgis,
+]
+
+
+async def resolve(session: AsyncSession, tags: dict) -> str:
+    literal = "'" + json.dumps(tags, ensure_ascii=False).replace("'", "''") + "'"
+    sql = direction_sql(f"SELECT 1 AS id, {literal}::jsonb AS tags")
+    return (await session.execute(text(sql))).one().direction
 
 
 @pytest.mark.parametrize(
@@ -21,8 +42,8 @@ from app.domain.traffic import resolve_direction
         ({"oneway": "alternating"}, "both"),
     ],
 )
-def test_oneway_tag(tags, expected):
-    assert resolve_direction(tags) == expected
+async def test_oneway_tag(road_graph_session, tags, expected):
+    assert await resolve(road_graph_session, tags) == expected
 
 
 @pytest.mark.parametrize(
@@ -37,8 +58,8 @@ def test_oneway_tag(tags, expected):
         ({"oneway": "yes", "oneway:bicycle": "alternating"}, "forward"),
     ],
 )
-def test_oneway_bicycle_wins_over_oneway(tags, expected):
-    assert resolve_direction(tags) == expected
+async def test_oneway_bicycle_wins_over_oneway(road_graph_session, tags, expected):
+    assert await resolve(road_graph_session, tags) == expected
 
 
 @pytest.mark.parametrize(
@@ -55,5 +76,7 @@ def test_oneway_bicycle_wins_over_oneway(tags, expected):
         ({"highway": "tertiary", "junction": "yes"}, "both"),
     ],
 )
-def test_junction_implies_one_way_only_when_oneway_is_absent(tags, expected):
-    assert resolve_direction(tags) == expected
+async def test_junction_implies_one_way_only_when_oneway_is_absent(
+    road_graph_session, tags, expected
+):
+    assert await resolve(road_graph_session, tags) == expected

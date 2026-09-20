@@ -31,6 +31,10 @@ from sqlalchemy import (
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.infrastructure.orm_base import Base
+# ここの表は`source_runs`への外部キーを持つ。宣言した先が同じメタデータに載っていないと、
+# `Base.metadata.sorted_tables`が解決できずに落ちる——このimportが、それをimport順の
+# 偶然に任せないための担保である。
+from app.infrastructure import source_models  # noqa: F401
 
 #: NULLが「まだ計算していない」ではなく「確定して値が無い」を意味する列に付ける印。
 #: 鮮度台帳（`derived_data_freshness.py`）はこの印のある列を未計算として数えない——

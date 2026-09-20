@@ -42,7 +42,7 @@ _HIGHWAY_STOP_KINDS: dict[str, StopPoiKind] = {
 # 自転車にとってはどちらも同じ「線路を渡るため止まる/徐行する点」。路面電車側
 # （tram_*）も同じ扱いにする。kindを分けたまま持つのは、後から集計を分けたくなったときに
 # 生タグを読み直さずに済ませるため（集計キーへの写像は
-# `road_graph_repository.py: _POI_COUNT_KIND_EXPR`が持つ）。
+# `batch/derive_counts.py: COUNT_KIND_OF`が持つ）。
 _RAILWAY_STOP_KINDS: dict[str, StopPoiKind] = {
     "level_crossing": "level_crossing",
     "tram_level_crossing": "level_crossing",
@@ -82,7 +82,8 @@ _BARRIER_STOP_VALUES: frozenset[str] = frozenset(
 )
 
 # 減速構造（`traffic_calming=*`）。停止ではなく減速のため車止めとは別kindで持つが、
-# 集計キーは同じ（`_POI_COUNT_KIND_EXPR`）。`island`（中央島）・`no`は進行を妨げないため外す。
+# 集計キーは同じ（`batch/derive_counts.py: COUNT_KIND_OF`）。`island`（中央島）・`no`は
+# 進行を妨げないため外す。
 _TRAFFIC_CALMING_VALUES: frozenset[str] = frozenset(
     {
         "hump",
@@ -173,32 +174,6 @@ POI_CLUSTER_EPS_M = 40.0
 POI_ON_EDGE_TOLERANCE_M = 1.0
 
 
-def classify_stop_poi(tags: dict[str, str]) -> StopPoiKind | None:
-    """信号・横断歩道・一時停止・踏切の分類（静的道路属性P1、計画書§2.2）。node取込の
-    対象node判定にも使う（osm_adapter.py: osm_node_to_poi_spec、Noneを返すnodeは取込対象外）。
-
-    railway/highway/barrier/traffic_calmingは独立したタグのため同一nodeに複数付きうる。
-    優先順位は railway → highway → barrier → traffic_calming で、止まる度合いが強い方を
-    先に見る（踏切は自転車にとって一時停止の法的義務が信号・横断歩道より強く、質的に
-    異なる）。いずれにも該当しなければNone（対象外・評価しない）。
-
-    ここで返すkindは`import_profile.yaml`のnodeルールと対で意味を持つ——**プロファイルが
-    通してもここがNoneを返すnodeは取り込まれない**ため、片方だけ増やしても何も起きない
-    （`tests/test_import_profile.py`が両者の一致を検証する）。
-    """
-    railway = (tags.get("railway") or "").strip().lower()
-    if railway in _RAILWAY_STOP_KINDS:
-        return _RAILWAY_STOP_KINDS[railway]
-    highway = (tags.get("highway") or "").strip().lower()
-    if highway in _HIGHWAY_STOP_KINDS:
-        return _HIGHWAY_STOP_KINDS[highway]
-    if (tags.get("barrier") or "").strip().lower() in _BARRIER_STOP_VALUES:
-        return "barrier"
-    if (tags.get("traffic_calming") or "").strip().lower() in _TRAFFIC_CALMING_VALUES:
-        return "traffic_calming"
-    return None
-
-
 SupplyPoiKind = Literal[
     "convenience", "vending_drinks", "vending_unknown", "toilets", "drinking_water", "bicycle_parking"
 ]
@@ -218,60 +193,6 @@ SUPPLY_VENDING_VALUES: frozenset[str] = frozenset(
         "ice_cream", "chewing_gums", "bread", "fruit", "vegetables", "eggs",
     }
 )
-
-
-def is_traffic_signal(tags: dict[str, str]) -> bool:
-    """そのノードが信号か。
-
-    信号は`highway=traffic_signals`のほか、**信号付きの横断歩道**としても書かれる
-    （`highway=crossing`＋`crossing`の値に`signals`を含む）。どちらも自転車にとっては
-    止まる点で、片方だけを見ると大半を取りこぼす。
-    """
-    if tags.get("highway") == "traffic_signals":
-        return True
-    return tags.get("highway") == "crossing" and "signals" in (tags.get("crossing") or "")
-
-
-def classify_vending_machine(tags: dict[str, str]) -> SupplyPoiKind | None:
-    """`amenity=vending_machine`を、売っているもので3つへ分ける（純粋関数）。
-
-    補給レイヤーの点は「ここで飲み物が買える」という約束として読まれる。たばこ・切符・
-    パーキング券の機械を同じ点で出すと、当てにした利用者が買えない。**約束できるものだけを
-    出す**ため、飲食物と分かっているものと、分からないものを別の種別にし、口に入らないものは
-    取り込まない（Noneを返す）。
-
-    `vending`が無いものを「買えない」側へ寄せない。日本では飲料の自販機にこのタグを付けない
-    慣習があり、関東の実データでも値の78.7%が`drinks`である一方9.5%がタグ無しで、その多くは
-    飲料と考えるのが自然である。分からないことを分からないまま出す。
-    """
-    values = {v.strip().lower() for v in (tags.get("vending") or "").split(";") if v.strip()}
-    if not values:
-        return "vending_unknown"
-    if values & SUPPLY_VENDING_VALUES:
-        return "vending_drinks"
-    return None
-
-
-def classify_supply_poi(tags: dict[str, str]) -> SupplyPoiKind | None:
-    """補給・休憩ポイント（コンビニ・自販機・トイレ・給水・駐輪場）の分類
-    （static-road-attributes-plan.md §2.3）。classify_stop_poiと同じくnode取込の対象判定にも
-    使う（osm_adapter.py: osm_node_to_poi_spec）。停止要因POIとタグ名（shop/amenity vs
-    highway/railway）が独立しており衝突しないため、優先順位の考慮は不要。
-
-    実店舗との乖離（閉店・移転にOSM側が追従できていないリスク）はタグ自体からは
-    分からない。`backend/scripts/measure_poi_freshness.py`で要素の最終編集日時を
-    代理指標に計測すると、コンビニ（shop=convenience）は直近2年以内の編集が関東全域で
-    62.4%と明確に新しいが、自販機・トイレ・給水・駐輪場は5年以上未編集が58〜59%と高く、
-    実店舗との乖離リスクが相対的に高い（フロント側mapLayers.ts: supplyPoiのpanelHintで
-    「鮮度に注意」と明記して利用者に伝える。取込・分類自体は5種すべて対象とし、鮮度の
-    扱いは表示側の注意喚起に留める）。
-    """
-    if (tags.get("shop") or "").strip().lower() == "convenience":
-        return "convenience"
-    amenity = (tags.get("amenity") or "").strip().lower()
-    if amenity == "vending_machine":
-        return classify_vending_machine(tags)
-    return _AMENITY_SUPPLY_KINDS.get(amenity)
 
 
 # 交差点で「自分が走ってきた道より上位の道と交わるか」を判定するための階級順（大きいほど
@@ -311,43 +232,110 @@ ONEWAY_BIDIRECTIONAL = {"no", "false", "0"}
 ONEWAY_JUNCTION_VALUES = {"roundabout", "circular"}
 
 
-def resolve_direction(tags: dict) -> str:
-    """`oneway`・`oneway:bicycle`・`junction`から通行方向を決定する。
-
-    `oneway:bicycle`は「自転車に限り一方通行規制の対象外（またはbicycle独自の一方通行）」
-    という意味の例外タグで、値がある場合は`oneway`本体より優先する（現実のOSM上でも
-    contraflow cycling＝逆走可の代表的な表現。例: `oneway=yes` + `oneway:bicycle=no`は
-    「車は一方通行だが自転車は両方向通行可」）。`oneway:bicycle`が無い、または
-    forward/backward/no のいずれにも解決できない値の場合は`oneway`本体にフォールバックする。
-
-    `oneway`が無い、または解釈できない値のときだけ`junction`を見る。環状交差点は
-    `oneway`を付けない慣行があり、両方向として扱うと逆走する経路を出しうる。
-    明示された`oneway=no`はこの推定より優先する（OSM側が「両方向」と言っているため）。
-    """
-    oneway_bicycle = str(tags.get("oneway:bicycle", "")).strip().lower()
-    if oneway_bicycle in ONEWAY_BACKWARD_ONLY:
-        return "backward"
-    if oneway_bicycle in ONEWAY_FORWARD_ONLY:
-        return "forward"
-    if oneway_bicycle in ONEWAY_BIDIRECTIONAL:
-        return "both"
-
-    oneway = str(tags.get("oneway", "")).strip().lower()
-    if oneway in ONEWAY_BACKWARD_ONLY:
-        return "backward"
-    if oneway in ONEWAY_FORWARD_ONLY:
-        return "forward"
-    if oneway in ONEWAY_BIDIRECTIONAL:
-        return "both"
-
-    if str(tags.get("junction", "")).strip().lower() in ONEWAY_JUNCTION_VALUES:
-        return "forward"
-    return "both"
-
-
 # 静的道路属性（docs/static-road-attributes-plan.md P0）で保持するタグの許可リスト。
 # highway/surface/onewayは既存の専用フィールドで扱うためここには含めない。
 # GOOD/BAD_OSM_SURFACE_TAGS（domain/road.py）と同じ「正準1箇所」の考え方で、
 # ここに無いタグはWaySpec.tagsへ残らない（生データ汚染を避ける、計画書§2.4）。
 # 容量実測（2026-08-15、static-attributes-capacity-estimate）: 本番規模で約9MB、
 # 誤差程度で安全。
+
+# --- タグの引き当てを、SQLへ渡せる表と式で持つ -------------------------------
+#
+# 分類はDB側で行う。派生の入力も出力もDBにあり、タグを読むためだけに行を取り出さない。
+# Pythonのif順で表していた優先順位は`priority`列が持つ（小さいほど先に当たる）。
+
+#: (タグ名, 値, 付ける種別, 優先順位)。停止要因が補給・休憩より先に当たる。
+#: 値は前後の空白を落として小文字にしてから比べる。
+TAG_KIND_RULES: tuple[tuple[str, str, str, int], ...] = (
+    *((("railway"), value, kind, 1) for value, kind in _RAILWAY_STOP_KINDS.items()),
+    *((("highway"), value, kind, 2) for value, kind in _HIGHWAY_STOP_KINDS.items()),
+    *((("barrier"), value, "barrier", 3) for value in sorted(_BARRIER_STOP_VALUES)),
+    *((("traffic_calming"), value, "traffic_calming", 4)
+      for value in sorted(_TRAFFIC_CALMING_VALUES)),
+    ("shop", "convenience", "convenience", 5),
+    *((("amenity"), value, kind, 6) for value, kind in _AMENITY_SUPPLY_KINDS.items()),
+)
+
+#: 自販機だけは`vending`の値が`;`で連なるため表に落ちない。式で当てる。表のどれよりも
+#: 後に見る（`amenity`の表に`vending_machine`は無いので、ここが最後の引き当てになる）。
+_VENDING_PRIORITY = max(priority for *_, priority in TAG_KIND_RULES) + 1
+
+#: 信号の判定。**`TAG_KIND_RULES`と違い、値を正規化せずそのまま比べる**——
+#: 現行の判定がそうであり、ここで揃えると付く信号の数が変わる。
+TRAFFIC_SIGNAL_SQL = (
+    "(tags->>'highway' = 'traffic_signals'"
+    " OR (tags->>'highway' = 'crossing'"
+    "     AND position('signals' in coalesce(tags->>'crossing', '')) > 0))"
+)
+
+#: (タグ名, 値, 通行方向, 優先順位)。`oneway:bicycle`は`oneway`より先に当たる
+#: （自転車に限り一方通行規制の対象外、という例外タグのため）。
+DIRECTION_RULES: tuple[tuple[str, str, str, int], ...] = (
+    *((("oneway:bicycle"), value, "forward", 1) for value in sorted(ONEWAY_FORWARD_ONLY)),
+    *((("oneway:bicycle"), value, "backward", 1) for value in sorted(ONEWAY_BACKWARD_ONLY)),
+    *((("oneway:bicycle"), value, "both", 1) for value in sorted(ONEWAY_BIDIRECTIONAL)),
+    *((("oneway"), value, "forward", 2) for value in sorted(ONEWAY_FORWARD_ONLY)),
+    *((("oneway"), value, "backward", 2) for value in sorted(ONEWAY_BACKWARD_ONLY)),
+    *((("oneway"), value, "both", 2) for value in sorted(ONEWAY_BIDIRECTIONAL)),
+    *((("junction"), value, "forward", 3) for value in sorted(ONEWAY_JUNCTION_VALUES)),
+)
+
+#: どの規則にも当たらない道は両方向。
+DIRECTION_DEFAULT = "both"
+
+
+def _quote(value: str) -> str:
+    return "'" + value.replace("'", "''") + "'"
+
+
+def _values_clause(rules: tuple[tuple[str, str, str, int], ...]) -> str:
+    return ", ".join(
+        f"({_quote(key)}, {_quote(value)}, {_quote(result)}, {priority})"
+        for key, value, result, priority in rules)
+
+
+def _rule_match_sql(rules: tuple[tuple[str, str, str, int], ...]) -> str:
+    """表の規則に当たった候補を (id, result, priority) で返す断片。"""
+    return f"""
+    SELECT s.id, r.result, r.priority
+    FROM src s JOIN (VALUES {_values_clause(rules)})
+                 AS r(tag_key, tag_value, result, priority)
+      ON lower(btrim(s.tags->>r.tag_key)) = r.tag_value"""
+
+
+def tag_kind_sql(source: str) -> str:
+    """`source`（`id`・`tags`を返す関係）の各行へ、停止要因・補給休憩の種別を1つ付ける。
+
+    どれにも当たらない行は返らない。
+    """
+    vending = ", ".join(_quote(v) for v in sorted(SUPPLY_VENDING_VALUES))
+    return f"""
+WITH src AS ({source}),
+matched AS ({_rule_match_sql(TAG_KIND_RULES)}
+    UNION ALL
+    SELECT s.id, v.result, {_VENDING_PRIORITY}
+    FROM src s
+    CROSS JOIN LATERAL (
+        SELECT CASE WHEN coalesce(array_length(q.vals, 1), 0) = 0 THEN 'vending_unknown'
+                    WHEN q.vals && ARRAY[{vending}] THEN 'vending_drinks' END AS result
+        FROM (SELECT array_remove(array_agg(nullif(btrim(lower(t)), '')), NULL) AS vals
+              FROM unnest(string_to_array(coalesce(s.tags->>'vending', ''), ';')) AS t) q
+    ) v
+    WHERE lower(btrim(s.tags->>'amenity')) = 'vending_machine' AND v.result IS NOT NULL
+)
+SELECT DISTINCT ON (id) id, result AS kind FROM matched ORDER BY id, priority
+"""
+
+
+def direction_sql(source: str) -> str:
+    """`source`（`id`・`tags`を返す関係）の各行へ通行方向を付ける。
+
+    どれにも当たらない行も`DIRECTION_DEFAULT`で返る——道は必ずどちらかに通れる。
+    """
+    return f"""
+WITH src AS ({source}),
+matched AS ({_rule_match_sql(DIRECTION_RULES)}),
+best AS (SELECT DISTINCT ON (id) id, result FROM matched ORDER BY id, priority)
+SELECT s.id, coalesce(b.result, {_quote(DIRECTION_DEFAULT)}) AS direction
+FROM src s LEFT JOIN best b ON b.id = s.id
+"""

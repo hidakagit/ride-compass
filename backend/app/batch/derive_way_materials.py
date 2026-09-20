@@ -1,8 +1,7 @@
 """道1本の性質（上下線分離・指定路線）を埋める。区間粒度の対応物を持たない値。
 
-**通行方向はここでタグから決める**（`domain/traffic.py: resolve_direction`）。
-判定はPythonの1実装だけが持ち、SQLへ書き写さない——上下線分離の判定は相方の向きも
-見るため、いったん一時表へ出してからSQLへ渡す。
+**通行方向はここでタグから決める**。引き当ての表は`domain/traffic.py`が持ち、
+このバッチはそれをSQLへ渡すだけで、タグを読むために行を取り出さない。
 
 実行方法（backendディレクトリから）:
     .venv\\Scripts\\python.exe -m app.batch.derive_way_materials
@@ -10,7 +9,6 @@
 
 import argparse
 import asyncio
-import json
 import logging
 import sys
 import time
@@ -28,7 +26,7 @@ from app.domain.designation import (  # noqa: E402
     DESIGNATION_IMPORT_KINDS,
     DESIGNATION_MATCH_MIN_RATIO,
 )
-from app.domain.traffic import resolve_direction  # noqa: E402
+from app.domain.traffic import direction_sql  # noqa: E402
 
 logger = logging.getLogger("ridecompass.derive_way_materials")
 
@@ -140,17 +138,19 @@ FROM matched
 """
 
 
+#: 引き当てる側が期待する形（`id`・`tags`）へ生データを写す。
+_SOURCE_WAYS = ("SELECT natural_key::bigint AS id, attrs AS tags FROM source_features"
+                " WHERE source = 'osm_way'")
+
+_UPDATE_DIRECTIONS = f"""
+UPDATE way_materials m SET direction = d.direction
+FROM ({direction_sql(_SOURCE_WAYS)}) d
+WHERE d.id = m.osm_way_id
+"""
+
+
 async def _load_directions(conn: asyncpg.Connection) -> int:
-    rows = await conn.fetch(
-        "SELECT natural_key, attrs FROM source_features WHERE source = 'osm_way'")
-    directions = []
-    for row in rows:
-        attrs = row["attrs"]
-        tags = json.loads(attrs) if isinstance(attrs, str) else dict(attrs)
-        directions.append((int(row["natural_key"]), resolve_direction(tags)))
-    await conn.executemany(
-        "UPDATE way_materials SET direction = $2 WHERE osm_way_id = $1", directions)
-    return len(directions)
+    return int((await conn.execute(_UPDATE_DIRECTIONS)).split()[-1])
 
 
 async def derive_divided(conn: asyncpg.Connection) -> int:
