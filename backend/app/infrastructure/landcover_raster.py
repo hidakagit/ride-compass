@@ -173,12 +173,11 @@ def opened_raster_paths() -> list[str]:
     return [source.dataset.name for source in _open_sources()]
 
 
-def render_tile(z: int, x: int, y: int) -> bytes | None:
-    """1タイルぶんのPNG（RGBA、256x256）を返す。
+def tile_classes(z: int, x: int, y: int) -> "np.ndarray | None":
+    """1タイルぶんのクラス番号（uint8、256x256）を返す。
 
     どのラスタも覆っていない範囲ではNone——ラスタの外側は「土地被覆が無い」のではなく
-    このデータが何も言えない場所で、呼び出し側が空タイルとして扱う（後からラスタを
-    足せば値を持ちうるため、キャッシュへは残さない）。
+    このデータが何も言えない場所である。
     """
     sources = _open_sources()
     bounds = tile_bounds_3857(z, x, y)
@@ -212,7 +211,18 @@ def render_tile(z: int, x: int, y: int) -> bytes | None:
 
     if not classes.any():
         return None
+    return classes
 
+
+def render_tile(z: int, x: int, y: int) -> bytes | None:
+    """1タイルぶんのPNG（RGBA、256x256）を返す。覆っていない範囲ではNone。
+
+    呼び出し側は覆っていない範囲を空タイルとして扱う（後からラスタを足せば値を
+    持ちうるため、キャッシュへは残さない）。
+    """
+    classes = tile_classes(z, x, y)
+    if classes is None:
+        return None
     image = Image.fromarray(_PALETTE[classes], mode="RGBA")
     buffer = BytesIO()
     image.save(buffer, format="PNG", optimize=True)
