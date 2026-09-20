@@ -19,6 +19,7 @@
 from geoalchemy2 import Geometry
 from sqlalchemy import (
     BigInteger,
+    CheckConstraint,
     Boolean,
     Float,
     ForeignKey,
@@ -35,6 +36,8 @@ from app.infrastructure.orm_base import Base
 # `Base.metadata.sorted_tables`が解決できずに落ちる——このimportが、それをimport順の
 # 偶然に任せないための担保である。
 from app.infrastructure import source_models  # noqa: F401
+from app.domain.landcover import PERCENT_CLASSES
+from app.domain.traffic import POI_COUNT_KINDS
 
 #: NULLが「まだ計算していない」ではなく「確定して値が無い」を意味する列に付ける印。
 #: 鮮度台帳（`derived_data_freshness.py`）はこの印のある列を未計算として数えない——
@@ -54,6 +57,36 @@ def covers(source: str) -> dict[str, str]:
     return {"covers_source": source}
 
 
+#: 数えた値は負にならない。未計算はNULLで表すので、0と取り違える余地も無い。
+_COUNT_COLUMNS = ("accident_count", "intersection_count") + tuple(
+    f"poi_{kind}" for kind in sorted(POI_COUNT_KINDS))
+
+#: 土地被覆の割合の列。クラスが1つ増えてもここは変わらない。
+_LANDCOVER_COLUMNS = tuple(
+    "lc_" + name.removesuffix("_percent") for name, _ in PERCENT_CLASSES)
+
+#: 割合の合計が100からずれてよい幅。REALの丸めだけを吸収する幅で、実際の値はちょうど
+#: 100になる。
+_PERCENT_SUM_TOLERANCE = 0.1
+
+
+def material_value_checks(table: str) -> tuple[CheckConstraint, ...]:
+    """区間・道に共通の「値が不整合になりえない」制約。
+
+    読み出し側が毎回この条件を書かずに済むように、入れられない側で止める。
+    """
+    total = " + ".join(_LANDCOVER_COLUMNS)
+    return (
+        *(CheckConstraint(f"{column} >= 0", name=f"{table}_{column}_not_negative")
+          for column in (*_COUNT_COLUMNS, "lc_valid_pixels")),
+        *(CheckConstraint(f"{column} BETWEEN 0 AND 100", name=f"{table}_{column}_is_percent")
+          for column in _LANDCOVER_COLUMNS),
+        CheckConstraint(
+            f"lc_valid_pixels IS NULL OR abs(({total}) - 100) <= {_PERCENT_SUM_TOLERANCE}",
+            name=f"{table}_landcover_sums_to_100"),
+    )
+
+
 class RoadEdgeRow(Base):
     """道を交差点で切った区間1本。**向きでは分けない**。
 
@@ -67,6 +100,12 @@ class RoadEdgeRow(Base):
     """
 
     __tablename__ = "road_edges"
+    __table_args__ = (
+        # 長さ0・頂点1点の区間は作らない。読み出し側が毎回0除算を避ける条件を書かずに済む。
+        CheckConstraint("distance_m > 0", name="road_edges_distance_m_positive"),
+        CheckConstraint("NOT ST_IsEmpty(geom) AND ST_NumPoints(geom) >= 2",
+                        name="road_edges_geom_has_two_points"),
+    )
 
     #: 親の道。区間は道を切って作る派生なので、対応する道が必ずある。
     osm_way_id: Mapped[int] = mapped_column(
@@ -83,6 +122,7 @@ class RoadEdgeRow(Base):
         BigInteger, ForeignKey("node_materials.osm_node_id"), nullable=False)
 
     geom: Mapped[object] = mapped_column(Geometry("LINESTRING", srid=4326), nullable=False)
+    #: 長さは丸めない。4.8 cmの区間が実在し、0へ落とすと読み出し側が除算を守る羽目になる。
     distance_m: Mapped[float] = mapped_column(REAL, nullable=False)
     #: 順方向の方位。
     bearing_deg: Mapped[float] = mapped_column(REAL, nullable=False)
@@ -113,6 +153,7 @@ class EdgeMaterialRow(Base):
             ["road_edges.osm_way_id", "road_edges.segment_index"],
             ondelete="CASCADE",
         ),
+        *material_value_checks("edge_materials"),
     )
 
     osm_way_id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=False)
@@ -161,6 +202,7 @@ class WayMaterialRow(Base):
     """
 
     __tablename__ = "way_materials"
+    __table_args__ = material_value_checks("way_materials")
 
     osm_way_id: Mapped[int] = mapped_column(
         BigInteger, primary_key=True, autoincrement=False, info=covers("osm_way"))

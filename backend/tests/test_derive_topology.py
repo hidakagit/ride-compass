@@ -140,10 +140,14 @@ async def test_edge_materials_has_one_empty_row_per_segment(topology_conn):
 
 
 async def test_distance_is_the_geodesic_length_of_the_geometry(topology_conn):
-    """長さは形状から導ける値そのもの。丸めない（4.8 cmの区間が0にならないため）。"""
+    """長さは形状から導ける値そのもの。測地線（楕円体）で測り、丸めない。
+
+    丸めないのは、4.8 cmの区間が0へ落ちないようにするため。球で近似しないのは、
+    費用が変わらないのに近似になるため。
+    """
     wrong = await topology_conn.fetchval(
         "SELECT count(*) FROM road_edges"
-        " WHERE abs(distance_m - ST_Length(geom::geography, false)) > 0.001")
+        " WHERE abs(distance_m - ST_Length(geom::geography)) > 0.001")
     assert wrong == 0
     assert await topology_conn.fetchval(
         "SELECT count(*) FROM road_edges WHERE distance_m <= 0") == 0

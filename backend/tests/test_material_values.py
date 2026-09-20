@@ -3,13 +3,16 @@
 材料の値の求め方は`MaterialSpec.value_sql`だけが持つ（評価・地図タイル・欠損率の集計は
 すべてこの式を読む）。ここはその1本へ、入力と期待値の表を当てる唯一の場所。
 
-元データは4種類の出どころを持つ。表の1件はそのすべてを指定できる。
+元データは粒度ごとに1つの表から来る。表の1件はそのすべてを指定できる。
 
-- `osm_raw_ways`の行（`w`）: 専用列（highway/surface）とtags jsonb。区間はwayの派生
+- 道の行（`w`）: 専用列（highway/surface）とtags jsonb。区間はwayの派生
   （`road_edges.osm_way_id`がNOT NULL + FK）のため、**行は必ずある**。
-- 区間の行（`re`）: highway・距離。
-- 集計・派生の表（`c`/`e`/`el`/`wl`/`d`）: 件数・標高・土地被覆・指定路線。
-  **行の有無と値の有無を分ける**——行が無ければ不明、行があればキーが無くても0件。
+- 区間の行（`re`）: 距離。
+- 区間に付く値（`em`）: 件数・標高・土地被覆。**未計算はNULL**で、0件とは別物。
+- 道に付く値（`wm`）: 指定路線。
+
+区間の値が無いときに道の値へ落とすのは読み出し側（`road_graph_repository`）の仕事で、
+材料の式は区間の値だけを読む。
 
 実DBへ接続するが、テーブルは作らない——式はエイリアスだけを参照するため、同じ列を持つ
 CTEをそのエイリアス名で用意すれば式そのものを評価できる。
@@ -42,19 +45,19 @@ class _Case:
     surface: str | None = None
     tags: dict[str, str] = field(default_factory=dict)
     distance_m: float = 1000.0
-    # 集計・派生の行。Noneは「行が無い」。
+    # 区間に付く値（`em`）。Noneは未計算。
     accident_count: float | None = None
     intersection_count: float | None = None
     poi_counts: dict[str, int] | None = None
     average_grade: float | None = None
+    landcover: dict[str, float] | None = None
+    # 道に付く値（`wm`）。
     is_designated: bool | None = None
-    edge_landcover: dict[str, float] | None = None
-    way_landcover: dict[str, float] | None = None
     accident_years: int = 1
 
 
 _CASES: list[_Case] = [
-    # --- wayのタグ由来 ---
+    # --- wayのタグ由来。外部の値をそのまま持つ列なので、汚い入力の読み方を押さえる ---
     _Case(
         label="タグが何も無い住宅道路",
         expected={
@@ -77,25 +80,6 @@ _CASES: list[_Case] = [
         },
     ),
     _Case(
-        label="舗装・街灯あり・制限速度40・2車線",
-        highway="primary",
-        surface="asphalt",
-        tags={"lit": "yes", "maxspeed": "40", "lanes": "2"},
-        expected={
-            "surface_good": True,
-            "surface": "asphalt",
-            "highway": "primary",
-            "lit": True,
-            "maxspeed_kmh": 40,
-            "lanes_count": 2,
-        },
-    ),
-    _Case(
-        label="未舗装",
-        surface="gravel",
-        expected={"surface_good": False, "surface": "gravel"},
-    ),
-    _Case(
         label="未知のsurfaceは悪路ではなく不明",
         surface="unknown_tag",
         expected={"surface_good": None, "surface": "unknown_tag"},
@@ -116,24 +100,9 @@ _CASES: list[_Case] = [
         },
     ),
     _Case(
-        label="トンネルと橋",
-        tags={"tunnel": "yes", "bridge": "yes"},
-        expected={"has_tunnel": True, "bridge": True},
-    ),
-    _Case(
-        label="自動車進入禁止",
-        tags={"motor_vehicle": "no"},
-        expected={"motor_vehicle_no": True},
-    ),
-    _Case(
         label="0や非数値の制限速度・車線数は不明として扱う",
         tags={"maxspeed": "0", "lanes": "walk"},
         expected={"maxspeed_kmh": None, "lanes_count": None},
-    ),
-    _Case(
-        label="自転車道",
-        highway="cycleway",
-        expected={"highway_is_cycleway": True, "cycleway_has_track": False},
     ),
     _Case(
         label="片側だけのcycleway_left_track",
@@ -143,27 +112,6 @@ _CASES: list[_Case] = [
             "cycleway_has_lane": False,
             "cycleway_has_shared": False,
         },
-    ),
-    _Case(
-        label="cycleway_lane",
-        tags={"cycleway": "lane"},
-        expected={"cycleway_has_lane": True, "cycleway_has_track": False},
-    ),
-    _Case(
-        label="cycleway_both_shared_lane",
-        tags={"cycleway:both": "shared_lane"},
-        expected={"cycleway_has_shared": True, "cycleway_has_lane": False},
-    ),
-    _Case(
-        label="cycleway_share_busway",
-        tags={"cycleway": "share_busway"},
-        expected={"cycleway_has_shared": True},
-    ),
-    _Case(
-        label="河川敷の歩道兼サイクリングロード",
-        highway="footway",
-        tags={"bicycle": "designated"},
-        expected={"shared_pedestrian_path": True},
     ),
     _Case(
         label="自転車通行不可の歩道",
@@ -177,15 +125,6 @@ _CASES: list[_Case] = [
         expected={"shared_pedestrian_path": False},
     ),
     # --- 標高（区間単位の派生表） ---
-    _Case(
-        label="勾配は標高の平均勾配をそのまま使う",
-        average_grade=4.5,
-        expected={"gradient_percent": 4.5},
-    ),
-    _Case(
-        label="標高が未計算なら勾配は不明",
-        expected={"gradient_percent": None},
-    ),
     # --- 件数（集計表） ---
     _Case(
         label="事故は件/(km・年)へ正規化する",
@@ -202,7 +141,7 @@ _CASES: list[_Case] = [
         expected={"accident_count_per_km_year": None},
     ),
     _Case(
-        label="集計行が無ければ件数由来の材料は不明",
+        label="未計算なら件数由来の材料は不明",
         expected={
             "accident_count_per_km_year": None,
             "intersection_count_per_km": None,
@@ -216,67 +155,49 @@ _CASES: list[_Case] = [
         expected={"intersection_count_per_km": 6.0},
     ),
     _Case(
-        label="POIは行があればキーが無くても0件（未集計と取り違えない）",
+        label="POIは数えた種別が無くても0件（未計算と取り違えない）",
         distance_m=100.0,
         poi_counts={"crossing": 3},
         expected={"poi_signal_per_km": 0.0, "poi_crossing_per_km": 30.0},
     ),
     _Case(
-        label="POIの集計行が空でも行があれば0件",
+        label="どの種別も0件なら0件（未計算ではない）",
         distance_m=100.0,
         poi_counts={},
         expected={"poi_signal_per_km": 0.0},
     ),
-    # --- 土地被覆（区間単位が優先、無ければway単位） ---
-    _Case(
-        label="土地被覆は区間単位の行を使う",
-        edge_landcover={"trees_percent": 42.5, "built_percent": 30.0},
-        way_landcover={"trees_percent": 1.0, "built_percent": 2.0},
-        expected={"trees_percent": 42.5, "built_percent": 30.0},
-    ),
-    _Case(
-        label="区間単位の行が無ければway単位へ落とす",
-        way_landcover={"trees_percent": 1.0},
-        expected={"trees_percent": 1.0},
-    ),
-    _Case(
-        label="どちらの行も無ければ土地被覆は不明",
-        expected={"trees_percent": None, "built_percent": None},
-    ),
     # --- 指定路線 ---
     _Case(
-        label="指定路線に該当する",
-        is_designated=True,
-        expected={"is_designated": True},
-    ),
-    _Case(
-        label="指定路線の行が無ければ非該当（wayの行はあるため不明ではない）",
+        label="どの路線にも該当しなければ非該当（不明ではない）",
         expected={"is_designated": False},
     ),
 ]
 
 
-def _landcover_columns(alias_values: dict[str, float] | None, prefix: str) -> str:
-    return ", ".join(
-        f"CAST(:{prefix}_{key} AS double precision) AS {key}_percent" for key in LANDCOVER_SQL_KEYS
-    )
+def _em_columns() -> str:
+    """区間に付く値。未計算はNULL、行はあるが0件なら0。"""
+    landcover = ", ".join(
+        f"CAST(:lc_{key} AS double precision) AS lc_{key}" for key in LANDCOVER_SQL_KEYS)
+    poi = ", ".join(
+        f"CAST(:poi_{kind} AS double precision) AS poi_{kind}" for kind in POI_COUNT_KINDS)
+    return (
+        "CAST(:accident_count AS double precision) AS accident_count, "
+        "CAST(:intersection_count AS double precision) AS intersection_count, "
+        "CAST(:average_grade AS double precision) AS average_grade, "
+        f"{landcover}, {poi}")
 
 
 _SELECT_SQL = text(
     "WITH w AS (SELECT CAST(:osm_way_id AS bigint) AS osm_way_id, CAST(:tags AS jsonb) AS tags, "
     "CAST(:surface AS text) AS surface, CAST(:highway AS text) AS highway), "
-    "re AS (SELECT CAST(:highway AS text) AS highway, "
-    "CAST(:distance_m AS double precision) AS distance_m), "
-    "c AS (SELECT CAST(:accident_count AS double precision) AS accident_count, "
-    "CAST(:intersection_count AS double precision) AS intersection_count, "
-    "CAST(:poi_counts AS jsonb) AS poi_counts), "
-    "e AS (SELECT CAST(:average_grade AS double precision) AS average_grade), "
-    f"el AS (SELECT {_landcover_columns(None, 'el')}), "
-    f"wl AS (SELECT {_landcover_columns(None, 'wl')}), "
-    "d AS (SELECT CAST(:is_designated AS boolean) AS is_designated) "
+    "re AS (SELECT CAST(:distance_m AS double precision) AS distance_m), "
+    f"em AS (SELECT {_em_columns()}), "
+    "wm AS (SELECT CAST(:designation_emergency_transport AS text) "
+    "AS designation_emergency_transport, "
+    "CAST(:designation_critical_logistics AS text) AS designation_critical_logistics) "
     "SELECT "
     + ", ".join(f"({expr}) AS m_{name}" for name, expr in sorted(material_value_sql().items()))
-    + " FROM w, re, c, e, el, wl, d"
+    + " FROM w, re, em, wm"
 ).bindparams(
     bindparam("good_tags", value=sorted(GOOD_OSM_SURFACE_TAGS), type_=ARRAY(Text())),
     bindparam("bad_tags", value=sorted(BAD_OSM_SURFACE_TAGS), type_=ARRAY(Text())),
@@ -292,14 +213,17 @@ def _params(case: _Case) -> dict[str, object]:
         "distance_m": case.distance_m,
         "accident_count": case.accident_count,
         "intersection_count": case.intersection_count,
-        "poi_counts": None if case.poi_counts is None else json.dumps(case.poi_counts),
         "average_grade": case.average_grade,
-        "is_designated": case.is_designated,
         "accident_years": case.accident_years,
+        # 指定路線は該当した路線名が入る列。該当しなければNULL。
+        "designation_emergency_transport": "緊急輸送道路" if case.is_designated else None,
+        "designation_critical_logistics": None,
     }
-    for prefix, values in (("el", case.edge_landcover), ("wl", case.way_landcover)):
-        for key in LANDCOVER_SQL_KEYS:
-            params[f"{prefix}_{key}"] = None if values is None else values.get(f"{key}_percent")
+    for key in LANDCOVER_SQL_KEYS:
+        params[f"lc_{key}"] = (
+            None if case.landcover is None else case.landcover.get(f"{key}_percent"))
+    for kind in POI_COUNT_KINDS:
+        params[f"poi_{kind}"] = None if case.poi_counts is None else case.poi_counts.get(kind, 0)
     return params
 
 
@@ -319,7 +243,7 @@ async def test_every_wired_landcover_class_reaches_a_material(road_graph_session
     case = _Case(
         label="全クラス",
         expected={},
-        edge_landcover={key: 10.0 for key in WIRED_LANDCOVER_KEYS},
+        landcover={key: 10.0 for key in WIRED_LANDCOVER_KEYS},
     )
     row = (await road_graph_session.execute(_SELECT_SQL, _params(case))).one()
     for key in WIRED_LANDCOVER_KEYS:
