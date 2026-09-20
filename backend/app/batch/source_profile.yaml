@@ -56,7 +56,7 @@ sources:
     adapter: npa_honhyo
     rows:
       bbox: from_target
-      years: [2022, 2023, 2024]
+      years: [2024]
     columns: all
 
   - name: designation
