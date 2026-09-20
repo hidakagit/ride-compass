@@ -58,8 +58,8 @@ WHERE w.source = 'osm_way' AND w.payload IS NOT NULL
 #: 方位が定義できないため、中間の位置でもう1回切って端点を別にする（同じノードを2度通る
 #: wayでも同じ形の区間ができるので、始点＝終点の区間全般に当てはめる）。
 #:
-#: 長さは球で測る。`ST_Length(geography, true)`の楕円体は区間1本あたりの差がmm単位で、
-#: 方位の算出（球）と近似をそろえるほうが読み手に説明しやすい。
+#: 長さは測地線（楕円体）で測る。利用者が見る距離であり、時間コストの分母でもある。
+#: 球で近似しても費用は変わらないので、近似する理由が無い。
 _SEGMENTS = """
 CREATE TEMP TABLE _seg ON COMMIT DROP AS
 WITH n AS (
@@ -99,7 +99,7 @@ built AS (
   GROUP BY s.way_id, s.segment_index, s.start_ord, s.end_ord)
 SELECT b.way_id AS osm_way_id, b.segment_index::smallint AS segment_index,
        a.node_id AS from_node_id, z.node_id AS to_node_id, b.geom,
-       ST_Length(b.geom::geography, false)::real AS distance_m,
+       ST_Length(b.geom::geography)::real AS distance_m,
        degrees(ST_Azimuth(ST_StartPoint(b.geom)::geography,
                           ST_EndPoint(b.geom)::geography))::real AS bearing_deg,
        degrees(ST_Azimuth(ST_EndPoint(b.geom)::geography,

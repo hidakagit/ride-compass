@@ -11,7 +11,15 @@ DBの起動時初期化（`create_tables`の`Base.metadata.create_all`）へ乗�
 from datetime import datetime
 
 from geoalchemy2 import Geometry
-from sqlalchemy import BigInteger, DateTime, ForeignKey, LargeBinary, String
+from sqlalchemy import (
+    DDL,
+    BigInteger,
+    DateTime,
+    ForeignKey,
+    LargeBinary,
+    String,
+    event,
+)
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -51,7 +59,9 @@ class SourceFeatureRow(Base):
 
     `attrs`は外部が持っていた属性をそのまま入れる袋で、取込の時点では何も捨てない。
     `payload`は解釈の要る配列実体（ラスタの画素・OSMの参照ノードid列・ベクタタイルの
-    本体）で、属性として読めないものを置く。
+    本体）で、属性として読めないものを置く。**圧縮しない**——面の画素は1点ずつ引くため、
+    圧縮されていると1回のアクセスごとに値全体が伸長される。代償として面のデータは
+    数倍になる。
     """
 
     __tablename__ = "source_features"
@@ -66,3 +76,12 @@ class SourceFeatureRow(Base):
     geom: Mapped[object] = mapped_column(Geometry(srid=4326), nullable=False)
     attrs: Mapped[dict] = mapped_column(JSONB, nullable=False, server_default="{}")
     payload: Mapped[bytes | None] = mapped_column(LargeBinary, nullable=True)
+
+
+# 圧縮しない指定は型では表せないので、表を作った直後に当てる。親へ当てれば以後の
+# パーティションも引き継ぐ。
+event.listen(
+    SourceFeatureRow.__table__,
+    "after_create",
+    DDL("ALTER TABLE source_features ALTER COLUMN payload SET STORAGE EXTERNAL"),
+)

@@ -3,7 +3,6 @@ from typing import Mapping
 
 import numpy as np
 
-from app.domain.geo import LatLon, haversine_distance_km
 from app.domain.graph import LeanRoadGraph
 from app.domain.material_sql import MATERIAL_ID_GRADIENT_PERCENT
 from app.domain.strict_model import StrictModel
@@ -95,91 +94,6 @@ def _none_if_nan(value) -> float | None:
 # 超えた区間は値を持たせず「データなし」にする——0次ハードフィルタは値の無い区間を
 # 除外しない（`domain/hard_filters.py`）ので、誤った値で黙って経路から外すより安全側になる。
 MAX_PLAUSIBLE_AVERAGE_GRADE_PERCENT = 40.0
-
-
-@dataclass(frozen=True, slots=True)
-class ElevationValues:
-    """形状点列と標高から求まる値だけの組。どの単位（Edge・区間）に付けるかを持たない。"""
-
-    start_elevation_m: float | None = None
-    end_elevation_m: float | None = None
-    elevation_gain_m: float | None = None
-    elevation_loss_m: float | None = None
-    average_grade: float | None = None
-    max_grade: float | None = None
-    min_grade: float | None = None
-
-
-def compute_elevation_values(
-    points: list[LatLon],
-    elevations: list[float | None],
-    dem_reflects_road_surface: bool = True,
-) -> ElevationValues:
-    """形状点列とそれぞれの標高値から、勾配まわりの値を算出する。
-
-    標高が取得できなかった点（None）は除外して評価する。除外後に隣り合う2点（`valid`上で
-    連続）でも、元の点列では間に欠損点を挟んでいる場合がある。そのまま隣接扱いすると、
-    欠損区間内の実際の起伏（急な上り下り）が均された平均勾配として計算に混入する。
-    distance_m（座標は両点とも既知のため常に正確）とgain/loss/grade（欠損を挟むと
-    信頼できない）を分離し、元の点列でも真に隣接していたペアのみgain/loss/gradeへ
-    寄与させる。
-
-    `dem_reflects_road_surface=False`（橋・高架・トンネル）では**両端だけ**を使い、中間の
-    形状点を無視する。配信元が「元となる標高モデルデータ標高点の値は、地表面の測定値に
-    基づいているため、構造物（建物、高架橋等）の高さを反映したものではありません」と
-    明記しているため（https://maps.gsi.go.jp/development/hyokochi.html ）、中間の点は
-    桁や坑道ではなく下の地形を指す。谷を渡る平らな橋で、谷底の起伏がそのまま獲得標高へ
-    積まれてしまう。両端（橋台・坑口）は道が地面と接する位置なので使える。
-    """
-    valid = [(i, p, e) for i, (p, e) in enumerate(zip(points, elevations)) if e is not None]
-    if len(valid) < 2:
-        return ElevationValues()
-
-    gain = 0.0
-    loss = 0.0
-    max_grade: float | None = None
-    min_grade: float | None = None
-    total_distance_m = 0.0
-
-    for (idx1, p1, e1), (idx2, p2, e2) in zip(valid, valid[1:]):
-        distance_m = haversine_distance_km(p1, p2) * 1000
-        total_distance_m += distance_m
-
-        if idx2 - idx1 != 1:
-            continue  # 間に欠損点を挟むペアはgain/loss/gradeへ寄与させない
-
-        diff = e2 - e1
-        if diff > 0:
-            gain += diff
-        else:
-            loss += -diff
-
-        if distance_m > 0:
-            grade = diff / distance_m * 100
-            max_grade = grade if max_grade is None else max(max_grade, grade)
-            min_grade = grade if min_grade is None else min(min_grade, grade)
-
-    start_elevation = valid[0][2]
-    end_elevation = valid[-1][2]
-    average_grade = (end_elevation - start_elevation) / total_distance_m * 100 if total_distance_m > 0 else None
-    if average_grade is not None and abs(average_grade) > MAX_PLAUSIBLE_AVERAGE_GRADE_PERCENT:
-        average_grade = None
-    if not dem_reflects_road_surface:
-        # 中間の頂点は下の地形なので捨て、両端だけで組み直す。
-        difference = end_elevation - start_elevation
-        gain = max(0.0, difference)
-        loss = max(0.0, -difference)
-        max_grade = min_grade = average_grade
-
-    return ElevationValues(
-        start_elevation_m=round(start_elevation, 1),
-        end_elevation_m=round(end_elevation, 1),
-        elevation_gain_m=round(gain, 1),
-        elevation_loss_m=round(loss, 1),
-        average_grade=round(average_grade, 2) if average_grade is not None else None,
-        max_grade=round(max_grade, 2) if max_grade is not None else None,
-        min_grade=round(min_grade, 2) if min_grade is not None else None,
-    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -283,3 +197,71 @@ class EdgeMaterialArrays:
             max_grade=_none_if_nan(self.elevation_max_grade[i]),
             min_grade=_none_if_nan(self.elevation_min_grade[i]),
         )
+
+
+def elevation_values_sql(vertices: str) -> str:
+    """区間の頂点列から、標高と勾配の値を出すSQL。
+
+    `vertices`は`(osm_way_id, segment_index, ord, lon, lat, elev, on_structure)`を返す関係。
+    `elev`がNULLの頂点は評価から外す。**外した後に隣り合う2点でも、元の点列では間に欠損を
+    挟んでいることがある**——そのまま隣接扱いすると、欠損区間の起伏が均された勾配として
+    混入する。距離（両端の座標は常に既知）と、獲得/消失/勾配（欠損を挟むと信頼できない）を
+    分け、元の点列でも真に隣接していたペアだけを後者へ寄与させる。
+
+    `on_structure`（橋・高架・トンネル）は**両端だけ**を使う。配信元のDEMは地表面の値で
+    構造物の高さを反映しないため、中間の点は桁や坑道ではなく下の地形を指す。谷を渡る
+    平らな橋で、谷底の起伏がそのまま獲得標高へ積まれてしまう。
+
+    値が出せない区間（有効な標高が2点未満）は返らない。
+    """
+    return f"""
+WITH v AS ({vertices}),
+known AS (SELECT * FROM v WHERE elev IS NOT NULL),
+ends AS (
+    SELECT osm_way_id, segment_index, bool_or(on_structure) AS on_structure,
+           count(*) AS n,
+           (array_agg(elev ORDER BY ord))[1] AS start_e,
+           (array_agg(elev ORDER BY ord DESC))[1] AS end_e
+    FROM known GROUP BY osm_way_id, segment_index),
+stepped AS (
+    SELECT osm_way_id, segment_index, ord, elev,
+           lag(ord)  OVER w AS prev_ord,
+           lag(elev) OVER w AS prev_elev,
+           lag(lon)  OVER w AS prev_lon,
+           lag(lat)  OVER w AS prev_lat,
+           lon, lat
+    FROM known WINDOW w AS (PARTITION BY osm_way_id, segment_index ORDER BY ord)),
+pairs AS (
+    SELECT osm_way_id, segment_index, elev - prev_elev AS diff,
+           ord - prev_ord = 1 AS adjacent,
+           ST_Distance(ST_MakePoint(prev_lon, prev_lat)::geography,
+                       ST_MakePoint(lon, lat)::geography) AS d
+    FROM stepped WHERE prev_ord IS NOT NULL),
+agg AS (
+    SELECT osm_way_id, segment_index, sum(d) AS total_d,
+           coalesce(sum(greatest(diff, 0))  FILTER (WHERE adjacent), 0) AS gain,
+           coalesce(sum(greatest(-diff, 0)) FILTER (WHERE adjacent), 0) AS loss,
+           max(diff / d * 100) FILTER (WHERE adjacent AND d > 0) AS max_g,
+           min(diff / d * 100) FILTER (WHERE adjacent AND d > 0) AS min_g
+    FROM pairs GROUP BY osm_way_id, segment_index),
+raw AS (
+    SELECT e.osm_way_id, e.segment_index, e.on_structure, e.start_e, e.end_e,
+           a.gain, a.loss, a.max_g, a.min_g,
+           CASE WHEN a.total_d > 0
+                 AND abs((e.end_e - e.start_e) / a.total_d * 100)
+                     <= {MAX_PLAUSIBLE_AVERAGE_GRADE_PERCENT}
+                THEN (e.end_e - e.start_e) / a.total_d * 100 END AS avg_g
+    FROM ends e JOIN agg a USING (osm_way_id, segment_index)
+    WHERE e.n >= 2)
+SELECT osm_way_id, segment_index,
+       round(start_e::numeric, 1) AS start_elevation_m,
+       round(end_e::numeric, 1)   AS end_elevation_m,
+       round((CASE WHEN on_structure THEN greatest(end_e - start_e, 0)
+                   ELSE gain END)::numeric, 1)  AS elevation_gain_m,
+       round((CASE WHEN on_structure THEN greatest(start_e - end_e, 0)
+                   ELSE loss END)::numeric, 1)  AS elevation_loss_m,
+       round(avg_g::numeric, 2) AS average_grade,
+       round((CASE WHEN on_structure THEN avg_g ELSE max_g END)::numeric, 2) AS max_grade,
+       round((CASE WHEN on_structure THEN avg_g ELSE min_g END)::numeric, 2) AS min_grade
+FROM raw
+"""

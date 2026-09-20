@@ -4,11 +4,11 @@
 作らない**——面を読む出口は「そのまま見せる」か「線へ落とす」のどちらかで、面のままの
 中間結果を要る相手がいない。
 
-タイルは要るものだけを主キーで1枚ずつ読む。全部をメモリへ載せると関東規模で数百MBに
-なり、全国では載らない。
+標高はDB内で完結する。画素は`payload`のまま`get_byte`で引くので、タイルの中身を
+プロセスへ取り出さない。
 
-値の出し方そのものはdomainが持つ（`compute_elevation_values`・`class_percentages`）。
-このバッチは画素を読んで渡すだけで、勾配の上限や有効画素数の下限をここに持たない。
+値の出し方そのものはdomainが持つ（`elevation_values_sql`・`class_percentages`）。
+このバッチは画素の読み方を渡すだけで、勾配の上限や有効画素数の下限をここに持たない。
 
 実行方法（backendディレクトリから）:
     .venv\\Scripts\\python.exe -m app.batch.derive_raster_materials
@@ -20,7 +20,6 @@ import logging
 import math
 import sys
 import time
-from collections import defaultdict
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
@@ -31,8 +30,7 @@ import shapely  # noqa: E402
 
 from app.batch._common import asyncpg_dsn, with_derived_data_revision_bump  # noqa: E402
 from app.config import settings  # noqa: E402
-from app.domain.attributes import compute_elevation_values  # noqa: E402
-from app.domain.geo import LatLonPoint  # noqa: E402
+from app.domain.attributes import elevation_values_sql  # noqa: E402
 from app.domain.landcover import LandcoverPercentages, class_percentages  # noqa: E402
 from app.domain.material_sql import BRIDGE_NORMALIZED_SQL, TUNNEL_NORMALIZED_SQL  # noqa: E402
 
@@ -80,78 +78,127 @@ def pixel_of(lon: float, lat: float, zoom: int, tile_size: int) -> tuple[int, in
 # --- 標高 -------------------------------------------------------------------
 
 
+#: 区間の形と、その道が構造物の上かどうか。
 _EDGE_SHAPES = f"""
-SELECT e.osm_way_id, e.segment_index, ST_AsBinary(e.geom) AS wkb,
+SELECT e.osm_way_id, e.segment_index, e.geom,
        (coalesce({TUNNEL_NORMALIZED_SQL}, '') NOT IN ('', 'no')
         OR coalesce({BRIDGE_NORMALIZED_SQL}, '') NOT IN ('', 'no')) AS on_structure
 FROM road_edges e JOIN {_WAYS_AS_W} ON w.osm_way_id = e.osm_way_id
 """
 
-_UPDATE_ELEVATION = """
-UPDATE edge_materials SET start_elevation_m = $3, end_elevation_m = $4,
-    elevation_gain_m = $5, elevation_loss_m = $6, average_grade = $7,
-    max_grade = $8, min_grade = $9
-WHERE osm_way_id = $1 AND segment_index = $2
+
+def pixel_address_sql(point: str, zoom: str, size: str) -> str:
+    """経緯度が落ちるタイル番号と、そのタイルの中の画素位置を出す断片（Webメルカトル）。"""
+    return f"""
+    SELECT floor(fx)::int AS tx, floor(fy)::int AS ty,
+           least({size} - 1, floor((fx - floor(fx)) * {size})::int) AS px,
+           least({size} - 1, floor((fy - floor(fy)) * {size})::int) AS py
+    FROM (SELECT (ST_X({point}) + 180.0) / 360.0 * (2::double precision ^ {zoom}) AS fx,
+                 (1.0 - ln(tan(radians(ST_Y({point})))
+                           + 1.0 / cos(radians(ST_Y({point})))) / pi()) / 2.0
+                 * (2::double precision ^ {zoom}) AS fy) f"""
+
+
+#: 画素1つが何バイトか。取込が`attrs`へ書いた型に従う。
+PIXEL_BYTES = {"uint8": 1, "int16_le": 2}
+
+
+def pixel_slice_sql(dtype: str, payload: str, index: str) -> str:
+    """`index`番目の画素のバイトだけを取り出す断片。
+
+    **値全体ではなくスライスで取る。**`payload`は圧縮しない設定なのでTOASTの一部だけを
+    読めるが、`get_byte`のように値全体を指す形で書くと毎回すべてが実体化される。
+    """
+    width = PIXEL_BYTES[dtype]
+    return f"substring({payload} from ({index}) * {width} + 1 for {width})"
+
+
+def pixel_value_sql(dtype: str, pixel: str) -> str:
+    """スライスした画素のバイトを数として読む断片。リトルエンディアン。"""
+    if dtype == "uint8":
+        return f"get_byte({pixel}, 0)"
+    if dtype == "int16_le":
+        return (f"((get_byte({pixel}, 1) << 8) | get_byte({pixel}, 0))"
+                f" - CASE WHEN get_byte({pixel}, 1) > 127 THEN 65536 ELSE 0 END")
+    raise ValueError(f"画素の型 '{dtype}' の読み方を持っていない")
+
+
+def _tile_grid_sql(source: str) -> str:
+    return ("SELECT (attrs->>'x')::int AS tx, (attrs->>'y')::int AS ty, payload,"
+            " (attrs->>'nodata')::bigint AS nodata, (attrs->>'scale')::float AS scale"
+            f" FROM source_features WHERE source = '{source}'")
+
+
+async def _grid_spec(conn: asyncpg.Connection, source: str) -> tuple[int, int, str]:
+    """タイルの並び方（ズーム・1辺の画素数・型）。**全タイルで1つ**であることを確かめる。"""
+    rows = await conn.fetch(
+        "SELECT DISTINCT (attrs->>'z')::int AS z, (attrs->>'width')::int AS width,"
+        " attrs->>'dtype' AS dtype FROM source_features WHERE source = $1", source)
+    if len(rows) != 1:
+        raise RuntimeError(f"'{source}'のタイルの並び方が1つに定まりません: {len(rows)}種類")
+    return rows[0]["z"], rows[0]["width"], rows[0]["dtype"]
+
+
+def _vertex_address_sql(zoom: int, size: int) -> str:
+    """区間の頂点それぞれに、その位置のタイル番号と画素位置を付ける。"""
+    return f"""
+SELECT s.osm_way_id, s.segment_index, dp.path[1] AS ord,
+       ST_X(dp.geom) AS lon, ST_Y(dp.geom) AS lat, s.on_structure,
+       a.tx, a.ty, a.px, a.py
+FROM ({_EDGE_SHAPES}) s
+CROSS JOIN LATERAL ST_DumpPoints(s.geom) AS dp
+CROSS JOIN LATERAL ({pixel_address_sql("dp.geom", str(zoom), str(size))}) a
+"""
+
+
+def _vertex_elevation_sql(size: int, dtype: str) -> str:
+    """画素位置の付いた頂点へ、DEMの値を引いて標高にする。"""
+    pixel = pixel_slice_sql(dtype, "t.payload", f"(v.py * {size} + v.px)")
+    value = pixel_value_sql(dtype, "b.pixel")
+    return f"""
+SELECT v.osm_way_id, v.segment_index, v.ord, v.lon, v.lat, v.on_structure,
+       CASE WHEN b.pixel IS NULL THEN NULL
+            WHEN ({value}) = t.nodata THEN NULL
+            ELSE ({value}) / t.scale END AS elev
+FROM _vertex v
+LEFT JOIN ({_tile_grid_sql("dem")}) t ON t.tx = v.tx AND t.ty = v.ty
+CROSS JOIN LATERAL (SELECT {pixel} AS pixel) b
 """
 
 
 async def derive_elevation(conn: asyncpg.Connection) -> int:
     started = time.perf_counter()
-    tiles = await conn.fetch(_tile_list_sql("dem"))
-    if not tiles:
+    if not await conn.fetchval("SELECT count(*) FROM source_features WHERE source = 'dem'"):
         logger.warning("標高タイルが1枚も取り込まれていません")
         return 0
-    zoom = tiles[0]["z"]
-    key_of = {(t["x"], t["y"]): t["natural_key"] for t in tiles}
+    zoom, size, dtype = await _grid_spec(conn, "dem")
 
-    edges: list[tuple[int, int, list[LatLonPoint], bool]] = []
-    # タイルごとに「どの区間の何番目の点か」を集めてから読む。同じタイルを何度も開かない。
-    wanted: dict[tuple[int, int], list[tuple[int, int, int, int]]] = defaultdict(list)
-    for row in await conn.fetch(_EDGE_SHAPES):
-        line = shapely.from_wkb(bytes(row["wkb"]))
-        points = [LatLonPoint(lat, lon) for lon, lat in line.coords]
-        index = len(edges)
-        edges.append((row["osm_way_id"], row["segment_index"], points, row["on_structure"]))
-        for order, point in enumerate(points):
-            x, y, px, py = pixel_of(point.longitude, point.latitude, zoom, 256)
-            wanted[(x, y)].append((index, order, px, py))
+    # **頂点をいったん実体にしてから**タイルへ結合する。関数から直に結合すると行数を
+    # 見積もれず、プランナがタイル側を入れ子で読み直す計画を選ぶ（開発DBで数秒が
+    # 数分になる）。
+    await conn.execute(f"CREATE TEMP TABLE _vertex ON COMMIT DROP AS {_vertex_address_sql(zoom, size)}")
+    await conn.execute("ANALYZE _vertex")
+    await conn.execute(
+        f"CREATE TEMP TABLE _vertex_elev ON COMMIT DROP AS {_vertex_elevation_sql(size, dtype)}")
+    await conn.execute("ANALYZE _vertex_elev")
 
-    heights: list[list[float | None]] = [[None] * len(e[2]) for e in edges]
-    missing_tiles = 0
-    for (x, y), items in wanted.items():
-        key = key_of.get((x, y))
-        if key is None:
-            missing_tiles += 1
-            continue
-        row = await conn.fetchrow(
-            "SELECT payload, (attrs->>'scale')::float AS scale, "
-            "(attrs->>'nodata')::bigint AS nodata, (attrs->>'width')::int AS width, "
-            "attrs->>'dtype' AS dtype "
-            "FROM source_features WHERE source = 'dem' AND natural_key = $1", key)
-        # 型は取込が`attrs`へ書いたものに従う。ここで決め打つと、取込側の型を変えたときに
-        # 黙って別の数を読む。
-        grid = np.frombuffer(row["payload"], dtype=_NUMPY_DTYPE[row["dtype"]]).reshape(
-            row["width"], row["width"])
-        for index, order, px, py in items:
-            value = int(grid[py, px])
-            if value != row["nodata"]:
-                heights[index][order] = value / row["scale"]
+    values = elevation_values_sql("SELECT * FROM _vertex_elev")
+    result = await conn.execute(f"""
+        UPDATE edge_materials m SET
+            start_elevation_m = v.start_elevation_m, end_elevation_m = v.end_elevation_m,
+            elevation_gain_m = v.elevation_gain_m, elevation_loss_m = v.elevation_loss_m,
+            average_grade = v.average_grade,
+            max_grade = v.max_grade, min_grade = v.min_grade
+        FROM ({values}) v
+        WHERE v.osm_way_id = m.osm_way_id AND v.segment_index = m.segment_index""")
+    updated = int(result.split()[-1])
+    await conn.execute("DROP TABLE _vertex_elev")
+    await conn.execute("DROP TABLE _vertex")
 
-    updates = []
-    for index, (way_id, segment_index, points, on_structure) in enumerate(edges):
-        values = compute_elevation_values(points, heights[index],
-                                          dem_reflects_road_surface=not on_structure)
-        if values.start_elevation_m is None:
-            continue
-        updates.append((way_id, segment_index, values.start_elevation_m, values.end_elevation_m,
-                        values.elevation_gain_m, values.elevation_loss_m, values.average_grade,
-                        values.max_grade, values.min_grade))
-    await conn.executemany(_UPDATE_ELEVATION, updates)
-
-    logger.info("標高: 区間 %d/%d本に値が付いた / タイル %d枚（不足 %d枚）/ %.1f秒",
-                len(updates), len(edges), len(wanted) - missing_tiles, missing_tiles,
-                time.perf_counter() - started)
-    return len(updates)
+    edges = await conn.fetchval("SELECT count(*) FROM road_edges")
+    logger.info("標高: 区間 %d/%d本に値が付いた / %.1f秒",
+                updated, edges, time.perf_counter() - started)
+    return updated
 
 
 # --- 土地被覆 ---------------------------------------------------------------
