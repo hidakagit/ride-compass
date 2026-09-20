@@ -263,7 +263,7 @@ URLも変わるため、ブラウザキャッシュ（`api/cache_policy.py`）�
 `UnexpectedShapeError`（`ValueError`のサブクラス）を`fetch`内から送出すると、常に
 固定文字列`error_type="unexpected_shape"`として記録される。呼び出し元によって
 捕捉すべき例外の範囲が異なる（例: `fetch_municipality_code`は`AttributeError`も対象に
-含める）ため、`catch`引数で個別に指定できる。`jma_tile_client.py`/`elevation_client.py`/
+含める）ため、`catch`引数で個別に指定できる。`jma_tile_client.py`/
 `basemap_client.py`/`gsi_tile_client.py`（TTLCache以外のキャッシュバックエンド）は
 対象外のまま各自の実装を維持する。
 
@@ -302,7 +302,7 @@ OpenFreeMapのスタイルJSON・TileJSON・スプライト・グリフ・タイ
 配信元が実データを持つのはz14まで（`TERRAIN_TILE_MAX_ZOOM`）。
 
 **恒久404のキャッシュ**: 色別標高図の整備区域外（404）は珍しくない正常系
-（`elevation_client.py`のDEMタイル・`_CoverageGap`と同じ状況）で、他の失敗（タイムアウト・
+で、他の失敗（タイムアウト・
 5xx等）と区別して502・WARNINGログ・`/api/debug/stats`のerror集計へは乗せない。確認済みの
 404は`GsiTileNotFound`センチネルとしてプロセス内メモリのみ（上限付きLRU、キー=path）に
 記憶し、`tile_cache.py`の永続ファイルキャッシュへは書かない（将来GSI側の整備区域が広がった

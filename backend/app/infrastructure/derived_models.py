@@ -41,10 +41,10 @@ ABSENT_OK = {"null_means_absent": True}
 class RoadEdgeRow(Base):
     """道を交差点で切った区間1本。**向きでは分けない**。
 
-    向きが持つ情報はいずれも導ける——方位は逆順の始点・終点から求め直し（+180°の
-    単純反転にしない。地球の丸みを近似しないため）、勾配は符号を反転し、通行の可否は
-    道の属性（一方通行）から決まる。有向グラフは探索がメモリ上で組む実行時の構成物で、
-    表が両向きを持つ必要はない。
+    向きが持つ情報はいずれも導ける——方位は両向きぶんを列で持ち（+180°の単純反転に
+    しない。地球の丸みを近似しないため）、勾配は符号を反転し、通行の可否は道の属性
+    （一方通行）から決まる。有向グラフは探索がメモリ上で組む実行時の構成物で、表が
+    両向きの行を持つ必要はない。
 
     空間の索引は持たない。範囲で絞るときは親の道（`osm_way`）を先に絞り、その区間を
     主キーの先頭列で引く。
@@ -62,8 +62,12 @@ class RoadEdgeRow(Base):
 
     geom: Mapped[object] = mapped_column(Geometry("LINESTRING", srid=4326), nullable=False)
     distance_m: Mapped[float] = mapped_column(REAL, nullable=False)
-    #: 順方向の方位。逆向きは形状の逆順の始点・終点から求め直す。
+    #: 順方向の方位。
     bearing_deg: Mapped[float] = mapped_column(REAL, nullable=False)
+    #: 逆向きの方位。**+180°ではない**（球面上では往路と復路の方位はちょうど反対を
+    #: 向かない）ため、形状の終点→始点から測った値を持つ。読むたびに`ST_Azimuth`で
+    #: 求め直すとグラフ読み込みが目に見えて遅くなるため、列として持つ。
+    reverse_bearing_deg: Mapped[float] = mapped_column(REAL, nullable=False)
 
     source_run_id: Mapped[int] = mapped_column(
         BigInteger, ForeignKey("source_runs.run_id"), nullable=False

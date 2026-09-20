@@ -27,7 +27,11 @@ import asyncpg  # noqa: E402
 
 from app.batch._common import asyncpg_dsn  # noqa: E402
 from app.config import settings  # noqa: E402
-from app.domain.accident import ACCIDENT_FATAL_WEIGHT, ACCIDENT_MATCH_MAX_DISTANCE_M  # noqa: E402
+from app.domain.accident import (  # noqa: E402
+    ACCIDENT_FATAL_WEIGHT,
+    ACCIDENT_MATCH_MAX_DISTANCE_M,
+    FATAL_SQL,
+)
 from app.domain.traffic import (  # noqa: E402
     INTERSECTION_DEGREE_THRESHOLD,
     POI_CLUSTER_EPS_M,
@@ -126,11 +130,11 @@ FROM (
 WHERE c.osm_way_id = m.osm_way_id AND c.segment_index = m.segment_index
 """
 
-#: 事故は最も近い区間へ1件だけ付ける。死亡事故は重みを掛ける。
-_EDGE_ACCIDENTS = """
+#: 事故は最も近い区間へ1件だけ付ける。死亡事故は重みを掛ける（判定はdomainが持つ）。
+_EDGE_ACCIDENTS = f"""
 WITH nearest AS (
     SELECT a.natural_key,
-           CASE WHEN (a.attrs->>'死者数') <> '0' THEN $1 ELSE 1.0 END AS weight,
+           CASE WHEN {FATAL_SQL} THEN $1 ELSE 1.0 END AS weight,
            (SELECT e.osm_way_id FROM road_edges e
              WHERE e.geom && ST_Expand(a.geom, $2)
              ORDER BY e.geom <-> a.geom LIMIT 1) AS osm_way_id,

@@ -7,9 +7,7 @@ destination指定）を呼び、ステージ別の所要時間（`prepare_ms`/`s
 
 本番VMでは、稼働中のbackendコンテナとは別にbackendイメージの使い捨てコンテナ
 （`--network=host --env-file /home/ubuntu/ridecompass-backend.env`）から実行する。
-**必ず読み取り経路のみを通す**: 対象bboxの道路データが未split（`is_split_up_to_date`が
 False）だと`prepare`が再構築＝本番DBへの書き込み経路に入るため、既定では実行前に
-判定して未splitなら中断する（`T551_BENCH_ALLOW_UNSPLIT=1`で無効化できるが本番では使わない）。
 bbox半径は`RouteGenerator._generate_destination_routes`と同じ
 `distance_km * TURNAROUND_RADIUS_RATIO`（起点⇔目的地間の距離ベース、周回のD/2ベースより
 小さい）。
@@ -35,8 +33,7 @@ import time
 from app.domain.route_preference import RoutePreference
 from app.domain.geo import haversine_distance_km
 from app.domain.route import Coordinates
-from app.services.route_generator import TURNAROUND_RADIUS_RATIO
-from benchmarks._route_generation_service import assert_read_only_path, refresh_axis_registry, route_generator_session
+from benchmarks._route_generation_service import refresh_axis_registry, route_generator_session
 from benchmarks._revision import announce_revision
 
 logging.basicConfig(level=logging.WARNING, format="%(asctime)s %(message)s")
@@ -55,7 +52,6 @@ DESTINATION = _point("T551_BENCH_DESTINATION", "35.7015,139.9825")
 MAX_ROUTES = int(os.environ.get("T551_BENCH_MAX_ROUTES", "8"))
 RUNS = int(os.environ.get("T551_BENCH_RUNS", "3"))
 INFRA_RUN = os.environ.get("T551_BENCH_INFRA_RUN", "1") == "1"
-ALLOW_UNSPLIT = os.environ.get("T551_BENCH_ALLOW_UNSPLIT", "0") == "1"
 # frontend/src/app/page.tsx: handleGenerateのeffectiveDistanceKmと同じ算出（実距離+1kmの
 # 余裕）。本スクリプトは起点→目的地の1点のみのため経由地は考慮しない。
 DISTANCE_KM = haversine_distance_km(ORIGIN, DESTINATION) + 1
@@ -92,10 +88,6 @@ def _infra_only_preference() -> RoutePreference:
 async def main() -> None:
     print(
         f"origin={ORIGIN} destination={DESTINATION} distance_km={DISTANCE_KM:.1f} max_routes={MAX_ROUTES}"
-    )
-    await assert_read_only_path(
-        ORIGIN, DISTANCE_KM * TURNAROUND_RADIUS_RATIO,
-        allow_unsplit=ALLOW_UNSPLIT, allow_unsplit_env_hint="T551_BENCH_ALLOW_UNSPLIT",
     )
     for i in range(RUNS):
         await _run_once(f"既定重み {i + 1}回目", RoutePreference, MAX_ROUTES)

@@ -283,16 +283,12 @@
 
 ## 各ファイル
 
-| ファイル | 対象 |
-|---|---|
-| `bench_nearest_node.py` | `domain/routing.py: find_nearest_node`の線形探索スケーリング |
-| `bench_graph_build.py` | `domain/graph.py: build_road_graph`の構築コスト |
-| `bench_route_trace.py` | `RoadGraphEngine`の8方位分の最近傍探索+Dijkstraをまとめて模擬 |
-| `_harness.py` | 計測用の共通ユーティリティ（外部依存無し） |
+**一覧はここに持たない**（増減のたびに嘘になる）。各`bench_*.py`は冒頭のdocstringに
+「何を測るか・何が前提か・どう実行するか」を持つ。`_harness.py`（計測の共通処理）と
+`_synthetic.py`（合成の格子状道路網。規模を揃えて比較するため）だけが共有部品。
 
-（`bench_elevation_cache.py`は改善計画T10でSQLite点キャッシュ自体を廃止したため
-2026-08-23に削除済み。上記「わかったこと」1番は削除前の歴史的記録）
-| `_synthetic.py` | 合成の格子状道路網ジェネレータ（規模を揃えて比較するため） |
+測る対象が構造的に無くなったベンチマークは残さない——実行できないものが並んでいると、
+次に測る人がまずそれを直すことから始めることになる。
 
 ## 対象外にしたもの
 
@@ -305,13 +301,6 @@
 例外的に実際のローカルPostGIS接続・実データ・DB書き込み（既存データと同内容への
 delete-then-reinsertで冪等）を伴う。「合成データのみに閉じる」という上記の既存方針からは
 外れるため、`run_all.py`には含めず個別実行とする。
-
-| ファイル | 対象 | 前提 |
-|---|---|---|
-| `bench_postgis_prepare.py` | `GraphService.get_or_build_graph_with_attributes`（PostGISキャッシュ経路）のprepare段階を実データで内訳分解。省略パス（`is_split_up_to_date`）のCOLD/WARM比較も計測する | ローカルPostGISに`app/batch/import_pbf.py`で東京都心データを取込済みであること（`docs/osm-pbf-import.md`参照）。実行方法はファイル冒頭のdocstring参照（`DATABASE_URL`をローカルDBへ上書き） |
-| `bench_t536_route_generation.py` | `RouteGenerator.generate_loops`（8方位周回）をend-to-endで実行し、`prepare_ms`/`trace_ms`を実測する（改善計画T536、タイル単位の静的スコア行列＋ベクトル化コスト方式のサニティチェック用） | ローカルPostGISに実データ取込済みであること。`python -m benchmarks.bench_t536_route_generation`（backend/がPYTHONPATH上にあること） |
-| `bench_t621_divergence.py` | 目的地候補のEdge id列から分岐点（乗り換えできる地点）の個数・位置・乗り換え先の数を出し、合成経路がグラフ上で連結しているかを数える（[T621](../../docs/tasks/T621.md)段取り1、地図のマーカーが埋まるかの判断材料） | ローカルPostGISに実データ取込済みであること。`python -m benchmarks.bench_t621_divergence`。既定では未splitのbboxで中断する（読み取り経路のみを通すため） |
-| `bench_t802_time_bins.py` | 2点間探索（ターン展開A*）で、時刻ビンの本数を変えたときの壁時計。**同じコスト値を本数だけ変えて複製する**ため経路は変わらず、2次元の添字を引くこと自体の手間だけが出る（[T802](../../docs/tasks/T802.md)の切り分け） | 実データのDBへ接続できること。`python -m benchmarks.bench_t802_time_bins`。起点・目的地は`T802_ORIGIN`/`T802_DESTINATION`、本数は`T802_BINS`で変えられる |
 
 実行前に対象bboxのデータ量（DB書き込み対象のprimary way数）を確認し、ディスク空き容量に
 対して十分小さいことを確認してから実行すること（この既存実装は`save_graph`が

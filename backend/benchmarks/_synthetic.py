@@ -1,47 +1,60 @@
 """ベンチマーク間で共有する合成道路網ジェネレータ。
 
-実際のOverpass/PostGIS接続無しでノード数・エッジ数をベンチマークごとに狙った規模へ
-スケールさせるため、rows x cols の格子状の道路網（碁盤目の街区を模したもの）を生成する。
-各Wayは隣接ノード2点のみで構成するため、`build_road_graph`の交差点分割ロジック上、
-全ノードがそのまま交差点（Node）になる（rows*cols ノード = rows*cols グラフNode）。
+DB接続無しでノード数・エッジ数を狙った規模へスケールさせるため、rows x cols の格子状の
+道路網（碁盤目の街区を模したもの）を生成する。隣接する格子点の間を1区間とし、全ノードが
+そのまま交差点になる（rows*cols ノード）。
+
+取込・派生を通したときと同じ形（向きごとに1本の`LeanEdge`）で組む——探索フェーズが読むのは
+この形だけで、DBから来たグラフと区別がつかないようにする。
 """
 
 from __future__ import annotations
 
-from app.domain.graph import RoadGraph, WaySpec, build_road_graph
+from app.domain.geo import LatLonPoint, bearing_between, haversine_distance_km
+from app.domain.graph import LeanEdge, LeanNode, LeanRoadGraph
 from app.domain.route import Coordinates
+from app.infrastructure.road_graph_repository import edge_key, node_key
 
 TOKYO_LAT = 35.7
 TOKYO_LON = 139.7
 GRID_SPACING_DEG = 0.001  # 概ね110m四方の街区
 
 
-def make_grid_way_specs(rows: int, cols: int) -> tuple[list[WaySpec], dict[int, tuple[float, float]]]:
-    node_coords: dict[int, tuple[float, float]] = {}
+def make_grid_graph(rows: int, cols: int) -> LeanRoadGraph:
+    coords: dict[int, tuple[float, float]] = {}
     for r in range(rows):
         for c in range(cols):
-            node_id = r * cols + c
-            node_coords[node_id] = (TOKYO_LAT + r * GRID_SPACING_DEG, TOKYO_LON + c * GRID_SPACING_DEG)
+            coords[r * cols + c] = (TOKYO_LAT + r * GRID_SPACING_DEG, TOKYO_LON + c * GRID_SPACING_DEG)
 
-    ways: list[WaySpec] = []
-    way_id = 0
+    nodes = {
+        node_key(osm_node_id): LeanNode(
+            node_id=node_key(osm_node_id), latitude=lat, longitude=lon, osm_node_id=osm_node_id)
+        for osm_node_id, (lat, lon) in coords.items()
+    }
+
+    pairs: list[tuple[int, int]] = []
     for r in range(rows):
         for c in range(cols - 1):
-            a, b = r * cols + c, r * cols + c + 1
-            ways.append(WaySpec(osm_way_id=way_id, node_ids=[a, b], highway="residential"))
-            way_id += 1
+            pairs.append((r * cols + c, r * cols + c + 1))
     for c in range(cols):
         for r in range(rows - 1):
-            a, b = r * cols + c, (r + 1) * cols + c
-            ways.append(WaySpec(osm_way_id=way_id, node_ids=[a, b], highway="residential"))
-            way_id += 1
+            pairs.append((r * cols + c, (r + 1) * cols + c))
 
-    return ways, node_coords
+    edges: dict[str, LeanEdge] = {}
+    for way_id, (a, b) in enumerate(pairs):
+        start, end = LatLonPoint(*coords[a]), LatLonPoint(*coords[b])
+        distance_m = haversine_distance_km(start, end) * 1000
+        for forward in (True, False):
+            tail, head = (a, b) if forward else (b, a)
+            key = edge_key(way_id, 0, forward)
+            edges[key] = LeanEdge(
+                edge_id=key, from_node_id=node_key(tail), to_node_id=node_key(head),
+                geometry=[], distance_m=distance_m, osm_way_id=way_id, segment_index=0,
+                forward=forward, highway="residential",
+                bearing_deg=bearing_between(start, end) if forward else bearing_between(end, start),
+            )
 
-
-def make_grid_graph(rows: int, cols: int) -> RoadGraph:
-    ways, node_coords = make_grid_way_specs(rows, cols)
-    return build_road_graph(ways, node_coords)
+    return LeanRoadGraph(graph_version="synthetic", nodes=nodes, edges=edges)
 
 
 def grid_point(rows: int, cols: int, row_fraction: float = 0.5, col_fraction: float = 0.5) -> Coordinates:

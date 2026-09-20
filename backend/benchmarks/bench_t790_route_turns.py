@@ -22,9 +22,6 @@ from app.domain.route import Coordinates
 from app.domain.route_preference import RoutePreference
 from app.domain.routing import TurnCostSpec, current_turn_cost
 from app.domain.traffic import highway_rank
-from app.infrastructure.database import get_route_generation_session_factory
-from app.infrastructure.road_graph_repository import RoadGraphRepository
-from app.services.road_graph_engine import PREVIEW_BBOX_MARGIN_KM, _bbox_covering_points
 from benchmarks._route_generation_service import refresh_axis_registry, route_generator_session
 from benchmarks._revision import announce_revision
 
@@ -42,7 +39,6 @@ ORIGIN = _coordinate_from_env("T790_ORIGIN", Coordinates(latitude=35.8617, longi
 DESTINATION = _coordinate_from_env("T790_DESTINATION", Coordinates(latitude=35.7528, longitude=139.7386))
 DISTANCE_KM = float(os.environ.get("T790_DISTANCE_KM", "30"))
 MAX_ROUTES = int(os.environ.get("T790_MAX_ROUTES", "3"))
-ALLOW_UNSPLIT = os.environ.get("T790_BENCH_ALLOW_UNSPLIT", "0") == "1"
 
 logging.basicConfig(level=logging.INFO, format="%(message)s")
 logging.getLogger("ridecompass.graph").setLevel(logging.INFO)
@@ -85,13 +81,6 @@ def _count_turns(graph: RoadGraphLike, edge_ids: list[str], spec: TurnCostSpec) 
 
 async def main() -> None:
     print(f"origin={ORIGIN} destination={DESTINATION} max_routes={MAX_ROUTES} (T790段階3)")
-    bbox = _bbox_covering_points([ORIGIN, DESTINATION], PREVIEW_BBOX_MARGIN_KM)
-    async with get_route_generation_session_factory()() as session:
-        up_to_date = await RoadGraphRepository(session).is_split_up_to_date(bbox)
-    print(f"is_split_up_to_date={up_to_date}")
-    if not up_to_date and not ALLOW_UNSPLIT:
-        raise SystemExit("対象bboxが未splitのため中断しました（T790_BENCH_ALLOW_UNSPLIT=1で無効化）")
-
     await refresh_axis_registry()
     # ターンの費用の有無で同じ条件を比べる（費用ゼロが従来の挙動）。
     variants = {

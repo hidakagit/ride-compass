@@ -32,7 +32,7 @@
 | 更新頻度の低い外部JSON/CSV（警報・WBGT・洪水・アメダス観測・地域マスタ） | `simple_api_client.py: cached_fetch` | プロセス内`cachetools.TTLCache`（`cached_fetch`が内包） |
 | 気象庁の動的タイル（ナウキャスト・キキクル等） | `jma_tile_client.py: fetch`（上流への秒間上限つき） | `jma_tile_redis_cache.py`（Redis） |
 | 気象庁MSMの予報 | `msm_client.py: refresh`（ETag条件付きGETでファイル同期） | ローカルファイル（`backend/data/msm/`）。プロセスをまたいで残る |
-| 地理院DEM・色別標高図・基礎地図 | 各クライアント（`elevation_client`・`gsi_tile_client`・`basemap_client`） | `tile_cache.py`（ディスク、生バイト列） |
+| 色別標高図・基礎地図 | 各クライアント（`gsi_tile_client`・`basemap_client`） | `tile_cache.py`（ディスク、生バイト列） |
 | PostGIS由来の重い中間結果 | リポジトリ層 | 用途で選ぶ（次節） |
 
 新しい外部連携を足すときは、まず上表のどれと同じ性質かを考える。同じならその行の

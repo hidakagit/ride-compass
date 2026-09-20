@@ -127,6 +127,8 @@ async def derive(conn: asyncpg.Connection) -> tuple[int, int]:
                 shapely.to_wkb(LineString([(lon, lat) for lat, lon in points])),
                 round(_length_m(points), 1),
                 bearing_between(LatLonPoint(*start), LatLonPoint(*end)),
+                # 逆向きの方位は+180°ではない。終点→始点で測り直す。
+                bearing_between(LatLonPoint(*end), LatLonPoint(*start)),
                 run_id,
             ))
             branches[segment[0]] += 1
@@ -139,17 +141,20 @@ async def derive(conn: asyncpg.Connection) -> tuple[int, int]:
         await conn.execute(
             f'CREATE TEMP TABLE "{stage}" (osm_way_id bigint, segment_index smallint, '
             "from_node_id bigint, to_node_id bigint, geom_wkb bytea, distance_m real, "
-            "bearing_deg real, source_run_id bigint) ON COMMIT DROP")
+            "bearing_deg real, reverse_bearing_deg real, source_run_id bigint) "
+            "ON COMMIT DROP")
         for start in range(0, len(edges), COPY_CHUNK):
             await conn.copy_records_to_table(
                 stage, records=edges[start:start + COPY_CHUNK],
                 columns=["osm_way_id", "segment_index", "from_node_id", "to_node_id",
-                         "geom_wkb", "distance_m", "bearing_deg", "source_run_id"])
+                         "geom_wkb", "distance_m", "bearing_deg",
+                         "reverse_bearing_deg", "source_run_id"])
         await conn.execute(
             "INSERT INTO road_edges (osm_way_id, segment_index, from_node_id, to_node_id, "
-            "geom, distance_m, bearing_deg, source_run_id) "
+            "geom, distance_m, bearing_deg, reverse_bearing_deg, source_run_id) "
             "SELECT osm_way_id, segment_index, from_node_id, to_node_id, "
-            "ST_SetSRID(ST_GeomFromWKB(geom_wkb), 4326), distance_m, bearing_deg, source_run_id "
+            "ST_SetSRID(ST_GeomFromWKB(geom_wkb), 4326), distance_m, bearing_deg, "
+            "reverse_bearing_deg, source_run_id "
             f'FROM "{stage}"')
         # 値はこれから埋める。行だけ先に作り、未計算をNULLで表す。
         await conn.execute(

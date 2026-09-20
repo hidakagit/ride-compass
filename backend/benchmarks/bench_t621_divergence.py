@@ -11,15 +11,12 @@
   T621の論点5「同じノードでつなぐ限り経路として成立する」を実データで確かめる。
 - 温パスの`prepare`所要時間（`T621_BENCH_RUNS`が2以上のとき、2回目以降が温）。
 
-`bench_t551_route_generation.py`と同じく**読み取り経路のみを通す**（未splitのbboxは
-`prepare`が再構築＝書き込み経路に入るため、既定では中断する）。
 
 環境変数:
 - `T621_BENCH_ORIGIN` / `T621_BENCH_DESTINATION`: `lat,lon`（既定はbench_t551と同じ
   東京駅相当 → 船橋駅相当）
 - `T621_BENCH_MAX_ROUTES`: 候補件数（既定8）
 - `T621_BENCH_RUNS`: prepare→select の実行回数（既定2。1回目は冷パス、2回目が温パス）
-- `T621_BENCH_ALLOW_UNSPLIT`: `1`で未split中断を無効化（本番では使わない）
 
 使い方: `python -m benchmarks.bench_t621_divergence`
 """
@@ -39,7 +36,6 @@ from app.domain.time_zone import JST
 from app.services.route_generator import TURNAROUND_RADIUS_RATIO
 from benchmarks._divergence import differing_stretches, divergence_points, spliced_path
 from benchmarks._route_generation_service import (
-    assert_read_only_path,
     refresh_axis_registry,
     route_generator_session,
 )
@@ -59,7 +55,6 @@ ORIGIN = _coordinates("T621_BENCH_ORIGIN", "35.6817502,139.7634149")
 DESTINATION = _coordinates("T621_BENCH_DESTINATION", "35.7015,139.9825")
 MAX_ROUTES = int(os.getenv("T621_BENCH_MAX_ROUTES", "8"))
 RUNS = int(os.getenv("T621_BENCH_RUNS", "2"))
-ALLOW_UNSPLIT = os.getenv("T621_BENCH_ALLOW_UNSPLIT") == "1"
 DISTANCE_KM = haversine_distance_km(ORIGIN, DESTINATION)
 
 
@@ -160,10 +155,6 @@ def _report(graph, paths: dict[str, list[str]]) -> None:
 async def main() -> None:
     print(f"origin={ORIGIN} destination={DESTINATION} distance_km={DISTANCE_KM:.1f} max_routes={MAX_ROUTES}")
     radius_km = DISTANCE_KM * TURNAROUND_RADIUS_RATIO
-    await assert_read_only_path(
-        ORIGIN, radius_km,
-        allow_unsplit=ALLOW_UNSPLIT, allow_unsplit_env_hint="T621_BENCH_ALLOW_UNSPLIT",
-    )
     await refresh_axis_registry()
 
     async with route_generator_session(RoutePreference()) as generator:

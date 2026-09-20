@@ -23,16 +23,25 @@ from shapely.geometry import box
 from app.batch.ingest import SourceRecord, register_adapter
 from app.batch.source_profile import SourceProfile, SourceSpec
 from app.domain.region import BoundingBox, tiles_covering_bbox
-from app.infrastructure.elevation_client import (
-    DEM_MISSING_MARKER,
-    DEM_TILE_SIZE,
-    DEM_TILE_URL,
-    DEM_TYPE_PRIORITY,
-)
-
 logger = logging.getLogger("ridecompass.ingest.gsi_dem_tile")
 
-#: 上流への同時接続数。配信元へ並べてよい数の上限で、`elevation_client`と同じ考え方。
+#: 配信元のタイルURLと、1枚の一辺の画素数。
+#: 出典: https://maps.gsi.go.jp/development/demtile.html
+DEM_TILE_URL = "https://cyberjapandata.gsi.go.jp/xyz/{type}/{z}/{x}/{y}.txt"
+DEM_TILE_SIZE = 256
+
+#: 欠測を表す文字。「標高値が存在しない画素には「e」の文字が格納されている。」
+#: 出典: https://maps.gsi.go.jp/development/demtile.html
+DEM_MISSING_MARKER = "e"
+
+#: 製品を計測精度の良い順に並べたもの。「航空レーザ測量（DEM1A）のデータが存在しない
+#: 箇所では、航空レーザ測量（DEM5A）→写真測量（DEM5B, DEM5C）→1/2.5万地形図等高線
+#: （DEM10B）の順で存在する最も計測精度の良い標高タイルの値が参照され、その地点の
+#: 標高値として採用されます。」
+#: 出典: https://maps.gsi.go.jp/development/hyokochi.html
+DEM_TYPE_PRIORITY = ("dem5a", "dem5b", "dem5c", "dem")
+
+#: 上流への同時接続数。配信元へ並べてよい数の上限。
 MAX_CONCURRENT = 8
 
 #: 詰めるときの尺度と欠測値。地理院の標高タイル（テキスト形式）は「標高データは小数点

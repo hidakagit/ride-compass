@@ -11,14 +11,13 @@
 |---|---|
 | domain | `attributes.py`（`ElevationValues`・`compute_elevation_values`） |
 | services | `elevation_aggregation.py` |
-| infrastructure | `elevation_client.py`（タイルのURL・形式・整備区域の扱い） |
-| batch | `source_adapters/gsi_dem_tile.py`（取込）・`derive_raster_materials.py`（派生） |
+| batch | `source_adapters/gsi_dem_tile.py`（取込。タイルのURL・形式・欠測の記法・製品の優先順を持つ）・`derive_raster_materials.py`（派生） |
 
 ## 3段に分かれている
 
 ```
 国土地理院 DEMタイル（テキスト、256×256）
-   │ source_adapters/gsi_dem_tile.py: int16へ詰めてタイル1枚=1行
+   │ source_adapters/gsi_dem_tile.py: int32へ詰めてタイル1枚=1行
    ▼
 source_features(source='dem')          ← 生データ。取り直さない限り変わらない
    │ derive_raster_materials.py: 区間の形状点で標高を読み、勾配を出す
@@ -72,7 +71,7 @@ edge_materials（start/end・gain/loss・average/max/min）
 確定した経路の区間ぶんの値から、累積標高・最大勾配などを組み立てる。区間の値は探索
 フェーズで読んだ材料がそのまま持っているため、ここでDBへ問い合わせ直さない。
 
-## タイルの読み方（`infrastructure/elevation_client.py`）
+## タイルの読み方（`batch/source_adapters/gsi_dem_tile.py`）
 
-配信元のURL・ズーム・製品の優先順（細かい製品が全域を覆わないため粗い側へ落ちる）・
-欠測の記法を持つ。取込のアダプタがこれを使い、web側は読まない。
+配信元のURL・製品の優先順（細かい製品が全域を覆わないため粗い側へ落ちる）・欠測の記法を
+持つ。取込だけが使い、web側は読まない。ズームは`source_profile.yaml`が持つ。

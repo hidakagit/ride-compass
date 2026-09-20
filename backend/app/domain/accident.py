@@ -94,3 +94,21 @@ def longitude_from_raw(raw: str) -> float | None:
     if value is None or not (_JAPAN_LONGITUDE_RANGE[0] <= value <= _JAPAN_LONGITUDE_RANGE[1]):
         return None
     return value
+
+# --- 生データの列から判定する式 -----------------------------------------------
+#
+# 本票の列名（日本語）と判定の規則をここだけが持つ。生データは列を捨てずに`attrs`へ
+# 入れてあるため、読む側は都度これを使う——同じ判定をタイルと集計で別々に書くとずれる。
+# 別名`a`は`source_features`の事故の行を指す。
+
+#: 死者数の列。ゼロ埋めの数字列で入っている。
+FATAL_SQL = "coalesce((a.attrs->>'死者数')::int, 0) > 0"
+
+#: 当事者種別のいずれかが自転車系コードなら自転車関連事故とみなす。
+BICYCLE_SQL = (
+    "(a.attrs->>'当事者種別（当事者A）' = ANY(:bicycle_party_types)"
+    " OR a.attrs->>'当事者種別（当事者B）' = ANY(:bicycle_party_types))"
+)
+
+#: 発生年（全角空白を含む列名）。
+OCCURRED_YEAR_SQL = "(a.attrs->>'発生日時　　年')::int"

@@ -5,9 +5,7 @@ Pythonコールバック）より速いことを確認する。
 
 `benchmarks/`配下の他スクリプト（合成グラフのみを使う）と異なり、本スクリプトは実DBへの
 接続が必須（`DATABASE_URL`、backend/.env）。dev機のPostgreSQLが起動していない場合は
-接続エラーで終了する。**必ず読み取り経路のみを通す**（bench_t531と同じ理由・同じ仕組み、
-`benchmarks/_route_generation_service.py: assert_read_only_path`参照。
-`T536_BENCH_ALLOW_UNSPLIT=1`で無効化できるがdev機以外では使わない）。
+接続エラーで終了する。読み取りしかしない——道路網は取込・派生バッチが先に作る。
 
 使い方: `python -m benchmarks.bench_t536_route_generation`
 （プロセス内タイルキャッシュ[graph_material_cache/tile_score_matrix_cache]は空の状態から
@@ -20,13 +18,11 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import os
 import time
 
 from app.domain.route_preference import RoutePreference
 from app.domain.route import Coordinates
-from app.services.route_generator import TURNAROUND_RADIUS_RATIO
-from benchmarks._route_generation_service import assert_read_only_path, refresh_axis_registry, route_generator_session
+from benchmarks._route_generation_service import refresh_axis_registry, route_generator_session
 from benchmarks._revision import announce_revision
 
 # T522.mdと同じ起点（東京駅相当）。distance_kmはdev機で現実的な時間に収めるため
@@ -35,7 +31,6 @@ from benchmarks._revision import announce_revision
 ORIGIN = Coordinates(latitude=35.6812, longitude=139.7671)
 DISTANCE_KM = 10.0
 TOLERANCE_KM = 5.0
-ALLOW_UNSPLIT = os.environ.get("T536_BENCH_ALLOW_UNSPLIT", "0") == "1"
 
 logging.basicConfig(level=logging.INFO, format="%(message)s")
 logger = logging.getLogger("ridecompass.graph")
@@ -54,10 +49,6 @@ async def _run_once(label: str) -> None:
 
 async def main() -> None:
     print(f"origin={ORIGIN} distance_km={DISTANCE_KM} (T536サニティチェック)")
-    await assert_read_only_path(
-        ORIGIN, DISTANCE_KM * TURNAROUND_RADIUS_RATIO,
-        allow_unsplit=ALLOW_UNSPLIT, allow_unsplit_env_hint="T536_BENCH_ALLOW_UNSPLIT",
-    )
     await _run_once("1回目(冷パス想定、プロセス内タイルキャッシュ空)")
     await _run_once("2回目(温パス、タイルキャッシュヒット)")
     await _run_once("3回目(温パス)")

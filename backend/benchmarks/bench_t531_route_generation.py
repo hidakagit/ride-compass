@@ -6,9 +6,7 @@
 
 本番VMでは、稼働中のbackendコンテナとは別にbackendイメージの使い捨てコンテナ
 （`--network=host --env-file /home/ubuntu/ridecompass-backend.env`）から実行する。
-**必ず読み取り経路のみを通す**: 対象bboxの道路データが未split（`is_split_up_to_date`が
 False）だと`prepare`が再構築＝本番DBへの書き込み経路に入るため、既定では実行前に
-判定して未splitなら中断する（`T531_BENCH_ALLOW_UNSPLIT=1`で無効化できるが本番では使わない）。
 
 環境変数:
 - `T531_BENCH_ORIGIN`: `lat,lon`（既定はT522と同じ東京駅相当 `35.6817502,139.7634149`）
@@ -30,8 +28,7 @@ import time
 
 from app.domain.route_preference import RoutePreference
 from app.domain.route import Coordinates
-from app.services.route_generator import TURNAROUND_RADIUS_RATIO
-from benchmarks._route_generation_service import assert_read_only_path, refresh_axis_registry, route_generator_session
+from benchmarks._route_generation_service import refresh_axis_registry, route_generator_session
 from benchmarks._revision import announce_revision
 
 logging.basicConfig(level=logging.WARNING, format="%(asctime)s %(message)s")
@@ -50,7 +47,6 @@ TOLERANCE_KM = float(os.environ.get("T531_BENCH_TOLERANCE_KM", "5"))
 MAX_ROUTES = int(os.environ.get("T531_BENCH_MAX_ROUTES", "8"))
 RUNS = int(os.environ.get("T531_BENCH_RUNS", "3"))
 INFRA_RUN = os.environ.get("T531_BENCH_INFRA_RUN", "1") == "1"
-ALLOW_UNSPLIT = os.environ.get("T531_BENCH_ALLOW_UNSPLIT", "0") == "1"
 
 
 async def _run_once(label: str, preference_factory, max_routes: int) -> None:
@@ -82,10 +78,6 @@ def _infra_only_preference() -> RoutePreference:
 async def main() -> None:
     origin = _origin()
     print(f"origin={origin} distance_km={DISTANCE_KM} tolerance_km={TOLERANCE_KM} max_routes={MAX_ROUTES}")
-    await assert_read_only_path(
-        origin, DISTANCE_KM * TURNAROUND_RADIUS_RATIO,
-        allow_unsplit=ALLOW_UNSPLIT, allow_unsplit_env_hint="T531_BENCH_ALLOW_UNSPLIT",
-    )
     for i in range(RUNS):
         await _run_once(f"既定重み {i + 1}回目", RoutePreference, MAX_ROUTES)
     if INFRA_RUN:

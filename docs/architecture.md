@@ -22,7 +22,7 @@
 | ルーティングエンジン（単一区間確認、`/api/routes/preview`） | **road_graph単一構成**（改善計画T462で切替設定を廃止） | Step3の疎通確認用エンドポイント。`dependencies.py: get_preview_builder`が`RoadGraphEngine.preview_segment`（評価軸重み付きコストで最短経路を1回探索、generateと同じコスト式）を組み立てる。`RoutingService`/`ORSClient`はT462で削除済み。previewはリクエストボディでの評価重み上書きに対応しない（既定値のみ使用） |
 | 地図タイル | OpenFreeMap（`https://tiles.openfreemap.org/styles/liberty`、APIキー不要） | `tile.openstreetmap.org` は bulk/非ブラウザアクセスをブロックするポリシーがあり不採用（後述）。Step10でバックエンド経由のプロキシ＋ファイルキャッシュ（`BasemapClient`）を追加 |
 | 天候 | **気象庁MSM**（Open-MeteoがAWS Open Dataで公開する前処理済み`.om`ファイルをローカル同期。外部の気象予報APIには依存しない） | `WeatherService`（[backend/app/services/weather_service.py](../backend/app/services/weather_service.py)）が`msm_client`経由で読む。`get_wind_grid`/`get_wind_forecast_series`が風の格子点マップとルート評価の風を、`get_conditions`が「今日の見通し」パネル用の現在値・日次集計・時間帯別の流れを組み立てる（天気コードは雲量・降水・気温から導出、日の出/日没は`domain/twilight.py`で計算） |
-| 標高 | **国土地理院（GSI）DEMタイル**（APIキー不要、日本国内限定） | `ElevationClient`（[backend/app/infrastructure/elevation_client.py](../backend/app/infrastructure/elevation_client.py)）がDEMタイルを取得し双線形補間、`ElevationAttributeService`（[backend/app/services/elevation_attribute_service.py](../backend/app/services/elevation_attribute_service.py)）がEdge単位の標高属性を求めて`elevation_attributes`へ永続化する（事前計算は`batch/precompute_elevation_attributes.py`）。ルート単位の獲得標高・最高/最低標高・最大勾配は`services/elevation_aggregation.py`が区間の属性から集約する |
+| 標高 | **国土地理院（GSI）DEMタイル**（APIキー不要、日本国内限定） | 取込（[backend/app/batch/source_adapters/gsi_dem_tile.py](../backend/app/batch/source_adapters/gsi_dem_tile.py)）がタイル1枚を1行として`source_features`へ入れ、派生（`batch/derive_raster_materials.py`）が区間ごとの標高属性を作る。**実行時にGSIへ取りに行く経路は無い**。ルート単位の獲得標高・最高/最低標高・最大勾配は`services/elevation_aggregation.py`が区間の属性から集約する |
 | 標高（地域レイヤー） | **国土地理院 色別標高図**（ラスタタイル、APIキー不要） | `MapView.tsx`がMapLibreのraster sourceとして`GET /api/gsi-relief-tile/{path:path}`（`GsiTileClient`、改善計画T572）経由で重ね描き。候補ルートに紐づかない「地域全体」の標高表示用で、Step5の標高API（点ごとの数値取得）とは別用途 |
 | 路面（地域レイヤー） | **PostGIS**（`ST_AsMVT`、`road_graph_use_repository=true`時）／DBなし構成では常に空タイル | `RegionService`（[backend/app/services/region_service.py](../backend/app/services/region_service.py)）が候補ルートに紐づかない「地域全体」の路面レイヤーを提供する。PBF取込済み範囲はPostGIS側（`road_graph_repository.py`の`_ROAD_SURFACE_TILE_MVT_SQL`）でMVT生成まで完結し、取込範囲外・DB障害・DBなし構成は空タイル（`infrastructure/vector_tile.py: encode_empty_road_surface_tile`）を返す。Overpass APIによる取得は改善計画T22で撤去済み |
 
@@ -78,18 +78,23 @@ T274逆回り最適化自体は任意の周回Edge列に対して成り立つた
 [docs/modules/backend/routing-engine.md](modules/backend/routing-engine.md)参照。
 
 ### 標高計算のアルゴリズムと既知の制約（Step5）
-標高の集約は`ElevationAttributeService`＋`elevation_aggregation.py`が担う。エンジンが距離連動の約1km間隔・12〜32点を決めて渡し、点列から獲得標高・勾配を出す。**点列は経路の形状点そのものではなく間引いたもの**のため、間引きの間隔より短い起伏は集約に現れない。
+ルート単位の集約は`elevation_aggregation.py`が担う。エンジンが距離連動の約1km間隔・12〜32点を決めて渡し、点列から獲得標高・勾配を出す。**点列は経路の形状点そのものではなく間引いたもの**のため、間引きの間隔より短い起伏は集約に現れない。
 
 **外部呼び出しの前提**: `httpx.AsyncClient`はリクエストあたり1つをFastAPIの依存性注入（`yield`付き）で作り、呼び出しをまたいで使い回す——呼び出しごとに生成するとTLSハンドシェイクを毎回やり直し、1リクエストが数十倍の時間になる。同時実行を絞る`asyncio.Semaphore`も**サービス側で1つだけ**持つ（呼び出しごとに作ると、意図した上限が候補の数だけ倍化する）。
 
-### 標高DEMタイルキャッシュ（`elevation_client.py`）
-`ElevationClient`（[backend/app/infrastructure/elevation_client.py](../backend/app/infrastructure/elevation_client.py)）は、GSIのDEMタイル（`https://cyberjapandata.gsi.go.jp/xyz/{type}/{z}/{x}/{y}.txt`、z=14固定）を範囲ごと取得し、ローカルで双線形補間する。**点ごとのAPIは使わない**——Road Graph全体（数万エッジ）へ標高を付与するには非現実的な回数の外部呼び出しになる（実測で480エッジに対し2,880回）。
+### 標高DEMタイルの取り方（`batch/source_adapters/gsi_dem_tile.py`）
+GSIのDEMタイル（`https://cyberjapandata.gsi.go.jp/xyz/{type}/{z}/{x}/{y}.txt`）を取込バッチが
+まとめて取り、タイル1枚を`source_features`の1行として持つ。**点ごとのAPIも、実行時の取得も
+使わない**——Road Graph全体（数万エッジ）へ標高を付けるには非現実的な回数の外部呼び出しに
+なる（実測で480エッジに対し2,880回）。
 
-**`dem`（サフィックス無し）はDEM5A/5B/5Cを統合したものではない**。DEM10B相当の別データセットで、同じタイルでも`dem5a`と違う値を返す。`dem5a`/`dem5b`/`dem5c`はそれぞれ独立にクエリでき、非対応エリアはタイル丸ごと404を返すため、アプリ側が`DEM_TYPE_PRIORITY`の順に多段フォールバックする。
+**`dem`（サフィックス無し）はDEM5A/5B/5Cを統合したものではない**。DEM10B相当の別データセットで、
+同じタイルでも`dem5a`と違う値を返す。`dem5a`/`dem5b`/`dem5c`はそれぞれ独立にクエリでき、
+非対応エリアはタイル丸ごと404を返す。製品ごとの整備範囲・精度・最大ズームは配信元が公表して
+いる（https://maps.gsi.go.jp/development/hyokochi.html ）。
 
-タイル本文（256行×256列のカンマ区切り、単位m、欠測は`"e"`）は`infrastructure/tile_cache.py`（基礎地図・路面タイルと共通のファイルキャッシュ、TTL無し——DEMは不変データのため）へ永続化し、さらにプロセス内メモリ（パース済みグリッド）にも保持する。
-
-呼び出し側インターフェース（`get_elevation(client, point, refresh=False) -> float | None`）はT10前後で変わらない。旧`elevation_cache`テーブル・`get_elevation`/`set_elevation`（`cache_db.py`）は削除済み。
+タイル本文（256行×256列のカンマ区切り、単位m、欠測は`"e"`）はint32（0.01m単位）へ詰めて
+`payload`へ入れる。どう読むかは`attrs`が持つ（幅・高さ・型・尺度・欠測値）。
 
 ### Road Graphエンジンの探索性能
 
@@ -404,7 +409,7 @@ Cloud VMへネイティブ（apt、PostgreSQLと同じ構成）で導入する�
 
 | スコープ | 定義場所 | 内容 | 変更理由 |
 |---|---|---|---|
-| 取込スコープ | [backend/app/batch/import_profile.yaml](../backend/app/batch/import_profile.yaml) | trunk〜residential・cycleway・track等（footway/pedestrian/steps/service/motorway系は`roads`ルールでは除外）。ただし自転車歩行者共用道（`highway=footway/path` **かつ** 自転車通行可）は`shared_pedestrian_ways`ルールが別途拾う（河川敷サイクリングロード等） | データ容量・表示/探索の少なくとも一方で使うか |
+| 取込スコープ | [backend/app/batch/source_profile.yaml](../backend/app/batch/source_profile.yaml) | trunk〜residential・cycleway・track等（footway/pedestrian/steps/service/motorway系は除外）。ただし自転車歩行者共用道（`highway=footway/path` **かつ** 自転車通行可）は`any_of`が別途拾う（河川敷サイクリングロード等） | データ容量・表示/探索の少なくとも一方で使うか |
 | ルーティング可否（Hard Constraint、〇次フィルタ） | `domain/hard_filters.py: HARD_FILTER_HIGHWAY_TYPES`（改善計画T140、旧`DISALLOWED_HIGHWAY_TYPES`） | motorway/trunk系を自転車通行不可として探索から除外（`motorway`/`trunk`の2フィルタに命名分離、既定は両方有効） | 法規・実務判断（後述7章末尾参照） |
 | 表示グルーピング | [frontend/src/components/Map/roadFilterAxes.ts](../frontend/src/components/Map/roadFilterAxes.ts) `HIGHWAY_GROUPS` | 幹線/主要道/生活道路/自転車・歩行者道/農道・林道の5分類＋不明 | 地図の見やすさ |
 

@@ -8,8 +8,7 @@ from app.infrastructure.debug_log import error_type_label, log_external_call
 
 UPSTREAM_HOST = "https://cyberjapandata.gsi.go.jp"
 
-# 地理院のタイルは、DEMタイル（elevation_client.py: _CoverageGap）と同じく
-# 整備区域外で404を返す（恒久的に正しい事実、再フェッチしても変わらない）。
+# 地理院のタイルは整備区域外で404を返す（恒久的に正しい事実、再フェッチしても変わらない）。
 # プロセス内メモリのみに留める（tile_cache.pyの永続ファイルキャッシュへは書かない——
 # 将来GSI側の整備区域が広がった場合、プロセス再起動だけで再取得の機会が来るようにする）。
 # 上限付きLRU（cachetools.LRUCache、キー=path。docs/caching.md参照）。
@@ -19,7 +18,7 @@ _not_found_paths: LRUCache = LRUCache(maxsize=_NOT_FOUND_MAX_ENTRIES)
 
 class GsiTileNotFound:
     """指定パスのタイルが上流（GSI）に存在しないこと（404）を確認済みという
-    キャッシュ済みの事実を表すセンチネル（elevation_client.py: _CoverageGapと同じ設計）。"""
+    キャッシュ済みの事実を表すセンチネル。"""
 
 
 GSI_TILE_NOT_FOUND = GsiTileNotFound()

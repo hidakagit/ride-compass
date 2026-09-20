@@ -15,10 +15,8 @@ from app.domain.route_preference import RoutePreference
 from app.domain.route import RouteCandidate
 from app.domain.wind import ASSUMED_SPEED_KMH
 from app.infrastructure import job_registry, rate_limiter
-from app.infrastructure.elevation_client import ElevationClient
 from app.infrastructure.road_graph_repository import RoadGraphRepository
 from app.main import app
-from app.services.elevation_attribute_service import ElevationAttributeService
 from app.services.evaluation_service import load_route_preference
 from app.services.graph_service import GraphService
 from app.services.route_generator import DEFAULT_MAX_ROUTES, MAX_ROUTES
@@ -455,7 +453,6 @@ def _lightweight_route_generation_setup(preference_override=None):
     # I/Oを行わないため、http_client・session（RoadGraphRepository）はNoneでよい。
     return _assemble_route_generation_setup(
         graph_service=GraphService(repository=RoadGraphRepository(session=None)),
-        elevation_attribute_service=ElevationAttributeService(ElevationClient(), http_client=None),
         weather_service=WeatherService(),
         preference_override=preference_override,
     )
