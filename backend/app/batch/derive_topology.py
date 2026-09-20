@@ -1,11 +1,15 @@
-"""生データから道路網の形（`road_edges`）と、ノードに付く値（`node_materials`）を作る。
+"""生データから道路網の形（`road_edges`）と、ノードに集まる枝の数（`node_materials`）を作る。
 
 道を交差点で切って区間にする。**切る位置は「2本以上の道が通るノード」**で、これは
 `osm_way`の参照ノード列だけから決まる——道路網の形は他の派生に依存しない。
 
+**処理はDB内で完結する。**入力も出力もDBにあり、行をプロセスへ取り出さない。
+
 `branch_count`は**そこに集まる道の本数**で、グラフの位相としての次数とは別物。2本の枝が
 同じ次の交差点へ向かうと位相の次数は1つに潰れるが、自転車から見ればそこは分岐である。
 交差点の密度を測るのに要るのは枝の本数のほう。
+
+`node_materials`を先に入れる。`road_edges`の端点はここへの外部キーで縛られている。
 
 実行方法（backendディレクトリから）:
     .venv\\Scripts\\python.exe -m app.batch.derive_topology
@@ -15,73 +19,130 @@
 import argparse
 import asyncio
 import logging
-import struct
 import sys
 import time
-from collections import Counter, defaultdict
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 import asyncpg  # noqa: E402
-import shapely  # noqa: E402
-from shapely.geometry import LineString  # noqa: E402
 
 from app.batch._common import asyncpg_dsn, with_derived_data_revision_bump  # noqa: E402
 from app.config import settings  # noqa: E402
-from app.domain.geo import LatLonPoint, bearing_between, haversine_distance_km  # noqa: E402
 
 logger = logging.getLogger("ridecompass.derive_topology")
 
-COPY_CHUNK = 20_000
+#: `payload`はリトルエンディアンの符号付き64bit整数を並べたもの（取込が`struct.pack`で
+#: 書く）。最上位バイトのシフトは桁あふれを折り返すが、それが符号付き64bitの解釈そのもの
+#: なので値は正しい。
+_DECODE_WAYS = """
+CREATE TEMP TABLE _way ON COMMIT DROP AS
+SELECT w.natural_key::bigint AS way_id, d.node_ids, w.geom
+FROM source_features w
+CROSS JOIN LATERAL (
+  SELECT array_agg(
+           ((get_byte(w.payload, i * 8 + 7)::bigint << 56)
+          | (get_byte(w.payload, i * 8 + 6)::bigint << 48)
+          | (get_byte(w.payload, i * 8 + 5)::bigint << 40)
+          | (get_byte(w.payload, i * 8 + 4)::bigint << 32)
+          | (get_byte(w.payload, i * 8 + 3)::bigint << 24)
+          | (get_byte(w.payload, i * 8 + 2)::bigint << 16)
+          | (get_byte(w.payload, i * 8 + 1)::bigint <<  8)
+          |  get_byte(w.payload, i * 8    )::bigint) ORDER BY i) AS node_ids
+  FROM generate_series(0, octet_length(w.payload) / 8 - 1) AS i
+) d
+WHERE w.source = 'osm_way' AND w.payload IS NOT NULL
+"""
 
+#: 切る位置は両端と「2本以上の道が通るノード」。始点と終点が同じになる区間は、閉じた線に
+#: 方位が定義できないため、中間の位置でもう1回切って端点を別にする（同じノードを2度通る
+#: wayでも同じ形の区間ができるので、始点＝終点の区間全般に当てはめる）。
+#:
+#: 長さは球で測る。`ST_Length(geography, true)`の楕円体は区間1本あたりの差がmm単位で、
+#: 方位の算出（球）と近似をそろえるほうが読み手に説明しやすい。
+_SEGMENTS = """
+CREATE TEMP TABLE _seg ON COMMIT DROP AS
+WITH n AS (
+  SELECT way_id, ord, node_id
+  FROM _way, unnest(node_ids) WITH ORDINALITY AS u(node_id, ord)),
+last AS (SELECT way_id, max(ord) AS last_ord FROM n GROUP BY 1),
+passes AS (SELECT node_id, count(*) AS c FROM n GROUP BY 1),
+cuts0 AS (
+  SELECT n.way_id, n.ord
+  FROM n JOIN last ON last.way_id = n.way_id
+         JOIN passes p ON p.node_id = n.node_id
+  WHERE n.ord = 1 OR n.ord = last.last_ord OR p.c >= 2),
+span0 AS (
+  SELECT way_id, ord AS start_ord, lead(ord) OVER w AS end_ord
+  FROM cuts0 WINDOW w AS (PARTITION BY way_id ORDER BY ord)),
+mid AS (
+  SELECT s.way_id, (s.start_ord + s.end_ord) / 2 AS ord
+  FROM span0 s
+  JOIN n a ON a.way_id = s.way_id AND a.ord = s.start_ord
+  JOIN n z ON z.way_id = s.way_id AND z.ord = s.end_ord
+  WHERE s.end_ord IS NOT NULL AND a.node_id = z.node_id
+    AND s.end_ord - s.start_ord >= 2),
+cuts AS (SELECT way_id, ord FROM cuts0 UNION SELECT way_id, ord FROM mid),
+span AS (
+  SELECT way_id, ord AS start_ord, lead(ord) OVER w AS end_ord,
+         (row_number() OVER w) - 1 AS segment_index
+  FROM cuts WINDOW w AS (PARTITION BY way_id ORDER BY ord)),
+pts AS (
+  SELECT w.way_id, dp.path[1] AS ord, dp.geom AS pt
+  FROM _way w, ST_DumpPoints(w.geom) AS dp),
+built AS (
+  SELECT s.way_id, s.segment_index, s.start_ord, s.end_ord,
+         ST_MakeLine(p.pt ORDER BY p.ord) AS geom
+  FROM span s JOIN pts p
+    ON p.way_id = s.way_id AND p.ord BETWEEN s.start_ord AND s.end_ord
+  WHERE s.end_ord IS NOT NULL
+  GROUP BY s.way_id, s.segment_index, s.start_ord, s.end_ord)
+SELECT b.way_id AS osm_way_id, b.segment_index::smallint AS segment_index,
+       a.node_id AS from_node_id, z.node_id AS to_node_id, b.geom,
+       ST_Length(b.geom::geography, false)::real AS distance_m,
+       degrees(ST_Azimuth(ST_StartPoint(b.geom)::geography,
+                          ST_EndPoint(b.geom)::geography))::real AS bearing_deg,
+       degrees(ST_Azimuth(ST_EndPoint(b.geom)::geography,
+                          ST_StartPoint(b.geom)::geography))::real AS reverse_bearing_deg
+FROM built b
+JOIN n a ON a.way_id = b.way_id AND a.ord = b.start_ord
+JOIN n z ON z.way_id = b.way_id AND z.ord = b.end_ord
+"""
 
-def split_segments(node_ids: list[int], split_at: set[int]) -> list[list[int]]:
-    """道の参照ノード列を、交差点で切って区間へ分ける。
+#: 表へ入れられない区間。数を出してから落とす——黙って減ると、次に数えたときに
+#: 「取り込めていない」のか「元から無い」のかが分からない。
+_USABLE = ("bearing_deg IS NOT NULL AND distance_m > 0"
+           " AND NOT ST_IsEmpty(geom) AND ST_NumPoints(geom) >= 2")
 
-    両端は常に区間の端になる。中間のノードは、他の道も通っていれば切る。
-    """
-    segments: list[list[int]] = []
-    current: list[int] = []
-    for index, node_id in enumerate(node_ids):
-        current.append(node_id)
-        is_end = index == len(node_ids) - 1
-        if (index > 0 and not is_end and node_id in split_at) or is_end:
-            if len(current) >= 2:
-                segments.append(current)
-            current = [node_id]
-    return segments
+_COUNT_UNUSABLE = f"""
+SELECT count(*) FILTER (WHERE bearing_deg IS NULL)                        AS no_bearing,
+       count(*) FILTER (WHERE distance_m <= 0)                            AS zero_length,
+       count(*) FILTER (WHERE ST_IsEmpty(geom) OR ST_NumPoints(geom) < 2) AS degenerate
+FROM _seg WHERE NOT ({_USABLE})
+"""
 
+_INSERT_NODES = """
+INSERT INTO node_materials (osm_node_id, branch_count, source_run_id)
+SELECT node_id, count(*), $1
+FROM (SELECT from_node_id AS node_id FROM _seg
+      UNION ALL
+      SELECT to_node_id FROM _seg) e
+GROUP BY node_id
+"""
 
-def _length_m(points: list[tuple[float, float]]) -> float:
-    """折れ線の長さ（m）。`LatLonPoint`を使うのは、区間ぶんのループを回すため。"""
-    total_km = 0.0
-    for (lat1, lon1), (lat2, lon2) in zip(points, points[1:]):
-        total_km += haversine_distance_km(LatLonPoint(lat1, lon1), LatLonPoint(lat2, lon2))
-    return total_km * 1000
+_INSERT_EDGES = """
+INSERT INTO road_edges (osm_way_id, segment_index, from_node_id, to_node_id,
+                        geom, distance_m, bearing_deg, reverse_bearing_deg, source_run_id)
+SELECT osm_way_id, segment_index, from_node_id, to_node_id,
+       geom, distance_m, bearing_deg, reverse_bearing_deg, $1
+FROM _seg
+"""
 
-
-async def _load_ways(conn: asyncpg.Connection) -> tuple[dict[int, list[int]], dict[int, list[tuple[float, float]]]]:
-    """`osm_way`の参照ノード列と形状を読む。"""
-    node_ids: dict[int, list[int]] = {}
-    shapes: dict[int, list[tuple[float, float]]] = {}
-    rows = await conn.fetch(
-        "SELECT natural_key, payload, ST_AsBinary(geom) AS wkb "
-        "FROM source_features WHERE source = 'osm_way'")
-    for row in rows:
-        way_id = int(row["natural_key"])
-        payload = row["payload"] or b""
-        node_ids[way_id] = list(struct.unpack(f"<{len(payload) // 8}q", payload))
-        line = shapely.from_wkb(bytes(row["wkb"]))
-        shapes[way_id] = [(lat, lon) for lon, lat in line.coords]
-    return node_ids, shapes
-
-
-async def _load_node_positions(conn: asyncpg.Connection) -> dict[int, tuple[float, float]]:
-    rows = await conn.fetch(
-        "SELECT natural_key, ST_Y(geom) AS lat, ST_X(geom) AS lon "
-        "FROM source_features WHERE source = 'osm_node'")
-    return {int(r["natural_key"]): (r["lat"], r["lon"]) for r in rows}
+#: 値はこれから埋める。行だけ先に作り、未計算をNULLで表す。
+_INSERT_EDGE_MATERIALS = """
+INSERT INTO edge_materials (osm_way_id, segment_index, source_run_id)
+SELECT osm_way_id, segment_index, source_run_id FROM road_edges
+"""
 
 
 async def _latest_run(conn: asyncpg.Connection, source: str) -> int:
@@ -97,78 +158,34 @@ async def derive(conn: asyncpg.Connection) -> tuple[int, int]:
     run_id = await _latest_run(conn, "osm_way")
     started = time.perf_counter()
 
-    way_nodes, way_shapes = await _load_ways(conn)
-    positions = await _load_node_positions(conn)
-    logger.info("読み込み: way %d件 / node %d件", len(way_nodes), len(positions))
-
-    # 2本以上の道が通るノードで切る。同じ道が同じノードを2度通る場合も分岐とみなす。
-    passes = Counter()
-    for ids in way_nodes.values():
-        for node_id in ids:
-            passes[node_id] += 1
-    split_at = {node_id for node_id, count in passes.items() if count >= 2}
-
-    # そこに集まる道の本数。両端は1本ぶん、中間の通過は2本ぶん（入って出る）に数える。
-    branches: dict[int, int] = defaultdict(int)
-
-    edges: list[tuple] = []
-    for way_id, ids in way_nodes.items():
-        shape = way_shapes.get(way_id)
-        if shape is None:
-            continue
-        position_of = dict(zip(ids, shape)) if len(ids) == len(shape) else positions
-        for segment_index, segment in enumerate(split_segments(ids, split_at)):
-            points = [position_of[n] for n in segment if n in position_of]
-            if len(points) < 2:
-                continue
-            start, end = points[0], points[-1]
-            edges.append((
-                way_id, segment_index, segment[0], segment[-1],
-                shapely.to_wkb(LineString([(lon, lat) for lat, lon in points])),
-                round(_length_m(points), 1),
-                bearing_between(LatLonPoint(*start), LatLonPoint(*end)),
-                # 逆向きの方位は+180°ではない。終点→始点で測り直す。
-                bearing_between(LatLonPoint(*end), LatLonPoint(*start)),
-                run_id,
-            ))
-            branches[segment[0]] += 1
-            branches[segment[-1]] += 1
-
     async with conn.transaction():
-        await conn.execute("TRUNCATE road_edges CASCADE")
-        await conn.execute("TRUNCATE node_materials")
-        stage = "_stage_edges"
-        await conn.execute(
-            f'CREATE TEMP TABLE "{stage}" (osm_way_id bigint, segment_index smallint, '
-            "from_node_id bigint, to_node_id bigint, geom_wkb bytea, distance_m real, "
-            "bearing_deg real, reverse_bearing_deg real, source_run_id bigint) "
-            "ON COMMIT DROP")
-        for start in range(0, len(edges), COPY_CHUNK):
-            await conn.copy_records_to_table(
-                stage, records=edges[start:start + COPY_CHUNK],
-                columns=["osm_way_id", "segment_index", "from_node_id", "to_node_id",
-                         "geom_wkb", "distance_m", "bearing_deg",
-                         "reverse_bearing_deg", "source_run_id"])
-        await conn.execute(
-            "INSERT INTO road_edges (osm_way_id, segment_index, from_node_id, to_node_id, "
-            "geom, distance_m, bearing_deg, reverse_bearing_deg, source_run_id) "
-            "SELECT osm_way_id, segment_index, from_node_id, to_node_id, "
-            "ST_SetSRID(ST_GeomFromWKB(geom_wkb), 4326), distance_m, bearing_deg, "
-            "reverse_bearing_deg, source_run_id "
-            f'FROM "{stage}"')
-        # 値はこれから埋める。行だけ先に作り、未計算をNULLで表す。
-        await conn.execute(
-            "INSERT INTO edge_materials (osm_way_id, segment_index, source_run_id) "
-            "SELECT osm_way_id, segment_index, source_run_id FROM road_edges")
-        await conn.executemany(
-            "INSERT INTO node_materials (osm_node_id, branch_count, source_run_id) "
-            "VALUES ($1, $2, $3) ON CONFLICT (osm_node_id) DO UPDATE "
-            "SET branch_count = EXCLUDED.branch_count",
-            [(node_id, count, run_id) for node_id, count in branches.items()])
+        await conn.execute(_DECODE_WAYS)
+        ways = await conn.fetchval("SELECT count(*) FROM _way")
+        await conn.execute("ANALYZE _way")
+        await conn.execute(_SEGMENTS)
 
-    elapsed = time.perf_counter() - started
-    logger.info("導出完了: 区間 %d本 / ノード %d点 / %.1f秒", len(edges), len(branches), elapsed)
-    return len(edges), len(branches)
+        unusable = await conn.fetchrow(_COUNT_UNUSABLE)
+        if any(unusable.values()):
+            logger.warning(
+                "表へ入れられない区間を落とした: 方位が定義できない %d本 / 長さ0 %d本 / "
+                "頂点不足 %d本", unusable["no_bearing"], unusable["zero_length"],
+                unusable["degenerate"])
+            await conn.execute(f"DELETE FROM _seg WHERE NOT ({_USABLE})")
+        await conn.execute("ANALYZE _seg")
+
+        # 端点の外部キーがある以上、参照する側とされる側は1文で空にする（2文に分けると
+        # 同じトランザクション内でも「参照されている表は削除できない」で止まる）。
+        await conn.execute("TRUNCATE road_edges, node_materials CASCADE")
+        # 端点の外部キーが指す先を先に作る。
+        nodes = await conn.execute(_INSERT_NODES, run_id)
+        edges = await conn.execute(_INSERT_EDGES, run_id)
+        await conn.execute(_INSERT_EDGE_MATERIALS)
+
+    edge_count = int(edges.split()[-1])
+    node_count = int(nodes.split()[-1])
+    logger.info("導出完了: way %d本 → 区間 %d本 / ノード %d点 / %.1f秒",
+                ways, edge_count, node_count, time.perf_counter() - started)
+    return edge_count, node_count
 
 
 async def run(database_url: str) -> int:
