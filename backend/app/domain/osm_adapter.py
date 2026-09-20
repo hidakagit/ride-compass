@@ -23,7 +23,7 @@ ONEWAY_BIDIRECTIONAL = {"no", "false", "0"}
 ONEWAY_JUNCTION_VALUES = {"roundabout", "circular"}
 
 
-def _resolve_direction(tags: dict) -> str:
+def resolve_direction(tags: dict) -> str:
     """`oneway`・`oneway:bicycle`・`junction`から通行方向を決定する。
 
     `oneway:bicycle`は「自転車に限り一方通行規制の対象外（またはbicycle独自の一方通行）」
@@ -76,14 +76,14 @@ ALLOWED_WAY_TAGS = frozenset(
         "bicycle",
         "motor_vehicle",
         "access",
-        # 方向自体は_resolve_directionでWaySpec.directionへ解決済みだが、生タグも
+        # 方向自体はresolve_directionでWaySpec.directionへ解決済みだが、生タグも
         # 表示・デバッグ用途に引き続き保持する（他の解釈済みタグと同じ扱い）。
         "oneway:bicycle",
         # 上下線が分かれた道であることをOSM自身が言っている数少ないタグ
         # （batch/precompute_way_divided_carriageway.py）。関東全域で117件しか無く
         # 判定の主軸にはできないが、付いているものは確実なため最優先で採る。
         "carriageway",
-        # 環状交差点等、`oneway`が無くても一方通行になる構造（_resolve_direction）。
+        # 環状交差点等、`oneway`が無くても一方通行になる構造（resolve_direction）。
         "junction",
         "tunnel",
         "bridge",
@@ -122,7 +122,7 @@ def osm_way_to_way_spec(raw_way: dict) -> WaySpec | None:
         return None
 
     tags = raw_way.get("tags", {})
-    direction = _resolve_direction(tags)
+    direction = resolve_direction(tags)
 
     return WaySpec(
         osm_way_id=raw_way.get("id"),

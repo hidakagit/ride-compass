@@ -525,7 +525,7 @@ _ROAD_SURFACE_TILE_MVT_SQL = (
                         CASE WHEN {TUNNEL_NORMALIZED_SQL} = 'yes' THEN true END AS tunnel,
                         CASE WHEN {BRIDGE_NORMALIZED_SQL} = 'yes' THEN true END AS bridge,
                         -- 一方通行（一次属性）。w.directionはosm_adapter.py:
-                        -- _resolve_directionがoneway/oneway:bicycleタグから解決済みの
+                        -- resolve_directionがoneway/oneway:bicycleタグから解決済みの
                         -- forward/backward/both（osm_raw_ways専用列、tagsのJSONBには
                         -- 含まれない）。一方通行の逆方向は既にbuild_road_graphがEdge自体を
                         -- 生成しないため、探索の正しさには無関係（表示専用の一次属性）。
