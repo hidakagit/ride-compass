@@ -36,9 +36,10 @@ from app.infrastructure.orm_base import Base
 class RoadEdgeRow(Base):
     """道を交差点で切った区間1本。**向きでは分けない**。
 
-    向きが持つ情報（方位・勾配の符号・通行の可否）はいずれも導ける——方位は+180°、
-    勾配は符号反転、通行の可否は道の属性（一方通行）である。有向グラフは探索が
-    メモリ上で組む実行時の構成物で、表が両向きを持つ必要はない。
+    向きが持つ情報はいずれも導ける——方位は逆順の始点・終点から求め直し（+180°の
+    単純反転にしない。地球の丸みを近似しないため）、勾配は符号を反転し、通行の可否は
+    道の属性（一方通行）から決まる。有向グラフは探索がメモリ上で組む実行時の構成物で、
+    表が両向きを持つ必要はない。
 
     空間の索引は持たない。範囲で絞るときは親の道（`osm_way`）を先に絞り、その区間を
     主キーの先頭列で引く。
@@ -56,7 +57,7 @@ class RoadEdgeRow(Base):
 
     geom: Mapped[object] = mapped_column(Geometry("LINESTRING", srid=4326), nullable=False)
     distance_m: Mapped[float] = mapped_column(REAL, nullable=False)
-    #: 進行方向。逆向きは+180°で導く。
+    #: 順方向の方位。逆向きは形状の逆順の始点・終点から求め直す。
     bearing_deg: Mapped[float] = mapped_column(REAL, nullable=False)
 
     source_run_id: Mapped[int] = mapped_column(
@@ -177,9 +178,14 @@ class NodeMaterialRow(Base):
 
     #: 分類器が付ける種別（信号・横断歩道・車止め・コンビニ等）。付かない点はNULL。
     kind: Mapped[str | None] = mapped_column(String, nullable=True)
-    branch_count: Mapped[int] = mapped_column(SmallInteger, nullable=False, default=0)
-    has_traffic_signals: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
-    max_highway_rank: Mapped[int] = mapped_column(SmallInteger, nullable=False, default=0)
+    # 既定値はDB側に持つ。ORMの`default=`はPython経由の挿入にしか効かず、取込や導出が
+    # 生SQLで書く行に適用されない。
+    branch_count: Mapped[int] = mapped_column(
+        SmallInteger, nullable=False, server_default="0")
+    has_traffic_signals: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default="false")
+    max_highway_rank: Mapped[int] = mapped_column(
+        SmallInteger, nullable=False, server_default="0")
 
     source_run_id: Mapped[int] = mapped_column(
         BigInteger, ForeignKey("source_runs.run_id"), nullable=False
