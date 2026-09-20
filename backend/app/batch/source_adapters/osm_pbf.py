@@ -146,12 +146,23 @@ async def read_osm_ways(spec: SourceSpec, profile: SourceProfile) -> AsyncIterat
     bbox = profile.target.bbox
     logger.info("OSM way: %s", path.name)
 
+    incomplete = 0
+
     def work(handoff: _Handoff) -> None:
+        nonlocal incomplete
+
         def sink(way: dict, coords: dict[int, tuple[float, float]]) -> None:
-            points = [coords[n] for n in way["nodes"] if n in coords]
+            nonlocal incomplete
+            node_ids = way["nodes"]
+            points = [coords[n] for n in node_ids if n in coords]
+            # 参照ノードの座標が1つでも欠けたwayは丸ごと落とす。頂点だけ抜いて取り込むと、
+            # `payload`のノード列とジオメトリの頂点が1対1で対応しなくなり、区間の位置範囲が
+            # 指す頂点がずれる。参照完全な抽出（Geofabrikの地域抽出等）なら0件になる。
+            if len(points) != len(node_ids):
+                incomplete += 1
+                return
             if len(points) < 2 or not any(_in_bbox(lat, lon, bbox) for lat, lon in points):
                 return
-            node_ids = way["nodes"]
             handoff.put(SourceRecord(
                 natural_key=str(way["id"]),
                 geom_wkb=shapely.to_wkb(LineString([(lon, lat) for lat, lon in points])),
@@ -164,6 +175,8 @@ async def read_osm_ways(spec: SourceSpec, profile: SourceProfile) -> AsyncIterat
     handoff = _Handoff()
     async for record in handoff.drain(handoff.run(work)):
         yield record
+    if incomplete:
+        logger.warning("参照ノードの座標が欠けて取り込まなかったway: %d件", incomplete)
 
 
 @register_adapter("osm_pbf_node")
