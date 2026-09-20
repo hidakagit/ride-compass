@@ -84,9 +84,3 @@ sources:
       zoom: 14             # 7.73 m/画素。元データは10m画素
       bbox: from_target
 
-  - name: basemap
-    adapter: openfreemap_tile
-    grid:
-      product: planet
-      zoom: 14             # 配信元のmaxzoom
-      bbox: from_target
