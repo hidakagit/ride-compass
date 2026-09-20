@@ -3,7 +3,7 @@
 **タイル1枚を1行**として返す。これで面のデータが点・線と同じ骨格に乗り、取込の経路を
 分けずに済む。
 
-`payload`は標高をint16（0.1m単位）で並べた配列で、欠測は`NODATA`。配信元はテキストで
+`payload`は標高をint32（0.01m単位）で並べた配列で、欠測は`NODATA`。配信元はテキストで
 返すが、同じ内容が数倍の大きさになるため詰めて持つ。どう読むかは`attrs`が持つ
 （幅・高さ・型・尺度・欠測値）ので、読み手は形を推測しない。
 
@@ -35,15 +35,24 @@ logger = logging.getLogger("ridecompass.ingest.gsi_dem_tile")
 #: 上流への同時接続数。配信元へ並べてよい数の上限で、`elevation_client`と同じ考え方。
 MAX_CONCURRENT = 8
 
-#: int16へ詰めるときの尺度（0.1m単位）と欠測値。
-SCALE = 10
-NODATA = -32768
+#: 詰めるときの尺度と欠測値。地理院の標高タイル（テキスト形式）は「標高データは小数点
+#: 第二位までデータとして入っている（単位はm）」ため、0.01m単位で丸めずに保つ。
+#: 出典: https://maps.gsi.go.jp/development/demtile.html
+#:
+#: 型はint32。関東のbboxには富士山（3,776m）が入り、0.01m単位では377,600となって
+#: int16（上限32,767＝3,276.7m）に収まらない。
+SCALE = 100
+NODATA = -2147483648
 
 REQUEST_TIMEOUT = httpx.Timeout(connect=5.0, read=30.0, write=10.0, pool=10.0)
 
 
 def _pack(text: str) -> tuple[bytes, int]:
-    """タイル本文（256行×256列のカンマ区切り、欠測は`e`）をint16の配列へ詰める。"""
+    """タイル本文（256行×256列のカンマ区切り、欠測は`e`）をint32の配列へ詰める。
+
+    欠測の表し方は配信元の仕様。「標高値が存在しない画素には「e」の文字が格納されている。」
+    出典: https://maps.gsi.go.jp/development/demtile.html
+    """
     values: list[int] = []
     missing = 0
     for line in text.strip("\n").split("\n"):
@@ -54,8 +63,8 @@ def _pack(text: str) -> tuple[bytes, int]:
                 values.append(NODATA)
                 missing += 1
             else:
-                values.append(max(-32767, min(32767, int(round(float(cell) * SCALE)))))
-    return struct.pack(f"<{len(values)}h", *values), missing
+                values.append(int(round(float(cell) * SCALE)))
+    return struct.pack(f"<{len(values)}i", *values), missing
 
 
 def _tile_bounds(z: int, x: int, y: int) -> tuple[float, float, float, float]:
@@ -126,7 +135,7 @@ async def read_gsi_dem_tiles(spec: SourceSpec, profile: SourceProfile) -> AsyncI
                     attrs={
                         "product": actual_product, "z": zoom, "x": x, "y": y,
                         "width": DEM_TILE_SIZE, "height": DEM_TILE_SIZE,
-                        "dtype": "int16_le", "scale": SCALE, "nodata": NODATA,
+                        "dtype": "int32_le", "scale": SCALE, "nodata": NODATA,
                         "missing": missing,
                     },
                     payload=payload,

@@ -38,6 +38,9 @@ from app.domain.material_sql import BRIDGE_NORMALIZED_SQL, TUNNEL_NORMALIZED_SQL
 
 logger = logging.getLogger("ridecompass.derive_raster_materials")
 
+#: `source_features.attrs.dtype`（取込が書く）からnumpyの型への対応。
+_NUMPY_DTYPE = {"int16_le": "<i2", "int32_le": "<i4", "uint8": "u1"}
+
 #: 土地被覆を数える帯。中心線からこの距離までを見て、路面そのものの幅は除く。
 LANDCOVER_RING_M = 100.0
 LANDCOVER_INNER_M = 10.0
@@ -122,9 +125,13 @@ async def derive_elevation(conn: asyncpg.Connection) -> int:
             continue
         row = await conn.fetchrow(
             "SELECT payload, (attrs->>'scale')::float AS scale, "
-            "(attrs->>'nodata')::int AS nodata, (attrs->>'width')::int AS width "
+            "(attrs->>'nodata')::bigint AS nodata, (attrs->>'width')::int AS width, "
+            "attrs->>'dtype' AS dtype "
             "FROM source_features WHERE source = 'dem' AND natural_key = $1", key)
-        grid = np.frombuffer(row["payload"], dtype="<i2").reshape(row["width"], row["width"])
+        # 型は取込が`attrs`へ書いたものに従う。ここで決め打つと、取込側の型を変えたときに
+        # 黙って別の数を読む。
+        grid = np.frombuffer(row["payload"], dtype=_NUMPY_DTYPE[row["dtype"]]).reshape(
+            row["width"], row["width"])
         for index, order, px, py in items:
             value = int(grid[py, px])
             if value != row["nodata"]:
