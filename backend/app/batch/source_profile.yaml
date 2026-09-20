@@ -1,0 +1,90 @@
+# 外部ソースの取込プロファイル。**取り込む母集団の宣言はここだけ**が持つ。
+#
+# 範囲を広げるときはこのファイルを変えて取り直す。実装には範囲を書かない。
+# 適用した内容は取込のたびに source_runs.profile へ丸ごと記録されるため、
+# 「どの範囲をどの絞り込みで取り込んだ行なのか」を後から引ける。
+version: 1
+
+# 全ソース共通の対象範囲。
+target:
+  # JIS X 0401（国の標準）で書く。ソースごとの採番への変換はアダプタが持つ。
+  # 全国へ広げるときは all にする。
+  prefectures: ["08", "09", "10", "11", "12", "13", "14"]
+  # ラスタ・タイル系が覆う範囲（min_lat, min_lon, max_lat, max_lon）。
+  bbox: [34.9, 138.4, 37.2, 140.9]
+
+sources:
+  # --- OSM -----------------------------------------------------------------
+  # 行は絞る（全種別を取ると全国で容量に収まらない）。**タグは絞らない**——
+  # 実測でタグは容量の1.9%しか占めず、捨てると後から解釈を変えられなくなる。
+  - name: osm_way
+    adapter: osm_pbf_way
+    rows:
+      # 地図表示とルート探索の少なくとも一方で使う種別。
+      highway:
+        - trunk
+        - trunk_link
+        - primary
+        - primary_link
+        - secondary
+        - secondary_link
+        - tertiary
+        - tertiary_link
+        - unclassified
+        - residential
+        - living_street
+        - cycleway
+        - track
+      # 上の種別に入らないが、自転車が実際に走る道（河川敷のサイクリングロード等）。
+      any_of:
+        - highway: [footway, path]
+          bicycle: ["yes", designated, permissive]
+    tags: all
+
+  # wayが参照する頂点。位置だけでなくタグも持つ——POIかどうかの判定は派生側で行う。
+  - name: osm_node
+    adapter: osm_pbf_node
+    rows: referenced_by_way
+    tags: all
+
+  # --- 年次の統計 -----------------------------------------------------------
+  # 絞りはbboxで行う。行政区画で絞ると採番の異なるコード表（警察庁独自 vs JIS）の
+  # 変換が要るが、母集団の指定としてはbboxで足りる。
+  - name: accident
+    adapter: npa_honhyo
+    rows:
+      bbox: from_target
+      years: [2022, 2023, 2024]
+    columns: all
+
+  - name: designation
+    adapter: ksj_designation
+    rows:
+      prefectures: from_target
+      kinds: [emergency_transport, critical_logistics]
+    columns: all
+
+  # --- ラスタ ---------------------------------------------------------------
+  # ズームは元データの分解能から導く。UIの都合で決めない。
+  # 配信元がそれ以上を持たないことは実測で確認済み（z16以降は404）。
+  - name: dem
+    adapter: gsi_dem_tile
+    grid:
+      product: dem5a       # 5mメッシュ
+      zoom: 15             # 3.86 m/画素。元データとほぼ同じ細かさ
+      bbox: from_target
+
+  - name: lulc
+    adapter: io_lulc_tile
+    grid:
+      product: io-lulc-annual-v02
+      year: 2024
+      zoom: 14             # 7.73 m/画素。元データは10m画素
+      bbox: from_target
+
+  - name: basemap
+    adapter: openfreemap_tile
+    grid:
+      product: planet
+      zoom: 14             # 配信元のmaxzoom
+      bbox: from_target
