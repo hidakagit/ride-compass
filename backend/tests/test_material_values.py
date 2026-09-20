@@ -184,7 +184,7 @@ _SELECT_SQL = text(
     "WITH w AS (SELECT CAST(:osm_way_id AS bigint) AS osm_way_id, CAST(:tags AS jsonb) AS tags, "
     "CAST(:surface AS text) AS surface, CAST(:highway AS text) AS highway), "
     "re AS (SELECT CAST(:distance_m AS double precision) AS distance_m), "
-    f"em AS (SELECT {_em_columns()}), "
+    f"em AS (SELECT {_em_columns()}) "
     "SELECT "
     + ", ".join(f"({expr}) AS m_{name}" for name, expr in sorted(material_value_sql().items()))
     + " FROM w, re, em"
