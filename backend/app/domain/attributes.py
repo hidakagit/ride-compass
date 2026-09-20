@@ -4,7 +4,7 @@ from typing import Mapping
 import numpy as np
 
 from app.domain.geo import LatLon, haversine_distance_km
-from app.domain.graph import RoadGraphLike
+from app.domain.graph import LeanRoadGraph
 from app.domain.material_sql import MATERIAL_ID_GRADIENT_PERCENT
 from app.domain.strict_model import StrictModel
 
@@ -73,31 +73,6 @@ class ElevationAttribute(StrictModel):
     min_grade: float | None = None
 
 
-
-
-class WayAttributeCounts(StrictModel):
-    """区間インスペクタ用のway単位集計（`way_materials`）。
-
-    区間のカウントに、per_km換算へ使う`length_m`を加えたもの。
-    """
-
-    length_m: float
-    accident_count: float
-    intersection_count: int
-    # 停止要因POIの種別別カウント（Edge単位版と同じ、Noneは未集計）。
-    poi_counts: dict[str, int] | None = None
-
-
-
-
-
-
-
-
-
-
-
-
 @dataclass
 class SearchMaterials:
     """探索フェーズ（`RoadGraphEngine.prepare`）が必要とするRoad Graphのトポロジ＋
@@ -107,10 +82,8 @@ class SearchMaterials:
 
     # RoadGraph（Pydantic、split再構築を伴うuncached経路）またはLeanRoadGraph
     # （dataclass、タイルキャッシュ経路）のいずれかが入る。
-    graph: RoadGraphLike
+    graph: LeanRoadGraph
     materials: "EdgeMaterialArrays"
-
-
 
 
 def _none_if_nan(value) -> float | None:

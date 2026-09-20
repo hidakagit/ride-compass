@@ -1579,7 +1579,6 @@ export default function Home() {
       const {
         routes: candidates,
         conditions,
-        engine,
         noCandidatesReason,
       } = await generateRoutes(buildGenerateRequest(generationInput), setGenerationProgress);
       // backendが目的地をアクセス可能な最寄り地点へ補正した場合、地図上のピンも実際に
@@ -1636,7 +1635,6 @@ export default function Home() {
             id: `slot-${conditions.generated_at}-${Math.random().toString(36).slice(2, 8)}`,
             color: EXPERIMENT_SLOT_COLORS[0],
             conditions,
-            engine,
             topCandidate: candidates[0],
           };
           // 色は「最新=0番目の色」という表示順ベースで割り当てる（スロットの入れ替わりに

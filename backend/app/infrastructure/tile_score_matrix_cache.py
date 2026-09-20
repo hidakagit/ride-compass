@@ -171,11 +171,6 @@ def size() -> int:  # テストの検証用（メモリLRUの件数のみ。デ�
     return len(_cache)
 
 
-def read_persisted_axis_revision() -> int | None:
-    """ディスクへ最後に書いた時点の`axis_registry_meta.revision`（テスト・診断用）。"""
-    return cache_generation.read_persisted_revision(_CACHE_NAMESPACE, TILE_SCORE_MATRIX_CACHE_VERSION)
-
-
 def sync_disk_cache_with_axis_revision(revision: int | None) -> None:
     """`refresh_axis_definitions`から呼ぶ。
 

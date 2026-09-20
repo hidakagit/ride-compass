@@ -11,7 +11,7 @@ import numpy as np
 
 from app.domain.attributes import EdgeMaterialArrays
 from app.domain.evaluation import build_static_edge_score_matrix, compose_costs_from_axis_matrix
-from app.domain.graph import RoadGraphLike
+from app.domain.graph import LeanRoadGraph
 from app.domain.hard_filters import compute_hard_filter_excluded
 from app.domain.route_preference import RoutePreference
 
@@ -27,7 +27,7 @@ class EdgeCost:
 
 
 def edge_costs(
-    graph: RoadGraphLike,
+    graph: LeanRoadGraph,
     materials: EdgeMaterialArrays,
     preference: RoutePreference,
     *,

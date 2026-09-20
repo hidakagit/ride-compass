@@ -7,7 +7,6 @@ export interface ExperimentSlot {
   id: string;
   color: string;
   conditions: GenerationConditions;
-  engine: string;
   // 比較の代表候補。生成直後にoverall_difficulty昇順の先頭（=デフォルト選択候補）で固定する。
   // 以降ユーザーがRouteListで別候補を選び直しても、過去スロットの比較対象は変えない
   // （「生成結果のスナップショット」として扱う）。

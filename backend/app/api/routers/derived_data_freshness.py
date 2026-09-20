@@ -1,8 +1,8 @@
 """派生データ鮮度台帳の管理API。
 
 `GET /api/admin/derived-data/freshness`（Basic認証必須）は、派生データの表ごとに
-**鮮度**（その行がどの取込世代から作られたか）と**完成度**（値の列にNULLが何件あるか）を
-返す。対象の表・列は宣言（ORM）から導くため、表や列を足しても増やす手当ては要らない。
+**鮮度**（その行がどの取込世代から作られたか）・**完成度**（値の列にNULLが何件あるか）・
+**被覆**（親にあって行が無い件数）を返す。対象の表・列は宣言（ORM）から導くため、表や列を足しても増やす手当ては要らない。
 
 `GET /api/admin/material-catalog/coverage`（材料の欠損割合）とは別の切り口——あちらは
 「材料として値が取れるか」を材料の宣言から見る。認可を要求する理由・DB例外の扱いは
@@ -41,6 +41,12 @@ class TableEntry(StrictModel):
     latest_run_id: int | None
     #: 生データを取り直したのに派生を流し直していない。
     is_stale: bool
+    #: 被覆の母数（生データのソース名か親の表名）。覆うことを宣言していない表はNone。
+    coverage_parent: str | None
+    coverage_parent_row_count: int | None
+    #: 親にあって行が無い件数。鮮度・完成度はこれを見つけられない（行が無ければ古くも
+    #: なければNULLでもない）。
+    missing_rows: int | None
     columns: list[ColumnEntry]
 
 

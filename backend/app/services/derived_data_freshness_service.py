@@ -35,6 +35,11 @@ class TableEntry:
     latest_run_id: int | None
     #: 生データを取り直したのに派生を流し直していない。
     is_stale: bool
+    #: 被覆の母数の呼び名。覆うことを宣言していない表はNone。
+    coverage_parent: str | None
+    coverage_parent_row_count: int | None
+    #: 親にあって行が無い件数。覆うはずの表で1件でもあれば作り直しが要る。
+    missing_rows: int | None
     columns: list[ColumnEntry]
 
 
@@ -57,6 +62,10 @@ def build_freshness_report(
                 oldest_run_id=table.oldest_run_id,
                 latest_run_id=table.latest_run_id,
                 is_stale=table.is_stale,
+                coverage_parent=table.coverage.parent if table.coverage else None,
+                coverage_parent_row_count=(
+                    table.coverage.parent_row_count if table.coverage else None),
+                missing_rows=table.coverage.missing_rows if table.coverage else None,
                 columns=[
                     ColumnEntry(
                         column=column.column,
@@ -86,9 +95,11 @@ class DerivedDataFreshnessService:
         stale = sum(1 for table in report.tables if table.is_stale)
         incomplete = sum(1 for table in report.tables
                          for column in table.columns if column.is_incomplete)
+        missing = sum(table.missing_rows or 0 for table in report.tables)
         logger.info(
             "derived data freshness computed tables=%d stale_tables=%d incomplete_columns=%d "
-            "elapsed_ms=%d",
-            len(report.tables), stale, incomplete, round((time.monotonic() - started) * 1000),
+            "missing_rows=%d elapsed_ms=%d",
+            len(report.tables), stale, incomplete, missing,
+            round((time.monotonic() - started) * 1000),
         )
         return report

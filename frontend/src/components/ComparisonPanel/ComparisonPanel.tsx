@@ -113,9 +113,9 @@ function formatGeneratedAt(iso: string): string {
   return date.toLocaleTimeString("ja-JP", { hour: "2-digit", minute: "2-digit" });
 }
 
-/** 見出しへ載せきれない素性（正確な時刻・エンジン・その回の重み）。 */
+/** 見出しへ載せきれない素性（正確な時刻・その回の重み）。 */
 function slotProvenance(slot: ExperimentSlot, axisLabels: Record<string, string>): string {
-  return `${slot.conditions.generated_at} / ${slot.engine} / ${formatWeights(slot, axisLabels)}`;
+  return `${slot.conditions.generated_at} / ${formatWeights(slot, axisLabels)}`;
 }
 
 // 実験スロット間の比較表（研究インターフェース改善 §10-3）。行=メトリクス、列=スロット

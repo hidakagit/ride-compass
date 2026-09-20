@@ -1,148 +1,36 @@
 from dataclasses import dataclass
-from typing import Protocol, runtime_checkable
-
-from app.domain.strict_model import StrictModel
-
-
-class Node(StrictModel):
-    """道路ネットワーク上の接続点（交差点・分岐点・行き止まり等）。
-
-    シェイプポイント（Way形状を構成するだけで接続点ではない中間点）はNode化せず、
-    DirectedEdge.geometryの一部として保持する（仕様書7章）。
-    """
-
-    node_id: str
-    latitude: float
-    longitude: float
-    osm_node_id: int | None = None
-    # そのノードに信号があるか・集まる道の最大階級（road_nodesの事前集計列、
-    # precompute_road_node_intersections.py）。ターンの費用が「信号が無いのに上位の道を
-    # 渡る」場合だけ待ちを足すために読む。既定値は未集計のDBから読んだときの値と同じで、
-    # どちらもターンの費用がこの列の導入前と同じ結果になる側へ倒してある。
-    has_traffic_signals: bool = False
-    max_highway_rank: int = 0
-
-
-class DirectedEdge(StrictModel):
-    """経路探索の基本単位となる、方向を持つ道路区間（仕様書8-10章）。
-
-    A→BとB→Aは別のEdgeとして扱う。road_edgesの責務は道路ネットワークそのものの表現に
-    限定し、標高・路面・交通量等のRoad Attributeはここへ持たせない（仕様書10章）。
-    """
-
-    edge_id: str
-    from_node_id: str
-    to_node_id: str
-    geometry: list[list[float]]  # [[latitude, longitude], ...] from_node→to_nodeの向き
-    distance_m: float
-    osm_way_id: int | None = None
-    #: 親の道の中で何番目の区間か。DBは向きを持たない1行で、この2つと`forward`で引く
-    #: （`edge_id`は表示・辞書の鍵としてだけ使い、解析しない）。
-    segment_index: int | None = None
-    #: 区間のジオメトリと同じ向きに走るか。
-    forward: bool = True
-    highway: str | None = None  # OSMのhighwayタグ（生値。分類・評価はRoad Attribute側の責務）
-    # from_node→to_node方向の方位角（度、北=0、時計回り、domain/geo.py:
-    # bearing_betweenと同じ定義）。build_road_graphがgeometryから算出して
-    # 保持する。探索フェーズの風評価（DYNAMIC_MATERIAL_EVALUATORS）がgeometryを取得・decodeせずに
-    # この値だけで完結できるようにするための事前計算値（そのため既定値Noneを許容しつつ、
-    # build_road_graph経由の生成では必ず値を持つ）。
-    bearing_deg: float | None = None
-
-
-class RoadGraph(StrictModel):
-    """Node/DirectedEdgeからなる道路ネットワーク（仕様書6章）。
-
-    graph_versionは過剰なバージョン管理機構を導入せず、生成時刻ベースの単純な識別子に
-    留める（仕様書12章：「将来追加可能な構造を優先する」）。
-    """
-
-    graph_version: str
-    nodes: dict[str, Node]
-    edges: dict[str, DirectedEdge]
-
-
-@runtime_checkable
-class NodeLike(Protocol):
-    """探索フェーズ（domain/routing.py・domain/evaluation.py）が実際に読む`Node`の
-    フィールドのみを表す構造的型。`Node`（Pydantic）と`LeanNode`
-    （dataclass、探索専用の軽量実装）の両方がこのProtocolを満たす。"""
-
-    node_id: str
-    latitude: float
-    longitude: float
-    osm_node_id: int | None
-    has_traffic_signals: bool
-    max_highway_rank: int
-
-
-@runtime_checkable
-class EdgeLike(Protocol):
-    """探索フェーズが実際に読む`DirectedEdge`のフィールドのみを表す構造的型。
-    `DirectedEdge`（Pydantic、表示・保存用）と`LeanEdge`
-    （dataclass、探索専用の軽量実装）の両方がこのProtocolを満たす。
-
-    `RoadGraphEngine.trace_loop`（`hydrated.get(edge_id) or context.graph.edges[edge_id]`、
-    表示用に取り直したフルEdgeと探索グラフのlean Edgeを同じリストへ混在させる）が
-    どちらの実体型が来ても同じ属性名で読める必要があるため、フィールド構成は
-    `DirectedEdge`と完全に一致させる（`geometry`はlean側では常に空リストの
-    プレースホルダ、`osm_way_id`は探索フェーズでは未使用だが表示用途との
-    フィールド互換のため保持する）。
-    """
-
-    edge_id: str
-    from_node_id: str
-    to_node_id: str
-    geometry: list[list[float]]
-    distance_m: float
-    osm_way_id: int | None
-    segment_index: int | None
-    forward: bool
-    highway: str | None
-    bearing_deg: float | None
-
-
-@runtime_checkable
-class RoadGraphLike(Protocol):
-    """`RoadGraph`（Pydantic、表示・保存用）と`LeanRoadGraph`（dataclass、探索専用の
-    軽量実装）の両方が満たす構造的型。探索フェーズ
-    （`RoadGraphEngine`・`domain/routing.py`・`domain/evaluation.py`）はどちらの実体型を
-    渡されても同じ属性アクセスで動作する。"""
-
-    graph_version: str
-    nodes: dict[str, NodeLike]
-    edges: dict[str, EdgeLike]
-
 
 @dataclass(frozen=True, slots=True)
 class LeanNode:
-    """`Node`の探索専用軽量実装。フィールド構成は`Node`と完全に一致させる
-    （`NodeLike`Protocol参照）。Pydantic（`model_construct`でもバリデーション機構自体の
-    簿記コストは残る）ではなく素のdataclassにすることで、探索用グラフ構築時の
-    オブジェクト構築コストを削減する（dev DB、68,760件でNode.model_construct
-    2.125秒→dataclass構築）。
+    """道路ネットワーク上の接続点（交差点・分岐点・行き止まり等）。
+
+    形状点（Wayの形を作るだけで接続点ではない中間点）はここに現れず、`LeanEdge.geometry`
+    の一部として持つ。
+
+    Pydanticではなく素のdataclassにするのは、探索用グラフの構築でノード数万件ぶんの
+    オブジェクトを作るため——バリデーションを飛ばしても簿記のコストが残る。
     """
 
     node_id: str
     latitude: float
     longitude: float
     osm_node_id: int | None = None
-    # そのノードに信号があるか・集まる道の最大階級（road_nodesの事前集計列、
-    # precompute_road_node_intersections.py）。ターンの費用が「信号が無いのに上位の道を
-    # 渡る」場合だけ待ちを足すために読む。既定値は未集計のDBから読んだときの値と同じで、
-    # どちらもターンの費用がこの列の導入前と同じ結果になる側へ倒してある。
+    # そのノードに信号があるか・集まる道の最大階級（`node_materials`の列）。ターンの費用が
+    # 「信号が無いのに上位の道を渡る」場合だけ待ちを足すために読む。既定値は未集計のDBから
+    # 読んだときの値と同じで、どちらも待ちを足さない側へ倒してある。
     has_traffic_signals: bool = False
     max_highway_rank: int = 0
 
 
 @dataclass(frozen=True, slots=True)
 class LeanEdge:
-    """`DirectedEdge`の探索専用軽量実装。フィールド構成は
-    `DirectedEdge`と完全に一致させる（`EdgeLike`Protocol参照、
-    `RoadGraphEngine.trace_loop`がlean/フル両方のEdgeを同じリストへ混在させるため）。
-    `geometry`は常に空リストのプレースホルダ（探索フェーズはgeometryを参照しない設計、
-    `_topology_rows_to_road_graph`参照）。dev DBで171,461件を
-    DirectedEdge.model_constructすると8.938秒かかるのに対し、dataclass構築なら短縮する。
+    """経路探索の基本単位となる、方向を持つ道路区間。A→BとB→Aは別の枝として扱う。
+
+    `geometry`は**探索フェーズでは空リスト**（探索は形を見ない）。表示のために形が要る
+    区間だけ`get_edges_with_geometry`が取り直して埋める。読む側はどちらが来ても同じ
+    属性名で読めるため、区別しない。
+
+    路面・標高・交通量といった評価の材料はここへ持たせない（道路網そのものの表現に限る）。
     """
 
     edge_id: str
@@ -189,9 +77,9 @@ def _rebuild_lean_road_graph(
 
 @dataclass(frozen=True, slots=True)
 class LeanRoadGraph:
-    """`RoadGraph`の探索専用軽量実装。`graph_version`・`nodes`・`edges`の
-    フィールド構成は`RoadGraph`と一致させ、`RoadGraphLike`Protocolを満たす。
-    `get_graph_topology_in_bbox`（road_graph_repository.py）の戻り値として使う。
+    """`LeanNode`/`LeanEdge`からなる道路ネットワーク。
+
+    `graph_version`は生成時刻ベースの単純な識別子で、版管理の機構は持たない。
     """
 
     graph_version: str

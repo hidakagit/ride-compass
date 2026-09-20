@@ -202,7 +202,3 @@ async def material_value_distribution(
     ]
     return _distribution(pairs)
 
-
-def invalidate_sample() -> None:
-    """テスト用。次回取得でDBから引き直す。"""
-    _sample_cache.clear()

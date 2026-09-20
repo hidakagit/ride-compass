@@ -38,6 +38,18 @@ from app.infrastructure.orm_base import Base
 ABSENT_OK = {"null_means_absent": True}
 
 
+def covers(source: str) -> dict[str, str]:
+    """「この列の値は、その生データのソースを1件残らず覆う」という宣言。
+
+    鮮度台帳が母数（`source_features`のそのソースの行数）と突き合わせ、派生の**行が
+    そもそも無い**ケースを数える。鮮度（世代）と完成度（値のNULL）はどちらもこれを
+    見つけられない——行が無ければ古くもなければNULLでもない。
+
+    覆わないことが設計である表には付けない（`node_materials`）。
+    """
+    return {"covers_source": source}
+
+
 class RoadEdgeRow(Base):
     """道を交差点で切った区間1本。**向きでは分けない**。
 
@@ -53,12 +65,18 @@ class RoadEdgeRow(Base):
     __tablename__ = "road_edges"
 
     #: 親の道。区間は道を切って作る派生なので、対応する道が必ずある。
-    osm_way_id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=False)
+    osm_way_id: Mapped[int] = mapped_column(
+        BigInteger, primary_key=True, autoincrement=False, info=covers("osm_way"))
     #: 道の何番目の区間か。
     segment_index: Mapped[int] = mapped_column(SmallInteger, primary_key=True)
 
-    from_node_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
-    to_node_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    #: 区間の端点。**必ず`node_materials`に行がある**——無いと探索が既定値（信号なし・
+    #: 階級0）を黙って読み、ターンの費用が実際より安く出る。親子の向きがそのままなので
+    #: 外部キーで縛れる（`derive_topology`がノードを先に入れる）。
+    from_node_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("node_materials.osm_node_id"), nullable=False)
+    to_node_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("node_materials.osm_node_id"), nullable=False)
 
     geom: Mapped[object] = mapped_column(Geometry("LINESTRING", srid=4326), nullable=False)
     distance_m: Mapped[float] = mapped_column(REAL, nullable=False)
@@ -140,7 +158,8 @@ class WayMaterialRow(Base):
 
     __tablename__ = "way_materials"
 
-    osm_way_id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=False)
+    osm_way_id: Mapped[int] = mapped_column(
+        BigInteger, primary_key=True, autoincrement=False, info=covers("osm_way"))
 
     accident_count: Mapped[float | None] = mapped_column(REAL, nullable=True)
     intersection_count: Mapped[int | None] = mapped_column(SmallInteger, nullable=True)
@@ -183,7 +202,8 @@ class NodeMaterialRow(Base):
     """ノードに付く値。
 
     行を持つのは「グラフの頂点になる点」か「種別が付く点」だけで、ただの形状頂点は
-    持たない。
+    持たない。**生データのノードを覆わない**ため`covers`を付けない（付けると、設計どおり
+    行を作らなかったぶんが欠けとして鳴り続ける）。
 
     `branch_count`は**そこに集まる道の本数**。グラフの位相としての次数（隣接する頂点の
     数）とは別物で、2本の枝が同じ次の交差点へ向かうと次数は1つに潰れる。交差点の密度を

@@ -1,6 +1,6 @@
 """Road Graph + 辺基準グラフ探索（A*/一対全Dijkstra、lazy評価）の自前ルーティングエンジン。
 
-`RouteGenerator`（services/route_generator.py）の`LoopRoutingEngine`契約を実装する。
+`RouteGenerator`（services/route_generator.py）が探索を委譲する先。
 Road Graph・Evaluation Engine・Route Engine（domain/routing.py）を使って経由地点間の
 経路を自前で計算する。ルート生成の唯一のエンジン実装。
 
@@ -92,7 +92,7 @@ from app.domain.geo import (
     haversine_distance_km,
     haversine_distance_km_array,
 )
-from app.domain.graph import EdgeLike, LeanEdge, RoadGraphLike
+from app.domain.graph import LeanEdge, LeanRoadGraph
 from app.domain.material_catalog import is_known_material
 from app.domain.region import BoundingBox
 from app.domain.route import (
@@ -143,7 +143,7 @@ from app.domain.wind import (
 from app.infrastructure import search_graph_cache
 from app.services.elevation_aggregation import max_or_none, min_or_none, sum_or_none
 from app.services.graph_service import GraphService
-from app.services.route_generator import LoopTurnaround, TracedLoop, candidate_identity
+from app.domain.loop_routing import LoopTurnaround, TracedLoop, candidate_identity
 from app.services.weather_service import WeatherService
 
 # Road Graphを取得するbboxは、起点・経由地2点の外接矩形にこのマージンを足したもの。
@@ -567,7 +567,7 @@ class _LegCostComposer:
 class _RoadGraphContext:
     """prepareで構築し、全方位のtrace_loop/evaluate_loopsで共有するリクエスト単位の状態。"""
 
-    graph: RoadGraphLike
+    graph: LeanRoadGraph
     # 材料の列（`domain/attributes.py: EdgeMaterialArrays`）。Edge単位の材料アクセスは探索コスト算出の
     # ホットパスからは外れているが、`_build_segment_details`の表示用フィールド
     # （surface等）取得には引き続き使う。
@@ -637,7 +637,7 @@ class _SearchGraph:
     （`_RoadGraphContext.statics`参照）。
     """
 
-    graph: RoadGraphLike
+    graph: LeanRoadGraph
     lazy_graph: LazyRoadGraph
     # bboxを覆うz12タイル集合（frozenset[(zoom,x,y)]）。GraphService.
     # get_search_materials_for_bboxが「タイルキャッシュをそのまま結合したgraph」を
@@ -674,8 +674,6 @@ class _TurnaroundData:
 
 
 class RoadGraphEngine:
-    engine_name = "road_graph"
-
     def __init__(
         self,
         graph_service: GraphService,
@@ -846,7 +844,7 @@ class RoadGraphEngine:
     async def _get_or_build_node_index(
         self,
         tile_set: frozenset[tuple[int, int, int]] | None,
-        graph: RoadGraphLike,
+        graph: LeanRoadGraph,
         edge_ids: list[str],
         hard_filter_excluded: np.ndarray,
     ) -> tuple[NodeSpatialIndex, bool]:
@@ -1028,7 +1026,7 @@ class RoadGraphEngine:
         # prepareと同じレイジー取得（prepareがlean=Trueで読み込んだ
         # search.graphのEdgeはgeometryが空プレースホルダのため、この経路ぶんだけ取得し直す）。
         hydrated = await self._graph_service.get_edges_with_geometry(edge_ids)
-        edges_in_path: list[EdgeLike] = [hydrated.get(edge_id) or search.graph.edges[edge_id] for edge_id in edge_ids]
+        edges_in_path: list[LeanEdge] = [hydrated.get(edge_id) or search.graph.edges[edge_id] for edge_id in edge_ids]
 
         distance_km = round(sum(edge.distance_m for edge in edges_in_path) / 1000, 2)
         geometry, _ = _concat_edge_geometries(edges_in_path)
@@ -1822,7 +1820,7 @@ class RoadGraphEngine:
         # プレースホルダのまま）へ倒す防御的フォールバック。
         all_edge_ids = list(dict.fromkeys(edge_id for t in traced for edge_id in t.data))
         hydrated = await self._graph_service.get_edges_with_geometry(all_edge_ids)
-        edges_by_candidate: list[list[EdgeLike]] = [
+        edges_by_candidate: list[list[LeanEdge]] = [
             [hydrated.get(edge_id) or context.graph.edges[edge_id] for edge_id in t.data] for t in traced
         ]
         return list(
@@ -1835,7 +1833,7 @@ class RoadGraphEngine:
         )
 
     async def _build_best_candidate(
-        self, context: _RoadGraphContext, traced: TracedLoop, edges_in_path: list[EdgeLike], start_time: datetime
+        self, context: _RoadGraphContext, traced: TracedLoop, edges_in_path: list[LeanEdge], start_time: datetime
     ) -> RouteCandidate:
         """1候補ぶんの周回を組み立てる。同じ物理的な周回形状の
         逆回り（復路を先に、往路を後に辿る）も、追加のDB/外部API呼び出しゼロで合成できる
@@ -1868,7 +1866,7 @@ class RoadGraphEngine:
         return _pick_better_candidate(forward_candidate, reverse_candidate)
 
     def _elevation_attributes(
-        self, context: "_RoadGraphContext", edges_in_path: list[EdgeLike]
+        self, context: "_RoadGraphContext", edges_in_path: list[LeanEdge]
     ) -> dict[str, ElevationAttribute]:
         """経路の区間ぶんの標高属性。探索フェーズで読んだ材料がそのまま持っている。
 
@@ -1886,7 +1884,7 @@ class RoadGraphEngine:
         self,
         context: _RoadGraphContext,
         traced: TracedLoop,
-        edges_in_path: list[EdgeLike],
+        edges_in_path: list[LeanEdge],
         elevation_attributes: dict[str, ElevationAttribute],
         start_time: datetime,
         leg_of_edge: list[int],
@@ -1924,7 +1922,7 @@ class RoadGraphEngine:
         )
 
     def _estimate_duration_seconds(
-        self, context: _RoadGraphContext, edges: list[EdgeLike], leg_of_edge: list[int]
+        self, context: _RoadGraphContext, edges: list[LeanEdge], leg_of_edge: list[int]
     ) -> float | None:
         """候補の所要時間（秒）＝ 区間の走行時間 ＋ 停止の待ち ＋ ターンの待ち。
 
@@ -1947,7 +1945,7 @@ class RoadGraphEngine:
             total += float(seconds) if np.isfinite(seconds) else edge.distance_m / fallback_ms
         return total + self._turn_seconds_along(context, edges)
 
-    def _turn_seconds_along(self, context: _RoadGraphContext, edges: list[EdgeLike]) -> float:
+    def _turn_seconds_along(self, context: _RoadGraphContext, edges: list[LeanEdge]) -> float:
         """経路に沿ったターンの待ち（秒）の合計。遷移は`TurnExpandedStructure`から引く。
 
         探索グラフに無いEdge（クライアント由来のedge_id列を受ける区間の乗り換えで起こりうる）
@@ -1983,7 +1981,7 @@ class RoadGraphEngine:
 
     def _build_segment_details(
         self,
-        edges: list[EdgeLike],
+        edges: list[LeanEdge],
         elevation_attributes: dict,
         context: _RoadGraphContext,
         start_time: datetime,
@@ -2132,7 +2130,7 @@ def _active_material_ids(weights: Mapping[str, float], lens_axis_id: str | None 
 
 
 async def _get_or_build_lazy_graph(
-    tile_set: frozenset[tuple[int, int, int]] | None, graph: RoadGraphLike
+    tile_set: frozenset[tuple[int, int, int]] | None, graph: LeanRoadGraph
 ) -> tuple[LazyRoadGraph, bool]:
     """探索用グラフ（`LazyRoadGraph`）をタイル集合キーでキャッシュする
     （`infrastructure/search_graph_cache.py`）。
@@ -2165,7 +2163,7 @@ async def _get_or_build_lazy_graph(
 async def _ensure_lazy_graph_consistent(
     tile_set: frozenset[tuple[int, int, int]] | None,
     lazy_graph: LazyRoadGraph,
-    graph: RoadGraphLike,
+    graph: LeanRoadGraph,
     score_matrix_rows: Container[str],
 ) -> LazyRoadGraph:
     """`lazy_graph.edge_ids`が`graph.edges`の部分集合であることを検証し、崩れていれば
@@ -2173,7 +2171,7 @@ async def _ensure_lazy_graph_consistent(
     （`prepare`・`preview_segment`共通の`_build_search_graph`が呼ぶ）。
 
     `_lazy_graph_cache`と`_search_statics_cache`はLRU上限に達すると独立に最古のエントリを
-    追い出すため、再split（`save_graph`のedge_id再割当）を挟むと「`lazy_graph`はキャッシュ
+    追い出すため、派生バッチによる区間の作り直しを挟むと「`lazy_graph`はキャッシュ
     ヒットで古いまま」という状態が起こりうる。放置すると、直後の
     `full_edge_row[edge_id] for edge_id in lazy_graph.edge_ids`（`_build_search_graph`）や
     `domain/routing.py: build_search_graph_statics`が同種のKeyErrorを起こす。この関数は
@@ -2208,7 +2206,7 @@ async def _ensure_lazy_graph_consistent(
 
 
 async def _get_or_build_search_statics(
-    tile_set: frozenset[tuple[int, int, int]] | None, lazy_graph: LazyRoadGraph, graph: RoadGraphLike
+    tile_set: frozenset[tuple[int, int, int]] | None, lazy_graph: LazyRoadGraph, graph: LeanRoadGraph
 ) -> tuple[SearchGraphStatics, bool]:
     """一対全最短経路木用のCSR構造＋Edge実距離配列（`domain/routing.py:
     SearchGraphStatics`）を、`_get_or_build_lazy_graph`と同じタイル集合キーで
@@ -2234,7 +2232,7 @@ async def _get_or_build_turn_structure(
     tile_set: frozenset[tuple[int, int, int]] | None,
     statics: SearchGraphStatics,
     lazy_graph: LazyRoadGraph,
-    graph: RoadGraphLike,
+    graph: LeanRoadGraph,
     turn_cost: TurnCostSpec,
 ) -> tuple[TurnExpandedStructure, bool]:
     """状態＝有向区間の遷移構造を、タイル集合とターンの費用をキーにキャッシュする。
@@ -2260,7 +2258,7 @@ async def _get_or_build_turn_structure(
 
 
 def _node_intersection_attributes(
-    graph: RoadGraphLike, lazy_graph: LazyRoadGraph
+    graph: LeanRoadGraph, lazy_graph: LazyRoadGraph
 ) -> tuple[np.ndarray, np.ndarray]:
     """`lazy_graph.index_to_node_id`順の（信号の有無, 集まる道の最大階級）。
 
@@ -2283,7 +2281,7 @@ def _node_intersection_attributes(
     return signals, ranks
 
 
-def _edge_highway_ranks(graph: RoadGraphLike, lazy_graph: LazyRoadGraph) -> np.ndarray:
+def _edge_highway_ranks(graph: LeanRoadGraph, lazy_graph: LazyRoadGraph) -> np.ndarray:
     """`lazy_graph.edge_ids`順の道路階級（`domain/traffic.py: highway_rank`）。交差点で
     「自分より上位の道と交わるか」を比べるためだけに使う。"""
     return np.fromiter(
@@ -2352,7 +2350,7 @@ def _learn_detour_ratio(context: _RoadGraphContext, measured: float) -> float:
 
 
 def _estimate_distances_m(
-    graph: RoadGraphLike,
+    graph: LeanRoadGraph,
     node_lat: np.ndarray,
     node_lon: np.ndarray,
     target_node_id: str,
@@ -2410,7 +2408,7 @@ def _order_by_bearing_spread(
 
 
 def _loop_edge_lengths_by_physical_segment(
-    graph: RoadGraphLike, edge_ids: list[str]
+    graph: LeanRoadGraph, edge_ids: list[str]
 ) -> dict[frozenset[str], float]:
     """周回1件ぶんのEdge列（`TracedLoop.data`）を、進行方向を無視した物理区間キー
     （`{from_node_id, to_node_id}`のfrozenset）→距離(m)の辞書へ変換する
@@ -2429,8 +2427,8 @@ def _loop_edge_lengths_by_physical_segment(
 
 
 def _reverse_traced_edges(
-    edges_in_path: list[EdgeLike], lazy_graph: LazyRoadGraph, graph: RoadGraphLike
-) -> list[EdgeLike] | None:
+    edges_in_path: list[LeanEdge], lazy_graph: LazyRoadGraph, graph: LeanRoadGraph
+) -> list[LeanEdge] | None:
     """順方向の経路`edges_in_path`（起点→...→起点）を逆順に辿った場合の、対応する
     逆方向Edge列を構築する。経路中に一方通行（逆方向Edgeが存在しない）
     区間が1つでもあれば物理的に逆走不可能なため`None`を返す。
@@ -2447,7 +2445,7 @@ def _reverse_traced_edges(
     「逆方向Edge自身の値」として引く（forward側からの流用ではなく、逆方向Edgeが実在する
     という確認を兼ねる）。
     """
-    reverse_edges: list[EdgeLike] = []
+    reverse_edges: list[LeanEdge] = []
     for edge in reversed(edges_in_path):
         from_index = lazy_graph.node_id_to_index.get(edge.to_node_id)
         to_index = lazy_graph.node_id_to_index.get(edge.from_node_id)
@@ -2498,8 +2496,8 @@ def _reverse_elevation_attribute(forward: ElevationAttribute, reverse_edge_id: s
 
 
 def _reverse_elevation_attributes(
-    edges_in_path: list[EdgeLike],
-    reverse_edges: list[EdgeLike],
+    edges_in_path: list[LeanEdge],
+    reverse_edges: list[LeanEdge],
     elevation_attributes: dict[str, ElevationAttribute],
 ) -> dict[str, ElevationAttribute]:
     """`_reverse_traced_edges`が返した逆方向Edge列ぶんの`ElevationAttribute`辞書を、
@@ -2583,7 +2581,7 @@ def _bbox_covering_points(points: list[Coordinates], margin_km: float) -> Boundi
     )
 
 
-def _concat_edge_geometries(edges: list[EdgeLike]) -> tuple[dict, list[int]]:
+def _concat_edge_geometries(edges: list[LeanEdge]) -> tuple[dict, list[int]]:
     """経路上のEdge群を、ひとつながりのGeoJSON LineStringとEdgeの境界点の位置へ変換する。
 
     隣接するEdgeの境界点（前Edgeの終端＝次Edgeの始端）は重複させないため、**座標列だけ
@@ -2606,7 +2604,7 @@ def _concat_edge_geometries(edges: list[EdgeLike]) -> tuple[dict, list[int]]:
     return {"type": "LineString", "coordinates": coordinates}, offsets
 
 
-def _aggregate_elevation(edges: list[EdgeLike], elevation_attributes: dict) -> dict:
+def _aggregate_elevation(edges: list[LeanEdge], elevation_attributes: dict) -> dict:
     attrs = [elevation_attributes.get(edge.edge_id) for edge in edges]
     valid = [a for a in attrs if a is not None]
 

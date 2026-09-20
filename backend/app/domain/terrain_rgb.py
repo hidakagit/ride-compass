@@ -45,10 +45,3 @@ def gsi_dem_png_to_terrain_rgb(png: bytes) -> bytes:
     Image.fromarray(out, mode="RGB").save(buffer, format="PNG")
     return buffer.getvalue()
 
-
-def decode_terrain_rgb_meters(png: bytes) -> np.ndarray:
-    """Terrain-RGBのPNGを標高（m）の配列へ戻す。変換が正しいことを確かめる側で使う。"""
-    with Image.open(io.BytesIO(png)) as image:
-        rgb = np.asarray(image.convert("RGB"), dtype=np.int64)
-    packed = (rgb[:, :, 0] << 16) | (rgb[:, :, 1] << 8) | rgb[:, :, 2]
-    return _TERRAIN_RGB_BASE_M + packed * _TERRAIN_RGB_UNIT_M

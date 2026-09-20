@@ -620,7 +620,7 @@
     "/api/region/poi-tiles/{z}/{x}/{y}.pbf": {
       "get": {
         "summary": "Region Poi Tile",
-        "description": "停止要因POI（信号・横断歩道・一時停止・踏切）レイヤー。静的道路属性P1で評価にのみ\n使われていたosm_raw_poisの可視化（材料`intersection_count_per_km`の集計には\n`get_intersection_counts`等を引き続き使う）。路面タイルと同じ歯止め・同時実行制御を\nそのまま流用する。",
+        "description": "停止要因POI（信号・横断歩道・一時停止・踏切）レイヤー。静的道路属性P1で評価にのみ\n使われていたosm_raw_poisの可視化（材料`intersection_count_per_km`の集計には\n既存のリポジトリのメソッドを引き続き使う）。路面タイルと同じ歯止め・同時実行制御を\nそのまま流用する。",
         "operationId": "region_poi_tile_api_region_poi_tiles__z___x___y__pbf_get",
         "parameters": [
           {
@@ -3267,10 +3267,6 @@
             "type": "string",
             "title": "Started At"
           },
-          "engine": {
-            "type": "string",
-            "title": "Engine"
-          },
           "debug_mode": {
             "type": "boolean",
             "title": "Debug Mode"
@@ -3305,7 +3301,6 @@
         "required": [
           "commit",
           "started_at",
-          "engine",
           "debug_mode",
           "external",
           "rate_limit_rejections",
@@ -4702,10 +4697,6 @@
             "type": "array",
             "title": "Routes"
           },
-          "engine": {
-            "type": "string",
-            "title": "Engine"
-          },
           "conditions": {
             "$ref": "#/components/schemas/GenerationConditions"
           },
@@ -4725,7 +4716,6 @@
         "type": "object",
         "required": [
           "routes",
-          "engine",
           "conditions"
         ],
         "title": "RouteGenerateResponse"
@@ -5643,6 +5633,39 @@
             "type": "boolean",
             "title": "Is Stale"
           },
+          "coverage_parent": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Coverage Parent"
+          },
+          "coverage_parent_row_count": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Coverage Parent Row Count"
+          },
+          "missing_rows": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Missing Rows"
+          },
           "columns": {
             "items": {
               "$ref": "#/components/schemas/ColumnEntry"
@@ -5660,6 +5683,9 @@
           "oldest_run_id",
           "latest_run_id",
           "is_stale",
+          "coverage_parent",
+          "coverage_parent_row_count",
+          "missing_rows",
           "columns"
         ],
         "title": "TableEntry"

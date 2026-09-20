@@ -1,379 +1,203 @@
-"""派生データ鮮度台帳（infrastructure/derived_data_freshness.py・
-services/derived_data_freshness_service.py）のDB非依存テスト。
-実DBでの集計はtest_derived_data_freshness_repository.py（postgis）が担う。"""
+"""鮮度台帳（`infrastructure/derived_data_freshness.py`）の契約。
+
+この台帳は**対象を宣言から導く**（`source_run_id`を持つ表が派生データ）。表や列が増えても
+手当てが要らないことが値打ちなので、ここで見るのは個々の表の名前ではなく、導出の規則が
+全ての派生表に対して成り立つことである。
+"""
 
 from dataclasses import replace
-from datetime import datetime, timezone
 
-from app.batch.precompute_edge_attribute_counts import ALGORITHM_VERSION as EDGE_ALGORITHM_VERSION
-from app.batch.precompute_way_attribute_counts import ALGORITHM_VERSION as WAY_ALGORITHM_VERSION
-from app.batch.precompute_way_landcover import ALGORITHM_VERSION as LANDCOVER_ALGORITHM_VERSION
-from app.infrastructure import derived_data_freshness
+import pytest
+
 from app.infrastructure.derived_data_freshness import (
-    COMPLETENESS_SPECS,
-    PRECOMPUTE_NOT_IN_LEDGER,
-    GENERATION_FRESHNESS_SPECS,
-    CompletenessCounts,
-    DerivedDataFreshnessCounts,
-    GenerationFreshnessCounts,
-    build_completeness_sql,
-    completeness_spec,
-    build_generation_freshness_sql,
+    SOURCE_RUN_COLUMN,
+    ColumnCompleteness,
+    Coverage,
+    DerivedDataFreshness,
+    TableFreshness,
+    build_coverage_sql,
+    build_table_sql,
+    counts_as_uncalculated,
+    covered_source,
+    coverage_parent,
+    derived_tables,
+    parent_derived_table,
+    value_columns,
 )
 from app.services.derived_data_freshness_service import build_freshness_report
 
-COMPUTED_AT = datetime(2026, 9, 4, tzinfo=timezone.utc)
-
-
-def _batches_in_ledger() -> set[str]:
-    """台帳のどちらかの枠に載っているバッチ。世代比較（系譜列を持つ）と完成度（持たない）で
-    枠は違うが、「陳腐化が管理画面に現れる」という点では同じ扱いでよい。"""
-    return {
-        spec.algorithm_version_owner.split(".", 1)[0]
-        for spec in GENERATION_FRESHNESS_SPECS
-        if spec.algorithm_version_owner is not None
-    } | {spec.owner for spec in COMPLETENESS_SPECS}
-
-
-def _edge_counts(
-    *,
-    accident_min: int | None = 10,
-    accident_null: int = 0,
-    osm_min: int | None = 10,
-    osm_null: int = 0,
-    algorithm_version_min: str | None = EDGE_ALGORITHM_VERSION,
-    algorithm_version_null: int = 0,
-    row_count: int = 5,
-) -> GenerationFreshnessCounts:
-    return GenerationFreshnessCounts(
-        latest_available={},
-        table_name="edge_attribute_counts",
-        row_count=row_count,
-        source_min={
-            "source_accident_import_run_id": accident_min,
-            "source_osm_import_run_id": osm_min,
-        },
-        source_null_count={
-            "source_accident_import_run_id": accident_null,
-            "source_osm_import_run_id": osm_null,
-        },
-        algorithm_version_min=algorithm_version_min,
-        algorithm_version_null_count=algorithm_version_null,
-    )
-
-
-def _way_counts(**kwargs) -> GenerationFreshnessCounts:
-    kwargs.setdefault("algorithm_version_min", WAY_ALGORITHM_VERSION)
-    counts = _edge_counts(**kwargs)
-    return GenerationFreshnessCounts(
-        latest_available={},
-        table_name="way_attribute_counts",
-        row_count=counts.row_count,
-        source_min=counts.source_min,
-        source_null_count=counts.source_null_count,
-        algorithm_version_min=counts.algorithm_version_min,
-        algorithm_version_null_count=counts.algorithm_version_null_count,
-    )
-
-
-def _designation_counts(
-    *, osm_min: int | None = 10, osm_null: int = 0, row_count: int = 5
-) -> GenerationFreshnessCounts:
-    return GenerationFreshnessCounts(
-        latest_available={},
-        table_name="designation_attributes",
-        row_count=row_count,
-        source_min={"source_osm_import_run_id": osm_min},
-        source_null_count={"source_osm_import_run_id": osm_null},
-        algorithm_version_min=None,
-        algorithm_version_null_count=0,
-    )
-
-
-def _landcover_counts(
-    *,
-    osm_min: int | None = 10,
-    osm_null: int = 0,
-    algorithm_version_min: str | None = LANDCOVER_ALGORITHM_VERSION,
-    algorithm_version_null: int = 0,
-    row_count: int = 5,
-) -> GenerationFreshnessCounts:
-    return GenerationFreshnessCounts(
-        latest_available={},
-        table_name="way_landcover",
-        row_count=row_count,
-        source_min={"source_osm_import_run_id": osm_min},
-        source_null_count={"source_osm_import_run_id": osm_null},
-        algorithm_version_min=algorithm_version_min,
-        algorithm_version_null_count=algorithm_version_null,
-    )
-
-
-def _default_counts(spec, *, latest: int = 10) -> GenerationFreshnessCounts:
-    """specの宣言どおりの「鮮度に問題が無い」状態。
-
-    テーブルごとの固定値を書き並べず、`GENERATION_FRESHNESS_SPECS`から組み立てる——
-    書き並べると、台帳へ1件足したときにこのヘルパだけが取り残され、
-    `build_freshness_report`のzip(strict=True)が落ちるまで気づけない。
-    """
-    return GenerationFreshnessCounts(
-        latest_available={source.source_column: latest for source in spec.sources},
-        table_name=spec.table_name,
-        row_count=5,
-        source_min={source.source_column: latest for source in spec.sources},
-        source_null_count={source.source_column: 0 for source in spec.sources},
-        algorithm_version_min=spec.algorithm_version_current,
-        algorithm_version_null_count=0,
-    )
-
-
-def _counts(
-    *,
-    edge=None,
-    way=None,
-    designation=None,
-    landcover=None,
-    latest_accident: int | None = 10,
-    latest_osm: int | None = 10,
-    population: int = 5,
-    uncalculated: int = 0,
-) -> DerivedDataFreshnessCounts:
-    overrides = {
-        counts.table_name: counts
-        for counts in (edge, way, designation, landcover)
-        if counts is not None
-    }
-    def _with_latest(counts: GenerationFreshnessCounts, spec) -> GenerationFreshnessCounts:
-        # 高水位はテーブルごとに持つ（同じ取込runでも、何を書いたかで古くなるテーブルが
-        # 変わる）。テストの側で書き並べず、specの情報源から組み立てる。
-        return replace(
-            counts,
-            latest_available={
-                source.source_column: (
-                    latest_accident if source.run_table == "accident_import_runs" else latest_osm
-                )
-                for source in spec.sources
-            },
-        )
-
-    return DerivedDataFreshnessCounts(
-        generations=tuple(
-            _with_latest(overrides.get(spec.table_name) or _default_counts(spec), spec)
-            for spec in GENERATION_FRESHNESS_SPECS
-        ),
-        completeness=tuple(
-            CompletenessCounts(label=spec.label, population=population, uncalculated=uncalculated)
-            for spec in COMPLETENESS_SPECS
-        ),
-    )
-
-
-# --- 宣言テーブルの構造 ---
+from datetime import datetime, timezone
 
+DERIVED = derived_tables()
 
-def test_every_precompute_batch_is_in_the_ledger_or_has_a_reason():
-    """事前計算バッチが、世代台帳に載っているか載せない理由が書かれているか。
-
-    母集団は`app/batch/precompute_*.py`の**すべて**。台帳に並ぶテーブル名を書き写す形だと、
-    新しいバッチが台帳へ載らなくても「今あるものが今あるものと一致する」で通ってしまう。
-    母集団を「`ALGORITHM_VERSION`を宣言しているもの」に絞る形にも同じ穴がある——版数を
-    宣言しなければ台帳に載らなくても検査を通り抜けられる。
-    """
-    import pathlib
 
-    batch_dir = pathlib.Path(derived_data_freshness.__file__).resolve().parents[1] / "batch"
-    batches = {path.stem for path in sorted(batch_dir.glob("precompute_*.py"))}
-
-    unregistered = batches - _batches_in_ledger() - set(PRECOMPUTE_NOT_IN_LEDGER)
+# --- 対象の導出 -------------------------------------------------------------
 
-    assert not unregistered, (
-        f"{sorted(unregistered)}が台帳に無い。世代比較ができるならGENERATION_FRESHNESS_SPECSへ、"
-        "系譜列を持たないならCOMPLETENESS_SPECSへ追加するか、どちらにも載せない理由を"
-        "PRECOMPUTE_NOT_IN_LEDGERへ書くこと。"
-    )
+def test_派生表は宣言から導かれる():
+    """1つでも導けていないと、その表の鮮度は永久に画面へ出ない。"""
+    assert DERIVED, "source_run_idを持つ表が1つも無い"
+    for table in DERIVED:
+        assert SOURCE_RUN_COLUMN in table.c
 
 
-def test_the_exclusion_list_does_not_name_batches_that_are_gone():
-    # 除外の理由だけが残り続けるのを防ぐ（母集団側から消えたら、台帳へ載ったら、除外も要らない）。
-    import pathlib
+def test_系譜を持たない表は対象に入らない():
+    """生データ（`source_features`）自身や軸定義まで数えると、鮮度の意味が変わる。"""
+    names = {table.name for table in DERIVED}
+    assert "source_features" not in names
+    assert "source_runs" not in names
 
-    batch_dir = pathlib.Path(derived_data_freshness.__file__).resolve().parents[1] / "batch"
-    batches = {path.stem for path in sorted(batch_dir.glob("precompute_*.py"))}
 
-    assert not (set(PRECOMPUTE_NOT_IN_LEDGER) & _batches_in_ledger())
-    assert set(PRECOMPUTE_NOT_IN_LEDGER) <= batches, "消えたバッチの除外理由が残っている"
+@pytest.mark.parametrize("table", DERIVED, ids=lambda t: t.name)
+def test_値の列は鍵と系譜を含まない(table):
+    """鍵はNULLになりえず、系譜は値ではない。数えると常に「未計算0件」の行が並ぶ。"""
+    keys = {column.name for column in table.primary_key.columns} | {SOURCE_RUN_COLUMN}
+    assert keys.isdisjoint(value_columns(table))
 
 
-def test_algorithm_version_value_and_owner_are_declared_together():
-    # 片方だけ埋まっていると、集計SQLはalgorithm_version列を読むのに画面がどのバッチの
-    # 責任かを示せない（またはその逆）。どちらが欠けても鮮度の読み手が迷子になる。
-    for spec in GENERATION_FRESHNESS_SPECS:
-        assert (spec.algorithm_version_current is None) == (spec.algorithm_version_owner is None), spec.table_name
+@pytest.mark.parametrize("table", DERIVED, ids=lambda t: t.name)
+def test_値の列が1本以上ある(table):
+    assert value_columns(table)
 
 
-def test_build_completeness_sql_counts_the_population_and_the_uncalculated_rows():
-    # 述語は宣言のものをそのまま使う（列名・条件を書き写すと宣言と実際の集計がずれる）。
-    for spec in COMPLETENESS_SPECS:
-        sql = str(build_completeness_sql(spec))
-        assert f"FROM {spec.population_table}" in sql
-        assert f"FILTER (WHERE ({spec.in_scope}) AND ({spec.uncalculated}))" in sql
-        assert "count(*) AS population" in sql
+# --- 集計SQLの組み立て -------------------------------------------------------
 
+@pytest.mark.parametrize("table", DERIVED, ids=lambda t: t.name)
+def test_集計SQLは宣言にある名前だけで組む(table):
+    """列名を外部入力から組まないこと。ここが崩れると管理APIがSQL注入の口になる。"""
+    sql = build_table_sql(table)
+    declared = {column.name for column in table.columns}
+    for name in value_columns(table):
+        assert f"count(*) FILTER (WHERE {name} IS NULL) AS null_{name}" in sql
+        assert name in declared
+    assert sql.endswith(f"FROM {table.name}")
 
-def test_completeness_specs_declare_the_batch_that_fills_them():
-    # 未計算が残っていることだけ分かっても、回すバッチが分からなければ動けない。
-    for spec in COMPLETENESS_SPECS:
-        assert spec.owner.startswith("precompute_")
 
+@pytest.mark.parametrize("table", DERIVED, ids=lambda t: t.name)
+def test_集計SQLは1回の走査で済ませる(table):
+    """表ごとに列の本数ぶんクエリを投げると、管理APIの1回が数十クエリになる。"""
+    assert build_table_sql(table).count("SELECT") == 1
 
-def test_build_generation_freshness_sql_has_one_column_pair_per_source():
-    spec = GENERATION_FRESHNESS_SPECS[0]  # edge_attribute_counts
-    sql = build_generation_freshness_sql(spec).text
 
-    assert sql.startswith("SELECT count(*) AS row_count")
-    assert "FROM edge_attribute_counts" in sql
-    for source in spec.sources:
-        assert f"MIN({source.source_column}) AS {source.source_column}_min" in sql
-        assert f"{source.source_column}_null_count" in sql
-    assert "algorithm_version_min" in sql
+# --- NULLの意味 -------------------------------------------------------------
 
+def test_印の無い列は未計算として数える():
+    """印の付け忘れは「鳴りすぎる」側へ倒れる。黙って見逃す側へ倒れてはいけない。"""
+    table = DERIVED[0]
+    name = next(n for n in value_columns(table) if not table.c[n].info.get("null_means_absent"))
+    assert counts_as_uncalculated(table, name) is True
 
-def test_build_generation_freshness_sql_omits_algorithm_version_when_unsupported():
-    spec = GENERATION_FRESHNESS_SPECS[2]  # designation_attributes
-    sql = build_generation_freshness_sql(spec).text
 
-    assert "algorithm_version" not in sql
+def test_確定して値が無い列は数えない():
+    """`ABSENT_OK`を付けた列（橋の勾配・指定のない道など）。"""
+    marked = [(table, name) for table in DERIVED for name in value_columns(table)
+              if table.c[name].info.get("null_means_absent")]
+    assert marked, "ABSENT_OKの列が1つも無い（印の仕組みが効いていない）"
+    for table, name in marked:
+        assert counts_as_uncalculated(table, name) is False
 
 
-# --- is_stale判定（純関数） ---
+# --- 古さの判定 -------------------------------------------------------------
 
+def _table(oldest: int | None, latest: int | None) -> TableFreshness:
+    return TableFreshness(table_name="t", row_count=1, oldest_run_id=oldest,
+                          source="osm_way", latest_run_id=latest, columns=())
 
-def test_report_is_fresh_when_earliest_reflected_matches_latest_available():
-    report = build_freshness_report(_counts(), COMPUTED_AT)
 
-    for entry in report.generations:
-        assert entry.is_stale is False
-        for source in entry.sources:
-            assert source.is_stale is False
-        if entry.algorithm_version is not None:
-            assert entry.algorithm_version.is_stale is False
+@pytest.mark.parametrize(("oldest", "latest", "stale"), [
+    (1, 2, True),    # 生データを取り直したのに派生を流し直していない
+    (2, 2, False),   # 追いついている
+    (3, 2, False),   # 派生の方が新しい（成功runの判定より後に流した）
+    (None, 2, False),  # 行が無い
+    (1, None, False),  # 成功したrunがまだ無い
+])
+def test_古いかどうかは世代の比較で決まる(oldest, latest, stale):
+    assert _table(oldest, latest).is_stale is stale
 
 
-def test_source_is_stale_when_earliest_reflected_is_older_than_latest_available():
-    report = build_freshness_report(_counts(edge=_edge_counts(osm_min=8), latest_osm=10), COMPUTED_AT)
-    edge_entry = next(e for e in report.generations if e.table_name == "edge_attribute_counts")
-    osm_source = next(s for s in edge_entry.sources if s.run_table == "osm_import_runs")
+# --- レポートの組み立て -----------------------------------------------------
 
-    assert osm_source.is_stale is True
-    assert edge_entry.is_stale is True
+def _report(column: ColumnCompleteness):
+    freshness = DerivedDataFreshness(tables=(replace(_table(1, 1), columns=(column,)),))
+    return build_freshness_report(freshness, datetime(2026, 1, 1, tzinfo=timezone.utc))
 
 
-def test_source_is_stale_when_all_rows_have_null_source_run_id():
-    report = build_freshness_report(
-        _counts(edge=_edge_counts(osm_min=None, osm_null=5), latest_osm=10), COMPUTED_AT
-    )
-    edge_entry = next(e for e in report.generations if e.table_name == "edge_attribute_counts")
-    osm_source = next(s for s in edge_entry.sources if s.run_table == "osm_import_runs")
-
-    assert osm_source.is_stale is True
-    assert osm_source.null_count == 5
-
-
-def test_source_is_not_stale_when_no_succeeded_run_exists_yet():
-    # 対応するimport_runsに成功run自体が無い（latest_available=None）環境では、
-    # 比較対象が無いためstale判定はしない。
-    report = build_freshness_report(_counts(latest_accident=None, latest_osm=None), COMPUTED_AT)
-
-    for entry in report.generations:
-        for source in entry.sources:
-            assert source.is_stale is False
-
-
-def test_algorithm_version_is_stale_when_oldest_recorded_differs_from_current():
-    report = build_freshness_report(_counts(edge=_edge_counts(algorithm_version_min="v0")), COMPUTED_AT)
-    edge_entry = next(e for e in report.generations if e.table_name == "edge_attribute_counts")
-
-    assert edge_entry.algorithm_version.is_stale is True
-    assert edge_entry.is_stale is True
-
-
-def test_algorithm_version_is_not_stale_when_table_is_empty():
-    # 行が1件も無いテーブルでalgorithm_version_minがNoneになるのは「データ自体が無い」
-    # だけであり、アルゴリズム版数の不一致とは別問題（sourceチェック側で既にstale扱いになる）。
-    report = build_freshness_report(
-        _counts(edge=_edge_counts(row_count=0, algorithm_version_min=None, accident_min=None, osm_min=None)),
-        COMPUTED_AT,
-    )
-    edge_entry = next(e for e in report.generations if e.table_name == "edge_attribute_counts")
-
-    assert edge_entry.algorithm_version.is_stale is False
-
-
-def test_designation_entry_has_no_algorithm_version():
-    report = build_freshness_report(_counts(), COMPUTED_AT)
-    designation_entry = next(e for e in report.generations if e.table_name == "designation_attributes")
-
-    assert designation_entry.algorithm_version is None
-    assert len(designation_entry.sources) == 1
-    assert designation_entry.sources[0].run_table == "osm_import_runs"
-
-
-def test_report_carries_completeness_separately_from_generation_entries():
-    report = build_freshness_report(_counts(population=100, uncalculated=7), COMPUTED_AT)
-
-    assert [entry.label for entry in report.completeness] == [spec.label for spec in COMPLETENESS_SPECS]
-    for entry in report.completeness:
-        assert entry.population == 100
-        assert entry.uncalculated_count == 7
-        assert entry.is_incomplete is True
-    assert report.computed_at == COMPUTED_AT
-    assert len(report.generations) == len(GENERATION_FRESHNESS_SPECS)
-
-
-def test_completeness_is_not_incomplete_when_nothing_is_uncalculated():
-    report = build_freshness_report(_counts(population=100, uncalculated=0), COMPUTED_AT)
-
-    assert all(entry.is_incomplete is False for entry in report.completeness)
-
-
-def test_completeness_entries_carry_the_batch_to_rerun_and_its_caveat():
-    # 未計算が残っていると分かっても、どのバッチを回せばよいか画面から分からなければ動けない。
-    report = build_freshness_report(_counts(population=100, uncalculated=3), COMPUTED_AT)
-
-    by_label = {entry.label: entry for entry in report.completeness}
-    for spec in COMPLETENESS_SPECS:
-        assert by_label[spec.label].owner == spec.owner
-        assert by_label[spec.label].note == spec.note
-
-    # 未計算を厳密に表せない列は但し書きを持つ（road_nodes.degreeはNOT NULL DEFAULT 0）。
-    assert any(entry.note for entry in report.completeness)
-
-
-def test_owner_batches_select_their_targets_from_the_declared_scope():
-    """バッチの対象条件と台帳の未計算判定が、同じ宣言から出ていること。
-
-    別々に持つと、バッチが永久に計算しない行を台帳が未計算として数え続ける。台帳は
-    「すべて最新」へ到達できなくなり、常に出続ける警告は読まれなくなる。ここが通らなく
-    なったら、条件をバッチ側へ書き写したということ。
-    """
-    import importlib
-
-    for spec in COMPLETENESS_SPECS:
-        module = importlib.import_module(f"app.batch.{spec.owner}")
-        target_stmt = getattr(module, "target_stmt", None)
-        if spec.in_scope == "TRUE":
-            # 全行が対象のバッチは揃えるものが無い（対象を選ぶselectを持たない実装もある）。
+@pytest.mark.parametrize(("null_count", "counts", "incomplete"), [
+    (3, True, True),    # 未計算が残っている
+    (0, True, False),   # 全部計算済み
+    (3, False, False),  # NULLだが「確定して値が無い」列
+])
+def test_未計算の判定は件数と印の両方を見る(null_count, counts, incomplete):
+    report = _report(ColumnCompleteness(column="c", null_count=null_count,
+                                        counts_as_uncalculated=counts))
+    entry = report.tables[0].columns[0]
+    assert entry.is_incomplete is incomplete
+    assert entry.null_count == null_count, "鳴らさない列でも件数は返す"
+
+
+# --- 被覆（行そのものが無いケース）---------------------------------------
+
+def test_覆うことを宣言した表だけが母数を持つ():
+    """印の無い表まで測ると、設計どおり行を作らなかったぶんが欠けとして鳴り続ける。"""
+    declared = {table.name for table in DERIVED if covered_source(table)}
+    assert declared, "coversを宣言した表が1つも無い"
+    for table in DERIVED:
+        if covered_source(table) is None and parent_derived_table(table) is None:
+            assert build_coverage_sql(table) is None
+            assert coverage_parent(table) is None
+
+
+def test_親は自分の主キーが指す先だけ():
+    """主キー以外の列のFK（区間の端点→ノード）を母数にすると、覆っていない側を欠けとして
+    数える。`road_edges`は端点で`node_materials`を指すが、親ではない。"""
+    for table in DERIVED:
+        parent = parent_derived_table(table)
+        if parent is None:
             continue
-        assert target_stmt is not None, f"{spec.owner}: 対象条件を持つなら target_stmt を公開すること"
-        assert spec.in_scope in " ".join(str(target_stmt()).split()), (
-            f"{spec.owner}: 対象を選ぶselectが宣言の in_scope を使っていない"
-        )
+        _, columns = parent
+        assert [child for _, child in columns] == [c.name for c in table.primary_key.columns]
 
 
-def test_completeness_sql_excludes_rows_the_batch_cannot_process():
-    """未計算の集計が`in_scope`で絞られていること（母集団は絞らない）。"""
-    spec = completeness_spec("elevation_attributes")
-    sql = " ".join(str(build_completeness_sql(spec)).split())
+def test_生データの母数はソース名で絞る():
+    """絞らないと`source_features`の全ソース（標高タイル・事故点）まで母数に入る。"""
+    table = next(t for t in DERIVED if covered_source(t))
+    sql = build_coverage_sql(table)
+    assert "WHERE f.source = :source" in sql
 
-    assert f"FILTER (WHERE ({spec.in_scope}) AND ({spec.uncalculated}))" in sql
-    assert "count(*) AS population," in sql  # 母集団は全件のまま
+
+@pytest.mark.parametrize("table", DERIVED, ids=lambda t: t.name)
+def test_被覆SQLは宣言にある名前だけで組む(table):
+    sql = build_coverage_sql(table)
+    if sql is None:
+        return
+    declared = {column.name for column in table.columns}
+    quoted = [word for word in sql.replace("(", " ").replace(")", " ").split()
+              if word.startswith("d.")]
+    for word in quoted:
+        assert word.removeprefix("d.") in declared
+
+
+@pytest.mark.parametrize(("missing", "expected"), [(0, False), (1, True)])
+def test_行が無いことは鮮度でも完成度でも分からない(missing, expected):
+    """行が無ければ`source_run_id`は古くならず、値の列もNULLにならない。"""
+    table = replace(_table(2, 2), coverage=Coverage(parent="osm_way", parent_row_count=10,
+                                                    missing_rows=missing))
+    assert table.is_stale is False
+    assert table.has_missing_rows is expected
+
+
+def test_レポートは母数と欠けをそのまま渡す():
+    freshness = DerivedDataFreshness(tables=(
+        replace(_table(1, 1),
+                coverage=Coverage(parent="osm_way", parent_row_count=12029, missing_rows=3)),))
+    entry = build_freshness_report(freshness, datetime(2026, 1, 1, tzinfo=timezone.utc)).tables[0]
+
+    assert (entry.coverage_parent, entry.coverage_parent_row_count, entry.missing_rows) == (
+        "osm_way", 12029, 3)
+
+
+def test_覆わない表はNoneのまま渡る():
+    entry = build_freshness_report(
+        DerivedDataFreshness(tables=(_table(1, 1),)),
+        datetime(2026, 1, 1, tzinfo=timezone.utc)).tables[0]
+
+    assert (entry.coverage_parent, entry.missing_rows) == (None, None)

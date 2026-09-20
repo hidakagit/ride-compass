@@ -9,17 +9,7 @@ from types import SimpleNamespace
 import shapely
 from shapely.geometry import LineString
 
-from app.infrastructure.road_graph_repository import (
-    MATERIAL_ARRAY_COLUMN_ORDER,
-    _REVERSED_ELEVATION_COLUMNS,
-    _rows_to_directed_edges,
-    _topology_rows_to_road_graph,
-    edge_feature_key,
-    edge_key,
-    node_key,
-    parse_edge_feature_key,
-    reversed_material_expression,
-)
+from app.infrastructure.road_graph_repository import MATERIAL_ARRAY_COLUMN_ORDER, _REVERSED_ELEVATION_COLUMNS, _rows_to_directed_edges, _topology_rows_to_road_graph, edge_key, node_key, parse_edge_feature_key, reversed_material_expression
 
 
 def _node(osm_node_id: int, lat: float = 35.0, lon: float = 139.0):
@@ -35,9 +25,6 @@ def _edge(direction: str = "both", from_node: int = 1, to_node: int = 2):
 
 
 # --- 鍵 ---------------------------------------------------------------------
-
-def test_区間の鍵は往復する():
-    assert parse_edge_feature_key(edge_feature_key(12345, 7)) == (12345, 7)
 
 
 def test_way丸ごとの鍵は区間の鍵として読まない():

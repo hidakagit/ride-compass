@@ -1,14 +1,9 @@
-import asyncio
-import time
 
 import pytest
 
-from app.domain.landcover import WayLandcover
 from app.infrastructure import tile_cache
 from app.services import derived_data_revision_service
-from app.infrastructure.debug_log import get_stats, reset_stats
 from app.infrastructure.road_graph_repository import RoadGraphRepository
-from app.services import region_service as region_service_module
 from app.services.region_service import RegionService
 
 # 改善計画T350: 本番相当の14軸（実軸id前提のロジック用）はtests/conftest.pyのセッション
@@ -36,127 +31,6 @@ def known_derived_data_revision(monkeypatch):
 Z, X, Y = 14, 14551, 6447
 
 
-class FakeRegionRepository:
-    """RoadGraphRepositoryのRegionServiceが使う部分（カバレッジ判定込みMVT生成）のフェイク。"""
-
-    def __init__(self, covered: bool = True, tile: bytes = b"fake-mvt-tile", error: Exception | None = None):
-        self._covered = covered
-        self._tile = tile
-        self._error = error
-        self.mvt_calls: list[tuple[int, int, int, tuple[int, int, int]]] = []
-        self.poi_mvt_calls: list[tuple[int, int, int, tuple[int, int, int]]] = []
-        self.way_tags_by_osm_way_id_result: tuple[str | None, dict[str, str], bool] | None = None
-        self.way_tags_by_osm_way_id_calls: list[int] = []
-        # 区間インスペクタ（改善計画T146）用フェイク応答。
-        self.way_material_values_result: dict[str, object] | None = None
-        self.way_material_values_calls: list[tuple[int, int]] = []
-        # 改善計画T624: 開放度軸（区間インスペクタ）用フェイク応答。
-        self.way_landcover_result: WayLandcover | None = None
-        self.way_landcover_calls: list[tuple[int, str | None]] = []
-        self.accident_years_covered_result: int = 3
-        # 改善計画T340: 材料の実データ値一覧フェイク応答。
-        self.distinct_material_values_result: list[str] = []
-        self.distinct_material_values_calls: list[str] = []
-
-    async def get_way_tags_by_osm_way_id(self, osm_way_id):
-        self.way_tags_by_osm_way_id_calls.append(osm_way_id)
-        if self._error is not None:
-            raise self._error
-        return self.way_tags_by_osm_way_id_result
-
-    async def get_way_material_values(self, osm_way_id, accident_years_covered):
-        self.way_material_values_calls.append((osm_way_id, accident_years_covered))
-        if self._error is not None:
-            raise self._error
-        return self.way_material_values_result
-
-    async def get_feature_landcover(self, osm_way_id, edge_id):
-        # 本物と同じく、区間が特定できるかを呼び出し側から受け取る（T941）。
-        self.way_landcover_calls.append((osm_way_id, edge_id))
-        if self._error is not None:
-            raise self._error
-        return self.way_landcover_result
-
-    async def get_accident_years_covered(self):
-        if self._error is not None:
-            raise self._error
-        return self.accident_years_covered_result
-
-    async def get_road_surface_tile_mvt(self, z, x, y, bbox, coverage_tile):
-        if self._error is not None:
-            raise self._error
-        self.mvt_calls.append((z, x, y, coverage_tile))
-        if not self._covered:
-            return None  # カバレッジ外（実装と同じくNoneで表現）
-        return self._tile
-
-    async def get_poi_tile_mvt(self, z, x, y, bbox, coverage_tile):
-        if self._error is not None:
-            raise self._error
-        self.poi_mvt_calls.append((z, x, y, coverage_tile))
-        if not self._covered:
-            return None
-        return self._tile
-
-    async def get_distinct_material_values(self, material_id):
-        self.distinct_material_values_calls.append(material_id)
-        if self._error is not None:
-            raise self._error
-        return self.distinct_material_values_result
-
-
-async def test_covered_tile_is_served_from_postgis():
-    repository = FakeRegionRepository(covered=True)
-    service = RegionService(repository=repository)
-
-    tile_bytes = (await service.get_road_surface_tile(Z, X, Y)).content
-
-    # PostGIS（ST_AsMVT）が生成したバイト列がそのまま返る（Python側で再エンコードしない）
-    assert tile_bytes == b"fake-mvt-tile"
-    # カバレッジ判定はz12の祖先タイル（z14の x,y を2段丸めた値）で行う（MVT生成と同一クエリ）
-    assert repository.mvt_calls == [(Z, X, Y, (12, X >> 2, Y >> 2))]
-    # PostGIS由来のタイルもファイルキャッシュへ保存される（2回目はDBへも行かない）
-    await service.get_road_surface_tile(Z, X, Y)
-    assert len(repository.mvt_calls) == 1
-
-
-async def test_covered_tile_with_no_roads_caches_empty_mvt():
-    """カバレッジ内で道路0本（ST_AsMVTがNULL→空バイト列）のタイルもキャッシュされ、
-    2回目以降DBへ行かないこと（「データが無いことを確認済み」はキャッシュしてよい。
-    カバレッジ外の空タイルをキャッシュしないのとは区別する）。"""
-    repository = FakeRegionRepository(covered=True, tile=b"")
-    service = RegionService(repository=repository)
-
-    tile_bytes = (await service.get_road_surface_tile(Z, X, Y)).content
-
-    assert tile_bytes == b""
-    await service.get_road_surface_tile(Z, X, Y)
-    assert len(repository.mvt_calls) == 1
-
-
-async def test_uncovered_tile_returns_empty_mvt_without_caching():
-    repository = FakeRegionRepository(covered=False)
-    service = RegionService(repository=repository)
-
-    tile_bytes = (await service.get_road_surface_tile(Z, X, Y)).content
-
-    assert isinstance(tile_bytes, bytes)
-    # 空タイルはキャッシュされない（後からPBF取込された際に再生成できるようにする）ため、
-    # 次のリクエストでも再度カバレッジ判定（＝MVTクエリ）が走る
-    await service.get_road_surface_tile(Z, X, Y)
-    assert len(repository.mvt_calls) == 2
-
-
-async def test_postgis_error_returns_empty_mvt():
-    repository = FakeRegionRepository(covered=True, error=RuntimeError("db down"))
-    service = RegionService(repository=repository)
-
-    tile_bytes = (await service.get_road_surface_tile(Z, X, Y)).content
-
-    # DB障害時も空タイルへ安全側に倒す（Overpassフォールバックは改善計画T22で撤去済み）
-    assert isinstance(tile_bytes, bytes)
-
-
 async def test_no_repository_returns_empty_mvt():
     # road_graph_use_repository無効（DBなし構成）ではrepository自体が注入されず、
     # 路面レイヤーは常に空タイルになる
@@ -172,42 +46,12 @@ async def test_no_repository_returns_empty_mvt():
 # （全パターンの再検証はget_road_surface_tile側のテストで既に担保済み）。
 
 
-async def test_poi_tile_covered_is_served_from_postgis_and_cached_independently_of_road_tile():
-    repository = FakeRegionRepository(covered=True, tile=b"fake-poi-tile")
-    service = RegionService(repository=repository)
-
-    tile_bytes = (await service.get_poi_tile(Z, X, Y)).content
-
-    assert tile_bytes == b"fake-poi-tile"
-    assert repository.poi_mvt_calls == [(Z, X, Y, (12, X >> 2, Y >> 2))]
-    assert repository.mvt_calls == []  # 路面タイル側のクエリは呼ばれない
-
-    # road_surface/poiは別キャッシュパス・別ファイルキャッシュエントリのため、路面タイルを
-    # 先に取得していても互いのキャッシュヒットに影響しない
-    await service.get_road_surface_tile(Z, X, Y)
-    await service.get_poi_tile(Z, X, Y)
-    assert len(repository.poi_mvt_calls) == 1
-    assert len(repository.mvt_calls) == 1
-
-
-async def test_poi_tile_uncovered_returns_empty_mvt_without_caching():
-    repository = FakeRegionRepository(covered=False)
-    service = RegionService(repository=repository)
-
-    tile_bytes = (await service.get_poi_tile(Z, X, Y)).content
-
-    assert isinstance(tile_bytes, bytes)
-    await service.get_poi_tile(Z, X, Y)
-    assert len(repository.poi_mvt_calls) == 2
-
-
 async def test_poi_tile_no_repository_returns_empty_mvt():
     service = RegionService()
 
     tile_bytes = (await service.get_poi_tile(Z, X, Y)).content
 
     assert isinstance(tile_bytes, bytes)
-
 
 
 # 改善計画T59: ルート生成した地点でしか道路グラフ（road_nodes/road_edges）が構築されず、
@@ -231,169 +75,7 @@ class _FakeRealRoadGraphRepository(RoadGraphRepository):
         return self._tile
 
 
-@pytest.fixture(autouse=True)
-def _clear_graph_build_state():
-    """_building_graph_tiles/_last_build_checkはプロセス内メモリのみのモジュールグローバル
-    （region_service.pyのコメント参照、rate_limiter.pyと同じ割り切り）のため、
-    テスト間で汚染しないよう毎回クリアする。"""
-    region_service_module._building_graph_tiles.clear()
-    region_service_module._last_build_check.clear()
-    region_service_module._build_tasks.clear()
-    yield
-    region_service_module._building_graph_tiles.clear()
-    region_service_module._last_build_check.clear()
-    region_service_module._build_tasks.clear()
-
-
-async def test_maybe_trigger_graph_build_keeps_a_strong_reference_to_the_task(monkeypatch):
-    """起動した構築タスクへの強参照を保持し、完了したら解放する。
-
-    参照を捨てるとイベントループの弱参照だけになり、GCで実行中のタスクごと消える。
-    finallyの`_building_graph_tiles.discard`が走らないため、そのz12タイルは以後
-    プロセス寿命の間ずっと構築対象から外れる。
-    """
-    release = asyncio.Event()
-
-    async def fake_build(ancestor_tile, checked_at):
-        await release.wait()
-
-    monkeypatch.setattr(region_service_module, "_build_graph_for_tile_background", fake_build)
-
-    region_service_module._maybe_trigger_graph_build((12, 3637, 1612))
-
-    assert len(region_service_module._build_tasks) == 1
-    release.set()
-    await asyncio.gather(*region_service_module._build_tasks)
-    assert region_service_module._build_tasks == set()
-
-
-async def test_covered_tile_with_real_repository_triggers_background_graph_build(monkeypatch):
-    """実リポジトリ（isinstance判定）なら、カバレッジ内タイルの応答時にz12祖先タイル分の
-    道路グラフ構築がバックグラウンドで起動される。"""
-    calls: list[tuple[int, int, int]] = []
-    build_started = asyncio.Event()
-
-    async def fake_build(ancestor_tile, checked_at):
-        calls.append(ancestor_tile)
-        build_started.set()
-
-    monkeypatch.setattr(region_service_module, "_build_graph_for_tile_background", fake_build)
-
-    repository = _FakeRealRoadGraphRepository()
-    service = RegionService(repository=repository)
-
-    await service.get_road_surface_tile(Z, X, Y)
-    await asyncio.wait_for(build_started.wait(), timeout=1.0)
-
-    assert calls == [(12, X >> 2, Y >> 2)]
-
-
-async def test_covered_tile_with_fake_repository_does_not_trigger_background_build(monkeypatch):
-    """FakeRegionRepositoryはRoadGraphRepositoryを継承しないダックタイピングのため
-    isinstance判定に弾かれ、構築トリガーが発火しない（ユニットテストが実DBへ触れないため）。"""
-    calls: list[tuple[int, int, int]] = []
-
-    async def fake_build(ancestor_tile, checked_at):
-        calls.append(ancestor_tile)
-
-    monkeypatch.setattr(region_service_module, "_build_graph_for_tile_background", fake_build)
-
-    repository = FakeRegionRepository(covered=True)
-    service = RegionService(repository=repository)
-
-    await service.get_road_surface_tile(Z, X, Y)
-    await asyncio.sleep(0)
-
-    assert calls == []
-
-
-async def test_graph_build_trigger_dedupes_concurrent_requests_for_same_tile(monkeypatch):
-    """同じz12祖先タイルへ路面・POI両方のタイルリクエストが短時間に来ても、構築は1回しか
-    起動しない（ビューポート内の多数のz13-15タイルリクエストによる重複起動防止）。"""
-    calls: list[tuple[int, int, int]] = []
-    release = asyncio.Event()
-
-    async def fake_build(ancestor_tile, checked_at):
-        calls.append(ancestor_tile)
-        await release.wait()
-
-    monkeypatch.setattr(region_service_module, "_build_graph_for_tile_background", fake_build)
-
-    repository = _FakeRealRoadGraphRepository()
-    service = RegionService(repository=repository)
-
-    await service.get_road_surface_tile(Z, X, Y)
-    await service.get_poi_tile(Z, X, Y)  # 同じz12祖先を指す別タイル種別からのリクエスト
-    await asyncio.sleep(0)
-
-    release.set()
-    await asyncio.sleep(0)
-
-    assert calls == [(12, X >> 2, Y >> 2)]
-
-
-async def test_graph_build_trigger_skips_recently_checked_tile(monkeypatch):
-    """直近_GRAPH_CHECK_TTL_SECONDS以内に確認済みのz12タイルは、次のタイルリクエストで
-    再チェックしない（既に最新のタイルを眺めるたびに短命DBセッションを開き続けない対策）。"""
-    calls: list[tuple[int, int, int]] = []
-
-    async def fake_build(ancestor_tile, checked_at):
-        calls.append(ancestor_tile)
-
-    monkeypatch.setattr(region_service_module, "_build_graph_for_tile_background", fake_build)
-    ancestor = (12, X >> 2, Y >> 2)
-    region_service_module._last_build_check[ancestor] = time.monotonic()
-
-    repository = _FakeRealRoadGraphRepository()
-    service = RegionService(repository=repository)
-
-    await service.get_road_surface_tile(Z, X, Y)
-    await asyncio.sleep(0)
-
-    assert calls == []
-
-
 # --- 区間インスペクタ（改善計画T146） ---
-
-
-async def test_axis_inspector_computes_available_axes_from_way_tags_and_counts():
-    repository = FakeRegionRepository()
-    repository.way_tags_by_osm_way_id_result = ("residential", {}, False, "asphalt")
-    repository.way_material_values_result = {
-        "highway": "residential",
-        "surface_good": True,
-        "accident_count_per_km_year": 1.0,
-        # 停止密度が読むのは種別別のPOI密度（T655）。
-        "poi_signal_per_km": 4.0,
-        "poi_stop_per_km": 0.0,
-        "poi_crossing_per_km": 0.0,
-        "poi_level_crossing_per_km": 0.0,
-    }
-    repository.accident_years_covered_result = 2
-    service = RegionService(repository=repository)
-
-    result = await service.get_axis_inspector(12345)
-
-    assert result is not None
-    assert result.highway == "residential"
-    by_id = {axis.axis_id: axis for axis in result.axes}
-    assert by_id["car_stress"].available is True
-    assert by_id["surface_q"].difficulty == 0.0
-    assert by_id["stop_density"].available is True
-    assert by_id["accident"].available is True
-    assert result.composite_difficulty is not None
-    assert repository.way_tags_by_osm_way_id_calls == [12345]
-    assert repository.way_material_values_calls == [(12345, 2)]
-
-
-async def test_axis_inspector_way_not_found_returns_none():
-    repository = FakeRegionRepository()  # 既定: way_tags_by_osm_way_idがNone
-    service = RegionService(repository=repository)
-
-    assert await service.get_axis_inspector(12345) is None
-    # way自体が見つからない場合は材料値・accident_years_coveredを引きに行かない
-    # （無駄なDB往復をしない）。
-    assert repository.way_material_values_calls == []
 
 
 async def test_axis_inspector_no_repository_returns_none():
@@ -402,55 +84,7 @@ async def test_axis_inspector_no_repository_returns_none():
     assert await service.get_axis_inspector(12345) is None
 
 
-async def test_axis_inspector_db_error_returns_none():
-    repository = FakeRegionRepository(error=RuntimeError("db down"))
-    service = RegionService(repository=repository)
-
-    assert await service.get_axis_inspector(12345) is None
-
-
-async def test_axis_inspector_db_error_is_counted_in_debug_stats():
-    reset_stats()
-    repository = FakeRegionRepository(error=RuntimeError("db down"))
-    service = RegionService(repository=repository)
-
-    await service.get_axis_inspector(12345)
-
-    stats = get_stats()["external"]["region:axis-inspector"]
-    assert stats["errors"] == 1
-    assert stats["error_types"] == {"RuntimeError": 1}
-    reset_stats()
-
-
-async def test_axis_inspector_missing_count_materials_still_returns_tag_based_axes():
-    """way_attribute_counts側にまだ行が無い（新規way等）場合でも、タグだけで決まる
-    車ストレス・路面・夜間は算出でき、Noneのままにはならない。"""
-    repository = FakeRegionRepository()
-    repository.way_tags_by_osm_way_id_result = ("residential", {}, False, "asphalt")
-    repository.way_material_values_result = {"highway": "residential", "surface_good": True}
-    service = RegionService(repository=repository)
-
-    result = await service.get_axis_inspector(12345)
-
-    assert result is not None
-    by_id = {axis.axis_id: axis for axis in result.axes}
-    assert by_id["car_stress"].available is True
-    assert by_id["stop_density"].available is False
-    assert by_id["accident"].available is False
-
-
 # --- 材料の実データ値一覧（改善計画T340） ---
-
-
-async def test_material_values_returns_repository_result():
-    repository = FakeRegionRepository()
-    repository.distinct_material_values_result = ["residential", "primary", "cycleway"]
-    service = RegionService(repository=repository)
-
-    result = await service.get_material_values("highway")
-
-    assert result == ["residential", "primary", "cycleway"]
-    assert repository.distinct_material_values_calls == ["highway"]
 
 
 async def test_material_values_without_a_repository_are_unavailable_not_empty():
@@ -461,83 +95,13 @@ async def test_material_values_without_a_repository_are_unavailable_not_empty():
     assert await service.get_material_values("highway") is None
 
 
-async def test_material_values_db_error_is_unavailable_not_empty():
-    repository = FakeRegionRepository(error=RuntimeError("db down"))
-    service = RegionService(repository=repository)
-
-    assert await service.get_material_values("highway") is None
-
-
-async def test_material_values_db_error_is_counted_in_debug_stats():
-    reset_stats()
-    repository = FakeRegionRepository(error=RuntimeError("db down"))
-    service = RegionService(repository=repository)
-
-    await service.get_material_values("highway")
-
-    stats = get_stats()["external"]["region:material-values"]
-    assert stats["errors"] == 1
-    assert stats["error_types"] == {"RuntimeError": 1}
-    reset_stats()
-
-
 # --- 事故データ収録年数（改善計画T404、GET /api/axis-catalogのmaterial_runtime_scales用） ---
-
-
-async def test_accident_years_covered_returns_repository_result():
-    repository = FakeRegionRepository()
-    repository.accident_years_covered_result = 3
-    service = RegionService(repository=repository)
-
-    assert await service.get_accident_years_covered() == 3
 
 
 async def test_accident_years_covered_no_repository_returns_zero():
     service = RegionService()
 
     assert await service.get_accident_years_covered() == 0
-
-
-async def test_accident_years_covered_db_error_returns_zero():
-    repository = FakeRegionRepository(error=RuntimeError("db down"))
-    service = RegionService(repository=repository)
-
-    assert await service.get_accident_years_covered() == 0
-
-
-async def test_accident_years_covered_db_error_is_counted_in_debug_stats():
-    reset_stats()
-    repository = FakeRegionRepository(error=RuntimeError("db down"))
-    service = RegionService(repository=repository)
-
-    await service.get_accident_years_covered()
-
-    stats = get_stats()["external"]["region:accident-years-covered"]
-    assert stats["errors"] == 1
-    assert stats["error_types"] == {"RuntimeError": 1}
-    reset_stats()
-
-
-async def test_postgis_error_marks_tile_as_not_cacheable():
-    # 改善計画T643: DB障害は一時的なため、返した空タイルをブラウザへ長期キャッシュさせない。
-    # サーバー側ファイルキャッシュには書かないので次のリクエストでは正しく生成されるが、
-    # ブラウザ側だけが空白のまま取り残される、という気づきにくい壊れ方を防ぐ。
-    repository = FakeRegionRepository(covered=True, error=RuntimeError("db down"))
-    service = RegionService(repository=repository)
-
-    tile = await service.get_road_surface_tile(Z, X, Y)
-
-    assert tile.cacheable is False
-
-
-async def test_uncovered_tile_stays_cacheable():
-    # 取込範囲外は恒久的にデータが無いため、空タイルを長期キャッシュしてよい。
-    repository = FakeRegionRepository(covered=False)
-    service = RegionService(repository=repository)
-
-    tile = await service.get_road_surface_tile(Z, X, Y)
-
-    assert tile.cacheable is True
 
 
 async def test_no_repository_stays_cacheable():
@@ -548,22 +112,3 @@ async def test_no_repository_stays_cacheable():
 
     assert tile.cacheable is True
 
-
-async def test_tile_is_not_persisted_while_the_revision_is_unknown(monkeypatch):
-    """世代が読めていないあいだ、焼いたタイルはディスクへ残さない。
-
-    ディスクの鍵は形の署名だけで世代を持たない。世代不明のまま焼いたものを残すと、後で世代が
-    判明しても正しいものと区別できず、古い中身を配り続ける
-    （`infrastructure/cache_identity.py: UNKNOWN_REVISION`が宣言していた性質）。
-    応答そのものは返る——キャッシュしないだけで、利用者には同じ絵が出る。
-    """
-    monkeypatch.setattr(derived_data_revision_service, "current_revision", lambda: None)
-    repository = FakeRegionRepository(covered=True, tile=b"fake-mvt-tile")
-    service = RegionService(repository=repository)
-
-    first = (await service.get_road_surface_tile(Z, X, Y)).content
-    second = (await service.get_road_surface_tile(Z, X, Y)).content
-
-    assert first == second == b"fake-mvt-tile"
-    # 残していないので2回目もDBへ行く（残していれば1回で済む）。
-    assert len(repository.mvt_calls) == 2

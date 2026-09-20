@@ -47,7 +47,7 @@ from app.domain.dynamic_materials import (
     DynamicAxisRequestContext,
     evaluate_dynamic_material_arrays,
 )
-from app.domain.graph import RoadGraphLike
+from app.domain.graph import LeanRoadGraph
 from app.domain.hard_filters import (
     HARD_FILTER_NAMES,
 )
@@ -669,7 +669,7 @@ def _static_edge_score_matrix_from(evaluation: BulkAxisEvaluation) -> StaticEdge
 
 
 def build_static_edge_score_matrix(
-    graph: RoadGraphLike,
+    graph: LeanRoadGraph,
     materials: EdgeMaterialArrays,
     accident_years_covered: int = 0,
 ) -> StaticEdgeScoreMatrix:

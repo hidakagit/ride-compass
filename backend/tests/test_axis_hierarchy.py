@@ -27,7 +27,6 @@ from app.domain.axis_definitions import (
     evaluate_axis_scalar,
     topological_axis_order,
 )
-from app.domain.graph import DirectedEdge
 
 
 def _linear_axis(
@@ -193,7 +192,6 @@ def test_evaluate_axis_array_priority_override_first_match_wins():
     }
     result = evaluate_axis_array(definition, materials)
     assert result[0] == 1.0
-
 
 
 # --- 欠損の意味論（スカラー版⇄配列版のパリティ） ---
@@ -370,22 +368,6 @@ def isolated_axis_definitions():
     yield AXIS_DEFINITIONS
     AXIS_DEFINITIONS.clear()
     AXIS_DEFINITIONS.update(snapshot)
-
-
-def _edge() -> DirectedEdge:
-    return DirectedEdge(
-        edge_id="edge-1",
-        from_node_id="node-1",
-        to_node_id="node-2",
-        geometry=[[35.700, 139.700], [35.701, 139.700]],
-        distance_m=100.0,
-        osm_way_id=1,
-        highway="residential",
-    )
-
-
-
-
 
 
 # --- dynamic_axis_topological_order（改善計画T534: 軸別スコアの事前計算キャッシュ） ---

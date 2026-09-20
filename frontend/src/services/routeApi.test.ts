@@ -1,10 +1,6 @@
 // @vitest-environment node
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type {
-  GenerationConditions,
-  RouteCandidate,
-  RouteGenerateRequest,
-} from "@/types/route";
+import type { GenerationConditions, RouteCandidate, RouteGenerateRequest } from "@/types/route";
 import { makeRouteCandidate } from "@/testing/routeFixtures";
 import { debugLog } from "@/lib/debugLog";
 import { generateRoutes } from "./routeApi";
@@ -140,8 +136,12 @@ describe("routeApi", () => {
       distance_km: 30,
       distance_tolerance_km: 5,
       route_preference: {
-        gradient: 0.15, surface_q: 0.19, wind: 0.26, stop_density: 0.2,
-        car_stress: 0.2, accident: 0.08,
+        gradient: 0.15,
+        surface_q: 0.19,
+        wind: 0.26,
+        stop_density: 0.2,
+        car_stress: 0.2,
+        accident: 0.08,
         night: 0.0,
       },
       penalty_strength: 1.0,
@@ -178,39 +178,42 @@ describe("routeApi", () => {
     it("投稿直後（sleep無し）のポーリングで完了していればroutes・conditions・engineを返す", async () => {
       // 改善計画T386（T265コードレビュー指摘6件目）: 初回はsleepを挟まず即座にポーリング
       // するため、タイマーを進めなくても解決する。
-      stubFetchForJob([{ status: "done", result: { routes, engine: "road_graph", conditions } }]);
+      stubFetchForJob([{ status: "done", result: { routes, conditions } }]);
 
       const result = await generateRoutes(request);
 
-      expect(result).toEqual({ routes, engine: "road_graph", conditions });
+      expect(result).toEqual({ routes, conditions });
     });
 
-    it("改善計画T441: routesが空でno_candidates_reasonがある場合、noCandidatesReasonとして返し" +
-      "warnレベルでdebugLogに記録する（SSHでサーバーログを見ずに原因が分かるようにする対応）", async () => {
-      stubFetchForJob([
-        {
-          status: "done",
-          result: { routes: [], engine: "road_graph", conditions, no_candidates_reason: "5件の折返し候補で復路の探索に失敗しました" },
-        },
-      ]);
+    it(
+      "改善計画T441: routesが空でno_candidates_reasonがある場合、noCandidatesReasonとして返し" +
+        "warnレベルでdebugLogに記録する（SSHでサーバーログを見ずに原因が分かるようにする対応）",
+      async () => {
+        stubFetchForJob([
+          {
+            status: "done",
+            result: { routes: [], conditions, no_candidates_reason: "5件の折返し候補で復路の探索に失敗しました" },
+          },
+        ]);
 
-      const result = await generateRoutes(request);
+        const result = await generateRoutes(request);
 
-      expect(result.noCandidatesReason).toBe("5件の折返し候補で復路の探索に失敗しました");
-      expect(debugLog).toHaveBeenCalledWith(
-        "api:route",
-        "5件の折返し候補で復路の探索に失敗しました",
-        expect.anything(),
-        "warn",
-      );
-    });
+        expect(result.noCandidatesReason).toBe("5件の折返し候補で復路の探索に失敗しました");
+        expect(debugLog).toHaveBeenCalledWith(
+          "api:route",
+          "5件の折返し候補で復路の探索に失敗しました",
+          expect.anything(),
+          "warn",
+        );
+      },
+    );
 
     it("queued→runningの間はonProgressへ経過時間つきで通知し、doneで結果を返す", async () => {
       vi.useFakeTimers();
       stubFetchForJob([
         { status: "queued" },
         { status: "running" },
-        { status: "done", result: { routes, engine: "road_graph", conditions } },
+        { status: "done", result: { routes, conditions } },
       ]);
       const onProgress = vi.fn();
 
@@ -255,7 +258,7 @@ describe("routeApi", () => {
           return Promise.resolve(makeResponse({ json: async () => ({ status: "running" }) }));
         }
         return Promise.resolve(
-          makeResponse({ json: async () => ({ status: "done", result: { routes, engine: "road_graph", conditions } }) }),
+          makeResponse({ json: async () => ({ status: "done", result: { routes, conditions } }) }),
         );
       });
       vi.stubGlobal("fetch", fetchMock);
@@ -282,10 +285,12 @@ describe("routeApi", () => {
         }
         pollCount += 1;
         if (pollCount <= 2) {
-          return Promise.resolve(makeResponse({ ok: false, status: 503, json: async () => ({ detail: "一時的なエラー" }) }));
+          return Promise.resolve(
+            makeResponse({ ok: false, status: 503, json: async () => ({ detail: "一時的なエラー" }) }),
+          );
         }
         return Promise.resolve(
-          makeResponse({ json: async () => ({ status: "done", result: { routes, engine: "road_graph", conditions } }) }),
+          makeResponse({ json: async () => ({ status: "done", result: { routes, conditions } }) }),
         );
       });
       vi.stubGlobal("fetch", fetchMock);
@@ -294,7 +299,7 @@ describe("routeApi", () => {
       await vi.advanceTimersByTimeAsync(1500 * 3);
       const result = await resultPromise;
 
-      expect(result).toEqual({ routes, engine: "road_graph", conditions });
+      expect(result).toEqual({ routes, conditions });
     });
 
     it("ポーリングの失敗が規定回数連続した場合は、人間可読な日本語メッセージで失敗としてrejectする", async () => {
@@ -306,7 +311,9 @@ describe("routeApi", () => {
         if (options?.method === "POST") {
           return Promise.resolve(makeResponse({ json: async () => ({ job_id: "job-1" }) }));
         }
-        return Promise.resolve(makeResponse({ ok: false, status: 503, json: async () => ({ detail: "サーバーエラー" }) }));
+        return Promise.resolve(
+          makeResponse({ ok: false, status: 503, json: async () => ({ detail: "サーバーエラー" }) }),
+        );
       });
       vi.stubGlobal("fetch", fetchMock);
 

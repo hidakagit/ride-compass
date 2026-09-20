@@ -718,7 +718,6 @@ describe("Home（app/page.tsx） handleGenerateハンドラ", () => {
     vi.mocked(generateRoutes).mockResolvedValueOnce({
       routes: [makeCandidate()],
       conditions: makeConditions(),
-      engine: "road_graph",
     });
     const HomeFresh = await renderFreshHome({ realRouteForm: true });
     render(<HomeFresh />);
@@ -740,7 +739,6 @@ describe("Home（app/page.tsx） handleGenerateハンドラ", () => {
     vi.mocked(generateRoutes).mockResolvedValueOnce({
       routes: [makeCandidate()],
       conditions: makeConditions(),
-      engine: "road_graph",
     });
     const HomeFresh = await renderFreshHome({ realRouteForm: true });
     render(<HomeFresh />);
@@ -760,7 +758,6 @@ describe("Home（app/page.tsx） handleGenerateハンドラ", () => {
     vi.mocked(generateRoutes).mockResolvedValueOnce({
       routes: [makeCandidate()],
       conditions: makeConditions(),
-      engine: "road_graph",
     });
     const HomeFresh = await renderFreshHome({ realRouteForm: true });
     render(<HomeFresh />);
@@ -783,7 +780,6 @@ describe("Home（app/page.tsx） handleGenerateハンドラ", () => {
     vi.mocked(generateRoutes).mockResolvedValueOnce({
       routes: [],
       conditions: makeConditions(),
-      engine: "road_graph",
       noCandidatesReason: "条件が厳しすぎて候補がありません",
     });
     const HomeFresh = await renderFreshHome({ realRouteForm: true });
@@ -821,7 +817,6 @@ describe("Home（app/page.tsx） handleGenerateハンドラ", () => {
     vi.mocked(generateRoutes).mockResolvedValueOnce({
       routes: [makeCandidate()],
       conditions: makeConditions(),
-      engine: "road_graph",
     });
     const HomeFresh = await renderFreshHome({ realRouteForm: true });
     render(<HomeFresh />);
@@ -845,7 +840,6 @@ describe("Home（app/page.tsx） handleGenerateハンドラ", () => {
     vi.mocked(generateRoutes).mockResolvedValueOnce({
       routes: [makeCandidate()],
       conditions: makeConditions(),
-      engine: "road_graph",
     });
     const HomeFresh = await renderFreshHome({ realRouteForm: true });
     render(<HomeFresh />);
@@ -871,7 +865,6 @@ describe("Home（app/page.tsx） handleGenerateハンドラ", () => {
     vi.mocked(generateRoutes).mockResolvedValue({
       routes: [makeCandidate()],
       conditions: makeConditions(),
-      engine: "road_graph",
     });
     const HomeFresh = await renderFreshHome({ realRouteForm: true });
     render(<HomeFresh />);
@@ -890,7 +883,6 @@ describe("Home（app/page.tsx） handleGenerateハンドラ", () => {
     vi.mocked(generateRoutes).mockResolvedValueOnce({
       routes: [makeCandidate()],
       conditions: makeConditions(),
-      engine: "road_graph",
     });
     const HomeFresh = await renderFreshHome({ realRouteForm: true });
     render(<HomeFresh />);
@@ -956,7 +948,6 @@ describe("Home（app/page.tsx） handleGenerateハンドラ", () => {
         destination: { latitude: 35.681, longitude: 139.767 },
         corrected_destination: correctedDestination,
       }),
-      engine: "road_graph",
     });
     const HomeFresh = await renderFreshHome({ realRouteForm: true, exposeMapClickHandlers: true });
     render(<HomeFresh />);
@@ -973,7 +964,6 @@ describe("Home（app/page.tsx） handleGenerateハンドラ", () => {
     vi.mocked(generateRoutes).mockResolvedValueOnce({
       routes: [makeCandidate({ id: "route-destination-00", direction_label: "目的地ルート" })],
       conditions: makeConditions({ destination: correctedDestination }),
-      engine: "road_graph",
     });
     await user.click(screen.getByRole("button", { name: "ルート生成" }));
 
@@ -996,7 +986,6 @@ describe("Home（app/page.tsx） handleGenerateハンドラ", () => {
         destination: { latitude: 35.681, longitude: 139.767 },
         corrected_destination: correctedDestination,
       }),
-      engine: "road_graph",
     });
     const HomeFresh = await renderFreshHome({ realRouteForm: true, exposeMapClickHandlers: true });
     render(<HomeFresh />);
@@ -1014,7 +1003,6 @@ describe("Home（app/page.tsx） handleGenerateハンドラ", () => {
     vi.mocked(generateRoutes).mockResolvedValueOnce({
       routes: [makeCandidate({ id: "route-00", direction_label: "北" })],
       conditions: makeConditions({}),
-      engine: "road_graph",
     });
     const HomeFresh = await renderFreshHome({ realRouteForm: true });
     render(<HomeFresh />);
@@ -1039,7 +1027,6 @@ describe("Home（app/page.tsx） handleGenerateハンドラ", () => {
         makeCandidate({ id: "route-01", direction_label: "北", distance_km: 31.4 }),
       ],
       conditions: makeConditions(),
-      engine: "road_graph",
     });
     const HomeFresh = await renderFreshHome({ realRouteForm: true });
     render(<HomeFresh />);
@@ -1060,7 +1047,6 @@ describe("Home（app/page.tsx） handleGenerateハンドラ", () => {
         makeCandidate({ id: "route-destination-01", direction_label: "目的地ルート", distance_km: 22.1 }),
       ],
       conditions: makeConditions(),
-      engine: "road_graph",
     });
     const HomeFresh = await renderFreshHome({ realRouteForm: true });
     render(<HomeFresh />);
@@ -1094,7 +1080,6 @@ describe("Home（app/page.tsx） handleGenerateハンドラ", () => {
         }),
       ],
       conditions: makeConditions(),
-      engine: "road_graph",
     });
     const HomeFresh = await renderFreshHome({ realRouteForm: true });
     render(<HomeFresh />);
@@ -1116,7 +1101,6 @@ describe("Home（app/page.tsx） handleGenerateハンドラ", () => {
         makeCandidate({ id: "route-01", distance_km: 26.6, estimated_duration_seconds: 5820 }),
       ],
       conditions: makeConditions(),
-      engine: "road_graph",
     });
     const HomeFresh = await renderFreshHome({ realRouteForm: true });
     render(<HomeFresh />);
@@ -1142,7 +1126,6 @@ describe("Home（app/page.tsx） handleGenerateハンドラ", () => {
         makeCandidate({ id: "route-01", distance_km: 20.0, overall_difficulty: 31.0 }),
       ],
       conditions: makeConditions(),
-      engine: "road_graph",
     });
     const HomeFresh = await renderFreshHome({ realRouteForm: true });
     const { container } = render(<HomeFresh />);
@@ -1169,7 +1152,6 @@ describe("Home（app/page.tsx） handleGenerateハンドラ", () => {
         makeCandidate({ id: "route-spliced-1", direction_label: "組み合わせたルート", distance_km: 19.5 }),
       ],
       conditions: makeConditions(),
-      engine: "road_graph",
     });
     const HomeFresh = await renderFreshHome({ realRouteForm: true });
     render(<HomeFresh />);
@@ -1203,7 +1185,6 @@ describe("Home（app/page.tsx） handleGenerateハンドラ", () => {
         }),
       ],
       conditions: makeConditions(),
-      engine: "road_graph",
     });
     const HomeFresh = await renderFreshHome({ realRouteForm: true, exposeMapClickHandlers: true });
     render(<HomeFresh />);
@@ -1236,7 +1217,6 @@ describe("Home（app/page.tsx） handleGenerateハンドラ", () => {
         makeCandidate({ id: "route-01", distance_km: 19.0, edge_ids: ["s", "b1", "m", "b2", "e"] }),
       ],
       conditions: makeConditions(),
-      engine: "road_graph",
     });
     const HomeFresh = await renderFreshHome({ realRouteForm: true, exposeMapClickHandlers: true });
     render(<HomeFresh />);
@@ -1257,7 +1237,6 @@ describe("Home（app/page.tsx） handleGenerateハンドラ", () => {
         }),
       ],
       conditions: makeConditions(),
-      engine: "road_graph",
     });
     await user.click(screen.getByRole("button", { name: "このルートを編集" }));
     await user.click(screen.getByRole("button", { name: "テスト用に1つ目の帯をタップ" }));
@@ -1280,7 +1259,6 @@ describe("Home（app/page.tsx） handleGenerateハンドラ", () => {
         makeCandidate({ id: "route-01", distance_km: 19.0, edge_ids: ["s", "b1", "e"] }),
       ],
       conditions: makeConditions(),
-      engine: "road_graph",
     });
     const HomeFresh = await renderFreshHome({ realRouteForm: true, exposeMapClickHandlers: true });
     render(<HomeFresh />);
@@ -1302,7 +1280,6 @@ describe("Home（app/page.tsx） handleGenerateハンドラ", () => {
         }),
       ],
       conditions: makeConditions(),
-      engine: "road_graph",
     });
     await user.click(screen.getByRole("button", { name: "このルートを編集" }));
     await user.click(screen.getByRole("button", { name: "テスト用に1つ目の帯をタップ" }));
@@ -1321,7 +1298,6 @@ describe("Home（app/page.tsx） handleGenerateハンドラ", () => {
         makeCandidate({ id: "route-01", distance_km: 19.0, edge_ids: ["s", "b1", "m", "b2", "e"] }),
       ],
       conditions: makeConditions(),
-      engine: "road_graph",
     });
     const HomeFresh = await renderFreshHome({
       realRouteForm: true,
@@ -1362,7 +1338,6 @@ describe("Home（app/page.tsx） handleGenerateハンドラ", () => {
         makeCandidate({ id: "route-01", distance_km: 19.0, edge_ids: ["s", "b1", "m", "b2", "e"] }),
       ],
       conditions: makeConditions(),
-      engine: "road_graph",
     });
     const HomeFresh = await renderFreshHome({ realRouteForm: true, exposeMapClickHandlers: true });
     render(<HomeFresh />);
@@ -1393,7 +1368,6 @@ describe("Home（app/page.tsx） handleGenerateハンドラ", () => {
     vi.mocked(generateRoutes).mockResolvedValue({
       routes: [base, other],
       conditions: makeConditions(),
-      engine: "road_graph",
     });
     const HomeFresh = await renderFreshHome({ realRouteForm: true, exposeMapClickHandlers: true });
     render(<HomeFresh />);
@@ -1414,7 +1388,6 @@ describe("Home（app/page.tsx） handleGenerateハンドラ", () => {
         }),
       ],
       conditions: makeConditions(),
-      engine: "road_graph",
     });
     await user.click(screen.getByRole("button", { name: "このルートを編集" }));
     await user.click(screen.getByRole("button", { name: "テスト用に1つ目の帯をタップ" }));
@@ -1440,7 +1413,6 @@ describe("Home（app/page.tsx） handleGenerateハンドラ", () => {
         makeCandidate({ id: "route-01", distance_km: 19.0, edge_ids: ["s", "b1", "m", "b2", "e"] }),
       ],
       conditions: makeConditions(),
-      engine: "road_graph",
     });
     const HomeFresh = await renderFreshHome({ realRouteForm: true, exposeMapClickHandlers: true });
     render(<HomeFresh />);
@@ -1478,7 +1450,6 @@ describe("Home（app/page.tsx） handleGenerateハンドラ", () => {
         }),
       ],
       conditions: makeConditions(),
-      engine: "road_graph",
     });
     const HomeFresh = await renderFreshHome({ realRouteForm: true, exposeMapClickHandlers: true });
     render(<HomeFresh />);
@@ -1525,7 +1496,6 @@ describe("Home（app/page.tsx） handleGenerateハンドラ", () => {
         }),
       ],
       conditions: makeConditions(),
-      engine: "road_graph",
     });
     const HomeFresh = await renderFreshHome({ realRouteForm: true, exposeMapClickHandlers: true });
     render(<HomeFresh />);
@@ -1560,7 +1530,6 @@ describe("Home（app/page.tsx） handleGenerateハンドラ", () => {
         makeCandidate({ id: "route-01", distance_km: 19.0, edge_ids: ["s", "b1", "m", "b2", "e"] }),
       ],
       conditions: makeConditions(),
-      engine: "road_graph",
     });
     const HomeFresh = await renderFreshHome({ realRouteForm: true, exposeMapClickHandlers: true });
     render(<HomeFresh />);
@@ -1614,7 +1583,6 @@ describe("Home（app/page.tsx） handleGenerateハンドラ", () => {
     vi.mocked(generateRoutes).mockResolvedValue({
       routes: [makeCandidate({ id: "route-00", distance_km: 18.0 })],
       conditions: makeConditions(),
-      engine: "road_graph",
     });
     const user = userEvent.setup();
     const HomeFresh = await renderFreshHome({ realRouteForm: true });
@@ -1632,7 +1600,6 @@ describe("Home（app/page.tsx） handleGenerateハンドラ", () => {
     vi.mocked(generateRoutes).mockResolvedValueOnce({
       routes: [makeCandidate()],
       conditions: makeConditions(),
-      engine: "road_graph",
     });
     const HomeFresh = await renderFreshHome({ realRouteForm: true, exposeSegmentSelect: true, researchEnabled: true });
     render(<HomeFresh />);
@@ -1649,7 +1616,6 @@ describe("Home（app/page.tsx） handleGenerateハンドラ", () => {
     vi.mocked(generateRoutes).mockResolvedValueOnce({
       routes: [makeCandidate()],
       conditions: makeConditions(),
-      engine: "road_graph",
     });
     const HomeFresh = await renderFreshHome({ realRouteForm: true, exposeSegmentSelect: true, researchEnabled: false });
     render(<HomeFresh />);
@@ -1666,7 +1632,6 @@ describe("Home（app/page.tsx） handleGenerateハンドラ", () => {
     vi.mocked(generateRoutes).mockResolvedValueOnce({
       routes: [],
       conditions: makeConditions(),
-      engine: "road_graph",
     });
     const HomeFresh = await renderFreshHome({ realRouteForm: true });
     render(<HomeFresh />);
@@ -1698,7 +1663,6 @@ describe("Home（app/page.tsx） handleGenerateハンドラ", () => {
     vi.mocked(generateRoutes).mockResolvedValueOnce({
       routes: [],
       conditions: makeConditions(),
-      engine: "road_graph",
       noCandidatesReason: "5件の折返し候補で復路の探索に失敗しました。除外設定をご確認ください。",
     });
     const HomeFresh = await renderFreshHome({ realRouteForm: true });
@@ -1721,7 +1685,6 @@ describe("Home（app/page.tsx） handleGenerateハンドラ", () => {
     vi.mocked(generateRoutes).mockResolvedValueOnce({
       routes: [makeCandidate()],
       conditions: makeConditions(),
-      engine: "road_graph",
     });
     const HomeFresh = await renderFreshHome({ realRouteForm: true });
     render(<HomeFresh />);
@@ -1745,7 +1708,6 @@ describe("Home（app/page.tsx） handleGenerateハンドラ", () => {
     vi.mocked(generateRoutes).mockResolvedValueOnce({
       routes: [candidate],
       conditions: makeConditions(),
-      engine: "road_graph",
     });
     const HomeFresh = await renderFreshHome({ realRouteForm: true });
     render(<HomeFresh />);
@@ -1779,12 +1741,10 @@ describe("Home（app/page.tsx） handleGenerateハンドラ", () => {
       .mockResolvedValueOnce({
         routes: [makeCandidate({ id: "route-a" })],
         conditions: makeConditions(),
-        engine: "road_graph",
       })
       .mockResolvedValueOnce({
         routes: [makeCandidate({ id: "route-b" })],
         conditions: makeConditions(),
-        engine: "road_graph",
       });
     const HomeFresh = await renderFreshHome({
       realRouteForm: true,
@@ -1821,12 +1781,10 @@ describe("Home（app/page.tsx） handleGenerateハンドラ", () => {
       .mockResolvedValueOnce({
         routes: [makeCandidate({ id: "route-a" })],
         conditions: makeConditions(),
-        engine: "road_graph",
       })
       .mockResolvedValueOnce({
         routes: [makeCandidate({ id: "route-b" })],
         conditions: makeConditions(),
-        engine: "road_graph",
       });
     const HomeFresh = await renderFreshHome({
       realRouteForm: true,

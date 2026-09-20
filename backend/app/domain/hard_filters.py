@@ -9,7 +9,7 @@ from typing import Mapping
 
 import numpy as np
 
-from app.domain.graph import RoadGraphLike
+from app.domain.graph import LeanRoadGraph
 from app.domain.material_sql import BICYCLE_NORMALIZED_SQL, HIGHWAY_SQL
 
 
@@ -82,7 +82,7 @@ def hard_filter_columns() -> tuple[str, ...]:
 
 
 def compute_routable_node_ids(
-    graph: RoadGraphLike,
+    graph: LeanRoadGraph,
     edge_ids: list[str],
     hard_filter_excluded: np.ndarray,
 ) -> set[str]:

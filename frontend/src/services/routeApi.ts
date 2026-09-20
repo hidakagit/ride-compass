@@ -28,7 +28,6 @@ async function postJson<T>(path: string, body: unknown, timeoutMs: number): Prom
 export interface GenerateRoutesResult {
   routes: RouteCandidate[];
   conditions: GenerationConditions;
-  engine: string;
   /** routesが空のときの原因（backend: RouteGenerator.last_no_candidates_reason）。
    * SSHでサーバーログを見なくても、GUI（呼び出し側のエラーメッセージ・デバッグログ）まで
    * 届ける。 */
@@ -84,14 +83,21 @@ export async function generateRoutes(
   onProgress?: (progress: GenerationProgress) => void,
 ): Promise<GenerateRoutesResult> {
   const { job_id: jobId } = await postJson<RouteGenerateJobCreatedResponse>(
-    "/api/routes/generate", request, DEFAULT_API_TIMEOUT_MS,
+    "/api/routes/generate",
+    request,
+    DEFAULT_API_TIMEOUT_MS,
   );
   const startedAt = performance.now();
   let consecutivePollFailures = 0;
 
   for (let pollCount = 0; ; pollCount += 1) {
     if (performance.now() - startedAt > MAX_POLL_DURATION_MS) {
-      debugLog("api:route", "失敗 (ポーリングタイムアウト)", { jobId, elapsedMs: performance.now() - startedAt }, "error");
+      debugLog(
+        "api:route",
+        "失敗 (ポーリングタイムアウト)",
+        { jobId, elapsedMs: performance.now() - startedAt },
+        "error",
+      );
       throw new Error("ルート生成がタイムアウトしました");
     }
     // 初回だけsleepを挟まず即座にポーリングする。毎回ループ先頭でsleepすると、サーバー側の
@@ -128,7 +134,9 @@ export async function generateRoutes(
           { jobId, elapsedMs: performance.now() - startedAt },
           "error",
         );
-        throw new Error("ルート生成の状況確認がネットワークの不調で繰り返し失敗しました。時間をおいて再度お試しください。");
+        throw new Error(
+          "ルート生成の状況確認がネットワークの不調で繰り返し失敗しました。時間をおいて再度お試しください。",
+        );
       }
       continue;
     }
@@ -145,7 +153,7 @@ export async function generateRoutes(
         throw new Error("ルート生成が完了しましたが結果を取得できませんでした");
       }
       const result = status.result;
-      debugLog("api:route", `ルーティングエンジン: ${result.engine}`, { count: result.routes.length });
+      debugLog("api:route", `候補 ${result.routes.length}件`, { jobId });
       // 候補0件の原因をwarnレベルで残す（デバッグモードでSSHを使わず確認できるように
       // する）。1件以上あれば`no_candidates_reason`は常にnull。
       if (result.routes.length === 0 && result.no_candidates_reason) {
@@ -155,7 +163,6 @@ export async function generateRoutes(
       return {
         routes: result.routes,
         conditions: result.conditions,
-        engine: result.engine,
         noCandidatesReason: result.no_candidates_reason ?? undefined,
       };
     }

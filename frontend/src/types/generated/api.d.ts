@@ -315,7 +315,7 @@ export interface paths {
          * Region Poi Tile
          * @description 停止要因POI（信号・横断歩道・一時停止・踏切）レイヤー。静的道路属性P1で評価にのみ
          *     使われていたosm_raw_poisの可視化（材料`intersection_count_per_km`の集計には
-         *     `get_intersection_counts`等を引き続き使う）。路面タイルと同じ歯止め・同時実行制御を
+         *     既存のリポジトリのメソッドを引き続き使う）。路面タイルと同じ歯止め・同時実行制御を
          *     そのまま流用する。
          */
         get: operations["region_poi_tile_api_region_poi_tiles__z___x___y__pbf_get"];
@@ -1440,8 +1440,6 @@ export interface components {
             commit: string | null;
             /** Started At */
             started_at: string;
-            /** Engine */
-            engine: string;
             /** Debug Mode */
             debug_mode: boolean;
             /** External */
@@ -2003,8 +2001,6 @@ export interface components {
         RouteGenerateResponse: {
             /** Routes */
             routes: components["schemas"]["RouteCandidate"][];
-            /** Engine */
-            engine: string;
             conditions: components["schemas"]["GenerationConditions"];
             /** No Candidates Reason */
             no_candidates_reason?: string | null;
@@ -2420,6 +2416,12 @@ export interface components {
             latest_run_id: number | null;
             /** Is Stale */
             is_stale: boolean;
+            /** Coverage Parent */
+            coverage_parent: string | null;
+            /** Coverage Parent Row Count */
+            coverage_parent_row_count: number | null;
+            /** Missing Rows */
+            missing_rows: number | null;
             /** Columns */
             columns: components["schemas"]["ColumnEntry"][];
         };

@@ -38,29 +38,6 @@ KANTO_PREFECTURE_CODES: dict[str, str] = {
 BICYCLE_PARTY_TYPE_CODES: frozenset[str] = frozenset({"51", "52"})
 
 
-def is_kanto_prefecture(prefecture_code: str) -> bool:
-    return prefecture_code.strip() in KANTO_PREFECTURE_CODES
-
-
-def involves_bicycle(party_type_a: str, party_type_b: str) -> bool:
-    """当事者種別（当事者A・当事者B）のいずれかが自転車系コードなら自転車関連事故とみなす。"""
-    return party_type_a.strip() in BICYCLE_PARTY_TYPE_CODES or party_type_b.strip() in BICYCLE_PARTY_TYPE_CODES
-
-
-def is_fatal(death_count_raw: str) -> bool:
-    """「死者数」列（"000"等のゼロ埋め数値文字列）から死亡事故かどうかを判定する。"""
-    try:
-        return int(death_count_raw.strip()) > 0
-    except ValueError:
-        return False
-
-
-def build_accident_id(prefecture_code: str, police_station_code: str, honhyo_number: str, occurred_year: int) -> str:
-    """本票の複合キー（都道府県コード＋警察署等コード＋本票番号は年内でのみ一意）に
-    発生年を足して、年次再取込みでも冪等なグローバル一意キーにする。"""
-    return f"{occurred_year}-{prefecture_code.strip()}-{police_station_code.strip()}-{honhyo_number.strip()}"
-
-
 def _dms_to_decimal(raw: str) -> float | None:
     """本票の緯度・経度列（度分秒を1つの数値へ連結した表記。右5桁=秒×1000、
     次の2桁=分、残り=度）を10進の度へ変換する。欠損（空・非数値・全て0）や

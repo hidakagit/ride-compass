@@ -22,7 +22,7 @@ from sqlalchemy.dialects.postgresql import ARRAY
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession
 
 from app.domain.attributes import EdgeMaterialArrays, WIRED_LANDCOVER_KEYS
-from app.domain.graph import DirectedEdge, EdgeLike, LeanEdge, LeanNode, LeanRoadGraph
+from app.domain.graph import LeanEdge, LeanNode, LeanRoadGraph
 from app.domain.hard_filters import HARD_FILTER_VALUE_SQL, hard_filter_columns
 from app.domain.landcover import LandcoverPercentages
 from app.domain.material_catalog import (
@@ -107,11 +107,6 @@ _COVERAGE_SQL = """
 #: 表示ではway丸ごと**にする。区間で焼くとgzip後の費用はz14で1.48倍・z12で1.81倍へ増える
 #: 一方、z12は1pxが約38mで、交差点で切った区間は数pxにしかならず塗り分けても読めない。
 EDGE_UNIT_MIN_ZOOM = 14
-
-
-def edge_feature_key(osm_way_id: int, segment_index: int) -> str:
-    """区間単位のフィーチャーの鍵。タイル・値配信・区間インスペクタが同じものを使う。"""
-    return f"{osm_way_id}-{segment_index}"
 
 
 def parse_edge_feature_key(key: str) -> tuple[int, int] | None:
@@ -724,7 +719,7 @@ def edge_key(osm_way_id: int, segment_index: int, forward: bool) -> str:
 def _topology_rows_to_road_graph(edge_rows, node_rows) -> LeanRoadGraph:
     """行から探索用の有向グラフを組む。
 
-    `LeanRoadGraph`（dataclass）にするのは、`Node`/`DirectedEdge`のPydantic構築が
+    `LeanRoadGraph`（dataclass）にするのは、Pydanticでの構築が
     17万区間規模でDBクエリ本体より支配的になるため。`geometry`はプレースホルダの空リスト
     で、実ジオメトリが要る最終候補は`get_edges_with_geometry`が取り直す。
     """
@@ -759,22 +754,22 @@ def _topology_rows_to_road_graph(edge_rows, node_rows) -> LeanRoadGraph:
 
 
 def _rows_to_directed_edges(rows, wanted: dict[tuple[int, int], list[bool]]
-                            ) -> dict[str, DirectedEdge]:
-    """ジオメトリ付きの`DirectedEdge`。逆向きは形状点列を逆順にする。
+                            ) -> dict[str, LeanEdge]:
+    """ジオメトリ付きの`LeanEdge`。逆向きは形状点列を逆順にする。
 
     `shapely.from_wkb`のバッチAPIで一括デコードする（GEOS呼び出しのループをPythonでは
     なくC側で回す）。
     """
     rows = list(rows)
     lines = shapely.from_wkb([bytes(row.wkb) for row in rows])
-    edges: dict[str, DirectedEdge] = {}
+    edges: dict[str, LeanEdge] = {}
     for row, line in zip(rows, lines):
         points = [[lat, lon] for lon, lat in line.coords]
         for forward in wanted.get((row.osm_way_id, row.segment_index), ()):
             from_id, to_id = ((row.from_node_id, row.to_node_id) if forward
                               else (row.to_node_id, row.from_node_id))
             key = edge_key(row.osm_way_id, row.segment_index, forward)
-            edges[key] = DirectedEdge.model_construct(
+            edges[key] = LeanEdge(
                 edge_id=key, from_node_id=node_key(from_id), to_node_id=node_key(to_id),
                 geometry=points if forward else list(reversed(points)),
                 distance_m=row.distance_m, osm_way_id=row.osm_way_id,
@@ -798,7 +793,7 @@ def _shared_strings(values: list) -> list:
     return [pool.setdefault(v, v) for v in values]
 
 
-def _edge_triples(edges: list[EdgeLike]) -> tuple[list[int], list[int], list[bool]]:
+def _edge_triples(edges: list[LeanEdge]) -> tuple[list[int], list[int], list[bool]]:
     return (
         [e.osm_way_id for e in edges],
         [e.segment_index for e in edges],
@@ -869,8 +864,8 @@ class RoadGraphRepository:
         # 数万〜十数万区間ぶんのオブジェクト構築はイベントループを塞ぐ長さになる。
         return await asyncio.to_thread(_topology_rows_to_road_graph, edge_rows, node_rows)
 
-    async def get_edges_with_geometry(self, edges: list[EdgeLike]) -> dict[str, DirectedEdge]:
-        """指定した枝ぶんだけ、実ジオメトリ込みの`DirectedEdge`を取得する。
+    async def get_edges_with_geometry(self, edges: list[LeanEdge]) -> dict[str, LeanEdge]:
+        """指定した枝ぶんだけ、実ジオメトリ込みの`LeanEdge`を取得する。
 
         探索用グラフはジオメトリを持たない。確定した経路（1候補あたり数十〜数百区間）
         だけへ絞って取り直す。
@@ -881,7 +876,7 @@ class RoadGraphRepository:
         for edge in edges:
             wanted.setdefault((edge.osm_way_id, edge.segment_index), []).append(edge.forward)
         keys = sorted(wanted)
-        result: dict[str, DirectedEdge] = {}
+        result: dict[str, LeanEdge] = {}
         for chunk in _chunked(keys, _ID_CHUNK_SIZE):
             rows = (await self._session.execute(_EDGE_GEOMETRIES_SQL, {
                 "way_ids": [k[0] for k in chunk],
@@ -893,7 +888,7 @@ class RoadGraphRepository:
     # --- 材料 ----------------------------------------------------------------
 
     async def get_edge_material_arrays(
-        self, edges: list[EdgeLike], accident_years_covered: int
+        self, edges: list[LeanEdge], accident_years_covered: int
     ) -> EdgeMaterialArrays:
         """材料を**DB側で導出し、dtypeごとの行列として**受け取る。
 

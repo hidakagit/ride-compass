@@ -1,4 +1,3 @@
-from app.domain import tuning
 from app.domain.traffic import classify_stop_poi, classify_supply_poi
 
 
@@ -69,54 +68,6 @@ class TestClassifyStopPoi:
         assert STOP_POI_KINDS == frozenset(get_args(StopPoiKind))
 
 
-class TestPoiCountKinds:
-    """集計キー（`POI_COUNT_KINDS`）と、それを作るSQLのCASE式が乖離しないことを固定する。
-
-    キーの一覧はPython側（材料の生成元）にあり、実際に値を作るのはSQLのCASE式のため、
-    片方だけ変えると「材料はあるが値が入らない」「値はあるが材料が無い」という静かな
-    壊れ方をする。
-    """
-
-    def test_sql_case_expression_and_key_list_match_exactly(self):
-        """SQLのCASE式が返すキーと`POI_COUNT_KINDS`が完全に一致する。
-
-        片方だけ増えると「材料はあるが値が入らない」「値はあるが材料が無い」という
-        静かな壊れ方をするため、包含ではなく一致で固定する。
-        """
-        import re
-
-        from app.domain.traffic import POI_COUNT_KINDS
-        from app.infrastructure.road_graph_repository import _POI_COUNT_KIND_EXPR
-
-        produced = set(re.findall(r"(?:THEN|ELSE) '([a-z_]+)'", _POI_COUNT_KIND_EXPR))
-        assert produced == set(POI_COUNT_KINDS)
-
-    def test_case_expression_has_an_else_branch_so_no_kind_is_dropped(self):
-        """ELSE句があること＝取込対象のどのkindも必ずいずれかのキーへ落ちる。"""
-        from app.infrastructure.road_graph_repository import _POI_COUNT_KIND_EXPR
-
-        assert "ELSE" in _POI_COUNT_KIND_EXPR
-
-    def test_both_ways_of_tagging_a_signal_map_to_the_same_key(self):
-        """信号は`highway=traffic_signals`と`highway=crossing`＋`crossing=traffic_signals`の
-        2通りで書かれる。別キーにすると1つの信号交差点が両方へ計上されて二重になるため、
-        同じキーへ落ちることを固定する。"""
-        from app.infrastructure.road_graph_repository import _POI_COUNT_KIND_EXPR
-
-        lines = [line for line in _POI_COUNT_KIND_EXPR.splitlines() if "'signal'" in line]
-        assert len(lines) == 2
-        assert any("traffic_signals'" in line and "crossing" not in line for line in lines)
-        assert any("crossing" in line and "signals%" in line for line in lines)
-
-    def test_every_count_key_has_a_material(self):
-        """集計キーそれぞれに対応する材料が生成されている。"""
-        from app.domain.material_catalog import MATERIAL_CATALOG
-        from app.domain.traffic import POI_COUNT_KINDS
-
-        for kind in POI_COUNT_KINDS:
-            assert f"poi_{kind}_per_km" in MATERIAL_CATALOG
-
-
 class TestClassifySupplyPoi:
     def test_convenience_store(self):
         assert classify_supply_poi({"shop": "convenience"}) == "convenience"
@@ -165,32 +116,3 @@ class TestClassifySupplyPoi:
     def test_does_not_match_stop_poi_tags(self):
         assert classify_supply_poi({"highway": "traffic_signals"}) is None
 
-
-class TestSignalMatchRadius:
-    """信号判定の半径が、同じ交差点の点をまとめる距離から独立していること。
-
-    2つは同じ値だが問うていることが違う（あちらは「同じ停止か」、こちらは「この交差点に
-    信号があるか」）。まとめる距離を動かしたときに走行モデルの横断の費用まで動くと、
-    直した側が正しく動くぶんだけ較正が静かに巻き戻る。
-    """
-
-    def test_signal_radius_does_not_follow_the_poi_cluster_distance(self, monkeypatch):
-        from app.infrastructure import road_graph_repository
-
-        monkeypatch.setattr(road_graph_repository, "POI_CLUSTER_EPS_M", 999.0)
-
-        params = road_graph_repository.signal_radius_params()
-
-        assert params["signal_radius_m"] == tuning.tuning_value("signal.match_radius_m")
-
-    def test_signal_radius_moves_with_the_declared_calibration_value(self, monkeypatch):
-        from app.infrastructure import road_graph_repository
-
-        monkeypatch.setitem(tuning.TUNING_VALUES, "signal.match_radius_m", 123.0)
-
-        params = road_graph_repository.signal_radius_params()
-
-        assert params["signal_radius_m"] == 123.0
-        # 粗い矩形（GiST索引用）も同じ値から導く。片方だけ古い値のままだと、索引で
-        # 落としたぶんは半径の判定まで届かない。
-        assert params["signal_radius_deg"] == 123.0 / 111_000.0 * 2.0

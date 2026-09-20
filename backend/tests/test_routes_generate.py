@@ -45,7 +45,6 @@ def clear_rate_limiter():
 
 
 class FakeRouteGenerator:
-    engine_name = "fake-engine"
 
     def __init__(
         self,
@@ -132,7 +131,7 @@ def submit_and_await_done(body: dict) -> dict:
     return payload["result"]
 
 
-def test_generate_routes_returns_candidates_and_engine(monkeypatch):
+def test_generate_routes_returns_candidates(monkeypatch):
     candidates = [
         RouteCandidate(
             id="route-000",
@@ -148,7 +147,6 @@ def test_generate_routes_returns_candidates_and_engine(monkeypatch):
     assert len(result["routes"]) == 1
     assert result["routes"][0]["id"] == "route-000"
     assert result["routes"][0]["direction_label"] == "北"
-    assert result["engine"] == "fake-engine"
 
 
 def test_generate_routes_returns_empty_list_when_no_candidates_match(monkeypatch):
@@ -157,7 +155,6 @@ def test_generate_routes_returns_empty_list_when_no_candidates_match(monkeypatch
     result = submit_and_await_done(REQUEST_BODY)
 
     assert result["routes"] == []
-    assert result["engine"] == "fake-engine"
     assert result["no_candidates_reason"] is None
 
 
@@ -520,7 +517,6 @@ def test_generate_routes_with_spliced_edge_ids_evaluates_the_given_path_only(mon
     # 区間の乗り換え（docs/tasks/T621.md）: 探索をやり直さず、送られた経路だけを評価する。
     # 生成と同じコスト曲線のため別エンドポイントにせず同じジョブ機構（202＋ポーリング）へ載る。
     class SplicingGenerator:
-        engine_name = "fake-engine"
         last_no_candidates_reason = None
         last_destination_correction = None
 

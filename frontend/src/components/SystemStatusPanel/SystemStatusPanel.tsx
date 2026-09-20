@@ -108,9 +108,7 @@ export default function SystemStatusPanel({ open, onClose }: SystemStatusPanelPr
               <>
                 <span className={styles.commit}>{backend.commit ?? "(ローカル)"}</span>
                 <span className={styles.startedAt}>起動 {formatStartedAt(backend.started_at)}</span>
-                <span className={styles.meta}>
-                  engine {backend.engine} ・ debug_mode {backend.debug_mode ? "ON" : "OFF"}
-                </span>
+                <span className={styles.meta}>debug_mode {backend.debug_mode ? "ON" : "OFF"}</span>
               </>
             )}
           </div>
@@ -120,8 +118,8 @@ export default function SystemStatusPanel({ open, onClose }: SystemStatusPanelPr
           <div className={styles.msmRow} data-healthy={backend.msm.healthy ? "true" : "false"}>
             <span className={styles.versionLabel}>予報（MSM）</span>
             <span className={styles.meta}>
-              最新run {formatStartedAt(backend.msm.last_run_at)}（{backend.msm.run_age_hours}時間前）・
-              予報の残り {backend.msm.remaining_hours}時間
+              最新run {formatStartedAt(backend.msm.last_run_at)}（{backend.msm.run_age_hours}時間前）・ 予報の残り{" "}
+              {backend.msm.remaining_hours}時間
             </span>
             {!backend.msm.healthy && (
               <span className={styles.error}>配信が滞っています（バックエンドのWARNINGログを確認）</span>
@@ -160,9 +158,7 @@ export default function SystemStatusPanel({ open, onClose }: SystemStatusPanelPr
                       <tr key={category} data-level={s.errors > 0 ? "error" : undefined}>
                         <td className={styles.categoryCell}>{category}</td>
                         <td>{s.calls}</td>
-                        <td title={errorTypeParts.length > 0 ? errorTypeParts.join(" / ") : undefined}>
-                          {s.errors}
-                        </td>
+                        <td title={errorTypeParts.length > 0 ? errorTypeParts.join(" / ") : undefined}>{s.errors}</td>
                         <td>{formatLastError(s.last_error_type, s.last_error_at)}</td>
                         <td>{s.cache_hit_rate != null ? `${Math.round(s.cache_hit_rate * 100)}%` : "—"}</td>
                         <td>{s.avg_ms}ms</td>

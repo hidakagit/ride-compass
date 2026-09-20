@@ -92,6 +92,16 @@ CronCreate等）に付随する進捗・ログ・通知メッセージも例外�
 - レート制限の境界値テストは `rate_limiter.check_rate_limit` を直接呼んで上限-1件を埋め、実HTTPは境界の1〜2回に絞る（上限回数分の実HTTPループ厳禁）
 - PostGIS統合テスト（road_graph_session、conftest.py）はファイル単位でエンジン・イベントループを共有する設計。新規ファイルでは `pytestmark = pytest.mark.asyncio(loop_scope="module")` が必要（自前の追加async fixtureにも `loop_scope="module"` を明示）。CIはpytest-xdistで並列化しているため `pytest.mark.xdist_group(name="postgis")` も併せて必須（詳細はdocs/testing.md参照）
 - フロントエンドの新規テストがDOM（render/renderHook/window等）を使わない純ロジックなら、ファイル先頭へ `// @vitest-environment node` docblockを付ける（実装側関数の隠れたDOM依存にも注意、詳細はdocs/testing.md参照）
+- **検査は作業中に回さない。書き終えてから、順番を守って1回ずつ通す**: ①秒で終わる静的検査を
+  まとめて（`ruff`・`scripts/review_checks.py docs`・`tsc --noEmit`・OpenAPI生成物のドリフト）
+  → 出たものを**全部**直す → ②重いスイートを1回（backendの`not postgis`と`postgis`、
+  frontendの`vitest`。互いに独立なので並行してよい）。静的検査を最後に回すと、シンボルを
+  消した時点で既に死んでいた参照を最後に発見し、重いスイートを回し直すことになる。
+  **重いスイートで初めて分かる事実（別タスクが終わるまでグリーンにならない等）は、早く
+  知るほど計画を変えられる。**
+- **テスト結果はpassedの件数だけで判断しない。警告も結果の一部として読む。**
+  backendは`pytest.ini`の`filterwarnings = error`で機械的に止まる。無視するものは理由付きの
+  `ignore`行として足す（詳細はdocs/testing.md「警告は既定でエラー」参照）。
 - **修正→確認を繰り返す反復フェーズでは、変更に直接関係するテストファイルだけを絞り込んで
   実行する**（backend例: `pytest backend/tests/test_foo.py -q`、frontend例:
   `npx vitest run <該当ファイル>`）。バックエンド全体

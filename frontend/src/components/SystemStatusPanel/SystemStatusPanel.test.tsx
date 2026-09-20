@@ -13,7 +13,6 @@ const mockedGetFrontendVersion = vi.mocked(getFrontendVersion);
 const BACKEND_STATS: DebugStats = {
   commit: "abc1234",
   started_at: "2026-08-16T10:00:00+00:00",
-  engine: "road_graph",
   debug_mode: false,
   external: {
     "msm:read": {

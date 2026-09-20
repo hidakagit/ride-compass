@@ -99,24 +99,6 @@ def test_gsi_relief_tile_proxy_is_rate_limited_per_client():
     assert response.status_code == 429
 
 
-def test_標高タイルはTerrainRGBへ変換して返す():
-    # 配信元のエンコード（センチメートル・2の補数）のまま返すと、MapLibreはそれを標高として
-    # 読めない。変換が経路を通っていることを、値を復号して確かめる。
-    from app.domain.terrain_rgb import decode_terrain_rgb_meters
-    from tests.test_terrain_rgb import gsi_tile
-
-    app.dependency_overrides[get_gsi_tile_client] = lambda: FakeGsiTileClient((gsi_tile([[1_234]]), "image/png"))
-
-    try:
-        response = client.get("/api/gsi-terrain-tile/13/7276/3225.png")
-    finally:
-        app.dependency_overrides.clear()
-
-    assert response.status_code == 200
-    assert response.headers["content-type"] == "image/png"
-    assert decode_terrain_rgb_meters(response.content)[0][0] == pytest.approx(12.3, abs=0.05)
-
-
 def test_標高タイルは整備区域外を404で返す():
     from app.infrastructure.gsi_tile_client import GSI_TILE_NOT_FOUND
 

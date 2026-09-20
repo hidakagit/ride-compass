@@ -13,13 +13,13 @@ from collections.abc import Collection, Mapping
 import numpy as np
 
 from app.domain.attributes import EdgeMaterialArrays, ElevationAttribute
-from app.domain.graph import RoadGraphLike
+from app.domain.graph import LeanRoadGraph
 from app.domain.hard_filters import HARD_FILTER_HIGHWAY_TYPES, hard_filter_columns
 from app.domain.material_catalog import material_array_columns
 
 
 def material_arrays(
-    graph: RoadGraphLike | None,
+    graph: LeanRoadGraph | None,
     edge_ids: list[str],
     materials: Mapping[str, Mapping[str, object]] | None = None,
     *,
@@ -84,12 +84,6 @@ def material_arrays(
                 out[row_index] = pick(attribute)
         return out
 
-    def _elevation_text(pick) -> list[str | None]:
-        return [
-            None if elevation.get(edge_id) is None else pick(elevation[edge_id])
-            for edge_id in edge_ids
-        ]
-
     return EdgeMaterialArrays(
         edge_ids=list(edge_ids),
         numeric_ids=numeric_ids,
@@ -113,23 +107,20 @@ def material_arrays(
         elevation_loss_m=_elevation(lambda a: a.elevation_loss_m),
         elevation_max_grade=_elevation(lambda a: a.max_grade),
         elevation_min_grade=_elevation(lambda a: a.min_grade),
-        elevation_data_source=_elevation_text(lambda a: a.data_source),
-        elevation_data_version=_elevation_text(lambda a: a.data_version),
-        elevation_calculated_at=_elevation_text(lambda a: a.calculated_at),
     )
 
 
-def _highway(graph: RoadGraphLike | None, edge_id: str) -> str | None:
+def _highway(graph: LeanRoadGraph | None, edge_id: str) -> str | None:
     return _edge_value(graph, edge_id, "highway", None)
 
 
-def _edge_value(graph: RoadGraphLike | None, edge_id: str, attribute: str, default):
+def _edge_value(graph: LeanRoadGraph | None, edge_id: str, attribute: str, default):
     edge = None if graph is None else graph.edges.get(edge_id)
     value = default if edge is None else getattr(edge, attribute, default)
     return default if value is None else value
 
 
-def _mid(graph: RoadGraphLike | None, edge_ids: list[str], attribute: str) -> np.ndarray:
+def _mid(graph: LeanRoadGraph | None, edge_ids: list[str], attribute: str) -> np.ndarray:
     nodes = getattr(graph, "nodes", None) if graph is not None else None
     out = np.full(len(edge_ids), np.nan)
     if not nodes:

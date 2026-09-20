@@ -27,7 +27,6 @@ _ROAD_SURFACE_TILE_MVT_SQL`）に既に焼き込まれているプロパティ�
 
 from dataclasses import dataclass
 
-import numpy as np
 from typing import Literal
 
 from pydantic import ConfigDict
@@ -146,8 +145,6 @@ class MaterialReferencePoint(StrictModel):
 
     label: str
     value: float
-
-
 
 
 class MaterialSpec(StrictModel):
@@ -278,30 +275,6 @@ class MaterialSpec(StrictModel):
         return f"{self.label} - {self.material_id}"
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 def _wind_drag_ratio_reference_points() -> list[MaterialReferencePoint]:
     """`wind_drag_ratio`材料の参考点（時速20km=基準速度で走行、走行方位0度を基準に
     風向差0度=向かい風・180度=追い風・90度=真横として`wind_drag_ratio`で計算する）。"""
@@ -359,18 +332,6 @@ _LANES_COUNT_REFERENCE_POINTS = [
     MaterialReferencePoint(label="2車線", value=2.0),
     MaterialReferencePoint(label="4車線以上", value=4.0),
 ]
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 # 材料の値（OSMタグ生値）ごとの日本語ラベル対訳表。
@@ -944,8 +905,8 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
         tile_property="designation",
         tile_property_categorical_true_values=(*sorted(CAR_STRESS_DESIGNATION_KINDS), "both"),
         primary_attribute_id="designation",
-        # 該当kindの行が無いことは「指定路線でない」の確定値で、データの欠損ではない
-        # （`match_designations`が全wayを処理する）。wayの行自体が無いときだけ不明。
+        # 該当kindの割合がNULLなことは「指定路線でない」の確定値で、データの欠損では
+        # ない（`derive_way_materials`が全wayを処理する）。wayの行が無いときだけ不明。
         value_sql=tag_absent_is_false_sql(designation_any_sql()),
         coverage=CoverageExcluded(reason="designation_attributes行の有無がそのまま該当/非該当の確定値（欠損の概念が無い）"),
     ),
@@ -1014,10 +975,6 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
 }
 
 
-
-
-
-
 def axis_studio_materials() -> list[MaterialSpec]:
     """軸スタジオの材料選択肢（`GET /api/material-catalog`公開レスポンス）
     向けに`display_only`材料を除外した一覧。`display_only`は選択肢からの除外のみを
@@ -1035,25 +992,6 @@ def material_dtype(material_id: str) -> MaterialDType | None:
     （呼び出し側は`is_known_material`で存在確認済みの前提だが、念のため例外にはしない）。"""
     spec = MATERIAL_CATALOG.get(material_id)
     return spec.dtype if spec is not None else None
-
-
-def material_array(spec: MaterialSpec, values: list[object]) -> "np.ndarray":
-    """DBが返した1材料ぶんの値の並びを、評価が使う配列へ写す。
-
-    欠損の表し方は材料の宣言で決まる（`MaterialSpec.bool_default`）。SQLから受けても
-    Pythonのextractorから受けても同じ配列になるよう、写し方はここ1箇所に置く。
-    """
-    if spec.dtype == "categorical":
-        array = np.empty(len(values), dtype=object)
-        array[:] = values
-        return array
-    if spec.dtype == "boolean" and spec.bool_default == "false":
-        return np.array([bool(v) for v in values], dtype=bool)
-    # numeric、またはbool_default="nan"のboolean（不明を非該当と混同しない材料）
-    return np.array(
-        [np.nan if v is None else float(v) for v in values],
-        dtype=np.float64,
-    )
 
 
 MaterialArrayGroup = Literal["numeric", "boolean", "categorical"]

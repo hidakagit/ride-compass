@@ -9,7 +9,6 @@ from app.infrastructure.msm_client import freshness as msm_freshness
 from app.infrastructure.database import get_engine
 from app.infrastructure.debug_log import get_stats
 from app.infrastructure.migrate import list_pending_migrations
-from app.services.road_graph_engine import RoadGraphEngine
 from app.version import STARTED_AT
 from app.domain.strict_model import StrictModel
 
@@ -54,7 +53,6 @@ class MsmFreshnessResponse(StrictModel):
 class DebugStatsResponse(StrictModel):
     commit: str | None
     started_at: str
-    engine: str
     debug_mode: bool
     # カテゴリはinfrastructure/debug_log.pyのlog_external_call呼び出し元
     # （msm:read・weather:jma-tile・basemap:openfreemap・region:road-surface-tile等）に対応する。
@@ -111,10 +109,6 @@ def debug_stats() -> DebugStatsResponse:
     return DebugStatsResponse(
         commit=settings.git_commit,
         started_at=STARTED_AT.isoformat(),
-        # ルート生成エンジンは常にRoadGraphEngine（他エンジンは撤去済み）。SystemStatusPanel.tsxが
-        # 表示するためキー自体は残す。RoadGraphEngine.engine_nameを正本として参照し、
-        # routes.py側（RouteGenerateResponse.engine）とのリテラル重複による将来の乖離を避ける。
-        engine=RoadGraphEngine.engine_name,
         debug_mode=settings.debug_mode,
         msm=_msm_freshness_response(),
         **get_stats(),

@@ -12,7 +12,6 @@ function makeSlot(overrides: Partial<ExperimentSlot>): ExperimentSlot {
   return {
     id: "slot-1",
     color: "#16a34a",
-    engine: "road_graph",
     conditions: {
       latitude: 35.0,
       longitude: 139.0,

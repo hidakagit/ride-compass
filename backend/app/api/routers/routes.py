@@ -267,9 +267,6 @@ class GenerationConditions(StrictModel):
 
 class RouteGenerateResponse(StrictModel):
     routes: list[RouteCandidate]
-    # ルート生成に使ったエンジンの識別子。現状は常に"road_graph"（`RouteGenerator.
-    # engine_name`がroad_graph_engine.pyのクラス属性から決まる）。
-    engine: str
     conditions: GenerationConditions
     # routesが空のとき、原因の要約（RouteGenerator.last_no_candidates_reason、
     # route_generator.pyのlogger.warning行と同じ情報源）。ユーザーが原因を推測できず
@@ -397,7 +394,6 @@ async def _run_generate_job(job_id: str, request: RouteGenerateRequest) -> None:
                 )
             response = RouteGenerateResponse(
                 routes=candidates,
-                engine=setup.generator.engine_name,
                 no_candidates_reason=setup.generator.last_no_candidates_reason if not candidates else None,
                 conditions=GenerationConditions(
                     latitude=request.latitude,

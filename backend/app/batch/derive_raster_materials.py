@@ -29,7 +29,7 @@ import asyncpg  # noqa: E402
 import numpy as np  # noqa: E402
 import shapely  # noqa: E402
 
-from app.batch._common import asyncpg_dsn  # noqa: E402
+from app.batch._common import asyncpg_dsn, with_derived_data_revision_bump  # noqa: E402
 from app.config import settings  # noqa: E402
 from app.domain.attributes import compute_elevation_values  # noqa: E402
 from app.domain.geo import LatLonPoint  # noqa: E402
@@ -299,7 +299,10 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="面のデータを線へ落とす")
     parser.add_argument("--database-url", default=None)
     args = parser.parse_args()
-    return asyncio.run(run(args.database_url or settings.database_url))
+    database_url = args.database_url or settings.database_url
+    # 派生が変われば、それを読んで作ったキャッシュは古くなる。
+    return asyncio.run(with_derived_data_revision_bump(
+        run(database_url), database_url=database_url, dry_run=False))
 
 
 if __name__ == "__main__":

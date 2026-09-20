@@ -13,7 +13,6 @@ describe("getDebugStats", () => {
     const stats: DebugStats = {
       commit: "abc1234",
       started_at: "2026-08-15T15:29:45.023449+00:00",
-      engine: "road_graph",
       debug_mode: false,
       external: {
         "msm:read": {

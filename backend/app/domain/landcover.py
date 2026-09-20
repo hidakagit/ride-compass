@@ -10,7 +10,6 @@ Esri×Impact Observatory Sentinel-2 10m Annual LULCの画素値ヒストグラ�
 
 import hashlib
 from dataclasses import dataclass
-from datetime import datetime
 from pathlib import Path
 from typing import Mapping
 
@@ -73,43 +72,6 @@ def class_percentages(counts: Mapping[int, int]) -> LandcoverPercentages | None:
         snow_ice_percent=percent(LULC_SNOW_ICE),
         rangeland_percent=percent(LULC_RANGELAND),
     )
-
-
-class LandcoverRecord(StrictModel):
-    """土地被覆の派生行のうち、単位（way／区間）に依らない部分。
-
-    割合そのものと系譜情報を持つ。鍵だけが単位ごとに違うため、鍵を足したものが
-    `WayLandcover`・`EdgeLandcover`になる。
-    """
-
-    #: Noneは「計算済み・値なし」（ラスタ範囲外・境界またぎ・有効画素不足）。行が無い場合と
-    #: 材料としての扱いは同じ（どちらも欠損）で、増分実行がやり直さないために行を残す。
-    percentages: LandcoverPercentages | None
-    data_source: str
-    data_version: str
-    computed_at: datetime
-    source_osm_import_run_id: int | None = None
-    algorithm_version: str | None = None
-    #: 「値なし」と確定させたときのラスタ構成の指紋（`percentages`がNoneの行でのみ意味を持つ）。
-    source_raster_set: str | None = None
-
-
-class WayLandcover(LandcoverRecord):
-    """`way_landcover`テーブル1行分。バッチ（`precompute_way_landcover.py`）の書き込みと、
-    区間インスペクタ（`domain/axis_inspector.py`）のWay1本ぶんの入力に使う。評価経路の
-    材料はこの行から配線済みクラスの割合だけを取り出したもの（材料の
-    `landcover_percents`）で、系譜情報は運ばない。"""
-
-    osm_way_id: int
-
-
-class EdgeLandcover(LandcoverRecord):
-    """`edge_landcover`テーブル1行分。鍵は向きに依らない区間の同定子（way＋両端ノードの
-    小さい方・大きい方）で、`road_edges`のforward/backwardは同じ1行を共有する。"""
-
-    osm_way_id: int
-    node_lo: str
-    node_hi: str
 
 
 @dataclass(frozen=True)

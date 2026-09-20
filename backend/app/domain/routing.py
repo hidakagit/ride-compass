@@ -31,7 +31,7 @@ import numpy as np
 from numba import njit
 from app.domain.errors import RoutingError
 from app.domain.geo import KM_PER_DEGREE_LATITUDE, bearing_between, haversine_distance_km
-from app.domain.graph import RoadGraphLike
+from app.domain.graph import LeanRoadGraph
 from app.domain.route import Coordinates
 from app.domain.traffic import MAJOR_CROSSING_MIN_RANK
 from app.domain.tuning import tuning_value
@@ -58,7 +58,7 @@ class LazyRoadGraph:
 
 
 def build_lazy_road_graph(
-    graph: RoadGraphLike,
+    graph: LeanRoadGraph,
 ) -> LazyRoadGraph:
     """`graph`のトポロジから`LazyRoadGraph`を構築する（Hard Constraint自体は評価しない。
     除外は呼び出し元がcost=math.infで表現する）。
@@ -180,14 +180,14 @@ class SearchGraphStatics:
 
 
 def find_missing_lazy_graph_edge_id(
-    lazy_graph: LazyRoadGraph, graph: RoadGraphLike, *, also_required_in: Container[str] | None = None
+    lazy_graph: LazyRoadGraph, graph: LeanRoadGraph, *, also_required_in: Container[str] | None = None
 ) -> str | None:
     """`lazy_graph.edge_ids`のうち`graph.edges`に存在しない最初のedge_idを返す
     （無ければNone）。`lazy_graph.edge_ids`は`graph.edges`の部分集合である前提
     （同じ`graph`から`build_lazy_road_graph`で作られた場合は常に成り立つ）だが、
     `lazy_graph`がタイル集合キーのプロセス内キャッシュ（`infrastructure/
-    search_graph_cache.py`）からの再利用で、その間にタイルが再split（`save_graph`の
-    edge_id再割当）された場合はこの前提が崩れうる。`build_search_graph_statics`の
+    search_graph_cache.py`）からの再利用で、その間に派生バッチが区間を作り直した場合は
+    この前提が崩れうる。`build_search_graph_statics`の
     CSR構築を伴わない軽量版チェックで、`RoadGraphEngine._ensure_lazy_graph_consistent`
     （`prepare`・`preview_segment`共通）が呼ぶ。
 
@@ -207,7 +207,7 @@ def find_missing_lazy_graph_edge_id(
 
 
 def build_search_graph_statics(
-    lazy_graph: LazyRoadGraph, graph: RoadGraphLike
+    lazy_graph: LazyRoadGraph, graph: LeanRoadGraph
 ) -> SearchGraphStatics:
     """`lazy_graph.edge_ids`が`graph.edges`の部分集合であることを`find_missing_lazy_graph_
     edge_id`で確認し、崩れていれば`LazyGraphEdgeMismatchError`を送出する（呼び出し側の
@@ -475,7 +475,7 @@ class NodeSpatialIndex:
     動く）。
     """
 
-    graph: RoadGraphLike
+    graph: LeanRoadGraph
     cell_size_deg: float
     buckets: dict[tuple[int, int], list[str]]
     #: 非空セルが占める範囲（最小・最大のセル座標）。Nodeが1つも無ければNone。
@@ -498,7 +498,7 @@ _NEIGHBOR_CELL_TOLERANCE = 1
 
 
 def build_node_spatial_index(
-    graph: RoadGraphLike,
+    graph: LeanRoadGraph,
     cell_size_deg: float = DEFAULT_NODE_INDEX_CELL_SIZE_DEG,
     node_ids: Collection[str] | None = None,
 ) -> NodeSpatialIndex:
@@ -715,7 +715,7 @@ class TurnExpandedStructure:
         return self._reverse
 
 
-def edge_bearings(graph: RoadGraphLike, lazy_graph: LazyRoadGraph) -> np.ndarray:
+def edge_bearings(graph: LeanRoadGraph, lazy_graph: LazyRoadGraph) -> np.ndarray:
     """`lazy_graph.edge_ids`順の方位（度）。`Edge.bearing_deg`（折れ線から求めた実際の向き）を
     使い、持たないEdgeだけ両端のNode座標から補う。"""
     bearings = np.zeros(len(lazy_graph.edge_ids))

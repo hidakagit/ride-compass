@@ -14,7 +14,7 @@ from app.domain.evaluation import (
     build_static_edge_score_matrix,
     combine_static_edge_score_matrices,
 )
-from app.domain.graph import DirectedEdge, EdgeLike, LeanEdge, LeanNode, LeanRoadGraph
+from app.domain.graph import LeanEdge, LeanNode, LeanRoadGraph
 from app.domain.region import ROAD_GRAPH_TILE_ZOOM, BoundingBox, tile_bounds_lonlat, tiles_covering_bbox
 from app.infrastructure import graph_material_cache, tile_score_matrix_cache
 from app.infrastructure.road_graph_repository import RoadGraphRepository
@@ -60,21 +60,11 @@ class _CombinedEdgeMaterials:
 
 
 class GraphService:
-    """指定bboxのRoad Graph（Node/Directed Edge）をPostGIS（`repository`）経由で取得する。
+    """指定bboxのRoad Graphを`repository`経由で読む。**読むだけで、作らない。**
 
-    既存のルート探索（RouteGenerator）から使われる。地図表示（RegionService）も
-    タイル配信のバックグラウンドで`get_or_build_graph_with_attributes`を呼び、
-    ルート生成した地点以外でもroad_nodes/road_edgesを構築する（region_service.py参照）。
-
-    `get_or_build_graph_with_attributes`はPostGIS（PBF取込バッチ等でタイル取得済みマーク
-    された範囲）のみを読み、取込範囲外はデータ未整備としてNoneを返す（Overpassへは
-    問い合わせない）。タイル取得時に交差点分割（build_road_graph）は行わない。分割計算は
-    DB上の既知の生データ全体から近傍Wayを含めて都度行う（タイル境界依存の交差点分割
-    不一致問題への根本対応。詳細はdocs/architecture.md参照）。ただし生データが前回の
-    split以降変わっていなければ、その分割計算・永続化を丸ごと省略して既存の
-    road_edges/road_nodesを直接読む（`RoadGraphRepository.is_split_up_to_date`参照）。
-
-    `repository`は必須で、Overpassから都度構築する経路は持たない。
+    道路網は取込・派生バッチが範囲全体ぶん先に作る。取込範囲の外はデータ未整備として
+    Noneを返す（その場で作りに行く経路は持たない）。カバレッジは取込の宣言
+    （`source_runs.profile`のtarget.bbox）から決まる。
     """
 
     def __init__(self, repository: RoadGraphRepository):
@@ -99,36 +89,18 @@ class GraphService:
         （surface/edge_attribute_counts/way_tags/elevation_attributes/designated_edge_ids）と、
         「Edge×公開軸」静的スコア行列（`StaticEdgeScoreMatrix`）をまとめて返す。
 
-        `get_or_build_graph_with_attributes`は1回のリクエストのbbox全体で
-        素材を都度取得するため、同じエリアへ2回目以降のリクエストが来ても毎回DBへ
-        問い合わせることになる。本メソッドはbboxをz12タイル（`ROAD_GRAPH_TILE_ZOOM`）に
-        分解し、タイル単位でプロセス内メモリキャッシュ（`infrastructure/graph_material_cache.py`・
-        `infrastructure/tile_score_matrix_cache.py`）を経由することで、既にキャッシュ済みの
-        タイルだけで完結するリクエストはDBへ一切アクセスせず、探索コストの軸別スコア
-        算出（Edgeごとの重いPython評価）も行わない。
+        bboxをz12タイル（`ROAD_GRAPH_TILE_ZOOM`）へ分解し、タイル単位でプロセス内
+        キャッシュ（`infrastructure/graph_material_cache.py`・
+        `infrastructure/tile_score_matrix_cache.py`）を経由する。既にキャッシュ済みの
+        タイルだけで足りるリクエストはDBへ一切アクセスせず、軸別スコアの算出
+        （Edgeごとの重いPython評価）も行わない。
 
-        対象bboxのデータが前回のsplit以降変わっている稀なケース（`is_split_up_to_date`が
-        False）は、既存の`get_or_build_graph_with_attributes`（フルグラフ構築・保存を含む
-        重い経路）と個別の材料取得メソッドをそのまま呼ぶ。このリクエスト自体の応答は
-        タイルキャッシュを経由せず返すが（bboxはタイル境界と一致しないため、部分的な
-        データをタイル単位キャッシュへ書き込むと次回以降のリクエストへ不完全な結果を
-        返しかねない）、応答後にバックグラウンドで対象タイルを正規の経路
-        （`_get_or_build_tile_materials`、タイル全体をDBから取得）で温める
-        （温めが無いと直後の2回目リクエストもキャッシュ未着火のままDB読み出しになる。
-        `_maybe_warm_tile_cache`参照）。
-
-        戻り値の3つ目（タイル集合）は、`graph`がbboxを覆う全z12タイルの材料キャッシュを
-        そのまま結合したもの（`_build_search_materials_from_tile_cache`経由）である場合
-        のみ設定される。`_build_search_materials_uncached`（split鮮度が古くbbox限定で
-        再構築した経路）はNoneを返す——このgraphはタイル境界と一致しない不完全な集合
-        （上記のタイルキャッシュを書き込まない理由と同じ）のため、呼び出し側
-        （`RoadGraphEngine`）は`infrastructure/search_graph_cache.py`（探索用グラフ・
-        索引のタイル集合キーLRU）をこの場合は経由しない。
+        タイル集合もあわせて返す。これはこのbboxを覆うz12タイルの集合で、呼び出し側（`RoadGraphEngine`）が
+        探索用グラフ・索引のLRU（`infrastructure/search_graph_cache.py`）の鍵に使う。
         """
         # バッチが派生データを書き直してもbackendは再起動しないため、ここで（TTL付きで）
-        # DBの世代と突き合わせる。**材料ディスクキャッシュを読むのはこの経路**で、split鮮度
-        # が最新なら`get_or_build_graph_with_attributes`を通らずタイルキャッシュから直接
-        # 復元する——置き場所を間違えると定常状態では一度も発火しない。
+        # DBの世代と突き合わせる。**材料ディスクキャッシュを読むのはこの経路**のため、
+        # 置き場所を間違えると定常状態では一度も発火しない。
         await derived_data_revision_service.ensure_caches_match_db(self._repository)
 
         if not await self._repository.is_covered(bbox):
@@ -321,7 +293,7 @@ class GraphService:
         graph_material_cache.set_accident_years_covered(value)
         return value
 
-    async def get_edges_with_geometry(self, edges: list[EdgeLike]) -> dict[str, DirectedEdge]:
+    async def get_edges_with_geometry(self, edges: list[LeanEdge]) -> dict[str, LeanEdge]:
         """`LeanRoadGraph`として読み込んだ探索用グラフ（geometryプレースホルダのみ）の
         一部Edgeへ、実ジオメトリを後付けで取得する。
 

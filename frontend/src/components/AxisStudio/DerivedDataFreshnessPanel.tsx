@@ -54,15 +54,28 @@ export function rowsFromReport(report: DerivedDataFreshnessResponse): FreshnessR
   return report.tables.map((table) => {
     const incomplete = table.columns.filter((column) => column.is_incomplete);
     const absent = table.columns.filter((column) => !column.is_incomplete && column.null_count > 0);
+    // 行そのものが無いケース。鮮度（世代）でも完成度（NULL）でも表に出ない。
+    const missing = table.missing_rows ?? 0;
     return {
       name: table.table_name,
       scale: `${formatCount(table.row_count)}行`,
-      needsRebuild: table.is_stale || incomplete.length > 0,
+      needsRebuild: table.is_stale || incomplete.length > 0 || missing > 0,
       detail: [
         {
           label: table.source ?? "取込",
           value: `最新 ${formatRunId(table.latest_run_id)} / 反映 ${formatRunId(table.oldest_run_id)}`,
         },
+        ...(table.coverage_parent === null || table.coverage_parent === undefined
+          ? []
+          : [
+              {
+                label: `${table.coverage_parent} を覆う`,
+                value:
+                  missing > 0
+                    ? `${formatCount(missing)}件ぶん行が無い（母数 ${formatCount(table.coverage_parent_row_count ?? 0)}）`
+                    : `欠けなし（母数 ${formatCount(table.coverage_parent_row_count ?? 0)}）`,
+              },
+            ]),
         ...incomplete.map((column) => ({
           label: column.column,
           value: `未計算 ${formatCount(column.null_count)}件`,

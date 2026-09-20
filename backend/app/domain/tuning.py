@@ -336,11 +336,6 @@ def stop_seconds_parameter_id(kind: str) -> str:
     return f"stop.{kind}_seconds"
 
 
-def turn_parameter_ids() -> tuple[str, ...]:
-    """ターンの費用の較正値id（`TurnCostSpec`の組み立てが使う）。"""
-    return tuple(p.id for p in TUNING_PARAMETERS if p.id.startswith("turn."))
-
-
 __all__ = [
     "FIXED_VALUES",
     "client_tuning_values",
@@ -352,5 +347,4 @@ __all__ = [
     "TuningParameter",
     "stop_seconds_parameter_id",
     "tuning_value",
-    "turn_parameter_ids",
 ]

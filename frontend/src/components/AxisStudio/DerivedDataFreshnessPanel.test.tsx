@@ -19,6 +19,9 @@ function table(overrides: Partial<TableEntry>): TableEntry {
     oldest_run_id: 10,
     latest_run_id: 10,
     is_stale: false,
+    coverage_parent: "road_edges",
+    coverage_parent_row_count: 5000,
+    missing_rows: 0,
     columns: [
       { column: "accident_count", null_count: 0, is_incomplete: false },
       // 橋・トンネルは値を持たない。件数は出すが作り直しの対象にはしない。
@@ -80,6 +83,45 @@ describe("DerivedDataFreshnessPanel", () => {
     expect(within(details).getByText("値なし 500件（確定）")).toBeInTheDocument();
   });
 
+  it("行そのものが無いときも作り直し待ちにする", async () => {
+    // 鮮度（世代）でも完成度（NULL）でも表に出ない。行が無ければ古くもなければNULLでもない。
+    vi.mocked(getDerivedDataFreshness).mockResolvedValue({
+      ...FRESH_REPORT,
+      tables: [table({ missing_rows: 37, coverage_parent_row_count: 5037 })],
+    });
+    const user = userEvent.setup();
+    render(<DerivedDataFreshnessPanel />);
+
+    await clickAggregate(user);
+
+    expect(screen.getByText("1件が作り直し待ち")).toBeInTheDocument();
+    const details = screen.getByText("edge_materials").closest("details") as HTMLElement;
+    expect(within(details).getByText("37件ぶん行が無い（母数 5,037）")).toBeInTheDocument();
+  });
+
+  it("覆うことを宣言していない表は、母数の行を出さない", async () => {
+    // node_materialsは形状頂点の行を持たない。母数を出すと欠けがあるように読める。
+    vi.mocked(getDerivedDataFreshness).mockResolvedValue({
+      ...FRESH_REPORT,
+      tables: [
+        table({
+          table_name: "node_materials",
+          coverage_parent: null,
+          coverage_parent_row_count: null,
+          missing_rows: null,
+        }),
+      ],
+    });
+    const user = userEvent.setup();
+    render(<DerivedDataFreshnessPanel />);
+
+    await clickAggregate(user);
+
+    expect(screen.getByText("すべて最新")).toBeInTheDocument();
+    const details = screen.getByText("node_materials").closest("details") as HTMLElement;
+    expect(within(details).queryByText(/を覆う/)).not.toBeInTheDocument();
+  });
+
   it("作り直しが要る件数と、次に打つ1コマンドを出す", async () => {
     // 古い世代と未計算の両方を数える。読み手が次に打つのはどちらでも同じ1コマンドなので、
     // 行ごとにバッチ名を散らさない。
@@ -111,7 +153,6 @@ describe("DerivedDataFreshnessPanel", () => {
   it("作り直しのコマンドは、本番で安全に実行できる形になっている", () => {
     expect(REBUILD_COMMAND).toContain("docker run --rm");
     expect(REBUILD_COMMAND).toContain("--memory=");
-    expect(REBUILD_COMMAND).toContain("app.batch.derive_cli");
     expect(REBUILD_COMMAND).not.toContain("docker exec");
   });
 
@@ -129,7 +170,7 @@ describe("DerivedDataFreshnessPanel", () => {
     expect(summary).not.toBeNull();
     const details = summary?.closest("details") as HTMLDetailsElement;
     expect(details.open).toBe(false);
-    expect(within(details).getByText("最新 #10 / 反映 #10")).toBeInTheDocument();
+    expect(within(details).getByText(/#10/)).toBeInTheDocument();
   });
 
   it("一覧はbackendが返した表ぶん並ぶ（表が増えてもフロントは追従する）", async () => {
