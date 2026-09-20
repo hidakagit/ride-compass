@@ -15,6 +15,7 @@ import shapely
 from shapely.geometry import box
 
 from app.batch.ingest import SourceRecord, register_adapter
+from app.batch.source_adapters._raster_wkb import tile_raster_wkb
 from app.batch.source_profile import SourceProfile, SourceSpec
 from app.domain.region import BoundingBox, tiles_covering_bbox
 
@@ -67,12 +68,13 @@ async def read_lulc_tiles(spec: SourceSpec, profile: SourceProfile) -> AsyncIter
         yield SourceRecord(
             natural_key=f"{product}/{year}/{zoom}/{x}/{y}",
             geom_wkb=shapely.to_wkb(box(*_tile_bounds(zoom, x, y))),
-            attrs={
-                "product": product, "year": year, "z": zoom, "x": x, "y": y,
-                "width": TILE_SIZE, "height": TILE_SIZE,
-                "dtype": "uint8", "nodata": 0,
-            },
-            payload=classes.tobytes(),
+            # 型・欠測値・位置はrasterの値自身が持つため書かない。幅は画素の番地を
+            # 出すのに要る（rasterから読むと画素が実体化される）。
+            attrs={"product": product, "year": year, "z": zoom, "x": x, "y": y,
+                   "width": TILE_SIZE},
+            rast=tile_raster_wkb(
+                classes.tobytes(), zoom=zoom, x=x, y=y,
+                width=TILE_SIZE, height=TILE_SIZE, dtype="uint8", nodata=0),
         )
     if uncovered:
         logger.info("ラスタが覆っていないタイル: %d枚", uncovered)

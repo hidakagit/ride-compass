@@ -38,8 +38,10 @@ class SourceRecord:
     geom_wkb: bytes
     #: 外部が持っていた属性。取込の時点では何も捨てない。
     attrs: dict[str, Any]
-    #: 属性として読めない配列実体（ラスタの画素・参照ノードid列・タイル本体）。
+    #: 属性として読めない配列実体（参照ノードid列・タイル本体）。
     payload: bytes | None = None
+    #: 面のソースの画素（raster WKB。`_raster_wkb.tile_raster_wkb`が作る）。
+    rast: bytes | None = None
 
 
 #: プロファイルの`adapter`名 → 実装。**ソースを足す唯一の追加点**。
@@ -141,30 +143,33 @@ async def ingest_source(
 
     staging = f"_stage_{spec.name}"
     await conn.execute(f'CREATE TEMP TABLE "{staging}" '
-                       "(natural_key text, geom_wkb bytea, attrs jsonb, payload bytea) "
+                       "(natural_key text, geom_wkb bytea, attrs jsonb, payload bytea, rast bytea) "
                        "ON COMMIT DROP")
 
     written = 0
-    batch: list[tuple[str, bytes, str, bytes | None]] = []
+    batch: list[tuple[str, bytes, str, bytes | None, bytes | None]] = []
     async for record in adapter(spec, profile):
-        batch.append((record.natural_key, record.geom_wkb, _json(record.attrs), record.payload))
+        batch.append((record.natural_key, record.geom_wkb, _json(record.attrs),
+                      record.payload, record.rast))
         if len(batch) >= COPY_CHUNK:
             await conn.copy_records_to_table(
                 staging, records=batch,
-                columns=["natural_key", "geom_wkb", "attrs", "payload"])
+                columns=["natural_key", "geom_wkb", "attrs", "payload", "rast"])
             written += len(batch)
             batch.clear()
     if batch:
         await conn.copy_records_to_table(
-            staging, records=batch, columns=["natural_key", "geom_wkb", "attrs", "payload"])
+            staging, records=batch, columns=["natural_key", "geom_wkb", "attrs", "payload", "rast"])
         written += len(batch)
 
     # そのソースぶんだけを入れ替える。パーティションを切ってあるので他のソースへ触らない。
     await conn.execute(f'TRUNCATE "{partition_table_name(spec.name)}"')
     await conn.execute(
         f'INSERT INTO "{partition_table_name(spec.name)}" '
-        "(source, natural_key, run_id, geom, attrs, payload) "
-        "SELECT $1, natural_key, $2, ST_SetSRID(ST_GeomFromWKB(geom_wkb), 4326), attrs, payload "
+        "(source, natural_key, run_id, geom, attrs, payload, rast) "
+        "SELECT $1, natural_key, $2, ST_SetSRID(ST_GeomFromWKB(geom_wkb), 4326), attrs, "
+        # rasterは16進のテキストからしか作れない。DB側で変換し、転送量を倍にしない。
+        "payload, encode(rast, 'hex')::raster "
         f'FROM "{staging}"',
         spec.name, run_id,
     )

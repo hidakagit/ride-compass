@@ -11,7 +11,6 @@ Esri×Impact Observatory Sentinel-2 10m Annual LULCの画素値ヒストグラ�
 import hashlib
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Mapping
 
 from app.domain.strict_model import StrictModel
 
@@ -45,33 +44,6 @@ class LandcoverPercentages(StrictModel):
     bare_percent: float
     snow_ice_percent: float
     rangeland_percent: float
-
-
-def class_percentages(counts: Mapping[int, int]) -> LandcoverPercentages | None:
-    """クラス値→画素数のヒストグラムから、クラスごとの割合(%)を算出する。
-
-    有効画素数（No Data・Clouds以外の合計）が`MIN_VALID_PIXELS`未満の場合はNone
-    （ウィンドウがラスタ範囲外に大きくはみ出た・雲に覆われていた等、統計的に
-    信頼できない場合の「値なし」表現）。
-    """
-    valid_pixels = sum(count for value, count in counts.items() if value not in LULC_INVALID_VALUES)
-    if valid_pixels < MIN_VALID_PIXELS:
-        return None
-
-    def percent(value: int) -> float:
-        return 100 * counts.get(value, 0) / valid_pixels
-
-    return LandcoverPercentages(
-        valid_pixels=valid_pixels,
-        water_percent=percent(LULC_WATER),
-        trees_percent=percent(LULC_TREES),
-        flooded_veg_percent=percent(LULC_FLOODED_VEG),
-        crops_percent=percent(LULC_CROPS),
-        built_percent=percent(LULC_BUILT),
-        bare_percent=percent(LULC_BARE),
-        snow_ice_percent=percent(LULC_SNOW_ICE),
-        rangeland_percent=percent(LULC_RANGELAND),
-    )
 
 
 @dataclass(frozen=True)
@@ -138,3 +110,43 @@ def raster_set_fingerprint(raster_paths: list[str]) -> str:
     """
     joined = "\n".join(sorted(Path(path).name for path in raster_paths))
     return hashlib.sha256(joined.encode("utf-8")).hexdigest()[:16]
+
+
+#: (`LandcoverPercentages`の項目名, クラス値)。割合を出す対象はこの1か所で決まる。
+PERCENT_CLASSES: tuple[tuple[str, int], ...] = (
+    ("water_percent", LULC_WATER),
+    ("trees_percent", LULC_TREES),
+    ("flooded_veg_percent", LULC_FLOODED_VEG),
+    ("crops_percent", LULC_CROPS),
+    ("built_percent", LULC_BUILT),
+    ("bare_percent", LULC_BARE),
+    ("snow_ice_percent", LULC_SNOW_ICE),
+    ("rangeland_percent", LULC_RANGELAND),
+)
+
+
+def class_percentages_sql(counts: str) -> str:
+    """クラスごとの画素数から割合(%)を出すSQL。
+
+    `counts`は`(osm_way_id, segment_index, cls, n)`を返す関係。有効画素数
+    （No Data・Cloudsを除いた合計）が`MIN_VALID_PIXELS`未満の区間は返らない——
+    帯がラスタの外へ大きくはみ出た・雲に覆われていた等、統計として信頼できないため。
+    """
+    invalid = ", ".join(str(v) for v in sorted(LULC_INVALID_VALUES))
+    tally = ",\n           ".join(
+        f"sum(n) FILTER (WHERE cls = {value}) AS {name.removesuffix('_percent')}"
+        for name, value in PERCENT_CLASSES)
+    percents = ",\n       ".join(
+        f"100.0 * coalesce({name.removesuffix('_percent')}, 0) / valid_pixels AS {name}"
+        for name, _ in PERCENT_CLASSES)
+    return f"""
+WITH counted AS ({counts}),
+agg AS (
+    SELECT osm_way_id, segment_index,
+           sum(n) FILTER (WHERE cls NOT IN ({invalid}))::int AS valid_pixels,
+           {tally}
+    FROM counted GROUP BY osm_way_id, segment_index)
+SELECT osm_way_id, segment_index, valid_pixels,
+       {percents}
+FROM agg WHERE valid_pixels >= {MIN_VALID_PIXELS}
+"""

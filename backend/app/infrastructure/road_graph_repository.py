@@ -77,6 +77,8 @@ async def create_tables(engine: AsyncEngine) -> None:
     """
     async with engine.begin() as conn:
         await conn.execute(text("CREATE EXTENSION IF NOT EXISTS postgis"))
+        # 面のソースは`raster`列で持ち、画素の数え上げをDB側で行う。
+        await conn.execute(text("CREATE EXTENSION IF NOT EXISTS postgis_raster"))
         await conn.run_sync(Base.metadata.create_all)
 
 

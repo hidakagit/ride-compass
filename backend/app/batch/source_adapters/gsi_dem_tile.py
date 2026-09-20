@@ -3,9 +3,9 @@
 **タイル1枚を1行**として返す。これで面のデータが点・線と同じ骨格に乗り、取込の経路を
 分けずに済む。
 
-`payload`は標高をint32（0.01m単位）で並べた配列で、欠測は`NODATA`。配信元はテキストで
-返すが、同じ内容が数倍の大きさになるため詰めて持つ。どう読むかは`attrs`が持つ
-（幅・高さ・型・尺度・欠測値）ので、読み手は形を推測しない。
+標高をint32（0.01m単位）で並べ、`raster`として持つ。配信元はテキストで返すが、同じ
+内容が数倍の大きさになるため詰める。位置・画素の大きさ・型・欠測値は`raster`の値自身が
+持つので、読み手は`attrs`から形を組み立てない。
 
 ズームは元データの分解能から決める——プロファイルが`zoom`を持ち、実装は持たない。
 配信元がそれ以上を持たない（z16以降は404）ことは確認済み。
@@ -21,6 +21,7 @@ import shapely
 from shapely.geometry import box
 
 from app.batch.ingest import SourceRecord, register_adapter
+from app.batch.source_adapters._raster_wkb import tile_raster_wkb
 from app.batch.source_profile import SourceProfile, SourceSpec
 from app.domain.region import BoundingBox, tiles_covering_bbox
 logger = logging.getLogger("ridecompass.ingest.gsi_dem_tile")
@@ -137,17 +138,21 @@ async def read_gsi_dem_tiles(spec: SourceSpec, profile: SourceProfile) -> AsyncI
                     outside += 1
                     continue
                 actual_product, text = result
-                payload, missing = _pack(text)
+                pixels, missing = _pack(text)
                 yield SourceRecord(
                     natural_key=f"{actual_product}/{zoom}/{x}/{y}",
                     geom_wkb=shapely.to_wkb(box(*_tile_bounds(zoom, x, y))),
+                    # 型・欠測値・位置はrasterの値自身が持つため書かない。尺度
+                    # （0.01m単位）はrasterが持てず、幅は画素の番地を出すのに要る
+                    # ——rasterから読むと、そのたびにタイルの画素が実体化される。
                     attrs={
                         "product": actual_product, "z": zoom, "x": x, "y": y,
-                        "width": DEM_TILE_SIZE, "height": DEM_TILE_SIZE,
-                        "dtype": "int32_le", "scale": SCALE, "nodata": NODATA,
-                        "missing": missing,
+                        "width": DEM_TILE_SIZE, "scale": SCALE, "missing": missing,
                     },
-                    payload=payload,
+                    rast=tile_raster_wkb(
+                        pixels, zoom=zoom, x=x, y=y,
+                        width=DEM_TILE_SIZE, height=DEM_TILE_SIZE,
+                        dtype="int32_le", nodata=NODATA),
                 )
     if outside:
         logger.info("整備区域外で取得できなかったタイル: %d枚", outside)

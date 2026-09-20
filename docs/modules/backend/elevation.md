@@ -11,7 +11,7 @@
 |---|---|
 | domain | `attributes.py`（`ElevationValues`・`compute_elevation_values`） |
 | services | `elevation_aggregation.py` |
-| batch | `source_adapters/gsi_dem_tile.py`（取込。タイルのURL・形式・欠測の記法・製品の優先順を持つ）・`derive_raster_materials.py`（派生） |
+| batch | `source_adapters/gsi_dem_tile.py`（取込。タイルのURL・形式・欠測の記法・製品の優先順を持つ）・`source_adapters/_raster_wkb.py`（画素の並びをPostGISの`raster`へ包む）・`derive_raster_materials.py`（派生） |
 
 ## 3段に分かれている
 
