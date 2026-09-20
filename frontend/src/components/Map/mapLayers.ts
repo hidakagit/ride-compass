@@ -18,8 +18,8 @@
 // categoryはkind:"static"レイヤーのみが持つ中分類で、▶パネル（MapOverlayControls）の
 // グループ見出しに使う。staticをflatな一覧のまま並べると、増えるほど見つけにくくなる
 // ため、kindより一段細かい単位で分ける。区分は`MapLayerCategory`が正本で、並び順は
-// `MAP_LAYER_CATEGORY_ORDER`が決める。例: 道路状態（道路の種類・路面の種類・指定路線）、
-// 交通・安全（車ストレス・事故・停止要因）、地形・土地、補給・施設。
+// `MAP_LAYER_CATEGORY_ORDER`が決める。例: 道路状態（道路の種類・路面の種類）、
+// 交通・安全（事故・停止要因）、地形・土地、補給・施設。
 // 補給・休憩ポイントを交通・安全へ含めないのは、安全・リスクの指標ではないため。
 // 「自転車インフラ」の専用地図レイヤー・カテゴリは持たない。公開軸
 // bicycle_infra_qualityがramp軸として地図レンズを自動で得る（axisLayers.ts）ため、
@@ -30,7 +30,6 @@ import { LANDCOVER_TILE_MIN_ZOOM, ROAD_TILE_MIN_ZOOM } from "@/services/regionAp
 import { axisIconFor } from "./axisIconPalette";
 import {
   AccidentIcon,
-  DesignationIcon,
   ElevationIcon,
   HillshadeIcon,
   LandcoverIcon,
@@ -66,7 +65,6 @@ export type MapLayerId =
   | "landcover"
   | "roadType"
   | "roadSurface"
-  | "designation"
   | "tunnel"
   | "oneway"
   | "stopPoi"
@@ -140,7 +138,7 @@ export type MapLayerDataNature = "raw" | "composite" | "dynamic";
  * - `area`: 面で塗るもの（ラスタ・塗りつぶし）。基礎地図の道路網の**下**へ差し込む
  *   （実際の差し込み先は`mapStyleOps.ts: areaLayerAnchor`が基礎地図のスキーマから求める）。
  * - `estimateLine`: 推定指標の線（ramp軸）。材料が同時に出ている間は太く半透明な下敷きになる。
- * - `rawLine`: 観測した事実の線（路面・道路種別・指定路線・トンネル・一方通行）。推定の上へ置く
+ * - `rawLine`: 観測した事実の線（路面・道路種別・トンネル・一方通行）。推定の上へ置く
  *   ——同時に出したときに、後から追加される側が先の側を塗り潰さないようにする。
  * - `lensLine`: レンズ（専用way値配信軸）の線。見たいものを選んで出すため事実の線より上。
  * - `point`: 点データ（事故・停止要因POI・補給POI・風の矢印）。線に隠れないよう最上位側。
@@ -176,7 +174,7 @@ export type MapLayerDataSource =
   "roadTiles" | "accidentTiles" | "poiTiles" | "gsiRelief" | "gsiTerrain" | "landcoverRaster" | "ownFetch";
 
 /** 地図上チップ（MapOverlayControls.tsx）最上位の3グループ。「対象（何についての情報か）」で束ねる。
- * - road（道路）: 道路の純粋な属性のみ（道路種別・路面種別・指定路線・トンネル・一方通行）
+ * - road（道路）: 道路の純粋な属性のみ（道路種別・路面種別・トンネル・一方通行）
  * - environment（環境）: 標高／降水ナウキャスト・風（矢印）・雷・竜巻等の面レイヤー
  * - spot（スポット）: 停止要因POI・補給POI・事故地点等の点レイヤー
  * 評価軸（ramp軸・専用way値配信軸）はこの3グループのどれにも属さず、地図上チップとして
@@ -219,7 +217,7 @@ export function isAxisStudioLayer(layer: {
  * dataNatureの既存フィールドだけで機械的に判定できるが、軸スタジオ由来のレイヤー
  * （isAxisStudioLayer、ramp軸・専用way値配信軸）は明示的に対象外（undefined）にする——
  * category値だけを見ると「道路」「スポット」「環境」のいずれかに紛れ込んでしまうため
- * （例: car_stressのcategory="trafficSafety"はaccidents等と同じ値）、category判定の
+ * （例: category="trafficSafety"はaccidents等と同じ値）、category判定の
  * 前に必ず除外する。route等、どのグループにも属さないレイヤーもundefinedを返す。 */
 export function mapOverlayGroupFor(layer: {
   id: MapLayerId;
@@ -410,32 +408,7 @@ export function buildMapLayers(
       description: "路面の材質を色で表示[アスファルト・砂利・土など]",
     },
     {
-      id: "designation",
-      paintTier: "rawLine",
-      dataSource: "roadTiles",
-      icon: DesignationIcon,
-      tileMinZoom: ROAD_TILE_MIN_ZOOM,
-      // 外部静的データソース（国土数値情報 N10/N12）。指定路線コンフレーション機構が
-      // road_edgesへ対応付けた緊急輸送道路・重要物流道路を色分け表示する。
-      label: "指定路線[緊急輸送・重要物流]",
-      chipLabel: "指定路線",
-      kind: "static",
-      category: "roadCondition",
-      description: "国土数値情報の緊急輸送道路・重要物流道路[KSJ N10/N12]に該当する区間を色分け表示",
-      // バッファマッチ（20m、交差率50%以上）でroad_edgesへ対応付けた区間を色分けする。
-      // 該当区間は車の圧迫感軸（axis:car_stress）にも+1の補正として反映される
-      // （domain/axis_definitions.py: car_stress_designation_adjustment参照）。指定路線が
-      // 「行政指定という事実」の表示であるのに対し、車ストレスはそれを含む複数要因
-      // （道路種別・車線数・制限速度・自転車インフラ関連の正規化フラグ）を合成した推定指標
-      // であるという役割の違いをpanelHintで明記する（car_stress軸自身のpanel_hint、
-      // AXIS_DEFINITIONS参照と対で参照）。
-      panelHint:
-        "国土数値情報の緊急輸送道路[N10]・重要物流道路[N12]に該当する区間です。" +
-        "大型車の通行が多いと推定される目安として車の圧迫感の評価にも加点されますが、" +
-        "指定路線かどうか自体を個別に確認できるよう別レイヤーとして表示しています。",
-    },
-    {
-      // トンネル（一次属性、OSMのtunnelタグ）。designationと同じroad_surfaceソースの
+      // トンネル（一次属性、OSMのtunnelタグ）。road_surfaceソースの
       // 独立レイヤー。
       id: "tunnel",
       paintTier: "rawLine",
@@ -490,7 +463,7 @@ export function buildMapLayers(
       dataSource: "poiTiles",
       icon: SupplyPoiIcon,
       label: "補給・休憩ポイント",
-      // 地図上のチップ幅は文字数に連動する（他レイヤーは4文字以内: 指定路線/インフラ等）ため、
+      // 地図上のチップ幅は文字数に連動する（他レイヤーは4文字以内）ため、
       // 「補給・休憩」（読点込み5文字）だとこのチップだけ幅が広がってしまう。読点を省いた
       // 「補給休憩」（4文字）に短縮（正式名称は引き続きlabelの「補給・休憩ポイント」）。
       chipLabel: "補給休憩",

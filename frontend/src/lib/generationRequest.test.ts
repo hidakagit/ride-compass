@@ -43,11 +43,11 @@ describe("buildGenerateRequest", () => {
   it("lens_axis_id・route_preferenceは値があれば載る", () => {
     const request = buildGenerateRequest({
       ...BASE,
-      lensAxisId: "car_stress",
+      lensAxisId: "axis_sample",
       routePreference: { gradient: 0.5 },
     });
 
-    expect(request.lens_axis_id).toBe("car_stress");
+    expect(request.lens_axis_id).toBe("axis_sample");
     expect(request.route_preference).toEqual({ gradient: 0.5 });
   });
 

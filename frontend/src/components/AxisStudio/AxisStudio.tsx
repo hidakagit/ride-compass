@@ -28,7 +28,7 @@ function materialIdsOf(shape: AxisShape): string[] {
 
 // 一覧のサマリ表示用に、材料id/軸idどちらも人間向けラベルへ解決する。`materialLabel`は
 // 材料カタログにのみ問い合わせるため、`t.material`が他axis_id（他axis_idを材料として
-// 参照する内部軸階層、例: car_stress軸のterms）を指すケースは解決できない。まずこの
+// 参照する内部軸階層のterms）を指すケースは解決できない。まずこの
 // axis_id一覧内に該当する軸が無いか探し、あればその表示名(label)を優先し、無ければ
 // `materialLabel`のフォールバックへ委ねる。
 function labelForMaterialOrAxis(id: string, definitions: readonly AxisDefinitionResponse[]): string {
@@ -109,8 +109,7 @@ export default function AxisStudio() {
       // （公開済み軸は不変という原則は保ったまま、unpublish→更新→再公開という
       // 正規の手順をボタン1つに畳んだもの）。
       republished = republishAxisId === payload.axis_id;
-      await updateAxisDefinition(
-        payload.axis_id, republished ? { ...payload, is_published: true } : payload);
+      await updateAxisDefinition(payload.axis_id, republished ? { ...payload, is_published: true } : payload);
     }
     await reload();
     closeComposer(republished);

@@ -21,9 +21,16 @@ describe("axisIconFor（改善計画T310）", () => {
 
   it("パレットは既存6軸ぶんの意匠 + 新規軸向けスペアを含む（改善計画T310「色々用意しておき」）", () => {
     const ids = Object.keys(AXIS_ICON_PALETTE);
-    // 既存6軸（勾配・舗装質・夜間・停止密度・車の圧迫感・事故密度）ぶんの意匠。
+    // 既存6軸（勾配・舗装質・夜間・停止密度・見本の軸・事故密度）ぶんの意匠。
     expect(ids).toEqual(
-      expect.arrayContaining(["incline", "wave", "crescent-moon", "density-stack", "density-scatter", "warning-triangle"])
+      expect.arrayContaining([
+        "incline",
+        "wave",
+        "crescent-moon",
+        "density-stack",
+        "density-scatter",
+        "warning-triangle",
+      ]),
     );
     // 新規軸向けにあらかじめ用意したスペア（既存軸のどれにも使われていない汎用形状）。
     expect(ids.length).toBeGreaterThan(6);

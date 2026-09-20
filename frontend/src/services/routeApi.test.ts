@@ -140,7 +140,7 @@ describe("routeApi", () => {
         surface_q: 0.19,
         wind: 0.26,
         stop_density: 0.2,
-        car_stress: 0.2,
+        axis_sample: 0.2,
         accident: 0.08,
         night: 0.0,
       },

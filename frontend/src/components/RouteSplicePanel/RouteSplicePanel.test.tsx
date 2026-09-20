@@ -7,7 +7,7 @@ import type { RouteCandidate } from "@/types/route";
 import RouteSplicePanel from "./RouteSplicePanel";
 
 const AXES = [
-  { axisId: "car_stress", label: "車の圧迫感", description: "", dedicatedWayValueLayer: false },
+  { axisId: "axis_sample", label: "見本の軸", description: "", dedicatedWayValueLayer: false },
   { axisId: "gradient", label: "坂", description: "", dedicatedWayValueLayer: false },
 ] as unknown as PreferenceAxisDef[];
 
@@ -20,7 +20,7 @@ function candidate(overrides: Partial<RouteCandidate> = {}): RouteCandidate {
     overall_difficulty: 42,
     difficulty_load: 168,
     estimated_duration_seconds: 1080,
-    axis_contributions: { car_stress: 20, gradient: 12 },
+    axis_contributions: { axis_sample: 20, gradient: 12 },
     ...overrides,
   });
 }
@@ -40,7 +40,7 @@ function baseProps(overrides: Partial<Parameters<typeof RouteSplicePanel>[0]> = 
     error: null as string | null,
     onCancel: vi.fn(),
     axes: AXES,
-    axisColors: { car_stress: "#dc7633", gradient: "#27ae60" },
+    axisColors: { axis_sample: "#dc7633", gradient: "#27ae60" },
     ...overrides,
   };
 }
@@ -51,7 +51,7 @@ const PREVIEW = candidate({
   overall_difficulty: 38,
   difficulty_load: 163,
   estimated_duration_seconds: 1140,
-  axis_contributions: { car_stress: 16.9, gradient: 12.9 },
+  axis_contributions: { axis_sample: 16.9, gradient: 12.9 },
 });
 
 describe("RouteSplicePanel", () => {
@@ -80,15 +80,15 @@ describe("RouteSplicePanel", () => {
   it("軸別は差だけを出し、動いた軸を大きい順に書く", () => {
     render(<RouteSplicePanel {...baseProps({ appliedCount: 1, preview: PREVIEW })} />);
 
-    expect(screen.getByText(/車の圧迫感 −3\.1/)).toBeInTheDocument();
+    expect(screen.getByText(/見本の軸 −3\.1/)).toBeInTheDocument();
     expect(screen.getByText(/坂 \+0\.9/)).toBeInTheDocument();
   });
 
   it("動きが小さい軸は出さない（1pxの破片を並べない）", () => {
-    const almostSame = candidate({ axis_contributions: { car_stress: 20.05, gradient: 12 } });
+    const almostSame = candidate({ axis_contributions: { axis_sample: 20.05, gradient: 12 } });
     render(<RouteSplicePanel {...baseProps({ appliedCount: 1, preview: almostSame })} />);
 
-    expect(screen.queryByText(/車の圧迫感/)).toBeNull();
+    expect(screen.queryByText(/見本の軸/)).toBeNull();
   });
 
   // 画面には「±0」と出ているのに色だけ増減を主張すると、読み手が混乱する。
@@ -149,9 +149,7 @@ describe("RouteSplicePanel", () => {
   // 合成の失敗は「ルート結果」欄の空状態には出ない（候補がある間は描かれない）。押した場所へ
   // 出さないと「押しても何も起きない」に見える。
   it("合成に失敗した理由をこのパネルへ出す", () => {
-    render(
-      <RouteSplicePanel {...baseProps({ appliedCount: 1, error: "組み合わせたルートを評価できませんでした" })} />,
-    );
+    render(<RouteSplicePanel {...baseProps({ appliedCount: 1, error: "組み合わせたルートを評価できませんでした" })} />);
 
     expect(screen.getByText("組み合わせたルートを評価できませんでした")).toBeInTheDocument();
   });

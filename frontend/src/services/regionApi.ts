@@ -139,15 +139,14 @@ export const ROAD_TILE_MIN_ZOOM = regionTileConfig.road_tile_min_zoom;
 export const ROAD_TILE_MAX_ZOOM = regionTileConfig.road_tile_max_zoom;
 
 // 区間インスペクタ（改善計画T146）。地図上の道路クリックで得たosm_way_id（路面タイルの
-// MVTプロパティに含まれる識別子）から一次属性・全二次軸（車の圧迫感を含む）・合成コストを
+// MVTプロパティに含まれる識別子）から一次属性・全二次軸・合成コストを
 // 取得するAPI。緯度経度の空間マッチではなくosm_way_id完全一致にしている理由は
 // backend/app/services/region_service.py: get_axis_inspectorのdocstring参照
 // （交差点付近での取り違えを実機確認で発見し、この方式にした）。タイルURL系
 // （roadSurfaceTileUrl等）と違いMapLibreのWeb Worker経由ではなくアプリのfetch()から
 // 直接呼ぶため、ここだけ絶対URL化（window.location.origin）が不要（weatherApi.ts等と同じ）。
 // POST+JSONボディなのはosm_way_idを本文で渡す既存の設計を踏襲（backend/app/api/routers/
-// region.py参照）。改善計画T292: 車ストレス専用の内訳取得（旧fetchCarStressBreakdown、
-// レシピ上書きパラメータ）は専用Pythonレシピの廃止に伴い削除し、このAPIへ一本化した。
+// region.py参照）。
 export async function fetchAxisInspector(
   osmWayId: number,
   featureKey?: string | null,

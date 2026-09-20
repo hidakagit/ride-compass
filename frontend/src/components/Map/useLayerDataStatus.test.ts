@@ -19,24 +19,24 @@ import { createFakeDataStatusMap } from "@/testing/fakeDataStatusMap";
 
 const fakeMap = createFakeDataStatusMap([]);
 
-// road/carStress/tunnel/designationのように複数レイヤーが同じ(sourceId, sourceLayer)を
+// road/carStress/tunnel/onewayのように複数レイヤーが同じ(sourceId, sourceLayer)を
 // 共有する状況を模した最小の対応表。
 const SHARED_SOURCE_ID = "road_surface_source";
 const SHARED_SOURCE_LAYER = "road_surface";
 const SHARED_LAYER_DATA_SOURCES: readonly LayerDataSourceEntry[] = [
   { key: "roadType" as MapLayerId, sourceId: SHARED_SOURCE_ID, sourceLayer: SHARED_SOURCE_LAYER },
   { key: "roadSurface" as MapLayerId, sourceId: SHARED_SOURCE_ID, sourceLayer: SHARED_SOURCE_LAYER },
-  { key: "axis:car_stress" as MapLayerId, sourceId: SHARED_SOURCE_ID, sourceLayer: SHARED_SOURCE_LAYER },
+  { key: "axis:axis_sample" as MapLayerId, sourceId: SHARED_SOURCE_ID, sourceLayer: SHARED_SOURCE_LAYER },
   { key: "tunnel" as MapLayerId, sourceId: SHARED_SOURCE_ID, sourceLayer: SHARED_SOURCE_LAYER },
-  { key: "designation" as MapLayerId, sourceId: SHARED_SOURCE_ID, sourceLayer: SHARED_SOURCE_LAYER },
+  { key: "oneway" as MapLayerId, sourceId: SHARED_SOURCE_ID, sourceLayer: SHARED_SOURCE_LAYER },
 ];
 
 const ALL_SHARED_KEYS_VISIBLE: Partial<Record<MapLayerId, boolean>> = {
   roadType: true,
   roadSurface: true,
-  "axis:car_stress": true,
+  "axis:axis_sample": true,
   tunnel: true,
-  designation: true,
+  oneway: true,
 };
 
 describe("computeLayerDataStatus のメモ化", () => {
@@ -129,7 +129,13 @@ describe("clearStaleTrackedSourceErrors のerror解除条件", () => {
       result.current.markSourceErrored(SHARED_SOURCE_ID);
     });
     expect(onChange).toHaveBeenLastCalledWith(
-      expect.objectContaining({ roadType: "error", roadSurface: "error", "axis:car_stress": "error", tunnel: "error", designation: "error" }),
+      expect.objectContaining({
+        roadType: "error",
+        roadSurface: "error",
+        "axis:axis_sample": "error",
+        tunnel: "error",
+        oneway: "error",
+      }),
     );
     onChange.mockClear();
 

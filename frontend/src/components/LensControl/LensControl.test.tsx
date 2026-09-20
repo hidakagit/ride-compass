@@ -5,7 +5,7 @@ import LensControl, { type LensOption } from "./LensControl";
 
 const OPTIONS: LensOption[] = [
   { id: "wind", label: "風", color: "#111", unused: false, routeOnly: false },
-  { id: "car_stress", label: "車ストレス", color: "#222", unused: false, routeOnly: false },
+  { id: "axis_sample", label: "見本の軸", color: "#222", unused: false, routeOnly: false },
   { id: "night", label: "夜間", color: "#333", unused: true, routeOnly: true },
 ];
 
@@ -42,7 +42,7 @@ describe("LensControl", () => {
       "なし",
       "総合難易度",
       "風",
-      "車ストレス",
+      "見本の軸",
       "夜間未使用ルート後のみ",
     ]);
     expect(screen.getByRole("radio", { name: /総合難易度/ })).toHaveAttribute("aria-checked", "true");

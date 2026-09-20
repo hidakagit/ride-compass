@@ -852,7 +852,7 @@
     "/api/region/axis-inspector": {
       "post": {
         "summary": "Region Axis Inspector",
-        "description": "区間インスペクタ。クリックされた道路（osm_way_id）について、\n一次属性（highway/tags/is_designated）→二次軸スコア（取得可能な軸のみ）→\n合成コスト（取得可能な軸だけの参考値、既定route_preference重み）を返す。\nPOST+JSONボディ・osm_way_id完全一致で引く理由はRegionService.get_axis_inspectorの\ndocstring参照（交差点付近での取り違え対策）。gradient/wind軸は単独wayでは算出不能\nなため常にavailable=falseで返る（ルートに含まれる区間の正確な値はルート生成結果\n自体を見る）。",
+        "description": "区間インスペクタ。クリックされた道路（osm_way_id）について、\n一次属性（highway/tags）→二次軸スコア（取得可能な軸のみ）→\n合成コスト（取得可能な軸だけの参考値、既定route_preference重み）を返す。\nPOST+JSONボディ・osm_way_id完全一致で引く理由はRegionService.get_axis_inspectorの\ndocstring参照（交差点付近での取り違え対策）。gradient/wind軸は単独wayでは算出不能\nなため常にavailable=falseで返る（ルートに含まれる区間の正確な値はルート生成結果\n自体を見る）。",
         "operationId": "region_axis_inspector_api_region_axis_inspector_post",
         "requestBody": {
           "content": {
@@ -2888,10 +2888,6 @@
             "type": "object",
             "title": "Tags"
           },
-          "is_designated": {
-            "type": "boolean",
-            "title": "Is Designated"
-          },
           "axes": {
             "items": {
               "$ref": "#/components/schemas/AxisInspectorAxis"
@@ -2937,7 +2933,6 @@
         "required": [
           "highway",
           "tags",
-          "is_designated",
           "axes",
           "composite_difficulty",
           "covered_weight_fraction"
@@ -4967,7 +4962,7 @@
           "property"
         ],
         "title": "TileInputSpec",
-        "description": "地図表示（ramp）が読むMVTタイルプロパティ。\n\n数値材料（既定）: `display_value = Σ(property × weight)`をフロントのMapLibre\nexpressionが計算する。\n真偽値材料（`boolean=True`）: MVTの真偽値プロパティは\n`[\"==\",[\"get\",property],true]`のような真偽比較で読む必要があり数値の重み付け結合が\n成立しないため、`true_value`/`false_value`（`weight`は無視）で寄与値を直接指定する。\n\n`has_unknown_fallback`: タイルプロパティが\n欠損している場合の意味が「true/falseどちらでもない不明」（例: surface_good、\n未分類の路面。`surface_good`の値式が3値[良/不明/悪]に分類する\nうちの「不明」に対応）であればTrueにする。既定Falseは「欠損=falseとみなしてよい\n真偽値材料」（例: lit・has_tunnel⟵tunnel。タグ不在は「無し」の安全側既定と\n元々の軸定義でそう決めている）を表し、フロントは通常どおり`true_value`/\n`false_value`で色分けする。Trueの場合、フロントは欠損時に灰色「不明」表示へ切り替え、\ntrueValue/falseValueどちらのスコアにも倒さない（`domain/axis_templates.py:\nevaluate_categorical`が欠損値をNone/NaN[difficulty不明]として扱うのと整合させる）。\n\nN値文字列材料（`categories`）: `domain/axis_definitions.py:\nCategoricalShape`のmappingがbool2値ではなくstr3値以上（highway/surface等）の\n場合に使う。タイルプロパティの文字列値を`categories`辞書で引いた点数を寄与値とする\n（`weight`と併用可、寄与値=`categories[value] * weight`）。`has_unknown_fallback=False`\n（既定）の場合、未登録値は0扱い（寄与なし。値の種類は多いが取りうる値のごく一部だけを\n圧迫感等の点数に反映すれば足りる材料向け、例: `designation`は評価側のmappingが\n全既知値をカバーしており「未登録＝存在しない値」しか起こらない）。\n`has_unknown_fallback=True`の場合、未登録値は0扱いではなく\n「不明」（灰色）へ倒す。これは`CategoricalShape`の評価側の実際の意味論（`domain/\naxis_templates.py: evaluate_categorical`は未登録値に`mapping.get(value, None)`で\nNoneを返し、`required=True`の材料でNoneは軸全体を評価不能にする——「未登録値=寄与0\n[最良側]」ではなく「未登録値=評価不能」）に合わせるため。典型例: `highway`\n（`car_stress_highway_base`。footway/path等、highway基準値が定義されていない道路種別は\n評価側でcar_stress軸全体を評価しない[required=True]。プロパティの**欠損**のみを\n「不明」判定すると、「値はあるが未登録」のケースを見落とし、実際には未評価のはずの\n区間が0点=最良[緑]色で表示されてしまう。`axisLayers.ts: buildAxisRampUnknownExpression`\n参照）。boolean材料の`has_unknown_fallback=True`はタイルプロパティが完全に欠損している\n場合のみを「不明」とする（真偽値には「未登録の値」という状態自体が存在しないため）。\n\n自己変換材料（`breakpoints`）: 材料自身が\n`BreakpointLinearShape.breakpoints`（区分線形）で変換される軸（例:\n`car_stress_maxspeed_adjustment`）の寄与値を、フロントの`interpolate`\nexpressionでタイルプロパティの生値から直接求める場合に使う（`weight`と併用可）。\n\n`needs_runtime_scale`: この材料のタイル生値が実行時にしか決まらない\n係数でのスケール変換を要する場合True（`domain/material_catalog.py: MaterialSpec.\ntile_property_needs_runtime_scale`が立っている材料、例: `accident_count_per_km_year`\n——収録年数[DBの`accident_import_runs`から実行時に取得、増え続ける]で正規化する前の\n生値がタイルに焼き込まれている）。`derive_ramp_inputs`（axis_display.py）は\nこのフラグが立つ材料も自動導出の対象に含める——`weight`が「タイル生値→材料スケール」の\n静的な変換係数を表現できなくても、`GET /api/axis-catalog`が実行時に取得した\nスケール定数[`material_runtime_scales`]をフロントのJS式が追加で掛け合わせれば\n正しく解決できる。`thresholds`は元々`AxisDefinition.shape.breakpoints`由来の\n「材料スケール」の値のため、このフラグを持たない他のtile_inputと同じ意味のまま\n扱ってよい（フロント側だけがこのフラグを見てtile生値に追加のスケール定数を掛ける）。"
+        "description": "地図表示（ramp）が読むMVTタイルプロパティ。\n\n数値材料（既定）: `display_value = Σ(property × weight)`をフロントのMapLibre\nexpressionが計算する。\n真偽値材料（`boolean=True`）: MVTの真偽値プロパティは\n`[\"==\",[\"get\",property],true]`のような真偽比較で読む必要があり数値の重み付け結合が\n成立しないため、`true_value`/`false_value`（`weight`は無視）で寄与値を直接指定する。\n\n`has_unknown_fallback`: タイルプロパティが\n欠損している場合の意味が「true/falseどちらでもない不明」（例: surface_good、\n未分類の路面。`surface_good`の値式が3値[良/不明/悪]に分類する\nうちの「不明」に対応）であればTrueにする。既定Falseは「欠損=falseとみなしてよい\n真偽値材料」（例: lit・has_tunnel⟵tunnel。タグ不在は「無し」の安全側既定と\n元々の軸定義でそう決めている）を表し、フロントは通常どおり`true_value`/\n`false_value`で色分けする。Trueの場合、フロントは欠損時に灰色「不明」表示へ切り替え、\ntrueValue/falseValueどちらのスコアにも倒さない（`domain/axis_templates.py:\nevaluate_categorical`が欠損値をNone/NaN[difficulty不明]として扱うのと整合させる）。\n\nN値文字列材料（`categories`）: `domain/axis_definitions.py:\nCategoricalShape`のmappingがbool2値ではなくstr3値以上（highway/surface等）の\n場合に使う。タイルプロパティの文字列値を`categories`辞書で引いた点数を寄与値とする\n（`weight`と併用可、寄与値=`categories[value] * weight`）。`has_unknown_fallback=False`\n（既定）の場合、未登録値は0扱い（寄与なし。値の種類は多いが取りうる値のごく一部だけを\n圧迫感等の点数に反映すれば足りる材料向け）。\n`has_unknown_fallback=True`の場合、未登録値は0扱いではなく\n「不明」（灰色）へ倒す。これは`CategoricalShape`の評価側の実際の意味論（`domain/\naxis_templates.py: evaluate_categorical`は未登録値に`mapping.get(value, None)`で\nNoneを返し、`required=True`の材料でNoneは軸全体を評価不能にする——「未登録値=寄与0\n[最良側]」ではなく「未登録値=評価不能」）に合わせるため。典型例: `highway`\n（footway/path等、基準値が定義されていない道路種別は\n評価側でその軸全体を評価しない[required=True]。プロパティの**欠損**のみを\n「不明」判定すると、「値はあるが未登録」のケースを見落とし、実際には未評価のはずの\n区間が0点=最良[緑]色で表示されてしまう。`axisLayers.ts: buildAxisRampUnknownExpression`\n参照）。boolean材料の`has_unknown_fallback=True`はタイルプロパティが完全に欠損している\n場合のみを「不明」とする（真偽値には「未登録の値」という状態自体が存在しないため）。\n\n自己変換材料（`breakpoints`）: 材料自身が\n`BreakpointLinearShape.breakpoints`（区分線形）で変換される軸（例:\n数値材料の内部軸）の寄与値を、フロントの`interpolate`\nexpressionでタイルプロパティの生値から直接求める場合に使う（`weight`と併用可）。\n\n`needs_runtime_scale`: この材料のタイル生値が実行時にしか決まらない\n係数でのスケール変換を要する場合True（`domain/material_catalog.py: MaterialSpec.\ntile_property_needs_runtime_scale`が立っている材料、例: `accident_count_per_km_year`\n——収録年数[DBの`accident_import_runs`から実行時に取得、増え続ける]で正規化する前の\n生値がタイルに焼き込まれている）。`derive_ramp_inputs`（axis_display.py）は\nこのフラグが立つ材料も自動導出の対象に含める——`weight`が「タイル生値→材料スケール」の\n静的な変換係数を表現できなくても、`GET /api/axis-catalog`が実行時に取得した\nスケール定数[`material_runtime_scales`]をフロントのJS式が追加で掛け合わせれば\n正しく解決できる。`thresholds`は元々`AxisDefinition.shape.breakpoints`由来の\n「材料スケール」の値のため、このフラグを持たない他のtile_inputと同じ意味のまま\n扱ってよい（フロント側だけがこのフラグを見てtile生値に追加のスケール定数を掛ける）。"
       },
       "TuningParameterView": {
         "properties": {

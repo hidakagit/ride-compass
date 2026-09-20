@@ -76,21 +76,21 @@ describe("computeLayerDataStatus", () => {
     expect(status).toEqual({});
   });
 
-  it("roadType/roadSurface/axis:ramp/designationは同じroad_surfaceタイルを再利用するため、同時にemptyになる（road_edges未構築地点を想定）", () => {
+  it("roadType/roadSurface/axis:ramp/onewayは同じroad_surfaceタイルを再利用するため、同時にemptyになる（road_edges未構築地点を想定）", () => {
     const map = fakeMap({
       emptySourceLayers: [{ sourceId: sourceIdFor("roadType"), sourceLayer: "road_surface" }],
     });
     const status = computeLayerDataStatus(
       map,
       new Set(),
-      { roadType: true, roadSurface: true, "axis:ramp": true, designation: true },
+      { roadType: true, roadSurface: true, "axis:ramp": true, oneway: true },
       LAYER_DATA_SOURCES,
     );
     expect(status).toEqual({
       roadType: "empty",
       roadSurface: "empty",
       "axis:ramp": "empty",
-      designation: "empty",
+      oneway: "empty",
     });
   });
 
@@ -107,7 +107,7 @@ describe("computeLayerDataStatus", () => {
     expect(errored).toEqual({ elevation: "error" });
   });
 
-  // レビュー指摘: roadType/roadSurface/axis:ramp/designationが同じ
+  // レビュー指摘: roadType/roadSurface/axis:ramp/onewayが同じ
   // (sourceId, sourceLayer)を共有するため、素朴に実装するとquerySourceFeaturesが同じ引数で
   // 複数回呼ばれていた（road_surfaceは実測6,273件、sourcedata等の高頻度イベントのたびに
   // 呼ばれるため無視できないコスト）。1回のcomputeLayerDataStatus呼び出し内では
@@ -118,7 +118,7 @@ describe("computeLayerDataStatus", () => {
     computeLayerDataStatus(
       map,
       new Set(),
-      { roadType: true, roadSurface: true, "axis:ramp": true, designation: true },
+      { roadType: true, roadSurface: true, "axis:ramp": true, oneway: true },
       LAYER_DATA_SOURCES,
     );
     expect(calls).toHaveLength(1);

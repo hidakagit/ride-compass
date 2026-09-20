@@ -179,8 +179,8 @@ export function RoadSurfaceIcon({ size = 16 }: IconProps) {
   );
 }
 
-/** 車ストレス: 注意喚起の三角＋感嘆符 */
-export function CarStressIcon({ size = 16 }: IconProps) {
+/** 注意喚起の三角＋感嘆符 */
+export function WarningTriangleIcon({ size = 16 }: IconProps) {
   return (
     <svg width={size} height={size} {...svgProps}>
       <path d="M10 2 18.5 17H1.5L10 2Z" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round" />
@@ -189,23 +189,6 @@ export function CarStressIcon({ size = 16 }: IconProps) {
     </svg>
   );
 }
-
-/** 指定路線（外部静的データソース T51、緊急輸送道路・重要物流道路）: 道路標識風の盾形 */
-export function DesignationIcon({ size = 16 }: IconProps) {
-  return (
-    <svg width={size} height={size} {...svgProps}>
-      <path
-        d="M10 2 17 4.5v5.2c0 4.4-3 7.2-7 8.3-4-1.1-7-3.9-7-8.3V4.5L10 2Z"
-        stroke="currentColor"
-        strokeWidth="1.6"
-        strokeLinejoin="round"
-        strokeLinecap="round"
-      />
-    </svg>
-  );
-}
-
-/** トンネル（一次属性、OSMのtunnelタグ）: 山を貫くアーチ型の坑口 */
 export function TunnelIcon({ size = 16 }: IconProps) {
   return (
     <svg width={size} height={size} {...svgProps}>

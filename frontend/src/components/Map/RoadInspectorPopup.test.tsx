@@ -9,10 +9,10 @@ import RoadInspectorPopup from "./RoadInspectorPopup";
 vi.mock("@/services/regionApi", () => ({ fetchAxisInspector: vi.fn() }));
 
 const AXES: PreferenceAxisDef[] = [
-  { axisId: "car_stress", label: "車の圧迫感", description: "車の通行量の説明", dedicatedWayValueLayer: false },
+  { axisId: "axis_sample", label: "見本の軸", description: "車の通行量の説明", dedicatedWayValueLayer: false },
   { axisId: "night", label: "夜間", description: "夜間の暗さの説明", dedicatedWayValueLayer: false },
 ];
-const AXIS_COLORS: Record<string, string> = { car_stress: "#111111", night: "#222222" };
+const AXIS_COLORS: Record<string, string> = { axis_sample: "#111111", night: "#222222" };
 
 function inspectorResult() {
   return {
@@ -20,7 +20,7 @@ function inspectorResult() {
     tags: { lit: "yes", name: "明治通り" },
     is_designated: false,
     axes: [
-      { axis_id: "car_stress", difficulty: 60, weight: 1, available: true, contribution: 30 },
+      { axis_id: "axis_sample", difficulty: 60, weight: 1, available: true, contribution: 30 },
       { axis_id: "night", difficulty: 20, weight: 1, available: true, contribution: 10 },
       { axis_id: "gradient", difficulty: null, weight: 1, available: false, contribution: null },
     ],

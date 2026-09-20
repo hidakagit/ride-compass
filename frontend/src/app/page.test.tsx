@@ -2157,7 +2157,7 @@ describe("土地被覆レイヤーのズーム不足の案内", () => {
 
   it("最小ズームを宣言したレイヤーは、どれも同じ案内になる", async () => {
     // 以前は道路系と土地被覆で判定も配線も別々で、同じタイルを共有するのに
-    // designation/tunnel/onewayには案内が出ていなかった。
+    // tunnel/onewayには案内が出ていなかった。
     const { buildMapLayers } = await import("@/components/Map/mapLayers");
     const declared = buildMapLayers([], [])
       .filter((layer) => layer.tileMinZoom !== undefined)

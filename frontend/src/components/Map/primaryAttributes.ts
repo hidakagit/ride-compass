@@ -45,7 +45,6 @@ export const PRIMARY_ATTRIBUTE_LABELS: Record<string, string> = Object.fromEntri
 export const PRIMARY_ATTRIBUTE_LAYER_IDS: Partial<Record<string, MapLayerId>> = {
   highway: "roadType",
   surface: "roadSurface",
-  designation: "designation",
   elevation: "elevation",
   stop_poi: "stopPoi",
   accident_point: "accidents",
@@ -59,7 +58,7 @@ export const PRIMARY_ATTRIBUTE_LAYER_IDS: Partial<Record<string, MapLayerId>> = 
 // `PRIMARY_ATTRIBUTES_WITHOUT_LAYER`が正本**で、ここへ並べると1つ増えたときに
 // この注釈だけが古くなる。cycleway
 // （highway_is_cycleway/cycleway_has_track等の正規化フラグ材料4種が参照する一次属性。
-// car_stress軸の内部補正と公開軸bicycle_infra_qualityの両方が参照するため、
+// 複数の軸が参照するため、
 // domain/registry_defaults.pyでshared=Trueとして登録されている）は一次属性としては
 // 存在するが、地図上に単独では表示しない（地図表示は評価軸bicycle_infra_quality側に
 // 委ねる。ramp軸が地図レンズを自動で得るため、一次属性の側に専用レイヤーを足さない）。

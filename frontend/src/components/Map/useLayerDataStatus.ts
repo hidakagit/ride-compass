@@ -34,7 +34,7 @@ export function computeLayerDataStatus(
   layerDataSources: readonly LayerDataSourceEntry[],
 ): LayerDataStatusByLayer {
   const status: LayerDataStatusByLayer = {};
-  // road/carStress/designationのように複数レイヤーが同じ(sourceId,
+  // 複数レイヤーが同じ(sourceId,
   // sourceLayer)を共有するため、querySourceFeatures（実タイルのフィーチャーを走査する
   // 軽くない処理、road_surfaceは6,000件超になりうる）を同じ引数で繰り返し呼ばないよう、
   // この1回の呼び出し内でだけ結果をメモ化する（この関数はsourcedata等の高頻度イベントの

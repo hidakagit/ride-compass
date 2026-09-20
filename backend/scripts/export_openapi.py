@@ -47,7 +47,7 @@ from app.domain.landcover import (  # noqa: E402
 )
 from app.services.landcover_tile_service import LANDCOVER_TILE_VERSION  # noqa: E402
 from app.domain.jma_tile_specs import JMA_TILE_SPECS, effective_max_zoom  # noqa: E402
-from app.domain.material_catalog import axis_studio_materials  # noqa: E402
+from app.domain.material_catalog import MATERIAL_CATALOG  # noqa: E402
 from app.domain.region import ROAD_TILE_MAX_ZOOM, ROAD_TILE_MIN_ZOOM  # noqa: E402
 from app.domain.traffic import STOP_POI_KINDS, SupplyPoiKind  # noqa: E402
 from app.services.route_generator import SPLICED_ROUTE_ID, DEFAULT_MAX_ROUTES, MAX_ROUTES  # noqa: E402
@@ -164,7 +164,7 @@ def main() -> None:
                 "unit": spec.unit,
                 "value_labels": dict(spec.value_labels) if spec.value_labels else None,
             }
-            for spec in axis_studio_materials()
+            for spec in MATERIAL_CATALOG.values()
         ],
     )
     # **軸そのものはここへ書き出さない。** 軸定義の正本は本番DBで、実行時の

@@ -50,11 +50,6 @@
     "shared": false
   },
   {
-    "attr_id": "designation",
-    "label": "指定路線",
-    "shared": false
-  },
-  {
     "attr_id": "elevation",
     "label": "標高",
     "shared": false

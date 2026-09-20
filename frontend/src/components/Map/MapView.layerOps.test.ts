@@ -29,7 +29,6 @@ const CATALOG = buildMapLayers(RAMP_AXES, DEDICATED_WAY_VALUE_AXES);
 
 import {
   DEFAULT_ROAD_LINE_WIDTH,
-  DESIGNATION_LAYER_ID,
   MATERIAL_TRACK_OFFSET_STEP,
   ONEWAY_LAYER_ID,
   ROAD_MATERIAL_TRACK_LAYER_IDS,
@@ -164,7 +163,6 @@ describe("applyRoadMaterialTrackOffsets（並列トラック分離、改善計�
     applyRoadMaterialTrackOffsets(map as unknown as Parameters<typeof applyRoadMaterialTrackOffsets>[0], {
       roadSurface: true,
       roadType: false,
-      designation: false,
       tunnel: false,
       oneway: false,
     });
@@ -179,18 +177,16 @@ describe("applyRoadMaterialTrackOffsets（並列トラック分離、改善計�
     applyRoadMaterialTrackOffsets(map as unknown as Parameters<typeof applyRoadMaterialTrackOffsets>[0], {
       roadSurface: true,
       roadType: false,
-      designation: true,
-      tunnel: false,
+      tunnel: true,
       oneway: false,
     });
 
-    // ON中2件（road, designation）が中心対称（center=0.5）に割り付けられる。
+    // ON中2件（road, tunnel）が中心対称（center=0.5）に割り付けられる。
     const center = (2 - 1) / 2;
     expect(paintValue(map, ROAD_TILE_LAYER_ID, "line-offset")).toBe((0 - center) * MATERIAL_TRACK_OFFSET_STEP);
-    expect(paintValue(map, DESIGNATION_LAYER_ID, "line-offset")).toBe((1 - center) * MATERIAL_TRACK_OFFSET_STEP);
-    // OFF中の2件（tunnel, oneway）はonLayerIdsに含まれないため0へ戻る（次にONにした際、
+    expect(paintValue(map, TUNNEL_LAYER_ID, "line-offset")).toBe((1 - center) * MATERIAL_TRACK_OFFSET_STEP);
+    // OFF中のレイヤーはonLayerIdsに含まれないため0へ戻る（次にONにした際、
     // 古いoffset値が一瞬残らないようにする設計、コード上部のコメント参照）。
-    expect(paintValue(map, TUNNEL_LAYER_ID, "line-offset")).toBe(0);
     expect(paintValue(map, ONEWAY_LAYER_ID, "line-offset")).toBe(0);
   });
 
@@ -201,16 +197,14 @@ describe("applyRoadMaterialTrackOffsets（並列トラック分離、改善計�
     applyRoadMaterialTrackOffsets(map as unknown as Parameters<typeof applyRoadMaterialTrackOffsets>[0], {
       roadSurface: true,
       roadType: false,
-      designation: true,
       tunnel: true,
-      oneway: false,
+      oneway: true,
     });
 
     const center = (3 - 1) / 2;
     expect(paintValue(map, ROAD_TILE_LAYER_ID, "line-offset")).toBe((0 - center) * MATERIAL_TRACK_OFFSET_STEP);
-    expect(paintValue(map, DESIGNATION_LAYER_ID, "line-offset")).toBe((1 - center) * MATERIAL_TRACK_OFFSET_STEP);
-    expect(paintValue(map, TUNNEL_LAYER_ID, "line-offset")).toBe((2 - center) * MATERIAL_TRACK_OFFSET_STEP);
-    expect(paintValue(map, ONEWAY_LAYER_ID, "line-offset")).toBe(0);
+    expect(paintValue(map, TUNNEL_LAYER_ID, "line-offset")).toBe((1 - center) * MATERIAL_TRACK_OFFSET_STEP);
+    expect(paintValue(map, ONEWAY_LAYER_ID, "line-offset")).toBe((2 - center) * MATERIAL_TRACK_OFFSET_STEP);
   });
 
   it("地図にまだ追加されていないレイヤーはsetPaintPropertyを呼ばない", () => {
@@ -221,7 +215,6 @@ describe("applyRoadMaterialTrackOffsets（並列トラック分離、改善計�
     applyRoadMaterialTrackOffsets(map as unknown as Parameters<typeof applyRoadMaterialTrackOffsets>[0], {
       roadSurface: true,
       roadType: false,
-      designation: true,
       tunnel: true,
       oneway: true,
     });
@@ -243,9 +236,9 @@ function rampAxisStub(axisId: string): RampAxis {
 }
 
 describe("二次軸rampレイヤーの下敷き表現（buildAxisOverlayLayers）", () => {
-  const CAR_STRESS = axisMapLayerId("car_stress");
+  const CAR_STRESS = axisMapLayerId("axis_sample");
   const STOP_DENSITY = axisMapLayerId("stop_density");
-  const rampAxes = [rampAxisStub("car_stress"), rampAxisStub("stop_density")];
+  const rampAxes = [rampAxisStub("axis_sample"), rampAxisStub("stop_density")];
 
   function addedPaint(map: ReturnType<typeof fakeMap>, layerId: string, name: string): unknown {
     return map.addedSpecs.find((spec) => spec.id === layerId)?.paint?.[name];
@@ -273,8 +266,8 @@ describe("二次軸rampレイヤーの下敷き表現（buildAxisOverlayLayers�
       layer.ensure(map as unknown as Parameters<typeof layer.ensure>[0]);
     }
 
-    expect(addedPaint(map, axisLineLayerId("car_stress"), "line-width")).toBe(SECONDARY_AXIS_CASING_WIDTH);
-    expect(addedPaint(map, axisLineLayerId("car_stress"), "line-opacity")).toBe(SECONDARY_AXIS_CASING_OPACITY);
+    expect(addedPaint(map, axisLineLayerId("axis_sample"), "line-width")).toBe(SECONDARY_AXIS_CASING_WIDTH);
+    expect(addedPaint(map, axisLineLayerId("axis_sample"), "line-opacity")).toBe(SECONDARY_AXIS_CASING_OPACITY);
     // 材料が表示されていないstop_densityは通常の太さ・不透明度のまま。
     expect(addedPaint(map, axisLineLayerId("stop_density"), "line-width")).toBe(DEFAULT_ROAD_LINE_WIDTH);
     expect(addedPaint(map, axisLineLayerId("stop_density"), "line-opacity")).toBe(KNOWN_LINE_OPACITY);
@@ -291,7 +284,7 @@ describe("二次軸rampレイヤーの下敷き表現（buildAxisOverlayLayers�
     // 2回目以降はensureLayerFromSpecがsetPaintPropertyでspecを再適用する経路を通る。
     for (const layer of layers) layer.ensure(map as unknown as Parameters<(typeof layers)[0]["ensure"]>[0]);
 
-    for (const axisId of ["car_stress", "stop_density"]) {
+    for (const axisId of ["axis_sample", "stop_density"]) {
       expect(paintValue(map, axisLineLayerId(axisId), "line-width")).toBe(DEFAULT_ROAD_LINE_WIDTH);
       expect(paintValue(map, axisLineLayerId(axisId), "line-opacity")).toBe(KNOWN_LINE_OPACITY);
     }
@@ -303,7 +296,7 @@ describe("二次軸rampレイヤーの下敷き表現（buildAxisOverlayLayers�
     for (const layer of layers) layer.ensure(map as unknown as Parameters<(typeof layers)[0]["ensure"]>[0]);
     for (const layer of layers) layer.ensure(map as unknown as Parameters<(typeof layers)[0]["ensure"]>[0]);
 
-    expect(paintValue(map, axisLineLayerId("car_stress"), "line-width")).toBe(SECONDARY_AXIS_CASING_WIDTH);
+    expect(paintValue(map, axisLineLayerId("axis_sample"), "line-width")).toBe(SECONDARY_AXIS_CASING_WIDTH);
     expect(paintValue(map, axisLineLayerId("stop_density"), "line-opacity")).toBe(SECONDARY_AXIS_CASING_OPACITY);
   });
 });
@@ -646,8 +639,7 @@ describe("ensureLayerFromSpec（既存レイヤーへspecの全設定を再適�
   // T587は色式の再適用だけを直したため、filter・layoutが初回の値で固定される取り残しが
   // 残っていた。ensure系がspecを組み立ててこの1関数へ渡す形にすることで、
   // 「色は追随するのに間引き条件とサイズ曲線だけ古い」という片側の取り残しが起きない。
-  const attributeEntry = () =>
-    buildStaticOverlayLayers(CATALOG, [], [], undefined).find((l) => l.key === "designation")!;
+  const attributeEntry = () => buildStaticOverlayLayers(CATALOG, [], [], undefined).find((l) => l.key === "tunnel")!;
 
   it("既存レイヤーにはpaintだけでなくlayout・filterも再適用する", () => {
     const map = fakeMap();
@@ -749,7 +741,7 @@ describe("ensureLayerFromSpec（既存レイヤーへspecの全設定を再適�
     expect(map.filterCalls).toEqual([]);
   });
 
-  it("一次属性レイヤー（designation等）も再適用の対象になっている", () => {
+  it("一次属性レイヤーも再適用の対象になっている", () => {
     // T587の横展開漏れだった経路。ファクトリがensureLayerFromSpecを通るため、
     // 個別に再適用を書かなくても既存レイヤーへ色式・不透明度式が届く。
     const map = fakeMap();

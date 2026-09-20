@@ -5,16 +5,16 @@ import type { PreferenceAxisDef } from "@/lib/evaluationAxes";
 import AxisContributionBar from "./AxisContributionBar";
 
 const AXES: PreferenceAxisDef[] = [
-  { axisId: "car_stress", label: "車の圧迫感", description: "説明", dedicatedWayValueLayer: false },
+  { axisId: "axis_sample", label: "見本の軸", description: "説明", dedicatedWayValueLayer: false },
   { axisId: "wind", label: "風", description: "説明", dedicatedWayValueLayer: true },
   { axisId: "night", label: "夜間", description: "説明", dedicatedWayValueLayer: false },
 ];
 
-const AXIS_COLORS: Record<string, string> = { car_stress: "#111111", wind: "#222222", night: "#333333" };
+const AXIS_COLORS: Record<string, string> = { axis_sample: "#111111", wind: "#222222", night: "#333333" };
 
 describe("AxisContributionBar", () => {
   it("contributionsにキーが無い軸は表示しない（呼び出し側で絞り込まなくてよい）", () => {
-    render(<AxisContributionBar axes={AXES} contributions={{ car_stress: 30, night: 5 }} axisColors={AXIS_COLORS} />);
+    render(<AxisContributionBar axes={AXES} contributions={{ axis_sample: 30, night: 5 }} axisColors={AXIS_COLORS} />);
 
     const items = screen.getAllByRole("listitem");
     expect(items).toHaveLength(2);
@@ -26,7 +26,7 @@ describe("AxisContributionBar", () => {
     render(
       <AxisContributionBar
         axes={AXES}
-        contributions={{ car_stress: 30, wind: 0, night: 5 }}
+        contributions={{ axis_sample: 30, wind: 0, night: 5 }}
         axisColors={AXIS_COLORS}
       />,
     );
@@ -37,20 +37,20 @@ describe("AxisContributionBar", () => {
   });
 
   it("負の値（クランプ前）は0ではないため除外しない", () => {
-    render(<AxisContributionBar axes={AXES} contributions={{ car_stress: -10, night: 5 }} axisColors={AXIS_COLORS} />);
+    render(<AxisContributionBar axes={AXES} contributions={{ axis_sample: -10, night: 5 }} axisColors={AXIS_COLORS} />);
 
     const items = screen.getAllByRole("listitem");
     expect(items).toHaveLength(2);
-    expect(screen.getByLabelText("車の圧迫感")).toBeInTheDocument();
+    expect(screen.getByLabelText("見本の軸")).toBeInTheDocument();
   });
 
   it("軸カタログの並び順で凡例を表示し、値をそのまま(小数1桁)表示する", () => {
     render(
-      <AxisContributionBar axes={AXES} contributions={{ night: 5.25, car_stress: 30.1 }} axisColors={AXIS_COLORS} />,
+      <AxisContributionBar axes={AXES} contributions={{ night: 5.25, axis_sample: 30.1 }} axisColors={AXIS_COLORS} />,
     );
 
     const items = screen.getAllByRole("listitem");
-    expect(within(items[0]).getByLabelText("車の圧迫感")).toBeInTheDocument();
+    expect(within(items[0]).getByLabelText("見本の軸")).toBeInTheDocument();
     expect(items[0]).toHaveTextContent("30.1");
     expect(within(items[1]).getByLabelText("夜間")).toBeInTheDocument();
     expect(items[1]).toHaveTextContent("5.3");
@@ -58,7 +58,7 @@ describe("AxisContributionBar", () => {
 
   it("各セグメントの幅はcontributionsの値そのもの（%）、色はaxisColorsを使う", () => {
     const { container } = render(
-      <AxisContributionBar axes={AXES} contributions={{ car_stress: 30, night: 5 }} axisColors={AXIS_COLORS} />,
+      <AxisContributionBar axes={AXES} contributions={{ axis_sample: 30, night: 5 }} axisColors={AXIS_COLORS} />,
     );
 
     const segments = Array.from(container.querySelectorAll('[class*="stackSegment"]')) as HTMLElement[];
@@ -72,7 +72,7 @@ describe("AxisContributionBar", () => {
     const { container } = render(
       <AxisContributionBar
         axes={AXES}
-        contributions={{ car_stress: 30, night: 5 }}
+        contributions={{ axis_sample: 30, night: 5 }}
         axisColors={AXIS_COLORS}
         heightRatio={1.43}
       />,
@@ -84,7 +84,7 @@ describe("AxisContributionBar", () => {
 
   it("heightRatioを渡さない呼び出し側（距離を持たない区間の内訳）は長さだけの帯になる", () => {
     const { container } = render(
-      <AxisContributionBar axes={AXES} contributions={{ car_stress: 30, night: 5 }} axisColors={AXIS_COLORS} />,
+      <AxisContributionBar axes={AXES} contributions={{ axis_sample: 30, night: 5 }} axisColors={AXIS_COLORS} />,
     );
 
     const bar = container.querySelector('[class*="stackBar"]') as HTMLElement;
@@ -102,28 +102,28 @@ describe("AxisContributionBar", () => {
     render(
       <AxisContributionBar
         axes={AXES}
-        contributions={{ car_stress: 30, night: 5 }}
+        contributions={{ axis_sample: 30, night: 5 }}
         axisColors={AXIS_COLORS}
         renderDetail={(axis) => <span>{`${axis.label}の詳細本文`}</span>}
       />,
     );
 
-    await user.click(screen.getByRole("button", { name: "車の圧迫感の詳細を表示" }));
+    await user.click(screen.getByRole("button", { name: "見本の軸の詳細を表示" }));
 
-    expect(await screen.findByText("車の圧迫感の詳細本文")).toBeInTheDocument();
+    expect(await screen.findByText("見本の軸の詳細本文")).toBeInTheDocument();
   });
 
   it("renderDetailを渡さない呼び出し側（軸ごとの詳細を持たない区間詳細）では押せる要素を作らない", () => {
-    render(<AxisContributionBar axes={AXES} contributions={{ car_stress: 30, night: 5 }} axisColors={AXIS_COLORS} />);
+    render(<AxisContributionBar axes={AXES} contributions={{ axis_sample: 30, night: 5 }} axisColors={AXIS_COLORS} />);
 
     expect(screen.queryAllByRole("button")).toHaveLength(0);
-    expect(screen.getByLabelText("車の圧迫感")).toBeInTheDocument();
+    expect(screen.getByLabelText("見本の軸")).toBeInTheDocument();
   });
 
   it("renderDetailを渡さない呼び出しでは、チップを「押せない印」にしない", () => {
     // 押せる／押せないの区別が無い場面で全チップへ印を付けると、凡例全体が薄く描かれる。
     const { container } = render(
-      <AxisContributionBar axes={AXES} contributions={{ car_stress: 30, night: 5 }} axisColors={AXIS_COLORS} />,
+      <AxisContributionBar axes={AXES} contributions={{ axis_sample: 30, night: 5 }} axisColors={AXIS_COLORS} />,
     );
 
     expect(container.querySelectorAll('[data-checked="false"]')).toHaveLength(0);
@@ -136,7 +136,7 @@ describe("AxisContributionBar", () => {
       <AxisContributionBar
         axes={[AXES[0]]}
         legendAxes={AXES}
-        contributions={{ car_stress: 30 }}
+        contributions={{ axis_sample: 30 }}
         axisColors={AXIS_COLORS}
         renderDetail={(axis) => <span>{axis.label}</span>}
       />,
@@ -151,7 +151,7 @@ describe("AxisContributionBar", () => {
     render(
       <AxisContributionBar
         axes={AXES}
-        contributions={{ car_stress: 30, night: 5 }}
+        contributions={{ axis_sample: 30, night: 5 }}
         axisColors={AXIS_COLORS}
         renderDetail={(axis) => {
           calls.push(axis.axisId);
@@ -165,7 +165,7 @@ describe("AxisContributionBar", () => {
 
   it("値が0-100の範囲外でもクランプする", () => {
     const { container } = render(
-      <AxisContributionBar axes={AXES} contributions={{ car_stress: -10, night: 150 }} axisColors={AXIS_COLORS} />,
+      <AxisContributionBar axes={AXES} contributions={{ axis_sample: -10, night: 150 }} axisColors={AXIS_COLORS} />,
     );
 
     const segments = Array.from(container.querySelectorAll('[class*="stackSegment"]')) as HTMLElement[];

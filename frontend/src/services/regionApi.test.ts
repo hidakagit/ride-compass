@@ -92,7 +92,7 @@ describe("regionApi", () => {
         highway: "residential",
         tags: {},
         is_designated: false,
-        axes: [{ axis_id: "car_stress", difficulty: 25.0, weight: 0.2, available: true }],
+        axes: [{ axis_id: "axis_sample", difficulty: 25.0, weight: 0.2, available: true }],
         composite_difficulty: 25.0,
         covered_weight_fraction: 1.0,
       };

@@ -5,9 +5,9 @@ import { createExpression } from "@maplibre/maplibre-gl-style-spec";
 import { describe, expect, it } from "vitest";
 import { axisLineLayerId } from "@/components/Map/axisLayers";
 import {
-  DESIGNATION_LAYER_ID,
   STOP_POI_LAYER_ID,
   SUPPLY_POI_LAYER_ID,
+  TUNNEL_LAYER_ID,
   buildAxisOverlayLayers,
   buildInteractiveLayerIds,
   buildStaticOverlayLayers,
@@ -83,25 +83,11 @@ function hiddenKeys(
   return partial as Record<StaticFilterAxisId, readonly string[]>;
 }
 
-// 改善計画T292: 車ストレス（車の圧迫感）は専用Pythonレシピの廃止に伴い、他の推定軸
+// 改善計画T292: 見本の軸（見本の軸）は専用Pythonレシピの廃止に伴い、他の推定軸
 // （停止密度・事故密度等）と同じ汎用ramp機構（axis:ramp、axisLineLayerId経由）へ
-// 統合された。setStaticOverlayFiltersはレシピ引数を取らなくなり、車の圧迫感専用の
+// 統合された。setStaticOverlayFiltersはレシピ引数を取らなくなり、見本の軸専用の
 // フィルタ差し替えロジックも不要になった（STATIC_FILTER_AXESの静的なlegendをそのまま使う）。
-describe("setStaticOverlayFilters（改善計画T292: 車の圧迫感を含むramp軸の汎用フィルタ適用）", () => {
-  it("指定路線レイヤーのフィルタは指定した非表示キーを反映する", () => {
-    const map = fakeMap();
-    setStaticOverlayFilters(
-      map as unknown as Parameters<typeof setStaticOverlayFilters>[0],
-      hiddenKeys({ designation: ["emergency_transport"] }),
-      STATIC_OVERLAY_LAYERS,
-      STATIC_FILTER_AXES,
-    );
-
-    const filter = map.setFilterCalls.find((c) => c.layerId === DESIGNATION_LAYER_ID)!.filter;
-    expect(evaluateFilter(filter, { designation: "emergency_transport" })).toBe(false);
-    expect(evaluateFilter(filter, { designation: "critical_logistics" })).toBe(true);
-  });
-
+describe("setStaticOverlayFilters（改善計画T292: 見本の軸を含むramp軸の汎用フィルタ適用）", () => {
   it("ramp軸のrampレイヤーにもフィルタが設定される", () => {
     const map = fakeMap();
     setStaticOverlayFilters(
@@ -178,9 +164,9 @@ describe("buildInteractiveLayerIds（改善計画T478）", () => {
     for (const layer of nonInteractive) expect(ids).not.toContain(layer.layerId);
   });
 
-  it("designation等の通常の道路属性レイヤーは引き続きinteractiveLayerIdsに含まれる（road_surfaceと同じ道路属性を持つため専用ポップアップが機能する）", () => {
+  it("通常の道路属性レイヤーは引き続きinteractiveLayerIdsに含まれる（road_surfaceと同じ道路属性を持つため専用ポップアップが機能する）", () => {
     const ids = buildInteractiveLayerIds(STATIC_OVERLAY_LAYERS);
-    expect(ids).toContain(DESIGNATION_LAYER_ID);
+    expect(ids).toContain(TUNNEL_LAYER_ID);
   });
 });
 
@@ -193,18 +179,18 @@ describe("凡例フィルタはensureの再実行で巻き戻らない", () => {
     const map = fakeMap();
     setStaticOverlayFilters(
       map as unknown as Parameters<typeof setStaticOverlayFilters>[0],
-      hiddenKeys({ designation: ["emergency_transport"] }),
+      hiddenKeys({ tunnel: ["true"] }),
       STATIC_OVERLAY_LAYERS,
       STATIC_FILTER_AXES,
     );
-    const applied = map.setFilterCalls.filter((call) => call.layerId === DESIGNATION_LAYER_ID);
+    const applied = map.setFilterCalls.filter((call) => call.layerId === TUNNEL_LAYER_ID);
     expect(applied.length).toBe(1);
     expect(applied[0].filter).toBeDefined();
 
-    const designation = STATIC_OVERLAY_LAYERS.find((layer) => layer.key === "designation")!;
-    designation.ensure(map as unknown as Parameters<typeof designation.ensure>[0]);
+    const tunnel = STATIC_OVERLAY_LAYERS.find((layer) => layer.key === "tunnel")!;
+    tunnel.ensure(map as unknown as Parameters<typeof tunnel.ensure>[0]);
 
-    expect(map.setFilterCalls.filter((call) => call.layerId === DESIGNATION_LAYER_ID)).toEqual(applied);
+    expect(map.setFilterCalls.filter((call) => call.layerId === TUNNEL_LAYER_ID)).toEqual(applied);
   });
 
   it("ramp軸レイヤーでも同じ", () => {
@@ -268,7 +254,7 @@ describe("重なりの段", () => {
     expect(paintsArea.length).toBeGreaterThan(0);
     expect([...hoisted].sort()).toEqual([...paintsArea].sort());
     // 線のレイヤーは路面ソースを共有するため、先に積むと「source not found」になる。
-    expect(hoisted).not.toContain("designation");
+    expect(hoisted).not.toContain("tunnel");
   });
 });
 

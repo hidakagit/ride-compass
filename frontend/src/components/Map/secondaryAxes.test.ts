@@ -174,11 +174,11 @@ describe("secondaryAxesFromCatalogAxes（改善計画T310）", () => {
           },
         },
         {
-          axis_id: "car_stress",
-          label: "車の圧迫感",
+          axis_id: "axis_sample",
+          label: "見本の軸",
           display: {
             kind: "ramp",
-            label: "車の圧迫感",
+            label: "見本の軸",
             category: "trafficSafety",
             tile_inputs: [],
             thresholds: [],
@@ -189,7 +189,7 @@ describe("secondaryAxesFromCatalogAxes（改善計画T310）", () => {
       ];
 
       const axes = secondaryAxesFromCatalogAxes(catalogAxes);
-      expect(axes.map((axis) => axis.axisId)).toEqual(["car_stress"]);
+      expect(axes.map((axis) => axis.axisId)).toEqual(["axis_sample"]);
     });
 
     it("displayを持たない軸（非公開）は一覧から落ちる", () => {
@@ -200,11 +200,11 @@ describe("secondaryAxesFromCatalogAxes（改善計画T310）", () => {
           display: null,
         },
         {
-          axis_id: "car_stress",
-          label: "車の圧迫感",
+          axis_id: "axis_sample",
+          label: "見本の軸",
           display: {
             kind: "ramp",
-            label: "車の圧迫感",
+            label: "見本の軸",
             category: "trafficSafety",
             tile_inputs: [],
             thresholds: [],
@@ -215,7 +215,7 @@ describe("secondaryAxesFromCatalogAxes（改善計画T310）", () => {
       ];
 
       const axes = secondaryAxesFromCatalogAxes(catalogAxes);
-      expect(axes.map((axis) => axis.axisId)).toEqual(["car_stress"]);
+      expect(axes.map((axis) => axis.axisId)).toEqual(["axis_sample"]);
     });
   });
 });

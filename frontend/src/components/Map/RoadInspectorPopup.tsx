@@ -157,10 +157,7 @@ function RoadTagRows({ result }: { result: AxisInspectorResult }) {
       <dl className={styles.facts}>
         <div className={styles.factRow}>
           <dt className={styles.factLabel}>{PRIMARY_ATTRIBUTE_LABELS.highway}</dt>
-          <dd className={styles.factValue}>
-            {result.highway ?? "不明"}
-            {result.is_designated ? "（指定路線）" : ""}
-          </dd>
+          <dd className={styles.factValue}>{result.highway ?? "不明"}</dd>
         </div>
         {known.map(([key, value]) => (
           <div key={key} className={styles.factRow}>

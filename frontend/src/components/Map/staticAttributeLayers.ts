@@ -1,4 +1,4 @@
-// 静的道路属性（車ストレス）・停止要因POI・外部静的データソース（警察庁交通事故統計）の
+// 静的道路属性・停止要因POI・外部静的データソース（警察庁交通事故統計）の
 // 色分け定義。
 //
 // 「自転車インフラ」の専用地図レイヤーは持たない。優先順位付き分類ロジックをPython側に
@@ -7,9 +7,9 @@
 //
 // roadFilterAxes.tsの軸機構（複数の生タグ値を少数のグループへ束ねる、絞り込み可能・
 // 「路面」レイヤーの色分け軸として共有）とは異なり、これらはバックエンドが既に
-// 1つの分類値（car_stress=1-5の整数、kind=列挙文字列、involves_bicycle/fatal=真偽値）
+// 1つの分類値（kind=列挙文字列、involves_bicycle/fatal=真偽値）
 // へ変換済みのプロパティのため、生値→グループの対応表は不要で単純なmatch/case式で足りる。
-// 車ストレスは既存の「路面」レイヤー（ROAD_TILE_SOURCE_ID/ROAD_TILE_SOURCE_LAYERを共有）
+// 既存の「路面」レイヤー（ROAD_TILE_SOURCE_ID/ROAD_TILE_SOURCE_LAYERを共有）
 // と同じソースの独立レイヤーだが、停止要因POI（region-poi-tiles）・事故
 // （region-accident-tiles）は点データのためそれぞれ別ソース（MapView.tsx参照）になる。
 // 交差点密度（次数3以上のroad_node）はバックエンドのpoi-tilesが引き続き焼き込むが、
@@ -19,7 +19,7 @@
 // legendFilter.tsの汎用機構（roadFilterAxes.tsの「路面」レイヤーと同じbuildLegendFilterExpression/
 // buildCombinedLegendFilterExpression）をそのまま流用する。属性値のカテゴリをそのまま絞り込み軸に
 // 機械的展開するのではなく、レイヤーごとにアプリの目的（安全・快適なルート判断）に沿った軸を選ぶ:
-// - 車ストレス・停止要因POIは名義尺度（カテゴリに順序が無い）なので、個別カテゴリを
+// - 停止要因POIは名義尺度（カテゴリに順序が無い）なので、個別カテゴリを
 //   直接選べるカテゴリ絞り込みがそのまま「車道混在の区間だけ」「踏切だけ」等のニーズに合う。
 // - 事故は当事者（自転車関連/その他）に加え、既に円の拡大で強調している重大度（死亡事故か否か）を
 //   独立した第2軸として持たせ、道路情報の「路面の種類×道路の種類」と同じAND絞り込みで
@@ -40,21 +40,18 @@ import { FALLBACK_LINE_OPACITY, KNOWN_LINE_OPACITY } from "./roadFilterAxes";
 // 種別ごとの重みを軸定義（axis_definitionsテーブル、軸スタジオで編集する）が持ち、
 // コード側に固定の順序が無い——運用で重みを入れ替えられるため、フロントへ順序を焼き込むと
 // 軸の定義と食い違う。補給POIの種類は非安全指標でどの2次軸の材料にもなっていない。どちらも「観測された事実の種類」を区別するだけで、どちらが強い/弱いという
-// 順序を持たない。2次のramp軸（車の圧迫感・停止密度・事故密度等、axisLayers.ts:
+// 順序を持たない。2次のramp軸（停止密度・事故密度等、axisLayers.ts:
 // AXIS_RAMP_COLORSの緑〜赤の評価配色）と紛らわしくならないよう、評価配色を含まない
 // 中立色（藍・灰茶・桃など）を使う。各カテゴリ群は互いに独立した凡例・レイヤーのため、
 // 色の使い回しは問題にならない（同じ画面で並べて比較されることが無い）。
 //
-// (B) 2次の材料そのもの（順序を持つ）: 指定路線・事故の当事者区分（自転車関連/その他）は、
-// 実際に2次の計算材料として使われている（指定路線はcar_stress内部軸
-// （domain/axis_definitions.py: car_stress_designation_adjustment「指定路線に該当: +1」）
-// の材料。事故の当事者区分はbackend/app/infrastructure/road_graph_repository.pyの
+// (B) 2次の材料そのもの（順序を持つ）: 事故の当事者区分（自転車関連/その他）は、
+// 実際に2次の計算材料として使われている（backend/app/infrastructure/road_graph_repository.pyの
 // 事故密度集計SQLがbicycle_only=true固定＝自転車関連の事故だけを数え、その他は数えない
 // ＝寄与ゼロ）。つまりこれらは「安全寄り→危険寄り」という2次と同じ意味の順序を実際に
 // 持っており、中立色にしてしまうと「濃ければ強い？」というだけの手がかりの無い色になって
 // しまう。これらは2次と同じ緑→赤の配色言語（AXIS_RAMP_COLORS系）へ揃え、「1次のこの色は
-// 2次のこの色と同じ方向を指す」と直接読めるようにする（下記DESIGNATION_CATEGORIES/
-// ACCIDENT_COLOR_BICYCLE参照）。事故の重大度（死亡事故か否か）はACCIDENT_FATAL_WEIGHTに
+// 2次のこの色と同じ方向を指す」と直接読めるようにする（下記ACCIDENT_COLOR_BICYCLE参照）。事故の重大度（死亡事故か否か）はACCIDENT_FATAL_WEIGHTに
 // よる実際の重み差があり、これも(B)（下のACCIDENT_SEVERITY_*）。
 // 「不明・他/対象外/その他（寄与しない側）」はどの種類でも中立グレーのままとし、
 // FALLBACK_LINE_OPACITYで薄くする（緑にはしない。「対象外」は「安全と確認済み」ではなく
@@ -79,7 +76,7 @@ function categoryKeys(category: CategoryDef): string[] {
 }
 
 // 「文字列列挙プロパティ→(label対訳表・凡例・match色分け式)の3点セット」の共通ビルダー。
-// DESIGNATION/STOP_POI/SUPPLY_POIが同じ骨格
+// STOP_POI/SUPPLY_POIが同じ骨格
 // （Object.fromEntries変換・["=="]フィルタ＋unknown用["!","has"]フォールバック・
 // ["match", ["coalesce",...]]色分け式）を逐語コピーしていたのを1箇所へ集約する。
 // CAR_STRESS（数値キー）・ACCIDENT（当事者/重大度の2値をcase式で直接書く方が
@@ -126,38 +123,6 @@ function buildCategoricalLayerDefs(
   return { labels, legend, colorExpression, opacityExpression };
 }
 
-// 指定路線コンフレーション機構（外部静的データソース、国土数値情報N10/N12）の色分け定義。
-// backend/app/infrastructure/road_graph_repository.py: _ROAD_SURFACE_TILE_MVT_SQLの
-// designationプロパティ（emergency_transport/critical_logistics/both/未該当はプロパティ欠落）と
-// 対応する。トラフィックストレスと同じroad_surfaceソースの独立レイヤー。N10・N12両方に
-// 該当するwayは3値目"both"として独立カテゴリ化する（非表示にした片方に該当する区間が
-// 地図から完全に消えないようにするため）。
-// 車の圧迫感の材料そのもの（domain/axis_definitions.py:
-// car_stress_designation_adjustment「指定路線に該当: +1」参照）で、N10/N12いずれに
-// 該当しても一律+1と扱われ、3カテゴリ間に強弱の差は無い（該当なし=対象外との二値に近い）。
-// AXIS_RAMP_COLORSの上位3色（アンバー・オレンジ・赤、いずれも「危険寄り」の範囲）を
-// そのまま再利用し、「指定路線に色が付く=車の圧迫感が上がる材料」と直接読めるようにする
-// （3値の強弱ではなく、単に見分けが付くよう別々の色を割り当てているだけ）。
-const DESIGNATION_CATEGORIES: CategoryDef[] = [
-  { key: "emergency_transport", label: "緊急輸送道路[N10]", color: AXIS_RAMP_COLORS[1] },
-  { key: "critical_logistics", label: "重要物流道路[N12]", color: AXIS_RAMP_COLORS[2] },
-  // 全角括弧（）は表示幅を取り地図表示エリアを圧迫するため半角[]へ統一する
-  // （design-principles.md「UI仕様」: 表示幅を圧迫しない）。「緊急輸送道路 かつ
-  // 重要物流道路」は共有語「道路」の重複表現を割愛し「緊急輸送 かつ 重要物流道路」へ
-  // 短縮する。折り返し自体もCSS側で許可済み（MapOverlayControls.module.css:
-  // .detailRowLabel）。
-  { key: "both", label: "緊急輸送 かつ 重要物流道路[N10＋N12]", color: AXIS_RAMP_COLORS[3] },
-];
-
-const designationDefs = buildCategoricalLayerDefs("designation", DESIGNATION_CATEGORIES, "対象外");
-
-// key→labelの対訳表。MapView.tsxのポップアップ表示が参照する（UI語彙表はカタログ
-// ファイルにのみ書き、消費側での複製は持たない）。
-export const DESIGNATION_LABELS: Record<string, string> = designationDefs.labels;
-export const DESIGNATION_LEGEND: LegendEntry[] = designationDefs.legend;
-export const DESIGNATION_COLOR_EXPRESSION: unknown[] = designationDefs.colorExpression;
-export const DESIGNATION_OPACITY_EXPRESSION: unknown[] = designationDefs.opacityExpression;
-
 /** 真偽値プロパティ（該当区間のみ`true`、未該当はプロパティ欠落）1つぶんの凡例・色式・
  * 不透明度式。**3点セットを個別に書き写さない**——片方だけ色やフィルタを変えたときに、
  * 凡例と地図の見た目が静かに食い違う（文字列列挙版の`buildCategoricalLayerDefs`と同じ役割）。 */
@@ -177,13 +142,13 @@ function buildBooleanLayerDefs(
   };
 }
 
-// トンネル（一次属性、OSMのtunnelタグ）の色分け定義。designation同様road_surfaceソースの
+// トンネル（一次属性、OSMのtunnelタグ）の色分け定義。road_surfaceソースの
 // 独立レイヤーだが、値は該当区間のみ`true`（未該当はプロパティ欠落）の単純な真偽値のため、
 // 文字列列挙用のbuildCategoricalLayerDefsではなく真偽値用のbuildBooleanLayerDefsで組む。
 // tunnelはnight軸（domain/night.py: night_difficulty）の材料の1つで、該当区間は+50点
 // （夜間の危険度が上がる方向）に働く。night軸自体もramp表示（axisMapLayerId("night")、
 // 自動導出）を持つが、材料であるtunnelタグそのものは実体のある一次属性として独立表示する
-// 価値があるため、この専用の真偽値レイヤーは維持する。他の2次計算材料（designation等）と
+// 価値があるため、この専用の真偽値レイヤーは維持する。他の2次計算材料と
 // 同じAXIS_RAMP_COLORSの危険側の色を使う。
 const TUNNEL_COLOR = AXIS_RAMP_COLORS[2];
 const tunnelDefs = buildBooleanLayerDefs("tunnel", "トンネル", TUNNEL_COLOR);
@@ -194,7 +159,7 @@ export const TUNNEL_OPACITY_EXPRESSION: unknown[] = tunnelDefs.opacityExpression
 
 // 一方通行（一次属性、OSM onewayタグ）の色分け定義。tunnelと同型の
 // 単純な真偽値プロパティ（該当区間のみtrue、未該当はプロパティ欠落）。
-// tunnel/designationとは異なりAXIS_RAMP_COLORS（危険寄りの色）を使わない——一方通行は
+// tunnelとは異なりAXIS_RAMP_COLORS（危険寄りの色）を使わない——一方通行は
 // どの評価軸の材料にもならない（表示専用、mapLayers.tsのpanelHint参照）ため、「色が付く＝
 // 評価に効く」という他レイヤーの読み方と混同されないよう、評価軸に使われていない中立色
 // （crossing等と同じ青系）を割り当てる。
@@ -213,7 +178,7 @@ export const ONEWAY_OPACITY_EXPRESSION: unknown[] = onewayDefs.opacityExpression
 // 実際には順序がある。事故密度（2次、評価軸accident）はbackend/app/infrastructure/
 // road_graph_repository.pyの事故密度集計SQLがbicycle_only=true固定（involves_bicycleのみ）
 // で集計しており、自転車関連の事故だけが事故密度スコアへ寄与し、その他（自転車が
-// 絡まない事故）は寄与しない。つまり指定路線の該当/対象外と同じ「材料として寄与するか否か」
+// 絡まない事故）は寄与しない。つまり「材料として寄与するか否か」
 // の二値で、自転車関連＝寄与する側はAXIS_RAMP_COLORSの赤（2次の危険側と同じ意味）、
 // その他＝寄与しない側は中立グレーのままにする。重大度（死亡事故か否か）は下の
 // ACCIDENT_SEVERITY_*を参照（そちらはACCIDENT_FATAL_WEIGHTによる実際の重み差があるため
@@ -280,7 +245,7 @@ const STOP_POI_CATEGORIES: CategoryDef[] = [
 
 // osm_raw_pois.kindは取込時にclassify_stop_poiが既知の種別へ分類済みのため実際には
 // unknown（プロパティ欠落）は出現しない想定だが、match式のフォールバック（COLOR_UNKNOWN）
-// と対にして凡例側にも残す（designation等と同じ「不明・他」の扱い）。
+// と対にして凡例側にも残す（「不明・他」の扱い）。
 const stopPoiDefs = buildCategoricalLayerDefs("kind", STOP_POI_CATEGORIES, "不明・他");
 
 export const STOP_POI_LABELS: Record<string, string> = stopPoiDefs.labels;
@@ -327,14 +292,7 @@ export const SUPPLY_POI_KINDS: readonly string[] = SUPPLY_POI_CATEGORIES.flatMap
 // リテラル列挙できず、RampAxis["axisId"]（string）を足しあわせる（軸追加時にここへの
 // コード変更なしにbuildStaticFilterAxes()へ含められる）。
 export type StaticFilterAxisId =
-  | "designation"
-  | "tunnel"
-  | "oneway"
-  | "stopPoi"
-  | "supplyPoi"
-  | "accidentParty"
-  | "accidentSeverity"
-  | RampAxis["axisId"];
+  "tunnel" | "oneway" | "stopPoi" | "supplyPoi" | "accidentParty" | "accidentSeverity" | RampAxis["axisId"];
 
 export interface StaticFilterAxis {
   axisId: StaticFilterAxisId;
@@ -355,7 +313,6 @@ export interface StaticFilterAxis {
 // (RAMP_AXES)として直接呼べる。
 export function buildStaticFilterAxes(rampAxes: readonly RampAxis[]): readonly StaticFilterAxis[] {
   return [
-    { axisId: "designation", layerId: "designation", legend: DESIGNATION_LEGEND },
     { axisId: "tunnel", layerId: "tunnel", legend: TUNNEL_LEGEND },
     { axisId: "oneway", layerId: "oneway", legend: ONEWAY_LEGEND },
     {

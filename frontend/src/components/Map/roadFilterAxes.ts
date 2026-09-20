@@ -56,7 +56,7 @@ export interface RoadFilterAxis {
 //
 // 「路面の種類」（SURFACE_GROUPS）の色は自分のレイヤーのline-colorへ直接反映され、
 // 凡例も同じcolor値を丸ドットで表示する。2次のramp軸
-// （車の圧迫感・停止密度・事故密度等、axisLayers.ts: AXIS_RAMP_COLORSの緑〜赤の評価配色）
+// （停止密度・事故密度等、axisLayers.ts: AXIS_RAMP_COLORSの緑〜赤の評価配色）
 // と色相が重なると、1次（観測された事実）と2次（推定された評価）が地図上で混同される
 // ため、評価色（緑・アンバー・オレンジ・赤の系統）を避けた中立色を使う（COLOR_SLATE/
 // COLOR_KHAKI）。COLOR_UNKNOWNはaxisLayers.tsが正準定義を持つ（dedicatedWayValueLayer.tsと
@@ -64,8 +64,8 @@ export interface RoadFilterAxis {
 
 // 1次の複数レイヤーを同時にONにしても、視覚的な重なりが何を意味するか読み取れなくなる
 // ことを避けるため、「不明・他」（そのタグ値が無い/未分類の区間、路面では2〜3割・
-// 自転車インフラや指定路線ではほぼ大半を占める）だけ大きく透明度を下げ、分類情報を持つ
-// 区間だけが浮かび上がるようにする。staticAttributeLayers.ts（自転車インフラ・指定路線）
+// 自転車インフラではほぼ大半を占める）だけ大きく透明度を下げ、分類情報を持つ
+// 区間だけが浮かび上がるようにする。staticAttributeLayers.ts（自転車インフラ）
 // とも共有し、地図全体で「薄い＝対象外、濃い＝分類あり」という読み方を統一する。
 export const FALLBACK_LINE_OPACITY = 0.15;
 export const KNOWN_LINE_OPACITY = 0.8;
@@ -79,7 +79,7 @@ const COLOR_KHAKI = "#a3915f";
 // HIGHWAY_GROUPS（道路の種類）専用のパレット。「幹線道路ほど強く目立つ」序列を、色相を
 // 持たない濃淡（青みがかった中立トーン）で表す——順序はあるが良し悪しではないため、
 // 色相ベースの評価配色（axisLayers.ts: AXIS_RAMP_COLORSの緑〜赤）とは別の視覚言語にして
-// あり、2次のcar_stress等の評価色と混同しない。COLOR_SLATE（路面の種類=アスファルトが
+// あり、2次の評価色と混同しない。COLOR_SLATE（路面の種類=アスファルトが
 // 使用中）やCOLOR_UNKNOWN（不明・他）とも別の色値にし、それぞれの文脈で意味が食い違わない
 // ようにする。
 const COLOR_HIGHWAY_ARTERIAL = "#334155";

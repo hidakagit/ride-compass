@@ -6,8 +6,8 @@ import RouteAxisProfile from "./RouteAxisProfile";
 
 const AXES: PreferenceAxisDef[] = [
   {
-    axisId: "car_stress",
-    label: "車の圧迫感",
+    axisId: "axis_sample",
+    label: "見本の軸",
     description: "車の通行量の説明",
     dedicatedWayValueLayer: false,
     rawValueUnit: "回/km",
@@ -17,14 +17,14 @@ const AXES: PreferenceAxisDef[] = [
   { axisId: "night", label: "夜間", description: "夜間の暗さの説明", dedicatedWayValueLayer: false },
 ];
 
-const AXIS_COLORS: Record<string, string> = { car_stress: "#111111", wind: "#222222", night: "#333333" };
+const AXIS_COLORS: Record<string, string> = { axis_sample: "#111111", wind: "#222222", night: "#333333" };
 
 function baseProps(overrides: Partial<Parameters<typeof RouteAxisProfile>[0]> = {}) {
   return {
     axes: AXES,
-    weights: { car_stress: 0.5, wind: 0.0, night: 0.5 },
-    axisDifficulties: { car_stress: 72.4, night: 5.8 },
-    axisContributions: { car_stress: 36.2, night: 2.9 },
+    weights: { axis_sample: 0.5, wind: 0.0, night: 0.5 },
+    axisDifficulties: { axis_sample: 72.4, night: 5.8 },
+    axisContributions: { axis_sample: 36.2, night: 2.9 },
     axisRawValues: {},
     materialValues: {},
     materialCategoryShares: {},
@@ -55,11 +55,11 @@ describe("RouteAxisProfile", () => {
 
   it("軸を1行ずつ並べる一覧は持たず、寄与度の凡例チップが軸ごとの詳細の入口になる", async () => {
     const user = userEvent.setup();
-    render(<RouteAxisProfile {...baseProps({ axisRawValues: { car_stress: 0.8 }, distanceKm: 32.5 })} />);
+    render(<RouteAxisProfile {...baseProps({ axisRawValues: { axis_sample: 0.8 }, distanceKm: 32.5 })} />);
 
     expect(screen.queryByRole("list", { name: "軸別難易度" })).not.toBeInTheDocument();
 
-    await user.click(screen.getByRole("button", { name: "車の圧迫感の詳細を表示" }));
+    await user.click(screen.getByRole("button", { name: "見本の軸の詳細を表示" }));
 
     // 重みを掛ける前の軸単体の難易度。チップの数字（重み付き寄与度36.2）とは別物。
     expect(await screen.findByText("軸別難易度 72/100")).toBeInTheDocument();
@@ -74,9 +74,9 @@ describe("RouteAxisProfile", () => {
     render(
       <RouteAxisProfile
         {...baseProps({
-          weights: { car_stress: 0.5, wind: 0.0, night: 0.5 },
-          axisContributions: { car_stress: 36.2, night: 0 },
-          axisDifficulties: { car_stress: 72.4 },
+          weights: { axis_sample: 0.5, wind: 0.0, night: 0.5 },
+          axisContributions: { axis_sample: 36.2, night: 0 },
+          axisDifficulties: { axis_sample: 72.4 },
         })}
       />,
     );
@@ -95,16 +95,16 @@ describe("RouteAxisProfile", () => {
     const items = chips();
     // チップはアイコンと値だけを持ち、軸の名前はアクセシブル名（詳細ボタン）が担う。
     expect(items.map((item) => within(item).getByLabelText(/./).getAttribute("aria-label"))).toEqual([
-      "車の圧迫感の詳細を表示",
+      "見本の軸の詳細を表示",
       "夜間の詳細を表示",
     ]);
     expect(items[0]).toHaveAttribute("data-checked", "true");
-    expect(within(items[0]).getByRole("button", { name: "車の圧迫感の詳細を表示" })).toBeInTheDocument();
+    expect(within(items[0]).getByRole("button", { name: "見本の軸の詳細を表示" })).toBeInTheDocument();
   });
 
   it("重みが入っていれば、寄与の値が来ない軸のチップも押せる（詳細が「データなし」を示す）", async () => {
     const user = userEvent.setup();
-    render(<RouteAxisProfile {...baseProps({ weights: { car_stress: 0.5, wind: 0.2, night: 0.5 } })} />);
+    render(<RouteAxisProfile {...baseProps({ weights: { axis_sample: 0.5, wind: 0.2, night: 0.5 } })} />);
 
     const wind = chips()[1];
     expect(wind).toHaveAttribute("data-checked", "true");
@@ -129,7 +129,7 @@ describe("RouteAxisProfile", () => {
 
   it("重み0の軸はaxisContributionsにキー付きで値0.0を持つため、帯には出ずチップの数値も出ない", () => {
     const { container } = render(
-      <RouteAxisProfile {...baseProps({ axisContributions: { car_stress: 36.2, wind: 0, night: 2.9 } })} />,
+      <RouteAxisProfile {...baseProps({ axisContributions: { axis_sample: 36.2, wind: 0, night: 2.9 } })} />,
     );
 
     const segments = container.querySelectorAll('[class*="stackSegment"]');
@@ -155,7 +155,7 @@ describe("RouteAxisProfile", () => {
 
   it("内訳の値はbackendが算出したaxis_contributionsをそのまま表示する", () => {
     const { container } = render(
-      <RouteAxisProfile {...baseProps({ axisContributions: { car_stress: 52.1, night: 2.9 } })} />,
+      <RouteAxisProfile {...baseProps({ axisContributions: { axis_sample: 52.1, night: 2.9 } })} />,
     );
 
     const values = Array.from(container.querySelectorAll('[class*="legendValue"]')).map((el) => el.textContent);
@@ -255,8 +255,8 @@ describe("軸単体で判断するための物理量（詳細ポップオーバ�
   it("categorical材料は最も延長の長い値のラベルと割合を出す", async () => {
     const axes: PreferenceAxisDef[] = [
       {
-        axisId: "car_stress",
-        label: "車の圧迫感",
+        axisId: "axis_sample",
+        label: "見本の軸",
         description: "説明",
         dedicatedWayValueLayer: false,
         rawValueUnit: null,
@@ -278,9 +278,9 @@ describe("軸単体で判断するための物理量（詳細ポップオーバ�
       <RouteAxisProfile
         {...baseProps({
           axes,
-          weights: { car_stress: 0.5 },
-          axisDifficulties: { car_stress: 60 },
-          axisContributions: { car_stress: 30 },
+          weights: { axis_sample: 0.5 },
+          axisDifficulties: { axis_sample: 60 },
+          axisContributions: { axis_sample: 30 },
           materialValues: { maxspeed_kmh: 42.3 },
           // backendが割合の降順で返す（フロントは並べ替えを持たない）。
           materialCategoryShares: { highway: { residential: 0.62, secondary: 0.38 } },
@@ -288,7 +288,7 @@ describe("軸単体で判断するための物理量（詳細ポップオーバ�
       />,
     );
 
-    await userEvent.click(screen.getByRole("button", { name: "車の圧迫感の詳細を表示" }));
+    await userEvent.click(screen.getByRole("button", { name: "見本の軸の詳細を表示" }));
 
     expect(screen.getByText("この軸の内訳: 住宅街の道 62%・制限速度 42km/h")).toBeInTheDocument();
     // 2件目以降の値は出さない（どの値を束ねるかの判断表をフロントが持たないため）。
@@ -298,8 +298,8 @@ describe("軸単体で判断するための物理量（詳細ポップオーバ�
   it("値が来ないcategorical材料は内訳から飛ばす", async () => {
     const axes: PreferenceAxisDef[] = [
       {
-        axisId: "car_stress",
-        label: "車の圧迫感",
+        axisId: "axis_sample",
+        label: "見本の軸",
         description: "説明",
         dedicatedWayValueLayer: false,
         rawValueUnit: null,
@@ -314,15 +314,15 @@ describe("軸単体で判断するための物理量（詳細ポップオーバ�
       <RouteAxisProfile
         {...baseProps({
           axes,
-          weights: { car_stress: 0.5 },
-          axisDifficulties: { car_stress: 60 },
-          axisContributions: { car_stress: 30 },
+          weights: { axis_sample: 0.5 },
+          axisDifficulties: { axis_sample: 60 },
+          axisContributions: { axis_sample: 30 },
           materialValues: { maxspeed_kmh: 42.3 },
         })}
       />,
     );
 
-    await userEvent.click(screen.getByRole("button", { name: "車の圧迫感の詳細を表示" }));
+    await userEvent.click(screen.getByRole("button", { name: "見本の軸の詳細を表示" }));
 
     expect(screen.getByText("この軸の内訳: 制限速度 42km/h")).toBeInTheDocument();
     expect(screen.queryByText(/道路種別/)).not.toBeInTheDocument();

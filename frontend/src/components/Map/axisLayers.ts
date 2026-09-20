@@ -43,7 +43,7 @@ export interface AxisTileInput {
    * has_unknown_fallback参照）。既定false（欠損=falseとみなしてよい材料、例:
    * lit・has_tunnel⟵tunnel）はtrueValue/falseValueへ通常どおり倒す。 */
   hasUnknownFallback?: boolean;
-  /** N値文字列材料（改善計画T292、例: highway/designation）。タイルプロパティの
+  /** N値文字列材料（例: highway）。タイルプロパティの
    * 文字列値をこの辞書で引いた点数×weightを寄与値とする。未登録値は0扱い
    * （registry.py: TileInputSpec.categories参照）。 */
   categories?: Record<string, number>;
@@ -320,7 +320,7 @@ export function dedicatedWayValueLineLayerId(axisId: string): string {
 
 // 共有ランプ配色（低→高、緑→黄→橙→赤）のアンカー。全ramp軸が同じ配色系統を使うことで
 // 「低=緑〜高=赤」という読み方を1回覚えれば全軸に通用させる（軸ごとに独自配色を作らない）。
-// 段階数（バンド数）は軸によって異なりうる（例: car_stressは複数材料の組み合わせのため
+// 段階数（バンド数）は軸によって異なりうる（複数材料の組み合わせは
 // thresholdsが4個ちょうどに収まるとは限らない）。rampColorForBandはこの4色をアンカーとして
 // bandCount段階ぶんの色を線形補間で生成するため、bandCount=4のときは既存の4色と完全に
 // 一致し（axisLayers.test.ts参照）、bandCount≠4の軸でも同じ緑→赤の配色系統のまま段階数
@@ -371,7 +371,7 @@ export function rampColorForBand(index: number, bandCount: number): string {
 }
 
 // 既存4段階軸（gradient/surface_q/night/accident等）・staticAttributeLayers.ts
-// の非ramp用途（DESIGNATION/TUNNEL/ONEWAY等の固定4色引用）向けの後方互換export。
+// の非ramp用途（TUNNEL/ONEWAY等の固定4色引用）向けの後方互換export。
 // rampColorForBand(i, 4)と完全に同じ値（後方互換テストで担保）。
 export const AXIS_RAMP_COLORS = [
   rampColorForBand(0, 4),
@@ -487,7 +487,7 @@ function axisRampBandLabel(axis: RampAxis, index: number, lower: number | null, 
 }
 
 /** ramp軸の凡例（改善計画: 地図アイコンチップのグルーピング・研究タブ整理・停止/事故密度の
- * 凡例追加）。既存レイヤー（車ストレス・自転車インフラ等、staticAttributeLayers.ts参照）と
+ * 凡例追加）。既存レイヤー（自転車インフラ等、staticAttributeLayers.ts参照）と
  * 同じLegendEntry型で返すことで、色スウォッチ付きの凡例チェックボックス
  * （LegendCheckboxList.tsx）・地図チップの▶展開凡例
  * （MapOverlayControls.tsx: legendDetails）・実際の絞り込み

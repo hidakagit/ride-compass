@@ -5,7 +5,6 @@
 // 手書きで持つと、同じ値を地図のポップアップと軸スタジオで別の呼び方をすることになる。
 
 import materialCatalog from "@/types/generated/material-catalog.json";
-import { DESIGNATION_LABELS } from "./staticAttributeLayers";
 
 export interface RoadSurfacePopupProperties {
   /** 区間インスペクタで全軸の内訳を引き直すための識別子。 */
@@ -23,8 +22,6 @@ export interface RoadSurfacePopupProperties {
   bridge?: boolean | null;
   /** 一方通行（一次属性、OSM onewayタグ）。未該当（双方向）はプロパティ欠落。 */
   oneway?: boolean | null;
-  /** 指定路線コンフレーション機構（外部静的データソース）。未該当はプロパティ欠落。 */
-  designation?: string | null;
 }
 
 export interface RoadFactRow {
@@ -56,9 +53,6 @@ export function roadFactRows(properties: RoadSurfacePopupProperties): RoadFactRo
   ];
   if (properties.smoothness) {
     rows.push({ label: "路面状態", value: SMOOTHNESS_LABELS[properties.smoothness] ?? properties.smoothness });
-  }
-  if (properties.designation) {
-    rows.push({ label: "指定路線", value: DESIGNATION_LABELS[properties.designation] ?? properties.designation });
   }
   if (properties.tunnel) rows.push({ label: "トンネル", value: "あり" });
   if (properties.bridge) rows.push({ label: "橋・高架", value: "あり" });

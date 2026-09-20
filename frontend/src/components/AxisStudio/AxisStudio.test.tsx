@@ -184,14 +184,14 @@ describe("AxisStudio", () => {
   });
 
   // 改善計画T325（UIレビュー2026-08-25 F-3）: 他axis_idを材料として参照する軸（例:
-  // car_stress軸）の一覧サマリが、生のsnake_case識別子ではなく参照先の表示名(label)で
+  // 軸）の一覧サマリが、生のsnake_case識別子ではなく参照先の表示名(label)で
   // 表示される回帰テスト。
   it("他axis_idを材料として参照する軸のサマリは、生の識別子ではなく参照先の表示名で表示される", async () => {
     vi.mocked(listAxisDefinitions).mockResolvedValue([
       baseAxisDefinition({ axis_id: "highway_base", label: "highway基準値" }),
       baseAxisDefinition({
-        axis_id: "car_stress",
-        label: "車の圧迫感",
+        axis_id: "axis_sample",
+        label: "見本の軸",
         shape: {
           kind: "breakpoint_linear",
           terms: [{ material: "highway_base", weight: 1.0, required: true }],
@@ -205,7 +205,7 @@ describe("AxisStudio", () => {
     ]);
     render(<AxisStudio />);
 
-    await waitFor(() => expect(screen.getByText("車の圧迫感")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText("見本の軸")).toBeInTheDocument());
 
     // 軸名の見出し（"highway基準値"単体）と紛れないよう、サマリ行特有の
     // 「・ <ラベル>」という区切り付きパターンで照合する。
@@ -219,8 +219,8 @@ describe("AxisStudio", () => {
     vi.mocked(listAxisDefinitions).mockResolvedValue([
       baseAxisDefinition({ axis_id: "highway_base", label: "highway基準値" }),
       baseAxisDefinition({
-        axis_id: "car_stress",
-        label: "車の圧迫感",
+        axis_id: "axis_sample",
+        label: "見本の軸",
         shape: {
           kind: "breakpoint_linear",
           terms: [{ material: "highway_base", weight: 1.0, required: true }],
@@ -239,7 +239,7 @@ describe("AxisStudio", () => {
     await waitFor(() => expect(screen.getByText("highway基準値")).toBeInTheDocument());
     await user.click(screen.getAllByRole("button", { name: "削除" })[0]);
 
-    expect(confirmSpy).toHaveBeenCalledWith(expect.stringContaining("車の圧迫感"));
+    expect(confirmSpy).toHaveBeenCalledWith(expect.stringContaining("見本の軸"));
     expect(deleteAxisDefinition).not.toHaveBeenCalled();
     confirmSpy.mockRestore();
   });
@@ -248,8 +248,8 @@ describe("AxisStudio", () => {
     vi.mocked(listAxisDefinitions).mockResolvedValue([
       baseAxisDefinition({ axis_id: "highway_base", label: "highway基準値" }),
       baseAxisDefinition({
-        axis_id: "car_stress",
-        label: "車の圧迫感",
+        axis_id: "axis_sample",
+        label: "見本の軸",
         shape: {
           kind: "breakpoint_linear",
           terms: [{ material: "highway_base", weight: 1.0, required: true }],

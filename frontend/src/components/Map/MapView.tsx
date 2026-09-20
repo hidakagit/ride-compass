@@ -54,8 +54,6 @@ import { buildCombinedLegendFilterExpression } from "@/components/Map/legendFilt
 import {
   ACCIDENT_COLOR_EXPRESSION,
   ACCIDENT_RADIUS_EXPRESSION,
-  DESIGNATION_COLOR_EXPRESSION,
-  DESIGNATION_OPACITY_EXPRESSION,
   TUNNEL_COLOR_EXPRESSION,
   TUNNEL_OPACITY_EXPRESSION,
   ONEWAY_COLOR_EXPRESSION,
@@ -213,7 +211,7 @@ const GSI_TERRAIN_ATTRIBUTION =
   '<a href="https://maps.gsi.go.jp/development/ichiran.html" target="_blank" rel="noreferrer">地理院タイル(標高タイル)</a>';
 
 // 路面ベクタタイル（ROAD_TILE_SOURCE_ID）へ焼き込まれる生データの帰属表示。1つのMVTタイルへ
-// OSM（道路本体）・国土数値情報N10/N12（指定路線）・警察庁（事故密度）・Esri×Impact
+// OSM（道路本体）・警察庁（事故密度）・Esri×Impact
 // Observatory×Microsoft（土地被覆）の4系統が混在するため、ソースは1つでも
 // 帰属表示は4者ぶんまとめて1文字列にする。
 const ROAD_TILE_ATTRIBUTION =
@@ -330,10 +328,9 @@ export const ROAD_TYPE_LAYER_ID = "region-road-type-line";
 export const ROAD_INSPECT_LAYER_ID = "region-road-inspect-line";
 // 専用way値配信軸（「評価軸」グループの風・勾配等）のMapLibre layer idは
 // axisLayers.ts: dedicatedWayValueLineLayerId が軸idから導出する。ROAD_TILE_SOURCE_ID/
-// ROAD_TILE_SOURCE_LAYERを共有する独立レイヤー（designation/tunnel/onewayと同じ構成）だが、
+// ROAD_TILE_SOURCE_LAYERを共有する独立レイヤー（tunnel/onewayと同じ構成）だが、
 // 色分けはタイルのプロパティではなくsetFeatureState経由の値
 // （dedicatedWayValueColorExpression、dedicatedWayValueLayer.ts）を読む点が異なる。
-export const DESIGNATION_LAYER_ID = "region-designation-line";
 // exportはテスト専用（MapView.layerOps.test.ts）。
 export const TUNNEL_LAYER_ID = "region-tunnel-line";
 export const ONEWAY_LAYER_ID = "region-oneway-line";
@@ -349,7 +346,7 @@ export const DEFAULT_ROAD_LINE_WIDTH = 3;
 // applyRoadLayerState参照）。
 const DEFAULT_ROAD_LINE_OPACITY = 0.8;
 // road_surfaceの1次「素材」線レイヤー（道路種別/路面の合成ROAD_TILE_LAYER_ID・自転車
-// インフラ・指定路線）は同じ道路ジオメトリ上に重なる独立レイヤーのため、複数を同時に
+// インフラ）は同じ道路ジオメトリ上に重なる独立レイヤーのため、複数を同時に
 // ONにすると後から描画されたレイヤーが前のレイヤーを完全に覆い隠してしまう。line-offsetで
 // 道路と平行な複数トラックへ横並びに分離する（applyRoadMaterialTrackOffsets参照）。
 // トラック間隔はline-width（3px）の半分弱ずつ重なる値にしてある（重なりは色の切り替わりと
@@ -359,13 +356,12 @@ export const MATERIAL_TRACK_OFFSET_STEP = 2;
 export const ROAD_MATERIAL_TRACK_LAYER_IDS = [
   ROAD_TILE_LAYER_ID,
   ROAD_TYPE_LAYER_ID,
-  DESIGNATION_LAYER_ID,
   TUNNEL_LAYER_ID,
   ONEWAY_LAYER_ID,
 ] as const;
-// ramp軸（車の圧迫感・停止密度・事故密度等、axisLayers.ts）は「推定」グループのメンバーで、
+// ramp軸（停止密度・事故密度等、axisLayers.ts）は「推定」グループのメンバーで、
 // いずれも同じroad_surfaceソース上の独立レイヤーとして重ねて描画される。2次は太く半透明な
-// 「下敷き」、1次（designation等）は細くくっきりした「上書き」として重ねることで、下に
+// 「下敷き」、1次は細くくっきりした「上書き」として重ねることで、下に
 // 赤い区間があってもその上に事故地点の点や道路種別の線が乗って見えるようにする（描画順序は
 // buildStaticOverlayLayers()参照。1次より下・road_surfaceより上に置く）。
 // 幅は1次「素材」線が全部ONになったときの最大帯幅（トラック数×オフセット間隔＋自身の
@@ -1180,11 +1176,11 @@ export function ensureRoadSurfaceTileLayer(map: MapLibreMap) {
 // feature-stateキーだけが違う同型の関数を軸ごとに用意するのではなく、makeEnsureAxisRampLayer
 // （ramp軸向け、上記）と同じ「1ファクトリ+N呼び出し」パターンへ統一する。
 //
-// way_id→値配信層。designation/tunnel/onewayと同じくROAD_TILE_
+// way_id→値配信層。tunnel/onewayと同じくROAD_TILE_
 // SOURCE_ID/ROAD_TILE_SOURCE_LAYERを共有する独立レイヤーだが、色分けはタイルの
 // プロパティではなくsetFeatureState経由の値（applyAxisFeatureStateValues参照）を読む。
 // ensureRoadSurfaceTileLayerを先に呼び、promoteId付きのsourceが確実に存在する状態で
-// レイヤーを追加する（designation等の既存レイヤーもこのソースへ依存する順序を暗黙に
+// レイヤーを追加する（既存レイヤーもこのソースへ依存する順序を暗黙に
 // 仮定しており、それと同じ前提）。colorExpressionはdedicatedWayValueDisplays
 // （軸カタログのmap_value_thresholds、実行時フェッチで後から変わりうる）に
 // 依存するため、レイヤーが既に存在する場合もsetPaintPropertyで再適用する
@@ -1321,7 +1317,7 @@ function applyRoadLayerState(
   });
 }
 
-// road_surfaceの1次「素材」線レイヤー（道路種別/路面の合成ROAD_TILE_LAYER_ID・指定路線等）を
+// road_surfaceの1次「素材」線レイヤー（道路種別/路面の合成ROAD_TILE_LAYER_ID等）を
 // 並列トラックへ分離するオフセット計算。定数
 // （MATERIAL_TRACK_OFFSET_STEP/ROAD_MATERIAL_TRACK_LAYER_IDS）・下敷き幅との連動理由は
 // 上部のDEFAULT_ROAD_LINE_WIDTH直後のコメント参照。
@@ -1332,13 +1328,12 @@ function applyRoadLayerState(
 // exportはテスト専用（MapView.layerOps.test.ts）。
 export function applyRoadMaterialTrackOffsets(
   map: MapLibreMap,
-  visible: { roadSurface: boolean; roadType: boolean; designation: boolean; tunnel: boolean; oneway: boolean },
+  visible: { roadSurface: boolean; roadType: boolean; tunnel: boolean; oneway: boolean },
 ) {
   runWhenStyleReady(map, () => {
     const visibleByLayerId: Record<string, boolean> = {
       [ROAD_TILE_LAYER_ID]: visible.roadSurface,
       [ROAD_TYPE_LAYER_ID]: visible.roadType,
-      [DESIGNATION_LAYER_ID]: visible.designation,
       [TUNNEL_LAYER_ID]: visible.tunnel,
       [ONEWAY_LAYER_ID]: visible.oneway,
     };
@@ -1353,11 +1348,11 @@ export function applyRoadMaterialTrackOffsets(
   });
 }
 
-// designation（指定路線）・tunnel・oneway（いずれも一次属性、路面と同じベクタソースを
+// tunnel・oneway（いずれも一次属性、路面と同じベクタソースを
 // 再利用する独立レイヤー）は、レイヤーID・色/不透明度式以外まったく同一のため、
 // makeEnsureAxisRampLayer/makeEnsureDedicatedWayValueLayerと同じ「1ファクトリ+N呼び出し」
 // パターンで共通化する。プロパティは該当区間のみ値を持ち、未該当はプロパティ欠落として
-// 各色式のcoalesce/case式が灰色（designation）・中立色（tunnel/oneway）に倒す。
+// 各色式のcoalesce/case式が中立色に倒す。
 // specOwnsFilter=false: このレイヤーの絞り込みは凡例のON/OFFから`setStaticOverlayFilters`が
 // 組み立てて与える。ここで触ると、表示ON/OFFのたびに走る`ensure`が利用者の絞り込みを巻き戻す。
 function makeEnsureAttributeLineLayer(
@@ -1370,7 +1365,7 @@ function makeEnsureAttributeLineLayer(
       // 参照するソースは自分で用意する（ramp軸・専用way値レイヤーと同じ）。
       // map.setStyle()の後の作り直しはレイヤーごとのensureを順に呼ぶだけで、路面ソースを
       // 作る処理がこれより後に来ることがある——順序に頼るとそのときだけレイヤーが落ち、
-      // 指定路線・トンネル・一方通行の色分けが戻らない。
+      // トンネル・一方通行の色分けが戻らない。
       ensureRoadSurfaceTileLayer(map);
       ensureLayerFromSpec(
         map,
@@ -1432,7 +1427,7 @@ function ensureAccidentTileLayer(map: MapLibreMap) {
   runWhenStyleReady(map, applyData);
 }
 
-// 停止要因POI・交差点密度は点データのため、路面・車ストレス・自転車
+// 停止要因POI・交差点密度は点データのため、路面・自転車
 // インフラとは別のベクタソース（region-poi-tiles）を使う。ズーム範囲は路面と同じ
 // （regionApi.ts: ROAD_TILE_MIN_ZOOM/MAX_ZOOM、backend側も同じ範囲に準拠）。
 function ensurePoiTileSource(map: MapLibreMap) {
@@ -1576,7 +1571,7 @@ type OverlayLayerSpec = Omit<OverlayLayerEntry, "paintTier">;
 // 半透明にすると、道路網が密な都市部では下敷きの重なりだけで地図全体がぼやけて
 // 見えてしまう）。casingLayerKeysは、どの2次レイヤーの材料が現在表示中かをpage.tsx側
 // （`secondaryAxisCasingLayerIds`）が判定して渡す（このファイルはレイヤー固有の材料関係を
-// 知らない汎用描画係のまま、という方針を保つ）。キーはaxisMapLayerId（"axis:car_stress"等）。
+// 知らない汎用描画係のまま、という方針を保つ）。キーはaxisMapLayerId。
 /** 記述子の宣言した段で並べ直す（先頭＝背面）。同じ段の中はカタログ順を保つ。
  *
  * **作る側の配列の並びは順序に関係しない**——レイヤーを足す人が挿す位置を選ばないようにする
@@ -1619,9 +1614,9 @@ export function buildAxisOverlayLayers(
 // 実際の描画の重なり順（先＝背面、後＝前面）になる。線・記号は最上位へ積み上がり、面は
 // 基礎地図の線・記号の直前へ差し込まれる（ensureLayerFromSpec）ため、この並び順が効くのは
 // 面どうし・線どうしの間で、面が線を覆うことはない。
-// ramp軸（車の圧迫感・停止密度・事故密度等、推定/composite、SECONDARY_AXIS_CASING_
+// ramp軸（停止密度・事故密度等、推定/composite、SECONDARY_AXIS_CASING_
 // WIDTH/OPACITYの太く半透明な下敷き）をroad_surface本体の直上へまとめ、
-// designation・accidents・stopPoi・supplyPoi（観測/raw、通常の太さ・不透明度のくっきりした
+// accidents・stopPoi・supplyPoi（観測/raw、通常の太さ・不透明度のくっきりした
 // 上書き）をその上に置く——観測データと推定を同時に表示したとき、後から追加される側が
 // 先に追加された側を塗り潰さないようにする並び順である。
 export function buildStaticOverlayLayers(
@@ -1662,16 +1657,6 @@ export function buildStaticOverlayLayers(
       interactive: false,
     },
     ...axisOverlayLayers,
-    {
-      key: "designation",
-      layerId: DESIGNATION_LAYER_ID,
-      ensure: makeEnsureAttributeLineLayer(
-        DESIGNATION_LAYER_ID,
-        DESIGNATION_COLOR_EXPRESSION,
-        DESIGNATION_OPACITY_EXPRESSION,
-      ),
-      interactive: true,
-    },
     {
       key: "tunnel",
       layerId: TUNNEL_LAYER_ID,
@@ -1829,13 +1814,13 @@ function setStaticOverlayVisibility(
   });
 }
 
-// 標高を除く各レイヤー（指定路線・事故・停止要因POI等）の絞り込み。
+// 標高を除く各レイヤー（事故・停止要因POI等）の絞り込み。
 // buildStaticFilterAxes()（staticAttributeLayers.ts）のlayerIdでbuildStaticOverlayLayers()のkeyと
 // 突き合わせ、そのレイヤーが持つ軸ぶんを道路情報と同じ
 // buildCombinedLegendFilterExpressionでAND束ねする。軸を持たない標高はスキップする（setFilterはvector/circleレイヤー用で
 // ラスタレイヤーには使えないため）。
 //
-// car_stressはbackendのtile_inputs/thresholds（registry_defaults.py）から静的に決まる
+// ramp軸はbackendのtile_inputs/thresholds（registry_defaults.py）から静的に決まる
 // ramp軸のため、他のramp軸（surface_q/accident等）と同じ扱いで統一的に処理できる。
 // MapView.overlayFilters.test.tsからフェイクmapで検証できるようexportしている
 // （computeLayerDataStatus等と同じ方針）。
@@ -2058,7 +2043,7 @@ interface MapViewProps {
   dynamicWeather: Partial<Record<DynamicWeatherLayerId, DynamicWeatherGroupState>>;
   /** 専用way値配信軸（「評価軸」グループの風・勾配等）の表示フラグを、
    * レイヤーID（`${axisId}Axis`、mapLayers.ts: MapLayerId）→booleanの汎用Recordとして
-   * 受け取る（axisVisibilityと同じ形）。designation/tunnel/onewayと同じく路面と同じ
+   * 受け取る（axisVisibilityと同じ形）。tunnel/onewayと同じく路面と同じ
    * ソースを再利用する独立レイヤーだが、値はタイルのプロパティではなくdedicatedWayValues
    * （別経路のAPI、setFeatureStateで合成）から来る。軸ごとに別名のpropを新設しない
    * （design-principles.md構造仕様3）。 */
@@ -2096,16 +2081,16 @@ interface MapViewProps {
   /** 二次軸rampレイヤーの表示フラグ。キーはaxisMapLayerId（"axis:accident"等、
    * mapLayers.tsのMapLayerIdと同じ）。カタログ駆動のため個別のshow*フラグは持たない。 */
   axisVisibility: Record<string, boolean>;
-  /** 2次（ramp軸、車の圧迫感を含む）のうち、材料（1次）が同時に表示されているためcasing
-   * （太く半透明な下敷き）で描くべきレイヤーのkey集合（"axis:car_stress"/"axis:accident"等、
+  /** 2次（ramp軸）のうち、材料（1次）が同時に表示されているためcasing
+   * （太く半透明な下敷き）で描くべきレイヤーのkey集合（"axis:accident"等、
    * buildStaticOverlayLayers()のkeyと同じ）。page.tsx側が一次属性の表示状態とlayerVisibility
    * から算出する（buildAxisOverlayLayers参照）。 */
   secondaryAxisCasingLayerIds: readonly string[];
   /** 路面の各軸（路面の種類・道路の種類）それぞれの非表示カテゴリキー。軸ごとに独立した
    * レイヤーを持つため、絞り込みもレイヤーごとに独立して効く。 */
   roadHiddenKeysByMode: Record<RoadFilterAxisId, readonly string[]>;
-  /** 自転車インフラ・指定路線・停止要因POI・事故（当事者/重大度）の絞り込み軸
-   * （buildStaticFilterAxes()参照。事故のみ2軸を持ち、他は1軸。車の圧迫感は
+  /** 自転車インフラ・停止要因POI・事故（当事者/重大度）の絞り込み軸
+   * （buildStaticFilterAxes()参照。事故のみ2軸を持ち、他は1軸。ramp軸は
    * axisVisibility側と同様RAMP_AXES由来のためここには手書きされていない）。 */
   staticLegendHiddenKeysByAxis: Record<StaticFilterAxisId, readonly string[]>;
   routeLayerOn: boolean;
@@ -2726,12 +2711,12 @@ export default function MapView({
     resizeObserver.observe(mapContainerRef.current);
     // 標高ラスタ・路面ベクタタイルは他の重ね描きレイヤーより先に追加し、常に背景寄りに
     // 描画されるようにする（標高が最背面、その上に路面、さらに上にルート系レイヤー）。
-    // ensureAllStaticOverlayLayers内のdesignation/ramp軸はROAD_TILE_SOURCE_ID
+    // ensureAllStaticOverlayLayers内のramp軸はROAD_TILE_SOURCE_ID
     // （road_surfaceベクタソース）を再利用する依存関係があるため、そのソースを実際に作る
     // ensureRoadSurfaceTileLayerを先に呼ぶ必要がある。いずれも初回はmap.once("load", ...)への
     // 登録（実行はスタイル読み込み完了後）のため、ここでの呼び出し順がそのまま発火順になる。
     // ensureAllStaticOverlayLayersをensureRoadSurfaceTileLayerより先に呼ぶと、
-    // designation等のaddLayerがソース未作成のまま実行され
+    // addLayerがソース未作成のまま実行され
     // 「source "region-road-surface-tiles" not found」エラーになる。路面より下に置く
     // レイヤー（記述子が面の段を宣言しているもの、`layersUnderRoadSurface`）を先にensureして
     // から路面ソースを作ることで、「面のラスタが最背面、その上に路面」の意図を保つ
@@ -3242,7 +3227,7 @@ export default function MapView({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [routes, selectedRouteId, routeLayerOn, routeStyleModes, routeStyleModeId, hiddenRouteLegendKeys]);
 
-  // 標高・指定路線・事故・ramp軸等は、いずれも「選択候補に関係なく地図全体に重ね描きし、
+  // 標高・事故・ramp軸等は、いずれも「選択候補に関係なく地図全体に重ね描きし、
   // 切替はvisibilityの差し替えのみ」という同型のレイヤー（staticOverlayLayersが並べる）の
   // ため、1つのeffectでまとめて反映する
   // （setLayerVisibilityは同じ値の再設定でも副作用が無いため、
@@ -3318,7 +3303,7 @@ export default function MapView({
     recomputeLayerDataStatus();
   }, [dynamicWeather, recomputeLayerDataStatus]);
 
-  // 指定路線・停止要因POI・事故（当事者/重大度）・ramp軸等の絞り込み。道路情報の
+  // 停止要因POI・事故（当事者/重大度）・ramp軸等の絞り込み。道路情報の
   // フィルタ効果（下）と同じく、visibility/フィルタ式の差し替えのみで反映される。
   useEffect(() => {
     const map = mapRef.current;

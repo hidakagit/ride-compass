@@ -139,7 +139,7 @@ const MAX_DISTANCE_KM = routeGenerateConfig.max_distance_km;
 // 既存の距離計算ユーティリティを持たないためここに最小実装する）。
 // 凡例の絞り込みチェックを地図へ反映するまでの猶予。チェック自体は即時反映が原則だが、
 // 連続タップのたびにMapLibreのフィルタ再適用を走らせない（useDebouncedValue参照）。
-// 道路情報の2軸に加え、車ストレス・指定路線・停止要因POI・事故（当事者/重大度）の
+// 道路情報の2軸に加え、停止要因POI・事故（当事者/重大度）の
 // 絞り込みにも同じ猶予を適用する。
 const LEGEND_FILTER_DEBOUNCE_MS = 400;
 
@@ -597,7 +597,7 @@ export default function Home() {
       },
     },
   );
-  // 2次（車の圧迫感・ramp軸）を太く半透明な下敷きにするのは、その材料（1次、
+  // 2次（ramp軸）を太く半透明な下敷きにするのは、その材料（1次、
   // primaryAttributeIdsToLayerIds）が1つでも同時に表示されているときだけにする。材料が
   // 1つも表示されていなければ、下に隠すものが無いため通常の太さ・不透明度で表示する
   // （常に太く半透明にすると、道路網が密な都市部で下敷きの重なりだけで地図全体がぼやけて
@@ -909,7 +909,7 @@ export default function Home() {
   // roadSurfaceSharedLayerIdsと同じくaxisCatalog.rampAxesから都度組み立てる
   // （ビルド時静的buildStaticFilterAxes()は使わない）。
   const staticFilterAxes = useMemo(() => buildStaticFilterAxes(axisCatalog.rampAxes), [axisCatalog.rampAxes]);
-  // 道路情報以外の絞り込み可能レイヤー（車ストレス・自転車インフラ・指定路線・
+  // 道路情報以外の絞り込み可能レイヤー（自転車インフラ・
   // 停止要因POI・事故の当事者/重大度）。roadHiddenKeysByModeと同じ理由でuseMemoにより
   // 参照を安定させる。
   const staticLegendHiddenKeysByAxis = useMemo(
@@ -958,7 +958,7 @@ export default function Home() {
     return colors;
   }, [axisCatalog.axes]);
   // 「絞り込みを一括クリア」（ゆる～と等の地図ポータルの「消去」ボタンを参考に追加）。
-  // 軸ごとの「すべて表示」を1つずつ押させず、道路情報・車ストレス等の全軸＋ルート凡例の
+  // 軸ごとの「すべて表示」を1つずつ押させず、道路情報等の全軸＋ルート凡例の
   // 非表示キーを一度に空へ戻す。レイヤーのON/OFF（layerVisibility）は「絞り込み」とは別の
   // 状態（どのレイヤーを表示するか）のため、ここでは触らない。
   const hasHiddenFilters = useMemo(

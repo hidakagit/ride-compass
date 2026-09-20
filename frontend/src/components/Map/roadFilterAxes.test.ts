@@ -100,7 +100,7 @@ describe("roadFilterAxes", () => {
   // 竹（1次/2次の地図上表現の統一）でSURFACE_GROUPSから評価色（緑〜赤）を排した理由と
   // 同じ懸念が、道路の種類の濃淡パレットにも当てはまる。両軸を同時にONにすることは無い
   // （路面の種類がONの間は道路の種類側の色は使われない、MapView.tsx: applyRoadLayerState）が、
-  // 2次のramp軸（car_stress等、axisLayers.ts: AXIS_RAMP_COLORS）とは同時に表示されうるため、
+  // 2次のramp軸（axis_sample等、axisLayers.ts: AXIS_RAMP_COLORS）とは同時に表示されうるため、
   // 評価色の緑〜赤を道路の種類の配色として使わないことを回帰確認する。
   it("道路の種類の配色は2次のramp軸の評価色（AXIS_RAMP_COLORS）と重複しない", async () => {
     const { AXIS_RAMP_COLORS } = await import("./axisLayers");

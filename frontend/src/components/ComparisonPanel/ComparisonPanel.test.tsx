@@ -22,7 +22,7 @@ function makeSlot(overrides: Partial<ExperimentSlot>): ExperimentSlot {
         surface_q: 0.19,
         wind: 0.26,
         stop_density: 0.2,
-        car_stress: 0.2,
+        axis_sample: 0.2,
         accident: 0.08,
         night: 0.0,
       },
@@ -48,7 +48,7 @@ const SAMPLE_AXIS_LABELS: Record<string, string> = {
   wind: "風",
   surface_q: "舗装質",
   stop_density: "停止密度",
-  car_stress: "車の圧迫感",
+  axis_sample: "見本の軸",
   accident: "事故密度",
   night: "夜間",
   bicycle_infra_quality: "自転車インフラ",
@@ -61,7 +61,7 @@ const SAMPLE_AXES: readonly PreferenceAxisDef[] = [
   { axisId: "surface_q", label: "舗装質", description: "", dedicatedWayValueLayer: false },
   { axisId: "wind", label: "風", description: "", dedicatedWayValueLayer: true },
   { axisId: "stop_density", label: "停止密度", description: "", dedicatedWayValueLayer: false },
-  { axisId: "car_stress", label: "車の圧迫感", description: "", dedicatedWayValueLayer: false },
+  { axisId: "axis_sample", label: "見本の軸", description: "", dedicatedWayValueLayer: false },
   { axisId: "accident", label: "事故密度", description: "", dedicatedWayValueLayer: false },
   { axisId: "night", label: "夜間", description: "", dedicatedWayValueLayer: false },
   { axisId: "bicycle_infra_quality", label: "自転車インフラ", description: "", dedicatedWayValueLayer: false },
@@ -178,12 +178,12 @@ describe("ComparisonPanel", () => {
     expect(screen.getByText("42.5")).toBeInTheDocument();
   });
 
-  it("車の圧迫感・自転車インフラ・事故密度等の個別軸行をaxis_difficultiesから表示する(静的属性P1残り、設計レビュー再発分の修正)", () => {
+  it("見本の軸・自転車インフラ・事故密度等の個別軸行をaxis_difficultiesから表示する(静的属性P1残り、設計レビュー再発分の修正)", () => {
     const slots = [
       makeSlot({
         id: "a",
         topCandidate: makeCandidate({
-          axis_difficulties: { car_stress: 23.0, bicycle_infra_quality: 12.4, accident: 8.1 },
+          axis_difficulties: { axis_sample: 23.0, bicycle_infra_quality: 12.4, accident: 8.1 },
         }),
       }),
       makeSlot({ id: "b", topCandidate: makeCandidate({ axis_difficulties: {} }) }),
@@ -192,7 +192,7 @@ describe("ComparisonPanel", () => {
       <ComparisonPanel slots={slots} axisLabels={SAMPLE_AXIS_LABELS} axes={SAMPLE_AXES} materials={SAMPLE_MATERIALS} />,
     );
 
-    expect(screen.getByText("車の圧迫感")).toBeInTheDocument();
+    expect(screen.getByText("見本の軸")).toBeInTheDocument();
     expect(screen.getByText("23.0")).toBeInTheDocument();
     expect(screen.getByText("自転車インフラ")).toBeInTheDocument();
     expect(screen.getByText("12.4")).toBeInTheDocument();

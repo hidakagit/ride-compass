@@ -264,30 +264,6 @@
     "value_labels": null
   },
   {
-    "material_id": "is_emergency_transport",
-    "label": "緊急輸送道路該当[N10]（真偽）",
-    "description": "緊急輸送道路[N10]に指定されているかどうか。現時点では評価軸の材料として配線されておらず、選んでもこの軸は常に「データなし」として扱われます（地図表示専用。評価で使う場合は指定路線該当を使ってください）。",
-    "dtype": "boolean",
-    "unit": "",
-    "value_labels": null
-  },
-  {
-    "material_id": "is_critical_logistics",
-    "label": "重要物流道路該当[N12]（真偽）",
-    "description": "重要物流道路[N12]に指定されているかどうか。現時点では評価軸の材料として配線されておらず、選んでもこの軸は常に「データなし」として扱われます（地図表示専用。評価で使う場合は指定路線該当を使ってください）。",
-    "dtype": "boolean",
-    "unit": "",
-    "value_labels": null
-  },
-  {
-    "material_id": "is_designated",
-    "label": "指定路線該当（真偽）",
-    "description": "緊急輸送道路・重要物流道路のいずれかに指定されているかどうか（種別は区別しません）。",
-    "dtype": "boolean",
-    "unit": "",
-    "value_labels": null
-  },
-  {
     "material_id": "smoothness",
     "label": "路面の状態",
     "description": "OSMの路面状態タグ(smoothness)の生値（excellent〜impassable）。同じ路面種別(surface)でも実際の荒れ具合を区別したい場合に使います。",

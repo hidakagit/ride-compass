@@ -353,11 +353,11 @@ describe("MapOverlayControls", () => {
       return [
         { id: "route", icon: TestIcon, label: "ルート", on: false }, // どのグループにも属さない→単独のまま
         { id: "roadType", icon: TestIcon, label: "道路の種類", on: false, category: "roadCondition" },
-        { id: "designation", icon: TestIcon, label: "指定路線", on: true, category: "roadCondition" },
+        { id: "tunnel", icon: TestIcon, label: "トンネル", on: true, category: "roadCondition" },
         {
-          id: "axis:car_stress",
+          id: "axis:axis_sample",
           icon: TestIcon,
-          label: "車の圧迫感",
+          label: "見本の軸",
           on: true,
           category: "trafficSafety",
           dataNature: "composite",
@@ -372,8 +372,8 @@ describe("MapOverlayControls", () => {
 
       expect(screen.getByRole("button", { name: "ルート" })).toBeInTheDocument(); // どのグループにも属さない単独チップ
       expect(screen.queryByRole("button", { name: "道路の種類" })).not.toBeInTheDocument();
-      expect(screen.queryByRole("button", { name: "指定路線" })).not.toBeInTheDocument();
-      expect(screen.queryByRole("button", { name: "車の圧迫感" })).not.toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: "トンネル" })).not.toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: "見本の軸" })).not.toBeInTheDocument();
       expect(screen.queryByRole("button", { name: "事故地点" })).not.toBeInTheDocument();
       expect(screen.queryByRole("button", { name: "標高図" })).not.toBeInTheDocument();
       expect(screen.getByRole("button", { name: "道路" })).toBeInTheDocument();
@@ -399,9 +399,9 @@ describe("MapOverlayControls", () => {
       const layers: OverlayLayerChip[] = [
         { id: "route", icon: TestIcon, label: "ルート", on: false },
         {
-          id: "axis:car_stress",
+          id: "axis:axis_sample",
           icon: TestIcon,
-          label: "車の圧迫感",
+          label: "見本の軸",
           on: true,
           category: "trafficSafety",
           dataNature: "composite",
@@ -410,7 +410,7 @@ describe("MapOverlayControls", () => {
       render(<MapOverlayControls {...baseProps()} layers={layers} />);
 
       expect(screen.getByRole("button", { name: "ルート" })).toBeInTheDocument();
-      expect(screen.queryByRole("button", { name: "車の圧迫感" })).not.toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: "見本の軸" })).not.toBeInTheDocument();
       expect(screen.queryByRole("button", { name: "評価軸" })).not.toBeInTheDocument();
       expect(screen.queryByRole("button", { name: "スポット" })).not.toBeInTheDocument();
     });
@@ -488,7 +488,7 @@ describe("MapOverlayControls", () => {
       return [
         { id: "elevation", icon: TestIcon, label: "標高図", on: false, category: "terrain" }, // 環境グループ側の対照用
         { id: "roadType", icon: TestIcon, label: "道路の種類", on: false, category: "roadCondition" },
-        { id: "designation", icon: TestIcon, label: "指定路線", on: true, category: "roadCondition" },
+        { id: "tunnel", icon: TestIcon, label: "トンネル", on: true, category: "roadCondition" },
       ];
     }
 
@@ -500,9 +500,9 @@ describe("MapOverlayControls", () => {
       expect(container.querySelector('[class*="detailPanelBase"]')).not.toBeInTheDocument();
 
       const roadButton = screen.getByRole("button", { name: "道路" });
-      const designationButton = screen.getByRole("button", { name: "指定路線" });
+      const tunnelButton = screen.getByRole("button", { name: "トンネル" });
       expect(roadButton.closest('[class*="chipRowItem"]')?.parentElement).toBe(
-        designationButton.closest('[class*="chipRowItem"]')?.parentElement,
+        tunnelButton.closest('[class*="chipRowItem"]')?.parentElement,
       );
     });
 
@@ -510,9 +510,9 @@ describe("MapOverlayControls", () => {
       const user = userEvent.setup();
       render(<MapOverlayControls {...baseProps()} layers={roadLayers()} />);
       await user.click(screen.getByRole("button", { name: "道路" }));
-      const designationButton = screen.getByRole("button", { name: "指定路線" });
-      expect(designationButton.className).toMatch(/iconChipGroupRoad/);
-      expect(designationButton.className).toMatch(/iconChipActive/);
+      const tunnelButton = screen.getByRole("button", { name: "トンネル" });
+      expect(tunnelButton.className).toMatch(/iconChipGroupRoad/);
+      expect(tunnelButton.className).toMatch(/iconChipActive/);
     });
 
     it("道路見出しは折りたたみ時iconChipExpandedを持たず、展開するとgroupHeaderChip+iconChipGroupRoad+iconChipExpandedの組み合わせになる", async () => {
@@ -535,11 +535,11 @@ describe("MapOverlayControls", () => {
       render(<MapOverlayControls {...baseProps()} layers={roadLayers()} onToggle={onToggle} />);
 
       await user.click(screen.getByRole("button", { name: "道路" }));
-      const designationToggle = screen.getByRole("button", { name: "指定路線" });
-      expect(designationToggle).toHaveAttribute("aria-pressed", "true");
+      const tunnelToggle = screen.getByRole("button", { name: "トンネル" });
+      expect(tunnelToggle).toHaveAttribute("aria-pressed", "true");
 
-      await user.click(designationToggle);
-      expect(onToggle).toHaveBeenCalledWith("designation", false);
+      await user.click(tunnelToggle);
+      expect(onToggle).toHaveBeenCalledWith("tunnel", false);
       // 環境グループの標高図は道路グループに含まれない
       expect(screen.queryByRole("button", { name: "標高図" })).not.toBeInTheDocument();
     });
@@ -564,13 +564,13 @@ describe("MapOverlayControls", () => {
       expect(settingsToggle).toBeInTheDocument();
 
       await user.click(settingsToggle);
-      expect(screen.queryByRole("button", { name: "指定路線" })).not.toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: "トンネル" })).not.toBeInTheDocument();
       expect(screen.getByRole("button", { name: "道路" })).toHaveAttribute("aria-expanded", "false");
       expect(screen.getByText("道路の種類")).toBeInTheDocument();
-      expect(screen.getByText("指定路線")).toBeInTheDocument();
+      expect(screen.getByText("トンネル")).toBeInTheDocument();
 
       await user.click(screen.getByRole("button", { name: "道路" }));
-      expect(screen.getByRole("button", { name: "指定路線" })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "トンネル" })).toBeInTheDocument();
       expect(screen.queryByRole("button", { name: "道路の表示項目を設定" })).not.toBeInTheDocument();
     });
 
@@ -595,9 +595,9 @@ describe("MapOverlayControls", () => {
       render(<MapOverlayControls {...baseProps()} layers={roadLayers()} />);
 
       await user.click(screen.getByRole("button", { name: "道路の表示項目を設定" }));
-      await user.click(screen.getByRole("checkbox", { name: "指定路線を表示しない" }));
+      await user.click(screen.getByRole("checkbox", { name: "トンネルを表示しない" }));
       await user.click(screen.getByRole("button", { name: "道路" }));
-      expect(screen.queryByRole("button", { name: "指定路線" })).not.toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: "トンネル" })).not.toBeInTheDocument();
       expect(screen.getByRole("button", { name: "道路の種類" })).toBeInTheDocument(); // 他は影響なし
     });
 
@@ -607,8 +607,8 @@ describe("MapOverlayControls", () => {
       render(<MapOverlayControls {...baseProps()} layers={roadLayers()} onToggle={onToggle} />);
 
       await user.click(screen.getByRole("button", { name: "道路の表示項目を設定" }));
-      await user.click(screen.getByRole("checkbox", { name: "指定路線を表示しない" }));
-      expect(onToggle).toHaveBeenCalledWith("designation", false);
+      await user.click(screen.getByRole("checkbox", { name: "トンネルを表示しない" }));
+      expect(onToggle).toHaveBeenCalledWith("tunnel", false);
     });
 
     it("非表示を解除してもレイヤーは自動でONにならない", async () => {
@@ -617,10 +617,10 @@ describe("MapOverlayControls", () => {
       render(<MapOverlayControls {...baseProps()} layers={roadLayers()} onToggle={onToggle} />);
 
       await user.click(screen.getByRole("button", { name: "道路の表示項目を設定" }));
-      await user.click(screen.getByRole("checkbox", { name: "指定路線を表示しない" }));
+      await user.click(screen.getByRole("checkbox", { name: "トンネルを表示しない" }));
       onToggle.mockClear();
 
-      await user.click(screen.getByRole("checkbox", { name: "指定路線を表示する" }));
+      await user.click(screen.getByRole("checkbox", { name: "トンネルを表示する" }));
       expect(onToggle).not.toHaveBeenCalled();
     });
 
@@ -628,9 +628,9 @@ describe("MapOverlayControls", () => {
       const user = userEvent.setup();
       const layers: OverlayLayerChip[] = [
         {
-          id: "designation",
+          id: "tunnel",
           icon: TestIcon,
-          label: "指定路線",
+          label: "トンネル",
           on: false,
           category: "roadCondition",
           panelHint: "これはテスト用の説明文です。",
@@ -641,16 +641,16 @@ describe("MapOverlayControls", () => {
 
       await user.click(screen.getByRole("button", { name: "道路の表示項目を設定" }));
 
-      const infoButton = screen.getByRole("button", { name: "指定路線の説明を表示" });
+      const infoButton = screen.getByRole("button", { name: "トンネルの説明を表示" });
       expect(infoButton).toBeInTheDocument();
       expect(screen.queryByText("これはテスト用の説明文です。")).not.toBeInTheDocument();
       expect(screen.queryByRole("button", { name: "道路の種類の説明を表示" })).not.toBeInTheDocument();
 
       await user.click(infoButton);
       expect(screen.getByText("これはテスト用の説明文です。")).toBeInTheDocument();
-      expect(screen.getByRole("button", { name: "指定路線の説明を隠す" })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "トンネルの説明を隠す" })).toBeInTheDocument();
 
-      await user.click(screen.getByRole("button", { name: "指定路線の説明を隠す" }));
+      await user.click(screen.getByRole("button", { name: "トンネルの説明を隠す" }));
       expect(screen.queryByText("これはテスト用の説明文です。")).not.toBeInTheDocument();
     });
 
@@ -693,7 +693,7 @@ describe("MapOverlayControls", () => {
       render(<MapOverlayControls {...baseProps()} layers={roadLayers()} />);
       expect(await screen.findByRole("button", { name: "道路" })).toHaveAttribute("aria-expanded", "true");
       expect(screen.queryByRole("button", { name: "道路の種類" })).not.toBeInTheDocument();
-      expect(screen.getByRole("button", { name: "指定路線" })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "トンネル" })).toBeInTheDocument();
     });
 
     it("見出しのDOMノードは折りたたみ↔展開の切り替えでも同一のまま保たれる", async () => {
@@ -897,13 +897,13 @@ describe("MapOverlayControls", () => {
       ];
     }
 
-    it("trafficSafety/amenity（非composite）のチップは「スポット」へ束ねられ、車の圧迫感（composite）は含まれない", () => {
+    it("trafficSafety/amenity（非composite）のチップは「スポット」へ束ねられ、見本の軸（composite）は含まれない", () => {
       const layers: OverlayLayerChip[] = [
         ...spotLayers(),
         {
-          id: "axis:car_stress",
+          id: "axis:axis_sample",
           icon: TestIcon,
-          label: "車の圧迫感",
+          label: "見本の軸",
           on: false,
           category: "trafficSafety",
           dataNature: "composite",
@@ -1022,7 +1022,7 @@ describe("MapOverlayControls", () => {
       const user = userEvent.setup();
       const layers1: OverlayLayerChip[] = [
         { id: "roadType", icon: TestIcon, label: "道路の種類", on: false, category: "roadCondition" },
-        { id: "designation", icon: TestIcon, label: "指定路線", on: true, category: "roadCondition" },
+        { id: "tunnel", icon: TestIcon, label: "トンネル", on: true, category: "roadCondition" },
       ];
       const { rerender } = render(
         <MapOverlayControls
@@ -1057,7 +1057,7 @@ describe("MapOverlayControls", () => {
       // 観測系の安定性だけでなく、再レンダーを挟んでも実際の展開/収納が機能し続けることも確認する
       await user.click(screen.getByRole("button", { name: "道路" }));
       expect(screen.getByRole("button", { name: "道路" })).toHaveAttribute("aria-expanded", "true");
-      expect(screen.getByRole("button", { name: "指定路線" })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "トンネル" })).toBeInTheDocument();
     });
   });
 });

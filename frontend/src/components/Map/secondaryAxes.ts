@@ -8,7 +8,7 @@
 // 正式名はaxis-catalog.json（display.label、backendのregistry_defaults.pyが単一ソース）を
 // そのまま使う。このファイルが独自に持つのは、UI固有の対応（略名・対応する表示レイヤーID・
 // レイヤー無し軸の代役案内文）だけ（片側import、primaryAttributes.tsと同じ設計）。
-// 改善計画T292: 車の圧迫感（car_stress）もkind="ramp"へ移行し、他のkind="ramp"軸と
+// 合成軸もkind="ramp"で、他のkind="ramp"軸と
 // 同じくaxisMapLayerId経由で専用レイヤーを持つようになった。
 
 import type { MapLayerId } from "./mapLayers";
