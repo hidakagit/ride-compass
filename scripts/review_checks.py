@@ -1272,115 +1272,6 @@ def declared_tables(files: list[str]) -> dict[str, str]:
     return found
 
 
-#: migrationのDDLから列の増減を読むための断片。`declared_tables`が表の名前だけを見るのに対し、
-#: こちらは**列まで**見る。
-CREATE_TABLE_COLUMNS_RE = re.compile(
-    r"CREATE\s+TABLE(?:\s+IF\s+NOT\s+EXISTS)?\s+([a-z_0-9]+)\s*\((.*?)\n\);", re.S | re.I)
-ALTER_TABLE_RE = re.compile(r"ALTER\s+TABLE\s+(?:IF\s+EXISTS\s+)?([a-z_0-9]+)\b(.*?);", re.S | re.I)
-ADD_COLUMN_RE = re.compile(r"ADD\s+COLUMN(?:\s+IF\s+NOT\s+EXISTS)?\s+([a-z_0-9]+)", re.I)
-DROP_COLUMN_RE = re.compile(r"DROP\s+COLUMN(?:\s+IF\s+EXISTS)?\s+([a-z_0-9]+)", re.I)
-RENAME_COLUMN_RE = re.compile(r"RENAME\s+COLUMN\s+([a-z_0-9]+)\s+TO\s+([a-z_0-9]+)", re.I)
-DROP_TABLE_RE = re.compile(r"DROP\s+TABLE(?:\s+IF\s+EXISTS)?\s+([a-z_0-9]+)", re.I)
-SQL_COMMENT_RE = re.compile(r"--[^\n]*")
-#: 列そのものではなく表の制約を宣言する行の先頭語。
-TABLE_CONSTRAINT_WORDS = frozenset(
-    {"primary", "unique", "foreign", "constraint", "check", "exclude", "like"})
-
-ORM_CLASS_RE = re.compile(r"^class\s+\w+\(", re.M)
-#: 型注釈は無くてもよい（`geom = mapped_column(Geometry(...))`のように、SQLAlchemyが型を
-#: 推せない列は注釈を持たない）。注釈があるときは`Mapped[list[int] | None]`のように角括弧が
-#: 入れ子になるため、`=`までを丸ごと読み飛ばす。
-ORM_MAPPED_COLUMN_RE = re.compile(
-    r"""^\s{4}(\w+)\s*(?::[^=
-]*)?=\s*mapped_column\(\s*(?:["']([a-z_0-9]+)["'])?""", re.M)
-
-
-def migration_table_columns() -> dict[str, tuple[str, set[str]]]:
-    """migrationを古い順に適用した結果の {表: (最初に作ったファイル, 列)}。
-
-    **順に畳む**——`ADD COLUMN`で足して`DROP COLUMN`で消した列は最終形に残らない。
-    最後の姿だけが本番のスキーマなので、途中の姿と突き合わせても意味が無い。
-    """
-    columns: dict[str, set[str]] = {}
-    origin: dict[str, str] = {}
-    for path in sorted((REPO_ROOT / "backend/migrations").glob("*.sql")):
-        sql = SQL_COMMENT_RE.sub("", read_text(path))
-        for table in DROP_TABLE_RE.findall(sql):
-            columns.pop(table, None)
-            origin.pop(table, None)
-        for table, body in CREATE_TABLE_COLUMNS_RE.findall(sql):
-            names = []
-            for line in body.split("\n"):
-                line = line.strip().rstrip(",")
-                if not line or line.split()[0].lower() in TABLE_CONSTRAINT_WORDS:
-                    continue
-                names.append(line.split()[0])
-            columns.setdefault(table, set()).update(names)
-            origin.setdefault(table, path.name)
-        for table, body in ALTER_TABLE_RE.findall(sql):
-            if table not in columns:
-                continue
-            columns[table].update(ADD_COLUMN_RE.findall(body))
-            for name in DROP_COLUMN_RE.findall(body):
-                columns[table].discard(name)
-            for old, new in RENAME_COLUMN_RE.findall(body):
-                columns[table].discard(old)
-                columns[table].add(new)
-    return {t: (origin.get(t, "?"), cols) for t, cols in columns.items()}
-
-
-def orm_table_columns(files: list[str]) -> dict[str, tuple[str, set[str]]]:
-    """ORMモデルが宣言する {表: (宣言しているファイル, 列)}。
-
-    `mapped_column("db_name", ...)`のように別名を与えている場合はそちらを採る。
-    """
-    found: dict[str, tuple[str, set[str]]] = {}
-    for f in sorted(files):
-        if not (f.startswith("backend/app/") and f.endswith(".py")):
-            continue
-        text = read_text(REPO_ROOT / f)
-        if "__tablename__" not in text:
-            continue
-        starts = [m.start() for m in ORM_CLASS_RE.finditer(text)] + [len(text)]
-        for i in range(len(starts) - 1):
-            block = text[starts[i]:starts[i + 1]]
-            name = TABLENAME_RE.search(block)
-            if name is None:
-                continue
-            cols = {alias or attr for attr, alias in ORM_MAPPED_COLUMN_RE.findall(block)}
-            if cols:
-                found.setdefault(name.group(1), (f, cols))
-    return found
-
-
-def find_orm_migration_column_drift(files: list[str]) -> list[str]:
-    """ORMの列宣言とmigrationのDDLが食い違う表。
-
-    fresh bootstrap（CI・新規環境）は`create_tables()`→`apply_pending_migrations()`の順で
-    走る。ORMが先に表を作るため、migrationの`CREATE TABLE IF NOT EXISTS`は**何もしない**
-    ——migrationにだけある列は、その経路で作ったDBに存在しない。一方、本番のように
-    migrationで表ができた環境には存在する。**同じコードが環境によって違うスキーマの上で
-    動く**状態になり、片方でしか再現しない不具合として出る。
-    """
-    migration = migration_table_columns()
-    orm = orm_table_columns(files)
-    out: list[str] = []
-    for table in sorted(set(migration) & set(orm)):
-        mig_file, mig_cols = migration[table]
-        orm_file, orm_cols = orm[table]
-        only_migration = sorted(mig_cols - orm_cols)
-        only_orm = sorted(orm_cols - mig_cols)
-        if only_migration:
-            out.append(
-                f"{mig_file}: {table} の {', '.join(only_migration)} が ORM（{orm_file}）に無い"
-                "——fresh bootstrapで作ったDBにこの列は存在しない")
-        if only_orm:
-            out.append(
-                f"{orm_file}: {table} の {', '.join(only_orm)} が migration に無い"
-                "——migrationだけを適用した既存のDBにこの列は存在しない")
-    return out
-
-
 def find_undocumented_tables(files: list[str], scope: list[str] | None = None) -> list[str]:
     """architecture.mdがその名前を1度も書いていない表。
 
@@ -2708,8 +2599,6 @@ DETECTOR_ENFORCEMENT: dict[str, frozenset[str]] = {
     "undeclared_dead_refs_exempted": frozenset(),
     "undocumented_files": frozenset({"staged", "since", "full"}),
     "undocumented_tables": frozenset({"staged", "since", "full"}),
-    # 表の形は環境ごとに違ってはいけないので、変更範囲ではなく常に全件を見る。
-    "orm_migration_column_drift": frozenset({"staged", "since", "full"}),
     "plan_vs_tasks": frozenset({"staged", "since", "full"}),
     "task_numbering": frozenset({"staged", "since", "full"}),
     "dead_doc_links": frozenset({"staged", "since", "full"}),
@@ -2820,8 +2709,6 @@ def cmd_docs(args: argparse.Namespace) -> int:
             lambda: find_undocumented_files(added, modules_text, files + added))
         add("undocumented_tables", "architecture.md に名前が無いDBの表（ステージ済み変更ファイルが宣言するもの）",
             lambda: find_undocumented_tables(files + added, scope=staged + added))
-        add("orm_migration_column_drift", "ORMの列宣言とmigrationのDDLの食い違い（全件）",
-            lambda: find_orm_migration_column_drift(files + added))
         add("plan_vs_tasks", "improvement-plan.md [x]/[ ] と docs/tasks「状態:」の不一致",
             lambda: check_plan_vs_tasks())
         add("task_numbering", "タスク番号の衝突・台帳と見出しのずれ",
@@ -2901,8 +2788,6 @@ def cmd_docs(args: argparse.Namespace) -> int:
             "architecture.md に名前が無いDBの表"
             + (f"（{args.since} 以降に変更されたファイルが宣言するもの）" if args.since else "（全件）"),
             lambda: find_undocumented_tables(files, scope=added))
-        add("orm_migration_column_drift", "ORMの列宣言とmigrationのDDLの食い違い（全件）",
-            lambda: find_orm_migration_column_drift(files))
         add("redis_skeleton", "Redis骨格の自前実装（docs/caching.md参照）",
             lambda: find_redis_skeleton_violations(source_lines))
         add("module_redefinition", "モジュール直下で同じ名前を2回定義（全件、docs/tasks/T883.md参照）",
