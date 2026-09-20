@@ -16,13 +16,9 @@ Road Graph・Evaluation Engine・Route Engine（domain/routing.py）を使って
   往路（木の経路そのもの、再探索しない）に、往路Edge＋逆方向Edgeのコストを一時的に
   `RETRACE_PENALTY_MULTIPLIER`倍へ差し替えて探索した復路（A*）を継いで周回にする。
   経由地・目的地指定ルート（`trace_loop`）は指定地点列を順にA*で結ぶ。
-- **標高（勾配）は事前計算済みの`elevation_attributes`をキー参照するだけで探索コストへ
-  組み込まれる**（その場でのGSI API問い合わせは発生しない）。`evaluate_loops`側の標高
-  取得（`ElevationAttributeService`経由、こちらは未計算Edgeがあればその場で取得し
-  repositoryへ永続化する）は、経路確定後の表示・スコアリング向けとして引き続き別に行う
-  （`elevation_attributes`テーブルを両者が共有するキャッシュ層として参照する構図。
-  事前計算が漏れているEdgeは探索コスト側でgradient軸のみ「データ無し」扱いになるが、
-  他の軸で評価は継続する）。
+- **標高（勾配）は探索フェーズで読んだ材料に入っている**。経路確定後の表示・
+  スコアリングも同じ材料から取り、外部へ取りに行く経路は持たない（標高タイルが
+  覆っていない区間はgradient軸だけ「データ無し」になり、他の軸で評価は継続する）。
 - 風は**到達時刻ごとの予報**を使う（時刻ビン別のコスト配列を持ち、探索が到達時刻を
   ラベルとして運ぶ）。時刻別の予報が無いときだけ1本のスナップショットへ落ちる。
 - **Edgeコストは「タイル単位の静的スコア行列＋リクエスト時ベクトル計算」で求める**:
@@ -96,7 +92,7 @@ from app.domain.geo import (
     haversine_distance_km,
     haversine_distance_km_array,
 )
-from app.domain.graph import EdgeLike, LeanEdge, LeanRoadGraph, RoadGraphLike
+from app.domain.graph import EdgeLike, LeanEdge, RoadGraphLike
 from app.domain.material_catalog import is_known_material
 from app.domain.region import BoundingBox
 from app.domain.route import (
@@ -146,7 +142,6 @@ from app.domain.wind import (
 )
 from app.infrastructure import search_graph_cache
 from app.services.elevation_aggregation import max_or_none, min_or_none, sum_or_none
-from app.services.elevation_attribute_service import ElevationAttributeService
 from app.services.graph_service import GraphService
 from app.services.route_generator import LoopTurnaround, TracedLoop, candidate_identity
 from app.services.weather_service import WeatherService
@@ -684,7 +679,6 @@ class RoadGraphEngine:
     def __init__(
         self,
         graph_service: GraphService,
-        elevation_attribute_service: ElevationAttributeService,
         weather_service: WeatherService,
         route_preference: RoutePreference,
         penalty_strength: float = 1.0,
@@ -701,7 +695,6 @@ class RoadGraphEngine:
         # 仮定巡航速度（km/h、リクエスト単位で上書き可）。各Edgeの通過予定時刻・区間の
         # 到達予想時刻・所要時間の算出に使う。
         self._assumed_speed_kmh = assumed_speed_kmh
-        self._elevation_attribute_service = elevation_attribute_service
         self._weather_service = weather_service
         self._route_preference = route_preference
         # コスト式`所要時間 × (1 + P × difficulty/100)`のP＝「主観 vs 時間」の換算レート。
@@ -1854,7 +1847,7 @@ class RoadGraphEngine:
         順方向のみを返す）。ユーザーが指定した経由地ルート
         （traced.bearing is None）は訪問順序そのものが要件のため、逆回り合成は行わない。
         """
-        elevation_attributes = await self._fetch_elevation_attributes(context, edges_in_path)
+        elevation_attributes = self._elevation_attributes(context, edges_in_path)
         leg_of_edge = traced.leg_of_edge if traced.leg_of_edge is not None else [0] * len(edges_in_path)
         forward_candidate = self._build_candidate(
             context, traced, edges_in_path, elevation_attributes, start_time, leg_of_edge
@@ -1874,43 +1867,20 @@ class RoadGraphEngine:
         )
         return _pick_better_candidate(forward_candidate, reverse_candidate)
 
-    async def _fetch_elevation_attributes(
-        self, context: _RoadGraphContext, edges_in_path: list[EdgeLike]
+    def _elevation_attributes(
+        self, context: "_RoadGraphContext", edges_in_path: list[EdgeLike]
     ) -> dict[str, ElevationAttribute]:
-        # context.materials（探索フェーズで既にDBから取得・
-        # タイル単位でプロセス内キャッシュ済み）が対象Edgeの標高を既に持っていれば、
-        # それをそのまま使いElevationAttributeServiceへの問い合わせ自体を避ける
-        # （evaluate_loopsはasyncio.gatherで候補を並行評価するが、
-        # ElevationAttributeService._repository_lockが内部で直列化するため、
-        # 候補ごとに個別問い合わせすると候補数[max_routes件]倍のレイテンシが積み上がる）。
-        # 事前計算バッチが未実行のEdge（context.materials側がNone）だけ、
-        # ElevationAttributeService経由でその場取得・永続化する。
-        cached: dict[str, ElevationAttribute] = {}
-        missing_edges: list[EdgeLike] = []
+        """経路の区間ぶんの標高属性。探索フェーズで読んだ材料がそのまま持っている。
+
+        取り込んだ範囲の全区間ぶんを派生バッチが埋めるため、ここで外部へ取りに行く経路は
+        無い（欠けているのは標高タイルが覆っていない区間だけで、そこは値なしのまま）。
+        """
+        found = {}
         for edge in edges_in_path:
             attribute = context.materials.elevation_attribute(edge.edge_id)
             if attribute is not None:
-                cached[edge.edge_id] = attribute
-            else:
-                missing_edges.append(edge)
-
-        if not missing_edges:
-            return cached
-
-        # ElevationAttributeService.get_attributes_for_graphは
-        # graph.edgesしか読まない（nodesは未参照）ため、nodesは空でよい。
-        # context.graph.nodes（LeanNode、数万件規模）をそのまま渡すとPydantic
-        # RoadGraphのフィールド型（dict[str, Node]）検証に失敗するため、
-        # バリデーションを行わないLeanRoadGraphを使う（edges_in_pathは通常
-        # hydrated＝Pydantic DirectedEdgeだが、稀なフォールバック時のLeanEdgeが
-        # 混在してもLeanRoadGraphなら型検証エラーにならない）。
-        path_graph = LeanRoadGraph(
-            graph_version=context.graph.graph_version,
-            nodes={},
-            edges={edge.edge_id: edge for edge in missing_edges},
-        )
-        fetched = await self._elevation_attribute_service.get_attributes_for_graph(path_graph)
-        return {**cached, **fetched}
+                found[edge.edge_id] = attribute
+        return found
 
     def _build_candidate(
         self,
@@ -2524,9 +2494,6 @@ def _reverse_elevation_attribute(forward: ElevationAttribute, reverse_edge_id: s
         average_grade=-forward.average_grade if forward.average_grade is not None else None,
         max_grade=-forward.min_grade if forward.min_grade is not None else None,
         min_grade=-forward.max_grade if forward.max_grade is not None else None,
-        data_source=forward.data_source,
-        data_version=forward.data_version,
-        calculated_at=forward.calculated_at,
     )
 
 

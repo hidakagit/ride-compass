@@ -1,13 +1,11 @@
-from dataclasses import dataclass, field, fields
-from datetime import datetime, timezone
+from dataclasses import dataclass, field
 from typing import Mapping
 
 import numpy as np
 
 from app.domain.geo import LatLon, haversine_distance_km
-from app.domain.graph import RoadGraph, RoadGraphLike
+from app.domain.graph import RoadGraphLike
 from app.domain.material_sql import MATERIAL_ID_GRADIENT_PERCENT
-from app.domain.route import Coordinates
 from app.domain.strict_model import StrictModel
 
 
@@ -73,9 +71,6 @@ class ElevationAttribute(StrictModel):
     average_grade: float | None = None
     max_grade: float | None = None
     min_grade: float | None = None
-    data_source: str
-    data_version: str | None = None
-    calculated_at: str
 
 
 
@@ -120,10 +115,6 @@ class SearchMaterials:
 
 def _none_if_nan(value) -> float | None:
     return None if value is None or np.isnan(value) else float(value)
-
-
-def _now_iso() -> str:
-    return datetime.now(timezone.utc).isoformat()
 
 
 # 舗装された公道としてありうる平均勾配の上限（%）。世界でも最急の公道が35%前後のため、
@@ -213,36 +204,6 @@ def compute_elevation_values(
     )
 
 
-def compute_elevation_attribute(
-    edge_id: str,
-    points: list[Coordinates],
-    elevations: list[float | None],
-    data_source: str,
-    dem_reflects_road_surface: bool = True,
-) -> ElevationAttribute:
-    """`compute_elevation_values`の結果を、Edge単位の行の形へ載せる。"""
-    values = compute_elevation_values(points, elevations, dem_reflects_road_surface)
-    return ElevationAttribute(
-        edge_id=edge_id,
-        **{f.name: getattr(values, f.name) for f in fields(values)},
-        data_source=data_source,
-        calculated_at=_now_iso(),
-    )
-
-
-def surface_by_edge_id(graph: RoadGraph, surface_by_way_id: dict[int, str | None]) -> dict[str, str | None]:
-    """RoadGraphの各Edgeに、同じOSM取得結果由来のsurfaceタグ（osm_way_id単位）を紐付ける。
-
-    1つのOSM Wayが複数のDirected Edgeに分割されている場合（仕様書9章）、
-    それらは同じsurfaceタグ値を共有する（Way単位のタグのため、Way内で路面が変わっても
-    OSM上は区別されない。より細かい粒度が必要になった場合は将来の課題とする）。
-    """
-    return {
-        edge_id: surface_by_way_id.get(edge.osm_way_id) if edge.osm_way_id is not None else None
-        for edge_id, edge in graph.edges.items()
-    }
-
-
 @dataclass(frozen=True, slots=True)
 class EdgeMaterialArrays:
     """タイル1枚ぶんの材料を、**dtypeごとに1つの2次元配列**で保持する表現。
@@ -263,9 +224,9 @@ class EdgeMaterialArrays:
     `no_bicycle`は材料ではなく0次ハードフィルタの生フラグ。同じ1回のクエリで求まるため
     ここへ持たせる（別に引くとタイルごとにもう1往復増える）。
 
-    標高の列は**材料ではない表示用の値**（`data_source`・`calculated_at`等）。経路が確定した
+    標高の列は**材料ではない表示用の値**。経路が確定した
     あとの数百区間について`elevation_attribute()`が`ElevationAttribute`を組み立てる
-    （`road_graph_engine.py: _fetch_elevation_attributes`）。勾配そのものは材料
+    （`road_graph_engine.py: _elevation_attributes`）。勾配そのものは材料
     `gradient_percent`にあるため、ここでは重複して持たない。
     """
 
@@ -293,9 +254,6 @@ class EdgeMaterialArrays:
     elevation_loss_m: np.ndarray
     elevation_max_grade: np.ndarray
     elevation_min_grade: np.ndarray
-    elevation_data_source: list[str | None]
-    elevation_data_version: list[str | None]
-    elevation_calculated_at: list[str | None]
     _row_index: dict[str, int] | None = field(default=None)
 
     def __post_init__(self) -> None:
@@ -346,7 +304,4 @@ class EdgeMaterialArrays:
             average_grade=_none_if_nan(self.column(MATERIAL_ID_GRADIENT_PERCENT)[i]),
             max_grade=_none_if_nan(self.elevation_max_grade[i]),
             min_grade=_none_if_nan(self.elevation_min_grade[i]),
-            data_source=self.elevation_data_source[i],
-            data_version=self.elevation_data_version[i],
-            calculated_at=self.elevation_calculated_at[i],
         )

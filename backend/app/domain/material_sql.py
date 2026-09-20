@@ -23,13 +23,35 @@
 
 from app.domain.designation import DESIGNATION_IMPORT_KINDS
 
-#: `w`の別名が指す副問い合わせ。生データは`source_features`に1つの形で入っているため、
-#: よく引くタグを列として出し、式の側が`attrs`の構造を知らなくて済むようにする。
-WAYS_SOURCE_SQL = """
-(SELECT natural_key::bigint AS osm_way_id, geom, attrs AS tags,
-        attrs->>'highway' AS highway, attrs->>'surface' AS surface
- FROM source_features WHERE source = 'osm_way')
-"""
+def ways_source_sql(sampling: str = "") -> str:
+    """`w`の別名が指す副問い合わせ。生データは`source_features`に1つの形で入っている
+    ため、よく引くタグを列として出し、式の側が`attrs`の構造を知らなくて済むようにする。
+
+    `sampling`は`TABLESAMPLE ...`を入れる口。抽選は副問い合わせの**中**へ置く
+    （外に付けると構文エラーになる）。
+    """
+    return (
+        "(SELECT natural_key::bigint AS osm_way_id, geom, attrs AS tags, "
+        "attrs->>'highway' AS highway, attrs->>'surface' AS surface "
+        f"FROM source_features {sampling} WHERE source = 'osm_way')"
+    )
+
+
+WAYS_SOURCE_SQL = ways_source_sql()
+
+
+def ways_lookup_sql(key_expr: str) -> str:
+    """`w`を1本だけ引くときの副問い合わせ（LATERALの中に置く）。
+
+    **照合はtextのまま行う。** 主キーは`(source, natural_key)`で、`natural_key::bigint`
+    と比べると索引が使えず、道の全件に対する総当たりになる（実測: 区間1,766本の材料
+    取得で2,124万行を捨てて2.95秒）。
+    """
+    return (
+        "(SELECT natural_key::bigint AS osm_way_id, geom, attrs AS tags, "
+        "attrs->>'highway' AS highway, attrs->>'surface' AS surface "
+        f"FROM source_features WHERE source = 'osm_way' AND natural_key = ({key_expr})::text)"
+    )
 
 
 def normalized_tag_sql(tag: str) -> str:

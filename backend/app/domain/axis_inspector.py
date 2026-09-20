@@ -12,7 +12,7 @@ Edge単位の評価（`domain/evaluation.py`）とは入力の粒度が違う（
 
 from app.domain.axis_definitions import evaluate_axes_scalar
 from app.domain.difficulty import composite_contributions, composite_difficulty
-from app.domain.landcover import LandcoverPercentages, WayLandcover
+from app.domain.landcover import LandcoverPercentages
 from app.domain.route_preference import RoutePreference
 from app.domain.strict_model import StrictModel
 
@@ -51,19 +51,17 @@ def axis_inspector_breakdown(
     tags: dict[str, str],
     is_designated: bool,
     materials: dict[str, object],
-    way_landcover: WayLandcover | None = None,
+    landcover: LandcoverPercentages | None = None,
     preference: RoutePreference | None = None,
 ) -> AxisInspectorResult:
     """区間インスペクタの内訳を算出する純関数。
 
     `materials`は`RoadGraphRepository.get_way_material_values`が返すway1本ぶんの材料値。
     way単体では求まらない材料（勾配・風）は載らず、欠損として扱われる——それを参照する軸は
-    available=Falseになる。`way_landcover`は`get_feature_landcover`の戻り値で、表示用の
-    内訳にだけ使う（軸の材料はSQL側が`way_landcover`から直接求めている）。
+    available=Falseになる。`landcover`は`get_feature_landcover`の戻り値で、表示用の
+    内訳にだけ使う（軸の材料はSQL側が同じ行から直接求めている）。
     """
     weights = (preference or RoutePreference()).weights
-    # 行はあるが割合がNULL（そのラスタ構成では値なし）の場合も、行が無い場合と同じ欠損。
-    landcover_percentages = way_landcover.percentages if way_landcover is not None else None
     scores, _ = evaluate_axes_scalar(materials)
 
     scored_weights = [(score, weights.get(axis_id, 0.0)) for axis_id, score in scores.items()]
@@ -91,5 +89,5 @@ def axis_inspector_breakdown(
         axes=axes,
         composite_difficulty=composite,
         covered_weight_fraction=covered_fraction,
-        landcover=landcover_percentages,
+        landcover=landcover,
     )

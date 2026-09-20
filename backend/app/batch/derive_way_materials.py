@@ -1,6 +1,6 @@
 """道1本の性質（上下線分離・指定路線）を埋める。区間粒度の対応物を持たない値。
 
-**通行方向はここでタグから決める**（`domain/osm_adapter.py: resolve_direction`）。
+**通行方向はここでタグから決める**（`domain/traffic.py: resolve_direction`）。
 判定はPythonの1実装だけが持ち、SQLへ書き写さない——上下線分離の判定は相方の向きも
 見るため、いったん一時表へ出してからSQLへ渡す。
 
@@ -28,7 +28,7 @@ from app.domain.designation import (  # noqa: E402
     DESIGNATION_IMPORT_KINDS,
     DESIGNATION_MATCH_MIN_RATIO,
 )
-from app.domain.osm_adapter import resolve_direction  # noqa: E402
+from app.domain.traffic import resolve_direction  # noqa: E402
 
 logger = logging.getLogger("ridecompass.derive_way_materials")
 

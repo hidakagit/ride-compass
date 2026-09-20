@@ -1,12 +1,8 @@
-import asyncio
 import logging
-import time
 
-from app.config import settings
 from app.domain.axis_inspector import AxisInspectorResult, axis_inspector_breakdown
 from app.domain.route_preference import RoutePreference
-from app.domain.region import ROAD_GRAPH_TILE_ZOOM, tile_ancestor, tile_bounds_lonlat
-from app.infrastructure.database import get_session_factory
+from app.domain.region import tile_bounds_lonlat
 from app.infrastructure.debug_log import error_type_label, log_external_call, log_throttled_warning
 from app.infrastructure.road_graph_repository import (
     POI_TILE_SHAPE,
@@ -14,85 +10,11 @@ from app.infrastructure.road_graph_repository import (
     RoadGraphRepository,
 )
 from app.infrastructure.vector_tile import encode_empty_poi_tile, encode_empty_road_surface_tile
-from app.services.graph_service import GraphService
 from app.services import derived_data_revision_service
 from app.services.tile_serving import MVT_CONTENT_TYPE, TileResponse, serve_cached_tile
 from app.services.tile_version_service import current_tile_versions, served_tile_version
 
 logger = logging.getLogger("ridecompass.region")
-
-# タイル配信側でもGraphService.get_or_build_graph_with_attributesと同じ構築処理を、
-# z12（ROAD_GRAPH_TILE_ZOOM）タイル単位でバックグラウンド起動する（地図を眺めるだけの
-# 利用でも道路グラフが構築されるようにするための機構、docs/modules/backend/
-# static-road-attributes.md参照）。同期的に待たせるとNext.jsのrewritesプロキシの
-# 30秒タイムアウト（docs/architecture.md参照）に触れかねないため、今回のタイル応答は
-# これまでどおり即座に返し、構築は非同期に進める（次回以降の同じ地域へのアクセスから
-# 反映される）。いずれもプロセス内メモリのみの状態（rate_limiter.pyと同じ割り切り、
-# 再起動で消えても実害は次回アクセス時に再判定されるだけ）。
-_building_graph_tiles: set[tuple[int, int, int]] = set()
-# 直前に構築済み/最新確認済みのz12タイルを一定時間だけ再チェック対象から外す。無いと、
-# 既に最新のタイルでも地図を眺めるたびに（表示中の全z13-15タイル×ANCESTOR分）
-# is_split_up_to_date確認用の短命DBセッションを開き続けてしまう。
-_last_build_check: dict[tuple[int, int, int], float] = {}
-_GRAPH_CHECK_TTL_SECONDS = 300.0
-# 実際の構築（closure再計算・Edge全量再UPSERT）だけを絞る同時実行数上限（config.py:
-# graph_build_max_concurrentのコメント参照）。安価なis_split_up_to_date確認はここに
-# 含めない（このsemaphoreの後ろで待たされる必要が無い軽いクエリのため）。
-_graph_build_semaphore = asyncio.Semaphore(settings.graph_build_max_concurrent)
-# 起動した構築タスクへの強参照（graph_service.py: _warm_tasksと同じ理由——create_taskの
-# 戻り値をどこも保持しないと実行中のタスクがGCで回収され、finallyの_building_graph_tiles
-# .discardが走らないままそのタイルが恒久的に構築対象から外れる）。
-_build_tasks: set[asyncio.Task] = set()
-
-
-async def _build_graph_for_tile_background(ancestor_tile: tuple[int, int, int], checked_at: float) -> None:
-    """指定z12タイルの道路グラフが未構築・古ければ、GraphServiceの通常経路
-    （is_split_up_to_date→必要なら再構築）でバックグラウンド構築する。リクエストの
-    セッションとは別の新規セッションを使う（HTTPレスポンスが返った後もタスクを続けるため）。
-
-    鮮度確認（軽い）と実構築（重い、DBセッションを長時間保持）を別セッションに分け、
-    実構築だけを`_graph_build_semaphore`で絞る。1つのセッションを保持したまま
-    semaphore待ちにすると、密集した未構築エリアへの一斉アクセスで「順番待ちのタスクが
-    次々にDBコネクションだけ先取りして塞ぐ」ことになりかねないため。
-    """
-    zoom, x, y = ancestor_tile
-    bbox = tile_bounds_lonlat(zoom, x, y)
-    try:
-        async with get_session_factory()() as session:
-            if await RoadGraphRepository(session).is_split_up_to_date(bbox):
-                return
-
-        async with _graph_build_semaphore:
-            started = time.monotonic()
-            async with get_session_factory()() as session:
-                repository = RoadGraphRepository(session)
-                graph_service = GraphService(repository=repository)
-                built = await graph_service.get_or_build_graph_with_attributes(bbox)
-            elapsed_ms = round((time.monotonic() - started) * 1000)
-            edge_count = len(built[0].edges) if built else 0
-            logger.info(
-                "地図閲覧起点の道路グラフ構築完了 z=%d x=%d y=%d edges=%d elapsed_ms=%d",
-                zoom, x, y, edge_count, elapsed_ms,
-            )
-    except Exception as exc:  # noqa: BLE001 バックグラウンド構築の失敗はタイル応答に影響させない
-        logger.warning("地図閲覧起点の道路グラフ構築に失敗 z=%d x=%d y=%d error=%r", zoom, x, y, exc)
-    finally:
-        _building_graph_tiles.discard(ancestor_tile)
-        _last_build_check[ancestor_tile] = checked_at
-
-
-def _maybe_trigger_graph_build(ancestor_tile: tuple[int, int, int]) -> None:
-    if ancestor_tile in _building_graph_tiles:
-        return
-    now = time.monotonic()
-    last_checked = _last_build_check.get(ancestor_tile)
-    if last_checked is not None and now - last_checked < _GRAPH_CHECK_TTL_SECONDS:
-        return
-    _building_graph_tiles.add(ancestor_tile)
-    task = asyncio.create_task(_build_graph_for_tile_background(ancestor_tile, now))
-    _build_tasks.add(task)
-    task.add_done_callback(_build_tasks.discard)
-
 
 # タイル内容の世代は焼き込むSQLの隣（road_graph_repository.py）で導出する。ここは
 # キャッシュパスの組み立てだけを持ち、export_openapi.pyはこのモジュール経由で受け取る
@@ -161,11 +83,10 @@ class RegionService:
         地図表示という既存機能全体を落とさず、空タイルで安全側に倒す）。
         """
         try:
-            # カバレッジ判定（z12祖先タイルのマーク確認）はMVT生成と同じ1クエリへ
-            # 畳み込まれている（遠隔DBの往復1回分を節約。repository側のdocstring参照）。
-            ancestor_x, ancestor_y = tile_ancestor(z, x, y, ROAD_GRAPH_TILE_ZOOM)
+            # カバレッジ判定（取込の宣言した範囲か）はMVT生成と同じ1クエリへ畳み込まれて
+            # いる（遠隔DBの往復1回分を節約。repository側のdocstring参照）。
             tile_bytes = await getattr(self._repository, repository_method)(
-                z, x, y, tile_bounds_lonlat(z, x, y), (ROAD_GRAPH_TILE_ZOOM, ancestor_x, ancestor_y)
+                z, x, y, tile_bounds_lonlat(z, x, y)
             )
         except Exception as exc:  # noqa: BLE001 DB障害は空タイル返却で吸収する（上記docstring）
             # パン/ズームのたびに大量のタイルリクエストが飛びうる高頻度な経路のため
@@ -179,15 +100,6 @@ class RegionService:
         if tile_bytes is None:
             fields["postgis"] = "uncovered"
             return None
-        # カバレッジ内（生データ取込済み）と分かったので、このz12祖先タイルの道路グラフが
-        # 未構築・古ければバックグラウンドで構築する（road-surface/poi両タイルで共通、
-        # 上のモジュールdocstring参照）。応答自体はこれまでどおり待たせず即座に返す。
-        # isinstanceで実リポジトリのときだけ発火させる: テストのFakeRegionRepositoryは
-        # このクラスを継承しないダックタイピングのため、ここで弾かれ実DBセッションを
-        # 開こうとしない（settings.road_graph_use_repositoryだけに頼ると、この開発機の
-        # .envのように既定でtrueな環境ではユニットテストでも実DBへ触れてしまう）。
-        if isinstance(self._repository, RoadGraphRepository):
-            _maybe_trigger_graph_build((ROAD_GRAPH_TILE_ZOOM, ancestor_x, ancestor_y))
         fields["postgis"] = "hit"
         return tile_bytes
 

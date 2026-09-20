@@ -5,8 +5,8 @@
 同じ「正準1箇所」の運用）。
 
 車ストレスは軸定義（DBが正本、軸スタジオから増減する）の内部軸と公開軸の階層構造で
-再現している。自転車インフラは正規化フラグ材料（`domain/recipe.py: bicycle_infra_flags`）
-の組み合わせで表し、`domain/material_catalog.py`の抽出器がそこから材料値を取り出す。
+再現している。自転車インフラは正規化フラグ材料（`domain/material_catalog.py`が宣言する
+`highway_is_cycleway`等）の組み合わせで表す。
 
 分類のほかに、**所要時間モデルのパラメータ**も持つ（`stop_seconds`: 停止要因1回あたりの
 時間損失、`HIGHWAY_RANK`: 交差点で優先関係を判定するための階級順）。読むのは
@@ -298,3 +298,56 @@ MAJOR_CROSSING_MIN_RANK = HIGHWAY_RANK["tertiary"]
 def highway_rank(highway: str | None) -> int:
     """OSMのhighwayタグ生値を階級順へ写す。自転車道・歩道・未知の値は0（最下位）。"""
     return HIGHWAY_RANK.get(highway or "", 0)
+
+
+# OSMのoneway値のうち「逆方向への通行不可」を意味するもの。
+ONEWAY_FORWARD_ONLY = {"yes", "true", "1"}
+ONEWAY_BACKWARD_ONLY = {"-1", "reverse"}
+# 同じく「両方向通行可」を明示するもの。`oneway`が無い場合と区別が要る——無い場合は
+# `junction`による暗黙の一方通行へ進むが、明示されているならそちらが優先する。
+ONEWAY_BIDIRECTIONAL = {"no", "false", "0"}
+# `oneway`タグが無くても一方通行になるjunctionの値。環状交差点は構造として一方向にしか
+# 通れず、OSMは個々のwayへ`oneway`を付けない慣行がある。
+ONEWAY_JUNCTION_VALUES = {"roundabout", "circular"}
+
+
+def resolve_direction(tags: dict) -> str:
+    """`oneway`・`oneway:bicycle`・`junction`から通行方向を決定する。
+
+    `oneway:bicycle`は「自転車に限り一方通行規制の対象外（またはbicycle独自の一方通行）」
+    という意味の例外タグで、値がある場合は`oneway`本体より優先する（現実のOSM上でも
+    contraflow cycling＝逆走可の代表的な表現。例: `oneway=yes` + `oneway:bicycle=no`は
+    「車は一方通行だが自転車は両方向通行可」）。`oneway:bicycle`が無い、または
+    forward/backward/no のいずれにも解決できない値の場合は`oneway`本体にフォールバックする。
+
+    `oneway`が無い、または解釈できない値のときだけ`junction`を見る。環状交差点は
+    `oneway`を付けない慣行があり、両方向として扱うと逆走する経路を出しうる。
+    明示された`oneway=no`はこの推定より優先する（OSM側が「両方向」と言っているため）。
+    """
+    oneway_bicycle = str(tags.get("oneway:bicycle", "")).strip().lower()
+    if oneway_bicycle in ONEWAY_BACKWARD_ONLY:
+        return "backward"
+    if oneway_bicycle in ONEWAY_FORWARD_ONLY:
+        return "forward"
+    if oneway_bicycle in ONEWAY_BIDIRECTIONAL:
+        return "both"
+
+    oneway = str(tags.get("oneway", "")).strip().lower()
+    if oneway in ONEWAY_BACKWARD_ONLY:
+        return "backward"
+    if oneway in ONEWAY_FORWARD_ONLY:
+        return "forward"
+    if oneway in ONEWAY_BIDIRECTIONAL:
+        return "both"
+
+    if str(tags.get("junction", "")).strip().lower() in ONEWAY_JUNCTION_VALUES:
+        return "forward"
+    return "both"
+
+
+# 静的道路属性（docs/static-road-attributes-plan.md P0）で保持するタグの許可リスト。
+# highway/surface/onewayは既存の専用フィールドで扱うためここには含めない。
+# GOOD/BAD_OSM_SURFACE_TAGS（domain/road.py）と同じ「正準1箇所」の考え方で、
+# ここに無いタグはWaySpec.tagsへ残らない（生データ汚染を避ける、計画書§2.4）。
+# 容量実測（2026-08-15、static-attributes-capacity-estimate）: 本番規模で約9MB、
+# 誤差程度で安全。

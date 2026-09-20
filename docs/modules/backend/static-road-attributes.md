@@ -10,238 +10,123 @@ OSM由来の道路データ（PBF取込）・警察庁事故データ・国土�
 
 | レイヤー | ファイル |
 |---|---|
-| domain | `road.py`・`attributes.py`・`designation.py`・`accident.py`・`traffic.py`・`osm_adapter.py`・`landcover.py`（土地被覆クラス別割合の算出、評価軸の材料）・`divided_carriageway.py`（上下線が分かれた道の片側かを判定するしきい値）・`derived_data_versions.py`（事前計算バッチの系譜版数。バッチ本体ではなくここに置く——鮮度台帳がbatchをimportすると本番webに無い依存を連鎖で引き込む）（[region.py](routing-engine.md)は別モジュール管轄） |
+| domain | `road.py`・`attributes.py`・`designation.py`・`accident.py`・`traffic.py`（OSMタグの解釈と分類。停止要因・補給POIの種別、通行方向、道の階級）・`landcover.py`（土地被覆クラス別割合の算出、評価軸の材料）・`divided_carriageway.py`（上下線が分かれた道の片側かを判定するしきい値）・`derived_data_versions.py`（事前計算バッチの系譜版数。バッチ本体ではなくここに置く——鮮度台帳がbatchをimportすると本番webに無い依存を連鎖で引き込む）（[region.py](routing-engine.md)は別モジュール管轄） |
 | services | `tile_serving.py`・`accident_service.py`・`region_service.py`・`landcover_tile_service.py`（土地被覆ラスタタイルの配信）・`derived_data_freshness_service.py`（派生データ鮮度台帳）・`tile_version_service.py`（配信するタイル世代の組み立て。形の署名とDBの派生データ世代から作る）・`db_status_service.py`（本番DB状態の判定。しきい値と根拠を持つ） |
 | infrastructure | `vector_tile.py`・`tile_cache.py`・`landcover_raster.py`（土地被覆GeoTIFFの読み取り・再投影・着色）・`source_models.py`（外部ソースの生データを、ソースによらない1つの形で持つ。点・線・ラスタのタイルを同じ骨格へ載せ、取込1回ぶんを`source_runs`が記録する）・`derived_models.py`（生データから導いたもの。粒度ごとに1表で、バッチが1つ増えても表は増えない）・`orm_base.py`（ORMの基底。どのモデルからも辿れる位置に置き、モデル同士がimportで絡まないようにする）・`accident_repository.py`・`derived_data_freshness.py`（派生データ鮮度台帳）・`db_status.py`（本番DBの状態＝取込runの最終実行・テーブルの実数と容量・統計とVACUUMの鮮度・接続）・`proj_data.py`（rasterioが参照するPROJデータをrasterio同梱のものへ固定する。別インストールの`proj.db`を掴むとEPSG解決が失敗するため、rasterioのimport前に呼ぶ） |
 | api | `region.py`（路面/POI/動的材料/土地被覆タイル・区間インスペクタ）・`accidents.py`（事故タイル）・`_tile_http.py`（両者が共有する座標検証と応答組み立て）・`derived_data_freshness.py`（`GET /api/admin/derived-data/freshness`、Basic認証必須）・`db_status.py`（`GET /api/admin/db-status`、同） |
-| batch | `ingest.py`（外部ソースの共通取込経路。アダプタから受けた1件ずつをステージングへ積み、そのソースのパーティションだけを入れ替え、`source_runs`へ適用した絞り込みごと記録する）・`ingest_cli.py`（その入口）・`source_profile.py`／`source_profile.yaml`（取り込む母集団の宣言。実装には範囲を書かない）・`source_adapters/`（外部の形を開いて1件ずつ返すだけの実装。`npa_honhyo.py`は警察庁の本票CSV、`osm_pbf.py`はOSMのPBF（way・node。タグを絞らず全部持つ）、`ksj_designation.py`は国土数値情報の指定路線（zipの開き方は`_ksj_zip.py`）、`io_lulc_tile.py`は土地被覆ラスタをタイルへ切って、`openfreemap_tile.py`は基礎地図のベクタタイルを配信元のまま、`gsi_dem_tile.py`は地理院の標高タイル——タイル1枚を1行として返し、標高はint16で詰める）・`derive_cli.py`（派生を作り直す入口。段の順番はここだけが持つ）・`derive_topology.py`（生データから区間`road_edges`とノードの枝数を導く。切る位置は2本以上の道が通るノード）・`derive_node_materials.py`（ノードの種別・信号の有無・集まる道の最大階級。種別の判断は取込ではなくここで行うため、判断が変わっても生データは取り直さない）・`derive_counts.py`（区間と道に付く数の値。停止要因は端点を0.5ずつ持ち、道の値は区間の和から導くため地図と評価で食い違わない）・`derive_raster_materials.py`（面のタイルを線へ落とす。標高は形状点で測り、土地被覆は中心線の周りの帯に落ちる画素を数える）・`derive_way_materials.py`（道1本の性質。通行方向をタグから決め、上下線分離は逆向きに並走する相方の有無で、指定路線は帯との交差長の割合で判定する）・`import_pbf.py`・`pbf_source.py`・`profile.py`・`import_accidents.py`・`import_designations.py`・`match_designations.py`・`precompute_edge_attribute_counts.py`・`precompute_way_attribute_counts.py`・`precompute_way_landcover.py`（土地被覆クラス別割合のway単位事前集計、rasterio）・`precompute_edge_landcover.py`（同じ割合の区間単位事前集計）・`_landcover.py`（両者が共有するラスタ読み出し。線→リング→画素ヒストグラム→割合）・`precompute_way_divided_carriageway.py`（上下線が分かれた道の片側かのway単位判定）・`_common.py`（バッチ間共通ヘルパ。asyncpg用DSN変換・ダウンロード骨格・`batch_session_factory`[エンジン生成と破棄]・`run_simple_batch_cli`[`--database-url`/`--dry-run`だけを取るバッチの起動処理]・`stream_id_chunks`/`count_targets`[対象IDのチャンク取得と件数]・`run_chunked_precompute`[precompute系バッチが共有するドライバ。対象件数ログ→dry-runの早期return→0件の警告→チャンクループ→進捗ログまでを引き受け、バッチ側は1チャンクぶんの処理だけを書く]）・`refresh_derived.py`・`scripts/fetch_lulc_raster.py`（土地被覆ラスタの取得。デプロイが呼ぶ） |
+| batch | `ingest.py`（外部ソースの共通取込経路。アダプタから受けた1件ずつをステージングへ積み、そのソースのパーティションだけを入れ替え、`source_runs`へ適用した絞り込みごと記録する）・`ingest_cli.py`（その入口）・`source_profile.py`／`source_profile.yaml`（取り込む母集団の宣言。実装には範囲を書かない）・`source_adapters/`（外部の形を開いて1件ずつ返すだけの実装。`npa_honhyo.py`は警察庁の本票CSV、`osm_pbf.py`はOSMのPBF（way・node。タグを絞らず全部持つ）、`ksj_designation.py`は国土数値情報の指定路線（zipの開き方は`_ksj_zip.py`）、`io_lulc_tile.py`は土地被覆ラスタをタイルへ切って、`openfreemap_tile.py`は基礎地図のベクタタイルを配信元のまま、`gsi_dem_tile.py`は地理院の標高タイル——タイル1枚を1行として返し、標高はint16で詰める）・`derive_cli.py`（派生を作り直す入口。段の順番はここだけが持つ）・`derive_topology.py`（生データから区間`road_edges`とノードの枝数を導く。切る位置は2本以上の道が通るノード）・`derive_node_materials.py`（ノードの種別・信号の有無・集まる道の最大階級。種別の判断は取込ではなくここで行うため、判断が変わっても生データは取り直さない）・`derive_counts.py`（区間と道に付く数の値。停止要因は端点を0.5ずつ持ち、道の値は区間の和から導くため地図と評価で食い違わない）・`derive_raster_materials.py`（面のタイルを線へ落とす。標高は形状点で測り、土地被覆は中心線の周りの帯に落ちる画素を数える）・`derive_way_materials.py`（道1本の性質。通行方向をタグから決め、上下線分離は逆向きに並走する相方の有無で、指定路線は帯との交差長の割合で判定する）・`_common.py`（バッチ間共通ヘルパ。asyncpg用DSN変換・ダウンロード骨格・`batch_session_factory`[エンジン生成と破棄]・`run_simple_batch_cli`[`--database-url`/`--dry-run`だけを取るバッチの起動処理]・`stream_id_chunks`/`count_targets`[対象IDのチャンク取得と件数]・`run_chunked_precompute`[件数ログ→dry-runの早期return→0件の警告→チャンクループ→進捗ログまでを引き受ける共通ドライバ]）・`scripts/fetch_lulc_raster.py`（土地被覆ラスタの取得。デプロイが呼ぶ） |
 
 `api/routers/region.py`のうち`GET /api/region/dynamic-way-values/...`エンドポイントは
 [動的材料・way_id値配信](dynamic-way-values.md)の管轄、`domain/road.py`の
-`RoadGraphRepository`本体・`road_graph_models.py`は[ルート生成エンジン](routing-engine.md)の
+`RoadGraphRepository`本体は[ルート生成エンジン](routing-engine.md)の
 管轄。本モジュールは同じ`region.py`ファイル内の路面/POI/区間インスペクタ部分と、
 `vector_tile.py`・`tile_cache.py`等の周辺インフラを扱う。
 
 ## データ取込（batch）
 
-### OSM PBF取込（`import_pbf.py`・`pbf_source.py`・`profile.py`）
+取込は**ソースによらず1本の経路**を通る（`ingest.py`）。増えるのはアダプタ1本と
+プロファイルの1エントリだけで、ソースごとのバッチは持たない。
 
 ```
-Geofabrik/BBBike PBF抽出ファイル
-        │  pbf_source.py（pyosmium、web運用にはインストールされない別依存）が1パスで
-        │  全way・nodeをストリーム読み取り。producer/consumerをスレッド境界で分離
-        │  （producer=osmiumのブロッキング読み取り、consumer=asyncpg COPY）
-        │  profile.py（import_profile.yaml）のタグルールでway/nodeを選別
-        │  タグ解釈はdomain/osm_adapter.py経由（Overpassランタイム経路と同じ意味論）
+外部（PBF・CSV・圧縮書庫・タイル配信）
+        │  source_adapters/ がその形を開き、1件ずつ SourceRecord を返す
+        │  （識別子・範囲・属性の袋・配列実体）
         ▼
-  TEMPステージングテーブルへCOPY → INSERT ... ON CONFLICT でバルクマージ
+  TEMPステージングへCOPY → そのソースのパーティションだけを入れ替え
         ▼
-  osm_raw_ways / osm_raw_nodes / osm_raw_pois（PostGIS、生OSM層）
+  source_features（点・線・面を同じ骨格で持つ）／source_runs（適用した絞り込みごと記録）
 ```
 
-- `--bbox`省略時はPBF全体を取り込む。指定時は「bbox内に1つ以上のノードを持つway」が
-  対象（ランタイムの`get_way_specs_with_closure`の主対象判定と同じ意味論）。POIは自身の
-  座標がbbox内かで直接判定する。
-- `--bbox`指定時の取込成功時のみ、その範囲の`road_graph_tiles`を「取得済み」マークする
-  （`--bbox`省略時はマークしない——PBFヘッダのbboxは抽出ポリゴンの外接矩形にすぎず、
-  データが無い領域を誤マークしうるため）。マーク先はPostGISの`road_graph_tiles`だけで、
-  web側のキャッシュへ手を伸ばすことはない（ルート生成側は毎回PostGISへ問い合わせる。
-  [routing-engine.md](routing-engine.md)・[docs/caching.md](../../caching.md)参照）。
-- ways/nodes/POIは1回のosmiumパスで同時に処理する（PBFの再読み込みを避ける）。node取込は
-  タグを持つnodeのみ対象（大多数の形状点nodeはタグ辞書構築自体を省略）。
-- 新規DB（`osm_raw_ways`が空）への初回取込のみ、`geom`列のGiSTインデックスを取込完了後まで
-  構築を遅延する（逐次挿入コストの蓄積を避ける、稼働中DBの再取込ではこの分岐に入らず
-  既存インデックスをそのまま使う）。
-- `osm_import_runs`へrunning/succeeded/failedのステータスと実行記録を残す
-  （`pbf_timestamp`＝PBFヘッダのOSMデータ鮮度、`profile_hash`＝取込プロファイルのSHA-256）。
+### 取り込む母集団の宣言（`source_profile.yaml`）
 
-`profile.py`は取込対象を宣言的なYAMLルール（`element_type`・`match`条件のANDマッチ・
-`target`テーブル）として定義する。取込コア（`import_pbf.py`）自身はこの語彙を解釈する
-だけで、新しい取込対象を増やす際はルール追加＋対応するwriter実装で行う。
+範囲・行の絞り込み・格子の指定はこのファイルだけが持つ。実装に範囲を書かない——広げる
+ときに直す場所が1つになり、適用した内容をそのまま`source_runs.profile`へ記録できる。
+狭い範囲で試すときは`ingest_cli.py --profile`で別のファイルを指す（引数で範囲を上書き
+できるようにすると、宣言がファイルの外へ散る）。
 
-**プロファイルのルールと`domain/traffic.py`の分類器は対で意味を持つ。** 取込は
-「プロファイルで拾う→分類器が`kind`を返す→`osm_raw_pois`へ書く」の順で、分類器が`None`を
-返したnodeは黙って捨てられる（`osm_adapter.py: osm_node_to_poi_spec`）。したがって
-**プロファイルへルールを足しただけでは1件も取り込まれない**（逆に分類器だけ足しても
-PBFからそのnodeが流れてこない）。両方向の一致は`tests/test_import_profile.py`が固定する。
+OSMは**行だけを絞り、タグは絞らない**。タグは容量の1.9%しか占めず、捨てると後から解釈を
+変えられなくなる（種別の判断・通行方向の解決はいずれも派生側で行うため、判断が変われば
+取り直さずに流し直せる）。
 
-取り込むnodeのタグは許可リスト（`osm_adapter.py: ALLOWED_NODE_TAGS`）で絞る。分類根拠の
-タグ（`highway`/`railway`/`barrier`/`traffic_calming`）に加え、車止めが併せ持つ通行可否
-（`bicycle`/`access`）も残す——集計側で使い分けたくなったときにPBF再取込が要らないように
-するため。取込対象の種類を変えるとPBF再取込（数時間）が要る一方、集計キーの切り方は
-バッチ再実行（数分）で変えられるので、**取込は迷ったら広めに取り、絞り込みは集計側で行う**。
-例外は「その点を出すこと自体が利用者への誤った約束になる」もので、自販機の非飲食物がこれに
-当たる（下記）。その場合も判定に使うタグは残し、**分け方を後から変えられる**状態にしておく。
+### 面のデータもタイル1枚=1行で持つ（`gsi_dem_tile.py`・`io_lulc_tile.py`）
 
-### 事故データ取込（`import_accidents.py`）
+点・線と同じ骨格へ載せるため、ラスタはタイルへ切って`payload`（標高はint16、土地被覆は
+uint8）で持つ。どう読むかは`attrs`が持つ（幅・型・尺度・欠測値）ので、読み手が形を
+推測しない。ズームは元データの分解能から決める——UIの都合で決めない。
 
-警察庁交通事故統計オープンデータの本票CSV（`honhyo_{year}.csv`）を年号から組み立てた
-公開URLで直接取得し、関東7都県分を`accident_points`へ取り込む。列インデックス定数
-（`COL_*`）は2022年以降の68列レイアウトを前提とし、想定外の列数のCSVは行単位で
-スキップせず年単位のバッチ実行自体を失敗させる（列構成の変化を「気づける形で」検知する
-ため）。`accident_id`は都道府県コード・警察署等コード・本票番号・発生年の合成キー
-（`domain/accident.py: build_accident_id`）で、年次再取込みでも冪等にUPSERTできる。
+### 派生（`derive_cli.py`）
 
-### 指定路線取込（`import_designations.py`）・マッチング（`match_designations.py`）
+生データから作るものは段の順に並ぶ。**順番は`derive_cli.py`だけが持つ**。
 
-国土数値情報のN10（緊急輸送道路）・N12（重要物流道路）を都道府県別ZIPから取得し
-`route_designations`へ投入する。**N10とN12はファイル形式が異なる**（N10=JPGIS/GML、
-N12=素のGeoJSON）ため、`_KIND_SPECS`辞書がkindごとのURLテンプレート・source値・
-ZIP内メンバー名・パーサ関数を1箇所に対応させる。冪等性は自然キーが無いため
-「(kind, pref_code)単位でDELETE→INSERT」で担保し、パーサが0件を返した場合は
-DELETEごとスキップする（既存データを誤って全消しする事故を防ぐ）。ダウンロードした
-ZIPのローカル保存名はURL側のファイル名（`N10-15_08_GML.zip`のようにKSJの配信版数を
-含む）をそのまま使う——`download_to_path`は同名ファイルがあればHTTPごとスキップする
-ため、保存名が版数を含まないと新しい版のURLへ更新して再実行しても旧版をパースし続ける。
+| 段 | 何を作るか |
+|---|---|
+| `derive_topology.py` | 道を交差点で切って`road_edges`。切る位置は2本以上の道が通るノード |
+| `derive_node_materials.py` | ノードの種別・信号の有無・集まる道の最大階級 |
+| `derive_counts.py` | 区間と道に付く数の値（事故・停止要因・交差点） |
+| `derive_raster_materials.py` | 面のタイルを線へ落とす（標高・土地被覆） |
+| `derive_way_materials.py` | 道1本の性質（通行方向・上下線分離・指定路線） |
 
-`match_designations.py`が`route_designations`（線データ）を`osm_raw_ways`（全域自己完結）
-へバッファマッチし、`designation_attributes`（Way派生、複合PK `(osm_way_id, kind)`）へ
-書き込む事前計算バッチ。判定式・バッファ幅は`domain/designation.py`が正準。`import_
-designations.py`実行後、およびOSM再取込後に再実行する必要がある。書き込みは
-DELETE→INSERTで、**候補0件のkindはDELETEの対象から外す**——DELETEが全kindを一度に
-対象にする形のため、ガードをkind単位で持たないと、片方のkindだけ候補0件になったときに
-そのkindの行だけが静かに全消しされる。
+**道1本の値は区間の値から導く。** 同じ知識を2つの粒度で持つ以上、数え方が違ってはいけない
+——地図が塗る値と評価が読む値が構造として一致する。
 
-### 事前集計バッチ（`precompute_edge_attribute_counts.py`・`precompute_way_attribute_counts.py`）
+### 停止要因の数え方
 
-対象IDは`_common.py: stream_id_chunks`がサーバーサイドカーソル（`session.stream`）で
-`CHUNK_SIZE`件ずつ読み進める（`precompute_elevation_attributes.py`・
-`precompute_way_landcover.py`も同じ）。数百万行が対象でもプロセスのメモリ使用量は
-1チャンク分に留まり、selectの`ORDER BY`（地理的順序で読む2本が使う）もそのまま効く。
-進捗ログの分母とdry-runの件数は`count_targets`の1回のCOUNTから得る。カーソルを持つ
-読み取りセッションは処理中ずっと開いたままになるため、チャンクの処理は必ず別セッションで
-行う。
+**「その区間を走って実際に遭遇する停止の回数」へ近づける。** 線から一定距離内にある点を
+素朴に数えると、走る道の上に無い点や、1つの信号交差点を描く複数ノードまで数えてしまう。
 
-### 土地被覆をどちらの単位から出すか（`way_landcover`・`edge_landcover`）
+- **同じ種別の点は先にまとめる**（`POI_CLUSTER_EPS_M`、`ST_ClusterDBSCAN`）。日本のOSMは
+  1つの信号交差点を流入路ごと・横断歩道位置ごとの複数ノードで描くため、素直に数えると
+  停止回数を上回る。
+- **端点は前後の区間が半分ずつ持つ**。交差点のノードは「入る区間」と「出る区間」の両方が
+  触れるため、両方が数えると1回の停止が2回になる。経路上で合計1回になればよい。
+- **近くに信号がある横断歩道は信号として数える**。利用者から見れば信号であり、この判定は
+  地図へ点を出す側（`_POI_TILE_KIND_EXPR`）と共有する——違う規則を使うと、見えている点の
+  数と評価の停止回数が合わない。
 
-同じ割合を、別々の母集団で持つ。**読む側は「そのフィーチャー／Edgeが表す単位」で選ぶ**
-——区間の行があればそちら、無ければwayの行へ落とす。落とし先を用意するのは、`road_edges`が
-`presplit_road_graph.py`の埋める派生データで、区間を持たないwayや未splitの範囲には区間の行が
-作れないため。
+集計キー（`domain/traffic.py: POI_COUNT_KINDS`）は分類器が付ける`kind`と1対1ではない。
+`give_way`は`stop`へ、車道用と歩道用の踏切は`level_crossing`へ、車止めと減速構造は
+`barrier`へ畳む——いずれも自転車から見て同じ止まり方で、重みを分ける根拠がまだ無い。
+**分類は取込時ではなく派生時**に行うため、キーの切り方を変えても取り直しは要らない。
 
-区間の行があって値がNULL（その構成では値なし）のときもway側へは戻さない。戻すと隣り合う
-区間が別の単位の値で塗られる。この規則は路面タイル（`_landcover_value_column`と
-`_LANDCOVER_TILE_COLUMNS_SQL`）と評価経路（`get_edge_material_arrays`）で同じにする
-——食い違うと、地図に出ている値と採点が使う値が別物になる。
+### 未計算はNULL
 
-`edge_landcover`の鍵は**向きに依らない区間の同定子**（way＋両端ノードの小さい方・大きい方）。
-`road_edges`はforward/backwardを別行で持ち、タイルが代表として残す行は`edge_id`昇順で
-決まるため、edge_idを鍵にすると代表の向きに行が無いときだけ値が落ちる。
+材料の列は`road_edges`と同時に行だけ作り、値を出す段がそれぞれ自分の列を埋める。どの列が
+まだ埋まっていないかは「その列がNULLの行数」で一様に数えられる。土地被覆だけは
+「計算済み・値なし」（有効画素が足りない）を`lc_valid_pixels`だけ埋めて割合をNULLにする形で
+表す——ラスタが覆っていないことと、まだ計算していないことは別の状態である。
 
-### `way_landcover`の「未計算」と「計算済み・値なし」（`precompute_way_landcover.py`）
+### 事故の帰属
 
-割合8列と`valid_pixels`はNULL可で、**NULLは「計算済み・値なし」**を意味する
-（ラスタ範囲外・境界またぎ・有効画素不足）。読み出しはいずれもLEFT JOINで列を参照するため、
-NULL列は行が無い場合と同じ欠損として扱われる——材料としての意味は変わらない。
+事故点はOSMの要素ではないため、信号のように「wayの構成ノードか」では帰属を決められない。
+距離だけで数えると1つの事故が半径内の**すべての**道路へ計上され、静かな裏道が隣の幹線で
+起きた事故を相続する。最も近い1本の区間へ1件だけ付け、死亡事故は重みを掛ける
+（`domain/accident.py`）。
 
-行を残すのは**増分実行が同じwayを毎回やり直さないため**。行が無いと、結果が毎回同じ
-「値なし」であるにも関わらず実行のたびにラスタ読み込みからやり直す。
+### 通行方向の解決（`domain/traffic.py: resolve_direction`）
 
-ただし「値なし」は**そのラスタ構成での結論でしかない**。1枚足せば、境界またぎ・範囲外
-だったwayは値を持ちうる。行には`source_raster_set`（`raster_set_fingerprint`が
-ファイル名の集合から作る指紋、順序に依存しない）を残し、増分実行は
-「値を持つ行があるway」と「今回と同じ指紋・同じ`algorithm_version`で値なしと確定済みのway」
-だけを除外する。指紋かアルゴリズム版が変われば、値なしの行は対象へ戻る。
-
-`data_version`をこの判定に使わないのは、先頭ラスタのファイル名から推定する値で、
-ラスタを足しても変わらないことがあるため（構成の変化を表さない）。
-
-いずれも新しいSQLを書かず、`RoadGraphRepository`の既存メソッド
-（`get_accident_counts`/`get_poi_counts_by_kind`/
-`get_intersection_counts`、および`rebuild_raw_intersection_nodes`/
-`recompute_way_attribute_counts`）をチャンク単位で呼び出すだけの薄いオーケストレーション。
-書き込みも同様にリポジトリ側（`save_edge_attribute_counts`等→`_bulk_upsert`）へ委ねる
-——UPSERT1文へ載せる行数はバインドパラメータ上限（32,767個）を列数で割って決めるため、
-バッチが自前のINSERT文を持つとこの保護から外れ、列を1本足した時点で本番実行が落ちる。
-
-| バッチ | 対象 | 母集団 | 実行順の依存 |
-|---|---|---|---|
-| `precompute_edge_attribute_counts.py` | `edge_attribute_counts`（Edge単位） | `road_edges`（ルート生成済みエリアのみ） | `precompute_road_node_degrees.py`（[routing-engine.md](routing-engine.md)）の後 |
-| `precompute_way_attribute_counts.py` | `way_attribute_counts`（Way単位） | `osm_raw_ways`全域 | `rebuild_raw_intersection_nodes`をバッチ内部で先に実行 |
-
-**地図タイルの密度（`accident_per_km`等）は、そのフィーチャーが表す単位と同じ側から引く**
-（`_density_column_sql`）。区間単位のフィーチャーを出すのは`road_edges`に行があるwayだけで、
-これはEdge単位版が覆う母集団そのものなので一致する。way丸ごとのフィーチャー（引いた表示・
-区間を持たないway）と、区間はあるがEdge単位版の行がまだ無いフィーチャーはWay単位版へ落ちる
-——件数と長さは必ず同じ側から取る（片方だけ区間にすると、区間の件数をway全体の長さで割った
-無意味な値になる）。
-
-両バッチとも`source_accident_import_run_id`/`source_osm_import_run_id`
-（実行時点の最新成功import run id）と`algorithm_version`（計算ロジック自体の版数、手動で
-上げる）を派生データの系譜として書き込む。
-
-#### 停止要因の種別別カウント（`poi_counts`）
-
-`edge_attribute_counts`・`way_attribute_counts`は停止要因POIを集計キー別に数え、
-その内訳をjsonb1列（`poi_counts`）で持つ。キーの単一ソースは
-`domain/traffic.py: POI_COUNT_KINDS`で、材料（`poi_*_per_km`）もカバレッジ宣言もこの一覧
-から生成する——キーを増やすときに触るのは一覧とSQLのCASE式だけで、migration・ORM・材料の
-追加は要らない。
-
-集計キーは取込時の`kind`と1対1ではない。信号は`highway=traffic_signals`と
-`highway=crossing`＋`crossing=traffic_signals`の2通りで書かれるためどちらも`signal`へまとめ、
-信号を伴わない横断歩道だけが`crossing`、`give_way`は`stop`へ畳む。踏切は車道用
-（`level_crossing`）と歩道・自転車道用（`railway_crossing`）を`level_crossing`へ、車止め
-（`barrier`）と減速構造（`traffic_calming`）を`barrier`へまとめる——いずれも自転車から見て
-同じ止まり方で、重みを分ける根拠がまだ無い。分類は取込時ではなく
-**集計時**に`osm_raw_pois.tags`から導出するため、キーの切り方を変えてもPBF再取込は要らず
-本バッチの再実行だけで反映できる。
-
-**数え方は「その区間を走って実際に遭遇する停止の回数」へ近づける。** 線から一定距離内に
-ある点を素朴に数えると、走る道の上に無い点や、1つの信号交差点を描く複数ノードまで数えて
-しまう。次の3段で数える。
-
-1. **そのwayの構成ノードだけ**を数える（`osm_raw_pois.osm_node_id = ANY(osm_raw_ways.node_ids)`）。
-   距離だけで拾うと、交差する別の道に付いている信号・並行する歩道の横断歩道まで入る。
-   Edge単位ではさらに、wayが複数区間へ分割されるため「この区間の線上にあるノード」へ絞る。
-2. **区間の始点にあるノードを数えない**。交差点のノードは「入る区間」と「出る区間」の
-   両方が持つため、両方が数えると1回の停止が2回になる。止まるのは区間を走り終えるところ
-   なので到着側が持つ（`(始点, 終点]`）。有向Edgeのため逆向きの区間でも同じ規則が成り立つ。
-   Way単位は方向を持たないので`node_ids`の先頭を除く。
-3. **同じキーの点を`POI_CLUSTER_EPS_M`（40m）でまとめてから数える**
-   （`ST_ClusterDBSCAN`）。日本のOSMは1つの信号交差点を流入路ごと・横断歩道位置ごとの
-   複数ノードで描くため、ノードを素直に数えると停止回数を上回る。
-
-この数え方はEdgeのwayが`osm_raw_ways`に存在することを前提にする（Road Graphだけでは
-`node_ids`を引けない）。
-
-列はNULL可で、**NULLが「未集計」**、空のjsonbが「集計済みで0件」を意味する。0件のキーは
-省いて持つため、材料側は3つの状態を区別する——NULL（材料は欠損＝軸は算出不能）／空の
-jsonb（すべて0件）／キーが無い（そのキーだけ0件）。集計前を0件として読むと、全区間が
-「停止要因ゼロ＝最も易しい」と評価されてルート選択が静かに歪むため、この区別が要る
-（[評価・スコアリング](evaluation-scoring.md)「材料へ値を届ける」参照）。
-
-地図タイルはjsonbを持てないため、Way単位の値はキーごとの列（`poi_{kind}_per_km`）へ展開して
-焼き込む。列名は材料idと同じで、こちらも`POI_COUNT_KINDS`から生成する——地図表示ルールの
-自動導出（`domain/axis_display.py: derive_ramp_inputs`）が材料の`tile_property`を辿るため、
-名前が一致していれば軸を組むだけで地図の色分けが付く。
-
-### 通行方向の解決（`osm_adapter.py: _resolve_direction`）
-
-`osm_raw_ways.direction`は取込時に決まる。`oneway:bicycle`が`oneway`本体より優先し
-（自転車だけ逆走可という表現があるため）、どちらも無い・解釈できないときだけ`junction`を
-見る——環状交差点は構造として一方向にしか通れないのに、OSMは個々のwayへ`oneway`を
-付けない慣行がある。明示された`oneway=no`はこの推定より優先する。
+`oneway:bicycle`が`oneway`本体より優先し（自転車だけ逆走可という表現があるため）、
+どちらも無い・解釈できないときだけ`junction`を見る——環状交差点は構造として一方向にしか
+通れないのに、OSMは個々のwayへ`oneway`を付けない慣行がある。明示された`oneway=no`はこの
+推定より優先する。
 
 `oneway=reversible`/`alternating`（時間帯で向きが変わる）は両方向として扱う。時刻を持たない
-`direction`列では表せず、どちらか一方へ固定すると半分の時間帯で誤る。
+列では表せず、どちらか一方へ固定すると半分の時間帯で誤る。
 
-**この解決は取込時にしか走らない**。判定に使うタグを増やしても、増やす前に取り込んだ行の
-`direction`は変わらず、そのタグ自体も許可リストの外なら残っていない（PBF再取込が要る）。
+判定はPythonの1実装だけが持ち、結果を`way_materials.direction`へ置く。判定に使うタグを
+増やしたら派生を流し直せば反映される（生データはタグを全部持っているため取り直しは不要）。
 
-### 上下線が分かれた道の片側か（`way_divided_carriageway`・`precompute_way_divided_carriageway.py`）
+### 上下線が分かれた道の片側か（`way_materials.divided`）
 
 OSMは中央分離帯のある道路の上下線を別々のwayとして持ち、その一本ずつに`oneway=yes`を
-付ける。そのため`osm_raw_ways.direction`だけでは「一方通行規制の道」と「上下線が分かれた
-道の片側」を区別できず、一方通行レイヤーが後者まで塗る。このテーブルが後者を外すための
-判定を持つ。
+付ける。そのため`direction`だけでは「一方通行規制の道」と「上下線が分かれた道の片側」を
+区別できず、一方通行レイヤーが後者まで塗る。
 
-判定は3条件のORで、上から順に確からしい（SQLは`road_graph_repository.py`）。
+判定は3条件のORで、上から順に確からしい（しきい値は`domain/divided_carriageway.py`）。
 
 | 条件 | 何を根拠にしているか |
 |---|---|
 | `carriageway`タグが`dual`/`triple`/`2` | OSM自身の申告。確実だが付いているwayが少なく主軸にできない |
-| 同じ`ref`/`name`の対向一方通行が近くにある | 「この2本は同じ道路」というOSM側の明示。幹線はこれで足りる（一方通行wayの`ref`/`name`欠損が無いため） |
+| 同じ`ref`/`name`の対向一方通行が近くにある | 「この2本は同じ道路」というOSM側の明示。幹線はこれで足りる |
 | 全長にわたって対向する同種別の一方通行が寄り添う | 名前に依存しない。無名の上下線分離を拾う |
 
 3つ目の条件には落とし穴が2つある。**相方は1本とは限らない**——上下線は別々の位置で
@@ -257,28 +142,16 @@ OSMは中央分離帯のある道路の上下線を別々のwayとして持ち�
 （GiSTインデックスを使わせるための度単位の箱）は**距離の判定より必ず広く**取る——箱の方が
 狭いと、距離をいくつに設定しても箱が実効の上限になり、しきい値を変えても挙動が変わらない。
 
-行が無いのが「未判定」。読む側（タイル焼き込み）は安全側＝falseとして扱い、従来どおり
-`direction`だけで塗る。
+### 指定路線のマッチング（`way_materials.designation_<種別>`）
 
-### 派生データ再構築の単一エントリポイント（`refresh_derived.py`）
+国土数値情報のN10（緊急輸送道路）・N12（重要物流道路）は線データで、道との対応を
+バッファ内の交差長の割合で決める（判定式・バッファ幅は`domain/designation.py`が正準）。
+同じ道へ複数の指定路線が寄与しうるため、交差をまとめてから測る。列名は`designation_`＋
+種別名で、種別が増えても対応表は要らない。
 
-`presplit_road_graph.py`・`precompute_road_node_degrees.py`・
-`precompute_road_node_intersections.py`・
-`precompute_edge_attribute_counts.py`・`precompute_elevation_attributes.py`・
-`precompute_way_attribute_counts.py`・`match_designations.py`・
-`precompute_way_landcover.py`・`precompute_edge_landcover.py`・
-`precompute_way_divided_carriageway.py`（依存DAGは
-[docs/batch-pipeline-dependencies.md](../../batch-pipeline-dependencies.md)参照）を
-依存順に1コマンドで実行する薄いオーケストレーション。`app/batch/precompute_*.py`の
-ファイル一覧と登録済みの段（`_STAGES`）の突き合わせを`tests/test_refresh_derived.py`が
-行い、precomputeバッチを足したときの登録漏れ（そのバッチが埋める列だけ再構築されないまま
-完了ログが出る）を機械的に止める。各段は既存バッチの`run`/
-`run_match`/`run_default`関数をそのまま呼ぶだけで新しいロジックは持たず、いずれか1段が
-例外を送出するか非0の終了コードを返したら即座に停止し、後続を実行せずその終了コードを
-返す（disaster recovery手順はこのコマンドの終了コードで次工程へ進むかを判断する）。
-土地被覆の段だけはラスタファイルを要するため`--skip-landcover`で
-まとめてスキップできる。`import_pbf.py`・`import_accidents.py`・
-`import_designations.py`（生データ取込そのもの）は対象外。
+**N10とN12はファイル形式が異なる**（N10=JPGIS/GML、N12=素のGeoJSON）。ZIPの開き方は
+`source_adapters/_ksj_zip.py`が持ち、アダプタ本体は種別と都道府県の組み合わせを回すだけ。
+
 
 ### 派生データ鮮度台帳（`derived_data_freshness.py`・`derived_data_freshness_service.py`）
 
@@ -357,43 +230,31 @@ OSMは中央分離帯のある道路の上下線を別々のwayとして持ち�
 
 ### 路面タイルが1フィーチャーとして焼く単位（`EDGE_UNIT_MIN_ZOOM`）
 
-**区間が読めるズームでは区間（`road_edges`）、それより引いた表示ではway丸ごと
-（`osm_raw_ways`）**を1フィーチャーにする。境界の根拠は[T917](../../tasks/T917.md)の実測
+**区間が読めるズームでは区間（`road_edges`）、それより引いた表示ではway丸ごと**を
+1フィーチャーにする。境界の根拠は[T917](../../tasks/T917.md)の実測
 ——gzip後の費用は引くほど増える一方、引いた表示では交差点で切った区間が数pxにしかならず
 塗り分けても読めない。費用が跳ね上がるズームと、区間単位の情報量が消えるズームが一致する。
 
 どちらの単位でも識別子は`feature_key`という**同じ名前のプロパティ**で出す。フロントは
-`promoteId`でこれをfeature.idへ昇格させるだけでよく、中身がway_idかedge_idかを知らなくて
+`promoteId`でこれをfeature.idへ昇格させるだけでよく、中身がway_idか区間の鍵かを知らなくて
 よい（値の配信もタイル単位のため、そのズームの鍵で返せば噛み合う）。
 
-**暗黙の前提**: `road_edges`は同じ物理区間をforward/backwardの2行で持つ。そのまま焼くと
-同じ形状が二重に入るため、**wayと両端ノードの組**で1本へ寄せる——PostGISのジオメトリ
-正規化はLINESTRINGの向きを揃えないため形状では同一と判定できず、一方でノードの組だけだと
-同じノード対を共有する別々のwayまで潰れる。
+**暗黙の前提**: 値の配信側が別のソースから鍵を組み立てると、タイルと噛み合わず色が付かない。
+鍵の一覧も勾配も同じ`_TILE_FEATURE_SOURCE_SQL`から引くこと。
 
-**暗黙の前提**: 値の配信側が別の代表を選ぶと、鍵が噛み合わず色が付かない。タイルと同じ
-選び方（同じ`DISTINCT ON`）を使うこと。
-
-**暗黙の前提**: 区間を1本も持たないway（座標が判明しているノードが2点未満等、
-`domain/graph.py: build_road_graph`参照）は、区間単位のズームでもway丸ごとで出す。落とすと
-その道は引いた表示に出ているのに拡大すると消え、データが無いことよりも壊れて見える。
-実データでの件数は未計測（`benchmarks/bench_t917_edge_tile.py`が測る）。
+**暗黙の前提**: 区間を1本も持たないway（座標が判明しているノードが2点未満等）は、区間単位の
+ズームでもway丸ごとで出す。落とすとその道は引いた表示に出ているのに拡大すると消え、データが
+無いことよりも壊れて見える。
 
 ### RegionService（路面・POIタイル、区間インスペクタ）
 
-`repository`（`RoadGraphRepository`）を渡すと、要求タイルのz12祖先タイルが取得済み
-マーク（`road_graph_tiles`）されていれば、MVTエンコードまで含めてPostGIS側（ST_AsMVT）
-でタイルを丸ごと生成する。カバレッジ外・DB障害時、`repository`未接続時は空タイルを返す。
+`repository`（`RoadGraphRepository`）を渡すと、要求タイルが取込の宣言した範囲に入って
+いれば、MVTエンコードまで含めてPostGIS側（ST_AsMVT）でタイルを丸ごと生成する。範囲外・
+DB障害時、`repository`未接続時は空タイルを返す。
 
-- **カバレッジ内と分かった時点で、そのz12祖先タイルの道路グラフ（`road_nodes`/
-  `road_edges`）が未構築・古ければバックグラウンドで構築する**
-  （`_maybe_trigger_graph_build`）。応答自体は待たせず即座に返し、次回以降のアクセスから
-  反映される。地図を眺めるだけ（ルート生成を経ない）の利用でも道路グラフが構築される
-  ようにするための機構。実際の構築（`GraphService.get_or_build_graph_with_attributes`）
-  だけを`_graph_build_semaphore`（`config.py: graph_build_max_concurrent`）で絞り、安価な
-  鮮度確認（`is_split_up_to_date`）は絞らない——鮮度確認と実構築を別セッションに分けて
-  いるのは、1セッションを保持したままsemaphore待ちにすると密集した未構築エリアへの
-  一斉アクセスでDBコネクションプールが枯渇するため。
+- **カバレッジはマーカーの表ではなく取込の宣言から決まる**（`source_runs.profile`の
+  `target.bbox`）。道路網は取込・派生バッチが範囲全体ぶん先に作るため、タイル配信側に
+  「無ければ作る」経路は無い。
 - **タイル世代**: 焼き込むMVT生成SQLから導く**形の署名**（`ROAD_SURFACE_TILE_SHAPE`等、
   `infrastructure/cache_identity.py`）と、**DBの派生データ世代**（バッチが進める）の2つで
   決まる。配信する世代は`tile_version_service.py`が実行時に組み立て、
@@ -430,14 +291,13 @@ OSMは中央分離帯のある道路の上下線を別々のwayとして持ち�
 ### AccidentService（事故タイル）
 
 `repository`（`AccidentTileQuery`）を渡すとPostGIS側でMVTを生成する。road_surfaceと違い
-「取込範囲の一部だけ取得済み」という状態が無い（`import_accidents.py`が関東7都県を
-一括で入れる）ため、カバレッジ判定は行わない。`repository`未接続・DB障害時は空タイルを
-返す。
+「取込範囲の一部だけ取得済み」という状態が無い（取込が対象範囲を一括で入れる）ため、
+カバレッジ判定は行わない。`repository`未接続・DB障害時は空タイルを返す。
 
 ### 土地被覆ラスタタイル（`landcover_raster.py`・`landcover_tile_service.py`）
 
-`way_landcover`（道1本の周囲100mリングを8クラスの割合へ畳んだ値）とは別に、**元の
-GeoTIFFをそのまま面として配る**。割合の混合をどう塗るかという問題が起きない代わりに、
+道の周囲100mリングをクラス別の割合へ畳んだ値（`way_materials.lc_*`）とは別に、**元の
+ラスタをそのまま面として配る**。割合の混合をどう塗るかという問題が起きない代わりに、
 道路との対応は利用者が目で取る。
 
 - 描画（`landcover_raster.py`）: 要求されたタイルの範囲をラスタのCRSへ変換して読み、
@@ -475,10 +335,9 @@ tile_cache/`）で、パスをSHA-256でハッシュ化したフラットなフ�
 | `GET /api/region/accident-tiles/{z}/{x}/{y}.pbf`（`accidents.py`） | 事故のMVTタイル |
 
 MVTエンコードはPostGIS側（`ST_AsMVT`、`road_graph_repository.py`）で行う。タイル内の
-フィーチャーへ付帯情報（`way_attribute_counts`・`edge_attribute_counts`・
-`designation_attributes`）を結合するJOINは、主キー検索になる形（`designation_attributes`は
-`LEFT JOIN LATERAL`）を保つこと——
-相関の無い集約サブクエリだとテーブル全体の集約が毎タイルの固定コストになる。
+フィーチャーへ材料（`edge_materials`・`way_materials`）を結合するJOINは、**主キー検索に
+なる形**を保つこと——道の生データは`natural_key`（text）が主キーのため、`natural_key::bigint`
+で突き合わせると索引が使えず、道の全件に対する総当たりに落ちる（`ways_lookup_sql`）。
 
 **同時実行数制限**: 路面・POIタイルは`_region_tile_semaphore`
 （`settings.road_tile_max_concurrent`）を共有する（DB接続プール上限を超えないため専用
@@ -502,8 +361,8 @@ PBF取込時にしか変わらないため、再訪時の同一タイル再取�
 | `attributes.py` | `ElevationAttribute`/`EdgeAttributeCounts`等のモデルと標高計算（[elevation.md](elevation.md)が主に扱う） |
 | `designation.py` | 指定路線コンフレーション機構の正準定数（バッファ幅・マッチ閾値・対象kind） |
 | `accident.py` | 警察庁データ取込の純関数群（都道府県コード変換・当事者種別判定・度分秒座標変換） |
-| `traffic.py` | 停止要因POI・補給休憩POIの分類（`classify_stop_poi`/`classify_supply_poi`）、交差点判定の空間マッチ半径・次数しきい値、交差点の階級（`HIGHWAY_RANK`） |
-| `osm_adapter.py` | OSMタグ解釈（許可リストタグ・oneway方向解決等）。PBF取込・Overpassランタイム経路の両方が同じ意味論で解釈するための単一ソース |
+| `traffic.py` | OSMタグの解釈。停止要因POI・補給休憩POIの分類（`classify_stop_poi`/`classify_supply_poi`）、信号の判定（`is_traffic_signal`）、通行方向の解決（`resolve_direction`）、交差点判定の空間マッチ半径・次数しきい値、交差点の階級（`HIGHWAY_RANK`） |
+| `divided_carriageway.py` | 上下線が分かれた道の片側かを判定するしきい値 |
 
 `traffic.py: classify_stop_poi`は信号・横断歩道・一時停止・徐行（`highway=*`）・踏切
 （`railway=*`）・車止め（`barrier=*`）・減速構造（`traffic_calming=*`）を分類する。複数の
@@ -521,10 +380,8 @@ PBF取込時にしか変わらないため、再訪時の同一タイル再取�
 分からないものを「買えない」側へ寄せると本物の補給地点を大量に落とすため。
 判定に使う値の集合（`SUPPLY_VENDING_VALUES`）は計測スクリプトと共有する。
 
-`vending`は`osm_adapter.py: ALLOWED_NODE_TAGS`に含めて`osm_raw_pois.tags`へ残す。残さないと
-分け方を変えるたびにPBFを読み直すことになる。**分け方を変えたときの取り直しは
-`import_pbf.py --pois-only`で行う**——wayに触れないため、道路グラフの分割が全域で古くなって
-再構築が走ることを避けられる。
+`vending`を含むタグは生データがそのまま持つ（取込はタグを絞らない）。**分け方を変えたら
+派生を流し直すだけでよく、取り直しは要らない**。
 
 停止要因1回あたりの時間損失（秒）は`traffic.py: stop_seconds`が返す。値そのものは較正値の宣言
 （`domain/tuning.py`）が持ち、`services/road_graph_engine.py`の走行時間
@@ -539,21 +396,11 @@ PBF取込時にしか変わらないため、再訪時の同一タイル再取�
 
 ## 暗黙の前提
 
-- **PBF取込の`--bbox`はPBFファイルが実際にカバーする範囲の内側を指定する必要がある**
-  （PBFヘッダのbboxは抽出ポリゴンの外接矩形にすぎず、指定範囲がPBFの実カバー範囲を
-  超えると、データが存在しない領域を「取得済み」と誤マークする）。
-- **`precompute_way_attribute_counts.py`は`rebuild_raw_intersection_nodes`をバッチ内部で
-  先に実行するため、`precompute_road_node_degrees.py`（Edge単位版が依存する別バッチ、
-  [routing-engine.md](routing-engine.md)）とは独立した交差点情報源を持つ**——Way単位版
-  （地図タイル用）とEdge単位版（評価用）は「交差点」の生成元が異なる2つの派生データ
-  経路であり、片方の実行がもう片方の交差点データを更新するわけではない。
-- **事故・指定路線データはPBF取込の`road_graph_tiles`カバレッジと独立**——`accident_
-  points`・`route_designations`は関東7都県を一括投入するバッチのため、「取込範囲外」
-  という概念自体を持たない（road_surfaceタイルとはカバレッジ判定の有無が異なる）。
-- **`designation_attributes`は`osm_raw_ways`基準（road_edgesの遅延構築に依存しない）**
-  ——ルート生成履歴の無いエリアでも指定路線の地図表示・評価が機能する設計。
-- **`way_landcover`は「リング（道路周囲100m）を完全に含むラスタ」が1枚あるwayにしか
-  行を作らない**——複数ラスタにまたがるwayは、部分的に重なるラスタで割合を出すと
-  重なった側の土地被覆だけで100%を分け合う値になる。行が無い＝材料の欠損として扱い、
-  もっともらしい数値を書かない（ラスタ境界帯のwayを埋めるには、その帯を覆うラスタを
-  足して再実行する）。
+- **取込プロファイルのbboxは、元データが実際に覆う範囲の内側を指す必要がある**。
+  カバレッジ判定はこの宣言をそのまま使うため、元データの無い領域まで宣言すると
+  「取得済みなのに空」に見える。
+- **道の値と区間の値は同じ数え方から作る**——道の値は区間の値の集約で、別々に数えない。
+  片方だけ数え方を変えると、地図に出ている値と採点が使う値が別物になる。
+- **土地被覆は、リング（道路周囲100m）に落ちる画素が足りない区間では値を持たない**
+  （`lc_valid_pixels`だけ入り、割合はNULL）。ラスタが覆っていない場所でもっともらしい
+  数値を書かない。覆うラスタを足して派生を流し直せば値が付く。

@@ -25,7 +25,6 @@ from app.infrastructure.basemap_client import BasemapClient
 from app.infrastructure.gsi_tile_client import GsiTileClient
 from app.infrastructure.database import get_route_generation_session_factory, get_session_factory
 from app.infrastructure.debug_log import record_rate_limit_rejection
-from app.infrastructure.elevation_client import ElevationClient
 from app.infrastructure.http_client import get_http_client
 from app.infrastructure.jma_tile_client import JmaTileClient
 from app.infrastructure.db_status import DbStatusQuery
@@ -35,7 +34,6 @@ from app.infrastructure.rate_limiter import check_rate_limit
 from app.infrastructure.road_graph_repository import RoadGraphRepository
 from app.services.accident_service import AccidentService
 from app.services.axis_registry_service import AxisRegistryAdminService
-from app.services.elevation_attribute_service import ElevationAttributeService
 from app.services.evaluation_service import load_route_preference
 from app.services.graph_service import GraphService
 from app.services.region_service import RegionService
@@ -147,22 +145,8 @@ async def get_graph_service():
         yield GraphService(repository=RoadGraphRepository(session))
 
 
-async def get_elevation_attribute_service():
-    # Road GraphのEdge形状点ごとに問い合わせるため、リクエスト単位でコネクションを使い回す。
-    # road_graph_use_repository有効時はEdge単位の標高キャッシュ（PostGIS）を注入する
-    # （GraphService側とは別セッション。各操作が独立にcommitするため同居させる必要は無い）。
-    # get_graph_serviceと同じ理由でget_route_generation_session_factory()を使う。
-    http_client = get_http_client(10.0)
-    if settings.road_graph_use_repository:
-        async with get_route_generation_session_factory()() as session:
-            yield ElevationAttributeService(ElevationClient(), http_client, repository=RoadGraphRepository(session))
-    else:
-        yield ElevationAttributeService(ElevationClient(), http_client)
-
-
 def _assemble_route_generation_setup(
     graph_service: GraphService,
-    elevation_attribute_service: ElevationAttributeService,
     weather_service: WeatherService,
     preference_override: RoutePreference | None = None,
     penalty_strength: float | None = None,
@@ -184,7 +168,6 @@ def _assemble_route_generation_setup(
     resolved_penalty_strength = resolve_penalty_strength(penalty_strength)
     engine = RoadGraphEngine(
         graph_service,
-        elevation_attribute_service,
         weather_service,
         preference,
         resolved_penalty_strength,
@@ -221,18 +204,15 @@ async def open_route_generation_setup(
     失敗する（`graph_service.py: _warm_tile_cache_background`が同じ理由で新規セッションを
     開いているのと同じ制約）。
 
-    DB接続を要する2つの依存（`get_graph_service`/`get_elevation_attribute_service`）は、
-    既存のDI用ジェネレータ関数をそのまま`asynccontextmanager()`でラップして
+    DB接続を要する依存（`get_graph_service`）は、既存のDI用ジェネレータ関数を
+    そのまま`asynccontextmanager()`でラップして
     `AsyncExitStack`で開く（セッション開閉ロジックを複製しない）。
     """
     async with AsyncExitStack() as stack:
         weather_service = get_weather_service()
         graph_service = await stack.enter_async_context(asynccontextmanager(get_graph_service)())
-        elevation_attribute_service = await stack.enter_async_context(
-            asynccontextmanager(get_elevation_attribute_service)()
-        )
         yield _assemble_route_generation_setup(
-            graph_service, elevation_attribute_service, weather_service,
+            graph_service, weather_service,
             preference_override, penalty_strength,
             max_average_grade_percent, hard_filters_override, assumed_speed_kmh, lens_axis_id,
         )
@@ -243,7 +223,6 @@ PreviewBuilder = Callable[[Coordinates, Coordinates, float], Awaitable[RouteSegm
 
 def get_preview_builder(
     graph_service: GraphService = Depends(get_graph_service),
-    elevation_attribute_service: ElevationAttributeService = Depends(get_elevation_attribute_service),
     weather_service: WeatherService = Depends(get_weather_service),
 ) -> PreviewBuilder:
     """`/api/routes/preview`（単一区間確認）向けのビルダー。
@@ -259,8 +238,7 @@ def get_preview_builder(
         preference = load_route_preference()
         engine = RoadGraphEngine(
             graph_service,
-            elevation_attribute_service,
-            weather_service,
+                weather_service,
             preference,
             assumed_speed_kmh=assumed_speed_kmh,
         )
