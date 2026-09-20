@@ -1,10 +1,10 @@
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, fields
 from datetime import datetime, timezone
 from typing import Mapping
 
 import numpy as np
 
-from app.domain.geo import haversine_distance_km
+from app.domain.geo import LatLon, haversine_distance_km
 from app.domain.graph import RoadGraph, RoadGraphLike
 from app.domain.material_sql import MATERIAL_ID_GRADIENT_PERCENT
 from app.domain.route import Coordinates
@@ -133,14 +133,25 @@ def _now_iso() -> str:
 MAX_PLAUSIBLE_AVERAGE_GRADE_PERCENT = 40.0
 
 
-def compute_elevation_attribute(
-    edge_id: str,
-    points: list[Coordinates],
+@dataclass(frozen=True, slots=True)
+class ElevationValues:
+    """形状点列と標高から求まる値だけの組。どの単位（Edge・区間）に付けるかを持たない。"""
+
+    start_elevation_m: float | None = None
+    end_elevation_m: float | None = None
+    elevation_gain_m: float | None = None
+    elevation_loss_m: float | None = None
+    average_grade: float | None = None
+    max_grade: float | None = None
+    min_grade: float | None = None
+
+
+def compute_elevation_values(
+    points: list[LatLon],
     elevations: list[float | None],
-    data_source: str,
     dem_reflects_road_surface: bool = True,
-) -> ElevationAttribute:
-    """Edgeの形状点列とそれぞれの標高値からElevationAttributeを算出する。
+) -> ElevationValues:
+    """形状点列とそれぞれの標高値から、勾配まわりの値を算出する。
 
     標高が取得できなかった点（None）は除外して評価する。除外後に隣り合う2点（`valid`上で
     連続）でも、元の点列では間に欠損点を挟んでいる場合がある。そのまま隣接扱いすると、
@@ -157,7 +168,7 @@ def compute_elevation_attribute(
     """
     valid = [(i, p, e) for i, (p, e) in enumerate(zip(points, elevations)) if e is not None]
     if len(valid) < 2:
-        return ElevationAttribute(edge_id=edge_id, data_source=data_source, calculated_at=_now_iso())
+        return ElevationValues()
 
     gain = 0.0
     loss = 0.0
@@ -191,8 +202,7 @@ def compute_elevation_attribute(
     if not dem_reflects_road_surface:
         average_grade = None
 
-    return ElevationAttribute(
-        edge_id=edge_id,
+    return ElevationValues(
         start_elevation_m=round(start_elevation, 1),
         end_elevation_m=round(end_elevation, 1),
         elevation_gain_m=round(gain, 1),
@@ -200,6 +210,21 @@ def compute_elevation_attribute(
         average_grade=round(average_grade, 2) if average_grade is not None else None,
         max_grade=round(max_grade, 2) if max_grade is not None else None,
         min_grade=round(min_grade, 2) if min_grade is not None else None,
+    )
+
+
+def compute_elevation_attribute(
+    edge_id: str,
+    points: list[Coordinates],
+    elevations: list[float | None],
+    data_source: str,
+    dem_reflects_road_surface: bool = True,
+) -> ElevationAttribute:
+    """`compute_elevation_values`の結果を、Edge単位の行の形へ載せる。"""
+    values = compute_elevation_values(points, elevations, dem_reflects_road_surface)
+    return ElevationAttribute(
+        edge_id=edge_id,
+        **{f.name: getattr(values, f.name) for f in fields(values)},
         data_source=data_source,
         calculated_at=_now_iso(),
     )
