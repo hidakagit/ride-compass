@@ -10,8 +10,10 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends libexpat1 \
     && rm -rf /var/lib/apt/lists/*
 
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+# バッチ用の依存も入れる。取込・派生は本番のコンテナの中で動くため、webの応答経路が
+# 読まないからといって外すと、DBを立ち上げ直すときにimportで落ちる。
+COPY requirements.txt requirements-batch.txt ./
+RUN pip install --no-cache-dir -r requirements-batch.txt
 
 COPY app ./app
 # scripts: デプロイが起動前に実行する運用スクリプト（土地被覆ラスタの取得等）を同梱する。

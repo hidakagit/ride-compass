@@ -121,6 +121,8 @@ async def derive_elevation(conn: asyncpg.Connection) -> int:
         "SELECT DISTINCT (attrs->>'z')::int FROM source_features WHERE source = 'dem'")
     await conn.execute(_VERTICES, zoom)
     await conn.execute("ANALYZE _vertex")
+    logger.info("標高: 頂点 %d点の番地を出した。画素を引く",
+                await conn.fetchval("SELECT count(*) FROM _vertex"))
     updated = int((await conn.execute(_UPDATE_ELEVATION)).split()[-1])
     await conn.execute("DROP TABLE _vertex")
 
@@ -183,6 +185,8 @@ async def derive_landcover(conn: asyncpg.Connection) -> int:
     await conn.execute(_BUILD_RINGS, LANDCOVER_RING_M, LANDCOVER_INNER_M)
     await conn.execute("CREATE INDEX ON _rings USING GIST (ring4326)")
     await conn.execute("ANALYZE _rings")
+    logger.info("土地被覆: 帯 %d本を作った。重なる画素を数える",
+                await conn.fetchval("SELECT count(*) FROM _rings"))
     updated = int((await conn.execute(_update_landcover_sql())).split()[-1])
 
     edges = await conn.fetchval("SELECT count(*) FROM road_edges")

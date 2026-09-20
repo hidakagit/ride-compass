@@ -20,6 +20,7 @@ from typing import Any
 
 import asyncpg
 
+from app.batch._common import PROGRESS_INTERVAL_SECONDS, format_progress
 from app.batch.source_profile import SourceProfile, SourceSpec, Target
 
 logger = logging.getLogger("ridecompass.ingest")
@@ -147,8 +148,18 @@ async def ingest_source(
                        "ON COMMIT DROP")
 
     written = 0
+    last_report = started
     batch: list[tuple[str, bytes, str, bytes | None, bytes | None]] = []
+    seen = 0
     async for record in adapter(spec, profile):
+        # 読んだ数で出す。`written`はCOPYを流したときしか増えないので、1回で収まる量の
+        # ソースでは最後まで0のままになり、進捗が止まって見える。
+        seen += 1
+        now = time.perf_counter()
+        if now - last_report >= PROGRESS_INTERVAL_SECONDS:
+            last_report = now
+            logger.info("取込中 source=%s %s", spec.name,
+                        format_progress(seen, None, now - started))
         batch.append((record.natural_key, record.geom_wkb, _json(record.attrs),
                       record.payload, record.rast))
         if len(batch) >= COPY_CHUNK:
@@ -173,6 +184,10 @@ async def ingest_source(
         f'FROM "{staging}"',
         spec.name, run_id,
     )
+    # 入れ替えた直後に統計を作る。autovacuumは行数がしきい値（既定50）に満たない表を
+    # 永久に拾わないため、タイルのように枚数の少ないソースは自動では統計を持てない。
+    # 統計の無い表を派生が読むと、実行計画が桁で外れる。
+    await conn.execute(f'ANALYZE "{partition_table_name(spec.name)}"')
 
     elapsed = time.perf_counter() - started
     await _close_run(conn, run_id, "succeeded",

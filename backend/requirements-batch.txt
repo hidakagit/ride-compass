@@ -1,6 +1,6 @@
-# PBF取込バッチ（app/batch/import_pbf.py）・土地被覆バッチ（app/batch/
-# precompute_way_landcover.py）専用の追加依存。Renderのwebサービスには不要のため
-# requirements.txtとは分離している（バッチはデプロイ対象外。docs/osm-pbf-import.md参照）。
+# 取込バッチ（app/batch/source_adapters/）だけが使う追加依存。
+# webの応答経路は読まないため分けてあるが、**イメージには入れる**——バッチは本番の
+# コンテナの中で動く（DBを立ち上げ直すのも、外部ソースを取り込むのもそこ）。
 -r requirements.txt
 osmium==4.1.1
 pyproj==3.7.2

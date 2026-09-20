@@ -188,10 +188,13 @@ async def read_osm_nodes(spec: SourceSpec, profile: SourceProfile) -> AsyncItera
     """
     from app.batch.pbf_source import stream_ways
 
-    path = _pbf_path(spec)
     bbox = profile.target.bbox
     referenced_by = spec.rows.get("referenced_by")
-    matches = _way_matcher(profile.source(referenced_by).rows) if referenced_by else (lambda _: True)
+    # 参照先からは**どのwayを採るかと、どのファイルから採るか**の両方を受け継ぐ。
+    # 片方だけ受け継ぐと、既定以外のPBFを指したプロファイルで頂点だけ別のファイルを読む。
+    source_spec = profile.source(referenced_by) if referenced_by else spec
+    path = _pbf_path(source_spec)
+    matches = _way_matcher(source_spec.rows) if referenced_by else (lambda _: True)
     logger.info("OSM node: %s（%s の頂点）", path.name, referenced_by or "全way")
 
     def work(handoff: _Handoff) -> None:

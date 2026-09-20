@@ -3,47 +3,40 @@
 **タイル1枚を1行**として返す。これで面のデータが点・線と同じ骨格に乗り、取込の経路を
 分けずに済む。
 
+**配信元は叩かない。**取りに行くのは`scripts/fetch_dem_tiles.py`の仕事で、ここは
+`app/batch/dem_tile_store.py`が指す置き場にあるものを読む——取込のトランザクションの
+中でHTTPを叩くと、関東全域（z15で約6万枚）では外部の一時的な失敗ひとつで全部が
+やり直しになる。OSMの`.pbf`・土地被覆のGeoTIFFと同じく、取込はローカルのファイルを
+読むだけにする。
+
 標高をint32（0.01m単位）で並べ、`raster`として持つ。配信元はテキストで返すが、同じ
 内容が数倍の大きさになるため詰める。位置・画素の大きさ・型・欠測値は`raster`の値自身が
 持つので、読み手は`attrs`から形を組み立てない。
 
 ズームは元データの分解能から決める——プロファイルが`zoom`を持ち、実装は持たない。
-配信元がそれ以上を持たない（z16以降は404）ことは確認済み。
 """
 
-import asyncio
 import logging
 import struct
 from collections.abc import AsyncIterator
 
-import httpx
 import shapely
 from shapely.geometry import box
 
+from app.batch.dem_tile_store import PRODUCT_PRIORITY, TILE_ROOT, read_tile, stored_product
 from app.batch.ingest import SourceRecord, register_adapter
 from app.batch.source_adapters._raster_wkb import tile_raster_wkb
 from app.batch.source_profile import SourceProfile, SourceSpec
 from app.domain.region import BoundingBox, tiles_covering_bbox
+
 logger = logging.getLogger("ridecompass.ingest.gsi_dem_tile")
 
-#: 配信元のタイルURLと、1枚の一辺の画素数。
-#: 出典: https://maps.gsi.go.jp/development/demtile.html
-DEM_TILE_URL = "https://cyberjapandata.gsi.go.jp/xyz/{type}/{z}/{x}/{y}.txt"
+#: 1枚の一辺の画素数。出典: https://maps.gsi.go.jp/development/demtile.html
 DEM_TILE_SIZE = 256
 
 #: 欠測を表す文字。「標高値が存在しない画素には「e」の文字が格納されている。」
 #: 出典: https://maps.gsi.go.jp/development/demtile.html
 DEM_MISSING_MARKER = "e"
-
-#: 製品を計測精度の良い順に並べたもの。「航空レーザ測量（DEM1A）のデータが存在しない
-#: 箇所では、航空レーザ測量（DEM5A）→写真測量（DEM5B, DEM5C）→1/2.5万地形図等高線
-#: （DEM10B）の順で存在する最も計測精度の良い標高タイルの値が参照され、その地点の
-#: 標高値として採用されます。」
-#: 出典: https://maps.gsi.go.jp/development/hyokochi.html
-DEM_TYPE_PRIORITY = ("dem5a", "dem5b", "dem5c", "dem")
-
-#: 上流への同時接続数。配信元へ並べてよい数の上限。
-MAX_CONCURRENT = 8
 
 #: 詰めるときの尺度と欠測値。地理院の標高タイル（テキスト形式）は「標高データは小数点
 #: 第二位までデータとして入っている（単位はm）」ため、0.01m単位で丸めずに保つ。
@@ -53,8 +46,6 @@ MAX_CONCURRENT = 8
 #: int16（上限32,767＝3,276.7m）に収まらない。
 SCALE = 100
 NODATA = -2147483648
-
-REQUEST_TIMEOUT = httpx.Timeout(connect=5.0, read=30.0, write=10.0, pool=10.0)
 
 
 def _pack(text: str) -> tuple[bytes, int]:
@@ -92,27 +83,10 @@ def _tile_bounds(z: int, x: int, y: int) -> tuple[float, float, float, float]:
     return lon(x), lat(y + 1), lon(x + 1), lat(y)
 
 
-async def _fetch_one(client: httpx.AsyncClient, product: str, z: int, x: int, y: int
-                     ) -> tuple[str, str] | None:
-    """整備区域内なら(実際に当たった製品, 本文)。区域外はNone。
-
-    製品は粗い側へ落ちていく（配信元が細かい製品を全域では持たないため）。
-    """
-    order = [product] + [p for p in DEM_TYPE_PRIORITY if p != product]
-    for candidate in order:
-        url = DEM_TILE_URL.format(type=candidate, z=z, x=x, y=y)
-        response = await client.get(url, timeout=REQUEST_TIMEOUT)
-        if response.status_code == 200:
-            return candidate, response.text
-        if response.status_code != 404:
-            response.raise_for_status()
-    return None
-
-
 @register_adapter("gsi_dem_tile")
 async def read_gsi_dem_tiles(spec: SourceSpec, profile: SourceProfile) -> AsyncIterator[SourceRecord]:
     target = profile.target
-    product = str(spec.grid.get("product", DEM_TYPE_PRIORITY[0]))
+    product = str(spec.grid.get("product", PRODUCT_PRIORITY[0]))
     zoom = int(spec.grid["zoom"])
     min_lat, min_lon, max_lat, max_lon = target.bbox
     tiles = tiles_covering_bbox(
@@ -120,39 +94,33 @@ async def read_gsi_dem_tiles(spec: SourceSpec, profile: SourceProfile) -> AsyncI
                     max_latitude=max_lat, max_longitude=max_lon),
         zoom,
     )
-    logger.info("標高タイル: product=%s zoom=%d 対象%d枚", product, zoom, len(tiles))
+    logger.info("標高タイル: product=%s zoom=%d 対象%d枚 / 置き場 %s",
+                product, zoom, len(tiles), TILE_ROOT)
 
-    semaphore = asyncio.Semaphore(MAX_CONCURRENT)
-    outside = 0
+    absent = 0
+    for x, y in tiles:
+        # 写したときに当たった製品で読む。指定と違っていても、粗い側へ落ちた結果である。
+        actual_product = stored_product(TILE_ROOT, zoom, x, y)
+        if actual_product is None:
+            absent += 1
+            continue
+        pixels, missing = _pack(read_tile(TILE_ROOT, actual_product, zoom, x, y))
+        yield SourceRecord(
+            natural_key=f"{actual_product}/{zoom}/{x}/{y}",
+            geom_wkb=shapely.to_wkb(box(*_tile_bounds(zoom, x, y))),
+            # 型・欠測値・位置はrasterの値自身が持つため書かない。尺度（0.01m単位）は
+            # rasterが持てず、幅は画素の番地を出すのに要る——rasterから読むと、その
+            # たびにタイルの画素が実体化される。
+            attrs={
+                "product": actual_product, "z": zoom, "x": x, "y": y,
+                "width": DEM_TILE_SIZE, "scale": SCALE, "missing": missing,
+            },
+            rast=tile_raster_wkb(
+                pixels, zoom=zoom, x=x, y=y,
+                width=DEM_TILE_SIZE, height=DEM_TILE_SIZE,
+                dtype="int32_le", nodata=NODATA),
+        )
 
-    async with httpx.AsyncClient() as client:
-        async def fetch(xy: tuple[int, int]):
-            async with semaphore:
-                return xy, await _fetch_one(client, product, zoom, xy[0], xy[1])
-
-        for start in range(0, len(tiles), MAX_CONCURRENT * 8):
-            chunk = tiles[start:start + MAX_CONCURRENT * 8]
-            for coro in asyncio.as_completed([fetch(xy) for xy in chunk]):
-                (x, y), result = await coro
-                if result is None:
-                    outside += 1
-                    continue
-                actual_product, text = result
-                pixels, missing = _pack(text)
-                yield SourceRecord(
-                    natural_key=f"{actual_product}/{zoom}/{x}/{y}",
-                    geom_wkb=shapely.to_wkb(box(*_tile_bounds(zoom, x, y))),
-                    # 型・欠測値・位置はrasterの値自身が持つため書かない。尺度
-                    # （0.01m単位）はrasterが持てず、幅は画素の番地を出すのに要る
-                    # ——rasterから読むと、そのたびにタイルの画素が実体化される。
-                    attrs={
-                        "product": actual_product, "z": zoom, "x": x, "y": y,
-                        "width": DEM_TILE_SIZE, "scale": SCALE, "missing": missing,
-                    },
-                    rast=tile_raster_wkb(
-                        pixels, zoom=zoom, x=x, y=y,
-                        width=DEM_TILE_SIZE, height=DEM_TILE_SIZE,
-                        dtype="int32_le", nodata=NODATA),
-                )
-    if outside:
-        logger.info("整備区域外で取得できなかったタイル: %d枚", outside)
+    if absent:
+        # 区域外か、まだ写していないか。どちらなのかは置き場の印が持つ。
+        logger.info("手元に無い標高タイル: %d枚（scripts/fetch_dem_tiles.py が写す）", absent)

@@ -1183,12 +1183,14 @@ DB未接続・テーブル未migration・0行（＝migration未適用）・未�
 ログを出して既定値のまま動き続ける設計は、検知が起動ログの目視だけに依存し、同種の障害が
 次に起きても気づかれないまま放置される。
 
-デプロイは`docker build`直後・旧コンテナ停止前にmigrationを適用する
-（`.github/workflows/deploy-backend.yml`が`scripts/apply_migrations.py`を実行し、
-`backend/Dockerfile`が`migrations/`・`scripts/`をイメージへ同梱する）——順序を崩すと、
-migration未適用のまま新コンテナが起動を試みてクラッシュループする。
+スキーマは積み上げ式のmigrationを持たない。ORMの宣言から`create_tables()`が作り、
+実DBとの差は`backend/scripts/schema_gap.py`が測る。まっさらなDBを使える状態まで
+立ち上げる順（スキーマ→取込→派生）は`backend/scripts/bootstrap_database.py`だけが持つ。
+`backend/Dockerfile`は`scripts/`と、取込バッチが使う依存（`requirements-batch.txt`）を
+イメージへ同梱する——バッチは本番のコンテナの中で動くため、webの応答経路が読まない
+依存でも入れておかないとDBを立ち上げ直せない。
 
-**旧コンテナを止める前に済ませる**という同じ考え方が、その後に足したステップにも効いている
+**失敗しうるものは旧コンテナを止める前に済ませる**
 ——新イメージが実際にimportできるかの起動確認と、コンテナへマウントするラスタの取得である。
 どちらも「旧コンテナが動いているうちに失敗する」位置に置いてあり、失敗しても稼働中の本番は
 止まらない（起動確認が無かったときは、共有ライブラリを1つ入れ忘れたイメージがそのまま

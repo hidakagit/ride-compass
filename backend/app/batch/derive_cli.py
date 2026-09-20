@@ -29,7 +29,11 @@ from app.batch import (  # noqa: E402
     derive_topology,
     derive_way_materials,
 )
-from app.batch._common import asyncpg_dsn, with_derived_data_revision_bump  # noqa: E402
+from app.batch._common import (  # noqa: E402
+    asyncpg_dsn,
+    format_duration,
+    with_derived_data_revision_bump,
+)
 from app.config import settings  # noqa: E402
 
 logger = logging.getLogger("ridecompass.derive_cli")
@@ -50,14 +54,17 @@ async def run(database_url: str, start_from: str | None) -> int:
     conn = await asyncpg.connect(asyncpg_dsn(database_url))
     started = time.perf_counter()
     try:
-        for name, stage in STAGES[begin:]:
+        for index, (name, stage) in enumerate(STAGES[begin:], start=1):
             stage_started = time.perf_counter()
+            # 始まりを出す。長い段が無音だと、動いているのか止まっているのか分からない。
+            logger.info("段 %s を開始（%d/%d）", name, index, len(STAGES) - begin)
             await stage(conn)
-            logger.info("段 %s 完了 / %.1f秒", name, time.perf_counter() - stage_started)
+            logger.info("段 %s 完了 / %s", name,
+                        format_duration(time.perf_counter() - stage_started))
     finally:
         await conn.close()
-    logger.info("派生を作り直した: %s / %.1f秒",
-                "→".join(names[begin:]), time.perf_counter() - started)
+    logger.info("派生を作り直した: %s / %s",
+                "→".join(names[begin:]), format_duration(time.perf_counter() - started))
     return 0
 
 

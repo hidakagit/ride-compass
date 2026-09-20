@@ -191,6 +191,7 @@ async def derive(conn: asyncpg.Connection) -> None:
         await conn.execute(_EDGE_ACCIDENTS, ACCIDENT_FATAL_WEIGHT, degrees)
         await conn.execute(_EDGE_ACCIDENT_ZERO)
         await conn.execute(_WAY_FROM_EDGES)
+        await conn.execute("ANALYZE way_materials")
 
     logger.info("数の値を埋めた: まとめ後の停止要因 %d点 / %.1f秒",
                 clustered, time.perf_counter() - started)

@@ -127,3 +127,29 @@ async def download_to_path(
         label, context, dest.stat().st_size / 1_000_000, time.perf_counter() - started,
     )
     return dest
+
+
+#: 進捗を出す間隔（秒）。件数ごとに出すと、関東全域では行数が多すぎて読めない。
+PROGRESS_INTERVAL_SECONDS = 15.0
+
+
+def format_duration(seconds: float) -> str:
+    minutes, second = divmod(int(seconds), 60)
+    hour, minute = divmod(minutes, 60)
+    return f"{hour}時間{minute:02d}分" if hour else f"{minute}分{second:02d}秒"
+
+
+def format_progress(done: int, total: int | None, elapsed: float, unit: str = "件") -> str:
+    """済んだ数・速さ・残りの見込み。**残りは実測の速さから出す**。
+
+    `total`がNoneのとき（流しながら読むソースのように、全体数が終わるまで分からない
+    とき）は残りを出さない——分からないものを推測で埋めると、読み手が当てにする。
+    """
+    rate = done / elapsed if elapsed > 0 else 0.0
+    line = f"{done:,}{unit} / 経過 {format_duration(elapsed)} / {rate:.1f}{unit}/秒"
+    if total:
+        remaining = (total - done) / rate if rate > 0 else 0.0
+        line = (f"{done:,}/{total:,}{unit}（{done / total * 100:.1f}%）"
+                f" / 経過 {format_duration(elapsed)} / {rate:.1f}{unit}/秒"
+                f" / 残り およそ {format_duration(remaining)}")
+    return line

@@ -162,7 +162,10 @@ async def derive(conn: asyncpg.Connection) -> tuple[int, int]:
         await conn.execute(_DECODE_WAYS)
         ways = await conn.fetchval("SELECT count(*) FROM _way")
         await conn.execute("ANALYZE _way")
+        logger.info("道 %d本を読んだ。区間へ切る", ways)
         await conn.execute(_SEGMENTS)
+        logger.info("切り終えた: 区間の候補 %d本。表へ入れる",
+                    await conn.fetchval("SELECT count(*) FROM _seg"))
 
         unusable = await conn.fetchrow(_COUNT_UNUSABLE)
         if any(unusable.values()):
@@ -180,6 +183,10 @@ async def derive(conn: asyncpg.Connection) -> tuple[int, int]:
         nodes = await conn.execute(_INSERT_NODES, run_id)
         edges = await conn.execute(_INSERT_EDGES, run_id)
         await conn.execute(_INSERT_EDGE_MATERIALS)
+        # 後ろの段はこの3表を読む。autovacuumは既定60秒周期の背景処理で、派生は5段を
+        # 数秒で走り切るため、統計が付くのを待てない。無いまま読まれると実行計画が
+        # 桁で外れる。
+        await conn.execute("ANALYZE road_edges, node_materials, edge_materials")
 
     edge_count = int(edges.split()[-1])
     node_count = int(nodes.split()[-1])
