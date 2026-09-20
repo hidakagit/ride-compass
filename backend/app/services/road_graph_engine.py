@@ -1025,7 +1025,9 @@ class RoadGraphEngine:
 
         # prepareと同じレイジー取得（prepareがlean=Trueで読み込んだ
         # search.graphのEdgeはgeometryが空プレースホルダのため、この経路ぶんだけ取得し直す）。
-        hydrated = await self._graph_service.get_edges_with_geometry(edge_ids)
+        # 渡すのはidではなく枝そのもの——取り直しは道と区間の番号で引くため。
+        hydrated = await self._graph_service.get_edges_with_geometry(
+            [search.graph.edges[edge_id] for edge_id in edge_ids if edge_id in search.graph.edges])
         edges_in_path: list[LeanEdge] = [hydrated.get(edge_id) or search.graph.edges[edge_id] for edge_id in edge_ids]
 
         distance_km = round(sum(edge.distance_m for edge in edges_in_path) / 1000, 2)
@@ -1819,7 +1821,8 @@ class RoadGraphEngine:
         # ため、その場合にKeyErrorで落とさずcontext.graph側の値（geometryは空
         # プレースホルダのまま）へ倒す防御的フォールバック。
         all_edge_ids = list(dict.fromkeys(edge_id for t in traced for edge_id in t.data))
-        hydrated = await self._graph_service.get_edges_with_geometry(all_edge_ids)
+        hydrated = await self._graph_service.get_edges_with_geometry(
+            [context.graph.edges[edge_id] for edge_id in all_edge_ids if edge_id in context.graph.edges])
         edges_by_candidate: list[list[LeanEdge]] = [
             [hydrated.get(edge_id) or context.graph.edges[edge_id] for edge_id in t.data] for t in traced
         ]
