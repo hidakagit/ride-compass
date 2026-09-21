@@ -1,6 +1,16 @@
+"""`domain/region.py`——矩形とXYZタイルの相互変換。
+
+タイルの配信そのもの（ズーム範囲の拒否・中身の組み立て）は`test_region_routes.py`が持つ。
+"""
+
+import math
+
 import pytest
 
 from app.domain.region import (
+    ROAD_GRAPH_TILE_ZOOM,
+    ROAD_TILE_MAX_ZOOM,
+    ROAD_TILE_MIN_ZOOM,
     BoundingBox,
     parse_bbox,
     tile_ancestor,
@@ -8,119 +18,215 @@ from app.domain.region import (
     tiles_covering_bbox,
 )
 
-
-def test_tile_bounds_lonlat_covers_whole_world_at_zoom_0():
-    bbox = tile_bounds_lonlat(0, 0, 0)
-
-    assert bbox.min_longitude == pytest.approx(-180.0)
-    assert bbox.max_longitude == pytest.approx(180.0)
-    assert bbox.max_latitude == pytest.approx(85.0511, abs=1e-3)
-    assert bbox.min_latitude == pytest.approx(-85.0511, abs=1e-3)
-
-
-def test_tile_bounds_lonlat_contains_the_point_it_was_computed_for():
-    # 王子駅付近を含むタイル（z14）。tile x/yはWeb Mercatorの標準式で算出したもの。
-    bbox = tile_bounds_lonlat(14, 14551, 6447)
-
-    assert bbox.min_latitude < 35.7597 < bbox.max_latitude
-    assert bbox.min_longitude < 139.7387 < bbox.max_longitude
-
-
-def test_tile_bounds_lonlat_adjacent_tiles_share_a_boundary():
-    left = tile_bounds_lonlat(10, 100, 200)
-    right = tile_bounds_lonlat(10, 101, 200)
-
-    assert left.max_longitude == pytest.approx(right.min_longitude)
-
-
-def test_tiles_covering_bbox_returns_single_tile_when_bbox_fits_inside_it():
-    z, x, y = 12, 3637, 1612
-    bbox = tile_bounds_lonlat(z, x, y)
-    eps = 1e-6  # 境界ちょうどだと浮動小数点誤差で隣タイルへこぼれうるため少し内側にずらす
-    inset = BoundingBox(
-        min_latitude=bbox.min_latitude + eps,
-        min_longitude=bbox.min_longitude + eps,
-        max_latitude=bbox.max_latitude - eps,
-        max_longitude=bbox.max_longitude - eps,
-    )
-
-    assert tiles_covering_bbox(inset, z) == [(x, y)]
-
-
-def test_tiles_covering_bbox_returns_all_tiles_when_bbox_spans_multiple():
-    z, x, y = 12, 3637, 1612
-    tile_a = tile_bounds_lonlat(z, x, y)
-    tile_d = tile_bounds_lonlat(z, x + 1, y + 1)
-    # tile_aの中心からtile_dの中心まで広がるbboxは、(x,y),(x+1,y),(x,y+1),(x+1,y+1)の
-    # 4タイルにまたがる。
-    spanning = BoundingBox(
-        min_latitude=tile_d.min_latitude + (tile_d.max_latitude - tile_d.min_latitude) / 2,
-        min_longitude=tile_a.min_longitude + (tile_a.max_longitude - tile_a.min_longitude) / 2,
-        max_latitude=tile_a.min_latitude + (tile_a.max_latitude - tile_a.min_latitude) / 2,
-        max_longitude=tile_d.min_longitude + (tile_d.max_longitude - tile_d.min_longitude) / 2,
-    )
-
-    result = sorted(tiles_covering_bbox(spanning, z))
-    expected = sorted([(x, y), (x + 1, y), (x, y + 1), (x + 1, y + 1)])
-    assert result == expected
-
-
-def test_tiles_covering_bbox_clamps_to_valid_tile_range_at_world_edges():
-    z = 3
-    n = 2**z
-    world_bbox = BoundingBox(min_latitude=-85.0, min_longitude=-180.0, max_latitude=85.0, max_longitude=180.0)
-
-    tiles = tiles_covering_bbox(world_bbox, z)
-
-    assert all(0 <= tx < n and 0 <= ty < n for tx, ty in tiles)
-
-
-def test_tiles_covering_bbox_does_not_raise_for_out_of_range_latitude():
-    # BoundingBoxはCoordinatesと異なり緯度の範囲を検証しないため、90度を超える不正な値が
-    # 渡されても（本来あってはならないが）math domain error等でクラッシュしないことを確認する。
-    z = 3
-    n = 2**z
-    out_of_range_bbox = BoundingBox(min_latitude=-95.0, min_longitude=-10.0, max_latitude=95.0, max_longitude=10.0)
-
-    tiles = tiles_covering_bbox(out_of_range_bbox, z)
-
-    assert all(0 <= tx < n and 0 <= ty < n for tx, ty in tiles)
-
-
-def test_tile_ancestor_maps_finer_tiles_into_their_coarser_parent():
-    # ズームが1段細かくなるごとにx,yが2分割されるため、差のぶんだけ右シフトになる。
-    assert tile_ancestor(14, 14551, 6447, 12) == (14551 >> 2, 6447 >> 2)
-    # 同一ズームならそのまま
-    assert tile_ancestor(12, 3637, 1611, 12) == (3637, 1611)
-    assert tile_ancestor(15, 29102, 12894, 12) == (29102 >> 3, 12894 >> 3)
-
-
-def test_tile_ancestor_rejects_coarser_zoom_than_ancestor():
-    with pytest.raises(ValueError):
-        tile_ancestor(11, 0, 0, 12)
-
-
-def test_tile_ancestor_bounds_are_contained_in_ancestor_bounds():
-    z, x, y = 15, 29102, 12894
-    ax, ay = tile_ancestor(z, x, y, 12)
-    child = tile_bounds_lonlat(z, x, y)
-    parent = tile_bounds_lonlat(12, ax, ay)
-    assert parent.min_longitude <= child.min_longitude
-    assert parent.max_longitude >= child.max_longitude
-    assert parent.min_latitude <= child.min_latitude
-    assert parent.max_latitude >= child.max_latitude
+# 東京付近のz12タイル。
+TOKYO_TILE = (12, 3637, 1612)
 
 
 class TestParseBbox:
-    """CLIの--bbox文字列（緯度経度の順序をCLI間で揃えるための共通パーサ）。"""
+    """CLIの`--bbox`を読む。**緯度が先**でCLI間の順序を揃える。"""
 
-    def test_valid(self):
-        bbox = parse_bbox("35.60,139.65,35.75,139.85")
+    def test_it_reads_four_values_in_latitude_first_order(self):
+        bbox = parse_bbox("35.0,139.0,36.0,140.0")
+
         assert bbox == BoundingBox(
-            min_latitude=35.60, min_longitude=139.65, max_latitude=35.75, max_longitude=139.85
+            min_latitude=35.0, min_longitude=139.0, max_latitude=36.0, max_longitude=140.0
         )
 
-    @pytest.mark.parametrize("text", ["35.6,139.65,35.75", "35.75,139.65,35.60,139.85", "a,b,c,d"])
-    def test_invalid_raises(self, text):
+    def test_a_wrong_number_of_values_is_rejected(self):
+        """片方だけ経度を先に書いても4値の数としては通ってしまう。数を先に確かめる。"""
         with pytest.raises(ValueError):
-            parse_bbox(text)
+            parse_bbox("35.0,139.0,36.0")
+        with pytest.raises(ValueError):
+            parse_bbox("35.0,139.0,36.0,140.0,1.0")
+
+    def test_a_non_numeric_value_is_rejected(self):
+        with pytest.raises(ValueError):
+            parse_bbox("35.0,139.0,north,140.0")
+
+    def test_a_range_that_is_not_increasing_is_rejected(self):
+        """minとmaxが入れ替わっていると、覆うタイルが0件になって黙って何も処理しない。"""
+        with pytest.raises(ValueError):
+            parse_bbox("36.0,139.0,35.0,140.0")
+        with pytest.raises(ValueError):
+            parse_bbox("35.0,140.0,36.0,139.0")
+
+    def test_a_degenerate_range_is_rejected(self):
+        with pytest.raises(ValueError):
+            parse_bbox("35.0,139.0,35.0,140.0")
+
+
+class TestTileBoundsLonlat:
+    """XYZタイルが覆う緯度経度の範囲。"""
+
+    def test_the_world_tile_covers_the_whole_mercator_extent(self):
+        bounds = tile_bounds_lonlat(0, 0, 0)
+
+        assert bounds.min_longitude == -180.0
+        assert bounds.max_longitude == 180.0
+        assert math.isclose(bounds.max_latitude, 85.0511, abs_tol=0.001)
+        assert math.isclose(bounds.min_latitude, -85.0511, abs_tol=0.001)
+
+    def test_y_increases_southwards(self):
+        """**緯度と逆向き**。取り違えると、南北が反転した範囲を取りに行く。"""
+        upper = tile_bounds_lonlat(4, 7, 5)
+        lower = tile_bounds_lonlat(4, 7, 6)
+
+        assert upper.min_latitude > lower.max_latitude - 1e-9
+
+    def test_x_increases_eastwards(self):
+        west = tile_bounds_lonlat(4, 7, 5)
+        east = tile_bounds_lonlat(4, 8, 5)
+
+        assert east.min_longitude >= west.max_longitude - 1e-9
+
+    def test_neighbouring_tiles_share_their_edge(self):
+        """隙間が空くと、境界上の道路がどのタイルにも入らない。"""
+        left = tile_bounds_lonlat(*TOKYO_TILE)
+        right = tile_bounds_lonlat(TOKYO_TILE[0], TOKYO_TILE[1] + 1, TOKYO_TILE[2])
+
+        assert left.max_longitude == right.min_longitude
+
+    def test_the_tile_found_for_a_point_contains_that_point(self):
+        """実在の地点（王子駅付近）で、点→タイル→範囲の往復が噛み合うことを見る。
+        南北の向きを取り違えると、ここで点が範囲の外へ出る。
+        """
+        latitude, longitude = 35.7527, 139.7380
+        spot = BoundingBox(
+            min_latitude=latitude, min_longitude=longitude,
+            max_latitude=latitude + 1e-9, max_longitude=longitude + 1e-9,
+        )
+        (x, y) = tiles_covering_bbox(spot, 14)[0]
+
+        bounds = tile_bounds_lonlat(14, x, y)
+
+        assert bounds.min_latitude <= latitude <= bounds.max_latitude
+        assert bounds.min_longitude <= longitude <= bounds.max_longitude
+
+    def test_the_bounds_are_increasing(self):
+        bounds = tile_bounds_lonlat(*TOKYO_TILE)
+
+        assert bounds.min_latitude < bounds.max_latitude
+        assert bounds.min_longitude < bounds.max_longitude
+
+
+class TestTileAncestor:
+    """粗いズームの祖先タイルを引く。"""
+
+    def test_one_zoom_up_halves_the_indices(self):
+        assert tile_ancestor(12, 3637, 1612, 11) == (1818, 806)
+
+    def test_the_same_zoom_is_the_tile_itself(self):
+        assert tile_ancestor(12, 3637, 1612, 12) == (3637, 1612)
+
+    def test_a_finer_ancestor_is_rejected(self):
+        """子孫は一意に定まらない。黙って1つ選ばず、前提違反として落とす。"""
+        with pytest.raises(ValueError):
+            tile_ancestor(10, 5, 5, 12)
+
+    def test_the_ancestor_contains_the_tile(self):
+        z, x, y = TOKYO_TILE
+        ax, ay = tile_ancestor(z, x, y, z - 3)
+
+        tile = tile_bounds_lonlat(z, x, y)
+        ancestor = tile_bounds_lonlat(z - 3, ax, ay)
+
+        assert ancestor.min_latitude <= tile.min_latitude
+        assert ancestor.max_latitude >= tile.max_latitude
+        assert ancestor.min_longitude <= tile.min_longitude
+        assert ancestor.max_longitude >= tile.max_longitude
+
+
+class TestTilesCoveringBbox:
+    """矩形を覆うタイル群。"""
+
+    def test_a_tile_s_own_bounds_always_include_that_tile(self):
+        """変換と逆変換が噛み合っていることを往復で見る。**ちょうど1枚にはならない**——
+        タイルの範囲は隣と辺を共有するため、端の座標は隣のタイルにも属する。
+        """
+        z, x, y = TOKYO_TILE
+
+        assert (x, y) in tiles_covering_bbox(tile_bounds_lonlat(z, x, y), z)
+
+    def test_a_box_strictly_inside_one_tile_returns_just_that_tile(self):
+        z, x, y = TOKYO_TILE
+        bounds = tile_bounds_lonlat(z, x, y)
+        margin_lat = (bounds.max_latitude - bounds.min_latitude) / 4
+        margin_lon = (bounds.max_longitude - bounds.min_longitude) / 4
+        inside = BoundingBox(
+            min_latitude=bounds.min_latitude + margin_lat,
+            min_longitude=bounds.min_longitude + margin_lon,
+            max_latitude=bounds.max_latitude - margin_lat,
+            max_longitude=bounds.max_longitude - margin_lon,
+        )
+
+        assert tiles_covering_bbox(inside, z) == [(x, y)]
+
+    def test_a_box_spanning_two_tiles_returns_both(self):
+        z, x, y = TOKYO_TILE
+        left = tile_bounds_lonlat(z, x, y)
+        right = tile_bounds_lonlat(z, x + 1, y)
+        margin_lat = (left.max_latitude - left.min_latitude) / 4
+        margin_lon = (left.max_longitude - left.min_longitude) / 4
+        spanning = BoundingBox(
+            min_latitude=left.min_latitude + margin_lat,
+            min_longitude=left.min_longitude + margin_lon,
+            max_latitude=left.max_latitude - margin_lat,
+            max_longitude=right.max_longitude - margin_lon,
+        )
+
+        assert tiles_covering_bbox(spanning, z) == [(x, y), (x + 1, y)]
+
+    def test_a_box_spanning_a_two_by_two_block_returns_all_four(self):
+        """縦横どちらにもまたがる場合。片方の軸だけで範囲を出すと2枚しか返らない。"""
+        z, x, y = TOKYO_TILE
+        top_left = tile_bounds_lonlat(z, x, y)
+        bottom_right = tile_bounds_lonlat(z, x + 1, y + 1)
+        block = BoundingBox(
+            min_latitude=(bottom_right.min_latitude + bottom_right.max_latitude) / 2,
+            min_longitude=(top_left.min_longitude + top_left.max_longitude) / 2,
+            max_latitude=(top_left.min_latitude + top_left.max_latitude) / 2,
+            max_longitude=(bottom_right.min_longitude + bottom_right.max_longitude) / 2,
+        )
+
+        assert sorted(tiles_covering_bbox(block, z)) == [
+            (x, y), (x, y + 1), (x + 1, y), (x + 1, y + 1)
+        ]
+
+    def test_the_whole_world_is_covered_at_a_coarse_zoom(self):
+        world = BoundingBox(
+            min_latitude=-85.0, min_longitude=-180.0, max_latitude=85.0, max_longitude=179.999
+        )
+
+        assert len(tiles_covering_bbox(world, 2)) == 16
+
+    def test_latitudes_beyond_mercator_do_not_blow_up(self):
+        """`BoundingBox`は緯度の範囲を検証しない。そのまま式へ入れると対数が定義域外で
+        落ちるため、投影の限界でクランプする。
+        """
+        beyond = BoundingBox(
+            min_latitude=-90.0, min_longitude=-180.0, max_latitude=90.0, max_longitude=180.0
+        )
+
+        tiles = tiles_covering_bbox(beyond, 2)
+
+        assert tiles
+        assert all(0 <= x < 4 and 0 <= y < 4 for x, y in tiles)
+
+    def test_every_returned_tile_is_inside_the_grid(self):
+        tiles = tiles_covering_bbox(
+            BoundingBox(min_latitude=35.0, min_longitude=139.0, max_latitude=36.0, max_longitude=140.0),
+            ROAD_GRAPH_TILE_ZOOM,
+        )
+        n = 2**ROAD_GRAPH_TILE_ZOOM
+
+        assert tiles
+        assert all(0 <= x < n and 0 <= y < n for x, y in tiles)
+
+
+def test_the_delivered_zoom_range_covers_at_least_one_zoom():
+    assert ROAD_TILE_MIN_ZOOM <= ROAD_TILE_MAX_ZOOM
+
+
+def test_the_graph_cache_zoom_is_a_single_fixed_level():
+    """表示ズームに追従させると「このタイルは取得済みか」を真偽で言えなくなる。"""
+    assert isinstance(ROAD_GRAPH_TILE_ZOOM, int)
