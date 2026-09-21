@@ -15,7 +15,7 @@ compute_edge_axis_scores`経由、下記「呼び出し元」参照）。周回�
 |---|---|
 | domain | `axis_definitions.py`・`axis_display.py`・`axis_templates.py`・`registry.py`・`registry_defaults.py` |
 | services | `axis_registry_service.py`・`axis_preview_service.py` |
-| infrastructure | `axis_definition_models.py`・`axis_definition_repository.py`・`axis_definitions_snapshot.py` |
+| infrastructure | `axis_definition_models.py`・`axis_definition_repository.py` |
 | api | `axis_admin.py`・`axis_catalog.py` |
 | scripts | `measure_axis_saturation.py` |
 
@@ -86,6 +86,16 @@ compute_edge_axis_scores`経由、下記「呼び出し元」参照）。周回�
 | `display_band_labels_override` | list[str]\|None | 段階ごとの体感ラベルの上書き（例:「強い向かい風」）。設定する場合は`display_thresholds_override`も設定済みで要素数が段階数（しきい値数+1）と一致すること |
 | `dedicated_way_value_layer` | bool | 専用のフィーチャー→値配信レイヤーを持つか |
 | `dynamic_way_value_needs_time`/`dynamic_way_value_needs_bearing`/`dynamic_way_value_needs_speed` | bool | `dedicated_way_value_layer=True`の軸のみ意味を持つ。`GET /api/region/dynamic-way-values/...`の`at`/`bearing_deg`/`speed_kmh`クエリパラメータ必須判定（[dynamic-way-values.md](dynamic-way-values.md)参照） |
+
+**表示に関するフィールドは、軸idの分岐をコードへ持たないための宣言**である。
+
+- `time_scope`: `time_scoped_weights()`が`active_scopes`に含まれない軸の重みを0にする。
+  別の時間帯依存軸（例: 通勤ラッシュ限定）を足すときも、増やすのはこの値だけで
+  エンジン側のコードは変わらない。
+- `show_map_icon`: 地図上チップから軸を丸ごと除外する。専用レイヤーの有無
+  （`display.kind`）とは独立に効くため、kind別の分岐を新設しなくてよい。
+  **`show_map_icon=true`のまま専用レイヤーを持たない軸へ、代替の説明文は用意しない**
+  ——存在理由が自明でなくなったら`false`にして表示自体を止める。
 
 ### `AxisShape`（評価式、2プリミティブ）
 
@@ -166,10 +176,12 @@ compute_edge_axis_scores`経由、下記「呼び出し元」参照）。周回�
 - `refresh_axis_definitions`はDB読み込み失敗・0行・未知材料/軸参照のいずれかを検出すると
   `AxisDefinitionSyncError`を送出しfail-fastする（安全側フォールバックは持たない、
   main.pyのlifespanはこれを捕捉せずアプリ起動自体を失敗させる）。
-- **行データ（軸の新規追加・既存軸の値変更）は`axis_admin.py`経由で行う。
-  `backend/migrations/`はテーブル構造（DDL）のみを持つ**（`0027_axis_definitions_
-  dedicated_way_value_layer.sql`で確認済み。0014〜0022は行データ入りの過去migrationだが
-  書き換えない）。
+- **行データ（軸の新規追加・既存軸の値変更）は`axis_admin.py`経由でしか入らない。**
+  スキーマは`axis_definition_models.py`のORM宣言から`create_tables()`が作る。
+- **公開済み軸を不変にしているのは、一般ユーザーの保存設定が`axis_id`キーで再現される
+  ため**（ルート設定パネルのプリセット・重みは`localStorage`に`axis_id`で残る）。公開後に
+  破壊的な変更・削除を許すと、他の利用者の設定を黙って壊す。改良したいときは複製して
+  新しい`axis_id`の下書きを作り、そちらを検証して公開する。
 - `axis_registry_meta.revision`（DB1行、id=1固定）は書き込み（`upsert`/`delete`）ごとに
   インクリメントされる。`AXIS_DEFINITIONS`自体の無効化には使われていない（`AXIS_
   DEFINITIONS`は`refresh_axis_definitions`が毎回`.clear()`+`.update()`で全面更新するため
@@ -178,20 +190,15 @@ compute_edge_axis_scores`経由、下記「呼び出し元」参照）。周回�
   definitions`から見て軸定義が実際に変わったかどうかの判定に使う（`AxisRegistryMetaRow`
   docstring参照）。将来のマルチプロセス対応・監査用の記録としても存在する。
 
-### fresh bootstrap（CI・新規環境）専用の別経路
+### まっさらなDBに軸の行は入らない
 
-`infrastructure/axis_definitions_snapshot.py`が`backend/fixtures/
-axis_definitions_snapshot.json`（`dump_axis_definitions_snapshot.py`で現在のDBから
-ダンプした手動更新のスナップショット）を読み書きする。`load_axis_definitions_snapshot`は
-テーブルを**無条件に**丸ごと空にしてから投入する——`bootstrap_ci_db.py`・
-`bootstrap_fresh_db.py`という専用スクリプトからのみ呼ぶ設計で、通常のアプリ起動経路
-（`refresh_axis_definitions`）や稼働中DBに対して繰り返し実行される取込バッチ
-からは呼ばない（誤って本番の生きた軸データをスナップショットで上書きする事故を防ぐ）。
+`scripts/bootstrap_database.py`が作るのはスキーマ・取込・派生までで、`axis_definitions`の
+行は作らない。`refresh_axis_definitions`は0行を`AxisDefinitionSyncError`として扱うため、
+**新規環境は軸を1つ以上APIで登録するまでアプリが起動しない**。
 
-**暗黙の前提**: スナップショットの更新は完全手動（本番/devでAPI経由の軸変更を行った後、
-`dump_axis_definitions_snapshot.py`を都度手動実行する）。自動化されていないため、
-axis_admin API経由の変更後にこのダンプを忘れると、以後のfresh bootstrap環境（CI・
-新規開発環境・disaster recovery）が古い軸定義で構築される。
+テストは`tests/realistic_axis_fixtures.py`（本番相当の軸をPythonで組んだテスト専用
+フィクスチャ）を`AXIS_DEFINITIONS`へ流し込む。DBの実データとは独立で、DB側の値が
+変わっても追従しない。
 
 ## 地図表示ルールの自動導出（`domain/axis_display.py`）
 
@@ -267,22 +274,10 @@ axis_admin API経由の変更後にこのダンプを忘れると、以後のfre
 `AxisMaterialConflictError`とは別実装）を持つ。
 
 **暗黙の前提（最重要）**: `register_defaults()`は**FastAPIアプリの起動時には一切呼ばれない**。
-実際の呼び出し元は`scripts/export_openapi.py`（ビルド時、`axis-catalog.json`等の生成物を
-書き出すスクリプト）とテストのみ。つまり:
-
-```
-【実行時】  axis_admin.py書き込み → AXIS_DEFINITIONS即座に更新 → GET /api/axis-catalog に即反映
-【ビルド時】export_openapi.py実行時点のAXIS_DEFINITIONS → axis-catalog.json（静的生成物）に焼き込み
-             （以後、次のビルド/デプロイまで変化しない）
-```
-
-frontendの静的フォールバック（[軸スタジオ管理画面（frontend）](../frontend/axis-studio.md)・
-[地図: 軸・ルート色分け](../frontend/map-axis-coloring.md)の`RAMP_AXES`・
-`DEDICATED_WAY_VALUE_AXES`等）は、この`axis-catalog.json`（ビルド時スナップショット）
-を経由するため、**軸スタジオでの変更は次の再デプロイまでこれらの静的値には反映されない**
-（`GET /api/axis-catalog`という実行時APIには即座に反映されるため、実行時フェッチが完了
-すればアプリ全体としては最終的に正しい状態になるが、フェッチ完了までの間・フェッチ失敗時は
-古い静的値のまま表示される）。
+実際の呼び出し元は`scripts/export_openapi.py`（ビルド時、一次属性の名前を
+`primary-attributes.json`へ書き出す）とテストのみ。**軸カタログそのものにビルド時の写しは
+無い**——frontendは`GET /api/axis-catalog`が返したものだけを使う
+（[設計原則](../../architecture/design-principles.md)構造仕様9）。
 
 `_register_axes()`（`registry_defaults.py`）は`AXIS_DEFINITIONS`を走査して公開軸のみを
 登録する（特定のaxis_idを名指しした条件分岐は持たない）。`inputs`・
@@ -356,9 +351,8 @@ acquire_write_lock()`（PostgreSQLのトランザクションスコープadvisor
 有効）ではなくDBレベルのロックにしているのは、将来複数ワーカー化する場合にも機能させる
 ため。
 
-## 既知の軸idハードコード（`_CODE_COUPLED_AXIS_IDS`）
+## 軸idを名指しするコードを残さない
 
-`services/axis_registry_service.py`の`frozenset[str] = frozenset()`（空集合）。
-削除すると壊れるコードが存在する軸を登録するリストで、`is_published`の状態に関わらず
-削除を拒否する安全弁。現時点で該当する軸は無い。将来axis_idをハードコード参照するコードが
-増えた場合に備え、仕組み自体は残す。
+軸は軸スタジオから増減するため、`axis_id`を条件分岐に使うコードがあると、その軸を消した
+瞬間に壊れる。表示の振る舞い（地図に出すか・符号付きで塗るか・時間帯で効くか）は
+すべて`AxisDefinition`のフィールドから導く。現時点で軸idを名指しする削除ガードは持たない。
