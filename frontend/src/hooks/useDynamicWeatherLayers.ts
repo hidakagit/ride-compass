@@ -151,7 +151,7 @@ export function useDynamicWeatherLayers({
   // frameIndexForTimeが範囲外を返して降水・雷・竜巻・雷放電が黙って描画を止める。
   const [now, setNow] = useState(steppedNow);
   // 利用者が出発時刻を選んだらその時刻を保つ（意図して決めた値を勝手に動かさない、
-  // docs/design-principles.md）。nullの間は「今」へ張り付き、「今」ボタンで張り付きへ戻る。
+  // docs/architecture/design-principles.md）。nullの間は「今」へ張り付き、「今」ボタンで張り付きへ戻る。
   const [pinnedTargetTime, setPinnedTargetTime] = useState<Date | null>(null);
   const dynamicLayerTargetTime = pinnedTargetTime ?? now;
 

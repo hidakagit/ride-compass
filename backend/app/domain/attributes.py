@@ -58,8 +58,7 @@ class ElevationAttribute(StrictModel):
 
     average_grade/max_grade/min_gradeは符号付き（登り=正、下り=負）。
     有効な標高が2点未満の場合は全フィールドNoneのまま返す（Road Graph移行前のルート単位評価と同じ
-    「取得失敗は握りつぶしてnull」方針、docs/architecture.md「標高計算のアルゴリズムと
-    既知の制約」参照）。
+    「取得失敗は握りつぶしてnull」方針、docs/modules/backend/elevation.md参照）。
     """
 
     edge_id: str

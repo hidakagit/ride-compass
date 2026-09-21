@@ -12,8 +12,7 @@ import { adminBasicAuthCredentials } from "@/lib/adminBasicAuth";
 // backendの別オリジンへ直接飛ぶためこのProxyを経由しない）は別途
 // backend/app/api/routers/axis_admin.py: require_admin_basic_authが同じ方式で保護する
 // （2箇所独立のBasic認証チェックだが、同じ資格情報[ADMIN_BASIC_AUTH_USERNAME/PASSWORD]を
-// 両側のenvへ設定して運用することで実質1つの資格情報として扱う設計、
-// docs/architecture.md「T272」節参照）。
+// 両側のenvへ設定して運用することで実質1つの資格情報として扱う設計）。
 //
 // ユーザー方針（2026-08-24）: 「将来的にはアカウント制としたいが、現状は動作確認・研究用
 // のためBasic認証として後から拡張する」。未設定（既定、どちらか一方でも空）の環境では

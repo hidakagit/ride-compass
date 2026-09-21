@@ -26,7 +26,7 @@
   各ルート候補の獲得標高や最大勾配を計算して表示する。
 
 技術的な設計・実装の詳細（採用技術・API・データモデル等）は
-[docs/architecture.md](docs/architecture.md)、機能単位の詳細設計は
+[docs/architecture/](docs/architecture/README.md)、機能単位の詳細設計は
 [docs/modules/README.md](docs/modules/README.md)を参照。ここから先は開発者向けの情報。
 
 ## 主な機能（開発者向け）
@@ -39,7 +39,8 @@
   評価軸ごとに0-100の難易度を算出し、重み付き合成した`overall_difficulty`で候補を並べる。
   評価軸自体は「軸スタジオ」（`/admin`、HTTP Basic認証）というGUIから追加・調整でき、
   コード変更や再デプロイなしに評価の観点を増やせる。軸の一覧・現在の重みは
-  [docs/architecture.md](docs/architecture.md)の評価軸の節が正本。
+  [docs/architecture/evaluation-model.md](docs/architecture/evaluation-model.md)が概観、
+  実装は[docs/modules/](docs/modules/README.md)が正本。
 - **難易度・評価軸の地図可視化**: ルート区間ごとに勾配・風などで色分け表示し、区間クリックで
   内訳（軸別寄与度・到達予想時刻）を確認できる。評価軸に対応する道路属性は地図レイヤーとしても
   重ね描きできる（路面・道路種別・指定路線・トンネル・一方通行・停止要因POI・事故統計など）。
@@ -57,7 +58,7 @@
 RideCompass/
   frontend/           Next.js (App Router) + TypeScript + MapLibre GL JS
   backend/            FastAPI (Python) + PostGIS
-  docs/               設計ドキュメント（architecture.md・modules/・improvement-plan.md等）
+  docs/               設計ドキュメント（architecture/・conventions/・modules/・improvement-plan.md等）
   .claude/            レビュー基盤・スキル定義（.claude/commands/review/README.md参照）
   scripts/            リポジトリ横断のCI/pre-commitスクリプト・review_checks.py
   docker-compose.yml  frontend/backend/postgres(PostGIS)/redisを一括起動
@@ -100,7 +101,7 @@ source .venv/bin/activate  # Windows: .venv\Scripts\Activate.ps1
 pip install -r requirements.txt
 cp .env.example .env
 # DATABASE_URLは実接続できるPostGISが必須（.env.exampleのコメント・
-# docs/architecture.md「本番/開発プロファイル一覧」参照）
+# docs/architecture/tech-stack.md参照）
 uvicorn app.main:app --reload
 ```
 
@@ -152,7 +153,7 @@ npx eslint
   ([backend/app/services/road_graph_engine.py](backend/app/services/road_graph_engine.py))。
   外部ルーティングAPIへの依存は無い（openrouteservice委譲は改善計画T462で完全撤去済み）。
 - **地図タイル**: MapLibre GL JSの地図タイルにはAPIキー不要の[OpenFreeMap](https://openfreemap.org/)を使用し、`BasemapClient`がバックエンド経由でプロキシ・ファイルキャッシュする。`tile.openstreetmap.org`はbulk/非ブラウザアクセスをブロックするポリシーがあるため採用していない。
-- **maplibre-glのバージョン固定**: `maplibre-gl`は`^5.24.0`に固定している。最新メジャー（v6系）はWeb WorkerのURL解決方法がNext.jsのバンドラと相性が悪く、地図タイルが永久に読み込まれない不具合を確認したため（詳細は[docs/architecture.md](docs/architecture.md)参照）。
+- **maplibre-glのバージョン固定**: `maplibre-gl`は`^5.24.0`に固定している。最新メジャー（v6系）はWeb WorkerのURL解決方法がNext.jsのバンドラと相性が悪く、地図タイルが永久に読み込まれない不具合を確認したため（詳細は[docs/architecture/tech-stack.md](docs/architecture/tech-stack.md)参照）。
 - **JMA動的タイル**: 降水ナウキャスト・rasrf・雷/竜巻ナウキャスト・キキクル等の気象庁タイルは
   `GET /api/jma-tile/{path}`経由でプロキシ・キャッシュする（[docs/modules/backend/weather-dynamic-layers.md](docs/modules/backend/weather-dynamic-layers.md)参照）。
 - **標高API**: 国土地理院（GSI）のDEMタイルを使用（APIキー不要、日本国内限定）。Road Graphの
@@ -170,5 +171,5 @@ npx eslint
 
 - 直近の設計レビュー結果・進行中の改善タスク一覧: [docs/improvement-plan.md](docs/improvement-plan.md)（各タスクの詳細は`docs/records/tasks/Txxx.md`）
 - ログ・テストの方針: [docs/conventions/logging.md](docs/conventions/logging.md) / [docs/conventions/testing.md](docs/conventions/testing.md)
-- RideCompass固有の設計原則: [docs/design-principles.md](docs/design-principles.md)
+- RideCompass固有の設計原則: [docs/architecture/design-principles.md](docs/architecture/design-principles.md)
 - このリポジトリで作業する際のルール（コミット時の同期ルール等）: [CLAUDE.md](CLAUDE.md)

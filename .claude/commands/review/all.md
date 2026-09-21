@@ -35,7 +35,7 @@ Findings（P0-P3）ではなく数値のみを記録する
   ドメイン構造（backend/frontend等）へ置き換えてはならない**。対象が
   `principles.md`の分割閾値を超える場合、分割は各Phase（レンズ）が自分自身の担当範囲内で
   行う（分割可否・分割単位はレンズごとに異なる。詳細はprinciples.md「共通実行手順」4d・
-  complexity.md冒頭・[_history.md](_history.md)参照）
+  complexity.md冒頭参照）
 - **Phase 3（overall）とPhase 5（consistency）のシャードは共有する**: ドメインシャードを
   1回だけ切り、1シャードにつき1つのAgentへ両レンズの確認観点を渡し、出力は
   「overall」「consistency」の独立した2節に分けさせる（同じファイルを2度読まない。

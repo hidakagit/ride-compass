@@ -29,7 +29,7 @@
 | `lib/hardFilterSync.ts` | 保存された`hard_filters`のキー集合を正本（`routeGenerateConfig.hard_filters`）へ整合させる。backendはキー集合の完全一致を要求するため、デプロイでフィルタが増減しても保存値をまたいで送信が成立するようにする |
 | `components/Map/recipeControls.tsx`（`FieldLabel`・`withAutoEnable`） | 上書き有効化・情報アイコン付きラベルの共有UI部品 |
 | `components/RouteSplicePanel/RouteSplicePanel.tsx` | 区間の乗り換えの結果面（「ルート結果」が編集モードのときの中身）。**選ぶのは地図、パネルは結果だけ**——地図の破線が「いまの道から乗り換えられる先」・太い実線が「いま作っているルート」で、タップすると乗り換わり、その先の分かれ道が次の破線になる（次に選べる区間は`lib/routeSplice.ts: buildSplicedShape`が組む「いまの組み合わせ」との差として求めるため、乗り換え先の道の上の分岐もそのまま現れる。候補どうしが同じ地点を通るかはbackendが返すNode id［`node_ids`］で判定し、**当てると一度通った地点へ戻る代替は選択肢に出さない**——backendは連結性しか見ず、折り返しも走れはするため落とさない）。パネルはルート結果と同じ指標（距離・所要・総合難易度・負荷）で元と編集後を**2列×2行**に並べ（1セルに「元→編集後 差」を収め、列見出しを持たない）、軸別は2本並べず**差だけの1本**（中央が0・左が楽になった側・長さが変化量・色は軸チップと同じ）。戻すのは見出し行のアイコン（1つ戻す・全部戻す）で、巻き戻せるのは直前の1手ずつ（適用済みの範囲はその時点の経路に対する位置のため、途中だけは外せない）。`edge_ids`が空の候補では「差が無い」と「そもそも出せない」を区別して伝える。使い方は画面へ書かず見出し脇の(i)の奥に置き、操作（差分を見る・新しいルートを作る）は「ルート結果」ヘッダーと同じアイコン枠へ揃える |
-| `components/Map/MapView.tsx`（`SPLICE_LAYER_ID`関連箇所のみ） | 他の候補が別の道を通る区間を地図へ帯で描き、**タップでその道を選べる**（`onSpliceStretchSelect`。選ぶ操作の中心を地図へ置く——パネルの行だけで選ばせると、どの行がどの帯かを目で対応づける必要がある）（`drawSpliceStretches`・`hideSpliceStretches`・`spliceStretchesToFeatureCollection`）。選んでいない区間は破線、選んだ区間は実線・太めで、選んだ側を最前面へ回す——未選択の帯が上に重なると差し替えた先が隠れて変化が見えない。`line-dasharray`がfeature式を受け付ける版に依存するため、`MapView.splice.test.ts`がstyle-specの評価器で検査する（[T621](../../tasks/T621.md)） |
+| `components/Map/MapView.tsx`（`SPLICE_LAYER_ID`関連箇所のみ） | 他の候補が別の道を通る区間を地図へ帯で描き、**タップでその道を選べる**（`onSpliceStretchSelect`。選ぶ操作の中心を地図へ置く——パネルの行だけで選ばせると、どの行がどの帯かを目で対応づける必要がある）（`drawSpliceStretches`・`hideSpliceStretches`・`spliceStretchesToFeatureCollection`）。選んでいない区間は破線、選んだ区間は実線・太めで、選んだ側を最前面へ回す——未選択の帯が上に重なると差し替えた先が隠れて変化が見えない。`line-dasharray`がfeature式を受け付ける版に依存するため、`MapView.splice.test.ts`がstyle-specの評価器で検査する |
 | `components/Map/MapView.routes.ts` | ルート候補・選択中ルート・区間色分け・乗り換え帯・比較スロットの地図描画本体。`map`を引数で受け取る関数群で状態を持たない（`MapView.tsx`が呼ぶ） |
 
 ## RouteSettingsPanel.tsx（一般向けメイン設定面）
@@ -97,7 +97,7 @@ useAxisCatalog() ──→ catalog.axes（公開軸一覧、is_published=Trueの
   「通らない」指定であることを本文で明示し、将来の除外条件もこのタブへ足す。既定値から
   変更済みのときだけ、そのタブ内に戻すボタンを出す。
 - 重みを既定値へ戻す操作はこのタブに持たない。名前を付けた配分の切り替え（プロファイル、
-  [T307](../../tasks/T307.md)）の1つとして扱う。
+  T307）の1つとして扱う。
 
 **暗黙の前提**: `useAxisCatalog()`は`page.tsx`と`RouteSettingsPanel.tsx`から同時に呼ばれうる
 （`page.tsx`がマウントした時点で子の`RouteSettingsPanel`も同時マウントされるため）。
@@ -188,7 +188,7 @@ page.tsx（[ページ全体構成・状態管理](page-composition.md)参照）�
   （例:「0.8回/km・約26回」）——ただし**総量が読み手の判断を変える軸だけ**で、その判断は
   `AxisCatalogEntry.raw_value_total_unit`が持つ（「約3322度曲がる」には比べる尺度が無い）。得点0-100は目盛りの引き方に依存する相対評価
   でしかなく、それだけでは軸単体で経路の良し悪しを判断できないため
-  （[設計原則](../../design-principles.md)11）。
+  （[設計原則](../../architecture/design-principles.md)11）。
 - **内訳（詳細の中）**: 材料まで分解した絶対量を「この軸の内訳: ...」として全件出す
   （`AxisCatalogEntry.material_breakdown` × `RouteCandidate.material_values`、
   `axisRawValue.ts: formatMaterialBreakdown`）。
@@ -378,4 +378,4 @@ distance・maxRoutesはいずれもstring stateのまま親（`page.tsx`）が
   意図せず目的地が上書きされてしまうため。
 - 置ける場所も限る。「ルート設定」区分を見ていて、かつ「条件」タブを開いている間だけ武装が
   効く（`page.tsx: pinPlacementArmedRole`）。「ルート結果」を見ている間や他のタブを開いて
-  いる間は、武装したままでも地図のタップはピンにしない（[T781](../../tasks/T781.md)）。
+  いる間は、武装したままでも地図のタップはピンにしない。

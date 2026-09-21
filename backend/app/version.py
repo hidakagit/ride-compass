@@ -2,7 +2,7 @@
 
 デプロイ（＝git pushからのビルド完了）のたびにプロセスが再起動される運用のため、
 このタイムスタンプは「直近のデプロイがいつ反映されたか」の目安になる
-（`app.config.settings.git_commit`と組み合わせて`/health`が返す。詳細はdocs/architecture.md参照）。
+（`app.config.settings.git_commit`と組み合わせて`/health`が返す。詳細はdocs/architecture/tech-stack.md参照）。
 インポート時（プロセス起動時）に一度だけ評価される。
 """
 

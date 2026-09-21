@@ -192,7 +192,7 @@ bbox全体ぶんのコストをリクエストにつき1回だけnumpyで合成�
   依存せずタイル集合キーでキャッシュするため）。
   同じコスト配列・軸別スコア配列は`_build_segment_details`（区間表示）からも参照され、
   探索と表示の二重計算を避ける。**唯一の例外**（探索コストのみ補完・表示は変えない、
-  `docs/design-principles.md`「探索コストと表示difficultyの一致」参照）: 重み付き軸が
+  `docs/architecture/design-principles.md`「探索コストと表示difficultyの一致」参照）: 重み付き軸が
   すべて欠損（composite=NaN）のEdgeは、探索コスト算出にだけbbox内の距離加重平均
   difficultyを代入する（`compose_costs_from_axis_matrix`が内部で
   `distance_weighted_difficulty_array`により算出、`RouteSegmentDetail`側のdifficulty・
@@ -322,7 +322,7 @@ MaterialSpec]`が単一ソース。
   （行→レコードの組み立ては`_LANDCOVER_PERCENT_COLUMNS`）から導く——名指しすると、
   クラスを1つ足して既存行を埋め戻す前に、その列がNULLというだけで行ごと捨てる。
   **1つの軸で複数のクラスを足さないこと**——割合の合計が100%へ固定されているため
-  同じ地面を二重に数える（[設計原則](../../design-principles.md)構造仕様14）。
+  同じ地面を二重に数える（[設計原則](../../architecture/design-principles.md)構造仕様14）。
 - 値式は`domain/material_sql.py`の組み立て関数から作る（タグの正規化・タグ値の一致・
   数値パース・件数の密度化・wayの行の有無）。同じ判定を材料ごとに書き写さないため、
   判定を直すと全材料へ同時に効く。

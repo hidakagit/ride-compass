@@ -1733,7 +1733,7 @@ def test_find_undocumented_tables_is_quiet_when_the_document_names_them():
 
 def test_find_undocumented_tables_reports_a_table_the_document_never_names(monkeypatch):
     # 文書の側を「その名前を書いていない文書」へ差し替えて、拾うことを見る。
-    monkeypatch.setattr(review_checks, "ARCHITECTURE_DOC", "docs/design-principles.md")
+    monkeypatch.setattr(review_checks, "ARCHITECTURE_DOC", "docs/architecture/design-principles.md")
 
     hits = review_checks.find_undocumented_tables([_ORM_FILE])
 
@@ -1741,7 +1741,7 @@ def test_find_undocumented_tables_reports_a_table_the_document_never_names(monke
 
 
 def test_find_undocumented_tables_only_looks_at_the_given_scope(monkeypatch):
-    monkeypatch.setattr(review_checks, "ARCHITECTURE_DOC", "docs/design-principles.md")
+    monkeypatch.setattr(review_checks, "ARCHITECTURE_DOC", "docs/architecture/design-principles.md")
 
     hits = review_checks.find_undocumented_tables([_ORM_FILE], scope=[_ORM_FILE])
 

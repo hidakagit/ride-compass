@@ -149,7 +149,7 @@ from app.services.weather_service import WeatherService
 # Road Graphを取得するbboxは、起点・経由地2点の外接矩形にこのマージンを足したもの。
 # 実際の道なりは直線距離の外接矩形からはみ出ることが多い（川・線路等を迂回する等）ため、
 # 探索が失敗しない程度の余裕を持たせる。半径に比例させつつ最低値を設ける暫定値であり、
-# 実データでの検証結果次第で見直す（docs/architecture.md参照）。
+# 実データでの検証結果次第で見直す。
 BBOX_MARGIN_RATIO = 0.3
 BBOX_MARGIN_MIN_KM = 2.0
 

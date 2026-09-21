@@ -32,7 +32,7 @@
 - `docs/modules/*.md`とdocstring——**読者は次にそのコードを触る人**。実装を読めば分かることは
   書かず、実装を読んでも分からないこと（暗黙の前提・隠れた依存・外部システムの実際の挙動・
   実測値）だけを書く。
-- `docs/architecture.md`・`docs/design-principles.md`——**読者は仕様を理解したい人**。
+- `docs/architecture/`——**読者は仕様を理解したい人**。
   個々の関数・引数・ファイル名の水準へ降りない。
 
 ## 挙動を書く。要素を数え上げない
@@ -93,7 +93,7 @@
 （実測: 本文に名前があり表のセルには無い実装ファイルが9件あり、いずれも責務は本文で
 説明されていた）。**表へ足すのが既定**で、本文だけで済ませるのは表の粒度に合わないとき。
 
-**逆に、同じ一覧を検査の無い場所へ二重に持たない。** `docs/architecture.md`の
+**逆に、同じ一覧を検査の無い場所へ二重に持たない。** `docs/architecture/`の
 ファイル樹形図は`docs/modules/*.md`の対象ファイル表と重複しており、検査が無い側だけが
 古くなっている。
 
@@ -135,7 +135,7 @@
 **古くなるのは写しの側**で、写しは更新し続ける対象ではなく削る対象
 （[T707](../records/tasks/T707.md)・[T723](../records/tasks/T723.md)・[T724](../records/tasks/T724.md)）。
 検査の母集団についての同じ原則は
-[design-principles.md](../design-principles.md)構造仕様12にある。
+[design-principles.md](../architecture/design-principles.md)構造仕様12にある。
 
 ## 用語集
 

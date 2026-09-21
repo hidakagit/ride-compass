@@ -19,7 +19,7 @@
 モジュールdocstring参照）、標高・風・路面・車の圧迫感等で評価して比較・選択できる。
 現フェーズは**評価モデルの研究・精査を優先**（一般公開前のプロトタイプ、個人開発・低利用規模）。
 
-## 構成（現状の姿は docs/architecture.md が正、経緯は docs/records/decisions/）
+## 構成（現状の姿は docs/architecture/ と docs/modules/ が正、経緯は docs/records/）
 
 - **backend**: FastAPI。`app/api/routers/`（エンドポイント）+ `dependencies.py`（DI工場）→
   `services/`（ユースケース・I/O編成）→ `domain/`（純関数・型。I/Oなし）→
@@ -50,7 +50,7 @@
    軸スタジオのGUI/APIから追加・公開する。材料が新しい場合だけ取込
    （import_profile.yaml / ALLOWED_WAY_TAGS）とdomain側の材料宣言が要る。
    エンジン・フロントのファイルに軸固有の分岐を書かない。**この1本道の具体的な追加点は
-   docs/design-principles.md構造仕様3・8が正**（軸ごとのファイル・関数・定数・propを
+   docs/architecture/design-principles.md構造仕様3・8が正**（軸ごとのファイル・関数・定数・propを
    新設しない設計になっているかの点検もそこにある）。軸の数・一覧は本ファイルに書かず、
    生成物`axis-catalog.json`または`axis_definitions_snapshot.json`を都度参照する。
 
@@ -59,7 +59,7 @@
 - 路面語彙の正準: `domain/road.py`（GOOD/BAD_OSM_SURFACE_TAGS）。SQLはバインドパラメータ参照、
   フロントは生成物 `surface-tags.json` ＋テスト照合。
 - highway 3スコープ（取込 / ルーティング可否 / 表示グルーピング）は**意図的に別定義**
-  （architecture.md の表参照）。統一提案はしない。変更時は3箇所同時更新か確認する。
+  （docs/modules/backend/static-road-attributes.md の表参照）。統一提案はしない。変更時は3箇所同時更新か確認する。
 - OpenAPI → `types/generated/api.d.ts` 自動生成＋CIドリフト検知。手動同期ペアには
   ドリフト検知テスト必須（MVTレイヤー名・タイル世代等は対応済み）。
 - SQLのCASE式（MVTプロパティ）と `domain/traffic.py` 純関数は突き合わせDB統合テストで
@@ -71,7 +71,7 @@
 
 ## 設計原則（正）
 
-- 設計原則（RideCompass固有の仕様）: **docs/design-principles.md**（唯一の正本、常に最新。
+- 設計原則（RideCompass固有の仕様）: **docs/architecture/design-principles.md**（唯一の正本、常に最新。
   レビュー時は必ず読む）。判断原則・進め方は本principles.mdの「判断原則」節、一般的な
   実装規約はoverall.md/complexity.mdの各確認観点に集約されている（2026-08-31、
   design-review-2026-08-15.md・complexity-review-2026-08-16.md末尾に分散していた原則を
@@ -123,7 +123,7 @@ docs/complexity-review-2026-08-16.md の **Keep List** が正（ただし「エ�
   - docs/complexity-review-2026-08-15.md（複雑度平衡・第2回）
   - docs/research-interface-review-2026-08-15.md（研究IF・第3回）
   - docs/complexity-review-2026-08-16.md（複雑度平衡・第4回、Keep List。設計原則は
-    docs/design-principles.mdへ移設済み）
+    docs/architecture/design-principles.mdへ移設済み）
   - docs/ui-review-2026-08-16.md（UI操作・一般ユーザー目線）
   - docs/external-data-sources-review-2026-08-16.md（外部データ源調査）
 - **本基盤構築後のレビュー結果**: `.claude/commands/review/history/` に保存。
@@ -138,7 +138,7 @@ docs/complexity-review-2026-08-16.md の **Keep List** が正（ただし「エ�
 
 ## 設計書と実装の乖離の見方
 
-- docs/architecture.md は「コード変更と同一コミットで更新」ルールだが、遅れる可能性は常にある。
+- docs/architecture/ は「コード変更と同一コミットで更新」ルールだが、遅れる可能性は常にある。
   consistencyレビューでは記述を無条件に信じず、実装側を一次情報として突き合わせる。
 - docs/improvement-plan.md のチェック済みタスクは完了条件（テスト件数green等）が書かれている。
   「チェック済みだが実装が違う」は重要な指摘対象。

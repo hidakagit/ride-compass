@@ -77,7 +77,7 @@ Edgeコストは「タイル単位の静的Edge×公開軸スコア行列＋リ�
 | `preview_segment` | 往路のみ | — |
 
 `TracedLoop.leg_of_edge`が経路上の各Edgeのレグ添字を運び、`_build_segment_details`は
-そのレグの配列から値を読む（探索と表示の一致、[設計原則](../../design-principles.md)10）。
+そのレグの配列から値を読む（探索と表示の一致、[設計原則](../../architecture/design-principles.md)10）。
 `RouteSegmentDetail.material_values`/`RouteCandidate.material_values`（重み>0の公開軸が
 参照する材料id→値、`AXIS_DEFINITIONS`の`materials`プロパティから導出、
 `_active_material_ids`が集合を決める）は、動的材料（風等）は`material_arrays`から
@@ -196,14 +196,14 @@ RouteGenerator.generate_loops(origin, distance_km, distance_tolerance_km, max_ro
 ### `generate_spliced_route`（区間の乗り換え）
 
 クライアントが候補の`edge_ids`から区間を差し替えて組み立てた経路を、**探索をやり直さず**
-1件だけ評価して返す（[T621](../../tasks/T621.md)）。`POST /api/routes/generate`へ
+1件だけ評価して返す。`POST /api/routes/generate`へ
 `spliced_edge_ids`を添えると、折返し点選定・via-node選定を通らずこの経路へ入る
 （`destination`必須。合成の対象は目的地ルートだけで、周回は起点へ戻る制約があるため）。
 
 **別エンドポイントにしていない**のは、合成も生成と同じコスト曲線だから——経路は確定済み
 でも`prepare`は通る（評価は`_RoadGraphContext`のコスト配列から読む。design-principles.md
 構造仕様10）。`prepare`は温まっていても1秒前後、タイル材料が冷たいと数十秒かかるため、
-202＋ポーリングのジョブ機構がそのまま要る（数値は[T621](../../tasks/T621.md)）。
+202＋ポーリングのジョブ機構がそのまま要る（数値はT621）。
 
 送られたEdge id列が**実在し・順につながり・起点から始まり・目的地へ着く**ことは
 `engine.build_traced_from_edge_ids`が確かめ、成立しなければ`RoutingError`で落とす
@@ -383,7 +383,7 @@ NaN）へ動的軸（風、`domain/dynamic_materials.py: evaluate_dynamic_axis_a
 （階級0）からサービス道路（階級1）へ出るだけで「待ちが要る」と判定される。
 これは車列の切れ目を待つ時間で、信号のある交差点の待ちとは別物——そちらは停止密度の材料が
 走行モデルへ運ぶ（`domain/traffic.py: stop_seconds`）ため、ここで足すと二重に数える
-（`docs/design-principles.md`構造仕様13）。探索側は階級の意味を知らず、比較結果だけを使う。
+（`docs/architecture/design-principles.md`構造仕様13）。探索側は階級の意味を知らず、比較結果だけを使う。
 
 信号の有無と最大階級は`road_nodes`の事前集計列で、グラフのノードに載って探索まで届く。
 埋めるのは事前集計バッチ（`precompute_road_node_intersections.py`）と、交差点分割が自分の
@@ -889,7 +889,7 @@ importしないプロセスで`NoReferencedTableError`を起こす。
 タイルの取込完了判定（`road_graph_tiles`、1,000行規模）とsplit鮮度判定
 （`is_split_up_to_date`の空間クエリ）は、いずれも数ミリ秒で終わるためキャッシュせず毎回
 PostGISへ問い合わせる。エッジの実ジオメトリ（`get_edges_with_geometry`）も同様に毎回読む。
-判断をキャッシュしない理由は[docs/conventions/caching.md](../../caching.md)参照——別プロセスのバッチが
+判断をキャッシュしない理由は[docs/conventions/caching.md](../../conventions/caching.md)参照——別プロセスのバッチが
 生データを書き換えるため、判断を保持すると危険側（「splitは最新」）で古い値を返しうる。
 
 ## API（`api/routers/routes.py`）

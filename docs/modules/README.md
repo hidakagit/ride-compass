@@ -2,12 +2,11 @@
 
 機能単位の「現状の設計」を記す場所。フロント/バックで分け、各モジュール内は実コードの
 みを根拠に記述する（レビュー結果・タスク記録は参照しない。経緯が必要な場合は
-[docs/design-principles.md](../design-principles.md)や`docs/records/tasks/`側の該当タスクへ
+[docs/architecture/design-principles.md](../architecture/design-principles.md)や`docs/records/tasks/`側の該当タスクへ
 リンクする）。
 
 コードと乖離が生じたら、変更と同一コミットでここを更新する
-（[design-principles.md](../design-principles.md)構造仕様「docsは現状と経緯を分ける」
-参照）。
+（[design-principles.md](../architecture/design-principles.md)参照）。
 
 ## 記載粒度（必読、肥大化を防ぐルール）
 
@@ -18,15 +17,15 @@
 
 - **禁止**: 「以前は…」「改善計画Txxxで…に変更した」「実機/実測で…だったため」といった
   経緯の説明、変更前後のbefore/afterの数値比較、事故・インシデントの詳細な顛末。
-  これらは`docs/records/tasks/Txxx.md`（そのタスク限定の背景）の役割であり、必要なら
-  `[Txxx](../../tasks/Txxx.md)`と1つリンクを添えるだけにとどめる（リンク先の内容を
-  ここへ転記・要約しない）。
+  これらは`docs/records/tasks/Txxx.md`（そのタスク限定の背景）の役割である。
+  **タスク番号へのリンクもここへは書かない**——記録は維持しない文書のため、
+  維持する文書から辿らせると、指す先が古いまま残っていることに気づけない。
 - **許可**: 現在のコードが持つ制約・不変条件とその理由が、コードを正しく使うために
   必須の場合（例:「このロックはXが並列gatherから呼ばれるため必要」）は、経緯ではなく
   **今も成り立つ設計上の理由**として1文で書いてよい。「なぜこの形か」の説明と「どういう
   経緯でこの形になったか」の説明は別物——前者は仕様の一部、後者は履歴。
 - **要素を数え上げない**（個数・全件の一覧）。示すべきは挙動で、代表例を挙げるのは
-  許容する。詳細は[documentation.md](../documentation.md)。このディレクトリの
+  許容する。詳細は[documentation.md](../conventions/documentation.md)。このディレクトリの
   **対象ファイル表だけは例外**——`find_undocumented_files`が完全性を検査するため
   静かに古くならない。
 - **表・図を優先し、地の文を増やさない**。1関数・1テーブルにつき1〜2文を目安にする。
@@ -53,18 +52,18 @@
 ## このディレクトリが扱わない領域（正本は別にある）
 
 機能単位の設計はここにあるが、**コードからは導けず文書だけが持つ制約**は
-[architecture.md](../architecture.md)側にある。その領域に触る変更は、モジュール設計書では
-なくそちらを先に読む（[T722](../tasks/T722.md)）。
+[docs/architecture/](../architecture/README.md)側にある。その領域に触る変更は、
+モジュール設計書ではなくそちらを先に読む。
 
 | 領域 | 正本 | 例 |
 |---|---|---|
-| 依存ライブラリのバージョン制約 | [architecture.md](../architecture.md)「技術選定」 | 「このメジャーへ上げられない理由」。コードには「上げていない」という事実しか無く、理由は書かれていない |
-| デプロイ順序・本番反映の前後関係 | [architecture.md](../architecture.md)・[deployment-sync.md](../deployment-sync.md) | DB移行を先に済ませないと起動に失敗する変更の扱い |
-| 実行環境・プラットフォーム固有の制約 | [architecture.md](../architecture.md) | バンドラ・ホスティング・OSに由来する回避策 |
+| 依存ライブラリのバージョン制約 | [architecture/tech-stack.md](../architecture/tech-stack.md) | 「このメジャーへ上げられない理由」。コードには「上げていない」という事実しか無く、理由は書かれていない |
+| デプロイ順序・本番反映の前後関係 | [architecture/tech-stack.md](../architecture/tech-stack.md)・[deployment-sync.md](../conventions/deployment-sync.md) | DB移行を先に済ませないと起動に失敗する変更の扱い |
+| 実行環境・プラットフォーム固有の制約 | [architecture/tech-stack.md](../architecture/tech-stack.md) | バンドラ・ホスティング・OSに由来する回避策 |
 | 検知器・レビュー基盤（`scripts/`） | [review/README.md](../../.claude/commands/review/README.md)と`scripts/review_checks.py`の`DETECTOR_ENFORCEMENT` | 何をどの経路で機械的にブロックするか。アプリの挙動ではなく**アプリを検査する側**のため、下の対象ファイル表（`find_undocumented_files`が完全性を検査する）の母集団にも入らない |
 
 判断の目安は**「その制約を、コードだけを読んで知れるか」**。知れないならモジュール設計書の
-範囲外で、architecture.md側を見る。
+範囲外で、docs/architecture/側を見る。
 
 ## backend
 
@@ -88,5 +87,5 @@
 | [地図: 軸・ルート色分け](frontend/map-axis-coloring.md) | dedicated_way_value_layer軸の描画 |
 | [地図: 動的気象レイヤー](frontend/dynamic-weather-layers.md) | 風・降水・キキクル等の地図表示 |
 | [地図: 静的レイヤー・道路表示](frontend/static-map-layers.md) | 路面・道路種別・POI・事故の地図表示 |
-| [ページ全体構成・状態管理](frontend/page-composition.md) | `page.tsx`のコンポジション・永続化。特定モジュールの責務ではない汎用UI部品（`components/ui/`・`ErrorText`・`BottomSheet`・`Disclosure`等）もここへ集約する（[T564](../tasks/T564.md)） |
+| [ページ全体構成・状態管理](frontend/page-composition.md) | `page.tsx`のコンポジション・永続化。特定モジュールの責務ではない汎用UI部品（`components/ui/`・`ErrorText`・`BottomSheet`・`Disclosure`等）もここへ集約する |
 | [開発者/研究者機能](frontend/developer-research-tools.md) | デバッグログ・システム状況・研究モード |

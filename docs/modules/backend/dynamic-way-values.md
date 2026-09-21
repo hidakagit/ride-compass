@@ -164,7 +164,7 @@ axis_id → dedicated_way_value_axes().get(axis_id)（無ければ404）
 **キャッシュするのは勾配だけ**。風は「タイル中心1点の風を全wayへ配る」だけで計算が軽く、
 キャッシュが節約するのは1タイルあたり2.8ms（応答53msの5%）にとどまる一方、1エントリ
 190KBを保持することになるため、キャッシュせず都度計算する。勾配はフィーチャー単位の計算で
-809msを節約できるためキャッシュする（[docs/conventions/caching.md](../../caching.md)
+809msを節約できるためキャッシュする（[docs/conventions/caching.md](../../conventions/caching.md)
 「キャッシュしないという選択」参照）。
 
 保持層は**ディスク**（`tile_persistent_cache`＝diskcache）。失っても外部へは取りに行かず

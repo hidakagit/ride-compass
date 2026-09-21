@@ -1,14 +1,14 @@
 # RideCompass
 
 サイクリング向け周回ルート生成アプリ。backend（FastAPI）+ frontend（Next.js）。
-アーキテクチャ全体は docs/architecture.md 参照。
+アーキテクチャ全体は docs/architecture/README.md 参照。
 
 設計レビュー（2026-08-15〜16）の指摘と改善実行計画は docs/improvement-plan.md にある。
 リファクタリング・機能追加の着手前に該当タスクの有無を確認し、完了したらチェックを更新すること。
 improvement-plan.md自体はチェックボックス付きリンクの一覧（インデックス）のみを持ち、
 各タスクの背景・対応方針・実装メモ・検証結果はdocs/records/tasks/Txxx.md（タスク番号1件=1ファイル）
 にある。
-設計原則（RideCompass固有の仕様）は docs/design-principles.md が唯一の正本（常に最新）。
+設計原則（RideCompass固有の仕様）は docs/architecture/design-principles.md が唯一の正本（常に最新）。
 新しい仕組みを作る前は必ず読むこと。判断原則・進め方は
 .claude/commands/review/principles.md「判断原則」節、機能単位の設計は
 docs/modules/README.md（モジュール単位、実コードのみを根拠に記述）
@@ -17,7 +17,7 @@ docs/modules/README.md（モジュール単位、実コードのみを根拠に�
 古くなった記述）を見つけたら同一コミットで修正すること**（サンプリング読みで済ませない
 こと自体は本ファイル全体の運用と地続き）。
 **依存ライブラリのバージョン・デプロイ・実行環境（プラットフォーム）に触る変更は、
-docs/architecture.mdの該当箇所も着手前に読むこと**——これらの制約はコードからは導けず、
+docs/architecture/tech-stack.mdも着手前に読むこと**——これらの制約はコードからは導けず、
 あの文書だけが持つ（「このバージョンへ上げられない理由」はその典型で、読まずに起票すると
 実現不能な方針のタスクができる。[T722](docs/records/tasks/T722.md)）。領域と正本の対応は
 docs/modules/README.md「このディレクトリが扱わない領域」節にある。
@@ -175,7 +175,7 @@ CronCreate等）に付随する進捗・ログ・通知メッセージも例外�
 
 - **範囲は性質から導く**: 直す対象を「症状が出た場所」で決めず、「その欠陥を成立させている
   性質」で決め、その性質に当てはまる箇所を機械的に列挙してから直す
-  （導出の考え方は[design-principles.md](docs/design-principles.md)構造仕様12と同じ）。
+  （導出の考え方は[design-principles.md](docs/architecture/design-principles.md)構造仕様12と同じ）。
 - **検証は別の入力で行う**: 修正を書く根拠にした入力で測り直しても証拠にならない。とくに
   **検査の側を緩めて「検知0件になった」ことは、その検査が直った証拠にならない**——緩める前に
   検知できていた既知の1件が今も検知されることを、別途示す。
@@ -237,11 +237,11 @@ T536でそれを置き換えた`compute_edge_costs_bulk`まで同じ理由で残
   `backend/scripts/export_openapi.py`→`cd frontend && npm run generate:api`を実行し、
   `git diff --exit-code -- frontend/src/types/generated/`がクリーンであることを確認する。
 - **規模M以上でAPI・ドメイン概念・レイヤー種を新設するタスクは、完了条件へ
-  docs/architecture.md追従を既定で含める**。docs（「現状」記述）はコード変更と
+  docs/architecture/追従を既定で含める**。docs（「現状」記述）はコード変更と
   同一コミットで更新する。
 - **既存の仕組みと技術的に別方式の新しい配信・レンダリング機構（例: タイル焼き込み済み
   ramp軸に対する`dedicated_way_value_layer`のようなRedis経由way_id配信）を新設するときは、
-  着手前に`docs/design-principles.md`の構造仕様3・8（1本道の追加点）がこの新しい機構にも
+  着手前に`docs/architecture/design-principles.md`の構造仕様3・8（1本道の追加点）がこの新しい機構にも
   適用されるかを点検し、適用されるなら軸ごとのファイル・関数・定数・propを新設しない
   汎用設計にする**（新しい種類の機構を作る時にだけ点検が漏れやすい）。
 - **MVT焼き込み値（CASE式・材料タグ・domain純関数）を変更したら**、生成物
@@ -272,7 +272,7 @@ T536でそれを置き換えた`compute_edge_costs_bulk`まで同じ理由で残
   `docs/improvement-plan.md`は節見出し＋チェックボックス付きリンクの一覧のみを持ち、
   個々のタスクの背景・対応方針・実装メモは`docs/records/tasks/Txxx.md`へ分離されている:
   `docs/records/tasks/Txxx.md`を新規作成して詳細を書き、`docs/improvement-plan.md`の該当節へ
-  `- [ ] [Txxx](tasks/Txxx.md). タイトル 規模...`の1行を追記する。番号の採番・衝突時の
+  `- [ ] [Txxx](records/tasks/Txxx.md). タイトル 規模...`の形で1行を追記する。番号の採番・衝突時の
   振り直し手順は次の「作業ツリーの安全」節を参照。
 - **判断・実行を保留する場合、「後で判断」等の一言メモで済ませず、影響範囲
   （保留することで何がブロックされるか・何が動かなくなるか）を明記した完全な

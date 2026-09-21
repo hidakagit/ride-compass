@@ -1,6 +1,6 @@
 """較正値の上書きの読み書き（管理APIのサービス層）。
 
-**トランザクション境界はここが持つ**（[design-principles.md](../../../docs/design-principles.md)
+**トランザクション境界はここが持つ**（[design-principles.md](../../../docs/architecture/design-principles.md)
 構造仕様7）。ルーターが`commit()`/`rollback()`を直接呼ぶと、1リクエストで2つ以上の書き込みを
 まとめたくなったときに「どこまでが1つの取引か」を決める場所が無くなる——ルーター側で
 書き足すたびに境界が動き、途中まで書けた状態が残りうる。

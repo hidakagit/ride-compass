@@ -38,7 +38,7 @@ class Settings(BaseSettings):
     # デプロイ先で実際にビルド・起動されたコミットのフルSHA（`GIT_COMMIT`環境変数、
     # .envには書かない。ローカル開発では未設定のためNoneのまま）。`/health`のレスポンスに
     # 含め、本番で実際に動いているコミットが手元のgit HEADと一致しているか（＝最新版が
-    # 反映されているか）を外部から確認できるようにする（詳細はdocs/architecture.md参照）。
+    # 反映されているか）を外部から確認できるようにする（詳細はdocs/architecture/tech-stack.md参照）。
     git_commit: str | None = None
 
     # --- 認証なしエンドポイントのper-IPレート制限・同時実行上限（api/routers/*が参照） ---
@@ -157,7 +157,7 @@ class Settings(BaseSettings):
     # infrastructure/redis_client.pyのdocstring参照）。
     # 本番はOracle Cloud VM上にネイティブ（apt、PostgreSQLと同じ構成）で導入する想定。
     # backendコンテナは--network=hostで起動するため、この既定値（localhost）のまま
-    # VM上のRedisへ到達できる（導入手順はdocs/architecture.md参照）。
+    # VM上のRedisへ到達できる（導入手順はdocs/architecture/tech-stack.md参照）。
     redis_url: str = "redis://localhost:6379/0"
 
     # ディスク永続キャッシュ（infrastructure/tile_persistent_cache.py）の容量上限（MB）。

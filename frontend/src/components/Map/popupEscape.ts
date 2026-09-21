@@ -7,7 +7,7 @@
 // そのサニタイザには**バイパスが報告されている**（XSS Sanitizer Bypass in DOM.sanitize()
 // via Live NamedNodeMap Removal Skip、CVSS 10。修正版はsemver majorのv6系で、Next.jsの
 // バンドラがWorkerのスクリプトURLを解決できず地図が描画されないため上げられない
-// ——docs/architecture.md「フロントエンド実装上の注意」）。
+// ——docs/architecture/tech-stack.md参照）。
 //
 // ライブラリのサニタイザ1枚に依存するのをやめ、埋め込む前にこちらでエスケープする。
 // バージョンを上げなくても到達経路が消える。

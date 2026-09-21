@@ -134,7 +134,7 @@ backend（`domain/dynamic_way_values.py: map_value_thresholds`）が軸の折れ
   （`bandLabelsForBandCount`、ルート前の凡例と同じ規則）。
 
   **件数が段階数と合わないラベルは添えずに捨てる。** ずらして添えると最上位の段階のラベルが
-  実際より狭い範囲を指す嘘になる。飽和そのものは軸の較正の問題で、[T833](../../tasks/T833.md)が扱う。
+  実際より狭い範囲を指す嘘になる。飽和そのものは軸の較正の問題で、T833が扱う。
 
 **ルート確定の前と後は同じ段で塗る。** 前は材料の重み付き和を、後は0〜100の難易度を塗るが、
 段の切り方は同じもので、backendが両方の目盛りで言い直して配る（`domain/axis_display.py:
@@ -144,7 +144,7 @@ ramp_band_thresholds`が前の境界を決め、`domain/dynamic_way_values.py: m
 同じ理由で段の識別子も前後で共通（`mapColorLegend.ts: legendBandKey`＝`step-N`、値を持たない
 道の受け皿は`LEGEND_NO_DATA_KEY`）。**軸idを綴りへ混ぜない**——非表示にした段の保存先は前後で
 同じ`hiddenLegendKeysByMode[軸id]`のため、別の綴りにすると隠した段がルート生成で黙って戻る
-（[T939](../../tasks/T939.md)）。
+。
 
 段の範囲を文字にするのは`mapColorLegend.ts: rangeStepLabel`だけ。**語は述語に合わせる**——
 境界の判定は`>= lower`・`< upper`のため、最上位帯は「以上」であって「超」ではない。

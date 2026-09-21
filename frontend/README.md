@@ -1,4 +1,4 @@
-This is the frontend (Next.js + TypeScript + MapLibre GL JS) for [RideCompass](../README.md). For project overview, setup with the backend, and architecture details, see the [repository root README](../README.md) and [docs/architecture.md](../docs/architecture.md).
+This is the frontend (Next.js + TypeScript + MapLibre GL JS) for [RideCompass](../README.md). For project overview, setup with the backend, and architecture details, see the [repository root README](../README.md) and [docs/architecture/](../docs/architecture/README.md).
 
 This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
 
