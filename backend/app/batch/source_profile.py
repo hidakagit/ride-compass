@@ -15,9 +15,9 @@ from typing import Any
 
 import yaml
 
-SUPPORTED_VERSION = 1
+_SUPPORTED_VERSION = 1
 
-PROFILE_PATH = Path(__file__).resolve().parent / "source_profile.yaml"
+_PROFILE_PATH = Path(__file__).resolve().parent / "source_profile.yaml"
 
 
 class SourceProfileError(ValueError):
@@ -32,9 +32,6 @@ class Target:
     prefectures: tuple[str, ...] | None
     #: (min_lat, min_lon, max_lat, max_lon)。
     bbox: tuple[float, float, float, float]
-
-    def is_nationwide(self) -> bool:
-        return self.prefectures is None
 
 
 @dataclass(frozen=True)
@@ -64,8 +61,6 @@ class SourceProfile:
     sources: tuple[SourceSpec, ...]
     #: ファイル全体のSHA-256。`source_runs`へ記録し、どの宣言で取り込んだ行かを追える。
     profile_hash: str
-    #: 記録用の生データ（`source_runs.profile`へそのまま入れる）。
-    raw: dict[str, Any]
 
     def source(self, name: str) -> SourceSpec:
         for spec in self.sources:
@@ -126,15 +121,15 @@ def _parse_source(raw: object) -> SourceSpec:
 
 def load_source_profile(path: Path | None = None) -> SourceProfile:
     """プロファイルを読む。形式不正は`SourceProfileError`で即座に落とす。"""
-    target_path = path or PROFILE_PATH
+    target_path = path or _PROFILE_PATH
     text = target_path.read_text(encoding="utf-8")
     raw = yaml.safe_load(text)
     if not isinstance(raw, dict):
         raise SourceProfileError("プロファイルはマッピングが必要です")
 
     version = raw.get("version")
-    if version != SUPPORTED_VERSION:
-        raise SourceProfileError(f"未対応のversionです: {version}（対応は{SUPPORTED_VERSION}）")
+    if version != _SUPPORTED_VERSION:
+        raise SourceProfileError(f"未対応のversionです: {version}（対応は{_SUPPORTED_VERSION}）")
 
     sources_raw = raw.get("sources")
     if not isinstance(sources_raw, list) or not sources_raw:
@@ -151,5 +146,4 @@ def load_source_profile(path: Path | None = None) -> SourceProfile:
         target=_parse_target(raw.get("target")),
         sources=sources,
         profile_hash=hashlib.sha256(text.encode("utf-8")).hexdigest(),
-        raw=raw,
     )

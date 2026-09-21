@@ -1,7 +1,6 @@
 """scripts/measure_poi_freshness.pyの純粋ロジック（タグ判定・鮮度バケット化・集計）の検証。
 
-PBF読み取り自体はpyosmium依存かつ実ファイルが要るため、ここでは対象外
-（test_measure_tag_coverage.pyと同じ切り分け方針）。
+PBF読み取り自体はpyosmium依存かつ実ファイルが要るため、ここでは対象外。
 """
 
 import sys

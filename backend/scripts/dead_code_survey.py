@@ -1,4 +1,4 @@
-r"""本番の入力から到達しない定義を出す（[T968](../../docs/records/tasks/T968.md)段階1）。
+r"""本番の入力から到達しない定義を出す。
 
 **「怪しそうな書き方」をgrepして母集団を作らない。** 症状や少数の事例の特徴から母集団を
 決めると、そこに無いものは定義上見つからない。本番の入力の源流から参照をたどり、たどり
@@ -20,7 +20,7 @@ r"""本番の入力から到達しない定義を出す（[T968](../../docs/reco
 実行方法（backendディレクトリから）:
     .venv\Scripts\python.exe scripts\dead_code_survey.py
     .venv\Scripts\python.exe scripts\dead_code_survey.py --show-entrypoints
-    .venv\Scripts\python.exe scripts\dead_code_survey.py --check compute_edge_costs_bulk
+    .venv\Scripts\python.exe scripts\dead_code_survey.py --why evaluate_axes_scalar
 """
 
 import argparse
@@ -71,10 +71,8 @@ def module_name(path: Path) -> str:
 def _strip_docstrings(node: ast.AST) -> ast.AST:
     """docstringを落とす。**これを残すと辺が嘘になる**。
 
-    docstringは名前を説明のために並べる——`evaluation.py`は「`compute_edge_costs_bulk`は
-    テストだけ」と自分で書いており、その一文が辺になって当の関数を生かしていた（実測）。
-    T963が「テキストgrepはdocstringを拾う」と警告した穴は、ASTを使っても文字列定数を
-    辿れば同じように開く。
+    docstringは名前を説明のために並べるため、「この関数はもう使っていない」と書いた
+    一文がそのまま辺になり、当の定義を生かしてしまう。
     """
     for child in ast.walk(node):
         if not isinstance(child, (ast.Module, ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
@@ -90,7 +88,7 @@ def _referenced_names(node: ast.AST) -> set[str]:
     """本体が参照する名前。`ast.Name`・`ast.Attribute`の属性名・`import`の別名を拾う。
 
     **テキストのgrepでは取りこぼす**——docstringやコメント内の言及を「使用」と数えて
-    しまい、死んでいる定義が生きていると判定される（T956で実測）。
+    しまい、死んでいる定義が生きていると判定される。
     """
     names: set[str] = set()
     for child in ast.walk(node):
@@ -158,8 +156,7 @@ def collect_definitions(paths: list[Path]) -> dict[str, list[Definition]]:
         for node in tree.body:
             if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
                 # **非公開もノードにする。** 登録しないと、非公開の定義やテーブルが
-                # 参照している公開定義への辺が切れ、生きているものが孤立点に見える
-                # （`_PATH_POLICIES`が参照する`PERMANENT`等で実測）。
+                # 参照している公開定義への辺が切れ、生きているものが孤立点に見える。
                 private = node.name.startswith("_")
                 definition = Definition(
                     module=module,
@@ -230,12 +227,13 @@ def find_unresolvable_dynamic_refs(paths: list[Path]) -> list[tuple[str, int, st
                         found.append((module, node.lineno, f"{node.func.id}(名前を組み立てている)"))
             if isinstance(node, ast.Subscript):
                 value = node.value
-                if isinstance(value, ast.Call) and isinstance(value.func, ast.Name)                         and value.func.id in ("globals", "locals", "vars"):
+                if (isinstance(value, ast.Call) and isinstance(value.func, ast.Name)
+                        and value.func.id in ("globals", "locals", "vars")):
                     found.append((module, node.lineno, f"{value.func.id}()[...]"))
     return sorted(found)
 
 
-def find_entrypoints(by_name: dict[str, list[Definition]], app_files: list[Path]) -> list[Definition]:
+def find_entrypoints(by_name: dict[str, list[Definition]]) -> list[Definition]:
     """源流。**この表が閉じていることが完全性の根拠**なので、短く保って人が読めるようにする。"""
     entrypoints: list[Definition] = []
     for definitions in by_name.values():
@@ -253,8 +251,7 @@ def find_entrypoints(by_name: dict[str, list[Definition]], app_files: list[Path]
             if not reason and definition.runs_without_reference:
                 # デコレータ・メタクラス・型注釈から使われるものは、コードからの参照が
                 # 無くても**本番で実行される**。報告から除くだけでは足りない——
-                # 源流に入れないと、そこから呼ばれる実装が丸ごと孤立点に見える
-                # （取込アダプタと、それが使う`latitude_from_raw`等で実測）。
+                # 源流に入れないと、そこから呼ばれる実装が丸ごと孤立点に見える。
                 reason = definition.exempt_reason
             if reason:
                 definition.is_entrypoint = True
@@ -310,7 +307,7 @@ def main() -> int:
     ]
     by_name = collect_definitions(app_files + entry_files)
 
-    entrypoints = find_entrypoints(by_name, app_files)
+    entrypoints = find_entrypoints(by_name)
     # 入口のモジュール直下が参照する名前も源流に含める（スクリプトのトップレベル、
     # ルーターの登録、lifespanが組み立てるもの）。
     seed_names: set[str] = set()

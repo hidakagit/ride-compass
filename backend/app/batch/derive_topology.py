@@ -154,7 +154,6 @@ async def _latest_run(conn: asyncpg.Connection, source: str) -> int:
 
 
 async def derive(conn: asyncpg.Connection) -> tuple[int, int]:
-    """`road_edges`・`edge_materials`の器・`node_materials`を作り直す。"""
     run_id = await _latest_run(conn, "osm_way")
     started = time.perf_counter()
 
@@ -183,7 +182,7 @@ async def derive(conn: asyncpg.Connection) -> tuple[int, int]:
         nodes = await conn.execute(_INSERT_NODES, run_id)
         edges = await conn.execute(_INSERT_EDGES, run_id)
         await conn.execute(_INSERT_EDGE_MATERIALS)
-        # 後ろの段はこの3表を読む。autovacuumは既定60秒周期の背景処理で、派生は5段を
+        # 後ろの段はこの3表を読む。autovacuumは既定60秒周期の背景処理で、派生は
         # 数秒で走り切るため、統計が付くのを待てない。無いまま読まれると実行計画が
         # 桁で外れる。
         await conn.execute("ANALYZE road_edges, node_materials, edge_materials")
@@ -210,7 +209,6 @@ def main() -> int:
     parser.add_argument("--database-url", default=None)
     args = parser.parse_args()
     database_url = args.database_url or settings.database_url
-    # 派生が変われば、それを読んで作ったキャッシュは古くなる。
     return asyncio.run(with_derived_data_revision_bump(
         run(database_url), database_url=database_url, dry_run=False))
 

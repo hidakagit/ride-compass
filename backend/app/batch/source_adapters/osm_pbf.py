@@ -8,8 +8,8 @@ wayの`payload`は参照ノードidをint64で並べた配列。属性として�
 切るときに「どのwayがどのノードを共有しているか」が要る。
 
 pyosmiumはコールバックで動く同期の仕組みなので、別スレッドで走らせて結果を非同期側へ
-渡す。1件ずつスレッドをまたぐと遅いため、まとまりで渡す。全件を溜めてから渡すと
-1,300,000wayぶんがメモリに載るため、まとまりができ次第すぐ渡す。
+渡す。1件ずつスレッドをまたぐと遅く、全件を溜めるとPBF1本ぶんがメモリに載るため、
+まとまりができ次第すぐ渡す。
 """
 
 import asyncio
@@ -33,8 +33,8 @@ DATA_DIR = Path(__file__).resolve().parents[3] / "data" / "pbf"
 
 #: スレッド間で受け渡すまとまりの件数と、待ち行列の深さ。深さは読み手が遅れたときに
 #: 読み側が先へ行きすぎないための背圧で、メモリの上限を決める。
-HANDOFF_BATCH = 5_000
-QUEUE_DEPTH = 4
+_HANDOFF_BATCH = 5_000
+_QUEUE_DEPTH = 4
 
 _SENTINEL = object()
 
@@ -93,13 +93,13 @@ class _Handoff:
     """別スレッドが積んだまとまりを、非同期側へ流す受け渡し。"""
 
     def __init__(self) -> None:
-        self.queue: queue.Queue = queue.Queue(maxsize=QUEUE_DEPTH)
+        self.queue: queue.Queue = queue.Queue(maxsize=_QUEUE_DEPTH)
         self._batch: list[SourceRecord] = []
         self.error: BaseException | None = None
 
     def put(self, record: SourceRecord) -> None:
         self._batch.append(record)
-        if len(self._batch) >= HANDOFF_BATCH:
+        if len(self._batch) >= _HANDOFF_BATCH:
             self.queue.put(self._batch)
             self._batch = []
 

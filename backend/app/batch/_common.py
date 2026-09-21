@@ -1,7 +1,5 @@
-"""バッチ間共通ヘルパ。
+"""複数のバッチが同じ形で必要とするものを集める。
 
-複数のバッチが同じ形で必要とするもの——asyncpg用のDSN変換、SQLAlchemyセッション
-ファクトリの生成と後始末、派生の世代を進める囲い、進捗の書式——をここへ集める。
 特定のバッチだけが使うものは、そのバッチが持つ。
 """
 
@@ -22,12 +20,9 @@ _T = TypeVar("_T")
 async def batch_session_factory(database_url: str | None) -> AsyncIterator[async_sessionmaker]:
     """バッチ用のセッションファクトリを作り、終了時にエンジンを必ず破棄する。
 
-    `precompute_*.py`・`presplit_road_graph.py`はいずれも「エンジンを作る→
-    `async_sessionmaker`を作る→処理→`finally`で`engine.dispose()`」という同じ前後を持つ。
-    バッチはリクエスト経路と違い自前でエンジンを持つ（`infrastructure/database.py`の
+    バッチはリクエスト経路と違い自前でエンジンを持つ。`infrastructure/database.py`の
     共有セッションファクトリはアプリ稼働中の接続プールを前提にしており、単発実行の
-    バッチが使うとプロセス終了時に破棄されない接続が残る）ため、この後始末を各バッチが
-    書いていた。
+    バッチが使うとプロセス終了時に破棄されない接続が残る。
 
     `expire_on_commit=False`はバッチ共通の前提——commit後もORMオブジェクトの属性へ
     触れる（件数集計・ログ出力）ため。
@@ -69,10 +64,11 @@ async def with_derived_data_revision_bump(
 
 
 def asyncpg_dsn(sqlalchemy_url: str) -> str:
-    """SQLAlchemy用URL（postgresql+asyncpg://...?ssl=require）を、asyncpg.connectが
-    受け付けるDSNへ正規化する。`ssl=`クエリはSQLAlchemyのasyncpgダイアレクト固有の
-    書き方のため、libpq互換の`sslmode=`へ読み替える（Supabase等のリモートDB用。
-    ローカルのssl指定なしURLはドライバ指定の除去のみ）。"""
+    """SQLAlchemy用URLを、asyncpg.connectが受け付けるDSNへ正規化する。
+
+    `ssl=`クエリはSQLAlchemyのasyncpgダイアレクト固有の書き方で、asyncpgは解さない。
+    libpq互換の`sslmode=`へ読み替える。
+    """
     dsn = sqlalchemy_url.replace("+asyncpg", "")
     return dsn.replace("?ssl=", "?sslmode=").replace("&ssl=", "&sslmode=")
 
@@ -89,7 +85,7 @@ def format_duration(seconds: float) -> str:
 
 
 def format_progress(done: int, total: int | None, elapsed: float, unit: str = "件") -> str:
-    """済んだ数・速さ・残りの見込み。**残りは実測の速さから出す**。
+    """済んだ数・速さ・残りの見込み。
 
     `total`がNoneのとき（流しながら読むソースのように、全体数が終わるまで分からない
     とき）は残りを出さない——分からないものを推測で埋めると、読み手が当てにする。

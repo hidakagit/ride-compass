@@ -20,14 +20,13 @@ import asyncpg  # noqa: E402
 from app.batch import source_adapters  # noqa: F401,E402  アダプタの登録が目的
 from app.batch._common import asyncpg_dsn, with_derived_data_revision_bump  # noqa: E402
 from app.batch.ingest import ingest_source  # noqa: E402
-from app.batch.source_profile import load_source_profile  # noqa: E402
+from app.batch.source_profile import SourceProfile, load_source_profile  # noqa: E402
 from app.config import settings  # noqa: E402
 
 logger = logging.getLogger("ridecompass.ingest_cli")
 
 
-async def run(source_names: list[str], database_url: str, profile_path: Path | None) -> int:
-    profile = load_source_profile(profile_path)
+async def run(source_names: list[str], database_url: str, profile: SourceProfile) -> int:
     conn = await asyncpg.connect(asyncpg_dsn(database_url))
     try:
         for name in source_names:
@@ -59,10 +58,8 @@ def main() -> int:
         parser.error(f"プロファイルに無いソースです: {unknown}")
 
     database_url = args.database_url or settings.database_url
-    # 生データが入れ替わると、それを読んで作ったキャッシュは古くなる。派生の世代を
-    # 進めて下流を作り直させる（ソース別の世代へ移すまでは、既存の仕組みに乗せる）。
     return asyncio.run(with_derived_data_revision_bump(
-        run(names, database_url, args.profile),
+        run(names, database_url, profile),
         database_url=database_url, dry_run=False))
 
 

@@ -35,8 +35,8 @@ from app.domain.material_sql import BRIDGE_NORMALIZED_SQL, TUNNEL_NORMALIZED_SQL
 logger = logging.getLogger("ridecompass.derive_raster_materials")
 
 #: 土地被覆を数える帯。中心線からこの距離までを見て、路面そのものの幅は除く。
-LANDCOVER_RING_M = 100.0
-LANDCOVER_INNER_M = 10.0
+_LANDCOVER_RING_M = 100.0
+_LANDCOVER_INNER_M = 10.0
 
 #: `source_features`の道の行を、材料の式（`domain/material_sql.py`）が期待する別名へ
 #: 合わせる。式の側にタグ列の名前が書かれているため、こちらが合わせる。
@@ -45,7 +45,6 @@ _WAYS_AS_W = (
     "FROM source_features WHERE source = 'osm_way') w"
 )
 
-#: 区間の形と、その道が構造物の上かどうか。
 _EDGE_SHAPES = f"""
 SELECT e.osm_way_id, e.segment_index, e.geom,
        (coalesce({TUNNEL_NORMALIZED_SQL}, '') NOT IN ('', 'no')
@@ -61,9 +60,6 @@ def _tiles(source: str) -> str:
 
 # --- 標高 -------------------------------------------------------------------
 
-
-#: Webメルカトルが世界を写す一辺の半分（m）。タイルの番地はこの座標系で決まる。
-WORLD_HALF_M = 20037508.342789244
 
 #: 頂点を一度実体にしてからタイルへ結合する。関数から直に結合すると行数を見積もれず、
 #: プランナがタイル側を入れ子で読み直す計画を選ぶ。
@@ -158,10 +154,7 @@ GROUP BY r.osm_way_id, r.segment_index, (vc).value
 
 
 def _landcover_columns() -> list[tuple[str, str]]:
-    """(割合の項目名, `edge_materials`の列名) の対応。
-
-    クラスが1つ増えてもここは変わらない——項目名から列名を導いており、並べていない。
-    """
+    """(割合の項目名, `edge_materials`の列名) の対応。"""
     return [(name, "lc_" + name.removesuffix("_percent")) for name, _ in PERCENT_CLASSES]
 
 
@@ -182,7 +175,7 @@ async def derive_landcover(conn: asyncpg.Connection) -> int:
         logger.warning("土地被覆タイルが1枚も取り込まれていません")
         return 0
 
-    await conn.execute(_BUILD_RINGS, LANDCOVER_RING_M, LANDCOVER_INNER_M)
+    await conn.execute(_BUILD_RINGS, _LANDCOVER_RING_M, _LANDCOVER_INNER_M)
     await conn.execute("CREATE INDEX ON _rings USING GIST (ring4326)")
     await conn.execute("ANALYZE _rings")
     logger.info("土地被覆: 帯 %d本を作った。重なる画素を数える",
@@ -241,7 +234,6 @@ def main() -> int:
     parser.add_argument("--database-url", default=None)
     args = parser.parse_args()
     database_url = args.database_url or settings.database_url
-    # 派生が変われば、それを読んで作ったキャッシュは古くなる。
     return asyncio.run(with_derived_data_revision_bump(
         run(database_url), database_url=database_url, dry_run=False))
 

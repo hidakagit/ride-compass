@@ -49,14 +49,13 @@ async def _schema(database_url: str, profile_path: Path | None) -> None:
 
 async def _ingest(database_url: str, profile_path: Path | None) -> None:
     profile = load_source_profile(profile_path)
-    await ingest_cli.run([s.name for s in profile.sources], database_url, profile_path)
+    await ingest_cli.run([s.name for s in profile.sources], database_url, profile)
 
 
 async def _derive(database_url: str, profile_path: Path | None) -> None:
     await derive_cli.run(database_url, None)
 
 
-#: 上から順に流す。後ろの段は前の段の出力を読む。
 PHASES: tuple[tuple[str, object], ...] = (
     ("schema", _schema),
     ("ingest", _ingest),
@@ -91,7 +90,6 @@ def main() -> int:
     args = parser.parse_args()
 
     database_url = args.database_url or settings.database_url
-    # 生データも派生も入れ替わるので、それを読んで作ったキャッシュは全部古くなる。
     return asyncio.run(with_derived_data_revision_bump(
         run(database_url, args.profile, args.start_from),
         database_url=database_url, dry_run=False))

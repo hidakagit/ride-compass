@@ -45,12 +45,12 @@ from app.domain.region import BoundingBox, tiles_covering_bbox  # noqa: E402
 logger = logging.getLogger("ridecompass.fetch_dem_tiles")
 
 #: 配信元へ並べてよい数の上限。公共サービスなので控えめにする。
-MAX_CONCURRENT = 8
+_MAX_CONCURRENT = 8
 
 #: 1タイルあたりの試行回数の既定。超えたらそのタイルは諦め、件数として報告する。
-DEFAULT_ATTEMPTS = 3
+_DEFAULT_ATTEMPTS = 3
 
-REQUEST_TIMEOUT = httpx.Timeout(connect=5.0, read=30.0, write=10.0, pool=10.0)
+_REQUEST_TIMEOUT = httpx.Timeout(connect=5.0, read=30.0, write=10.0, pool=10.0)
 
 
 async def _fetch_one(client: httpx.AsyncClient, zoom: int, x: int, y: int,
@@ -59,7 +59,7 @@ async def _fetch_one(client: httpx.AsyncClient, zoom: int, x: int, y: int,
     order = [first] + [p for p in PRODUCT_PRIORITY if p != first]
     for product in order:
         response = await client.get(
-            TILE_URL.format(product=product, z=zoom, x=x, y=y), timeout=REQUEST_TIMEOUT)
+            TILE_URL.format(product=product, z=zoom, x=x, y=y), timeout=_REQUEST_TIMEOUT)
         if response.status_code == 200:
             return product, response.text
         if response.status_code != 404:
@@ -67,7 +67,7 @@ async def _fetch_one(client: httpx.AsyncClient, zoom: int, x: int, y: int,
     return None
 
 
-async def fetch_missing(root: Path, zoom: int, product: str,
+async def _fetch_missing(root: Path, zoom: int, product: str,
                         tiles: list[tuple[int, int]], attempts: int) -> dict[str, int]:
     """手元に無いタイルだけ取りに行く。結果の内訳を返す。"""
     wanted = [
@@ -78,7 +78,7 @@ async def fetch_missing(root: Path, zoom: int, product: str,
     if not wanted:
         return counts
 
-    semaphore = asyncio.Semaphore(MAX_CONCURRENT)
+    semaphore = asyncio.Semaphore(_MAX_CONCURRENT)
     started = time.perf_counter()
 
     async with httpx.AsyncClient() as client:
@@ -103,8 +103,8 @@ async def fetch_missing(root: Path, zoom: int, product: str,
                 return
 
         last_report = started
-        for start in range(0, len(wanted), MAX_CONCURRENT * 8):
-            chunk = wanted[start:start + MAX_CONCURRENT * 8]
+        for start in range(0, len(wanted), _MAX_CONCURRENT * 8):
+            chunk = wanted[start:start + _MAX_CONCURRENT * 8]
             await asyncio.gather(*(one(x, y) for x, y in chunk))
             now = time.perf_counter()
             done = counts["取得"] + counts["区域外"] + counts["諦めた"]
@@ -129,7 +129,7 @@ async def run(profile_path: Path | None, attempts: int) -> int:
     logger.info("標高タイル: product=%s zoom=%d 対象%d枚 / 置き場 %s",
                 product, zoom, len(tiles), root)
 
-    counts = await fetch_missing(root, zoom, product, tiles, attempts)
+    counts = await _fetch_missing(root, zoom, product, tiles, attempts)
     logger.info("完了: %s", " / ".join(f"{k} {v:,}枚" for k, v in counts.items()))
     if counts["諦めた"]:
         logger.warning("諦めたタイルがあります。もう一度実行すると、その分だけ取りに行きます")
@@ -141,7 +141,7 @@ def main() -> int:
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s %(message)s")
     parser = argparse.ArgumentParser(description="標高タイルを手元へ写す")
     parser.add_argument("--profile", default=None, type=Path)
-    parser.add_argument("--attempts", default=DEFAULT_ATTEMPTS, type=int,
+    parser.add_argument("--attempts", default=_DEFAULT_ATTEMPTS, type=int,
                         help="1タイルあたりの試行回数。超えたら諦めて件数で報告する")
     args = parser.parse_args()
     return asyncio.run(run(args.profile, args.attempts))

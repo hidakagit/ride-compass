@@ -12,8 +12,13 @@
 
 import struct
 
+import shapely
+from shapely.geometry import box
+
+from app.domain.region import tile_bounds_lonlat
+
 #: Webメルカトルが世界を写す一辺の半分（m）。
-WORLD_HALF_M = 20037508.342789244
+_WORLD_HALF_M = 20037508.342789244
 
 #: 取込が`attrs`へ書く型 → PostGISのバンド種別と、欠測値の詰め方。
 _BAND_TYPE: dict[str, tuple[int, str]] = {
@@ -30,7 +35,7 @@ def tile_raster_wkb(pixels: bytes, *, zoom: int, x: int, y: int,
                     width: int, height: int, dtype: str, nodata: int) -> bytes:
     """タイル1枚のraster WKB。`pixels`はそのまま1バンドの中身になる。"""
     band_type, nodata_format = _BAND_TYPE[dtype]
-    span = 2 * WORLD_HALF_M / (2 ** zoom)
+    span = 2 * _WORLD_HALF_M / (2 ** zoom)
     header = struct.pack(
         "<BHH dddd dd i HH",
         1,                              # リトルエンディアン
@@ -38,11 +43,18 @@ def tile_raster_wkb(pixels: bytes, *, zoom: int, x: int, y: int,
         1,                              # バンド数
         span / width,                   # 画素の幅
         -span / height,                 # 画素の高さ（上から下へ）
-        -WORLD_HALF_M + x * span,       # 左上のX
-        WORLD_HALF_M - y * span,        # 左上のY
+        -_WORLD_HALF_M + x * span,      # 左上のX
+        _WORLD_HALF_M - y * span,       # 左上のY
         0.0, 0.0,                       # ゆがみ
         3857,
         width, height,
     )
     band = struct.pack("<B", _HAS_NODATA | band_type) + struct.pack(nodata_format, nodata)
     return header + band + pixels
+
+
+def tile_bbox_wkb(zoom: int, x: int, y: int) -> bytes:
+    """タイルが覆う範囲のWKB（SRID 4326の座標で作る）。"""
+    bounds = tile_bounds_lonlat(zoom, x, y)
+    return shapely.to_wkb(box(bounds.min_longitude, bounds.min_latitude,
+                              bounds.max_longitude, bounds.max_latitude))

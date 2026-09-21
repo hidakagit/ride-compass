@@ -1,11 +1,8 @@
-"""`amenity=vending_machine`が何を売る機械なのかを、PBFから数える（改善計画T935）。
+"""`amenity=vending_machine`が何を売る機械なのかを、PBFから数える。
 
 派生側（`domain/traffic.py: tag_kind_sql`）が飲料と分かるもの・分からないもの・
 口に入らないものへ分けるときの判定を、取り込む前のPBF全体に対して当ててみる器。
 「この判定で何件が残り、何件が落ちるか」を再取込の前に知るために使う。
-
-`measure_poi_freshness.py`・`measure_tag_coverage.py`と同じ「PBF1パス読み・単発実行・
-結果を標準出力」の形式。DBもネットワークも使わない。
 
 実行方法（backendディレクトリから）:
     .venv\\Scripts\\python.exe scripts\\measure_vending_types.py --pbf data/pbf/kanto-latest.osm.pbf
@@ -23,22 +20,26 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from app.domain.traffic import SUPPLY_VENDING_VALUES  # noqa: E402
 
 
+#: 分類の呼び名。`classify`が返すものと、内訳に並べるものを1つにする。
+_SUPPLY, _NOT_SUPPLY, _UNKNOWN = "補給に使える", "補給に使えない", "不明（vendingタグ無し）"
+
+
 def classify(vending: str | None) -> str:
-    """`vending`の値を「補給に使える／使えない／不明」の3つへ分ける（純粋関数）。
+    """`vending`の値を分類する。
 
     判定に使う値の集合は派生側（`domain/traffic.py: SUPPLY_VENDING_VALUES`）と共有する
     ——別々に持つと、計測が「これだけ残る」と言った件数と実際に取り込まれる件数がずれる。
     """
     parts = {part.strip().lower() for part in (vending or "").split(";") if part.strip()}
     if not parts:
-        return "不明（vendingタグ無し）"
+        return _UNKNOWN
     if parts & SUPPLY_VENDING_VALUES:
-        return "補給に使える"
-    return "補給に使えない"
+        return _SUPPLY
+    return _NOT_SUPPLY
 
 
 class VendingCounter:
-    """`vending`の値の分布と3分類の内訳を集計する（PBF I/Oから独立、単体テスト対象）。"""
+    """`vending`の値の分布と分類の内訳を集計する。"""
 
     def __init__(self) -> None:
         self.by_value: Counter[str] = Counter()
@@ -60,7 +61,7 @@ class VendingCounter:
         if not self.total:
             return ["（amenity=vending_machineのnodeが見つかりませんでした）"]
         lines = [f"amenity=vending_machine: {self.total}件", "", "## 補給に使えるか"]
-        for name in ("補給に使える", "補給に使えない", "不明（vendingタグ無し）"):
+        for name in (_SUPPLY, _NOT_SUPPLY, _UNKNOWN):
             count = self.by_class[name]
             lines.append(f"  {name}: {count}件（{self._pct(count):.1f}%）")
         lines.extend(["", f"## vendingの値（上位{top}）"])

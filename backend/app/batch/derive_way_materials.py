@@ -26,8 +26,6 @@ from app.domain.traffic import direction_sql  # noqa: E402
 logger = logging.getLogger("ridecompass.derive_way_materials")
 
 
-
-
 #: 判定に要るものを1つの表へまとめ、索引を張る。相方探しは自分自身を何度も引くため、
 #: `source_features`の全ソースが載る親表を毎回たどらせない。
 _WAY_FACTS = """
@@ -44,7 +42,7 @@ JOIN way_materials d ON d.osm_way_id = s.natural_key::bigint
 WHERE s.source = 'osm_way'
 """
 
-#: 逆向きに並走しているか。方位の差が180度に近いことで見る。
+#: 逆向きに並走しているか。
 _ANTIPARALLEL = """
 abs(((b.travel_deg - t.travel_deg)::numeric % 360 + 360) % 360 - 180) < $1
 """
@@ -128,7 +126,6 @@ async def derive_divided(conn: asyncpg.Connection) -> int:
     return divided
 
 
-
 async def derive(conn: asyncpg.Connection) -> None:
     async with conn.transaction():
         count = await _load_directions(conn)
@@ -151,7 +148,6 @@ def main() -> int:
     parser.add_argument("--database-url", default=None)
     args = parser.parse_args()
     database_url = args.database_url or settings.database_url
-    # 派生が変われば、それを読んで作ったキャッシュは古くなる。
     return asyncio.run(with_derived_data_revision_bump(
         run(database_url), database_url=database_url, dry_run=False))
 

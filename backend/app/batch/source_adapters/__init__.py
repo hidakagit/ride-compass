@@ -9,6 +9,3 @@ from app.batch.source_adapters import gsi_dem_tile  # noqa: F401
 from app.batch.source_adapters import io_lulc_tile  # noqa: F401
 from app.batch.source_adapters import osm_pbf  # noqa: F401
 from app.batch.source_adapters import npa_honhyo  # noqa: F401
-
-__all__ = ["gsi_dem_tile", "io_lulc_tile", "npa_honhyo",
-           "osm_pbf"]

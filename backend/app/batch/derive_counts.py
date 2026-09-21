@@ -53,7 +53,7 @@ COUNT_KIND_OF: dict[str, str] = {
 #: 信号が近いノードは、種別が横断歩道でも信号として数える。
 _SIGNAL_OVERRIDE = "signal"
 
-#: 種別ごとに近い点をまとめ、まとまりの代表を1点だけ残す。
+#: まとまりの代表を1点だけ残す。
 _CLUSTER_SQL = """
 CREATE TEMP TABLE _stop_nodes ON COMMIT DROP AS
 WITH classified AS (
@@ -75,7 +75,7 @@ SELECT DISTINCT ON (count_kind, cluster_id) osm_node_id, count_kind
 FROM clustered ORDER BY count_kind, cluster_id, osm_node_id
 """
 
-#: 端点を0.5ずつ持つ。`road_edges`は区間1本に1行なので、両端をそのまま足して割る。
+#: `road_edges`は区間1本に1行なので、両端をそのまま足して割ると0.5ずつになる。
 _EDGE_STOP_COUNTS = """
 WITH ends AS (
     SELECT osm_way_id, segment_index, from_node_id AS node_id FROM road_edges
@@ -112,7 +112,6 @@ UPDATE edge_materials SET poi_signal = 0, poi_crossing = 0, poi_stop = 0,
 WHERE poi_signal IS NULL
 """
 
-#: 交差点も端点を0.5ずつ持つ。枝が閾値以上のノードを数える。
 _EDGE_INTERSECTIONS = """
 WITH ends AS (
     SELECT osm_way_id, segment_index, from_node_id AS node_id FROM road_edges
@@ -129,7 +128,7 @@ FROM (
 WHERE c.osm_way_id = m.osm_way_id AND c.segment_index = m.segment_index
 """
 
-#: 事故は最も近い区間へ1件だけ付ける。死亡事故は重みを掛ける（判定はdomainが持つ）。
+#: 事故は最も近い区間へ1件だけ付ける。
 _EDGE_ACCIDENTS = f"""
 WITH nearest AS (
     SELECT a.natural_key,
@@ -153,7 +152,6 @@ WHERE s.osm_way_id = m.osm_way_id AND s.segment_index = m.segment_index
 
 _EDGE_ACCIDENT_ZERO = "UPDATE edge_materials SET accident_count = 0 WHERE accident_count IS NULL"
 
-#: 道の値は区間の値を足し上げる。同じ数え方から作るので、地図と評価で食い違わない。
 _WAY_FROM_EDGES = """
 INSERT INTO way_materials (osm_way_id, accident_count, intersection_count,
                            poi_signal, poi_crossing, poi_stop, poi_level_crossing, poi_barrier,
@@ -211,7 +209,6 @@ def main() -> int:
     parser.add_argument("--database-url", default=None)
     args = parser.parse_args()
     database_url = args.database_url or settings.database_url
-    # 派生が変われば、それを読んで作ったキャッシュは古くなる。
     return asyncio.run(with_derived_data_revision_bump(
         run(database_url), database_url=database_url, dry_run=False))
 

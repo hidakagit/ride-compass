@@ -11,6 +11,7 @@
 行うため、途中の状態が読まれることはない。
 """
 
+import json
 import logging
 import time
 from collections.abc import AsyncIterator, Callable
@@ -127,8 +128,6 @@ async def _close_run(conn: asyncpg.Connection, run_id: int, status: str,
 
 
 def _json(value: Any) -> str:
-    import json
-
     return json.dumps(value, ensure_ascii=False, default=str)
 
 

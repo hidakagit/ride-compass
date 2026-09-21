@@ -1,14 +1,11 @@
-"""T101（補給・休憩ポイントPOIレイヤー）候補タグの実店舗との乖離リスクを、
-OSMデータ自体の鮮度（`check_date`/`survey:date`タグの有無、要素の最終編集日時）から
-推定する（改善計画T101、ユーザー懸念「実店舗とどれだけ合っているか」への回答材料）。
+"""補給・休憩ポイントのPOIが実店舗とどれだけ合っているかを、OSMデータ自体の鮮度から
+推定する。
 
 コンビニ・自販機等は閉店・移転が頻繁なジャンルのため、タグの正誤そのものはPBFから
 直接検証できない（外部の実店舗リストが要る）。代わりにOSM側の「いつ最後に確認・
 編集されたか」を鮮度の代理指標として使う: `check_date`/`survey:date`が付与されている
-ノードは実地確認済みである可能性が高く、無い場合も要素の最終編集日時（`n.timestamp`、
-pbf_source.py参照）が古いほど「作成後だれも確認していない＝閉店等に気づかれず
-放置されている」リスクが高いと推定できる。measure_tag_coverage.py（T102の前例）と
-同じ「PBF1パス読み・単発実行・結果を標準出力」の形式。
+ノードは実地確認済みである可能性が高く、無い場合も要素の最終編集日時が古いほど
+「作成後だれも確認していない＝閉店等に気づかれず放置されている」リスクが高い。
 
 実行方法（backendディレクトリから）:
     .venv\\Scripts\\python.exe scripts\\measure_poi_freshness.py --pbf data/pbf/kanto-latest.osm.pbf
@@ -23,7 +20,7 @@ from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-# T101本文（improvement-plan.md）が挙げる候補タグ。(key, value)のいずれかに一致すれば対象。
+#: 対象とするPOIのタグ。(key, value)のいずれかに一致すれば対象。
 CANDIDATE_POI_TAGS: frozenset[tuple[str, str]] = frozenset(
     {
         ("shop", "convenience"),
@@ -34,15 +31,20 @@ CANDIDATE_POI_TAGS: frozenset[tuple[str, str]] = frozenset(
     }
 )
 
-# 編集日時の鮮度バケット境界（年）。1年未満／1-2年／2-3年／3-5年／5年以上。
+#: 編集日時の鮮度バケットの境界（年）。表示するラベルはここから導く。
 _AGE_BUCKET_BOUNDS_YEARS = (1, 2, 3, 5)
+_AGE_BUCKET_LABELS: tuple[str, ...] = tuple(
+    f"{previous}-{bound}年" if previous else f"{bound}年未満"
+    for previous, bound in zip((0, *_AGE_BUCKET_BOUNDS_YEARS), _AGE_BUCKET_BOUNDS_YEARS)
+) + (f"{_AGE_BUCKET_BOUNDS_YEARS[-1]}年以上",)
 
 
 def node_matches(tags: dict[str, str]) -> tuple[str, str] | None:
-    """T101候補タグのいずれかに一致すればその(key, value)を返す。複数一致時は
-    CANDIDATE_POI_TAGSの定義順（frozensetのため不定）ではなく、最初に見つかった
-    ものを代表として1件のみ返す（ノードが複数タグを併せ持つケースは稀なため、
-    重複計上より単純な代表選出を優先）。"""
+    """対象タグのいずれかに一致すればその(key, value)を返す。
+
+    複数のタグを併せ持つノードは、最初に見つかったもの1件だけを代表として数える
+    （frozensetの走査順は決まっていないため、どれが代表になるかは指定できない）。
+    """
     for key, value in CANDIDATE_POI_TAGS:
         if tags.get(key) == value:
             return key, value
@@ -50,17 +52,15 @@ def node_matches(tags: dict[str, str]) -> tuple[str, str] | None:
 
 
 def age_bucket(years: float) -> str:
-    """経過年数を鮮度バケットのラベルへ変換する（純粋関数、単体テスト対象）。"""
-    for bound in _AGE_BUCKET_BOUNDS_YEARS:
+    """経過年数を鮮度バケットのラベルへ変換する。"""
+    for label, bound in zip(_AGE_BUCKET_LABELS, _AGE_BUCKET_BOUNDS_YEARS):
         if years < bound:
-            prev = _AGE_BUCKET_BOUNDS_YEARS[_AGE_BUCKET_BOUNDS_YEARS.index(bound) - 1] if bound != 1 else 0
-            return f"{prev}-{bound}年" if prev else f"{bound}年未満"
-    return f"{_AGE_BUCKET_BOUNDS_YEARS[-1]}年以上"
+            return label
+    return _AGE_BUCKET_LABELS[-1]
 
 
 class FreshnessCounter:
-    """タグ別の件数・check_date/survey:date付与率・編集日時の鮮度バケット分布を集計する
-    （PBF I/Oから独立、単体テスト対象）。"""
+    """タグ別の件数・check_date/survey:date付与率・編集日時の鮮度バケット分布。"""
 
     def __init__(self):
         self.total_by_tag: Counter[tuple[str, str]] = Counter()
@@ -80,12 +80,11 @@ class FreshnessCounter:
 
     def report_lines(self) -> list[str]:
         lines = []
-        buckets = ["1年未満", "1-2年", "2-3年", "3-5年", "5年以上"]
         for tag in sorted(self.total_by_tag, key=lambda t: -self.total_by_tag[t]):
             total = self.total_by_tag[tag]
             checked = self.checked_by_tag[tag]
             lines.append(f"{tag[0]}={tag[1]}: {total}件（check_date/survey:date付与率 {self._pct(checked, total):.1f}%）")
-            for bucket in buckets:
+            for bucket in _AGE_BUCKET_LABELS:
                 count = self.age_bucket_by_tag[(tag, bucket)]
                 lines.append(f"    最終編集{bucket}: {count}件（{self._pct(count, total):.1f}%）")
         if not self.total_by_tag:

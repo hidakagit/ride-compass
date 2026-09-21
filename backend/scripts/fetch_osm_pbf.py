@@ -1,8 +1,7 @@
 r"""OSMの抽出ファイル（`.pbf`）を配布元から手元へ写す（取込とは分ける）。
 
-取込はローカルのファイルを読むだけにする。同じ考え方の取得が標高（`fetch_dem_tiles.py`）
-と土地被覆（`fetch_lulc_raster.py`）にあり、**OSMだけ口が無かった**ので手で落とす運用に
-なっていた。手で落とすと、置き場所と名前を間違えたまま「取得済み」に見える。
+取込はローカルのファイルを読むだけにする。手で落とすと、置き場所と名前を間違えたまま
+「取得済み」に見える。
 
 **何度実行しても安全で、終わる。**
 
@@ -45,13 +44,13 @@ logger = logging.getLogger("ridecompass.fetch_osm_pbf")
 PBF_URL = "https://download.geofabrik.de/asia/japan/{name}"
 
 #: 一時ファイルの印。所定の名前と紛れないもの。
-PART_SUFFIX = ".part"
+_PART_SUFFIX = ".part"
 
 #: 落としたが開けなかったものを退ける先。消さないのは、開けない理由が壊れていること
 #: とは限らないため。
-BROKEN_SUFFIX = ".broken"
+_BROKEN_SUFFIX = ".broken"
 
-REQUEST_TIMEOUT = httpx.Timeout(connect=10.0, read=60.0, write=30.0, pool=30.0)
+_REQUEST_TIMEOUT = httpx.Timeout(connect=10.0, read=60.0, write=30.0, pool=30.0)
 
 
 def _readable(path: Path) -> bool:
@@ -80,11 +79,11 @@ def _readable(path: Path) -> bool:
 
 def _download(url: str, destination: Path) -> None:
     destination.parent.mkdir(parents=True, exist_ok=True)
-    temporary = destination.with_name(destination.name + PART_SUFFIX)
+    temporary = destination.with_name(destination.name + _PART_SUFFIX)
     started = time.perf_counter()
     last_report = started
     written = 0
-    with httpx.stream("GET", url, timeout=REQUEST_TIMEOUT, follow_redirects=True) as response:
+    with httpx.stream("GET", url, timeout=_REQUEST_TIMEOUT, follow_redirects=True) as response:
         response.raise_for_status()
         total = int(response.headers.get("content-length") or 0) or None
         with temporary.open("wb") as sink:
@@ -104,7 +103,7 @@ def _download(url: str, destination: Path) -> None:
                 written / (1024 * 1024), format_duration(time.perf_counter() - started))
 
 
-def fetch(names: list[str]) -> int:
+def _fetch(names: list[str]) -> int:
     failures = 0
     for name in names:
         destination = DATA_DIR / name
@@ -117,7 +116,7 @@ def fetch(names: list[str]) -> int:
             continue
         # 読めないものを置いたまま成功を報告しない。ただし**消さずに退ける**——
         # 開けない理由は壊れているとは限らず、消すと落とし直しにまた時間を払う。
-        broken = destination.with_name(destination.name + BROKEN_SUFFIX)
+        broken = destination.with_name(destination.name + _BROKEN_SUFFIX)
         destination.replace(broken)
         logger.error("落としたが開けない: %s（%s へ退けた。もう一度実行すると取り直す）",
                      name, broken.name)
@@ -140,7 +139,7 @@ def main() -> int:
     if not names:
         logger.info("プロファイルにOSMの抽出ファイルの指定がありません")
         return 0
-    return 1 if fetch(names) else 0
+    return 1 if _fetch(names) else 0
 
 
 if __name__ == "__main__":

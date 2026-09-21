@@ -7,8 +7,7 @@
 **処理はDB内で完結する。**タグを読むためだけに行を取り出さない。タグから種別への
 引き当ては`domain/traffic.py`が表と式で持ち、このバッチはそれをSQLへ渡すだけである。
 
-`branch_count`は`derive_topology.py`が先に埋める。このバッチは種別・信号の有無・
-集まる道の最大階級を足す。
+`branch_count`は`derive_topology.py`が先に埋める。
 
 実行方法（backendディレクトリから）:
     .venv\\Scripts\\python.exe -m app.batch.derive_node_materials
@@ -55,8 +54,6 @@ CREATE TEMP TABLE _signal_nodes ON COMMIT DROP AS
 SELECT s.id AS osm_node_id FROM ({_SOURCE_NODES}) s WHERE {TRAFFIC_SIGNAL_SQL}
 """
 
-#: 信号は流入路ごとに別ノードで置かれるため、半径で拾う。
-#:
 #: `&&`の前置フィルタを先に置くのは、`::geography`へのキャストがgeometryのGiSTを
 #: 使えなくするため。矩形で絞ってから正確な距離を測る。
 _UPDATE_SIGNALS = """
@@ -72,7 +69,7 @@ FROM source_features self
 WHERE self.source = 'osm_node' AND self.natural_key = nm.osm_node_id::text
 """
 
-#: そのノードに集まる道の最大階級。順位表はdomain側が持ち、SQLへ書き写さない。
+#: そのノードに集まる道の最大階級。
 _UPDATE_MAX_RANK_TEMPLATE = """
 WITH ranked AS (
     SELECT e.from_node_id AS node_id, r.rank FROM road_edges e
@@ -133,7 +130,6 @@ def main() -> int:
     parser.add_argument("--database-url", default=None)
     args = parser.parse_args()
     database_url = args.database_url or settings.database_url
-    # 派生が変われば、それを読んで作ったキャッシュは古くなる。
     return asyncio.run(with_derived_data_revision_bump(
         run(database_url), database_url=database_url, dry_run=False))
 
