@@ -246,19 +246,21 @@ async def get_region_service():
         yield RegionService()
 
 
-# axis_id→サービスファクトリの登録テーブル。キーは軸idで、サービスが返す生値の材料idは
-# 各サービスの`material_id`属性が別に持つ。
-# サービスごとにコンストラクタ依存が違うため、ファクトリはrepository・weather_serviceの
-# 両方を受け取り必要な方だけ使う統一シグネチャにする。
+# way_id→動的値配信の実装。**ここで軸を名指ししない**——どの軸を担当するかは各サービスの
+# `axis_id`属性が唯一の宣言で、この層はそれを読むだけにする（2箇所に名前があると、
+# 片方だけ変えたときにルーティングとキャッシュの名前空間が静かにずれる）。
+# サービスごとにコンストラクタ依存が違うため、生成は`build`の統一シグネチャ越しに行う。
 # 軸スタジオは`dedicated_way_value_layer=true`の軸を宣言だけで作れるが、配信できる値は
 # ここに実装があるものだけ——実装の無い軸は未知のaxis_idと同じく404で返す（500にすると
 # フロントの「データなし」フォールバックが効かず、その軸のタイルが全て失敗する）。
+_DEDICATED_WAY_VALUE_SERVICES: tuple[type[WindWayService] | type[GradientWayService], ...] = (
+    WindWayService,
+    GradientWayService,
+)
+
 _DEDICATED_WAY_VALUE_SERVICE_FACTORIES: dict[
     str, Callable[[RoadGraphRepository | None, WeatherService], WindWayService | GradientWayService]
-] = {
-    "wind": lambda repository, weather_service: WindWayService(repository=repository, weather_service=weather_service),
-    "gradient": lambda repository, weather_service: GradientWayService(repository=repository),
-}
+] = {service.axis_id: service.build for service in _DEDICATED_WAY_VALUE_SERVICES}
 
 
 def implemented_dedicated_way_value_axis_ids() -> frozenset[str]:

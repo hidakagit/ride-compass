@@ -33,6 +33,11 @@ class GradientWayService:
     def __init__(self, repository: RoadGraphRepository | None):
         self._repository = repository
 
+    @classmethod
+    def build(cls, repository: RoadGraphRepository | None, weather_service: object) -> "GradientWayService":
+        """登録テーブルから呼ぶための統一シグネチャ。勾配は天候を要らない。"""
+        return cls(repository=repository)
+
     async def get_way_values(
         self, z: int, x: int, y: int, at: datetime | None, bearing_deg: float | None, speed_kmh: float | None = None
     ) -> dict[str, float]:

@@ -9,7 +9,7 @@
 別に持つ（`transform_dedicated_way_values`が軸定義の評価へ渡す先）。
 
 axis_id→サービス実装本体の組み立ては別軸
-（`api/dependencies.py: _DEDICATED_WAY_VALUE_SERVICE_FACTORIES`）で、各軸の計算ロジック
+（`api/dependencies.py: _DEDICATED_WAY_VALUE_SERVICES`）で、各軸の計算ロジック
 自体は宣言的に導出できないPythonコードのまま残る。
 """
 
@@ -59,7 +59,7 @@ def dedicated_way_value_axes() -> dict[str, DedicatedWayValueAxis]:
     反映される。
 
     配信できる値があるかは別で、way_id→値を組み立てるサービス本体を
-    `api/dependencies.py`の`_DEDICATED_WAY_VALUE_SERVICE_FACTORIES`へ登録する必要がある
+    `api/dependencies.py`の`_DEDICATED_WAY_VALUE_SERVICES`へ登録する必要がある
     （コード変更を伴う）。登録の無いaxis_idへこのフラグを立てることは書き込み時に
     拒否される（`axis_admin.py: _check_dedicated_layer_is_implemented`）。
     """
