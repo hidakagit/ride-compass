@@ -203,3 +203,4 @@ CLAUDE.md参照。節見出しはタスクのテーマ分類で、日付は起�
 
 - [ ] [T1001](records/tasks/T1001.md). frontendを仕様から起こし直し、既存とdiffを取って再構成する 規模L
 - [ ] [T1003](records/tasks/T1003.md). maplibre-glをv6系へ上げる 規模M
+- [ ] [T1004](records/tasks/T1004.md). E2Eが、地図が描けたかを見ていない 規模S〜M
