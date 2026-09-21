@@ -33,18 +33,17 @@ import rasterio.errors  # noqa: E402
 
 logger = logging.getLogger("ridecompass.fetch_lulc_raster")
 
-#: 配布元（docs/disaster-recovery.md）。`aws s3 cp --no-sign-request`と同じ内容を
-#: HTTPSで取得する（認証もCLIも要らない）。
+#: 配布元。`aws s3 cp --no-sign-request`と同じ内容をHTTPSで取得する（認証もCLIも要らない）。
 BUCKET_BASE_URL = "https://io-10m-annual-lulc.s3.us-west-2.amazonaws.com"
 
-DOWNLOAD_TIMEOUT_SECONDS = 600.0
+_DOWNLOAD_TIMEOUT_SECONDS = 600.0
 
 
-def download(url: str, destination: Path) -> None:
+def _download(url: str, destination: Path) -> None:
     temporary = destination.with_suffix(destination.suffix + ".part")
     destination.parent.mkdir(parents=True, exist_ok=True)
     downloaded = 0
-    with httpx.stream("GET", url, timeout=DOWNLOAD_TIMEOUT_SECONDS, follow_redirects=True) as response:
+    with httpx.stream("GET", url, timeout=_DOWNLOAD_TIMEOUT_SECONDS, follow_redirects=True) as response:
         response.raise_for_status()
         with temporary.open("wb") as out:
             for chunk in response.iter_bytes():
@@ -86,7 +85,7 @@ def main() -> int:
         url = f"{BUCKET_BASE_URL}/{destination.name}"
         logger.info("取得します url=%s -> %s", url, destination)
         try:
-            download(url, destination)
+            _download(url, destination)
         except (httpx.HTTPError, OSError, rasterio.errors.RasterioIOError) as exc:
             logger.error("取得に失敗しました url=%s error=%r", url, exc)
             return 1

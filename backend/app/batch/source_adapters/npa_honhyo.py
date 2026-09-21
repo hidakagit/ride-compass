@@ -39,8 +39,13 @@ _LAT_HEADER = "地点　緯度（北緯）"
 _LON_HEADER = "地点　経度（東経）"
 
 
-def _honhyo_path(year: int) -> Path:
-    path = DATA_DIR / f"honhyo_{year}.csv"
+def honhyo_path(year: int) -> Path:
+    """本票CSVの置き場。取得（`scripts/fetch_accident_csv.py`）と取込で同じ導き方を使う。"""
+    return DATA_DIR / f"honhyo_{year}.csv"
+
+
+def _existing_honhyo_path(year: int) -> Path:
+    path = honhyo_path(year)
     if not path.exists():
         raise FileNotFoundError(
             f"本票CSVがありません: {path}（scripts/fetch_accident_csv.py が写す）")
@@ -56,7 +61,7 @@ async def read_npa_honhyo(spec: SourceSpec, profile: SourceProfile,
     min_lat, min_lon, max_lat, max_lon = target.bbox
     skipped = 0
     for year in years:
-        path = _honhyo_path(int(year))
+        path = _existing_honhyo_path(int(year))
         origin["files"].append({"year": int(year), **file_origin(path)})
         with open(path, encoding=ENCODING, newline="") as f:
             reader = csv.DictReader(f)

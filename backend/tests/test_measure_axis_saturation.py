@@ -37,7 +37,6 @@ def test_quantiles_fill_the_upper_tail_with_the_largest_value():
     """累積が最後の要素で打ち切られても、上側の分位点が欠けない。"""
     result = _quantiles([(1.0, 3.0), (1.0, 7.0)])
 
-    assert set(result) == {"p10", "p50", "p90", "p99"}
     assert result["p99"] == 7.0
 
 

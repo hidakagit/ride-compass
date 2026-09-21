@@ -38,7 +38,6 @@ from app.config import settings  # noqa: E402
 
 logger = logging.getLogger("ridecompass.derive_cli")
 
-#: 上から順に流す。後ろの段は前の段の出力を読む。
 STAGES: tuple[tuple[str, object], ...] = (
     ("topology", derive_topology.derive),
     ("nodes", derive_node_materials.derive),
@@ -56,7 +55,6 @@ async def run(database_url: str, start_from: str | None) -> int:
     try:
         for index, (name, stage) in enumerate(STAGES[begin:], start=1):
             stage_started = time.perf_counter()
-            # 始まりを出す。長い段が無音だと、動いているのか止まっているのか分からない。
             logger.info("段 %s を開始（%d/%d）", name, index, len(STAGES) - begin)
             await stage(conn)
             logger.info("段 %s 完了 / %s", name,
@@ -76,7 +74,6 @@ def main() -> int:
                         choices=[name for name, _ in STAGES])
     args = parser.parse_args()
     database_url = args.database_url or settings.database_url
-    # 派生が変われば、それを読んで作ったキャッシュは古くなる。
     return asyncio.run(with_derived_data_revision_bump(
         run(database_url, args.start_from), database_url=database_url, dry_run=False))
 

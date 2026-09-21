@@ -2,8 +2,7 @@
 
 **正本は実DBで、ORMの宣言は「あるべき姿」である。**一致は誰も保証していないので測る。
 
-比べるのは表・列・NULL許容・外部キー。列名だけでは足りない——ずれていたのは制約の側で、
-本番にあってORMが宣言していない外部キーが6表で8本あった（2026-09-20実測）。
+比べるのは表・列・NULL許容・外部キー。列名だけでは足りない——ずれるのは制約の側でもある。
 
 実行方法（backendディレクトリから）:
     .venv\\Scripts\\python.exe scripts\\schema_gap.py                    # settings.database_url
@@ -73,7 +72,7 @@ def _db_fk_signatures(defs: list[str]) -> set[str]:
     return out
 
 
-async def collect(url: str) -> list[str]:
+async def _collect(url: str) -> list[str]:
     engine = create_async_engine(url)
     try:
         async with engine.connect() as conn:
@@ -123,7 +122,7 @@ def main() -> int:
         from app.config import settings
 
         url = settings.database_url
-    gaps = asyncio.run(collect(url))
+    gaps = asyncio.run(_collect(url))
     if not gaps:
         print("GAP なし（実DBとORMの宣言が一致している）")
         return 0
@@ -133,4 +132,5 @@ def main() -> int:
     return 1
 
 
-raise SystemExit(main())
+if __name__ == "__main__":
+    raise SystemExit(main())

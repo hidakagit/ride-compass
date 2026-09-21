@@ -1,12 +1,11 @@
-"""FastAPIアプリのOpenAPIスキーマをJSONへ書き出す（docs/improvement-plan.md T4）。
+"""FastAPIアプリのOpenAPIスキーマをJSONへ書き出す。
 
 フロントエンドの型生成（openapi-typescript、frontend/package.jsonのgenerate:api）の
 入力になる。出力先をfrontend/src/types/generated/へ置いてコミットするのは、
 (1) フロントの型生成・ビルドがbackendの起動なしで完結する、
 (2) CIのドリフト検知（backendから再生成→git diffで差分が無いことを確認）が成立する、
-の2点のため。domain/route.py等のレスポンスモデルを変更したら、このスクリプトと
-frontendのnpm run generate:apiを実行して生成物を同じコミットに含めること
-（手動同期ペアを作らない方針。docs/design-review-2026-08-15.md 設計原則1・3）。
+の2点のため。レスポンスモデルを変更したら、このスクリプトとfrontendの
+npm run generate:apiを実行して生成物を同じコミットに含めること。
 
 実行方法（backendディレクトリから）:
     .venv\\Scripts\\python.exe scripts\\export_openapi.py
@@ -80,15 +79,13 @@ def main() -> None:
     _write_json(OUTPUT_PATH, app.openapi())
     # 路面語彙の正準タグ集合（domain/road.py）。フロントの表示グループ定義
     # （roadFilterAxes.ts）が正準分類とずれていないことをroadFilterAxes.test.tsが
-    # このJSONと突き合わせて検証する（改善計画T7。地図の色とルート評価の食い違い防止）。
+    # このJSONと突き合わせて検証する（地図の色とルート評価の食い違いを防ぐ）。
     _write_json(
         SURFACE_TAGS_PATH,
         {"good": sorted(GOOD_OSM_SURFACE_TAGS), "bad": sorted(BAD_OSM_SURFACE_TAGS)},
     )
-    # 地域ベクタタイルのレイヤー名・世代（改善計画T19、T50でaccidentキー・T54でpoiキーへ拡張。
-    # T97でpoi.intersection_layer_nameを削除、交差点密度レイヤーの配信自体を撤去）。
-    # フロントの手書き定数（MapView.tsx: ROAD_TILE_SOURCE_LAYER/ACCIDENT_TILE_SOURCE_LAYER/
-    # STOP_POI_SOURCE_LAYER、regionApi.ts: 各tileUrl()の?v=）がこのJSONとregionApi.test.tsで
+    # 地域ベクタタイルのレイヤー名・世代。フロントの手書き定数（MapView.tsxのソース
+    # レイヤー名、regionApi.ts: 各tileUrl()の?v=）がこのJSONとregionApi.test.tsで
     # 突き合わされる（CIのapi-contractジョブがドリフト検知）。
     _write_json(
         REGION_TILE_CONFIG_PATH,
@@ -138,8 +135,8 @@ def main() -> None:
         ],
     )
     # 停止要因POI・補給休憩POIのkind正準集合。frontendは色・ラベルを自分で持つが、
-    # **キーの一覧はここから引く**——backendが6種目を足したときfrontendのbaseFilterが
-    # 5値のままだと、その地物はフィルタに弾かれて地図から完全に消える（凡例にも出ないため
+    # **キーの一覧はここから引く**——backendがkindを足したのにfrontendのbaseFilterが
+    # 古いままだと、その地物はフィルタに弾かれて地図から完全に消える（凡例にも出ないため
     # 「データが無い」としか見えない）。
     _write_json(
         POI_KINDS_PATH,
@@ -149,8 +146,7 @@ def main() -> None:
         },
     )
     # 軸スタジオが選べる公開材料の一覧。frontendは`GET /api/material-catalog`が失敗した
-    # ときの静的フォールバックとして使う。手書きで複製していたころは、APIが落ちている
-    # ときだけ古い選択肢が出るという気づきにくいドリフトが実際に発生していた。
+    # ときの静的フォールバックとして使う。
     # value_labels（smoothness等の値→日本語ラベル）も含める——同じ対訳表をfrontendが
     # 独自に持つと、地図のポップアップと軸スタジオで同じ値の呼び方が食い違う。
     _write_json(
@@ -183,11 +179,6 @@ def main() -> None:
             for attr in all_primary_attributes()
         ],
     )
-    # 風・降水延長予報の格子間隔（改善計画T198、統合レビュー2026-08-22指摘F-B）。
-    # domain/wind_grid.pyの定数群をfrontend/src/components/Map/windLayer.tsが
-    # 「値を合わせること」というコメントのみで手動複製していたため、他の生成物と同じ
-    # 片側import方式へ揃える（APIレスポンス自体には間隔情報が含まれないため、フロント側は
-    # このJSONから読む以外に値を知る手段がない設計にする）。
     # 気象庁タイルの要素ごとのズーム範囲（domain/jma_tile_specs.py）。frontendの
     # MapView.tsx: DYNAMIC_WEATHER_RENDERERSがmaxzoomを手書きせずここから受け取る。
     _write_json(
@@ -203,6 +194,8 @@ def main() -> None:
             for element_id, spec in JMA_TILE_SPECS.items()
         },
     )
+    # 風・降水延長予報の格子間隔（domain/wind_grid.py）。APIレスポンスは間隔を含まない
+    # ため、frontend（windLayer.ts）はこのJSONから読む以外に値を知る手段がない。
     _write_json(
         WIND_GRID_CONFIG_PATH,
         {
@@ -212,9 +205,8 @@ def main() -> None:
             "detail_max_points": WIND_GRID_DETAIL_MAX_POINTS,
         },
     )
-    # ルート生成距離の上限（改善計画T471、api/routers/routes.py: MAX_ROUTE_DISTANCE_KMの
-    # コメント参照）。以前はfrontend側の複数ファイルが「100」を独立にハードコードしていた。
-    # 改善計画T531: 周回候補の件数（max_routes）の上限・既定値も同じ経路でフロントへ渡す。
+    # ルート生成の上限・既定値。frontendが独立にハードコードすると、backendだけ変えた
+    # ときに入力の上限と受理される値がずれる。
     _write_json(
         ROUTE_GENERATE_CONFIG_PATH,
         {
@@ -231,7 +223,7 @@ def main() -> None:
             "client_tuning": client_tuning_values(),
             # 0次ハードフィルタのキー一覧と既定値。backendは`_check_filter_keys`で
             # **キー集合の完全一致**を要求するため、frontendが手書きで持っていると
-            # 4つ目を足した瞬間にすべてのルート生成が422になる。
+            # キーを1つ足した瞬間にすべてのルート生成が422になる。
             "hard_filters": {
                 "keys": sorted(HARD_FILTER_NAMES),
                 "defaults": sorted(DEFAULT_HARD_FILTERS),

@@ -1,6 +1,4 @@
-"""DATABASE_URL（既定は.env）への接続確認。ホスト・PostgreSQLバージョン・PostGIS拡張の
-有無・DBサイズを表示する。Oracle Cloud VM等のリモートDBへ取込む前の疎通チェック用
-（改善計画T263で本番はOracle Cloud VMへ移行済み）。
+"""DATABASE_URL（既定は.env）への接続確認。リモートDBへ取り込む前の疎通チェック用。
 
 実行方法（backendディレクトリから）:
     .venv\\Scripts\\python.exe scripts\\check_db_connection.py

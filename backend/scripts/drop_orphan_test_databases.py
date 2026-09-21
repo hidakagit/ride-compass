@@ -1,8 +1,7 @@
 """作業ツリーが無くなったテストDBを落とす。
 
 PostGIS統合テストのDBは作業ツリーごとに作られる（`tests/conftest.py`）。作業ツリーを
-片付けてもDBは残るため、捨てる導線をここに置く（docs/conventions/caching.md「世代番号を使うなら、
-旧世代を削除する導線をセットで用意する」と同じ形）。
+片付けてもDBは残るため、捨てる導線をここに置く。
 
 **どのDBがどの作業ツリーのものかは、DB自身のコメントに書いてある**——名前から推測しない。
 コメントが指すディレクトリが無ければ、そのDBは残骸である。
@@ -26,22 +25,22 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from app.batch._common import asyncpg_dsn  # noqa: E402  sys.pathを通した後に読む
 
-DEFAULT_SERVER = "postgresql+asyncpg://ridecompass:ridecompass@localhost:5432"
-NAME_PREFIX = "ridecompass_test_"
+_DEFAULT_SERVER = "postgresql+asyncpg://ridecompass:ridecompass@localhost:5432"
+_NAME_PREFIX = "ridecompass_test_"
 
 
 def _is_worktree_record(comment: str | None) -> bool:
     return bool(comment) and os.path.isabs(comment)
 
 
-async def collect(server: str) -> list[tuple[str, str | None, bool]]:
+async def _collect(server: str) -> list[tuple[str, str | None, bool]]:
     """(DB名, 記録された作業ツリー, その作業ツリーが今もあるか) の一覧。"""
     conn = await asyncpg.connect(asyncpg_dsn(f"{server}/postgres"))
     try:
         rows = await conn.fetch(
             "SELECT datname, shobj_description(oid, 'pg_database') AS owner_path"
             " FROM pg_database WHERE datname LIKE $1 ORDER BY datname",
-            f"{NAME_PREFIX}%",
+            f"{_NAME_PREFIX}%",
         )
     finally:
         await conn.close()
@@ -54,7 +53,7 @@ async def collect(server: str) -> list[tuple[str, str | None, bool]]:
     ]
 
 
-async def drop(server: str, names: list[str]) -> None:
+async def _drop(server: str, names: list[str]) -> None:
     conn = await asyncpg.connect(asyncpg_dsn(f"{server}/postgres"))
     try:
         for name in names:
@@ -66,14 +65,14 @@ async def drop(server: str, names: list[str]) -> None:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--server", default=os.environ.get("TEST_DATABASE_SERVER", DEFAULT_SERVER),
+    parser.add_argument("--server", default=os.environ.get("TEST_DATABASE_SERVER", _DEFAULT_SERVER),
                         help="テストDBが載っているサーバー（既定はローカル）")
     parser.add_argument("--drop", action="store_true", help="一覧するだけでなく実際に落とす")
     args = parser.parse_args()
 
-    found = asyncio.run(collect(args.server))
+    found = asyncio.run(_collect(args.server))
     if not found:
-        print(f"{NAME_PREFIX}* のDBはありません。")
+        print(f"{_NAME_PREFIX}* のDBはありません。")
         return 0
 
     orphans = []
@@ -92,7 +91,7 @@ def main() -> int:
     if not args.drop:
         print(f"\n残骸 {len(orphans)}件。落とすには --drop を付けて実行してください。")
         return 0
-    asyncio.run(drop(args.server, orphans))
+    asyncio.run(_drop(args.server, orphans))
     return 0
 
 

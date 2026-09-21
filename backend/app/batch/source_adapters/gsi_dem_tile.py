@@ -4,10 +4,7 @@
 分けずに済む。
 
 **配信元は叩かない。**取りに行くのは`scripts/fetch_dem_tiles.py`の仕事で、ここは
-`app/batch/dem_tile_store.py`が指す置き場にあるものを読む——取込のトランザクションの
-中でHTTPを叩くと、関東全域（z15で約6万枚）では外部の一時的な失敗ひとつで全部が
-やり直しになる。OSMの`.pbf`・土地被覆のGeoTIFFと同じく、取込はローカルのファイルを
-読むだけにする。
+`app/batch/dem_tile_store.py`が指す置き場にあるものを読む。
 
 標高をint32（0.01m単位）で並べ、`raster`として持つ。配信元はテキストで返すが、同じ
 内容が数倍の大きさになるため詰める。位置・画素の大きさ・型・欠測値は`raster`の値自身が
@@ -21,23 +18,20 @@ import struct
 from collections.abc import AsyncIterator
 from typing import Any
 
-import shapely
-from shapely.geometry import box
-
 from app.batch.dem_tile_store import PRODUCT_PRIORITY, TILE_ROOT, read_tile, stored_product
 from app.batch.ingest import SourceRecord, register_adapter
-from app.batch.source_adapters._raster_wkb import tile_raster_wkb
+from app.batch.source_adapters._raster_wkb import tile_bbox_wkb, tile_raster_wkb
 from app.batch.source_profile import SourceProfile, SourceSpec
 from app.domain.region import BoundingBox, tiles_covering_bbox
 
 logger = logging.getLogger("ridecompass.ingest.gsi_dem_tile")
 
 #: 1枚の一辺の画素数。出典: https://maps.gsi.go.jp/development/demtile.html
-DEM_TILE_SIZE = 256
+_DEM_TILE_SIZE = 256
 
 #: 欠測を表す文字。「標高値が存在しない画素には「e」の文字が格納されている。」
 #: 出典: https://maps.gsi.go.jp/development/demtile.html
-DEM_MISSING_MARKER = "e"
+_DEM_MISSING_MARKER = "e"
 
 #: 詰めるときの尺度と欠測値。地理院の標高タイル（テキスト形式）は「標高データは小数点
 #: 第二位までデータとして入っている（単位はm）」ため、0.01m単位で丸めずに保つ。
@@ -50,38 +44,19 @@ NODATA = -2147483648
 
 
 def _pack(text: str) -> tuple[bytes, int]:
-    """タイル本文（256行×256列のカンマ区切り、欠測は`e`）をint32の配列へ詰める。
-
-    欠測の表し方は配信元の仕様。「標高値が存在しない画素には「e」の文字が格納されている。」
-    出典: https://maps.gsi.go.jp/development/demtile.html
-    """
+    """タイル本文（カンマ区切りのテキスト）をint32の配列へ詰める。"""
     values: list[int] = []
     missing = 0
     for line in text.strip("\n").split("\n"):
         if not line:
             continue
         for cell in line.split(","):
-            if cell == DEM_MISSING_MARKER:
+            if cell == _DEM_MISSING_MARKER:
                 values.append(NODATA)
                 missing += 1
             else:
                 values.append(int(round(float(cell) * SCALE)))
     return struct.pack(f"<{len(values)}i", *values), missing
-
-
-def _tile_bounds(z: int, x: int, y: int) -> tuple[float, float, float, float]:
-    """XYZタイルの経緯度の範囲（min_lon, min_lat, max_lon, max_lat）。"""
-    import math
-
-    n = 2 ** z
-
-    def lon(i: int) -> float:
-        return i / n * 360.0 - 180.0
-
-    def lat(j: int) -> float:
-        return math.degrees(math.atan(math.sinh(math.pi * (1 - 2 * j / n))))
-
-    return lon(x), lat(y + 1), lon(x + 1), lat(y)
 
 
 @register_adapter("gsi_dem_tile")
@@ -111,17 +86,17 @@ async def read_gsi_dem_tiles(spec: SourceSpec, profile: SourceProfile,
         pixels, missing = _pack(read_tile(TILE_ROOT, actual_product, zoom, x, y))
         yield SourceRecord(
             natural_key=f"{actual_product}/{zoom}/{x}/{y}",
-            geom_wkb=shapely.to_wkb(box(*_tile_bounds(zoom, x, y))),
+            geom_wkb=tile_bbox_wkb(zoom, x, y),
             # 型・欠測値・位置はrasterの値自身が持つため書かない。尺度（0.01m単位）は
             # rasterが持てず、幅は画素の番地を出すのに要る——rasterから読むと、その
             # たびにタイルの画素が実体化される。
             attrs={
                 "product": actual_product, "z": zoom, "x": x, "y": y,
-                "width": DEM_TILE_SIZE, "scale": SCALE, "missing": missing,
+                "width": _DEM_TILE_SIZE, "scale": SCALE, "missing": missing,
             },
             rast=tile_raster_wkb(
                 pixels, zoom=zoom, x=x, y=y,
-                width=DEM_TILE_SIZE, height=DEM_TILE_SIZE,
+                width=_DEM_TILE_SIZE, height=_DEM_TILE_SIZE,
                 dtype="int32_le", nodata=NODATA),
         )
 

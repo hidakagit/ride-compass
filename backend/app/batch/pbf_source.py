@@ -11,19 +11,19 @@ import osmium
 
 #: way1件ぶんの生データ（id・タグ・参照ノードid列）と、そのwayが参照するノードのうち
 #: 位置が判明しているものの座標（node_id -> (lat, lon)）。
-WaySink = Callable[[dict, dict[int, tuple[float, float]]], None]
+_WaySink = Callable[[dict, dict[int, tuple[float, float]]], None]
 
 #: node1件ぶんの生データ（id・タグ・座標・最終編集日時）。
-NodeSink = Callable[[dict], None]
+_NodeSink = Callable[[dict], None]
 
 
 class _WayHandler(osmium.SimpleHandler):
     def __init__(
         self,
         tag_filter: Callable[[dict[str, str]], bool],
-        sink: WaySink,
+        sink: _WaySink,
         node_tag_filter: Callable[[dict[str, str]], bool] | None = None,
-        node_sink: NodeSink | None = None,
+        node_sink: _NodeSink | None = None,
     ):
         super().__init__()
         self._tag_filter = tag_filter
@@ -67,19 +67,14 @@ class _WayHandler(osmium.SimpleHandler):
 def stream_ways(
     pbf_path: str | Path,
     tag_filter: Callable[[dict[str, str]], bool],
-    sink: WaySink,
+    sink: _WaySink,
     node_tag_filter: Callable[[dict[str, str]], bool] | None = None,
-    node_sink: NodeSink | None = None,
+    node_sink: _NodeSink | None = None,
 ) -> None:
     """PBF内の全way（・node_sink指定時はnodeも）を1パスで読み、tag_filter/node_tag_filterを
     通った要素をそれぞれのsinkへ流す（ブロッキング）。
 
-    locations=Trueによりwayの参照ノードの位置がその場で解決される。ノード位置
-    インデックスはflex_mem（メモリ上、抽出ファイルの規模に応じて自動選択）。
-    国・大陸規模のPBFでメモリが不足する場合はdense_file_array等のディスクバック
-    インデックスへの切り替えが要る。
-
-    wayとnodeを同じ1パスで処理する（PBFの再読み込みを避ける）。
+    ノード位置インデックスはflex_mem（メモリ上）で、PBFの規模に対して十分なメモリが要る。
     """
     handler = _WayHandler(tag_filter, sink, node_tag_filter, node_sink)
     handler.apply_file(str(pbf_path), locations=True, idx="flex_mem")

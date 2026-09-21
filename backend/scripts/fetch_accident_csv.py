@@ -1,8 +1,6 @@
 r"""警察庁の交通事故統計（本票CSV）を配布元から手元へ写す（取込とは分ける）。
 
-取込はローカルのファイルを読むだけにする（`source_adapters/npa_honhyo.py`）。同じ形の
-取得が標高（`fetch_dem_tiles.py`）・土地被覆（`fetch_lulc_raster.py`）・OSMの抽出ファイル
-（`fetch_osm_pbf.py`）にある。
+取込はローカルのファイルを読むだけにする（`source_adapters/npa_honhyo.py`）。
 
 **何度実行しても安全で、終わる。**
 
@@ -30,7 +28,7 @@ import httpx
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from app.batch.source_adapters.npa_honhyo import DATA_DIR, ENCODING  # noqa: E402
+from app.batch.source_adapters.npa_honhyo import ENCODING, honhyo_path  # noqa: E402
 from app.batch.source_profile import load_source_profile  # noqa: E402
 
 logger = logging.getLogger("ridecompass.fetch_accident_csv")
@@ -40,18 +38,13 @@ HONHYO_URL_TEMPLATE = (
     "https://www.npa.go.jp/publications/statistics/koutsuu/opendata/{year}/honhyo_{year}.csv")
 
 #: 一時ファイルの印。所定の名前と紛れないもの。
-PART_SUFFIX = ".part"
+_PART_SUFFIX = ".part"
 
 #: 落としたが開けなかったものを退ける先。消さないのは、開けない理由が壊れていることとは
 #: 限らないため。
-BROKEN_SUFFIX = ".broken"
+_BROKEN_SUFFIX = ".broken"
 
-REQUEST_TIMEOUT = httpx.Timeout(connect=10.0, read=120.0, write=30.0, pool=30.0)
-
-
-def honhyo_path(year: int) -> Path:
-    """取込が読む置き場（`npa_honhyo.py`と同じ導き方）。"""
-    return DATA_DIR / f"honhyo_{year}.csv"
+_REQUEST_TIMEOUT = httpx.Timeout(connect=10.0, read=120.0, write=30.0, pool=30.0)
 
 
 def _readable(path: Path) -> bool:
@@ -66,9 +59,9 @@ def _readable(path: Path) -> bool:
 
 def _download(url: str, destination: Path) -> None:
     destination.parent.mkdir(parents=True, exist_ok=True)
-    temporary = destination.with_name(destination.name + PART_SUFFIX)
+    temporary = destination.with_name(destination.name + _PART_SUFFIX)
     written = 0
-    with httpx.stream("GET", url, timeout=REQUEST_TIMEOUT, follow_redirects=True) as response:
+    with httpx.stream("GET", url, timeout=_REQUEST_TIMEOUT, follow_redirects=True) as response:
         response.raise_for_status()
         with temporary.open("wb") as sink:
             for chunk in response.iter_bytes():
@@ -90,7 +83,7 @@ def fetch(years: list[int]) -> int:
         _download(url, destination)
         if _readable(destination):
             continue
-        broken = destination.with_name(destination.name + BROKEN_SUFFIX)
+        broken = destination.with_name(destination.name + _BROKEN_SUFFIX)
         destination.replace(broken)
         logger.error("落としたが読めない: %d年（%s へ退けた。もう一度実行すると取り直す）",
                      year, broken.name)

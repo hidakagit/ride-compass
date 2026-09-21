@@ -1,17 +1,12 @@
-"""勾配（`elevation_attributes.average_grade`）の異常値がどこから生まれているかを測る
-（改善計画T931）。
+"""勾配（`elevation_attributes.average_grade`）の異常値がどこから生まれているかを測る。
 
-背景: レンズで15%以上と出た道路が、実地では道に沿って走ってもそんな勾配の無い幹線道路
-だった。`average_grade`は`(終点標高 - 始点標高) ÷ 区間長 × 100`（`domain/attributes.py:
-compute_elevation_attribute`）で、標高は国土地理院のDEM。疑う経路が2つあり、どちらがどれだけ
-効いているかを数える。
+`average_grade`は`(終点標高 - 始点標高) ÷ 区間長 × 100`（`domain/attributes.py:
+compute_elevation_attribute`）で、標高は国土地理院のDEM。急すぎる値を生みうる経路を
+横に並べ、どれがどれだけ効いているかを数える。
 
 1. **区間が短いほどDEMの誤差が大きな%になる**。交差点で切った幹線道路の区間は数十mになり、
    10m標高メッシュの誤差が数mあれば10%を超える。
 2. **橋・トンネル・掘割を区別していない**。DEMが返すのは地表面の標高で、路面の高さではない。
-
-あわせて2つを測る。
-
 3. **way単位ズームの代表の選び方**。`_FEATURE_GRADIENT_INPUTS_IN_TILE_SQL`はz14未満で
    wayの「いちばん急な区間」を代表にする。最大と長さ重み付き平均がどれだけ離れるかを数え、
    「異常値1件がway全体を染める」側の弊害を測る（平均にすると崖を下って上り返す道が0%に
@@ -73,7 +68,7 @@ _LENGTH_BUCKETS_SQL = text(
     """
 )
 
-# 橋・トンネルのタグ（`osm_adapter.py: ALLOWED_WAY_TAGS`が保持する）ごとの分布。
+# 橋・トンネルのタグごとの分布。
 _STRUCTURE_SQL = text(
     """
     WITH edges AS (

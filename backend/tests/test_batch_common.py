@@ -24,11 +24,7 @@ _logger = logging.getLogger("test.batch_common")
 
 
 class TestDerivedDataRevisionBump:
-    """バッチが書いたあと、派生データの世代（`derived_data_meta.revision`）が進むこと。
-
-    進まないと、backendがディスクへ既にキャッシュ済みの材料を「作り直されていない」と
-    判断して古いまま復元し続ける（未訪問のタイルだけが新しい値になるため気づきにくい）。
-    """
+    """バッチが書いたあと、派生データの世代（`derived_data_meta.revision`）が進むこと。"""
 
     async def _run(self, monkeypatch, *, code: int, dry_run: bool) -> list[str]:
         """世代更新のためにDBへ触りにいったかを記録して返す。"""
@@ -101,16 +97,13 @@ def test_every_batch_entry_point_bumps_the_derived_data_revision():
     固定して、書き忘れを足した時点で止める。
     """
     batch_dir = Path(_common.__file__).parent
-    # データを書かないモジュール（取込プロファイルの読み込み・PBFの読み取り）は対象外。
-    not_writers = {"_common.py", "__init__.py", "profile.py", "pbf_source.py"}
     missing = []
     for path in sorted(batch_dir.glob("*.py")):
-        if path.name in not_writers:
-            continue
         source = path.read_text(encoding="utf-8")
+        # 入口を持たないモジュール（プロファイルの読み込み・PBFの読み取り等）は対象外。
         if "asyncio.run(" not in source:
             continue
-        if "with_derived_data_revision_bump" in source or "run_simple_batch_cli" in source:
+        if "with_derived_data_revision_bump" in source:
             continue
         missing.append(path.name)
     assert missing == []
