@@ -76,11 +76,8 @@ function categoryKeys(category: CategoryDef): string[] {
 }
 
 // 「文字列列挙プロパティ→(label対訳表・凡例・match色分け式)の3点セット」の共通ビルダー。
-// STOP_POI/SUPPLY_POIが同じ骨格
-// （Object.fromEntries変換・["=="]フィルタ＋unknown用["!","has"]フォールバック・
-// ["match", ["coalesce",...]]色分け式）を逐語コピーしていたのを1箇所へ集約する。
-// CAR_STRESS（数値キー）・ACCIDENT（当事者/重大度の2値をcase式で直接書く方が
-// 自然）は同型でないため対象外。
+// 値が文字列カテゴリのプロパティだけが対象で、数値キーや複数プロパティの組み合わせは
+// この骨格に乗らない。
 function buildCategoricalLayerDefs(
   property: string,
   categories: readonly CategoryDef[],

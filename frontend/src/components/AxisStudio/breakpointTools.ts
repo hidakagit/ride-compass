@@ -129,8 +129,7 @@ export function interpolateBreakpointScore(breakpoints: readonly [number, number
 }
 
 /** 「+ 折れ点を追加」の挿入位置。隣接点どうしのx方向の間隔が最も広い区間の中間へ挿入する
- * （末尾へ既定値[0,0]を足すだけの旧実装は、既存の折れ点より横軸が小さい点を足してしまい
- * 昇順制約に即座に違反していた）。点が1つ以下では追加できないため呼び出し側で
+ * ——追加した点が常に昇順制約を満たすため。点が1つ以下では追加できないため呼び出し側で
  * length>=2を保証すること。 */
 export function insertBreakpointAtLargestGap(breakpoints: readonly [number, number][]): [number, number][] {
   const sorted = sortBreakpoints(breakpoints);
