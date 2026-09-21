@@ -33,6 +33,7 @@ find_venv() {
 #
 # 手で動かすとき（git経由でない）は標準入力が空になるので、`</dev/null` を付けて呼ぶ。
 ZERO_RE='^0*$'
+PAIRS=""
 LINES=0
 CHANGED=""
 while read -r _lref lsha _rref rsha; do
@@ -46,6 +47,7 @@ while read -r _lref lsha _rref rsha; do
         base="$rsha"
     fi
     [ -n "$base" ] || continue
+    PAIRS="$PAIRS $base..$lsha"
     CHANGED="$CHANGED
 $(git diff --name-only --diff-filter=d "$base" "$lsha")"
 done
@@ -73,6 +75,18 @@ fi
 
 fail=0
 note() { printf '\n[pre-push] %s\n' "$1" >&2; }
+
+# 一度通した範囲は通さない。同じコミットをブランチとmasterの両方へ押すと、範囲が
+# 同じまま検査だけ2回払うことになる（実測、同じ4コミットでフル検査が2回走った）。
+#
+# 鍵には**作業ツリーの状態も入れる**——prettierとtscはコミットではなく手元のファイルを
+# 見るので、範囲が同じでも手元が変わっていれば検査し直す必要がある。
+PASSED_FILE="$(git rev-parse --git-common-dir)/pre-push-passed"
+RUN_KEY="$(printf '%s|%s' "$PAIRS" "$(git status --porcelain)" | git hash-object --stdin)"
+if [ -f "$PASSED_FILE" ] && grep -qxF "$RUN_KEY" "$PASSED_FILE"; then
+    echo '[pre-push] 同じ範囲・同じ作業ツリーで既に通っています。飛ばします' >&2
+    exit 0
+fi
 
 # --- backend: ruff（変更したpyだけ） ---
 PY_FILES="$(printf '%s\n' "$CHANGED" | grep -E '^backend/.*\.py$' || true)"
@@ -124,4 +138,8 @@ for c in python python3 py; do
 done
 
 [ "$fail" -eq 0 ] || { note "pushを中止しました"; exit 1; }
+
+# 通ったことを覚える。古い分は捨てる（増え続けても誰も読まない）。
+echo "$RUN_KEY" >> "$PASSED_FILE"
+tail -n 50 "$PASSED_FILE" > "$PASSED_FILE.tmp" && mv "$PASSED_FILE.tmp" "$PASSED_FILE"
 exit 0
