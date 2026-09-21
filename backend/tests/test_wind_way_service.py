@@ -1,15 +1,7 @@
-"""WindWayService（改善計画T405→T414で作り直し、way_id→wind_drag_ratio配信層の
-オーケストレーション）のテスト。
+"""鍵→wind_drag_ratio配信層（`services/wind_way_service.py`）のオーケストレーション。
 
-FakeRegionRepository（test_region_service.py）と同じ流儀で、RoadGraphRepository/
-WeatherServiceが持つメソッドのうち本サービスが実際に呼ぶものだけをダックタイピングした
-フェイクへ差し替える。Redisはtest_dynamic_way_value_cache.pyと同じFakeRedisパターンで
-使う（実Redis不要）。
-
-T414での設計変更: 走行方位（bearing_deg）は道路自身の向きではなく、呼び出し側
-（コンパススライダー）が指定する引数になった。同じタイル内の全wayは常に同じ
-wind_drag_ratioを持つ（風グリッドをタイル中心1点で代表させる既存の近似＋向きが全道路共通の
-ため）。
+走行方位は呼び出し側が指定する単一の値で、道路自身の向きは使わない。風グリッドもタイル
+中心1点で代表させる。その結果、同じタイル内の全wayが同じ値を持つ。
 """
 
 from datetime import datetime, timedelta, timezone
@@ -20,20 +12,11 @@ from app.domain.region import tile_bounds_lonlat
 from app.domain.route import Coordinates
 from app.domain.wind import kmh_to_ms, wind_drag_ratio
 from app.domain.wind_grid import WIND_GRID_DETAIL_SPACING_DEG, WindGridPoint, nearest_grid_point
-from app.infrastructure import redis_json_cache
 from app.domain.time_zone import JST
 from app.services.wind_way_service import WindWayService
-from tests.fake_redis import FakeRedis
 
 Z, X, Y = 14, 14551, 6447
 SPEED_KMH = 20.0
-
-
-@pytest.fixture(autouse=True)
-def use_fake_redis(monkeypatch):
-    fake = FakeRedis()
-    monkeypatch.setattr(redis_json_cache, "get_redis_client_or_none", lambda: fake)
-    return fake
 
 
 class FakeWayIdsRepository:
@@ -78,11 +61,6 @@ AT = datetime(2026, 8, 30, 9, 0)
 TIMES = ["2026-08-30T08:00", "2026-08-30T09:00", "2026-08-30T10:00"]
 
 
-def test_material_id_is_wind_drag_ratio():
-    service = WindWayService(repository=None, weather_service=FakeWeatherService([], None))
-    assert service.material_id == "wind_drag_ratio"
-
-
 async def test_repository_none_returns_empty_dict():
     service = WindWayService(repository=None, weather_service=FakeWeatherService([], None))
 
@@ -91,9 +69,7 @@ async def test_repository_none_returns_empty_dict():
     assert result == {}
 
 
-# 改善計画T445: bearing_deg=Noneで呼ばれたら即座に失敗する（router側422検証をすり抜けて
-# 呼ばれた場合の防御。router/service間の型シグネチャをfloat | Noneへ揃えた副作用として、
-# 型チェッカーが通してしまうNone到達を実行時ガードで塞ぐ）。
+# 型が`float | None`なのは呼び出し口の形を揃えるためで、Noneのまま計算へ進ませない。
 async def test_bearing_deg_none_raises_value_error():
     service = WindWayService(repository=None, weather_service=FakeWeatherService([], None))
 
@@ -129,9 +105,7 @@ async def test_covered_but_no_ways_returns_empty_dict():
 
 
 async def test_computes_wind_drag_ratio_from_bearing_speed_and_wind_grid():
-    # T414: 走行方位はユーザー指定の単一の値（全道路共通）。同じタイル内のway1・way2は
-    # 常に同じwind_drag_ratio（wind_drag_ratioの定義どおりに直接計算して突き合わせる、
-    # 二重実装を避ける既存の車ストレス系テストと同じ方針）を持つ。
+    # 走行方位は全道路共通のため、同じタイル内の2本は同じ値になる。
     repository = FakeWayIdsRepository(way_ids=[1, 2])
     wind_speed, wind_direction = 6.0, 200.0
     bearing_deg = 45.0
@@ -167,9 +141,7 @@ async def test_grid_point_uses_wind_grid_detail_spacing_not_the_coarse_default()
 
 
 async def test_adjacent_tiles_resolve_to_different_grid_points():
-    # 隣接タイル（z=14、幅約0.022度）は、粗い既定間隔（0.1度）では同じ格子点へ丸められて
-    # しまい同じ色になっていた。WIND_GRID_DETAIL_SPACING_DEG（0.02度）ではタイル幅より
-    # わずかに格子間隔が狭いため、隣接タイルは異なる格子点へ丸められる。
+    # 格子間隔がタイル幅より広いと、隣り合うタイルが同じ格子点へ丸められて同じ色になる。
     grid_point = make_grid_point(TIMES, [1.0, 6.0, 1.0], [10.0, 200.0, 10.0])
 
     repository_a = FakeWayIdsRepository(way_ids=[1])
@@ -195,12 +167,12 @@ async def test_second_call_recomputes_without_caching():
     second = await service.get_way_values(Z, X, Y, AT, 0.0, SPEED_KMH)
 
     assert first == second
-    # 風は計算が軽いため値をキャッシュしない（docs/conventions/caching.md）。同じ条件でも都度計算する。
+    # 風の値はキャッシュせず、同じ条件でも都度計算する。
     assert len(repository.calls) == 2
     assert len(weather_service.calls) == 2
 
 
-async def test_different_bearing_bucket_recomputes():
+async def test_different_bearing_changes_the_value():
     repository = FakeWayIdsRepository(way_ids=[1])
     grid_point = make_grid_point(TIMES, [1.0, 6.0, 1.0], [10.0, 200.0, 10.0])
     weather_service = FakeWeatherService(TIMES, grid_point)
@@ -213,7 +185,7 @@ async def test_different_bearing_bucket_recomputes():
     assert len(weather_service.calls) == 2
 
 
-async def test_different_speed_bucket_recomputes():
+async def test_different_speed_changes_the_value():
     repository = FakeWayIdsRepository(way_ids=[1, 2])
     wind_speed, wind_direction, bearing_deg = 6.0, 200.0, 45.0
     grid_point = make_grid_point(TIMES, [1.0, wind_speed, 1.0], [10.0, wind_direction, 10.0])
@@ -222,9 +194,12 @@ async def test_different_speed_bucket_recomputes():
     slow = await service.get_way_values(Z, X, Y, AT, bearing_deg, 15.0)
     fast = await service.get_way_values(Z, X, Y, AT, bearing_deg, 35.0)
 
-    assert slow == {1: round(wind_drag_ratio(wind_speed, wind_direction, bearing_deg, kmh_to_ms(15.0)), 3)} | {2: slow[1]}
-    assert fast[1] == round(wind_drag_ratio(wind_speed, wind_direction, bearing_deg, kmh_to_ms(35.0)), 3)
-    assert slow[1] != fast[1]  # 速度バケットが異なればキャッシュを共有しない
+    def expected(speed_kmh: float) -> float:
+        return round(wind_drag_ratio(wind_speed, wind_direction, bearing_deg, kmh_to_ms(speed_kmh)), 3)
+
+    assert slow == {1: expected(15.0), 2: expected(15.0)}
+    assert fast == {1: expected(35.0), 2: expected(35.0)}
+    assert slow[1] != fast[1]
 
 
 async def test_wind_grid_unavailable_returns_empty_dict():
@@ -259,11 +234,8 @@ async def test_repository_error_returns_empty_dict():
 
 
 async def test_at_none_defaults_to_now_without_raising():
-    # WindWayServiceの既定時刻はdatetime.now(JST)（route_generator.pyのJSTと同じ簡易近似、
-    # 風グリッドの時刻配列がnaiveなJST文字列であることに整合させるため）。テストのwide_timesも
-    # 同じ基準（JST）で「今日00:00〜翌日00:00」を用意し、テスト実行環境のタイムゾーンや
-    # 実行時刻（23時台を含む）に依存せず必ず範囲内に収まるようにする（_nearest_time_indexは
-    # 配列の最終時刻を超えると範囲外扱いにするため、今日の23:00までだと23時台に外れる）。
+    # 既定時刻は「今」のため、時刻配列は翌日00:00まで張る。今日の23:00までだと、
+    # 23時台に実行したとき範囲外になって落ちる。
     repository = FakeWayIdsRepository(way_ids=[1])
     today_jst = datetime.now(JST).replace(hour=0, minute=0, second=0, microsecond=0)
     wide_times = [(today_jst + timedelta(hours=h)).strftime("%Y-%m-%dT%H:%M") for h in range(25)]
@@ -277,10 +249,9 @@ async def test_at_none_defaults_to_now_without_raising():
 
 
 async def test_utc_aware_at_is_converted_to_jst_before_range_check():
-    # フロント（regionApi.ts: fetchDynamicWayValues）はDate.toISOString()でtz-aware(UTC)な
-    # 時刻を送る。風グリッドのhourly配列はJST基準の壁時計時刻（tzなし文字列）のため、
-    # tzinfoを単純に剥がすだけで比較するとUTC/JSTの時差(9時間)ぶんズレる——JST深夜〜早朝
-    # （0時台〜8時台）にアクセスすると、ズレた時刻が前日扱いになり誤って範囲外と判定される。
+    # 呼び出し側はtz-awareなUTCを送りうる。風グリッドの時刻配列はJST基準の壁時計時刻
+    # （tzなし文字列）のため、tzinfoを剥がすだけで比べると時差ぶんズレ、JST深夜〜早朝が
+    # 前日扱いになって誤って範囲外と判定される。
     repository = FakeWayIdsRepository(way_ids=[1])
     today_jst = datetime.now(JST).replace(hour=0, minute=0, second=0, microsecond=0)
     wide_times = [(today_jst + timedelta(hours=h)).strftime("%Y-%m-%dT%H:%M") for h in range(24)]
@@ -288,7 +259,7 @@ async def test_utc_aware_at_is_converted_to_jst_before_range_check():
     weather_service = FakeWeatherService(wide_times, grid_point)
     service = WindWayService(repository=repository, weather_service=weather_service)
 
-    # JST今日00:30を、フロントと同じ経路（tz-aware UTC）で表現する。
+    # JST今日00:30を、tz-awareなUTCとして表現する。
     target_utc = today_jst.replace(hour=0, minute=30).astimezone(timezone.utc)
 
     result = await service.get_way_values(Z, X, Y, target_utc, 0.0, SPEED_KMH)

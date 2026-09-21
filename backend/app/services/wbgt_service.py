@@ -37,9 +37,9 @@ class WbgtService:
     async def get_status(self, point: Coordinates, now: datetime | None = None) -> WbgtStatus:
         """出発地点の暑さ指数警戒レベルを取得する。
 
-        提供期間外（11〜3月）は取得自体を行わずに空を返す。
-        地点解決・予測値取得のどこで失敗しても例外にせず空を返す（他の警報系バッジと
-        共有するfail-open方針。「ほぼ安全」（21未満）も警告として意味を持たないため空を返す）。
+        提供期間外は取得自体を行わない。地点解決・予測値取得のどこで失敗しても例外にせず
+        空を返す（他の警報系バッジと共有するfail-open方針）。警告として意味を持たない低い
+        レベルも空へ倒す。
         """
         now = now or datetime.now(JST)
         if not is_within_provision_period(now):
@@ -76,13 +76,10 @@ class WbgtService:
 
 
 def _pick_nearest_forecast(data: list[dict], now: datetime) -> dict | None:
-    """予測値列（複数の発表回=reference_timeが混在しうる）の中から、最新の発表回に
-    絞った上で現在時刻に最も近いforecast_timeを選ぶ。
+    """最新の発表回に絞ったうえで、現在時刻に最も近いforecast_timeを選ぶ。
 
-    range_date_from/range_date_toで検索窓を広げて取得したレスポンスには、直近数時間ぶんの
-    発表回（reference_time）が複数含まれうる（例: 14時発表〜19時発表の6回分）。古い発表回の
-    予測値を混ぜて「現在時刻に最も近い」を選ぶと、本来は最新の発表回で置き換わっている
-    はずの値を誤って採用しうるため、まず最新のreference_timeだけに絞り込む。
+    検索窓を広げて取得したレスポンスには発表回（reference_time）が複数混ざる。絞らずに
+    「現在時刻に最も近い」を選ぶと、新しい発表回で既に置き換わっている値を拾いうる。
     """
     latest_reference_time: str | None = None
     for entry in data:

@@ -17,7 +17,7 @@ from app.services.route_generator import RouteGenerator
 
 ORIGIN = Coordinates(latitude=35.7597, longitude=139.7387)
 # テスト用の折返し候補の方位（旧8方位方式の名残ではなく、FakeEngineが返す候補を区別する
-# ためのラベル。方位は生成機構ではなく表示ラベルにしか使わない、改善計画T531）。
+# ためのラベル。方位は生成機構ではなく表示ラベルにしか使わない）。
 BEARINGS = [0, 45, 90, 135, 180, 225, 270, 315]
 
 
@@ -46,14 +46,14 @@ class FakeEngine:
     ):
         self._distances = distances_by_bearing
         self._prepare_result = prepare_result
-        # 改善計画T602: select_via_nodesが目的地を補正した体を取るテスト用（prepareが返す
+        # select_via_nodesが目的地を補正した体を取るテスト用（prepareが返す
         # contextは既定で不変のstr "ctx" のため、補正を検証するテストは可変なオブジェクトを
         # prepare_resultへ渡す必要がある）。
         self._destination_correction = destination_correction
-        # 改善計画T553: is_loop_too_similarがTrueを返すべき候補のbearing集合
+        # is_loop_too_similarがTrueを返すべき候補のbearing集合
         # （テストが明示的に指定した場合のみ。既定は空＝常にFalse）。
         self._too_similar_bearings = too_similar_bearings
-        # 改善計画T551: select_via_nodesが返す候補の距離列。省略時はdistances_by_bearing[None]
+        # select_via_nodesが返す候補の距離列。省略時はdistances_by_bearing[None]
         # （bearing=None、Exceptionでなければ）を1件だけ返す後方互換の既定値にする——
         # 経由地・目的地指定ルートの既存テストの大半はこの1件だけを見ているため。
         self._via_node_distances = via_node_distances
@@ -71,7 +71,7 @@ class FakeEngine:
         self.traced_bearings: list[int] = []
         self.traced_waypoints: dict[int | None, list[Coordinates]] = {}
         self.evaluated_traced: list[TracedLoop] | None = None
-        # 改善計画T553: is_loop_too_similar呼び出しを記録する
+        # is_loop_too_similar呼び出しを記録する
         # （candidate.bearing, [acceptedのbearing一覧]）のタプル列。
         self.similarity_calls: list[tuple[int | None, list[int | None]]] = []
 
@@ -151,7 +151,7 @@ def _labels(candidates: list[RouteCandidate]) -> list[str]:
 
 
 async def test_sorts_final_candidates_by_overall_difficulty_ascending():
-    # 改善計画T548: 候補タブの並び順はoverall_difficulty（絶対基準0-100の総合難易度）
+    # 候補タブの並び順はoverall_difficulty（絶対基準0-100の総合難易度）
     # 昇順（易しい候補が先頭）。
     engine = SegmentedFakeEngine(
         {0: 33.0, 45: 30.0, 90: 27.0},
@@ -173,7 +173,7 @@ async def test_sorts_final_candidates_by_overall_difficulty_ascending():
 
 
 async def test_candidates_with_equal_difficulty_are_ordered_by_distance_closeness():
-    # 改善計画T531: overall_difficultyが同点（小数1桁）の候補は目標距離に近い順に並ぶ
+    # overall_difficultyが同点（小数1桁）の候補は目標距離に近い順に並ぶ
     # （周囲に重みを振った軸のデータが無く全候補が同じdifficultyになる状況で、結果が
     # 実質的に目標距離に近い順になる）。
     engine = SegmentedFakeEngine(
@@ -188,7 +188,7 @@ async def test_candidates_with_equal_difficulty_are_ordered_by_distance_closenes
 
 
 async def test_candidates_with_none_overall_difficulty_sort_last():
-    # 改善計画T548: overall_difficultyがNone（算出不能）の候補は末尾へ回す。
+    # overall_difficultyがNone（算出不能）の候補は末尾へ回す。
     engine = SegmentedFakeEngine(
         {0: 33.0, 45: 30.0},
         {45: [make_segment(1.0, 20.0)]},  # bearing=0はsegments無し→overall_difficulty=None
@@ -257,7 +257,7 @@ async def test_overall_difficulty_is_distance_weighted_average_of_segments():
 
 
 async def test_axis_difficulties_is_distance_weighted_average_of_segments():
-    # 改善計画T402: RouteCandidate.axis_difficultiesはoverall_difficultyと対の
+    # RouteCandidate.axis_difficultiesはoverall_difficultyと対の
     # ルート全体集約値。merge_axis_difficultiesを候補の全区間へ1回適用するだけで
     # 得られることを、エンジン非依存側（RouteGenerator）の配線として検証する。
     engine = SegmentedFakeEngine(
@@ -325,7 +325,7 @@ async def test_axis_raw_values_keep_precision_for_small_scale_axes():
 
 
 async def test_axis_contributions_is_distance_weighted_average_of_segments():
-    # 改善計画T550: RouteCandidate.axis_contributionsはaxis_difficultiesと同じ集約方法
+    # RouteCandidate.axis_contributionsはaxis_difficultiesと同じ集約方法
     # （merge_axis_contributions、distance_weighted_difficulty）で候補全区間へ集約される。
     engine = SegmentedFakeEngine(
         {0: 30.0},
@@ -347,7 +347,7 @@ async def test_axis_contributions_is_distance_weighted_average_of_segments():
 
 
 async def test_material_values_is_distance_weighted_average_of_segments():
-    # 改善計画T592: RouteCandidate.material_valuesはaxis_difficulties/axis_contributionsと
+    # RouteCandidate.material_valuesはaxis_difficulties/axis_contributionsと
     # 同じ集約方法（merge_material_values、distance_weighted_difficulty）で候補全区間へ
     # 集約される。
     engine = SegmentedFakeEngine(
@@ -368,7 +368,7 @@ async def test_material_values_is_distance_weighted_average_of_segments():
 
 
 async def test_axis_contributions_sum_matches_overall_difficulty():
-    # 改善計画T550の不変条件: sum(axis_contributions.values())は丸め誤差を除いて
+    # sum(axis_contributions.values())は丸め誤差を除いて
     # overall_difficultyと一致する（domain/evaluation.py:
     # compose_costs_from_axis_matrixのdocstring参照）。各区間のaxis_contributionsの
     # 合計をその区間のdifficultyと一致させて用意し（compose_costs_from_axis_matrixが
@@ -468,7 +468,7 @@ async def test_generate_destination_routes_sorts_by_overall_difficulty():
 
 
 async def test_generate_via_waypoints_also_aggregates_axis_difficulties():
-    # 改善計画T402: axis_difficultiesの集約はgenerate_loopsだけでなく
+    # axis_difficultiesの集約はgenerate_loopsだけでなく
     # generate_via_waypoints側でも同じく行われる（両呼び出し元で_with_axis_difficultiesを
     # 呼ぶ配線の検証）。
     engine = SegmentedFakeEngine(
@@ -483,7 +483,7 @@ async def test_generate_via_waypoints_also_aggregates_axis_difficulties():
 
 
 async def test_generate_via_waypoints_also_aggregates_axis_contributions():
-    # 改善計画T550: axis_contributionsの集約もaxis_difficultiesと同じく
+    # axis_contributionsの集約もaxis_difficultiesと同じく
     # generate_via_waypoints側で行われる（両呼び出し元で_with_axis_contributionsを
     # 呼ぶ配線の検証）。
     engine = SegmentedFakeEngine(
@@ -589,9 +589,8 @@ async def test_generate_destination_routes_without_fastest_route_marks_nothing()
 async def test_material_category_shares_survive_the_post_processing_steps():
     """categorical材料の延長割合は、エンジンがビニング前に計算して候補へ載せる。
 
-    `_with_material_values`が`candidate.segments`（＝約500m単位へ畳んだ後）から
-    計算し直すと、区間側の`material_categories`は畳むときに落としてあるため必ず空に
-    なる。ここで見るのは「後段が上書きしない」ことそのもの。
+    戦略層が集約後の`segments`から計算し直すと、区間側の`material_categories`は畳むときに
+    落としてあるため必ず空になる。ここで見るのは「後段が上書きしない」ことそのもの。
     """
     engine = DestinationSegmentedFakeEngine(
         via_node_traced=[TracedLoop(bearing=None, distance_km=20.0, data="a")],

@@ -1,8 +1,4 @@
-"""土地被覆ラスタタイル（`GET /api/region/landcover-tiles/...`）の配信。
-
-描画そのものは`infrastructure/landcover_raster.py`が行い、ここはキャッシュ確認・
-書き込み（路面/POI/事故タイルと共通の`services/tile_serving.py`の骨格）と、
-配信できる状態かどうかの判断だけを持つ。
+"""土地被覆ラスタタイルの配信。
 
 描画はGDAL側の同期I/Oのため`asyncio.to_thread`へ逃がす（イベントループを止めると、
 同時に処理中のルート生成まで詰まる）。
@@ -69,9 +65,7 @@ def _log_unavailable_once_in_a_while() -> None:
         if not configured
         else f"設定された{len(configured)}件のいずれも開けません（配置・権限・ファイルの中身を確認）"
     )
-    logger.warning(
-        "土地被覆タイルを配信できません: %s（docs/disaster-recovery.md参照）", cause
-    )
+    logger.warning("土地被覆タイルを配信できません: %s", cause)
 
 
 async def get_landcover_tile(z: int, x: int, y: int) -> TileResponse | None:

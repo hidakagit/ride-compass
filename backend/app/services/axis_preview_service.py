@@ -63,8 +63,8 @@ async def load_way_sample(
 ) -> list[tuple[float, dict[str, object]]]:
     """way標本を`(延長m, 材料値)`の並びで返す。`bbox`を渡すとその範囲内だけを対象にする。
 
-    分布プレビュー（このサービス）と飽和度の実測スクリプト
-    （`backend/scripts/measure_axis_saturation.py`）が同じ標本の作り方を使う。
+    分布プレビューと飽和度の実測スクリプト（`backend/scripts/measure_axis_saturation.py`）が
+    同じ標本の作り方を共有するための口。
     """
     accident_years = await repository.get_accident_years_covered()
     return await repository.sample_way_material_values(
@@ -75,11 +75,7 @@ async def load_way_sample(
 def weighted_quantiles(
     pairs: list[tuple[float, float]], targets: list[tuple[str, float]], digits: int
 ) -> dict[str, float]:
-    """`(延長m, 値)`から延長で重み付けた分位点を返す（`targets`は比率の昇順）。
-
-    値の並びを1回走査しながら累積比が各目標へ達した時点の値を採る。目標と丸め桁だけを
-    引数にして、走査そのものは1つに保つ。
-    """
+    """`(延長m, 値)`から延長で重み付けた分位点を返す。`targets`は比率の昇順であること。"""
     if not pairs:
         return {}
     total_m = sum(m for m, _ in pairs)
@@ -109,8 +105,7 @@ async def _load_sample(repository: RoadGraphRepository) -> list[tuple[float, dic
 
 
 def _raw_value(shape: AxisShape, materials: dict[str, object]) -> float | None:
-    """折れ点を通す前の生値。`BreakpointLinearShape`の`terms`の重み付き和と、
-    `preprocess`（絶対値等）まで。categorical軸は生値の概念を持たないためNone。"""
+    """折れ点を通す前の生値。categorical軸は生値の概念を持たないためNone。"""
     if not isinstance(shape, BreakpointLinearShape):
         return None
     total = 0.0
@@ -140,10 +135,9 @@ def _distribution(pairs: list[tuple[float, float]]) -> ValueDistribution:
     quantiles = weighted_quantiles(pairs, targets, digits=3)
 
     # 描画範囲は**データの値域から決める**。下限を0に固定すると、生値が負になる軸
-    # （termsの重みがすべて負の軸。`bicycle_infra_quality`・`night`が該当する）で
-    # 全サンプルが階級0へ潰れ、「1本だけの棒＝全量が同じ値」という
-    # 実態と異なる分布になる。0は常に範囲へ含める（「値0の道がどれだけあるか」は
-    # 折れ点を当てる際の基準になるため、片側に寄ったデータでも0の位置を見せる）。
+    # （termsの重みがすべて負の軸）で全サンプルが階級0へ潰れ、「1本だけの棒＝全量が
+    # 同じ値」という実態と異なる分布になる。0は常に範囲へ含める（「値0の道がどれだけ
+    # あるか」は折れ点を当てる際の基準になる）。
     lower = min(0.0, ordered[0][1])
     # 上端の外れ値でヒストグラムが潰れないよう、p99の少し上までを描画範囲にする
     # （下端側は分位を持たないためデータ下端をそのまま使う）。

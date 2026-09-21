@@ -10,23 +10,16 @@ from app.services.tile_version_service import served_tile_version
 logger = logging.getLogger("ridecompass.accident")
 
 
-# タイル内容の世代は焼き込むSQLの隣（accident_repository.py）で導出する。ここは
-# キャッシュパスの組み立てだけを持つ。
-
-
 def _tile_cache_path(z: int, x: int, y: int) -> str:
     return f"region/accidents/v{served_tile_version(ACCIDENT_TILE_SHAPE)}/{z}/{x}/{y}.pbf"
 
 
 class AccidentService:
-    """警察庁交通事故統計データ（外部静的データソース T50）を、地域路面レイヤーと同じ
-    標準的なXYZベクタタイルとして提供する。
+    """警察庁交通事故統計データをXYZベクタタイルとして配る。
 
-    `repository`（AccidentTileQuery）を渡すと`import_accidents.py`が投入済みの
-    `accident_points`からPostGIS側（ST_AsMVT）でタイルを生成する。road_surfaceと違い
-    「取込範囲の一部だけ取得済み」という状態が無い（バッチが関東7都県を一括で入れる）ため、
-    カバレッジ判定は行わない。`repository`未接続、またはDB障害時は空タイルを返す
-    （RegionServiceと同じ「地図表示という既存機能全体を落とさず安全側に倒す」方針）。
+    road_surfaceと違い「取込範囲の一部だけ取得済み」という状態が無い（バッチが対象地域を
+    一括で入れる）ため、カバレッジ判定を持たない。repository未接続・DB障害時は例外にせず
+    空タイルを返し、地図表示全体を落とさない。
     """
 
     def __init__(self, repository: AccidentTileQuery | None = None):
@@ -35,8 +28,6 @@ class AccidentService:
     async def get_accident_tile(self, z: int, x: int, y: int) -> TileResponse:
         async def fetch_tile(fields: dict) -> bytes | None:
             if self._repository is None:
-                # repository未接続（road_graph_use_repository無効時）。データ未整備として
-                # 空タイルを返す（ログ方針: 常時WARNING）。
                 logger.warning("事故タイルがrepository未接続のため空タイルを返しました z=%d x=%d y=%d", z, x, y)
                 return None
             try:

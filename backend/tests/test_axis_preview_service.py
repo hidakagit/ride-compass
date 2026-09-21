@@ -1,8 +1,4 @@
-"""軸スタジオの分布プレビュー（`services/axis_preview_service.py`）の純ロジック。
-
-分位・階級化・生値の算出はいずれも純関数で、`POST /api/admin/axis-definitions/
-preview-distribution`と`GET /api/admin/material-catalog/{id}/distribution`の計算本体。
-"""
+"""軸スタジオの分布プレビュー（`services/axis_preview_service.py`）の純ロジック。"""
 
 import pytest
 
@@ -30,7 +26,7 @@ class TestDistribution:
         assert result.bins == []
 
     def test_positive_values_start_at_zero(self):
-        # 正の値だけの分布は従来どおり0起点（0は常に範囲へ含める）。
+        # 正の値だけの分布は0起点（0は常に範囲へ含める）。
         pairs = [(100.0, v) for v in (1.0, 2.0, 3.0, 4.0)]
         result = _distribution(pairs)
         assert result.bins[0][0] == 0.0
@@ -38,8 +34,7 @@ class TestDistribution:
         assert result.bins[-1][1] > 0
 
     def test_negative_values_are_not_collapsed_into_the_first_bin(self):
-        # 統合レビュー第6回の指摘I-6: 下限を0に固定していたため、生値が負の軸
-        # （openness等）は全サンプルが階級0へ潰れ「1本だけの棒」になっていた。
+        # 生値が負になる軸で、下限を0に固定すると全サンプルが階級0へ潰れる。
         pairs = [(100.0, v) for v in (-160.0, -120.0, -80.0, -40.0, -5.0)]
         result = _distribution(pairs)
 

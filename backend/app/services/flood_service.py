@@ -21,11 +21,10 @@ class FloodService:
         self._http_client = http_client
 
     async def get_forecasts(self, point: Coordinates) -> FloodForecasts:
-        """出発地点近傍の指定河川洪水予報（レベル2〜5）を取得する。
+        """出発地点近傍の指定河川洪水予報を取得する。
 
-        地点→市区町村→JMA警報エリアの解決（`jma_area.resolve_area`を再利用）、
-        または洪水予報自体の取得のどこで失敗しても例外にせず空を返す（警報・WBGTと
-        共有するfail-open方針）。
+        エリア解決・予報取得のどこで失敗しても例外にせず空を返す（警報・WBGTと共有する
+        fail-open方針）。
         """
         muni_cd = await fetch_municipality_code(self._http_client, point.latitude, point.longitude)
         if muni_cd is None:

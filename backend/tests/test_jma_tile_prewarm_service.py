@@ -54,13 +54,12 @@ def test_pick_current_entry_returns_none_when_element_not_found():
 
 
 def test_pick_current_entry_with_element_id_none_skips_filtering_and_prefers_observed():
-    """element_id=None（絞り込み対象を指定しない汎用呼び出し）では、実況
-    （validtime===basetime）のうち最新basetimeを選ぶ（予測フレームより実況を優先する、
-    jmaNowcastFrames.ts: latestObservedFrameIndexと同じ考え方）。改善計画T514
-    フォローアップ: 以前はnowcグループの呼び出し元がこのelement_id=Noneを常用していたが、
-    それ自体が誤りだった（下記test_prewarm_jma_tiles_for_nowc_skips_liden_only_entry
-    参照）。この関数自体の「element_id=Noneなら絞り込まない」という汎用的な挙動は
-    引き続き正しいため、その挙動だけを検証する。"""
+    """`element_id=None`なら絞り込まず、実況（validtime==basetime）のうち最新basetimeを選ぶ。
+
+    実運用の呼び出しは必ず`element_id`を渡す（下の
+    test_prewarm_jma_tiles_for_nowc_skips_liden_only_entry参照）。ここで見るのは、
+    絞り込まないときの選び方そのもの。
+    """
     raw = [
         {"basetime": "20260829170000", "validtime": "20260829170000"},  # 実況
         {"basetime": "20260829170000", "validtime": "20260829171000"},  # 予測(10分先)
@@ -88,7 +87,7 @@ def test_tile_paths_for_layer_builds_expected_path_format():
 
 
 def test_tile_paths_for_layer_at_zoom4_covers_exactly_one_tile():
-    """WIND_GRID_BBOX（関東本土）はzoom4では1タイルに収まる（改善計画T510の試算通り）。"""
+    """プリウォーム対象のbboxはzoom4では1タイルに収まる。"""
     layer = prewarm._PrewarmLayer("test", "risk", "land", "png", "irrelevant")
     entry = {"basetime": "1", "validtime": "1", "member": "immed0"}
 
@@ -150,13 +149,11 @@ async def test_prewarm_jma_tiles_skips_layer_when_target_times_fetch_fails(monke
 
 
 async def test_prewarm_jma_tiles_for_nowc_skips_liden_only_entry(monkeypatch):
-    """改善計画T514フォローアップ: targetTimes_N3.jsonは5分おきにエントリを持つが、
-    雷ナウキャスト(thns)自体は10分おきにしか更新されない。5分ズレたエントリは
-    "elements": ["liden"]（雷放電位置データのみ）しか持たず、thnsのタイルが存在しない
-    （実機のbackendログでこの5分ズレのbasetimeを使ったタイル取得がhttp_404になることを
-    確認済み）。プリウォームがelementsで絞り込まず最新basetimeを無条件に採用すると、
-    liden-onlyのbasetimeでタイルパスを組み立ててしまう——nowcグループも他グループと
-    同じくelement_idで絞り込むべきことをこのテストで検証する。"""
+    """targetTimes_N3.jsonは、雷ナウキャスト(thns)のタイルが存在しないbasetimeも持つ。
+
+    そのエントリは`"elements": ["liden"]`しか持たない。絞り込まず最新basetimeを無条件に
+    採ると、タイルの無いbasetimeでパスを組み立てて404を繰り返す。
+    """
     nowc_target_times = "bosai/jmatile/data/nowc/targetTimes_N3.json"
     monkeypatch.setattr(
         prewarm, "_LAYERS", (prewarm._PrewarmLayer("雷ナウキャスト", "nowc", "thns", "png", nowc_target_times),)
@@ -250,7 +247,7 @@ async def test_prewarm_records_only_non_empty_tiles(monkeypatch):
 
     assert stored["elements"]["land"]["basetime"] == "20260907025000"
     assert stored["elements"]["land"]["zooms"] == {"4": [[14, 6]]}
-    # coverageはインデックスが網羅する範囲。この外はクライアントが従来どおり取得する。
+    # coverageはインデックスが網羅する範囲。この外は在否が不明なので取得しに行かせる。
     assert stored["coverage"]["min_longitude"] == prewarm._PREWARM_BBOX.min_longitude
 
 
