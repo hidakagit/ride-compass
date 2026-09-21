@@ -1,26 +1,20 @@
 """市民薄明（civil twilight）に基づく夜間判定。
 
-night軸（`domain/night.py`、街灯・トンネル由来の走りにくさ）を出発・到達時刻に応じて
-動的化するための天文計算。night_difficulty自体（街灯・トンネルタグからの難易度算出）は
-時刻を知らないまま据え置き、呼び出し元が本モジュールの`is_night`で「今、この地点は
-市民薄明の外（夜間）か」を判定し、night_weightをその真偽で0/1に切り替えることで動的化する
-（domain/night.py・difficulty.pyの変更は不要。呼び出し元がweightを掛け替えるだけで済む
-設計、詳細はroad_graph_engine.pyの利用箇所参照）。
+街灯・トンネル由来の走りにくさを表す軸を、出発・到達時刻に応じて動的化するための天文
+計算。軸の側は時刻を知らないまま据え置き、呼び出し元が`is_night`の真偽で軸の重みを
+0/1に切り替える。
 
 市民薄明（太陽高度-6度、日没後も屋外の視認性が残る時間帯）の終わりを「夜」の境界に使う
 （日の入り時刻そのものではなく、薄明が終わるまではまだ十分明るいため）。
 
-天文計算は`astral`ライブラリ（暦計算、外部通信なし・決定論的）に委譲する。妥当性は
-sunrise-sunset.org（NOAA準拠の公開API）の実測値との突き合わせで確認済み
-（test_twilight.py、東京の夏至・冬至・秋分。計算方式の違いにより数分のずれは許容）。
+天文計算は`astral`ライブラリ（暦計算、外部通信なし・決定論的）に委譲する。
 
 `astral.sun(observer, date=D, tzinfo=UTC)`は「dateで指定したUTC暦日の中に収まる
 薄明イベント」を返すため、経度が東側（日本など）だと同じdate引数から返るdawnとduskが
 別々の現地日（duskはD当日の夕方、dawnは翌日の未明）を指し、時刻順が入れ替わって返る
-（安易に`dawn <= at <= dusk`で当日の昼間を判定すると誤る）。この関数は
-その罠を避けるため、`at`前後数日分のdawn/dusk全イベントをUTC時刻で単純にソートし、
-直前のイベント種別（dawn直後=昼、dusk直後=夜）で判定する（地域・時期に依存しない
-頑健な方法）。
+——`dawn <= at <= dusk`で当日の昼間を判定すると誤る。この罠を避けるため、`at`前後数日分の
+dawn/dusk全イベントをUTC時刻でソートし、直前のイベント種別（dawn直後=昼、dusk直後=夜）で
+判定する。
 """
 
 from datetime import date, datetime, timedelta, timezone
@@ -32,16 +26,15 @@ from app.domain.time_zone import JST
 from app.domain.route import Coordinates
 
 
-# at前後の探索範囲（日数）。市民薄明が定義できる緯度なら1日あれば足りるが、日付跨ぎの
-# 経度ずれ（上記docstring参照）を確実に吸収するため余裕を持たせる。
+# at前後の探索範囲（日数）。日付跨ぎの経度ずれ（上記docstring参照）を確実に吸収するため
+# 1日では足りない。
 _SEARCH_WINDOW_DAYS = 2
 
 
 def is_night(coordinates: Coordinates, at: datetime) -> bool:
     """`at`が`coordinates`地点の市民薄明の外（夜間）かどうか。`at`がtz-naiveならUTCとみなす
     （呼び出し元の到達時刻計算がUTCで統一されているため）。極夜・白夜等、市民薄明が
-    定義できない緯度（本サービスの対象地域では実質発生しない）ではNoneを返す代わりに
-    安全側（False、night軸を有効化しない）に倒す。"""
+    定義できない緯度ではFalse（夜として扱わない）に倒す。"""
     at_utc = at.astimezone(timezone.utc) if at.tzinfo else at.replace(tzinfo=timezone.utc)
     observer = Observer(latitude=coordinates.latitude, longitude=coordinates.longitude)
 
@@ -70,9 +63,8 @@ def sunrise_sunset_jst(coordinates: Coordinates, on_date: date) -> tuple[str | N
     """`coordinates`地点の`on_date`（JST基準の暦日）における日の出・日没時刻をJST ISO文字列
     （例: "2026-08-29T05:12:00+09:00"）で返す。
 
-    is_nightと違い市民薄明ではなく実際の日の出・日没（太陽の中心が地平線と一致する瞬間）を
-    返す——太陽の中心が地平線と一致する時刻（大気差を考慮）という一般的な定義に従う。
-    極夜・白夜等、日の出/日没が定義できない緯度では(None, None)を返す。"""
+    `is_night`が使う市民薄明ではなく、太陽の中心が地平線と一致する瞬間（大気差を考慮）と
+    いう一般的な定義の日の出・日没を返す。定義できない緯度では(None, None)。"""
     observer = Observer(latitude=coordinates.latitude, longitude=coordinates.longitude)
     try:
         s = sun(observer, date=on_date, tzinfo=JST)

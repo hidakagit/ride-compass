@@ -7,18 +7,17 @@ import numpy as np
 from app.domain.geo import haversine_distance_km_array
 from app.domain.route import Coordinates
 
-# 仮定巡航速度（km/h）の既定値。区間ごとの推定到達時刻（探索時の風の時刻選択・区間表示・
-# 所要時間表示）と、風の追加負荷（`wind_drag_ratio_array`の走行速度）の算出に使う。
-# リクエストごとに`RouteGenerateRequest.assumed_speed_kmh`で上書きできる（範囲は下記MIN/MAX）。
-# 風・勾配に依存しない一律の定数として扱うことが前提——速度を風で可変にすると「時刻の
-# 算出に速度が要り、速度が風（時刻依存）に影響される」という循環が生まれる。
+# 仮定巡航速度（km/h）の既定値。区間ごとの推定到達時刻と、風の追加負荷
+# （`wind_drag_ratio_array`の走行速度）の算出に使う。リクエストごとに上書きできる
+# （範囲は下記MIN/MAX）。風・勾配に依存しない一律の定数として扱うことが前提——速度を風で
+# 可変にすると「時刻の算出に速度が要り、速度が風（時刻依存）に影響される」循環が生まれる。
 ASSUMED_SPEED_KMH = 20.0
 MIN_ASSUMED_SPEED_KMH = 5.0
 MAX_ASSUMED_SPEED_KMH = 60.0
 
 # 道なり距離／直線距離の比の想定値。探索前に各Edgeの通過予定時刻を「基準点からの直線距離
-# ×この比÷仮定速度」で推定するときに使う。風の時間解像度（1時間＝仮定速度20km/hで20km）
-# に対し、この比のばらつき（±20%程度）による推定誤差は片道15kmで約9分と十分小さい。
+# ×この比÷仮定速度」で推定するときに使う。風の時間解像度は1時間のため、この比のばらつきに
+# よる推定誤差は同じビンへ収まる程度で足りる。
 ROUTE_DETOUR_RATIO = 1.3
 
 # 風の追加負荷（`wind_drag_ratio_array`）を無次元化する基準速度（m/s、時速20km）。

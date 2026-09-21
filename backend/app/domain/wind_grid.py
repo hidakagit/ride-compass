@@ -19,13 +19,10 @@ import math
 from app.domain.route import Coordinates
 from app.domain.strict_model import StrictModel
 
-# 関東本土7都県（離島除く）のbbox。scripts/collect_jartic.pyのDEFAULT_BBOXと同じ範囲値だが、
-# あちらはバッチスクリプト専用の定数でapp本体からは独立しているため、誤って結合させないよう
-# 本機能専用の定数として持つ。
+# 関東本土7都県（離島除く）のbbox。
 WIND_GRID_BBOX: tuple[float, float, float, float] = (138.35, 34.85, 140.95, 37.20)  # (min_lon, min_lat, max_lon, max_lat)
-# 格子間隔（度）。関東本土bbox（経度2.6°×緯度2.35°）に対しこの間隔で約26×24=624点になる。
-# 格子間隔0.1°（緯度約11km・経度約9km）は、正方格子の最悪ケース（どの地点でも最寄り
-# 格子点までの距離が対角線の半分＝約7km以内）がズーム13の表示半径にほぼ収まる値として選んだ。
+# 格子間隔（度）。0.1°（緯度約11km・経度約9km）は、正方格子の最悪ケース（どの地点でも
+# 最寄り格子点まで対角線の半分＝約7km以内）がズーム13の表示半径にほぼ収まる値。
 WIND_GRID_SPACING_DEG = 0.1
 
 
@@ -54,14 +51,12 @@ def nearest_grid_point(
     spacing_deg: float = WIND_GRID_SPACING_DEG,
 ) -> Coordinates:
     """任意の地点から、generate_wind_grid_pointsと同じ固定ラティス（bboxの原点基準、
-    spacing_deg間隔）上の最寄り格子点を返す。way_id→動的値配信層（WindWayService）が、
-    タイル中心のような任意座標に対する風を求める際に使う。タイルごとに異なる座標で
-    問い合わせると、派生値キャッシュ（dynamic_way_value_cache.py）のキーが隣接タイル間で
-    ばらつき共有できなくなるため、常に同じ絶対座標の格子点へ丸める
-    （generate_wind_grid_detail_pointsのdocstringにある原点固定の理由と同じ）。
+    spacing_deg間隔）上の最寄り格子点を返す。タイル中心のような任意座標をそのまま使うと
+    派生値キャッシュのキーが隣接タイル間でばらついて共有できないため、常に同じ絶対座標の
+    格子点へ丸める。
 
-    範囲外の地点はbboxの端へクランプしてから最寄りを求める（呼び出し元がWIND_GRID_BBOX外の
-    タイルを渡すことは想定していないが、境界付近での取りこぼしを避ける安全側の処理）。
+    範囲外の地点はbboxの端へクランプしてから最寄りを求める（境界付近での取りこぼしを
+    避ける安全側の処理）。
     """
     min_lon, min_lat, max_lon, max_lat = bbox
     clamped_lat = min(max(point.latitude, min_lat), max_lat)
@@ -74,20 +69,18 @@ def nearest_grid_point(
     )
 
 
-# 詳細格子は「表示中の範囲だけ」を対象にする（全域を常時この密度[0.1°間隔]で計算すると
-# 624点より遥かに多くなり、応答サイズと計算量が増すため）。
+# 詳細格子は「表示中の範囲だけ」を対象にする（全域をこの密度で計算すると応答サイズと
+# 計算量が増すため）。
 #
 # ここで最も重要な設計判断は、詳細格子の座標を「問い合わせbboxの角」からではなく
 # WIND_GRID_BBOXの原点（固定）からのオフセットで計算すること。閲覧地点をそのまま格子の
 # 起点にすると、閲覧位置が1pxずれるだけで格子点の絶対座標も全部ずれてしまい、近い場所を
-# 見ている別ユーザーとのキャッシュ共有（緯度経度を丸めた
-# 値がキー）が効かなくなる。原点を固定し「常に同じ絶対座標の格子点」を生成することで、
-# bboxが多少ずれていても重なる範囲では同じ座標がヒットし、既存のTTLキャッシュが
-# ユーザー間で共有される。
+# 見ている別ユーザーとのキャッシュ共有（緯度経度を丸めた値がキー）が効かなくなる。
+# 原点を固定すれば、bboxが多少ずれていても重なる範囲では同じ座標がヒットする。
 WIND_GRID_DETAIL_SPACING_DEG = 0.02
 # 1リクエストで許容する最大点数（乱用・広すぎるbboxでの過大な同時フェッチを防ぐ）。
-# 0.02°間隔で1辺0.6°四方（約60km四方、ズーム10以下では通常発生しない広さ）を敷き詰めると
-# 31×31=961点相当のため、余裕を持たせた上限として900点とする。
+# ズーム10以下では通常発生しない広さ（約60km四方）を詳細間隔で敷き詰めた点数に、
+# 少し余裕を持たせた値。
 WIND_GRID_DETAIL_MAX_POINTS = 900
 
 # ズーム依存の格子間隔。ズームインするほど画面上に対する格子1マスの面積が広がり、
@@ -143,13 +136,8 @@ class WindGridPoint(StrictModel):
     配列のまま返すのは、フロント側の時刻スライダーが追加のAPI呼び出し無しで時刻を
     切り替えられるようにするため。
 
-    `times`自体はここには持たない（`WindGridResponse`参照）。全地点を同じ時刻列で
-    まとめて読む（msm_client.read_series）ため時刻は全地点で共通であり、624地点ぶん
-    複製すると応答サイズの大半（約9割）を時刻文字列の重複が占める。
-
-    precipitation_mm（降水量、mm/h相当）を持つ。風の矢印と降水ナウキャストの延長予報
-    （+60分以降）が同じ格子点マップを共有するため、1つのモデルへ両方を持たせている
-    （モジュール冒頭のdocstring参照）。"""
+    `times`自体はここには持たない（`WindGridResponse`参照）——時刻は全地点で共通で、
+    地点ごとに複製すると応答サイズの大半を時刻文字列の重複が占める。"""
 
     latitude: float
     longitude: float
@@ -161,9 +149,7 @@ class WindGridPoint(StrictModel):
 class WindGridResponse(StrictModel):
     """`/api/weather/wind-grid`・`wind-grid-detail`の応答本体。`times`は全格子点で共通の
     時刻配列を1本だけ持つ（各`WindGridPoint`は自分の値配列のみを持ち、インデックスは
-    `times`と揃っている）。`WindGridPoint`ごとに`times`を複製すると、624地点では
-    非圧縮応答の約54%（gzip圧縮下でも約9%）を時刻文字列の重複が占める。全地点取得失敗等で
-    `points`が空の場合は`times`も空になる。"""
+    `times`と揃っている）。全地点取得失敗等で`points`が空の場合は`times`も空になる。"""
 
     times: list[str]
     points: list[WindGridPoint]

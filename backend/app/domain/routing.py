@@ -1,24 +1,20 @@
-"""Route Engine（仕様書33-34章）。
+"""Route Engine。
 
 Road Graph（domain/graph.py）とEdge Cost（domain/evaluation.py）を使って、2点間の
-最小コスト経路を探索する。アルゴリズムは教科書どおりのDijkstra/A*で、新規性のある
-独自アルゴリズムは作らない（仕様書34章「探索アルゴリズムを独断で変更しない」）。
-実装をライブラリへ委ねられない理由は下記（到達時刻をラベルとして持ち回るため）。
+最小コスト経路を探索する。アルゴリズムは教科書どおりのDijkstra/A*で、独自のものは作らない。
 
 探索の状態は**Nodeではなく有向Edge**にする（辺基準グラフ）。右左折の費用はNodeに閉じず
 「どの区間から入ってどの区間へ出るか」で決まるため、Nodeを状態にすると表現できない。
 状態遷移はグラフを物理展開せず既存のCSR（`CsrGraphStructure`）から導く
 （`TurnExpandedStructure`）。
 
-2点間探索（`turn_expanded_shortest_path`）も起点からの**一対全**最短経路木
-（`build_turn_expanded_tree`、フロンティア方式の周回生成の共通基盤）も、numbaでJITした
-探索で求める（優先度キューはnumpy配列のバイナリヒープ）。ライブラリの実装を使わないのは、
-**到達時刻をラベルとして持ち回る**ため——コストが辺の静的な属性であることを前提にした
-ライブラリ（scipy等）では、時刻で変わるコストを表せない。アルゴリズム自体は教科書どおりの
-Dijkstra/A*で、独自のものは作らない。
+2点間探索も一対全の最短経路木も、numbaでJITした探索で求める（優先度キューはnumpy配列の
+バイナリヒープ）。ライブラリ（scipy等）へ委ねられないのは**到達時刻をラベルとして
+持ち回る**ためで、コストが辺の静的な属性である前提のライブラリでは時刻で変わるコストを
+表せない。
 
-Route Engineは、Costの中身（勾配がきつい、路面が悪い等）を一切知らない設計とする
-（仕様書33章）。ここで扱うのはRoad Graphのトポロジーと、既に計算済みのEdge Costのみ。
+Route Engineは、Costの中身（勾配がきつい、路面が悪い等）を一切知らない。ここで扱うのは
+Road Graphのトポロジーと、既に計算済みのEdge Costのみ。
 """
 import logging
 import math
@@ -99,9 +95,8 @@ def build_lazy_road_graph(
 # --- 一対全最短経路木（フロンティア方式の周回生成の共通基盤） ---
 
 
-# CSRのindptr/indices/entry_edge_indexに使うdtype。実データ規模（東京都心30km四方の
-# 合成グリッドで約14万Node・56万Edge）はint32の値域（約21億）に対して桁違いに小さく、
-# タイル集合キーのプロセス内LRU（上限64件、後述）が常駐させる分の実メモリを半減できる。
+# CSRのindptr/indices/entry_edge_indexに使うdtype。Node数・Edge数はint32の値域に対して
+# 桁違いに小さく、タイル集合キーのプロセス内LRUが常駐させる分の実メモリを半減できる。
 _CSR_INDEX_DTYPE = np.int32
 
 # 優先度キューの初期容量（種の数＋この余裕）。満杯になれば倍へ伸びるため上限を当てる必要は
@@ -113,10 +108,10 @@ _HEAP_INITIAL_SLACK = 64
 @dataclass
 class CsrGraphStructure:
     """`LazyRoadGraph`と同じNode/Edge index空間を持つCSR（圧縮行格納）表現の**構造のみ**。
+
     Edge重み（コスト）はリクエストごとに変わるため持たず、`entry_edge_index`が
-    CSRエントリ順とコスト配列の行順を結ぶ（`build_turn_expanded_structure`が
-    辺基準グラフの遷移構造を導くときに使う）。構造はタイル集合だけで決まる純粋な派生物のため
-    `LazyRoadGraph`と同じキーでキャッシュできる（`infrastructure/search_graph_cache.py`）。
+    CSRエントリ順とコスト配列の行順を結ぶ。構造はタイル集合だけで決まる純粋な派生物のため
+    `LazyRoadGraph`と同じキーでキャッシュできる。
     """
 
     node_count: int
@@ -128,16 +123,11 @@ class CsrGraphStructure:
     entry_edge_index: np.ndarray
 
 
-def build_csr_structure(lazy_graph: LazyRoadGraph) -> CsrGraphStructure:
+def _build_csr_structure(lazy_graph: LazyRoadGraph) -> CsrGraphStructure:
     """`LazyRoadGraph`（並行Edge解消後の`edge_index_by_node_pair`）からCSR構造を組む。
-    重複ペアは`build_lazy_road_graph`が既に解消済みのため、単純に`(from, to)`の昇順へ
-    整列するだけでよい。
 
-    `from_index * node_count + to_index`の整列キーはCSR構造の構築だけに使う一時変数で、
-    フィールドとしては持たない（`(pred, v)`のCSRエントリ位置検索が要る経路復元
-    ［`turn_expanded_path_edge_indices`］の時点で`indptr`/`indices`から都度再構築する
-    ——タイル集合キーのプロセス内LRU［上限64件］が常駐させる1エントリぶんのメモリを
-    削減する）。
+    整列キー`from_index * node_count + to_index`は構築中の一時変数で、フィールドとしては
+    持たない（プロセス内LRUが常駐させる1エントリぶんのメモリを削る）。
     """
     node_count = len(lazy_graph.index_to_node_id)
     pairs = lazy_graph.edge_index_by_node_pair
@@ -183,17 +173,15 @@ def find_missing_lazy_graph_edge_id(
     lazy_graph: LazyRoadGraph, graph: LeanRoadGraph, *, also_required_in: Container[str] | None = None
 ) -> str | None:
     """`lazy_graph.edge_ids`のうち`graph.edges`に存在しない最初のedge_idを返す
-    （無ければNone）。`lazy_graph.edge_ids`は`graph.edges`の部分集合である前提
-    （同じ`graph`から`build_lazy_road_graph`で作られた場合は常に成り立つ）だが、
-    `lazy_graph`がタイル集合キーのプロセス内キャッシュ（`infrastructure/
-    search_graph_cache.py`）からの再利用で、その間に派生バッチが区間を作り直した場合は
-    この前提が崩れうる。`build_search_graph_statics`の
-    CSR構築を伴わない軽量版チェックで、`RoadGraphEngine._ensure_lazy_graph_consistent`
-    （`prepare`・`preview_segment`共通）が呼ぶ。
+    （無ければNone）。
 
-    `also_required_in`を渡すと、そちらにも存在することを併せて確認する。`lazy_graph`の
-    各edge_idは`graph.edges`だけでなく静的スコア行列の行索引（`road_graph_engine.py`の
-    `full_edge_row`、`score_matrix.edge_ids`由来で材料とは別キャッシュ）からも引かれる
+    `lazy_graph.edge_ids`は`graph.edges`の部分集合である前提だが、`lazy_graph`をタイル集合
+    キーのプロセス内キャッシュから再利用し、その間に派生バッチが区間を作り直していると
+    前提が崩れる。CSR構築を伴わない軽量版のチェックで、呼び出し元は崩れていれば
+    `lazy_graph`ごと作り直す。
+
+    `also_required_in`を渡すと、そちらにも存在することを併せて確認する。各edge_idは
+    `graph.edges`だけでなく静的スコア行列の行索引（材料とは別キャッシュ）からも引かれる
     ため、検証する集合を実際に消費する集合と一致させる。
     """
     return next(
@@ -209,13 +197,11 @@ def find_missing_lazy_graph_edge_id(
 def build_search_graph_statics(
     lazy_graph: LazyRoadGraph, graph: LeanRoadGraph
 ) -> SearchGraphStatics:
-    """`lazy_graph.edge_ids`が`graph.edges`の部分集合であることを`find_missing_lazy_graph_
-    edge_id`で確認し、崩れていれば`LazyGraphEdgeMismatchError`を送出する（呼び出し側の
-    `RoadGraphEngine._ensure_lazy_graph_consistent`が事前にこのチェックを済ませ、崩れて
-    いれば`lazy_graph`ごと再構築してから呼ぶ前提のため、実運用でここが実際に送出することは
-    無い想定——チェック自体を二重に持つことで、将来この関数が事前チェック無しで直接
-    呼ばれても安全なままにする）。
+    """探索用の静的な派生物一式を組む。
 
+    `lazy_graph.edge_ids`が`graph.edges`の部分集合であることを確認し、崩れていれば
+    `LazyGraphEdgeMismatchError`を送出する——確認しないと、下の`graph.edges[edge_id]`が
+    素のKeyErrorになり、キャッシュの取り違えだと分からない。
     """
     missing_edge_id = find_missing_lazy_graph_edge_id(lazy_graph, graph)
     if missing_edge_id is not None:
@@ -228,14 +214,13 @@ def build_search_graph_statics(
         dtype=float,
         count=len(lazy_graph.edge_ids),
     )
-    return SearchGraphStatics(csr=build_csr_structure(lazy_graph), edge_length_m=edge_length_m)
+    return SearchGraphStatics(csr=_build_csr_structure(lazy_graph), edge_length_m=edge_length_m)
 
 def overlap_ratio(candidate_edges: np.ndarray, accepted_edges: np.ndarray, edge_length_m: np.ndarray) -> float:
-    """`candidate_edges`（Edge index配列）のうち`accepted_edges`と共有する部分の距離加重割合
-    （0〜1）。候補の総距離が0なら0。単一の候補対採用済み1件（DEBUGログの`retrace_ratio`等）
-    向けの定義。`select_diverse_by_overlap`内部の間引き本体は同じ定義を、採用済み複数件
-    against 候補というbulk計算へ展開したもの（boolean行列×距離のnumpy演算、候補ごとに
-    本関数を繰り返し呼ぶより高速）——閾値判定式を変更する場合は両方を揃えること。
+    """`candidate_edges`（Edge index配列）のうち`accepted_edges`と共有する部分の距離加重
+    割合（0〜1）。候補の総距離が0なら0。候補1件対採用済み1件向けの定義で、
+    `select_diverse_by_overlap`の間引き本体は同じ定義を採用済み複数件へbulk展開している
+    ——判定式を変えるなら両方を揃えること。
     """
     if len(candidate_edges) == 0:
         return 0.0
@@ -250,7 +235,7 @@ def overlap_ratio(candidate_edges: np.ndarray, accepted_edges: np.ndarray, edge_
 T = TypeVar("T")
 
 
-def pareto_front_mask(
+def _pareto_front_mask(
     minimize_a: np.ndarray,
     minimize_b: np.ndarray,
     *,
@@ -310,7 +295,7 @@ def pareto_layer_index(
     """各点が第何層のパレートフロントに属するかを返す（非優越ソート、0始まり）。
     層に入らなかった点は-1。
 
-    第1層（`pareto_front_mask`が返す非劣解）だけでは候補が2〜3件にしかならない
+    第1層（`_pareto_front_mask`が返す非劣解）だけでは候補が2〜3件にしかならない
     ——2次元のパレートフロントは点の数が増えてもほとんど大きくならないため。第1層を
     取り除いた残りで再びフロントを求める、を繰り返して層を作ることで、必要な件数
     （`max_items`）ぶんがすべてトレードオフ構造で並ぶ。
@@ -318,11 +303,10 @@ def pareto_layer_index(
     `max_items`件に達した層で打ち切る（それ以降の層は計算しない）。
 
     **計算量の要点**: 全点をそのまま繰り返しフロント判定にかけると層の数×O(n log n)に
-    なり、リングが数万件規模だと無視できない時間になる（実測: 20万件で約670ms）。
-    aを`quantum_a`で丸めた各段階について、bの小さい順に`max_items`件を超える点は
-    層`max_items`以降にしか入りえない（同じ段階でbがより小さい点がk個あればそれらが
-    すべて自分を支配するため層番号はk以上になる）ので、先に落としてから層を作る
-    （同20万件で約38ms）。
+    なり、リングが数万件規模だと無視できない時間になる。aを`quantum_a`で丸めた各段階に
+    ついて、bの小さい順に`max_items`件を超える点は層`max_items`以降にしか入りえない
+    （同じ段階でbがより小さい点がk個あればそれらがすべて自分を支配するため層番号はk以上に
+    なる）ので、先に落としてから層を作る。
     """
     n = len(minimize_a)
     layer = np.full(n, -1, dtype=np.int32)
@@ -352,7 +336,7 @@ def pareto_layer_index(
     for index in range(max_items):
         if len(remaining) == 0:
             break
-        mask = pareto_front_mask(a[remaining], b[remaining], quantum_a=quantum_a, quantum_b=quantum_b)
+        mask = _pareto_front_mask(a[remaining], b[remaining], quantum_a=quantum_a, quantum_b=quantum_b)
         layer[remaining[mask]] = index
         assigned += int(mask.sum())
         if assigned >= max_items:
@@ -394,10 +378,7 @@ def select_diverse_by_overlap(
 
     重複率は採用済み候補ごとの集合をEdgeごとのuint64ビットマスク1本（bit `i` が「採用済み
     `i`件目がこのEdgeを含む」を表す）で持ち、候補のEdge index配列で行を抜き出して
-    距離加重和を1回のnumpy演算で求める（`max_count`の実際の上限は`TURNAROUND_POOL_MAX`
-    =40・`MAX_ROUTES`=15のいずれもuint64の64bitに収まる。常駐メモリはEdge数×8B）。
-    採用済みごとに`np.isin`を呼ぶ実装は、数千件のリングNodeを検査する実データ規模で
-    数百ms〜1秒超かかった。
+    距離加重和を1回のnumpy演算で求める。そのため`max_count`はuint64の64bitを超えられない。
     """
     if max_count > 64:
         raise ValueError(f"select_diverse_by_overlap: max_count={max_count} exceeds the uint64 bitmask limit (64)")
@@ -466,13 +447,9 @@ def select_diverse_by_overlap(
 class NodeSpatialIndex:
     """緯度経度の総当たり線形探索を高速化するグリッドバケット索引。
 
-    `RoadGraphEngine`は1リクエストの同じRoad Graphに対し繰り返し、指定地点に最も
-    近いNodeを探す呼び出しを行う（`prepare`で起点1回・`trace_loop`で経由地と目的地
-    ごとに1回・`preview_segment`で両端2回）。ノード数が増えるとこの繰り返しが
-    線形探索×回数ぶん積み上がるため、索引を1回だけ構築して使い回す。新規外部
-    ライブラリ（scipy.spatial.cKDTree等）は導入せず、既定の`dict`だけで組める
-    グリッドバケット方式にする（PostGIS空間インデックスが無い構成でも同じロジックで
-    動く）。
+    `RoadGraphEngine`は1リクエストの同じRoad Graphに対し、指定地点に最も近いNodeを探す
+    呼び出しを繰り返す。ノード数が増えるとその繰り返しが線形探索×回数ぶん積み上がるため、
+    索引を1回だけ構築して使い回す。
     """
 
     graph: LeanRoadGraph
@@ -485,12 +462,9 @@ class NodeSpatialIndex:
     cell_bounds: tuple[int, int, int, int] | None
 
 
-# 1セルの一辺（度）。緯度で約1.1km四方（東京付近では経度方向はcos(35°)倍で約0.9km四方）。
-# Road Graph構築bbox（起点半径+マージン、数km〜数十km四方）に対して、1セルあたり
-# 概ね数十〜数百ノード程度に収まる粒度を狙った経験的な値（探索半径拡張のコストと
-# バケット数のトレードオフ、実測は不要——グリッドバケット方式は極端に不適切な値で
-# なければ正しく動作する）。
-DEFAULT_NODE_INDEX_CELL_SIZE_DEG = 0.01
+# 1セルの一辺（度）。緯度で約1.1km四方。探索半径を広げるコストとバケット数のトレードオフを
+# 取った経験的な値で、極端に不適切でなければ結果は変わらない（速さだけが変わる）。
+_DEFAULT_NODE_INDEX_CELL_SIZE_DEG = 0.01
 #: 索引が覆う範囲のどれだけ外側までを「隣」として許すか（セル数）。範囲の縁をわずかに
 #: 外した点まで弾くと、読み込んだ地図の端をクリックしただけでスナップできなくなる。
 _NEIGHBOR_CELL_TOLERANCE = 1
@@ -498,16 +472,14 @@ _NEIGHBOR_CELL_TOLERANCE = 1
 
 def build_node_spatial_index(
     graph: LeanRoadGraph,
-    cell_size_deg: float = DEFAULT_NODE_INDEX_CELL_SIZE_DEG,
+    cell_size_deg: float = _DEFAULT_NODE_INDEX_CELL_SIZE_DEG,
     node_ids: Collection[str] | None = None,
 ) -> NodeSpatialIndex:
-    """`graph.nodes`からグリッドバケット索引を構築する。ノードが1つも無くても
-    空のbucketsを持つ索引を返す（呼び出し元は`find_nearest_node_indexed`が
-    その場合Noneを返すことで区別すればよい）。
+    """`graph.nodes`からグリッドバケット索引を構築する。ノードが1つも無くても空の
+    bucketsを持つ索引を返す（`find_nearest_node_indexed`がNoneを返す）。
 
-    `node_ids`省略時は`graph.nodes`全件を対象にする。指定時はその集合に含まれるNode
-    のみを索引の候補にする（Hard Constraint通過後に孤立するNodeを最近傍探索の候補から
-    除外するために使う）。
+    `node_ids`省略時は`graph.nodes`全件を対象にする。指定時はその集合に含まれるNodeのみを
+    索引の候補にする（Hard Constraint通過後に孤立するNodeを最近傍探索から外すために使う）。
     """
     ids = graph.nodes.keys() if node_ids is None else node_ids
     buckets: dict[tuple[int, int], list[str]] = {}
@@ -730,7 +702,7 @@ def edge_bearings(graph: LeanRoadGraph, lazy_graph: LazyRoadGraph) -> np.ndarray
     return bearings
 
 
-def turn_seconds_for(
+def _turn_seconds_for(
     from_bearing: np.ndarray, to_bearing: np.ndarray, is_uturn: np.ndarray, spec: TurnCostSpec
 ) -> np.ndarray:
     """遷移ごとのターンの時間損失（秒）。方位差の符号で左右を分ける（負＝反時計回り＝左折）。"""
@@ -777,7 +749,7 @@ def build_turn_expanded_structure(
     )
     target_state = csr.entry_edge_index[entry_index].astype(np.int64)
     is_uturn = csr.indices[entry_index].astype(np.int64) == edge_from[source]
-    turn_seconds = turn_seconds_for(bearing_deg[source], bearing_deg[target_state], is_uturn, spec)
+    turn_seconds = _turn_seconds_for(bearing_deg[source], bearing_deg[target_state], is_uturn, spec)
 
     if edge_rank is not None:
         # ノードの階級は、読み込んだ部分グラフに現れる道から導く。DB側の事前集計値
@@ -1057,14 +1029,20 @@ def build_turn_expanded_tree(
     )
 
 
-def turn_expanded_path_from_state(tree: TurnExpandedTree, state_index: int) -> list[int]:
-    """前向き木で、始点→`state_index`の経路をEdge index列（進行順）で返す。状態がそのまま
-    Edge indexのため、`(parent, current)`からEdgeを引き直す必要がない。"""
+def _walk_predecessors(tree: TurnExpandedTree, state_index: int) -> list[int]:
+    """`state_index`から木の始点まで前任者を辿った状態（＝Edge index）の列。"""
     edges: list[int] = []
     state = int(state_index)
     while state >= 0:
         edges.append(state)
         state = tree.predecessor_list[state]
+    return edges
+
+
+def turn_expanded_path_from_state(tree: TurnExpandedTree, state_index: int) -> list[int]:
+    """前向き木で、始点→`state_index`の経路をEdge index列（進行順）で返す。状態がそのまま
+    Edge indexのため、`(parent, current)`からEdgeを引き直す必要がない。"""
+    edges = _walk_predecessors(tree, state_index)
     edges.reverse()
     return edges
 
@@ -1072,12 +1050,7 @@ def turn_expanded_path_from_state(tree: TurnExpandedTree, state_index: int) -> l
 def turn_expanded_path_from_state_to_source(tree: TurnExpandedTree, state_index: int) -> list[int]:
     """`reverse=True`で作った木で、`state_index`から木の始点（目的地）までの経路を進行順で
     返す。逆向きの木では前任者を辿ることが目的地へ近づくことに当たるため、反転しない。"""
-    edges: list[int] = []
-    state = int(state_index)
-    while state >= 0:
-        edges.append(state)
-        state = tree.predecessor_list[state]
-    return edges
+    return _walk_predecessors(tree, state_index)
 
 
 def turn_expanded_path_edge_indices(tree: TurnExpandedTree, target_node_index: int) -> list[int] | None:

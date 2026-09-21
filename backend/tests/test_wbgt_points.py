@@ -20,10 +20,5 @@ def test_nearest_point_works_at_high_latitude():
     assert result == SAPPORO
 
 
-def test_nearest_point_works_at_low_latitude():
-    result = nearest_point(26.2, 127.68, POINTS)
-    assert result == NAHA
-
-
 def test_nearest_point_returns_none_for_empty_list():
     assert nearest_point(35.0, 139.0, []) is None

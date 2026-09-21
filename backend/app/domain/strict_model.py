@@ -6,17 +6,14 @@ Pydanticの`extra`の既定は`ignore`で、モデルが知らないフィール
 フィールドが黙って無視され「指定したのに効かない」という形で利用者に出る。
 
 外部API（JMA・OSM）のJSONは一度dictで受けて必要な値だけを取り出しており、提供側の
-ペイロードがそのままモデルへ流れ込む経路は無い。新しく外部ペイロードを直接
-Pydanticの検証へ直接渡す経路を作る場合は、そのモデルで`extra="ignore"`を明示的に上書きし、
-理由をその場に書くこと。
+ペイロードがそのままモデルへ流れ込む経路は無い。新しく外部ペイロードを直接Pydanticの
+検証へ渡す経路を作る場合は、そのモデルで`extra="ignore"`を明示的に上書きし、理由を
+その場に書くこと。
 
-**ただし、自前で書いた過去のデータは流れ込む。** `axis_definitions.shape_params`（DBのJSONB、
-`infrastructure/axis_definition_repository.py`の`TypeAdapter(AxisShape).validate_python`）と
-軸定義（`infrastructure/axis_definition_repository.py`の
-`AxisDefinition.model_validate`）は、**過去のコードが書いた形**を今のモデルで読む。
-`forbid`のもとでフィールドを消す・改名すると、既存の行が読めずアプリが起動に失敗する
-（`refresh_axis_definitions`のfail-fast）。
-これは意図した挙動——黙って値を捨てるより起動を止める方がよい——だが、
+**ただし、自前で書いた過去のデータは流れ込む。** 軸定義とその`shape_params`（DBのJSONB）は
+`infrastructure/axis_definition_repository.py`が**過去のコードが書いた形**を今のモデルで
+読む。`forbid`のもとでフィールドを消す・改名すると、既存の行が読めずアプリが起動に失敗する
+（fail-fast）。これは意図した挙動——黙って値を捨てるより起動を止める方がよい——だが、
 **そういう変更は本番DBの移行を先に済ませてからpushする**必要がある
 （CLAUDE.md「コミット時の同期ルール」）。
 

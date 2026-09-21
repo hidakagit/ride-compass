@@ -2,22 +2,14 @@ import math
 
 from app.domain.strict_model import StrictModel
 
-# 路面の地域レイヤーは標準的なXYZベクタタイル（MapLibreのvector source）として配信する。
-# ズームレベルでタイルの細かさ・生成範囲を制御することで、ビューポートの対角距離を
-# 都度計算して広域リクエストを拒否する必要がなくなった（MapLibre自体がminzoom未満では
-# タイルを要求しないため）。ROAD_TILE_MIN_ZOOM未満のタイル要求はバックエンド側でも
-# 念のため拒否する（直接APIを叩かれた場合の安全弁）。
+# 路面の地域レイヤーが配信されるXYZズームの範囲。MapLibreはminzoom未満でタイルを
+# 要求しないが、直接APIを叩かれた場合に備えてバックエンド側でもこの範囲外を拒否する。
 ROAD_TILE_MIN_ZOOM = 12
 ROAD_TILE_MAX_ZOOM = 15
 
-# Road Graphの永続化キャッシュ単位（GraphService, road_graph_repository.py）。
-# RegionServiceのROAD_TILE_MIN_ZOOM/MAX_ZOOMはMapLibreの表示ズームに追従するための範囲だが、
-# Road Graphには「現在の表示ズーム」という概念が無く、キャッシュの正確なカバレッジ判定
-# （「このタイルは取得済みか」という単純な真偽判定にできる）だけが目的のため、
-# 単一の固定ズームレベルとする。z12は東京付近で1辺約8km程度（1辺=360/2^12度）。
-# 細かすぎるとOverpassへの問い合わせ回数（=タイル数）が増え、粗すぎると1回の
-# 問い合わせが大きくなり公開Overpassインスタンスへの負荷が増す、というトレードオフの
-# 暫定値であり、実データが蓄積された段階で見直す余地がある。
+# Road Graphの永続化キャッシュ単位。表示ズームに追従するROAD_TILE_MIN/MAX_ZOOMと違い、
+# 「このタイルは取得済みか」を単純な真偽で判定するために単一の固定ズームとする。
+# z12は東京付近で1辺約8km（1辺=360/2^12度）。
 ROAD_GRAPH_TILE_ZOOM = 12
 
 
@@ -60,11 +52,9 @@ def tile_bounds_lonlat(z: int, x: int, y: int) -> BoundingBox:
     )
 
 
-# Web Mercatorで表現できる緯度の限界（tile_bounds_lonlat(0, 0, 0)の緯度範囲と一致）。
-# BoundingBoxはCoordinatesと異なり緯度の範囲を検証しない（仕様上どんな値も受け付ける）ため、
-# 万一範囲外の値（例: 90度を超える不正な入力）が渡された場合、_lonlat_to_tile_indexの
-# math.log(負の値)がValueError（math domain error）を送出しうる。これを避けるため
-# 呼び出し前に有効範囲へクランプする。
+# Web Mercatorで表現できる緯度の限界。BoundingBoxはCoordinatesと異なり緯度の範囲を
+# 検証しないため、範囲外の値が来ると_lonlat_to_tile_indexのmath.logがmath domain errorを
+# 送出する。これを避けるためクランプしてから使う。
 _MAX_MERCATOR_LATITUDE = 85.05112878
 
 
@@ -81,10 +71,7 @@ def _lonlat_to_tile_index(lon: float, lat: float, z: int) -> tuple[int, int]:
 def tile_ancestor(z: int, x: int, y: int, ancestor_zoom: int) -> tuple[int, int]:
     """XYZタイル(z, x, y)を含む、より粗いズームancestor_zoomの祖先タイルの(x, y)を返す。
 
-    路面タイル（ROAD_TILE_MIN_ZOOM..MAX_ZOOM）が、Road Graphのタイル単位カバレッジ
-    （ROAD_GRAPH_TILE_ZOOM=12の取得済みマーカー）に含まれるかを判定するために使う。
-    XYZタイルはズームが1段細かくなるごとにx,yが2分割されるため、右シフトで求まる。
-    z < ancestor_zoomの呼び出しは前提違反（子孫は一意に定まらない）。
+    z < ancestor_zoomは前提違反（祖先ではなく子孫になり、一意に定まらない）。
     """
     if z < ancestor_zoom:
         raise ValueError(f"z={z} is coarser than ancestor_zoom={ancestor_zoom}")
@@ -93,11 +80,10 @@ def tile_ancestor(z: int, x: int, y: int, ancestor_zoom: int) -> tuple[int, int]
 
 
 def tiles_covering_bbox(bbox: BoundingBox, z: int) -> list[tuple[int, int]]:
-    """bboxを覆う最小限のXYZタイル群の(x, y)一覧を返す（Road Graphのタイル単位キャッシュ用）。
+    """bboxを覆う最小限のXYZタイル群の(x, y)一覧を返す。
 
-    XYZタイルはyが北から南へ増加する（緯度と逆向き）ため、北西端（min_longitude,
-    max_latitude）と南東端（max_longitude, min_latitude）のタイル座標からx,yそれぞれの
-    範囲を求める。
+    XYZタイルはyが北から南へ増加する（緯度と逆向き）ため、北西端と南東端のタイル座標から
+    x,yそれぞれの範囲を求める。
     """
     n = 2**z
     x_start, y_start = _lonlat_to_tile_index(bbox.min_longitude, bbox.max_latitude, z)

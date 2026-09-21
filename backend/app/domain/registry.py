@@ -3,17 +3,10 @@
 新しい一次属性・二次軸を、コアロジック（コスト関数・レイヤーパネル・区間インスペクタ等）を
 改修せず「ここへ1件登録する」だけで取り込めるようにするための宣言的な定義集。
 
-- `PrimaryAttributeSpec`: 一次属性（OSM生タグ・外部静的データ等）の出どころの宣言。
-- `AxisSpec`: 二次軸（一次属性から軸スコアへの変換）の宣言。`inputs`が使用する一次属性の
-  `attr_id`リスト。
+一次属性は各軸へ排他的に帰属する。`register_axis()`は登録しようとする軸の`inputs`が
+登録済みの別軸とかぶっていれば`AxisInputConflictError`を送出する。
 
-**排他制約はレジストリ登録時に機械的にチェックする**（設計方針の核）。`register_axis()`は、
-登録しようとする軸の`inputs`が既に登録済みの別軸の`inputs`と重複していれば
-`AxisInputConflictError`を送出する。
-
-軸の登録自体はここでは行わない。`domain/registry_defaults.py: _register_axes()`が
-`AXIS_DEFINITIONS`（公開軸すべて）を走査して`register_axis()`を呼ぶ（詳細は同モジュールの
-docstring参照）。
+登録そのものはここでは行わない（`domain/registry_defaults.py`が呼ぶ）。
 """
 
 from typing import Literal
@@ -25,12 +18,8 @@ from app.domain.strict_model import StrictModel
 class PrimaryAttributeSpec(StrictModel):
     """一次属性の宣言。
 
-    `label`は一次属性のユーザー向け正式名称。地図チップ・サイドバー・研究タブが表示する
-    「観測データ」側の名称の単一ソースで、`export_openapi.py`がaxis-catalog.jsonの
-    `primary_attributes[]`へ書き出し、フロントはここから略名（4文字以下、地図チップ用）
-    への対応表だけを別途持つ（片側import）。
-
-    `attr_id`/`label`のみを持つ（`export_openapi.py`が消費するのはこの2つだけ）。
+    `label`はユーザー向け正式名称の単一ソース。`export_openapi.py`がaxis-catalog.jsonへ
+    書き出し、フロントはそこから略名（地図チップ用）への対応表だけを別途持つ（片側import）。
     """
 
     attr_id: str
@@ -40,56 +29,31 @@ class PrimaryAttributeSpec(StrictModel):
 class TileInputSpec(StrictModel):
     """地図表示（ramp）が読むMVTタイルプロパティ。
 
-    数値材料（既定）: `display_value = Σ(property × weight)`をフロントのMapLibre
-    expressionが計算する。
-    真偽値材料（`boolean=True`）: MVTの真偽値プロパティは
-    `["==",["get",property],true]`のような真偽比較で読む必要があり数値の重み付け結合が
-    成立しないため、`true_value`/`false_value`（`weight`は無視）で寄与値を直接指定する。
+    数値材料（既定）: フロントのMapLibre expressionが`Σ(property × weight)`を計算する。
 
-    `has_unknown_fallback`: タイルプロパティが
-    欠損している場合の意味が「true/falseどちらでもない不明」（例: surface_good、
-    未分類の路面。`surface_good`の値式が3値[良/不明/悪]に分類する
-    うちの「不明」に対応）であればTrueにする。既定Falseは「欠損=falseとみなしてよい
-    真偽値材料」（例: lit・has_tunnel⟵tunnel。タグ不在は「無し」の安全側既定と
-    元々の軸定義でそう決めている）を表し、フロントは通常どおり`true_value`/
-    `false_value`で色分けする。Trueの場合、フロントは欠損時に灰色「不明」表示へ切り替え、
-    trueValue/falseValueどちらのスコアにも倒さない（`domain/axis_templates.py:
-    evaluate_categorical`が欠損値をNone/NaN[difficulty不明]として扱うのと整合させる）。
+    真偽値材料（`boolean=True`）: MVTの真偽値プロパティは真偽比較でしか読めず重み付け
+    結合が成立しないため、`true_value`/`false_value`で寄与値を直接指定する（`weight`は
+    無視される）。
 
-    N値文字列材料（`categories`）: `domain/axis_definitions.py:
-    CategoricalShape`のmappingがbool2値ではなくstr3値以上（highway/surface等）の
-    場合に使う。タイルプロパティの文字列値を`categories`辞書で引いた点数を寄与値とする
-    （`weight`と併用可、寄与値=`categories[value] * weight`）。`has_unknown_fallback=False`
-    （既定）の場合、未登録値は0扱い（寄与なし。値の種類は多いが取りうる値のごく一部だけを
-    圧迫感等の点数に反映すれば足りる材料向け）。
-    `has_unknown_fallback=True`の場合、未登録値は0扱いではなく
-    「不明」（灰色）へ倒す。これは`CategoricalShape`の評価側の実際の意味論（`domain/
-    axis_templates.py: evaluate_categorical`は未登録値に`mapping.get(value, None)`で
-    Noneを返し、`required=True`の材料でNoneは軸全体を評価不能にする——「未登録値=寄与0
-    [最良側]」ではなく「未登録値=評価不能」）に合わせるため。典型例: `highway`
-    （footway/path等、基準値が定義されていない道路種別は
-    評価側でその軸全体を評価しない[required=True]。プロパティの**欠損**のみを
-    「不明」判定すると、「値はあるが未登録」のケースを見落とし、実際には未評価のはずの
-    区間が0点=最良[緑]色で表示されてしまう。`axisLayers.ts: buildAxisRampUnknownExpression`
-    参照）。boolean材料の`has_unknown_fallback=True`はタイルプロパティが完全に欠損している
-    場合のみを「不明」とする（真偽値には「未登録の値」という状態自体が存在しないため）。
+    N値文字列材料（`categories`）: 文字列値を`categories`で引いた点数×`weight`を寄与値と
+    する。`CategoricalShape`のmappingがbool2値ではなく3値以上（highway/surface等）の
+    場合に使う。
 
-    自己変換材料（`breakpoints`）: 材料自身が
-    `BreakpointLinearShape.breakpoints`（区分線形）で変換される軸（例:
-    数値材料の内部軸）の寄与値を、フロントの`interpolate`
-    expressionでタイルプロパティの生値から直接求める場合に使う（`weight`と併用可）。
+    自己変換材料（`breakpoints`）: 区分線形（`BreakpointLinearShape`）で変換される軸の
+    寄与値を、フロントの`interpolate`でタイル生値から直接求める。
 
-    `needs_runtime_scale`: この材料のタイル生値が実行時にしか決まらない
-    係数でのスケール変換を要する場合True（`domain/material_catalog.py: MaterialSpec.
-    tile_property_needs_runtime_scale`が立っている材料、例: `accident_count_per_km_year`
-    ——収録年数[DBの`accident_import_runs`から実行時に取得、増え続ける]で正規化する前の
-    生値がタイルに焼き込まれている）。`axis_display.py`は
-    このフラグが立つ材料も地図表示の対象に含める——`weight`が「タイル生値→材料スケール」の
-    静的な変換係数を表現できなくても、`GET /api/axis-catalog`が実行時に取得した
-    スケール定数[`material_runtime_scales`]をフロントのJS式が追加で掛け合わせれば
-    正しく解決できる。`thresholds`は元々`AxisDefinition.shape.breakpoints`由来の
-    「材料スケール」の値のため、このフラグを持たない他のtile_inputと同じ意味のまま
-    扱ってよい（フロント側だけがこのフラグを見てtile生値に追加のスケール定数を掛ける）。
+    `has_unknown_fallback`: 値が引けないときの意味が「true/falseどちらでもない不明」
+    （例: 未分類の路面）ならTrueにし、フロントは灰色「不明」へ倒す。既定Falseは
+    「欠損=falseとみなしてよい」材料（例: lit。タグ不在は「無し」の安全側既定）を表す。
+    `categories`材料では**未登録値**も不明に含める——`evaluate_categorical`が未登録値に
+    Noneを返し`required=True`の軸全体を評価不能にするため、欠損だけを見ると、実際には
+    未評価の区間が0点＝最良（緑）で表示されてしまう。真偽値材料には「未登録の値」という
+    状態が無いため、欠損のみが不明になる。
+
+    `needs_runtime_scale`: タイル生値が実行時にしか決まらない係数でのスケール変換を要する
+    材料（例: 収録年数で正規化する前の事故件数）でTrue。`weight`が静的な変換係数を
+    表現できないが、`GET /api/axis-catalog`が配るスケール定数をフロントのJS式が追加で
+    掛けるため、地図表示の対象には含める。`thresholds`は材料スケールの値のままでよい。
     """
 
     property: str
@@ -105,10 +69,8 @@ class TileInputSpec(StrictModel):
     @field_validator("categories")
     @classmethod
     def _sort_categories(cls, value: dict[str, float] | None) -> dict[str, float] | None:
-        # このフィールドの値は構築元（コード内リテラル・DB経由・APIレスポンス等）によって
-        # 挿入順が非決定になりうる。ここは表示専用（frontendの色分け表示にしか使わない）
-        # のため、モデル構築のたびにキーをソートして経路によらず決定的な順序へ正規化する。
-        # TileInputSpecはPydanticモデルのためこのvalidatorが構築元を問わず一律に効く。
+        # 構築元（コード内リテラル・DB経由・APIレスポンス等）によって挿入順が非決定に
+        # なりうるため、経路によらず決定的な順序へ正規化する。
         if value is None:
             return None
         return dict(sorted(value.items()))
@@ -134,9 +96,8 @@ class AxisDisplaySpec(StrictModel):
 
 
 class AxisSpec(StrictModel):
-    """二次軸の宣言。`inputs`は参照する一次属性の`attr_id`リスト（`register_axis`が
-    登録済みの一次属性であることを検証する）。`display`は地図レイヤー表示の宣言
-    （未指定は「表示宣言なし」でkind="none"相当）。"""
+    """二次軸の宣言。`inputs`は参照する一次属性の`attr_id`リストで、`register_axis`が
+    登録済みであることを検証する。`display`未指定はkind="none"相当。"""
 
     axis_id: str
     inputs: list[str]
