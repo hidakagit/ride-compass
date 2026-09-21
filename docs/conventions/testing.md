@@ -94,8 +94,8 @@ backend/.venv/Scripts/python.exe -m pytest backend/tests -q -m postgis
 
 | 環境 | 必要な作業 | 理由 |
 |---|---|---|
-| 開発機（ローカルPostgreSQL） | **一度だけ**ロールへ`CREATEDB`を付ける（下記） | DBを作る権限が既定では無い |
-| CI（GitHub Actions） | 何もしない | `TEST_DATABASE_URL`を注入しており、そちらが優先される。DBは実行ごとの使い捨てコンテナで元から分離されている |
+| 開発機（ローカルPostgreSQL） | **一度だけ**ロールへ`CREATEDB`を付け、複製元のDBへ拡張を入れる（どちらも下記） | DBを作る権限・拡張を入れる権限が既定では無い |
+| CI（GitHub Actions） | 何もしない | `TEST_DATABASE_URL`を注入しており、そちらが優先される。DBは実行ごとの使い捨てコンテナで元から分離されている。拡張は`road_graph_engine`が入れる（CIのDBユーザーはスーパーユーザー） |
 | 本番（Oracle VM） | 何もしない | テストDBは本番に存在しない |
 
 権限を付けない場合も動く——共有DB（`ridecompass_test`）へ退避し、その旨を1行出す。
@@ -110,6 +110,17 @@ backend/.venv/Scripts/python.exe -m pytest backend/tests -q -m postgis
 
 `psql`はPATHに入っていないため絶対パスで呼ぶ。元に戻すときは`NOCREATEDB`を同じ形で流す。
 付いたかどうかは`SELECT rolcreatedb FROM pg_roles WHERE rolname='ridecompass';`で確かめる。
+
+拡張はロールの権限では入れられない（スーパーユーザーを要求する）。**複製元になるDBへ一度
+入れておけば、作業ツリー専用DBは複製で引き継ぐ**——共有の`ridecompass_test`と、その複製元の
+`ridecompass_test_template`の両方へ入れる。何が要るかは`road_graph_repository.py:
+REQUIRED_EXTENSIONS`が正本で、足りないときは`create_tables()`が実行すべきコマンドを告げて
+止まる（**スキップにはならない**——そこを黙って飛ばすと、そのファイルのテストが1件も走らない
+まま緑になる）。
+
+```bash
+"/c/Program Files/PostgreSQL/18/bin/psql.exe" -U postgres -d ridecompass_test -c "CREATE EXTENSION IF NOT EXISTS postgis_raster;"
+```
 
 #### 残骸の片付け
 

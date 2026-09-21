@@ -18,7 +18,11 @@ from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from app.batch._common import asyncpg_dsn
 from app.infrastructure import redis_client, tile_persistent_cache, tile_score_matrix_cache
 from app.infrastructure.orm_base import Base
-from app.infrastructure.road_graph_repository import RoadGraphRepository
+from app.infrastructure.road_graph_repository import (
+    REQUIRED_EXTENSIONS,
+    RoadGraphRepository,
+    create_tables,
+)
 from app.config import settings
 from tests.realistic_axis_fixtures import realistic_axis_definitions
 from tests.admin_auth import ADMIN_PASSWORD, ADMIN_USERNAME
@@ -275,16 +279,33 @@ def pytest_collection_modifyitems(config, items):
 @pytest_asyncio.fixture(scope="module", loop_scope="module")
 async def road_graph_engine():
     """テストファイル単位で使い回すエンジン。PostGIS拡張の有効化とテーブル一式
-    （8テーブル、GiST空間インデックス込み）の作成もこの中で1回だけ行う。
+    （空間インデックス込み）の作成もこの中で1回だけ行う。
+
+    **スキップしてよいのは接続できないときだけ**。用意そのものの失敗——拡張の不足、
+    ORM宣言とDBの食い違い——をスキップにすると、そのファイルのテストが1件も走らないまま
+    緑になり、「DBが無い環境」と見分けが付かなくなる。そのため接続の確認と用意を分け、
+    用意の失敗は例外のまま落とす。
     """
     engine = create_async_engine(postgis_database_url())
     try:
-        async with engine.begin() as conn:
-            await conn.execute(text("CREATE EXTENSION IF NOT EXISTS postgis"))
-            await conn.run_sync(Base.metadata.create_all)
-    except Exception as exc:  # noqa: BLE001
+        async with engine.connect() as conn:
+            await conn.execute(text("SELECT 1"))
+    except Exception as exc:  # noqa: BLE001 接続できない理由はそのまま伝える
         await engine.dispose()
-        pytest.skip(f"ridecompass_test DBに接続できないためスキップ: {exc}")
+        # URLはそのまま出さない（パスワードを含む）。行き先はDB名で足りる。
+        database = postgis_database_url().rsplit("/", 1)[-1]
+        pytest.skip(f"テストDB {database} へ接続できないためスキップ: {exc}")
+
+    # 拡張はアプリと同じ一覧から入れる（テスト側で書き写すと、スキーマが新しい拡張を
+    # 要求し始めたときにここだけ古いまま「型が存在しません」で落ちる）。入れられない
+    # 権限のときは握って進み、何が足りないかはcreate_tables()に言わせる。
+    for extension in REQUIRED_EXTENSIONS:
+        try:
+            async with engine.begin() as conn:
+                await conn.execute(text(f"CREATE EXTENSION IF NOT EXISTS {extension}"))
+        except Exception:  # noqa: BLE001
+            pass
+    await create_tables(engine)
 
     yield engine
     await engine.dispose()
