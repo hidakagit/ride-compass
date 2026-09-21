@@ -210,6 +210,31 @@ def module_level_refs(path: Path) -> set[str]:
     return names
 
 
+def find_unresolvable_dynamic_refs(paths: list[Path]) -> list[tuple[str, int, str]]:
+    """**名前を組み立てる動的参照**を列挙する（辿れないもの）。
+
+    名前が文字列リテラルなら辺を張れる（`getattr(x, "name")`は拾える、実測）。拾えないのは
+    名前を組み立てる形——`getattr(x, "p_" + kind)`・f-string・`globals()[...]`。ここに
+    現れたモジュールの定義は、孤立点として出ても**消す前に人が確かめる**。出ないものを
+    疑えるようにするのが、この一覧の役目。
+    """
+    found: list[tuple[str, int, str]] = []
+    for path in paths:
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        module = module_name(path)
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Call) and isinstance(node.func, ast.Name):
+                if node.func.id in ("getattr", "setattr", "hasattr") and len(node.args) >= 2:
+                    name_arg = node.args[1]
+                    if not (isinstance(name_arg, ast.Constant) and isinstance(name_arg.value, str)):
+                        found.append((module, node.lineno, f"{node.func.id}(名前を組み立てている)"))
+            if isinstance(node, ast.Subscript):
+                value = node.value
+                if isinstance(value, ast.Call) and isinstance(value.func, ast.Name)                         and value.func.id in ("globals", "locals", "vars"):
+                    found.append((module, node.lineno, f"{value.func.id}()[...]"))
+    return sorted(found)
+
+
 def find_entrypoints(by_name: dict[str, list[Definition]], app_files: list[Path]) -> list[Definition]:
     """源流。**この表が閉じていることが完全性の根拠**なので、短く保って人が読めるようにする。"""
     entrypoints: list[Definition] = []
@@ -271,6 +296,8 @@ def reachable(by_name: dict[str, list[Definition]], seeds: list[Definition],
 def main() -> int:
     parser = argparse.ArgumentParser(description="本番の入口から到達しない定義を出す")
     parser.add_argument("--show-entrypoints", action="store_true", help="源流の表を出す")
+    parser.add_argument("--show-dynamic", action="store_true",
+                        help="名前を組み立てる動的参照（辿れないもの）を出す")
     parser.add_argument("--check", default=None, help="この名前が到達可能かだけを答える")
     parser.add_argument("--why", default=None,
                         help="この名前を生きていると判定した経路を源流まで遡って出す")
@@ -292,6 +319,14 @@ def main() -> int:
             seed_names |= module_level_refs(path)
     for path in sorted((APP_ROOT / "api" / "routers").rglob("*.py")):
         seed_names |= module_level_refs(path)
+
+    if args.show_dynamic:
+        dynamic = find_unresolvable_dynamic_refs(app_files + entry_files)
+        print(f"## 名前を組み立てる動的参照: {len(dynamic)}件")
+        print("（ここに現れるモジュールの定義は、孤立点として出ても消す前に人が確かめる）")
+        for module, lineno, kind in dynamic:
+            print(f"  {module}:{lineno}  {kind}")
+        return 0
 
     if args.show_entrypoints:
         print(f"## 源流（{len(entrypoints)}件）")
