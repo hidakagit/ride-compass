@@ -52,9 +52,7 @@
    0pxへフォールバックする。 */
 @media (max-width: 640px) {
   .wrapper {
-    bottom: calc(
-      var(--space-3) + var(--mobile-tabbar-height) + var(--bottom-control-row-height, 0px)
-    );
+    bottom: calc(var(--space-3) + var(--mobile-tabbar-height) + var(--bottom-control-row-height, 0px));
   }
 }
 
@@ -244,7 +242,6 @@
 .iconStatusDot_error {
   composes: statusDot_error from "../ui/statusDot.module.css";
 }
-
 
 /* 最上位グループ（道路/環境/スポット、改善計画T406で「観測/推定/動的」から再編、T418で
    評価軸グループを撤去）の色分け（実機フィードバック「それぞれのタイル及びそのグループ
@@ -518,8 +515,8 @@
   border-top: 1px dashed var(--color-border);
 }
 
-/* 長いラベル（「緊急輸送道路 かつ 重要物流道路[N10・N12]」等）は折り返して全文を出す。
-   1行nowrap+ellipsisにすると、末尾（N12等の重要な部分）ごと見切れる。 */
+/* 長いラベルは折り返して全文を出す。1行nowrap+ellipsisにすると、意味を決める末尾から
+   見切れる。 */
 .detailRowLabel {
   flex: 1;
   min-width: 0;
