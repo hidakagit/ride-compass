@@ -13,7 +13,6 @@ class TestEffectiveGradient:
         assert GradientCalculator.effective_gradient(5.0, ROAD, ROAD) == 5.0
 
     def test_travelling_against_the_road_flips_the_sign(self):
-        """逆向きに辿れば登りは下りになる。"""
         assert GradientCalculator.effective_gradient(5.0, ROAD, ROAD + 180) == -5.0
 
     def test_the_steepness_never_depends_on_the_angle(self):

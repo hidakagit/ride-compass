@@ -60,7 +60,6 @@ class TestResolveArea:
         assert resolved.class10_code == "016010"
 
     def test_it_keeps_climbing_while_the_parent_is_still_an_intermediate(self):
-        """class15が何段あっても、class10に出るまで辿る。"""
         resolved = resolve_area(
             "13101",
             _area_data(
@@ -81,7 +80,6 @@ class TestResolveArea:
         assert resolve_area("13101", _area_data(class20s={"1310100": {}})) is None
 
     def test_a_chain_that_breaks_before_a_subdivision_is_none(self):
-        """辿る先がclass15にもclass10にも無い。"""
         resolved = resolve_area(
             "13101", _area_data(class20s={"1310100": {"parent": "missing"}}, class15s={})
         )
