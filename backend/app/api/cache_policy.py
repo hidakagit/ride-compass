@@ -1,18 +1,15 @@
 """HTTPキャッシュポリシー（`Cache-Control`）の一元管理。
 
-各エンドポイントが応答へ個別に`Cache-Control`を書くと、方針がルーター全体へ散らばり
-「どのAPIがどれだけキャッシュされるか」を一覧できなくなる。パスとポリシーの対応表
-（`_ROUTE_POLICIES`）をこの1箇所へ集め、`CachePolicyMiddleware`が応答へ付与する。
-新しいエンドポイントを追加したときは、この表へも1行足す（足し忘れは
-`tests/test_cache_policy.py`が全ルートを走査して機械的に検出する）。
+パスとポリシーの対応表（`_ROUTE_POLICIES`）をこの1箇所へ集め、
+`CachePolicyMiddleware`が応答へ付与する。新しいエンドポイントを追加したときは、この表へも
+1行足す（足し忘れは`tests/test_cache_policy.py`が全ルートを走査して機械的に検出する）。
 
 **2xxにしか付けない**: 上流障害（502）等の一時的な失敗をキャッシュさせると障害が
-実際の復旧より長く尾を引く。エラー応答をあえてキャッシュさせたい場合（`jma_tile.py`の
-恒久404）はハンドラ側で明示する。
+実際の復旧より長く尾を引く。エラー応答をあえてキャッシュさせたい場合はハンドラ側で明示する。
 
 **ハンドラ側の明示が優先**: ハンドラが自分で`Cache-Control`を設定した応答には触らない。
-同じパスでも内容の性質でポリシーが分かれるエンドポイント（`/api/jma-tile/`のタイル本体・
-時刻一覧・恒久404）は`HANDLER_MANAGED`を表へ置き、実際の値をハンドラが決める。
+同じパスでも内容の性質でポリシーが分かれるエンドポイントは`HANDLER_MANAGED`を表へ置き、
+実際の値をハンドラが決める。
 """
 
 from __future__ import annotations
@@ -48,8 +45,7 @@ class CachePolicy:
 # 時間の調整はここだけで行う。同じ秒数でも意味が違うものは別の定数として持つ
 # （片方だけを後から動かせるようにするため）。
 
-#: 配信元が更新しない静的データ（国土地理院の標高タイル。色別標高図と、
-#: それをTerrain-RGBへ変換したもの）。
+#: 配信元が更新しない静的データ（例: 国土地理院の標高タイルと、その変換結果）。
 PERMANENT = CachePolicy(max_age_seconds=24 * 60 * 60, immutable=True)
 #: URLに`basetime`/`validtime`を含み内容が確定して以後変化しないタイル（気象庁）。
 #: `max-age`は`jma_tile_redis_cache.py`のTTLと揃える。
@@ -63,7 +59,7 @@ BATCH_TILE = CachePolicy(max_age_seconds=60 * 60)
 BASEMAP = CachePolicy(max_age_seconds=10 * 60)
 #: コード変更＋デプロイでしか変わらないカタログ、およびDB取込頻度が月単位の値一覧。
 CATALOG = CachePolicy(max_age_seconds=60 * 60)
-#: 数分の再利用で表示が古くならないもの（風グリッド・材料タイル・天候予報）。
+#: 数分の再利用で表示が古くならないもの（例: 風グリッド・材料タイル・天候予報）。
 SHORT = CachePolicy(max_age_seconds=5 * 60)
 #: 数分で変わりうる警戒情報・実測値。
 VOLATILE = CachePolicy(max_age_seconds=2 * 60)
@@ -73,8 +69,7 @@ LIVE = CachePolicy(max_age_seconds=60)
 #: ブラウザのヒューリスティック判断に委ねられるため、禁止したいものは明示する。
 NO_STORE = CachePolicy(max_age_seconds=None)
 #: 同じパスでも内容の性質でポリシーが分かれるため、どれを使うかをハンドラ側が選ぶもの。
-#: 選択肢そのもの（下のJMA_*）はここに置き、キャッシュ時間の定義がこのファイルの外へ
-#: 漏れないようにする。
+#: 選択肢そのものは下に置き、キャッシュ時間の定義がこのファイルの外へ漏れないようにする。
 HANDLER_MANAGED = CachePolicy(max_age_seconds=None, handler_managed=True)
 
 #: 気象庁の時刻一覧（`targetTimes*.json`）。同じURLのまま内容が更新されるため`immutable`に
@@ -135,11 +130,7 @@ _ROUTE_POLICIES: Final[tuple[tuple[str, CachePolicy], ...]] = (
 
 
 def policy_for_path(path: str) -> CachePolicy | None:
-    """パスに対応するポリシーを返す（該当が無ければNone）。
-
-    複数のパターンが前方一致する場合は最長のものを採るため、表への追記順を気にしなくてよい
-    （例: `/api/weather/amedas`は`/api/weather`より長いので必ず前者が勝つ）。
-    """
+    """パスに対応するポリシーを返す（該当が無ければNone）。"""
     best: tuple[int, CachePolicy] | None = None
     for prefix, policy in _ROUTE_POLICIES:
         if path.startswith(prefix) and (best is None or len(prefix) > best[0]):
@@ -150,8 +141,7 @@ def policy_for_path(path: str) -> CachePolicy | None:
 class CachePolicyMiddleware:
     """`_ROUTE_POLICIES`に基づき応答へ`Cache-Control`を付ける。
 
-    ボディに触れないため、`response_compression.py`と同じくASGI生の実装にしてある
-    （`http.response.start`のヘッダだけを書き換える）。
+    ボディに触れず`http.response.start`のヘッダだけを書き換えるため、ASGI生の実装にしてある。
     """
 
     def __init__(self, app: ASGIApp) -> None:
