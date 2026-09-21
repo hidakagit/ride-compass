@@ -13,10 +13,9 @@ topological_axis_order`が依存順の評価を担う）。
 
 各関数はスカラー（Python float/bool/int）とnumpy配列の両方を受け付ける。スカラー入力には
 Pythonのfloat/boolを、配列入力には同じ形状のnumpy配列を返す（欠損値はNaNで表現・伝播する）。
-スカラー経路（`evaluate_axis_scalar`、1エッジずつ呼ばれる）とベクトル化された一括経路
-（`evaluate_axis_array`、静的スコア行列の構築が使う）の両方がこの実装を
-共有することで、「軸のロジックは1箇所にまとめる」という設計原則
-（`docs/complexity-review-2026-08-16.md`）をベクトル化後も維持する。
+1エッジずつ呼ばれるスカラー経路（`evaluate_axis_scalar`）と、静的スコア行列の構築が使う
+ベクトル化された一括経路（`evaluate_axis_array`）が同じこの実装を通ることで、軸のロジックが
+2箇所へ分かれない。
 """
 
 from __future__ import annotations
@@ -73,9 +72,7 @@ def round1_array(values: np.ndarray) -> np.ndarray:
     """`round(x, 1)`（Python組み込み、2進浮動小数点の実際の値に対する正しい丸め）と
     ビット単位で一致させるための配列版丸め。`np.round`は内部で「×10→rint→÷10」という
     段階を踏むため、その掛け算で丸め誤差が混入し、値がちょうど.X5の境界にあると
-    Python組み込みの`round()`と結果が食い違うことがある（`domain/difficulty.py`の
-    配列版の各関数・`domain/evaluation.py`の最終丸めの両方で
-    使う共通実装）。NaNはNaNのまま返す。
+    Python組み込みの`round()`と結果が食い違うことがある。NaNはNaNのまま返す。
     """
     values = np.asarray(values, dtype=float)
     scaled = values * 10.0

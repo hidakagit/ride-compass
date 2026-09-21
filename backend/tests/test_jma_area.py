@@ -52,8 +52,7 @@ def test_resolve_area_returns_none_on_broken_parent_chain():
     assert resolve_area("13101", broken) is None
 
 
-# 改善計画T463: 想定外の形式の外部データ（"parent"/"name"キー欠如）に対し、
-# KeyErrorを伝播させずNoneへ倒すことの回帰テスト（他の外部データ処理関数と同じ流儀）。
+# キー欠如のような想定外の形式の外部データでも、KeyErrorを伝播させずNoneへ倒す。
 def test_resolve_area_returns_none_when_class20_missing_parent_key():
     malformed = {
         "class20s": {"1310100": {"name": "千代田区"}},  # "parent"キーが無い

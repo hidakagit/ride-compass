@@ -8,15 +8,9 @@
 異なる別概念で、配信サービスが返す生値の材料idは`WindWayService.material_id`等が
 別に持つ（`transform_dedicated_way_values`が軸定義の評価へ渡す先）。
 
-`infrastructure/dynamic_way_value_cache.py`（キャッシュキーのbucket化要否）・
-`api/routers/region.py`（`GET /api/region/dynamic-way-values/{axis_id}/{z}/{x}/{y}`の
-クエリパラメータ必須/省略判定）の両方が`dedicated_way_value_axes()`を読む。
-
-axis_id→サービス実装本体（`WindWayService`/`GradientWayService`）の組み立ては別軸
+axis_id→サービス実装本体の組み立ては別軸
 （`api/dependencies.py: _DEDICATED_WAY_VALUE_SERVICE_FACTORIES`）で、各軸の計算ロジック
 自体は宣言的に導出できないPythonコードのまま残る。
-
-詳細はdocs/modules/backend/dynamic-way-values.md「軸登録と地図表示値」節参照。
 """
 
 from dataclasses import dataclass
@@ -59,12 +53,10 @@ class DedicatedWayValueAxis:
 
 def dedicated_way_value_axes() -> dict[str, DedicatedWayValueAxis]:
     """`AXIS_DEFINITIONS`から`dedicated_way_value_layer=True`の軸を抽出して導出する。
-    `AXIS_DEFINITIONS`はプロセス起動時・管理API書き込み直後にin-place
-    更新される（`services/axis_registry_service.py`参照）ため、モジュール読み込み時の
-    定数ではなく呼び出しの都度導出する関数にする（`axis_catalog.py: get_axis_catalog`と
-    同じ「プロセス内メモリへの都度アクセス」方式）。軸スタジオでの
-    `dedicated_way_value_layer=true`・`dynamic_way_value_needs_time`/
-    `dynamic_way_value_needs_bearing`の設定はここへ自動的に反映される。
+
+    定数ではなく呼び出しの都度導出する関数なのは、`AXIS_DEFINITIONS`がプロセス起動時・
+    管理API書き込み直後にin-place更新されるため。軸スタジオでの設定はここへ自動的に
+    反映される。
 
     配信できる値があるかは別で、way_id→値を組み立てるサービス本体を
     `api/dependencies.py`の`_DEDICATED_WAY_VALUE_SERVICE_FACTORIES`へ登録する必要がある

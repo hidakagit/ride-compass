@@ -1,5 +1,3 @@
-"""domain/gradient.py: GradientCalculatorのテスト（改善計画T423）。"""
-
 import math
 
 from app.domain.gradient import LENS_PERPENDICULAR_BAND_DEG, GradientCalculator
@@ -34,10 +32,8 @@ def test_downhill_road_same_direction():
 
 
 def test_forward_and_backward_edge_agree():
-    # domain/gradient.pyのモジュールdocstring・road_graph_repository.py:
-    # _FEATURE_GRADIENT_INPUTS_IN_TILE_SQLのコメントで説明した性質: 同じway・同じ物理区間の
-    # forward/backward2行（road_edges、向きが180度反転・gradient_percentの符号も反転）の
-    # どちらを使ってeffective_gradientを計算しても、結果は一致する。
+    # 同じway・同じ物理区間のforward/backward2行（road_edges、向きが180度反転・
+    # gradient_percentの符号も反転）のどちらを使っても、結果は一致する。
     gradient_percent = 4.5
     road_bearing_deg = 123.0
     travel_bearing_deg = 60.0

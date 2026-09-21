@@ -112,16 +112,11 @@ def raster_set_fingerprint(raster_paths: list[str]) -> str:
     return hashlib.sha256(joined.encode("utf-8")).hexdigest()[:16]
 
 
-#: (`LandcoverPercentages`の項目名, クラス値)。割合を出す対象はこの1か所で決まる。
-PERCENT_CLASSES: tuple[tuple[str, int], ...] = (
-    ("water_percent", LULC_WATER),
-    ("trees_percent", LULC_TREES),
-    ("flooded_veg_percent", LULC_FLOODED_VEG),
-    ("crops_percent", LULC_CROPS),
-    ("built_percent", LULC_BUILT),
-    ("bare_percent", LULC_BARE),
-    ("snow_ice_percent", LULC_SNOW_ICE),
-    ("rangeland_percent", LULC_RANGELAND),
+#: (`LandcoverPercentages`の項目名, クラス値)。割合を出す対象は`LANDCOVER_CLASSES`が
+#: 決め、ここはそれをSQLの列順（クラス値の昇順）へ並べ替えただけのもの。並びを表示順から
+#: 切り離すのは、表示順を変えただけで焼き込み済みの列順が動かないようにするため。
+PERCENT_CLASSES: tuple[tuple[str, int], ...] = tuple(
+    sorted(((cls.percent_field, cls.value) for cls in LANDCOVER_CLASSES), key=lambda pair: pair[1])
 )
 
 

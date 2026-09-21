@@ -42,10 +42,9 @@ def apparent_temperature_from_amedas(
         AT = Ta + 0.33e - 0.70*ws - 4.00
         e  = (rh/100) * 6.105 * exp(17.27*Ta / (237.7+Ta))   # 水蒸気圧[hPa]
 
-    Ta=気温[℃]、rh=相対湿度[%]、ws=風速[m/s]、e=水蒸気圧[hPa]。新規外部依存を要しない
-    公知の標準式で、数値予報モデルが出力する体感温度（別の計算式による推定値）とは
-    厳密には一致しない近似値になる。3項目のいずれかがNone（センサー未搭載・欠測）なら
-    Noneを返す。"""
+    Ta=気温[℃]、rh=相対湿度[%]、ws=風速[m/s]、e=水蒸気圧[hPa]。数値予報モデルが出力する
+    体感温度は別の計算式による推定値のため、厳密には一致しない。気温・湿度・風速の
+    いずれかがNone（センサー未搭載・欠測）ならNoneを返す。"""
     if temperature_c is None or humidity_percent is None or wind_speed_ms is None:
         return None
     vapor_pressure = (humidity_percent / 100) * 6.105 * math.exp(17.27 * temperature_c / (237.7 + temperature_c))
@@ -55,9 +54,8 @@ def apparent_temperature_from_amedas(
 class AmedasObservation(StrictModel):
     """最寄りアメダス観測所の直近観測値。
 
-    突風（wind_gusts）はJMAアメダスのリアルタイム観測値レスポンスに存在しない
-    （全1,286観測所のキー一覧にgust相当のフィールドが1つも無い）ため、
-    このモデルに含めない。
+    突風はJMAアメダスのリアルタイム観測値レスポンスがどの観測所についても持たないため、
+    このモデルに項目が無い。
     """
 
     station_id: str
@@ -74,9 +72,7 @@ class AmedasObservation(StrictModel):
     # 直近10分間の日照時間（分、0〜10）。天気アイコンの簡易分類
     # （晴れ/くもり/雨/雪、frontend側）が降水量と組み合わせて使う。
     sunshine_10min_minutes: float | None
-    # 常設ヘッダーへ日の出/日没を表示するため持つ。
-    # 外部には問い合わせず、astralによるローカル天文計算
-    # （domain/twilight.py: sunrise_sunset_jst）で求める。クエリ地点（最寄り観測所ではなく
-    # リクエストのlatitude/longitudeそのもの）・当日（JST）の値。
+    # 最寄り観測所ではなくリクエストのlatitude/longitudeそのものに対する、当日（JST）の値。
+    # 外部には問い合わせず、domain/twilight.py: sunrise_sunset_jstのローカル天文計算で求める。
     sunrise: str | None
     sunset: str | None

@@ -1,9 +1,7 @@
-"""警察庁交通事故統計オープンデータの取込で使う純関数群（外部静的データソース T50）。
+"""警察庁交通事故統計オープンデータの取込で使う純関数群。
 
-`domain/traffic.py`と同じ「純関数・unknown安全」の方針。本票CSVの列定義・コード値は
-2026-08-16に実データ（honhyo_2023.csv）とコード表CSV
-（https://www.npa.go.jp/publications/statistics/koutsuu/opendata/koudohyou/）を
-直接取得して確認したもの（2_koudohyou_todouhukenkoudo.csv・31_koudohyou_toujisyasyuetu.csv）。
+本票CSV（honhyo_YYYY.csv）の列定義・コード値の典拠は警察庁が公開するコード表CSV
+（https://www.npa.go.jp/publications/statistics/koutsuu/opendata/koudohyou/）。
 """
 
 # 事故地点を道路へスナップする際の探索半径。事故点はOSMの要素ではないため、信号・交差点の
@@ -12,12 +10,9 @@
 # 半径は大きめに採る。
 ACCIDENT_MATCH_MAX_DISTANCE_M = 30.0
 
-# 死亡事故の重み（改善計画: 事故密度の精度改善）。件数を単純にCOUNTすると軽傷の物損に近い
-# 事故と死亡事故が同じ1件として扱われ、最も避けたい重大事故のリスクが薄まる。死亡事故は
-# `ACCIDENT_FATAL_WEIGHT`件分として積算する（road_graph_repository.py: _ACCIDENT_COUNTS_SQLが
-# SUM(CASE WHEN fatal THEN :fatal_weight ELSE 1 END)で適用）。
-# 3.0は「死亡事故は軽傷事故の3件分のリスクとみなす」という暫定値（本格チューニングはP2据え置き、
-# 他の閾値・補正値と同じ方針）。
+# 死亡事故の重み。件数を単純にCOUNTすると軽傷の物損に近い事故と死亡事故が同じ1件として
+# 扱われ、最も避けたい重大事故のリスクが薄まるため、死亡事故はこの件数分として積算する
+# （「死亡事故は軽傷事故の3件分のリスク」という意味づけの値で、実測から導いたものではない）。
 ACCIDENT_FATAL_WEIGHT = 3.0
 
 # 当事者種別（31_koudohyou_toujisyasyuetu.csv）のうち自転車に該当するコード。
@@ -42,7 +37,7 @@ def _dms_to_decimal(raw: str) -> float | None:
 
 
 # 日本の緯度・経度のおおよその範囲（南鳥島・沖ノ鳥島等の離島を含む広めの値）。
-# 変換結果の妥当性チェック用であり、関東7都県への絞り込みはis_kanto_prefectureで別途行う。
+# 度分秒からの変換結果が壊れていないかを見るためだけのもので、対象地域の絞り込みではない。
 _JAPAN_LATITUDE_RANGE = (20.0, 46.0)
 _JAPAN_LONGITUDE_RANGE = (122.0, 154.0)
 

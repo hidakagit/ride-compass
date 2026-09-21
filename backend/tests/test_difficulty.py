@@ -8,20 +8,9 @@ from app.domain.difficulty import (
     distance_weighted_difficulty_array,
 )
 
-# 改善計画T350: 本ファイルはevaluate_axis_scalarの折れ点補間そのものが検証対象
-# （breakpointsは本番と同じ値をtests/realistic_axis_fixtures.pyで再現している）に加え、
-# evaluate_axis_difficulties()がグローバルなAXIS_DEFINITIONSをそのまま参照するため、
-# 一貫した軸システムが必要。tests/conftest.pyのセッションスコープautouseフィクスチャが
-# 全テスト共通で用意する。
-
-# 改善計画T320: 以前はgradient_difficulty/wind_difficulty/road_difficulty/stop_difficulty/
-# accident_difficulty（domain/difficulty.py）・night_difficulty（domain/night.py）という
-# 軸ごとのスカラー版互換ラッパ経由でテストしていたが、これらは実行時経路のどこからも
-# 呼ばれておらずテストのみの消費者だったため削除した（両エンジンとも
-# evaluate_axis_difficulties/compute_edge_axis_scoresが材料辞書を直接渡す経路を使う）。
-# 削除された関数が担っていた「軸定義（breakpoints等）どおりに変換される」という検証自体は
-# 引き続き価値があるため、実際に使われている評価関数evaluate_axis_scalarを軸定義付きで
-# 直接呼ぶ形へ書き換えた。
+# 折れ点補間の検証は`AXIS_DEFINITIONS`をそのまま参照するため、一貫した軸システムが要る。
+# tests/conftest.pyのセッションスコープautouseフィクスチャが全テスト共通で用意し、
+# breakpointsは本番と同じ値をtests/realistic_axis_fixtures.pyで再現している。
 
 
 def test_gradient_axis_easy_flat_road():
@@ -54,12 +43,12 @@ def test_gradient_axis_missing_material_is_none():
 
 def test_wind_axis_strong_tailwind_is_zero():
     # breakpoints[(-1.2,0),(0,15),(5,100)]は追い風を横風より優遇するため、-1.2以下で0に
-    # クランプする（T590決定事項1・T599）。
+    # クランプする。
     assert evaluate_axis_scalar(AXIS_DEFINITIONS["wind"], {"wind_drag_ratio": -3.0}) == 0.0
 
 
 def test_wind_axis_no_wind_has_baseline_above_zero():
-    # 無風は追い風より不利な基準点（15）を持つ（追い風優遇の設計、T599）。
+    # 無風は追い風より不利な基準点（15）を持つ（追い風優遇の設計）。
     assert evaluate_axis_scalar(AXIS_DEFINITIONS["wind"], {"wind_drag_ratio": 0.0}) == 15.0
 
 
@@ -114,7 +103,7 @@ def test_stop_density_axis_absent_kind_defaults_to_no_contribution():
 
 
 def test_stop_density_axis_weights_level_crossing_above_signal():
-    """踏切は信号より待たされるため重みが大きい（信号1.0に対し踏切1.5）。"""
+    """踏切は信号より待たされるため、同じ密度なら難易度が高く出る。"""
     definition = AXIS_DEFINITIONS["stop_density"]
 
     signal = evaluate_axis_scalar(definition, {"poi_signal_per_km": 1.0})
@@ -126,9 +115,7 @@ def test_stop_density_axis_weights_level_crossing_above_signal():
 def test_stop_density_axis_ignores_unsignalized_crossings():
     """信号を伴わない横断歩道は重み0——道なりに走る自転車の停止要因にならないため。
 
-    T655の実測では停止要因の59.6%が横断歩道で、これを等しく数えていたことが
-    「全wayが難易度100に張り付く」主因だった。重み0はGUI（軸スタジオ）で設定されており、
-    コード側に横断歩道を特別扱いする分岐は無い。
+    重み0はGUI（軸スタジオ）で設定されており、コード側に横断歩道を特別扱いする分岐は無い。
     """
     definition = AXIS_DEFINITIONS["stop_density"]
 
@@ -192,9 +179,8 @@ def test_distance_weighted_difficulty_empty_returns_none():
     assert distance_weighted_difficulty([]) is None
 
 
-def test_distance_weighted_difficulty_array_matches_scalar_version():
-    # 改善計画T552: distance_weighted_difficulty_arrayはdistance_weighted_difficultyの
-    # numpyベクトル化版で、NaN=Noneとして同じ規約（欠損除外・残りの距離で再正規化）に従う。
+def test_distance_weighted_difficulty_array_drops_nan_and_renormalizes():
+    # NaNの要素は欠損として除外し、残りの距離で再正規化する（0と100を1kmずつ）。
     result = distance_weighted_difficulty_array(
         np.array([0.0, np.nan, 100.0]), np.array([1.0, 5.0, 1.0])
     )

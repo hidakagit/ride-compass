@@ -18,40 +18,29 @@ METRIC_GROUP_POI = "poi"
 METRIC_KEY_ACCIDENT = "accident"
 METRIC_KEY_INTERSECTION = "intersection"
 
-# `METRIC_GROUP_LANDCOVER`のキー。材料の割合列（`lc_*`）の名前と同じにする
-# （SQLの読み出し列をこの並びから導くため）。
-METRIC_KEY_TREES_PERCENT = "trees_percent"
-METRIC_KEY_BUILT_PERCENT = "built_percent"
-METRIC_KEY_CROPS_PERCENT = "crops_percent"
-METRIC_KEY_RANGELAND_PERCENT = "rangeland_percent"
-METRIC_KEY_WATER_PERCENT = "water_percent"
-METRIC_KEY_BARE_PERCENT = "bare_percent"
-METRIC_KEY_FLOODED_VEG_PERCENT = "flooded_veg_percent"
-METRIC_KEY_SNOW_ICE_PERCENT = "snow_ice_percent"
-
-# 評価パイプラインへ配線する土地被覆のクラス。**ここへ1つ足せば、Edge束・列指向
-# テーブル・SQLの読み出し・タイルの焼き込み列・カバレッジ台帳が揃って増える**
-# （下流はこの並びから導き、クラス名を個別に並べない）。
-# 材料の割合列（`lc_*`）と1対1にする——どのクラスを材料にするかを人が選ぶ形にすると、
-# 「なぜこのクラスだけ無いのか」を後から何度も判断し直すことになる。
+# 評価パイプラインへ配線する土地被覆のクラス。名前は材料の割合列（`lc_*`）と揃える。
+# **ここへ1つ足せば、Edge束・列指向テーブル・SQLの読み出し・タイルの焼き込み列・
+# カバレッジ台帳が揃って増える**（下流はこの並びから導き、クラス名を個別に並べない）。
+# 割合列と1対1にする——どのクラスを材料にするかを人が選ぶ形にすると、「なぜこのクラス
+# だけ無いのか」を後から何度も判断し直すことになる。
+# 並びはDBの列順を決めるため、`domain/landcover.py`の表示順とは独立に固定する。
 WIRED_LANDCOVER_KEYS: tuple[str, ...] = (
-    METRIC_KEY_TREES_PERCENT,
-    METRIC_KEY_BUILT_PERCENT,
-    METRIC_KEY_CROPS_PERCENT,
-    METRIC_KEY_RANGELAND_PERCENT,
-    METRIC_KEY_WATER_PERCENT,
-    METRIC_KEY_BARE_PERCENT,
-    METRIC_KEY_FLOODED_VEG_PERCENT,
-    METRIC_KEY_SNOW_ICE_PERCENT,
+    "trees_percent",
+    "built_percent",
+    "crops_percent",
+    "rangeland_percent",
+    "water_percent",
+    "bare_percent",
+    "flooded_veg_percent",
+    "snow_ice_percent",
 )
 
 
 class ElevationAttribute(StrictModel):
-    """Edgeへ紐付ける標高属性（仕様書15章）。Edge本体（domain/graph.py）とは独立して保持する。
+    """Edgeへ紐付ける標高属性。Edge本体（domain/graph.py）とは独立して保持する。
 
     average_grade/max_grade/min_gradeは符号付き（登り=正、下り=負）。
-    有効な標高が2点未満の場合は全フィールドNoneのまま返す（Road Graph移行前のルート単位評価と同じ
-    「取得失敗は握りつぶしてnull」方針、docs/modules/backend/elevation.md参照）。
+    有効な標高が2点未満の場合は全フィールドNoneのまま返す。
     """
 
     edge_id: str
@@ -68,11 +57,8 @@ class ElevationAttribute(StrictModel):
 class SearchMaterials:
     """探索フェーズ（`RoadGraphEngine.prepare`）が必要とするRoad Graphのトポロジ＋
     材料一式。`GraphService.get_search_materials_for_bbox`の戻り値であり、
-    `infrastructure/graph_material_cache.py`のタイル単位キャッシュ値（z12タイル1枚ぶんの
-    同形の内容）としても使う共通の型。"""
+    `infrastructure/graph_material_cache.py`のタイル単位キャッシュ値としても使う共通の型。"""
 
-    # RoadGraph（Pydantic、split再構築を伴うuncached経路）またはLeanRoadGraph
-    # （dataclass、タイルキャッシュ経路）のいずれかが入る。
     graph: LeanRoadGraph
     materials: "EdgeMaterialArrays"
 
@@ -102,15 +88,13 @@ class EdgeMaterialArrays:
 
     `*_ids`は列の並びで、**ディスクから復元したときに現在の材料集合と突き合わせるために
     ある**。材料を1つ増やしてもdataclassのフィールドは変わらず
-    `cache_identity.shape_digest`が動かないため、鍵だけでは古い表を弾けない
-    （`tile_score_matrix_cache`が可変長の列に対して行っているのと同じ、読み出し時の検証）。
+    `cache_identity.shape_digest`が動かないため、鍵だけでは古い表を弾けない。
 
-    `no_bicycle`は材料ではなく0次ハードフィルタの生フラグ。同じ1回のクエリで求まるため
-    ここへ持たせる（別に引くとタイルごとにもう1往復増える）。
+    0次ハードフィルタの生フラグを同じ1回のクエリで求めてここへ持たせるのは、別に引くと
+    タイルごとにもう1往復増えるため。
 
-    標高の列は**材料ではない表示用の値**。経路が確定した
-    あとの数百区間について`elevation_attribute()`が`ElevationAttribute`を組み立てる
-    （`road_graph_engine.py: _elevation_attributes`）。勾配そのものは材料
+    標高の列は**材料ではない表示用の値**で、経路が確定したあとの区間について
+    `elevation_attribute()`が`ElevationAttribute`を組み立てる。勾配そのものは材料
     `gradient_percent`にあるため、ここでは重複して持たない。
     """
 
@@ -122,8 +106,7 @@ class EdgeMaterialArrays:
     categorical_ids: tuple[str, ...]
     categorical_values: np.ndarray  # shape=(n, len(categorical_ids)), object
     # 0次ハードフィルタの生フラグ。フィルタ名がそのまま列で、`domain/hard_filters.py:
-    # HARD_FILTER_VALUE_SQL`から生成する。**フィルタごとに専用のフィールドを作らない**
-    # （材料と同じ「値の行列＋idの並び」、設計原則 構造仕様8）。
+    # HARD_FILTER_VALUE_SQL`から生成する。**フィルタごとに専用のフィールドを作らない**。
     hard_filter_ids: tuple[str, ...]
     hard_filter_flags: np.ndarray  # shape=(n, len(hard_filter_ids)), bool
     # 区間そのものの値。グラフのオブジェクトから組み直さず、材料と同じクエリで受ける。

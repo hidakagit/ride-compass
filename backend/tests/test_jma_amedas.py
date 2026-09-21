@@ -32,8 +32,7 @@ def test_apparent_temperature_returns_none_when_any_input_missing():
     assert apparent_temperature_from_amedas(26.5, 70, None) is None
 
 
-def test_apparent_temperature_matches_bom_formula():
-    # BOM Apparent Temperature式: AT = Ta + 0.33e - 0.70*ws - 4.00
-    # e = (rh/100) * 6.105 * exp(17.27*Ta / (237.7+Ta))
+def test_apparent_temperature_is_above_air_temperature_in_humid_heat():
+    # 気温26.5℃・湿度70%・風速3.5m/sでは、湿度のぶん体感が気温より高く出る。
     result = apparent_temperature_from_amedas(temperature_c=26.5, humidity_percent=70, wind_speed_ms=3.5)
     assert result == pytest.approx(28.0, abs=0.5)

@@ -21,19 +21,13 @@ from app.domain.weather import WeatherConditions
 from app.domain.wind import WindForecastSeries, wind_drag_ratio_array
 
 
-
-
 @dataclass(frozen=True, slots=True)
 class DynamicAxisRequestContext:
-    """動的材料（`REQUEST_DYNAMIC_MATERIAL_IDS`）をリクエスト時にベクトル評価するための
-    統一入力。Edgeの幾何配列とリクエスト単位の動的データ（風・走行速度）を束ねる。
+    """動的材料をリクエスト時にベクトル評価するための統一入力。Edgeの幾何配列と
+    リクエスト単位の動的データ（風・走行速度）を束ねる。
 
-    `DYNAMIC_MATERIAL_EVALUATORS`へ登録する各材料のevaluatorはこの1引数だけを受け取り
-    材料配列を返す統一シグネチャにすることで、動的材料が増えても呼び出し側
-    （`evaluate_dynamic_axis_arrays`、静的行列のNaN列を埋める処理）へ軸名・材料名の分岐を
-    追加せず、この辞書へ1エントリ追加するだけで対応できる（フロントの
-    `RAMP_AXES`/`buildAxisOverlayLayers`と同種の汎用ディスパッチ）。呼び出しはリクエスト
-    あたり動的材料の数だけの設定フェーズであり、Edge単位のホットループには入らない。
+    `DYNAMIC_MATERIAL_EVALUATORS`のevaluatorがこの1引数だけを取る形にしてあるため、
+    動的材料が増えても呼び出し側へ軸名・材料名の分岐が要らない。
     """
 
     bearing_deg: np.ndarray
@@ -70,15 +64,13 @@ def _evaluate_wind_drag_ratio_array(context: DynamicAxisRequestContext) -> np.nd
     return wind_drag_ratio_array(speed, direction, context.bearing_deg, context.travel_speed_ms)
 
 
-# `REQUEST_DYNAMIC_MATERIAL_IDS`（axis_definitions.py）の各材料idを、リクエスト時点の
-# 幾何配列＋動的contextからベクトル評価する関数への唯一の登録点（式の実体は
-# `domain/wind.py`にあり、ここは配線のみ）。`REQUEST_DYNAMIC_MATERIAL_IDS`自体が
-# 「材料id」の集合として宣言されている（軸idの集合ではない）ため、ここも材料idで
-# キーイングする——`dynamic_axis_topological_order`・`evaluate_axis_array`（いずれも軸名を
-# ハードコードしない汎用実装）が「動的材料さえ埋まればどんな軸（軸スタジオが動的材料を
-# 直接参照して作成したカスタム軸を含む）でも正しく合成する」ため、材料id単位の登録だけで
-# 軸全体をカバーできる。`REQUEST_DYNAMIC_MATERIAL_IDS`と1対1に揃える（動的材料が増えたら
-# 両方へ1エントリずつ追加する。片方だけだと`evaluate_dynamic_material_arrays`が失敗する）。
+# 材料idから、リクエスト時点の幾何配列＋動的contextをベクトル評価する関数への唯一の
+# 登録点（式の実体は`domain/wind.py`にあり、ここは配線のみ）。軸idではなく材料idで
+# キーイングするのは、合成側（`dynamic_axis_topological_order`・`evaluate_axis_array`）が
+# 軸名をハードコードせず、動的材料さえ埋まればどんな軸でも合成できるため——軸スタジオで
+# 作られたカスタム軸もこの登録だけでカバーされる。
+# `REQUEST_DYNAMIC_MATERIAL_IDS`と1対1に揃える。片方だけだと
+# `evaluate_dynamic_material_arrays`がKeyErrorで失敗する。
 DYNAMIC_MATERIAL_EVALUATORS: dict[str, Callable[[DynamicAxisRequestContext], np.ndarray]] = {
     "wind_drag_ratio": _evaluate_wind_drag_ratio_array,
 }
@@ -103,8 +95,8 @@ def evaluate_dynamic_axis_arrays(
     材料値を読めるようにするため）。
 
     `evaluate_dynamic_material_arrays`で動的材料を求め、そこから
-    `dynamic_axis_topological_order`の順で`evaluate_axis_array`を適用する（材料→軸の
-    汎用トポロジカル合成のベクトル版で、動的軸の軸名自体は本関数もハードコードしない）。
+    `dynamic_axis_topological_order`の順で`evaluate_axis_array`を適用する。動的軸の軸名は
+    ここにも現れない。
     """
     materials_with_axes: dict[str, np.ndarray] = dict(static_axis_scores)
     materials_with_axes.update(evaluate_dynamic_material_arrays(context))

@@ -3,7 +3,7 @@ from app.domain.accident import latitude_from_raw, longitude_from_raw
 
 class TestDmsConversion:
     def test_latitude_matches_known_sample(self):
-        # honhyo_2023.csv実データ1行目（2026-08-16実機確認、北海道札幌方面 43.169度付近）
+        # 本票CSVの実データ1行目の値（北海道札幌方面、43.169度付近）。
         value = latitude_from_raw("431007628")
         assert value is not None
         assert round(value, 4) == round(43 + 10 / 60 + 7.628 / 3600, 4)

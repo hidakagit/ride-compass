@@ -1,8 +1,8 @@
-"""Edge Costの算出（仕様書26-33章）。
+"""Edge Costの算出。
 
 Road Attribute（`domain/attributes.py`）とRoute PreferenceからEdge Costを算出する。
 Route Engineから独立させ、Route Engine自身は「勾配がきつい」「路面が悪い」といった
-評価の中身を一切知らない設計を目指す（仕様書33章）。
+評価の中身を一切知らないようにする。
 
 評価はタイル単位の静的スコア行列（`build_static_edge_score_matrix`）へ一本化してある。
 入力はDBが導出した材料の行列（`EdgeMaterialArrays`）で、このモジュールは材料の値を
@@ -68,16 +68,11 @@ from app.domain.tuning import tuning_value
 def _neumaier_accumulate(terms: list[np.ndarray]) -> np.ndarray:
     """`terms`を先頭から順に加算する（Neumaier補償加算、Kahan加算の改良版）。
 
-    Python組み込み`sum()`はPython 3.12以降、float列を単純な逐次`+=`ではなく
-    Neumaier補償加算で合計するよう変更されている（丸め誤差を打ち消す補正項cを
-    別途積算し、最後に本体へ足し込む）。スカラー版`composite_difficulty`の
-    `sum(score*weight for score,weight in available)`と本関数（配列側の重み付き合成）を
-    ビット単位で一致させるには、単純な逐次`+=`ではこのNeumaier補正が
-    再現できず、ちょうど.X5境界の値で最終丸め結果が食い違う（例えば単純逐次加算は
-    0.8200000000000001、`sum()`は0.82のように異なる浮動小数点値になることがあり、
-    composite=41.25の丸めが41.3 vs 41.2に分かれる場合がある）。本関数はNeumaier加算を
-    n件分まとめて配列演算で行うことで、`sum()`と同じ結果をEdge数万件規模でもPythonループ
-    無しで再現する。
+    Python組み込み`sum()`はfloat列をNeumaier補償加算で合計する（丸め誤差を打ち消す
+    補正項を別途積算し、最後に本体へ足し込む）。スカラー版`composite_difficulty`と
+    この配列側をビット単位で一致させるには同じ加算が要る——単純な逐次`+=`では補正が
+    再現できず、ちょうど.X5境界の値で最終丸めが1桁目から食い違う。本関数はNeumaier加算を
+    n件分まとめて配列演算で行い、Edge数万件規模でもPythonループ無しで`sum()`へ揃える。
     """
     total = np.zeros_like(terms[0], dtype=float)
     compensation = np.zeros_like(terms[0], dtype=float)
@@ -95,7 +90,7 @@ def has_route_facing_raw_value(definition: AxisDefinition) -> bool:
     空タイル（列だけを揃える分岐）と通常のタイルが**別々にこの条件を書く**と、片方だけ
     変えた瞬間に列数・列順が食い違い、`combine_static_edge_score_matrices`の
     `np.concatenate`がタイルをまたいで失敗する（またはずれた列で合成される）。
-    T536と同型の壊れ方をするため、述語はここ1箇所だけが持つ。
+    述語はここ1箇所だけが持つ。
 
     - 単位が定まらない軸（`raw_value_unit`がNone）は、数字を添えても読み手が意味を取れない。
     - 動的材料（風）を参照する軸は対象外——静的スコア行列は`weather=None`で組み立てるため
@@ -121,6 +116,22 @@ def route_facing_raw_axis_ids() -> list[str]:
         and has_route_facing_raw_value(AXIS_DEFINITIONS[axis_id])
         and has_axis_raw_value_array(AXIS_DEFINITIONS[axis_id])
     ]
+
+
+def _published_axis_leaf_material_ids() -> list[str]:
+    """公開軸を依存順に辿り、分解された葉の材料idを安定順で返す。
+
+    下の2本（数値列とcategorical列）が同じ順序で列を組み立てるための土台。順序が2本で
+    違うと、一方の列だけがタイル間でずれる。
+    """
+    seen: dict[str, None] = {}
+    for axis_id in topological_axis_order(AXIS_DEFINITIONS):
+        definition = AXIS_DEFINITIONS[axis_id]
+        if not definition.is_published:
+            continue
+        for entry in axis_material_shares(definition):
+            seen.setdefault(entry.material_id, None)
+    return list(seen)
 
 
 def route_facing_material_ids() -> list[str]:
@@ -152,17 +163,13 @@ def route_facing_material_ids() -> list[str]:
     for material_id in (*stop_count_material_ids(), ROLLING_RESISTANCE_MATERIAL_ID):
         if material_id in MATERIAL_CATALOG:
             seen.setdefault(material_id, None)
-    for axis_id in topological_axis_order(AXIS_DEFINITIONS):
-        definition = AXIS_DEFINITIONS[axis_id]
-        if not definition.is_published:
+    for material_id in _published_axis_leaf_material_ids():
+        spec = MATERIAL_CATALOG.get(material_id)
+        if spec is None or spec.dtype == "categorical":
             continue
-        for entry in axis_material_shares(definition):
-            spec = MATERIAL_CATALOG.get(entry.material_id)
-            if spec is None or spec.dtype == "categorical":
-                continue
-            if entry.material_id in REQUEST_DYNAMIC_MATERIAL_IDS:
-                continue
-            seen.setdefault(entry.material_id, None)
+        if material_id in REQUEST_DYNAMIC_MATERIAL_IDS:
+            continue
+        seen.setdefault(material_id, None)
     return list(seen)
 
 
@@ -177,15 +184,11 @@ def route_facing_categorical_material_ids() -> list[str]:
     揃える分岐）と通常のタイルが別々に条件を書くと列がずれる。
     """
     seen: dict[str, None] = {}
-    for axis_id in topological_axis_order(AXIS_DEFINITIONS):
-        definition = AXIS_DEFINITIONS[axis_id]
-        if not definition.is_published:
+    for material_id in _published_axis_leaf_material_ids():
+        spec = MATERIAL_CATALOG.get(material_id)
+        if spec is None or spec.dtype != "categorical":
             continue
-        for entry in axis_material_shares(definition):
-            spec = MATERIAL_CATALOG.get(entry.material_id)
-            if spec is None or spec.dtype != "categorical":
-                continue
-            seen.setdefault(entry.material_id, None)
+        seen.setdefault(material_id, None)
     return list(seen)
 
 
@@ -205,11 +208,10 @@ class BulkAxisEvaluation:
     edge_ids: list[str]
     distance_m: np.ndarray
     bearing_deg: np.ndarray
-    # 0次フィルタ用の生フラグ。`HARD_FILTER_HIGHWAY_TYPES`のフィルタ名→該当するかの真偽値配列
-    # （リクエストごとに変わる有効/無効の絞り込みは`compute_hard_filter_excluded`が行う）。
+    # 0次フィルタ名→該当フラグ（`HARD_FILTER_NAMES`と同じキー集合）。リクエストごとに
+    # 変わる有効/無効の絞り込みは`compute_hard_filter_excluded`が行う。
     # フィルタを1つ増やしてもこの構造は変わらない——専用フィールドへ潰すと、
     # dataclass・結合・受け渡しの全段で1本ずつ追加が要る。
-    # 0次フィルタ名→該当フラグ（`HARD_FILTER_NAMES`と同じキー集合）。
     hard_filter_flags: dict[str, np.ndarray]
     gradient_percent: np.ndarray
     # Edge中点の緯度経度（from/toノードの平均）。探索前に各Edgeの通過予定時刻を基準点からの
@@ -330,8 +332,7 @@ def _evaluate_axes_from_material_arrays(
     # material_arrays_with_axesへは内部軸も含め全軸の結果を混ぜ込む（公開軸が内部軸を
     # materialとして参照できる必要があるため）が、axis_arrays（下の合成対象）は
     # 公開軸のみに絞る（内部軸のdefault_weight=0.0のため合成結果への影響自体は無いが、
-    # スカラー版のフィルタと揃え、無駄な計算・将来の重み設定変更時の暗黙のリスクを
-    # 無くす）。
+    # スカラー版のフィルタと揃えておく）。
     axis_arrays: dict[str, np.ndarray] = {}
     axis_raw_arrays: dict[str, np.ndarray] = {}
     material_arrays_with_axes: dict[str, np.ndarray] = dict(material_arrays)
@@ -381,7 +382,7 @@ def _evaluate_axes_from_material_arrays(
 #
 # 走行モデルへ入っている現象を写した軸の既定重みは0のため（docs/architecture/design-principles.md
 # 構造仕様13）、difficultyは主観的な軸だけの加重平均になり、物理の軸で薄まらないぶん
-# 値が大きく出る。Pはその物差しに合わせた値で、**実走での較正が要る暫定値**。
+# 値が大きく出る。Pはその物差しに合わせた値で、**実走から較正した値ではない**。
 def resolve_penalty_strength(requested: float | None) -> float:
     """リクエストが省略したときの換算レート（P）を、**呼ばれた時点で**較正値から読む。
 
@@ -580,10 +581,8 @@ class StaticEdgeScoreMatrix:
     呼ぶことで自然にそうなる）。リクエスト時に`evaluate_dynamic_axis_arrays`が該当列だけを
     実際の動的データ（風・走行速度）で上書きする。
 
-    既知の制約（意図的なスコープ限定）: 動的軸が参照できる材料は
-    `REQUEST_DYNAMIC_MATERIAL_IDS`のみを前提にしている（風軸が風の材料1つだけを参照する
-    構成と一致）。将来、動的材料と他の静的材料を組み合わせる軸が必要になった場合は
-    別途設計が要る。
+    動的軸が参照できる材料は`REQUEST_DYNAMIC_MATERIAL_IDS`だけを前提にしている。
+    動的材料と静的材料を混ぜる軸はこの形では表現できない。
     """
 
     edge_ids: list[str]
@@ -591,11 +590,10 @@ class StaticEdgeScoreMatrix:
     axis_scores: np.ndarray  # shape (len(edge_ids), len(axis_ids))
     distance_m: np.ndarray
     bearing_deg: np.ndarray
-    # 0次フィルタ用の生フラグ。`HARD_FILTER_HIGHWAY_TYPES`のフィルタ名→該当するかの真偽値配列
-    # （リクエストごとに変わる有効/無効の絞り込みは`compute_hard_filter_excluded`が行う）。
+    # 0次フィルタ名→該当フラグ（`HARD_FILTER_NAMES`と同じキー集合）。リクエストごとに
+    # 変わる有効/無効の絞り込みは`compute_hard_filter_excluded`が行う。
     # フィルタを1つ増やしてもこの構造は変わらない——専用フィールドへ潰すと、
     # dataclass・結合・受け渡しの全段で1本ずつ追加が要る。
-    # 0次フィルタ名→該当フラグ（`HARD_FILTER_NAMES`と同じキー集合）。
     hard_filter_flags: dict[str, np.ndarray]
     gradient_percent: np.ndarray
     # Edge中点の緯度経度（`BulkAxisEvaluation.mid_lat`/`mid_lon`と同じ）。
