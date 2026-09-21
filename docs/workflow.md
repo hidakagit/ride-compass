@@ -18,7 +18,8 @@ flowchart TD
     H --> I[反復修正: 絞り込みテスト]
     I --> J{実装安定したか}
     J -->|No| I
-    J -->|Yes| K[フルスイート1回]
+    J -->|Yes| K[静的検査＋届く範囲のテスト
+フルスイートはCI]
     K --> L[同一コミットの同期ペアを確認\nOpenAPI/architecture.md/\nタイル世代/axis_definitions等]
     L --> M[検査器を通す\nreview_checks.py docs]
     M --> M2[人が見る2点\n共有パターンの全消費者\n本文に残る未起票の派生]
@@ -52,8 +53,8 @@ flowchart TD
 
 - ログ方針は`docs/logging.md`、テストパターンは`docs/testing.md`（CLAUDE.mdは要点＋
   ポインタのみ）。
-- 反復修正フェーズは絞り込みテスト、フルスイートは実装が安定した最後の1回だけ
-  （CLAUDE.md「テスト方針」節）。
+- 手元で回すのは変更が届く範囲だけ（例外は`tsc --noEmit`）。フルスイート・`-m postgis`は
+  CIの持ち物で、手元の完了条件に含めない（CLAUDE.md「テスト方針」節）。
 - 並行セッションが同じ作業ツリーを触りうる。自分が変更していないファイルの変更を
   見つけても絶対に自動で戻さない（「作業ツリーの安全」節）。
 - **バックグラウンドAgentを使う場合は`isolation: "worktree"`を必ず指定する**
