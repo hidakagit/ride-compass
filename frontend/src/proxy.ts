@@ -3,9 +3,9 @@ import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { adminBasicAuthCredentials } from "@/lib/adminBasicAuth";
 
-// /admin（軸スタジオ・研究/開発者ツール、改善計画T270）のルーティング境界での認可
-// （改善計画T272）。Next.js 16でmiddleware.tsはproxy.tsへ改称された（本ファイル名は
-// フレームワークの規約、frontend/AGENTS.md「このNext.jsは知っているものと違う」参照）。
+// /admin（軸スタジオ・研究/開発者ツール）のルーティング境界での認可。
+// Next.js 16はこの境界のファイルをproxy.tsと呼ぶ（本ファイル名はフレームワークの規約、
+// frontend/AGENTS.md「このNext.jsは知っているものと違う」参照）。
 //
 // HTTP Basic認証（ブラウザ標準ダイアログ）で/adminページ本体（研究/開発者ツールを含む
 // UIシェル全体）への到達自体を防ぐ。軸スタジオの管理API呼び出し（axisAdminApi.ts、
@@ -14,13 +14,12 @@ import { adminBasicAuthCredentials } from "@/lib/adminBasicAuth";
 // （2箇所独立のBasic認証チェックだが、同じ資格情報[ADMIN_BASIC_AUTH_USERNAME/PASSWORD]を
 // 両側のenvへ設定して運用することで実質1つの資格情報として扱う設計）。
 //
-// ユーザー方針（2026-08-24）: 「将来的にはアカウント制としたいが、現状は動作確認・研究用
-// のためBasic認証として後から拡張する」。未設定（既定、どちらか一方でも空）の環境では
-// 常に拒否する（うっかり無保護公開しない、backend側の同種ガードと同じ安全側の既定）。
+// 未設定（既定、どちらか一方でも空）の環境では常に拒否する（うっかり無保護公開しない、
+// backend側の同種ガードと同じ安全側の既定）。
 
 const REALM = "RideCompass admin";
 
-/** タイミング攻撃を避けるための定数時間比較（レビュー指摘の修正）。backend側
+/** タイミング攻撃を避けるための定数時間比較。backend側
  * require_admin_basic_auth（secrets.compare_digest）と対称にする。
  * timingSafeEqualは長さが異なるバッファでは例外を投げるため、長さが違う場合は
  * その場でfalseを返す（Node公式ドキュメントが案内する標準パターン。文字数の違いは

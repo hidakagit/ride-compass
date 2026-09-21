@@ -65,8 +65,7 @@ function fillTaperedRibbon(
 }
 
 // 風チップボタン（icons.tsx: WindIcon、渦を巻く3本の曲線）と同じ「曲線=風」という
-// 視覚言語を地図上でも踏襲する（旧デザインは直方体の軸+三角の矢じりという直線的な形で、
-// 道路標識のような「硬い」印象だった）。道路・POI等の地図上オブジェクトのアイコン
+// 視覚言語を地図上でも踏襲する。道路・POI等の地図上オブジェクトのアイコン
 // （icons.tsx）は直線・単純な多角形が主体のため、曲線を基調にするだけでも見分けがつきやすい。
 export function createWindArrowIcon(): ImageData {
   const canvas = document.createElement("canvas");
@@ -89,8 +88,7 @@ export function createWindArrowIcon(): ImageData {
   fillTaperedRibbon(ctx, { x: 9, y: 27 }, { x: 7, y: 22 }, { x: 9, y: 18 }, { x: 11.5, y: 15 }, 1.6, 0.2, 10);
   fillTaperedRibbon(ctx, { x: 23, y: 27 }, { x: 25, y: 22 }, { x: 23, y: 18 }, { x: 20.5, y: 15 }, 1.6, 0.2, 10);
 
-  // 矢じり（先端が尖った細身の三角形。旧デザインより幅を絞り、流線の延長として
-  // 自然に繋がるようにしている）。
+  // 矢じり（先端が尖った細身の三角形。流線の延長として自然に繋がる幅に絞っている）。
   ctx.beginPath();
   ctx.moveTo(16, 2);
   ctx.lineTo(21, 12.5);
