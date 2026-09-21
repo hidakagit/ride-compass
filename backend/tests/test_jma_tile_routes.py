@@ -383,3 +383,63 @@ def test_jma_tile_proxy_falls_back_when_parent_tile_is_unavailable():
     assert response.status_code == 200
     assert response.content == b"\x89PNG-fallback"
     assert fake.stored == []
+
+
+# --- 在否インデックスの配信（GET /api/jma-tile-index） ---
+
+
+def test_index_reports_unavailable_when_nothing_is_stored(monkeypatch):
+    async def _no_index():
+        return None
+
+    monkeypatch.setattr("app.api.routers.jma_tile.get_index", _no_index)
+
+    response = client.get("/api/jma-tile-index")
+
+    assert response.status_code == 200
+    # インデックスが無いことで表示が欠けてはならない。クライアントは全タイルを取りに行く。
+    assert response.json() == {"available": False, "coverage": None, "elements": None}
+
+
+def test_index_returns_what_was_stored(monkeypatch):
+    stored = {
+        "coverage": {
+            "min_longitude": 138.35,
+            "min_latitude": 34.85,
+            "max_longitude": 140.95,
+            "max_latitude": 37.20,
+        },
+        "elements": {
+            "rain_mesh": {
+                "basetime": "20260907025000",
+                "validtime": "20260907025000",
+                "member": "immed0",
+                "zooms": {"10": [[909, 403]]},
+            }
+        },
+    }
+
+    async def _stored_index():
+        return stored
+
+    monkeypatch.setattr("app.api.routers.jma_tile.get_index", _stored_index)
+
+    response = client.get("/api/jma-tile-index")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["available"] is True
+    assert body["elements"]["rain_mesh"]["zooms"]["10"] == [[909, 403]]
+    assert body["coverage"]["min_longitude"] == 138.35
+
+
+def test_index_is_short_lived():
+    # プリウォーム（10分間隔）ごとに内容が変わる。古いものを掴むと、中身があるタイルを
+    # 取りに行かないことになる。
+    app.dependency_overrides[get_jma_tile_client] = lambda: None
+    try:
+        response = client.get("/api/jma-tile-index")
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.headers["cache-control"] == "public, max-age=60"

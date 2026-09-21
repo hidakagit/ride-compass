@@ -70,8 +70,7 @@ def test_different_namespaces_are_independent_even_for_the_same_tile():
 # --- 境界ケース: 世代不一致（PBF再取込・precomputeバッチ実行後の無効化）---
 
 def test_version_mismatch_is_treated_as_cache_miss():
-    # region_service.py: ROAD_SURFACE_TILE_VERSIONと同じ流儀。バージョン文字列が違えば
-    # 別のファイルパスとして扱われ、旧世代の内容は新世代からは見えない。
+    # 世代の文字列が違えば別のファイルパスになり、旧世代の内容は新世代から見えない。
     tile_persistent_cache.set("materials", "1", 12, 1, 1, "old-generation-value")
 
     assert tile_persistent_cache.get("materials", "2", 12, 1, 1) is None

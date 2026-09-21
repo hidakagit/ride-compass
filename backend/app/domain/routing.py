@@ -506,8 +506,8 @@ def build_node_spatial_index(
     その場合Noneを返すことで区別すればよい）。
 
     `node_ids`省略時は`graph.nodes`全件を対象にする。指定時はその集合に含まれるNode
-    のみを索引の候補にする（`routable_node_ids`と組み合わせ、Hard Constraint通過後に
-    孤立するNodeを最近傍探索の候補から除外するために使う）。
+    のみを索引の候補にする（Hard Constraint通過後に孤立するNodeを最近傍探索の候補から
+    除外するために使う）。
     """
     ids = graph.nodes.keys() if node_ids is None else node_ids
     buckets: dict[tuple[int, int], list[str]] = {}

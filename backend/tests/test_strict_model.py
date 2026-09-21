@@ -1,8 +1,8 @@
 """`StrictModel`（extra="forbid"）が実際にモデルを守っていること。
 
-`scripts/review_checks.py`の`find_bare_basemodel_violations`が「素のBaseModelを
-継承していないこと」を静的に見るのに対し、こちらは**実際に弾けること**を見る。
-静的チェックだけだと、基底の`model_config`がいつか外れても検知できない。
+`tests/structure/test_model_strictness.py`が「素の`BaseModel`を継承していないこと」を
+静的に見るのに対し、こちらは**実際に弾けること**を見る。静的な検査だけだと、基底の
+`model_config`がいつか外れても気づけない。
 """
 
 import pytest

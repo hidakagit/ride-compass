@@ -71,10 +71,9 @@ def module_name(path: Path) -> str:
 def _strip_docstrings(node: ast.AST) -> ast.AST:
     """docstringを落とす。**これを残すと辺が嘘になる**。
 
-    docstringは名前を説明のために並べる——`evaluation.py`は「`compute_edge_costs_bulk`は
-    テストだけ」と自分で書いており、その一文が辺になって当の関数を生かしていた（実測）。
-    T963が「テキストgrepはdocstringを拾う」と警告した穴は、ASTを使っても文字列定数を
-    辿れば同じように開く。
+    docstringは名前を説明のために並べる。「この関数はテストからしか呼ばれない」と
+    書いた一文がそのまま辺になり、当の関数を生かしてしまう。ASTを使っても文字列定数を
+    辿れば同じ穴が開く。
     """
     for child in ast.walk(node):
         if not isinstance(child, (ast.Module, ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):

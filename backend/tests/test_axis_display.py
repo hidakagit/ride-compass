@@ -22,18 +22,24 @@ from app.domain.axis_display import (
     _rescale_tile_input,
     axis_display_for,
 )
-from app.domain.material_catalog import CoverageExcluded, MaterialSpec
+from app.domain.material_catalog import CoverageExcluded, MaterialSpec, WayMaterialCoverageSpec
 from app.domain.registry import TileInputSpec
 
 
-def _spec(material_id: str, dtype: str = "numeric", **overrides) -> MaterialSpec:
+def _spec(material_id: str, dtype: str = "numeric", missing="", **overrides) -> MaterialSpec:
+    """欠損の意味を指定しない材料は欠損率を測らない扱いにする（`bool_default`は"false"）。"""
     overrides.setdefault("tile_property", f"t_{material_id}")
+    coverage = (
+        WayMaterialCoverageSpec(missing_condition="FALSE", source="テスト用", missing_semantics=missing)
+        if missing
+        else CoverageExcluded(reason="テスト用")
+    )
     return MaterialSpec(
         material_id=material_id,
         label=material_id,
         description="",
         dtype=dtype,
-        coverage=CoverageExcluded(reason="テスト用"),
+        coverage=coverage,
         **overrides,
     )
 
@@ -45,8 +51,8 @@ MATERIALS = {
     "num_scaled": _spec("num_scaled", tile_property_needs_runtime_scale=True),
     "num_directed": _spec("num_directed", tile_property_direction_dependent=True),
     "num_offtile": _spec("num_offtile", tile_property=None),
-    "bool_unknown": _spec("bool_unknown", dtype="boolean", bool_default="nan"),
-    "bool_certain": _spec("bool_certain", dtype="boolean", bool_default="false"),
+    "bool_unknown": _spec("bool_unknown", dtype="boolean", missing="unknown"),
+    "bool_certain": _spec("bool_certain", dtype="boolean", missing="definite"),
     "cat_kind": _spec("cat_kind", dtype="categorical"),
 }
 

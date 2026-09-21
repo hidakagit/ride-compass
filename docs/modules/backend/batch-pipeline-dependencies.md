@@ -80,7 +80,7 @@
 | ⑤ | `precompute_road_node_degrees.py` | `road_edges`（from/to node） | `road_nodes.degree`（全件洗い替え） | ④でroad_edgesが存在すること | road_edges変化時（PBF再取込・トポロジ変更） | 全件洗い替え、安全 |
 | ⑥ | `precompute_edge_attribute_counts.py` | `road_edges`全件 + `accident_points` + `osm_raw_pois` + `road_nodes.degree` | `edge_attribute_counts`（edge_id主キーでUPSERT） | **⑤の後**（未実行だと全edgeでintersection_count=0） | `accident_points`/`osm_raw_pois`/`road_edges`のいずれか変化時 | 全件再計算、増分無し |
 | ⑦ | `precompute_elevation_attributes.py` | `road_edges`（ジオメトリ） + GSI DEM API | `elevation_attributes` | ④でroad_edgesが存在すること | road_edges変化時（新規Edge追加・PBF再取込） | **増分実行可能**（未計算Edgeのみ計算） |
-| ⑧ | `precompute_way_attribute_counts.py` | `osm_raw_ways`（geom/highway非NULL全件） + `accident_points` + `osm_raw_pois` | `raw_intersection_nodes`（全再構築）/ `way_attribute_counts`（UPSERT） | ①でosm_raw_waysが存在すること（road_edges非依存） | `accident_points`/`osm_raw_pois`/`osm_raw_ways`のいずれか変化時。**併せて`cache_identity.py`の`ROAD_SURFACE_REVISION`を上げてタイルキャッシュを陳腐化させること**——焼き込むSQLは変わらないまま、SQLが読むテーブルの中身だけが変わるため、鍵の署名側は動かない | UPSERT、安全 |
+| ⑧ | `precompute_way_attribute_counts.py` | `osm_raw_ways`（geom/highway非NULL全件） + `accident_points` + `osm_raw_pois` | `raw_intersection_nodes`（全再構築）/ `way_attribute_counts`（UPSERT） | ①でosm_raw_waysが存在すること（road_edges非依存） | `accident_points`/`osm_raw_pois`/`osm_raw_ways`のいずれか変化時。焼き込むSQLは変わらないまま読み先の中身だけが変わるため鍵の署名側は動かないが、タイル世代は`derived_data_meta.revision`から実行時に組み立てるため手作業は要らない | UPSERT、安全 |
 | ⑨ | `match_designations.py` | `route_designations`（③の出力） + `osm_raw_ways.geom` | `designation_attributes`（kind単位でDELETE→INSERT） | **③の後、かつ①（osm_raw_ways更新）の後** | ③または①の再実行後 | DELETE→INSERT、安全 |
 | ⑬ | `precompute_way_divided_carriageway.py` | `osm_raw_ways`（全件） | `way_divided_carriageway`（osm_way_id主キーでUPSERT） | ①でosm_raw_waysが存在すること（road_edges非依存）。判定が周辺のwayを見るため、対象範囲のwayが揃っていること | `osm_raw_ways`変化時（PBF再取込） | UPSERT、安全（全件を判定し直す） |
 | ⑩ | `precompute_way_landcover.py` | `osm_raw_ways`（geom/highway非NULL全件） + Esri LULC GeoTIFF（`settings.lulc_raster_paths`、手動取得） | `way_landcover`（osm_way_id主キーでUPSERT） | ①でosm_raw_waysが存在すること（road_edges非依存） | `osm_raw_ways`変化時（PBF再取込）、または年次マップ更新（`--recompute`+`--data-version`）、またはリング径変更（`--recompute`） | UPSERT、安全（`--recompute`無しは未計算way限定の増分実行） |
@@ -117,8 +117,8 @@ counts・⑦elevation_attributes・⑨designation_attributes（`EdgeMaterialBund
 （`_common.py: with_derived_data_revision_bump`）が書き込み成功後に世代を進め、backendは
 材料を使う経路からTTL付きで読み直して、ディスクへ書いた時点の記録と違えば捨てる。`TILE_SCORE_MATRIX_CACHE_VERSION`は材料側の世代を含む複合のため追従する
 （同じ材料・同じ列から違う値を作るようになった場合は`SCORE_MATRIX_REVISION`を上げる）。
-⑧の`ROAD_SURFACE_REVISION`（タイルへ焼き込む側）は手で上げる運用のままである——こちらの
-世代は生成物`region-tile-config.json`を通じてフロントへ配られるため、実行時に変えられない。
+タイルへ焼き込む側の世代も手で上げない——`services/tile_version_service.py`が
+`derived_data_meta.revision`と形の署名から実行時に組み立てて配る。
 
 **改善計画T546追記**: `TILE_MATERIALS_CACHE_VERSION`は`"2"`（`graph_material_cache`が
 保持する`SearchMaterials.materials`を`EdgeMaterialBundle`辞書から列指向の
@@ -131,7 +131,7 @@ VERSION`は保存形式（numpy配列）自体は無変更のため据え置き�
 
 | 生データの変化 | 再実行が必要なバッチ |
 |---|---|
-| PBF更新・道路網トポロジ変化 | ①→④→⑤→⑥→⑦→⑧→⑨→⑩→⑪→⑫（⑨は③の完了も前提）。あわせて`cache_identity.py`の`ROAD_SURFACE_REVISION`（⑧・⑩・⑪の値をタイルへ焼くため）を手動で上げる（材料側はDBの世代が自動で進むため手作業は無い。上記「3. ランタイム側の読み取り元」追記参照） |
+| PBF更新・道路網トポロジ変化 | ①→④→⑤→⑥→⑦→⑧→⑨→⑩→⑪→⑫（⑨は③の完了も前提）。キャッシュ世代を手で上げる作業は要らない——材料側もタイル側もDBの世代から実行時に導く（上記「3. ランタイム側の読み取り元」参照） |
 | 事故CSV更新 | ②のみ再取込。ただし⑥・⑧が事故カウントを参照するため、⑥・⑧も追随再実行が必要 |
 | KSJ指定路線データ更新 | ③→⑨ |
 | ランタイムの遅延構築で新規Edgeが生まれた場合（`GraphService`が未split範囲へのリクエストで`is_split_up_to_date`判定によりその場で交差点分割する経路） | ⑥・⑦の再実行が無いと、その新規Edgeの評価軸（stop/accident/intersection/gradient）が欠損する（**T74・T101・T242の再発パターン**）。⑤はroad_edges全体からの集計のため併せて再実行が必要 |

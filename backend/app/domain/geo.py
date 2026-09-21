@@ -10,9 +10,8 @@ EARTH_RADIUS_KM = 6371.0
 class LatLon(Protocol):
     """緯度経度を持つ任意の型（`Coordinates`・`Node`・`LeanNode`等）を受け付ける
     構造的型。`bearing_between`/`haversine_distance_km`は内部で`.latitude`/`.longitude`
-    を読むだけで完結する。型ヒントを`Coordinates`（Pydantic）固定にすると、
-    `build_road_graph`（domain/graph.py）・`find_nearest_node`系（domain/routing.py）
-    のようなホットパスで、既に手元にある生の緯度経度ペアやNodeオブジェクトから
+    を読むだけで完結する。型ヒントを`Coordinates`（Pydantic）固定にすると、探索の
+    ホットパスで、既に手元にある生の緯度経度ペアやNodeオブジェクトから
     わざわざ`Coordinates`を構築し直す無駄が生じる。
     """
 

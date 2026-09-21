@@ -48,10 +48,8 @@ describe("regionApi", () => {
     );
   });
 
-  // region-tile-config.jsonはbackendのvector_tile.ROAD_SURFACE_LAYER_NAME /
-  // region_service.ROAD_SURFACE_TILE_VERSIONからbackend/scripts/export_openapi.pyが生成する
-  // （CIのapi-contractジョブがドリフト検知、改善計画T19）。片側だけ値を変えて再生成・
-  // コミットし忘れた状態をCIで検出する。
+  // region-tile-config.jsonはbackendの宣言からexport_openapi.pyが生成する。片側だけ
+  // 値を変えて再生成・コミットし忘れた状態をCIが検出する。
   it("路面ベクタタイルのレイヤー名がbackend生成物（region-tile-config.json）と一致する", () => {
     expect(ROAD_TILE_SOURCE_LAYER).toBe(regionTileConfig.road_surface.layer_name);
   });

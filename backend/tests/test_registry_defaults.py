@@ -27,13 +27,12 @@ def _defaults_registered():
 
 
 def _axis(axis_id: str):
-    """`registry.get_axis`相当（単体取得関数は死コード監査で削除済み、テストローカルに
-    `all_axes()`から引く形へ置き換える）。"""
+    """登録済みの軸を1件引く。"""
     return next(axis for axis in registry.all_axes() if axis.axis_id == axis_id)
 
 
 def _primary_attribute(attr_id: str):
-    """`registry.get_primary_attribute`相当（同上）。"""
+    """登録済みの一次属性を1件引く。"""
     return next(attr for attr in registry.all_primary_attributes() if attr.attr_id == attr_id)
 
 

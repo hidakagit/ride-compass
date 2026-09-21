@@ -1,14 +1,8 @@
-"""軸の階層構造（改善計画T292）の基盤機構のテスト。
+"""軸が他の軸を材料として参照する構造を支える機構。
 
-- `priority_overrides`（0次条件）: shape計算をスキップして値を確定させる機構
-  （`evaluate_axis_scalar`/`evaluate_axis_array`）。
-- `topological_axis_order`/`axis_dependencies`: 軸が他の軸をmaterialとして参照する
-  依存関係を解決する順序決定（循環参照はAxisDependencyCycleError）。
-- `compute_edge_axis_scores`が実際にこの依存順評価を使い、内部軸→公開軸の階層を
-  1回のcompute_edge_axis_scores呼び出しで再現できることの統合確認。
-
-車ストレス軸自体の内部軸への再定義（改善計画T292の次段階）はここでは扱わない。
-本ファイルは階層構造を支える汎用機構だけを検証する。
+- `priority_overrides`（0次条件）: shape計算をスキップして値を確定させる。
+- `topological_axis_order`/`axis_dependencies`: 参照の依存関係から評価順を決める
+  （循環は`AxisDependencyCycleError`）。
 """
 
 import numpy as np

@@ -65,7 +65,7 @@
 
 - よい: 「`_common.py`が共通ドライバ（`run_chunked_precompute`等）を提供し、
   precompute系バッチはこれに乗る」
-- よい: 「タイル世代の定数（`ROAD_SURFACE_TILE_VERSION`など）」
+- よい: 「タイル世代の定数（`LANDCOVER_REVISION`など）」
 - 避ける: 「`_common.py`は`asyncpg_dsn`・`download_to_path`を提供する。4バッチが参照する」
 - 避ける: 「対象は`gradient`・`surface_q`・`stop_density`・`car_stress`・`accident`・`night`の6軸」
 

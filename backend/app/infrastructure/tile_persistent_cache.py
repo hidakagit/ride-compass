@@ -21,11 +21,10 @@ numpy配列が混在する構造で、JSON化に適さない。picklable性は�
 （`tile_cache.py`の`get()`と同じ「壊れていたら未キャッシュ扱いにして呼び出し元に
 再構築させる」方針）。キャッシュ書き込みの失敗がルート生成応答を止める理由にはならない。
 
-**無効化はバージョン文字列をキーへ含める方式**（`region_service.py:
-ROAD_SURFACE_TILE_VERSION`と同じ流儀）。呼び出し側がキャッシュ対象の種類ごとに独立した
-バージョン定数を持ち、PBF再取込・precomputeバッチ実行・構築ロジック変更時に手動で上げる。
-旧バージョンのエントリは`prune_stale_generations`が削除する（世代番号だけでは古い実体が
-残り続けるため。docs/conventions/caching.md「無効化」参照）。
+**無効化はバージョン文字列をキーへ含める方式**。世代はキャッシュ対象の種類ごとに
+独立していて、呼び出し側が渡す。旧バージョンのエントリは`prune_stale_generations`が
+削除する——世代番号を変えるだけでは古い実体がディスクに残り続ける
+（docs/conventions/caching.md「無効化」参照）。
 """
 
 import logging

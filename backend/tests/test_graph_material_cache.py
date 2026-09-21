@@ -117,8 +117,7 @@ class TestDiskPersistence:
         assert graph_material_cache.get_tile_materials(12, 5, 6) is not None
 
     def test_version_bump_makes_previously_persisted_tile_a_miss(self):
-        # PBF再取込・precomputeバッチ実行後にTILE_MATERIALS_CACHE_VERSIONを手動で
-        # 上げる運用（region_service.py: ROAD_SURFACE_TILE_VERSIONと同じ流儀）を模す。
+        # 材料の世代が変わった後を模す。
         materials = self._sample_materials()
         graph_material_cache.set_tile_materials(12, 5, 6, materials)
         graph_material_cache._tile_materials_cache.clear()
