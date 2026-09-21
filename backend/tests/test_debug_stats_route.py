@@ -1,4 +1,4 @@
-"""運用統計エンドポイント /api/debug/stats の回帰テスト(docs/logging.md参照)。"""
+"""運用統計エンドポイント /api/debug/stats の回帰テスト(docs/conventions/logging.md参照)。"""
 
 import pytest
 from fastapi.testclient import TestClient

@@ -8,7 +8,7 @@
 MapLibreの`maxzoom`（frontend: `MapView.tsx: DYNAMIC_WEATHER_RENDERERS`）と
 プリウォームバッチの対象ズーム（`services/jma_tile_prewarm_service.py`）は、いずれも
 `effective_max_zoom()`でこの1箇所から導く。値を手で書き写すと配信元との突き合わせを
-誤る（実際に7要素中6要素で誤っていた、[T633](../../../docs/tasks/T633.md)）。
+誤る（実際に7要素中6要素で誤っていた、[T633](../../../docs/records/tasks/T633.md)）。
 
 frontendへは`scripts/export_openapi.py`が`jma-tile-config.json`として書き出す。
 """

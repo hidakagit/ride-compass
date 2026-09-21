@@ -260,7 +260,7 @@ def test_check_internal_axis_not_published_skips_self_comparison():
     check_internal_axis_not_published(candidate, existing)  # 例外が出ないことを確認
 
 
-# --- 折れ点を通す前の生値（軸単体で経路を判断するための絶対値、docs/tasks/T687.md） ---
+# --- 折れ点を通す前の生値（軸単体で経路を判断するための絶対値、docs/records/tasks/T687.md） ---
 
 
 def test_axis_raw_value_array_returns_weighted_sum_before_breakpoints():

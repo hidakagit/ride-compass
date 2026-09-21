@@ -71,7 +71,7 @@ class GraphService:
         self._repository = repository
         # repository内包のSQLAlchemy AsyncSessionは同一セッションへの同時アクセスが
         # 未定義動作/例外を招く（elevation_attribute_service.pyの同種ロックと同じ理由、
-        # docs/decisions/road-graph-migration.md「AsyncSessionの同時使用クラッシュ」参照）
+        # docs/records/decisions/road-graph-migration.md「AsyncSessionの同時使用クラッシュ」参照）
         # ため、asyncio.gather配下からrepositoryへ到達しうる経路だけをこのロックで
         # 直列化する。現在それに該当するのは_get_or_build_tile_materialsのキャッシュmiss時
         # のDB問い合わせ（_build_search_materials_from_tile_cacheがタイルごとにgatherで
@@ -130,7 +130,7 @@ class GraphService:
         materials_stage_started = time.monotonic()
         # タイルごとの読み込み内訳（メモリ/ディスク/DBのいずれを経由したか、ディスク経由
         # ならread_ms）を集約し、リクエスト単位の1行INFOサマリへ載せる
-        # （docs/logging.mdの方針、以後の回帰をログ1行で追えるようにする）。
+        # （docs/conventions/logging.mdの方針、以後の回帰をログ1行で追えるようにする）。
         materials_read_stats: list[dict[str, object]] = [{} for _ in tiles]
         # 逐次forループだとタイルごとのキャッシュ読み込み（ディスクフォールバック時の
         # pickle読み込みを含む）が積み上がるため、asyncio.gatherで並列化する。

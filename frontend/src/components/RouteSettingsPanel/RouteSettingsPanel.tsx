@@ -79,7 +79,7 @@ export default function RouteSettingsPanel({
   // - 新しい軸（軸スタジオがDBへ追加した軸）が現れた場合: その既定重みを補う。
   // - 軸が消えた場合（公開軸のunpublish）: そのキーをroutePreferenceから削除する。
   //   これが無いと、unpublish直後に旧設定を保持したブラウザで次のルート生成が422で
-  //   壊れる（docs/decisions/t221-axis-registry.md「Stage D拡張3」）。
+  //   壊れる（docs/records/decisions/t221-axis-registry.md「Stage D拡張3」）。
   // どちらも値を変えずキーの追加/削除だけなのでoverrideEnabledは動かさない、
   // handlePreferenceChangeではなくonRoutePreferenceChangeを直接使う。
   useEffect(() => {

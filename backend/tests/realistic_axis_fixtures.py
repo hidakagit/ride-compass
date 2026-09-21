@@ -110,7 +110,7 @@ REALISTIC_AXIS_DEFINITIONS: dict[str, AxisDefinition] = {
         # 改善計画T404: derive_ramp_inputsが自動導出したtile_inputsをそのまま使い、
         # 色分けの段階だけをdisplay_thresholds_override（軽量な数値配列）で細かく刻む
         # （旧display_override[tile_inputsまで含む生JSON上書き]は廃止方針、本番DBも
-        # T404で同じ内容へ移行済み。docs/tasks/T404.md参照）。
+        # T404で同じ内容へ移行済み。docs/records/tasks/T404.md参照）。
         display_thresholds_override=[2.0, 4.0, 7.0, 12.0],
         display_band_labels_override=[
             "500m以上で1回停止",
@@ -140,7 +140,7 @@ REALISTIC_AXIS_DEFINITIONS: dict[str, AxisDefinition] = {
         # scale、実際のスケール定数はGET /api/axis-catalogが解決する）。旧display_override
         # の閾値[0.4, 0.8, 1.5]はタイル生値（年正規化前、収録3年分）のスケールだったため、
         # 材料スケール（年正規化後）のdisplay_thresholds_overrideへ変換する際は
-        # 収録年数3で割った値（本番DBの実際の移行値と同じ、docs/tasks/T404.md参照）を使う。
+        # 収録年数3で割った値（本番DBの実際の移行値と同じ、docs/records/tasks/T404.md参照）を使う。
         display_thresholds_override=[0.133, 0.267, 0.5],
     ),
     "night": AxisDefinition(

@@ -1,4 +1,4 @@
-"""評価軸定義のCRUD管理API（ADR: docs/decisions/t221-axis-registry.md）。
+"""評価軸定義のCRUD管理API（ADR: docs/records/decisions/t221-axis-registry.md）。
 
 `domain/axis_definitions.py: AXIS_DEFINITIONS`をDBの内容と同期させる書き込み口。
 ルート生成の振る舞いを直接変えられるため、他のエンドポイントと異なり認可を要求する

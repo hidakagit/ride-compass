@@ -52,7 +52,7 @@ _RAILWAY_STOP_KINDS: dict[str, StopPoiKind] = {
 
 # 車止め・ゲート類（`barrier=*`）のうち、**自転車が止まる・降りる・すり抜けで大きく減速する
 # ものだけ**を対象にする。値の網羅ではなく「進行を物理的に妨げる点か」で選んでおり、
-# 次のものは意図的に外している（判断の根拠と実データ件数は`docs/tasks/T654.md`参照）:
+# 次のものは意図的に外している（判断の根拠と実データ件数は`docs/records/tasks/T654.md`参照）:
 # `kerb`（段差。lowered/flushが過半で停止要因として識別力が無い）・`toll_booth`
 # （自動車専用道路上で、取込対象の道路には乗らない）・`entrance`（塀・柵の開口部＝通れる）・
 # `fence`/`wall`/`guard_rail`/`jersey_barrier`（道に沿う構造物で、渡る点ではない）。

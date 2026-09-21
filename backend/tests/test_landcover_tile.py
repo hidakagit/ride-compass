@@ -126,7 +126,7 @@ def test_render_tile_leaves_unpainted_classes_transparent(synthetic_raster):
     """塗らないと宣言したクラスの画素は透明のまま残る。
 
     建物は市街地で画素の大半を占め、塗ると地図が単色で覆われるだけになる
-    （docs/tasks/T902.md）。合成ラスタは建物の画素を含むが、色は出ない。
+    （docs/records/tasks/T902.md）。合成ラスタは建物の画素を含むが、色は出ない。
     """
     png = landcover_raster.render_tile(_TILE_Z, _TILE_X, _TILE_Y)
     assert png is not None

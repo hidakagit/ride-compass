@@ -19,7 +19,7 @@
 **`display`フィールド**: `domain/axis_display.py: axis_display_for()`
 （プロセス内メモリのみを見る純粋関数、DB/IO無し）を軸ごとに呼んで含める。これにより、
 軸スタジオでの公開操作（is_publishedの切替）が、地図レイヤーのramp表示へ**再デプロイ
-なしに即座に**反映される（docs/decisions/t308-axis-map-display-auto-derivation.md参照）。
+なしに即座に**反映される（docs/records/decisions/t308-axis-map-display-auto-derivation.md参照）。
 
 **`material_runtime_scales`**: `derive_ramp_inputs`は実行時にしか
 決まらないスケール変換が必要な材料（`tile_property_needs_runtime_scale=True`、例:
@@ -59,7 +59,7 @@ def _material_breakdown(definition: AxisDefinition) -> list["AxisMaterialBreakdo
     """軸の内訳（材料まで分解した絶対量の並び）。カタログに無い材料は落とす。
 
     categorical材料（`highway`等）も含めて返す——値ごとの延長割合を運ぶ器はまだ無い
-    （[T718](docs/tasks/T718.md)）が、内訳の並び自体は軸定義から決まるため、
+    （[T718](docs/records/tasks/T718.md)）が、内訳の並び自体は軸定義から決まるため、
     運搬側の都合で並びを変えると軸定義との対応が読めなくなる。値が来ない材料を
     フロントが飛ばす形にする。
     """

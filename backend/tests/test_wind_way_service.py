@@ -195,7 +195,7 @@ async def test_second_call_recomputes_without_caching():
     second = await service.get_way_values(Z, X, Y, AT, 0.0, SPEED_KMH)
 
     assert first == second
-    # 風は計算が軽いため値をキャッシュしない（docs/caching.md）。同じ条件でも都度計算する。
+    # 風は計算が軽いため値をキャッシュしない（docs/conventions/caching.md）。同じ条件でも都度計算する。
     assert len(repository.calls) == 2
     assert len(weather_service.calls) == 2
 

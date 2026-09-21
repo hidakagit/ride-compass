@@ -33,7 +33,7 @@
 ## 注意事項
 
 - `/task:retro`の提案先（CLAUDE.md本体／docs/`<topic>`.md／各`_history.md`／
-  `docs/decisions/`／メモリ）は、CLAUDE.md冒頭の「ドキュメント階層」表を判定基準とする。
+  `docs/records/decisions/`／メモリ）は、CLAUDE.md冒頭の「ドキュメント階層」表を判定基準とする。
   同じ教訓を複数箇所へ重複提案しない。
 - この基盤自体を複雑化させない（review基盤と同じ方針。スクリプト・JSON設定・自動生成を
   足さず、Markdown＋既存ツールのみで維持する）。

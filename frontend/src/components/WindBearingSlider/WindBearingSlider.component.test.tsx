@@ -7,9 +7,9 @@ import WindBearingSlider from "./WindBearingSlider";
 // 受け、@fseehawer/react-circular-sliderを使わない自前実装（中心から伸びる矢印を直接
 // つかんで回すダイヤル）へ作り替えた。ポインタドラッグの角度計算は
 // getBoundingClientRect()に依存しhappy-domでは実寸(0)しか返らず単体テストで再現できない
-// （RouteSettingsPanel.test.tsxの帯グラフ境界ドラッグと同じ制約、docs/tasks/T495.md
+// （RouteSettingsPanel.test.tsxの帯グラフ境界ドラッグと同じ制約、docs/records/tasks/T495.md
 // 参照）ため、happy-domでも決定的に検証できるキーボード操作（矢印キー）経路を検証する。
-// 実際のポインタドラッグはBrowserペインでの実機確認で検証済み（docs/tasks/T501.md参照）。
+// 実際のポインタドラッグはBrowserペインでの実機確認で検証済み（docs/records/tasks/T501.md参照）。
 describe("WindBearingSlider", () => {
   it("ArrowRightキーで5度ずつ時計回りに進む", async () => {
     const user = userEvent.setup();

@@ -3,7 +3,7 @@
 このアプリ（RideCompass）は、地図上の道の「走りやすさ」を機械的に判断して、良いルートを
 選ぶ仕組みを持っている。ここでは、その仕組みを専門用語を使わずに説明する。
 （技術的な正式版は`RideCompass 目論見書`Artifact、詳細な設計判断は
-[material-normalization-for-axis-composition.md](decisions/material-normalization-for-axis-composition.md)
+[material-normalization-for-axis-composition.md](records/decisions/material-normalization-for-axis-composition.md)
 を参照）
 
 ## 4段階の流れ

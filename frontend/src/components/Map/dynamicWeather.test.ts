@@ -1,6 +1,6 @@
 // @vitest-environment node
 // DOM/MapLibreを一切使わない純粋関数のみを検証するため、jsdom環境構築コストを省く
-// （docs/testing.mdパターン3。dynamicWeather.tsが値としてimportするのはURL解析の純関数
+// （docs/conventions/testing.mdパターン3。dynamicWeather.tsが値としてimportするのはURL解析の純関数
 // だけで、ランタイムのDOM依存が無いことを確認済み）。
 import { describe, expect, it } from "vitest";
 import {

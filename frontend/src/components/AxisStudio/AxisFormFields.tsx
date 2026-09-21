@@ -2,7 +2,7 @@
 
 // 軸スタジオのフォームが共有する小さな入力部品。節ごとのファイル（AxisComposer.tsx・
 // AxisScoringSection.tsx・AxisMapDisplaySection.tsx）から使う。見た目は
-// docs/frontend-design-system.mdのトークンに従い、説明文は地の文ではなく(ⓘ)に畳む。
+// docs/modules/frontend/frontend-design-system.mdのトークンに従い、説明文は地の文ではなく(ⓘ)に畳む。
 
 import { useState } from "react";
 import InfoPopover from "@/components/Map/InfoPopover";

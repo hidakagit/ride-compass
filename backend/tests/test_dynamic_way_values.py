@@ -58,7 +58,7 @@ def test_wind_needs_time_and_bearing(monkeypatch):
 
 
 def test_gradient_needs_bearing_only(monkeypatch):
-    # docs/tasks/T423.md確定済みの設計判断: 勾配は時刻非依存・向きのみ依存。
+    # docs/records/tasks/T423.md確定済みの設計判断: 勾配は時刻非依存・向きのみ依存。
     monkeypatch.setitem(
         AXIS_DEFINITIONS, "gradient",
         _axis("gradient", dedicated_way_value_layer=True, dynamic_way_value_needs_bearing=True),

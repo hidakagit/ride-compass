@@ -2,7 +2,7 @@
 
 JMA気象データ（アメダス観測値・動的タイル・在否インデックス）の短命キャッシュが使う
 共有接続。外部への問い合わせを肩代わりするキャッシュ専用で、自前のPostGISから復元できる
-ものはRedixへ置かない（docs/caching.md「Redisへ置くもの・置かないもの」参照）。httpx.AsyncClient（http_client.py）と同じ「プロセス全体で1つを使い回す」方針。
+ものはRedixへ置かない（docs/conventions/caching.md「Redisへ置くもの・置かないもの」参照）。httpx.AsyncClient（http_client.py）と同じ「プロセス全体で1つを使い回す」方針。
 
 すべての用途がTTL付きキャッシュ、またはPostGIS（正本）へ即座にフォールバック可能な
 cache-asideのため、Redis接続自体の障害はfail-fastさせない（呼び出し元がtry/exceptで

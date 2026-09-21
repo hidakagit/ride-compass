@@ -1,6 +1,6 @@
 """debug_log(外部I/Oイベントのログ・集計)の回帰テスト。
 
-docs/logging.mdの方針のうち「失敗はdebug_modeに関わらずWARNINGで常時出る」
+docs/conventions/logging.mdの方針のうち「失敗はdebug_modeに関わらずWARNINGで常時出る」
 「同種WARNINGはカテゴリごとに毎分5件で抑制」「統計(/api/debug/stats用)が集計される」を守る。
 """
 

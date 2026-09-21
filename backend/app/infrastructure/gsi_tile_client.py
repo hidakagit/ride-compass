@@ -11,7 +11,7 @@ UPSTREAM_HOST = "https://cyberjapandata.gsi.go.jp"
 # 地理院のタイルは整備区域外で404を返す（恒久的に正しい事実、再フェッチしても変わらない）。
 # プロセス内メモリのみに留める（tile_cache.pyの永続ファイルキャッシュへは書かない——
 # 将来GSI側の整備区域が広がった場合、プロセス再起動だけで再取得の機会が来るようにする）。
-# 上限付きLRU（cachetools.LRUCache、キー=path。docs/caching.md参照）。
+# 上限付きLRU（cachetools.LRUCache、キー=path。docs/conventions/caching.md参照）。
 _NOT_FOUND_MAX_ENTRIES = 2000
 _not_found_paths: LRUCache = LRUCache(maxsize=_NOT_FOUND_MAX_ENTRIES)
 

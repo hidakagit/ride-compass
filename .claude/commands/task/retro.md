@@ -36,10 +36,10 @@ argument-hint: [対象タスク（省略時は直近のセッション内の作�
    - **`.claude/commands/review/_history.md`**（該当する場合）: レビュー基盤の運用ルールの経緯
    - **`.claude/commands/task/_history.md`**（本ディレクトリ、無ければ本skill実行時に新設提案する）:
      task基盤（`task:next`等）の運用ルールの経緯
-   - **`docs/decisions/`**: アーキテクチャ・設計上の決定とその理由（既存ファイル群と同じ粒度）
+   - **`docs/records/decisions/`**: アーキテクチャ・設計上の決定とその理由（既存ファイル群と同じ粒度）
    - **メモリ（`user`/`feedback`/`project`/`reference`のいずれか）**: コードリポジトリの外側にある、
      ユーザーとの協働の仕方・プロジェクトの状況に関する教訓
-   - **`docs/tasks/Txxx.md`自身**: そのタスク限定の背景・決定（通常のタスク完了フローで
+   - **`docs/records/tasks/Txxx.md`自身**: そのタスク限定の背景・決定（通常のタスク完了フローで
      既に記録されているはずなので、本skillでは重複提案しない）
 4. 同じ教訓を複数箇所へ重複提案しない。最も適切な1箇所を選ぶ（CLAUDE.md冒頭の階層表の
    判定基準に従う）。

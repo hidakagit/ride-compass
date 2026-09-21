@@ -7,7 +7,7 @@ import { cn } from "@/lib/cn";
 // 「プライマリボタンの見た目」がどこにも明示されず、将来どこかでtype="submit"のボタンを
 // 追加すると意図せず同じ配色を継承してしまう脆弱な結合になるため）。
 //
-// 色は必ずvar(--color-*)をTailwindの任意値記法で参照する(docs/frontend-design-system.md
+// 色は必ずvar(--color-*)をTailwindの任意値記法で参照する(docs/modules/frontend/frontend-design-system.md
 // のルール)。primaryはglobals.cssの既存button[type="submit"]配色(--color-accent塗り+
 // 白文字)と揃える。
 const buttonVariants = cva(

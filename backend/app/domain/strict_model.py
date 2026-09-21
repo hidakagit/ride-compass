@@ -2,7 +2,7 @@
 
 Pydanticの`extra`の既定は`ignore`で、モデルが知らないフィールドは例外にならず捨てられる。
 値は消えてアサーションだけが残るため、**フィールドを消した・改名したときの取り残しが
-どこにも現れない**（`docs/tasks/T721.md`）。APIリクエストのモデルでは、typoした
+どこにも現れない**（`docs/records/tasks/T721.md`）。APIリクエストのモデルでは、typoした
 フィールドが黙って無視され「指定したのに効かない」という形で利用者に出る。
 
 外部API（JMA・OSM）のJSONは一度dictで受けて必要な値だけを取り出しており、提供側の
@@ -15,7 +15,7 @@ Pydanticの検証へ直接渡す経路を作る場合は、そのモデルで`ex
 軸定義（`infrastructure/axis_definition_repository.py`の
 `AxisDefinition.model_validate`）は、**過去のコードが書いた形**を今のモデルで読む。
 `forbid`のもとでフィールドを消す・改名すると、既存の行が読めずアプリが起動に失敗する
-（`refresh_axis_definitions`のfail-fast、[T396](../../../docs/tasks/T396.md)で本番障害の実績）。
+（`refresh_axis_definitions`のfail-fast、[T396](../../../docs/records/tasks/T396.md)で本番障害の実績）。
 これは意図した挙動——黙って値を捨てるより起動を止める方がよい——だが、
 **そういう変更は本番DBの移行を先に済ませてからpushする**必要がある
 （CLAUDE.md「コミット時の同期ルール」）。

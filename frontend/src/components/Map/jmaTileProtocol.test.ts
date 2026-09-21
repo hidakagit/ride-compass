@@ -140,7 +140,7 @@ describe("空タイルとして返すPNG", () => {
 
     expect([width, height]).toEqual([1, 1]);
     // MapLibreはこの1画素をタイル全面へ引き伸ばす。不透明な画素だと地図全体が塗られる
-    // （災害レイヤーが関東全域を緑一色にした実例、docs/tasks/T754.md）。
+    // （災害レイヤーが関東全域を緑一色にした実例、docs/records/tasks/T754.md）。
     expect(rgba).toEqual([0, 0, 0, 0]);
   });
 });

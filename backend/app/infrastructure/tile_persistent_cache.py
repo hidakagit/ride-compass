@@ -12,7 +12,7 @@ missしたときの第2段として使う——プロセス内メモリのみだ
 **保存の実体は`diskcache`**（SQLite＋ファイル）。容量上限
 （`settings.tile_persistent_cache_size_limit_mb`）・退避（least-recently-used）・複数
 プロセスからの安全な共有をライブラリが持つため、これらを自前で書かない
-（docs/caching.md参照）。32KBを超える値はライブラリがファイルへ、以下はSQLite内へ格納する。
+（docs/conventions/caching.md参照）。32KBを超える値はライブラリがファイルへ、以下はSQLite内へ格納する。
 
 **シリアライズはpickle**（`diskcache`の既定）。対象はPydanticモデル・frozen dataclass・
 numpy配列が混在する構造で、JSON化に適さない。picklable性はテストで確認済み。
@@ -25,7 +25,7 @@ numpy配列が混在する構造で、JSON化に適さない。picklable性は�
 ROAD_SURFACE_TILE_VERSION`と同じ流儀）。呼び出し側がキャッシュ対象の種類ごとに独立した
 バージョン定数を持ち、PBF再取込・precomputeバッチ実行・構築ロジック変更時に手動で上げる。
 旧バージョンのエントリは`prune_stale_generations`が削除する（世代番号だけでは古い実体が
-残り続けるため。docs/caching.md「無効化」参照）。
+残り続けるため。docs/conventions/caching.md「無効化」参照）。
 """
 
 import logging

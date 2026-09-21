@@ -5,9 +5,9 @@
 # 検査項目（consistency.md「設計 ↔ 実装」節の機械的部分）:
 # - docs/modules/*.md へ新しく書き足した行の、実在しないファイル名への参照
 # - 新規追加した実装ファイル（backend/app・frontend/src）が docs/modules/*.md のどこにも出現しない
-# - docs/improvement-plan.md の [x]/[ ] と docs/tasks/Txxx.md「状態:」行の不一致
-#   （improvement-plan.md または docs/tasks/ をステージしたときのみ）
-# - ステージした .md 内の history/・docs/tasks/ への死んだリンク
+# - docs/improvement-plan.md の [x]/[ ] と docs/records/tasks/Txxx.md「状態:」行の不一致
+#   （improvement-plan.md または docs/records/tasks/ をステージしたときのみ）
+# - ステージした .md 内の history/・docs/records/tasks/ への死んだリンク
 # 経緯記述（記載粒度）の検査もこのスクリプト（review_checks.py: NARRATIVE_PATTERN）が
 # 行う。禁止パターンの定義はこの1箇所のみ（T561でシェル側の別定義を統合・削除した）。
 #

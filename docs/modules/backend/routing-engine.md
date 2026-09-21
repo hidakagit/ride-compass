@@ -889,7 +889,7 @@ importしないプロセスで`NoReferencedTableError`を起こす。
 タイルの取込完了判定（`road_graph_tiles`、1,000行規模）とsplit鮮度判定
 （`is_split_up_to_date`の空間クエリ）は、いずれも数ミリ秒で終わるためキャッシュせず毎回
 PostGISへ問い合わせる。エッジの実ジオメトリ（`get_edges_with_geometry`）も同様に毎回読む。
-判断をキャッシュしない理由は[docs/caching.md](../../caching.md)参照——別プロセスのバッチが
+判断をキャッシュしない理由は[docs/conventions/caching.md](../../caching.md)参照——別プロセスのバッチが
 生データを書き換えるため、判断を保持すると危険側（「splitは最新」）で古い値を返しうる。
 
 ## API（`api/routers/routes.py`）
@@ -973,7 +973,7 @@ DB側の値は**その下限を上げるためだけ**に使う（bboxの外へ�
   読み先のデータを作り直した場合はこの文字列が動かないため、DBの`derived_data_meta.revision`
   （バッチの入口が進め、`services/derived_data_revision_service.py`がTTL付きで読み直す）と
   ディスクの記録を突き合わせて捨てる別経路が要る
-  （`docs/batch-pipeline-dependencies.md`「3. ランタイム側の読み取り元」参照）。
+  （`docs/modules/backend/batch-pipeline-dependencies.md`「3. ランタイム側の読み取り元」参照）。
 - **`tile_score_matrix_cache`（タイル単位の静的Edge×公開軸スコア行列）は
   `graph_material_cache`とは別枠**——軸スタジオでの軸定義編集
   （`AxisRegistryAdminService`→`refresh_axis_definitions`）はこちらだけを対象に無効化を

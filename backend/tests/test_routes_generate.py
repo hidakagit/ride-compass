@@ -473,7 +473,7 @@ def _lightweight_route_generation_setup(preference_override=None):
         # 事故を避けるため全フィールド必須（routes.py: RoutePreferenceWeights参照）
         {"route_preference": {"elevation_weight": 0.5, "road_weight": -0.1, "wind_weight": 0.25}},
         {"route_preference": {"elevation_weight": 0.5}},
-        # 区間の乗り換え（docs/tasks/T621.md）: 合成の対象は目的地ルートだけ。
+        # 区間の乗り換え（docs/records/tasks/T621.md）: 合成の対象は目的地ルートだけ。
         {"spliced_edge_ids": ["e-0", "e-1"]},
         {"spliced_edge_ids": []},
     ],
@@ -514,7 +514,7 @@ def test_generate_routes_passes_and_echoes_max_routes_override(monkeypatch):
 
 
 def test_generate_routes_with_spliced_edge_ids_evaluates_the_given_path_only(monkeypatch):
-    # 区間の乗り換え（docs/tasks/T621.md）: 探索をやり直さず、送られた経路だけを評価する。
+    # 区間の乗り換え（docs/records/tasks/T621.md）: 探索をやり直さず、送られた経路だけを評価する。
     # 生成と同じコスト曲線のため別エンドポイントにせず同じジョブ機構（202＋ポーリング）へ載る。
     class SplicingGenerator:
         last_no_candidates_reason = None

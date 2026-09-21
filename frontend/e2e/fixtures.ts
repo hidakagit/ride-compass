@@ -224,7 +224,7 @@ export async function installApiMocks(page: Page): Promise<void> {
 
 // ここから下は「UIを見たい場所まで進める」導線のヘルパー。テストごとに書き直すと、
 // UIの中身とは無関係な段取り（シートを開く・生成の完了を待つ）で落ちて時間を使うため、
-// 1箇所へ集約する（docs/tasks/T768.md）。
+// 1箇所へ集約する（docs/records/tasks/T768.md）。
 
 /** スマホ縦持ち相当。useIsMobile（MOBILE_BREAKPOINT_PX=640）のモバイル分岐に入る幅。 */
 export const MOBILE_VIEWPORT = { width: 390, height: 812 };

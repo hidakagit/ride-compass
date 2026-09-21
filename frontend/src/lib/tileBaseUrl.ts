@@ -22,7 +22,7 @@ export function tileBaseUrl(): string {
  *
  * 判断をこちら側へ出すのは、`process.env`がテストファイルをまたいで共有される
  * （vitestの`pool: "vmThreads"`）ため——環境変数を立てて検証すると、並行実行中の別ファイルが
- * 同じ変数を読んで期待値が変わる（docs/testing.md参照）。`tileBaseUrl`側には分岐を残さない。
+ * 同じ変数を読んで期待値が変わる（docs/conventions/testing.md参照）。`tileBaseUrl`側には分岐を残さない。
  */
 export function resolveTileBaseUrl(configured: string | undefined, origin: string | null): string {
   if (configured) {

@@ -52,7 +52,7 @@ def test_badge_level_vocabulary_is_not_redefined_as_a_literal_union():
 
 
 def test_loggers_use_the_documented_prefix():
-    # docs/logging.md: ロガー名は`ridecompass.<用途>`。`app.*`が混ざると接頭辞単位の
+    # docs/conventions/logging.md: ロガー名は`ridecompass.<用途>`。`app.*`が混ざると接頭辞単位の
     # レベル制御を入れたときにそちらだけ漏れる。
     pattern = re.compile(r'getLogger\("(?!ridecompass\.)([^"]+)"\)')
     offenders = sorted(

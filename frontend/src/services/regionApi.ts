@@ -193,7 +193,7 @@ export async function fetchAxisInspector(
   return data;
 }
 
-// way_id→動的値配信層（風・勾配、改善計画T405→T414→T423、docs/tasks/T400.md「2. 動的要素…の
+// way_id→動的値配信層（風・勾配、改善計画T405→T414→T423、docs/records/tasks/T400.md「2. 動的要素…の
 // 二重表現」節）。「評価軸」グループ向けに、指定タイル内のway_idごとの値（風=wind_drag_ratio、
 // 勾配=effective_gradient）をまとめて取得する。road-surface-tiles（MapLibreのWeb Worker
 // 経由）とは別経路で、fetchAxisInspectorと同じくアプリのfetch()から直接呼ぶ（絶対URL化は

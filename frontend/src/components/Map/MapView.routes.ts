@@ -224,7 +224,7 @@ export function spliceStretchesToFeatureCollection(
   };
 }
 
-/** 比較相手が別の道を通る区間を帯で描く（docs/tasks/T621.md）。
+/** 比較相手が別の道を通る区間を帯で描く（docs/records/tasks/T621.md）。
  *
  * 選んでいない区間は破線で「乗り換えられる」ことだけを示し、選んだ区間は実線にする。
  * 候補線より上へ置く——下に敷くと、差し替えた先が元の経路に隠れて変化が見えない。 */

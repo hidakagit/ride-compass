@@ -1,7 +1,7 @@
 """review_checks.py の経緯コメント検知のテスト。
 
 この検知器は pre-commit と CI が「新規混入を機械的にブロックする」根拠になっている
-（docs/comments.md「機械的な強制」）。検知できない書き方があると、止まっているつもりで
+（docs/conventions/comments.md「機械的な強制」）。検知できない書き方があると、止まっているつもりで
 素通りし続けるため、**過去に実際にすり抜けた形**を回帰として固定する。
 
 実行: backend/.venv/Scripts/python.exe -m pytest scripts/tests/test_review_checks.py -q
@@ -174,7 +174,7 @@ def test_css_var_def_re_matches_definitions_on_any_line():
 
 def test_css_var_ref_re_matches_references_with_and_without_fallback():
     # フォールバックは未定義であることを隠すだけで、トークン名の綴り違いはそのまま残る
-    # （docs/frontend-design-system.md「テーマトークンにフォールバックを付けないこと」）。
+    # （docs/modules/frontend/frontend-design-system.md「テーマトークンにフォールバックを付けないこと」）。
     assert review_checks.CSS_VAR_REF_RE.findall("color: var(--color-text);") == ["--color-text"]
     assert review_checks.CSS_VAR_REF_RE.findall("color: var(--color-accent, #2563eb);") == ["--color-accent"]
 
@@ -326,9 +326,9 @@ def test_narrative_pattern_catches_past_tense_phrases():
 
 
 def test_source_comment_pointing_at_a_task_document_is_flagged():
-    # 経緯の言い回しを書かずにdocs/tasks/Txxx.mdを指すだけでも、指した先が実態と
+    # 経緯の言い回しを書かずにdocs/records/tasks/Txxx.mdを指すだけでも、指した先が実態と
     # 食い違ったときに追従されない（Markdownリンクの形で素通りしていた）。
-    lines = {"frontend/src/zzzProbe.ts": [(1, "// 詳細は[T800](../../docs/tasks/T800.md)参照。")]}
+    lines = {"frontend/src/zzzProbe.ts": [(1, "// 詳細は[T800](../../docs/records/tasks/T800.md)参照。")]}
 
     assert review_checks.find_source_narrative_violations(lines)
 
@@ -500,7 +500,7 @@ def test_detector_allowlists_only_name_existing_files():
 
 def test_redis_skeleton_allowlist_covers_the_batched_hash_cache():
     # 全国約1,300観測所をpipelineでHashへ一括読み書きする（get_json/set_jsonでは表現
-    # できない）。docs/caching.md「自前で骨格を書いてよい例外」に当たる。
+    # できない）。docs/conventions/caching.md「自前で骨格を書いてよい例外」に当たる。
     assert "backend/app/services/jma_amedas_service.py" in review_checks.REDIS_SKELETON_ALLOWLIST
 
 
@@ -600,7 +600,7 @@ def test_edge_gap_records_only_name_existing_edges():
 
 
 def test_probe_section_count_reads_the_keyed_heading():
-    out = "## [redis_skeleton] Redis骨格の自前実装（docs/caching.md参照）: 2件\n"
+    out = "## [redis_skeleton] Redis骨格の自前実装（docs/conventions/caching.md参照）: 2件\n"
 
     assert review_checks.probe_section_count(out, "redis_skeleton") == 2
     assert review_checks.probe_section_count(out, "narrative") is None
@@ -662,7 +662,7 @@ def test_unfiled_deferrals_reports_a_leftover_section_without_a_task_number(tmp_
     _plan_and_task(tmp_path, monkeypatch, "# T900\n\n## 派生（関連指摘）\n\n- あとで直す箇所がある。\n")
 
     assert review_checks.find_unfiled_deferrals(None) == [
-        "docs/tasks/T900.md:3: ## 派生（関連指摘）"
+        "docs/records/tasks/T900.md:3: ## 派生（関連指摘）"
     ]
 
 
@@ -1056,7 +1056,7 @@ def test_records_of_the_time_are_exempt_from_constant_drift(tmp_path, monkeypatc
     (tmp_path / "docs" / "tasks").mkdir(parents=True)
     (tmp_path / "docs" / "tasks" / "T1.md").write_text("`_JOB_TTL_SECONDS`（300）だった。\n", encoding="utf-8")
     monkeypatch.setattr(review_checks, "REPO_ROOT", tmp_path)
-    assert review_checks.find_doc_constant_drift(["backend/app/x.py", "docs/tasks/T1.md"]) == []
+    assert review_checks.find_doc_constant_drift(["backend/app/x.py", "docs/records/tasks/T1.md"]) == []
 
 
 # --- レビュー手順書の死んだ識別子参照 / 段落の切れ目 ---
@@ -1315,7 +1315,7 @@ def test_count_narrative_reports_counts_in_comments_and_docs():
 def test_count_narrative_ignores_code_and_task_entries():
     # コメント以外の行（定数定義）と、当時の数をそのまま残すタスクの個票は対象外。
     src = {"frontend/src/components/Map/zzz.ts": [(3, "const DISASTER_SOURCE_COUNT = 7;")]}
-    doc = {"docs/tasks/T999.md": [(1, "内部軸5つ。")]}
+    doc = {"docs/records/tasks/T999.md": [(1, "内部軸5つ。")]}
 
     assert review_checks.find_count_narratives(src, doc) == []
 
@@ -1434,7 +1434,7 @@ def test_python_sources_only_reads_the_scanned_prefixes(tmp_path, monkeypatch):
 
 
 def test_call_arity_catches_one_argument_too_many():
-    """シグネチャを変えた側が呼び出し元を取り残した形（docs/tasks/T889.md）。"""
+    """シグネチャを変えた側が呼び出し元を取り残した形（docs/records/tasks/T889.md）。"""
     src = _src("def zzz(a, b):", "    return a + b", "", "", "VALUE = zzz(1, 2, 3)")
 
     hits = review_checks.find_call_arity_mismatches({"backend/app/zzz.py": src})
@@ -1544,7 +1544,7 @@ def test_find_redis_skeleton_violations_reports_a_hand_written_client():
 
 def test_find_web_layer_batch_imports_covers_main_py():
     """`main.py`は本番webが起動時に読む筆頭のファイル。手書きのディレクトリ一覧では
-    ここが外れていた（docs/tasks/T905.md）。"""
+    ここが外れていた（docs/records/tasks/T905.md）。"""
     src = {"backend/app/main.py": list(enumerate([
         "from app.batch.precompute_way_landcover import ALGORITHM_VERSION",
     ], 1))}
@@ -1758,7 +1758,7 @@ _ONCE_EXISTED = "Map" + "LayersPanel"
 
 def test_find_stale_task_premises_ignores_a_name_that_never_existed(monkeypatch):
     """未完了タスクは「これから作るもの」の名前を正当に書く。実在しないだけでは挙げない。"""
-    monkeypatch.setattr(review_checks, "open_task_files", lambda: ["docs/tasks/T943.md"])
+    monkeypatch.setattr(review_checks, "open_task_files", lambda: ["docs/records/tasks/T943.md"])
     monkeypatch.setattr(
         review_checks, "read_text", lambda p: f"`{_NEVER_EXISTED}`を新設する。")
 
@@ -1767,7 +1767,7 @@ def test_find_stale_task_premises_ignores_a_name_that_never_existed(monkeypatch)
 
 def test_find_stale_task_premises_reports_a_name_the_repository_once_had(monkeypatch):
     """撤去された名前は、そのタスクの前提が崩れた合図になる。"""
-    monkeypatch.setattr(review_checks, "open_task_files", lambda: ["docs/tasks/T629.md"])
+    monkeypatch.setattr(review_checks, "open_task_files", lambda: ["docs/records/tasks/T629.md"])
     # 「地図の見え方」パネルは実際に撤去済み。pickaxeが履歴から見つけることまで込みで確かめる。
     monkeypatch.setattr(
         review_checks, "read_text", lambda p: f"`{_ONCE_EXISTED}`の再編に着手するとき。")

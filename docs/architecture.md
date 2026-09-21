@@ -1,11 +1,11 @@
 # RideCompass アーキテクチャ設計
 
 このドキュメントは**現状の姿**（技術選定・構成・API・データモデル・運用上の制約）を記す。
-実装ステップの時系列・Road Graph移行の経緯といった**決定記録**は [decisions/](decisions/) へ分離した
+実装ステップの時系列・Road Graph移行の経緯といった**決定記録**は [decisions/](records/decisions/) へ分離した
 （分離の経緯は改善計画T8参照）。本文はコード変更と同一コミットで更新し、常に最新へ保つこと。
 
-- 実装ステップの時系列ログ: [decisions/step-log.md](decisions/step-log.md)
-- Road Graph移行の経緯（Phase 0〜3・永続化・レビュー対応）: [decisions/road-graph-migration.md](decisions/road-graph-migration.md)
+- 実装ステップの時系列ログ: [decisions/step-log.md](records/decisions/step-log.md)
+- Road Graph移行の経緯（Phase 0〜3・永続化・レビュー対応）: [decisions/road-graph-migration.md](records/decisions/road-graph-migration.md)
 - 全体設計レビュー（2026-08-15）と改善実行計画: [design-review-2026-08-15.md](design-review-2026-08-15.md) / [improvement-plan.md](improvement-plan.md)
 
 ---
@@ -17,8 +17,8 @@
 | Frontend | Next.js (App Router) + TypeScript + MapLibre GL JS | React 19 / Next.js 16 |
 | Frontendスタイリング | Tailwind CSS v4（新規UI）+ CSS Modules（既存、機能改修時に段階移行）+ Radix UI + `frontend/src/components/ui/` | T252でTailwind併用導入、T299でRadix UI + 自前UIコンポーネント層（Button/Input/Card/Dialog/Checkbox）を新設。使い分け基準・Design Token一覧・意図的に作らないものは[frontend-design-system.md](frontend-design-system.md)参照 |
 | Backend | Python + FastAPI | pytest でロジックを単体テスト |
-| DB | PostgreSQL + PostGIS | PBF取込済みの生OSM層・Road Graph・路面タイル生成（ST_AsMVT）の第一系統として使用。取込範囲外はOverpassへ問い合わせず「データ未整備」として扱う（フォールバックを持たない）。`GraphService`は改善計画T222でDBなし構成（Overpassのみで動作する経路）自体を撤去済みのため、周回ルート生成には`DATABASE_URL`への実接続が必須（`road_graph_use_repository`は他の一部サービス[ElevationAttributeService/RegionService/AccidentService]のみに引き続き効く設定として残る。既定値はtrue）。SQLAlchemy+GeoAlchemy2経由（`infrastructure/database.py`, `road_graph_models.py`, `road_graph_repository.py`）。dev環境はネイティブのPostgreSQL 18.6＋PostGIS 3.6.2（Windowsサービス）で実接続検証済み（[decisions/road-graph-migration.md](decisions/road-graph-migration.md)「実PostGISでの動作検証（Phase 0）」参照） |
-| ルーティングエンジン（周回ルート生成、`/api/routes/generate`） | **road_graph単一構成**（改善計画T462でopenrouteserviceエンジンを完全撤去、切替設定自体が廃止済み） | 周回生成戦略は単一の`RouteGenerator`（[backend/app/services/route_generator.py](../backend/app/services/route_generator.py)）が持ち、経路計算・評価を`RoadGraphEngine`（[backend/app/services/road_graph_engine.py](../backend/app/services/road_graph_engine.py)、自前ホスト・外部APIキー不要、`GraphService`・`domain/routing.py`の探索［一対全木・2点間探索ともnumbaでJITしたDijkstra/A*。出発からの経過時間をラベルとして持ち回るため、コストを辺の静的な属性とみなすライブラリは使えない］を使う）へ委譲する。改善計画T236（経路品質比較、致命的な差異なし）・T241（道路グラフの連結性、致命的な問題ではない）・T242〜T246（本番DBのmigration未適用・DELETE性能問題という本番実行不能の原因を解消、実データで検証済み）を経て既定値を`road_graph`へ切り替え（改善計画T247、2026-08-23）、以降の運用実績を踏まえてopenrouteserviceエンジン・`config.py`の`routing_engine`設定自体を完全撤去した（改善計画T462、2026-08-31）。詳細は[decisions/road-graph-migration.md](decisions/road-graph-migration.md)、撤去の経緯は下記「ルーティングエンジンの切り替え対応」節参照 |
+| DB | PostgreSQL + PostGIS | PBF取込済みの生OSM層・Road Graph・路面タイル生成（ST_AsMVT）の第一系統として使用。取込範囲外はOverpassへ問い合わせず「データ未整備」として扱う（フォールバックを持たない）。`GraphService`は改善計画T222でDBなし構成（Overpassのみで動作する経路）自体を撤去済みのため、周回ルート生成には`DATABASE_URL`への実接続が必須（`road_graph_use_repository`は他の一部サービス[ElevationAttributeService/RegionService/AccidentService]のみに引き続き効く設定として残る。既定値はtrue）。SQLAlchemy+GeoAlchemy2経由（`infrastructure/database.py`, `road_graph_models.py`, `road_graph_repository.py`）。dev環境はネイティブのPostgreSQL 18.6＋PostGIS 3.6.2（Windowsサービス）で実接続検証済み（[decisions/road-graph-migration.md](records/decisions/road-graph-migration.md)「実PostGISでの動作検証（Phase 0）」参照） |
+| ルーティングエンジン（周回ルート生成、`/api/routes/generate`） | **road_graph単一構成**（改善計画T462でopenrouteserviceエンジンを完全撤去、切替設定自体が廃止済み） | 周回生成戦略は単一の`RouteGenerator`（[backend/app/services/route_generator.py](../backend/app/services/route_generator.py)）が持ち、経路計算・評価を`RoadGraphEngine`（[backend/app/services/road_graph_engine.py](../backend/app/services/road_graph_engine.py)、自前ホスト・外部APIキー不要、`GraphService`・`domain/routing.py`の探索［一対全木・2点間探索ともnumbaでJITしたDijkstra/A*。出発からの経過時間をラベルとして持ち回るため、コストを辺の静的な属性とみなすライブラリは使えない］を使う）へ委譲する。改善計画T236（経路品質比較、致命的な差異なし）・T241（道路グラフの連結性、致命的な問題ではない）・T242〜T246（本番DBのmigration未適用・DELETE性能問題という本番実行不能の原因を解消、実データで検証済み）を経て既定値を`road_graph`へ切り替え（改善計画T247、2026-08-23）、以降の運用実績を踏まえてopenrouteserviceエンジン・`config.py`の`routing_engine`設定自体を完全撤去した（改善計画T462、2026-08-31）。詳細は[decisions/road-graph-migration.md](records/decisions/road-graph-migration.md)、撤去の経緯は下記「ルーティングエンジンの切り替え対応」節参照 |
 | ルーティングエンジン（単一区間確認、`/api/routes/preview`） | **road_graph単一構成**（改善計画T462で切替設定を廃止） | Step3の疎通確認用エンドポイント。`dependencies.py: get_preview_builder`が`RoadGraphEngine.preview_segment`（評価軸重み付きコストで最短経路を1回探索、generateと同じコスト式）を組み立てる。`RoutingService`/`ORSClient`はT462で削除済み。previewはリクエストボディでの評価重み上書きに対応しない（既定値のみ使用） |
 | 地図タイル | OpenFreeMap（`https://tiles.openfreemap.org/styles/liberty`、APIキー不要） | `tile.openstreetmap.org` は bulk/非ブラウザアクセスをブロックするポリシーがあり不採用（後述）。Step10でバックエンド経由のプロキシ＋ファイルキャッシュ（`BasemapClient`）を追加 |
 | 天候 | **気象庁MSM**（Open-MeteoがAWS Open Dataで公開する前処理済み`.om`ファイルをローカル同期。外部の気象予報APIには依存しない） | `WeatherService`（[backend/app/services/weather_service.py](../backend/app/services/weather_service.py)）が`msm_client`経由で読む。`get_wind_grid`/`get_wind_forecast_series`が風の格子点マップとルート評価の風を、`get_conditions`が「今日の見通し」パネル用の現在値・日次集計・時間帯別の流れを組み立てる（天気コードは雲量・降水・気温から導出、日の出/日没は`domain/twilight.py`で計算） |
@@ -30,7 +30,7 @@
 当初 `tile.openstreetmap.org` のラスタタイルを想定していたが、bulk/プログラム的アクセスに対してブロックポリシー（`x-blocked` ヘッダーで拒否）があり、本番はもちろん開発環境でも安定して使えないことを実機検証で確認した。そのため、MapLibre GL JS向けにAPIキー無しで提供されている OpenFreeMap のベクタースタイルに切り替えた。本番運用時は利用規約を再確認し、必要に応じて専用プロバイダ（MapTiler等、APIキー方式）へ切り替えることを推奨する。
 
 ### フロントエンド実装上の注意（maplibre-gl バージョン固定）
-`maplibre-gl` の最新メジャー（v6系）は、Web Worker のスクリプトURLを `new URL(`./${file}`, import.meta.url)` という動的テンプレートリテラルで解決する実装になっており、Next.js のバンドラ（Turbopack / Webpack のいずれも）がこれを静的解析できず、Workerが実際には空のページを読み込んでしまい、スタイル処理・タイル取得が永久に止まる（`isStyleLoaded()` が `true` にならない）現象を実機で確認した。回避策として `maplibre-gl` を `^5.24.0`（自己参照Blob方式のWorkerを使う、Next.js/Webpackとの互換実績が豊富なメジャーバージョン）に固定している。将来 v6系対応が改善された場合はアップグレードを検討する（追随の可否と、6系へ上げなくてもXSS到達経路を塞げることは[docs/tasks/T703.md](tasks/T703.md)。2026-09-11に6.9.0の配布物でこの制約が現在も有効であることを再確認した）。
+`maplibre-gl` の最新メジャー（v6系）は、Web Worker のスクリプトURLを `new URL(`./${file}`, import.meta.url)` という動的テンプレートリテラルで解決する実装になっており、Next.js のバンドラ（Turbopack / Webpack のいずれも）がこれを静的解析できず、Workerが実際には空のページを読み込んでしまい、スタイル処理・タイル取得が永久に止まる（`isStyleLoaded()` が `true` にならない）現象を実機で確認した。回避策として `maplibre-gl` を `^5.24.0`（自己参照Blob方式のWorkerを使う、Next.js/Webpackとの互換実績が豊富なメジャーバージョン）に固定している。将来 v6系対応が改善された場合はアップグレードを検討する（追随の可否と、6系へ上げなくてもXSS到達経路を塞げることは[docs/records/tasks/T703.md](records/tasks/T703.md)。2026-09-11に6.9.0の配布物でこの制約が現在も有効であることを再確認した）。
 
 ### フロントエンド実装上の注意（`@maplibre/maplibre-gl-style-spec` の完全固定）
 `@maplibre/maplibre-gl-style-spec` は `24.10.0` とキャレット無しで完全固定している。このパッケージの `createExpression` は、地図の paint/filter 式が正しいことをテストで検証するための評価器として使っており（`MapView.overlayFilters.test.ts`・`staticAttributeLayers.test.ts`）、**地図が実際に式を評価するのは `maplibre-gl` が内部に持つ同パッケージ**である。両者の版がずれると、テストが通る式が実機で別の意味になりうる（テストの評価器だけが新しい構文を受け付ける、等）。`maplibre-gl` 側の依存範囲（5.24.0 では `^24.8.1`）に収まる版を選び、キャレットで勝手に動かないよう固定する。`maplibre-gl` を上げるときは、上げた先が要求する範囲にこの固定版が収まっているかを併せて確認する。
@@ -99,7 +99,7 @@ GSIのDEMタイル（`https://cyberjapandata.gsi.go.jp/xyz/{type}/{z}/{x}/{y}.tx
 ### Road Graphエンジンの探索性能
 
 リクエストごとの重い処理を持たない構造にしてある。**どれか1つでも崩すと、探索の前に
-数秒かかる状態へ戻る**（段階ごとの実測は[decisions/road-graph-migration.md](decisions/road-graph-migration.md)）。
+数秒かかる状態へ戻る**（段階ごとの実測は[decisions/road-graph-migration.md](records/decisions/road-graph-migration.md)）。
 
 - **探索フェーズはEdgeのgeometry（形状点列）を読まない**。トポロジだけを引く経路を持ち、
   `geom`列をSELECTしない。
@@ -139,7 +139,7 @@ GSIのDEMタイル（`https://cyberjapandata.gsi.go.jp/xyz/{type}/{z}/{x}/{y}.tx
 
 `wind_score`・`road_score`・`total_score`とopenrouteservice由来の路面取得は実装ごと撤去済み
 （改善計画T21・T462・T548）。当時の設計の時系列は
-[decisions/step-log.md](decisions/step-log.md)が持つ。現在の評価は評価軸（軸スタジオ）が
+[decisions/step-log.md](records/decisions/step-log.md)が持つ。現在の評価は評価軸（軸スタジオ）が
 唯一の正本で、7章「静的道路属性と評価モデル」を参照。
 
 ### UI再構成: サイドバー＋地図レイヤーの静的/動的分離
@@ -149,7 +149,7 @@ Step9の可視化はモード切替（総合難易度/標高/風/路面のいず
 - **レイヤー構成の分離**（[frontend/src/components/Map/MapView.tsx](../frontend/src/components/Map/MapView.tsx)）: 4種類のMapLibreレイヤーを常設する構成に変更。
   1. `route-candidates-line`（既存）: 全候補のベース表示（amber未選択/blue選択）。`staticLayer==="none"`のときのみ表示。
   2. `route-static-segments-line`（新規）: **全候補**のセグメントを旧`elevation_difficulty`/旧`road_difficulty`で色分け。選択に関わらず常時利用可能（`MapOverlayControls`のチェックボックスでON/OFF）。
-  3. `route-selected-outline-line`（新規）: 選択中候補の全体ジオメトリを太め・低不透明度のハローで最背面に描画し、①②のどちらの表示中でも選択中候補を常時識別できるようにする（**訂正・改善計画T518/T524（2026-09-01）**: この「常時」は本節が書かれた時点の設計。T518以降は候補線・方向矢印と合わせ、地図上「ルート」チップ[`layerVisibility.route`]のON/OFFに連動する——チップOFFで完全非表示になる、詳細は[docs/tasks/T518.md](tasks/T518.md)参照）。
+  3. `route-selected-outline-line`（新規）: 選択中候補の全体ジオメトリを太め・低不透明度のハローで最背面に描画し、①②のどちらの表示中でも選択中候補を常時識別できるようにする（**訂正・改善計画T518/T524（2026-09-01）**: この「常時」は本節が書かれた時点の設計。T518以降は候補線・方向矢印と合わせ、地図上「ルート」チップ[`layerVisibility.route`]のON/OFFに連動する——チップOFFで完全非表示になる、詳細は[docs/records/tasks/T518.md](records/tasks/T518.md)参照）。
   4. `route-detail-segments-line`（既存を単純化）: 選択中候補のみ、色分けモード（`routeStyleModes.ts`。改善計画T440で動的化・改善計画T549で軸ごとの手動フラグも撤去し、現在は軸スタジオの公開軸から動的生成される各モード＋固定の総合難易度[`difficulty`]。いずれも`segments`に返却済みの値のみ使い追加取得なし）で色分け。ルートレイヤーがONかつ選択中候補にセグメントがある場合のみ表示（一時期は風のみに絞っていたが、その後勾配を追加し、研究インターフェース改善 §10-5で路面・総合難易度も追加、T440でモード集合自体が動的化された）。
   - ①②は`visibility`レイアウトプロパティで排他的に切り替え、③は（本節が書かれた時点では）常時、④は最前面（③の現状はT518/T524の訂正注記参照）。クリック/ホバーの`queryRenderedFeatures`は②④の両方を対象にし、②のポップアップには所属候補が分かるよう`direction_label`を付与している。
 - **静的レイヤーのON/OFF**: 「標高図」「路面」はそれぞれ独立にON/OFFできる（標高はラスタ、路面は線で、色を奪い合わない）。
@@ -160,7 +160,7 @@ Step9の可視化はモード切替（総合難易度/標高/風/路面のいず
 「細かな設定はサイドバーで実施し、地図画面ではON/OFFと適用中の条件が簡潔に分かる程度にしたい」「今後の静的レイヤー追加（交通ストレス等、[static-road-attributes-plan.md](static-road-attributes-plan.md)）や動的レイヤー追加（天候等）を汎用的にやりやすくしたい」という要望を受け、レイヤー操作UIを再構成した（2026-08-15）。
 
 - **レイヤーカタログ**（[frontend/src/components/Map/mapLayers.ts](../frontend/src/components/Map/mapLayers.ts)、新規）: 各レイヤーの`id`/`label`/`kind`（static=地域固定・時間で不変 / dynamic=ルート・時間で変わる）/`description`を宣言する単一ソース。地図上のチップ行とサイドバーのセクション枠はこの配列の列挙で描画されるため、レイヤー追加は「カタログに1エントリ＋`page.tsx`に初期値とサマリ対応＋サイドバーにセクション中身」で済む（この手順は本節が書かれた時点のもの。当時のサイドバー`MapLayersPanel`は撤去済みで、現在の分担は後述の節を参照）。
-- **地図上**（[frontend/src/components/MapOverlayControls/MapOverlayControls.tsx](../frontend/src/components/MapOverlayControls/MapOverlayControls.tsx)）: ON/OFFチップ行と、ONのレイヤーに効いている条件の1行サマリ（例:「路面: アスファルトのみ／幹線道路以外」「ルート: 色分け: 風の影響」。路面はズーム不足の案内を優先）だけを置く。サマリのタップでサイドバーが開き、該当レイヤーの設定セクションへスクロール・フォーカスする。コンポーネント自体はレイヤー固有の知識を持たない汎用描画係になった（レイヤー追加時に変更不要）。**この1行サマリは現在は無い**——凡例を持つレイヤーは▶の中身が必ず凡例になり、サマリが画面へ出る経路が残っていなかったため撤去した（[T945](tasks/T945.md)）。いま▶の中身に出る文言は「ONにしても何も出ない」ときの案内だけで、レイヤーカタログが宣言する。
+- **地図上**（[frontend/src/components/MapOverlayControls/MapOverlayControls.tsx](../frontend/src/components/MapOverlayControls/MapOverlayControls.tsx)）: ON/OFFチップ行と、ONのレイヤーに効いている条件の1行サマリ（例:「路面: アスファルトのみ／幹線道路以外」「ルート: 色分け: 風の影響」。路面はズーム不足の案内を優先）だけを置く。サマリのタップでサイドバーが開き、該当レイヤーの設定セクションへスクロール・フォーカスする。コンポーネント自体はレイヤー固有の知識を持たない汎用描画係になった（レイヤー追加時に変更不要）。**この1行サマリは現在は無い**——凡例を持つレイヤーは▶の中身が必ず凡例になり、サマリが画面へ出る経路が残っていなかったため撤去した（[T945](records/tasks/T945.md)）。いま▶の中身に出る文言は「ONにしても何も出ない」ときの案内だけで、レイヤーカタログが宣言する。
 
 - **状態管理**（`page.tsx`）: レイヤーON/OFFは`layerVisibility: Record<MapLayerId, boolean>`でまとめて持つ（レイヤーごとに個別のstateを作らない）。
 
@@ -178,7 +178,7 @@ Step5-9で実装した標高・風・路面はいずれも「生成済みの候�
 - **ビューポート制限を持たない**: ラスタタイルはズームに応じて自動的に切り替わる標準的なXYZタイルのため、範囲を制限する必要がない（後述の路面データのみズーム範囲の制限を持つ）。
 
 #### 路面データ：自前生成のベクタタイル（`GET /api/region/road-surface-tiles/{z}/{x}/{y}.pbf`）
-標準的なXYZベクタタイル（MVT）として配信し、PostGISを第一系統とする（この方式に至る経緯は[decisions/pre-static-attributes-gate.md](decisions/pre-static-attributes-gate.md)参照）。
+標準的なXYZベクタタイル（MVT）として配信し、PostGISを第一系統とする（この方式に至る経緯は[decisions/pre-static-attributes-gate.md](records/decisions/pre-static-attributes-gate.md)参照）。
 
 - **タイル範囲の算出**: `domain/region.py`の`tile_bounds_lonlat(z, x, y)`が、標準的なスライピータイル座標式（Web Mercator）からタイルが覆う緯度経度範囲を求める。MapLibre自身が使うタイル座標系そのものなので、キャッシュの単位とMapLibreが要求するタイルが一対一に対応する。
 - **MVT生成**: `RegionService.get_road_surface_tile(z, x, y)`（[backend/app/services/region_service.py](../backend/app/services/region_service.py)）が、`repository`（PostGIS、`road_graph_use_repository=true`時）を渡されていればまずPostGIS側（`road_graph_repository.py`の`_ROAD_SURFACE_TILE_MVT_SQL`、`ST_AsMVT`）へ問い合わせる。要求タイルのz12祖先タイルが取込済みマークされていれば、SQL側でMVTバイナリまで丸ごと生成して返す（Pythonでの再エンコードは発生しない）。カバレッジ外・DB障害・`repository`未接続（DBなし構成）の場合は、`infrastructure/vector_tile.py`の`encode_empty_road_surface_tile`が返す道路フィーチャ0件の空タイルにフォールバックする（Overpassへの問い合わせは改善計画T22で撤去済み。ログ方針: 常時WARNING）。
@@ -266,7 +266,7 @@ Step10の標高・路面は「地域に固定・時間で変わらない」重�
   数値予報モデルによる予測、`rasterTile`表現）。`member`フィールドが"immed"（直近0〜6時間、
   高頻度更新）と"none"（7〜15時間先、毎正時更新）の2系統を持ち、同一basetime配下に
   中間ランの単発validtimeや別プロダクト（線状降水帯予測マップ`sjfcstmap`、
-  [T410](tasks/T410.md)で実装）の行が混在するため、`elements.includes("rasrf")`で
+  [T410](records/tasks/T410.md)で実装）の行が混在するため、`elements.includes("rasrf")`で
   絞り込んだ上で「異なるvalidtimeを複数持つ最新のbasetime」を選ぶ（`fetchRasrfFrames`）。
   ②+15時間より先（〜約48時間先）は上記の風と同じ格子点マップへ`precipitation`（mm/h）を
   相乗りさせ、`gridFill`表現（格子をセルとして塗る）で継ぎ足す。1回のフェッチで風・
@@ -390,7 +390,7 @@ Cloud VMへネイティブ（apt、PostgreSQLと同じ構成）で導入する�
 - **降水ナウキャスト・MSMはRedisを経由しない**: ナウキャストはフロントエンド
   （[precipitationNowcast.ts](../frontend/src/components/Map/precipitationNowcast.ts)）が
   `targetTimes_N1/N2.json`を直接取得してタイルURLを組み立てるため、バックエンド側に
-  解決の経路を持たない。MSMのGRIB2解析は[T389](tasks/T389.md)（有償契約が前提、保留中）で
+  解決の経路を持たない。MSMのGRIB2解析は[T389](records/tasks/T389.md)（有償契約が前提、保留中）で
   扱う。
 - **JMA動的タイル本体のRedis cache-aside（`app/infrastructure/jma_tile_redis_cache.py`、
   改善計画T510）**: 上記「降水ナウキャスト・MSMのRedis化は見送り済み」とは別物——あちらは
@@ -408,20 +408,20 @@ Cloud VMへネイティブ（apt、PostgreSQLと同じ構成）で導入する�
 - **Open-Meteo全面代替の可否（T645で達成済み）**: ルート評価（旧`WindService`、区間ごと・将来時刻の風速
   風向）と風の格子点マップは、任意地点×任意時刻の予報が必要なためアメダス（観測専用）・
   ナウキャスト（降水のみ・60分先まで）では代替できず、MSM実装後に改めて検証する
-  （候補はMSMのみだが[T389](tasks/T389.md)は保留中）。降水短時間予報（`jmatile/data/
-  rasrf/`、無料・公式、15時間先まで確認済み）は[T407](tasks/T407.md)、線状降水帯予測マップ
-  （`sjfcstmap`、無料・公式）はキキクルと合わせて[T410](tasks/T410.md)で実装済み
+  （候補はMSMのみだが[T389](records/tasks/T389.md)は保留中）。降水短時間予報（`jmatile/data/
+  rasrf/`、無料・公式、15時間先まで確認済み）は[T407](records/tasks/T407.md)、線状降水帯予測マップ
+  （`sjfcstmap`、無料・公式）はキキクルと合わせて[T410](records/tasks/T410.md)で実装済み
   （いずれも「動的気象レイヤー」節参照）。UV指数・weather_code相当のJMAプロダクトは
   無料の代替が見つからずOpen-Meteo依存を継続していたが、T645でMSMのローカル同期へ移行し、
   weather_code相当は雲量・降水・気温からの導出（`domain/weather.py: derive_weather_code`）
   へ置き換え、UV指数は表示ごと廃止してOpen-Meteo依存を解消した。
-- **ルート生成の経路にRedisを置かない（[T652](tasks/T652.md)）**: 探索が読む材料は自前のPostGISから復元でき、Redisは外部への負荷を肩代わりするものだけに使う（docs/caching.md）。
+- **ルート生成の経路にRedisを置かない（[T652](records/tasks/T652.md)）**: 探索が読む材料は自前のPostGISから復元でき、Redisは外部への負荷を肩代わりするものだけに使う（docs/conventions/caching.md）。
 
 ### ルーティングエンジン
 
 **road_graph単一構成**。エンジンを切り替える仕組み（設定の旧`routing_engine`、複数値の
 `RouteGenerateResponse.engine`、旧`OpenRouteServiceEngine`）は撤去済みで、探しても実装に
-無い（切り替えが存在した期間の設計記録は[decisions/road-graph-migration.md](decisions/road-graph-migration.md)）。
+無い（切り替えが存在した期間の設計記録は[decisions/road-graph-migration.md](records/decisions/road-graph-migration.md)）。
 
 ### 道路種別（highway）の3つのスコープと路面（surface）語彙の正準定義
 
@@ -857,7 +857,7 @@ Response 404（宣言に無いid）／422（宣言の範囲の外）
 いずれも実感に合わせて置いた値で較正されていない。**変えるたびにデプロイするのでは実走で
 確かめられない**ため、宣言（`backend/app/domain/tuning.py`）と、そこから動かしたぶんだけを
 持つ`tuning_overrides`テーブル（migration `0043_add_tuning_overrides.sql`）へ分けた
-（[T805](tasks/T805.md)）。
+（[T805](records/tasks/T805.md)）。
 
 - **行が1つも無くても宣言どおりに動く**。`axis_definitions`のような「行そのものが定義」の
   形ではないため、fresh bootstrap（CI・新規環境・disaster recovery）でスナップショットの
@@ -874,7 +874,7 @@ Response 404（宣言に無いid）／422（宣言の範囲の外）
 信号とみなす半径は`road_nodes`の事前計算バッチをやり直すまで効かない。管理画面はこの値で
 見出しを分け、効かない群がそれと分かるようにする。**「プロセスを入れ替えれば効く」という
 効き方は置けない**——上書きを読むのは全importの後のため、import時に束ねた値は起動を
-やり直しても同じ順序で束ね直るだけである（[T940](tasks/T940.md)。詳細は
+やり直しても同じ順序で束ね直るだけである（[T940](records/tasks/T940.md)。詳細は
 [docs/modules/backend/routing-engine.md](modules/backend/routing-engine.md)「較正値」節）。
 
 画面は`/admin`の「較正値」タブで、APIは`GET/PUT /api/admin/tuning`（4章参照）。
@@ -894,7 +894,7 @@ Response 404（宣言に無いid）／422（宣言の範囲の外）
 8方位ぶんの経由地点を球面三角法で作りopenrouteserviceへ問い合わせていた候補生成、および
 候補集合内でmin-max正規化して合成していた`wind_score`・`road_score`・`total_score`はいずれも撤去済み
 （改善計画T462でroad_graphエンジンへ一本化、重みを持っていた`scoring.yaml`はT548で撤去済み）。
-当時の各Stepが何を実装したかは[decisions/step-log.md](decisions/step-log.md)が記録している。
+当時の各Stepが何を実装したかは[decisions/step-log.md](records/decisions/step-log.md)が記録している。
 
 ### 評価重みのリクエスト上書きと評価モデル研究時の構成（研究インターフェース改善 Phase 1）
 
@@ -1069,7 +1069,7 @@ stop_difficulty`が、停止要因POI（信号・横断歩道・一時停止・�
 4フラグ材料（`highway_is_cycleway`/`cycleway_has_track`/`cycleway_has_lane`/
 `cycleway_has_shared`）を直接参照する現在の構成へ再設計された（詳細は
 「停止密度・車ストレス・自転車インフラ・交差点密度」節・
-[material-normalization-for-axis-composition.md](decisions/material-normalization-for-axis-composition.md)参照）。
+[material-normalization-for-axis-composition.md](records/decisions/material-normalization-for-axis-composition.md)参照）。
 この再設計に伴い、
 `RouteSegmentDetail.bicycle_infra`（7値分類の生値）・`classify_bicycle_infrastructure`
 （分類関数）・MVTタイルの`bicycle_infra`プロパティ・専用地図レイヤー（旧`bicycleInfra`）は
@@ -1224,7 +1224,7 @@ DB未接続・テーブル未migration・0行（＝migration未適用）・未�
 ——新イメージが実際にimportできるかの起動確認と、コンテナへマウントするラスタの取得である。
 どちらも「旧コンテナが動いているうちに失敗する」位置に置いてあり、失敗しても稼働中の本番は
 止まらない（起動確認が無かったときは、共有ライブラリを1つ入れ忘れたイメージがそのまま
-入れ替わり、本番が起動しなくなった。[T886](tasks/T886.md)）。**どのステップがどの順に
+入れ替わり、本番が起動しなくなった。[T886](records/tasks/T886.md)）。**どのステップがどの順に
 走るかの正本はワークフロー自身**で、ここへ書き写さない。
 
 管理API（`/api/admin/axis-definitions`、`api/routers/axis_admin.py`）は軸定義の
@@ -1431,7 +1431,7 @@ DB化済みの`AXIS_DEFINITIONS`側を表示名の単一ソースにした。
 ### 材料カタログのレジストリ
 
 > 経緯・教訓（display_only方針転換の紆余曲折、categorical dtype対応のGUI/backend乖離期間等）は
-> [decisions/material-catalog-registry.md](decisions/material-catalog-registry.md)参照。
+> [decisions/material-catalog-registry.md](records/decisions/material-catalog-registry.md)参照。
 
 `domain/material_catalog.py: MaterialSpec`/`MATERIAL_CATALOG`が「材料」（軸が参照する
 `MaterialTerm.material`等の文字列id）の単一の情報源。各材料は`material_id`・`label`・
@@ -1538,7 +1538,7 @@ T278（上記）の自動導出は実装されていたが、導出結果の配�
 - **フロントの実行時フェッチ化**: 軸に依存する一覧（地図レイヤーのカタログ・ラベル・
   二次軸・絞り込み軸）は、手書きの定数ではなく`buildX(rampAxes)`形の純関数が軸カタログから
   組み立てる（`axisLayers.ts`・`mapLayers.ts`・`secondaryAxes.ts`・`staticAttributeLayers.ts`。
-  撤去済みの旧定数名は`docs/tasks/`側の記録を参照）。`useAxisCatalog.ts`が
+  撤去済みの旧定数名は`docs/records/tasks/`側の記録を参照）。`useAxisCatalog.ts`が
   マウント時の`GET /api/axis-catalog`取得結果からこれらを`useMemo`で算出し、
   取得完了/失敗時は静的フォールバックを返す（`useMaterialCatalog.ts`と同型のパターン、
   T269の踏襲）。`page.tsx`/`MapView.tsx`/`MapOverlayControls.tsx`は
@@ -1549,7 +1549,7 @@ T278（上記）の自動導出は実装されていたが、導出結果の配�
   へ反映されるのは再デプロイ後」という制約はライブ取得側では解消。ビルド時静的
   生成物自体は取得失敗時フォールバックとして引き続き生成・コミットする）。
 - **事前計算した静的な一覧を残さない**: `build*(RAMP_AXES)`を静的引数で先に計算して
-  exportした定数（撤去済み、名前は`docs/tasks/`側の記録を参照）は、上記の実行時フェッチ化で本体コードの
+  exportした定数（撤去済み、名前は`docs/records/tasks/`側の記録を参照）は、上記の実行時フェッチ化で本体コードの
   消費者が全て`build*(catalog.rampAxes)`直呼びへ移行済みで、exportされた定数側は
   テストからしか参照されなくなっていた。定数自体を撤去し、テストは`build*(RAMP_AXES)`を
   明示的に呼ぶ形＋軸スタジオのGUI作成軸を含む拡張カタログでの反映確認テストへ書き換えた
@@ -1675,7 +1675,7 @@ _CODE_COUPLED_AXIS_IDS`に残るのは、上の汎用化でも外せない軸だ
 ### 地図表示の導出（`axis_display_for`・`derive_ramp_inputs`）
 
 軸の地図表示（ramp）は**軸定義から自動導出する**。手書きの上書きフィールドは持たない
-（撤去の経緯は[T404](tasks/T404.md)・[T409](tasks/T409.md)）。
+（撤去の経緯は[T404](records/tasks/T404.md)・[T409](records/tasks/T409.md)）。
 
 `axis_display_for()`の優先順位は2段階:
 
@@ -1829,7 +1829,7 @@ adjustment"]`——改善計画T292で専用Pythonレシピの`motor_vehicle_no_
   （`is_dedicated_bicycle_infra(flags)`から算出していた）も、改善計画T431で
   `ComparisonPanel`が`axis_difficulties`駆動へ移行し末端消費者ゼロになったため削除済み
   （詳細な経緯・教訓は
-  [material-normalization-for-axis-composition.md](decisions/material-normalization-for-axis-composition.md)参照）。
+  [material-normalization-for-axis-composition.md](records/decisions/material-normalization-for-axis-composition.md)参照）。
 - **交差点密度**: 次数3以上（`INTERSECTION_DEGREE_THRESHOLD`）のノード。その道の構成ノード
   であることで帰属を決める（近くにあるだけの交差点は数えない）。材料
   `intersection_count_per_km`としてカタログにあるが、これを使う公開軸は現在無い。
@@ -1837,7 +1837,7 @@ adjustment"]`——改善計画T292で専用Pythonレシピの`motor_vehicle_no_
   引き続き独立に保持する。
 
 **地図表示ロジックと評価軸材料の分離原則（改善計画T341、教訓はT347再検証込みで
-[material-normalization-for-axis-composition.md](decisions/material-normalization-for-axis-composition.md)参照）**:
+[material-normalization-for-axis-composition.md](records/decisions/material-normalization-for-axis-composition.md)参照）**:
 評価軸（`AXIS_DEFINITIONS`）が参照する材料は正規化された生データ（数値・boolean・単純
 categorical）に統一する。地図表示・API応答向けの人間可読な分類ラベルは評価軸の材料とは
 別レイヤーの関心事であり、評価軸から参照されなくなったという理由**だけ**では削除対象に
@@ -1952,11 +1952,11 @@ T350のDB設計書レビューで、`edge_attribute_counts`/`way_attribute_count
 `designation_attributes`（いずれも上記の事前計算バッチが書く派生データ）が
 `computed_at`/`calculated_at`しか持たず、(a) どの`accident_import_runs`/
 `osm_import_runs`の内容から計算したか、(b) 「入力データが古い」のか「計算ロジックが
-変わった」のかを区別する手段が無いと判明した（[docs/tasks/T351.md](tasks/T351.md)参照）。
-以下の列を追加した（[T624](tasks/T624.md)で新設した`way_landcover`もosm起点の派生データ
+変わった」のかを区別する手段が無いと判明した（[docs/records/tasks/T351.md](records/tasks/T351.md)参照）。
+以下の列を追加した（[T624](records/tasks/T624.md)で新設した`way_landcover`もosm起点の派生データ
 としてこのパターンへ合流している。以後に増えた`edge_landcover`（区間単位の土地被覆、
-[T919](tasks/T919.md)）・`way_geometry`（wayの折れ線から測るスカラー。現在の中身は
-道の曲がり具合＝度/km、[T691](tasks/T691.md)）・`way_divided_carriageway`（上下線が分かれた道の片側か）も
+[T919](records/tasks/T919.md)）・`way_geometry`（wayの折れ線から測るスカラー。現在の中身は
+道の曲がり具合＝度/km、[T691](records/tasks/T691.md)）・`way_divided_carriageway`（上下線が分かれた道の片側か）も
 同じ形で、いずれも`source_osm_import_run_id`と`algorithm_version`を持つ。
 `raw_intersection_nodes`（次数3以上の生OSMノード）はこれらの集計が参照する側の派生データ
 で、バッチが全再構築するため世代の列を持たない）:
@@ -1992,7 +1992,7 @@ T350のDB設計書レビューで、`edge_attribute_counts`/`way_attribute_count
   `array_agg(DISTINCT b.id)`で配列として保持する設計にした。
 
 **現時点でできること・できないこと**: これらの列は「記録」のみで、生データが更新された際に
-自動で再計算をトリガーする仕組みは持たない（[docs/batch-pipeline-dependencies.md](batch-pipeline-dependencies.md)
+自動で再計算をトリガーする仕組みは持たない（[docs/modules/backend/batch-pipeline-dependencies.md](batch-pipeline-dependencies.md)
 「段階2・3」参照）。記録された値を人が`SELECT`で参照し、現在の`accident_import_runs`/
 `osm_import_runs`のMAX(id)と比較することで「再計算が必要か」を判断できるようになっただけ——
 T281段階3（鮮度台帳、自動比較の仕組み）に着手する際は、この列がそのまま材料になる。
@@ -2085,7 +2085,7 @@ T281段階3（鮮度台帳、自動比較の仕組み）に着手する際は、
    **どのラスタを開いているかはURLの世代に入らない**——環境変数で環境ごとに違い、
    生成物をビルド機の設定で決めてしまうため。サーバー側のディスクキャッシュは
    ラスタ構成の指紋でディレクトリを分け、ブラウザ側は`immutable`を付けないことで
-   再検証できるようにしてある（`docs/caching.md`のディスク保持の節参照）。
+   再検証できるようにしてある（`docs/conventions/caching.md`のディスク保持の節参照）。
 
 DBから焼くタイル（上記のうちPNGラスタ以外）の世代は焼き込みSQLと、そこへあらかじめ束ねた値から導出される
 （`app/infrastructure/cache_identity.py`）ため、プロパティを足す・消す・式を変える・
@@ -2101,7 +2101,7 @@ DBから焼くタイル（上記のうちPNGラスタ以外）の世代は焼き
 上げ忘れ（古い値を配り続ける）と、バッチ完了後にもう一度上げ直す必要（デプロイとバッチの
 間に配信されたタイルが、新しい鍵のまま古い値でキャッシュへ載る）の両方が起きる。
 組み立てた世代は`GET /api/axis-catalog`の応答へ相乗りさせてフロントへ配り、フロントは
-タイルURLのクエリへ入れてブラウザのキャッシュを分ける（[T848](tasks/T848.md)）。
+タイルURLのクエリへ入れてブラウザのキャッシュを分ける（[T848](records/tasks/T848.md)）。
 
 ### レジストリ駆動の二次軸ランプレイヤー
 
@@ -2133,7 +2133,7 @@ MapLibre expressionで行う」方式だが、風のように**道路自身に�
 関与する材料**は、レシピ非依存の事実そのものがタイル生成時点では定まらない（同じ道路でも
 時刻によって値が変わる）ため、この方式に乗らない。
 
-こうした「動的材料」は、材料非依存の共通**状態機械**（[docs/tasks/T400.md](tasks/T400.md)
+こうした「動的材料」は、材料非依存の共通**状態機械**（[docs/records/tasks/T400.md](records/tasks/T400.md)
 「2.」節）に従う: ルート未確定時は「ユーザーが指定したパラメータ（風なら時刻＋走行方位）を
 視界内の全道路へ一律適用」・ルート確定後は「ルート自身の実値（実進行方向・実到達時刻）で
 ルート線のみへ着色」。**道路自身のOSM格納方向や現在時刻で評価してはならない**——利用者が
@@ -2199,8 +2199,8 @@ T400.md「3.」節の実装（T352）で既に存在しており、T414で新規
 #### 勾配（gradient）と配信機構の汎用化
 
 勾配も標高データ自体は既に永続化済み（`elevation_attributes`テーブル、T218a）のため同じ状態
-機械に乗る（[T423](tasks/T423.md)、2026-08-30完了）。風・勾配の2例が揃ったことをトリガーに、
-[T411](tasks/T411.md)（バックエンド配信機構の汎用化検討）も同時に実施した。
+機械に乗る（[T423](records/tasks/T423.md)、2026-08-30完了）。風・勾配の2例が揃ったことをトリガーに、
+[T411](records/tasks/T411.md)（バックエンド配信機構の汎用化検討）も同時に実施した。
 
 **風との違い（設計上の要点）**: 風は「道路自身の向きが不要」という訂正を経た材料（T414）だが、
 勾配は逆に**道路自身の向きが本質的に必要**——`gradient_percent`自体が道路の始点→終点方向を
@@ -2332,7 +2332,7 @@ T352〜T434の間、"wind"は`supports_route_coloring`経由で動的に生成�
 ### 地図チップの最上位グルーピング（道路/環境/スポット）と一次/二次命名
 
 > 経緯・教訓（T167の自動ON連動導入→T181/T214での撤去、T215のタッチスクロール不具合対応等）は
-> [decisions/map-chip-primary-secondary-registry.md](decisions/map-chip-primary-secondary-registry.md)参照。
+> [decisions/map-chip-primary-secondary-registry.md](records/decisions/map-chip-primary-secondary-registry.md)参照。
 
 一次属性・二次軸の命名・材料の単一ソースは`domain/registry.py`/`registry_defaults.py`（T163）で、
 `export_openapi.py`が`axis-catalog.json`へ書き出す。フロント側は
@@ -2343,10 +2343,10 @@ T352〜T434の間、"wind"は`supports_route_coloring`経由で動的に生成�
 **地図上チップ（`MapOverlayControls.tsx`）の最上位グルーピング**は改善計画T406（2026-08-30）で
 「観測データ/推定指標（合成）/動的データ」（データの出自による3分類）から「道路/評価軸/環境/
 スポット」（対象＝何についての情報かによる4分類）へ再編し
-（[docs/tasks/T400.md](tasks/T400.md)「1. パネルの最上位グルーピング」節・
-[docs/tasks/T406.md](tasks/T406.md)参照）、続く改善計画T418（2026-08-30）で「評価軸」チップ
+（[docs/records/tasks/T400.md](records/tasks/T400.md)「1. パネルの最上位グルーピング」節・
+[docs/records/tasks/T406.md](records/tasks/T406.md)参照）、続く改善計画T418（2026-08-30）で「評価軸」チップ
 自体を地図UIから撤去し「道路/環境/スポット」の3分類になった
-（[docs/tasks/T418.md](tasks/T418.md)参照）。評価軸（`car_stress`等のramp軸・専用way値配信軸
+（[docs/records/tasks/T418.md](records/tasks/T418.md)参照）。評価軸（`car_stress`等のramp軸・専用way値配信軸
 [風・勾配]）は、道路・環境・スポットと違い**ルートの状態と常に結び付いた道具**（ルート生成前は
 重み配分を検討する材料、生成後は結果を分析する材料）であり、ルートの有無に関係なく意味が
 一定な「地図そのものの見え方」設定として常設チップに置くこと自体が目的と合っていなかった、
@@ -2428,9 +2428,9 @@ Edge全量再UPSERT）だけを`config.py: graph_build_max_concurrent`（既定1
 
 ## 9. Road Graph移行
 
-経緯・フェーズ別の詳細は [decisions/road-graph-migration.md](decisions/road-graph-migration.md) へ移動した。
+経緯・フェーズ別の詳細は [decisions/road-graph-migration.md](records/decisions/road-graph-migration.md) へ移動した。
 現状の要点:
 
 - `/api/routes/generate`はRoad Graph＋numbaでJITしたDijkstra/A*の単一構成（改善計画T247で既定化、改善計画T462でopenrouteservice委譲・切替設定自体を完全撤去、1章「ルーティングエンジンの切り替え対応」参照）
-- OSMデータはPBF取込バッチ（`app/batch/import_pbf.py`）でPostGISへ事前取込済みの範囲を第一系統とし、Overpassフォールバックは改善計画T22で撤去済み（取込範囲外は空タイル/データ未整備扱い。docs/osm-pbf-import.md、[decisions/pre-static-attributes-gate.md](decisions/pre-static-attributes-gate.md)参照）
+- OSMデータはPBF取込バッチ（`app/batch/import_pbf.py`）でPostGISへ事前取込済みの範囲を第一系統とし、Overpassフォールバックは改善計画T22で撤去済み（取込範囲外は空タイル/データ未整備扱い。docs/osm-pbf-import.md、[decisions/pre-static-attributes-gate.md](records/decisions/pre-static-attributes-gate.md)参照）
 - 永続化層の構造（生OSM層／派生グラフ／属性／表示用MVTの4リポジトリ＋ファサード、トランザクション境界の規約）は`infrastructure/road_graph_repository.py`のdocstring参照

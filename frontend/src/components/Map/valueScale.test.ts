@@ -1,5 +1,5 @@
 // @vitest-environment node
-// 配色・段階分けの純粋関数のみを検証する（docs/testing.mdパターン3）。
+// 配色・段階分けの純粋関数のみを検証する（docs/conventions/testing.mdパターン3）。
 import { describe, expect, it } from "vitest";
 import { legendBandKey } from "./mapColorLegend";
 import {

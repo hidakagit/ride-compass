@@ -134,7 +134,7 @@ def test_jma_tile_proxy_cache_hit_does_not_consume_rate_limit():
 
     try:
         # レート制限の残り枠を1つだけ残した状態を直接作る（境界値テストは
-        # rate_limiter.check_rate_limitを直接呼んで埋める方針、docs/testing.md参照）。
+        # rate_limiter.check_rate_limitを直接呼んで埋める方針、docs/conventions/testing.md参照）。
         for _ in range(settings.jma_tile_rate_limit_per_minute - 1):
             rate_limiter.check_rate_limit("jma-tile:testclient", settings.jma_tile_rate_limit_per_minute)
         path = "/api/jma-tile/bosai/jmatile/data/risk/20260829170000/immed0/20260829170000/surf/land/11/1818/805.png"

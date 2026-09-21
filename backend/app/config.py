@@ -168,7 +168,7 @@ class Settings(BaseSettings):
     # 焼き済みタイル・外部タイルの置き場（infrastructure/tile_cache.py）の容量上限（MB）。
     # この置き場は鍵に世代を持たないため、形の署名が変わった旧世代は書かれなくなるだけで
     # 残り続ける。起動時に古い順で上限まで落とす。**現状これは発火しない**——本番の実測は
-    # 数十MB規模（docs/caching.md「現在のディスク保持」）で、上限は伸び続けたときの
+    # 数十MB規模（docs/conventions/caching.md「現在のディスク保持」）で、上限は伸び続けたときの
     # 頭打ちとして置いている。実測に対して1桁の余裕があり、通常の運用では何も消えない。
     tile_cache_size_limit_mb: int = 512
 

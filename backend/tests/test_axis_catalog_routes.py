@@ -162,7 +162,7 @@ def test_get_axis_catalog_primary_attribute_ids_match_legacy_static_inputs():
 
     assert set(entries_by_id["gradient"]["primary_attribute_ids"]) == {"elevation"}
     assert set(entries_by_id["surface_q"]["primary_attribute_ids"]) == {"surface"}
-    # 交差点密度はT655で停止密度の材料から外れた（docs/tasks/T655.md「交差点密度の扱い」）。
+    # 交差点密度はT655で停止密度の材料から外れた（docs/records/tasks/T655.md「交差点密度の扱い」）。
     assert set(entries_by_id["stop_density"]["primary_attribute_ids"]) == {"stop_poi"}
     assert set(entries_by_id["night"]["primary_attribute_ids"]) == {"lit", "tunnel"}
     assert set(entries_by_id["accident"]["primary_attribute_ids"]) == {"accident_point"}
@@ -233,7 +233,7 @@ def test_get_axis_catalog_includes_raw_value_unit():
 
 def test_get_axis_catalog_includes_material_breakdown():
     # 単位が定まらない軸は、材料まで分解した内訳を持つ（得点だけでは軸単体で判断できない、
-    # docs/tasks/T689.md）。並びは正規化重みの降順で、フロントは並べ替えを持たない。
+    # docs/records/tasks/T689.md）。並びは正規化重みの降順で、フロントは並べ替えを持たない。
     response = client.get("/api/axis-catalog")
 
     entries_by_id = {entry["axis_id"]: entry for entry in response.json()["axes"]}

@@ -1,4 +1,4 @@
-// T424回帰テスト（docs/tasks/T424.md、2026-08-30起票のP0バグ修正）: emptyDraft()・
+// T424回帰テスト（docs/records/tasks/T424.md、2026-08-30起票のP0バグ修正）: emptyDraft()・
 // draftFromExisting()が`materialOptions[0].id`を無条件参照しており、materialOptionsが
 // 空配列のときマウント直後にTypeErrorでクラッシュしていた。useMaterialCatalog()は
 // 2026-08-25の修正で「取得成功したがmaterialsが0件」の場合、静的フォールバック

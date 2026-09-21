@@ -5,7 +5,7 @@ import { resolveTileBaseUrl } from "./tileBaseUrl";
 // 配信オリジンの決め方の唯一の検証場所。`process.env`も`window`も触らずに済むよう、
 // 判断は`resolveTileBaseUrl`（引数だけで決まる純関数）へ出してある——`process.env`は
 // テストファイルをまたいで共有されるため、環境変数を立てて検証すると並行実行中の別ファイルの
-// 期待値を静かに書き換える（docs/testing.md「環境変数に依存する挙動のテスト」参照）。
+// 期待値を静かに書き換える（docs/conventions/testing.md「環境変数に依存する挙動のテスト」参照）。
 describe("resolveTileBaseUrl", () => {
   it("配信オリジンが設定されていればそのオリジンを使う", () => {
     expect(resolveTileBaseUrl("https://tiles.example.test", "http://localhost:3000")).toBe(

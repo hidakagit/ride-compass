@@ -99,7 +99,7 @@ jobs:
       - run: python -m ruff check app scripts benchmarks tests
       # -n auto（pytest-xdist、改善計画T233フォローアップ）でCPUコア数ぶん並列化する。
       # PostGIS統合テストは全ファイルxdist_group="postgis"で同一workerへ固定済み
-      # （同じridecompass_test DBへの同時TRUNCATEレースを防ぐ、docs/testing.mdパターン2）
+      # （同じridecompass_test DBへの同時TRUNCATEレースを防ぐ、docs/conventions/testing.mdパターン2）
       # なので、それら以外のテストだけが安全に並列化される。上記コメント参照:
       - run: python -m pytest -q -n auto --dist loadgroup
       # API契約ドリフト検知（改善計画T4）。差分が出た場合は、backendの宣言を変えたのに

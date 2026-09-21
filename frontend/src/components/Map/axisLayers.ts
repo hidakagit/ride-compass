@@ -8,7 +8,7 @@
 //   1. 軸スタジオ（GUI）またはbackendのAXIS_DEFINITIONSへ軸を追加・公開する
 //   2. タイルへ事実プロパティを焼き込む（way_attribute_counts等、材料がタイル非依存でなければ）
 // だけで、再デプロイなしに地図レイヤーとして現れる（軸スタジオでの公開操作が
-// `useAxisCatalog`経由で即座に反映される。docs/decisions/
+// `useAxisCatalog`経由で即座に反映される。docs/records/decisions/
 // t308-axis-map-display-auto-derivation.md参照）。
 //
 // rampの値は tile_inputs から組み立てる。数値材料はΣ property×weight（例: 停止密度は

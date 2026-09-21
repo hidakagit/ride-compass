@@ -1,0 +1,172 @@
+# バッチパイプラインの依存関係（改善計画T281段階1）
+
+`backend/app/batch/`配下10バッチの実行順序・再実行要否は、これまでmigrationコメントと
+各スクリプトのdocstringに分散した不文律のままだった。ランタイムの遅延構築（`GraphService`の
+`save_graph`経由）で生まれた新規Edgeは、対応するバッチの手動再実行まで`edge_attribute_counts`/
+`elevation_attributes`が欠損し、stop/accident/intersection/gradient軸が**黙って評価から
+抜け落ちる**（重み再正規化で薄まるだけで検知できない）。T74・T101・T242の本番障害は
+いずれもこのクラスであり、対策が「人が気をつけるルール」に留まっていた。本ファイルは
+依存DAGを1枚に可視化し、この再発パターンを見つけやすくする。
+
+読み取り専用の調査結果であり、コードの挙動を変えるものではない。バッチ本体の実装は
+各スクリプトのdocstring・`import_profile.yaml`が正準（本ファイルはそれらの要約・
+横断的な依存関係の可視化）。
+
+**2026-08-30追記（改善計画T351）**: ⑥`precompute_edge_attribute_counts.py`・
+⑧`precompute_way_attribute_counts.py`・⑨`match_designations.py`が書き込む先
+（`edge_attribute_counts`/`way_attribute_counts`/`designation_attributes`）へ、
+実行時点の`accident_import_runs`/`osm_import_runs`の最新成功run id
+（`source_accident_import_run_id`/`source_osm_import_run_id`、高水位マーク）と
+`algorithm_version`を記録する列を追加した。これにより「このバッチはどのデータ世代を
+見て計算したか」がDB上で機械的に確認できるようになった。この列を実際に突き合わせて
+可視化する鮮度台帳は下記「5. 鮮度台帳」参照。詳細はdocs/records/tasks/T351.md参照。
+
+## 1. 依存順序（実行順）
+
+```
+【第1グループ: 生データ取込（相互に独立、どの順でもよい）】
+① import_pbf.py           PBFファイル → osm_raw_ways / osm_raw_nodes / osm_raw_pois
+② import_accidents.py     警察庁公開CSV → accident_points
+③ import_designations.py  国土数値情報N10/N12 → route_designations
+
+【交差点分割（①の後、第2グループの前提）】
+④ presplit_road_graph.py  osm_raw_ways/osm_raw_nodes（①の出力）→ road_edges / road_nodes
+      └─ 取込済み全タイルを走査しGraphServiceの再構築経路（closure→build_road_graph→
+         save_graph）を適用する。未実行の範囲は`GraphService.get_or_build_graph_with_attributes`
+         がルート生成リクエスト内で同じ経路を遅延実行する安全網が働くため、本バッチは
+         「ランタイムの初回リクエストで数十秒級の遅延が起きるのを避ける」ための事前実行であり、
+         省略しても機能上は成立する（ただし後述⑤⑥[旧④⑤]は`road_edges`が存在しないと空実行になる）
+
+【第2グループ: road_edges起点の派生計算（④のroad_edges作成後、かつ内部順序あり）】
+⑤ precompute_road_node_degrees.py     road_edges → road_nodes.degree
+      └─ 必ず⑥より先に実行すること（⑥のintersection_count計算が参照するため）
+⑥ precompute_edge_attribute_counts.py  road_edges + accident_points + osm_raw_pois
+                                        + road_nodes.degree → edge_attribute_counts
+⑦ precompute_elevation_attributes.py   road_edges + GSI DEM API → elevation_attributes
+      └─ ⑤⑥との明示的な前後関係なし。road_edgesにのみ依存
+⑭ precompute_road_node_intersections.py road_edges + osm_raw_pois
+                                        → road_nodes.has_traffic_signals / max_highway_rank
+      └─ ⑤⑥との明示的な前後関係なし。road_edgesとosm_raw_poisにのみ依存
+
+【第3グループ: osm_raw_ways起点の派生計算（road_edges非依存）】
+⑧ precompute_way_attribute_counts.py   osm_raw_ways + accident_points + osm_raw_pois
+                                        → raw_intersection_nodes / way_attribute_counts
+⑨ match_designations.py                route_designations（③の出力）+ osm_raw_ways.geom
+                                        → designation_attributes
+      └─ ③の後、かつ①（osm_raw_ways更新）の後に再実行が必要
+⑩ precompute_way_landcover.py          osm_raw_ways + Esri LULC GeoTIFF（手動取得、コミット
+                                        しない） → way_landcover
+      └─ ①（osm_raw_ways更新）の後に再実行が必要。ラスタ自体の年次更新
+         （`--data-version`+`--recompute`）でも再実行が要る
+
+⑬ precompute_way_divided_carriageway.py
+                                        osm_raw_ways.geom+tags → way_divided_carriageway
+      └─ ①（osm_raw_ways更新）の後に再実行が必要（road_edges非依存）。判定は他のwayとの
+         位置関係を見るため、対象wayだけでなく周辺のwayが揃っている必要がある
+```
+
+`precompute_elevation_attributes.py`のみ、`ElevationAttributeService.get_attributes_for_graph`
+が「未計算のEdgeのみ計算する」設計のため**増分実行が可能**（新規Edge追加後にバッチ全体を
+再実行しても安全、他のprecomputeは全件洗い替え）。
+
+## 2. バッチ別の入出力・依存・再実行トリガー
+
+| # | バッチ | 入力 | 出力 | 前提 | 再実行トリガー | 冪等性 |
+|---|---|---|---|---|---|---|
+| ① | `import_pbf.py` | PBFファイル（`--pbf`）+ `import_profile.yaml` | `osm_raw_ways`（UPSERT）/ `osm_raw_nodes`（DO NOTHING、座標更新は追わない）/ `osm_raw_pois`（UPSERT）/ `osm_import_runs` | なし | PBFデータ更新時 | UPSERTだが**ノード座標の移動は追わない**（位置補正には完全再取込が必要） |
+| ② | `import_accidents.py` | 警察庁公開CSV（`--years`） | `accident_points`（`accident_id`でUPSERT）/ `accident_import_runs` | なし | 年次データ更新時 | UPSERT、安全 |
+| ③ | `import_designations.py` | 国土数値情報N10/N12 ZIP（自動DL） | `route_designations`（kind, pref_code単位でDELETE→INSERT）/ `designation_import_runs` | なし | KSJデータ更新時 | DELETE→INSERT、安全 |
+| ④ | `presplit_road_graph.py` | `osm_raw_ways`/`osm_raw_nodes`（取込済み全z12タイル） | `road_edges`/`road_nodes`（`GraphService.get_or_build_graph_with_attributes`と同じ再構築経路） | ①でosm_raw_waysが存在すること | PBF再取込時（`is_split_up_to_date`がFalseになったタイルのみ再構築、`is_split_up_to_date`判定を使い済タイルはスキップし冪等） | 未split分のみ再構築、安全 |
+| ⑤ | `precompute_road_node_degrees.py` | `road_edges`（from/to node） | `road_nodes.degree`（全件洗い替え） | ④でroad_edgesが存在すること | road_edges変化時（PBF再取込・トポロジ変更） | 全件洗い替え、安全 |
+| ⑥ | `precompute_edge_attribute_counts.py` | `road_edges`全件 + `accident_points` + `osm_raw_pois` + `road_nodes.degree` | `edge_attribute_counts`（edge_id主キーでUPSERT） | **⑤の後**（未実行だと全edgeでintersection_count=0） | `accident_points`/`osm_raw_pois`/`road_edges`のいずれか変化時 | 全件再計算、増分無し |
+| ⑦ | `precompute_elevation_attributes.py` | `road_edges`（ジオメトリ） + GSI DEM API | `elevation_attributes` | ④でroad_edgesが存在すること | road_edges変化時（新規Edge追加・PBF再取込） | **増分実行可能**（未計算Edgeのみ計算） |
+| ⑧ | `precompute_way_attribute_counts.py` | `osm_raw_ways`（geom/highway非NULL全件） + `accident_points` + `osm_raw_pois` | `raw_intersection_nodes`（全再構築）/ `way_attribute_counts`（UPSERT） | ①でosm_raw_waysが存在すること（road_edges非依存） | `accident_points`/`osm_raw_pois`/`osm_raw_ways`のいずれか変化時。**併せて`cache_identity.py`の`ROAD_SURFACE_REVISION`を上げてタイルキャッシュを陳腐化させること**——焼き込むSQLは変わらないまま、SQLが読むテーブルの中身だけが変わるため、鍵の署名側は動かない | UPSERT、安全 |
+| ⑨ | `match_designations.py` | `route_designations`（③の出力） + `osm_raw_ways.geom` | `designation_attributes`（kind単位でDELETE→INSERT） | **③の後、かつ①（osm_raw_ways更新）の後** | ③または①の再実行後 | DELETE→INSERT、安全 |
+| ⑬ | `precompute_way_divided_carriageway.py` | `osm_raw_ways`（全件） | `way_divided_carriageway`（osm_way_id主キーでUPSERT） | ①でosm_raw_waysが存在すること（road_edges非依存）。判定が周辺のwayを見るため、対象範囲のwayが揃っていること | `osm_raw_ways`変化時（PBF再取込） | UPSERT、安全（全件を判定し直す） |
+| ⑩ | `precompute_way_landcover.py` | `osm_raw_ways`（geom/highway非NULL全件） + Esri LULC GeoTIFF（`settings.lulc_raster_paths`、手動取得） | `way_landcover`（osm_way_id主キーでUPSERT） | ①でosm_raw_waysが存在すること（road_edges非依存） | `osm_raw_ways`変化時（PBF再取込）、または年次マップ更新（`--recompute`+`--data-version`）、またはリング径変更（`--recompute`） | UPSERT、安全（`--recompute`無しは未計算way限定の増分実行） |
+| ⑭ | `precompute_road_node_intersections.py` | `road_edges`（highway） + `osm_raw_pois`（信号） | `road_nodes.has_traffic_signals` / `road_nodes.max_highway_rank`（同一表のUPDATE） | ④でroad_edgesが存在すること | `road_edges`または`osm_raw_pois`変化時（PBF再取込） | 全件判定し直し、安全（未実行時の既定値はどちらもこのバッチ導入前と同じ挙動になる側） |
+
+いずれのバッチもUPSERT・DELETE→INSERT・同一表のUPDATE（いずれもトランザクション内、
+0件時はDELETEもスキップ）で単純な再実行は安全。冪等性の唯一の例外は①のノード座標（DO NOTHING）。④はタイル単位で
+`is_split_up_to_date`により未split分だけへスコープを絞るため、全件洗い替えではない。
+
+## 3. ランタイム側の読み取り元
+
+| 出力テーブル | 読み取り元 | 用途 |
+|---|---|---|
+| `edge_attribute_counts` / `elevation_attributes` | `infrastructure/graph_material_cache.py`経由で`services/road_graph_engine.py`（`prepare`） | 評価軸算出（stop/accident/intersection/gradient） |
+| `way_attribute_counts` | `services/region_service.py` | 道路サーフェスタイルMVT生成 |
+| `designation_attributes` | `domain/evaluation.py`等の評価系 | 指定路線の評価軸（car_stress補正） |
+| `road_nodes.degree` | ランタイムでは直接使われない | ⑥の`intersection_count`計算専用の中間データ |
+
+`api/routers/health.py`の`/health`（`_KEY_TABLES`）が`osm_raw_ways`/`route_designations`/
+`designation_attributes`等の0件検知で「バッチ未実行」を検出する仕組みを既に持つ
+（ただし「0件」は検知できても「road_edges追加分だけ欠損している」部分的な鮮度劣化までは
+検知しない）。`road_edges`/`road_nodes`自体は④が事前に埋めなくても
+`GraphService.get_or_build_graph_with_attributes`がリクエスト内で同じ経路を遅延実行する
+安全網を持つため、`/health`の対象には含まれない。
+
+**改善計画T538追記**: `graph_material_cache.py`・`tile_score_matrix_cache.py`のプロセス内
+メモリキャッシュは、`infrastructure/tile_persistent_cache.py`経由でディスク（`backend/data/
+tile_persistent_cache/`）へも永続化されるようになった。ディスク側はデプロイでプロセスが
+再起動しても消えないため、④road_edges/road_nodes・⑤road_nodes.degree・⑥edge_attribute_
+counts・⑦elevation_attributes・⑨designation_attributes（`EdgeMaterialBundle.is_designated`
+経由）のいずれかを更新するバッチを実行したら、
+`derived_data_meta.revision`（DB）が自動で進む。材料の列構成は変わらないまま読み先の
+データだけが変わるため鍵の署名側は動かず、ここだけは形から導出できない——バッチの入口
+（`_common.py: with_derived_data_revision_bump`）が書き込み成功後に世代を進め、backendは
+材料を使う経路からTTL付きで読み直して、ディスクへ書いた時点の記録と違えば捨てる。`TILE_SCORE_MATRIX_CACHE_VERSION`は材料側の世代を含む複合のため追従する
+（同じ材料・同じ列から違う値を作るようになった場合は`SCORE_MATRIX_REVISION`を上げる）。
+⑧の`ROAD_SURFACE_REVISION`（タイルへ焼き込む側）は手で上げる運用のままである——こちらの
+世代は生成物`region-tile-config.json`を通じてフロントへ配られるため、実行時に変えられない。
+
+**改善計画T546追記**: `TILE_MATERIALS_CACHE_VERSION`は`"2"`（`graph_material_cache`が
+保持する`SearchMaterials.materials`を`EdgeMaterialBundle`辞書から列指向の
+`domain/attributes.py: EdgeMaterialTable`へ変更したため）。`TILE_SCORE_MATRIX_CACHE_
+VERSION`は保存形式（numpy配列）自体は無変更のため据え置き。上記④〜⑨のいずれかを
+更新するバッチを実行したときに両方の版数を上げる運用自体は変わらない。docs/records/tasks/T546.md
+参照。
+
+## 4. 再実行トリガー早見表
+
+| 生データの変化 | 再実行が必要なバッチ |
+|---|---|
+| PBF更新・道路網トポロジ変化 | ①→④→⑤→⑥→⑦→⑧→⑨→⑩→⑪→⑫（⑨は③の完了も前提）。あわせて`cache_identity.py`の`ROAD_SURFACE_REVISION`（⑧・⑩・⑪の値をタイルへ焼くため）を手動で上げる（材料側はDBの世代が自動で進むため手作業は無い。上記「3. ランタイム側の読み取り元」追記参照） |
+| 事故CSV更新 | ②のみ再取込。ただし⑥・⑧が事故カウントを参照するため、⑥・⑧も追随再実行が必要 |
+| KSJ指定路線データ更新 | ③→⑨ |
+| ランタイムの遅延構築で新規Edgeが生まれた場合（`GraphService`が未split範囲へのリクエストで`is_split_up_to_date`判定によりその場で交差点分割する経路） | ⑥・⑦の再実行が無いと、その新規Edgeの評価軸（stop/accident/intersection/gradient）が欠損する（**T74・T101・T242の再発パターン**）。⑤はroad_edges全体からの集計のため併せて再実行が必要 |
+| 土地被覆年次マップ更新・リング径変更 | ⑩を`--recompute`（+年次更新時は`--data-version`）付きで再実行 |
+
+## 統合エントリポイント（改善計画T281段階2、実装済み）
+
+`python -m app.batch.refresh_derived`が派生計算バッチ（本ファイルの依存順序どおり、
+生データ取込は対象外）を1コマンドで実行する。**どの段が含まれるかの正本は
+`refresh_derived.py`の`_STAGES`**——ここへ範囲を書くと、段を1つ足したときにこちらだけが
+古くなる（実際に⑭が抜けたまま残っていた）。`app/batch/precompute_*.py`のファイル一覧と
+`_STAGES`の突き合わせを`tests/test_refresh_derived.py`が行い、登録漏れを機械的に止める。⑩precompute_way_landcoverだけラスタファイルの
+手動取得を要するため、未整備の環境では`--skip-landcover`でこの段だけスキップできる。詳細は
+[docs/modules/backend/static-road-attributes.md](../backend/static-road-attributes.md)
+「派生データ再構築の単一エントリポイント」参照。
+
+## 5. 鮮度台帳（改善計画T281段階3、T571で実装）
+
+`edge_attribute_counts`・`way_attribute_counts`・`designation_attributes`・`way_landcover`が
+参照している生データの世代（`source_*_import_run_id`）が、対応する`*_import_runs`テーブルの
+最新成功run（`status='succeeded'`のMAX(id)）より古いままではないかを機械判定する
+（`edge_attribute_counts`/`way_attribute_counts`/`way_landcover`は`algorithm_version`の
+不一致も検知）。
+`/admin`「データ保守」タブ（`GET /api/admin/derived-data/freshness`、Basic認証必須）から見える。
+
+`elevation_attributes`は`source_*_import_run_id`列を持たないため（T351の対象外、
+road_edgesのgeometryにのみ依存しOSMタグを参照しないため）、世代比較ではなく`road_edges`
+との行数差分による完成度のみを同タブ内に別枠で表示する。
+
+実装は`backend/app/infrastructure/derived_data_freshness.py`・
+`backend/app/services/derived_data_freshness_service.py`・
+`backend/app/api/routers/derived_data_freshness.py`（詳細はdocs/records/tasks/T571.md参照）。
+material_catalog.pyの材料欠損割合（`/admin`「材料」タブ）とは別の切り口——材料側は
+「値がNULL/未取得か」という完成度、本節は「行はあるが古い世代のままではないか」という
+鮮度を見る。
+
+自動再実行・cron等のスケジューリングは対象外（[T242](../../records/tasks/T242.md)残課題として別トラック、
+本ファイルは検知・可視化までがスコープ）。

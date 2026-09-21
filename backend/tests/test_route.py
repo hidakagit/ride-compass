@@ -250,7 +250,7 @@ def test_merge_material_values_omits_material_absent_from_every_segment():
 
 
 # merge_axis_raw_values（折れ点を通す前の生値の集約。merge_axis_difficultiesと同じ
-# 距離加重平均の共有実装を使う、docs/tasks/T687.md）。
+# 距離加重平均の共有実装を使う、docs/records/tasks/T687.md）。
 
 
 def _dict_fields_of_segment() -> dict[str, type]:
@@ -342,7 +342,7 @@ def test_axis_difficulties_still_round_to_one_decimal():
 def test_aggregate_segments_into_bins_carries_axis_raw_values():
     # ビン化は表示用の区間を作り直すため、集約する値を1つ足し忘れるとAPIからは
     # 「そのフィールドだけ空」に見える（本番で生値が全区間空になった実障害の回帰、
-    # docs/tasks/T687.md）。axis_difficultiesが出ているのにaxis_raw_valuesだけ空、
+    # docs/records/tasks/T687.md）。axis_difficultiesが出ているのにaxis_raw_valuesだけ空、
     # という形で表面化する。
     segments = [
         _segment(0, distance_km=0.3, axis_difficulties={"stop_density": 80.0}, axis_raw_values={"stop_density": 4.0}),
@@ -382,7 +382,7 @@ def test_merge_axis_raw_values_omits_axis_absent_from_every_segment():
 
 
 # merge_material_category_shares（categorical材料の内訳。数値材料の距離加重平均に対応する
-# 「値ごとの延長割合」、docs/tasks/T718.md）。
+# 「値ごとの延長割合」、docs/records/tasks/T718.md）。
 
 
 def test_merge_material_category_shares_is_distance_weighted():

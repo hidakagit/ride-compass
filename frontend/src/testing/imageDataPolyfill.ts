@@ -5,7 +5,7 @@
  * `ImageData`コンストラクタもグローバルに定義しない。canvasが使えないときのフォールバックで
  * `new ImageData(w, h)`を返す実装（routeArrowIcon・windArrowIcon）のテストが、
  * 呼び出せること自体を確認するために使う。描画内容そのものの検証は実機で行う
- * （docs/testing.md参照）。
+ * （docs/conventions/testing.md参照）。
  */
 export function installImageDataPolyfill() {
   if (typeof globalThis.ImageData !== "undefined") return;

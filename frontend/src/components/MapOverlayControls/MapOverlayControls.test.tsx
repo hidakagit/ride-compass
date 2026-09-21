@@ -338,8 +338,8 @@ describe("MapOverlayControls", () => {
 
   // 最上位グループ束ね（改善計画T406、旧「次数束ね」T166を全面再編、T418で評価軸グループを
   // 撤去）: 旧「観測/推定/動的」（データの出自による3分類）を廃止し、「対象（何についての
-  // 情報か）」で束ね直した「道路/環境/スポット」の3グループになった（docs/tasks/T400.md
-  // 「1. パネルの最上位グルーピング」節、docs/tasks/T418.md）。mapOverlayGroupFor()
+  // 情報か）」で束ね直した「道路/環境/スポット」の3グループになった（docs/records/tasks/T400.md
+  // 「1. パネルの最上位グルーピング」節、docs/records/tasks/T418.md）。mapOverlayGroupFor()
   // （mapLayers.ts）の判定規則:
   // - 道路: category==="roadCondition"
   // - 環境: category==="terrain"||"weather"
@@ -382,7 +382,7 @@ describe("MapOverlayControls", () => {
       expect(screen.getByRole("button", { name: "スポット" })).toBeInTheDocument();
     });
 
-    it("チップ列は道路→環境→スポット→ルートの順で並ぶ（docs/tasks/T400.mdの記載順のうち評価軸を除いたもの）", () => {
+    it("チップ列は道路→環境→スポット→ルートの順で並ぶ（docs/records/tasks/T400.mdの記載順のうち評価軸を除いたもの）", () => {
       render(<MapOverlayControls {...baseProps()} layers={groupedLayers()} />);
       const names = screen
         .getAllByRole("button", { name: /^(道路|環境|スポット|ルート)$/ })

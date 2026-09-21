@@ -52,7 +52,7 @@ export interface paths {
          *
          *     `road_graph_use_repository=false`（DBなし構成）のときは接続を試みず、その旨だけ返す。
          *     DB接続自体に失敗した場合もエラーで落とさず、WARNINGログと共にreachable=falseを返す
-         *     （docs/logging.mdの「エラーは常時WARNING以上」方針。/healthと違い読み取り専用の
+         *     （docs/conventions/logging.mdの「エラーは常時WARNING以上」方針。/healthと違い読み取り専用の
          *     診断用途のため、DB障害時にHTTP 500にする必要はない）。認可境界の理由は
          *     docs/modules/backend/cross-cutting-infrastructure.md「運用エンドポイント」節参照。
          */
@@ -837,7 +837,7 @@ export interface paths {
          *     `distance filter rejected`）、両方指定するとAND条件。`limit`でフィルタ後の末尾N件に
          *     絞り込める。debug_modeがOFFの間はDEBUGレベルの行自体がそもそも記録されない点に注意
          *     （先に`POST /mode`で有効化すること。WARNING以上はdebug_modeに関わらず常時記録される、
-         *     docs/logging.md参照）。
+         *     docs/conventions/logging.md参照）。
          *
          *     `limit`に0以下を渡すとget_recent_logs内部の`lines[-limit:]`が
          *     Pythonのスライス仕様上「末尾からN件」ではなく異なる範囲を返してしまう

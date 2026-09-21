@@ -113,7 +113,7 @@ async def test_世代が変わると焼き済みタイルの鍵も変わる(monk
     **鍵に世代が入っていないと、同じ鍵で古い中身を配り続ける。** かつてはそれを
     `tile_cache.clear_all()`で帳消しにしていたが、全消しは基礎地図・標高タイルまで
     巻き添えにし、公開GETの中でイベントループを止めて`rmtree`することになる
-    （docs/caching.md「全消しは運用操作としてのみ残す」）。鍵を割れば全消しは要らない。
+    （docs/conventions/caching.md「全消しは運用操作としてのみ残す」）。鍵を割れば全消しは要らない。
     """
     cleared: list[bool] = []
     monkeypatch.setattr(tile_cache, "clear_all", lambda: cleared.append(True))

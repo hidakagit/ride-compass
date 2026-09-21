@@ -20,7 +20,7 @@ describe("createWindArrowIcon", () => {
 // 追加する代わりに、HTMLCanvasElement.getContextを最小限の「呼び出しを記録するだけの
 // スタブ」へ差し替えることで、実際の描画コードパス自体が最後まで例外なく実行され、
 // 期待した回数・引数で描画命令を呼んでいることを検証する（実際のピクセル内容の検証は
-// 引き続き実機Playwrightで行う、docs/testing.md参照）。
+// 引き続き実機Playwrightで行う、docs/conventions/testing.md参照）。
 describe("createWindArrowIcon（描画コードパスの実行検証）", () => {
   function stubCanvasContext() {
     const calls: string[] = [];

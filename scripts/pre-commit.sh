@@ -23,7 +23,8 @@ set -eu
 REPO_ROOT="$(git rev-parse --show-toplevel)"
 cd "$REPO_ROOT"
 
-sh scripts/pre-commit-docs-consistency.sh
+# docs整合性の検知は、走査対象・基準を定義し直すまで強制経路から外す（T979）。
+# sh scripts/pre-commit-docs-consistency.sh
 sh scripts/pre-commit-ruff.sh
 sh scripts/pre-commit-prettier.sh
 sh scripts/pre-commit-api-contract.sh

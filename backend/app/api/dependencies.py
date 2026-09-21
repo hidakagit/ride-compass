@@ -67,7 +67,7 @@ def client_id(request: Request) -> str:
     レート制限バケットへ相乗りし、無関係な複数クライアントの通信量が合算されてしまう
     （本来より早く429になる、または逆に個々のクライアントに対する制限が実質緩くなる）。
     根本原因（プロキシ構成等）の調査に使えるようWARNINGで記録する
-    （docs/logging.md: エラー・429拒否は常時WARNING以上で出す方針に準拠）。
+    （docs/conventions/logging.md: エラー・429拒否は常時WARNING以上で出す方針に準拠）。
     """
     if request.client is None:
         logger.warning("request.client is None; rate-limit key falls back to shared 'unknown' bucket")

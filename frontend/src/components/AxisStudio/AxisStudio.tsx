@@ -141,7 +141,7 @@ export default function AxisStudio() {
   async function handleUnpublish(axisId: string) {
     // 公開済み軸を下書きへ戻す。一般ユーザー向けGET /api/axis-catalogから
     // 即座に消えるため、フロント側の自己修復（RouteSettingsPanel）とセットで
-    // 初めて安全な操作になる（docs/decisions/t221-axis-registry.md「Stage D拡張3」）。
+    // 初めて安全な操作になる（docs/records/decisions/t221-axis-registry.md「Stage D拡張3」）。
     setUnpublishingAxisId(axisId);
     try {
       await unpublishAxisDefinition(axisId);

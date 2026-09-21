@@ -218,7 +218,7 @@ class AxisRegistryAdminService:
         # 上のガードでそもそも削除できず、削除できるのは常に下書き（is_published=False、
         # 一般ユーザーからは`GET /api/axis-catalog`経由で見えていない）軸のみのため、
         # 削除時点で一般ユーザーの保存設定がこのaxis_idを参照している状況自体が起こらない
-        # （docs/decisions/t221-axis-registry.md「Stage D拡張3」参照）。
+        # （docs/records/decisions/t221-axis-registry.md「Stage D拡張3」参照）。
         deleted = await self._repository.delete(axis_id)
         if not deleted:
             raise KeyError(axis_id)

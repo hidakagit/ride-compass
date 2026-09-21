@@ -19,7 +19,7 @@ export function adminBasicAuthCredentials(): AdminBasicAuthCredentials | null {
  *
  * 片方でも空なら`null`を返す——「ユーザー名だけ設定された」状態で空パスワードの認証が
  * 通ってしまうのを防ぐ（安全側に倒す）。判断をこちら側へ出すのは、`process.env`が
- * テストファイルをまたいで共有されるため（docs/testing.md参照）。
+ * テストファイルをまたいで共有されるため（docs/conventions/testing.md参照）。
  */
 export function resolveAdminBasicAuth(
   username: string | undefined,

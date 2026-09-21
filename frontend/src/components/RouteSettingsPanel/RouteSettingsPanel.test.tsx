@@ -9,7 +9,7 @@ import RouteSettingsPanel from "./RouteSettingsPanel";
 // routePreferenceから対応するキーを自動で取り除く（自己修復）ことの回帰テスト。
 // これが無いと、unpublish直後に旧設定を保持したブラウザで次のルート生成が
 // RoutePreferenceWeightsのキー完全一致検証（backend/app/api/routers/routes.py）で
-// 422になる（docs/decisions/t221-axis-registry.md「Stage D拡張3」参照）。
+// 422になる（docs/records/decisions/t221-axis-registry.md「Stage D拡張3」参照）。
 vi.mock("@/services/axisCatalogApi", () => ({
   getAxisCatalog: vi.fn(),
 }));
@@ -235,7 +235,7 @@ describe("RouteSettingsPanel", () => {
   // できるUIはないか」）: 重み配分バー（帯グラフ）の境界を操作すると、隣接する2軸間でだけ
   // 重みが移動し、合計（2軸ぶんの和）は変わらないことの回帰テスト。実際のポインタドラッグは
   // happy-domがレイアウト（getBoundingClientRect）を計算しないため単体テストで再現できず、
-  // Browserペインでの実機確認で検証済み（docs/tasks/T495.md参照）。ここでは
+  // Browserペインでの実機確認で検証済み（docs/records/tasks/T495.md参照）。ここでは
   // getBoundingClientRectに依存しないキーボード操作（矢印キー）経路で、隣接軸ペアの
   // 重み移動ロジック（clampBoundaryDrag）自体を検証する。
   describe("重み配分バー（帯グラフ）の境界操作", () => {

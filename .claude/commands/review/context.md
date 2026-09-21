@@ -19,7 +19,7 @@
 モジュールdocstring参照）、標高・風・路面・車の圧迫感等で評価して比較・選択できる。
 現フェーズは**評価モデルの研究・精査を優先**（一般公開前のプロトタイプ、個人開発・低利用規模）。
 
-## 構成（現状の姿は docs/architecture.md が正、経緯は docs/decisions/）
+## 構成（現状の姿は docs/architecture.md が正、経緯は docs/records/decisions/）
 
 - **backend**: FastAPI。`app/api/routers/`（エンドポイント）+ `dependencies.py`（DI工場）→
   `services/`（ユースケース・I/O編成）→ `domain/`（純関数・型。I/Oなし）→
@@ -76,7 +76,7 @@
   実装規約はoverall.md/complexity.mdの各確認観点に集約されている（2026-08-31、
   design-review-2026-08-15.md・complexity-review-2026-08-16.md末尾に分散していた原則を
   仕様/判断/一般規約の3種へ整理・統合）。
-- ログ方針: docs/logging.md（エラーは常時WARNING以上、外部I/Oは log_external_call、
+- ログ方針: docs/conventions/logging.md（エラーは常時WARNING以上、外部I/Oは log_external_call、
   高コスト処理は1行INFOサマリ、座標2桁丸め）。
 
 ## 意図的な設計判断（新しい根拠なしに再指摘しない）
@@ -112,7 +112,7 @@ docs/complexity-review-2026-08-16.md の **Keep List** が正（ただし「エ�
   番号・件数を書かない。書いた瞬間から陳腐化するため）。2026-08-27、タスク単位の
   ファイル分割を実施済み**: improvement-plan.md本体はチェックボックス付きリンクの
   一覧のみを持ち、各タスクの背景・対応方針・実装メモ・検証結果は
-  `docs/tasks/Txxx.md`（未完了・完了を問わず1タスク=1ファイル）にある。
+  `docs/records/tasks/Txxx.md`（未完了・完了を問わず1タスク=1ファイル）にある。
   日付ごとの完了記録アーカイブ（`docs/improvement-plan-archive/`、2026-08-19棚卸で
   新設）は本分割より前の運用で、両者の使い分けは`docs/improvement-plan-archive/README.md`
   の注記を参照。

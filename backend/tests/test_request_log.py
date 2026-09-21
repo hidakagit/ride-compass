@@ -1,6 +1,6 @@
 """リクエストIDミドルウェア・アクセスサマリログ(infrastructure/request_log.py)の回帰テスト。
 
-docs/logging.mdの方針のうち「全レスポンスにX-Request-IDが付く」「クライアント指定の
+docs/conventions/logging.mdの方針のうち「全レスポンスにX-Request-IDが付く」「クライアント指定の
 X-Request-IDを引き継ぐ」「アクセスサマリのレベルはステータス・経路で変わる」
 「未処理例外はスタックトレース付きERRORで残る」を守る。ログ行の時刻がJSTで、
 オフセットを名乗ることも併せて検査する（書式はこのモジュールが1つだけ持つ）。

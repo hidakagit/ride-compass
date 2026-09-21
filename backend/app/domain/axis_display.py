@@ -229,7 +229,7 @@ def raw_value_unit(definition: AxisDefinition) -> str | None:
 
     ルート結果は得点（0〜100の相対評価）だけでは軸単体で経路を判断できない。生値を
     その単位とともに添えると、他の軸を見ずに「多いか少ないか」を判断できる
-    （docs/tasks/T687.md参照）。
+    （docs/records/tasks/T687.md参照）。
 
     単位が定まる条件は次の4つ。重み0の項は生値へ寄与しないため判定から除く。
 
@@ -319,7 +319,7 @@ def axis_material_shares(definition: AxisDefinition) -> list[AxisMaterialShare]:
     得点（0〜100）は目盛りの引き方に依存する相対評価のため、軸単体では経路を判断できない。
     単位が定まる軸は生値を添えれば足りるが（`raw_value_unit`）、単位が定まらない軸
     （合成軸・真偽値やカテゴリの材料を持つ軸）はそれができない。材料まで降りれば、
-    どの軸も「較正に依存しない絶対の事実」を出せる（docs/tasks/T689.md参照）。
+    どの軸も「較正に依存しない絶対の事実」を出せる（docs/records/tasks/T689.md参照）。
 
     **辿る先は必ず材料**で、途中の軸の得点は結果に含めない。得点を内訳へ混ぜると、
     この関数が解こうとしている「較正依存の数字しか出せない」問題が入れ子で再発する。
@@ -580,7 +580,7 @@ def axis_display_for(definition: AxisDefinition) -> AxisDisplaySpec:
     `unit`・`category`（凡例の単位・地図レイヤーパネルの並び順区分）は材料構成から
     機械的に導出できないため、自動導出ケースではAxisDisplaySpecの既定値
     （`unit=""`・`category="trafficSafety"`）にフォールバックする
-    （docs/decisions/t308-axis-map-display-auto-derivation.md「凡例・色分けの
+    （docs/records/decisions/t308-axis-map-display-auto-derivation.md「凡例・色分けの
     描画方法」節参照）。
     """
     ramp = derive_ramp_inputs(definition)

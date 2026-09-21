@@ -7,7 +7,7 @@ test_main.py・test_health.py等の既存テストは`TestClient(app)`をcontext
 節が明記する不変条件を検証する。
 
 `refresh_axis_definitions`は実DBへ接続するため、いずれのテストもmonkeypatchで差し替え、
-実DB接続を必要としない（docs/testing.mdの一般方針どおり、DB接続を要するテストは
+実DB接続を必要としない（docs/conventions/testing.mdの一般方針どおり、DB接続を要するテストは
 postgisマーカー付きの別ファイルへ隔離する）。`app.main._scheduler`はモジュールレベルの
 シングルトンで、同じjob id（"refresh_amedas"・"prewarm_jma_tile"）を複数回`add_job`すると
 APSchedulerが`ConflictingIdError`を送出するため、テストごとに新しい`AsyncIOScheduler`へ

@@ -33,7 +33,7 @@ Road Graph・Evaluation Engine・Route Engine（domain/routing.py）を使って
   キャッシュのため、リクエストごとに変わるコストを解消の基準にできない。この割り切りにより、
   並行Edgeのうち一方だけが0次フィルタで除外される稀なケースでは、許可される側ではなく
   edge_idの小さい側が選ばれ、そのNode対が到達不能になりうる（判断理由の詳細は
-  docs/tasks/T537.md参照）。
+  docs/records/tasks/T537.md参照）。
 - `_build_segment_details`（区間表示）も探索と同じコスト配列・スコア行列から
   `axis_difficulties`を引く（探索と表示の二重計算を避ける）。
 - 候補ごとの復路探索（`trace_loop_from_turnaround`）・経由地ルートの`trace_loop`は
@@ -1347,7 +1347,7 @@ class RoadGraphEngine:
         2. 平均difficulty`(合成コスト/経由路長-1)/P`昇順に並べる。ただし最良路のNodeは常に
            先頭へ回す——合成コスト最小であっても、伸び率の許す範囲でより平均difficultyの
            低い経路が他に存在すれば難易度順ではそちらが上位に来うるため、「最良路は必ず
-           結果に含まれる」（docs/tasks/T551.md完了条件）をランキングとは独立に保証する。
+           結果に含まれる」（docs/records/tasks/T551.md完了条件）をランキングとは独立に保証する。
         3. `select_diverse_by_overlap`で、前向き経路・後ろ向き経路が同じEdgeを共有する
            Node（行って戻る形になり経路として成立しない）を除外しつつ、採用済み候補との
            重複率が閾値超のものを飛ばして`max_routes`件採る。
@@ -1471,7 +1471,7 @@ class RoadGraphEngine:
         combined_seconds = junction.seconds
         reachable = np.isfinite(combined_cost)
         if not np.any(reachable):
-            # 改善計画docs/logging.md「候補0件はWARNINGへ昇格し、原因の内訳を同じ行に含める」:
+            # 改善計画docs/conventions/logging.md「候補0件はWARNINGへ昇格し、原因の内訳を同じ行に含める」:
             # 前向き木・後ろ向き木のどちらがどれだけ到達できているかを内訳として出す
             # （前向きのみ0なら起点側、後ろ向きのみ0なら目的地側の孤立を疑える）。
             logger.warning(
@@ -1718,7 +1718,7 @@ class RoadGraphEngine:
     ) -> TracedLoop:
         """クライアントが組み立てたEdge id列を、評価できる経路として検証して`TracedLoop`にする。
 
-        区間の乗り換え（docs/tasks/T621.md）で使う。フロントは候補の`edge_ids`から
+        区間の乗り換え（docs/records/tasks/T621.md）で使う。フロントは候補の`edge_ids`から
         「Aの前半＋Bの後半」を作って送り返すため、**このグラフに実在し・順につながり・
         起点から始まり・目的地へ着く**ことをここで確かめる（送られた列をそのまま信じると、
         評価は成功するのに経路として成立しないルートが候補一覧へ並ぶ）。
@@ -1954,7 +1954,7 @@ class RoadGraphEngine:
         探索グラフに無いEdge（クライアント由来のedge_id列を受ける区間の乗り換えで起こりうる）
         は、そこで経路が切れたものとして扱い、**その前後の遷移だけ**を数えない。経路全体を
         捨てると合成ルートだけターン分（都市部30kmで数分〜十数分規模）が丸ごと消え、元候補
-        より不当に速く見える。捨てた事実はWARNINGで残す（docs/logging.md）。
+        より不当に速く見える。捨てた事実はWARNINGで残す（docs/conventions/logging.md）。
         """
         structure = context.turn_structure
         lazy_graph = context.lazy_graph
@@ -2149,7 +2149,7 @@ async def _get_or_build_lazy_graph(
     0次フィルタで除外される稀なケースでは、`(u,v)`ペア自体が到達不能になりうる。実データでの並行Edge自体が稀なうえ、その中でさらに片方だけ
     0次フィルタ対象という二重に稀な条件のため、同一タイル集合への2回目以降の
     リクエストでグラフ構築・索引構築を丸ごと省略できる利点を優先した
-    （判断理由の詳細はdocs/tasks/T537.md参照）。
+    （判断理由の詳細はdocs/records/tasks/T537.md参照）。
 
     戻り値の2つ目はキャッシュヒットしたかどうか（ログ用）。
     """
@@ -2588,7 +2588,7 @@ def _concat_edge_geometries(edges: list[LeanEdge]) -> tuple[dict, list[int]]:
 
     隣接するEdgeの境界点（前Edgeの終端＝次Edgeの始端）は重複させないため、**座標列だけ
     からはどこがEdgeの境目か復元できない**。Edge単位で決めた区間を地図へ帯として描く
-    （docs/tasks/T621.md）ために境界の位置を併せて返す。
+    （docs/records/tasks/T621.md）ために境界の位置を併せて返す。
 
     2つ目の戻り値は`len(edges) + 1`件で、`coordinates[offsets[i]:offsets[j] + 1]`が
     Edge i〜j-1のひとつながりの形状になる。**同じ関数が両方を作る**——別々に組み立てると

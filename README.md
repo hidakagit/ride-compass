@@ -143,7 +143,7 @@ npx eslint
 `TEST_DATABASE_URL`で上書き可）に接続できない環境では自動的にスキップされる
 （[backend/tests/conftest.py](backend/tests/conftest.py)）。CIはpytest-xdistで並列化しているため、
 新規のPostGIS統合テストファイルには`loop_scope="module"`・`xdist_group(name="postgis")`の指定が
-必要（詳細は[docs/testing.md](docs/testing.md)参照）。
+必要（詳細は[docs/conventions/testing.md](docs/conventions/testing.md)参照）。
 
 ## 補足・既知の注意点
 
@@ -168,7 +168,7 @@ npx eslint
 
 ## 開発を続ける・タスクの状況を追う
 
-- 直近の設計レビュー結果・進行中の改善タスク一覧: [docs/improvement-plan.md](docs/improvement-plan.md)（各タスクの詳細は`docs/tasks/Txxx.md`）
-- ログ・テストの方針: [docs/logging.md](docs/logging.md) / [docs/testing.md](docs/testing.md)
+- 直近の設計レビュー結果・進行中の改善タスク一覧: [docs/improvement-plan.md](docs/improvement-plan.md)（各タスクの詳細は`docs/records/tasks/Txxx.md`）
+- ログ・テストの方針: [docs/conventions/logging.md](docs/conventions/logging.md) / [docs/conventions/testing.md](docs/conventions/testing.md)
 - RideCompass固有の設計原則: [docs/design-principles.md](docs/design-principles.md)
 - このリポジトリで作業する際のルール（コミット時の同期ルール等）: [CLAUDE.md](CLAUDE.md)

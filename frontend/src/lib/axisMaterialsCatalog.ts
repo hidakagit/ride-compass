@@ -12,7 +12,7 @@ import generatedMaterials from "@/types/generated/material-catalog.json";
 // これはbackend側の評価経路が組み立てる
 // 材料辞書のキーそのものであり、backend/app/domain/registry_defaults.pyの一次属性
 // （OSM生タグ等）とは別の語彙のため、あちらのカタログをそのまま流用できない（両者は
-// 将来統合の余地がある課題として docs/decisions/t221-axis-registry.md「T12との関係」に
+// 将来統合の余地がある課題として docs/records/decisions/t221-axis-registry.md「T12との関係」に
 // 記録済み）。
 export type AxisMaterialDType = "numeric" | "boolean" | "categorical";
 

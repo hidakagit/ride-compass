@@ -305,7 +305,7 @@ describe("routeApi", () => {
     it("ポーリングの失敗が規定回数連続した場合は、人間可読な日本語メッセージで失敗としてrejectする", async () => {
       // 失敗の中身が何であれ（HTTPエラー・AbortSignal.timeout由来のタイムアウト等）、
       // 5回連続で諦めた場合は生の例外メッセージをそのまま外へ出さず、必ずこの人間可読な
-      // 日本語メッセージへ包み直す（詳細はdocs/tasks/T523.md参照）。
+      // 日本語メッセージへ包み直す（詳細はdocs/records/tasks/T523.md参照）。
       vi.useFakeTimers();
       const fetchMock = vi.fn().mockImplementation((url: string, options?: { method?: string }) => {
         if (options?.method === "POST") {

@@ -73,7 +73,7 @@ def test_intersection_density_is_not_a_standalone_axis_nor_a_stop_density_input(
     次数3以上の分岐点を数えたもので、信号の有無とは無関係にグラフの形だけから出ている。
     T字路でも曲がれば止まり十字路でも直進なら止まらないため、「停止」の代理としては弱い。
     停止密度は種別別のPOI密度（信号・踏切・一時停止）で組み直され、交差点密度は
-    その材料から外れている（docs/tasks/T655.md「交差点密度の扱い」）。
+    その材料から外れている（docs/records/tasks/T655.md「交差点密度の扱い」）。
     """
     axis_ids = {axis.axis_id for axis in registry.all_axes()}
     assert "intersection_density" not in axis_ids

@@ -30,7 +30,7 @@ from app.services.axis_registry_service import refresh_axis_definitions
 from app.services.jma_amedas_service import AMEDAS_REFRESH_INTERVAL_MINUTES, JmaAmedasService
 from app.services.jma_tile_prewarm_service import prewarm_jma_tiles
 
-# ログレベルの方針(詳細は docs/logging.md):
+# ログレベルの方針(詳細は docs/conventions/logging.md):
 # - INFO以上(アクセスサマリ・ルート生成サマリ・外部APIエラーWARNING等)は常時出力し、
 #   実運用(debug_mode=False)の調査に足る情報を本番のログに残す。
 # - DEBUG(外部API/タイルキャッシュのイベント単位ログ等)はdebug_mode有効時のみ出力する。
@@ -116,7 +116,7 @@ async def _prune_stale_disk_generations_job() -> None:
     """起動時に1回だけ、ディスク永続化キャッシュの古い世代を削除する。
 
     世代番号は参照先を切り替えるだけで、ディスク上の古い実体は残り続ける
-    （docs/caching.md「無効化」参照）。世代を上げたコードがデプロイされた直後のこの
+    （docs/conventions/caching.md「無効化」参照）。世代を上げたコードがデプロイされた直後のこの
     タイミングで掃除する。削除対象が大きい（数百MB規模）ことがあるためスレッドで実行する。
     """
     logger = logging.getLogger("ridecompass.tile_cache_prune")

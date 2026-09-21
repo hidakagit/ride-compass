@@ -9,7 +9,7 @@ pullにした理由: バッチからbackendを呼ぶ（push）と、バッチが
 定期ジョブを足さないのは、起動時ジョブを増やすと一過性の起動失敗を招くため。
 
 古いままになりうる窓はTTL分だけ残る。バッチ自体が数十分かかるため、数分の遅れは運用上の
-差にならない（docs/caching.mdの「判断をキャッシュしてよい条件」——入力が全て鍵にあり、
+差にならない（docs/conventions/caching.mdの「判断をキャッシュしてよい条件」——入力が全て鍵にあり、
 遅れる方向が安全側で、TTLが許容窓から導かれている）。
 """
 
@@ -70,6 +70,6 @@ async def ensure_caches_match_db(repository, *, force: bool = False) -> None:
     # （`tile_version_service.served_tile_version`）ため、世代が変われば別の鍵になり、
     # 古い中身は誰からも引かれなくなる。`tile_cache.clear_all()`は基礎地図・標高タイルまで
     # 巻き添えにするうえ、公開GETの中でイベントループを止めて`rmtree`することになる
-    # （`docs/caching.md`「全消しは運用操作としてのみ残す」）。引かれなくなったものは
+    # （`docs/conventions/caching.md`「全消しは運用操作としてのみ残す」）。引かれなくなったものは
     # `prune_to_size_limit`が古い順に回収する。
     logger.info("派生データ世代の変化を検知しキャッシュを破棄しました revision=%s", revision)

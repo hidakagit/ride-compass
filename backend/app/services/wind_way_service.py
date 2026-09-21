@@ -119,7 +119,7 @@ class WindWayService:
 
             # タイル中心1点の風から全wayへ同じ値を配るだけで計算が軽いため、値はキャッシュ
             # しない（節約は1タイルあたり2.8ms＝応答の5%で、1エントリ190KBを保持するのに
-            # 見合わない。docs/caching.md「キャッシュしないという選択」参照）。
+            # 見合わない。docs/conventions/caching.md「キャッシュしないという選択」参照）。
             grid_point = nearest_grid_point(_tile_center(bbox), spacing_deg=WIND_GRID_DETAIL_SPACING_DEG)
             times, points = await self._weather_service.get_wind_grid([grid_point])
             wind_grid_point = points[0] if points else None

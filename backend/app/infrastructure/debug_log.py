@@ -1,6 +1,6 @@
 """外部I/O(外部API・タイル/標高キャッシュ)イベントのログと集計。
 
-ログレベルの方針(詳細は docs/logging.md):
+ログレベルの方針(詳細は docs/conventions/logging.md):
 - 成功イベントはDEBUG。settings.debug_modeがFalseの場合はmain.pyのlogging設定により
   実質出力されない(タイル系は毎分数百イベントになりうるため常時出力しない)。
 - 失敗イベントはWARNINGで**常時**出力する。実運用(debug_mode=False)での障害調査が
@@ -141,7 +141,7 @@ def log_throttled_warning(category: str, message: str, *args: object) -> None:
 
     `log_external_call`で囲む形にできない失敗(キャッシュDBのクエリ失敗等、
     本処理へフォールバックして呼び出し自体は成功扱いになるもの)を、
-    docs/logging.mdの「エラーは常時出す・ただし同種はカテゴリごとに毎分5件で抑制」
+    docs/conventions/logging.mdの「エラーは常時出す・ただし同種はカテゴリごとに毎分5件で抑制」
     の方針どおりに記録するための入口。
     """
     _throttled_warning(category, message, *args)

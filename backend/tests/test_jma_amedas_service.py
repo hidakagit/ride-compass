@@ -1,7 +1,7 @@
 """jma_amedas_service.py（改善計画T387）のテスト。
 
 JMAへの実HTTP・実Redisは使わず、infrastructure.jma_amedas_clientの各関数とRedisクライアントを
-monkeypatchで差し替える（docs/testing.md: 実I/Oを伴わない単体テストの原則）。
+monkeypatchで差し替える（docs/conventions/testing.md: 実I/Oを伴わない単体テストの原則）。
 
 設計（2026-08-29、ユーザー指摘を受け改訂）: JMAの観測値エンドポイントは1地点だけを
 絞り込めず全国分を1レスポンスで返すため、取得は`refresh_all_stations`（main.pyの

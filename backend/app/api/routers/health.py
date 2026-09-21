@@ -158,7 +158,7 @@ async def db_status() -> dict:
 
     `road_graph_use_repository=false`（DBなし構成）のときは接続を試みず、その旨だけ返す。
     DB接続自体に失敗した場合もエラーで落とさず、WARNINGログと共にreachable=falseを返す
-    （docs/logging.mdの「エラーは常時WARNING以上」方針。/healthと違い読み取り専用の
+    （docs/conventions/logging.mdの「エラーは常時WARNING以上」方針。/healthと違い読み取り専用の
     診断用途のため、DB障害時にHTTP 500にする必要はない）。認可境界の理由は
     docs/modules/backend/cross-cutting-infrastructure.md「運用エンドポイント」節参照。
     """

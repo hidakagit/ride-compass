@@ -5,7 +5,7 @@ import { cn } from "@/lib/cn";
 
 // 汎用モーダルダイアログ。FloatingPanel(react-rndでドラッグ移動)・BottomSheet
 // (自前pointerイベントで高さドラッグ)はドラッグ/リサイズという専用の振る舞いを持つため
-// Radix Dialogを使わない自前実装のままにしてある(docs/frontend-design-system.md参照)。
+// Radix Dialogを使わない自前実装のままにしてある(docs/modules/frontend/frontend-design-system.md参照)。
 // このDialogは新規の単純なモーダル要求(ドラッグ不要な確認ダイアログ等)向けの土台。
 //
 // titleを必須propsにすることでアクセシブルな名前を型で強制する(Disclosure/LayerChipと

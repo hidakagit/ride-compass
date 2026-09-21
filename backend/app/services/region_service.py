@@ -46,7 +46,7 @@ class RegionService:
     Python側のエンコードCPU処理を避ける。理由はroad_graph_repository.pyの
     _ROAD_SURFACE_TILE_MVT_SQLコメント参照）。カバレッジ外・DB障害時、および`repository`を
     渡さない場合（既定）は空タイルを返す（Overpassフォールバックを持たない設計の背景は
-    docs/decisions/pre-static-attributes-gate.md 決定2参照）。
+    docs/records/decisions/pre-static-attributes-gate.md 決定2参照）。
 
     カバレッジ内（生データ取込済み）でも、実際にタイル描画が読むroad_nodes/road_edges
     （道路グラフ）は、地図を眺めるだけ（ルート生成を経ない）の利用では構築されない

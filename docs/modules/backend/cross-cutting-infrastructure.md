@@ -80,7 +80,7 @@ FastAPI(lifespan=lifespan)
         │       ローカルにファイルが無く、完了するまで風グリッド・ルート評価の風が使えない）
         └─ (6) 同じくAPSchedulerでディスク永続キャッシュの旧世代掃除ジョブを登録
                 （trigger="date"で起動直後に1回だけ。世代を上げたデプロイの直後がこの
-                タイミングに当たる、docs/caching.md「無効化」参照）
+                タイミングに当たる、docs/conventions/caching.md「無効化」参照）
         ▼
   CORSMiddleware → ContentTypeGZipMiddleware（応答のgzip圧縮）
             → CachePolicyMiddleware（Cache-Control付与、下記「Cache-Controlの一元化」節）
@@ -193,7 +193,7 @@ frontend側（`src/proxy.ts`）も同じ資格情報を別のBasic認証チェ�
 
 ## RedisのJSON cache-aside（`redis_json_cache.py`）
 
-どの層に持つか・TTLをどう決めるか・無効化の手段といった方針は[docs/caching.md](../../caching.md)が
+どの層に持つか・TTLをどう決めるか・無効化の手段といった方針は[docs/conventions/caching.md](../../caching.md)が
 正本で、ここは実装の説明に絞る。
 
 「Redisが使えるか確認→クライアント取得→`log_external_call`で計測→失敗は握り潰して
@@ -207,7 +207,7 @@ frontend側（`src/proxy.ts`）も同じ資格情報を別のBasic認証チェ�
 
 新しくRedisへ持つキャッシュはこれを使う。`jma_tile_index`・`dynamic_way_value_cache`が
 利用している。`jma_tile_redis_cache`だけは値がバイナリ（PNG/PBF）でJSON化に馴染まないため
-自前の実装を持つ（docs/caching.md「自前で骨格を書いてよい例外」）。
+自前の実装を持つ（docs/conventions/caching.md「自前で骨格を書いてよい例外」）。
 
 ## Redisクライアント（`redis_client.py`、サーキットブレーカー）
 

@@ -65,7 +65,7 @@ def read_recent_logs(
     `distance filter rejected`）、両方指定するとAND条件。`limit`でフィルタ後の末尾N件に
     絞り込める。debug_modeがOFFの間はDEBUGレベルの行自体がそもそも記録されない点に注意
     （先に`POST /mode`で有効化すること。WARNING以上はdebug_modeに関わらず常時記録される、
-    docs/logging.md参照）。
+    docs/conventions/logging.md参照）。
 
     `limit`に0以下を渡すとget_recent_logs内部の`lines[-limit:]`が
     Pythonのスライス仕様上「末尾からN件」ではなく異なる範囲を返してしまう

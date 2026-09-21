@@ -619,7 +619,7 @@ def test_axis_display_for_derives_gui_created_axis_display():
 def test_axis_display_for_combines_auto_derived_tile_inputs_with_thresholds_override():
     # 改善計画T404: display_thresholds_override（軽量な色分けしきい値だけの上書き）は
     # derive_ramp_inputsが自動導出したtile_inputsと組み合わせて使う（tile_inputs自体は
-    # 上書きしない）。stop_density実運用の移行内容（thresholds[1,2,4]、docs/tasks/
+    # 上書きしない）。stop_density実運用の移行内容（thresholds[1,2,4]、docs/records/tasks/
     # T404.md参照）を模した検証。
     definition = AxisDefinition(
         axis_id="synthetic_stop_density_with_thresholds_override",

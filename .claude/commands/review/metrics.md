@@ -45,7 +45,7 @@ npx --yes cloc . \
 - 参考として`backend/app`（テスト除く実装本体）・`backend/tests`・
   `frontend/src`（テストファイル除く）・`frontend/src`のテストファイルを分けて
   `cloc <path> --not-match-f='\.(test|spec)\.(ts|tsx)$'`等で再計測し、
-  実装本体とテストの比率も記録する（テスト方針docs/testing.mdの手厚さの裏付けとして
+  実装本体とテストの比率も記録する（テスト方針docs/conventions/testing.mdの手厚さの裏付けとして
   過大判定の材料になる）。
 
 ### 2. 変更頻度（churn）
@@ -67,7 +67,7 @@ cd backend && "<venvのpython.exe、CLAUDE.md記載のworktree事情に注意>" 
 cd frontend && npx vitest list 2>&1 | tail -5
 ```
 
-**実行(pass/fail)ではなく収集件数のみ**を計測する（フルスイート実行はdocs/testing.mdの
+**実行(pass/fail)ではなく収集件数のみ**を計測する（フルスイート実行はdocs/conventions/testing.mdの
 方針により反復開発の最終検証時のみ・本レビューの責務外。健全性[pass/fail]は
 `/review:consistency`・CI・通常のテスト運用が担う）。テストファイル数／実装ファイル数の
 比率も上記cloc結果から算出して記録する。

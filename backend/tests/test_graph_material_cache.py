@@ -150,7 +150,7 @@ class TestDiskPersistence:
 
     def test_empty_tile_materials_round_trip_through_disk(self):
         # T536本番実測で判明した「bbox内の1タイルがEdge0件」ケース（combine_static_edge_
-        # score_matricesの例外修正、docs/tasks/T536.md）の土台となる、Edge0件タイル自体の
+        # score_matricesの例外修正、docs/records/tasks/T536.md）の土台となる、Edge0件タイル自体の
         # 永続化・復元が正しく機能することを確認する。
         empty_materials = SearchMaterials(
             graph=LeanRoadGraph(graph_version="tile-cache-empty", nodes={}, edges={}),

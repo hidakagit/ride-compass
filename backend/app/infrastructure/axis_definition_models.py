@@ -1,7 +1,7 @@
 """評価軸定義のPostGISスキーマ（SQLAlchemy ORM）。
 
 軸定義（domain/axis_definitions.py: AxisDefinition）をDBの唯一の情報源へ昇格させる
-（ADR: docs/decisions/t221-axis-registry.md）。DBの起動時初期化（create_tablesの
+（ADR: docs/records/decisions/t221-axis-registry.md）。DBの起動時初期化（create_tablesの
 Base.metadata.create_all）に乗せるため同じBaseを使う（accident_models.py等と同じ規約）。
 """
 

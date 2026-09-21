@@ -2,7 +2,7 @@ import { forwardRef } from "react";
 import { cn } from "@/lib/cn";
 
 // 汎用テキスト/数値入力。type属性をそのままパススルーするためtext/numberどちらの
-// 用途にも使える。色は必ずvar(--color-*)を任意値記法で参照する(docs/frontend-design-system.md)。
+// 用途にも使える。色は必ずvar(--color-*)を任意値記法で参照する(docs/modules/frontend/frontend-design-system.md)。
 export interface InputProps extends React.InputHTMLAttributes<HTMLInputElement> {
   /** true時にaria-invalidを付与し赤枠にする。ErrorTextとの結線は今回は行わない。 */
   invalid?: boolean;

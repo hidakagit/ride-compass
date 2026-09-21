@@ -59,7 +59,7 @@ def _sample_matrix(edge_id: str = "edge-1", score: float = 50.0) -> StaticEdgeSc
 
 
 def _empty_matrix() -> StaticEdgeScoreMatrix:
-    # T536本番実測で判明した「bbox内の1タイルがEdge0件」ケース（docs/tasks/T536.md）の
+    # T536本番実測で判明した「bbox内の1タイルがEdge0件」ケース（docs/records/tasks/T536.md）の
     # 土台となる、Edge0件タイルの静的スコア行列自体の形状。
     return StaticEdgeScoreMatrix(
         **_columns(0),

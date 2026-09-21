@@ -1,4 +1,4 @@
-"""評価軸の定義データと汎用評価関数（ADR: docs/decisions/t221-axis-registry.md）。
+"""評価軸の定義データと汎用評価関数（ADR: docs/records/decisions/t221-axis-registry.md）。
 
 「一次属性由来の材料 → 軸別difficulty(0-100)」変換を、コード（軸ごとの関数）ではなく
 **データ（`AXIS_DEFINITIONS`）**として宣言する。変換の計算自体は2テンプレート

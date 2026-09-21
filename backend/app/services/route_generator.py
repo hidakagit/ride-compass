@@ -37,7 +37,7 @@ from app.domain.route import (
     merge_material_values,
 )
 
-# ルート生成のステージ別サマリログ(方針は docs/logging.md)。1リクエスト=1行のINFOで
+# ルート生成のステージ別サマリログ(方針は docs/conventions/logging.md)。1リクエスト=1行のINFOで
 # prepare/select/trace/evaluateの所要時間と候補の減り方(折返し候補→trace成功→距離フィルタ
 # 通過→上位n件)を残し、「候補が少ない/生成が遅い」の切り分けをサーバーログだけで完結できる
 # ようにする。候補0件(ユーザーに何も返せない)はWARNINGへ昇格し、候補別の失敗理由はDEBUGで補足する。
@@ -205,7 +205,7 @@ class RouteGenerator:
 
         # 評価前に目標距離に近い順へ並べておく（最終順序はoverall_difficultyで決まるが、
         # 同点[小数1桁]の候補はこの順で並ぶ——周囲に重みを振った軸のデータが無く全候補が
-        # 同じdifficultyになる場合、結果は実質的に目標距離に近い順になる。docs/tasks/T531.md）。
+        # 同じdifficultyになる場合、結果は実質的に目標距離に近い順になる。docs/records/tasks/T531.md）。
         traced.sort(key=lambda t: abs(t.distance_km - distance_km))
 
         if not traced:

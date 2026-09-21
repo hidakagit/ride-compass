@@ -15,7 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.domain.attributes import MAX_PLAUSIBLE_AVERAGE_GRADE_PERCENT, elevation_values_sql
 
-# road_graph_session（conftest.py）と同じDBを使うため、docs/testing.mdのパターン2どおり
+# road_graph_session（conftest.py）と同じDBを使うため、docs/conventions/testing.mdのパターン2どおり
 # loop_scope="module"・xdist_group="postgis"が必須。
 pytestmark = [
     pytest.mark.asyncio(loop_scope="module"),

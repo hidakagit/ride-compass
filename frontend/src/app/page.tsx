@@ -277,7 +277,7 @@ export default function Home() {
 
   const [routes, setRoutes] = useState<RouteCandidate[]>([]);
   const [selectedRouteId, setSelectedRouteId] = useState<string | null>(null);
-  // 区間の乗り換え（docs/tasks/T621.md）。比較相手と、相手の道を選んだ区間の位置。
+  // 区間の乗り換え（docs/records/tasks/T621.md）。比較相手と、相手の道を選んだ区間の位置。
   // 区間の位置はstretchesの添字で持つ——edge_idsの位置で持つと、候補が入れ替わったときに
   // 別の場所を指したまま残る。
   // 区間ごとに選んだ道（グループの位置→代替のkey）。相手を1本選ぶ形は持たない。
@@ -449,7 +449,7 @@ export default function Home() {
     // （conditions.corrected_destination）。表示中の候補がこの補正を経て生成された
     // ことを示すヒントの表示条件に使う（比較には使わない）。
     destinationCorrected: boolean;
-    // 生成に実際に送った入力そのもの。区間の乗り換え（docs/tasks/T621.md）で合成した
+    // 生成に実際に送った入力そのもの。区間の乗り換え（docs/records/tasks/T621.md）で合成した
     // 経路も**同じ条件で**評価するために使う——合成結果は素の結果と本質的に区別せず、
     // 同じ並びへ差し込まれるため、条件が違うと比較できない値で順位が決まる。
     // エコー（`conditions`）ではなく入力を持つのは、エコーが`lens_axis_id`を含まない
@@ -732,11 +732,11 @@ export default function Home() {
 
   const selectedCandidate = routes.find((r) => r.id === selectedRouteId) ?? null;
 
-  // 区間の乗り換え（docs/tasks/T621.md・T808）の導出値。edge_idsの集合演算だけで求まる
+  // 区間の乗り換え（docs/records/tasks/T621.md・T808）の導出値。edge_idsの集合演算だけで求まる
   // （軸の計算式は持たない。構造仕様1）。**区間を主語に、その区間の代替を候補横断で並べる**。
   // 編集対象は`routes`から引く（`editingRouteId`を単独で見ない）。候補が入れ替わった・
   // 消えたときに編集モードだけが生き残ると、地図の地点編集・候補選択が無言で無効のまま
-  // 戻せなくなる（docs/tasks/T874.md）。
+  // 戻せなくなる（docs/records/tasks/T874.md）。
   const editingRoute = routes.find((route) => route.id === editingRouteId) ?? null;
   // 以下はどれもMapViewへ渡る配列・オブジェクトを組み立てる。毎レンダー作り直すと参照だけが
   // 変わり、地図側の描画effectが天候フェッチ・パン確定などあらゆる再レンダーで走る
@@ -1494,7 +1494,7 @@ export default function Home() {
     generationConditionsKey(buildCurrentGenerationInput(Number(distanceInput))) !== generatedConditions.key;
 
   // 選んだ区間を相手の道へ差し替えた経路を、backendで評価し直して候補一覧へ加える
-  // （docs/tasks/T621.md）。frontendは経路の組み立てだけを行い、評価はbackendが
+  // （docs/records/tasks/T621.md）。frontendは経路の組み立てだけを行い、評価はbackendが
   // 既存候補と同じ経路で行う（構造仕様1・10）。
   // 選んだ組み合わせをbackendで評価する。差分の表示と「作る」で同じものを使い、評価済みなら
   // 投げ直さない。

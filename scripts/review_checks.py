@@ -6,12 +6,12 @@ Agent（人力）で行っていた「grep一発で済む」確認をここへ�
 
 サブコマンド:
   docs     docs/modules の死んだ参照・新規ファイルの記載漏れ・記載粒度違反、
-           backend/app・frontend/src のソースコードコメントの経緯記述（docs/comments.md、
+           backend/app・frontend/src のソースコードコメントの経緯記述（docs/conventions/comments.md、
            --staged/--sinceでは追加行のみ違反として数える。フルスキャンではT567完了までの
            既存分が大量にあるため参考件数のみで違反に数えない）、
-           improvement-plan.md の [x]/[ ] と docs/tasks/Txxx.md「状態:」行の照合（行頭が
+           improvement-plan.md の [x]/[ ] と docs/records/tasks/Txxx.md「状態:」行の照合（行頭が
            「状態:」であること自体も違反として見る）、
-           history/・docs/tasks/ への死んだリンク（consistency.md「設計 ↔ 実装」節の機械的部分）。
+           history/・docs/records/tasks/ への死んだリンク（consistency.md「設計 ↔ 実装」節の機械的部分）。
            どの検知器をどの経路で強制するかの正本は`DETECTOR_ENFORCEMENT`（ここは要約）
   size     規模ウォッチ（complexity.md）: 実装ファイル行数の上位と前回比・閾値発火
   duplication コピペ検出（complexity.md）: jscpdでの完全一致クローンと前回比
@@ -55,7 +55,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 REVIEW_DIR = REPO_ROOT / ".claude" / "commands" / "review"
 HISTORY_DIR = REVIEW_DIR / "history"
 MODULES_DIR = REPO_ROOT / "docs" / "modules"
-TASKS_DIR = REPO_ROOT / "docs" / "tasks"
+TASKS_DIR = REPO_ROOT / "docs" / "records" / "tasks"
 IMPROVEMENT_PLAN = REPO_ROOT / "docs" / "improvement-plan.md"
 SIZE_BASELINE = HISTORY_DIR / "size_watch.json"
 DUPLICATION_BASELINE = HISTORY_DIR / "duplication.json"
@@ -66,7 +66,7 @@ GUARD_EDGE_BASELINE = HISTORY_DIR / "guard_edges.json"
 IMPL_INCLUDE_PREFIXES = ("backend/app/", "frontend/src/")
 # frontend/src/testing/はテストだけが使う補助（フェイク・フィクスチャ）で、docs/modulesが
 # 記述する対象は実装モジュールのため、.test.と同じく除外する（置き場所と使い方は
-# docs/testing.md「パターン5」が持つ。backend側の同種の補助はbackend/tests/配下にあり、
+# docs/conventions/testing.md「パターン5」が持つ。backend側の同種の補助はbackend/tests/配下にあり、
 # IMPL_INCLUDE_PREFIXESがbackend/app/しか含まないため元から対象外）。
 IMPL_EXCLUDE_RE = re.compile(
     r"(\.test\.|\.spec\.|\.bench\.|/types/generated/|\.module\.css$|\.css$|\.d\.ts$"
@@ -93,7 +93,7 @@ NARRATIVE_PATTERN = re.compile(
     # 直前に`た`を要求することで「今のところは」（`たところ`）を誤検出しない。
     r"|た頃|たころ"
 )
-# docs/comments.md「コメント方針」節が禁止するソースコード内の経緯コメント検出用。
+# docs/conventions/comments.md「コメント方針」節が禁止するソースコード内の経緯コメント検出用。
 # docs/modules向けのNARRATIVE_PATTERNをそのまま流用する（定義元を分けない）。
 # コメント行以外（実装コード・文字列リテラル）を誤検出しないよう、行のコメント部分だけを
 # 抽出してから照合する（comment_only参照）。
@@ -186,8 +186,8 @@ def python_comment_lines(path: str) -> set[int] | None:
     return lines
 
 
-#: ソースのコメント専用の追加分。経緯の言い回しを書かずに`docs/tasks/Txxx.md`を指すだけの
-#: コメントも、指した先が実態と食い違ったときに追従されない（docs/comments.md
+#: ソースのコメント専用の追加分。経緯の言い回しを書かずに`docs/records/tasks/Txxx.md`を指すだけの
+#: コメントも、指した先が実態と食い違ったときに追従されない（docs/conventions/comments.md
 #: 「書いてはいけないコメント」②）。docs/modules側は「記載粒度」節がリンクを1本まで
 #: 許容するため、この綴りは共有の`NARRATIVE_PATTERN`ではなくソース側だけに足す。
 SOURCE_NARRATIVE_PATTERN = re.compile(NARRATIVE_PATTERN.pattern + r"|tasks/T[0-9]{3,4}\.md")
@@ -211,18 +211,18 @@ def find_source_narrative_violations(source_lines: dict[str, list[tuple[int, str
 # Redis cache-asideの骨格（可用性チェック→クライアント取得→計測→fail-open→成否記録）は
 # `redis_json_cache.py`の`get_json`/`set_json`が内包している。これを自前で書き直すと、
 # 写経ミス（`record_redis_failure`の呼び忘れ等）でRedis障害の検知だけが静かに欠ける
-# （アプリはfail-openのまま動き続けるため表に出ない）。docs/caching.md参照。
+# （アプリはfail-openのまま動き続けるため表に出ない）。docs/conventions/caching.md参照。
 REDIS_SKELETON_RE = re.compile(
     r"(get_redis_client_or_none|record_redis_failure|record_redis_success|redis_available)"
 )
 # 骨格を自前で持ってよいファイル。増やすときは理由をモジュールのdocstringへ書くこと
-# （docs/caching.md「自前で骨格を書いてよい例外」）。
+# （docs/conventions/caching.md「自前で骨格を書いてよい例外」）。
 REDIS_SKELETON_ALLOWLIST = {
     "backend/app/infrastructure/redis_client.py",  # 骨格が使う接続・サーキットブレーカー本体
     "backend/app/infrastructure/redis_json_cache.py",  # 骨格そのもの
     "backend/app/infrastructure/jma_tile_redis_cache.py",  # 値がバイナリでJSON化に馴染まない
     # 全国約1,300観測所をpipelineでHashへ一括読み書きする（get_json/set_jsonの単一キー
-    # JSON読み書きでは表現できない）。docs/caching.md「自前で骨格を書いてよい例外」の
+    # JSON読み書きでは表現できない）。docs/conventions/caching.md「自前で骨格を書いてよい例外」の
     # 「mget/pipelineによる一括読み書き」に当たり、fail-openと失敗の記録は満たしている。
     "backend/app/services/jma_amedas_service.py",
 }
@@ -244,7 +244,7 @@ def find_redis_skeleton_violations(source_lines: dict[str, list[tuple[int, str]]
 # Pydanticの`extra`の既定は`ignore`で、モデルが知らないフィールドは例外にならず捨てられる。
 # フィールドを消した・改名したときの取り残しが「値は入らないがテストは通る」という無言の形で
 # 残るため、backend/app配下のモデルは`StrictModel`（extra="forbid"）を継承する
-# （docs/tasks/T721.md、app/domain/strict_model.py）。
+# （docs/records/tasks/T721.md、app/domain/strict_model.py）。
 BARE_BASEMODEL_RE = re.compile(r"^class\s+(\w+)\s*\(\s*BaseModel\s*\)\s*:")
 # 素のBaseModelを使ってよいファイル。増やすときは理由をそのモジュールのdocstringへ書くこと。
 BARE_BASEMODEL_ALLOWLIST = {
@@ -323,7 +323,7 @@ def find_bare_basemodel_violations(source_lines: dict[str, list[tuple[int, str]]
 
 # 位置引数の個数の照合。シグネチャを変えた側が呼び出し元の1つを取り残しても、呼ぶ経路を
 # 通るテストが無ければ誰も気づかない（本番の管理画面が毎回500を返していた実績。
-# docs/tasks/T889.md）。CIにbackendの型検査は無く、ruffもこの型は見ない。
+# docs/records/tasks/T889.md）。CIにbackendの型検査は無く、ruffもこの型は見ない。
 #
 # 見るのは**モジュール直下の関数**を**素の名前**で呼ぶ形だけ。メソッド呼び出し
 # （`obj.foo()`）は呼び先の型が静的に決まらないため対象外——取りこぼす方向の割り切りで、
@@ -472,8 +472,8 @@ def arity_sources(files: list[str]) -> dict[str, str]:
 # webアプリが読み込む層から`app/batch`をモジュールトップでimportすると、バッチへ依存を1行
 # 足しただけで本番webが起動時に落ちる。本番webイメージは`requirements.txt`しか入れない一方、
 # batchは`requirements-batch.txt`限定の依存（rasterio等）を使うためで、テストとCIはbatch依存が
-# 入っているため緑のまま通る（本番でクラッシュループになった実績があり、docs/tasks/T630.md・
-# docs/tasks/T814.md参照）。関数内の遅延importは起動時に評価されないため対象外。
+# 入っているため緑のまま通る（本番でクラッシュループになった実績があり、docs/records/tasks/T630.md・
+# docs/records/tasks/T814.md参照）。関数内の遅延importは起動時に評価されないため対象外。
 # 「webアプリが読む層」＝`backend/app`配下のうちbatch自身以外。ディレクトリを手で並べると、
 # 並べていない場所（`main.py`がまさにそれだった）が検査の外に落ちる——本番webが起動時に
 # 読む筆頭のファイルである。
@@ -577,7 +577,7 @@ def find_undeclared_fixed_values() -> list[str]:
             out.append(
                 f"backend/{module}: `{name}`が宣言に無い"
                 "（走ってみて決める値なら`TUNING_PARAMETERS`へ、そうでないなら"
-                "`FIXED_VALUES`へ種別付きで足す。docs/tasks/T805.md参照）"
+                "`FIXED_VALUES`へ種別付きで足す。docs/records/tasks/T805.md参照）"
             )
         for name in sorted(declared - actual):
             out.append(
@@ -587,10 +587,10 @@ def find_undeclared_fixed_values() -> list[str]:
     return out
 
 
-# docs/documentation.md「要素が1つ増えたときに嘘になる文は数え上げている」の機械的な手掛かり。
+# docs/conventions/documentation.md「要素が1つ増えたときに嘘になる文は数え上げている」の機械的な手掛かり。
 # 増減しうる集合の大きさを表す助数詞だけを見る（長さ・時間・回数のように増えても嘘に
 # ならない単位は最初から入れない）。「1つ」は「1箇所へ寄せる」のような書き方が大半のため
-# 2以上に限る。**参考表示に留める**——実測した内訳はdocs/tasks/T824.mdにある。
+# 2以上に限る。**参考表示に留める**——実測した内訳はdocs/records/tasks/T824.mdにある。
 COUNTED_UNITS = (
     "個|種類|種|値|箇所|つ|パターン|カテゴリ|段階|レイヤー|材料|キャッシュ|メソッド"
     "|軸|分位|要素|状態|系統|コマ|グループ|チップ|フラグ|エンドポイント|テーブル"
@@ -599,7 +599,7 @@ COUNT_NARRATIVE_RE = re.compile(
     rf"(?<![0-9a-zA-Z.])(?:[2-9]|[1-9][0-9]|[二三四五六七八九十])\s*(?:\*\*)?(?:{COUNTED_UNITS})"
 )
 # 記録として残す文書（当時の数をそのまま持つ）と、タスクの個票は対象外。
-COUNT_NARRATIVE_EXEMPT = ("docs/tasks/", "docs/improvement-plan.md", "zero-base-review", "-review-2026-")
+COUNT_NARRATIVE_EXEMPT = ("docs/records/tasks/", "docs/improvement-plan.md", "zero-base-review", "-review-2026-")
 
 
 def find_count_narratives(
@@ -625,7 +625,7 @@ def find_count_narratives(
     return out
 
 
-# 相手のレイヤーを主語にして、その挙動を断定するコメント（docs/comments.md「他所を写さない・
+# 相手のレイヤーを主語にして、その挙動を断定するコメント（docs/conventions/comments.md「他所を写さない・
 # 代弁しない」）。相手が変わっても自分のテストは緑のままのため、陳腐化しても気づけない。
 # 「呼び出し側は」は対象外——レイヤーの名指しではなく、自分が課す契約の相手を指す一般語。
 CROSS_LAYER_SUBJECTS = {
@@ -725,7 +725,7 @@ def top_level_segments(code: str) -> tuple[dict[str, str], dict[str, int]]:
 # 再描画（map.setStyle()）で失われる副作用。ソースの新設だけでなく、レイヤーの追加や
 # filter・feature-state・visibilityで持つ表示状態も、スタイルごと消えて初期値へ戻る。
 # 母集団を「sourceを作る宣言」に限ると、既存ソースの上に載せた表示状態は検査の外に落ちる
-# （T868の道の強調がその形で見逃された。docs/tasks/T871.md）。
+# （T868の道の強調がその形で見逃された。docs/records/tasks/T871.md）。
 MAP_REDRAW_SIDE_EFFECTS = (
     ".addSource(",
     ".addLayer(",
@@ -876,14 +876,14 @@ def map_redraw_gaps_in(source: str, parts: list[tuple[str, str]] | None = None) 
         f"{where(line_of[name])}: `{name}`が再描画で失われる副作用を持つが、"
         f"`{MAP_REDRAW_ENTRY}`から辿れない"
         "（map.setStyle()後に作り直されず、そのレイヤーは消えたまま戻らない。"
-        "docs/tasks/T825.md参照）"
+        "docs/records/tasks/T825.md参照）"
         for name in sorted(owners - reachable, key=lambda n: line_of[n])
     ]
 
 
 # テストの足場（フェイク・フィクスチャ組み立て）が、同じ名前で複数のテストファイルへ
 # 定義されている状態。書く前に既にあるものへ気づくための参考表示で、正当に分ける判断
-# （記録する呼び出しが違う等）もあるためブロックはしない（docs/tasks/T771.md）。
+# （記録する呼び出しが違う等）もあるためブロックはしない（docs/records/tasks/T771.md）。
 SCAFFOLD_DEF_RES = (
     re.compile(r"^(?:export\s+)?(?:async\s+)?function\s+((?:make|fake|stub|build|create)[A-Za-z0-9_]*)\s*\(", re.M),
     re.compile(r"^const\s+((?:make|fake|stub|build|create)[A-Za-z0-9_]*)\s*=\s*(?:\(|async|function)", re.M),
@@ -1013,10 +1013,7 @@ def git(*args: str, check: bool = True) -> str:
 #: 歴史を書き換えることになる。ここに入れるのは「もうメンテナンスしない」と決めたものだけで、
 #: 現役の文書を静かに逃がす場所にしない。
 FROZEN_DOC_PREFIXES = (
-    "docs/archive/",
-    "docs/improvement-plan-archive/",
-    ".claude/commands/review/history/",
-    ".claude/commands/task/history/",
+    "docs/records/",
 )
 
 
@@ -1024,8 +1021,18 @@ def is_frozen_doc(path: str) -> bool:
     return path.startswith(FROZEN_DOC_PREFIXES)
 
 
+def tracked_files() -> list[str]:
+    """追跡下の全ファイル。**「実在するか」の母集団はこちら。**
+
+    凍結した記録も実在はする。`git_files()`と取り違えると、記録を走査対象から外した
+    とたんに、そこを指す生きた文書のリンクが一斉に「実在しない」へ化ける。
+    """
+    return [line for line in git("ls-files").splitlines() if line]
+
+
 def git_files() -> list[str]:
-    return [line for line in git("ls-files").splitlines() if line and not is_frozen_doc(line)]
+    """走査して整合を求める対象。凍結した記録は含まない。"""
+    return [line for line in tracked_files() if not is_frozen_doc(line)]
 
 
 def is_impl_file(path: str) -> bool:
@@ -1141,7 +1148,7 @@ def looks_like_identifier(token: str) -> bool:
 # 「何を試して駄目だったか」を書く文書で、経緯の記述自体は正当（maplibre-glの
 # バージョン固定のように、コードからは導けずドキュメントだけが持つ事実がある）。
 # 一方で**撤去済みのものを、撤去したと書かずに名指しする**のは読み手を誤らせる
-# ——それが実在すると読める（docs/tasks/T723.md）。
+# ——それが実在すると読める（docs/records/tasks/T723.md）。
 #
 # したがって判定は「実在しない名前を、撤去等の断りなく書いているか」に限る。
 # 断りを入れれば通る＝「もう無いものを名指しするなら、無いと同じ行に書く」という
@@ -1173,7 +1180,7 @@ def doc_text_at(doc: str, revision: str | None) -> str:
 
 
 # 箇条書き・番号付きリストの項目の先頭。空行を挟まず別の話題が並ぶため、ここで区切らないと
-# 1項目の撤去の断りがリスト全体を免除してしまう（docs/tasks/T743.md）。
+# 1項目の撤去の断りがリスト全体を免除してしまう（docs/records/tasks/T743.md）。
 LIST_ITEM_START_RE = re.compile(r"^\s*(?:[-*+]|\d+\.)\s")
 
 
@@ -1252,9 +1259,9 @@ def open_task_files() -> list[str]:
     """台帳が未完了（`- [ ]`）として挙げているタスクのファイル。"""
     plan = read_text(REPO_ROOT / PLAN_DOC)
     return [
-        f"docs/tasks/T{n}.md"
+        f"docs/records/tasks/T{n}.md"
         for n in re.findall(r"^- \[ \] \[T(\d{3,4})\]\(tasks/T\d{3,4}\.md\)", plan, re.M)
-        if (REPO_ROOT / f"docs/tasks/T{n}.md").exists()
+        if (REPO_ROOT / f"docs/records/tasks/T{n}.md").exists()
     ]
 
 
@@ -1551,7 +1558,7 @@ def settings_field_names() -> frozenset[str]:
 # corpusから外しているため、**テストだけが使う外部APIの名前**（式評価器・テストクライアント
 # 等）が「実装に存在しない」と判定される。import文に現れる名前は、自前か依存先かを問わず
 # 解決できる実在の名前なので救済する——テスト本体の**アサーションや文字列**に残る旧名は
-# import文には現れないため、改名の取り残しを見逃す側には効かない（docs/tasks/T722.md）。
+# import文には現れないため、改名の取り残しを見逃す側には効かない（docs/records/tasks/T722.md）。
 IMPORTED_NAME_RE = re.compile(
     r"^\s*from\s+[\w.]+\s+import\s+([^\n#]+)"
     r"|^\s*import\s+([\w.,\s]+)$"
@@ -1623,7 +1630,7 @@ def identifier_exists(token: str, corpus: str) -> bool:
 
 # コードフェンス内は識別子をバッククォート無しで書く場所。データフロー図・コード例という
 # 「機構の全体像を最も具体的に述べる箇所」がそこに集まるため、バッククォート付きだけを
-# 母集団にすると図だけが恒久的に検査の外に残る（docs/tasks/T871.md）。
+# 母集団にすると図だけが恒久的に検査の外に残る（docs/records/tasks/T871.md）。
 FENCE_IDENT_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]{2,}")
 
 
@@ -1679,7 +1686,7 @@ def find_dead_identifier_refs(
 
 
 # レビュー手順書（.claude/commands/）は全レビューが最初に読む。撤去済みの機構を現行として
-# 記述していると、その陳腐化がすべてのレビューへ伝播する（docs/tasks/T743.md）。
+# 記述していると、その陳腐化がすべてのレビューへ伝播する（docs/records/tasks/T743.md）。
 REVIEW_COMMAND_DOC_PREFIX = ".claude/commands/"
 # 記録として残す文書（当時の名前をそのまま持つ）。
 REVIEW_COMMAND_DOC_EXEMPT = ("/history/", "/_history.md")
@@ -1796,7 +1803,7 @@ KNOWN_MISSING_HISTORY = {"2026-08-26_complexity.md"}
 
 
 def task_status_kind(task_path: Path) -> str | None:
-    """docs/tasks/Txxx.md の「状態:」行を done / open / None（行なし）に分類する。"""
+    """docs/records/tasks/Txxx.md の「状態:」行を done / open / None（行なし）に分類する。"""
     for line in read_text(task_path).splitlines():
         if line.startswith("状態:"):
             body = line[len("状態:"):].strip()
@@ -1811,7 +1818,7 @@ def task_status_kind(task_path: Path) -> str | None:
 
 # タスクの残りを置く節の見出し（「## 派生」「## 残課題」「## フォローアップ」等）。
 # 同じ語は実装メモの散文にも現れるため、判定の単位は地の文ではなく見出しにする
-# （単位ごとの検出件数の実測はdocs/tasks/T751.md）。
+# （単位ごとの検出件数の実測はdocs/records/tasks/T751.md）。
 LEFTOVER_HEADING_RE = re.compile(
     r"^#{2,4}\s.*(派生|積み残し|フォローアップ|残課題|残作業|未検討|やり残|次のステップ)")
 # その節が「別のタスクへ渡した」「今後もやらない」のどちらかを述べていれば、拾われなくなる
@@ -1863,13 +1870,13 @@ def find_unfiled_deferrals(base_ref: str | None) -> list[str]:
             body = "\n".join(lines[i:j])
             if TASK_MENTION_RE.search(body) or LEFTOVER_SETTLED_RE.search(body):
                 continue
-            out.append(f"docs/tasks/T{num}.md:{i + 1}: {line.strip()[:90]}")
+            out.append(f"docs/records/tasks/T{num}.md:{i + 1}: {line.strip()[:90]}")
     return out
 
 
 GLOBAL_TOKENS_CSS = "frontend/src/app/globals.css"
 # `var(--x)`と`var(--x, fallback)`の両方を参照として扱う。フォールバックは未定義を
-# 隠すだけで、テーマトークンにフォールバックを付けない規約（docs/frontend-design-system.md）
+# 隠すだけで、テーマトークンにフォールバックを付けない規約（docs/modules/frontend/frontend-design-system.md）
 # にも反する。終端に`,`か`)`を要求することで、`var(--color-*)`というワイルドカード表記や
 # `var(--color-${variant})`という実行時合成を参照と誤認しない。
 CSS_VAR_REF_RE = re.compile(r"var\(\s*(--[A-Za-z0-9_-]+)\s*[,)]")
@@ -1940,7 +1947,7 @@ def find_undefined_css_tokens(files: list[str], all_files: list[str] | None = No
 #
 # frontendのvitestは`pool: "vmThreads"`で走るため、`process.env`はテストファイルをまたいで
 # 共有される。あるテストが環境変数を立てている間に別ファイルが同じ変数を読むと、後者の
-# 期待値が静かに変わる（フルスイートでだけ落ちるテストになる。docs/tasks/T777.md）。
+# 期待値が静かに変わる（フルスイートでだけ落ちるテストになる。docs/records/tasks/T777.md）。
 # 「そのテストが対象にしている実装」だけが読む変数なら、立てても他へ波及しないので許す。
 
 TEST_ENV_WRITE_RE = re.compile(
@@ -1974,7 +1981,7 @@ def find_cross_file_env_writes(files: list[str]) -> list[str]:
             if others:
                 out.append(
                     f"{f}:{lineno}: `{name}`を書き換えているが、{others[0]}も読む"
-                    "（読む側をモックするか、判断を引数で受ける純関数へ出す。docs/testing.md参照）"
+                    "（読む側をモックするか、判断を引数で受ける純関数へ出す。docs/conventions/testing.md参照）"
                 )
     return out
 
@@ -1988,7 +1995,7 @@ def find_cross_file_env_writes(files: list[str]) -> list[str]:
 
 
 def task_heading_violations() -> list[str]:
-    """docs/tasks/Txxx.md の先頭見出しとファイル名のずれ。
+    """docs/records/tasks/Txxx.md の先頭見出しとファイル名のずれ。
 
     番号の照合は`check_task_numbering`だけが呼ぶ。同じ突き合わせを別の検知器でも書くと、
     片方を直してもう片方を直し忘れたときに全テストが緑のまま通る。
@@ -2002,11 +2009,11 @@ def task_heading_violations() -> list[str]:
         head_num = TASK_HEADING_RE.match(heading)
         if head_num is None:
             violations.append(
-                f"docs/tasks/{task_path.name}: 先頭の見出しが「# T{name.group(1)}. …」の形になっていない"
+                f"docs/records/tasks/{task_path.name}: 先頭の見出しが「# T{name.group(1)}. …」の形になっていない"
             )
         elif head_num.group(1) != name.group(1):
             violations.append(
-                f"docs/tasks/{task_path.name}: 見出しがT{head_num.group(1)}でファイル名と一致しない"
+                f"docs/records/tasks/{task_path.name}: 見出しがT{head_num.group(1)}でファイル名と一致しない"
                 "（振り直しの置換漏れ、または別タスクの本文で上書きした）"
             )
     return violations
@@ -2045,18 +2052,18 @@ def check_plan_vs_tasks() -> list[str]:
         checked, num = m.group(1) == "x", m.group(2)
         task_path = TASKS_DIR / f"T{num}.md"
         if not task_path.exists():
-            violations.append(f"docs/improvement-plan.md:{lineno}: docs/tasks/T{num}.md が存在しない")
+            violations.append(f"docs/improvement-plan.md:{lineno}: docs/records/tasks/T{num}.md が存在しない")
             continue
         kind = task_status_kind(task_path)
         if kind is None:
             violations.append(
-                f"docs/tasks/T{num}.md: 行頭が「状態:」の行が無く[x]/[ ]と照合できない"
+                f"docs/records/tasks/T{num}.md: 行頭が「状態:」の行が無く[x]/[ ]と照合できない"
                 "（`規模S。状態: 完了（…）` のように規模と同じ行へ書くと検出されない）"
             )
         elif checked and kind == "open":
-            violations.append(f"docs/improvement-plan.md:{lineno}: T{num} は [x] だが docs/tasks/T{num}.md の「状態:」行は未完了のまま")
+            violations.append(f"docs/improvement-plan.md:{lineno}: T{num} は [x] だが docs/records/tasks/T{num}.md の「状態:」行は未完了のまま")
         elif not checked and kind == "done":
-            violations.append(f"docs/improvement-plan.md:{lineno}: T{num} は [ ] だが docs/tasks/T{num}.md の「状態:」行は完了")
+            violations.append(f"docs/improvement-plan.md:{lineno}: T{num} は [ ] だが docs/records/tasks/T{num}.md の「状態:」行は完了")
     return violations
 
 
@@ -2087,7 +2094,7 @@ DOC_RECORD_PREFIXES = (
 HISTORY_EXEMPT_DOC_PREFIXES = (
     ".claude/commands/review/history/",
     "docs/improvement-plan-archive/",
-    "docs/tasks/",
+    "docs/records/tasks/",
 )
 
 
@@ -2169,7 +2176,7 @@ def historical_axis_ids() -> frozenset[str]:
 
     **限界**: 履歴の記録より前に廃止された軸は母集団に入らない。綴りの形から導く案も測ったが、
     材料id・テーブル名・サービス名が軸idと同じ命名規則を共有するため誤検知が
-    実測117件（コメント内に限っても50件）になり採らなかった（docs/tasks/T871.md）。
+    実測117件（コメント内に限っても50件）になり採らなかった（docs/records/tasks/T871.md）。
     """
     # REPO_ROOTはmutateが一時worktreeへ差し替えるため、キャッシュのキーに含める。
     return _historical_axis_ids(str(REPO_ROOT))
@@ -2208,7 +2215,7 @@ def live_axis_labels() -> set[str]:
 def removed_axis_labels() -> set[str]:
     """スナップショットのgit履歴にあり、現行のスナップショットに無い表示ラベル。
 
-    idを名指ししていなくてもラベルは残る（[T885](../docs/tasks/T885.md)の掃除がASCII idの
+    idを名指ししていなくてもラベルは残る（[T885](../docs/records/tasks/T885.md)の掃除がASCII idの
     grepだったため、日本語ラベルだけが各所に残った）。読み手が「現行の軸」と受け取るのは
     ラベルの方で、idと同じ重さで扱う。
     """
@@ -2264,7 +2271,7 @@ def find_removed_axis_mentions(files: list[str], scope: list[str] | None = None)
 
     .mdは段落に撤去の断りがあれば免除する（`paragraphs_with_removal_marker`、
     architecture.mdの既存の扱いと同じ単位）。実装コードのコメントは免除しない——
-    撤去済みの名前を語る経緯コメント自体が`docs/comments.md`で禁じられている。
+    撤去済みの名前を語る経緯コメント自体が`docs/conventions/comments.md`で禁じられている。
     """
     # idと表示ラベルを同じ母集団に入れる。名指しの重さは綴りの言語では変わらない。
     gone = removed_axis_ids(files) | removed_axis_labels()
@@ -2475,7 +2482,7 @@ def check_dead_doc_links(md_files: list[str]) -> list[str]:
                     out.append(f"{f}:{lineno}: history/{name} が存在しない")
             for n in TASK_FILE_MENTION_RE.findall(line):
                 if f"T{n}.md" not in existing_tasks:
-                    out.append(f"{f}:{lineno}: docs/tasks/T{n}.md が存在しない")
+                    out.append(f"{f}:{lineno}: docs/records/tasks/T{n}.md が存在しない")
             out.extend(unresolvable_links(f, p, lineno, line))
     return out
 
@@ -2490,7 +2497,7 @@ LINK_TEMPLATE_RE = re.compile(r"[Tt]xxx|<[^>]+>")
 def unresolvable_links(rel_path: str, path: Path, lineno: int, line: str) -> list[str]:
     """行き先が実際には解決できないリンク。
 
-    名前だけを照合すると、`docs/tasks/T889.md`が実在する限り`../tasks/T889.md`
+    名前だけを照合すると、`docs/records/tasks/T889.md`が実在する限り`../tasks/T889.md`
     （階層が1つ足りない）も通る——リンクとして死んでいるのに、名前の検査では見つからない。
     行き先を実際にファイルシステムで解決して確かめる。
     """
@@ -2574,24 +2581,24 @@ DETECTOR_ENFORCEMENT: dict[str, frozenset[str]] = {
     "cross_file_env_writes": frozenset({"staged", "since", "full"}),
     "undeclared_fixed_values": frozenset({"staged", "since", "full"}),
     "map_redraw_coverage": frozenset({"staged", "since", "full"}),
-    # 参考表示のみ。誤検出が多く（実測はdocs/tasks/T824.md）ブロックには使えないが、
+    # 参考表示のみ。誤検出が多く（実測はdocs/records/tasks/T824.md）ブロックには使えないが、
     # 書いた本人の目へ入れるだけで直せる型のため、追加行に対してだけ出す。
     "count_narrative": frozenset(),
     "cross_layer_claim": frozenset(),
     # 参考表示のみ（README「記載粒度」節は1リンクまで許可）。
     "task_links": frozenset(),
     # 参考表示のみ。節が完了済みフォローアップの記録であることもあり、残りかどうかは
-    # 人にしか分からない（docs/tasks/T751.md）。[x]化の瞬間に目へ入れるのが目的。
+    # 人にしか分からない（docs/records/tasks/T751.md）。[x]化の瞬間に目へ入れるのが目的。
     "unfiled_deferrals": frozenset(),
     # 参考表示のみ。同じ名前でも記録する呼び出しが違えば分けるのが正しいことがあり、
-    # 人にしか決められない（docs/tasks/T771.md）。書く前に既存へ気づくのが目的。
+    # 人にしか決められない（docs/records/tasks/T771.md）。書く前に既存へ気づくのが目的。
     "duplicate_test_scaffold": frozenset(),
     # 参考表示のみ。近い語を持つ2件を別々に進めるのが正しいこともあり、人にしか決められない。
     # 起票の瞬間に既存の未完了エントリへ目を向けるのが目的。
     "plan_entry_overlap": frozenset(),
     # 参考表示のみ。「これから作る名前」と「撤去された名前」はgitの履歴で分けられるが、
     # 残る誤りの側（テストの補助関数名・外部の製品コード・撤去自体を扱うタスク）は
-    # 人にしか見分けられない（実測はdocs/tasks/T943.md）。
+    # 人にしか見分けられない（実測はdocs/records/tasks/T943.md）。
     "stale_task_premises": frozenset(),
 }
 
@@ -2607,6 +2614,8 @@ def unwired_detectors(mode: str, wired: set[str]) -> list[str]:
 
 def cmd_docs(args: argparse.Namespace) -> int:
     files = git_files()
+    # 実在判定・識別子の綴り探しは凍結を含む全体を母集団にする（tracked_files参照）。
+    universe = tracked_files()
     all_docs = module_docs()
     modules_text = "\n".join(read_text(p) for p in all_docs)
     mode = "staged" if args.staged else ("since" if args.since else "full")
@@ -2640,26 +2649,26 @@ def cmd_docs(args: argparse.Namespace) -> int:
         add("narrative", "docs/modules の記載粒度違反（ステージ済み追加行）",
             lambda: find_narrative_violations(doc_lines))
         source_lines = {} if skip else gather_added_source_lines(None)
-        add("source_narrative", "ソースコードの経緯コメント（ステージ済み追加行、docs/comments.md参照）",
+        add("source_narrative", "ソースコードの経緯コメント（ステージ済み追加行、docs/conventions/comments.md参照）",
             lambda: find_source_narrative_violations(source_lines))
-        add("redis_skeleton", "Redis骨格の自前実装（ステージ済み追加行、docs/caching.md参照）",
+        add("redis_skeleton", "Redis骨格の自前実装（ステージ済み追加行、docs/conventions/caching.md参照）",
             lambda: find_redis_skeleton_violations(source_lines))
-        add("bare_basemodel", "素のBaseModel継承（ステージ済み追加行、docs/tasks/T721.md参照）",
+        add("bare_basemodel", "素のBaseModel継承（ステージ済み追加行、docs/records/tasks/T721.md参照）",
             lambda: find_bare_basemodel_violations(source_lines))
-        add("module_redefinition", "モジュール直下で同じ名前を2回定義（ステージ済み.py、docs/tasks/T883.md参照）",
+        add("module_redefinition", "モジュール直下で同じ名前を2回定義（ステージ済み.py、docs/records/tasks/T883.md参照）",
             lambda: find_module_level_redefinitions(python_sources(diff_added_lines("*.py"))))
-        add("call_arity", "位置引数の個数が定義と合わない呼び出し（ステージ済み.py、docs/tasks/T893.md参照）",
+        add("call_arity", "位置引数の個数が定義と合わない呼び出し（ステージ済み.py、docs/records/tasks/T893.md参照）",
             lambda: find_call_arity_mismatches(
                 arity_sources(files + added), scope=[f for f in staged if f.endswith(".py")]))
-        add("web_layer_batch_import", "webアプリが読む層からのapp.batchのトップレベルimport（ステージ済み追加行、docs/tasks/T814.md参照）",
+        add("web_layer_batch_import", "webアプリが読む層からのapp.batchのトップレベルimport（ステージ済み追加行、docs/records/tasks/T814.md参照）",
             lambda: find_web_layer_batch_imports(source_lines))
-        add("map_redraw_coverage", "map.setStyle()後の再描画から辿れないレイヤー（docs/tasks/T825.md参照）",
+        add("map_redraw_coverage", "map.setStyle()後の再描画から辿れないレイヤー（docs/records/tasks/T825.md参照）",
             lambda: find_map_redraw_gaps())
-        add("undeclared_fixed_values", "ルーティング評価の宣言に無い数値定数（docs/tasks/T805.md参照）",
+        add("undeclared_fixed_values", "ルーティング評価の宣言に無い数値定数（docs/records/tasks/T805.md参照）",
             lambda: find_undeclared_fixed_values())
-        add("count_narrative", "個数を書いている行（参考、ステージ済み追加行、docs/documentation.md参照）",
+        add("count_narrative", "個数を書いている行（参考、ステージ済み追加行、docs/conventions/documentation.md参照）",
             lambda: find_count_narratives(source_lines, diff_added_lines("docs/*.md")))
-        add("cross_layer_claim", "相手のレイヤーの挙動を断定するコメント（参考、ステージ済み追加行、docs/comments.md参照）",
+        add("cross_layer_claim", "相手のレイヤーの挙動を断定するコメント（参考、ステージ済み追加行、docs/conventions/comments.md参照）",
             lambda: find_cross_layer_claims(source_lines))
         arch_lines = {} if skip else diff_added_lines(ARCHITECTURE_DOC)
         add("undeclared_dead_refs", "architecture.md が撤去済みの名前を断りなく名指し（ステージ済み追加行）",
@@ -2695,16 +2704,16 @@ def cmd_docs(args: argparse.Namespace) -> int:
             lambda: find_doc_constant_drift(files + added, scope=md_staged))
         add("review_doc_dead_refs", "レビュー手順書の死んだ識別子参照（ステージ済み）",
             lambda: find_review_doc_dead_refs(files + added, scope=md_staged))
-        add("cross_file_env_writes", "テストが書き換える環境変数を他の実装も読む（docs/testing.md参照）",
+        add("cross_file_env_writes", "テストが書き換える環境変数を他の実装も読む（docs/conventions/testing.md参照）",
             lambda: find_cross_file_env_writes(files + added))
         add("source_comment_dead_identifier_refs", "ソースコードのコメントが名指しする死んだ識別子（ステージ済み）",
             lambda: find_source_comment_dead_identifier_refs(files + added, scope=staged + added))
     else:
         doc_lines = {rel(p): list(enumerate(read_text(p).splitlines(), 1)) for p in all_docs}
         add("dead_file_refs", "docs/modules の死んだ参照（全件）",
-            lambda: find_dead_file_refs(doc_lines, files))
+            lambda: find_dead_file_refs(doc_lines, universe))
         add("dead_identifier_refs", "docs/modules の死んだ識別子参照（全件）",
-            lambda: find_dead_identifier_refs(doc_lines, source_corpus(files),
+            lambda: find_dead_identifier_refs(doc_lines, source_corpus(universe),
                                                    include_fenced=True))
         add("source_comment_dead_identifier_refs", "ソースコードのコメントが名指しする死んだ識別子（全件）",
             lambda: find_source_comment_dead_identifier_refs(files))
@@ -2719,13 +2728,13 @@ def cmd_docs(args: argparse.Namespace) -> int:
             # 経緯コメント・architecture.mdの断りなき名指しはいずれも既存分が残る
             # （T567・T724）。--sinceで新規追加分だけに絞れる場合のみ違反件数へ含める。
             source_lines = gather_added_source_lines(args.since)
-            add("source_narrative", f"ソースコードの経緯コメント（{args.since} 以降の追加行、docs/comments.md参照）",
+            add("source_narrative", f"ソースコードの経緯コメント（{args.since} 以降の追加行、docs/conventions/comments.md参照）",
                 lambda: find_source_narrative_violations(source_lines))
             arch_since = diff_added_lines(ARCHITECTURE_DOC, args.since)
             add("undeclared_dead_refs", f"architecture.md が撤去済みの名前を断りなく名指し（{args.since} 以降の追加行）",
-                lambda: find_undeclared_dead_refs(arch_since, files, source_corpus(files), revision="HEAD"))
+                lambda: find_undeclared_dead_refs(arch_since, files, source_corpus(universe), revision="HEAD"))
             add("undeclared_dead_refs_exempted", f"architecture.md の免除した段落の中に残る実在しない名前（参考、{args.since} 以降の追加行）",
-                lambda: find_dead_refs_inside_exempted_paragraphs(arch_since, files, source_corpus(files), revision="HEAD"))
+                lambda: find_dead_refs_inside_exempted_paragraphs(arch_since, files, source_corpus(universe), revision="HEAD"))
         else:
             added = files
             title = "実装ファイルの docs/modules 記載漏れ（全件）"
@@ -2739,9 +2748,9 @@ def cmd_docs(args: argparse.Namespace) -> int:
                 lambda: find_source_narrative_violations(all_source_lines))
             arch_all = {ARCHITECTURE_DOC: list(enumerate(read_text(arch_path).splitlines(), 1))}
             add("undeclared_dead_refs", "architecture.md が撤去済みの名前を断りなく名指し（全件）",
-                lambda: find_undeclared_dead_refs(arch_all, files, source_corpus(files)))
+                lambda: find_undeclared_dead_refs(arch_all, files, source_corpus(universe)))
             add("undeclared_dead_refs_exempted", "architecture.md の免除した段落の中に残る実在しない名前（参考、全件）",
-                lambda: find_dead_refs_inside_exempted_paragraphs(arch_all, files, source_corpus(files)))
+                lambda: find_dead_refs_inside_exempted_paragraphs(arch_all, files, source_corpus(universe)))
         add("undocumented_files", title,
             lambda: find_undocumented_files(added, modules_text, files))
         # `added`は--sinceなら変更ファイル、全件なら`files`そのもの。どちらでも
@@ -2750,9 +2759,9 @@ def cmd_docs(args: argparse.Namespace) -> int:
             "architecture.md に名前が無いDBの表"
             + (f"（{args.since} 以降に変更されたファイルが宣言するもの）" if args.since else "（全件）"),
             lambda: find_undocumented_tables(files, scope=added))
-        add("redis_skeleton", "Redis骨格の自前実装（docs/caching.md参照）",
+        add("redis_skeleton", "Redis骨格の自前実装（docs/conventions/caching.md参照）",
             lambda: find_redis_skeleton_violations(source_lines))
-        add("module_redefinition", "モジュール直下で同じ名前を2回定義（全件、docs/tasks/T883.md参照）",
+        add("module_redefinition", "モジュール直下で同じ名前を2回定義（全件、docs/records/tasks/T883.md参照）",
             lambda: find_module_level_redefinitions(python_sources(files)))
         arity_scope = (
             [f for f in git("diff", "--name-only", f"{args.since}..HEAD").splitlines() if f.endswith(".py")]
@@ -2761,25 +2770,25 @@ def cmd_docs(args: argparse.Namespace) -> int:
         add("call_arity",
             "位置引数の個数が定義と合わない呼び出し（"
             + (f"{args.since} 以降に変更された.py" if args.since else "全件")
-            + "、docs/tasks/T893.md参照）",
+            + "、docs/records/tasks/T893.md参照）",
             lambda: find_call_arity_mismatches(arity_sources(files), scope=arity_scope))
-        add("bare_basemodel", "素のBaseModel継承（全件、docs/tasks/T721.md参照）",
+        add("bare_basemodel", "素のBaseModel継承（全件、docs/records/tasks/T721.md参照）",
             lambda: find_bare_basemodel_violations({
                              rel(p): list(enumerate(read_text(p).splitlines(), 1))
                              for p in (REPO_ROOT / f for f in files if f.startswith("backend/app/"))
                              if p.exists()
                          }))
-        add("web_layer_batch_import", "webアプリが読む層からのapp.batchのトップレベルimport（全件、docs/tasks/T814.md参照）",
+        add("web_layer_batch_import", "webアプリが読む層からのapp.batchのトップレベルimport（全件、docs/records/tasks/T814.md参照）",
             lambda: find_web_layer_batch_imports({
                              rel(p): list(enumerate(read_text(p).splitlines(), 1))
                              for p in (REPO_ROOT / f for f in files if f.startswith("backend/app/"))
                              if p.exists()
                          }))
-        add("map_redraw_coverage", "map.setStyle()後の再描画から辿れないレイヤー（全件、docs/tasks/T825.md参照）",
+        add("map_redraw_coverage", "map.setStyle()後の再描画から辿れないレイヤー（全件、docs/records/tasks/T825.md参照）",
             lambda: find_map_redraw_gaps())
-        add("undeclared_fixed_values", "ルーティング評価の宣言に無い数値定数（全件、docs/tasks/T805.md参照）",
+        add("undeclared_fixed_values", "ルーティング評価の宣言に無い数値定数（全件、docs/records/tasks/T805.md参照）",
             lambda: find_undeclared_fixed_values())
-        add("duplicate_test_scaffold", "同じ名前のテスト足場が複数ファイルにある（参考、docs/tasks/T771.md参照）",
+        add("duplicate_test_scaffold", "同じ名前のテスト足場が複数ファイルにある（参考、docs/records/tasks/T771.md参照）",
             lambda: find_duplicate_test_scaffolds([f for f in files if SCAFFOLD_TEST_FILE_RE.search(f)]),)
         add("plan_vs_tasks", "improvement-plan.md [x]/[ ] と docs/tasks「状態:」の不一致",
             lambda: check_plan_vs_tasks())
@@ -2809,13 +2818,13 @@ def cmd_docs(args: argparse.Namespace) -> int:
                 lambda: find_doc_constant_drift(files, scope=changed))
             add("review_doc_dead_refs", f"レビュー手順書の死んだ識別子参照（{args.since} 以降に変更された.md）",
                 lambda: find_review_doc_dead_refs(files, scope=changed))
-            add("cross_file_env_writes", "テストが書き換える環境変数を他の実装も読む（docs/testing.md参照）",
+            add("cross_file_env_writes", "テストが書き換える環境変数を他の実装も読む（docs/conventions/testing.md参照）",
                 lambda: find_cross_file_env_writes(files))
-            add("count_narrative", f"個数を書いている行（参考、{args.since} 以降の追加行、docs/documentation.md参照）",
+            add("count_narrative", f"個数を書いている行（参考、{args.since} 以降の追加行、docs/conventions/documentation.md参照）",
                 lambda: find_count_narratives(gather_added_source_lines(args.since),
                                                    diff_added_lines("docs/*.md", args.since)))
             add("cross_layer_claim",
-                f"相手のレイヤーの挙動を断定するコメント（参考、{args.since} 以降の追加行、docs/comments.md参照）",
+                f"相手のレイヤーの挙動を断定するコメント（参考、{args.since} 以降の追加行、docs/conventions/comments.md参照）",
                 lambda: find_cross_layer_claims(gather_added_source_lines(args.since)))
         else:
             add("vacuous_test_loops", "空の母集団でも通るテストのループ（全件）",
@@ -2826,7 +2835,7 @@ def cmd_docs(args: argparse.Namespace) -> int:
                 lambda: find_doc_constant_drift(files))
             add("review_doc_dead_refs", "レビュー手順書の死んだ識別子参照（全件）",
                 lambda: find_review_doc_dead_refs(files))
-            add("cross_file_env_writes", "テストが書き換える環境変数を他の実装も読む（全件、docs/testing.md参照）",
+            add("cross_file_env_writes", "テストが書き換える環境変数を他の実装も読む（全件、docs/conventions/testing.md参照）",
                 lambda: find_cross_file_env_writes(files))
 
     total = 0
@@ -3229,7 +3238,7 @@ def cmd_duplication(args: argparse.Namespace) -> int:
     **これで捕まるのは完全一致のクローンだけ**である。「同じ決まりごとが各所で少しずつ
     違う形に書かれている」型（設定値の直書き・組み立て規則の手書き）は原理的に検出
     できないため、これだけを根拠に「写経は無い」と結論してはならない
-    （docs/tasks/T648.md参照）。
+    （docs/records/tasks/T648.md参照）。
     """
     out_dir = REPO_ROOT / ".jscpd-report"
     # Windowsのnpxはバッチファイル（npx.cmd）で、shell=Falseのsubprocessからは起動できない
@@ -3481,9 +3490,9 @@ def guard_probe_reference_mutations(wt: Path) -> dict[str, "Callable[[], str]"]:
         plan.write_text(
             text[: m.start()] + m.group(0).replace("- [ ]", "- [x]", 1) + text[m.end():],
             encoding="utf-8")
-        task = wt / f"docs/tasks/T{m.group(1)}.md"
+        task = wt / f"docs/records/tasks/T{m.group(1)}.md"
         append(task, "\n## 積み残し\n\n- 残りの後始末が手つかずのまま残っている。\n")
-        return f"docs/tasks/T{m.group(1)}.md:"
+        return f"docs/records/tasks/T{m.group(1)}.md:"
 
     def add_overlapping_entry() -> str:
         """既存の未完了エントリと同じ語を持つ行を、別番号で1本足す。"""
@@ -3508,7 +3517,7 @@ def guard_probe_reference_mutations(wt: Path) -> dict[str, "Callable[[], str]"]:
         commit("guard audit: 撤去される名前を履歴へ入れる")
         (wt / probe).unlink()
         commit("guard audit: その名前を撤去する")
-        write("docs/tasks/T9998.md",
+        write("docs/records/tasks/T9998.md",
               "# T9998. 撤去済みの名前を前提にするタスク 規模S\n\n状態: 未着手\n\n"
               f"`{stale_ident}`が出す値を読み替える。\n")
         append(plan, "\n- [ ] [T9998](tasks/T9998.md). 撤去済みの名前を前提にするタスク 規模S\n")
@@ -3915,9 +3924,9 @@ def guard_probe_edges(wt: Path) -> dict[str, "EdgeProbe | str"]:
 
 #: 開けたままにする外縁（`detected=False`）の、**閉じない理由と母集団の外の大きさの実測**。
 #: ここに無い穴は監査が落ちる——穴を宣言しただけで通っていた状態を、宣言に数字を要求する形へ
-#: 変えるため（docs/tasks/T798.md「緩和は影響を測ってから入れる」）。逆に、穴でなくなった
+#: 変えるため（docs/records/tasks/T798.md「緩和は影響を測ってから入れる」）。逆に、穴でなくなった
 #: キーの理由が残っているのも落とす（直したのに理由だけが残ると、次に読む人が穴だと思う）。
-#: 数字は`docs/tasks/T936.md`へ測った日付とコマンドごと残す。
+#: 数字は`docs/records/tasks/T936.md`へ測った日付とコマンドごと残す。
 EDGE_GAP_NOTES: dict[str, str] = {
     "dead_file_refs":
         "索引（docs/modules/README.md）は他のモジュール文書を指すだけで、実装ファイルを"
@@ -3998,7 +4007,7 @@ def stale_gap_notes(edges: dict[str, "EdgeProbe | str"]) -> list[str]:
 #: `--staged`のとき、ここに1つも当たらなければ検知器の計算を飛ばす（pre-commitの待ち時間を
 #: 節約する）。**飛ばすのは計算だけで、検知器の配線の検査は必ず通る**。**この判定は検知器側に置く**——シェルのラッパが別に同じ規則を
 #: 持つと、`mutate`はラッパを通らないため「pre-commit PASS」と報告しながら実際のフックは
-#: 検査を起動しない、という食い違いが起きる（docs/tasks/T936.md）。
+#: 検査を起動しない、という食い違いが起きる（docs/records/tasks/T936.md）。
 #: 検知器が読む場所より狭くしないこと。狭めた瞬間、狭めた先は誰も検査しなくなる。
 STAGED_GATE_PREFIXES = (
     "docs/", "backend/", "frontend/", "scripts/", ".claude/commands/", "CLAUDE.md",

@@ -26,7 +26,7 @@ export interface GetRecentLogsParams {
 
 /** 直近のログ行（プロセス内リングバッファ、既定最大1000件）を取得する。debug_modeが
  * OFFの間はDEBUGレベルの行が記録されないが、WARNING以上（エラー・429拒否等、
- * docs/logging.md「常時出す」方針）は常に含まれる。 */
+ * docs/conventions/logging.md「常時出す」方針）は常に含まれる。 */
 export async function getRecentLogs(params: GetRecentLogsParams = {}): Promise<string[]> {
   const query = new URLSearchParams();
   if (params.limit != null) query.set("limit", String(params.limit));

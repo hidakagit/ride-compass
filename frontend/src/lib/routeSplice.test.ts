@@ -249,7 +249,7 @@ describe("stretchAlternativeGroups", () => {
 
 // 2本が同じノードで交差・接触していても、そこで同じEdgeを通っていなければEdge idの一致では
 // 分からない。交差した地点は乗り換えられる場所なので、そこで割ると区間ごとに別の候補を選べる
-// （docs/tasks/T838.md）。
+// （docs/records/tasks/T838.md）。
 describe("splitPairedStretch", () => {
   // 南北に約1kmごとの直線。元と相手は1.0km地点と2.0km地点で同じ座標を通る。
   const at = (index: number): GeoJSON.Position => [139.7, 35.7 + index * 0.009];
@@ -332,7 +332,7 @@ describe("splitPairedStretch", () => {
 
 // 乗り換えは共有地点でしか起きないため、差し替えた先が元の経路の別の場所へ触れると
 // 「一度通った地点へ戻る」列ができる。backendは連結性しか見ない（走れはするので経路として
-// 成立しないわけではない）ので、選択肢として出さない側で止める（docs/tasks/T843.md）。
+// 成立しないわけではない）ので、選択肢として出さない側で止める（docs/records/tasks/T843.md）。
 describe("stretchAlternativeGroups の折り返し除外", () => {
   const p2 = (lat: number): GeoJSON.Position => [139.7, lat];
   const base = {
@@ -375,7 +375,7 @@ describe("stretchAlternativeGroups の折り返し除外", () => {
 });
 
 // 乗り換えた後も「いまの組み合わせ」を元に次の区間を計算するため、合成中のルートの形
-// （Edge列＋座標＋Edge境界）をフロントで組む（docs/tasks/T843.md）。
+// （Edge列＋座標＋Edge境界）をフロントで組む（docs/records/tasks/T843.md）。
 describe("buildSplicedShape", () => {
   const p = (lat: number): GeoJSON.Position => [139.7, lat];
   const base = {

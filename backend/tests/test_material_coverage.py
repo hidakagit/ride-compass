@@ -99,7 +99,7 @@ def test_build_way_coverage_sql_has_one_filter_column_per_way_material_and_binds
     assert sql.startswith("SELECT count(*) AS total")
     assert "FROM osm_raw_ways AS w" in sql
     # 欠損判定に別の表が要る材料は、相関サブクエリではなくJOINを宣言する（材料を増やしても
-    # 所要が伸びないため。docs/tasks/T907.md）。同じ句は1回だけ現れる。
+    # 所要が伸びないため。docs/records/tasks/T907.md）。同じ句は1回だけ現れる。
     joins = [spec.join for spec in MATERIAL_COVERAGE_SPECS.values()
              if isinstance(spec, WayMaterialCoverageSpec) and spec.join]
     for clause in dict.fromkeys(joins):
