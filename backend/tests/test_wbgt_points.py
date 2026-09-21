@@ -1,24 +1,53 @@
+"""`domain/wbgt_points.py`——最寄りの暑さ指数（WBGT）情報提供地点を選ぶ。
+
+地点はアメダス観測所ベースで行政区画に紐づかないため、素直な最近傍探索で選ぶ。
+"""
+
 from app.domain.wbgt_points import WbgtPoint, nearest_point
 
-TOKYO = WbgtPoint(no="44132", name="東京", latitude=35.6917, longitude=139.75)
-SAPPORO = WbgtPoint(no="14163", name="札幌", latitude=43.0621, longitude=141.3544)
-NAHA = WbgtPoint(no="91197", name="那覇", latitude=26.2124, longitude=127.6809)
 
-POINTS = [TOKYO, SAPPORO, NAHA]
+def _point(no: str, latitude: float, longitude: float) -> WbgtPoint:
+    return WbgtPoint(no=no, name=f"地点{no}", latitude=latitude, longitude=longitude)
 
 
-def test_nearest_point_picks_the_closest_of_multiple_candidates():
-    # 東京駅付近
-    result = nearest_point(35.6812, 139.7671, POINTS)
-    assert result == TOKYO
+def test_the_closest_point_is_chosen():
+    near = _point("1", 35.0, 139.0)
+    far = _point("2", 40.0, 145.0)
+
+    assert nearest_point(35.1, 139.1, [far, near]) is near
 
 
-def test_nearest_point_works_at_high_latitude():
-    # 札幌市街地付近。高緯度でも経度差の補正により正しく最寄りを選べることを確認する
-    # （cos(緯度)補正が無いと、経度方向の距離を過大評価して誤った地点を選びうる）。
-    result = nearest_point(43.0642, 141.3469, POINTS)
-    assert result == SAPPORO
-
-
-def test_nearest_point_returns_none_for_empty_list():
+def test_an_empty_list_has_no_nearest_point():
+    """既定の地点へ倒さない——無関係な土地の暑さ指数が出る。"""
     assert nearest_point(35.0, 139.0, []) is None
+
+
+def test_a_single_point_is_always_the_nearest():
+    only = _point("1", 0.0, 0.0)
+
+    assert nearest_point(35.0, 139.0, [only]) is only
+
+
+def test_longitude_differences_shrink_with_latitude():
+    """**経度差を`cos(緯度)`で補正する。** 補正しないと、高緯度では経度方向の距離を
+    過大評価し、実際には近い東西の地点より遠い南北の地点を選ぶ。
+
+    緯度45度では経度1度は緯度1度の約0.71倍の距離しかない。補正が無ければ両者は
+    同距離に見え、先に並んでいる北の地点が選ばれてしまう。
+    """
+    north = _point("north", 46.0, 140.0)
+    east = _point("east", 45.0, 141.0)
+
+    assert nearest_point(45.0, 140.0, [north, east]) is east
+
+
+def test_at_the_equator_the_two_directions_weigh_the_same():
+    """補正は緯度に応じたもので、赤道では効かない（cos(0)=1）。一律の係数を掛けて
+    いるだけなら、ここで南北が選ばれない。
+    """
+    north = _point("north", 1.0, 0.0)
+    east = _point("east", 0.0, 1.0)
+
+    # 同距離のときは先に並んでいるものが返る。
+    assert nearest_point(0.0, 0.0, [north, east]) is north
+    assert nearest_point(0.0, 0.0, [east, north]) is east
