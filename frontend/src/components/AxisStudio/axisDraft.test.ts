@@ -7,7 +7,7 @@
 // 同時に見ているため、変換だけの誤りが導線の変更に紛れて読みにくい。
 import { describe, expect, it } from "vitest";
 
-import { AXIS_MATERIAL_OPTIONS } from "@/lib/axisMaterialsCatalog";
+import type { AxisMaterialOption } from "@/lib/axisMaterialsCatalog";
 import { baseAxisDefinition } from "@/testing/axisDefinitionFixtures";
 import {
   buildShape,
@@ -19,7 +19,20 @@ import {
   PASSTHROUGH_PAYLOAD_KEYS,
 } from "./axisDraft";
 
-const OPTIONS = AXIS_MATERIAL_OPTIONS;
+// 性質だけを表す材料。どれが実在するかはこの変換の関心ではない。
+const NUMERIC: AxisMaterialOption = {
+  id: "num_a", label: "数値の材料 - num_a", name: "数値の材料",
+  description: "", dtype: "numeric", unit: "%",
+};
+const BOOLEAN: AxisMaterialOption = {
+  id: "bool_a", label: "真偽の材料 - bool_a", name: "真偽の材料",
+  description: "", dtype: "boolean", unit: "",
+};
+const CATEGORICAL: AxisMaterialOption = {
+  id: "cat_a", label: "分類の材料 - cat_a", name: "分類の材料",
+  description: "", dtype: "categorical", unit: "",
+};
+const OPTIONS: readonly AxisMaterialOption[] = [NUMERIC, BOOLEAN, CATEGORICAL];
 
 describe("buildShape", () => {
   it("recipe_then_breakpoint_linearはbreakpoint_linearへ正規化する", () => {
@@ -30,15 +43,11 @@ describe("buildShape", () => {
   });
 
   it("categorical材料なら値→スコアの対応表を、真偽値材料ならtrue/falseの2値を作る", () => {
-    const categorical = OPTIONS.find((m) => m.dtype === "categorical");
-    const boolean = OPTIONS.find((m) => m.dtype === "boolean");
-    if (!categorical || !boolean) throw new Error("テスト前提の材料が静的カタログに無い");
-
     const base = { ...emptyDraft(OPTIONS), shapeKind: "categorical" as const };
     const asCategorical = buildShape(
       {
         ...base,
-        categoricalMaterial: categorical.id,
+        categoricalMaterial: CATEGORICAL.id,
         categoricalRows: [
           { value: "a", score: 10 },
           { value: "b", score: 20 },
@@ -46,21 +55,18 @@ describe("buildShape", () => {
       },
       OPTIONS,
     );
-    const asBoolean = buildShape({ ...base, categoricalMaterial: boolean.id, trueScore: 80, falseScore: 0 }, OPTIONS);
+    const asBoolean = buildShape({ ...base, categoricalMaterial: BOOLEAN.id, trueScore: 80, falseScore: 0 }, OPTIONS);
 
-    expect(asCategorical).toEqual({ kind: "categorical", material: categorical.id, mapping: { a: 10, b: 20 } });
-    expect(asBoolean).toEqual({ kind: "categorical", material: boolean.id, mapping: { true: 80, false: 0 } });
+    expect(asCategorical).toEqual({ kind: "categorical", material: CATEGORICAL.id, mapping: { a: 10, b: 20 } });
+    expect(asBoolean).toEqual({ kind: "categorical", material: BOOLEAN.id, mapping: { true: 80, false: 0 } });
   });
 
   it("値が空欄のままの行は対応表へ入れない", () => {
-    const categorical = OPTIONS.find((m) => m.dtype === "categorical");
-    if (!categorical) throw new Error("テスト前提の材料が静的カタログに無い");
-
     const shape = buildShape(
       {
         ...emptyDraft(OPTIONS),
         shapeKind: "categorical",
-        categoricalMaterial: categorical.id,
+        categoricalMaterial: CATEGORICAL.id,
         categoricalRows: [
           { value: "a", score: 10 },
           { value: "   ", score: 99 },
@@ -69,7 +75,7 @@ describe("buildShape", () => {
       OPTIONS,
     );
 
-    expect(shape).toEqual({ kind: "categorical", material: categorical.id, mapping: { a: 10 } });
+    expect(shape).toEqual({ kind: "categorical", material: CATEGORICAL.id, mapping: { a: 10 } });
   });
 });
 
@@ -78,8 +84,8 @@ describe("draftFromExisting → buildShape の往復", () => {
     const shape = {
       kind: "breakpoint_linear" as const,
       terms: [
-        { material: "gradient_percent", weight: 1.0, required: true },
-        { material: "intersection_count_per_km", weight: 0.3, required: false },
+        { material: NUMERIC.id, weight: 1.0, required: true },
+        { material: BOOLEAN.id, weight: 0.3, required: false },
       ],
       preprocess: "abs" as const,
       breakpoints: [
@@ -94,11 +100,9 @@ describe("draftFromExisting → buildShape の往復", () => {
   });
 
   it("categoricalの対応表がそのまま戻る", () => {
-    const categorical = OPTIONS.find((m) => m.dtype === "categorical");
-    if (!categorical) throw new Error("テスト前提の材料が静的カタログに無い");
     const shape = {
       kind: "categorical" as const,
-      material: categorical.id,
+      material: CATEGORICAL.id,
       mapping: { residential: 20, secondary: 60 },
     };
 

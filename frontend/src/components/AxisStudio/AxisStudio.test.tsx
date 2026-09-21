@@ -1,38 +1,38 @@
-// 改善計画T329: 既定のDOM環境をhappy-domへ変更した際、happy-domはwindow.confirmを
-// 定義せずvi.spyOn(window, "confirm")が失敗した（jsdomはNot implementedスタブとして
-// 関数を持つため成功する）。window.confirmを使う削除確認ダイアログのテストがあるこの
-// ファイルだけ、明示的に従来のjsdomへ戻す。
-// @vitest-environment jsdom
+/**
+ * `AxisStudio.tsx`——軸の一覧と、編集・複製・削除・公開取り消しの取り回し。
+ *
+ * ここで見るのは**このコンポーネント自身が決めていること**だけ。フォームの中身は
+ * `AxisComposer`（`AxisComposer.test.tsx`）、公開済み軸を一度下書きへ戻して編集する流れは
+ * `AxisStudio.adjustPublished.test.tsx`が持つ。
+ */
+
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import AxisStudio from "./AxisStudio";
 
-// 改善計画T304: 「編集ボタンを押した後にそのまま編集画面がポップアップ起動してほしい。
-// 下部エリアの編集エリアまで目が行かない」という実機フィードバックへの対応の回帰テスト。
-// 一覧・作成・更新・削除はbackendの管理APIへ実際に飛ぶため、ここではaxisAdminApi.ts全体を
-// モックする（RouteSettingsPanel.test.tsxと同じ方針、実HTTPは呼ばない）。
+import AxisStudio from "./AxisStudio";
+import { baseAxisDefinition } from "@/testing/axisDefinitionFixtures";
+
 vi.mock("@/services/axisAdminApi", () => ({
   listAxisDefinitions: vi.fn(),
-  createAxisDefinition: vi.fn(),
-  updateAxisDefinition: vi.fn(),
-  deleteAxisDefinition: vi.fn(),
-  unpublishAxisDefinition: vi.fn(),
+  createAxisDefinition: vi.fn().mockResolvedValue(undefined),
+  updateAxisDefinition: vi.fn().mockResolvedValue(undefined),
+  deleteAxisDefinition: vi.fn().mockResolvedValue(undefined),
+  unpublishAxisDefinition: vi.fn().mockResolvedValue(undefined),
 }));
-// AxisComposerが使うuseMaterialCatalogの取得先。フォールバック（静的9材料）で十分なため
-// 失敗させておく。
-// 分布プレビューの2フック（useAxisValueDistribution/useMaterialDistribution）は
-// マウント直後にフェッチする。モックしないとテストが実HTTPを発火する
-// （このファイル冒頭が掲げる「実HTTPは呼ばない」方針どおり、ここで塞ぐ）。
+
 vi.mock("@/services/axisPreviewApi", () => ({
   fetchAxisValueDistribution: vi.fn().mockRejectedValue(new Error("network unavailable in test")),
   fetchMaterialDistribution: vi.fn().mockRejectedValue(new Error("network unavailable in test")),
 }));
 
-vi.mock("@/services/materialCatalogApi", () => ({
-  getMaterialCatalog: vi.fn().mockRejectedValue(new Error("network unavailable in test")),
-  getMaterialValues: vi.fn().mockRejectedValue(new Error("network unavailable in test")),
-}));
+vi.mock("@/services/materialCatalogApi", async () => {
+  const { materialCatalogFixture } = await import("@/testing/materialCatalogFixture");
+  return {
+    getMaterialCatalog: vi.fn().mockResolvedValue(materialCatalogFixture()),
+    getMaterialValues: vi.fn().mockRejectedValue(new Error("network unavailable in test")),
+  };
+});
 
 import {
   createAxisDefinition,
@@ -40,161 +40,159 @@ import {
   listAxisDefinitions,
   unpublishAxisDefinition,
 } from "@/services/axisAdminApi";
-import { baseAxisDefinition } from "@/testing/axisDefinitionFixtures";
 
-describe("AxisStudio", () => {
-  beforeEach(() => {
-    // jsdomはResizeObserverを実装しない（既知の欠落）。
-    // AxisComposerの<form>内にあるRadix Checkbox（改善計画T299フォローアップ）はフォーム
-    // 直下でのみ隠しbubble input（HTMLフォーム互換用）のサイズ同期にuseSizeを使い、これが
-    // 内部でResizeObserverを呼ぶため、フォーム外で単体レンダリングするCheckbox.test.tsxでは
-    // 再現しないがAxisStudioのモーダルを開くテストでは未定義のまま例外になる。
-    class ResizeObserverMock {
-      observe = vi.fn();
-      unobserve = vi.fn();
-      disconnect = vi.fn();
-    }
-    window.ResizeObserver = ResizeObserverMock as unknown as typeof ResizeObserver;
-  });
+/** 一覧に載せる軸を用意する。**各テストが、自分が目印にする表示名を自分で決める。** */
+function listing(...defs: ReturnType<typeof baseAxisDefinition>[]) {
+  vi.mocked(listAxisDefinitions).mockResolvedValue(defs);
+}
 
-  it("マウント時に資格情報の入力を待たず軸一覧を読み込む", async () => {
-    // 改善計画T305: /adminページ自体が既にBasic認証済みのため、この画面固有の
-    // ユーザー名/パスワード入力欄はもう無い（回帰確認）。
-    vi.mocked(listAxisDefinitions).mockResolvedValue([baseAxisDefinition()]);
+beforeEach(() => {
+  vi.clearAllMocks();
+  // jsdomはResizeObserverを持たない。モーダル内のRadix Checkboxがこれを呼ぶ。
+  class ResizeObserverMock {
+    observe = vi.fn();
+    unobserve = vi.fn();
+    disconnect = vi.fn();
+  }
+  window.ResizeObserver = ResizeObserverMock as unknown as typeof ResizeObserver;
+  // jsdomは`window.confirm`を実装しない（呼ぶと未実装エラーになる）。
+  window.confirm = vi.fn(() => true);
+});
+
+describe("一覧", () => {
+  it("マウント時に読み込み、下書きと公開済みを件数つきで分ける", async () => {
+    listing(
+      baseAxisDefinition({ axis_id: "d1", is_published: false }),
+      baseAxisDefinition({ axis_id: "d2", is_published: false }),
+      baseAxisDefinition({ axis_id: "p1", is_published: true }),
+    );
     render(<AxisStudio />);
 
-    await waitFor(() => expect(screen.getByText("勾配")).toBeInTheDocument());
-    expect(screen.queryByLabelText("管理者ユーザー名")).not.toBeInTheDocument();
-    expect(screen.queryByLabelText("管理者パスワード")).not.toBeInTheDocument();
+    expect(await screen.findByRole("tab", { name: "下書き（2）" })).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: "公開済み（1）" })).toBeInTheDocument();
   });
 
-  it("「編集」を押すとその軸の内容で編集モーダルが即座に開く", async () => {
-    vi.mocked(listAxisDefinitions).mockResolvedValue([baseAxisDefinition()]);
+  it("下書きが1つも無ければ、その旨を出す", async () => {
+    listing(baseAxisDefinition({ axis_id: "p1", is_published: true }));
+    render(<AxisStudio />);
+
+    expect(await screen.findByText("下書きの軸はありません。")).toBeInTheDocument();
+  });
+
+  it("読み込みに失敗したら、理由をそのまま出す", async () => {
+    vi.mocked(listAxisDefinitions).mockRejectedValue(new Error("一覧を読めませんでした"));
+    render(<AxisStudio />);
+
+    expect(await screen.findByText("一覧を読めませんでした")).toBeInTheDocument();
+  });
+
+  it("材料として他の軸を指す行は、生の識別子ではなく参照先の表示名で要約する", async () => {
+    listing(
+      baseAxisDefinition({ axis_id: "inner", label: "内側の軸" }),
+      baseAxisDefinition({
+        axis_id: "outer",
+        label: "外側の軸",
+        shape: {
+          kind: "breakpoint_linear",
+          terms: [{ material: "inner", weight: 1, required: true }],
+          preprocess: "identity",
+          breakpoints: [
+            [0, 0],
+            [10, 100],
+          ],
+        },
+      }),
+    );
+    render(<AxisStudio />);
+
+    const row = (await screen.findByText("外側の軸")).closest("div");
+    expect(row?.textContent).toContain("内側の軸");
+    expect(row?.textContent).not.toContain("inner");
+  });
+});
+
+describe("モーダルの開き方", () => {
+  it("「編集」は、その軸の表示名を見出しに出して開く", async () => {
+    listing(baseAxisDefinition({ label: "編集する軸" }));
     const user = userEvent.setup();
     render(<AxisStudio />);
 
-    await waitFor(() => expect(screen.getByText("勾配")).toBeInTheDocument());
-    await user.click(screen.getByRole("button", { name: "編集" }));
+    await user.click(await screen.findByRole("button", { name: "編集" }));
 
-    // 改善計画T305: axis_idはフォームから撤去し、モーダル見出しも表示名(label)基準にした。
-    expect(screen.getByRole("dialog", { name: "軸を編集: 勾配" })).toBeInTheDocument();
-    expect(screen.getByRole("textbox", { name: "表示名" })).toHaveValue("勾配");
+    expect(screen.getByRole("dialog", { name: "軸を編集: 編集する軸" })).toBeInTheDocument();
+    // axis_idはフォームに無い（表示名で識別する）。
     expect(screen.queryByRole("textbox", { name: "axis_id" })).not.toBeInTheDocument();
   });
 
-  it("「+ 新しい軸を作る」を押すと空のモーダルが開く", async () => {
-    vi.mocked(listAxisDefinitions).mockResolvedValue([
-      baseAxisDefinition(),
-      baseAxisDefinition({ axis_id: "surface_q", label: "舗装状況" }),
-    ]);
+  it("公開済みの「表示だけ編集」は、制限モードと分かる見出しで開く", async () => {
+    listing(baseAxisDefinition({ label: "公開中の軸", is_published: true }));
     const user = userEvent.setup();
     render(<AxisStudio />);
 
-    await waitFor(() => expect(screen.getByText("勾配")).toBeInTheDocument());
-    await user.click(screen.getByRole("button", { name: "+ 新しい軸を作る" }));
+    await user.click(await screen.findByRole("tab", { name: /公開済み/ }));
+    await user.click(await screen.findByRole("button", { name: "表示だけ編集" }));
+
+    expect(
+      screen.getByRole("dialog", { name: "表示専用フィールドを編集: 公開中の軸" }),
+    ).toBeInTheDocument();
+  });
+
+  it("「複製して新規作成」は、複製元の名前を見出しに出して新規作成で開く", async () => {
+    listing(baseAxisDefinition({ label: "複製元の軸", default_weight: 0.42 }));
+    const user = userEvent.setup();
+    render(<AxisStudio />);
+
+    await user.click(await screen.findByRole("button", { name: "複製して新規作成" }));
+
+    expect(
+      screen.getByRole("dialog", { name: "「複製元の軸」を複製して新しい軸を作る" }),
+    ).toBeInTheDocument();
+    // 複製元の値は引き継ぐ。
+    expect(screen.getByRole("textbox", { name: "表示名" })).toHaveValue("複製元の軸");
+    expect(screen.getByRole("spinbutton", { name: "既定重み" })).toHaveValue(0.42);
+  });
+
+  it("「+ 新しい軸を作る」は空で開く", async () => {
+    listing(baseAxisDefinition());
+    const user = userEvent.setup();
+    render(<AxisStudio />);
+
+    await user.click(await screen.findByRole("button", { name: "+ 新しい軸を作る" }));
 
     expect(screen.getByRole("dialog", { name: "新しい軸を作る" })).toBeInTheDocument();
     expect(screen.getByRole("textbox", { name: "表示名" })).toHaveValue("");
   });
 
-  // 改善計画T318（ユーザー判断: 「軸スタジオで、地図マップ上にアイコン表示するかどうか
-  // ON/OFFできるようにして。ヘッダのT310等の文字は消して」）。
-  it("フォームに地図上アイコン表示のON/OFFチェックボックスがあり、既定でONで、見出しに開発用のタスク番号表記が残っていない", async () => {
-    vi.mocked(listAxisDefinitions).mockResolvedValue([baseAxisDefinition()]);
+  it("閉じてもモーダルが消えるだけで、一覧は残る", async () => {
+    listing(baseAxisDefinition({ label: "一覧に残る軸" }));
     const user = userEvent.setup();
     render(<AxisStudio />);
 
-    await waitFor(() => expect(screen.getByText("勾配")).toBeInTheDocument());
-    await user.click(screen.getByRole("button", { name: "+ 新しい軸を作る" }));
-    await user.type(screen.getByRole("textbox", { name: "表示名" }), "新軸");
-
-    const toggle = screen.getByRole("checkbox", { name: "地図に出す" });
-    expect(toggle).toHaveAttribute("aria-checked", "true");
-    expect(screen.queryByText(/改善計画T310/)).not.toBeInTheDocument();
-  });
-
-  it("モーダルを閉じるとダイアログが消え、一覧はそのまま残る", async () => {
-    vi.mocked(listAxisDefinitions).mockResolvedValue([baseAxisDefinition()]);
-    const user = userEvent.setup();
-    render(<AxisStudio />);
-
-    await waitFor(() => expect(screen.getByText("勾配")).toBeInTheDocument());
-    await user.click(screen.getByRole("button", { name: "編集" }));
-    expect(screen.getByRole("dialog")).toBeInTheDocument();
-
+    await user.click(await screen.findByRole("button", { name: "編集" }));
     await user.click(screen.getByRole("button", { name: "閉じる" }));
 
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
-    expect(screen.getByText("勾配")).toBeInTheDocument();
+    expect(screen.getByText("一覧に残る軸")).toBeInTheDocument();
   });
+});
 
-  // 種類の材料（tracktype等）を選ぶと、値ごとのスコア行の編集へ切り替わる回帰テスト。
-  it("種類の材料を選ぶと値ごとのスコア行が編集できる", async () => {
-    vi.mocked(listAxisDefinitions).mockResolvedValue([baseAxisDefinition()]);
-    const user = userEvent.setup();
-    render(<AxisStudio />);
+describe("削除", () => {
+  function twoAxes() {
+    listing(
+      baseAxisDefinition({ axis_id: "target", label: "消す軸" }),
+      baseAxisDefinition({ axis_id: "other", label: "残す軸" }),
+    );
+  }
 
-    await waitFor(() => expect(screen.getByText("勾配")).toBeInTheDocument());
-    await user.click(screen.getByRole("button", { name: "+ 新しい軸を作る" }));
-    await user.type(screen.getByRole("textbox", { name: "表示名" }), "新軸");
-
-    const materialSelect = screen.getByRole("combobox", { name: "点数のもとになるもの" });
-    // 静的フォールバック(AXIS_MATERIAL_OPTIONS)にはcategorical材料として未舗装路グレードを含む
-    // （改善計画T345さらなるフォローアップ2: labelは「論理名 - 物理名」形式）。
-    expect(screen.getByRole("option", { name: "未舗装路グレード(tracktype) - tracktype" })).toBeInTheDocument();
-    await user.selectOptions(materialSelect, "tracktype");
-
-    expect(screen.queryByText("はいのときのスコア")).not.toBeInTheDocument();
-    const valueInput = screen.getByLabelText("値");
-    await user.type(valueInput, "separated");
-    await user.click(screen.getByRole("button", { name: "+ 値を追加" }));
-    expect(screen.getAllByLabelText("値")).toHaveLength(2);
-  });
-
-  // 表示名が空のまま保存しようとすると、保存されずエラーが表示される回帰テスト。
-  it("表示名が空のまま保存しようとすると進まずエラーが出る", async () => {
-    vi.mocked(listAxisDefinitions).mockResolvedValue([baseAxisDefinition()]);
-    const user = userEvent.setup();
-    render(<AxisStudio />);
-
-    await waitFor(() => expect(screen.getByText("勾配")).toBeInTheDocument());
-    await user.click(screen.getByRole("button", { name: "+ 新しい軸を作る" }));
-    await user.click(screen.getByRole("button", { name: "作成する" }));
-
-    expect(screen.getByText("表示名を入力してください。")).toBeInTheDocument();
-  });
-
-  // 改善計画T327（UIレビュー2026-08-25 F-5）: 点数の詳細ステップに、スコアの向き
-  // を明示する説明文が出る回帰テスト。改善計画T345: T327時点の文言は実際の向きと逆
-  // だった（0=走りやすい・100=走りにくいが正しい。組み込みのgradient軸が勾配0%→
-  // スコア0・15%→スコア100であることから判明したバグ）。改善計画T397フォローアップ
-  // （ユーザー指摘: 説明文が多く見にくい）で、折れ点・カテゴリ等3箇所に重複していた
-  // この文言をステップ先頭の1箇所へ統合・短縮した（AxisComposer.tsx:
-  // renderShapeParamsStep冒頭参照）。
-  it("点数の節にスコアの向きを説明する文言がある", async () => {
-    vi.mocked(listAxisDefinitions).mockResolvedValue([baseAxisDefinition()]);
-    const user = userEvent.setup();
-    render(<AxisStudio />);
-
-    await waitFor(() => expect(screen.getByText("勾配")).toBeInTheDocument());
-    await user.click(screen.getByRole("button", { name: "+ 新しい軸を作る" }));
-    await user.type(screen.getByRole("textbox", { name: "表示名" }), "新軸");
-
-    expect(screen.getByText(/スコアは0\(走りやすい\)〜100\(走りにくい\)/)).toBeInTheDocument();
-  });
-
-  // 改善計画T325（UIレビュー2026-08-25 F-3）: 他axis_idを材料として参照する軸（例:
-  // 軸）の一覧サマリが、生のsnake_case識別子ではなく参照先の表示名(label)で
-  // 表示される回帰テスト。
-  it("他axis_idを材料として参照する軸のサマリは、生の識別子ではなく参照先の表示名で表示される", async () => {
-    vi.mocked(listAxisDefinitions).mockResolvedValue([
-      baseAxisDefinition({ axis_id: "highway_base", label: "highway基準値" }),
+  function referencedPair() {
+    listing(
+      baseAxisDefinition({ axis_id: "target", label: "消す軸" }),
       baseAxisDefinition({
-        axis_id: "axis_sample",
-        label: "見本の軸",
+        axis_id: "user_axis",
+        label: "参照している軸",
         shape: {
           kind: "breakpoint_linear",
-          terms: [{ material: "highway_base", weight: 1.0, required: true }],
+          terms: [{ material: "target", weight: 1, required: true }],
           preprocess: "identity",
           breakpoints: [
             [0, 0],
@@ -202,200 +200,114 @@ describe("AxisStudio", () => {
           ],
         },
       }),
-    ]);
+    );
+  }
+
+  it("他の軸から参照されていなければ、確認せずに消す", async () => {
+    twoAxes();
+    const confirmSpy = vi.spyOn(window, "confirm");
+    const user = userEvent.setup();
     render(<AxisStudio />);
 
-    await waitFor(() => expect(screen.getByText("見本の軸")).toBeInTheDocument());
+    await user.click((await screen.findAllByRole("button", { name: "削除" }))[0]);
 
-    // 軸名の見出し（"highway基準値"単体）と紛れないよう、サマリ行特有の
-    // 「・ <ラベル>」という区切り付きパターンで照合する。
-    expect(screen.getByText(/・ highway基準値/)).toBeInTheDocument();
-    expect(screen.queryByText(/highway_base/)).not.toBeInTheDocument();
+    expect(confirmSpy).not.toHaveBeenCalled();
+    expect(deleteAxisDefinition).toHaveBeenCalledWith("target");
+    confirmSpy.mockRestore();
   });
 
-  // 改善計画T323（UIレビュー2026-08-25 F-1）: 他の軸から材料として参照されている軸を
-  // 削除しようとすると、参照元の名前と影響を明示する確認ダイアログが出る回帰テスト。
-  it("他の軸から参照されている軸を削除しようとすると確認ダイアログが出て、キャンセルすれば削除されない", async () => {
-    vi.mocked(listAxisDefinitions).mockResolvedValue([
-      baseAxisDefinition({ axis_id: "highway_base", label: "highway基準値" }),
-      baseAxisDefinition({
-        axis_id: "axis_sample",
-        label: "見本の軸",
-        shape: {
-          kind: "breakpoint_linear",
-          terms: [{ material: "highway_base", weight: 1.0, required: true }],
-          preprocess: "identity",
-          breakpoints: [
-            [0, 0],
-            [10, 100],
-          ],
-        },
-      }),
-    ]);
+  it("参照されていたら、参照元の名前を挙げて確認する", async () => {
+    referencedPair();
     const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(false);
     const user = userEvent.setup();
     render(<AxisStudio />);
 
-    await waitFor(() => expect(screen.getByText("highway基準値")).toBeInTheDocument());
-    await user.click(screen.getAllByRole("button", { name: "削除" })[0]);
+    await user.click((await screen.findAllByRole("button", { name: "削除" }))[0]);
 
-    expect(confirmSpy).toHaveBeenCalledWith(expect.stringContaining("見本の軸"));
+    expect(confirmSpy.mock.calls[0][0]).toContain("参照している軸");
+    // 断ったら消さない。
     expect(deleteAxisDefinition).not.toHaveBeenCalled();
     confirmSpy.mockRestore();
   });
 
-  it("確認ダイアログでOKを押せば、参照されている軸でも削除される", async () => {
-    vi.mocked(listAxisDefinitions).mockResolvedValue([
-      baseAxisDefinition({ axis_id: "highway_base", label: "highway基準値" }),
-      baseAxisDefinition({
-        axis_id: "axis_sample",
-        label: "見本の軸",
-        shape: {
-          kind: "breakpoint_linear",
-          terms: [{ material: "highway_base", weight: 1.0, required: true }],
-          preprocess: "identity",
-          breakpoints: [
-            [0, 0],
-            [10, 100],
-          ],
-        },
-      }),
-    ]);
-    vi.mocked(deleteAxisDefinition).mockResolvedValue(undefined);
+  it("確認で承知したら、参照されていても消す", async () => {
+    referencedPair();
     const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
     const user = userEvent.setup();
     render(<AxisStudio />);
 
-    await waitFor(() => expect(screen.getByText("highway基準値")).toBeInTheDocument());
-    await user.click(screen.getAllByRole("button", { name: "削除" })[0]);
+    await user.click((await screen.findAllByRole("button", { name: "削除" }))[0]);
 
-    expect(deleteAxisDefinition).toHaveBeenCalledWith("highway_base");
+    expect(deleteAxisDefinition).toHaveBeenCalledWith("target");
     confirmSpy.mockRestore();
   });
 
-  it("他の軸から参照されていない軸の削除は確認ダイアログを出さない", async () => {
-    vi.mocked(listAxisDefinitions).mockResolvedValue([
-      baseAxisDefinition(),
-      baseAxisDefinition({ axis_id: "surface_q", label: "舗装状況" }),
-    ]);
-    vi.mocked(deleteAxisDefinition).mockResolvedValue(undefined);
-    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
+  it("最後の1軸は消せない（理由を添えて押させない）", async () => {
+    listing(baseAxisDefinition({ axis_id: "only", label: "唯一の軸" }));
+    render(<AxisStudio />);
+
+    const button = await screen.findByRole("button", { name: "削除" });
+
+    expect(button).toBeDisabled();
+    expect(button).toHaveAttribute("title", "最後の1軸は削除できません");
+  });
+
+  it("削除に失敗したら、理由をそのまま出す", async () => {
+    twoAxes();
+    vi.mocked(deleteAxisDefinition).mockRejectedValue(new Error("消せませんでした"));
     const user = userEvent.setup();
     render(<AxisStudio />);
 
-    await waitFor(() => expect(screen.getByText("勾配")).toBeInTheDocument());
-    await user.click(screen.getAllByRole("button", { name: "削除" })[0]);
+    await user.click((await screen.findAllByRole("button", { name: "削除" }))[0]);
 
-    expect(confirmSpy).not.toHaveBeenCalled();
-    expect(deleteAxisDefinition).toHaveBeenCalledWith("gradient");
-    confirmSpy.mockRestore();
+    expect(await screen.findByText("消せませんでした")).toBeInTheDocument();
   });
+});
 
-  // 改善計画T397フォローアップ（ユーザー指摘: 公開済み/未公開をタブで分けたい）:
-  // 「非公開に戻す」は公開済みタブにのみ現れ、下書きタブには編集・削除ボタンが現れる。
-  // 削除ボタンは公開済みタブに出さない設計のまま（AxisStudio.tsx参照）だが、
-  // 改善計画T501で公開済みタブにも「表示だけ編集」（材料・計算式・重みを一切
-  // 変更できない制限モードでAxisComposerを開く）ボタンを追加した——「編集」とは
-  // 別のアクセシブルネームのため、下記の「編集」ボタン不在の確認とは独立に共存する。
-  it("下書きタブには編集・削除ボタンが、公開済みタブには表示だけ編集・非公開に戻すボタンが現れる", async () => {
-    vi.mocked(listAxisDefinitions).mockResolvedValue([
-      baseAxisDefinition({ axis_id: "gradient", is_published: true }),
-      baseAxisDefinition({ axis_id: "draft_axis", label: "下書き軸", is_published: false }),
-    ]);
-    const user = userEvent.setup();
-    render(<AxisStudio />);
-
-    await waitFor(() => expect(screen.getByText("下書き軸")).toBeInTheDocument());
-    expect(screen.getByRole("button", { name: "編集" })).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "非公開に戻す" })).not.toBeInTheDocument();
-
-    await user.click(screen.getByRole("tab", { name: /公開済み/ }));
-
-    await waitFor(() => expect(screen.getByText("勾配")).toBeInTheDocument());
-    expect(screen.getByRole("button", { name: "非公開に戻す" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "表示だけ編集" })).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "編集" })).not.toBeInTheDocument();
-  });
-
-  it("改善計画T501: 公開済み軸の「表示だけ編集」を押すと、その軸の内容で制限モードの編集モーダルが即座に開く", async () => {
-    vi.mocked(listAxisDefinitions).mockResolvedValue([
-      baseAxisDefinition({ axis_id: "gradient", label: "勾配", is_published: true }),
-    ]);
-    const user = userEvent.setup();
-    render(<AxisStudio />);
-
-    await user.click(screen.getByRole("tab", { name: /公開済み/ }));
-    await waitFor(() => expect(screen.getByText("勾配")).toBeInTheDocument());
-    await user.click(screen.getByRole("button", { name: "表示だけ編集" }));
-
-    expect(screen.getByRole("dialog", { name: "表示専用フィールドを編集: 勾配" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "更新する" })).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "次へ" })).not.toBeInTheDocument();
-  });
-
-  // 改善計画T331残り5項目: AxisStudio.tsxのCRUD実行系（複製・削除・非公開化・保存）の
-  // うち、削除は既にテスト済み。ここでは複製・非公開化・保存（新規作成）の配線を確認する。
-
-  it("「複製して新規作成」を押すと複製元の内容で新規作成モーダルが開く（axis_idは新規採番、is_publishedはfalseへ戻る）", async () => {
-    vi.mocked(listAxisDefinitions).mockResolvedValue([
-      baseAxisDefinition({ axis_id: "gradient", label: "勾配", is_published: true, default_weight: 0.42 }),
-    ]);
-    const user = userEvent.setup();
-    render(<AxisStudio />);
-
-    // 改善計画T397フォローアップ: 公開済み軸は公開済みタブにいる。
-    await user.click(screen.getByRole("tab", { name: /公開済み/ }));
-    await waitFor(() => expect(screen.getByText("勾配")).toBeInTheDocument());
-    await user.click(screen.getByRole("button", { name: "複製して新規作成" }));
-
-    expect(screen.getByRole("dialog", { name: "「勾配」を複製して新しい軸を作る" })).toBeInTheDocument();
-    // 複製元の値（表示名・既定重み）は引き継がれる
-    expect(screen.getByRole("textbox", { name: "表示名" })).toHaveValue("勾配");
-    expect(screen.getByRole("spinbutton", { name: "既定重み" })).toHaveValue(0.42);
-  });
-
-  it("「非公開に戻す」を押すとunpublishAxisDefinitionが呼ばれ、一覧が再読み込みされる", async () => {
-    // listAxisDefinitionsはファイル内の全テストで共有されるモックのため（beforeEachでの
-    // リセットが無い、Checkbox関連のResizeObserverモックのみ）、絶対呼び出し回数ではなく
-    // 「この操作の前後での差分」で検証する。
+describe("公開の取り消し", () => {
+  it("押すと取り消して一覧を読み直す", async () => {
     vi.mocked(listAxisDefinitions)
-      .mockResolvedValueOnce([baseAxisDefinition({ axis_id: "gradient", is_published: true })])
-      .mockResolvedValueOnce([baseAxisDefinition({ axis_id: "gradient", is_published: false })]);
-    vi.mocked(unpublishAxisDefinition).mockResolvedValue(
-      baseAxisDefinition({ axis_id: "gradient", is_published: false }),
+      .mockResolvedValueOnce([baseAxisDefinition({ axis_id: "a", is_published: true })])
+      .mockResolvedValue([baseAxisDefinition({ axis_id: "a", is_published: false })]);
+    const user = userEvent.setup();
+    render(<AxisStudio />);
+
+    await user.click(await screen.findByRole("tab", { name: /公開済み/ }));
+    await user.click(await screen.findByRole("button", { name: "非公開に戻す" }));
+
+    expect(unpublishAxisDefinition).toHaveBeenCalledWith("a");
+    // 読み直した結果が反映され、ボタンが消える。
+    await waitFor(() =>
+      expect(screen.queryByRole("button", { name: "非公開に戻す" })).not.toBeInTheDocument(),
     );
-    const user = userEvent.setup();
-    render(<AxisStudio />);
-
-    // 改善計画T397フォローアップ: 公開済み軸は公開済みタブにいる。
-    await user.click(screen.getByRole("tab", { name: /公開済み/ }));
-    await waitFor(() => expect(screen.getByText("勾配")).toBeInTheDocument());
-    const callsBeforeUnpublish = vi.mocked(listAxisDefinitions).mock.calls.length;
-    await user.click(screen.getByRole("button", { name: "非公開に戻す" }));
-
-    expect(unpublishAxisDefinition).toHaveBeenCalledWith("gradient");
-    // 再読み込み後は下書き（is_published: false）扱いになり、「非公開に戻す」ボタンが消える
-    await waitFor(() => expect(screen.queryByRole("button", { name: "非公開に戻す" })).not.toBeInTheDocument());
-    expect(vi.mocked(listAxisDefinitions).mock.calls.length).toBe(callsBeforeUnpublish + 1);
   });
 
-  it("表示名を入れて保存すると、createAxisDefinitionが呼ばれモーダルが閉じて一覧が再読み込みされる", async () => {
-    vi.mocked(listAxisDefinitions)
-      .mockResolvedValueOnce([baseAxisDefinition()])
-      .mockResolvedValueOnce([baseAxisDefinition(), baseAxisDefinition({ axis_id: "new_axis", label: "新軸" })]);
-    vi.mocked(createAxisDefinition).mockResolvedValue(baseAxisDefinition({ axis_id: "new_axis", label: "新軸" }));
+  it("失敗したら、理由をそのまま出す", async () => {
+    listing(baseAxisDefinition({ axis_id: "a", is_published: true }));
+    vi.mocked(unpublishAxisDefinition).mockRejectedValue(new Error("戻せませんでした"));
     const user = userEvent.setup();
     render(<AxisStudio />);
 
-    await waitFor(() => expect(screen.getByText("勾配")).toBeInTheDocument());
+    await user.click(await screen.findByRole("tab", { name: /公開済み/ }));
+    await user.click(await screen.findByRole("button", { name: "非公開に戻す" }));
+
+    expect(await screen.findByText("戻せませんでした")).toBeInTheDocument();
+  });
+});
+
+describe("保存", () => {
+  it("新規作成を保存すると、作ってから一覧を読み直し、モーダルを閉じる", async () => {
+    listing(baseAxisDefinition());
+    const user = userEvent.setup();
+    render(<AxisStudio />);
+
+    await user.click(await screen.findByRole("button", { name: "+ 新しい軸を作る" }));
+    await user.type(await screen.findByRole("textbox", { name: "表示名" }), "新軸");
     const callsBeforeSave = vi.mocked(listAxisDefinitions).mock.calls.length;
-    await user.click(screen.getByRole("button", { name: "+ 新しい軸を作る" }));
-    await user.type(screen.getByRole("textbox", { name: "表示名" }), "新軸");
     await user.click(screen.getByRole("button", { name: "作成する" }));
 
     await waitFor(() => expect(createAxisDefinition).toHaveBeenCalledTimes(1));
-    const payload = vi.mocked(createAxisDefinition).mock.calls[0][0];
-    expect(payload.label).toBe("新軸");
+    expect(vi.mocked(createAxisDefinition).mock.calls[0][0].label).toBe("新軸");
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
     expect(vi.mocked(listAxisDefinitions).mock.calls.length).toBe(callsBeforeSave + 1);
   });

@@ -1,7 +1,7 @@
 // T598(2〜4番): 折れ点の自動生成・効き目プレビュー・エディタ操作改善の回帰テスト。
 // これらはいずれも材料の参考点（reference_points）が無いと表示されない
 // （primaryMaterialReferencePoints、AxisComposer.tsx参照）。AxisComposer.test.tsxは
-// getMaterialCatalogを常に失敗させる方針（静的フォールバックには参考点が無い）のため、
+// getMaterialCatalogを常に失敗させる方針のため、
 // 参考点ありのケースはAxisComposer.materialValues.test.tsxと同じ考え方でこのファイルへ
 // 分離する。
 import { render, screen, waitFor } from "@testing-library/react";
@@ -39,7 +39,7 @@ vi.mock("@/services/materialCatalogApi", () => ({
 
 async function openBreakpointStep(user: ReturnType<typeof userEvent.setup>, label: string) {
   render(<AxisComposer editing={null} duplicateFrom={null} onCancelEdit={vi.fn()} onSave={vi.fn()} />);
-  await user.type(screen.getByRole("textbox", { name: "表示名" }), label);
+  await user.type(await screen.findByRole("textbox", { name: "表示名" }), label);
   // 材料カタログの実行時取得が解決し、参考点付きの折れ点自動生成UIが現れるのを待つ。
   await waitFor(() => expect(screen.getByRole("group", { name: "参考点から値を選ぶ" })).toBeInTheDocument());
 }
@@ -60,7 +60,7 @@ describe("AxisComposer 折れ点の自動生成・効き目プレビュー", () 
     const onSave = vi.fn().mockResolvedValue(undefined);
     const user = userEvent.setup();
     render(<AxisComposer editing={null} duplicateFrom={null} onCancelEdit={vi.fn()} onSave={onSave} />);
-    await user.type(screen.getByRole("textbox", { name: "表示名" }), "軸F");
+    await user.type(await screen.findByRole("textbox", { name: "表示名" }), "軸F");
     await waitFor(() => expect(screen.getByRole("group", { name: "参考点から値を選ぶ" })).toBeInTheDocument());
 
     const zeroInput = screen.getByRole("spinbutton", { name: "0点にする値" });

@@ -1,23 +1,9 @@
-import generatedMaterials from "@/types/generated/material-catalog.json";
+// 軸スタジオ・ルート結果が扱う材料の型と、材料idを表示へ変える関数。
+// 一覧そのものは`hooks/useMaterialCatalog.ts`が`GET /api/material-catalog`から取る。
 
-// 軸スタジオの材料選択候補の静的フォールバック。
-// backend/app/domain/material_catalog.py: MATERIAL_CATALOGが単一ソースで、軸コンポーザーは
-// 通常`hooks/useMaterialCatalog.ts`経由でGET /api/material-catalogから動的取得する。
-// 本定数は取得失敗時（オフライン・API未起動等）のフォールバック。
-//
-// **一覧は手書きせず生成物（material-catalog.json、export_openapi.pyが書き出す）から
-// 導出する**——手書きだと、APIが落ちているときにだけ選択肢が古いというドリフトが
-// 起き、通常経路では気づけない。
-//
-// これはbackend側の評価経路が組み立てる
-// 材料辞書のキーそのものであり、backend/app/domain/registry_defaults.pyの一次属性
-// （OSM生タグ等）とは別の語彙のため、あちらのカタログをそのまま流用できない（両者は
-// 将来統合の余地がある課題として docs/records/decisions/t221-axis-registry.md「T12との関係」に
-// 記録済み）。
 export type AxisMaterialDType = "numeric" | "boolean" | "categorical";
 
-/** 軸スタジオの折れ点編集を助ける「値の目安」1点。backend/app/domain/
- * material_catalog.py: MaterialReferencePointが単一ソース。 */
+/** 軸スタジオの折れ点編集を助ける「値の目安」1点。 */
 export interface AxisMaterialReferencePoint {
   label: string;
   value: number;
@@ -25,61 +11,33 @@ export interface AxisMaterialReferencePoint {
 
 export interface AxisMaterialOption {
   id: string;
-  /** 「論理名 - 物理名」形式（例: "道路種別 - highway"）。backend/app/domain/
-   * material_catalog.py: MaterialSpec.full_label()と同じ形式で、動的取得
-   * （GET /api/material-catalog）が失敗した場合のフォールバックとして揃える。 */
+  /** 「論理名 - 物理名」形式（例: "道路種別 - highway"）。 */
   label: string;
   /** 論理名だけ（例: "道路種別"）。物理名を出す意味が無い一般向けの表示が使う。
    * `label`から物理名を削って作り直さない——論理名に区切り文字が含まれたときに壊れる。 */
   name: string;
-  /** 情報アイコン(ⓘ)から表示する説明文。backend/app/domain/
-   * material_catalog.py: MaterialSpec.descriptionが単一ソース。 */
+  /** 情報アイコン(ⓘ)から表示する説明文。 */
   description: string;
-  /** "numeric"=数値材料（BreakpointLinearShape向け）、"boolean"=真偽値材料
-   * （BreakpointLinearShape/CategoricalShape向け）、"categorical"=文字列多値材料
-   * （CategoricalShapeがbool/str両方に対応）。 */
+  /** "numeric"=数値材料（折れ点向け）、"boolean"=真偽値材料、"categorical"=文字列多値材料。 */
   dtype: AxisMaterialDType;
-  /** 値の単位（凡例・数値表示用、無次元・真偽値・カテゴリ値は空文字）。
-   * backend/app/domain/material_catalog.py: MaterialSpec.unitが単一ソース。 */
+  /** 値の単位（凡例・数値表示用、無次元・真偽値・カテゴリ値は空文字）。 */
   unit: string;
-  /** 「値の目安」一覧。値を持たない材料や静的フォールバック（本ファイル）では
-   * 省略されうる。 */
   referencePoints?: readonly AxisMaterialReferencePoint[];
 }
 
-// 生成物からフォールバック一覧を組み立てる。生成物はbackendの`axis_studio_materials()`
-// （`display_only=False`の公開材料）と1対1で、`GET /api/material-catalog`の応答と同じ集合。
-// 「値の目安」（referencePoints）は動的取得でのみ得られるためフォールバックには含めない。
-export const AXIS_MATERIAL_OPTIONS: readonly AxisMaterialOption[] = generatedMaterials.map((m) => ({
-  id: m.material_id,
-  // backendの`MaterialSpec.full_label()`と同じ「論理名 - 物理名」形式。
-  label: `${m.label} - ${m.material_id}`,
-  name: m.label,
-  description: m.description,
-  dtype: m.dtype as AxisMaterialDType,
-  unit: m.unit,
-}));
-
-/** 選択肢へ出す材料の表記。**単位は`unit`が唯一の正**（backendの`MaterialSpec.unit`）で、
- *  ラベルには入れない——ラベルへ埋めると、単位を別に添える画面で「制限速度(km/h) 35km/h」の
- *  ように二重になる。読み手が単位を要る場所では、こうして表示のときだけ後ろへ添える。 */
+/** 選択肢へ出す材料の表記。**単位は`unit`が唯一の正**で、ラベルには入れない——ラベルへ
+ *  埋めると、単位を別に添える画面で「制限速度(km/h) 35km/h」のように二重になる。 */
 export function materialOptionText(option: { label: string; unit?: string }): string {
   return option.unit ? `${option.label}（${option.unit}）` : option.label;
 }
 
-/** 材料idの表示名（静的フォールバック側）。動的取得済みの一覧があるときは
- * materialCatalogLabelを使う。 */
-export function materialLabel(materialId: string): string {
-  return AXIS_MATERIAL_OPTIONS.find((m) => m.id === materialId)?.label ?? materialId;
-}
-
-/** 材料idの表示名（動的取得した一覧から引く）。未知idはidをそのまま返す。 */
+/** 材料idの表示名。未知idはidをそのまま返す。 */
 export function materialCatalogLabel(materialId: string, materials: readonly AxisMaterialOption[]): string {
   return materials.find((m) => m.id === materialId)?.label ?? materialId;
 }
 
 /** 一般向けの表示に使う材料名（論理名だけ）。物理名まで出す軸スタジオは
- * `materialCatalogLabel`を使う。カタログに無い材料idはidそのものへフォールバックする。 */
+ * `materialCatalogLabel`を使う。 */
 export function materialCatalogName(materialId: string, materials: readonly AxisMaterialOption[]): string {
   return materials.find((m) => m.id === materialId)?.name ?? materialId;
 }

@@ -28,7 +28,7 @@ import { MaterialRangeHint } from "./MaterialRangeHint";
 export interface AxisScoringSectionProps {
   draft: Draft;
   setDraft: React.Dispatch<React.SetStateAction<Draft>>;
-  /** 材料カタログ（実行時取得、失敗時は静的フォールバック）。 */
+  /** 材料カタログ（実行時取得）。 */
   materialOptions: readonly AxisMaterialOption[];
   /** 「ほかの軸」を材料として選ぶための候補（他の軸の一覧）。 */
   axisTermOptions: readonly AxisMaterialOption[];

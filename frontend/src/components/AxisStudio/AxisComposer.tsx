@@ -57,7 +57,7 @@ export default function AxisComposer({
   onCancelEdit,
   onSave,
 }: AxisComposerProps) {
-  const materialOptions = useMaterialCatalog();
+  const { materials: materialOptions, loaded: catalogLoaded } = useMaterialCatalog();
   const deriveDraft = useCallback((): Draft => {
     if (editing) return draftFromExisting(editing, materialOptions);
     if (duplicateFrom) return draftFromDuplicate(duplicateFrom, materialOptions);
@@ -94,17 +94,13 @@ export default function AxisComposer({
   const [error, setError] = useState<string | null>(null);
   const isNew = editing === null;
 
-  // useMaterialCatalog()は取得成功したがmaterialsが0件のとき、静的フォールバック
-  // （AXIS_MATERIAL_OPTIONS）へは留まらず空配列をそのまま返す仕様
-  // （useMaterialCatalog.tsのdocstring参照）。backend側の
-  // material_catalog.pyが運用上の何らかの理由（材料レジストリ空・DB接続不調時の
-  // 空応答等）で0件を返すとここに到達する。材料が1件も無ければ「材料」「値ごとの
-  // スコア」等どの入力欄も選択肢が作れず、保存不能な軸しか作れない（かつdraft初期化時の
-  // フォールバックが空文字列のmaterial idになるため、そのまま送信すればbackend側の
-  // バリデーションエラーになる）。フォーム全体の代わりに空状態エラーを出し、材料が
-  // 0件のままではフォームを開かせない。
-  // 上記のフック呼び出し（useMaterialCatalog/useState/useMaterialValues）はすべて
-  // このガードより前で無条件に呼び終えているため、Rules of Hooksには反しない。
+  // 材料が1件も無ければどの入力欄も選択肢を作れず、保存できない軸しか組めない。
+  // フォームの代わりに状態を出して、開かせない。**読み込み中と0件は分けて出す**
+  // ——同じ文言にすると、通信が遅いだけのときに利用者がbackendの異常を疑う。
+  // フックの呼び出しはすべてこのガードより前で終えているためRules of Hooksには反しない。
+  if (!catalogLoaded) {
+    return <div className={styles.composer}>材料カタログを読み込んでいます…</div>;
+  }
   if (materialOptions.length === 0) {
     return (
       <div className={styles.composer}>

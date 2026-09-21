@@ -1,10 +1,8 @@
-// T947（統合レビュー第11回・指摘26）: 材料カタログは実行時フェッチで後から入れ替わるのに、
-// 下書きは`useState`の初期化でビルド時フォールバックの材料に固定されていた。backendを
-// デプロイしてからfrontendをデプロイするまでの窓では、**新しい材料を使う軸の編集画面が
-// 「組み合わせる軸」の画面として開く**（材料として引けないため軸参照へ倒れる）。
+// 下書きは`useState`の初期化で一度作られるが、そのとき材料カタログはまだ空である。
+// **カタログが届いたら作り直さないと**、材料として引けない項目が軸参照とみなされ、
+// 編集画面が「組み合わせる軸」の側で開く（axisDraft.ts: draftFromExisting）。
 //
-// 他の`AxisComposer.*.test.tsx`と同じ方針でファイルを分け、このファイルだけ
-// getMaterialCatalogを「ビルド時フォールバックには無い材料」で解決させる。
+// このファイルだけカタログの中身を固定したいためファイルを分けてある。
 import { render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import AxisComposer from "./AxisComposer";
@@ -35,9 +33,6 @@ vi.mock("@/services/materialCatalogApi", () => ({
 
 describe("AxisComposer 実行時の材料カタログ", () => {
   it("既存軸の編集で、実行時にだけある材料が「材料」として解決される", async () => {
-    // この軸の材料はビルド時フォールバックに無い。下書きが取得完了前の材料一覧で
-    // 固定されたままだと`isAxisReference`が真になり、画面は「組み合わせる軸」の側で
-    // 開く（axisDraft.ts: draftFromExisting）。
     const definition = {
       ...baseAxisDefinition(),
       shape: {
@@ -55,12 +50,10 @@ describe("AxisComposer 実行時の材料カタログ", () => {
       <AxisComposer editing={definition} duplicateFrom={null} otherAxes={[]} onCancelEdit={vi.fn()} onSave={vi.fn()} />,
     );
 
-    // 取得完了前は材料として引けず、「組み合わせる軸」として開いている。
-    expect(screen.getByText("組み合わせる軸")).toBeInTheDocument();
-
-    // 取得が解決したら材料として解決し直す。
+    // 取得が解決したら、材料として解決し直した状態で開く。
     await waitFor(() => {
-      expect(screen.queryByText("組み合わせる軸")).not.toBeInTheDocument();
+      expect(screen.getByRole("textbox", { name: "表示名" })).toBeInTheDocument();
     });
+    expect(screen.queryByText("組み合わせる軸")).not.toBeInTheDocument();
   });
 });

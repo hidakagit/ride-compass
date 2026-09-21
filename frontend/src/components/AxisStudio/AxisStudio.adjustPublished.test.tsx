@@ -12,10 +12,13 @@ vi.mock("@/services/axisAdminApi", () => ({
   deleteAxisDefinition: vi.fn(),
   unpublishAxisDefinition: vi.fn(),
 }));
-vi.mock("@/services/materialCatalogApi", () => ({
-  getMaterialCatalog: vi.fn().mockRejectedValue(new Error("network unavailable in test")),
-  getMaterialValues: vi.fn().mockRejectedValue(new Error("network unavailable in test")),
-}));
+vi.mock("@/services/materialCatalogApi", async () => {
+  const { materialCatalogFixture } = await import("@/testing/materialCatalogFixture");
+  return {
+    getMaterialCatalog: vi.fn().mockResolvedValue(materialCatalogFixture()),
+    getMaterialValues: vi.fn().mockRejectedValue(new Error("network unavailable in test")),
+  };
+});
 vi.mock("@/services/axisPreviewApi", () => ({
   fetchAxisValueDistribution: vi.fn().mockRejectedValue(new Error("network unavailable in test")),
   fetchMaterialDistribution: vi.fn().mockRejectedValue(new Error("network unavailable in test")),

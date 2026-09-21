@@ -1,16 +1,6 @@
-// T424回帰テスト（docs/records/tasks/T424.md、2026-08-30起票のP0バグ修正）: emptyDraft()・
-// draftFromExisting()が`materialOptions[0].id`を無条件参照しており、materialOptionsが
-// 空配列のときマウント直後にTypeErrorでクラッシュしていた。useMaterialCatalog()は
-// 2026-08-25の修正で「取得成功したがmaterialsが0件」の場合、静的フォールバック
-// （AXIS_MATERIAL_OPTIONS）へは戻さず空配列をそのままsetMaterialsする仕様（
-// useMaterialCatalog.test.tsの「取得成功したがmaterialsが0件のレスポンスは、静的
-// フォールバックへ戻さずそのまま空を返す」参照）のため、backend側material_catalog.pyが
-// 運用上の何らかの理由で0件を返すと即座に発生しうる。
-//
-// AxisComposer.test.tsx/AxisComposer.materialValues.test.tsxと同じ方針でファイルを分け、
-// このファイルだけgetMaterialCatalogを「成功だが0件」で解決させる
-// （AxisComposer.test.tsxは全体を通じて失敗させる方針のため、0件成功のケースは
-// 混ぜずここへ分離する）。
+// 材料が1件も無いとき、軸コンポーザーが落ちずに空状態を出すこと。
+// このファイルだけ材料カタログを0件で解決させるため、他の AxisComposer のテストとは
+// ファイルを分けてある（モックはファイル単位でしか切り替えられない）。
 import { render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import AxisComposer from "./AxisComposer";
@@ -29,23 +19,17 @@ vi.mock("@/services/materialCatalogApi", () => ({
   getMaterialValues: vi.fn().mockRejectedValue(new Error("network unavailable in test")),
 }));
 
-describe("AxisComposer 材料カタログ0件時のフォールバック(T424)", () => {
-  it("新規作成モードで材料カタログが0件でも、マウント直後にクラッシュせず空状態のエラーメッセージへフォールバックする", async () => {
+describe("AxisComposer 材料カタログが0件のとき", () => {
+  it("新規作成モードでは、落ちずに空状態のメッセージを出す", async () => {
     render(<AxisComposer editing={null} duplicateFrom={null} onCancelEdit={vi.fn()} onSave={vi.fn()} />);
 
-    // マウント直後は取得完了前のためAXIS_MATERIAL_OPTIONS静的フォールバックで
-    // 通常のウィザード（「表示名(label)」欄）が見えている。
-    expect(screen.getByRole("textbox", { name: "表示名" })).toBeInTheDocument();
-
-    // getMaterialCatalogが解決し材料0件がsetMaterialsされると、通常のウィザードUIから
-    // 空状態のエラーメッセージへ切り替わる（クラッシュしない）。
     await waitFor(() => {
       expect(screen.getByText(/材料カタログを取得できませんでした/)).toBeInTheDocument();
     });
     expect(screen.queryByRole("textbox", { name: "表示名" })).not.toBeInTheDocument();
   });
 
-  it("編集モードで材料カタログが0件でも、draftFromExisting()の初期化でクラッシュしない", async () => {
+  it("編集モードでも、初期化で落ちない", async () => {
     const editing = baseAxisDefinition();
     render(<AxisComposer editing={editing} duplicateFrom={null} onCancelEdit={vi.fn()} onSave={vi.fn()} />);
 

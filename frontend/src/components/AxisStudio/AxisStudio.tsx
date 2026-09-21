@@ -3,7 +3,8 @@
 import { useEffect, useState } from "react";
 import * as Tabs from "@radix-ui/react-tabs";
 import { DialogContent, DialogRoot } from "@/components/ui/Dialog/Dialog";
-import { materialLabel } from "@/lib/axisMaterialsCatalog";
+import { materialCatalogLabel, type AxisMaterialOption } from "@/lib/axisMaterialsCatalog";
+import { useMaterialCatalog } from "@/hooks/useMaterialCatalog";
 import {
   createAxisDefinition,
   deleteAxisDefinition,
@@ -26,13 +27,14 @@ function materialIdsOf(shape: AxisShape): string[] {
   return shape.terms.map((t) => t.material);
 }
 
-// 一覧のサマリ表示用に、材料id/軸idどちらも人間向けラベルへ解決する。`materialLabel`は
-// 材料カタログにのみ問い合わせるため、`t.material`が他axis_id（他axis_idを材料として
-// 参照する内部軸階層のterms）を指すケースは解決できない。まずこの
-// axis_id一覧内に該当する軸が無いか探し、あればその表示名(label)を優先し、無ければ
-// `materialLabel`のフォールバックへ委ねる。
-function labelForMaterialOrAxis(id: string, definitions: readonly AxisDefinitionResponse[]): string {
-  return definitions.find((d) => d.axis_id === id)?.label ?? materialLabel(id);
+// shapeのtermは材料idと他の軸idのどちらも指しうる。軸として見つかればその表示名を、
+// 見つからなければ材料カタログから引く。
+function labelForMaterialOrAxis(
+  id: string,
+  definitions: readonly AxisDefinitionResponse[],
+  materials: readonly AxisMaterialOption[],
+): string {
+  return definitions.find((d) => d.axis_id === id)?.label ?? materialCatalogLabel(id, materials);
 }
 
 // 「この軸を削除しようとしたら、他の軸から材料として参照されていた」という事実が
@@ -46,6 +48,7 @@ function axesReferencing(axisId: string, definitions: readonly AxisDefinitionRes
 // 集約し、フォーム自体はAxisComposerへ委ねる。認証・route handler経由の詳細は
 // docs/modules/frontend/axis-studio.md「AxisStudio.tsx（一覧・状態管理）」節参照。
 export default function AxisStudio() {
+  const { materials } = useMaterialCatalog();
   const [definitions, setDefinitions] = useState<AxisDefinitionResponse[] | null>(null);
   const [listError, setListError] = useState<string | null>(null);
   const [editingAxisId, setEditingAxisId] = useState<string | null>(null);
@@ -216,7 +219,7 @@ export default function AxisStudio() {
         <span className={styles.listMeta}>
           {def.category} ・ 重み{def.default_weight.toFixed(2)} ・{" "}
           {materialIdsOf(def.shape)
-            .map((id) => labelForMaterialOrAxis(id, definitions ?? []))
+            .map((id) => labelForMaterialOrAxis(id, definitions ?? [], materials))
             .join("・")}
         </span>
       </div>

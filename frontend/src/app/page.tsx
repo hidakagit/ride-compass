@@ -268,12 +268,11 @@ export default function Home() {
   // （handleLocateMe）がそのまま兼ねるため、専用のボタン・武装状態は持たない。
   // 軸カタログ（ramp表示・凡例チップグルーピングを含む）を先頭で取得する。
   // axisVisibility/secondaryAxisCasingLayerIds（下記）・地図チップ組み立てが参照するため、
-  // それらより前で宣言する必要がある。取得完了までとエラー時は静的フォールバック
-  // （axisLayers.ts: RAMP_AXES等）を返すため、呼び出し側は常に何かしらの一覧を受け取れる。
+  // それらより前で宣言する必要がある。
   const axisCatalog = useAxisCatalog();
   // 比較パネル（研究モード）の材料値行（material_values）のラベル・単位表記に使う
   // （ComparisonPanel.tsx参照）。
-  const materialCatalog = useMaterialCatalog();
+  const { materials: materialCatalog } = useMaterialCatalog();
 
   const [routes, setRoutes] = useState<RouteCandidate[]>([]);
   const [selectedRouteId, setSelectedRouteId] = useState<string | null>(null);
