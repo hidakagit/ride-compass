@@ -370,7 +370,9 @@ vi.mock("@/lib/tileBaseUrl", () => ({ tileBaseUrl: () => "" }));
 ```
 
 「テストが書き換える環境変数を、そのテスト自身の対象以外の実装も読んでいる」形と、
-`process.env`ごとの差し替えを避ける。自分のテスト対象だけが読む環境変数
+`process.env`ごとの差し替えを避ける。**漏れたかどうかは`vitest.setup.ts`が実行時に見る**
+——テストファイルの終わりに`process.env`が開始時と違えば落ちる（`vi.stubEnv`のように
+復元されるものは通る）。`process.env`ごとの差し替えは束縛を固定して止めてある。自分のテスト対象だけが読む環境変数
 （`app/api/version/route.ts`の`RENDER_GIT_COMMIT`等）は、他へ波及しないため対象外。
 
 

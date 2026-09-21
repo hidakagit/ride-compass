@@ -48,7 +48,8 @@ DB接続・マイグレーション・Redis・HTTPクライアント・レート
 そのままモデルへ流れ込む経路は無い。そのため`extra="forbid"`で一律に締められる。
 
 - `backend/app/`配下のモデルは`StrictModel`を継承する（素の`BaseModel`は未知フィールドを
-  黙って捨てる）。
+  黙って捨てる）。素の`BaseModel`を継承して`extra`を宣言していないモデルは
+  `backend/tests/structure/test_model_strictness.py`が落とす。
 - 派生側が`frozen=True`等を指定しても`extra`は引き継がれる（Pydantic v2が親子の
   `model_config`をマージする）。
 - 環境変数を読む`config.py: Settings`だけは対象外。プロセスの環境変数には無関係なものが
