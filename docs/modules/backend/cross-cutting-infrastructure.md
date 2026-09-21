@@ -47,8 +47,8 @@ DB接続・マイグレーション・Redis・HTTPクライアント・レート
 （JMA・OSM）のJSONは一度dictで受けて必要な値だけを取り出しており、提供側のペイロードが
 そのままモデルへ流れ込む経路は無い。そのため`extra="forbid"`で一律に締められる。
 
-- `backend/app/`配下のモデルは`StrictModel`を継承する。素の`BaseModel`継承は
-  `scripts/review_checks.py`の`find_bare_basemodel_violations`が検出する。
+- `backend/app/`配下のモデルは`StrictModel`を継承する（素の`BaseModel`は未知フィールドを
+  黙って捨てる）。
 - 派生側が`frozen=True`等を指定しても`extra`は引き継がれる（Pydantic v2が親子の
   `model_config`をマージする）。
 - 環境変数を読む`config.py: Settings`だけは対象外。プロセスの環境変数には無関係なものが

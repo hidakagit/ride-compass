@@ -1,7 +1,7 @@
 # ディレクトリ構成
 
 トップは`backend/`（FastAPI）・`frontend/`（Next.js）・`docs/`・`scripts/`（リポジトリ横断の
-CI/pre-commitスクリプト）。
+CI・pushフック用スクリプト）。
 
 **個々のファイルがどのモジュールの責務かはここに書かない。**
 [docs/modules/README.md](../modules/README.md)の対象ファイル表が持ち、そちらは

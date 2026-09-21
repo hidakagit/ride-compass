@@ -203,10 +203,9 @@ MapLibreはソースへ渡した`attribution`を**そのソースが地図に載
 道の強調（`applyInspectedWay`）はレイヤーのfilterとvisibilityだけで表され、ポップアップは
 開いたままなので、復元しないと「どの線の話か」だけが失われる。そのため
 `redrawAllLayers`は表示状態のpropに加えて`inspectedWayId`（コンポーネントのstate由来、
-refで最新値を渡す）も受け取る。`scripts/review_checks.py`の`map_redraw_coverage`が、
-**再描画で失われる副作用を持つ宣言**（source/layerの追加・filter・feature-state・
-visibilityの設定）が`redrawAllLayers`から辿れるかを機械的に見ているため、新しい描画を
-足して辿れない位置に置くとpre-commitとCIが落ちる。
+refで最新値を渡す）も受け取る。**再描画で失われる副作用を持つ宣言**（source/layerの追加・
+filter・feature-state・visibilityの設定）は、`redrawAllLayers`から辿れる位置に置く
+——辿れない位置に置いたものは、スタイル切替後に再追加されず消える。
 カメラはここでは動かさない——表示範囲は利用者の操作に属し、フィットは候補一覧が
 変わったときだけ行う。
 

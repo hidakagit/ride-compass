@@ -312,8 +312,7 @@ expect(expressionColors.length).toBeGreaterThan(0);
 for (const color of expressionColors) { expect(legendColors.has(color)).toBe(true); }
 ```
 
-`scripts/review_checks.py`の`vacuous_test_loops`がこの形を検出し、pre-commitとCIがブロック
-する。空でないことの主張は**同じテストの中**に置く（別のテストにある主張は、このテストが
+この形を機械的に検出する仕組みは無い。空でないことの主張は**同じテストの中**に置く（別のテストにある主張は、このテストが
 空振りしないことの根拠にならない）。
 
 ## パターン7: 環境変数に依存する挙動のテスト → 判断を純関数へ出し、テストは環境変数に触らない
@@ -344,10 +343,9 @@ export function resolveTileBaseUrl(configured: string | undefined, origin: strin
 vi.mock("@/lib/tileBaseUrl", () => ({ tileBaseUrl: () => "" }));
 ```
 
-`scripts/review_checks.py`の`cross_file_env_writes`が「テストが書き換える環境変数を、その
-テスト自身の対象以外の実装も読んでいる」場合と`process.env`ごとの差し替えを検出し、
-pre-commitとCIがブロックする。自分のテスト対象だけが読む環境変数（`app/api/version/route.ts`の
-`RENDER_GIT_COMMIT`等）は、他へ波及しないため対象外。
+「テストが書き換える環境変数を、そのテスト自身の対象以外の実装も読んでいる」形と、
+`process.env`ごとの差し替えを避ける。自分のテスト対象だけが読む環境変数
+（`app/api/version/route.ts`の`RENDER_GIT_COMMIT`等）は、他へ波及しないため対象外。
 
 
 ## パターン8: テストが用意する状態は、本番で起こりうるものに限る
