@@ -330,8 +330,12 @@ push型の無効化はfail-openと組み合わさると「伝え漏れても誰�
 ## 直接使ってよい場所
 
 `get_redis_client_or_none`・`record_redis_failure`・`record_redis_success`・`redis_available`を
-直接呼ぶのは原則`redis_json_cache.py`に限る。機械的に検出する仕組みは無く、周期レビューで
-人が見る。新たに直接呼ぶなら、そこへ寄せられない理由をモジュールのdocstringへ書くこと。
+直接呼んでよいファイルは`backend/tests/test_redis_skeleton.py`の`ALLOWED`が持つ（骨格そのもの・
+その接続本体と、単一キーのJSON読み書きでは表現できない2つ）。ここに無いファイルで使うと
+テストが落ちる。寄せられない事情があるなら、理由とともに`ALLOWED`へ足すこと。
+
+**寄せ終わったのに`ALLOWED`へ残っている場合も落ちる**——列挙が実態から離れると、
+次に誰かが写経したときに気づけなくなるため。
 
 ## 関連
 
