@@ -137,14 +137,13 @@ VERSION`は保存形式（numpy配列）自体は無変更のため据え置き�
 | ランタイムの遅延構築で新規Edgeが生まれた場合（`GraphService`が未split範囲へのリクエストで`is_split_up_to_date`判定によりその場で交差点分割する経路） | ⑥・⑦の再実行が無いと、その新規Edgeの評価軸（stop/accident/intersection/gradient）が欠損する（**T74・T101・T242の再発パターン**）。⑤はroad_edges全体からの集計のため併せて再実行が必要 |
 | 土地被覆年次マップ更新・リング径変更 | ⑩を`--recompute`（+年次更新時は`--data-version`）付きで再実行 |
 
-## 統合エントリポイント（改善計画T281段階2、実装済み）
+## 統合エントリポイント
 
-`python -m app.batch.refresh_derived`が派生計算バッチ（本ファイルの依存順序どおり、
+`python -m app.batch.derive_cli`が派生計算バッチ（本ファイルの依存順序どおり、
 生データ取込は対象外）を1コマンドで実行する。**どの段が含まれるかの正本は
-`refresh_derived.py`の`_STAGES`**——ここへ範囲を書くと、段を1つ足したときにこちらだけが
-古くなる（実際に⑭が抜けたまま残っていた）。`app/batch/precompute_*.py`のファイル一覧と
-`_STAGES`の突き合わせを`tests/test_refresh_derived.py`が行い、登録漏れを機械的に止める。⑩precompute_way_landcoverだけラスタファイルの
-手動取得を要するため、未整備の環境では`--skip-landcover`でこの段だけスキップできる。詳細は
+`derive_cli.py`の`STAGES`**——ここへ範囲を書くと、段を1つ足したときにこちらだけが古くなる。
+`--from <段名>`で途中から再開できる。⑩precompute_way_landcoverはラスタファイルの
+手動取得を要するため、未整備の環境ではその手前で止まる。詳細は
 [docs/modules/backend/static-road-attributes.md](../backend/static-road-attributes.md)
 「派生データ再構築の単一エントリポイント」参照。
 

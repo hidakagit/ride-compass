@@ -408,26 +408,17 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
         description="国土地理院の標高データから算出した進行方向の勾配（%）。登り坂はプラス、下り坂はマイナスです。",
         dtype="numeric",
         unit="%",
-        # 標高自体はDEMタイル（infrastructure/tile_cache.py、永続・TTL無し）・Edge単位の
-        # 計算済み属性（elevation_attributesテーブル、precompute_elevation_attributes
-        # バッチ＋リクエスト時の遅延書き込みの両経路で埋まる）とも既に永続化されている。
-        # タイルへ焼き込めない理由は別にある: この値は進行方向依存の符号付き値
-        # （登り坂プラス・下り坂マイナス）で、1つのOSM Way（地図上の1本の線）に対し
-        # 往復2方向ぶんの異なる値を持ちうるため、方向を持たない静的なMVTタイルの
-        # プロパティ1個には焼き込めない（風向風速と同じ制約）。方向依存材料を地図表示へ
-        # 乗せる仕組みとして、風と同型のRedis経由way_id→値配信（`services/
-        # gradient_way_service.py`、`GET /api/region/dynamic-way-values/gradient/
-        # {z}/{x}/{y}`）を使う。`tile_property`は今後も設定しない方針を確定する
-        # （MVT焼き込み経路は方向非依存の材料しか表現できないため、
-        # `tile_property_direction_dependent=True`と両輪でramp化されないことを明示する）。
+        # 進行方向で符号が変わる（登りプラス・下りマイナス）ため、1本のWayに往復2つの値を
+        # 持ちうる。方向を持たないMVTプロパティ1個には焼き込めないので、地図へは
+        # `services/gradient_way_service.py`のway_id→値配信で乗せる。
         tile_property=None,
         tile_property_direction_dependent=True,
         primary_attribute_id="elevation",
         reference_points=_GRADIENT_PERCENT_REFERENCE_POINTS,
         value_sql="em.average_grade",
         coverage=EdgeMaterialCoverageSpec(
-                present_count_sql="SELECT count(*) FROM elevation_attributes WHERE average_grade IS NOT NULL",
-                source="elevation_attributes.average_grade（precompute_elevation_attributesの計算済み行）の有無",
+                present_count_sql="SELECT count(*) FROM edge_materials WHERE average_grade IS NOT NULL",
+                source="edge_materials.average_grade の有無",
                 missing_semantics="unknown",
             ),
     ),

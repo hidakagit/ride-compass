@@ -36,6 +36,7 @@ from sqlalchemy.dialects.postgresql import ARRAY
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.types import Text
 
+from app.domain.material_sql import WAYS_SOURCE_SQL
 from app.domain.road import BAD_OSM_SURFACE_TAGS, GOOD_OSM_SURFACE_TAGS
 
 # 材料ごとの宣言は`MaterialSpec.coverage`が持つ（材料を1つ増やすとき触るのは1か所）。
@@ -62,10 +63,10 @@ def build_way_coverage_sql(specs: dict[str, MaterialCoverageSpec] = MATERIAL_COV
         f"count(*) FILTER (WHERE ({spec.in_scope}) AND ({spec.missing_condition})) AS {material_id}"
         for material_id, spec in way_specs.items()
     )
-    # AS w: domain/material_sql.pyの共有SQL断片がosm_raw_waysをこのエイリアスで
-    # 参照する前提のため（_ROAD_SURFACE_TILE_MVT_SQLと同じエイリアス）。
+    # 元データの引き方は`domain/material_sql.py`が持つ。ここで書き写すと、生データの
+    # 置き場が変わったときにこの1本だけが古いテーブルを指したまま残る。
     sql = (  # noqa: S608 固定の内部辞書のみ使用
-        f"SELECT count(*) AS total{', ' + columns if columns else ''} FROM osm_raw_ways AS w"
+        f"SELECT count(*) AS total{', ' + columns if columns else ''} FROM {WAYS_SOURCE_SQL} AS w"
     )
     statement = text(sql)
     if ":good_tags" in sql:

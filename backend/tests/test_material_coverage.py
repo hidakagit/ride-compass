@@ -15,6 +15,7 @@ from app.infrastructure.material_coverage import (
     build_way_coverage_sql,
 )
 from app.domain.material_sql import (
+    WAYS_SOURCE_SQL,
     BRIDGE_NORMALIZED_SQL,
     LANES_COUNT_CASE_SQL,
     LIT_NORMALIZED_SQL,
@@ -97,7 +98,9 @@ def test_build_way_coverage_sql_has_one_filter_column_per_way_material_and_binds
     # 0件だと下のループが1度も走らず、列の対応を何も確かめないまま緑になる。
     assert way_material_ids, "way材料のカバレッジ仕様が1件も無い"
     assert sql.startswith("SELECT count(*) AS total")
-    assert "FROM osm_raw_ways AS w" in sql
+    # 元データの引き方は共有断片から来る。ここで表名を書き写すと、生データの置き場が
+    # 変わったときにこの検査だけが古いテーブルを正として固定する。
+    assert f"FROM {WAYS_SOURCE_SQL} AS w" in sql
     assert "NOT EXISTS (SELECT" not in sql
     for material_id in way_material_ids:
         assert f" AS {material_id}" in sql
@@ -209,7 +212,7 @@ def test_way_coverage_counts_only_rows_the_batch_can_process():
 
     # 分母は全件（絞り込みはFILTER側だけに掛かる）。
     assert sql.startswith("SELECT count(*) AS total")
-    assert "FROM osm_raw_ways AS w" in sql
+    assert f"FROM {' '.join(WAYS_SOURCE_SQL.split())} AS w" in sql
     # 絞り込みはFILTER側だけに掛かる（FROMの後ろにWHEREを付けない）。
     assert "AS w WHERE" not in sql
     for material_id, spec in MATERIAL_COVERAGE_SPECS.items():
