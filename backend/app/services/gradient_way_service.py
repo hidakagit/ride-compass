@@ -1,20 +1,9 @@
-"""鍵→勾配（gradient_percent）配信層。wind_way_service.pyと同型の役割——「評価軸」
-グループとしての勾配（ルート未確定時、視界内の全道路へユーザー指定の向きを一律適用する
-線表示）の基盤。
+"""鍵→勾配（gradient_percent）配信層。
 
-風とは異なり、gradient_percent自体が道路の始点→終点方向を基準にした符号付き値のため
-道路自身の向きが本質的に必要——そのため風はタイル単位のスカラー値1個（同じタイル内の
-全wayが同じ値）へ縮小できるが、勾配は鍵ごとに異なる値を返す
-（`RoadGraphRepository.get_feature_gradient_inputs_in_tile`が返すway単位の
-`(gradient_percent, road_bearing_deg)`と、ユーザー指定の走行方位から
-`domain/gradient.py: GradientCalculator.effective_gradient`をway単位で計算する）。
-`infrastructure/dynamic_way_value_cache.py`は両者を同じ`dict[鍵, float]`表現で
-吸収するため、キャッシュ層自体は共有できる。
+`gradient_percent`は道路の始点→終点方向を基準にした符号付き値で、道路自身の向きが要る。
+そのため**鍵ごとに異なる値**を返す——タイル単位のスカラー1個へ縮められない。
 
-勾配は時刻に依存しないため、`at`パラメータは受け取らず（インターフェース統一のため
-引数としては受け取るが無視する）、キャッシュキーの時刻バケットも常にNoneで扱う。TTLは
-風のような気象データの新鮮さの制約が無いため、DB再問い合わせの頻度を抑える目的だけの
-長めの値にする。
+勾配は時刻に依存しないため、キャッシュキーの時刻バケットは常にNoneで扱う。
 """
 
 import logging
@@ -29,23 +18,16 @@ from app.infrastructure.road_graph_repository import RoadGraphRepository
 
 logger = logging.getLogger("ridecompass.gradient_way")
 
-# 勾配の入力（elevation_attributes.average_grade・road_edges.bearing_deg）は道路の向き・
-# 標高由来の値でほぼ不変のため、風のような気象データの新鮮さの制約は無い。DBへの
-# 再問い合わせ頻度を抑える目的だけの長めのTTL（24時間）にする——正本を持たない
-# キャッシュのため、期限切れ後は単に再計算されるだけで安全（dynamic_way_value_cache.py
-# のモジュールdocstring参照）。
+# 勾配の入力は道路の向きと標高で決まりほぼ不変のため、鮮度の制約が無い。長く持って
+# DBへの再問い合わせを抑える。正本を持たないキャッシュで、期限切れ後は再計算されるだけ。
 GRADIENT_TILE_VALUES_TTL_SECONDS = 24 * 3600
 
 
 class GradientWayService:
-    # このサービスが担当する軸id。`api/dependencies.py: _DEDICATED_WAY_VALUE_SERVICE_FACTORIES`の
-    # キー・`GET /api/region/dynamic-way-values/{axis_id}`のパスパラメータ・
-    # キャッシュの名前空間（`dynamic_way_value_cache.py`）の3つは常に同じ値でなければ
-    # ならない（`tests/test_dedicated_way_value_services.py`が登録キーとの一致を検査する）。
+    #: 担当する軸id。登録キー・URLのパスパラメータ・キャッシュの名前空間はこれで揃える。
     axis_id = "gradient"
 
-    # このサービスが返す生値の材料id（api/routers/region.pyが地図の表示値へ変換する際、
-    # 軸定義のどの材料として評価するかを決める）。上の`axis_id`とは別の名前空間。
+    #: 返す生値の材料id。`axis_id`とは別の名前空間。
     material_id = "gradient_percent"
 
     def __init__(self, repository: RoadGraphRepository | None):
@@ -54,20 +36,13 @@ class GradientWayService:
     async def get_way_values(
         self, z: int, x: int, y: int, at: datetime | None, bearing_deg: float | None, speed_kmh: float | None = None
     ) -> dict[str, float]:
-        """指定タイル内のフィーチャーごとの実効勾配（`GradientCalculator.effective_gradient`、
-        正=登り・負=下り）を返す。repository未接続・取込範囲外・DB障害等はいずれも空dictへ
-        倒す（他の動的配信層[wind_way_service.py]と同じグレースフルデグレード方針）。
+        """指定タイル内のフィーチャーごとの実効勾配（正=登り・負=下り）を返す。
 
-        `at`・`speed_kmh`はrouter側の材料非依存な呼び出しインターフェース（`api/routers/region.py`の
-        `/dynamic-way-values/{axis_id}/...`）と揃えるためだけに受け取り、勾配の計算
-        自体には使わない（勾配は時刻・走行速度に依存しない、モジュールdocstring参照）。
+        repository未接続・取込範囲外・DB障害はいずれも空dictへ倒す。
 
-        bearing_degはユーザーがコンパススライダーで指定した走行方位（0〜360度、北=0・
-        時計回り）。全道路共通の値として使うが、道路自身の向き（road_bearing_deg）との
-        cos補正込みでway単位に異なる値になる（風とは異なる性質、モジュールdocstring参照）。
-        型を`float | None`にしているのはrouter側インターフェースと揃えるためで、`at`と
-        同じ理由（wind_way_service.pyのbearing_deg docstring参照）。勾配は常にbearing_degを
-        必須とする材料のため、Noneのまま到達したら即座に失敗させる。
+        `at`・`speed_kmh`は材料非依存な呼び出し口と形を揃えるためだけに受け取り、勾配の
+        計算には使わない。`bearing_deg`も同じ理由で`float | None`だが、勾配はこれが無いと
+        計算できないため、Noneのまま到達したら即座に失敗させる（無音で進めない）。
         """
         if bearing_deg is None:
             raise ValueError("GradientWayService.get_way_valuesにはbearing_degが必須です")
@@ -77,8 +52,7 @@ class GradientWayService:
         ancestor_x, ancestor_y = tile_ancestor(z, x, y, ROAD_GRAPH_TILE_ZOOM)
 
         with log_external_call("region:gradient-way-values", z=z, x=x, y=y) as fields:
-            # 世代は鍵の一部（`dynamic_way_value_cache`のdocstring参照）。渡し忘れると
-            # 世代をまたいだ値を配る。
+            # 世代は鍵の一部。渡し忘れると世代をまたいだ値を配る。
             revision = derived_data_revision_service.current_revision()
             cached = await get_tile_values(self.axis_id, z, x, y, None, bearing_deg, revision=revision)
             if cached is not None:
@@ -104,9 +78,8 @@ class GradientWayService:
                 return {}
             fields["feature_count"] = len(inputs)
 
-            # 指定方位に対して直角に近い道路は値を持たせない（地図では「データなし」、
-            # domain/gradient.py: shows_gradient参照）。0%として配ると、実際には急な坂の
-            # 道が凡例の「平坦」の段へ入り、平坦な道と区別できなくなる。
+            # 指定方位に対して直角に近い道路は値を持たせず「データなし」にする。0%として
+            # 配ると、実際には急な坂の道が凡例の「平坦」の段へ入り、区別できなくなる。
             values = {
                 feature_key: round(GradientCalculator.effective_gradient(gradient_percent, road_bearing_deg, bearing_deg), 1)
                 for feature_key, (gradient_percent, road_bearing_deg) in inputs.items()

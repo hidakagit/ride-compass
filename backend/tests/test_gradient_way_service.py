@@ -1,6 +1,4 @@
-"""GradientWayService（改善計画T423、way_id→勾配配信層のオーケストレーション）のテスト。
-test_wind_way_service.pyと同じ流儀（FakeRepository・FakeRedis、実DB/Redis不要）。
-"""
+"""鍵→勾配配信層（`services/gradient_way_service.py`）のオーケストレーション。"""
 
 import pytest
 
@@ -42,8 +40,7 @@ async def test_repository_none_returns_empty_dict():
     assert result == {}
 
 
-# 改善計画T445: bearing_deg=Noneで呼ばれたら即座に失敗する（wind_way_service.pyと同じ理由、
-# test_wind_way_service.py: test_bearing_deg_none_raises_value_error参照）。
+# 型が`float | None`なのは呼び出し口の形を揃えるためで、Noneのまま計算へ進ませない。
 async def test_bearing_deg_none_raises_value_error():
     service = GradientWayService(repository=None)
 

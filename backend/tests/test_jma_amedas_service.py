@@ -1,4 +1,4 @@
-"""jma_amedas_service.py（改善計画T387）のテスト。
+"""jma_amedas_service.pyのテスト。
 
 JMAへの実HTTP・実Redisは使わず、infrastructure.jma_amedas_clientの各関数とRedisクライアントを
 monkeypatchで差し替える（docs/conventions/testing.md: 実I/Oを伴わない単体テストの原則）。
@@ -105,9 +105,8 @@ async def test_refresh_all_stations_caches_every_station_in_one_batch(monkeypatc
 
 
 async def test_refresh_all_stations_warns_when_station_table_fetch_fails(monkeypatch, caplog):
-    # 改善計画T425（ゼロベース網羅レビュー指摘）: 全滅バッチ（count=0）が以前は無警告
-    # だった。main.py: _refresh_amedas_jobは例外の有無しか見ていないため、サービス層
-    # 自身がWARNINGを出す必要がある。
+    # 呼び出し元は例外の有無しか見ないため、1件も書けていないことはサービス層自身が
+    # WARNINGで残すしかない。
     _patch_client(monkeypatch)
     monkeypatch.setattr(jma_amedas_client, "fetch_station_table", lambda http_client: _async_return({}))
     service = JmaAmedasService(http_client=None)
@@ -168,8 +167,7 @@ async def test_get_nearest_observation_reads_from_redis_without_fetching(monkeyp
     assert result.wind_direction_label == "南"
     assert result.precipitation_10min_mm == 0.0
     assert result.sunshine_10min_minutes == 5.0
-    # sunrise/sunsetはRedisキャッシュではなくget_nearest_observationがクエリ地点に対して
-    # その場でastral計算する（jma_amedas_service.pyのdocstring参照）。
+    # sunrise/sunsetはRedisには無く、クエリ地点に対してその場で計算される。
     assert result.sunrise is not None
     assert result.sunset is not None
 
@@ -185,9 +183,8 @@ async def test_get_nearest_observation_returns_none_when_not_yet_cached(monkeypa
 
 
 async def test_get_nearest_observation_fails_open_when_redis_client_unavailable(monkeypatch):
-    # 改善計画T472: settings.redis_urlの設定ミス等でredis.from_url()自体が同期的に例外を
-    # 送出する場合、get_redis_client_or_none()はNoneを返す（redis_client.py参照）。
-    # 以前はget_redis_client()を直接呼んでおりこの例外がtry/exceptの外へ伝播していた。
+    # 設定ミス等でクライアント生成自体が失敗する場合、`get_redis_client_or_none`はNoneを
+    # 返す。例外を外へ漏らさず「観測値なし」へ倒すこと。
     _patch_client(monkeypatch)
     monkeypatch.setattr(jma_amedas_service, "get_redis_client_or_none", lambda: None)
     service = JmaAmedasService(http_client=None)
@@ -198,8 +195,7 @@ async def test_get_nearest_observation_fails_open_when_redis_client_unavailable(
 
 
 async def test_refresh_all_stations_fails_open_when_redis_client_unavailable(monkeypatch, caplog):
-    # 改善計画T472: _save_all_to_redis側も同じfail-open契約を守る（クライアント生成自体の
-    # 例外時は書き込みをスキップし、バッチ全体は例外を送出せず完了する）。
+    # 書き込み側も同じfail-open契約を守る。書き込みだけをスキップし、バッチは完了する。
     _patch_client(monkeypatch)
     monkeypatch.setattr(jma_amedas_service, "get_redis_client_or_none", lambda: None)
     service = JmaAmedasService(http_client=None)

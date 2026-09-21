@@ -30,9 +30,7 @@ def served_tile_version(shape: str) -> str:
 
     **ブラウザのURLへ入る値と、サーバー側のディスクキャッシュの鍵は同じ文字列にする。**
     形の署名だけを鍵にすると、SQLが同じままバッチが中身を作り直したとき（世代だけが動く）
-    に鍵が変わらず、古い中身を配り続ける。かつてはそれを`tile_cache.clear_all()`で
-    帳消しにしていたが、あの全消しは基礎地図・標高タイルまで巻き添えにするうえ、
-    `docs/conventions/caching.md`が「運用操作としてのみ残す」と定めている。
+    に鍵が変わらず、古い中身を配り続ける。
     """
     return tile_version(derived_data_revision_service.current_revision(), shape)
 

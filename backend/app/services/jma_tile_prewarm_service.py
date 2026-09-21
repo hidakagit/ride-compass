@@ -1,24 +1,18 @@
 """JMA動的タイルの定期プリウォームバッチ。
 
-「1度も見ていない範囲への初回アクセス」はレート制限の対象になる。本バッチは
-「アプリの実運用範囲（`WIND_GRID_BBOX`）でよく使われるレイヤー・ズームのタイルを
-あらかじめRedisへ温めておく」ことで、通常の利用パターンでは初回アクセスすら
-オンデマンドフェッチにならない状態を目指す（`jma_amedas_service.py`の定期更新と
-同じ発想、`main.py`のAPSchedulerジョブとして登録する）。
+「1度も見ていない範囲への初回アクセス」はレート制限の対象になる。実運用範囲でよく使われる
+レイヤー・ズームをあらかじめRedisへ温めておき、通常の利用では初回アクセスすらオンデマンド
+フェッチにならない状態を目指す。
 
-**対象範囲の設計判断**:
-- 地理範囲は`WIND_GRID_BBOX`（関東本土、アプリの実運用範囲を表す既存定数）を流用する。
-- ズーム範囲は`domain/jma_tile_specs.py: effective_max_zoom`が配信元仕様（`zoomUse`・
-  `maxNativeZoom`）から導出する。それを超えるズームではMapLibreがクライアント側でタイルを
-  拡大表示するだけで追加の通信が発生しないため、実データの上限がそのままプリウォームの
-  上限になる。frontendの`maxzoom`も同じ値を同じレジストリから受け取るため、両者がずれない。
-- キキクル3種・線状降水帯予測マップは未来方向のフレームを持たず「現在」の1エントリのみ
-  （`riskMap.ts`のコメント参照）だが、雷/竜巻ナウキャストは最大60分先までの予測フレームを
-  10分刻みで複数持つ（`thunderNowcast.ts`のコメント参照）。全フレームをプリウォームすると
-  タイル数が7倍近くに膨らむため、雷/竜巻も「現在（直近の実況フレーム）」の1件だけを対象に
-  する——未来フレームを表示中にパンした場合は引き続きオンデマンドフェッチになるが、雷/竜巻は
-  副次的な警告表示（`thunderNowcast.ts`「回避一択の危険」節参照）であり、風・勾配のような
-  常時評価軸には使われないため許容する。
+**対象範囲の決め方**:
+- 地理範囲は`WIND_GRID_BBOX`（アプリの実運用範囲を表す既存定数）を流用する。
+- ズーム上限は`domain/jma_tile_specs.py`が配信元仕様から導出する。それを超えるズームでは
+  クライアントがタイルを拡大表示するだけで追加の通信が起きないため、実データの上限が
+  そのままプリウォームの上限になる。
+- 予測フレームを複数持つ要素でも、温めるのは「現在（直近の実況フレーム）」の1件だけ。
+  全フレームを温めるとタイル数が桁違いに膨らむ。未来フレームを表示したままパンすると
+  オンデマンドフェッチに戻るが、予測フレームを持つのは副次的な警告表示のレイヤーだけで、
+  常時評価する軸には使われない。
 """
 
 import asyncio
@@ -49,8 +43,7 @@ _PREWARM_BBOX = BoundingBox(
     max_longitude=WIND_GRID_BBOX[2],
 )
 _MIN_ZOOM = 4
-# 同時実行数の上限。JMA非公式APIへ配慮しつつ、約2,000タイルを定期実行の間隔（10分）内に
-# 現実的な時間で終えられる値として選んだ（basemap_client.py等の同時実行制御と同じ発想）。
+# 同時実行数の上限。配信元へ配慮しつつ、対象タイル全体を定期実行の間隔内に終えられること。
 _MAX_CONCURRENCY = 8
 
 
@@ -73,9 +66,7 @@ _RISK_TARGET_TIMES = "bosai/jmatile/data/risk/targetTimes.json"
 _RASRF_TARGET_TIMES = "bosai/jmatile/data/rasrf/targetTimes.json"
 _NOWC_TARGET_TIMES = "bosai/jmatile/data/nowc/targetTimes_N3.json"
 
-# frontend側のレイヤー定義（riskMap.ts/thunderNowcast.ts、MapView.tsx: DYNAMIC_WEATHER_
-# RENDERERS）と1対1対応させる。対象ズームは各要素の`max_zoom`（jma_tile_specs.pyが
-# 配信元仕様から導出）を使う。
+# frontendが描く動的気象レイヤーと1対1で対応させる。ここに無い要素は温まらない。
 _LAYERS: tuple[_PrewarmLayer, ...] = (
     _PrewarmLayer("キキクル・土砂", "risk", "land", "png", _RISK_TARGET_TIMES),
     _PrewarmLayer("キキクル・大雨", "risk", "rain_mesh", "png", _RISK_TARGET_TIMES),
@@ -90,15 +81,12 @@ _LAYERS: tuple[_PrewarmLayer, ...] = (
 def _pick_current_entry(raw: list[dict], element_id: str | None) -> dict | None:
     """targetTimes.jsonのエントリ群から「現在」を表す1件を選ぶ。
 
-    `element_id`が指定されていれば、`elements`配列にそれを含むエントリへ先に絞り込む
-    （risk/rasrf/nowcいずれのグループも共通。nowc、特に雷・竜巻[thns/trns]の
-    targetTimes_N3.jsonは5分おきにエントリを持つが、雷・竜巻自体は10分おきにしか更新されず、
-    5分ズレたエントリは`elements: ["liden"]`[雷放電位置データのみ]しか持たない。絞り込まずに
-    最新basetimeを採用すると、約半分の確率でこのliden-onlyのbasetimeを掴み、存在しない
-    タイルを要求し続けて404になる）。絞り込んだ（または`element_id=None`なら絞り込まない）
-    候補の中から、直近の実況フレーム（validtime===basetime）のうちbasetime最大のものを
-    返す（`jmaNowcastFrames.ts: latestObservedFrameIndex`と同じ「最新の実況」の考え方。
-    観測フレームが1件も無ければ予測フレームを含む全候補の中から最大basetimeを返す）。
+    **`element_id`で先に絞ること。** targetTimes.jsonは、その要素のタイルが存在しない
+    basetimeのエントリも持つ（`elements`配列に別の要素しか載っていないもの）。絞らずに
+    最新basetimeを採ると、存在しないタイルを要求し続けて404になる。
+
+    絞った候補のうち、直近の実況フレーム（validtime==basetime）でbasetime最大のものを返す。
+    実況フレームが1件も無ければ、予測フレームを含む全候補から最大basetimeを返す。
     """
     candidates = raw
     if element_id is not None:
@@ -113,8 +101,7 @@ def _pick_current_entry(raw: list[dict], element_id: str | None) -> dict | None:
 def _tile_paths_for_layer(layer: "_PrewarmLayer", entry: dict) -> list[str]:
     basetime = entry["basetime"]
     validtime = entry["validtime"]
-    # nowc系のtargetTimes.jsonはmemberを持たない（frontend: thunderNowcast.tsが"none"を
-    # 直書きしているのと同じ理由）。risk/rasrfはエントリ自体にmemberを持つ。
+    # nowc系のtargetTimes.jsonはmemberを持たないため、パスには固定値を置く。
     member = entry.get("member", "none") if layer.group != "nowc" else "none"
     paths = []
     spec = JMA_TILE_SPECS.get(layer.element_id)
@@ -202,10 +189,11 @@ async def _store_index(
 
 
 async def prewarm_jma_tiles(client: JmaTileClient) -> None:
-    """対象範囲のタイルを列挙し、`JmaTileClient.get()`で順に取得する（Redisへの書き込みは
-    `get()`内部の副作用として自動的に起きる。プリウォーム専用の別書き込み経路は持たない）。
-    既にRedisへ温まっているタイルはキャッシュヒットで即座に返るため、実行のたびに毎回
-    フルフェッチするわけではない。"""
+    """対象範囲のタイルを列挙し、`JmaTileClient.get()`で取得する。
+
+    Redisへの書き込みは`get()`の副作用で起きる。プリウォーム専用の書き込み経路は持たない
+    ——持つと、通常の取得経路とキャッシュの形が分かれる。
+    """
     started = time.monotonic()
     target_times_cache: dict[str, list[dict] | None] = {}
     all_paths: list[str] = []
@@ -227,8 +215,6 @@ async def prewarm_jma_tiles(client: JmaTileClient) -> None:
         if not raw_entries:
             skipped_labels.append(layer.label)
             continue
-        # 絞り込みの理由は_pick_current_entryのdocstring参照。全グループで一律に
-        # layer.element_idへ揃える。
         entry = _pick_current_entry(raw_entries, layer.element_id)
         if entry is None:
             skipped_labels.append(layer.label)

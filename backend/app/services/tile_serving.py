@@ -1,15 +1,8 @@
-"""地域タイル配信（路面/POI/事故）で共通のキャッシュ確認・取得・キャッシュ書き込み骨格。
+"""タイル配信で共通の、キャッシュ確認・取得・キャッシュ書き込みの骨格。
 
-`RegionService._get_tile`（路面/POIタイル）と`AccidentService.get_accident_tile`
-（事故タイル）は、実際のタイル取得方法（カバレッジ判定・repositoryの呼び出し方・
-バックグラウンドのRoad Graph構築トリガーの有無）は別だが、
-「ファイルキャッシュ確認→ミスなら取得→取得成功ならキャッシュへ書いて返す→
-取得不可(None)なら空タイルを返す」という外側の骨格（`log_external_call`・
-`tile_cache` get/set）を個別実装していた（デッドコード監査で重複と判明）ため、
-この骨格だけを共有する。取得不可の理由をどうWARNINGログへ出すか（文言・
-`fields`への記録内容）はタイル種別ごとに異なる（路面/POIは「取込範囲外」、
-事故は「repository未接続」等）ため、その判断・ログ出力は引き続き呼び出し元の
-`fetch_tile`側の責務のまま残す。
+取得不可の理由をどうWARNINGログへ出すか（文言・`fields`への記録内容）はタイル種別ごとに
+違う（「取込範囲外」「repository未接続」等）ため、その判断とログ出力は呼び出し元が渡す
+`fetch_tile`の責務にしてある。
 """
 
 import asyncio
@@ -20,9 +13,8 @@ from app.infrastructure import tile_cache
 from app.infrastructure.debug_log import log_external_call
 
 
-# MVT（Mapbox Vector Tile）のMIMEタイプ。タイルを作る側（region_service/
-# accident_service）も配る側（api/routers）も同じ値を使う——2箇所で別々に持つと、
-# 片方だけ変えたときにキャッシュキー（content_type込み）と応答ヘッダがずれる。
+# MVT（Mapbox Vector Tile）のMIMEタイプ。タイルを作る側も配る側も同じ値を使う——別々に
+# 持つと、片方だけ変えたときにキャッシュキー（content_type込み）と応答ヘッダがずれる。
 MVT_CONTENT_TYPE = "application/vnd.mapbox-vector-tile"
 
 
@@ -55,9 +47,7 @@ async def serve_cached_tile(
     source_label: str = "postgis",
     persist: bool = True,
 ) -> TileResponse:
-    """キャッシュヒットならそれを返す。ミス時は`fetch_tile(fields)`を1回呼び、
-    tile bytesが返れば`tile_cache`へ書いて返す。`None`が返れば「取得不可」として
-    空タイル（`empty_tile`）を返す（WARNINGログ自体は`fetch_tile`側の責務）。
+    """キャッシュにあればそれを、無ければ`fetch_tile`で作ったものを返す。
 
     取得不可が一時的な失敗（`fetch_tile`が`fields["postgis"] = "error"`を立てた場合）
     だったときは`cacheable=False`で返す。呼び出し元のルーターはこれを見て
@@ -78,8 +68,6 @@ async def serve_cached_tile(
         tile_bytes = await fetch_tile(fields)
         if tile_bytes is None:
             fields["source"] = "uncovered_empty"
-            # DB障害等の一時的な失敗と、取込範囲外（恒久的にデータが無い）を区別する。
-            # 前者はブラウザへキャッシュさせず、回復後の次のリクエストで取り直させる。
             return TileResponse(empty_tile, cacheable=fields.get("postgis") != "error")
 
         # どこから作ったか（`source_label`）はタイル種別で違う。/api/debug/statsの内訳が

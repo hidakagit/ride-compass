@@ -1,19 +1,13 @@
 """周回ルート生成の戦略層（エンジン非依存）。
 
-「起点からの一対全最短経路木（公開軸の重み付きコスト）で目標距離の半分付近に到達する
-折返し点を、往路の軸的な良さの順に選び、往路と別の復路を探索して周回にし、距離許容範囲で
-フィルタして、overall_difficulty（絶対基準0-100の総合難易度）昇順の上位`max_routes`件を
-返す」という周回生成戦略（フロンティア方式）を1箇所に持つ。
-折返し点の選定・経路計算・評価値（標高・風・路面）の取得は`RoadGraphEngine`
-（自前Road Graph + 辺基準グラフのA*/一対全Dijkstra、road_graph_engine.py参照）へ委譲する。
+「起点からの一対全最短経路木で目標距離の半分付近に到達する折返し点を、往路の軸的な良さの
+順に選び、往路と別の復路を探索して周回にし、距離許容範囲でフィルタして、総合難易度の昇順で
+上位`max_routes`件を返す」という周回生成戦略を1箇所に持つ。折返し点の選定・経路計算・
+評価値の取得は`RoadGraphEngine`へ委譲する。
 
 候補の形は公開軸の重み配分で決まる（例: 自転車インフラの重みを100%にすると、往路が
 自転車インフラ上を通る折返し点ほど上位に選ばれる）。距離は目標±`distance_tolerance_km`の
 厳格フィルタであり、スコアとは混ぜない。
-
-**`evaluate_loops`の戻り値は入力`traced`と同じ件数・同じ順**という契約があり、
-`_evaluate_and_aggregate`が件数で検査する——この層は`TracedLoop.data`の中身を読まないため、
-どの候補がどの`TracedLoop`由来かを位置以外で突き合わせられない。
 """
 
 import logging
@@ -38,10 +32,6 @@ from app.domain.route import (
     merge_material_values,
 )
 
-# ルート生成のステージ別サマリログ(方針は docs/conventions/logging.md)。1リクエスト=1行のINFOで
-# prepare/select/trace/evaluateの所要時間と候補の減り方(折返し候補→trace成功→距離フィルタ
-# 通過→上位n件)を残し、「候補が少ない/生成が遅い」の切り分けをサーバーログだけで完結できる
-# ようにする。候補0件(ユーザーに何も返せない)はWARNINGへ昇格し、候補別の失敗理由はDEBUGで補足する。
 logger = logging.getLogger("ridecompass.generate")
 
 # 区間を乗り換えて作ったルートのid。frontendは`route-generate-config.json`経由で
@@ -50,13 +40,13 @@ logger = logging.getLogger("ridecompass.generate")
 SPLICED_ROUTE_ID = "route-spliced"
 
 # Road Graph取得bboxの半径ヒューリスティック（目標距離に対する比率）。折返し点は往路の
-# 実距離が目標の半分付近にあり、直線距離はそれより短い（実道路の迂回率は概ね1.3）ため、
-# 0.5ではなく0.4から始める（0.5だとbbox面積が2.25倍になりprepare・メモリ・タイル
-# キャッシュのヒット率に効く）。半径が足りない場合は一対全探索がbboxで自然に切れ、
-# リング（折返し候補の集合）が欠けるだけで壊れないため、この値は経験的に調整してよい。
+# 実距離が目標の半分付近にあり、直線距離は迂回率のぶんそれより短いため、0.5より小さく取る
+# （比を上げるとbbox面積が二乗で効き、prepare・メモリ・タイルキャッシュのヒット率に響く）。
+# 半径が足りない場合は一対全探索がbboxで自然に切れ、折返し候補が欠けるだけで壊れないため、
+# この値は経験的に調整してよい。
 TURNAROUND_RADIUS_RATIO = 0.4
 
-# 返す候補数の既定値と上限（APIの`max_routes`、api/routers/routes.py参照）。
+# 返す候補数の既定値と上限（APIの`max_routes`）。
 DEFAULT_MAX_ROUTES = 8
 MAX_ROUTES = 15
 
@@ -78,20 +68,16 @@ def turnaround_pool_size(max_routes: int) -> int:
 #: 並び順・印（`is_fastest`等）を読まないため、呼び出し側がそれらを付ける前でも後でも
 #: 結果は変わらない。
 SEGMENT_AGGREGATES: dict[str, Callable[[list[Any]], Any]] = {
-    # 距離加重平均のルート単位絶対基準（研究インターフェース改善 §10-7、エンジン非依存の
-    # ためengine実装側には持たせない）。
+    # ルート単位の絶対基準。エンジン非依存のため、engine実装側には持たせない。
     "overall_difficulty": lambda segments: distance_weighted_difficulty(
         [(s.difficulty, s.distance_km) for s in segments]),
-    # 難易度の総量（平均×距離）。並び順には使わず、「遠回りした分だけ増える」量として
-    # 平均と併せて示す（domain/route.py参照）。
+    # 難易度の総量。並び順には使わず、「遠回りした分だけ増える」量として平均と併せて示す。
     "difficulty_load": lambda segments: difficulty_load(
         [(s.difficulty, s.distance_km) for s in segments]),
-    # 区間ごとのaxis_id→difficultyを全区間へ集約した、overall_difficultyと対になる値。
     "axis_difficulties": merge_axis_difficulties,
-    # 生値も同じ集約で付ける（軸単体で経路を判断するための絶対値）。
+    # 軸単体で経路を判断するための絶対値。
     "axis_raw_values": merge_axis_raw_values,
-    # overall_difficultyの内訳。合計は丸め誤差を除いてoverall_difficultyと一致する
-    # （domain/evaluation.py: compose_costs_from_axis_matrixのdocstring参照）。
+    # overall_difficultyの内訳。合計は丸め誤差を除いてoverall_difficultyと一致する。
     "axis_contributions": merge_axis_contributions,
     # 数値材料の集約。**categorical材料の延長割合はここで触らない**——`segments`は既に
     # 約500m単位へ畳まれており、代表値からでは正しい割合を作れない（エンジンがビニングの
@@ -105,16 +91,11 @@ class RouteGenerator:
 
     def __init__(self, engine: "RoadGraphEngine"):
         self._engine = engine
-        # candidatesが空になったときの原因（人間可読な要約、下記のlogger.warning行と
-        # 同じ情報源）。呼び出し側（routes.py: _run_generate_job）が
-        # RouteGenerateResponse.no_candidates_reasonへそのまま転記し、GUI（デバッグログ・
-        # 候補0件時のメッセージ）から確認できるようにする。インスタンスは
-        # `api/dependencies.py: _assemble_route_generation_setup`がリクエストごとに
-        # 新規生成するため、インスタンス属性として持っても並行リクエスト間で競合しない。
+        # 直前の生成結果に付随する情報を、戻り値とは別に置く。**インスタンスはリクエスト
+        # ごとに作られる**ため、可変な属性として持っても並行リクエスト間で混ざらない。
+        #: 候補が空になったときの、利用者へ見せられる理由。
         self.last_no_candidates_reason: str | None = None
-        # _generate_destination_routesが目的地をアクセス可能な最寄りNodeへ補正した場合の
-        # 実際の座標（補正が無ければNone）。last_no_candidates_reasonと同じ経路で
-        # routes.py: _run_generate_jobがGenerationConditions.corrected_destinationへ転記する。
+        #: 目的地をアクセス可能な最寄りNodeへ補正した場合の実際の座標。
         self.last_destination_correction: Coordinates | None = None
 
     async def _evaluate_and_aggregate(
@@ -125,10 +106,10 @@ class RouteGenerator:
         候補を返す経路はすべてここを通る。**集約を1段増やすときは`SEGMENT_AGGREGATES`へ
         1行足せば全経路へ同時に効く**（design-principles.md 構造仕様8）。
 
-        `evaluate_loops`の位置対応の契約（`traced`と同じ件数・同じ順）もここで確かめる。
-        戦略層は`TracedLoop.data`の中身を知らないため、位置以外で突き合わせる手段が無い。
-        件数がずれると`candidates[shortest_index]`のような位置指定が別の候補を指し、
-        印・ラベルが静かに入れ替わる（候補が消えるわけではないので結果だけでは気づけない）。
+        `evaluate_loops`は入力`traced`と**同じ件数・同じ順**で返すこと。この層は
+        `TracedLoop.data`の中身を読まないため、位置以外で突き合わせる手段が無い。件数が
+        ずれると位置指定が別の候補を指し、印・ラベルが静かに入れ替わる（候補が消えるわけ
+        ではないので結果だけでは気づけない）ため、ここで件数を検査する。
         """
         candidates = await self._engine.evaluate_loops(context, traced, start_time)
         if len(candidates) != len(traced):
@@ -238,9 +219,8 @@ class RouteGenerator:
                     loop.bearing, loop.distance_km, distance_km, distance_tolerance_km,
                 )
                 continue
-            # 既に採用済みの候補と周回全体（往路＋復路、進行方向無視）で重複しすぎる
-            # 場合は棄却し、プールの次の折返し点候補へ進む（早期停止のn件
-            # カウントもこのチェックを通過した候補数で数える、下のlen(traced)判定と同じ）。
+            # 採用済みの候補と周回全体（往路＋復路、進行方向は無視）で重複しすぎるものは
+            # 捨て、プールの次の折返し点へ進む。
             if traced and self._engine.is_loop_too_similar(context, loop, traced):
                 dedup_skipped += 1
                 continue
@@ -311,12 +291,9 @@ class RouteGenerator:
         経由地の配置で決まる（距離フィルタは行わない）。`destination`省略時は起点に
         戻る周回（常に1件）。
 
-        `destination`指定かつ経由地が無い（起点→目的地のみ）場合は
-        `_generate_destination_routes`（via-node方式）が`max_routes`件の互いに異なる
-        代替経路を返す。経由地が1つ以上ある場合はレグごとに代替案が組合せで増えるため、
-        `trace_loop`による単一経路のまま（`max_routes`は無視され、`candidate_identity`
-        とは別に終点到達後にid/direction_labelをroute-destination/目的地ルートへ
-        上書きする）。
+        `destination`指定かつ経由地が無い場合だけ、`max_routes`件の互いに異なる代替経路を
+        返す。経由地が1つ以上ある場合はレグごとに代替案が組合せで増えるため単一経路のまま
+        で、`max_routes`は無視される。
         """
         if destination is not None and not waypoints:
             return await self._generate_destination_routes(origin, destination, distance_km, max_routes, start_time)
@@ -327,8 +304,7 @@ class RouteGenerator:
         self.last_no_candidates_reason = None
         end_point = destination if destination is not None else origin
         full_waypoints = [origin, *waypoints, end_point]
-        # bboxが目的地もカバーするよう、prepareへ渡す点集合に含める
-        # （経由地のみのbbox計算は`_bbox_covering_points`、road_graph_engine.py参照）。
+        # bboxが目的地もカバーするよう、prepareへ渡す点集合に含める。
         bbox_points = [*waypoints, destination] if destination is not None else waypoints
 
         start_time = start_time or datetime.now(JST)
@@ -445,14 +421,14 @@ class RouteGenerator:
         max_routes: int,
         start_time: datetime | None = None,
     ) -> list[RouteCandidate]:
-        """経由地の無い目的地ルート（起点→目的地のみ）を、via-node方式で`max_routes`件
-        まで生成する。`generate_loops`のような候補ごとの再探索・失敗
-        スキップが無い（`select_via_nodes`が確定済みの経路だけを返す）ぶん、
-        `generate_loops`より単純な「選定→評価」の2段階になる。
+        """経由地の無い目的地ルートを、via-node方式で`max_routes`件まで生成する。
 
-        所要時間が最短の経路（`select_fastest_route`）を基準線として必ず1本含め、先頭へ
-        固定する。利用者の好み（軸の重み）をすべて0にしたときの経路であり、軸設定に沿った
-        候補が基準線に対して何分余計にかかるかを、対価として読めるようにするため。
+        `select_via_nodes`が確定済みの経路だけを返すため、候補ごとの再探索・失敗スキップが
+        無く「選定→評価」の2段で済む。
+
+        所要時間が最短の経路を基準線として必ず1本含め、先頭へ固定する。軸の重みをすべて0に
+        したときの経路であり、軸設定に沿った候補が何分余計にかかるかを対価として読める
+        ようにするため。
         """
         radius_km = distance_km * TURNAROUND_RADIUS_RATIO
         started = time.monotonic()
@@ -546,9 +522,7 @@ class RouteGenerator:
         failed: int,
         filtered_out: int,
     ) -> str:
-        """generate_loopsが`traced`空で候補0件になったときの人間可読な要約を組み立てる
-        （logger.warningと同じ情報源から、RouteGenerateResponse.no_candidates_reason用に
-        生成する）。"""
+        """周回候補が1本も残らなかったときの、利用者へ見せる要約を組み立てる。"""
         parts = []
         if failed:
             parts.append(f"{failed}件の折返し候補で復路の探索に失敗しました（除外設定をご確認ください）")

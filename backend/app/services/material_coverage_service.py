@@ -1,10 +1,4 @@
-"""材料ごとの欠損割合レポートを組み立てるサービス層。
-
-`infrastructure/material_coverage.py`（集計クエリ・材料id→判定式の宣言テーブル）の生の
-件数と、`domain/material_catalog.py: MATERIAL_CATALOG`（表示名・dtype）を突き合わせ、
-管理画面がそのまま表示できる1材料1行のレポートにする。組み立て自体は純関数
-（`build_material_coverage_report`）でDBに依存しない。
-"""
+"""材料ごとの欠損割合レポートを組み立てるサービス層。"""
 
 import logging
 import time
@@ -48,9 +42,11 @@ class MaterialCoverageReport:
 
 
 def build_material_coverage_report(counts: MaterialCoverageCounts, computed_at: datetime) -> MaterialCoverageReport:
-    """`MATERIAL_CATALOG`の全材料を、カタログの登録順のまま1行ずつレポートへ載せる。
-    集計対象・対象外のどちらにも無い材料は`ValueError`（宣言テーブルの追加漏れを
-    黙って空行にしない）。"""
+    """カタログの登録順のまま1材料1行にする。
+
+    集計対象・対象外のどちらの宣言にも無い材料は`ValueError`。材料を足して宣言を書き
+    忘れたことを、黙った空行にしない。
+    """
     entries: list[MaterialCoverageEntry] = []
     for material_id, spec in MATERIAL_CATALOG.items():
         coverage = MATERIAL_COVERAGE_SPECS.get(material_id)

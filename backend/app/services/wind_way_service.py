@@ -1,15 +1,8 @@
-"""鍵→動的値配信層（風、「評価軸」グループ）。
+"""鍵→動的値配信層（風）。
 
-「評価軸」グループとしての風（ルート未確定時、視界内の全道路へユーザー指定の[時刻,向き]を
-一律適用する線表示）の基盤。「環境」グループの風（時刻＋方位スライダー＋`gridFill`面表示、
-windLayer.ts/dynamicWeather.ts）とは別経路だが、**同じ[時刻,向き]のユーザー入力を共有する**。
-
-走行方位（travel_bearing_deg）は**ユーザーがコンパススライダーで指定した単一の値**
-（全道路共通）を使う——道路自身のOSM格納方向は使わない。この結果、同じタイル内の全wayは
-常に同じ`wind_drag_ratio`値を持つ（風グリッドもタイル中心1点で代表させる既存の近似の
-ため）。対象タイルに存在するフィーチャーの鍵の一覧（`get_feature_keys_in_tile`）だけを取得すればよく、
-計算結果のキャッシュも鍵ごとではなくタイル単位のスカラー値1個で足りる（鍵の一覧
-全件へ同値をbroadcastしたdictとして`dynamic_way_value_cache.py`へ渡す）。
+走行方位は**ユーザーが指定した単一の値**（全道路共通）で、道路自身のOSM格納方向は使わない。
+風グリッドもタイル中心1点で代表させる。この2つの結果、**同じタイル内の全wayが同じ値を持つ**
+——鍵の一覧さえ取れればよく、計算はタイルにつき1回で足りる。
 
 制御フローの詳細はdocs/modules/backend/dynamic-way-values.md「`WindWayService`」節参照。
 """
@@ -28,12 +21,6 @@ from app.services.weather_service import WeatherService
 
 logger = logging.getLogger("ridecompass.wind_way")
 
-# 道路タイル単位の風評価に使う格子間隔は、環境グループの風・降水延長予報表示が使う既定間隔
-# （`domain/wind_grid.py: WIND_GRID_DETAIL_SPACING_DEG`、≒2.2km）をそのまま流用する。
-# MSMの格子は約5km（緯度0.05度・経度0.0625度）で、これより細かい間隔を選んでも
-# 格子間を補間した値を刻むだけで実際の精度は上がらない。
-
-
 def _tile_center(bbox: BoundingBox) -> Coordinates:
     return Coordinates(
         latitude=(bbox.min_latitude + bbox.max_latitude) / 2,
@@ -42,11 +29,11 @@ def _tile_center(bbox: BoundingBox) -> Coordinates:
 
 
 def _nearest_time_index(times: list[str], target: datetime) -> int | None:
-    """風グリッドの時刻配列（JST基準の壁時計時刻をtzなし文字列で持つ）から、
-    targetに最も近いindexを求める（「最近傍だが、どの時刻からも離れすぎていれば不可」）。
-    targetがtz-awareならJSTへ変換してから比較する
-    （tzinfoを剥がすだけだとJSTとの時差ぶんズレる）。範囲外（風グリッドがまだ届いていない
-    遠い未来・過去）はNoneを返し、呼び出し元は「不明」として扱う。"""
+    """風グリッドの時刻配列からtargetに最も近いindexを求める。範囲外はNone。
+
+    時刻配列はJST基準の壁時計時刻をtzなし文字列で持つ。targetがtz-awareならJSTへ変換して
+    から比較すること——tzinfoを剥がすだけだと時差ぶんズレる。
+    """
     if not times:
         return None
     if target.tzinfo is not None:
@@ -64,33 +51,23 @@ class WindWayService:
         self._repository = repository
         self._weather_service = weather_service
 
-    # このサービスが担当する軸id。`api/dependencies.py: _DEDICATED_WAY_VALUE_SERVICE_FACTORIES`の
-    # キー・`GET /api/region/dynamic-way-values/{axis_id}`のパスパラメータ・
-    # キャッシュの名前空間（`dynamic_way_value_cache.py`）の3つは常に同じ値でなければ
-    # ならない（`tests/test_dedicated_way_value_services.py`が登録キーとの一致を検査する）。
+    #: 担当する軸id。登録キー・URLのパスパラメータ・キャッシュの名前空間はこれで揃える。
     axis_id = "wind"
 
-    # このサービスが返す生値の材料id（api/routers/region.pyが地図の表示値へ変換する際、
-    # 軸定義のどの材料として評価するかを決める）。上の`axis_id`とは別の名前空間。
+    #: 返す生値の材料id。`axis_id`とは別の名前空間。
     material_id = "wind_drag_ratio"
 
     async def get_way_values(
         self, z: int, x: int, y: int, at: datetime | None, bearing_deg: float | None, speed_kmh: float | None = None
     ) -> dict[str, float]:
-        """指定タイル内のフィーチャーごとの風の材料値（`material_id`）を返す（同じタイル内の
-        全wayは同じ値を持つ——モジュールdocstring参照）。`speed_kmh`（想定速度）は
-        必須。repository未接続・取込範囲外・風データ取得不能等はいずれも空dictへ倒す
-        （地図表示という既存機能全体を落とさず、
-        「この道路には色が付かない」という安全側の劣化で済ませる、他タイル系メソッドと
-        同じグレースフルデグレード方針）。
+        """指定タイル内のフィーチャーごとの風の材料値を返す。
 
-        bearing_degはユーザーがコンパススライダーで指定した走行方位（0〜360度、北=0・
-        時計回り）。全道路共通の値として使う。型は`at`と揃え`float | None`にしている
-        （router側`api/routers/region.py`の材料非依存な呼び出しインターフェースと
-        一致させるため）が、風は常にbearing_degを必須とする材料
-        （`domain/dynamic_way_values.py: dedicated_way_value_axes()["wind"].needs_bearing`
-        =True）のため、Noneのまま到達したら即座に失敗させる（router側の422検証を
-        すり抜けて呼ばれた場合の防御、無音でNoneを計算に渡さない）。
+        repository未接続・取込範囲外・風データ取得不能はいずれも空dictへ倒し、「この道路に
+        色が付かない」という劣化で済ませる。
+
+        `bearing_deg`・`speed_kmh`は材料非依存な呼び出し口と形を揃えるため省略可能な形に
+        なっているが、風はどちらも無いと計算できない。Noneのまま到達したら即座に失敗させる
+        （router側の検証をすり抜けた場合の防御。無音でNoneを計算へ渡さない）。
         """
         if bearing_deg is None:
             raise ValueError("WindWayService.get_way_valuesにはbearing_degが必須です")
@@ -117,9 +94,9 @@ class WindWayService:
                 return {}
             fields["feature_count"] = len(feature_keys)
 
-            # タイル中心1点の風から全wayへ同じ値を配るだけで計算が軽いため、値はキャッシュ
-            # しない（節約は1タイルあたり2.8ms＝応答の5%で、1エントリ190KBを保持するのに
-            # 見合わない。docs/conventions/caching.md「キャッシュしないという選択」参照）。
+            # タイル中心1点の風を全wayへ配るだけで計算が軽いため、値はキャッシュしない
+            # （保持する容量に見合う節約にならない）。格子間隔は環境グループの風表示と
+            # 揃える。MSMの格子はこれより粗く、細かくしても補間値を刻むだけで精度は上がらない。
             grid_point = nearest_grid_point(_tile_center(bbox), spacing_deg=WIND_GRID_DETAIL_SPACING_DEG)
             times, points = await self._weather_service.get_wind_grid([grid_point])
             wind_grid_point = points[0] if points else None

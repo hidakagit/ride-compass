@@ -1,8 +1,9 @@
 import pytest
 
 from app.infrastructure import tile_cache
+from app.infrastructure.vector_tile import encode_empty_accident_tile
 from app.services import derived_data_revision_service
-from app.services.accident_service import AccidentService
+from app.services.accident_service import AccidentService, _tile_cache_path
 
 
 @pytest.fixture(autouse=True)
@@ -15,9 +16,8 @@ def use_temp_tile_cache(tmp_path, monkeypatch):
 def known_derived_data_revision(monkeypatch):
     """世代が読めている状態を既定にする。
 
-    読めていないあいだタイルはディスクへ残さない（改善計画T929、
-    `services/tile_serving.py: serve_cached_tile`の`persist`）ため、キャッシュの挙動を
-    見るテストはこの前提を明示する必要がある。
+    読めていないあいだタイルはディスクへ残らないため、キャッシュの挙動を見るテストは
+    この前提を明示する必要がある。
     """
     monkeypatch.setattr(derived_data_revision_service, "current_revision", lambda: 1)
     yield
@@ -54,9 +54,8 @@ async def test_tile_is_served_from_postgis_and_cached():
 
 
 async def test_empty_tile_from_postgis_is_also_cached():
-    """対象0件（ST_AsMVTがNULL→空バイト列）のタイルもキャッシュされる。road_surfaceの
-    「データが無いことを確認済み」タイルと同じ扱い（accident_pointsにカバレッジ外という
-    概念が無いため、road_surfaceの「カバレッジ外はキャッシュしない」区別は不要）。"""
+    """対象0件のタイルもキャッシュする。「データが無いことを確認済み」だからで、
+    取れなかった場合とは区別される。"""
     repository = FakeAccidentRepository(tile=b"")
     service = AccidentService(repository=repository)
 
@@ -67,19 +66,23 @@ async def test_empty_tile_from_postgis_is_also_cached():
     assert len(repository.mvt_calls) == 1
 
 
-async def test_postgis_error_returns_empty_mvt():
+async def test_postgis_error_returns_empty_mvt_that_browsers_must_not_keep():
     repository = FakeAccidentRepository(error=RuntimeError("db down"))
     service = AccidentService(repository=repository)
 
-    tile_bytes = (await service.get_accident_tile(Z, X, Y)).content
+    response = await service.get_accident_tile(Z, X, Y)
 
-    assert isinstance(tile_bytes, bytes)
+    assert response.content == encode_empty_accident_tile()
+    # 一時的な失敗のため、ブラウザへ長期キャッシュさせない（回復後に空白が残る）
+    assert response.cacheable is False
+    # ディスクにも残さない（次のリクエストで作り直せるように）
+    assert tile_cache.get(_tile_cache_path(Z, X, Y)) is None
 
 
 async def test_no_repository_returns_empty_mvt():
     # road_graph_use_repository無効（DBなし構成）ではrepository自体が注入されない
     service = AccidentService()
 
-    tile_bytes = (await service.get_accident_tile(Z, X, Y)).content
+    response = await service.get_accident_tile(Z, X, Y)
 
-    assert isinstance(tile_bytes, bytes)
+    assert response.content == encode_empty_accident_tile()

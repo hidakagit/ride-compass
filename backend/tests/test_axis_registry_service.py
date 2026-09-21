@@ -38,11 +38,8 @@ pytestmark = [
 
 @pytest.fixture(autouse=True)
 def restore_axis_definitions():
-    # refresh_axis_definitionsはグローバルなAXIS_DEFINITIONS（プロセス全体で共有）をin-place
-    # 更新するため、他のテストファイルへ汚染が漏れないよう必ずスナップショット・復元する
-    # （services/axis_registry_service.pyのdocstring参照）。改善計画T350のcode-review対応:
-    # スナップショット/復元の仕組み自体はtests/realistic_axis_fixtures.py:
-    # axis_definitions_snapshot()へ集約済み（3重実装を解消）。
+    # refresh_axis_definitionsはプロセス全体で共有するAXIS_DEFINITIONSをin-place更新する
+    # ため、他のテストファイルへ汚染が漏れないよう必ずスナップショット・復元する。
     with axis_definitions_snapshot():
         yield
 
@@ -50,10 +47,8 @@ def restore_axis_definitions():
 def _definition(
     axis_id: str = "test_axis",
     default_weight: float = 0.1,
-    # 改善計画T295: refresh_axis_definitionsが未知の材料参照を検出しフォールバックする
-    # ようになったため、既定材料は`MATERIAL_CATALOG`に実在するもの（gradient_percent）に
-    # しておく（以前の"dummy"のままだと、大半のテストがrefresh呼び出しのたびに
-    # フォールバックし、AXIS_DEFINITIONSへ反映されず失敗する）。
+    # `refresh_axis_definitions`は未知の材料参照を検出して例外にするため、既定材料は
+    # カタログに実在するものにしておく。
     material: str = "gradient_percent",
     is_published: bool = False,
 ) -> AxisDefinition:
@@ -72,8 +67,7 @@ def _definition(
 
 
 async def test_refresh_raises_when_table_empty(road_graph_session):
-    # 改善計画T349: 以前はコード内蔵の既定値へ安全側フォールバックしていたが、
-    # fail-fastへ変更した（AXIS_DEFINITIONSは変更されないまま例外が送出される）。
+    # コード内蔵の既定値へフォールバックせず例外にする。AXIS_DEFINITIONSは変わらない。
     original = dict(AXIS_DEFINITIONS)
     repository = AxisDefinitionRepository(road_graph_session)
 
@@ -94,10 +88,8 @@ async def test_refresh_replaces_axis_definitions_with_db_content(road_graph_sess
 
 
 async def test_refresh_clears_tile_score_matrix_cache(road_graph_session):
-    # 改善計画T536（旧T534のaxis_score_cacheを置き換え）: タイル単位の静的Edge×公開軸
-    # スコア行列キャッシュ（tile_score_matrix_cache）はAXIS_DEFINITIONSと同じタイミングで
-    # クリアされる必要がある——古いままだと軸編集後も編集前のスコアを返し続けてしまう
-    # （infrastructure/tile_score_matrix_cache.pyのdocstring参照）。
+    # スコア行列はAXIS_DEFINITIONSと同じタイミングで捨てる必要がある——古いままだと
+    # 軸を編集しても編集前のスコアを返し続ける。
     tile_score_matrix_cache.set(12, 1, 1, _score_matrix_with_current_columns())
     assert tile_score_matrix_cache.get(12, 1, 1) is not None
 
@@ -144,21 +136,14 @@ def _score_matrix_with_current_columns() -> StaticEdgeScoreMatrix:
 
 
 async def test_refresh_preserves_tile_score_matrix_disk_cache_when_revision_unchanged(road_graph_session):
-    """改善計画T546フォローアップ回帰: 本番の使い捨てコンテナ検証で発覚した不具合
-    （`refresh_axis_definitions`はアプリ起動のたびに必ず1回呼ばれるが、軸定義が実際には
-    変わっていなくても`tile_score_matrix_cache`のディスクキャッシュを無条件で丸ごと
-    再構築してしまい、materialsキャッシュ[ディスクヒット]とscore_matrixキャッシュ
-    [毎回db再計算]の非対称が生じ`materials_ms`を押し上げていた）の直接回帰。
+    """軸定義が変わっていなければ、起動のたびにディスクキャッシュを捨て直さない。
 
-    軸定義の変更を挟まずに`refresh_axis_definitions`を2回連続で呼んでも（アプリ起動の
-    たびに毎回呼ばれるのと同じ経路）、2回目でディスク永続化済みのスコア行列キャッシュが
-    温存されることを確認する。
+    `refresh_axis_definitions`は起動のたびに必ず1回呼ばれる。無条件に捨てると、デプロイの
+    たびにスコア行列だけを丸ごと作り直すことになる。
 
-    `road_graph_session`（`Base.metadata.create_all`によるスキーマのみ、migrationの初期
-    データ投入は経由しない）は`axis_registry_meta`にid=1の行を持たないため、`get_revision()`
-    がNoneのままでは本回帰が意図する分岐（revision一致→温存）を検証できない
-    （Noneは`sync_disk_cache_with_axis_revision`が安全側で常にclear()する別経路、
-    本番のmigration 0014が投入する初期行[revision=1]をこのテストが模す）。
+    `road_graph_session`はスキーマだけを作るため`axis_registry_meta`の行を持たない。
+    revisionがNoneのままだと安全側で常にclear()する別経路へ入り、ここで見たい分岐
+    （revision一致→温存）に届かないので、行を自分で入れる。
     """
     road_graph_session.add(AxisRegistryMetaRow(id=1, revision=1))
     repository = AxisDefinitionRepository(road_graph_session)
@@ -199,7 +184,7 @@ async def test_refresh_invalidates_tile_score_matrix_disk_cache_when_revision_ch
 
 
 async def test_refresh_raises_on_repository_error(road_graph_session):
-    # 改善計画T349: DB接続自体が失敗した場合もfail-fast（AxisDefinitionSyncErrorへラップして再送出）。
+    # DB接続自体が失敗した場合もfail-fast（AxisDefinitionSyncErrorへラップして再送出）。
     original = dict(AXIS_DEFINITIONS)
 
     class _BrokenRepository:
@@ -213,11 +198,8 @@ async def test_refresh_raises_on_repository_error(road_graph_session):
 
 
 async def test_refresh_raises_when_axis_references_unknown_material(road_graph_session):
-    # 改善計画T294/T295の教訓（DBの行は読めるが、削除済み材料idを参照する「半端に古い」
-    # 状態）の再現。AxisRegistryAdminService.createは材料の実在チェックを行わない
-    # （そのチェックはAPI層のAxisDefinitionPayloadのみが持つ）ため、ここでは
-    # repositoryへ直接、未知の材料を参照する軸を書き込む形で「半端に古いDB」を再現する。
-    # 改善計画T349: 検出時は以前のフォールバックではなくfail-fastする。
+    # 「行は読めるが、削除済みの材料idを参照している」状態を再現する。材料の実在検査を
+    # 持つのはAPI層だけなので、repositoryへ直接書き込んで作る。検出時はfail-fastする。
     original = dict(AXIS_DEFINITIONS)
     repository = AxisDefinitionRepository(road_graph_session)
     await repository.upsert(_definition("test_axis", material="deleted_material"), sort_order=0)
@@ -231,8 +213,7 @@ async def test_refresh_raises_when_axis_references_unknown_material(road_graph_s
 
 
 async def test_refresh_allows_axis_referencing_another_axis_in_same_batch(road_graph_session):
-    # 改善計画T295: 軸id参照（改善計画T292の階層構造）は「未知の材料」ではないため、
-    # 参照先の軸が同じDB読み込み結果に含まれていれば正常に読み込まれる（誤検知しない）。
+    # 軸id参照は「未知の材料」ではない。参照先が同じ読み込み結果に含まれていれば通す。
     repository = AxisDefinitionRepository(road_graph_session)
     await repository.upsert(_definition("base_axis", material="oneway"), sort_order=0)
     await repository.upsert(_definition("dependent_axis", material="base_axis"), sort_order=1)
@@ -244,8 +225,8 @@ async def test_refresh_allows_axis_referencing_another_axis_in_same_batch(road_g
 
 
 async def test_refresh_logs_axis_count(road_graph_session, caplog):
-    # 改善計画T350: AXIS_DEFINITIONSのPython literal撤去に伴い、コード内蔵axis_id集合との
-    # 差分ログ（_CODE_BUILTIN_AXIS_IDS、改善計画T295）は撤去した——DBが唯一の正本になった
+    # AXIS_DEFINITIONSのPython literal撤去に伴い、コード内蔵axis_id集合との
+    # 差分ログ（_CODE_BUILTIN_AXIS_IDS）は撤去した——DBが唯一の正本になった
     # ため「コード側にだけある/DB側にだけある」という差分の概念自体が意味を失う
     # （AXIS_DEFINITIONSは常に空スタートのため、この差分は常に全件db_onlyになるだけ）。
     # 読み込み件数のINFOログのみ残る。
@@ -273,7 +254,7 @@ async def test_create_persists_and_refreshes_process_cache(road_graph_session):
 
 
 async def test_create_rejects_axis_id_colliding_with_known_material(road_graph_session):
-    # 改善計画T296: MATERIAL_CATALOGに実在する材料id（例: "highway"）と同名のaxis_idは
+    # MATERIAL_CATALOGに実在する材料id（例: "highway"）と同名のaxis_idは
     # 作成できない。放置すると評価時に生の材料値がdifficulty値で上書きされ、それ以降に
     # 評価される軸が黙って壊れる（axis_definitions.py: evaluate_axes_scalar参照）。
     repository = AxisDefinitionRepository(road_graph_session)
@@ -295,8 +276,8 @@ async def test_create_rejects_duplicate_axis_id(road_graph_session):
 
 
 async def test_create_rejects_axis_reusing_existing_material(road_graph_session):
-    # 改善計画T268: 材料の排他帰属チェック。既存軸が使用中の材料を参照する新軸の
-    # 登録は管理APIレベル（サービス層）で拒否される。改善計画T292: 排他チェックは
+    # 材料の排他帰属チェック。既存軸が使用中の材料を参照する新軸の
+    # 登録は管理APIレベル（サービス層）で拒否される。排他チェックは
     # MATERIAL_CATALOGに実在する材料だけを対象にする（軸参照との区別のため）ので、
     # ここではMATERIAL_CATALOGに実在するが既存7軸には未使用の材料（"bridge"）を使う。
     repository = AxisDefinitionRepository(road_graph_session)
@@ -333,7 +314,7 @@ async def test_update_rejects_axis_reusing_another_axis_material(road_graph_sess
 
 
 async def test_create_allows_axis_referencing_another_axis(road_graph_session):
-    # 改善計画T292: 軸間参照（内部軸→公開軸の階層構造）。既存軸のaxis_idをmaterialとして
+    # 軸間参照（内部軸→公開軸の階層構造）。既存軸のaxis_idをmaterialとして
     # 参照する新規軸の作成は、材料の排他チェック・循環検証のどちらにも引っかからず
     # 正常に作成できる。
     repository = AxisDefinitionRepository(road_graph_session)
@@ -374,7 +355,7 @@ async def test_create_allows_publishing_axis_with_no_dependents(road_graph_sessi
 
 
 async def test_create_rejects_direct_cycle_between_two_axes(road_graph_session):
-    # 改善計画T292: axis_a→axis_bの参照が既に存在する状態でaxis_b→axis_aを作ろうとすると
+    # axis_a→axis_bの参照が既に存在する状態でaxis_b→axis_aを作ろうとすると
     # （2軸間の循環）、AxisDependencyCycleErrorで拒否される。
     repository = AxisDefinitionRepository(road_graph_session)
     service = AxisRegistryAdminService(repository)
@@ -389,7 +370,7 @@ async def test_create_rejects_direct_cycle_between_two_axes(road_graph_session):
 
 
 async def test_create_rejects_self_referencing_axis(road_graph_session):
-    # 改善計画T292: 軸が自分自身のaxis_idを材料として参照する（自己循環）ケースも
+    # 軸が自分自身のaxis_idを材料として参照する（自己循環）ケースも
     # AxisDependencyCycleErrorで拒否される。
     repository = AxisDefinitionRepository(road_graph_session)
     service = AxisRegistryAdminService(repository)
@@ -403,7 +384,7 @@ async def test_update_replaces_definition_and_keeps_sort_order(road_graph_sessio
     repository = AxisDefinitionRepository(road_graph_session)
     service = AxisRegistryAdminService(repository)
     await service.create(_definition("test_axis", default_weight=0.1))
-    # sort_order維持の確認用ダミー（材料はtest_axisと衝突しないよう分ける、改善計画T268）。
+    # sort_order維持の確認用ダミー（材料はtest_axisと衝突しないよう分ける）。
     await repository.upsert(_definition("second", material="poi_signal_per_km"), sort_order=99)
     await repository.commit()
     _, original_sort_order = await repository.get("test_axis")
@@ -416,7 +397,7 @@ async def test_update_replaces_definition_and_keeps_sort_order(road_graph_sessio
 
 
 async def test_update_rejects_published_axis(road_graph_session):
-    # 改善計画T271: 公開済み軸は不変。更新しようとしたpayload自体がis_published=False
+    # 公開済み軸は不変。更新しようとしたpayload自体がis_published=False
     # （下書きへ戻そうとする値）でも、既存が公開済みなら拒否される（抜け道防止）。
     repository = AxisDefinitionRepository(road_graph_session)
     service = AxisRegistryAdminService(repository)
@@ -464,7 +445,7 @@ async def test_delete_removes_definition_and_refreshes_process_cache(road_graph_
     repository = AxisDefinitionRepository(road_graph_session)
     service = AxisRegistryAdminService(repository)
     await service.create(_definition("test_axis"))
-    # 最後の1軸削除ガードに引っかからないための2軸目（材料は衝突しないよう分ける、改善計画T268）。
+    # 最後の1軸削除ガードに引っかからないための2軸目（材料は衝突しないよう分ける）。
     await service.create(_definition("other_axis", material="poi_signal_per_km"))
 
     await service.delete("test_axis")
@@ -499,7 +480,7 @@ async def test_get_returns_none_for_unknown_axis_id(road_graph_session):
     assert await service.get("unknown") is None
 
 
-# --- unpublish（改善計画T302） ---
+# --- unpublish ---
 
 
 async def test_unpublish_flips_published_axis_to_draft(road_graph_session):
@@ -549,8 +530,7 @@ async def test_unpublish_raises_key_error_for_unknown_axis_id(road_graph_session
 
 
 async def test_unpublish_then_delete_succeeds_where_direct_delete_was_rejected(road_graph_session):
-    # T271のガード単体では公開済み軸を削除できないが、unpublish→deleteの2段階なら
-    # 削除できる（改善計画T302で正式フローとして決定）。
+    # 公開済み軸は直接削除できないが、unpublish→deleteの2段階なら削除できる。
     repository = AxisDefinitionRepository(road_graph_session)
     service = AxisRegistryAdminService(repository)
     await service.create(_definition("test_axis", is_published=True))

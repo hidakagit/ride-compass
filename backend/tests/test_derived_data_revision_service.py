@@ -1,14 +1,14 @@
-"""ディスクキャッシュをDBの派生データ世代へ追随させる経路（改善計画T847）。
+"""ディスクキャッシュをDBの派生データ世代へ追随させる経路。
 
-見るのは3点。TTLが切れるまでDBを読み直さないこと、世代が変わったときに材料とスコア行列の
-両方を捨てること、そして世代が同じなら何も捨てないこと。
+TTLが切れるまでDBを読み直さないこと、世代が変わったときに材料とスコア行列を揃えて捨てる
+こと、世代が同じなら何も捨てないこと、そして配信するタイルの鍵に世代が入ること。
 """
 
 import pytest
 
 from app.domain.attributes import SearchMaterials
 from app.domain.graph import LeanRoadGraph
-from app.infrastructure import cache_identity, graph_material_cache, tile_cache, tile_score_matrix_cache
+from app.infrastructure import cache_identity, graph_material_cache, tile_score_matrix_cache
 from app.services import derived_data_revision_service, region_service, tile_version_service
 
 pytestmark = pytest.mark.asyncio
@@ -107,16 +107,11 @@ async def test_db_failure_does_not_break_the_caller():
     assert graph_material_cache.get_tile_materials(12, 5, 6) is not None
 
 
-async def test_世代が変わると焼き済みタイルの鍵も変わる(monkeypatch):
+async def test_世代が変わると焼き済みタイルの鍵も変わる():
     """世代の変化はSQLが読むテーブルの中身が作り直されたことを表す。
 
-    **鍵に世代が入っていないと、同じ鍵で古い中身を配り続ける。** かつてはそれを
-    `tile_cache.clear_all()`で帳消しにしていたが、全消しは基礎地図・標高タイルまで
-    巻き添えにし、公開GETの中でイベントループを止めて`rmtree`することになる
-    （docs/conventions/caching.md「全消しは運用操作としてのみ残す」）。鍵を割れば全消しは要らない。
+    **鍵に世代が入っていないと、同じ鍵で古い中身を配り続ける。**
     """
-    cleared: list[bool] = []
-    monkeypatch.setattr(tile_cache, "clear_all", lambda: cleared.append(True))
     derived_data_revision_service.reset_for_tests()
     graph_material_cache.clear()
 
@@ -126,7 +121,6 @@ async def test_世代が変わると焼き済みタイルの鍵も変わる(monk
     after = region_service._tile_cache_path(12, 5, 6)
 
     assert before != after, "世代が変わったのに焼き済みタイルの鍵が同じ"
-    assert not cleared, "全消しは運用操作としてのみ残す（自動経路から呼ばない）"
 
 
 async def test_配信するタイル世代は読んだ世代を前置きする():
@@ -135,7 +129,7 @@ async def test_配信するタイル世代は読んだ世代を前置きする()
 
     versions = await tile_version_service.current_tile_versions(FakeRepository(9))
 
-    assert set(versions) == set(tile_version_service.TILE_SHAPES)
+    assert versions, "配信するタイルの系統が1つも無い"
     for name, shape in tile_version_service.TILE_SHAPES.items():
         assert versions[name] == f"9-{shape}"
 

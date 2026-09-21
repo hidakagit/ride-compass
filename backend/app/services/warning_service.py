@@ -56,10 +56,11 @@ def _empty_warnings() -> WeatherWarnings:
 
 
 def _build_warnings(documents: list, resolved: ResolvedArea) -> WeatherWarnings:
-    """r8警報API電文配列（大雨/土砂災害/高潮/暴風/波浪/大雪/その他の注意報がそれぞれ
-    別電文）から、対象エリアぶんのアクティブな警報だけを集約する。複数電文にまたがって
-    集めるため、辞書（code→ActiveWarning）で重複コードを排除しつつ、採用した警報の中で
-    最も新しいreportDatetimeをバッジの発表時刻として使う。"""
+    """電文配列から、対象エリアぶんのアクティブな警報だけを集約する。
+
+    警報の種類ごとに電文が分かれているため、同じコードが複数の電文に現れうる。codeで
+    重複を排除し、採用した警報のうち最も新しいreportDatetimeを発表時刻として使う。
+    """
     collected: dict[str, ActiveWarning] = {}
     latest_report_datetime: str | None = None
 

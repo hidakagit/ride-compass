@@ -14,14 +14,11 @@ from app.infrastructure import msm_client
 from app.infrastructure.msm_client import MsmUnavailableError
 
 
-
 class WeatherService:
-    """地点の天候・予報を気象庁MSM（`infrastructure/msm_client.py`）から読む。
+    """地点の天候・予報を気象庁MSMから読む。
 
-    `get_conditions`は現在（時系列の先頭＝現在時刻の正時）の気象と「今日の見通し」を返す
-    （呼び出し元は天気APIエンドポイントとRoadGraphEngineの起点判定のみで、いずれも
-    過去/未来時刻を渡さない）。日の出・日没は外部に問い合わせず`domain/twilight.py`で
-    計算する。
+    現在値として扱うのは常に時系列の先頭（現在時刻の正時）で、任意の時刻は指定できない。
+    日の出・日没は外部に問い合わせず`domain/twilight.py`で計算する。
     """
 
     async def _read_point(self, point: Coordinates) -> tuple[list[str], dict[str, np.ndarray]] | None:
@@ -39,9 +36,10 @@ class WeatherService:
         return self._conditions_from_series(point, *result)
 
     async def get_wind_forecast_series(self, point: Coordinates) -> WindForecastSeries | None:
-        """地点の時別風向・風速の予報系列（1時間刻み、JSTのローカル時刻）を返す。
-        MSMのローカルファイルから読むため外部APIリクエストは発生しない。読めない場合は
-        None（呼び出し元は出発時点のスナップショットへ倒す）。"""
+        """地点の時別風向・風速の予報系列（1時間刻み、JSTのローカル時刻）。読めなければNone。
+
+        MSMのローカルファイルから読むため外部APIリクエストは発生しない。
+        """
         result = await self._read_point(point)
         if result is None or not result[0]:
             return None
@@ -56,12 +54,12 @@ class WeatherService:
         )
 
     async def get_wind_grid(self, points: list[Coordinates]) -> tuple[list[str], list[WindGridPoint | None]]:
-        """複数地点の時間別風向・風速・降水量（+60分以降の延長予報）をまとめて取得する。
-        特定時刻1点へ収束させず、予報期間ぶんの時系列をそのまま返す
-        （domain/wind_grid.py: WindGridPointのdocstring参照）。
+        """複数地点の時間別風向・風速・降水量をまとめて取得する。特定時刻1点へ収束させず、
+        予報期間ぶんの時系列をそのまま返す。
 
         時刻配列は全地点で共通のため、戻り値の先頭要素として1本だけ返す（応答サイズ削減）。
-        MSMを読めない場合は時刻列を空、全地点をNoneとして返す（呼び出し元が502へ倒す）。"""
+        MSMを読めない場合は時刻列を空、全地点をNoneとして返す。
+        """
         if not points:
             return [], []
         latitudes = np.array([point.latitude for point in points], dtype=float)
@@ -146,8 +144,10 @@ class WeatherService:
 
     @classmethod
     def _period_outlooks(cls, times: list[str], values: dict[str, np.ndarray]) -> list[WeatherPeriodOutlook]:
-        """現在時刻の正時を起点に2時間おきのコマを最大8つ返す。予報の終端に達したら
-        そこで打ち切る（コマ数はMSMのrunによって変動しうる）。"""
+        """現在時刻の正時を起点に、一定間隔のコマを返す。
+
+        予報の終端に達したらそこで打ち切るため、コマ数はMSMのrunによって変動する。
+        """
         results = []
         for slot in range(cls._PERIOD_SLOT_COUNT):
             index = slot * cls._PERIOD_INTERVAL_HOURS
