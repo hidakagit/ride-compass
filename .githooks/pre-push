@@ -11,6 +11,18 @@ set -eu
 REPO_ROOT="$(git rev-parse --show-toplevel)"
 cd "$REPO_ROOT"
 
+# backend/.venv はworktreeへ複製されない。本体のチェックアウト側にあるものへ落ちる
+# ——落ちないと、worktreeで作業しているあいだruffが黙って飛ばされ続ける。
+find_venv() {
+    for root in "$REPO_ROOT" "$(cd "$(git rev-parse --git-common-dir)/.." && pwd)"; do
+        for v in "$root/backend/.venv/Scripts/python.exe" "$root/backend/.venv/bin/python"; do
+            if [ -x "$v" ]; then printf '%s
+' "$v"; return 0; fi
+        done
+    done
+    return 1
+}
+
 # push範囲を決める。上流が無い（新規ブランチ）ならorigin/masterからの差分を見る。
 if UPSTREAM="$(git rev-parse --abbrev-ref --symbolic-full-name '@{u}' 2>/dev/null)"; then
     BASE="$(git merge-base "$UPSTREAM" HEAD 2>/dev/null || echo "")"
@@ -34,9 +46,7 @@ note() { printf '\n[pre-push] %s\n' "$1" >&2; }
 # --- backend: ruff（変更したpyだけ） ---
 PY_FILES="$(printf '%s\n' "$CHANGED" | grep -E '^backend/.*\.py$' || true)"
 if [ -n "$PY_FILES" ]; then
-    VENV="$REPO_ROOT/backend/.venv/Scripts/python.exe"
-    [ -x "$VENV" ] || VENV="$REPO_ROOT/backend/.venv/bin/python"
-    if [ -x "$VENV" ]; then
+    if VENV="$(find_venv)"; then
         printf '%s\n' "$PY_FILES" | grep -v '^$' > "$REPO_ROOT/.git-pre-push-py.$$" || true
         if ! xargs -a "$REPO_ROOT/.git-pre-push-py.$$" "$VENV" -m ruff check; then
             note "ruffの指摘があります"; fail=1
@@ -68,9 +78,7 @@ fi
 
 # --- API契約のドリフト（backendの宣言を変えたときだけ） ---
 if printf '%s\n' "$CHANGED" | grep -qE '^backend/(app/(api|domain)/|app/config\.py|scripts/export_openapi\.py)'; then
-    VENV="$REPO_ROOT/backend/.venv/Scripts/python.exe"
-    [ -x "$VENV" ] || VENV="$REPO_ROOT/backend/.venv/bin/python"
-    if [ -x "$VENV" ] && [ -d frontend/node_modules ]; then
+    if VENV="$(find_venv)" && [ -d frontend/node_modules ]; then
         "$VENV" backend/scripts/export_openapi.py >/dev/null 2>&1 || true
         (cd frontend && npm run --silent generate:api >/dev/null 2>&1) || true
         if ! git diff --quiet -- frontend/src/types/generated/; then
