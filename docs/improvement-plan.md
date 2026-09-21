@@ -180,6 +180,7 @@ CLAUDE.md参照。節見出しはタスクのテーマ分類で、日付は起�
 - [ ] [T992](records/tasks/T992.md). 探索の2実装が、ヒープの骨格を写経している 規模M
 - [ ] [T993](records/tasks/T993.md). 母集団が空でも通るテストを、混入する前に止める 規模S〜M
 - [ ] [T994](records/tasks/T994.md). 地図へ状態を当てる経路を一本道にする 規模L
+- [ ] [T996](records/tasks/T996.md). コメントとdocstringを全件走査して、要らない説明を消す 規模L
 - [ ] [T978](records/tasks/T978.md). 標高タイルの取込が、製品を1つ選んで残りを捨てている 規模M
 - [ ] [T989](records/tasks/T989.md). docker composeで立てた環境は、手順どおりにしても使える状態にならない 規模S〜M
 
