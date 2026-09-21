@@ -115,6 +115,27 @@ class RouteGenerator:
         candidates = [self._with_material_values(c) for c in candidates]
         return candidates
 
+    def _explain_missing_context(
+        self,
+        origin_label: str,
+        prepare_ms: int,
+        *,
+        log_label: str,
+        log_detail: str,
+        failure_phrase: str,
+    ) -> None:
+        """道路データが無くて土台を作れなかったことを、ログと利用者向けの理由に残す。
+
+        生成の入口ごとに写経すると、文言を直したときに片方だけ古くなる。**どの入口で
+        落ちたかはログのラベルが持つ**ので、ここでは骨格だけを共有する。
+        """
+        logger.warning(
+            "%s origin=%s %s -> no context (road data unavailable) prepare_ms=%d",
+            log_label, origin_label, log_detail, prepare_ms,
+        )
+        self.last_no_candidates_reason = (
+            f"起点{origin_label}付近の道路データが未整備のため、{failure_phrase}")
+
     async def generate_loops(
         self,
         origin: Coordinates,
@@ -133,14 +154,10 @@ class RouteGenerator:
         context = await self._engine.prepare(origin, radius_km, now=start_time)
         prepare_ms = round((time.monotonic() - started) * 1000)
         if context is None:
-            logger.warning(
-                "generate origin=%s target_km=%.1f -> no context (road data unavailable) prepare_ms=%d",
-                origin_label, distance_km, prepare_ms,
-            )
-            self.last_no_candidates_reason = (
-                f"起点{origin_label}付近の道路データが未整備のため、候補を生成できませんでした。"
-                "対応エリア外の可能性があります。"
-            )
+            self._explain_missing_context(
+                origin_label, prepare_ms,
+                log_label="generate(loops)", log_detail=f"target_km={distance_km:.1f}",
+                failure_phrase="候補を生成できませんでした。対応エリア外の可能性があります。")
             return []
 
         # 折返し点候補を往路の軸的な良さの順に選定する（一対全木、エンジン側）。
@@ -291,14 +308,10 @@ class RouteGenerator:
         context = await self._engine.prepare(origin, radius_km, waypoints=bbox_points, now=start_time)
         prepare_ms = round((time.monotonic() - started) * 1000)
         if context is None:
-            logger.warning(
-                "generate(via_waypoints) origin=%s waypoints=%d destination=%s -> no context prepare_ms=%d",
-                origin_label, len(waypoints), destination is not None, prepare_ms,
-            )
-            self.last_no_candidates_reason = (
-                f"起点{origin_label}付近の道路データが未整備のため、候補を生成できませんでした。"
-                "対応エリア外の可能性があります。"
-            )
+            self._explain_missing_context(
+                origin_label, prepare_ms, log_label="generate(via_waypoints)",
+                log_detail=f"waypoints={len(waypoints)} destination={destination is not None}",
+                failure_phrase="候補を生成できませんでした。対応エリア外の可能性があります。")
             return []
 
         trace_started = time.monotonic()
@@ -358,13 +371,10 @@ class RouteGenerator:
         context = await self._engine.prepare(origin, radius_km, waypoints=[destination], now=start_time)
         prepare_ms = round((time.monotonic() - started) * 1000)
         if context is None:
-            logger.warning(
-                "generate(spliced) origin=%s edges=%d -> no context prepare_ms=%d",
-                origin_label, len(edge_ids), prepare_ms,
-            )
-            self.last_no_candidates_reason = (
-                f"起点{origin_label}付近の道路データが未整備のため、ルートを組み立てられませんでした。"
-            )
+            self._explain_missing_context(
+                origin_label, prepare_ms, log_label="generate(spliced)",
+                log_detail=f"edges={len(edge_ids)}",
+                failure_phrase="ルートを組み立てられませんでした。")
             return []
 
         try:
@@ -427,14 +437,10 @@ class RouteGenerator:
         context = await self._engine.prepare(origin, radius_km, waypoints=[destination], now=start_time)
         prepare_ms = round((time.monotonic() - started) * 1000)
         if context is None:
-            logger.warning(
-                "generate(destination) origin=%s max_routes=%d -> no context prepare_ms=%d",
-                origin_label, max_routes, prepare_ms,
-            )
-            self.last_no_candidates_reason = (
-                f"起点{origin_label}付近の道路データが未整備のため、候補を生成できませんでした。"
-                "対応エリア外の可能性があります。"
-            )
+            self._explain_missing_context(
+                origin_label, prepare_ms, log_label="generate(destination)",
+                log_detail=f"max_routes={max_routes}",
+                failure_phrase="候補を生成できませんでした。対応エリア外の可能性があります。")
             return []
 
         select_started = time.monotonic()
