@@ -1,17 +1,13 @@
 // backendのadmin API群（`/api/admin/**`、いずれもHTTP Basic認証必須）への
-// サーバー側プロキシ（改善計画T305、T517で軸CRUD専用から汎用へ改名）。
+// サーバー側プロキシ。
 // `frontend/src/app/admin/api/`配下の各route handlerからのみ呼ぶこと（route handlerは常に
 // サーバー側実行のため、"use client"コンポーネントから直接importしない限り
 // ADMIN_BASIC_AUTH_PASSWORD等がブラウザバンドルへ漏れる心配はない）。
 //
-// 以前はブラウザから直接backend（別オリジン）を叩き、ブラウザがproxy.ts分のBasic認証を
-// 自動転送しないため、軸スタジオ画面（AxisStudio.tsx）に専用のユーザー名/パスワード入力欄を
-// 持っていた。しかし/adminページ自体が既にproxy.tsのBasic認証で保護されており、この画面へ
-// 来られた時点でブラウザは既に認証済み——二重ログインを求めるUIが分かりにくいという実機
-// フィードバックを受け、この画面用の入力欄を撤去した。
-//
-// 代わりに、この一群のroute handler（`/admin/api/...`、proxy.tsのmatcher`/admin/:path*`に
-// 含まれるパス）を経由する。ブラウザは/admin読込時に一度Basic認証すれば、同一オリジン・
+// ブラウザは/adminで入力したBasic認証情報を別オリジンのbackendへ自動転送しないため、
+// クライアント側のJSはbackendを直接叩かず、この一群のroute handler（`/admin/api/...`、
+// proxy.tsのmatcher`/admin/:path*`に含まれるパス）を経由する。
+// ブラウザは/admin読込時に一度Basic認証すれば、同一オリジン・
 // 同一realmへの後続リクエストの認証情報を自身の認証キャッシュから自動付与する（fetchの
 // 既定のcredentialsモード"same-origin"がこれを含む、ブラウザ標準の挙動）ため、クライアント側の
 // JSは何もしなくてよい。このNext.jsサーバー（route handler）が、サーバー環境変数
@@ -41,9 +37,7 @@ export interface ProxyToBackendAdminOptions {
  * backendの応答（ステータス・本文）をそのまま返す。GET/POST/PUT/DELETEのいずれも
  * 呼び出し元route handlerがHTTPメソッドを解決してから渡す想定（このヘルパー自体は
  * `request.method`をそのまま使う）。`request.url`のクエリ文字列（例:
- * "?limit=200&contains=jma-tile"）は`backendPath`にそのまま付け足して転送する
- * （T517: `GET /api/admin/debug/logs`の`limit`/`contains`のように、GET系エンドポイントが
- * クエリパラメータを取る場合に必要）。 */
+ * "?limit=200&contains=jma-tile"）は`backendPath`にそのまま付け足して転送する。 */
 export async function proxyToBackendAdmin(
   request: Request,
   backendPath: string,

@@ -3,9 +3,9 @@ import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { adminBasicAuthCredentials } from "@/lib/adminBasicAuth";
 
-// /admin（軸スタジオ・研究/開発者ツール、改善計画T270）のルーティング境界での認可
-// （改善計画T272）。Next.js 16でmiddleware.tsはproxy.tsへ改称された（本ファイル名は
-// フレームワークの規約、frontend/AGENTS.md「このNext.jsは知っているものと違う」参照）。
+// /admin（軸スタジオ・研究/開発者ツール）のルーティング境界での認可。
+// Next.js 16はこの境界のファイルをproxy.tsと呼ぶ（本ファイル名はフレームワークの規約、
+// frontend/AGENTS.md「このNext.jsは知っているものと違う」参照）。
 //
 // HTTP Basic認証（ブラウザ標準ダイアログ）で/adminページ本体（研究/開発者ツールを含む
 // UIシェル全体）への到達自体を防ぐ。軸スタジオの管理API呼び出し（axisAdminApi.ts、
