@@ -458,10 +458,8 @@ backendが既に1つの分類値（`kind`=列挙文字列・`tunnel`/`oneway`/`i
 （`RoadInspectorPopup.tsx`）。点データ（事故・POI）はHTML文字列を`Popup.setHTML()`へ渡す
 経路で、こちらはMapLibreの`DOM.sanitize()`が走る。
 
-そのサニタイザにはバイパスが報告されており（修正版はv6系で、Next.jsのバンドラが
-Workerのスクリプトを解決できず地図が描画されないため上げられない——
-[architecture/tech-stack.md](../../architecture/tech-stack.md)）、
-**ライブラリのサニタイザ1枚に安全性を預けない**。埋め込む前に`popupEscape.ts`の
+このサニタイザにはバイパスが報告されることがあり、**ライブラリのサニタイザ1枚に
+安全性を預けない**。埋め込む前に`popupEscape.ts`の
 `escapeHtml`／`labelOrEscapedRaw`を通す。
 
 判断の基準は**行き先ではなく出所**にする。固定の対訳表に載る値は素通しでよく、

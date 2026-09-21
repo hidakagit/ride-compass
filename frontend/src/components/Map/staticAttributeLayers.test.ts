@@ -201,7 +201,7 @@ describe("staticAttributeLayers", () => {
 
   it("トンネルのfeatureはtunnel=trueのみ強調色になり、それ以外は不透明度が下がる", () => {
     function evaluate(expr: unknown[], properties: Record<string, unknown>): unknown {
-      const parsed = createExpression(expr);
+      const parsed = createExpression(expr, "filter");
       if (parsed.result !== "success") throw new Error("式の構築に失敗しました");
       return parsed.value.evaluate({ zoom: 14 }, { type: "Unknown", properties });
     }
@@ -239,7 +239,7 @@ describe("staticAttributeLayers", () => {
 
   it("一方通行のfeatureはoneway=trueのみ強調色になり、それ以外は不透明度が下がる", () => {
     function evaluate(expr: unknown[], properties: Record<string, unknown>): unknown {
-      const parsed = createExpression(expr);
+      const parsed = createExpression(expr, "filter");
       if (parsed.result !== "success") throw new Error("式の構築に失敗しました");
       return parsed.value.evaluate({ zoom: 14 }, { type: "Unknown", properties });
     }

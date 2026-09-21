@@ -17,7 +17,7 @@ import {
 } from "./MapView.routes";
 
 function evaluate(expression: unknown[], properties: Record<string, unknown>) {
-  const parsed = createExpression(expression);
+  const parsed = createExpression(expression, "filter");
   if (parsed.result !== "success") throw new Error("式の構築に失敗しました");
   return parsed.value.evaluate({ zoom: 14 }, { type: "Unknown", properties });
 }

@@ -69,7 +69,7 @@ function fakeMap() {
 }
 
 function evaluateFilter(filter: unknown, properties: Record<string, unknown>): boolean {
-  const parsed = createExpression(filter);
+  const parsed = createExpression(filter, "filter");
   if (parsed.result !== "success") throw new Error("filter式の構築に失敗しました");
   return Boolean(parsed.value.evaluate({ zoom: 14 }, { type: "Unknown", properties }));
 }
