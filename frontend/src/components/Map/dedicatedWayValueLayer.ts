@@ -84,7 +84,7 @@ export function dedicatedWayValueColorExpression(
  * `FALLBACK_LINE_OPACITY`で薄くし、値を持つ道だけが浮かび上がるようにする——
  * 地図全体の「薄い＝対象外、濃い＝分類あり」という読み方（roadFilterAxes.ts）を
  * このレイヤーにも揃える。**薄くするのであって消さない**
- * （docs/design-principles.md「消さずに薄くする」）。
+ * （docs/architecture/design-principles.md「消さずに薄くする」）。
  *
  * 値が無い道には、標高が計算されていない道と、勾配のように向きを指定する軸で
  * **その向きに対して直角に近く、値を示せない道**（domain/gradient.py: shows_gradient）。

@@ -645,7 +645,7 @@ class TurnCostSpec:
     # 進入した道より上位の階級の道と交わる**信号の無い**交差点で追加する秒数（横断＝直進で
     # 渡る場合と、右左折で入る場合）。信号のある交差点の待ちは停止密度の材料が走行モデルへ
     # 運ぶ（`domain/traffic.py: stop_seconds`）ため、そちらで数え、ここでは足さない
-    # ——両方で足すと同じ待ちを二重に数える（`docs/design-principles.md`構造仕様13）。
+    # ——両方で足すと同じ待ちを二重に数える（`docs/architecture/design-principles.md`構造仕様13）。
     # ここが担うのは「信号が無いのに上位の道を渡る・そこへ入る」ときの、車列の切れ目を
     # 待つ時間である。
     major_crossing_seconds: float

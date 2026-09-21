@@ -2,7 +2,7 @@
  *
  * 2つの候補が別々の道を通る区間を、経路のEdge id列（`RouteCandidate.edge_ids`）の
  * 集合演算で求める。**経路の同一性の判定だけを行い、軸の計算式は持たない**
- * （docs/design-principles.md 構造仕様1）——差し替えた経路の評価はbackendが
+ * （docs/architecture/design-principles.md 構造仕様1）——差し替えた経路の評価はbackendが
  * 既存候補と同じ経路で行う。
  *
  * `segments`は約500m単位へ畳まれておりEdgeの境目と一致しないため、ここでは使えない。

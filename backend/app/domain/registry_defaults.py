@@ -10,7 +10,7 @@ OSM/政府統計等の実際のデータ取込パイプラインが提供する�
 **実際の呼び出し元は`scripts/export_openapi.py`（ビルド時、`axis-catalog.json`等の生成物
 書き出し用）とテストのみで、FastAPIアプリ本体は起動時に呼ばない**（コスト関数
 評価経路はこのレジストリを一切参照しない。詳細は
-docs/architecture.md「一次属性レジストリ・二次軸レジストリ」節参照）。
+docs/modules/backend/axis-studio.md「一次属性・二次軸レジストリ」節参照）。
 本レジストリが実際に駆動するのは、地図レイヤーパネル・凡例・区間インスペクタが読む
 表示カタログ（`axis-catalog.json`）の生成のみ。
 

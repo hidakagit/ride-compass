@@ -2,19 +2,19 @@
 
 ## 責務
 
-OSM由来の道路データ（PBF取込）・警察庁事故データ・国土数値情報（指定路線）をPostGISへ
-取り込み、道路の静的属性（路面・種別・指定路線・事故等）をベクタタイル（MVT）として
+OSM由来の道路データ（PBF取込）・警察庁事故データ・土地被覆ラスタをPostGISへ
+取り込み、道路の静的属性（路面・種別・事故等）をベクタタイル（MVT）として
 配信する。ルート生成とは独立した「地図を眺める」用途を支える。
 
 **対象ファイル**
 
 | レイヤー | ファイル |
 |---|---|
-| domain | `road.py`・`attributes.py`・`designation.py`・`accident.py`・`traffic.py`（OSMタグの解釈と分類。停止要因・補給POIの種別、通行方向、道の階級）・`landcover.py`（土地被覆クラス別割合の算出、評価軸の材料）・`divided_carriageway.py`（上下線が分かれた道の片側かを判定するしきい値）・`derived_data_versions.py`（事前計算バッチの系譜版数。バッチ本体ではなくここに置く——鮮度台帳がbatchをimportすると本番webに無い依存を連鎖で引き込む）（[region.py](routing-engine.md)は別モジュール管轄） |
+| domain | `road.py`・`attributes.py`・`accident.py`・`traffic.py`（OSMタグの解釈と分類。停止要因・補給POIの種別、通行方向、道の階級）・`landcover.py`（土地被覆クラス別割合の算出、評価軸の材料）・`divided_carriageway.py`（上下線が分かれた道の片側かを判定するしきい値）（[region.py](routing-engine.md)は別モジュール管轄） |
 | services | `tile_serving.py`・`accident_service.py`・`region_service.py`・`landcover_tile_service.py`（土地被覆ラスタタイルの配信）・`derived_data_freshness_service.py`（派生データ鮮度台帳）・`tile_version_service.py`（配信するタイル世代の組み立て。形の署名とDBの派生データ世代から作る）・`db_status_service.py`（本番DB状態の判定。しきい値と根拠を持つ） |
 | infrastructure | `vector_tile.py`・`tile_cache.py`・`landcover_raster.py`（土地被覆GeoTIFFの読み取り・再投影・着色）・`source_models.py`（外部ソースの生データを、ソースによらない1つの形で持つ。点・線・ラスタのタイルを同じ骨格へ載せ、取込1回ぶんを`source_runs`が記録する）・`derived_models.py`（生データから導いたもの。粒度ごとに1表で、バッチが1つ増えても表は増えない）・`orm_base.py`（ORMの基底。どのモデルからも辿れる位置に置き、モデル同士がimportで絡まないようにする）・`accident_repository.py`・`derived_data_freshness.py`（派生データ鮮度台帳）・`db_status.py`（本番DBの状態＝取込runの最終実行・テーブルの実数と容量・統計とVACUUMの鮮度・接続）・`proj_data.py`（rasterioが参照するPROJデータをrasterio同梱のものへ固定する。別インストールの`proj.db`を掴むとEPSG解決が失敗するため、rasterioのimport前に呼ぶ） |
 | api | `region.py`（路面/POI/動的材料/土地被覆タイル・区間インスペクタ）・`accidents.py`（事故タイル）・`_tile_http.py`（両者が共有する座標検証と応答組み立て）・`derived_data_freshness.py`（`GET /api/admin/derived-data/freshness`、Basic認証必須）・`db_status.py`（`GET /api/admin/db-status`、同） |
-| batch | `ingest.py`（外部ソースの共通取込経路。アダプタから受けた1件ずつをステージングへ積み、そのソースのパーティションだけを入れ替え、`source_runs`へ適用した絞り込みごと記録する）・`ingest_cli.py`（その入口）・`source_profile.py`／`source_profile.yaml`（取り込む母集団の宣言。実装には範囲を書かない）・`source_adapters/`（外部の形を開いて1件ずつ返すだけの実装。`npa_honhyo.py`は警察庁の本票CSV、`osm_pbf.py`はOSMのPBF（way・node。タグを絞らず全部持つ。PBFの読み取り自体は`pbf_source.py`が持ち、pyosmiumへの依存をそこへ閉じ込める）、`ksj_designation.py`は国土数値情報の指定路線（zipの開き方は`_ksj_zip.py`）、`io_lulc_tile.py`は土地被覆ラスタをタイルへ切って、`gsi_dem_tile.py`は地理院の標高タイル——タイル1枚を1行として返し、標高はint32（0.01m単位）で詰める。面のタイルは`_raster_wkb.py`がPostGISの`raster`へ包む。位置・画素の大きさ・型・欠測値をその値自身に持たせ、読み手が属性から形を組み立てなくてよいようにする）・`derive_cli.py`（派生を作り直す入口。段の順番はここだけが持つ）・`derive_topology.py`（生データから区間`road_edges`とノードの枝数を導く。切る位置は2本以上の道が通るノード）・`derive_node_materials.py`（ノードの種別・信号の有無・集まる道の最大階級。種別の判断は取込ではなくここで行うため、判断が変わっても生データは取り直さない）・`derive_counts.py`（区間と道に付く数の値。停止要因は端点を0.5ずつ持ち、道の値は区間の和から導くため地図と評価で食い違わない）・`derive_raster_materials.py`（面のタイルを線へ落とす。標高は形状点で測り、土地被覆は中心線の周りの帯に落ちる画素を数える）・`derive_way_materials.py`（道1本の性質。通行方向をタグから決め、上下線分離は逆向きに並走する相方の有無で、指定路線は帯との交差長の割合で判定する）・`_common.py`（バッチ間共通ヘルパ。asyncpg用DSN変換・ダウンロード骨格・`batch_session_factory`[エンジン生成と破棄]・`with_derived_data_revision_bump`[派生を作り直したら、それを読んで作ったキャッシュの世代を上げる]）・`scripts/fetch_lulc_raster.py`（土地被覆ラスタの取得。デプロイが呼ぶ）・`scripts/fetch_osm_pbf.py`（OSMの抽出ファイルの取得。落とし終えたら実際に開いてみて、開けないものは退ける）・`scripts/bootstrap_database.py`（まっさらなDBを使える状態まで立ち上げる。スキーマ→取込→派生の順はここだけが持ち、途中から流し直せる） |
+| batch | `ingest.py`（外部ソースの共通取込経路。アダプタから受けた1件ずつをステージングへ積み、そのソースのパーティションだけを入れ替え、`source_runs`へ適用した絞り込みごと記録する）・`ingest_cli.py`（その入口）・`source_profile.py`／`source_profile.yaml`（取り込む母集団の宣言。実装には範囲を書かない）・`source_adapters/`（外部の形を開いて1件ずつ返すだけの実装。`npa_honhyo.py`は警察庁の本票CSV、`osm_pbf.py`はOSMのPBF（way・node。タグを絞らず全部持つ。PBFの読み取り自体は`pbf_source.py`が持ち、pyosmiumへの依存をそこへ閉じ込める）、`io_lulc_tile.py`は土地被覆ラスタをタイルへ切って、`gsi_dem_tile.py`は地理院の標高タイル——タイル1枚を1行として返し、標高はint32（0.01m単位）で詰める。面のタイルは`_raster_wkb.py`がPostGISの`raster`へ包む。位置・画素の大きさ・型・欠測値をその値自身に持たせ、読み手が属性から形を組み立てなくてよいようにする）・`derive_cli.py`（派生を作り直す入口。段の順番はここだけが持つ）・`derive_topology.py`（生データから区間`road_edges`とノードの枝数を導く。切る位置は2本以上の道が通るノード）・`derive_node_materials.py`（ノードの種別・信号の有無・集まる道の最大階級。種別の判断は取込ではなくここで行うため、判断が変わっても生データは取り直さない）・`derive_counts.py`（区間と道に付く数の値。停止要因は端点を0.5ずつ持ち、道の値は区間の和から導くため地図と評価で食い違わない）・`derive_raster_materials.py`（面のタイルを線へ落とす。標高は形状点で測り、土地被覆は中心線の周りの帯に落ちる画素を数える）・`derive_way_materials.py`（道1本の性質。通行方向をタグから決め、上下線分離は逆向きに並走する相方の有無で判定する）・`_common.py`（バッチ間共通ヘルパ。asyncpg用DSN変換・ダウンロード骨格・`batch_session_factory`[エンジン生成と破棄]・`with_derived_data_revision_bump`[派生を作り直したら、それを読んで作ったキャッシュの世代を上げる]）・`scripts/fetch_lulc_raster.py`（土地被覆ラスタの取得。デプロイが呼ぶ）・`scripts/fetch_osm_pbf.py`（OSMの抽出ファイルの取得。落とし終えたら実際に開いてみて、開けないものは退ける）・`scripts/bootstrap_database.py`（まっさらなDBを使える状態まで立ち上げる。スキーマ→取込→派生の順はここだけが持ち、途中から流し直せる） |
 
 `api/routers/region.py`のうち`GET /api/region/dynamic-way-values/...`エンドポイントは
 [動的材料・way_id値配信](dynamic-way-values.md)の管轄、`domain/road.py`の
@@ -48,6 +48,27 @@ OSMは**行だけを絞り、タグは絞らない**。タグは容量の1.9%し
 変えられなくなる（種別の判断・通行方向の解決はいずれも派生側で行うため、判断が変われば
 取り直さずに流し直せる）。
 
+### 道路種別（highway）は目的の違う3つのスコープを持つ（統一しない）
+
+同じ`highway`タグを3箇所が違う目的で切る。**揃える対象ではない**——片方に合わせると、
+もう片方の目的が壊れる。
+
+| スコープ | 定義場所 | 何を決めるか | 変える理由 |
+|---|---|---|---|
+| 取込 | `batch/source_profile.yaml` | DBへ入れるか | データ容量と、表示/探索の少なくとも一方で使うか |
+| 探索可否（0次フィルタ） | `domain/hard_filters.py: HARD_FILTER_HIGHWAY_TYPES` | 探索グラフへ入れるか | 法規・実務判断（[評価・スコアリング](evaluation-scoring.md)「0次ハードフィルタ」） |
+| 表示グルーピング | `frontend/.../roadFilterAxes.ts: HIGHWAY_GROUPS` | 地図で何色に塗るか | 地図の見やすさ |
+
+**取込スコープと探索スコープは意図的に食い違う**（幹線国道は幹線道路の把握・回避判断の
+ために取り込むが、探索からは外す）。**表示グルーピングを取込プロファイルへ機械的に
+合わせることもしない**——取込スコープを広げたときに凡例が壊れないことを優先する。
+凡例に取込対象外の値が並ぶのは、この選択の結果である。
+
+路面（surface）は逆に**正準が1箇所**（`domain/road.py`）で、他はすべてそこから導く。
+フロントの表示グループだけは手で並べるため、`export_openapi.py`が書き出す
+`surface-tags.json`との突き合わせテストが「表示グループの全タグ＝正準分類済みタグ全体」を
+検証する。
+
 ### 面のデータもタイル1枚=1行で持つ（`gsi_dem_tile.py`・`io_lulc_tile.py`）
 
 点・線と同じ骨格へ載せるため、ラスタはタイルへ切って`payload`（標高はint16、土地被覆は
@@ -64,7 +85,7 @@ uint8）で持つ。どう読むかは`attrs`が持つ（幅・型・尺度・�
 | `derive_node_materials.py` | ノードの種別・信号の有無・集まる道の最大階級 |
 | `derive_counts.py` | 区間と道に付く数の値（事故・停止要因・交差点） |
 | `derive_raster_materials.py` | 面のタイルを線へ落とす（標高・土地被覆） |
-| `derive_way_materials.py` | 道1本の性質（通行方向・上下線分離・指定路線） |
+| `derive_way_materials.py` | 道1本の性質（通行方向・上下線分離） |
 
 **道1本の値は区間の値から導く。** 同じ知識を2つの粒度で持つ以上、数え方が違ってはいけない
 ——地図が塗る値と評価が読む値が構造として一致する。
@@ -100,7 +121,11 @@ uint8）で持つ。どう読むかは`attrs`が持つ（幅・型・尺度・�
 事故点はOSMの要素ではないため、信号のように「wayの構成ノードか」では帰属を決められない。
 距離だけで数えると1つの事故が半径内の**すべての**道路へ計上され、静かな裏道が隣の幹線で
 起きた事故を相続する。最も近い1本の区間へ1件だけ付け、死亡事故は重みを掛ける
-（`domain/accident.py`）。
+（`domain/accident.py`: `ACCIDENT_MATCH_MAX_DISTANCE_M`・`ACCIDENT_FATAL_WEIGHT`）。
+
+**数えるのは自転車が関与した事故だけ**（`BICYCLE_PARTY_SQL`）。自転車ルート案内で自動車
+どうしの事故まで数えると、避けるべき場所がずれる。密度は収録年数で割って「件/(km・年)」
+へ正規化する——年次を1つ足したときに全区間の値が一斉に増えないようにするため。
 
 ### 通行方向の解決（`domain/traffic.py: resolve_direction`）
 
@@ -142,17 +167,6 @@ OSMは中央分離帯のある道路の上下線を別々のwayとして持ち�
 （GiSTインデックスを使わせるための度単位の箱）は**距離の判定より必ず広く**取る——箱の方が
 狭いと、距離をいくつに設定しても箱が実効の上限になり、しきい値を変えても挙動が変わらない。
 
-### 指定路線のマッチング（`way_materials.designation_<種別>`）
-
-国土数値情報のN10（緊急輸送道路）・N12（重要物流道路）は線データで、道との対応を
-バッファ内の交差長の割合で決める（判定式・バッファ幅は`domain/designation.py`が正準）。
-同じ道へ複数の指定路線が寄与しうるため、交差をまとめてから測る。列名は`designation_`＋
-種別名で、種別が増えても対応表は要らない。
-
-**N10とN12はファイル形式が異なる**（N10=JPGIS/GML、N12=素のGeoJSON）。ZIPの開き方は
-`source_adapters/_ksj_zip.py`が持ち、アダプタ本体は種別と都道府県の組み合わせを回すだけ。
-
-
 ### 派生データ鮮度台帳（`derived_data_freshness.py`・`derived_data_freshness_service.py`）
 
 派生データについて2つの問いを分けて見る。
@@ -182,6 +196,21 @@ NULLの意味は列によって違う。「まだ計算していない」と「�
 
 ## タイル配信
 
+### 何をタイルへ焼くか（事実だけを焼き、解釈は焼かない）
+
+タイルは全利用者で共有するキャッシュのため、**そこへ焼けるのはレシピに依存しない事実**
+（道路種別・路面・密度のような、誰が見ても同じ値）だけである。軸の得点＝材料をどう
+重み付けてどこで色を変えるかという**解釈は焼かない**——軸スタジオで重みを1つ変えるたびに
+対象範囲のタイルを全部作り直すことになるうえ、下書き軸のプレビューが他人のキャッシュへ
+混ざる。
+
+解釈はクライアント側が持つ。フロントは軸カタログの宣言から色式を組み立て、タイルの
+材料プロパティへ当てる（[地図: 軸・ルート色分け](../frontend/map-axis-coloring.md)）。
+この一方向のおかげで、軸の判定ロジックを変えてもタイル世代は動かない。
+
+**材料がタイルの外にある軸は、この方式に乗らない**（風のように外部条件で値が変わるもの）。
+そちらは[動的材料・way_id値配信](dynamic-way-values.md)が別経路で配る。
+
 ### 共通骨格（`tile_serving.py: serve_cached_tile`）
 
 `RegionService`（路面/POI）・`AccidentService`（事故）が共有する「ファイルキャッシュ確認
@@ -206,8 +235,7 @@ NULLの意味は列によって違う。「まだ計算していない」と「�
 ### 路面タイルが1フィーチャーとして焼く単位（`EDGE_UNIT_MIN_ZOOM`）
 
 **区間が読めるズームでは区間（`road_edges`）、それより引いた表示ではway丸ごと**を
-1フィーチャーにする。境界の根拠は[T917](../../tasks/T917.md)の実測
-——gzip後の費用は引くほど増える一方、引いた表示では交差点で切った区間が数pxにしかならず
+1フィーチャーにする。境界の根拠は実測——gzip後の費用は引くほど増える一方、引いた表示では交差点で切った区間が数pxにしかならず
 塗り分けても読めない。費用が跳ね上がるズームと、区間単位の情報量が消えるズームが一致する。
 
 どちらの単位でも識別子は`feature_key`という**同じ名前のプロパティ**で出す。フロントは
@@ -299,6 +327,10 @@ tile_cache/`）で、パスをSHA-256でハッシュ化したフラットなフ�
 構造的に避けるため）。キャッシュ書き込み失敗（ディスクフル等）は握りつぶし、タイル
 配信自体を失敗させない。
 
+**読み書きは必ず`asyncio.to_thread`経由で呼ぶ**。中身は同期のディスクI/Oで、地図の初期
+読み込みでは数十件のタイル要求が同時に来るため、直接呼ぶとイベントループ全体が塞がり、
+並行して処理中の他のリクエスト（ルート生成等）まで待たされる。
+
 ## API
 
 | エンドポイント | 内容 |
@@ -334,7 +366,6 @@ PBF取込時にしか変わらないため、再訪時の同一タイル再取�
 |---|---|
 | `road.py` | 路面語彙の正準定義（`GOOD_OSM_SURFACE_TAGS`/`BAD_OSM_SURFACE_TAGS`）。材料の値式とPostGIS側MVT生成SQLが共有する単一ソース |
 | `attributes.py` | `ElevationAttribute`/`EdgeAttributeCounts`等のモデルと標高計算（[elevation.md](elevation.md)が主に扱う） |
-| `designation.py` | 指定路線コンフレーション機構の正準定数（バッファ幅・マッチ閾値・対象kind） |
 | `accident.py` | 警察庁データ取込の純関数群（都道府県コード変換・当事者種別判定・度分秒座標変換） |
 | `traffic.py` | OSMタグの解釈。停止要因POI・補給休憩POIの分類（`classify_stop_poi`/`classify_supply_poi`）、信号の判定（`is_traffic_signal`）、通行方向の解決（`resolve_direction`）、交差点判定の空間マッチ半径・次数しきい値、交差点の階級（`HIGHWAY_RANK`） |
 | `divided_carriageway.py` | 上下線が分かれた道の片側かを判定するしきい値 |

@@ -44,6 +44,11 @@ NULLへ畳み、フィーチャーからキーを省いてタイルを軽くす�
 上書きを持つ（`evaluation_service.py`が既定Noneを受け取り解決）。
 
 - highwayタグ由来（`motorway`/`trunk`）・`bicycle=no`タグ（`no_bicycle`）の2系統。
+  **除外の根拠は種類ごとに違う**: `motorway`（motorway/motorway_link）は法的に自転車が
+  通行できない。`trunk`（trunk/trunk_link）は日本の法規上は通行可能な場合が多く、
+  ロードバイクの周回ルートにとって実務上走りにくい・危険という**用途上の判断**で外して
+  いる。trunkは地図表示（幹線道路の把握・回避判断）のために取り込みはする——取込
+  スコープと探索スコープが食い違っているのは意図した役割分担である。
   highway種別のフィルタは`HARD_FILTER_HIGHWAY_TYPES`（フィルタ名→対象highway値）が唯一の
   レジストリで、`compute_hard_filter_excluded`はこの辞書をループする（`compute_hard_filter_excluded`が受け取るのはフィルタ名→該当フラグ配列の
   `hard_filter_flags`で、フィルタごとの専用引数・専用フィールドは持たない。タグ由来の
@@ -187,7 +192,7 @@ bbox全体ぶんのコストをリクエストにつき1回だけnumpyで合成�
   依存せずタイル集合キーでキャッシュするため）。
   同じコスト配列・軸別スコア配列は`_build_segment_details`（区間表示）からも参照され、
   探索と表示の二重計算を避ける。**唯一の例外**（探索コストのみ補完・表示は変えない、
-  `docs/design-principles.md`「探索コストと表示difficultyの一致」参照）: 重み付き軸が
+  `docs/architecture/design-principles.md`「探索コストと表示difficultyの一致」参照）: 重み付き軸が
   すべて欠損（composite=NaN）のEdgeは、探索コスト算出にだけbbox内の距離加重平均
   difficultyを代入する（`compose_costs_from_axis_matrix`が内部で
   `distance_weighted_difficulty_array`により算出、`RouteSegmentDetail`側のdifficulty・
@@ -287,6 +292,12 @@ MaterialSpec]`が単一ソース。
 | `value_labels` | categorical材料の値ごとの日本語ラベル対訳表（`GET /api/admin/material-catalog/{id}/values`が返す） |
 | `reference_points` | 軸スタジオの折れ点編集を助ける「値の目安」一覧（`MaterialReferencePoint`のlabel/value）。値域が直感的でない材料（風等）ほど有用で、真偽値・categorical材料や単純な材料は空リストのままでよい。換算式はbackendだけが持ち、値はここで計算済みのものを持たせる |
 
+- **評価軸が参照する材料は、正規化された生データ（数値・boolean・単純categorical）に
+  統一する。** 地図表示・API応答向けの人間可読な分類ラベル（「この道は自転車レーンあり」
+  のような優先順位付きの多値分類）は別レイヤーの関心事で、材料にしない——分類の順位付けが
+  評価の重み付けと二重になり、片方だけ変えたときに気づけない。逆に、評価軸から参照され
+  なくなったという理由**だけ**では表示側の分類を消さない（別の独立した消費者が実在する
+  限りは残す）。
 - 材料の「登録」（本カタログに載る）と「評価軸での利用」（`AxisDefinition.shape`が
   実際に参照する）は独立している。登録済みでも対応する軸が無ければ評価には使われない
   （軸スタジオの材料選択肢には現れる）。
@@ -311,7 +322,7 @@ MaterialSpec]`が単一ソース。
   （行→レコードの組み立ては`_LANDCOVER_PERCENT_COLUMNS`）から導く——名指しすると、
   クラスを1つ足して既存行を埋め戻す前に、その列がNULLというだけで行ごと捨てる。
   **1つの軸で複数のクラスを足さないこと**——割合の合計が100%へ固定されているため
-  同じ地面を二重に数える（[設計原則](../../design-principles.md)構造仕様14）。
+  同じ地面を二重に数える（[設計原則](../../architecture/design-principles.md)構造仕様14）。
 - 値式は`domain/material_sql.py`の組み立て関数から作る（タグの正規化・タグ値の一致・
   数値パース・件数の密度化・wayの行の有無）。同じ判定を材料ごとに書き写さないため、
   判定を直すと全材料へ同時に効く。
@@ -323,12 +334,14 @@ MaterialSpec]`が単一ソース。
 
 | エイリアス | 元データ | ここから生える材料 |
 |---|---|---|
-| `w` | `osm_raw_ways`（専用列とtags jsonb） | `surface`・`lit`・`maxspeed_kmh`・`bridge`・`smoothness`等 |
+| `w` | 生の道（`source_features`の`source='osm_way'`を、よく引くタグを列へ出した副問い合わせ。`material_sql.py: ways_source_sql`） | `surface`・`lit`・`maxspeed_kmh`・`bridge`・`smoothness`等 |
 | `re` | 区間の行（`road_edges`） | `highway`・距離（密度の分母） |
-| `c` | 件数の集計（`edge_attribute_counts`） | `intersection_count_per_km`・`accident_count_per_km_year`・`poi_*_per_km` |
-| `e` | 標高（`elevation_attributes`） | `gradient_percent` |
-| `el`／`wl` | 土地被覆（区間単位／way単位） | `trees_percent`・`built_percent`等 |
-| `d` | 指定路線（`designation_attributes`） | `is_designated` |
+| `em` | 区間に付く値（`edge_materials`） | 標高・件数の密度・区間単位の土地被覆 |
+| `wm` | 道1本に付く値（`way_materials`） | way単位の土地被覆・道の曲がり具合等 |
+
+way粒度で引くときは、同じ式のまま`w`の行から同じ名前の別名を組み立てる
+（`road_graph_repository.py: _way_from_clause`）。`em`はway側の同名列かNULLを返す1行になる
+ため、区間にしか無い値（標高）はNULLになる。
 
 **行の有無と値の有無を分ける。** `w`の行が無い（未取込の地域・PBF再取込の途中）ときは
 タグ由来の材料がすべて不明（NULL）になり、行があればタグが無くても非該当（false）として

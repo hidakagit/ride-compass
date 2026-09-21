@@ -379,7 +379,7 @@ def _evaluate_axes_from_material_arrays(
 # 主観的割増と時間の換算レート（P）の既定値。`難易度100の道は体感で所要時間の(1+P)倍`の
 # 意味で、コスト式は`所要時間 × (1 + P × difficulty/100)`。
 #
-# 走行モデルへ入っている現象を写した軸の既定重みは0のため（docs/design-principles.md
+# 走行モデルへ入っている現象を写した軸の既定重みは0のため（docs/architecture/design-principles.md
 # 構造仕様13）、difficultyは主観的な軸だけの加重平均になり、物理の軸で薄まらないぶん
 # 値が大きく出る。Pはその物差しに合わせた値で、**実走での較正が要る暫定値**。
 def resolve_penalty_strength(requested: float | None) -> float:

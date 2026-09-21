@@ -86,7 +86,7 @@ def health() -> dict[str, str | None]:
     # commit（デプロイワークフローが注入するGIT_COMMIT）とstarted_at（プロセス起動時刻、
     # デプロイのたびに再起動されるため実質デプロイ時刻の目安）で、本番に実際に
     # デプロイされているコミットが最新かどうかを外部から確認できるようにする
-    # （ローカル開発ではcommitはnullのまま。詳細はdocs/architecture.md参照）。
+    # （ローカル開発ではcommitはnullのまま。詳細はdocs/architecture/tech-stack.md参照）。
     return {
         "status": "ok",
         "commit": settings.git_commit,

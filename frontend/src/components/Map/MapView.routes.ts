@@ -192,7 +192,8 @@ export function drawBaseRoutes(
 // 候補線（寒色）と競合しない暖色。選んでいない区間は破線で「乗り換えられる」ことだけを
 // 示し、選んだ区間は実線・太めにする。式はexportして`MapView.splice.test.ts`が
 // style-specの評価器で検証する（実機はmaplibre-gl内蔵の同パッケージで評価するため、
-// テストが通る式が実機で別の意味になりうる版ずれをdocs/architecture.mdが禁じている）。
+// テストが通る式が実機で別の意味になりうる版ずれを
+// docs/architecture/tech-stack.mdが禁じている）。
 export const SPLICE_COLOR = "#c2612b";
 // 当たり判定の太さ。ルート区間の当たり判定（DETAIL_HIT_LAYER_ID）と同じにする——
 // 指の接地面はどの線を触るかで変わらない。
