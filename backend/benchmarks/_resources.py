@@ -150,12 +150,41 @@ WHERE datname = current_database() AND pid <> pg_backend_pid() AND state = 'acti
 
 
 async def _explain(connection: asyncpg.Connection, query: str) -> str:
-    """値を束ねずに計画を取る。取れない文（切られた文・ユーティリティ文）は空を返す。"""
+    """値を束ねずに計画を取る。取れない文（切られた文・ユーティリティ文）は空を返す。
+
+    **クライアントに解釈させない。** アプリが投げる文は`$1`を含み、そのまま渡すと
+    asyncpgが引数を要求してエラーになる。`EXPLAIN (GENERIC_PLAN)`は
+    プレースホルダのまま計画を出せるので、サーバ側で組み立てて実行する。
+
+    計測の失敗で計測対象の結果まで失わないよう、ここでの例外はすべて空文字にする。
+    """
     try:
-        rows = await connection.fetch(f"EXPLAIN (GENERIC_PLAN) {query}")
-    except (asyncpg.PostgresError, OSError):
+        rows = await connection.fetch(
+            "SELECT plan FROM (SELECT $1::text AS q) s, "
+            "LATERAL (SELECT (regexp_split_to_table(pg_temp._rc_explain(s.q), chr(10))) AS plan) p",
+            query,
+        )
+    except Exception:  # noqa: BLE001  計測の失敗で計測対象を巻き込まない
         return ""
-    return "\n".join(r[0] for r in rows)
+    return chr(10).join(r["plan"] for r in rows)
+
+
+#: 文字列として受け取った文の計画を返すヘルパ。`EXPLAIN`は動的に組み立てられないため、
+#: サーバ側の関数で包む（計測用の一時関数で、計測が終われば落とす）。
+_EXPLAIN_HELPER_SQL = """
+CREATE OR REPLACE FUNCTION pg_temp._rc_explain(sql text) RETURNS text
+LANGUAGE plpgsql AS $fn$
+DECLARE line text; out text := '';
+BEGIN
+    FOR line IN EXECUTE 'EXPLAIN (GENERIC_PLAN) ' || sql LOOP
+        out := out || line || chr(10);
+    END LOOP;
+    RETURN rtrim(out, chr(10));
+EXCEPTION WHEN OTHERS THEN RETURN '';
+END
+$fn$
+"""
+
 
 
 @contextlib.asynccontextmanager
@@ -171,6 +200,7 @@ async def sample_resources(
     """
     trace = ResourceTrace()
     connection = await asyncpg.connect(asyncpg_dsn)
+    await connection.execute(_EXPLAIN_HELPER_SQL)
     started = time.perf_counter()
     stop = asyncio.Event()
 
