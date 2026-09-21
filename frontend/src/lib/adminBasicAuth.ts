@@ -8,10 +8,7 @@ export interface AdminBasicAuthCredentials {
 
 /** 環境変数から資格情報を読む。未設定なら`null`（呼び出し側は認証を成立させない）。 */
 export function adminBasicAuthCredentials(): AdminBasicAuthCredentials | null {
-  return resolveAdminBasicAuth(
-    process.env.ADMIN_BASIC_AUTH_USERNAME,
-    process.env.ADMIN_BASIC_AUTH_PASSWORD,
-  );
+  return resolveAdminBasicAuth(process.env.ADMIN_BASIC_AUTH_USERNAME, process.env.ADMIN_BASIC_AUTH_PASSWORD);
 }
 
 /**

@@ -19,7 +19,8 @@ else
 fi
 [ -n "$BASE" ] || exit 0
 
-CHANGED="$(git diff --name-only "$BASE" HEAD)"
+# 削除されたファイルを除く——消えたものを検査器へ渡すと「見つからない」で落ちる。
+CHANGED="$(git diff --name-only --diff-filter=d "$BASE" HEAD)"
 [ -n "$CHANGED" ] || exit 0
 
 # docs・markdownだけの変更は何も動かさない（.github/workflows/ci.ymlのpaths-ignoreと同じ規則）。

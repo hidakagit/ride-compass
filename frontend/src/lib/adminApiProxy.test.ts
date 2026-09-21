@@ -37,7 +37,10 @@ describe("proxyToBackendAdmin", () => {
       const fetchMock = vi.fn();
       vi.stubGlobal("fetch", fetchMock);
 
-      const response = await proxyToBackendAdmin(new Request("https://example.test/admin/api/axis-definitions"), "/api/admin/axis-definitions");
+      const response = await proxyToBackendAdmin(
+        new Request("https://example.test/admin/api/axis-definitions"),
+        "/api/admin/axis-definitions",
+      );
 
       expect(response.status).toBe(500);
       const body = await response.json();
@@ -47,7 +50,10 @@ describe("proxyToBackendAdmin", () => {
 
     it("片方だけ設定された状態（資格情報としては未設定）でも500を返す", async () => {
       credentials = null;
-      const response = await proxyToBackendAdmin(new Request("https://example.test/admin/api/axis-definitions"), "/api/admin/axis-definitions");
+      const response = await proxyToBackendAdmin(
+        new Request("https://example.test/admin/api/axis-definitions"),
+        "/api/admin/axis-definitions",
+      );
       expect(response.status).toBe(500);
     });
   });
@@ -102,11 +108,16 @@ describe("proxyToBackendAdmin", () => {
     it("timeoutMs省略時は15秒、指定時はその値でAbortSignal.timeoutを組み立てる", async () => {
       const fetchMock = vi
         .fn()
-        .mockImplementation(async () => new Response("{}", { status: 200, headers: { "content-type": "application/json" } }));
+        .mockImplementation(
+          async () => new Response("{}", { status: 200, headers: { "content-type": "application/json" } }),
+        );
       vi.stubGlobal("fetch", fetchMock);
       const timeoutSpy = vi.spyOn(AbortSignal, "timeout");
 
-      await proxyToBackendAdmin(new Request("https://example.test/admin/api/axis-definitions"), "/api/admin/axis-definitions");
+      await proxyToBackendAdmin(
+        new Request("https://example.test/admin/api/axis-definitions"),
+        "/api/admin/axis-definitions",
+      );
       await proxyToBackendAdmin(
         new Request("https://example.test/admin/api/material-coverage"),
         "/api/admin/material-catalog/coverage",
@@ -143,7 +154,9 @@ describe("proxyToBackendAdmin", () => {
     });
 
     it("PUTもリクエストボディを転送する", async () => {
-      const fetchMock = vi.fn().mockResolvedValue(new Response("{}", { status: 200, headers: { "content-type": "application/json" } }));
+      const fetchMock = vi
+        .fn()
+        .mockResolvedValue(new Response("{}", { status: 200, headers: { "content-type": "application/json" } }));
       vi.stubGlobal("fetch", fetchMock);
 
       await proxyToBackendAdmin(

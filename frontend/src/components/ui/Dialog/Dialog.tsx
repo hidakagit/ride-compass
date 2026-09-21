@@ -31,7 +31,7 @@ export function DialogContent({ title, hideTitle, children, className }: DialogC
           "fixed left-1/2 top-1/2 z-[var(--z-floating-panel)] w-[min(90vw,28rem)] -translate-x-1/2 -translate-y-1/2",
           "rounded-md border border-[var(--color-border-strong)] bg-[var(--color-surface)] p-4 shadow-[var(--shadow-float)]",
           "text-[var(--foreground)]",
-          className
+          className,
         )}
       >
         <RadixDialog.Title className={hideTitle ? "sr-only" : "text-[length:var(--font-size-md)] font-semibold"}>

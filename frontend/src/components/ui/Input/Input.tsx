@@ -8,10 +8,7 @@ export interface InputProps extends React.InputHTMLAttributes<HTMLInputElement> 
   invalid?: boolean;
 }
 
-export const Input = forwardRef<HTMLInputElement, InputProps>(function Input(
-  { className, invalid, ...props },
-  ref
-) {
+export const Input = forwardRef<HTMLInputElement, InputProps>(function Input({ className, invalid, ...props }, ref) {
   return (
     <input
       ref={ref}
@@ -21,7 +18,7 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(function Input(
         "text-[length:var(--font-size-md)] text-[var(--foreground)]",
         "focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--color-accent)] focus-visible:outline-offset-2",
         invalid && "border-[var(--color-danger)]",
-        className
+        className,
       )}
       {...props}
     />
