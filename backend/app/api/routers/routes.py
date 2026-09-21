@@ -191,7 +191,7 @@ class RouteGenerateRequest(StrictModel):
     # 出発時刻（省略時はサーバーの現在時刻）。風の時間変化評価（レグごとの通過予測時刻）の
     # 起点になる。naive値はJSTとして扱う。
     start_time: datetime | None = None
-    # 区間の乗り換え（docs/records/tasks/T621.md）: クライアントが候補の`edge_ids`から区間を
+    # 区間の乗り換え: クライアントが候補の`edge_ids`から区間を
     # 差し替えて組み立てた経路。指定時は探索を行わず、この経路だけを既存候補と同じ経路で
     # 評価して1件返す（`destination`が必須。`waypoints`・`max_routes`は使わない）。
     # 生成と同じコスト曲線（`prepare`が支配的）のため、別エンドポイントにせず同じ
@@ -201,7 +201,7 @@ class RouteGenerateRequest(StrictModel):
     @model_validator(mode="after")
     def _check_spliced_route_has_a_destination(self) -> "RouteGenerateRequest":
         # 合成の対象は目的地ルートだけ（周回は起点へ戻る制約があり、途中で別候補へ
-        # 乗り換えると戻れる保証が無くなる。docs/records/tasks/T621.md）。
+        # 乗り換えると戻れる保証が無くなる。）。
         if self.spliced_edge_ids and self.destination is None:
             raise ValueError("spliced_edge_ids requires destination")
         return self
