@@ -238,7 +238,7 @@ class AxisDefinitionPayload(AxisDefinitionFields):
         """`dedicated_way_value_layer`は配信の実装があるaxis_idにだけ立てられる。
 
         way_id→値の配信はPythonのサービス本体（`api/dependencies.py`の
-        `_DEDICATED_WAY_VALUE_SERVICE_FACTORIES`）が必要で、軸スタジオでの宣言だけでは
+        `_DEDICATED_WAY_VALUE_SERVICES`）が必要で、軸スタジオでの宣言だけでは
         配信できる値が無い。宣言だけを通すと、その軸のタイル要求が実装の無いまま
         呼ばれ続ける（配信側は404を返すため表示は壊れないが、地図に出ない軸の宣言が
         残り続けて「宣言したのに出ない」原因が分からなくなる）。

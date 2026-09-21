@@ -57,6 +57,11 @@ class WindWayService:
     #: 返す生値の材料id。`axis_id`とは別の名前空間。
     material_id = "wind_drag_ratio"
 
+    @classmethod
+    def build(cls, repository: RoadGraphRepository | None, weather_service: WeatherService) -> "WindWayService":
+        """登録テーブルから呼ぶための統一シグネチャ。依存の要否はサービスごとに違う。"""
+        return cls(repository=repository, weather_service=weather_service)
+
     async def get_way_values(
         self, z: int, x: int, y: int, at: datetime | None, bearing_deg: float | None, speed_kmh: float | None = None
     ) -> dict[str, float]:
