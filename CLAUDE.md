@@ -305,11 +305,12 @@ T536でそれを置き換えた`compute_edge_costs_bulk`まで同じ理由で残
      独立した`- [ ]`行として別Txxxへ起票する（`/task:next`等の機械抽出は`- [ ]`行しか
      見ないため、`[x]`化した時点で本文に埋もれた残項目は拾われなくなる）。検査器が
      `[x]`化の瞬間に候補を参考出力するので、その行の要否だけを判断すればよい。
-- **作業に着手する際、`.claude/commands/review/README.md`「定期的なレビュー」節の閾値
-  （前回レビューから14日 or 実装コードの変更20,000行、どちらか早い方。または分割元タスク
-  完了直後。`python scripts/review_checks.py trigger`で判定）に該当していないか確認し、
-  該当する場合は`/review:all`実施と`/code-review`実施提案を行う**
-  （詳細・code-review結果の蓄積経路は同README.md参照）。
+- **作業に着手する際、周期レビューの閾値**（前回レビューから14日 or 実装コードの変更
+  20,000行、どちらか早い方。または分割元タスク完了直後。
+  `python scripts/review_checks.py trigger`で判定。前回レビューは
+  `periodic-review/NNN` タグが持つ）**に該当していないか確認し、該当する場合は
+  `/review`実施と`/code-review`実施提案を行う**（手順は
+  [.claude/commands/review.md](.claude/commands/review.md)）。
 
 ## 作業ツリーの安全（必読）
 
