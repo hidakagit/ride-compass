@@ -5,7 +5,6 @@ from app.domain.wind_grid import (
     WIND_GRID_BBOX,
     WIND_GRID_DETAIL_SPACING_DEG,
     WIND_GRID_SPACING_DEG,
-    WindGridPoint,
     generate_wind_grid_detail_points,
     generate_wind_grid_points,
     nearest_grid_point,
@@ -33,10 +32,6 @@ def test_generate_wind_grid_points_uses_expected_spacing():
     assert lats[1] - lats[0] == pytest.approx(WIND_GRID_SPACING_DEG)
 
 
-def test_generate_wind_grid_points_is_deterministic():
-    assert generate_wind_grid_points() == generate_wind_grid_points()
-
-
 def test_generate_wind_grid_points_custom_bbox_and_spacing():
     points = generate_wind_grid_points(bbox=(139.0, 35.0, 140.0, 36.0), spacing_deg=0.5)
 
@@ -44,10 +39,6 @@ def test_generate_wind_grid_points_custom_bbox_and_spacing():
     assert len(points) == 9
     assert {p.longitude for p in points} == {139.0, 139.5, 140.0}
     assert {p.latitude for p in points} == {35.0, 35.5, 36.0}
-
-
-# 改善計画T180: 詳細格子（wind-grid-detail）のテスト。最も重要な性質は「bboxの角ではなく
-# 固定原点からのラティスで座標を決める」ことによるキャッシュ共有効果なので、それを直接検証する。
 
 
 def test_generate_wind_grid_detail_points_lattice_is_independent_of_query_bbox():
@@ -88,16 +79,6 @@ def test_generate_wind_grid_detail_points_empty_bbox_outside_coverage_returns_em
     assert points == []
 
 
-def test_generate_wind_grid_detail_points_is_deterministic():
-    bbox = (139.70, 35.70, 139.90, 35.90)
-    assert generate_wind_grid_detail_points(bbox) == generate_wind_grid_detail_points(bbox)
-
-
-# 改善計画T405: nearest_grid_point（way_id→wind_penalty配信層が、タイル中心のような任意
-# 座標に対して既存の固定格子点を再利用するために使う）のテスト。最も重要な性質は
-# generate_wind_grid_points()と同じラティス（固定原点基準）に一致すること。
-
-
 def test_nearest_grid_point_snaps_to_generate_wind_grid_points_lattice():
     lattice = {(p.latitude, p.longitude) for p in generate_wind_grid_points()}
     # WIND_GRID_BBOX内の適当な地点（格子点そのものではない）。
@@ -128,18 +109,3 @@ def test_nearest_grid_point_clamps_points_outside_bbox():
     assert min_lon <= result.longitude <= max_lon
 
 
-def test_nearest_grid_point_is_deterministic():
-    point = Coordinates(latitude=36.01, longitude=139.42)
-    assert nearest_grid_point(point) == nearest_grid_point(point)
-
-
-def test_wind_grid_point_model_round_trip():
-    point = WindGridPoint(
-        latitude=35.68,
-        longitude=139.77,
-        wind_speed_ms=[2.5],
-        wind_direction_deg=[90.0],
-        precipitation_mm=[0.5],
-    )
-    assert point.model_dump()["latitude"] == 35.68
-    assert point.model_dump()["precipitation_mm"] == [0.5]

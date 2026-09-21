@@ -1,8 +1,8 @@
 from app.domain.strict_model import StrictModel
 
 # 天気コードの導出しきい値。MSMは天気そのものを配信しないため、降水量・雲量・気温から
-# WMO天気コード相当へ落とす（値の意味・アイコンへの変換はfrontend側weatherCode.tsに集約
-# する方針は変えず、backendは数値コードだけを返す）。
+# WMO天気コード相当へ落とす。値の意味・アイコンへの変換はfrontendが持ち、backendは
+# 数値コードだけを返す。
 _PRECIPITATION_MIN_MM = 0.1
 _PRECIPITATION_MODERATE_MM = 1.0
 _PRECIPITATION_HEAVY_MM = 4.0
@@ -40,12 +40,10 @@ def derive_weather_code(
 
 
 class WeatherPeriodOutlook(StrictModel):
-    """「今日の見通し」パネルの時間帯別の天気の流れ1コマぶん。periodは代表時刻の
-    "HH:MM"文字列（weather_service.py: _period_outlooks参照。現在時刻を2時間単位の
-    グリッド（0/2/4...時）へ切り下げた時刻を起点に2時間おきで8コマ生成する。朝/午後/夜
-    のような意味づけラベルは持たない——時刻の解釈・「6時」等の表示ラベルへの整形は
-    frontend側が担う）。weather_codeの意味・アイコンへの変換はWeatherConditions.
-    weather_codeと同じくfrontend側（weatherCode.ts）に集約する。
+    """「今日の見通し」パネルの時間帯別の天気の流れ1コマぶん。
+
+    `period`は代表時刻の"HH:MM"文字列で、朝/午後/夜のような意味づけラベルは持たない
+    ——時刻の解釈・表示ラベルへの整形はfrontend側が担う。
     """
 
     period: str
@@ -62,9 +60,7 @@ class WeatherConditions(StrictModel):
     wind_direction_label: str
     precipitation_mm: float | None
     observed_at: str
-    # 天気アイコン化用（WMO天気コード・昼夜フラグ）。weather_codeの値の
-    # 意味・アイコンへの変換はfrontend/src/components/WeatherPanel/weatherCode.tsに
-    # 集約する（バックエンドは数値コードを返すだけで表示上の判定を持たない）。
+    # 天気アイコン化用（WMO天気コード・昼夜フラグ）。
     weather_code: int | None
     is_day: int | None
     # 「今日の見通し」パネル向けの日次見通し。時刻別の値と違い1日1個の値。
@@ -76,7 +72,6 @@ class WeatherConditions(StrictModel):
     wind_speed_max_ms: float | None
     temperature_max_c: float | None
     temperature_min_c: float | None
-    # 現在時刻を2時間グリッドへ切り下げた時刻を起点に2時間おき8コマの天気アイコン・
-    # 気温・降水量の並びで「今日の見通し」パネルへ表示する。取得失敗時もNoneではなく
-    # 空リストになる（フロント側はnullチェック無しで.filter/.mapできる）。
+    # 「今日の見通し」パネルへ並べる時間帯別の予報。取得失敗時もNoneではなく空リストに
+    # なる（フロント側はnullチェック無しで.filter/.mapできる）。
     today_periods: list[WeatherPeriodOutlook]

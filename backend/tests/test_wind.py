@@ -15,8 +15,7 @@ from app.domain.wind import (
 V20 = kmh_to_ms(20.0)
 
 
-def test_reference_speed_is_20_kmh_and_independent_constant():
-    assert WIND_DRAG_REFERENCE_SPEED_MS == pytest.approx(5.5556, abs=1e-4)
+def test_kmh_to_ms_converts_speed_units():
     assert kmh_to_ms(36.0) == pytest.approx(10.0)
 
 

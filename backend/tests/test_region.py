@@ -1,6 +1,12 @@
 import pytest
 
-from app.domain.region import BoundingBox, parse_bbox, tile_bounds_lonlat, tiles_covering_bbox
+from app.domain.region import (
+    BoundingBox,
+    parse_bbox,
+    tile_ancestor,
+    tile_bounds_lonlat,
+    tiles_covering_bbox,
+)
 
 
 def test_tile_bounds_lonlat_covers_whole_world_at_zoom_0():
@@ -81,27 +87,20 @@ def test_tiles_covering_bbox_does_not_raise_for_out_of_range_latitude():
     assert all(0 <= tx < n and 0 <= ty < n for tx, ty in tiles)
 
 
-def test_tile_ancestor_maps_finer_tiles_into_their_z12_parent():
-    from app.domain.region import tile_ancestor
-
-    # z14のタイルはz12の祖先タイルへ2段丸められる（x,yとも右シフト2）
+def test_tile_ancestor_maps_finer_tiles_into_their_coarser_parent():
+    # ズームが1段細かくなるごとにx,yが2分割されるため、差のぶんだけ右シフトになる。
     assert tile_ancestor(14, 14551, 6447, 12) == (14551 >> 2, 6447 >> 2)
     # 同一ズームならそのまま
     assert tile_ancestor(12, 3637, 1611, 12) == (3637, 1611)
-    # z15（表示最大ズーム）→z12は3段
     assert tile_ancestor(15, 29102, 12894, 12) == (29102 >> 3, 12894 >> 3)
 
 
 def test_tile_ancestor_rejects_coarser_zoom_than_ancestor():
-    from app.domain.region import tile_ancestor
-
     with pytest.raises(ValueError):
         tile_ancestor(11, 0, 0, 12)
 
 
 def test_tile_ancestor_bounds_are_contained_in_ancestor_bounds():
-    from app.domain.region import tile_ancestor
-
     z, x, y = 15, 29102, 12894
     ax, ay = tile_ancestor(z, x, y, 12)
     child = tile_bounds_lonlat(z, x, y)
@@ -113,7 +112,7 @@ def test_tile_ancestor_bounds_are_contained_in_ancestor_bounds():
 
 
 class TestParseBbox:
-    """CLIの--bbox文字列。import_pbf・measure_axis_saturationが同じ順序で受け取る。"""
+    """CLIの--bbox文字列（緯度経度の順序をCLI間で揃えるための共通パーサ）。"""
 
     def test_valid(self):
         bbox = parse_bbox("35.60,139.65,35.75,139.85")

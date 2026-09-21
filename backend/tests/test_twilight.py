@@ -9,7 +9,7 @@ TOKYO = Coordinates(latitude=35.6762, longitude=139.6503)
 
 
 class TestIsNightAgainstKnownAlmanac:
-    """sunrise-sunset.org（NOAA準拠の公開API、2026-08-20に実測取得）の東京・市民薄明終了
+    """sunrise-sunset.org（NOAA準拠の公開API）が返す東京の市民薄明終了
     （civil_twilight_end）時刻との突き合わせ。astralとNOAAは太陽視差・大気差の扱いが
     わずかに異なるため、境界±3分は許容誤差として扱う（is_night自体は「境界の前後数分」を
     厳密に区別する用途ではなく、走行中の照明の要否という粗い判定のため）。

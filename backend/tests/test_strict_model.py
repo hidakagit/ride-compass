@@ -42,14 +42,12 @@ def test_subclasses_keep_their_own_config_and_still_forbid_extras():
     [
         (BoundingBox, {"min_latitude": 35.0, "min_longitude": 139.0,
           "max_latitude": 36.0, "max_longitude": 140.0}, "min_lat"),
-        (RoutePreference, {}, "stop_weight"),
+        (RoutePreference, {}, "weigths"),
     ],
 )
-def test_representative_models_reject_removed_or_mistyped_fields(model, kwargs, typo):
-    """撤去済み・typoしたフィールド名を渡すと落ちる。
-
-    `stop_weight`は過去に存在した名前で、素通りすると古い引数を渡すテストが通り続ける。
-    """
+def test_representative_models_reject_mistyped_fields(model, kwargs, typo):
+    """typoしたフィールド名を渡すと落ちる（素通りすると、指定したのに効かない形で
+    利用者に出る）。"""
     model(**kwargs)
     with pytest.raises(ValidationError):
         model(**kwargs, **{typo: 1})

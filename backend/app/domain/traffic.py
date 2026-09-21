@@ -1,8 +1,7 @@
-"""静的道路属性の派生分類（docs/static-road-attributes-plan.md P0・§2.4）。
+"""静的道路属性の派生分類。
 
 すべて純関数・unknown安全（タグが無い/未知の値は`None`または`"unknown"`を返し、
-根拠のない推測はしない）。正準定義はここ1箇所（domain/road.pyのGOOD/BAD_OSM_SURFACE_TAGSと
-同じ「正準1箇所」の運用）。
+根拠のない推測はしない）。OSMタグからこれらの分類を導く規則の正本はここ1箇所。
 
 車ストレスは軸定義（DBが正本、軸スタジオから増減する）の内部軸と公開軸の階層構造で
 再現している。自転車インフラは正規化フラグ材料（`domain/material_catalog.py`が宣言する
@@ -98,11 +97,9 @@ _TRAFFIC_CALMING_VALUES: frozenset[str] = frozenset(
     }
 )
 
-# 停止要因POIのkind正準集合（SQL側のkindフィルタ用）。補給POI（convenience/
-# vending_machine等、SupplyPoiKind）が同じ`osm_raw_pois`テーブルへ入っているため、
-# kindを絞らないCOUNTは停止密度へコンビニ・自販機を誤算入する。停止密度系のSQL
-# （_STOP_POI_COUNTS_SQL等）は必ずこの集合でフィルタする（片側import。
-# StopPoiKindのLiteral値と乖離しないようテストで照合する）。
+# 停止要因POIのkind正準集合（SQL側のkindフィルタ用）。補給POI（SupplyPoiKind）が同じ
+# `osm_raw_pois`テーブルへ入っているため、kindを絞らないCOUNTは停止密度へコンビニ・
+# 自販機を誤算入する。停止密度を数えるSQLは必ずこの集合でフィルタする。
 STOP_POI_KINDS = (
     frozenset(_HIGHWAY_STOP_KINDS.values())
     | frozenset(_RAILWAY_STOP_KINDS.values())
@@ -115,7 +112,7 @@ STOP_POI_KINDS = (
 # （`domain/material_catalog.py`の`poi_*_per_km`）はこの一覧から生成する。
 #
 # `StopPoiKind`（取込時の分類）と1対1ではない。分ける基準は「評価軸で違う重みを付けたいか」
-# だけで、次の3点で異なる:
+# だけで、次のように畳む:
 # - 信号は`highway=traffic_signals`と`highway=crossing`＋`crossing=traffic_signals`の
 #   両方の書かれ方があり、どちらも同じ「止まる信号」のため`signal`へまとめる
 #   （分けずにまとめないと、押しボタン式・歩車分離の信号が横断歩道に紛れる）
@@ -133,16 +130,8 @@ POI_COUNT_KINDS: dict[str, str] = {
     "barrier": "車止め・減速構造",
 }
 
-# 停止要因1回あたりの時間損失（秒）。**待ちの期待値＋減速と再加速のロス**の合計で、
-# 所要時間へそのまま足す量。
-#
-# 内訳の考え方（信号の場合）:
-# - 待ちの期待値 ＝ 赤に当たる確率 × 平均待ち時間 ＝ (赤/サイクル) × (赤/2)。サイクル120秒・
-#   赤60秒なら 0.5 × 30 ＝ 15秒
-# - 減速と再加速 ＝ 巡航速度まで戻すのに要る余分な時間。時速20kmで6秒前後
-#
-# 信号の無い横断歩道が0なのは、自転車は止まらず通過できるため（停止密度の軸でも重み0）。
-# **これらの値は一般的な信号サイクルからの見積もりで、実走データでの較正が要る。**
+# 停止要因1回あたりの時間損失（秒）は**待ちの期待値＋減速と再加速のロス**の合計で、
+# 所要時間へそのまま足す量。信号の無い横断歩道が0なのは、自転車が止まらず通過できるため。
 def stop_seconds(kind: str) -> float:
     """停止要因の種別から1回あたりの時間損失（秒）。未知の種別は0。
 
@@ -225,13 +214,6 @@ ONEWAY_BIDIRECTIONAL = {"no", "false", "0"}
 # 通れず、OSMは個々のwayへ`oneway`を付けない慣行がある。
 ONEWAY_JUNCTION_VALUES = {"roundabout", "circular"}
 
-
-# 静的道路属性（docs/static-road-attributes-plan.md P0）で保持するタグの許可リスト。
-# highway/surface/onewayは既存の専用フィールドで扱うためここには含めない。
-# GOOD/BAD_OSM_SURFACE_TAGS（domain/road.py）と同じ「正準1箇所」の考え方で、
-# ここに無いタグはWaySpec.tagsへ残らない（生データ汚染を避ける、計画書§2.4）。
-# 容量実測（2026-08-15、static-attributes-capacity-estimate）: 本番規模で約9MB、
-# 誤差程度で安全。
 
 # --- タグの引き当てを、SQLへ渡せる表と式で持つ -------------------------------
 #
