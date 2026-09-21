@@ -76,10 +76,6 @@ class WayMaterialCoverageSpec:
     missing_semantics: MissingSemantics
     population: Population = "way"
     in_scope: str = "TRUE"
-    #: 欠損判定に別の表が要る場合のJOIN句（`LEFT JOIN … ON …`をそのまま書く）。同じ句を
-    #: 宣言した材料どうしは1回のJOINを共有する。**相関サブクエリで書かない**——1材料につき
-    #: 1つずつ行ごとに評価され、材料を増やすほど所要が伸びる。
-    join: str | None = None
 
 
 @dataclass(frozen=True)
