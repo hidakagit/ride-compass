@@ -396,9 +396,8 @@ def test_dynamic_axis_topological_order_excludes_axes_not_depending_on_dynamic_m
     assert dynamic_axis_topological_order(definitions) == []
 
 
-def test_dynamic_axis_topological_order_matches_realistic_axis_definitions():
-    # 本番相当14軸（tests/realistic_axis_fixtures.py、conftest.pyのセッションスコープ
-    # フィクスチャがAXIS_DEFINITIONSへ用意済み）では、風に依存する軸は"wind"のみのはず
+def test_dynamic_axis_topological_order_matches_fixture_axis_definitions():
+    # 共通の軸システム（tests/axis_system_fixture.py）では、風に依存する軸は"wind"のみ
     # （他軸がwind/wind_drag_ratioを参照する設計にはなっていない）。この前提が崩れて
     # 新しい軸が風へ依存するようになった場合、`evaluate_dynamic_axis_arrays`
     # （domain/evaluation.py、改善計画T536）側は自動的に追従するため実害は無いが、

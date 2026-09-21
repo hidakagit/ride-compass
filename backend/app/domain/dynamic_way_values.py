@@ -101,15 +101,12 @@ def map_value_thresholds(definition: AxisDefinition) -> list[float] | None:
         override = definition.display_thresholds_override
         return list(override) if override is not None else None
     shape = definition.shape
-    if not isinstance(shape, BreakpointLinearShape) or map_value_kind(definition) == "signed_material":
+    if not isinstance(shape, BreakpointLinearShape):
         return list(display.thresholds)
+    # ここへ来る軸は必ず`preprocess="identity"`——`axis_display.py`が符号を畳む前処理の軸へ
+    # ramp表示を与えないため。よって材料の目盛りの値をそのまま折れ線へ通せる。
     return [
-        round(
-            evaluate_breakpoint_linear(
-                abs(threshold) if shape.preprocess == "abs" else threshold, shape.breakpoints
-            ),
-            1,
-        )
+        round(evaluate_breakpoint_linear(threshold, shape.breakpoints), 1)
         for threshold in display.thresholds
     ]
 

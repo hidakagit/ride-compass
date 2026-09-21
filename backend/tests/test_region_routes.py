@@ -10,6 +10,7 @@ from app.config import settings
 from app.domain.axis_inspector import AxisInspectorAxis, AxisInspectorResult
 from app.infrastructure import rate_limiter
 from app.services.tile_serving import TileResponse
+from app.domain.dynamic_way_values import transform_dedicated_way_values
 from app.main import app
 
 client = TestClient(app)
@@ -320,18 +321,21 @@ class FakeDynamicWayValueService:
         return self._values
 
 
-# 応答はサービスの生値ではなく地図が塗る値（domain/dynamic_way_values.py:
-# transform_dedicated_way_values）。風は軸のbreakpoints[(-1.2,0),(0,15),(5,100)]で難易度へ、
-# 勾配は符号付き材料のまま返る。
+# 応答はサービスの生値ではなく**地図が塗る値**（domain/dynamic_way_values.py:
+# transform_dedicated_way_values）。得点を塗る軸は写され、符号付き材料の軸はそのまま返る。
+# 写像そのものの検証はtest_dynamic_way_values.pyが持つため、ここでは軸の折れ点を写経せず
+# 同じ関数へ通した結果と突き合わせる——見たいのは「エンドポイントがこの写像を通すか」。
 @pytest.mark.parametrize(
-    ("axis_id", "material_id", "speed_kmh", "expected"),
+    ("axis_id", "material_id", "speed_kmh"),
     [
-        ("wind", "wind_drag_ratio", 20.0, {"1": 49.0, "2": 0.0}),
-        ("gradient", "gradient_percent", None, {"1": 2.0, "2": -1.5}),
+        ("wind", "wind_drag_ratio", 20.0),
+        ("gradient", "gradient_percent", None),
     ],
 )
-def test_region_dedicated_way_values_returns_map_values_json(axis_id, material_id, speed_kmh, expected):
-    fake = FakeDynamicWayValueService(values={"1": 2.0, "2": -1.5}, material_id=material_id)
+def test_region_dedicated_way_values_returns_map_values_json(axis_id, material_id, speed_kmh):
+    raw = {"1": 2.0, "2": -1.5}
+    expected = transform_dedicated_way_values(AXIS_DEFINITIONS[axis_id], material_id, raw)
+    fake = FakeDynamicWayValueService(values=dict(raw), material_id=material_id)
     app.dependency_overrides[get_dedicated_way_value_service] = lambda: fake
 
     params = {"bearing_deg": 90}

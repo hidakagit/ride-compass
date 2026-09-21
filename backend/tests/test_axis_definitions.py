@@ -298,3 +298,113 @@ def test_axis_raw_value_array_is_none_for_categorical_shape():
     )
 
     assert axis_raw_value_array(definition, {"surface_good": np.array([1.0])}) is None
+
+
+# --- evaluate_axis_scalar が決めていること ---
+#
+# 分類shapeの文字列キー・未一致・`priority_overrides`の短絡は
+# `test_axis_hierarchy.py`が持つ。ここは区分線形の合成と欠損の扱いを見る。
+
+
+def _linear_axis(
+    terms: list[MaterialTerm],
+    breakpoints: list[tuple[float, float]],
+    preprocess: str = "identity",
+) -> AxisDefinition:
+    """区分線形の軸を、見たい性質だけ与えて組む。"""
+    return AxisDefinition(
+        axis_id="synthetic_linear",
+        shape=BreakpointLinearShape(terms=terms, preprocess=preprocess, breakpoints=breakpoints),
+        default_weight=0.1,
+        label="テスト軸",
+        category="観測",
+    )
+
+
+def test_value_between_breakpoints_is_interpolated():
+    axis = _linear_axis([MaterialTerm(material="num_a")], [(0.0, 0.0), (10.0, 50.0)])
+
+    assert evaluate_axis_scalar(axis, {"num_a": 4.0}) == 20.0
+
+
+def test_value_outside_breakpoints_clamps_to_the_declared_ends():
+    """両端は0・100ではなく、**宣言した端の値**で止まる。"""
+    axis = _linear_axis([MaterialTerm(material="num_a")], [(0.0, 10.0), (10.0, 50.0)])
+
+    assert evaluate_axis_scalar(axis, {"num_a": -5.0}) == 10.0
+    assert evaluate_axis_scalar(axis, {"num_a": 99.0}) == 50.0
+
+
+def test_abs_preprocess_makes_the_sign_irrelevant():
+    axis = _linear_axis([MaterialTerm(material="num_a")], [(0.0, 0.0), (10.0, 100.0)], preprocess="abs")
+
+    assert evaluate_axis_scalar(axis, {"num_a": -4.0}) == evaluate_axis_scalar(axis, {"num_a": 4.0})
+
+
+def test_score_is_rounded_to_one_decimal():
+    axis = _linear_axis([MaterialTerm(material="num_a")], [(0.0, 0.0), (3.0, 100.0)])
+
+    assert evaluate_axis_scalar(axis, {"num_a": 1.0}) == 33.3
+
+
+def test_missing_required_material_makes_the_whole_axis_unevaluable():
+    """必須の項が1つ欠けるだけで、他の項が揃っていても評価しない。"""
+    axis = _linear_axis(
+        [
+            MaterialTerm(material="num_a", required=True),
+            MaterialTerm(material="num_b", required=False),
+        ],
+        [(0.0, 0.0), (10.0, 100.0)],
+    )
+
+    assert evaluate_axis_scalar(axis, {"num_b": 5.0}) is None
+
+
+def test_missing_optional_material_only_drops_that_term():
+    axis = _linear_axis(
+        [
+            MaterialTerm(material="num_a", weight=1.0, required=False),
+            MaterialTerm(material="num_b", weight=1.0, required=False),
+        ],
+        [(0.0, 0.0), (10.0, 100.0)],
+    )
+
+    assert evaluate_axis_scalar(axis, {"num_a": 4.0}) == evaluate_axis_scalar(
+        axis, {"num_a": 4.0, "num_b": 0.0}
+    )
+
+
+def test_axis_is_unevaluable_when_no_term_has_a_value():
+    """必須でない項だけでも、1つも値が無ければ0点ではなく評価不能。"""
+    axis = _linear_axis(
+        [MaterialTerm(material="num_a", required=False), MaterialTerm(material="num_b", required=False)],
+        [(0.0, 0.0), (10.0, 100.0)],
+    )
+
+    assert evaluate_axis_scalar(axis, {}) is None
+
+
+def test_zero_weight_term_does_not_move_the_total():
+    """重み0の項は、値があっても合計を動かさない（登録はされるが寄与しない材料）。"""
+    axis = _linear_axis(
+        [
+            MaterialTerm(material="num_a", weight=1.0),
+            MaterialTerm(material="num_b", weight=0.0),
+        ],
+        [(0.0, 0.0), (10.0, 100.0)],
+    )
+
+    assert evaluate_axis_scalar(axis, {"num_a": 4.0, "num_b": 1000.0}) == 40.0
+
+
+def test_categorical_axis_without_its_material_is_unevaluable():
+    axis = AxisDefinition(
+        axis_id="synthetic_categorical",
+        shape=CategoricalShape(material="bool_a", mapping={True: 0.0, False: 80.0}),
+        default_weight=0.1,
+        label="テスト軸",
+        category="観測",
+    )
+
+    assert evaluate_axis_scalar(axis, {}) is None
+    assert evaluate_axis_scalar(axis, {"bool_a": False}) == 80.0
