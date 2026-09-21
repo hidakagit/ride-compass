@@ -18,6 +18,7 @@
 
 import logging
 import time
+from collections.abc import Callable
 from datetime import datetime
 from typing import TYPE_CHECKING, Any
 
@@ -72,6 +73,33 @@ def turnaround_pool_size(max_routes: int) -> int:
     return min(TURNAROUND_POOL_MAX, max(TURNAROUND_POOL_MIN, max_routes * TURNAROUND_POOL_FACTOR))
 
 
+#: 区間から候補単位へ集約する値（載せるフィールド → `segments`から作る関数）。
+#: **集約を1段増やすときはここへ1行足す**（design-principles.md 構造仕様8）。集約は候補の
+#: 並び順・印（`is_fastest`等）を読まないため、呼び出し側がそれらを付ける前でも後でも
+#: 結果は変わらない。
+SEGMENT_AGGREGATES: dict[str, Callable[[list[Any]], Any]] = {
+    # 距離加重平均のルート単位絶対基準（研究インターフェース改善 §10-7、エンジン非依存の
+    # ためengine実装側には持たせない）。
+    "overall_difficulty": lambda segments: distance_weighted_difficulty(
+        [(s.difficulty, s.distance_km) for s in segments]),
+    # 難易度の総量（平均×距離）。並び順には使わず、「遠回りした分だけ増える」量として
+    # 平均と併せて示す（domain/route.py参照）。
+    "difficulty_load": lambda segments: difficulty_load(
+        [(s.difficulty, s.distance_km) for s in segments]),
+    # 区間ごとのaxis_id→difficultyを全区間へ集約した、overall_difficultyと対になる値。
+    "axis_difficulties": merge_axis_difficulties,
+    # 生値も同じ集約で付ける（軸単体で経路を判断するための絶対値）。
+    "axis_raw_values": merge_axis_raw_values,
+    # overall_difficultyの内訳。合計は丸め誤差を除いてoverall_difficultyと一致する
+    # （domain/evaluation.py: compose_costs_from_axis_matrixのdocstring参照）。
+    "axis_contributions": merge_axis_contributions,
+    # 数値材料の集約。**categorical材料の延長割合はここで触らない**——`segments`は既に
+    # 約500m単位へ畳まれており、代表値からでは正しい割合を作れない（エンジンがビニングの
+    # 前に計算して`RouteCandidate`へ載せている。`domain/route.py: BIN_DROPPED_DICT_FIELDS`）。
+    "material_values": merge_material_values,
+}
+
+
 class RouteGenerator:
     """周回ルート候補の生成戦略。折返し点の選定・経路計算・評価はengineへ委譲する。"""
 
@@ -94,10 +122,8 @@ class RouteGenerator:
     ) -> list[RouteCandidate]:
         """エンジンの評価を通し、区間から候補単位へ集約した完成形の`RouteCandidate`を返す。
 
-        候補を返す経路はすべてここを通る。集約を1段増やすときはこのメソッドへ1行足せば
-        全経路へ同時に効く（design-principles.md 構造仕様8）。集約は候補の並び順・印
-        （`is_fastest`等）を読まないため、呼び出し側がそれらを付ける前でも
-        後でも結果は変わらない。
+        候補を返す経路はすべてここを通る。**集約を1段増やすときは`SEGMENT_AGGREGATES`へ
+        1行足せば全経路へ同時に効く**（design-principles.md 構造仕様8）。
 
         `evaluate_loops`の位置対応の契約（`traced`と同じ件数・同じ順）もここで確かめる。
         戦略層は`TracedLoop.data`の中身を知らないため、位置以外で突き合わせる手段が無い。
@@ -109,11 +135,33 @@ class RouteGenerator:
             raise RoutingError(
                 f"evaluate_loopsの戻り値が入力と対応していません traced={len(traced)} candidates={len(candidates)}"
             )
-        candidates = [self._with_overall_difficulty(c) for c in candidates]
-        candidates = [self._with_axis_difficulties(c) for c in candidates]
-        candidates = [self._with_axis_contributions(c) for c in candidates]
-        candidates = [self._with_material_values(c) for c in candidates]
-        return candidates
+        return [
+            candidate if not candidate.segments else candidate.model_copy(
+                update={name: build(candidate.segments)
+                        for name, build in SEGMENT_AGGREGATES.items()})
+            for candidate in candidates
+        ]
+
+    def _explain_missing_context(
+        self,
+        origin_label: str,
+        prepare_ms: int,
+        *,
+        log_label: str,
+        log_detail: str,
+        failure_phrase: str,
+    ) -> None:
+        """道路データが無くて土台を作れなかったことを、ログと利用者向けの理由に残す。
+
+        生成の入口ごとに写経すると、文言を直したときに片方だけ古くなる。**どの入口で
+        落ちたかはログのラベルが持つ**ので、ここでは骨格だけを共有する。
+        """
+        logger.warning(
+            "%s origin=%s %s -> no context (road data unavailable) prepare_ms=%d",
+            log_label, origin_label, log_detail, prepare_ms,
+        )
+        self.last_no_candidates_reason = (
+            f"起点{origin_label}付近の道路データが未整備のため、{failure_phrase}")
 
     async def generate_loops(
         self,
@@ -133,14 +181,10 @@ class RouteGenerator:
         context = await self._engine.prepare(origin, radius_km, now=start_time)
         prepare_ms = round((time.monotonic() - started) * 1000)
         if context is None:
-            logger.warning(
-                "generate origin=%s target_km=%.1f -> no context (road data unavailable) prepare_ms=%d",
-                origin_label, distance_km, prepare_ms,
-            )
-            self.last_no_candidates_reason = (
-                f"起点{origin_label}付近の道路データが未整備のため、候補を生成できませんでした。"
-                "対応エリア外の可能性があります。"
-            )
+            self._explain_missing_context(
+                origin_label, prepare_ms,
+                log_label="generate(loops)", log_detail=f"target_km={distance_km:.1f}",
+                failure_phrase="候補を生成できませんでした。対応エリア外の可能性があります。")
             return []
 
         # 折返し点候補を往路の軸的な良さの順に選定する（一対全木、エンジン側）。
@@ -152,7 +196,7 @@ class RouteGenerator:
         select_ms = round((time.monotonic() - select_started) * 1000)
         if not turnarounds:
             logger.warning(
-                "generate origin=%s target_km=%.1f -> no turnaround candidates "
+                "generate(loops) origin=%s target_km=%.1f -> no turnaround candidates "
                 "prepare_ms=%d select_ms=%d",
                 origin_label, distance_km, prepare_ms, select_ms,
             )
@@ -210,7 +254,7 @@ class RouteGenerator:
 
         if not traced:
             logger.warning(
-                "generate origin=%s target_km=%.1f -> no candidates "
+                "generate(loops) origin=%s target_km=%.1f -> no candidates "
                 "(turnarounds=%d examined=%d trace_failed=%d filtered_out=%d dedup_skipped=%d) "
                 "prepare_ms=%d select_ms=%d trace_ms=%d",
                 origin_label, distance_km,
@@ -241,7 +285,7 @@ class RouteGenerator:
         total_ms = round((time.monotonic() - started) * 1000)
 
         logger.info(
-            "generate origin=%s target_km=%.1f max_routes=%d -> candidates=%d "
+            "generate(loops) origin=%s target_km=%.1f max_routes=%d -> candidates=%d "
             "turnarounds=%d examined=%d trace_failed=%d filtered_out=%d dedup_skipped=%d "
             "prepare_ms=%d select_ms=%d trace_ms=%d evaluate_ms=%d total_ms=%d",
             origin_label, distance_km, max_routes, len(candidates),
@@ -291,14 +335,10 @@ class RouteGenerator:
         context = await self._engine.prepare(origin, radius_km, waypoints=bbox_points, now=start_time)
         prepare_ms = round((time.monotonic() - started) * 1000)
         if context is None:
-            logger.warning(
-                "generate(via_waypoints) origin=%s waypoints=%d destination=%s -> no context prepare_ms=%d",
-                origin_label, len(waypoints), destination is not None, prepare_ms,
-            )
-            self.last_no_candidates_reason = (
-                f"起点{origin_label}付近の道路データが未整備のため、候補を生成できませんでした。"
-                "対応エリア外の可能性があります。"
-            )
+            self._explain_missing_context(
+                origin_label, prepare_ms, log_label="generate(via_waypoints)",
+                log_detail=f"waypoints={len(waypoints)} destination={destination is not None}",
+                failure_phrase="候補を生成できませんでした。対応エリア外の可能性があります。")
             return []
 
         trace_started = time.monotonic()
@@ -358,13 +398,10 @@ class RouteGenerator:
         context = await self._engine.prepare(origin, radius_km, waypoints=[destination], now=start_time)
         prepare_ms = round((time.monotonic() - started) * 1000)
         if context is None:
-            logger.warning(
-                "generate(spliced) origin=%s edges=%d -> no context prepare_ms=%d",
-                origin_label, len(edge_ids), prepare_ms,
-            )
-            self.last_no_candidates_reason = (
-                f"起点{origin_label}付近の道路データが未整備のため、ルートを組み立てられませんでした。"
-            )
+            self._explain_missing_context(
+                origin_label, prepare_ms, log_label="generate(spliced)",
+                log_detail=f"edges={len(edge_ids)}",
+                failure_phrase="ルートを組み立てられませんでした。")
             return []
 
         try:
@@ -427,14 +464,10 @@ class RouteGenerator:
         context = await self._engine.prepare(origin, radius_km, waypoints=[destination], now=start_time)
         prepare_ms = round((time.monotonic() - started) * 1000)
         if context is None:
-            logger.warning(
-                "generate(destination) origin=%s max_routes=%d -> no context prepare_ms=%d",
-                origin_label, max_routes, prepare_ms,
-            )
-            self.last_no_candidates_reason = (
-                f"起点{origin_label}付近の道路データが未整備のため、候補を生成できませんでした。"
-                "対応エリア外の可能性があります。"
-            )
+            self._explain_missing_context(
+                origin_label, prepare_ms, log_label="generate(destination)",
+                log_detail=f"max_routes={max_routes}",
+                failure_phrase="候補を生成できませんでした。対応エリア外の可能性があります。")
             return []
 
         select_started = time.monotonic()
@@ -527,56 +560,3 @@ class RouteGenerator:
             # 候補プールが空でない限り到達しないはずの状態への保険。
             parts.append("周回候補が得られませんでした")
         return "、".join(parts) + "。距離や除外する道路の設定を変えてお試しください。"
-
-    @staticmethod
-    def _with_overall_difficulty(candidate: RouteCandidate) -> RouteCandidate:
-        """segmentsの区間difficultyから距離加重平均のルート単位絶対基準集約値を付与する
-        （研究インターフェース改善 §10-7、エンジン非依存のためengine実装側には持たせない）。"""
-        if not candidate.segments:
-            return candidate
-        segments = [(s.difficulty, s.distance_km) for s in candidate.segments]
-        overall = distance_weighted_difficulty(segments)
-        # 難易度の総量（平均×距離）も同じsegmentsから同時に付ける。並び順には使わず、
-        # 「遠回りした分だけ増える」量として平均と併せて示す（domain/route.py参照）。
-        return candidate.model_copy(
-            update={"overall_difficulty": overall, "difficulty_load": difficulty_load(segments)}
-        )
-
-    @staticmethod
-    def _with_axis_difficulties(candidate: RouteCandidate) -> RouteCandidate:
-        """segmentsのaxis_difficulties（区間ごとのaxis_id→difficulty）をルート全区間へ
-        集約し、overall_difficultyと対になるルート全体版を付与する。
-        既存の`merge_axis_difficulties`（domain/route.py、_merge_segment_bin用に元々あった
-        もの）を候補全区間に対して1回適用するだけで得られ、新しい計算式は不要。"""
-        if not candidate.segments:
-            return candidate
-        axis_difficulties = merge_axis_difficulties(candidate.segments)
-        # 生値も同じ集約で付ける（軸単体で経路を判断するための絶対値）。集約方法が
-        # 同じなので別の導線を作らない。
-        axis_raw_values = merge_axis_raw_values(candidate.segments)
-        return candidate.model_copy(
-            update={"axis_difficulties": axis_difficulties, "axis_raw_values": axis_raw_values}
-        )
-
-    @staticmethod
-    def _with_axis_contributions(candidate: RouteCandidate) -> RouteCandidate:
-        """segmentsのaxis_contributions（区間ごとのaxis_id→重み付き寄与度）をルート
-        全区間へ集約し、overall_difficultyの内訳として付与する。
-        `_with_axis_difficulties`と同じ構造（`merge_axis_contributions`を候補全区間に
-        1回適用するだけ）。合計は丸め誤差を除いてoverall_difficultyと一致する
-        （domain/evaluation.py: compose_costs_from_axis_matrixのdocstring参照）。"""
-        if not candidate.segments:
-            return candidate
-        axis_contributions = merge_axis_contributions(candidate.segments)
-        return candidate.model_copy(update={"axis_contributions": axis_contributions})
-
-    @staticmethod
-    def _with_material_values(candidate: RouteCandidate) -> RouteCandidate:
-        """segmentsの数値材料をルート全区間へ集約する。`_with_axis_difficulties`と同じ構造。"""
-        if not candidate.segments:
-            return candidate
-        # categorical材料の延長割合はここでは触らない。`candidate.segments`は既に
-        # 約500m単位へ畳まれており、代表値からでは正しい割合を作れない——エンジンが
-        # ビニングの前に計算して`RouteCandidate`へ載せている
-        # （`domain/route.py: BIN_DROPPED_DICT_FIELDS`）。
-        return candidate.model_copy(update={"material_values": merge_material_values(candidate.segments)})
