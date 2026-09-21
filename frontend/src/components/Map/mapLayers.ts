@@ -302,9 +302,6 @@ export interface MapLayerDescriptor {
 // 取る。axis.note（backendレジストリの実装メモ、開発者向け）をそのまま出すと読みにくいため、
 // 未設定時のみaxis.noteへフォールバックする（下記buildMapLayersのrampAxes.map参照）。
 
-// ramp軸部分はbuildMapLayers(rampAxes)として関数化してあり、hooks/useAxisCatalog.tsが
-// 実行時に取得したrampAxes（軸スタジオの公開軸を含む）から呼べる。テスト
-// （axisLayers.test.ts）からはbuildMapLayers(RAMP_AXES)として直接呼べる。
 /** 収録年の言い方。連続していれば範囲で、飛んでいれば並べて出す。
  *
  * 年そのものは取込の宣言（backendの`source_runs.profile`）が正本で、

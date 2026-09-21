@@ -23,42 +23,38 @@ import {
 } from "@/components/Map/routeStyleModes";
 
 export interface AxisCatalog {
-  /** axisId・label・descriptionの一覧（フェッチ成功時はDB由来、失敗時は静的フォールバック）。 */
+  /** axisId・label・descriptionの一覧。 */
   axes: readonly PreferenceAxisDef[];
   /** axis_idから既定重みを引く。未知のaxis_idには0を返す。 */
   defaultWeights: RoutePreferenceWeights;
-  /** 地図のramp表示を持つ軸。フェッチ完了までとエラー時は静的
-   * フォールバック（axisLayers.ts: RAMP_AXES）を返す。 */
+  /** 地図のramp表示を持つ軸。 */
   rampAxes: readonly RampAxis[];
-  /** 専用のway_id→値配信レイヤーを持つ軸（風・勾配）。レイヤー登録・カタログ・
-   * 可視性・フェッチの全てがこの一覧から導出される。フェッチ完了までとエラー時は
-   * 静的フォールバック（axisLayers.ts: DEDICATED_WAY_VALUE_AXES）。 */
+  /** 専用のway_id→値配信レイヤーを持つ軸。レイヤー登録・カタログ・可視性・フェッチの
+   * 全てがこの一覧から導出される。 */
   dedicatedAxes: readonly DedicatedWayValueAxis[];
-  /** axis_id→表示名の辞書（軸スタジオ公開軸を含む、フェッチ完了までは静的フォールバック）。 */
+  /** axis_id→表示名の辞書。 */
   axisLabels: Record<string, string>;
   /** 事故データの収録年（backendの取込の宣言そのもの）。地図の説明文が範囲を書くのに使う。
    * フェッチ完了まで・エラー時は空で、その間は説明文が年に触れない。 */
   accidentYears: readonly number[];
-  /** 二次軸(推定指標)一覧（地図チップの「推定指標」グループが読む）。フェッチ完了までと
-   * エラー時は静的フォールバック（secondaryAxes.ts: SECONDARY_AXES）。 */
+  /** 二次軸(推定指標)一覧。地図チップの「推定指標」グループが読む。 */
   secondaryAxes: readonly SecondaryAxisSummary[];
-  /** ルート地図の色分けモード一覧（公開軸を無条件で動的に含む）。フェッチ完了までと
-   * エラー時は静的フォールバック（routeStyleModes.ts: ROUTE_STYLE_MODES）。 */
+  /** ルート地図の色分けモード一覧。公開軸を無条件で含む。取得できるまでは軸に依らない
+   * モードだけ（`ROUTE_STYLE_MODES_WITHOUT_AXES`）。 */
   routeStyleModes: readonly RouteStyleMode[];
   /** フロントが使う較正値（id → いま効いている値）。backendの`domain/tuning.py`が宣言し、
    * 管理画面から変えた値が再デプロイなしにここへ届く。取得できるまではビルド時生成物
    * （route-generate-config.json）の既定。 */
   clientTuning: Readonly<Record<string, number>>;
   /** GET /api/axis-catalogの取得が成功し、他フィールドが実際のDB由来の値であることを表す。
-   * falseの間（未取得・取得失敗）は他フィールドが静的フォールバック（ビルド時点の公開軸の
-   * スナップショット）である可能性があるため、呼び出し側が「軸スタジオの現在の公開軸集合と
-   * 一致している」ことを要求する処理（route_preferenceのキー整合等）では、このフラグで
+   * falseの間（未取得・取得失敗）は他フィールドが空のため、「軸スタジオの現在の公開軸集合と
+   * 一致している」ことを要求する処理（route_preferenceのキー整合等）は、このフラグで
    * 未確定状態を区別しなければならない。取得成功時にaxesが0件（全軸非公開）であっても
-   * trueになる（0件も確定した実際の状態のため）。 */
+   * trueになる——0件も確定した実際の状態である。 */
   loaded: boolean;
   /** GET /api/axis-catalogの取得を試みて失敗し、まだ一度も成功していないことを表す。
    * `loaded`とは同時にtrueにならない（未取得=両方false、成功=loadedのみ、失敗=failedのみ）。
-   * この状態では他フィールドが静的フォールバックのため、`loaded`を要求する処理
+   * この状態では他フィールドが空のため、`loaded`を要求する処理
    * （route_preference・lens_axis_idの送信）は黙って省略される。利用者へ何も知らせないと
    * 「重みを設定したのに反映されない」ことに気づけないため、UIはこのフラグで失敗と
    * 再試行導線を見せる（RouteSettingsPanel.tsx）。 */

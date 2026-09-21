@@ -194,23 +194,11 @@ export interface CatalogAxis {
   dynamic_way_value_needs_speed?: boolean;
 }
 
-// 改善計画T308: ビルド時静的json（CatalogAxis[]）・実行時API（GET /api/axis-catalog、
-// AxisCatalogEntry[]、displayが必ず非nullな点以外はCatalogAxisと構造的に同じ）の
-// どちらからもRAMP_AXES/AXIS_LABELSと同じ形へ変換できる共通関数（片側import、
-// 変換ロジックを2箇所へ手書きしない）。hooks/useAxisCatalog.tsがこれらを呼んで
-// 実行時フェッチ結果から同じ形の値を組み立てる。
-
-/** 全軸（ramp/noneを問わない。改善計画T298: kind="bespoke"は利用ゼロのため削除済み）の
- * ラベル辞書。区間インスペクタ（改善計画T146）が「一次属性→二次軸スコア」を表示する際、
- * 軸ごとに専用UIを持たずカタログのラベルへ汎用的に頼るために使う。
- * 改善計画T466（コメント訂正、ゼロベース網羅レビュー指摘）: `wind: "風"`の直書きは
- * 「windはレジストリ未登録のためカタログに無く、ここでのみ補う」という以前の理由は
- * 誤り——windは現在axis-catalog.json（静的・実行時とも）に登録済みで、通常は
- * `axes`からのspreadが同じ値で上書きするだけの無害な冗長コードに見える。しかし
- * この直書きには実際は別の役割がある: 全軸非公開（`axes`が空配列）等でカタログから
- * windが一時的に欠落しても、dedicatedWayValueLayer.ts等が参照するこの辞書のキー自体は
- * 常に存在させる安全網として機能する（`useAxisCatalog.test.ts`の回帰テスト
- * 「全軸非公開でaxesが0件でもaxisLabelsはwindを含む」が検証している）。削除しない。 */
+/** 全軸のラベル辞書。区間インスペクタが軸ごとの専用UIを持たず、名前をここから引く。
+ *
+ * `wind`だけ直書きするのは、**全軸非公開でカタログからwindが消えてもキーを残す**ため
+ * ——`dedicatedWayValueLayer.ts`はこの辞書からwindの名前を引く。カタログにwindが
+ * 在るときは、`axes`からのspreadが同じ値で上書きする。 */
 export function axisLabelsFromCatalogAxes(axes: readonly CatalogAxis[]): Record<string, string> {
   return {
     wind: "風",
