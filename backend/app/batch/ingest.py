@@ -16,6 +16,7 @@ import time
 from collections.abc import AsyncIterator, Callable
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any
 
 import asyncpg
@@ -49,7 +50,12 @@ class SourceRecord:
 #:
 #: 非同期にするのは、外部からタイル単位で取るソースが並行取得を要るため。同期で足りる
 #: ソース（ローカルのCSVを読むだけ等）も同じ契約に乗せ、経路を2本にしない。
-SourceAdapter = Callable[[SourceSpec, SourceProfile], AsyncIterator[SourceRecord]]
+#:
+#: 第3引数は`origin`。**どこから取ったかを知っているのはアダプタだけ**なので、ここへ
+#: 書き込ませて`source_runs.origin`へ残す。呼び出し側は中身を知らない——ソースごとに
+#: 意味のある項目が違い、共通の型を決めるとソースを足すたびに型が増える。
+SourceAdapter = Callable[
+    [SourceSpec, SourceProfile, dict[str, Any]], AsyncIterator[SourceRecord]]
 ADAPTERS: dict[str, SourceAdapter] = {}
 
 
@@ -61,6 +67,16 @@ def register_adapter(name: str) -> Callable[[SourceAdapter], SourceAdapter]:
         return fn
 
     return decorate
+
+
+def file_origin(path: "Path") -> dict[str, Any]:
+    """読んだファイルの素性。**取り直したかどうかを後から言えるだけの材料**を残す。
+
+    中身のハッシュは取らない——GB級のファイルを取込のたびにもう一度読むことになる。
+    """
+    stat = path.stat()
+    return {"path": str(path), "bytes": stat.st_size,
+            "mtime": datetime.fromtimestamp(stat.st_mtime, timezone.utc).isoformat()}
 
 
 def partition_table_name(source: str) -> str:
@@ -99,10 +115,14 @@ async def _open_run(conn: asyncpg.Connection, spec: SourceSpec, profile: SourceP
 
 
 async def _close_run(conn: asyncpg.Connection, run_id: int, status: str,
-                     counts: dict[str, Any]) -> None:
+                     counts: dict[str, Any], origin: dict[str, Any]) -> None:
+    """runを閉じる。`origin`はアダプタが走り終わってからでないと確定しないため、
+    開くときではなくここで書く（ファイルの実体・配信元のタイムスタンプは、読みに
+    行って初めて分かる）。"""
     await conn.execute(
-        "UPDATE source_runs SET status = $2, finished_at = $3, counts = $4 WHERE run_id = $1",
-        run_id, status, datetime.now(timezone.utc), _json(counts),
+        "UPDATE source_runs SET status = $2, finished_at = $3, counts = $4, origin = $5 "
+        "WHERE run_id = $1",
+        run_id, status, datetime.now(timezone.utc), _json(counts), _json(origin),
     )
 
 
@@ -126,7 +146,6 @@ async def ingest_source(
     conn: asyncpg.Connection,
     profile: SourceProfile,
     source_name: str,
-    origin: dict[str, Any] | None = None,
 ) -> int:
     """1ソースぶんを取り込み、`run_id`を返す。
 
@@ -139,7 +158,8 @@ async def ingest_source(
         raise ValueError(f"未登録のアダプタです: {spec.adapter}（{source_name}）")
 
     await ensure_partition(conn, spec.name)
-    run_id = await _open_run(conn, spec, profile, origin or {})
+    origin: dict[str, Any] = {}
+    run_id = await _open_run(conn, spec, profile, origin)
     started = time.perf_counter()
 
     staging = f"_stage_{spec.name}"
@@ -151,7 +171,7 @@ async def ingest_source(
     last_report = started
     batch: list[tuple[str, bytes, str, bytes | None, bytes | None]] = []
     seen = 0
-    async for record in adapter(spec, profile):
+    async for record in adapter(spec, profile, origin):
         # 読んだ数で出す。`written`はCOPYを流したときしか増えないので、1回で収まる量の
         # ソースでは最後まで0のままになり、進捗が止まって見える。
         seen += 1
@@ -191,7 +211,7 @@ async def ingest_source(
 
     elapsed = time.perf_counter() - started
     await _close_run(conn, run_id, "succeeded",
-                     {"records": written, "elapsed_seconds": round(elapsed, 1)})
+                     {"records": written, "elapsed_seconds": round(elapsed, 1)}, origin)
     logger.info("取込完了: source=%s run_id=%d records=%d elapsed=%.1fs",
                 spec.name, run_id, written, elapsed)
     return run_id

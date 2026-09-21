@@ -24,7 +24,7 @@ from typing import Any
 import shapely
 from shapely.geometry import LineString, Point
 
-from app.batch.ingest import SourceRecord, register_adapter
+from app.batch.ingest import SourceRecord, file_origin, register_adapter
 from app.batch.source_profile import SourceProfile, SourceSpec
 
 logger = logging.getLogger("ridecompass.ingest.osm_pbf")
@@ -137,11 +137,30 @@ class _Handoff:
             raise self.error
 
 
+def _pbf_origin(path: Path) -> dict[str, Any]:
+    """PBFの素性。`osmosis_replication_timestamp`は**配信元がいつの断面を焼いたか**で、
+    ファイルのmtime（こちらがいつ落としたか）とは別物。取れないPBFもあるので、
+    取れたときだけ入れる。"""
+    origin: dict[str, Any] = file_origin(path)
+    try:
+        import osmium
+
+        header = osmium.io.Reader(str(path)).header()
+        stamp = header.get("osmosis_replication_timestamp")
+        if stamp:
+            origin["replication_timestamp"] = stamp
+    except Exception:  # noqa: BLE001 出所の付帯情報が取れないだけで取込は続ける
+        pass
+    return origin
+
+
 @register_adapter("osm_pbf_way")
-async def read_osm_ways(spec: SourceSpec, profile: SourceProfile) -> AsyncIterator[SourceRecord]:
+async def read_osm_ways(spec: SourceSpec, profile: SourceProfile,
+                        origin: dict[str, Any]) -> AsyncIterator[SourceRecord]:
     from app.batch.pbf_source import stream_ways
 
     path = _pbf_path(spec)
+    origin.update(_pbf_origin(path))
     matches = _way_matcher(spec.rows)
     bbox = profile.target.bbox
     logger.info("OSM way: %s", path.name)
@@ -180,7 +199,8 @@ async def read_osm_ways(spec: SourceSpec, profile: SourceProfile) -> AsyncIterat
 
 
 @register_adapter("osm_pbf_node")
-async def read_osm_nodes(spec: SourceSpec, profile: SourceProfile) -> AsyncIterator[SourceRecord]:
+async def read_osm_nodes(spec: SourceSpec, profile: SourceProfile,
+                         origin: dict[str, Any]) -> AsyncIterator[SourceRecord]:
     """採ったwayが参照する頂点を、タグ込みで返す。
 
     タグの有無で分けない——POIかどうかは派生側の判定で、生データの側では決めない。
@@ -194,6 +214,7 @@ async def read_osm_nodes(spec: SourceSpec, profile: SourceProfile) -> AsyncItera
     # 片方だけ受け継ぐと、既定以外のPBFを指したプロファイルで頂点だけ別のファイルを読む。
     source_spec = profile.source(referenced_by) if referenced_by else spec
     path = _pbf_path(source_spec)
+    origin.update(_pbf_origin(path))
     matches = _way_matcher(source_spec.rows) if referenced_by else (lambda _: True)
     logger.info("OSM node: %s（%s の頂点）", path.name, referenced_by or "全way")
 
