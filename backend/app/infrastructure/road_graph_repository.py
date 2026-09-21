@@ -681,15 +681,20 @@ _EDGE_MATERIAL_ARRAYS_SQL = text(
 #
 # 空間の絞り込みは親wayのGiSTで行い、区間は主キーの先頭列で引く（`road_edges`はGiSTを
 # 持たない）。親のbboxで引くぶん区間を少し多く拾うが、グラフを読む粒度では誤差の範囲。
+#: **区間の空間索引だけで絞る。** 道の側からも絞ると、プランナが道を外側に置いた
+#: 入れ子ループを選び、範囲内の道1本ごとに区間表を引き直す（`natural_key::bigint`を
+#: 挟む結合は選択率を見積もれず`rows=1`と出るため、この形が選ばれる）。区間は道の
+#: 一部なので、区間が範囲に触れるなら道も触れる——道側の条件は結果を変えない。
+#:
+#: 道は`ways_lookup_sql`で1本ずつ引く（照合はtextのまま行う。その理由は同関数参照）。
 _TOPOLOGY_EDGES_SQL = text(f"""
 SELECT re.osm_way_id, re.segment_index, re.from_node_id, re.to_node_id,
        re.distance_m, re.bearing_deg, re.reverse_bearing_deg,
        w.highway, wm.direction
 FROM road_edges re
-JOIN {WAYS_SOURCE_SQL} w ON w.osm_way_id = re.osm_way_id
+JOIN LATERAL {ways_lookup_sql("re.osm_way_id")} w ON true
 LEFT JOIN way_materials wm ON wm.osm_way_id = re.osm_way_id
-WHERE w.geom && ST_MakeEnvelope(:xmin, :ymin, :xmax, :ymax, 4326)
-  AND ST_Intersects(re.geom, ST_MakeEnvelope(:xmin, :ymin, :xmax, :ymax, 4326))
+WHERE ST_Intersects(re.geom, ST_MakeEnvelope(:xmin, :ymin, :xmax, :ymax, 4326))
 """)
 
 _TOPOLOGY_NODES_SQL = text("""
