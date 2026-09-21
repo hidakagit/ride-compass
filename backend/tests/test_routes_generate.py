@@ -21,9 +21,10 @@ from app.services.evaluation_service import load_route_preference
 from app.services.graph_service import GraphService
 from app.services.route_generator import DEFAULT_MAX_ROUTES, MAX_ROUTES
 from app.services.weather_service import WeatherService
+from app.domain.axis_definitions import AXIS_DEFINITIONS
 
-# 改善計画T350: 本番相当の14軸（実軸id前提のロジック用）はtests/conftest.pyのセッション
-# スコープautouseフィクスチャが全テスト共通で用意する（tests/realistic_axis_fixtures.py参照）。
+# 軸システムはtests/conftest.pyのautouseフィクスチャが全テスト共通で用意する
+# （tests/axis_system_fixture.py）。
 
 client = TestClient(app)
 
@@ -255,11 +256,9 @@ def test_generate_routes_applies_weight_overrides_and_echoes_them(monkeypatch):
     # （研究インターフェース改善 §10-1）。
     captured: dict = {}
     monkeypatch.setattr(routes_module, "open_route_generation_setup", fake_open_route_generation_setup([], captured))
-    route_preference = {
-        "gradient": 0.5, "surface_q": 0.25, "wind": 0.2, "stop_density": 0.05,
-        "accident": 0.0,
-        "night": 0.0, "bicycle_infra_quality": 0.0, "openness": 0.0,
-    }
+    # 上書きは**公開軸の全件**でなければ422になる。軸が増減しても書き換えずに済むよう、
+    # 今の軸集合から作る。値そのものはエコーの検証に使うだけで意味を持たない。
+    route_preference = {axis_id: 0.125 for axis_id in sorted(AXIS_DEFINITIONS)}
 
     result = submit_and_await_done({**REQUEST_BODY, "route_preference": route_preference})
 
@@ -492,7 +491,7 @@ def test_generation_setup_uses_defaults_when_no_override():
 
 
 def test_generation_setup_uses_overrides_when_provided():
-    preference = RoutePreference(weights={"gradient": 1.0, "surface_q": 0.0, "wind": 0.0})
+    preference = RoutePreference(weights={axis_id: 1.0 for axis_id in sorted(AXIS_DEFINITIONS)})
 
     setup = _lightweight_route_generation_setup(preference)
 

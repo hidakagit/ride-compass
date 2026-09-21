@@ -8,8 +8,8 @@ from app.domain.tuning import TUNING_PARAMETERS, TuningEffect
 from app.main import app
 from app.services.region_service import RegionService
 
-# 改善計画T350: 本番相当の14軸（実軸id前提のロジック用）はtests/conftest.pyのセッション
-# スコープautouseフィクスチャが全テスト共通で用意する（tests/realistic_axis_fixtures.py参照）。
+# 軸システムはtests/conftest.pyのautouseフィクスチャが全テスト共通で用意する
+# （tests/axis_system_fixture.py）。
 
 client = TestClient(app)
 
@@ -72,21 +72,18 @@ def test_get_axis_catalog_reflects_axis_definitions_content():
 
 
 def test_get_axis_catalog_reflects_display_fields():
-    # 改善計画T310/T318: 地図チップ表示要素（icon_id/chip_label/panel_hint/
-    # show_map_icon）が軸自身のデータ（AXIS_DEFINITIONS）からそのまま反映されること。
+    # 地図チップの表示要素（icon_id/chip_label/show_map_icon）は、軸自身のデータを
+    # そのまま配る。未設定はnullで返し、フロントが汎用の既定で埋める。
     response = client.get("/api/axis-catalog")
 
-    body = response.json()
-    entries_by_id = {entry["axis_id"]: entry for entry in body["axes"]}
-    gradient = entries_by_id["gradient"]
+    entries_by_id = {entry["axis_id"]: entry for entry in response.json()["axes"]}
 
-    assert gradient["icon_id"] == "incline"
-    assert gradient["chip_label"] == "勾配"
-    # 改善計画T318: show_map_iconは既定Trueのため、明示的にfalseへ変更していない
-    # 既存軸は全て地図上に表示される。
-    assert gradient["show_map_icon"] is True
-    # wind等、T310で値を持たない軸は素直にnull（未設定=フロント側の汎用フォールバック）。
-    assert entries_by_id["wind"]["icon_id"] is None
+    assert entries_by_id["gradient"]["icon_id"] == "incline"
+    assert entries_by_id["axis_categorical"]["chip_label"] == "チップカ"
+    assert entries_by_id["axis_categorical"]["icon_id"] is None
+    # show_map_iconは既定True。falseにした軸だけがfalseで出る。
+    assert entries_by_id["axis_categorical"]["show_map_icon"] is True
+    assert entries_by_id["axis_no_map_icon"]["show_map_icon"] is False
 
 
 def test_get_axis_catalog_excludes_draft_axes(draft_axis):
@@ -105,15 +102,16 @@ def test_get_axis_catalog_includes_display_for_hand_written_and_auto_derived_axe
     body = response.json()
     entries_by_id = {entry["axis_id"]: entry for entry in body["axes"]}
 
-    stop_density_display = entries_by_id["stop_density"]["display"]
-    assert stop_density_display["kind"] == "ramp"
-    # 末尾が落ちるのは折れ線が飽和した先の境界だから。
-    assert stop_density_display["thresholds"] == [2.0, 4.0, 7.0]
+    # 上書きを持つ軸は、その値がそのまま段の境界になる（写し方の検証は
+    # test_axis_display.pyが持つ）。
+    overridden = entries_by_id["axis_optional_terms"]["display"]
+    assert overridden["kind"] == "ramp"
+    assert overridden["thresholds"] == [1.0, 2.0, 3.0]
 
-    # surface_qは上書きが無いので導出した値をそのまま使う。
-    surface_q_display = entries_by_id["surface_q"]["display"]
-    assert surface_q_display["kind"] == "ramp"
-    assert surface_q_display["tile_inputs"][0]["property"] == "surface_good"
+    # 上書きが無い軸は導出した値をそのまま使う。
+    derived = entries_by_id["axis_categorical"]["display"]
+    assert derived["kind"] == "ramp"
+    assert derived["tile_inputs"][0]["property"] == "surface_good"
 
     # gradientはどちらの経路でも導出できないためkind="none"。
     assert entries_by_id["gradient"]["display"]["kind"] == "none"
@@ -149,19 +147,14 @@ def test_get_axis_catalog_display_reflects_gui_created_published_axis():
 
 
 def test_get_axis_catalog_primary_attribute_ids_match_legacy_static_inputs():
-    # 改善計画T308: primary_attribute_idsは、以前ビルド時静的生成物
-    # （registry_defaults.py: AxisSpec.inputs、export_openapi.py経由でaxis-catalog.jsonへ
-    # 書き出されていた値）が持っていたのと同じ一次属性id集合を実行時に再現できることの
-    # 回帰確認（既存7軸ぶん、順序は問わない）。
+    # 一次属性idは軸が参照する材料から導く。軸が材料を複数持てば、その材料が属する
+    # 一次属性がすべて挙がる。
     response = client.get("/api/axis-catalog")
     entries_by_id = {entry["axis_id"]: entry for entry in response.json()["axes"]}
 
     assert set(entries_by_id["gradient"]["primary_attribute_ids"]) == {"elevation"}
-    assert set(entries_by_id["surface_q"]["primary_attribute_ids"]) == {"surface"}
-    # 交差点密度はT655で停止密度の材料から外れた（docs/records/tasks/T655.md「交差点密度の扱い」）。
-    assert set(entries_by_id["stop_density"]["primary_attribute_ids"]) == {"stop_poi"}
-    assert set(entries_by_id["night"]["primary_attribute_ids"]) == {"lit", "tunnel"}
-    assert set(entries_by_id["accident"]["primary_attribute_ids"]) == {"accident_point"}
+    assert set(entries_by_id["axis_categorical"]["primary_attribute_ids"]) == {"surface"}
+    assert set(entries_by_id["axis_night_only"]["primary_attribute_ids"]) == {"lit", "tunnel"}
 
 
 def test_get_axis_catalog_marks_accident_tile_input_as_needing_runtime_scale():
@@ -170,7 +163,7 @@ def test_get_axis_catalog_marks_accident_tile_input_as_needing_runtime_scale():
     body = response.json()
     entries_by_id = {entry["axis_id"]: entry for entry in body["axes"]}
 
-    accident_tile_inputs = entries_by_id["accident"]["display"]["tile_inputs"]
+    accident_tile_inputs = entries_by_id["axis_runtime_scaled"]["display"]["tile_inputs"]
     assert len(accident_tile_inputs) == 1
     assert accident_tile_inputs[0]["property"] == "accident_per_km"
     assert accident_tile_inputs[0]["needs_runtime_scale"] is True
@@ -219,9 +212,8 @@ def test_get_axis_catalog_includes_raw_value_unit():
     response = client.get("/api/axis-catalog")
     entries_by_id = {entry["axis_id"]: entry for entry in response.json()["axes"]}
     assert entries_by_id["gradient"]["raw_value_unit"] == "%"
-    # 停止密度は材料ごとに重みを変えて足す（交差点は0.3倍）ため、和は「回/km」では
-    # 読めない——生値の単位はnullになる。
-    assert entries_by_id["stop_density"]["raw_value_unit"] is None
+    # 材料ごとに重みを変えて足す軸は、和がどの単位でも読めない——nullになる。
+    assert entries_by_id["axis_optional_terms"]["raw_value_unit"] is None
 
 
 def test_get_axis_catalog_includes_material_breakdown():
@@ -232,7 +224,7 @@ def test_get_axis_catalog_includes_material_breakdown():
     entries_by_id = {entry["axis_id"]: entry for entry in response.json()["axes"]}
     # 単位が定まる軸は分解しない（軸単位の生値で足りる）。
     assert entries_by_id["gradient"]["material_breakdown"] == []
-    night = entries_by_id["night"]["material_breakdown"]
+    night = entries_by_id["axis_night_only"]["material_breakdown"]
     assert [entry["material_id"] for entry in night] == ["lit", "has_tunnel"]
     assert [entry["dtype"] for entry in night] == ["boolean", "boolean"]
     assert [entry["share"] for entry in night] == [0.5, 0.5]

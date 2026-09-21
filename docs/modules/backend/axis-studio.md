@@ -196,9 +196,9 @@ compute_edge_axis_scores`経由、下記「呼び出し元」参照）。周回�
 行は作らない。`refresh_axis_definitions`は0行を`AxisDefinitionSyncError`として扱うため、
 **新規環境は軸を1つ以上APIで登録するまでアプリが起動しない**。
 
-テストは`tests/realistic_axis_fixtures.py`（本番相当の軸をPythonで組んだテスト専用
-フィクスチャ）を`AXIS_DEFINITIONS`へ流し込む。DBの実データとは独立で、DB側の値が
-変わっても追従しない。
+テストは`tests/axis_system_fixture.py`を`AXIS_DEFINITIONS`へ流し込む。これが配るのは
+軸の**性質**（shapeの種類・必須でない項・時間帯限定・表示の上書き・専用way値配信）で
+あって本番の軸ではない。DBの実データとは独立で、DB側の値が変わっても追従しない。
 
 ## 地図表示ルールの自動導出（`domain/axis_display.py`）
 

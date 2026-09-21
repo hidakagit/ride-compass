@@ -27,7 +27,7 @@ from app.services.axis_registry_service import (
     AxisRegistryAdminService,
     refresh_axis_definitions,
 )
-from tests.realistic_axis_fixtures import axis_definitions_snapshot
+from tests.axis_system_fixture import axis_definitions_snapshot
 
 pytestmark = [
     pytest.mark.asyncio(loop_scope="module"),

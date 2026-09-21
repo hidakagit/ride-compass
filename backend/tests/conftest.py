@@ -24,7 +24,7 @@ from app.infrastructure.road_graph_repository import (
     create_tables,
 )
 from app.config import settings
-from tests.realistic_axis_fixtures import realistic_axis_definitions
+from tests.axis_system_fixture import fixture_axis_definitions
 from tests.admin_auth import ADMIN_PASSWORD, ADMIN_USERNAME
 
 
@@ -88,23 +88,16 @@ def _clear_tile_score_matrix_cache():
 
 
 @pytest.fixture(autouse=True, scope="session")
-def _realistic_axis_definitions():
-    """全テストへ本番相当の14軸（tests/realistic_axis_fixtures.py参照）を用意する
-    （改善計画T350のcode-reviewで指摘: 以前は各テストファイルへ同じautouseフィクスチャを
-    個別にコピペしており、①付け忘れたファイルはAXIS_DEFINITIONSが空のまま
-    weights={}・軸スコアNoneという退化した軸システムでも例外なくgreenになる構造的な
-    サイレント失敗リスクがあり、②同じ内容の辞書コピーを235件超のテスト関数それぞれで
-    毎回clear/update していた無駄もあった。ここへ集約しsession scope
-    （REALISTIC_AXIS_DEFINITIONSは不変の静的データのため、テストごとに作り直す必要がない）
-    にすることで両方を解消する。
+def _fixture_axis_definitions():
+    """全テストへ一貫した軸システムを用意する（tests/axis_system_fixture.py）。
 
-    個々のテストファイル（test_axis_registry_service.py・test_evaluation_bulk.py・
-    test_axis_catalog_routes.py等）が持つ、自前でAXIS_DEFINITIONSを一時的に書き換えて
-    元に戻すフィクスチャ/コンテキストマネージャはこれと独立に動作し続ける——それらは
-    「テスト開始時点の中身」をスナップショットして復元するだけなので、その中身が
-    このセッションフィクスチャ由来のREALISTIC_AXIS_DEFINITIONSであっても問題ない。
+    **ここを個々のテストファイルへ移さない**——付け忘れたファイルは`AXIS_DEFINITIONS`が
+    空のまま、重み空・軸スコアNoneという退化した状態でも例外なく緑になる。
+
+    自前で`AXIS_DEFINITIONS`を書き換えて戻すテストとは独立に動く（あちらは「テスト開始
+    時点の中身」を憶えて戻すだけで、その中身がここ由来でも変わらない）。
     """
-    with realistic_axis_definitions():
+    with fixture_axis_definitions():
         yield
 
 

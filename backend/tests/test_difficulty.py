@@ -1,257 +1,138 @@
+"""`domain/difficulty.py`——軸ごとの得点と区間ごとの値を、1つの数へ畳む。
+
+ここで見るのは**畳み方**だけ。軸そのものの評価（折れ点補間・欠損の扱い）は
+`test_axis_definitions.py`が持つ。
+"""
+
 import numpy as np
 
-from app.domain.axis_definitions import AXIS_DEFINITIONS, evaluate_axis_scalar
 from app.domain.difficulty import (
+    composite_contributions,
     composite_difficulty,
     difficulty_load,
     distance_weighted_difficulty,
     distance_weighted_difficulty_array,
+    weighted_mean_by_distance,
 )
 
-# 折れ点補間の検証は`AXIS_DEFINITIONS`をそのまま参照するため、一貫した軸システムが要る。
-# tests/conftest.pyのセッションスコープautouseフィクスチャが全テスト共通で用意し、
-# breakpointsは本番と同じ値をtests/realistic_axis_fixtures.pyで再現している。
 
+class TestCompositeDifficulty:
+    """(得点, 重み)を加重平均へ畳む。"""
 
-def test_gradient_axis_easy_flat_road():
-    assert evaluate_axis_scalar(AXIS_DEFINITIONS["gradient"], {"gradient_percent": 0.0}) == 0.0
+    def test_weights_each_score(self):
+        assert composite_difficulty([(0.0, 1.0), (100.0, 3.0)]) == 75.0
 
+    def test_missing_scores_leave_the_denominator(self):
+        """欠損した軸は分子からも分母からも抜ける——残りの重みで割り直す。"""
+        assert composite_difficulty([(40.0, 1.0), (None, 9.0)]) == 40.0
 
-def test_gradient_axis_moderate_climb():
-    assert evaluate_axis_scalar(AXIS_DEFINITIONS["gradient"], {"gradient_percent": 3.0}) == 25.0
+    def test_no_usable_score_is_none(self):
+        assert composite_difficulty([(None, 1.0)]) is None
+        assert composite_difficulty([]) is None
 
+    def test_zero_total_weight_is_none(self):
+        """得点があっても、重みが全て0なら割れない。0点へ倒さない。"""
+        assert composite_difficulty([(50.0, 0.0), (80.0, 0.0)]) is None
 
-def test_gradient_axis_hard_climb():
-    assert evaluate_axis_scalar(AXIS_DEFINITIONS["gradient"], {"gradient_percent": 9.0}) == 75.0
+    def test_rounds_to_one_decimal(self):
+        assert composite_difficulty([(0.0, 1.0), (100.0, 2.0)]) == 66.7
 
 
-def test_gradient_axis_caps_at_100_for_steep_climbs():
-    assert evaluate_axis_scalar(AXIS_DEFINITIONS["gradient"], {"gradient_percent": 20.0}) == 100.0
+class TestCompositeContributions:
+    """加重平均を軸ごとへ分解する。画面の内訳バーがこれを積む。"""
 
+    def test_keeps_the_input_order_and_length(self):
+        """入力と同じ並び・同じ長さで返す——呼び出し側が軸と位置で対応づける。"""
+        assert composite_contributions([(0.0, 1.0), (None, 2.0), (100.0, 1.0)]) == [0.0, None, 50.0]
 
-def test_gradient_axis_treats_descent_same_as_climb():
-    # preprocess="abs"で評価するため、下りも同じ勾配なら同じ難易度になる
-    definition = AXIS_DEFINITIONS["gradient"]
-    assert evaluate_axis_scalar(definition, {"gradient_percent": -6.0}) == evaluate_axis_scalar(
-        definition, {"gradient_percent": 6.0}
-    )
+    def test_shares_the_denominator_with_the_composite(self):
+        """合成と同じ分母で割る。別々に正規化すると内訳が合成と桁で食い違う。"""
+        scored = [(40.0, 1.0), (80.0, 3.0)]
 
+        assert sum(c for c in composite_contributions(scored) if c is not None) == composite_difficulty(scored)
 
-def test_gradient_axis_missing_material_is_none():
-    assert evaluate_axis_scalar(AXIS_DEFINITIONS["gradient"], {}) is None
+    def test_unevaluable_composite_makes_every_contribution_none(self):
+        assert composite_contributions([(None, 1.0), (None, 2.0)]) == [None, None]
+        assert composite_contributions([(50.0, 0.0)]) == [None]
 
 
-def test_wind_axis_strong_tailwind_is_zero():
-    # breakpoints[(-1.2,0),(0,15),(5,100)]は追い風を横風より優遇するため、-1.2以下で0に
-    # クランプする。
-    assert evaluate_axis_scalar(AXIS_DEFINITIONS["wind"], {"wind_drag_ratio": -3.0}) == 0.0
+class TestWeightedMeanByDistance:
+    """区間の値を距離で加重平均する。**丸めない**。"""
 
+    def test_does_not_round(self):
+        """丸めは呼び出し側が決める——桁の小さい軸の生値が潰れるため。"""
+        assert weighted_mean_by_distance([(0.0, 1.0), (100.0, 2.0)]) == 200.0 / 3.0
 
-def test_wind_axis_no_wind_has_baseline_above_zero():
-    # 無風は追い風より不利な基準点（15）を持つ（追い風優遇の設計）。
-    assert evaluate_axis_scalar(AXIS_DEFINITIONS["wind"], {"wind_drag_ratio": 0.0}) == 15.0
+    def test_missing_values_leave_the_denominator(self):
+        assert weighted_mean_by_distance([(40.0, 1.0), (None, 9.0)]) == 40.0
 
+    def test_no_usable_value_or_no_distance_is_none(self):
+        assert weighted_mean_by_distance([(None, 1.0)]) is None
+        assert weighted_mean_by_distance([(50.0, 0.0)]) is None
+        assert weighted_mean_by_distance([]) is None
 
-def test_wind_axis_strong_headwind_caps_at_100():
-    assert evaluate_axis_scalar(AXIS_DEFINITIONS["wind"], {"wind_drag_ratio": 10.0}) == 100.0
 
+class TestDistanceWeightedDifficulty:
+    """`weighted_mean_by_distance`を0〜100の得点向けに小数1桁へ丸めたもの。"""
 
-def test_wind_axis_moderate_headwind_is_between():
-    value = evaluate_axis_scalar(AXIS_DEFINITIONS["wind"], {"wind_drag_ratio": 4.0})
-    assert value is not None
-    assert 0.0 < value < 100.0
+    def test_rounds_the_weighted_mean(self):
+        assert distance_weighted_difficulty([(0.0, 1.0), (100.0, 2.0)]) == 66.7
 
+    def test_longer_segments_pull_harder(self):
+        assert distance_weighted_difficulty([(0.0, 9.0), (100.0, 1.0)]) == 10.0
 
-def test_surface_q_axis_good_surface_is_easy():
-    assert evaluate_axis_scalar(AXIS_DEFINITIONS["surface_q"], {"surface_good": True}) == 0.0
+    def test_missing_values_leave_the_denominator(self):
+        assert distance_weighted_difficulty([(40.0, 1.0), (None, 9.0)]) == 40.0
 
+    def test_no_usable_value_or_no_distance_is_none(self):
+        assert distance_weighted_difficulty([(None, 1.0)]) is None
+        assert distance_weighted_difficulty([(50.0, 0.0)]) is None
+        assert distance_weighted_difficulty([]) is None
 
-def test_surface_q_axis_bad_surface_is_hard():
-    value = evaluate_axis_scalar(AXIS_DEFINITIONS["surface_q"], {"surface_good": False})
-    assert value is not None
-    assert value > 0.0
 
+class TestDifficultyLoad:
+    """総量。距離で割らないので、伸ばせばそのまま増える。"""
 
-def test_surface_q_axis_missing_material_is_none():
-    assert evaluate_axis_scalar(AXIS_DEFINITIONS["surface_q"], {}) is None
+    def test_grows_with_distance_at_the_same_average(self):
+        short = difficulty_load([(50.0, 2.0)])
+        long = difficulty_load([(50.0, 4.0)])
 
+        assert long == 2 * short
 
-def test_stop_density_axis_zero_density_is_easiest():
-    assert evaluate_axis_scalar(AXIS_DEFINITIONS["stop_density"], {"poi_signal_per_km": 0.0}) == 0.0
+    def test_a_detour_that_lowers_the_average_still_costs_more(self):
+        """平均を下げる遠回りでも、総量では不利に出る。"""
+        direct = difficulty_load([(80.0, 2.0)])
+        detour = difficulty_load([(80.0, 2.0), (10.0, 3.0)])
 
+        assert detour > direct
 
-def test_stop_density_axis_increases_with_density():
-    # 折れ点(0.5,20)-(1.5,50)の途中。信号1.0回/km → 20 + (1.0-0.5)/(1.5-0.5)*(50-20) = 35.0
-    assert evaluate_axis_scalar(AXIS_DEFINITIONS["stop_density"], {"poi_signal_per_km": 1.0}) == 35.0
+    def test_missing_segments_keep_their_distance_in_the_total(self):
+        """欠損区間は平均の計算からは抜けるが、**総量の距離には残る**。
+        飛ばすと「データが無い区間が多いほど総量が小さい」ことになり、欠損の多い
+        ルートが有利に見えてしまう。"""
+        assert difficulty_load([(50.0, 2.0), (None, 2.0)]) == 50.0 * 4.0
 
+    def test_no_usable_value_or_no_distance_is_none(self):
+        assert difficulty_load([(None, 1.0)]) is None
+        assert difficulty_load([(50.0, 0.0)]) is None
+        assert difficulty_load([]) is None
 
-def test_stop_density_axis_caps_at_100_for_high_density():
-    assert evaluate_axis_scalar(AXIS_DEFINITIONS["stop_density"], {"poi_signal_per_km": 10.0}) == 100.0
 
+class TestDistanceWeightedDifficultyArray:
+    """`distance_weighted_difficulty`のnumpy版。欠損はNaNで表す。"""
 
-def test_stop_density_axis_without_any_poi_density_is_none():
-    assert evaluate_axis_scalar(AXIS_DEFINITIONS["stop_density"], {}) is None
+    def test_matches_the_scalar_version(self):
+        segments = [(0.0, 1.0), (100.0, 2.0)]
+        array = distance_weighted_difficulty_array(
+            np.array([s for s, _ in segments]), np.array([d for _, d in segments])
+        )
 
+        assert array == distance_weighted_difficulty(segments)
 
-def test_stop_density_axis_absent_kind_defaults_to_no_contribution():
-    definition = AXIS_DEFINITIONS["stop_density"]
-    only_signal = evaluate_axis_scalar(definition, {"poi_signal_per_km": 1.0})
-    signal_with_none_crossing = evaluate_axis_scalar(
-        definition, {"poi_signal_per_km": 1.0, "poi_level_crossing_per_km": None}
-    )
-    assert only_signal == signal_with_none_crossing
+    def test_nan_elements_leave_the_denominator(self):
+        assert distance_weighted_difficulty_array(np.array([40.0, np.nan]), np.array([1.0, 9.0])) == 40.0
 
-
-def test_stop_density_axis_weights_level_crossing_above_signal():
-    """踏切は信号より待たされるため、同じ密度なら難易度が高く出る。"""
-    definition = AXIS_DEFINITIONS["stop_density"]
-
-    signal = evaluate_axis_scalar(definition, {"poi_signal_per_km": 1.0})
-    level_crossing = evaluate_axis_scalar(definition, {"poi_level_crossing_per_km": 1.0})
-
-    assert level_crossing > signal
-
-
-def test_stop_density_axis_ignores_unsignalized_crossings():
-    """信号を伴わない横断歩道は重み0——道なりに走る自転車の停止要因にならないため。
-
-    重み0はGUI（軸スタジオ）で設定されており、コード側に横断歩道を特別扱いする分岐は無い。
-    """
-    definition = AXIS_DEFINITIONS["stop_density"]
-
-    without_crossing = evaluate_axis_scalar(definition, {"poi_signal_per_km": 1.0})
-    with_many_crossings = evaluate_axis_scalar(
-        definition, {"poi_signal_per_km": 1.0, "poi_crossing_per_km": 20.0}
-    )
-
-    assert with_many_crossings == without_crossing
-
-
-def test_stop_density_axis_combined_still_caps_at_100():
-    value = evaluate_axis_scalar(
-        AXIS_DEFINITIONS["stop_density"],
-        {"poi_signal_per_km": 4.0, "poi_level_crossing_per_km": 10.0},
-    )
-    assert value == 100.0
-
-
-def test_composite_difficulty_weighted_average():
-    result = composite_difficulty([(0.0, 0.5), (100.0, 0.5)])
-
-    assert result == 50.0
-
-
-def test_composite_difficulty_excludes_none_and_renormalizes():
-    # 2つ目の指標がNoneなので、残り2つ(重み0.5,0.25)だけで再正規化される
-    # (0*0.5 + 100*0.25) / (0.5+0.25) = 33.33... -> 33.3
-    result = composite_difficulty([(0.0, 0.5), (None, 0.25), (100.0, 0.25)])
-
-    assert result == 33.3
-
-
-def test_composite_difficulty_all_none_returns_none():
-    assert composite_difficulty([(None, 0.5), (None, 0.5)]) is None
-
-
-def test_distance_weighted_difficulty_weights_by_distance():
-    # 1kmのdifficulty=0.0と3kmのdifficulty=100.0 -> (0*1 + 100*3) / 4 = 75.0
-    result = distance_weighted_difficulty([(0.0, 1.0), (100.0, 3.0)])
-
-    assert result == 75.0
-
-
-def test_distance_weighted_difficulty_excludes_none_and_renormalizes():
-    # 2番目の区間(distance_km=5.0)はdifficulty欠損のため除外し、残り2区間の距離だけで平均する
-    result = distance_weighted_difficulty([(0.0, 1.0), (None, 5.0), (100.0, 1.0)])
-
-    assert result == 50.0
-
-
-def test_distance_weighted_difficulty_all_none_returns_none():
-    assert distance_weighted_difficulty([(None, 1.0), (None, 2.0)]) is None
-
-
-def test_distance_weighted_difficulty_zero_total_distance_returns_none():
-    assert distance_weighted_difficulty([(50.0, 0.0)]) is None
-
-
-def test_distance_weighted_difficulty_empty_returns_none():
-    assert distance_weighted_difficulty([]) is None
-
-
-def test_distance_weighted_difficulty_array_drops_nan_and_renormalizes():
-    # NaNの要素は欠損として除外し、残りの距離で再正規化する（0と100を1kmずつ）。
-    result = distance_weighted_difficulty_array(
-        np.array([0.0, np.nan, 100.0]), np.array([1.0, 5.0, 1.0])
-    )
-
-    assert result == 50.0
-
-
-def test_distance_weighted_difficulty_array_all_nan_returns_none():
-    assert distance_weighted_difficulty_array(np.array([np.nan, np.nan]), np.array([1.0, 2.0])) is None
-
-
-def test_distance_weighted_difficulty_array_zero_total_distance_returns_none():
-    assert distance_weighted_difficulty_array(np.array([50.0]), np.array([0.0])) is None
-
-
-def test_distance_weighted_difficulty_array_empty_returns_none():
-    assert distance_weighted_difficulty_array(np.array([]), np.array([])) is None
-
-
-def test_accident_axis_zero_density_is_easiest():
-    assert (
-        evaluate_axis_scalar(AXIS_DEFINITIONS["accident"], {"accident_count_per_km_year": 0.0}) == 0.0
-    )
-
-
-def test_accident_axis_increases_with_density():
-    value = evaluate_axis_scalar(AXIS_DEFINITIONS["accident"], {"accident_count_per_km_year": 0.25})
-    assert value == 50.0
-
-
-def test_accident_axis_caps_at_100_for_high_density():
-    value = evaluate_axis_scalar(AXIS_DEFINITIONS["accident"], {"accident_count_per_km_year": 10.0})
-    assert value == 100.0
-
-
-def test_accident_axis_missing_material_is_none():
-    assert evaluate_axis_scalar(AXIS_DEFINITIONS["accident"], {}) is None
-
-
-
-
-
-
-def test_difficulty_load_grows_with_distance():
-    # 同じ平均難易度でも、距離が2倍なら総量も2倍になる（平均は距離で正規化されるため
-    # 同じ値のまま。「長い分だけ疲れる」を平均と区別して示すのが総量の役割）。
-    short = difficulty_load([(50.0, 5.0)])
-    long = difficulty_load([(50.0, 10.0)])
-
-    assert distance_weighted_difficulty([(50.0, 5.0)]) == distance_weighted_difficulty([(50.0, 10.0)])
-    assert short == 250.0
-    assert long == 500.0
-
-
-def test_difficulty_load_penalizes_detour_that_lowers_average():
-    # 8km・平均40（難所あり）と、12km・平均30（遠回りして難所を避けた）を比べると、
-    # 平均では後者が良く見えるが、総量では前者が小さい。
-    direct = difficulty_load([(40.0, 8.0)])
-    detour = difficulty_load([(30.0, 12.0)])
-
-    assert direct < detour
-
-
-def test_difficulty_load_missing_segments_follow_average_semantics():
-    # difficulty欠損区間の扱いは平均と一致させる（平均×全区間の距離合計）。区間ごとに
-    # 積分して欠損を飛ばすと、データの無い区間が多いルートほど総量が小さく見えてしまう。
-    segments = [(0.0, 1.0), (None, 5.0), (100.0, 1.0)]
-
-    assert distance_weighted_difficulty(segments) == 50.0
-    assert difficulty_load(segments) == 350.0
-
-
-def test_difficulty_load_all_none_returns_none():
-    assert difficulty_load([(None, 1.0), (None, 2.0)]) is None
+    def test_no_usable_element_or_no_distance_is_none(self):
+        assert distance_weighted_difficulty_array(np.array([np.nan]), np.array([1.0])) is None
+        assert distance_weighted_difficulty_array(np.array([50.0]), np.array([0.0])) is None
+        assert distance_weighted_difficulty_array(np.array([]), np.array([])) is None
