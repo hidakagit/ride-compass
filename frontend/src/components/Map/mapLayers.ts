@@ -76,7 +76,7 @@ export type MapLayerId =
   // staticのまま、dataNature="dynamic"（下記）だけで区別する。詳細はkind/
   // MapLayerDataNatureのコメント参照。
   | "precipitationNowcast"
-  // 風の矢印。関東本土全域の固定格子点サンプリング（GeoJSON source + symbolレイヤー）。
+  // 風の矢印。バックエンドが返す固定格子点のサンプリング（GeoJSON source + symbolレイヤー）。
   // precipitationNowcastと同じ理由でkind="static"・dataNature="dynamic"。
   | "windVector"
   | "disaster"
@@ -315,9 +315,7 @@ function coverageYearsLabel(years: readonly number[]): string {
   const sorted = [...years].sort((a, b) => a - b);
   if (sorted.length === 1) return `${sorted[0]}年`;
   const continuous = sorted.every((year, index) => index === 0 || year === sorted[index - 1] + 1);
-  return continuous
-    ? `${sorted[0]}〜${sorted[sorted.length - 1]}年`
-    : `${sorted.join("・")}年`;
+  return continuous ? `${sorted[0]}〜${sorted[sorted.length - 1]}年` : `${sorted.join("・")}年`;
 }
 
 export function buildMapLayers(
@@ -326,8 +324,9 @@ export function buildMapLayers(
   accidentYears: readonly number[] = [],
 ): readonly MapLayerDescriptor[] {
   // 取れていないときは年に触れない（取得前に既定の年を出すと、それが正しいように見える）。
-  const accidentYearsLabel = coverageYearsLabel(accidentYears);
-  const accidentCoverage = accidentYearsLabel ? `関東7都県、${accidentYearsLabel}` : "関東7都県";
+  // 収録範囲は取込プロファイルのbboxが決めるため、説明文では名乗らない——地図はデータの
+  // ある所にしか点を打たないので、範囲は見れば分かる。
+  const accidentCoverage = coverageYearsLabel(accidentYears);
   return [
     {
       id: "elevation",
@@ -513,9 +512,9 @@ export function buildMapLayers(
       chipLabel: "事故",
       kind: "static",
       category: "trafficSafety",
-      description: `警察庁交通事故統計オープンデータ[${accidentCoverage}]の発生地点を表示`,
+      description: `警察庁交通事故統計オープンデータ${accidentCoverage ? `[${accidentCoverage}]` : ""}の発生地点を表示`,
       panelHint:
-        `警察庁が公開する交通事故統計オープンデータ[本票、${accidentCoverage}]の` +
+        `警察庁が公開する交通事故統計オープンデータ[本票${accidentCoverage ? `、${accidentCoverage}` : ""}]の` +
         "発生地点です。死亡事故（事故後24時間以内）は円を大きく表示します。",
     },
     // 二次軸の汎用rampレイヤー（「事実はタイルに、解釈はクライアントに」）。backendレジストリ
@@ -606,7 +605,8 @@ export function buildMapLayers(
         "部分・線状降水帯予測マップは、取得に失敗することがあります。",
     },
     {
-      // 風の矢印。関東本土全域の固定格子点（バックエンド/api/weather/wind-grid）を
+      // 風の矢印。固定格子点（バックエンド/api/weather/wind-grid。範囲と間隔はbackendの
+      // `domain/wind_grid.py`が決める）を
       // 気象庁MSM（ローカルへ同期した.omファイル）からサンプリングする自前実装のため、
       // GPLv2ライブラリ・気象庁の非公式配信のどちらにも依存しない。
       id: "windVector",
@@ -627,9 +627,9 @@ export function buildMapLayers(
       kind: "static",
       category: "weather",
       dataNature: "dynamic",
-      description: "気象庁MSMの風向・風速予報を矢印で表示[関東本土の格子点、1〜3日先まで]",
+      description: "気象庁MSMの風向・風速予報を矢印で表示[1〜3日先まで]",
       panelHint:
-        "気象庁MSM（メソ数値予報モデル、5kmメッシュ）による風向・風速を関東本土全域の格子点で矢印表示します。" +
+        "気象庁MSM（メソ数値予報モデル、5kmメッシュ）による風向・風速を格子点で矢印表示します。" +
         "矢印の向きが風向、長さ・太さ・色の濃淡が風速の強さを表します。ごく弱い風の地点は" +
         "矢印を表示しません。ONにすると地図上に時刻スライダーが現れ、1時間刻みで切り替えられます" +
         "（先まで見られる範囲は配信中の予報の長さによって1〜3日の間で変わります）。走行方位に対する向かい風/追い風の強さは、ルート設定パネルの" +
