@@ -1,8 +1,8 @@
-"""graph_material_cache.pyの単体テスト（改善計画T331）。
+"""graph_material_cache.pyの単体テスト。
 
-tile単位キャッシュ・accident_years_coveredのモジュールレベルAPIを検証する
-（LRUの立ち退き自体は`cachetools.LRUCache`の責務のためここでは検証しない）。改善計画T538（ディスク永続化）以降は、プロセス再起動を
-模した境界ケース（メモリだけ空にした状態からのディスク経由フォールバック）も検証する。
+タイル単位キャッシュとaccident_years_coveredのモジュールレベルAPI、およびプロセス再起動を
+模した境界ケース（メモリだけ空にした状態からのディスク経由フォールバック）を検証する
+（LRUの立ち退き自体は`cachetools.LRUCache`の責務のためここでは検証しない）。
 """
 
 from app.domain.attributes import SearchMaterials
@@ -49,8 +49,7 @@ class TestModuleLevelTileCacheApi:
 
 
 class TestDiskPersistence:
-    """改善計画T538: プロセス内メモリLRUだけでなく、ディスク永続化キャッシュ
-    （infrastructure/tile_persistent_cache.py）を経由するフォールバック経路を検証する。
+    """ディスク永続化キャッシュを経由するフォールバック経路。
 
     本番の実態（デプロイでコンテナが再起動する）は「メモリキャッシュは空だが、前回の
     プロセスが書き込んだディスクキャッシュは残っている」状態のため、各テストは
@@ -117,7 +116,7 @@ class TestDiskPersistence:
         assert graph_material_cache.get_tile_materials(12, 5, 6) is not None
 
     def test_version_bump_makes_previously_persisted_tile_a_miss(self):
-        # 材料の世代が変わった後を模す。
+        # 署名が変わって鍵が別物になった状態を模す。
         materials = self._sample_materials()
         graph_material_cache.set_tile_materials(12, 5, 6, materials)
         graph_material_cache._tile_materials_cache.clear()
@@ -134,8 +133,7 @@ class TestDiskPersistence:
 
     def test_disk_read_failure_falls_back_to_miss_without_raising(self, monkeypatch):
         # 破損エントリ・SQLite障害のいずれも「未キャッシュ」へ倒し、呼び出し元へ例外を
-        # 伝播させないという契約を固定する（ローカルでは全greenでも本番の実データで
-        # 初めて例外、という手戻りを防ぐ）。
+        # 伝播させないという契約を固定する。
         materials = self._sample_materials()
         graph_material_cache.set_tile_materials(12, 5, 6, materials)
         graph_material_cache._tile_materials_cache.clear()
@@ -148,9 +146,7 @@ class TestDiskPersistence:
         assert graph_material_cache.get_tile_materials(12, 5, 6) is None
 
     def test_empty_tile_materials_round_trip_through_disk(self):
-        # T536本番実測で判明した「bbox内の1タイルがEdge0件」ケース（combine_static_edge_
-        # score_matricesの例外修正、docs/records/tasks/T536.md）の土台となる、Edge0件タイル自体の
-        # 永続化・復元が正しく機能することを確認する。
+        # bbox内の1タイルがEdge0件になることは実際に起きる。空でも往復できること。
         empty_materials = SearchMaterials(
             graph=LeanRoadGraph(graph_version="tile-cache-empty", nodes={}, edges={}),
             materials={},
@@ -166,9 +162,8 @@ class TestDiskPersistence:
 
 
 class TestReadStats:
-    """改善計画T546（対応方針項目6）: get_tile_materialsの`read_stats`引数が、
-    メモリ/ディスクいずれを経由したかと、ディスク経由時のread_msを
-    正しく書き込むことを確認する。"""
+    """`get_tile_materials`の`read_stats`引数が、メモリ/ディスクいずれを経由したかと、
+    ディスク経由時のread_msを書き込むこと。"""
 
     def setup_method(self):
         graph_material_cache.clear()
@@ -279,33 +274,10 @@ class TestSyncDiskCacheWithDerivedDataRevision:
 
     def test_none_revision_clears_once_then_stops(self):
         # 行が無い等の想定外。安全側（消す）へ倒すが、読めなかったことを記録して
-        # 繰り返しの全消去を止める（改善計画T929）。
+        # 繰り返しの全消去を止める。
         graph_material_cache.sync_disk_cache_with_derived_data_revision(5)
 
         assert graph_material_cache.sync_disk_cache_with_derived_data_revision(None) is True
         assert graph_material_cache.sync_disk_cache_with_derived_data_revision(None) is False
         # 記録されているのは実際の世代ではない（intとしては読めない）。
         assert graph_material_cache.read_persisted_revision() != 5
-
-
-def test_cache_version_is_the_shape_of_everything_the_cached_value_pickles():
-    """鍵は形だけで決まる。中身の作り直しで鍵が変わらないことを固定する——変わる設計へ
-    戻すと、バッチのたびにディスク上へ旧世代の実体が残り続ける。
-
-    署名の材料は**キャッシュ値がpickleするdataclass全部**。材料の表だけを署名すると、
-    同じ値に入っているグラフ（`LeanNode`/`LeanEdge`）へ列を足しても鍵が動かず、足した列が
-    既定値のまま返り続ける。
-    """
-    import dataclasses
-
-    from app.domain.attributes import EdgeMaterialArrays
-    from app.domain.graph import LeanEdge, LeanNode
-    from app.infrastructure.cache_identity import shape_digest
-
-    pickled = (EdgeMaterialArrays, LeanNode, LeanEdge)
-    assert all(dataclasses.is_dataclass(cls) for cls in pickled)
-    assert graph_material_cache.TILE_MATERIALS_CACHE_VERSION == shape_digest(*pickled)
-    # 1つでも欠けると鍵が変わる＝どれも署名に効いている。
-    for i in range(len(pickled)):
-        subset = pickled[:i] + pickled[i + 1:]
-        assert shape_digest(*subset) != graph_material_cache.TILE_MATERIALS_CACHE_VERSION

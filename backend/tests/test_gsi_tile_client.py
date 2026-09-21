@@ -8,8 +8,8 @@ from tests.fake_tile_http import FakeHttpClient
 @pytest.fixture(autouse=True)
 def use_temp_cache_dir(tmp_path, monkeypatch):
     monkeypatch.setattr(tile_cache, "CACHE_DIR", tmp_path / "tile_cache")
-    # 改善計画T605: 恒久404の記憶（_not_found_paths）はプロセス内モジュール変数のため、
-    # テスト間で漏れないよう毎回空にする（_target_times_cache.clear()と同じ理由）。
+    # 恒久404の記憶（_not_found_paths）はプロセス内モジュール変数のため、
+    # テスト間で漏れないよう毎回空にする。
     gsi_tile_client._not_found_paths.clear()
     yield
 
@@ -49,7 +49,7 @@ async def test_get_returns_none_on_upstream_failure():
 
 
 async def test_get_returns_relief_tile_not_found_for_404():
-    # 改善計画T605: 整備区域外（404）は珍しくない正常系のため、他の失敗と区別する。
+    # 整備区域外（404）は珍しくない正常系のため、他の失敗と区別する。
     import httpx
 
     request = httpx.Request("GET", "https://cyberjapandata.gsi.go.jp/x")
@@ -65,8 +65,7 @@ async def test_get_returns_relief_tile_not_found_for_404():
 
 
 async def test_get_caches_404_and_skips_second_upstream_request():
-    # 改善計画T605: 恒久404を確認したタイルは、次回get()が上流へ問い合わせず
-    # GsiTileNotFoundを即座に返す。
+    # 恒久404を確認したタイルは、次回get()が上流へ問い合わせずGsiTileNotFoundを即座に返す。
     import httpx
 
     request = httpx.Request("GET", "https://cyberjapandata.gsi.go.jp/x")

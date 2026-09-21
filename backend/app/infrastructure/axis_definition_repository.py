@@ -3,19 +3,10 @@
 書き込みメソッドは一切commitしない（road_graph_repository.pyと同じ規約。呼び出し側
 [services/axis_registry_service.py]が操作のまとまりごとに`commit()`を呼んで確定する）。
 
-shape_paramsの(逆)シリアライズは`AxisShape.model_dump(mode="json")` /
-`TypeAdapter(AxisShape).validate_python(...)`にそのまま委ねる。`CategoricalShape.mapping`の
-`dict[bool | str, float]`キーはmode="json"でJSON文字列("true"/"false"、または通常の
-文字列キー)へ変換され、TypeAdapter側は`union_mode="left_to_right"`でbool判定を先に
-試すため、bool材料・str多値材料のどちらも正しく往復する（既定のsmart mode unionだと
-"true"/"false"がbool化されずstr型のまま残ってしまうため明示指定した）。
-
-priority_overrides（0次条件）も同様に`list[PriorityCondition]`を
-`model_dump(mode="json")`したJSON配列としてそのまま往復する。
-
-display_thresholds_override（地図の色分けしきい値だけの軽量な上書き）は
-単純な`list[float] | None`のため、JSONB列とPythonの`list`/`None`をそのまま素通しする
-（priority_overrides等と異なりPydanticモデルへの往復変換自体が不要）。
+JSONB列との(逆)シリアライズはPydanticへそのまま委ねる。`CategoricalShape.mapping`の
+`dict[bool | str, float]`キーは`mode="json"`でJSON文字列("true"/"false"、または通常の
+文字列キー)へ変換されるため、読み戻す側は`union_mode="left_to_right"`でbool判定を先に
+試す必要がある——既定のsmart mode unionでは"true"/"false"がbool化されずstrのまま残る。
 """
 
 from datetime import datetime, timezone
@@ -31,16 +22,12 @@ from app.infrastructure.axis_definition_models import AxisDefinitionRow, AxisReg
 _SHAPE_ADAPTER: TypeAdapter[AxisShape] = TypeAdapter(AxisShape)
 _PRIORITY_OVERRIDES_ADAPTER: TypeAdapter[list[PriorityCondition]] = TypeAdapter(list[PriorityCondition])
 
-# create/update/delete/unpublish（AxisRegistryAdminService）の
-# 「読み取り→Python側で検証→書き込み」という手順は、ロックが無いと2つのcreate()が
-# 同時に走った場合に互いのsort_orderやcheck_material_exclusivity判定が相手の変更を
-# 見ないまま古いスナップショットに基づいて計算され、書き込み後に不整合な状態
-# [sort_order衝突・材料の二重帰属]が残りうる（TOCTOUレース）。トランザクションスコープの
-# PostgreSQL advisory lock（pg_advisory_xact_lock）で直列化する——asyncio.Lock（同一
-# プロセス内のみ有効）ではなくDBレベルのロックにするのは、将来複数ワーカー化する際にも
-# 機能させるため。
-# キー値自体に意味は無く、他のadvisory lock用途と衝突しない固定値であればよい
-# （"AXISDEFS"の8バイトASCIIをbigintとして解釈しただけ）。
+# 書き込み系操作（`AxisRegistryAdminService`）は「読み取り→Python側で検証→書き込み」の
+# 手順を踏むため、直列化しないとTOCTOUレースになる（2つのcreate()が互いのsort_orderや
+# 材料の排他帰属の判定を古いスナップショットの上で行い、衝突した状態が残る）。
+# DBレベルのadvisory lockを使うのは、プロセスをまたいでも効くようにするため
+# （asyncio.Lockは同一プロセス内でしか効かない）。
+# キー値自体に意味は無く、他のadvisory lock用途と衝突しない固定値であればよい。
 _WRITE_LOCK_KEY = 0x4158495344454653
 
 
@@ -80,12 +67,10 @@ class AxisDefinitionRepository:
 
     async def list_all(self) -> dict[str, AxisDefinition]:
         """axis_idキーの辞書。sort_order昇順（挿入順=合成の加算順）を保つ。"""
-        rows = (
-            (await self._session.execute(select(AxisDefinitionRow).order_by(AxisDefinitionRow.sort_order)))
-            .scalars()
-            .all()
-        )
-        return {row.axis_id: _row_to_definition(row) for row in rows}
+        return {
+            axis_id: definition
+            for axis_id, (definition, _sort_order) in (await self.list_all_with_sort_order()).items()
+        }
 
     async def list_all_with_sort_order(self) -> dict[str, tuple[AxisDefinition, int]]:
         """`list_all()`と同じ全件だが、各軸のsort_orderも保持する。
@@ -167,16 +152,15 @@ class AxisDefinitionRepository:
         return deleted
 
     async def count(self) -> int:
-        """行数のみ（fresh bootstrap用スナップショット読み込み前の状態確認に使う。
-        一括投入の経路が使う）。"""
+        """行数のみ（一括投入の前に、テーブルが空かどうかを確認する経路が使う）。"""
         return await self._session.scalar(select(func.count()).select_from(AxisDefinitionRow)) or 0
 
     async def delete_all(self) -> int:
-        """全行を削除する（fresh bootstrap専用のスナップショット読み込みが、
-        投入前にテーブルを丸ごと空にするために使う。`upsert`/`delete`と違い個別revisionの
-        +1は行わない——呼び出し側がこの後の一括投入の
-        締めくくりでスナップショット由来のrevisionへ直接セットするため、ここでの
-        中間的なrevision操作は無意味）。"""
+        """全行を削除する（一括投入の前にテーブルを空にするために使う）。
+
+        `upsert`/`delete`と違いrevisionを進めない——呼び出し側が一括投入の締めくくりで
+        `set_revision`するため、途中のrevision操作に意味が無い。
+        """
         result = await self._session.execute(delete(AxisDefinitionRow))
         return result.rowcount or 0
 
@@ -184,9 +168,7 @@ class AxisDefinitionRepository:
         return await self._session.scalar(select(AxisRegistryMetaRow.revision).where(AxisRegistryMetaRow.id == 1))
 
     async def set_revision(self, revision: int) -> None:
-        """revisionを指定値へ直接セットする（スナップショット読み込み後、
-        ダンプ時点の値を復元するために使う。通常の書き込み[`upsert`/`delete`]が使う
-        `_bump_revision`の+1方式とは別の、直接代入の経路）。"""
+        """revisionを指定値へ直接セットする（一括投入がダンプ時点の値を復元するために使う）。"""
         await self._session.execute(
             update(AxisRegistryMetaRow).where(AxisRegistryMetaRow.id == 1).values(revision=revision)
         )

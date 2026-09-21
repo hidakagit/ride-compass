@@ -10,13 +10,10 @@ from app.infrastructure import jma_tile_redis_cache
 from app.infrastructure.debug_log import error_type_label, log_external_call
 from app.infrastructure.jma_tile_redis_cache import EmptyTile
 
-# JMA bosai タイル/時刻一覧API（降水ナウキャスト・降水短時間予報・雷/竜巻ナウキャスト・
-# キキクル・線状降水帯予測マップ、dynamicWeather.ts「動的気象レイヤー」節参照）を透過的に
-# プロキシする。basemap_client.pyと同じ「path丸ごとプロキシ」方式だが、
-# targetTimes.json（数分〜数十分単位で更新される時刻一覧）とラスタタイル本体
-# （basetime/validtime/z/x/yが確定した時点で内容が不変、OpenFreeMapタイルと同じ性質）で
-# キャッシュ戦略を分ける（詳細はdocs/modules/backend/weather-dynamic-layers.md
-# 「JMAタイル系の共通プロキシ」節参照）。
+# JMA bosai のタイル/時刻一覧API（降水ナウキャスト・キキクル等）を透過的にプロキシする。
+# targetTimes.json（同じURLのまま更新される時刻一覧）とタイル本体（basetime/validtimeが
+# 確定した時点で内容が不変）でキャッシュ戦略を分ける
+# （詳細はdocs/modules/backend/weather-dynamic-layers.md）。
 UPSTREAM_HOST = "https://www.jma.go.jp"
 
 
@@ -25,12 +22,10 @@ class JmaTileNotFoundError(Exception):
     ズームレベル・場所によって存在しないz/x/yが珍しくないため、タイムアウトや5xx等の
     他の失敗と区別し、`jma_tile.py`が502ではなく404を返す判断材料にする。"""
 
-# targetTimes*.jsonは実況・ナウキャスト系で5〜10分おき、キキクル系でも10分おきに更新される
-# （riskMap.ts/precipitationNowcast.tsのコメント参照）。TTLは更新間隔より十分短く、かつ
-# 同一TTL窓内の多数ユーザーがキャッシュを共有できる程度の長さとして2分を選んだ。
+# targetTimes*.jsonは5〜10分おきに更新される。TTLは更新間隔より十分短く、かつ同一TTL窓内の
+# 多数ユーザーがキャッシュを共有できる程度の長さにする。
 _TARGET_TIMES_TTL_SECONDS = 2 * 60
-# 同時に存在しうる時刻一覧の種類（nowc N1/N2/N3・rasrf・risk）は高々数個のため、
-# 余裕を持たせても小さい上限で足りる。
+# 同時に存在しうる時刻一覧の種類は要素の系統ぶんしかないため、上限は小さくてよい。
 _target_times_cache: TTLCache = TTLCache(maxsize=16, ttl=_TARGET_TIMES_TTL_SECONDS)
 
 # targetTimes_N1.json / targetTimes_N2.json / targetTimes_N3.json / targetTimes.json のいずれも
@@ -47,13 +42,10 @@ def is_target_times_path(path: str) -> bool:
     """
     return _TARGET_TIMES_PATTERN.search(path) is not None
 
-# JMA非公式APIへの実フェッチ（fetch）を秒間settings.jma_tile_upstream_
-# max_requests_per_second回までに抑える。`JmaTileClient`はリクエストごとに使い捨てで
-# インスタンス化される（api/dependencies.py: get_jma_tile_client、
-# _prewarm_jma_tile_job）ため、プロセス全体で共有する状態はモジュールレベルで持つ
-# （_target_times_cacheと同じ理由）。backendはuvicornをワーカー数指定無し＝単一プロセスで
-# 起動する構成（Dockerfile参照）のため、プロセス内の状態だけで実際の総リクエスト数を
-# 正しく制御できる。
+# JMA非公式APIへの実フェッチを秒間`settings.jma_tile_upstream_max_requests_per_second`回
+# までに抑える。`JmaTileClient`はリクエストごとに使い捨てでインスタンス化されるため、
+# 上限の状態はモジュールレベルで持つ。backendが単一プロセス構成であることに依存している
+# ——ワーカーを増やすと実効の秒間リクエスト数がその倍数になる。
 _rate_limit_lock = asyncio.Lock()
 _last_fetch_at: float | None = None
 

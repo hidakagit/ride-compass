@@ -103,10 +103,9 @@ def test_get_route_generation_session_factory_binds_to_route_generation_engine()
 
 
 def test_route_generation_engine_is_separate_from_tile_engine():
-    # コメント（12-85行目）の意図どおり、タイル配信用（command_timeout=20）と
-    # 経路生成用（command_timeout=180）は別エンジン・別コネクションプールであること。
-    # 片方に緩めるともう片方の保護目的（ハング検知）が損なわれるため、混同していないか
-    # を確認する回帰テスト。
+    # タイル配信用（command_timeout=20）と経路生成用（command_timeout=180）は
+    # 別エンジン・別コネクションプールであること。片方へ寄せると、もう片方の保護目的
+    # （タイル配信のハング検知）が損なわれる。
     tile_engine = database_module.get_engine()
     route_engine = database_module.get_route_generation_engine()
 

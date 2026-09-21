@@ -18,13 +18,11 @@ def use_fake_redis(monkeypatch):
 
 @pytest.fixture(autouse=True)
 def no_real_upstream_rate_limit_wait(monkeypatch):
-    """改善計画T514: fetch()が実フェッチ前に待つレート制限（_wait_for_upstream_rate_limit、
-    モジュールレベルの_last_fetch_atで前回時刻を記録）は、テスト間で状態が漏れる
-    （前のテストの最終フェッチ時刻が残ったまま次のテストの初回フェッチが待たされる）ため
-    毎回リセットし、asyncio.sleepも実待機せず即座に返すようにする（待機時間自体は多くの
-    テストの対象ではないため、実測不要。ペーシングそのものを検証するテスト
-    [test_fetch_paces_requests_to_the_configured_upstream_rate]だけがこのフィクスチャの
-    sleepパッチを上書きする）。"""
+    """上流レート制限の状態（モジュールレベルの`_last_fetch_at`）はテスト間で漏れるため
+    毎回リセットし、`asyncio.sleep`も実待機せず即座に返すようにする。
+
+    ペーシングそのものを検証するテストだけが、このsleepパッチを自分の中で上書きする。
+    """
     monkeypatch.setattr(jma_tile_client, "_last_fetch_at", None)
 
     async def instant_sleep(_seconds):
@@ -146,9 +144,8 @@ async def test_get_returns_empty_tile_for_404_instead_of_raising_or_none():
 
 
 async def test_fetch_caches_404_so_a_later_get_cached_skips_upstream():
-    # 改善計画T605: 恒久404（basetime/validtimeが確定した過去の一時点への結果）を
-    # キャッシュし、同じpathへの次回get_cachedが上流へ問い合わせずEmptyTileを
-    # 返せることを確認する。
+    # 恒久404（basetime/validtimeが確定した過去の一時点への結果）をキャッシュし、
+    # 同じpathへの次回get_cachedが上流へ問い合わせずEmptyTileを返せること。
     import httpx
 
     from app.infrastructure.jma_tile_client import EmptyTile
@@ -191,8 +188,8 @@ async def test_fetch_caches_404_for_target_times_path_too():
 
 
 async def test_404_is_not_counted_as_an_error_in_debug_stats():
-    # 改善計画T603: 404は珍しくない正常系のため、他の失敗（タイムアウト・5xx等）と違い
-    # /api/debug/statsのerror集計・WARNINGログの対象にしない。
+    # 404は珍しくない正常系のため、他の失敗（タイムアウト・5xx等）と違い
+    # error集計・WARNINGログの対象にしない。
     import httpx
 
     from app.infrastructure import debug_log
@@ -239,10 +236,10 @@ async def test_fetch_always_hits_upstream_even_if_cached():
 
 
 async def test_fetch_paces_requests_to_the_configured_upstream_rate(monkeypatch):
-    """改善計画T514: 実フェッチの間隔がsettings.jma_tile_upstream_max_requests_per_second
-    を守るよう待機することを検証する。実時間を待たず、time.monotonic/asyncio.sleepを
-    差し替えて呼び出し引数だけを見る（no_real_upstream_rate_limit_waitフィクスチャの
-    instant_sleepパッチをこのテストの中でだけ上書きする）。"""
+    """実フェッチの間隔が`settings.jma_tile_upstream_max_requests_per_second`を守ること。
+
+    実時間を待たず、`time.monotonic`/`asyncio.sleep`を差し替えて呼び出し引数だけを見る。
+    """
     fake_now = [1000.0]
 
     def fake_monotonic():

@@ -1,10 +1,8 @@
 """シンプルな外部APIクライアント（TTLCacheのみ、再試行を持たない）が共有する
-「キャッシュ参照→fetch→エラー処理→キャッシュ書き戻し」の定型文。
+「キャッシュ参照→fetch→エラー処理→キャッシュ書き戻し」の骨格。
 
-`jma_amedas_client.py`・`jma_warning_client.py`・`wbgt_client.py`・`flood_client.py`に
-一字一句同じ形でほぼ複製されていた8〜10行の骨格をここへ集約する。
-`jma_tile_client.py`/`basemap_client.py`（TTLCache以外のキャッシュバックエンドを使うため
-定型文の形が異なる）は対象外のまま各自の実装を維持する。
+TTLCache以外のキャッシュへ持つクライアント（`jma_tile_client.py`・`basemap_client.py`等）は
+形が違うため、この骨格には乗らない。
 """
 
 from collections.abc import Awaitable, Callable, Hashable
@@ -19,10 +17,11 @@ T = TypeVar("T")
 
 
 class UnexpectedShapeError(ValueError):
-    """fetchが返した内容の形が想定と異なる場合に送出する。cached_fetchはこれを
-    error_type="unexpected_shape"（既存コードのリテラル文字列と同じ）として記録する。
-    ValueErrorのサブクラスだが、catchタプルに含まれるかどうかに関わらず常にこの専用の
-    error_typeへ変換される（except節の順序で先に一致するため）。"""
+    """fetchが返した内容の形が想定と異なる場合に送出する。
+
+    ValueErrorのサブクラスだが、`catch`タプルに含まれるかどうかに関わらず常に
+    `error_type="unexpected_shape"`として記録される（except節の順序で先に一致するため）。
+    """
 
 
 async def cached_fetch(
@@ -31,15 +30,15 @@ async def cached_fetch(
     category: str,
     fetch: Callable[[], Awaitable[T]],
     *,
-    # 呼び出し元ごとに元々の except節が異なっていた（例: 度数からの逆ジオコーディングだけ
-    # AttributeErrorも捕捉、latest_observation_timeはhttpx.HTTPErrorのみ）ため、既存の
-    # 挙動を変えないよう呼び出し側が指定できるようにする。
+    # 何をNoneへ倒すかは応答の形ごとに違う（外部JSONの想定外の形をAttributeErrorで
+    # 踏む経路もある）ため、呼び出し側が指定できるようにする。
     catch: tuple[type[BaseException], ...] = (httpx.HTTPError, ValueError),
     **log_fields: object,
 ) -> T | None:
-    """TTLCacheを引き、ミスした場合のみ`fetch()`を呼ぶ。`fetch`が送出した例外は
-    Noneへ変換し`log_external_call`のfieldsへ記録する（各クライアントの既存の
-    fields記録内容・戻り値の型を変えない）。"""
+    """TTLCacheを引き、ミスした場合のみ`fetch()`を呼ぶ。
+
+    `fetch`が送出した`catch`の例外はNoneへ変換し、`log_external_call`のfieldsへ記録する。
+    """
     with log_external_call(category, **log_fields) as fields:
         cached = cache.get(key)
         if cached is not None:

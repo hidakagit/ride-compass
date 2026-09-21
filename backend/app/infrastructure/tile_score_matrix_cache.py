@@ -1,45 +1,8 @@
-"""タイル単位の静的Edge×公開軸スコア行列のプロセス内メモリキャッシュ。
+"""タイル単位の静的Edge×公開軸スコア行列のキャッシュ（メモリLRU＋ディスク永続化）。
 
-`GraphService._get_or_build_tile_materials`が、z12タイル単位で`domain/evaluation.py:
-build_static_edge_score_matrix`の結果（`StaticEdgeScoreMatrix`）をここへキャッシュする。
-同一タイルへの2回目以降の探索リクエストは、Edgeごとのコスト計算（Pythonコールバック）を
-一切行わずこの行列から配列演算でコストを合成できる（本行列はEdgeあたり公開軸の
-数×8バイト程度で収まる）。
-
-**`infrastructure/graph_material_cache.py`（材料そのもの）とは
-意図的に別のキャッシュとして持つ**。軸スタジオでの軸定義編集（`AxisRegistryAdminService`
-経由の`refresh_axis_definitions`）はこちらだけを`clear()`し、材料キャッシュ（DBアクセスを
-伴う取得）は温存する——軸編集直後の最初のリクエストがDBへ再問い合わせせずに済み、
-訪れたタイルぶんだけ静的スコア行列を再計算するだけで反映される設計。
-
-**無効化方針**: プロセス内メモリのLRU（タイル単位、
-`graph_material_cache`と同じ`DEFAULT_MAX_TILES`）に加え、`infrastructure/
-tile_persistent_cache.py`へも同じ内容をディスク永続化する（`graph_material_cache.py`と
-同じ動機・設計）。無効化経路:
-
-1. **列構成・材料世代・構築ロジックの変化**: `TILE_SCORE_MATRIX_CACHE_VERSION`が
-   `StaticEdgeScoreMatrix`の列構成と材料側の世代
-   （`graph_material_cache.TILE_MATERIALS_CACHE_VERSION`）から導出されるため、列を変えても
-   材料世代を上げても機械的に無効化される。同じ材料・同じ列から違う値を作るようになった
-   ときだけ`cache_identity.SCORE_MATRIX_REVISION`を手で上げる。
-2. **軸定義編集（`refresh_axis_definitions`）**: バージョン文字列は据え置いたまま、
-   `sync_disk_cache_with_axis_revision()`が軸定義の内容変化を検知した場合のみメモリ・
-   ディスク両方のキャッシュを即座に削除する。軸編集はデプロイを伴わない実行時のAPI操作の
-   ため、ファイル世代の手動更新では表現できないタイミングの無効化が要る（バージョン
-   文字列を上げてしまうと、軸編集と無関係な他の全タイルのディスクキャッシュまで巻き添えで
-   無効化されてしまう）。
-
-`sync_disk_cache_with_axis_revision(revision)`は、`refresh_axis_definitions`が
-`AxisDefinitionRepository.get_revision()`（`axis_registry_meta.revision`、軸定義の
-追加・更新・削除のたびにDB側でインクリメントされる単調増加カウンタ）を渡して呼ぶ。
-ディスクへ最後に永続化した時点のrevisionは`cache_generation.py`が記録する（予約タイル座標、
-実タイルのzoomと衝突しない）へ記録しておき、渡された`revision`と一致すればディスク
-キャッシュを温存する（メモリだけクリアする——プロセス内で軸編集APIが呼ばれた直後の
-反映のため、`refresh_axis_definitions`はアプリ起動時にも必ず1回呼ばれるが、起動直後は
-メモリが元々空のため無害）。一致しなければ`clear()`でメモリ・ディスク両方を削除し、
-新しいrevisionを記録し直す。`refresh_axis_definitions`は起動時にも軸編集時にも同じ
-経路を通るため、この判定が無いと軸定義が実際には変わっていないアプリ起動のたびに
-ディスクキャッシュを丸ごと再構築してしまう。
+材料（`infrastructure/graph_material_cache.py`）とは別のキャッシュとして持つ。軸定義の
+編集はこちらだけを`clear()`し、DBアクセスを伴う材料は温存するため、軸編集直後の最初の
+リクエストは訪れたタイルぶんのスコア行列を再計算するだけで反映される。
 """
 
 
@@ -66,29 +29,14 @@ DEFAULT_MAX_TILES = 2_000
 
 _cache: LRUCache = LRUCache(maxsize=DEFAULT_MAX_TILES)
 
-# ディスク永続化キャッシュ（tile_persistent_cache.py）のnamespace・バージョン。
-# パスへ埋め込むことで対応しない世代のファイルを読まないようにする。
-#
 # 鍵は材料側の世代との複合にする。この行列は材料から導出される派生物で、材料のedge_id集合が
-# 変われば必ず無効になるため——単独の文字列にすると、PBF再取込・presplitで材料世代だけを
-# 上げたときにスコア行列だけが古いまま残り、`graph`には在るが`score_matrix.edge_ids`には
-# 無いedge_idが生じる（`road_graph_engine.py`の`full_edge_row`引きがbbox単位でKeyErrorに
-# なり、ディスクキャッシュを手で消すまでそのbboxのルート生成が復旧しない）。
-# `StaticEdgeScoreMatrix`の列構成も署名に入るため、列を変えれば鍵が自動で変わる
-# （手で上げる条件はcache_identity.pyのSCORE_MATRIX_REVISIONのコメント参照）。
-#
-# **軸定義（axis_definitionsテーブル）の追加・削除・shape_params調整はこの世代管理の
-# 対象外**——軸スタジオでの編集はデプロイを伴わないため、下記`clear()`
-# （`refresh_axis_definitions`経由の即時呼び出し）が担う。
+# 変われば必ず無効になるため——単独の文字列にすると、材料世代だけを上げたときにスコア行列
+# だけが古いまま残り、`graph`には在るが`score_matrix.edge_ids`には無いedge_idが生じる
+# （`road_graph_engine.py`の`full_edge_row`引きがbbox単位でKeyErrorになり、ディスク
+# キャッシュを手で消すまでそのbboxのルート生成が復旧しない）。
 _CACHE_NAMESPACE = "score_matrix"
 TILE_SCORE_MATRIX_CACHE_VERSION = cache_identity(
     SCORE_MATRIX_REVISION, TILE_MATERIALS_CACHE_VERSION, StaticEdgeScoreMatrix)
-
-
-def _remember(key: tuple[int, int, int], matrix: StaticEdgeScoreMatrix) -> None:
-    """メモリLRUへ書き込み、上限超過分を退避する（`set()`・ディスクヒット時の
-    再取り込みの両方から使う共通ロジック）。"""
-    _cache[key] = matrix
 
 
 def _columns_match_current_predicates(matrix: StaticEdgeScoreMatrix) -> bool:
@@ -140,12 +88,12 @@ def get(zoom: int, x: int, y: int, read_stats: dict[str, object] | None = None) 
         return None
     if read_stats is not None:
         read_stats["source"] = "disk"
-    _remember(key, persisted)
+    _cache[key] = persisted
     return persisted
 
 
 def set(zoom: int, x: int, y: int, matrix: StaticEdgeScoreMatrix) -> None:
-    _remember((zoom, x, y), matrix)
+    _cache[(zoom, x, y)] = matrix
     tile_persistent_cache.set(_CACHE_NAMESPACE, TILE_SCORE_MATRIX_CACHE_VERSION, zoom, x, y, matrix)
 
 
@@ -155,13 +103,10 @@ def prune_stale_disk_generations() -> int:
 
 
 def clear() -> None:
-    """テスト用、および軸定義の内容が実際に変わった場合
-    （`sync_disk_cache_with_axis_revision`）に呼ぶ。
+    """メモリとディスクの両方を削除する。
 
-    ディスク永続化キャッシュ（tile_persistent_cache）も同時に削除する。
     メモリだけクリアしてディスクを残すと、次回プロセス再起動時に軸編集前の古いスコア
-    行列がディスクから復元されてしまう（軸編集はバージョン文字列の手動更新を伴わない
-    実行時操作のため、即時削除で対応する。モジュールdocstring参照）。
+    行列がディスクから復元されてしまう。
     """
     _cache.clear()
     tile_persistent_cache.clear_namespace(_CACHE_NAMESPACE)
@@ -172,23 +117,12 @@ def size() -> int:  # テストの検証用（メモリLRUの件数のみ。デ�
 
 
 def sync_disk_cache_with_axis_revision(revision: int | None) -> None:
-    """`refresh_axis_definitions`から呼ぶ。
+    """`refresh_axis_definitions`から軸定義の世代（`axis_registry_meta.revision`）を受ける。
 
-    `revision`（`AxisDefinitionRepository.get_revision()`、軸定義の追加・更新・削除の
-    たびにDB側でインクリメントされる単調増加カウンタ）が、ディスクへ最後に永続化した
-    時点の記録と一致すれば、軸定義はディスクキャッシュ書き込み時点から変わっていないと
-    判断してディスクキャッシュを温存する（メモリだけクリアする）。不一致
-    （軸編集が実際にあった）または未記録（初回デプロイ）の場合は`clear()`でメモリ・
-    ディスク両方を削除し、新しいrevisionを記録し直す。`revision`がNone
-    （`axis_registry_meta`に行が無い等、想定外の状態）の場合も安全側に倒して`clear()`するが、
-    **読めなかったことを記録する**ため、状態が変わらない限り2度目以降は消さない。
-
-    アプリ起動時（`main.py`のlifespan）・軸編集API成功直後のいずれも`refresh_axis_
-    definitions`から同じ経路で呼ばれるため、本関数が両者を区別する（起動時は大半の場合
-    revisionが変わっておらずディスクキャッシュを温存でき、軸編集時のみ実際に無効化される）。
+    `refresh_axis_definitions`はアプリ起動時にも軸編集API成功直後にも同じ経路で呼ばれる。
+    軸定義が変わっていなければディスクは温存し、メモリだけ空にする（起動のたびに
+    ディスクキャッシュを丸ごと再構築しないため）。
     """
-    # 軸定義が変わっていないときはメモリだけ空にする（ディスクは温存）。判断そのものは
-    # 材料側と共通で、ここが決めるのは「温存のときも_cacheは空にする」ことだけ。
     if not cache_generation.sync_with_revision(
         _CACHE_NAMESPACE, TILE_SCORE_MATRIX_CACHE_VERSION, revision, clear
     ):

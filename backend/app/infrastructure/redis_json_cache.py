@@ -1,16 +1,7 @@
 """RedisへJSONで持つcache-asideの共通骨格。
 
-「Redisが使えるか確認 → クライアント取得 → `log_external_call`で計測 → 失敗は握り潰して
-未キャッシュ扱い（fail-open）→ 成否をサーキットブレーカーへ記録」という手順は、Redisを
-使うキャッシュすべてに共通する定型文である。`simple_api_client.py: cached_fetch`が
-プロセス内`TTLCache`側で同じ重複を1箇所へまとめているのと同じことを、Redis側で行う。
-
-**fail-openが前提**: ここが扱うのはいずれも正本を持たないキャッシュで、失っても再取得
-すれば済む。Redis障害・接続不能・壊れたエントリはすべて「未キャッシュ」（`get`はNone）へ
-倒し、呼び出し元が通常の取得経路へ進めるようにする——キャッシュの不調でアプリの機能を
-止めない。
-
-呼び出し元はキー設計とTTLの決定、値の意味づけだけを持つ。
+呼び出し元が持つのはキー設計・TTL・値の意味づけだけで、可用性チェックから
+サーキットブレーカーへの記録までをここが引き受ける。
 """
 
 import json
@@ -25,14 +16,17 @@ from app.infrastructure.redis_client import (
 )
 
 
+def _client_or_none():
+    """サーキットブレーカーが開いている間は接続自体を試さない。"""
+    return get_redis_client_or_none() if redis_available() else None
+
+
 async def get_json(key: str, *, category: str, **log_fields: Any) -> Any | None:
     """キーに対応するJSONを返す。未保存・Redis障害・壊れたエントリはいずれもNone。
 
     `category`は`log_external_call`のカテゴリ（`/api/debug/stats`の集計単位）。
     """
-    if not redis_available():
-        return None
-    client = get_redis_client_or_none()
+    client = _client_or_none()
     if client is None:
         return None
     with log_external_call(category, **log_fields) as fields:
@@ -59,9 +53,7 @@ async def get_json(key: str, *, category: str, **log_fields: Any) -> Any | None:
 
 async def set_json(key: str, value: Any, *, ttl_seconds: int, category: str, **log_fields: Any) -> None:
     """値をJSONで保存する。Redis障害時は黙って諦める（呼び出し元は成否を気にしない）。"""
-    if not redis_available():
-        return
-    client = get_redis_client_or_none()
+    client = _client_or_none()
     if client is None:
         return
     with log_external_call(category, **log_fields) as fields:

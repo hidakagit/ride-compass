@@ -20,9 +20,8 @@ def _with_extra_column(source: type) -> type:
 
 class TestShapeDigest:
     def test_adding_a_column_changes_the_digest(self):
-        # pickleは状態を列の位置で持つため、列が1つ増えた新コードが旧キャッシュを復元すると
-        # 最後の列が設定されないまま実体化し、最初にその列へ触れた場所でAttributeErrorになる
-        # （test_graph_material_cache.py: test_old_pickle_...が壊れ方そのものを固定している）。
+        # pickleは状態を列の位置で持つため、列が1つ増えたコードが古いキャッシュを復元すると
+        # 最後の列が設定されないまま実体化し、最初にその列へ触れた場所でAttributeErrorになる。
         for table in (EdgeMaterialArrays, StaticEdgeScoreMatrix):
             assert ci.shape_digest(table) != ci.shape_digest(_with_extra_column(table))
 
@@ -57,10 +56,10 @@ class TestCacheIdentity:
 
 
 class TestBoundValuesAreSigned:
-    """SQLへあらかじめ束ねた値（分類タグ集合等）が署名へ入ること（改善計画T813）。
+    """SQLへあらかじめ束ねた値（分類タグ集合等）が署名へ入ること。
 
     `str(TextClause)`にはプレースホルダ名しか現れないため、ここが抜けるとタグを足しても
-    鍵が動かない。焼き込み値だけが変わって配信は旧値のまま、という最も気づきにくい形になる。
+    鍵が動かない。焼き込み値だけが変わって配信は古い値のまま、という気づきにくい形になる。
     """
 
     def _sql(self, tags: list[str]):
@@ -86,7 +85,7 @@ class TestBoundValuesAreSigned:
         sql = text("SELECT :z AS z").bindparams(bindparam("z"))
         assert ci.bound_values(sql) == []
 
-    def test_road_surface_tile_version_covers_the_surface_tag_sets(self):
+    def test_road_surface_tile_shape_covers_the_surface_tag_sets(self):
         # 実物で効いていること。分類タグを1つ足した版は別の鍵になる。
         from app.infrastructure.road_graph_repository import _ROAD_SURFACE_TILE_MVT_SQL
 

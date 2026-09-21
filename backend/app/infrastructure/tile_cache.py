@@ -22,8 +22,8 @@ def cache_key(path: str) -> str:
     ハッシュ化してフラットに保存することでこの衝突を構造的に避ける。ディレクトリ
     トラバーサル（`..`等）も、パスがファイル名に使われないため問題にならない。
 
-    `jma_tile_redis_cache.py`もこのハッシュ方式を踏襲する（ファイルキャッシュとRedis
-    キャッシュで同じpathから異なるキー体系にならないように、公開関数にしている）。
+    `jma_tile_redis_cache.py`もこの関数を使う（同じpathから2つのキー体系が生まれないよう、
+    ファイルキャッシュとRedisキャッシュで1本に揃える）。
     """
     return hashlib.sha256(path.encode("utf-8")).hexdigest()
 
@@ -60,18 +60,11 @@ def _write_atomic(final_path: Path, write: Callable[[Path], None]) -> None:
 
 
 def set(path: str, content: bytes, content_type: str) -> None:
-    # キャッシュ書き込みはあくまで高速化目的で、呼び出し元は取得済みのcontentを既に
-    # 返せる状態にある。ディスクフル・権限エラー等（OSError）でここが失敗しても、
-    # basemap/road-surfaceタイルの配信自体を丸ごと500にする理由にはならないため、
-    # 他のキャッシュ層（jma_tile_redis_cache.py等）と同じ「キャッシュ書き込み失敗は握りつぶす」
-    # 方針に合わせ、警告ログのみでno-opにフォールバックする。
     try:
         key = cache_key(path)
         CACHE_DIR.mkdir(parents=True, exist_ok=True)
-        # get()は`.bin`の存在を「キャッシュ済みか」の判定に使う（下記get()参照）ため、
-        # `.meta`を先に書き終えてから`.bin`を書く。これにより
-        # `.bin`が見えた時点で`.meta`は必ず既に完全に書き終わっている（存在＝完了、を
-        # os.replaceのアトミック性と合わせて保証する）。
+        # `get()`は`.bin`の存在を「キャッシュ済みか」の判定に使うため、`.meta`を先に
+        # 書き終えてから`.bin`を書く。`.bin`が見えた時点で`.meta`は必ず完全に書き終わっている。
         _write_atomic(CACHE_DIR / f"{key}.meta", lambda p: p.write_text(content_type, encoding="utf-8"))
         _write_atomic(CACHE_DIR / f"{key}.bin", lambda p: p.write_bytes(content))
     except OSError:

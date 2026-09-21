@@ -1,15 +1,11 @@
 """汎用の非同期ジョブレジストリ（プロセス内メモリのみ）。
 
-`POST /api/routes/generate`の冷パス（未splitな新規エリアへの初回アクセス、数十秒〜
-最大316秒）をバックグラウンドジョブ化し、フロントがポーリングで完了を
-待てるようにするために新設した。単一プロセスデプロイ前提（`services/
-axis_registry_service.py`のpush型更新と同じ前提）で、複数ワーカー構成では他プロセスの
-ジョブが見えない制約が残るが、現状の単一プロセスデプロイでは問題にならない。
+数十秒かかりうる処理をバックグラウンドジョブ化し、フロントがポーリングで完了を待てる
+ようにする。**単一プロセスデプロイ前提**で、ワーカーを複数にすると他プロセスの
+ジョブが見えない。
 
-ルート生成に特化させず、状態遷移とTTLベースの掃除だけを持つ汎用モジュールにしてある
-（`api/routers/routes.py`がこのモジュールの型を知る一方、本モジュールはルート生成の
-型を一切知らない——`result`は`Any`型で呼び出し側が中身を決める。これにより
-`routes.py`との循環importを避ける）。
+`result`が`Any`なのは、呼び出し元（`api/routers/routes.py`）の型をこのモジュールが
+知らずに済ませるため（循環importの回避）。
 """
 
 import time
@@ -19,11 +15,9 @@ from typing import Any, Literal
 
 JobStatus = Literal["queued", "running", "done", "failed"]
 
-# 完了（done/failed）から10分経過したジョブは次のcreate_job()呼び出し時に掃除する
-# （定期タスクを新設せず、`infrastructure/rate_limiter.py`の
-# `dict + time.monotonic() + 呼び出し時_sweep`と同じ「呼ばれたついでに掃除」方式）。
-# ジョブ生成頻度に対して十分長く、ポーリング側の最大待機時間
-# [frontend routeApi.tsのMAX_POLL_DURATION_MS=360秒]より十分長い値。
+# 完了したジョブを保持する時間。掃除は次の`create_job()`のついでに行う（`rate_limiter.py`と
+# 同じ方式で、定期タスクを持たない）。フロントのポーリング側の最大待機時間
+# （`frontend/src/services/routeApi.ts`の`MAX_POLL_DURATION_MS`）以上である必要がある。
 _JOB_TTL_SECONDS = 600.0
 
 

@@ -1,14 +1,8 @@
 """JMA動的タイル（ラスタPNG・洪水ベクタPBF）本体のRedis cache-aside。
 
-`dynamic_way_value_cache.py`と同じ「正本を持たないcache-aside」設計（TTL付き）。
-
-**正本を持たない**: このキャッシュを失っても
-「データ未整備で機能が壊れる」ことはない（JMAへ再フェッチすればよいだけ）。Redis障害時は
-`jma_tile_client.py`側が単に「未キャッシュ」として扱い実フェッチへ進むfail-open。
-
-**バイナリの扱い**: `redis_client.py`は`decode_responses=True`（文字列前提）のため、
-PNG/PBFの生バイト列をそのまま保存できない。base64エンコードした文字列をJSONへ包んで
-1キーに保存する（`dynamic_way_value_cache.py`と同じJSON文字列パターン）。
+共通骨格（`redis_json_cache.py`）に乗らず自前で書いているのは、値がバイナリのため。
+`redis_client.py`は`decode_responses=True`（文字列前提）で生バイト列をそのまま保存
+できないので、base64エンコードした文字列をJSONへ包んで1キーに保存する。
 """
 
 import base64
@@ -98,9 +92,27 @@ async def get(path: str) -> tuple[bytes, str] | EmptyTile | None:
         return content, content_type
 
 
+async def _store(path: str, payload: dict) -> None:
+    if not redis_available():
+        return
+    client = get_redis_client_or_none()
+    if client is None:
+        return
+    with log_external_call("cache:jma-tile-redis", path=path) as fields:
+        try:
+            await client.set(_key(path), json.dumps(payload), ex=_TTL_SECONDS)
+        except Exception as exc:  # noqa: BLE001 書き込み失敗は次回フェッチで自己修復する
+            record_redis_failure()
+            fields["result"] = "error"
+            fields["error"] = repr(exc)
+            fields["error_type"] = error_type_label(exc)
+        else:
+            record_redis_success()
+            fields["result"] = "ok"
+
+
 async def set(path: str, content: bytes, content_type: str) -> None:
-    """取得できたタイルをRedisへ書き戻す（キャッシュの最適化であり、書き込み失敗は
-    応答自体の成否に関与しない）。
+    """取得できたタイルをRedisへ書き戻す。
 
     中身が空なら実体ではなく`EMPTY_TILE`と同じフラグで持つ。実体を保持しても
     返す先が無い——クライアントは在否インデックス（`jma_tile_index.py`）を見て
@@ -109,43 +121,9 @@ async def set(path: str, content: bytes, content_type: str) -> None:
     if is_empty_tile(content, _extension(path)):
         await set_empty(path)
         return
-    if not redis_available():
-        return
-    client = get_redis_client_or_none()
-    if client is None:
-        return
-    with log_external_call("cache:jma-tile-redis", path=path) as fields:
-        payload = json.dumps({"content_type": content_type, "body_b64": base64.b64encode(content).decode("ascii")})
-        try:
-            await client.set(_key(path), payload, ex=_TTL_SECONDS)
-        except Exception as exc:  # noqa: BLE001 書き込み失敗は次回フェッチで自己修復する
-            record_redis_failure()
-            fields["result"] = "error"
-            fields["error"] = repr(exc)
-            fields["error_type"] = error_type_label(exc)
-        else:
-            record_redis_success()
-            fields["result"] = "ok"
+    await _store(path, {"content_type": content_type, "body_b64": base64.b64encode(content).decode("ascii")})
 
 
 async def set_empty(path: str) -> None:
-    """このパスに描くものが無いと確認したときに呼ぶ（上流の404、または200で返った空タイル。
-    疎な格子状タイルではどちらも珍しくない正常系）。`set()`と同じTTL・fail-open方針で、
-    次回以降の問い合わせを`EMPTY_TILE`で即座に済ませられるようにする。"""
-    if not redis_available():
-        return
-    client = get_redis_client_or_none()
-    if client is None:
-        return
-    with log_external_call("cache:jma-tile-redis", path=path) as fields:
-        payload = json.dumps({"empty": True})
-        try:
-            await client.set(_key(path), payload, ex=_TTL_SECONDS)
-        except Exception as exc:  # noqa: BLE001 書き込み失敗は次回フェッチで自己修復する
-            record_redis_failure()
-            fields["result"] = "error"
-            fields["error"] = repr(exc)
-            fields["error_type"] = error_type_label(exc)
-        else:
-            record_redis_success()
-            fields["result"] = "ok"
+    """このパスに描くものが無いと確認したときに呼ぶ（上流の404、または200で返った空タイル）。"""
+    await _store(path, {"empty": True})

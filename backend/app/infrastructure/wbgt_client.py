@@ -1,11 +1,10 @@
 """環境省 熱中症予防情報サイトのクライアント。
 
-情報提供地点マスタ（CSV）と暑さ指数（WBGT）予測値取得WebAPI（JSON、`man15NH/
-wbgt_data_api_service_manual.pdf`、2026-08-22取得のAPI仕様書を典拠）の2つを叩く。
-サイト側の利用上の注意（wbgt_data_download.php）に「自動化ツールからの高頻度アクセスは
-控えて」と明記されているため、429前提の再試行は設けず、
-TTLキャッシュで呼び出し頻度自体を抑える。取得失敗はNoneを返し、呼び出し元
-（wbgt_service.py）が「警告なし」として扱う（jma_warning_client.pyと同じ方針）。
+情報提供地点マスタ（CSV）と暑さ指数（WBGT）予測値取得WebAPI（JSON、典拠は
+`man15NH/wbgt_data_api_service_manual.pdf`）を叩く。サイト側の利用上の注意
+（wbgt_data_download.php）に「自動化ツールからの高頻度アクセスは控えて」と明記されて
+いるため、再試行は設けずTTLキャッシュで呼び出し頻度自体を抑える。取得失敗はNoneを返し、
+呼び出し元（wbgt_service.py）が「警告なし」として扱う。
 """
 
 import csv

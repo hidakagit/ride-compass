@@ -1,12 +1,7 @@
 """debug_modeのランタイム切替・直近ログの保持。
 
-(1) ルートロガーのレベルをプロセスを再起動せず書き換える関数と、(2) DEBUGログを
-本番のdocker logsを見ずにHTTP経由で取得できるよう直近ログを保持するリングバッファ
-ハンドラを提供する。管理API（api/routers/debug_admin.py）からのみ呼ばれる想定。
-
-切替は`.env`を書き換えない（永続化しない）。プロセス再起動・再デプロイのたびに
-自動的に安全側（settings.debug_modeの環境変数値、既定false）へ戻る——SSH手順の
-「戻し忘れ」のようなリスクを構造的に避けるための意図的な設計。
+切替は`.env`を書き換えない。プロセス再起動・再デプロイのたびに安全側
+（`settings.debug_mode`の環境変数値、既定false）へ戻り、「戻し忘れ」が起きない。
 """
 
 import logging
@@ -43,37 +38,24 @@ _ring_buffer_handler.addFilter(RequestIdLogFilter())
 
 
 def install_ring_buffer_handler() -> None:
-    """ルートロガーへリングバッファハンドラを追加する（main.py起動時に1回呼ぶ）。
-
-    既存のbasicConfig由来のハンドラ（標準出力、Dockerのjson-fileドライバへ渡る）は
-    そのまま残し、追加のハンドラとして装着するだけなので既存の常時ログ出力には
-    影響しない。
-    """
+    """ルートロガーへリングバッファハンドラを追加する（main.py起動時に1回呼ぶ）。"""
     root_logger = logging.getLogger()
     if _ring_buffer_handler not in root_logger.handlers:
         root_logger.addHandler(_ring_buffer_handler)
 
 
 def set_debug_mode(enabled: bool) -> bool:
-    """debug_modeをランタイムで切り替える。`.env`は書き換えない（上記docstring参照）。
-
-    ルートロガーのレベルとsettings.debug_mode（`/health`・`/api/debug/stats`が
-    参照する現在値）の両方を更新し、戻り値として現在の状態を返す。
-    """
+    """debug_modeをランタイムで切り替え、切り替え後の状態を返す。"""
     settings.debug_mode = enabled
     logging.getLogger().setLevel(logging.DEBUG if enabled else logging.INFO)
     return settings.debug_mode
 
 
 def get_recent_logs(limit: int | None = None, contains: str | None = None, min_level: int | None = None) -> list[str]:
-    """リングバッファから直近ログを取得する。
+    """リングバッファから直近ログを取得する（古い順のまま、末尾が最新）。
 
-    `min_level`を指定すると、Python標準の`logging`と同じ「このレベル以上」の意味で
-    フィルタする（例: `logging.WARNING`を渡すとWARNING/ERROR/CRITICALだけに
-    絞れる）。`contains`を指定すると部分一致でさらにフィルタする（例:
-    `distance filter rejected`だけを抜き出す等）。両方指定した場合はAND条件（レベルで
-    絞った上でさらに文字列一致も要求）。`limit`は「フィルタ後の末尾N件」を返す
-    （古い順のまま、末尾が最新）。
+    `min_level`はPython標準の`logging`と同じ「このレベル以上」、`contains`は部分一致。
+    併用するとAND条件になり、`limit`は絞り込んだ後の末尾N件を指す。
     """
     entries = _ring_buffer_handler.snapshot()
     if min_level is not None:
