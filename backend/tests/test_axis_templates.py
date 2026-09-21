@@ -1,149 +1,191 @@
-"""テンプレート自体の性質（両端クランプ・NaN伝播・スカラー/配列の同値性）の検証。"""
+"""`domain/axis_templates.py`——評価軸が還元される2つのプリミティブと、配列版の丸め。
+
+スカラー経路（1区間ずつ）とベクトル経路（静的スコア行列の構築）が同じ実装を通ることで、
+軸のロジックが2箇所へ分かれない。**どちらの経路でも同じ答えになる**ことがここの要。
+"""
 
 import numpy as np
+import pytest
 
-from app.domain.axis_templates import (
-    evaluate_breakpoint_linear,
-    evaluate_categorical,
-    round1_array,
-)
+from app.domain.axis_templates import evaluate_breakpoint_linear, evaluate_categorical, round1_array
 
-BREAKPOINTS = [(0.0, 0.0), (3.0, 25.0), (6.0, 50.0), (9.0, 75.0), (15.0, 100.0)]
+LINE = [(0.0, 0.0), (10.0, 100.0)]
 
 
-def _round1_reference(values: np.ndarray) -> np.ndarray:
-    """Python組み込み`round()`を要素ごとに適用する参照実装。ベクトル化した`round1_array`
-    とのビット一致を確認するテスト専用のオラクル。
-    """
-    return np.array([round(float(v), 1) if not np.isnan(v) else np.nan for v in values])
+class TestEvaluateBreakpointLinear:
+    """区分線形補間。折れ点はx昇順の(x, y)組で、両端はクランプする。"""
+
+    def test_a_value_between_breakpoints_is_interpolated(self):
+        assert evaluate_breakpoint_linear(2.5, LINE) == 25.0
+
+    def test_values_outside_the_range_clamp_to_the_declared_ends(self):
+        """0・100ではなく、宣言した端の値で止まる。"""
+        line = [(0.0, 10.0), (10.0, 50.0)]
+
+        assert evaluate_breakpoint_linear(-5.0, line) == 10.0
+        assert evaluate_breakpoint_linear(99.0, line) == 50.0
+
+    def test_a_scalar_comes_back_as_a_plain_float(self):
+        """numpyのスカラーで返すと、呼び出し側のJSON化・比較で型が揺れる。"""
+        result = evaluate_breakpoint_linear(2.5, LINE)
+
+        assert type(result) is float
+
+    def test_an_array_comes_back_as_an_array(self):
+        result = evaluate_breakpoint_linear(np.array([0.0, 2.5, 10.0]), LINE)
+
+        assert isinstance(result, np.ndarray)
+        assert result.tolist() == [0.0, 25.0, 100.0]
+
+    def test_a_missing_element_stays_missing(self):
+        """**`np.interp`はNaNを伝播しない**（内部の探索がNaNを0番目の区間として扱い、
+        下端の値を返す）。欠損が「最良」の点数に化けるため、明示的に戻す。
+        """
+        result = evaluate_breakpoint_linear(np.array([np.nan, 2.5]), LINE)
+
+        assert np.isnan(result[0])
+        assert result[1] == 25.0
+
+    def test_both_paths_agree(self):
+        values = [-1.0, 0.0, 3.3, 10.0, 12.0]
+        scalar = [evaluate_breakpoint_linear(v, LINE) for v in values]
+
+        assert evaluate_breakpoint_linear(np.array(values), LINE).tolist() == scalar
+
+    def test_a_single_breakpoint_returns_that_value_everywhere(self):
+        assert evaluate_breakpoint_linear(5.0, [(1.0, 42.0)]) == 42.0
 
 
-def test_evaluate_breakpoint_linear_scalar_clamps_below_and_above_range():
-    assert evaluate_breakpoint_linear(-5.0, BREAKPOINTS) == 0.0
-    assert evaluate_breakpoint_linear(20.0, BREAKPOINTS) == 100.0
+class TestEvaluateCategorical:
+    """離散値→点数のテーブル引き。"""
+
+    BOOL_MAP = {True: 0.0, False: 80.0}
+    STR_MAP = {"a": 1.0, "b": 2.0, "c": 3.0}
+
+    def test_a_scalar_is_looked_up_in_the_table(self):
+        assert evaluate_categorical(True, self.BOOL_MAP) == 0.0
+        assert evaluate_categorical("b", self.STR_MAP) == 2.0
+
+    def test_a_scalar_that_is_not_in_the_table_falls_back(self):
+        assert evaluate_categorical("zzz", self.STR_MAP) is None
+        assert evaluate_categorical("zzz", self.STR_MAP, default=9.0) == 9.0
+
+    def test_an_array_is_looked_up_element_by_element(self):
+        result = evaluate_categorical(np.array(["a", "c", "b"], dtype=object), self.STR_MAP)
+
+        assert result.tolist() == [1.0, 3.0, 2.0]
+
+    def test_boolean_arrays_are_looked_up_too(self):
+        result = evaluate_categorical(np.array([True, False]), self.BOOL_MAP)
+
+        assert result.tolist() == [0.0, 80.0]
+
+    def test_an_unlisted_value_falls_back(self):
+        """未登録値を0（最良）へ倒さない。倒すと、評価できない道が最良の色で塗られる。"""
+        result = evaluate_categorical(np.array(["a", "zzz"], dtype=object), self.STR_MAP)
+
+        assert result[0] == 1.0
+        assert np.isnan(result[1])
+
+    def test_a_missing_element_falls_back_even_when_it_looks_like_the_first_key(self):
+        """欠損（None）は文字列と順序比較できず二分探索が例外になるため、検索の前に
+        **実在するキーへ一時的に差し替える**。差し替えただけだと「一致した」ことに
+        なってしまうので、欠損の印を別に持って強制的に不一致へ倒す。
+        """
+        result = evaluate_categorical(np.array([None, "a"], dtype=object), self.STR_MAP)
+
+        assert np.isnan(result[0])
+        assert result[1] == 1.0
+
+    def test_a_missing_element_uses_the_given_default(self):
+        result = evaluate_categorical(np.array([None], dtype=object), self.STR_MAP, default=7.0)
+
+        assert result.tolist() == [7.0]
+
+    def test_an_empty_table_falls_back_for_every_element(self):
+        """キーが1つも無いと二分探索の配列が作れない。先に倒す。"""
+        result = evaluate_categorical(np.array(["a", "b"], dtype=object), {}, default=5.0)
+
+        assert result.tolist() == [5.0, 5.0]
+
+        assert np.isnan(evaluate_categorical(np.array(["a"], dtype=object), {})).all()
+
+    def test_both_paths_agree(self):
+        values = ["a", "c", "zzz"]
+        scalar = [evaluate_categorical(v, self.STR_MAP, default=-1.0) for v in values]
+
+        result = evaluate_categorical(np.array(values, dtype=object), self.STR_MAP, default=-1.0)
+
+        assert result.tolist() == scalar
+
+    def test_a_numeric_array_propagates_its_missing_marker(self):
+        """欠損の表し方は材料によって違う——数値の材料はNaN、文字列の材料はNone。
+        片方だけ扱うと、もう片方が「一致しない値」として既定へ倒れる。
+        """
+        result = evaluate_categorical(np.array([1.0, 0.0, np.nan]), {1.0: 0.0, 0.0: 80.0})
+
+        assert result[0] == 0.0
+        assert result[1] == 80.0
+        assert np.isnan(result[2])
+
+    def test_many_keys_are_still_looked_up_correctly(self):
+        """キー数が多い材料（highway等）は二分探索で引く。走査から置き換えたときに
+        並び順の取り違えが起きやすい。
+        """
+        mapping = {f"k{i:03d}": float(i) for i in range(200)}
+        picks = ["k000", "k117", "k199"]
+
+        result = evaluate_categorical(np.array(picks, dtype=object), mapping)
+
+        assert result.tolist() == [0.0, 117.0, 199.0]
 
 
-def test_evaluate_breakpoint_linear_scalar_interpolates_midpoint():
-    # 3.0→25.0, 6.0→50.0 の中間(4.5)は線形補間で37.5
-    assert evaluate_breakpoint_linear(4.5, BREAKPOINTS) == 37.5
+class TestRound1Array:
+    """`round(x, 1)`とビット単位で一致させるための配列版。"""
 
+    def test_it_rounds_to_one_decimal(self):
+        assert round1_array(np.array([1.04, 1.06, -2.34])).tolist() == [1.0, 1.1, -2.3]
 
-def test_evaluate_breakpoint_linear_array_matches_scalar_elementwise():
-    values = [-5.0, 0.0, 4.5, 9.0, 20.0]
-    scalar_results = [evaluate_breakpoint_linear(v, BREAKPOINTS) for v in values]
-    array_result = evaluate_breakpoint_linear(np.array(values), BREAKPOINTS)
-    assert list(array_result) == scalar_results
+    def test_it_matches_the_builtin_on_exact_halves(self):
+        """`np.round`は「×10→rint→÷10」の掛け算で誤差が混じり、値がちょうど.X5の境界に
+        あると組み込みの`round()`と食い違う。境界の要素だけ組み込みで決め直す。
+        """
+        values = [0.05, 0.15, 0.25, 0.35, 0.45, 2.55, -0.05, -0.15]
 
+        result = round1_array(np.array(values))
 
-def test_evaluate_breakpoint_linear_array_propagates_nan():
-    array_result = evaluate_breakpoint_linear(np.array([1.0, np.nan, 8.0]), BREAKPOINTS)
-    assert not np.isnan(array_result[0])
-    assert np.isnan(array_result[1])
-    assert not np.isnan(array_result[2])
+        assert result.tolist() == [round(v, 1) for v in values]
 
+    def test_it_matches_the_builtin_on_ordinary_values(self):
+        values = [0.0, 1.2345, -9.8765, 123.456, 1e-9]
 
-def test_evaluate_categorical_scalar():
-    mapping = {True: 0.0, False: 80.0}
-    assert evaluate_categorical(True, mapping) == 0.0
-    assert evaluate_categorical(False, mapping) == 80.0
+        assert round1_array(np.array(values)).tolist() == [round(v, 1) for v in values]
 
+    def test_missing_elements_stay_missing(self):
+        result = round1_array(np.array([np.nan, 1.04]))
 
-def test_evaluate_categorical_scalar_unmatched_key_returns_default():
-    assert evaluate_categorical("unknown", {"a": 1.0}, default=None) is None
-    assert evaluate_categorical("unknown", {"a": 1.0}, default=-1.0) == -1.0
+        assert np.isnan(result[0])
+        assert result[1] == 1.0
 
+    def test_it_accepts_a_plain_list(self):
+        assert round1_array([1.04, 1.06]).tolist() == [1.0, 1.1]
 
-def test_evaluate_categorical_array_matches_scalar_and_propagates_nan():
-    mapping = {1.0: 0.0, 0.0: 80.0}
-    values = np.array([1.0, 0.0, np.nan])
-    result = evaluate_categorical(values, mapping)
-    assert result[0] == 0.0
-    assert result[1] == 80.0
-    assert np.isnan(result[2])
+    def test_an_empty_array_comes_back_empty(self):
+        assert round1_array(np.array([])).shape == (0,)
 
-
-def test_evaluate_categorical_array_str_keys_with_missing_and_unmatched_values():
-    # 配列版は欠損(None)を検索用にmappingの実在キーへ一時的に差し替えるため、差し替えた
-    # だけで「一致した」ことにならないかをここで見る。
-    mapping = {"separated": -2.0, "lane": -1.0, "roadway": 1.0}
-    values = np.array(["separated", "lane", "roadway", None, "unknown_value"], dtype=object)
-
-    result = evaluate_categorical(values, mapping)
-
-    assert result[0] == -2.0
-    assert result[1] == -1.0
-    assert result[2] == 1.0
-    assert np.isnan(result[3])  # None（欠損）はmappingの最初のキーへ誤マッチしないこと
-    assert np.isnan(result[4])  # mapping未登録の値
-
-
-def test_evaluate_categorical_array_resolves_bool_keys():
-    # bool材料はfloatへ変換せずboolのまま引く。
-    mapping = {True: 0.0, False: 80.0}
-    values = np.array([True, False, True])
-
-    result = evaluate_categorical(values, mapping)
-
-    assert result[0] == 0.0
-    assert result[1] == 80.0
-    assert result[2] == 0.0
-
-
-def test_round1_array_matches_reference_on_uniform_random_0_to_1000():
-    rng = np.random.default_rng(20260905)
-    values = rng.uniform(0.0, 1000.0, size=200_000)
-    assert np.array_equal(round1_array(values), _round1_reference(values), equal_nan=True)
-
-
-def test_round1_array_matches_reference_on_uniform_random_negative_100_to_100():
-    rng = np.random.default_rng(20260906)
-    values = rng.uniform(-100.0, 100.0, size=50_000)
-    assert np.array_equal(round1_array(values), _round1_reference(values), equal_nan=True)
-
-
-def test_round1_array_matches_reference_on_dot_x5_boundaries_from_round2():
-    rng = np.random.default_rng(20260907)
-    values = np.round(rng.uniform(-1000.0, 1000.0, size=50_000), 2)
-    assert np.array_equal(round1_array(values), _round1_reference(values), equal_nan=True)
-
-
-def test_round1_array_matches_reference_on_dot_x5_boundaries_from_round3():
-    rng = np.random.default_rng(20260908)
-    values = np.round(rng.uniform(-1000.0, 1000.0, size=50_000), 3)
-    assert np.array_equal(round1_array(values), _round1_reference(values), equal_nan=True)
-
-
-def test_round1_array_matches_reference_on_known_boundary_values():
-    values = np.array(
+    @pytest.mark.parametrize(
+        ("seed", "values_of"),
         [
-            385.95,
-            385.949999999999988,
-            41.25,
-            41.35,
-            0.25,
-            0.75,
-            1.25,
-            -0.25,
-            -1.25,
-            2.675,
-            1e15 + 0.25,
-            0.0,
-            -0.0,
-            np.nan,
-            1e-9,
-            123456.05,
-            123456.15,
-        ]
+            # 一様乱数。手で選んだ数点では、境界に当たらないまま通ってしまう。
+            (20260905, lambda rng: rng.uniform(0.0, 1000.0, size=200_000)),
+            (20260906, lambda rng: rng.uniform(-100.0, 100.0, size=50_000)),
+            # 小数2桁・3桁へ丸めた値は.X5の境界を大量に含む——食い違いが出るのはそこだけ。
+            (20260907, lambda rng: np.round(rng.uniform(-1000.0, 1000.0, size=50_000), 2)),
+            (20260908, lambda rng: np.round(rng.uniform(-1000.0, 1000.0, size=50_000), 3)),
+        ],
     )
-    assert np.array_equal(round1_array(values), _round1_reference(values), equal_nan=True)
+    def test_it_matches_the_builtin_over_a_large_sample(self, seed, values_of):
+        values = values_of(np.random.default_rng(seed))
+        reference = np.array([round(float(v), 1) for v in values])
 
-
-def test_round1_array_handles_empty_array():
-    result = round1_array(np.array([]))
-    assert result.shape == (0,)
-
-
-def test_round1_array_handles_list_input():
-    result = round1_array([41.25, 0.25, np.nan])
-    reference = _round1_reference(np.array([41.25, 0.25, np.nan]))
-    assert np.array_equal(result, reference, equal_nan=True)
+        assert np.array_equal(round1_array(values), reference, equal_nan=True)
