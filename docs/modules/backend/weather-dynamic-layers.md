@@ -271,7 +271,10 @@ URLも変わるため、ブラウザキャッシュ（`api/cache_policy.py`）�
 
 OpenFreeMapのスタイルJSON・TileJSON・スプライト・グリフ・タイルを透過的にプロキシし、
 `tile_cache`（ファイル）へ保存する。JSON（スタイル/TileJSON）は上流のURLを
-`settings.basemap_public_base_url`へ書き換えて返すが、キャッシュには書き換え前の内容を
+`settings.basemap_public_base_url`へ書き換えて返す。**絶対URLへの書き換えは省略できない**
+——MapLibreはスタイルJSON内の相対URLを、スタイル自身の取得元ではなく**ページのオリジン**に
+対して解決し、スプライトのURLに至っては相対URLを明示的に拒否する。書き換えた内容を
+そのままキャッシュはせず、キャッシュには書き換え前の内容を
 `basemap-raw/`接頭辞のキーで保存し、書き換えは返す直前に毎回行う（設定変更がキャッシュを
 消さずに即座に反映される）。バイナリ（スプライト・グリフ・タイル）は無加工でパスそのままの
 キーに保存する。`POST /api/admin/basemap/refresh`は`tile_cache.clear_all()`で路面タイル等も
