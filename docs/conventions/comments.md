@@ -147,7 +147,7 @@ route-settings-and-results.md参照`程度の1行に圧縮する）。
 ブロックする。既存分（T567完了まで残る大量の残存分）は対象にせず、**新規に追加された
 行のみ**を対象にする（フルスキャンでは参考件数として表示するのみで違反扱いにしない）。
 
-- **ローカルのpre-commitフック**（`scripts/pre-commit.sh`→`pre-commit-docs-consistency.sh`
+- **ローカルのpre-pushフック**（`.githooks/pre-push`
   →`review_checks.py docs --staged`）。`.git/hooks/pre-commit`はgit管理外のため、
   `.claude/settings.json`のSessionStartフックがセッション開始のたびに自動インストールする
   （手動インストールを前提にしない）。

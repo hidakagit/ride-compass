@@ -1,0 +1,87 @@
+#!/bin/sh
+# push直前の門。**1タスクにつき重い検査はここでの1回だけ**にするため、
+# pre-commitは何もせずここへ集約する。落ちたらpushを止める。
+#
+# 実行するのは「pushする範囲の変更が届くもの」だけ。届かない検査は動かさない。
+# フルスイート（backend全体・-m postgis・vitest全体）はCIの持ち物で、ここには置かない。
+#
+# 有効化: git config core.hooksPath .githooks （clone/worktreeごとに1回。worktreeは共有設定を継承する）
+
+set -eu
+REPO_ROOT="$(git rev-parse --show-toplevel)"
+cd "$REPO_ROOT"
+
+# push範囲を決める。上流が無い（新規ブランチ）ならorigin/masterからの差分を見る。
+if UPSTREAM="$(git rev-parse --abbrev-ref --symbolic-full-name '@{u}' 2>/dev/null)"; then
+    BASE="$(git merge-base "$UPSTREAM" HEAD 2>/dev/null || echo "")"
+else
+    BASE="$(git merge-base origin/master HEAD 2>/dev/null || echo "")"
+fi
+[ -n "$BASE" ] || exit 0
+
+CHANGED="$(git diff --name-only "$BASE" HEAD)"
+[ -n "$CHANGED" ] || exit 0
+
+# docs・markdownだけの変更は何も動かさない（.github/workflows/ci.ymlのpaths-ignoreと同じ規則）。
+if ! printf '%s\n' "$CHANGED" | grep -qvE '^docs/|\.md$'; then
+    exit 0
+fi
+
+fail=0
+note() { printf '\n[pre-push] %s\n' "$1" >&2; }
+
+# --- backend: ruff（変更したpyだけ） ---
+PY_FILES="$(printf '%s\n' "$CHANGED" | grep -E '^backend/.*\.py$' || true)"
+if [ -n "$PY_FILES" ]; then
+    VENV="$REPO_ROOT/backend/.venv/Scripts/python.exe"
+    [ -x "$VENV" ] || VENV="$REPO_ROOT/backend/.venv/bin/python"
+    if [ -x "$VENV" ]; then
+        printf '%s\n' "$PY_FILES" | grep -v '^$' > "$REPO_ROOT/.git-pre-push-py.$$" || true
+        if ! xargs -a "$REPO_ROOT/.git-pre-push-py.$$" "$VENV" -m ruff check; then
+            note "ruffの指摘があります"; fail=1
+        fi
+        rm -f "$REPO_ROOT/.git-pre-push-py.$$"
+    else
+        note "backend/.venv が無いためruffを飛ばしました（CIで検査されます）"
+    fi
+fi
+
+# --- frontend: prettierの書式（書き換えずに確認だけ）＋ tsc ---
+FE_FILES="$(printf '%s\n' "$CHANGED" | grep -E '^frontend/src/.*\.(ts|tsx|css)$' || true)"
+if [ -n "$FE_FILES" ] && [ -x "frontend/node_modules/.bin/prettier" ]; then
+    printf '%s\n' "$FE_FILES" | sed 's#^frontend/##' > "$REPO_ROOT/.git-pre-push-fe.$$"
+    if ! (cd frontend && xargs -a "$REPO_ROOT/.git-pre-push-fe.$$" ./node_modules/.bin/prettier --check --log-level warn); then
+        note "書式が崩れています: cd frontend && npx prettier --write <対象>"; fail=1
+    fi
+    rm -f "$REPO_ROOT/.git-pre-push-fe.$$"
+fi
+if printf '%s\n' "$CHANGED" | grep -qE '^frontend/'; then
+    if [ -d frontend/node_modules ]; then
+        # 型の波及は1ファイルへ絞れないため、frontendに触れたら全体を1回通す。
+        (cd frontend && npx next typegen >/dev/null 2>&1 || true)
+        if ! (cd frontend && npx tsc --noEmit); then
+            note "型エラーがあります"; fail=1
+        fi
+    fi
+fi
+
+# --- API契約のドリフト（backendの宣言を変えたときだけ） ---
+if printf '%s\n' "$CHANGED" | grep -qE '^backend/(app/(api|domain)/|app/config\.py|scripts/export_openapi\.py)'; then
+    VENV="$REPO_ROOT/backend/.venv/Scripts/python.exe"
+    [ -x "$VENV" ] || VENV="$REPO_ROOT/backend/.venv/bin/python"
+    if [ -x "$VENV" ] && [ -d frontend/node_modules ]; then
+        "$VENV" backend/scripts/export_openapi.py >/dev/null 2>&1 || true
+        (cd frontend && npm run --silent generate:api >/dev/null 2>&1) || true
+        if ! git diff --quiet -- frontend/src/types/generated/; then
+            note "OpenAPI生成物がずれています（再生成の結果をコミットしてください）"; fail=1
+        fi
+    fi
+fi
+
+# masterのCIが赤いままなら知らせる（pushは止めない。赤の原因が自分とは限らない）。
+for c in python python3 py; do
+    if command -v "$c" >/dev/null 2>&1; then "$c" scripts/check_master_ci.py || true; break; fi
+done
+
+[ "$fail" -eq 0 ] || { note "pushを中止しました"; exit 1; }
+exit 0

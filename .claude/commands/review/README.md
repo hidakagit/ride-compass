@@ -30,7 +30,7 @@ docs/tasksの状態照合、規模ウォッチ、定量メトリクス、トリ�
 リポジトリ直下の`scripts/review_checks.py`
 （`docs`/`size`/`metrics`/`duplication`/`trigger`/`mutate`サブコマンド）が担い、
 各レンズはその出力を読んで判断だけを行う。`docs --staged`はpre-commit
-（`scripts/pre-commit-docs-consistency.sh`）からも呼ばれる。
+（`.githooks/pre-push`）からも呼ばれる。
 
 `.git/hooks/pre-commit`は各clone・各コンテナで手動インストールする前提のため、常に走る
 安全網はCI（`docs-consistency.yml`、`docs --since`）側にしかない。どの検知器をどの経路で

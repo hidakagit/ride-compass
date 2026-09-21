@@ -285,7 +285,9 @@ T536でそれを置き換えた`compute_edge_costs_bulk`まで同じ理由で残
   再現できる状態にする**。「実測して判断する」と書いたなら、何をどう測るかまで書く。
 - **完了扱いにする前に検査器を通す**: docs・タスク台帳・ソースコードの整合性（死んだ参照、
   記載漏れ、経緯記述、写経、`状態:`行との照合など）は`scripts/review_checks.py docs`が
-  機械的にブロックする。pre-commit（`scripts/pre-commit.sh`を`.git/hooks/`へ手動導入）と
+  機械的にブロックする。push直前（`.githooks/pre-push`。`git config core.hooksPath .githooks`
+  で有効化し、worktreeは共有設定を継承する。**コミットは無条件で通す**——重い検査を
+  コミットのたびに払うと1タスクで何度も同じ答えを買うことになるため、門はpushに1つだけ置く）と
   CI（`.github/workflows/docs-consistency.yml`）が`--staged`/`--since`で自動実行するため、
   違反の判定はこの2経路が正（フル実行は既存分を参考件数として含む）。**pushする前に
   CIと同じ`--since <masterの先端>`で確認する**——`--staged`では出ない検知器があり、

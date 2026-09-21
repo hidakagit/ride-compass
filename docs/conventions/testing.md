@@ -130,7 +130,7 @@ backend/.venv/Scripts/python.exe backend/scripts/drop_orphan_test_databases.py -
 （[T834](../records/tasks/T834.md)・[T835](../records/tasks/T835.md)）——**CIが担うのはここ**で、手元で
 先回りして通すことでは置き換えない。
 
-**あわせて、masterのCIが赤いままなら手元へ出る**（`scripts/pre-push.sh`→
+**あわせて、masterのCIが赤いままなら手元へ出る**（`.githooks/pre-push`→
 `scripts/check_master_ci.py`、[T835](../records/tasks/T835.md)）。pushの直前にmasterの最新コミットに
 対する結論を読み、成功していないワークフローがあれば警告する。**pushは止めない**——赤の原因が
 自分の変更とは限らず、止めると無関係な作業がブロックされるため、気づかせるところまでを担う。
