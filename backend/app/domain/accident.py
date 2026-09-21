@@ -20,18 +20,6 @@ ACCIDENT_MATCH_MAX_DISTANCE_M = 30.0
 # 他の閾値・補正値と同じ方針）。
 ACCIDENT_FATAL_WEIGHT = 3.0
 
-# 関東7都県の都道府県コード（NPA独自の採番。JIS X 0401とは異なる）。
-# import_profile.yamlのPBF取込bboxと同じ関東スコープに揃える。
-KANTO_PREFECTURE_CODES: dict[str, str] = {
-    "30": "東京",
-    "40": "茨城",
-    "41": "栃木",
-    "42": "群馬",
-    "43": "埼玉",
-    "44": "千葉",
-    "45": "神奈川",
-}
-
 # 当事者種別（31_koudohyou_toujisyasyuetu.csv）のうち自転車に該当するコード。
 # 51=軽車両－自転車、52=軽車両－駆動補助機付自転車（電動アシスト自転車）。
 # 59（軽車両－その他）は自転車ではない軽車両（手押し車等）のため含めない。

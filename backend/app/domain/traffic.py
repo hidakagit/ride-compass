@@ -168,12 +168,6 @@ def stop_count_material_ids() -> tuple[str, ...]:
 POI_CLUSTER_EPS_M = 40.0
 
 
-# POIノードが「その区間の上にある」と判定する許容距離（m）。判定はwayの構成ノードである
-# ことが主で、この距離は同じway内のどの区間に属するかを切り分けるためのもの
-# （ノードは区間の線上にあるため、浮動小数の誤差を吸収できれば足りる）。
-POI_ON_EDGE_TOLERANCE_M = 1.0
-
-
 SupplyPoiKind = Literal[
     "convenience", "vending_drinks", "vending_unknown", "toilets", "drinking_water", "bicycle_parking"
 ]

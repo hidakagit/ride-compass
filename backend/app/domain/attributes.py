@@ -1,5 +1,4 @@
 from dataclasses import dataclass, field
-from typing import Mapping
 
 import numpy as np
 
@@ -7,12 +6,6 @@ from app.domain.graph import LeanRoadGraph
 from app.domain.material_sql import MATERIAL_ID_GRADIENT_PERCENT
 from app.domain.strict_model import StrictModel
 
-
-# 材料へ数値を届けるための基本型。`edge_id → {キー: 値}`という1つの形へ揃え、
-# 材料の種類が増えてもMaterialExtractionContextのフィールドを増やさない
-# （`way_tags`が「文字列の束」1フィールドから任意個の材料を生やしているのと同じ形を、
-# 数値の束にも用意する。docs/modules/backend/evaluation-scoring.md「材料へ値を届ける」参照）。
-EdgeKeyedMetrics = Mapping[str, Mapping[str, float]]
 
 # 群（group）名。保存形式（JSONB1列／実カラム複数）が違っても、材料から見た形は同じ。
 METRIC_GROUP_COUNTS = "counts"

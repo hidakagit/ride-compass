@@ -373,6 +373,19 @@ def main() -> int:
             print(f"{definition.qualname} ({definition.kind}) → {state}")
         return 0
 
+    # 孤立点をテストが参照しているか。**処分の仕方が変わる**——テストからも参照されない
+    # ものはその場で消せる。テストからのみ参照されるものは、テストが状態を初期化・観測
+    # するための正当な口か、実装の取り残しかの判断が要る（段階4）。
+    test_files = sorted((BACKEND_ROOT / "tests").rglob("*.py"))
+    referenced_by_tests: dict[str, int] = defaultdict(int)
+    for path in test_files:
+        try:
+            tree = _strip_docstrings(ast.parse(path.read_text(encoding="utf-8"), filename=str(path)))
+        except SyntaxError:
+            continue
+        for name in _referenced_names(tree):
+            referenced_by_tests[name] += 1
+
     isolated = [
         definition
         for definitions in by_name.values()
@@ -389,7 +402,9 @@ def main() -> int:
     for module, definitions in sorted(by_module.items()):
         print(f"\n### {module}")
         for definition in sorted(definitions, key=lambda d: d.lineno):
-            print(f"  {definition.lineno:5d}  {definition.kind:8s} {definition.name}")
+            hits = referenced_by_tests.get(definition.name, 0)
+            mark = f"テスト{hits}ファイル" if hits else "**テストからも参照なし**"
+            print(f"  {definition.lineno:5d}  {definition.kind:8s} {definition.name:32s} {mark}")
     return 0
 
 

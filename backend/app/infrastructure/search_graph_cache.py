@@ -200,9 +200,5 @@ def lazy_graph_cache_size() -> int:  # テストの検証用
     return _lazy_graph_cache.size()
 
 
-def search_statics_cache_size() -> int:  # テストの検証用
-    return _search_statics_cache.size()
-
-
 def routable_index_cache_size() -> int:  # テストの検証用
     return _routable_index_cache.size()

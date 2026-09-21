@@ -9,37 +9,10 @@
 すべてそこから導く。変えられるようにする対象と管理画面が面倒を見る対象を別々に決めると必ず
 ズレるため、宣言を1つにする。
 
-**変えられない固定値は`FIXED_VALUES`が名前と種別だけを持つ**。値そのものと根拠は使う側の
-モジュールに置いたままにする——根拠の文はその値の隣にあってこそ読めるもので、こちらへ写すと
-二重管理になる。こちらが持つのは「較正値ではない」という分類だけで、物理定数を画面へ出すと
-模型を壊せ、資源の上限を出すと本番を止められる、という線引きがそのまま種別になっている。
-
-どちらかに載っているものが**ルーティング評価が読む固定値の母集団**である。`scripts/review_checks.py`の
-`undeclared_fixed_values`が、`FIXED_VALUES`が挙げるモジュールの直下に**どちらの宣言にも
-無い数値定数**があれば落とす——「この値はどこで決まっていて、変えられるのか」の答えが
-1箇所にある状態を、書き手の心がけではなく機械で保つ。
 """
 
 from dataclasses import dataclass
 from enum import Enum
-
-
-class FixedValueKind(Enum):
-    """較正値ではない固定値が、何であるか（＝なぜ画面から変えさせないか）。
-
-    較正値かどうかはどちらの宣言に載っているかが表すため、この列挙は較正値を持たない。
-    """
-
-    #: 物理定数。決まった値で、較正の対象ではない。
-    PHYSICAL = "physical"
-    #: 数値解法・実装の都合で決めた値。変えても模型は変わらず、精度と速度が動く。
-    NUMERICAL = "numerical"
-    #: 資源の上限。暴走を止めるためのもので、画面から緩めると本番が止まる。
-    BUDGET = "budget"
-    #: 外部データの刻み等、こちらの都合では決められない値。
-    EXTERNAL = "external"
-    #: 変えると事前集計のやり直しが要る値（デプロイなしで回す枠に入らない）。
-    PRECOMPUTED = "precomputed"
 
 
 class TuningEffect(Enum):
@@ -233,74 +206,6 @@ TUNING_PARAMETERS: tuple[TuningParameter, ...] = (
 )
 
 
-#: 較正値ではない固定値（モジュール → 定数名 → 種別）。**値と根拠は使う側に置いたまま**で、
-#: ここが持つのは分類だけ。キーの並びがそのまま検知器の対象範囲で、**定数が1つも無い
-#: モジュールも空で挙げておく**——後から数値を1つ置いたときに拾われるようにするため。
-FIXED_VALUES: dict[str, dict[str, FixedValueKind]] = {
-    "app/domain/geo.py": {
-        "EARTH_RADIUS_KM": FixedValueKind.PHYSICAL,
-        "KM_PER_DEGREE_LATITUDE": FixedValueKind.PHYSICAL,
-    },
-    "app/domain/graph.py": {},
-    "app/domain/routing.py": {
-        "_HEAP_INITIAL_SLACK": FixedValueKind.NUMERICAL,
-        "DEFAULT_NODE_INDEX_CELL_SIZE_DEG": FixedValueKind.NUMERICAL,
-        "_NEIGHBOR_CELL_TOLERANCE": FixedValueKind.NUMERICAL,
-    },
-    "app/domain/route.py": {
-        "SEGMENT_BIN_DISTANCE_KM": FixedValueKind.NUMERICAL,
-    },
-    "app/domain/cycling_speed.py": {
-        "AIR_DENSITY_KG_M3": FixedValueKind.PHYSICAL,
-        "GRAVITY_M_S2": FixedValueKind.PHYSICAL,
-        "SPEED_SOLVE_ITERATIONS": FixedValueKind.NUMERICAL,
-    },
-    "app/domain/traffic.py": {
-        "INTERSECTION_DEGREE_THRESHOLD": FixedValueKind.PRECOMPUTED,
-        "POI_CLUSTER_EPS_M": FixedValueKind.PRECOMPUTED,
-        "POI_ON_EDGE_TOLERANCE_M": FixedValueKind.PRECOMPUTED,
-    },
-    "app/domain/wind.py": {
-        "ASSUMED_SPEED_KMH": FixedValueKind.EXTERNAL,
-        "MIN_ASSUMED_SPEED_KMH": FixedValueKind.EXTERNAL,
-        "MAX_ASSUMED_SPEED_KMH": FixedValueKind.EXTERNAL,
-        "ROUTE_DETOUR_RATIO": FixedValueKind.NUMERICAL,
-        "WIND_DRAG_REFERENCE_SPEED_MS": FixedValueKind.EXTERNAL,
-    },
-    "app/domain/evaluation.py": {},
-    "app/services/road_graph_engine.py": {
-        "BBOX_MARGIN_RATIO": FixedValueKind.NUMERICAL,
-        "BBOX_MARGIN_MIN_KM": FixedValueKind.NUMERICAL,
-        "PREVIEW_BBOX_MARGIN_KM": FixedValueKind.NUMERICAL,
-        "RETRACE_PENALTY_MULTIPLIER": FixedValueKind.NUMERICAL,
-        "MIN_TURNAROUND_SEPARATION_KM": FixedValueKind.NUMERICAL,
-        "TURNAROUND_MAX_OVERLAP_RATIO": FixedValueKind.NUMERICAL,
-        "TURNAROUND_RELAXED_OVERLAP_RATIO": FixedValueKind.NUMERICAL,
-        "LOOP_MAX_OVERLAP_RATIO": FixedValueKind.NUMERICAL,
-        "MAX_RING_CANDIDATES_EXAMINED": FixedValueKind.BUDGET,
-        "LOOP_TO_OUTBOUND_RATIO_MIN": FixedValueKind.NUMERICAL,
-        "LOOP_TO_OUTBOUND_RATIO_MAX": FixedValueKind.NUMERICAL,
-        "COST_LIMIT_SLACK": FixedValueKind.NUMERICAL,
-        "TIME_BIN_HOURS": FixedValueKind.EXTERNAL,
-        "MAX_TIME_BINS": FixedValueKind.BUDGET,
-        "PARETO_DISTANCE_QUANTUM_M": FixedValueKind.NUMERICAL,
-        "PARETO_DIFFICULTY_QUANTUM": FixedValueKind.NUMERICAL,
-        "ALTERNATIVE_MAX_STRETCH": FixedValueKind.NUMERICAL,
-        "MAX_VIA_NODE_CANDIDATES_EXAMINED": FixedValueKind.BUDGET,
-        "MAX_DESTINATION_CORRECTION_KM": FixedValueKind.NUMERICAL,
-    },
-    "app/services/route_generator.py": {
-        "TURNAROUND_RADIUS_RATIO": FixedValueKind.NUMERICAL,
-        "DEFAULT_MAX_ROUTES": FixedValueKind.BUDGET,
-        "MAX_ROUTES": FixedValueKind.BUDGET,
-        "TURNAROUND_POOL_FACTOR": FixedValueKind.BUDGET,
-        "TURNAROUND_POOL_MIN": FixedValueKind.BUDGET,
-        "TURNAROUND_POOL_MAX": FixedValueKind.BUDGET,
-    },
-    "app/services/evaluation_service.py": {},
-}
-
-
 #: 宣言の逆引き。
 TUNING_PARAMETERS_BY_ID: dict[str, TuningParameter] = {p.id: p for p in TUNING_PARAMETERS}
 
@@ -337,12 +242,10 @@ def stop_seconds_parameter_id(kind: str) -> str:
 
 
 __all__ = [
-    "FIXED_VALUES",
     "client_tuning_values",
     "TUNING_PARAMETERS",
     "TUNING_PARAMETERS_BY_ID",
     "TUNING_VALUES",
-    "FixedValueKind",
     "TuningEffect",
     "TuningParameter",
     "stop_seconds_parameter_id",

@@ -17,9 +17,6 @@ import yaml
 
 SUPPORTED_VERSION = 1
 
-#: 対象範囲を`target`から引き継ぐことを表す値。
-FROM_TARGET = "from_target"
-
 PROFILE_PATH = Path(__file__).resolve().parent / "source_profile.yaml"
 
 
