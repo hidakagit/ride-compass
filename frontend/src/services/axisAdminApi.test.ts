@@ -29,9 +29,7 @@ const axisResponse: AxisDefinitionResponse = {
   dynamic_way_value_needs_time: false,
   dynamic_way_value_needs_bearing: false,
   dynamic_way_value_needs_speed: false,
-  // 改善計画T404: displayはAxisDefinitionResponseの必須フィールド（axis_display_for()の
-  // 計算結果）。本テストは実際のderive_ramp_inputsの挙動を検証する対象ではないため
-  // kind="none"の適当な値を置く。
+  // displayは必須フィールド。このテストの対象ではないのでkind="none"を置く。
   display: { kind: "none", label: "路面品質", category: "trafficSafety", tile_inputs: [], thresholds: [], unit: "", note: "" },
 };
 

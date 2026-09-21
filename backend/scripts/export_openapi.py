@@ -179,7 +179,7 @@ def main() -> None:
         # `primary_attribute_ids`は実行時の`GET /api/axis-catalog`が配るため、フロントは
         # この一覧のlabel（正式名）と突き合わせて1次↔2次の双方向導出ができる。
         [
-            {"attr_id": attr.attr_id, "label": attr.label, "shared": attr.shared}
+            {"attr_id": attr.attr_id, "label": attr.label}
             for attr in all_primary_attributes()
         ],
     )

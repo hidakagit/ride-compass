@@ -21,7 +21,7 @@
 軸スタジオでの公開操作（is_publishedの切替）が、地図レイヤーのramp表示へ**再デプロイ
 なしに即座に**反映される（docs/records/decisions/t308-axis-map-display-auto-derivation.md参照）。
 
-**`material_runtime_scales`**: `derive_ramp_inputs`は実行時にしか
+**`material_runtime_scales`**: 地図表示の導出は実行時にしか
 決まらないスケール変換が必要な材料（`tile_property_needs_runtime_scale=True`、例:
 `accident_count_per_km_year`）も自動導出の対象に含めるが、その変換係数
 （収録年数の逆数）自体は`domain/axis_display.py`のような純粋関数では計算できないため
@@ -32,12 +32,17 @@
 from fastapi import APIRouter, Depends
 
 from app.api.dependencies import get_region_service
-from app.domain.axis_definitions import AXIS_DEFINITIONS, AxisCategory, AxisDefinition, AxisShape
-from app.domain.material_catalog import MATERIAL_CATALOG
-from app.domain.axis_display import (
-    axis_display_for,
-    axis_material_shares,
+from app.domain.axis_definitions import (
+    AXIS_DEFINITIONS,
+    AxisCategory,
+    AxisDefinition,
+    AxisShape,
     primary_attribute_ids_for,
+)
+from app.domain.material_catalog import MATERIAL_CATALOG
+from app.domain.axis_display import axis_display_for
+from app.domain.axis_raw_value import (
+    axis_material_shares,
     raw_value_total_unit,
     raw_value_unit,
 )
@@ -158,14 +163,14 @@ class AxisCatalogEntry(StrictModel):
     # フィールドで、難易度を塗る軸ではスケールが違う。未設定の軸はnullで、読む側が
     # `map_value_kind`ごとの既定値を使う。
     map_value_thresholds: list[float] | None
-    # 折れ点を通す前の生値の単位（`domain/axis_display.py: raw_value_unit`）。
+    # 折れ点を通す前の生値の単位（`domain/axis_raw_value.py: raw_value_unit`）。
     # 定まらない軸はnull。ルート結果は得点の隣にこの単位で生値を出す。
     raw_value_unit: str | None
-    # 生値へ走行距離を掛けた総量の単位（`domain/axis_display.py: raw_value_total_unit`）。
+    # 生値へ走行距離を掛けた総量の単位（`domain/axis_raw_value.py: raw_value_total_unit`）。
     # **総量を出しても読み手の判断が変わらない軸はnull**（「約3322度曲がる」には比べる
     # 尺度が無い）。フロントは単位の綴りから総量の可否を判断しない。
     raw_value_total_unit: str | None
-    # 生値の単位が定まらない軸の内訳（`domain/axis_display.py: axis_material_shares`）。
+    # 生値の単位が定まらない軸の内訳（`domain/axis_raw_value.py: axis_material_shares`）。
     # 得点だけでは軸単体で経路を判断できないため、材料まで分解して較正に依存しない
     # 絶対の事実を出す。単位が定まる軸（`raw_value_unit`が非null）は分解せず空配列。
     # 並びは正規化重みの降順で、フロントは先頭から順に出す（並べ替えを持たない）。

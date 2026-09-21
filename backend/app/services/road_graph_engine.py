@@ -71,7 +71,7 @@ from app.domain.axis_definitions import (
     REQUEST_DYNAMIC_MATERIAL_IDS,
     dynamic_axis_topological_order,
 )
-from app.domain.axis_display import axis_material_shares
+from app.domain.axis_raw_value import axis_material_shares
 from app.domain.difficulty import distance_weighted_difficulty
 from app.domain.dynamic_way_values import map_value_kind
 from app.domain.errors import RoutingError

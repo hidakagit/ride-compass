@@ -8,9 +8,8 @@
   `attr_id`リスト。
 
 **排他制約はレジストリ登録時に機械的にチェックする**（設計方針の核）。`register_axis()`は、
-登録しようとする軸の`inputs`のうち`shared=False`の一次属性が、既に登録済みの別軸の
-`inputs`と重複していれば`AxisInputConflictError`を送出する。`shared=True`の一次属性
-（区間の距離・形状など全軸が参照してよい共通コンテキスト）は排他チェックの対象外。
+登録しようとする軸の`inputs`が既に登録済みの別軸の`inputs`と重複していれば
+`AxisInputConflictError`を送出する。
 
 軸の登録自体はここでは行わない。`domain/registry_defaults.py: _register_axes()`が
 `AXIS_DEFINITIONS`（公開軸すべて）を走査して`register_axis()`を呼ぶ（詳細は同モジュールの
@@ -31,12 +30,11 @@ class PrimaryAttributeSpec(StrictModel):
     `primary_attributes[]`へ書き出し、フロントはここから略名（4文字以下、地図チップ用）
     への対応表だけを別途持つ（片側import）。
 
-    `attr_id`/`label`/`shared`のみを持つ（`export_openapi.py`が消費するのはこの3つだけ）。
+    `attr_id`/`label`のみを持つ（`export_openapi.py`が消費するのはこの2つだけ）。
     """
 
     attr_id: str
     label: str
-    shared: bool = False
 
 
 class TileInputSpec(StrictModel):
@@ -85,8 +83,8 @@ class TileInputSpec(StrictModel):
     係数でのスケール変換を要する場合True（`domain/material_catalog.py: MaterialSpec.
     tile_property_needs_runtime_scale`が立っている材料、例: `accident_count_per_km_year`
     ——収録年数[DBの`accident_import_runs`から実行時に取得、増え続ける]で正規化する前の
-    生値がタイルに焼き込まれている）。`derive_ramp_inputs`（axis_display.py）は
-    このフラグが立つ材料も自動導出の対象に含める——`weight`が「タイル生値→材料スケール」の
+    生値がタイルに焼き込まれている）。`axis_display.py`は
+    このフラグが立つ材料も地図表示の対象に含める——`weight`が「タイル生値→材料スケール」の
     静的な変換係数を表現できなくても、`GET /api/axis-catalog`が実行時に取得した
     スケール定数[`material_runtime_scales`]をフロントのJS式が追加で掛け合わせれば
     正しく解決できる。`thresholds`は元々`AxisDefinition.shape.breakpoints`由来の
@@ -154,9 +152,9 @@ class AxisInputConflictError(ValueError):
         self.overlapping_attrs = overlapping_attrs
         attrs = ", ".join(sorted(overlapping_attrs))
         super().__init__(
-            f"axis '{new_axis_id}' shares non-shared input(s) [{attrs}] with already-registered "
+            f"axis '{new_axis_id}' shares input(s) [{attrs}] with already-registered "
             f"axis '{existing_axis_id}'; each primary attribute may belong to at most one axis "
-            f"(exclusive assignment principle) unless marked shared=True"
+            f"(exclusive assignment principle)"
         )
 
 
@@ -170,15 +168,11 @@ def register_primary_attribute(spec: PrimaryAttributeSpec) -> None:
     _PRIMARY_ATTRIBUTES[spec.attr_id] = spec
 
 
-def _exclusive_inputs(inputs: list[str]) -> set[str]:
-    return {attr_id for attr_id in inputs if not _PRIMARY_ATTRIBUTES[attr_id].shared}
-
-
 def register_axis(spec: AxisSpec) -> None:
     """二次軸を登録する。
 
-    `inputs`に未登録の一次属性が含まれる場合、または`shared=False`の一次属性が既存の
-    別軸とかぶる場合はエラーを送出し、登録は行わない（部分登録によるレジストリの不整合を防ぐ）。
+    `inputs`に未登録の一次属性が含まれる場合、または一次属性が既存の別軸とかぶる場合は
+    エラーを送出し、登録は行わない（部分登録によるレジストリの不整合を防ぐ）。
     """
     unknown = [attr_id for attr_id in spec.inputs if attr_id not in _PRIMARY_ATTRIBUTES]
     if unknown:
@@ -187,9 +181,9 @@ def register_axis(spec: AxisSpec) -> None:
     if spec.axis_id in _AXES:
         raise ValueError(f"axis already registered: {spec.axis_id}")
 
-    new_exclusive = _exclusive_inputs(spec.inputs)
+    new_inputs = set(spec.inputs)
     for existing in _AXES.values():
-        overlap = new_exclusive & _exclusive_inputs(existing.inputs)
+        overlap = new_inputs & set(existing.inputs)
         if overlap:
             raise AxisInputConflictError(spec.axis_id, existing.axis_id, overlap)
 

@@ -118,7 +118,7 @@ axis_id → dedicated_way_value_axes().get(axis_id)（無ければ404）
   ルート確定後のルート線色分け（`axis_difficulties`／符号付き材料の直読み）と同じ
   スケールになる。
 - 段階の境界は`map_value_thresholds(definition)`が同じスケールへ揃えて返す。**段そのものを
-  決めるのはここではなく`axis_display.py: ramp_band_thresholds`**（ルート確定前の全道路を
+  決めるのはここではなく`axis_display.py: axis_display_for`**（ルート確定前の全道路を
   塗る境界）で、ここはその値を軸の折れ線で写すだけ。写さずに配ると、材料の単位で書かれた
   境界が0〜100と比べられ、ルート線が全区間ひとつのバンドへ落ちる。
   **上書きの有無で経路を分けない**——上書きを設定していない軸だけがNoneを返して読む側の

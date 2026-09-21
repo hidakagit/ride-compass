@@ -16,10 +16,9 @@
 // カタログ経由で届く——片側import。フロントに同じ係数を手書きしない）。プロパティ欠損は
 // タイル側が「0をNULLIFでキー省略」した結果なのでcoalesceで0へ倒す
 // （_ROAD_SURFACE_TILE_MVT_SQLのコメント参照）。
-// 真偽値材料（改善計画T278、例: 舗装質=surface_good、夜間=lit/has_tunnel）はMVTの
-// 真偽値プロパティを["==",["get",property],true]のような比較でしか読めず数値の重み付け
-// 結合が成立しないため、tile_inputs.boolean=trueのときはtrueValue/falseValueで
-// 寄与値を直接指定する（weightは無視。domain/axis_display.py: derive_ramp_inputs参照）。
+// 真偽値材料はMVTの真偽値プロパティを["==",["get",property],true]のような比較でしか
+// 読めず数値の重み付け結合が成立しないため、tile_inputs.boolean=trueのときは
+// trueValue/falseValueで寄与値を直接指定する（weightは無視）。
 
 import type { LegendEntry } from "./legendFilter";
 import { LEGEND_NO_DATA_KEY, legendBandKey, rangeStepLabel } from "./mapColorLegend";

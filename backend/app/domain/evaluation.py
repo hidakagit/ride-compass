@@ -40,7 +40,7 @@ from app.domain.axis_definitions import (
     evaluate_axis_array,
     topological_axis_order,
 )
-from app.domain.axis_display import axis_material_shares, raw_value_unit
+from app.domain.axis_raw_value import axis_material_shares, raw_value_unit
 from app.domain.axis_templates import round1_array
 from app.domain.difficulty import distance_weighted_difficulty_array
 from app.domain.dynamic_materials import (
@@ -128,7 +128,7 @@ def route_facing_material_ids() -> list[str]:
 
     単位が定まらない軸（合成軸・真偽値やカテゴリの材料を持つ軸）は`axis_raw_arrays`へ
     載らず、得点だけしか出せない。材料まで分解すれば較正に依存しない絶対の事実を出せる
-    （`axis_display.py: axis_material_shares`）ため、分解された葉の材料を軸の生値と
+    （`axis_raw_value.py: axis_material_shares`）ため、分解された葉の材料を軸の生値と
     同じ形で列として持つ。
 
     `has_route_facing_raw_value`と同じ理由でこの述語は**ここ1箇所だけが持つ**——空タイル
@@ -217,7 +217,7 @@ class BulkAxisEvaluation:
     mid_lat: np.ndarray
     mid_lon: np.ndarray
     axis_arrays: dict[str, np.ndarray]
-    # 折れ点を通す前の生値。単位が定まる軸（`axis_display.py: raw_value_unit`）だけを
+    # 折れ点を通す前の生値。単位が定まる軸（`axis_raw_value.py: raw_value_unit`）だけを
     # 持つ——単位の無い値を人へ見せても意味を取れないため、運ぶ必要が無い。
     axis_raw_arrays: dict[str, np.ndarray]
     # 内訳として見せる材料の値（`route_facing_material_ids`の材料だけ）。真偽値材料は

@@ -500,9 +500,7 @@ def test_create_leaves_display_fields_none_when_omitted(override_service):
     assert body["panel_hint"] is None
     assert body["show_map_icon"] is True
     assert body["display_thresholds_override"] is None
-    # 改善計画T404: derive_ramp_inputsが自動導出できない軸（材料gradient_percentが
-    # タイル非依存）のためdisplayはkind="none"（軸自身のデータには影響しない、
-    # AxisDefinitionResponse.displayのdocstring参照）。
+    # 材料がタイル非依存なので地図には出ない。軸自身のデータには影響しない。
     assert body["display"]["kind"] == "none"
 
 
@@ -641,7 +639,7 @@ def test_create_rejects_display_band_labels_override_length_mismatch(override_se
     assert response.status_code == 422
 
 
-def test_get_returns_display_field_computed_from_derive_ramp_inputs(override_service):
+def test_get_returns_the_display_computed_from_the_axis_definition(override_service):
     # 改善計画T404: displayフィールド（axis_display_for()の計算結果）が単体取得
     # レスポンスにも含まれ、kind="none"の軸で軸スタジオが注記を出せるようにする
     # （AxisComposer.tsx: showMapDisplayUnavailableNote参照）。

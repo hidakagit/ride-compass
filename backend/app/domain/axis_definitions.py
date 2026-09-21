@@ -65,16 +65,14 @@ class BreakpointLinearShape(StrictModel):
 
     合成（他軸参照）は独立したプリミティブではなく、`terms`の各materialが元々材料id・
     軸idのどちらも区別なく指せる設計から生じる性質にすぎない。真偽値フラグの加点合計は
-    全termがboolean材料の場合として本shapeで表現する（`domain/axis_display.py:
-    derive_ramp_inputs`の構造判定参照）。
+    全termがboolean材料の場合として本shapeで表現する。
     """
 
     model_config = ConfigDict(frozen=True)
 
     kind: Literal["breakpoint_linear"] = "breakpoint_linear"
     # 空を許すと下流の壊れ方が三者三様になる（スカラー版はNone、配列版はassert、
-    # `axis_display.py: derive_ramp_inputs`は`terms[0]`/`breakpoints[-1]`でIndexError）。
-    # 登録時点で弾く。
+    # 地図表示の導出は`terms[0]`/`breakpoints[-1]`でIndexError）。登録時点で弾く。
     terms: list[MaterialTerm] = Field(min_length=1)
     preprocess: Literal["identity", "abs"] = "identity"
     breakpoints: list[tuple[float, float]] = Field(min_length=1)
@@ -228,22 +226,16 @@ class AxisDefinition(StrictModel):
     このフィールドへ新しい値（例: "commute_only"）を1つ増やすだけでよく、エンジン側の
     コード変更は不要。"""
     display_thresholds_override: list[float] | None = None
-    """地図の色分けしきい値だけを差し替える軽量な上書き。未設定は`derive_ramp_inputs()`
-    が計算したしきい値（`AxisDefinition.shape`のbreakpoints由来のX軸スケール値）を
-    そのまま使う。
+    """地図の色分けしきい値だけを差し替える軽量な上書き。未設定なら`breakpoints`のX軸の
+    値がそのまま段の境界になる。
 
-    `derive_ramp_inputs`は「材料の値をどう合成して1つの表示用の値にするか」
-    （`tile_inputs`）は数学的に厳密に自動導出できるが、色分けの**段階の刻み方**
-    （何段階に分けるか）まではbreakpointsのX軸の値をそのまま流用するため粗くなりがちで
-    （車の圧迫感[2段階]・停止密度/事故密度[各2段階]が実例）、見やすさのために人間が
-    細かく刻みたいという正当なニーズがある。これは`tile_inputs`の自動導出能力の
-    問題ではなく「見やすさの好み」の問題のため、しきい値だけの軽量なフィールドとして
-    独立させてある——軸スタジオのGUI（AxisComposer.tsx）が「数値の配列を編集する」という
-    単純なUIで直接編集できる。値は昇順の数値配列（段階境界値）で、単位は
-    `AxisDefinition.shape`のbreakpointsのX軸と同じ「材料スケール」
-    （`tile_property_needs_runtime_scale`な材料を含む軸でも、実行時スケール変換後の
-    スケール——年数等の変換係数が変わっても値を書き直す必要が無い）。`derive_ramp_inputs`
-    自体が失敗する軸（kind="none"）には効果が無い（`axis_display_for()`の優先順位参照）。"""
+    材料をどう合成して1つの表示用の値にするかは厳密に導けるが、段の刻み方は
+    `breakpoints`のX軸を流用するため粗くなりがちで、見やすさのために細かく刻みたいという
+    正当なニーズがある。導出能力ではなく好みの問題なので、しきい値だけを独立させてある。
+
+    値は昇順の数値配列で、単位は`breakpoints`のX軸と同じ材料スケール
+    （実行時スケール変換が要る材料を含む軸でも変換後のスケールなので、係数が変わっても
+    書き直さなくてよい）。地図表示そのものを導けない軸には効果が無い。"""
     display_band_labels_override: list[str] | None = None
     """地図の色分け段階に添える体感ラベル。未設定は
     段階の数値レンジ表記（例:「2〜6」）のみを凡例に出す。設定する場合は
@@ -428,6 +420,43 @@ def axis_dependencies(definition: AxisDefinition, known_axis_ids: set[str]) -> s
     from app.domain.material_catalog import is_known_material
 
     return {m for m in definition.materials if not is_known_material(m) and m in known_axis_ids}
+
+
+def leaf_materials(definition: AxisDefinition) -> list[str]:
+    """内部軸を辿り切った先の材料idを、定義順・重複なしで返す。
+
+    `AxisDefinition.materials`は1段しか展開せず、材料idと軸idが混ざって返る。軸を参照する
+    軸は葉まで降りないと材料が分からないため、辿る側がそれぞれ再帰を書かずに済むよう
+    ここに1本だけ置く。循環は軸スタジオが拒否するが、`visited`で止めて安全側に倒す。
+    """
+    seen: dict[str, None] = {}
+    visited: set[str] = set()
+
+    def descend(current: AxisDefinition) -> None:
+        if current.axis_id in visited:
+            return
+        visited.add(current.axis_id)
+        for ref in current.materials:
+            referenced_axis = AXIS_DEFINITIONS.get(ref)
+            if referenced_axis is not None:
+                descend(referenced_axis)
+            else:
+                seen.setdefault(ref, None)
+
+    descend(definition)
+    return list(seen)
+
+
+def primary_attribute_ids_for(definition: AxisDefinition) -> list[str]:
+    """軸が最終的に見ている一次属性id。一次属性を持たない材料は現れない。"""
+    from app.domain.material_catalog import MATERIAL_CATALOG
+
+    seen: dict[str, None] = {}
+    for material_id in leaf_materials(definition):
+        spec = MATERIAL_CATALOG.get(material_id)
+        if spec is not None and spec.primary_attribute_id is not None:
+            seen.setdefault(spec.primary_attribute_id, None)
+    return list(seen)
 
 
 class AxisInternalAxisPublishError(ValueError):

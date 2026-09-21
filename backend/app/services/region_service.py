@@ -238,9 +238,8 @@ class RegionService:
     async def get_accident_years_covered(self) -> int:
         """`GET /api/axis-catalog`が地図表示の実行時スケール定数
         （`material_runtime_scales`）を組み立てるために使う。事故データの収録年数
-        （accident_import_runsの成功run、年重複なし）——`domain/axis_display.py:
-        derive_ramp_inputs`が自動導出したaccident軸のtile_input（`accident_per_km`の
-        生値、年正規化前）を、フロントのJS式が`1/accident_years_covered`倍して
+        （accident_import_runsの成功run、年重複なし）——地図表示が導いた事故軸のタイル入力
+        （年正規化前の生値）を、フロントのJS式が`1/accident_years_covered`倍して
         材料スケール（件/(km・年)）へ変換する。
 
         `repository`未注入・DB例外はいずれも0へ倒す（get_material_valuesと同じ

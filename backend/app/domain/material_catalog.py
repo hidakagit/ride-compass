@@ -20,9 +20,8 @@ docs/modules/backend/evaluation-scoring.md「材料カタログ」参照）。
 _ROAD_SURFACE_TILE_MVT_SQL`）に既に焼き込まれているプロパティ名（無ければ材料が
 タイル非依存＝地図レイヤーのramp自動生成が不可能なことを表す）。`GET /api/material-catalog`
 の公開レスポンスには含めない（フロントの軸コンポーザーが必要とするのは`material_id`/
-`label`/`dtype`のみで、tileの内部実装詳細を露出させる理由が無いため）——地図表示ルール
-自動生成（`domain/axis_display.py: derive_ramp_inputs`）がbackend内部でのみこの
-フィールドを使う。
+`label`/`dtype`のみで、tileの内部実装詳細を露出させる理由が無いため）——`domain/axis_display.py`が
+backend内部でのみこのフィールドを使う。
 """
 
 from dataclasses import dataclass
@@ -162,7 +161,7 @@ class MaterialSpec(StrictModel):
     # 同じ単位の他の材料と**足し合わせて意味を持つ量**か（示量／示強の区別）。回・件・個の
     # ような個数と、それを同じ距離で割った密度（回/km等）は足せる。%・km/h・倍率のような
     # 割合・率は、母数の違うものを足しても何も表さないためFalseのまま。
-    # domain/axis_display.py: raw_value_unitは、2項以上の重み付き和の生値を利用者へ見せて
+    # domain/axis_raw_value.py: raw_value_unitは、2項以上の重み付き和の生値を利用者へ見せて
     # よいかの判定にこれを使う（単位が揃っているだけでは和の意味は保証されない）。
     additive: bool = False
     # 距離を掛けた総量（例: 「0.8回/km」→「約26回」）を出すときの単位。**総量が読み手の
@@ -177,15 +176,13 @@ class MaterialSpec(StrictModel):
     # tile_propertyの生値と材料の値がスケール不一致（実行時に変動する係数での
     # 変換が必要）な場合True。例: accident_count_per_km_yearは収録年数（実行時にDBから
     # 取得、増え続ける）で正規化済みだが、tile_propertyのaccident_per_kmは年正規化前の生値。
-    # domain/axis_display.py: derive_ramp_inputsはこれがTrueの材料を含む軸のramp自動導出を
-    # 拒否する（静的な変換係数を持てないため、閾値を安全に流用できない）。
+    # 静的な変換係数を持てないため、地図表示の導出は閾値を安全に流用できない。
     tile_property_needs_runtime_scale: bool = False
     # 材料の値が進行方向によって変わる（有向）場合True。地図のrampレイヤーは
     # 1本の線を単色で塗る前提のため、方向依存材料は単純な重み付き和で表現できない
     # （時間依存の風レイヤー・降水ナウキャストと同じく、矢印等の専用表示が別途必要）。
-    # derive_ramp_inputsはこれがTrueの材料を含む軸のramp自動導出を拒否する。走行方向で
-    # 値が変わる材料（gradient_percent・wind_drag_ratio）は方向を持たないMVTプロパティへ
-    # 焼き込めないため、`tile_property=None`と両輪で「この材料はramp化しない」を宣言する。
+    # 方向で値が変わる材料は方向を持たないMVTプロパティへ焼き込めないため、
+    # `tile_property=None`と両輪で「この材料はramp化しない」を宣言する。
     tile_property_direction_dependent: bool = False
     # この材料の由来となる一次属性id（domain/registry.py:
     # PrimaryAttributeSpec.attr_id、frontend側はprimaryAttributes.ts:
@@ -424,10 +421,8 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
         # 乗せる仕組みとして、風と同型のRedis経由way_id→値配信（`services/
         # gradient_way_service.py`、`GET /api/region/dynamic-way-values/gradient/
         # {z}/{x}/{y}`）を使う。`tile_property`は今後も設定しない方針を確定する
-        # （MVT焼き込み経路[kind="ramp"、
-        # `axis_display.py: derive_ramp_inputs`]はそもそも方向非依存の材料しか安全に
-        # 表現できないため、`tile_property_direction_dependent=True`と両輪でこの材料が
-        # ramp化されないことを明示する）。
+        # （MVT焼き込み経路は方向非依存の材料しか表現できないため、
+        # `tile_property_direction_dependent=True`と両輪でramp化されないことを明示する）。
         tile_property=None,
         tile_property_direction_dependent=True,
         primary_attribute_id="elevation",

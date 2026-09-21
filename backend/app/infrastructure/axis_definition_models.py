@@ -51,7 +51,6 @@ class AxisDefinitionRow(Base):
     time_scope: Mapped[str] = mapped_column(String, nullable=False, server_default="always")
     # 地図の色分けしきい値だけを差し替える軽量な上書き（domain/
     # axis_definitions.py: AxisDefinition.display_thresholds_overrideのdocstring参照）。
-    # 未設定はderive_ramp_inputsが計算したしきい値をそのまま使う。
     display_thresholds_override: Mapped[list | None] = mapped_column(JSONB, nullable=True)
     # display_thresholds_overrideと対になる、段階ごとの体感ラベルの軽量な
     # 上書き（domain/axis_definitions.py: AxisDefinition.display_band_labels_overrideの

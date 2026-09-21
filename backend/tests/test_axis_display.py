@@ -1,960 +1,429 @@
+"""`domain/axis_display.py`——軸を地図にどう出すか。
+
+材料カタログと軸カタログはこのファイルが丸ごと差し替える。実在の材料・軸に由来する事実は
+1つも持ち込まない——このモジュールが決めているのは「与えられた材料の性質と軸の形から何が
+導けるか」であって、どの材料が実在するかではない。
+"""
+
+import pytest
+
+from app.domain import axis_display
 from app.domain.axis_definitions import (
-    AXIS_DEFINITIONS,
     AxisDefinition,
     BreakpointLinearShape,
     CategoricalShape,
     MaterialTerm,
 )
 from app.domain.axis_display import (
+    _adjacent_midpoint_thresholds,
+    _boolean_score_tile_input,
+    _boolean_terms_thresholds,
+    _drop_thresholds_that_share_a_score,
+    _rescale_tile_input,
     axis_display_for,
-    axis_material_shares,
-    derive_ramp_inputs,
-    raw_value_total_unit,
-    raw_value_unit,
 )
-from app.domain.material_catalog import MATERIAL_CATALOG, CoverageExcluded, MaterialSpec
+from app.domain.material_catalog import CoverageExcluded, MaterialSpec
 from app.domain.registry import TileInputSpec
 
-# 改善計画T350: AXIS_DEFINITIONSのPython literal撤去に伴い、本ファイルのテストは
-# derive_ramp_inputs/axis_display_for（純粋関数）の正しさをshapeの種類ごとに検証する
-# ことが目的であって、実運用の軸の値を検証したいわけではないため、実軸（AXIS_DEFINITIONS
-# の各エントリ）を使わずテストファイル内で定義した合成軸データへ書き換えた。参照する
-# material id（surface_good・lit・has_tunnel・gradient_percent等）はMATERIAL_CATALOG
-# 側の実データで、AXIS_DEFINITIONSとは別レジストリのため引き続き実在するものを使う。
 
-
-def test_categorical_shape_derives_two_band_ramp():
-    # surface_qを模した合成軸: 材料surface_good（真偽値、tile_property="surface_good"）、
-    # mapping True=0.0/False=80.0
-    definition = AxisDefinition(
-        axis_id="synthetic_surface_q",
-        shape=CategoricalShape(material="surface_good", mapping={True: 0.0, False: 80.0}),
-        default_weight=0.1,
-        label="テスト軸",
-        category="観測",
-    )
-    ramp = derive_ramp_inputs(definition)
-
-    assert ramp is not None
-    assert len(ramp.tile_inputs) == 1
-    tile_input = ramp.tile_inputs[0]
-    assert tile_input.property == "surface_good"
-    assert tile_input.boolean is True
-    assert tile_input.true_value == 0.0
-    assert tile_input.false_value == 80.0
-    assert ramp.thresholds == [40.0]
-    # レビュー指摘の修正確認: CategoricalShapeはタイル欠損が「true/falseどちらでもない
-    # 不明」を表すため、has_unknown_fallback=Trueを立てる（フロントはtrue_value/
-    # false_valueどちらにも倒さず灰色「不明」表示にする）。
-    assert tile_input.has_unknown_fallback is True
-
-
-def test_categorical_shape_with_str_multi_value_material_derives_ramp():
-    # 改善計画T292でCategoricalShape.mappingがstr多値材料（highway等、3値以上）にも
-    # 対応した当初は、export_openapi.pyの自動ramp化ループが内部軸の
-    # 内部軸へderive_ramp_inputsを呼んでKeyError(shape.mapping[True])でクラッシュする
-    # 実障害があったため、str多値のmappingは自動導出対象外（None）にしていた。
-    # 改善計画T308で、`registry.py: TileInputSpec.categories`（既にN値文字列材料に
-    # 対応済み）を使ってstr多値もbool2値と同じ理屈で一般化した。
-    definition = AxisDefinition(
-        axis_id="highway_like_axis",
-        shape=CategoricalShape(
-            material="highway",
-            mapping={"residential": 2.0, "primary": 4.0, "trunk": 4.0},
-        ),
-        default_weight=0.0,
-        label="テスト軸",
-        is_published=False,
+def _spec(material_id: str, dtype: str = "numeric", **overrides) -> MaterialSpec:
+    overrides.setdefault("tile_property", f"t_{material_id}")
+    return MaterialSpec(
+        material_id=material_id,
+        label=material_id,
+        description="",
+        dtype=dtype,
+        coverage=CoverageExcluded(reason="テスト用"),
+        **overrides,
     )
 
-    ramp = derive_ramp_inputs(definition)
 
-    assert ramp is not None
-    assert len(ramp.tile_inputs) == 1
-    tile_input = ramp.tile_inputs[0]
-    assert tile_input.property == "highway"
-    assert tile_input.categories == {"residential": 2.0, "primary": 4.0, "trunk": 4.0}
-    # 改善計画T297の教訓通り、未登録値は「不明」（灰色）へ倒す（寄与0ではない）。
-    assert tile_input.has_unknown_fallback is True
-    # 達成しうるスコア{2.0, 4.0}の隣接中間点。
-    assert ramp.thresholds == [3.0]
-
-
-def test_boolean_terms_breakpoint_linear_derives_subset_sum_thresholds():
-    # 改善計画T396: 旧FlagSumShapeをBreakpointLinearShapeへ統合。nightを模した合成軸:
-    # lit(材料、tile_property="lit")-50点 + has_tunnel(tile_property="tunnel")50点、
-    # breakpoints=[(-50,0),(50,100)]（cap=50相当）。
-    definition = AxisDefinition(
-        axis_id="synthetic_night",
-        shape=BreakpointLinearShape(
-            terms=[
-                MaterialTerm(material="lit", weight=-50.0),
-                MaterialTerm(material="has_tunnel", weight=50.0),
-            ],
-            breakpoints=[(-50.0, 0.0), (50.0, 100.0)],
-        ),
-        default_weight=0.0,
-        label="テスト軸",
-        category="観測",
-    )
-    ramp = derive_ramp_inputs(definition)
-
-    assert ramp is not None
-    assert len(ramp.tile_inputs) == 2
-    lit_input = next(t for t in ramp.tile_inputs if t.property == "lit")
-    assert lit_input.true_value == -50.0
-    tunnel_input = next(t for t in ramp.tile_inputs if t.property == "tunnel")
-    assert tunnel_input.true_value == 50.0
-    # 達成しうる合計{-50,0,50}の隣接中間点
-    assert ramp.thresholds == [-25.0, 25.0]
-    # 全termがboolean材料の軸はタグ不在に既に軸定義側の安全側デフォルト意味
-    # （無灯火・非トンネル）があるため、欠損を「不明」として特別扱いしない
-    # （CategoricalShapeとの違いの確認）。
-    assert lit_input.has_unknown_fallback is False
-    assert tunnel_input.has_unknown_fallback is False
-
-
-def test_single_term_breakpoint_linear_reuses_breakpoints_as_thresholds():
-    # 改善計画T396: 全termがboolean材料の軸は部分和ベースの閾値計算（別テスト
-    # test_boolean_terms_breakpoint_linear_derives_subset_sum_thresholds参照）へ分岐する
-    # ため、この「breakpointsのx値をそのまま流用する」経路の検証には数値材料
-    # （lanes_count）を使う。
-    definition = AxisDefinition(
-        axis_id="synthetic_single_term",
-        shape=BreakpointLinearShape(
-            terms=[MaterialTerm(material="lanes_count", weight=1.0)],
-            breakpoints=[(0.0, 0.0), (10.0, 50.0), (20.0, 100.0)],
-        ),
-        default_weight=0.1,
-        label="テスト軸",
-        category="推定",
-    )
-    ramp = derive_ramp_inputs(definition)
-
-    assert ramp is not None
-    assert ramp.tile_inputs == [TileInputSpec(property="lanes_count", weight=1.0)]
-    assert ramp.thresholds == [10.0, 20.0]
-
-
-def test_multi_term_breakpoint_linear_derives_ramp_with_coarser_thresholds():
-    # stop_density: 複数材料の重み付き結合。改善計画T278時点では単一term・weight=1.0限定
-    # だったため自動導出対象外だったが、改善計画T308でtotal=Σ(material_value×term.weight)が
-    # 評価側とタイル表示側で完全に同一の演算であることを踏まえ、term数・重みによらず
-    # shape.breakpointsのx値を閾値として流用できるよう一般化した。
-    #
-    # ただし、これはstop_density実運用の従来手書きthresholds[1.0, 2.0, 4.0]
-    # （統計的経験則による4段階）とは**一致しない**——stop_densityのbreakpointsは
-    # [(0.0, 0.0), (4.0, 100.0)]の2点（1本の線形区間）しか無く、この関数が流用できる
-    # x値は[4.0]の1つだけ（2段階）に留まる。改善計画T404: 以前は既存7軸のうち
-    # 一部の軸についてはこの粗さを理由に手書きdisplay_overrideを
-    # 使い続けていたが、T404で「tile_inputsの自動導出」と「色分け段階の細かさ」を
-    # 分離し、後者だけをdisplay_thresholds_override（軽量な数値配列の上書き）で
-    # 差し替える設計へ移行した（下のtest_axis_display_for_combines_auto_derived_
-    # tile_inputs_with_thresholds_override参照）。本関数自体（derive_ramp_inputs）は
-    # 変わらず粗いthresholdsを返す。
-    # 複数材料の重み付き結合を持つ合成軸。
-    definition = AxisDefinition(
-        axis_id="synthetic_stop_density",
-        shape=BreakpointLinearShape(
-            terms=[
-                MaterialTerm(material="poi_signal_per_km"),
-                MaterialTerm(material="intersection_count_per_km", weight=0.3, required=False),
-            ],
-            breakpoints=[(0.0, 0.0), (4.0, 100.0)],
-        ),
-        default_weight=0.2,
-        label="テスト軸",
-        category="観測",
-    )
-    ramp = derive_ramp_inputs(definition)
-
-    assert ramp is not None
-    assert ramp.tile_inputs == [
-        TileInputSpec(property="poi_signal_per_km", weight=1.0),
-        TileInputSpec(property="intersection_per_km", weight=0.3),
-    ]
-    assert ramp.thresholds == [4.0]
-
-
-def test_tile_independent_material_is_not_auto_derived():
-    # gradientを模した合成軸: 材料gradient_percentがタイル非依存（GSI APIから都度取得）。
-    definition = AxisDefinition(
-        axis_id="synthetic_gradient",
-        shape=BreakpointLinearShape(
-            terms=[MaterialTerm(material="gradient_percent")],
-            preprocess="abs",
-            breakpoints=[(0.0, 0.0), (15.0, 100.0)],
-        ),
-        default_weight=0.15,
-        label="テスト軸",
-        category="観測",
-    )
-    ramp = derive_ramp_inputs(definition)
-
-    assert ramp is None
-
-
-def test_axis_referencing_unknown_axis_is_not_auto_derived():
-    # BreakpointLinearShapeのtermsが材料でも既知の軸idでもない未知の参照を持つ場合、
-    # 安全側でNoneを返す（改善計画T404: 材料idの辞書には無いが軸idとしても存在しない、
-    # という「本当に未知」なケース。実在の軸を参照するケースは下の
-    # test_axis_referencing_categorical_axis_is_recursively_resolved等を参照）。
-    definition = AxisDefinition(
-        axis_id="synthetic_categorical",
-        shape=BreakpointLinearShape(
-            terms=[MaterialTerm(material="synthetic_internal_axis_that_does_not_exist", required=True)],
-            breakpoints=[(1.0, 0.0), (5.0, 100.0)],
-        ),
-        default_weight=0.2,
-        label="テスト軸",
-        category="推定",
-    )
-    ramp = derive_ramp_inputs(definition)
-
-    assert ramp is None
-
-
-def test_axis_referencing_categorical_axis_is_recursively_resolved(monkeypatch):
-    # 多値の文字列材料を使う内部軸（CategoricalShape）
-    # をAXIS_DEFINITIONSへ一時登録し、それを参照する外側の軸が再帰的に解決できることを
-    # 検証する。
-    internal = AxisDefinition(
-        axis_id="synthetic_highway_base",
-        shape=CategoricalShape(material="highway", mapping={"residential": 2.0, "primary": 4.0}),
-        default_weight=0.0,
-        label="内部軸(道路種別)",
-        is_published=False,
-    )
-    monkeypatch.setitem(AXIS_DEFINITIONS, internal.axis_id, internal)
-
-    outer = AxisDefinition(
-        axis_id="synthetic_categorical",
-        shape=BreakpointLinearShape(
-            terms=[MaterialTerm(material=internal.axis_id, weight=1.0, required=True)],
-            breakpoints=[(0.0, 0.0), (4.0, 100.0)],
-        ),
-        default_weight=0.2,
-        label="テスト軸",
-        category="推定",
-    )
-
-    ramp = derive_ramp_inputs(outer)
-
-    assert ramp is not None
-    assert len(ramp.tile_inputs) == 1
-    tile_input = ramp.tile_inputs[0]
-    assert tile_input.property == "highway"
-    assert tile_input.categories == {"residential": 2.0, "primary": 4.0}
-    # 外側term.weight=1.0のため内部軸のcategoriesスコアはそのまま流用される。
-    assert tile_input.has_unknown_fallback is True
-    # 車ストレスと同じ「複数の内部軸を参照する多term」構成のため、thresholdsは
-    # outer breakpointsのx値をそのまま流用する（1つのみ、色分け粒度の粗さは
-    # display_thresholds_overrideで別途上書きする、下のテスト参照）。
-    assert ramp.thresholds == [4.0]
-
-
-def test_axis_referencing_categorical_axis_rescales_by_outer_weight(monkeypatch):
-    # 改善計画T404: 外側term.weightが1.0以外の場合、参照先軸のtile_inputのスコアへ
-    # 正しく再スケールされることを検証する（_rescale_tile_input）。
-    internal = AxisDefinition(
-        axis_id="synthetic_motor_vehicle_adjustment",
-        shape=CategoricalShape(material="motor_vehicle_no", mapping={True: -1000.0, False: 0.0}),
-        default_weight=0.0,
-        label="内部軸(自動車通行不可)",
-        is_published=False,
-    )
-    monkeypatch.setitem(AXIS_DEFINITIONS, internal.axis_id, internal)
-
-    outer = AxisDefinition(
-        axis_id="synthetic_categorical2",
-        shape=BreakpointLinearShape(
-            terms=[MaterialTerm(material=internal.axis_id, weight=2.0, required=False)],
-            breakpoints=[(0.0, 0.0), (4.0, 100.0)],
-        ),
-        default_weight=0.2,
-        label="テスト軸",
-        category="推定",
-    )
-
-    ramp = derive_ramp_inputs(outer)
-
-    assert ramp is not None
-    tile_input = ramp.tile_inputs[0]
-    assert tile_input.property == "motor_vehicle_no"
-    assert tile_input.boolean is True
-    assert tile_input.true_value == -2000.0  # -1000.0 * outer weight(2.0)
-    assert tile_input.false_value == 0.0
-    # motor_vehicle_noのbool_defaultは既定"false"のため、has_unknown_fallbackはFalse
-    # （レビュー指摘の修正確認: 以前はCategoricalShape分岐が常にTrueを返していた）。
-    assert tile_input.has_unknown_fallback is False
-
-
-def test_axis_referencing_single_term_breakpoint_linear_axis_is_recursively_resolved(monkeypatch):
-    # 単一term・weight=1.0の内部軸（
-    # preprocess="identity"のBreakpointLinearShape）をAXIS_DEFINITIONSへ一時登録し、
-    # TileInputSpec.breakpoints（自己変換材料）として展開されることを検証する。
-    internal = AxisDefinition(
-        axis_id="synthetic_maxspeed_adjustment",
-        shape=BreakpointLinearShape(
-            terms=[MaterialTerm(material="maxspeed_kmh", weight=1.0, required=True)],
-            breakpoints=[(0.0, -1.0), (30.0, -1.0), (60.0, 1.0), (999.0, 1.0)],
-        ),
-        default_weight=0.0,
-        label="内部軸(制限速度補正)",
-        is_published=False,
-    )
-    monkeypatch.setitem(AXIS_DEFINITIONS, internal.axis_id, internal)
-
-    outer = AxisDefinition(
-        axis_id="synthetic_numeric",
-        shape=BreakpointLinearShape(
-            terms=[MaterialTerm(material=internal.axis_id, weight=1.0, required=False)],
-            breakpoints=[(0.0, 0.0), (4.0, 100.0)],
-        ),
-        default_weight=0.2,
-        label="テスト軸",
-        category="推定",
-    )
-
-    ramp = derive_ramp_inputs(outer)
-
-    assert ramp is not None
-    assert ramp.tile_inputs == [
-        TileInputSpec(property="maxspeed_kmh", weight=1.0, breakpoints=internal.shape.breakpoints)
-    ]
-
-
-def test_axis_referencing_multi_term_nested_axis_is_not_auto_derived(monkeypatch):
-    # 改善計画T404: 参照先の軸が複数termを持つBreakpointLinearShapeの場合、
-    # 「重み付けしてから折れ点変換」という順序をTileInputSpec.breakpointsは表現できないため
-    # 安全側でNoneを返す（_resolve_referenced_axis_tile_inputのdocstring参照）。
-    internal = AxisDefinition(
-        axis_id="synthetic_multi_term_internal",
-        shape=BreakpointLinearShape(
-            terms=[
-                MaterialTerm(material="lanes_count", weight=1.0),
-                MaterialTerm(material="maxspeed_kmh", weight=0.5),
-            ],
-            breakpoints=[(0.0, 0.0), (10.0, 100.0)],
-        ),
-        default_weight=0.0,
-        label="内部軸(複数term)",
-        is_published=False,
-    )
-    monkeypatch.setitem(AXIS_DEFINITIONS, internal.axis_id, internal)
-
-    outer = AxisDefinition(
-        axis_id="synthetic_outer_multi_term_ref",
-        shape=BreakpointLinearShape(
-            terms=[MaterialTerm(material=internal.axis_id, weight=1.0, required=False)],
-            breakpoints=[(0.0, 0.0), (4.0, 100.0)],
-        ),
-        default_weight=0.2,
-        label="テスト軸",
-        category="推定",
-    )
-
-    ramp = derive_ramp_inputs(outer)
-
-    assert ramp is None
-
-
-def test_circular_axis_reference_is_not_auto_derived(monkeypatch):
-    # 改善計画T404: 循環参照は軸スタジオ側で拒否済みの前提だが、derive_ramp_inputsが
-    # 直接AXIS_DEFINITIONSを読むため、安全側にvisited集合で保護する（無限再帰しない）。
-    axis_a = AxisDefinition(
-        axis_id="synthetic_cycle_a",
-        shape=BreakpointLinearShape(
-            terms=[MaterialTerm(material="synthetic_cycle_b", weight=1.0, required=False)],
-            breakpoints=[(0.0, 0.0), (4.0, 100.0)],
-        ),
-        default_weight=0.0,
-        label="循環A",
-        is_published=False,
-    )
-    axis_b = AxisDefinition(
-        axis_id="synthetic_cycle_b",
-        shape=BreakpointLinearShape(
-            terms=[MaterialTerm(material="synthetic_cycle_a", weight=1.0, required=False)],
-            breakpoints=[(0.0, 0.0), (4.0, 100.0)],
-        ),
-        default_weight=0.0,
-        label="循環B",
-        is_published=False,
-    )
-    monkeypatch.setitem(AXIS_DEFINITIONS, axis_a.axis_id, axis_a)
-    monkeypatch.setitem(AXIS_DEFINITIONS, axis_b.axis_id, axis_b)
-
-    ramp = derive_ramp_inputs(axis_a)
-
-    assert ramp is None
-
-
-def test_multi_axis_reference_derives_full_ramp(monkeypatch):
-    # 複数の内部軸を参照する軸から、tile_inputs一式を自動導出できることを確かめる。
-    highway_base = AxisDefinition(
-        axis_id="t_base",
-        shape=CategoricalShape(material="highway", mapping={"residential": 2.0, "primary": 4.0, "cycleway": 1.0}),
-        default_weight=0.0,
-        label="道路基準",
-        is_published=False,
-    )
-    maxspeed_adjustment = AxisDefinition(
-        axis_id="t_numeric_adjustment",
-        shape=BreakpointLinearShape(
-            terms=[MaterialTerm(material="maxspeed_kmh", weight=1.0, required=True)],
-            breakpoints=[(0.0, -1.0), (30.0, -1.0), (60.0, 1.0), (999.0, 1.0)],
-        ),
-        default_weight=0.0,
-        label="制限速度補正",
-        is_published=False,
-    )
-    lanes_adjustment = AxisDefinition(
-        axis_id="t_numeric_adjustment2",
-        shape=BreakpointLinearShape(
-            terms=[MaterialTerm(material="lanes_count", weight=1.0, required=True)],
-            breakpoints=[(0.0, -1.0), (1.0, -1.0), (4.0, 1.0), (99.0, 1.0)],
-        ),
-        default_weight=0.0,
-        label="車線数補正",
-        is_published=False,
-    )
-    motor_vehicle_no_adjustment = AxisDefinition(
-        axis_id="t_boolean_adjustment",
-        shape=CategoricalShape(material="motor_vehicle_no", mapping={True: -1000.0, False: 0.0}),
-        default_weight=0.0,
-        label="自動車通行不可補正",
-        is_published=False,
-    )
-    for internal in (
-        highway_base,
-        maxspeed_adjustment,
-        lanes_adjustment,
-        motor_vehicle_no_adjustment,
-    ):
-        monkeypatch.setitem(AXIS_DEFINITIONS, internal.axis_id, internal)
-
-    composite = AxisDefinition(
-        axis_id="t_composite",
-        shape=BreakpointLinearShape(
-            terms=[
-                MaterialTerm(material=highway_base.axis_id, weight=1.0, required=True),
-                MaterialTerm(material=maxspeed_adjustment.axis_id, weight=1.0, required=False),
-                MaterialTerm(material=lanes_adjustment.axis_id, weight=1.0, required=False),
-                MaterialTerm(material=motor_vehicle_no_adjustment.axis_id, weight=1.0, required=False),
-            ],
-            breakpoints=[(0.0, 0.0), (4.0, 100.0)],
-        ),
-        default_weight=0.2,
-        label="合成軸",
-        category="推定",
-    )
-
-    ramp = derive_ramp_inputs(composite)
-
-    assert ramp is not None
-    assert len(ramp.tile_inputs) == 4
-    by_property = {t.property: t for t in ramp.tile_inputs}
-    assert by_property["highway"].categories == {"residential": 2.0, "primary": 4.0, "cycleway": 1.0}
-    assert by_property["maxspeed_kmh"].breakpoints == maxspeed_adjustment.shape.breakpoints
-    assert by_property["lanes_count"].breakpoints == lanes_adjustment.shape.breakpoints
-    assert by_property["motor_vehicle_no"].boolean is True
-    assert by_property["motor_vehicle_no"].true_value == -1000.0
-    assert by_property["motor_vehicle_no"].has_unknown_fallback is False
-    # 複数の軸参照termを含むため、thresholdsはouter breakpointsのx値をそのまま流用する
-    # （粗い1段階。色分け粒度の細かさはdisplay_thresholds_overrideで別途上書きする、
-    # 下のaxis_display_forテスト参照）。
-    assert ramp.thresholds == [4.0]
-
-
-def test_runtime_scale_material_is_auto_derived_with_needs_runtime_scale_flag():
-    # 改善計画T404: accidentを模した合成軸。材料accident_count_per_km_yearのタイル生値
-    # (accident_per_km)は年正規化前で実行時に変動するスケール係数が必要だが、T404で
-    # 自動導出の対象に含めるよう緩和した（TileInputSpec.needs_runtime_scaleで印を付け、
-    # 実際のスケール定数はGET /api/axis-catalogがフロントへ渡す）。
-    definition = AxisDefinition(
-        axis_id="synthetic_accident",
-        shape=BreakpointLinearShape(
-            terms=[MaterialTerm(material="accident_count_per_km_year")],
-            breakpoints=[(0.0, 0.0), (0.5, 100.0)],
-        ),
-        default_weight=0.08,
-        label="テスト軸",
-        category="推定",
-    )
-    ramp = derive_ramp_inputs(definition)
-
-    assert ramp is not None
-    assert len(ramp.tile_inputs) == 1
-    tile_input = ramp.tile_inputs[0]
-    assert tile_input.property == "accident_per_km"
-    assert tile_input.weight == 1.0
-    assert tile_input.needs_runtime_scale is True
-    # thresholdsはouter breakpointsのx値（材料スケール、年正規化後）をそのまま流用する。
-    assert ramp.thresholds == [0.5]
-
-
-def test_direction_dependent_material_is_not_auto_derived(monkeypatch):
-    # 改善計画T308: 進行方向で値が変わる（有向）材料は、1本の線を単色で塗るramp表示には
-    # 単純化できない（時間依存の風・降水ナウキャストと同じく専用表示が要る）。現行
-    # MATERIAL_CATALOGに実例が無いため、テスト専用の材料を一時的に登録して検証する。
-    monkeypatch.setitem(
-        MATERIAL_CATALOG,
-        "test_direction_dependent_material",
-        MaterialSpec(
-            material_id="test_direction_dependent_material",
-            label="テスト用有向材料",
-            description="テスト用の材料。",
-            dtype="numeric",
-            tile_property="test_direction_dependent_property",
-            tile_property_direction_dependent=True,
-            coverage=CoverageExcluded(reason="テスト専用の材料。"),
-        ),
-    )
-    definition = AxisDefinition(
-        axis_id="synthetic_direction_dependent",
-        shape=BreakpointLinearShape(
-            terms=[MaterialTerm(material="test_direction_dependent_material", weight=1.0)],
-            breakpoints=[(0.0, 0.0), (10.0, 100.0)],
-        ),
-        default_weight=0.1,
-        label="テスト軸",
-        category="推定",
-    )
-
-    ramp = derive_ramp_inputs(definition)
-
-    assert ramp is None
-
-
-def test_axis_display_for_falls_back_to_auto_derivation():
-    # 手書きoverrideが無い軸は、derive_ramp_inputsの結果をそのまま使う。
-    definition = AxisDefinition(
-        axis_id="synthetic_surface_q",
-        shape=CategoricalShape(material="surface_good", mapping={True: 0.0, False: 80.0}),
-        default_weight=0.1,
-        label="テスト軸",
-        category="観測",
-    )
-    display = axis_display_for(definition)
-    assert display.kind == "ramp"
-    assert display.label == definition.label
-    ramp = derive_ramp_inputs(definition)
-    assert ramp is not None
-    assert display.tile_inputs == ramp.tile_inputs
-    assert display.thresholds == ramp.thresholds
-
-
-def test_axis_display_for_returns_none_kind_when_not_derivable():
-    # 材料がタイル非依存のため自動導出不可、手書きoverrideも無い軸はkind="none"になる。
-    definition = AxisDefinition(
-        axis_id="synthetic_gradient",
-        shape=BreakpointLinearShape(
-            terms=[MaterialTerm(material="gradient_percent")],
-            preprocess="abs",
-            breakpoints=[(0.0, 0.0), (15.0, 100.0)],
-        ),
-        default_weight=0.15,
-        label="テスト軸",
-        category="観測",
-    )
-    display = axis_display_for(definition)
-    assert display.kind == "none"
-    assert display.label == definition.label
-    assert display.tile_inputs == []
-    assert display.thresholds == []
-
-
-def test_a_numeric_material_axis_gets_a_map_lens():
-    """way単位の事前集計をタイルへ焼くため、地図レイヤーを持つ。
-    材料の`tile_property`が外れるとkind="none"（ルート結果だけの軸）へ静かに戻る。"""
-    definition = AxisDefinition(
-        axis_id="intersection_density",
-        shape=BreakpointLinearShape(
-            terms=[MaterialTerm(material="intersection_count_per_km", weight=1.0)],
-            breakpoints=[(0.0, 0.0), (100.0, 25.0), (1000.0, 100.0)],
-        ),
-        default_weight=0.1,
-        label="交差点密度",
-        category="観測",
-        is_published=True,
-    )
-
-    display = axis_display_for(definition)
-
-    assert display.kind == "ramp"
-    assert display.tile_inputs == [TileInputSpec(property="intersection_per_km", weight=1.0)]
-    assert display.thresholds
-
-
-def test_axis_display_for_derives_gui_created_axis_display():
-    # 改善計画T308の目的そのもの: 軸スタジオ（GUI）が作る典型的な軸（複数材料の重み付き
-    # 結合）は、手書きoverride無しでもramp表示が導出される。
-    definition = AxisDefinition(
-        axis_id="gui_created_axis",
-        shape=BreakpointLinearShape(
-            terms=[
-                MaterialTerm(material="lanes_count", weight=1.0),
-                MaterialTerm(material="maxspeed_kmh", weight=0.5),
-            ],
-            breakpoints=[(0.0, 0.0), (10.0, 100.0)],
-        ),
-        default_weight=0.1,
-        label="テスト用GUI軸",
-        category="推定",
-        is_published=True,
-    )
-
-    display = axis_display_for(definition)
-
-    assert display.kind == "ramp"
-    assert display.label == "テスト用GUI軸"
-    assert display.tile_inputs == [
-        TileInputSpec(property="lanes_count", weight=1.0),
-        TileInputSpec(property="maxspeed_kmh", weight=0.5),
-    ]
-    assert display.thresholds == [10.0]
-
-
-def test_axis_display_for_combines_auto_derived_tile_inputs_with_thresholds_override():
-    # 改善計画T404: display_thresholds_override（軽量な色分けしきい値だけの上書き）は
-    # derive_ramp_inputsが自動導出したtile_inputsと組み合わせて使う（tile_inputs自体は
-    # 上書きしない）。stop_density実運用の移行内容（thresholds[1,2,4]、docs/records/tasks/
-    # T404.md参照）を模した検証。
-    definition = AxisDefinition(
-        axis_id="synthetic_stop_density_with_thresholds_override",
-        shape=BreakpointLinearShape(
-            terms=[
-                MaterialTerm(material="poi_signal_per_km"),
-                MaterialTerm(material="intersection_count_per_km", weight=0.3, required=False),
-            ],
-            breakpoints=[(0.0, 0.0), (4.0, 100.0)],
-        ),
-        default_weight=0.2,
-        label="テスト軸",
-        category="観測",
-        display_thresholds_override=[1.0, 2.0, 4.0],
-    )
-
-    display = axis_display_for(definition)
-
-    assert display.kind == "ramp"
-    assert display.tile_inputs == [
-        TileInputSpec(property="poi_signal_per_km", weight=1.0),
-        TileInputSpec(property="intersection_per_km", weight=0.3),
-    ]
-    # 自動導出のみだと[4.0]（1段階）だが、display_thresholds_overrideで4段階へ差し替わる。
-    assert display.thresholds == [1.0, 2.0, 4.0]
-
-
-def test_axis_display_for_ignores_thresholds_override_when_auto_derivation_fails():
-    # 改善計画T404: derive_ramp_inputs自体が失敗する軸（kind="none"）には
-    # display_thresholds_overrideは効果が無い（tile_inputs自体を持たないため
-    # 組み合わせようがない、AxisDefinition.display_thresholds_overrideのdocstring参照）。
-    definition = AxisDefinition(
-        axis_id="synthetic_gradient_with_thresholds_override",
-        shape=BreakpointLinearShape(
-            terms=[MaterialTerm(material="gradient_percent")],
-            preprocess="abs",
-            breakpoints=[(0.0, 0.0), (15.0, 100.0)],
-        ),
-        default_weight=0.15,
-        label="テスト軸",
-        category="観測",
-        display_thresholds_override=[3.0, 6.0, 9.0],
-    )
-
-    display = axis_display_for(definition)
-
-    assert display.kind == "none"
-
-
-def _axis(shape, axis_id="synthetic_raw_value"):
-    return AxisDefinition(axis_id=axis_id, shape=shape, default_weight=0.1, label="テスト軸", category="観測")
-
-
-def test_raw_value_unit_returns_shared_unit_of_terms():
-    # 単位の同じ材料（回/km）を、そのままの重み（1.0）で足したもの。
-    definition = _axis(
-        BreakpointLinearShape(
-            terms=[
-                MaterialTerm(material="poi_signal_per_km", weight=1.0),
-                MaterialTerm(material="intersection_count_per_km", weight=1.0, required=False),
-            ],
-            breakpoints=[(0.0, 0.0), (4.0, 100.0)],
-        )
-    )
-
-    assert raw_value_unit(definition) == "回/km"
-
-
-def test_raw_value_unit_is_none_when_a_weight_is_not_one():
-    # 生値はΣ(材料値 × weight)。重みが1でない項があると材料の値をスケールし直した量に
-    # なり、材料の単位では読めない（「1kmあたり1.5回として数えた踏切」を含む和は、
-    # 実際の回/kmではない）。本番の停止密度がこの形。
-    definition = _axis(
-        BreakpointLinearShape(
-            terms=[
-                MaterialTerm(material="poi_signal_per_km", weight=1.0),
-                MaterialTerm(material="intersection_count_per_km", weight=0.3, required=False),
-            ],
-            breakpoints=[(0.0, 0.0), (4.0, 100.0)],
-        )
-    )
-
-    assert raw_value_unit(definition) is None
-
-
-def test_raw_value_unit_ignores_zero_weight_terms():
-    # 重み0の項は生値へ寄与しない。単位の一致判定にも数えない（数えると単位が
-    # 定まらなくなり、実際には出せる生値を出せなくなる）。
-    definition = _axis(
-        BreakpointLinearShape(
-            terms=[
-                MaterialTerm(material="poi_signal_per_km", weight=1.0),
-                MaterialTerm(material="gradient_percent", weight=0.0, required=False),
-            ],
-            breakpoints=[(0.0, 0.0), (4.0, 100.0)],
-        )
-    )
-
-    assert raw_value_unit(definition) == "回/km"
-
-
-def test_raw_value_unit_is_none_for_mixed_units():
-    definition = _axis(
-        BreakpointLinearShape(
-            terms=[
-                MaterialTerm(material="poi_signal_per_km", weight=1.0),
-                MaterialTerm(material="gradient_percent", weight=1.0, required=False),
-            ],
-            breakpoints=[(0.0, 0.0), (4.0, 100.0)],
-        )
-    )
-
-    assert raw_value_unit(definition) is None
-
-
-def test_raw_value_unit_is_none_for_unitless_material():
-    # 真偽値材料（lit）は単位を持たない。単位の無い数字を人へ見せても意味を取れない。
-    definition = _axis(
-        BreakpointLinearShape(
-            terms=[MaterialTerm(material="lit", weight=1.0, required=False)],
-            breakpoints=[(0.0, 0.0), (1.0, 100.0)],
-        )
-    )
-
-    assert raw_value_unit(definition) is None
-
-
-def test_raw_value_unit_is_none_when_summing_non_additive_units():
-    # 開放度を模した合成軸: 単位は%で揃っているが、母数の違う被覆率どうしの和は
-    # 何も表さない。単位が揃っているだけでは和の意味は保証されない。
-    definition = _axis(
-        BreakpointLinearShape(
-            terms=[
-                MaterialTerm(material="trees_percent", weight=1.0, required=False),
-                MaterialTerm(material="built_percent", weight=1.0, required=False),
-            ],
-            breakpoints=[(0.0, 0.0), (100.0, 100.0)],
-        )
-    )
-
-    assert raw_value_unit(definition) is None
-
-
-def test_raw_value_unit_allows_a_single_non_additive_term():
-    # 項が1つなら和ではない。勾配の「平均3.2%」は足し算をしていないので意味を持つ。
-    definition = _axis(
-        BreakpointLinearShape(
-            terms=[MaterialTerm(material="gradient_percent")],
-            preprocess="abs",
-            breakpoints=[(0.0, 0.0), (15.0, 100.0)],
-        )
-    )
-
-    assert raw_value_unit(definition) == "%"
-
-
-def test_raw_value_unit_is_none_when_a_weight_is_negative():
-    # opennessを模した合成軸: 被覆率の和を符号反転して向きを揃えたもの。単位は%で
-    # 揃っているが、生値は常に負になり「開放度-45%」としか読めない。
-    definition = _axis(
-        BreakpointLinearShape(
-            terms=[
-                MaterialTerm(material="trees_percent", weight=-1.0, required=False),
-                MaterialTerm(material="built_percent", weight=-1.0, required=False),
-            ],
-            breakpoints=[(-100.0, 0.0), (-20.0, 100.0)],
-        )
-    )
-
-    assert raw_value_unit(definition) is None
-
-
-def test_raw_value_unit_is_none_for_categorical_shape():
-    definition = _axis(CategoricalShape(material="surface_good", mapping={True: 0.0, False: 80.0}))
-
-    assert raw_value_unit(definition) is None
-
-
-# --- 総量の単位（raw_value_total_unit、T760） ---
-
-
-def test_raw_value_total_unit_is_the_count_for_per_km_events():
-    # 「0.8回/km × 32.5km ≒ 26回」は、この経路で何回止まるかを答える。
-    definition = _axis(
-        BreakpointLinearShape(
-            terms=[
-                MaterialTerm(material="poi_signal_per_km", weight=1.0),
-                MaterialTerm(material="intersection_count_per_km", weight=1.0, required=False),
-            ],
-            breakpoints=[(0.0, 0.0), (4.0, 100.0)],
-        )
-    )
-
-    assert raw_value_total_unit(definition) == "回"
-
-
-def test_raw_value_total_unit_is_none_when_the_total_cannot_be_read():
-    # 事故密度は足し合わせられる量（additive）だが、総量（「約12件・年」）には比べる
-    # 尺度が無い。単位が「◯◯/km」で終わることだけを条件にすると、上と同じ扱いになる。
-    definition = _axis(
-        BreakpointLinearShape(
-            terms=[MaterialTerm(material="accident_count_per_km_year", weight=1.0)],
-            breakpoints=[(0.0, 0.0), (10.0, 100.0)],
-        )
-    )
-
-    assert raw_value_unit(definition) == "件/(km・年)"
-    assert raw_value_total_unit(definition) is None
-
-
-def test_raw_value_total_unit_is_none_when_the_unit_itself_is_undefined():
-    # 生値の単位が定まらない軸には、掛ける相手が無い。
-    definition = _axis(CategoricalShape(material="surface_good", mapping={True: 0.0, False: 80.0}))
-
-    assert raw_value_total_unit(definition) is None
-
-
-def test_published_axes_with_a_unit_can_show_their_raw_value():
-    # 実運用の軸で、単位が定まる軸が実際にあること（機構が空回りしていないこと）を
-    # 押さえる。どの軸が該当するかはDBの軸定義次第のため軸idまでは固定しない。
-    published = [d for d in AXIS_DEFINITIONS.values() if d.is_published]
-    assert any(raw_value_unit(definition) is not None for definition in published)
-
-
-# --- 材料単位への分解（axis_material_shares、T689） ---
-
-
-def _linear_axis(axis_id: str, terms: list[tuple[str, float]], *, published: bool = True) -> AxisDefinition:
+#: 表示の判断に効く性質だけを変えた材料。名前は性質を表すだけで、実在の材料を指さない。
+MATERIALS = {
+    "num_a": _spec("num_a"),
+    "num_b": _spec("num_b"),
+    "num_scaled": _spec("num_scaled", tile_property_needs_runtime_scale=True),
+    "num_directed": _spec("num_directed", tile_property_direction_dependent=True),
+    "num_offtile": _spec("num_offtile", tile_property=None),
+    "bool_unknown": _spec("bool_unknown", dtype="boolean", bool_default="nan"),
+    "bool_certain": _spec("bool_certain", dtype="boolean", bool_default="false"),
+    "cat_kind": _spec("cat_kind", dtype="categorical"),
+}
+
+
+@pytest.fixture(autouse=True)
+def catalogs(monkeypatch) -> dict[str, AxisDefinition]:
+    """材料と軸をこのファイルのものへ差し替える。返る辞書へ入れた軸だけが参照先になる。"""
+    axes: dict[str, AxisDefinition] = {}
+    monkeypatch.setattr(axis_display, "MATERIAL_CATALOG", MATERIALS)
+    monkeypatch.setattr(axis_display, "AXIS_DEFINITIONS", axes)
+    return axes
+
+
+def _axis(shape, axis_id="subject", **overrides) -> AxisDefinition:
     return AxisDefinition(
-        axis_id=axis_id,
-        shape=BreakpointLinearShape(
-            terms=[MaterialTerm(material=material, weight=weight, required=False) for material, weight in terms],
-            breakpoints=[(0.0, 0.0), (10.0, 100.0)],
-        ),
-        default_weight=0.1,
-        label=axis_id,
-        is_published=published,
+        axis_id=axis_id, shape=shape, default_weight=0.1, label="対象軸", **overrides
     )
 
 
-def test_single_material_axis_is_not_decomposed():
-    # 分解しても情報が増えず、shape.preprocess（勾配のabs）が材料単位では効かないため、
-    # 呼び出し側はraw_value_unitによる軸単位の生値をそのまま使う。
-    assert axis_material_shares(_linear_axis("a", [("gradient_percent", 1.0)])) == []
-
-
-def test_zero_weight_materials_are_excluded():
-    # 得点に一切寄与しない材料を「事実」として出すと誤読を招く。
-    shares = axis_material_shares(_linear_axis("a", [("lit", 1.0), ("has_tunnel", 0.0), ("surface_good", 1.0)]))
-
-    assert [entry.material_id for entry in shares] == ["lit", "surface_good"]
-
-
-def test_shares_are_normalized_within_a_shape():
-    # 停止密度と同じ重み構成（1 / 1.5 / 0.3）。
-    shares = axis_material_shares(
-        _linear_axis("a", [("lit", 1.0), ("has_tunnel", 1.5), ("surface_good", 0.3)])
+def _linear(terms, breakpoints=((0.0, 0.0), (10.0, 100.0)), preprocess="identity"):
+    return BreakpointLinearShape(
+        terms=list(terms), breakpoints=[tuple(bp) for bp in breakpoints], preprocess=preprocess
     )
 
-    assert [entry.material_id for entry in shares] == ["has_tunnel", "lit", "surface_good"]
-    assert [round(entry.share, 3) for entry in shares] == [0.536, 0.357, 0.107]
-    assert round(sum(entry.share for entry in shares), 6) == 1.0
+
+class TestCategoricalAxes:
+    def test_a_two_valued_boolean_axis_is_painted_from_the_two_scores(self):
+        display = axis_display_for(
+            _axis(CategoricalShape(material="bool_unknown", mapping={True: 0.0, False: 80.0}))
+        )
+
+        assert display.kind == "ramp"
+        assert display.label == "対象軸"
+        assert display.tile_inputs == [
+            TileInputSpec(
+                property="t_bool_unknown",
+                boolean=True,
+                true_value=0.0,
+                false_value=80.0,
+                has_unknown_fallback=True,
+            )
+        ]
+        assert display.thresholds == [40.0]
+
+    def test_a_material_whose_missing_value_means_false_gets_no_unknown_band(self):
+        display = axis_display_for(
+            _axis(CategoricalShape(material="bool_certain", mapping={True: 0.0, False: 80.0}))
+        )
+
+        assert display.tile_inputs[0].has_unknown_fallback is False
+
+    def test_a_many_valued_axis_carries_its_mapping_and_bands_the_distinct_scores(self):
+        display = axis_display_for(
+            _axis(CategoricalShape(material="cat_kind", mapping={"a": 2.0, "b": 4.0, "c": 4.0}))
+        )
+
+        assert display.tile_inputs[0].categories == {"a": 2.0, "b": 4.0, "c": 4.0}
+        # 未登録の値は寄与0ではなく「不明」へ倒す。
+        assert display.tile_inputs[0].has_unknown_fallback is True
+        assert display.thresholds == [3.0]
+
+    def test_a_mapping_with_a_single_distinct_score_has_nothing_to_paint(self):
+        display = axis_display_for(
+            _axis(CategoricalShape(material="cat_kind", mapping={"a": 2.0, "b": 2.0}))
+        )
+
+        assert display.kind == "none"
+
+    def test_a_mapping_mixing_booleans_and_strings_is_not_painted(self):
+        display = axis_display_for(
+            _axis(CategoricalShape(material="cat_kind", mapping={True: 1.0, "a": 2.0}))
+        )
+
+        assert display.kind == "none"
 
 
-def test_negative_weights_are_compared_by_absolute_value():
-    # 夜間（lit=-50・has_tunnel=+50）は符号が違っても占める割合は等しい。
-    shares = axis_material_shares(_linear_axis("a", [("lit", -50.0), ("has_tunnel", 50.0)]))
+class TestLinearAxes:
+    def test_numeric_terms_become_weighted_inputs_and_the_breakpoints_become_bands(self):
+        display = axis_display_for(
+            _axis(
+                _linear(
+                    [
+                        MaterialTerm(material="num_a", weight=2.0),
+                        MaterialTerm(material="num_b", weight=-1.0),
+                    ],
+                    breakpoints=[(0.0, 0.0), (10.0, 50.0), (20.0, 100.0)],
+                )
+            )
+        )
 
-    assert [round(entry.share, 3) for entry in shares] == [0.5, 0.5]
+        assert display.tile_inputs == [
+            TileInputSpec(property="t_num_a", weight=2.0),
+            TileInputSpec(property="t_num_b", weight=-1.0),
+        ]
+        assert display.thresholds == [10.0, 20.0]
+
+    def test_a_material_whose_tile_value_needs_a_runtime_factor_is_marked_for_the_front(self):
+        display = axis_display_for(_axis(_linear([MaterialTerm(material="num_scaled")])))
+
+        assert display.tile_inputs[0].needs_runtime_scale is True
+
+    def test_boolean_terms_contribute_their_weight_and_band_every_reachable_sum(self):
+        display = axis_display_for(
+            _axis(
+                _linear(
+                    [
+                        MaterialTerm(material="bool_certain", weight=10.0),
+                        MaterialTerm(material="bool_unknown", weight=20.0),
+                    ],
+                    breakpoints=[(0.0, 0.0), (30.0, 100.0)],
+                )
+            )
+        )
+
+        assert display.tile_inputs == [
+            TileInputSpec(
+                property="t_bool_certain", boolean=True, true_value=10.0, false_value=0.0
+            ),
+            TileInputSpec(
+                property="t_bool_unknown", boolean=True, true_value=20.0, false_value=0.0
+            ),
+        ]
+        # 取りうる合計は 0 / 10 / 20 / 30 の4通り。
+        assert display.thresholds == [5.0, 15.0, 25.0]
+
+    def test_too_many_boolean_terms_are_not_painted(self):
+        terms = [MaterialTerm(material="bool_certain", weight=float(i)) for i in range(1, 14)]
+
+        display = axis_display_for(_axis(_linear(terms, breakpoints=[(0.0, 0.0), (91.0, 100.0)])))
+
+        assert display.kind == "none"
+
+    def test_an_axis_that_folds_the_sign_away_is_not_painted(self):
+        display = axis_display_for(
+            _axis(_linear([MaterialTerm(material="num_a")], preprocess="abs"))
+        )
+
+        assert display.kind == "none"
 
 
-def test_axis_references_are_followed_down_to_materials(monkeypatch):
-    # 内部軸を経由しても、結果に現れるのは葉の材料だけ
-    # （途中の軸の得点は較正依存のため内訳へ出さない）。
-    inner_a = _linear_axis("inner_a", [("maxspeed_kmh", 1.0)], published=False)
-    inner_b = AxisDefinition(
-        axis_id="inner_b",
-        shape=CategoricalShape(material="highway", mapping={"residential": 2.0}),
-        default_weight=0.0,
-        label="inner_b",
-        is_published=False,
+class TestMaterialsTheMapCannotPaint:
+    @pytest.mark.parametrize(
+        "material",
+        ["num_offtile", "num_directed", "ghost"],
+        ids=["タイルに無い", "進行方向で変わる", "存在しない"],
     )
-    monkeypatch.setitem(AXIS_DEFINITIONS, inner_a.axis_id, inner_a)
-    monkeypatch.setitem(AXIS_DEFINITIONS, inner_b.axis_id, inner_b)
+    def test_the_axis_is_not_painted(self, material):
+        display = axis_display_for(_axis(_linear([MaterialTerm(material=material)])))
 
-    shares = axis_material_shares(_linear_axis("outer", [("inner_a", 1.0), ("inner_b", 1.0)]))
-
-    assert [entry.material_id for entry in shares] == ["maxspeed_kmh", "highway"]
-    assert [round(entry.share, 3) for entry in shares] == [0.5, 0.5]
-    # 深さは同率の並び替えに使う（内部軸を1段経由しているのでどちらも1）。
-    assert [entry.depth for entry in shares] == [1, 1]
+        assert display.kind == "none"
 
 
-def test_inner_weights_are_normalized_per_level(monkeypatch):
-    # 内側の重みは外側とスケールが違う（内部軸のbreakpointsが非線形変換のため）。
-    # 階層ごとに正規化してから掛けることで、葉まで一貫した割合になる。
-    inner = _linear_axis("inner", [("lit", 3.0), ("has_tunnel", 1.0)], published=False)
-    monkeypatch.setitem(AXIS_DEFINITIONS, inner.axis_id, inner)
+class TestAxesThatReferenceOtherAxes:
+    def test_a_referenced_categorical_axis_is_resolved_and_scaled_by_the_outer_weight(
+        self, catalogs
+    ):
+        catalogs["inner"] = _axis(
+            CategoricalShape(material="bool_certain", mapping={True: 10.0, False: 0.0}),
+            axis_id="inner",
+        )
 
-    shares = axis_material_shares(_linear_axis("outer", [("inner", 1.0), ("surface_good", 1.0)]))
+        display = axis_display_for(
+            _axis(_linear([MaterialTerm(material="inner", weight=0.5)]), axis_id="outer")
+        )
 
-    # 外側で inner:surface_good = 50:50、内側で lit:has_tunnel = 75:25。
-    assert {entry.material_id: round(entry.share, 3) for entry in shares} == {
-        "surface_good": 0.5,
-        "lit": 0.375,
-        "has_tunnel": 0.125,
-    }
+        assert display.tile_inputs == [
+            TileInputSpec(property="t_bool_certain", boolean=True, true_value=5.0, false_value=0.0)
+        ]
 
+    def test_a_referenced_single_term_axis_becomes_a_self_converting_input(self, catalogs):
+        catalogs["inner"] = _axis(
+            _linear([MaterialTerm(material="num_a")], breakpoints=[(0.0, 0.0), (4.0, 100.0)]),
+            axis_id="inner",
+        )
 
-def test_same_material_reached_twice_is_kept_once(monkeypatch):
-    # 同じ物理量を2回並べても情報が増えない。最初に現れた1件だけを残す。
-    inner = _linear_axis("inner", [("lit", 1.0)], published=False)
-    monkeypatch.setitem(AXIS_DEFINITIONS, inner.axis_id, inner)
+        display = axis_display_for(
+            _axis(_linear([MaterialTerm(material="inner", weight=0.5)]), axis_id="outer")
+        )
 
-    shares = axis_material_shares(_linear_axis("outer", [("lit", 1.0), ("inner", 1.0), ("has_tunnel", 1.0)]))
+        assert display.tile_inputs == [
+            TileInputSpec(property="t_num_a", breakpoints=[(0.0, 0.0), (4.0, 100.0)], weight=0.5)
+        ]
 
-    assert [entry.material_id for entry in shares] == ["lit", "has_tunnel"]
-
-
-def test_circular_axis_reference_terminates(monkeypatch):
-    # 循環はtopological_axis_orderが読み込み時に拒否するが、この関数単体でも無限再帰しない。
-    a = _linear_axis("cycle_a", [("cycle_b", 1.0), ("lit", 1.0)], published=False)
-    b = _linear_axis("cycle_b", [("cycle_a", 1.0), ("has_tunnel", 1.0)], published=False)
-    monkeypatch.setitem(AXIS_DEFINITIONS, a.axis_id, a)
-    monkeypatch.setitem(AXIS_DEFINITIONS, b.axis_id, b)
-
-    shares = axis_material_shares(a)
-
-    assert sorted(entry.material_id for entry in shares) == ["has_tunnel", "lit"]
-
-
-def test_ties_keep_definition_order():
-    # 同率のときは探索の浅い順、さらに同じなら定義順（terms の並び）。
-    shares = axis_material_shares(
-        _linear_axis("a", [("has_tunnel", 1.0), ("lit", 1.0), ("surface_good", 1.0)])
+    @pytest.mark.parametrize(
+        "inner_shape",
+        [
+            _linear([MaterialTerm(material="num_a"), MaterialTerm(material="num_b")]),
+            _linear([MaterialTerm(material="num_a", weight=2.0)]),
+            _linear([MaterialTerm(material="num_a")], preprocess="abs"),
+            _linear([MaterialTerm(material="bool_certain")]),
+        ],
+        ids=["複数の項", "内側の重みが1でない", "符号を畳む", "真偽値の材料"],
     )
+    def test_a_referenced_axis_the_tile_cannot_reproduce_is_not_painted(
+        self, catalogs, inner_shape
+    ):
+        catalogs["inner"] = _axis(inner_shape, axis_id="inner")
 
-    assert [entry.material_id for entry in shares] == ["has_tunnel", "lit", "surface_good"]
+        display = axis_display_for(
+            _axis(_linear([MaterialTerm(material="inner")]), axis_id="outer")
+        )
+
+        assert display.kind == "none"
+
+    def test_a_two_level_reference_is_not_painted(self, catalogs):
+        catalogs["middle"] = _axis(_linear([MaterialTerm(material="inner")]), axis_id="middle")
+        catalogs["inner"] = _axis(_linear([MaterialTerm(material="num_a")]), axis_id="inner")
+
+        display = axis_display_for(
+            _axis(_linear([MaterialTerm(material="middle")]), axis_id="outer")
+        )
+
+        assert display.kind == "none"
+
+    def test_axes_that_reference_each_other_terminate_without_painting(self, catalogs):
+        catalogs["a"] = _axis(_linear([MaterialTerm(material="b")]), axis_id="a")
+        catalogs["b"] = _axis(_linear([MaterialTerm(material="a")]), axis_id="b")
+
+        assert axis_display_for(catalogs["a"]).kind == "none"
+
+    def test_an_axis_that_references_itself_terminates_without_painting(self, catalogs):
+        catalogs["loop"] = _axis(_linear([MaterialTerm(material="loop")]), axis_id="loop")
+
+        assert axis_display_for(catalogs["loop"]).kind == "none"
+
+    def test_a_referenced_categorical_axis_that_cannot_be_painted_stops_the_outer_axis(
+        self, catalogs
+    ):
+        catalogs["inner"] = _axis(
+            CategoricalShape(material="cat_kind", mapping={"a": 2.0, "b": 2.0}), axis_id="inner"
+        )
+
+        display = axis_display_for(
+            _axis(_linear([MaterialTerm(material="inner")]), axis_id="outer")
+        )
+
+        assert display.kind == "none"
+
+    def test_a_categorical_axis_whose_value_comes_from_another_axis_is_not_painted(self, catalogs):
+        catalogs["inner"] = _axis(_linear([MaterialTerm(material="num_a")]), axis_id="inner")
+
+        display = axis_display_for(
+            _axis(CategoricalShape(material="inner", mapping={"a": 2.0, "b": 4.0}), axis_id="outer")
+        )
+
+        assert display.kind == "none"
+
+
+class TestBands:
+    def test_an_override_replaces_the_derived_bands(self):
+        display = axis_display_for(
+            _axis(
+                _linear([MaterialTerm(material="num_a")]),
+                display_thresholds_override=[3.0, 7.0],
+            )
+        )
+
+        assert display.thresholds == [3.0, 7.0]
+
+    def test_an_override_still_drops_bands_the_curve_cannot_separate(self):
+        display = axis_display_for(
+            _axis(
+                _linear([MaterialTerm(material="num_a")], breakpoints=[(0.0, 0.0), (5.0, 100.0)]),
+                display_thresholds_override=[2.0, 7.0, 12.0],
+            )
+        )
+
+        # 5で100へ達するため、7と12は同じ評価になる。
+        assert display.thresholds == [2.0, 7.0]
+
+    def test_an_axis_that_cannot_be_painted_keeps_its_label_and_paints_nothing(self):
+        display = axis_display_for(_axis(_linear([MaterialTerm(material="num_directed")])))
+
+        assert (display.kind, display.label, display.tile_inputs, display.thresholds) == (
+            "none",
+            "対象軸",
+            [],
+            [],
+        )
+
+
+class TestAdjacentMidpointThresholds:
+    def test_takes_the_midpoint_of_each_adjacent_pair(self):
+        assert _adjacent_midpoint_thresholds([0.0, 10.0, 40.0]) == [5.0, 25.0]
+
+    def test_sorts_before_pairing(self):
+        assert _adjacent_midpoint_thresholds([40.0, 0.0, 10.0]) == [5.0, 25.0]
+
+    def test_collapses_duplicate_scores(self):
+        assert _adjacent_midpoint_thresholds([10.0, 10.0, 30.0]) == [20.0]
+
+    @pytest.mark.parametrize("scores", [[], [7.0], [7.0, 7.0]])
+    def test_a_single_distinct_score_has_no_boundary(self, scores):
+        assert _adjacent_midpoint_thresholds(scores) == []
+
+
+class TestBooleanTermsThresholds:
+    def test_boundaries_come_from_every_subset_sum_including_none_selected(self):
+        assert _boolean_terms_thresholds([10.0, 20.0], cap=None) == [5.0, 15.0, 25.0]
+
+    def test_sums_are_clamped_to_the_cap(self):
+        assert _boolean_terms_thresholds([10.0, 20.0], cap=20.0) == [5.0, 15.0]
+
+    def test_negative_weights_widen_the_range_downward(self):
+        assert _boolean_terms_thresholds([-50.0, 50.0], cap=50.0) == [-25.0, 25.0]
+
+    def test_no_terms_means_no_boundary(self):
+        assert _boolean_terms_thresholds([], cap=None) == []
+
+
+class TestDropThresholdsThatShareAScore:
+    def test_keeps_boundaries_that_the_curve_separates(self):
+        shape = _linear([MaterialTerm(material="num_a")])
+
+        assert _drop_thresholds_that_share_a_score([2.0, 4.0, 6.0], shape) == [2.0, 4.0, 6.0]
+
+    def test_drops_boundaries_beyond_the_point_the_curve_saturates(self):
+        shape = _linear([MaterialTerm(material="num_a")])
+
+        assert _drop_thresholds_that_share_a_score([5.0, 12.0, 14.0], shape) == [5.0, 12.0]
+
+    def test_drops_a_boundary_whose_score_goes_back_down(self):
+        shape = _linear(
+            [MaterialTerm(material="num_a")], breakpoints=[(0.0, 0.0), (10.0, 100.0), (20.0, 0.0)]
+        )
+
+        assert _drop_thresholds_that_share_a_score([5.0, 15.0], shape) == [5.0]
+
+    def test_abs_preprocess_folds_the_negative_side_onto_the_positive(self):
+        shape = _linear([MaterialTerm(material="num_a")], preprocess="abs")
+
+        assert _drop_thresholds_that_share_a_score([-5.0, 5.0], shape) == [-5.0]
+
+    def test_scores_closer_than_one_tenth_of_a_point_are_treated_as_the_same(self):
+        shape = _linear(
+            [MaterialTerm(material="num_a")], breakpoints=[(0.0, 0.0), (10000.0, 100.0)]
+        )
+
+        assert _drop_thresholds_that_share_a_score([1.0, 2.0], shape) == [1.0]
+
+
+class TestRescaleTileInput:
+    def test_category_scores_are_scaled_and_the_weight_field_is_left_alone(self):
+        rescaled = _rescale_tile_input(
+            TileInputSpec(property="p", categories={"a": 2.0, "b": -4.0}), weight=0.5
+        )
+
+        assert rescaled.categories == {"a": 1.0, "b": -2.0}
+        assert rescaled.weight == 1.0
+
+    def test_boolean_values_are_scaled_and_the_weight_field_is_left_alone(self):
+        rescaled = _rescale_tile_input(
+            TileInputSpec(property="p", boolean=True, true_value=10.0, false_value=-2.0),
+            weight=0.5,
+        )
+
+        assert (rescaled.true_value, rescaled.false_value) == (5.0, -1.0)
+        assert rescaled.weight == 1.0
+
+    def test_a_plain_numeric_input_is_scaled_through_the_weight_field(self):
+        rescaled = _rescale_tile_input(TileInputSpec(property="p", weight=4.0), weight=0.5)
+
+        assert rescaled.weight == 2.0
+
+    def test_categories_take_precedence_over_the_boolean_flag(self):
+        rescaled = _rescale_tile_input(
+            TileInputSpec(property="p", categories={"a": 2.0}, boolean=True, true_value=10.0),
+            weight=0.5,
+        )
+
+        assert rescaled.categories == {"a": 1.0}
+        assert rescaled.true_value == 10.0
+
+
+class TestBooleanScoreTileInput:
+    def test_carries_the_two_scores_onto_the_tile_property(self):
+        tile_input = _boolean_score_tile_input(MATERIALS["bool_certain"], 0.0, 80.0)
+
+        assert (tile_input.property, tile_input.boolean) == ("t_bool_certain", True)
+        assert (tile_input.true_value, tile_input.false_value) == (0.0, 80.0)

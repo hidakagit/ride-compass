@@ -6,7 +6,6 @@ import pytest
 
 from app.domain import registry
 from app.domain.axis_definitions import AXIS_DEFINITIONS
-from app.domain.axis_display import derive_ramp_inputs
 from app.domain.material_catalog import (
     MATERIAL_CATALOG,
     PRIMARY_ATTRIBUTES_WITHOUT_MATERIAL,
@@ -143,43 +142,15 @@ def test_registry_axis_display_labels_match_axis_definitions():
         assert axis.display.label == AXIS_DEFINITIONS[axis.axis_id].label
 
 
-def test_surface_q_and_night_kind_is_auto_derived_ramp():
-    """改善計画T278: surface_q（従来kind="none"、既存の道路情報レイヤーとの重複を理由に
-    手書き固定していた）・night（従来kind="bespoke"、専用expression未登録のためレイヤー
-    非生成だった）は、ユーザー判断（2026-08-24、「ramp化技術的に可能な軸は一律ramp、
-    重複回避はUI層で運用」）によりkind="ramp"の自動導出表示へ変わった。
-    tile_inputs/thresholdsがdomain/axis_display.py: derive_ramp_inputsの出力と
-    完全一致することも確認し、手書きの値が自動導出結果から差し戻されないようにする。
-    """
-    for axis_id in ("surface_q", "night"):
-        axis = _axis(axis_id)
-        assert axis.display is not None
-        assert axis.display.kind == "ramp"
-        ramp = derive_ramp_inputs(AXIS_DEFINITIONS[axis_id])
-        assert ramp is not None
-        assert axis.display.tile_inputs == ramp.tile_inputs
-        assert axis.display.thresholds == ramp.thresholds
-
-
-def test_gradient_stop_density_accident_kind_unchanged_by_t278():
-    """改善計画T278・T404の自動導出対象外/対象の境界回帰防止テスト。gradientは
-    方向依存材料（gradient_percent）のためkind="none"のまま変わらない。stop_density/
-    accidentは改善計画T404でderive_ramp_inputsの自動導出対象になった（実行時スケール
-    変換が必要な材料も含むよう緩和、tests/realistic_axis_fixtures.py参照）が、色分けの
-    段階自体はdisplay_thresholds_override（軽量な数値配列の上書き）で従来と同じ細かさを
-    保つ。"""
+def test_only_axes_whose_materials_the_tile_carries_get_a_map_lens():
+    """方向依存の材料を持つ軸は地図に出ず、タイルに載る材料だけの軸は出る。"""
     assert _axis("gradient").display.kind == "none"
     assert _axis("stop_density").display.kind == "ramp"
-    # 上書きは[2.0, 4.0, 7.0, 12.0]だが、この軸の折れ線は5.0で100へ達するため7.0と12.0は
-    # 同じ難易度になる。**評価が区別できない差に段の境界は引かない**——引くと色だけが
-    # 変わってルート線側にはその段が作れず、前後で段の数が食い違う（T939、
-    # `domain/axis_display.py: ramp_band_thresholds`）。
+    # 上書きは[2.0, 4.0, 7.0, 12.0]だが、折れ線が5.0で100へ達するため7.0と12.0は同じ
+    # 難易度になる。評価が区別できない差に段の境界は引かない。
     assert _axis("stop_density").display.thresholds == [2.0, 4.0, 7.0]
     assert _axis("accident").display.kind == "ramp"
-    # 改善計画T404: 旧display_override時代の閾値[0.4, 0.8, 1.5]はタイル生値（年正規化前、
-    # 収録3年分）のスケールだった。derive_ramp_inputsの自動導出＋display_thresholds_
-    # overrideは材料スケール（年正規化後）で表現するため、収録年数3で割った値になる
-    # （tests/realistic_axis_fixtures.py参照、本番DBの実際の移行値と同じ）。
+    # 閾値は材料スケール（年正規化後）で書く。
     assert _axis("accident").display.thresholds == [0.133, 0.267, 0.5]
 def test_register_defaults_does_not_crash_when_a_builtin_axis_is_removed(monkeypatch):
     """改善計画T320: `_register_axes()`はAXIS_DEFINITIONSをそのまま走査するだけで、
@@ -221,14 +192,6 @@ def test_registry_axis_ids_match_axis_definitions():
     assert definition_axis_ids == registry_axis_ids
     for axis_id, definition in AXIS_DEFINITIONS.items():
         assert definition.axis_id == axis_id
-
-
-def test_no_primary_attribute_is_exempt_from_the_exclusive_check():
-    # shared=Trueは排他チェックの免除で、実質的な属性を免除すると、その属性を2軸が
-    # 使い始めても検査が黙る。現在この免除を受けている属性は無い。
-    shared = {attr.attr_id for attr in registry.all_primary_attributes() if attr.shared}
-
-    assert shared == set()
 
 
 def test_a_second_axis_using_cycleway_is_rejected():

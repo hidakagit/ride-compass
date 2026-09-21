@@ -28,7 +28,7 @@ from app.domain.axis_definitions import (
     BreakpointLinearShape,
     evaluate_axis_scalar,
 )
-from app.domain.axis_display import derive_ramp_inputs, ramp_band_thresholds
+from app.domain.axis_display import axis_display_for
 from app.domain.axis_templates import evaluate_breakpoint_linear
 from app.domain.material_catalog import MATERIAL_CATALOG
 
@@ -101,40 +101,25 @@ def map_value_thresholds(definition: AxisDefinition) -> list[float] | None:
     しきい値）を軸の折れ線で写したものである——写さずに渡すと、材料の単位で書かれた境界が
     難易度と比べられ、ルート線が全区間ひとつのバンドへ落ちる。
 
-    境界の出どころは2つあり、**どちらも同じように写す**。`display_thresholds_override`
-    （軸スタジオのGUIが編集する）が設定されていればそれを、無ければ`derive_ramp_inputs`が
-    自動導出したしきい値を使う。後者を写さずNoneで済ませると、上書きを設定していない軸
-    だけがルート後に既定値（難易度の一般的な境界）へ転落し、**ルート前と段の数も意味も
-    食い違う**。
-
     `CategoricalShape`の値は初めからスコアと同じスケールのため写さない。ramp表示を持たない
     軸（専用way値配信）の上書きも、地図が塗る値そのものに対する境界なのでそのまま返す。
-
-    写した結果は昇順のまま重複を畳む。折れ線が飽和する範囲（例: 5回/kmで100に達する軸の
-    7・12回/km）に置かれた境界は同じスコアへ写るため、畳まないと段階の境界が同値で並ぶ。
-    **畳んだぶんルート後の段はルート前より少なくなる**——生値では見分けられる差が同じ
-    難易度へ潰れる軸が実在し、それは軸の性質であって食い違いではない。
     """
-    bands = ramp_band_thresholds(definition)
-    override = definition.display_thresholds_override
-    source = bands if bands is not None else override
-    if source is None:
-        return None
-    ramp = derive_ramp_inputs(definition)
+    display = axis_display_for(definition)
+    if display.kind != "ramp":
+        override = definition.display_thresholds_override
+        return list(override) if override is not None else None
     shape = definition.shape
-    if not isinstance(shape, BreakpointLinearShape):
-        return list(source)
-    if map_value_kind(definition) == "signed_material":
-        return list(source)
-    if ramp is None:
-        return list(source)
-    mapped: list[float] = []
-    for threshold in source:
-        total = abs(threshold) if shape.preprocess == "abs" else threshold
-        score = round(evaluate_breakpoint_linear(total, shape.breakpoints), 1)
-        if not mapped or score > mapped[-1]:
-            mapped.append(score)
-    return mapped
+    if not isinstance(shape, BreakpointLinearShape) or map_value_kind(definition) == "signed_material":
+        return list(display.thresholds)
+    return [
+        round(
+            evaluate_breakpoint_linear(
+                abs(threshold) if shape.preprocess == "abs" else threshold, shape.breakpoints
+            ),
+            1,
+        )
+        for threshold in display.thresholds
+    ]
 
 
 def map_value_unit(definition: AxisDefinition) -> str:

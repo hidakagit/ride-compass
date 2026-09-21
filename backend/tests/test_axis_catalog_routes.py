@@ -105,16 +105,12 @@ def test_get_axis_catalog_includes_display_for_hand_written_and_auto_derived_axe
     body = response.json()
     entries_by_id = {entry["axis_id"]: entry for entry in body["axes"]}
 
-    # 改善計画T404: stop_densityはderive_ramp_inputsが自動導出したtile_inputsに
-    # display_thresholds_override（軽量な色分けしきい値の上書き、tests/
-    # realistic_axis_fixtures.py参照）を組み合わせる。
     stop_density_display = entries_by_id["stop_density"]["display"]
     assert stop_density_display["kind"] == "ramp"
-    # 末尾が落ちるのは折れ線が飽和した先の境界だから（T939、test_registry_defaults.pyの
-    # 同じ軸の注釈参照）。
+    # 末尾が落ちるのは折れ線が飽和した先の境界だから。
     assert stop_density_display["thresholds"] == [2.0, 4.0, 7.0]
 
-    # surface_qは手書きoverrideが無いためderive_ramp_inputsによる自動導出。
+    # surface_qは上書きが無いので導出した値をそのまま使う。
     surface_q_display = entries_by_id["surface_q"]["display"]
     assert surface_q_display["kind"] == "ramp"
     assert surface_q_display["tile_inputs"][0]["property"] == "surface_good"
@@ -169,10 +165,7 @@ def test_get_axis_catalog_primary_attribute_ids_match_legacy_static_inputs():
 
 
 def test_get_axis_catalog_marks_accident_tile_input_as_needing_runtime_scale():
-    # 改善計画T404: accidentは実行時スケール変換（収録年数での正規化）が必要な材料
-    # （accident_count_per_km_year）を使うが、derive_ramp_inputsは自動導出の対象に
-    # 含めるようになった。TileInputSpec.needs_runtime_scale=Trueで印を付け、実際の
-    # スケール定数はmaterial_runtime_scales（レスポンス直下）で別途返す。
+    # 実行時スケールが要る材料は印だけ付け、係数はmaterial_runtime_scalesで別途返す。
     response = client.get("/api/axis-catalog")
     body = response.json()
     entries_by_id = {entry["axis_id"]: entry for entry in body["axes"]}
@@ -221,7 +214,7 @@ def test_get_axis_catalog_includes_map_value_kind_and_unit():
 
 
 def test_get_axis_catalog_includes_raw_value_unit():
-    # 得点の隣へ生値を出すための単位（domain/axis_display.py: raw_value_unit）。
+    # 得点の隣へ生値を出すための単位（domain/axis_raw_value.py: raw_value_unit）。
     # 勾配は単一材料をそのまま使うので%、内部軸を合成する軸は単位が定まらずnull。
     response = client.get("/api/axis-catalog")
     entries_by_id = {entry["axis_id"]: entry for entry in response.json()["axes"]}

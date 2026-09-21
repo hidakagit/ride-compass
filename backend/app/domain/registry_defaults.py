@@ -36,8 +36,8 @@ axis_display_for()`・`primary_attribute_ids_for()`（`GET /api/axis-catalog`が
 `api/routers/axis_catalog.py`参照）。
 """
 
-from app.domain.axis_definitions import AXIS_DEFINITIONS
-from app.domain.axis_display import axis_display_for, primary_attribute_ids_for
+from app.domain.axis_definitions import AXIS_DEFINITIONS, primary_attribute_ids_for
+from app.domain.axis_display import axis_display_for
 from app.domain.material_catalog import (
     MATERIAL_CATALOG,
     PRIMARY_ATTRIBUTES_WITHOUT_MATERIAL,

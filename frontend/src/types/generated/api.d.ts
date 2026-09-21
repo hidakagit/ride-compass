@@ -1337,8 +1337,7 @@ export interface components {
          *
          *     合成（他軸参照）は独立したプリミティブではなく、`terms`の各materialが元々材料id・
          *     軸idのどちらも区別なく指せる設計から生じる性質にすぎない。真偽値フラグの加点合計は
-         *     全termがboolean材料の場合として本shapeで表現する（`domain/axis_display.py:
-         *     derive_ramp_inputs`の構造判定参照）。
+         *     全termがboolean材料の場合として本shapeで表現する。
          */
         BreakpointLinearShape: {
             /**
@@ -2158,8 +2157,8 @@ export interface components {
          *     係数でのスケール変換を要する場合True（`domain/material_catalog.py: MaterialSpec.
          *     tile_property_needs_runtime_scale`が立っている材料、例: `accident_count_per_km_year`
          *     ——収録年数[DBの`accident_import_runs`から実行時に取得、増え続ける]で正規化する前の
-         *     生値がタイルに焼き込まれている）。`derive_ramp_inputs`（axis_display.py）は
-         *     このフラグが立つ材料も自動導出の対象に含める——`weight`が「タイル生値→材料スケール」の
+         *     生値がタイルに焼き込まれている）。`axis_display.py`は
+         *     このフラグが立つ材料も地図表示の対象に含める——`weight`が「タイル生値→材料スケール」の
          *     静的な変換係数を表現できなくても、`GET /api/axis-catalog`が実行時に取得した
          *     スケール定数[`material_runtime_scales`]をフロントのJS式が追加で掛け合わせれば
          *     正しく解決できる。`thresholds`は元々`AxisDefinition.shape.breakpoints`由来の

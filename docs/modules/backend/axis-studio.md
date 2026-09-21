@@ -13,7 +13,7 @@ compute_edge_axis_scores`経由、下記「呼び出し元」参照）。周回�
 
 | レイヤー | ファイル |
 |---|---|
-| domain | `axis_definitions.py`・`axis_display.py`・`axis_templates.py`・`registry.py`・`registry_defaults.py` |
+| domain | `axis_definitions.py`・`axis_display.py`・`axis_raw_value.py`・`axis_templates.py`・`registry.py`・`registry_defaults.py` |
 | services | `axis_registry_service.py`・`axis_preview_service.py` |
 | infrastructure | `axis_definition_models.py`・`axis_definition_repository.py` |
 | api | `axis_admin.py`・`axis_catalog.py` |
@@ -203,7 +203,7 @@ compute_edge_axis_scores`経由、下記「呼び出し元」参照）。周回�
 ## 地図表示ルールの自動導出（`domain/axis_display.py`）
 
 軸が参照する材料が全てMVTタイルへ焼き込み済みであれば、地図ramp表示
-（`registry.py: TileInputSpec`のΣproperty×weight・真偽値のcase分岐）を`derive_ramp_inputs()`
+（`registry.py: TileInputSpec`のΣproperty×weight・真偽値のcase分岐）を`axis_display_for()`
 が自動導出する。**安全に自動導出できるケースに限定**し、それ以外は`None`（`kind="none"`、
 地図に出ない）を返す:
 
@@ -218,7 +218,7 @@ compute_edge_axis_scores`経由、下記「呼び出し元」参照）。周回�
 
 `axis_display_for(definition)`の優先順位: ①自動導出成功＋`display_thresholds_override`
 設定済みなら両方を組み合わせる、②自動導出成功のみなら自動導出のしきい値をそのまま使う、
-③自動導出失敗なら`kind="none"`。しきい値そのものを決めるのは`ramp_band_thresholds`1本で、
+③自動導出失敗なら`kind="none"`。しきい値を決めるのは`axis_display_for`1本で、
 ルート線側の境界（`dynamic_way_values.py: map_value_thresholds`）もそこから導く。
 
 **折れ線が同じスコアへ写す境界は落とす。** 上書きで指定された値も同じ扱いで、軸スタジオで
@@ -226,7 +226,7 @@ compute_edge_axis_scores`経由、下記「呼び出し元」参照）。周回�
 引くと、色だけが変わって評価は同じという見分けを地図が見せることになり、しかもルート線側は
 難易度を塗るためその段を作れない（前後で段の数が食い違う）。
 
-**暗黙の前提（重要な既知の非対称性）**: `derive_ramp_inputs`の評価側整合性は
+**暗黙の前提（重要な既知の非対称性）**: 自動導出した表示と評価側の整合性は
 `required=False`の材料でのみ厳密に一致する。`required=True`の材料が欠損している場合、
 評価側（`evaluate_axis_scalar`）は軸全体を「評価不能（None）」にするが、フロント側の
 自動導出expression（`buildAxisRampValueExpression`）はタイルプロパティ欠損を寄与0

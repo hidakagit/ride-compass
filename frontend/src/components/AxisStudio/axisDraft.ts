@@ -265,8 +265,7 @@ export function draftFromExisting(def: AxisDefinitionResponse, materialOptions: 
  * 新規に自動採番し、is_publishedは常にfalse（下書き）から始める——複製元が公開済みでも
  * 複製先まで公開扱いを引き継がない。displayThresholdsOverrideも複製元の手動設定値を
  * 引き継がずnullへリセットする——複製先は変化点(breakpoints)を独自に調整しうるため、
- * 複製元のしきい値をそのまま持ち越すと自動計算(breakpointsのx値から導出、backend
- * domain/axis_display.py: derive_ramp_inputs参照)が働かなくなる。
+ * 複製元のしきい値をそのまま持ち越すと自動計算(breakpointsのx値から導出)が働かなくなる。
  * displayBandLabelsOverrideも同じ理由でnullへリセットする——displayThresholdsOverrideが
  * 無いままでは段階数が決まらず対応が取れない。 */
 export function draftFromDuplicate(def: AxisDefinitionResponse, materialOptions: readonly AxisMaterialOption[]): Draft {

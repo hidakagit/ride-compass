@@ -145,7 +145,7 @@ export function AxisMapDisplaySection({
   }
 
   function renderDisplayPublishFields() {
-    // 自動導出（derive_ramp_inputs）もdisplay_thresholds_overrideも効かず地図表示不可
+    // 自動導出もdisplay_thresholds_overrideも効かず地図表示不可
     // （kind="none"）な場合の注記。新規作成中（editingがnull）は計算済みのdisplayを
     // まだ受け取っていないため、既存軸の編集時のみ判定する（保存すればkindが確定するため、
     // 新規作成時は保存後に軸一覧から再度開けば確認できる）。

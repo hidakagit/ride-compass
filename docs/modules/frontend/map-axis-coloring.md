@@ -138,7 +138,7 @@ backend（`domain/dynamic_way_values.py: map_value_thresholds`）が軸の折れ
 
 **ルート確定の前と後は同じ段で塗る。** 前は材料の重み付き和を、後は0〜100の難易度を塗るが、
 段の切り方は同じもので、backendが両方の目盛りで言い直して配る（`domain/axis_display.py:
-ramp_band_thresholds`が前の境界を決め、`domain/dynamic_way_values.py: map_value_thresholds`が
+axis_display_for`が前の境界を決め、`domain/dynamic_way_values.py: map_value_thresholds`が
 それを軸の折れ線で写す）。**フロントはどちらも受け取った境界をそのまま使い、自分で写さない。**
 
 同じ理由で段の識別子も前後で共通（`mapColorLegend.ts: legendBandKey`＝`step-N`、値を持たない

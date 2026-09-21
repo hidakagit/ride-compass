@@ -2,7 +2,7 @@
 （改善計画T423、T458でAXIS_DEFINITIONS由来の動的導出へ変更）。"""
 
 from app.domain.axis_definitions import AXIS_DEFINITIONS, AxisDefinition, BreakpointLinearShape, MaterialTerm
-from app.domain.axis_display import derive_ramp_inputs, ramp_band_thresholds
+from app.domain.axis_display import axis_display_for
 from app.domain.dynamic_way_values import (
     dedicated_way_value_axes,
     map_value_kind,
@@ -131,13 +131,12 @@ def test_map_value_thresholds_maps_the_auto_derived_thresholds_when_there_is_no_
     # 上書きが無い軸も、ルート確定前の全道路は自動導出のしきい値で塗る。同じ段を難易度側で
     # 言い直さずNoneで済ませると、その軸だけがルート後に既定値へ転落し、段の数も意味も
     # 食い違う（T939）。写した結果はルート前の段数（しきい値+1）と対応する。
-    auto = derive_ramp_inputs(_ramp_axis(None))
-    assert auto is not None
+    before = axis_display_for(_ramp_axis(None)).thresholds
 
     mapped = map_value_thresholds(_ramp_axis(None))
 
     assert mapped == [30.0, 100.0]
-    assert len(mapped) == len(auto.thresholds)
+    assert len(mapped) == len(before)
 
 
 def test_map_value_thresholds_is_none_when_the_axis_has_no_ramp_display():
@@ -153,7 +152,7 @@ def test_map_value_thresholds_is_none_when_the_axis_has_no_ramp_display():
         default_weight=0.15,
         label="ramp表示を持たない軸",
     )
-    assert derive_ramp_inputs(not_derivable) is None
+    assert axis_display_for(not_derivable).kind == "none"
 
     assert map_value_thresholds(not_derivable) is None
 
@@ -181,7 +180,7 @@ def test_map_value_thresholds_keeps_difficulty_scale_for_axes_without_ramp_displ
     no_ramp = AxisDefinition(
         axis_id="no_ramp",
         shape=BreakpointLinearShape(
-            # wind_drag_ratioはtile_propertyを持たないため derive_ramp_inputs が None を返す。
+            # wind_drag_ratioはtile_propertyを持たないため地図に出ない。
             terms=[MaterialTerm(material="wind_drag_ratio")],
             breakpoints=[(-1.2, 0.0), (0.0, 15.0), (5.0, 100.0)],
         ),
@@ -219,15 +218,6 @@ def _saturating_axis() -> AxisDefinition:
     )
 
 
-def test_ramp_display_drops_thresholds_that_map_to_the_same_score():
-    # 5と10の間は難易度が動かない。ここへ境界を引くと、色は変わるのに評価は同じ、という
-    # 見分けを地図が見せることになる——しかもルート線は難易度で塗るためその段を作れず、
-    # 前後で段の数が食い違う（T939）。
-    bands = ramp_band_thresholds(_saturating_axis())
-
-    assert bands == [5.0, 15.0]
-
-
 def test_every_axis_with_a_ramp_display_has_the_same_bands_before_and_after_a_route():
     """ルート確定前の全道路の塗りと、確定後のルート線は同じ数の段で塗る。
 
@@ -236,9 +226,10 @@ def test_every_axis_with_a_ramp_display_has_the_same_bands_before_and_after_a_ro
     """
     mismatches = []
     for definition in AXIS_DEFINITIONS.values():
-        bands = ramp_band_thresholds(definition)
-        if bands is None:
+        display = axis_display_for(definition)
+        if display.kind != "ramp":
             continue
+        bands = display.thresholds
         mapped = map_value_thresholds(definition)
         if mapped is None or len(mapped) != len(bands):
             mismatches.append(f"{definition.axis_id}: 前={bands} 後={mapped}")
