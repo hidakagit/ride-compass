@@ -369,7 +369,7 @@ describe("Home（app/page.tsx） 地図上チップのtitle（改善計画T468: 
 
     await screen.findByTestId("overlay-layer-titles");
     const title = overlayLayerTitles().get("windVector");
-    expect(title).toBe("気象庁MSMの風向・風速予報を矢印で表示[関東本土の格子点、1〜3日先まで]");
+    expect(title).toBe("気象庁MSMの風向・風速予報を矢印で表示[1〜3日先まで]");
   });
 
   it("dataNature=static（既定）のroadTypeは設定への案内が付いたtitleになる", async () => {

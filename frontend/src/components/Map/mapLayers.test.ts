@@ -208,16 +208,16 @@ describe("事故レイヤーが書く収録範囲", () => {
   it("1年だけならその年を書く", () => {
     const texts = accidentTexts([2024]);
 
-    expect(texts).toContain("関東7都県、2024年");
-    expect(texts).toContain("本票、関東7都県、2024年");
+    expect(texts).toContain("[2024年]");
+    expect(texts).toContain("[本票、2024年]");
   });
 
   it("続いている年は範囲にする", () => {
-    expect(accidentTexts([2022, 2023, 2024])).toContain("関東7都県、2022〜2024年");
+    expect(accidentTexts([2022, 2023, 2024])).toContain("[2022〜2024年]");
   });
 
   it("飛んでいる年は並べる（範囲にすると取り込んでいない年まで含んでしまう）", () => {
-    expect(accidentTexts([2020, 2024])).toContain("関東7都県、2020・2024年");
+    expect(accidentTexts([2020, 2024])).toContain("[2020・2024年]");
   });
 
   it("順不同で渡っても並べ替えて書く", () => {
@@ -227,7 +227,8 @@ describe("事故レイヤーが書く収録範囲", () => {
   it("取れていないときは年に触れない（取得前に既定の年を出すと正しいものに見える）", () => {
     const texts = accidentTexts([]);
 
-    expect(texts).toContain("関東7都県");
+    expect(texts).toContain("オープンデータの発生地点を表示");
+    expect(texts).toContain("[本票]");
     expect(texts).not.toMatch(/\d{4}年/);
   });
 });
