@@ -208,18 +208,20 @@ const GSI_RELIEF_TILE_PATH = "/api/gsi-relief-tile/xyz/relief/{z}/{x}/{y}.png";
 const GSI_RELIEF_MAX_ZOOM = 15;
 const GSI_RELIEF_ATTRIBUTION =
   '<a href="https://maps.gsi.go.jp/development/ichiran.html" target="_blank" rel="noreferrer">地理院タイル(色別標高図)</a>';
-// 陰影起伏が読むのは標高タイル（`xyz/dem_png`）で、色別標高図とは別の製品。
-const GSI_TERRAIN_ATTRIBUTION =
-  '<a href="https://maps.gsi.go.jp/development/ichiran.html" target="_blank" rel="noreferrer">地理院タイル(標高タイル)</a>';
-
-// 路面ベクタタイル（ROAD_TILE_SOURCE_ID）へ焼き込まれる生データの帰属表示。1つのMVTタイルへ
-// OSM（道路本体）・警察庁（事故密度）・Esri×Impact
-// Observatory×Microsoft（土地被覆）の4系統が混在するため、ソースは1つでも
-// 帰属表示は4者ぶんまとめて1文字列にする。
-const ROAD_TILE_ATTRIBUTION =
-  '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noreferrer">OpenStreetMap contributors</a> / ' +
-  "国土数値情報（国土交通省） / 警察庁 / " +
-  '土地被覆: <a href="https://livingatlas.arcgis.com/landcover/" target="_blank" rel="noreferrer">Esri, Impact Observatory, Microsoft</a> (CC BY 4.0)';
+// 地図へ常時出す出典（AttributionControlのcustomAttribution）。MapLibreがソースへ渡した
+// attributionを出すのは**そのソースが地図に載っている間だけ**で、レイヤーのON/OFFで消える。
+// ここに挙げるデータは路面タイルへ焼き込むか評価軸・ルートの計算に常時使っており、どの
+// レイヤーを表示しているかと関係なく出典が要る。地理院・警察庁の公共データ利用規約（PDL1.0）
+// は出典とは別に加工した旨の記載を求めており、標高タイルからは勾配を、事故点からは区間ごとの
+// 件数を導いている。基礎地図（OpenFreeMap / OpenMapTiles）はここへ入れない——配信元の
+// TileJSONがattributionを持ち、MapLibreが同じ場所へ出す。
+const MAP_BASE_ATTRIBUTION = [
+  '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noreferrer">OpenStreetMap contributors</a>',
+  "国土数値情報（国土交通省）",
+  '<a href="https://maps.gsi.go.jp/development/ichiran.html" target="_blank" rel="noreferrer">地理院タイル(標高タイル)</a>を加工して作成',
+  "交通事故統計情報（警察庁）を加工して作成",
+  '土地被覆: <a href="https://livingatlas.arcgis.com/landcover/" target="_blank" rel="noreferrer">Esri, Impact Observatory, Microsoft</a> (CC BY 4.0)',
+];
 
 // 路面のベクタタイル内のレイヤー名。バックエンド（infrastructure/vector_tile.pyの
 // ROAD_SURFACE_LAYER_NAME）と一致させる必要がある（export_openapi.pyが書き出す
@@ -290,10 +292,6 @@ const TERRAIN_RGB_BLUE_FACTOR = 0.1;
 const TERRAIN_RGB_BASE_SHIFT = 10000;
 const LANDCOVER_SOURCE_ID = "landcover";
 const LANDCOVER_LAYER_ID = "landcover-raster";
-// 土地被覆ラスタの帰属表示。路面タイルへ焼き込んだ割合（ROAD_TILE_ATTRIBUTION）と同じ
-// 出典だが、こちらはソースが別のため独立して出す必要がある。
-const LANDCOVER_ATTRIBUTION =
-  '土地被覆: <a href="https://livingatlas.arcgis.com/landcover/" target="_blank" rel="noreferrer">Esri, Impact Observatory, Microsoft</a> (CC BY 4.0)';
 // 動的気象レイヤー（風・降水）のsource/layer id。要素id×ソース×描画方式（raster/fill/
 // mark）の組み合わせから機械的に決まるため、要素を追加してもここへ新しい定数を足す必要は
 // ない（DYNAMIC_WEATHER_RENDERERS・ensureDynamicWeatherLayer参照）。sourceを分けることで
@@ -489,7 +487,6 @@ function ensureLandcoverLayer(map: MapLibreMap) {
         tileSize: 256,
         minzoom: LANDCOVER_TILE_MIN_ZOOM,
         maxzoom: LANDCOVER_TILE_MAX_ZOOM,
-        attribution: LANDCOVER_ATTRIBUTION,
       });
     }
     ensureLayerFromSpec(
@@ -527,7 +524,6 @@ function ensureTerrainHillshadeLayer(map: MapLibreMap) {
         greenFactor: TERRAIN_RGB_GREEN_FACTOR * TERRAIN_VERTICAL_EXAGGERATION,
         blueFactor: TERRAIN_RGB_BLUE_FACTOR * TERRAIN_VERTICAL_EXAGGERATION,
         baseShift: TERRAIN_RGB_BASE_SHIFT * TERRAIN_VERTICAL_EXAGGERATION,
-        attribution: GSI_TERRAIN_ATTRIBUTION,
       });
     }
     ensureLayerFromSpec(
@@ -1137,7 +1133,6 @@ export function ensureRoadSurfaceTileLayer(map: MapLibreMap) {
       // way丸ごとにも区間にもなり（backendの`EDGE_UNIT_MIN_ZOOM`）、`feature_key`だけが
       // その単位に追従する。配信APIの鍵も同じ列から作られる。
       promoteId: { [ROAD_TILE_SOURCE_LAYER]: "feature_key" },
-      attribution: ROAD_TILE_ATTRIBUTION,
     });
     for (const layerId of [ROAD_TILE_LAYER_ID, ROAD_TYPE_LAYER_ID]) {
       map.addLayer({
@@ -2670,7 +2665,7 @@ export default function MapView({
       style: mapStyleUrl(),
       center: [location.longitude, location.latitude],
       zoom: 13,
-      attributionControl: { compact: true },
+      attributionControl: { compact: true, customAttribution: MAP_BASE_ATTRIBUTION },
       // デバッグモード時、MapLibreが発行するリクエスト（スタイル/スプライト/グリフ/
       // 基礎地図タイル・路面タイルのTileJSON/実タイル）を種別ごとに逐一ログする。
       // debugLog()自体はデバッグモード無効時は即returnするため、常時attachして問題ない。
