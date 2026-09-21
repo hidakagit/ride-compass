@@ -5,7 +5,10 @@
 # 実行するのは「pushする範囲の変更が届くもの」だけ。届かない検査は動かさない。
 # フルスイート（backend全体・-m postgis・vitest全体）はCIの持ち物で、ここには置かない。
 #
-# 有効化: git config core.hooksPath .githooks （clone/worktreeごとに1回。worktreeは共有設定を継承する）
+# 有効化: git config core.hooksPath .githooks
+# **相対パスで指定すること。** この設定は本体とworktreeで共有されるため、絶対パスを
+# 入れると全worktreeが本体のチェックアウトを見る。本体がこのディレクトリを持たない
+# ブランチに居ると、gitは黙ってフックを飛ばす（門があるのに一度も走らない状態になる）。
 
 set -eu
 REPO_ROOT="$(git rev-parse --show-toplevel)"
