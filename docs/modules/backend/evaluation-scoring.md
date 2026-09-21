@@ -78,10 +78,11 @@ NULLへ畳み、フィーチャーからキーを省いてタイルを軽くす�
 | way1本 | `road_graph_repository.py: get_way_material_values` | way1本（区間インスペクタ） |
 | way標本 | `road_graph_repository.py: sample_way_material_values` | way標本（軸スタジオの分布プレビュー） |
 
-way粒度の経路も**区間向けと同じ式**を使う。`_way_from_clause`がwayの行から
-同じ名前のエイリアス（`re`/`c`/`e`/`el`/`wl`/`d`）を組み立てるだけで、式を2組持たない。
-way粒度では標高と区間単位の土地被覆が存在しないため`e`と`el`はNULLだけの1行になり、
-土地被覆はway側（`wl`）へ落ちる。
+way粒度の経路も**区間向けと同じ式**を使う。`_way_from_clause`がwayの行から同じ名前の
+エイリアス（`_WAY_ALIAS_CLAUSES`が持つ`wm`/`re`/`em`）を組み立てるだけで、式を2組持たない。
+区間の値を持つ`em`は、way粒度では`way_materials`を引く別名になる——**区間の値をway1本へ
+落としているのではなく、way粒度の値を同じ名前で読んでいる**（way側の値は
+`derive_raster_materials`が区間から集約して持つ）。
 
 **暗黙の前提**: 取込はタグを絞らない（`source_profile.yaml: tags: all`）。どのキーも
 `attrs`に在るため、値式はそこから読んでよい。**捨てると後から解釈を変えられない**という
@@ -306,7 +307,7 @@ MaterialSpec]`が単一ソース。
 - 風の材料は`wind_drag_ratio`（無次元。相対風速ベクトルの二乗則で求めた、時速20kmで無風の
   ときの空気抵抗を1とする進行方向の抵抗増分。`domain/wind.py: wind_drag_ratio_array`、
   基準速度`WIND_DRAG_REFERENCE_SPEED_MS`は`ASSUMED_SPEED_KMH`とは独立の定数）。
-- 土地被覆の割合材料は`way_landcover`／`edge_landcover`（way単位・区間単位、
+- 土地被覆の割合材料は`edge_materials.lc_*`／`way_materials.lc_*`（区間単位・way単位、
   [静的道路属性・タイル配信](static-road-attributes.md)）が持つクラス別の割合で、
   **どのクラスを評価パイプラインへ配線するかは`attributes.py: WIRED_LANDCOVER_KEYS`が
   単一の正本**。Edge束・列指向テーブル・SQLの読み出し列・タイルの焼き込み列・
@@ -380,7 +381,7 @@ way粒度で引くときは、同じ式のまま`w`の行から同じ名前の�
 | `"edge"` | `road_edges`全行 | `present_count_sql`（「値ありEdge数」を返すSELECT）。`elevation_attributes`・`edge_attribute_counts`は`edge_id`が`road_edges`へのFK（ON DELETE CASCADE）のため、派生テーブルの行数をそのまま使いJOINを省く |
 
 - **「行がある」と「値がある」を混同しない**。派生テーブルが「行が無い＝未計算」と
-  「列がNULL＝算出不能」を区別するなら（`way_landcover`がそう）、行の有無だけで数えると
+  「列がNULL＝算出不能」を区別するなら（土地被覆の`lc_*`がそう）、行の有無だけで数えると
   値がNULLの行を「データあり」と数えてしまう。判定は評価が実際に読む**列**のNULLまで見る。
 - `missing_semantics`: `"unknown"`（欠損は不明値[NaN/None]として扱われ、その材料を使う軸は
   評価対象外になる）／`"definite"`（欠損は確定値[タグ不在=非該当等]として扱われ、軸は

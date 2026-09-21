@@ -62,16 +62,10 @@ def build_way_coverage_sql(specs: dict[str, MaterialCoverageSpec] = MATERIAL_COV
         f"count(*) FILTER (WHERE ({spec.in_scope}) AND ({spec.missing_condition})) AS {material_id}"
         for material_id, spec in way_specs.items()
     )
-    # 同じJOIN句を宣言した材料は1回のJOINを共有する（宣言の重複は句の一意化で吸収する）。
-    joins = "".join(
-        f" {clause}" for clause in dict.fromkeys(
-            spec.join for spec in way_specs.values() if spec.join
-        )
-    )
     # AS w: domain/material_sql.pyの共有SQL断片がosm_raw_waysをこのエイリアスで
     # 参照する前提のため（_ROAD_SURFACE_TILE_MVT_SQLと同じエイリアス）。
     sql = (  # noqa: S608 固定の内部辞書のみ使用
-        f"SELECT count(*) AS total{', ' + columns if columns else ''} FROM osm_raw_ways AS w{joins}"
+        f"SELECT count(*) AS total{', ' + columns if columns else ''} FROM osm_raw_ways AS w"
     )
     statement = text(sql)
     if ":good_tags" in sql:

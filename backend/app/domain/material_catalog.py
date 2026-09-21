@@ -75,10 +75,6 @@ class WayMaterialCoverageSpec:
     missing_semantics: MissingSemantics
     population: Population = "way"
     in_scope: str = "TRUE"
-    #: 欠損判定に別の表が要る場合のJOIN句（`LEFT JOIN … ON …`をそのまま書く）。同じ句を
-    #: 宣言した材料どうしは1回のJOINを共有する。**相関サブクエリで書かない**——1材料につき
-    #: 1つずつ行ごとに評価され、材料を増やすほど所要が伸びる。
-    join: str | None = None
 
 
 @dataclass(frozen=True)
@@ -106,19 +102,16 @@ class CoverageExcluded:
 MaterialCoverage = WayMaterialCoverageSpec | EdgeMaterialCoverageSpec | CoverageExcluded
 
 
-def landcover_coverage(column: str) -> WayMaterialCoverageSpec:
+def landcover_coverage(key: str) -> EdgeMaterialCoverageSpec:
     """土地被覆1クラスの欠損判定。クラスごとに書き写すと、増えたときここだけ取り残される。
 
-    `way_landcover`は「行が無い＝未計算」と「列がNULL＝算出不能（ラスタ範囲外等）」を
-    区別する（migration 0037）。**行の有無だけで数えると、値がNULLの行を「データあり」と
-    数えてしまう**ため、列のNULLも欠損として数える。
+    **値を読む列そのものを数える**（`landcover_value_sql`と同じ`edge_materials.lc_*`）。
+    別の表を数えると、値が空でも「揃っている」と報告しうる。列がNULLなのは
+    「未計算」か「算出不能（ラスタ範囲外等）」で、どちらも値が無いことに変わりはない。
     """
-    return WayMaterialCoverageSpec(
-        missing_condition=f"lc.{column} IS NULL",
-        join="LEFT JOIN way_landcover lc ON lc.osm_way_id = w.osm_way_id",
-        # `precompute_way_landcover`の対象はgeomとhighwayを持つwayだけ。
-        in_scope="w.geom IS NOT NULL AND w.highway IS NOT NULL",
-        source=f"way_landcover.{column}（precompute_way_landcoverの計算済み値）の有無",
+    return EdgeMaterialCoverageSpec(
+        present_count_sql=f"SELECT count(*) FROM edge_materials WHERE lc_{key} IS NOT NULL",
+        source=f"edge_materials.lc_{key}（derive_raster_materialsの計算済み値）の有無",
         missing_semantics="unknown",
     )
 
@@ -205,14 +198,6 @@ class MaterialSpec(StrictModel):
     # `value_sql`から導けない（「値がいくつか」と「元データがあるか」は別の問い。
     # 例: `lit`の値は欠損をfalseへ畳むが、欠損率はタグの有無を数える）。
     coverage: MaterialCoverage
-    # dtype="boolean"の材料でextractorがNoneを返した（＝欠損）ときの配列上の扱い。
-    # "false": bool配列、欠損はFalse（「タグ不在=非該当」とみなす多数派、motor_vehicle_no等）。
-    # "nan": float配列、欠損はNaN（「不明を非該当と混同しない」判断がある少数派、
-    # surface_good）。domain/axis_definitions.py: evaluate_axis_arrayの
-    # `values.dtype == bool`分岐（priority_overridesの真偽比較）が実際に配列dtypeを
-    # 見て分岐するため、この2表現は数値的に等価ではなく、材料ごとに固定する必要がある
-    # （統一すると当該分岐が壊れるため）。
-    bool_default: Literal["false", "nan"] = "false"
     # 材料の値（OSMタグ生値）ごとの日本語ラベル対訳表（タグ値→ラベル）。
     # highway/surface/smoothnessのようなオープンエンドな多値材料だけが持つ（他は空dict）。
     # 軸スタジオ（AxisComposer.tsx）の「値の候補」セレクトが`GET /api/material-catalog/
@@ -241,6 +226,18 @@ class MaterialSpec(StrictModel):
         value_labelと同じ理由で軸スタジオの材料選択肢に物理名[material_id]を併記する）。"""
         return f"{self.label} - {self.material_id}"
 
+
+    @property
+    def bool_default(self) -> Literal["false", "nan"]:
+        """欠損を配列上どう持つか。**宣言は`coverage`1つにする**——2か所に置くと、片方だけ
+        書き換えたときに画面と評価が食い違い、どちらが正しいかを誰も保証しない。
+
+        bool配列とfloat配列は数値的に等価ではない（`axis_definitions.py:
+        evaluate_axis_array`が`values.dtype == bool`で分岐する）。
+        """
+        if self.dtype != "boolean":
+            return "false"  # bool配列を作らない材料では参照されない
+        return "nan" if getattr(self.coverage, "missing_semantics", None) == "unknown" else "false"
 
 def _wind_drag_ratio_reference_points() -> list[MaterialReferencePoint]:
     """`wind_drag_ratio`材料の参考点（時速20km=基準速度で走行、走行方位0度を基準に
@@ -462,7 +459,7 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
         tile_property="trees_pct",
         primary_attribute_id="landcover",
         value_sql=landcover_value_sql("trees"),
-        coverage=landcover_coverage("trees_percent"),
+        coverage=landcover_coverage("trees"),
     ),
     "built_percent": MaterialSpec(
         material_id="built_percent",
@@ -473,7 +470,7 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
         tile_property="built_pct",
         primary_attribute_id="landcover",
         value_sql=landcover_value_sql("built"),
-        coverage=landcover_coverage("built_percent"),
+        coverage=landcover_coverage("built"),
     ),
     "crops_percent": MaterialSpec(
         material_id="crops_percent",
@@ -484,7 +481,7 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
         tile_property="crops_pct",
         primary_attribute_id="landcover",
         value_sql=landcover_value_sql("crops"),
-        coverage=landcover_coverage("crops_percent"),
+        coverage=landcover_coverage("crops"),
     ),
     "rangeland_percent": MaterialSpec(
         material_id="rangeland_percent",
@@ -495,7 +492,7 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
         tile_property="rangeland_pct",
         primary_attribute_id="landcover",
         value_sql=landcover_value_sql("rangeland"),
-        coverage=landcover_coverage("rangeland_percent"),
+        coverage=landcover_coverage("rangeland"),
     ),
     "water_percent": MaterialSpec(
         material_id="water_percent",
@@ -506,7 +503,7 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
         tile_property="water_pct",
         primary_attribute_id="landcover",
         value_sql=landcover_value_sql("water"),
-        coverage=landcover_coverage("water_percent"),
+        coverage=landcover_coverage("water"),
     ),
     "bare_percent": MaterialSpec(
         material_id="bare_percent",
@@ -517,7 +514,7 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
         tile_property="bare_pct",
         primary_attribute_id="landcover",
         value_sql=landcover_value_sql("bare"),
-        coverage=landcover_coverage("bare_percent"),
+        coverage=landcover_coverage("bare"),
     ),
     "flooded_veg_percent": MaterialSpec(
         material_id="flooded_veg_percent",
@@ -528,7 +525,7 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
         tile_property="flooded_veg_pct",
         primary_attribute_id="landcover",
         value_sql=landcover_value_sql("flooded_veg"),
-        coverage=landcover_coverage("flooded_veg_percent"),
+        coverage=landcover_coverage("flooded_veg"),
     ),
     "snow_ice_percent": MaterialSpec(
         material_id="snow_ice_percent",
@@ -539,7 +536,7 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
         tile_property="snow_ice_pct",
         primary_attribute_id="landcover",
         value_sql=landcover_value_sql("snow_ice"),
-        coverage=landcover_coverage("snow_ice_percent"),
+        coverage=landcover_coverage("snow_ice"),
     ),
     "surface_good": MaterialSpec(
         material_id="surface_good",
@@ -548,9 +545,6 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
         dtype="boolean",
         tile_property="surface_good",
         primary_attribute_id="surface",
-        # 「路面タグ不明」を「路面が悪い」と混同しないための唯一の例外（他のboolean材料は
-        # bool_default既定の"false"のまま）。
-        bool_default="nan",
         value_sql=SURFACE_GOOD_CASE_SQL,
         coverage=WayMaterialCoverageSpec(
                 missing_condition=f"({SURFACE_GOOD_CASE_SQL}) IS NULL",

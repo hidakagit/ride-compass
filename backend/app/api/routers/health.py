@@ -77,7 +77,6 @@ _KEY_TABLES = (
     "osm_raw_pois",
     "road_edges",
     "accident_points",
-    "way_landcover",
 )
 
 
