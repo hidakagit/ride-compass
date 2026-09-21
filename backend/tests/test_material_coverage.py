@@ -1,5 +1,8 @@
-"""材料の欠損割合集計（infrastructure/material_coverage.py・services/material_coverage_service.py）の
-DB非依存テスト。実DBでの集計はtest_material_coverage_repository.py（postgis）が担う。"""
+"""材料の欠損割合集計（infrastructure/material_coverage.py・services/material_coverage_service.py）。
+
+**SQLを実際にDBへ投げる検査はここには無い**（このファイルは組み立てた文字列と集計後の
+計算だけを見る）。テーブル名や列名が実在するかは、ここを通っても分からない。
+"""
 
 from datetime import datetime, timezone
 
