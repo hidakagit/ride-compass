@@ -3,6 +3,9 @@
 **外部の形を読んで1件ずつ返すことだけ**を行う。ステージング・差し替え・run記録は
 `ingest.py`の共通経路が持つ。
 
+**配信元は叩かない。** 取りに行くのは`scripts/fetch_accident_csv.py`の仕事で、ここは
+手元にあるものを読む。
+
 列は捨てずに全部`attrs`へ入れる。何が後で要るかは取込の時点では決められない——
 2022年に列構成が58列から68列へ変わっており、そのとき何を拾うべきだったかは
 後から見ないと分からない。
@@ -17,7 +20,6 @@ from collections.abc import AsyncIterator
 from typing import Any
 from pathlib import Path
 
-import httpx
 import shapely
 from shapely.geometry import Point
 
@@ -27,7 +29,6 @@ from app.domain.accident import latitude_from_raw, longitude_from_raw
 
 logger = logging.getLogger("ridecompass.ingest.npa_honhyo")
 
-HONHYO_URL_TEMPLATE = "https://www.npa.go.jp/publications/statistics/koutsuu/opendata/{year}/honhyo_{year}.csv"
 DATA_DIR = Path(__file__).resolve().parents[3] / "data" / "accidents"
 
 #: 本票CSVの文字コード。
@@ -38,20 +39,11 @@ _LAT_HEADER = "地点　緯度（北緯）"
 _LON_HEADER = "地点　経度（東経）"
 
 
-def _download(year: int) -> Path:
-    DATA_DIR.mkdir(parents=True, exist_ok=True)
+def _honhyo_path(year: int) -> Path:
     path = DATA_DIR / f"honhyo_{year}.csv"
-    if path.exists():
-        return path
-    url = HONHYO_URL_TEMPLATE.format(year=year)
-    logger.info("本票CSVを取得します: %s", url)
-    tmp = path.with_suffix(".csv.part")
-    with httpx.stream("GET", url, timeout=120.0, follow_redirects=True) as response:
-        response.raise_for_status()
-        with open(tmp, "wb") as f:
-            for chunk in response.iter_bytes():
-                f.write(chunk)
-    tmp.replace(path)
+    if not path.exists():
+        raise FileNotFoundError(
+            f"本票CSVがありません: {path}（scripts/fetch_accident_csv.py が写す）")
     return path
 
 
@@ -64,10 +56,8 @@ async def read_npa_honhyo(spec: SourceSpec, profile: SourceProfile,
     min_lat, min_lon, max_lat, max_lon = target.bbox
     skipped = 0
     for year in years:
-        path = _download(int(year))
-        origin["files"].append(
-            {"year": int(year), "url": HONHYO_URL_TEMPLATE.format(year=int(year)),
-             **file_origin(path)})
+        path = _honhyo_path(int(year))
+        origin["files"].append({"year": int(year), **file_origin(path)})
         with open(path, encoding=ENCODING, newline="") as f:
             reader = csv.DictReader(f)
             for row in reader:
