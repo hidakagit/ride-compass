@@ -10,11 +10,13 @@
 
 import logging
 from collections.abc import AsyncIterator
+from pathlib import Path
+from typing import Any
 
 import shapely
 from shapely.geometry import box
 
-from app.batch.ingest import SourceRecord, register_adapter
+from app.batch.ingest import SourceRecord, file_origin, register_adapter
 from app.batch.source_adapters._raster_wkb import tile_raster_wkb
 from app.batch.source_profile import SourceProfile, SourceSpec
 from app.domain.region import BoundingBox, tiles_covering_bbox
@@ -40,9 +42,11 @@ def _tile_bounds(z: int, x: int, y: int) -> tuple[float, float, float, float]:
 
 
 @register_adapter("io_lulc_tile")
-async def read_lulc_tiles(spec: SourceSpec, profile: SourceProfile) -> AsyncIterator[SourceRecord]:
+async def read_lulc_tiles(spec: SourceSpec, profile: SourceProfile,
+                          origin: dict[str, Any]) -> AsyncIterator[SourceRecord]:
     # rasterioのimport順の制約（PROJデータの固定）を持つモジュールを経由して読む。
-    from app.infrastructure.landcover_raster import has_sources, tile_classes
+    from app.infrastructure.landcover_raster import (
+        has_sources, opened_raster_paths, tile_classes)
 
     if not has_sources():
         raise RuntimeError(
@@ -51,6 +55,8 @@ async def read_lulc_tiles(spec: SourceSpec, profile: SourceProfile) -> AsyncIter
     zoom = int(spec.grid["zoom"])
     product = str(spec.grid.get("product", "io-lulc"))
     year = spec.grid.get("year")
+    origin.update({"product": product, "year": year, "zoom": zoom,
+                   "rasters": [file_origin(Path(raster)) for raster in opened_raster_paths()]})
     min_lat, min_lon, max_lat, max_lon = profile.target.bbox
     tiles = tiles_covering_bbox(
         BoundingBox(min_latitude=min_lat, min_longitude=min_lon,

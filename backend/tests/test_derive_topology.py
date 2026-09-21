@@ -52,7 +52,11 @@ TABLES = ("edge_materials", "way_materials", "road_edges", "node_materials",
 
 
 @pytest_asyncio.fixture(scope="module", loop_scope="module")
-async def topology_conn():
+async def topology_conn(road_graph_engine):
+    """`road_graph_engine`に依存するのは接続のためではなく、**スキーマを作らせるため**。
+    このファイルは生のasyncpgで繋ぐので、テーブルを作る経路をどこかで通さないと、
+    まっさらなDB（CI）では最初の文から落ちる。
+    """
     conn = await asyncpg.connect(asyncpg_dsn(postgis_database_url()))
     try:
         await ensure_partition(conn, "osm_way")

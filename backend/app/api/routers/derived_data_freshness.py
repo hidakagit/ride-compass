@@ -81,6 +81,9 @@ async def get_derived_data_freshness(
                 oldest_run_id=table.oldest_run_id,
                 latest_run_id=table.latest_run_id,
                 is_stale=table.is_stale,
+                coverage_parent=table.coverage_parent,
+                coverage_parent_row_count=table.coverage_parent_row_count,
+                missing_rows=table.missing_rows,
                 columns=[
                     ColumnEntry(
                         column=column.column,

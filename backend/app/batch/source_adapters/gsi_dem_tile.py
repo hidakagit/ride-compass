@@ -19,6 +19,7 @@
 import logging
 import struct
 from collections.abc import AsyncIterator
+from typing import Any
 
 import shapely
 from shapely.geometry import box
@@ -84,10 +85,13 @@ def _tile_bounds(z: int, x: int, y: int) -> tuple[float, float, float, float]:
 
 
 @register_adapter("gsi_dem_tile")
-async def read_gsi_dem_tiles(spec: SourceSpec, profile: SourceProfile) -> AsyncIterator[SourceRecord]:
+async def read_gsi_dem_tiles(spec: SourceSpec, profile: SourceProfile,
+                             origin: dict[str, Any]) -> AsyncIterator[SourceRecord]:
     target = profile.target
     product = str(spec.grid.get("product", PRODUCT_PRIORITY[0]))
     zoom = int(spec.grid["zoom"])
+    # タイルは`fetch_dem_tiles.py`が先に写している。取込が読むのはその置き場。
+    origin.update({"tile_root": str(TILE_ROOT), "product": product, "zoom": zoom})
     min_lat, min_lon, max_lat, max_lon = target.bbox
     tiles = tiles_covering_bbox(
         BoundingBox(min_latitude=min_lat, min_longitude=min_lon,

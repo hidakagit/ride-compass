@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { MOBILE_VIEWPORT, generateRoutes, openMobileApp, openMobileSheet } from "./fixtures";
+import { FINE_STEP_AXIS_LABEL, MOBILE_VIEWPORT, generateRoutes, openMobileApp, openMobileSheet } from "./fixtures";
 
 // モバイル（390px）の導線は下部タブバーとボトムシートで、デスクトップ用の
 // smoke.spec.tsが通る経路とは別物。主用途（走行中のスマホ）側の最小疎通を押さえる。
@@ -68,7 +68,7 @@ test("モバイル: レンズの凡例が、段階の細かい軸でも幅に収
   await openMobileApp(page);
 
   await page.getByRole("button", { name: /^レンズ:/ }).click();
-  await page.getByRole("radio", { name: "停止密度" }).click();
+  await page.getByRole("radio", { name: FINE_STEP_AXIS_LABEL }).click();
   await page.getByRole("button", { name: /^レンズ:/ }).click();
   await expect(page.getByLabel("凡例の全段階をまとめて表示/非表示")).toBeVisible();
 

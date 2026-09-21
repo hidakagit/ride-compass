@@ -201,7 +201,25 @@ export async function installApiMocks(page: Page): Promise<void> {
   await page.route(`${API_BASE}/api/axis-catalog*`, (route) =>
     route.fulfill({
       json: {
-        axes: [{ ...catalogAxis({ axis_id: "ramp", display: { tile_inputs: [{ property: "v", weight: 1 }], thresholds: [50] } }), default_weight: 0 }],
+        axes: [
+          { ...catalogAxis({ axis_id: "ramp", display: { tile_inputs: [{ property: "v", weight: 1 }], thresholds: [50] } }), default_weight: 0 },
+          // 凡例の幅を見るテスト向け。**本番の軸名を持ち込まない**——公開されている軸は
+          // DBが決めるもので、リポジトリはその写しを持たない。段階の細かさと単位の長さ
+          // だけが要るので、ここで作る。
+          {
+            ...catalogAxis({
+              axis_id: "fine_steps",
+              label: FINE_STEP_AXIS_LABEL,
+              display: {
+                label: FINE_STEP_AXIS_LABEL,
+                tile_inputs: [{ property: "v", weight: 1 }],
+                thresholds: [10, 20, 30, 40, 50, 60, 70, 80],
+                unit: "箇所/km",
+              },
+            }),
+            default_weight: 0,
+          },
+        ],
         tile_versions: {},
         material_runtime_scales: {},
         client_tuning: {},
@@ -227,6 +245,9 @@ export async function installApiMocks(page: Page): Promise<void> {
 // 1箇所へ集約する（docs/records/tasks/T768.md）。
 
 /** スマホ縦持ち相当。useIsMobile（MOBILE_BREAKPOINT_PX=640）のモバイル分岐に入る幅。 */
+/** 凡例の幅を見るテストが選ぶ軸の名前。段階が細かく単位が長いことだけが要件。 */
+export const FINE_STEP_AXIS_LABEL = "段階の細かい軸";
+
 export const MOBILE_VIEWPORT = { width: 390, height: 812 };
 
 /** モバイルの下部タブバーが持つシート。値はタブのラベル兼シートのアクセシブル名。 */

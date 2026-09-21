@@ -14,13 +14,14 @@
 import csv
 import logging
 from collections.abc import AsyncIterator
+from typing import Any
 from pathlib import Path
 
 import httpx
 import shapely
 from shapely.geometry import Point
 
-from app.batch.ingest import SourceRecord, register_adapter
+from app.batch.ingest import SourceRecord, file_origin, register_adapter
 from app.batch.source_profile import SourceProfile, SourceSpec
 from app.domain.accident import latitude_from_raw, longitude_from_raw
 
@@ -55,13 +56,18 @@ def _download(year: int) -> Path:
 
 
 @register_adapter("npa_honhyo")
-async def read_npa_honhyo(spec: SourceSpec, profile: SourceProfile) -> AsyncIterator[SourceRecord]:
+async def read_npa_honhyo(spec: SourceSpec, profile: SourceProfile,
+                          origin: dict[str, Any]) -> AsyncIterator[SourceRecord]:
     target = profile.target
     years = spec.rows.get("years") or []
+    origin["files"] = []
     min_lat, min_lon, max_lat, max_lon = target.bbox
     skipped = 0
     for year in years:
         path = _download(int(year))
+        origin["files"].append(
+            {"year": int(year), "url": HONHYO_URL_TEMPLATE.format(year=int(year)),
+             **file_origin(path)})
         with open(path, encoding=ENCODING, newline="") as f:
             reader = csv.DictReader(f)
             for row in reader:
