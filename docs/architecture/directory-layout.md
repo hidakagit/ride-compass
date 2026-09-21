@@ -46,6 +46,7 @@ CI・pushフック用スクリプト）。
 - **`services/`**: backend APIを叩く薄い層。
 - **`types/generated/`**: `export_openapi.py`の出力（OpenAPIスキーマと、材料カタログ・
   タイル世代等の付随生成物）。コミット対象で、CIの`api-contract`ジョブがドリフトを検知する。
+  OpenAPIスキーマは**契約だけ**を持ち、docstring由来の散文は載せない。
 
 **backendが持つ値の一覧・既定値をfrontendが手書きで複製しないこと**——複製すると片側だけ
 変えても全テストが緑のまま通り、キー集合の完全一致を要求するAPIでは全リクエストが422に

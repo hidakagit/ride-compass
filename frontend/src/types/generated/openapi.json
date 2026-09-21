@@ -7,7 +7,6 @@
   "paths": {
     "/health": {
       "get": {
-        "summary": "Health",
         "operationId": "health_health_get",
         "responses": {
           "200": {
@@ -36,7 +35,6 @@
     },
     "/api/debug/stats": {
       "get": {
-        "summary": "Debug Stats",
         "operationId": "debug_stats_api_debug_stats_get",
         "responses": {
           "200": {
@@ -54,8 +52,6 @@
     },
     "/api/debug/db-status": {
       "get": {
-        "summary": "Db Status",
-        "description": "本番DB(または任意環境)がコード上の期待（migration適用済み・データ投入バッチ実行済み）\nに追いついているかを1回のリクエストで確認できる診断エンドポイント。\n\n`road_graph_use_repository=false`（DBなし構成）のときは接続を試みず、その旨だけ返す。\nDB接続自体に失敗した場合もエラーで落とさず、WARNINGログと共にreachable=falseを返す\n（docs/conventions/logging.mdの「エラーは常時WARNING以上」方針。/healthと違い読み取り専用の\n診断用途のため、DB障害時にHTTP 500にする必要はない）。認可境界の理由は\ndocs/modules/backend/cross-cutting-infrastructure.md「運用エンドポイント」節参照。",
         "operationId": "db_status_api_debug_db_status_get",
         "responses": {
           "200": {
@@ -80,7 +76,6 @@
     },
     "/api/routes/preview": {
       "post": {
-        "summary": "Preview Route",
         "operationId": "preview_route_api_routes_preview_post",
         "requestBody": {
           "content": {
@@ -118,7 +113,6 @@
     },
     "/api/routes/generate": {
       "post": {
-        "summary": "Generate Routes",
         "operationId": "generate_routes_api_routes_generate_post",
         "requestBody": {
           "content": {
@@ -156,7 +150,6 @@
     },
     "/api/routes/generate/{job_id}": {
       "get": {
-        "summary": "Get Generate Job",
         "operationId": "get_generate_job_api_routes_generate__job_id__get",
         "parameters": [
           {
@@ -195,8 +188,6 @@
     },
     "/api/weather": {
       "get": {
-        "summary": "Get Weather",
-        "description": "今日の見通し（TodayOutlook、日次集計・weather_code・UV指数等の予報値）向け。\n常設ヘッダー（現在値の気温・体感温度・風速風向）はアメダス実測を使う\n`GET /api/weather/amedas`が担うため、このエンドポイントは予報（MSM）の値を\nそのまま返す。",
         "operationId": "get_weather_api_weather_get",
         "parameters": [
           {
@@ -248,8 +239,6 @@
     },
     "/api/weather/warnings": {
       "get": {
-        "summary": "Get Weather Warnings",
-        "description": "出発地点近傍のJMA警報・注意報を、サイクリングに関連する種別へ絞ってバッジ用に返す。\n地点→市区町村→警報エリアの解決、または警報自体の取得に失敗した\n場合は例外にせず「警報なし」を返す（warning_service.py参照。他の/api/weather系と異なり\nこのfail-openは意図的な仕様のため、502は返さない——WBGT警告と共有する\n「安全側ではないが失敗時は警告なしとする」という既定の方針）。",
         "operationId": "get_weather_warnings_api_weather_warnings_get",
         "parameters": [
           {
@@ -301,8 +290,6 @@
     },
     "/api/weather/wbgt": {
       "get": {
-        "summary": "Get Wbgt",
-        "description": "出発地点近傍の暑さ指数（WBGT）警戒レベルをバッジ用に返す。\n提供期間外（11〜3月）・地点解決や取得に失敗した場合・「ほぼ安全」（21未満）の\nいずれも例外にせず空（level=None）を返す（wbgt_service.py参照。警報・\n注意報バッジと同じfail-open方針のため502は返さない）。",
         "operationId": "get_wbgt_api_weather_wbgt_get",
         "parameters": [
           {
@@ -354,8 +341,6 @@
     },
     "/api/weather/flood-forecast": {
       "get": {
-        "summary": "Get Flood Forecast",
-        "description": "出発地点近傍のJMA指定河川洪水予報（レベル2〜5）をバッジ用に返す。\n地点解決・洪水予報自体の取得のどこで失敗しても\n例外にせず空を返す（警報・WBGTと共有するfail-open方針、502は返さない）。",
         "operationId": "get_flood_forecast_api_weather_flood_forecast_get",
         "parameters": [
           {
@@ -407,8 +392,6 @@
     },
     "/api/weather/amedas": {
       "get": {
-        "summary": "Get Amedas",
-        "description": "出発地点近傍の最寄りアメダス観測所の直近観測値を返す。\n観測値本体はRedis Hash（TTL 15分）でキャッシュされる（jma_amedas_service.py参照）。\n観測所解決・取得のいずれかに失敗した場合は502を返す（/api/weatherと同じ方針。\n警報・注意報バッジ系と違いこちらは表示の主対象になりうる数値のため、fail-openにしない）。",
         "operationId": "get_amedas_api_weather_amedas_get",
         "parameters": [
           {
@@ -460,8 +443,6 @@
     },
     "/api/weather/wind-grid": {
       "get": {
-        "summary": "Get Wind Grid",
-        "description": "風・降水延長予報の格子点マップ。\n関東本土全域の固定格子点（domain/wind_grid.py: WIND_GRID_BBOX/WIND_GRID_SPACING_DEG）\nぶんの時間別風向・風速・降水量をまとめて返す。取得に失敗した地点はレスポンスから\n除外する（他の外部API連携と同じ「取得失敗は握りつぶす」方針、1地点の失敗で全体を\n502にしない）。ただし全地点が失敗した場合は502を返す（_reject_if_all_points_failed\n参照）。時刻配列はpoints内の各点からは外し、応答トップレベルに1本だけ持つ\n（WindGridResponseのdocstring参照）。",
         "operationId": "get_wind_grid_api_weather_wind_grid_get",
         "responses": {
           "200": {
@@ -479,8 +460,6 @@
     },
     "/api/weather/wind-grid-detail": {
       "get": {
-        "summary": "Get Wind Grid Detail",
-        "description": "風・降水延長予報の詳細格子（ヒートマップ等の面表現用、spacing_degでズーム依存の間隔を\n可変化）。呼び出し元（フロント）が渡した表示範囲（bbox）に交差する\n密格子点（domain/wind_grid.py: generate_wind_grid_detail_points、固定ラティス上の座標の\nため近い範囲を見る別ユーザーとキャッシュを共有できる）ぶんの時間別風向・風速・降水量を\n返す。get_wind_gridと同じく取得失敗地点は結果から除外し、時刻配列は応答トップレベルに\n1本だけ持つ。\n\nspacing_degはWIND_GRID_DETAIL_ALLOWED_SPACINGS_DEGの離散値のみ許可する（任意の連続値を\n許すとユーザーごとにラティスの絶対座標がずれてキャッシュ共有が効かなくなるため、\nフロント側windLayer.ts: windGridDetailSpacingDegForZoomと同じ段階に固定する）。\n全地点が失敗した場合は502を返す（_reject_if_all_points_failed参照）。",
         "operationId": "get_wind_grid_detail_api_weather_wind_grid_detail_get",
         "parameters": [
           {
@@ -564,7 +543,6 @@
     },
     "/api/region/road-surface-tiles/{z}/{x}/{y}.pbf": {
       "get": {
-        "summary": "Region Road Surface Tile",
         "operationId": "region_road_surface_tile_api_region_road_surface_tiles__z___x___y__pbf_get",
         "parameters": [
           {
@@ -619,8 +597,6 @@
     },
     "/api/region/poi-tiles/{z}/{x}/{y}.pbf": {
       "get": {
-        "summary": "Region Poi Tile",
-        "description": "停止要因POI（信号・横断歩道・一時停止・踏切）レイヤー。静的道路属性P1で評価にのみ\n使われていたosm_raw_poisの可視化（材料`intersection_count_per_km`の集計には\n既存のリポジトリのメソッドを引き続き使う）。路面タイルと同じ歯止め・同時実行制御を\nそのまま流用する。",
         "operationId": "region_poi_tile_api_region_poi_tiles__z___x___y__pbf_get",
         "parameters": [
           {
@@ -675,8 +651,6 @@
     },
     "/api/region/landcover-tiles/{z}/{x}/{y}.png": {
       "get": {
-        "summary": "Region Landcover Tile",
-        "description": "土地被覆ラスタ（Esri×Impact Observatory 10m LULC）をそのまま面で塗ったラスタタイル。\n\nDBを読まないため`_region_tile_semaphore`（DB接続プールの取り合いを抑えるもの）には\n乗せず、CPU/ディスクI/Oの上限は`landcover_tile_max_concurrent`の専用semaphoreで持つ。",
         "operationId": "region_landcover_tile_api_region_landcover_tiles__z___x___y__png_get",
         "parameters": [
           {
@@ -731,8 +705,6 @@
     },
     "/api/region/dynamic-way-values/{axis_id}/{z}/{x}/{y}": {
       "get": {
-        "summary": "Region Dedicated Way Values",
-        "description": "「評価軸」グループとしての動的＋向きあり材料（風・勾配）。指定タイル内のフィーチャーごとの\n値（風=wind_drag_ratio[backend/app/domain/wind.py]、勾配=effective_gradient\n[backend/app/domain/gradient.py]）をまとめて返す軽量なJSONエンドポイント。この\nエンドポイントはルート未確定時（視界内の全道路への一律適用）専用——ルート確定後は\nルート自身の実進行方向・実到達時刻/実値から計算済みの`axis_difficulties`\n（`RouteSegmentDetail`）を使うため、フロントはこのエンドポイントを呼ばない。\n\nパスパラメータは**軸id**（`axis_definitions.axis_id`、例: `wind`/`gradient`）で、\nサービスが返す生値の材料id（`wind_drag_ratio`等、下の`service.material_id`）とは別の\n名前空間である。`domain/dynamic_way_values.py: dedicated_way_value_axes()`に無い未知の\naxis_idは404。`bearing_deg`（クエリパラメータ）はその軸が向きに依存する場合のみ\n必須（現状は風・勾配のどちらも必須、`needs_bearing`参照）——省略すると422。`at`は\nその軸が時刻に依存する場合のみ意味を持つ（風は必須ではなく省略時は現在時刻[Asia/Tokyo]\nを使う、勾配は時刻に依存しないため渡しても無視される）。`speed_kmh`（想定速度）は\nその軸が走行速度に依存する場合（`needs_speed`）のみ必須で、それ以外は無視される。\n\n静的な路面タイル（`/api/region/road-surface-tiles`、MVT、本エンドポイントとは無関係）\nとは別経路——フロントは同じz/x/yに対して両方を取得し、MapLibreの`setFeatureState`で\n合成する（`frontend/src/components/Map/dedicatedWayValueLayer.ts`参照）。\nタイル単位の値が地図表示専用のRedisキャッシュ（`dynamic_way_value_cache.py`）を経由する\nため、パン・ズームで同じタイルが再び視界に入っても、同じ時刻バケット・向きバケットの\n範囲内では風グリッド・DBへの再問い合わせは発生しない。\n\n路面・POIタイルと同じレート制限・座標検証・DB接続プールのsemaphoreを共有する\n（本ファイルの`_region_tile_semaphore`のコメント参照——MVTエンコードは\n伴わないが同じPostGISコネクションプールを取り合うため）。",
         "operationId": "region_dedicated_way_values_api_region_dynamic_way_values__axis_id___z___x___y__get",
         "parameters": [
           {
@@ -851,8 +823,6 @@
     },
     "/api/region/axis-inspector": {
       "post": {
-        "summary": "Region Axis Inspector",
-        "description": "区間インスペクタ。クリックされた道路（osm_way_id）について、\n一次属性（highway/tags）→二次軸スコア（取得可能な軸のみ）→\n合成コスト（取得可能な軸だけの参考値、既定route_preference重み）を返す。\nPOST+JSONボディ・osm_way_id完全一致で引く理由はRegionService.get_axis_inspectorの\ndocstring参照（交差点付近での取り違え対策）。進行方向に依存する軸（勾配・風）は、\n地図が指定している走行方位・時刻・想定速度を一緒に送れば算出できる。送らなければ\nその軸はavailable=falseで返る。",
         "operationId": "region_axis_inspector_api_region_axis_inspector_post",
         "requestBody": {
           "content": {
@@ -898,7 +868,6 @@
     },
     "/api/region/accident-tiles/{z}/{x}/{y}.pbf": {
       "get": {
-        "summary": "Region Accident Tile",
         "operationId": "region_accident_tile_api_region_accident_tiles__z___x___y__pbf_get",
         "parameters": [
           {
@@ -953,7 +922,6 @@
     },
     "/api/basemap/{path}": {
       "get": {
-        "summary": "Basemap Proxy",
         "operationId": "basemap_proxy_api_basemap__path__get",
         "parameters": [
           {
@@ -990,8 +958,6 @@
     },
     "/api/admin/basemap/refresh": {
       "post": {
-        "summary": "Basemap Refresh",
-        "description": "サーバー側のタイルファイルキャッシュを全消去する（管理画面`/admin`「データ保守」タブから使う）。\n\n基礎地図タイルと路面ベクタタイルは同じファイルキャッシュを共有しているため、この\n一括クリアで両方とも消える。影響は押した人だけでなく**全利用者**に及ぶ（次のタイル要求で\n作り直されるまで、外部サービスへの実問い合わせやタイル生成が走る）ため、\naxis_admin.py/debug_admin.pyと同じ管理API認可境界（require_admin_basic_auth）の内側に置く。\n\n各利用者の画面へ反映されるのは、ブラウザが持つ既存タイルの`Cache-Control`が切れた後\n（`api/cache_policy.py`のBASEMAP: 10分）。",
         "operationId": "basemap_refresh_api_admin_basemap_refresh_post",
         "responses": {
           "200": {
@@ -1018,8 +984,6 @@
     },
     "/api/jma-tile-index": {
       "get": {
-        "summary": "Jma Tile Index",
-        "description": "どのタイルに描くものがあるかの一覧（`infrastructure/jma_tile_index.py`）。\n\nJMA動的タイルは疎で、平常時はほぼ全てのタイルが空である。クライアントはこれを1回\n受け取り、載っていないタイルは要求しない。`available: false`のときは従来どおり\n全タイルを取りに行く（インデックスが無いことで表示が欠けてはならない）。\n\n`coverage`の外は在否が不明のため、クライアントはその範囲のタイルを従来どおり取得する。",
         "operationId": "jma_tile_index_api_jma_tile_index_get",
         "responses": {
           "200": {
@@ -1037,7 +1001,6 @@
     },
     "/api/jma-tile/{path}": {
       "get": {
-        "summary": "Jma Tile Proxy",
         "operationId": "jma_tile_proxy_api_jma_tile__path__get",
         "parameters": [
           {
@@ -1074,7 +1037,6 @@
     },
     "/api/gsi-relief-tile/{path}": {
       "get": {
-        "summary": "Gsi Relief Tile Proxy",
         "operationId": "gsi_relief_tile_proxy_api_gsi_relief_tile__path__get",
         "parameters": [
           {
@@ -1111,8 +1073,6 @@
     },
     "/api/gsi-terrain-tile/{z}/{x}/{y}.png": {
       "get": {
-        "summary": "Gsi Terrain Tile",
-        "description": "地理院の標高タイルをTerrain-RGBへ移して返す（MapLibreの`raster-dem`が読む形）。\n\n整備区域外の404は上のプロキシと同じく正常系。MapLibreはそのタイルの陰影を描かないだけで、\n地図全体は成立する。",
         "operationId": "gsi_terrain_tile_api_gsi_terrain_tile__z___x___y__png_get",
         "parameters": [
           {
@@ -1170,7 +1130,6 @@
         "tags": [
           "axis-admin"
         ],
-        "summary": "List Axis Definitions",
         "operationId": "list_axis_definitions_api_admin_axis_definitions_get",
         "responses": {
           "200": {
@@ -1198,7 +1157,6 @@
         "tags": [
           "axis-admin"
         ],
-        "summary": "Create Axis Definition",
         "operationId": "create_axis_definition_api_admin_axis_definitions_post",
         "requestBody": {
           "content": {
@@ -1244,7 +1202,6 @@
         "tags": [
           "axis-admin"
         ],
-        "summary": "Get Axis Definition",
         "operationId": "get_axis_definition_api_admin_axis_definitions__axis_id__get",
         "security": [
           {
@@ -1289,7 +1246,6 @@
         "tags": [
           "axis-admin"
         ],
-        "summary": "Update Axis Definition",
         "operationId": "update_axis_definition_api_admin_axis_definitions__axis_id__put",
         "security": [
           {
@@ -1344,7 +1300,6 @@
         "tags": [
           "axis-admin"
         ],
-        "summary": "Delete Axis Definition",
         "operationId": "delete_axis_definition_api_admin_axis_definitions__axis_id__delete",
         "security": [
           {
@@ -1384,8 +1339,6 @@
         "tags": [
           "axis-admin"
         ],
-        "summary": "Unpublish Axis Definition",
-        "description": "公開済み軸を下書きへ戻す。`update()`と異なり公開済み軸に対しても\n成功する——これが`update()`ではなく専用エンドポイントである理由（is_published以外の\nフィールドは一切変更しない、「公開済みは編集不可」原則を保ったまま公開フラグの\n反転だけに穴を開ける）。下書きへ戻った軸は通常のPUTで再編集・再公開できる。",
         "operationId": "unpublish_axis_definition_api_admin_axis_definitions__axis_id__unpublish_post",
         "security": [
           {
@@ -1432,8 +1385,6 @@
         "tags": [
           "axis-admin"
         ],
-        "summary": "Preview Axis Distribution",
-        "description": "編集中の`shape`で、実データの生値がどう分布するかを返す。\n\n軸スタジオは数値の入力欄を並べるだけでは折れ点の妥当性を判断できず、公開して地図と\nルートを見るまで結果が分からない。この分布に折れ点を当てはめれば、「延長の何%が\n満点に張り付くか」が編集中に分かる。",
         "operationId": "preview_axis_distribution_api_admin_axis_definitions_preview_distribution_post",
         "requestBody": {
           "content": {
@@ -1479,7 +1430,6 @@
         "tags": [
           "tuning-admin"
         ],
-        "summary": "List Tuning Parameters",
         "operationId": "list_tuning_parameters_api_admin_tuning_get",
         "responses": {
           "200": {
@@ -1509,7 +1459,6 @@
         "tags": [
           "tuning-admin"
         ],
-        "summary": "Update Tuning Parameter",
         "operationId": "update_tuning_parameter_api_admin_tuning__param_id__put",
         "security": [
           {
@@ -1563,7 +1512,6 @@
     },
     "/api/axis-catalog": {
       "get": {
-        "summary": "Get Axis Catalog",
         "operationId": "get_axis_catalog_api_axis_catalog_get",
         "responses": {
           "200": {
@@ -1581,7 +1529,6 @@
     },
     "/api/material-catalog": {
       "get": {
-        "summary": "Get Material Catalog",
         "operationId": "get_material_catalog_api_material_catalog_get",
         "responses": {
           "200": {
@@ -1599,8 +1546,6 @@
     },
     "/api/admin/material-catalog/{material_id}/distribution": {
       "get": {
-        "summary": "Get Material Distribution",
-        "description": "材料の値が実データでどの範囲に散らばっているかを返す（軸スタジオ）。\n\n折れ点をどこへ置くかは、その材料が実際に取る値を知らないと決められない。カタログの\n`reference_points`はコードに書いた代表値で、実データの分布ではない。\n数値材料のみ対象で、真偽・カテゴリ材料は`available=false`を返す（分位に意味が無い）。",
         "operationId": "get_material_distribution_api_admin_material_catalog__material_id__distribution_get",
         "security": [
           {
@@ -1644,8 +1589,6 @@
     },
     "/api/admin/material-catalog/{material_id}/values": {
       "get": {
-        "summary": "Get Material Values",
-        "description": "材料idに対応する実データの値一覧（ソート済み、重複無し）を返す。\n未知の材料idは404（フロントのタイプミス検知用）。既知だが動的値一覧に対応していない\n材料（`tracktype`等、事前に閉じた値集合を持つため本APIが不要）は`available=true`の空リスト、\nDB未接続・DB障害・タイムアウトは`available=false`を返す\n（`RegionService.get_material_values`参照。「候補が無い」と「候補を出せなかった」を\n画面が区別できるようにするため、両方を空リストへ倒さない）。\n\n利用者は軸スタジオ（`/admin`）だけで、1リクエストにつき索引の効かない\n`SELECT DISTINCT`（実質全表走査）をタイル配信と同じ接続プール上で1回実行する。\n認可なしで公開すると繰り返し呼ばれるだけでプールを枯渇させられるため、同じ理由で\nBasic認証を課している`/api/admin/material-catalog/coverage`と同じadminパスへ置く。",
         "operationId": "get_material_values_api_admin_material_catalog__material_id__values_get",
         "security": [
           {
@@ -1689,8 +1632,6 @@
     },
     "/api/admin/material-catalog/coverage": {
       "get": {
-        "summary": "Get Material Coverage",
-        "description": "全材料の欠損割合（`MATERIAL_CATALOG`の登録順、集計対象外の材料は理由付き）を返す。\n\n読み取り専用のAPIだがBasic認証を要求する:\nosm_raw_ways/road_edgesの全表走査を伴う重いクエリで、認可なしに公開すると\n繰り返し呼ばれるだけでDBを圧迫できてしまう（管理画面`/admin`からのみ使う想定）。\nDB例外は`axis_admin.py`と同じく503へ変換する（診断用APIのため空レポートへ倒さない）。",
         "operationId": "get_material_coverage_api_admin_material_catalog_coverage_get",
         "responses": {
           "200": {
@@ -1716,7 +1657,6 @@
         "tags": [
           "debug-admin"
         ],
-        "summary": "Read Debug Mode",
         "operationId": "read_debug_mode_api_admin_debug_mode_get",
         "responses": {
           "200": {
@@ -1740,8 +1680,6 @@
         "tags": [
           "debug-admin"
         ],
-        "summary": "Update Debug Mode",
-        "description": "debug_modeをランタイムで切り替える（`.env`は書き換えない、プロセス再起動不要）。\n\n再起動・再デプロイのたびに環境変数の値（既定false）へ自動的に戻る\n（debug_control.pyのdocstring参照。戻し忘れのリスクを構造的に避ける設計）。",
         "operationId": "update_debug_mode_api_admin_debug_mode_post",
         "requestBody": {
           "content": {
@@ -1787,8 +1725,6 @@
         "tags": [
           "debug-admin"
         ],
-        "summary": "Read Recent Logs",
-        "description": "直近のログ行を返す（プロセス内メモリのリングバッファ、既定で最大1000件保持）。\n\n`min_level`で「このレベル以上」に絞り込める（例: `WARNING`を渡すとWARNING/ERROR/\nCRITICALだけになる）。`contains`で部分一致フィルタ（例:\n`distance filter rejected`）、両方指定するとAND条件。`limit`でフィルタ後の末尾N件に\n絞り込める。debug_modeがOFFの間はDEBUGレベルの行自体がそもそも記録されない点に注意\n（先に`POST /mode`で有効化すること。WARNING以上はdebug_modeに関わらず常時記録される、\ndocs/conventions/logging.md参照）。\n\n`limit`に0以下を渡すとget_recent_logs内部の`lines[-limit:]`が\nPythonのスライス仕様上「末尾からN件」ではなく異なる範囲を返してしまう\n（例: limit=-5は「先頭5件を除く全件」になる）ため、`gt=0`で弾く。上限側は\nリングバッファ自体が最大1000件しか保持していないため、大きすぎる値を渡しても\n保持件数以上は返らず実害が無い（バリデーションで別途上限を設けない）。",
         "operationId": "read_recent_logs_api_admin_debug_logs_get",
         "security": [
           {
@@ -1883,8 +1819,6 @@
     },
     "/api/admin/derived-data/freshness": {
       "get": {
-        "summary": "Get Derived Data Freshness",
-        "description": "派生データの表ごとの鮮度と、値の列ごとの未計算件数を返す。",
         "operationId": "get_derived_data_freshness_api_admin_derived_data_freshness_get",
         "responses": {
           "200": {
@@ -1907,7 +1841,6 @@
     },
     "/api/admin/db-status": {
       "get": {
-        "summary": "Get Db Status",
         "operationId": "get_db_status_api_admin_db_status_get",
         "responses": {
           "200": {
@@ -2159,8 +2092,7 @@
           "sunrise",
           "sunset"
         ],
-        "title": "AmedasObservation",
-        "description": "最寄りアメダス観測所の直近観測値。\n\n突風はJMAアメダスのリアルタイム観測値レスポンスがどの観測所についても持たないため、\nこのモデルに項目が無い。"
+        "title": "AmedasObservation"
       },
       "AxisCatalogEntry": {
         "properties": {
@@ -2583,8 +2515,7 @@
           "default_weight",
           "label"
         ],
-        "title": "AxisDefinitionPayload",
-        "description": "作成・更新リクエストボディ。妥当性検証は型・範囲チェックのみ\n\n（極端な重み設定に対する意味的な歯止めは設けない。\ndefault_weightの非負制約はRoutePreferenceWeights（routers/routes.py）と同じ）。"
+        "title": "AxisDefinitionPayload"
       },
       "AxisDefinitionResponse": {
         "properties": {
@@ -2747,8 +2678,7 @@
           "label",
           "display"
         ],
-        "title": "AxisDefinitionResponse",
-        "description": "一覧・単体取得のレスポンスボディ。DB由来の既存データをそのまま返すため、\n`AxisDefinitionPayload`の書き込み時専用バリデータ（`_check_materials_are_known`）は\n継承しない（`AxisDefinitionFields`のdocstring参照）。\n\n`display`: `domain/axis_display.py: axis_display_for()`の計算結果\n（`GET /api/axis-catalog`と同じ関数）。軸スタジオのGUI（AxisComposer.tsx）が\n「自動導出が失敗している（kind=\"none\"）ので、この軸の材料には地図表示用のデータ取得\n経路がまだ用意されていない」という注記を出すために必要——下書き軸（is_published=False）\nは`GET /api/axis-catalog`に現れないため、編集中に自己診断できる経路がこの管理APIの\nレスポンスにしか無い。"
+        "title": "AxisDefinitionResponse"
       },
       "AxisDisplaySpec": {
         "properties": {
@@ -2800,8 +2730,7 @@
           "kind",
           "label"
         ],
-        "title": "AxisDisplaySpec",
-        "description": "二次軸の地図レイヤー表示宣言（「事実はタイルに、解釈はクライアントに」）。\n\n- kind=\"ramp\": タイルへ焼き込み済みの事実プロパティ（`tile_inputs`の線形結合）を\n  `thresholds`（昇順、色段階の境界値）で色分けする汎用レイヤーを、フロントの\n  レイヤーファクトリが自動生成する。新しい軸はこれを宣言するだけで地図に現れる。\n- kind=\"none\": 専用の二次レイヤーを持たない（既存レイヤーで代替、またはデータ未整備）。\n  `note`へ理由を書く。"
+        "title": "AxisDisplaySpec"
       },
       "AxisInspectorAxis": {
         "properties": {
@@ -3054,8 +2983,7 @@
           "unit",
           "share"
         ],
-        "title": "AxisMaterialBreakdownEntry",
-        "description": "合成軸の内訳1件（材料と、その材料が軸の生値に占める割合）。"
+        "title": "AxisMaterialBreakdownEntry"
       },
       "AxisPreviewRequest": {
         "properties": {
@@ -3076,8 +3004,7 @@
         "required": [
           "shape"
         ],
-        "title": "AxisPreviewRequest",
-        "description": "分布プレビューの入力。軸全体ではなく`shape`だけを受け取る——プレビューは\n保存前の編集中に呼ぶもので、ラベル等の書き込み用フィールドが揃っている必要はない。"
+        "title": "AxisPreviewRequest"
       },
       "BreakpointLinearShape": {
         "properties": {
@@ -3129,8 +3056,7 @@
           "terms",
           "breakpoints"
         ],
-        "title": "BreakpointLinearShape",
-        "description": "区分線形補間（材料の線形結合→前処理→breakpoints折れ線、両端クランプ、小数1桁丸め）。\n\n合成（他軸参照）は独立したプリミティブではなく、`terms`の各materialが元々材料id・\n軸idのどちらも区別なく指せる設計から生じる性質にすぎない。真偽値フラグの加点合計は\n全termがboolean材料の場合として本shapeで表現する。"
+        "title": "BreakpointLinearShape"
       },
       "CategoricalShape": {
         "properties": {
@@ -3158,8 +3084,7 @@
           "material",
           "mapping"
         ],
-        "title": "CategoricalShape",
-        "description": "カテゴリ値→定数のマッピング（丸めなし。mappingの値がそのままスコアになる）。\n\n`mapping`のキーはbool（真偽2値の材料）とstr（MATERIAL_CATALOGのdtype=\"categorical\"材料、\n3値以上）の両方を許容する（混在は想定しないが型上は許容）。\n\nキー型は`union_mode=\"left_to_right\"`でbool判定を先に試す（既定のsmart modeだと\nJSON文字列\"true\"/\"false\"がboolへ強制変換されずstr型のまま残り、\n`infrastructure/axis_definition_repository.py`のDB往復でsurface_q等の真偽値材料が\n壊れる。\"true\"/\"false\"以外の文字列キーはbool変換に失敗してstrへフォールバックするため\n通常のcategorical材料には影響しない）。"
+        "title": "CategoricalShape"
       },
       "ColumnEntry": {
         "properties": {
@@ -3183,8 +3108,7 @@
           "null_count",
           "is_incomplete"
         ],
-        "title": "ColumnEntry",
-        "description": "値の列1本ぶんの完成度。\n\nNULLが「まだ計算していない」を意味する列と、「確定して値が無い」を意味する列がある。\n件数は常に返し、鳴らすかどうか（`is_incomplete`）だけを区別する。"
+        "title": "ColumnEntry"
       },
       "ConnectionEntry": {
         "properties": {
@@ -3641,8 +3565,7 @@
           "destination",
           "generated_at"
         ],
-        "title": "GenerationConditions",
-        "description": "この生成に実際に適用された条件のエコー（実験の記録・再現用、研究IF改善 §10-6）。\n\nroute_preference は「リクエストで上書きされた値」または「既定値」のうち実際に\n使われた方。レスポンスJSONを保存すれば、同じ条件をroute_preferenceとしてそのまま\n再送して再現できる。"
+        "title": "GenerationConditions"
       },
       "HTTPValidationError": {
         "properties": {
@@ -3662,8 +3585,7 @@
           "type": "boolean"
         },
         "type": "object",
-        "title": "HardFilterOverride",
-        "description": "0次ハードフィルタ（候補にすら入れない道路種別）の個別ON/OFF上書き。\nキーはdomain/hard_filters.py: HARD_FILTER_NAMESと同じ（'no_bicycle'/'motorway'/\n'trunk'）。RoutePreferenceWeightsと同じ「全フィールド必須」方針（上書きするなら\n全項目を明示する）。値がTrueのフィルタだけが有効（該当道路を探索対象から除外する）。"
+        "title": "HardFilterOverride"
       },
       "ImportRunEntry": {
         "properties": {
@@ -3767,8 +3689,7 @@
           "needs_attention",
           "note"
         ],
-        "title": "ImportRunEntry",
-        "description": "生データ取込1種別の最終実行。派生データの世代比較はこの記録を基準にするため、\nここが失敗したままだと鮮度の判定そのものが古い基準の上で行われる。"
+        "title": "ImportRunEntry"
       },
       "JmaTileIndexCoverage": {
         "properties": {
@@ -3797,8 +3718,7 @@
           "max_longitude",
           "max_latitude"
         ],
-        "title": "JmaTileIndexCoverage",
-        "description": "インデックスが網羅している地理範囲（プリウォームの対象bbox）。"
+        "title": "JmaTileIndexCoverage"
       },
       "JmaTileIndexElement": {
         "properties": {
@@ -3846,8 +3766,7 @@
         },
         "additionalProperties": false,
         "type": "object",
-        "title": "JmaTileIndexElement",
-        "description": "要素（risk系・nowc系・rasrf系）ごとの在否。\n\n`basetime`はクライアントが「自分が描こうとしている世代と一致するか」を確かめるために\n使う（要素ごとに更新タイミングが異なり、1つの`basetime`では表せない）。"
+        "title": "JmaTileIndexElement"
       },
       "JmaTileIndexResponse": {
         "properties": {
@@ -3885,8 +3804,7 @@
         "required": [
           "available"
         ],
-        "title": "JmaTileIndexResponse",
-        "description": "`GET /api/jma-tile-index`の応答。\n\n`available=False`（インデックス未保存・Redis障害）のとき`coverage`/`elements`は\nいずれもNoneで、クライアントは従来どおり全タイルを取りに行く。"
+        "title": "JmaTileIndexResponse"
       },
       "LandcoverPercentages": {
         "properties": {
@@ -3940,8 +3858,7 @@
           "snow_ice_percent",
           "rangeland_percent"
         ],
-        "title": "LandcoverPercentages",
-        "description": "材料の割合列（`lc_*`）＋`lc_valid_pixels`と1対1のモデル。"
+        "title": "LandcoverPercentages"
       },
       "MaterialCatalogEntry": {
         "properties": {
@@ -4213,8 +4130,7 @@
         "required": [
           "available"
         ],
-        "title": "MaterialDistributionResponse",
-        "description": "材料の値の分布（延長で重み付け）。`available=false`は数値材料でない・DB未接続。"
+        "title": "MaterialDistributionResponse"
       },
       "MaterialReferencePointEntry": {
         "properties": {
@@ -4257,8 +4173,7 @@
         "required": [
           "material"
         ],
-        "title": "MaterialTerm",
-        "description": "区分線形補間系shapeの入力1件（材料id・線形結合の係数・欠損時の扱い）。\n\n`required=True`の材料が欠損（スカラーNone/配列NaN）なら軸全体を欠損として扱う。\n`required=False`の材料の欠損は寄与0として残りだけで評価する（停止密度の軸の\n「信号等のデータが主、交差点データは補助」という非対称な扱いが実例）。ただし全termの材料が\n欠損した場合は、残りが1件も無く「寄与0の合計＝0」と「観測値が0」を区別できないため、\nrequired有無によらず軸全体を欠損として扱う。"
+        "title": "MaterialTerm"
       },
       "MaterialValueEntry": {
         "properties": {
@@ -4299,8 +4214,7 @@
         "required": [
           "values"
         ],
-        "title": "MaterialValuesResponse",
-        "description": "`available=False`は「候補を出せなかった」（DB未接続・DB障害・タイムアウト）。\n`available=True`で`values`が空なら「取得できたが値が無い」。画面はこの2つを\n区別して出す（区別しないと、DBのタイムアウトが「値が無い」として静かに表示される）。"
+        "title": "MaterialValuesResponse"
       },
       "MsmFreshnessResponse": {
         "properties": {
@@ -4334,8 +4248,7 @@
           "remaining_hours",
           "healthy"
         ],
-        "title": "MsmFreshnessResponse",
-        "description": "予報（MSM）の同期がどれだけ新しいか。配信元が止まると古い予報を配り続けるため、\nログ（WARNING）だけでなく外からも確認できるようにする。未同期のときはnull。"
+        "title": "MsmFreshnessResponse"
       },
       "PriorityCondition": {
         "properties": {
@@ -4359,8 +4272,7 @@
           "equals",
           "value"
         ],
-        "title": "PriorityCondition",
-        "description": "0次条件: 探索除外のハードフィルタ（`domain/hard_filters.py`、道路そのものを\n探索グラフから除外する）とは別の、**評価を優先確定する**条件。`material`の値が\n`equals`と一致する場合、軸の通常計算（shape評価）を丸ごとスキップし、`value`を\nそのままdifficultyとして返す。\n\n典型例: `motor_vehicle_no`（自動車通行不可）が立っている区間は、highway種別・\n自転車インフラ等の通常の判定に関わらず「車の圧迫感が最も低い」で確定する。\n自転車通行禁止（`bicycle=no`）はこれとは異なり、既存の0次ハードフィルタ\n（`no_bicycle`）で道路そのものが探索から除外されるため、この機構は使わない\n（「探索除外」と「評価の優先確定」は別の概念）。\n\n軸固有のPythonコードへベタ書きせず`AxisDefinition`が共通で持つ宣言にしてあるため、\n同型のケースはコード変更なしに表現できる。"
+        "title": "PriorityCondition"
       },
       "RouteCandidate": {
         "properties": {
@@ -4534,8 +4446,7 @@
           "distance_km",
           "geometry"
         ],
-        "title": "RouteCandidate",
-        "description": "1本のルート候補。\n\n`overall_difficulty`はsegmentsの`difficulty`（絶対基準0-100）の距離加重平均で、\n重み・条件が違う実験の間でも比較できる。候補タブの並び順はこの値の昇順で決まる。\nsegments欠損時・全区間difficulty欠損時はNone。\n\n辞書フィールドは`RouteSegmentDetail`の同名フィールドを候補の全区間へ距離加重平均で\n集約したもので、「データ無しはキーを持たない」規約も引き継ぐ。"
+        "title": "RouteCandidate"
       },
       "RouteGenerateJobCreatedResponse": {
         "properties": {
@@ -4549,8 +4460,7 @@
         "required": [
           "job_id"
         ],
-        "title": "RouteGenerateJobCreatedResponse",
-        "description": "`POST /api/routes/generate`の応答。\n\n冷パス（未splitな新規エリアへの初回アクセス、数十秒〜最大316秒規模）が\nブラウザのfetchを長時間ブロックしないよう、実際の生成はバックグラウンドジョブへ\n切り出した。この応答は即座（数百ms）に返る。結果は`GET /api/routes/generate/\n{job_id}`をポーリングして取得する（frontend services/routeApi.ts参照）。"
+        "title": "RouteGenerateJobCreatedResponse"
       },
       "RouteGenerateJobStatusResponse": {
         "properties": {
@@ -4795,8 +4705,7 @@
           "type": "number"
         },
         "type": "object",
-        "title": "RoutePreferenceWeights",
-        "description": "Edge評価・区間難易度（絶対評価、難易度合成）の重み。\nキーはaxis_id（`domain/axis_definitions.py: AXIS_DEFINITIONS`）で、\n`domain/route_preference.py: RoutePreference`と同じ。\n\n軸ごとの固定フィールドではなくaxis_idキーの辞書にすることで、軸の増減でこのモデルの\n改修が不要になる。API境界では「キー省略時に既定値が黙って入る」ことを避けるため、\n既知の全axis_idを明示することを検証で強制する（上書きするなら全軸を明示する、\nという方針）。値は非負。"
+        "title": "RoutePreferenceWeights"
       },
       "RoutePreviewRequest": {
         "properties": {
@@ -4953,8 +4862,7 @@
           "cumulative_distance_km",
           "distance_km"
         ],
-        "title": "RouteSegmentDetail",
-        "description": "周回ルートの1区間（サンプル点i→i+1）の詳細。地図上の難易度レイヤー描画に使う。\n\n符号付き材料（`material_values`に入る`gradient_percent`等）は**符号付き・進行方向\n基準**（登り=正、下り=負）。フロントの勾配色分けはこの符号を前提に「下り」カテゴリを\n持つため、絶対値で返してはならない。\n\ngeometryはこの区間が実際に通る道なり形状（GeoJSON LineString、ルート全体geometryの\n部分列）。フロントはこれがnullの場合のみ始点・終点の直線で代替描画する。"
+        "title": "RouteSegmentDetail"
       },
       "TileInputSpec": {
         "properties": {
@@ -5036,8 +4944,7 @@
         "required": [
           "property"
         ],
-        "title": "TileInputSpec",
-        "description": "地図表示（ramp）が読むMVTタイルプロパティ。\n\n数値材料（既定）: フロントのMapLibre expressionが`Σ(property × weight)`を計算する。\n\n真偽値材料（`boolean=True`）: MVTの真偽値プロパティは真偽比較でしか読めず重み付け\n結合が成立しないため、`true_value`/`false_value`で寄与値を直接指定する（`weight`は\n無視される）。\n\nN値文字列材料（`categories`）: 文字列値を`categories`で引いた点数×`weight`を寄与値と\nする。`CategoricalShape`のmappingがbool2値ではなく3値以上（highway/surface等）の\n場合に使う。\n\n自己変換材料（`breakpoints`）: 区分線形（`BreakpointLinearShape`）で変換される軸の\n寄与値を、フロントの`interpolate`でタイル生値から直接求める。\n\n`has_unknown_fallback`: 値が引けないときの意味が「true/falseどちらでもない不明」\n（例: 未分類の路面）ならTrueにし、フロントは灰色「不明」へ倒す。既定Falseは\n「欠損=falseとみなしてよい」材料（例: lit。タグ不在は「無し」の安全側既定）を表す。\n`categories`材料では**未登録値**も不明に含める——`evaluate_categorical`が未登録値に\nNoneを返し`required=True`の軸全体を評価不能にするため、欠損だけを見ると、実際には\n未評価の区間が0点＝最良（緑）で表示されてしまう。真偽値材料には「未登録の値」という\n状態が無いため、欠損のみが不明になる。\n\n`needs_runtime_scale`: タイル生値が実行時にしか決まらない係数でのスケール変換を要する\n材料（例: 収録年数で正規化する前の事故件数）でTrue。`weight`が静的な変換係数を\n表現できないが、`GET /api/axis-catalog`が配るスケール定数をフロントのJS式が追加で\n掛けるため、地図表示の対象には含める。`thresholds`は材料スケールの値のままでよい。"
+        "title": "TileInputSpec"
       },
       "TuningParameterView": {
         "properties": {
@@ -5101,8 +5008,7 @@
           "value",
           "overridden"
         ],
-        "title": "TuningParameterView",
-        "description": "較正値1件の宣言と、いま効いている値。"
+        "title": "TuningParameterView"
       },
       "TuningUpdateRequest": {
         "properties": {
@@ -5120,8 +5026,7 @@
         },
         "additionalProperties": false,
         "type": "object",
-        "title": "TuningUpdateRequest",
-        "description": "1件の上書き。`value`を省略すると既定へ戻す。"
+        "title": "TuningUpdateRequest"
       },
       "ValidationError": {
         "properties": {
@@ -5207,8 +5112,7 @@
           "bins",
           "zero_share"
         ],
-        "title": "ValueDistributionResponse",
-        "description": "延長で重み付けた値の分布（`services/axis_preview_service.py`参照）。\n\n折れ点を通す前の**生値**を返し、折れ点の当てはめはフロント側が行う——折れ点を1つ\n動かすたびに通信すると編集の手応えが失われるうえ、折れ点は区分線形の写像でしかなく、\n生値のヒストグラムがあればクライアントで正確に求まる。"
+        "title": "ValueDistributionResponse"
       },
       "WbgtStatus": {
         "properties": {
@@ -5478,8 +5382,7 @@
           "temperature_c",
           "precipitation_mm"
         ],
-        "title": "WeatherPeriodOutlook",
-        "description": "「今日の見通し」パネルの時間帯別の天気の流れ1コマぶん。\n\n`period`は代表時刻の\"HH:MM\"文字列で、朝/午後/夜のような意味づけラベルは持たない\n——時刻の解釈・表示ラベルへの整形はfrontend側が担う。"
+        "title": "WeatherPeriodOutlook"
       },
       "WeatherWarnings": {
         "properties": {
@@ -5563,8 +5466,7 @@
           "wind_direction_deg",
           "precipitation_mm"
         ],
-        "title": "WindGridPoint",
-        "description": "格子点1つぶんの時間別風向・風速・降水量。各配列は応答トップレベルの時刻列\n（JST・1時間刻み）とインデックスが揃っている。特定時刻1点へ収束させず\n配列のまま返すのは、フロント側の時刻スライダーが追加のAPI呼び出し無しで時刻を\n切り替えられるようにするため。\n\n`times`自体はここには持たない（`WindGridResponse`参照）——時刻は全地点で共通で、\n地点ごとに複製すると応答サイズの大半を時刻文字列の重複が占める。"
+        "title": "WindGridPoint"
       },
       "WindGridResponse": {
         "properties": {
@@ -5589,8 +5491,7 @@
           "times",
           "points"
         ],
-        "title": "WindGridResponse",
-        "description": "`/api/weather/wind-grid`・`wind-grid-detail`の応答本体。`times`は全格子点で共通の\n時刻配列を1本だけ持つ（各`WindGridPoint`は自分の値配列のみを持ち、インデックスは\n`times`と揃っている）。全地点取得失敗等で`points`が空の場合は`times`も空になる。"
+        "title": "WindGridResponse"
       },
       "app__api__routers__db_status__TableEntry": {
         "properties": {
@@ -5653,8 +5554,7 @@
           "needs_attention",
           "note"
         ],
-        "title": "TableEntry",
-        "description": "テーブル1つの実数・容量とメンテナンス状態。行数は統計値ではなく実数を数えている\n（統計はANALYZE前のテーブルで大きくずれ、取り込み漏れの検出に使えないため）。"
+        "title": "TableEntry"
       },
       "app__api__routers__derived_data_freshness__TableEntry": {
         "properties": {

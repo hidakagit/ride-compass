@@ -7,6 +7,10 @@
 の2点のため。レスポンスモデルを変更したら、このスクリプトとfrontendの
 npm run generate:apiを実行して生成物を同じコミットに含めること。
 
+**この生成物は契約だけを運ぶ**（名前・型・required・enum）。散文は`_strip_prose`が
+落とす——載せると、docstringを直しただけで生成物が動き、追従のコミットを要求される。
+散文は実行中のアプリの`/docs`・`/openapi.json`が配るため失われない。
+
 実行方法（backendディレクトリから）:
     .venv\\Scripts\\python.exe scripts\\export_openapi.py
 """
@@ -65,6 +69,32 @@ POI_KINDS_PATH = GENERATED_DIR / "poi-kinds.json"
 MATERIAL_CATALOG_PATH = GENERATED_DIR / "material-catalog.json"
 LANDCOVER_CLASSES_PATH = GENERATED_DIR / "landcover-classes.json"
 
+def _strip_prose(node: object, *, keep: bool = False) -> object:
+    """docstring由来の`description`・`summary`を落とす。
+
+    応答オブジェクトの`description`だけは残す——OpenAPIが必須にしており、落とすと
+    生成物が仕様を満たさなくなる（FastAPIが入れる"Successful Response"等の定型で、
+    docstringとは無関係）。
+    """
+    if isinstance(node, dict):
+        out: dict[str, object] = {}
+        for key, value in node.items():
+            if key in ("description", "summary") and not keep:
+                continue
+            if key == "responses" and isinstance(value, dict):
+                out[key] = {code: _strip_prose(r, keep=True) for code, r in value.items()}
+            elif key == "properties" and isinstance(value, dict):
+                # ここのキーはキーワードではなく**フィールド名**。`description`という名前の
+                # フィールドを持つモデルがあり、落とすと契約からフィールドが消える。
+                out[key] = {name: _strip_prose(sub) for name, sub in value.items()}
+            else:
+                out[key] = _strip_prose(value)
+        return out
+    if isinstance(node, list):
+        return [_strip_prose(item) for item in node]
+    return node
+
+
 def _write_json(path: Path, data: dict | list) -> None:
     # ensure_ascii=False: 日本語のdescription（レート制限メッセージ等）を可読なまま残す。
     # indent固定・末尾改行あり: 再生成のdiffが内容の変化だけを反映するようにする。
@@ -76,7 +106,7 @@ def _write_json(path: Path, data: dict | list) -> None:
 
 def main() -> None:
     GENERATED_DIR.mkdir(parents=True, exist_ok=True)
-    _write_json(OUTPUT_PATH, app.openapi())
+    _write_json(OUTPUT_PATH, _strip_prose(app.openapi()))  # type: ignore[arg-type]
     # 路面語彙の正準タグ集合（domain/road.py）。フロントの表示グループ定義
     # （roadFilterAxes.ts）が正準分類とずれていないことをroadFilterAxes.test.tsが
     # このJSONと突き合わせて検証する（地図の色とルート評価の食い違いを防ぐ）。

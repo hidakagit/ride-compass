@@ -11,7 +11,6 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Health */
         get: operations["health_health_get"];
         put?: never;
         post?: never;
@@ -28,7 +27,6 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Debug Stats */
         get: operations["debug_stats_api_debug_stats_get"];
         put?: never;
         post?: never;
@@ -45,17 +43,6 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /**
-         * Db Status
-         * @description 本番DB(または任意環境)がコード上の期待（migration適用済み・データ投入バッチ実行済み）
-         *     に追いついているかを1回のリクエストで確認できる診断エンドポイント。
-         *
-         *     `road_graph_use_repository=false`（DBなし構成）のときは接続を試みず、その旨だけ返す。
-         *     DB接続自体に失敗した場合もエラーで落とさず、WARNINGログと共にreachable=falseを返す
-         *     （docs/conventions/logging.mdの「エラーは常時WARNING以上」方針。/healthと違い読み取り専用の
-         *     診断用途のため、DB障害時にHTTP 500にする必要はない）。認可境界の理由は
-         *     docs/modules/backend/cross-cutting-infrastructure.md「運用エンドポイント」節参照。
-         */
         get: operations["db_status_api_debug_db_status_get"];
         put?: never;
         post?: never;
@@ -74,7 +61,6 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Preview Route */
         post: operations["preview_route_api_routes_preview_post"];
         delete?: never;
         options?: never;
@@ -91,7 +77,6 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Generate Routes */
         post: operations["generate_routes_api_routes_generate_post"];
         delete?: never;
         options?: never;
@@ -106,7 +91,6 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Get Generate Job */
         get: operations["get_generate_job_api_routes_generate__job_id__get"];
         put?: never;
         post?: never;
@@ -123,13 +107,6 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /**
-         * Get Weather
-         * @description 今日の見通し（TodayOutlook、日次集計・weather_code・UV指数等の予報値）向け。
-         *     常設ヘッダー（現在値の気温・体感温度・風速風向）はアメダス実測を使う
-         *     `GET /api/weather/amedas`が担うため、このエンドポイントは予報（MSM）の値を
-         *     そのまま返す。
-         */
         get: operations["get_weather_api_weather_get"];
         put?: never;
         post?: never;
@@ -146,14 +123,6 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /**
-         * Get Weather Warnings
-         * @description 出発地点近傍のJMA警報・注意報を、サイクリングに関連する種別へ絞ってバッジ用に返す。
-         *     地点→市区町村→警報エリアの解決、または警報自体の取得に失敗した
-         *     場合は例外にせず「警報なし」を返す（warning_service.py参照。他の/api/weather系と異なり
-         *     このfail-openは意図的な仕様のため、502は返さない——WBGT警告と共有する
-         *     「安全側ではないが失敗時は警告なしとする」という既定の方針）。
-         */
         get: operations["get_weather_warnings_api_weather_warnings_get"];
         put?: never;
         post?: never;
@@ -170,13 +139,6 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /**
-         * Get Wbgt
-         * @description 出発地点近傍の暑さ指数（WBGT）警戒レベルをバッジ用に返す。
-         *     提供期間外（11〜3月）・地点解決や取得に失敗した場合・「ほぼ安全」（21未満）の
-         *     いずれも例外にせず空（level=None）を返す（wbgt_service.py参照。警報・
-         *     注意報バッジと同じfail-open方針のため502は返さない）。
-         */
         get: operations["get_wbgt_api_weather_wbgt_get"];
         put?: never;
         post?: never;
@@ -193,12 +155,6 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /**
-         * Get Flood Forecast
-         * @description 出発地点近傍のJMA指定河川洪水予報（レベル2〜5）をバッジ用に返す。
-         *     地点解決・洪水予報自体の取得のどこで失敗しても
-         *     例外にせず空を返す（警報・WBGTと共有するfail-open方針、502は返さない）。
-         */
         get: operations["get_flood_forecast_api_weather_flood_forecast_get"];
         put?: never;
         post?: never;
@@ -215,13 +171,6 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /**
-         * Get Amedas
-         * @description 出発地点近傍の最寄りアメダス観測所の直近観測値を返す。
-         *     観測値本体はRedis Hash（TTL 15分）でキャッシュされる（jma_amedas_service.py参照）。
-         *     観測所解決・取得のいずれかに失敗した場合は502を返す（/api/weatherと同じ方針。
-         *     警報・注意報バッジ系と違いこちらは表示の主対象になりうる数値のため、fail-openにしない）。
-         */
         get: operations["get_amedas_api_weather_amedas_get"];
         put?: never;
         post?: never;
@@ -238,16 +187,6 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /**
-         * Get Wind Grid
-         * @description 風・降水延長予報の格子点マップ。
-         *     関東本土全域の固定格子点（domain/wind_grid.py: WIND_GRID_BBOX/WIND_GRID_SPACING_DEG）
-         *     ぶんの時間別風向・風速・降水量をまとめて返す。取得に失敗した地点はレスポンスから
-         *     除外する（他の外部API連携と同じ「取得失敗は握りつぶす」方針、1地点の失敗で全体を
-         *     502にしない）。ただし全地点が失敗した場合は502を返す（_reject_if_all_points_failed
-         *     参照）。時刻配列はpoints内の各点からは外し、応答トップレベルに1本だけ持つ
-         *     （WindGridResponseのdocstring参照）。
-         */
         get: operations["get_wind_grid_api_weather_wind_grid_get"];
         put?: never;
         post?: never;
@@ -264,20 +203,6 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /**
-         * Get Wind Grid Detail
-         * @description 風・降水延長予報の詳細格子（ヒートマップ等の面表現用、spacing_degでズーム依存の間隔を
-         *     可変化）。呼び出し元（フロント）が渡した表示範囲（bbox）に交差する
-         *     密格子点（domain/wind_grid.py: generate_wind_grid_detail_points、固定ラティス上の座標の
-         *     ため近い範囲を見る別ユーザーとキャッシュを共有できる）ぶんの時間別風向・風速・降水量を
-         *     返す。get_wind_gridと同じく取得失敗地点は結果から除外し、時刻配列は応答トップレベルに
-         *     1本だけ持つ。
-         *
-         *     spacing_degはWIND_GRID_DETAIL_ALLOWED_SPACINGS_DEGの離散値のみ許可する（任意の連続値を
-         *     許すとユーザーごとにラティスの絶対座標がずれてキャッシュ共有が効かなくなるため、
-         *     フロント側windLayer.ts: windGridDetailSpacingDegForZoomと同じ段階に固定する）。
-         *     全地点が失敗した場合は502を返す（_reject_if_all_points_failed参照）。
-         */
         get: operations["get_wind_grid_detail_api_weather_wind_grid_detail_get"];
         put?: never;
         post?: never;
@@ -294,7 +219,6 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Region Road Surface Tile */
         get: operations["region_road_surface_tile_api_region_road_surface_tiles__z___x___y__pbf_get"];
         put?: never;
         post?: never;
@@ -311,13 +235,6 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /**
-         * Region Poi Tile
-         * @description 停止要因POI（信号・横断歩道・一時停止・踏切）レイヤー。静的道路属性P1で評価にのみ
-         *     使われていたosm_raw_poisの可視化（材料`intersection_count_per_km`の集計には
-         *     既存のリポジトリのメソッドを引き続き使う）。路面タイルと同じ歯止め・同時実行制御を
-         *     そのまま流用する。
-         */
         get: operations["region_poi_tile_api_region_poi_tiles__z___x___y__pbf_get"];
         put?: never;
         post?: never;
@@ -334,13 +251,6 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /**
-         * Region Landcover Tile
-         * @description 土地被覆ラスタ（Esri×Impact Observatory 10m LULC）をそのまま面で塗ったラスタタイル。
-         *
-         *     DBを読まないため`_region_tile_semaphore`（DB接続プールの取り合いを抑えるもの）には
-         *     乗せず、CPU/ディスクI/Oの上限は`landcover_tile_max_concurrent`の専用semaphoreで持つ。
-         */
         get: operations["region_landcover_tile_api_region_landcover_tiles__z___x___y__png_get"];
         put?: never;
         post?: never;
@@ -357,35 +267,6 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /**
-         * Region Dedicated Way Values
-         * @description 「評価軸」グループとしての動的＋向きあり材料（風・勾配）。指定タイル内のフィーチャーごとの
-         *     値（風=wind_drag_ratio[backend/app/domain/wind.py]、勾配=effective_gradient
-         *     [backend/app/domain/gradient.py]）をまとめて返す軽量なJSONエンドポイント。この
-         *     エンドポイントはルート未確定時（視界内の全道路への一律適用）専用——ルート確定後は
-         *     ルート自身の実進行方向・実到達時刻/実値から計算済みの`axis_difficulties`
-         *     （`RouteSegmentDetail`）を使うため、フロントはこのエンドポイントを呼ばない。
-         *
-         *     パスパラメータは**軸id**（`axis_definitions.axis_id`、例: `wind`/`gradient`）で、
-         *     サービスが返す生値の材料id（`wind_drag_ratio`等、下の`service.material_id`）とは別の
-         *     名前空間である。`domain/dynamic_way_values.py: dedicated_way_value_axes()`に無い未知の
-         *     axis_idは404。`bearing_deg`（クエリパラメータ）はその軸が向きに依存する場合のみ
-         *     必須（現状は風・勾配のどちらも必須、`needs_bearing`参照）——省略すると422。`at`は
-         *     その軸が時刻に依存する場合のみ意味を持つ（風は必須ではなく省略時は現在時刻[Asia/Tokyo]
-         *     を使う、勾配は時刻に依存しないため渡しても無視される）。`speed_kmh`（想定速度）は
-         *     その軸が走行速度に依存する場合（`needs_speed`）のみ必須で、それ以外は無視される。
-         *
-         *     静的な路面タイル（`/api/region/road-surface-tiles`、MVT、本エンドポイントとは無関係）
-         *     とは別経路——フロントは同じz/x/yに対して両方を取得し、MapLibreの`setFeatureState`で
-         *     合成する（`frontend/src/components/Map/dedicatedWayValueLayer.ts`参照）。
-         *     タイル単位の値が地図表示専用のRedisキャッシュ（`dynamic_way_value_cache.py`）を経由する
-         *     ため、パン・ズームで同じタイルが再び視界に入っても、同じ時刻バケット・向きバケットの
-         *     範囲内では風グリッド・DBへの再問い合わせは発生しない。
-         *
-         *     路面・POIタイルと同じレート制限・座標検証・DB接続プールのsemaphoreを共有する
-         *     （本ファイルの`_region_tile_semaphore`のコメント参照——MVTエンコードは
-         *     伴わないが同じPostGISコネクションプールを取り合うため）。
-         */
         get: operations["region_dedicated_way_values_api_region_dynamic_way_values__axis_id___z___x___y__get"];
         put?: never;
         post?: never;
@@ -404,16 +285,6 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /**
-         * Region Axis Inspector
-         * @description 区間インスペクタ。クリックされた道路（osm_way_id）について、
-         *     一次属性（highway/tags）→二次軸スコア（取得可能な軸のみ）→
-         *     合成コスト（取得可能な軸だけの参考値、既定route_preference重み）を返す。
-         *     POST+JSONボディ・osm_way_id完全一致で引く理由はRegionService.get_axis_inspectorの
-         *     docstring参照（交差点付近での取り違え対策）。進行方向に依存する軸（勾配・風）は、
-         *     地図が指定している走行方位・時刻・想定速度を一緒に送れば算出できる。送らなければ
-         *     その軸はavailable=falseで返る。
-         */
         post: operations["region_axis_inspector_api_region_axis_inspector_post"];
         delete?: never;
         options?: never;
@@ -428,7 +299,6 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Region Accident Tile */
         get: operations["region_accident_tile_api_region_accident_tiles__z___x___y__pbf_get"];
         put?: never;
         post?: never;
@@ -445,7 +315,6 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Basemap Proxy */
         get: operations["basemap_proxy_api_basemap__path__get"];
         put?: never;
         post?: never;
@@ -464,18 +333,6 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /**
-         * Basemap Refresh
-         * @description サーバー側のタイルファイルキャッシュを全消去する（管理画面`/admin`「データ保守」タブから使う）。
-         *
-         *     基礎地図タイルと路面ベクタタイルは同じファイルキャッシュを共有しているため、この
-         *     一括クリアで両方とも消える。影響は押した人だけでなく**全利用者**に及ぶ（次のタイル要求で
-         *     作り直されるまで、外部サービスへの実問い合わせやタイル生成が走る）ため、
-         *     axis_admin.py/debug_admin.pyと同じ管理API認可境界（require_admin_basic_auth）の内側に置く。
-         *
-         *     各利用者の画面へ反映されるのは、ブラウザが持つ既存タイルの`Cache-Control`が切れた後
-         *     （`api/cache_policy.py`のBASEMAP: 10分）。
-         */
         post: operations["basemap_refresh_api_admin_basemap_refresh_post"];
         delete?: never;
         options?: never;
@@ -490,16 +347,6 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /**
-         * Jma Tile Index
-         * @description どのタイルに描くものがあるかの一覧（`infrastructure/jma_tile_index.py`）。
-         *
-         *     JMA動的タイルは疎で、平常時はほぼ全てのタイルが空である。クライアントはこれを1回
-         *     受け取り、載っていないタイルは要求しない。`available: false`のときは従来どおり
-         *     全タイルを取りに行く（インデックスが無いことで表示が欠けてはならない）。
-         *
-         *     `coverage`の外は在否が不明のため、クライアントはその範囲のタイルを従来どおり取得する。
-         */
         get: operations["jma_tile_index_api_jma_tile_index_get"];
         put?: never;
         post?: never;
@@ -516,7 +363,6 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Jma Tile Proxy */
         get: operations["jma_tile_proxy_api_jma_tile__path__get"];
         put?: never;
         post?: never;
@@ -533,7 +379,6 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Gsi Relief Tile Proxy */
         get: operations["gsi_relief_tile_proxy_api_gsi_relief_tile__path__get"];
         put?: never;
         post?: never;
@@ -550,13 +395,6 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /**
-         * Gsi Terrain Tile
-         * @description 地理院の標高タイルをTerrain-RGBへ移して返す（MapLibreの`raster-dem`が読む形）。
-         *
-         *     整備区域外の404は上のプロキシと同じく正常系。MapLibreはそのタイルの陰影を描かないだけで、
-         *     地図全体は成立する。
-         */
         get: operations["gsi_terrain_tile_api_gsi_terrain_tile__z___x___y__png_get"];
         put?: never;
         post?: never;
@@ -573,10 +411,8 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** List Axis Definitions */
         get: operations["list_axis_definitions_api_admin_axis_definitions_get"];
         put?: never;
-        /** Create Axis Definition */
         post: operations["create_axis_definition_api_admin_axis_definitions_post"];
         delete?: never;
         options?: never;
@@ -591,12 +427,9 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Get Axis Definition */
         get: operations["get_axis_definition_api_admin_axis_definitions__axis_id__get"];
-        /** Update Axis Definition */
         put: operations["update_axis_definition_api_admin_axis_definitions__axis_id__put"];
         post?: never;
-        /** Delete Axis Definition */
         delete: operations["delete_axis_definition_api_admin_axis_definitions__axis_id__delete"];
         options?: never;
         head?: never;
@@ -612,13 +445,6 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /**
-         * Unpublish Axis Definition
-         * @description 公開済み軸を下書きへ戻す。`update()`と異なり公開済み軸に対しても
-         *     成功する——これが`update()`ではなく専用エンドポイントである理由（is_published以外の
-         *     フィールドは一切変更しない、「公開済みは編集不可」原則を保ったまま公開フラグの
-         *     反転だけに穴を開ける）。下書きへ戻った軸は通常のPUTで再編集・再公開できる。
-         */
         post: operations["unpublish_axis_definition_api_admin_axis_definitions__axis_id__unpublish_post"];
         delete?: never;
         options?: never;
@@ -635,14 +461,6 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /**
-         * Preview Axis Distribution
-         * @description 編集中の`shape`で、実データの生値がどう分布するかを返す。
-         *
-         *     軸スタジオは数値の入力欄を並べるだけでは折れ点の妥当性を判断できず、公開して地図と
-         *     ルートを見るまで結果が分からない。この分布に折れ点を当てはめれば、「延長の何%が
-         *     満点に張り付くか」が編集中に分かる。
-         */
         post: operations["preview_axis_distribution_api_admin_axis_definitions_preview_distribution_post"];
         delete?: never;
         options?: never;
@@ -657,7 +475,6 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** List Tuning Parameters */
         get: operations["list_tuning_parameters_api_admin_tuning_get"];
         put?: never;
         post?: never;
@@ -675,7 +492,6 @@ export interface paths {
             cookie?: never;
         };
         get?: never;
-        /** Update Tuning Parameter */
         put: operations["update_tuning_parameter_api_admin_tuning__param_id__put"];
         post?: never;
         delete?: never;
@@ -691,7 +507,6 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Get Axis Catalog */
         get: operations["get_axis_catalog_api_axis_catalog_get"];
         put?: never;
         post?: never;
@@ -708,7 +523,6 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Get Material Catalog */
         get: operations["get_material_catalog_api_material_catalog_get"];
         put?: never;
         post?: never;
@@ -725,14 +539,6 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /**
-         * Get Material Distribution
-         * @description 材料の値が実データでどの範囲に散らばっているかを返す（軸スタジオ）。
-         *
-         *     折れ点をどこへ置くかは、その材料が実際に取る値を知らないと決められない。カタログの
-         *     `reference_points`はコードに書いた代表値で、実データの分布ではない。
-         *     数値材料のみ対象で、真偽・カテゴリ材料は`available=false`を返す（分位に意味が無い）。
-         */
         get: operations["get_material_distribution_api_admin_material_catalog__material_id__distribution_get"];
         put?: never;
         post?: never;
@@ -749,20 +555,6 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /**
-         * Get Material Values
-         * @description 材料idに対応する実データの値一覧（ソート済み、重複無し）を返す。
-         *     未知の材料idは404（フロントのタイプミス検知用）。既知だが動的値一覧に対応していない
-         *     材料（`tracktype`等、事前に閉じた値集合を持つため本APIが不要）は`available=true`の空リスト、
-         *     DB未接続・DB障害・タイムアウトは`available=false`を返す
-         *     （`RegionService.get_material_values`参照。「候補が無い」と「候補を出せなかった」を
-         *     画面が区別できるようにするため、両方を空リストへ倒さない）。
-         *
-         *     利用者は軸スタジオ（`/admin`）だけで、1リクエストにつき索引の効かない
-         *     `SELECT DISTINCT`（実質全表走査）をタイル配信と同じ接続プール上で1回実行する。
-         *     認可なしで公開すると繰り返し呼ばれるだけでプールを枯渇させられるため、同じ理由で
-         *     Basic認証を課している`/api/admin/material-catalog/coverage`と同じadminパスへ置く。
-         */
         get: operations["get_material_values_api_admin_material_catalog__material_id__values_get"];
         put?: never;
         post?: never;
@@ -779,15 +571,6 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /**
-         * Get Material Coverage
-         * @description 全材料の欠損割合（`MATERIAL_CATALOG`の登録順、集計対象外の材料は理由付き）を返す。
-         *
-         *     読み取り専用のAPIだがBasic認証を要求する:
-         *     osm_raw_ways/road_edgesの全表走査を伴う重いクエリで、認可なしに公開すると
-         *     繰り返し呼ばれるだけでDBを圧迫できてしまう（管理画面`/admin`からのみ使う想定）。
-         *     DB例外は`axis_admin.py`と同じく503へ変換する（診断用APIのため空レポートへ倒さない）。
-         */
         get: operations["get_material_coverage_api_admin_material_catalog_coverage_get"];
         put?: never;
         post?: never;
@@ -804,16 +587,8 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Read Debug Mode */
         get: operations["read_debug_mode_api_admin_debug_mode_get"];
         put?: never;
-        /**
-         * Update Debug Mode
-         * @description debug_modeをランタイムで切り替える（`.env`は書き換えない、プロセス再起動不要）。
-         *
-         *     再起動・再デプロイのたびに環境変数の値（既定false）へ自動的に戻る
-         *     （debug_control.pyのdocstring参照。戻し忘れのリスクを構造的に避ける設計）。
-         */
         post: operations["update_debug_mode_api_admin_debug_mode_post"];
         delete?: never;
         options?: never;
@@ -828,23 +603,6 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /**
-         * Read Recent Logs
-         * @description 直近のログ行を返す（プロセス内メモリのリングバッファ、既定で最大1000件保持）。
-         *
-         *     `min_level`で「このレベル以上」に絞り込める（例: `WARNING`を渡すとWARNING/ERROR/
-         *     CRITICALだけになる）。`contains`で部分一致フィルタ（例:
-         *     `distance filter rejected`）、両方指定するとAND条件。`limit`でフィルタ後の末尾N件に
-         *     絞り込める。debug_modeがOFFの間はDEBUGレベルの行自体がそもそも記録されない点に注意
-         *     （先に`POST /mode`で有効化すること。WARNING以上はdebug_modeに関わらず常時記録される、
-         *     docs/conventions/logging.md参照）。
-         *
-         *     `limit`に0以下を渡すとget_recent_logs内部の`lines[-limit:]`が
-         *     Pythonのスライス仕様上「末尾からN件」ではなく異なる範囲を返してしまう
-         *     （例: limit=-5は「先頭5件を除く全件」になる）ため、`gt=0`で弾く。上限側は
-         *     リングバッファ自体が最大1000件しか保持していないため、大きすぎる値を渡しても
-         *     保持件数以上は返らず実害が無い（バリデーションで別途上限を設けない）。
-         */
         get: operations["read_recent_logs_api_admin_debug_logs_get"];
         put?: never;
         post?: never;
@@ -861,10 +619,6 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /**
-         * Get Derived Data Freshness
-         * @description 派生データの表ごとの鮮度と、値の列ごとの未計算件数を返す。
-         */
         get: operations["get_derived_data_freshness_api_admin_derived_data_freshness_get"];
         put?: never;
         post?: never;
@@ -881,7 +635,6 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Get Db Status */
         get: operations["get_db_status_api_admin_db_status_get"];
         put?: never;
         post?: never;
@@ -929,13 +682,7 @@ export interface components {
             /** Additions */
             additions: string[];
         };
-        /**
-         * AmedasObservation
-         * @description 最寄りアメダス観測所の直近観測値。
-         *
-         *     突風はJMAアメダスのリアルタイム観測値レスポンスがどの観測所についても持たないため、
-         *     このモデルに項目が無い。
-         */
+        /** AmedasObservation */
         AmedasObservation: {
             /** Station Id */
             station_id: string;
@@ -1053,13 +800,7 @@ export interface components {
              */
             accident_years: number[];
         };
-        /**
-         * AxisDefinitionPayload
-         * @description 作成・更新リクエストボディ。妥当性検証は型・範囲チェックのみ
-         *
-         *     （極端な重み設定に対する意味的な歯止めは設けない。
-         *     default_weightの非負制約はRoutePreferenceWeights（routers/routes.py）と同じ）。
-         */
+        /** AxisDefinitionPayload */
         AxisDefinitionPayload: {
             /** Axis Id */
             axis_id: string;
@@ -1129,19 +870,7 @@ export interface components {
              */
             dynamic_way_value_needs_speed: boolean;
         };
-        /**
-         * AxisDefinitionResponse
-         * @description 一覧・単体取得のレスポンスボディ。DB由来の既存データをそのまま返すため、
-         *     `AxisDefinitionPayload`の書き込み時専用バリデータ（`_check_materials_are_known`）は
-         *     継承しない（`AxisDefinitionFields`のdocstring参照）。
-         *
-         *     `display`: `domain/axis_display.py: axis_display_for()`の計算結果
-         *     （`GET /api/axis-catalog`と同じ関数）。軸スタジオのGUI（AxisComposer.tsx）が
-         *     「自動導出が失敗している（kind="none"）ので、この軸の材料には地図表示用のデータ取得
-         *     経路がまだ用意されていない」という注記を出すために必要——下書き軸（is_published=False）
-         *     は`GET /api/axis-catalog`に現れないため、編集中に自己診断できる経路がこの管理APIの
-         *     レスポンスにしか無い。
-         */
+        /** AxisDefinitionResponse */
         AxisDefinitionResponse: {
             /** Axis Id */
             axis_id: string;
@@ -1212,16 +941,7 @@ export interface components {
             dynamic_way_value_needs_speed: boolean;
             display: components["schemas"]["AxisDisplaySpec"];
         };
-        /**
-         * AxisDisplaySpec
-         * @description 二次軸の地図レイヤー表示宣言（「事実はタイルに、解釈はクライアントに」）。
-         *
-         *     - kind="ramp": タイルへ焼き込み済みの事実プロパティ（`tile_inputs`の線形結合）を
-         *       `thresholds`（昇順、色段階の境界値）で色分けする汎用レイヤーを、フロントの
-         *       レイヤーファクトリが自動生成する。新しい軸はこれを宣言するだけで地図に現れる。
-         *     - kind="none": 専用の二次レイヤーを持たない（既存レイヤーで代替、またはデータ未整備）。
-         *       `note`へ理由を書く。
-         */
+        /** AxisDisplaySpec */
         AxisDisplaySpec: {
             /**
              * Kind
@@ -1298,10 +1018,7 @@ export interface components {
             covered_weight_fraction: number | null;
             landcover?: components["schemas"]["LandcoverPercentages"] | null;
         };
-        /**
-         * AxisMaterialBreakdownEntry
-         * @description 合成軸の内訳1件（材料と、その材料が軸の生値に占める割合）。
-         */
+        /** AxisMaterialBreakdownEntry */
         AxisMaterialBreakdownEntry: {
             /** Material Id */
             material_id: string;
@@ -1321,23 +1038,12 @@ export interface components {
                 [key: string]: string;
             };
         };
-        /**
-         * AxisPreviewRequest
-         * @description 分布プレビューの入力。軸全体ではなく`shape`だけを受け取る——プレビューは
-         *     保存前の編集中に呼ぶもので、ラベル等の書き込み用フィールドが揃っている必要はない。
-         */
+        /** AxisPreviewRequest */
         AxisPreviewRequest: {
             /** Shape */
             shape: components["schemas"]["BreakpointLinearShape"] | components["schemas"]["CategoricalShape"];
         };
-        /**
-         * BreakpointLinearShape
-         * @description 区分線形補間（材料の線形結合→前処理→breakpoints折れ線、両端クランプ、小数1桁丸め）。
-         *
-         *     合成（他軸参照）は独立したプリミティブではなく、`terms`の各materialが元々材料id・
-         *     軸idのどちらも区別なく指せる設計から生じる性質にすぎない。真偽値フラグの加点合計は
-         *     全termがboolean材料の場合として本shapeで表現する。
-         */
+        /** BreakpointLinearShape */
         BreakpointLinearShape: {
             /**
              * Kind
@@ -1359,19 +1065,7 @@ export interface components {
                 number
             ][];
         };
-        /**
-         * CategoricalShape
-         * @description カテゴリ値→定数のマッピング（丸めなし。mappingの値がそのままスコアになる）。
-         *
-         *     `mapping`のキーはbool（真偽2値の材料）とstr（MATERIAL_CATALOGのdtype="categorical"材料、
-         *     3値以上）の両方を許容する（混在は想定しないが型上は許容）。
-         *
-         *     キー型は`union_mode="left_to_right"`でbool判定を先に試す（既定のsmart modeだと
-         *     JSON文字列"true"/"false"がboolへ強制変換されずstr型のまま残り、
-         *     `infrastructure/axis_definition_repository.py`のDB往復でsurface_q等の真偽値材料が
-         *     壊れる。"true"/"false"以外の文字列キーはbool変換に失敗してstrへフォールバックするため
-         *     通常のcategorical材料には影響しない）。
-         */
+        /** CategoricalShape */
         CategoricalShape: {
             /**
              * Kind
@@ -1386,13 +1080,7 @@ export interface components {
                 [key: string]: number;
             };
         };
-        /**
-         * ColumnEntry
-         * @description 値の列1本ぶんの完成度。
-         *
-         *     NULLが「まだ計算していない」を意味する列と、「確定して値が無い」を意味する列がある。
-         *     件数は常に返し、鳴らすかどうか（`is_incomplete`）だけを区別する。
-         */
+        /** ColumnEntry */
         ColumnEntry: {
             /** Column */
             column: string;
@@ -1512,14 +1200,7 @@ export interface components {
             /** Forecasts */
             forecasts: components["schemas"]["ActiveFloodForecast"][];
         };
-        /**
-         * GenerationConditions
-         * @description この生成に実際に適用された条件のエコー（実験の記録・再現用、研究IF改善 §10-6）。
-         *
-         *     route_preference は「リクエストで上書きされた値」または「既定値」のうち実際に
-         *     使われた方。レスポンスJSONを保存すれば、同じ条件をroute_preferenceとしてそのまま
-         *     再送して再現できる。
-         */
+        /** GenerationConditions */
         GenerationConditions: {
             /** Latitude */
             latitude: number;
@@ -1556,21 +1237,11 @@ export interface components {
             /** Detail */
             detail?: components["schemas"]["ValidationError"][];
         };
-        /**
-         * HardFilterOverride
-         * @description 0次ハードフィルタ（候補にすら入れない道路種別）の個別ON/OFF上書き。
-         *     キーはdomain/hard_filters.py: HARD_FILTER_NAMESと同じ（'no_bicycle'/'motorway'/
-         *     'trunk'）。RoutePreferenceWeightsと同じ「全フィールド必須」方針（上書きするなら
-         *     全項目を明示する）。値がTrueのフィルタだけが有効（該当道路を探索対象から除外する）。
-         */
+        /** HardFilterOverride */
         HardFilterOverride: {
             [key: string]: boolean;
         };
-        /**
-         * ImportRunEntry
-         * @description 生データ取込1種別の最終実行。派生データの世代比較はこの記録を基準にするため、
-         *     ここが失敗したままだと鮮度の判定そのものが古い基準の上で行われる。
-         */
+        /** ImportRunEntry */
         ImportRunEntry: {
             /** Label */
             label: string;
@@ -1595,10 +1266,7 @@ export interface components {
             /** Note */
             note: string;
         };
-        /**
-         * JmaTileIndexCoverage
-         * @description インデックスが網羅している地理範囲（プリウォームの対象bbox）。
-         */
+        /** JmaTileIndexCoverage */
         JmaTileIndexCoverage: {
             /** Min Longitude */
             min_longitude: number;
@@ -1609,13 +1277,7 @@ export interface components {
             /** Max Latitude */
             max_latitude: number;
         };
-        /**
-         * JmaTileIndexElement
-         * @description 要素（risk系・nowc系・rasrf系）ごとの在否。
-         *
-         *     `basetime`はクライアントが「自分が描こうとしている世代と一致するか」を確かめるために
-         *     使う（要素ごとに更新タイミングが異なり、1つの`basetime`では表せない）。
-         */
+        /** JmaTileIndexElement */
         JmaTileIndexElement: {
             /** Basetime */
             basetime?: string | null;
@@ -1634,13 +1296,7 @@ export interface components {
                 [key: string]: number[][];
             };
         };
-        /**
-         * JmaTileIndexResponse
-         * @description `GET /api/jma-tile-index`の応答。
-         *
-         *     `available=False`（インデックス未保存・Redis障害）のとき`coverage`/`elements`は
-         *     いずれもNoneで、クライアントは従来どおり全タイルを取りに行く。
-         */
+        /** JmaTileIndexResponse */
         JmaTileIndexResponse: {
             /** Available */
             available: boolean;
@@ -1650,10 +1306,7 @@ export interface components {
                 [key: string]: components["schemas"]["JmaTileIndexElement"];
             } | null;
         };
-        /**
-         * LandcoverPercentages
-         * @description 材料の割合列（`lc_*`）＋`lc_valid_pixels`と1対1のモデル。
-         */
+        /** LandcoverPercentages */
         LandcoverPercentages: {
             /** Valid Pixels */
             valid_pixels: number;
@@ -1739,10 +1392,7 @@ export interface components {
             /** Materials */
             materials: components["schemas"]["MaterialCoverageEntry"][];
         };
-        /**
-         * MaterialDistributionResponse
-         * @description 材料の値の分布（延長で重み付け）。`available=false`は数値材料でない・DB未接続。
-         */
+        /** MaterialDistributionResponse */
         MaterialDistributionResponse: {
             /** Available */
             available: boolean;
@@ -1779,16 +1429,7 @@ export interface components {
             /** Value */
             value: number;
         };
-        /**
-         * MaterialTerm
-         * @description 区分線形補間系shapeの入力1件（材料id・線形結合の係数・欠損時の扱い）。
-         *
-         *     `required=True`の材料が欠損（スカラーNone/配列NaN）なら軸全体を欠損として扱う。
-         *     `required=False`の材料の欠損は寄与0として残りだけで評価する（停止密度の軸の
-         *     「信号等のデータが主、交差点データは補助」という非対称な扱いが実例）。ただし全termの材料が
-         *     欠損した場合は、残りが1件も無く「寄与0の合計＝0」と「観測値が0」を区別できないため、
-         *     required有無によらず軸全体を欠損として扱う。
-         */
+        /** MaterialTerm */
         MaterialTerm: {
             /** Material */
             material: string;
@@ -1810,12 +1451,7 @@ export interface components {
             /** Label */
             label: string;
         };
-        /**
-         * MaterialValuesResponse
-         * @description `available=False`は「候補を出せなかった」（DB未接続・DB障害・タイムアウト）。
-         *     `available=True`で`values`が空なら「取得できたが値が無い」。画面はこの2つを
-         *     区別して出す（区別しないと、DBのタイムアウトが「値が無い」として静かに表示される）。
-         */
+        /** MaterialValuesResponse */
         MaterialValuesResponse: {
             /**
              * Available
@@ -1825,11 +1461,7 @@ export interface components {
             /** Values */
             values: components["schemas"]["MaterialValueEntry"][];
         };
-        /**
-         * MsmFreshnessResponse
-         * @description 予報（MSM）の同期がどれだけ新しいか。配信元が止まると古い予報を配り続けるため、
-         *     ログ（WARNING）だけでなく外からも確認できるようにする。未同期のときはnull。
-         */
+        /** MsmFreshnessResponse */
         MsmFreshnessResponse: {
             /** Last Run At */
             last_run_at: string;
@@ -1842,22 +1474,7 @@ export interface components {
             /** Healthy */
             healthy: boolean;
         };
-        /**
-         * PriorityCondition
-         * @description 0次条件: 探索除外のハードフィルタ（`domain/hard_filters.py`、道路そのものを
-         *     探索グラフから除外する）とは別の、**評価を優先確定する**条件。`material`の値が
-         *     `equals`と一致する場合、軸の通常計算（shape評価）を丸ごとスキップし、`value`を
-         *     そのままdifficultyとして返す。
-         *
-         *     典型例: `motor_vehicle_no`（自動車通行不可）が立っている区間は、highway種別・
-         *     自転車インフラ等の通常の判定に関わらず「車の圧迫感が最も低い」で確定する。
-         *     自転車通行禁止（`bicycle=no`）はこれとは異なり、既存の0次ハードフィルタ
-         *     （`no_bicycle`）で道路そのものが探索から除外されるため、この機構は使わない
-         *     （「探索除外」と「評価の優先確定」は別の概念）。
-         *
-         *     軸固有のPythonコードへベタ書きせず`AxisDefinition`が共通で持つ宣言にしてあるため、
-         *     同型のケースはコード変更なしに表現できる。
-         */
+        /** PriorityCondition */
         PriorityCondition: {
             /** Material */
             material: string;
@@ -1866,17 +1483,7 @@ export interface components {
             /** Value */
             value: number;
         };
-        /**
-         * RouteCandidate
-         * @description 1本のルート候補。
-         *
-         *     `overall_difficulty`はsegmentsの`difficulty`（絶対基準0-100）の距離加重平均で、
-         *     重み・条件が違う実験の間でも比較できる。候補タブの並び順はこの値の昇順で決まる。
-         *     segments欠損時・全区間difficulty欠損時はNone。
-         *
-         *     辞書フィールドは`RouteSegmentDetail`の同名フィールドを候補の全区間へ距離加重平均で
-         *     集約したもので、「データ無しはキーを持たない」規約も引き継ぐ。
-         */
+        /** RouteCandidate */
         RouteCandidate: {
             /** Id */
             id: string;
@@ -1936,15 +1543,7 @@ export interface components {
              */
             is_fastest: boolean;
         };
-        /**
-         * RouteGenerateJobCreatedResponse
-         * @description `POST /api/routes/generate`の応答。
-         *
-         *     冷パス（未splitな新規エリアへの初回アクセス、数十秒〜最大316秒規模）が
-         *     ブラウザのfetchを長時間ブロックしないよう、実際の生成はバックグラウンドジョブへ
-         *     切り出した。この応答は即座（数百ms）に返る。結果は`GET /api/routes/generate/
-         *     {job_id}`をポーリングして取得する（frontend services/routeApi.ts参照）。
-         */
+        /** RouteGenerateJobCreatedResponse */
         RouteGenerateJobCreatedResponse: {
             /** Job Id */
             job_id: string;
@@ -2013,17 +1612,7 @@ export interface components {
             /** No Candidates Reason */
             no_candidates_reason?: string | null;
         };
-        /**
-         * RoutePreferenceWeights
-         * @description Edge評価・区間難易度（絶対評価、難易度合成）の重み。
-         *     キーはaxis_id（`domain/axis_definitions.py: AXIS_DEFINITIONS`）で、
-         *     `domain/route_preference.py: RoutePreference`と同じ。
-         *
-         *     軸ごとの固定フィールドではなくaxis_idキーの辞書にすることで、軸の増減でこのモデルの
-         *     改修が不要になる。API境界では「キー省略時に既定値が黙って入る」ことを避けるため、
-         *     既知の全axis_idを明示することを検証で強制する（上書きするなら全軸を明示する、
-         *     という方針）。値は非負。
-         */
+        /** RoutePreferenceWeights */
         RoutePreferenceWeights: {
             [key: string]: number;
         };
@@ -2048,17 +1637,7 @@ export interface components {
                 [key: string]: unknown;
             };
         };
-        /**
-         * RouteSegmentDetail
-         * @description 周回ルートの1区間（サンプル点i→i+1）の詳細。地図上の難易度レイヤー描画に使う。
-         *
-         *     符号付き材料（`material_values`に入る`gradient_percent`等）は**符号付き・進行方向
-         *     基準**（登り=正、下り=負）。フロントの勾配色分けはこの符号を前提に「下り」カテゴリを
-         *     持つため、絶対値で返してはならない。
-         *
-         *     geometryはこの区間が実際に通る道なり形状（GeoJSON LineString、ルート全体geometryの
-         *     部分列）。フロントはこれがnullの場合のみ始点・終点の直線で代替描画する。
-         */
+        /** RouteSegmentDetail */
         RouteSegmentDetail: {
             /** Geometry */
             geometry?: {
@@ -2101,36 +1680,7 @@ export interface components {
             /** Difficulty */
             difficulty?: number | null;
         };
-        /**
-         * TileInputSpec
-         * @description 地図表示（ramp）が読むMVTタイルプロパティ。
-         *
-         *     数値材料（既定）: フロントのMapLibre expressionが`Σ(property × weight)`を計算する。
-         *
-         *     真偽値材料（`boolean=True`）: MVTの真偽値プロパティは真偽比較でしか読めず重み付け
-         *     結合が成立しないため、`true_value`/`false_value`で寄与値を直接指定する（`weight`は
-         *     無視される）。
-         *
-         *     N値文字列材料（`categories`）: 文字列値を`categories`で引いた点数×`weight`を寄与値と
-         *     する。`CategoricalShape`のmappingがbool2値ではなく3値以上（highway/surface等）の
-         *     場合に使う。
-         *
-         *     自己変換材料（`breakpoints`）: 区分線形（`BreakpointLinearShape`）で変換される軸の
-         *     寄与値を、フロントの`interpolate`でタイル生値から直接求める。
-         *
-         *     `has_unknown_fallback`: 値が引けないときの意味が「true/falseどちらでもない不明」
-         *     （例: 未分類の路面）ならTrueにし、フロントは灰色「不明」へ倒す。既定Falseは
-         *     「欠損=falseとみなしてよい」材料（例: lit。タグ不在は「無し」の安全側既定）を表す。
-         *     `categories`材料では**未登録値**も不明に含める——`evaluate_categorical`が未登録値に
-         *     Noneを返し`required=True`の軸全体を評価不能にするため、欠損だけを見ると、実際には
-         *     未評価の区間が0点＝最良（緑）で表示されてしまう。真偽値材料には「未登録の値」という
-         *     状態が無いため、欠損のみが不明になる。
-         *
-         *     `needs_runtime_scale`: タイル生値が実行時にしか決まらない係数でのスケール変換を要する
-         *     材料（例: 収録年数で正規化する前の事故件数）でTrue。`weight`が静的な変換係数を
-         *     表現できないが、`GET /api/axis-catalog`が配るスケール定数をフロントのJS式が追加で
-         *     掛けるため、地図表示の対象には含める。`thresholds`は材料スケールの値のままでよい。
-         */
+        /** TileInputSpec */
         TileInputSpec: {
             /** Property */
             property: string;
@@ -2174,10 +1724,7 @@ export interface components {
              */
             needs_runtime_scale: boolean;
         };
-        /**
-         * TuningParameterView
-         * @description 較正値1件の宣言と、いま効いている値。
-         */
+        /** TuningParameterView */
         TuningParameterView: {
             /** Id */
             id: string;
@@ -2202,10 +1749,7 @@ export interface components {
             /** Overridden */
             overridden: boolean;
         };
-        /**
-         * TuningUpdateRequest
-         * @description 1件の上書き。`value`を省略すると既定へ戻す。
-         */
+        /** TuningUpdateRequest */
         TuningUpdateRequest: {
             /** Value */
             value?: number | null;
@@ -2219,14 +1763,7 @@ export interface components {
             /** Error Type */
             type: string;
         };
-        /**
-         * ValueDistributionResponse
-         * @description 延長で重み付けた値の分布（`services/axis_preview_service.py`参照）。
-         *
-         *     折れ点を通す前の**生値**を返し、折れ点の当てはめはフロント側が行う——折れ点を1つ
-         *     動かすたびに通信すると編集の手応えが失われるうえ、折れ点は区分線形の写像でしかなく、
-         *     生値のヒストグラムがあればクライアントで正確に求まる。
-         */
+        /** ValueDistributionResponse */
         ValueDistributionResponse: {
             /** Sample Ways */
             sample_ways: number;
@@ -2289,13 +1826,7 @@ export interface components {
             /** Today Periods */
             today_periods: components["schemas"]["WeatherPeriodOutlook"][];
         };
-        /**
-         * WeatherPeriodOutlook
-         * @description 「今日の見通し」パネルの時間帯別の天気の流れ1コマぶん。
-         *
-         *     `period`は代表時刻の"HH:MM"文字列で、朝/午後/夜のような意味づけラベルは持たない
-         *     ——時刻の解釈・表示ラベルへの整形はfrontend側が担う。
-         */
+        /** WeatherPeriodOutlook */
         WeatherPeriodOutlook: {
             /** Period */
             period: string;
@@ -2315,16 +1846,7 @@ export interface components {
             /** Warnings */
             warnings: components["schemas"]["ActiveWarning"][];
         };
-        /**
-         * WindGridPoint
-         * @description 格子点1つぶんの時間別風向・風速・降水量。各配列は応答トップレベルの時刻列
-         *     （JST・1時間刻み）とインデックスが揃っている。特定時刻1点へ収束させず
-         *     配列のまま返すのは、フロント側の時刻スライダーが追加のAPI呼び出し無しで時刻を
-         *     切り替えられるようにするため。
-         *
-         *     `times`自体はここには持たない（`WindGridResponse`参照）——時刻は全地点で共通で、
-         *     地点ごとに複製すると応答サイズの大半を時刻文字列の重複が占める。
-         */
+        /** WindGridPoint */
         WindGridPoint: {
             /** Latitude */
             latitude: number;
@@ -2337,23 +1859,14 @@ export interface components {
             /** Precipitation Mm */
             precipitation_mm: number[];
         };
-        /**
-         * WindGridResponse
-         * @description `/api/weather/wind-grid`・`wind-grid-detail`の応答本体。`times`は全格子点で共通の
-         *     時刻配列を1本だけ持つ（各`WindGridPoint`は自分の値配列のみを持ち、インデックスは
-         *     `times`と揃っている）。全地点取得失敗等で`points`が空の場合は`times`も空になる。
-         */
+        /** WindGridResponse */
         WindGridResponse: {
             /** Times */
             times: string[];
             /** Points */
             points: components["schemas"]["WindGridPoint"][];
         };
-        /**
-         * TableEntry
-         * @description テーブル1つの実数・容量とメンテナンス状態。行数は統計値ではなく実数を数えている
-         *     （統計はANALYZE前のテーブルで大きくずれ、取り込み漏れの検出に使えないため）。
-         */
+        /** TableEntry */
         app__api__routers__db_status__TableEntry: {
             /** Table Name */
             table_name: string;
