@@ -251,18 +251,29 @@ class RegionService:
         自体が0件収録という実運用ではまず起こらない縮退ケースのため、軽微な誤表示として
         許容する）。
         """
+        return len(await self.get_accident_years())
+
+    async def get_accident_years(self) -> list[int]:
+        """事故データの収録年。`GET /api/axis-catalog`が地図の説明文へ配る。
+
+        表示側が年を文字列で持つと、取り込み直したときに黙って食い違う。年の正本は
+        取込プロファイルの宣言（`source_runs.profile`）だけにする。
+
+        `repository`未注入・DB例外はいずれも空へ倒す（`get_material_values`と同じ
+        グレースフルデグレード方針）。
+        """
         if self._repository is None:
-            return 0
+            return []
         with log_external_call("region:accident-years-covered") as fields:
             try:
-                years = await self._repository.get_accident_years_covered()
-            except Exception as exc:  # noqa: BLE001 DB障害は安全側(0)へ倒す（他メソッドと同じ方針）
+                years = await self._repository.get_accident_years()
+            except Exception as exc:  # noqa: BLE001 DB障害は安全側(空)へ倒す（他メソッドと同じ方針）
                 fields["result"] = "error"
                 fields["warned"] = True
                 fields["error_type"] = error_type_label(exc)
-                log_throttled_warning("region:accident-years-covered", "事故データ収録年数のPostGIS読み取りに失敗 error=%r", exc)
-                return 0
-            fields["years_covered"] = years
+                log_throttled_warning("region:accident-years-covered", "事故データ収録年のPostGIS読み取りに失敗 error=%r", exc)
+                return []
+            fields["years_covered"] = len(years)
             return years
 
     async def get_material_values(self, material_id: str) -> list[str] | None:

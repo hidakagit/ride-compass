@@ -166,6 +166,35 @@ async def test_accident_years_covered_no_repository_returns_zero():
     assert await service.get_accident_years_covered() == 0
 
 
+class _AccidentYearsRepository:
+    """収録年だけを答えるフェイク（`get_accident_years`の戻りを差し替える）。"""
+
+    def __init__(self, years=None, error: Exception | None = None):
+        self._years = years or []
+        self._error = error
+
+    async def get_accident_years(self):
+        if self._error is not None:
+            raise self._error
+        return self._years
+
+
+async def test_accident_years_come_from_the_import_profile():
+    """年そのものを配る。表示側が年を文字列で持たないための口。"""
+    service = RegionService(repository=_AccidentYearsRepository([2023, 2024]))
+
+    assert await service.get_accident_years() == [2023, 2024]
+    # 年数は年の数から導く（同じ値を二重に持たない）。
+    assert await service.get_accident_years_covered() == 2
+
+
+async def test_accident_years_fall_back_to_empty_on_db_error():
+    service = RegionService(repository=_AccidentYearsRepository(error=RuntimeError("db down")))
+
+    assert await service.get_accident_years() == []
+    assert await service.get_accident_years_covered() == 0
+
+
 async def test_no_repository_stays_cacheable():
     # repository未接続は設定由来で、プロセスが生きている間は変わらない。
     service = RegionService(repository=None)

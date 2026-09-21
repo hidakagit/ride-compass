@@ -14,6 +14,7 @@ describe("getAxisCatalog", () => {
       axes: [],
       material_runtime_scales: {},
       client_tuning: {},
+      accident_years: [],
       tile_versions: {},
     };
     const fetchMock = vi.fn().mockResolvedValue(makeResponse({ json: async () => catalog }));

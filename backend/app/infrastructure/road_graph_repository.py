@@ -830,20 +830,27 @@ class RoadGraphRepository:
         中身と突き合わせるのに使う。"""
         return await derived_data_meta.get_revision(self._session)
 
-    async def get_accident_years_covered(self) -> int:
-        """事故データの収録年数。`accident_count_per_km_year`の分母。
+    async def get_accident_years(self) -> list[int]:
+        """事故データの収録年。
 
-        取込プロファイルの宣言（`rows.years`）から数える——実データを数えると、事故が
-        1件も無かった年が落ちて分母が小さくなる。
+        取込プロファイルの宣言（`rows.years`）をそのまま返す——実データの発生年を数えると、
+        事故が1件も無かった年が落ちる。年数は`accident_count_per_km_year`の分母に、年そのものは
+        地図の説明文に使う。どちらもここが正本で、**表示側は年を自分で持たない**。
         """
         row = await self._session.execute(text("""
-            SELECT jsonb_array_length(profile->'source'->'rows'->'years') AS years
+            SELECT profile->'source'->'rows'->'years' AS years
             FROM source_runs
             WHERE source = 'accident' AND status = 'succeeded'
             ORDER BY run_id DESC LIMIT 1
         """))
         value = row.scalar()
-        return int(value or 0)
+        if not isinstance(value, list):
+            return []
+        return sorted(int(year) for year in value)
+
+    async def get_accident_years_covered(self) -> int:
+        """事故データの収録年数。`accident_count_per_km_year`の分母。"""
+        return len(await self.get_accident_years())
 
     async def is_covered(self, bbox: BoundingBox) -> bool:
         """その範囲の生データを取り込んでいるか。判定は取込の宣言から導く。"""

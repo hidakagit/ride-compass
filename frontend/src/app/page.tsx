@@ -978,8 +978,8 @@ export default function Home() {
   // MAP_LAYERS（静的フォールバック）ではなく、axisCatalog.rampAxes（実行時フェッチ、
   // 軸スタジオの公開軸を含む）から組み立てたレイヤーカタログを使う。
   const mapLayers = useMemo(
-    () => buildMapLayers(axisCatalog.rampAxes, axisCatalog.dedicatedAxes),
-    [axisCatalog.rampAxes, axisCatalog.dedicatedAxes],
+    () => buildMapLayers(axisCatalog.rampAxes, axisCatalog.dedicatedAxes, axisCatalog.accidentYears),
+    [axisCatalog.rampAxes, axisCatalog.dedicatedAxes, axisCatalog.accidentYears],
   );
 
   // 「推定指標をONにすると材料の観測データレイヤーも連動ON」するカスケードは持たない。

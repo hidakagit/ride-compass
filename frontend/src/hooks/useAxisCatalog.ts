@@ -36,6 +36,9 @@ export interface AxisCatalog {
   dedicatedAxes: readonly DedicatedWayValueAxis[];
   /** axis_id→表示名の辞書（軸スタジオ公開軸を含む、フェッチ完了までは静的フォールバック）。 */
   axisLabels: Record<string, string>;
+  /** 事故データの収録年（backendの取込の宣言そのもの）。地図の説明文が範囲を書くのに使う。
+   * フェッチ完了まで・エラー時は空で、その間は説明文が年に触れない。 */
+  accidentYears: readonly number[];
   /** 二次軸(推定指標)一覧（地図チップの「推定指標」グループが読む）。フェッチ完了までと
    * エラー時は静的フォールバック（secondaryAxes.ts: SECONDARY_AXES）。 */
   secondaryAxes: readonly SecondaryAxisSummary[];
@@ -86,6 +89,7 @@ const EMPTY_CATALOG: AxisCatalog = {
   rampAxes: [],
   dedicatedAxes: [],
   axisLabels: {},
+  accidentYears: [],
   secondaryAxes: [],
   routeStyleModes: ROUTE_STYLE_MODES_WITHOUT_AXES,
   loaded: false,
@@ -146,6 +150,7 @@ function buildCatalog(
   entries: readonly AxisCatalogEntry[],
   materialRuntimeScales: Readonly<Record<string, number>>,
   clientTuning: Readonly<Record<string, number>>,
+  accidentYears: readonly number[],
 ): AxisCatalog {
   const defaultWeights: RoutePreferenceWeights = {};
   for (const entry of entries) defaultWeights[entry.axis_id] = entry.default_weight;
@@ -161,6 +166,7 @@ function buildCatalog(
     rampAxes: rampAxesFromCatalogAxes(catalogAxes, materialRuntimeScales),
     dedicatedAxes: dedicatedWayValueAxesFromCatalogAxes(catalogAxes),
     axisLabels: axisLabelsFromCatalogAxes(catalogAxes),
+    accidentYears,
     secondaryAxes: secondaryAxesFromCatalogAxes(catalogAxes),
     routeStyleModes: routeStyleModesFromCatalogAxes(catalogAxes),
     loaded: true,
@@ -236,6 +242,7 @@ function loadAxisCatalog(): void {
           // 取れた値が空でも既定へ戻さない（宣言が1件も持たない状態と区別が付かないため、
           // 空なら空のまま渡す）。使う側は自分が要るidが無ければ既定を持たない。
           response.client_tuning ?? {},
+          response.accident_years ?? [],
         ),
       );
     })

@@ -167,6 +167,7 @@ function catalogWithGuiCreatedAxis(): AxisCatalogResponse {
     // 改善計画T404: material_runtime_scalesはAxisCatalogResponseの必須フィールド
     // （既定{}だがopenapi-typescriptはdefault付きフィールドをoptionalにしない）。
     material_runtime_scales: {},
+    accident_years: [],
     client_tuning: {},
     // 世代はbackendが常に返す。**空にしない**——空は「世代を返さない版が応答した」という
     // 別の状態で、地図が1つも描けない縮退の合図になる（T938。その状態自体は下の

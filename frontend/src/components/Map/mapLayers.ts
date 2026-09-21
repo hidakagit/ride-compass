@@ -305,10 +305,29 @@ export interface MapLayerDescriptor {
 // ramp軸部分はbuildMapLayers(rampAxes)として関数化してあり、hooks/useAxisCatalog.tsが
 // 実行時に取得したrampAxes（軸スタジオの公開軸を含む）から呼べる。テスト
 // （axisLayers.test.ts）からはbuildMapLayers(RAMP_AXES)として直接呼べる。
+/** 収録年の言い方。連続していれば範囲で、飛んでいれば並べて出す。
+ *
+ * 年そのものは取込の宣言（backendの`source_runs.profile`）が正本で、
+ * `GET /api/axis-catalog`の`accident_years`が運ぶ。**ここで年を書かない**——
+ * 文字列で持つと取り込み直したときに黙って食い違う。空のときは範囲に触れない。 */
+function coverageYearsLabel(years: readonly number[]): string {
+  if (years.length === 0) return "";
+  const sorted = [...years].sort((a, b) => a - b);
+  if (sorted.length === 1) return `${sorted[0]}年`;
+  const continuous = sorted.every((year, index) => index === 0 || year === sorted[index - 1] + 1);
+  return continuous
+    ? `${sorted[0]}〜${sorted[sorted.length - 1]}年`
+    : `${sorted.join("・")}年`;
+}
+
 export function buildMapLayers(
   rampAxes: readonly RampAxis[],
   dedicatedAxes: readonly DedicatedWayValueAxis[],
+  accidentYears: readonly number[] = [],
 ): readonly MapLayerDescriptor[] {
+  // 取れていないときは年に触れない（取得前に既定の年を出すと、それが正しいように見える）。
+  const accidentYearsLabel = coverageYearsLabel(accidentYears);
+  const accidentCoverage = accidentYearsLabel ? `関東7都県、${accidentYearsLabel}` : "関東7都県";
   return [
     {
       id: "elevation",
@@ -494,9 +513,9 @@ export function buildMapLayers(
       chipLabel: "事故",
       kind: "static",
       category: "trafficSafety",
-      description: "警察庁交通事故統計オープンデータ[関東7都県、2024年]の発生地点を表示",
+      description: `警察庁交通事故統計オープンデータ[${accidentCoverage}]の発生地点を表示`,
       panelHint:
-        "警察庁が公開する交通事故統計オープンデータ[本票、関東7都県・2024年]の" +
+        `警察庁が公開する交通事故統計オープンデータ[本票、${accidentCoverage}]の` +
         "発生地点です。死亡事故（事故後24時間以内）は円を大きく表示します。",
     },
     // 二次軸の汎用rampレイヤー（「事実はタイルに、解釈はクライアントに」）。backendレジストリ

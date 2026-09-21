@@ -111,6 +111,7 @@ function catalogResponse(): AxisCatalogResponse {
     // （既定{}だがopenapi-typescriptはdefault付きフィールドをoptionalにしない）。
     material_runtime_scales: {},
     client_tuning: {},
+    accident_years: [],
     tile_versions: {},
   };
 }
@@ -179,6 +180,7 @@ describe("useAxisCatalog（改善計画T308: rampAxes/axisLabels/secondaryAxes�
       axes: [],
       material_runtime_scales: {},
       client_tuning: {},
+      accident_years: [],
       tile_versions: {},
     });
 
@@ -260,6 +262,7 @@ describe("useAxisCatalog（改善計画T308: rampAxes/axisLabels/secondaryAxes�
       axes: [catalogResponse().axes[0]],
       material_runtime_scales: {},
       client_tuning: {},
+      accident_years: [],
       tile_versions: {},
     });
     const second = renderHook(() => useAxisCatalog());

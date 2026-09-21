@@ -2409,6 +2409,14 @@
             "type": "object",
             "title": "Tile Versions",
             "default": {}
+          },
+          "accident_years": {
+            "items": {
+              "type": "integer"
+            },
+            "type": "array",
+            "title": "Accident Years",
+            "default": []
           }
         },
         "additionalProperties": false,

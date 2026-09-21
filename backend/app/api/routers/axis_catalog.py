@@ -191,7 +191,7 @@ class AxisCatalogResponse(StrictModel):
     # `TileInputSpec.needs_runtime_scale=True`なtile_inputに対してこの係数を追加で
     # 掛け合わせる。値が解決できない材料（現状はaccident_count_per_km_year、収録年数が
     # 0件のとき）はキー自体を含めない——フロント側はキーが無い場合、その材料の寄与を
-    # 0として扱う（RegionService.get_accident_years_coveredのdocstring参照）。
+    # 0として扱う（RegionService.get_accident_yearsのdocstring参照）。
     material_runtime_scales: dict[str, float] = {}
     # フロントが使う較正値（id → いま効いている値、`domain/tuning.py`が宣言）。管理画面から
     # 変えた値を**再デプロイなしに**画面へ届けるため、起動時に1回取るこのカタログへ相乗り
@@ -202,6 +202,9 @@ class AxisCatalogResponse(StrictModel):
     # キャッシュを分ける。**ビルド時生成物では配れない**——バッチが中身を作り直しても
     # デプロイは起きないため、次のデプロイまで古い値を配り続ける。
     tile_versions: dict[str, str] = {}
+    # 事故データの収録年（取込プロファイルの宣言そのもの）。地図の説明文が範囲を書くために
+    # 使う。**表示側に持たせない**——文字列で持つと取り込み直したときに黙って食い違う。
+    accident_years: list[int] = []
 
 
 @router.get("/api/axis-catalog", response_model=AxisCatalogResponse)
@@ -212,19 +215,20 @@ async def get_axis_catalog(region_service: RegionService = Depends(get_region_se
     # primary_attribute_ids_for()も同様にプロセス内メモリだけを見る純粋関数のため、
     # リクエスト毎に呼んでもコストは無視できる。
     #
-    # material_runtime_scalesだけが例外的にDB（accident_years_covered）を
+    # material_runtime_scalesだけが例外的にDB（accident_years）を
     # 見る。現時点でtile_property_needs_runtime_scale=Trueな材料は
     # accident_count_per_km_year 1件のみのため、ここでは決め打ちで解決する
     # （将来2件目が増えたら、材料ごとのスケール源をどう解決するかも合わせて設計し
     # 直す必要がある——「material_idごとに任意のスケール源を宣言できる」汎用機構は
     # 現時点で利用者が1件しかいないため、過剰な抽象化を避けてYAGNI原則に従った）。
     material_runtime_scales: dict[str, float] = {}
-    accident_years_covered = await region_service.get_accident_years_covered()
-    if accident_years_covered > 0:
-        material_runtime_scales["accident_count_per_km_year"] = 1 / accident_years_covered
+    accident_years = await region_service.get_accident_years()
+    if accident_years:
+        material_runtime_scales["accident_count_per_km_year"] = 1 / len(accident_years)
 
     return AxisCatalogResponse(
         client_tuning=client_tuning_values(),
+        accident_years=accident_years,
         tile_versions=await region_service.tile_versions(),
         axes=[
             AxisCatalogEntry(

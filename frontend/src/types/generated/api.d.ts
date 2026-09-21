@@ -1048,6 +1048,11 @@ export interface components {
             tile_versions: {
                 [key: string]: string;
             };
+            /**
+             * Accident Years
+             * @default []
+             */
+            accident_years: number[];
         };
         /**
          * AxisDefinitionPayload
