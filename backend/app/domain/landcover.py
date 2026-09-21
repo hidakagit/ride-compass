@@ -1,4 +1,4 @@
-"""土地被覆クラス別割合（`way_landcover`）の算出。
+"""土地被覆クラス別割合（`edge_materials.lc_*`・`way_materials.lc_*`）の算出。
 
 Esri×Impact Observatory Sentinel-2 10m Annual LULCの画素値ヒストグラム（バッチが
 道路centerline周囲のリングから集計したクラス別画素数）を、クラスごとの割合(%)へ
@@ -33,7 +33,7 @@ MIN_VALID_PIXELS = 20
 
 
 class LandcoverPercentages(StrictModel):
-    """`way_landcover`の割合8列＋`valid_pixels`と1対1のモデル。"""
+    """材料の割合列（`lc_*`）＋`lc_valid_pixels`と1対1のモデル。"""
 
     valid_pixels: int
     water_percent: float

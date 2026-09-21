@@ -178,7 +178,7 @@ REALISTIC_AXIS_DEFINITIONS: dict[str, AxisDefinition] = {
         chip_label="自転車道",
         show_map_icon=False,
     ),
-    # 土地被覆（way_landcover）由来の材料を使う唯一の公開軸。この軸をフィクスチャへ
+    # 土地被覆由来の材料を使う唯一の公開軸。この軸をフィクスチャへ
     # 含めないと、`trees_percent`/`built_percent`を実際に評価する経路がテストから
     # 消え、材料の配線が外れていても全経路が同じ「欠損」を返して一致してしまう。
     "openness": AxisDefinition(

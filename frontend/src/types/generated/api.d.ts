@@ -1654,7 +1654,7 @@ export interface components {
         };
         /**
          * LandcoverPercentages
-         * @description `way_landcover`の割合8列＋`valid_pixels`と1対1のモデル。
+         * @description 材料の割合列（`lc_*`）＋`lc_valid_pixels`と1対1のモデル。
          */
         LandcoverPercentages: {
             /** Valid Pixels */

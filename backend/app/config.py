@@ -189,7 +189,7 @@ class Settings(BaseSettings):
     derived_data_revision_check_interval_seconds: float = 300.0
 
     # Esri×Impact Observatory LULCのGeoTIFFファイルパス（カンマ区切り、複数ゾーン対応）。
-    # 土地被覆バッチ（app/batch/precompute_way_landcover.py）と地図タイル配信
+    # 土地被覆バッチ（app/batch/derive_raster_materials.py）と地図タイル配信
     # （infrastructure/landcover_raster.py）が同じファイルを読む。
     # ラスタ自体はリポジトリにコミットせず手動取得する（docs/disaster-recovery.md参照）ため
     # .envでのみ設定する。空文字列（未設定）はrefresh_derived.py経由の実行時のみ

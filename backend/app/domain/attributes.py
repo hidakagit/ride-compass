@@ -18,7 +18,7 @@ METRIC_GROUP_POI = "poi"
 METRIC_KEY_ACCIDENT = "accident"
 METRIC_KEY_INTERSECTION = "intersection"
 
-# `METRIC_GROUP_LANDCOVER`のキー。`way_landcover`の割合列の名前と同じにする
+# `METRIC_GROUP_LANDCOVER`のキー。材料の割合列（`lc_*`）の名前と同じにする
 # （SQLの読み出し列をこの並びから導くため）。
 METRIC_KEY_TREES_PERCENT = "trees_percent"
 METRIC_KEY_BUILT_PERCENT = "built_percent"
@@ -32,7 +32,7 @@ METRIC_KEY_SNOW_ICE_PERCENT = "snow_ice_percent"
 # 評価パイプラインへ配線する土地被覆のクラス。**ここへ1つ足せば、Edge束・列指向
 # テーブル・SQLの読み出し・タイルの焼き込み列・カバレッジ台帳が揃って増える**
 # （下流はこの並びから導き、クラス名を個別に並べない）。
-# `way_landcover`の割合列と1対1にする——どのクラスを材料にするかを人が選ぶ形にすると、
+# 材料の割合列（`lc_*`）と1対1にする——どのクラスを材料にするかを人が選ぶ形にすると、
 # 「なぜこのクラスだけ無いのか」を後から何度も判断し直すことになる。
 WIRED_LANDCOVER_KEYS: tuple[str, ...] = (
     METRIC_KEY_TREES_PERCENT,

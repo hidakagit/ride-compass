@@ -216,7 +216,7 @@ class RegionService:
                     osm_way_id, accident_years_covered
                 )
                 # 地図が塗っている値と同じ単位で読む（区間が特定できるときは区間単位）。
-                way_landcover = await self._repository.get_feature_landcover(osm_way_id, edge_id)
+                landcover = await self._repository.get_feature_landcover(osm_way_id, edge_id)
             except Exception as exc:  # noqa: BLE001 DB障害は安全側(None)へ倒す（他タイル系と同じ方針）
                 fields["result"] = "error"
                 fields["warned"] = True
@@ -232,7 +232,7 @@ class RegionService:
             highway, tags, _surface = way_tags_result
             combined = {**(materials or {}), **(dynamic_materials or {})}
             return axis_inspector_breakdown(
-                highway, tags, combined, way_landcover, RoutePreference(),
+                highway, tags, combined, landcover, RoutePreference(),
             )
 
     async def get_accident_years_covered(self) -> int:

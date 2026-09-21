@@ -107,19 +107,16 @@ class CoverageExcluded:
 MaterialCoverage = WayMaterialCoverageSpec | EdgeMaterialCoverageSpec | CoverageExcluded
 
 
-def landcover_coverage(column: str) -> WayMaterialCoverageSpec:
+def landcover_coverage(key: str) -> EdgeMaterialCoverageSpec:
     """土地被覆1クラスの欠損判定。クラスごとに書き写すと、増えたときここだけ取り残される。
 
-    `way_landcover`は「行が無い＝未計算」と「列がNULL＝算出不能（ラスタ範囲外等）」を
-    区別する（migration 0037）。**行の有無だけで数えると、値がNULLの行を「データあり」と
-    数えてしまう**ため、列のNULLも欠損として数える。
+    **値を読む列そのものを数える**（`landcover_value_sql`と同じ`edge_materials.lc_*`）。
+    別の表を数えると、値が空でも「揃っている」と報告しうる。列がNULLなのは
+    「未計算」か「算出不能（ラスタ範囲外等）」で、どちらも値が無いことに変わりはない。
     """
-    return WayMaterialCoverageSpec(
-        missing_condition=f"lc.{column} IS NULL",
-        join="LEFT JOIN way_landcover lc ON lc.osm_way_id = w.osm_way_id",
-        # `precompute_way_landcover`の対象はgeomとhighwayを持つwayだけ。
-        in_scope="w.geom IS NOT NULL AND w.highway IS NOT NULL",
-        source=f"way_landcover.{column}（precompute_way_landcoverの計算済み値）の有無",
+    return EdgeMaterialCoverageSpec(
+        present_count_sql=f"SELECT count(*) FROM edge_materials WHERE lc_{key} IS NOT NULL",
+        source=f"edge_materials.lc_{key}（derive_raster_materialsの計算済み値）の有無",
         missing_semantics="unknown",
     )
 
@@ -441,7 +438,7 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
         tile_property="trees_pct",
         primary_attribute_id="landcover",
         value_sql=landcover_value_sql("trees"),
-        coverage=landcover_coverage("trees_percent"),
+        coverage=landcover_coverage("trees"),
     ),
     "built_percent": MaterialSpec(
         material_id="built_percent",
@@ -452,7 +449,7 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
         tile_property="built_pct",
         primary_attribute_id="landcover",
         value_sql=landcover_value_sql("built"),
-        coverage=landcover_coverage("built_percent"),
+        coverage=landcover_coverage("built"),
     ),
     "crops_percent": MaterialSpec(
         material_id="crops_percent",
@@ -463,7 +460,7 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
         tile_property="crops_pct",
         primary_attribute_id="landcover",
         value_sql=landcover_value_sql("crops"),
-        coverage=landcover_coverage("crops_percent"),
+        coverage=landcover_coverage("crops"),
     ),
     "rangeland_percent": MaterialSpec(
         material_id="rangeland_percent",
@@ -474,7 +471,7 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
         tile_property="rangeland_pct",
         primary_attribute_id="landcover",
         value_sql=landcover_value_sql("rangeland"),
-        coverage=landcover_coverage("rangeland_percent"),
+        coverage=landcover_coverage("rangeland"),
     ),
     "water_percent": MaterialSpec(
         material_id="water_percent",
@@ -485,7 +482,7 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
         tile_property="water_pct",
         primary_attribute_id="landcover",
         value_sql=landcover_value_sql("water"),
-        coverage=landcover_coverage("water_percent"),
+        coverage=landcover_coverage("water"),
     ),
     "bare_percent": MaterialSpec(
         material_id="bare_percent",
@@ -496,7 +493,7 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
         tile_property="bare_pct",
         primary_attribute_id="landcover",
         value_sql=landcover_value_sql("bare"),
-        coverage=landcover_coverage("bare_percent"),
+        coverage=landcover_coverage("bare"),
     ),
     "flooded_veg_percent": MaterialSpec(
         material_id="flooded_veg_percent",
@@ -507,7 +504,7 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
         tile_property="flooded_veg_pct",
         primary_attribute_id="landcover",
         value_sql=landcover_value_sql("flooded_veg"),
-        coverage=landcover_coverage("flooded_veg_percent"),
+        coverage=landcover_coverage("flooded_veg"),
     ),
     "snow_ice_percent": MaterialSpec(
         material_id="snow_ice_percent",
@@ -518,7 +515,7 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
         tile_property="snow_ice_pct",
         primary_attribute_id="landcover",
         value_sql=landcover_value_sql("snow_ice"),
-        coverage=landcover_coverage("snow_ice_percent"),
+        coverage=landcover_coverage("snow_ice"),
     ),
     "surface_good": MaterialSpec(
         material_id="surface_good",
