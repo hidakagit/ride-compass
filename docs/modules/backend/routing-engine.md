@@ -904,6 +904,11 @@ PostGISへ問い合わせる。エッジの実ジオメトリ（`get_edges_with_
   確認と`acquire()`をawaitを挟まず連続実行する（HTTPレスポンス送出という実I/Oを挟んでから
   acquireすると、複数リクエストが同時に届いた際に上限を超えて受理してしまうため）。
   セマフォの解放は`_run_generate_job`側の`finally`で行う。
+- **バックグラウンドジョブはリクエストスコープのDBセッションを使えない**。
+  `api/dependencies.py: open_route_generation_setup`（`@asynccontextmanager`）がDI用の
+  ジェネレータをラップして独立したセッションを開く（開閉のロジックを複製しない）。
+  「どのサービスをどう組み立てるか」自体は純粋関数`_assemble_route_generation_setup`へ
+  一本化してあり、DI経由の経路とバックグラウンドジョブの両方が同じ組み立てを通る。
 - **`RoutePreferenceWeights`/`HardFilterOverride`は「上書きするなら全項目を明示する」
   方針**（`model_validator`でキー集合の完全一致を強制）。`RoutePreferenceWeights`の
   対象は`AXIS_DEFINITIONS`の公開軸のみ（内部軸は含まない）。
