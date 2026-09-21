@@ -163,14 +163,26 @@ class TestLatLon:
     def test_the_lightweight_point_satisfies_it(self):
         assert isinstance(LatLonPoint(1.0, 2.0), LatLon)
 
-    def test_the_api_boundary_model_satisfies_it(self):
-        assert isinstance(Coordinates(latitude=1.0, longitude=2.0), LatLon)
+    def test_any_other_type_with_the_two_fields_is_accepted(self):
+        """構造的型なので、緯度経度さえ持てば通る。`Coordinates`側がこれを満たすかは
+        `Coordinates`の話で、ここでは見ない。
+        """
 
-    def test_the_two_are_interchangeable_in_the_calculations(self):
+        class _Anything:
+            latitude = 1.0
+            longitude = 2.0
+
+        assert isinstance(_Anything(), LatLon)
+
+    def test_it_rejects_a_type_without_the_fields(self):
+        assert not isinstance(object(), LatLon)
+
+    def test_a_different_shape_of_input_gives_the_same_answer(self):
         as_model = Coordinates(latitude=TOKYO.latitude, longitude=TOKYO.longitude)
 
         assert haversine_distance_km(as_model, OSAKA) == haversine_distance_km(TOKYO, OSAKA)
         assert bearing_between(as_model, OSAKA) == bearing_between(TOKYO, OSAKA)
+
 
 
 def test_the_compass_has_a_label_for_every_sector():

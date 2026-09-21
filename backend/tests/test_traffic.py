@@ -7,7 +7,6 @@ DBへ通して確かめる。ここで見るのは、表の組み立てと純関
 
 from typing import get_args
 
-from app.domain.material_catalog import MATERIAL_CATALOG
 from app.domain.traffic import (
     DIRECTION_RULES,
     MAJOR_CROSSING_MIN_RANK,
@@ -57,13 +56,11 @@ class TestStopCountMaterialIds:
         """
         assert len(stop_count_material_ids()) == len(POI_COUNT_KINDS)
 
-    def test_every_material_it_names_actually_exists(self):
-        """綴りが違っても走行モデルは例外にならず、その停止要因だけが静かに0になる。"""
-        ids = stop_count_material_ids()
-        assert ids, "材料が空なら、下のループは何も確かめていない"
-
-        for material_id in ids:
-            assert material_id in MATERIAL_CATALOG, material_id
+    def test_the_id_is_built_from_the_kind(self):
+        """材料idは種別から組み立てる。**その材料が実在するかはここでは見ない**——
+        `traffic.py`は材料カタログを知らず、綴りの正しさはカタログ側の話。
+        """
+        assert set(stop_count_material_ids()) == {f"poi_{kind}_per_km" for kind in POI_COUNT_KINDS}
 
 
 class TestHighwayRank:
