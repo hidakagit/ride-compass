@@ -3,6 +3,7 @@
 // 重要ロジックのうち、exportされておらずテスト対象から漏れていた関数群の単体テスト。
 // MapView.overlayFilters.test.tsと同じ「実際のMapLibre Mapが必要とするメソッドだけを
 // 持つフェイク」パターンを使う。
+import type { ExpressionSpecification } from "maplibre-gl";
 import { beforeEach, describe, expect, it } from "vitest";
 import { setTileVersions } from "@/services/regionApi";
 import { axisLineLayerId, axisMapLayerId, type RampAxis } from "@/components/Map/axisLayers";
@@ -761,7 +762,7 @@ describe("区間色分け線の縁取り（T770）", () => {
   const MODE = {
     id: "difficulty",
     label: "総合難易度",
-    colorExpression: ["literal", "#16a34a"] as unknown as maplibregl.ExpressionSpecification,
+    colorExpression: ["literal", "#16a34a"] as unknown as ExpressionSpecification,
     legend: [],
   };
 

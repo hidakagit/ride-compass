@@ -43,3 +43,6 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# maplibre-glのWorker（ビルド前にnode_modulesから複製する）
+/public/maplibre/

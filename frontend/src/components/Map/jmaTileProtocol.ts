@@ -2,11 +2,11 @@
 // 「空だと確認済み」のタイルはネットワークへ出さずに透明タイルを返すカスタムプロトコル。
 //
 // MapLibreのソース設定は連続したズーム区間しか表現できず「このタイルは空」を伝える手段が
-// 無いため、タイルURLのスキームを`jmatile://`にして`maplibregl.addProtocol`で受ける。
+// 無いため、タイルURLのスキームを`jmatile://`にして`addProtocol`で受ける。
 // ハンドラは実URL（`jmatile://`を剥がしたもの）へfetchするか、透明タイルを返すかだけを
 // 決め、それ以外の挙動（キャッシュ・再試行）はMapLibreと通常のHTTPに委ねる。
 
-import maplibregl from "maplibre-gl";
+import { addProtocol } from "maplibre-gl";
 
 import { debugLog } from "@/lib/debugLog";
 
@@ -174,6 +174,6 @@ async function handleJmaTileRequest(
 /** MapLibreへプロトコルを登録する（多重登録は無害だが1回で足りる）。 */
 export function registerJmaTileProtocol(): void {
   if (registered) return;
-  maplibregl.addProtocol(JMA_TILE_PROTOCOL, handleJmaTileRequest);
+  addProtocol(JMA_TILE_PROTOCOL, handleJmaTileRequest);
   registered = true;
 }

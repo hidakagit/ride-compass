@@ -28,13 +28,21 @@
 **利用規約は本番運用の節目ごとに読み直し**、必要なら専用プロバイダ（APIキー方式）へ
 切り替える。
 
-## `maplibre-gl`を最新メジャーへ上げられない
+## `maplibre-gl`のWorkerは自分で配る
 
-`maplibre-gl`は`^5`系に固定している。最新メジャー（v6系）は Web Worker のスクリプトURLを
-``new URL(`./${file}`, import.meta.url)`` という動的テンプレートリテラルで解決する。
-Next.jsのバンドラ（Turbopack / Webpack のいずれも）はこれを静的解析できず、Workerが空の
-ページを読み込むため、スタイル処理・タイル取得が**永久に止まる**（`isStyleLoaded()`が
-`true`にならない）。5系は自己参照Blob方式のWorkerを使うため影響を受けない。
+`maplibre-gl`はWorkerのスクリプトURLを ``new URL(`./${file}`, import.meta.url)`` という動的
+テンプレートリテラルで解決する。Next.jsのバンドラ（Turbopack / Webpack のいずれも）はこれを
+静的解析できず、Workerが空のページを読み込むため、スタイル処理・タイル取得が**永久に止まる**
+（`isStyleLoaded()`が`true`にならない）。
+
+そこで**Workerの実体を`public/`から配り、`setWorkerUrl`でそこを指す**。複製は
+`frontend/scripts/copy-maplibre-worker.mjs`が`predev`/`prebuild`で`node_modules`から行い、
+リポジトリには置かない。Workerはsharedチャンクを**自分のURLからの相対**でimportするため、
+2本を同じディレクトリへ置く。代償は**sharedチャンクを二重に配る**こと（バンドル内と
+静的配信で1本ずつ）。
+
+`configureMaplibreWorker()`（`frontend/src/features/map/maplibreWorker.ts`）は**Mapを作る前に**
+呼ぶ。呼ばないと上の症状に戻る。
 
 ## `@maplibre/maplibre-gl-style-spec`はキャレット無しで完全固定する
 

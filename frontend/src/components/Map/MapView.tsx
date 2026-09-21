@@ -7,6 +7,8 @@ import RoadInspectorPopup from "@/components/Map/RoadInspectorPopup";
 import type { RoadSurfacePopupProperties } from "@/components/Map/roadFacts";
 import type { PreferenceAxisDef } from "@/lib/evaluationAxes";
 import * as maplibregl from "maplibre-gl";
+
+import { configureMaplibreWorker } from "@/features/map/maplibreWorker";
 import type {
   ErrorEvent as MapLibreErrorEvent,
   GeoJSONSource,
@@ -423,14 +425,16 @@ export function ensureLayerFromSpec(
     layout?: Record<string, unknown>;
     filter?: unknown;
   };
+  // specのキーをそのまま流すため、プロパティ名を静的に知らない（型はレイヤー種ごとの
+  // 名前の集合を要求する）。
+  const setPaint = map.setPaintProperty.bind(map) as (id: string, name: string, value: unknown) => void;
+  const setLayout = map.setLayoutProperty.bind(map) as (id: string, name: string, value: unknown) => void;
   for (const [name, value] of Object.entries(withProps.paint ?? {})) {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    map.setPaintProperty(spec.id, name, value as any);
+    setPaint(spec.id, name, value);
   }
   for (const [name, value] of Object.entries(withProps.layout ?? {})) {
     if (name === "visibility") continue;
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    map.setLayoutProperty(spec.id, name, value as any);
+    setLayout(spec.id, name, value);
   }
   // filterはraster/background/hillshadeでは設定できない（MapLibreがstyle検証で弾く）。
   // 持ち主のときは、specがfilterキーを失った場合（しきい値がnullへ変わった等）に
@@ -2651,6 +2655,9 @@ export default function MapView({
   // 地図初期化
   useEffect(() => {
     if (!mapContainerRef.current || mapRef.current) return;
+
+    // Workerの場所は、Mapを作る前に決める必要がある（Mapの生成がWorkerを起こす）。
+    configureMaplibreWorker();
 
     // JMAタイルの在否インデックスによる要求の間引き（jmaTileProtocol.ts）。Mapを作る前に
     // 登録する必要がある（スタイル適用時点でタイル要求が始まりうるため）。

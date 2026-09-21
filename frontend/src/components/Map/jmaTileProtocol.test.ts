@@ -22,7 +22,7 @@ type ProtocolHandler = (params: { url: string }, abort: AbortController) => Prom
 const { protocolHandlers } = vi.hoisted(() => ({ protocolHandlers: new Map<string, ProtocolHandler>() }));
 
 vi.mock("maplibre-gl", () => ({
-  default: { addProtocol: (scheme: string, handler: ProtocolHandler) => protocolHandlers.set(scheme, handler) },
+  addProtocol: (scheme: string, handler: ProtocolHandler) => protocolHandlers.set(scheme, handler),
 }));
 
 const BT = "20260907025000";
