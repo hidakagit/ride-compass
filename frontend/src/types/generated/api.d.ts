@@ -933,9 +933,8 @@ export interface components {
          * AmedasObservation
          * @description 最寄りアメダス観測所の直近観測値。
          *
-         *     突風（wind_gusts）はJMAアメダスのリアルタイム観測値レスポンスに存在しない
-         *     （全1,286観測所のキー一覧にgust相当のフィールドが1つも無い）ため、
-         *     このモデルに含めない。
+         *     突風はJMAアメダスのリアルタイム観測値レスポンスがどの観測所についても持たないため、
+         *     このモデルに項目が無い。
          */
         AmedasObservation: {
             /** Station Id */
@@ -1845,10 +1844,10 @@ export interface components {
         };
         /**
          * PriorityCondition
-         * @description 0次条件: 探索除外のハードフィルタ（`domain/evaluation.py:
-         *     DEFAULT_HARD_FILTERS`、道路そのものを探索グラフから除外する）とは別の、
-         *     **評価を優先確定する**条件。`material`の値が`equals`と一致する場合、軸の通常計算
-         *     （shape評価）を丸ごとスキップし、`value`をそのままdifficultyとして返す。
+         * @description 0次条件: 探索除外のハードフィルタ（`domain/hard_filters.py`、道路そのものを
+         *     探索グラフから除外する）とは別の、**評価を優先確定する**条件。`material`の値が
+         *     `equals`と一致する場合、軸の通常計算（shape評価）を丸ごとスキップし、`value`を
+         *     そのままdifficultyとして返す。
          *
          *     典型例: `motor_vehicle_no`（自動車通行不可）が立っている区間は、highway種別・
          *     自転車インフラ等の通常の判定に関わらず「車の圧迫感が最も低い」で確定する。
@@ -1856,9 +1855,8 @@ export interface components {
          *     （`no_bicycle`）で道路そのものが探索から除外されるため、この機構は使わない
          *     （「探索除外」と「評価の優先確定」は別の概念）。
          *
-         *     軸固有のPythonコードへベタ書きせず、`AxisDefinition`が共通で持てる宣言的な
-         *     仕組みにすることで、将来の軸追加でも同型のケースをコード変更なしに表現できる
-         *     （各推定軸に重複して持たせない）。
+         *     軸固有のPythonコードへベタ書きせず`AxisDefinition`が共通で持つ宣言にしてあるため、
+         *     同型のケースはコード変更なしに表現できる。
          */
         PriorityCondition: {
             /** Material */
@@ -1870,18 +1868,14 @@ export interface components {
         };
         /**
          * RouteCandidate
-         * @description `overall_difficulty`: segmentsの`difficulty`（絶対基準0-100）の距離加重平均
-         *     （domain/difficulty.py: distance_weighted_difficulty）。異なる実験（重み・条件）間の
-         *     比較にも使える絶対基準（研究インターフェース改善 §10-7）。候補タブの並び順は
-         *     この値の昇順で決まる（route_generator.py参照）。
+         * @description 1本のルート候補。
+         *
+         *     `overall_difficulty`はsegmentsの`difficulty`（絶対基準0-100）の距離加重平均で、
+         *     重み・条件が違う実験の間でも比較できる。候補タブの並び順はこの値の昇順で決まる。
          *     segments欠損時・全区間difficulty欠損時はNone。
          *
-         *     `axis_difficulties`: `RouteSegmentDetail.axis_difficulties`と同じ
-         *     axis_id→difficulty(0-100)の汎用dictを、ルート全区間に対して1回だけ集約したもの
-         *     （`merge_axis_difficulties`を`aggregate_segments_into_bins`のビン単位ではなく
-         *     候補全体へ適用）。軸スタジオでの軸増減に自動追従する（BottomSheetのルート
-         *     全体プロファイル等が使う）。評価できなかった軸はキー自体を含めない（segments欠損時は
-         *     空dict）。
+         *     辞書フィールドは`RouteSegmentDetail`の同名フィールドを候補の全区間へ距離加重平均で
+         *     集約したもので、「データ無しはキーを持たない」規約も引き継ぐ。
          */
         RouteCandidate: {
             /** Id */
@@ -2058,15 +2052,12 @@ export interface components {
          * RouteSegmentDetail
          * @description 周回ルートの1区間（サンプル点i→i+1）の詳細。地図上の難易度レイヤー描画に使う。
          *
-         *     符号付き材料（`material_values`に入る`gradient_percent`等）の正準定義:
-         *     **符号付き・進行方向基準**（登り=正、下り=負、ElevationAttribute.average_gradeから
-         *     算出）。フロントの勾配色分け（routeStyleModes.ts）はこの符号を前提に「下り」
-         *     カテゴリを持つため、絶対値で返してはならない。
+         *     符号付き材料（`material_values`に入る`gradient_percent`等）は**符号付き・進行方向
+         *     基準**（登り=正、下り=負）。フロントの勾配色分けはこの符号を前提に「下り」カテゴリを
+         *     持つため、絶対値で返してはならない。
          *
          *     geometryはこの区間が実際に通る道なり形状（GeoJSON LineString、ルート全体geometryの
-         *     部分列）。地図の区間色分けを道路形状に沿って描くために使う。フロントは
-         *     geometryがnullの場合のみ始点・終点の直線で代替描画する（MapView.tsx:
-         *     segmentsToFeatureCollection）。
+         *     部分列）。フロントはこれがnullの場合のみ始点・終点の直線で代替描画する。
          */
         RouteSegmentDetail: {
             /** Geometry */
@@ -2114,56 +2105,31 @@ export interface components {
          * TileInputSpec
          * @description 地図表示（ramp）が読むMVTタイルプロパティ。
          *
-         *     数値材料（既定）: `display_value = Σ(property × weight)`をフロントのMapLibre
-         *     expressionが計算する。
-         *     真偽値材料（`boolean=True`）: MVTの真偽値プロパティは
-         *     `["==",["get",property],true]`のような真偽比較で読む必要があり数値の重み付け結合が
-         *     成立しないため、`true_value`/`false_value`（`weight`は無視）で寄与値を直接指定する。
+         *     数値材料（既定）: フロントのMapLibre expressionが`Σ(property × weight)`を計算する。
          *
-         *     `has_unknown_fallback`: タイルプロパティが
-         *     欠損している場合の意味が「true/falseどちらでもない不明」（例: surface_good、
-         *     未分類の路面。`surface_good`の値式が3値[良/不明/悪]に分類する
-         *     うちの「不明」に対応）であればTrueにする。既定Falseは「欠損=falseとみなしてよい
-         *     真偽値材料」（例: lit・has_tunnel⟵tunnel。タグ不在は「無し」の安全側既定と
-         *     元々の軸定義でそう決めている）を表し、フロントは通常どおり`true_value`/
-         *     `false_value`で色分けする。Trueの場合、フロントは欠損時に灰色「不明」表示へ切り替え、
-         *     trueValue/falseValueどちらのスコアにも倒さない（`domain/axis_templates.py:
-         *     evaluate_categorical`が欠損値をNone/NaN[difficulty不明]として扱うのと整合させる）。
+         *     真偽値材料（`boolean=True`）: MVTの真偽値プロパティは真偽比較でしか読めず重み付け
+         *     結合が成立しないため、`true_value`/`false_value`で寄与値を直接指定する（`weight`は
+         *     無視される）。
          *
-         *     N値文字列材料（`categories`）: `domain/axis_definitions.py:
-         *     CategoricalShape`のmappingがbool2値ではなくstr3値以上（highway/surface等）の
-         *     場合に使う。タイルプロパティの文字列値を`categories`辞書で引いた点数を寄与値とする
-         *     （`weight`と併用可、寄与値=`categories[value] * weight`）。`has_unknown_fallback=False`
-         *     （既定）の場合、未登録値は0扱い（寄与なし。値の種類は多いが取りうる値のごく一部だけを
-         *     圧迫感等の点数に反映すれば足りる材料向け）。
-         *     `has_unknown_fallback=True`の場合、未登録値は0扱いではなく
-         *     「不明」（灰色）へ倒す。これは`CategoricalShape`の評価側の実際の意味論（`domain/
-         *     axis_templates.py: evaluate_categorical`は未登録値に`mapping.get(value, None)`で
-         *     Noneを返し、`required=True`の材料でNoneは軸全体を評価不能にする——「未登録値=寄与0
-         *     [最良側]」ではなく「未登録値=評価不能」）に合わせるため。典型例: `highway`
-         *     （footway/path等、基準値が定義されていない道路種別は
-         *     評価側でその軸全体を評価しない[required=True]。プロパティの**欠損**のみを
-         *     「不明」判定すると、「値はあるが未登録」のケースを見落とし、実際には未評価のはずの
-         *     区間が0点=最良[緑]色で表示されてしまう。`axisLayers.ts: buildAxisRampUnknownExpression`
-         *     参照）。boolean材料の`has_unknown_fallback=True`はタイルプロパティが完全に欠損している
-         *     場合のみを「不明」とする（真偽値には「未登録の値」という状態自体が存在しないため）。
+         *     N値文字列材料（`categories`）: 文字列値を`categories`で引いた点数×`weight`を寄与値と
+         *     する。`CategoricalShape`のmappingがbool2値ではなく3値以上（highway/surface等）の
+         *     場合に使う。
          *
-         *     自己変換材料（`breakpoints`）: 材料自身が
-         *     `BreakpointLinearShape.breakpoints`（区分線形）で変換される軸（例:
-         *     数値材料の内部軸）の寄与値を、フロントの`interpolate`
-         *     expressionでタイルプロパティの生値から直接求める場合に使う（`weight`と併用可）。
+         *     自己変換材料（`breakpoints`）: 区分線形（`BreakpointLinearShape`）で変換される軸の
+         *     寄与値を、フロントの`interpolate`でタイル生値から直接求める。
          *
-         *     `needs_runtime_scale`: この材料のタイル生値が実行時にしか決まらない
-         *     係数でのスケール変換を要する場合True（`domain/material_catalog.py: MaterialSpec.
-         *     tile_property_needs_runtime_scale`が立っている材料、例: `accident_count_per_km_year`
-         *     ——収録年数[DBの`accident_import_runs`から実行時に取得、増え続ける]で正規化する前の
-         *     生値がタイルに焼き込まれている）。`axis_display.py`は
-         *     このフラグが立つ材料も地図表示の対象に含める——`weight`が「タイル生値→材料スケール」の
-         *     静的な変換係数を表現できなくても、`GET /api/axis-catalog`が実行時に取得した
-         *     スケール定数[`material_runtime_scales`]をフロントのJS式が追加で掛け合わせれば
-         *     正しく解決できる。`thresholds`は元々`AxisDefinition.shape.breakpoints`由来の
-         *     「材料スケール」の値のため、このフラグを持たない他のtile_inputと同じ意味のまま
-         *     扱ってよい（フロント側だけがこのフラグを見てtile生値に追加のスケール定数を掛ける）。
+         *     `has_unknown_fallback`: 値が引けないときの意味が「true/falseどちらでもない不明」
+         *     （例: 未分類の路面）ならTrueにし、フロントは灰色「不明」へ倒す。既定Falseは
+         *     「欠損=falseとみなしてよい」材料（例: lit。タグ不在は「無し」の安全側既定）を表す。
+         *     `categories`材料では**未登録値**も不明に含める——`evaluate_categorical`が未登録値に
+         *     Noneを返し`required=True`の軸全体を評価不能にするため、欠損だけを見ると、実際には
+         *     未評価の区間が0点＝最良（緑）で表示されてしまう。真偽値材料には「未登録の値」という
+         *     状態が無いため、欠損のみが不明になる。
+         *
+         *     `needs_runtime_scale`: タイル生値が実行時にしか決まらない係数でのスケール変換を要する
+         *     材料（例: 収録年数で正規化する前の事故件数）でTrue。`weight`が静的な変換係数を
+         *     表現できないが、`GET /api/axis-catalog`が配るスケール定数をフロントのJS式が追加で
+         *     掛けるため、地図表示の対象には含める。`thresholds`は材料スケールの値のままでよい。
          */
         TileInputSpec: {
             /** Property */
@@ -2325,12 +2291,10 @@ export interface components {
         };
         /**
          * WeatherPeriodOutlook
-         * @description 「今日の見通し」パネルの時間帯別の天気の流れ1コマぶん。periodは代表時刻の
-         *     "HH:MM"文字列（weather_service.py: _period_outlooks参照。現在時刻を2時間単位の
-         *     グリッド（0/2/4...時）へ切り下げた時刻を起点に2時間おきで8コマ生成する。朝/午後/夜
-         *     のような意味づけラベルは持たない——時刻の解釈・「6時」等の表示ラベルへの整形は
-         *     frontend側が担う）。weather_codeの意味・アイコンへの変換はWeatherConditions.
-         *     weather_codeと同じくfrontend側（weatherCode.ts）に集約する。
+         * @description 「今日の見通し」パネルの時間帯別の天気の流れ1コマぶん。
+         *
+         *     `period`は代表時刻の"HH:MM"文字列で、朝/午後/夜のような意味づけラベルは持たない
+         *     ——時刻の解釈・表示ラベルへの整形はfrontend側が担う。
          */
         WeatherPeriodOutlook: {
             /** Period */
@@ -2358,13 +2322,8 @@ export interface components {
          *     配列のまま返すのは、フロント側の時刻スライダーが追加のAPI呼び出し無しで時刻を
          *     切り替えられるようにするため。
          *
-         *     `times`自体はここには持たない（`WindGridResponse`参照）。全地点を同じ時刻列で
-         *     まとめて読む（msm_client.read_series）ため時刻は全地点で共通であり、624地点ぶん
-         *     複製すると応答サイズの大半（約9割）を時刻文字列の重複が占める。
-         *
-         *     precipitation_mm（降水量、mm/h相当）を持つ。風の矢印と降水ナウキャストの延長予報
-         *     （+60分以降）が同じ格子点マップを共有するため、1つのモデルへ両方を持たせている
-         *     （モジュール冒頭のdocstring参照）。
+         *     `times`自体はここには持たない（`WindGridResponse`参照）——時刻は全地点で共通で、
+         *     地点ごとに複製すると応答サイズの大半を時刻文字列の重複が占める。
          */
         WindGridPoint: {
             /** Latitude */
@@ -2382,9 +2341,7 @@ export interface components {
          * WindGridResponse
          * @description `/api/weather/wind-grid`・`wind-grid-detail`の応答本体。`times`は全格子点で共通の
          *     時刻配列を1本だけ持つ（各`WindGridPoint`は自分の値配列のみを持ち、インデックスは
-         *     `times`と揃っている）。`WindGridPoint`ごとに`times`を複製すると、624地点では
-         *     非圧縮応答の約54%（gzip圧縮下でも約9%）を時刻文字列の重複が占める。全地点取得失敗等で
-         *     `points`が空の場合は`times`も空になる。
+         *     `times`と揃っている）。全地点取得失敗等で`points`が空の場合は`times`も空になる。
          */
         WindGridResponse: {
             /** Times */
