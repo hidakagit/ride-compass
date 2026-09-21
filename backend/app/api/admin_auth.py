@@ -1,6 +1,4 @@
-"""管理API共通の認可境界。`axis_admin.py`・`debug_admin.py`の複数の管理ルーターが
-共有する（複製を避けるためここへ切り出してある）。
-"""
+"""管理API共通の認可境界。管理ルーターはいずれもこれを`Depends`で挟む。"""
 
 import secrets
 
@@ -13,17 +11,11 @@ _basic_auth = HTTPBasic(realm="RideCompass admin", auto_error=False)
 
 
 async def require_admin_basic_auth(credentials: HTTPBasicCredentials | None = Depends(_basic_auth)) -> None:
-    """管理APIの認可境界。
+    """資格情報が設定値と一致しなければ401を送出する。
 
-    HTTP Basic認証（環境変数`ADMIN_BASIC_AUTH_USERNAME`/`ADMIN_BASIC_AUTH_PASSWORD`、
-    settings参照）。`secrets.compare_digest`でタイミング攻撃を避ける（ユーザー名・
-    パスワードどちらも）。
-    未設定（既定""）の環境では常に拒否し、うっかり無保護公開しない。
-    認可判定をこの1関数（FastAPI Dependency）へ集約しているため、将来アカウント制へ
-    差し替える際もこの関数の中身だけを変えればよい（Stage D設計の継続）。
-    401はブラウザの標準Basic認証ダイアログを起動させるため`WWW-Authenticate`ヘッダを
-    付ける（`auto_error=False`でHTTPBasic自体の自動401を無効化し、常にこの関数が
-    ヘッダ付きの401を明示的に返す——資格情報の有無に関わらず一貫した応答にするため）。
+    資格情報が未設定（既定の空文字）の環境では常に拒否する——うっかり無保護公開しない。
+    `auto_error=False`でHTTPBasic自体の自動401を止め、資格情報の有無に関わらずこの関数が
+    `WWW-Authenticate`付きの401を返す（ブラウザの標準Basic認証ダイアログを起動させる）。
     """
     unauthorized = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,

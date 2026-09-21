@@ -1,5 +1,7 @@
 import asyncio
+import functools
 import logging
+from collections.abc import Awaitable, Callable
 from contextlib import asynccontextmanager
 from datetime import datetime
 
@@ -30,41 +32,26 @@ from app.services.axis_registry_service import refresh_axis_definitions
 from app.services.jma_amedas_service import AMEDAS_REFRESH_INTERVAL_MINUTES, JmaAmedasService
 from app.services.jma_tile_prewarm_service import prewarm_jma_tiles
 
-# ログレベルの方針(詳細は docs/conventions/logging.md):
-# - INFO以上(アクセスサマリ・ルート生成サマリ・外部APIエラーWARNING等)は常時出力し、
-#   実運用(debug_mode=False)の調査に足る情報を本番のログに残す。
-# - DEBUG(外部API/タイルキャッシュのイベント単位ログ等)はdebug_mode有効時のみ出力する。
-# %(request_id)sはRequestIdLogFilterが全レコードへ注入する(request_log.py参照)。
 logging.basicConfig(level=logging.DEBUG if settings.debug_mode else logging.INFO)
 for _handler in logging.getLogger().handlers:
     _handler.addFilter(RequestIdLogFilter())
-    # 時刻はJST＋オフセット付き（JstLogFormatterのdocstring参照）。書式は
-    # request_log.pyが1つだけ持ち、管理画面のリングバッファと同じ行になる。
     _handler.setFormatter(JstLogFormatter(LOG_FORMAT))
 
-# debug_modeをSSH不要で切り替え・確認できるよう、直近ログをメモリに
-# 保持するハンドラをルートロガーへ追加する（api/routers/debug_admin.py経由で取得）。
 install_ring_buffer_handler()
 
-# httpxは1リクエストごとに"HTTP Request: ..."をINFOで出す。外部API呼び出しの記録は
-# log_external_call(debug_log.py)が成功=DEBUG/失敗=WARNINGの方針で担っており、
-# 常時出るhttpxのINFOはタイルプロキシ等でログを埋めるだけなのでWARNING以上に抑える。
+# httpxは1リクエストごとに"HTTP Request: ..."をINFOで出す。外部呼び出しの記録は
+# log_external_call(debug_log.py)が担うため、タイルプロキシ等でログを埋めるだけのこれは抑える。
 logging.getLogger("httpx").setLevel(logging.WARNING)
 
-# 起動時の構成スナップショット。ログだけで「どのコミットで動いていたか」を
-# 後から確認できるようにする(/healthと同じ情報のログ版)。
 logging.getLogger("ridecompass.startup").info(
     "starting commit=%s debug_mode=%s",
     settings.git_commit,
     settings.debug_mode,
 )
 
-# DATABASE_URLへ実際に接続できない環境(.env未作成のDBなし構成等)では
-# /api/routes/generate・/api/routes/previewが常に失敗する(GraphServiceは常に
-# repository必須)。起動自体は妨げず、「起動するが全リクエスト失敗」という
-# 分かりにくい状態を早期に説明するWARNINGを出す。接続確認はイベントループ起動前のため
-# ここでは行わず、設定値をそのままログへ出すだけに留める(実際に接続不可かはリクエスト時
-# のエラーで判明する。ここはその読み解きの補助)。
+# DATABASE_URLへ実際に接続できない構成では/api/routes/generate・/api/routes/previewが
+# 常に失敗する。起動自体は妨げないため、「起動するが全リクエスト失敗」という分かりにくい
+# 状態をログから読み解けるよう接続先を残す（接続確認はイベントループ起動前のため行わない）。
 logging.getLogger("ridecompass.startup").info(
     "ルート生成・プレビューにはDATABASE_URL(%s)への実接続が必須です。",
     settings.database_url.split("@")[-1] if "@" in settings.database_url else "設定値",
@@ -73,95 +60,87 @@ logging.getLogger("ridecompass.startup").info(
 _scheduler = AsyncIOScheduler()
 
 
+def _with_failure_log(
+    logger_name: str, label: str
+) -> Callable[[Callable[[], Awaitable[None]]], Callable[[], Awaitable[None]]]:
+    """スケジューラへ載せるジョブを包み、失敗をWARNINGで残す。
+
+    APScheduler自身のログはこのプロジェクトの命名規約（`ridecompass.*`）から外れるため、
+    どのジョブが失敗したかを揃った名前で追えるようにする。
+    """
+
+    def decorate(func: Callable[[], Awaitable[None]]) -> Callable[[], Awaitable[None]]:
+        @functools.wraps(func)
+        async def job() -> None:
+            try:
+                await func()
+            except Exception:
+                logging.getLogger(logger_name).warning("%sに失敗しました", label, exc_info=True)
+
+        return job
+
+    return decorate
+
+
+@_with_failure_log("ridecompass.jma_amedas_scheduler", "アメダス定期更新")
 async def _refresh_amedas_job() -> None:
-    """定期バッチ本体。JMAアメダスは1地点だけを絞り込めず全国約1,300
-    観測所ぶんを1レスポンスで返すAPIのため、都度リクエストのたびに個別フェッチするのではなく
-    ここで全国分をまとめて取得しRedisへ書き戻す（jma_amedas_service.pyのdocstring参照）。
-    ジョブ内の例外はAPSchedulerがログするが、このプロジェクトの命名規約（ridecompass.*）に
-    揃えたWARNINGも残す（外部API呼び出し自体の詳細WARNINGはjma_amedas_client.py内の
-    log_external_callが別途出す）。
-    """
-    try:
-        count = await JmaAmedasService(get_http_client(10.0)).refresh_all_stations()
-        logging.getLogger("ridecompass.jma_amedas_scheduler").debug("アメダス定期更新完了 count=%d", count)
-    except Exception:
-        logging.getLogger("ridecompass.jma_amedas_scheduler").warning("アメダス定期更新に失敗しました", exc_info=True)
+    """JMAアメダスは1地点だけを絞り込めず全国ぶんを1レスポンスで返すため、リクエストごとに
+    引くのではなくここでまとめて取得しRedisへ書き戻す。"""
+    count = await JmaAmedasService(get_http_client(10.0)).refresh_all_stations()
+    logging.getLogger("ridecompass.jma_amedas_scheduler").debug("アメダス定期更新完了 count=%d", count)
 
 
+@_with_failure_log("ridecompass.jma_tile_prewarm_scheduler", "JMAタイルの定期プリウォーム")
 async def _prewarm_jma_tile_job() -> None:
-    """定期バッチ本体。JMA動的タイル（キキクル・線状降水帯予測マップ・
-    雷/竜巻ナウキャスト）をアプリの実運用範囲ぶんあらかじめRedisへ温める
-    （jma_tile_prewarm_service.pyのdocstring参照）。ジョブ内の例外はAPSchedulerがログするが、
-    このプロジェクトの命名規約（ridecompass.*）に揃えたWARNINGも残す。
-    """
-    try:
-        await prewarm_jma_tiles(JmaTileClient(get_http_client(15.0)))
-    except Exception:
-        logging.getLogger("ridecompass.jma_tile_prewarm_scheduler").warning("JMAタイルの定期プリウォームに失敗しました", exc_info=True)
+    await prewarm_jma_tiles(JmaTileClient(get_http_client(15.0)))
 
 
+@_with_failure_log("ridecompass.msm_sync_scheduler", "MSMの定期同期")
 async def _sync_msm_job() -> None:
-    """定期バッチ本体。気象庁MSM（風・降水の予報）の.omファイルをローカルへ同期する
-    （infrastructure/msm_client.pyのdocstring参照）。風グリッド・ルート評価はこの
-    ローカルファイルだけを読むため、同期が止まるとデータは順次古くなり、予報終端が
-    現在時刻へ追いつくと風グリッドは502を返す。
+    """気象庁MSM（風・降水の予報）の.omファイルをローカルへ同期する。
+
+    風グリッド・ルート評価はこのローカルファイルだけを読むため、同期が止まるとデータは
+    順次古くなり、予報終端が現在時刻へ追いつくと風グリッドは502を返す。
     """
-    try:
-        await refresh_msm(get_http_client(60.0))
-    except Exception:
-        logging.getLogger("ridecompass.msm_sync_scheduler").warning("MSMの定期同期に失敗しました", exc_info=True)
+    await refresh_msm(get_http_client(60.0))
 
 
+@_with_failure_log("ridecompass.tile_cache_prune", "ディスク永続キャッシュの旧世代削除")
 async def _prune_stale_disk_generations_job() -> None:
-    """起動時に1回だけ、ディスク永続化キャッシュの古い世代を削除する。
+    """ディスク永続化キャッシュの古い世代を削除する。
 
-    世代番号は参照先を切り替えるだけで、ディスク上の古い実体は残り続ける
-    （docs/conventions/caching.md「無効化」参照）。世代を上げたコードがデプロイされた直後のこの
-    タイミングで掃除する。削除対象が大きい（数百MB規模）ことがあるためスレッドで実行する。
+    世代番号は参照先を切り替えるだけで、ディスク上の古い実体は残り続ける。削除対象が
+    大きい（数百MB規模）ことがあるためスレッドで実行する。
     """
-    logger = logging.getLogger("ridecompass.tile_cache_prune")
-    try:
-        freed = 0
-        for prune in (graph_material_cache.prune_stale_disk_generations, tile_score_matrix_cache.prune_stale_disk_generations):
-            freed += await asyncio.to_thread(prune)
-        # 焼き済みタイルの置き場は鍵に世代を持たないため、世代単位では消せない。古い順で
-        # 上限まで落とす（infrastructure/tile_cache.py: prune_to_size_limit）。
-        freed += await asyncio.to_thread(
-            tile_cache.prune_to_size_limit, settings.tile_cache_size_limit_mb * 1024 * 1024
+    freed = 0
+    for prune in (graph_material_cache.prune_stale_disk_generations, tile_score_matrix_cache.prune_stale_disk_generations):
+        freed += await asyncio.to_thread(prune)
+    # 焼き済みタイルの置き場は鍵に世代を持たないため、世代単位では消せない。古い順で落とす。
+    freed += await asyncio.to_thread(
+        tile_cache.prune_to_size_limit, settings.tile_cache_size_limit_mb * 1024 * 1024
+    )
+    if freed:
+        logging.getLogger("ridecompass.tile_cache_prune").info(
+            "ディスク永続キャッシュの旧世代を削除しました freed_mb=%.1f", freed / 1e6
         )
-        if freed:
-            logger.info("ディスク永続キャッシュの旧世代を削除しました freed_mb=%.1f", freed / 1e6)
-    except Exception:
-        logger.warning("ディスク永続キャッシュの旧世代削除に失敗しました", exc_info=True)
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # httpx.AsyncClientのウォームアップ:
-    # infrastructure/http_client.pyのコメントの通りクライアント生成はSSLコンテキスト構築
-    # （CA証明書バンドルの読み込み・パース）を伴い、環境によっては数百ms〜1秒かかる。
-    # 遅延生成のままだとデプロイ直後の最初のリクエストがこのコストを負い、
-    # 接続タイムアウトがタイトな外部呼び出しでは
-    # ConnectTimeoutを誘発しやすい（F5で再試行すると成功する非対称性の主因）。
-    # dependencies.pyで実際に使われているtimeout値（10.0, 15.0）をここで前もって構築し、
-    # 起動完了後の最初のリクエストからコストを払わずに済むようにする。
+    # httpx.AsyncClientの生成はSSLコンテキスト構築を伴い、環境によっては数百ms〜1秒かかる。
+    # 遅延生成のままだとデプロイ直後の最初のリクエストがこのコストを負い、接続タイムアウトが
+    # タイトな外部呼び出しではConnectTimeoutを誘発する。実際に使うtimeout値を先に構築しておく。
     get_http_client(10.0)
     get_http_client(15.0)
 
-    # 評価軸定義（domain/axis_definitions.py: AXIS_DEFINITIONS）をDBから読み込む。
-    # 未migration・DB未接続・DB定義が半端に古い場合はAxisDefinitionSyncError
-    # を送出し、ここで捕捉しないため起動自体が失敗する（fail-fast、
-    # services/axis_registry_service.py参照）。
     async with get_session_factory()() as session:
+        # 例外をここで捕捉しないため、軸定義を読めない状態では起動自体が失敗する（fail-fast）。
         await refresh_axis_definitions(AxisDefinitionRepository(session))
-        # 較正値の上書き（domain/tuning.py: TUNING_VALUES）をDBから重ねる。行が1つも
-        # 無ければ宣言どおりの既定値のまま動くため、未migrationの環境でも失敗しない
-        # （壊れた値の行だけがTuningOverrideErrorで起動を止める）。
+        # 較正値は行が1つも無ければ宣言どおりの既定値のまま動く（壊れた値の行だけが起動を止める）。
         await refresh_tuning_values(session)
 
-    # JMAアメダスの定期バッチ。next_run_time=nowで起動直後にも1回即時実行し、
-    # 次の定期実行（interval分後）を待たずにデータを温める（コールドスタート時に
-    # /api/weather/amedasがinterval分ぶんキャッシュ空で502になり続けるのを避ける）。
+    # next_run_time=nowで起動直後にも1回実行し、次の定期実行までキャッシュが空のまま
+    # 502を返し続けるのを避ける。
     _scheduler.add_job(
         _refresh_amedas_job,
         trigger="interval",
@@ -169,8 +148,6 @@ async def lifespan(app: FastAPI):
         next_run_time=datetime.now(),
         id="refresh_amedas",
     )
-    # JMA動的タイルの定期プリウォーム。アメダスと同じくnext_run_time=nowで
-    # 起動直後にも1回即時実行し、次の定期実行を待たずにRedisを温める。
     _scheduler.add_job(
         _prewarm_jma_tile_job,
         trigger="interval",
@@ -178,7 +155,6 @@ async def lifespan(app: FastAPI):
         next_run_time=datetime.now(),
         id="prewarm_jma_tile",
     )
-    # MSM（風・降水の予報）の定期同期。next_run_time=nowで起動直後にも1回実行する。
     # 初回はローカルにファイルが無く、完了するまで風グリッド・ルート評価の風が使えない。
     _scheduler.add_job(
         _sync_msm_job,
@@ -187,8 +163,7 @@ async def lifespan(app: FastAPI):
         next_run_time=datetime.now(),
         id="sync_msm",
     )
-    # ディスク永続キャッシュの旧世代掃除。起動直後に1回だけ実行する（世代を上げた
-    # デプロイの直後がこのタイミングに当たる）。
+    # 世代を上げたコードがデプロイされた直後がこのタイミングに当たる。
     _scheduler.add_job(
         _prune_stale_disk_generations_job,
         trigger="date",
@@ -198,7 +173,6 @@ async def lifespan(app: FastAPI):
     _scheduler.start()
     yield
     _scheduler.shutdown(wait=False)
-    # httpx.AsyncClientの明示close（http_client.pyのdocstring参照）。
     await close_all_http_clients()
 
 
@@ -210,22 +184,18 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
     # フロントエンドはbackendへ直接fetchする(cross-origin)ため、X-Request-IDを
-    # ブラウザのJSから読めるようexposeする(request_log.py参照)。
+    # ブラウザのJSから読めるようexposeする。
     expose_headers=["X-Request-ID"],
 )
-# 応答のgzip圧縮（infrastructure/response_compression.py、対象content-typeのみ）。
-# CORSより外側・request_log_middlewareより内側に置く（アクセスログの所要時間に
-# 圧縮時間も含める）。
+# 圧縮はCORSより外側・request_log_middlewareより内側に置く（アクセスログの所要時間に
+# 圧縮時間も含める）。Cache-Controlはヘッダしか触らないため前後関係が結果に影響しない。
 app.add_middleware(ContentTypeGZipMiddleware)
-# 応答へのCache-Control付与(api/cache_policy.py、パスとポリシーの対応表は同ファイルが
-# 唯一の情報源)。ヘッダしか触らないため圧縮との前後関係は結果に影響しない。
 app.add_middleware(CachePolicyMiddleware)
 
 # 後から登録したミドルウェアが外側になる(リクエストIDの付与・アクセスログはCORS処理も
 # 含めた全体を計測・記録したいため、CORSより外側に置く)。
 app.middleware("http")(request_log_middleware)
-# 未処理例外(500)発生時もX-Request-IDヘッダを付けるための
-# Exceptionハンドラ(request_log.pyのモジュールdocstring参照)。
+# 未処理例外(500)発生時もX-Request-IDヘッダを付ける。
 app.add_exception_handler(Exception, unhandled_exception_handler)
 
 app.include_router(api_router)

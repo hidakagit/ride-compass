@@ -23,20 +23,18 @@ def _api_routes():
 
 
 def test_every_route_has_a_cache_policy():
-    # 新しいエンドポイントを追加したら_ROUTE_POLICIESへも1行足す、を機械的に強制する。
     missing = [route.path for route in _api_routes() if policy_for_path(route.path) is None]
     assert missing == [], f"cache_policy.pyの対応表に無いルート: {missing}"
 
 
 def test_every_policy_entry_matches_a_real_route():
-    # リファクタでパスが変わった際に、表へ古いエントリが残り続けるのを防ぐ。
     paths = [route.path for route in _api_routes()]
     dead = [prefix for prefix, _ in _ROUTE_POLICIES if not any(path.startswith(prefix) for path in paths)]
     assert dead == [], f"どの実ルートにも一致しない対応表のエントリ: {dead}"
 
 
 def test_policy_for_path_prefers_the_longest_prefix():
-    # 表への追記順に依存しないことの保証（/api/weather/amedasは/api/weatherより長い）。
+    # 表への追記順に依存しないことの保証。
     assert policy_for_path("/api/weather/amedas").header() == "public, max-age=120"
     assert policy_for_path("/api/weather?lat=35&lon=139").header() == "public, max-age=300"
 
@@ -53,8 +51,7 @@ def test_cache_policy_header_formats():
 
 @pytest.fixture
 def middleware_client():
-    """`/api/debug/`（no-store）・`/api/material-catalog`（max-age）・ハンドラ明示・
-    エラー応答を1つのアプリで確かめるための、対応表だけを共有する最小アプリ。"""
+    """本物の対応表だけを共有し、ミドルウェアの振る舞いを確かめるための最小アプリ。"""
     test_app = FastAPI()
     test_app.add_middleware(CachePolicyMiddleware)
 
@@ -92,14 +89,11 @@ def test_middleware_applies_no_store(middleware_client):
 
 
 def test_middleware_keeps_handler_supplied_header(middleware_client):
-    # 同じパスでも内容の性質でポリシーが分かれるエンドポイント（jma_tile.py）のため、
-    # ハンドラが自分で設定した値をミドルウェアが上書きしない。
     response = middleware_client.get("/api/material-catalog/explicit")
     assert response.headers["cache-control"] == "max-age=1"
 
 
 def test_middleware_does_not_cache_error_responses(middleware_client):
-    # 上流障害等の一時的な失敗をキャッシュさせると障害が実際の復旧より長く尾を引く。
     response = middleware_client.get("/api/material-catalog/boom")
     assert response.status_code == 502
     assert "cache-control" not in response.headers

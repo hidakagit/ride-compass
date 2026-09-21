@@ -23,8 +23,7 @@ def test_cors_rejects_origin_not_in_allowlist():
 
 
 def test_cors_exposes_request_id_header_for_browser_js():
-    # request_log.pyがX-Request-IDをレスポンスへ付与し、フロントのDebugConsoleが
-    # クロスオリジン越しに読むためにはexpose_headersの設定が必要。
+    # クロスオリジンではexpose_headersに載せない限りブラウザのJSからヘッダを読めない。
     allowed_origin = settings.cors_allowed_origins_list[0]
 
     response = client.get("/health", headers={"Origin": allowed_origin})
@@ -39,8 +38,6 @@ def test_router_is_included_health_endpoint_reachable():
 
 
 def test_httpx_logger_level_suppressed_to_warning():
-    # httpxは1リクエストごとにINFOで"HTTP Request: ..."を出すため、タイルプロキシ等で
-    # ログが埋まらないようWARNING以上に抑えている(main.py参照)。
-    # (root loggerのレベル自体はpytestのログキャプチャプラグインが上書きするため、
-    # ここでは明示的にsetLevelされるhttpxロガー単体を検証する)
+    # root loggerのレベルはpytestのログキャプチャプラグインが上書きするため、
+    # main.pyのimportが明示的にsetLevelするhttpxロガー単体を見る。
     assert logging.getLogger("httpx").level == logging.WARNING

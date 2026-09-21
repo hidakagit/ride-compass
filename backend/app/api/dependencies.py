@@ -1,8 +1,7 @@
 """APIのDI工場（FastAPIのDepends用ファクトリ）とルータ共通ヘルパー。
 
-エンドポイント本体はapi/routers/配下に分かれている。
-サービスの組み立て方（どのクライアント・タイムアウト・リポジトリを注入するか）は
-すべてここに集約し、ルータはエンドポイントの入出力とレート制限だけを持つ。
+サービスの組み立て方（どのクライアント・タイムアウト・リポジトリを注入するか）はすべて
+ここに集約し、ルータはエンドポイントの入出力とレート制限だけを持つ。
 """
 
 from datetime import datetime
@@ -58,16 +57,11 @@ logger = logging.getLogger("ridecompass.dependencies")
 def client_id(request: Request) -> str:
     """per-IPレート制限のキーに使うクライアント識別子。
 
-    Renderのようなリバースプロキシ配下では、uvicornの--proxy-headers＋
-    --forwarded-allow-ips設定（backend/Dockerfile）が正しくないと全アクセスが
-    プロキシの単一IPに潰れる点に注意（tests/test_client_ip_behind_proxy.py参照）。
+    リバースプロキシ配下では、uvicornの`--proxy-headers`＋`--forwarded-allow-ips`
+    （backend/Dockerfile）が正しくないと全アクセスがプロキシの単一IPへ潰れる。
 
-    request.clientがNone（ASGI呼び出し元がclient情報を渡さない場合、
-    または想定外のプロキシ構成）のときは全リクエストが固定文字列"unknown"の1つの
-    レート制限バケットへ相乗りし、無関係な複数クライアントの通信量が合算されてしまう
-    （本来より早く429になる、または逆に個々のクライアントに対する制限が実質緩くなる）。
-    根本原因（プロキシ構成等）の調査に使えるようWARNINGで記録する
-    （docs/conventions/logging.md: エラー・429拒否は常時WARNING以上で出す方針に準拠）。
+    `request.client`がNoneのときは全リクエストが"unknown"の1バケットへ相乗りし、
+    無関係なクライアントの通信量が合算される。プロキシ構成の調査に使えるよう記録する。
     """
     if request.client is None:
         logger.warning("request.client is None; rate-limit key falls back to shared 'unknown' bucket")
@@ -78,38 +72,33 @@ def client_id(request: Request) -> str:
 def enforce_rate_limit(request: Request, prefix: str, limit_per_minute: int) -> None:
     """per-IPレート制限を確認し、超過していれば記録した上で429を送出する。
 
-    `prefix`はレート制限のキー・rejection集計カテゴリの両方を兼ねる
-    （`f"{prefix}:{client_id(request)}"`)。
+    `prefix`はレート制限のキー・rejection集計カテゴリの両方を兼ねる。
     """
-    if not check_rate_limit(f"{prefix}:{client_id(request)}", limit_per_minute):
-        record_rate_limit_rejection(prefix, client_id(request), f"{limit_per_minute}/min")
+    client = client_id(request)
+    if not check_rate_limit(f"{prefix}:{client}", limit_per_minute):
+        record_rate_limit_rejection(prefix, client, f"{limit_per_minute}/min")
         raise HTTPException(status_code=429, detail="リクエストが多すぎます。しばらく待ってから再試行してください。")
 
 
+# 以下のJMA/GSI系サービスはいずれも軽量なJSON・CSVしか取りに行かないため、共有の
+# httpx.AsyncClient（同じタイムアウト）を使い回す。
 def get_weather_service():
     return WeatherService()
 
 
 def get_warning_service():
-    # GSI逆ジオコーダ・JMA地域マスタ・JMA警報APIはいずれも軽量なJSON取得のため、
-    # 他のサービスと同じ共有httpx.AsyncClientを使う。
     return WarningService(get_http_client(10.0))
 
 
 def get_amedas_service():
-    # 観測所マスタ・生観測値の取得は軽量なJSONのため他のJMA系サービスと同じ共有
-    # httpx.AsyncClientを使う。
     return JmaAmedasService(get_http_client(10.0))
 
 
 def get_wbgt_service():
-    # 地点マスタCSV取得・予測値API取得ともに軽量なため他のサービスと同じ共有
-    # httpx.AsyncClientを使う。
     return WbgtService(get_http_client(10.0))
 
 
 def get_flood_service():
-    # 地点解決はjma_warning_client.pyを再利用する。
     return FloodService(get_http_client(10.0))
 
 
@@ -117,31 +106,25 @@ def get_flood_service():
 class RouteGenerationSetup:
     """1回のルート生成に使う組み立て済みの部品と、実際に適用された評価条件。
 
-    route_preference はレスポンスの条件エコー
-    （routers/routes.py: GenerationConditions）にそのまま使う。
+    `route_preference`以降はレスポンスの条件エコーにもそのまま使う。
     """
 
     generator: RouteGenerator
     route_preference: RoutePreference
-    # T12 ADR原則1: 主観的割増と時間の換算レート（P）。road_graphエンジンのみに効く。
+    # 主観的割増と時間の換算レート（P）。
     penalty_strength: float
     # 仮定巡航速度（km/h）。通過予定時刻・到達予想時刻・所要時間の算出に使う。
     assumed_speed_kmh: float
-    # T12 ADR原則5: 0次ハードフィルタの勾配しきい値（%、Noneは無効）。road_graphエンジンのみに効く。
+    # 0次ハードフィルタの勾配しきい値（%、Noneは無効）。
     max_average_grade_percent: float | None
-    # 0次ハードフィルタ名（no_bicycle/motorway/trunk）の個別ON/OFF上書き。
-    # road_graphエンジンのみに効く。常に解決済み（Noneではなく実際に適用された集合）。
+    # 0次ハードフィルタ名の個別ON/OFF上書き。常に解決済み（Noneではなく実際に適用された集合）。
     hard_filters: frozenset[str]
 
 
 async def get_graph_service():
-    # PostGISのみを参照し、取込範囲外はデータ未整備として扱う。road_graph_use_repository
-    # 設定に関わらず常にrepository付きで構築する（config.py参照）。
-    # get_session_factory()（タイル配信と共有、command_timeout=20）ではなく
-    # get_route_generation_session_factory()（command_timeout=180）を使う。未splitエリアの
-    # 初回タッチ時に発生しうる重い再構築（graph_service.pyのdocstring参照）が、タイル配信
-    # 保護用の短いタイムアウトでキャンセルされないようにするため
-    # （database.py: get_route_generation_engineのコメント参照）。
+    # `road_graph_use_repository`設定に関わらず常にrepository付きで構築する。
+    # 未splitエリアの初回タッチで発生しうる重い再構築が、タイル配信保護用の短い
+    # command_timeoutでキャンセルされないよう、ルート生成用のセッション工場を使う。
     async with get_route_generation_session_factory()() as session:
         yield GraphService(repository=RoadGraphRepository(session))
 
@@ -156,12 +139,7 @@ def _assemble_route_generation_setup(
     assumed_speed_kmh: float = ASSUMED_SPEED_KMH,
     lens_axis_id: str | None = None,
 ) -> RouteGenerationSetup:
-    """組み立て済みのサービスと評価条件から`RouteGenerationSetup`を作る。
-
-    唯一の呼び出し元`open_route_generation_setup`から「どのサービスをエンジンへ
-    どう組み立てるか」を切り離すための純粋関数（テストからも直接呼べる、
-    tests/test_routes_generate.py参照）。
-    """
+    """組み立て済みのサービスと評価条件から`RouteGenerationSetup`を作る。"""
     preference = preference_override or load_route_preference()
     hard_filters = hard_filters_override if hard_filters_override is not None else DEFAULT_HARD_FILTERS
     # 省略されたときの値はここで1度だけ決める。以後は解決済みの値だけを回し、
@@ -198,15 +176,10 @@ async def open_route_generation_setup(
 ) -> AsyncIterator[RouteGenerationSetup]:
     """ルート生成ジョブが使う`RouteGenerationSetup`を組み立てる非同期コンテキストマネージャ。
 
-    FastAPIのリクエストスコープ外（`asyncio.create_task`で起動するジョブ本体、
-    レスポンス送出後も走り続ける）で使うため、`Depends`は使えない——リクエストの
-    DBセッションはハンドラ関数が返った
-    時点で閉じられ、その後もバックグラウンドタスクが同じセッションを使い続けようとすると
-    失敗する。
-
-    DB接続を要する依存（`get_graph_service`）は、既存のDI用ジェネレータ関数を
-    そのまま`asynccontextmanager()`でラップして
-    `AsyncExitStack`で開く（セッション開閉ロジックを複製しない）。
+    レスポンス送出後も走り続けるジョブ本体から使うため`Depends`は使えない——リクエストの
+    DBセッションはハンドラ関数が返った時点で閉じられ、その後も使い続けると失敗する。
+    セッション開閉を複製しないよう、DI用ジェネレータ関数をそのまま
+    `asynccontextmanager()`で包んで`AsyncExitStack`へ載せる。
     """
     async with AsyncExitStack() as stack:
         weather_service = get_weather_service()
@@ -227,9 +200,7 @@ def get_preview_builder(
 ) -> PreviewBuilder:
     """`/api/routes/preview`（単一区間確認）向けのビルダー。
 
-    `RoadGraphEngine.preview_segment`へ委譲する。previewはリクエストボディでの評価重み
-    上書きに対応しない（generateと違い研究インターフェース向けの調整UIが無い）ため、
-    既定値のみを使う。
+    previewはリクエストボディでの評価重み上書きに対応しないため、既定値のみを使う。
     """
 
     async def preview(
@@ -238,7 +209,7 @@ def get_preview_builder(
         preference = load_route_preference()
         engine = RoadGraphEngine(
             graph_service,
-                weather_service,
+            weather_service,
             preference,
             assumed_speed_kmh=assumed_speed_kmh,
         )
@@ -251,13 +222,11 @@ def get_preview_builder(
 
 
 async def get_road_graph_repository():
-    """`RoadGraphRepository`を直接使いたい読み取り専用の管理API向け（軸スタジオの
-    分布プレビュー・材料値一覧）。DBなし構成ではNoneを渡し、呼び出し元が503で返す。
+    """`RoadGraphRepository`を直接使いたい読み取り専用の管理API向け。
+    DBなし構成ではNoneを渡し、呼び出し元が503で返す。
 
-    `get_session_factory()`（タイル配信と共有、command_timeout=20）ではなく
-    `get_route_generation_session_factory()`（command_timeout=180）を使う。利用者は
-    いずれも全表走査寄りの管理APIで、タイル配信保護用の短いタイムアウトでキャンセル
-    されると集計が最後まで走らない（`get_material_coverage_service`と同じ理由）。
+    利用者はいずれも全表走査寄りのため、タイル配信保護用の短いcommand_timeoutで
+    キャンセルされないようルート生成用のセッション工場を使う。
     """
     if settings.road_graph_use_repository:
         async with get_route_generation_session_factory()() as session:
@@ -267,15 +236,9 @@ async def get_road_graph_repository():
 
 
 async def get_region_service():
-    # PostGISのみを参照する（PBF取込済みの範囲外・DB障害時は空タイルを返す）。
-    # road_graph_use_repository無効時（DBなし構成）はrepository自体を注入しないため、
-    # 路面レイヤーは常に空タイルになる。
-    #
-    # `get_graph_service`（GraphService）はこの設定に関わらずDB接続を必須とする
-    # （main.py起動時WARNING参照）ため、本番でDB接続済みの環境でこの設定だけFalseの
-    # ままにすると「ルート生成はDBを使うのに地図タイルは常に空」という一貫性の無い構成に
-    # なる（運用上は非推奨だが、コード上はエラーにならず空タイルを返し続けるだけで
-    # 安全側）。
+    # `road_graph_use_repository`無効時はrepository自体を注入せず、路面レイヤーは常に
+    # 空タイルになる（取込範囲外・DB障害時と同じ扱い）。ルート生成側はこの設定に関わらず
+    # DB接続を必須とするため、この設定だけFalseにすると一貫性の無い構成になる。
     if settings.road_graph_use_repository:
         async with get_session_factory()() as session:
             yield RegionService(repository=RoadGraphRepository(session))
@@ -283,24 +246,13 @@ async def get_region_service():
         yield RegionService()
 
 
-# axis_id→サービスファクトリの登録テーブル（キーは軸id。材料idではない
-# ——サービスが返す生値の材料idは各サービスの`material_id`属性が別に持つ）。
-# WindWayService/GradientWayServiceはコンストラクタ依存が異なる（前者だけ
-# weather_serviceを追加で要求）ため、ファクトリはrepository・weather_serviceの
-# 両方を受け取り、必要な方だけ使う統一シグネチャにする。
-# 3つ目の専用way値配信軸を追加する際は、このdictへ、1エントリ足すだけでよい
-# （dedicated_way_value_axes()自体の拡張［軸スタジオでの宣言のみで完結］とは別軸・
-# 別タイミングで進められる。こちらはPython実装本体の登録のため常にコード変更を伴う）。
-# 注意: このdictのキー集合はdedicated_way_value_axes()（domain/dynamic_way_values.py）の
-# キー集合の部分集合である必要がある（後者に無いaxis_idは下の
-# `if axis_id not in dedicated_way_value_axes()`で先に弾かれる）。新しい軸を
-# 追加する際は、軸スタジオでの登録（dedicated_way_value_layer・needs_time/needs_bearing）
-# に加えてこのdictへも登録すること（こちらはPythonの実装本体［コンストラクタ］の
-# 登録なので宣言だけでは代替できない）。
-# 軸スタジオでの登録だけが先行した軸は、ここに実装が無い＝配信できる値が無いため、
-# 未知のaxis_idと同じく404で返す（`get_dedicated_way_value_service`）。500にすると
-# フロントの「データなし」フォールバックが効かず、その軸のタイルが全て失敗する。
-# 書き込み時点で弾く経路は`axis_admin.py`の`_check_dedicated_layer_is_implemented`。
+# axis_id→サービスファクトリの登録テーブル。キーは軸idで、サービスが返す生値の材料idは
+# 各サービスの`material_id`属性が別に持つ。
+# サービスごとにコンストラクタ依存が違うため、ファクトリはrepository・weather_serviceの
+# 両方を受け取り必要な方だけ使う統一シグネチャにする。
+# 軸スタジオは`dedicated_way_value_layer=true`の軸を宣言だけで作れるが、配信できる値は
+# ここに実装があるものだけ——実装の無い軸は未知のaxis_idと同じく404で返す（500にすると
+# フロントの「データなし」フォールバックが効かず、その軸のタイルが全て失敗する）。
 _DEDICATED_WAY_VALUE_SERVICE_FACTORIES: dict[
     str, Callable[[RoadGraphRepository | None, WeatherService], WindWayService | GradientWayService]
 ] = {
@@ -310,11 +262,7 @@ _DEDICATED_WAY_VALUE_SERVICE_FACTORIES: dict[
 
 
 def implemented_dedicated_way_value_axis_ids() -> frozenset[str]:
-    """way_id→動的値配信の実装（Pythonのサービス本体）が登録済みのaxis_id。
-
-    軸スタジオは`dedicated_way_value_layer=true`の軸をGUIから作れるが、配信できる値は
-    ここに実装があるものだけ。書き込み時の検証（`axis_admin.py`）が参照する。
-    """
+    """way_id→動的値配信の実装が登録済みのaxis_id。軸の書き込み時の検証が参照する。"""
     return frozenset(_DEDICATED_WAY_VALUE_SERVICE_FACTORIES)
 
 
@@ -322,15 +270,12 @@ async def get_dedicated_way_value_service(
     axis_id: str,
     weather_service: WeatherService = Depends(get_weather_service),
 ):
-    """way_id→動的値配信層（風・勾配、「評価軸」グループ）の軸id駆動な単一の注入点。
-    `axis_id`（パスパラメータ、ルーター側と同名でなければFastAPIが解決できない）を見て、
-    DBセッションを1つだけ開いた上でその軸に対応するサービスを組み立てる——router側で
-    wind/gradient両方のサービスをDependsするとリクエストごとにDBセッションが2重に開いて
-    しまうため、この関数自体が分岐して1セッションで済ませる。`axis_id`が未知の場合は
-    Noneを返し、呼び出し元（region.py）が404を返す。
+    """way_id→動的値配信層の、軸id駆動な単一の注入点。
 
-    get_region_serviceと同じ「road_graph_use_repository無効時はrepository自体を注入しない」
-    パターン（DBなし構成では常に空dictを返す。到達可能性の説明もget_region_service参照）。
+    `axis_id`はパスパラメータで、ルーター側と同名でなければFastAPIが解決できない。
+    router側で軸ごとのサービスをそれぞれ`Depends`するとリクエストごとにDBセッションが
+    重複して開くため、この関数自体が分岐して1セッションで済ませる。未知の`axis_id`には
+    Noneを返し、呼び出し元が404を返す。
     """
     factory = _DEDICATED_WAY_VALUE_SERVICE_FACTORIES.get(axis_id)
     if axis_id not in dedicated_way_value_axes() or factory is None:
@@ -357,7 +302,7 @@ async def directional_materials(
     bearing_deg: float | None,
     speed_kmh: float | None,
 ) -> dict[str, float]:
-    """進行方向に依存する材料（勾配・風）を、指定された条件でまとめて引く。
+    """進行方向に依存する材料を、指定された条件でまとめて引く。
 
     **1本の道は往復2方向で値が違う**ため、方向が決まらないと算出できない。方向・時刻・
     想定速度が揃った軸だけを引き、揃わない軸は黙って飛ばす（呼び出し側では「データなし」
@@ -367,21 +312,20 @@ async def directional_materials(
     ものが揃っているかで判断する。軸が増えてもここは変わらない。
 
     値は地図のレンズが引くのと同じ経路（同じキャッシュ）から取るので、**地図の色と
-    内訳が一致する**。DBセッションは`get_dedicated_way_value_service`と同じ理由で
-    1本にまとめる。
+    内訳が一致する**。
     """
     if z is None or x is None or y is None:
         return {}
-    wanted = {
-        axis_id: axis for axis_id, axis in dedicated_way_value_axes().items()
+    wanted = [
+        axis_id for axis_id, axis in dedicated_way_value_axes().items()
         if axis_id in _DEDICATED_WAY_VALUE_SERVICE_FACTORIES
         and not (axis.needs_bearing and bearing_deg is None)
         and not (axis.needs_speed and speed_kmh is None)
-    }
+    ]
     if not wanted:
         return {}
 
-    weather_service = WeatherService()
+    weather_service = get_weather_service()
     key = feature_key or str(osm_way_id)
 
     async def collect(repository: RoadGraphRepository | None) -> dict[str, float]:
@@ -400,10 +344,7 @@ async def directional_materials(
 
 
 async def get_accident_service():
-    # PostGISのみを参照する（get_region_serviceと同じ「road_graph_use_repository無効時は
-    # repository自体を注入しない」パターン、到達可能性の説明もget_region_service参照）。
-    # 事故データはroad_graph_tilesのカバレッジとは無関係な独立データのため、DBなし構成では
-    # 常に空タイルになる。
+    # `get_region_service`と同じく、設定無効時はrepository自体を注入せず空タイルへ倒す。
     if settings.road_graph_use_repository:
         async with get_session_factory()() as session:
             yield AccidentService(repository=AccidentTileQuery(session))
@@ -423,37 +364,29 @@ def get_gsi_tile_client():
     return GsiTileClient(get_http_client(15.0))
 
 
+# 以下の管理API向けのうち、書き込み・1テーブル読みで足りるものはタイル配信と同じ
+# セッション工場を使い、全表走査を伴う集計はルート生成用の長いcommand_timeoutを使う
+# （短い方だと集計が最後まで走らずキャンセルされる）。
 async def get_axis_registry_admin_service():
-    # 軸定義CRUD管理API専用。タイル配信と同じget_session_factory()（command_timeout=20）
-    # で十分（書き込みは軽量なUPSERT/DELETE）。
     async with get_session_factory()() as session:
         yield AxisRegistryAdminService(AxisDefinitionRepository(session))
 
 
 async def get_tuning_session():
-    # 較正値の管理API専用。読み書きとも1テーブルの軽量な操作のため、軸定義CRUDと同じ
-    # セッション工場で足りる。
     async with get_session_factory()() as session:
         yield session
 
 
 async def get_material_coverage_service():
-    # 材料の欠損割合集計（管理API専用）。osm_raw_ways/road_edgesの全表走査を伴うため、
-    # タイル配信用の短いcommand_timeout（20秒）ではなくルート生成用の長い
-    # command_timeout（180秒）を持つセッションを使う。
     async with get_route_generation_session_factory()() as session:
         yield MaterialCoverageService(MaterialCoverageQuery(session))
 
 
 async def get_db_status_service():
-    # 本番DBの状態（管理API専用）。全テーブルの実数カウントを伴うため、
-    # get_derived_data_freshness_serviceと同じ長いcommand_timeoutのセッションを使う。
     async with get_route_generation_session_factory()() as session:
         yield DbStatusService(DbStatusQuery(session))
 
 
 async def get_derived_data_freshness_service():
-    # 派生データ鮮度台帳の集計（管理API専用）。edge_attribute_counts等の全表走査を
-    # 伴うため、get_material_coverage_serviceと同じ長いcommand_timeoutのセッションを使う。
     async with get_route_generation_session_factory()() as session:
         yield DerivedDataFreshnessService(DerivedDataFreshnessQuery(session))
