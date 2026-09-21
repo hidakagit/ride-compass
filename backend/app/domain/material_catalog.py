@@ -201,14 +201,6 @@ class MaterialSpec(StrictModel):
     # `value_sql`から導けない（「値がいくつか」と「元データがあるか」は別の問い。
     # 例: `lit`の値は欠損をfalseへ畳むが、欠損率はタグの有無を数える）。
     coverage: MaterialCoverage
-    # dtype="boolean"の材料でextractorがNoneを返した（＝欠損）ときの配列上の扱い。
-    # "false": bool配列、欠損はFalse（「タグ不在=非該当」とみなす多数派、motor_vehicle_no等）。
-    # "nan": float配列、欠損はNaN（「不明を非該当と混同しない」判断がある少数派、
-    # surface_good）。domain/axis_definitions.py: evaluate_axis_arrayの
-    # `values.dtype == bool`分岐（priority_overridesの真偽比較）が実際に配列dtypeを
-    # 見て分岐するため、この2表現は数値的に等価ではなく、材料ごとに固定する必要がある
-    # （統一すると当該分岐が壊れるため）。
-    bool_default: Literal["false", "nan"] = "false"
     # 材料の値（OSMタグ生値）ごとの日本語ラベル対訳表（タグ値→ラベル）。
     # highway/surface/smoothnessのようなオープンエンドな多値材料だけが持つ（他は空dict）。
     # 軸スタジオ（AxisComposer.tsx）の「値の候補」セレクトが`GET /api/material-catalog/
@@ -237,6 +229,18 @@ class MaterialSpec(StrictModel):
         value_labelと同じ理由で軸スタジオの材料選択肢に物理名[material_id]を併記する）。"""
         return f"{self.label} - {self.material_id}"
 
+
+    @property
+    def bool_default(self) -> Literal["false", "nan"]:
+        """欠損を配列上どう持つか。**宣言は`coverage`1つにする**——2か所に置くと、片方だけ
+        書き換えたときに画面と評価が食い違い、どちらが正しいかを誰も保証しない。
+
+        bool配列とfloat配列は数値的に等価ではない（`axis_definitions.py:
+        evaluate_axis_array`が`values.dtype == bool`で分岐する）。
+        """
+        if self.dtype != "boolean":
+            return "false"  # bool配列を作らない材料では参照されない
+        return "nan" if getattr(self.coverage, "missing_semantics", None) == "unknown" else "false"
 
 def _wind_drag_ratio_reference_points() -> list[MaterialReferencePoint]:
     """`wind_drag_ratio`材料の参考点（時速20km=基準速度で走行、走行方位0度を基準に
@@ -520,9 +524,6 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
         dtype="boolean",
         tile_property="surface_good",
         primary_attribute_id="surface",
-        # 「路面タグ不明」を「路面が悪い」と混同しないための唯一の例外（他のboolean材料は
-        # bool_default既定の"false"のまま）。
-        bool_default="nan",
         value_sql=SURFACE_GOOD_CASE_SQL,
         coverage=WayMaterialCoverageSpec(
                 missing_condition=f"({SURFACE_GOOD_CASE_SQL}) IS NULL",
