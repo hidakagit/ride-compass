@@ -38,6 +38,11 @@ axis_display_for()`・`primary_attribute_ids_for()`（`GET /api/axis-catalog`が
 
 from app.domain.axis_definitions import AXIS_DEFINITIONS
 from app.domain.axis_display import axis_display_for, primary_attribute_ids_for
+from app.domain.material_catalog import (
+    MATERIAL_CATALOG,
+    PRIMARY_ATTRIBUTES_WITHOUT_MATERIAL,
+    PRIMARY_ATTRIBUTE_LABELS,
+)
 from app.domain.registry import (
     AxisSpec,
     PrimaryAttributeSpec,
@@ -55,31 +60,18 @@ def register_defaults() -> None:
 
 
 def _register_primary_attributes() -> None:
-    # 各PrimaryAttributeSpecはattr_id/label/sharedのみを持つ（詳細はdomain/registry.py:
-    # PrimaryAttributeSpec docstring参照）。
-    register_primary_attribute(PrimaryAttributeSpec(attr_id="highway", label="道路の種類"))
-    register_primary_attribute(PrimaryAttributeSpec(attr_id="lanes", label="車線数"))
-    register_primary_attribute(PrimaryAttributeSpec(attr_id="maxspeed", label="制限速度"))
-    register_primary_attribute(PrimaryAttributeSpec(attr_id="cycleway", label="自転車インフラ"))
-    register_primary_attribute(PrimaryAttributeSpec(attr_id="surface", label="路面の種類"))
-    register_primary_attribute(PrimaryAttributeSpec(attr_id="bicycle_access", label="自転車通行可否"))
-    register_primary_attribute(PrimaryAttributeSpec(attr_id="motor_vehicle_access", label="自動車通行可否"))
-    register_primary_attribute(PrimaryAttributeSpec(attr_id="lit", label="街灯"))
-    register_primary_attribute(PrimaryAttributeSpec(attr_id="tunnel", label="トンネル"))
-    register_primary_attribute(PrimaryAttributeSpec(attr_id="oneway", label="一方通行"))
-    register_primary_attribute(PrimaryAttributeSpec(attr_id="elevation", label="標高"))
-    register_primary_attribute(PrimaryAttributeSpec(attr_id="stop_poi", label="停止要因"))
-    register_primary_attribute(PrimaryAttributeSpec(attr_id="supply_poi", label="補給・休憩ポイント"))
-    register_primary_attribute(PrimaryAttributeSpec(attr_id="accident_point", label="事故地点"))
-    register_primary_attribute(PrimaryAttributeSpec(attr_id="intersection", label="交差点"))
-    register_primary_attribute(PrimaryAttributeSpec(attr_id="landcover", label="土地被覆"))
-    register_primary_attribute(
-        PrimaryAttributeSpec(
-            attr_id="geometry",
-            label="区間形状",
-            shared=True,  # 区間の形状・距離（全軸が参照してよい共通コンテキスト、排他チェック対象外）
-        )
+    """一次属性の語彙を材料カタログから登録する。正本は`material_catalog.py`にある。"""
+    # 材料が指す一次属性がラベル表に無ければここで落とす（軸の公開時ではなく登録時に出す）。
+    missing = sorted(
+        {m.primary_attribute_id for m in MATERIAL_CATALOG.values() if m.primary_attribute_id}
+        - set(PRIMARY_ATTRIBUTE_LABELS)
     )
+    if missing:
+        raise ValueError(f"材料が指す一次属性がPRIMARY_ATTRIBUTE_LABELSにありません: {missing}")
+    for attr_id, label in PRIMARY_ATTRIBUTE_LABELS.items():
+        register_primary_attribute(PrimaryAttributeSpec(attr_id=attr_id, label=label))
+    for attr_id, label in PRIMARY_ATTRIBUTES_WITHOUT_MATERIAL.items():
+        register_primary_attribute(PrimaryAttributeSpec(attr_id=attr_id, label=label))
 
 
 def _register_axes() -> None:

@@ -378,6 +378,32 @@ _SMOOTHNESS_VALUE_LABELS: dict[str, str] = {
 }
 
 
+#: 一次属性のラベル（材料が指す先の表示名）。ここに無い一次属性を材料が指すと、
+#: レジストリ登録の時点で落ちる。
+PRIMARY_ATTRIBUTE_LABELS: dict[str, str] = {
+    "highway": "道路の種類",
+    "lanes": "車線数",
+    "maxspeed": "制限速度",
+    "cycleway": "自転車インフラ",
+    "surface": "路面の種類",
+    "motor_vehicle_access": "自動車通行可否",
+    "lit": "街灯",
+    "tunnel": "トンネル",
+    "oneway": "一方通行",
+    "elevation": "標高",
+    "stop_poi": "停止要因",
+    "accident_point": "事故地点",
+    "intersection": "交差点",
+    "landcover": "土地被覆",
+}
+
+#: 材料を1つも持たない一次属性。`inputs`は材料から導出されるため、どの軸からも参照されず
+#: 評価に効かない——地図レイヤーの分類としてだけ存在する。
+PRIMARY_ATTRIBUTES_WITHOUT_MATERIAL: dict[str, str] = {
+    "supply_poi": "補給・休憩ポイント",
+}
+
+
 # 現行の公開軸と内部軸が参照する材料（AXIS_DEFINITIONSのコメントと
 # 1:1対応）＋MVTタイルに焼き込み済みだが評価軸には未使用の生データを含む
 # （カタログ冒頭の注記参照）。

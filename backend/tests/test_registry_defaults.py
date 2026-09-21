@@ -7,6 +7,11 @@ import pytest
 from app.domain import registry
 from app.domain.axis_definitions import AXIS_DEFINITIONS
 from app.domain.axis_display import derive_ramp_inputs
+from app.domain.material_catalog import (
+    MATERIAL_CATALOG,
+    PRIMARY_ATTRIBUTES_WITHOUT_MATERIAL,
+    PRIMARY_ATTRIBUTE_LABELS,
+)
 from app.domain.registry_defaults import register_defaults
 
 # 改善計画T350: register_defaults()は呼び出し時点のAXIS_DEFINITIONSをそのまま走査するため、
@@ -33,25 +38,26 @@ def _primary_attribute(attr_id: str):
     return next(attr for attr in registry.all_primary_attributes() if attr.attr_id == attr_id)
 
 
-def test_default_primary_attributes_are_registered():
-    attr_ids = {attr.attr_id for attr in registry.all_primary_attributes()}
-    assert {
-        "highway",
-        "lanes",
-        "maxspeed",
-        "cycleway",
-        "surface",
-        "bicycle_access",
-        "motor_vehicle_access",
-        "lit",
-        "tunnel",
-        "elevation",
-        "stop_poi",
-        "supply_poi",
-        "accident_point",
-        "intersection",
-        "geometry",
-    }.issubset(attr_ids)
+def test_primary_attributes_come_from_the_material_catalog():
+    """語彙をここへ書き写さず、材料カタログから導かれることだけを見る。"""
+    registered = {attr.attr_id for attr in registry.all_primary_attributes()}
+
+    assert registered == set(PRIMARY_ATTRIBUTE_LABELS) | set(PRIMARY_ATTRIBUTES_WITHOUT_MATERIAL)
+
+
+def test_every_primary_attribute_a_material_points_to_is_registered():
+    pointed = {m.primary_attribute_id for m in MATERIAL_CATALOG.values() if m.primary_attribute_id}
+    registered = {attr.attr_id for attr in registry.all_primary_attributes()}
+
+    assert pointed <= registered
+
+
+def test_attributes_without_material_are_declared_as_such():
+    """材料を持たない一次属性は、その旨の表にだけ載っている。"""
+    pointed = {m.primary_attribute_id for m in MATERIAL_CATALOG.values() if m.primary_attribute_id}
+
+    for attr_id in PRIMARY_ATTRIBUTES_WITHOUT_MATERIAL:
+        assert attr_id not in pointed, f"{attr_id}は材料が指しているので、材料由来の表へ移す"
 
 
 def test_default_axes_are_registered_without_conflict():
@@ -217,12 +223,12 @@ def test_registry_axis_ids_match_axis_definitions():
         assert definition.axis_id == axis_id
 
 
-def test_only_the_common_context_attribute_is_exempt_from_the_exclusive_check():
-    # shared=Trueは「全軸が参照してよい共通コンテキスト」だけに与える。実質的な属性を
-    # 免除すると、その属性を2軸が使い始めても排他チェックが黙る。
+def test_no_primary_attribute_is_exempt_from_the_exclusive_check():
+    # shared=Trueは排他チェックの免除で、実質的な属性を免除すると、その属性を2軸が
+    # 使い始めても検査が黙る。現在この免除を受けている属性は無い。
     shared = {attr.attr_id for attr in registry.all_primary_attributes() if attr.shared}
 
-    assert shared == {"geometry"}
+    assert shared == set()
 
 
 def test_a_second_axis_using_cycleway_is_rejected():
