@@ -1,0 +1,18 @@
+{
+  "_": "個別に交渉した規模の閾値。これは測定値ではなく決定なので保存する（測定値=前回行数は periodic-review タグが指すコミットから導く）。ユーザー承認を経て変える。",
+  "thresholds": {
+    "backend/app/domain/evaluation.py": 1150,
+    "backend/app/domain/material_catalog.py": 1400,
+    "backend/app/domain/routing.py": 1400,
+    "backend/app/infrastructure/road_graph_repository.py": 3400,
+    "backend/app/services/road_graph_engine.py": 2700,
+    "docs/architecture.md": 3000,
+    "frontend/src/app/page.tsx": 2600,
+    "frontend/src/components/AxisStudio/AxisComposer.tsx": 1750,
+    "frontend/src/components/AxisStudio/AxisScoringSection.tsx": 900,
+    "frontend/src/components/Map/MapView.tsx": 4000,
+    "frontend/src/components/Map/icons.tsx": 1000,
+    "scripts/review_checks.py": 4500,
+    "scripts/tests/test_review_checks.py": 2000
+  }
+}

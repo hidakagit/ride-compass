@@ -57,7 +57,7 @@ HISTORY_DIR = REVIEW_DIR / "history"
 MODULES_DIR = REPO_ROOT / "docs" / "modules"
 TASKS_DIR = REPO_ROOT / "docs" / "records" / "tasks"
 IMPROVEMENT_PLAN = REPO_ROOT / "docs" / "improvement-plan.md"
-SIZE_BASELINE = HISTORY_DIR / "size_watch.json"
+SIZE_THRESHOLDS = REPO_ROOT / "scripts" / "size_thresholds.json"
 DUPLICATION_BASELINE = HISTORY_DIR / "duplication.json"
 GUARD_EDGE_BASELINE = HISTORY_DIR / "guard_edges.json"
 
@@ -2875,9 +2875,14 @@ def cmd_size(args: argparse.Namespace) -> int:
     arch = "docs/architecture.md"
     if (REPO_ROOT / arch).exists():
         counts[arch] = count_lines(REPO_ROOT / arch)
-    baseline = json.loads(read_text(SIZE_BASELINE)) if SIZE_BASELINE.exists() else {}
-    prev: dict[str, int] = baseline.get("files", {})
-    thresholds: dict[str, int] = baseline.get("thresholds", {})
+    # 閾値は**決定**なのでファイルに持つ。前回行数は**測定値**なので持たず、
+    # 直近の周期レビューのタグが指すコミットから導く。
+    thresholds: dict[str, int] = (
+        json.loads(read_text(SIZE_THRESHOLDS)).get("thresholds", {})
+        if SIZE_THRESHOLDS.exists() else {})
+    tags = review_tags()
+    base_tag, base_sha, base_date = (tags[0] if tags else (None, None, None))
+    prev_sha = tags[1][1] if len(tags) > 1 else None
     top_n = args.top
     groups = {
         "backend": sorted((f for f in counts if f.startswith("backend/")), key=lambda f: -counts[f])[:top_n],
@@ -2885,12 +2890,15 @@ def cmd_size(args: argparse.Namespace) -> int:
         "scripts": sorted((f for f in counts if f.startswith("scripts/")), key=lambda f: -counts[f])[:top_n],
         "docs": [arch] if arch in counts else [],
     }
-    watched = sorted(set(sum(groups.values(), [])) | set(thresholds) | set(prev), key=lambda f: -counts.get(f, 0))
-    prev_top = set(baseline.get("top", []))
     cur_top = set(sum(groups.values(), []))
+    watched = sorted(cur_top | set(thresholds), key=lambda f: -counts.get(f, 0))
+    prev = line_counts_at(base_sha, watched) if base_sha else {}
+    # 「上位に新規登場」は監視対象の中の順位で見る。全ファイルを過去リビジョンで測り直すと
+    # gitの呼び出しがファイル数ぶん要るため、母集団を監視対象に限る。
+    prev_top = set(sorted(prev, key=lambda f: -prev[f])[:len(cur_top)]) if prev else set()
 
     print(f"## 規模ウォッチ表（対象 {git('rev-parse', '--short', 'HEAD').strip()}、"
-          f"前回 {baseline.get('commit', '記録なし')} / {baseline.get('date', '-')}）")
+          f"前回 {base_tag or '記録なし'} / {base_date or '-'}）")
     print("| ファイル | 今回 | 前回 | 増分 | 閾値 | 発火 |")
     print("|---|---:|---:|---:|---:|---|")
     fired = []
@@ -2921,24 +2929,27 @@ def cmd_size(args: argparse.Namespace) -> int:
     # 前回も発火して、個別閾値も付いていないファイル。分類（KEEP/分割/閾値付きKEEP）の
     # いずれも実行されなかったということで、安全弁が鳴りっぱなしになっている
     # （「結果ファイルへ次閾値を書いただけで`thresholds`へ書き戻さない」が実際の失敗の形）。
-    stuck = [f for f in fired if f in set(baseline.get("fired", [])) and f not in thresholds]
+    # 前回の期間にも発火し、個別閾値も付いていないファイル。分類（KEEP/分割/閾値付きKEEP）の
+    # どれも実行されなかったということで、安全弁が鳴りっぱなしになっている。
+    # **前回の発火も保存せず導く**——タグが2つあれば、その間の期間を同じ計算で出せる。
+    prev_fired: set[str] = set()
+    if prev_sha and base_sha:
+        older = line_counts_at(prev_sha, watched)
+        for f in watched:
+            c, o = prev.get(f), older.get(f)
+            if c is None or o is None:
+                continue
+            if (o > 0 and (c - o) / o >= 0.15) or (o < 1000 <= c):
+                prev_fired.add(f)
+    stuck = [f for f in fired if f in prev_fired and f not in thresholds]
     if stuck:
         print()
         print(f"## 2回連続で発火し、個別閾値も付いていない: {', '.join(stuck)}")
-        print("前回の分類が`thresholds`へ書き戻されていないか、分割が実行されていない。"
-              "どちらかを行うまで毎回同じファイルが発火し続ける（complexity.md「規模ウォッチ」節）。")
-
-    if args.update:
-        new = {
-            "date": dt.date.today().isoformat(),
-            "commit": git("rev-parse", "--short", "HEAD").strip(),
-            "top": sorted(cur_top),
-            "files": {f: counts[f] for f in watched if f in counts},
-            "fired": sorted(fired),
-            "thresholds": thresholds,
-        }
-        SIZE_BASELINE.write_text(json.dumps(new, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-        print(f"前回値ファイルを更新: {rel(SIZE_BASELINE)}")
+        print(f"前回の分類が{rel(SIZE_THRESHOLDS)}へ書き戻されていないか、分割が実行されていない。"
+              "どちらかを行うまで毎回同じファイルが発火し続ける。")
+    elif not prev_sha:
+        print()
+        print("（周期レビューのタグが1つしか無いため、2回連続の発火は判定していない）")
     return 0
 
 
@@ -2979,27 +2990,49 @@ def npx_cli_path(npm: str) -> Path | None:
 REVIEW_TAG_PREFIX = "periodic-review/"
 
 
-def latest_review_tag() -> tuple[str | None, str | None, dt.date | None]:
-    """直近の周期レビューの(タグ名, 対象コミット, 実施日)。
-
-    **状態をファイルへ持たない。** レビュー結果は記録として残さない方針のため、
-    ファイルから読むと記録を捨てた瞬間に判定が壊れる。注釈付きタグは自分で日付を持つ。
-    """
+def review_tags() -> list[tuple[str, str, dt.date | None]]:
+    """周期レビューのタグを新しい順に(タグ名, コミット, 実施日)で返す。"""
     out = git("for-each-ref", "--sort=-refname",
               "--format=%(refname:short)	%(creatordate:short)",
               f"refs/tags/{REVIEW_TAG_PREFIX}*", check=False)
+    rows = []
     for line in out.splitlines():
         parts = line.split("	")
         if len(parts) != 2 or not parts[0]:
             continue
         name, date = parts
         sha = git("rev-list", "-n", "1", name, check=False).strip()
+        if not sha:
+            continue
         try:
             day = dt.date.fromisoformat(date)
         except ValueError:
             day = None
-        return name, (sha or None), day
-    return None, None, None
+        rows.append((name, sha, day))
+    return rows
+
+
+def line_counts_at(sha: str, paths: Iterable[str]) -> dict[str, int]:
+    """指定コミット時点の行数。**前回値をファイルへ保存しない**ための導出。"""
+    out: dict[str, int] = {}
+    for path in paths:
+        text = git("show", f"{sha}:{path}", check=False)
+        if text:
+            out[path] = len(text.splitlines())
+    return out
+
+
+def latest_review_tag() -> tuple[str | None, str | None, dt.date | None]:
+    """直近の周期レビューの(タグ名, 対象コミット, 実施日)。
+
+    **状態をファイルへ持たない。** レビュー結果は記録として残さない方針のため、
+    ファイルから読むと記録を捨てた瞬間に判定が壊れる。注釈付きタグは自分で日付を持つ。
+    """
+    tags = review_tags()
+    if not tags:
+        return None, None, None
+    name, sha, day = tags[0]
+    return name, sha, day
 
 
 def latest_history_date(kind: str | None = None) -> dt.date | None:
