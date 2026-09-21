@@ -138,11 +138,10 @@ export function landcoverTileUrl(): string {
 export const ROAD_TILE_MIN_ZOOM = regionTileConfig.road_tile_min_zoom;
 export const ROAD_TILE_MAX_ZOOM = regionTileConfig.road_tile_max_zoom;
 
-// 区間インスペクタ（改善計画T146）。地図上の道路クリックで得たosm_way_id（路面タイルの
+// 区間インスペクタ。地図上の道路クリックで得たosm_way_id（路面タイルの
 // MVTプロパティに含まれる識別子）から一次属性・全二次軸・合成コストを
 // 取得するAPI。緯度経度の空間マッチではなくosm_way_id完全一致にしている理由は
-// backend/app/services/region_service.py: get_axis_inspectorのdocstring参照
-// （交差点付近での取り違えを実機確認で発見し、この方式にした）。タイルURL系
+// backend/app/services/region_service.py: get_axis_inspectorのdocstring参照。タイルURL系
 // （roadSurfaceTileUrl等）と違いMapLibreのWeb Worker経由ではなくアプリのfetch()から
 // 直接呼ぶため、ここだけ絶対URL化（window.location.origin）が不要（weatherApi.ts等と同じ）。
 // POST+JSONボディなのはosm_way_idを本文で渡す既存の設計を踏襲（backend/app/api/routers/
@@ -193,11 +192,10 @@ export async function fetchAxisInspector(
   return data;
 }
 
-// way_id→動的値配信層（風・勾配、改善計画T405→T414→T423、docs/records/tasks/T400.md「2. 動的要素…の
-// 二重表現」節）。「評価軸」グループ向けに、指定タイル内のway_idごとの値（風=wind_drag_ratio、
-// 勾配=effective_gradient）をまとめて取得する。road-surface-tiles（MapLibreのWeb Worker
-// 経由）とは別経路で、fetchAxisInspectorと同じくアプリのfetch()から直接呼ぶ（絶対URL化は
-// 不要）。バージョンクエリを持たない（road-surface-tilesと異なりブラウザHTTPキャッシュに
+// way_id→動的値配信層（風・勾配）。「評価軸」グループ向けに、指定タイル内のway_idごとの
+// 値（風=wind_drag_ratio、勾配=effective_gradient）をまとめて取得する。road-surface-tiles
+// （MapLibreのWeb Worker経由）とは別経路で、fetchAxisInspectorと同じくアプリのfetch()から
+// 直接呼ぶ（絶対URL化は不要）。バージョンクエリを持たない（road-surface-tilesと異なりブラウザHTTPキャッシュに
 // 乗せない想定の軽量JSON、値自体はbackend側のRedis TTLで新鮮さを管理するため）。
 //
 // エンドポイントパスは軸id駆動（`/api/region/dynamic-way-values/{axis_id}/{z}/{x}/{y}`）で、
