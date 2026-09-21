@@ -26,8 +26,8 @@
   経緯でこの形になったか」の説明は別物——前者は仕様の一部、後者は履歴。
 - **要素を数え上げない**（個数・全件の一覧）。示すべきは挙動で、代表例を挙げるのは
   許容する。詳細は[documentation.md](../conventions/documentation.md)。このディレクトリの
-  **対象ファイル表だけは例外**——`find_undocumented_files`が完全性を検査するため
-  静かに古くならない。
+  **対象ファイル表だけは例外**——新しい実装ファイルの責務を逆引きするために全件を持つ
+  （完全性は周期レビューで人が見る）。
 - **表・図を優先し、地の文を増やさない**。1関数・1テーブルにつき1〜2文を目安にする。
   実装の逐次説明（コードを上から読み下すような記述）はしない——実装自体を読めば分かることは
   書かず、実装を読んだだけでは分からないこと（暗黙の前提・モジュール間の隠れた依存・
@@ -60,7 +60,7 @@
 | 依存ライブラリのバージョン制約 | [architecture/tech-stack.md](../architecture/tech-stack.md) | 「このメジャーへ上げられない理由」。コードには「上げていない」という事実しか無く、理由は書かれていない |
 | デプロイ順序・本番反映の前後関係 | [architecture/tech-stack.md](../architecture/tech-stack.md)・[deployment-sync.md](../conventions/deployment-sync.md) | DB移行を先に済ませないと起動に失敗する変更の扱い |
 | 実行環境・プラットフォーム固有の制約 | [architecture/tech-stack.md](../architecture/tech-stack.md) | バンドラ・ホスティング・OSに由来する回避策 |
-| 検知器・レビュー基盤（`scripts/`） | [/review](../../.claude/commands/review.md)と`scripts/review_checks.py` | 何をどの経路で機械的にブロックするか。アプリの挙動ではなく**アプリを検査する側**のため、下の対象ファイル表（`find_undocumented_files`が完全性を検査する）の母集団にも入らない |
+| 検知器・レビュー基盤（`scripts/`） | [/review](../../.claude/commands/review.md)と`scripts/review_checks.py` | 何をどの経路で機械的にブロックするか。アプリの挙動ではなく**アプリを検査する側**のため、下の対象ファイル表の母集団にも入らない |
 
 判断の目安は**「その制約を、コードだけを読んで知れるか」**。知れないならモジュール設計書の
 範囲外で、docs/architecture/側を見る。
