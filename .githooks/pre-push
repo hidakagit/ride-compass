@@ -23,20 +23,48 @@ find_venv() {
     return 1
 }
 
-# push範囲を決める。上流が無い（新規ブランチ）ならorigin/masterからの差分を見る。
-if UPSTREAM="$(git rev-parse --abbrev-ref --symbolic-full-name '@{u}' 2>/dev/null)"; then
-    BASE="$(git merge-base "$UPSTREAM" HEAD 2>/dev/null || echo "")"
-else
-    BASE="$(git merge-base origin/master HEAD 2>/dev/null || echo "")"
-fi
-[ -n "$BASE" ] || exit 0
+# 検査する範囲は、gitが標準入力で渡す「これからpushする範囲」から決める。
+# 1行が <ローカルref> <ローカルsha> <リモートref> <リモートsha> で、リモートshaは
+# 「リモートが今持っているコミット」——そこからの差分が、まさにpushで増えるぶんになる。
+# リモートshaが全0なら新規ブランチなので、origin/masterからの差分へ落ちる。
+#
+# 手で動かすとき（git経由でない）は標準入力が空になるので、`</dev/null` を付けて呼ぶ。
+ZERO_RE='^0*$'
+LINES=0
+CHANGED=""
+while read -r _lref lsha _rref rsha; do
+    LINES=$((LINES + 1))
+    [ -n "${lsha:-}" ] || continue
+    # ローカルsha全0 = ブランチの削除。中身が無いので検査しない。
+    if printf '%s' "$lsha" | grep -qE "$ZERO_RE"; then continue; fi
+    if printf '%s' "${rsha:-}" | grep -qE "$ZERO_RE" || ! git cat-file -e "${rsha:-x}^{commit}" 2>/dev/null; then
+        base="$(git merge-base origin/master "$lsha" 2>/dev/null || echo "")"
+    else
+        base="$rsha"
+    fi
+    [ -n "$base" ] || continue
+    CHANGED="$CHANGED
+$(git diff --name-only --diff-filter=d "$base" "$lsha")"
+done
 
-# 削除されたファイルを除く——消えたものを検査器へ渡すと「見つからない」で落ちる。
-CHANGED="$(git diff --name-only --diff-filter=d "$BASE" HEAD)"
+# 標準入力が無い（手で実行した）ときだけ、従来どおり上流との差分で代用する。
+if [ "$LINES" -eq 0 ]; then
+    if UPSTREAM="$(git rev-parse --abbrev-ref --symbolic-full-name '@{u}' 2>/dev/null)"; then
+        BASE="$(git merge-base "$UPSTREAM" HEAD 2>/dev/null || echo "")"
+    else
+        BASE="$(git merge-base origin/master HEAD 2>/dev/null || echo "")"
+    fi
+    [ -n "$BASE" ] || exit 0
+    CHANGED="$(git diff --name-only --diff-filter=d "$BASE" HEAD)"
+fi
+
+CHANGED="$(printf '%s
+' "$CHANGED" | grep -v '^$' | sort -u)"
 [ -n "$CHANGED" ] || exit 0
 
 # docs・markdownだけの変更は何も動かさない（.github/workflows/ci.ymlのpaths-ignoreと同じ規則）。
-if ! printf '%s\n' "$CHANGED" | grep -qvE '^docs/|\.md$'; then
+if ! printf '%s
+' "$CHANGED" | grep -qvE '^docs/|\.md$'; then
     exit 0
 fi
 
