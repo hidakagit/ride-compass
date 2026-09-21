@@ -203,7 +203,7 @@ RouteGenerator.generate_loops(origin, distance_km, distance_tolerance_km, max_ro
 **別エンドポイントにしていない**のは、合成も生成と同じコスト曲線だから——経路は確定済み
 でも`prepare`は通る（評価は`_RoadGraphContext`のコスト配列から読む。design-principles.md
 構造仕様10）。`prepare`は温まっていても1秒前後、タイル材料が冷たいと数十秒かかるため、
-202＋ポーリングのジョブ機構がそのまま要る（数値はT621）。
+202＋ポーリングのジョブ機構がそのまま要る。
 
 送られたEdge id列が**実在し・順につながり・起点から始まり・目的地へ着く**ことは
 `engine.build_traced_from_edge_ids`が確かめ、成立しなければ`RoutingError`で落とす
