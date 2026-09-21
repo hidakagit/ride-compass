@@ -10,7 +10,7 @@ improvement-plan.md自体はチェックボックス付きリンクの一覧（�
 にある。
 設計原則（RideCompass固有の仕様）は docs/design-principles.md が唯一の正本（常に最新）。
 新しい仕組みを作る前は必ず読むこと。判断原則・進め方は
-.claude/commands/review/principles.md「判断原則」節、機能単位の設計は
+.claude/commands/review.md「判断原則」節、機能単位の設計は
 docs/modules/README.md（モジュール単位、実コードのみを根拠に記述）
 を参照。**改善計画のタスクに限らず、既存モジュールへの修正・追加に着手する際は、
 対象となるdocs/modules/*.mdを必ず先に精読し、記載と実装の乖離（未記載のファイル・
@@ -34,7 +34,7 @@ docs/modules/README.md「このディレクトリが扱わない領域」節に�
 | **docs/conventions/*.md**（logging.md・testing.md等） | 規約。仕事のやり方の取り決め | CLAUDE.mdからは要点＋「詳細は◯◯.md参照」の形で参照するだけにする |
 | **docs/architecture/*.md** | 構成・技術選定・外部の制約・設計原則（構造仕様） | コードから導けない事実と、コードが従うべき構造契約 |
 | **docs/modules/*.md** | モジュール単位の実装粒度の記述 | 実装作業者向けの詳細。architecture より細かいものはここへ落とす |
-| **.claude/commands/review/*.md**（`/review:consistency`等） | **複数の変更を並べて初めて判断できる、周期実行向きのチェック**（複雑度のトレンド・UI一貫性・アーキテクチャ全体の一貫性等） | 1タスク単体では判断材料が無い・判断にコストがかかるもの。既存のレビュー基盤（[README](.claude/commands/review/README.md)参照）が対象。**注意**: grep一発で済むような安価で機械的なチェックはここへ寄せない——「次の周期レビューまで気づけない」設計になり手遅れになる。そういうものは`scripts/review_checks.py`の検知器にし、ここには二重チェックとしてのみ残す |
+| **.claude/commands/review.md**（`/review`） | **複数の変更を並べて初めて判断できる、周期実行向きのチェック**（複雑度のトレンド・UI一貫性・アーキテクチャ全体の一貫性等） | 1タスク単体では判断材料が無い・判断にコストがかかるもの。**注意**: grep一発で済むような安価で機械的なチェックはここへ寄せない——「次の周期レビューまで気づけない」設計になり手遅れになる。そういうものは`scripts/review_checks.py`の検知器にし、ここには二重チェックとしてのみ残す |
 | **docs/records/** | 記録（タスク・決定）。**維持しない** | 記録時点で嘘がなければよく、訂正は新しい記録で行う。レビュー・検知器の対象外（`docs/records/README.md`） |
 
 ## 出力言語（必読）
@@ -272,7 +272,7 @@ T536でそれを置き換えた`compute_edge_costs_bulk`まで同じ理由で残
   `docs/improvement-plan.md`は節見出し＋チェックボックス付きリンクの一覧のみを持ち、
   個々のタスクの背景・対応方針・実装メモは`docs/records/tasks/Txxx.md`へ分離されている:
   `docs/records/tasks/Txxx.md`を新規作成して詳細を書き、`docs/improvement-plan.md`の該当節へ
-  `- [ ] [Txxx](tasks/Txxx.md). タイトル 規模...`の1行を追記する。番号の採番・衝突時の
+  `- [ ] [Txxx](docs/records/tasks/Txxx.md). タイトル 規模...`の1行を追記する。番号の採番・衝突時の
   振り直し手順は次の「作業ツリーの安全」節を参照。
 - **判断・実行を保留する場合、「後で判断」等の一言メモで済ませず、影響範囲
   （保留することで何がブロックされるか・何が動かなくなるか）を明記した完全な

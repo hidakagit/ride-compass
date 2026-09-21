@@ -7,12 +7,11 @@ CLAUDE.md「コミット時の同期ルール」から参照される。個々�
 
 本番DBをゼロから再構築する手順（disaster recovery）は**現在ない**——T970でデータ層を
 作り直した際に旧手順が指す入口が全て入れ替わったため、バックアップの形と合わせて
-[T972](../records/tasks/T972.md)で作り直す（当時の手順は
-[archive](archive/disaster-recovery-before-t970.md)）。派生データの作り直しは
+[T972](../records/tasks/T972.md)で作り直す。派生データの作り直しは
 `python -m app.batch.derive_cli`。
 
 軸定義を軸スタジオに何をさせるかは
-[decisions/axis-definition-maintenance-split.md](../records/decisions/axis-definition-maintenance-split.md)。
+[axis-definition-maintenance-split.md](../records/decisions/axis-definition-maintenance-split.md)。
 
 ## 本番へ効かせたい軸定義の変更は、本番の管理画面で行う
 

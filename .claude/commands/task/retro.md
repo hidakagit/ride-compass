@@ -33,7 +33,6 @@ argument-hint: [対象タスク（省略時は直近のセッション内の作�
      足りない場合のみ
    - **docs/`<topic>`.md**: トピック別の詳細方針・経緯・具体例（`logging.md`・`testing.md`等の
      既存ファイル、または新設）
-   - **`.claude/commands/review/_history.md`**（該当する場合）: レビュー基盤の運用ルールの経緯
    - **`.claude/commands/task/_history.md`**（本ディレクトリ、無ければ本skill実行時に新設提案する）:
      task基盤（`task:next`等）の運用ルールの経緯
    - **`docs/records/decisions/`**: アーキテクチャ・設計上の決定とその理由（既存ファイル群と同じ粒度）

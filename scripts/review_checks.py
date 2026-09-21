@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""周期レビュー（.claude/commands/review/）の機械的チェックをまとめたスクリプト。
+"""周期レビュー（.claude/commands/review.md）の機械的チェックをまとめたスクリプト。
 
 Agent（人力）で行っていた「grep一発で済む」確認をここへ寄せ、レビューの負荷を下げる。
 標準ライブラリのみで動く（backend/.venvでもシステムのpythonでもよい）。
@@ -2974,13 +2974,36 @@ def npx_cli_path(npm: str) -> Path | None:
     return next((c for c in candidates if c.exists()), None)
 
 
+#: 周期レビューを実施した対象コミットへ打つ注釈付きタグ。`NNN`は回数。
+#: 日付を名前に入れないのは、同じ日に2回レビューした実績があり一意にならないため。
+REVIEW_TAG_PREFIX = "periodic-review/"
+
+
+def latest_review_tag() -> tuple[str | None, str | None, dt.date | None]:
+    """直近の周期レビューの(タグ名, 対象コミット, 実施日)。
+
+    **状態をファイルへ持たない。** レビュー結果は記録として残さない方針のため、
+    ファイルから読むと記録を捨てた瞬間に判定が壊れる。注釈付きタグは自分で日付を持つ。
+    """
+    out = git("for-each-ref", "--sort=-refname",
+              "--format=%(refname:short)	%(creatordate:short)",
+              f"refs/tags/{REVIEW_TAG_PREFIX}*", check=False)
+    for line in out.splitlines():
+        parts = line.split("	")
+        if len(parts) != 2 or not parts[0]:
+            continue
+        name, date = parts
+        sha = git("rev-list", "-n", "1", name, check=False).strip()
+        try:
+            day = dt.date.fromisoformat(date)
+        except ValueError:
+            day = None
+        return name, (sha or None), day
+    return None, None, None
+
+
 def latest_history_date(kind: str | None = None) -> dt.date | None:
-    dates = []
-    for p in HISTORY_DIR.glob("*.md"):
-        m = re.match(r"(\d{4}-\d{2}-\d{2})_([A-Za-z0-9\-]+)\.md$", p.name)
-        if m and (kind is None or m.group(2) == kind):
-            dates.append(dt.date.fromisoformat(m.group(1)))
-    return max(dates) if dates else None
+    return latest_review_tag()[2]
 
 
 def cmd_metrics(args: argparse.Namespace) -> int:
@@ -3068,26 +3091,13 @@ TRIGGER_IMPL_LINES = 20_000
 
 
 def latest_target_commit() -> tuple[str | None, str | None, list[str]]:
-    """history/ の直近 all/consistency/overall ファイルから対象コミットSHAを取る。
+    """直近の周期レビューが見た対象コミットと、その出典（タグ名）。
 
-    **読めずに遡ったファイル名も返す**。記録の冒頭に「対象コミット」の行が無いと、
-    レビューを実施していても起点が古いままになり、変更行数のトリガーが鳴り続ける。
-    黙って遡ると、その原因（書式のずれ）に気づけない。
+    タグが指すコミットそのものが対象なので、書式のずれで読めなくなることがない。
+    3つ目は互換のため常に空。
     """
-    cands = []
-    for p in HISTORY_DIR.glob("*.md"):
-        m = re.match(r"(\d{4}-\d{2}-\d{2})_(all|consistency|overall)\.md$", p.name)
-        if m:
-            cands.append((m.group(1), p))
-    skipped: list[str] = []
-    for _, p in sorted(cands, reverse=True):
-        for line in read_text(p).splitlines()[:40]:
-            if "対象コミット" in line:
-                m = re.search(r"`([0-9a-f]{7,40})`", line)
-                if m:
-                    return m.group(1), p.name, skipped
-        skipped.append(p.name)
-    return None, None, skipped
+    name, sha, _ = latest_review_tag()
+    return sha, name, []
 
 
 # --- レビュー指摘の category 集計（principles.md 共通実行手順4d-2） ---------
@@ -3163,7 +3173,7 @@ def cmd_trigger(args: argparse.Namespace) -> int:
         lines = sum(nums)
     fired = []
     print("## 周期レビュー トリガー判定")
-    print(f"- 前回レビュー（history/ 最新日付）: {last}（{days}日経過、閾値 {TRIGGER_DAYS}日）")
+    print(f"- 前回レビュー: {last}（{days}日経過、閾値 {TRIGGER_DAYS}日）")
     if days is not None and days >= TRIGGER_DAYS:
         fired.append("日数")
     if lines is not None:
@@ -3178,7 +3188,7 @@ def cmd_trigger(args: argparse.Namespace) -> int:
               "（実施済みでも起点が古いままになり、変更行数が過大に出る）")
     print("- 分割元タスク（複数のTxxxへ分割する規模Lのタスク）の完了直後かは自動判定できない。該当すれば量に関係なく実施する")
     print()
-    print("判定: " + (f"**該当（{'・'.join(fired)}）** → /review:all（最低限 /review:consistency）を実施する" if fired
+    print("判定: " + (f"**該当（{'・'.join(fired)}）** → /review を実施する" if fired
                    else "未該当"))
     return 0
 
@@ -3352,7 +3362,7 @@ def cmd_duplication(args: argparse.Namespace) -> int:
 
 GUARD_PROBE_TS = "frontend/src/lib/zzzGuardProbe.ts"
 GUARD_PROBE_TEST_TS = "frontend/src/lib/zzzGuardProbe.test.ts"
-REVIEW_CONTEXT_DOC = ".claude/commands/review/context.md"
+REVIEW_CONTEXT_DOC = ".claude/commands/review.md"
 GUARD_PROBE_PY = "backend/app/services/zzz_guard_probe.py"
 GUARD_PROBE_MIGRATION = "backend/migrations/9999_zzz_guard_probe.sql"
 # 実在しない識別子の綴りは実行時に組み立てる。このファイル自身が実在判定のコーパス
