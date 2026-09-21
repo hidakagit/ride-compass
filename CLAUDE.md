@@ -112,9 +112,13 @@ CronCreate等）に付随する進捗・ログ・通知メッセージも例外�
   backendは`pytest.ini`の`filterwarnings = error`で機械的に止まる。無視するものは理由付きの
   `ignore`行として足す（詳細はdocs/conventions/testing.md「警告は既定でエラー」参照）。
 - **手元で回すのは、変更が届く範囲だけ**（backend例: `pytest backend/tests/test_foo.py -q`、
-  frontend例: `npx vitest run <該当ファイル>`）。届く範囲は次項の手順で導出する。
+  frontend例: `./node_modules/.bin/vitest run <該当ファイル>`）。届く範囲は次項の手順で導出する。
+  **frontendのコマンドに`npx`を付けない**——このリポジトリのツールはすべてローカルに
+  入っており、`npx`は毎回パッケージ解決をやり直して13.6秒を足す（`npx tsc --version`
+  だけで13.6秒。実測2026-09-22）。
   **例外は`tsc --noEmit`**——TypeScriptは型の波及を1ファイルへ絞れないため、これだけは
-  プロジェクト全体で1回通す（数秒。Next.jsの生成型が未作成なら`npx next typegen`を先に）。
+  プロジェクト全体で1回通す（`./node_modules/.bin/tsc --noEmit`で27秒。Next.jsの生成型が
+  未作成なら`./node_modules/.bin/next typegen`を先に）。
 - **フルスイート（backend全体・`-m postgis`・frontendの`vitest`全体）はCIの持ち物であり、
   手元の完了条件に含めない。** `.github/workflows/ci.yml`がpushのたびに
   backend ruff→pytest（PostGIS統合テスト込み、`-n auto --dist loadgroup`で並列）・
