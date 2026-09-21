@@ -1300,6 +1300,17 @@ export default function Home() {
     dynamicLayerTargetTime,
     assumedSpeedKmh,
   );
+  // 道をクリックしたときの内訳も、地図のレンズと同じ条件で計算させる（揃えないと同じ
+  // 場所で色と数字が食い違う）。レンズが今どの軸を出しているかには依存しない——押した道の
+  // 内訳は常に全軸ぶん出すため。
+  const rideConditions = useMemo(
+    () => ({
+      bearingDeg: travelBearingDeg,
+      at: dynamicLayerTargetTime,
+      speedKmh: assumedSpeedKmh,
+    }),
+    [travelBearingDeg, dynamicLayerTargetTime, assumedSpeedKmh],
+  );
   // レイヤーID（`${axisId}Axis`）→表示フラグ。レンズに選ばれた専用配信軸だけON
   // （axisVisibilityと同じ形。MapViewは軸ごとのpropを持たない）。
   const dedicatedWayValueVisibility = useMemo(
@@ -2261,6 +2272,7 @@ export default function Home() {
             dedicatedWayValueHiddenBands={dedicatedWayValueHiddenBands}
             dedicatedAxes={axisCatalog.dedicatedAxes}
             dedicatedWayValues={dedicatedWayValues}
+            rideConditions={rideConditions}
             dedicatedWayValueDisplays={dedicatedWayValueDisplays}
             dedicatedWayValueLoading={dedicatedWayValueLoading}
             axisVisibility={axisVisibility}

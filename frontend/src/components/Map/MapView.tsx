@@ -36,6 +36,8 @@ import {
   poiTileUrl,
   roadSurfaceTileUrl,
 } from "@/services/regionApi";
+import type { RideConditions } from "@/services/regionApi";
+import { tileContainingLonLat, type TileXY } from "@/components/Map/dynamicWayValues";
 import {
   KNOWN_LINE_OPACITY,
   ROAD_SURFACE_AXIS_ID,
@@ -2060,6 +2062,11 @@ interface MapViewProps {
    * 新設せず（design-principles.md構造仕様3参照）汎用Mapへ統合してある。未設定の軸idは
    * 空Map扱い（get()がundefinedを返す）として処理される。 */
   dedicatedWayValues: ReadonlyMap<string, ReadonlyMap<string, number>>;
+  /** 地図が今指定している走行の条件（走行方位・時刻・想定速度）。専用way値配信軸が地図を
+   * 塗るのに使っているものと同じ値を、道をクリックしたときの内訳
+   * （RoadInspectorPopup）へも渡す——揃えないと同じ場所で色と数字が食い違う。
+   * 軸ごとのpropは持たない（design-principles.md構造仕様3）。 */
+  rideConditions?: RideConditions;
   /** `dedicated_way_value_layer`軸の地図表示宣言（種類・単位・しきい値・段階ラベル、
    * 軸カタログ由来）をaxisId→宣言の汎用Mapとして受け取る（page.tsx: axisCatalog.axesから
    * `dedicatedWayValueLayer===true`の軸を横断的に抽出して構築）。評価軸グループの線・
@@ -2336,6 +2343,7 @@ export default function MapView({
   dedicatedWayValueVisibility,
   dedicatedAxes,
   dedicatedWayValues,
+  rideConditions,
   dedicatedWayValueDisplays,
   dedicatedWayValueLoading,
   dedicatedWayValueHiddenBands,
@@ -2388,6 +2396,9 @@ export default function MapView({
   const [roadPopup, setRoadPopup] = useState<{
     lngLat: [number, number];
     properties: RoadSurfacePopupProperties;
+    // 押した瞬間のタイル。あとで地図のズームから出し直すと、ポップアップを開いたまま
+    // ズームした場合に押した道と違うタイルを指す。
+    tile: TileXY;
   } | null>(null);
   const [roadPopupContainer, setRoadPopupContainer] = useState<HTMLDivElement | null>(null);
   // 軸スタジオが公開したramp軸を反映する派生値。propsのrampAxesが変わる
@@ -2788,6 +2799,7 @@ export default function MapView({
       setRoadPopup({
         lngLat: [e.lngLat.lng, e.lngLat.lat],
         properties: feature.properties as unknown as RoadSurfacePopupProperties,
+        tile: tileContainingLonLat(e.lngLat.lng, e.lngLat.lat, map.getZoom(), ROAD_TILE_MIN_ZOOM, ROAD_TILE_MAX_ZOOM),
       });
     }
 
@@ -3426,7 +3438,12 @@ export default function MapView({
       {roadPopup !== null &&
         roadPopupContainer !== null &&
         createPortal(
-          <RoadInspectorPopup properties={roadPopup.properties} axes={axes} axisColors={axisColors} />,
+          <RoadInspectorPopup
+            properties={roadPopup.properties}
+            axes={axes}
+            axisColors={axisColors}
+            conditions={rideConditions != null ? { ...rideConditions, ...roadPopup.tile } : null}
+          />,
           roadPopupContainer,
         )}
     </div>

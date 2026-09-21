@@ -5,6 +5,7 @@
 すべてここに集約し、ルータはエンドポイントの入出力とレート制限だけを持つ。
 """
 
+from datetime import datetime
 import logging
 from contextlib import AsyncExitStack, asynccontextmanager
 from dataclasses import dataclass
@@ -201,8 +202,7 @@ async def open_route_generation_setup(
     レスポンス送出後も走り続ける）で使うため、`Depends`は使えない——リクエストの
     DBセッションはハンドラ関数が返った
     時点で閉じられ、その後もバックグラウンドタスクが同じセッションを使い続けようとすると
-    失敗する（`graph_service.py: _warm_tile_cache_background`が同じ理由で新規セッションを
-    開いているのと同じ制約）。
+    失敗する。
 
     DB接続を要する依存（`get_graph_service`）は、既存のDI用ジェネレータ関数を
     そのまま`asynccontextmanager()`でラップして
@@ -345,6 +345,58 @@ async def get_dedicated_way_value_service(
             yield _build(RoadGraphRepository(session))
     else:
         yield _build(None)
+
+
+async def directional_materials(
+    osm_way_id: int,
+    feature_key: str | None,
+    z: int | None,
+    x: int | None,
+    y: int | None,
+    at: datetime | None,
+    bearing_deg: float | None,
+    speed_kmh: float | None,
+) -> dict[str, float]:
+    """進行方向に依存する材料（勾配・風）を、指定された条件でまとめて引く。
+
+    **1本の道は往復2方向で値が違う**ため、方向が決まらないと算出できない。方向・時刻・
+    想定速度が揃った軸だけを引き、揃わない軸は黙って飛ばす（呼び出し側では「データなし」
+    になる）。
+
+    **軸を名指ししない**——`dedicated_way_value_axes()`の宣言を回し、その軸が必要とする
+    ものが揃っているかで判断する。軸が増えてもここは変わらない。
+
+    値は地図のレンズが引くのと同じ経路（同じキャッシュ）から取るので、**地図の色と
+    内訳が一致する**。DBセッションは`get_dedicated_way_value_service`と同じ理由で
+    1本にまとめる。
+    """
+    if z is None or x is None or y is None:
+        return {}
+    wanted = {
+        axis_id: axis for axis_id, axis in dedicated_way_value_axes().items()
+        if axis_id in _DEDICATED_WAY_VALUE_SERVICE_FACTORIES
+        and not (axis.needs_bearing and bearing_deg is None)
+        and not (axis.needs_speed and speed_kmh is None)
+    }
+    if not wanted:
+        return {}
+
+    weather_service = WeatherService()
+    key = feature_key or str(osm_way_id)
+
+    async def collect(repository: RoadGraphRepository | None) -> dict[str, float]:
+        found: dict[str, float] = {}
+        for axis_id in wanted:
+            service = _DEDICATED_WAY_VALUE_SERVICE_FACTORIES[axis_id](repository, weather_service)
+            values = await service.get_way_values(z, x, y, at, bearing_deg, speed_kmh)
+            if key in values:
+                found[service.material_id] = values[key]
+        return found
+
+    if settings.road_graph_use_repository:
+        async with get_session_factory()() as session:
+            return await collect(RoadGraphRepository(session))
+    return await collect(None)
 
 
 async def get_accident_service():

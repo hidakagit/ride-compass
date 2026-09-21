@@ -410,9 +410,9 @@ export interface paths {
          *     一次属性（highway/tags）→二次軸スコア（取得可能な軸のみ）→
          *     合成コスト（取得可能な軸だけの参考値、既定route_preference重み）を返す。
          *     POST+JSONボディ・osm_way_id完全一致で引く理由はRegionService.get_axis_inspectorの
-         *     docstring参照（交差点付近での取り違え対策）。gradient/wind軸は単独wayでは算出不能
-         *     なため常にavailable=falseで返る（ルートに含まれる区間の正確な値はルート生成結果
-         *     自体を見る）。
+         *     docstring参照（交差点付近での取り違え対策）。進行方向に依存する軸（勾配・風）は、
+         *     地図が指定している走行方位・時刻・想定速度を一緒に送れば算出できる。送らなければ
+         *     その軸はavailable=falseで返る。
          */
         post: operations["region_axis_inspector_api_region_axis_inspector_post"];
         delete?: never;
@@ -1265,6 +1265,18 @@ export interface components {
             osm_way_id: number;
             /** Feature Key */
             feature_key?: string | null;
+            /** Z */
+            z?: number | null;
+            /** X */
+            x?: number | null;
+            /** Y */
+            y?: number | null;
+            /** Bearing Deg */
+            bearing_deg?: number | null;
+            /** At */
+            at?: string | null;
+            /** Speed Kmh */
+            speed_kmh?: number | null;
         };
         /** AxisInspectorResult */
         AxisInspectorResult: {

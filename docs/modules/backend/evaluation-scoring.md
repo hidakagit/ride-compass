@@ -389,9 +389,11 @@ MaterialSpec]`が単一ソース。
 
 単独でクリックされたway（ルート文脈が無い）について、「一次属性→二次軸→三次合成コスト」を
 算出する。材料値は`RoadGraphRepository.get_way_material_values`が返したものをそのまま受け
-取り、この関数は合成だけを行う。gradient/windの材料（勾配%・風ペナルティ）は単独wayでは
-算出不能（ルート沿いの標高・出発時刻という区間contextが必要）なため常に`available=False`で
-返す（データ欠損ではなく原理的に算出不能という区別）。`covered_weight_fraction`（全軸の
+取り、この関数は合成だけを行う。進行方向に依存する材料（勾配%・風ペナルティ）は
+**1本の道が往復2方向で違う値を持つ**ためDBのway単位の値には無く、走行方位・時刻・想定速度を
+指定して呼び出し側（`api/dependencies.py: directional_materials`）が引いたものを
+`materials`へ足して渡す。足されなければその軸は`available=False`になる。
+`covered_weight_fraction`（全軸の
 重み合計に対する取得できた軸の重み合計の割合）をフロントの「参考値」表示に使う。
 
 

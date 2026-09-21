@@ -3,7 +3,12 @@ from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 
-from app.api.dependencies import enforce_rate_limit, get_dedicated_way_value_service, get_region_service
+from app.api.dependencies import (
+    directional_materials,
+    enforce_rate_limit,
+    get_dedicated_way_value_service,
+    get_region_service,
+)
 from app.api.routers._tile_http import tile_response, validate_tile_coords
 from app.config import settings
 from app.domain.axis_definitions import AXIS_DEFINITIONS
@@ -164,6 +169,17 @@ class AxisInspectorRequest(StrictModel):
     # そのまま送ってよい**——後者は`road_edges`に一致せず、way単位の読み出しへ落ちる。
     # 省略すると区間が特定できず、地図が区間単位で塗っていても内訳はway単位になる。
     feature_key: str | None = None
+    # 進行方向に依存する材料（勾配・風）を出すのに要るもの。**1本の道は往復2方向で値が
+    # 違う**ため、方向が決まらないと算出できない。地図が指定している値をそのまま送る
+    # （`/dynamic-way-values`へ送っているものと同じ）。省略するとその軸は「データなし」。
+    # `z`/`x`/`y`はクリックしたタイル——地図は既に知っており、way idから逆算するより
+    # 確かで、同じタイルの値がキャッシュに載っていれば追加のDBアクセスも要らない。
+    z: int | None = None
+    x: int | None = None
+    y: int | None = None
+    bearing_deg: float | None = None
+    at: datetime | None = None
+    speed_kmh: float | None = None
 
 
 @router.post("/api/region/axis-inspector")
@@ -176,12 +192,15 @@ async def region_axis_inspector(
     一次属性（highway/tags）→二次軸スコア（取得可能な軸のみ）→
     合成コスト（取得可能な軸だけの参考値、既定route_preference重み）を返す。
     POST+JSONボディ・osm_way_id完全一致で引く理由はRegionService.get_axis_inspectorの
-    docstring参照（交差点付近での取り違え対策）。gradient/wind軸は単独wayでは算出不能
-    なため常にavailable=falseで返る（ルートに含まれる区間の正確な値はルート生成結果
-    自体を見る）。
+    docstring参照（交差点付近での取り違え対策）。進行方向に依存する軸（勾配・風）は、
+    地図が指定している走行方位・時刻・想定速度を一緒に送れば算出できる。送らなければ
+    その軸はavailable=falseで返る。
     """
     # 座標なしの単発リクエストのためタイル向け_check_tile_rate_limit
     # （road_tile_rate_limit_per_minuteと結合）を流用せず、専用の設定値を直接使う
     # （config.py: axis_inspector_rate_limit_per_minuteのコメント参照）。
     enforce_rate_limit(http_request, "axis-inspector", settings.axis_inspector_rate_limit_per_minute)
-    return await region_service.get_axis_inspector(body.osm_way_id, body.feature_key)
+    dynamic = await directional_materials(
+        body.osm_way_id, body.feature_key, body.z, body.x, body.y,
+        body.at, body.bearing_deg, body.speed_kmh)
+    return await region_service.get_axis_inspector(body.osm_way_id, body.feature_key, dynamic)

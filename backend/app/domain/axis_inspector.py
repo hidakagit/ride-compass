@@ -54,9 +54,10 @@ def axis_inspector_breakdown(
 ) -> AxisInspectorResult:
     """区間インスペクタの内訳を算出する純関数。
 
-    `materials`は`RoadGraphRepository.get_way_material_values`が返すway1本ぶんの材料値。
-    way単体では求まらない材料（勾配・風）は載らず、欠損として扱われる——それを参照する軸は
-    available=Falseになる。`landcover`は`get_feature_landcover`の戻り値で、表示用の
+    `materials`は`RoadGraphRepository.get_way_material_values`が返すway1本ぶんの材料値に、
+    進行方向に依存する材料（勾配・風）を呼び出し側が引いて足したもの。足されなかった材料は
+    欠損として扱われ、それを参照する軸はavailable=Falseになる。`landcover`は
+    `get_feature_landcover`の戻り値で、表示用の
     内訳にだけ使う（軸の材料はSQL側が同じ行から直接求めている）。
     """
     weights = (preference or RoutePreference()).weights

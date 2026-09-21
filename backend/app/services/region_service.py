@@ -180,7 +180,12 @@ class RegionService:
             y=y,
         )
 
-    async def get_axis_inspector(self, osm_way_id: int, edge_id: str | None = None) -> AxisInspectorResult | None:
+    async def get_axis_inspector(
+        self,
+        osm_way_id: int,
+        edge_id: str | None = None,
+        dynamic_materials: dict[str, float] | None = None,
+    ) -> AxisInspectorResult | None:
         """区間インスペクタ。クリックされた道路（osm_way_id）について、一次属性→二次軸
         スコア→三次合成コスト（取得可能な軸だけの参考値）を返す（詳細はdocs/modules/backend/
         static-road-attributes.md参照）。
@@ -189,6 +194,10 @@ class RegionService:
         焼き込み済み）で該当行を曖昧さ無く引き直す（クリック地点の緯度経度からの空間マッチ
         [半径内最近傍]だと、交差点付近など複数の道路が近接する場所で、実際にクリックされた
         フィーチャーとは別の道路を拾いうるため採用しない）。
+
+        `dynamic_materials`は進行方向に依存する材料（勾配・風）の値。**1本の道は往復2方向で
+        値が違う**ため、方向が決まらないと算出できない。地図が指定している走行方位・時刻・
+        想定速度から呼び出し側が引いて渡す（渡さなければその軸は「データなし」のまま）。
 
         `repository`未注入、該当way自体が存在しない場合はNone。DB例外もNoneへ倒す
         （get_road_surface_tile等の`_tile_from_repository`と同じグレースフルデグレード
@@ -221,8 +230,9 @@ class RegionService:
                 return None
             fields["lookup"] = "ok"
             highway, tags, _surface = way_tags_result
+            combined = {**(materials or {}), **(dynamic_materials or {})}
             return axis_inspector_breakdown(
-                highway, tags, materials or {}, way_landcover, RoutePreference(),
+                highway, tags, combined, way_landcover, RoutePreference(),
             )
 
     async def get_accident_years_covered(self) -> int:

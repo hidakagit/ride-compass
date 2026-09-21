@@ -147,16 +147,46 @@ export const ROAD_TILE_MAX_ZOOM = regionTileConfig.road_tile_max_zoom;
 // 直接呼ぶため、ここだけ絶対URL化（window.location.origin）が不要（weatherApi.ts等と同じ）。
 // POST+JSONボディなのはosm_way_idを本文で渡す既存の設計を踏襲（backend/app/api/routers/
 // region.py参照）。
+/** 地図が今指定している走行の条件。専用way値配信軸（風・勾配）が地図を塗るのに使うものと
+ * 同じ値で、これを送らないと**1本の道が往復2方向で違う値を持つ**軸を算出できない。 */
+export interface RideConditions {
+  bearingDeg: number;
+  at?: Date;
+  speedKmh?: number;
+}
+
+/** 上記に、クリックされた点を含む道路タイルを足したもの（レンズが引いたのと同じタイルを
+ * 指すため、backendは同じキャッシュから値を引ける）。 */
+export interface AxisInspectorConditions extends RideConditions {
+  z: number;
+  x: number;
+  y: number;
+}
+
 export async function fetchAxisInspector(
   osmWayId: number,
   featureKey?: string | null,
+  conditions?: AxisInspectorConditions | null,
 ): Promise<AxisInspectorResult | null> {
   const { response, durationMs, requestId } = await postAndCheckOk("/api/region/axis-inspector", {
     category: "api:axis-inspector",
     errorLabel: "内訳取得",
     // クリックされたフィーチャーの識別子。区間単位のズームで押した道は、内訳も
     // 区間単位で計算される（送らないと地図の色と内訳の数字が食い違う）。
-    body: { osm_way_id: osmWayId, ...(featureKey != null ? { feature_key: featureKey } : {}) },
+    body: {
+      osm_way_id: osmWayId,
+      ...(featureKey != null ? { feature_key: featureKey } : {}),
+      ...(conditions != null
+        ? {
+            z: conditions.z,
+            x: conditions.x,
+            y: conditions.y,
+            bearing_deg: conditions.bearingDeg,
+            ...(conditions.at != null ? { at: conditions.at.toISOString() } : {}),
+            ...(conditions.speedKmh != null ? { speed_kmh: conditions.speedKmh } : {}),
+          }
+        : {}),
+    },
   });
   const data: AxisInspectorResult | null = await response.json();
   debugLog("api:axis-inspector", "成功", { durationMs, requestId, composite: data?.composite_difficulty });

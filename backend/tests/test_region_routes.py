@@ -1,4 +1,5 @@
 from collections import defaultdict
+from datetime import datetime, timezone
 
 import pytest
 from fastapi.testclient import TestClient
@@ -40,8 +41,8 @@ class FakeRegionService:
         self.last_poi_request = (z, x, y)
         return TileResponse(self._tile_bytes, cacheable=self._cacheable)
 
-    async def get_axis_inspector(self, osm_way_id, edge_id=None):
-        self.last_axis_inspector_request = (osm_way_id, edge_id)
+    async def get_axis_inspector(self, osm_way_id, edge_id=None, dynamic_materials=None):
+        self.last_axis_inspector_request = (osm_way_id, edge_id, dynamic_materials)
         return self._axis_inspector_result
 
 
@@ -200,7 +201,7 @@ def test_region_axis_inspector_returns_result_json():
 
     assert response.status_code == 200
     assert response.json() == result.model_dump()
-    assert fake.last_axis_inspector_request == (12345, None)
+    assert fake.last_axis_inspector_request == (12345, None, {})
 
 
 def test_region_axis_inspector_passes_the_clicked_feature_key_through():
@@ -220,7 +221,7 @@ def test_region_axis_inspector_passes_the_clicked_feature_key_through():
     finally:
         app.dependency_overrides.clear()
 
-    assert fake.last_axis_inspector_request == (12345, "way-12345-seg0-fwd")
+    assert fake.last_axis_inspector_request == (12345, "way-12345-seg0-fwd", {})
 
 
 def test_region_axis_inspector_returns_null_when_service_returns_none():
@@ -236,15 +237,57 @@ def test_region_axis_inspector_returns_null_when_service_returns_none():
     assert response.json() is None
 
 
-def test_region_axis_inspector_rejects_non_integer_osm_way_id():
-    app.dependency_overrides[get_region_service] = lambda: FakeRegionService()
+def test_region_axis_inspector_passes_the_maps_direction_and_time_through(monkeypatch):
+    """地図が指定している走行方位・時刻・想定速度が、方向依存の材料を引く側まで届く。
 
+    届かないと、1本の道が往復2方向で違う値を持つ材料（勾配・風）を算出できず、地図が
+    色を塗っている軸だけが内訳で「データなし」になる。
+    """
+    fake = FakeRegionService(axis_inspector_result=None)
+    app.dependency_overrides[get_region_service] = lambda: fake
+    seen = {}
+
+    async def fake_directional_materials(*args):
+        seen["args"] = args
+        return {"some_material": 4.2}
+
+    monkeypatch.setattr(
+        "app.api.routers.region.directional_materials", fake_directional_materials
+    )
     try:
-        response = client.post("/api/region/axis-inspector", json={"osm_way_id": "not-a-number"})
+        response = client.post(
+            "/api/region/axis-inspector",
+            json={
+                "osm_way_id": 12345,
+                "feature_key": "way-12345-seg0-fwd",
+                "z": 14,
+                "x": 14551,
+                "y": 6447,
+                "bearing_deg": 90.0,
+                "at": "2026-09-21T09:00:00+00:00",
+                "speed_kmh": 20.0,
+            },
+        )
     finally:
         app.dependency_overrides.clear()
 
-    assert response.status_code == 422
+    assert response.status_code == 200
+    assert seen["args"] == (
+        12345,
+        "way-12345-seg0-fwd",
+        14,
+        14551,
+        6447,
+        datetime(2026, 9, 21, 9, 0, tzinfo=timezone.utc),
+        90.0,
+        20.0,
+    )
+    # 引いた値がそのままサービスへ渡る（ここで落ちると内訳だけ地図と食い違う）
+    assert fake.last_axis_inspector_request == (
+        12345,
+        "way-12345-seg0-fwd",
+        {"some_material": 4.2},
+    )
 
 
 def test_region_axis_inspector_rate_limit_is_independent_from_road_surface_tile_rate_limit():

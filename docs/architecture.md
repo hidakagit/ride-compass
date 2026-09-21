@@ -800,15 +800,23 @@ GET /api/region/accident-tiles/{z}/{x}/{y}.pbf   # 警察庁交通事故統計�
 Response 200（Content-Type: application/vnd.mapbox-vector-tile）: レイヤー名`accidents`。各地物（Point）は`involves_bicycle`（自転車関連か）・`fatal`（死亡事故か）プロパティを持つ
 Response 400/429: road-surface-tilesと同じ規約（同時実行数上限は`accident_tile_max_concurrent`で別枠）
 
-POST /api/region/axis-inspector   # 区間インスペクタ（T146）。クリックされた道路（osm_way_id）について、一次属性→取得可能な二次軸スコア（車の圧迫感を含む全軸）の内訳→参考合成コストを返す
-Request: `{ "osm_way_id": number }`。GETでなくPOST+JSONボディなのは、
-  `/api/routes/generate`と同じ形に統一しているため（レシピを個別に上書きするパラメータは持たない）
-Response 200: `AxisInspectorResult`（`highway`/`tags`/`is_designated`/`axes: AxisInspectorAxis[]`（axis_id・difficulty・weight・available）/`composite_difficulty`/`covered_weight_fraction`）。
-  gradient/windは単独wayでは算出不能なため常に`available=false`（ルート内の正確な値はルート生成結果のsegmentsを見る）。取得できなかった軸は合成から除外し残りの重みで再正規化、`covered_weight_fraction`はその再正規化の対象になった重み割合（0-1）。該当wayが存在しない場合はnull。
-  `axes`は公開軸（is_published=True）のみを返す（car_stressの内部軸5つはaxes.car_stressの
-  difficulty値へ既に合成済みで、個別には現れない）
+POST /api/region/axis-inspector   # 区間インスペクタ（T146）。クリックされた道路（osm_way_id）について、一次属性→取得可能な二次軸スコアの内訳→参考合成コストを返す
+Request: `{ "osm_way_id": number }`に加え、地図が知っている指定を任意で送れる。GETでなく
+  POST+JSONボディなのは、`/api/routes/generate`と同じ形に統一しているため。
+  `feature_key`（路面タイルが焼いた鍵）を送ると、地図が区間単位で塗っているズームでは内訳も
+  区間単位で読む——送らないと同じ場所で色と数字が食い違う。
+  進行方向に依存する軸（勾配・風）は、**1本の道が往復2方向で違う値を持つ**ため走行方位が
+  決まらないと算出できない。`z`/`x`/`y`・`bearing_deg`・`at`・`speed_kmh`（地図のレンズが
+  `/api/region/dynamic-way-values/...`へ送っているものと同じ値）を一緒に送ると、
+  同じ経路・同じキャッシュから引いた値で算出する。送らなければその軸はavailable=false。
+Response 200: `AxisInspectorResult`（`highway`/`tags`/`landcover`/`axes: AxisInspectorAxis[]`（axis_id・difficulty・weight・available・contribution）/`composite_difficulty`/`covered_weight_fraction`）。
+  取得できなかった軸は合成から除外し残りの重みで再正規化、`covered_weight_fraction`はその再正規化の対象になった重み割合（0-1）。該当wayが存在しない場合はnull。
+  `axes`は公開軸（is_published=True）のみを返す（他の軸から参照される内部軸は、参照側の
+  difficulty値へ既に合成済みで個別には現れない）
 Response 422（osm_way_idが整数でない場合）
-Response 429: road-surface-tilesと同じレート制限（`ROAD_TILE_RATE_LIMIT_PER_MINUTE`）を流用
+Response 429: タイル系とは別枠のレート制限（`AXIS_INSPECTOR_RATE_LIMIT_PER_MINUTE`）。
+  地図を眺めてタイルを引いただけでクリックの内訳が引けなくなるのを避けるため、
+  road-surface-tilesの枠とは結合しない
 
 GET /api/basemap/{path}   # Step10: OpenFreeMapの地図タイル/スタイルJSON/スプライト/グリフのプロキシ＋キャッシュ
 Response 200: 上流（OpenFreeMap）のContent-Typeをそのまま転送

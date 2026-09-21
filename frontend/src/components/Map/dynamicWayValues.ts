@@ -51,12 +51,26 @@ const MAX_TILES_PER_FETCH = 64;
  * tiles_covering_bboxのJS版だが、呼び出し側がビューポートの実ズーム値をそのまま渡す点が
  * 異なる——サーバ側はz/x/y個別の物理タイル座標で完結するが、こちらは「今フロントに見えている
  * ズーム」から「実際に道路タイルが読み込まれるであろうズーム」を逆算する必要があるため）。 */
+/** 道路タイルを引くズーム。地図のズームをタイルが存在する範囲へ丸める。 */
+export function roadTileZoom(zoom: number, minZoom: number, maxZoom: number): number {
+  return Math.min(maxZoom, Math.max(minZoom, Math.floor(zoom)));
+}
+
+/** 指定した1点を含む道路タイル。**レンズが引いたのと同じタイルを指す**ため、ズームの
+ * 丸め方はtilesCoveringViewportと共有する（ずれると同じ値がキャッシュにあっても引き直しになる）。 */
+export function tileContainingLonLat(lon: number, lat: number, zoom: number, minZoom: number, maxZoom: number): TileXY {
+  const z = roadTileZoom(zoom, minZoom, maxZoom);
+  const n = 2 ** z;
+  const [x, y] = lonLatToTileIndex(lon, lat, z);
+  return { z, x: Math.max(0, Math.min(x, n - 1)), y: Math.max(0, Math.min(y, n - 1)) };
+}
+
 export function tilesCoveringViewport(
   viewport: { west: number; north: number; east: number; south: number; zoom: number },
   minZoom: number,
   maxZoom: number,
 ): TileXY[] {
-  const z = Math.min(maxZoom, Math.max(minZoom, Math.floor(viewport.zoom)));
+  const z = roadTileZoom(viewport.zoom, minZoom, maxZoom);
   const n = 2 ** z;
   const [xStart, yStart] = lonLatToTileIndex(viewport.west, viewport.north, z);
   const [xEnd, yEnd] = lonLatToTileIndex(viewport.east, viewport.south, z);

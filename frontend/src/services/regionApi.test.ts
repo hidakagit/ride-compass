@@ -91,7 +91,6 @@ describe("regionApi", () => {
       const result_ = {
         highway: "residential",
         tags: {},
-        is_designated: false,
         axes: [{ axis_id: "axis_sample", difficulty: 25.0, weight: 0.2, available: true }],
         composite_difficulty: 25.0,
         covered_weight_fraction: 1.0,
@@ -111,6 +110,39 @@ describe("regionApi", () => {
       expect(options.method).toBe("POST");
       expect(JSON.parse(options.body as string)).toEqual({ osm_way_id: 12345 });
       expect(result).toEqual(result_);
+    });
+
+    it("地図の指定が揃っていればbackendの名前でボディへ載せる", async () => {
+      // 載らないと、進行方向が決まらないと算出できない軸（勾配・風）が内訳だけ
+      // 「データなし」になる。鍵の綴り・日時の形はbackendのAxisInspectorRequestが正。
+      const fetchMock = vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        headers: new Headers(),
+        json: async () => null,
+      });
+      vi.stubGlobal("fetch", fetchMock);
+
+      await fetchAxisInspector(12345, "way-12345-seg0-fwd", {
+        z: 14,
+        x: 14551,
+        y: 6447,
+        bearingDeg: 90,
+        at: new Date("2026-09-21T09:00:00Z"),
+        speedKmh: 20,
+      });
+
+      const [, options] = fetchMock.mock.calls[0];
+      expect(JSON.parse(options.body as string)).toEqual({
+        osm_way_id: 12345,
+        feature_key: "way-12345-seg0-fwd",
+        z: 14,
+        x: 14551,
+        y: 6447,
+        bearing_deg: 90,
+        at: "2026-09-21T09:00:00.000Z",
+        speed_kmh: 20,
+      });
     });
 
     it("該当wayが無い場合(null)もそのまま返す", async () => {

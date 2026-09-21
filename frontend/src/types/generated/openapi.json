@@ -852,7 +852,7 @@
     "/api/region/axis-inspector": {
       "post": {
         "summary": "Region Axis Inspector",
-        "description": "区間インスペクタ。クリックされた道路（osm_way_id）について、\n一次属性（highway/tags）→二次軸スコア（取得可能な軸のみ）→\n合成コスト（取得可能な軸だけの参考値、既定route_preference重み）を返す。\nPOST+JSONボディ・osm_way_id完全一致で引く理由はRegionService.get_axis_inspectorの\ndocstring参照（交差点付近での取り違え対策）。gradient/wind軸は単独wayでは算出不能\nなため常にavailable=falseで返る（ルートに含まれる区間の正確な値はルート生成結果\n自体を見る）。",
+        "description": "区間インスペクタ。クリックされた道路（osm_way_id）について、\n一次属性（highway/tags）→二次軸スコア（取得可能な軸のみ）→\n合成コスト（取得可能な軸だけの参考値、既定route_preference重み）を返す。\nPOST+JSONボディ・osm_way_id完全一致で引く理由はRegionService.get_axis_inspectorの\ndocstring参照（交差点付近での取り違え対策）。進行方向に依存する軸（勾配・風）は、\n地図が指定している走行方位・時刻・想定速度を一緒に送れば算出できる。送らなければ\nその軸はavailable=falseで返る。",
         "operationId": "region_axis_inspector_api_region_axis_inspector_post",
         "requestBody": {
           "content": {
@@ -2859,6 +2859,73 @@
               }
             ],
             "title": "Feature Key"
+          },
+          "z": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Z"
+          },
+          "x": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "X"
+          },
+          "y": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Y"
+          },
+          "bearing_deg": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Bearing Deg"
+          },
+          "at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "At"
+          },
+          "speed_kmh": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Speed Kmh"
           }
         },
         "additionalProperties": false,

@@ -4,7 +4,7 @@ import { useState } from "react";
 import AxisContributionBar from "@/components/RouteAxisProfile/AxisContributionBar";
 import type { PreferenceAxisDef } from "@/lib/evaluationAxes";
 import { isDebugEnabled } from "@/lib/debugLog";
-import { fetchAxisInspector } from "@/services/regionApi";
+import { fetchAxisInspector, type AxisInspectorConditions } from "@/services/regionApi";
 import type { AxisInspectorResult } from "@/types/traffic";
 import { LANDCOVER_CLASSES } from "./landcoverClasses";
 import { PRIMARY_ATTRIBUTE_LABELS } from "./primaryAttributes";
@@ -17,6 +17,9 @@ interface RoadInspectorPopupProps {
   axes: readonly PreferenceAxisDef[];
   /** 軸id→色（ルート結果の寄与度バー・凡例チップと同じ配色）。 */
   axisColors: Record<string, string>;
+  /** 地図が今指定している走行の条件＋押した点のタイル。**進行方向が決まらないと算出
+   * できない軸（勾配・風）**は、これが無いと「データなし」になる。 */
+  conditions?: AxisInspectorConditions | null;
 }
 
 // 地図の道をクリックしたときの中身。答えるのは「この道は何者で、なぜこの評価なのか」。
@@ -24,7 +27,7 @@ interface RoadInspectorPopupProps {
 // **ルート結果と同じ部品・同じ配色で評価を出す**（`AxisContributionBar`）——同じ「軸ごとの
 // 効き方」を別の見た目で見せると、利用者は2つの読み方を覚えることになる。
 // 評価は押したときだけ取りに行く（クリックのたびに引くとレート制限に当たる）。
-export default function RoadInspectorPopup({ properties, axes, axisColors }: RoadInspectorPopupProps) {
+export default function RoadInspectorPopup({ properties, axes, axisColors, conditions }: RoadInspectorPopupProps) {
   const [result, setResult] = useState<AxisInspectorResult | null>(null);
   const [state, setState] = useState<"idle" | "loading" | "error">("idle");
   const name = roadDisplayName(properties);
@@ -34,7 +37,7 @@ export default function RoadInspectorPopup({ properties, axes, axisColors }: Roa
   const load = () => {
     if (wayId == null) return;
     setState("loading");
-    fetchAxisInspector(wayId, properties.feature_key)
+    fetchAxisInspector(wayId, properties.feature_key, conditions)
       .then((value) => {
         if (value === null) {
           setState("error");
