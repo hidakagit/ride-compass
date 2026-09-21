@@ -1,28 +1,13 @@
 """リクエストIDの付与と、リクエスト1件=1行のHTTPアクセスサマリログ(方針は docs/conventions/logging.md)。
 
-- 全リクエストにリクエストIDを割り当てる。クライアントが`X-Request-ID`ヘッダを
-  送ってきた場合はそれを引き継ぎ(フロントや curl から調査用に指定できる)、無ければ生成する。
-- リクエストIDはcontextvarに置き、`RequestIdLogFilter`が**全ログレコード**へ
-  `request_id`属性として注入する(main.pyのフォーマット文字列`%(request_id)s`が参照)。
-  これにより、リクエスト処理中に出た外部API呼び出しログ(debug_log.py)・ルート生成
-  ステージログ(route_generator.py)等がすべて同じIDで紐づき、Renderのログ検索で
-  1リクエスト分の流れを一発で追える。
-- レスポンスにも`X-Request-ID`ヘッダで返す(フロントのDebugConsoleに表示され、
-  ユーザー報告からサーバーログを特定できる。CORS越しに読むためmain.pyの
-  expose_headers設定が必要)。
-- 完了時にメソッド・パス・ステータス・所要時間・クライアントIPを1行でログする。
-  レベルはステータスと経路で変える(_access_level参照)。
-- ルーティング内で発生した未処理例外はスタックトレース付きERRORで記録して再送出する
-  (「エラー発生箇所」の特定用。HTTPExceptionはFastAPI側で処理済みのためここには来ない)。
-- 未処理例外(500)発生時もX-Request-IDヘッダを付与する。このミドルウェアは
-  例外を再送出するだけで実際の500レスポンスは持たない(Starletteの
-  ServerErrorMiddlewareが外側で生成する)ため、ヘッダはここでは設定できない。代わりに
-  `unhandled_exception_handler`をFastAPIの`Exception`ハンドラとして登録する(main.py)。
-  request_idの受け渡しはcontextvarではなく`request.state`を使う——本ミドルウェアの
-  `finally`節がcall_next()の例外伝播中に(ServerErrorMiddleware側のハンドラ実行より先に)
-  contextvarをリセットしてしまい、ハンドラ側でrequest_id_var.get()を呼ぶと既定値
-  "-"しか読めないタイミング問題があるため。`request.state`はASGI scopeに
-  紐づき、ミドルウェアの巻き戻しの影響を受けない。
+クライアントが`X-Request-ID`ヘッダを送ってきた場合はそれを引き継ぐ（フロントやcurlから
+調査用に指定できる）。レスポンスにも同じヘッダで返すため、CORS越しに読めるよう
+`main.py`の`expose_headers`へ入れておく必要がある。
+
+**リクエストIDはcontextvarと`request.state`の両方へ置く。** 本ミドルウェアの`finally`節は、
+未処理例外の伝播中に（`ServerErrorMiddleware`側のハンドラ実行より先に）contextvarを
+リセットする。そのため500応答を組み立てる`unhandled_exception_handler`はcontextvarから
+読めず、ASGI scopeに紐づいて巻き戻しの影響を受けない`request.state`から読む。
 """
 
 import contextvars
@@ -41,7 +26,7 @@ access_logger = logging.getLogger("ridecompass.access")
 request_id_var: contextvars.ContextVar[str] = contextvars.ContextVar("request_id", default="-")
 
 # タイル系は通常操作でも毎分数百リクエストになるため、成功時のアクセスログは
-# DEBUG(debug_mode時のみ実質出力)へ落とし、Renderのログを埋めないようにする。
+# DEBUG(debug_mode時のみ実質出力)へ落とし、ログを埋めないようにする。
 HIGH_FREQUENCY_PATH_PREFIXES = ("/api/basemap", "/api/region/road-surface-tiles")
 
 
@@ -52,11 +37,6 @@ LOG_FORMAT = "%(asctime)s [%(levelname)s] %(name)s [req:%(request_id)s]: %(messa
 
 class JstLogFormatter(logging.Formatter):
     """時刻をJSTで、**オフセット付き**で出すフォーマッタ。
-
-    コンテナのタイムゾーンはUTCのため、既定の整形はUTCの壁時計をオフセット無しで書く。
-    ブラウザ側のデバッグログ（利用者のローカル時刻）と並べたとき、どちらの時間帯か
-    行から読めず、9時間離れた窓を見ていることに気づけない。時間帯はアプリ全体の正本
-    （`domain/time_zone.py: JST`）を使い、ここに別の定義を持たない。
 
     コンテナの`TZ`ではなく整形する側を変えるのは、`TZ`が素の`datetime.now()`の意味まで
     変えてしまうため（スケジューラ・DBへ書く時刻へ波及する）。
@@ -84,14 +64,9 @@ def new_request_id() -> str:
 async def unhandled_exception_handler(request: Request, exc: Exception) -> Response:
     """FastAPIの`Exception`ハンドラとして登録する(main.py: `app.add_exception_handler`)。
 
-    request_log_middlewareは未処理例外をログした上でそのまま再送出するだけで、実際の
-    500レスポンス自体はStarletteのServerErrorMiddleware(このミドルウェアより外側)が
-    生成するため、ここでヘッダを設定する機会が無い。FastAPIの
-    Exceptionハンドラはミドルウェアより内側・ServerErrorMiddlewareより先に呼ばれるため、
-    ここでレスポンスを構築すればX-Request-IDを含められる。本文・ステータスコードは
-    ServerErrorMiddleware既定のプレーンテキスト応答と同じ形（デバッグ情報は含めない、
-    詳細はサーバーログをrequest_idで追う運用）。request_idは`request.state`から読む
-    （モジュールdocstring参照、contextvarはこの時点で既にリセット済みのため使えない）。
+    500応答は本来Starletteの`ServerErrorMiddleware`（本ミドルウェアの外側）が作るため、
+    そこにはX-Request-IDを付けられない。FastAPIのExceptionハンドラはそれより先に
+    呼ばれるので、ここで同じ形のプレーンテキスト応答を組み立ててヘッダを載せる。
     """
     del exc  # スタックトレースはrequest_log_middleware側で既にERRORログ済み
     request_id = getattr(request.state, "request_id", None) or "-"
@@ -116,9 +91,7 @@ def _access_level(method: str, path: str, status_code: int) -> int:
 
 async def request_log_middleware(request: Request, call_next) -> Response:
     request_id = request.headers.get("X-Request-ID") or new_request_id()
-    # unhandled_exception_handlerがcontextvarのリセット後でも読めるよう、
-    # ASGI scopeに紐づくrequest.stateへも複製しておく（モジュールdocstring参照）。
-    request.state.request_id = request_id
+    request.state.request_id = request_id  # モジュールdocstring参照
     token = request_id_var.set(request_id)
     started = time.monotonic()
     client = request.client.host if request.client else "unknown"

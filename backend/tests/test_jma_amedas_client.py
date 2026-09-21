@@ -1,9 +1,8 @@
-"""jma_amedas_client.py（改善計画T387）のテスト。
+"""jma_amedas_client.pyのテスト。
 
-test_jma_warning_client.pyと同じ観点（正常系のレスポンス取得・キャッシュヒット・
-失敗時の挙動）を踏襲する。fetch_latest_observation_timeはJSON配列ではなくプレーン
-テキスト（ISO時刻文字列1個）を返す実際の仕様（2026-08-29、実機curlで検証・修正）を
-リグレッションテストで固定する。
+観点は`test_jma_warning_client.py`と同じ（正常系のレスポンス取得・キャッシュヒット・
+失敗時の挙動）。加えて、`fetch_latest_observation_time`の応答がJSONではなくプレーン
+テキスト（ISO時刻文字列1個）であることを固定する。
 """
 
 import httpx

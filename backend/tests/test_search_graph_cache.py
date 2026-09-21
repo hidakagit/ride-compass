@@ -1,4 +1,4 @@
-"""search_graph_cache.pyの単体テスト（改善計画T537）。
+"""search_graph_cache.pyの単体テスト。
 
 タイル集合をキーに持つLRU群（LazyRoadGraph用・NodeSpatialIndex用・遷移構造用など）の
 get/set/LRU立ち退き・clear・タイル集合単位の破棄を検証する。road_graph_engine.py経由の
@@ -120,9 +120,8 @@ class TestRoutableIndexCache:
         assert search_graph_cache.get_routable_index(key) is index
 
     def test_same_tile_set_with_different_hard_filters_are_separate_entries(self):
-        # 改善計画T537: LazyRoadGraph（タイル集合のみ）と異なり、NodeSpatialIndexは
-        # hard_filters/max_average_grade_percentも込みでキャッシュキーにする
-        # （road_graph_engine.py: _get_or_build_node_index参照）。
+        # LazyRoadGraph（タイル集合のみ）と異なり、NodeSpatialIndexは
+        # hard_filters/max_average_grade_percentも込みでキャッシュキーにする。
         index_default = object()
         index_motorway_only = object()
         key_default = (_TILE_SET_A, None, None)
@@ -179,8 +178,8 @@ class TestRoutableIndexCache:
     def test_invalidate_tile_set_empties_every_cache_this_module_holds(self):
         """再splitの検出時は、そのタイル集合を全キャッシュから落とす。
 
-        1つでも残すと、旧edge_id集合で組んだ構造（ターン展開の遷移表等）と新しいCSRが
-        組み合わさる。`_turn_structure_cache`の破棄を消しても全テストが緑だった。
+        1つでも残すと、古いedge_id集合で組んだ構造（ターン展開の遷移表等）と新しいCSRが
+        組み合わさる。
         """
         _fill_every_cache()
 
@@ -190,9 +189,8 @@ class TestRoutableIndexCache:
 
 
 class TestSearchStaticsSeparateLruLimit:
-    """`_search_statics_cache`は`_lazy_graph_cache`/
-    `_routable_index_cache`と別の上限（`_search_statics_max_entries`）を持つ
-    （改善計画T568、1エントリがCSR構造一式でより重いため）。"""
+    """`_search_statics_cache`は`_lazy_graph_cache`/`_routable_index_cache`と別の上限
+    （`_search_statics_max_entries`）を持つ——1エントリがCSR構造一式でより重いため。"""
 
     def setup_method(self):
         search_graph_cache.clear()

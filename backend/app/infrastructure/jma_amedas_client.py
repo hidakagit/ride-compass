@@ -1,9 +1,7 @@
 """JMAアメダス観測値APIのクライアント。
 
-jma_warning_client.pyと同じ「JMA公式の非公開だが広く使われているエンドポイント」を使う。
-アメダスは10分ごとに更新されるため、jma_warning_client.pyの警報（10分TTL）と同程度の
-更新頻度感覚で扱う。取得失敗時は他のJMA系クライアントと同じくNoneを返し、
-呼び出し元（jma_amedas_service.py）が「観測値なし」として扱う。
+`jma_warning_client.py`と同じ「JMA公式の非公開だが広く使われているエンドポイント」を使う。
+取得失敗時はNoneを返し、呼び出し元（`jma_amedas_service.py`）が「観測値なし」として扱う。
 """
 
 import httpx
@@ -64,8 +62,7 @@ async def fetch_latest_observation_time(client: httpx.AsyncClient) -> str | None
             raise UnexpectedShapeError("latest observation time is empty")
         return latest
 
-    # 元々`.json()`を呼ばないためValueErrorの発生源が無く、httpx.HTTPErrorのみを
-    # 捕捉していた（UnexpectedShapeErrorはcatchに関わらず専用の分岐で捕捉される）。
+    # 応答はプレーンテキストで`.json()`を呼ばないため、ValueErrorの発生源が無い。
     return await cached_fetch(
         _latest_time_cache, _LATEST_TIME_CACHE_KEY, "weather:jma-amedas-latest-time", fetch, catch=(httpx.HTTPError,)
     )

@@ -1,14 +1,9 @@
-"""外部I/O(外部API・タイル/標高キャッシュ)イベントのログと集計。
+"""外部I/O(外部API・タイル/標高キャッシュ)イベントのログと集計
+（ログレベルの方針は docs/conventions/logging.md）。
 
-ログレベルの方針(詳細は docs/conventions/logging.md):
-- 成功イベントはDEBUG。settings.debug_modeがFalseの場合はmain.pyのlogging設定により
-  実質出力されない(タイル系は毎分数百イベントになりうるため常時出力しない)。
-- 失敗イベントはWARNINGで**常時**出力する。実運用(debug_mode=False)での障害調査が
-  目的のため、debug_modeに関わらず出す。外部サービス障害時に同種の警告でログが
-  埋まらないよう、カテゴリごとに固定窓(60秒)あたりWARN_BURST_PER_WINDOW件で抑制し、
-  超過分は窓の切り替わり時に件数だけ報告する。
-- 全イベントはカテゴリ単位でプロセス内カウンタに集計し、/api/debug/stats
-  (api/routes.py)が呼び出し回数・エラー数・キャッシュヒット率・平均/最大所要時間を返す。
+失敗はdebug_modeに関わらず常時WARNINGで出す。外部サービス障害時に同種の警告でログが
+埋まらないよう、カテゴリごとに固定窓で抑制し、超過分は窓の切り替わり時に件数だけ報告する。
+集計はプロセス内カウンタに持ち、`/api/debug/stats`が読む。
 """
 
 import logging
@@ -25,7 +20,7 @@ WARN_BURST_PER_WINDOW = 5
 
 # 常時出力されるWARNINGにはユーザーの現在地由来の座標が含まれうるため、float値は
 # 小数2桁(≈1km)へ丸めて出す。DEBUG(debug_mode時のみ)は調査精度を優先しそのまま出す。
-ALWAYS_ON_FLOAT_PRECISION = 2
+_ALWAYS_ON_FLOAT_PRECISION = 2
 
 _lock = threading.Lock()
 # category -> {"calls", "errors", "cache_hits", "cache_misses", "total_ms", "max_ms"}
@@ -53,7 +48,7 @@ def error_type_label(exc: BaseException) -> str:
 def _round_floats(value: object) -> object:
     """WARNINGログ用にfloat(座標等)を丸める。tuple/list/dictは再帰的に処理する。"""
     if isinstance(value, float):
-        return round(value, ALWAYS_ON_FLOAT_PRECISION)
+        return round(value, _ALWAYS_ON_FLOAT_PRECISION)
     if isinstance(value, (list, tuple)):
         return type(value)(_round_floats(v) for v in value)
     if isinstance(value, dict):
@@ -137,12 +132,10 @@ def _record(category: str, elapsed_ms: int, fields: dict, error: bool) -> None:
 
 
 def log_throttled_warning(category: str, message: str, *args: object) -> None:
-    """カテゴリ単位の抑制付きWARNING(公開版)。
+    """カテゴリ単位の抑制付きWARNING。
 
-    `log_external_call`で囲む形にできない失敗(キャッシュDBのクエリ失敗等、
-    本処理へフォールバックして呼び出し自体は成功扱いになるもの)を、
-    docs/conventions/logging.mdの「エラーは常時出す・ただし同種はカテゴリごとに毎分5件で抑制」
-    の方針どおりに記録するための入口。
+    `log_external_call`で囲む形にできない失敗（本処理へフォールバックして呼び出し自体は
+    成功扱いになるもの）を記録するための入口。
     """
     _throttled_warning(category, message, *args)
 
@@ -191,9 +184,7 @@ def log_external_call(category: str, **fields: object) -> Iterator[dict]:
 
     呼び出し元が例外を自前でcatchし、より詳細な文脈（対象ID等）付きの独自WARNINGを
     既に出している場合は、result="error"に加えてfields["warned"]=Trueを設定すると、
-    ここでの二重WARNING出力だけ抑制しつつ/api/debug/statsのerror集計には正しく計上される
-    （`_tile_from_repository`のように専用フィールド名でresultを避けて集計自体を
-    諦める必要はない）。
+    ここでの二重WARNING出力だけ抑制しつつ、error集計には正しく計上される。
     """
     started = time.monotonic()
     logger.debug("[%s] start %s", category, fields)

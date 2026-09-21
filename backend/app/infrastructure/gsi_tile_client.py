@@ -29,14 +29,12 @@ def _remember_not_found(path: str) -> None:
 
 
 class GsiTileClient:
-    """国土地理院のタイル（色別標高図`xyz/relief/…`・標高タイル`xyz/dem_png/…`）を
-    パスで指定して透過的にプロキシしつつファイルシステムにキャッシュする。
+    """国土地理院のタイル（色別標高図・標高タイル等）をパスで指定して透過的にプロキシしつつ
+    ファイルシステムにキャッシュする。
+
     製品ごとの解釈は持たない——標高タイルをMapLibreが読む形へ移す変換は
-    `services/terrain_tile_service.py`が担う。`basemap_client.py`と同じ
-    「pathを丸ごとプロキシ＋`tile_cache`の永続ファイルキャッシュ」方式だが、
-    タイルはPNG単体でJSON応答（basemapのスタイルJSON等）を持たないため、URL書き換えは
-    不要。地理院タイルは`basetime`/`validtime`のような時刻依存パラメータを持たない
-    静的データのため、TTL付きキャッシュ（`jma_tile_client.py`のtargetTimes分岐）も不要。
+    `services/terrain_tile_service.py`が担う。地理院タイルは時刻依存パラメータを持たない
+    静的データのため、キャッシュにTTLは要らない。
     """
 
     def __init__(self, http_client: httpx.AsyncClient):

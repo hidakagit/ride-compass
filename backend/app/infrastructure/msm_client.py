@@ -62,8 +62,7 @@ def _load_json(path: Path) -> dict:
         return {}
 
 
-def update_interval_seconds_from(meta: dict, default: int = 3 * 60 * 60) -> int:
-    """メタ情報が持つrun更新間隔。欠けていれば既定値を返す。"""
+def _update_interval_seconds_from(meta: dict, default: int = 3 * 60 * 60) -> int:
     value = meta.get("update_interval_seconds")
     return int(value) if isinstance(value, (int, float)) and value > 0 else default
 
@@ -71,7 +70,7 @@ def update_interval_seconds_from(meta: dict, default: int = 3 * 60 * 60) -> int:
 def update_interval_seconds(default: int = 3 * 60 * 60) -> int:
     """配信元のrun更新間隔。MSM由来の派生値をキャッシュするTTLの基準になる（これより長く
     保持すると新しいrunが出ても古い値を返し続ける）。未同期のときは既定値を返す。"""
-    return update_interval_seconds_from(_load_json(_META_FILE), default)
+    return _update_interval_seconds_from(_load_json(_META_FILE), default)
 
 
 # 配信が止まったと見なす境目は「公開の更新を何本連続で落としたか」。間隔そのものは
@@ -125,7 +124,7 @@ def freshness_from_meta(meta: dict, now: datetime | None = None) -> MsmFreshness
         # 公開時刻を配ってこない配信元では、run初期時刻を代わりに使う（公開遅れのぶん
         # 早く発報する側に倒れる）。
         last_publish_at = last_run_at
-    interval_hours = update_interval_seconds_from(meta) / 3600
+    interval_hours = _update_interval_seconds_from(meta) / 3600
     current = now or datetime.now(JST)
     return MsmFreshness(
         last_run_at=last_run_at,

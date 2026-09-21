@@ -62,7 +62,7 @@ from app.infrastructure.vector_tile import (
 
 logger = logging.getLogger("ridecompass.road_graph_repository")
 
-CACHED_GRAPH_VERSION = "cached"
+_CACHED_GRAPH_VERSION = "cached"
 
 #: 1文へ載せるidの数。1配列=1パラメータなので上限ではなく転送量の都合で切る。
 _ID_CHUNK_SIZE = 50_000
@@ -761,7 +761,7 @@ def _topology_rows_to_road_graph(edge_rows, node_rows) -> LeanRoadGraph:
                 highway=row.highway,
                 bearing_deg=row.bearing_deg if forward else row.reverse_bearing_deg,
             )
-    return LeanRoadGraph(graph_version=CACHED_GRAPH_VERSION, nodes=nodes, edges=edges)
+    return LeanRoadGraph(graph_version=_CACHED_GRAPH_VERSION, nodes=nodes, edges=edges)
 
 
 def _rows_to_directed_edges(rows, wanted: dict[tuple[int, int], list[bool]]

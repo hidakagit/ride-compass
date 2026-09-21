@@ -9,9 +9,8 @@
 再実行）と値は変わりうるのに、系譜は変わらないためである。「中身を書き直した」という事実を
 表せるのは書いた側が進めるカウンタだけである。
 
-migration 0039が初期行（id=1, revision=1）を投入する。この行を経由しない環境
-（`Base.metadata.create_all`のみのテストDB等）では`get_revision()`がNoneを返し、
-呼び出し側は安全側（キャッシュを消す）へ倒れる。
+行が無い環境（`Base.metadata.create_all`のみのテストDB等）では`get_revision()`がNoneを
+返し、呼び出し側は安全側（キャッシュを消す）へ倒れる。
 """
 
 from sqlalchemy import Integer, select, update

@@ -1,14 +1,7 @@
-"""Redis共有クライアント。
-
-JMA気象データ（アメダス観測値・動的タイル・在否インデックス）の短命キャッシュが使う
-共有接続。外部への問い合わせを肩代わりするキャッシュ専用で、自前のPostGISから復元できる
-ものはRedixへ置かない（docs/conventions/caching.md「Redisへ置くもの・置かないもの」参照）。httpx.AsyncClient（http_client.py）と同じ「プロセス全体で1つを使い回す」方針。
+"""Redis共有クライアント（何をRedisへ置くかは docs/conventions/caching.md）。
 
 すべての用途がTTL付きキャッシュ、またはPostGIS（正本）へ即座にフォールバック可能な
-cache-asideのため、Redis接続自体の障害はfail-fastさせない（呼び出し元がtry/exceptで
-握りつぶし、キャッシュ無し相当として本処理へ進む）。接続タイムアウトの短縮・
-サーキットブレーカーの設計はdocs/modules/backend/cross-cutting-infrastructure.md
-「Redisクライアント」節参照。
+cache-asideのため、Redis接続自体の障害はfail-fastさせない。
 """
 
 import time
@@ -19,10 +12,9 @@ from app.config import settings
 
 _client: redis.Redis | None = None
 
-# 接続確立・コマンド応答の待ち上限。デフォルト値のままだと疎通不能時の1回の失敗検知が
-# 数秒かかりうる。ローカルネットワーク内（本番はOCI VM上で
-# --network=host、開発はdocker-compose同一ネットワーク）を前提に、正常時は決して
-# 到達しない短い値へ絞る。
+# 接続確立・コマンド応答の待ち上限。既定値のままだと疎通不能時の1回の失敗検知に数秒かかる。
+# Redisは常に同一ホスト（本番は`--network=host`）にあるため、正常時は決して到達しない
+# 短い値へ絞れる。
 _CONNECT_TIMEOUT_SECONDS = 0.2
 _SOCKET_TIMEOUT_SECONDS = 0.2
 
@@ -30,7 +22,7 @@ _CIRCUIT_COOLDOWN_SECONDS = 10.0
 _last_failure_at: float | None = None
 
 
-def get_redis_client() -> redis.Redis:
+def _get_redis_client() -> redis.Redis:
     global _client
     if _client is None:
         _client = redis.from_url(
@@ -44,19 +36,14 @@ def get_redis_client() -> redis.Redis:
 
 
 def get_redis_client_or_none() -> redis.Redis | None:
-    """`get_redis_client()`のfail-open版。
+    """共有クライアント。取得できなければNone（呼び出し元は未キャッシュ扱いで進む）。
 
     `redis.from_url()`はURLスキーム不正（`settings.redis_url`の設定ミス）等で同期的に
-    例外を送出しうる。この関数の呼び出し元（各cache-asideモジュール）は`client =
-    get_redis_client()`の直後にある`try/except`で実際のRedisコマンド呼び出しの障害は
-    fail-openにできているが、クライアント生成自体の例外はそのtry/exceptの外で起きるため
-    捕捉されず、モジュールdocstringが謳う「Redis自体の障害はfail-fastさせない」契約を
-    破ってルート生成・タイル配信自体を落としうる。ここで先んじて捕捉し、通常のRedis
-    コマンド障害と同じ`record_redis_failure()`を記録した上でNoneを返す——呼び出し元は
-    Noneを見て通常のfail-open（PostGIS等の正本へフォールバック）経路へ進めばよい。
+    例外を送出する。呼び出し元のtry/exceptはRedisコマンドの周りにあり、クライアント生成
+    自体の例外はその外で起きるため、ここで捕まえないとタイル配信・ルート生成ごと落ちる。
     """
     try:
-        return get_redis_client()
+        return _get_redis_client()
     except Exception:
         record_redis_failure()
         return None
@@ -80,6 +67,6 @@ def record_redis_success() -> None:
 
 
 def reset_circuit_breaker() -> None:
-    """テスト用: サーキットブレーカーの状態をクリアする（tests/conftest.py参照）。"""
+    """テスト用: サーキットブレーカーの状態をクリアする。"""
     global _last_failure_at
     _last_failure_at = None

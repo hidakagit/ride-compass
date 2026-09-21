@@ -1,8 +1,6 @@
-"""http_client.pyの単体テスト（改善計画T331）。
+"""http_client.pyの単体テスト。
 
-get_http_clientの唯一の要件（timeoutの値ごとにクライアントを1つだけ生成してキャッシュ
-する。同じtimeout値なら同じインスタンスを返す、異なるtimeout値なら別インスタンスを
-返す）を検証する。
+`get_http_client`の要件は、timeoutの値ごとにクライアントを1つだけ生成して使い回すこと。
 """
 
 import httpx

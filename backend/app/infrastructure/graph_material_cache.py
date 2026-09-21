@@ -1,24 +1,8 @@
-"""Road Graph探索用素材のプロセス内メモリキャッシュ。
+"""Road Graph探索用素材のキャッシュ（メモリLRU＋ディスク永続化）。
 
 `GraphService.get_search_materials_for_bbox`が、z12タイル単位（`domain/region.py:
-ROAD_GRAPH_TILE_ZOOM`）でトポロジ・材料（surface/edge_attribute_counts/way_tags/
-elevation_attributes/designated_edge_ids）をここへキャッシュする。同一エリアへの
-2回目以降のリクエストは、該当タイルがキャッシュ済みならDBへ一切アクセスしない。
-
-**無効化方針**: プロセス内メモリのLRUに加え、
-`infrastructure/tile_persistent_cache.py`（`TILE_MATERIALS_CACHE_VERSION`参照）へも
-同じ内容をディスク永続化する。デプロイのたびにプロセスが再起動されても、ディスク
-キャッシュが残っていればDB読み出しを経由せず復元できる（冷パスは29〜45秒規模かかる
-ため、これを避ける）。ディスク側の無効化は2つの軸で行う——列構成の変化は
-`TILE_MATERIALS_CACHE_VERSION`（`infrastructure/cache_identity.py`参照）が鍵を変えて、
-中身の作り直しは`sync_disk_cache_with_derived_data_revision`がDBの世代と突き合わせて捨てる。
-
-LRUで上限件数を設ける（無制限にすると全国規模まで対象が広がった場合にメモリを
-際限なく消費するため）。1タイル（z12、日本付近で1辺約10km）あたりの素材サイズは
-road_edges/road_nodesの密度次第だが、対象が関東圏に留まる現状の運用規模では
-実害が無いと判断（他のプロセス内メモリキャッシュと同じ割り切り）。将来対象範囲が全国規模まで広がる場合は上限値の見直しを検討する
-（ディスク側はLRU退避を持たず世代切り替えのみで無効化する設計のため、対象範囲が
-広がった場合はディスク容量側で別途検討する）。
+ROAD_GRAPH_TILE_ZOOM`）でトポロジと材料をここへキャッシュする。ディスクへも持つのは、
+デプロイでプロセスが再起動してもDB読み出し（冷パスは29〜45秒規模）を避けるため。
 """
 
 
@@ -34,11 +18,6 @@ from app.infrastructure.cache_identity import shape_digest
 # 数百枚規模）を余裕を持ってカバーできる値。
 DEFAULT_MAX_TILES = 2_000
 
-# ディスク永続化キャッシュ（tile_persistent_cache.py）のnamespace・バージョン。
-# パスへ埋め込むことで対応しない世代のファイルを読まないようにする。**`EdgeMaterialArrays`の
-# 列構成だけから決まる**——列を足す・消す・並べ替えると鍵が自動で変わる。
-# 中身の作り直し（バッチ再実行）はこの鍵ではなく`sync_disk_cache_with_derived_data_revision`
-# が扱う。デプロイを伴わない操作のため、鍵を変える方式では表せない。
 _CACHE_NAMESPACE = "materials"
 # `LeanNode`/`LeanEdge`も署名へ入れる。キャッシュ値（`SearchMaterials`）は材料だけでなく
 # グラフのトポロジも抱えており、ノード・Edgeの列を足すと古いキャッシュには新しい列が無い。
@@ -64,9 +43,6 @@ def get_tile_materials(
         if read_stats is not None:
             read_stats["source"] = "memory"
         return cached
-    # メモリmissでもディスク永続化キャッシュを確認する（プロセス再起動
-    # 直後や、LRU上限で立ち退いた直後がこの経路に該当する）。ディスクヒット時はメモリ
-    # LRUへも載せ直し、同一プロセス内の以後のアクセスは再度ディスクI/Oを経由しない。
     persisted: SearchMaterials | None = tile_persistent_cache.get(
         _CACHE_NAMESPACE, TILE_MATERIALS_CACHE_VERSION, zoom, x, y, stats=read_stats
     )
@@ -85,10 +61,8 @@ def set_tile_materials(zoom: int, x: int, y: int, materials: SearchMaterials) ->
 
 def sync_disk_cache_with_derived_data_revision(revision: int | None) -> bool:
     """DBの派生データ世代とディスクキャッシュの中身を突き合わせ、食い違っていれば消す。
-    消したときTrueを返す（呼び出し側が、材料から作られる他のキャッシュも消すため）。
 
-    判断そのものは`cache_generation.sync_with_revision`が持つ——軸定義の編集
-    （`tile_score_matrix_cache`）と同じ比較で、対象と捨てるものだけが違う。
+    消したときTrueを返す（呼び出し側が、材料から作られる他のキャッシュも消すため）。
     """
     return cache_generation.sync_with_revision(
         _CACHE_NAMESPACE, TILE_MATERIALS_CACHE_VERSION, revision, clear
@@ -114,15 +88,11 @@ def set_accident_years_covered(value: int) -> None:
 
 
 def clear() -> None:
-    """キャッシュを全消去する。
+    """メモリとディスクの両方を消す。
 
     **本番でも呼ばれる**——DBの派生データ世代が変わったときに
     `sync_disk_cache_with_derived_data_revision`が`clear`として渡す（材料はテーブルの
-    中身そのものなので、作り直されたら捨てるしかない）。テストの後始末にも使う。
-
-    メモリLRUだけでなくディスク永続化キャッシュ（tile_persistent_cache）も
-    削除する。片方だけ残すとテスト間の汚染経路が増える（ディスクが前のテストの内容を
-    残したまま次のテストがメモリmiss→ディスクhitしてしまう）。
+    中身そのものなので、作り直されたら捨てるしかない）。
     """
     _tile_materials_cache.clear()
     global _accident_years_covered_cache

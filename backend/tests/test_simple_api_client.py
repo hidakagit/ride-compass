@@ -1,10 +1,7 @@
-"""simple_api_client.py（改善計画T488: TTLCacheのみのシンプルな外部APIクライアントが
-共有する「キャッシュ参照→fetch→エラー処理→キャッシュ書き戻し」の定型文）のテスト。
+"""simple_api_client.pyのテスト。
 
-jma_amedas_client.py・jma_warning_client.py・wbgt_client.py・flood_client.py側の
-既存テスト（各クライアント固有の振る舞い）は無変更のまま全件greenであることを別途
-確認済み。ここではcached_fetch自体の契約（キャッシュヒット/ミス・エラー分類・
-fields記録内容）を直接検証する。
+`cached_fetch`自体の契約（キャッシュヒット/ミス・エラー分類・fields記録内容）を検証する。
+各クライアント固有の振る舞いはそれぞれのテストが持つ。
 """
 
 import httpx

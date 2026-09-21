@@ -15,23 +15,8 @@ uncached`）はタイル集合がNoneになり、呼び出し側はこのキャ�
 一致しない不完全な集合を書き込むと、後続の正規リクエストへ不完全な結果を返しかねないため
 （`graph_material_cache`が同じ理由でこのbboxを書き込まないのと同じ設計）。
 
-**無効化方針は`graph_material_cache`と同じ「プロセス寿命でのみキャッシュ、LRUで
-上限件数」**（軸定義変更は無関係——静的スコア行列[`tile_score_matrix_cache`]と異なり
-探索コストの値自体を持たないため。材料再取込の反映にはプロセス再起動が必要な点も同じ）。
-
-LRU上限は`graph_material_cache`（タイル単位、上限2,000）より大幅に小さくしてある。
-本キャッシュの1エントリは「bbox全体を結合した後のグラフ・索引」（起点半径・経由地に
-応じて数タイル〜数十タイル分をまとめたもの）であり、粒度がタイル単体よりずっと粗い。
-典型的な運用（起点付近への繰り返しアクセスが中心）では
-同時にホットな探索エリアの数はタイル数よりずっと少ないという想定のもと、
-小さめの上限で運用する（実測に基づく調整ではなく、他のプロセス内メモリキャッシュと
-同じ経験的な割り切り。上限に達した場合はLRUで最も長く使われていないエントリから
-自然に破棄される）。
-
-**`SearchGraphStatics`は`LazyRoadGraph`/`NodeSpatialIndex`より小さい上限
-`SEARCH_STATICS_MAX_ENTRIES`（16）を別に持つ**。1エントリがCSR構造一式
-（`indptr`/`indices`/`entry_edge_index`）を保持し他より重いため、
-`DEFAULT_MAX_ENTRIES`（64）を共有すると常駐メモリが不必要に大きくなりうる。
+無効化はプロセス寿命とLRUだけで、軸定義の変更とは無関係（静的スコア行列
+[`tile_score_matrix_cache`]と違い、探索コストの値自体を持たないため）。
 """
 
 from collections.abc import Callable
@@ -48,13 +33,13 @@ if TYPE_CHECKING:
         TurnExpandedStructure,
     )
 
-# bbox全体ぶんの結合済みグラフ・索引を保持するエントリのため、タイル単位キャッシュより
-# 小さい上限にする（モジュールdocstring参照）。
+# 1エントリは「bbox全体を結合した後のグラフ・索引」で、`graph_material_cache`の
+# タイル単位エントリよりずっと粗い。同時にホットな探索エリアはタイル数より少ないため、
+# 上限も小さくてよい。
 DEFAULT_MAX_ENTRIES = 64
 
-# `SearchGraphStatics`（順方向・転置版とも）の1エントリはCSR構造一式（indptr/indices/
-# entry_edge_index）を保持し、`LazyRoadGraph`より重い。`DEFAULT_MAX_ENTRIES`と同じ
-# 上限を共有する必要は無いため、別の（より小さい）上限を設ける。
+# CSR構造一式（indptr/indices/entry_edge_index）や遷移数ぶんの配列を抱えるエントリは
+# `LazyRoadGraph`より重いため、別の小さい上限で持つ。
 SEARCH_STATICS_MAX_ENTRIES = 16
 
 TileSet = frozenset[tuple[int, int, int]]
@@ -70,13 +55,10 @@ _V = TypeVar("_V")
 class _TileKeyedLru(Generic[_K, _V]):
     """タイル集合キー（またはそれを含むタプル）のプロセス内LRU。
 
-    立ち退き自体は`cachetools.LRUCache`が担い、ここはこのモジュールのキャッシュ
-    （lazy_graph・search_statics等）が共有する薄い包みに徹する。
-    包みが要るのは、キーの条件一致でまとめて捨てる`pop_matching`（タイル集合の一部が
-    無効化されたときに、そのタイルを含むエントリだけを落とす）が必要なため。
+    立ち退き自体は`cachetools.LRUCache`が担う。包みが要るのは、キーの条件一致でまとめて
+    捨てる`pop_matching`のため。
 
-    上限件数は`set`呼び出しのたびに引数で受け取り、変わっていたら内部のLRUを作り直す
-    （上限はモジュール変数で、テストがmonkeypatchして立ち退きを検証する）。
+    上限件数は`set`呼び出しのたびに引数で受け取り、変わっていたら内部のLRUを作り直す。
     """
 
     def __init__(self) -> None:
@@ -107,23 +89,16 @@ class _TileKeyedLru(Generic[_K, _V]):
         return len(self._entries)
 
 
-# 一対全最短経路木用のCSR構造＋Edge実距離配列（`domain/routing.py:
-# SearchGraphStatics`）。LazyRoadGraphと同じくタイル集合だけで決まる派生物のため、
-# 同じキー・同じ寿命で保持する。
 _lazy_graph_cache: "_TileKeyedLru[TileSet, LazyRoadGraph]" = _TileKeyedLru()
 _search_statics_cache: "_TileKeyedLru[TileSet, SearchGraphStatics]" = _TileKeyedLru()
 _routable_index_cache: "_TileKeyedLru[RoutableIndexKey, NodeSpatialIndex]" = _TileKeyedLru()
-# 状態＝有向区間の遷移構造（`domain/routing.py: TurnExpandedStructure`）。
-# `SearchGraphStatics`と同じくタイル集合だけで決まる派生物で、1エントリが遷移数ぶんの
-# 配列（本番規模で130万要素）を持つため上限も同じ扱いにする。
 _turn_structure_cache: "_TileKeyedLru[TurnStructureKey, TurnExpandedStructure]" = _TileKeyedLru()
 # 探索範囲ごとに学習した迂回率（往路木で測った「道なり距離÷直線距離」の中央値）。同じ
-# タイル集合への次のリクエストが往路レグの通過予定時刻の推定に使う。道路網の形だけで決まる
-# 派生値のため、このモジュールの他のキャッシュと同じキー・寿命で持つ（失っても既定値から
-# 測り直すだけ）。
+# タイル集合への次のリクエストが、往路レグの通過予定時刻の推定に使う。
 _detour_ratio_cache: "_TileKeyedLru[TileSet, float]" = _TileKeyedLru()
+
+# 上限はモジュール変数に持つ（テストがmonkeypatchして立ち退きを検証する）。
 _max_entries = DEFAULT_MAX_ENTRIES
-# `_search_statics_cache`専用の上限。
 _search_statics_max_entries = SEARCH_STATICS_MAX_ENTRIES
 
 
