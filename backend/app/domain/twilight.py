@@ -47,16 +47,17 @@ def is_night(coordinates: Coordinates, at: datetime) -> bool:
         dawn, dusk = pair
         events.append((dawn, True))
         events.append((dusk, False))
-    if not events:
+    events.sort()
+    before = [is_dawn for ts, is_dawn in events if ts <= at_utc]
+    after = [ts for ts, _ in events if ts > at_utc]
+    if not before or not after:
+        # 窓の中で`at`を前後のイベントで挟めない＝白夜・極夜の境目（あるいは薄明が1日も
+        # 定義できない緯度）。数日前の夕暮れを引きずって夜と判定せず、定義できない緯度と
+        # 同じく夜として扱わない側へ倒す。
         return False
 
-    events.sort()
-    is_day = False
-    for ts, is_dawn in events:
-        if ts > at_utc:
-            break
-        is_day = is_dawn
-    return not is_day
+    # `at`直前のイベントが夜明けなら昼、日暮れなら夜。
+    return not before[-1]
 
 
 def sunrise_sunset_jst(coordinates: Coordinates, on_date: date) -> tuple[str | None, str | None]:
