@@ -1,77 +1,92 @@
-import math
+"""`domain/gradient.py`——道路自身の勾配を、その道をこの向きに辿った場合の値にする。"""
 
 from app.domain.gradient import LENS_PERPENDICULAR_BAND_DEG, GradientCalculator
 
-
-def test_same_direction_keeps_gradient_unchanged():
-    # 走行方位が道路自身の向きと一致するなら、そのまま辿る＝道路自身の勾配。
-    assert GradientCalculator.effective_gradient(5.0, 90.0, 90.0) == 5.0
+# 道路の向き（始点→終点）。走行方位はテストごとにこれとの差で与える。
+ROAD = 30.0
 
 
-def test_opposite_direction_flips_sign():
-    # 道路を逆向きに辿る想定（差180度）なら、登り坂は下り坂として表れる。
-    result = GradientCalculator.effective_gradient(5.0, 90.0, 270.0)
-    assert math.isclose(result, -5.0, abs_tol=1e-9)
+class TestEffectiveGradient:
+    """走行方位が決めるのは**符号だけ**。"""
+
+    def test_travelling_along_the_road_keeps_the_sign(self):
+        assert GradientCalculator.effective_gradient(5.0, ROAD, ROAD) == 5.0
+
+    def test_travelling_against_the_road_flips_the_sign(self):
+        """逆向きに辿れば登りは下りになる。"""
+        assert GradientCalculator.effective_gradient(5.0, ROAD, ROAD + 180) == -5.0
+
+    def test_the_steepness_never_depends_on_the_angle(self):
+        """**角度差で急さを割り引かない**（cos投影しない）。道路は道路に沿ってしか走れず、
+        辿る以上は坂の急さをそのまま受ける。割り引くと、同じ坂が方位次第で緩く見える。
+        """
+        along = [GradientCalculator.effective_gradient(5.0, ROAD, ROAD + d) for d in (0, 30, 60, 89)]
+        against = [GradientCalculator.effective_gradient(5.0, ROAD, ROAD + d) for d in (91, 120, 150, 180)]
+
+        assert along == [5.0] * 4
+        assert against == [-5.0] * 4
+
+    def test_descent_is_carried_through_the_same_way(self):
+        assert GradientCalculator.effective_gradient(-3.0, ROAD, ROAD) == -3.0
+        assert GradientCalculator.effective_gradient(-3.0, ROAD, ROAD + 180) == 3.0
 
 
-def test_magnitude_does_not_shrink_with_the_bearing():
-    """走行方位は符号だけを決め、坂の急さは変えない。
+class TestShowsGradient:
+    """直角に近いと、その道をどちら向きに辿るかが決まらず符号を選べない。
 
-    角度差を係数に掛けると、同じ坂が方位次第で緩く見える。15%の坂はどの方位を選んでいても
-    15%の坂で、緩い坂と同じ色で塗ってよい理由が無い。
+    示せない範囲は値そのものを配らない——0%として配ると、実際には急な坂である道が
+    地図の凡例で「平坦」の段に入り、平坦な道と同じ色で塗られる。
     """
-    for travel_bearing_deg in (0.0, 30.0, 60.0, 74.0):
-        assert GradientCalculator.effective_gradient(15.0, 0.0, travel_bearing_deg) == 15.0
-    # 逆向き寄りでも、入れ替わるのは符号だけ。
-    for travel_bearing_deg in (106.0, 150.0, 180.0):
-        assert GradientCalculator.effective_gradient(15.0, 0.0, travel_bearing_deg) == -15.0
 
+    def test_travelling_along_the_road_is_shown(self):
+        assert GradientCalculator.shows_gradient(ROAD, ROAD) is True
 
-def test_downhill_road_same_direction():
-    assert GradientCalculator.effective_gradient(-3.0, 45.0, 45.0) == -3.0
+    def test_travelling_against_the_road_is_shown(self):
+        """逆走は符号が反転するだけで、示せないわけではない。"""
+        assert GradientCalculator.shows_gradient(ROAD, ROAD + 180) is True
 
+    def test_perpendicular_is_not_shown(self):
+        assert GradientCalculator.shows_gradient(ROAD, ROAD + 90) is False
 
-def test_forward_and_backward_edge_agree():
-    # 同じway・同じ物理区間のforward/backward2行（road_edges、向きが180度反転・
-    # gradient_percentの符号も反転）のどちらを使っても、結果は一致する。
-    gradient_percent = 4.5
-    road_bearing_deg = 123.0
-    travel_bearing_deg = 60.0
+    def test_the_band_edge_itself_is_not_shown(self):
+        """境界ちょうどは示さない側に入る（判定は「帯より外なら示す」）。"""
+        edge = 90 - LENS_PERPENDICULAR_BAND_DEG
 
-    forward = GradientCalculator.effective_gradient(gradient_percent, road_bearing_deg, travel_bearing_deg)
-    backward = GradientCalculator.effective_gradient(-gradient_percent, road_bearing_deg + 180.0, travel_bearing_deg)
+        assert GradientCalculator.shows_gradient(ROAD, ROAD + edge) is False
 
-    assert math.isclose(forward, backward, abs_tol=1e-9)
+    def test_just_outside_the_band_is_shown(self):
+        outside = 90 - LENS_PERPENDICULAR_BAND_DEG - 0.1
 
+        assert GradientCalculator.shows_gradient(ROAD, ROAD + outside) is True
 
-def test_swapping_road_and_travel_bearing_is_symmetric():
-    # 符号の判定は角度差のcosの向きだけで決まり、cosは偶関数のため入れ替えても結果は同じ。
-    a = GradientCalculator.effective_gradient(5.0, 30.0, 200.0)
-    b = GradientCalculator.effective_gradient(5.0, 200.0, 30.0)
-    assert math.isclose(a, b, abs_tol=1e-9)
+    def test_the_band_is_symmetric_around_perpendicular(self):
+        """直角の左右で同じ幅。片側だけで判定すると、逆走時に判定が入れ替わる。"""
+        inside = 90 + LENS_PERPENDICULAR_BAND_DEG - 0.1
+        outside = 90 + LENS_PERPENDICULAR_BAND_DEG + 0.1
 
+        assert GradientCalculator.shows_gradient(ROAD, ROAD + inside) is False
+        assert GradientCalculator.shows_gradient(ROAD, ROAD + outside) is True
 
-def test_perpendicular_road_has_no_gradient_to_show():
-    """直角に近い道路は「示せない」であって「平坦」ではない。
+    def test_the_value_is_the_same_from_either_edge_row_of_the_road(self):
+        """同じ道路には向きの違う2行（forward/backward）がある。逆方向の行は道路の向きが
+        180度回り、勾配の符号も反転している。符号が2回反転して元に戻るため、どちらの行から
+        求めても同じ値になる——示せる範囲でだけ成り立つ（直角ちょうどは符号を選べない）。
+        """
+        shown = [d for d in (0, 30, 60, 120, 150, 180) if GradientCalculator.shows_gradient(ROAD, ROAD + d)]
+        assert shown, "示せる角度が1つも無ければ、下の比較は何も確かめていない"
 
-    0%として配ると凡例の平坦な段へ入り、実際には急な坂の道が平坦な道と同じ色で塗られる。
-    """
-    assert GradientCalculator.shows_gradient(road_bearing_deg=90.0, travel_bearing_deg=0.0) is False
-    assert GradientCalculator.shows_gradient(road_bearing_deg=270.0, travel_bearing_deg=0.0) is False
+        for delta in shown:
+            travel = ROAD + delta
 
+            assert GradientCalculator.effective_gradient(5.0, ROAD, travel) == (
+                GradientCalculator.effective_gradient(-5.0, ROAD + 180, travel)
+            )
 
-def test_road_along_travel_direction_shows_gradient():
-    assert GradientCalculator.shows_gradient(road_bearing_deg=0.0, travel_bearing_deg=0.0) is True
-    # 逆走（180度）も、符号が反転するだけで示せる。
-    assert GradientCalculator.shows_gradient(road_bearing_deg=180.0, travel_bearing_deg=0.0) is True
-
-
-def test_perpendicular_band_is_symmetric_around_the_right_angle():
-    """直角の左右で判定が食い違わない（cosの大小で比べると浮動小数の差でずれる）。"""
-    band = LENS_PERPENDICULAR_BAND_DEG
-    for offset in (band, band / 2, 0.0):
-        assert GradientCalculator.shows_gradient(90.0 - offset, 0.0) is False
-        assert GradientCalculator.shows_gradient(90.0 + offset, 0.0) is False
-    for offset in (band + 1.0, 45.0):
-        assert GradientCalculator.shows_gradient(90.0 - offset, 0.0) is True
-        assert GradientCalculator.shows_gradient(90.0 + offset, 0.0) is True
+    def test_the_result_does_not_change_when_both_directions_are_flipped(self):
+        """同じ道路の逆方向のedge行は、道路の向きが180度回り勾配の符号も反転する。
+        符号が2回反転して元に戻るため、示せるかどうかも変わらない。
+        """
+        for delta in (0, 45, 90, 135, 180):
+            assert GradientCalculator.shows_gradient(ROAD, ROAD + delta) is GradientCalculator.shows_gradient(
+                ROAD + 180, ROAD + delta
+            )
