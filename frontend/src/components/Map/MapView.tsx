@@ -2011,7 +2011,7 @@ function buildPoiPopupHtml(prefix: string, labels: Record<string, string>, prope
 interface MapViewProps {
   routes: RouteCandidate[];
   selectedRouteId: string | null;
-  // 比較相手が別の道を通る区間（docs/records/tasks/T621.md）。空/未指定なら帯を出さない。
+  // 比較相手が別の道を通る区間。空/未指定なら帯を出さない。
   spliceStretches?: SpliceStretchFeature[];
   /** 編集中に「いま作っているルート」として描く座標列（編集していなければ省略）。 */
   splicedRoute?: readonly GeoJSON.Position[] | null;

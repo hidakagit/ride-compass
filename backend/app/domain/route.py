@@ -59,7 +59,7 @@ class RouteSegmentDetail(StrictModel):
     # 「値が無い材料はキーを持たない」規約。評価に使っていない軸の材料は出ない。
     material_values: dict[str, float] = Field(default_factory=dict)
     # categorical材料id→この区間の値（例: highway→"residential"）。数値の
-    # `material_values`と同じ材料の内訳（docs/records/tasks/T689.md）だが、値が文字列のため器を
+    # `material_values`と同じ材料の内訳だが、値が文字列のため器を
     # 分ける。ルート集約では距離加重で「値ごとの延長割合」へ畳む
     # （`merge_material_category_shares`）。
     material_categories: dict[str, str] = Field(default_factory=dict)
@@ -123,7 +123,7 @@ class RouteCandidate(StrictModel):
     # 材料をこちらで出す。
     material_category_shares: dict[str, dict[str, float]] = Field(default_factory=dict)
     # 経路を構成するEdge idの列（起点から順）。フロントは候補どうしの共通部分を集合演算で
-    # 求め、別の道を通る区間を出すのに使う（区間の乗り換え、docs/records/tasks/T621.md）。
+    # 求め、別の道を通る区間を出すのに使う（区間の乗り換え）。
     # backendはステートレスのため、乗り換え後の経路もこのidの列で受け取って評価し直す。
     # エンジンが経路をEdgeの列として持たない場合は空のまま。
     edge_ids: list[str] = Field(default_factory=list)

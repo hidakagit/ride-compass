@@ -58,9 +58,9 @@ router = APIRouter()
 def _material_breakdown(definition: AxisDefinition) -> list["AxisMaterialBreakdownEntry"]:
     """軸の内訳（材料まで分解した絶対量の並び）。カタログに無い材料は落とす。
 
-    categorical材料（`highway`等）も含めて返す——値ごとの延長割合を運ぶ器はまだ無い
-    （[T718](docs/records/tasks/T718.md)）が、内訳の並び自体は軸定義から決まるため、
-    運搬側の都合で並びを変えると軸定義との対応が読めなくなる。値が来ない材料を
+    categorical材料（`highway`等）も含めて返す——値ごとの延長割合を運ぶ器はまだ無いが、
+    内訳の並び自体は軸定義から決まるため、運搬側の都合で並びを変えると軸定義との
+    対応が読めなくなる。値が来ない材料を
     フロントが飛ばす形にする。
     """
     entries = []
