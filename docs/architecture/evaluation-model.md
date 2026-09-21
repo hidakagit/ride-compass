@@ -4,7 +4,7 @@
 合成コストまでは[評価・スコアリング](../modules/backend/evaluation-scoring.md)、軸の定義と
 評価式は[軸スタジオ・評価軸定義](../modules/backend/axis-studio.md)が持つ。
 
-非技術者向けの説明は[how-route-scoring-works-plainly.md](../how-route-scoring-works-plainly.md)。
+非技術者向けの説明は[how-route-scoring-works-plainly.md](../../README.md)。
 
 ## 4つの段
 

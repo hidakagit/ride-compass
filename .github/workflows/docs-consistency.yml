@@ -1,12 +1,9 @@
-# docs/modules・ソースコードコメントの機械的整合性チェック（scripts/review_checks.py docs）。
-# メインのci.yml（backend/frontend/e2e）はdocs/**・**/*.mdの変更を無償枠消費対策で
-# スキップするため、このチェックだけは別ワークフローにして常に走らせる（pure python・
-# 数秒で終わるため、docsのみのコミットでも都度実行して問題ない）。
+# 文書と台帳の整合（scripts/review_checks.py docs）。
 #
-# ローカルのpre-pushフック（.githooks/pre-push）と同じ
-# review_checks.py docsを使うが、ローカル側は`.git/hooks/pre-commit`への手動インストールが
-# 前提（未インストールのセッション・コンテナでは発火しない）のため、CI側を常に走る
-# 安全網として独立に持つ。
+# メインのci.ymlはdocs/**・**/*.mdの変更を無償枠の消費対策でスキップするため、この検査
+# だけは別ワークフローにして常に走らせる。**常に全件**を見る——検知器はどの走査範囲でも
+# 同じ答えになる事実だけを扱うので、差分の起点を解決する必要がない（設計要件は
+# scripts/review_checks.py の冒頭）。pure pythonで数秒。
 name: Docs Consistency
 
 on:
@@ -24,42 +21,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
-        with:
-          # --sinceの比較対象（差分の起点コミット）を解決するため全履歴が必要。
-          fetch-depth: 0
       - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
-      - name: 比較起点(since)を決める
-        id: since
-        # push: そのpushの直前状態(github.event.before)。pull_request: base branchとの
-        # マージベース。新規ブランチの初回push等でbeforeが全0固定値・存在しないSHAに
-        # なる場合はHEAD~1へフォールバックする（記載漏れ・経緯コメントの既存分[T564/T567
-        # 完了まで残る]をこのチェックの対象に含めないため、フルスキャンへは倒さない）。
-        run: |
-          if [ "${{ github.event_name }}" = "pull_request" ]; then
-            SHA=$(git merge-base "origin/${{ github.event.pull_request.base.ref }}" HEAD)
-          else
-            SHA="${{ github.event.before }}"
-          fi
-          if [ -z "$SHA" ] || [ "$SHA" = "0000000000000000000000000000000000000000" ] || ! git cat-file -e "$SHA" 2>/dev/null; then
-            SHA=$(git rev-parse HEAD~1 2>/dev/null || git rev-parse HEAD)
-          fi
-          echo "sha=$SHA" >> "$GITHUB_OUTPUT"
-      # 検知器そのものの回帰テスト。この検査が「機械的にブロックする」根拠になっている以上、
-      # 検知できない書き方が増えていないことを毎回確かめる（純python・1秒未満）。
-      - name: 検知器の回帰テスト
-        run: |
-          python -m pip install --quiet pytest
-          python -m pytest scripts/tests/test_review_checks.py -q
-      # 検知器が「ある」ことと「鳴る」ことは別物。わざと違反を入れて本当に落ちるかを
-      # pre-commit経路・CI経路の両方で試す（使い捨てworktree内で完結）。参考表示のみの
-      # 検知器も、作った1件が出力へ現れるかを同じ仕組みで試す——件数0でもexit 0のため、
-      # 黙ったことに気づく経路が他に無い。全件スキャンにしか無い検知器を含むぶん、
-      # このワークフローで最も時間のかかる手順になる。
-      - name: ガードの実効性監査
-        run: |
-          git config --global user.email "guard@local"
-          git config --global user.name "guard"
-          python scripts/review_checks.py mutate
-      - run: python scripts/review_checks.py docs --since ${{ steps.since.outputs.sha }}
+      - run: python scripts/review_checks.py docs

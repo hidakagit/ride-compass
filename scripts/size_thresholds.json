@@ -6,7 +6,6 @@
     "backend/app/domain/routing.py": 1400,
     "backend/app/infrastructure/road_graph_repository.py": 3400,
     "backend/app/services/road_graph_engine.py": 2700,
-    "docs/architecture.md": 3000,
     "frontend/src/app/page.tsx": 2600,
     "frontend/src/components/AxisStudio/AxisComposer.tsx": 1750,
     "frontend/src/components/AxisStudio/AxisScoringSection.tsx": 900,

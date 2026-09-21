@@ -6,7 +6,7 @@
 置き場所の切り分け:
 
 - 「開発時にどう判断し、どう進めるか」というプロジェクトの進め方は
-  [.claude/commands/review/principles.md](../../.claude/commands/review/principles.md)
+  [.claude/commands/review/principles.md](../../.claude/commands/review.md)
   「判断原則」節と`docs/improvement-plan.md`「進め方の原則」節が持つ。
 - 一般的なソフトウェア工学の慣習（数値定数の片側import・スキーマはORMの宣言から・
   フォールバック経路へ新機能を実装しない・空間JOINのGiST索引利用・UIの語彙表カタログ集約等）は
@@ -15,7 +15,7 @@
 - 各原則の発見の経緯・事故の顛末は`docs/records/`が持つ。ここには**今も成り立つ契約**だけを書く。
 
 非技術者向けに同じ構造を専門用語なしで説明したものが
-[how-route-scoring-works-plainly.md](../how-route-scoring-works-plainly.md)にある
+[how-route-scoring-works-plainly.md](../../README.md)にある
 （観測データ→材料→評価軸→合成の4段階と、なぜその分け方が拡張性に効くか）。
 
 ---
