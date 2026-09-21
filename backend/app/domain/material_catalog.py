@@ -102,7 +102,7 @@ class CoverageExcluded:
 MaterialCoverage = WayMaterialCoverageSpec | EdgeMaterialCoverageSpec | CoverageExcluded
 
 
-def landcover_coverage(key: str) -> EdgeMaterialCoverageSpec:
+def _landcover_coverage(key: str) -> EdgeMaterialCoverageSpec:
     """土地被覆1クラスの欠損判定。クラスごとに書き写すと、増えたときここだけ取り残される。
 
     **値を読む列そのものを数える**（`landcover_value_sql`と同じ`edge_materials.lc_*`）。
@@ -302,12 +302,9 @@ _LANES_COUNT_REFERENCE_POINTS = [
 # MaterialSpec.value_labelsのdocstring参照——「地図表示と評価は別」という方針に基づき、
 # 地図の絞り込みUI（components/Map/roadFilterAxes.ts: HIGHWAY_GROUPS/SURFACE_GROUPS、
 # 意図的に多対一）とは独立した1値1ラベルの専用対訳表。各値の日本語ラベルはOSM wiki
-# （Key:highway/Key:surface）の一般的なタグ定義に基づく。定義位置をMaterialSpecの
-# コンストラクタ呼び出し直下ではなくここへ分けているのは、22〜24件のdict literalを
-# 個々のMaterialSpec(...)呼び出しへインラインで書くと材料定義ブロックの見通しが悪くなる
-# ため（値自体はvalue_labels=...で各MaterialSpecへそのまま渡し、単一ソースはあくまで
-# MaterialSpec側——このモジュール内に閉じた実装都合の分割であり、material_id文字列を
-# キーにした材料をまたぐ別辞書ではない）。
+# （Key:highway/Key:surface）の一般的なタグ定義に基づく。MaterialSpecの呼び出し直下へ
+# インラインで書くと材料定義ブロックの見通しが悪くなるためここへ分けているだけで、
+# 値は`value_labels=`で各MaterialSpecへそのまま渡す。材料をまたぐ別辞書ではない。
 _HIGHWAY_VALUE_LABELS: dict[str, str] = {
     "motorway": "高速道路",
     "motorway_link": "高速道路の連絡路",
@@ -398,9 +395,8 @@ PRIMARY_ATTRIBUTES_WITHOUT_MATERIAL: dict[str, str] = {
 }
 
 
-# 現行の公開軸と内部軸が参照する材料（AXIS_DEFINITIONSのコメントと
-# 1:1対応）＋MVTタイルに焼き込み済みだが評価軸には未使用の生データを含む
-# （カタログ冒頭の注記参照）。
+# 軸が参照する材料と、MVTタイルへ焼き込み済みだが評価軸には未使用の生データの両方を持つ
+# （モジュール冒頭の注記参照）。
 MATERIAL_CATALOG: dict[str, MaterialSpec] = {
     "gradient_percent": MaterialSpec(
         material_id="gradient_percent",
@@ -408,18 +404,11 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
         description="国土地理院の標高データから算出した進行方向の勾配（%）。登り坂はプラス、下り坂はマイナスです。",
         dtype="numeric",
         unit="%",
-        # 標高自体はDEMタイル（infrastructure/tile_cache.py、永続・TTL無し）・Edge単位の
-        # 計算済み属性（elevation_attributesテーブル、precompute_elevation_attributes
-        # バッチ＋リクエスト時の遅延書き込みの両経路で埋まる）とも既に永続化されている。
-        # タイルへ焼き込めない理由は別にある: この値は進行方向依存の符号付き値
-        # （登り坂プラス・下り坂マイナス）で、1つのOSM Way（地図上の1本の線）に対し
-        # 往復2方向ぶんの異なる値を持ちうるため、方向を持たない静的なMVTタイルの
-        # プロパティ1個には焼き込めない（風向風速と同じ制約）。方向依存材料を地図表示へ
-        # 乗せる仕組みとして、風と同型のRedis経由way_id→値配信（`services/
-        # gradient_way_service.py`、`GET /api/region/dynamic-way-values/gradient/
-        # {z}/{x}/{y}`）を使う。`tile_property`は今後も設定しない方針を確定する
-        # （MVT焼き込み経路は方向非依存の材料しか表現できないため、
-        # `tile_property_direction_dependent=True`と両輪でramp化されないことを明示する）。
+        # この値は進行方向依存の符号付き値で、1つのOSM Wayに対し往復2方向ぶんの異なる値を
+        # 持ちうるため、方向を持たない静的なMVTタイルのプロパティ1個には焼き込めない
+        # （風向風速と同じ制約）。方向依存材料を地図表示へ乗せる仕組みとして、風と同型の
+        # Redis経由way_id→値配信（`services/gradient_way_service.py`、
+        # `GET /api/region/dynamic-way-values/gradient/{z}/{x}/{y}`）を使う。
         tile_property=None,
         tile_property_direction_dependent=True,
         primary_attribute_id="elevation",
@@ -459,7 +448,7 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
         tile_property="trees_pct",
         primary_attribute_id="landcover",
         value_sql=landcover_value_sql("trees"),
-        coverage=landcover_coverage("trees"),
+        coverage=_landcover_coverage("trees"),
     ),
     "built_percent": MaterialSpec(
         material_id="built_percent",
@@ -470,7 +459,7 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
         tile_property="built_pct",
         primary_attribute_id="landcover",
         value_sql=landcover_value_sql("built"),
-        coverage=landcover_coverage("built"),
+        coverage=_landcover_coverage("built"),
     ),
     "crops_percent": MaterialSpec(
         material_id="crops_percent",
@@ -481,7 +470,7 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
         tile_property="crops_pct",
         primary_attribute_id="landcover",
         value_sql=landcover_value_sql("crops"),
-        coverage=landcover_coverage("crops"),
+        coverage=_landcover_coverage("crops"),
     ),
     "rangeland_percent": MaterialSpec(
         material_id="rangeland_percent",
@@ -492,7 +481,7 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
         tile_property="rangeland_pct",
         primary_attribute_id="landcover",
         value_sql=landcover_value_sql("rangeland"),
-        coverage=landcover_coverage("rangeland"),
+        coverage=_landcover_coverage("rangeland"),
     ),
     "water_percent": MaterialSpec(
         material_id="water_percent",
@@ -503,7 +492,7 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
         tile_property="water_pct",
         primary_attribute_id="landcover",
         value_sql=landcover_value_sql("water"),
-        coverage=landcover_coverage("water"),
+        coverage=_landcover_coverage("water"),
     ),
     "bare_percent": MaterialSpec(
         material_id="bare_percent",
@@ -514,7 +503,7 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
         tile_property="bare_pct",
         primary_attribute_id="landcover",
         value_sql=landcover_value_sql("bare"),
-        coverage=landcover_coverage("bare"),
+        coverage=_landcover_coverage("bare"),
     ),
     "flooded_veg_percent": MaterialSpec(
         material_id="flooded_veg_percent",
@@ -525,7 +514,7 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
         tile_property="flooded_veg_pct",
         primary_attribute_id="landcover",
         value_sql=landcover_value_sql("flooded_veg"),
-        coverage=landcover_coverage("flooded_veg"),
+        coverage=_landcover_coverage("flooded_veg"),
     ),
     "snow_ice_percent": MaterialSpec(
         material_id="snow_ice_percent",
@@ -536,7 +525,7 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
         tile_property="snow_ice_pct",
         primary_attribute_id="landcover",
         value_sql=landcover_value_sql("snow_ice"),
-        coverage=landcover_coverage("snow_ice"),
+        coverage=_landcover_coverage("snow_ice"),
     ),
     "surface_good": MaterialSpec(
         material_id="surface_good",

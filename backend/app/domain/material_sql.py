@@ -17,8 +17,6 @@
 
 **未計算はNULL**。値の列がNULLなら、その材料はまだ計算されていない。「タグが無い」は
 別で、そちらは非該当（false）になる（`tag_absent_is_false_sql`）。
-
-人が書いた期待値との突き合わせは`tests/test_material_sql.py`。
 """
 
 
@@ -87,7 +85,7 @@ BICYCLE_NORMALIZED_SQL = normalized_tag_sql("bicycle")
 
 # 自転車インフラ系材料（highway_is_cycleway以外）が参照するcyclewayタグの完全な集合。
 CYCLEWAY_TAG_NAMES = ("cycleway", "cycleway:left", "cycleway:right", "cycleway:both")
-# 上記いずれかに値があるかを見るARRAY式（4タグとも無い場合のみ欠損）。
+# 上記いずれかに値があるかを見るARRAY式（どのタグにも値が無い場合のみ欠損）。
 CYCLEWAY_TAGS_ARRAY_SQL = "ARRAY[" + ", ".join(f"lower(btrim(w.tags->>'{tag}'))" for tag in CYCLEWAY_TAG_NAMES) + "]"
 
 
@@ -121,8 +119,6 @@ def landcover_value_sql(key: str) -> str:
     """区間単位の土地被覆。道1本の値へは落とさない——区間の値は全区間ぶん計算されており、
     落とす先は「同じ道の平均」でしかない（区間ごとの違いを消す）。"""
     return f"em.lc_{key}"
-
-
 
 
 # `EdgeMaterialArrays`が標高属性を組み立てるとき、勾配だけは材料の列から読む

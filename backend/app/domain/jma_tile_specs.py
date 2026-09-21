@@ -7,8 +7,7 @@
 
 MapLibreの`maxzoom`（frontend: `MapView.tsx: DYNAMIC_WEATHER_RENDERERS`）と
 プリウォームバッチの対象ズーム（`services/jma_tile_prewarm_service.py`）は、いずれも
-`effective_max_zoom()`でこの1箇所から導く。値を手で書き写すと配信元との突き合わせを
-誤る（実際に7要素中6要素で誤っていた）。
+`effective_max_zoom()`でこの1箇所から導く。
 
 frontendへは`scripts/export_openapi.py`が`jma-tile-config.json`として書き出す。
 """
@@ -56,7 +55,7 @@ JMA_TILE_SPECS: dict[str, JmaTileSpec] = {
     "land": JmaTileSpec("land", "even", 11),
     "rain_mesh": JmaTileSpec("rain_mesh", "even", 11),
     "inund": JmaTileSpec("inund", "even", 11),
-    # floodは`zoomUse="even"`を持つが`maxNativeZoom`の記載が無い。同じrisk系の他3要素と
+    # floodは`zoomUse="even"`を持つが`maxNativeZoom`の記載が無い。同じrisk系の他要素と
     # 同じ11として扱う——z10に実データがありz11・z12が空という実測とも一致する。
     "flood": JmaTileSpec("flood", "even", 11),
     # 降水ナウキャスト。

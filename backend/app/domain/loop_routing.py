@@ -14,10 +14,9 @@ from app.domain.geo import compass_label
 class LoopTurnaround:
     """`select_loop_turnarounds`が返す折返し点候補。
 
-    `bearing`は起点から見た折返し点の方位（表示ラベル用、候補選定には使わない）。
-    `outbound_difficulty`は往路の距離加重平均difficulty（ランキング指標、0-100、
-    算出不能ならNone）。`data`は復路探索に使う中間データで、型は探索の実装が決める
-    （往路の実距離[m]もそちら側が持ち、戦略層は距離[km]を独立に持たない）。
+    `bearing`は起点から見た折返し点の方位で、表示ラベル用であり候補選定には使わない。
+    `outbound_difficulty`は往路の距離加重平均difficulty（0-100、算出不能ならNone）。
+    `data`は復路探索に使う中間データで、型は探索の実装が決める。
     """
 
     bearing: int
@@ -46,9 +45,10 @@ class TracedLoop:
 
 def candidate_identity(bearing: int | None) -> dict[str, str]:
     """方位から候補のid・方位ラベルを導出する。
-    bearing=None（経由地指定ルート）は固定のid・ラベルを返す。
-    周回候補のidは`generate_loops`が最終順位で`route-00..`へ振り直す（同じ方位に複数の
-    候補が並びうるため、方位由来のidは一意にならない）。"""
+
+    ここで振るidは一時的なもので、`generate_loops`が最終順位で振り直す——同じ方位に
+    複数の候補が並びうるため、方位由来のidは一意にならない。
+    """
     if bearing is None:
         return {"id": "route-waypoints", "direction_label": "経由地ルート"}
     return {"id": f"route-{bearing:03d}", "direction_label": compass_label(bearing)}

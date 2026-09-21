@@ -22,10 +22,9 @@ class AxisInspectorAxis(StrictModel):
     difficulty: float | None
     weight: float
     available: bool
-    # この軸が合成スコアへ持ち込んでいる量（重み付き寄与度）。全軸の合計が
-    # `composite_difficulty`と一致する（`domain/difficulty.py: composite_contributions`）。
-    # ルート結果の`axis_contributions`と同じ読み方にするため、重みを掛ける計算は
-    # サーバー側に置く。
+    # この軸が合成スコアへ持ち込んでいる量（重み付き寄与度、`composite_difficulty`と同じ
+    # 分母で正規化した値）。ルート結果の`axis_contributions`と同じ読み方にするため、
+    # 重みを掛ける計算はサーバー側に置く。
     contribution: float | None
 
 
@@ -39,7 +38,7 @@ class AxisInspectorResult(StrictModel):
     # 公開軸全体の重み合計に対する、取得できた軸の重み合計の割合（0-1）。フロントが
     # 「◯%相当の軸のみで算出」という参考値である旨を示すために使う。
     covered_weight_fraction: float | None
-    # 道路周囲リングの土地被覆の内訳。軸の材料に使うのはこのうち2クラスだけだが、
+    # 道路周囲リングの土地被覆の内訳。軸の材料に使うのは一部のクラスだけだが、
     # 「この道が何で覆われているか」は軸の点数からは読み取れないため全クラスを返す。
     # 行が無い・割合がNULL（そのラスタ構成では値なし）ならNone。
     landcover: LandcoverPercentages | None = None
@@ -56,9 +55,8 @@ def axis_inspector_breakdown(
 
     `materials`は`RoadGraphRepository.get_way_material_values`が返すway1本ぶんの材料値に、
     進行方向に依存する材料（勾配・風）を呼び出し側が引いて足したもの。足されなかった材料は
-    欠損として扱われ、それを参照する軸はavailable=Falseになる。`landcover`は
-    `get_feature_landcover`の戻り値で、表示用の
-    内訳にだけ使う（軸の材料はSQL側が同じ行から直接求めている）。
+    欠損として扱われ、それを参照する軸はavailable=Falseになる。`landcover`は表示用の
+    内訳にだけ使う——軸の材料はSQL側が同じ行から直接求めている。
     """
     weights = (preference or RoutePreference()).weights
     scores, _ = evaluate_axes_scalar(materials)

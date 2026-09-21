@@ -220,11 +220,9 @@ def _derive_ramp_inputs(definition: AxisDefinition, visited_axes: frozenset[str]
                     )
                 )
             else:
-                # tile_property_needs_runtime_scaleな材料（例:
-                # accident_count_per_km_year）もここで受け入れる（specsループの
-                # ガード緩和とセット）。weightは元のterm.weightのまま静的に確定し、
-                # 実行時スケール定数はフロント側がTileInputSpec.needs_runtime_scaleを
-                # 見て追加で掛け合わせる。
+                # 実行時スケールが要る材料もここで受け入れる。weightは元のterm.weightの
+                # まま静的に確定し、実行時スケール定数はフロント側が
+                # TileInputSpec.needs_runtime_scaleを見て追加で掛け合わせる。
                 tile_inputs.append(
                     TileInputSpec(
                         property=spec.tile_property,

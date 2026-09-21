@@ -1,5 +1,4 @@
-"""domain/dynamic_way_values.py: dedicated_way_value_axes()宣言のテスト
-（改善計画T423、T458でAXIS_DEFINITIONS由来の動的導出へ変更）。"""
+"""`AXIS_DEFINITIONS`から専用way値レイヤーの宣言と地図表示値を導く経路のテスト。"""
 
 from app.domain.axis_definitions import AXIS_DEFINITIONS, AxisDefinition, BreakpointLinearShape, MaterialTerm
 from app.domain.axis_display import axis_display_for
@@ -45,29 +44,18 @@ def test_derives_only_dedicated_way_value_layer_axes():
         assert set(axes) == {"wind", "gradient"}
 
 
-def test_wind_needs_time_and_bearing(monkeypatch):
+def test_carries_each_needs_flag_through_without_swapping(monkeypatch):
+    # 3つのフラグへ別々の値を置く。取り違えるとどれかが逆になる。
     monkeypatch.setitem(
-        AXIS_DEFINITIONS, "wind",
-        _axis("wind", dedicated_way_value_layer=True, dynamic_way_value_needs_time=True, dynamic_way_value_needs_bearing=True),
+        AXIS_DEFINITIONS, "flagged",
+        _axis("flagged", dedicated_way_value_layer=True, dynamic_way_value_needs_bearing=True),
     )
 
-    wind = dedicated_way_value_axes()["wind"]
+    flagged = dedicated_way_value_axes()["flagged"]
 
-    assert wind.needs_time is True
-    assert wind.needs_bearing is True
-
-
-def test_gradient_needs_bearing_only(monkeypatch):
-    # docs/records/tasks/T423.md確定済みの設計判断: 勾配は時刻非依存・向きのみ依存。
-    monkeypatch.setitem(
-        AXIS_DEFINITIONS, "gradient",
-        _axis("gradient", dedicated_way_value_layer=True, dynamic_way_value_needs_bearing=True),
-    )
-
-    gradient = dedicated_way_value_axes()["gradient"]
-
-    assert gradient.needs_time is False
-    assert gradient.needs_bearing is True
+    assert flagged.needs_time is False
+    assert flagged.needs_bearing is True
+    assert flagged.needs_speed is False
 
 
 def test_axis_id_matches_dict_key():
@@ -130,7 +118,7 @@ def test_map_value_thresholds_collapses_boundaries_that_saturate_to_the_same_sco
 def test_map_value_thresholds_maps_the_auto_derived_thresholds_when_there_is_no_override():
     # 上書きが無い軸も、ルート確定前の全道路は自動導出のしきい値で塗る。同じ段を難易度側で
     # 言い直さずNoneで済ませると、その軸だけがルート後に既定値へ転落し、段の数も意味も
-    # 食い違う（T939）。写した結果はルート前の段数（しきい値+1）と対応する。
+    # 食い違う。写した結果はルート前の段数（しきい値+1）と対応する。
     before = axis_display_for(_ramp_axis(None)).thresholds
 
     mapped = map_value_thresholds(_ramp_axis(None))
@@ -140,7 +128,7 @@ def test_map_value_thresholds_maps_the_auto_derived_thresholds_when_there_is_no_
 
 
 def test_map_value_thresholds_is_none_when_the_axis_has_no_ramp_display():
-    # 地図に段そのものが無い軸（自動導出できず上書きも無い）は従来どおりNoneで、
+    # 地図に段そのものが無い軸（自動導出できず上書きも無い）はNoneを返し、
     # 読む側が map_value_kind ごとの既定値を使う。
     not_derivable = AxisDefinition(
         axis_id="not_derivable",
@@ -203,19 +191,6 @@ def test_transform_drops_ways_the_axis_cannot_evaluate_from_one_material():
         dedicated_way_value_layer=True,
     )
     assert transform_dedicated_way_values(two_materials, "wind_drag_ratio", {1: 3.0}) == {}
-
-
-def _saturating_axis() -> AxisDefinition:
-    """折れ線に平らな区間がある軸（5〜10の範囲はどこでも難易度50）。"""
-    return AxisDefinition(
-        axis_id="saturating_axis",
-        shape=BreakpointLinearShape(
-            terms=[MaterialTerm(material="trees_percent", weight=1.0)],
-            breakpoints=[(0.0, 0.0), (5.0, 50.0), (10.0, 50.0), (15.0, 100.0)],
-        ),
-        default_weight=0.1,
-        label="飽和する軸",
-    )
 
 
 def test_every_axis_with_a_ramp_display_has_the_same_bands_before_and_after_a_route():

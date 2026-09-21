@@ -9,15 +9,13 @@
   1エントリ追加するだけで、スカラー評価（区間インスペクタ）と
   配列評価（`build_static_edge_score_matrix`）の両方へ同時に反映される
   （`evaluate_axis_scalar`/`evaluate_axis_array`が同じ定義データを読む）。
-- breakpoints等の変換パラメータの単一ソースはここ（定数の片側import原則、
-  docs/complexity-review-2026-08-16.md）。`domain/difficulty.py`・`domain/night.py`の
-  関数は本定義を参照する薄いラッパとして残る（外部シグネチャ互換のため）。
+- breakpoints等の変換パラメータの単一ソースはここ（定数の片側import原則）。
 - 材料（material）はOSM生タグそのものではなく「評価直前まで解決済みの値」
   （勾配%・風ペナルティm/s・舗装良否・km正規化済み密度・レシピ計算済みレベル・
   タグ由来フラグ）。材料の解決（抽出）は呼び出し元の責務で、材料idごとの意味は
   `AXIS_DEFINITIONS`の各エントリのコメント参照。
-- 0次ハードフィルタ（ADRスキーマの`hard_filter`）は軸単位ではなく独立した仕組み
-  （`domain/evaluation.py: DEFAULT_HARD_FILTERS`）のままのため、本定義には持たない。
+- 0次ハードフィルタは軸単位ではなく独立した仕組み（`domain/hard_filters.py`）のため、
+  本定義には持たない。
 - `axis_definitions`DBテーブルが全軸の唯一の正本。起動時（`app/services/
   axis_registry_service.py: refresh_axis_definitions`）にDBから読み込みこのモジュール
   レベルdictへpushするまでは空のまま。本モジュールが持つのは型定義（`AxisDefinition`等）
@@ -105,10 +103,10 @@ AxisCategory = Literal["観測", "推定", "動的"]
 
 
 class PriorityCondition(StrictModel):
-    """0次条件: 探索除外のハードフィルタ（`domain/evaluation.py:
-    DEFAULT_HARD_FILTERS`、道路そのものを探索グラフから除外する）とは別の、
-    **評価を優先確定する**条件。`material`の値が`equals`と一致する場合、軸の通常計算
-    （shape評価）を丸ごとスキップし、`value`をそのままdifficultyとして返す。
+    """0次条件: 探索除外のハードフィルタ（`domain/hard_filters.py`、道路そのものを
+    探索グラフから除外する）とは別の、**評価を優先確定する**条件。`material`の値が
+    `equals`と一致する場合、軸の通常計算（shape評価）を丸ごとスキップし、`value`を
+    そのままdifficultyとして返す。
 
     典型例: `motor_vehicle_no`（自動車通行不可）が立っている区間は、highway種別・
     自転車インフラ等の通常の判定に関わらず「車の圧迫感が最も低い」で確定する。
@@ -116,9 +114,8 @@ class PriorityCondition(StrictModel):
     （`no_bicycle`）で道路そのものが探索から除外されるため、この機構は使わない
     （「探索除外」と「評価の優先確定」は別の概念）。
 
-    軸固有のPythonコードへベタ書きせず、`AxisDefinition`が共通で持てる宣言的な
-    仕組みにすることで、将来の軸追加でも同型のケースをコード変更なしに表現できる
-    （各推定軸に重複して持たせない）。
+    軸固有のPythonコードへベタ書きせず`AxisDefinition`が共通で持つ宣言にしてあるため、
+    同型のケースはコード変更なしに表現できる。
     """
 
     model_config = ConfigDict(frozen=True)
@@ -162,7 +159,7 @@ class AxisDefinition(StrictModel):
     軸を表現できないため、ルーティング計算を駆動するこちら側に単一ソースを置く）。
     `category`は観測（タグ・POI等の一次属性を直接読む、または単純なフラグ加算のみの軸）／
     推定（複数材料をレシピ・判定式で合成する軸）／動的（時々刻々変わる外部データ由来の軸）
-    の3分類。
+    を区別する。
 
     **軸の階層**: `shape`の`MaterialTerm.material`/`CategoricalShape.
     material`等は、`MATERIAL_CATALOG`の材料idだけでなく**他の軸のaxis_id**も指せる
@@ -200,9 +197,8 @@ class AxisDefinition(StrictModel):
     # フロント側は未設定を「汎用フォールバックを使う」の意味で扱う（機能は壊れない）。
     icon_id: str | None = None
     """地図チップのアイコン（frontend/src/components/Map/axisIconPalette.tsxの固定
-    パレットからidを選ぶ。未知/未設定のidは汎用アイコン[AxisRampIcon]へフォールバック。
-    新しいアイコン形状の追加自体は引き続きコード変更を要する——GUIから任意のSVGを
-    登録させる方式はスタイル一貫性・XSSサニタイズのコストが高いため見送っている）。"""
+    パレットからidを選ぶ。未知/未設定のidは汎用アイコン[AxisRampIcon]へフォールバック）。
+    パレットへ形状を足すにはコード変更が要る。"""
     chip_label: str | None = None
     """地図チップの略称。設定する場合は4文字以内必須（地図チップが固定サイズのタイルの
     ため、axis_admin.py: AxisDefinitionPayload._check_chip_label_lengthが書き込み時に
@@ -216,15 +212,14 @@ class AxisDefinition(StrictModel):
     """falseなら地図上チップ（MapOverlayControls）・地図の見え方パネル
     （MapLayersPanel）の両方からこの軸を丸ごと除外する
     （frontend/src/components/Map/secondaryAxes.ts: secondaryAxesFromCatalogAxes()の
-    フィルタ条件）。既定trueは既存軸の見た目を変えないための後方互換値。"""
+    フィルタ条件）。"""
     time_scope: Literal["always", "night_only"] = "always"
     """この軸の重みが常に有効か、特定の時間帯でのみ有効かの宣言。
     「`time_scope != "always"`な軸のうち、現在の`active_scopes`に含まれないものの
     重みを0倍にする」という汎用ロジック（`RoutePreference.with_time_scope`、
     `domain/axis_definitions.py: time_scoped_weights`参照）が、このフィールドだけを
-    見て判定する。将来、別の時間帯依存軸（例: 通勤ラッシュ限定）を追加する場合も、
-    このフィールドへ新しい値（例: "commute_only"）を1つ増やすだけでよく、エンジン側の
-    コード変更は不要。"""
+    見て判定する。別の時間帯を足すときもこのLiteralへ値を1つ増やすだけで、エンジン側の
+    コード変更は要らない。"""
     display_thresholds_override: list[float] | None = None
     """地図の色分けしきい値だけを差し替える軽量な上書き。未設定なら`breakpoints`のX軸の
     値がそのまま段の境界になる。
@@ -312,7 +307,7 @@ class AxisMaterialConflictError(ValueError):
         materials = ", ".join(sorted(overlapping_materials))
         super().__init__(
             f"axis '{axis_id}' shares material(s) [{materials}] with existing axis '{conflicting_axis_id}'; "
-            f"each material may belong to at most one axis (exclusive assignment principle, T268)"
+            f"each material may belong to at most one axis (exclusive assignment principle)"
         )
 
 
@@ -335,7 +330,7 @@ class AxisPublishedImmutableError(ValueError):
         self.action = action
         super().__init__(
             f"axis '{axis_id}' is published and cannot be {action} "
-            f"(publish-immutability principle, T271); duplicate it as a new draft axis instead"
+            f"(publish-immutability principle); duplicate it as a new draft axis instead"
         )
 
 
@@ -383,9 +378,8 @@ def check_material_exclusivity(candidate: AxisDefinition, existing: dict[str, Ax
     比較になるため）スキップする。重複が見つかれば`AxisMaterialConflictError`を送出する
     （登録は行わない、呼び出し元の責務）。
 
-    現時点の`AXIS_DEFINITIONS`には`registry.py`の`shared=True`相当（距離等、
-    複数軸が参照してよい共通コンテキスト）の材料が存在しないため、`shared`フラグは
-    持たない。将来そうした材料が必要になった時点で`MaterialTerm`側への追加を検討する。
+    複数軸が参照してよい共通コンテキスト（距離等）の材料は無いため、`shared`相当の
+    フラグは持たない。
 
     `candidate.materials`は材料idと軸id（軸の階層構造、他の軸への参照）を
     区別せずに返すため、`MATERIAL_CATALOG`に実在するものだけを検査対象とする
@@ -422,7 +416,7 @@ def axis_dependencies(definition: AxisDefinition, known_axis_ids: set[str]) -> s
     return {m for m in definition.materials if not is_known_material(m) and m in known_axis_ids}
 
 
-def leaf_materials(definition: AxisDefinition) -> list[str]:
+def _leaf_materials(definition: AxisDefinition) -> list[str]:
     """内部軸を辿り切った先の材料idを、定義順・重複なしで返す。
 
     `AxisDefinition.materials`は1段しか展開せず、材料idと軸idが混ざって返る。軸を参照する
@@ -452,7 +446,7 @@ def primary_attribute_ids_for(definition: AxisDefinition) -> list[str]:
     from app.domain.material_catalog import MATERIAL_CATALOG
 
     seen: dict[str, None] = {}
-    for material_id in leaf_materials(definition):
+    for material_id in _leaf_materials(definition):
         spec = MATERIAL_CATALOG.get(material_id)
         if spec is not None and spec.primary_attribute_id is not None:
             seen.setdefault(spec.primary_attribute_id, None)
@@ -474,7 +468,7 @@ class AxisInternalAxisPublishError(ValueError):
         self.referencing_axis_id = referencing_axis_id
         super().__init__(
             f"axis '{axis_id}' is referenced by axis '{referencing_axis_id}' as an internal axis "
-            f"and cannot be published (internal axes stay permanently unpublished, T292/T311)"
+            f"and cannot be published (internal axes stay permanently unpublished)"
         )
 
 
@@ -629,10 +623,8 @@ def time_scoped_weights(weights: Mapping[str, float], active_scopes: frozenset[s
     `active_scopes`に含まれない軸の重みを0.0にした新しい辞書を返す
     （`weights`自体は変更しない）。
 
-    `AxisDefinition.time_scope`という性質ベースの宣言的フィールドを持つことで、
-    エンジン側は「この性質を持つ軸を探して掛け替える」という汎用ロジックだけを持てば
-    よい。将来別の時間帯依存軸を追加する際も、その軸のtime_scopeを設定するだけでよく、
-    エンジン側のコード変更は不要。
+    エンジン側は「この性質を持つ軸を探して掛け替える」という汎用ロジックだけを持つため、
+    軸を足すときに要るのはその軸の`time_scope`を設定することだけになる。
 
     `weights`に無いaxis_id（内部軸への重み・非公開化された軸等）は無視する
     （`RoutePreference.with_weight`の「対象軸が存在しなければ無変更」という既定動作と

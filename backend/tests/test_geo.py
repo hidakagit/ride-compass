@@ -50,19 +50,16 @@ def test_bearing_between_zero_distance_is_zero():
     assert bearing_between(EQUATOR, EQUATOR) == 0.0
 
 
-def test_bearing_between_array_matches_scalar_version():
-    # 改善計画T554: bearing_between_arrayはbearing_betweenのベクトル化版で、同じ
-    # (origin, destination)ペアに対して同じ値を返すはず。
-    points = [
-        destination_point(EQUATOR, bearing_deg=deg, distance_km=111.2) for deg in (0, 90, 225)
-    ]
+def test_bearing_between_array_returns_the_bearing_each_point_was_placed_at():
+    expected = (0.0, 90.0, 225.0)
+    points = [destination_point(EQUATOR, bearing_deg=deg, distance_km=111.2) for deg in expected]
     lat = np.array([p.latitude for p in points])
     lon = np.array([p.longitude for p in points])
 
     result = bearing_between_array(EQUATOR, lat, lon)
 
-    for value, point in zip(result, points):
-        assert math.isclose(value, bearing_between(EQUATOR, point), abs_tol=0.01)
+    for value, bearing_deg in zip(result, expected, strict=True):
+        assert math.isclose(value, bearing_deg, abs_tol=0.01)
 
 
 def test_compass_label_cardinal_directions():

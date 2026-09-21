@@ -10,9 +10,6 @@
 import numpy as np
 
 
-
-
-
 def composite_difficulty(scored_weights: list[tuple[float | None, float]]) -> float | None:
     """(スコア, 重み)のリストから加重平均を求める。Noneのスコアは除外し残りの重みで再正規化する。
     1つも有効なスコアが無ければNone。"""
@@ -29,13 +26,13 @@ def composite_difficulty(scored_weights: list[tuple[float | None, float]]) -> fl
 
 
 def composite_contributions(scored_weights: list[tuple[float | None, float]]) -> list[float | None]:
-    """`composite_difficulty`を軸ごとへ分解した値（**合計が合成スコアと一致する**）。
+    """`composite_difficulty`を軸ごとへ分解した値。
 
     入力と同じ並び・同じ長さで返す。スコアがNoneの軸（合成の分母にも入らない）はNone。
     合成が算出できない（有効な軸が無い・重みの合計が0）ときは全てNone。
 
-    分解をここへ置くのは、合成と分解が別々に正規化されると「内訳の合計が合成と合わない」
-    という読めない表示になるため。
+    合成と同じ分母で正規化する——別々に正規化すると内訳が合成と桁で食い違う。各値を
+    小数1桁へ丸めるため、合計は合成スコアと丸め誤差のぶんだけずれうる。
     """
     available = [(score, weight) for score, weight in scored_weights if score is not None]
     weight_sum = sum(weight for _, weight in available)
@@ -55,7 +52,7 @@ def weighted_mean_by_distance(segments: list[tuple[float | None, float]]) -> flo
 
     丸めを含まないのは、difficulty（0〜100）と物理量の生値（スケールが軸ごとに違う）で
     必要な粒度が違うため——固定の小数桁で丸めると桁の小さい軸で値がまるごと潰れる。
-    丸め方は呼び出し側が決める（`distance_weighted_difficulty`／`domain/route.py`参照）。
+    丸め方は呼び出し側が決める。
     """
     available = [(value, distance) for value, distance in segments if value is not None]
     if not available:
@@ -69,8 +66,8 @@ def weighted_mean_by_distance(segments: list[tuple[float | None, float]]) -> flo
 
 
 def distance_weighted_difficulty(segments: list[tuple[float | None, float]]) -> float | None:
-    """(区間difficulty, 区間distance_km)のリストから距離加重平均を求める。ルート単位の
-    絶対基準集約値（研究インターフェース改善 §10-7）。0〜100のdifficulty向けに小数1桁へ丸める。"""
+    """(区間difficulty, 区間distance_km)のリストから距離加重平均を求める。
+    0〜100のdifficulty向けに小数1桁へ丸める。"""
     mean = weighted_mean_by_distance(segments)
     return None if mean is None else round(mean, 1)
 

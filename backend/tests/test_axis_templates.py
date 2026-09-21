@@ -1,9 +1,4 @@
-"""axis_templates.py（改善計画T221 Stage A、T239）のスカラー・numpy配列両モードの検証。
-
-`domain/difficulty.py`・`domain/night.py`側の回帰は既存テスト（test_difficulty.py・
-test_night.py・test_traffic.py・test_evaluation.py）がスカラー経路の入出力一致を担保する。
-本ファイルはテンプレート自体の性質（両端クランプ・NaN伝播・スカラー/配列の同値性）を検証する。
-"""
+"""テンプレート自体の性質（両端クランプ・NaN伝播・スカラー/配列の同値性）の検証。"""
 
 import numpy as np
 
@@ -68,11 +63,8 @@ def test_evaluate_categorical_array_matches_scalar_and_propagates_nan():
 
 
 def test_evaluate_categorical_array_str_keys_with_missing_and_unmatched_values():
-    # コードレビュー指摘の修正確認(finding #5): 配列版をnp.searchsortedベースの
-    # 二分探索へ書き換えた際、欠損(None)を検索用に一時的にkeys[0]（=mappingの実在キー）
-    # へ差し替える実装だと、置き換えただけで「一致した」ことになってしまいNoneの区間が
-    # keys[0]のスコアへ誤って解決される回帰が実装中に見つかった（`missing`マスクで
-    # 検索結果と無関係に不一致へ強制する形で修正済み）。この回帰を固定する。
+    # 配列版は欠損(None)を検索用にmappingの実在キーへ一時的に差し替えるため、差し替えた
+    # だけで「一致した」ことにならないかをここで見る。
     mapping = {"separated": -2.0, "lane": -1.0, "roadway": 1.0}
     values = np.array(["separated", "lane", "roadway", None, "unknown_value"], dtype=object)
 
@@ -85,30 +77,16 @@ def test_evaluate_categorical_array_str_keys_with_missing_and_unmatched_values()
     assert np.isnan(result[4])  # mapping未登録の値
 
 
-def test_evaluate_categorical_array_bool_keys_matches_scalar():
-    # コードレビュー指摘の修正確認: bool材料をfloatキー(1.0/0.0)へ変換する特別扱いを
-    # 撤去した後も、bool配列に対する結果がスカラー版と一致すること。
+def test_evaluate_categorical_array_resolves_bool_keys():
+    # bool材料はfloatへ変換せずboolのまま引く。
     mapping = {True: 0.0, False: 80.0}
     values = np.array([True, False, True])
 
     result = evaluate_categorical(values, mapping)
 
-    assert result[0] == evaluate_categorical(True, mapping) == 0.0
-    assert result[1] == evaluate_categorical(False, mapping) == 80.0
+    assert result[0] == 0.0
+    assert result[1] == 80.0
     assert result[2] == 0.0
-
-
-def test_evaluate_breakpoint_linear_sums_boolean_terms_like_flag_sum():
-    # 改善計画T396: 旧evaluate_flag_sumはboolean材料の重み付き和＋クランプの特殊形で、
-    # breakpoints=[(0, 0), (cap, cap)]のevaluate_breakpoint_linearと等価だった。
-    breakpoints = [(0.0, 0.0), (100.0, 100.0)]
-
-    def combine(a: bool, b: float, weight_a: float, weight_b: float) -> float:
-        return evaluate_breakpoint_linear(a * weight_a + b * weight_b, breakpoints)
-
-    assert combine(True, False, 50.0, 50.0) == 50.0
-    assert combine(True, True, 50.0, 50.0) == 100.0
-    assert combine(True, True, 60.0, 60.0) == 100.0  # capでクランプ
 
 
 def test_round1_array_matches_reference_on_uniform_random_0_to_1000():

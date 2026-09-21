@@ -8,11 +8,10 @@ EARTH_RADIUS_KM = 6371.0
 
 @runtime_checkable
 class LatLon(Protocol):
-    """緯度経度を持つ任意の型（`Coordinates`・`Node`・`LeanNode`等）を受け付ける
-    構造的型。`bearing_between`/`haversine_distance_km`は内部で`.latitude`/`.longitude`
-    を読むだけで完結する。型ヒントを`Coordinates`（Pydantic）固定にすると、
-    `build_road_graph`（domain/graph.py）・`find_nearest_node`系（domain/routing.py）
-    のようなホットパスで、既に手元にある生の緯度経度ペアやNodeオブジェクトから
+    """緯度経度を持つ任意の型（`Coordinates`・`LeanNode`等）を受け付ける構造的型。
+
+    型ヒントを`Coordinates`（Pydantic）固定にすると、グラフ構築や最近傍探索のような
+    ホットパスで、既に手元にある生の緯度経度ペアやNodeオブジェクトから
     わざわざ`Coordinates`を構築し直す無駄が生じる。
     """
 
@@ -28,11 +27,9 @@ class LatLonPoint(NamedTuple):
     latitude: float
     longitude: float
 
-# 緯度1度あたりの概算距離（km、地球を球とみなす近似。EARTH_RADIUS_KMと同じ半径前提で
-# 十分、空間索引のバケット分割・打ち切り判定・矩形マージンの見積もりという「目安」用途に
-# のみ使う。実際の距離計算は常にhaversine_distance_kmで正確に行う）。
-# domain/routing.py・services/road_graph_engine.pyがこの定数をimportして使う
-# （重複定義を避けるための正準1箇所）。
+# 緯度1度あたりの概算距離（km、地球を球とみなす近似）。空間索引のバケット分割・打ち切り
+# 判定・矩形マージンの見積もりという「目安」用途にのみ使う。実際の距離計算は常に
+# haversine_distance_kmで正確に行う。
 KM_PER_DEGREE_LATITUDE = 111.0
 
 COMPASS_LABELS = ["北", "北東", "東", "南東", "南", "南西", "西", "北西"]
@@ -43,9 +40,8 @@ def compass_label(bearing_deg: float) -> str:
 
     区分の境界（22.5°・67.5°…）は上の区分へ倒す（half-up）。組み込みの`round`は
     偶数丸めのため使わない——frontendの二重実装`cardinalLabel`
-    （WindBearingSlider.tsx）が`Math.round`（half-up）で、丸め規則が違うと境界の
-    4点（22.5/112.5/202.5/292.5）だけラベルが食い違う。両実装の境界値は
-    tests/test_geo.py・WindBearingSlider.test.tsが突き合わせる。
+    （WindBearingSlider.tsx）が`Math.round`（half-up）で、丸め規則が違うと境界だけ
+    ラベルが食い違う。
     """
     index = math.floor((bearing_deg % 360) / 45 + 0.5) % 8
     return COMPASS_LABELS[index]
@@ -95,14 +91,9 @@ def haversine_distance_km_array(lat: np.ndarray, lon: np.ndarray, target: LatLon
     """`haversine_distance_km`のnumpyベクトル版。
 
     `lat`/`lon`は複数地点の緯度経度配列（同一形状）、`target`は単一の目的地。
-    A*ヒューリスティック（`node_heuristic`）が、レグごとに目的地が
-    変わるたびグラフ上の全Nodeとの距離をPythonループ無しで1回のnumpy演算で
-    求め直すために使う（訪問したNodeだけ都度計算していたスカラー版と異なり、
-    全Node分をまとめて計算するが、numpy演算1回のコストはNode数十万件規模でも
-    数十ms程度に収まる）。式自体は`haversine_distance_km`と同一（丸め方式の
-    違いによる浮動小数点の不一致はヒューリスティックの許容誤差に影響しない
-    ——A*のヒューリスティックは下界を返しさえすれば正しく動作するadmissible
-    ヒューリスティックのため、スカラー版とのビット単位一致は不要）。
+    A*ヒューリスティック（`node_heuristic`）が、レグごとに目的地が変わるたびグラフ上の
+    全Nodeとの距離を1回のnumpy演算で求め直すために使う。スカラー版とのビット単位一致は
+    不要——A*のヒューリスティックは下界を返しさえすれば正しく動く。
     """
     lat1 = np.radians(lat)
     lon1 = np.radians(lon)
