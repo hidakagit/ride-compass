@@ -61,8 +61,11 @@ def nearest_grid_point(
     min_lon, min_lat, max_lon, max_lat = bbox
     clamped_lat = min(max(point.latitude, min_lat), max_lat)
     clamped_lon = min(max(point.longitude, min_lon), max_lon)
-    i = round((clamped_lat - min_lat) / spacing_deg)
-    j = round((clamped_lon - min_lon) / spacing_deg)
+    # 最寄りが最後の格子点より先になることがある（bboxの幅が間隔の整数倍とは限らない）。
+    # `generate_wind_grid_points`が作る最後の索引で止める——止めないと、生成側に存在しない
+    # 座標を鍵にすることになり、格子の表示と同じ点を引けない。
+    i = min(round((clamped_lat - min_lat) / spacing_deg), int((max_lat - min_lat) / spacing_deg))
+    j = min(round((clamped_lon - min_lon) / spacing_deg), int((max_lon - min_lon) / spacing_deg))
     return Coordinates(
         latitude=round(min_lat + i * spacing_deg, 4),
         longitude=round(min_lon + j * spacing_deg, 4),
@@ -117,17 +120,16 @@ def generate_wind_grid_detail_points(
     j_start = math.floor((min_lon - origin_lon) / spacing_deg)
     j_end = math.floor((max_lon - origin_lon) / spacing_deg)
 
-    points = []
-    for i in range(i_start, i_end + 1):
-        lat = round(origin_lat + i * spacing_deg, 4)
-        if lat < origin_lat or lat > bbox_max_lat:
-            continue
-        for j in range(j_start, j_end + 1):
-            lon = round(origin_lon + j * spacing_deg, 4)
-            if lon < origin_lon or lon > bbox_max_lon:
-                continue
-            points.append(Coordinates(latitude=lat, longitude=lon))
-    return points
+    # 索引の範囲がクリップ後のbboxから決まるため、ここで改めて範囲を確かめる必要はない
+    # （`i_start`は0以上、`i_end`は`max_lat`を超えない）。
+    return [
+        Coordinates(
+            latitude=round(origin_lat + i * spacing_deg, 4),
+            longitude=round(origin_lon + j * spacing_deg, 4),
+        )
+        for i in range(i_start, i_end + 1)
+        for j in range(j_start, j_end + 1)
+    ]
 
 
 class WindGridPoint(StrictModel):
