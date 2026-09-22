@@ -29,16 +29,17 @@ import asyncpg  # noqa: E402
 
 from app.batch._common import asyncpg_dsn, with_derived_data_revision_bump  # noqa: E402
 from app.config import settings  # noqa: E402
+from app.domain.material_sql import ways_source_sql  # noqa: E402
 
 logger = logging.getLogger("ridecompass.derive_topology")
 
 #: `payload`はリトルエンディアンの符号付き64bit整数を並べたもの（取込が`struct.pack`で
 #: 書く）。最上位バイトのシフトは桁あふれを折り返すが、それが符号付き64bitの解釈そのもの
 #: なので値は正しい。
-_DECODE_WAYS = """
+_DECODE_WAYS = f"""
 CREATE TEMP TABLE _way ON COMMIT DROP AS
-SELECT w.natural_key::bigint AS way_id, d.node_ids, w.geom
-FROM source_features w
+SELECT w.osm_way_id AS way_id, d.node_ids, w.geom
+FROM {ways_source_sql(extra_columns=("payload",))} w
 CROSS JOIN LATERAL (
   SELECT array_agg(
            ((get_byte(w.payload, i * 8 + 7)::bigint << 56)
@@ -51,7 +52,7 @@ CROSS JOIN LATERAL (
           |  get_byte(w.payload, i * 8    )::bigint) ORDER BY i) AS node_ids
   FROM generate_series(0, octet_length(w.payload) / 8 - 1) AS i
 ) d
-WHERE w.source = 'osm_way' AND w.payload IS NOT NULL
+WHERE w.payload IS NOT NULL
 """
 
 #: 切る位置は両端と「2本以上の道が通るノード」。始点と終点が同じになる区間は、閉じた線に

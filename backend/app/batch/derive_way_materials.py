@@ -21,6 +21,7 @@ import asyncpg  # noqa: E402
 from app.batch._common import asyncpg_dsn, with_derived_data_revision_bump  # noqa: E402
 from app.config import settings  # noqa: E402
 from app.domain import divided_carriageway as dc  # noqa: E402
+from app.domain.material_sql import WAYS_SOURCE_SQL  # noqa: E402
 from app.domain.traffic import direction_sql  # noqa: E402
 
 logger = logging.getLogger("ridecompass.derive_way_materials")
@@ -28,18 +29,17 @@ logger = logging.getLogger("ridecompass.derive_way_materials")
 
 #: 判定に要るものを1つの表へまとめ、索引を張る。相方探しは自分自身を何度も引くため、
 #: `source_features`の全ソースが載る親表を毎回たどらせない。
-_WAY_FACTS = """
+_WAY_FACTS = f"""
 CREATE TEMP TABLE _way_facts ON COMMIT DROP AS
-SELECT s.natural_key::bigint AS osm_way_id, s.geom,
+SELECT w.osm_way_id, w.geom,
        d.direction,
-       s.attrs->>'highway' AS highway,
-       lower(btrim(coalesce(s.attrs->>'carriageway', ''))) AS carriageway,
-       COALESCE(NULLIF(btrim(s.attrs->>'ref'), ''), NULLIF(btrim(s.attrs->>'name'), '')) AS ident,
-       degrees(ST_Azimuth(ST_StartPoint(s.geom)::geography, ST_EndPoint(s.geom)::geography))
+       w.highway,
+       lower(btrim(coalesce(w.tags->>'carriageway', ''))) AS carriageway,
+       COALESCE(NULLIF(btrim(w.tags->>'ref'), ''), NULLIF(btrim(w.tags->>'name'), '')) AS ident,
+       degrees(ST_Azimuth(ST_StartPoint(w.geom)::geography, ST_EndPoint(w.geom)::geography))
            + CASE WHEN d.direction = 'backward' THEN 180 ELSE 0 END AS travel_deg
-FROM source_features s
-JOIN way_materials d ON d.osm_way_id = s.natural_key::bigint
-WHERE s.source = 'osm_way'
+FROM {WAYS_SOURCE_SQL} w
+JOIN way_materials d ON d.osm_way_id = w.osm_way_id
 """
 
 #: 逆向きに並走しているか。
@@ -100,8 +100,7 @@ WHERE v.osm_way_id = m.osm_way_id
 
 
 #: 引き当てる側が期待する形（`id`・`tags`）へ生データを写す。
-_SOURCE_WAYS = ("SELECT natural_key::bigint AS id, attrs AS tags FROM source_features"
-                " WHERE source = 'osm_way'")
+_SOURCE_WAYS = f"SELECT osm_way_id AS id, tags FROM {WAYS_SOURCE_SQL} w"
 
 _UPDATE_DIRECTIONS = f"""
 UPDATE way_materials m SET direction = d.direction

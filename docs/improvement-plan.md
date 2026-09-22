@@ -220,7 +220,6 @@ CLAUDE.md参照。節見出しはタスクのテーマ分類で、日付は起�
 - [ ] [T1026](records/tasks/T1026.md). 手書きの色表を消したときに一緒に落ちた「色の意味」を戻す 規模M
 - [ ] [T1027](records/tasks/T1027.md). 失敗・空・待ちの伝え方を1本の規約へ揃える 規模M
 - [ ] [T1029](records/tasks/T1029.md). sceneの入力語彙を、上位のReactコンポーネントのpropsから切り離す 規模S
-- [ ] [T1031](records/tasks/T1031.md). 「単一の情報源」を自称するSQLを、batchの1本だけが手で写している 規模S
 - [ ] [T1032](records/tasks/T1032.md). frontend-design-system.mdが、モジュール文書の禁止事項をまとめて破っている 規模S
 - [ ] [T1033](records/tasks/T1033.md). way_materialsだけが「生データを差し替えたら下流を作り直す」契約から外れている 規模S
 - [ ] [T1034](records/tasks/T1034.md). 周期レビュー第12回の小さな指摘をまとめて直す 規模S

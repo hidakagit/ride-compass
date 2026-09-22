@@ -26,6 +26,7 @@ import asyncpg  # noqa: E402
 
 from app.batch._common import asyncpg_dsn, with_derived_data_revision_bump  # noqa: E402
 from app.config import settings  # noqa: E402
+from app.domain.material_sql import WAYS_SOURCE_SQL  # noqa: E402
 from app.domain.traffic import (  # noqa: E402
     HIGHWAY_RANK,
     TRAFFIC_SIGNAL_SQL,
@@ -70,15 +71,15 @@ WHERE self.source = 'osm_node' AND self.natural_key = nm.osm_node_id::text
 """
 
 #: そのノードに集まる道の最大階級。
-_UPDATE_MAX_RANK_TEMPLATE = """
+_UPDATE_MAX_RANK_TEMPLATE = f"""
 WITH ranked AS (
     SELECT e.from_node_id AS node_id, r.rank FROM road_edges e
-    JOIN source_features w ON w.source = 'osm_way' AND w.natural_key = e.osm_way_id::text
-    JOIN (VALUES {values}) AS r(highway, rank) ON r.highway = w.attrs->>'highway'
+    JOIN {WAYS_SOURCE_SQL} w ON w.osm_way_id = e.osm_way_id
+    JOIN (VALUES {{values}}) AS r(highway, rank) ON r.highway = w.highway
     UNION ALL
     SELECT e.to_node_id, r.rank FROM road_edges e
-    JOIN source_features w ON w.source = 'osm_way' AND w.natural_key = e.osm_way_id::text
-    JOIN (VALUES {values}) AS r(highway, rank) ON r.highway = w.attrs->>'highway'
+    JOIN {WAYS_SOURCE_SQL} w ON w.osm_way_id = e.osm_way_id
+    JOIN (VALUES {{values}}) AS r(highway, rank) ON r.highway = w.highway
 ),
 best AS (SELECT node_id, max(rank) AS max_rank FROM ranked GROUP BY node_id)
 UPDATE node_materials nm SET max_highway_rank = best.max_rank

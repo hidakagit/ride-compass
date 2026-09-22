@@ -1,9 +1,10 @@
 """材料の値をSQLで導出する式の、単一の情報源。
 
 材料が何から導かれるかはdomainの知識のため、式をここに置く。参照する側
-（`road_graph_repository.py`のタイル配信・材料の読み出し、`material_coverage.py`の
-欠損割合集計）はいずれもRoad Graphのオブジェクトを構築せずDBを直接引く。同じ判定式を
-呼び出し側ごとに独立して書くとドリフトするため、ここへ集約する。
+（タイル配信・材料の読み出し・欠損割合集計・派生バッチ）はいずれもRoad Graphの
+オブジェクトを構築せずDBを直接引く。同じ判定式を呼び出し側ごとに独立して書くと
+ドリフトするため、ここへ集約する。道の生データの読み方（`source`の値・キーの型）も
+同じ理由でここだけが持つ。
 
 式はテーブルのエイリアスを固定で参照する。FROM句は読み出し側が組み立てる:
 
@@ -19,18 +20,21 @@
 """
 
 
-def ways_source_sql(sampling: str = "") -> str:
+def _ways_select(extra_columns: tuple[str, ...]) -> str:
+    columns = ("natural_key::bigint AS osm_way_id", "geom", "attrs AS tags",
+               "attrs->>'highway' AS highway", "attrs->>'surface' AS surface", *extra_columns)
+    return "SELECT " + ", ".join(columns) + " FROM source_features"
+
+
+def ways_source_sql(sampling: str = "", *, extra_columns: tuple[str, ...] = ()) -> str:
     """`w`の別名が指す副問い合わせ。生データは`source_features`に1つの形で入っている
     ため、よく引くタグを列として出し、式の側が`attrs`の構造を知らなくて済むようにする。
 
     `sampling`は`TABLESAMPLE ...`を入れる口。抽選は副問い合わせの**中**へ置く
-    （外に付けると構文エラーになる）。
+    （外に付けると構文エラーになる）。`extra_columns`は`source_features`の列を
+    そのまま足す口（構成ノードの並び`payload`等、材料の式が読まない列を要る読み手向け）。
     """
-    return (
-        "(SELECT natural_key::bigint AS osm_way_id, geom, attrs AS tags, "
-        "attrs->>'highway' AS highway, attrs->>'surface' AS surface "
-        f"FROM source_features {sampling} WHERE source = 'osm_way')"
-    )
+    return f"({_ways_select(extra_columns)} {sampling} WHERE source = 'osm_way')"
 
 
 WAYS_SOURCE_SQL = ways_source_sql()
@@ -43,11 +47,8 @@ def ways_lookup_sql(key_expr: str) -> str:
     と比べると索引が使えず、道の全件に対する総当たりになる（実測: 区間1,766本の材料
     取得で2,124万行を捨てて2.95秒）。
     """
-    return (
-        "(SELECT natural_key::bigint AS osm_way_id, geom, attrs AS tags, "
-        "attrs->>'highway' AS highway, attrs->>'surface' AS surface "
-        f"FROM source_features WHERE source = 'osm_way' AND natural_key = ({key_expr})::text)"
-    )
+    return (f"({_ways_select(())} "
+            f"WHERE source = 'osm_way' AND natural_key = ({key_expr})::text)")
 
 
 def normalized_tag_sql(tag: str) -> str:

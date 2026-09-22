@@ -30,7 +30,11 @@ from app.batch._common import asyncpg_dsn, with_derived_data_revision_bump  # no
 from app.config import settings  # noqa: E402
 from app.domain.attributes import elevation_values_sql  # noqa: E402
 from app.domain.landcover import PERCENT_CLASSES, class_percentages_sql  # noqa: E402
-from app.domain.material_sql import BRIDGE_NORMALIZED_SQL, TUNNEL_NORMALIZED_SQL  # noqa: E402
+from app.domain.material_sql import (  # noqa: E402
+    BRIDGE_NORMALIZED_SQL,
+    TUNNEL_NORMALIZED_SQL,
+    WAYS_SOURCE_SQL,
+)
 
 logger = logging.getLogger("ridecompass.derive_raster_materials")
 
@@ -38,18 +42,11 @@ logger = logging.getLogger("ridecompass.derive_raster_materials")
 _LANDCOVER_RING_M = 100.0
 _LANDCOVER_INNER_M = 10.0
 
-#: `source_features`の道の行を、材料の式（`domain/material_sql.py`）が期待する別名へ
-#: 合わせる。式の側にタグ列の名前が書かれているため、こちらが合わせる。
-_WAYS_AS_W = (
-    "(SELECT natural_key::bigint AS osm_way_id, attrs AS tags, geom "
-    "FROM source_features WHERE source = 'osm_way') w"
-)
-
 _EDGE_SHAPES = f"""
 SELECT e.osm_way_id, e.segment_index, e.geom,
        (coalesce({TUNNEL_NORMALIZED_SQL}, '') NOT IN ('', 'no')
         OR coalesce({BRIDGE_NORMALIZED_SQL}, '') NOT IN ('', 'no')) AS on_structure
-FROM road_edges e JOIN {_WAYS_AS_W} ON w.osm_way_id = e.osm_way_id
+FROM road_edges e JOIN {WAYS_SOURCE_SQL} w ON w.osm_way_id = e.osm_way_id
 """
 
 
