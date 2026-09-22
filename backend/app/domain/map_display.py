@@ -120,6 +120,8 @@ AREA_OPACITY = 0.55
 #: ——既定の`standard`はsinに比例し、平野部の数度では実効の濃さが0.03を下回って見えない。
 HILLSHADE_ILLUMINATION_DEG = 315
 HILLSHADE_METHOD = "igor"
+#: 標高の強調。**タイルの値は実際の標高のままで、読み方（復元式の係数）へ掛ける**
+#: ——タイル側を書き換えると、同じタイルを別の倍率で読み直せなくなる。
 #: 上げるほど緩い斜面が読めるが、上げすぎると急斜面との差が潰れる。
 TERRAIN_EXAGGERATION = 5
 

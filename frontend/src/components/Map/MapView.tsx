@@ -114,7 +114,7 @@ import {
 } from "@/features/map/routeSegmentProperties";
 
 /** 乗り換えられる区間1本ぶんの入力。`index`は押されたときに呼び出し側が見分ける値。 */
-export interface SpliceStretchFeature {
+interface SpliceStretchFeature {
   index: number;
   /** 相手の道を選んでいる状態。 */
   taken: boolean;
@@ -232,8 +232,6 @@ function bindDragAwareClick(marker: maplibregl.Marker, element: HTMLElement, onC
 }
 
 
-// 線レイヤーの太さは意味を運ばない（意味を運ぶのは色だけ、という全レイヤー共通の規約）。
-export const DEFAULT_ROAD_LINE_WIDTH = 3;
 // road_surfaceの1次「素材」線レイヤー（道路種別/路面の合成ROAD_TILE_LAYER_ID・自転車
 // インフラ）は同じ道路ジオメトリ上に重なる独立レイヤーのため、複数を同時に
 // ONにすると後から描画されたレイヤーが前のレイヤーを完全に覆い隠してしまう。line-offsetで
@@ -343,50 +341,6 @@ export const STOP_POI_SOURCE_LAYER = "stop_poi";
 // MapLibreの"idle"は表示中のすべての取得が落ち着くまで来ないため、外部データ
 // （既定ONの災害タイル等）が遅いセッションでは待ち続けてしまう。
 const INITIAL_TILES_OVERLAY_MAX_MS = 6000;
-// 面で塗るレイヤー（気象庁ナウキャスト系のラスタ・格子塗り・標高図）の不透明度。
-// 濃さはレイヤーごとに決めず1つの値を共有する——面が重なったときの濃さは重なりの数で
-// 決まるべきで、レイヤーごとの主張の強さで決まると、何が上に乗っているかを読めなくなる。
-//
-// 下の道路・地名が読めるかはこの値ではなく差し込み位置（mapStyleOps.ts: areaLayerAnchor、
-// 面は基礎地図の道路網より下へ入る）が担う。道路・地名までこの値で守ろうとすると、最も濃い色が
-// 下を潰さない値まで下げるほかなくなり、薄い色はその巻き添えで背景と区別が付かなくなる。
-//
-// この値に残るトレードオフは**上下から挟まれている**。下げると薄い階級（少雨・弱い危険度）が
-// 背景と区別できなくなり、上げると面の下にある基礎地図の土地の塗り（公園・土地利用・建物）の
-// 違いが潰れ、全面を覆う面（標高図・緑と水）で地図が一様な色になる。どちらも1つの値が決める
-// ため、片側だけを見て動かさないこと。
-export const AREA_LAYER_OPACITY = 0.55;
-const GSI_RELIEF_SOURCE_ID = "gsi-relief";
-const GSI_RELIEF_LAYER_ID = "gsi-relief-raster";
-const GSI_TERRAIN_SOURCE_ID = "gsi-terrain";
-const GSI_TERRAIN_LAYER_ID = "gsi-terrain-hillshade";
-const GSI_TERRAIN_TILE_PATH = "/api/gsi-terrain-tile/{z}/{x}/{y}.png";
-// 配信元が実データを持つ上限（backend services/terrain_tile_service.py と同じ値）。
-// これより上はMapLibreが拡大して見せる。
-const GSI_TERRAIN_MAX_ZOOM = 14;
-// 陰影の強さ。hillshadeレイヤーは不透明度のpaintプロパティを持たないため、面レイヤー共通の
-// 濃さ（AREA_LAYER_OPACITY）は影・光の色のalphaとして渡す。平坦な所は影も光も出ない
-// （傾きが0の画素は透明になる）ため、この値を上げても基礎地図の平地は濁らない。
-const HILLSHADE_SHADOW_COLOR = `rgba(60, 50, 40, ${AREA_LAYER_OPACITY})`;
-const HILLSHADE_HIGHLIGHT_COLOR = `rgba(255, 252, 245, ${AREA_LAYER_OPACITY})`;
-// 北西からの斜め光（陰影図の慣例。真上からだと起伏が出ない）。
-const HILLSHADE_ILLUMINATION_DIRECTION = 315;
-// 陰影の計算方法。既定の`standard`は傾きのsinに比例して塗るため、関東平野の傾き（数度）では
-// 実効の不透明度が0.03を下回り、出ていても気づけない。`igor`は傾きのarctanに比例し、
-// 同じ傾きで倍以上の濃さになる。**`basic`・`multidirectional`は使えない**——平坦な画素にも
-// 光を塗るため、面レイヤの「値のある所だけ塗る」を満たさない。
-const HILLSHADE_METHOD = "igor";
-// 標高を読むときの垂直方向の強調倍率。**タイルの値は実際の標高のまま**で、読み方だけを
-// 変える（`raster-dem`のcustom encodingは`r*redFactor + g*greenFactor + b*blueFactor -
-// baseShift`で標高を復元する。mapbox encodingの係数を倍率倍したものを渡す）。
-// 倍率を上げるほど緩い斜面が読めるようになるが、上げすぎると急斜面との差が潰れる。
-const TERRAIN_VERTICAL_EXAGGERATION = 5;
-const TERRAIN_RGB_RED_FACTOR = 6553.6;
-const TERRAIN_RGB_GREEN_FACTOR = 25.6;
-const TERRAIN_RGB_BLUE_FACTOR = 0.1;
-const TERRAIN_RGB_BASE_SHIFT = 10000;
-const LANDCOVER_SOURCE_ID = "landcover";
-const LANDCOVER_LAYER_ID = "landcover-raster";
 // 動的気象レイヤー（風・降水）のsource/layer id。要素id×ソース×描画方式（raster/fill/
 // mark）の組み合わせから機械的に決まるため、要素を追加してもここへ新しい定数を足す必要は
 // ない（DYNAMIC_WEATHER_RENDERERS・ensureDynamicWeatherLayer参照）。sourceを分けることで
@@ -452,7 +406,7 @@ function updateTileZoomHint(
 
 // 全候補のgeometryを包含するbounds計算そのものは地図インスタンスに依存しない純粋な処理
 // のため、fitBoundsToRoutesから切り出してベンチマーク可能にしてある（MapView.bench.ts）。
-export function computeRouteBounds(routes: RouteCandidate[]): maplibregl.LngLatBounds {
+function computeRouteBounds(routes: RouteCandidate[]): maplibregl.LngLatBounds {
   const bounds = new maplibregl.LngLatBounds();
   for (const route of routes) {
     for (const [lng, lat] of route.geometry.coordinates) {
@@ -480,7 +434,7 @@ export interface RouteFitObscuredPx {
 /** 覆われている高さを基本余白へ足したフィット用paddingを返す。対向する2辺の合計が
  * 地図の幅・高さを食い尽くす場合は、可視領域がROUTE_FIT_MIN_VISIBLE_PX残るところまで
  * その2辺を同じ比率で縮める。 */
-export function computeRouteFitPadding(
+function computeRouteFitPadding(
   obscured: RouteFitObscuredPx | undefined,
   canvas: { width: number; height: number },
 ): { top: number; bottom: number; left: number; right: number } {
@@ -529,7 +483,7 @@ const POPUP_BODY_STYLE = "font-size:var(--font-size-md); line-height:1.4;";
 // （handleRouteSegmentClick参照）。区間規模の距離感での見た目上のスナップが目的のため、
 // 球面上の正確な最近点ではなく経緯度を平面とみなした単純な線分への垂線ベースの近似で十分
 // （道路レベルのローカルな距離では誤差は無視できる）。
-export function nearestPointOnLineString(
+function nearestPointOnLineString(
   coordinates: readonly (readonly [number, number])[],
   point: readonly [number, number],
 ): [number, number] {
