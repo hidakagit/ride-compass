@@ -16,11 +16,11 @@ import styles from "./Disclosure.module.css";
 // （常に1つしか無く見た目上の意味を持たない層）はdisplay:contentsで透過させ、
 // 呼び出し側のCSS（親のflex/grid・隣接セレクタ等）への影響を最小化する。
 interface DisclosureProps {
-  /** 開閉全体を包む要素（旧<details id>相当）のid。旧<details>はidをコンテナ自身に
-   * 持たせる用途（テストでの領域スコープ・要素検索）で使われていたため、Trigger単体では
-   * なくRoot（コンテナ）へ付ける。開閉のクリックだけをプログラムから行いたい場合は
-   * `document.getElementById(id)?.querySelector("button")?.click()`のようにトリガーを
-   * 辿る（MapOverlayControls.test.tsxの開閉操作を参照）。 */
+  /** 開閉全体を包む要素（旧<details id>相当）のid。Trigger（button）ではなくRoot
+   * （コンテナ）へ付くため、このidで引けるのは領域全体であってトリガーではない。
+   * プログラムから開閉するときは領域内のトリガーへ`fireEvent.click`/`userEvent.click`を
+   * 当てる——開閉はReactのstate更新を伴い、act()の外からの生DOMクリックでは次の描画が
+   * 間に合わないことがある。 */
   id?: string;
   /** 開閉全体を包む要素（旧<details>相当）のクラス */
   className?: string;
