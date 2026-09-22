@@ -190,6 +190,7 @@ CLAUDE.md参照。節見出しはタスクのテーマ分類で、日付は起�
 - [ ] [T1009](records/tasks/T1009.md). 撤去済みのsplit工程が、docs/modulesに現行仕様として残っている 規模S〜M
 - [ ] [T1012](records/tasks/T1012.md). 地図の宣言に対する取り決めを決め、検査で固定する 規模M
 - [ ] [T1013](records/tasks/T1013.md). 撤去で根拠を失った5つの制約を、現行に照らして残すか外すか決める 規模M
+- [ ] [T1014](records/tasks/T1014.md). E2Eを「実機でしか出ないもの」の場として作り直す 規模M〜L
 - [ ] [T978](records/tasks/T978.md). 標高タイルの取込が、製品を1つ選んで残りを捨てている 規模M
 - [ ] [T989](records/tasks/T989.md). docker composeで立てた環境は、手順どおりにしても使える状態にならない 規模S〜M
 
