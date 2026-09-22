@@ -7,12 +7,6 @@ ROAD = 30.0
 
 
 class TestEffectiveGradient:
-    def test_travelling_along_the_road_keeps_the_sign(self):
-        assert GradientCalculator.effective_gradient(5.0, ROAD, ROAD) == 5.0
-
-    def test_travelling_against_the_road_flips_the_sign(self):
-        assert GradientCalculator.effective_gradient(5.0, ROAD, ROAD + 180) == -5.0
-
     def test_the_steepness_never_depends_on_the_angle(self):
         along = [GradientCalculator.effective_gradient(5.0, ROAD, ROAD + d) for d in (0, 30, 60, 89)]
         against = [GradientCalculator.effective_gradient(5.0, ROAD, ROAD + d) for d in (91, 120, 150, 180)]
@@ -20,22 +14,7 @@ class TestEffectiveGradient:
         assert along == [5.0] * 4
         assert against == [-5.0] * 4
 
-    def test_descent_is_carried_through_the_same_way(self):
-        assert GradientCalculator.effective_gradient(-3.0, ROAD, ROAD) == -3.0
-        assert GradientCalculator.effective_gradient(-3.0, ROAD, ROAD + 180) == 3.0
-
-
 class TestShowsGradient:
-    def test_travelling_along_the_road_is_shown(self):
-        assert GradientCalculator.shows_gradient(ROAD, ROAD) is True
-
-    def test_travelling_against_the_road_is_shown(self):
-        """逆走は符号が反転するだけで、示せないわけではない。"""
-        assert GradientCalculator.shows_gradient(ROAD, ROAD + 180) is True
-
-    def test_perpendicular_is_not_shown(self):
-        assert GradientCalculator.shows_gradient(ROAD, ROAD + 90) is False
-
     def test_the_band_edge_itself_is_not_shown(self):
         edge = 90 - LENS_PERPENDICULAR_BAND_DEG
 

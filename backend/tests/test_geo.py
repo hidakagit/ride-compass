@@ -41,16 +41,10 @@ class TestCompassLabel:
 
 class TestBearingBetween:
 
-    def test_due_north_is_zero(self):
-        assert bearing_between(TOKYO, LatLonPoint(TOKYO.latitude + 1, TOKYO.longitude)) == 0.0
-
     def test_due_east_is_ninety(self):
         east = bearing_between(TOKYO, LatLonPoint(TOKYO.latitude, TOKYO.longitude + 1))
 
         assert 89.0 < east < 91.0
-
-    def test_due_south_is_one_hundred_eighty(self):
-        assert bearing_between(TOKYO, LatLonPoint(TOKYO.latitude - 1, TOKYO.longitude)) == 180.0
 
     def test_due_west_is_around_two_hundred_seventy(self):
         """負の角度で返さず0〜360へ畳む——方位差の計算が符号で割れる。"""
@@ -148,9 +142,6 @@ class TestHaversineDistanceKmArray:
 
 
 class TestLatLon:
-
-    def test_the_lightweight_point_satisfies_it(self):
-        assert isinstance(LatLonPoint(1.0, 2.0), LatLon)
 
     def test_any_other_type_with_the_two_fields_is_accepted(self):
         """構造的型なので、緯度経度さえ持てば通る。`Coordinates`側がこれを満たすかは

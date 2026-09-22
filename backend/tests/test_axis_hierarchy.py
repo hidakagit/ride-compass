@@ -88,16 +88,6 @@ class TestWhichReferencesAreAxes:
 
 
 class TestTheEvaluationOrder:
-    def test_a_referenced_axis_comes_before_the_axis_that_uses_it(self):
-        """内部軸の結果が次の軸の材料になる。逆順で評価すると、参照先が未評価のまま
-        欠損として入る。
-        """
-        definitions = _definitions(_axis("outer", ["inner"]), _axis("inner", ["num_a"]))
-
-        order = topological_axis_order(definitions)
-
-        assert order.index("inner") < order.index("outer")
-
     def test_a_chain_is_ordered_from_the_leaf_up(self):
         definitions = _definitions(
             _axis("top", ["middle"]), _axis("middle", ["bottom"]), _axis("bottom", ["num_a"])

@@ -3,6 +3,7 @@
 タイルの取得と補間の実行は`test_jma_tile_client.py`・`test_jma_tile_interpolation.py`が持つ。
 """
 
+from app.domain import jma_tile_specs
 from app.domain.jma_tile_specs import (
     JMA_TILE_SPECS,
     JmaTileSpec,
@@ -38,7 +39,8 @@ class TestEffectiveMaxZoom:
 
 
 class TestMaxZoomFor:
-    def test_registered_element_reports_its_effective_maximum(self):
+    def test_a_registered_element_goes_through_the_parity_step_down(self):
+        """生の`max_native_zoom`をそのまま返すと、偶奇の合わないズームを上限として配る。"""
         element_id, spec = next(iter(JMA_TILE_SPECS.items()))
 
         assert max_zoom_for(element_id) == effective_max_zoom(spec)
@@ -85,13 +87,21 @@ class TestSourceZoomForInterpolation:
 
         assert source_zoom_for_interpolation("hrpns", spec.min_zoom - 1) is None
 
+    def test_an_unregistered_element_has_nothing_to_interpolate(self):
+        """知らない要素で親を返すと、存在しないタイルを取りに行く。"""
+        assert source_zoom_for_interpolation("no_such_element", 5) is None
+
+    def test_an_element_without_a_parity_constraint_never_interpolates(self, monkeypatch):
+        """偶奇を限らない要素は全ズームに実データがあるため、拡大で埋める必要が無い。
+        今のレジストリは全要素が偶数ズームのみだが、`zoom_use`は`"all"`も取る。
+        """
+        monkeypatch.setattr(jma_tile_specs, "JMA_TILE_SPECS", {"synthetic": _spec("all", 10)})
+
+        assert source_zoom_for_interpolation("synthetic", 5) is None
+
     def test_above_the_maximum_is_left_to_the_client_overzoom(self):
         """ここで親を返すと、二重に拡大される。"""
         spec = JMA_TILE_SPECS["hrpns"]
 
         assert source_zoom_for_interpolation("hrpns", effective_max_zoom(spec) + 1) is None
-
-    def test_unconstrained_element_never_needs_interpolation(self):
-        assert source_zoom_for_interpolation("no_such_element", 5) is None
-
 

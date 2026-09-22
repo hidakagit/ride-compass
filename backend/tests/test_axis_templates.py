@@ -140,11 +140,6 @@ class TestRound1Array:
 
         assert result.tolist() == [round(v, 1) for v in values]
 
-    def test_it_matches_the_builtin_on_ordinary_values(self):
-        values = [0.0, 1.2345, -9.8765, 123.456, 1e-9]
-
-        assert round1_array(np.array(values)).tolist() == [round(v, 1) for v in values]
-
     def test_missing_elements_stay_missing(self):
         result = round1_array(np.array([np.nan, 1.04]))
 

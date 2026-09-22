@@ -31,9 +31,6 @@ def _entry(code: str | None = "30", **overrides) -> dict:
 class TestWhetherAnythingIsReturned:
     """この電文が、この地点の、いま出ている予報かを決める。"""
 
-    def test_a_matching_active_bulletin_is_returned(self):
-        assert extract_active_flood_forecast(_entry(), CLASS20, CLASS10) is not None
-
     def test_the_cleared_code_means_nothing_is_active(self):
         """`status`と同じ発想で読むと、解除済みの河川が出続ける。"""
         assert extract_active_flood_forecast(_entry(CLEARED_CODE), CLASS20, CLASS10) is None

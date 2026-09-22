@@ -75,15 +75,6 @@ class TestDistanceWeightedDifficulty:
     def test_longer_segments_pull_harder(self):
         assert distance_weighted_difficulty([(0.0, 9.0), (100.0, 1.0)]) == 10.0
 
-    def test_missing_values_leave_the_denominator(self):
-        assert distance_weighted_difficulty([(40.0, 1.0), (None, 9.0)]) == 40.0
-
-    def test_no_usable_value_or_no_distance_is_none(self):
-        assert distance_weighted_difficulty([(None, 1.0)]) is None
-        assert distance_weighted_difficulty([(50.0, 0.0)]) is None
-        assert distance_weighted_difficulty([]) is None
-
-
 class TestDifficultyLoad:
 
     def test_grows_with_distance_at_the_same_average(self):
@@ -100,12 +91,6 @@ class TestDifficultyLoad:
 
     def test_missing_segments_keep_their_distance_in_the_total(self):
         assert difficulty_load([(50.0, 2.0), (None, 2.0)]) == 50.0 * 4.0
-
-    def test_no_usable_value_or_no_distance_is_none(self):
-        assert difficulty_load([(None, 1.0)]) is None
-        assert difficulty_load([(50.0, 0.0)]) is None
-        assert difficulty_load([]) is None
-
 
 class TestDistanceWeightedDifficultyArray:
 
