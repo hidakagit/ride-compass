@@ -1,103 +1,275 @@
-"""`domain/wind.py`の風の材料（`wind_drag_ratio_array`）。"""
+"""`domain/wind.py`——風を走行方向へ分解し、追加負荷の材料にする。
 
-import math
+風の予報をどこから取るかは`test_weather_service.py`、way単位の配信は
+`test_wind_way_service.py`が持つ。ここで見るのは向きと大きさの扱い。
+"""
+
+from datetime import datetime, timedelta
 
 import numpy as np
 import pytest
 
+from app.domain.route import Coordinates
 from app.domain.wind import (
+    ROUTE_DETOUR_RATIO,
     WIND_DRAG_REFERENCE_SPEED_MS,
+    WindForecastSeries,
+    estimate_passage_hours,
     kmh_to_ms,
+    wind_components,
     wind_drag_ratio,
     wind_drag_ratio_array,
 )
 
-V20 = kmh_to_ms(20.0)
+# 走行方位は北。風向は「吹いてくる方向」なので、北からの風が向かい風。
+NORTHBOUND = 0.0
+CRUISE_MS = 20.0 / 3.6
 
 
-def test_kmh_to_ms_converts_speed_units():
-    assert kmh_to_ms(36.0) == pytest.approx(10.0)
+def test_speed_is_converted_from_kilometres_per_hour():
+    assert kmh_to_ms(36.0) == 10.0
 
 
-# --- 向かい風・追い風・横風・無風（時速20km基準） ---
+class TestWindComponents:
+    """風向は気象の慣習で**吹いてくる方向**。走行方位との差が0なら正面から受ける。"""
+
+    def test_a_headwind_is_positive_along_the_route(self):
+        along, cross = wind_components(5.0, NORTHBOUND, NORTHBOUND)
+
+        assert along == pytest.approx(5.0)
+        assert cross == pytest.approx(0.0, abs=1e-9)
+
+    def test_a_tailwind_is_negative_along_the_route(self):
+        along, _ = wind_components(5.0, 180.0, NORTHBOUND)
+
+        assert along == pytest.approx(-5.0)
+
+    def test_a_pure_crosswind_has_no_component_along_the_route(self):
+        along, cross = wind_components(5.0, 90.0, NORTHBOUND)
+
+        assert along == pytest.approx(0.0, abs=1e-9)
+        assert abs(cross) == pytest.approx(5.0)
+
+    def test_it_works_element_by_element(self):
+        along, _ = wind_components(np.array([5.0, 5.0]), np.array([0.0, 180.0]), np.array([0.0, 0.0]))
+
+        assert along.tolist() == pytest.approx([5.0, -5.0])
 
 
-def test_headwind_increases_load_quadratically():
-    # 北(0)に向かって走行中、北から風が吹いてくる＝真正面からの向かい風。
-    # x=v+w, Vr=x → (x²−v²)/v_ref²。
-    v = V20
-    assert wind_drag_ratio(2.0, 0, 0, v) == pytest.approx(((v + 2.0) ** 2 - v**2) / v**2, abs=1e-9)
-    assert wind_drag_ratio(2.0, 0, 0, v) == pytest.approx(0.85, abs=0.01)
-    assert wind_drag_ratio(4.0, 0, 0, v) == pytest.approx(1.96, abs=0.01)
-    assert wind_drag_ratio(8.0, 0, 0, v) == pytest.approx(4.95, abs=0.01)
+class TestWindDragRatio:
+    """無風時に対する進行方向の空気抵抗の増分。二乗則で、追い風が走行速度を超えても連続。"""
+
+    def test_still_air_adds_nothing(self):
+        assert wind_drag_ratio(0.0, NORTHBOUND, NORTHBOUND, CRUISE_MS) == pytest.approx(0.0)
+
+    def test_a_headwind_costs_and_a_tailwind_pays_back(self):
+        head = wind_drag_ratio(5.0, NORTHBOUND, NORTHBOUND, CRUISE_MS)
+        tail = wind_drag_ratio(5.0, 180.0, NORTHBOUND, CRUISE_MS)
+
+        assert head > 0
+        assert tail < 0
+
+    def test_a_headwind_grows_with_the_square_of_the_wind(self):
+        """二乗則。線形にすると、強風の区間の負荷を大きく取りこぼす。"""
+        light = wind_drag_ratio(2.0, NORTHBOUND, NORTHBOUND, CRUISE_MS)
+        strong = wind_drag_ratio(4.0, NORTHBOUND, NORTHBOUND, CRUISE_MS)
+
+        assert strong > 2 * light
+
+    def test_a_tailwind_as_fast_as_the_rider_cancels_the_still_air_drag(self):
+        """追い風が走行速度と同じなら相対風速は0。基準速度で走っているとき、値は
+        ちょうど −1（無風時の抵抗1つぶんが消える）になる。
+        """
+        value = wind_drag_ratio(
+            WIND_DRAG_REFERENCE_SPEED_MS, 180.0, NORTHBOUND, WIND_DRAG_REFERENCE_SPEED_MS
+        )
+
+        assert value == pytest.approx(-1.0)
+
+    @pytest.mark.parametrize("wind_speed", [0.0, 2.0, 5.0, 12.0])
+    @pytest.mark.parametrize("relative_angle", [0.0, 180.0])
+    def test_without_a_crosswind_it_matches_the_one_dimensional_form(self, wind_speed, relative_angle):
+        """横風が無いとき、2次元の式は`sign(x)·x² − v²`と厳密に一致する。ここがずれると、
+        追い風と向かい風で別の尺度になる。
+        """
+        along = CRUISE_MS + wind_speed * np.cos(np.radians(relative_angle))
+        expected = (np.sign(along) * along * along - CRUISE_MS**2) / WIND_DRAG_REFERENCE_SPEED_MS**2
+
+        assert wind_drag_ratio(wind_speed, relative_angle, NORTHBOUND, CRUISE_MS) == pytest.approx(expected)
+
+    def test_a_pure_crosswind_costs_a_little(self):
+        """相対風速が増えるぶんだけ小さな正。0にすると、横風の区間が無風と同じに見える。"""
+        cross = wind_drag_ratio(5.0, 90.0, NORTHBOUND, CRUISE_MS)
+        head = wind_drag_ratio(5.0, NORTHBOUND, NORTHBOUND, CRUISE_MS)
+
+        assert 0 < cross < head
+
+    def test_a_tailwind_stronger_than_the_rider_stays_finite(self):
+        """追い風が走行速度を超えると相対風は背後から前へ変わる。1次元の`sign(x)x²`で
+        書くとこの境界で折れるが、二乗則のベクトル式なら連続に続く。
+        """
+        values = [wind_drag_ratio(w, 180.0, NORTHBOUND, CRUISE_MS) for w in (4.0, 5.0, 6.0, 10.0, 20.0)]
+
+        assert all(np.isfinite(values))
+        assert values == sorted(values, reverse=True)
+
+    def test_a_faster_rider_feels_the_same_wind_more(self):
+        slow = wind_drag_ratio(5.0, NORTHBOUND, NORTHBOUND, kmh_to_ms(15.0))
+        fast = wind_drag_ratio(5.0, NORTHBOUND, NORTHBOUND, kmh_to_ms(30.0))
+
+        assert fast > slow
+
+    def test_the_scale_does_not_follow_the_assumed_speed(self):
+        """材料の値域は軸スタジオの折れ点が前提にする。基準速度を想定速度と共有すると、
+        既定の想定速度を変えただけで公開軸の点数が動く。
+        """
+        assert WIND_DRAG_REFERENCE_SPEED_MS == pytest.approx(20.0 / 3.6)
+
+    def test_a_rider_who_is_not_moving_is_rejected(self):
+        """0で割る形になる。黙って0を返すと、停止状態の区間が無風として扱われる。"""
+        with pytest.raises(ValueError):
+            wind_drag_ratio_array(5.0, NORTHBOUND, NORTHBOUND, 0.0)
+
+    def test_one_wind_spreads_over_many_bearings(self):
+        """1地点の風を、区間ごとに違う走行方位へ当てる。形を揃えるために風を複製すると、
+        区間数ぶんの配列を毎回作ることになる。
+        """
+        result = wind_drag_ratio_array(5.0, 0.0, np.array([0.0, 90.0, 180.0]), CRUISE_MS)
+
+        assert result.shape == (3,)
+        assert result[0] > result[1] > result[2]
+
+    def test_the_scalar_and_array_forms_agree(self):
+        speeds, directions = np.array([3.0, 7.0]), np.array([0.0, 180.0])
+
+        array = wind_drag_ratio_array(speeds, directions, np.array([0.0, 0.0]), CRUISE_MS)
+
+        assert array.tolist() == pytest.approx(
+            [wind_drag_ratio(s, d, 0.0, CRUISE_MS) for s, d in zip(speeds, directions)]
+        )
 
 
-def test_tailwind_reduces_load_and_equal_tailwind_gives_minus_one():
-    # 南から吹いてくる風＝背後からの追い風。走行速度と同じ追い風で相対風速0→ −v²/v_ref² = −1。
-    assert wind_drag_ratio(4.0, 180, 0, V20) == pytest.approx(-0.92, abs=0.01)
-    assert wind_drag_ratio(V20, 180, 0, V20) == pytest.approx(-1.0, abs=1e-9)
+class TestWindForecastSeries:
+    """1時間刻みの予報系列。通過予定時刻に最も近い時刻の値を引く。"""
+
+    @staticmethod
+    def _series(hours: int = 5) -> WindForecastSeries:
+        start = datetime(2026, 6, 21, 9, 0)
+        return WindForecastSeries(
+            times=[start + timedelta(hours=h) for h in range(hours)],
+            speed_ms=np.arange(float(hours)),
+            direction_deg=np.zeros(hours),
+        )
+
+    def test_it_takes_the_nearest_hour(self):
+        series = self._series()
+
+        speed, _ = series.sample(series.times[0], np.array([0.4, 0.6, 2.0]))
+
+        assert speed.tolist() == [0.0, 1.0, 2.0]
+
+    def test_times_before_the_series_clamp_to_the_first_value(self):
+        """探索では欠損より端の値の方が妥当——欠損にすると、その区間だけ風を無視する。"""
+        series = self._series()
+
+        speed, _ = series.sample(series.times[0], np.array([-5.0]))
+
+        assert speed.tolist() == [0.0]
+
+    def test_times_after_the_series_clamp_to_the_last_value(self):
+        series = self._series()
+
+        speed, _ = series.sample(series.times[0], np.array([99.0]))
+
+        assert speed.tolist() == [4.0]
+
+    def test_a_later_start_shifts_the_lookup(self):
+        series = self._series()
+
+        speed, _ = series.sample(series.times[2], np.array([1.0]))
+
+        assert speed.tolist() == [3.0]
+
+    def test_a_series_too_short_to_have_a_step_is_rejected(self):
+        with pytest.raises(ValueError):
+            WindForecastSeries(
+                times=[datetime(2026, 6, 21, 9, 0)],
+                speed_ms=np.array([1.0]),
+                direction_deg=np.array([0.0]),
+            )
+
+    def test_mismatched_lengths_are_rejected(self):
+        """長さがずれると、引いた添字が別の時刻の値を指す。"""
+        start = datetime(2026, 6, 21, 9, 0)
+        with pytest.raises(ValueError):
+            WindForecastSeries(
+                times=[start, start + timedelta(hours=1)],
+                speed_ms=np.array([1.0, 2.0, 3.0]),
+                direction_deg=np.array([0.0, 0.0]),
+            )
+
+    def test_a_step_other_than_one_hour_is_rejected(self):
+        """添字の計算が1時間刻みを前提にしている。3時間刻みを渡すと3倍先の風を引く。"""
+        start = datetime(2026, 6, 21, 9, 0)
+        with pytest.raises(ValueError):
+            WindForecastSeries(
+                times=[start, start + timedelta(hours=3)],
+                speed_ms=np.array([1.0, 2.0]),
+                direction_deg=np.array([0.0, 0.0]),
+            )
 
 
-def test_pure_crosswind_gives_small_positive_load():
-    # 東から吹く風は進行方向成分0だが、相対風速が増えるぶんだけ小さな正の値。
-    value = wind_drag_ratio(4.0, 90, 0, V20)
-    assert value == pytest.approx(0.23, abs=0.01)
-    assert 0 < value < wind_drag_ratio(4.0, 0, 0, V20)
+class TestEstimatePassageHours:
+    """探索の前に、各区間の通過予定時刻を直線距離だけで見積もる。"""
 
+    ANCHOR = Coordinates(latitude=35.0, longitude=139.0)
 
-def test_no_wind_gives_zero_regardless_of_direction():
-    assert wind_drag_ratio(0.0, 45, 270, V20) == pytest.approx(0.0, abs=1e-12)
-    assert wind_drag_ratio(0.0, 45, 270, kmh_to_ms(60.0)) == pytest.approx(0.0, abs=1e-12)
+    def test_the_anchor_itself_is_reached_at_the_offset(self):
+        hours = estimate_passage_hours(
+            np.array([35.0]), np.array([139.0]), self.ANCHOR, offset_hours=2.0, direction=1, speed_kmh=20.0
+        )
 
+        assert hours.tolist() == pytest.approx([2.0])
 
-# --- 二乗則固有の性質 ---
+    def test_an_outbound_leg_gets_later_with_distance(self):
+        near = estimate_passage_hours(
+            np.array([35.01]), np.array([139.0]), self.ANCHOR, offset_hours=0.0, direction=1, speed_kmh=20.0
+        )
+        far = estimate_passage_hours(
+            np.array([35.1]), np.array([139.0]), self.ANCHOR, offset_hours=0.0, direction=1, speed_kmh=20.0
+        )
 
+        assert far[0] > near[0] > 0
 
-def test_same_wind_is_heavier_when_riding_faster():
-    # 向かい風3m/sで10km/h→30km/hにすると約2.3倍。
-    slow = wind_drag_ratio(3.0, 0, 0, kmh_to_ms(10.0))
-    fast = wind_drag_ratio(3.0, 0, 0, kmh_to_ms(30.0))
-    assert fast / slow == pytest.approx(2.3, abs=0.05)
+    def test_an_inbound_leg_gets_earlier_with_distance(self):
+        """基準点は到着予定時刻。遠い区間ほど先に通る。"""
+        hours = estimate_passage_hours(
+            np.array([35.1]), np.array([139.0]), self.ANCHOR, offset_hours=3.0, direction=-1, speed_kmh=20.0
+        )
 
+        assert hours[0] < 3.0
 
-@pytest.mark.parametrize("wind_speed", [0.5, 3.0, V20 - 0.1, V20 + 0.1, 12.0])
-@pytest.mark.parametrize("relative_angle", [0.0, 180.0])
-def test_zero_crosswind_matches_one_dimensional_formula(wind_speed, relative_angle):
-    # 横風0（sin=0）のとき、2次元式はsign(x)·x² − v²と厳密に一致する。
-    v = V20
-    x = v + wind_speed * math.cos(math.radians(relative_angle))
-    expected = (math.copysign(x * x, x) - v * v) / WIND_DRAG_REFERENCE_SPEED_MS**2
-    assert wind_drag_ratio(wind_speed, relative_angle, 0, v) == pytest.approx(expected, abs=1e-9)
+    def test_a_faster_rider_reaches_the_same_point_sooner(self):
+        slow = estimate_passage_hours(
+            np.array([35.1]), np.array([139.0]), self.ANCHOR, offset_hours=0.0, direction=1, speed_kmh=10.0
+        )
+        fast = estimate_passage_hours(
+            np.array([35.1]), np.array([139.0]), self.ANCHOR, offset_hours=0.0, direction=1, speed_kmh=30.0
+        )
 
+        assert fast[0] < slow[0]
 
-def test_continuous_where_tailwind_exceeds_travel_speed():
-    v = V20
-    epsilon = 1e-4
-    below = wind_drag_ratio(v - epsilon, 180, 0, v)
-    above = wind_drag_ratio(v + epsilon, 180, 0, v)
-    assert abs(above - below) < 1e-6
-    assert wind_drag_ratio(v + 3.0, 180, 0, v) < wind_drag_ratio(v, 180, 0, v) < wind_drag_ratio(v - 3.0, 180, 0, v)
+    def test_the_detour_ratio_stretches_the_estimate(self):
+        """直線距離のままだと、道なりに走るぶんの時間を取りこぼす。"""
+        straight = estimate_passage_hours(
+            np.array([35.1]), np.array([139.0]), self.ANCHOR, 0.0, 1, 20.0, detour_ratio=1.0
+        )
+        detoured = estimate_passage_hours(
+            np.array([35.1]), np.array([139.0]), self.ANCHOR, 0.0, 1, 20.0, detour_ratio=ROUTE_DETOUR_RATIO
+        )
 
+        assert detoured[0] == pytest.approx(straight[0] * ROUTE_DETOUR_RATIO)
 
-def test_array_version_broadcasts_scalar_wind_over_bearing_array():
-    bearings = np.array([0.0, 90.0, 180.0, np.nan])
-    values = wind_drag_ratio_array(4.0, 0.0, bearings, V20)
-    assert values.shape == bearings.shape
-    assert values[0] == pytest.approx(wind_drag_ratio(4.0, 0.0, 0.0, V20))
-    assert values[1] == pytest.approx(wind_drag_ratio(4.0, 0.0, 90.0, V20))
-    assert values[2] == pytest.approx(wind_drag_ratio(4.0, 0.0, 180.0, V20))
-    assert np.isnan(values[3])  # bearing未計算のEdgeはNaNのまま
-
-
-def test_array_version_accepts_per_edge_wind_series():
-    speeds = np.array([2.0, 4.0])
-    directions = np.array([0.0, 180.0])
-    bearings = np.array([0.0, 0.0])
-    values = wind_drag_ratio_array(speeds, directions, bearings, V20)
-    assert values[0] == pytest.approx(wind_drag_ratio(2.0, 0.0, 0.0, V20))
-    assert values[1] == pytest.approx(wind_drag_ratio(4.0, 180.0, 0.0, V20))
-
-
-def test_non_positive_travel_speed_is_rejected():
-    with pytest.raises(ValueError):
-        wind_drag_ratio(4.0, 0, 0, 0.0)
+    def test_a_rider_who_is_not_moving_is_rejected(self):
+        with pytest.raises(ValueError):
+            estimate_passage_hours(np.array([35.0]), np.array([139.0]), self.ANCHOR, 0.0, 1, 0.0)

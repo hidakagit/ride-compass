@@ -255,9 +255,8 @@ def merge_material_category_shares(segments: list[RouteSegmentDetail]) -> dict[s
             totals[material_id][value] += distance_km
     shares: dict[str, dict[str, float]] = {}
     for material_id, by_value in totals.items():
+        # 距離0以下の区間は上で外しているため、ここでの合計は必ず正になる。
         total = sum(by_value.values())
-        if total <= 0:
-            continue
         shares[material_id] = {
             value: round(distance / total, 4)
             for value, distance in sorted(by_value.items(), key=lambda item: (-item[1], item[0]))

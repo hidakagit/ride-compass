@@ -129,7 +129,6 @@ class TestSpeedMs:
         assert _speed(profile, grade=0.05) < _speed(profile) < _speed(profile, grade=-0.05)
 
     def test_a_climb_costs_a_slower_rider_more(self):
-        """同じ坂でも、巡航速度が低い人ほど遅くなる。"""
         assert _speed(_profile(20.0), grade=0.05) < _speed(_profile(30.0), grade=0.05)
 
     def test_climbing_speeds_stay_realistic_because_riders_push_harder(self):

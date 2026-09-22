@@ -1,9 +1,15 @@
+"""`domain/registry.py`——一次属性と二次軸の宣言を受け付ける登録口。
+
+何を登録するかは`test_registry_defaults.py`が持つ。ここで見るのは**何を拒むか**。
+"""
+
 import pytest
 
 from app.domain.registry import (
     AxisInputConflictError,
     AxisSpec,
     PrimaryAttributeSpec,
+    TileInputSpec,
     all_axes,
     all_primary_attributes,
     register_axis,
@@ -13,62 +19,124 @@ from app.domain.registry import (
 
 
 @pytest.fixture(autouse=True)
-def _isolated_registry():
-    """他のテストファイルのimportで登録された内容が残っていても、このファイルの各テストは
-    空のレジストリから始まり、終了後も空に戻す。"""
+def _empty_registry():
     reset_registry_for_testing()
     yield
     reset_registry_for_testing()
 
 
-def _attr(attr_id: str) -> PrimaryAttributeSpec:
-    return PrimaryAttributeSpec(attr_id=attr_id, label=f"test label {attr_id}")
+def _attribute(attr_id: str) -> PrimaryAttributeSpec:
+    return PrimaryAttributeSpec(attr_id=attr_id, label=f"属性[{attr_id}]")
 
 
 class TestRegisterPrimaryAttribute:
-    def test_registers_and_retrieves(self):
-        register_primary_attribute(_attr("attr_a"))
-        assert all_primary_attributes()[0].attr_id == "attr_a"
-        assert len(all_primary_attributes()) == 1
+    def test_a_registered_attribute_is_listed(self):
+        register_primary_attribute(_attribute("a"))
 
-    def test_duplicate_attr_id_raises(self):
-        register_primary_attribute(_attr("attr_a"))
-        with pytest.raises(ValueError, match="already registered"):
-            register_primary_attribute(_attr("attr_a"))
+        assert [spec.attr_id for spec in all_primary_attributes()] == ["a"]
+
+    def test_registering_the_same_id_twice_is_rejected(self):
+        """後勝ちで上書きすると、先に登録した側のラベルが黙って消える。"""
+        register_primary_attribute(_attribute("a"))
+
+        with pytest.raises(ValueError, match="a"):
+            register_primary_attribute(_attribute("a"))
 
 
 class TestRegisterAxis:
-    def test_registers_axis_with_known_inputs(self):
-        register_primary_attribute(_attr("attr_a"))
-        register_axis(AxisSpec(axis_id="axis_a", inputs=["attr_a"]))
-        assert all_axes()[0].axis_id == "axis_a"
+    """一次属性は各軸へ**排他的に**帰属する。"""
+
+    def test_an_axis_with_registered_inputs_is_accepted(self):
+        register_primary_attribute(_attribute("a"))
+
+        register_axis(AxisSpec(axis_id="axis", inputs=["a"]))
+
+        assert [spec.axis_id for spec in all_axes()] == ["axis"]
+
+    def test_an_axis_with_no_inputs_is_accepted(self):
+        register_axis(AxisSpec(axis_id="axis", inputs=[]))
+
         assert len(all_axes()) == 1
 
-    def test_unknown_input_raises(self):
-        with pytest.raises(ValueError, match="unregistered primary attribute"):
-            register_axis(AxisSpec(axis_id="axis_a", inputs=["attr_a"]))
+    def test_an_unregistered_input_is_rejected(self):
+        """綴り違いをそのまま通すと、その属性の名前を引けない軸が登録される。"""
+        with pytest.raises(ValueError, match="no_such_attribute"):
+            register_axis(AxisSpec(axis_id="axis", inputs=["no_such_attribute"]))
 
-    def test_duplicate_axis_id_raises(self):
-        register_primary_attribute(_attr("attr_a"))
-        spec = AxisSpec(axis_id="axis_a", inputs=["attr_a"])
-        register_axis(spec)
-        with pytest.raises(ValueError, match="already registered"):
-            register_axis(spec)
+    def test_registering_the_same_axis_twice_is_rejected(self):
+        register_primary_attribute(_attribute("a"))
+        register_axis(AxisSpec(axis_id="axis", inputs=["a"]))
 
-    def test_two_axes_with_disjoint_inputs_both_register(self):
-        register_primary_attribute(_attr("attr_a"))
-        register_primary_attribute(_attr("attr_b"))
-        register_axis(AxisSpec(axis_id="axis_a", inputs=["attr_a"]))
-        register_axis(AxisSpec(axis_id="axis_b", inputs=["attr_b"]))
-        assert {axis.axis_id for axis in all_axes()} == {"axis_a", "axis_b"}
+        with pytest.raises(ValueError, match="axis"):
+            register_axis(AxisSpec(axis_id="axis", inputs=["a"]))
 
-    def test_overlapping_input_raises_axis_input_conflict(self):
-        register_primary_attribute(_attr("attr_a"))
-        register_axis(AxisSpec(axis_id="axis_a", inputs=["attr_a"]))
-        with pytest.raises(AxisInputConflictError) as exc_info:
-            register_axis(AxisSpec(axis_id="axis_b", inputs=["attr_a"]))
-        assert exc_info.value.new_axis_id == "axis_b"
-        assert exc_info.value.existing_axis_id == "axis_a"
-        assert exc_info.value.overlapping_attrs == {"attr_a"}
-        # 衝突した軸は登録されないまま（部分登録によるレジストリの不整合を防ぐ）
-        assert "axis_b" not in {axis.axis_id for axis in all_axes()}
+    def test_two_axes_sharing_an_input_are_rejected(self):
+        """同じ一次属性が2つの軸へ入ると、その属性が難易度へ二重に効く。"""
+        register_primary_attribute(_attribute("a"))
+        register_axis(AxisSpec(axis_id="first", inputs=["a"]))
+
+        with pytest.raises(AxisInputConflictError):
+            register_axis(AxisSpec(axis_id="second", inputs=["a"]))
+
+    def test_the_conflict_names_both_axes_and_the_overlap(self):
+        register_primary_attribute(_attribute("a"))
+        register_primary_attribute(_attribute("b"))
+        register_axis(AxisSpec(axis_id="first", inputs=["a", "b"]))
+
+        with pytest.raises(AxisInputConflictError) as caught:
+            register_axis(AxisSpec(axis_id="second", inputs=["b"]))
+
+        message = str(caught.value)
+        assert "first" in message and "second" in message and "b" in message
+
+    def test_a_rejected_axis_is_not_partially_registered(self):
+        """入力の一部だけ通った状態で登録されると、レジストリが宣言と食い違う。"""
+        register_primary_attribute(_attribute("a"))
+        register_axis(AxisSpec(axis_id="first", inputs=["a"]))
+
+        with pytest.raises(AxisInputConflictError):
+            register_axis(AxisSpec(axis_id="second", inputs=["a"]))
+
+        assert [spec.axis_id for spec in all_axes()] == ["first"]
+
+    def test_disjoint_inputs_are_accepted(self):
+        register_primary_attribute(_attribute("a"))
+        register_primary_attribute(_attribute("b"))
+
+        register_axis(AxisSpec(axis_id="first", inputs=["a"]))
+        register_axis(AxisSpec(axis_id="second", inputs=["b"]))
+
+        assert len(all_axes()) == 2
+
+
+class TestTileInputSpec:
+    def test_the_category_table_is_stored_in_a_fixed_order(self):
+        """構築元（コード内リテラル・DB経由・APIレスポンス）で挿入順が変わる。順序が
+        違うだけで生成物の差分が出ると、意味の無い再デプロイが要る。
+        """
+        spec = TileInputSpec(property="p", categories={"c": 3.0, "a": 1.0, "b": 2.0})
+
+        assert list(spec.categories) == ["a", "b", "c"]
+
+    def test_no_category_table_stays_absent(self):
+        """空辞書へ倒すと、「分類ではない材料」と「分類だが値が無い材料」を読む側が
+        区別できない。明示的に渡された場合も省略された場合も同じにする。
+        """
+        assert TileInputSpec(property="p").categories is None
+        assert TileInputSpec(property="p", categories=None).categories is None
+
+    def test_an_unknown_field_is_rejected(self):
+        """綴りを間違えた設定が黙って捨てられると、指定したのに効かない。"""
+        with pytest.raises(ValueError):
+            TileInputSpec(property="p", weigth=2.0)
+
+
+def test_the_registry_can_be_emptied_between_tests():
+    """大域の状態を持つため、テストの実行順で内容が変わらないようにする口が要る。"""
+    register_primary_attribute(_attribute("a"))
+    register_axis(AxisSpec(axis_id="axis", inputs=["a"]))
+
+    reset_registry_for_testing()
+
+    assert all_primary_attributes() == []
+    assert all_axes() == []
