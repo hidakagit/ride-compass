@@ -8,26 +8,12 @@
   **`fields`へ何を書くか**だけを見るため、`log_external_call`を差し替えて受け取る
 """
 
-import contextlib
-
 import httpx
 import pytest
 from cachetools import TTLCache
 
 from app.infrastructure import simple_api_client
-
-
-class _FieldsRecorder:
-    """`log_external_call`の差し替え。呼び出しごとの`(category, fields)`を残す。"""
-
-    def __init__(self):
-        self.calls: list[tuple[str, dict]] = []
-
-    @contextlib.contextmanager
-    def __call__(self, category, **log_fields):
-        fields = dict(log_fields)
-        self.calls.append((category, fields))
-        yield fields
+from tests.fake_external_log import record_external_calls
 
 
 def _counting_fetch(value):
@@ -41,12 +27,6 @@ def _counting_fetch(value):
     return fetch, calls
 
 
-def _recorder(monkeypatch) -> _FieldsRecorder:
-    recorder = _FieldsRecorder()
-    monkeypatch.setattr(simple_api_client, "log_external_call", recorder)
-    return recorder
-
-
 async def test_without_cache_calls_fetch_every_time():
     fetch, calls = _counting_fetch({"a": 1})
 
@@ -57,7 +37,7 @@ async def test_without_cache_calls_fetch_every_time():
 
 
 async def test_cache_miss_calls_fetch_and_stores_result(monkeypatch):
-    recorder = _recorder(monkeypatch)
+    recorded = record_external_calls(monkeypatch, simple_api_client)
     cache: TTLCache = TTLCache(maxsize=4, ttl=60)
     fetch, calls = _counting_fetch("v")
 
@@ -65,15 +45,15 @@ async def test_cache_miss_calls_fetch_and_stores_result(monkeypatch):
 
     assert cache["k"] == "v"
     assert len(calls) == 1
-    category, fields = recorder.calls[0]
-    assert category == "cat"
+    assert recorded[0].category == "cat"
+    fields = recorded[0].fields
     assert fields["site"] == "x"
     assert fields["cache"] == "miss"
     assert fields["result"] == "ok"
 
 
 async def test_cache_hit_skips_fetch(monkeypatch):
-    recorder = _recorder(monkeypatch)
+    recorded = record_external_calls(monkeypatch, simple_api_client)
     cache: TTLCache = TTLCache(maxsize=4, ttl=60)
     cache["k"] = "stored"
     fetch, calls = _counting_fetch("fresh")
@@ -81,7 +61,7 @@ async def test_cache_hit_skips_fetch(monkeypatch):
     assert await simple_api_client.cached_fetch("cat", fetch, cache=cache, key="k") == "stored"
 
     assert calls == []
-    assert recorder.calls[0][1]["cache"] == "hit"
+    assert recorded[0].fields["cache"] == "hit"
 
 
 async def test_none_from_upstream_is_cached():
@@ -103,12 +83,12 @@ async def test_expect_passes_matching_type():
 
 
 async def test_unexpected_shape_returns_none(monkeypatch):
-    recorder = _recorder(monkeypatch)
+    recorded = record_external_calls(monkeypatch, simple_api_client)
     fetch, _ = _counting_fetch([1, 2])
 
     assert await simple_api_client.cached_fetch("cat", fetch, expect=dict) is None
 
-    fields = recorder.calls[0][1]
+    fields = recorded[0].fields
     assert fields["result"] == "error"
     assert fields["error_type"] == "unexpected_shape"
 
@@ -121,7 +101,7 @@ async def test_unexpected_shape_is_swallowed_even_when_catch_is_empty():
 
 
 async def test_caught_exception_returns_none_and_is_not_cached(monkeypatch):
-    recorder = _recorder(monkeypatch)
+    recorded = record_external_calls(monkeypatch, simple_api_client)
     cache: TTLCache = TTLCache(maxsize=4, ttl=60)
     calls: list[int] = []
 
@@ -134,7 +114,7 @@ async def test_caught_exception_returns_none_and_is_not_cached(monkeypatch):
     assert await simple_api_client.cached_fetch("cat", fetch, cache=cache, key="k") is None
     assert len(calls) == 2
 
-    fields = recorder.calls[0][1]
+    fields = recorded[0].fields
     assert fields["result"] == "error"
     assert fields["error_type"] == "ValueError"
     assert "bad json" in fields["error"]
