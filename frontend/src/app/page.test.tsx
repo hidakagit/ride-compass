@@ -102,16 +102,16 @@ vi.mock("@/services/axisCatalogApi", () => ({
   getAxisCatalog: vi.fn(),
 }));
 
+vi.mock("@/hooks/useAxisCatalog", async (importOriginal) => {
+  // 共有ストアを持たない代役を当てる（本番へ初期化の口を開けないため。testing/fakeAxisCatalogHook.ts）。
+  const actual = await importOriginal<typeof import("@/hooks/useAxisCatalog")>();
+  const fake = await import("@/testing/fakeAxisCatalogHook");
+  return { ...actual, useAxisCatalog: fake.useFakeAxisCatalog, retryAxisCatalogFetch: fake.retryFakeAxisCatalogFetch };
+});
+
 import { getAxisCatalog } from "@/services/axisCatalogApi";
-import { __resetAxisCatalogStoreForTests } from "@/hooks/useAxisCatalog";
 import { setTileVersions } from "@/services/regionApi";
 import Home from "./page";
-
-// 改善計画T527: useAxisCatalogのフェッチ結果はモジュールレベルの共有ストアのため、
-// 前のテストで解決したカタログが次のテストの初期表示へ持ち越されないようリセットする。
-beforeEach(() => {
-  __resetAxisCatalogStoreForTests();
-});
 
 const LAYER_VISIBILITY_STORAGE_KEY = "ridecompass:layer-visibility";
 
@@ -536,6 +536,16 @@ interface RenderFreshHomeOptions {
 // describeブロックと同じ既存モックのまま動く）。
 async function renderFreshHome(options: RenderFreshHomeOptions = {}) {
   vi.resetModules();
+
+  // 読み込み直した実体に対して、共有ストアを持たない代役を貼り直す（`vi.mock`の
+  // ファクトリは読み込み直しに追随せず、古い実体を掴んだままになる）。
+  const freshHook = await import("@/hooks/useAxisCatalog");
+  const freshFake = await import("@/testing/fakeAxisCatalogHook");
+  vi.doMock("@/hooks/useAxisCatalog", () => ({
+    ...freshHook,
+    useAxisCatalog: freshFake.useFakeAxisCatalog,
+    retryAxisCatalogFetch: freshFake.retryFakeAxisCatalogFetch,
+  }));
 
   if (options.realRouteForm) {
     vi.doUnmock("@/components/RouteForm/RouteForm");

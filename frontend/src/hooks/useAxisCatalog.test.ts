@@ -9,18 +9,21 @@ vi.mock("@/services/axisCatalogApi", () => ({
   getAxisCatalog: vi.fn(),
 }));
 
-import { getAxisCatalog } from "@/services/axisCatalogApi";
-import {
-  CLIENT_TUNING_IDS,
-  __resetAxisCatalogStoreForTests,
-  retryAxisCatalogFetch,
-  useAxisCatalog,
-} from "./useAxisCatalog";
+import { CLIENT_TUNING_IDS } from "@/lib/axisCatalog";
 
-// 改善計画T527: フェッチ結果をモジュールレベルの共有ストアへ変更したため、前のテストの
-// 解決済みカタログが次のテストの初期値へ持ち越されないよう、テストごとにリセットする。
-beforeEach(() => {
-  __resetAxisCatalogStoreForTests();
+// このフックは、複数の呼び出し元へ同じカタログを配るためにモジュールスコープのストアを
+// 持つ。**テストごとに読み込み直して初期状態へ戻す**——本番へ「テストのために戻す」口を
+// 置かないため（設計原則 構造仕様15）。取得のモックも読み込み直しで作り直されるので、
+// 毎回こちらも取り直す。
+let mod: typeof import("./useAxisCatalog");
+let getAxisCatalog: ReturnType<typeof vi.fn>;
+
+beforeEach(async () => {
+  vi.resetModules();
+  ({ getAxisCatalog } = (await import("@/services/axisCatalogApi")) as unknown as {
+    getAxisCatalog: ReturnType<typeof vi.fn>;
+  });
+  mod = await import("./useAxisCatalog");
 });
 
 function catalogResponse(): AxisCatalogResponse {
@@ -120,7 +123,7 @@ describe("useAxisCatalog（改善計画T308: rampAxes/axisLabels/secondaryAxes�
   it("実行時フェッチが完了すると、GUI公開軸を含むrampAxesを返す", async () => {
     vi.mocked(getAxisCatalog).mockResolvedValue(catalogResponse());
 
-    const { result } = renderHook(() => useAxisCatalog());
+    const { result } = renderHook(() => mod.useAxisCatalog());
 
     await waitFor(() => {
       expect(result.current.rampAxes.some((axis) => axis.axisId === "gui_published_axis")).toBe(true);
@@ -155,7 +158,7 @@ describe("useAxisCatalog（改善計画T308: rampAxes/axisLabels/secondaryAxes�
       client_tuning: { "splice.min_stretch_km": 0.5 },
     });
 
-    const { result } = renderHook(() => useAxisCatalog());
+    const { result } = renderHook(() => mod.useAxisCatalog());
 
     expect(result.current.clientTuning["splice.min_stretch_km"]).toBe(
       routeGenerateConfig.client_tuning["splice.min_stretch_km"],
@@ -184,7 +187,7 @@ describe("useAxisCatalog（改善計画T308: rampAxes/axisLabels/secondaryAxes�
       tile_versions: {},
     });
 
-    const { result } = renderHook(() => useAxisCatalog());
+    const { result } = renderHook(() => mod.useAxisCatalog());
 
     await waitFor(() => expect(result.current.axes).toEqual([]));
     expect(result.current.rampAxes).toEqual([]);
@@ -199,7 +202,7 @@ describe("useAxisCatalog（改善計画T308: rampAxes/axisLabels/secondaryAxes�
   it("フェッチ失敗はfailed=trueとして表面化する（未取得[両方false]と区別できる）", async () => {
     vi.mocked(getAxisCatalog).mockRejectedValue(new Error("network error"));
 
-    const { result } = renderHook(() => useAxisCatalog());
+    const { result } = renderHook(() => mod.useAxisCatalog());
 
     await waitFor(() => expect(result.current.failed).toBe(true));
     expect(result.current.loaded).toBe(false);
@@ -207,11 +210,11 @@ describe("useAxisCatalog（改善計画T308: rampAxes/axisLabels/secondaryAxes�
 
   it("retryAxisCatalogFetchは再取得し、成功すればfailedが下りてカタログが入れ替わる", async () => {
     vi.mocked(getAxisCatalog).mockRejectedValueOnce(new Error("network error"));
-    const { result } = renderHook(() => useAxisCatalog());
+    const { result } = renderHook(() => mod.useAxisCatalog());
     await waitFor(() => expect(result.current.failed).toBe(true));
 
     vi.mocked(getAxisCatalog).mockResolvedValueOnce(catalogResponse());
-    retryAxisCatalogFetch();
+    mod.retryAxisCatalogFetch();
 
     await waitFor(() => expect(result.current.loaded).toBe(true));
     expect(result.current.failed).toBe(false);
@@ -220,11 +223,11 @@ describe("useAxisCatalog（改善計画T308: rampAxes/axisLabels/secondaryAxes�
 
   it("取得成功後のretryAxisCatalogFetchは再取得しない（既に確定しているため）", async () => {
     vi.mocked(getAxisCatalog).mockResolvedValueOnce(catalogResponse());
-    const { result } = renderHook(() => useAxisCatalog());
+    const { result } = renderHook(() => mod.useAxisCatalog());
     await waitFor(() => expect(result.current.loaded).toBe(true));
     const callsBefore = vi.mocked(getAxisCatalog).mock.calls.length;
 
-    retryAxisCatalogFetch();
+    mod.retryAxisCatalogFetch();
 
     expect(vi.mocked(getAxisCatalog).mock.calls.length).toBe(callsBefore);
   });
@@ -237,8 +240,8 @@ describe("useAxisCatalog（改善計画T308: rampAxes/axisLabels/secondaryAxes�
     vi.mocked(getAxisCatalog).mockResolvedValue(catalogResponse());
     const callsBefore = vi.mocked(getAxisCatalog).mock.calls.length;
 
-    const first = renderHook(() => useAxisCatalog());
-    const second = renderHook(() => useAxisCatalog());
+    const first = renderHook(() => mod.useAxisCatalog());
+    const second = renderHook(() => mod.useAxisCatalog());
 
     await waitFor(() => {
       expect(first.result.current.rampAxes.some((axis) => axis.axisId === "gui_published_axis")).toBe(true);
@@ -253,7 +256,7 @@ describe("useAxisCatalog（改善計画T308: rampAxes/axisLabels/secondaryAxes�
     // 呼び出し元ごとに独立したuseStateだったため、firstは古いカタログのまま取り残され
     // secondとの間でaxes配列が食い違っていた。
     vi.mocked(getAxisCatalog).mockResolvedValueOnce(catalogResponse());
-    const first = renderHook(() => useAxisCatalog());
+    const first = renderHook(() => mod.useAxisCatalog());
     await waitFor(() => expect(first.result.current.loaded).toBe(true));
     expect(first.result.current.axes).toHaveLength(2);
 
@@ -265,7 +268,7 @@ describe("useAxisCatalog（改善計画T308: rampAxes/axisLabels/secondaryAxes�
       accident_years: [],
       tile_versions: {},
     });
-    const second = renderHook(() => useAxisCatalog());
+    const second = renderHook(() => mod.useAxisCatalog());
 
     await waitFor(() => expect(second.result.current.axes).toHaveLength(1));
     // firstは自分では再フェッチしていないが、共有ストア経由で最新の1軸へ追従する。
@@ -277,12 +280,12 @@ describe("useAxisCatalog（改善計画T308: rampAxes/axisLabels/secondaryAxes�
     // 呼び出し回数はテストファイル内で共有されるため、このテスト内での増分だけを見る
     // （「同時にマウントされた複数の呼び出し元」テストと同じ方針）。
     vi.mocked(getAxisCatalog).mockResolvedValueOnce(catalogResponse());
-    const first = renderHook(() => useAxisCatalog());
+    const first = renderHook(() => mod.useAxisCatalog());
     await waitFor(() => expect(first.result.current.loaded).toBe(true));
     const callsBefore = vi.mocked(getAxisCatalog).mock.calls.length;
 
     vi.mocked(getAxisCatalog).mockRejectedValueOnce(new Error("network error"));
-    const second = renderHook(() => useAxisCatalog());
+    const second = renderHook(() => mod.useAxisCatalog());
     await waitFor(() => expect(vi.mocked(getAxisCatalog).mock.calls.length - callsBefore).toBe(1));
 
     // secondの再フェッチが失敗しても、firstが既に取得していた2軸のカタログのまま

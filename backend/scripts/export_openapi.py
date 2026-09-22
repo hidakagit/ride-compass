@@ -45,6 +45,8 @@ from app.domain.wind import ASSUMED_SPEED_KMH, MAX_ASSUMED_SPEED_KMH, MIN_ASSUME
 from app.domain.hard_filters import DEFAULT_HARD_FILTERS, HARD_FILTER_NAMES  # noqa: E402
 from app.domain.geo import COMPASS_LABELS  # noqa: E402
 from app.domain.map_display import (  # noqa: E402
+    DEFAULT_DIFFICULTY_BOUNDARIES,
+    SIGNED_MATERIAL_BOUNDARIES,
     MAP_LAYER_CATEGORIES,
     MAP_LAYER_IDS,
     MAP_LAYER_KINDS,
@@ -79,6 +81,7 @@ from app.domain.map_display import (  # noqa: E402
     MAP_OVERLAY_GROUPS,
 )
 from app.domain.weather_display import (  # noqa: E402
+    LINEAR_RAINBAND_COLOR,
     PRECIPITATION_COLOR_STOPS,
     RISK_LEVEL_COLORS,
     THUNDER_ACTIVITY_LEVELS,
@@ -295,6 +298,10 @@ def main() -> None:
                 "windFullScaleMs": WIND_FULL_SCALE_MS,
                 "lightningIconScale": LIGHTNING_ICON_SCALE,
             },
+            "valueScale": {
+                "difficultyBoundaries": list(DEFAULT_DIFFICULTY_BOUNDARIES),
+                "signedMaterialBoundaries": list(SIGNED_MATERIAL_BOUNDARIES),
+            },
             "route": {
                 "lineWidthsPx": ROUTE_LINE_WIDTHS_PX,
                 "casingWidthsPx": ROUTE_CASING_WIDTHS_PX,
@@ -314,6 +321,7 @@ def main() -> None:
             "precipitation": [s._asdict() for s in PRECIPITATION_COLOR_STOPS],
             "wind_speed": [s._asdict() for s in WIND_SPEED_COLOR_STOPS],
             "risk_levels": [level._asdict() for level in RISK_LEVEL_COLORS],
+            "linear_rainband_color": LINEAR_RAINBAND_COLOR,
             "thunder_activity": [level._asdict() for level in THUNDER_ACTIVITY_LEVELS],
             "tornado_potential": [level._asdict() for level in TORNADO_POTENTIAL_LEVELS],
         },

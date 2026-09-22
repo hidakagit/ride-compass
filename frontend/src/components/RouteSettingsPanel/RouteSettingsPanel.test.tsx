@@ -14,8 +14,14 @@ vi.mock("@/services/axisCatalogApi", () => ({
   getAxisCatalog: vi.fn(),
 }));
 
+vi.mock("@/hooks/useAxisCatalog", async (importOriginal) => {
+  // 共有ストアを持たない代役を当てる（本番へ初期化の口を開けないため。testing/fakeAxisCatalogHook.ts）。
+  const actual = await importOriginal<typeof import("@/hooks/useAxisCatalog")>();
+  const fake = await import("@/testing/fakeAxisCatalogHook");
+  return { ...actual, useAxisCatalog: fake.useFakeAxisCatalog, retryAxisCatalogFetch: fake.retryFakeAxisCatalogFetch };
+});
+
 import { getAxisCatalog } from "@/services/axisCatalogApi";
-import { __resetAxisCatalogStoreForTests } from "@/hooks/useAxisCatalog";
 
 // GET /api/axis-catalogの応答を軸id一覧から組み立てるヘルパ。このパネルのテストは
 // 軸の表示宣言（display.kind・dedicated_way_value_layer）を見ないため、どちらも固定値。
@@ -82,12 +88,6 @@ function catalogResponse(axisIds: string[]): AxisCatalogResponse {
 }
 
 describe("RouteSettingsPanel", () => {
-  // 改善計画T527: useAxisCatalogのフェッチ結果はモジュールレベルの共有ストアのため、
-  // 前のテストで解決したカタログが次のテストの初期表示へ持ち越されないようリセットする。
-  beforeEach(() => {
-    __resetAxisCatalogStoreForTests();
-  });
-
   describe("軸カタログの取得失敗", () => {
     // 取得できていない間、重み配分は編集できるがhandleGenerateが送信時に省略するため、
     // 黙って捨てられていることに気づけない（実験結果を取り違える）。

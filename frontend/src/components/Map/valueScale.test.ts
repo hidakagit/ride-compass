@@ -1,9 +1,9 @@
 // @vitest-environment node
 // 配色・段階分けの純粋関数のみを検証する（docs/conventions/testing.mdパターン3）。
+import { mapDisplay } from "@/types/generated/mapDisplay";
 import { describe, expect, it } from "vitest";
 import { legendBandKey } from "./mapColorLegend";
 import {
-  SIGNED_MATERIAL_BOUNDARIES,
   bandColorsFor,
   buildSteppedColorExpression,
   interpolateColorStops,
@@ -45,8 +45,8 @@ describe("valueScale", () => {
     });
 
     it("段階を細かくしても、0をまたぐ段階の色は平坦色のまま動かない", () => {
-      const colors = bandColorsFor("signed_material", SIGNED_MATERIAL_BOUNDARIES);
-      const flatIndex = SIGNED_MATERIAL_BOUNDARIES.findIndex((boundary) => boundary > 0);
+      const colors = bandColorsFor("signed_material", mapDisplay.valueScale.signedMaterialBoundaries);
+      const flatIndex = mapDisplay.valueScale.signedMaterialBoundaries.findIndex((boundary) => boundary > 0);
       expect(colors[flatIndex]).toBe(FLAT);
       expect(new Set(colors).size).toBe(colors.length);
     });

@@ -4,6 +4,7 @@
 // 色分けがルートの有無でスケール・配色を変えないことをコード上で保証する。
 // MapLibre・DOMに依存しない純粋関数のみ。
 
+import { mapDisplay } from "@/types/generated/mapDisplay";
 import type { components } from "@/types/generated/api";
 import palette from "@/types/generated/palette.json";
 import { LEGEND_NO_DATA_KEY, legendBandKey } from "./mapColorLegend";
@@ -43,13 +44,11 @@ const SIGNED_CLIMB_ANCHORS: readonly string[] = [
   COLOR_SIGNED_CLIMB_EXTREME,
 ];
 
-/** 軸カタログのmap_value_thresholdsが未設定のときの既定の段階境界。値そのものは
- * 色分けロジックの前提にならず、境界値の個数がそのまま段階数を決める。 */
-export const DEFAULT_DIFFICULTY_BOUNDARIES: readonly number[] = [33, 66];
-/** 符号付き材料（勾配）の既定の段階境界。上り側は1%刻み——登坂は1%の差で体感が変わり、
- * 配信値も0.1%まで保持している（backend `services/gradient_way_service.py`）。下り側は
- * 踏まずに済む点で差が小さいため粗い。 */
-export const SIGNED_MATERIAL_BOUNDARIES: readonly number[] = [-10, -5, -1, 1, 2, 3, 4, 5, 6, 7, 8, 10, 13];
+/** 軸カタログの`map_value_thresholds`が未設定のときの段の境界。**源泉が配る**
+ * （`backend/app/domain/map_display.py`）——境界の個数がそのまま段の数になるので、
+ * 画面側に写しを置くと段の数だけが古いまま描かれる。 */
+export const DEFAULT_DIFFICULTY_BOUNDARIES: readonly number[] = mapDisplay.valueScale.difficultyBoundaries;
+const SIGNED_MATERIAL_BOUNDARIES: readonly number[] = mapDisplay.valueScale.signedMaterialBoundaries;
 
 interface ValueScale {
   defaultBoundaries: readonly number[];

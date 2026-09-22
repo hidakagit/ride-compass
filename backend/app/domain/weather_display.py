@@ -54,6 +54,11 @@ WIND_SPEED_COLOR_STOPS: tuple[ValueColorStop, ...] = (
 )
 
 #: 危険度分布。白→黄→赤→紫→黒と上がる。
+#: 線状降水帯予測マップの塗り色。**配信元タイルが実際に塗っている色そのもの**で、
+#: 画面の好みではない。凡例をこれ以外から取ると、地図の塗りと凡例の色が黙ってずれる
+#: （危険度の段の色がたまたま近いだけで、別の配色として動く）。
+LINEAR_RAINBAND_COLOR = "#ff2800"
+
 RISK_LEVEL_COLORS: tuple[LevelColor, ...] = (
     LevelColor("level0", "平常（危険度なし）", "#ffffff"),
     LevelColor("level1", "注意（黄）", "#f2e700"),

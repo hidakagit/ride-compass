@@ -50,7 +50,7 @@ export interface SecondaryAxisSummary {
    * 地図が塗る値のスケールでの境界（GET /api/axis-catalogのmap_value_thresholds）を反映する
    * ——軸スタジオが編集する生値はramp表示を持つ軸では材料の重み付き和のスケールで、
    * 難易度と直接比べられない。未設定はkind="none"軸の各実装が持つビルド時既定値（例:
-   * valueScale.tsのSIGNED_MATERIAL_BOUNDARIES）へのフォールバックに委ねる。 */
+   * 源泉が配る符号付き材料の既定境界）へのフォールバックに委ねる。 */
   mapValueThresholds?: readonly number[] | null;
   /** mapValueThresholdsと対になる、段階ごとの体感ラベルの軽量な
    * 上書き（AXIS_DEFINITIONS.display_band_labels_overrideをそのまま反映）。 */

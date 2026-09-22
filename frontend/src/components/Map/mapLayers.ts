@@ -26,8 +26,8 @@
 // 静的レイヤー側で重ねて持つ必要が無い。ramp軸は軸スタジオ由来のレイヤーとして
 // この区分の外に置く（isAxisStudioLayer）。
 
+import weatherScales from "@/types/generated/weather-scales.json";
 import { mapDisplay } from "@/types/generated/mapDisplay";
-import { RISK_LEVEL_COLORS } from "@/components/Map/riskMap";
 import { LANDCOVER_TILE_MIN_ZOOM, ROAD_TILE_MIN_ZOOM } from "@/services/regionApi";
 import { axisIconFor } from "./axisIconPalette";
 import {
@@ -519,15 +519,15 @@ export function buildMapLayers(
         },
         {
           label: "線状降水帯予測マップ（現在〜3時間先のみ）",
-          // 色は配信元タイルの実際の塗り色（rgb(255,40,0)）に合わせる。凡例と地図で色が
-          // 違うと、どの塗りがこの凡例に対応するのか読み取れない。
+          // 色は配信元タイルの実際の塗り色そのもの（源泉が宣言する）。危険度の段の色で
+          // 代用すると、近いだけの別の色になり、地図の塗りと凡例が黙ってずれる。
           // 予測領域は格子単位で塗られ矩形に見えるため、形状も書いておく——降水ナウキャストの
           // 細かい雨域と重なると、矩形の塗りが描画不具合のように見える。
           legend: [
             {
               key: "linearRainband",
               label: "今後3時間以内に大雨のおそれ（矩形の予測領域）",
-              color: RISK_LEVEL_COLORS[2].color,
+              color: weatherScales.linear_rainband_color,
               filter: UNUSED_LEGEND_FILTER,
             },
           ],

@@ -120,6 +120,7 @@
       "color": "#0c000c"
     }
   ],
+  "linear_rainband_color": "#ff2800",
   "thunder_activity": [
     {
       "key": "level1",
