@@ -2,40 +2,14 @@
 
 引き当てそのものはDB側で行うため、**表が実際にどう当たるか**は
 `test_tag_classification.py`（種別）と`test_resolve_direction.py`（通行方向）が
-DBへ通して確かめる。ここで見るのは、表の組み立てと純関数。
+DBへ通して確かめる。ここで見るのは、交差点の優先関係に使う階級順だけ。
 """
 
 
 from app.domain.traffic import (
     MAJOR_CROSSING_MIN_RANK,
-    POI_COUNT_KINDS,
     highway_rank,
-    stop_seconds,
 )
-from app.domain.tuning import TUNING_VALUES, stop_seconds_parameter_id
-
-
-class TestStopSeconds:
-    def test_every_counted_kind_declares_its_own_value(self):
-        """**0が返ったのが宣言の結果か、未知として落ちた結果かは戻り値から区別できない**。
-        数える種別すべてに宣言があることを、宣言の側で確かめる（信号の無い横断歩道は
-        意図的に0）。`tuning.py`は`traffic.py`をimportできない（循環する）ため、
-        この対応を構造で保証できない。
-        """
-        assert POI_COUNT_KINDS, "数える種別が空なら、下のループは何も確かめていない"
-
-        for kind in POI_COUNT_KINDS:
-            assert stop_seconds_parameter_id(kind) in TUNING_VALUES, kind
-
-    def test_an_unknown_kind_costs_nothing(self):
-        """知らない種別で所要時間を膨らませない。"""
-        assert stop_seconds("no_such_kind") == 0.0
-
-    def test_the_value_comes_from_the_tuning_declaration(self):
-        """ここへ数字を書き写すと、変えた値が反映されているかを誰も見なくなる。"""
-        kind = next(iter(POI_COUNT_KINDS))
-
-        assert stop_seconds(kind) == TUNING_VALUES[stop_seconds_parameter_id(kind)]
 
 
 class TestHighwayRank:

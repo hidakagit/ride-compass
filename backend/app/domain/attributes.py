@@ -7,35 +7,6 @@ from app.domain.material_sql import MATERIAL_ID_GRADIENT_PERCENT
 from app.domain.strict_model import StrictModel
 
 
-# 群（group）名。保存形式（JSONB1列／実カラム複数）が違っても、材料から見た形は同じ。
-METRIC_GROUP_COUNTS = "counts"
-METRIC_GROUP_LANDCOVER = "landcover"
-# 停止要因POIの種別別カウント。キーは`domain/traffic.py: POI_COUNT_KINDS`が単一ソースで、
-# 群の中身が増えてもこの定数は増えない。
-METRIC_GROUP_POI = "poi"
-
-# `METRIC_GROUP_COUNTS`のキー。`edge_materials`のカウント列に対応する。
-METRIC_KEY_ACCIDENT = "accident"
-METRIC_KEY_INTERSECTION = "intersection"
-
-# 評価パイプラインへ配線する土地被覆のクラス。名前は材料の割合列（`lc_*`）と揃える。
-# **ここへ1つ足せば、Edge束・列指向テーブル・SQLの読み出し・タイルの焼き込み列・
-# カバレッジ台帳が揃って増える**（下流はこの並びから導き、クラス名を個別に並べない）。
-# 割合列と1対1にする——どのクラスを材料にするかを人が選ぶ形にすると、「なぜこのクラス
-# だけ無いのか」を後から何度も判断し直すことになる。
-# 並びはDBの列順を決めるため、`domain/landcover.py`の表示順とは独立に固定する。
-WIRED_LANDCOVER_KEYS: tuple[str, ...] = (
-    "trees_percent",
-    "built_percent",
-    "crops_percent",
-    "rangeland_percent",
-    "water_percent",
-    "bare_percent",
-    "flooded_veg_percent",
-    "snow_ice_percent",
-)
-
-
 class ElevationAttribute(StrictModel):
     """Edgeへ紐付ける標高属性。Edge本体（domain/graph.py）とは独立して保持する。
 
