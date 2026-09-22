@@ -2,10 +2,7 @@
 // 配色・段階分けの純粋関数のみを検証する（docs/conventions/testing.mdパターン3）。
 import { describe, expect, it } from "vitest";
 import { legendBandKey } from "./mapColorLegend";
-import {
-  bandColorsFor,
-  buildSteppedColorExpression,
-} from "./valueScale";
+import { bandColorsFor, buildSteppedColorExpression } from "./valueScale";
 
 // 補間そのものを見るので、色は**テストが自分で持つ**。実装から借りると、源泉で色を
 // 調整しただけでこのテストが落ちる（自分は何も変えていないのに）。

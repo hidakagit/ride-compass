@@ -15,7 +15,6 @@ import {
 import type { DynamicWeatherGroupState, DynamicWeatherLayerId } from "./dynamicWeather";
 
 describe("dynamicWeather（T183再設計: 動的気象レイヤーの共通契約）", () => {
-
   describe("formatDynamicFrameTime", () => {
     it("JSTで月/日 時:分の形式にする", () => {
       expect(formatDynamicFrameTime(new Date("2026-08-20T12:05:00+09:00"))).toBe("8/20 12:05");
@@ -140,7 +139,6 @@ describe("dynamicWeather（T183再設計: 動的気象レイヤーの共通契�
       expect(isWithinFutureWindow(target, now, windowMs)).toBe(false);
     });
   });
-
 });
 
 // 配信元のタイルが返らない状態は空タイルで代替されるため、フェッチ側のerrorには現れない

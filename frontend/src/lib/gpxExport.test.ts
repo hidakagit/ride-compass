@@ -49,9 +49,9 @@ function maxDeviationMeters(original: readonly GeoJSON.Position[], simplified: r
           const t = lengthSquared === 0 ? 0 : ((px - ax) * dx + (py - ay) * dy) / lengthSquared;
           const clamped = Math.max(0, Math.min(1, t));
           return Math.hypot(px - (ax + clamped * dx), py - (ay + clamped * dy));
-        })
+        }),
       );
-    })
+    }),
   );
 }
 
@@ -73,9 +73,7 @@ async function exportedGpx(candidate: RouteCandidate): Promise<string> {
 
 /** 書き出されたGPXの軌跡点を、GeoJSONと同じ[lon, lat]の並びで取り出す。 */
 async function exportedCoordinates(coordinates: readonly GeoJSON.Position[]): Promise<GeoJSON.Position[]> {
-  const xml = await exportedGpx(
-    makeCandidate({ geometry: { type: "LineString", coordinates: [...coordinates] } }),
-  );
+  const xml = await exportedGpx(makeCandidate({ geometry: { type: "LineString", coordinates: [...coordinates] } }));
   return [...xml.matchAll(/<trkpt lat="([-0-9.]+)" lon="([-0-9.]+)"\/>/g)].map(([, lat, lon]) => [
     Number(lon),
     Number(lat),
@@ -108,8 +106,12 @@ describe("軌跡点の間引き", () => {
   it("さらに長くしても軌跡点は増えない（上限で頭打ち）", async () => {
     // 上限の値は借りない。借りると、上限を変えたときテストも一緒に動いて
     // 「頭打ちになる」ことを誰も見なくなる。
-    const shorter = await exportedCoordinates(straightLineWithDetours({ length: 2500, detourAt: [], detourDeltaLat: 0 }));
-    const longer = await exportedCoordinates(straightLineWithDetours({ length: 5000, detourAt: [], detourDeltaLat: 0 }));
+    const shorter = await exportedCoordinates(
+      straightLineWithDetours({ length: 2500, detourAt: [], detourDeltaLat: 0 }),
+    );
+    const longer = await exportedCoordinates(
+      straightLineWithDetours({ length: 5000, detourAt: [], detourDeltaLat: 0 }),
+    );
 
     expect(longer.length).toBeLessThanOrEqual(shorter.length);
   });
@@ -163,7 +165,7 @@ describe("downloadGpx", () => {
     vi.stubGlobal("URL", { ...URL, createObjectURL, revokeObjectURL });
     let downloadedFilename: string | null = null;
     const clickSpy = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(function (
-      this: HTMLAnchorElement
+      this: HTMLAnchorElement,
     ) {
       downloadedFilename = this.download;
     });

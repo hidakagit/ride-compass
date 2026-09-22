@@ -235,10 +235,18 @@ export default function RouteSplicePanel({
                       <dd className={styles.metricArrow} aria-hidden="true">
                         {metric.after ? "→" : ""}
                       </dd>
-                      <dd className={styles.metricAfter} data-worse={shown != null && shown > 0} data-better={shown != null && shown < 0}>
+                      <dd
+                        className={styles.metricAfter}
+                        data-worse={shown != null && shown > 0}
+                        data-better={shown != null && shown < 0}
+                      >
                         {metric.after ?? ""}
                       </dd>
-                      <dd className={styles.metricDelta} data-worse={shown != null && shown > 0} data-better={shown != null && shown < 0}>
+                      <dd
+                        className={styles.metricDelta}
+                        data-worse={shown != null && shown > 0}
+                        data-better={shown != null && shown < 0}
+                      >
                         {metric.delta != null ? formatDelta(metric.delta, digitsOf(metric.label)) : ""}
                       </dd>
                     </Fragment>
@@ -294,19 +302,17 @@ export default function RouteSplicePanel({
           {error && <ErrorText>{error}</ErrorText>}
 
           <p className={styles.note}>
-            {deltas.length > 0 ? (
-              deltas.slice(0, LABELLED_DELTA_COUNT).map((item) => (
-                <span className={styles.axisDelta} key={item.axisId}>
-                  {item.label} {formatDelta(item.delta, 1)}
-                </span>
-              ))
-            ) : appliedCount > 0 ? (
-              "天秤を押すと、乗り換えた結果が出ます"
-            ) : hasAlternatives ? (
-              "地図の破線をタップして乗り換えます"
-            ) : (
-              "他の候補と別の道を通る区間がありません。"
-            )}
+            {deltas.length > 0
+              ? deltas.slice(0, LABELLED_DELTA_COUNT).map((item) => (
+                  <span className={styles.axisDelta} key={item.axisId}>
+                    {item.label} {formatDelta(item.delta, 1)}
+                  </span>
+                ))
+              : appliedCount > 0
+                ? "天秤を押すと、乗り換えた結果が出ます"
+                : hasAlternatives
+                  ? "地図の破線をタップして乗り換えます"
+                  : "他の候補と別の道を通る区間がありません。"}
           </p>
         </>
       )}

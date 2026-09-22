@@ -1,9 +1,6 @@
 // @vitest-environment node
 import { describe, expect, it } from "vitest";
-import {
-  routeColorableModeFromAxis,
-  routeStyleModesFromCatalogAxes,
-} from "./routeStyleModes";
+import { routeColorableModeFromAxis, routeStyleModesFromCatalogAxes } from "./routeStyleModes";
 import type { CatalogAxis } from "./axisLayers";
 import { catalogAxis } from "./__fixtures__/catalogAxes";
 import { bandColorsFor } from "./valueScale";

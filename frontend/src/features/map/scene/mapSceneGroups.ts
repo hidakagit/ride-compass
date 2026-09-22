@@ -108,7 +108,12 @@ function toSceneLayer(idPrefix: string, entry: SceneLayerEntry): MapSceneLayer {
 }
 
 function mergeSource(into: Map<string, MapSceneSource>, entry: SceneSourceEntry): void {
-  const content = entry.tiles !== undefined ? tilesContent(entry.tiles) : entry.data !== undefined ? geojsonContent(entry.data) : undefined;
+  const content =
+    entry.tiles !== undefined
+      ? tilesContent(entry.tiles)
+      : entry.data !== undefined
+        ? geojsonContent(entry.data)
+        : undefined;
   const existing = into.get(entry.id);
   if (existing === undefined) {
     into.set(entry.id, {

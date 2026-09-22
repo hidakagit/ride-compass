@@ -319,7 +319,10 @@ describe("applyMapScene", () => {
   it("表示ON/OFF・絞り込み・paint は当て直した後の宣言どおりになる", () => {
     const map = new FakeMap(BASEMAP_LAYER_IDS);
     const before = scene([
-      lineLayer("surface-line", "observedLine", { role: "surface-line", spec: { id: "surface-line",
+      lineLayer("surface-line", "observedLine", {
+        role: "surface-line",
+        spec: {
+          id: "surface-line",
           type: "line",
           source: "roads",
           "source-layer": "road",
@@ -333,7 +336,10 @@ describe("applyMapScene", () => {
     applied(
       map,
       scene([
-        lineLayer("surface-line", "observedLine", { role: "surface-line", spec: { id: "surface-line",
+        lineLayer("surface-line", "observedLine", {
+          role: "surface-line",
+          spec: {
+            id: "surface-line",
             type: "line",
             source: "roads",
             "source-layer": "road",

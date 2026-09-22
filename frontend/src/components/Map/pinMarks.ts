@@ -39,7 +39,10 @@ interface PinMarkOptions {
 }
 
 /** 印の中身（HTML文字列）。地図のピンとパネルの行が同じものを使う。 */
-export function pinMarkHtml(role: PinRole, { label, size = 20, color = ORIGIN_MARK_COLOR }: PinMarkOptions = {}): string {
+export function pinMarkHtml(
+  role: PinRole,
+  { label, size = 20, color = ORIGIN_MARK_COLOR }: PinMarkOptions = {},
+): string {
   if (role === "origin") return originCrosshairSvg(size, color);
   if (role === "destination") return "⚑";
   return label ?? "";

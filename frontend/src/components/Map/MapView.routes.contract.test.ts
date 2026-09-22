@@ -14,7 +14,6 @@ import { EMPTY_MAP_SCENE, sceneLayerIdsForRole, type MapScene } from "@/features
 import { routeGroup, type RoutePath, type RouteState } from "@/features/map/scene/groups/routes";
 import { composeScene } from "@/features/map/scene/mapSceneGroups";
 
-
 type RouteCandidateShape = RouteState["candidates"][number];
 type RoutePathShape = RouteState["segments"][number];
 type ComparisonSlotShape = RouteState["comparisonSlots"][number];

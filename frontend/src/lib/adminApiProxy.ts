@@ -25,8 +25,6 @@ function backendAuthHeader(): string | null {
   return `Basic ${Buffer.from(`${credentials.username}:${credentials.password}`).toString("base64")}`;
 }
 
-
-
 interface ProxyToBackendAdminOptions {
   /** backendへの転送タイムアウト（省略時15秒）。全表走査を伴う集計API等、既定より長く
    * かかることが分かっているエンドポイントだけ個別に延ばす。 */

@@ -13,12 +13,7 @@ import { debugLog } from "@/lib/debugLog";
 import type { LegendEntry } from "./legendFilter";
 import { bandLabelsForBandCount, LEGEND_NO_DATA_KEY, legendBandKey, rangeStepLabel } from "./mapColorLegend";
 import type { CatalogAxis } from "./axisLayers";
-import {
-  bandColorsFor,
-  COLOR_NO_DATA,
-  DEFAULT_DIFFICULTY_BOUNDARIES,
-  type MapValueKind,
-} from "./valueScale";
+import { bandColorsFor, COLOR_NO_DATA, DEFAULT_DIFFICULTY_BOUNDARIES, type MapValueKind } from "./valueScale";
 
 // gradient/roadは公開軸から動的に生成されるため固定IDでは表現しきれない。
 // "difficulty"（対応する軸を持たない唯一の例外、下記DIFFICULTY_MODE参照）だけを

@@ -98,7 +98,6 @@ export function disasterSourceKeys(fetchGroup: DisasterFetchGroup): readonly Dis
  * ——ソース1つならキー省略可、という特例は設けず呼び出し側の分岐を増やさない。 */
 export type DynamicWeatherSourceId = string;
 
-
 /** 1グループぶんの状態。ソースキー→状態。 */
 export type DynamicWeatherGroupState = Partial<Record<DynamicWeatherSourceId, DynamicWeatherSourceState>>;
 

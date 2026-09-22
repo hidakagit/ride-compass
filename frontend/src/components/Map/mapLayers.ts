@@ -71,10 +71,7 @@ function pointKindList(role: string): string {
 /** 地図に載るものの名前。**静的な一覧は源泉が持つ**（`domain/map_display.py`が一次属性から
  * 導く）——画面で並べ直すと、属性を1つ足したときに書き忘れても型が通る。軸スタジオ由来の
  * 軸は運用で増えるため実行時に決まり、ここには現れない。 */
-export type MapLayerId =
-  | (typeof mapDisplay.layerIds)[number]
-  | AxisMapLayerId
-  | DedicatedWayValueMapLayerId;
+export type MapLayerId = (typeof mapDisplay.layerIds)[number] | AxisMapLayerId | DedicatedWayValueMapLayerId;
 
 // kindは「選択中ルートにひもづくデータか、地域に固定で選択候補に関係なく重ね描きする
 // データか」を表す（dynamic=route、選択中候補が変わるたびに描き直す。static=それ以外、
@@ -159,9 +156,7 @@ export const MAP_OVERLAY_GROUP_LABELS: Readonly<Record<string, string>> = Object
   mapDisplay.overlayGroups.map((group) => [group.key, group.label]),
 );
 /** チップの表示順。**源泉の並びがそのまま並び順**（画面は並べ替えない）。 */
-export const MAP_OVERLAY_GROUP_ORDER: readonly MapOverlayGroup[] = mapDisplay.overlayGroups.map(
-  (group) => group.key,
-);
+export const MAP_OVERLAY_GROUP_ORDER: readonly MapOverlayGroup[] = mapDisplay.overlayGroups.map((group) => group.key);
 
 /** 種別が属するグループ。種別を1つ足すときは源泉の側で所属も決まる。 */
 const GROUP_BY_CATEGORY: Readonly<Record<string, MapOverlayGroup>> = Object.fromEntries(

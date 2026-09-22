@@ -27,7 +27,7 @@ export function totalWeight(weights: RoutePreferenceWeights): number {
 export function clampBoundaryDrag(
   weightA: number,
   weightB: number,
-  rawDelta: number
+  rawDelta: number,
 ): { weightA: number; weightB: number } {
   const lowerBound = Math.max(MIN_AXIS_WEIGHT - weightA, weightB - MAX_AXIS_WEIGHT);
   const upperBound = Math.min(MAX_AXIS_WEIGHT - weightA, weightB - MIN_AXIS_WEIGHT);

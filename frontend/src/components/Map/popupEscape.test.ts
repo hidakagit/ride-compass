@@ -22,9 +22,7 @@ describe("labelOrEscapedRaw", () => {
   });
 
   it("閉じタグ・属性の切断に使える文字をすべて潰す", () => {
-    expect(labelOrEscapedRaw(LABELS, `</div><script>a</script>`)).toBe(
-      "&lt;/div&gt;&lt;script&gt;a&lt;/script&gt;",
-    );
+    expect(labelOrEscapedRaw(LABELS, `</div><script>a</script>`)).toBe("&lt;/div&gt;&lt;script&gt;a&lt;/script&gt;");
     expect(labelOrEscapedRaw(LABELS, `" onclick='x'`)).toBe("&quot; onclick=&#39;x&#39;");
   });
 

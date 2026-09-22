@@ -27,6 +27,4 @@ export const LANDCOVER_CLASSES: readonly LandcoverClass[] = landcoverClassesJson
 
 /** 地図の面レイヤーに実際に出るクラス。凡例はこちらを使う——塗らないクラスを凡例へ
  * 並べると、色見本があるのに地図のどこにも無い、という読み方のできない表になる。 */
-export const LANDCOVER_PAINTED_CLASSES: readonly LandcoverClass[] = LANDCOVER_CLASSES.filter(
-  (cls) => cls.painted,
-);
+export const LANDCOVER_PAINTED_CLASSES: readonly LandcoverClass[] = LANDCOVER_CLASSES.filter((cls) => cls.painted);

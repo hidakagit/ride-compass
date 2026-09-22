@@ -22,7 +22,12 @@ export type SceneLegendAxis = {
 };
 
 /** 分類に当てはまらないものの受け皿。**地図も同じ扱い**（消さずに薄く出す）。 */
-const UNKNOWN_ENTRY: LegendEntry = { key: LEGEND_NO_DATA_KEY, label: "不明・他", color: COLOR_UNKNOWN, isFallback: true };
+const UNKNOWN_ENTRY: LegendEntry = {
+  key: LEGEND_NO_DATA_KEY,
+  label: "不明・他",
+  color: COLOR_UNKNOWN,
+  isFallback: true,
+};
 
 export function roadLegendAxes(): readonly SceneLegendAxis[] {
   return ROAD_TRACKS.map((track) => ({
@@ -31,7 +36,11 @@ export function roadLegendAxes(): readonly SceneLegendAxis[] {
     // 見出しはチップ名で足りる（軸が1本しかない）。名前の正本は源泉。
     label: "",
     entries: [
-      ...roadTrackAxis(track).categories.map((category) => ({ key: category.key, label: category.label, color: category.color })),
+      ...roadTrackAxis(track).categories.map((category) => ({
+        key: category.key,
+        label: category.label,
+        color: category.color,
+      })),
       UNKNOWN_ENTRY,
     ],
   }));

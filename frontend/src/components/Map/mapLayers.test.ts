@@ -191,7 +191,9 @@ describe("タイルの最小ズーム（ズーム不足の案内）", () => {
 
     expect(byId.stop_poi.tileMinZoom).toBe(ROAD_TILE_MIN_ZOOM);
     expect(byId.supply_poi.tileMinZoom).toBe(ROAD_TILE_MIN_ZOOM);
-    expect(tileZoomTooWideLayerIds(ROAD_TILE_MIN_ZOOM - 0.5)).toEqual(expect.arrayContaining(["stop_poi", "supply_poi"]));
+    expect(tileZoomTooWideLayerIds(ROAD_TILE_MIN_ZOOM - 0.5)).toEqual(
+      expect.arrayContaining(["stop_poi", "supply_poi"]),
+    );
   });
 });
 

@@ -65,7 +65,7 @@ function markKeptPoints(points: readonly PlanePoint[], toleranceM: number): bool
  * `maxPoints`以下ならそのまま返す。 */
 function simplifyCoordinates(
   coordinates: readonly GeoJSON.Position[],
-  maxPoints: number = MAX_GPX_TRACK_POINTS
+  maxPoints: number = MAX_GPX_TRACK_POINTS,
 ): GeoJSON.Position[] {
   if (coordinates.length <= maxPoints) return [...coordinates];
   const points = toLocalPlane(coordinates);
@@ -91,9 +91,7 @@ function escapeXmlText(value: string): string {
 function buildGpxDocument(candidate: RouteCandidate): string {
   const coordinates = simplifyCoordinates(candidate.geometry.coordinates);
   const name = escapeXmlText(`RideCompass ${candidate.direction_label} ${candidate.distance_km.toFixed(1)}km`);
-  const trackPoints = coordinates
-    .map(([lon, lat]) => `      <trkpt lat="${lat}" lon="${lon}"/>`)
-    .join("\n");
+  const trackPoints = coordinates.map(([lon, lat]) => `      <trkpt lat="${lat}" lon="${lon}"/>`).join("\n");
   return [
     '<?xml version="1.0" encoding="UTF-8"?>',
     '<gpx version="1.1" creator="RideCompass" xmlns="http://www.topografix.com/GPX/1/1">',

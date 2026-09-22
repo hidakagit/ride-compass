@@ -25,8 +25,6 @@ import { declareGroup, type SceneLayerEntry, type SceneSourceEntry } from "../ma
 import { AREA_OPACITY } from "./areaRasters";
 import { zoomScaleExpression, sceneSourceId, type SceneSourceId } from "../sceneBuilders";
 
-
-
 /** 記号の縁取り。背景の明暗に関わらず記号の形が読めるようにする。**主層と同じレイヤーの
  * paintで出す**——別レイヤーにすると、同じ位置に2枚並ぶぶん衝突判定で縁取りが全部落ちる。 */
 const WEATHER = mapDisplay.weather;
@@ -88,7 +86,12 @@ function aboveFilter(property: string, min: number): FilterSpecification {
 }
 
 /** 配信元のラスタタイル1枚ぶんの宣言（キキクル・ナウキャスト）。 */
-function rasterElement(group: string, source: string, product: keyof typeof jmaTileConfig, path: string): WeatherElement {
+function rasterElement(
+  group: string,
+  source: string,
+  product: keyof typeof jmaTileConfig,
+  path: string,
+): WeatherElement {
   return {
     group,
     source,
@@ -123,8 +126,7 @@ function markElement(
     icon: { id: options.iconId, create: options.createIcon },
     layout: {
       "icon-image": options.iconId,
-      "icon-rotate":
-        options.rotateProperty === undefined ? 0 : ["to-number", ["get", options.rotateProperty]],
+      "icon-rotate": options.rotateProperty === undefined ? 0 : ["to-number", ["get", options.rotateProperty]],
       "icon-rotation-alignment": options.rotateProperty === undefined ? "viewport" : "map",
       // 記号が密なズームでは間引く（重ねると格子が塗り潰しに見える）。
       "icon-allow-overlap": false,
@@ -246,8 +248,8 @@ function weatherElementKey(element: Pick<WeatherElement, "group" | "source">): s
 }
 
 /** 登録が要るアイコン。**出す前に登録しないと記号が描かれない。** */
-export const WEATHER_ICONS: readonly { id: string; create: () => ImageData }[] = WEATHER_ELEMENTS.flatMap(
-  (element) => (element.icon === undefined ? [] : [element.icon]),
+export const WEATHER_ICONS: readonly { id: string; create: () => ImageData }[] = WEATHER_ELEMENTS.flatMap((element) =>
+  element.icon === undefined ? [] : [element.icon],
 );
 
 /** 要素が持つソースの名前。**チップidは源泉の語をそのまま使う**

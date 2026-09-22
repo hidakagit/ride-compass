@@ -67,7 +67,13 @@ function colorExpression(axisId: string, axis: AxisLineState["axes"][number]): u
     const color = hidden && axis.value.kind === "delivered" ? "rgba(0,0,0,0)" : band.color;
     cases.push([">=", value, band.lowerBound], color);
   }
-  return ["case", ["==", value, null], loading ? palette.semantic.loading : COLOR_UNKNOWN, ...cases.flat(), COLOR_UNKNOWN];
+  return [
+    "case",
+    ["==", value, null],
+    loading ? palette.semantic.loading : COLOR_UNKNOWN,
+    ...cases.flat(),
+    COLOR_UNKNOWN,
+  ];
 }
 
 /** 絞り込みから読める値のときだけ、隠した段を落とす。 */
@@ -97,7 +103,12 @@ export const axisLineGroup = declareGroup<AxisLineState>("axis", (state) => {
 
   const sources: readonly SceneSourceEntry[] = [
     // 宣言そのものは道路の線が持つ。ここは値だけを同じソースへ載せる。
-    { id: ROAD_LINE_SOURCE_ID, spec: { type: "vector" }, sourceLayer: state.sourceLayer, featureStates: featureStatesFor(state) },
+    {
+      id: ROAD_LINE_SOURCE_ID,
+      spec: { type: "vector" },
+      sourceLayer: state.sourceLayer,
+      featureStates: featureStatesFor(state),
+    },
   ];
 
   const layers: readonly SceneLayerEntry[] = state.axes.map((axis) => ({
@@ -114,7 +125,12 @@ export const axisLineGroup = declareGroup<AxisLineState>("axis", (state) => {
         ? mapDisplay.road.unknownOpacity
         : axis.value.kind === "delivered" && axis.value.loading
           ? mapDisplay.road.knownOpacity
-          : ["case", ["==", valueExpression(axis.axisId, axis.value), null], mapDisplay.road.unknownOpacity, mapDisplay.road.knownOpacity],
+          : [
+              "case",
+              ["==", valueExpression(axis.axisId, axis.value), null],
+              mapDisplay.road.unknownOpacity,
+              mapDisplay.road.knownOpacity,
+            ],
     },
     visible: axis.visible,
     ...(bandFilter(axis, axis.axisId) === undefined ? {} : { filter: bandFilter(axis, axis.axisId) }),

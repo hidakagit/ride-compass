@@ -4,10 +4,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import {
-  PRIMARY_ATTRIBUTE_LABELS,
-  primaryAttributeIdsToLayerIds,
-} from "./primaryAttributes";
+import { PRIMARY_ATTRIBUTE_LABELS, primaryAttributeIdsToLayerIds } from "./primaryAttributes";
 
 describe("primaryAttributes", () => {
   it("正式名はaxis-catalog.jsonのprimary_attributes[].labelをそのまま反映する", () => {

@@ -12,10 +12,14 @@
 
 import weatherScales from "@/types/generated/weather-scales.json";
 import type { DynamicWeatherFrame, DynamicWeatherRenderPayload } from "@/components/Map/dynamicWeather";
-import { fetchJmaTargetTimes, parseValidtime, type JmaNowcastFrame, jmaTileUrlTemplate } from "@/components/Map/jmaNowcastFrames";
+import {
+  fetchJmaTargetTimes,
+  parseValidtime,
+  type JmaNowcastFrame,
+  jmaTileUrlTemplate,
+} from "@/components/Map/jmaNowcastFrames";
 
 export type ThunderNowcastFrame = JmaNowcastFrame;
-
 
 /** 雷・竜巻共通の時刻一覧を取得する（1回のfetchで両方をカバー）。
  * targetTimes_N3.jsonは5分おきにエントリを持つが、雷・竜巻(thns/trns)自体は10分おきにしか
@@ -37,19 +41,31 @@ export function thunderFrames(frames: readonly ThunderNowcastFrame[]): DynamicWe
 }
 
 function tileUrlTemplate(frame: ThunderNowcastFrame, product: "thns" | "trns"): string {
-  return jmaTileUrlTemplate({ group: "nowc", element: product, basetime: frame.basetime, member: "none", validtime: frame.validtime });
+  return jmaTileUrlTemplate({
+    group: "nowc",
+    element: product,
+    basetime: frame.basetime,
+    member: "none",
+    validtime: frame.validtime,
+  });
 }
 
 /** thunderFramesが返したref（frames内のindex）から、雷ナウキャストの描画ペイロードを
  * 組み立てる（rasterTile、気象庁配信の画像タイルをそのまま重ねる）。 */
-export function thunderRenderPayload(frames: readonly ThunderNowcastFrame[], ref: number): DynamicWeatherRenderPayload | undefined {
+export function thunderRenderPayload(
+  frames: readonly ThunderNowcastFrame[],
+  ref: number,
+): DynamicWeatherRenderPayload | undefined {
   const frame = frames[ref];
   return frame ? { kind: "rasterTile", tileUrlTemplate: tileUrlTemplate(frame, "thns") } : undefined;
 }
 
 /** thunderFramesと同じフレーム列・同じrefで、竜巻発生確度ナウキャストの描画ペイロードを
  * 組み立てる（プロダクトコードのみthnsからtrnsへ差し替え）。 */
-export function tornadoRenderPayload(frames: readonly ThunderNowcastFrame[], ref: number): DynamicWeatherRenderPayload | undefined {
+export function tornadoRenderPayload(
+  frames: readonly ThunderNowcastFrame[],
+  ref: number,
+): DynamicWeatherRenderPayload | undefined {
   const frame = frames[ref];
   return frame ? { kind: "rasterTile", tileUrlTemplate: tileUrlTemplate(frame, "trns") } : undefined;
 }

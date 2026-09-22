@@ -88,16 +88,38 @@ export const routeGroup = declareGroup<RouteState>("route", (state) => {
   const bands = (selectedBand: boolean) => state.spliceBands.filter((band) => band.selected === selectedBand);
 
   const sources: readonly SceneSourceEntry[] = [
-    { id: SOURCE.candidates, spec: { type: "geojson" }, data: collection(references.map((c) => line(c.path, { [ROUTE_ID_PROPERTY]: c.routeId }))) },
-    { id: SOURCE.selected, spec: { type: "geojson" }, data: collection(selected === null ? [] : [line(selected.path)]) },
-    { id: SOURCE.segments, spec: { type: "geojson" }, data: collection(state.segments.map((s) => line(s.path, s.properties))) },
+    {
+      id: SOURCE.candidates,
+      spec: { type: "geojson" },
+      data: collection(references.map((c) => line(c.path, { [ROUTE_ID_PROPERTY]: c.routeId }))),
+    },
+    {
+      id: SOURCE.selected,
+      spec: { type: "geojson" },
+      data: collection(selected === null ? [] : [line(selected.path)]),
+    },
+    {
+      id: SOURCE.segments,
+      spec: { type: "geojson" },
+      data: collection(state.segments.map((s) => line(s.path, s.properties))),
+    },
     {
       id: SOURCE.spliceBands,
       spec: { type: "geojson" },
-      data: collection(state.spliceBands.map((b) => line(b.path, { ...b.properties, [SPLICE_SELECTED_PROPERTY]: b.selected }))),
+      data: collection(
+        state.spliceBands.map((b) => line(b.path, { ...b.properties, [SPLICE_SELECTED_PROPERTY]: b.selected })),
+      ),
     },
-    { id: SOURCE.composite, spec: { type: "geojson" }, data: collection(state.composite === null ? [] : [line(state.composite.path, state.composite.properties)]) },
-    { id: SOURCE.slots, spec: { type: "geojson" }, data: collection(state.comparisonSlots.map((s) => line(s.path, { [SLOT_COLOR_PROPERTY]: s.color }))) },
+    {
+      id: SOURCE.composite,
+      spec: { type: "geojson" },
+      data: collection(state.composite === null ? [] : [line(state.composite.path, state.composite.properties)]),
+    },
+    {
+      id: SOURCE.slots,
+      spec: { type: "geojson" },
+      data: collection(state.comparisonSlots.map((s) => line(s.path, { [SLOT_COLOR_PROPERTY]: s.color }))),
+    },
   ];
 
   const banded = (role: string, selectedBand: boolean): SceneLayerEntry => ({
@@ -120,17 +142,99 @@ export const routeGroup = declareGroup<RouteState>("route", (state) => {
 
   // 背面から前面。
   const layers: readonly SceneLayerEntry[] = [
-    { role: "selectedHalo", tier: "route", source: SOURCE.selected, type: "line", visible: state.visible, paint: { "line-color": palette.semantic.route_selected_halo, "line-width": ROUTE.lineWidthsPx.selectedHalo, "line-opacity": ROUTE.opacities.selectedHalo } },
-    { role: "candidateLine", tier: "route", source: SOURCE.candidates, type: "line", visible: state.visible, paint: { "line-color": palette.semantic.route_candidate, "line-width": ROUTE.lineWidthsPx.candidate, "line-opacity": 0.65 } },
-    { role: "candidateHit", tier: "route", source: SOURCE.candidates, type: "line", visible: state.visible, paint: { ...HIT_PAINT, "line-width": CANDIDATE_HIT_WIDTH_PX }, hitTargets: [ROUTE_HIT_TARGET, ROUTE_HIT_TARGET_CANDIDATE] },
-    { role: "slotCasing", tier: "route", source: SOURCE.slots, type: "line", visible: state.visible, paint: { "line-color": palette.semantic.route_casing, "line-width": ROUTE.casingWidthsPx.slot, "line-opacity": 0.85 } },
-    { role: "slotLine", tier: "route", source: SOURCE.slots, type: "line", visible: state.visible, paint: { "line-color": ["get", SLOT_COLOR_PROPERTY], "line-width": ROUTE.lineWidthsPx.slot, "line-opacity": 0.85 } },
+    {
+      role: "selectedHalo",
+      tier: "route",
+      source: SOURCE.selected,
+      type: "line",
+      visible: state.visible,
+      paint: {
+        "line-color": palette.semantic.route_selected_halo,
+        "line-width": ROUTE.lineWidthsPx.selectedHalo,
+        "line-opacity": ROUTE.opacities.selectedHalo,
+      },
+    },
+    {
+      role: "candidateLine",
+      tier: "route",
+      source: SOURCE.candidates,
+      type: "line",
+      visible: state.visible,
+      paint: {
+        "line-color": palette.semantic.route_candidate,
+        "line-width": ROUTE.lineWidthsPx.candidate,
+        "line-opacity": 0.65,
+      },
+    },
+    {
+      role: "candidateHit",
+      tier: "route",
+      source: SOURCE.candidates,
+      type: "line",
+      visible: state.visible,
+      paint: { ...HIT_PAINT, "line-width": CANDIDATE_HIT_WIDTH_PX },
+      hitTargets: [ROUTE_HIT_TARGET, ROUTE_HIT_TARGET_CANDIDATE],
+    },
+    {
+      role: "slotCasing",
+      tier: "route",
+      source: SOURCE.slots,
+      type: "line",
+      visible: state.visible,
+      paint: {
+        "line-color": palette.semantic.route_casing,
+        "line-width": ROUTE.casingWidthsPx.slot,
+        "line-opacity": 0.85,
+      },
+    },
+    {
+      role: "slotLine",
+      tier: "route",
+      source: SOURCE.slots,
+      type: "line",
+      visible: state.visible,
+      paint: {
+        "line-color": ["get", SLOT_COLOR_PROPERTY],
+        "line-width": ROUTE.lineWidthsPx.slot,
+        "line-opacity": 0.85,
+      },
+    },
     banded("spliceBandLine", false),
     banded("spliceBandSelectedLine", true),
-    { role: "compositeCasing", tier: "route", source: SOURCE.composite, type: "line", visible: state.visible, layout: ROUND_CAP, paint: { "line-color": palette.semantic.route_casing, "line-width": ROUTE.casingWidthsPx.composite } },
-    { role: "compositeLine", tier: "route", source: SOURCE.composite, type: "line", visible: state.visible, layout: ROUND_CAP, paint: { "line-color": palette.semantic.route_splice, "line-width": ROUTE.lineWidthsPx.composite } },
-    withBandFilter({ role: "detailCasing", tier: "route", source: SOURCE.segments, type: "line", visible: state.visible, paint: { "line-color": palette.semantic.route_casing, "line-width": ROUTE.casingWidthsPx.detail } }),
-    withBandFilter({ role: "detailLine", tier: "route", source: SOURCE.segments, type: "line", visible: state.visible, paint: { "line-color": state.segmentColor, "line-width": ROUTE.lineWidthsPx.detail } }),
+    {
+      role: "compositeCasing",
+      tier: "route",
+      source: SOURCE.composite,
+      type: "line",
+      visible: state.visible,
+      layout: ROUND_CAP,
+      paint: { "line-color": palette.semantic.route_casing, "line-width": ROUTE.casingWidthsPx.composite },
+    },
+    {
+      role: "compositeLine",
+      tier: "route",
+      source: SOURCE.composite,
+      type: "line",
+      visible: state.visible,
+      layout: ROUND_CAP,
+      paint: { "line-color": palette.semantic.route_splice, "line-width": ROUTE.lineWidthsPx.composite },
+    },
+    withBandFilter({
+      role: "detailCasing",
+      tier: "route",
+      source: SOURCE.segments,
+      type: "line",
+      visible: state.visible,
+      paint: { "line-color": palette.semantic.route_casing, "line-width": ROUTE.casingWidthsPx.detail },
+    }),
+    withBandFilter({
+      role: "detailLine",
+      tier: "route",
+      source: SOURCE.segments,
+      type: "line",
+      visible: state.visible,
+      paint: { "line-color": state.segmentColor, "line-width": ROUTE.lineWidthsPx.detail },
+    }),
     withBandFilter({
       role: "detailHit",
       tier: "route",
@@ -142,13 +246,51 @@ export const routeGroup = declareGroup<RouteState>("route", (state) => {
     }),
     // 帯の当たり判定は区間の当たり判定より前面——区間の当たり判定はルート全体を覆うため、
     // 後ろだと帯を一度も押せない。
-    { role: "spliceBandHit", tier: "route", source: SOURCE.spliceBands, type: "line", visible: state.visible, paint: { ...HIT_PAINT, "line-width": HIT_WIDTH_PX }, hitTargets: [ROUTE_HIT_TARGET, ROUTE_HIT_TARGET_SPLICE_BAND] },
+    {
+      role: "spliceBandHit",
+      tier: "route",
+      source: SOURCE.spliceBands,
+      type: "line",
+      visible: state.visible,
+      paint: { ...HIT_PAINT, "line-width": HIT_WIDTH_PX },
+      hitTargets: [ROUTE_HIT_TARGET, ROUTE_HIT_TARGET_SPLICE_BAND],
+    },
     ...(state.arrowIconImage === null
       ? []
       : [
           // 衝突判定を無効にする——有効にすると、同じ位置の2層のうち後ろが丸ごと落ちる。
-          { role: "arrowHalo", tier: "route" as const, source: SOURCE.selected, type: "symbol" as const, visible: state.visible, layout: { "icon-image": state.arrowIconImage, "symbol-placement": "line", "symbol-spacing": ROUTE.arrowSpacingPx, "icon-allow-overlap": true, "icon-ignore-placement": true, "icon-size": arrowSize(ROUTE.arrowHaloScale) }, paint: { "icon-color": palette.semantic.route_arrow_halo, "icon-opacity": 0.95 } },
-          { role: "arrow", tier: "route" as const, source: SOURCE.selected, type: "symbol" as const, visible: state.visible, layout: { "icon-image": state.arrowIconImage, "symbol-placement": "line", "symbol-spacing": ROUTE.arrowSpacingPx, "icon-allow-overlap": true, "icon-ignore-placement": true, "icon-size": arrowSize(1) }, paint: { "icon-color": palette.semantic.route_arrow, "icon-opacity": 1 } },
+          {
+            role: "arrowHalo",
+            tier: "route" as const,
+            source: SOURCE.selected,
+            type: "symbol" as const,
+            visible: state.visible,
+            layout: {
+              "icon-image": state.arrowIconImage,
+              "symbol-placement": "line",
+              "symbol-spacing": ROUTE.arrowSpacingPx,
+              "icon-allow-overlap": true,
+              "icon-ignore-placement": true,
+              "icon-size": arrowSize(ROUTE.arrowHaloScale),
+            },
+            paint: { "icon-color": palette.semantic.route_arrow_halo, "icon-opacity": 0.95 },
+          },
+          {
+            role: "arrow",
+            tier: "route" as const,
+            source: SOURCE.selected,
+            type: "symbol" as const,
+            visible: state.visible,
+            layout: {
+              "icon-image": state.arrowIconImage,
+              "symbol-placement": "line",
+              "symbol-spacing": ROUTE.arrowSpacingPx,
+              "icon-allow-overlap": true,
+              "icon-ignore-placement": true,
+              "icon-size": arrowSize(1),
+            },
+            paint: { "icon-color": palette.semantic.route_arrow, "icon-opacity": 1 },
+          },
         ]),
   ];
 

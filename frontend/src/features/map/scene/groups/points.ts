@@ -148,9 +148,7 @@ export const pointGroup = declareGroup<PointState>("point", (state) => {
     },
     visible: state.visible[layer.attr_id] === true,
     hitTargets: [POINT_HIT_TARGET, `${POINT_HIT_TARGET}:${layer.attr_id}`],
-    ...(layerFilter(layer, state.hiddenKeys) === undefined
-      ? {}
-      : { filter: layerFilter(layer, state.hiddenKeys) }),
+    ...(layerFilter(layer, state.hiddenKeys) === undefined ? {} : { filter: layerFilter(layer, state.hiddenKeys) }),
   }));
 
   return { sources, layers };

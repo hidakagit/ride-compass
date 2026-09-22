@@ -68,7 +68,7 @@ export function useLocation(): UseLocationResult {
         if (requestId !== latestGeolocationRequestId.current) return;
         setLocationReady(true);
       },
-      { timeout: GEOLOCATION_TIMEOUT_MS }
+      { timeout: GEOLOCATION_TIMEOUT_MS },
     );
   }, []);
 
@@ -99,7 +99,7 @@ export function useLocation(): UseLocationResult {
         setLocateError("現在地を取得できませんでした。位置情報の利用が許可されているかご確認ください。");
         setLocating(false);
       },
-      { timeout: GEOLOCATION_TIMEOUT_MS }
+      { timeout: GEOLOCATION_TIMEOUT_MS },
     );
   }, []);
 

@@ -35,16 +35,15 @@ export function useMaterialCatalog(): MaterialCatalogState {
         if (!cancelled) {
           setState({
             loaded: true,
-            materials:
-              response.materials.map((m) => ({
-                id: m.material_id,
-                label: m.label,
-                name: m.name,
-                description: m.description,
-                dtype: m.dtype,
-                unit: m.unit,
-                referencePoints: m.reference_points,
-              })),
+            materials: response.materials.map((m) => ({
+              id: m.material_id,
+              label: m.label,
+              name: m.name,
+              description: m.description,
+              dtype: m.dtype,
+              unit: m.unit,
+              referencePoints: m.reference_points,
+            })),
           });
         }
       })

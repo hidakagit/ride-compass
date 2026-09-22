@@ -45,7 +45,12 @@ const LEVEL_ORDER: readonly WarningBadgeLevel[] = ["advisory", "warning", "sever
 const LEVEL_SUMMARY_LABEL: Record<WarningBadgeSource, Record<WarningBadgeLevel, string>> = {
   jma: { advisory: "注意報", warning: "警報", severe_warning: "厳重警戒", emergency_warning: "特別警報" },
   wbgt: { advisory: "注意", warning: "警戒", severe_warning: "厳重警戒", emergency_warning: "危険" },
-  flood: { advisory: "氾濫注意報", warning: "氾濫警報", severe_warning: "氾濫危険警報", emergency_warning: "氾濫特別警報" },
+  flood: {
+    advisory: "氾濫注意報",
+    warning: "氾濫警報",
+    severe_warning: "氾濫危険警報",
+    emergency_warning: "氾濫特別警報",
+  },
 };
 
 // 色もLEVEL_SUMMARY_LABELと同じ理由でsource別に分ける。JMA（気象庁の公式警報）と

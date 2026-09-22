@@ -9,26 +9,32 @@ import { describe, expect, it } from "vitest";
 
 import type { AxisMaterialOption } from "@/lib/axisMaterialsCatalog";
 import { baseAxisDefinition } from "@/testing/axisDefinitionFixtures";
-import {
-  buildShape,
-  draftFromDuplicate,
-  draftFromExisting,
-  emptyDraft,
-  PASSTHROUGH_PAYLOAD_KEYS,
-} from "./axisDraft";
+import { buildShape, draftFromDuplicate, draftFromExisting, emptyDraft, PASSTHROUGH_PAYLOAD_KEYS } from "./axisDraft";
 
 // 性質だけを表す材料。どれが実在するかはこの変換の関心ではない。
 const NUMERIC: AxisMaterialOption = {
-  id: "num_a", label: "数値の材料 - num_a", name: "数値の材料",
-  description: "", dtype: "numeric", unit: "%",
+  id: "num_a",
+  label: "数値の材料 - num_a",
+  name: "数値の材料",
+  description: "",
+  dtype: "numeric",
+  unit: "%",
 };
 const BOOLEAN: AxisMaterialOption = {
-  id: "bool_a", label: "真偽の材料 - bool_a", name: "真偽の材料",
-  description: "", dtype: "boolean", unit: "",
+  id: "bool_a",
+  label: "真偽の材料 - bool_a",
+  name: "真偽の材料",
+  description: "",
+  dtype: "boolean",
+  unit: "",
 };
 const CATEGORICAL: AxisMaterialOption = {
-  id: "cat_a", label: "分類の材料 - cat_a", name: "分類の材料",
-  description: "", dtype: "categorical", unit: "",
+  id: "cat_a",
+  label: "分類の材料 - cat_a",
+  name: "分類の材料",
+  description: "",
+  dtype: "categorical",
+  unit: "",
 };
 const OPTIONS: readonly AxisMaterialOption[] = [NUMERIC, BOOLEAN, CATEGORICAL];
 

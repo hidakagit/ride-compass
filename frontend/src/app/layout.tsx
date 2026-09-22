@@ -33,9 +33,9 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
     <html lang="ja" className={`${geistSans.variable} ${geistMono.variable}`}>
       <head>
-          <style>{paletteCssText()}</style>
-        </head>
-        <body>{children}</body>
+        <style>{paletteCssText()}</style>
+      </head>
+      <body>{children}</body>
     </html>
   );
 }

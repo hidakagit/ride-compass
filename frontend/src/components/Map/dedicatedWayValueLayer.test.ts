@@ -8,12 +8,7 @@ import {
   dedicatedWayValueLegend,
   type DedicatedWayValueDisplay,
 } from "./dedicatedWayValueLayer";
-import {
-  COLOR_LOADING,
-  COLOR_NO_DATA,
-  DEFAULT_DIFFICULTY_BOUNDARIES,
-  bandColorsFor,
-} from "./valueScale";
+import { COLOR_LOADING, COLOR_NO_DATA, DEFAULT_DIFFICULTY_BOUNDARIES, bandColorsFor } from "./valueScale";
 import { LEGEND_NO_DATA_KEY, legendBandKey } from "./mapColorLegend";
 
 /** 符号付き材料の段。**軸の折れ線の節を0対称に開いたもの**で、backendが軸ごとに返す

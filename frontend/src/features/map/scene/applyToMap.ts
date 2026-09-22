@@ -133,7 +133,10 @@ function routeStateFrom(props: RouteSceneInputs): RouteState {
   const hiddenBandFilter =
     mode === null
       ? null
-      : (buildLegendFilterExpression(mode.legend, props.hiddenRouteLegendKeys) as maplibregl.FilterSpecification | null);
+      : (buildLegendFilterExpression(
+          mode.legend,
+          props.hiddenRouteLegendKeys,
+        ) as maplibregl.FilterSpecification | null);
   return {
     visible: props.routeLayerOn,
     candidates: props.routes.map((route) => ({

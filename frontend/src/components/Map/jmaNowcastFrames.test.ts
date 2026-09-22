@@ -24,7 +24,7 @@ describe("fetchJmaTargetTimes", () => {
     const raw = [{ basetime: "1", validtime: "1" }];
     vi.stubGlobal(
       "fetch",
-      vi.fn(() => Promise.resolve(jsonResponse(raw)))
+      vi.fn(() => Promise.resolve(jsonResponse(raw))),
     );
 
     const result = await fetchJmaTargetTimes("nowc_N3", "雷ナウキャスト");
@@ -34,22 +34,22 @@ describe("fetchJmaTargetTimes", () => {
   it("HTTPエラー時はlabelを含むエラーメッセージで例外を投げる", async () => {
     vi.stubGlobal(
       "fetch",
-      vi.fn(() => Promise.resolve(jsonResponse(null, false, 503)))
+      vi.fn(() => Promise.resolve(jsonResponse(null, false, 503))),
     );
 
     await expect(fetchJmaTargetTimes("nowc_N3", "雷ナウキャスト")).rejects.toThrow(
-      "雷ナウキャストの時刻一覧の取得に失敗しました[HTTP 503]"
+      "雷ナウキャストの時刻一覧の取得に失敗しました[HTTP 503]",
     );
   });
 
   it("レスポンスが配列でない場合はlabelを含むエラーメッセージで例外を投げる", async () => {
     vi.stubGlobal(
       "fetch",
-      vi.fn(() => Promise.resolve(jsonResponse({ not: "an array" })))
+      vi.fn(() => Promise.resolve(jsonResponse({ not: "an array" }))),
     );
 
     await expect(fetchJmaTargetTimes("nowc_N3", "雷ナウキャスト")).rejects.toThrow(
-      "雷ナウキャストの時刻一覧の形式が想定と異なります"
+      "雷ナウキャストの時刻一覧の形式が想定と異なります",
     );
   });
 });

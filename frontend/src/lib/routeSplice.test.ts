@@ -1,12 +1,7 @@
 // @vitest-environment node
 import { describe, expect, it } from "vitest";
 
-import {
-  buildSplicedShape,
-  insertByDifficulty,
-  stretchAlternativeGroups,
-  stretchCoordinateRange,
-} from "./routeSplice";
+import { buildSplicedShape, insertByDifficulty, stretchAlternativeGroups, stretchCoordinateRange } from "./routeSplice";
 
 // 区間の切り出しは`stretchAlternativeGroups`の入口からしか使わない。見ているのは
 // 「2本の差をどう区間へ割るか」で、途中段階ではなく入口の結果として確かめる。

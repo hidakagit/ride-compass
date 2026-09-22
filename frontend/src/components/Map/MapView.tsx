@@ -27,10 +27,7 @@ import type {
   SelectedRouteSegment,
 } from "@/types/route";
 import type { ExperimentSlot } from "@/types/experimentSlot";
-import {
-  ROAD_TILE_MAX_ZOOM,
-  ROAD_TILE_MIN_ZOOM,
-} from "@/services/regionApi";
+import { ROAD_TILE_MAX_ZOOM, ROAD_TILE_MIN_ZOOM } from "@/services/regionApi";
 import type { RideConditions } from "@/services/regionApi";
 import { tileContainingLonLat, type TileXY } from "@/components/Map/dynamicWayValues";
 import { type RouteStyleMode, type RouteStyleModeId } from "@/components/Map/routeStyleModes";
@@ -49,9 +46,7 @@ import {
   type MapLayerId,
   type MapLayerVisibility,
 } from "@/components/Map/mapLayers";
-import {
-  type DedicatedWayValueDisplay,
-} from "@/components/Map/dedicatedWayValueLayer";
+import { type DedicatedWayValueDisplay } from "@/components/Map/dedicatedWayValueLayer";
 import { tileBaseUrl } from "@/lib/tileBaseUrl";
 import {
   prepareBasemapForAreaLayers,
@@ -59,11 +54,7 @@ import {
   runWhenStyleReady,
 } from "@/components/Map/mapStyleOps";
 import { applyScene, sceneInputsFrom } from "@/features/map/scene/applyToMap";
-import {
-  interactiveSceneLayerIds,
-  sceneLayerIdsForHitTarget,
-  type MapScene,
-} from "@/features/map/scene/mapScene";
+import { interactiveSceneLayerIds, sceneLayerIdsForHitTarget, type MapScene } from "@/features/map/scene/mapScene";
 import {
   ROUTE_HIT_TARGET,
   ROUTE_HIT_TARGET_CANDIDATE,
@@ -76,10 +67,7 @@ import { PRIMARY_ATTRIBUTE_LABELS } from "@/components/Map/primaryAttributes";
 import { AREA_SOURCE_ID } from "@/features/map/scene/groups/areaRasters";
 import { ROAD_LINE_SOURCE_ID } from "@/features/map/scene/groups/roadLines";
 import { sceneLayerId } from "@/features/map/scene/sceneBuilders";
-import {
-  restoreRouteSegmentProperties,
-  type RouteSegmentProperties,
-} from "@/features/map/routeSegmentProperties";
+import { restoreRouteSegmentProperties, type RouteSegmentProperties } from "@/features/map/routeSegmentProperties";
 
 /** 乗り換えられる区間1本ぶんの入力。`index`は押されたときに呼び出し側が見分ける値。 */
 interface SpliceStretchFeature {
@@ -109,14 +97,8 @@ function pointValueLabels(layer: (typeof POINT_LAYERS)[number]): Record<string, 
 function routeHitLayerId(scene: MapScene, target: string): string | undefined {
   return sceneLayerIdsForHitTarget(scene, target)[0];
 }
-import {
-  type DynamicWeatherGroupState,
-  type DynamicWeatherLayerId,
-} from "@/components/Map/dynamicWeather";
-import {
-  type DedicatedWayValueAxis,
-  type RampAxis,
-} from "@/components/Map/axisLayers";
+import { type DynamicWeatherGroupState, type DynamicWeatherLayerId } from "@/components/Map/dynamicWeather";
+import { type DedicatedWayValueAxis, type RampAxis } from "@/components/Map/axisLayers";
 import { useLayerDataStatus } from "@/components/Map/useLayerDataStatus";
 import { useJmaTileIndex } from "@/hooks/useJmaTileIndex";
 import { registerJmaTileProtocol } from "@/components/Map/jmaTileProtocol";
@@ -183,13 +165,11 @@ function bindDragAwareClick(marker: maplibregl.Marker, element: HTMLElement, onC
   });
 }
 
-
 // road_surfaceの1次「素材」線レイヤー（道路種別/路面の合成ROAD_TILE_LAYER_ID・自転車
 // インフラ）は同じ道路ジオメトリ上に重なる独立レイヤーのため、複数を同時に
 // ONにすると後から描画されたレイヤーが前のレイヤーを完全に覆い隠してしまう。line-offsetで
 // 道路と平行な複数トラックへ横並びに分離する（applyRoadMaterialTrackOffsets参照）。
 // トラック間隔はline-width（3px）の半分弱ずつ重なる値にしてある（重なりは色の切り替わりと
-
 
 // payload（page.tsx側が各要素のデータ層関数から計算した値）を反映する。グループ配下の
 // 各ソースについて、visibleとpayloadのどちらか一方でも欠けていれば非表示のまま（フェッチ
@@ -200,12 +180,10 @@ function bindDragAwareClick(marker: maplibregl.Marker, element: HTMLElement, onC
 // 同時表示（precipitationNowcastのmain+linearRainband等）は、グループ内の別ソースとして
 // 独立にvisible/payloadを持つことで実現する（このループ自体は各ソースを独立に処理するだけ）。
 
-
 // interactive: クリック・カーソル判定（handleClick/handleMouseMove）の対象にするか。
 // レイヤーを足すときにその場で答えさせるため必須にしてある——別の一覧で「対象外のkey」を
 // 数え上げる形にすると、新しいレイヤーが既定でクリック対象になり、「カーソルは
 // クリック可能を示すのに実際は何も起きない」という不整合が静かに増える。
-
 
 type LayerDataSource = { key: MapLayerId; sourceId: string; sourceLayer?: string };
 
@@ -274,11 +252,9 @@ export function buildLayerDataSources(layers: readonly MapLayerDescriptor[]): re
 // buildLayerDataSources自体は他の組み立て関数と同じくこのファイルに
 // 残し、フックへ引数として渡す（フック側からMapView.tsxを逆importしないため）。
 
-
 // ルート系の当たり判定専用レイヤー。見た目の線は細くモバイルでタップしづらいため、
 // 幅の広い透明なレイヤーを別に持つ。`handleClick`はここに当たったら道路のポップアップを
 // 開かず、それぞれの専用ハンドラへ任せる。
-
 
 // タイルの最小ズームを宣言したレイヤーのうち、いまのズームでは要求されないものを
 // 呼び出し側へ伝える（mapLayers.ts: tileZoomTooWideLayerIds）。レイヤーごとの閾値も
@@ -628,7 +604,6 @@ function useStableMap<K, V>(map: ReadonlyMap<K, V> | undefined): ReadonlyMap<K, 
   return useMemo(() => map, [signature]);
 }
 
-
 /** `redrawAllLayers`が読む表示状態。コンポーネント側はrefで最新値を保持して渡す。 */
 
 export default function MapView({
@@ -853,7 +828,6 @@ export default function MapView({
     experimentSlots,
     dedicatedWayValues,
   });
-
 
   useEffect(() => {
     onTileZoomTooWideChangeRef.current = onTileZoomTooWideChange;
@@ -1341,7 +1315,8 @@ export default function MapView({
       map.off("click", handleClick);
       if (routeHitLayers.segment !== undefined) map.off("click", routeHitLayers.segment, handleRouteSegmentClick);
       if (routeHitLayers.candidate !== undefined) map.off("click", routeHitLayers.candidate, handleCandidateClick);
-      if (routeHitLayers.spliceBand !== undefined) map.off("click", routeHitLayers.spliceBand, handleSpliceStretchClick);
+      if (routeHitLayers.spliceBand !== undefined)
+        map.off("click", routeHitLayers.spliceBand, handleSpliceStretchClick);
       map.off("mousemove", handleMouseMove);
       map.off("zoom", handleZoom);
       map.off("load", handleLoad);

@@ -80,10 +80,13 @@ describe("状態を地図へ伝えた結果", () => {
     it("表示ONにしたものだけが見えている", () => {
       const { map, handle } = createRecordingMap();
 
-      redrawAllLayers(map as never, {
-        ...baseState(),
-        staticLayerVisibility: { elevation: true, landcover: false, hillshade: false },
-      } as unknown as State);
+      redrawAllLayers(
+        map as never,
+        {
+          ...baseState(),
+          staticLayerVisibility: { elevation: true, landcover: false, hillshade: false },
+        } as unknown as State,
+      );
 
       expect(handle.layer(areaLayerId("elevation"))?.visibility).toBe("visible");
       expect(handle.layer(areaLayerId("landcover"))?.visibility).toBe("none");
@@ -93,10 +96,13 @@ describe("状態を地図へ伝えた結果", () => {
     it("面は、道路の線より背面にある", () => {
       const { map, handle } = createRecordingMap();
 
-      redrawAllLayers(map as never, {
-        ...baseState(),
-        staticLayerVisibility: { elevation: true, surface: true, tunnel: true },
-      } as unknown as State);
+      redrawAllLayers(
+        map as never,
+        {
+          ...baseState(),
+          staticLayerVisibility: { elevation: true, surface: true, tunnel: true },
+        } as unknown as State,
+      );
 
       const order = handle.layerOrder();
       expect(order.indexOf(areaLayerId("elevation"))).toBeLessThan(order.indexOf(roadLayerId("tunnel")));
@@ -130,10 +136,13 @@ describe("状態を地図へ伝えた結果", () => {
     it("路面と道路種別を同時に出すと、線が左右へ分かれる", () => {
       const { map, handle } = createRecordingMap();
 
-      redrawAllLayers(map as never, {
-        ...baseState(),
-        staticLayerVisibility: { surface: true, highway: true },
-      } as unknown as State);
+      redrawAllLayers(
+        map as never,
+        {
+          ...baseState(),
+          staticLayerVisibility: { surface: true, highway: true },
+        } as unknown as State,
+      );
 
       const offsets = ROAD_TRACKS.map((track) => handle.layer(roadLayerId(track.attr_id))?.paint["line-offset"]).filter(
         (value) => value !== undefined,
@@ -145,11 +154,14 @@ describe("状態を地図へ伝えた結果", () => {
     it("凡例で隠した分類は、その線から落ちる", () => {
       const { map, handle } = createRecordingMap();
 
-      redrawAllLayers(map as never, {
-        ...baseState(),
-        staticLayerVisibility: { surface: true },
-        roadHiddenKeysByMode: { surface: ["asphalt"] },
-      } as unknown as State);
+      redrawAllLayers(
+        map as never,
+        {
+          ...baseState(),
+          staticLayerVisibility: { surface: true },
+          roadHiddenKeysByMode: { surface: ["asphalt"] },
+        } as unknown as State,
+      );
 
       expect(handle.layer(roadLayerId("surface"))?.filter).toBeDefined();
     });
@@ -159,10 +171,13 @@ describe("状態を地図へ伝えた結果", () => {
     it("停止要因と補給は、同じソースの別レイヤーとして出る", () => {
       const { map, handle } = createRecordingMap();
 
-      redrawAllLayers(map as never, {
-        ...baseState(),
-        staticLayerVisibility: { stop_poi: true, supply_poi: true },
-      } as unknown as State);
+      redrawAllLayers(
+        map as never,
+        {
+          ...baseState(),
+          staticLayerVisibility: { stop_poi: true, supply_poi: true },
+        } as unknown as State,
+      );
 
       const stop = handle.layer(pointLayerId("stop_poi"));
       const supply = handle.layer(pointLayerId("supply_poi"));
@@ -185,12 +200,15 @@ describe("状態を地図へ伝えた結果", () => {
   describe("評価軸の線", () => {
     function withValues(visibility: Record<string, boolean>, values: ReadonlyMap<string, ReadonlyMap<string, number>>) {
       const { map, handle } = createRecordingMap();
-      redrawAllLayers(map as never, {
-        ...baseState(),
-        staticLayerVisibility: { surface: true },
-        dedicatedWayValueVisibility: visibility,
-        dedicatedWayValues: values,
-      } as unknown as State);
+      redrawAllLayers(
+        map as never,
+        {
+          ...baseState(),
+          staticLayerVisibility: { surface: true },
+          dedicatedWayValueVisibility: visibility,
+          dedicatedWayValues: values,
+        } as unknown as State,
+      );
       return { map, handle };
     }
 

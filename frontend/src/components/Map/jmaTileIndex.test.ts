@@ -1,11 +1,7 @@
 // @vitest-environment node
 import { describe, expect, it } from "vitest";
 
-import {
-  buildJmaTileIndexLookup,
-  isKnownEmptyTile,
-  type JmaTileIndexResponse,
-} from "@/components/Map/jmaTileIndex";
+import { buildJmaTileIndexLookup, isKnownEmptyTile, type JmaTileIndexResponse } from "@/components/Map/jmaTileIndex";
 
 const BASE = "https://example.test/api/jma-tile/bosai/jmatile/data/risk";
 const BT = "20260907025000";

@@ -288,9 +288,7 @@ export function AxisMapDisplaySection({
             保存しても公開へ戻り、画面の操作結果が無言で反転する（design-principles.md
             「1つの状態は1つの場所でだけ操作する」）。ここでは事実だけを示す。 */}
         {republishing ? (
-          <p className={styles.hint}>
-            「調整する」で一時的に下書きへ戻しています。保存すると公開へ戻ります。
-          </p>
+          <p className={styles.hint}>「調整する」で一時的に下書きへ戻しています。保存すると公開へ戻ります。</p>
         ) : (
           !restrictedDisplayOnly && (
             <label className={styles.inlineCheckbox}>

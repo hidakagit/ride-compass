@@ -145,5 +145,4 @@ export function linearRainbandRenderPayload(ref: RiskFrameRef): DynamicWeatherRe
 // （legend_jp_normal_*.svg）が公式カラーコードを公開していないため、実機で確認した
 // グラデーション近似値（precipitationNowcast.tsのPRECIPITATION_COLOR_STOPSと同じ扱い、
 // 実際のタイル画像の色と厳密には一致しない）。危険度が上がるほど白→黄→赤→紫→黒と変化する。
-export const RISK_LEVEL_COLORS: readonly { key: string; label: string; color: string }[] =
-  weatherScales.risk_levels;
+export const RISK_LEVEL_COLORS: readonly { key: string; label: string; color: string }[] = weatherScales.risk_levels;

@@ -25,7 +25,7 @@ export function Checkbox({ checked, onCheckedChange, disabled, ...props }: Check
         // 頼らず単体で正しいサイズになるようにする。
         "flex h-[1.1rem] w-[1.1rem] min-h-0 shrink-0 items-center justify-center rounded-sm border border-[var(--color-border-strong)] bg-[var(--color-surface)] p-0",
         "data-[state=checked]:border-[var(--color-accent)] data-[state=checked]:bg-[var(--color-accent)]",
-        "disabled:cursor-default disabled:opacity-55"
+        "disabled:cursor-default disabled:opacity-55",
       )}
       {...props}
     >

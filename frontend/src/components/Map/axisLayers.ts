@@ -53,7 +53,6 @@ interface AxisTileInput {
 
 export type AxisShape = components["schemas"]["BreakpointLinearShape"] | components["schemas"]["CategoricalShape"];
 
-
 export interface RampAxis {
   axisId: string;
   label: string;
@@ -309,9 +308,10 @@ export function dedicatedWayValueLineLayerId(axisId: string): string {
 // bandCount段階ぶんの色を線形補間で生成するため、bandCount=4のときは既存の4色と完全に
 // 一致し（axisLayers.test.ts参照）、bandCount≠4の軸でも同じ緑→赤の配色系統のまま段階数
 // ぶんの色を自動生成できる。
-const RAMP_COLOR_ANCHORS: readonly [number, string][] = palette.evaluation_ramp_anchors.map(
-  (anchor) => [anchor.position, anchor.color],
-);
+const RAMP_COLOR_ANCHORS: readonly [number, string][] = palette.evaluation_ramp_anchors.map((anchor) => [
+  anchor.position,
+  anchor.color,
+]);
 
 function hexToRgb(hex: string): [number, number, number] {
   const n = parseInt(hex.slice(1), 16);

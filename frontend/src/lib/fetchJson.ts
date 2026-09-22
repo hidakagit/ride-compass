@@ -73,7 +73,17 @@ class ApiError extends Error {
 /** 7段のうち「fetch→通信エラー処理→ok確認→失敗時throw」まで。成功時の`Response`を
  * そのまま返し、本文の解釈と成功ログは呼び出し側が行う。 */
 export async function requestOk(url: string, options: ApiRequestOptions): Promise<ApiResponse> {
-  const { method = "GET", body, timeoutMs, category, messages, startLabel, requestMeta, logMeta, wrapNetworkError } = options;
+  const {
+    method = "GET",
+    body,
+    timeoutMs,
+    category,
+    messages,
+    startLabel,
+    requestMeta,
+    logMeta,
+    wrapNetworkError,
+  } = options;
   const startedAt = performance.now();
   const meta = { ...logMeta };
   debugLog(category, startLabel ?? "リクエスト開始", { url, ...meta, ...requestMeta });

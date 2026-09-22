@@ -100,5 +100,4 @@ describe("isSplicedRoute", () => {
     expect(isSplicedRoute({ id: "route-destination-00" })).toBe(false);
     expect(isSplicedRoute({ id: "route-waypoints" })).toBe(false);
   });
-
 });
