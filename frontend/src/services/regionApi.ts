@@ -127,7 +127,6 @@ export function poiTileUrl(): string {
 const LANDCOVER_TILE_PATH = "/api/region/landcover-tiles/{z}/{x}/{y}.png";
 const LANDCOVER_TILE_VERSION = regionTileConfig.landcover.tile_version;
 export const LANDCOVER_TILE_MIN_ZOOM = regionTileConfig.landcover.min_zoom;
-export const LANDCOVER_TILE_MAX_ZOOM = regionTileConfig.landcover.max_zoom;
 
 export function landcoverTileUrl(): string {
   return `${tileBaseUrl()}${LANDCOVER_TILE_PATH}?v=${LANDCOVER_TILE_VERSION}`;

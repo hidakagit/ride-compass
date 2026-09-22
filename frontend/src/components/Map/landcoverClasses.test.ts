@@ -2,7 +2,7 @@
 import { describe, expect, it } from "vitest";
 import { LANDCOVER_CLASSES, LANDCOVER_PAINTED_CLASSES } from "./landcoverClasses";
 import { buildMapLayers, mapOverlayGroupFor } from "./mapLayers";
-import { LANDCOVER_TILE_MAX_ZOOM, LANDCOVER_TILE_MIN_ZOOM, landcoverTileUrl } from "@/services/regionApi";
+import { landcoverTileUrl } from "@/services/regionApi";
 
 describe("土地被覆レイヤー", () => {
   it("クラスの表示名・色はbackendの生成物から来る（凡例と地図の塗りが同じ値を見る）", () => {
@@ -22,10 +22,6 @@ describe("土地被覆レイヤー", () => {
 
   it("タイルURLは世代を持つ（ラスタ差し替え時に古いタイルを踏まない）", () => {
     expect(landcoverTileUrl()).toContain("/api/region/landcover-tiles/{z}/{x}/{y}.png?v=");
-  });
-
-  it("ズーム範囲はbackendの生成物から来る", () => {
-    expect(LANDCOVER_TILE_MIN_ZOOM).toBeLessThan(LANDCOVER_TILE_MAX_ZOOM);
   });
 
   it("地図チップの「環境」グループに属する（標高図と同じ、地域に固定の面レイヤー）", () => {

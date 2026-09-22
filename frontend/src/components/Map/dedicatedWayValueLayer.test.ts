@@ -6,7 +6,6 @@ import {
   buildDedicatedWayValueColorExpression,
   buildDedicatedWayValueOpacityExpression,
   dedicatedWayValueColorExpression,
-  dedicatedWayValueOpacityExpression,
   dedicatedWayValueFeatureStateKey,
   dedicatedWayValueLegend,
   type DedicatedWayValueDisplay,
@@ -157,14 +156,6 @@ describe("dedicatedWayValueLayer", () => {
       const expression = buildDedicatedWayValueOpacityExpression(value, true);
 
       expect(expression).toEqual(["case", ["==", value, null], mapDisplay.road.knownOpacity, mapDisplay.road.knownOpacity]);
-    });
-
-    it("軸idから組み立てた式は、色式と同じ値の取得元を読む", () => {
-      const axisId = "gradient";
-
-      expect(dedicatedWayValueOpacityExpression(axisId)).toEqual(
-        buildDedicatedWayValueOpacityExpression(["feature-state", dedicatedWayValueFeatureStateKey(axisId)]),
-      );
     });
   });
 });

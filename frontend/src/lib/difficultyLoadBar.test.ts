@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { describe, expect, it } from "vitest";
-import { LOAD_BAR_MAX_HEIGHT_RATIO, baselineDistanceKm, loadBarHeightRatio } from "./difficultyLoadBar";
+import { baselineDistanceKm, loadBarHeightRatio } from "./difficultyLoadBar";
 
 describe("baselineDistanceKm", () => {
   it("一覧の中で最も短い距離を基準にする", () => {
@@ -24,8 +24,11 @@ describe("loadBarHeightRatio", () => {
     expect(loadBarHeightRatio(40, 28)).toBe(1.43);
   });
 
-  it("上限で頭打ちにする", () => {
-    expect(loadBarHeightRatio(200, 28)).toBe(LOAD_BAR_MAX_HEIGHT_RATIO);
+  it("上限で頭打ちにする（さらに長くしても同じ高さ）", () => {
+    // 上限の値そのものは借りない——借りると、上限を変えたときテストも一緒に動いて
+    // 「頭打ちになる」ことを誰も見なくなる。
+    expect(loadBarHeightRatio(400, 28)).toBe(loadBarHeightRatio(200, 28));
+    expect(loadBarHeightRatio(200, 28)).toBeGreaterThan(loadBarHeightRatio(40, 28));
   });
 
   it("基準より短い側へは伸ばさない（帯が潰れて長さが読めなくなる）", () => {

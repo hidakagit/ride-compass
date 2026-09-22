@@ -103,11 +103,6 @@ export function buildDedicatedWayValueOpacityExpression(valueExpression: unknown
   ];
 }
 
-/** feature-state値から線の濃さを決めるMapLibre expression（色式と同じ値の取得元を使う）。 */
-export function dedicatedWayValueOpacityExpression(axisId: string, loading = false): unknown[] {
-  return buildDedicatedWayValueOpacityExpression(["feature-state", dedicatedWayValueFeatureStateKey(axisId)], loading);
-}
-
 /** 地図上の色分け凡例。色式と同じ配色・しきい値から段階ラベル付きの凡例を組み立てる。
  * 段階ラベル（bandLabels）は要素数が段階数と一致する間だけ数値レンジの前に添える
  * （不一致な保存データへの防御）。末尾の「データなし」は値を受け取れなかった道路の受け皿で、

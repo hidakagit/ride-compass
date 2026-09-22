@@ -4,7 +4,7 @@ import type { RouteCandidate } from "@/types/route";
 // （長い周回・目的地ルートのOSM道なり形状は数千点になりうる）。GarminはGarmin Connect側で
 // 取り込み時に自動間引きするため直接の上限は無いが、経路の視覚的な形状はある程度の間引きで
 // 実用上損なわれない密度（数十m間隔）を持つため、両方に安全な同じ閾値で揃える。
-export const MAX_GPX_TRACK_POINTS = 1000;
+const MAX_GPX_TRACK_POINTS = 1000;
 
 // 間引きで元の折れ線からずれてよい距離（m）。読み込んだ側のナビが描く線として、この程度の
 // ずれは道の形として見分けられない。上限点数に収まらない場合はこの値を倍にして再試行する。
@@ -63,7 +63,7 @@ function markKeptPoints(points: readonly PlanePoint[], toleranceM: number): bool
 /** 座標列を`maxPoints`以下へ間引く。残す点は折れ線の形から選ぶ（両端を結んだ線分からのずれが
  * 大きい点を残す）ため、残る点の間隔より短い区間に収まった曲がりも直線へ潰れない。
  * `maxPoints`以下ならそのまま返す。 */
-export function simplifyCoordinates(
+function simplifyCoordinates(
   coordinates: readonly GeoJSON.Position[],
   maxPoints: number = MAX_GPX_TRACK_POINTS
 ): GeoJSON.Position[] {
@@ -88,7 +88,7 @@ function escapeXmlText(value: string): string {
  * 「コース」「アクティビティ」の両方に取り込める。Suuntoアプリは`<trk>`以外
  * （`<rte>`・単独の`<wpt>`）を取り込めない。両対応のため`<trk>`固定にする。標高・時刻は
  * RouteCandidateが点単位で持たないため含めない（候補全体の集約値のみ）。 */
-export function buildGpxDocument(candidate: RouteCandidate): string {
+function buildGpxDocument(candidate: RouteCandidate): string {
   const coordinates = simplifyCoordinates(candidate.geometry.coordinates);
   const name = escapeXmlText(`RideCompass ${candidate.direction_label} ${candidate.distance_km.toFixed(1)}km`);
   const trackPoints = coordinates

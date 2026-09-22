@@ -253,11 +253,6 @@ export function axisMapLayerId(axisId: string): AxisMapLayerId {
   return `axis:${axisId}`;
 }
 
-/** MapLibreのlayer id（MapView内部） */
-export function axisLineLayerId(axisId: string): string {
-  return `region-axis-${axisId}-line`;
-}
-
 /** 専用のway_id→値配信レイヤーを持つ軸（`dedicated_way_value_layer=true`、現状: 風・勾配）。
  * ramp軸に対する`RampAxis`と同じ位置付けの、軸カタログ由来の地図向けビュー。
  * この型があることで、レイヤー登録・カタログ・可視性・フェッチのすべてを軸idの

@@ -9,7 +9,6 @@ import {
   type CatalogAxis,
   type RampAxis,
   axisLabelsFromCatalogAxes,
-  axisLineLayerId,
   axisMapLayerId,
   buildAxisRampColorExpression,
   buildAxisRampLegend,
@@ -26,7 +25,6 @@ describe("axisLayers", () => {
 
   it("IDヘルパーは軸IDから決定的なIDを生成する", () => {
     expect(axisMapLayerId("accident")).toBe("axis:accident");
-    expect(axisLineLayerId("accident")).toBe("region-axis-accident-line");
   });
 });
 
