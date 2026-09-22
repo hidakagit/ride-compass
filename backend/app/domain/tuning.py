@@ -5,8 +5,18 @@
 単位を持ち、エンジンが読む値・管理画面が並べる項目・変更が効くために何をやり直す必要が
 あるかを、すべてそこから導く。変えられるようにする対象と管理画面が面倒を見る対象を
 別々に決めると必ずズレるため、宣言を1つにする。
+
+**載せてよいのは走ってみて決める値だけ**。物理定数・資源の上限・外部データの刻みは載せず、
+使う側のモジュールが値と根拠を隣り合わせで持つ——ここへ載せた瞬間に管理画面から変えられる
+ようになり、模型を壊す値や本番を止める値が画面の手に入る。
+
+宣言そのものの矛盾（idの重複・既定が範囲の外・空の見出し）はimport時に落ちる。黙って
+通すと、後勝ちで消えた1件は画面にも探索にも現れず、範囲外の既定は画面が出した値を
+書き戻せない状態になる。
 """
 
+import math
+from collections import Counter
 from dataclasses import dataclass
 from enum import Enum
 
@@ -26,6 +36,8 @@ class TuningEffect(Enum):
     """
 
     def __new__(cls, value: str, title: str) -> "TuningEffect":
+        if not title:
+            raise ValueError(f"効き方の見出しが空: {value}")
         member = object.__new__(cls)
         member._value_ = value
         member.title = title
@@ -61,6 +73,17 @@ class TuningParameter:
     effect: TuningEffect
     #: 何を決める値か。管理画面のⓘへ出す。
     description: str
+
+    def __post_init__(self) -> None:
+        if not self.id or not self.label or not self.description:
+            raise ValueError(f"較正値の宣言に空の項目がある: {self.id!r}")
+        if not all(math.isfinite(v) for v in (self.default, self.minimum, self.maximum)):
+            raise ValueError(f"較正値の宣言に有限でない数がある: {self.id}")
+        if not self.minimum <= self.default <= self.maximum:
+            raise ValueError(
+                f"較正値の既定が範囲の外: {self.id} "
+                f"既定={self.default} 範囲=[{self.minimum}, {self.maximum}]"
+            )
 
 
 def _stop_parameter(kind: str, label: str, default: float, description: str) -> TuningParameter:
@@ -204,6 +227,12 @@ TUNING_PARAMETERS: tuple[TuningParameter, ...] = (
 
 #: 宣言の逆引き。
 TUNING_PARAMETERS_BY_ID: dict[str, TuningParameter] = {p.id: p for p in TUNING_PARAMETERS}
+
+_DUPLICATE_IDS = sorted(
+    param_id for param_id, count in Counter(p.id for p in TUNING_PARAMETERS).items() if count > 1
+)
+if _DUPLICATE_IDS:
+    raise ValueError(f"較正値のidが重複している: {', '.join(_DUPLICATE_IDS)}")
 
 #: いま効いている値（id → 値）。既定で初期化し、DBの上書きを読み込んだときに**中身だけ**を
 #: 差し替える（束縛済みの参照先が古いままにならないよう、`.clear()`+`.update()`で更新する。

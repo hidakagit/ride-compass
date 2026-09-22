@@ -120,7 +120,7 @@ class GraphService:
         matrix_read_stats: list[dict[str, object]] = [{} for _ in tiles]
         tile_score_matrices = await asyncio.gather(
             *(
-                self._get_or_build_tile_score_matrix(x, y, materials, accident_years_covered, stats)
+                self._get_or_build_tile_score_matrix(x, y, materials, stats)
                 for (x, y), materials, stats in zip(tiles, tile_materials_list, matrix_read_stats)
             )
         )
@@ -199,7 +199,6 @@ class GraphService:
         x: int,
         y: int,
         materials: SearchMaterials,
-        accident_years_covered: int,
         read_stats: dict[str, object] | None = None,
     ) -> StaticEdgeScoreMatrix:
         """タイル単位の「Edge×公開軸」静的スコア行列。材料とは別枠のキャッシュを使う。
@@ -212,7 +211,7 @@ class GraphService:
             )
         if cached is not None:
             return cached
-        matrix = build_static_edge_score_matrix(materials.graph, materials.materials, accident_years_covered)
+        matrix = build_static_edge_score_matrix(materials.materials)
         if read_stats is not None:
             # 材料側の"db"と区別する。混ぜると、サマリの内訳から「遅いのはDB問い合わせか
             # 計算か」を切り分けられなくなる。

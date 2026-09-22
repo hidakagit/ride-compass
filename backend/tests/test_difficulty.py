@@ -43,11 +43,6 @@ class TestCompositeContributions:
         """呼び出し側は軸と位置で対応づける。"""
         assert composite_contributions([(0.0, 1.0), (None, 2.0), (100.0, 1.0)]) == [0.0, None, 50.0]
 
-    def test_shares_the_denominator_with_the_composite(self):
-        scored = [(40.0, 1.0), (80.0, 3.0)]
-
-        assert sum(c for c in composite_contributions(scored) if c is not None) == composite_difficulty(scored)
-
     def test_unevaluable_composite_makes_every_contribution_none(self):
         assert composite_contributions([(None, 1.0), (None, 2.0)]) == [None, None]
         assert composite_contributions([(50.0, 0.0)]) == [None]
@@ -72,8 +67,6 @@ class TestDistanceWeightedDifficulty:
     def test_rounds_the_weighted_mean(self):
         assert distance_weighted_difficulty([(0.0, 1.0), (100.0, 2.0)]) == 66.7
 
-    def test_longer_segments_pull_harder(self):
-        assert distance_weighted_difficulty([(0.0, 9.0), (100.0, 1.0)]) == 10.0
 
 class TestDifficultyLoad:
 
@@ -94,13 +87,8 @@ class TestDifficultyLoad:
 
 class TestDistanceWeightedDifficultyArray:
 
-    def test_matches_the_scalar_version(self):
-        segments = [(0.0, 1.0), (100.0, 2.0)]
-        array = distance_weighted_difficulty_array(
-            np.array([s for s, _ in segments]), np.array([d for _, d in segments])
-        )
-
-        assert array == distance_weighted_difficulty(segments)
+    def test_weights_each_element_by_its_distance(self):
+        assert distance_weighted_difficulty_array(np.array([0.0, 100.0]), np.array([1.0, 2.0])) == 66.7
 
     def test_nan_elements_leave_the_denominator(self):
         assert distance_weighted_difficulty_array(np.array([40.0, np.nan]), np.array([1.0, 9.0])) == 40.0

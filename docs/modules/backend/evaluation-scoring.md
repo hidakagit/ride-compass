@@ -38,10 +38,13 @@ NULLへ畳み、フィーチャーからキーを省いてタイルを軽くす�
 
 ## 0次ハードフィルタ（`domain/hard_filters.py`）
 
-`DEFAULT_HARD_FILTERS: frozenset[str] = frozenset({"no_bicycle", "motorway", "trunk"})`。
-`is_edge_allowed(edge, hard_filters=None)`が、`hard_filters`省略時はこの既定集合（全
-フィルタ常時有効）でEdgeを探索グラフに含めるか判定する。`RoutePreference`が個別ON/OFF
-上書きを持つ（`evaluation_service.py`が既定Noneを受け取り解決）。
+`compute_hard_filter_excluded`が、材料の表から読んだフィルタ名→該当フラグの配列と、
+リクエストが指定した有効なフィルタ名の集合から、Edgeごとの除外を求める。`hard_filters`
+省略時は`DEFAULT_HARD_FILTERS`（宣言されている全フィルタが常時有効）を使う。
+
+**受け取るフラグのキー集合は宣言と完全一致でなければ落ちる**——欠けたフィルタは黙って
+無効になり、高速道路や`bicycle=no`の道がそのまま候補へ入る。リクエスト側の名前も宣言に
+無いものは拒む（綴り間違いと「そのフィルタを切った」を区別できないため）。
 
 - highwayタグ由来（`motorway`/`trunk`）・`bicycle=no`タグ（`no_bicycle`）の2系統。
   **除外の根拠は種類ごとに違う**: `motorway`（motorway/motorway_link）は法的に自転車が
