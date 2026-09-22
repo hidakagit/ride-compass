@@ -158,8 +158,8 @@ class RouteGenerateRequest(StrictModel):
     # リクエスト処理時に較正値から読む（`domain/evaluation.py: resolve_penalty_strength`、
     # 値の意味と根拠もそちら）。ここへ既定値を書くとimport時に束ねられ、DBの上書きが効かない。
     penalty_strength: float | None = Field(ge=0, default=None)
-    # T12 ADR原則5: 0次ハードフィルタの勾配しきい値（%、絶対値。省略時は
-    # 除外なし。domain/hard_filters.py: is_edge_allowed参照）。
+    # 0次ハードフィルタの勾配しきい値（%、絶対値。省略時は除外なし。
+    # `domain/hard_filters.py: compute_hard_filter_excluded`参照）。
     max_average_grade_percent: float | None = Field(ge=0, default=None)
     # 0次ハードフィルタ名（no_bicycle/motorway/trunk）の個別ON/OFF上書き。
     # 省略時は全フィルタ有効（DEFAULT_HARD_FILTERS）。

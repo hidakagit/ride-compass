@@ -168,13 +168,6 @@ class TestSpeedMs:
     def test_the_result_is_float64_for_the_callers(self):
         assert speed_ms(_profile(), FLAT, NO_WIND).dtype == np.float64
 
-    def test_more_iterations_narrow_the_answer(self):
-        profile = _profile(24.0)
-        coarse = abs(_speed(profile, iterations=3) - profile.cruise_speed_ms)
-        fine = abs(_speed(profile, iterations=12) - profile.cruise_speed_ms)
-
-        assert fine < coarse
-
 
 class TestTravelSeconds:
     def test_time_is_distance_over_speed(self):

@@ -43,7 +43,7 @@ ROLLING_RESISTANCE_MATERIAL_ID = "surface_good"
 
 
 def crr_for_surface(surface_good: np.ndarray | None, length: int) -> np.ndarray:
-    """路面の良否（True=舗装良好）から区間ごとの転がり抵抗を返す。
+    """路面の良否（True=舗装良好）から区間ごとの転がり抵抗を、`length`件返す。
 
     値が無い区間（路面タグ不明、材料そのものが無い）は舗装路として扱う——「タグが無い」を
     「路面が悪い」と読み替えないための既定（`material_catalog.py`の`surface_good`は
@@ -53,6 +53,8 @@ def crr_for_surface(surface_good: np.ndarray | None, length: int) -> np.ndarray:
     if surface_good is None:
         return np.full(length, paved)
     values = np.asarray(surface_good, dtype=np.float64)
+    if values.shape != (length,):
+        raise ValueError(f"路面の材料が区間数と揃っていません 材料={values.shape} 区間={length}")
     return np.where(values == 0.0, tuning_value("speed.unpaved_crr"), paved)
 
 
@@ -98,11 +100,11 @@ def speed_ms(
     headwind_ms: np.ndarray,
     crosswind_ms: np.ndarray | None = None,
     crr: np.ndarray | None = None,
-    iterations: int = SPEED_SOLVE_ITERATIONS,
 ) -> np.ndarray:
     """区間ごとの走行速度（m/s）。`grade`は勾配（0.05なら5%）、`headwind_ms`は進行方向への
     向かい風成分（正が向かい風）、`crosswind_ms`は横成分。`crr`を渡すと区間ごとに転がり抵抗を
-    変えられる（未舗装等）。
+    変えられる（未舗装等）。**配列はすべて`grade`と同じ長さで渡す**——長さ1の配列は
+    numpyのブロードキャストで全区間へ黙って広がるため、揃っていることをここで確かめる。
 
     走行方程式`P = 抵抗力(v) × v`を`v`について解く。3次方程式になるため、二分法で挟んでから
     解を返す（ニュートン法は抵抗力が0を跨ぐ下り坂で発散しうるため、区間を確実に狭める方を採る）。
@@ -124,6 +126,13 @@ def speed_ms(
         if crosswind_ms is None
         else np.asarray(crosswind_ms, dtype=np.float32)
     )
+    mismatched = {
+        name: array.shape
+        for name, array in (("headwind_ms", headwind), ("crosswind_ms", cross), ("crr", rolling_crr))
+        if array.shape != grade.shape
+    }
+    if mismatched:
+        raise ValueError(f"区間の配列の長さが揃っていません grade={grade.shape} {mismatched}")
     power = (wheel_power_w(profile) * climb_power_ratio(grade)).astype(np.float32)
     # 速度に依らない抵抗（転がり＋重力）は反復の外で1回だけ求める。
     constant_force = (
@@ -139,7 +148,7 @@ def speed_ms(
     along = np.empty_like(low)
     scratch = np.empty_like(low)
     too_fast = np.empty(low.shape, dtype=bool)
-    for _ in range(iterations):
+    for _ in range(SPEED_SOLVE_ITERATIONS):
         np.add(low, high, out=middle)
         np.multiply(middle, np.float32(0.5), out=middle)
         np.add(middle, headwind, out=along)
@@ -168,7 +177,14 @@ def travel_seconds(
     crosswind_ms: np.ndarray | None = None,
     crr: np.ndarray | None = None,
 ) -> np.ndarray:
-    """区間ごとの走行時間（秒）。停止・ターンの待ちは含まない（別に足す）。"""
-    return np.asarray(distance_m, dtype=np.float64) / speed_ms(profile, grade, headwind_ms, crosswind_ms, crr)
+    """区間ごとの走行時間（秒）。停止・ターンの待ちは含まない（別に足す）。
+
+    配列はすべて同じ長さで渡す（`speed_ms`と同じ理由）。
+    """
+    distance = np.asarray(distance_m, dtype=np.float64)
+    speed = speed_ms(profile, grade, headwind_ms, crosswind_ms, crr)
+    if distance.shape != speed.shape:
+        raise ValueError(f"距離が区間数と揃っていません 距離={distance.shape} 区間={speed.shape}")
+    return distance / speed
 
 

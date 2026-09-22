@@ -10,17 +10,28 @@
 import numpy as np
 
 
+def _available_and_weight_sum(
+    scored_weights: list[tuple[float | None, float]],
+) -> tuple[list[tuple[float, float]], float] | None:
+    """合成に使える(スコア, 重み)と、その重みの合計。畳めないときNone。
+
+    **合成と内訳の分母はここだけが決める**——両方が同じ絞り込みと同じ合計を別々に書くと、
+    片方だけ変えた瞬間に内訳が合成と桁で食い違う。
+    """
+    available = [(score, weight) for score, weight in scored_weights if score is not None]
+    weight_sum = sum(weight for _, weight in available)
+    if not available or weight_sum == 0:
+        return None
+    return available, weight_sum
+
+
 def composite_difficulty(scored_weights: list[tuple[float | None, float]]) -> float | None:
     """(スコア, 重み)のリストから加重平均を求める。Noneのスコアは除外し残りの重みで再正規化する。
     1つも有効なスコアが無ければNone。"""
-    available = [(score, weight) for score, weight in scored_weights if score is not None]
-    if not available:
+    resolved = _available_and_weight_sum(scored_weights)
+    if resolved is None:
         return None
-
-    weight_sum = sum(weight for _, weight in available)
-    if weight_sum == 0:
-        return None
-
+    available, weight_sum = resolved
     total = sum(score * weight for score, weight in available) / weight_sum
     return round(total, 1)
 
@@ -31,13 +42,12 @@ def composite_contributions(scored_weights: list[tuple[float | None, float]]) ->
     入力と同じ並び・同じ長さで返す。スコアがNoneの軸（合成の分母にも入らない）はNone。
     合成が算出できない（有効な軸が無い・重みの合計が0）ときは全てNone。
 
-    合成と同じ分母で正規化する——別々に正規化すると内訳が合成と桁で食い違う。各値を
-    小数1桁へ丸めるため、合計は合成スコアと丸め誤差のぶんだけずれうる。
+    各値を小数1桁へ丸めるため、合計は合成スコアと丸め誤差のぶんだけずれうる。
     """
-    available = [(score, weight) for score, weight in scored_weights if score is not None]
-    weight_sum = sum(weight for _, weight in available)
-    if not available or weight_sum == 0:
+    resolved = _available_and_weight_sum(scored_weights)
+    if resolved is None:
         return [None for _ in scored_weights]
+    weight_sum = resolved[1]
     return [
         None if score is None else round(score * weight / weight_sum, 1)
         for score, weight in scored_weights

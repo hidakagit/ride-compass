@@ -665,8 +665,8 @@ class RoadGraphEngine:
         # コスト式`所要時間 × (1 + P × difficulty/100)`のP＝「主観 vs 時間」の換算レート。
         # 既定1.0は「difficulty 100の道は体感で所要時間2倍」の意味。
         self._penalty_strength = penalty_strength
-        # T12 ADR原則5: 0次ハードフィルタの勾配しきい値（%、既定None＝
-        # 除外しない）。domain/evaluation.py: is_edge_allowed参照。
+        # 0次ハードフィルタの勾配しきい値（%、既定None＝除外しない）。
+        # `domain/hard_filters.py: compute_hard_filter_excluded`参照。
         self._max_average_grade_percent = max_average_grade_percent
         # 0次ハードフィルタ名（no_bicycle/motorway/trunk）の個別ON/OFF上書き
         # （既定None＝DEFAULT_HARD_FILTERS＝全フィルタ有効）。
