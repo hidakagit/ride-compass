@@ -319,7 +319,7 @@ page.tsx
   出ず、ただ色が付かなくなるだけのため、`MapView.state.contract.test.ts`が固定している。
 - 専用way値配信軸のensure関数は`ROAD_TILE_LAYER_ID`（路面本体）と同じ
   `ROAD_TILE_SOURCE_ID`/`ROAD_TILE_SOURCE_LAYER`を共有する独立レイヤーとして追加される
-  （`designation`/`tunnel`/`oneway`と同型の構成）。
+  （`tunnel`/`oneway`と同型の構成）。
 - `dedicatedWayValues`はパン・ズームのたびに変わりうる値のため、「表示ON/OFF」を担う
   一括effect（`buildStaticOverlayLayers`が返す配列のループ）とは別の専用effectで反映する（無関係な
   再実行を避けるため）。
