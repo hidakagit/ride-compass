@@ -20,6 +20,7 @@ docs/modules/backend/routing-engine.mdが持つ。ここには、このファイ
 """
 
 import asyncio
+import itertools
 import logging
 import math
 import time
@@ -198,7 +199,6 @@ class LegCostArrays:
     """1レグぶんの合成済みコスト配列一式。`cost_lazy`は`lazy_graph.edge_ids`順（探索が使う
     行順）、それ以外は`score_matrix.edge_ids`（`full_edge_row`）順の表示用配列。レグごとに違うのは風（各Edgeの通過予定時刻の風）だけで、静的軸の列は共有する。"""
 
-    label: str
     cost_lazy: np.ndarray
     difficulty_array: np.ndarray
     axis_arrays: dict[str, np.ndarray]
@@ -334,7 +334,7 @@ class _LegCostComposer:
         stops = np.zeros(len(distance_m))
         # 材料idの綴りは`stop_count_material_ids()`が単一の情報源。ここで組み立て直すと、
         # 向こうで綴りを変えたときにここだけがNoneを引き、全区間の停止の待ちが無言で0秒になる。
-        for kind, material_id in zip(POI_COUNT_KINDS, stop_count_material_ids()):
+        for kind, material_id in zip(POI_COUNT_KINDS, stop_count_material_ids(), strict=True):
             per_km = material_arrays.get(material_id)
             if per_km is not None:
                 stops += np.nan_to_num(per_km) * (distance_m / 1000.0) * stop_seconds(kind)
@@ -365,10 +365,9 @@ class _LegCostComposer:
         """`direction=+1`なら起点から離れていく・`-1`なら向かっていくレグとして、
         そのレグを走る時刻の風でコスト配列を合成する。
 
-        `anchor`は**在るかどうかだけ**を見る（起点が決まっていないリクエストでは風を
-        時刻で変えられないため、1本のスナップショットへ落ちる）。座標の値は使わない
-        ——風の予報は起点1地点ぶんを`WeatherService`が既に引いており、ここでは方位だけが
-        Edgeごとに効く。
+        `anchor`は座標の値も在るかどうかも使わない（ログへ出すだけ）——風の予報は起点
+        1地点ぶんを`WeatherService`が既に引いており、ここでは方位だけがEdgeごとに効く。
+        時刻で変えるかどうかは`time_varying`（風の時別系列があるか）だけで決まる。
 
         `duration_hours`（このレグに何時間かかる見込みか）を渡すと、レグの中を
         `TIME_BIN_HOURS`ごとのビンへ分けた配列（`cost_bins_lazy`）も併せて作る。到達時刻を
@@ -417,7 +416,6 @@ class _LegCostComposer:
         # 単純な中央の添字だと終盤のビンへ寄る）。
         representative = bins[_representative_bin(len(bins), duration_hours)]
         leg = LegCostArrays(
-            label=label,
             cost_lazy=representative.cost_lazy,
             difficulty_array=representative.difficulty_array,
             axis_arrays=representative.axis_arrays,
@@ -514,7 +512,6 @@ class _LegCostComposer:
         lazy_cost = cost_array[self._lazy_row_index]
         lazy_travel = travel[self._lazy_row_index]
         return LegCostArrays(
-            label="",
             cost_lazy=lazy_cost,
             difficulty_array=difficulty_array,
             axis_arrays=published,
@@ -767,10 +764,8 @@ class RoadGraphEngine:
         # 重み付き軸がすべてNaNのEdge比率（探索コストはbbox内平均difficultyで補完される。
         # 実際の発生頻度を把握するためのサマリ）。
         missing_axis_mask = np.isnan(outbound.difficulty_array)
-        total_distance_m = float(score_matrix.distance_m.sum())
-        missing_axis_distance_ratio = (
-            float(score_matrix.distance_m[missing_axis_mask].sum() / total_distance_m)
-            if total_distance_m > 0 else 0.0
+        missing_axis_distance_ratio = float(
+            score_matrix.distance_m[missing_axis_mask].sum() / float(score_matrix.distance_m.sum())
         )
 
         # A*のestimate_cost_fn（ヒューリスティック）をレグごとにnumpyで1回だけ計算できる
@@ -1563,18 +1558,16 @@ class RoadGraphEngine:
 
         seconds = [float(outbound.travel_seconds_lazy[index]) for index in edges]
         half_seconds = sum(seconds) / 2
-        cumulative = 0.0
-        split = len(edges)
-        for position, value in enumerate(seconds):
-            cumulative += value
-            if cumulative >= half_seconds:
-                split = position + 1
-                break
+        # 走行時間は必ず有限（`speed_ms`が押して歩く速度を下限に置く）ため、累積が半分を
+        # 越える位置が必ずある。
+        split = next(
+            position
+            for position, total in enumerate(itertools.accumulate(seconds), 1)
+            if total >= half_seconds
+        )
         forward_edges = edges[:split]
         backward_edges = edges[split:]
         edge_ids = [lazy_graph.edge_ids[index] for index in forward_edges + backward_edges]
-        if not edge_ids:
-            return None
         distance_km = round(sum(context.graph.edges[edge_id].distance_m for edge_id in edge_ids) / 1000, 2)
         leg_of_edge = [0] * len(forward_edges) + [1] * len(backward_edges)
 
@@ -2247,6 +2240,9 @@ def _loop_edge_lengths_by_physical_segment(
     （`is_loop_too_similar`が使う）。同じ物理区間を指すfwd/bwd Edge（逆方向Edge）を同一キーへ
     正規化することで、「同じ周回の逆回り」の比較を可能にする。
     """
+    # 同じ物理区間を2回通る周回は1回ぶんとして数える（加算しない）。重複率の分母が実際の
+    # 周回長より短くなるぶん似ていると判定されやすくなるが、似た周回を並べるより棄却する
+    # 側へ倒す。
     result: dict[frozenset[str], float] = {}
     for edge_id in edge_ids:
         edge = graph.edges[edge_id]
