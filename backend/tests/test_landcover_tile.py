@@ -19,9 +19,7 @@ from app.domain.landcover import (
     LANDCOVER_TILE_MAX_ZOOM,
     LANDCOVER_TILE_MIN_ZOOM,
     LULC_BUILT,
-    LULC_INVALID_VALUES,
     LULC_TREES,
-    LandcoverPercentages,
 )
 from app.api import cache_policy
 from app.infrastructure import landcover_raster, rate_limiter, tile_cache
@@ -100,14 +98,6 @@ def test_tile_cache_key_follows_the_rasters_actually_opened(synthetic_raster, mo
     configured_but_missing = landcover_tile_service._tile_cache_path(_TILE_Z, _TILE_X, _TILE_Y)
 
     assert configured_but_missing == opened_only
-
-
-def test_class_registry_covers_every_percent_column():
-    """割合8列と表示クラスが1対1であること（列を足して表示だけ取り残さない）。"""
-    percent_fields = {name for name in LandcoverPercentages.model_fields if name.endswith("_percent")}
-    assert {cls.percent_field for cls in LANDCOVER_CLASSES} == percent_fields
-    # 無効値（No Data・Clouds）は表示対象を持たない。
-    assert not {cls.value for cls in LANDCOVER_CLASSES} & LULC_INVALID_VALUES
 
 
 def test_render_tile_paints_classes_with_their_own_colors(synthetic_raster):

@@ -14,7 +14,7 @@
 """
 
 from typing import Literal, get_args
-from app.domain.tuning import TUNING_VALUES, stop_seconds_parameter_id
+from app.domain.tuning import TUNING_PARAMETERS_BY_ID, stop_seconds_parameter_id, tuning_value
 
 # 交差点判定の次数しきい値（この数以上の異なる隣接Nodeを持つNodeを交差点とみなす）。
 INTERSECTION_DEGREE_THRESHOLD = 3
@@ -129,14 +129,26 @@ POI_COUNT_KINDS: dict[str, str] = {
     "barrier": "車止め・減速構造",
 }
 
+# 数える種別すべてに較正値の宣言があることを、読み込みの時点で確かめる。`tuning.py`は
+# こちらをimportできない（循環する）ため、両者の対応を宣言から導けるのはこの向きだけで、
+# 宣言の欠けは「その種別の待ちが0秒」として所要時間から見分けられずに消える。
+_UNDECLARED_STOP_KINDS = tuple(
+    kind for kind in POI_COUNT_KINDS
+    if stop_seconds_parameter_id(kind) not in TUNING_PARAMETERS_BY_ID
+)
+if _UNDECLARED_STOP_KINDS:
+    raise RuntimeError(
+        f"停止要因の較正値が`domain/tuning.py`に宣言されていない種別: {_UNDECLARED_STOP_KINDS}")
+
+
 # 停止要因1回あたりの時間損失（秒）は**待ちの期待値＋減速と再加速のロス**の合計で、
 # 所要時間へそのまま足す量。信号の無い横断歩道が0なのは、自転車が止まらず通過できるため。
 def stop_seconds(kind: str) -> float:
-    """停止要因の種別から1回あたりの時間損失（秒）。未知の種別は0。
+    """停止要因の種別から1回あたりの時間損失（秒）。
 
     秒数は`domain/tuning.py`が宣言する（走ってみて決める値のため、管理画面から変えられる）。
     """
-    return TUNING_VALUES.get(stop_seconds_parameter_id(kind), 0.0)
+    return tuning_value(stop_seconds_parameter_id(kind))
 
 
 def stop_count_material_ids() -> tuple[str, ...]:

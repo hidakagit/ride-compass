@@ -12,6 +12,8 @@ import hashlib
 from dataclasses import dataclass
 from pathlib import Path
 
+from pydantic import create_model
+
 from app.domain.strict_model import StrictModel
 
 LULC_WATER = 1
@@ -30,20 +32,6 @@ LULC_INVALID_VALUES = frozenset({0, LULC_CLOUDS})
 # これ未満の有効画素数は「値なし」（行を作らない）。統計的に安定した割合と呼べる
 # 最低限の画素数（10m画素×20 = 2,000m2程度）。
 MIN_VALID_PIXELS = 20
-
-
-class LandcoverPercentages(StrictModel):
-    """材料の割合列（`lc_*`）＋`lc_valid_pixels`と1対1のモデル。"""
-
-    valid_pixels: int
-    water_percent: float
-    trees_percent: float
-    flooded_veg_percent: float
-    crops_percent: float
-    built_percent: float
-    bare_percent: float
-    snow_ice_percent: float
-    rangeland_percent: float
 
 
 @dataclass(frozen=True)
@@ -89,6 +77,24 @@ LANDCOVER_CLASSES: tuple[LandcoverClass, ...] = (
     LandcoverClass(LULC_SNOW_ICE, "snow_ice_percent", "雪氷", "#D8E6F0"),
 )
 
+#: (割合列の名前, クラス値)。割合を出す対象は`LANDCOVER_CLASSES`が決め、ここはそれを
+#: SQLの列順（クラス値の昇順）へ並べ替えただけのもの。並びを表示順から切り離すのは、
+#: 表示順を変えただけで焼き込み済みの列順が動かないようにするため。
+PERCENT_CLASSES: tuple[tuple[str, int], ...] = tuple(
+    sorted(((cls.percent_field, cls.value) for cls in LANDCOVER_CLASSES), key=lambda pair: pair[1])
+)
+
+#: 材料の割合列（`lc_*`）＋`lc_valid_pixels`と1対1のモデル。**クラスの宣言から作る**
+#: ——手で並べると、宣言したクラスに対応する項目が無いまま集計だけが走り、その列の
+#: 割合がどこへも入らない（SQLは列を吐き、読む側はその名前を知らない）。
+LandcoverPercentages = create_model(
+    "LandcoverPercentages",
+    __base__=StrictModel,
+    valid_pixels=(int, ...),
+    **{name: (float, ...) for name, _ in PERCENT_CLASSES},
+)
+
+
 # 地図タイルとして配信するズーム範囲。
 #
 # 上限は元データの分解能（10m画素がz14でほぼ1画素1画素に対応する）で、それ以上は
@@ -110,14 +116,6 @@ def raster_set_fingerprint(raster_paths: list[str]) -> str:
     """
     joined = "\n".join(sorted(Path(path).name for path in raster_paths))
     return hashlib.sha256(joined.encode("utf-8")).hexdigest()[:16]
-
-
-#: (`LandcoverPercentages`の項目名, クラス値)。割合を出す対象は`LANDCOVER_CLASSES`が
-#: 決め、ここはそれをSQLの列順（クラス値の昇順）へ並べ替えただけのもの。並びを表示順から
-#: 切り離すのは、表示順を変えただけで焼き込み済みの列順が動かないようにするため。
-PERCENT_CLASSES: tuple[tuple[str, int], ...] = tuple(
-    sorted(((cls.percent_field, cls.value) for cls in LANDCOVER_CLASSES), key=lambda pair: pair[1])
-)
 
 
 def class_percentages_sql(counts: str) -> str:

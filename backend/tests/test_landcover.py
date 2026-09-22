@@ -17,22 +17,18 @@ from app.domain.landcover import (
     LULC_CLOUDS,
     LULC_TREES,
     LULC_WATER,
-    LandcoverPercentages,
     class_percentages_sql,
     raster_set_fingerprint,
 )
 
 
 class TestClassRegistry:
-    """クラスの宣言そのものは書き写さない。全件に対して成り立つことだけを見る。"""
+    """クラスの宣言そのものは書き写さない。全件に対して成り立つことだけを見る。
 
-    def test_every_class_has_a_column_to_write_its_share_into(self):
-        """綴りが違っても集計は例外にならず、その列だけが常に0になる。"""
-        fields = set(LandcoverPercentages.model_fields)
-
-        assert LANDCOVER_CLASSES
-        for cls in LANDCOVER_CLASSES:
-            assert cls.percent_field in fields, cls.percent_field
+    重複と除外値の混入は構造で表せない——宣言はタイル署名（`cache_identity`）の入力
+    そのもので、重複を作れない形（画素値を鍵にした辞書等）へ変えると全タイルの
+    焼き直しになる。
+    """
 
     def test_no_class_is_one_of_the_values_excluded_from_the_denominator(self):
         """両方に入れると、「有効画素の何%か」の分母と分子が食い違う。"""

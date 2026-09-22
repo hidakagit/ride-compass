@@ -21,10 +21,10 @@ from sqlalchemy import Float, Text, bindparam, text
 from sqlalchemy.dialects.postgresql import ARRAY
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession
 
-from app.domain.attributes import EdgeMaterialArrays, WIRED_LANDCOVER_KEYS
+from app.domain.attributes import EdgeMaterialArrays
 from app.domain.graph import LeanEdge, LeanNode, LeanRoadGraph
 from app.domain.hard_filters import HARD_FILTER_VALUE_SQL, hard_filter_columns
-from app.domain.landcover import LandcoverPercentages
+from app.domain.landcover import PERCENT_CLASSES, LandcoverPercentages
 from app.domain.material_catalog import (
     MATERIAL_CATALOG,
     material_array_columns,
@@ -212,13 +212,13 @@ _POI_TILE_COLUMNS_SQL = "".join(
     for kind in POI_COUNT_KINDS
 )
 
-#: 土地被覆の焼き込み列。材料の`tile_property`（`crops_pct`等）と同じ名前にし、配線する
-#: クラスの並び（`WIRED_LANDCOVER_KEYS`）から組み立てる——手で並べると、クラスを1つ
-#: 配線したときに「材料は地図レンズを持つのに列が無い」形で静かに空になる。
+#: 土地被覆の焼き込み列。材料の`tile_property`（`crops_pct`等）と同じ名前にし、クラスの
+#: 宣言（`domain/landcover.py: PERCENT_CLASSES`）から組み立てる——手で並べると、クラスを
+#: 1つ足したときに「材料は地図レンズを持つのに列が無い」形で静かに空になる。
 _LANDCOVER_TILE_COLUMNS_SQL = (",\n").join(
     f"                        (CASE WHEN src.segment_index IS NOT NULL "
     f"THEN em.lc_{name} ELSE wm.lc_{name} END)::double precision AS {name}_pct"
-    for name in (key.removesuffix("_percent") for key in WIRED_LANDCOVER_KEYS)
+    for name in (key.removesuffix("_percent") for key, _ in PERCENT_CLASSES)
 )
 
 #: タイルが材料を引くためのJOIN。区間単位のフィーチャーだけが`em`に一致し、way丸ごとの

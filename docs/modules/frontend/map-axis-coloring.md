@@ -120,7 +120,7 @@ backend（`domain/dynamic_way_values.py: map_value_thresholds`）が軸の折れ
   地図全体の「薄い＝対象外、濃い＝分類あり」という読み方に揃える）。
   **暗黙の前提**: 値が無い道には、標高が計算されていない道と、
   勾配のように向きを指定する軸で**その向きに対して直角に近く値を示せない道**
-  （backend `domain/gradient.py: shows_gradient`）が同じnullとして届く。配信側が
+  （backend `domain/gradient.py: effective_gradient`がNoneを返す）が同じnullとして届く。配信側が
   種類を持たないため地図では区別できない。方位を1つ指定すると後者が街区の
   半分近くを占めうるため、薄くしないと値のある道がそこへ埋もれる。
   `loading`のあいだは薄くしない——`COLOR_LOADING`が見えなくなり「取得中」と
