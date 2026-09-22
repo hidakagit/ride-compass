@@ -4,7 +4,7 @@ from app.api.admin_auth import require_admin_basic_auth
 from app.api.dependencies import enforce_rate_limit, get_basemap_client
 from app.config import settings
 from app.infrastructure import tile_cache
-from app.infrastructure.basemap_client import BasemapClient
+from app.infrastructure.basemap_client import BasemapClient, BasemapNotFound
 
 router = APIRouter()
 
@@ -18,6 +18,9 @@ async def basemap_proxy(
     # ディスク消費に繋がる（詳細はrate_limiter.py）。
     enforce_rate_limit(request, "basemap", settings.basemap_rate_limit_per_minute)
     result = await basemap_client.get(path)
+    if isinstance(result, BasemapNotFound):
+        # 配信元が用意していない部品（書体の一部等）。上流障害ではないので502にしない。
+        raise HTTPException(status_code=404, detail="指定されたリソースは存在しません")
     if result is None:
         raise HTTPException(status_code=502, detail="地図タイルの取得に失敗しました")
     content, content_type = result

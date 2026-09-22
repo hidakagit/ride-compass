@@ -277,7 +277,11 @@ OpenFreeMapのスタイルJSON・TileJSON・スプライト・グリフ・タイ
 そのままキャッシュはせず、キャッシュには書き換え前の内容を
 `basemap-raw/`接頭辞のキーで保存し、書き換えは返す直前に毎回行う（設定変更がキャッシュを
 消さずに即座に反映される）。バイナリ（スプライト・グリフ・タイル）は無加工でパスそのままの
-キーに保存する。`POST /api/admin/basemap/refresh`は`tile_cache.clear_all()`で路面タイル等も
+キーに保存する。パスそのままのキーにJSONが残っていた場合は**採用しない**——書き換え済みの
+内容で、当時の`basemap_public_base_url`が焼き付いているため、採用すると設定を変えても
+古い配信先が配られ続ける。配信元が持たない部品（用意されていない書体の範囲等）は404として
+返し、上流障害（502）と分ける——分けないと、無いことが`/api/debug/stats`の障害率へ乗り、
+本当の障害が埋もれる。`POST /api/admin/basemap/refresh`は`tile_cache.clear_all()`で路面タイル等も
 含めたファイルキャッシュ全体を消す。全利用者へ影響するため管理API認可境界
 （`require_admin_basic_auth`）の内側に置き、入口は管理画面`/admin`の「データ保守」タブ
 （`TileCachePanel.tsx`）だけに持つ。

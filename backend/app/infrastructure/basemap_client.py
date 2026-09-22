@@ -10,6 +10,13 @@ UPSTREAM_HOST = "https://tiles.openfreemap.org"
 _RAW_JSON_CACHE_PREFIX = "basemap-raw/"
 
 
+class BasemapNotFound:
+    """要求された部品が配信元に存在しないこと（404）を確認済みという事実を表すセンチネル。"""
+
+
+BASEMAP_NOT_FOUND = BasemapNotFound()
+
+
 class BasemapClient:
     """OpenFreeMapの地図タイル関連リソース（スタイルJSON・TileJSON・スプライト・グリフ・タイル）を
     透過的にプロキシしつつファイルシステムにキャッシュする（tile_cache）。
@@ -29,14 +36,18 @@ class BasemapClient:
         self._http_client = http_client
         self._proxy_base_url = proxy_base_url
 
-    async def get(self, path: str) -> tuple[bytes, str] | None:
+    async def get(self, path: str) -> tuple[bytes, str] | BasemapNotFound | None:
         with log_external_call("basemap:openfreemap", path=path) as fields:
             # tile_cacheの読み書きは同期的なディスクI/O。基礎地図読み込み時は数十件のタイル/フォント
             # リクエストが同時に来るため、awaitせず直接呼ぶとイベントループ全体をブロックし、
             # 同時に処理中の他のリクエスト（ルート生成等）が数十秒単位で詰まる。
             cached = await asyncio.to_thread(tile_cache.get, path)
-            # JSONは書き換え前の内容を_RAW_JSON_CACHE_PREFIX側にだけ置く。パスそのままのキーに
-            # JSONが残っていても（書き換え済みの内容）採用せず、生キャッシュ→上流の順で引く。
+            if cached is not None and "json" in cached[1]:
+                # 素の鍵が持ってよいのは書き換えの要らない内容だけ。JSONがここにあるのは
+                # 生の内容を_RAW_JSON_CACHE_PREFIX側へ分ける前の世代が書いたもので、当時の
+                # proxy_base_urlが焼き付いている。採用せず、生キャッシュ→上流の順で引き直す。
+                fields["stale"] = "rewritten-json"
+                cached = None
             if cached is not None:
                 fields["cache"] = "hit"
                 return cached
@@ -50,6 +61,17 @@ class BasemapClient:
             try:
                 response = await self._http_client.get(f"{UPSTREAM_HOST}/{path}")
                 response.raise_for_status()
+            except httpx.HTTPStatusError as exc:
+                if exc.response.status_code == 404:
+                    # 配信元が用意していない部品（書体の一部等）。上流障害ではないため、
+                    # エラー扱い（WARNING・/api/debug/statsのerror集計）にしない。
+                    fields["result"] = "ok"
+                    fields["status"] = 404
+                    return BASEMAP_NOT_FOUND
+                fields["result"] = "error"
+                fields["error"] = repr(exc)
+                fields["error_type"] = error_type_label(exc)
+                return None
             except httpx.HTTPError as exc:
                 fields["result"] = "error"
                 fields["error"] = repr(exc)

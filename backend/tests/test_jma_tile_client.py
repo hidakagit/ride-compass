@@ -10,12 +10,12 @@
 実時間を消費させず、待った長さだけを記録する。
 """
 
-import contextlib
 import time
 
 import pytest
 
 from app.infrastructure import jma_tile_client
+from tests.fake_external_log import record_external_calls
 from tests.fake_tile_http import FakeHttpClient
 
 TILE_PATH = "bosai/jmatile/data/nowc/20260101000000/none/20260101000000/surf/hrpns/6/57/25.png"
@@ -71,22 +71,10 @@ def sleeps(monkeypatch):
 
 
 def install_fakes(monkeypatch, redis=None):
-    """共有キャッシュと`log_external_call`を差し替え、記録先を返す。
-
-    `fields`は`/api/debug/stats`のエラー集計とWARNINGの出し分けに使われるため、
-    その中身自体がこのモジュールの外向きの成果物になる。
-    """
+    """共有キャッシュと`log_external_call`を差し替え、記録先を返す。"""
     redis = redis or FakeRedisCache()
-    recorded: list[dict] = []
-
-    @contextlib.contextmanager
-    def fake_log_external_call(category, **fields):
-        recorded.append(fields)
-        yield fields
-
     monkeypatch.setattr(jma_tile_client, "jma_tile_redis_cache", redis)
-    monkeypatch.setattr(jma_tile_client, "log_external_call", fake_log_external_call)
-    return redis, recorded
+    return redis, record_external_calls(monkeypatch, jma_tile_client)
 
 
 def http_status_error(status_code: int):
@@ -170,8 +158,8 @@ async def test_a_cached_time_listing_comes_from_this_process(monkeypatch):
     assert result == (b"{}", "application/json")
     assert redis.entries == {}
     assert http_client.requested_urls == []
-    assert recorded[0]["cache"] == "hit"
-    assert recorded[0]["result"] == "ok"
+    assert recorded[0].fields["cache"] == "hit"
+    assert recorded[0].fields["result"] == "ok"
 
 
 async def test_a_cached_tile_comes_from_the_shared_cache(monkeypatch):
@@ -182,7 +170,7 @@ async def test_a_cached_tile_comes_from_the_shared_cache(monkeypatch):
 
     assert result == (b"png", "image/png")
     assert http_client.requested_urls == []
-    assert recorded[0]["cache"] == "hit"
+    assert recorded[0].fields["cache"] == "hit"
 
 
 async def test_a_cache_lookup_never_reaches_upstream_when_nothing_is_stored(monkeypatch, sleeps):
@@ -195,8 +183,8 @@ async def test_a_cache_lookup_never_reaches_upstream_when_nothing_is_stored(monk
     assert result is None
     assert http_client.requested_urls == []
     assert sleeps.slept == []
-    assert recorded[0]["cache"] == "miss"
-    assert recorded[0]["result"] == "ok"
+    assert recorded[0].fields["cache"] == "miss"
+    assert recorded[0].fields["result"] == "ok"
 
 
 # --- 上流フェッチ ---------------------------------------------------------------------
@@ -211,9 +199,9 @@ async def test_a_fetched_tile_is_kept_in_the_shared_cache(monkeypatch, sleeps):
     assert result == (b"png", "image/png")
     assert http_client.requested_urls == [f"{jma_tile_client.UPSTREAM_HOST}/{TILE_PATH}"]
     assert redis.entries == {TILE_PATH: (b"png", "image/png")}
-    assert recorded[0]["cache"] == "miss"
-    assert recorded[0]["result"] == "ok"
-    assert recorded[0]["status"] == 200
+    assert recorded[0].fields["cache"] == "miss"
+    assert recorded[0].fields["result"] == "ok"
+    assert recorded[0].fields["status"] == 200
 
 
 async def test_a_fetched_time_listing_is_kept_in_this_process(monkeypatch, sleeps):
@@ -256,8 +244,8 @@ async def test_a_missing_tile_is_raised_apart_from_other_failures_and_remembered
         await jma_tile_client.JmaTileClient(http_client).fetch(TILE_PATH)
 
     assert redis.entries == {TILE_PATH: EMPTY_TILE}
-    assert recorded[0]["result"] == "ok"
-    assert recorded[0]["status"] == 404
+    assert recorded[0].fields["result"] == "ok"
+    assert recorded[0].fields["status"] == 404
 
 
 async def test_a_missing_time_listing_is_remembered_as_empty_in_this_process(monkeypatch, sleeps):
@@ -280,8 +268,8 @@ async def test_an_upstream_server_error_is_reported_as_a_failure(monkeypatch, sl
 
     assert result is None
     assert redis.entries == {}
-    assert recorded[0]["result"] == "error"
-    assert recorded[0]["error_type"]
+    assert recorded[0].fields["result"] == "error"
+    assert recorded[0].fields["error_type"]
 
 
 async def test_an_upstream_transport_failure_is_reported_as_a_failure(monkeypatch, sleeps):
@@ -292,8 +280,8 @@ async def test_an_upstream_transport_failure_is_reported_as_a_failure(monkeypatc
 
     assert result is None
     assert redis.entries == {}
-    assert recorded[0]["result"] == "error"
-    assert recorded[0]["error_type"]
+    assert recorded[0].fields["result"] == "error"
+    assert recorded[0].fields["error_type"]
 
 
 # --- 上流を経ずに作ったタイルの書き戻し -----------------------------------------------

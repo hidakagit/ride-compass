@@ -9,48 +9,20 @@
 `tests/fake_tile_http.py`の共有フェイクから取る。
 """
 
-import contextlib
 import threading
-
 from app.infrastructure import gsi_tile_client
+from tests.fake_external_log import record_external_calls
+from tests.fake_tile_cache import FakeTileCache
 from tests.fake_tile_http import FakeHttpClient
 
 PATH = "xyz/relief/12/3637/1612.png"
 
 
-class FakeTileCache:
-    """`tile_cache`の差し替え。読み書きが走ったスレッドも憶える。"""
-
-    def __init__(self, seed: dict | None = None):
-        self.entries = dict(seed or {})
-        self.thread_idents: list[int] = []
-
-    def get(self, path):
-        self.thread_idents.append(threading.get_ident())
-        return self.entries.get(path)
-
-    def set(self, path, content, content_type):
-        self.thread_idents.append(threading.get_ident())
-        self.entries[path] = (content, content_type)
-
-
 def install_fakes(monkeypatch, cache=None):
-    """ディスクキャッシュと`log_external_call`を差し替え、記録先を返す。
-
-    `fields`は`/api/debug/stats`のエラー集計とWARNINGの出し分けに使われるため、
-    その中身自体がこのモジュールの外向きの成果物になる。
-    """
+    """ディスクキャッシュと`log_external_call`を差し替え、記録先を返す。"""
     cache = cache or FakeTileCache()
-    recorded: list[dict] = []
-
-    @contextlib.contextmanager
-    def fake_log_external_call(category, **fields):
-        recorded.append(fields)
-        yield fields
-
     monkeypatch.setattr(gsi_tile_client, "tile_cache", cache)
-    monkeypatch.setattr(gsi_tile_client, "log_external_call", fake_log_external_call)
-    return cache, recorded
+    return cache, record_external_calls(monkeypatch, gsi_tile_client)
 
 
 def make_client(http_client, not_found_paths=None):
@@ -90,7 +62,7 @@ async def test_cached_tile_is_returned_without_asking_upstream(monkeypatch):
 
     assert result == (b"cached", "image/png")
     assert http_client.requested_urls == []
-    assert recorded[0]["cache"] == "hit"
+    assert recorded[0].fields["cache"] == "hit"
 
 
 async def test_uncached_tile_is_fetched_from_gsi_and_kept_for_next_time(monkeypatch):
@@ -102,9 +74,9 @@ async def test_uncached_tile_is_fetched_from_gsi_and_kept_for_next_time(monkeypa
     assert result == (b"png-bytes", "image/png")
     assert http_client.requested_urls == [f"{gsi_tile_client.UPSTREAM_HOST}/{PATH}"]
     assert cache.entries[PATH] == (b"png-bytes", "image/png")
-    assert recorded[0]["cache"] == "miss"
-    assert recorded[0]["result"] == "ok"
-    assert recorded[0]["status"] == 200
+    assert recorded[0].fields["cache"] == "miss"
+    assert recorded[0].fields["result"] == "ok"
+    assert recorded[0].fields["status"] == 200
 
 
 async def test_tile_without_a_content_type_header_is_served_as_png(monkeypatch):
@@ -129,8 +101,8 @@ async def test_upstream_404_is_remembered_and_not_counted_as_a_failure(monkeypat
     assert isinstance(result, gsi_tile_client.GsiTileNotFound)
     assert PATH in not_found_paths
     assert cache.entries == {}
-    assert recorded[0]["result"] == "ok"
-    assert recorded[0]["status"] == 404
+    assert recorded[0].fields["result"] == "ok"
+    assert recorded[0].fields["status"] == 404
 
 
 async def test_upstream_server_error_is_reported_as_a_failure(monkeypatch):
@@ -144,8 +116,8 @@ async def test_upstream_server_error_is_reported_as_a_failure(monkeypatch):
     assert result is None
     assert PATH not in not_found_paths
     assert cache.entries == {}
-    assert recorded[0]["result"] == "error"
-    assert recorded[0]["error_type"]
+    assert recorded[0].fields["result"] == "error"
+    assert recorded[0].fields["error_type"]
 
 
 async def test_upstream_transport_failure_is_reported_as_a_failure(monkeypatch):
@@ -157,8 +129,8 @@ async def test_upstream_transport_failure_is_reported_as_a_failure(monkeypatch):
 
     assert result is None
     assert PATH not in not_found_paths
-    assert recorded[0]["result"] == "error"
-    assert recorded[0]["error_type"]
+    assert recorded[0].fields["result"] == "error"
+    assert recorded[0].fields["error_type"]
 
 
 async def test_disk_cache_access_stays_off_the_event_loop(monkeypatch):

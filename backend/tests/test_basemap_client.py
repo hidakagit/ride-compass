@@ -8,12 +8,13 @@
 `tests/fake_tile_http.py`の共有フェイクから取る。
 """
 
-import contextlib
 import threading
 
 import pytest
 
 from app.infrastructure import basemap_client
+from tests.fake_external_log import record_external_calls
+from tests.fake_tile_cache import FakeTileCache
 from tests.fake_tile_http import FakeHttpClient
 
 STYLE_PATH = "styles/bright"
@@ -22,39 +23,19 @@ PROXY = "http://localhost:8000/api/basemap"
 OTHER_PROXY = "https://ridecompass.example/api/basemap"
 
 
-class FakeTileCache:
-    """`tile_cache`の差し替え。読み書きが走ったスレッドも憶える。"""
-
-    def __init__(self, seed: dict | None = None):
-        self.entries = dict(seed or {})
-        self.thread_idents: list[int] = []
-
-    def get(self, path):
-        self.thread_idents.append(threading.get_ident())
-        return self.entries.get(path)
-
-    def set(self, path, content, content_type):
-        self.thread_idents.append(threading.get_ident())
-        self.entries[path] = (content, content_type)
-
-
 def install_fakes(monkeypatch, cache=None):
-    """ディスクキャッシュと`log_external_call`を差し替え、記録先を返す。
-
-    `fields`は`/api/debug/stats`のエラー集計とWARNINGの出し分けに使われるため、
-    その中身自体がこのモジュールの外向きの成果物になる。
-    """
+    """ディスクキャッシュと`log_external_call`を差し替え、記録先を返す。"""
     cache = cache or FakeTileCache()
-    recorded: list[dict] = []
-
-    @contextlib.contextmanager
-    def fake_log_external_call(category, **fields):
-        recorded.append(fields)
-        yield fields
-
     monkeypatch.setattr(basemap_client, "tile_cache", cache)
-    monkeypatch.setattr(basemap_client, "log_external_call", fake_log_external_call)
-    return cache, recorded
+    return cache, record_external_calls(monkeypatch, basemap_client)
+
+
+def http_status_error(status_code: int):
+    httpx = basemap_client.httpx
+    request = httpx.Request("GET", f"{basemap_client.UPSTREAM_HOST}/{STYLE_PATH}")
+    return httpx.HTTPStatusError(
+        "upstream returned an error", request=request, response=httpx.Response(status_code, request=request)
+    )
 
 
 def style_json(host: str) -> bytes:
@@ -69,7 +50,7 @@ async def test_cached_resource_is_returned_without_asking_upstream(monkeypatch):
 
     assert result == (b"cached-tile", "application/x-protobuf")
     assert http_client.requested_urls == []
-    assert recorded[0]["cache"] == "hit"
+    assert recorded[0].fields["cache"] == "hit"
 
 
 @pytest.mark.parametrize("content_type", ["application/json", "application/json; charset=utf-8"])
@@ -88,9 +69,9 @@ async def test_style_json_is_cached_as_received_and_served_pointing_at_this_serv
     assert result == (style_json(PROXY), content_type)
     assert http_client.requested_urls == [f"{basemap_client.UPSTREAM_HOST}/{STYLE_PATH}"]
     assert cache.entries == {basemap_client._RAW_JSON_CACHE_PREFIX + STYLE_PATH: (upstream_json, content_type)}
-    assert recorded[0]["cache"] == "miss"
-    assert recorded[0]["result"] == "ok"
-    assert recorded[0]["status"] == 200
+    assert recorded[0].fields["cache"] == "miss"
+    assert recorded[0].fields["result"] == "ok"
+    assert recorded[0].fields["status"] == 200
 
 
 async def test_the_upstream_name_in_running_text_is_left_alone(monkeypatch):
@@ -117,7 +98,7 @@ async def test_changing_the_proxy_url_takes_effect_without_discarding_the_cache(
 
     assert result == (style_json(OTHER_PROXY), "application/json")
     assert len(http_client.requested_urls) == 1
-    assert recorded[1]["cache"] == "hit"
+    assert recorded[1].fields["cache"] == "hit"
 
 
 async def test_binary_resource_is_passed_through_untouched(monkeypatch):
@@ -142,6 +123,46 @@ async def test_resource_without_a_content_type_header_is_treated_as_binary(monke
     assert cache.entries == {TILE_PATH: (b"\x00\x01binary", "application/octet-stream")}
 
 
+async def test_a_rewritten_style_left_at_the_plain_key_is_not_served(monkeypatch):
+    """素の鍵にJSONが残っているのは、生の内容を別の鍵へ分ける前の世代が書いたもの。
+    当時の配信先が焼き付いているため、採用すると配信先を変えても古いものが配られ続ける。"""
+    cache, recorded = install_fakes(
+        monkeypatch, FakeTileCache({STYLE_PATH: (style_json(OTHER_PROXY), "application/json")})
+    )
+    http_client = FakeHttpClient(style_json(basemap_client.UPSTREAM_HOST), "application/json")
+
+    content, _ = await basemap_client.BasemapClient(http_client, PROXY).get(STYLE_PATH)
+
+    assert content == style_json(PROXY)
+    assert http_client.requested_urls == [f"{basemap_client.UPSTREAM_HOST}/{STYLE_PATH}"]
+    assert recorded[0].fields["stale"] == "rewritten-json"
+
+
+async def test_a_resource_the_upstream_does_not_have_is_not_a_failure(monkeypatch):
+    """用意されていない書体の範囲などは平常運転の一部で、上流の障害ではない。"""
+    cache, recorded = install_fakes(monkeypatch)
+    http_client = FakeHttpClient(b"", None, raises=http_status_error(404))
+
+    result = await basemap_client.BasemapClient(http_client, PROXY).get("fonts/NotoSans/40000-40255.pbf")
+
+    assert isinstance(result, basemap_client.BasemapNotFound)
+    assert cache.entries == {}
+    assert recorded[0].fields["result"] == "ok"
+    assert recorded[0].fields["status"] == 404
+
+
+async def test_upstream_server_error_is_reported_as_a_failure(monkeypatch):
+    cache, recorded = install_fakes(monkeypatch)
+    http_client = FakeHttpClient(b"", None, raises=http_status_error(500))
+
+    result = await basemap_client.BasemapClient(http_client, PROXY).get(TILE_PATH)
+
+    assert result is None
+    assert cache.entries == {}
+    assert recorded[0].fields["result"] == "error"
+    assert recorded[0].fields["error_type"]
+
+
 async def test_upstream_failure_is_reported_as_a_failure(monkeypatch):
     cache, recorded = install_fakes(monkeypatch)
     http_client = FakeHttpClient(b"", None, raises=basemap_client.httpx.ConnectTimeout("timed out"))
@@ -150,8 +171,8 @@ async def test_upstream_failure_is_reported_as_a_failure(monkeypatch):
 
     assert result is None
     assert cache.entries == {}
-    assert recorded[0]["result"] == "error"
-    assert recorded[0]["error_type"]
+    assert recorded[0].fields["result"] == "error"
+    assert recorded[0].fields["error_type"]
 
 
 async def test_disk_cache_access_stays_off_the_event_loop(monkeypatch):
