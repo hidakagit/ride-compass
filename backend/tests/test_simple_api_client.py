@@ -1,148 +1,148 @@
-"""`infrastructure/simple_api_client.py`——TTLCacheを1枚はさんで外部APIを1回だけ引く骨格。
+"""`infrastructure/simple_api_client.py`——「キャッシュ参照→fetch→形の検査→エラー処理→
+キャッシュ書き戻し」の骨格。
 
 ここで見ないもの:
-
-- URLの組み立て・応答のパース → `test_flood_client.py`等、この骨格に乗る各クライアント
-- 統計の集計とWARNINGの抑制そのもの → `test_debug_log.py`
-- ディスク・Redisを挟む取り寄せ → `test_gsi_tile_client.py`・`test_jma_tile_client.py`
-
-**上流は呼ばない。** `fetch`は呼び出し側が渡す関数なので、値を返す／例外を送出する関数を
-直接与える。記録された結果は`/api/debug/stats`が読む集計（`debug_log.get_stats`）を通して
-確かめる——呼び出し元が読むのはそこで、`fields`そのものではない。
+- 上流ごとのURL・要求パラメータ・応答の読み方 → 各クライアントのテスト
+  （`test_jma_warning_client.py`・`test_wbgt_client.py`）
+- ログの出力先・`/api/debug/stats`の集計・例外ラベルの作り方 → `debug_log`側。ここでは
+  **`fields`へ何を書くか**だけを見るため、`log_external_call`を差し替えて受け取る
 """
+
+import contextlib
 
 import httpx
 import pytest
 from cachetools import TTLCache
 
-from app.infrastructure import debug_log
-from app.infrastructure.simple_api_client import UnexpectedShapeError, cached_fetch
-
-CATEGORY_A = "category_a"
-KEY_A = "key_a"
-VALUE_A = {"value": "a"}
-VALUE_B = {"value": "b"}
+from app.infrastructure import simple_api_client
 
 
-@pytest.fixture(autouse=True)
-def _fresh_stats():
-    debug_log.reset_stats()
-    yield
-    debug_log.reset_stats()
+class _FieldsRecorder:
+    """`log_external_call`の差し替え。呼び出しごとの`(category, fields)`を残す。"""
+
+    def __init__(self):
+        self.calls: list[tuple[str, dict]] = []
+
+    @contextlib.contextmanager
+    def __call__(self, category, **log_fields):
+        fields = dict(log_fields)
+        self.calls.append((category, fields))
+        yield fields
 
 
-class _Fetch:
-    """呼ばれるたびに、与えられた結果を順に出す`fetch`（例外は送出する）。
+def _counting_fetch(value):
+    """呼ばれた回数を数えるfetch。キャッシュが効いたかは呼び出し回数でしか分からない。"""
+    calls: list[int] = []
 
-    最後の結果は以後も出し続ける。キャッシュが効いているかは`calls`で見る。
-    """
+    async def fetch():
+        calls.append(1)
+        return value
 
-    def __init__(self, *outcomes: object):
-        self._outcomes = list(outcomes) or [None]
-        self.calls = 0
-
-    async def __call__(self) -> object:
-        outcome = self._outcomes[min(self.calls, len(self._outcomes) - 1)]
-        self.calls += 1
-        if isinstance(outcome, BaseException):
-            raise outcome
-        return outcome
+    return fetch, calls
 
 
-def _cache() -> TTLCache:
-    return TTLCache(maxsize=8, ttl=60)
+def _recorder(monkeypatch) -> _FieldsRecorder:
+    recorder = _FieldsRecorder()
+    monkeypatch.setattr(simple_api_client, "log_external_call", recorder)
+    return recorder
 
 
-def _stats() -> dict:
-    return debug_log.get_stats()["external"][CATEGORY_A]
+async def test_without_cache_calls_fetch_every_time():
+    fetch, calls = _counting_fetch({"a": 1})
+
+    assert await simple_api_client.cached_fetch("cat", fetch) == {"a": 1}
+    assert await simple_api_client.cached_fetch("cat", fetch) == {"a": 1}
+
+    assert len(calls) == 2
 
 
-class TestGoingUpstream:
-    async def test_a_first_look_asks_upstream_and_returns_what_came_back(self):
-        fetch = _Fetch(VALUE_A)
+async def test_cache_miss_calls_fetch_and_stores_result(monkeypatch):
+    recorder = _recorder(monkeypatch)
+    cache: TTLCache = TTLCache(maxsize=4, ttl=60)
+    fetch, calls = _counting_fetch("v")
 
-        result = await cached_fetch(CATEGORY_A, fetch, cache=_cache(), key=KEY_A)
+    assert await simple_api_client.cached_fetch("cat", fetch, cache=cache, key="k", site="x") == "v"
 
-        assert result == VALUE_A
-        assert fetch.calls == 1
-        assert _stats()["cache_misses"] == 1
-
-    async def test_a_second_look_is_answered_without_asking_upstream(self):
-        """毎回引きに行くと、レート制限のある配信元から締め出される。"""
-        cache = _cache()
-        fetch = _Fetch(VALUE_A, VALUE_B)
-
-        first = await cached_fetch(CATEGORY_A, fetch, cache=cache, key=KEY_A)
-        second = await cached_fetch(CATEGORY_A, fetch, cache=cache, key=KEY_A)
-
-        assert (first, second) == (VALUE_A, VALUE_A)
-        assert fetch.calls == 1
-        assert _stats()["cache_hits"] == 1
-
-    async def test_an_answer_of_nothing_is_remembered_like_any_other(self):
-        """該当なしを覚えないと、市区町村の定まらない出発地点が毎リクエスト上流を叩く。"""
-        cache = _cache()
-        fetch = _Fetch(None)
-
-        await cached_fetch(CATEGORY_A, fetch, cache=cache, key=KEY_A)
-        await cached_fetch(CATEGORY_A, fetch, cache=cache, key=KEY_A)
-
-        assert fetch.calls == 1
+    assert cache["k"] == "v"
+    assert len(calls) == 1
+    category, fields = recorder.calls[0]
+    assert category == "cat"
+    assert fields["site"] == "x"
+    assert fields["cache"] == "miss"
+    assert fields["result"] == "ok"
 
 
-class TestWhenTheUpstreamFails:
-    async def test_a_failure_the_caller_listed_becomes_no_value(self):
-        """例外をそのまま通すと、天候のような補助的なデータ1本の不調でリクエストが500になる。"""
-        result = await cached_fetch(
-            CATEGORY_A, _Fetch(httpx.RequestError("boom")), cache=_cache(), key=KEY_A
-        )
+async def test_cache_hit_skips_fetch(monkeypatch):
+    recorder = _recorder(monkeypatch)
+    cache: TTLCache = TTLCache(maxsize=4, ttl=60)
+    cache["k"] = "stored"
+    fetch, calls = _counting_fetch("fresh")
 
-        assert result is None
-        assert _stats()["errors"] == 1
+    assert await simple_api_client.cached_fetch("cat", fetch, cache=cache, key="k") == "stored"
 
-    async def test_a_failure_is_not_remembered(self):
-        """失敗をキャッシュすると、上流が復旧してもTTLの間は壊れたままになる。"""
-        cache = _cache()
-        fetch = _Fetch(httpx.RequestError("boom"), VALUE_A)
-
-        failed = await cached_fetch(CATEGORY_A, fetch, cache=cache, key=KEY_A)
-        recovered = await cached_fetch(CATEGORY_A, fetch, cache=cache, key=KEY_A)
-
-        assert (failed, recovered) == (None, VALUE_A)
-
-    async def test_a_failure_the_caller_did_not_list_reaches_the_caller(self):
-        """何でもNoneへ倒すと、呼び出し側が「データが無い」と「壊れている」を区別できない。"""
-        with pytest.raises(RuntimeError):
-            await cached_fetch(
-                CATEGORY_A, _Fetch(RuntimeError("boom")), cache=_cache(), key=KEY_A, catch=(KeyError,)
-            )
-
-    async def test_the_details_the_caller_passed_in_are_in_the_warning(self, caplog):
-        """どの地点・どのパスの取得が落ちたのかが無いと、運用側は再現できない。"""
-        await cached_fetch(
-            CATEGORY_A, _Fetch(httpx.RequestError("boom")), cache=_cache(), key=KEY_A, point="point_a"
-        )
-
-        assert "point_a" in caplog.text
+    assert calls == []
+    assert recorder.calls[0][1]["cache"] == "hit"
 
 
-class TestAnAnswerOfTheWrongShape:
-    async def test_it_becomes_no_value_even_when_the_caller_did_not_list_it(self):
-        """形の検査は`fetch`の中で行うため、`catch`を絞った呼び出し側でも握る先が要る。"""
-        result = await cached_fetch(
-            CATEGORY_A,
-            _Fetch(UnexpectedShapeError("shape")),
-            cache=_cache(),
-            key=KEY_A,
-            catch=(httpx.HTTPError,),
-        )
+async def test_none_from_upstream_is_cached():
+    """上流の「該当なし」もキャッシュする。未取得と同じ値にすると、該当なしの問い合わせが
+    TTLの間ずっと上流へ流れ続ける。"""
+    cache: TTLCache = TTLCache(maxsize=4, ttl=60)
+    fetch, calls = _counting_fetch(None)
 
-        assert result is None
+    assert await simple_api_client.cached_fetch("cat", fetch, cache=cache, key="k") is None
+    assert await simple_api_client.cached_fetch("cat", fetch, cache=cache, key="k") is None
 
-    async def test_it_is_counted_under_a_label_of_its_own(self):
-        """通信の失敗と同じ札にすると、上流の形が変わったことに集計だけでは気づけない。"""
-        await cached_fetch(
-            CATEGORY_A, _Fetch(UnexpectedShapeError("shape")), cache=_cache(), key=KEY_A
-        )
+    assert len(calls) == 1
 
-        assert _stats()["error_types"] == {"unexpected_shape": 1}
+
+async def test_expect_passes_matching_type():
+    fetch, _ = _counting_fetch([1])
+
+    assert await simple_api_client.cached_fetch("cat", fetch, expect=list) == [1]
+
+
+async def test_unexpected_shape_returns_none(monkeypatch):
+    recorder = _recorder(monkeypatch)
+    fetch, _ = _counting_fetch([1, 2])
+
+    assert await simple_api_client.cached_fetch("cat", fetch, expect=dict) is None
+
+    fields = recorder.calls[0][1]
+    assert fields["result"] == "error"
+    assert fields["error_type"] == "unexpected_shape"
+
+
+async def test_unexpected_shape_is_swallowed_even_when_catch_is_empty():
+    """形の検査は`catch`の指定に関わらず常にNoneへ倒れる（except節の順序）。"""
+    fetch, _ = _counting_fetch("s")
+
+    assert await simple_api_client.cached_fetch("cat", fetch, expect=dict, catch=()) is None
+
+
+async def test_caught_exception_returns_none_and_is_not_cached(monkeypatch):
+    recorder = _recorder(monkeypatch)
+    cache: TTLCache = TTLCache(maxsize=4, ttl=60)
+    calls: list[int] = []
+
+    async def fetch():
+        calls.append(1)
+        raise ValueError("bad json")
+
+    assert await simple_api_client.cached_fetch("cat", fetch, cache=cache, key="k") is None
+    assert "k" not in cache
+    assert await simple_api_client.cached_fetch("cat", fetch, cache=cache, key="k") is None
+    assert len(calls) == 2
+
+    fields = recorder.calls[0][1]
+    assert fields["result"] == "error"
+    assert fields["error_type"] == "ValueError"
+    assert "bad json" in fields["error"]
+
+
+async def test_exception_outside_catch_propagates():
+    async def fetch():
+        raise httpx.ConnectError("boom")
+
+    with pytest.raises(httpx.ConnectError):
+        await simple_api_client.cached_fetch("cat", fetch, catch=(KeyError,))
