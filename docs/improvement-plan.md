@@ -192,6 +192,7 @@ CLAUDE.md参照。節見出しはタスクのテーマ分類で、日付は起�
 - [ ] [T1009](records/tasks/T1009.md). 撤去済みのsplit工程が、docs/modulesに現行仕様として残っている 規模S〜M
 - [ ] [T1010](records/tasks/T1010.md). 標準を「操作別」に見直す（撤去・移設の手順が無い穴を塞ぐ） 規模M
 - [ ] [T1011](records/tasks/T1011.md). 撤去で消えた判断を、全履歴から洗い出して戻す（frontend） 規模L
+- [ ] [T1012](records/tasks/T1012.md). 補正後の手順で、外部クライアント6本のテストを起こし直す 規模M
 - [ ] [T978](records/tasks/T978.md). 標高タイルの取込が、製品を1つ選んで残りを捨てている 規模M
 - [ ] [T989](records/tasks/T989.md). docker composeで立てた環境は、手順どおりにしても使える状態にならない 規模S〜M
 
