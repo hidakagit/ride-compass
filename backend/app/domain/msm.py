@@ -55,7 +55,7 @@ class MsmGrid:
             n_lon=n_lon,
         )
 
-    def contains(self, latitudes: np.ndarray, longitudes: np.ndarray) -> bool:
+    def _contains(self, latitudes: np.ndarray, longitudes: np.ndarray) -> bool:
         lat_max = self.lat_min + self.d_lat * (self.n_lat - 1)
         lon_max = self.lon_min + self.d_lon * (self.n_lon - 1)
         return bool(
@@ -65,40 +65,67 @@ class MsmGrid:
             and np.all(longitudes <= lon_max)
         )
 
-    def slice_bounds(self, latitudes: np.ndarray, longitudes: np.ndarray) -> tuple[int, int, int, int]:
-        """与えた地点群を補間するのに必要な部分ブロックの索引範囲(i0, i1, j0, j1)を返す。
+    def window(self, latitudes: np.ndarray, longitudes: np.ndarray) -> "MsmWindow":
+        """与えた地点群を補間するのに必要な部分ブロックの窓を返す。
 
         双一次補間は各地点の右上側の格子点も参照するため、上端側へ1つ余分に取る。
         """
-        if not self.contains(latitudes, longitudes):
+        if not self._contains(latitudes, longitudes):
             raise ValueError("MSM格子の範囲外の地点が含まれています")
-        i0 = int(np.floor((latitudes.min() - self.lat_min) / self.d_lat))
-        i1 = min(int(np.floor((latitudes.max() - self.lat_min) / self.d_lat)) + 2, self.n_lat)
-        j0 = int(np.floor((longitudes.min() - self.lon_min) / self.d_lon))
-        j1 = min(int(np.floor((longitudes.max() - self.lon_min) / self.d_lon)) + 2, self.n_lon)
-        return i0, i1, j0, j1
+        return MsmWindow(
+            grid=self,
+            i0=int(np.floor((latitudes.min() - self.lat_min) / self.d_lat)),
+            i1=min(int(np.floor((latitudes.max() - self.lat_min) / self.d_lat)) + 2, self.n_lat),
+            j0=int(np.floor((longitudes.min() - self.lon_min) / self.d_lon)),
+            j1=min(int(np.floor((longitudes.max() - self.lon_min) / self.d_lon)) + 2, self.n_lon),
+            latitudes=latitudes,
+            longitudes=longitudes,
+        )
 
 
-def interpolate_points(
-    block: np.ndarray, grid: MsmGrid, i0: int, j0: int, latitudes: np.ndarray, longitudes: np.ndarray
-) -> np.ndarray:
-    """部分ブロック（形状[緯度, 経度, 時刻]）から地点ごとの時系列を双一次補間で取り出す。
+@dataclass(frozen=True)
+class MsmWindow:
+    """全体格子から切り出す範囲と、その範囲を決めた地点群。
 
-    `i0`・`j0`は`block`が全体格子のどこから切り出されたかを示す索引（`slice_bounds`の戻り値）。
-    戻り値の形状は[地点数, 時刻数]。
+    切り出し索引・地点・格子は、揃っていて初めて補間が正しい。呼び出し側がこの3つを
+    別々の引数として組み立てられるようにすると、取り違えても下の`np.clip`が黙って端へ
+    寄せ、全地点の値が例外にならないままずれる。窓を作った側がそのまま補間まで持つ。
     """
-    fi = (latitudes - grid.lat_min) / grid.d_lat - i0
-    fj = (longitudes - grid.lon_min) / grid.d_lon - j0
-    ai = np.clip(np.floor(fi).astype(int), 0, block.shape[0] - 2)
-    aj = np.clip(np.floor(fj).astype(int), 0, block.shape[1] - 2)
-    wi = (fi - ai)[:, None]
-    wj = (fj - aj)[:, None]
-    return (
-        block[ai, aj] * (1.0 - wi) * (1.0 - wj)
-        + block[ai + 1, aj] * wi * (1.0 - wj)
-        + block[ai, aj + 1] * (1.0 - wi) * wj
-        + block[ai + 1, aj + 1] * wi * wj
-    )
+
+    grid: MsmGrid
+    i0: int
+    i1: int
+    j0: int
+    j1: int
+    latitudes: np.ndarray
+    longitudes: np.ndarray
+
+    @property
+    def lat_slice(self) -> slice:
+        return slice(self.i0, self.i1)
+
+    @property
+    def lon_slice(self) -> slice:
+        return slice(self.j0, self.j1)
+
+    def interpolate(self, block: np.ndarray) -> np.ndarray:
+        """部分ブロック（形状[緯度, 経度, 時刻]、`lat_slice`/`lon_slice`で切り出したもの）
+        から地点ごとの時系列を双一次補間で取り出す。戻り値の形状は[地点数, 時刻数]。
+        """
+        fi = (self.latitudes - self.grid.lat_min) / self.grid.d_lat - self.i0
+        fj = (self.longitudes - self.grid.lon_min) / self.grid.d_lon - self.j0
+        # 全体格子の上端・右端ちょうどの地点では余分の1つが取れず、左下側の格子点が
+        # ブロックの最後の組になる。
+        ai = np.clip(np.floor(fi).astype(int), 0, block.shape[0] - 2)
+        aj = np.clip(np.floor(fj).astype(int), 0, block.shape[1] - 2)
+        wi = (fi - ai)[:, None]
+        wj = (fj - aj)[:, None]
+        return (
+            block[ai, aj] * (1.0 - wi) * (1.0 - wj)
+            + block[ai + 1, aj] * wi * (1.0 - wj)
+            + block[ai, aj + 1] * (1.0 - wi) * wj
+            + block[ai + 1, aj + 1] * wi * wj
+        )
 
 
 def wind_speed_and_direction(u: np.ndarray, v: np.ndarray) -> tuple[np.ndarray, np.ndarray]:

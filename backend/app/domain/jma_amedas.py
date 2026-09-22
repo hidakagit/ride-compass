@@ -13,23 +13,19 @@ _SIXTEEN_POINT_LABELS = [
 ]
 
 
-def wind_direction_label_from_jma_code(code: int | None) -> str | None:
-    """JMAアメダスのwindDirectionコード（0=静穏、1〜16=16方位）を日本語ラベルへ変換する。
-    0（静穏、風速がほぼ0で方位不定）およびNoneはNoneを返す。"""
-    if not code:
-        return None
-    index = code % 16
-    return _SIXTEEN_POINT_LABELS[index]
+def wind_direction_from_jma_code(code: int | None) -> tuple[float, str] | None:
+    """JMAアメダスのwindDirectionコード（0=静穏、1〜16=16方位）を(角度, 日本語ラベル)へ
+    変換する。角度は0=北・時計回り（`WeatherConditions.wind_direction_deg`と揃える）で、
+    code=16は360度ではなく0度（北）に正規化する。0（静穏、風速がほぼ0で方位不定）および
+    NoneはNoneを返す。
 
-
-def wind_direction_degrees_from_jma_code(code: int | None) -> float | None:
-    """JMAアメダスのwindDirectionコードを角度（0=北、時計回り）へ変換する
-    （WeatherConditions.wind_direction_deg[度]と揃える）。code=16は360度ではなく
-    0度（北）に正規化する。
+    角度とラベルを別々の関数で返さない——どちらも同じ1つのコードの読み替えで、分けると
+    「方位がある/ない」の判定と16方位の割当が2箇所に分かれ、片方だけずれても落ちない。
     """
     if not code:
         return None
-    return (code % 16) * 22.5
+    index = code % 16
+    return index * 22.5, _SIXTEEN_POINT_LABELS[index]
 
 
 def apparent_temperature_from_amedas(

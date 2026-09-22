@@ -6,8 +6,8 @@
 JMA警報（jma_warning.py）と異なり、このAPIはstatus文字列（"発表"/"継続"/"解除"）
 ではなく、item.code自体が「発表」「継続」「解除」「警報解除（下位レベルへの引き下げ）」を
 区別する（例: code"20"=新規発表、"21"=継続、"22"=上位警報解除で当レベルへ引き下げ）。
-`CLEARED_CODE`だけが「現在は何も発表されていない」を意味し、`FLOOD_CODE_LEVELS`にある
-コードはすべて現在アクティブな状態を表す。
+完全解除（現在アクティブな発表なし）を表すコード"10"は`FLOOD_CODE_LEVELS`に載せない
+——載っているコードはすべて現在アクティブな状態を表す、が表の意味である。
 """
 
 from __future__ import annotations
@@ -44,9 +44,6 @@ FLOOD_CODE_LEVELS: dict[str, FloodLevel] = {
     "53": _EMERGENCY,
 }
 
-# 完全解除（現在アクティブな発表なし）を意味するコード。
-CLEARED_CODE = "10"
-
 
 class ActiveFloodForecast(StrictModel):
     river_code: str
@@ -69,10 +66,7 @@ def extract_active_flood_forecast(
     （行政区画の親子関係を辿るjma_area.resolve_areaで解決済みの値を渡す想定）。
     """
     item = entry.get("item") or {}
-    code = item.get("code")
-    if code is None or code == CLEARED_CODE:
-        return None
-    flood_level = FLOOD_CODE_LEVELS.get(code)
+    flood_level = FLOOD_CODE_LEVELS.get(item.get("code"))
     if flood_level is None:
         return None
 

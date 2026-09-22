@@ -22,8 +22,8 @@ import time
 
 from app.domain.jma_tile_specs import (
     JMA_TILE_SPECS,
+    effective_max_zoom,
     has_native_tile,
-    max_zoom_for,
     source_zoom_for_interpolation,
 )
 from app.domain.region import BoundingBox, tiles_covering_bbox
@@ -54,12 +54,14 @@ class _PrewarmLayer:
         self.element_id = element_id
         self.extension = extension
         self.target_times_path = target_times_path
+        # 配信元仕様は`domain/jma_tile_specs.py`が持つ。ここで引いておくことで、
+        # 登録の無い要素idを書いた時点（import時）にKeyErrorで落ちる——既定のズームへ
+        # 倒すと、綴り違いのレイヤーが「1段も温まらない」だけで静かに通る。
+        self.spec = JMA_TILE_SPECS[element_id]
 
     @property
     def max_zoom(self) -> int:
-        """対象ズームの上限。`domain/jma_tile_specs.py`から導出し、ここでは持たない
-        （配信元の`zoomUse`・`maxNativeZoom`との突き合わせを1箇所に集めるため）。"""
-        return max_zoom_for(self.element_id) or _MIN_ZOOM
+        return effective_max_zoom(self.spec)
 
 
 _RISK_TARGET_TIMES = "bosai/jmatile/data/risk/targetTimes.json"
@@ -104,12 +106,11 @@ def _tile_paths_for_layer(layer: "_PrewarmLayer", entry: dict) -> list[str]:
     # nowc系のtargetTimes.jsonはmemberを持たないため、パスには固定値を置く。
     member = entry.get("member", "none") if layer.group != "nowc" else "none"
     paths = []
-    spec = JMA_TILE_SPECS.get(layer.element_id)
     for z in range(_MIN_ZOOM, layer.max_zoom + 1):
         # 配信元が実データを持たないズーム（zoomUseの偶奇に合わない段）は温めても空タイル
         # しか積まれない。要求されたときは親から補間するため（infrastructure/
         # jma_tile_interpolation.py）、親側さえ温まっていればよい。
-        if spec is not None and not has_native_tile(spec, z):
+        if not has_native_tile(layer.spec, z):
             continue
         for x, y in tiles_covering_bbox(_PREWARM_BBOX, z):
             paths.append(
@@ -135,7 +136,7 @@ def _with_interpolated_zooms(
     if not zooms:
         return zooms
     filled = dict(zooms)
-    for zoom in range(min(zooms) + 1, (max_zoom_for(element_id) or 0) + 1):
+    for zoom in range(min(zooms) + 1, effective_max_zoom(JMA_TILE_SPECS[element_id]) + 1):
         if source_zoom_for_interpolation(element_id, zoom) is None:
             continue
         parents = filled.get(zoom - 1)
