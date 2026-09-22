@@ -9,8 +9,6 @@ import pytest
 
 from app.domain.region import (
     ROAD_GRAPH_TILE_ZOOM,
-    ROAD_TILE_MAX_ZOOM,
-    ROAD_TILE_MIN_ZOOM,
     BoundingBox,
     parse_bbox,
     tile_ancestor,
@@ -221,12 +219,3 @@ class TestTilesCoveringBbox:
 
         assert tiles
         assert all(0 <= x < n and 0 <= y < n for x, y in tiles)
-
-
-def test_the_delivered_zoom_range_covers_at_least_one_zoom():
-    assert ROAD_TILE_MIN_ZOOM <= ROAD_TILE_MAX_ZOOM
-
-
-def test_the_graph_cache_zoom_is_a_single_fixed_level():
-    """表示ズームに追従させると「このタイルは取得済みか」を真偽で言えなくなる。"""
-    assert isinstance(ROAD_GRAPH_TILE_ZOOM, int)

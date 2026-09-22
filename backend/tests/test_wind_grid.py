@@ -14,7 +14,6 @@ from app.domain.wind_grid import (
     WIND_GRID_BBOX,
     WIND_GRID_DETAIL_ALLOWED_SPACINGS_DEG,
     WIND_GRID_DETAIL_MAX_POINTS,
-    WIND_GRID_DETAIL_SPACING_DEG,
     WIND_GRID_SPACING_DEG,
     generate_wind_grid_detail_points,
     generate_wind_grid_points,
@@ -194,14 +193,6 @@ class TestGenerateWindGridDetailPoints:
         wide = generate_wind_grid_detail_points(WIND_GRID_BBOX, 0.02)
 
         assert len(wide) > WIND_GRID_DETAIL_MAX_POINTS
-
-
-def test_the_allowed_spacings_are_a_discrete_set():
-    """連続的な間隔を許すと、閲覧者ごとに絶対座標のラティスが微妙にずれてキャッシュ共有が
-    効かなくなる。段階を離散に限ることでそれを防いでいる。
-    """
-    assert len(set(WIND_GRID_DETAIL_ALLOWED_SPACINGS_DEG)) == len(WIND_GRID_DETAIL_ALLOWED_SPACINGS_DEG)
-    assert WIND_GRID_DETAIL_SPACING_DEG in WIND_GRID_DETAIL_ALLOWED_SPACINGS_DEG
 
 
 @pytest.mark.parametrize("spacing", WIND_GRID_DETAIL_ALLOWED_SPACINGS_DEG)

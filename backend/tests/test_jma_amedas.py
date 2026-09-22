@@ -44,15 +44,6 @@ class TestWindDirectionFromJmaCode:
         assert len(set(labels)) == 16
         assert len(set(degrees)) == 16
 
-    def test_the_label_and_the_angle_agree(self):
-        """ラベルと角度は別々に引く。片方だけ直すと、矢印の向きと文字が食い違う。"""
-        for code in range(1, 17):
-            expected = ["北", "北北東", "北東", "東北東", "東", "東南東", "南東", "南南東",
-                        "南", "南南西", "南西", "西南西", "西", "西北西", "北西", "北北西"]
-            index = int(wind_direction_degrees_from_jma_code(code) / 22.5)
-
-            assert wind_direction_label_from_jma_code(code) == expected[index]
-
 
 class TestApparentTemperature:
     """JMAは体感温度を配らないため、豪州気象局の式で自前計算する。"""

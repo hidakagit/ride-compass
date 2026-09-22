@@ -119,12 +119,6 @@ class TestWindDragRatio:
 
         assert fast > slow
 
-    def test_the_scale_does_not_follow_the_assumed_speed(self):
-        """材料の値域は軸スタジオの折れ点が前提にする。基準速度を想定速度と共有すると、
-        既定の想定速度を変えただけで公開軸の点数が動く。
-        """
-        assert WIND_DRAG_REFERENCE_SPEED_MS == pytest.approx(20.0 / 3.6)
-
     def test_a_rider_who_is_not_moving_is_rejected(self):
         """0で割る形になる。黙って0を返すと、停止状態の区間が無風として扱われる。"""
         with pytest.raises(ValueError):

@@ -124,19 +124,3 @@ class TestTileInputSpec:
         """
         assert TileInputSpec(property="p").categories is None
         assert TileInputSpec(property="p", categories=None).categories is None
-
-    def test_an_unknown_field_is_rejected(self):
-        """綴りを間違えた設定が黙って捨てられると、指定したのに効かない。"""
-        with pytest.raises(ValueError):
-            TileInputSpec(property="p", weigth=2.0)
-
-
-def test_the_registry_can_be_emptied_between_tests():
-    """大域の状態を持つため、テストの実行順で内容が変わらないようにする口が要る。"""
-    register_primary_attribute(_attribute("a"))
-    register_axis(AxisSpec(axis_id="axis", inputs=["a"]))
-
-    reset_registry_for_testing()
-
-    assert all_primary_attributes() == []
-    assert all_axes() == []

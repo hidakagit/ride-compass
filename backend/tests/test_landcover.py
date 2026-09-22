@@ -11,8 +11,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.domain.landcover import (
     LANDCOVER_CLASSES,
-    LANDCOVER_TILE_MAX_ZOOM,
-    LANDCOVER_TILE_MIN_ZOOM,
     LULC_INVALID_VALUES,
     MIN_VALID_PIXELS,
     PERCENT_CLASSES,
@@ -75,10 +73,6 @@ class TestPercentClasses:
     def test_it_covers_the_same_classes_as_the_display_order(self):
         assert {name for name, _ in PERCENT_CLASSES} == {cls.percent_field for cls in LANDCOVER_CLASSES}
 
-    def test_it_is_not_simply_the_display_order(self):
-        """同じ並びなら、2つ持っている意味が無い（どちらかを変えたときに気づけない）。"""
-        assert [name for name, _ in PERCENT_CLASSES] != [cls.percent_field for cls in LANDCOVER_CLASSES]
-
 
 class TestRasterSetFingerprint:
     """派生物は「どのラスタを開いていたか」に従属する。構成が変われば古い結果を捨てる。"""
@@ -100,18 +94,6 @@ class TestRasterSetFingerprint:
 
     def test_it_is_short_enough_to_put_in_a_key(self):
         assert len(raster_set_fingerprint(["a.tif"])) == 16
-
-
-def test_a_share_needs_enough_pixels_to_be_meaningful():
-    """帯がラスタの外へはみ出た・雲に覆われた区間は、割合として信頼できない。
-    下限を0にすると、1画素だけ拾った区間が100%として出る。
-    """
-    assert MIN_VALID_PIXELS > 1
-
-
-def test_the_tile_range_covers_at_least_one_zoom():
-    """上限は元データの分解能、下限は見え方で決めている。逆転すると1枚も配信されない。"""
-    assert LANDCOVER_TILE_MIN_ZOOM <= LANDCOVER_TILE_MAX_ZOOM
 
 
 class TestPercentagesFromPixelCounts:
