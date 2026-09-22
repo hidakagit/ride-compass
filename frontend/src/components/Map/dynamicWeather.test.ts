@@ -4,37 +4,17 @@
 // だけで、ランタイムのDOM依存が無いことを確認済み）。
 import { describe, expect, it } from "vitest";
 import {
-  DISASTER_SOURCES,
-  DYNAMIC_WEATHER_LAYER_IDS,
   formatDynamicFrameTime,
   frameIndexForTime,
   observationIndexForTime,
   gridCellRing,
   isWithinFutureWindow,
-  mergeFrameTimes,
   nearestTimeIndex,
   tileDeliveryFailureLayerIds,
 } from "./dynamicWeather";
 import type { DynamicWeatherGroupState, DynamicWeatherLayerId } from "./dynamicWeather";
 
 describe("dynamicWeather（T183再設計: 動的気象レイヤーの共通契約）", () => {
-  describe("mergeFrameTimes", () => {
-    it("複数レイヤーのフレーム時刻を昇順・重複排除した1本のタイムラインへ統合する", () => {
-      const wind = [{ time: new Date("2026-08-20T12:00:00+09:00") }, { time: new Date("2026-08-20T13:00:00+09:00") }];
-      const precip = [{ time: new Date("2026-08-20T12:05:00+09:00") }, { time: new Date("2026-08-20T13:00:00+09:00") }];
-      const timeline = mergeFrameTimes([wind, precip]);
-      expect(timeline.map((t) => t.toISOString())).toEqual([
-        new Date("2026-08-20T12:00:00+09:00").toISOString(),
-        new Date("2026-08-20T12:05:00+09:00").toISOString(),
-        new Date("2026-08-20T13:00:00+09:00").toISOString(),
-      ]);
-    });
-
-    it("フレームリストが空、または全体が空なら空配列を返す", () => {
-      expect(mergeFrameTimes([])).toEqual([]);
-      expect(mergeFrameTimes([[], []])).toEqual([]);
-    });
-  });
 
   describe("formatDynamicFrameTime", () => {
     it("JSTで月/日 時:分の形式にする", () => {
@@ -161,16 +141,6 @@ describe("dynamicWeather（T183再設計: 動的気象レイヤーの共通契�
     });
   });
 
-  describe("DYNAMIC_WEATHER_LAYER_IDS", () => {
-    it('災害の各ソースはチップを持たず、"disaster"1つに集約されている', () => {
-      // 母集団はDISASTER_SOURCESから引く。ソースを足したぶんも自動で対象に入る。
-      expect(DYNAMIC_WEATHER_LAYER_IDS).toContain("disaster");
-      expect(DISASTER_SOURCES.length).toBeGreaterThan(0);
-      for (const source of DISASTER_SOURCES) {
-        expect(DYNAMIC_WEATHER_LAYER_IDS).not.toContain(source.key);
-      }
-    });
-  });
 });
 
 // 配信元のタイルが返らない状態は空タイルで代替されるため、フェッチ側のerrorには現れない

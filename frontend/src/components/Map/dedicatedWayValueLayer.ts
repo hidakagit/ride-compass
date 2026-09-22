@@ -16,7 +16,6 @@ import {
   LEGEND_NO_DATA_KEY,
   type MapColorLegendBand,
 } from "./mapColorLegend";
-import { mapDisplay } from "@/types/generated/mapDisplay";
 import {
   bandColorsFor,
   buildSteppedColorExpression,
@@ -40,7 +39,7 @@ export const DEFAULT_DEDICATED_WAY_VALUE_DISPLAY: DedicatedWayValueDisplay = { k
 
 /** setFeatureStateで差し込む状態キー。同じ路面タイルソースの地物へ複数の軸が値を持つため
  * 軸idごとに異なるキーにする。 */
-export function dedicatedWayValueFeatureStateKey(axisId: string): string {
+function dedicatedWayValueFeatureStateKey(axisId: string): string {
   return `${axisId}Value`;
 }
 
@@ -94,15 +93,6 @@ export function dedicatedWayValueColorExpression(
  *
  * `loading`（まだ一度も値を受け取っていない）のあいだは薄くしない——取得中を示す
  * COLOR_LOADINGが見えなくなり、「取得中」と「対象外」の区別が付かなくなる。 */
-export function buildDedicatedWayValueOpacityExpression(valueExpression: unknown[], loading = false): unknown[] {
-  return [
-    "case",
-    ["==", valueExpression, null],
-    loading ? mapDisplay.road.knownOpacity : mapDisplay.road.unknownOpacity,
-    mapDisplay.road.knownOpacity,
-  ];
-}
-
 /** 地図上の色分け凡例。色式と同じ配色・しきい値から段階ラベル付きの凡例を組み立てる。
  * 段階ラベル（bandLabels）は要素数が段階数と一致する間だけ数値レンジの前に添える
  * （不一致な保存データへの防御）。末尾の「データなし」は値を受け取れなかった道路の受け皿で、

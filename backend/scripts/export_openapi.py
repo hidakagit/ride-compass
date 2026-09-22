@@ -49,6 +49,7 @@ from app.domain.map_display import (  # noqa: E402
     MAP_LAYER_CATEGORIES,
     MAP_LAYER_IDS,
     MAP_LAYER_KINDS,
+    WEATHER_LAYER_GROUPS,
     ROUTE_ARROW_HALO_SCALE,
     ROUTE_ARROW_SIZE_BY_ZOOM,
     ROUTE_ARROW_SPACING_PX,
@@ -267,6 +268,8 @@ def main() -> None:
             "layerDataNatures": list(MAP_LAYER_DATA_NATURES),
             "layerIds": list(MAP_LAYER_IDS),
             "layerKinds": list(MAP_LAYER_KINDS),
+            # 動的気象のチップ（1つが複数の名前付きソースを束ねる）。画面が写しを持たない。
+            "weatherLayerGroups": list(WEATHER_LAYER_GROUPS),
             # 方位の呼び名。**画面が写しを持たない**——丸め規則が違うと境界で
             # ラベルが食い違うため、並びは1箇所（domain/geo.py）だけが持つ。
             "compassLabels": list(COMPASS_LABELS),

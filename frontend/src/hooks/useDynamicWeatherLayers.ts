@@ -143,9 +143,8 @@ export function useDynamicWeatherLayers({
   const showPrecipitationNowcast = visibility.precipitationNowcast;
   // 災害チップ（雷・竜巻・落雷・キキクル等をまとめた1グループ）。
   const showDisaster = visibility.disaster;
-  // 動的気象レイヤーが指す対象時刻（T183再設計）。ONの全レイヤーのフレーム時刻を統合した
-  // 1本のタイムライン（下記timeline）上の1点で、各レイヤーはこの時刻に対応する自分の
-  // フレームを描画する。
+  // 動的気象レイヤーが指す対象時刻。各レイヤーはこの1点に対応する自分のフレームを
+  // 描画する（刻みはレイヤーごとに違ってよい——降水ナウキャストは5分、格子予報は1時間）。
   // 「今」は時間の経過とともに進む。止まったままだと、実況由来のフレーム列は先頭が
   // 前進するのに（jmaNowcastFrames.ts: trimToCurrentAndFuture）共有時刻だけが取り残され、
   // frameIndexForTimeが範囲外を返して降水・雷・竜巻・雷放電が黙って描画を止める。

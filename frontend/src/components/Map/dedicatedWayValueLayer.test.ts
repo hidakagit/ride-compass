@@ -4,9 +4,7 @@
 import { describe, expect, it } from "vitest";
 import {
   buildDedicatedWayValueColorExpression,
-  buildDedicatedWayValueOpacityExpression,
   dedicatedWayValueColorExpression,
-  dedicatedWayValueFeatureStateKey,
   dedicatedWayValueLegend,
   type DedicatedWayValueDisplay,
 } from "./dedicatedWayValueLayer";
@@ -34,12 +32,17 @@ const FLAT = "#16a34a";
 
 describe("dedicatedWayValueLayer", () => {
   describe("dedicatedWayValueColorExpression", () => {
-    it("feature-state未設定（null）はCOLOR_NO_DATAへ倒し、キーは軸idから機械的に導出する", () => {
+    it("feature-state未設定（null）はCOLOR_NO_DATAへ倒し、キーは軸ごとに別になる", () => {
       const expression = dedicatedWayValueColorExpression("wind", difficultyDisplay);
+
       expect(expression[0]).toBe("case");
-      expect(expression[1]).toEqual(["==", ["feature-state", dedicatedWayValueFeatureStateKey("wind")], null]);
+      expect(expression[1]).toEqual(["==", ["feature-state", expect.any(String)], null]);
       expect(expression[2]).toBe(COLOR_NO_DATA);
-      expect(dedicatedWayValueFeatureStateKey("wind")).not.toBe(dedicatedWayValueFeatureStateKey("gradient"));
+      // 同じソースへ複数の軸が値を載せるので、軸ごとに別のキーを読む必要がある。
+      // **キーの綴りは借りない**——式の中に現れる名前が軸で変わることだけを見る。
+      expect(JSON.stringify(expression[1])).not.toBe(
+        JSON.stringify(dedicatedWayValueColorExpression("gradient", difficultyDisplay)[1]),
+      );
     });
 
     it("段階数はboundaries.length+1（省略時は難易度の既定）", () => {
@@ -137,25 +140,6 @@ describe("dedicatedWayValueLayer", () => {
 
       const mismatch = dedicatedWayValueLegend({ ...difficultyDisplay, boundaries: [33, 66], bandLabels: ["a", "b"] });
       expect(mismatch[0].label).toBe("33未満");
-    });
-  });
-  describe("線の濃さ", () => {
-    // 地図全体の「薄い＝対象外、濃い＝分類あり」という読み方を
-    // このレイヤーにも効かせる。方位を指定すると値を示せない道が街区の半分近くを
-    // 占めうるため、濃いまま塗ると値のある道がそこへ埋もれる。
-    const value = ["feature-state", "gradientValue"];
-
-    it("値を受け取れなかった道は薄く、値を持つ道は濃く塗る", () => {
-      const expression = buildDedicatedWayValueOpacityExpression(value);
-
-      expect(expression).toEqual(["case", ["==", value, null], mapDisplay.road.unknownOpacity, mapDisplay.road.knownOpacity]);
-      expect(mapDisplay.road.unknownOpacity).toBeLessThan(mapDisplay.road.knownOpacity);
-    });
-
-    it("取得中は薄くしない（「取得中」と「対象外」が見分けられなくなるため）", () => {
-      const expression = buildDedicatedWayValueOpacityExpression(value, true);
-
-      expect(expression).toEqual(["case", ["==", value, null], mapDisplay.road.knownOpacity, mapDisplay.road.knownOpacity]);
     });
   });
 });

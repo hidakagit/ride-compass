@@ -74,6 +74,11 @@ export const mapDisplay = {
     "static",
     "dynamic"
   ],
+  "weatherLayerGroups": [
+    "precipitationNowcast",
+    "windVector",
+    "disaster"
+  ],
   "compassLabels": [
     "北",
     "北東",

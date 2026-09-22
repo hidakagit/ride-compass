@@ -4,7 +4,6 @@ import { describe, expect, it } from "vitest";
 import {
   buildJmaTileIndexLookup,
   isKnownEmptyTile,
-  parseJmaTileUrl,
   type JmaTileIndexResponse,
 } from "@/components/Map/jmaTileIndex";
 
@@ -32,27 +31,38 @@ function response(overrides: Partial<JmaTileIndexResponse> = {}): JmaTileIndexRe
 const tileUrl = (element: string, z: number, x: number, y: number, basetime = BT) =>
   `${BASE}/${basetime}/immed0/${basetime}/surf/${element}/${z}/${x}/${y}.png`;
 
-describe("parseJmaTileUrl", () => {
-  it("要素id・basetime・タイル座標を取り出す", () => {
-    expect(parseJmaTileUrl(tileUrl("rain_mesh", 10, 909, 403))).toEqual({
-      element: "rain_mesh",
-      basetime: BT,
-      z: 10,
-      x: 909,
-      y: 403,
-    });
+// URLの解釈は`isKnownEmptyTile`の途中段階で、外へ口を持たない。要素id・basetime・
+// 座標のどれを取り違えても「取りに行くかどうか」が変わるので、入口から確かめられる。
+describe("タイルURLの読み取り", () => {
+  /** インデックスに載っていない座標＝「空と分かっている」。載っていれば取りに行く。 */
+  const knownEmpty = (url: string, overrides: Partial<JmaTileIndexResponse> = {}) =>
+    isKnownEmptyTile(buildJmaTileIndexLookup(response(overrides)), url);
+
+  it("要素id・basetime・タイル座標をすべて読む", () => {
+    // 中身のある(909,403)は取りに行く。同じ要素・同じ世代でも載っていない座標は空。
+    expect(knownEmpty(tileUrl("rain_mesh", 10, 909, 403))).toBe(false);
+    expect(knownEmpty(tileUrl("rain_mesh", 10, 910, 403))).toBe(true);
+    // 要素が違えば判定の対象外（取りに行く）。
+    expect(knownEmpty(tileUrl("flood", 10, 910, 403))).toBe(false);
+    // 世代が違えば判定の対象外（古い版で判定し続けない）。
+    expect(knownEmpty(tileUrl("rain_mesh", 10, 910, 403, "20260907030000"))).toBe(false);
   });
 
   it("ベクタタイル（.pbf）も解釈する", () => {
-    expect(parseJmaTileUrl(`${BASE}/${BT}/immed0/${BT}/surf/flood/10/909/403.pbf`)?.element).toBe("flood");
+    const floodIndex = {
+      elements: { flood: { basetime: BT, validtime: BT, member: "immed0", zooms: { "10": [[909, 403]] } } },
+    };
+
+    expect(knownEmpty(`${BASE}/${BT}/immed0/${BT}/surf/flood/10/909/403.pbf`, floodIndex)).toBe(false);
+    expect(knownEmpty(`${BASE}/${BT}/immed0/${BT}/surf/flood/10/910/403.pbf`, floodIndex)).toBe(true);
   });
 
   it.each([
     "https://example.test/api/jma-tile/bosai/jmatile/data/risk/targetTimes.json",
     "https://example.test/api/region/road-surface-tiles/14/14551/6447.pbf",
     "https://example.test/api/jma-tile/bosai/jmatile/data/nowc/20260907/none/20260907/surf/liden/data.geojson?id=liden",
-  ])("タイル以外は解釈しない: %s", (url) => {
-    expect(parseJmaTileUrl(url)).toBeNull();
+  ])("タイル以外は解釈せず、間引きの対象にしない: %s", (url) => {
+    expect(knownEmpty(url)).toBe(false);
   });
 });
 
