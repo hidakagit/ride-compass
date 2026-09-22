@@ -61,7 +61,7 @@ class TestGoingUpstream:
     async def test_a_first_look_asks_upstream_and_returns_what_came_back(self):
         fetch = _Fetch(VALUE_A)
 
-        result = await cached_fetch(_cache(), KEY_A, CATEGORY_A, fetch)
+        result = await cached_fetch(CATEGORY_A, fetch, cache=_cache(), key=KEY_A)
 
         assert result == VALUE_A
         assert fetch.calls == 1
@@ -72,28 +72,30 @@ class TestGoingUpstream:
         cache = _cache()
         fetch = _Fetch(VALUE_A, VALUE_B)
 
-        first = await cached_fetch(cache, KEY_A, CATEGORY_A, fetch)
-        second = await cached_fetch(cache, KEY_A, CATEGORY_A, fetch)
+        first = await cached_fetch(CATEGORY_A, fetch, cache=cache, key=KEY_A)
+        second = await cached_fetch(CATEGORY_A, fetch, cache=cache, key=KEY_A)
 
         assert (first, second) == (VALUE_A, VALUE_A)
         assert fetch.calls == 1
         assert _stats()["cache_hits"] == 1
 
-    async def test_an_answer_of_nothing_is_asked_for_again_every_time(self):
-        """空の応答は「まだ引いていない」と見分けが付かないため、TTLの間も毎回上流へ行く。"""
+    async def test_an_answer_of_nothing_is_remembered_like_any_other(self):
+        """該当なしを覚えないと、市区町村の定まらない出発地点が毎リクエスト上流を叩く。"""
         cache = _cache()
         fetch = _Fetch(None)
 
-        await cached_fetch(cache, KEY_A, CATEGORY_A, fetch)
-        await cached_fetch(cache, KEY_A, CATEGORY_A, fetch)
+        await cached_fetch(CATEGORY_A, fetch, cache=cache, key=KEY_A)
+        await cached_fetch(CATEGORY_A, fetch, cache=cache, key=KEY_A)
 
-        assert fetch.calls == 2
+        assert fetch.calls == 1
 
 
 class TestWhenTheUpstreamFails:
     async def test_a_failure_the_caller_listed_becomes_no_value(self):
         """例外をそのまま通すと、天候のような補助的なデータ1本の不調でリクエストが500になる。"""
-        result = await cached_fetch(_cache(), KEY_A, CATEGORY_A, _Fetch(httpx.RequestError("boom")))
+        result = await cached_fetch(
+            CATEGORY_A, _Fetch(httpx.RequestError("boom")), cache=_cache(), key=KEY_A
+        )
 
         assert result is None
         assert _stats()["errors"] == 1
@@ -103,19 +105,23 @@ class TestWhenTheUpstreamFails:
         cache = _cache()
         fetch = _Fetch(httpx.RequestError("boom"), VALUE_A)
 
-        failed = await cached_fetch(cache, KEY_A, CATEGORY_A, fetch)
-        recovered = await cached_fetch(cache, KEY_A, CATEGORY_A, fetch)
+        failed = await cached_fetch(CATEGORY_A, fetch, cache=cache, key=KEY_A)
+        recovered = await cached_fetch(CATEGORY_A, fetch, cache=cache, key=KEY_A)
 
         assert (failed, recovered) == (None, VALUE_A)
 
     async def test_a_failure_the_caller_did_not_list_reaches_the_caller(self):
         """何でもNoneへ倒すと、呼び出し側が「データが無い」と「壊れている」を区別できない。"""
         with pytest.raises(RuntimeError):
-            await cached_fetch(_cache(), KEY_A, CATEGORY_A, _Fetch(RuntimeError("boom")), catch=(KeyError,))
+            await cached_fetch(
+                CATEGORY_A, _Fetch(RuntimeError("boom")), cache=_cache(), key=KEY_A, catch=(KeyError,)
+            )
 
     async def test_the_details_the_caller_passed_in_are_in_the_warning(self, caplog):
         """どの地点・どのパスの取得が落ちたのかが無いと、運用側は再現できない。"""
-        await cached_fetch(_cache(), KEY_A, CATEGORY_A, _Fetch(httpx.RequestError("boom")), point="point_a")
+        await cached_fetch(
+            CATEGORY_A, _Fetch(httpx.RequestError("boom")), cache=_cache(), key=KEY_A, point="point_a"
+        )
 
         assert "point_a" in caplog.text
 
@@ -124,13 +130,19 @@ class TestAnAnswerOfTheWrongShape:
     async def test_it_becomes_no_value_even_when_the_caller_did_not_list_it(self):
         """形の検査は`fetch`の中で行うため、`catch`を絞った呼び出し側でも握る先が要る。"""
         result = await cached_fetch(
-            _cache(), KEY_A, CATEGORY_A, _Fetch(UnexpectedShapeError("shape")), catch=(httpx.HTTPError,)
+            CATEGORY_A,
+            _Fetch(UnexpectedShapeError("shape")),
+            cache=_cache(),
+            key=KEY_A,
+            catch=(httpx.HTTPError,),
         )
 
         assert result is None
 
     async def test_it_is_counted_under_a_label_of_its_own(self):
         """通信の失敗と同じ札にすると、上流の形が変わったことに集計だけでは気づけない。"""
-        await cached_fetch(_cache(), KEY_A, CATEGORY_A, _Fetch(UnexpectedShapeError("shape")))
+        await cached_fetch(
+            CATEGORY_A, _Fetch(UnexpectedShapeError("shape")), cache=_cache(), key=KEY_A
+        )
 
         assert _stats()["error_types"] == {"unexpected_shape": 1}

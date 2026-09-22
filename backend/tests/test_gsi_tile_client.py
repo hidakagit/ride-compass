@@ -8,7 +8,7 @@
 
 **上流もディスクも触らない。** HTTPは`fake_tile_http.py`のフェイク、`tile_cache`は読み書きを
 覚えるだけの差し替えを与える。記録された結果は`/api/debug/stats`が読む集計を通して確かめる。
-区域外の記憶はプロセス大域のため、各テストの前後で空にする。
+区域外の記憶は呼び出し側が持つため、テストごとに新しい入れ物を渡す。
 """
 
 import threading
@@ -17,7 +17,14 @@ import httpx
 import pytest
 
 from app.infrastructure import debug_log, gsi_tile_client
-from app.infrastructure.gsi_tile_client import GSI_TILE_NOT_FOUND, UPSTREAM_HOST, GsiTileClient
+from cachetools import LRUCache
+
+from app.infrastructure.gsi_tile_client import (
+    GSI_TILE_NOT_FOUND,
+    NOT_FOUND_MAX_ENTRIES,
+    UPSTREAM_HOST,
+    GsiTileClient,
+)
 from tests.fake_tile_http import FakeHttpClient
 
 CATEGORY = "gsi-relief-tile"
@@ -48,14 +55,13 @@ def store(monkeypatch):
     monkeypatch.setattr(gsi_tile_client.tile_cache, "get", fake.get)
     monkeypatch.setattr(gsi_tile_client.tile_cache, "set", fake.set)
     debug_log.reset_stats()
-    gsi_tile_client._not_found_paths.clear()
     yield fake
     debug_log.reset_stats()
-    gsi_tile_client._not_found_paths.clear()
 
 
-def _client(http_client) -> GsiTileClient:
-    return GsiTileClient(http_client)
+def _client(http_client, not_found_paths: LRUCache | None = None) -> GsiTileClient:
+    """記憶の入れ物はテストごとに新しく作る（テスト間で漏れる大域を持たない）。"""
+    return GsiTileClient(http_client, not_found_paths or LRUCache(maxsize=NOT_FOUND_MAX_ENTRIES))
 
 
 def _upstream(content: bytes = TILE_A, content_type: str = TILE_TYPE, raises=None) -> FakeHttpClient:

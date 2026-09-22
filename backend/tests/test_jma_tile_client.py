@@ -51,15 +51,6 @@ def _status_error(status_code: int) -> httpx.HTTPStatusError:
     return httpx.HTTPStatusError("upstream", request=request, response=httpx.Response(status_code, request=request))
 
 
-class _HeaderlessHttpClient(FakeHttpClient):
-    """Content-Typeを返さない上流。"""
-
-    async def get(self, url):
-        response = await super().get(url)
-        response.headers = {}
-        return response
-
-
 def test_target_times_are_told_apart_by_the_file_name():
     """取り違えると、同じURLのまま更新される時刻一覧がタイルと同じ寿命で居座り、
     地図が古い時刻を指し続ける。"""
@@ -98,7 +89,7 @@ async def test_fetch_asks_the_jma_host_for_the_given_path():
 
 
 async def test_response_without_a_content_type_falls_back_to_a_generic_one():
-    result = await JmaTileClient(_HeaderlessHttpClient(b"tile", "image/png")).fetch(TILE_PATH)
+    result = await JmaTileClient(FakeHttpClient(b"tile", None)).fetch(TILE_PATH)
     assert result == (b"tile", "application/octet-stream")
 
 

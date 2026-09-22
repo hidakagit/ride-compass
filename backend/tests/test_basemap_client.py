@@ -144,18 +144,10 @@ class TestStyleDocuments:
         assert f'"{PROXY_B}/sprites/s"'.encode() in content
         assert http_client.requested_urls == []
 
-    async def test_a_rewritten_copy_left_under_the_plain_key_is_not_served(self, store):
-        """世代の違う書き換え済みのJSONを拾うと、宛先を変えた後も古いURLが配られる。"""
-        store.entries[STYLE_PATH] = (b'{"sprite": "http://proxy_old/sprites/s"}', JSON_TYPE)
-        http_client = _upstream(STYLE_JSON, JSON_TYPE)
-
-        content, _ = await _client(http_client).get(STYLE_PATH)
-
-        assert f'"{PROXY_A}/sprites/s"'.encode() in content
-        assert http_client.requested_urls == [f"{UPSTREAM_HOST}/{STYLE_PATH}"]
-
     async def test_the_plain_key_is_left_alone(self, store):
-        """書き換え済みの姿をそのキーへ置くと、上の判定が自分で置いたものを拾い続ける。"""
+        """素の鍵は書き換えずにそのまま返すため、JSONをそこへ置くと宛先を変えても
+        古いURLが配られ続ける。JSONは必ず接頭辞つきの鍵へ書く。
+        """
         await _client(_upstream(STYLE_JSON, JSON_TYPE)).get(STYLE_PATH)
 
         assert STYLE_PATH not in store.entries
