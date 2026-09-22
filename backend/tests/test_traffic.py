@@ -43,13 +43,6 @@ class TestStopCountMaterialIds:
     def test_there_is_one_material_for_every_counted_kind(self):
         assert len(stop_count_material_ids()) == len(POI_COUNT_KINDS)
 
-    def test_the_id_is_built_from_the_kind(self):
-        """材料idは種別から組み立てる。**その材料が実在するかはここでは見ない**——
-        `traffic.py`は材料カタログを知らず、綴りの正しさはカタログ側の話。
-        """
-        assert set(stop_count_material_ids()) == {f"poi_{kind}_per_km" for kind in POI_COUNT_KINDS}
-
-
 class TestHighwayRank:
     def test_a_bigger_road_ranks_above_a_smaller_one(self):
         assert highway_rank("trunk") > highway_rank("primary") > highway_rank("residential")

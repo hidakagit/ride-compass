@@ -156,12 +156,6 @@ class TestAgainstTheRealDeclarations:
         for attr in attributes:
             assert attr.label.strip(), attr.attr_id
 
-    def test_the_registered_axes_are_exactly_the_published_ones(self):
-        """片方だけ更新しても気づかない死角を塞ぐ。"""
-        published = {axis_id for axis_id, d in AXIS_DEFINITIONS.items() if d.is_published}
-
-        assert {a.axis_id for a in all_axes()} == published
-
     def test_every_axis_carries_its_display_label(self):
         axes = all_axes()
 

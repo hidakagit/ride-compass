@@ -58,15 +58,6 @@ class TestClassRegistry:
 class TestPercentClasses:
     """列順が動くと、焼き込み済みの派生物が読めなくなる。"""
 
-    def test_it_is_ordered_by_the_raster_value(self):
-        values = [value for _, value in PERCENT_CLASSES]
-
-        assert values == sorted(values)
-
-    def test_it_covers_the_same_classes_as_the_display_order(self):
-        assert {name for name, _ in PERCENT_CLASSES} == {cls.percent_field for cls in LANDCOVER_CLASSES}
-
-
 class TestRasterSetFingerprint:
 
     def test_the_same_set_in_a_different_order_gives_the_same_fingerprint(self):

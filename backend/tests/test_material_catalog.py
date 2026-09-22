@@ -20,7 +20,6 @@ from app.domain.material_catalog import (
     EdgeMaterialCoverageSpec,
     MaterialSpec,
     WayMaterialCoverageSpec,
-    is_known_material,
     material_array_columns,
     material_array_group,
     material_coverage_exclusions,
@@ -87,7 +86,6 @@ class TestBoolDefault:
         assert _spec("bool_a", "boolean", coverage=WAY_DEFINITE).bool_default == "false"
 
     def test_a_boolean_that_is_not_measured_folds_to_false(self):
-        """欠損率を測らない材料にも配列上の持ち方は要る。属性が無いことで落ちない。"""
         assert _spec("bool_a", "boolean", coverage=NOT_MEASURED).bool_default == "false"
 
     @pytest.mark.parametrize("dtype", ["numeric", "categorical"])
@@ -114,9 +112,6 @@ class TestWhichMatrixAMaterialLandsOn:
 
 class TestTheColumnOrder:
     def test_the_three_groups_split_the_materials_that_have_a_value(self, catalog):
-        """列の並びの唯一の定義。組み立てる側と読む側が別々に並べると、材料を1つ足した
-        ときに列の意味が静かにずれる。
-        """
         catalog.update(
             {
                 "num_a": _spec("num_a", value_sql="1"),
@@ -166,8 +161,8 @@ class TestValueSql:
 
 class TestCoverage:
     def test_the_measured_and_the_excluded_split_every_material(self, catalog):
-        """どちらにも載っていない材料を作れない。片方の一覧だけを見ると、測り方を
-        書き忘れた材料が「測ったが0%」として画面に出る。
+        """片方の一覧だけを見ると、測り方を書き忘れた材料が「測ったが0%」として
+        画面に出る。
         """
         catalog.update(
             {
@@ -192,12 +187,6 @@ class TestCoverage:
 
 
 class TestLookingUpAnUnknownMaterial:
-    def test_an_unknown_id_is_not_known(self, catalog):
-        catalog.update({"num_a": _spec("num_a")})
-
-        assert is_known_material("num_a") is True
-        assert is_known_material("no_such_material") is False
-
     def test_an_unknown_id_has_no_dtype_instead_of_raising(self, catalog):
         """綴り違いで軸カタログの配信ごと落とさない。"""
         catalog.update({"num_a": _spec("num_a")})

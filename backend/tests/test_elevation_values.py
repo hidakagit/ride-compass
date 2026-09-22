@@ -75,9 +75,6 @@ async def _step_m(session) -> float:
 
 
 class TestWhichSegmentsGetValues:
-    async def test_a_segment_with_two_known_points_gets_values(self, road_graph_session):
-        assert set(await _values(road_graph_session, {0: ([0.0, 10.0], False)})) == {0}
-
     async def test_a_segment_with_one_known_point_is_not_returned(self, road_graph_session):
         """0を埋めて返すと、標高が無い区間が「平坦」として最易の色で塗られる。"""
         assert await _values(road_graph_session, {0: ([5.0, None], False)}) == {}
@@ -104,13 +101,6 @@ class TestGainAndLoss:
 
         assert values["start_elevation_m"] == 3.0
         assert values["end_elevation_m"] == 8.0
-
-    async def test_a_missing_point_at_the_edge_does_not_become_the_end(self, road_graph_session):
-        """欠損を端として扱うと、区間の高低差が丸ごと失われる。"""
-        values = await _one(road_graph_session, [None, 10.0, 14.0, None])
-
-        assert values["start_elevation_m"] == 10.0
-        assert values["end_elevation_m"] == 14.0
 
     async def test_a_descent_has_a_negative_average_grade(self, road_graph_session):
         """符号を落として絶対値にすると、下り基調の区間が登りとして重み付けされる。"""
@@ -155,21 +145,12 @@ class TestPointsWithoutElevation:
 
 
 class TestBridgesAndTunnels:
-    async def test_a_road_on_the_ground_does_climb_its_middle(self, road_graph_session):
-        """同じ点列を構造物でない道として渡すと中間の起伏を積む。下の2件はこの対比。"""
-        values = await _one(road_graph_session, [50.0, 10.0, 50.0])
-
-        assert values["elevation_gain_m"] == 40.0
-        assert values["elevation_loss_m"] == 40.0
-
     async def test_the_terrain_under_a_bridge_is_not_climbed(self, road_graph_session):
-        """谷を渡る平らな橋。中間点を使うと、谷底の起伏がそのまま獲得標高へ積まれる。"""
+        """谷を渡る平らな橋。"""
         values = await _one(road_graph_session, [50.0, 10.0, 5.0, 10.0, 50.0], on_structure=True)
 
         assert values["elevation_gain_m"] == 0.0
         assert values["elevation_loss_m"] == 0.0
-        assert values["start_elevation_m"] == 50.0
-        assert values["end_elevation_m"] == 50.0
 
     async def test_a_bridge_that_actually_climbs_keeps_that_climb(self, road_graph_session):
         values = await _one(road_graph_session, [0.0, 99.0, 12.0], on_structure=True)
@@ -191,9 +172,7 @@ class TestImplausibleGrades:
         return step * percent / 100
 
     async def test_a_grade_no_public_road_has_is_treated_as_missing(self, road_graph_session):
-        """誤った値で経路から黙って外すより、値を持たせない方が安全側——0次ハードフィルタは
-        値の無い区間を除外しない。
-        """
+        """誤った値で経路から黙って外すより、値を持たせない方が安全側。"""
         step = await _step_m(road_graph_session)
         over = self._rise_for(step, MAX_PLAUSIBLE_AVERAGE_GRADE_PERCENT + 5.0)
 

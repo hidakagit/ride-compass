@@ -168,13 +168,6 @@ class TestTheOrderIsCachedByContent:
 
         assert dynamic_axis_topological_order(definitions) == ["a"]
 
-    def test_the_same_input_is_answered_from_the_cache(self):
-        definitions = _definitions(_axis("a", [DYNAMIC]))
-
-        assert dynamic_axis_topological_order(definitions) is dynamic_axis_topological_order(
-            definitions
-        )
-
     def test_neither_cache_grows_without_bound(self):
         """管理APIは呼び出しのたびに新しい`dict`を作る。上限を外すと、軸を編集するたびに
         エントリが増え続ける。

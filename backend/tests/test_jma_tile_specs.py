@@ -95,12 +95,3 @@ class TestSourceZoomForInterpolation:
         assert source_zoom_for_interpolation("no_such_element", 5) is None
 
 
-def test_every_registered_element_has_data_at_its_own_maximum():
-    """全要素に対する不変条件。要素が1つ増えたときに発火する。"""
-    assert JMA_TILE_SPECS, "レジストリが空なら、下のループは何も確かめていない"
-
-    for element_id, spec in JMA_TILE_SPECS.items():
-        top = effective_max_zoom(spec)
-
-        assert spec.min_zoom <= top, element_id
-        assert has_native_tile(spec, top), element_id

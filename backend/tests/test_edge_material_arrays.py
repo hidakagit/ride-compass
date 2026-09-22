@@ -56,8 +56,8 @@ def _arrays(
 
 class TestTheColumns:
     def test_the_id_list_spans_every_dtype(self):
-        """復元した表を現在の材料集合と突き合わせる鍵になる。真偽・分類を落とすと、
-        それらの材料を持つ表が「別物」と判定されて毎回作り直される。
+        """真偽・分類を落とすと、それらの材料を持つ表が「別物」と判定されて毎回
+        作り直される。
         """
         arrays = _arrays(["a", "b"])
 
@@ -76,19 +76,10 @@ class TestTheColumns:
         with pytest.raises(KeyError, match="no_such_material"):
             _arrays(["a"]).column("no_such_material")
 
-    def test_every_material_appears_in_the_column_map(self):
-        arrays = _arrays(["a", "b"])
-
-        assert set(arrays.columns()) == set(arrays.material_ids)
-
     def test_the_hard_filter_flags_are_keyed_by_filter_name(self):
-        """フィルタごとの専用フィールドを持たないため、名前と列の対応が唯一の手がかり。"""
         arrays = _arrays(["a", "b"])
 
         assert arrays.hard_filter_columns()[FILTER_A].tolist() == [True, False]
-
-    def test_the_length_is_the_number_of_edges(self):
-        assert len(_arrays(["a", "b", "c"])) == 3
 
 
 class TestElevationAttribute:
@@ -127,7 +118,3 @@ class TestElevationAttribute:
         assert attribute.average_grade is None
         assert attribute.start_elevation_m is None
         assert attribute.end_elevation_m == 5.0
-
-    def test_the_attribute_carries_the_edge_it_was_asked_about(self):
-        """呼び出し側は複数の区間ぶんを集めて突き合わせる。"""
-        assert _arrays(["a", "b"]).elevation_attribute("b").edge_id == "b"

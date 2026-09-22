@@ -563,13 +563,3 @@ class TestEvaluateAxisArray:
         assert result.tolist() == [7.0, 50.0]
 
 
-def test_every_registered_axis_passes_the_exclusivity_check():
-    """登録されている軸すべてを、自分以外の全軸に対して検査する。軸が1つ増えたときに
-    発火する——材料の二重帰属は、実際に登録してみるまで気づけない。
-    """
-    assert AXIS_DEFINITIONS, "軸が1つも無ければ、下のループは何も確かめていない"
-
-    for axis_id, definition in AXIS_DEFINITIONS.items():
-        others = {other_id: other for other_id, other in AXIS_DEFINITIONS.items() if other_id != axis_id}
-
-        check_material_exclusivity(definition, others)

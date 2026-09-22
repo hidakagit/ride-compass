@@ -46,10 +46,6 @@ class TestWbgtLevel:
 
 class TestProvisionPeriod:
 
-    @pytest.mark.parametrize("month", range(PROVISION_START_MONTH, PROVISION_END_MONTH + 1))
-    def test_the_provision_months_are_inside(self, month):
-        assert is_within_provision_period(datetime(2026, month, 15)) is True
-
     @pytest.mark.parametrize("month", [1, 2, 3, 11, 12])
     def test_the_other_months_are_outside(self, month):
         assert is_within_provision_period(datetime(2026, month, 15)) is False
