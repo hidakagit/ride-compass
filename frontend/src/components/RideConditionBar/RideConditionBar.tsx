@@ -32,7 +32,8 @@ interface RideConditionBarProps {
 // 風の抵抗）と気象レイヤーの表示時刻の両方が参照する共有stateのため、ルート設定フォームでは
 // なく地図上に常時置き、アイコンをタップしてその場で変えられるようにする。TravelBearingControl
 // と同じアイコンボタンの見た目（29px四方）に揃え、値そのものはポップオーバーを開くまで
-// 表示しない（page.tsx: .rideConditionColumnがTravelBearingControlの直下へ積む）。
+// 画面に出さない。現在値は読み上げ（aria-label）とホバー（title）の両方に同じ語で載せる
+// （page.tsx: .rideConditionColumnがTravelBearingControlの直下へ積む）。
 export default function RideConditionBar({
   departureTime,
   onDepartureTimeChange,
@@ -64,7 +65,12 @@ export default function RideConditionBar({
     <div className={styles.bar} role="group" aria-label="走行条件">
       <Popover.Root onOpenChange={(open) => setDepartureAnchor(open ? new Date() : null)}>
         <Popover.Trigger asChild>
-          <button type="button" className={styles.trigger} aria-label={`出発時刻: ${departureLabel}（タップで変更）`}>
+          <button
+            type="button"
+            className={styles.trigger}
+            aria-label={`出発時刻: ${departureLabel}（タップで変更）`}
+            title={`出発時刻: ${departureLabel}`}
+          >
             <ClockIcon size={TRIGGER_ICON_SIZE_PX} />
           </button>
         </Popover.Trigger>
@@ -109,7 +115,12 @@ export default function RideConditionBar({
 
       <Popover.Root onOpenChange={(open) => !open && commitSpeedDraft()}>
         <Popover.Trigger asChild>
-          <button type="button" className={styles.trigger} aria-label={`想定速度: ${speedKmh} km/h（タップで変更）`}>
+          <button
+            type="button"
+            className={styles.trigger}
+            aria-label={`想定速度: ${speedKmh} km/h（タップで変更）`}
+            title={`想定速度: ${speedKmh} km/h`}
+          >
             <SpeedGaugeIcon size={TRIGGER_ICON_SIZE_PX} />
           </button>
         </Popover.Trigger>

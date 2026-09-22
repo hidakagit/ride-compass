@@ -719,12 +719,13 @@ describe("Home（app/page.tsx） handleGenerateハンドラ", () => {
     latestLocationSetter = null;
   });
 
-  // 「条件」タブの入力値（周回/目的地・距離・候補数）は次に開いたときも引き継ぐ
+  // 「条件」タブの入力値（周回/目的地・距離・候補数）と想定速度は次に開いたときも引き継ぐ
   // （毎回直す手間がそのまま毎回かかっていた）。保存値が範囲外・壊れているときは既定値のまま。
-  it("保存された距離・候補数が生成リクエストへ反映される", async () => {
+  it("保存された距離・候補数・想定速度が生成リクエストへ反映される", async () => {
     const user = userEvent.setup();
     window.localStorage.setItem("ridecompass:distance-km", "55");
     window.localStorage.setItem("ridecompass:max-routes", "3");
+    window.localStorage.setItem("ridecompass:assumed-speed-kmh", "27");
     vi.mocked(generateRoutes).mockResolvedValueOnce({
       routes: [makeCandidate()],
       conditions: makeConditions(),
@@ -736,7 +737,7 @@ describe("Home（app/page.tsx） handleGenerateハンドラ", () => {
 
     await waitFor(() => {
       expect(generateRoutes).toHaveBeenCalledWith(
-        expect.objectContaining({ distance_km: 55, max_routes: 3 }),
+        expect.objectContaining({ distance_km: 55, max_routes: 3, assumed_speed_kmh: 27 }),
         expect.anything(),
       );
     });
@@ -746,6 +747,7 @@ describe("Home（app/page.tsx） handleGenerateハンドラ", () => {
     const user = userEvent.setup();
     window.localStorage.setItem("ridecompass:distance-km", "9999");
     window.localStorage.setItem("ridecompass:max-routes", "0");
+    window.localStorage.setItem("ridecompass:assumed-speed-kmh", "999");
     vi.mocked(generateRoutes).mockResolvedValueOnce({
       routes: [makeCandidate()],
       conditions: makeConditions(),
@@ -757,7 +759,7 @@ describe("Home（app/page.tsx） handleGenerateハンドラ", () => {
 
     await waitFor(() => {
       expect(generateRoutes).toHaveBeenCalledWith(
-        expect.objectContaining({ distance_km: 30, max_routes: 8 }),
+        expect.objectContaining({ distance_km: 30, max_routes: 8, assumed_speed_kmh: 20 }),
         expect.anything(),
       );
     });

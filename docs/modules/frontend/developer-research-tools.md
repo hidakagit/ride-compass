@@ -72,7 +72,7 @@ ONにすると`page.tsx`側の`handleGenerate`が生成した結果が実験ス�
 `experimentSlots`、最大3件）へ記録され、比較タブ（`ComparisonPanel`、ルート結果の
 タブ列で候補タブ群の末尾に並ぶ。researchEnabledの間だけ現れる）・地図の重ね描き
 （`MapView`の`experimentSlots` prop）に使えるように
-なる——いずれも一般公開ページの機能として認証なしで直接利用できる（気軽に試せる比較
+なり、選んだ区間の詳細へ材料の生値（`material_values`）も並ぶ——いずれも一般公開ページの機能として認証なしで直接利用できる（気軽に試せる比較
 機能という位置づけ）。評価軸の重み（`route_preference`）自体は一般向けルート設定画面
 （`RouteSettingsPanel`）が常時編集する状態で、研究モードON/OFFとは独立している。
 

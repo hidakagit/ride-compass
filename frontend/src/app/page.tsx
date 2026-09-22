@@ -179,6 +179,9 @@ const HARD_FILTERS_STORAGE_KEY = "ridecompass:hard-filters";
 const ROUTE_MODE_STORAGE_KEY = "ridecompass:route-mode";
 const DISTANCE_STORAGE_KEY = "ridecompass:distance-km";
 const MAX_ROUTES_STORAGE_KEY = "ridecompass:max-routes";
+// 走行条件（地図上のRideConditionBar）のうち想定速度だけを持つ。巡航速度は利用者固有の
+// 安定した値だが、出発時刻・走行方位は行くたびに変わる。
+const ASSUMED_SPEED_STORAGE_KEY = "ridecompass:assumed-speed-kmh";
 
 // 地図チップ・サイドバーからON/OFFできるレイヤーの既定値。記述子の`defaultOn`から導く
 // （レイヤーを足してもここは変わらない。既定ONにするかはレイヤーの性質の側で宣言する）。
@@ -433,10 +436,23 @@ export default function Home() {
     destinationSet: destination !== null,
     onGenerate: handleGenerate,
   });
-  // 仮定巡航速度（backend: RouteGenerateRequest.assumed_speed_kmh、km/h）。距離と同じく
-  // string stateのまま保持し、送信時にNumber化する。区間の通過予定時刻（探索時の風の時刻
-  // 選択）・到達予想時刻の基準になるため全モードで送る。
-  const [assumedSpeedKmh, setAssumedSpeedKmh] = useState<number>(routeGenerateConfig.default_assumed_speed_kmh);
+  // 仮定巡航速度（backend: RouteGenerateRequest.assumed_speed_kmh、km/h）。区間の通過予定
+  // 時刻（探索時の風の時刻選択）・到達予想時刻の基準になるため全モードで送る。
+  const [assumedSpeedKmh, setAssumedSpeedKmh] = useStoredState<number>(
+    ASSUMED_SPEED_STORAGE_KEY,
+    routeGenerateConfig.default_assumed_speed_kmh,
+    {
+      serialize: String,
+      deserialize: (raw) => {
+        const parsed = Number(raw);
+        return Number.isInteger(parsed) &&
+          parsed >= routeGenerateConfig.min_assumed_speed_kmh &&
+          parsed <= routeGenerateConfig.max_assumed_speed_kmh
+          ? parsed
+          : null;
+      },
+    },
+  );
   // 表示中の候補を生成したときの条件スナップショット。重みは値の組をJSON文字列で比較する
   // （フィールド比較の列挙より差分検知の漏れが出にくい）。
   const [generatedConditions, setGeneratedConditions] = useState<{
@@ -1766,7 +1782,7 @@ export default function Home() {
     );
   }
 
-  // 「ルート設定」区分の中身（天候・アプリ名は常設ヘッダにある）。
+  // 「ルート設定」区分の中身（天候は常設ヘッダにある）。
   // デスクトップの`Disclosure`（summary="ルート設定"）・モバイルの`BottomSheet`
   // （title="ルート設定"）の両方から呼ぶ。見出しはどちらも呼び出し元コンテナが持つため、
   // このセクション自身は見出しを持たない。

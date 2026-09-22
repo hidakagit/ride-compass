@@ -136,6 +136,9 @@ describe("RideConditionBar", () => {
     await user.clear(input);
     await user.type(input, "80");
     await user.tab();
-    expect(screen.getByRole("button", { name: "想定速度: 60 km/h（タップで変更）" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "想定速度: 60 km/h（タップで変更）" })).toHaveAttribute(
+      "title",
+      "想定速度: 60 km/h",
+    );
   });
 });

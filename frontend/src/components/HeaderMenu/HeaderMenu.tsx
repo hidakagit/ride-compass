@@ -20,7 +20,7 @@ interface HeaderMenuProps {
 // 集約する（WarningBadgeListと同じ「常時1行のトリガー→タップで詳細」パターンを
 // Radix Popoverで踏襲）。
 //
-// 研究モードON/OFF（実験スロット記録・比較タブ・地図重ね描き）を、`/admin`を一切
+// 研究モードON/OFF（実験スロット記録・比較タブ・地図重ね描き・区間の材料値）を、`/admin`を一切
 // 経由せずここから直接切り替えられるようにする——`researchEnabled`フラグの実体は
 // 素のlocalStorageで、フラグ自体にサーバー側検証は無く、`/`（認証なし）の
 // DevToolsコンソールからも直接操作できる。「隠すべき機微な機能ではなく、気軽に
@@ -42,9 +42,9 @@ export default function HeaderMenu({ debugEnabled, debugConsoleOpen, onToggleDeb
             <Checkbox
               checked={researchEnabled}
               onCheckedChange={setResearchEnabled}
-              aria-label="研究モード[重み調整・実験スロット・比較]"
+              aria-label="研究モード[実験スロット・比較・材料値]"
             />
-            研究モード[重み調整・実験スロット・比較]
+            研究モード[実験スロット・比較・材料値]
           </label>
           {debugEnabled && (
             <button

@@ -74,8 +74,8 @@ stateは`page.tsx`の`useState`に集約し、子コンポーネントへはprop
 
 | 永続化 | 判断基準 | 代表例 |
 |---|---|---|
-| `localStorage` | 利用者が自分で決めた設定で、次に開いたときも同じであってほしいもの | 評価の設定（`routePreference`・`hardFilters`）、生成条件の入力（`routeMode`・距離・候補数）、レイヤー表示（`layerVisibility`・`lens`）、パネル開閉、下部シートの高さ |
-| なし | そのセッション限りの結果・場所の指定・地図の見え方 | 生成結果（`routes`・`selectedRouteId`）、目的地・経由地のピン、地図ビューポート、データ取得状態 |
+| `localStorage` | 利用者が自分で決めた設定で、次に開いたときも同じであってほしいもの | 評価の設定（`routePreference`・`hardFilters`）、生成条件の入力（`routeMode`・距離・候補数）、走行条件のうち想定速度、レイヤー表示（`layerVisibility`・`lens`）、パネル開閉、下部シートの高さ |
+| なし | そのセッション限りの結果・場所の指定・行くたびに変わる走行条件・地図の見え方 | 生成結果（`routes`・`selectedRouteId`）、目的地・経由地のピン、出発時刻・走行方位、地図ビューポート、データ取得状態 |
 
 地図のタップで地点を置けるのは、「ルート設定」の「条件」タブで役割を選んでいる間だけ
 （`pinPlacementArmedRole`）。役割ごとの武装フラグは持たず、`PinRole`1つで表す
