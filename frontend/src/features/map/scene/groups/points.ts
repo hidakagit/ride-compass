@@ -12,6 +12,7 @@
  * **タイルの世代が届くまでソースを作らない**。先に作ると、世代の違う中身がブラウザの
  * キャッシュへ載って以後ずっと残る。
  */
+import { mapDisplay } from "@/types/generated/mapDisplay";
 import palette from "@/types/generated/palette.json";
 import type { FilterSpecification } from "maplibre-gl";
 
@@ -21,14 +22,7 @@ import { COLOR_UNKNOWN } from "@/components/Map/axisLayers";
 
 import { declareGroup, type LegendRow, type SceneLayerEntry, type SceneSourceEntry } from "../mapSceneGroups";
 
-const RADIUS_PX = 4;
-/** 死亡事故だけは大きく出す（重大度は色ではなく大きさで示し、当事者の色と取り合わない）。 */
-const FATAL_RADIUS_PX = 6;
-const NON_FATAL_RADIUS_PX = 3;
-const STROKE_WIDTH_PX = 1;
-const STROKE_COLOR = palette.semantic.mark_stroke;
-const OPACITY = 0.9;
-const ACCIDENT_OPACITY = 0.75;
+const POINT = mapDisplay.point;
 
 /** 点で描くもの。**源泉が「点の幾何を持ち、表示の定義がある」と言ったものが出る。**
  * 軸・束ね方・行の名前・色・どのタイルに載るかは、すべて源泉が決める。 */
@@ -115,8 +109,8 @@ function layerFilter(layer: PointLayer, hiddenKeys: PointState["hiddenKeys"]): F
 /** 重大度の軸を持つ点だけ、大きさでも重大度を示す。 */
 function radiusExpression(layer: PointLayer): unknown {
   const severity = layer.display_axes.find((axis) => axis.key === "severity");
-  if (severity === undefined) return RADIUS_PX;
-  return ["case", ["==", ["get", severity.property], true], FATAL_RADIUS_PX, NON_FATAL_RADIUS_PX];
+  if (severity === undefined) return POINT.radiusPx;
+  return ["case", ["==", ["get", severity.property], true], POINT.fatalRadiusPx, POINT.nonFatalRadiusPx];
 }
 
 export const pointGroup = declareGroup<PointState>("point", (state) => {
@@ -147,9 +141,9 @@ export const pointGroup = declareGroup<PointState>("point", (state) => {
     paint: {
       "circle-color": colorExpression(layer),
       "circle-radius": radiusExpression(layer),
-      "circle-stroke-width": STROKE_WIDTH_PX,
-      "circle-stroke-color": STROKE_COLOR,
-      "circle-opacity": layer.tile_kind === "accident" ? ACCIDENT_OPACITY : OPACITY,
+      "circle-stroke-width": POINT.strokeWidthPx,
+      "circle-stroke-color": palette.semantic.mark_stroke,
+      "circle-opacity": layer.tile_kind === "accident" ? POINT.accidentOpacity : POINT.opacity,
     },
     visible: state.visible[layer.attr_id] === true,
     hitTargets: [POINT_HIT_TARGET, `${POINT_HIT_TARGET}:${layer.attr_id}`],

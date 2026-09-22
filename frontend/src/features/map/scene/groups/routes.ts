@@ -4,6 +4,7 @@
  * **重なりはこのファイルの宣言の並びだけが決める**（背面→前面）。押したときに拾う対象は
  * 見た目の線とは別の透明な線が持つ——見た目の太さと、指で押せる幅を別々に決めるため。
  */
+import { mapDisplay } from "@/types/generated/mapDisplay";
 import palette from "@/types/generated/palette.json";
 import type { ExpressionSpecification, FilterSpecification } from "maplibre-gl";
 import type { Feature, FeatureCollection, LineString } from "geojson";
@@ -15,43 +16,13 @@ import { zoomScaleExpression } from "../sceneBuilders";
 export type RoutePoint = readonly [number, number];
 export type RoutePath = readonly RoutePoint[];
 
-// 見た目の値。基礎地図の主要道路（暖色系）に溶け込まない寒色を参考線に、
-// 乗り換えと合成には候補線と競合しない暖色を使う。
-const CANDIDATE_COLOR = palette.semantic.route_candidate;
-const CANDIDATE_WIDTH_PX = 2.5;
-const SELECTED_HALO_COLOR = palette.semantic.route_selected_halo;
-const SELECTED_HALO_WIDTH_PX = 10;
-const SELECTED_HALO_OPACITY = 0.25;
-/** 縁取りは線の色にも背景にも依存しない一定の暗色——線と同系色の面が背景に来ても
- * 輪郭が残るようにする。 */
-const CASING_COLOR = palette.semantic.route_casing;
-const SPLICE_COLOR = palette.semantic.route_splice;
-const SPLICE_WIDTH_PX = 3;
-const SPLICE_SELECTED_WIDTH_PX = 5;
-const SPLICE_OPACITY = 0.85;
-const SPLICE_DASH: readonly number[] = [2, 1.5];
-const COMPOSITE_WIDTH_PX = 7;
-const COMPOSITE_CASING_WIDTH_PX = 11;
-const SLOT_WIDTH_PX = 4;
-const SLOT_CASING_WIDTH_PX = 7;
-const DETAIL_CASING_WIDTH_PX = 10;
-const DETAIL_WIDTH_PX = 6;
-/** 指の接地面。見た目の線がどれだけ細くても押せる幅にする。 */
+/** 見た目の値は源泉が配る（`backend/app/domain/map_display.py`）。ここは受け取って塗るだけ。 */
+const ROUTE = mapDisplay.route;
+
+/** 指の接地面。**見た目の線がどれだけ細くても押せる幅にする**ので、線の太さからは導けない
+ * ——媒体（指の大きさ）が決める値で、配信側は知らない。 */
 const HIT_WIDTH_PX = 24;
 const CANDIDATE_HIT_WIDTH_PX = 18;
-/** 矢印は本体を白・縁を濃色にする——区間の色分けはレンズのモードで変わるため、
- * 線と同系色になりうる有彩色を本体に使わない。 */
-const ARROW_COLOR = palette.semantic.route_arrow;
-const ARROW_HALO_COLOR = palette.semantic.route_arrow_halo;
-const ARROW_SPACING_PX = 80;
-const ARROW_HALO_SCALE = 1.5;
-/** 大きさはズームに追従させる——固定ピクセルだと、拡大するほど周囲の道路だけが太くなる。 */
-const ARROW_SIZE_BY_ZOOM: readonly (readonly [number, number])[] = [
-  [10, 0.6],
-  [13, 0.8],
-  [16, 1.2],
-  [19, 1.6],
-];
 
 const HIT_PAINT = { "line-color": palette.semantic.hit, "line-opacity": 0 } as const;
 const ROUND_CAP = { "line-cap": "round", "line-join": "round" } as const;
@@ -105,7 +76,7 @@ function collection(features: readonly Feature<LineString>[]): FeatureCollection
 }
 
 function arrowSize(scale: number): unknown {
-  return zoomScaleExpression(scale, ARROW_SIZE_BY_ZOOM);
+  return zoomScaleExpression(scale, ROUTE.arrowSizeByZoom);
 }
 
 export const routeGroup = declareGroup<RouteState>("route", (state) => {
@@ -135,10 +106,10 @@ export const routeGroup = declareGroup<RouteState>("route", (state) => {
     source: SOURCE.spliceBands,
     type: "line",
     paint: {
-      "line-color": SPLICE_COLOR,
-      "line-width": selectedBand ? SPLICE_SELECTED_WIDTH_PX : SPLICE_WIDTH_PX,
-      "line-opacity": SPLICE_OPACITY,
-      ...(selectedBand ? {} : { "line-dasharray": [...SPLICE_DASH] }),
+      "line-color": palette.semantic.route_splice,
+      "line-width": selectedBand ? ROUTE.lineWidthsPx.spliceSelected : ROUTE.lineWidthsPx.splice,
+      "line-opacity": ROUTE.opacities.splice,
+      ...(selectedBand ? {} : { "line-dasharray": [...ROUTE.spliceDash] }),
     },
     visible: state.visible && bands(selectedBand).length > 0,
     filter: ["==", ["get", SPLICE_SELECTED_PROPERTY], selectedBand] as unknown as FilterSpecification,
@@ -149,17 +120,17 @@ export const routeGroup = declareGroup<RouteState>("route", (state) => {
 
   // 背面から前面。
   const layers: readonly SceneLayerEntry[] = [
-    { role: "selectedHalo", tier: "route", source: SOURCE.selected, type: "line", visible: state.visible, paint: { "line-color": SELECTED_HALO_COLOR, "line-width": SELECTED_HALO_WIDTH_PX, "line-opacity": SELECTED_HALO_OPACITY } },
-    { role: "candidateLine", tier: "route", source: SOURCE.candidates, type: "line", visible: state.visible, paint: { "line-color": CANDIDATE_COLOR, "line-width": CANDIDATE_WIDTH_PX, "line-opacity": 0.65 } },
+    { role: "selectedHalo", tier: "route", source: SOURCE.selected, type: "line", visible: state.visible, paint: { "line-color": palette.semantic.route_selected_halo, "line-width": ROUTE.lineWidthsPx.selectedHalo, "line-opacity": ROUTE.opacities.selectedHalo } },
+    { role: "candidateLine", tier: "route", source: SOURCE.candidates, type: "line", visible: state.visible, paint: { "line-color": palette.semantic.route_candidate, "line-width": ROUTE.lineWidthsPx.candidate, "line-opacity": 0.65 } },
     { role: "candidateHit", tier: "route", source: SOURCE.candidates, type: "line", visible: state.visible, paint: { ...HIT_PAINT, "line-width": CANDIDATE_HIT_WIDTH_PX }, hitTargets: [ROUTE_HIT_TARGET, ROUTE_HIT_TARGET_CANDIDATE] },
-    { role: "slotCasing", tier: "route", source: SOURCE.slots, type: "line", visible: state.visible, paint: { "line-color": CASING_COLOR, "line-width": SLOT_CASING_WIDTH_PX, "line-opacity": 0.85 } },
-    { role: "slotLine", tier: "route", source: SOURCE.slots, type: "line", visible: state.visible, paint: { "line-color": ["get", SLOT_COLOR_PROPERTY], "line-width": SLOT_WIDTH_PX, "line-opacity": 0.85 } },
+    { role: "slotCasing", tier: "route", source: SOURCE.slots, type: "line", visible: state.visible, paint: { "line-color": palette.semantic.route_casing, "line-width": ROUTE.casingWidthsPx.slot, "line-opacity": 0.85 } },
+    { role: "slotLine", tier: "route", source: SOURCE.slots, type: "line", visible: state.visible, paint: { "line-color": ["get", SLOT_COLOR_PROPERTY], "line-width": ROUTE.lineWidthsPx.slot, "line-opacity": 0.85 } },
     banded("spliceBandLine", false),
     banded("spliceBandSelectedLine", true),
-    { role: "compositeCasing", tier: "route", source: SOURCE.composite, type: "line", visible: state.visible, layout: ROUND_CAP, paint: { "line-color": CASING_COLOR, "line-width": COMPOSITE_CASING_WIDTH_PX } },
-    { role: "compositeLine", tier: "route", source: SOURCE.composite, type: "line", visible: state.visible, layout: ROUND_CAP, paint: { "line-color": SPLICE_COLOR, "line-width": COMPOSITE_WIDTH_PX } },
-    withBandFilter({ role: "detailCasing", tier: "route", source: SOURCE.segments, type: "line", visible: state.visible, paint: { "line-color": CASING_COLOR, "line-width": DETAIL_CASING_WIDTH_PX } }),
-    withBandFilter({ role: "detailLine", tier: "route", source: SOURCE.segments, type: "line", visible: state.visible, paint: { "line-color": state.segmentColor, "line-width": DETAIL_WIDTH_PX } }),
+    { role: "compositeCasing", tier: "route", source: SOURCE.composite, type: "line", visible: state.visible, layout: ROUND_CAP, paint: { "line-color": palette.semantic.route_casing, "line-width": ROUTE.casingWidthsPx.composite } },
+    { role: "compositeLine", tier: "route", source: SOURCE.composite, type: "line", visible: state.visible, layout: ROUND_CAP, paint: { "line-color": palette.semantic.route_splice, "line-width": ROUTE.lineWidthsPx.composite } },
+    withBandFilter({ role: "detailCasing", tier: "route", source: SOURCE.segments, type: "line", visible: state.visible, paint: { "line-color": palette.semantic.route_casing, "line-width": ROUTE.casingWidthsPx.detail } }),
+    withBandFilter({ role: "detailLine", tier: "route", source: SOURCE.segments, type: "line", visible: state.visible, paint: { "line-color": state.segmentColor, "line-width": ROUTE.lineWidthsPx.detail } }),
     withBandFilter({
       role: "detailHit",
       tier: "route",
@@ -176,8 +147,8 @@ export const routeGroup = declareGroup<RouteState>("route", (state) => {
       ? []
       : [
           // 衝突判定を無効にする——有効にすると、同じ位置の2層のうち後ろが丸ごと落ちる。
-          { role: "arrowHalo", tier: "route" as const, source: SOURCE.selected, type: "symbol" as const, visible: state.visible, layout: { "icon-image": state.arrowIconImage, "symbol-placement": "line", "symbol-spacing": ARROW_SPACING_PX, "icon-allow-overlap": true, "icon-ignore-placement": true, "icon-size": arrowSize(ARROW_HALO_SCALE) }, paint: { "icon-color": ARROW_HALO_COLOR, "icon-opacity": 0.95 } },
-          { role: "arrow", tier: "route" as const, source: SOURCE.selected, type: "symbol" as const, visible: state.visible, layout: { "icon-image": state.arrowIconImage, "symbol-placement": "line", "symbol-spacing": ARROW_SPACING_PX, "icon-allow-overlap": true, "icon-ignore-placement": true, "icon-size": arrowSize(1) }, paint: { "icon-color": ARROW_COLOR, "icon-opacity": 1 } },
+          { role: "arrowHalo", tier: "route" as const, source: SOURCE.selected, type: "symbol" as const, visible: state.visible, layout: { "icon-image": state.arrowIconImage, "symbol-placement": "line", "symbol-spacing": ROUTE.arrowSpacingPx, "icon-allow-overlap": true, "icon-ignore-placement": true, "icon-size": arrowSize(ROUTE.arrowHaloScale) }, paint: { "icon-color": palette.semantic.route_arrow_halo, "icon-opacity": 0.95 } },
+          { role: "arrow", tier: "route" as const, source: SOURCE.selected, type: "symbol" as const, visible: state.visible, layout: { "icon-image": state.arrowIconImage, "symbol-placement": "line", "symbol-spacing": ROUTE.arrowSpacingPx, "icon-allow-overlap": true, "icon-ignore-placement": true, "icon-size": arrowSize(1) }, paint: { "icon-color": palette.semantic.route_arrow, "icon-opacity": 1 } },
         ]),
   ];
 

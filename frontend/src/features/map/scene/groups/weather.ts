@@ -8,6 +8,7 @@
  * 同じ（グループ, ソース）に描き方の違う宣言を並べてよい（降水は60分以内がラスタ、
  * それ以降は格子の塗り）。届いた中身の種類が、そのうちどれを出すかを決める。
  */
+import { mapDisplay } from "@/types/generated/mapDisplay";
 import palette from "@/types/generated/palette.json";
 import type { FilterSpecification } from "maplibre-gl";
 
@@ -28,17 +29,8 @@ import { zoomScaleExpression } from "../sceneBuilders";
 
 /** 記号の縁取り。背景の明暗に関わらず記号の形が読めるようにする。**主層と同じレイヤーの
  * paintで出す**——別レイヤーにすると、同じ位置に2枚並ぶぶん衝突判定で縁取りが全部落ちる。 */
-const MARK_HALO_COLOR = palette.semantic.mark_halo;
-const MARK_HALO_WIDTH_PX = 1.5;
+const WEATHER = mapDisplay.weather;
 
-const WIND_ICON_MIN_SCALE = 0.9;
-const WIND_ICON_MAX_SCALE = 2.6;
-/** この風速で最大の大きさになる。 */
-const WIND_FULL_SCALE_MS = 15;
-const LIDEN_SCALE = 0.8;
-const LIDEN_COLOR = palette.semantic.lightning;
-
-/** 描き方。面は下・線と点は上に置く（面どうしが重なると読めなくなるため）。 */
 const TIER_OF = {
   rasterTile: "area",
   gridFill: "area",
@@ -150,8 +142,8 @@ function markElement(
     paint: {
       "icon-color": options.color,
       "icon-opacity": 1,
-      "icon-halo-color": MARK_HALO_COLOR,
-      "icon-halo-width": MARK_HALO_WIDTH_PX,
+      "icon-halo-color": palette.semantic.mark_halo,
+      "icon-halo-width": WEATHER.markHaloWidthPx,
     },
     ...(options.minValueToShow === undefined
       ? {}
@@ -191,9 +183,9 @@ export const WEATHER_ELEMENTS: readonly WeatherElement[] = [
     ),
     valueProperty: "speed",
     rotateProperty: "bearing",
-    minScale: WIND_ICON_MIN_SCALE,
-    maxScale: WIND_ICON_MAX_SCALE,
-    fullScaleValue: WIND_FULL_SCALE_MS,
+    minScale: WEATHER.windIconScaleRange[0],
+    maxScale: WEATHER.windIconScaleRange[1],
+    fullScaleValue: WEATHER.windFullScaleMs,
     // ほぼ無風の矢印は向きが意味を持たない。
     minValueToShow: WIND_CALM_THRESHOLD_MS,
   }),
@@ -236,10 +228,10 @@ export const WEATHER_ELEMENTS: readonly WeatherElement[] = [
     iconId: "weather-liden",
     createIcon: createLidenIcon,
     // 落雷の強弱を配信元が持たないため、大きさはズームだけで決まる。
-    color: LIDEN_COLOR,
+    color: palette.semantic.lightning,
     valueProperty: LIDEN_MARK_VALUE_PROPERTY,
-    minScale: LIDEN_SCALE,
-    maxScale: LIDEN_SCALE,
+    minScale: WEATHER.lightningIconScale,
+    maxScale: WEATHER.lightningIconScale,
     fullScaleValue: 1,
   }),
 ];

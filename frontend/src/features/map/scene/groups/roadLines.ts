@@ -12,6 +12,7 @@
  * 横へ割り付ける（1本なら中央）。線の太さと線種は意味を運ばない——1本の線へ2つの意味を
  * 載せると、色の意味がもう一方のON/OFFで入れ替わる。
  */
+import { mapDisplay } from "@/types/generated/mapDisplay";
 import palette from "@/types/generated/palette.json";
 import type { FilterSpecification } from "maplibre-gl";
 
@@ -21,16 +22,7 @@ import { COLOR_UNKNOWN } from "@/components/Map/axisLayers";
 
 import { declareGroup, type SceneLayerEntry, type SceneSourceEntry } from "../mapSceneGroups";
 
-export const LINE_WIDTH_PX = 3;
-/** 横へ分けるときの間隔。線の太さより狭くして、隣どうしがわずかに重なるようにする
- * （離すと1本の道が複数に見える）。 */
-export const TRACK_OFFSET_STEP_PX = 2;
-/** 分類がある道は濃く、無い道は薄く（消さずに薄くする）。 */
-export const KNOWN_LINE_OPACITY = 0.8;
-export const UNKNOWN_LINE_OPACITY = 0.15;
-/** 詳細を見ている道の強調。線の色に関係なく浮く色にする。 */
-const INSPECTED_COLOR = palette.semantic.inspected;
-const INSPECTED_WIDTH_PX = 8;
+export const ROAD = mapDisplay.road;
 
 export const ROAD_LINE_SOURCE_ID = "road-tiles";
 /** 押したときに拾う対象。道路の線はどれも共通の名前を名乗る。 */
@@ -91,7 +83,7 @@ function colorExpression(track: RoadTrack): unknown[] {
 
 function opacityExpression(track: RoadTrack): unknown[] {
   const known = roadTrackAxis(track).categories.flatMap((category) => [...category.values]);
-  return ["case", ["in", valueOf(track), ["literal", known]], KNOWN_LINE_OPACITY, UNKNOWN_LINE_OPACITY];
+  return ["case", ["in", valueOf(track), ["literal", known]], ROAD.knownOpacity, ROAD.unknownOpacity];
 }
 
 function trackFilter(track: RoadTrack, hiddenKeys: readonly string[]): FilterSpecification | undefined {
@@ -103,7 +95,7 @@ function trackFilter(track: RoadTrack, hiddenKeys: readonly string[]): FilterSpe
 
 /** 出ている本数から、対称に割り付けた横位置。1本なら0。 */
 function offsetsFor(visibleCount: number): readonly number[] {
-  return Array.from({ length: visibleCount }, (_, index) => (index - (visibleCount - 1) / 2) * TRACK_OFFSET_STEP_PX);
+  return Array.from({ length: visibleCount }, (_, index) => (index - (visibleCount - 1) / 2) * ROAD.trackOffsetStepPx);
 }
 
 export const roadLineGroup = declareGroup<RoadLineState>("road", (state) => {
@@ -136,7 +128,7 @@ export const roadLineGroup = declareGroup<RoadLineState>("road", (state) => {
     type: "line",
     paint: {
       "line-color": colorExpression(track),
-      "line-width": LINE_WIDTH_PX,
+      "line-width": ROAD.lineWidthPx,
       "line-opacity": opacityExpression(track),
       "line-offset": offsetOf.get(track.attr_id) ?? 0,
     },
@@ -153,7 +145,7 @@ export const roadLineGroup = declareGroup<RoadLineState>("road", (state) => {
     source: ROAD_LINE_SOURCE_ID,
     sourceLayer: tiles.sourceLayer,
     type: "line",
-    paint: { "line-color": INSPECTED_COLOR, "line-width": INSPECTED_WIDTH_PX, "line-opacity": 1 },
+    paint: { "line-color": palette.semantic.inspected, "line-width": ROAD.inspectedWidthPx, "line-opacity": 1 },
     visible: state.inspectedWayId !== null,
     filter: ["==", ["get", WAY_ID_PROPERTY], state.inspectedWayId ?? -1] as unknown as FilterSpecification,
   });

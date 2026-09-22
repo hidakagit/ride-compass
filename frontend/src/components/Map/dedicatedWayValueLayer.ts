@@ -16,7 +16,7 @@ import {
   LEGEND_NO_DATA_KEY,
   type MapColorLegendBand,
 } from "./mapColorLegend";
-import { KNOWN_LINE_OPACITY, UNKNOWN_LINE_OPACITY } from "@/features/map/scene/groups/roadLines";
+import { mapDisplay } from "@/types/generated/mapDisplay";
 import {
   bandColorsFor,
   buildSteppedColorExpression,
@@ -81,7 +81,7 @@ export function dedicatedWayValueColorExpression(
 }
 
 /** 値の有無で線の濃さを決めるMapLibre expression。値を受け取れなかった道は
- * `UNKNOWN_LINE_OPACITY`で薄くし、値を持つ道だけが浮かび上がるようにする——
+ * 薄くし、値を持つ道だけが浮かび上がるようにする——
  * 地図全体の「薄い＝対象外、濃い＝分類あり」という読み方を
  * このレイヤーにも揃える。**薄くするのであって消さない**
  * （docs/architecture/design-principles.md「消さずに薄くする」）。
@@ -98,8 +98,8 @@ export function buildDedicatedWayValueOpacityExpression(valueExpression: unknown
   return [
     "case",
     ["==", valueExpression, null],
-    loading ? KNOWN_LINE_OPACITY : UNKNOWN_LINE_OPACITY,
-    KNOWN_LINE_OPACITY,
+    loading ? mapDisplay.road.knownOpacity : mapDisplay.road.unknownOpacity,
+    mapDisplay.road.knownOpacity,
   ];
 }
 

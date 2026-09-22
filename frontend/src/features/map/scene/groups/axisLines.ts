@@ -6,6 +6,7 @@
  *
  * ソースは道路の線と同じ路面タイル。宣言は合成（`composeScene`）が1本へ畳む。
  */
+import { mapDisplay } from "@/types/generated/mapDisplay";
 import palette from "@/types/generated/palette.json";
 import type { FilterSpecification } from "maplibre-gl";
 
@@ -14,23 +15,11 @@ import { declareGroup, type SceneLayerEntry, type SceneSourceEntry } from "../ma
 import { COLOR_UNKNOWN } from "@/components/Map/axisLayers";
 import { LEGEND_NO_DATA_KEY } from "@/components/Map/mapColorLegend";
 
-import {
-  KNOWN_LINE_OPACITY,
-  LINE_WIDTH_PX,
-  ROAD_LINE_SOURCE_ID,
-  TRACK_OFFSET_STEP_PX,
-  UNKNOWN_LINE_OPACITY,
-  ROAD_TRACKS,
-} from "./roadLines";
+import { ROAD_LINE_SOURCE_ID, ROAD_TRACKS } from "./roadLines";
 
 /** 材料が同時に出ているときの下敷き。**材料の線が全部出たときの帯幅**から決まるので、
  * トラックが増えれば自動で広がる（直書きすると追従しない）。 */
-const UNDERLAY_WIDTH_PX = (ROAD_TRACKS.length - 1) * TRACK_OFFSET_STEP_PX + LINE_WIDTH_PX;
-const UNDERLAY_OPACITY = UNKNOWN_LINE_OPACITY;
-/** まだ値が来ていない間の色。**隠す指定があっても残す**——「まだ来ていない」と
- * 「隠した」が区別できなくなるため。 */
-const LOADING_COLOR = palette.semantic.loading;
-
+const UNDERLAY_WIDTH_PX = (ROAD_TRACKS.length - 1) * mapDisplay.road.trackOffsetStepPx + mapDisplay.road.lineWidthPx;
 /** 段1つぶん。境界は下限で、判定は`>= 下限`・`< 次の下限`。 */
 export type AxisBand = {
   readonly key: string;
@@ -78,7 +67,7 @@ function colorExpression(axisId: string, axis: AxisLineState["axes"][number]): u
     const color = hidden && axis.value.kind === "delivered" ? "rgba(0,0,0,0)" : band.color;
     cases.push([">=", value, band.lowerBound], color);
   }
-  return ["case", ["==", value, null], loading ? LOADING_COLOR : COLOR_UNKNOWN, ...cases.flat(), COLOR_UNKNOWN];
+  return ["case", ["==", value, null], loading ? palette.semantic.loading : COLOR_UNKNOWN, ...cases.flat(), COLOR_UNKNOWN];
 }
 
 /** 絞り込みから読める値のときだけ、隠した段を落とす。 */
@@ -119,13 +108,13 @@ export const axisLineGroup = declareGroup<AxisLineState>("axis", (state) => {
     type: "line",
     paint: {
       "line-color": colorExpression(axis.axisId, axis),
-      "line-width": axis.underlay ? UNDERLAY_WIDTH_PX : LINE_WIDTH_PX,
+      "line-width": axis.underlay ? UNDERLAY_WIDTH_PX : mapDisplay.road.lineWidthPx,
       // 取得中は薄くしない——薄くすると「まだ来ていない」と「対象外」が区別できない。
       "line-opacity": axis.underlay
-        ? UNDERLAY_OPACITY
+        ? mapDisplay.road.unknownOpacity
         : axis.value.kind === "delivered" && axis.value.loading
-          ? KNOWN_LINE_OPACITY
-          : ["case", ["==", valueExpression(axis.axisId, axis.value), null], UNKNOWN_LINE_OPACITY, KNOWN_LINE_OPACITY],
+          ? mapDisplay.road.knownOpacity
+          : ["case", ["==", valueExpression(axis.axisId, axis.value), null], mapDisplay.road.unknownOpacity, mapDisplay.road.knownOpacity],
     },
     visible: axis.visible,
     ...(bandFilter(axis, axis.axisId) === undefined ? {} : { filter: bandFilter(axis, axis.axisId) }),

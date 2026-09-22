@@ -11,7 +11,7 @@ import {
   dedicatedWayValueLegend,
   type DedicatedWayValueDisplay,
 } from "./dedicatedWayValueLayer";
-import { UNKNOWN_LINE_OPACITY, KNOWN_LINE_OPACITY } from "@/features/map/scene/groups/roadLines";
+import { mapDisplay } from "@/types/generated/mapDisplay";
 import {
   COLOR_HIDDEN,
   COLOR_LOADING,
@@ -143,14 +143,14 @@ describe("dedicatedWayValueLayer", () => {
     it("値を受け取れなかった道は薄く、値を持つ道は濃く塗る", () => {
       const expression = buildDedicatedWayValueOpacityExpression(value);
 
-      expect(expression).toEqual(["case", ["==", value, null], UNKNOWN_LINE_OPACITY, KNOWN_LINE_OPACITY]);
-      expect(UNKNOWN_LINE_OPACITY).toBeLessThan(KNOWN_LINE_OPACITY);
+      expect(expression).toEqual(["case", ["==", value, null], mapDisplay.road.unknownOpacity, mapDisplay.road.knownOpacity]);
+      expect(mapDisplay.road.unknownOpacity).toBeLessThan(mapDisplay.road.knownOpacity);
     });
 
     it("取得中は薄くしない（「取得中」と「対象外」が見分けられなくなるため）", () => {
       const expression = buildDedicatedWayValueOpacityExpression(value, true);
 
-      expect(expression).toEqual(["case", ["==", value, null], KNOWN_LINE_OPACITY, KNOWN_LINE_OPACITY]);
+      expect(expression).toEqual(["case", ["==", value, null], mapDisplay.road.knownOpacity, mapDisplay.road.knownOpacity]);
     });
 
     it("軸idから組み立てた式は、色式と同じ値の取得元を読む", () => {
