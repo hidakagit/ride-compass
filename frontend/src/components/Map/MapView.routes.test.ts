@@ -340,8 +340,6 @@ describe("候補featureのproperties（地図から候補を選ぶための識�
 // map.setStyle()はカスタムのsource/layerを全て捨てるため、その後の作り直しが対象を
 // 取りこぼすと、そのレイヤーは押した人の地図から消えたまま戻らない。ここは共有関数を
 // 単体で見るのではなく、再描画の入口（redrawAllLayers）そのものを呼んで確かめる。
-// 「新設した描画がここから辿れるか」自体はscripts/review_checks.pyのmap_redraw_coverageが
-// 機械的に落とす——このテストは辿れた先が実際に作り直されることを見る。
 describe("redrawAllLayers（map.setStyle()後の作り直し）", () => {
   const stretch = {
     index: 0,

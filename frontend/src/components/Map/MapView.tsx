@@ -2258,7 +2258,6 @@ export type RedrawAllLayersProps = Pick<
 // **再描画で失われる副作用を持つ描画は、必ずここから辿れる位置へ置くこと**（ソース・
 // レイヤーの追加だけでなく、filter・feature-state・visibilityで持つ表示状態も含む）。
 // 辿れないものはsetStyle()後に作り直されず、押した人の地図から消えたまま戻らない。
-// 置き忘れは`scripts/review_checks.py`の`map_redraw_coverage`が機械的に落とす。
 //
 // カメラは動かさない——再描画は見た目を作り直すだけで、表示範囲は利用者の操作に属する
 // （フィットは「候補一覧が変わったとき」だけ、という下部effectの取り決めを破らない）。
