@@ -1,5 +1,6 @@
 "use client";
 
+import palette from "@/types/generated/palette.json";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import * as Tabs from "@radix-ui/react-tabs";
 import Disclosure from "@/components/Disclosure/Disclosure";
@@ -207,7 +208,7 @@ const DISASTER_SOURCE_LEGEND: (LegendEntry & { key: DisasterSourceKey })[] = [
   { key: "flood", label: "洪水キキクル（河川）", color: RISK_LEVEL_COLORS[2].color, filter: UNUSED_LEGEND_FILTER },
   { key: "thunder", label: "雷ナウキャスト", color: THUNDER_ACTIVITY_LEVELS[1].color, filter: UNUSED_LEGEND_FILTER },
   { key: "tornado", label: "竜巻発生確度", color: TORNADO_POTENTIAL_LEVELS[0].color, filter: UNUSED_LEGEND_FILTER },
-  { key: "liden", label: "落雷（発生地点）", color: "#facc15", filter: UNUSED_LEGEND_FILTER },
+  { key: "liden", label: "落雷（発生地点）", color: palette.semantic.lightning, filter: UNUSED_LEGEND_FILTER },
 ];
 
 // 災害チップの凡例。precipitation/wind凡例と同じパターン（表示専用、filterはダミー値）で、
@@ -506,7 +507,7 @@ export default function Home() {
   // 生成済みのルート結果（候補一覧・地図描画・選択状態）だけをリセットする。経由地・
   // 目的地のピンは対象外（別々の「クリア」操作として使い分けられるようにする）。研究
   // モード中の生成はexperimentSlotsへも記録され地図へ重ね描きされる
-  // （EXPERIMENT_SLOT_COLORS[0]="#16a34a"=緑）ため、「ルートをクリア」を押した見た目
+  // （EXPERIMENT_SLOT_COLORSの先頭）ため、「ルートをクリア」を押した見た目
   // どおり地図が空になるよう、実験スロットも同時にクリアする（比較履歴を残すよりも
   // 「クリアしたら地図が本当に空になる」という一般的な期待を優先）。
   const handleRoutesClear = useCallback(() => {
@@ -2314,7 +2315,7 @@ export default function Home() {
             refreshToken={refreshToken}
             tileVersionsReady={tileVersionsReady}
             // experimentSlots（研究モード中の生成履歴、1件目は常にEXPERIMENT_SLOT_
-            // COLORS[0]="#16a34a"=緑）はdrawExperimentSlotsが無条件で描画するため、
+            // COLORSの先頭）はdrawExperimentSlotsが無条件で描画するため、
             // 実際に「比較」タブを見ているとき以外に地図へ残ると選択中ルートの色分けと
             // 紛らわしい。研究モード中の比較用オーバーレイという役割上、
             // comparisonTabActiveの間だけ渡すよう限定する（スロット自体の記録・

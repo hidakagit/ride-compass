@@ -4,13 +4,15 @@
 // 色分けがルートの有無でスケール・配色を変えないことをコード上で保証する。
 // MapLibre・DOMに依存しない純粋関数のみ。
 
+import type { components } from "@/types/generated/api";
 import palette from "@/types/generated/palette.json";
 import { LEGEND_NO_DATA_KEY, legendBandKey } from "./mapColorLegend";
 
 /** backend `GET /api/axis-catalog` の `map_value_kind`（domain/dynamic_way_values.py:
  * map_value_kind）と同じ語彙。`difficulty`は軸スタジオのbreakpointsで評価済みの0〜100、
  * `signed_material`は単一材料の符号付き生値（勾配のように向きの符号が意味を持つ軸）。 */
-export type MapValueKind = "difficulty" | "signed_material";
+/** 地図がその軸について塗る値の種類。**正本はbackend**（`domain/dynamic_way_values.py`）。 */
+export type MapValueKind = NonNullable<components["schemas"]["AxisCatalogEntry"]["map_value_kind"]>;
 
 export const COLOR_EASY = palette.semantic.evaluation_good;
 export const COLOR_HARD = palette.semantic.evaluation_bad;

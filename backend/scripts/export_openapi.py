@@ -43,12 +43,26 @@ from app.infrastructure.vector_tile import (  # noqa: E402
 from app.main import app  # noqa: E402
 from app.domain.wind import ASSUMED_SPEED_KMH, MAX_ASSUMED_SPEED_KMH, MIN_ASSUMED_SPEED_KMH  # noqa: E402
 from app.domain.hard_filters import DEFAULT_HARD_FILTERS, HARD_FILTER_NAMES  # noqa: E402
+from app.domain.map_display import (  # noqa: E402
+    MAP_LAYER_CATEGORIES,
+    MAP_LAYER_IDS,
+    MAP_LAYER_KINDS,
+    MAP_LAYER_DATA_NATURES,
+    MAP_LAYER_DATA_SOURCES,
+    MAP_OVERLAY_GROUPS,
+)
+from app.domain.weather_display import (  # noqa: E402
+    PRECIPITATION_COLOR_STOPS,
+    RISK_LEVEL_COLORS,
+    THUNDER_ACTIVITY_LEVELS,
+    TORNADO_POTENTIAL_LEVELS,
+    WIND_SPEED_COLOR_STOPS,
+)
 from app.domain.display_palette import (  # noqa: E402
     COMPARISON_SLOT_COLORS,
     EVALUATION_RAMP_ANCHORS,
     SEMANTIC_COLORS,
-    nominal_color,
-    ordered_colors,
+    resolved_display_axes,
 )
 from app.domain.gsi_tiles import (  # noqa: E402
     RELIEF_ATTRIBUTION,
@@ -76,7 +90,7 @@ GENERATED_DIR = Path(__file__).resolve().parents[2] / "frontend" / "src" / "type
 OUTPUT_PATH = GENERATED_DIR / "openapi.json"
 SURFACE_TAGS_PATH = GENERATED_DIR / "surface-tags.json"
 REGION_TILE_CONFIG_PATH = GENERATED_DIR / "region-tile-config.json"
-PRIMARY_ATTRIBUTES_PATH = GENERATED_DIR / "primary-attributes.json"
+PRIMARY_ATTRIBUTES_PATH = GENERATED_DIR / "primaryAttributes.ts"
 WIND_GRID_CONFIG_PATH = GENERATED_DIR / "wind-grid-config.json"
 ROUTE_GENERATE_CONFIG_PATH = GENERATED_DIR / "route-generate-config.json"
 JMA_TILE_CONFIG_PATH = GENERATED_DIR / "jma-tile-config.json"
@@ -84,6 +98,8 @@ POI_KINDS_PATH = GENERATED_DIR / "poi-kinds.json"
 MATERIAL_CATALOG_PATH = GENERATED_DIR / "material-catalog.json"
 LANDCOVER_CLASSES_PATH = GENERATED_DIR / "landcover-classes.json"
 PALETTE_PATH = GENERATED_DIR / "palette.json"
+WEATHER_SCALES_PATH = GENERATED_DIR / "weather-scales.json"
+MAP_DISPLAY_PATH = GENERATED_DIR / "mapDisplay.ts"
 
 def _strip_prose(node: object, *, keep: bool = False) -> object:
     """docstring由来の`description`・`summary`を落とす。
@@ -117,6 +133,19 @@ def _write_json(path: Path, data: dict | list) -> None:
     # newline="\n"固定: Windowsで実行してもCRLFにならないようにする（CI（Linux）の
     # ドリフト検知と生成環境によらずバイト単位で一致させるため）。
     path.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8", newline="\n")
+    print(f"wrote {path}")
+
+
+def _write_ts(path: Path, name: str, data: dict | list) -> None:
+    """生成物をTypeScriptの`as const`で書く。
+
+    **JSONで出すと型が`string`へ広がり、存在しない値を渡しても型検査が通る**
+    （実際に広げた実績あり）。値の集合そのものが契約になるものは、この形で出す。
+    """
+    body = json.dumps(data, ensure_ascii=False, indent=2)
+    header = "// 生成物。`backend/scripts/export_openapi.py`が書き出す。手で編集しない。"
+    text = header + "\n" + f"export const {name} = {body} as const;" + "\n"
+    path.write_text(text, encoding="utf-8", newline="\n")
     print(f"wrote {path}")
 
 
@@ -195,6 +224,34 @@ def main() -> None:
             ],
         },
     )
+    # 地図に出すものの最上位の束ね方（domain/map_display.py）。並びがチップの並び順。
+    # **JSONではなくTypeScriptで出す。** JSONのimportは型が`string`へ広がり、
+    # 存在しない値を渡しても型検査が通ってしまう（実際に広げた実績あり）。`as const`で
+    # 出すと、画面側の型は源泉の値そのものに狭まる。
+    _write_ts(
+        MAP_DISPLAY_PATH,
+        "mapDisplay",
+        {
+            "overlayGroups": [g._asdict() for g in MAP_OVERLAY_GROUPS],
+            "layerCategories": [c._asdict() for c in MAP_LAYER_CATEGORIES],
+            "layerDataSources": list(MAP_LAYER_DATA_SOURCES),
+            "layerDataNatures": list(MAP_LAYER_DATA_NATURES),
+            "layerIds": list(MAP_LAYER_IDS),
+            "layerKinds": list(MAP_LAYER_KINDS),
+        },
+    )
+    # 気象の値を色へ写す段（domain/weather_display.py）。危険度・雷・竜巻は配信元が
+    # 決めた配色に合わせるもので、画面の好みではない。
+    _write_json(
+        WEATHER_SCALES_PATH,
+        {
+            "precipitation": [s._asdict() for s in PRECIPITATION_COLOR_STOPS],
+            "wind_speed": [s._asdict() for s in WIND_SPEED_COLOR_STOPS],
+            "risk_levels": [level._asdict() for level in RISK_LEVEL_COLORS],
+            "thunder_activity": [level._asdict() for level in THUNDER_ACTIVITY_LEVELS],
+            "tornado_potential": [level._asdict() for level in TORNADO_POTENTIAL_LEVELS],
+        },
+    )
     # 土地被覆のクラス（画素値・割合列・表示名・色）。地図タイルの塗りと同じレジストリから
     # 書き出し、frontendの凡例・区間インスペクタの表示名がこれを読む。
     _write_json(
@@ -244,48 +301,16 @@ def main() -> None:
     # 地図が描かれ、伝播の失敗が見えなくなる。
     reset_registry_for_testing()
     register_defaults()
-    _write_json(
+    _write_ts(
         PRIMARY_ATTRIBUTES_PATH,
+        "primaryAttributes",
         # 一次属性カタログ（地図レイヤー階層の次数反転）。レジストリ
         # （`domain/registry.py`）だけから決まり、DBを読まない。各軸の
         # `primary_attribute_ids`は実行時の`GET /api/axis-catalog`が配るため、フロントは
         # この一覧のlabel（正式名）と突き合わせて1次↔2次の双方向導出ができる。
-        # `display_axes`は地図に出す束ね方・行の名前・色。**画面はこれを塗るだけで、
-        # 分類も名前も色も持たない**（評価軸の色と段をaxis-catalogが配るのと同じ形）。
+        # 宣言をそのまま配る。色だけは宣言に無いので`resolved_display_axes`が決める。
         [
-            {
-                "attr_id": attr.attr_id,
-                "label": attr.label,
-                "geometry": attr.geometry,
-                "tile_kind": attr.tile_kind,
-                "display_axes": [
-                    {
-                        "key": axis.key,
-                        "label": axis.label,
-                        "property": axis.property,
-                        # 色は宣言せず、パレットと行数から作る（domain/display_palette.py）。
-                        # 画面は受け取った色で塗るだけで、色の決まりを持たない。
-                        "categories": [
-                            {
-                                "key": category.key,
-                                "label": category.label,
-                                "color": color,
-                                "values": list(category.values),
-                            }
-                            for category, color in zip(
-                                axis.categories,
-                                (
-                                    ordered_colors(len(axis.categories))
-                                    if axis.palette == "ordered"
-                                    else [nominal_color(c.color_slot or 0) for c in axis.categories]
-                                ),
-                                strict=True,
-                            )
-                        ],
-                    }
-                    for axis in attr.display_axes
-                ],
-            }
+            {**attr.model_dump(exclude={"display_axes"}), "display_axes": resolved_display_axes(attr)}
             for attr in all_primary_attributes()
         ],
     )

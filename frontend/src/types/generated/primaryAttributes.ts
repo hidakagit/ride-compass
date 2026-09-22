@@ -1,4 +1,5 @@
-[
+// 生成物。`backend/scripts/export_openapi.py`が書き出す。手で編集しない。
+export const primaryAttributes = [
   {
     "attr_id": "highway",
     "label": "道路の種類",
@@ -13,7 +14,6 @@
           {
             "key": "arterial",
             "label": "幹線道路",
-            "color": "#3b4554",
             "values": [
               "motorway",
               "motorway_link",
@@ -21,35 +21,35 @@
               "trunk_link",
               "primary",
               "primary_link"
-            ]
+            ],
+            "color": "#3b4554"
           },
           {
             "key": "secondary",
             "label": "主要道",
-            "color": "#56657b",
             "values": [
               "secondary",
               "secondary_link",
               "tertiary",
               "tertiary_link"
-            ]
+            ],
+            "color": "#56657b"
           },
           {
             "key": "local",
             "label": "生活道路",
-            "color": "#75869f",
             "values": [
               "residential",
               "unclassified",
               "living_street",
               "service",
               "road"
-            ]
+            ],
+            "color": "#75869f"
           },
           {
             "key": "cycleway",
             "label": "自転車・歩行者道",
-            "color": "#9ca8ba",
             "values": [
               "cycleway",
               "path",
@@ -57,15 +57,16 @@
               "pedestrian",
               "bridleway",
               "steps"
-            ]
+            ],
+            "color": "#9ca8ba"
           },
           {
             "key": "track",
             "label": "農道・林道",
-            "color": "#c3cad5",
             "values": [
               "track"
-            ]
+            ],
+            "color": "#c3cad5"
           }
         ]
       }
@@ -106,51 +107,50 @@
           {
             "key": "asphalt",
             "label": "アスファルト",
-            "color": "#456187",
             "values": [
               "asphalt",
               "paved",
               "chipseal"
-            ]
+            ],
+            "color": "#456187"
           },
           {
             "key": "concrete",
             "label": "コンクリート",
-            "color": "#4b4587",
             "values": [
               "concrete",
               "concrete:plates",
               "concrete:lanes"
-            ]
+            ],
+            "color": "#4b4587"
           },
           {
             "key": "stones",
             "label": "石畳・敷石",
-            "color": "#6b4587",
             "values": [
               "paving_stones",
               "sett",
               "cobblestone",
               "unhewn_cobblestone",
               "bricks"
-            ]
+            ],
+            "color": "#6b4587"
           },
           {
             "key": "gravel",
             "label": "砂利・締固め",
-            "color": "#874581",
             "values": [
               "gravel",
               "fine_gravel",
               "compacted",
               "pebblestone",
               "rock"
-            ]
+            ],
+            "color": "#874581"
           },
           {
             "key": "dirt",
             "label": "土・草・砂",
-            "color": "#874561",
             "values": [
               "unpaved",
               "dirt",
@@ -160,7 +160,8 @@
               "sand",
               "grass",
               "woodchips"
-            ]
+            ],
+            "color": "#874561"
           }
         ]
       }
@@ -194,10 +195,10 @@
           {
             "key": "tunnel",
             "label": "トンネル",
-            "color": "#874b45",
             "values": [
               true
-            ]
+            ],
+            "color": "#874b45"
           }
         ]
       }
@@ -217,10 +218,10 @@
           {
             "key": "oneway",
             "label": "一方通行",
-            "color": "#876b45",
             "values": [
               true
-            ]
+            ],
+            "color": "#876b45"
           }
         ]
       }
@@ -247,59 +248,59 @@
           {
             "key": "traffic_signals",
             "label": "信号",
-            "color": "#818745",
             "values": [
               "traffic_signals"
-            ]
+            ],
+            "color": "#818745"
           },
           {
             "key": "crossing",
             "label": "横断歩道",
-            "color": "#618745",
             "values": [
               "crossing"
-            ]
+            ],
+            "color": "#618745"
           },
           {
             "key": "stop",
             "label": "一時停止",
-            "color": "#45874b",
             "values": [
               "stop"
-            ]
+            ],
+            "color": "#45874b"
           },
           {
             "key": "give_way",
             "label": "徐行",
-            "color": "#45876b",
             "values": [
               "give_way"
-            ]
+            ],
+            "color": "#45876b"
           },
           {
             "key": "level_crossing",
             "label": "踏切",
-            "color": "#458187",
             "values": [
               "level_crossing",
               "railway_crossing"
-            ]
+            ],
+            "color": "#458187"
           },
           {
             "key": "barrier",
             "label": "車止め・ゲート",
-            "color": "#6886b1",
             "values": [
               "barrier"
-            ]
+            ],
+            "color": "#6886b1"
           },
           {
             "key": "traffic_calming",
             "label": "ハンプ・狭さく",
-            "color": "#6e68b1",
             "values": [
               "traffic_calming"
-            ]
+            ],
+            "color": "#6e68b1"
           }
         ]
       }
@@ -319,18 +320,18 @@
           {
             "key": "bicycle",
             "label": "自転車関連",
-            "color": "#86b168",
             "values": [
               true
-            ]
+            ],
+            "color": "#86b168"
           },
           {
             "key": "other",
             "label": "その他",
-            "color": "#68b16e",
             "values": [
               false
-            ]
+            ],
+            "color": "#68b16e"
           }
         ]
       },
@@ -342,18 +343,18 @@
           {
             "key": "fatal",
             "label": "死亡事故",
-            "color": "#68b192",
             "values": [
               true
-            ]
+            ],
+            "color": "#68b192"
           },
           {
             "key": "non_fatal",
             "label": "死亡以外",
-            "color": "#68abb1",
             "values": [
               false
-            ]
+            ],
+            "color": "#68abb1"
           }
         ]
       }
@@ -387,53 +388,53 @@
           {
             "key": "convenience",
             "label": "コンビニ",
-            "color": "#9268b1",
             "values": [
               "convenience"
-            ]
+            ],
+            "color": "#9268b1"
           },
           {
             "key": "vending_drinks",
             "label": "飲料自販機",
-            "color": "#b168ab",
             "values": [
               "vending_drinks"
-            ]
+            ],
+            "color": "#b168ab"
           },
           {
             "key": "vending_unknown",
             "label": "自販機(中身不明)",
-            "color": "#b16886",
             "values": [
               "vending_unknown"
-            ]
+            ],
+            "color": "#b16886"
           },
           {
             "key": "toilets",
             "label": "トイレ",
-            "color": "#b16e68",
             "values": [
               "toilets"
-            ]
+            ],
+            "color": "#b16e68"
           },
           {
             "key": "drinking_water",
             "label": "給水",
-            "color": "#b19268",
             "values": [
               "drinking_water"
-            ]
+            ],
+            "color": "#b19268"
           },
           {
             "key": "bicycle_parking",
             "label": "駐輪場",
-            "color": "#abb168",
             "values": [
               "bicycle_parking"
-            ]
+            ],
+            "color": "#abb168"
           }
         ]
       }
     ]
   }
-]
+] as const;

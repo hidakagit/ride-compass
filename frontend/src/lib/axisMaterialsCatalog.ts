@@ -1,7 +1,11 @@
 // 軸スタジオ・ルート結果が扱う材料の型と、材料idを表示へ変える関数。
 // 一覧そのものは`hooks/useMaterialCatalog.ts`が`GET /api/material-catalog`から取る。
 
-export type AxisMaterialDType = "numeric" | "boolean" | "categorical";
+/** 材料の値の種類。**正本はbackend**（`domain/registry.py: MaterialDType`）で、
+ * ここは契約から引くだけ——写すと、種類が1つ増えたとき片側だけ知っている状態になる。 */
+import type { components } from "@/types/generated/api";
+
+export type AxisMaterialDType = NonNullable<components["schemas"]["MaterialCatalogEntry"]["dtype"]>;
 
 /** 軸スタジオの折れ点編集を助ける「値の目安」1点。 */
 export interface AxisMaterialReferencePoint {

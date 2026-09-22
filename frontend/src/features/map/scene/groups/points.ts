@@ -15,7 +15,7 @@
 import palette from "@/types/generated/palette.json";
 import type { FilterSpecification } from "maplibre-gl";
 
-import primaryAttributes from "@/types/generated/primary-attributes.json";
+import { primaryAttributes } from "@/types/generated/primaryAttributes";
 
 import { COLOR_UNKNOWN } from "@/components/Map/axisLayers";
 
@@ -87,7 +87,7 @@ function valueOf(axis: PointAxis): unknown {
 function colorExpression(layer: PointLayer): unknown {
   const axis = layer.display_axes[0];
   // 行が1つも無いときに`case`を出すと、対を持たない式になって地図が受け付けない。
-  if (axis === undefined || axis.categories.length === 0) return COLOR_UNKNOWN;
+  if (axis === undefined) return COLOR_UNKNOWN;
   const cases = axis.categories.flatMap((category) => [
     ["in", valueOf(axis), ["literal", [...category.values]]],
     category.color,

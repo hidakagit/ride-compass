@@ -9,7 +9,7 @@ import { LEGEND_NO_DATA_KEY } from "@/components/Map/mapColorLegend";
 import { PRIMARY_ATTRIBUTE_LABELS } from "@/components/Map/primaryAttributes";
 
 import { POINT_LAYERS, pointAxisKey, type PointAxis } from "./groups/points";
-import { ROAD_TRACKS } from "./groups/roadLines";
+import { ROAD_TRACKS, roadTrackAxis } from "./groups/roadLines";
 
 /** 凡例1本ぶん。1つのチップが複数の軸を持つことがある（事故は当事者と重大度）。 */
 export type SceneLegendAxis = {
@@ -32,7 +32,7 @@ export function roadLegendAxes(): readonly SceneLegendAxis[] {
     // 見出しはチップ名で足りる（軸が1本しかない）。名前の正本は源泉。
     label: "",
     entries: [
-      ...track.display_axes[0].categories.map((category) => ({ key: category.key, label: category.label, color: category.color })),
+      ...roadTrackAxis(track).categories.map((category) => ({ key: category.key, label: category.label, color: category.color })),
       UNKNOWN_ENTRY,
     ],
   }));

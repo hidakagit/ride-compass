@@ -11,6 +11,8 @@
 // DynamicWeatherFrame/DynamicWeatherRenderPayloadを組み立てる薄いラッパーのみを持つ
 // （実際のGeoJSON構築・色/サイズの式化はwindFrames/windRenderPayload、MapView.tsx側）。
 
+import palette from "@/types/generated/palette.json";
+import weatherScales from "@/types/generated/weather-scales.json";
 import {
   gridToFeatureCollection,
   type DynamicWeatherFrame,
@@ -95,18 +97,8 @@ export function mergeWindGridKeepingStale(
 // `name`は段ごとの体感表現（ビューフォート風力階級の呼び名を、自転車で走るときの感じ方へ
 // 寄せたもの）。**段の宣言そのものに持たせる**——別の配列に並べて添字で引くと、段を足した
 // ときに呼び名を足し忘れても型は通り、凡例に`undefined`が出る。
-export const WIND_SPEED_COLOR_STOPS: readonly { speedMs: number; color: string; name: string }[] = [
-  { speedMs: 0, color: "#7dd3fc", name: "微風" }, // 無風に近い
-  { speedMs: 1.5, color: "#38bdf8", name: "そよ風" }, // Bf1上限
-  { speedMs: 3.3, color: "#22d3ee", name: "心地よい風" }, // Bf2上限
-  { speedMs: 5.4, color: "#34d399", name: "やや強い風" }, // Bf3上限
-  { speedMs: 7.9, color: "#a3e635", name: "強い風・向かい風がこたえ始める" }, // Bf4上限
-  { speedMs: 10.7, color: "#facc15", name: "かなり強い風" }, // Bf5上限
-  // Bf6上限（ロードバイクで走行できる目安の上限）
-  { speedMs: 13.8, color: "#f97316", name: "ロードバイクでの走行が難しい強風" },
-  { speedMs: 17.1, color: "#dc2626", name: "暴風" }, // Bf7上限（走行困難域、ここから粒度は粗くする）
-  { speedMs: 24.4, color: "#7f1d1d", name: "猛烈な暴風" }, // Bf9上限（暴風、これ以上は同じ色のまま）
-];
+export const WIND_SPEED_COLOR_STOPS: readonly { speedMs: number; color: string; name: string }[] =
+  weatherScales.wind_speed.map((stop) => ({ speedMs: stop.value, color: stop.color, name: stop.name }));
 
 // この風速未満は「無風」として矢印を描画しない（MapView.tsx参照）。1.0m/s程度だと
 // 関東でごく普通に起きる弱風でも矢印が全滅するため、この値にしている。
@@ -128,7 +120,7 @@ const bandLabel = (index: number): string => {
 };
 
 export const WIND_SPEED_LEGEND_LEVELS: readonly { key: string; label: string; color: string }[] = [
-  { key: "calm", label: `無風（矢印なし、${WIND_CALM_THRESHOLD_MS}m/s未満）`, color: "#9ca3af" },
+  { key: "calm", label: `無風（矢印なし、${WIND_CALM_THRESHOLD_MS}m/s未満）`, color: palette.semantic.no_data },
   ...WIND_SPEED_COLOR_STOPS.map((stop, index) => ({
     key: `bf${index + 1}`,
     label: `${stop.name}（${bandLabel(index)}）`,

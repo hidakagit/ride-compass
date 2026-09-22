@@ -1,5 +1,6 @@
 "use client";
 
+import type { components } from "@/types/generated/api";
 import * as Popover from "@radix-ui/react-popover";
 import styles from "./WarningBadge.module.css";
 
@@ -10,7 +11,9 @@ import styles from "./WarningBadge.module.css";
 // WBGT（環境省の熱中症予防運動指針）は間の"severe_warning"（厳重警戒）も使う
 // （4段階のまま素直に表現し、JMAの3段階へ無理に丸め込まない）。
 
-export type WarningBadgeLevel = "advisory" | "warning" | "severe_warning" | "emergency_warning";
+/** **正本はbackend**（`domain/warning_levels.py`）。契約から引く——写すと、階級が
+ * 1つ増えたとき片側だけ知っている状態になる。 */
+export type WarningBadgeLevel = NonNullable<components["schemas"]["ActiveWarning"]["level"]>;
 
 // バッジの出所。同じlevelキーでも出所ごとに正式な日本語表現が異なる
 // （例: level="warning"はJMA/氾濫予報では「警報」だが、WBGT（環境省の熱中症予防運動指針）

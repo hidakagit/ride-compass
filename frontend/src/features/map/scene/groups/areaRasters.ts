@@ -2,6 +2,7 @@
  *
  * どれも基礎地図の道路網より下へ入り、**明示的にONにしたものだけ**が出る。
  */
+import { primaryAttributes } from "@/types/generated/primaryAttributes";
 import regionTileConfig from "@/types/generated/region-tile-config.json";
 
 import { declareGroup, type SceneLayerEntry, type SceneSourceEntry } from "../mapSceneGroups";
@@ -39,7 +40,12 @@ const HILLSHADE_ILLUMINATION_DIRECTION = 315;
  * **`basic`・`multidirectional`は使えない**——平坦な画素にも光を塗るため。 */
 const HILLSHADE_METHOD = "igor";
 
-export type AreaRasterRole = "elevation" | "landcover" | "hillshade";
+/** 面で塗るもの。源泉が「面の幾何を持つ」と言った属性（標高・土地被覆）に、
+ * `hillshade`を足す——**陰影は属性ではなく標高の別の描き方**で、同じ標高タイルを
+ * 違う読み方（`raster-dem`）で描いたもの。源泉に属性として現れないのが正しい。 */
+export type AreaRasterRole =
+  | Extract<(typeof primaryAttributes)[number], { geometry: "area" }>["attr_id"]
+  | "hillshade";
 
 export type AreaRasterState = {
   /** 表示ON/OFF。指定が無い役割は出さない。 */

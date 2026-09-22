@@ -11,12 +11,7 @@
 // 変換、PRIMARY_ATTRIBUTE_LAYER_IDSを引くだけの純粋関数）だけを残す。
 
 import type { MapLayerId } from "./mapLayers";
-import primaryAttributeCatalog from "@/types/generated/primary-attributes.json";
-
-interface CatalogPrimaryAttribute {
-  attr_id: string;
-  label: string;
-}
+import { primaryAttributes as primaryAttributeCatalog } from "@/types/generated/primaryAttributes";
 
 export interface PrimaryAttribute {
   attrId: string;
@@ -26,9 +21,10 @@ export interface PrimaryAttribute {
 
 /** 一次属性の一覧（正式名付き）。`primary-attributes.json`（backendのレジストリ宣言から
  * 生成、DBを読まない）をそのまま反映する。 */
-export const PRIMARY_ATTRIBUTES: readonly PrimaryAttribute[] = (
-  primaryAttributeCatalog as CatalogPrimaryAttribute[]
-).map((attr) => ({ attrId: attr.attr_id, label: attr.label }));
+export const PRIMARY_ATTRIBUTES: readonly PrimaryAttribute[] = primaryAttributeCatalog.map((attr) => ({
+  attrId: attr.attr_id,
+  label: attr.label,
+}));
 
 /** attr_id→正式名の辞書（区間インスペクタ・研究タブが引く）。 */
 export const PRIMARY_ATTRIBUTE_LABELS: Record<string, string> = Object.fromEntries(

@@ -50,13 +50,11 @@ import {
 import { buildCombinedLegendFilterExpression } from "@/components/Map/legendFilter";
 import {
   buildMapLayers,
-  MAP_LAYER_PAINT_TIER_ORDER,
   TILE_VERSION_GATED_SOURCES,
   tileZoomTooWideLayerIds,
   type LayerDataStatusByLayer,
   type MapLayerDataSource,
   type MapLayerDescriptor,
-  type MapLayerPaintTier,
   type MapLayerId,
   type MapLayerVisibility,
 } from "@/components/Map/mapLayers";
@@ -290,19 +288,7 @@ const lastAppliedGeojson = new WeakMap<object, string>();
 // レイヤーを足すときにその場で答えさせるため必須にしてある——別の一覧で「対象外のkey」を
 // 数え上げる形にすると、新しいレイヤーが既定でクリック対象になり、「カーソルは
 // クリック可能を示すのに実際は何も起きない」という不整合が静かに増える。
-type OverlayLayerEntry = {
-  key: string;
-  layerId: string;
-  ensure: (map: MapLibreMap) => void;
-  interactive: boolean;
-  // 重なりの段（mapLayers.ts: MapLayerPaintTier）。記述子の宣言から`buildStaticOverlayLayers`が
-  // 入れるため、エントリを作る側は持たない（`OverlayLayerSpec`）。
-  paintTier: MapLayerPaintTier;
-};
 
-/** 段を入れる前のエントリ。**どこに重なるかを作る側に書かせない**ための型で、段は
- * レイヤーカタログの宣言だけが決める。 */
-type OverlayLayerSpec = Omit<OverlayLayerEntry, "paintTier">;
 
 
 
@@ -439,7 +425,7 @@ export function buildLayerDataSources(layers: readonly MapLayerDescriptor[]): re
   );
 }
 
-// buildLayerDataSources自体はbuildStaticOverlayLayers等の他の関数と同じくこのファイルに
+// buildLayerDataSources自体は他の組み立て関数と同じくこのファイルに
 // 残し、フックへ引数として渡す（フック側からMapView.tsxを逆importしないため）。
 
 
@@ -688,7 +674,7 @@ interface MapViewProps {
   axisVisibility: Record<string, boolean>;
   /** 2次（ramp軸）のうち、材料（1次）が同時に表示されているためcasing
    * （太く半透明な下敷き）で描くべきレイヤーのkey集合（"axis:accident"等、
-   * buildStaticOverlayLayers()のkeyと同じ）。page.tsx側が一次属性の表示状態とlayerVisibility
+   * レイヤーカタログのkeyと同じ）。page.tsx側が一次属性の表示状態とlayerVisibility
    * から算出する（buildAxisOverlayLayers参照）。 */
   secondaryAxisCasingLayerIds: readonly string[];
   /** 路面の各軸（路面の種類・道路の種類）それぞれの非表示カテゴリキー。軸ごとに独立した
@@ -2031,9 +2017,9 @@ export default function MapView({
             top: "1rem",
             left: "50%",
             transform: "translateX(-50%)",
-            background: "#fef2f2",
-            color: "#991b1b",
-            border: "1px solid #fecaca",
+            background: "var(--color-danger-muted)",
+            color: "var(--color-danger)",
+            border: "1px solid var(--color-danger)",
             borderRadius: "0.5rem",
             padding: "0.5rem 1rem",
             fontSize: "0.85rem",

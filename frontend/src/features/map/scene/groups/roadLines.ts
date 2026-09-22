@@ -15,7 +15,7 @@
 import palette from "@/types/generated/palette.json";
 import type { FilterSpecification } from "maplibre-gl";
 
-import primaryAttributes from "@/types/generated/primary-attributes.json";
+import { primaryAttributes } from "@/types/generated/primaryAttributes";
 
 import { COLOR_UNKNOWN } from "@/components/Map/axisLayers";
 
@@ -46,13 +46,15 @@ const WAY_ID_PROPERTY = "osm_way_id";
  * 束ね方・行の名前・並び・色はすべて源泉が決め、ここは受け取って塗るだけ
  * （`backend/app/domain/material_catalog.py`の`display_axes`、色は`display_palette.py`）。 */
 export const ROAD_TRACKS = primaryAttributes.filter(
-  (attr) => attr.geometry === "line" && attr.display_axes.length > 0,
+  (attr): attr is Extract<typeof attr, { geometry: "line"; tile_kind: string }> =>
+    attr.geometry === "line" && attr.display_axes.length > 0,
 );
 
 type RoadTrack = (typeof ROAD_TRACKS)[number];
 
-/** 線は軸を1本しか持たない（プロパティ＝属性そのもの）。 */
-function axisOf(track: RoadTrack) {
+/** 線は軸を1本しか持たない（プロパティ＝属性そのもの）。**軸を持つものだけを線にする**のは
+ * 源泉の側で、そこが保証する（`tests/test_primary_attribute_display.py`）。 */
+export function roadTrackAxis(track: RoadTrack): RoadTrack["display_axes"][number] {
   return track.display_axes[0];
 }
 
@@ -75,12 +77,12 @@ export type RoadLineState = {
 /** 値を引く式。プロパティが無い道はどの分類にも当たらない空文字へ倒す
  * （欠落のまま比べると式の評価が落ちる）。 */
 function valueOf(track: RoadTrack): unknown {
-  return ["coalesce", ["get", axisOf(track).property], ""];
+  return ["coalesce", ["get", roadTrackAxis(track).property], ""];
 }
 
 function colorExpression(track: RoadTrack): unknown[] {
   const value = valueOf(track);
-  const cases = axisOf(track).categories.flatMap((category) => [
+  const cases = roadTrackAxis(track).categories.flatMap((category) => [
     ["in", value, ["literal", [...category.values]]],
     category.color,
   ]);
@@ -88,12 +90,12 @@ function colorExpression(track: RoadTrack): unknown[] {
 }
 
 function opacityExpression(track: RoadTrack): unknown[] {
-  const known = axisOf(track).categories.flatMap((category) => [...category.values]);
+  const known = roadTrackAxis(track).categories.flatMap((category) => [...category.values]);
   return ["case", ["in", valueOf(track), ["literal", known]], KNOWN_LINE_OPACITY, UNKNOWN_LINE_OPACITY];
 }
 
 function trackFilter(track: RoadTrack, hiddenKeys: readonly string[]): FilterSpecification | undefined {
-  const hidden = axisOf(track).categories.filter((category) => hiddenKeys.includes(category.key));
+  const hidden = roadTrackAxis(track).categories.filter((category) => hiddenKeys.includes(category.key));
   const values = hidden.flatMap((category) => [...category.values]);
   if (values.length === 0) return undefined;
   return ["!", ["in", valueOf(track), ["literal", values]]] as unknown as FilterSpecification;
