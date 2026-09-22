@@ -1,85 +1,161 @@
+"""`infrastructure/basemap_client.py`——基礎地図の中継と、スタイルJSONに埋まったURLの差し替え。
+
+ここで見ないもの:
+
+- ディスクキャッシュの表現（ファイル名・書き込みの原子性） → `test_tile_cache.py`
+- 配信のヘッダ・レート制限・キャッシュの破棄API → `test_basemap_routes.py`
+- HTTPクライアントの使い回し → `test_http_client.py`
+
+**上流もディスクも触らない。** HTTPは`fake_tile_http.py`のフェイク、`tile_cache`は読み書きを
+覚えるだけの差し替えを与える。**保存先のキー名は名指ししない**——外から見えるのは
+「プロキシの宛先を変えたときに何が配られるか」で、キーの綴りはこのモジュールの内側にある。
+"""
+
+import threading
+
+import httpx
 import pytest
 
-from app.infrastructure import tile_cache
-from app.infrastructure.basemap_client import BasemapClient
+from app.infrastructure import basemap_client, debug_log
+from app.infrastructure.basemap_client import UPSTREAM_HOST, BasemapClient
 from tests.fake_tile_http import FakeHttpClient
+
+CATEGORY = "basemap:openfreemap"
+PROXY_A = "http://proxy_a/api/basemap"
+PROXY_B = "http://proxy_b/api/basemap"
+STYLE_PATH = "styles/style_a"
+STYLE_JSON = f'{{"sprite": "{UPSTREAM_HOST}/sprites/s", "attribution": "© {UPSTREAM_HOST} contributors"}}'.encode()
+JSON_TYPE = "application/json"
+TILE_PATH = "planet/1/2/3.pbf"
+TILE_A = b"tile_a"
+TILE_TYPE = "application/x-protobuf"
+
+
+class FakeTileCache:
+    """`tile_cache`の読み書きを覚えるだけの差し替え（`threads`は読み書きを行ったスレッド）。"""
+
+    def __init__(self):
+        self.entries: dict[str, tuple[bytes, str]] = {}
+        self.threads: set[int] = set()
+
+    def get(self, path: str) -> tuple[bytes, str] | None:
+        self.threads.add(threading.get_ident())
+        return self.entries.get(path)
+
+    def set(self, path: str, content: bytes, content_type: str) -> None:
+        self.threads.add(threading.get_ident())
+        self.entries[path] = (content, content_type)
 
 
 @pytest.fixture(autouse=True)
-def use_temp_cache_dir(tmp_path, monkeypatch):
-    monkeypatch.setattr(tile_cache, "CACHE_DIR", tmp_path / "tile_cache")
-    yield
+def store(monkeypatch):
+    fake = FakeTileCache()
+    monkeypatch.setattr(basemap_client.tile_cache, "get", fake.get)
+    monkeypatch.setattr(basemap_client.tile_cache, "set", fake.set)
+    debug_log.reset_stats()
+    yield fake
+    debug_log.reset_stats()
 
 
-async def test_get_rewrites_upstream_host_in_json_responses():
-    style_json = b'{"sprite":"https://tiles.openfreemap.org/sprites/ofm_f384/ofm","sources":{"openmaptiles":{"url":"https://tiles.openfreemap.org/planet"}}}'
-    http_client = FakeHttpClient(style_json, "application/json")
-    client = BasemapClient(http_client, "http://localhost:8000/api/basemap")
-
-    content, content_type = await client.get("styles/liberty")
-
-    assert b"tiles.openfreemap.org" not in content
-    assert b'"http://localhost:8000/api/basemap/sprites/ofm_f384/ofm"' in content
-    assert b'"http://localhost:8000/api/basemap/planet"' in content
-    assert content_type == "application/json"
+def _client(http_client, proxy_base_url: str = PROXY_A) -> BasemapClient:
+    return BasemapClient(http_client, proxy_base_url)
 
 
-async def test_get_passes_through_binary_content_unmodified():
-    http_client = FakeHttpClient(b"\x00\x01\x02", "application/x-protobuf")
-    client = BasemapClient(http_client, "http://localhost:8000/api/basemap")
-
-    content, content_type = await client.get("planet/20260101/12/3232/1450.pbf")
-
-    assert content == b"\x00\x01\x02"
-    assert content_type == "application/x-protobuf"
+def _upstream(content: bytes, content_type: str, raises=None) -> FakeHttpClient:
+    return FakeHttpClient(content, content_type, raises=raises)
 
 
-async def test_get_caches_result_and_skips_second_upstream_request():
-    http_client = FakeHttpClient(b"cached-bytes", "image/png")
-    client = BasemapClient(http_client, "http://localhost:8000/api/basemap")
-
-    await client.get("sprites/ofm_f384/ofm.png")
-    await client.get("sprites/ofm_f384/ofm.png")
-
-    assert len(http_client.requested_urls) == 1
+def _stats() -> dict:
+    return debug_log.get_stats()["external"][CATEGORY]
 
 
-async def test_get_returns_none_on_upstream_failure():
-    import httpx
+class TestFetchingFromUpstream:
+    async def test_the_path_is_asked_for_under_the_basemap_host(self):
+        http_client = _upstream(TILE_A, TILE_TYPE)
 
-    http_client = FakeHttpClient(b"", "text/plain", raises=httpx.ConnectError("boom", request=httpx.Request("GET", "http://x")))
-    client = BasemapClient(http_client, "http://localhost:8000/api/basemap")
+        await _client(http_client).get(TILE_PATH)
 
-    result = await client.get("styles/liberty")
+        assert http_client.requested_urls == [f"{UPSTREAM_HOST}/{TILE_PATH}"]
 
-    assert result is None
+    async def test_the_disk_is_read_and_written_off_the_event_loop(self, store):
+        """基礎地図は一度に数十件のタイル・フォントを要求するため、イベントループ上で
+        ディスクを触ると、同時に処理中の他のリクエストがまとめて詰まる。
+        """
+        await _client(_upstream(TILE_A, TILE_TYPE)).get(TILE_PATH)
+
+        assert store.threads and threading.get_ident() not in store.threads
+
+    async def test_a_failing_upstream_has_no_content(self):
+        result = await _client(_upstream(b"", TILE_TYPE, raises=httpx.RequestError("boom"))).get(TILE_PATH)
+
+        assert result is None
+        assert _stats()["errors"] == 1
+
+    async def test_nothing_is_kept_when_the_fetch_failed(self, store):
+        await _client(_upstream(b"", TILE_TYPE, raises=httpx.RequestError("boom"))).get(TILE_PATH)
+
+        assert store.entries == {}
 
 
-async def test_json_is_cached_unrewritten_so_proxy_base_url_change_applies_immediately():
-    style_json = b'{"sprite":"https://tiles.openfreemap.org/sprites/ofm_f384/ofm"}'
-    http_client = FakeHttpClient(style_json, "application/json")
+class TestTilesAndFonts:
+    async def test_what_came_back_is_returned_and_kept_untouched(self, store):
+        """バイナリに差し替えをかけると、たまたま一致した並びが書き換わって壊れる。"""
+        result = await _client(_upstream(TILE_A, TILE_TYPE)).get(TILE_PATH)
 
-    first = BasemapClient(http_client, "http://localhost:3000/api/basemap")
-    content, _ = await first.get("styles/liberty")
-    assert b'"http://localhost:3000/api/basemap/sprites/ofm_f384/ofm"' in content
+        assert result == (TILE_A, TILE_TYPE)
+        assert store.entries == {TILE_PATH: (TILE_A, TILE_TYPE)}
 
-    second = BasemapClient(http_client, "https://backend.example/api/basemap")
-    content, content_type = await second.get("styles/liberty")
+    async def test_something_already_kept_is_served_without_asking_upstream(self, store):
+        store.entries[TILE_PATH] = (TILE_A, TILE_TYPE)
+        http_client = _upstream(b"other", TILE_TYPE)
 
-    assert len(http_client.requested_urls) == 1
-    assert b'"https://backend.example/api/basemap/sprites/ofm_f384/ofm"' in content
-    assert b"tiles.openfreemap.org" not in content
-    assert content_type == "application/json"
+        result = await _client(http_client).get(TILE_PATH)
+
+        assert result == (TILE_A, TILE_TYPE)
+        assert http_client.requested_urls == []
+        assert _stats()["cache_hits"] == 1
 
 
-async def test_rewritten_json_left_under_plain_path_key_is_ignored():
-    """パスそのままのキーに書き換え済みJSONが残っていても採用せず、上流から取り直す。"""
-    tile_cache.set("styles/liberty", b'{"sprite":"http://stale.example/api/basemap/sprites/ofm"}', "application/json")
-    http_client = FakeHttpClient(b'{"sprite":"https://tiles.openfreemap.org/sprites/ofm"}', "application/json")
-    client = BasemapClient(http_client, "https://backend.example/api/basemap")
+class TestStyleDocuments:
+    async def test_the_upstream_address_is_pointed_back_at_this_server(self):
+        """書き換えないと、ブラウザは地図の実体を上流から直に引き、こちらの中継を通らない。"""
+        content, _ = await _client(_upstream(STYLE_JSON, JSON_TYPE)).get(STYLE_PATH)
 
-    content, _ = await client.get("styles/liberty")
+        assert f'"{PROXY_A}/sprites/s"'.encode() in content
 
-    assert len(http_client.requested_urls) == 1
-    assert b"stale.example" not in content
-    assert b'"https://backend.example/api/basemap/sprites/ofm"' in content
+    async def test_an_address_that_is_not_a_url_of_its_own_is_left_alone(self):
+        """本文に現れる上流の名前まで書き換えると、出典の表記が嘘になる。"""
+        content, _ = await _client(_upstream(STYLE_JSON, JSON_TYPE)).get(STYLE_PATH)
+
+        assert f"© {UPSTREAM_HOST} contributors".encode() in content
+
+    async def test_the_content_type_upstream_gave_is_passed_through(self):
+        _, content_type = await _client(_upstream(STYLE_JSON, JSON_TYPE)).get(STYLE_PATH)
+
+        assert content_type == JSON_TYPE
+
+    async def test_changing_the_proxy_address_takes_effect_without_clearing_the_disk(self):
+        """書き換えた後の姿を残すと、宛先を変えてもキャッシュを消すまで古いURLを配り続ける。"""
+        await _client(_upstream(STYLE_JSON, JSON_TYPE)).get(STYLE_PATH)
+        http_client = _upstream(b"", JSON_TYPE, raises=httpx.RequestError("boom"))
+
+        content, _ = await _client(http_client, PROXY_B).get(STYLE_PATH)
+
+        assert f'"{PROXY_B}/sprites/s"'.encode() in content
+        assert http_client.requested_urls == []
+
+    async def test_a_rewritten_copy_left_under_the_plain_key_is_not_served(self, store):
+        """世代の違う書き換え済みのJSONを拾うと、宛先を変えた後も古いURLが配られる。"""
+        store.entries[STYLE_PATH] = (b'{"sprite": "http://proxy_old/sprites/s"}', JSON_TYPE)
+        http_client = _upstream(STYLE_JSON, JSON_TYPE)
+
+        content, _ = await _client(http_client).get(STYLE_PATH)
+
+        assert f'"{PROXY_A}/sprites/s"'.encode() in content
+        assert http_client.requested_urls == [f"{UPSTREAM_HOST}/{STYLE_PATH}"]
+
+    async def test_the_plain_key_is_left_alone(self, store):
+        """書き換え済みの姿をそのキーへ置くと、上の判定が自分で置いたものを拾い続ける。"""
+        await _client(_upstream(STYLE_JSON, JSON_TYPE)).get(STYLE_PATH)
+
+        assert STYLE_PATH not in store.entries

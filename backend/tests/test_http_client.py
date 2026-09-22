@@ -1,51 +1,58 @@
-"""http_client.pyの単体テスト。
+"""`infrastructure/http_client.py`——timeoutごとに1本だけ持つHTTPクライアントの引き出し。
 
-`get_http_client`の要件は、timeoutの値ごとにクライアントを1つだけ生成して使い回すこと。
+ここで見ないもの:
+
+- どの呼び出しがどのtimeoutを要求するか → `app/api/dependencies.py`側の話
+- 終了時に誰がいつ閉じるか（lifespanの順序） → `test_main_lifespan.py`
+- 受け取ったクライアントで何をするか → 各クライアントのテスト
+
+**通信はしない。** 確かめるのは引き出しの出し入れだけで、httpx自身の振る舞いは対象外。
+引き出しはプロセス大域のため、各テストの前後で空にする。
 """
 
 import httpx
+import pytest
 
-from app.infrastructure import http_client
+from app.infrastructure.http_client import close_all_http_clients, get_http_client
 
-
-def _clear_clients():
-    # モジュールグローバルのキャッシュ（_clients）のため、他のテストへ漏れないよう
-    # 前後でクリアする（graph_material_cacheの既存テストと同じ考え方）。
-    http_client._clients.clear()
+TIMEOUT_A = 7.5
+TIMEOUT_B = 15.0
 
 
-class TestGetHttpClient:
-    def setup_method(self):
-        _clear_clients()
+@pytest.fixture(autouse=True)
+async def _empty_drawer():
+    await close_all_http_clients()
+    yield
+    await close_all_http_clients()
 
-    def teardown_method(self):
-        _clear_clients()
 
-    def test_same_timeout_returns_same_instance(self):
-        client1 = http_client.get_http_client(5.0)
-        client2 = http_client.get_http_client(5.0)
-        assert client1 is client2
+async def test_asking_twice_for_the_same_timeout_gets_the_same_client():
+    """要求のたびに作ると、SSLコンテキストの構築がイベントループを同期的に止める。"""
+    assert get_http_client(TIMEOUT_A) is get_http_client(TIMEOUT_A)
 
-    def test_different_timeout_returns_different_instance(self):
-        client1 = http_client.get_http_client(5.0)
-        client2 = http_client.get_http_client(10.0)
-        assert client1 is not client2
 
-    def test_returns_async_client_instance(self):
-        client = http_client.get_http_client(5.0)
-        assert isinstance(client, httpx.AsyncClient)
+async def test_each_timeout_gets_a_client_of_its_own():
+    assert get_http_client(TIMEOUT_A) is not get_http_client(TIMEOUT_B)
 
-    def test_client_timeout_matches_requested_value(self):
-        client = http_client.get_http_client(7.5)
-        assert client.timeout == httpx.Timeout(7.5)
 
-    def test_repeated_calls_do_not_grow_cache_for_same_timeout(self):
-        for _ in range(5):
-            http_client.get_http_client(3.0)
-        assert len(http_client._clients) == 1
+async def test_the_client_waits_as_long_as_it_was_asked_to():
+    """別のtimeoutの引き出しから配ると、短い締め切りを要求した呼び出しが長く待たされる。"""
+    assert get_http_client(TIMEOUT_A).timeout == httpx.Timeout(TIMEOUT_A)
 
-    def test_multiple_distinct_timeouts_are_all_cached(self):
-        http_client.get_http_client(1.0)
-        http_client.get_http_client(2.0)
-        http_client.get_http_client(3.0)
-        assert len(http_client._clients) == 3
+
+async def test_closing_shuts_every_client_that_was_handed_out():
+    """開いたまま残すと、プロセスが終わるまで接続が残る。"""
+    clients = [get_http_client(TIMEOUT_A), get_http_client(TIMEOUT_B)]
+
+    await close_all_http_clients()
+
+    assert [client.is_closed for client in clients] == [True, True]
+
+
+async def test_a_request_after_closing_gets_a_fresh_client():
+    """閉じたクライアントを配り続けると、以降のリクエストがすべて失敗する。"""
+    closed = get_http_client(TIMEOUT_A)
+
+    await close_all_http_clients()
+
+    assert get_http_client(TIMEOUT_A) is not closed
