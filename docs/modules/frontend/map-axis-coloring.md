@@ -82,7 +82,7 @@ backend（`domain/dynamic_way_values.py: map_value_thresholds`）が軸の折れ
 `lensKeepAfterRoute`（既定ON）。レンズが軸を指していれば生成リクエストへ`lens_axis_id`を
 載せ、重み0でもbackendが区間表示のため風の時変化合成（風に依存する軸の場合）・
 `material_values`への当該材料の封入（`signed_material`種の軸の場合）を行う
-（backend側は`_active_material_ids`、[routing-engine.md](../backend/routing-engine.md)
+（backend側は`axis_raw_value.py: displayed_material_ids`、[routing-engine.md](../backend/routing-engine.md)
 参照）。
 
 `map_value_kind==="signed_material"`の場合、値は`axis_difficulties[axis_id]`ではなく
