@@ -11,7 +11,7 @@
  * カメラは動かさない——作り直しは見た目を戻すだけで、表示範囲は利用者のもの。
  */
 import * as maplibregl from "maplibre-gl";
-import type { ExpressionSpecification, FilterSpecification, Map as MapLibreMap } from "maplibre-gl";
+import type { Map as MapLibreMap } from "maplibre-gl";
 
 import type { MapViewProps } from "@/components/Map/MapView";
 import {
@@ -29,14 +29,11 @@ import {
 import type { DynamicWeatherRenderPayload } from "@/components/Map/dynamicWeather";
 import { withJmaTileProtocol } from "@/components/Map/jmaTileProtocol";
 import { buildLegendFilterExpression } from "@/components/Map/legendFilter";
-import { createLidenIcon } from "@/components/Map/lidenIcon";
-import { LIDEN_MARK_VALUE_PROPERTY } from "@/components/Map/lidenLayer";
 import { legendBandKey } from "@/components/Map/mapColorLegend";
 import { areaLayerAnchor, runWhenStyleReady } from "@/components/Map/mapStyleOps";
 import { ROUTE_ARROW_ICON_ID, createRouteArrowIcon } from "@/components/Map/routeArrowIcon";
 import { LENS_NEUTRAL_COLOR, getRouteStyleMode } from "@/components/Map/routeStyleModes";
-import { bandColorsFor, valueScaleFor } from "@/components/Map/valueScale";
-import { createWindArrowIcon } from "@/components/Map/windArrowIcon";
+import { bandColorsFor, DEFAULT_DIFFICULTY_BOUNDARIES } from "@/components/Map/valueScale";
 import { tileBaseUrl } from "@/lib/tileBaseUrl";
 import {
   ROAD_TILE_MAX_ZOOM,
@@ -182,7 +179,7 @@ function rampAxisBands(axis: RampAxis): AxisBand[] {
 }
 
 function dedicatedAxisBands(display: DedicatedWayValueDisplay): AxisBand[] {
-  const boundaries = display.boundaries ?? valueScaleFor(display.kind).defaultBoundaries;
+  const boundaries = display.boundaries ?? DEFAULT_DIFFICULTY_BOUNDARIES;
   const colors = bandColorsFor(display.kind, boundaries);
   return Array.from({ length: boundaries.length + 1 }, (_, index) => ({
     key: legendBandKey(index),

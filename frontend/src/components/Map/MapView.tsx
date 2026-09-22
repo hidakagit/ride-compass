@@ -12,7 +12,6 @@ import * as maplibregl from "maplibre-gl";
 import { configureMaplibreWorker } from "@/features/map/maplibreWorker";
 import type {
   ErrorEvent as MapLibreErrorEvent,
-  GeoJSONSource,
   Map as MapLibreMap,
   Marker,
   MapLayerMouseEvent,
@@ -29,29 +28,20 @@ import type {
 } from "@/types/route";
 import type { ExperimentSlot } from "@/types/experimentSlot";
 import {
-  LANDCOVER_TILE_MAX_ZOOM,
-  LANDCOVER_TILE_MIN_ZOOM,
   ROAD_TILE_MAX_ZOOM,
   ROAD_TILE_MIN_ZOOM,
-  accidentTileUrl,
-  hasTileVersions,
-  landcoverTileUrl,
-  poiTileUrl,
-  roadSurfaceTileUrl,
 } from "@/services/regionApi";
 import type { RideConditions } from "@/services/regionApi";
 import { tileContainingLonLat, type TileXY } from "@/components/Map/dynamicWayValues";
-import { getRouteStyleMode, type RouteStyleMode, type RouteStyleModeId } from "@/components/Map/routeStyleModes";
+import { type RouteStyleMode, type RouteStyleModeId } from "@/components/Map/routeStyleModes";
 import {
   ORIGIN_MARK_COLOR,
   ORIGIN_MARK_FALLBACK_COLOR,
   PIN_MARK_BACKGROUND,
   pinMarkHtml,
 } from "@/components/Map/pinMarks";
-import { buildCombinedLegendFilterExpression } from "@/components/Map/legendFilter";
 import {
   buildMapLayers,
-  TILE_VERSION_GATED_SOURCES,
   tileZoomTooWideLayerIds,
   type LayerDataStatusByLayer,
   type MapLayerDataSource,
@@ -59,34 +49,17 @@ import {
   type MapLayerId,
   type MapLayerVisibility,
 } from "@/components/Map/mapLayers";
-import { WIND_CALM_THRESHOLD_MS, WIND_SPEED_COLOR_STOPS } from "@/components/Map/windLayer";
 import {
-  dedicatedWayValueColorExpression,
-  dedicatedWayValueOpacityExpression,
-  dedicatedWayValueFeatureStateKey,
-  DEFAULT_DEDICATED_WAY_VALUE_DISPLAY,
   type DedicatedWayValueDisplay,
 } from "@/components/Map/dedicatedWayValueLayer";
-import { PRECIPITATION_COLOR_STOPS, PRECIPITATION_NONE_THRESHOLD_MM } from "@/components/Map/precipitationNowcast";
 import { tileBaseUrl } from "@/lib/tileBaseUrl";
-import { createLidenIcon } from "@/components/Map/lidenIcon";
-import { LIDEN_MARK_VALUE_PROPERTY } from "@/components/Map/lidenLayer";
-import { RISK_LEVEL_COLORS } from "@/components/Map/riskMap";
-import { createWindArrowIcon } from "@/components/Map/windArrowIcon";
-import { buildBandColorExpression } from "@/components/Map/valueScale";
 import {
-  areaLayerAnchor,
-  isAreaLayerType,
   prepareBasemapForAreaLayers,
   resetBasemapAreaLayerPreparation,
   runWhenStyleReady,
-  setLayerVisibility,
 } from "@/components/Map/mapStyleOps";
-import { createRouteArrowIcon } from "@/components/Map/routeArrowIcon";
-import { buildLegendFilterExpression } from "@/components/Map/legendFilter";
-import { applyScene, redrawAllLayers, sceneInputsFrom } from "@/features/map/scene/applyToMap";
+import { applyScene, sceneInputsFrom } from "@/features/map/scene/applyToMap";
 import {
-  EMPTY_MAP_SCENE,
   interactiveSceneLayerIds,
   sceneLayerIdsForHitTarget,
   type MapScene,
@@ -98,17 +71,11 @@ import {
   ROUTE_HIT_TARGET_SPLICE_BAND,
 } from "@/features/map/scene/groups/routes";
 import { buildMapScene, type SceneInputs } from "@/features/map/scene/buildScene";
-import type { RoutePath, RouteState } from "@/features/map/scene/groups/routes";
-import type { AxisBand, AxisLineState } from "@/features/map/scene/groups/axisLines";
-import { WEATHER_ICONS, type WeatherPayload, type WeatherState } from "@/features/map/scene/groups/weather";
 import { POINT_LAYERS, pointGroup, pointSourceId } from "@/features/map/scene/groups/points";
 import { PRIMARY_ATTRIBUTE_LABELS } from "@/components/Map/primaryAttributes";
 import { AREA_SOURCE_ID } from "@/features/map/scene/groups/areaRasters";
 import { ROAD_LINE_SOURCE_ID } from "@/features/map/scene/groups/roadLines";
 import { sceneLayerId } from "@/features/map/scene/sceneBuilders";
-import { legendBandKey } from "@/components/Map/mapColorLegend";
-import { bandColorsFor, valueScaleFor } from "@/components/Map/valueScale";
-import { LENS_NEUTRAL_COLOR } from "@/components/Map/routeStyleModes";
 import {
   restoreRouteSegmentProperties,
   type RouteSegmentProperties,
@@ -145,29 +112,16 @@ function routeHitLayerId(scene: MapScene, target: string): string | undefined {
   return sceneLayerIdsForHitTarget(scene, target)[0];
 }
 import {
-  DYNAMIC_WEATHER_LAYER_IDS,
   type DynamicWeatherGroupState,
   type DynamicWeatherLayerId,
-  type DynamicWeatherRenderPayload,
-  type DynamicWeatherSourceId,
 } from "@/components/Map/dynamicWeather";
 import {
-  COLOR_UNKNOWN,
-  buildAxisRampValueExpression,
-  rampColorForBand,
-  axisLineLayerId,
-  axisMapLayerId,
-  buildAxisRampColorExpression,
-  dedicatedWayValueLineLayerId,
-  dedicatedWayValueMapLayerId,
   type DedicatedWayValueAxis,
   type RampAxis,
 } from "@/components/Map/axisLayers";
 import { useLayerDataStatus } from "@/components/Map/useLayerDataStatus";
 import { useJmaTileIndex } from "@/hooks/useJmaTileIndex";
-import { jmaPlaceholderTileUrl } from "@/components/Map/jmaNowcastFrames";
-import { registerJmaTileProtocol, withJmaTileProtocol } from "@/components/Map/jmaTileProtocol";
-import jmaTileConfig from "@/types/generated/jma-tile-config.json";
+import { registerJmaTileProtocol } from "@/components/Map/jmaTileProtocol";
 import { debugLog } from "@/lib/debugLog";
 import styles from "./MapView.module.css";
 
@@ -239,8 +193,6 @@ function bindDragAwareClick(marker: maplibregl.Marker, element: HTMLElement, onC
 // トラック間隔はline-width（3px）の半分弱ずつ重なる値にしてある（重なりは色の切り替わりと
 
 
-
-
 // payload（page.tsx側が各要素のデータ層関数から計算した値）を反映する。グループ配下の
 // 各ソースについて、visibleとpayloadのどちらか一方でも欠けていれば非表示のまま（フェッチ
 // 未完了・取得失敗時、あるいは選択時刻がそのソースのデータ範囲外で「描画しない」場合に、
@@ -249,48 +201,12 @@ function bindDragAwareClick(marker: maplibregl.Marker, element: HTMLElement, onC
 // サブレイヤーは常に非表示にする（=同時に両方は出ない）。ソースをまたいだ複数payloadの
 // 同時表示（precipitationNowcastのmain+linearRainband等）は、グループ内の別ソースとして
 // 独立にvisible/payloadを持つことで実現する（このループ自体は各ソースを独立に処理するだけ）。
-// setTiles()は同じURLを渡しても無条件にソースをリロードし、読み込み済みのタイルを
-// 破棄して取得し直す（ラスタは特にPNGデコード・GPUテクスチャアップロードのコストが
-// 大きい）。dynamicWeatherは風・降水・雷等いずれか1要素の更新だけでも新しいオブジェクト
-// 参照になり、applyDynamicWeatherStateは全グループぶん毎回呼ばれるため、URLが前回から
-// 変わっていないソースまで巻き添えで再読み込みされる。ソースごとに前回適用したURLを
-// 覚えておき、変化が無ければsetTilesを呼ばない。
-const lastAppliedTileUrl = new WeakMap<object, string>();
-
-
-// gridFill/gridMark（GeoJSONSource）向けの同型ガード。setData()はネットワーク取得こそ
-// 無いが、渡したデータをワーカーへ送り直しインデックスを再構築させる点はsetTilesと同じ
-// 「無条件に再構築」挙動のため揃えておく。内容比較にJSON.stringifyを使うのは、
-// payloadが都度新しいオブジェクト参照で計算される（風グリッド・落雷位置等、都度数十〜
-// 数百点程度）ため参照比較では意味が無く、かつこの規模なら文字列化のコストは無視できる
-// ため。
-const lastAppliedGeojson = new WeakMap<object, string>();
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 // interactive: クリック・カーソル判定（handleClick/handleMouseMove）の対象にするか。
 // レイヤーを足すときにその場で答えさせるため必須にしてある——別の一覧で「対象外のkey」を
 // 数え上げる形にすると、新しいレイヤーが既定でクリック対象になり、「カーソルは
 // クリック可能を示すのに実際は何も起きない」という不整合が静かに増える。
-
-
-
-
-
 
 
 type LayerDataSource = { key: MapLayerId; sourceId: string; sourceLayer?: string };
@@ -331,13 +247,6 @@ const INITIAL_TILES_OVERLAY_MAX_MS = 6000;
 // ない（DYNAMIC_WEATHER_RENDERERS・ensureDynamicWeatherLayer参照）。sourceを分けることで
 // 「1グループ=複数の名前付きソース」を表現できる（単一ソースのグループは"main"という
 // 1キーだけを持つ）。
-/** 気象庁タイル要素のズーム範囲。値は`backend/app/domain/jma_tile_specs.py`が配信元仕様
- * （`zoomUse`・`maxNativeZoom`）から導出したものを生成物経由で受け取る——ここで数値を
- * 手書きすると、配信元が実データを持たないズームを指してしまう（[T633]）。 */
-function jmaZoomRange(elementId: keyof typeof jmaTileConfig): { minzoom: number; maxzoom: number } {
-  const spec = jmaTileConfig[elementId];
-  return { minzoom: spec.min_zoom, maxzoom: spec.max_zoom };
-}
 
 const TILE_SOURCE_BY_DATA_SOURCE: Record<
   Exclude<MapLayerDataSource, "ownFetch">,
@@ -901,7 +810,6 @@ export default function MapView({
   const lastTileZoomHintRef = useRef("");
   // 詳細を見ている道。propsではなくこのコンポーネントのstate由来のため、redrawPropsRefとは
   // 別に持つ。
-  const inspectedWayIdRef = useRef<number | null>(null);
   const onViewportChangeRef = useRef(onViewportChange);
   const onLayerDataStatusChangeRef = useRef(onLayerDataStatusChange);
   // handleClick（地図初期化effect内、一度だけ登録されるクロージャ）が
@@ -948,7 +856,6 @@ export default function MapView({
     dedicatedWayValues,
   });
 
-  const selectedCandidate = routes.find((r) => r.id === selectedRouteId) ?? null;
 
   useEffect(() => {
     onTileZoomTooWideChangeRef.current = onTileZoomTooWideChange;

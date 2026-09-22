@@ -58,7 +58,11 @@ export function zoomScaleExpression(
   ];
 }
 
-/** 実行時に入れ替わる GeoJSON の中身。ソースを作り直さずに当て直す。 */
+/** 実行時に入れ替わる GeoJSON の中身。ソースを作り直さずに当て直す。
+ *
+ * タイルと同じく**中身が変わっていないときは当て直さない**（呼び出し側が前回の宣言と
+ * 比べる）——`setData`はネットワークへ出ないが、渡したデータをワーカーへ送り直して
+ * インデックスを作り直させる。 */
 export function geojsonContent(data: unknown): MapSceneSourceContent {
   return {
     spec: { data },

@@ -20,8 +20,12 @@ import {
 } from "./valueScale";
 import { LEGEND_NO_DATA_KEY, legendBandKey } from "./mapColorLegend";
 
+/** 符号付き材料の段。**軸の折れ線の節を0対称に開いたもの**で、backendが軸ごとに返す
+ * （`domain/dynamic_way_values.py`）。ここでは形だけを借りて色の性質を見る。 */
+const SIGNED_BANDS: readonly number[] = [-9, -6, -3, 3, 6, 9];
+
 const difficultyDisplay: DedicatedWayValueDisplay = { kind: "difficulty", unit: "" };
-const signedDisplay: DedicatedWayValueDisplay = { kind: "signed_material", unit: "%" };
+const signedDisplay: DedicatedWayValueDisplay = { kind: "signed_material", unit: "%", boundaries: SIGNED_BANDS };
 
 // 隠した段は透明、下り側は寒色、という**性質**を見る。実装の定数を借りると、源泉で色を
 // 調整しただけで落ちる。
@@ -39,13 +43,13 @@ describe("dedicatedWayValueLayer", () => {
       expect(dedicatedWayValueFeatureStateKey("wind")).not.toBe(dedicatedWayValueFeatureStateKey("gradient"));
     });
 
-    it("段階数はboundaries.length+1（省略時は種類ごとの既定しきい値）", () => {
+    it("段階数はboundaries.length+1（省略時は難易度の既定）", () => {
       const step = dedicatedWayValueColorExpression("wind", difficultyDisplay)[3] as unknown[];
       expect(step[0]).toBe("step");
       expect(step).toHaveLength(3 + DEFAULT_DIFFICULTY_BOUNDARIES.length * 2);
 
       const signedStep = dedicatedWayValueColorExpression("gradient", signedDisplay)[3] as unknown[];
-      expect(signedStep).toHaveLength(3 + mapDisplay.valueScale.signedMaterialBoundaries.length * 2);
+      expect(signedStep).toHaveLength(3 + SIGNED_BANDS.length * 2);
 
       const custom = dedicatedWayValueColorExpression("wind", {
         ...difficultyDisplay,
@@ -92,7 +96,7 @@ describe("dedicatedWayValueLayer", () => {
 
     it("凡例の段階キーと色式の段階の並びが一致する（同じキーで同じ段階を隠せる）", () => {
       const legend = dedicatedWayValueLegend(signedDisplay);
-      const lastBandIndex = mapDisplay.valueScale.signedMaterialBoundaries.length;
+      const lastBandIndex = SIGNED_BANDS.length;
       const hidden = dedicatedWayValueColorExpression("gradient", signedDisplay, false, [
         legendBandKey(lastBandIndex),
       ])[3] as unknown[];
@@ -117,9 +121,9 @@ describe("dedicatedWayValueLayer", () => {
       const signed = dedicatedWayValueLegend(signedDisplay);
       expect(signed[0].color).toBe(DESCENT);
       // 0をまたぐ段階（平坦）が配色の分かれ目。
-      const flatIndex = mapDisplay.valueScale.signedMaterialBoundaries.findIndex((boundary) => boundary > 0);
+      const flatIndex = SIGNED_BANDS.findIndex((boundary) => boundary > 0);
       expect(signed[flatIndex].color).toBe(FLAT);
-      expect(signed).toHaveLength(mapDisplay.valueScale.signedMaterialBoundaries.length + 2);
+      expect(signed).toHaveLength(SIGNED_BANDS.length + 2);
     });
 
     it("bandLabelsは要素数が段階数と一致する間だけ数値レンジの前に添える", () => {

@@ -162,11 +162,35 @@ class TestMapValueThresholds:
             assert map_value_thresholds(axis) == [1.0, 2.0]
 
     def test_an_axis_without_a_ramp_display_and_without_an_override_is_none(self):
-        """読む側が種類ごとの既定を使う。ここで既定を作らない。"""
+        """難易度の目盛りには手掛かりが無いので、読む側の既定（等分）へ委ねる。"""
         axis = _linear([MaterialTerm(material=A)], LINE)
 
         with _display("none"):
             assert map_value_thresholds(axis) is None
+
+    def test_a_sign_folding_axis_derives_its_bands_from_its_own_line(self):
+        """**段の並びをどこかに固定で持たない。** 折れ線の節は「この材料のどの値から
+        効きが変わるか」を軸が宣言したもので、段の境界として意味がある。軸は`|値|`を
+        評価しているため、正負で別の切り方をする根拠を軸は持たない。
+        """
+        axis = _linear(
+            [MaterialTerm(material=A)],
+            [(0.0, 0.0), (3.0, 40.0), (9.0, 100.0)],
+            preprocess="abs",
+        )
+
+        assert map_value_thresholds(axis) == [-9.0, -3.0, 3.0, 9.0]
+
+    def test_an_override_still_wins_over_the_bands_derived_from_the_line(self):
+        """運用が段を決め直したら、そちらが勝つ。"""
+        axis = _linear(
+            [MaterialTerm(material=A)],
+            [(0.0, 0.0), (3.0, 100.0)],
+            preprocess="abs",
+            thresholds=[-1.0, 1.0],
+        )
+
+        assert map_value_thresholds(axis) == [-1.0, 1.0]
 
     def test_a_categorical_axis_is_not_mapped(self):
         """分類の軸の段はもともと得点の目盛りで書かれている。通す折れ線が無い。"""

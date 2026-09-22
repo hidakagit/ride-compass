@@ -83,9 +83,22 @@ def map_value_kind(definition: AxisDefinition) -> MapValueKind:
     return "difficulty"
 
 
+def _signed_thresholds_from_breakpoints(shape: BreakpointLinearShape) -> list[float]:
+    """符号付き材料の段の境界を、軸自身の折れ線の節から作る。
+
+    **段の並びをどこかに固定で持たない。** 折れ線の節は「この材料のどの値から効きが
+    変わるか」を軸が宣言したもので、段の境界として意味がある。固定の一覧を別に持つと、
+    軸を直しても段が追従せず、しかもその一覧を誰が決めたのかが辿れなくなる。
+
+    軸は`|値|`を評価している（`preprocess="abs"`）ので、段も0対称に開く——正負で
+    別の切り方をする根拠を軸は持たない。
+    """
+    knots = sorted({x for x, _ in shape.breakpoints if x > 0})
+    return [-x for x in reversed(knots)] + knots
+
+
 def map_value_thresholds(definition: AxisDefinition) -> list[float] | None:
-    """`map_value_kind`が示すスケールでの段階境界。ramp表示も上書きも無ければNone
-    （読む側が種類ごとの既定値を使う）。
+    """`map_value_kind`が示すスケールでの段階境界。
 
     **ルート確定前の全道路の塗りと、確定後のルート線は同じ段で塗る。** 前者は材料の
     重み付き和を、後者は0〜100の難易度を塗るため、同じ段を両方の目盛りで言い直す必要が
@@ -99,7 +112,12 @@ def map_value_thresholds(definition: AxisDefinition) -> list[float] | None:
     display = axis_display_for(definition)
     if display.kind != "ramp":
         override = definition.display_thresholds_override
-        return list(override) if override is not None else None
+        if override is not None:
+            return list(override)
+        shape = definition.shape
+        if isinstance(shape, BreakpointLinearShape) and shape.preprocess == "abs" and len(shape.terms) == 1:
+            return _signed_thresholds_from_breakpoints(shape)
+        return None
     shape = definition.shape
     if not isinstance(shape, BreakpointLinearShape):
         return list(display.thresholds)

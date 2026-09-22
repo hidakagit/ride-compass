@@ -46,7 +46,6 @@ from app.domain.hard_filters import DEFAULT_HARD_FILTERS, HARD_FILTER_NAMES  # n
 from app.domain.geo import COMPASS_LABELS  # noqa: E402
 from app.domain.map_display import (  # noqa: E402
     DEFAULT_DIFFICULTY_BOUNDARIES,
-    SIGNED_MATERIAL_BOUNDARIES,
     MAP_LAYER_CATEGORIES,
     MAP_LAYER_IDS,
     MAP_LAYER_KINDS,
@@ -300,7 +299,6 @@ def main() -> None:
             },
             "valueScale": {
                 "difficultyBoundaries": list(DEFAULT_DIFFICULTY_BOUNDARIES),
-                "signedMaterialBoundaries": list(SIGNED_MATERIAL_BOUNDARIES),
             },
             "route": {
                 "lineWidthsPx": ROUTE_LINE_WIDTHS_PX,

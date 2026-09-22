@@ -44,22 +44,12 @@ const SIGNED_CLIMB_ANCHORS: readonly string[] = [
   COLOR_SIGNED_CLIMB_EXTREME,
 ];
 
-/** 軸カタログの`map_value_thresholds`が未設定のときの段の境界。**源泉が配る**
- * （`backend/app/domain/map_display.py`）——境界の個数がそのまま段の数になるので、
- * 画面側に写しを置くと段の数だけが古いまま描かれる。 */
+/** 難易度の段の境界。軸が`map_value_thresholds`を宣言していないときに使う。**源泉が配る**
+ * （`backend/app/domain/map_display.py`）。
+ *
+ * 符号付き材料の段はここに持たない——軸の折れ線から導いたものをbackendが必ず返すため、
+ * 画面側に既定を置いても到達しない（置くと、いつか使われる顔をした写しになる）。 */
 export const DEFAULT_DIFFICULTY_BOUNDARIES: readonly number[] = mapDisplay.valueScale.difficultyBoundaries;
-const SIGNED_MATERIAL_BOUNDARIES: readonly number[] = mapDisplay.valueScale.signedMaterialBoundaries;
-
-interface ValueScale {
-  defaultBoundaries: readonly number[];
-}
-
-export function valueScaleFor(kind: MapValueKind): ValueScale {
-  if (kind === "signed_material") {
-    return { defaultBoundaries: SIGNED_MATERIAL_BOUNDARIES };
-  }
-  return { defaultBoundaries: DEFAULT_DIFFICULTY_BOUNDARIES };
-}
 
 function hexToRgb(hex: string): [number, number, number] {
   const n = parseInt(hex.slice(1), 16);
@@ -165,7 +155,7 @@ function signedBandColors(boundaries: readonly number[]): string[] {
  * 全道路の塗り・ルート確定後のルート線・凡例がいずれもこの1つの関数を通るため、同じ軸の
  * 同じ段階はどこでも同じ色になる。 */
 export function bandColorsFor(kind: MapValueKind, boundaries?: readonly number[] | null): string[] {
-  const resolved = boundaries ?? valueScaleFor(kind).defaultBoundaries;
+  const resolved = boundaries ?? DEFAULT_DIFFICULTY_BOUNDARIES;
   if (kind === "signed_material") return signedBandColors(resolved);
   return interpolateColors(COLOR_EASY, COLOR_HARD, resolved.length + 1);
 }
@@ -211,7 +201,7 @@ export function buildSteppedColorExpression(options: {
 }): unknown[] {
   const { valueExpression, kind, boundaries, loading = false, hiddenBandKeys = [] } = options;
   const numericExpression = options.numericExpression ?? valueExpression;
-  const resolved = boundaries ?? valueScaleFor(kind).defaultBoundaries;
+  const resolved = boundaries ?? DEFAULT_DIFFICULTY_BOUNDARIES;
   const colors = bandColorsFor(kind, resolved).map((color, index) =>
     hiddenBandKeys.includes(legendBandKey(index)) ? COLOR_HIDDEN : color,
   );

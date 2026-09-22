@@ -1,6 +1,5 @@
 // @vitest-environment node
 // 配色・段階分けの純粋関数のみを検証する（docs/conventions/testing.mdパターン3）。
-import { mapDisplay } from "@/types/generated/mapDisplay";
 import { describe, expect, it } from "vitest";
 import { legendBandKey } from "./mapColorLegend";
 import {
@@ -18,6 +17,10 @@ const TRANSPARENT = "rgba(0,0,0,0)";
 const DESCENT = "#0284c7";
 /** 平坦は評価の「良い」側と同じ色を使う（0付近が最も走りやすい）。 */
 const FLAT = "#16a34a";
+
+/** 符号付き材料の段。**軸の折れ線の節を0対称に開いたもの**で、backendが軸ごとに返す
+ * （`domain/dynamic_way_values.py`）。ここでは形だけを借りて色の性質を見る。 */
+const SIGNED_BANDS: readonly number[] = [-9, -6, -3, 3, 6, 9];
 
 describe("valueScale", () => {
   describe("interpolateColorStops", () => {
@@ -45,8 +48,8 @@ describe("valueScale", () => {
     });
 
     it("段階を細かくしても、0をまたぐ段階の色は平坦色のまま動かない", () => {
-      const colors = bandColorsFor("signed_material", mapDisplay.valueScale.signedMaterialBoundaries);
-      const flatIndex = mapDisplay.valueScale.signedMaterialBoundaries.findIndex((boundary) => boundary > 0);
+      const colors = bandColorsFor("signed_material", SIGNED_BANDS);
+      const flatIndex = SIGNED_BANDS.findIndex((boundary) => boundary > 0);
       expect(colors[flatIndex]).toBe(FLAT);
       expect(new Set(colors).size).toBe(colors.length);
     });

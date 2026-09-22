@@ -17,7 +17,6 @@ import {
   bandColorsFor,
   COLOR_NO_DATA,
   DEFAULT_DIFFICULTY_BOUNDARIES,
-  valueScaleFor,
   type MapValueKind,
 } from "./valueScale";
 
@@ -127,7 +126,7 @@ function buildRangeSteppedMode(options: {
 // 専用way値レイヤー（dedicatedWayValueLayer.ts）と同じスケール・配色になる。
 export function routeColorableModeFromAxis(axis: CatalogAxis): RouteStyleMode {
   const kind: MapValueKind = axis.map_value_kind ?? "difficulty";
-  const boundaries = axis.map_value_thresholds ?? valueScaleFor(kind).defaultBoundaries;
+  const boundaries = axis.map_value_thresholds ?? DEFAULT_DIFFICULTY_BOUNDARIES;
   // backendは`map_value_kind`が`signed_material`になる条件としてterms 1件を要求するが
   // （domain/dynamic_way_values.py）、その不変条件はカタログのJSONには現れない。
   // 材料が引けないときは難易度モードへ倒す（塗れないより、軸の難易度で塗る方が近い）。

@@ -21,7 +21,7 @@ import {
   bandColorsFor,
   buildSteppedColorExpression,
   COLOR_NO_DATA,
-  valueScaleFor,
+  DEFAULT_DIFFICULTY_BOUNDARIES,
   type MapValueKind,
 } from "./valueScale";
 
@@ -115,7 +115,7 @@ export function dedicatedWayValueOpacityExpression(axisId: string, loading = fal
 export function dedicatedWayValueLegend(
   display: DedicatedWayValueDisplay = DEFAULT_DEDICATED_WAY_VALUE_DISPLAY,
 ): MapColorLegendBand[] {
-  const boundaries = display.boundaries ?? valueScaleFor(display.kind).defaultBoundaries;
+  const boundaries = display.boundaries ?? DEFAULT_DIFFICULTY_BOUNDARIES;
   const colors = bandColorsFor(display.kind, boundaries);
   const labels = bandLabelsForBandCount(display.bandLabels, boundaries.length + 1);
   return [
