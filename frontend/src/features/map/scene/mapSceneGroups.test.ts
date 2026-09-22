@@ -1,20 +1,21 @@
 // @vitest-environment node
 /** グループを畳んだ結果が満たすこと。 */
+import { sceneSourceId } from "./sceneBuilders";
 import { describe, expect, it } from "vitest";
 
 import { composeScene, declareGroup, type SceneLayerEntry } from "./mapSceneGroups";
 
 type State = { readonly on: boolean };
 
-const ROAD_SOURCE = { id: "road", spec: { type: "vector" as const, tiles: [] }, sourceLayer: "r" };
+const ROAD_SOURCE = { id: sceneSourceId("road"), spec: { type: "vector" as const, tiles: [] }, sourceLayer: "r" };
 
 function line(role: string, tier: SceneLayerEntry["tier"], extra: Partial<SceneLayerEntry> = {}): SceneLayerEntry {
-  return { role, tier, source: "road", type: "line", visible: true, ...extra };
+  return { role, tier, source: sceneSourceId("road"), type: "line", visible: true, ...extra };
 }
 
 const area = declareGroup<State>("area", () => ({
-  sources: [{ id: "relief", spec: { type: "raster" }, tiles: ["https://example.test/{z}/{x}/{y}.png"] }],
-  layers: [{ role: "relief", tier: "area", source: "relief", type: "raster", visible: true }],
+  sources: [{ id: sceneSourceId("relief"), spec: { type: "raster" }, tiles: ["https://example.test/{z}/{x}/{y}.png"] }],
+  layers: [{ role: "relief", tier: "area", source: sceneSourceId("relief"), type: "raster", visible: true }],
 }));
 
 const roadLines = declareGroup<State>("road", (state) => ({

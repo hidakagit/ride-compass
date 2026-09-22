@@ -77,8 +77,13 @@ MapView.tsx: DYNAMIC_WEATHER_RENDERERS（唯一の描画スペック情報源）
           payload.kind が spec の該当サブレイヤーと一致するときだけ表示にする
 ```
 
-`dynamicWeatherIds(id, source, sub)`が`region-dynamic-weather-${id}-${source}-${sub}`
-という命名規約でsource/layer idを機械的に決める（`-main`のみ、縁取り専用の別レイヤーは持たない）。
+ソース名は**チップid＋名前付きソース**（`weatherSourceId`）、レイヤーidはそこへ**描き方**を
+足したもの（[静的レイヤー・道路表示](static-map-layers.md)「ソース名とレイヤーidの決め方」）。
+**チップidは源泉の語をそのまま使う**——ここで別の呼び名を付け直すと、源泉が知っているものに
+画面だけの語彙が重なる。
+
+**要素ごとに配信先が違うため、1要素＝1ソース**（同じソースへ相乗りできない）。1要素に何枚
+重ねるかは自由で、いまは1枚だけ持つ（縁取りは別レイヤーではなく記号の`icon-halo-*`で出す）。
 
 ## 色の段は帯で持ち、地図と凡例が同じ配列を読む
 

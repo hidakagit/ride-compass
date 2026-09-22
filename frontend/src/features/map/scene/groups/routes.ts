@@ -10,7 +10,7 @@ import type { ExpressionSpecification, FilterSpecification } from "maplibre-gl";
 import type { Feature, FeatureCollection, LineString } from "geojson";
 
 import { declareGroup, type SceneLayerEntry, type SceneSourceEntry } from "../mapSceneGroups";
-import { zoomScaleExpression } from "../sceneBuilders";
+import { zoomScaleExpression, sceneSourceId } from "../sceneBuilders";
 
 /** [経度, 緯度] の並び。 */
 type RoutePoint = readonly [number, number];
@@ -55,12 +55,12 @@ export type RouteState = {
 };
 
 const SOURCE = {
-  candidates: "route-candidates",
-  selected: "route-selected",
-  segments: "route-segments",
-  spliceBands: "route-splice-bands",
-  composite: "route-composite",
-  slots: "route-slots",
+  candidates: sceneSourceId("route-candidates"),
+  selected: sceneSourceId("route-selected"),
+  segments: sceneSourceId("route-segments"),
+  spliceBands: sceneSourceId("route-splice-bands"),
+  composite: sceneSourceId("route-composite"),
+  slots: sceneSourceId("route-slots"),
 } as const;
 
 function line(path: RoutePath, properties: Readonly<Record<string, unknown>> = {}): Feature<LineString> {

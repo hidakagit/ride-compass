@@ -10,14 +10,15 @@ import { describe, expect, it } from "vitest";
 import { createRecordingMap } from "@/testing/mapTrace/recordingMap";
 import { applyScene, sceneInputsFrom } from "@/features/map/scene/applyToMap";
 import { buildMapScene } from "@/features/map/scene/buildScene";
-import { weatherElementRole, weatherGroup, type WeatherRenderKind } from "@/features/map/scene/groups/weather";
+import { weatherSourceId, type WeatherRenderKind } from "@/features/map/scene/groups/weather";
 import { sceneLayerId } from "@/features/map/scene/sceneBuilders";
 import type { DynamicWeatherGroupState } from "@/components/Map/dynamicWeather";
 
-/** 要素のソースid・レイヤーidは同じ綴り（役割から決まる）。 */
+/** ソース名は源泉の語（チップid）＋名前付きソース、レイヤーidはそこへ描き方を足したもの。
+ * **綴りを組み立て直さない**——`sceneLayerId`と`weatherSourceId`からしか作らない。 */
 function dynamicWeatherIds(group: string, source: string, kind: WeatherRenderKind) {
-  const id = sceneLayerId(weatherGroup.idPrefix, weatherElementRole({ group, source, kind }));
-  return { sourceId: id, layerId: id };
+  const sourceId = weatherSourceId({ group, source });
+  return { sourceId, layerId: sceneLayerId(sourceId, kind) };
 }
 
 /** 何も出していない状態。気象だけを差し替える。 */

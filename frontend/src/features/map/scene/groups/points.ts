@@ -12,6 +12,7 @@
  * **タイルの世代が届くまでソースを作らない**。先に作ると、世代の違う中身がブラウザの
  * キャッシュへ載って以後ずっと残る。
  */
+import { sceneSourceId, type SceneSourceId } from "../sceneBuilders";
 import { mapDisplay } from "@/types/generated/mapDisplay";
 import palette from "@/types/generated/palette.json";
 import type { FilterSpecification } from "maplibre-gl";
@@ -20,7 +21,7 @@ import { primaryAttributes } from "@/types/generated/primaryAttributes";
 
 import { COLOR_UNKNOWN } from "@/components/Map/axisLayers";
 
-import { declareGroup, type LegendRow, type SceneLayerEntry, type SceneSourceEntry } from "../mapSceneGroups";
+import { declareGroup, type SceneLayerEntry, type SceneSourceEntry } from "../mapSceneGroups";
 
 const POINT = mapDisplay.point;
 
@@ -60,8 +61,8 @@ export type PointState = {
 };
 
 /** ソースのidは系統の名前から決まる（対応表を持たない）。 */
-export function pointSourceId(tileKind: string): string {
-  return `point-${tileKind}`;
+export function pointSourceId(tileKind: string): SceneSourceId {
+  return sceneSourceId(`point-${tileKind}`);
 }
 
 /** 押したときに拾う対象。**どの点も共通の`point`を名乗る**ので、点を1枚足しても

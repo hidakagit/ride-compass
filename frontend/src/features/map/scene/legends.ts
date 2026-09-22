@@ -6,7 +6,6 @@
 import { COLOR_UNKNOWN } from "@/components/Map/axisLayers";
 import type { LegendEntry } from "@/components/Map/legendFilter";
 import { LEGEND_NO_DATA_KEY } from "@/components/Map/mapColorLegend";
-import { PRIMARY_ATTRIBUTE_LABELS } from "@/components/Map/primaryAttributes";
 
 import { POINT_LAYERS, pointAxisKey, type PointAxis } from "./groups/points";
 import { ROAD_TRACKS, roadTrackAxis } from "./groups/roadLines";

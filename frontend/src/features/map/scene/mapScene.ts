@@ -69,6 +69,9 @@ export type MapSceneLayer = {
    * 「今は条件なし」と「外側が管理しているので触るな」が区別できなくなる。
    */
   readonly spec: LayerSpecification;
+  /** 宣言したときの役割。**idの綴りを知らなくても引ける**ようにここへ残す
+   * （idはソース名＋役割で、ソース名は宣言側が決める）。 */
+  readonly role: string;
   /** 同じ id で段を変えない（重なりは足された時点の段で決まる）。 */
   readonly tier: MapSceneTier;
   readonly visible: boolean;
@@ -111,6 +114,12 @@ export function interactiveSceneLayerIds(scene: MapScene): readonly string[] {
 /** ある対象を拾うレイヤーの id。対象を増やしてもこの関数は変わらない。 */
 export function sceneLayerIdsForHitTarget(scene: MapScene, target: string): readonly string[] {
   return sceneLayerIdsWhere(scene, (layer) => layer.hitTargets.includes(target));
+}
+
+/** 役割からレイヤーidを引く。**綴りを組み立て直さない**——組み立て直すと、規則を変えたときに
+ * 引く側だけが古い綴りのまま残る。 */
+export function sceneLayerIdsForRole(scene: MapScene, role: string): readonly string[] {
+  return sceneLayerIdsWhere(scene, (layer) => layer.role === role);
 }
 
 function tierIndex(tier: MapSceneTier): number {

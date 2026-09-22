@@ -23,7 +23,7 @@ import jmaTileConfig from "@/types/generated/jma-tile-config.json";
 
 import { declareGroup, type SceneLayerEntry, type SceneSourceEntry } from "../mapSceneGroups";
 import { AREA_OPACITY } from "./areaRasters";
-import { zoomScaleExpression } from "../sceneBuilders";
+import { zoomScaleExpression, sceneSourceId, type SceneSourceId } from "../sceneBuilders";
 
 
 
@@ -250,9 +250,11 @@ export const WEATHER_ICONS: readonly { id: string; create: () => ImageData }[] =
   (element) => (element.icon === undefined ? [] : [element.icon]),
 );
 
-/** レイヤー・ソースの役割。**綴りはここだけが決める**（凡例・テストもここから引く）。 */
-export function weatherElementRole(element: Pick<WeatherElement, "group" | "source" | "kind">): string {
-  return `${element.group}-${element.source}-${element.kind}`;
+/** 要素が持つソースの名前。**チップidは源泉の語をそのまま使う**
+ * （`mapDisplay.weatherLayerGroups`）——ここで別の呼び名を付け直すと、源泉が知っている
+ * ものに画面だけの語彙が重なる。1要素＝1ソース（要素ごとに配信先が違うため相乗りできない）。 */
+export function weatherSourceId(element: Pick<WeatherElement, "group" | "source">): SceneSourceId {
+  return sceneSourceId(`${element.group}-${element.source}`);
 }
 
 export const weatherGroup = declareGroup<WeatherState>("weather", (state) => {
@@ -263,7 +265,7 @@ export const weatherGroup = declareGroup<WeatherState>("weather", (state) => {
     const shown = state.shown.get(weatherElementKey(element));
     const payload = shown?.payload;
     const matches = payload !== undefined && payload.kind === element.kind;
-    const id = `weather-${weatherElementRole(element)}`;
+    const id = weatherSourceId(element);
 
     sources.push({
       id,
@@ -282,7 +284,7 @@ export const weatherGroup = declareGroup<WeatherState>("weather", (state) => {
     });
 
     layers.push({
-      role: weatherElementRole(element),
+      role: element.kind,
       tier: TIER_OF[element.kind],
       source: id,
       ...(element.sourceLayer === undefined ? {} : { sourceLayer: element.sourceLayer }),

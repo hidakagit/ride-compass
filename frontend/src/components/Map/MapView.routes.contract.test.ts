@@ -10,16 +10,29 @@ import { describe, expect, it } from "vitest";
 
 import { createRecordingMap } from "@/testing/mapTrace/recordingMap";
 import { applyMapScene } from "@/features/map/scene/applyMapScene";
-import { EMPTY_MAP_SCENE, type MapScene } from "@/features/map/scene/mapScene";
+import { EMPTY_MAP_SCENE, sceneLayerIdsForRole, type MapScene } from "@/features/map/scene/mapScene";
 import { routeGroup, type RoutePath, type RouteState } from "@/features/map/scene/groups/routes";
 import { composeScene } from "@/features/map/scene/mapSceneGroups";
-import { sceneLayerId } from "@/features/map/scene/sceneBuilders";
+
 
 type RouteCandidateShape = RouteState["candidates"][number];
 type RoutePathShape = RouteState["segments"][number];
 type ComparisonSlotShape = RouteState["comparisonSlots"][number];
 
-const routeSceneLayerId = (role: string) => sceneLayerId(routeGroup.idPrefix, role);
+/** 役割からレイヤーidを引く。**綴りを組み立て直さない**——idはソース名＋役割で、ソース名は
+ * 宣言する側が決めるため、外から組み直すと規則を変えたときにここだけ古い綴りで残る。 */
+const DECLARED_SCENE = composeScene([routeGroup], {
+  visible: true,
+  candidates: [],
+  selectedRouteId: null,
+  segments: [],
+  segmentColor: "#16a34a",
+  spliceBands: [],
+  composite: null,
+  comparisonSlots: [],
+  arrowIconImage: "arrow",
+});
+const routeSceneLayerId = (role: string) => sceneLayerIdsForRole(DECLARED_SCENE, role)[0];
 
 const PATH: RoutePath = [
   [139.7, 35.6],

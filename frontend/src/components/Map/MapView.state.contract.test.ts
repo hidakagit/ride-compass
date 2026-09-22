@@ -11,14 +11,13 @@ import { setTileVersions } from "@/services/regionApi";
 import { createRecordingMap } from "@/testing/mapTrace/recordingMap";
 import { catalogAxis } from "@/components/Map/__fixtures__/catalogAxes";
 import { dedicatedWayValueAxesFromCatalogAxes, rampAxesFromCatalogAxes } from "@/components/Map/axisLayers";
-import { areaRasterGroup } from "@/features/map/scene/groups/areaRasters";
-import { axisLineGroup } from "@/features/map/scene/groups/axisLines";
-import { POINT_LAYERS, pointGroup } from "@/features/map/scene/groups/points";
-import { ROAD_LINE_SOURCE_ID, ROAD_TRACKS, roadLineGroup } from "@/features/map/scene/groups/roadLines";
+import { AREA_SOURCE_ID, type AreaRasterRole } from "@/features/map/scene/groups/areaRasters";
+import { POINT_LAYERS, pointSourceId } from "@/features/map/scene/groups/points";
+import { ROAD_LINE_SOURCE_ID, ROAD_TRACKS } from "@/features/map/scene/groups/roadLines";
 import { WEATHER_ELEMENTS } from "@/features/map/scene/groups/weather";
-import { sceneLayerId } from "@/features/map/scene/sceneBuilders";
 import { applyScene, redrawAllLayers, sceneInputsFrom } from "@/features/map/scene/applyToMap";
 import { buildMapScene } from "@/features/map/scene/buildScene";
+import { sceneLayerId } from "@/features/map/scene/sceneBuilders";
 
 const RAMP_AXES = rampAxesFromCatalogAxes([
   catalogAxis({ axis_id: "ramp", display: { tile_inputs: [{ property: "v", weight: 1 }], thresholds: [50] } }),
@@ -57,10 +56,13 @@ function baseState(): State {
   } as unknown as State;
 }
 
-const areaLayerId = (role: string) => sceneLayerId(areaRasterGroup.idPrefix, role);
-const roadLayerId = (role: string) => sceneLayerId(roadLineGroup.idPrefix, role);
-const pointLayerId = (role: string) => sceneLayerId(pointGroup.idPrefix, role);
-const axisLayerId = (role: string) => sceneLayerId(axisLineGroup.idPrefix, role);
+// レイヤーidは**ソース名＋役割**で決まる。綴りは`sceneLayerId`からしか作らない
+// ——ここで組み立て直すと、規則を変えたときテストだけが古い綴りのまま残る。
+const areaLayerId = (role: AreaRasterRole) => sceneLayerId(AREA_SOURCE_ID[role], role);
+const roadLayerId = (role: string) => sceneLayerId(ROAD_LINE_SOURCE_ID, role);
+const axisLayerId = (role: string) => sceneLayerId(ROAD_LINE_SOURCE_ID, role);
+const pointLayerId = (role: string) =>
+  sceneLayerId(pointSourceId(POINT_LAYERS.find((layer) => layer.attr_id === role)!.tile_kind), role);
 
 const READY_VERSIONS = { road_surface: "1-test", poi: "1-test", accident: "1-test" };
 

@@ -5,18 +5,14 @@
 import { describe, expect, it } from "vitest";
 
 import {
-  COLOR_UNKNOWN,
   type CatalogAxis,
   type RampAxis,
   axisLabelsFromCatalogAxes,
   axisMapLayerId,
-  buildAxisRampColorExpression,
-  buildAxisRampLegend,
   buildAxisRampValueExpression,
   rampAxesFromCatalogAxes,
   rampColorForBand,
 } from "./axisLayers";
-import { buildMapLayers } from "./mapLayers";
 
 describe("axisLayers", () => {
   // 軸idを名指しせずカタログと突き合わせるのは、公開軸の集合が軸スタジオ（DB）で決まり

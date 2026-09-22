@@ -8,7 +8,6 @@ import {
   dedicatedWayValueLegend,
   type DedicatedWayValueDisplay,
 } from "./dedicatedWayValueLayer";
-import { mapDisplay } from "@/types/generated/mapDisplay";
 import {
   COLOR_LOADING,
   COLOR_NO_DATA,

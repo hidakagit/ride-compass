@@ -2,6 +2,7 @@
  *
  * どれも基礎地図の道路網より下へ入り、**明示的にONにしたものだけ**が出る。
  */
+import { sceneSourceId, type SceneSourceId } from "../sceneBuilders";
 import { mapDisplay } from "@/types/generated/mapDisplay";
 import { primaryAttributes } from "@/types/generated/primaryAttributes";
 import regionTileConfig from "@/types/generated/region-tile-config.json";
@@ -33,7 +34,7 @@ const TERRAIN_RGB = {
 const HILLSHADE_SHADOW_COLOR = `rgba(60, 50, 40, ${AREA.opacity})`;
 const HILLSHADE_HIGHLIGHT_COLOR = `rgba(255, 252, 245, ${AREA.opacity})`;
 
-type AreaRasterRole =
+export type AreaRasterRole =
   | Extract<(typeof primaryAttributes)[number], { geometry: "area" }>["attr_id"]
   | "hillshade";
 
@@ -46,10 +47,10 @@ export type AreaRasterState = {
   readonly landcoverTileUrl: string;
 };
 
-export const AREA_SOURCE_ID: Record<AreaRasterRole, string> = {
-  elevation: "area-elevation",
-  landcover: "area-landcover",
-  hillshade: "area-hillshade",
+export const AREA_SOURCE_ID: Record<AreaRasterRole, SceneSourceId> = {
+  elevation: sceneSourceId("area-elevation"),
+  landcover: sceneSourceId("area-landcover"),
+  hillshade: sceneSourceId("area-hillshade"),
 };
 
 function sourcesFor(state: AreaRasterState): readonly SceneSourceEntry[] {

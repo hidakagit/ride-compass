@@ -12,6 +12,7 @@
  * 横へ割り付ける（1本なら中央）。線の太さと線種は意味を運ばない——1本の線へ2つの意味を
  * 載せると、色の意味がもう一方のON/OFFで入れ替わる。
  */
+import { sceneSourceId } from "../sceneBuilders";
 import { mapDisplay } from "@/types/generated/mapDisplay";
 import palette from "@/types/generated/palette.json";
 import type { FilterSpecification } from "maplibre-gl";
@@ -24,7 +25,7 @@ import { declareGroup, type SceneLayerEntry, type SceneSourceEntry } from "../ma
 
 const ROAD = mapDisplay.road;
 
-export const ROAD_LINE_SOURCE_ID = "road-tiles";
+export const ROAD_LINE_SOURCE_ID = sceneSourceId("road-tiles");
 /** 押したときに拾う対象。道路の線はどれも共通の名前を名乗る。 */
 const ROAD_LINE_HIT_TARGET = "road";
 

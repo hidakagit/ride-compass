@@ -71,7 +71,7 @@ import {
   ROUTE_HIT_TARGET_SPLICE_BAND,
 } from "@/features/map/scene/groups/routes";
 import { buildMapScene, type SceneInputs } from "@/features/map/scene/buildScene";
-import { POINT_LAYERS, pointGroup, pointSourceId } from "@/features/map/scene/groups/points";
+import { POINT_LAYERS, pointSourceId } from "@/features/map/scene/groups/points";
 import { PRIMARY_ATTRIBUTE_LABELS } from "@/components/Map/primaryAttributes";
 import { AREA_SOURCE_ID } from "@/features/map/scene/groups/areaRasters";
 import { ROAD_LINE_SOURCE_ID } from "@/features/map/scene/groups/roadLines";
@@ -91,11 +91,9 @@ interface SpliceStretchFeature {
 
 /** 進行方向の矢印の絵。色を持たない単色のシルエットで、色はレイヤー側が決める。 */
 
-const POINT_GROUP_ID_PREFIX = pointGroup.idPrefix;
-
 /** 押された点のレイヤーidから、その点の宣言を引く。idは役割から決まるので写しではない。 */
 const POINT_LAYER_BY_SCENE_ID = new Map(
-  POINT_LAYERS.map((layer) => [sceneLayerId(POINT_GROUP_ID_PREFIX, layer.attr_id), layer]),
+  POINT_LAYERS.map((layer) => [sceneLayerId(pointSourceId(layer.tile_kind), layer.attr_id), layer]),
 );
 
 /** 分類値→表示名。凡例と同じ宣言から引く。 */

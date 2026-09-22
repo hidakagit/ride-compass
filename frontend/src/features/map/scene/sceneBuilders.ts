@@ -5,11 +5,25 @@
  */
 import type { LayerSpecification } from "maplibre-gl";
 
-import type { MapSceneLayer, MapSceneSource, MapSceneSourceContent, MapSceneTier } from "./mapScene";
+import type { MapSceneSourceContent } from "./mapScene";
 
-/** レイヤー・ソースの id は役割から機械的に決める（役割を1つ足せば id も増える）。 */
-export function sceneLayerId(prefix: string, role: string): string {
-  return `${prefix}-${role}`;
+declare const sceneSourceBrand: unique symbol;
+
+/** ソースの名前。**データの識別子**で、誰が描くかと独立している——同じタイルを別の
+ * グループが名乗って共有できる（`composeScene`が1本へ畳む）。 */
+export type SceneSourceId = string & { readonly [sceneSourceBrand]: "sceneSource" };
+
+/** ソース名を作る唯一の口。**手で文字列を組み立てられないように型で縛る**——組み立てが
+ * 散ると、レイヤーidとの対応が「たまたま合っている」状態になり、綴りを変えたときに
+ * 片方だけが動く（動くので気づけない）。 */
+export function sceneSourceId(name: string): SceneSourceId {
+  return name as SceneSourceId;
+}
+
+/** レイヤーの id は**ソース名＋役割**から機械的に決める。1つのソースに何枚重ねても、
+ * どのレイヤーがどのデータを描いているかが id から読める。 */
+export function sceneLayerId(source: SceneSourceId, role: string): string {
+  return `${source}-${role}`;
 }
 
 /**
@@ -83,14 +97,3 @@ export function tilesContent(tiles: readonly string[]): MapSceneSourceContent {
     },
   };
 }
-
-type SceneLayerDeclaration<Role extends string, State> = {
-  readonly role: Role;
-  /** 役割から決まった id を受け取り、そのレイヤーの宣言を返す。 */
-  readonly build: (state: State, id: string) => {
-    readonly spec: LayerSpecification;
-    readonly hitTargets?: readonly string[];
-    readonly filter?: MapSceneLayer["filter"];
-    readonly visible?: boolean;
-  };
-};

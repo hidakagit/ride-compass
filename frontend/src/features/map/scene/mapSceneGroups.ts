@@ -13,7 +13,7 @@ import type { LegendEntry } from "@/components/Map/legendFilter";
 
 import { orderedSceneLayers } from "./mapScene";
 import type { MapScene, MapSceneFeatureStates, MapSceneLayer, MapSceneSource, MapSceneTier } from "./mapScene";
-import { geojsonContent, layerSpec, sceneLayerId, tilesContent } from "./sceneBuilders";
+import { geojsonContent, layerSpec, sceneLayerId, type SceneSourceId, tilesContent } from "./sceneBuilders";
 
 /** 凡例の1行。**地図と凡例が同じ1つの形を共有する**——別々に持つと色が静かに食い違う。
  * `values` は「この行に属するタイルの値」で、地図の絞り込みと色分けの両方がこれを使う。 */
@@ -30,7 +30,7 @@ export type SceneLayerEntry = {
   /** 役割。id の綴りはここから機械的に決まる。 */
   readonly role: string;
   readonly tier: MapSceneTier;
-  readonly source: string;
+  readonly source: SceneSourceId;
   readonly sourceLayer?: string;
   readonly type: LayerSpecification["type"];
   readonly paint?: Readonly<Record<string, unknown>>;
@@ -43,7 +43,7 @@ export type SceneLayerEntry = {
 
 /** ソース1本ぶんの宣言。同じ id を複数のグループが名乗ってもよい——束ねる側が1本へ畳む。 */
 export type SceneSourceEntry = {
-  readonly id: string;
+  readonly id: SceneSourceId;
   readonly spec: MapSceneSource["spec"];
   readonly sourceLayer?: string;
   /** 実行時に入れ替わるタイルのURL。 */
@@ -56,7 +56,7 @@ export type SceneSourceEntry = {
 
 /** 地図に載るもののひとまとまり。状態から、ソースとレイヤーの並びを返す。 */
 export type SceneGroup<State> = {
-  /** レイヤーidの接頭辞。グループの中で役割が重ならなければ、idは衝突しない。 */
+  /** ソース名の接頭辞。**レイヤーidには入らない**（レイヤーidはソース名＋役割）。 */
   readonly idPrefix: string;
   readonly build: (state: State) => {
     readonly sources: readonly SceneSourceEntry[];
@@ -91,8 +91,9 @@ export function composeScene<State>(groups: readonly SceneGroup<State>[], state:
 
 function toSceneLayer(idPrefix: string, entry: SceneLayerEntry): MapSceneLayer {
   return {
+    role: entry.role,
     spec: layerSpec({
-      id: sceneLayerId(idPrefix, entry.role),
+      id: sceneLayerId(entry.source, entry.role),
       type: entry.type,
       source: entry.source,
       ...(entry.sourceLayer === undefined ? {} : { sourceLayer: entry.sourceLayer }),

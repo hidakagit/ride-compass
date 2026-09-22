@@ -11,12 +11,9 @@ import {
   windFrames,
   windGridDetailSpacingDegForZoom,
   windRenderPayload,
-  WIND_GRID_DETAIL_SPACING_DEG,
-  WIND_GRID_SPACING_DEG,
   WIND_SPEED_COLOR_STOPS,
   WIND_SPEED_LEGEND_LEVELS,
 } from "./windLayer";
-import windGridConfig from "@/types/generated/wind-grid-config.json";
 import type { WindGridPoint } from "@/types/weather";
 
 describe("windLayer", () => {
