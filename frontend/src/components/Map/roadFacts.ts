@@ -1,7 +1,7 @@
 // 地図上の道をクリックしたときに出す「この道の事実」。路面タイルへ焼き込み済みの
 // プロパティだけから作る純関数で、DOM・MapLibre・Reactを知らない。
 //
-// 値の対訳は生成物（materialCatalog）とレジストリ（staticAttributeLayers）から引く——
+// 値の対訳は生成物（materialCatalog）と点の分類の宣言から引く——
 // 手書きで持つと、同じ値を地図のポップアップと軸スタジオで別の呼び方をすることになる。
 
 import materialCatalog from "@/types/generated/material-catalog.json";

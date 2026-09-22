@@ -8,8 +8,44 @@
 import { describe, expect, it } from "vitest";
 
 import { createRecordingMap } from "@/testing/mapTrace/recordingMap";
-import { DYNAMIC_WEATHER_RENDERERS, applyDynamicWeatherState, dynamicWeatherIds } from "@/components/Map/MapView";
+import { applyScene, sceneInputsFrom } from "@/components/Map/MapView";
+import { buildMapScene } from "@/features/map/scene/buildScene";
+import { weatherElementRole, weatherGroup, type WeatherRenderKind } from "@/features/map/scene/groups/weather";
+import { sceneLayerId } from "@/features/map/scene/sceneBuilders";
 import type { DynamicWeatherGroupState } from "@/components/Map/dynamicWeather";
+
+/** 要素のソースid・レイヤーidは同じ綴り（役割から決まる）。 */
+function dynamicWeatherIds(group: string, source: string, kind: WeatherRenderKind) {
+  const id = sceneLayerId(weatherGroup.idPrefix, weatherElementRole({ group, source, kind }));
+  return { sourceId: id, layerId: id };
+}
+
+/** 何も出していない状態。気象だけを差し替える。 */
+function baseState() {
+  return {
+    routes: [],
+    selectedRouteId: null,
+    routeLayerOn: false,
+    routeStyleModes: [],
+    routeStyleModeId: "none",
+    hiddenRouteLegendKeys: [],
+    spliceStretches: [],
+    splicedRoute: null,
+    staticLayerVisibility: {},
+    dynamicWeather: {},
+    dedicatedWayValueVisibility: {},
+    axisVisibility: {},
+    roadHiddenKeysByMode: {},
+    staticLegendHiddenKeysByAxis: {},
+    experimentSlots: [],
+    dedicatedWayValues: new Map(),
+    rampAxes: [],
+    dedicatedAxes: [],
+    secondaryAxisCasingLayerIds: [],
+    tileVersionsReady: false,
+    inspectedWayId: null,
+  };
+}
 
 const EMPTY_GEOJSON: GeoJSON.FeatureCollection = { type: "FeatureCollection", features: [] };
 
@@ -18,7 +54,8 @@ function raster(tileUrlTemplate: string) {
 }
 
 function apply(map: unknown, id: "precipitationNowcast" | "windVector" | "disaster", state: DynamicWeatherGroupState) {
-  applyDynamicWeatherState(map as never, id, DYNAMIC_WEATHER_RENDERERS[id], state);
+  const inputs = sceneInputsFrom({ ...baseState(), dynamicWeather: { [id]: state } } as never);
+  applyScene(map as never, buildMapScene(inputs));
 }
 
 describe("動的気象を地図へ伝えた結果", () => {
@@ -27,7 +64,7 @@ describe("動的気象を地図へ伝えた結果", () => {
 
     apply(map, "precipitationNowcast", { main: raster("https://example.test/{z}/{x}/{y}.png") });
 
-    const { layerId } = dynamicWeatherIds("precipitationNowcast", "main", "raster");
+    const { layerId } = dynamicWeatherIds("precipitationNowcast", "main", "rasterTile");
     expect(handle.layer(layerId)?.visibility).toBe("visible");
   });
 
@@ -36,15 +73,15 @@ describe("動的気象を地図へ伝えた結果", () => {
 
     apply(map, "precipitationNowcast", { main: { visible: true, payload: undefined } });
 
-    const { layerId } = dynamicWeatherIds("precipitationNowcast", "main", "raster");
+    const { layerId } = dynamicWeatherIds("precipitationNowcast", "main", "rasterTile");
     expect(handle.layer(layerId)?.visibility).toBe("none");
   });
 
   // 1つのソースが複数の描き方を宣言していても、見えるのは**いま来ている中身の描き方**だけ。
   it("中身の種類に合う描き方だけが見える", () => {
     const { map, handle } = createRecordingMap();
-    const rasterLayer = dynamicWeatherIds("precipitationNowcast", "main", "raster").layerId;
-    const fillLayer = dynamicWeatherIds("precipitationNowcast", "main", "fill").layerId;
+    const rasterLayer = dynamicWeatherIds("precipitationNowcast", "main", "rasterTile").layerId;
+    const fillLayer = dynamicWeatherIds("precipitationNowcast", "main", "gridFill").layerId;
 
     apply(map, "precipitationNowcast", { main: raster("https://example.test/{z}/{x}/{y}.png") });
     expect(handle.layer(rasterLayer)?.visibility).toBe("visible");
@@ -65,13 +102,13 @@ describe("動的気象を地図へ伝えた結果", () => {
       landslide: { visible: false, payload: { kind: "rasterTile", tileUrlTemplate: "https://example.test/ls.png" } },
     });
 
-    expect(handle.layer(dynamicWeatherIds("disaster", "heavyRain", "raster").layerId)?.visibility).toBe("visible");
-    expect(handle.layer(dynamicWeatherIds("disaster", "landslide", "raster").layerId)?.visibility).toBe("none");
+    expect(handle.layer(dynamicWeatherIds("disaster", "heavyRain", "rasterTile").layerId)?.visibility).toBe("visible");
+    expect(handle.layer(dynamicWeatherIds("disaster", "landslide", "rasterTile").layerId)?.visibility).toBe("none");
   });
 
-  // 時刻を動かすと同じ状態が何度も届く。中身が同じなら流し込み直さない——流し込み直すと、
-  // 取得済みのタイルを捨てて取り直すことになる。
-  it("同じ中身を何度伝えても、流し込みは1回だけ", () => {
+  // 時刻を動かすと同じ状態が何度も届く。中身が同じなら手を触れない——作り直しても
+  // 流し込み直しても、取得済みのタイルを捨てて取り直すことになる。
+  it("同じ中身を何度伝えても、ソースへ手を触れない", () => {
     const { map, handle } = createRecordingMap();
     const state = { main: raster("https://example.test/{z}/{x}/{y}.png") };
 
@@ -79,13 +116,16 @@ describe("動的気象を地図へ伝えた結果", () => {
     apply(map, "precipitationNowcast", state);
     apply(map, "precipitationNowcast", state);
 
-    const { sourceId } = dynamicWeatherIds("precipitationNowcast", "main", "raster");
-    expect(handle.trace.filter((entry) => entry.call === "setTiles" && entry.args[0] === sourceId)).toHaveLength(1);
+    const { sourceId } = dynamicWeatherIds("precipitationNowcast", "main", "rasterTile");
+    const touched = handle.trace.filter(
+      (entry) => ["addSource", "removeSource", "setTiles"].includes(entry.call) && entry.args[0] === sourceId,
+    );
+    expect(touched.map((entry) => entry.call)).toEqual(["addSource"]);
   });
 
   it("中身が変われば流し込み直す", () => {
     const { map, handle } = createRecordingMap();
-    const { sourceId } = dynamicWeatherIds("precipitationNowcast", "main", "raster");
+    const { sourceId } = dynamicWeatherIds("precipitationNowcast", "main", "rasterTile");
 
     apply(map, "precipitationNowcast", { main: raster("https://example.test/a/{z}/{x}/{y}.png") });
     apply(map, "precipitationNowcast", { main: raster("https://example.test/b/{z}/{x}/{y}.png") });

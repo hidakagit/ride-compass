@@ -13,14 +13,9 @@
 
 from app.domain.axis_definitions import AXIS_DEFINITIONS, primary_attribute_ids_for
 from app.domain.axis_display import axis_display_for
-from app.domain.material_catalog import (
-    MATERIAL_CATALOG,
-    PRIMARY_ATTRIBUTES_WITHOUT_MATERIAL,
-    PRIMARY_ATTRIBUTE_LABELS,
-)
+from app.domain.material_catalog import MATERIAL_CATALOG, PRIMARY_ATTRIBUTES
 from app.domain.registry import (
     AxisSpec,
-    PrimaryAttributeSpec,
     register_axis,
     register_primary_attribute,
 )
@@ -35,17 +30,15 @@ def register_defaults() -> None:
 
 def _register_primary_attributes() -> None:
     """一次属性の語彙を材料カタログから登録する。正本は`material_catalog.py`にある。"""
-    # 材料が指す一次属性がラベル表に無ければここで落とす（軸の公開時ではなく登録時に出す）。
+    # 材料が指す一次属性が宣言に無ければここで落とす（軸の公開時ではなく登録時に出す）。
     missing = sorted(
         {m.primary_attribute_id for m in MATERIAL_CATALOG.values() if m.primary_attribute_id}
-        - set(PRIMARY_ATTRIBUTE_LABELS)
+        - {spec.attr_id for spec in PRIMARY_ATTRIBUTES}
     )
     if missing:
-        raise ValueError(f"材料が指す一次属性がPRIMARY_ATTRIBUTE_LABELSにありません: {missing}")
-    for attr_id, label in PRIMARY_ATTRIBUTE_LABELS.items():
-        register_primary_attribute(PrimaryAttributeSpec(attr_id=attr_id, label=label))
-    for attr_id, label in PRIMARY_ATTRIBUTES_WITHOUT_MATERIAL.items():
-        register_primary_attribute(PrimaryAttributeSpec(attr_id=attr_id, label=label))
+        raise ValueError(f"材料が指す一次属性がPRIMARY_ATTRIBUTESにありません: {missing}")
+    for spec in PRIMARY_ATTRIBUTES:
+        register_primary_attribute(spec)
 
 
 def _register_axes() -> None:

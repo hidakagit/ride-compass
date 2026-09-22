@@ -15,15 +15,24 @@ from pydantic import Field, field_validator
 from app.domain.strict_model import StrictModel
 
 
+#: 一次属性の値が載る図形。線=道の一部、点=地点、面=空間に広がる値。
+#: **地図へ出すかどうかはこれとは別で、画面側が決める**（点である交差点は出していない）。
+PrimaryAttributeGeometry = Literal["line", "point", "area"]
+
+
 class PrimaryAttributeSpec(StrictModel):
     """一次属性の宣言。
 
     `label`はユーザー向け正式名称の単一ソース。`export_openapi.py`がaxis-catalog.jsonへ
     書き出し、フロントはそこから略名（地図チップ用）への対応表だけを別途持つ（片側import）。
+
+    `geometry`は値が載る図形で、フロントはこれを読んでレイヤーの描き方（線・点・面）を
+    決める。持たせないと、どの属性をどう描くかを画面側が手で並べた表で持つことになる。
     """
 
     attr_id: str
     label: str
+    geometry: PrimaryAttributeGeometry
 
 
 class TileInputSpec(StrictModel):

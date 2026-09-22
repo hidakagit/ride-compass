@@ -26,7 +26,7 @@ def _empty_registry():
 
 
 def _attribute(attr_id: str) -> PrimaryAttributeSpec:
-    return PrimaryAttributeSpec(attr_id=attr_id, label=f"属性[{attr_id}]")
+    return PrimaryAttributeSpec(attr_id=attr_id, label=f"属性[{attr_id}]", geometry="line")
 
 
 class TestRegisterPrimaryAttribute:

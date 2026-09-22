@@ -49,7 +49,7 @@ import { legendKindList, type LegendEntry } from "./legendFilter";
 import { LANDCOVER_PAINTED_CLASSES } from "./landcoverClasses";
 import { PRECIPITATION_INTENSITY_LEVELS } from "./precipitationNowcast";
 import { WIND_SPEED_LEGEND_LEVELS } from "./windLayer";
-import { STOP_POI_LEGEND, SUPPLY_POI_LEGEND } from "./staticAttributeLayers";
+import { pointLegendAxes } from "@/features/map/scene/legends";
 import {
   axisMapLayerId,
   dedicatedWayValueMapLayerId,
@@ -59,17 +59,24 @@ import {
   type RampAxis,
 } from "./axisLayers";
 
+/** チップの説明文へ差し込む種別名の並び。**凡例と同じ宣言から作る**——説明文が別に
+ * 数え上げると、種別を足したときに説明文だけが古くなる。 */
+function pointKindList(role: string): string {
+  const axis = pointLegendAxes().find((entry) => entry.layerId === role);
+  return axis === undefined ? "" : legendKindList(axis.entries);
+}
+
 export type MapLayerId =
   | "elevation"
   | "hillshade"
   | "landcover"
-  | "roadType"
-  | "roadSurface"
+  | "highway"
+  | "surface"
   | "tunnel"
   | "oneway"
-  | "stopPoi"
-  | "supplyPoi"
-  | "accidents"
+  | "stop_poi"
+  | "supply_poi"
+  | "accident_point"
   | "route"
   // 気象庁 降水ナウキャスト。route以外のkind="dynamic"レイヤーとは異なり地域全体への
   // 重ね描き（elevation等と同じ「選択候補に関係なく常設」の性質）のため、kind自体は
@@ -146,7 +153,7 @@ export type MapLayerDataNature = "raw" | "composite" | "dynamic";
 /** 絞り込めない表示専用の凡例の1ブロック。
  *
  * 配信元が色を焼き込んだラスタ等、カテゴリ単位で選べないレイヤーが持つ。絞り込める
- * 凡例（`hiddenKeys`と保存先の`axisId`を持つ）はここではなく`buildStaticFilterAxes`が出す
+ * 凡例（`hiddenKeys`と保存先の`axisId`を持つ）はここではなく`scene/legends.ts`が出す
  * ——型の上で分けてあるので、ここへ絞り込めるつもりの凡例を書いても黙って読み専用にはならない。 */
 export interface ReadOnlyLegendBlock {
   /** ブロックの見出し。単一ブロックのレイヤーは空文字列。 */
@@ -262,7 +269,7 @@ export interface MapLayerDescriptor {
   paintTier: MapLayerPaintTier;
   /** 絞り込めない表示専用の凡例。▶を開いたときの中身になる。
    *
-   * 省略したレイヤーは、絞り込める凡例（`buildStaticFilterAxes`）か、画面の状態から
+   * 省略したレイヤーは、絞り込める凡例（`scene/legends.ts`）か、画面の状態から
    * 組み立てる凡例（ルートのレンズ・災害の要素トグル）を持つ。 */
   readOnlyLegend?: readonly ReadOnlyLegendBlock[];
   /** 軸スタジオの軸から生成したレイヤーか（専用way値配信軸）。ramp軸は
@@ -392,7 +399,7 @@ export function buildMapLayers(
       // 合成する（同じ道路ジオメトリへ線レイヤーを2枚重ねると上が下を塗り潰し「色×太さ」の
       // 多重表現が壊れるため）。ON/OFF・凡例・絞り込み・データ状態は他のレイヤーと同じ
       // 汎用機構（roadType/roadSurfaceそれぞれ独立したMapLayerId）に乗る。
-      id: "roadType",
+      id: "highway",
       paintTier: "rawLine",
       dataSource: "roadTiles",
       icon: RoadIcon,
@@ -402,7 +409,7 @@ export function buildMapLayers(
       kind: "static",
       category: "roadCondition",
       description: "道路種別を線の太さで表示[幹線道路ほど太く・自転車専用道路ほど細く]",
-      // 道路種別ごとの濃淡（roadFilterAxes.ts: HIGHWAY_GROUPS、COLOR_HIGHWAY_*参照）。
+      // 道路種別ごとの濃淡（分類と色は`scene/groups/roadLines.ts`が宣言する）。
       // 「路面の種類」がONの間はそちらの色分けが優先されるため、この濃淡は「路面の種類」が
       // OFFのときだけ見える。
       panelHint:
@@ -411,7 +418,7 @@ export function buildMapLayers(
         "配色を優先します。",
     },
     {
-      id: "roadSurface",
+      id: "surface",
       paintTier: "rawLine",
       dataSource: "roadTiles",
       icon: RoadSurfaceIcon,
@@ -459,7 +466,7 @@ export function buildMapLayers(
         "生成されません）、このレイヤーは表示のみで評価には影響しません。",
     },
     {
-      id: "stopPoi",
+      id: "stop_poi",
       paintTier: "point",
       dataSource: "poiTiles",
       icon: StopPoiIcon,
@@ -467,13 +474,13 @@ export function buildMapLayers(
       kind: "static",
       category: "trafficSafety",
       tileMinZoom: ROAD_TILE_MIN_ZOOM,
-      description: `${legendKindList(STOP_POI_LEGEND)}の位置を種別ごとに色分け表示`,
+      description: `${pointKindList("stop_poi")}の位置を種別ごとに色分け表示`,
       panelHint:
-        `${legendKindList(STOP_POI_LEGEND)}の位置です。評価の「停止密度」軸が近傍のこれらを` +
+        `${pointKindList("stop_poi")}の位置です。評価の「停止密度」軸が近傍のこれらを` +
         "数えて算出しているものを、種別ごとの色分けで直接確認できます。",
     },
     {
-      id: "supplyPoi",
+      id: "supply_poi",
       paintTier: "point",
       dataSource: "poiTiles",
       icon: SupplyPoiIcon,
@@ -485,7 +492,7 @@ export function buildMapLayers(
       kind: "static",
       category: "amenity",
       tileMinZoom: ROAD_TILE_MIN_ZOOM,
-      description: `${legendKindList(SUPPLY_POI_LEGEND)}の位置を種別ごとに色分け表示`,
+      description: `${pointKindList("supply_poi")}の位置を種別ごとに色分け表示`,
       // 実店舗とどれだけ合っているかの目安として、backend/scripts/measure_poi_freshness.pyで
       // OSM側の最終編集日時を計測している。コンビニは関東全域で直近2年以内の編集が62.4%と
       // 明確に新しいが、自販機・トイレ・給水・駐輪場は5年以上未編集が58〜59%と高く、
@@ -493,7 +500,7 @@ export function buildMapLayers(
       // 対象にしつつ、利用者へは正直にこの差を伝える（コンビニを優先的な目安、他4種は
       // 参考程度に）。
       panelHint:
-        `${legendKindList(SUPPLY_POI_LEGEND)}の位置です。自販機は飲み物が買えると分かって` +
+        `${pointKindList("supply_poi")}の位置です。自販機は飲み物が買えると分かって` +
         "いるものだけを「飲料自販機」として出し、売っているものが分からないものは薄い色の" +
         "「自販機(中身不明)」として区別します（たばこ・切符の機械は出しません）。" +
         "コンビニはOSMデータの更新が比較的新しく目安として使いやすい一方、自販機・トイレ・" +
@@ -501,7 +508,7 @@ export function buildMapLayers(
         "異なる場合があることをご留意ください。",
     },
     {
-      id: "accidents",
+      id: "accident_point",
       paintTier: "point",
       dataSource: "accidentTiles",
       icon: AccidentIcon,
@@ -517,8 +524,8 @@ export function buildMapLayers(
     // 二次軸の汎用rampレイヤー（「事実はタイルに、解釈はクライアントに」）。backendレジストリ
     // 生成物（axis-catalog.json）のkind="ramp"軸から自動生成する。新しい軸はbackendの
     // レジストリ登録＋タイルへの事実焼き込みだけでここへ現れる（このファイルの編集は不要）。
-    // 凡例（段階・色・絞り込み）はbuildStaticFilterAxes()（staticAttributeLayers.ts、
-    // axisLayers.ts: buildAxisRampLegend由来）が他の静的レイヤーと同じ仕組みで提供する。
+    // 凡例（段階・色・絞り込み）は`scene/legends.ts`と`axisLayers.ts: buildAxisRampLegend`が
+    // 他の静的レイヤーと同じ仕組みで提供する。
     ...rampAxes.map((axis): MapLayerDescriptor => ({
       id: axisMapLayerId(axis.axisId),
       paintTier: "estimateLine",

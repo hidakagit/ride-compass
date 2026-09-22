@@ -293,14 +293,14 @@ describe("Home（app/page.tsx） レイヤーの同時ON/OFF", () => {
     vi.mocked(getAxisCatalog).mockReturnValue(new Promise(() => {}));
     render(<Home />);
 
-    fireEvent.click(await screen.findByRole("button", { name: "toggle:roadType" }));
-    fireEvent.click(screen.getByRole("button", { name: "toggle:stopPoi" }));
-    fireEvent.click(screen.getByRole("button", { name: "toggle:accidents" }));
+    fireEvent.click(await screen.findByRole("button", { name: "toggle:highway" }));
+    fireEvent.click(screen.getByRole("button", { name: "toggle:stop_poi" }));
+    fireEvent.click(screen.getByRole("button", { name: "toggle:accident_point" }));
 
     const after = overlayLayersOnMap();
-    expect(after.get("roadType")).toBe(true);
-    expect(after.get("stopPoi")).toBe(true);
-    expect(after.get("accidents")).toBe(true);
+    expect(after.get("highway")).toBe(true);
+    expect(after.get("stop_poi")).toBe(true);
+    expect(after.get("accident_point")).toBe(true);
   });
 
   it("ルートは他のレイヤーのON操作と無関係にON/OFFできる", async () => {
@@ -310,8 +310,8 @@ describe("Home（app/page.tsx） レイヤーの同時ON/OFF", () => {
     // routeは既定でON（DEFAULT_LAYER_VISIBILITY参照）
     expect(overlayLayersOnMap().get("route")).toBe(true);
 
-    fireEvent.click(await screen.findByRole("button", { name: "toggle:roadType" }));
-    fireEvent.click(screen.getByRole("button", { name: "toggle:stopPoi" }));
+    fireEvent.click(await screen.findByRole("button", { name: "toggle:highway" }));
+    fireEvent.click(screen.getByRole("button", { name: "toggle:stop_poi" }));
     // route自体はどちらの操作の影響も受けずONのまま
     expect(overlayLayersOnMap().get("route")).toBe(true);
   });
@@ -377,10 +377,10 @@ describe("Home（app/page.tsx） 地図上チップのtitle（改善計画T468: 
     render(<Home />);
 
     await screen.findByTestId("overlay-layer-titles");
-    const title = overlayLayerTitles().get("roadType");
+    const title = overlayLayerTitles().get("highway");
     // 文言ではなく「descriptionの後ろに案内が付いていること」を見る。案内の文言は
     // 入口が変われば変わるのが正しく、固定すると誤った案内を検査が守ることになる。
-    const description = buildMapLayers([], []).find((layer) => layer.id === "roadType")?.description;
+    const description = buildMapLayers([], []).find((layer) => layer.id === "highway")?.description;
     expect(description).toBeTruthy();
     expect(title).not.toBe(description);
     expect(title?.startsWith(description as string)).toBe(true);
@@ -2069,9 +2069,9 @@ describe("タイル世代が届かないとき（T938）", () => {
 
     const { panels, status } = await panelsAndStatus();
 
-    expect(panels.get("roadSurface")?.[1]).toBe("配信情報を取得できず表示できません");
-    expect(panels.get("accidents")?.[1]).toBe("配信情報を取得できず表示できません");
-    expect(status.get("roadSurface")).toBe("error");
+    expect(panels.get("surface")?.[1]).toBe("配信情報を取得できず表示できません");
+    expect(panels.get("accident_point")?.[1]).toBe("配信情報を取得できず表示できません");
+    expect(status.get("surface")).toBe("error");
     // 世代を持たない別系統（国土地理院のラスタ）は巻き込まない。
     expect(panels.get("elevation")?.[1]).not.toBe("配信情報を取得できず表示できません");
     expect(status.get("elevation")).not.toBe("error");
@@ -2082,8 +2082,8 @@ describe("タイル世代が届かないとき（T938）", () => {
 
     const { panels, status } = await panelsAndStatus();
 
-    expect(panels.get("roadSurface")?.[1]).toBe("配信情報を取得できず表示できません");
-    expect(status.get("roadSurface")).toBe("error");
+    expect(panels.get("surface")?.[1]).toBe("配信情報を取得できず表示できません");
+    expect(status.get("surface")).toBe("error");
     // カタログは「取得済み」なのに世代は揃っていない。ここをカタログ側で代用すると、
     // 地図はURLを組み立てようとして例外になる。
     expect(screen.getByTestId("map-tile-versions-ready").textContent).toBe("false");
@@ -2094,8 +2094,8 @@ describe("タイル世代が届かないとき（T938）", () => {
 
     const { panels, status } = await panelsAndStatus();
 
-    expect(panels.get("roadSurface")?.[1]).not.toBe("配信情報を取得できず表示できません");
-    expect(status.get("roadSurface")).not.toBe("error");
+    expect(panels.get("surface")?.[1]).not.toBe("配信情報を取得できず表示できません");
+    expect(status.get("surface")).not.toBe("error");
     expect(screen.getByTestId("map-tile-versions-ready").textContent).toBe("true");
   });
 });

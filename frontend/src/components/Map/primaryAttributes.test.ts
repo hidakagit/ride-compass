@@ -47,7 +47,7 @@ describe("primaryAttributes", () => {
       "tunnel",
       "motor_vehicle_access",
     ]);
-    expect(new Set(layerIds)).toEqual(new Set(["roadType", "tunnel"]));
+    expect(new Set(layerIds)).toEqual(new Set(["highway", "tunnel"]));
     expect(layerIds.length).toBe(new Set(layerIds).size); // 重複が無い
   });
 

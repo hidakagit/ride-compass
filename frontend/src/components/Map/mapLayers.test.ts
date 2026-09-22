@@ -34,12 +34,12 @@ describe("mapLayers（改善計画T440: axis_idハードコード比較の撤去
   });
 
   it('isAxisStudioLayer: dataNature==="composite"（ramp軸）もtrue', () => {
-    expect(isAxisStudioLayer({ id: "roadType", dataNature: "composite" })).toBe(true);
+    expect(isAxisStudioLayer({ id: "highway", dataNature: "composite" })).toBe(true);
   });
 
   it("isAxisStudioLayer: どちらにも該当しないレイヤーはfalse", () => {
     expect(isAxisStudioLayer({ id: "route" })).toBe(false);
-    expect(isAxisStudioLayer({ id: "roadType", dataNature: "raw" })).toBe(false);
+    expect(isAxisStudioLayer({ id: "highway", dataNature: "raw" })).toBe(false);
   });
 
   // 3件目の軸を軸スタジオで公開したときに、地図レイヤーの登録・地図UIからの除外が
@@ -180,7 +180,7 @@ describe("タイルの最小ズーム（ズーム不足の案内）", () => {
   it("道路タイルと土地被覆タイルの閾値を、それぞれの配信元の値から取っている", () => {
     const byId = Object.fromEntries(buildMapLayers([], []).map((layer) => [layer.id, layer]));
 
-    expect(byId.roadSurface.tileMinZoom).toBe(ROAD_TILE_MIN_ZOOM);
+    expect(byId.surface.tileMinZoom).toBe(ROAD_TILE_MIN_ZOOM);
     expect(byId.landcover.tileMinZoom).toBe(LANDCOVER_TILE_MIN_ZOOM);
   });
 
@@ -189,9 +189,9 @@ describe("タイルの最小ズーム（ズーム不足の案内）", () => {
     // 利用者には「出ない理由」が何も示されない。
     const byId = Object.fromEntries(buildMapLayers([], []).map((layer) => [layer.id, layer]));
 
-    expect(byId.stopPoi.tileMinZoom).toBe(ROAD_TILE_MIN_ZOOM);
-    expect(byId.supplyPoi.tileMinZoom).toBe(ROAD_TILE_MIN_ZOOM);
-    expect(tileZoomTooWideLayerIds(ROAD_TILE_MIN_ZOOM - 0.5)).toEqual(expect.arrayContaining(["stopPoi", "supplyPoi"]));
+    expect(byId.stop_poi.tileMinZoom).toBe(ROAD_TILE_MIN_ZOOM);
+    expect(byId.supply_poi.tileMinZoom).toBe(ROAD_TILE_MIN_ZOOM);
+    expect(tileZoomTooWideLayerIds(ROAD_TILE_MIN_ZOOM - 0.5)).toEqual(expect.arrayContaining(["stop_poi", "supply_poi"]));
   });
 });
 
@@ -200,7 +200,7 @@ describe("タイルの最小ズーム（ズーム不足の案内）", () => {
 /** 事故レイヤーの説明文。収録年は`GET /api/axis-catalog`の`accident_years`（backendの
  * 取込の宣言そのもの）から来るため、ここでは年を書かずに渡した値の映り方だけを見る。 */
 function accidentTexts(years: readonly number[]): string {
-  const layer = buildMapLayers([], [], years).find((entry) => entry.id === "accidents");
+  const layer = buildMapLayers([], [], years).find((entry) => entry.id === "accident_point");
   return [layer?.description ?? "", layer?.panelHint ?? ""].join(" / ");
 }
 

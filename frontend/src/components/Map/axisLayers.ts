@@ -27,9 +27,7 @@ import type { components } from "@/types/generated/api";
 
 // 改善計画T440: AxisDefinition.shapeのフロント側型（GET /api/axis-catalog:
 // AxisCatalogEntry.shapeと同じ、OpenAPI生成物由来）。
-export type AxisShape = components["schemas"]["BreakpointLinearShape"] | components["schemas"]["CategoricalShape"];
-
-export interface AxisTileInput {
+interface AxisTileInput {
   property: string;
   weight: number;
   /** true=真偽値材料（改善計画T278）。weightは無視し、trueValue/falseValueで寄与値を直接指定する。 */
@@ -51,6 +49,9 @@ export interface AxisTileInput {
    * 寄与値とする（registry.py: TileInputSpec.breakpoints参照）。 */
   breakpoints?: readonly (readonly [number, number])[];
 }
+
+export type AxisShape = components["schemas"]["BreakpointLinearShape"] | components["schemas"]["CategoricalShape"];
+
 
 export interface RampAxis {
   axisId: string;
@@ -357,7 +358,7 @@ export function rampColorForBand(index: number, bandCount: number): string {
   return rampColorForRatio(t);
 }
 
-// 既存4段階軸（gradient/surface_q/night/accident等）・staticAttributeLayers.ts
+// 既存4段階軸（gradient/surface_q/night/accident等）・点や線の分類レイヤー
 // の非ramp用途（TUNNEL/ONEWAY等の固定4色引用）向けの後方互換export。
 // rampColorForBand(i, 4)と完全に同じ値（後方互換テストで担保）。
 export const AXIS_RAMP_COLORS = [
@@ -367,9 +368,9 @@ export const AXIS_RAMP_COLORS = [
   rampColorForBand(3, 4),
 ] as const;
 
-// 「不明」（hasUnknownFallback材料のタイル欠損）専用の灰色。staticAttributeLayers.ts:
+// 「不明」（hasUnknownFallback材料のタイル欠損）専用の灰色。道路の線・点の分類が使う
 // COLOR_UNKNOWNと同じ値（既存の路面レイヤー等の「不明」表現と地図全体で統一する）。
-// 循環import回避のため値を複製している（staticAttributeLayers.tsがaxisLayers.tsを
+// 循環import回避のため値を複製している（分類側がaxisLayers.tsを
 // importする向きのため、逆方向のimportはできない）。
 export const COLOR_UNKNOWN = "#9ca3af";
 
@@ -474,7 +475,7 @@ function axisRampBandLabel(axis: RampAxis, index: number, lower: number | null, 
 }
 
 /** ramp軸の凡例（改善計画: 地図アイコンチップのグルーピング・研究タブ整理・停止/事故密度の
- * 凡例追加）。既存レイヤー（自転車インフラ等、staticAttributeLayers.ts参照）と
+ * 凡例追加）。分類で塗る既存レイヤーと
  * 同じLegendEntry型で返すことで、色スウォッチ付きの凡例チェックボックス
  * （LegendCheckboxList.tsx）・地図チップの▶展開凡例
  * （MapOverlayControls.tsx: legendDetails）・実際の絞り込み
@@ -483,7 +484,7 @@ function axisRampBandLabel(axis: RampAxis, index: number, lower: number | null, 
  * filterはbuildAxisRampValueExpression（地図の色分けが使うのと同じ線形結合）への
  * 範囲比較で、実際に塗られる色と凡例が食い違わないようにする。
  * hasUnknownFallbackな軸（例: surface_q）は末尾に「不明」エントリを追加し（既存の
- * staticAttributeLayers.tsの分類レイヤーと同じ「不明・他」の扱い方）、他の段階の
+ * 分類レイヤーと同じ「不明・他」の扱い方）、他の段階の
  * filterには「不明ではない」条件を足して二重分類を防ぐ（レビュー指摘の修正）。 */
 export function buildAxisRampLegend(axis: RampAxis): LegendEntry[] {
   const valueExpression = buildAxisRampValueExpression(axis);

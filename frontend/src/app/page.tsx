@@ -38,8 +38,7 @@ import type { LegendEntry } from "@/components/Map/legendFilter";
 import { primaryAttributeIdsToLayerIds } from "@/components/Map/primaryAttributes";
 import { type LegendFilterSummaryAxis } from "@/components/Map/legendFilter";
 import type { DisasterSourceKey } from "@/components/Map/dynamicWeather";
-import { ROAD_FILTER_AXES, type RoadFilterAxisId } from "@/components/Map/roadFilterAxes";
-import { buildStaticFilterAxes, type StaticFilterAxisId } from "@/components/Map/staticAttributeLayers";
+import { pointLegendAxes, roadLegendAxes, type SceneLegendAxis } from "@/features/map/scene/legends";
 import {
   DEFAULT_ROUTE_STYLE_MODE_ID,
   LENS_DIFFICULTY_ID,
@@ -145,7 +144,7 @@ const LEGEND_FILTER_DEBOUNCE_MS = 400;
 
 // 色分けモード（ルート）の保存先。プライベートブラウジング等でlocalStorageが
 // 使えない環境があるため、読み書きとも失敗はデフォルトモードへのフォールバックとして
-// 握りつぶす。路面側は色分けモードを持たない（常に固定色。roadFilterAxes.ts参照）ため
+// 握りつぶす。道路の線は色分けモードを持たない（分類ごとの固定色）ため
 // 対応する保存先は無い。
 // レンズ（地図を何で塗るか）。保存キーはルート線の色分けモードと共通（同じ値を指す）。
 const ROUTE_STYLE_MODE_STORAGE_KEY = "ridecompass:route-style-mode";
@@ -556,11 +555,11 @@ export default function Home() {
         // （新形式で保存済みなら下のループがroadType/roadSurfaceを個別に上書きする）。
         if (
           typeof parsedRecord.road === "boolean" &&
-          parsedRecord.roadType === undefined &&
-          parsedRecord.roadSurface === undefined
+          parsedRecord.highway === undefined &&
+          parsedRecord.surface === undefined
         ) {
-          next.roadType = parsedRecord.road;
-          next.roadSurface = parsedRecord.road;
+          next.highway = parsedRecord.road;
+          next.surface = parsedRecord.road;
         }
         for (const id of Object.keys(next) as MapLayerId[]) {
           const value = parsedRecord[id];
@@ -895,19 +894,31 @@ export default function Home() {
   // （applyRoadLayerState→map.setFilter）に入るため、毎レンダー新規生成すると
   // 天候取得等の無関係な再レンダーのたびにフィルタ式の再適用が走ってしまう
   // （NO_HIDDEN_LEGEND_KEYSで参照固定した意図がここで無効化されていた。設計レビューB3）。
+  const roadLegend = useMemo(() => roadLegendAxes(), []);
   const roadHiddenKeysByMode = useMemo(
     () =>
       Object.fromEntries(
-        ROAD_FILTER_AXES.map((axis) => [axis.id, hiddenLegendKeysByMode[axis.id] ?? NO_HIDDEN_LEGEND_KEYS]),
-      ) as unknown as Record<RoadFilterAxisId, readonly string[]>,
-    [hiddenLegendKeysByMode],
+        roadLegend.map((axis) => [axis.axisId, hiddenLegendKeysByMode[axis.axisId] ?? NO_HIDDEN_LEGEND_KEYS]),
+      ) as Record<string, readonly string[]>,
+    [roadLegend, hiddenLegendKeysByMode],
   );
   // このファイル自身の凡例・絞り込み計算（staticLegendHiddenKeysByAxis・
   // staticFilterLegendDetails、下記）は、軸スタジオで新規公開したramp軸の凡例・絞り込み
   // 操作をこの画面のサマリ表示・▶パネルへ反映できるよう、mapLayers/
   // roadSurfaceSharedLayerIdsと同じくaxisCatalog.rampAxesから都度組み立てる
-  // （ビルド時静的buildStaticFilterAxes()は使わない）。
-  const staticFilterAxes = useMemo(() => buildStaticFilterAxes(axisCatalog.rampAxes), [axisCatalog.rampAxes]);
+  // （点の分類はグループの宣言、評価軸は実行時のカタログから組み立てる）。
+  const staticFilterAxes = useMemo<readonly SceneLegendAxis[]>(
+    () => [
+      ...pointLegendAxes(),
+      ...axisCatalog.rampAxes.map((axis) => ({
+        layerId: axisMapLayerId(axis.axisId),
+        axisId: axis.axisId,
+        label: "",
+        entries: buildAxisRampLegend(axis),
+      })),
+    ],
+    [axisCatalog.rampAxes],
+  );
   // 道路情報以外の絞り込み可能レイヤー（自転車インフラ・
   // 停止要因POI・事故の当事者/重大度）。roadHiddenKeysByModeと同じ理由でuseMemoにより
   // 参照を安定させる。
@@ -915,7 +926,7 @@ export default function Home() {
     () =>
       Object.fromEntries(
         staticFilterAxes.map((axis) => [axis.axisId, hiddenLegendKeysByMode[axis.axisId] ?? NO_HIDDEN_LEGEND_KEYS]),
-      ) as unknown as Record<StaticFilterAxisId, readonly string[]>,
+      ) as Record<string, readonly string[]>,
     [staticFilterAxes, hiddenLegendKeysByMode],
   );
   const hiddenRouteLegendKeys = hiddenLegendKeysByMode[lens] ?? NO_HIDDEN_LEGEND_KEYS;
@@ -1017,16 +1028,18 @@ export default function Home() {
   // 「道路情報」は路面の種類（roadSurface）・道路の種類（roadType）へ分かれているため、
   // 軸ごとに個別のサマリ・内訳を持つ。
   // 軸ごとのサマリ・内訳は`ROAD_FILTER_AXES`を走査して作る。軸を名指しして同じ形の
-  // ブロックを並べると、軸を1つ足すたびに写経が増える（roadFilterAxes.tsの「軸定義を
+  // ブロックを並べると、軸を1つ足すたびに写経が増える（宣言を1本足すだけで済む形が
   // 1つ足すだけでよい」が成り立たなくなる）。
   const roadAxisPanels = useMemo(() => {
     const legendDetailsByLayerId: Record<string, LegendFilterSummaryAxis[]> = {};
-    for (const axis of ROAD_FILTER_AXES) {
-      const hiddenKeys = roadHiddenKeysByMode[axis.id] ?? NO_HIDDEN_LEGEND_KEYS;
-      legendDetailsByLayerId[axis.layerId] = [{ label: "", legend: axis.legend, hiddenKeys, axisId: axis.id }];
+    for (const axis of roadLegend) {
+      const hiddenKeys = roadHiddenKeysByMode[axis.axisId] ?? NO_HIDDEN_LEGEND_KEYS;
+      legendDetailsByLayerId[axis.layerId] = [
+        { label: axis.label, legend: axis.entries, hiddenKeys, axisId: axis.axisId },
+      ];
     }
     return { legendDetailsByLayerId };
-  }, [roadHiddenKeysByMode]);
+  }, [roadLegend, roadHiddenKeysByMode]);
 
   const routeLegendDetails = useMemo<LegendFilterSummaryAxis[]>(
     () =>
@@ -1052,12 +1065,12 @@ export default function Home() {
       const axes = staticFilterAxes
         .filter((axis) => axis.layerId === layerId)
         .map((axis) => ({
-          label: axis.label ?? "",
-          legend: axis.legend,
+          label: axis.label,
+          legend: axis.entries,
           hiddenKeys: staticLegendHiddenKeysByAxis[axis.axisId] ?? NO_HIDDEN_LEGEND_KEYS,
           axisId: axis.axisId,
         }));
-      result[layerId] = axes;
+      result[layerId as MapLayerId] = axes;
     }
     return result;
   }, [staticFilterAxes, staticLegendHiddenKeysByAxis]);

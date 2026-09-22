@@ -16,21 +16,19 @@ import primaryAttributeCatalog from "@/types/generated/primary-attributes.json";
 interface CatalogPrimaryAttribute {
   attr_id: string;
   label: string;
-  shared: boolean;
 }
 
 export interface PrimaryAttribute {
   attrId: string;
   /** 正式名（サイドバー・研究タブで使う）。axis-catalog.json由来 */
   label: string;
-  shared: boolean;
 }
 
 /** 一次属性の一覧（正式名付き）。`primary-attributes.json`（backendのレジストリ宣言から
  * 生成、DBを読まない）をそのまま反映する。 */
 export const PRIMARY_ATTRIBUTES: readonly PrimaryAttribute[] = (
   primaryAttributeCatalog as CatalogPrimaryAttribute[]
-).map((attr) => ({ attrId: attr.attr_id, label: attr.label, shared: attr.shared }));
+).map((attr) => ({ attrId: attr.attr_id, label: attr.label }));
 
 /** attr_id→正式名の辞書（区間インスペクタ・研究タブが引く）。 */
 export const PRIMARY_ATTRIBUTE_LABELS: Record<string, string> = Object.fromEntries(
@@ -43,12 +41,12 @@ export const PRIMARY_ATTRIBUTE_LABELS: Record<string, string> = Object.fromEntri
 // night軸の材料として持つが専用の色分けレイヤーも別途持つ。oneway（一方通行）はどの
 // 評価軸のinputsにも属さない（表示専用の一次属性）が、独立レイヤー自体は持つ。
 export const PRIMARY_ATTRIBUTE_LAYER_IDS: Partial<Record<string, MapLayerId>> = {
-  highway: "roadType",
-  surface: "roadSurface",
+  highway: "highway",
+  surface: "surface",
   elevation: "elevation",
-  stop_poi: "stopPoi",
-  accident_point: "accidents",
-  supply_poi: "supplyPoi",
+  stop_poi: "stop_poi",
+  accident_point: "accident_point",
+  supply_poi: "supply_poi",
   tunnel: "tunnel",
   oneway: "oneway",
   landcover: "landcover",

@@ -11,7 +11,7 @@ import {
   dedicatedWayValueLegend,
   type DedicatedWayValueDisplay,
 } from "./dedicatedWayValueLayer";
-import { FALLBACK_LINE_OPACITY, KNOWN_LINE_OPACITY } from "./roadFilterAxes";
+import { UNKNOWN_LINE_OPACITY, KNOWN_LINE_OPACITY } from "@/features/map/scene/groups/roadLines";
 import {
   COLOR_HIDDEN,
   COLOR_LOADING,
@@ -135,7 +135,7 @@ describe("dedicatedWayValueLayer", () => {
     });
   });
   describe("線の濃さ", () => {
-    // 地図全体の「薄い＝対象外、濃い＝分類あり」という読み方（roadFilterAxes.ts）を
+    // 地図全体の「薄い＝対象外、濃い＝分類あり」という読み方を
     // このレイヤーにも効かせる。方位を指定すると値を示せない道が街区の半分近くを
     // 占めうるため、濃いまま塗ると値のある道がそこへ埋もれる。
     const value = ["feature-state", "gradientValue"];
@@ -143,8 +143,8 @@ describe("dedicatedWayValueLayer", () => {
     it("値を受け取れなかった道は薄く、値を持つ道は濃く塗る", () => {
       const expression = buildDedicatedWayValueOpacityExpression(value);
 
-      expect(expression).toEqual(["case", ["==", value, null], FALLBACK_LINE_OPACITY, KNOWN_LINE_OPACITY]);
-      expect(FALLBACK_LINE_OPACITY).toBeLessThan(KNOWN_LINE_OPACITY);
+      expect(expression).toEqual(["case", ["==", value, null], UNKNOWN_LINE_OPACITY, KNOWN_LINE_OPACITY]);
+      expect(UNKNOWN_LINE_OPACITY).toBeLessThan(KNOWN_LINE_OPACITY);
     });
 
     it("取得中は薄くしない（「取得中」と「対象外」が見分けられなくなるため）", () => {

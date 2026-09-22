@@ -110,7 +110,7 @@ export function accidentTileUrl(): string {
   return `${tileBaseUrl()}${ACCIDENT_TILE_PATH}?v=${tileVersion("accident")}`;
 }
 
-// 停止要因POIと補給休憩POIは同じタイルを共有する（staticAttributeLayers.ts参照）。
+// 停止要因POIと補給休憩POIは同じタイルを共有する（種別の集合で分ける）。
 
 // 停止要因POIの地域レイヤーのベクタタイルURL。
 // roadSurfaceTileUrlと同じ理由（MapLibreのWeb Worker内取得のため絶対URL化が必要）で

@@ -30,6 +30,8 @@ from typing import Literal
 
 from pydantic import ConfigDict
 
+from app.domain.registry import PrimaryAttributeSpec
+
 from app.domain.material_sql import (
     BICYCLE_NORMALIZED_SQL,
     LANES_COUNT_CASE_SQL,
@@ -369,30 +371,26 @@ _SMOOTHNESS_VALUE_LABELS: dict[str, str] = {
 }
 
 
-#: 一次属性のラベル（材料が指す先の表示名）。ここに無い一次属性を材料が指すと、
-#: レジストリ登録の時点で落ちる。
-PRIMARY_ATTRIBUTE_LABELS: dict[str, str] = {
-    "highway": "道路の種類",
-    "lanes": "車線数",
-    "maxspeed": "制限速度",
-    "cycleway": "自転車インフラ",
-    "surface": "路面の種類",
-    "motor_vehicle_access": "自動車通行可否",
-    "lit": "街灯",
-    "tunnel": "トンネル",
-    "oneway": "一方通行",
-    "elevation": "標高",
-    "stop_poi": "停止要因",
-    "accident_point": "事故地点",
-    "intersection": "交差点",
-    "landcover": "土地被覆",
-}
-
-#: 材料を1つも持たない一次属性。`inputs`は材料から導出されるため、どの軸からも参照されず
-#: 評価に効かない——地図レイヤーの分類としてだけ存在する。
-PRIMARY_ATTRIBUTES_WITHOUT_MATERIAL: dict[str, str] = {
-    "supply_poi": "補給・休憩ポイント",
-}
+#: 一次属性の宣言。ここに無い一次属性を材料が指すと、レジストリ登録の時点で落ちる。
+#: 材料を1つも持たない属性（どの軸からも参照されず評価に効かない）も同じ表に並ぶ——
+#: 材料を持つかどうかは材料カタログを引けば分かるため、表を分けない。
+PRIMARY_ATTRIBUTES: tuple[PrimaryAttributeSpec, ...] = (
+    PrimaryAttributeSpec(attr_id="highway", label="道路の種類", geometry="line"),
+    PrimaryAttributeSpec(attr_id="lanes", label="車線数", geometry="line"),
+    PrimaryAttributeSpec(attr_id="maxspeed", label="制限速度", geometry="line"),
+    PrimaryAttributeSpec(attr_id="cycleway", label="自転車インフラ", geometry="line"),
+    PrimaryAttributeSpec(attr_id="surface", label="路面の種類", geometry="line"),
+    PrimaryAttributeSpec(attr_id="motor_vehicle_access", label="自動車通行可否", geometry="line"),
+    PrimaryAttributeSpec(attr_id="lit", label="街灯", geometry="line"),
+    PrimaryAttributeSpec(attr_id="tunnel", label="トンネル", geometry="line"),
+    PrimaryAttributeSpec(attr_id="oneway", label="一方通行", geometry="line"),
+    PrimaryAttributeSpec(attr_id="elevation", label="標高", geometry="area"),
+    PrimaryAttributeSpec(attr_id="stop_poi", label="停止要因", geometry="point"),
+    PrimaryAttributeSpec(attr_id="accident_point", label="事故地点", geometry="point"),
+    PrimaryAttributeSpec(attr_id="intersection", label="交差点", geometry="point"),
+    PrimaryAttributeSpec(attr_id="landcover", label="土地被覆", geometry="area"),
+    PrimaryAttributeSpec(attr_id="supply_poi", label="補給・休憩ポイント", geometry="point"),
+)
 
 
 # 軸が参照する材料と、MVTタイルへ焼き込み済みだが評価軸には未使用の生データの両方を持つ

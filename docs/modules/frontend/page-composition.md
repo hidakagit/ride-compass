@@ -184,7 +184,7 @@ Reactの外（モジュール評価時に初期値を決めるシングルトン
   へ、いずれも同じ1つの値から導出する（どちらもレイヤーID→booleanの汎用Recordで、軸ごとの
   propを持たない。[地図: 軸・ルート色分け](map-axis-coloring.md)参照）。
 - `RAMP_AXES`/`axisCatalog.rampAxes`・`DEDICATED_WAY_VALUE_AXES`/`axisCatalog.dedicatedAxes`
-  → `buildMapLayers`/`buildStaticFilterAxes`経由でレイヤー構成を組み立てる。
+  → `buildMapLayers`とsceneのグループ宣言からレイヤー構成を組み立てる。
 - `axisCatalog.secondaryAxes`（`primaryAttributeIds`）→ `secondaryAxisCasingLayerIds`
   （二次軸の下敷き表現、[静的レイヤー・道路表示](static-map-layers.md)参照）。
 - `travelBearingDeg`/`dynamicLayerTargetTime` → 環境/評価軸の風・勾配表現が共有する入力

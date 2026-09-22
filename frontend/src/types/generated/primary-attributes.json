@@ -1,62 +1,77 @@
 [
   {
     "attr_id": "highway",
-    "label": "道路の種類"
+    "label": "道路の種類",
+    "geometry": "line"
   },
   {
     "attr_id": "lanes",
-    "label": "車線数"
+    "label": "車線数",
+    "geometry": "line"
   },
   {
     "attr_id": "maxspeed",
-    "label": "制限速度"
+    "label": "制限速度",
+    "geometry": "line"
   },
   {
     "attr_id": "cycleway",
-    "label": "自転車インフラ"
+    "label": "自転車インフラ",
+    "geometry": "line"
   },
   {
     "attr_id": "surface",
-    "label": "路面の種類"
+    "label": "路面の種類",
+    "geometry": "line"
   },
   {
     "attr_id": "motor_vehicle_access",
-    "label": "自動車通行可否"
+    "label": "自動車通行可否",
+    "geometry": "line"
   },
   {
     "attr_id": "lit",
-    "label": "街灯"
+    "label": "街灯",
+    "geometry": "line"
   },
   {
     "attr_id": "tunnel",
-    "label": "トンネル"
+    "label": "トンネル",
+    "geometry": "line"
   },
   {
     "attr_id": "oneway",
-    "label": "一方通行"
+    "label": "一方通行",
+    "geometry": "line"
   },
   {
     "attr_id": "elevation",
-    "label": "標高"
+    "label": "標高",
+    "geometry": "area"
   },
   {
     "attr_id": "stop_poi",
-    "label": "停止要因"
+    "label": "停止要因",
+    "geometry": "point"
   },
   {
     "attr_id": "accident_point",
-    "label": "事故地点"
+    "label": "事故地点",
+    "geometry": "point"
   },
   {
     "attr_id": "intersection",
-    "label": "交差点"
+    "label": "交差点",
+    "geometry": "point"
   },
   {
     "attr_id": "landcover",
-    "label": "土地被覆"
+    "label": "土地被覆",
+    "geometry": "area"
   },
   {
     "attr_id": "supply_poi",
-    "label": "補給・休憩ポイント"
+    "label": "補給・休憩ポイント",
+    "geometry": "point"
   }
 ]

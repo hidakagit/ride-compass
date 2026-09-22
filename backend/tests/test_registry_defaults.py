@@ -13,7 +13,12 @@ import pytest
 
 from app.domain import registry_defaults
 from app.domain.axis_definitions import AXIS_DEFINITIONS, AxisDefinition, BreakpointLinearShape, MaterialTerm
-from app.domain.registry import all_axes, all_primary_attributes, reset_registry_for_testing
+from app.domain.registry import (
+    PrimaryAttributeSpec,
+    all_axes,
+    all_primary_attributes,
+    reset_registry_for_testing,
+)
 from app.domain.registry_defaults import register_defaults
 
 LINE = [(0.0, 0.0), (10.0, 100.0)]
@@ -29,25 +34,18 @@ def _empty_registry():
 
 
 @contextmanager
-def _vocabulary(labels: dict[str, str], without_material: dict[str, str], material_attributes: dict[str, str]):
+def _vocabulary(labels: dict[str, str], material_attributes: dict[str, str]):
     """一次属性の語彙と、材料がどの一次属性を指すかを差し替える。"""
     specs = {m: type("Spec", (), {"primary_attribute_id": attr})() for m, attr in material_attributes.items()}
-    saved = (
-        registry_defaults.PRIMARY_ATTRIBUTE_LABELS,
-        registry_defaults.PRIMARY_ATTRIBUTES_WITHOUT_MATERIAL,
-        registry_defaults.MATERIAL_CATALOG,
+    saved = (registry_defaults.PRIMARY_ATTRIBUTES, registry_defaults.MATERIAL_CATALOG)
+    registry_defaults.PRIMARY_ATTRIBUTES = tuple(
+        PrimaryAttributeSpec(attr_id=attr_id, label=label, geometry="line") for attr_id, label in labels.items()
     )
-    registry_defaults.PRIMARY_ATTRIBUTE_LABELS = labels
-    registry_defaults.PRIMARY_ATTRIBUTES_WITHOUT_MATERIAL = without_material
     registry_defaults.MATERIAL_CATALOG = specs
     try:
         yield
     finally:
-        (
-            registry_defaults.PRIMARY_ATTRIBUTE_LABELS,
-            registry_defaults.PRIMARY_ATTRIBUTES_WITHOUT_MATERIAL,
-            registry_defaults.MATERIAL_CATALOG,
-        ) = saved
+        (registry_defaults.PRIMARY_ATTRIBUTES, registry_defaults.MATERIAL_CATALOG) = saved
 
 
 @contextmanager
@@ -73,20 +71,10 @@ def _axis(axis_id: str, is_published: bool) -> AxisDefinition:
 
 
 class TestWhatGetsRegistered:
-    def test_the_vocabulary_comes_from_both_declarations(self):
-        """材料を持つ一次属性と持たない一次属性は別の表にある。片方だけ登録すると、
-        その属性を指す表示が名前を引けない。
-        """
-        with _empty_registry(), _axes({}):
-            with _vocabulary({"with": "材料あり"}, {"without": "材料なし"}, {"m_a": "with"}):
-                register_defaults()
-
-                assert {a.attr_id for a in all_primary_attributes()} == {"with", "without"}
-
     def test_only_published_axes_are_registered(self):
         """下書きの軸がビルド時の写しへ入ると、一般向けの画面に出る。"""
         with _empty_registry():
-            with _vocabulary({"with": "材料あり"}, {}, {"m_a": "with"}):
+            with _vocabulary({"with": "材料あり"}, {"m_a": "with"}):
                 with _axes({"shown": _axis("shown", True), "draft": _axis("draft", False)}):
                     register_defaults()
 
@@ -97,14 +85,14 @@ class TestWhatGetsRegistered:
         公開できてしまう。
         """
         with _empty_registry(), _axes({}):
-            with _vocabulary({"known": "既知"}, {}, {"m_a": "no_such_attribute"}):
+            with _vocabulary({"known": "既知"}, {"m_a": "no_such_attribute"}):
                 with pytest.raises(ValueError, match="no_such_attribute"):
                     register_defaults()
 
     def test_a_material_without_an_attribute_is_not_required_to_be_in_the_table(self):
         """一次属性を持たない材料がある。Noneを語彙の欠落として扱うと、登録できなくなる。"""
         with _empty_registry(), _axes({}):
-            with _vocabulary({"known": "既知"}, {}, {"m_a": None}):
+            with _vocabulary({"known": "既知"}, {"m_a": None}):
                 register_defaults()
 
                 assert {a.attr_id for a in all_primary_attributes()} == {"known"}
@@ -112,7 +100,7 @@ class TestWhatGetsRegistered:
     def test_calling_it_twice_is_rejected(self):
         """レジストリは大域の状態。二重に埋めると、どちらの内容か分からなくなる。"""
         with _empty_registry(), _axes({}):
-            with _vocabulary({"with": "材料あり"}, {}, {"m_a": "with"}):
+            with _vocabulary({"with": "材料あり"}, {"m_a": "with"}):
                 register_defaults()
 
                 with pytest.raises(ValueError):
@@ -138,15 +126,6 @@ class TestAgainstTheRealDeclarations:
 
         assert pointed
         assert pointed <= registered
-
-    def test_an_attribute_listed_as_having_no_material_really_has_none(self):
-        """2つの表は排他。両方に載ると、その属性が材料由来かどうかを読む側が決められない。"""
-        from app.domain.material_catalog import MATERIAL_CATALOG, PRIMARY_ATTRIBUTES_WITHOUT_MATERIAL
-
-        pointed = {m.primary_attribute_id for m in MATERIAL_CATALOG.values() if m.primary_attribute_id}
-
-        for attr_id in PRIMARY_ATTRIBUTES_WITHOUT_MATERIAL:
-            assert attr_id not in pointed, f"{attr_id}は材料が指しているので、材料由来の表へ移す"
 
     def test_every_attribute_has_a_non_empty_label(self):
         """labelは地図チップ・サイドバー・研究タブが出す名称の単一ソース。型の必須制約は

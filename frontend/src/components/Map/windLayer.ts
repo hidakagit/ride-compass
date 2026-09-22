@@ -209,7 +209,7 @@ export interface Bbox {
 export const WIND_DETAIL_MIN_ZOOM = 10;
 
 // ズーム依存の詳細格子間隔。風の矢印のicon-size（ズームに応じて表示サイズを拡大、MapView.tsx:
-// zoomAndPropertyIconSizeExpression）はピクセル単位の記号なのでこの補正で足りるが、
+// 記号の拡大式）はピクセル単位の記号なのでこの補正で足りるが、
 // gridFillのセルは「1格子点が担当する実面積」を表す図形のため、表示サイズだけを縮めても
 // 隙間ができるだけで解決しない。根本原因は「同じ間隔の格子が、ズームインするほど画面上の
 // 面積を大きく占めて色の段差（ゴワゴワ）が目立つ」ことなので、ズームが進むほど格子間隔
@@ -217,7 +217,7 @@ export const WIND_DETAIL_MIN_ZOOM = 10;
 // わずかにずれ、generate_wind_grid_detail_pointsのキャッシュ共有が効かなくなるため）。
 // 間隔の値そのものはwind-grid-config.json（detail_allowed_spacings_deg、backend/app/
 // domain/wind_grid.py: WIND_GRID_DETAIL_ALLOWED_SPACINGS_DEGが単一の情報源）
-// から取る。zoom境界（10/13/16/19、ICON_ZOOM_SCALE_STOPS・MapView.tsxと同じ刻み）は
+// から取る。zoom境界（10/13/16/19、記号の拡大曲線と同じ刻み）は
 // 地図の見た目に関するUI側の判断のためフロント固有の定数として持つ。
 const WIND_GRID_DETAIL_SPACING_ZOOM_BREAKPOINTS: readonly number[] = [WIND_DETAIL_MIN_ZOOM, 13, 16, 19];
 export const WIND_GRID_DETAIL_SPACING_STOPS: readonly { zoom: number; spacingDeg: number }[] =

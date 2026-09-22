@@ -22,7 +22,7 @@
 | `components/LensControl/LensControl.tsx` | レンズ（地図を何で塗るか）の唯一の入口。地図上部中央のピルが現在のレンズと凡例を示し、タップで単一選択の一覧（なし／総合難易度／評価に使用中の軸／未使用の軸）と「ルート後も周囲の道路を薄く塗る」トグルを開く（`page.tsx`が選択肢・凡例を組み立てる） |
 | `Map/mapLayers.ts` | `isAxisStudioLayer`（レイヤーID判定） |
 | `Map/MapView.tsx`（専用way値配信軸/DETAIL_LAYER_ID関連箇所のみ） | MapLibreへの実際の配線——ensure/apply関数群・setFeatureState反映・effect分割 |
-| `Map/MapView.routes.ts`（区間色分け線・比較スロット線の描画箇所のみ） | 色分け線そのものを引く側。レンズの配色式・凡例フィルタを受け取ってMapLibreの線レイヤーへ流す |
+| `features/map/scene/groups/routes.ts` | 色分け線そのものを引く側。レンズの配色式・凡例フィルタを受け取ってMapLibreの線レイヤーへ流す |
 | `Map/axisLayers.ts`（`DedicatedWayValueAxis`関連のみ） | 軸カタログ→専用way値配信軸一覧の変換（`dedicatedWayValueAxesFromCatalogAxes`）とレイヤーIDの導出（`dedicatedWayValueMapLayerId`/`dedicatedWayValueLineLayerId`） |
 | `hooks/useDedicatedWayValues.ts` | フェッチ・状態管理（viewportデバウンス＋タイル単位取得、全軸を1つのフックで賄う） |
 | `services/axisAdminApi.ts`・`regionApi.ts`（`fetchDynamicWayValues`のみ） | backend APIラッパー |
@@ -90,6 +90,13 @@ backend（`domain/dynamic_way_values.py: map_value_thresholds`）が軸の折れ
 `["get", material, ["get", "material_values"]]`で直接読む——向き（登り/下り）は
 絶対値化されたdifficultyでは表現できないため。
 
+**タイルへ焼くのは材料タグ（生の属性）までで、重み・折れ点・段の色は実行時にブラウザの式へ
+組む。** 最終値をタイルへ焼くと、軸を1本調整するたびに全域のタイルを作り直すことになる。
+
+**材料が実行時の動的値だけの軸は、`primary_attribute_ids`が空になるのが正しい。** 空を
+不備の印として扱わない——軸idの健全性は「カタログに実在するか」で見る（idを間違えても
+例外にならず、材料一覧が空のまま黙って壊れる）。
+
 ## valueScale.ts（ルート前後で共有する葉モジュール）
 
 - `valueScaleFor(kind)`: 種類ごとの既定しきい値（軸カタログの`map_value_thresholds`が
@@ -116,7 +123,7 @@ backend（`domain/dynamic_way_values.py: map_value_thresholds`）が軸の折れ
   （「まだ来ていない」と「隠した」が区別できなくなるため）。
 - `buildDedicatedWayValueOpacityExpression(valueExpression, loading?)`:
   値を受け取れなかった道は`FALLBACK_LINE_OPACITY`で薄く、値を持つ道は
-  `KNOWN_LINE_OPACITY`で濃く塗る（`roadFilterAxes.ts`の定数をそのまま使い、
+  `KNOWN_LINE_OPACITY`で濃く塗る（`scene/groups/roadLines.ts`の定数をそのまま使い、
   地図全体の「薄い＝対象外、濃い＝分類あり」という読み方に揃える）。
   **暗黙の前提**: 値が無い道には、標高が計算されていない道と、
   勾配のように向きを指定する軸で**その向きに対して直角に近く値を示せない道**
@@ -309,7 +316,7 @@ page.tsx
   MVTフィーチャーへ安定したidを持たせる前提条件——これが無いと`setFeatureState`が使えない。
   **`osm_way_id`では代用できない**（タイルのフィーチャーはズームによってway丸ごとにも
   区間にもなり、`feature_key`だけがその単位に追従する）。ここを取り違えても例外も警告も
-  出ず、ただ色が付かなくなるだけのため、`MapView.layerOps.test.ts`が固定している。
+  出ず、ただ色が付かなくなるだけのため、`MapView.state.contract.test.ts`が固定している。
 - 専用way値配信軸のensure関数は`ROAD_TILE_LAYER_ID`（路面本体）と同じ
   `ROAD_TILE_SOURCE_ID`/`ROAD_TILE_SOURCE_LAYER`を共有する独立レイヤーとして追加される
   （`designation`/`tunnel`/`oneway`と同型の構成）。

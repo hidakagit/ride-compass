@@ -24,16 +24,16 @@ const fakeMap = createFakeDataStatusMap([]);
 const SHARED_SOURCE_ID = "road_surface_source";
 const SHARED_SOURCE_LAYER = "road_surface";
 const SHARED_LAYER_DATA_SOURCES: readonly LayerDataSourceEntry[] = [
-  { key: "roadType" as MapLayerId, sourceId: SHARED_SOURCE_ID, sourceLayer: SHARED_SOURCE_LAYER },
-  { key: "roadSurface" as MapLayerId, sourceId: SHARED_SOURCE_ID, sourceLayer: SHARED_SOURCE_LAYER },
+  { key: "highway" as MapLayerId, sourceId: SHARED_SOURCE_ID, sourceLayer: SHARED_SOURCE_LAYER },
+  { key: "surface" as MapLayerId, sourceId: SHARED_SOURCE_ID, sourceLayer: SHARED_SOURCE_LAYER },
   { key: "axis:axis_sample" as MapLayerId, sourceId: SHARED_SOURCE_ID, sourceLayer: SHARED_SOURCE_LAYER },
   { key: "tunnel" as MapLayerId, sourceId: SHARED_SOURCE_ID, sourceLayer: SHARED_SOURCE_LAYER },
   { key: "oneway" as MapLayerId, sourceId: SHARED_SOURCE_ID, sourceLayer: SHARED_SOURCE_LAYER },
 ];
 
 const ALL_SHARED_KEYS_VISIBLE: Partial<Record<MapLayerId, boolean>> = {
-  roadType: true,
-  roadSurface: true,
+  highway: true,
+  surface: true,
   "axis:axis_sample": true,
   tunnel: true,
   oneway: true,
@@ -130,8 +130,8 @@ describe("clearStaleTrackedSourceErrors のerror解除条件", () => {
     });
     expect(onChange).toHaveBeenLastCalledWith(
       expect.objectContaining({
-        roadType: "error",
-        roadSurface: "error",
+        highway: "error",
+        surface: "error",
         "axis:axis_sample": "error",
         tunnel: "error",
         oneway: "error",
@@ -143,7 +143,7 @@ describe("clearStaleTrackedSourceErrors のerror解除条件", () => {
     act(() => {
       result.current.settleViewport();
     });
-    expect(onChange).toHaveBeenLastCalledWith(expect.not.objectContaining({ roadType: "error" }));
+    expect(onChange).toHaveBeenLastCalledWith(expect.not.objectContaining({ highway: "error" }));
   });
 
   it("useLayerDataStatusのsettleViewportは、isSourceLoaded=falseの間はerrorを解除せずonChangeも呼ばない", () => {

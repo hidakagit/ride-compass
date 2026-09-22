@@ -140,11 +140,24 @@ CSSのみの共有スタイル（コンポーネントを介さず、各`*.modul
   `@theme`へ取り込める可能性があるが、この開発環境ではダークモードの実機検証（ブラウザの
   compositing）が難しく、T299では検証せず見送った。将来の別タスク候補。
 
+## 5-2. レイアウトが動かないための決まり
+
+- **状態によって要否が変わるボタン・行は、出し入れせず常にマウントして`disabled`で示す。**
+  条件付きレンダリングや`display:none`で消すと行の高さが変わり、隣接するボタンが上下にずれて、
+  消える直前・直後のタップが別の要素へ当たる。見た目だけ消すなら`visibility`を使う。
+- **固定幅のflex行に置くSVGには`flex-shrink:0`を明示する。** 既定の`flex-shrink:1`のままだと
+  ChromiumがSVGのintrinsicサイズを解決できず幅0へ潰れ、**アイコンが黙って消える**。
+
 ## 6. テストパターン
 
 `recipeControls.test.tsx`（`FieldLabel`、Radix Popoverラッパー）を参照実装とする。vitest +
 `@testing-library/react`で`render`/`screen`、`getByRole`/`aria-*`属性ベースのアサーションに
 統一し、Radix内部のDOM構造には依存しない。`components/ui/*/*.test.tsx`も同じ方針。
+
+`Disclosure`（Radix Accordion）の本文は、閉じている間`hidden`で実際に隠れる。中身の挙動を
+見るテストは、レンダー直後にその節を開いてからクエリする。`aria-expanded`でトリガーを集める
+ときは`:not([aria-haspopup])`で情報Popoverのトリガーを除く（同じ属性を持つ）。入れ子の
+`Disclosure`は、開く操作を変化が無くなるまで繰り返す。
 
 ## 7. 実機確認の方法
 

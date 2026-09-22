@@ -91,18 +91,22 @@ export function createRecordingMap(options: { styleReady?: boolean; imagesRegist
       sources.set(`image:${id}`, true);
     },
     addLayer: (
-      spec: { id: string; type: string; source?: string; paint?: unknown; layout?: unknown },
+      spec: { id: string; type: string; source?: string; paint?: unknown; layout?: unknown; filter?: unknown },
       beforeId?: string,
     ) => {
       record("addLayer", spec.id, beforeId ?? null, spec);
+      const layout = { ...((spec.layout as Record<string, unknown>) ?? {}) };
       insert(
         {
           id: spec.id,
           type: spec.type,
           source: spec.source,
-          visibility: "visible",
+          // 作るときの宣言をそのまま持つ——既定で見えることにすると、
+          // 「隠したまま作る」を実装が守っているかを見られない。
+          visibility: typeof layout.visibility === "string" ? layout.visibility : "visible",
+          ...(spec.filter === undefined ? {} : { filter: spec.filter }),
           paint: { ...((spec.paint as Record<string, unknown>) ?? {}) },
-          layout: { ...((spec.layout as Record<string, unknown>) ?? {}) },
+          layout,
         },
         beforeId,
       );

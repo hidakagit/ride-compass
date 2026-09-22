@@ -44,6 +44,13 @@ import type { MapLayerId } from "@/components/Map/mapLayers";
 // page.tsxのdynamicWeather組み立ての両方がこの配列を見る）。新しい要素を追加するときは
 // ここへidを1つ足す（mapLayers.tsのMapLayerIdにも同名を追加しておくこと）。全要素が
 // チップ（layerVisibility）でON/OFFする（常時マウント・チップ無しの要素は持たない）。
+type DisasterFetchGroup = (typeof DISASTER_SOURCES)[number]["fetchGroup"];
+
+interface DynamicWeatherSourceState {
+  visible: boolean;
+  payload: DynamicWeatherRenderPayload | undefined;
+}
+
 export const DYNAMIC_WEATHER_LAYER_IDS = [
   "precipitationNowcast",
   "windVector",
@@ -87,7 +94,6 @@ export const DISASTER_SOURCES = [
 ] as const;
 
 export type DisasterSourceKey = (typeof DISASTER_SOURCES)[number]["key"];
-export type DisasterFetchGroup = (typeof DISASTER_SOURCES)[number]["fetchGroup"];
 
 /** そのフェッチ単位に属するソースキー。 */
 export function disasterSourceKeys(fetchGroup: DisasterFetchGroup): readonly DisasterSourceKey[] {
@@ -99,12 +105,6 @@ export function disasterSourceKeys(fetchGroup: DisasterFetchGroup): readonly Dis
  * ——ソース1つならキー省略可、という特例は設けず呼び出し側の分岐を増やさない。 */
 export type DynamicWeatherSourceId = string;
 
-/** 1ソースぶんの表示状態。visible/payloadどちらか欠けても非表示
- * （MapView.tsx: applyDynamicWeatherState参照）。 */
-export interface DynamicWeatherSourceState {
-  visible: boolean;
-  payload: DynamicWeatherRenderPayload | undefined;
-}
 
 /** 1グループぶんの状態。ソースキー→状態。 */
 export type DynamicWeatherGroupState = Partial<Record<DynamicWeatherSourceId, DynamicWeatherSourceState>>;

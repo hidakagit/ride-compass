@@ -1,5 +1,5 @@
 // 色分けモードの凡例エントリと、凡例タップによるカテゴリ表示/非表示フィルタの共通定義。
-// 路面レイヤーの絞り込み軸（roadFilterAxes.ts、無方向・地域タイル）とルートレイヤーの
+// 道路の線の分類（無方向・地域タイル）とルートレイヤーの
 // モード（routeStyleModes.ts、有向・選択ルート基準）の両系統が同じ凡例UI
 // （MapOverlayControls）とフィルタ機構を共有するため、ここへ切り出している。
 
@@ -21,8 +21,9 @@ export interface LegendEntry {
   key: string;
   color: string;
   label: string;
-  /** この地物がカテゴリに属するときtrueになるMapLibre式（凡例フィルタ用の述語） */
-  filter: unknown[];
+  /** この地物がカテゴリに属するときtrueになるMapLibre式（凡例フィルタ用の述語）。
+   * 絞り込みを自分で持つレイヤー（scene のグループが宣言するもの）は持たない。 */
+  filter?: unknown[];
   /** trueなら「データ欠損・対象外」の受け皿カテゴリ（不明・他／対象外）であり、他の
    * カテゴリのような実際の判定値ではないことを示す。凡例の描画側（▶パネル・
    * MapOverlayControls）が区切り線＋弱調表示にすることで、数値/順序段階と受け皿カテゴリを
@@ -40,7 +41,7 @@ export function buildLegendFilterExpression(
 ): unknown[] | null {
   const hidden = legend.filter((entry) => hiddenKeys.includes(entry.key));
   if (hidden.length === 0) return null;
-  return ["all", ...hidden.map((entry) => ["!", entry.filter])];
+  return ["all", ...hidden.flatMap((entry) => (entry.filter === undefined ? [] : [["!", entry.filter]]))];
 }
 
 // 路面レイヤーは「路面の種類」「道路の種類」等、互いに独立した分類軸を複数同時に
