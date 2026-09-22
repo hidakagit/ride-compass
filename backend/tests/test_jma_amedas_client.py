@@ -1,50 +1,30 @@
-"""jma_amedas_client.pyのテスト。
+"""`infrastructure/jma_amedas_client.py`——観測所マスタ・最新観測時刻・観測値を引く。
 
-観点は`test_jma_warning_client.py`と同じ（正常系のレスポンス取得・キャッシュヒット・
-失敗時の挙動）。加えて、`fetch_latest_observation_time`の応答がJSONではなくプレーン
-テキスト（ISO時刻文字列1個）であることを固定する。
+ここで見ないもの:
+- TTLキャッシュの引き当てと、失敗をNoneへ倒す骨格 → `test_simple_api_client.py`
+- [度, 分]から10進度への変換・最寄り観測所の選択・観測値の読み替え
+  → `test_jma_amedas_service.py`
 """
 
-import httpx
 import pytest
 
 from app.infrastructure import jma_amedas_client
-from app.infrastructure.jma_amedas_client import (
-    fetch_latest_observation_time,
-    fetch_observation_map,
-    fetch_station_table,
-)
+from tests.fake_api_http import FailingHttpClient, FakeHttpClient, FakeResponse
 
 
-class FakeResponse:
-    def __init__(self, *, json_payload=None, text_payload=None):
-        self._json_payload = json_payload
-        self._text_payload = text_payload
+class PerUrlHttpClient:
+    """要求URLごとに違う応答を返す上流。
 
-    def raise_for_status(self):
-        pass
+    共有フェイク（`tests/fake_api_http.py`）は同じペイロードを返し続けるため、
+    「要求した時刻がURLへ載っているか」をこれでしか見られない。登録の無いURLを
+    要求されたらKeyErrorで落ちる（どのURLを引いたかが失敗時に出る）。
+    """
 
-    def json(self):
-        return self._json_payload
+    def __init__(self, payloads: dict):
+        self._payloads = payloads
 
-    @property
-    def text(self):
-        return self._text_payload
-
-
-class FakeHttpClient:
-    def __init__(self, response: FakeResponse):
-        self.call_count = 0
-        self._response = response
-
-    async def get(self, url, timeout=None):
-        self.call_count += 1
-        return self._response
-
-
-class FailingHttpClient:
-    async def get(self, url, timeout=None):
-        raise httpx.RequestError("boom")
+    async def get(self, url, params=None, timeout=None):
+        return FakeResponse(self._payloads[url])
 
 
 @pytest.fixture(autouse=True)
@@ -56,46 +36,45 @@ def _clear_caches():
     jma_amedas_client._latest_time_cache.clear()
 
 
-async def test_fetch_station_table_returns_data_and_caches():
-    payload = {"44132": {"lat": [35, 41.5], "lon": [139, 45.0], "kjName": "東京"}}
-    client = FakeHttpClient(FakeResponse(json_payload=payload))
+async def test_station_table_passes_through_degree_minute_arrays():
+    client = FakeHttpClient({"44132": {"lat": [35, 41.4], "lon": [139, 45.6], "kjName": "東京"}})
 
-    result = await fetch_station_table(client)
-    result2 = await fetch_station_table(client)
+    table = await jma_amedas_client.fetch_station_table(client)
 
-    assert result == payload
-    assert result2 == payload
-    assert client.call_count == 1  # 2回目はキャッシュヒット
+    assert table == {"44132": {"lat": [35, 41.4], "lon": [139, 45.6], "kjName": "東京"}}
 
 
-async def test_fetch_station_table_returns_none_on_failure():
-    result = await fetch_station_table(FailingHttpClient())
-    assert result is None
+async def test_latest_observation_time_drops_surrounding_whitespace():
+    """改行が残ったままだと観測値のURLが組み立てられず、観測値が1つも出なくなる。"""
+    client = FakeHttpClient(text=" 2026-08-29T17:00:00+09:00\n")
+
+    assert await jma_amedas_client.fetch_latest_observation_time(client) == "2026-08-29T17:00:00+09:00"
 
 
-async def test_fetch_latest_observation_time_parses_plain_text_not_json():
-    """実機仕様（プレーンテキスト、JSON配列ではない）のリグレッションテスト。"""
-    client = FakeHttpClient(FakeResponse(text_payload="2026-08-29T17:00:00+09:00\n"))
+async def test_blank_latest_observation_time_yields_none():
+    """空文字を時刻として返すと、呼び出し元が空のURLを引きに行く。"""
+    client = FakeHttpClient(text="   \n")
 
-    result = await fetch_latest_observation_time(client)
-
-    assert result == "2026-08-29T17:00:00+09:00"
+    assert await jma_amedas_client.fetch_latest_observation_time(client) is None
 
 
-async def test_fetch_latest_observation_time_returns_none_when_empty():
-    client = FakeHttpClient(FakeResponse(text_payload=""))
-    assert await fetch_latest_observation_time(client) is None
+async def test_observation_map_requests_the_given_timestamp():
+    """要求した時刻がURLへ載らないと、いつまでも同じ（古い）観測値が返る。"""
+    template = jma_amedas_client.AMEDAS_OBSERVATION_URL_TEMPLATE
+    client = PerUrlHttpClient(
+        {
+            template.format(timestamp="20260829170000"): {"44132": {"temp": [30.1, 0]}},
+            template.format(timestamp="20260829171000"): {"44132": {"temp": [29.8, 0]}},
+        }
+    )
+
+    first = await jma_amedas_client.fetch_observation_map(client, "20260829170000")
+    second = await jma_amedas_client.fetch_observation_map(client, "20260829171000")
+
+    assert first == {"44132": {"temp": [30.1, 0]}}
+    assert second == {"44132": {"temp": [29.8, 0]}}
 
 
-async def test_fetch_observation_map_returns_data():
-    payload = {"44132": {"temp": [26.5, 0], "humidity": [70, 0]}}
-    client = FakeHttpClient(FakeResponse(json_payload=payload))
-
-    result = await fetch_observation_map(client, "20260829170000")
-
-    assert result == payload
-
-
-async def test_fetch_observation_map_returns_none_on_failure():
-    result = await fetch_observation_map(FailingHttpClient(), "20260829170000")
-    assert result is None
+async def test_observation_map_yields_none_when_upstream_fails():
+    """例外を外へ出すと、観測値が欠けただけで天候の応答全体が失敗する。"""
+    assert await jma_amedas_client.fetch_observation_map(FailingHttpClient(), "20260829170000") is None

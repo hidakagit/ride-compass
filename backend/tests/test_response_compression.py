@@ -1,106 +1,132 @@
-import gzip
+"""`infrastructure/response_compression.py`——content-typeで対象を絞ったgzipミドルウェア。
 
-from fastapi import FastAPI, Response
-from fastapi.testclient import TestClient
+ここで見ないもの:
+- どの応答にこのミドルウェアが掛かるか（アプリへの組み込み） → `test_main.py`
+- タイル配信そのもののCache-Control・本文 → 各ルーターのテスト
+
+**応答は生のASGIアプリで組み立てる。** 圧縮の判断はcontent-typeと本文の長さだけで決まるので、
+実物のエンドポイントを通すと関係のない依存（DB・キャッシュ）まで用意することになる。
+"""
+
+import pytest
+from starlette.testclient import TestClient
 
 from app.infrastructure.response_compression import (
-    ContentTypeGZipMiddleware,
+    COMPRESSIBLE_CONTENT_TYPES,
     DEFAULT_MINIMUM_SIZE,
+    ContentTypeGZipMiddleware,
     is_compressible_content_type,
 )
 
-LARGE_JSON = {"values": list(range(2000))}
-LARGE_BYTES = bytes(range(256)) * 20
+LISTED_TYPE = next(iter(COMPRESSIBLE_CONTENT_TYPES))
+GZIP = {"Accept-Encoding": "gzip"}
 
 
-def _build_client() -> TestClient:
-    app = FastAPI()
-    app.add_middleware(ContentTypeGZipMiddleware)
+def _app(content_type: str, body: bytes, *, chunks: int = 1):
+    """content-typeと本文だけを返すASGIアプリ。`chunks=2`で本文を2メッセージに分けて送る。"""
+    parts = [body[: len(body) // 2], body[len(body) // 2 :]] if chunks == 2 else [body]
 
-    @app.get("/json")
-    def json_endpoint():
-        return LARGE_JSON
+    async def app(scope, receive, send):
+        await send(
+            {
+                "type": "http.response.start",
+                "status": 200,
+                "headers": [(b"content-type", content_type.encode())],
+            }
+        )
+        for index, part in enumerate(parts):
+            await send({"type": "http.response.body", "body": part, "more_body": index < len(parts) - 1})
 
-    @app.get("/small")
-    def small_endpoint():
-        return {"ok": True}
-
-    @app.get("/mvt")
-    def mvt_endpoint():
-        return Response(content=LARGE_BYTES, media_type="application/vnd.mapbox-vector-tile")
-
-    @app.get("/png")
-    def png_endpoint():
-        return Response(content=LARGE_BYTES, media_type="image/png")
-
-    @app.get("/text")
-    def text_endpoint():
-        return Response(content="a" * 5000, media_type="text/plain; charset=utf-8")
-
-    return TestClient(app)
+    return app
 
 
-def test_is_compressible_content_type():
-    assert is_compressible_content_type("application/json")
-    assert is_compressible_content_type("application/vnd.mapbox-vector-tile")
-    assert is_compressible_content_type("Text/Plain; charset=utf-8")
-    assert not is_compressible_content_type("image/png")
+def _get(content_type: str, body: bytes, *, headers=GZIP, chunks: int = 1):
+    client = TestClient(ContentTypeGZipMiddleware(_app(content_type, body, chunks=chunks)))
+    return client.get("/", headers=headers)
+
+
+def test_a_missing_content_type_is_not_compressible():
     assert not is_compressible_content_type(None)
     assert not is_compressible_content_type("")
 
 
-def test_large_json_is_gzipped_when_client_accepts_gzip():
-    client = _build_client()
-    response = client.get("/json", headers={"Accept-Encoding": "gzip"})
-    assert response.status_code == 200
+def test_any_text_type_is_compressible_whatever_its_parameters_and_case():
+    assert is_compressible_content_type("Text/HTML; charset=UTF-8")
+    assert is_compressible_content_type(" text/plain ")
+
+
+def test_a_listed_application_type_is_matched_after_normalisation():
+    """一覧との照合そのものは`in`が保証するので見ない。見るのは、照合へ渡す前に大小と
+    パラメータ部を落としている側——落とし損ねると、実際に配信されるcontent-typeの形
+    （`; charset=utf-8`付き）が一覧に当たらず、まるごと圧縮されなくなる。
+    """
+    assert COMPRESSIBLE_CONTENT_TYPES
+
+    assert is_compressible_content_type(LISTED_TYPE.upper() + "; charset=utf-8")
+
+
+def test_media_types_outside_the_list_are_not_compressible():
+    """ラスタタイル（PNG等）は既に圧縮済みで、gzipしてもほぼ縮まずCPUだけ食う。"""
+    assert not is_compressible_content_type("image/png")
+    assert not is_compressible_content_type("application/octet-stream")
+    assert not is_compressible_content_type("application/pdf")
+
+
+def test_a_large_text_response_is_gzipped_for_a_client_that_accepts_it():
+    body = b"a" * (DEFAULT_MINIMUM_SIZE * 2)
+
+    response = _get("text/plain; charset=utf-8", body)
+
     assert response.headers["content-encoding"] == "gzip"
     assert "Accept-Encoding" in response.headers["vary"]
-    # httpxが透過的に展開するため、本文は元のJSONとして読める
-    assert response.json() == LARGE_JSON
+    assert response.content == body
 
 
-def test_mvt_is_gzipped_and_roundtrips():
-    client = _build_client()
-    response = client.get("/mvt", headers={"Accept-Encoding": "gzip"})
-    assert response.headers["content-encoding"] == "gzip"
-    assert response.headers["content-type"] == "application/vnd.mapbox-vector-tile"
-    assert response.content == LARGE_BYTES
+def test_a_binary_response_is_passed_through_across_all_its_chunks():
+    """先頭メッセージで下した判断を後続の本文にも効かせないと、ヘッダはgzipでないのに
+    本文だけ圧縮された応答になり、クライアントが復号できない。
+    """
+    body = bytes(range(256)) * 8
 
+    response = _get("image/png", body, chunks=2)
 
-def test_png_is_not_gzipped():
-    client = _build_client()
-    response = client.get("/png", headers={"Accept-Encoding": "gzip"})
     assert "content-encoding" not in response.headers
-    assert response.content == LARGE_BYTES
+    assert response.content == body
 
 
-def test_text_is_gzipped():
-    client = _build_client()
-    response = client.get("/text", headers={"Accept-Encoding": "gzip"})
-    assert response.headers["content-encoding"] == "gzip"
-    assert response.text == "a" * 5000
+def test_nothing_is_compressed_when_the_client_does_not_accept_gzip():
+    body = b"a" * (DEFAULT_MINIMUM_SIZE * 2)
 
+    response = _get("text/plain", body, headers={"Accept-Encoding": "identity"})
 
-def test_small_response_is_not_gzipped():
-    client = _build_client()
-    response = client.get("/small", headers={"Accept-Encoding": "gzip"})
-    assert len(response.content) < DEFAULT_MINIMUM_SIZE
     assert "content-encoding" not in response.headers
+    assert response.content == body
 
 
-def test_not_gzipped_without_accept_encoding():
-    client = _build_client()
-    response = client.get("/json", headers={"Accept-Encoding": "identity"})
+def test_a_response_below_the_minimum_size_is_not_compressed():
+    """短い本文はgzipヘッダのぶんだけ大きくなる。"""
+    body = b"a" * (DEFAULT_MINIMUM_SIZE // 10)
+
+    response = _get("text/plain", body)
+
     assert "content-encoding" not in response.headers
-    assert response.json() == LARGE_JSON
+    assert response.content == body
 
 
-def test_raw_gzip_body_is_valid():
-    """展開をhttpxに任せず、生のgzipバイト列として妥当であることを確認する。"""
-    client = _build_client()
-    response = client.send(
-        client.build_request("GET", "/mvt", headers={"Accept-Encoding": "gzip"}), stream=True
-    )
-    raw = b"".join(response.iter_raw())
-    assert gzip.decompress(raw) == LARGE_BYTES
-    assert int(response.headers["content-length"]) == len(raw)
+@pytest.mark.asyncio
+async def test_non_http_scopes_never_reach_the_header_lookup():
+    """lifespanのscopeは`headers`を持たない。先にtypeを見ないと起動時にKeyErrorで落ちる。"""
+    seen = []
+
+    async def app(scope, receive, send):
+        seen.append(scope["type"])
+
+    async def receive():
+        return {"type": "lifespan.startup"}
+
+    async def send(message):
+        return None
+
+    await ContentTypeGZipMiddleware(app)({"type": "lifespan"}, receive, send)
+
+    assert seen == ["lifespan"]

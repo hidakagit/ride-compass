@@ -1,149 +1,142 @@
-"""wbgt_client.py（環境省 熱中症予防情報サイトのクライアント）のテスト。
+"""`infrastructure/wbgt_client.py`——情報提供地点マスタ（CSV）と暑さ指数予測値を引く。
 
-他の外部APIクライアントのテストと同じ観点（正常系のレスポンス
-取得・キャッシュヒット・失敗時の挙動）を踏襲するが、このクライアントは
-異なりtenacity再試行を持たない（wbgt_client.pyモジュールdocstring参照: サイト側の利用上の
-注意で高頻度アクセスを控えるよう明記されているため、429前提の再試行は設けずTTLキャッシュ
-のみで呼び出し頻度を抑える設計）。そのため「リトライ」観点は「失敗時に再試行せず1回で
-Noneを返す（呼び出し元へ丸投げしない）」ことの確認に置き換える。
+ここで見ないもの:
+- TTLキャッシュの引き当てと、失敗をNoneへ倒す骨格 → `test_simple_api_client.py`
+- 最寄りの情報提供地点の選択 → `test_wbgt_points.py`
+- 予測値列から発表回を選び、10で割って暑さ指数へ直す処理 → `test_wbgt_service.py`
+
+マスタCSVの列の並び（緯度・経度が度と分の別列）は環境省の配布物が決めるもので、
+検査はその並びに沿って行を組み立てて渡す。
 """
 
 import pytest
 
-from app.infrastructure import wbgt_client as wbgt_client_module
-from app.infrastructure.wbgt_client import fetch_forecast, fetch_point_master
-from tests.fake_api_http import (
-    FailingHttpClient,
-    FakeHttpClient,
-    HttpStatusErrorHttpClient,
-)
+from app.domain.wbgt_points import WbgtPoint
+from app.infrastructure import wbgt_client
+from tests.fake_api_http import FakeHttpClient
+
+LIVE = "9999-99-99"
 
 
-# 情報提供地点マスタCSVの1行サンプル。_parse_point_masterが読む列位置
-# (2:no, 3:name, 7/8:緯度度/分, 9/10:経度度/分, 12:end_date)に合わせる。
-POINT_MASTER_HEADER = ",".join(str(i) for i in range(13))
-POINT_MASTER_ROW = ",".join(
-    [
-        "0",
-        "1",
-        "11001",
-        "テスト地点",
-        "4",
-        "5",
-        "6",
-        "35",
-        "30",
-        "139",
-        "40",
-        "11",
-        "9999-99-99",
-    ]
-)
-POINT_MASTER_RETIRED_ROW = ",".join(
-    [
-        "0",
-        "1",
-        "11002",
-        "廃止地点",
-        "4",
-        "5",
-        "6",
-        "36",
-        "0",
-        "140",
-        "0",
-        "11",
-        "2020-03-31",
-    ]
-)
-POINT_MASTER_CSV = "\n".join([POINT_MASTER_HEADER, POINT_MASTER_ROW, POINT_MASTER_RETIRED_ROW])
+def master_row(
+    *,
+    no="44",
+    name="東京",
+    lat_deg="35",
+    lat_min="30",
+    lon_deg="139",
+    lon_min="45",
+    end_date=LIVE,
+    columns=13,
+):
+    row = [""] * columns
+    for index, value in ((2, no), (3, name), (7, lat_deg), (8, lat_min), (9, lon_deg), (10, lon_min), (12, end_date)):
+        if index < columns:
+            row[index] = value
+    return ",".join(row)
+
+
+def master_csv(*rows):
+    return "\n".join([master_row(no="header", name="見出し"), *rows])
 
 
 @pytest.fixture(autouse=True)
-def clear_wbgt_caches():
-    wbgt_client_module._point_master_cache.clear()
-    wbgt_client_module._forecast_cache.clear()
+def _clear_caches():
+    wbgt_client._point_master_cache.clear()
+    wbgt_client._forecast_cache.clear()
     yield
-    wbgt_client_module._point_master_cache.clear()
-    wbgt_client_module._forecast_cache.clear()
+    wbgt_client._point_master_cache.clear()
+    wbgt_client._forecast_cache.clear()
 
 
-async def test_fetch_point_master_parses_active_points_only():
-    http_client = FakeHttpClient(text=POINT_MASTER_CSV)
+async def test_degrees_and_minutes_become_decimal_degrees():
+    client = FakeHttpClient(text=master_csv(master_row(lat_deg="35", lat_min="30", lon_deg="139", lon_min="45")))
 
-    points = await fetch_point_master(http_client)
+    points = await wbgt_client.fetch_point_master(client)
 
-    assert points is not None
-    assert len(points) == 1  # 運用終了済み地点(POINT_MASTER_RETIRED_ROW)は除外される
-    assert points[0].no == "11001"
-    assert points[0].name == "テスト地点"
-    assert points[0].latitude == pytest.approx(35 + 30 / 60.0)
-    assert points[0].longitude == pytest.approx(139 + 40 / 60.0)
+    assert points == [WbgtPoint(no="44", name="東京", latitude=35.5, longitude=139.75)]
 
 
-async def test_fetch_point_master_reuses_cache_within_ttl():
-    http_client = FakeHttpClient(text=POINT_MASTER_CSV)
+async def test_first_line_is_not_a_point():
+    """見出し行を地点にすると、最寄り地点の探索が実在しない地点を選びうる。"""
+    client = FakeHttpClient(text=master_csv(master_row(no="44")))
 
-    first = await fetch_point_master(http_client)
-    second = await fetch_point_master(http_client)
+    points = await wbgt_client.fetch_point_master(client)
 
-    assert first == second
-    assert http_client.call_count == 1
-
-
-async def test_fetch_point_master_returns_none_on_request_error():
-    result = await fetch_point_master(FailingHttpClient())
-
-    assert result is None
+    assert [point.no for point in points] == ["44"]
 
 
-async def test_fetch_point_master_returns_none_on_http_status_error_without_retry():
-    http_client = HttpStatusErrorHttpClient()
+async def test_retired_point_is_excluded():
+    """運用の終わった地点を残すと、その地点の予測値が永久に空で返る。"""
+    client = FakeHttpClient(
+        text=master_csv(master_row(no="44"), master_row(no="45", end_date="2024-03-31")),
+    )
 
-    result = await fetch_point_master(http_client)
+    points = await wbgt_client.fetch_point_master(client)
 
-    assert result is None
-    assert http_client.call_count == 1  # 429前提の再試行は設けない設計（再試行しない）
-
-
-async def test_fetch_forecast_returns_data_on_success():
-    http_client = FakeHttpClient(payload={"status": "success", "data": [{"forecast_val": "280"}]})
-
-    result = await fetch_forecast(http_client, "11001", "20260822000000", "20260824000000")
-
-    assert result == [{"forecast_val": "280"}]
-    assert http_client.last_params["wbgt_nos"] == "11001"
+    assert [point.no for point in points] == ["44"]
 
 
-async def test_fetch_forecast_reuses_cache_within_ttl():
-    http_client = FakeHttpClient(payload={"status": "success", "data": [{"forecast_val": "280"}]})
+async def test_short_row_is_skipped_and_the_rest_survive():
+    client = FakeHttpClient(text=master_csv(master_row(no="44", columns=12), master_row(no="45")))
 
-    first = await fetch_forecast(http_client, "11001", "20260822000000", "20260824000000")
-    second = await fetch_forecast(http_client, "11001", "20260822000000", "20260824000000")
+    points = await wbgt_client.fetch_point_master(client)
 
-    assert first == second
-    assert http_client.call_count == 1
+    assert [point.no for point in points] == ["45"]
 
 
-async def test_fetch_forecast_returns_none_on_request_error_without_retry():
-    http_client = FailingHttpClient()
+async def test_unparsable_coordinate_row_is_skipped_and_the_rest_survive():
+    """1行の欠損でマスタ全体を落とすと、暑さ指数が全国どこでも出なくなる。"""
+    client = FakeHttpClient(text=master_csv(master_row(no="44", lat_deg="-"), master_row(no="45")))
 
-    result = await fetch_forecast(http_client, "11001", "20260822000000", "20260824000000")
+    points = await wbgt_client.fetch_point_master(client)
 
-    assert result is None
-
-
-async def test_fetch_forecast_returns_none_on_unexpected_status():
-    http_client = FakeHttpClient(payload={"status": "error", "data": []})
-
-    result = await fetch_forecast(http_client, "11001", "20260822000000", "20260824000000")
-
-    assert result is None
+    assert [point.no for point in points] == ["45"]
 
 
-async def test_fetch_forecast_returns_none_when_data_is_not_a_list():
-    http_client = FakeHttpClient(payload={"status": "success", "data": "not-a-list"})
+async def test_surrounding_whitespace_is_trimmed():
+    """空白付きの地点番号はそのままクエリへ載り、予測値が引けなくなる。"""
+    client = FakeHttpClient(
+        text=master_csv(master_row(no=" 44 ", name=" 東京 ", lat_deg=" 35 ", lat_min=" 30 ")),
+    )
 
-    result = await fetch_forecast(http_client, "11001", "20260822000000", "20260824000000")
+    points = await wbgt_client.fetch_point_master(client)
 
-    assert result is None
+    assert points == [WbgtPoint(no="44", name="東京", latitude=35.5, longitude=139.75)]
+
+
+async def test_forecast_query_carries_the_point_and_the_range():
+    client = FakeHttpClient({"status": "success", "data": [{"wbgt_no": "44"}]})
+
+    data = await wbgt_client.fetch_forecast(client, "44", "20260829090000", "20260829200000")
+
+    assert data == [{"wbgt_no": "44"}]
+    assert client.last_params["wbgt_nos"] == "44"
+    assert client.last_params["range_date_from"] == "20260829090000"
+    assert client.last_params["range_date_to"] == "20260829200000"
+
+
+async def test_unsuccessful_status_yields_none():
+    """失敗応答を予測値として扱うと、その内容がそのままキャッシュへ居座る。"""
+    client = FakeHttpClient({"status": "error", "data": []})
+
+    assert await wbgt_client.fetch_forecast(client, "44", "20260829090000", "20260829200000") is None
+
+
+async def test_non_list_data_yields_none():
+    """配列でない`data`をそのまま通すと、予測値を1件ずつ読む呼び出し元が落ちる。"""
+    client = FakeHttpClient({"status": "success", "data": {"wbgt_no": "44"}})
+
+    assert await wbgt_client.fetch_forecast(client, "44", "20260829090000", "20260829200000") is None
+
+
+async def test_forecast_is_cached_per_point():
+    """地点ごとに分けないと、全員が最初に引いた地点の暑さ指数を見ることになる。"""
+    client = FakeHttpClient({"status": "success", "data": [{"wbgt_no": "44"}]})
+
+    await wbgt_client.fetch_forecast(client, "44", "20260829090000", "20260829200000")
+    await wbgt_client.fetch_forecast(client, "44", "20260829090000", "20260829200000")
+    assert client.call_count == 1
+
+    await wbgt_client.fetch_forecast(client, "45", "20260829090000", "20260829200000")
+    assert client.call_count == 2
