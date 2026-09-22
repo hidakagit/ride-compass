@@ -25,16 +25,12 @@ const JMA_TILE_PROTOCOL = "jmatile";
  *
  * MapLibreはこの1画素を`tileSize`ぶんへ引き伸ばすため、**不透明な画素が1つでも入ると
  * タイル全面がその色で塗られる**。空タイルは全ズーム・全座標で返るので、地図全体が
- * 塗り潰される。`jmaTileProtocol.test.ts`が画素を復号して不透明度0を検査する。 */
+ * 塗り潰される。 */
 const TRANSPARENT_PNG = Uint8Array.from(
   atob("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAC0lEQVR4nGNgAAIAAAUAAXpeqz8AAAAASUVORK5CYII="),
   (c) => c.charCodeAt(0),
 );
 
-/** テスト用。空タイルとして返すPNGのバイト列。 */
-export function emptyRasterTileBytes(): Uint8Array {
-  return TRANSPARENT_PNG.slice();
-}
 /** 空タイルの中身を**呼ぶたびに作り直して**返す（ベクタは0バイトのMVTが「地物なし」）。
  *
  * MapLibreはタイルのデータをWorkerへtransferして渡すため、一度返したArrayBufferは
@@ -54,15 +50,10 @@ export function setJmaTileIndex(response: JmaTileIndexResponse | null): void {
   lookup = buildJmaTileIndexLookup(response);
 }
 
-/** テスト・デバッグ用。現在インデックスが有効かどうか。 */
-export function hasJmaTileIndex(): boolean {
-  return lookup !== null;
-}
-
-/** そのタイルURLを「空と分かっている」として素通りさせるか。ハンドラが実際に使う判定で、
- * **いま保持しているインデックス**を見る。差し替えが効いているかはこれを通してしか
- * 確かめられない（有効かどうかだけを見ると、古いインデックスを握り続けても気づけない）。 */
-export function isKnownEmptyTileUrl(realUrl: string): boolean {
+/** そのタイルURLを「空と分かっている」として素通りさせるか。**いま保持している
+ * インデックス**を見る（「インデックスが有効か」だけを見ると、古いものを握り続けても
+ * 気づけない）。 */
+function isKnownEmptyTileUrl(realUrl: string): boolean {
   return isKnownEmptyTile(lookup, realUrl);
 }
 
@@ -89,12 +80,6 @@ export function subscribeJmaTileFailures(listener: () => void): () => void {
   };
 }
 
-/** テスト用。失敗の記録を空へ戻す。 */
-export function resetJmaTileFailures(): void {
-  if (tileFailures.size === 0) return;
-  publishFailures(new Map());
-}
-
 function publishFailures(next: ReadonlyMap<string, string>): void {
   tileFailures = next;
   for (const listener of failureListeners) listener();
@@ -119,7 +104,7 @@ function markDeliveryHealthy(realUrl: string): void {
 }
 
 /** `jmatile://`を剥がして実URLへ戻す。 */
-export function toRealUrl(url: string): string {
+function toRealUrl(url: string): string {
   return url.replace(new RegExp(`^${JMA_TILE_PROTOCOL}://`), "");
 }
 

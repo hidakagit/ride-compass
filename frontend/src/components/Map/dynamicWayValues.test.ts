@@ -6,7 +6,7 @@
 // `mergeWindWayPenalties`（材料非依存のタイル座標計算・複数タイル応答統合）テストを、
 // dynamicWayValues.tsへのロジック抽出に合わせてこちらへ移設した。
 import { describe, expect, it } from "vitest";
-import { mergeDynamicWayValues, tileBoundsLonLat, tilesCoveringViewport } from "./dynamicWayValues";
+import { mergeDynamicWayValues, tilesCoveringViewport } from "./dynamicWayValues";
 import type { MapViewport } from "./windLayer";
 
 describe("dynamicWayValues", () => {
@@ -80,28 +80,6 @@ describe("dynamicWayValues", () => {
 
     it("空配列は空のMapを返す", () => {
       expect(mergeDynamicWayValues([])).toEqual(new Map());
-    });
-  });
-
-  describe("tileBoundsLonLat（改善計画T423: 勾配gridFillのセル境界。backend/app/domain/region.py: tile_bounds_lonlatのJS版）", () => {
-    it("既知のz14タイル座標に対し、そのタイルへ含まれるはずの座標を範囲内に含む", () => {
-      const bounds = tileBoundsLonLat(14, 14549, 6450);
-      expect(bounds.west).toBeLessThanOrEqual(139.7);
-      expect(bounds.east).toBeGreaterThanOrEqual(139.7);
-      expect(bounds.south).toBeLessThanOrEqual(35.7);
-      expect(bounds.north).toBeGreaterThanOrEqual(35.7);
-    });
-
-    it("z0タイルは全世界（経度-180〜180）を覆う", () => {
-      const bounds = tileBoundsLonLat(0, 0, 0);
-      expect(bounds.west).toBeCloseTo(-180, 5);
-      expect(bounds.east).toBeCloseTo(180, 5);
-    });
-
-    it("同じズームで隣接するタイルは境界を共有する", () => {
-      const tileA = tileBoundsLonLat(10, 500, 300);
-      const tileB = tileBoundsLonLat(10, 501, 300);
-      expect(tileA.east).toBeCloseTo(tileB.west, 9);
     });
   });
 });
