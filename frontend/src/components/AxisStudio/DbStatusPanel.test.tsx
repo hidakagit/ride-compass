@@ -5,11 +5,8 @@ import DbStatusPanel from "./DbStatusPanel";
 import { getDbStatus } from "@/services/dbStatusApi";
 import type { DbStatusResponse } from "@/types/route";
 
-// split済み範囲の行は同じモジュールから取る。地図は開いたときだけ描くが、モックが無いと
-// パネル全体のレンダリングが落ちるため、ここでも差し替える。
 vi.mock("@/services/dbStatusApi", () => ({
   getDbStatus: vi.fn(),
-  getRoadGraphTiles: vi.fn().mockResolvedValue({ tiles: [] }),
 }));
 
 const REPORT: DbStatusResponse = {
@@ -136,7 +133,7 @@ describe("DbStatusPanel", () => {
 
     // 全テーブルの数・行数の合計・DB全体の容量。畳んだ「注意なし 1テーブル」はこの内数。
     expect(screen.getByText(/2テーブル ・ 5,182,739行 ・ 675 MB/)).toBeInTheDocument();
-    for (const title of ["取込", "接続", "テーブル（容量の大きい順）", "範囲"]) {
+    for (const title of ["取込", "接続", "テーブル（容量の大きい順）"]) {
       expect(screen.getByText(title)).toBeInTheDocument();
     }
   });
