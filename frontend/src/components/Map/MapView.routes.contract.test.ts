@@ -1,8 +1,10 @@
 // @vitest-environment node
-/** ルートの描画が満たすべき挙動。**実装が入れ替わっても、この期待値は変わらない。**
+/** ルートの描画が満たすべき**結果**。実装が入れ替わっても、この期待値は変わらない。
  *
- * 筋書きは[遷移表](../../../../docs/records/tasks/T1001.md)から取っている。
- * 地図へ出る呼び出しは`createRecordingMap`が記録し、順序・重なり・表示状態を見る。
+ * 筋書きは[遷移表](../../../../docs/records/tasks/T1001.md)から取っている。書くのは
+ * 「どの呼び出しが出たか」ではなく「最後にどうなっているか」——呼び出しの形で書くと、
+ * いまの実装が持つ手当て（作成順を後から揃える・毎回表示を明示する）を、次の実装にも
+ * 要求することになる。
  */
 import { describe, expect, it } from "vitest";
 
@@ -25,6 +27,8 @@ import {
 import type { RouteStyleMode } from "@/components/Map/routeStyleModes";
 import type { RouteCandidate, RouteSegmentDetail } from "@/types/route";
 import type { ExperimentSlot } from "@/types/experimentSlot";
+
+const SLOTS_LAYER_ID = "experiment-slots-line";
 
 function route(id: string): RouteCandidate {
   return {
@@ -64,102 +68,128 @@ const MODE: RouteStyleMode = {
 
 const slot = (): ExperimentSlot => ({ color: "#16a34a", topCandidate: route("s1") }) as unknown as ExperimentSlot;
 
-function visibilityOf(handle: ReturnType<typeof createRecordingMap>["handle"], id: string) {
-  return handle.layer(id)?.visibility;
+/** 画面の状態を地図へ伝える入口。**新実装ができたら、この束ね方だけを差し替える**
+ * （期待値の側は動かさない）。 */
+function bindCurrentImplementation(map: unknown) {
+  return {
+    showRoutes: (routes: RouteCandidate[], selectedId: string | null, hasDetail = false) =>
+      drawBaseRoutes(map as never, routes, selectedId, hasDetail),
+    hideRoutes: () => hideBaseRoutes(map as never),
+    showSelected: (routes: RouteCandidate[], selectedId: string | null) =>
+      drawSelectedOutline(map as never, routes, selectedId),
+    showDetail: (segments: RouteSegmentDetail[], mode: RouteStyleMode, hiddenKeys: readonly string[]) =>
+      drawDetailSegments(map as never, segments, mode, hiddenKeys),
+    showSlots: (slots: ExperimentSlot[]) => drawExperimentSlots(map as never, slots),
+  };
 }
 
-describe("ルートの描画が満たすこと", () => {
-  it("隠したあとにもう一度描くと、表示が戻る", () => {
+describe.each([["現行の実装", bindCurrentImplementation]])("ルートの描画（%s）", (_label, bind) => {
+  function setup() {
     const { map, handle } = createRecordingMap();
-    drawBaseRoutes(map as never, [route("a")], "a");
-    hideBaseRoutes(map as never);
-    expect(visibilityOf(handle, ROUTES_LAYER_ID)).toBe("none");
+    return { handle, drawing: bind(map) };
+  }
 
-    drawBaseRoutes(map as never, [route("a")], "a");
+  it("表示ONの状態は、途中で隠していても最後に見えている", () => {
+    const { handle, drawing } = setup();
 
-    expect(visibilityOf(handle, ROUTES_LAYER_ID)).toBe("visible");
-    expect(visibilityOf(handle, ROUTES_HIT_LAYER_ID)).toBe("visible");
+    drawing.showRoutes([route("a")], "a");
+    drawing.hideRoutes();
+    drawing.showRoutes([route("a")], "a");
+
+    expect(handle.layer(ROUTES_LAYER_ID)?.visibility).toBe("visible");
+    expect(handle.layer(ROUTES_HIT_LAYER_ID)?.visibility).toBe("visible");
   });
 
-  // 矢印は選択中候補の色分け線より上に出る。作られる順が2通りある（ページ表示直後に矢印、
-  // 最初の生成後に色分け線）ため、どちらの順でも同じ重なりへ収束しなければならない。
+  // 矢印は選択中候補の色分け線より上に出る。**どちらを先に出しても同じ重なりになること**が
+  // 要求で、いまの実装が持つ「後から寄せ直す」手当ては要求ではない。
   it.each([
-    ["ハローが先", true],
-    ["色分け線が先", false],
-  ])("%s でも、色分け線→当たり判定→矢印ハロー→矢印の順になる", (_label, outlineFirst) => {
-    const { map, handle } = createRecordingMap();
-    const draw = {
-      outline: () => drawSelectedOutline(map as never, [route("a")], "a"),
-      detail: () => drawDetailSegments(map as never, [segment()], MODE, []),
-    };
-    if (outlineFirst) {
-      draw.outline();
-      draw.detail();
+    ["選択中の候補が先", true],
+    ["区間の色分けが先", false],
+  ])("%s でも、重なりは 縁取り→色分け線→当たり判定→矢印 になる", (_order, selectedFirst) => {
+    const { handle, drawing } = setup();
+
+    if (selectedFirst) {
+      drawing.showSelected([route("a")], "a");
+      drawing.showDetail([segment()], MODE, []);
     } else {
-      draw.detail();
-      draw.outline();
+      drawing.showDetail([segment()], MODE, []);
+      drawing.showSelected([route("a")], "a");
     }
 
     const order = handle.layerOrder();
     const at = (id: string) => order.indexOf(id);
+    expect(at(DETAIL_CASING_LAYER_ID)).toBeLessThan(at(DETAIL_LAYER_ID));
     expect(at(DETAIL_LAYER_ID)).toBeLessThan(at(ROUTE_ARROW_HALO_LAYER_ID));
     expect(at(DETAIL_HIT_LAYER_ID)).toBeLessThan(at(ROUTE_ARROW_HALO_LAYER_ID));
     expect(at(ROUTE_ARROW_HALO_LAYER_ID)).toBeLessThan(at(ROUTE_ARROW_LAYER_ID));
-    expect(at(DETAIL_CASING_LAYER_ID)).toBeLessThan(at(DETAIL_LAYER_ID));
   });
 
-  it("選択中候補のハローは、候補線より下へ入る", () => {
-    const { map, handle } = createRecordingMap();
-    drawBaseRoutes(map as never, [route("a")], "a");
-    drawSelectedOutline(map as never, [route("a")], "a");
+  it("選択中候補のハローは、候補線より下にある", () => {
+    const { handle, drawing } = setup();
+
+    drawing.showRoutes([route("a")], "a");
+    drawing.showSelected([route("a")], "a");
 
     const order = handle.layerOrder();
     expect(order.indexOf(OUTLINE_LAYER_ID)).toBeLessThan(order.indexOf(ROUTES_LAYER_ID));
   });
 
-  it("比較スロットは、詳細があればその下・無ければ最前面へ入る", () => {
-    const withDetail = createRecordingMap();
-    drawDetailSegments(withDetail.map as never, [segment()], MODE, []);
-    drawExperimentSlots(withDetail.map as never, [slot()]);
-    const order = withDetail.handle.layerOrder();
-    expect(order.indexOf("experiment-slots-line")).toBeLessThan(order.indexOf(DETAIL_LAYER_ID));
+  it("比較スロットは、区間の色分けがあればその下にある", () => {
+    const { handle, drawing } = setup();
 
-    const alone = createRecordingMap();
-    drawExperimentSlots(alone.map as never, [slot()]);
-    expect(alone.handle.layerOrder()).toContain("experiment-slots-line");
+    drawing.showDetail([segment()], MODE, []);
+    drawing.showSlots([slot()]);
+
+    const order = handle.layerOrder();
+    expect(order.indexOf(SLOTS_LAYER_ID)).toBeLessThan(order.indexOf(DETAIL_LAYER_ID));
   });
 
-  // 色分けのモードと凡例の絞り込みは、レイヤーが既にある状態でも毎回当て直す。
-  // 当てないと、モードを切り替えても色が変わらない。
-  it("2回目の描画でも、色式と絞り込みを当て直す", () => {
-    const { map, handle } = createRecordingMap();
-    drawDetailSegments(map as never, [segment()], MODE, []);
-    const before = handle.trace.length;
+  it("比較スロットは、区間の色分けが無くても出る", () => {
+    const { handle, drawing } = setup();
 
-    drawDetailSegments(map as never, [segment()], MODE, ["step-1"]);
+    drawing.showSlots([slot()]);
 
-    const after = handle.trace.slice(before);
-    expect(
-      after.filter((entry) => entry.call === "setPaintProperty" && entry.args[0] === DETAIL_LAYER_ID),
-    ).toHaveLength(1);
-    const filtered = after.filter((entry) => entry.call === "setFilter").map((entry) => entry.args[0]);
-    // 縁取り・当たり判定にも同じ絞り込みが要る（隠した段の縁だけが残らない／押せない）。
-    expect(filtered).toEqual([DETAIL_LAYER_ID, DETAIL_CASING_LAYER_ID, DETAIL_HIT_LAYER_ID]);
+    expect(handle.layerOrder()).toContain(SLOTS_LAYER_ID);
   });
 
-  // スタイルを差し替えると、このアプリが足したものは全部消える。同じ呼び出しで元へ戻せること。
-  it("スタイルを差し替えた後、同じ呼び出しで元の重なりへ戻る", () => {
-    const { map, handle } = createRecordingMap();
-    const drawAll = () => {
-      drawBaseRoutes(map as never, [route("a")], "a", true);
-      drawSelectedOutline(map as never, [route("a")], "a");
-      drawDetailSegments(map as never, [segment()], MODE, []);
+  // 隠した段は、線だけでなく縁取り・当たり判定からも消える（縁だけが残らない・押せない）。
+  it("凡例で段を隠すと、色分け線・縁取り・当たり判定の絞り込みが揃う", () => {
+    const { handle, drawing } = setup();
+
+    drawing.showDetail([segment()], MODE, []);
+    drawing.showDetail([segment()], MODE, ["step-1"]);
+
+    const filters = [DETAIL_LAYER_ID, DETAIL_CASING_LAYER_ID, DETAIL_HIT_LAYER_ID].map(
+      (id) => handle.layer(id)?.filter,
+    );
+    expect(filters[0]).toBeDefined();
+    expect(filters[1]).toEqual(filters[0]);
+    expect(filters[2]).toEqual(filters[0]);
+  });
+
+  it("モードを切り替えると、色分け線の色式が入れ替わる", () => {
+    const { handle, drawing } = setup();
+    const other = { ...MODE, id: "other", colorExpression: ["literal", "#dc2626"] } as unknown as RouteStyleMode;
+
+    drawing.showDetail([segment()], MODE, []);
+    drawing.showDetail([segment()], other, []);
+
+    expect(handle.layer(DETAIL_LAYER_ID)?.paint["line-color"]).toEqual(other.colorExpression);
+  });
+
+  // スタイルを差し替えると、このアプリが足したものは全部消える。同じ状態を伝え直せば戻る。
+  it("スタイルを差し替えても、同じ状態を伝え直せば元の重なりへ戻る", () => {
+    const { handle, drawing } = setup();
+    const showAll = () => {
+      drawing.showRoutes([route("a")], "a", true);
+      drawing.showSelected([route("a")], "a");
+      drawing.showDetail([segment()], MODE, []);
     };
-    drawAll();
+    showAll();
     const before = handle.layerOrder();
 
     handle.dropEverything();
-    drawAll();
+    showAll();
 
     expect(handle.layerOrder()).toEqual(before);
   });
