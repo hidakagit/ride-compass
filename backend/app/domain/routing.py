@@ -226,18 +226,20 @@ def build_search_graph_statics(
 
 def overlap_ratio(candidate_edges: np.ndarray, accepted_edges: np.ndarray, edge_length_m: np.ndarray) -> float:
     """`candidate_edges`（Edge index配列）のうち`accepted_edges`と共有する部分の距離加重
-    割合（0〜1）。候補の総距離が0なら0。候補1件対採用済み1件向けの定義で、
-    `select_diverse_by_overlap`の間引き本体は同じ定義を採用済み複数件へbulk展開している
-    ——判定式を変えるなら両方を揃えること。
+    割合（0〜1）。候補1件対採用済み1件向けの定義。
+
+    `select_diverse_by_overlap`の間引き本体はこれを呼ぶ（同じ定義を2箇所に書かない
+    ——書けば、片方だけ変えても何も落ちない）。
     """
     if len(candidate_edges) == 0:
         return 0.0
     lengths = edge_length_m[candidate_edges]
-    total = float(lengths.sum())
-    if total <= 0:
-        return 0.0
-    shared = float(lengths[np.isin(candidate_edges, accepted_edges)].sum())
-    return shared / total
+    return _shared_ratio(lengths, np.isin(candidate_edges, accepted_edges))
+
+
+def _shared_ratio(lengths: np.ndarray, shared_mask: np.ndarray) -> float:
+    """共有部分の距離加重割合。`overlap_ratio`と間引き本体が共有する唯一の定義。"""
+    return float(lengths[shared_mask].sum()) / float(lengths.sum())
 
 
 T = TypeVar("T")
@@ -266,8 +268,6 @@ def _pareto_front_mask(
     計算量はO(n log n)（aの昇順に走査しbの最小値を更新するだけ）。同値の扱いを含めて
     決定的で、入力順には依存しない。
     """
-    if len(minimize_a) == 0:
-        return np.zeros(0, dtype=bool)
     a = np.round(np.asarray(minimize_a, dtype=float) / quantum_a)
     b = np.round(np.asarray(minimize_b, dtype=float) / quantum_b)
     # aの昇順（同値内はbの昇順）に走査し、「自分より真に前にある点」の最小bと比べる。
@@ -395,20 +395,18 @@ def select_diverse_by_overlap(
     slot_bits = np.uint64(1) << np.arange(max(max_count, 1), dtype=np.uint64)
 
     def try_accept(item: T, edges: Sequence[int], max_overlap_ratio: float, rejected: list[T] | None) -> bool:
-        if len(selected) >= max_count:
-            return False
         edge_array = np.asarray(edges, dtype=np.int64)
-        if len(selected) and len(edge_array):
+        if len(selected):
             lengths = edge_length_m[edge_array]
-            total = float(lengths.sum())
-            if total > 0:
-                candidate_bits = edge_bits[edge_array]
-                shared_mask = (candidate_bits[:, None] & slot_bits[: len(selected)]) != 0
-                shared = (shared_mask * lengths[:, None]).sum(axis=0)
-                if bool((shared / total > max_overlap_ratio).any()):
-                    if rejected is not None:
-                        rejected.append(item)
-                    return False
+            candidate_bits = edge_bits[edge_array]
+            shared_mask = (candidate_bits[:, None] & slot_bits[: len(selected)]) != 0
+            ratios = [
+                _shared_ratio(lengths, shared_mask[:, slot]) for slot in range(len(selected))
+            ]
+            if any(ratio > max_overlap_ratio for ratio in ratios):
+                if rejected is not None:
+                    rejected.append(item)
+                return False
         edge_bits[edge_array] |= slot_bits[len(selected)]
         selected.append(item)
         return True
@@ -433,7 +431,8 @@ def select_diverse_by_overlap(
                     if is_compatible is not None and not is_compatible(item, selected):
                         continue
                     edges = edge_indices_of(item)
-                    if edges is None:
+                    # 空は「どれとも重複しない候補」ではなく「経路にならない」。Noneと同じ扱い。
+                    if not edges:
                         continue
                     if try_accept(item, edges, max_overlap_ratio, rejected_in_group):
                         accepted_at = position
@@ -553,7 +552,9 @@ def find_nearest_node_indexed(
     cell_lon = math.floor(point.longitude / index.cell_size_deg)
     # 経度方向1度あたりの物理距離（cos補正込み）を安全マージンに使う——2方向のうち
     # 常に短い（＝より保守的な）方でなければ、リング内に未探索の近い点が残りうる。
-    longitude_cos_factor = math.cos(math.radians(point.latitude))
+    # 極では`cos`が0へ落ちる。下限を置かないとセル幅が0になり、リング数の見積もりが
+    # ゼロ除算になる（`_bbox_around_point`が経度マージンで置いているのと同じ下限）。
+    longitude_cos_factor = max(math.cos(math.radians(point.latitude)), 1e-6)
     cell_size_km_lower_bound = index.cell_size_deg * KM_PER_DEGREE_LATITUDE * longitude_cos_factor
 
     nearest_node_id: str | None = None
@@ -682,6 +683,8 @@ class TurnExpandedStructure:
         前向きの遷移「状態a→状態b、待ちw」を、後ろ向きでは「状態b→状態a、待ちw」として
         並べ替える（待ちは元の進行方向で決まるため値は変えない）。
         """
+        # プロセス内で共有される構造だが、ロックは要らない——組み直しても同じ値になり、
+        # 重なったぶんは初回だけ計算を重複して払う（結果は壊れない）。
         if self._reverse is None:
             source = np.repeat(
                 np.arange(self.state_count, dtype=np.int64), np.diff(self.indptr)
@@ -1008,9 +1011,6 @@ def build_turn_expanded_tree(
         len(entry_state_indices) + _HEAP_INITIAL_SLACK,
     )
     dijkstra_ms = (time.perf_counter() - started) * 1000
-    if edge_seconds is None:
-        # 積算に使ったのはコスト配列（主観的割増込み）のため、秒として読ませない。
-        state_seconds = np.full(state_count, np.nan)
 
     fold_started = time.perf_counter()
     # Nodeごとに最小コストの状態を1つ選ぶ（正方向はNodeへ入る状態、逆方向は出る状態）。
@@ -1136,9 +1136,15 @@ def combine_forward_backward_at_nodes(
     )
 
 
-def _as_time_bins(values: np.ndarray) -> np.ndarray:
-    """1次元のEdge配列を`(1, 状態)`の時刻ビン形式へ揃える（2次元ならそのまま）。"""
+def _as_time_bins(caller: str, values: np.ndarray) -> np.ndarray:
+    """1次元のEdge配列を`(1, 状態)`の時刻ビン形式へ揃える（2次元ならそのまま）。
+
+    3次元以上は送出する。黙って`(1, n)`へ潰すと、後段のビン数の食い違いの検査もすり抜け、
+    JITした探索が範囲外を読む。
+    """
     array = np.asarray(values, dtype=np.float64)
+    if array.ndim > 2:
+        raise ValueError(f"{caller}: expected a 1-D or 2-D array, got {array.shape}")
     return array if array.ndim == 2 else array.reshape(1, -1)
 
 
@@ -1155,19 +1161,19 @@ def _time_bin_arrays(
     2つの配列の形が違えば送出する。JITした探索は配列の境界を検査しないため、ビン数が
     食い違うと範囲外の読み出しになる。
     """
-    cost_bins = _as_time_bins(edge_cost)
+    cost_bins = _as_time_bins(caller, edge_cost)
+    if edge_seconds is None:
+        raise ValueError(
+            f"{caller}: edge_cost needs edge_seconds "
+            "(without it the arrival clock advances by cost, not by seconds)"
+        )
     if cost_bins.shape[0] > 1:
-        if edge_seconds is None:
-            raise ValueError(
-                f"{caller}: time-binned edge_cost needs edge_seconds "
-                "(without it the arrival clock advances by cost, not by seconds)"
-            )
         if not math.isfinite(bin_seconds) or bin_seconds <= 0:
             raise ValueError(
                 f"{caller}: time-binned edge_cost needs a positive finite bin_seconds "
                 f"(got {bin_seconds}; every state would fall into the first bin)"
             )
-    seconds_bins = cost_bins if edge_seconds is None else _as_time_bins(edge_seconds)
+    seconds_bins = _as_time_bins(caller, edge_seconds)
     if seconds_bins.shape != cost_bins.shape:
         raise ValueError(
             f"{caller}: edge_seconds{seconds_bins.shape} does not match edge_cost{cost_bins.shape}"

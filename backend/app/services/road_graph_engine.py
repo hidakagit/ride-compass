@@ -964,6 +964,7 @@ class RoadGraphEngine:
             ),
             _origin_states(statics, search.lazy_graph.node_id_to_index[origin_node]),
             search.lazy_graph.node_id_to_index[destination_node],
+            search.outbound.travel_seconds_lazy,
         )
         if edges is None:
             return None
