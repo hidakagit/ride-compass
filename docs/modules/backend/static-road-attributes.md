@@ -366,7 +366,7 @@ PBF取込時にしか変わらないため、再訪時の同一タイル再取�
 |---|---|
 | `road.py` | 路面語彙の正準定義（`GOOD_OSM_SURFACE_TAGS`/`BAD_OSM_SURFACE_TAGS`）。材料の値式とPostGIS側MVT生成SQLが共有する単一ソース |
 | `attributes.py` | `ElevationAttribute`/`EdgeAttributeCounts`等のモデルと標高計算（[elevation.md](elevation.md)が主に扱う） |
-| `accident.py` | 警察庁データ取込の純関数群（都道府県コード変換・当事者種別判定・度分秒座標変換） |
+| `accident.py` | 警察庁データ取込の純関数群（度分秒座標の読み取り）と、生データの列から判定を組み立てるSQL断片・重み付けの定数 |
 | `traffic.py` | OSMタグの解釈。停止要因POI・補給休憩POIの分類（`classify_stop_poi`/`classify_supply_poi`）、信号の判定（`is_traffic_signal`）、通行方向の解決（`resolve_direction`）、交差点判定の空間マッチ半径・次数しきい値、交差点の階級（`HIGHWAY_RANK`） |
 | `divided_carriageway.py` | 上下線が分かれた道の片側かを判定するしきい値 |
 

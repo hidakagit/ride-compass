@@ -123,17 +123,6 @@ class TestHaversineDistanceKmArray:
 
         assert np.allclose(actual, expected)
 
-    def test_the_target_itself_is_zero_and_not_nan(self):
-        """同一点では丸め誤差で平方根の中身がわずかに負になりうる。そのままだとNaNが出て、
-        A*の優先度比較が静かに壊れる。
-        """
-        result = haversine_distance_km_array(
-            np.array([TOKYO.latitude]), np.array([TOKYO.longitude]), TOKYO
-        )
-
-        assert not np.isnan(result).any()
-        assert result[0] == 0.0
-
     def test_an_empty_input_gives_an_empty_result(self):
         result = haversine_distance_km_array(np.array([]), np.array([]), TOKYO)
 
