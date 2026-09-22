@@ -32,13 +32,19 @@
 from typing import Annotated, Literal, Mapping, Sequence, Union
 
 import numpy as np
-from pydantic import ConfigDict, Field
+from pydantic import ConfigDict, Field, field_validator, model_validator
 
 from app.domain.axis_templates import (
     evaluate_breakpoint_linear,
     evaluate_categorical,
 )
 from app.domain.strict_model import StrictModel
+
+
+#: 軸の宣言に使うモデル共通の設定。`allow_inf_nan=False`は、NaN・無限大の重み・係数が
+#: 混じると軸の得点も合成difficultyも黙ってNaNになり、欠損（データが無い）と区別できなく
+#: なるため。凍結するのは、評価の途中で辞書へ混ぜ込まれる定義が書き換わらないようにするため。
+_AXIS_MODEL_CONFIG = ConfigDict(frozen=True, allow_inf_nan=False)
 
 
 class MaterialTerm(StrictModel):
@@ -51,9 +57,9 @@ class MaterialTerm(StrictModel):
     required有無によらず軸全体を欠損として扱う。
     """
 
-    model_config = ConfigDict(frozen=True)
+    model_config = _AXIS_MODEL_CONFIG
 
-    material: str
+    material: str = Field(min_length=1)
     weight: float = 1.0
     required: bool = True
 
@@ -66,7 +72,7 @@ class BreakpointLinearShape(StrictModel):
     全termがboolean材料の場合として本shapeで表現する。
     """
 
-    model_config = ConfigDict(frozen=True)
+    model_config = _AXIS_MODEL_CONFIG
 
     kind: Literal["breakpoint_linear"] = "breakpoint_linear"
     # 空を許すと下流の壊れ方が三者三様になる（スカラー版はNone、配列版はassert、
@@ -74,6 +80,19 @@ class BreakpointLinearShape(StrictModel):
     terms: list[MaterialTerm] = Field(min_length=1)
     preprocess: Literal["identity", "abs"] = "identity"
     breakpoints: list[tuple[float, float]] = Field(min_length=1)
+
+    @field_validator("breakpoints")
+    @classmethod
+    def _x_must_be_strictly_ascending(
+        cls, value: list[tuple[float, float]]
+    ) -> list[tuple[float, float]]:
+        """折れ線を引くのは`np.interp`（`axis_templates.py`）で、x昇順を前提に区間を探す。
+        崩れた折れ線は例外を出さず、全区間へ無警告で誤った得点を返し続ける。
+        """
+        xs = [x for x, _ in value]
+        if any(b <= a for a, b in zip(xs, xs[1:])):
+            raise ValueError(f"breakpoints must be strictly ascending by x, got {value!r}")
+        return value
 
 
 class CategoricalShape(StrictModel):
@@ -89,11 +108,15 @@ class CategoricalShape(StrictModel):
     通常のcategorical材料には影響しない）。
     """
 
-    model_config = ConfigDict(frozen=True)
+    model_config = _AXIS_MODEL_CONFIG
 
     kind: Literal["categorical"] = "categorical"
-    material: str
-    mapping: dict[Annotated[Union[bool, str], Field(union_mode="left_to_right")], float]
+    material: str = Field(min_length=1)
+    # 空の対応表はどの値も引けず、その軸を全区間で恒久的に欠損にする（`evaluate_categorical`
+    # は未登録の値へNone/NaNを返すだけで、エラーもログも出さない）。登録時点で弾く。
+    mapping: dict[Annotated[Union[bool, str], Field(union_mode="left_to_right")], float] = Field(
+        min_length=1
+    )
 
 
 AxisShape = BreakpointLinearShape | CategoricalShape
@@ -118,9 +141,9 @@ class PriorityCondition(StrictModel):
     同型のケースはコード変更なしに表現できる。
     """
 
-    model_config = ConfigDict(frozen=True)
+    model_config = _AXIS_MODEL_CONFIG
 
-    material: str
+    material: str = Field(min_length=1)
     equals: str
     value: float
 
@@ -175,12 +198,15 @@ class AxisDefinition(StrictModel):
     あり、材料の二重計上とは別の話のため）。
     """
 
-    model_config = ConfigDict(frozen=True)
+    model_config = _AXIS_MODEL_CONFIG
 
-    axis_id: str
+    axis_id: str = Field(min_length=1)
     shape: AxisShape
-    default_weight: float
-    label: str
+    # 負の重みは合成difficultyの分母（重みの総和）と分子の符号を食い違わせ、良い経路ほど
+    # 高い点数になる。上限は設けない（極端な値は利用者の選択として通す）。
+    default_weight: float = Field(ge=0)
+    #: 空を許すと、ルート設定画面にも地図チップにも名前の出ない軸を登録できてしまう。
+    label: str = Field(min_length=1)
     description: str = ""
     category: AxisCategory = "推定"
     # 公開済み軸は一般向け`GET /api/axis-catalog`（一般ユーザーの保存設定が
@@ -199,12 +225,11 @@ class AxisDefinition(StrictModel):
     """地図チップのアイコン（frontend/src/components/Map/axisIconPalette.tsxの固定
     パレットからidを選ぶ。未知/未設定のidは汎用アイコン[AxisRampIcon]へフォールバック）。
     パレットへ形状を足すにはコード変更が要る。"""
-    chip_label: str | None = None
-    """地図チップの略称。設定する場合は4文字以内必須（地図チップが固定サイズのタイルの
-    ため、axis_admin.py: AxisDefinitionPayload._check_chip_label_lengthが書き込み時に
-    検証する）。未設定はlabelをそのまま使う——labelが4文字を超える軸（例:「車の圧迫感」
-    5文字）は、そのままだとタイルのレイアウトが崩れるため、その場合は明示的にこの
-    フィールドを設定すること。"""
+    chip_label: str | None = Field(default=None, min_length=1, max_length=4)
+    """地図チップの略称。地図チップは固定サイズのタイルで、5文字以上はレイアウトが崩れる。
+    未設定はlabelをそのまま使う——labelには長さの制約が無いため、地図チップに出す軸を
+    作るときはこちらを明示する（`axis_admin.py: AxisDefinitionPayload`が書き込み時に
+    要求する）。"""
     panel_hint: str | None = None
     """地図の見え方パネル（MapLayersPanel）向けの噛み砕いた説明文。未設定は
     descriptionをそのまま使う（開発者向けの技術説明のため読みにくい場合がある）。"""
@@ -220,7 +245,7 @@ class AxisDefinition(StrictModel):
     `domain/axis_definitions.py: time_scoped_weights`参照）が、このフィールドだけを
     見て判定する。別の時間帯を足すときもこのLiteralへ値を1つ増やすだけで、エンジン側の
     コード変更は要らない。"""
-    display_thresholds_override: list[float] | None = None
+    display_thresholds_override: list[float] | None = Field(default=None, min_length=1)
     """地図の色分けしきい値だけを差し替える軽量な上書き。未設定なら`breakpoints`のX軸の
     値がそのまま段の境界になる。
 
@@ -228,15 +253,12 @@ class AxisDefinition(StrictModel):
     `breakpoints`のX軸を流用するため粗くなりがちで、見やすさのために細かく刻みたいという
     正当なニーズがある。導出能力ではなく好みの問題なので、しきい値だけを独立させてある。
 
-    値は昇順の数値配列で、単位は`breakpoints`のX軸と同じ材料スケール
-    （実行時スケール変換が要る材料を含む軸でも変換後のスケールなので、係数が変わっても
-    書き直さなくてよい）。地図表示そのものを導けない軸には効果が無い。"""
+    値は`breakpoints`のX軸と同じ材料スケール（実行時スケール変換が要る材料を含む軸でも
+    変換後のスケールなので、係数が変わっても書き直さなくてよい）。地図表示そのものを
+    導けない軸には効果が無い。"""
     display_band_labels_override: list[str] | None = None
     """地図の色分け段階に添える体感ラベル。未設定は
-    段階の数値レンジ表記（例:「2〜6」）のみを凡例に出す。設定する場合は
-    `display_thresholds_override`も設定済みで、かつ要素数が段階数
-    （`len(display_thresholds_override)+1`）と一致していなければならない
-    （`axis_admin.py: AxisDefinitionPayload._check_display_band_labels_override`参照）。
+    段階の数値レンジ表記（例:「2〜6」）のみを凡例に出す。
 
     `display_thresholds_override`と対になる概念（どちらも「地図の色分け段階の見せ方」の
     軸ごとの好み）で、風・勾配のdedicated_way_value_layer軸だけでなく、通常のramp軸
@@ -273,6 +295,37 @@ class AxisDefinition(StrictModel):
     `speed_kmh`クエリパラメータ（想定速度）にこの軸の値が依存するかの宣言。走行速度に
     依存する材料（`wind_drag_ratio`）を参照する軸で立てる。他の2フラグと同じ理由で
     明示的なフィールドとして持たせる（キャッシュキーへ速度バケットを含めるかの判定にも使う）。"""
+
+    @field_validator("display_thresholds_override")
+    @classmethod
+    def _thresholds_must_be_strictly_ascending(cls, value: list[float] | None) -> list[float] | None:
+        """段の境界を塗るのはMapLibreの`step` expression（`axisLayers.ts`）で、昇順を
+        前提にする。降順・同値が混じると、地図とルート線が別の段で塗られる。
+        """
+        if value is not None and any(b <= a for a, b in zip(value, value[1:])):
+            raise ValueError(f"display_thresholds_override must be strictly ascending, got {value!r}")
+        return value
+
+    @model_validator(mode="after")
+    def _band_labels_must_match_the_bands(self) -> "AxisDefinition":
+        """段ラベルは段と1対1で対応する。しきい値を自動導出へ任せたまま段数だけ決め打つと、
+        導出結果が変わった日に凡例のラベルが実際の段とずれる。
+        """
+        if self.display_band_labels_override is None:
+            return self
+        if self.display_thresholds_override is None:
+            raise ValueError(
+                "display_band_labels_override requires display_thresholds_override to be set "
+                "(band count must be known and fixed)"
+            )
+        expected = len(self.display_thresholds_override) + 1
+        if len(self.display_band_labels_override) != expected:
+            raise ValueError(
+                f"display_band_labels_override must have {expected} entries "
+                f"(display_thresholds_override has {len(self.display_thresholds_override)} thresholds), "
+                f"got {len(self.display_band_labels_override)}"
+            )
+        return self
 
     @property
     def materials(self) -> list[str]:

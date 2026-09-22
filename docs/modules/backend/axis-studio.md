@@ -237,7 +237,7 @@ compute_edge_axis_scores`経由、下記「呼び出し元」参照）。周回�
 
 ### 生値の単位（`raw_value_unit`）
 
-同じ`axis_display.py`が、軸の**生値**（折れ点を通す前の`terms`重み付き和）の単位も導出する。
+`axis_raw_value.py`が、軸の**生値**（折れ点を通す前の`terms`重み付き和）の単位を導出する。
 `BreakpointLinearShape`で、重み0以外の全termが下の条件をすべて満たすときだけ単位を返す。
 それ以外は`None`:
 
@@ -256,7 +256,7 @@ compute_edge_axis_scores`経由、下記「呼び出し元」参照）。周回�
 ### 材料単位への分解（`material_breakdown`）
 
 上の表で`None`になる軸は、代わりに`axis_material_shares`が軸を**材料まで分解**し、
-材料ごとの絶対量を並べられるようにする（同じ`axis_display.py`）。軸参照は葉の材料まで
+材料ごとの絶対量を並べられるようにする（同じ`axis_raw_value.py`）。軸参照は葉の材料まで
 再帰的に辿り、途中の軸の得点は内訳に含めない。並びは各階層で正規化した重みの積の降順で、
 重み0の材料は含めない。参照材料が1件へ分解される軸は分解しない（軸単位の生値で足りる
 うえ、`shape.preprocess`が材料単位では効かない）。導出の根拠と、値の運搬・表示の詳細は
@@ -299,15 +299,30 @@ compute_edge_axis_scores`経由、下記「呼び出し元」参照）。周回�
 `GET /api/axis-catalog`の`material_runtime_scales`（実行時にしか決まらないスケール係数）
 のみ、リクエストごとにDBを直接見る例外（現状`accident_count_per_km_year`のみ対象）。
 
-### 書き込み時のバリデーション（`AxisDefinitionPayload`）
+### 軸そのものの不変条件（`domain/axis_definitions.py`のモデル）
 
-- `chip_label`は4文字以下（未設定時は`label`自体が4文字以下であることを要求）——
-  地図チップが固定サイズのタイルのため。
+**軸が入ってくる口は2つある**——管理API（`AxisDefinitionPayload`）と、起動時にDBの行から
+組み立てる経路（`infrastructure/axis_definition_repository.py`）である。後者に検証の機会は
+他に無いため、軸そのものの不変条件はモデル側が持ち、どちらの口から来ても同じように弾く
+（`AxisDefinitionPayload`は`AxisDefinition`を継承するので、APIはこれらを422で返す）。
+
+- `shape.breakpoints`はx昇順（`evaluate_breakpoint_linear`の`np.interp`が前提とする
+  不変条件。崩れると例外もログも出ないまま全区間の得点が誤る）。
+- `CategoricalShape.mapping`は空でないこと（引ける値が無い対応表はその軸を恒久的に欠損にする）。
 - `display_thresholds_override`は設定する場合、空でなく厳密な昇順。
 - `display_band_labels_override`は設定する場合、`display_thresholds_override`も
   設定済みで、要素数が段階数（`len(display_thresholds_override)+1`）と一致すること。
-- `shape.breakpoints`はx昇順（`evaluate_breakpoint_linear`の`np.interp`が前提とする
-  不変条件）。
+- `axis_id`・`label`・材料idは空文字でないこと、`default_weight`は非負、`chip_label`は
+  1〜4文字。重み・係数にNaN・無限大を許さない（軸の得点も合成difficultyも黙ってNaNになり、
+  欠損と区別できなくなるため）。
+
+### 書き込み時のバリデーション（`AxisDefinitionPayload`）
+
+軸の外側の状態（材料カタログ・既存の軸・配信実装）に照らすものだけがこちら側にある。
+
+- `chip_label`未設定時は`label`自体が4文字以下であること——未設定だと`label`がそのまま
+  地図チップへ出るため。`label`の長さは軸そのものの不変条件ではない（地図チップへ出ない
+  内部軸・`show_map_icon=false`の軸にも課すことになる）ので、新規作成する側へ要求する。
 - shapeが参照する材料・軸参照が既知であること、材料のdtype（numeric/boolean/
   categorical）がshape種別の前提と一致すること（`CategoricalShape`は
   boolean/categorical材料、`BreakpointLinearShape`はnumeric/boolean材料）。

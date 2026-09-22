@@ -85,6 +85,53 @@ def _registry(definitions: dict[str, AxisDefinition]):
         AXIS_DEFINITIONS.update(original)
 
 
+class TestTheDeclarationRefusesAxesThatCannotBePainted:
+    """軸の宣言そのものが拒む状態。**どの入口から来ても**拒む必要がある——軸は管理APIから
+    だけでなくDBの行からも組み立てられ、後者には検証の機会が他に無い。
+    """
+
+    def test_breakpoints_that_do_not_ascend_are_refused(self):
+        """折れ線が崩れると、例外もログも出ないまま全区間の得点が誤る。"""
+        with pytest.raises(ValueError, match="ascending"):
+            BreakpointLinearShape(
+                terms=[MaterialTerm(material="m_a")], breakpoints=[(10.0, 100.0), (0.0, 0.0)]
+            )
+
+    def test_breakpoints_that_repeat_an_x_are_refused(self):
+        with pytest.raises(ValueError, match="ascending"):
+            BreakpointLinearShape(
+                terms=[MaterialTerm(material="m_a")], breakpoints=[(0.0, 0.0), (0.0, 100.0)]
+            )
+
+    def test_an_empty_lookup_table_is_refused(self):
+        """引ける値が1つも無い対応表は、その軸を全区間で恒久的に欠損にする。"""
+        with pytest.raises(ValueError):
+            CategoricalShape(material="m_a", mapping={})
+
+    def test_band_boundaries_that_do_not_ascend_are_refused(self):
+        with pytest.raises(ValueError, match="ascending"):
+            _axis(display_thresholds_override=[2.0, 1.0, 4.0])
+
+    def test_band_labels_without_boundaries_are_refused(self):
+        """境界を自動導出へ任せたまま段数だけ決め打つと、導出が変わった日に凡例がずれる。"""
+        with pytest.raises(ValueError, match="display_thresholds_override"):
+            _axis(display_band_labels_override=["低い", "高い"])
+
+    def test_band_labels_that_do_not_match_the_band_count_are_refused(self):
+        with pytest.raises(ValueError, match="entries"):
+            _axis(display_thresholds_override=[1.0, 2.0], display_band_labels_override=["低い", "高い"])
+
+    def test_one_label_per_band_is_accepted(self):
+        axis = _axis(display_thresholds_override=[1.0, 2.0], display_band_labels_override=["低", "中", "高"])
+
+        assert axis.display_band_labels_override == ["低", "中", "高"]
+
+    def test_a_weight_that_is_not_a_number_is_refused(self):
+        """NaNの重みは軸の得点も合成difficultyも黙ってNaNにし、欠損と区別できなくなる。"""
+        with pytest.raises(ValueError):
+            MaterialTerm(material="m_a", weight=float("nan"))
+
+
 class TestReferencedMaterials:
     """片方が0次条件を見落とすと、検証を素通りした軸が実行時に落ちる。"""
 

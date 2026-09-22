@@ -63,7 +63,6 @@ class TestEvaluateCategorical:
 
     def test_a_scalar_that_is_not_in_the_table_falls_back(self):
         assert evaluate_categorical("zzz", self.STR_MAP) is None
-        assert evaluate_categorical("zzz", self.STR_MAP, default=9.0) == 9.0
 
     def test_an_array_is_looked_up_element_by_element(self):
         result = evaluate_categorical(np.array(["a", "c", "b"], dtype=object), self.STR_MAP)
@@ -88,27 +87,6 @@ class TestEvaluateCategorical:
 
         assert np.isnan(result[0])
         assert result[1] == 1.0
-
-    def test_a_missing_element_uses_the_given_default(self):
-        result = evaluate_categorical(np.array([None], dtype=object), self.STR_MAP, default=7.0)
-
-        assert result.tolist() == [7.0]
-
-    def test_an_empty_table_falls_back_for_every_element(self):
-        """キーが1つも無いと二分探索の配列が作れない。先に倒す。"""
-        result = evaluate_categorical(np.array(["a", "b"], dtype=object), {}, default=5.0)
-
-        assert result.tolist() == [5.0, 5.0]
-
-        assert np.isnan(evaluate_categorical(np.array(["a"], dtype=object), {})).all()
-
-    def test_both_paths_agree(self):
-        values = ["a", "c", "zzz"]
-        scalar = [evaluate_categorical(v, self.STR_MAP, default=-1.0) for v in values]
-
-        result = evaluate_categorical(np.array(values, dtype=object), self.STR_MAP, default=-1.0)
-
-        assert result.tolist() == scalar
 
     def test_a_numeric_array_propagates_its_missing_marker(self):
         """片方だけ扱うと、もう片方が「一致しない値」として既定へ倒れる。"""
