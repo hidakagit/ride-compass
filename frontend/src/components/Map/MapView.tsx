@@ -102,7 +102,7 @@ import { buildMapScene, type SceneInputs } from "@/features/map/scene/buildScene
 import type { RoutePath, RouteState } from "@/features/map/scene/groups/routes";
 import type { AxisBand, AxisLineState } from "@/features/map/scene/groups/axisLines";
 import { WEATHER_ICONS, type WeatherPayload, type WeatherState } from "@/features/map/scene/groups/weather";
-import { POINT_LAYERS, POINT_SOURCE_ID, pointGroup } from "@/features/map/scene/groups/points";
+import { POINT_LAYERS, pointGroup, pointSourceId } from "@/features/map/scene/groups/points";
 import { PRIMARY_ATTRIBUTE_LABELS } from "@/components/Map/primaryAttributes";
 import { AREA_SOURCE_ID } from "@/features/map/scene/groups/areaRasters";
 import { ROAD_LINE_SOURCE_ID } from "@/features/map/scene/groups/roadLines";
@@ -130,12 +130,12 @@ const POINT_GROUP_ID_PREFIX = pointGroup.idPrefix;
 
 /** 押された点のレイヤーidから、その点の宣言を引く。idは役割から決まるので写しではない。 */
 const POINT_LAYER_BY_SCENE_ID = new Map(
-  POINT_LAYERS.map((layer) => [sceneLayerId(POINT_GROUP_ID_PREFIX, layer.role), layer]),
+  POINT_LAYERS.map((layer) => [sceneLayerId(POINT_GROUP_ID_PREFIX, layer.attr_id), layer]),
 );
 
 /** 分類値→表示名。凡例と同じ宣言から引く。 */
 function pointValueLabels(layer: (typeof POINT_LAYERS)[number]): Record<string, string> {
-  const axis = layer.axes[0];
+  const axis = layer.display_axes[0];
   if (axis === undefined) return {};
   return Object.fromEntries(
     axis.categories.flatMap((category) => category.values.map((value) => [String(value), category.label])),
@@ -419,8 +419,8 @@ const TILE_SOURCE_BY_DATA_SOURCE: Record<
   { sourceId: string; sourceLayer?: string }
 > = {
   roadTiles: { sourceId: ROAD_LINE_SOURCE_ID, sourceLayer: ROAD_TILE_SOURCE_LAYER },
-  accidentTiles: { sourceId: POINT_SOURCE_ID.accident, sourceLayer: ACCIDENT_TILE_SOURCE_LAYER },
-  poiTiles: { sourceId: POINT_SOURCE_ID.poi, sourceLayer: STOP_POI_SOURCE_LAYER },
+  accidentTiles: { sourceId: pointSourceId("accident"), sourceLayer: ACCIDENT_TILE_SOURCE_LAYER },
+  poiTiles: { sourceId: pointSourceId("poi"), sourceLayer: STOP_POI_SOURCE_LAYER },
   gsiRelief: { sourceId: AREA_SOURCE_ID.elevation },
   gsiTerrain: { sourceId: AREA_SOURCE_ID.hillshade },
   landcoverRaster: { sourceId: AREA_SOURCE_ID.landcover },
@@ -1530,10 +1530,10 @@ export default function MapView({
       const html =
         point === undefined
           ? null
-          : point.role === "accident_point"
+          : point.attr_id === "accident_point"
             ? buildAccidentPopupHtml(feature.properties as unknown as AccidentPopupProperties)
             : buildPoiPopupHtml(
-                PRIMARY_ATTRIBUTE_LABELS[point.role] ?? point.role,
+                PRIMARY_ATTRIBUTE_LABELS[point.attr_id] ?? point.attr_id,
                 pointValueLabels(point),
                 feature.properties as unknown as PoiPopupProperties,
               );

@@ -20,10 +20,10 @@ import { WIND_CALM_THRESHOLD_MS, WIND_SPEED_COLOR_STOPS } from "@/components/Map
 import jmaTileConfig from "@/types/generated/jma-tile-config.json";
 
 import { declareGroup, type SceneLayerEntry, type SceneSourceEntry } from "../mapSceneGroups";
+import { AREA_OPACITY } from "./areaRasters";
 import { zoomScaleExpression } from "../sceneBuilders";
 
-/** 面の濃さ。道路の線が透けて読める程度に留める。 */
-const AREA_OPACITY = 0.55;
+
 
 /** 記号の縁取り。背景の明暗に関わらず記号の形が読めるようにする。**主層と同じレイヤーの
  * paintで出す**——別レイヤーにすると、同じ位置に2枚並ぶぶん衝突判定で縁取りが全部落ちる。 */

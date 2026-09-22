@@ -15,6 +15,19 @@
   },
   "road_tile_min_zoom": 12,
   "road_tile_max_zoom": 15,
+  "gsi": {
+    "relief": {
+      "tile_url": "/api/gsi-relief-tile/xyz/relief/{z}/{x}/{y}.png",
+      "max_zoom": 15,
+      "attribution": "<a href=\"https://maps.gsi.go.jp/development/ichiran.html\" target=\"_blank\" rel=\"noreferrer\">地理院タイル(色別標高図)</a>"
+    },
+    "terrain": {
+      "tile_url": "/api/gsi-terrain-tile/{z}/{x}/{y}.png",
+      "max_zoom": 14,
+      "rgb_unit_m": 0.1,
+      "rgb_base_m": -10000.0
+    }
+  },
   "landcover": {
     "tile_version": "1-e30a2b1df328",
     "min_zoom": 6,

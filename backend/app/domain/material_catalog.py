@@ -30,7 +30,7 @@ from typing import Literal
 
 from pydantic import ConfigDict
 
-from app.domain.registry import PrimaryAttributeSpec
+from app.domain.registry import DisplayAxisSpec, DisplayCategorySpec, PrimaryAttributeSpec
 
 from app.domain.material_sql import (
     BICYCLE_NORMALIZED_SQL,
@@ -375,21 +375,210 @@ _SMOOTHNESS_VALUE_LABELS: dict[str, str] = {
 #: 材料を1つも持たない属性（どの軸からも参照されず評価に効かない）も同じ表に並ぶ——
 #: 材料を持つかどうかは材料カタログを引けば分かるため、表を分けない。
 PRIMARY_ATTRIBUTES: tuple[PrimaryAttributeSpec, ...] = (
-    PrimaryAttributeSpec(attr_id="highway", label="道路の種類", geometry="line"),
+    PrimaryAttributeSpec(
+        attr_id="highway",
+        tile_kind="road_surface",
+        label="道路の種類",
+        geometry="line",
+        # 順序のある分類なので、色相ではなく濃淡で幹線→細街路を表す。
+        display_axes=(
+            DisplayAxisSpec(
+                key="highway",
+                property="highway",
+                palette="ordered",
+                categories=(
+                    DisplayCategorySpec(
+                        key="arterial",
+                        label="幹線道路",
+                        values=("motorway", "motorway_link", "trunk", "trunk_link", "primary", "primary_link"),
+                    ),
+                    DisplayCategorySpec(
+                        key="secondary",
+                        label="主要道",
+                        values=("secondary", "secondary_link", "tertiary", "tertiary_link"),
+                    ),
+                    DisplayCategorySpec(
+                        key="local",
+                        label="生活道路",
+                        values=("residential", "unclassified", "living_street", "service", "road"),
+                    ),
+                    DisplayCategorySpec(
+                        key="cycleway",
+                        label="自転車・歩行者道",
+                        values=("cycleway", "path", "footway", "pedestrian", "bridleway", "steps"),
+                    ),
+                    # 自転車・歩行者道と濃淡が近く見分けが付かないため、未舗装路のイメージが
+                    # 重なる土の色を流用する（別のトラックへ分かれるので画面上で競合しない）。
+                    DisplayCategorySpec(key="track", label="農道・林道", values=("track",)),
+                ),
+            ),
+        ),
+    ),
     PrimaryAttributeSpec(attr_id="lanes", label="車線数", geometry="line"),
     PrimaryAttributeSpec(attr_id="maxspeed", label="制限速度", geometry="line"),
     PrimaryAttributeSpec(attr_id="cycleway", label="自転車インフラ", geometry="line"),
-    PrimaryAttributeSpec(attr_id="surface", label="路面の種類", geometry="line"),
+    PrimaryAttributeSpec(
+        attr_id="surface",
+        tile_kind="road_surface",
+        label="路面の種類",
+        geometry="line",
+        # 網羅ではなく「走りやすさの違いが出る単位」へ束ねる。値が一覧に無いのは
+        # 見落としではなく、束ねないと決めた結果である。
+        display_axes=(
+            DisplayAxisSpec(
+                key="surface",
+                property="surface",
+                palette="nominal",
+                categories=(
+                    DisplayCategorySpec(
+                        key="asphalt", color_slot=0, label="アスファルト",
+                        values=("asphalt", "paved", "chipseal"),
+                    ),
+                    DisplayCategorySpec(
+                        key="concrete", color_slot=1, label="コンクリート",
+                        values=("concrete", "concrete:plates", "concrete:lanes"),
+                    ),
+                    # 正準分類で良い側（paving_stones・bricks）と悪い側（sett・cobblestone等）が
+                    # 混じる唯一の行。材質として同類なので良否で割らず、色も良し悪しを示さない。
+                    DisplayCategorySpec(
+                        key="stones", color_slot=2, label="石畳・敷石",
+                        values=("paving_stones", "sett", "cobblestone", "unhewn_cobblestone", "bricks"),
+                    ),
+                    DisplayCategorySpec(
+                        key="gravel", color_slot=3, label="砂利・締固め",
+                        values=("gravel", "fine_gravel", "compacted", "pebblestone", "rock"),
+                    ),
+                    DisplayCategorySpec(
+                        key="dirt", color_slot=4, label="土・草・砂",
+                        values=("unpaved", "dirt", "ground", "earth", "mud", "sand", "grass", "woodchips"),
+                    ),
+                ),
+            ),
+        ),
+    ),
     PrimaryAttributeSpec(attr_id="motor_vehicle_access", label="自動車通行可否", geometry="line"),
     PrimaryAttributeSpec(attr_id="lit", label="街灯", geometry="line"),
-    PrimaryAttributeSpec(attr_id="tunnel", label="トンネル", geometry="line"),
-    PrimaryAttributeSpec(attr_id="oneway", label="一方通行", geometry="line"),
+    PrimaryAttributeSpec(
+        attr_id="tunnel",
+        tile_kind="road_surface",
+        label="トンネル",
+        geometry="line",
+        display_axes=(
+            DisplayAxisSpec(
+                key="tunnel",
+                property="tunnel",
+                palette="nominal",
+                categories=(DisplayCategorySpec(key="tunnel", color_slot=5, label="トンネル", values=(True,)),),
+            ),
+        ),
+    ),
+    PrimaryAttributeSpec(
+        attr_id="oneway",
+        tile_kind="road_surface",
+        label="一方通行",
+        geometry="line",
+        display_axes=(
+            DisplayAxisSpec(
+                key="oneway",
+                property="oneway",
+                palette="nominal",
+                categories=(DisplayCategorySpec(key="oneway", color_slot=6, label="一方通行", values=(True,)),),
+            ),
+        ),
+    ),
     PrimaryAttributeSpec(attr_id="elevation", label="標高", geometry="area"),
-    PrimaryAttributeSpec(attr_id="stop_poi", label="停止要因", geometry="point"),
-    PrimaryAttributeSpec(attr_id="accident_point", label="事故地点", geometry="point"),
+    PrimaryAttributeSpec(
+        attr_id="stop_poi",
+        tile_kind="poi",
+        label="停止要因",
+        geometry="point",
+        # 種別は評価へ効く（停止密度の材料になる）が、種別ごとの重みは軸定義が持ち運用で
+        # 入れ替わるため、順序を表す評価配色は使わず色相で分ける。
+        display_axes=(
+            DisplayAxisSpec(
+                key="kind",
+                property="kind",
+                palette="nominal",
+                categories=(
+                    DisplayCategorySpec(key="traffic_signals", color_slot=7, label="信号", values=("traffic_signals",)),
+                    DisplayCategorySpec(key="crossing", color_slot=8, label="横断歩道", values=("crossing",)),
+                    DisplayCategorySpec(key="stop", color_slot=9, label="一時停止", values=("stop",)),
+                    DisplayCategorySpec(key="give_way", color_slot=10, label="徐行", values=("give_way",)),
+                    # 車道用と歩道・自転車道用の踏切は、利用者から見れば同じ「線路を渡る点」。
+                    DisplayCategorySpec(
+                        key="level_crossing", color_slot=11, label="踏切",
+                        values=("level_crossing", "railway_crossing"),
+                    ),
+                    DisplayCategorySpec(key="barrier", color_slot=12, label="車止め・ゲート", values=("barrier",)),
+                    DisplayCategorySpec(
+                        key="traffic_calming", color_slot=13, label="ハンプ・狭さく", values=("traffic_calming",)
+                    ),
+                ),
+            ),
+        ),
+    ),
+    PrimaryAttributeSpec(
+        attr_id="accident_point",
+        tile_kind="accident",
+        label="事故地点",
+        geometry="point",
+        # 1つの点に2つの見方がある。色は先頭の軸（当事者）が決め、重大度は大きさで示す
+        # ——重大度を色でも表すと当事者の色と取り合う。
+        display_axes=(
+            DisplayAxisSpec(
+                key="party",
+                label="当事者",
+                property="involves_bicycle",
+                palette="nominal",
+                categories=(
+                    # 自転車関連だけが事故密度の材料になる（寄与しない側は中立色のまま）。
+                    DisplayCategorySpec(key="bicycle", color_slot=20, label="自転車関連", values=(True,)),
+                    DisplayCategorySpec(key="other", color_slot=21, label="その他", values=(False,)),
+                ),
+            ),
+            DisplayAxisSpec(
+                key="severity",
+                label="重大度",
+                property="fatal",
+                palette="nominal",
+                categories=(
+                    DisplayCategorySpec(key="fatal", color_slot=22, label="死亡事故", values=(True,)),
+                    DisplayCategorySpec(key="non_fatal", color_slot=23, label="死亡以外", values=(False,)),
+                ),
+            ),
+        ),
+    ),
     PrimaryAttributeSpec(attr_id="intersection", label="交差点", geometry="point"),
     PrimaryAttributeSpec(attr_id="landcover", label="土地被覆", geometry="area"),
-    PrimaryAttributeSpec(attr_id="supply_poi", label="補給・休憩ポイント", geometry="point"),
+    PrimaryAttributeSpec(
+        attr_id="supply_poi",
+        tile_kind="poi",
+        label="補給・休憩ポイント",
+        geometry="point",
+        display_axes=(
+            DisplayAxisSpec(
+                key="kind",
+                property="kind",
+                palette="nominal",
+                categories=(
+                    DisplayCategorySpec(key="convenience", color_slot=14, label="コンビニ", values=("convenience",)),
+                    # 自販機は「ここで飲み物が買える」という約束として読まれる。中身が
+                    # 分からないものを同じ確からしさに見せない。
+                    DisplayCategorySpec(
+                        key="vending_drinks", color_slot=15, label="飲料自販機", values=("vending_drinks",)
+                    ),
+                    DisplayCategorySpec(
+                        key="vending_unknown", color_slot=16, label="自販機(中身不明)", values=("vending_unknown",)
+                    ),
+                    DisplayCategorySpec(key="toilets", color_slot=17, label="トイレ", values=("toilets",)),
+                    DisplayCategorySpec(key="drinking_water", color_slot=18, label="給水", values=("drinking_water",)),
+                    DisplayCategorySpec(
+                        key="bicycle_parking", color_slot=19, label="駐輪場", values=("bicycle_parking",)
+                    ),
+                ),
+            ),
+        ),
+    ),
 )
 
 

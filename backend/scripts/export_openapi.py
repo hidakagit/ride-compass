@@ -43,6 +43,15 @@ from app.infrastructure.vector_tile import (  # noqa: E402
 from app.main import app  # noqa: E402
 from app.domain.wind import ASSUMED_SPEED_KMH, MAX_ASSUMED_SPEED_KMH, MIN_ASSUMED_SPEED_KMH  # noqa: E402
 from app.domain.hard_filters import DEFAULT_HARD_FILTERS, HARD_FILTER_NAMES  # noqa: E402
+from app.domain.display_palette import nominal_color, ordered_colors  # noqa: E402
+from app.domain.gsi_tiles import (  # noqa: E402
+    RELIEF_ATTRIBUTION,
+    RELIEF_MAX_ZOOM,
+    RELIEF_TILE_URL,
+    TERRAIN_MAX_ZOOM,
+    TERRAIN_TILE_URL,
+)
+from app.domain.terrain_rgb import TERRAIN_RGB_BASE_M, TERRAIN_RGB_UNIT_M  # noqa: E402
 from app.domain.landcover import (  # noqa: E402
     LANDCOVER_CLASSES,
     LANDCOVER_TILE_MAX_ZOOM,
@@ -140,6 +149,24 @@ def main() -> None:
             # backendだけ広げてもfrontendが要求せずレイヤーが黙って消える。
             "road_tile_min_zoom": ROAD_TILE_MIN_ZOOM,
             "road_tile_max_zoom": ROAD_TILE_MAX_ZOOM,
+            # 国土地理院タイル（色別標高図・標高）。配信元が実データを持つ範囲・画面が
+            # 要求するURL・出典表記・標高の読み戻し係数は、すべてbackendが正本を持つ
+            # （domain/gsi_tiles.py・domain/terrain_rgb.py）。**画面はこれを写さない**。
+            "gsi": {
+                "relief": {
+                    "tile_url": RELIEF_TILE_URL,
+                    "max_zoom": RELIEF_MAX_ZOOM,
+                    "attribution": RELIEF_ATTRIBUTION,
+                },
+                "terrain": {
+                    "tile_url": TERRAIN_TILE_URL,
+                    "max_zoom": TERRAIN_MAX_ZOOM,
+                    # 標高(m) = base + (R*65536 + G*256 + B) * unit。画面は係数を持たず、
+                    # この2つから組み立てる。
+                    "rgb_unit_m": TERRAIN_RGB_UNIT_M,
+                    "rgb_base_m": TERRAIN_RGB_BASE_M,
+                },
+            },
             # 土地被覆ラスタタイル。ズーム範囲は元データの分解能と読み取り量から
             # backendが決める（domain/landcover.py）。
             "landcover": {
@@ -204,8 +231,42 @@ def main() -> None:
         # （`domain/registry.py`）だけから決まり、DBを読まない。各軸の
         # `primary_attribute_ids`は実行時の`GET /api/axis-catalog`が配るため、フロントは
         # この一覧のlabel（正式名）と突き合わせて1次↔2次の双方向導出ができる。
+        # `display_axes`は地図に出す束ね方・行の名前・色。**画面はこれを塗るだけで、
+        # 分類も名前も色も持たない**（評価軸の色と段をaxis-catalogが配るのと同じ形）。
         [
-            {"attr_id": attr.attr_id, "label": attr.label, "geometry": attr.geometry}
+            {
+                "attr_id": attr.attr_id,
+                "label": attr.label,
+                "geometry": attr.geometry,
+                "tile_kind": attr.tile_kind,
+                "display_axes": [
+                    {
+                        "key": axis.key,
+                        "label": axis.label,
+                        "property": axis.property,
+                        # 色は宣言せず、パレットと行数から作る（domain/display_palette.py）。
+                        # 画面は受け取った色で塗るだけで、色の決まりを持たない。
+                        "categories": [
+                            {
+                                "key": category.key,
+                                "label": category.label,
+                                "color": color,
+                                "values": list(category.values),
+                            }
+                            for category, color in zip(
+                                axis.categories,
+                                (
+                                    ordered_colors(len(axis.categories))
+                                    if axis.palette == "ordered"
+                                    else [nominal_color(c.color_slot or 0) for c in axis.categories]
+                                ),
+                                strict=True,
+                            )
+                        ],
+                    }
+                    for axis in attr.display_axes
+                ],
+            }
             for attr in all_primary_attributes()
         ],
     )

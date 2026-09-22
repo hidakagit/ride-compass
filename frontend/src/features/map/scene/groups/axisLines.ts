@@ -10,22 +10,25 @@ import type { FilterSpecification } from "maplibre-gl";
 
 import type { MapSceneFeatureStates, MapSceneFeatureStateValue } from "../mapScene";
 import { declareGroup, type SceneLayerEntry, type SceneSourceEntry } from "../mapSceneGroups";
-import { ROAD_LINE_SOURCE_ID } from "./roadLines";
+import { COLOR_UNKNOWN } from "@/components/Map/axisLayers";
+import { LEGEND_NO_DATA_KEY } from "@/components/Map/mapColorLegend";
 
-const LINE_WIDTH_PX = 3;
-/** 材料が同時に出ているときの下敷き。太く半透明にして、材料の線を上に読ませる。 */
-const UNDERLAY_WIDTH_PX = 9;
-const UNDERLAY_OPACITY = 0.35;
-const KNOWN_OPACITY = 0.9;
-/** 値を受け取れなかった道。薄くしないと、値のある道がそこへ埋もれる。 */
-const UNKNOWN_OPACITY = 0.35;
-const NO_VALUE_COLOR = "#94a3b8";
+import {
+  KNOWN_LINE_OPACITY,
+  LINE_WIDTH_PX,
+  ROAD_LINE_SOURCE_ID,
+  TRACK_OFFSET_STEP_PX,
+  UNKNOWN_LINE_OPACITY,
+  ROAD_TRACKS,
+} from "./roadLines";
+
+/** 材料が同時に出ているときの下敷き。**材料の線が全部出たときの帯幅**から決まるので、
+ * トラックが増えれば自動で広がる（直書きすると追従しない）。 */
+const UNDERLAY_WIDTH_PX = (ROAD_TRACKS.length - 1) * TRACK_OFFSET_STEP_PX + LINE_WIDTH_PX;
+const UNDERLAY_OPACITY = UNKNOWN_LINE_OPACITY;
 /** まだ値が来ていない間の色。**隠す指定があっても残す**——「まだ来ていない」と
  * 「隠した」が区別できなくなるため。 */
 const LOADING_COLOR = "#cbd5e1";
-
-/** 値を持たない道を受け持つ段の鍵。境界を持たないので、段の一覧には現れない。 */
-export const NO_VALUE_BAND_KEY = "nodata";
 
 /** 段1つぶん。境界は下限で、判定は`>= 下限`・`< 次の下限`。 */
 export type AxisBand = {
@@ -74,7 +77,7 @@ function colorExpression(axisId: string, axis: AxisLineState["axes"][number]): u
     const color = hidden && axis.value.kind === "delivered" ? "rgba(0,0,0,0)" : band.color;
     cases.push([">=", value, band.lowerBound], color);
   }
-  return ["case", ["==", value, null], loading ? LOADING_COLOR : NO_VALUE_COLOR, ...cases.flat(), NO_VALUE_COLOR];
+  return ["case", ["==", value, null], loading ? LOADING_COLOR : COLOR_UNKNOWN, ...cases.flat(), COLOR_UNKNOWN];
 }
 
 /** 絞り込みから読める値のときだけ、隠した段を落とす。 */
@@ -85,7 +88,7 @@ function bandFilter(axis: AxisLineState["axes"][number], axisId: string): Filter
   const clauses: unknown[] = hidden.map((band) => ["!", [">=", value, band.lowerBound]]);
   // 値を持たない道は、段を隠しただけでは落ちない（大小比較が成り立たないため）。
   // 「値なし」の段を隠したときだけ落とす。
-  if (axis.hiddenBandKeys.includes(NO_VALUE_BAND_KEY)) clauses.push(["!=", value, null]);
+  if (axis.hiddenBandKeys.includes(LEGEND_NO_DATA_KEY)) clauses.push(["!=", value, null]);
   if (clauses.length === 0) return undefined;
   return ["all", ...clauses] as unknown as FilterSpecification;
 }
@@ -120,8 +123,8 @@ export const axisLineGroup = declareGroup<AxisLineState>("axis", (state) => {
       "line-opacity": axis.underlay
         ? UNDERLAY_OPACITY
         : axis.value.kind === "delivered" && axis.value.loading
-          ? KNOWN_OPACITY
-          : ["case", ["==", valueExpression(axis.axisId, axis.value), null], UNKNOWN_OPACITY, KNOWN_OPACITY],
+          ? KNOWN_LINE_OPACITY
+          : ["case", ["==", valueExpression(axis.axisId, axis.value), null], UNKNOWN_LINE_OPACITY, KNOWN_LINE_OPACITY],
     },
     visible: axis.visible,
     ...(bandFilter(axis, axis.axisId) === undefined ? {} : { filter: bandFilter(axis, axis.axisId) }),

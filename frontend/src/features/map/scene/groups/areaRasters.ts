@@ -8,23 +8,23 @@ import { declareGroup, type SceneLayerEntry, type SceneSourceEntry } from "../ma
 
 /** 面の濃さ。**動かす前に`docs/modules/frontend/static-map-layers.md`「面の濃さ」を読む**
  * ——下限・上限の両方に根拠がある。 */
-const AREA_OPACITY = 0.55;
+export const AREA_OPACITY = 0.55;
 
 /** 土地被覆タイルが実データを持つ範囲（正本は配信側。生成物から受け取る）。 */
 const LANDCOVER_ZOOM = { min: regionTileConfig.landcover.min_zoom, max: regionTileConfig.landcover.max_zoom };
 
-const RELIEF_TILE_PATH = "/api/gsi-relief-tile/xyz/relief/{z}/{x}/{y}.png";
-const RELIEF_MAX_ZOOM = 15;
-const RELIEF_ATTRIBUTION =
-  '<a href="https://maps.gsi.go.jp/development/ichiran.html" target="_blank" rel="noreferrer">地理院タイル(色別標高図)</a>';
+/** 国土地理院タイル（配信元が実データを持つ上限・要求するURL・出典表記）。
+ * **正本はbackend**（`domain/gsi_tiles.py`）。ここは受け取るだけで写しを持たない。 */
+const GSI = regionTileConfig.gsi;
 
-const TERRAIN_TILE_PATH = "/api/gsi-terrain-tile/{z}/{x}/{y}.png";
-/** 配信元が実データを持つ上限。これより上はMapLibreが拡大して見せる
- * （正本はbackendの`services/terrain_tile_service.py`）。 */
-const TERRAIN_MAX_ZOOM = 14;
-/** 標高の復元式の係数（正本はbackendの`domain/terrain_rgb.py`）。
- * **タイルの値は実際の標高のまま**で、読み方だけを強調する。 */
-const TERRAIN_RGB = { red: 6553.6, green: 25.6, blue: 0.1, baseShift: 10000 } as const;
+/** 標高(m) = 原点 + (R*65536 + G*256 + B) * 刻み。**係数は詰め方から決まる**ので、
+ * backendが配る刻みと原点だけから組み立てる（係数を直に持つと詰め方の変更で黙ってずれる）。 */
+const TERRAIN_RGB = {
+  red: 256 * 256 * GSI.terrain.rgb_unit_m,
+  green: 256 * GSI.terrain.rgb_unit_m,
+  blue: GSI.terrain.rgb_unit_m,
+  baseShift: -GSI.terrain.rgb_base_m,
+} as const;
 /** 上げるほど緩い斜面が読めるが、上げすぎると急斜面との差が潰れる。 */
 const TERRAIN_EXAGGERATION = 5;
 
@@ -60,8 +60,8 @@ function sourcesFor(state: AreaRasterState): readonly SceneSourceEntry[] {
   return [
     {
       id: AREA_SOURCE_ID.elevation,
-      spec: { type: "raster", tileSize: 256, maxzoom: RELIEF_MAX_ZOOM, attribution: RELIEF_ATTRIBUTION },
-      tiles: [`${state.tileOrigin}${RELIEF_TILE_PATH}`],
+      spec: { type: "raster", tileSize: 256, maxzoom: GSI.relief.max_zoom, attribution: GSI.relief.attribution },
+      tiles: [`${state.tileOrigin}${GSI.relief.tile_url}`],
     },
     {
       id: AREA_SOURCE_ID.landcover,
@@ -73,7 +73,7 @@ function sourcesFor(state: AreaRasterState): readonly SceneSourceEntry[] {
       spec: {
         type: "raster-dem",
         tileSize: 256,
-        maxzoom: TERRAIN_MAX_ZOOM,
+        maxzoom: GSI.terrain.max_zoom,
         // backendが配信元の独自エンコードをTerrain-RGBへ移して返す。係数へ強調倍率を
         // 掛けるためcustomにする。
         encoding: "custom",
@@ -82,7 +82,7 @@ function sourcesFor(state: AreaRasterState): readonly SceneSourceEntry[] {
         blueFactor: TERRAIN_RGB.blue * TERRAIN_EXAGGERATION,
         baseShift: TERRAIN_RGB.baseShift * TERRAIN_EXAGGERATION,
       },
-      tiles: [`${state.tileOrigin}${TERRAIN_TILE_PATH}`],
+      tiles: [`${state.tileOrigin}${GSI.terrain.tile_url}`],
     },
   ];
 }

@@ -133,7 +133,7 @@ describe("状態を地図へ伝えた結果", () => {
         staticLayerVisibility: { surface: true, highway: true },
       } as unknown as State);
 
-      const offsets = ROAD_TRACKS.map((track) => handle.layer(roadLayerId(track.attrId))?.paint["line-offset"]).filter(
+      const offsets = ROAD_TRACKS.map((track) => handle.layer(roadLayerId(track.attr_id))?.paint["line-offset"]).filter(
         (value) => value !== undefined,
       );
       expect(new Set(offsets).size).toBeGreaterThan(1);
@@ -250,8 +250,8 @@ describe("レイヤーを横断する要求", () => {
   /** 出せるものを全部出した状態。チップのidは各グループの宣言から取る。 */
   function everythingVisible(): State {
     const visibility: Record<string, boolean> = {};
-    for (const track of ROAD_TRACKS) visibility[track.attrId] = true;
-    for (const layer of POINT_LAYERS) visibility[layer.role] = true;
+    for (const track of ROAD_TRACKS) visibility[track.attr_id] = true;
+    for (const layer of POINT_LAYERS) visibility[layer.attr_id] = true;
     for (const role of ["elevation", "landcover", "hillshade"]) visibility[role] = true;
     const axisVisibility: Record<string, boolean> = {};
     for (const axis of RAMP_AXES) axisVisibility[`axis:${axis.axisId}`] = true;
