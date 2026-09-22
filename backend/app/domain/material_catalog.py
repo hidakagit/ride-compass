@@ -28,7 +28,7 @@ from dataclasses import dataclass
 
 from typing import Literal
 
-from pydantic import ConfigDict
+from pydantic import ConfigDict, Field
 
 from app.domain.material_sql import (
     BICYCLE_NORMALIZED_SQL,
@@ -131,9 +131,11 @@ class MaterialReferencePoint(StrictModel):
     （design-principles.md構造仕様1、
     frontendはこの一覧をそのまま表示するのみ）。"""
 
-    model_config = ConfigDict(frozen=True)
+    #: 値は有限（`allow_inf_nan=False`）。NaN・infが混ざると軸スタジオの入力欄がその1件で
+    #: 壊れ、空ラベルは並んでいても意味を持たない。
+    model_config = ConfigDict(frozen=True, allow_inf_nan=False)
 
-    label: str
+    label: str = Field(min_length=1)
     value: float
 
 
@@ -146,7 +148,8 @@ class MaterialSpec(StrictModel):
     # フロント側は選択中の材料の隣に情報アイコン(ⓘ)でこの説明文を表示する（AxisComposer.tsx:
     # MaterialInfoButton）。extractor未配線（DEFER）の材料は、選んでも評価軸としては
     # 機能しない旨をここに明記する（配線状況が変わったら追従が必要）。
-    description: str
+    # 空を許すと、軸スタジオのⓘが何も出さない材料を登録できてしまう。
+    description: str = Field(min_length=1)
     dtype: MaterialDType
     # 値の単位（凡例・数値表示用の表記、無次元・真偽値・カテゴリ値は空文字）。地図の凡例が
     # 材料の生値を表示するときの単位の唯一の正（frontendは単位を持たない）。

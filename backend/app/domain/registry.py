@@ -23,7 +23,8 @@ class PrimaryAttributeSpec(StrictModel):
     """
 
     attr_id: str
-    label: str
+    #: 空を許すと、地図チップ・サイドバー・研究タブが名前を引けない属性を登録できてしまう。
+    label: str = Field(min_length=1)
 
 
 class TileInputSpec(StrictModel):

@@ -9,13 +9,10 @@
 `TestAgainstTheRealCatalog`で、そこだけは実際の宣言へ全件の不変条件を当てる。
 """
 
-import math
-
 import pytest
 
 from app.domain import material_catalog
 from app.domain.material_catalog import (
-    MATERIAL_CATALOG,
     CoverageExcluded,
     EdgeMaterialCoverageSpec,
     MaterialSpec,
@@ -193,28 +190,3 @@ class TestLookingUpAnUnknownMaterial:
 
         assert material_dtype("num_a") == "numeric"
         assert material_dtype("no_such_material") is None
-
-
-class TestAgainstTheRealCatalog:
-    """差し替えずに実際の宣言で通す。材料が1つ増えたときに発火する。"""
-
-    def test_every_material_explains_itself(self):
-        """説明文は軸スタジオのⓘが出す唯一の手がかり。型の必須制約は空文字を通すため、
-        記入漏れのまま登録できてしまう。
-        """
-        missing = [m for m, spec in MATERIAL_CATALOG.items() if not spec.description.strip()]
-
-        assert missing == []
-
-    def test_every_reference_point_is_readable_and_finite(self):
-        """参考点は折れ点を編集する人が値域を掴むために出す。NaN・infが混ざると軸スタジオの
-        入力欄がその1件で壊れ、空ラベルは並んでいても意味を持たない。
-        """
-        broken = [
-            (m, point)
-            for m, spec in MATERIAL_CATALOG.items()
-            for point in spec.reference_points
-            if not point.label.strip() or not math.isfinite(point.value)
-        ]
-
-        assert broken == []

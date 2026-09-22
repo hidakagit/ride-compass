@@ -37,7 +37,7 @@ def _spec(material_id: str, dtype: str = "numeric", missing="", **overrides) -> 
     return MaterialSpec(
         material_id=material_id,
         label=material_id,
-        description="",
+        description=f"架空の材料[{material_id}]",
         dtype=dtype,
         coverage=coverage,
         **overrides,

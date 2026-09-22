@@ -146,16 +146,6 @@ class TestAgainstTheRealDeclarations:
         for attr_id in PRIMARY_ATTRIBUTES_WITHOUT_MATERIAL:
             assert attr_id not in pointed, f"{attr_id}は材料が指しているので、材料由来の表へ移す"
 
-    def test_every_attribute_has_a_non_empty_label(self):
-        """labelは地図チップ・サイドバー・研究タブが出す名称の単一ソース。型の必須制約は
-        空文字を通すため、ここで確かめる。
-        """
-        attributes = all_primary_attributes()
-
-        assert attributes
-        for attr in attributes:
-            assert attr.label.strip(), attr.attr_id
-
     def test_every_axis_carries_its_display_label(self):
         axes = all_axes()
 
