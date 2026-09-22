@@ -42,8 +42,8 @@ const SWIPE_CLOSE_THRESHOLD_PX = 60;
 // 「ちょうどいい高さ」はユーザーによって違う（片手操作か両手か、地図をどれだけ見たいか等）
 // ため固定値にせず、ハンドルドラッグ/キー操作で変えられる範囲にする。地図を完全に隠さない
 // よう上限は100vhにしない。
-export const MIN_SHEET_HEIGHT_VH = 20;
-export const MAX_SHEET_HEIGHT_VH = 80;
+const MIN_SHEET_HEIGHT_VH = 20;
+const MAX_SHEET_HEIGHT_VH = 80;
 export const DEFAULT_SHEET_HEIGHT_VH = 50;
 const HEIGHT_KEY_STEP_VH = 5;
 

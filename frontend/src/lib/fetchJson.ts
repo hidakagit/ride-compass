@@ -58,7 +58,7 @@ export interface ApiResponse {
 /** APIがエラー応答を返したときに投げる。リクエストIDは開発者向け（デバッグログ・
  * BackendLogsPanel）の情報で、画面へ出す`message`には含めない——利用者には意味が無く、
  * 文言が長くなるぶん狭い幅のレイアウトを壊す。 */
-export class ApiError extends Error {
+class ApiError extends Error {
   readonly requestId: string | null;
   readonly status: number | null;
 

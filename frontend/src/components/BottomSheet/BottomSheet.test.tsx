@@ -1,6 +1,6 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
-import BottomSheet, { clampSheetHeightVh, MAX_SHEET_HEIGHT_VH, MIN_SHEET_HEIGHT_VH } from "./BottomSheet";
+import BottomSheet, { clampSheetHeightVh } from "./BottomSheet";
 
 function renderSheet(onClose: () => void) {
   return render(
@@ -28,6 +28,11 @@ function renderSheet(onClose: () => void) {
 // 「シート外タップ・スクロール（地図操作）では閉じない」という挙動を検証する
 // （一度シート外タップでも閉じる仕様を試したが、地図を操作しながら凡例を見たいという
 // フィードバックで撤回した経緯があるため、リグレッションを防ぐテストとして残す）。
+/** 上限・下限そのもの。**値を書かずに、丸めの結果として取る**——値を書くと、上限を
+ * 変えたときテストも一緒に動いて「頭打ちになる」ことを誰も見なくなる。 */
+const CEILING_VH = clampSheetHeightVh(Number.MAX_SAFE_INTEGER);
+const FLOOR_VH = clampSheetHeightVh(Number.MIN_SAFE_INTEGER);
+
 describe("BottomSheet", () => {
   it("シート外をpointerdownしても閉じない（地図操作を妨げない）", () => {
     const onClose = vi.fn();
@@ -87,18 +92,27 @@ describe("BottomSheet 高さ調整（改善計画T331）", () => {
       expect(clampSheetHeightVh(50)).toBe(50);
     });
 
-    it("MIN_SHEET_HEIGHT_VHを下回る値はMIN_SHEET_HEIGHT_VHへ切り上げる", () => {
-      expect(clampSheetHeightVh(0)).toBe(MIN_SHEET_HEIGHT_VH);
-      expect(clampSheetHeightVh(-10)).toBe(MIN_SHEET_HEIGHT_VH);
+    // 上限・下限の値は借りない。**張り付くこと**と、**張り付いた値がそのまま通ること**を見る
+    // （借りると、上限を変えたときテストも一緒に動いて頭打ちを誰も見なくなる）。
+    it("下限より小さい値は、どれだけ小さくても同じ高さへ切り上がる", () => {
+      const floor = clampSheetHeightVh(0);
+
+      expect(clampSheetHeightVh(-10)).toBe(floor);
+      expect(clampSheetHeightVh(-1000)).toBe(floor);
+      expect(floor).toBeGreaterThan(0);
     });
 
-    it("MAX_SHEET_HEIGHT_VHを上回る値はMAX_SHEET_HEIGHT_VHへ切り下げる", () => {
-      expect(clampSheetHeightVh(100)).toBe(MAX_SHEET_HEIGHT_VH);
+    it("上限より大きい値は、どれだけ大きくても同じ高さへ切り下がる", () => {
+      const ceiling = clampSheetHeightVh(100);
+
+      expect(clampSheetHeightVh(1000)).toBe(ceiling);
+      expect(ceiling).toBeLessThan(100);
+      expect(ceiling).toBeGreaterThan(clampSheetHeightVh(0));
     });
 
-    it("境界値そのものはそのまま返す", () => {
-      expect(clampSheetHeightVh(MIN_SHEET_HEIGHT_VH)).toBe(MIN_SHEET_HEIGHT_VH);
-      expect(clampSheetHeightVh(MAX_SHEET_HEIGHT_VH)).toBe(MAX_SHEET_HEIGHT_VH);
+    it("切り上げ・切り下げた値そのものはそのまま通る（二重に丸めない）", () => {
+      expect(clampSheetHeightVh(clampSheetHeightVh(0))).toBe(clampSheetHeightVh(0));
+      expect(clampSheetHeightVh(clampSheetHeightVh(100))).toBe(clampSheetHeightVh(100));
     });
   });
 
@@ -145,23 +159,23 @@ describe("BottomSheet 高さ調整（改善計画T331）", () => {
     it("MAX_SHEET_HEIGHT_VH付近でArrowUpを押しても上限を超えない", () => {
       const onHeightChange = vi.fn();
       const onHeightCommit = vi.fn();
-      const handle = renderHandle(MAX_SHEET_HEIGHT_VH - 2, onHeightChange, onHeightCommit);
+      const handle = renderHandle(CEILING_VH - 2, onHeightChange, onHeightCommit);
 
       fireEvent.keyDown(handle, { key: "ArrowUp" });
 
-      expect(onHeightChange).toHaveBeenCalledWith(MAX_SHEET_HEIGHT_VH);
-      expect(onHeightCommit).toHaveBeenCalledWith(MAX_SHEET_HEIGHT_VH);
+      expect(onHeightChange).toHaveBeenCalledWith(CEILING_VH);
+      expect(onHeightCommit).toHaveBeenCalledWith(CEILING_VH);
     });
 
     it("MIN_SHEET_HEIGHT_VH付近でArrowDownを押しても下限を下回らない", () => {
       const onHeightChange = vi.fn();
       const onHeightCommit = vi.fn();
-      const handle = renderHandle(MIN_SHEET_HEIGHT_VH + 2, onHeightChange, onHeightCommit);
+      const handle = renderHandle(FLOOR_VH + 2, onHeightChange, onHeightCommit);
 
       fireEvent.keyDown(handle, { key: "ArrowDown" });
 
-      expect(onHeightChange).toHaveBeenCalledWith(MIN_SHEET_HEIGHT_VH);
-      expect(onHeightCommit).toHaveBeenCalledWith(MIN_SHEET_HEIGHT_VH);
+      expect(onHeightChange).toHaveBeenCalledWith(FLOOR_VH);
+      expect(onHeightCommit).toHaveBeenCalledWith(FLOOR_VH);
     });
 
     it("ArrowUp/ArrowDown以外のキーでは高さを変更しない", () => {
@@ -212,13 +226,13 @@ describe("BottomSheet 高さ調整（改善計画T331）", () => {
       vi.spyOn(window, "innerHeight", "get").mockReturnValue(1000);
       const onHeightChange = vi.fn();
       const onHeightCommit = vi.fn();
-      const handle = renderHandle(MAX_SHEET_HEIGHT_VH - 2, onHeightChange, onHeightCommit);
+      const handle = renderHandle(CEILING_VH - 2, onHeightChange, onHeightCommit);
 
       fireEvent.pointerDown(handle, { pointerId: 1, clientY: 500 });
       // 上方向へ大きく動かす(+50vh相当)が上限でクランプされる
       fireEvent.pointerMove(handle, { pointerId: 1, clientY: 0 });
 
-      expect(onHeightChange).toHaveBeenCalledWith(MAX_SHEET_HEIGHT_VH);
+      expect(onHeightChange).toHaveBeenCalledWith(CEILING_VH);
 
       vi.restoreAllMocks();
     });
@@ -298,7 +312,7 @@ describe("BottomSheet（開いたときに中身の高さへ合わせる）", ()
     window.innerHeight = 812;
     withStubbedMetrics(5000, () => renderWithHeight(onHeightChange));
 
-    expect(onHeightChange).toHaveBeenCalledWith(MAX_SHEET_HEIGHT_VH);
+    expect(onHeightChange).toHaveBeenCalledWith(CEILING_VH);
   });
 
   it("中身が下限より低くても、下限までしか縮めない", () => {
@@ -306,7 +320,7 @@ describe("BottomSheet（開いたときに中身の高さへ合わせる）", ()
     window.innerHeight = 812;
     withStubbedMetrics(60, () => renderWithHeight(onHeightChange));
 
-    expect(onHeightChange).toHaveBeenCalledWith(MIN_SHEET_HEIGHT_VH);
+    expect(onHeightChange).toHaveBeenCalledWith(FLOOR_VH);
   });
 
   // 利用者が自分で高さを決めた後は、中身に合わせた調整をしない（地図を広く見るために

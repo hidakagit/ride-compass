@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { ApiError, fetchJson } from "./fetchJson";
+import { fetchJson } from "./fetchJson";
 import { makeResponse } from "@/testing/fetchMocks";
 
 describe("fetchJson", () => {
@@ -30,11 +30,15 @@ describe("fetchJson", () => {
       errorLabel: "テスト",
     }).catch((e: unknown) => e);
 
-    expect(error).toBeInstanceOf(ApiError);
+    // 受け取る側から見えるのは、投げられたErrorの中身だけ。**クラスを借りない**
+    // ——借りると、投げ方を変えたときテストも一緒に動いて「何が届くか」を誰も見なくなる。
+    const thrown = error as Error & { requestId?: unknown; status?: unknown };
+    expect(thrown).toBeInstanceOf(Error);
+    expect(thrown.name).toBe("ApiError");
     // 画面へ出る文言（message）にはリクエストIDを混ぜない。
-    expect((error as ApiError).message).toBe("エラー詳細");
-    expect((error as ApiError).requestId).toBe("req-123");
-    expect((error as ApiError).status).toBe(500);
+    expect(thrown.message).toBe("エラー詳細");
+    expect(thrown.requestId).toBe("req-123");
+    expect(thrown.status).toBe(500);
   });
 
   it("ok:falseかつdetailが無い場合はerrorLabelから組み立てたフォールバックメッセージになる", async () => {
