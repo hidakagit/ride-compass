@@ -415,11 +415,10 @@ async def _run_generate_job(job_id: str, request: RouteGenerateRequest) -> None:
             )
         job_registry.set_done(job_id, response)
     except Exception:  # noqa: BLE001 バックグラウンドジョブの例外はここで必ず捕捉し記録する
-        # `str(exc)`をそのままjob_registryへ記録しクライアントへ公開しない。`RoutingError`は
-        # PostGIS/内部処理のエラー詳細を例外メッセージに含みうるため、詳細はログ
-        # （logger.exception、トレースバック込み）にのみ残し、クライアントへは汎用
-        # メッセージのみ返す（job_idはクライアントが既にポーリング先として知っているため、
-        # サーバーログとの突き合わせにはrequest_log.pyのリクエストID同様job_idを使える）。
+        # ここは例外の種類を選ばず捕まえるため、DB接続やPostGISの例外もそのまま入る。
+        # それらの`str(exc)`には接続先やSQLが混じるので、詳細はログ（logger.exception、
+        # トレースバック込み）にだけ残し、クライアントへは汎用メッセージを返す。
+        # 突き合わせにはjob_idを使う（クライアントがポーリング先として既に知っている）。
         logger.exception("ルート生成ジョブが失敗 job_id=%s", job_id)
         job_registry.set_failed(job_id, "ルート生成に失敗しました。時間をおいて再度お試しください。")
     finally:

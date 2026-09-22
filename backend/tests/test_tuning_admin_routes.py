@@ -9,7 +9,7 @@ from fastapi.testclient import TestClient
 
 from app.api.dependencies import get_tuning_session
 from app.domain import tuning
-from app.domain.tuning import TUNING_PARAMETERS, TUNING_PARAMETERS_BY_ID
+from app.domain.tuning import TUNING_PARAMETERS_BY_ID
 from app.main import app
 from tests.admin_auth import AUTH_HEADERS
 

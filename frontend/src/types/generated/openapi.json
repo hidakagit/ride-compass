@@ -2702,6 +2702,7 @@
           },
           "label": {
             "type": "string",
+            "minLength": 1,
             "title": "Label"
           },
           "category": {
@@ -4882,6 +4883,7 @@
         "properties": {
           "property": {
             "type": "string",
+            "minLength": 1,
             "title": "Property"
           },
           "weight": {

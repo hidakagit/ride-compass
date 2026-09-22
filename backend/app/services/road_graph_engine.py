@@ -1777,7 +1777,7 @@ class RoadGraphEngine:
         経由地ルート（`bearing`がNone）は訪問順序そのものが要件のため、逆回りを作らない。
         """
         elevation_attributes = self._elevation_attributes(context, edges_in_path)
-        leg_of_edge = traced.leg_of_edge if traced.leg_of_edge is not None else [0] * len(edges_in_path)
+        leg_of_edge = traced.leg_of_edge
         forward_candidate = self._build_candidate(
             context, traced, edges_in_path, elevation_attributes, start_time, leg_of_edge
         )
