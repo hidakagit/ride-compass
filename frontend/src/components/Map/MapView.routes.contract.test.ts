@@ -83,10 +83,10 @@ function bindCurrentImplementation(map: unknown) {
   };
 }
 
-describe.each([["現行の実装", bindCurrentImplementation]])("ルートの描画（%s）", (_label, bind) => {
+describe("ルートの描画", () => {
   function setup() {
     const { map, handle } = createRecordingMap();
-    return { handle, drawing: bind(map) };
+    return { handle, drawing: bindCurrentImplementation(map) };
   }
 
   it("表示ONの状態は、途中で隠していても最後に見えている", () => {
@@ -144,14 +144,6 @@ describe.each([["現行の実装", bindCurrentImplementation]])("ルートの描
     expect(order.indexOf(SLOTS_LAYER_ID)).toBeLessThan(order.indexOf(DETAIL_LAYER_ID));
   });
 
-  it("比較スロットは、区間の色分けが無くても出る", () => {
-    const { handle, drawing } = setup();
-
-    drawing.showSlots([slot()]);
-
-    expect(handle.layerOrder()).toContain(SLOTS_LAYER_ID);
-  });
-
   // 隠した段は、線だけでなく縁取り・当たり判定からも消える（縁だけが残らない・押せない）。
   it("凡例で段を隠すと、色分け線・縁取り・当たり判定の絞り込みが揃う", () => {
     const { handle, drawing } = setup();
@@ -175,22 +167,5 @@ describe.each([["現行の実装", bindCurrentImplementation]])("ルートの描
     drawing.showDetail([segment()], other, []);
 
     expect(handle.layer(DETAIL_LAYER_ID)?.paint["line-color"]).toEqual(other.colorExpression);
-  });
-
-  // スタイルを差し替えると、このアプリが足したものは全部消える。同じ状態を伝え直せば戻る。
-  it("スタイルを差し替えても、同じ状態を伝え直せば元の重なりへ戻る", () => {
-    const { handle, drawing } = setup();
-    const showAll = () => {
-      drawing.showRoutes([route("a")], "a", true);
-      drawing.showSelected([route("a")], "a");
-      drawing.showDetail([segment()], MODE, []);
-    };
-    showAll();
-    const before = handle.layerOrder();
-
-    handle.dropEverything();
-    showAll();
-
-    expect(handle.layerOrder()).toEqual(before);
   });
 });

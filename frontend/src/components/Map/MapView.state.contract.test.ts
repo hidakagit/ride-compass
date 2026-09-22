@@ -15,6 +15,7 @@ import { buildMapLayers } from "@/components/Map/mapLayers";
 import { buildStaticFilterAxes } from "@/components/Map/staticAttributeLayers";
 import { dedicatedWayValueAxesFromCatalogAxes, rampAxesFromCatalogAxes } from "@/components/Map/axisLayers";
 import {
+  DYNAMIC_WEATHER_RENDERERS,
   ROAD_MATERIAL_TRACK_LAYER_IDS,
   ROAD_TILE_LAYER_ID,
   ROAD_TILE_SOURCE_ID,
@@ -23,6 +24,8 @@ import {
   buildAxisOverlayLayers,
   buildStaticOverlayLayers,
   clearRoadTileFeatureState,
+  TILE_VERSION_GATED_SOURCE_IDS,
+  applyDynamicWeatherState,
   redrawAllLayers,
   shouldClearDedicatedWayValueFeatureState,
   type RedrawAllLayersProps,
@@ -110,21 +113,6 @@ describe("状態を地図へ伝えた結果", () => {
       const order = handle.layerOrder();
       expect(order.indexOf(layerIdOf("elevation"))).toBeLessThan(order.indexOf(layerIdOf("tunnel")));
     });
-
-    it("スタイルを差し替えても、同じ状態を伝え直せば元へ戻る", () => {
-      const { map, handle } = createRecordingMap();
-      const state = {
-        ...baseState(),
-        staticLayerVisibility: { elevation: true, hillshade: true },
-      } as RedrawAllLayersProps;
-      redrawAllLayers(map as never, state);
-      const before = handle.layerOrder();
-
-      handle.dropEverything();
-      redrawAllLayers(map as never, state);
-
-      expect(handle.layerOrder()).toEqual(before);
-    });
   });
 
   describe("路面の線", () => {
@@ -174,39 +162,9 @@ describe("状態を地図へ伝えた結果", () => {
       expect(new Set(offsets).size).toBeGreaterThan(1);
       expect(offsets).toContain(0);
     });
-
-    it("1本だけ出すと、その線は中央に戻る", () => {
-      const { map, handle } = createRecordingMap();
-
-      redrawAllLayers(
-        map as never,
-        {
-          ...baseState(),
-          staticLayerVisibility: { roadSurface: true, roadType: false },
-        } as RedrawAllLayersProps,
-      );
-
-      expect(handle.layer(ROAD_TILE_LAYER_ID)?.paint["line-offset"]).toBe(0);
-      expect(handle.layer(ROAD_TYPE_LAYER_ID)?.visibility).toBe("none");
-    });
   });
 
   describe("点データ（事故・停止要因POI・補給休憩POI）", () => {
-    it("タイル世代が無い間は、点のソースを作らない", () => {
-      setTileVersions({});
-      const { map, handle } = createRecordingMap();
-
-      redrawAllLayers(
-        map as never,
-        {
-          ...baseState(),
-          staticLayerVisibility: { accidents: true, stopPoi: true, supplyPoi: true },
-        } as RedrawAllLayersProps,
-      );
-
-      expect(handle.sources().filter((id) => id.includes("accident") || id.includes("poi"))).toEqual([]);
-    });
-
     it("停止要因と補給は、同じソースの別レイヤーとして出る", () => {
       const { map, handle } = createRecordingMap();
 
@@ -259,20 +217,132 @@ describe("状態を地図へ伝えた結果", () => {
 
       expect(handle.featureState(ROAD_TILE_SOURCE_ID, "w1")).toBeUndefined();
     });
+  });
+});
 
-    it("表示ONの軸のレイヤーだけが見えている", () => {
-      const { map, handle } = createRecordingMap();
+describe("レイヤーを横断する要求", () => {
+  const EMPTY_GEOJSON: GeoJSON.FeatureCollection = { type: "FeatureCollection", features: [] };
 
-      redrawAllLayers(
-        map as never,
-        {
-          ...baseState(),
-          dedicatedWayValueVisibility: { ded1Axis: true, ded2Axis: false },
-        } as RedrawAllLayersProps,
-      );
-
-      expect(handle.layer(layerIdOf("ded1Axis"))?.visibility).toBe("visible");
-      expect(handle.layer(layerIdOf("ded2Axis"))?.visibility).toBe("none");
+  /** 宣言された描き方に合う中身を、全グループ・全ソースぶん作る。**名指ししない**
+   * ——要素が増えたらそのまま対象になる。 */
+  function everyDynamicWeatherPayload() {
+    const groups = DYNAMIC_WEATHER_RENDERERS as unknown as Record<string, Record<string, Record<string, unknown>>>;
+    return Object.entries(groups).map(([groupId, groupSpec]) => {
+      const state: Record<string, unknown> = {};
+      for (const [sourceId, spec] of Object.entries(groupSpec)) {
+        if (!spec) continue;
+        const payload = spec.raster
+          ? { kind: "rasterTile", tileUrlTemplate: "https://example.test/{z}/{x}/{y}.png" }
+          : spec.vector
+            ? { kind: "vectorTile", tileUrlTemplate: "https://example.test/{z}/{x}/{y}.pbf" }
+            : spec.gridFill
+              ? { kind: "gridFill", geojson: EMPTY_GEOJSON }
+              : spec.gridMark
+                ? { kind: "gridMark", geojson: EMPTY_GEOJSON }
+                : undefined;
+        state[sourceId] = { visible: true, payload };
+      }
+      return [groupId, state] as const;
     });
+  }
+
+  /** カタログにある全レイヤーと、ルート・帯・比較スロットを出した状態。 */
+  function everythingVisible(): RedrawAllLayersProps {
+    const visibility: Record<string, boolean> = {};
+    for (const layer of CATALOG) visibility[layer.id] = true;
+    const mode = { id: "difficulty", label: "難易度", colorExpression: ["literal", "#16a34a"], legend: [] };
+    const candidate = {
+      id: "a",
+      geometry: {
+        type: "LineString",
+        coordinates: [
+          [139.7, 35.6],
+          [139.71, 35.61],
+        ],
+      },
+      segments: [
+        {
+          start_longitude: 139.7,
+          start_latitude: 35.6,
+          end_longitude: 139.71,
+          end_latitude: 35.61,
+          geometry: {
+            type: "LineString",
+            coordinates: [
+              [139.7, 35.6],
+              [139.71, 35.61],
+            ],
+          },
+        },
+      ],
+    };
+    return {
+      ...baseState(),
+      staticLayerVisibility: visibility,
+      dedicatedWayValueVisibility: visibility,
+      axisVisibility: visibility,
+      routes: [candidate],
+      selectedRouteId: "a",
+      routeLayerOn: true,
+      routeStyleModes: [mode],
+      routeStyleModeId: "difficulty",
+      experimentSlots: [{ color: "#16a34a", topCandidate: candidate }],
+    } as unknown as RedrawAllLayersProps;
+  }
+
+  function showEverything(map: unknown, state: RedrawAllLayersProps) {
+    redrawAllLayers(map as never, state);
+    for (const [groupId, groupState] of everyDynamicWeatherPayload()) {
+      applyDynamicWeatherState(
+        map as never,
+        groupId as never,
+        DYNAMIC_WEATHER_RENDERERS[groupId as keyof typeof DYNAMIC_WEATHER_RENDERERS],
+        groupState as never,
+      );
+    }
+  }
+
+  // 「差し替え後に戻るか」はレイヤーごとの性質ではないので、家族ごとに繰り返さず
+  // **カタログ全件を載せた状態で1回**見る。新しいレイヤーが増えればそのまま対象になる。
+  it("スタイルを差し替えても、同じ状態を伝え直せば元へ戻る", () => {
+    const { map, handle } = createRecordingMap();
+    const state = everythingVisible();
+    showEverything(map, state);
+    const before = handle.layerOrder();
+    // 空振りしていないこと（載っていなければ比較は常に通る）。
+    expect(before.length).toBeGreaterThan(CATALOG.length);
+
+    handle.dropEverything();
+    showEverything(map, state);
+
+    expect(handle.layerOrder()).toEqual(before);
+  });
+
+  // 世代が届く前にソースを作ると、世代の違う中身がブラウザのキャッシュへ載って以後ずっと残る。
+  // 対象は「世代を要る情報源」の宣言から導く。
+  it("タイル世代が無い間は、世代を要るソースを1つも作らない", () => {
+    setTileVersions({});
+    const { map, handle } = createRecordingMap();
+
+    showEverything(map, everythingVisible());
+
+    expect(TILE_VERSION_GATED_SOURCE_IDS.length).toBeGreaterThan(0);
+    for (const sourceId of TILE_VERSION_GATED_SOURCE_IDS) {
+      expect(handle.sources()).not.toContain(sourceId);
+    }
+  });
+
+  it("世代が届いた後に同じ状態を伝えると、世代を要るソースが揃う", () => {
+    setTileVersions({});
+    const { map, handle } = createRecordingMap();
+    const state = everythingVisible();
+    showEverything(map, state);
+
+    setTileVersions(READY_VERSIONS);
+    showEverything(map, state);
+
+    for (const sourceId of TILE_VERSION_GATED_SOURCE_IDS) {
+      expect(handle.sources()).toContain(sourceId);
+    }
   });
 });

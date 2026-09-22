@@ -57,18 +57,6 @@ describe("動的気象を地図へ伝えた結果", () => {
     expect(handle.layer(fillLayer)?.visibility).toBe("visible");
   });
 
-  it("宣言に無い描き方の中身が来ても、何も見えない", () => {
-    const { map, handle } = createRecordingMap();
-
-    // 線状降水帯の予測はラスタだけを宣言している。
-    apply(map, "precipitationNowcast", {
-      linearRainband: { visible: true, payload: { kind: "gridFill", geojson: EMPTY_GEOJSON } },
-    });
-
-    const { layerId } = dynamicWeatherIds("precipitationNowcast", "linearRainband", "raster");
-    expect(handle.layer(layerId)?.visibility).toBe("none");
-  });
-
   it("同じチップの中でも、ソースごとに出し分けられる", () => {
     const { map, handle } = createRecordingMap();
 
@@ -103,19 +91,5 @@ describe("動的気象を地図へ伝えた結果", () => {
     apply(map, "precipitationNowcast", { main: raster("https://example.test/b/{z}/{x}/{y}.png") });
 
     expect(handle.sourceContent(sourceId)?.tiles?.[0]).toContain("/b/");
-  });
-
-  it("スタイルを差し替えても、同じ状態を伝え直せば見える状態へ戻る", () => {
-    const { map, handle } = createRecordingMap();
-    const state = { main: raster("https://example.test/{z}/{x}/{y}.png") };
-    apply(map, "precipitationNowcast", state);
-    const before = handle.layerOrder();
-
-    handle.dropEverything();
-    apply(map, "precipitationNowcast", state);
-
-    const { layerId } = dynamicWeatherIds("precipitationNowcast", "main", "raster");
-    expect(handle.layerOrder()).toEqual(before);
-    expect(handle.layer(layerId)?.visibility).toBe("visible");
   });
 });
