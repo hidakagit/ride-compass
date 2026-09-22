@@ -82,9 +82,7 @@ class TestWhichRuleWins:
         assert await _directions(road_graph_session, tags) == ["forward"]
 
     async def test_a_roundabout_is_one_way_without_saying_so(self, road_graph_session):
-        """環状交差点は構造として一方向にしか通れず、OSMは個々のwayへ`oneway`を付けない慣行が
-        ある。両方向として扱うと、環を逆走する経路を出しうる。
-        """
+        """両方向として扱うと、環を逆走する経路を出しうる。"""
         assert await _directions(road_graph_session, {"junction": "roundabout"}) == ["forward"]
 
     async def test_an_explicit_oneway_beats_the_implied_one(self, road_graph_session):

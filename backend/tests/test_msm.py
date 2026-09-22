@@ -1,7 +1,6 @@
 """`domain/msm.py`——気象庁MSM格子の幾何と補間。
 
-実データの同期・読み出しは`test_msm_freshness.py`・`infrastructure/msm_client.py`側が持つ。
-ここは外部I/Oを持たない純関数だけ。
+実データの同期・読み出しは`test_msm_freshness.py`が持つ。
 """
 
 import numpy as np
@@ -14,10 +13,8 @@ GRID = MsmGrid(lat_min=30.0, lon_min=120.0, d_lat=0.5, d_lon=0.5, n_lat=5, n_lon
 
 
 class TestParseBbox:
-    """配信元メタ情報のWKTから範囲を取り出す。"""
-
     def test_the_values_come_back_in_south_west_north_east_order(self):
-        """**WKTのBBOXは南・西・北・東の順**。緯度経度の組で読むと南北と東西が入れ替わる。"""
+        """緯度経度の組で読むと、南北と東西が入れ替わる。"""
         assert parse_bbox("BBOX[22.4,120.0,47.6,150.0]") == (22.4, 120.0, 47.6, 150.0)
 
     def test_spaces_around_the_values_are_allowed(self):
@@ -36,9 +33,6 @@ class TestParseBbox:
 
 
 class TestGridFromBboxAndShape:
-    """原点と間隔は、配信元のbboxと実データの形状から導く。書き写すと、配信元が格子を
-    変えたときにここだけ古い値が残る。"""
-
     def test_the_origin_is_the_south_west_corner(self):
         grid = MsmGrid.from_bbox_and_shape((30.0, 120.0, 32.0, 124.0), n_lat=5, n_lon=5)
 
@@ -63,7 +57,7 @@ class TestContains:
         assert GRID.contains(np.array([31.0]), np.array([121.0])) is True
 
     def test_the_far_corner_is_still_inside(self):
-        """上端は`lat_min + d_lat*(n-1)`。ここを外すと、格子の端の地点だけ値を引けない。"""
+        """ここを外すと、格子の端の地点だけ値を引けない。"""
         assert GRID.contains(np.array([32.0]), np.array([122.0])) is True
 
     def test_one_point_outside_makes_the_whole_set_outside(self):
@@ -75,10 +69,8 @@ class TestContains:
 
 
 class TestSliceBounds:
-    """補間に要る部分ブロックの範囲。"""
-
     def test_it_takes_one_extra_row_and_column_beyond_the_point(self):
-        """双一次補間は右上側の格子点も参照する。ぴったり切ると端の地点で索引が外れる。"""
+        """ぴったり切ると、端の地点で索引が外れる。"""
         i0, i1, j0, j1 = GRID.slice_bounds(np.array([30.2]), np.array([120.2]))
 
         assert (i0, i1) == (0, 2)
@@ -91,7 +83,6 @@ class TestSliceBounds:
         assert j0 == 0 and j1 >= 4
 
     def test_it_does_not_run_past_the_grid(self):
-        """上端の地点でも、全体の形状を超える索引を返さない。"""
         i0, i1, j0, j1 = GRID.slice_bounds(np.array([32.0]), np.array([122.0]))
 
         assert i1 <= GRID.n_lat
@@ -103,8 +94,6 @@ class TestSliceBounds:
 
 
 class TestInterpolatePoints:
-    """部分ブロックから地点ごとの時系列を双一次補間で取り出す。"""
-
     @staticmethod
     def _block() -> np.ndarray:
         """[緯度, 経度, 時刻]。時刻0は緯度の索引、時刻1は経度の索引をそのまま値にする。"""
@@ -132,7 +121,7 @@ class TestInterpolatePoints:
         assert result.tolist() == [[0.5, 0.0]]
 
     def test_the_block_offset_is_taken_into_account(self):
-        """ブロックは全体格子の途中から切り出される。原点からの索引で引くと範囲外になる。"""
+        """原点からの索引で引くと、範囲外になる。"""
         result = interpolate_points(self._block(), GRID, 2, 2, np.array([31.0]), np.array([121.0]))
 
         assert result.tolist() == [[0.0, 0.0]]
@@ -146,16 +135,14 @@ class TestInterpolatePoints:
 
 
 class TestWindSpeedAndDirection:
-    """東西・南北成分から風速と風向を出す。"""
-
     def test_the_speed_is_the_length_of_the_vector(self):
         speed, _ = wind_speed_and_direction(np.array([3.0]), np.array([4.0]))
 
         assert speed.tolist() == [5.0]
 
     def test_the_direction_is_where_the_wind_comes_from(self):
-        """**吹いてくる方位**（北=0、東=90）。吹いていく方位で返すと、向かい風と追い風が
-        入れ替わる。南向きの成分だけの風は「北から吹いてくる」。
+        """吹いていく方位で返すと、向かい風と追い風が入れ替わる。南向きの成分だけの風は
+        「北から吹いてくる」。
         """
         _, from_north = wind_speed_and_direction(np.array([0.0]), np.array([-1.0]))
         _, from_south = wind_speed_and_direction(np.array([0.0]), np.array([1.0]))

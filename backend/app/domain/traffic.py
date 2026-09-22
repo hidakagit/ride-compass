@@ -219,21 +219,27 @@ ONEWAY_JUNCTION_VALUES = {"roundabout", "circular"}
 # 分類はDB側で行う。派生の入力も出力もDBにあり、タグを読むためだけに行を取り出さない。
 # Pythonのif順で表していた優先順位は`priority`列が持つ（小さいほど先に当たる）。
 
-#: (タグ名, 値, 付ける種別, 優先順位)。停止要因が補給・休憩より先に当たる。
-#: 値は前後の空白を落として小文字にしてから比べる。
-TAG_KIND_RULES: tuple[tuple[str, str, str, int], ...] = (
-    *((("railway"), value, kind, 1) for value, kind in _RAILWAY_STOP_KINDS.items()),
-    *((("highway"), value, kind, 2) for value, kind in _HIGHWAY_STOP_KINDS.items()),
-    *((("barrier"), value, "barrier", 3) for value in sorted(_BARRIER_STOP_VALUES)),
-    *((("traffic_calming"), value, "traffic_calming", 4)
-      for value in sorted(_TRAFFIC_CALMING_VALUES)),
-    ("shop", "convenience", "convenience", 5),
-    *((("amenity"), value, kind, 6) for value, kind in _AMENITY_SUPPLY_KINDS.items()),
+#: 引き当ての順。**先に書いた群が先に当たる**——優先順位はこの並びから振るため、
+#: 「停止要因を補給・休憩より先に当てる」は群を並べ替えない限り破れない。
+_TAG_KIND_GROUPS: tuple[tuple[str, dict[str, str]], ...] = (
+    ("railway", dict(_RAILWAY_STOP_KINDS)),
+    ("highway", dict(_HIGHWAY_STOP_KINDS)),
+    ("barrier", {value: "barrier" for value in sorted(_BARRIER_STOP_VALUES)}),
+    ("traffic_calming", {v: "traffic_calming" for v in sorted(_TRAFFIC_CALMING_VALUES)}),
+    ("shop", {"convenience": "convenience"}),
+    ("amenity", dict(_AMENITY_SUPPLY_KINDS)),
 )
 
-#: 自販機だけは`vending`の値が`;`で連なるため表に落ちない。式で当てる。表のどれよりも
+#: (タグ名, 値, 付ける種別, 優先順位)。値は前後の空白を落として小文字にしてから比べる。
+TAG_KIND_RULES: tuple[tuple[str, str, str, int], ...] = tuple(
+    (tag_key, value, kind, priority)
+    for priority, (tag_key, values) in enumerate(_TAG_KIND_GROUPS, start=1)
+    for value, kind in values.items()
+)
+
+#: 自販機だけは`vending`の値が`;`で連なるため表に落ちない。式で当てる。どの群よりも
 #: 後に見る（`amenity`の表に`vending_machine`は無いので、ここが最後の引き当てになる）。
-_VENDING_PRIORITY = max(priority for *_, priority in TAG_KIND_RULES) + 1
+_VENDING_PRIORITY = len(_TAG_KIND_GROUPS) + 1
 
 #: 信号の判定。**`TAG_KIND_RULES`と違い、値を正規化せずそのまま比べる**——
 #: 現行の判定がそうであり、ここで揃えると付く信号の数が変わる。
@@ -243,16 +249,25 @@ TRAFFIC_SIGNAL_SQL = (
     "     AND position('signals' in coalesce(tags->>'crossing', '')) > 0))"
 )
 
-#: (タグ名, 値, 通行方向, 優先順位)。`oneway:bicycle`は`oneway`より先に当たる
-#: （自転車に限り一方通行規制の対象外、という例外タグのため）。
-DIRECTION_RULES: tuple[tuple[str, str, str, int], ...] = (
-    *((("oneway:bicycle"), value, "forward", 1) for value in sorted(ONEWAY_FORWARD_ONLY)),
-    *((("oneway:bicycle"), value, "backward", 1) for value in sorted(ONEWAY_BACKWARD_ONLY)),
-    *((("oneway:bicycle"), value, "both", 1) for value in sorted(ONEWAY_BIDIRECTIONAL)),
-    *((("oneway"), value, "forward", 2) for value in sorted(ONEWAY_FORWARD_ONLY)),
-    *((("oneway"), value, "backward", 2) for value in sorted(ONEWAY_BACKWARD_ONLY)),
-    *((("oneway"), value, "both", 2) for value in sorted(ONEWAY_BIDIRECTIONAL)),
-    *((("junction"), value, "forward", 3) for value in sorted(ONEWAY_JUNCTION_VALUES)),
+_ONEWAY_DIRECTIONS: dict[str, str] = {
+    **{value: "forward" for value in sorted(ONEWAY_FORWARD_ONLY)},
+    **{value: "backward" for value in sorted(ONEWAY_BACKWARD_ONLY)},
+    **{value: "both" for value in sorted(ONEWAY_BIDIRECTIONAL)},
+}
+
+#: 引き当ての順。`oneway:bicycle`（自転車に限り一方通行規制の対象外、という例外タグ）を
+#: `oneway`より前へ、`junction`からの含意を最後へ置く。
+_DIRECTION_GROUPS: tuple[tuple[str, dict[str, str]], ...] = (
+    ("oneway:bicycle", _ONEWAY_DIRECTIONS),
+    ("oneway", _ONEWAY_DIRECTIONS),
+    ("junction", {value: "forward" for value in sorted(ONEWAY_JUNCTION_VALUES)}),
+)
+
+#: (タグ名, 値, 通行方向, 優先順位)。
+DIRECTION_RULES: tuple[tuple[str, str, str, int], ...] = tuple(
+    (tag_key, value, direction, priority)
+    for priority, (tag_key, values) in enumerate(_DIRECTION_GROUPS, start=1)
+    for value, direction in values.items()
 )
 
 #: どの規則にも当たらない道は両方向。

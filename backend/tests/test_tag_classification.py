@@ -86,9 +86,7 @@ class TestLevelCrossings:
         assert await _kind(road_graph_session, {"railway": "level_crossing"}) == "level_crossing"
 
     async def test_a_tramway_crossing_is_the_same_kind_of_stop(self, road_graph_session):
-        """路面電車の踏切も、自転車にとっては同じ「線路を渡るため止まる/徐行する点」。
-        外すと、併用軌道のある街の停止が数えられない。
-        """
+        """外すと、併用軌道のある街の停止が数えられない。"""
         assert await _kind(road_graph_session, {"railway": "tram_level_crossing"}) == "level_crossing"
 
 
@@ -97,9 +95,7 @@ class TestBarriersAndCalming:
         assert await _kind(road_graph_session, {"barrier": "gate"}) == "barrier"
 
     async def test_a_kerb_is_not_a_stop(self, road_graph_session):
-        """`barrier=kerb`は段差で、lowered/flushが過半のため停止要因としての識別力が無い。
-        拾うと、歩道の縁石の数が停止密度になる。
-        """
+        """拾うと、歩道の縁石の数が停止密度になる。"""
         assert await _kind(road_graph_session, {"barrier": "kerb"}) is None
 
     async def test_a_structure_alongside_the_road_is_not_a_stop(self, road_graph_session):
@@ -107,7 +103,6 @@ class TestBarriersAndCalming:
         assert await _kind(road_graph_session, {"barrier": "fence"}) is None
 
     async def test_a_hump_is_a_slowdown_of_its_own_kind(self, road_graph_session):
-        """停止ではなく減速のため、車止めとは別kindで持つ（集計キーは同じ）。"""
         assert await _kind(road_graph_session, {"traffic_calming": "hump"}) == "traffic_calming"
 
     async def test_a_central_island_does_not_slow_anyone(self, road_graph_session):
@@ -129,15 +124,12 @@ class TestSupplyPoints:
 
 
 class TestVendingMachines:
-    """`vending`の値は`;`で連なるため表に落ちず、式で当てる。"""
-
     async def test_a_machine_selling_drinks_is_a_supply_point(self, road_graph_session):
         tags = {"amenity": "vending_machine", "vending": "drinks"}
 
         assert await _kind(road_graph_session, tags) == "vending_drinks"
 
     async def test_one_edible_value_among_several_is_enough(self, road_graph_session):
-        """複数の値が連結されるため、分割した要素のどれかが飲食物なら買える。"""
         tags = {"amenity": "vending_machine", "vending": "cigarettes;drinks"}
 
         assert await _kind(road_graph_session, tags) == "vending_drinks"
