@@ -15,8 +15,7 @@ from app.domain.axis_definitions import (
     CategoricalShape,
     MaterialTerm,
 )
-from app.domain.axis_display import axis_display_for
-from app.domain.registry import AxisDisplaySpec
+from app.domain.registry import AxisDisplaySpec, TileInputSpec
 from app.domain.dynamic_way_values import (
     dedicated_way_value_axes,
     map_value_kind,
@@ -42,8 +41,13 @@ def _display(kind: str, thresholds: list[float] | None = None):
     あちらが変わるたびにここが落ちる。
     """
     original = module.axis_display_for
+    payload = (
+        {"tile_inputs": [TileInputSpec(property="t")], "thresholds": list(thresholds or [])}
+        if kind == "ramp"
+        else {}
+    )
     module.axis_display_for = lambda definition: AxisDisplaySpec(
-        kind=kind, label=definition.label, thresholds=list(thresholds or [])
+        kind=kind, label=definition.label, **payload
     )
     try:
         yield
@@ -69,7 +73,6 @@ def _linear(
 
 
 class TestDedicatedWayValueAxes:
-    """どの軸が専用way値レイヤーを持つかは、軸の宣言だけで決まる。"""
 
     def test_only_axes_that_declare_the_layer_are_listed(self):
         with axis_definitions_snapshot():
@@ -147,11 +150,8 @@ class TestMapValueKind:
 
 
 class TestMapValueThresholds:
-    """ルート確定前の全道路の塗りと、確定後のルート線は同じ段で塗る。前者は材料の目盛り、
-    後者は0〜100の目盛りなので、同じ段を言い直す必要がある。
-
-    **どの軸がramp表示を持つかは`axis_display.py`が決める。** ここではその判断を差し替えて
-    与え、与えられた種類に対して何を返すかだけを見る。
+    """**どの軸がramp表示を持つかは`axis_display.py`が決める。** ここではその判断を
+    差し替えて与え、与えられた種類に対して何を返すかだけを見る。
     """
 
     def test_an_axis_without_a_ramp_display_returns_its_override_as_is(self):
@@ -222,26 +222,15 @@ class TestMapValueThresholds:
         with _display("ramp", thresholds=[-40.0, -10.0]):
             assert map_value_thresholds(axis) == [20.0, 80.0]
 
-    def test_an_axis_that_folds_the_sign_is_never_asked_to_map(self):
-        """`preprocess="abs"`の軸に地図側の式は無いため、`axis_display.py`はramp表示を
-        与えない。つまり生値を塗る軸（signed_material）の境界は常に上書きがそのまま出る。
-        この前提が崩れたら、写す側に絶対値を取る処理が要る。
-        """
-        axis = _linear([MaterialTerm(material=A)], LINE, preprocess="abs")
-
-        assert map_value_kind(axis) == "signed_material"
-        assert axis_display_for(axis).kind == "none"
-
 
 class TestMapValueUnit:
     """凡例に添える単位。**材料カタログの中身には踏み込まない**——差し替えて与える。"""
 
     @staticmethod
     @contextmanager
-    def _catalog(unit: str | None):
+    def _catalog(unit: str):
         original = module.MATERIAL_CATALOG
-        spec = None if unit is None else type("Spec", (), {"unit": unit})()
-        module.MATERIAL_CATALOG = {A: spec} if spec is not None else {}
+        module.MATERIAL_CATALOG = {A: type("Spec", (), {"unit": unit})()}
         try:
             yield
         finally:
@@ -260,16 +249,8 @@ class TestMapValueUnit:
         with self._catalog("%"):
             assert map_value_unit(axis) == "%"
 
-    def test_a_material_the_catalog_does_not_know_has_no_unit(self):
-        """カタログに無い材料を参照する軸で例外にせず、空へ倒す。"""
-        axis = _linear([MaterialTerm(material=A)], LINE, preprocess="abs")
-
-        with self._catalog(None):
-            assert map_value_unit(axis) == ""
-
 
 class TestTransformDedicatedWayValues:
-    """配信サービスが返した材料の生値を、地図が塗る値へ変える。"""
 
     def test_signed_material_values_pass_through(self):
         axis = _linear([MaterialTerm(material=A)], LINE, preprocess="abs")
@@ -283,8 +264,7 @@ class TestTransformDedicatedWayValues:
         assert transform_dedicated_way_values(axis, A, {"1": 1.0, "2": 9.0}) == {"1": 25.0, "2": 100.0}
 
     def test_roads_the_axis_cannot_evaluate_are_dropped(self):
-        """軸が他の材料も必須にしていると、配信された材料だけでは評価できない。その道路は
-        結果から落とす——0点で塗ると最良の色になってしまう。"""
+        """0点で塗ると、最良の色になってしまう。"""
         axis = _linear(
             [
                 MaterialTerm(material=A, required=True),

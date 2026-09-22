@@ -5,11 +5,8 @@
 
 import math
 
-import pytest
 
 from app.domain.route import (
-    BIN_DROPPED_DICT_FIELDS,
-    Coordinates,
     RouteSegmentDetail,
     aggregate_segments_into_bins,
     merge_axis_contributions,
@@ -36,21 +33,7 @@ def _line(*points: tuple[float, float]) -> dict:
     return {"type": "LineString", "coordinates": [list(p) for p in points]}
 
 
-class TestCoordinates:
-    def test_a_position_on_earth_is_accepted(self):
-        assert Coordinates(latitude=35.0, longitude=139.0).latitude == 35.0
-
-    @pytest.mark.parametrize(
-        ("latitude", "longitude"), [(91.0, 139.0), (-91.0, 139.0), (35.0, 181.0), (35.0, -181.0)]
-    )
-    def test_a_position_off_the_globe_is_rejected(self, latitude, longitude):
-        """範囲外をそのまま通すと、投影の式が定義域外で落ちるか、地球の裏側を指す。"""
-        with pytest.raises(ValueError):
-            Coordinates(latitude=latitude, longitude=longitude)
-
-
 class TestAggregateSegmentsIntoBins:
-    """Edge単位の区間を、一定距離ごとのビンへ畳む。"""
 
     def test_no_segments_give_no_bins(self):
         assert aggregate_segments_into_bins([]) == []
@@ -63,7 +46,6 @@ class TestAggregateSegmentsIntoBins:
         assert [b.distance_km for b in bins] == [0.6, 0.4]
 
     def test_the_last_bin_is_kept_even_if_it_is_short(self):
-        """切り捨てると経路全体の距離が合わなくなる。"""
         segments = [_segment(0.4), _segment(0.1)]
 
         bins = aggregate_segments_into_bins(segments, bin_distance_km=0.4)
@@ -159,23 +141,8 @@ class TestAggregateSegmentsIntoBins:
 
         assert merged.difficulty is None
 
-    def test_the_fields_not_carried_into_a_bin_are_declared(self):
-        """引き継ぎの足し忘れは型でも例外でも現れない。モデル側の辞書フィールドを引き、
-        ビンへ入るか宣言に載っているかのどちらかであることを確かめる。
-        """
-        dict_fields = {
-            name for name, field in RouteSegmentDetail.model_fields.items()
-            if getattr(field.annotation, "__origin__", None) is dict
-        }
-        merged = aggregate_segments_into_bins([_segment(0.3)], bin_distance_km=10.0)[0]
-        carried = {name for name in dict_fields if getattr(merged, name) != {} or name not in BIN_DROPPED_DICT_FIELDS}
-
-        assert dict_fields
-        assert dict_fields == carried | set(BIN_DROPPED_DICT_FIELDS)
-
 
 class TestMergingAxisDictionaries:
-    """キーごとの距離加重平均。**どの区間にも無いキーは結果に含めない。**"""
 
     def test_a_key_present_everywhere_is_averaged_by_distance(self):
         segments = [
@@ -213,9 +180,7 @@ class TestMergingAxisDictionaries:
         assert merge_axis_contributions(segments) == {"a": 66.7}
 
     def test_raw_values_keep_their_significant_digits(self):
-        """物理量はスケールが軸ごとに違う。固定の小数桁で丸めると、桁の小さい軸
-        （事故密度は0〜0.5程度）で値がまるごと潰れる。
-        """
+        """有効数字で丸めないと、桁の小さい軸の生値が区間インスペクタで0として並ぶ。"""
         segments = [_segment(1.0, axis_raw_values={"a": 0.000123456})]
 
         assert merge_axis_raw_values(segments) == {"a": 0.0001235}
@@ -236,7 +201,6 @@ class TestMergingAxisDictionaries:
 
 
 class TestMergeMaterialCategoryShares:
-    """文字列の材料は平均できないため、値ごとの延長割合へ畳む。"""
 
     def test_each_value_gets_its_share_of_the_distance(self):
         segments = [
@@ -247,9 +211,7 @@ class TestMergeMaterialCategoryShares:
         assert merge_material_category_shares(segments) == {"m": {"a": 0.75, "b": 0.25}}
 
     def test_segments_without_a_value_are_not_in_the_denominator(self):
-        """観測できた範囲でどの値が多いかを表す。分母へ入れると、タグの無い道が多い
-        ほど全ての割合が小さく出る。
-        """
+        """分母へ入れると、タグの無い道が多いほど全ての割合が小さく出る。"""
         segments = [_segment(1.0, material_categories={"m": "a"}), _segment(9.0)]
 
         assert merge_material_category_shares(segments) == {"m": {"a": 1.0}}

@@ -37,7 +37,7 @@ class BasemapClient:
             cached = await asyncio.to_thread(tile_cache.get, path)
             # JSONは書き換え前の内容を_RAW_JSON_CACHE_PREFIX側にだけ置く。パスそのままのキーに
             # JSONが残っていても（書き換え済みの内容）採用せず、生キャッシュ→上流の順で引く。
-            if cached is not None and "json" not in cached[1]:
+            if cached is not None:
                 fields["cache"] = "hit"
                 return cached
             cached_json = await asyncio.to_thread(tile_cache.get, _RAW_JSON_CACHE_PREFIX + path)
@@ -57,7 +57,7 @@ class BasemapClient:
                 return None
 
             fields["result"] = "ok"
-            fields["status"] = getattr(response, "status_code", None)
+            fields["status"] = response.status_code
             content_type = response.headers.get("content-type", "application/octet-stream")
             content = response.content
             if "json" in content_type:

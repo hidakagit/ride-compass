@@ -12,7 +12,7 @@ def limit_prewarm_zoom(monkeypatch):
     実際の上限（`domain/jma_tile_specs.py`が配信元仕様から導出、要素により8〜10）まで
     展開するとタイル数が数百枚になり、パス組み立ての検証には過剰なため。
     """
-    monkeypatch.setattr(prewarm, "max_zoom_for", lambda element_id: 4)
+    monkeypatch.setattr(prewarm, "effective_max_zoom", lambda spec: 4)
 
 
 class FakeJmaTileClient:
@@ -278,7 +278,7 @@ def test_interpolated_zooms_are_derived_from_parent(monkeypatch):
     載せないと、クライアントは「インデックスに無い＝空」と見なして取りに来ず
     （`jma_tile_index.ts`）、補間が一度も動かないまま危険度がそのズームだけ消える。
     """
-    monkeypatch.setattr(prewarm, "max_zoom_for", lambda element_id: 10)
+    monkeypatch.setattr(prewarm, "effective_max_zoom", lambda spec: 10)
 
     filled = prewarm._with_interpolated_zooms("land", {4: [[14, 6]], 6: [[57, 25]]})
 
@@ -293,6 +293,6 @@ def test_interpolated_zooms_are_derived_from_parent(monkeypatch):
 
 def test_interpolated_zooms_stay_empty_when_nothing_is_present(monkeypatch):
     """平常時（どのズームにも中身が無い）は空のまま——取りに行かせない効果を保つ。"""
-    monkeypatch.setattr(prewarm, "max_zoom_for", lambda element_id: 10)
+    monkeypatch.setattr(prewarm, "effective_max_zoom", lambda spec: 10)
 
     assert prewarm._with_interpolated_zooms("land", {}) == {}

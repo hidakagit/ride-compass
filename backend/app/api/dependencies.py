@@ -22,7 +22,9 @@ from app.domain.route import Coordinates, RouteSegment
 from app.infrastructure.accident_repository import AccidentTileQuery
 from app.infrastructure.axis_definition_repository import AxisDefinitionRepository
 from app.infrastructure.basemap_client import BasemapClient
-from app.infrastructure.gsi_tile_client import GsiTileClient
+from cachetools import LRUCache
+
+from app.infrastructure.gsi_tile_client import NOT_FOUND_MAX_ENTRIES, GsiTileClient
 from app.infrastructure.database import get_route_generation_session_factory, get_session_factory
 from app.infrastructure.debug_log import record_rate_limit_rejection
 from app.infrastructure.http_client import get_http_client
@@ -362,8 +364,12 @@ def get_jma_tile_client():
     return JmaTileClient(get_http_client(15.0))
 
 
+#: 整備区域外の記憶。クライアントはリクエストごとに作られるため、プロセスの側で持つ。
+_gsi_not_found_paths: LRUCache = LRUCache(maxsize=NOT_FOUND_MAX_ENTRIES)
+
+
 def get_gsi_tile_client():
-    return GsiTileClient(get_http_client(15.0))
+    return GsiTileClient(get_http_client(15.0), _gsi_not_found_paths)
 
 
 # 以下の管理API向けのうち、書き込み・1テーブル読みで足りるものはタイル配信と同じ

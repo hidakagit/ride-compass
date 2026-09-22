@@ -45,7 +45,7 @@ class FloodService:
         forecasts: list[ActiveFloodForecast] = []
         for entry in documents:
             if not isinstance(entry, dict) or entry.get("status") != "通常":
-                continue  # 訓練・試験電文は対象外（domain/flood_forecast.py参照）
+                continue  # status"通常"以外は訓練・試験電文
             forecast = extract_active_flood_forecast(entry, resolved.class20_code, resolved.class10_code)
             if forecast is not None:
                 forecasts.append(forecast)

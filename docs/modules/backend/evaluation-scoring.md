@@ -38,10 +38,13 @@ NULLへ畳み、フィーチャーからキーを省いてタイルを軽くす�
 
 ## 0次ハードフィルタ（`domain/hard_filters.py`）
 
-`DEFAULT_HARD_FILTERS: frozenset[str] = frozenset({"no_bicycle", "motorway", "trunk"})`。
-`is_edge_allowed(edge, hard_filters=None)`が、`hard_filters`省略時はこの既定集合（全
-フィルタ常時有効）でEdgeを探索グラフに含めるか判定する。`RoutePreference`が個別ON/OFF
-上書きを持つ（`evaluation_service.py`が既定Noneを受け取り解決）。
+`compute_hard_filter_excluded`が、材料の表から読んだフィルタ名→該当フラグの配列と、
+リクエストが指定した有効なフィルタ名の集合から、Edgeごとの除外を求める。`hard_filters`
+省略時は`DEFAULT_HARD_FILTERS`（宣言されている全フィルタが常時有効）を使う。
+
+**受け取るフラグのキー集合は宣言と完全一致でなければ落ちる**——欠けたフィルタは黙って
+無効になり、高速道路や`bicycle=no`の道がそのまま候補へ入る。リクエスト側の名前も宣言に
+無いものは拒む（綴り間違いと「そのフィルタを切った」を区別できないため）。
 
 - highwayタグ由来（`motorway`/`trunk`）・`bicycle=no`タグ（`no_bicycle`）の2系統。
   **除外の根拠は種類ごとに違う**: `motorway`（motorway/motorway_link）は法的に自転車が
@@ -309,19 +312,18 @@ MaterialSpec]`が単一ソース。
   基準速度`WIND_DRAG_REFERENCE_SPEED_MS`は`ASSUMED_SPEED_KMH`とは独立の定数）。
 - 土地被覆の割合材料は`edge_materials.lc_*`／`way_materials.lc_*`（区間単位・way単位、
   [静的道路属性・タイル配信](static-road-attributes.md)）が持つクラス別の割合で、
-  **どのクラスを評価パイプラインへ配線するかは`attributes.py: WIRED_LANDCOVER_KEYS`が
-  単一の正本**。Edge束・列指向テーブル・SQLの読み出し列・タイルの焼き込み列・
-  カバレッジ台帳の宣言はすべてこの並びから導かれるため、クラスを1つ配線するのは
-  この並びへ1行足すだけで済む（バッチ再実行も不要——DBには8クラスすべてが入っている）。
-  **区間単位の行があればそちら、無ければway単位へ落とす**（`_landcover_value_column`）。
+  **どのクラスが割合列を持つかは`landcover.py: LANDCOVER_CLASSES`が単一の正本**で、
+  列指向テーブル・集計SQL・読み出し・タイルの焼き込み列は、そこからクラス値の昇順で
+  導いた`PERCENT_CLASSES`を読む（材料そのものの宣言は`material_catalog.py`が別に持つ）。
+  **区間単位の行があればそちら、無ければway単位へ落とす**。
   区間の行が「計算済み・値なし」のときもway単位へは戻さない——行の有無で決める。
   この切り替えは路面タイル・区間インスペクタ（`get_feature_landcover`）と同じ規則で、
   **揃えないと同じ道の同じ場所で地図の色と採点・内訳の数字が食い違う**。
   値式は区間単位の列（`el`）とway単位の列（`wl`）を`COALESCE`で繋いでこの規則を表す。
 
-  **欠損判定に1クラスを名指ししない。** 判定も読み出し列も`WIRED_LANDCOVER_KEYS`
-  （行→レコードの組み立ては`_LANDCOVER_PERCENT_COLUMNS`）から導く——名指しすると、
-  クラスを1つ足して既存行を埋め戻す前に、その列がNULLというだけで行ごと捨てる。
+  **欠損判定に1クラスを名指ししない。** 判定も読み出し列もクラスの宣言から導く
+  ——名指しすると、クラスを1つ足して既存行を埋め戻す前に、その列がNULLというだけで
+  行ごと捨てる。
   **1つの軸で複数のクラスを足さないこと**——割合の合計が100%へ固定されているため
   同じ地面を二重に数える（[設計原則](../../architecture/design-principles.md)構造仕様14）。
 - 値式は`domain/material_sql.py`の組み立て関数から作る（タグの正規化・タグ値の一致・

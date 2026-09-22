@@ -32,12 +32,12 @@ def _spec(material_id: str, dtype: str = "numeric", missing="", **overrides) -> 
     coverage = (
         WayMaterialCoverageSpec(missing_condition="FALSE", source="テスト用", missing_semantics=missing)
         if missing
-        else CoverageExcluded(reason="テスト用")
+        else CoverageExcluded(reason="テスト用", missing_semantics="definite")
     )
     return MaterialSpec(
         material_id=material_id,
         label=material_id,
-        description="",
+        description=f"架空の材料[{material_id}]",
         dtype=dtype,
         coverage=coverage,
         **overrides,
@@ -171,8 +171,14 @@ class TestLinearAxes:
             TileInputSpec(
                 property="t_bool_certain", boolean=True, true_value=10.0, false_value=0.0
             ),
+            # 欠損が「不明」を意味する材料は、軸の形が変わっても灰色の帯を保つ。落とすと
+            # 未観測の道が寄与0＝最良の色で塗られる。
             TileInputSpec(
-                property="t_bool_unknown", boolean=True, true_value=20.0, false_value=0.0
+                property="t_bool_unknown",
+                boolean=True,
+                true_value=20.0,
+                false_value=0.0,
+                has_unknown_fallback=True,
             ),
         ]
         # 取りうる合計は 0 / 10 / 20 / 30 の4通り。
@@ -416,15 +422,6 @@ class TestRescaleTileInput:
         rescaled = _rescale_tile_input(TileInputSpec(property="p", weight=4.0), weight=0.5)
 
         assert rescaled.weight == 2.0
-
-    def test_categories_take_precedence_over_the_boolean_flag(self):
-        rescaled = _rescale_tile_input(
-            TileInputSpec(property="p", categories={"a": 2.0}, boolean=True, true_value=10.0),
-            weight=0.5,
-        )
-
-        assert rescaled.categories == {"a": 1.0}
-        assert rescaled.true_value == 10.0
 
 
 class TestBooleanScoreTileInput:

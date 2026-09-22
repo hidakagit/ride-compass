@@ -2362,6 +2362,7 @@
         "properties": {
           "axis_id": {
             "type": "string",
+            "minLength": 1,
             "title": "Axis Id"
           },
           "shape": {
@@ -2382,6 +2383,7 @@
           },
           "label": {
             "type": "string",
+            "minLength": 1,
             "title": "Label"
           },
           "description": {
@@ -2425,7 +2427,9 @@
           "chip_label": {
             "anyOf": [
               {
-                "type": "string"
+                "type": "string",
+                "maxLength": 4,
+                "minLength": 1
               },
               {
                 "type": "null"
@@ -2464,7 +2468,8 @@
                 "items": {
                   "type": "number"
                 },
-                "type": "array"
+                "type": "array",
+                "minItems": 1
               },
               {
                 "type": "null"
@@ -2521,6 +2526,7 @@
         "properties": {
           "axis_id": {
             "type": "string",
+            "minLength": 1,
             "title": "Axis Id"
           },
           "shape": {
@@ -2541,6 +2547,7 @@
           },
           "label": {
             "type": "string",
+            "minLength": 1,
             "title": "Label"
           },
           "description": {
@@ -2584,7 +2591,9 @@
           "chip_label": {
             "anyOf": [
               {
-                "type": "string"
+                "type": "string",
+                "maxLength": 4,
+                "minLength": 1
               },
               {
                 "type": "null"
@@ -2623,7 +2632,8 @@
                 "items": {
                   "type": "number"
                 },
-                "type": "array"
+                "type": "array",
+                "minItems": 1
               },
               {
                 "type": "null"
@@ -2692,6 +2702,7 @@
           },
           "label": {
             "type": "string",
+            "minLength": 1,
             "title": "Label"
           },
           "category": {
@@ -3068,6 +3079,7 @@
           },
           "material": {
             "type": "string",
+            "minLength": 1,
             "title": "Material"
           },
           "mapping": {
@@ -3075,6 +3087,7 @@
               "type": "number"
             },
             "type": "object",
+            "minProperties": 1,
             "title": "Mapping"
           }
         },
@@ -4155,6 +4168,7 @@
         "properties": {
           "material": {
             "type": "string",
+            "minLength": 1,
             "title": "Material"
           },
           "weight": {
@@ -4254,6 +4268,7 @@
         "properties": {
           "material": {
             "type": "string",
+            "minLength": 1,
             "title": "Material"
           },
           "equals": {
@@ -4868,6 +4883,7 @@
         "properties": {
           "property": {
             "type": "string",
+            "minLength": 1,
             "title": "Property"
           },
           "weight": {

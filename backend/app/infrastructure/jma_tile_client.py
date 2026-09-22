@@ -135,7 +135,7 @@ class JmaTileClient:
                 fields["error_type"] = error_type_label(exc)
             else:
                 fields["result"] = "ok"
-                fields["status"] = getattr(response, "status_code", None)
+                fields["status"] = response.status_code
                 content_type = response.headers.get("content-type", "application/octet-stream")
                 content = response.content
                 result = (content, content_type)

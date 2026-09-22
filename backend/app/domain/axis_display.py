@@ -78,8 +78,9 @@ def _boolean_terms_thresholds(weights: list[float], cap: float | None) -> list[f
 
 
 def _boolean_score_tile_input(spec: MaterialSpec, true_score: float, false_score: float) -> TileInputSpec:
-    """タイルに値が無いことが「不明」を意味するか「false」を意味するかは材料によって違い、
-    材料の`bool_default`だけがそれを知っている。灰色の不明帯を出せるのは前者だけ。
+    """真偽値の材料をタイル入力へ写す。**真偽値の入力を作るのはここだけ**——タイルに値が
+    無いことが「不明」を意味するか「false」を意味するかは材料の`bool_default`だけが知って
+    おり、組み立てが2か所に分かれると片方が灰色の不明帯を落とす。
     """
     has_unknown_fallback = spec.bool_default == "nan"
     assert spec.tile_property is not None  # 呼び出し元で保証済み
@@ -165,6 +166,8 @@ def _derive_ramp_inputs(definition: AxisDefinition, visited_axes: frozenset[str]
     shape = definition.shape
 
     if isinstance(shape, CategoricalShape):
+        # 分類の軸が指せる先は材料だけ。折れ点の軸と違って参照先の軸を解決しないのは、
+        # 引いてくる値が連続値の得点になり、対応表のキーと噛み合わないため。
         spec = specs.get(shape.material)
         if spec is None or spec.tile_property is None:
             return None
@@ -211,14 +214,7 @@ def _derive_ramp_inputs(definition: AxisDefinition, visited_axes: frozenset[str]
             assert spec.tile_property is not None  # 上のspecsループで確認済み
             if spec.dtype == "boolean":
                 # 該当時term.weight・非該当時0の2値。
-                tile_inputs.append(
-                    TileInputSpec(
-                        property=spec.tile_property,
-                        boolean=True,
-                        true_value=term.weight,
-                        false_value=0.0,
-                    )
-                )
+                tile_inputs.append(_boolean_score_tile_input(spec, term.weight, 0.0))
             else:
                 # 実行時スケールが要る材料もここで受け入れる。weightは元のterm.weightの
                 # まま静的に確定し、実行時スケール定数はフロント側が

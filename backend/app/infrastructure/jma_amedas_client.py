@@ -7,7 +7,6 @@
 import httpx
 from cachetools import TTLCache
 
-from app.infrastructure.debug_log import error_type_label, log_external_call
 from app.infrastructure.simple_api_client import UnexpectedShapeError, cached_fetch
 
 # 観測所マスタは`amedastable.json`（`amedas.json`ではない）。最新時刻は`latest_time.txt`
@@ -44,7 +43,9 @@ async def fetch_station_table(client: httpx.AsyncClient) -> dict | None:
         response.raise_for_status()
         return response.json()
 
-    return await cached_fetch(_station_table_cache, _STATION_TABLE_CACHE_KEY, "weather:jma-amedas-stations", fetch)
+    return await cached_fetch(
+        "weather:jma-amedas-stations", fetch, cache=_station_table_cache, key=_STATION_TABLE_CACHE_KEY
+    )
 
 
 async def fetch_latest_observation_time(client: httpx.AsyncClient) -> str | None:
@@ -64,7 +65,11 @@ async def fetch_latest_observation_time(client: httpx.AsyncClient) -> str | None
 
     # 応答はプレーンテキストで`.json()`を呼ばないため、ValueErrorの発生源が無い。
     return await cached_fetch(
-        _latest_time_cache, _LATEST_TIME_CACHE_KEY, "weather:jma-amedas-latest-time", fetch, catch=(httpx.HTTPError,)
+        "weather:jma-amedas-latest-time",
+        fetch,
+        cache=_latest_time_cache,
+        key=_LATEST_TIME_CACHE_KEY,
+        catch=(httpx.HTTPError,),
     )
 
 
@@ -74,17 +79,13 @@ async def fetch_observation_map(client: httpx.AsyncClient, timestamp: str) -> di
     URLはYYYYMMDDHHMMSS形式のコンパクトなタイムスタンプを要求するため、呼び出し元
     （jma_amedas_service.py）がISO文字列から変換して渡す。
     """
-    with log_external_call("weather:jma-amedas-observation", timestamp=timestamp) as fields:
-        try:
-            response = await client.get(
-                AMEDAS_OBSERVATION_URL_TEMPLATE.format(timestamp=timestamp), timeout=REQUEST_TIMEOUT
-            )
-            response.raise_for_status()
-            data = response.json()
-        except (httpx.HTTPError, ValueError) as exc:
-            fields["result"] = "error"
-            fields["error"] = repr(exc)
-            fields["error_type"] = error_type_label(exc)
-            return None
-        fields["result"] = "ok"
-        return data
+    async def fetch() -> dict:
+        response = await client.get(
+            AMEDAS_OBSERVATION_URL_TEMPLATE.format(timestamp=timestamp), timeout=REQUEST_TIMEOUT
+        )
+        response.raise_for_status()
+        return response.json()
+
+    return await cached_fetch(
+        "weather:jma-amedas-observation", fetch, expect=dict, timestamp=timestamp
+    )

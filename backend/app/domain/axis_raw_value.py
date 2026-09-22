@@ -4,6 +4,7 @@
 単位が定まる軸には生値を単位付きで添え、定まらない軸には材料の内訳を添える。
 """
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 
 from app.domain.axis_definitions import (
@@ -11,7 +12,8 @@ from app.domain.axis_definitions import (
     AxisDefinition,
     BreakpointLinearShape,
 )
-from app.domain.material_catalog import MATERIAL_CATALOG
+from app.domain.dynamic_way_values import map_value_kind
+from app.domain.material_catalog import MATERIAL_CATALOG, is_known_material
 
 
 def raw_value_unit(definition: AxisDefinition) -> str | None:
@@ -121,3 +123,33 @@ def axis_material_shares(definition: AxisDefinition) -> list[AxisMaterialShare]:
         return []
     # 挿入順（＝定義順の深さ優先）を保つ安定ソートのため、キーは share と depth だけにする。
     return sorted(shares.values(), key=lambda entry: (-entry.share, entry.depth))
+
+
+def displayed_material_ids(weights: Mapping[str, float], lens_axis_id: str | None = None) -> set[str]:
+    """区間表示へ載せるべき材料id。軸名のハードコードは持たない。
+
+    重み>0の公開軸が参照する材料に加え、`lens_axis_id`が符号付き材料の軸を指す場合はその
+    材料も**重みに関わらず**含める。符号付き材料は難易度0-100へ変換すると符号（登り/下り）が
+    失われるため、地図のレンズは難易度ではなく生値の側を塗る。含めないと、重み0の軸を
+    レンズに選んだときだけ表示が欠ける。
+
+    `evaluation.py: route_facing_material_ids`（スコア行列が運ぶ列の既定）とは別物で、
+    こちらはそのうちリクエストの好みとレンズに応じて実際に見せる部分集合を決める。
+    """
+    material_ids: set[str] = set()
+    for axis_id, weight in weights.items():
+        if weight <= 0:
+            continue
+        definition = AXIS_DEFINITIONS.get(axis_id)
+        if definition is None:
+            continue
+        material_ids.update(m for m in definition.materials if is_known_material(m))
+        # 軸参照を辿った先の材料（合成軸の内訳、`axis_material_shares`）。
+        # `definition.materials`は1段しか見ないため、これが無いと車の圧迫感のように
+        # 内部軸を経由する軸の内訳が1件も運ばれない。
+        material_ids.update(entry.material_id for entry in axis_material_shares(definition))
+    if lens_axis_id is not None:
+        lens_definition = AXIS_DEFINITIONS.get(lens_axis_id)
+        if lens_definition is not None and map_value_kind(lens_definition) == "signed_material":
+            material_ids.update(m for m in lens_definition.materials if is_known_material(m))
+    return material_ids

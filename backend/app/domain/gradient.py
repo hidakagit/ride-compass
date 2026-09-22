@@ -8,7 +8,7 @@ import math
 # 角度差が実際に抗力を変えるが、勾配では道路の向きが進行方向そのもののため同じ扱いはできない。
 #
 # 直角に近い範囲は符号が決まらない（どちら向きにも辿れる）。そこは値を持たないものとして
-# 扱う（`shows_gradient`）——0%として配ると、その道は地図の凡例で「平坦」の段へ入り、
+# 扱う——0%として配ると、その道は地図の凡例で「平坦」の段へ入り、
 # 実際には急な坂である道が平坦な道と同じ色で塗られる。言えるのは「この向きでの勾配は
 # 示せない」であって「平坦だ」ではない。
 #
@@ -26,20 +26,20 @@ class GradientCalculator:
     場合の勾配（%）を求める。"""
 
     @staticmethod
-    def effective_gradient(gradient_percent: float, road_bearing_deg: float, travel_bearing_deg: float) -> float:
-        diff = math.radians(road_bearing_deg - travel_bearing_deg)
-        # 符号だけを決める。道路の向き寄りならそのまま、逆向き寄りなら登り下りが入れ替わる。
-        return gradient_percent if math.cos(diff) >= 0 else -gradient_percent
+    def effective_gradient(
+        gradient_percent: float, road_bearing_deg: float, travel_bearing_deg: float
+    ) -> float | None:
+        """その走行方位での勾配（%）。符号を選べない向きではNone（値を配らない）。
 
-    @staticmethod
-    def shows_gradient(road_bearing_deg: float, travel_bearing_deg: float) -> bool:
-        """その走行方位でこの道路の勾配を示せるか。
-
-        直角に近いと、その道をどちら向きに辿るかが決まらず符号を選べない。示せない範囲は
-        この判定で先に落とし、値そのものを配らない。
+        示せるかの判定と値の算出を別々の口にすると、判定を呼ばない呼び出し側が
+        符号の決まらない値を受け取れてしまう。
         """
         # 角度そのもので比べる（cosの大小で比べると、直角の左右で浮動小数の差だけ
         # 判定が食い違う）。180度で畳むのは、逆走（符号が反転するだけ）を同じ扱いに
         # するため。
         folded = (road_bearing_deg - travel_bearing_deg) % 180
-        return abs(folded - 90) > LENS_PERPENDICULAR_BAND_DEG
+        if abs(folded - 90) <= LENS_PERPENDICULAR_BAND_DEG:
+            return None
+        diff = math.radians(road_bearing_deg - travel_bearing_deg)
+        # 符号だけを決める。道路の向き寄りならそのまま、逆向き寄りなら登り下りが入れ替わる。
+        return gradient_percent if math.cos(diff) >= 0 else -gradient_percent

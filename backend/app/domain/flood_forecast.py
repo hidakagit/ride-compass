@@ -6,45 +6,42 @@
 JMA警報（jma_warning.py）と異なり、このAPIはstatus文字列（"発表"/"継続"/"解除"）
 ではなく、item.code自体が「発表」「継続」「解除」「警報解除（下位レベルへの引き下げ）」を
 区別する（例: code"20"=新規発表、"21"=継続、"22"=上位警報解除で当レベルへ引き下げ）。
-`CLEARED_CODE`だけが「現在は何も発表されていない」を意味し、`FLOOD_CODE_LEVELS`にある
-コードはすべて現在アクティブな状態を表す。
+完全解除（現在アクティブな発表なし）を表すコード"10"は`FLOOD_CODE_LEVELS`に載せない
+——載っているコードはすべて現在アクティブな状態を表す、が表の意味である。
 """
 
 from __future__ import annotations
 
+from typing import NamedTuple
 
 from app.domain.warning_levels import WarningBadgeLevel
 from app.domain.strict_model import StrictModel
-# item.code → レベル（2〜5）。
-FLOOD_CODE_LEVELS: dict[str, int] = {
-    "20": 2,
-    "21": 2,
-    "22": 2,
-    "30": 3,
-    "31": 3,
-    "40": 4,
-    "41": 4,
-    "51": 5,
-    "53": 5,
-}
 
-# 完全解除（現在アクティブな発表なし）を意味するコード。
-CLEARED_CODE = "10"
 
-LEVEL_SUFFIXES: dict[int, str] = {
-    2: "氾濫注意報",
-    3: "氾濫警報",
-    4: "氾濫危険警報",
-    5: "氾濫特別警報",
-}
+class FloodLevel(NamedTuple):
+    """氾濫の段。バッジの見た目の語彙はJMA警報と共有するが、軸は別。"""
 
-# 氾濫危険レベルをバッジの段階（`WarningBadgeLevel`）へ対応させる。JMA警報とは別の軸だが、
-# バッジの見た目の語彙は共有する。
-LEVEL_BADGE_LEVELS: dict[int, WarningBadgeLevel] = {
-    2: "advisory",
-    3: "warning",
-    4: "severe_warning",
-    5: "emergency_warning",
+    level: int
+    badge_level: WarningBadgeLevel
+    suffix: str
+
+
+_WATCH = FloodLevel(2, "advisory", "氾濫注意報")
+_WARNING = FloodLevel(3, "warning", "氾濫警報")
+_DANGER = FloodLevel(4, "severe_warning", "氾濫危険警報")
+_EMERGENCY = FloodLevel(5, "emergency_warning", "氾濫特別警報")
+
+# item.code → 段。
+FLOOD_CODE_LEVELS: dict[str, FloodLevel] = {
+    "20": _WATCH,
+    "21": _WATCH,
+    "22": _WATCH,
+    "30": _WARNING,
+    "31": _WARNING,
+    "40": _DANGER,
+    "41": _DANGER,
+    "51": _EMERGENCY,
+    "53": _EMERGENCY,
 }
 
 
@@ -69,11 +66,8 @@ def extract_active_flood_forecast(
     （行政区画の親子関係を辿るjma_area.resolve_areaで解決済みの値を渡す想定）。
     """
     item = entry.get("item") or {}
-    code = item.get("code")
-    if code is None or code == CLEARED_CODE:
-        return None
-    level = FLOOD_CODE_LEVELS.get(code)
-    if level is None:
+    flood_level = FLOOD_CODE_LEVELS.get(item.get("code"))
+    if flood_level is None:
         return None
 
     class20_codes = entry.get("class20Codes") or []
@@ -85,9 +79,9 @@ def extract_active_flood_forecast(
     return ActiveFloodForecast(
         river_code=entry.get("riverCode", ""),
         river_name=river_name,
-        level=level,
-        badge_level=LEVEL_BADGE_LEVELS[level],
-        label=f"{river_name}{LEVEL_SUFFIXES[level]}",
+        level=flood_level.level,
+        badge_level=flood_level.badge_level,
+        label=f"{river_name}{flood_level.suffix}",
         condition=item.get("condition", ""),
         report_datetime=entry.get("reportDatetime", ""),
     )

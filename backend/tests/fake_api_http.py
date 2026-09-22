@@ -29,12 +29,16 @@ class FakeHttpClient:
     def __init__(self, payload=None, *, text=None):
         self.call_count = 0
         self.last_params = None
+        #: 要求されたURLを順に記録する。**要求した値がURLへ載るか**——府県予報区コード・
+        #: 観測時刻など——は`params`には現れず、ここでしか確かめられない。
+        self.requested_urls = []
         self._payload = payload
         self._text = text
 
     async def get(self, url, params=None, timeout=None):
         self.call_count += 1
         self.last_params = params
+        self.requested_urls.append(url)
         return FakeResponse(self._payload, text=self._text)
 
 

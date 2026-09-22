@@ -9,7 +9,7 @@ WBGTと共有する）。
 import httpx
 from cachetools import TTLCache
 
-from app.infrastructure.simple_api_client import UnexpectedShapeError, cached_fetch
+from app.infrastructure.simple_api_client import cached_fetch
 
 GSI_REVERSE_GEOCODER_URL = "https://mreversegeocoder.gsi.go.jp/reverse-geocoder/LonLatToAddress"
 JMA_AREA_JSON_URL = "https://www.jma.go.jp/bosai/common/const/area.json"
@@ -46,10 +46,11 @@ async def fetch_municipality_code(client: httpx.AsyncClient, lat: float, lon: fl
         return data.get("results", {}).get("muniCd")
 
     return await cached_fetch(
-        _muni_code_cache,
-        key,
         "weather:gsi-reverse-geocode",
         fetch,
+        cache=_muni_code_cache,
+        key=key,
+        # 逆ジオコーダが`results`の形を変えても、天候の応答ごと落とさない。
         catch=(httpx.HTTPError, ValueError, AttributeError),
         lat=key[0],
         lon=key[1],
@@ -65,7 +66,9 @@ async def fetch_area_data(client: httpx.AsyncClient) -> dict | None:
         response.raise_for_status()
         return response.json()
 
-    return await cached_fetch(_area_data_cache, _AREA_DATA_CACHE_KEY, "weather:jma-area", fetch)
+    return await cached_fetch(
+        "weather:jma-area", fetch, cache=_area_data_cache, key=_AREA_DATA_CACHE_KEY
+    )
 
 
 async def fetch_warning_documents(client: httpx.AsyncClient, office_code: str) -> list | None:
@@ -80,8 +83,13 @@ async def fetch_warning_documents(client: httpx.AsyncClient, office_code: str) -
         response = await client.get(JMA_WARNING_URL_TEMPLATE.format(office_code=office_code), timeout=REQUEST_TIMEOUT)
         response.raise_for_status()
         data = response.json()
-        if not isinstance(data, list):
-            raise UnexpectedShapeError("warning documents response is not a list")
         return data
 
-    return await cached_fetch(_warning_cache, office_code, "weather:jma-warning", fetch, office_code=office_code)
+    return await cached_fetch(
+        "weather:jma-warning",
+        fetch,
+        cache=_warning_cache,
+        key=office_code,
+        expect=list,
+        office_code=office_code,
+    )

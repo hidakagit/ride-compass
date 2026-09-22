@@ -77,8 +77,16 @@ def dedicated_way_value_axes() -> dict[str, DedicatedWayValueAxis]:
 
 
 def map_value_kind(definition: AxisDefinition) -> MapValueKind:
+    """**`terms[0].material`は材料idと軸idの2つの名前空間を跨ぐ**（`axis_definitions.py`）。
+    材料を指しているときだけ生値を塗れる——軸を指す項の値は参照先の得点で、符号にも単位にも
+    材料の意味が無い。"""
     shape = definition.shape
-    if isinstance(shape, BreakpointLinearShape) and shape.preprocess == "abs" and len(shape.terms) == 1:
+    if (
+        isinstance(shape, BreakpointLinearShape)
+        and shape.preprocess == "abs"
+        and len(shape.terms) == 1
+        and shape.terms[0].material in MATERIAL_CATALOG
+    ):
         return "signed_material"
     return "difficulty"
 
@@ -121,8 +129,13 @@ def map_value_thresholds(definition: AxisDefinition) -> list[float] | None:
     shape = definition.shape
     if not isinstance(shape, BreakpointLinearShape):
         return list(display.thresholds)
-    # ここへ来る軸は必ず`preprocess="identity"`——`axis_display.py`が符号を畳む前処理の軸へ
-    # ramp表示を与えないため。よって材料の目盛りの値をそのまま折れ線へ通せる。
+    if shape.preprocess != "identity":
+        # 符号を畳む軸の折れ線は材料の目盛りを写せない（負の境界が正の側へ折り返る）。
+        # ここへ渡す側が`preprocess`を見落としたまま塗ると、全区間が同じ帯に見える。
+        raise ValueError(
+            f"axis '{definition.axis_id}': ramp display on a shape that folds the sign "
+            f"(preprocess={shape.preprocess!r}); its thresholds cannot be mapped"
+        )
     return [
         round(evaluate_breakpoint_linear(threshold, shape.breakpoints), 1)
         for threshold in display.thresholds
@@ -135,8 +148,7 @@ def map_value_unit(definition: AxisDefinition) -> str:
         return ""
     shape = definition.shape
     assert isinstance(shape, BreakpointLinearShape)
-    spec = MATERIAL_CATALOG.get(shape.terms[0].material)
-    return spec.unit if spec is not None else ""
+    return MATERIAL_CATALOG[shape.terms[0].material].unit
 
 
 def transform_dedicated_way_values(

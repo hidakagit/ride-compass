@@ -47,9 +47,13 @@ class RoutePreference(StrictModel):
             return self
         return RoutePreference(weights={**self.weights, axis_id: value})
 
-    def with_time_scope(self, active_scopes: frozenset[str] = frozenset()) -> "RoutePreference":
+    def with_time_scope(self, active_scopes: frozenset[str]) -> "RoutePreference":
         """time_scopeが"always"以外の軸のうち、`active_scopes`に含まれないものの重みを
-        0倍にしたコピーを返す。"""
+        0倍にしたコピーを返す。
+
+        既定値を持たせない——空集合を省略できると、渡し忘れた呼び出しが「どの時間帯にも
+        当たらない」として夜間軸等を黙って0倍にする。
+        """
         overridden = time_scoped_weights(self.weights, active_scopes)
         if overridden == self.weights:
             return self

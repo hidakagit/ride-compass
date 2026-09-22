@@ -1,4 +1,5 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, fields
+from operator import attrgetter
 
 @dataclass(frozen=True, slots=True)
 class LeanNode:
@@ -45,26 +46,38 @@ class LeanEdge:
     bearing_deg: float | None = None
 
 
+# pickleの列。フィールドの宣言から導く——手で並べると、フィールドを1つ足したときに列を
+# 足し忘れても、復元側が既定値で埋めてしまい値だけが黙って消える。`geometry`は載せない
+# （pickleするのはタイルキャッシュのグラフに限られ、そこでは常に空リスト）。
+_NODE_COLUMNS = tuple(f.name for f in fields(LeanNode))
+_EDGE_COLUMNS = tuple(f.name for f in fields(LeanEdge) if f.name != "geometry")
+_EDGE_GEOMETRY_POSITION = [f.name for f in fields(LeanEdge)].index("geometry")
+_node_row = attrgetter(*_NODE_COLUMNS)
+_edge_row = attrgetter(*_EDGE_COLUMNS)
+
+
 def _rebuild_lean_road_graph(
     graph_version: str,
-    node_rows: list[tuple[str, float, float, int | None, bool, int]],
-    edge_rows: list[tuple[str, str, str, float, int | None, int | None, bool, str | None, float | None]],
+    node_rows: list[tuple],
+    edge_rows: list[tuple],
 ) -> "LeanRoadGraph":
-    """`LeanRoadGraph.__reduce__`が指すpickle復元関数（対になる分解側のdocstring参照）。"""
-    nodes = {
-        node_id: LeanNode(node_id=node_id, latitude=lat, longitude=lon, osm_node_id=osm_node_id,
-                          has_traffic_signals=has_signal, max_highway_rank=max_rank)
-        for node_id, lat, lon, osm_node_id, has_signal, max_rank in node_rows
-    }
-    edges = {
-        edge_id: LeanEdge(
-            edge_id=edge_id, from_node_id=from_id, to_node_id=to_id, geometry=[],
-            distance_m=distance_m, osm_way_id=osm_way_id, segment_index=segment_index,
-            forward=forward, highway=highway, bearing_deg=bearing_deg,
-        )
-        for (edge_id, from_id, to_id, distance_m, osm_way_id, segment_index, forward,
-             highway, bearing_deg) in edge_rows
-    }
+    """`LeanRoadGraph.__reduce__`が指すpickle復元関数（対になる分解側のdocstring参照）。
+
+    列数が合わない行は送出する。足りない列のほとんどは既定値を持つため、そのまま
+    組み立てると値の欠けたグラフが黙って出来上がる。
+    """
+    nodes = {}
+    for row in node_rows:
+        if len(row) != len(_NODE_COLUMNS):
+            raise ValueError(f"pickled node row has {len(row)} columns, expected {_NODE_COLUMNS}")
+        node = LeanNode(*row)
+        nodes[node.node_id] = node
+    edges = {}
+    for row in edge_rows:
+        if len(row) != len(_EDGE_COLUMNS):
+            raise ValueError(f"pickled edge row has {len(row)} columns, expected {_EDGE_COLUMNS}")
+        edge = LeanEdge(*row[:_EDGE_GEOMETRY_POSITION], [], *row[_EDGE_GEOMETRY_POSITION:])
+        edges[edge.edge_id] = edge
     return LeanRoadGraph(graph_version=graph_version, nodes=nodes, edges=edges)
 
 
@@ -90,11 +103,6 @@ class LeanRoadGraph:
         pickle化されるのはタイルキャッシュ経路のグラフだけで、そこでは`geometry`が常に
         空リストのため列に持たせず、復元時に固定で補う。
         """
-        node_rows = [(n.node_id, n.latitude, n.longitude, n.osm_node_id,
-                      n.has_traffic_signals, n.max_highway_rank) for n in self.nodes.values()]
-        edge_rows = [
-            (e.edge_id, e.from_node_id, e.to_node_id, e.distance_m, e.osm_way_id,
-             e.segment_index, e.forward, e.highway, e.bearing_deg)
-            for e in self.edges.values()
-        ]
+        node_rows = [_node_row(node) for node in self.nodes.values()]
+        edge_rows = [_edge_row(edge) for edge in self.edges.values()]
         return (_rebuild_lean_road_graph, (self.graph_version, node_rows, edge_rows))

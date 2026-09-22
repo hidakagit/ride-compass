@@ -48,8 +48,8 @@ def axis_inspector_breakdown(
     highway: str | None,
     tags: dict[str, str],
     materials: dict[str, object],
-    landcover: LandcoverPercentages | None = None,
-    preference: RoutePreference | None = None,
+    landcover: LandcoverPercentages | None,
+    preference: RoutePreference,
 ) -> AxisInspectorResult:
     """区間インスペクタの内訳を算出する純関数。
 
@@ -57,8 +57,11 @@ def axis_inspector_breakdown(
     進行方向に依存する材料（勾配・風）を呼び出し側が引いて足したもの。足されなかった材料は
     欠損として扱われ、それを参照する軸はavailable=Falseになる。`landcover`は表示用の
     内訳にだけ使う——軸の材料はSQL側が同じ行から直接求めている。
+
+    重みは呼び出し側が渡す。ここで既定を組み立てると、呼び出し側が渡し忘れた重みが
+    画面へ出たまま誰も気づかない。
     """
-    weights = (preference or RoutePreference()).weights
+    weights = preference.weights
     scores, _ = evaluate_axes_scalar(materials)
 
     scored_weights = [(score, weights.get(axis_id, 0.0)) for axis_id, score in scores.items()]

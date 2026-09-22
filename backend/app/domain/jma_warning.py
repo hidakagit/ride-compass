@@ -11,78 +11,71 @@ r8警報API（jma_warning_client.py）が返す電文配列の全件を走査す
 
 from __future__ import annotations
 
+from typing import NamedTuple
 
 from app.domain.warning_levels import WarningBadgeLevel
 from app.domain.strict_model import StrictModel
-# 気象庁公式コード対応表（別表3）の全コード→名称。「レベルN」プレフィックスは
+
+
+class WarningKind(NamedTuple):
+    """1コードぶんの種別。名称と、サイクリングで出すかどうかを1つに束ねる——名称の表と
+    除外する側の表を分けて持つと、名称の無いコードを除外へ書いても何も起きず、その指定は
+    効かないまま残る。"""
+
+    name: str
+    #: サイクリングに関わらないため出さない種別はFalse。**既定はTrue**——気象庁が新しい
+    #: 種別を出したとき、黙って隠すより出す側へ倒す（レベルは`warning_level`が名称から
+    #: 導くため、新しい名称でも段は決まる）。
+    relevant_to_cycling: bool = True
+
+
+# 気象庁公式コード対応表（別表3）の全コード→種別。「レベルN」プレフィックスは
 # warning_level()がlevelフィールドとして別途表現するため、名称からは省いている
 # （同じ情報を2箇所で別々に持たない）。対応表で※1（予約領域）とされ割り当ての無い
 # コードは含めない。
-WARNING_CODE_NAMES: dict[str, str] = {
-    "00": "解除",
-    "02": "暴風雪警報",
-    "03": "大雨警報",
-    "04": "洪水警報",
-    "05": "暴風警報",
-    "06": "大雪警報",
-    "07": "波浪警報",
-    "08": "高潮警報",
-    "09": "土砂災害警報",
-    "10": "大雨注意報",
-    "12": "大雪注意報",
-    "13": "風雪注意報",
-    "14": "雷注意報",
-    "15": "強風注意報",
-    "16": "波浪注意報",
-    "17": "融雪注意報",
-    "18": "洪水注意報",
-    "19": "高潮注意報",
-    "20": "濃霧注意報",
-    "21": "乾燥注意報",
-    "22": "なだれ注意報",
-    "23": "低温注意報",
-    "24": "霜注意報",
-    "25": "着氷注意報",
-    "26": "着雪注意報",
-    "27": "その他の注意報",
-    "29": "土砂災害注意報",
-    "32": "暴風雪特別警報",
-    "33": "大雨特別警報",
-    "35": "暴風特別警報",
-    "36": "大雪特別警報",
-    "37": "波浪特別警報",
-    "38": "高潮特別警報",
-    "39": "土砂災害特別警報",
-    "43": "大雨危険警報",
-    "48": "高潮危険警報",
-    "49": "土砂災害危険警報",
+#
+# 出さない側の理由: 路面凍結系（なだれ・低温・霜・着氷・着雪）と濃霧は、警告としての
+# 出し方が他と違うため別扱いにする。高潮・乾燥・融雪・その他の注意報は道路走行への
+# 関連が薄い。「解除」は発表の取り下げで、出すものが無い。
+WARNING_KINDS: dict[str, WarningKind] = {
+    "00": WarningKind("解除", relevant_to_cycling=False),
+    "02": WarningKind("暴風雪警報"),
+    "03": WarningKind("大雨警報"),
+    "04": WarningKind("洪水警報"),
+    "05": WarningKind("暴風警報"),
+    "06": WarningKind("大雪警報"),
+    "07": WarningKind("波浪警報"),
+    "08": WarningKind("高潮警報", relevant_to_cycling=False),
+    "09": WarningKind("土砂災害警報"),
+    "10": WarningKind("大雨注意報"),
+    "12": WarningKind("大雪注意報"),
+    "13": WarningKind("風雪注意報"),
+    "14": WarningKind("雷注意報"),
+    "15": WarningKind("強風注意報"),
+    "16": WarningKind("波浪注意報"),
+    "17": WarningKind("融雪注意報", relevant_to_cycling=False),
+    "18": WarningKind("洪水注意報"),
+    "19": WarningKind("高潮注意報", relevant_to_cycling=False),
+    "20": WarningKind("濃霧注意報", relevant_to_cycling=False),
+    "21": WarningKind("乾燥注意報", relevant_to_cycling=False),
+    "22": WarningKind("なだれ注意報", relevant_to_cycling=False),
+    "23": WarningKind("低温注意報", relevant_to_cycling=False),
+    "24": WarningKind("霜注意報", relevant_to_cycling=False),
+    "25": WarningKind("着氷注意報", relevant_to_cycling=False),
+    "26": WarningKind("着雪注意報", relevant_to_cycling=False),
+    "27": WarningKind("その他の注意報", relevant_to_cycling=False),
+    "29": WarningKind("土砂災害注意報"),
+    "32": WarningKind("暴風雪特別警報"),
+    "33": WarningKind("大雨特別警報"),
+    "35": WarningKind("暴風特別警報"),
+    "36": WarningKind("大雪特別警報"),
+    "37": WarningKind("波浪特別警報"),
+    "38": WarningKind("高潮特別警報", relevant_to_cycling=False),
+    "39": WarningKind("土砂災害特別警報"),
+    "43": WarningKind("大雨危険警報"),
+    "48": WarningKind("高潮危険警報", relevant_to_cycling=False),
+    "49": WarningKind("土砂災害危険警報"),
 }
-
-# サイクリングに関わらないため出さない種別。**ここだけが判断を持ち**、対象は名称表から
-# 引き算して導く——2つの一覧を並べて持つと、名称の無いコードを対象へ入れられてしまい、
-# バッジにコード番号がそのまま出る。
-#
-# 路面凍結系（なだれ・低温・霜・着氷・着雪）と濃霧は、警告としての出し方が他と違うため
-# 別扱いにする。高潮・乾燥・その他の注意報は道路走行への関連が薄い。「解除」は発表の
-# 取り下げで、出すものが無い。
-#
-# **名称表へコードが増えたら既定で対象に入る。** 気象庁が新しい種別を出したとき、黙って
-# 隠すより出す側へ倒す（レベルは`warning_level`が名称から導き、不明なら注意報相当になる）。
-WARNING_CODES_NOT_RELEVANT_TO_CYCLING: frozenset[str] = frozenset(
-    {
-        "00",  # 解除
-        "08", "19", "38", "48",  # 高潮
-        "20",  # 濃霧
-        "21",  # 乾燥
-        "22", "23", "24", "25", "26",  # なだれ・低温・霜・着氷・着雪
-        "27",  # その他の注意報
-        "17",  # 融雪
-    }
-)
-
-CYCLING_RELEVANT_WARNING_CODES: frozenset[str] = (
-    frozenset(WARNING_CODE_NAMES) - WARNING_CODES_NOT_RELEVANT_TO_CYCLING
-)
 
 # 警報・注意報が「現在発表中」であることを示すstatus値。「解除」（直前まで出ていたが
 # 取り下げられた）と「発表警報・注意報はなし」（元々何も出ていない、code自体を持たない）
@@ -91,11 +84,12 @@ ACTIVE_STATUSES = frozenset({"発表", "継続"})
 
 
 def warning_level(code: str) -> WarningBadgeLevel:
-    """コードから警戒レベル（バッジの色分けに使う）を導出する。
+    """コードから警戒レベル（バッジの色分けに使う）を導出する。対応表に無いコードは
+    KeyError——呼び出し側は必ず`WARNING_KINDS`で引いた後に呼ぶ。
 
     レベルを別テーブルとして二重管理せず、名称文字列（「特別警報」「警報」を含むか）
     から導出する（片側import）。"""
-    name = WARNING_CODE_NAMES.get(code, "")
+    name = WARNING_KINDS[code].name
     if "特別警報" in name:
         return "emergency_warning"
     if "警報" in name:
@@ -120,15 +114,15 @@ def extract_active_warnings(kinds: list[dict]) -> list[ActiveWarning]:
     result: list[ActiveWarning] = []
     for kind in kinds:
         code = kind.get("code")
-        status = kind.get("status")
-        if code is None or status not in ACTIVE_STATUSES:
+        if kind.get("status") not in ACTIVE_STATUSES:
             continue
-        if code not in CYCLING_RELEVANT_WARNING_CODES:
+        registered = WARNING_KINDS.get(code) if code is not None else None
+        if registered is None or not registered.relevant_to_cycling:
             continue
         result.append(
             ActiveWarning(
                 code=code,
-                name=WARNING_CODE_NAMES[code],
+                name=registered.name,
                 level=warning_level(code),
                 additions=kind.get("additions", []),
             )

@@ -7,35 +7,6 @@ from app.domain.material_sql import MATERIAL_ID_GRADIENT_PERCENT
 from app.domain.strict_model import StrictModel
 
 
-# 群（group）名。保存形式（JSONB1列／実カラム複数）が違っても、材料から見た形は同じ。
-METRIC_GROUP_COUNTS = "counts"
-METRIC_GROUP_LANDCOVER = "landcover"
-# 停止要因POIの種別別カウント。キーは`domain/traffic.py: POI_COUNT_KINDS`が単一ソースで、
-# 群の中身が増えてもこの定数は増えない。
-METRIC_GROUP_POI = "poi"
-
-# `METRIC_GROUP_COUNTS`のキー。`edge_materials`のカウント列に対応する。
-METRIC_KEY_ACCIDENT = "accident"
-METRIC_KEY_INTERSECTION = "intersection"
-
-# 評価パイプラインへ配線する土地被覆のクラス。名前は材料の割合列（`lc_*`）と揃える。
-# **ここへ1つ足せば、Edge束・列指向テーブル・SQLの読み出し・タイルの焼き込み列・
-# カバレッジ台帳が揃って増える**（下流はこの並びから導き、クラス名を個別に並べない）。
-# 割合列と1対1にする——どのクラスを材料にするかを人が選ぶ形にすると、「なぜこのクラス
-# だけ無いのか」を後から何度も判断し直すことになる。
-# 並びはDBの列順を決めるため、`domain/landcover.py`の表示順とは独立に固定する。
-WIRED_LANDCOVER_KEYS: tuple[str, ...] = (
-    "trees_percent",
-    "built_percent",
-    "crops_percent",
-    "rangeland_percent",
-    "water_percent",
-    "bare_percent",
-    "flooded_veg_percent",
-    "snow_ice_percent",
-)
-
-
 class ElevationAttribute(StrictModel):
     """Edgeへ紐付ける標高属性。Edge本体（domain/graph.py）とは独立して保持する。
 
@@ -184,8 +155,9 @@ def elevation_values_sql(vertices: str) -> str:
     分け、元の点列でも真に隣接していたペアだけを後者へ寄与させる。
 
     `on_structure`（橋・高架・トンネル）は**両端だけ**を使う。配信元のDEMは地表面の値で
-    構造物の高さを反映しないため、中間の点は桁や坑道ではなく下の地形を指す。谷を渡る
-    平らな橋で、谷底の起伏がそのまま獲得標高へ積まれてしまう。
+    構造物の高さを反映しないため（https://maps.gsi.go.jp/development/hyokochi.html に明記）、
+    中間の点は桁や坑道ではなく下の地形を指す。谷を渡る平らな橋で、谷底の起伏がそのまま
+    獲得標高へ積まれてしまう。橋台・坑口は道が地面と接する位置なので、両端の標高は使える。
 
     値が出せない区間（有効な標高が2点未満）は返らない。
     """

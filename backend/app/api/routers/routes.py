@@ -158,8 +158,8 @@ class RouteGenerateRequest(StrictModel):
     # リクエスト処理時に較正値から読む（`domain/evaluation.py: resolve_penalty_strength`、
     # 値の意味と根拠もそちら）。ここへ既定値を書くとimport時に束ねられ、DBの上書きが効かない。
     penalty_strength: float | None = Field(ge=0, default=None)
-    # T12 ADR原則5: 0次ハードフィルタの勾配しきい値（%、絶対値。省略時は
-    # 除外なし。domain/hard_filters.py: is_edge_allowed参照）。
+    # 0次ハードフィルタの勾配しきい値（%、絶対値。省略時は除外なし。
+    # `domain/hard_filters.py: compute_hard_filter_excluded`参照）。
     max_average_grade_percent: float | None = Field(ge=0, default=None)
     # 0次ハードフィルタ名（no_bicycle/motorway/trunk）の個別ON/OFF上書き。
     # 省略時は全フィルタ有効（DEFAULT_HARD_FILTERS）。
@@ -191,9 +191,9 @@ class RouteGenerateRequest(StrictModel):
     # 出発時刻（省略時はサーバーの現在時刻）。風の時間変化評価（レグごとの通過予測時刻）の
     # 起点になる。naive値はJSTとして扱う。
     start_time: datetime | None = None
-    # 区間の乗り換え: クライアントが候補の`edge_ids`から区間を
-    # 差し替えて組み立てた経路。指定時は探索を行わず、この経路だけを既存候補と同じ経路で
-    # 評価して1件返す（`destination`が必須。`waypoints`・`max_routes`は使わない）。
+    # 区間の乗り換え: クライアントが候補の`edge_ids`から区間を差し替えて組み立てた経路。
+    # 指定時は探索を行わず、この経路だけを既存候補と同じ経路で評価して1件返す
+    # （`destination`が必須。`waypoints`・`max_routes`は使わない）。
     # 生成と同じコスト曲線（`prepare`が支配的）のため、別エンドポイントにせず同じ
     # ジョブ機構へ載せる。
     spliced_edge_ids: list[str] | None = Field(default=None, min_length=1, max_length=MAX_SPLICED_EDGES)
@@ -201,7 +201,7 @@ class RouteGenerateRequest(StrictModel):
     @model_validator(mode="after")
     def _check_spliced_route_has_a_destination(self) -> "RouteGenerateRequest":
         # 合成の対象は目的地ルートだけ（周回は起点へ戻る制約があり、途中で別候補へ
-        # 乗り換えると戻れる保証が無くなる。）。
+        # 乗り換えると戻れる保証が無くなる）。
         if self.spliced_edge_ids and self.destination is None:
             raise ValueError("spliced_edge_ids requires destination")
         return self
@@ -415,11 +415,10 @@ async def _run_generate_job(job_id: str, request: RouteGenerateRequest) -> None:
             )
         job_registry.set_done(job_id, response)
     except Exception:  # noqa: BLE001 バックグラウンドジョブの例外はここで必ず捕捉し記録する
-        # `str(exc)`をそのままjob_registryへ記録しクライアントへ公開しない。`RoutingError`は
-        # PostGIS/内部処理のエラー詳細を例外メッセージに含みうるため、詳細はログ
-        # （logger.exception、トレースバック込み）にのみ残し、クライアントへは汎用
-        # メッセージのみ返す（job_idはクライアントが既にポーリング先として知っているため、
-        # サーバーログとの突き合わせにはrequest_log.pyのリクエストID同様job_idを使える）。
+        # ここは例外の種類を選ばず捕まえるため、DB接続やPostGISの例外もそのまま入る。
+        # それらの`str(exc)`には接続先やSQLが混じるので、詳細はログ（logger.exception、
+        # トレースバック込み）にだけ残し、クライアントへは汎用メッセージを返す。
+        # 突き合わせにはjob_idを使う（クライアントがポーリング先として既に知っている）。
         logger.exception("ルート生成ジョブが失敗 job_id=%s", job_id)
         job_registry.set_failed(job_id, "ルート生成に失敗しました。時間をおいて再度お試しください。")
     finally:

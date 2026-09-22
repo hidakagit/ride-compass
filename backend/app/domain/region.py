@@ -1,5 +1,7 @@
 import math
 
+from pydantic import Field, model_validator
+
 from app.domain.strict_model import StrictModel
 
 # 路面の地域レイヤーが配信されるXYZズームの範囲。MapLibreはminzoom未満でタイルを
@@ -14,24 +16,41 @@ ROAD_GRAPH_TILE_ZOOM = 12
 
 
 class BoundingBox(StrictModel):
-    min_latitude: float
-    min_longitude: float
-    max_latitude: float
-    max_longitude: float
+    """緯度経度の矩形。緯度と経度それぞれがmin < maxであることを型が保証する。
+
+    組み立てる側は4値を並べて渡すため、緯度と経度の取り違え・minとmaxの入れ替わりが
+    数としては通ってしまう。範囲の検証をここに持たせないと、入れ替わった矩形は
+    `tiles_covering_bbox`がx,yを昇順へ並べ替えるぶんだけ「それらしいタイル一覧」に化け、
+    黙って別の場所を指す。
+    """
+
+    min_latitude: float = Field(ge=-90.0, le=90.0)
+    min_longitude: float = Field(ge=-180.0, le=180.0)
+    max_latitude: float = Field(ge=-90.0, le=90.0)
+    max_longitude: float = Field(ge=-180.0, le=180.0)
+
+    @model_validator(mode="after")
+    def _check_increasing(self) -> "BoundingBox":
+        if self.min_latitude >= self.max_latitude:
+            raise ValueError(
+                f"緯度はmin < maxが必要です: min={self.min_latitude} max={self.max_latitude}"
+            )
+        if self.min_longitude >= self.max_longitude:
+            raise ValueError(
+                f"経度はmin < maxが必要です: min={self.min_longitude} max={self.max_longitude}"
+            )
+        return self
 
 
 def parse_bbox(text: str) -> BoundingBox:
     """CLIの--bbox（"min_lat,min_lon,max_lat,max_lon"）をBoundingBoxへ変換する。
 
-    緯度経度の順序はCLI間で揃える（片方だけ経度先にすると、値が入れ替わっても4値の
-    数として通ってしまい、黙って別の場所を指す）。
+    緯度経度の順序はCLI間で揃える。値そのものの妥当性は`BoundingBox`が見る。
     """
     parts = [float(p) for p in text.split(",")]
     if len(parts) != 4:
         raise ValueError("--bboxは min_lat,min_lon,max_lat,max_lon の4値が必要です")
     min_lat, min_lon, max_lat, max_lon = parts
-    if min_lat >= max_lat or min_lon >= max_lon:
-        raise ValueError("--bboxはmin < maxとなる範囲が必要です")
     return BoundingBox(
         min_latitude=min_lat, min_longitude=min_lon, max_latitude=max_lat, max_longitude=max_lon
     )
@@ -52,9 +71,9 @@ def tile_bounds_lonlat(z: int, x: int, y: int) -> BoundingBox:
     )
 
 
-# Web Mercatorで表現できる緯度の限界。BoundingBoxはCoordinatesと異なり緯度の範囲を
-# 検証しないため、範囲外の値が来ると_lonlat_to_tile_indexのmath.logがmath domain errorを
-# 送出する。これを避けるためクランプしてから使う。
+# Web Mercatorで表現できる緯度の限界。極ではmath.tan(lat)と1/math.cos(lat)が打ち消し合い、
+# _lonlat_to_tile_indexのmath.logが非正の値を受けてmath domain errorになる。
+# BoundingBoxが許す±90度まではこの限界の外側にあるため、クランプしてから使う。
 _MAX_MERCATOR_LATITUDE = 85.05112878
 
 

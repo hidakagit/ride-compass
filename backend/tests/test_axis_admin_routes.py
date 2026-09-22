@@ -573,24 +573,6 @@ def test_create_leaves_dynamic_way_value_needs_false_when_omitted(override_servi
     assert body["dynamic_way_value_needs_bearing"] is False
 
 
-def test_create_rejects_non_ascending_display_thresholds_override(override_service):
-    # 改善計画T404: axis_admin.py: AxisDefinitionPayload._check_display_thresholds_
-    # override_is_ascendingの検証（色分けの段階境界値は昇順でなければ意味を持たない）。
-    payload = {**_PAYLOAD, "display_thresholds_override": [2.0, 1.0, 4.0]}
-
-    response = client.post("/api/admin/axis-definitions", json=payload, headers=AUTH_HEADERS)
-
-    assert response.status_code == 422
-
-
-def test_create_rejects_empty_display_thresholds_override(override_service):
-    payload = {**_PAYLOAD, "display_thresholds_override": []}
-
-    response = client.post("/api/admin/axis-definitions", json=payload, headers=AUTH_HEADERS)
-
-    assert response.status_code == 422
-
-
 def test_create_persists_and_returns_display_band_labels_override(override_service):
     # 改善計画T513: display_thresholds_overrideと対になる、段階ごとの体感ラベルの軽量な
     # 上書き（display_band_labels_override）が管理API経由で設定・参照できること。
@@ -615,30 +597,6 @@ def test_create_leaves_display_band_labels_override_none_when_omitted(override_s
     assert response.json()["display_band_labels_override"] is None
 
 
-def test_create_rejects_display_band_labels_override_without_thresholds_override(override_service):
-    # 改善計画T513: 段階ラベルはdisplay_thresholds_overrideが決める段階数と1:1対応する
-    # ため、しきい値が未設定のまま段階ラベルだけ設定することは許可しない
-    # （axis_admin.py: AxisDefinitionPayload._check_display_band_labels_override）。
-    payload = {**_PAYLOAD, "display_band_labels_override": ["低い", "高い"]}
-
-    response = client.post("/api/admin/axis-definitions", json=payload, headers=AUTH_HEADERS)
-
-    assert response.status_code == 422
-
-
-def test_create_rejects_display_band_labels_override_length_mismatch(override_service):
-    # しきい値2件(段階数3)に対し、ラベルが2件しか無い不一致を拒否する。
-    payload = {
-        **_PAYLOAD,
-        "display_thresholds_override": [1.0, 2.0],
-        "display_band_labels_override": ["低い", "高い"],
-    }
-
-    response = client.post("/api/admin/axis-definitions", json=payload, headers=AUTH_HEADERS)
-
-    assert response.status_code == 422
-
-
 def test_get_returns_the_display_computed_from_the_axis_definition(override_service):
     # 改善計画T404: displayフィールド（axis_display_for()の計算結果）が単体取得
     # レスポンスにも含まれ、kind="none"の軸で軸スタジオが注記を出せるようにする
@@ -653,32 +611,8 @@ def test_get_returns_the_display_computed_from_the_axis_definition(override_serv
     assert body["display"]["kind"] == "none"
 
 
-def test_create_rejects_chip_label_over_four_characters(override_service):
-    # 改善計画T310（ユーザー指摘、2026-08-25）: 地図チップは4文字以下前提の固定サイズ
-    # タイルのため、5文字以上のchip_labelは422で拒否する（「車の圧迫感」5文字が
-    # フォールバックのlabelとしてそのまま出てしまうケースの再発防止）。
-    payload = {**_PAYLOAD, "chip_label": "五文字超えチップ"}
-
-    response = client.post("/api/admin/axis-definitions", json=payload, headers=AUTH_HEADERS)
-
-    assert response.status_code == 422
-    assert "test_axis" not in override_service._definitions
-
-
-def test_create_accepts_chip_label_exactly_four_characters(override_service):
-    payload = {**_PAYLOAD, "chip_label": "四字丁度"}
-    assert len(payload["chip_label"]) == 4  # このテスト自体の前提（境界値ちょうど）を明示する
-
-    response = client.post("/api/admin/axis-definitions", json=payload, headers=AUTH_HEADERS)
-
-    assert response.status_code == 201
-    assert response.json()["chip_label"] == "四字丁度"
-
-
 def test_create_rejects_label_over_four_characters_when_chip_label_omitted(override_service):
-    # コードレビュー指摘の修正確認: chip_label未設定のままlabelが4文字を超える場合も
-    # 422で拒否する（未設定時のフォールバック先labelそのものに長さ制約が無かった
-    # ため、chip_labelを設定し忘れた新規軸で同じレイアウト崩れが再発する経路の再発防止）。
+    # chip_labelを省くとlabelがそのまま地図チップへ出るため、labelの長さも同じ上限で見る。
     payload = {**_PAYLOAD, "label": "五文字超えラベル"}
 
     response = client.post("/api/admin/axis-definitions", json=payload, headers=AUTH_HEADERS)

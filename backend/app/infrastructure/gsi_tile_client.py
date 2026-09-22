@@ -8,12 +8,8 @@ from app.infrastructure.debug_log import error_type_label, log_external_call
 
 UPSTREAM_HOST = "https://cyberjapandata.gsi.go.jp"
 
-# 地理院のタイルは整備区域外で404を返す（恒久的に正しい事実、再フェッチしても変わらない）。
-# プロセス内メモリのみに留める（tile_cache.pyの永続ファイルキャッシュへは書かない——
-# 将来GSI側の整備区域が広がった場合、プロセス再起動だけで再取得の機会が来るようにする）。
-# 上限付きLRU（cachetools.LRUCache、キー=path。docs/conventions/caching.md参照）。
-_NOT_FOUND_MAX_ENTRIES = 2000
-_not_found_paths: LRUCache = LRUCache(maxsize=_NOT_FOUND_MAX_ENTRIES)
+#: 整備区域外の記憶に使う上限付きLRUの大きさ（キー=path）。
+NOT_FOUND_MAX_ENTRIES = 2000
 
 
 class GsiTileNotFound:
@@ -22,10 +18,6 @@ class GsiTileNotFound:
 
 
 GSI_TILE_NOT_FOUND = GsiTileNotFound()
-
-
-def _remember_not_found(path: str) -> None:
-    _not_found_paths[path] = None
 
 
 class GsiTileClient:
@@ -37,11 +29,19 @@ class GsiTileClient:
     静的データのため、キャッシュにTTLは要らない。
     """
 
-    def __init__(self, http_client: httpx.AsyncClient):
+    def __init__(self, http_client: httpx.AsyncClient, not_found_paths: LRUCache):
+        """`not_found_paths`は**呼び出し側が持つ**。
+
+        地理院のタイルは整備区域外で404を返す（恒久的に正しい事実で、再取得しても変わらない）。
+        このクライアントはリクエストごとに作られるため、記憶を自分で持つと毎回空になる。
+        一方でプロセスより長く持つとGSI側の整備区域が広がったときに取り直す機会が無くなるので、
+        `tile_cache`の永続ファイルへは書かず、渡された入れ物へだけ残す。
+        """
         self._http_client = http_client
+        self._not_found_paths = not_found_paths
 
     async def get(self, path: str) -> tuple[bytes, str] | GsiTileNotFound | None:
-        if path in _not_found_paths:
+        if path in self._not_found_paths:
             return GSI_TILE_NOT_FOUND
         with log_external_call("gsi-relief-tile", path=path) as fields:
             # tile_cacheの読み書きは同期的なディスクI/O。basemap_client.pyと同じ理由
@@ -62,7 +62,7 @@ class GsiTileClient:
                     # /api/debug/statsのerror集計）にしない。
                     fields["result"] = "ok"
                     fields["status"] = 404
-                    _remember_not_found(path)
+                    self._not_found_paths[path] = None
                     return GSI_TILE_NOT_FOUND
                 fields["result"] = "error"
                 fields["error"] = repr(exc)
@@ -75,7 +75,7 @@ class GsiTileClient:
                 return None
 
             fields["result"] = "ok"
-            fields["status"] = getattr(response, "status_code", None)
+            fields["status"] = response.status_code
             content_type = response.headers.get("content-type", "image/png")
             content = response.content
             await asyncio.to_thread(tile_cache.set, path, content, content_type)

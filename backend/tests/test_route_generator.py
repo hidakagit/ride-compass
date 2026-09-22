@@ -88,13 +88,13 @@ class FakeEngine:
         if distances is None:
             outcome = self._distances.get(None)
             distances = [] if outcome is None or isinstance(outcome, Exception) else [outcome]
-        return [TracedLoop(bearing=None, distance_km=d, data=[f"e{d}"]) for d in distances[:max_routes]]
+        return [TracedLoop(bearing=None, distance_km=d, data=[f"e{d}"], leg_of_edge=[0]) for d in distances[:max_routes]]
 
     async def select_fastest_route(self, context, destination):
         if self._fastest_distance_km is None:
             return None
         d = self._fastest_distance_km
-        return TracedLoop(bearing=None, distance_km=d, data=[f"e{d}"])
+        return TracedLoop(bearing=None, distance_km=d, data=[f"e{d}"], leg_of_edge=[0])
 
     async def select_loop_turnarounds(self, context, distance_km, distance_tolerance_km, pool_size):
         self.select_calls.append((distance_km, distance_tolerance_km, pool_size))
@@ -109,14 +109,14 @@ class FakeEngine:
         outcome = self._distances[turnaround.bearing]
         if isinstance(outcome, Exception):
             raise outcome
-        return TracedLoop(bearing=turnaround.bearing, distance_km=outcome, data=None)
+        return TracedLoop(bearing=turnaround.bearing, distance_km=outcome, data=None, leg_of_edge=[0])
 
     async def trace_loop(self, context, waypoints, bearing):
         self.traced_waypoints[bearing] = waypoints
         outcome = self._distances[bearing]
         if isinstance(outcome, Exception):
             raise outcome
-        return TracedLoop(bearing=bearing, distance_km=outcome, data=None)
+        return TracedLoop(bearing=bearing, distance_km=outcome, data=None, leg_of_edge=[0])
 
     def is_loop_too_similar(self, context, candidate, accepted):
         self.similarity_calls.append((candidate.bearing, [t.bearing for t in accepted]))
@@ -138,7 +138,10 @@ class FakeEngine:
         self.build_traced_destinations.append(destination)
         if self._build_traced_error is not None:
             raise self._build_traced_error
-        return TracedLoop(bearing=None, distance_km=len(edge_ids) * 1.0, data=list(edge_ids))
+        return TracedLoop(
+            bearing=None, distance_km=len(edge_ids) * 1.0, data=list(edge_ids),
+            leg_of_edge=[0] * len(edge_ids),
+        )
 
 
 def make_generator(distances_by_bearing, **kwargs) -> tuple[RouteGenerator, FakeEngine]:
@@ -449,8 +452,8 @@ async def test_generate_destination_routes_sorts_by_overall_difficulty():
     # （generate_loopsのT548ソート規約と同じロジックを共有している）。
     engine = DestinationSegmentedFakeEngine(
         via_node_traced=[
-            TracedLoop(bearing=None, distance_km=20.0, data="hard"),
-            TracedLoop(bearing=None, distance_km=19.0, data="easy"),
+            TracedLoop(bearing=None, distance_km=20.0, data="hard", leg_of_edge=[0]),
+            TracedLoop(bearing=None, distance_km=19.0, data="easy", leg_of_edge=[0]),
         ],
         segments_by_data={
             "hard": [make_segment(20.0, 80.0)],
@@ -504,8 +507,8 @@ async def test_generate_destination_routes_puts_fastest_route_first():
     # 基準線は難易度が高くても先頭に固定する——他の候補が何分余計にかかるかを読むための
     # 基準であり、難易度順に沈むと基準として使えない。
     engine = DestinationSegmentedFakeEngine(
-        via_node_traced=[TracedLoop(bearing=None, distance_km=22.0, data="easy")],
-        fastest_traced=TracedLoop(bearing=None, distance_km=18.0, data="fastest"),
+        via_node_traced=[TracedLoop(bearing=None, distance_km=22.0, data="easy", leg_of_edge=[0])],
+        fastest_traced=TracedLoop(bearing=None, distance_km=18.0, data="fastest", leg_of_edge=[0]),
         segments_by_data={
             "easy": [make_segment(22.0, 10.0)],
             "fastest": [make_segment(18.0, 90.0)],
@@ -524,10 +527,10 @@ async def test_generate_destination_routes_puts_fastest_route_first():
 async def test_generate_destination_routes_marks_existing_candidate_when_fastest_is_the_same_route():
     # 軸設定に沿った候補と基準線が同じ経路になることはある。そのとき候補を1本増やすと
     # 同じ経路のタブが2枚並ぶため、既存の1本へ印を付けるだけにする。
-    same = TracedLoop(bearing=None, distance_km=18.0, data="same")
+    same = TracedLoop(bearing=None, distance_km=18.0, data="same", leg_of_edge=[0])
     engine = DestinationSegmentedFakeEngine(
-        via_node_traced=[same, TracedLoop(bearing=None, distance_km=22.0, data="long")],
-        fastest_traced=TracedLoop(bearing=None, distance_km=18.0, data="same"),
+        via_node_traced=[same, TracedLoop(bearing=None, distance_km=22.0, data="long", leg_of_edge=[0])],
+        fastest_traced=TracedLoop(bearing=None, distance_km=18.0, data="same", leg_of_edge=[0]),
         segments_by_data={
             "same": [make_segment(18.0, 30.0)],
             "long": [make_segment(22.0, 10.0)],
@@ -549,10 +552,10 @@ async def test_generate_destination_routes_keeps_max_routes_when_fastest_is_adde
     # 先頭に固定した基準線は必ず残る。
     engine = DestinationSegmentedFakeEngine(
         via_node_traced=[
-            TracedLoop(bearing=None, distance_km=22.0, data="easy"),
-            TracedLoop(bearing=None, distance_km=25.0, data="hard"),
+            TracedLoop(bearing=None, distance_km=22.0, data="easy", leg_of_edge=[0]),
+            TracedLoop(bearing=None, distance_km=25.0, data="hard", leg_of_edge=[0]),
         ],
-        fastest_traced=TracedLoop(bearing=None, distance_km=18.0, data="fastest"),
+        fastest_traced=TracedLoop(bearing=None, distance_km=18.0, data="fastest", leg_of_edge=[0]),
         segments_by_data={
             "easy": [make_segment(22.0, 10.0)],
             "hard": [make_segment(25.0, 70.0)],
@@ -573,7 +576,7 @@ async def test_generate_destination_routes_keeps_max_routes_when_fastest_is_adde
 async def test_generate_destination_routes_without_fastest_route_marks_nothing():
     # 基準線を求められなかった場合でも候補は返す（基準線が無いだけ）。
     engine = DestinationSegmentedFakeEngine(
-        via_node_traced=[TracedLoop(bearing=None, distance_km=22.0, data="easy")],
+        via_node_traced=[TracedLoop(bearing=None, distance_km=22.0, data="easy", leg_of_edge=[0])],
         segments_by_data={"easy": [make_segment(22.0, 10.0)]},
     )
     generator = RouteGenerator(engine)
@@ -593,7 +596,7 @@ async def test_material_category_shares_survive_the_post_processing_steps():
     落としてあるため必ず空になる。ここで見るのは「後段が上書きしない」ことそのもの。
     """
     engine = DestinationSegmentedFakeEngine(
-        via_node_traced=[TracedLoop(bearing=None, distance_km=20.0, data="a")],
+        via_node_traced=[TracedLoop(bearing=None, distance_km=20.0, data="a", leg_of_edge=[0])],
         segments_by_data={"a": [make_segment(20.0, 50.0)]},
     )
     shares = {"highway": {"residential": 0.62, "secondary": 0.38}}
@@ -616,8 +619,8 @@ async def test_generate_destination_routes_follows_axis_weights_when_only_one_ro
     # 基準線は比べる相手があって初めて基準になる。1本だけ返すときに基準線を先頭へ
     # 固定すると、返る唯一の候補が常に時間最短になり軸の重みが結果に現れない。
     engine = DestinationSegmentedFakeEngine(
-        via_node_traced=[TracedLoop(bearing=None, distance_km=22.0, data="easy")],
-        fastest_traced=TracedLoop(bearing=None, distance_km=18.0, data="fastest"),
+        via_node_traced=[TracedLoop(bearing=None, distance_km=22.0, data="easy", leg_of_edge=[0])],
+        fastest_traced=TracedLoop(bearing=None, distance_km=18.0, data="fastest", leg_of_edge=[0]),
         segments_by_data={
             "easy": [make_segment(22.0, 10.0)],
             "fastest": [make_segment(18.0, 90.0)],
@@ -638,8 +641,8 @@ async def test_generate_destination_routes_follows_axis_weights_when_only_one_ro
 async def test_generate_destination_routes_still_pins_the_fastest_when_two_are_requested():
     # 2本以上なら基準線として意味を持つので先頭固定は維持する（上のテストとの境界）。
     engine = DestinationSegmentedFakeEngine(
-        via_node_traced=[TracedLoop(bearing=None, distance_km=22.0, data="easy")],
-        fastest_traced=TracedLoop(bearing=None, distance_km=18.0, data="fastest"),
+        via_node_traced=[TracedLoop(bearing=None, distance_km=22.0, data="easy", leg_of_edge=[0])],
+        fastest_traced=TracedLoop(bearing=None, distance_km=18.0, data="fastest", leg_of_edge=[0]),
         segments_by_data={
             "easy": [make_segment(22.0, 10.0)],
             "fastest": [make_segment(18.0, 90.0)],
@@ -665,8 +668,8 @@ async def test_evaluate_loops_returning_a_different_count_is_rejected():
 
     engine = MiscountingEngine(
         via_node_traced=[
-            TracedLoop(bearing=None, distance_km=22.0, data="easy"),
-            TracedLoop(bearing=None, distance_km=25.0, data="hard"),
+            TracedLoop(bearing=None, distance_km=22.0, data="easy", leg_of_edge=[0]),
+            TracedLoop(bearing=None, distance_km=25.0, data="hard", leg_of_edge=[0]),
         ],
         segments_by_data={"easy": [make_segment(22.0, 10.0)], "hard": [make_segment(25.0, 70.0)]},
     )

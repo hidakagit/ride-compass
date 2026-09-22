@@ -74,11 +74,12 @@ def compute_routable_node_ids(
 
     `hard_filter_excluded`は呼び出し元が探索コストを`inf`にするのに使うのと同じ配列を
     そのまま渡す想定で、本関数は材料の表を参照しない。`edge_ids`は
-    `hard_filter_excluded`と同じ行順。
+    `hard_filter_excluded`と**同じ行順・同じ長さ**——短い方に合わせて黙って切ると、
+    切られたEdgeのNodeが出発点・目的地の候補から静かに消える。
     """
     routable: set[str] = set()
     edges = graph.edges
-    for edge_id, excluded in zip(edge_ids, hard_filter_excluded.tolist()):
+    for edge_id, excluded in zip(edge_ids, hard_filter_excluded.tolist(), strict=True):
         if excluded:
             continue
         edge = edges.get(edge_id)
@@ -99,10 +100,21 @@ def compute_hard_filter_excluded(
     `max_average_grade_percent`を反映した0次フィルタ除外の真偽値配列を求める。
     `hard_filters`省略時は`DEFAULT_HARD_FILTERS`を使う。
 
-    `hard_filter_flags`は`HARD_FILTER_NAMES`のフィルタ名→該当フラグ配列。
-    フィルタを1つ増やしてもこの関数は変わらない。
+    `hard_filter_flags`は`HARD_FILTER_NAMES`のフィルタ名→該当フラグ配列で、**キー集合の
+    完全一致を要求する**——欠けたフィルタは黙って無効になり、高速道路や`bicycle=no`の道が
+    そのまま候補へ入る。`hard_filters`の名前も同じ理由で宣言に無いものを拒む
+    （綴り間違いが「そのフィルタを切った」と区別できない）。フィルタを1つ増やしても
+    この関数は変わらない。
     """
     active_hard_filters = hard_filters if hard_filters is not None else DEFAULT_HARD_FILTERS
+    if set(hard_filter_flags) != HARD_FILTER_NAMES:
+        raise ValueError(
+            f"0次フィルタの列が宣言と違います 不足={sorted(HARD_FILTER_NAMES - set(hard_filter_flags))} "
+            f"未知={sorted(set(hard_filter_flags) - HARD_FILTER_NAMES)}"
+        )
+    unknown = active_hard_filters - HARD_FILTER_NAMES
+    if unknown:
+        raise ValueError(f"宣言に無い0次フィルタ名: {sorted(unknown)}")
     excluded = np.zeros(len(gradient_percent), dtype=bool)
     for filter_name, flags in hard_filter_flags.items():
         if filter_name in active_hard_filters:

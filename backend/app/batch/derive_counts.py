@@ -31,6 +31,7 @@ from app.domain.accident import (  # noqa: E402
     ACCIDENT_MATCH_MAX_DISTANCE_M,
     FATAL_SQL,
 )
+from app.domain.geo import KM_PER_DEGREE_LATITUDE
 from app.domain.traffic import (  # noqa: E402
     INTERSECTION_DEGREE_THRESHOLD,
     POI_CLUSTER_EPS_M,
@@ -176,7 +177,7 @@ ON CONFLICT (osm_way_id) DO UPDATE SET
 async def derive(conn: asyncpg.Connection) -> None:
     started = time.perf_counter()
     kind_values = ", ".join(f"('{k}', '{v}')" for k, v in sorted(COUNT_KIND_OF.items()))
-    degrees = ACCIDENT_MATCH_MAX_DISTANCE_M / 111_000.0 * 2.0
+    degrees = ACCIDENT_MATCH_MAX_DISTANCE_M / (KM_PER_DEGREE_LATITUDE * 1000.0) * 2.0
 
     async with conn.transaction():
         await conn.execute(_CLUSTER_SQL.format(kind_values=kind_values),

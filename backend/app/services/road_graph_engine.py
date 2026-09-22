@@ -20,6 +20,7 @@ docs/modules/backend/routing-engine.mdが持つ。ここには、このファイ
 """
 
 import asyncio
+import itertools
 import logging
 import math
 import time
@@ -44,9 +45,8 @@ from app.domain.axis_definitions import (
     REQUEST_DYNAMIC_MATERIAL_IDS,
     dynamic_axis_topological_order,
 )
-from app.domain.axis_raw_value import axis_material_shares
+from app.domain.axis_raw_value import displayed_material_ids
 from app.domain.difficulty import distance_weighted_difficulty
-from app.domain.dynamic_way_values import map_value_kind
 from app.domain.errors import RoutingError
 from app.domain.dynamic_materials import DynamicAxisRequestContext, evaluate_dynamic_axis_arrays
 from app.domain.evaluation import (
@@ -65,7 +65,6 @@ from app.domain.geo import (
     haversine_distance_km_array,
 )
 from app.domain.graph import LeanEdge, LeanRoadGraph
-from app.domain.material_catalog import is_known_material
 from app.domain.region import BoundingBox
 from app.domain.route import (
     Coordinates,
@@ -200,7 +199,6 @@ class LegCostArrays:
     """1レグぶんの合成済みコスト配列一式。`cost_lazy`は`lazy_graph.edge_ids`順（探索が使う
     行順）、それ以外は`score_matrix.edge_ids`（`full_edge_row`）順の表示用配列。レグごとに違うのは風（各Edgeの通過予定時刻の風）だけで、静的軸の列は共有する。"""
 
-    label: str
     cost_lazy: np.ndarray
     difficulty_array: np.ndarray
     axis_arrays: dict[str, np.ndarray]
@@ -238,8 +236,11 @@ class LegCostArrays:
 
 
 def _representative_bin(bin_count: int, duration_hours: float | None) -> int:
-    """表示と、時刻ラベルを持てない探索が使う代表ビンの添字。レグの中間地点が入るビン。"""
-    if bin_count <= 1 or duration_hours is None:
+    """表示と、時刻ラベルを持てない探索が使う代表ビンの添字。レグの中間地点が入るビン。
+
+    見込み時間が無ければビンは1本（`_bin_count`）なので、`bin_count`だけを見れば足りる。
+    """
+    if bin_count <= 1:
         return 0
     return min(bin_count - 1, int((duration_hours / 2) / TIME_BIN_HOURS))
 
@@ -336,7 +337,7 @@ class _LegCostComposer:
         stops = np.zeros(len(distance_m))
         # 材料idの綴りは`stop_count_material_ids()`が単一の情報源。ここで組み立て直すと、
         # 向こうで綴りを変えたときにここだけがNoneを引き、全区間の停止の待ちが無言で0秒になる。
-        for kind, material_id in zip(POI_COUNT_KINDS, stop_count_material_ids()):
+        for kind, material_id in zip(POI_COUNT_KINDS, stop_count_material_ids(), strict=True):
             per_km = material_arrays.get(material_id)
             if per_km is not None:
                 stops += np.nan_to_num(per_km) * (distance_m / 1000.0) * stop_seconds(kind)
@@ -367,10 +368,9 @@ class _LegCostComposer:
         """`direction=+1`なら起点から離れていく・`-1`なら向かっていくレグとして、
         そのレグを走る時刻の風でコスト配列を合成する。
 
-        `anchor`は**在るかどうかだけ**を見る（起点が決まっていないリクエストでは風を
-        時刻で変えられないため、1本のスナップショットへ落ちる）。座標の値は使わない
-        ——風の予報は起点1地点ぶんを`WeatherService`が既に引いており、ここでは方位だけが
-        Edgeごとに効く。
+        `anchor`は座標の値も在るかどうかも使わない（ログへ出すだけ）——風の予報は起点
+        1地点ぶんを`WeatherService`が既に引いており、ここでは方位だけがEdgeごとに効く。
+        時刻で変えるかどうかは`time_varying`（風の時別系列があるか）だけで決まる。
 
         `duration_hours`（このレグに何時間かかる見込みか）を渡すと、レグの中を
         `TIME_BIN_HOURS`ごとのビンへ分けた配列（`cost_bins_lazy`）も併せて作る。到達時刻を
@@ -386,7 +386,7 @@ class _LegCostComposer:
         edge_count = len(self._score_matrix.distance_m)
         # `direction=-1`の`offset_hours`はレグの終了時刻のため、開始時刻へ直す。
         leg_start = offset_hours if direction > 0 else offset_hours - (duration_hours or 0.0)
-        if not self.time_varying or anchor is None:
+        if not self.time_varying:
             key: tuple = ("snapshot",)
             bin_count = 1
         elif passage_hours is not None:
@@ -405,7 +405,7 @@ class _LegCostComposer:
             return cached
 
         started = time.monotonic()
-        if not self.time_varying or anchor is None:
+        if not self.time_varying:
             bins = [self._compose_at(None)]
         elif passage_hours is not None:
             bins = [self._compose_at(passage_hours)]
@@ -419,7 +419,6 @@ class _LegCostComposer:
         # 単純な中央の添字だと終盤のビンへ寄る）。
         representative = bins[_representative_bin(len(bins), duration_hours)]
         leg = LegCostArrays(
-            label=label,
             cost_lazy=representative.cost_lazy,
             difficulty_array=representative.difficulty_array,
             axis_arrays=representative.axis_arrays,
@@ -516,7 +515,6 @@ class _LegCostComposer:
         lazy_cost = cost_array[self._lazy_row_index]
         lazy_travel = travel[self._lazy_row_index]
         return LegCostArrays(
-            label="",
             cost_lazy=lazy_cost,
             difficulty_array=difficulty_array,
             axis_arrays=published,
@@ -665,8 +663,8 @@ class RoadGraphEngine:
         # コスト式`所要時間 × (1 + P × difficulty/100)`のP＝「主観 vs 時間」の換算レート。
         # 既定1.0は「difficulty 100の道は体感で所要時間2倍」の意味。
         self._penalty_strength = penalty_strength
-        # T12 ADR原則5: 0次ハードフィルタの勾配しきい値（%、既定None＝
-        # 除外しない）。domain/evaluation.py: is_edge_allowed参照。
+        # 0次ハードフィルタの勾配しきい値（%、既定None＝除外しない）。
+        # `domain/hard_filters.py: compute_hard_filter_excluded`参照。
         self._max_average_grade_percent = max_average_grade_percent
         # 0次ハードフィルタ名（no_bicycle/motorway/trunk）の個別ON/OFF上書き
         # （既定None＝DEFAULT_HARD_FILTERS＝全フィルタ有効）。
@@ -769,10 +767,8 @@ class RoadGraphEngine:
         # 重み付き軸がすべてNaNのEdge比率（探索コストはbbox内平均difficultyで補完される。
         # 実際の発生頻度を把握するためのサマリ）。
         missing_axis_mask = np.isnan(outbound.difficulty_array)
-        total_distance_m = float(score_matrix.distance_m.sum())
-        missing_axis_distance_ratio = (
-            float(score_matrix.distance_m[missing_axis_mask].sum() / total_distance_m)
-            if total_distance_m > 0 else 0.0
+        missing_axis_distance_ratio = float(
+            score_matrix.distance_m[missing_axis_mask].sum() / float(score_matrix.distance_m.sum())
         )
 
         # A*のestimate_cost_fn（ヒューリスティック）をレグごとにnumpyで1回だけ計算できる
@@ -968,6 +964,7 @@ class RoadGraphEngine:
             ),
             _origin_states(statics, search.lazy_graph.node_id_to_index[origin_node]),
             search.lazy_graph.node_id_to_index[destination_node],
+            search.outbound.travel_seconds_lazy,
         )
         if edges is None:
             return None
@@ -978,8 +975,8 @@ class RoadGraphEngine:
         # 探索用グラフのEdgeはgeometryが空のプレースホルダのため、この経路ぶんだけ取り直す。
         # 渡すのはidではなく枝そのもの——取り直しは道と区間の番号で引くため。
         hydrated = await self._graph_service.get_edges_with_geometry(
-            [search.graph.edges[edge_id] for edge_id in edge_ids if edge_id in search.graph.edges])
-        edges_in_path: list[LeanEdge] = [hydrated.get(edge_id) or search.graph.edges[edge_id] for edge_id in edge_ids]
+            [search.graph.edges[edge_id] for edge_id in edge_ids])
+        edges_in_path: list[LeanEdge] = [hydrated[edge_id] for edge_id in edge_ids]
 
         distance_km = round(sum(edge.distance_m for edge in edges_in_path) / 1000, 2)
         geometry, _ = _concat_edge_geometries(edges_in_path)
@@ -1479,7 +1476,7 @@ class RoadGraphEngine:
                     turn_expanded_path_from_state_to_source(backward_tree, backward_state)
                     if backward_state >= 0 else []
                 )
-                if forward_edges is None or backward_edges is None:
+                if forward_edges is None:
                     full_edges_cache[node_index] = None
                 else:
                     # 行って戻る形（前向き・後ろ向きが同じ物理区間を通る）の判定は、
@@ -1565,18 +1562,16 @@ class RoadGraphEngine:
 
         seconds = [float(outbound.travel_seconds_lazy[index]) for index in edges]
         half_seconds = sum(seconds) / 2
-        cumulative = 0.0
-        split = len(edges)
-        for position, value in enumerate(seconds):
-            cumulative += value
-            if cumulative >= half_seconds:
-                split = position + 1
-                break
+        # 走行時間は必ず有限（`speed_ms`が押して歩く速度を下限に置く）ため、累積が半分を
+        # 越える位置が必ずある。
+        split = next(
+            position
+            for position, total in enumerate(itertools.accumulate(seconds), 1)
+            if total >= half_seconds
+        )
         forward_edges = edges[:split]
         backward_edges = edges[split:]
         edge_ids = [lazy_graph.edge_ids[index] for index in forward_edges + backward_edges]
-        if not edge_ids:
-            return None
         distance_km = round(sum(context.graph.edges[edge_id].distance_m for edge_id in edge_ids) / 1000, 2)
         leg_of_edge = [0] * len(forward_edges) + [1] * len(backward_edges)
 
@@ -1746,15 +1741,13 @@ class RoadGraphEngine:
         self, context: _RoadGraphContext, traced: list[TracedLoop], start_time: datetime
     ) -> list[RouteCandidate]:
         # 実ジオメトリは距離フィルタを通った候補ぶんだけを、全候補まとめて1回で取り直す
-        # （棄却済み候補ぶんは問い合わせない）。
-        # `or context.graph.edges[edge_id]`は、`prepare`からこのクエリまでの間に別リクエストが
-        # 同じbboxを作り直してedge_idが入れ替わった場合に、KeyErrorで落とさずgeometryが空の
-        # ままの値へ倒すための防御。
+        # （棄却済み候補ぶんは問い合わせない）。引けない区間があれば落とす——探索が通った
+        # 区間の実体がDBに無いということで、線の欠けた経路を配るより落ちる方がよい。
         all_edge_ids = list(dict.fromkeys(edge_id for t in traced for edge_id in t.data))
         hydrated = await self._graph_service.get_edges_with_geometry(
-            [context.graph.edges[edge_id] for edge_id in all_edge_ids if edge_id in context.graph.edges])
+            [context.graph.edges[edge_id] for edge_id in all_edge_ids])
         edges_by_candidate: list[list[LeanEdge]] = [
-            [hydrated.get(edge_id) or context.graph.edges[edge_id] for edge_id in t.data] for t in traced
+            [hydrated[edge_id] for edge_id in t.data] for t in traced
         ]
         return list(
             await asyncio.gather(
@@ -1777,7 +1770,7 @@ class RoadGraphEngine:
         経由地ルート（`bearing`がNone）は訪問順序そのものが要件のため、逆回りを作らない。
         """
         elevation_attributes = self._elevation_attributes(context, edges_in_path)
-        leg_of_edge = traced.leg_of_edge if traced.leg_of_edge is not None else [0] * len(edges_in_path)
+        leg_of_edge = traced.leg_of_edge
         forward_candidate = self._build_candidate(
             context, traced, edges_in_path, elevation_attributes, start_time, leg_of_edge
         )
@@ -1857,8 +1850,8 @@ class RoadGraphEngine:
         探索が使う所要時間を別々に計算すると、片方だけ直したときに静かに食い違う。
         ターンは経路の遷移ごとの秒（`TurnExpandedStructure`）を足す。
 
-        行を引けない区間（タイル境界等で静的スコア行列に無い）は巡航速度で走ったものとして
-        数える——0にすると所要時間が実態より短く出る。
+        走行時間が有限でない区間は巡航速度で走ったものとして数える——0にすると所要時間が
+        実態より短く出る。
         """
         if not edges:
             return None
@@ -1866,38 +1859,26 @@ class RoadGraphEngine:
         total = 0.0
         for edge, leg_index in zip(edges, leg_of_edge):
             leg = context.legs[leg_index]
-            row = context.full_edge_row.get(edge.edge_id)
-            seconds = leg.travel_seconds_full[row] if row is not None else np.inf
+            seconds = leg.travel_seconds_full[context.full_edge_row[edge.edge_id]]
             total += float(seconds) if np.isfinite(seconds) else edge.distance_m / fallback_ms
         return total + self._turn_seconds_along(context, edges)
 
     def _turn_seconds_along(self, context: _RoadGraphContext, edges: list[LeanEdge]) -> float:
         """経路に沿ったターンの待ち（秒）の合計。遷移は`TurnExpandedStructure`から引く。
 
-        探索グラフに無いEdge（クライアント由来のedge_id列を受ける区間の乗り換えで起こりうる）
-        は、そこで経路が切れたものとして扱い、**その前後の遷移だけ**を数えない。経路全体を
-        捨てると合成ルートからターン分が丸ごと消え、元候補より不当に速く見える。
+        Node・遷移は必ず引ける——`build_lazy_road_graph`が`graph.nodes`の全件から索引を作り、
+        各区間の両端Nodeが在ることを確かめてから通すため（`domain/routing.py`参照）。
         """
         structure = context.turn_structure
         lazy_graph = context.lazy_graph
-        states: list[int | None] = []
-        for edge in edges:
-            pair = (
-                lazy_graph.node_id_to_index.get(edge.from_node_id),
-                lazy_graph.node_id_to_index.get(edge.to_node_id),
-            )
-            states.append(lazy_graph.edge_index_by_node_pair.get(pair) if None not in pair else None)
-        unknown = sum(1 for state in states if state is None)
-        if unknown:
-            logger.warning(
-                "ターンの待ちを一部数えられません edges=%d unknown=%d "
-                "（探索グラフに無い区間の前後の遷移を除外して合計します）",
-                len(edges), unknown,
-            )
+        states = [
+            lazy_graph.edge_index_by_node_pair[
+                (lazy_graph.node_id_to_index[edge.from_node_id], lazy_graph.node_id_to_index[edge.to_node_id])
+            ]
+            for edge in edges
+        ]
         total = 0.0
         for previous, following in zip(states, states[1:]):
-            if previous is None or following is None:
-                continue
             for entry in range(structure.indptr[previous], structure.indptr[previous + 1]):
                 if structure.target_state[entry] == following:
                     total += float(structure.turn_seconds[entry])
@@ -1919,7 +1900,7 @@ class RoadGraphEngine:
         """
         segments = []
         cumulative_km = 0.0
-        active_material_ids = _active_material_ids(context.composer._weights, context.composer._lens_axis_id)
+        active_material_ids = displayed_material_ids(context.composer._weights, context.composer._lens_axis_id)
 
         for edge, leg_index in zip(edges, leg_of_edge):
             leg = context.legs[leg_index]
@@ -1935,47 +1916,39 @@ class RoadGraphEngine:
                 else {}
             )
 
-            row = context.full_edge_row.get(edge.edge_id)
-            if row is None:
-                # 通常は到達しない（full_edge_rowはbbox全体の生Edge集合を覆うため）。
-                # 経路上のEdgeが何らかの理由で行を持たない防御的フォールバック。
-                axis_scores: dict[str, float] = {}
-                axis_contributions: dict[str, float] = {}
-                axis_raw_values: dict[str, float] = {}
-                composite_difficulty_value: float | None = None
-                material_values: dict[str, float] = static_material_values
-                material_categories: dict[str, str] = {}
-            else:
-                axis_scores = {
-                    axis_id: float(arr[row])
-                    for axis_id, arr in leg.axis_arrays.items()
-                    if not math.isnan(arr[row])
-                }
-                axis_contributions = leg.axis_contributions_at(row)
-                # 折れ点を通す前の生値。静的スコア行列が持つ列をそのまま読む
-                # （動的材料を参照する軸は行列側で除外済み）。
-                axis_raw_values = {
-                    axis_id: float(arr[row])
-                    for axis_id, arr in leg.axis_raw_arrays.items()
-                    if not math.isnan(arr[row])
-                }
-                difficulty_value = leg.difficulty_array[row]
-                composite_difficulty_value = None if math.isnan(difficulty_value) else float(difficulty_value)
-                material_values = {
-                    **static_material_values,
-                    **{
-                        material_id: value
-                        for material_id in active_material_ids
-                        if (value := _material_value_at(leg, material_id, row)) is not None
-                    },
-                }
-                # categorical材料は数値として平均できないため、区間ごとの値をそのまま持ち、
-                # ルート集約側（merge_material_category_shares）で延長割合へ畳む。
-                material_categories = {
-                    material_id: str(raw)
-                    for material_id, array in leg.categorical_material_arrays.items()
-                    if material_id in active_material_ids and (raw := array[row]) is not None
-                }
+            # 経路上のEdgeは必ず行を持つ（full_edge_rowはbbox全体の生Edge集合を覆う）。
+            # 引けないなら探索と表示が別のEdge集合を見ているということなので、ここで落とす。
+            row = context.full_edge_row[edge.edge_id]
+            axis_scores = {
+                axis_id: float(arr[row])
+                for axis_id, arr in leg.axis_arrays.items()
+                if not math.isnan(arr[row])
+            }
+            axis_contributions = leg.axis_contributions_at(row)
+            # 折れ点を通す前の生値。静的スコア行列が持つ列をそのまま読む
+            # （動的材料を参照する軸は行列側で除外済み）。
+            axis_raw_values = {
+                axis_id: float(arr[row])
+                for axis_id, arr in leg.axis_raw_arrays.items()
+                if not math.isnan(arr[row])
+            }
+            difficulty_value = leg.difficulty_array[row]
+            composite_difficulty_value = None if math.isnan(difficulty_value) else float(difficulty_value)
+            material_values = {
+                **static_material_values,
+                **{
+                    material_id: value
+                    for material_id in active_material_ids
+                    if (value := _material_value_at(leg, material_id, row)) is not None
+                },
+            }
+            # categorical材料は数値として平均できないため、区間ごとの値をそのまま持ち、
+            # ルート集約側（merge_material_category_shares）で延長割合へ畳む。
+            material_categories = {
+                material_id: str(raw)
+                for material_id, array in leg.categorical_material_arrays.items()
+                if material_id in active_material_ids and (raw := array[row]) is not None
+            }
 
             elapsed_hours = cumulative_km / self._assumed_speed_kmh
             arrival_time = start_time + timedelta(hours=elapsed_hours)
@@ -2020,33 +1993,6 @@ def _material_value_at(leg: LegCostArrays, material_id: str, row: int) -> float 
         return None
     value = float(array[row])
     return None if math.isnan(value) else value
-
-
-def _active_material_ids(weights: Mapping[str, float], lens_axis_id: str | None = None) -> set[str]:
-    """区間表示へ載せるべき材料id。軸名のハードコードは持たない。
-
-    重み>0の公開軸が参照する材料に加え、`lens_axis_id`が符号付き材料の軸を指す場合はその
-    材料も**重みに関わらず**含める。符号付き材料は難易度0-100へ変換すると符号（登り/下り）が
-    失われるため、地図のレンズは難易度ではなく生値の側を塗る。含めないと、重み0の軸を
-    レンズに選んだときだけ表示が欠ける。
-    """
-    material_ids: set[str] = set()
-    for axis_id, weight in weights.items():
-        if weight <= 0:
-            continue
-        definition = AXIS_DEFINITIONS.get(axis_id)
-        if definition is None:
-            continue
-        material_ids.update(m for m in definition.materials if is_known_material(m))
-        # 軸参照を辿った先の材料（合成軸の内訳、`axis_material_shares`）。
-        # `definition.materials`は1段しか見ないため、これが無いと車の圧迫感のように
-        # 内部軸を経由する軸の内訳が1件も運ばれない。
-        material_ids.update(entry.material_id for entry in axis_material_shares(definition))
-    if lens_axis_id is not None:
-        lens_definition = AXIS_DEFINITIONS.get(lens_axis_id)
-        if lens_definition is not None and map_value_kind(lens_definition) == "signed_material":
-            material_ids.update(m for m in lens_definition.materials if is_known_material(m))
-    return material_ids
 
 
 async def _get_or_build_lazy_graph(
@@ -2152,17 +2098,15 @@ def _node_intersection_attributes(
     """`lazy_graph.index_to_node_id`順の（信号の有無, 集まる道の最大階級）。
 
     どちらもノードの事前集計列で、ターンの費用が「信号が無いのに上位の道を渡る」場合だけ
-    待ちを足すために読む。列を持たないノードは既定値（信号なし・階級0）として扱う。
+    待ちを足すために読む。`index_to_node_id`は同じ`graph`から作るため、引けないノードは無い。
     """
     nodes = graph.nodes
     signals = np.fromiter(
-        ((node.has_traffic_signals if (node := nodes.get(node_id)) else False)
-         for node_id in lazy_graph.index_to_node_id),
+        (nodes[node_id].has_traffic_signals for node_id in lazy_graph.index_to_node_id),
         dtype=bool, count=len(lazy_graph.index_to_node_id),
     )
     ranks = np.fromiter(
-        ((node.max_highway_rank if (node := nodes.get(node_id)) else 0)
-         for node_id in lazy_graph.index_to_node_id),
+        (nodes[node_id].max_highway_rank for node_id in lazy_graph.index_to_node_id),
         dtype=np.int64, count=len(lazy_graph.index_to_node_id),
     )
     return signals, ranks
@@ -2172,8 +2116,7 @@ def _edge_highway_ranks(graph: LeanRoadGraph, lazy_graph: LazyRoadGraph) -> np.n
     """`lazy_graph.edge_ids`順の道路階級（`domain/traffic.py: highway_rank`）。交差点で
     「自分より上位の道と交わるか」を比べるためだけに使う。"""
     return np.fromiter(
-        (highway_rank(edge.highway if (edge := graph.edges.get(edge_id)) else None)
-         for edge_id in lazy_graph.edge_ids),
+        (highway_rank(graph.edges[edge_id].highway) for edge_id in lazy_graph.edge_ids),
         dtype=np.int64, count=len(lazy_graph.edge_ids),
     )
 
@@ -2299,14 +2242,14 @@ def _loop_edge_lengths_by_physical_segment(
     """周回1件ぶんのEdge列（`TracedLoop.data`）を、進行方向を無視した物理区間キー
     （`{from_node_id, to_node_id}`のfrozenset）→距離(m)の辞書へ変換する
     （`is_loop_too_similar`が使う）。同じ物理区間を指すfwd/bwd Edge（逆方向Edge）を同一キーへ
-    正規化することで、「同じ周回の逆回り」の比較を可能にする。存在しないedge_idは無視する
-    （`evaluate_loops`の防御的フォールバックと同じ理由で理論上ありうるレース対策）。
+    正規化することで、「同じ周回の逆回り」の比較を可能にする。
     """
+    # 同じ物理区間を2回通る周回は1回ぶんとして数える（加算しない）。重複率の分母が実際の
+    # 周回長より短くなるぶん似ていると判定されやすくなるが、似た周回を並べるより棄却する
+    # 側へ倒す。
     result: dict[frozenset[str], float] = {}
     for edge_id in edge_ids:
-        edge = graph.edges.get(edge_id)
-        if edge is None:
-            continue
+        edge = graph.edges[edge_id]
         key = frozenset({edge.from_node_id, edge.to_node_id})
         result[key] = edge.distance_m
     return result
@@ -2326,18 +2269,14 @@ def _reverse_traced_edges(
     """
     reverse_edges: list[LeanEdge] = []
     for edge in reversed(edges_in_path):
-        from_index = lazy_graph.node_id_to_index.get(edge.to_node_id)
-        to_index = lazy_graph.node_id_to_index.get(edge.from_node_id)
-        reverse_edge_index = (
-            lazy_graph.edge_index_by_node_pair.get((from_index, to_index))
-            if from_index is not None and to_index is not None
-            else None
+        reverse_edge_index = lazy_graph.edge_index_by_node_pair.get(
+            (lazy_graph.node_id_to_index[edge.to_node_id], lazy_graph.node_id_to_index[edge.from_node_id])
         )
-        reverse_topology = (
-            graph.edges.get(lazy_graph.edge_ids[reverse_edge_index]) if reverse_edge_index is not None else None
-        )
-        if reverse_topology is None:
+        # Noneが表すのは「逆方向Edgeが無い＝一方通行」だけ。Node・Edgeを引けないのは
+        # 別の問題で、同じ値で表すと一方通行と区別がつかなくなる。
+        if reverse_edge_index is None:
             return None
+        reverse_topology = graph.edges[lazy_graph.edge_ids[reverse_edge_index]]
         reverse_edges.append(
             LeanEdge(
                 edge_id=reverse_topology.edge_id,

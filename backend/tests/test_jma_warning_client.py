@@ -1,138 +1,104 @@
-"""jma_warning_client.py（JMA警報・注意報API、area.json、国土地理院逆ジオコーダの
-クライアント）のテスト。
+"""`infrastructure/jma_warning_client.py`——逆ジオコーダ・地域マスタ・警報電文を引く。
 
-他の外部APIクライアントのテストと同じ観点（正常系のレスポンス
-取得・キャッシュヒット・失敗時の挙動）を踏襲するが、このクライアントもwbgt_client.pyと
-同じ理由（モジュールdocstring参照: 更新頻度が高くない）で再試行を
-持たない。「リトライ」観点は「失敗時に再試行せず1回でNoneを返す」ことの確認に置き換える。
+ここで見ないもの:
+- TTLキャッシュの引き当てと、失敗をNoneへ倒す骨格 → `test_simple_api_client.py`
+- area.jsonを辿って市区町村コードから府県予報区コードを出す処理 → `test_jma_area.py`
+- 電文から走行に関わる警報を選ぶ判定 → `test_jma_warning_domain.py`
 """
 
 import pytest
 
-from app.infrastructure import jma_warning_client as jma_warning_client_module
-from app.infrastructure.jma_warning_client import (
-    fetch_area_data,
-    fetch_municipality_code,
-    fetch_warning_documents,
-)
-from tests.fake_api_http import (
-    FailingHttpClient,
-    FakeHttpClient,
-    HttpStatusErrorHttpClient,
-)
+from app.infrastructure import jma_warning_client
+from tests.fake_api_http import FakeHttpClient, FakeResponse
+
+
+class PerUrlHttpClient:
+    """要求URLごとに違う応答を返す上流。
+
+    共有フェイク（`tests/fake_api_http.py`）は同じペイロードを返し続けるため、
+    「要求した府県予報区コードがURLへ載っているか」をこれでしか見られない。登録の
+    無いURLを要求されたらKeyErrorで落ちる（どのURLを引いたかが失敗時に出る）。
+    """
+
+    def __init__(self, payloads: dict):
+        self._payloads = payloads
+
+    async def get(self, url, params=None, timeout=None):
+        return FakeResponse(self._payloads[url])
 
 
 @pytest.fixture(autouse=True)
-def clear_jma_warning_caches():
-    jma_warning_client_module._muni_code_cache.clear()
-    jma_warning_client_module._area_data_cache.clear()
-    jma_warning_client_module._warning_cache.clear()
+def _clear_caches():
+    for cache in (
+        jma_warning_client._muni_code_cache,
+        jma_warning_client._area_data_cache,
+        jma_warning_client._warning_cache,
+    ):
+        cache.clear()
     yield
-    jma_warning_client_module._muni_code_cache.clear()
-    jma_warning_client_module._area_data_cache.clear()
-    jma_warning_client_module._warning_cache.clear()
+    for cache in (
+        jma_warning_client._muni_code_cache,
+        jma_warning_client._area_data_cache,
+        jma_warning_client._warning_cache,
+    ):
+        cache.clear()
 
 
-# --- fetch_municipality_code ---
+async def test_municipality_code_comes_from_the_results_object():
+    client = FakeHttpClient({"results": {"muniCd": "13101", "lv01Nm": "千代田区"}})
+
+    assert await jma_warning_client.fetch_municipality_code(client, 35.6812, 139.7671) == "13101"
 
 
-async def test_fetch_municipality_code_returns_code_on_success():
-    http_client = FakeHttpClient({"results": {"muniCd": "13101", "lv01Nm": "千代田区"}})
+async def test_missing_municipality_code_yields_none():
+    """市区町村が定まらない地点（海上等）でも、警報なしとして続けられるようにする。"""
+    client = FakeHttpClient({"results": {}})
 
-    result = await fetch_municipality_code(http_client, 35.6938, 139.7532)
-
-    assert result == "13101"
-
-
-async def test_fetch_municipality_code_reuses_cache_within_ttl():
-    http_client = FakeHttpClient({"results": {"muniCd": "13101"}})
-
-    first = await fetch_municipality_code(http_client, 35.6938, 139.7532)
-    second = await fetch_municipality_code(http_client, 35.6938, 139.7532)
-
-    assert first == second
-    assert http_client.call_count == 1
+    assert await jma_warning_client.fetch_municipality_code(client, 35.6812, 139.7671) is None
 
 
-async def test_fetch_municipality_code_returns_none_on_request_error_without_retry():
-    http_client = FailingHttpClient()
+async def test_unexpected_results_shape_yields_none():
+    """上流が形を変えたときに、天候の応答ごと失敗させない。"""
+    client = FakeHttpClient({"results": "ERROR"})
 
-    result = await fetch_municipality_code(http_client, 35.0, 139.0)
-
-    assert result is None
-
-
-async def test_fetch_municipality_code_returns_none_on_missing_results():
-    http_client = FakeHttpClient({"unexpected": "shape"})
-
-    result = await fetch_municipality_code(http_client, 35.0, 139.0)
-
-    assert result is None
+    assert await jma_warning_client.fetch_municipality_code(client, 35.6812, 139.7671) is None
 
 
-# --- fetch_area_data ---
+async def test_nearby_coordinates_share_one_lookup():
+    """丸めが効かないと、数m動くたびに逆ジオコーダを引き直して上流へ負荷をかける。"""
+    client = FakeHttpClient({"results": {"muniCd": "13101"}})
+
+    await jma_warning_client.fetch_municipality_code(client, 35.6812, 139.7671)
+    await jma_warning_client.fetch_municipality_code(client, 35.68124, 139.76714)
+    assert client.call_count == 1
+
+    await jma_warning_client.fetch_municipality_code(client, 35.6822, 139.7671)
+    assert client.call_count == 2
 
 
-async def test_fetch_area_data_returns_payload_on_success():
-    payload = {"centers": {}, "offices": {}}
-    http_client = FakeHttpClient(payload)
+async def test_area_data_passes_through_without_reshaping():
+    payload = {"offices": {"130000": {"name": "東京都", "children": ["131000"]}}}
+    client = FakeHttpClient(payload)
 
-    result = await fetch_area_data(http_client)
-
-    assert result == payload
+    assert await jma_warning_client.fetch_area_data(client) == payload
 
 
-async def test_fetch_area_data_reuses_cache_within_ttl():
-    http_client = FakeHttpClient({"centers": {}})
+async def test_warning_documents_are_fetched_per_office_code():
+    """コードがURLとキャッシュキーの両方へ効かないと、別の府県の警報が表示される。"""
+    template = jma_warning_client.JMA_WARNING_URL_TEMPLATE
+    client = PerUrlHttpClient(
+        {
+            template.format(office_code="130000"): [{"reportDatetime": "tokyo"}],
+            template.format(office_code="140000"): [{"reportDatetime": "kanagawa"}],
+        }
+    )
 
-    first = await fetch_area_data(http_client)
-    second = await fetch_area_data(http_client)
-
-    assert first == second
-    assert http_client.call_count == 1
-
-
-async def test_fetch_area_data_returns_none_on_http_status_error_without_retry():
-    http_client = HttpStatusErrorHttpClient()
-
-    result = await fetch_area_data(http_client)
-
-    assert result is None
-    assert http_client.call_count == 1  # 429前提の再試行は設けない設計（再試行しない）
+    assert await jma_warning_client.fetch_warning_documents(client, "130000") == [{"reportDatetime": "tokyo"}]
+    assert await jma_warning_client.fetch_warning_documents(client, "140000") == [{"reportDatetime": "kanagawa"}]
 
 
-# --- fetch_warning_documents ---
+async def test_non_list_warning_response_yields_none():
+    """配列でない応答をそのまま通すと、電文を1件ずつ読む呼び出し元が落ちる。"""
+    client = FakeHttpClient({"message": "maintenance"})
 
-
-async def test_fetch_warning_documents_returns_documents_on_success():
-    http_client = FakeHttpClient([{"headlineText": "大雨注意報"}])
-
-    result = await fetch_warning_documents(http_client, "130000")
-
-    assert result == [{"headlineText": "大雨注意報"}]
-
-
-async def test_fetch_warning_documents_reuses_cache_within_ttl():
-    http_client = FakeHttpClient([{"headlineText": "大雨注意報"}])
-
-    first = await fetch_warning_documents(http_client, "130000")
-    second = await fetch_warning_documents(http_client, "130000")
-
-    assert first == second
-    assert http_client.call_count == 1
-
-
-async def test_fetch_warning_documents_returns_none_on_request_error_without_retry():
-    http_client = FailingHttpClient()
-
-    result = await fetch_warning_documents(http_client, "130000")
-
-    assert result is None
-
-
-async def test_fetch_warning_documents_returns_none_when_response_is_not_a_list():
-    http_client = FakeHttpClient({"unexpected": "shape"})
-
-    result = await fetch_warning_documents(http_client, "130000")
-
-    assert result is None
+    assert await jma_warning_client.fetch_warning_documents(client, "130000") is None

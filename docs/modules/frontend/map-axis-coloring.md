@@ -82,7 +82,7 @@ backend（`domain/dynamic_way_values.py: map_value_thresholds`）が軸の折れ
 `lensKeepAfterRoute`（既定ON）。レンズが軸を指していれば生成リクエストへ`lens_axis_id`を
 載せ、重み0でもbackendが区間表示のため風の時変化合成（風に依存する軸の場合）・
 `material_values`への当該材料の封入（`signed_material`種の軸の場合）を行う
-（backend側は`_active_material_ids`、[routing-engine.md](../backend/routing-engine.md)
+（backend側は`axis_raw_value.py: displayed_material_ids`、[routing-engine.md](../backend/routing-engine.md)
 参照）。
 
 `map_value_kind==="signed_material"`の場合、値は`axis_difficulties[axis_id]`ではなく
@@ -127,7 +127,7 @@ backend（`domain/dynamic_way_values.py: map_value_thresholds`）が軸の折れ
   地図全体の「薄い＝対象外、濃い＝分類あり」という読み方に揃える）。
   **暗黙の前提**: 値が無い道には、標高が計算されていない道と、
   勾配のように向きを指定する軸で**その向きに対して直角に近く値を示せない道**
-  （backend `domain/gradient.py: shows_gradient`）が同じnullとして届く。配信側が
+  （backend `domain/gradient.py: effective_gradient`がNoneを返す）が同じnullとして届く。配信側が
   種類を持たないため地図では区別できない。方位を1つ指定すると後者が街区の
   半分近くを占めうるため、薄くしないと値のある道がそこへ埋もれる。
   `loading`のあいだは薄くしない——`COLOR_LOADING`が見えなくなり「取得中」と

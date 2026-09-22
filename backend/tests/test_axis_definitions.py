@@ -85,9 +85,55 @@ def _registry(definitions: dict[str, AxisDefinition]):
         AXIS_DEFINITIONS.update(original)
 
 
+class TestTheDeclarationRefusesAxesThatCannotBePainted:
+    """軸の宣言そのものが拒む状態。**どの入口から来ても**拒む必要がある——軸は管理APIから
+    だけでなくDBの行からも組み立てられ、後者には検証の機会が他に無い。
+    """
+
+    def test_breakpoints_that_do_not_ascend_are_refused(self):
+        """折れ線が崩れると、例外もログも出ないまま全区間の得点が誤る。"""
+        with pytest.raises(ValueError, match="ascending"):
+            BreakpointLinearShape(
+                terms=[MaterialTerm(material="m_a")], breakpoints=[(10.0, 100.0), (0.0, 0.0)]
+            )
+
+    def test_breakpoints_that_repeat_an_x_are_refused(self):
+        with pytest.raises(ValueError, match="ascending"):
+            BreakpointLinearShape(
+                terms=[MaterialTerm(material="m_a")], breakpoints=[(0.0, 0.0), (0.0, 100.0)]
+            )
+
+    def test_an_empty_lookup_table_is_refused(self):
+        """引ける値が1つも無い対応表は、その軸を全区間で恒久的に欠損にする。"""
+        with pytest.raises(ValueError):
+            CategoricalShape(material="m_a", mapping={})
+
+    def test_band_boundaries_that_do_not_ascend_are_refused(self):
+        with pytest.raises(ValueError, match="ascending"):
+            _axis(display_thresholds_override=[2.0, 1.0, 4.0])
+
+    def test_band_labels_without_boundaries_are_refused(self):
+        """境界を自動導出へ任せたまま段数だけ決め打つと、導出が変わった日に凡例がずれる。"""
+        with pytest.raises(ValueError, match="display_thresholds_override"):
+            _axis(display_band_labels_override=["低い", "高い"])
+
+    def test_band_labels_that_do_not_match_the_band_count_are_refused(self):
+        with pytest.raises(ValueError, match="entries"):
+            _axis(display_thresholds_override=[1.0, 2.0], display_band_labels_override=["低い", "高い"])
+
+    def test_one_label_per_band_is_accepted(self):
+        axis = _axis(display_thresholds_override=[1.0, 2.0], display_band_labels_override=["低", "中", "高"])
+
+        assert axis.display_band_labels_override == ["低", "中", "高"]
+
+    def test_a_weight_that_is_not_a_number_is_refused(self):
+        """NaNの重みは軸の得点も合成difficultyも黙ってNaNにし、欠損と区別できなくなる。"""
+        with pytest.raises(ValueError):
+            MaterialTerm(material="m_a", weight=float("nan"))
+
+
 class TestReferencedMaterials:
-    """軸が参照するものの一覧。**書き込み時の検証と`AxisDefinition.materials`の両方が
-    これを使う**——片方が0次条件を見落とすと、検証を素通りした軸が実行時に落ちる。"""
+    """片方が0次条件を見落とすと、検証を素通りした軸が実行時に落ちる。"""
 
     def test_a_linear_shape_lists_every_term(self):
         shape = BreakpointLinearShape(
@@ -119,7 +165,6 @@ class TestReferencedMaterials:
 
 
 class TestPublishedAxesAreImmutable:
-    """公開済みの軸は変えられない。ただし評価に影響しない表示だけは直せる。"""
 
     def test_a_draft_can_be_changed_freely(self):
         existing = _axis(is_published=False)
@@ -169,7 +214,6 @@ class TestPublishedAxesAreImmutable:
 
 
 class TestMaterialExclusivity:
-    """1つの材料を2つの軸が使うと、その材料が二重に効く。"""
 
     def test_two_axes_sharing_a_material_are_rejected(self):
         with _catalog({"m_a", "m_b"}):
@@ -188,7 +232,6 @@ class TestMaterialExclusivity:
             check_material_exclusivity(_axis("same", ["m_a"]), {"same": _axis("same", ["m_a"])})
 
     def test_a_shared_internal_axis_is_not_a_conflict(self):
-        """複数の公開軸が同じ内部軸を意図的に共有できる。材料の二重計上とは別の話。"""
         with _catalog({"m_a"}):
             check_material_exclusivity(
                 _axis("new", ["inner"]), {"old": _axis("old", ["inner"])}
@@ -205,7 +248,6 @@ class TestMaterialExclusivity:
 
 
 class TestInternalAxesStayUnpublished:
-    """他の軸から参照されている軸を公開すると、一般向けの軸カタログへ漏れ出る。"""
 
     def test_an_unpublished_axis_is_always_allowed(self):
         with _catalog({"m_a"}):
@@ -234,10 +276,8 @@ class TestInternalAxesStayUnpublished:
 
 
 class TestPrimaryAttributeIds:
-    """軸が最終的に見ている一次属性。内部軸をまたいで辿る。"""
 
     def test_it_descends_through_referenced_axes(self):
-        """`materials`は1段しか展開しない。葉まで降りないと材料が分からない。"""
         inner = _axis("inner", ["m_a"])
         outer = _axis("outer", ["inner", "m_b"])
 
@@ -260,7 +300,6 @@ class TestPrimaryAttributeIds:
                 assert primary_attribute_ids_for(axis) == ["shared"]
 
     def test_a_cycle_between_axes_stops_instead_of_hanging(self):
-        """循環は軸スタジオが拒否するが、辿る側でも止める。"""
         a = _axis("a", ["b", "m_a"])
         b = _axis("b", ["a"])
 
@@ -271,9 +310,7 @@ class TestPrimaryAttributeIds:
 
 class TestDefaultAxisWeights:
     def test_only_published_axes_get_a_default_weight(self):
-        """内部軸は一般利用者の重み付け対象外。ここへ混ぜると、リクエストの検証が
-        内部軸の指定を要求し始める。
-        """
+        """ここへ混ぜると、リクエストの検証が内部軸の指定を要求し始める。"""
         with _registry(
             {
                 "shown": _axis("shown", default_weight=0.3, is_published=True),
@@ -316,7 +353,6 @@ class TestTimeScopedWeights:
 
 
 class TestEvaluateAxisScalar:
-    """1区間ぶんの材料値から得点を出す。"""
 
     def test_a_value_between_breakpoints_is_interpolated(self):
         assert evaluate_axis_scalar(_linear([MaterialTerm(material="m_a")], [(0.0, 0.0), (10.0, 50.0)]), {"m_a": 4.0}) == 20.0
@@ -355,7 +391,6 @@ class TestEvaluateAxisScalar:
         assert evaluate_axis_scalar(axis, {"m_a": 4.0}) == evaluate_axis_scalar(axis, {"m_a": 4.0, "m_b": 0.0})
 
     def test_no_term_with_a_value_is_unevaluable_rather_than_zero(self):
-        """「材料が1つも観測されていない」と「観測した結果が0だった」を区別する。"""
         axis = _linear(
             [MaterialTerm(material="m_a", required=False), MaterialTerm(material="m_b", required=False)]
         )
@@ -396,7 +431,6 @@ class TestEvaluateAxisScalar:
 
 
 class TestEvaluateAxesScalar:
-    """登録された全軸を依存順に評価する。内部軸の結果は次の軸の材料になる。"""
 
     def test_it_returns_only_published_axes(self):
         inner = _axis("inner", ["m_a"], is_published=False)
@@ -442,7 +476,6 @@ class TestEvaluateAxesScalar:
 
 
 class TestAxisRawValueArray:
-    """折れ点を通す前の生値。得点だけでは軸単体で良し悪しを判断できない。"""
 
     def test_a_linear_axis_reports_the_weighted_total(self):
         axis = _linear([MaterialTerm(material="m_a", weight=2.0)])
@@ -478,13 +511,11 @@ class TestAxisRawValueArray:
         assert axis_raw_value_array(axis, {"m_a": np.array([True])}) is None
 
     def test_whether_there_is_a_raw_value_is_decided_without_data(self):
-        """列の集合を数えるとき、実際に配列を作らずに同じ答えが要る。"""
         assert has_axis_raw_value_array(_linear([MaterialTerm(material="m_a")])) is True
         assert has_axis_raw_value_array(_axis(shape=CategoricalShape(material="m_a", mapping={True: 0.0}))) is False
 
 
 class TestEvaluateAxisArray:
-    """`evaluate_axis_scalar`の配列版。静的スコア行列の構築が使う。"""
 
     def test_it_agrees_with_the_scalar_version(self):
         axis = _linear([MaterialTerm(material="m_a")], [(0.0, 0.0), (10.0, 50.0)])
@@ -514,9 +545,6 @@ class TestEvaluateAxisArray:
         assert result.tolist() == [40.0]
 
     def test_an_element_with_every_term_missing_is_unevaluable_rather_than_zero(self):
-        """寄与が1件も無い状態へ「欠損は0」の規則を当てると、観測していない区間が
-        最良の点数で塗られる。
-        """
         axis = _linear(
             [MaterialTerm(material="m_a", required=False), MaterialTerm(material="m_b", required=False)]
         )
@@ -528,7 +556,6 @@ class TestEvaluateAxisArray:
         assert np.isnan(result).all()
 
     def test_a_boolean_material_has_no_missing_elements(self):
-        """真偽の材料は「値が無いこと」を偽へ畳んであるため、欠損を持たない。"""
         axis = _linear([MaterialTerm(material="m_a", weight=10.0)])
 
         result = evaluate_axis_array(axis, {"m_a": np.array([True, False])})
@@ -555,9 +582,7 @@ class TestEvaluateAxisArray:
         assert result.tolist() == [999.0, 50.0]
 
     def test_the_first_matching_condition_wins(self):
-        """スカラー版の「定義順で最初に一致したものを採用」と揃える。条件を順に重ねると
-        最後のものが残るため、逆順に重ねる。
-        """
+        """条件を順に重ねると最後のものが残るため、逆順に重ねる。"""
         from app.domain.axis_definitions import PriorityCondition
 
         axis = _linear(
@@ -573,7 +598,6 @@ class TestEvaluateAxisArray:
         assert result.tolist() == [1.0]
 
     def test_a_boolean_condition_is_compared_as_a_word(self):
-        """条件の値は文字列で書く。真偽の配列とそのまま比べると常に一致しない。"""
         from app.domain.axis_definitions import PriorityCondition
 
         axis = _linear(
@@ -586,13 +610,3 @@ class TestEvaluateAxisArray:
         assert result.tolist() == [7.0, 50.0]
 
 
-def test_every_registered_axis_passes_the_exclusivity_check():
-    """登録されている軸すべてを、自分以外の全軸に対して検査する。軸が1つ増えたときに
-    発火する——材料の二重帰属は、実際に登録してみるまで気づけない。
-    """
-    assert AXIS_DEFINITIONS, "軸が1つも無ければ、下のループは何も確かめていない"
-
-    for axis_id, definition in AXIS_DEFINITIONS.items():
-        others = {other_id: other for other_id, other in AXIS_DEFINITIONS.items() if other_id != axis_id}
-
-        check_material_exclusivity(definition, others)

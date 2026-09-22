@@ -22,16 +22,8 @@ def _jst(on_date: date, hour: int, minute: int = 0) -> datetime:
 
 
 class TestIsNight:
-    def test_midday_is_not_night(self):
-        assert is_night(TOKYO, _jst(MIDSUMMER, 12)) is False
-
-    def test_the_small_hours_are_night(self):
-        assert is_night(TOKYO, _jst(MIDSUMMER, 1)) is True
-
     def test_sunset_itself_is_not_yet_night(self):
-        """境界は日の入りではなく**市民薄明の終わり**。日没直後はまだ屋外の視認性が残る。
-        日の入りを境界にすると、まだ明るい時間帯に街灯の軸が効き始める。
-        """
+        """日の入りを境界にすると、まだ明るい時間帯に街灯の軸が効き始める。"""
         _, sunset = sunrise_sunset_jst(TOKYO, MIDSUMMER)
         at_sunset = datetime.fromisoformat(sunset)
 
@@ -39,19 +31,14 @@ class TestIsNight:
         assert is_night(TOKYO, at_sunset + timedelta(hours=2)) is True
 
     def test_a_naive_time_is_read_as_utc(self):
-        """呼び出し元の到達時刻計算はUTCで統一されている。現地時刻と取り違えると、
-        9時間ずれた判定になる。
-        """
+        """現地時刻と取り違えると、9時間ずれた判定になる。"""
         aware = _jst(MIDSUMMER, 12)
         naive = aware.astimezone(timezone.utc).replace(tzinfo=None)
 
         assert is_night(TOKYO, naive) == is_night(TOKYO, aware)
 
     def test_the_judgement_holds_across_the_utc_date_boundary(self):
-        """日本の現地日とUTCの暦日はずれる。`astral`は「そのUTC暦日に収まるイベント」を
-        返すため、同じ引数から返るdawnとduskが別の現地日を指し、単純な範囲比較では
-        昼夜が入れ替わる。現地の深夜0時台と正午は、UTCでは前日と当日に分かれる。
-        """
+        """現地の深夜0時台と正午は、UTCでは前日と当日に分かれる。"""
         assert is_night(TOKYO, _jst(MIDSUMMER, 0, 30)) is True
         assert is_night(TOKYO, _jst(MIDSUMMER, 12)) is False
 
@@ -66,16 +53,12 @@ class TestIsNight:
         assert switches == 2
 
     def test_the_first_days_of_a_polar_day_are_not_treated_as_night(self):
-        """白夜が始まった直後は、窓の中に`at`より後のイベントが無く、数日前の夕暮れだけが
-        残る。それを引きずると、太陽が沈まない期間を夜と判定する。
-        """
+        """白夜が始まった直後は、窓の中に`at`より後のイベントが無い。"""
         # この地点ではこの日から白夜に入り、窓（前後2日）で定義できるのは2日前だけになる。
         assert is_night(SVALBARD, datetime(2026, 4, 5, 12, tzinfo=timezone.utc)) is False
 
     def test_a_polar_day_is_not_treated_as_night(self):
-        """市民薄明が定義できない緯度では夜にしない。街灯の軸を一日中効かせるより、
-        効かせない方が安全側。
-        """
+        """街灯の軸を一日中効かせるより、効かせない方が安全側。"""
         assert is_night(SVALBARD, _jst(MIDSUMMER, 12)) is False
         assert is_night(SVALBARD, _jst(MIDSUMMER, 0)) is False
 

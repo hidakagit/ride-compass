@@ -43,11 +43,6 @@ from app.domain.axis_definitions import (
 from app.domain.axis_raw_value import axis_material_shares, raw_value_unit
 from app.domain.axis_templates import round1_array
 from app.domain.difficulty import distance_weighted_difficulty_array
-from app.domain.dynamic_materials import (
-    DynamicAxisRequestContext,
-    evaluate_dynamic_material_arrays,
-)
-from app.domain.graph import LeanRoadGraph
 from app.domain.hard_filters import (
     HARD_FILTER_NAMES,
 )
@@ -56,7 +51,6 @@ from app.domain.material_catalog import (
 )
 from app.domain.cycling_speed import ROLLING_RESISTANCE_MATERIAL_ID
 from app.domain.traffic import stop_count_material_ids
-from app.domain.weather import WeatherConditions
 from app.domain.tuning import tuning_value
 
 
@@ -261,8 +255,6 @@ def _evaluate_axes_from_material_arrays(
     bearing_deg: np.ndarray,
     mid_lat: np.ndarray,
     mid_lon: np.ndarray,
-    weather: WeatherConditions | None = None,
-    travel_speed_ms: float | None = None,
 ) -> BulkAxisEvaluation:
     """材料と区間の列が揃っている状態から先（計算フェーズと軸の評価）。
 
@@ -272,6 +264,10 @@ def _evaluate_axes_from_material_arrays(
 
     0次ハードフィルタの生フラグと区間そのものの列（距離・方位・中点）は材料ではないため
     別に受け取る。フィルタは`HARD_FILTER_NAMES`と同じキー集合の辞書で渡す。
+
+    **動的材料（風）の列は常にNaN**。風は区間の通過時刻で変わるため、タイル単位で1回だけ
+    組むこの行列では値を持てず、リクエストごとに`evaluate_dynamic_axis_arrays`が該当列を
+    上書きする。
     """
     n = len(edge_ids)
 
@@ -318,15 +314,7 @@ def _evaluate_axes_from_material_arrays(
             },
         )
     # --- 計算フェーズ（Pythonループ無し） ---
-    # 動的材料はEdge単位のPythonループを経由しない完全ベクトル化計算のためextractorを
-    # 持たない（material_catalog.pyのextractorフィールド説明参照）。
-    if weather is None:
-        material_arrays.update({material_id: np.full(n, np.nan) for material_id in REQUEST_DYNAMIC_MATERIAL_IDS})
-    else:
-        if travel_speed_ms is None:
-            raise ValueError("_evaluate_axes_bulk: travel_speed_ms is required when weather is given")
-        dynamic_context = DynamicAxisRequestContext(bearing_deg=bearing_deg, weather=weather, travel_speed_ms=travel_speed_ms)
-        material_arrays.update(evaluate_dynamic_material_arrays(dynamic_context))
+    material_arrays.update({material_id: np.full(n, np.nan) for material_id in REQUEST_DYNAMIC_MATERIAL_IDS})
     # スカラー版compute_edge_axis_scores（`evaluate_axes_scalar`）と同じ依存順評価
     # （軸が他の軸のdifficultyをmaterialとして参照できる階層構造）。
     # material_arrays_with_axesへは内部軸も含め全軸の結果を混ぜ込む（公開軸が内部軸を
@@ -577,8 +565,8 @@ class StaticEdgeScoreMatrix:
     辞書キャッシュに比べ、本行列はEdgeあたり軸の数×8バイト程度で収まる）。
 
     `axis_scores`の列（`axis_ids`）は風などREQUEST_DYNAMIC_MATERIAL_IDSに依存する軸を
-    含む全公開軸だが、そのような軸の列は常にNaN（`_evaluate_axes_bulk`をweather=Noneで
-    呼ぶことで自然にそうなる）。リクエスト時に`evaluate_dynamic_axis_arrays`が該当列だけを
+    含む全公開軸だが、そのような軸の列は常にNaN（`_evaluate_axes_from_material_arrays`が
+    動的材料の列をNaNで埋める）。リクエスト時に`evaluate_dynamic_axis_arrays`が該当列だけを
     実際の動的データ（風・走行速度）で上書きする。
 
     動的軸が参照できる材料は`REQUEST_DYNAMIC_MATERIAL_IDS`だけを前提にしている。
@@ -611,6 +599,43 @@ class StaticEdgeScoreMatrix:
     # `categorical_material_ids`の順）。数値の行列へは載せられないため別に持つ。
     categorical_material_ids: list[str] = field(default_factory=list)
     categorical_material_values: np.ndarray = field(default_factory=lambda: np.empty((0, 0), dtype=object))
+
+    def __post_init__(self) -> None:
+        """行と列が`edge_ids`・id列と揃っていることを、組み立てた場所で確かめる。
+
+        揃っていないまま先へ進むと、行がずれた区間のコストと難易度を**別のEdgeのもの**として
+        返し、列がずれれば別の軸の生値を表示する。どちらも例外にならないため、キャッシュへ
+        焼き付いた後に地図と一覧が食い違う形でしか現れない。
+        """
+        rows = len(self.edge_ids)
+        matrices = (
+            ("axis_scores", self.axis_scores, self.axis_ids),
+            ("axis_raw_values", self.axis_raw_values, self.raw_axis_ids),
+            ("material_values", self.material_values, self.material_ids),
+            ("categorical_material_values", self.categorical_material_values, self.categorical_material_ids),
+        )
+        wrong_columns = {
+            name: (matrix.shape[1], len(ids)) for name, matrix, ids in matrices if matrix.shape[1] != len(ids)
+        }
+        if wrong_columns:
+            raise ValueError(f"静的スコア行列の列数がid列と違います（列数, id数）= {wrong_columns}")
+        # 列を1つも持たない行列は行数を見ない——省略された任意の列は`(0, 0)`を既定に持ち、
+        # 中身が無いぶん行のずれようも無い。
+        wrong_rows = {
+            name: array.shape
+            for name, array in (
+                ("distance_m", self.distance_m),
+                ("bearing_deg", self.bearing_deg),
+                ("gradient_percent", self.gradient_percent),
+                ("mid_lat", self.mid_lat),
+                ("mid_lon", self.mid_lon),
+                *((f"hard_filter_flags[{name}]", flags) for name, flags in self.hard_filter_flags.items()),
+                *((name, matrix) for name, matrix, ids in matrices if ids),
+            )
+            if array.shape[0] != rows
+        }
+        if wrong_rows:
+            raise ValueError(f"静的スコア行列の行数が区間数と違います 区間={rows} {wrong_rows}")
 
     def axis_arrays(self) -> dict[str, np.ndarray]:
         """軸id→スコア配列。合成（`compose_costs_from_axis_matrix`）と動的軸の上書き
@@ -666,17 +691,12 @@ def _static_edge_score_matrix_from(evaluation: BulkAxisEvaluation) -> StaticEdge
     )
 
 
-def build_static_edge_score_matrix(
-    graph: LeanRoadGraph,
-    materials: EdgeMaterialArrays,
-    accident_years_covered: int = 0,
-) -> StaticEdgeScoreMatrix:
+def build_static_edge_score_matrix(materials: EdgeMaterialArrays) -> StaticEdgeScoreMatrix:
     """タイル読込時（`GraphService._get_or_build_tile_materials`）に1回だけ呼び、
     `StaticEdgeScoreMatrix`を構築する。
 
-    材料はDBが導出済み（`MaterialSpec.value_sql`）で、`accident_years_covered`はその導出の
-    中で既に効いているためここでは使わない（引数は呼び出し側の読みやすさのために残す）。
-    動的軸（風）の列はここではNaNのままで、リクエスト時に
+    材料はDBが導出済み（`MaterialSpec.value_sql`）で、事故の収録年数による正規化もその
+    導出の中で既に効いている。動的軸（風）の列はここではNaNのままで、リクエスト時に
     `evaluate_dynamic_axis_arrays`が埋める。
     """
     arrays = _empty_material_arrays(len(materials))

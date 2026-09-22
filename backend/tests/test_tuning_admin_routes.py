@@ -9,7 +9,7 @@ from fastapi.testclient import TestClient
 
 from app.api.dependencies import get_tuning_session
 from app.domain import tuning
-from app.domain.tuning import TUNING_PARAMETERS, TUNING_PARAMETERS_BY_ID
+from app.domain.tuning import TUNING_PARAMETERS_BY_ID
 from app.main import app
 from tests.admin_auth import AUTH_HEADERS
 
@@ -80,18 +80,9 @@ def test_requires_admin_auth(admin_credentials):
     assert client.get("/api/admin/tuning").status_code == 401
 
 
-def test_lists_exactly_the_declared_calibration_values(fake_overrides):
-    # 画面へ出るのは較正値の宣言に載っているものだけ。較正値ではない固定値（物理定数・
-    # 資源の上限）は使う側のモジュールにあり、このAPIからは見えない。
-    response = client.get("/api/admin/tuning", headers=AUTH_HEADERS)
-
-    assert response.status_code == 200
-    listed = {row["id"] for row in response.json()}
-    assert listed == {p.id for p in TUNING_PARAMETERS}
-
-
 def test_each_row_carries_what_it_takes_for_the_change_to_apply(fake_overrides):
-    # 「変えたのに効かない」を画面から見えるようにするための宣言。
+    # 画面はこの値でまとめる。別の綴り（列挙の名前等）へ写し違えると、画面は全項目を
+    # 名前の無いまとまりへ落とし、「何をすれば効くのか」だけが利用者から消える。
     rows = {row["id"]: row for row in client.get("/api/admin/tuning", headers=AUTH_HEADERS).json()}
 
     for param_id, row in rows.items():

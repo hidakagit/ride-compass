@@ -47,10 +47,22 @@ async def fetch_point_master(client: httpx.AsyncClient) -> list[WbgtPoint] | Non
         response.raise_for_status()
         return _parse_point_master(response.text)
 
-    return await cached_fetch(_point_master_cache, _POINT_MASTER_CACHE_KEY, "weather:wbgt-point-master", fetch)
+    return await cached_fetch(
+        "weather:wbgt-point-master", fetch, cache=_point_master_cache, key=_POINT_MASTER_CACHE_KEY
+    )
 
 
 def _parse_point_master(csv_text: str) -> list[WbgtPoint]:
+    """地点マスタCSVから、運用中の地点の番号・名称・緯度経度を取り出す。
+
+    **列の典拠はCSVの先頭行（ヘッダー）そのもの**で、別の仕様書は無い。18列あり、
+    使うのは`地点番号`(2)・`観測所名`(3)・`Latitude`(7)/`Latitude_3`(8)・
+    `Longitude`(9)/`Longitude_4`(10)・`End Year-End Month-End Day`(12)。
+
+    ヘッダーを読んでも分からないことが2つある。**緯度経度は度と分に分かれている**
+    （`45`と`31.2`で45度31.2分）ので、度へ直すには分を60で割って足す。終了日の
+    `9999-99-99`は**運用中**を表す番兵で、それ以外の日付が入っている地点は終了済み。
+    """
     reader = csv.reader(io.StringIO(csv_text))
     rows = list(reader)
     points: list[WbgtPoint] = []
@@ -65,7 +77,7 @@ def _parse_point_master(csv_text: str) -> list[WbgtPoint]:
             name = row[3].strip()
             latitude = float(row[7].strip()) + float(row[8].strip()) / 60.0
             longitude = float(row[9].strip()) + float(row[10].strip()) / 60.0
-        except (ValueError, IndexError):
+        except ValueError:
             continue  # 欠損行はスキップ（他地点で近傍検索を続行できる）
         points.append(WbgtPoint(no=no, name=name, latitude=latitude, longitude=longitude))
     return points
@@ -96,8 +108,15 @@ async def fetch_forecast(client: httpx.AsyncClient, wbgt_no: str, range_from: st
         response = await client.get(WBGT_FORECAST_API_URL, params=params, timeout=REQUEST_TIMEOUT)
         response.raise_for_status()
         body = response.json()
-        if body.get("status") != "success" or not isinstance(body.get("data"), list):
-            raise UnexpectedShapeError("wbgt forecast response is not successful or not a list")
-        return body["data"]
+        if body.get("status") != "success":
+            raise UnexpectedShapeError("wbgt forecast response is not successful")
+        return body.get("data")
 
-    return await cached_fetch(_forecast_cache, wbgt_no, "weather:wbgt-forecast", fetch, wbgt_no=wbgt_no)
+    return await cached_fetch(
+        "weather:wbgt-forecast",
+        fetch,
+        cache=_forecast_cache,
+        key=wbgt_no,
+        expect=list,
+        wbgt_no=wbgt_no,
+    )

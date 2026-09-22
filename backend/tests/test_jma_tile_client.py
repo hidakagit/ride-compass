@@ -1,265 +1,185 @@
+"""`infrastructure/jma_tile_client.py`——JMA bosaiのタイル・時刻一覧のプロキシとキャッシュ。
+
+ここで見ないもの:
+- Redisへの保存形式・空タイルのフラグ化 → `test_jma_tile_redis_cache.py`
+- HTTPの返し分け（404/502）・配信側のレート制限 → `test_jma_tile_routes.py`
+- プリウォームの巡回 → `test_jma_tile_prewarm_service.py`
+
+上流HTTPは`tests/fake_tile_http.py`、Redisは`tests/fake_redis.py`のフェイクを通す。
+キャッシュと上流の間隔はモジュール大域に持たれるため、テストごとに戻す。
+"""
+
+import time
+
+import httpx
 import pytest
 
-from app.infrastructure import jma_tile_client, jma_tile_redis_cache
-from app.infrastructure.jma_tile_client import JmaTileClient
-from tests.fake_tile_http import FakeHttpClient
+from app.config import settings
+from app.infrastructure import debug_log, jma_tile_client, jma_tile_redis_cache
+from app.infrastructure.jma_tile_client import (
+    UPSTREAM_HOST,
+    JmaTileClient,
+    JmaTileNotFoundError,
+    is_target_times_path,
+)
+from app.infrastructure.jma_tile_redis_cache import EMPTY_TILE
 from tests.fake_redis import FakeRedis
+from tests.fake_tile_http import FakeHttpClient
+
+TILE_PATH = "bosai/jmatile/data/nowc/20260101000000/none/20260101000500/surf/hrpns/6/57/25.png"
+TARGET_TIMES_PATH = "bosai/jmatile/data/nowc/targetTimes_N1.json"
 
 
 @pytest.fixture(autouse=True)
-def use_fake_redis(monkeypatch):
+def _reset_module_state():
+    jma_tile_client._target_times_cache.clear()
+    jma_tile_client._last_fetch_at = None
+    yield
+    jma_tile_client._target_times_cache.clear()
+    jma_tile_client._last_fetch_at = None
+
+
+@pytest.fixture(autouse=True)
+def fake_redis(monkeypatch):
     fake = FakeRedis()
     monkeypatch.setattr(jma_tile_redis_cache, "get_redis_client_or_none", lambda: fake)
-    # targetTimes.json用のプロセス内TTLキャッシュはテスト間で共有されるモジュール変数のため、
-    # 各テストの独立性のため空にしてから始める。
-    jma_tile_client._target_times_cache.clear()
-    yield
+    return fake
 
 
-@pytest.fixture(autouse=True)
-def no_real_upstream_rate_limit_wait(monkeypatch):
-    """上流レート制限の状態（モジュールレベルの`_last_fetch_at`）はテスト間で漏れるため
-    毎回リセットし、`asyncio.sleep`も実待機せず即座に返すようにする。
-
-    ペーシングそのものを検証するテストだけが、このsleepパッチを自分の中で上書きする。
-    """
-    monkeypatch.setattr(jma_tile_client, "_last_fetch_at", None)
-
-    async def instant_sleep(_seconds):
-        return None
-
-    monkeypatch.setattr(jma_tile_client.asyncio, "sleep", instant_sleep)
-    yield
+def _status_error(status_code: int) -> httpx.HTTPStatusError:
+    request = httpx.Request("GET", f"{UPSTREAM_HOST}/{TILE_PATH}")
+    return httpx.HTTPStatusError("upstream", request=request, response=httpx.Response(status_code, request=request))
 
 
-async def test_get_passes_through_binary_tile_unmodified():
-    http_client = FakeHttpClient(b"\x89PNG...", "image/png")
-    client = JmaTileClient(http_client)
-
-    content, content_type = await client.get(
-        "bosai/jmatile/data/risk/20260829170000/immed0/20260829170000/surf/land/11/1818/805.png"
-    )
-
-    assert content == b"\x89PNG..."
-    assert content_type == "image/png"
+def test_target_times_are_told_apart_by_the_file_name():
+    """取り違えると、同じURLのまま更新される時刻一覧がタイルと同じ寿命で居座り、
+    地図が古い時刻を指し続ける。"""
+    assert is_target_times_path("bosai/jmatile/data/nowc/targetTimes.json") is True
+    assert is_target_times_path(TARGET_TIMES_PATH) is True
+    assert is_target_times_path(TILE_PATH) is False
+    assert is_target_times_path("bosai/targetTimes.json/6/57/25.png") is False
 
 
-async def test_get_caches_tile_and_skips_second_upstream_request():
-    http_client = FakeHttpClient(b"cached-bytes", "image/png")
-    client = JmaTileClient(http_client)
-    path = "bosai/jmatile/data/nowc/20260829170000/none/20260829170500/surf/hrpns/10/909/402.png"
-
-    await client.get(path)
-    await client.get(path)
-
-    assert len(http_client.requested_urls) == 1
+async def test_fetched_tile_is_shared_with_later_requests(fake_redis):
+    """クライアントはリクエストごとに使い捨てるため、別インスタンスから確かめる。"""
+    await JmaTileClient(FakeHttpClient(b"tile", "image/png")).fetch(TILE_PATH)
+    later = FakeHttpClient(b"unused", "image/png")
+    assert await JmaTileClient(later).get_cached(TILE_PATH) == (b"tile", "image/png")
+    assert later.requested_urls == []
 
 
-async def test_get_caches_target_times_separately_from_redis_tile_cache():
-    """targetTimes.jsonはRedis cache-aside（jma_tile_redis_cache.py）ではなく、短TTLの
-    プロセス内キャッシュに乗ることを確認する（更新頻度が高いデータをTTL20分のタイル
-    キャッシュへ乗せると、更新後も古い内容をより長く返し続けてしまうため）。"""
-    http_client = FakeHttpClient(b'{"basetime":"1"}', "application/json")
-    client = JmaTileClient(http_client)
-    path = "bosai/jmatile/data/risk/targetTimes.json"
-
-    await client.get(path)
-
-    assert await jma_tile_redis_cache.get(path) is None
-    assert jma_tile_client._target_times_cache.get(path) is not None
+async def test_fetched_target_times_are_kept_in_process_instead_of_redis(fake_redis):
+    await JmaTileClient(FakeHttpClient(b"[]", "application/json")).fetch(TARGET_TIMES_PATH)
+    assert fake_redis.store == {}
+    later = FakeHttpClient(b"unused", "application/json")
+    assert await JmaTileClient(later).get_cached(TARGET_TIMES_PATH) == (b"[]", "application/json")
+    assert later.requested_urls == []
 
 
-async def test_get_caches_target_times_and_skips_second_upstream_request():
-    http_client = FakeHttpClient(b'{"basetime":"1"}', "application/json")
-    client = JmaTileClient(http_client)
-    path = "bosai/jmatile/data/rasrf/targetTimes.json"
-
-    await client.get(path)
-    await client.get(path)
-
-    assert len(http_client.requested_urls) == 1
+async def test_cache_lookup_never_reaches_upstream():
+    http = FakeHttpClient(b"tile", "image/png")
+    assert await JmaTileClient(http).get_cached(TILE_PATH) is None
+    assert http.requested_urls == []
 
 
-async def test_get_returns_none_on_upstream_failure():
-    import httpx
-
-    http_client = FakeHttpClient(
-        b"", "text/plain", raises=httpx.ConnectError("boom", request=httpx.Request("GET", "http://x"))
-    )
-    client = JmaTileClient(http_client)
-
-    result = await client.get("bosai/jmatile/data/risk/targetTimes.json")
-
-    assert result is None
+async def test_fetch_asks_the_jma_host_for_the_given_path():
+    http = FakeHttpClient(b"tile", "image/png")
+    assert await JmaTileClient(http).fetch(TILE_PATH) == (b"tile", "image/png")
+    assert http.requested_urls == [f"{UPSTREAM_HOST}/{TILE_PATH}"]
 
 
-async def test_get_cached_returns_none_without_touching_upstream():
-    http_client = FakeHttpClient(b"tile-bytes", "image/png")
-    client = JmaTileClient(http_client)
-    path = "bosai/jmatile/data/risk/20260829170000/immed0/20260829170000/surf/land/11/1818/805.png"
-
-    result = await client.get_cached(path)
-
-    assert result is None
-    assert http_client.requested_urls == []
+async def test_response_without_a_content_type_falls_back_to_a_generic_one():
+    result = await JmaTileClient(FakeHttpClient(b"tile", None)).fetch(TILE_PATH)
+    assert result == (b"tile", "application/octet-stream")
 
 
-async def test_fetch_raises_not_found_for_404():
-    import httpx
-
-    from app.infrastructure.jma_tile_client import JmaTileNotFoundError
-
-    request = httpx.Request("GET", "https://www.jma.go.jp/x")
-    response = httpx.Response(404, request=request)
-    http_client = FakeHttpClient(
-        b"", "text/plain",
-        raises=httpx.HTTPStatusError("404", request=request, response=response),
-    )
-    client = JmaTileClient(http_client)
-
+@pytest.mark.parametrize("path", [TILE_PATH, TARGET_TIMES_PATH])
+async def test_absent_path_is_remembered_so_the_next_request_skips_upstream(path):
+    http = FakeHttpClient(b"", "image/png", raises=_status_error(404))
     with pytest.raises(JmaTileNotFoundError):
-        await client.fetch("bosai/jmatile/data/risk/20260829170000/immed0/20260829170000/surf/land/11/1818/805.png")
+        await JmaTileClient(http).fetch(path)
+    later = FakeHttpClient(b"tile", "image/png")
+    assert await JmaTileClient(later).get_cached(path) is EMPTY_TILE
+    assert later.requested_urls == []
 
 
-async def test_get_returns_empty_tile_for_404_instead_of_raising_or_none():
-    # 疎な格子状タイルでは特定のz/x/yが上流に存在しない（404）ことは珍しくない正常系。
-    # get()（プリウォームバッチ等が使う）はJmaTileNotFoundErrorを意識せずに済むが、
-    # 取得失敗（None）とは区別できる必要がある——平常時はこれが大半のため、失敗として
-    # 数えるとエラー件数が常に大きくなり本物の障害が埋もれる。
-    import httpx
-
-    from app.infrastructure.jma_tile_client import EmptyTile
-
-    request = httpx.Request("GET", "https://www.jma.go.jp/x")
-    response = httpx.Response(404, request=request)
-    http_client = FakeHttpClient(
-        b"", "text/plain",
-        raises=httpx.HTTPStatusError("404", request=request, response=response),
-    )
-    client = JmaTileClient(http_client)
-
-    result = await client.get("bosai/jmatile/data/risk/20260829170000/immed0/20260829170000/surf/land/11/1818/805.png")
-
-    assert isinstance(result, EmptyTile)
+@pytest.mark.parametrize("raises", [_status_error(500), httpx.ConnectError("no route")])
+async def test_upstream_failure_yields_nothing_and_is_not_remembered(raises):
+    assert await JmaTileClient(FakeHttpClient(b"", "image/png", raises=raises)).fetch(TILE_PATH) is None
+    later = FakeHttpClient(b"tile", "image/png")
+    assert await JmaTileClient(later).get_cached(TILE_PATH) is None
 
 
-async def test_fetch_caches_404_so_a_later_get_cached_skips_upstream():
-    # 恒久404（basetime/validtimeが確定した過去の一時点への結果）をキャッシュし、
-    # 同じpathへの次回get_cachedが上流へ問い合わせずEmptyTileを返せること。
-    import httpx
-
-    from app.infrastructure.jma_tile_client import EmptyTile
-
-    request = httpx.Request("GET", "https://www.jma.go.jp/x")
-    response = httpx.Response(404, request=request)
-    http_client = FakeHttpClient(
-        b"", "text/plain",
-        raises=httpx.HTTPStatusError("404", request=request, response=response),
-    )
-    client = JmaTileClient(http_client)
-    path = "bosai/jmatile/data/risk/20260829170000/immed0/20260829170000/surf/land/11/1818/805.png"
-
-    with pytest.raises(jma_tile_client.JmaTileNotFoundError):
-        await client.fetch(path)
-    cached = await client.get_cached(path)
-
-    assert isinstance(cached, EmptyTile)
+@pytest.mark.parametrize("path", [TILE_PATH, TARGET_TIMES_PATH])
+async def test_locally_built_tiles_can_be_stored_without_fetching(path):
+    http = FakeHttpClient(b"unused", "image/png")
+    client = JmaTileClient(http)
+    await client.store(path, b"built here", "image/png")
+    assert await client.get_cached(path) == (b"built here", "image/png")
+    assert http.requested_urls == []
 
 
-async def test_fetch_caches_404_for_target_times_path_too():
-    import httpx
-
-    from app.infrastructure.jma_tile_client import EmptyTile
-
-    request = httpx.Request("GET", "https://www.jma.go.jp/x")
-    response = httpx.Response(404, request=request)
-    http_client = FakeHttpClient(
-        b"", "text/plain",
-        raises=httpx.HTTPStatusError("404", request=request, response=response),
-    )
-    client = JmaTileClient(http_client)
-    path = "bosai/jmatile/data/risk/targetTimes.json"
-
-    with pytest.raises(jma_tile_client.JmaTileNotFoundError):
-        await client.fetch(path)
-    cached = await client.get_cached(path)
-
-    assert isinstance(cached, EmptyTile)
+async def test_get_prefers_the_cache_over_upstream():
+    http = FakeHttpClient(b"from upstream", "image/png")
+    client = JmaTileClient(http)
+    await client.store(TILE_PATH, b"cached", "image/png")
+    assert await client.get(TILE_PATH) == (b"cached", "image/png")
+    assert http.requested_urls == []
 
 
-async def test_404_is_not_counted_as_an_error_in_debug_stats():
-    # 404は珍しくない正常系のため、他の失敗（タイムアウト・5xx等）と違い
-    # error集計・WARNINGログの対象にしない。
-    import httpx
+async def test_get_fetches_when_the_cache_misses():
+    http = FakeHttpClient(b"from upstream", "image/png")
+    assert await JmaTileClient(http).get(TILE_PATH) == (b"from upstream", "image/png")
+    assert http.requested_urls == [f"{UPSTREAM_HOST}/{TILE_PATH}"]
 
-    from app.infrastructure import debug_log
 
+async def test_get_reports_an_absent_tile_as_empty_and_a_failure_as_nothing():
+    absent = FakeHttpClient(b"", "image/png", raises=_status_error(404))
+    assert await JmaTileClient(absent).get(TILE_PATH) is EMPTY_TILE
+    failing = FakeHttpClient(b"", "image/png", raises=_status_error(503))
+    assert await JmaTileClient(failing).get("other/path/6/57/25.png") is None
+
+
+async def test_absent_tile_is_not_counted_as_an_upstream_error():
     debug_log.reset_stats()
-    request = httpx.Request("GET", "https://www.jma.go.jp/x")
-    response = httpx.Response(404, request=request)
-    http_client = FakeHttpClient(
-        b"", "text/plain",
-        raises=httpx.HTTPStatusError("404", request=request, response=response),
-    )
-    client = JmaTileClient(http_client)
+    await JmaTileClient(FakeHttpClient(b"", "image/png", raises=_status_error(404))).get(TILE_PATH)
+    assert debug_log.get_stats()["external"]["weather:jma-tile"]["errors"] == 0
+    await JmaTileClient(FakeHttpClient(b"", "image/png", raises=_status_error(500))).get("other/6/57/25.png")
+    assert debug_log.get_stats()["external"]["weather:jma-tile"]["errors"] == 1
 
-    await client.get("bosai/jmatile/data/risk/20260829170000/immed0/20260829170000/surf/land/11/1818/805.png")
 
+async def test_cache_hits_and_misses_are_counted_apart():
+    debug_log.reset_stats()
+    client = JmaTileClient(FakeHttpClient(b"unused", "image/png"))
+    await client.get_cached(TILE_PATH)
+    await client.store(TILE_PATH, b"tile", "image/png")
+    await client.get_cached(TILE_PATH)
     stats = debug_log.get_stats()["external"]["weather:jma-tile"]
-    assert stats["errors"] == 0
-    assert stats["calls"] == 2  # get_cached()のcache-miss確認 + fetch()の1回
+    assert (stats["cache_hits"], stats["cache_misses"]) == (1, 1)
 
 
-async def test_get_cached_hits_after_fetch_writes_cache():
-    http_client = FakeHttpClient(b"tile-bytes", "image/png")
-    client = JmaTileClient(http_client)
-    path = "bosai/jmatile/data/risk/20260829170000/immed0/20260829170000/surf/land/11/1818/805.png"
-
-    await client.fetch(path)
-    cached = await client.get_cached(path)
-
-    assert cached == (b"tile-bytes", "image/png")
-    assert len(http_client.requested_urls) == 1
+async def test_consecutive_fetches_are_spaced_by_the_upstream_interval(monkeypatch):
+    monkeypatch.setattr(settings, "jma_tile_upstream_max_requests_per_second", 10.0)
+    client = JmaTileClient(FakeHttpClient(b"tile", "image/png"))
+    await client.fetch(TILE_PATH)
+    started = time.monotonic()
+    await client.fetch(TILE_PATH)
+    assert time.monotonic() - started >= 0.09
 
 
-async def test_fetch_always_hits_upstream_even_if_cached():
-    """fetch()はキャッシュを参照せず必ず外部フェッチする（呼び出し元がレート制限を
-    適用済みの前提で使うメソッドのため）。"""
-    http_client = FakeHttpClient(b"tile-bytes", "image/png")
-    client = JmaTileClient(http_client)
-    path = "bosai/jmatile/data/risk/20260829170000/immed0/20260829170000/surf/land/11/1818/805.png"
-
-    await client.fetch(path)
-    await client.fetch(path)
-
-    assert len(http_client.requested_urls) == 2
+async def test_fetch_does_not_wait_when_the_interval_has_already_passed(monkeypatch):
+    monkeypatch.setattr(settings, "jma_tile_upstream_max_requests_per_second", 2.0)
+    jma_tile_client._last_fetch_at = time.monotonic() - 10.0
+    started = time.monotonic()
+    await JmaTileClient(FakeHttpClient(b"tile", "image/png")).fetch(TILE_PATH)
+    assert time.monotonic() - started < 0.4
 
 
-async def test_fetch_paces_requests_to_the_configured_upstream_rate(monkeypatch):
-    """実フェッチの間隔が`settings.jma_tile_upstream_max_requests_per_second`を守ること。
-
-    実時間を待たず、`time.monotonic`/`asyncio.sleep`を差し替えて呼び出し引数だけを見る。
-    """
-    fake_now = [1000.0]
-
-    def fake_monotonic():
-        return fake_now[0]
-
-    sleep_calls: list[float] = []
-
-    async def fake_sleep(seconds):
-        sleep_calls.append(seconds)
-        fake_now[0] += seconds
-
-    monkeypatch.setattr(jma_tile_client.time, "monotonic", fake_monotonic)
-    monkeypatch.setattr(jma_tile_client.asyncio, "sleep", fake_sleep)
-    monkeypatch.setattr(jma_tile_client.settings, "jma_tile_upstream_max_requests_per_second", 5.0)
-
-    http_client = FakeHttpClient(b"tile-bytes", "image/png")
-    client = JmaTileClient(http_client)
-
-    await client.fetch("bosai/jmatile/data/risk/20260829170000/immed0/20260829170000/surf/land/11/1818/805.png")
-    assert sleep_calls == []  # 初回（直前フェッチが無い）は待たない
-
-    await client.fetch("bosai/jmatile/data/risk/20260829170000/immed0/20260829170000/surf/land/11/1818/806.png")
-    assert sleep_calls == [pytest.approx(0.2)]  # 秒5回=0.2秒間隔を守るぶんだけ待つ
+async def test_cache_hits_are_not_held_back_by_the_upstream_interval(monkeypatch):
+    monkeypatch.setattr(settings, "jma_tile_upstream_max_requests_per_second", 1.0)
+    client = JmaTileClient(FakeHttpClient(b"unused", "image/png"))
+    await client.store(TILE_PATH, b"cached", "image/png")
+    jma_tile_client._last_fetch_at = time.monotonic()
+    started = time.monotonic()
+    assert await client.get_cached(TILE_PATH) == (b"cached", "image/png")
+    assert time.monotonic() - started < 0.5

@@ -25,7 +25,7 @@ from omfiles import OmFileReader
 
 from app.domain.time_zone import JST
 from app.config import settings
-from app.domain.msm import MsmGrid, interpolate_points, parse_bbox
+from app.domain.msm import MsmGrid, MsmWindow, parse_bbox
 from app.infrastructure.debug_log import error_type_label, log_external_call
 
 logger = logging.getLogger("ridecompass.msm_client")
@@ -288,12 +288,12 @@ async def refresh(client: httpx.AsyncClient, horizon_hours: int | None = None) -
     return downloaded
 
 
-def _read_block(variable: str, chunk_number: int, i0: int, i1: int, j0: int, j1: int, t0: int, t1: int) -> np.ndarray:
+def _read_block(variable: str, chunk_number: int, window: MsmWindow, t0: int, t1: int) -> np.ndarray:
     path = _chunk_path(variable, chunk_number)
     if not path.exists():
         raise MsmUnavailableError(f"MSMのチャンクが未同期です: {path.name}")
     with OmFileReader(str(path)) as reader:
-        return np.asarray(reader[i0:i1, j0:j1, t0:t1], dtype=np.float64)
+        return np.asarray(reader[window.lat_slice, window.lon_slice, t0:t1], dtype=np.float64)
 
 
 def _grid_from_meta(meta: dict, n_lat: int, n_lon: int) -> MsmGrid:
@@ -321,7 +321,7 @@ def _read_series_sync(
     with OmFileReader(str(sample_path)) as reader:
         n_lat, n_lon = int(reader.shape[0]), int(reader.shape[1])
     grid = _grid_from_meta(meta, n_lat, n_lon)
-    i0, i1, j0, j1 = grid.slice_bounds(latitudes, longitudes)
+    window = grid.window(latitudes, longitudes)
 
     series: dict[str, list[np.ndarray]] = {variable: [] for variable in FORECAST_VARIABLES}
     times: list[str] = []
@@ -332,8 +332,8 @@ def _read_series_sync(
         t0 = (cursor - chunk_begin) // 3600
         t1 = min((end - chunk_begin) // 3600, chunk_hours)
         for variable in FORECAST_VARIABLES:
-            block = _read_block(variable, chunk_number, i0, i1, j0, j1, t0, t1)
-            series[variable].append(interpolate_points(block, grid, i0, j0, latitudes, longitudes))
+            block = _read_block(variable, chunk_number, window, t0, t1)
+            series[variable].append(window.interpolate(block))
         times.extend(
             datetime.fromtimestamp(chunk_begin + hour * 3600, JST).strftime("%Y-%m-%dT%H:%M") for hour in range(t0, t1)
         )

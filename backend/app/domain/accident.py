@@ -23,8 +23,11 @@ BICYCLE_PARTY_TYPE_CODES: frozenset[str] = frozenset({"51", "52"})
 
 def _dms_to_decimal(raw: str) -> float | None:
     """本票の緯度・経度列（度分秒を1つの数値へ連結した表記。右5桁=秒×1000、
-    次の2桁=分、残り=度）を10進の度へ変換する。欠損（空・非数値・全て0）や
-    分/秒が60以上になる不正値はNone（根拠のない推測はしない）。"""
+    次の2桁=分、残り=度）を10進の度へ変換する。欠損（空・非数値）や
+    分/秒が60以上になる不正値はNone（根拠のない推測はしない）。
+
+    全て0の列は0度として通す。日本の範囲外として落とすのは`latitude_from_raw`／
+    `longitude_from_raw`の側で、ここは表記の解釈だけを負う。"""
     value = raw.strip()
     if not value.isdigit() or len(value) < 8:
         return None

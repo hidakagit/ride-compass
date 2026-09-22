@@ -1,176 +1,113 @@
-"""tile_persistent_cache.pyの単体テスト（改善計画T538）。
+"""`infrastructure/tile_persistent_cache.py`——タイル単位のPythonオブジェクトを置くディスク。
 
-タイル単位の複雑なPythonオブジェクトをディスクへpickle永続化する汎用キャッシュ本体を
-検証する。境界ケース（キャッシュ不在・ファイル破損/部分書き込み・世代不一致・
-namespace分離）を通常のroundtripケースと同じ優先度でカバーする（改善計画T536・T537で
-本番実測まで発覚しなかった不具合の教訓、docs/records/tasks/T538.md参照）。
+ここで見ないもの:
+- 置いたものを捨てる側（世代の掃除・namespace単位の削除）→ `test_tile_persistent_cache_prune.py`
+- DBの世代との突き合わせ → `test_cache_generation.py`
+- namespaceと世代文字列をどう決めるか → `test_graph_material_cache.py`・`test_tile_score_matrix_cache.py`
+- 生バイトの置き場 → `test_tile_cache.py`
+
+置き場は`conftest.py`のautouseフィクスチャがテストごとの一時ディレクトリへ差し替える。
 """
-
 
 import pytest
 
 from app.infrastructure import tile_persistent_cache
 
+ENTRY = ("materials", "v1", 12, 3630, 1612)
 
-class _DummyForRoundtrip:
-    """`SearchMaterials`・`StaticEdgeScoreMatrix`のような任意のPythonオブジェクトの
-    pickle roundtripを確認するための最小のテスト用クラス（モジュール直下に置く必要が
-    ある。pickleはトップレベル定義のクラスしか復元できないため）。"""
 
-    def __init__(self, value):
-        self.value = value
+def _boom(*_args, **_kwargs):
+    raise RuntimeError("sqlite")
 
-    def __eq__(self, other):
-        return isinstance(other, _DummyForRoundtrip) and other.value == self.value
 
+class TestKeepingAnObjectForATile:
+    def test_a_tile_that_was_never_computed_is_a_miss(self):
+        assert tile_persistent_cache.get(*ENTRY) is None
 
-@pytest.fixture(autouse=True)
-def use_temp_cache_dir(tmp_path, monkeypatch):
-    tile_persistent_cache.use_directory(tmp_path / "tile_persistent_cache")
+    def test_an_object_comes_back_as_it_went_in(self):
+        value = {"edges": (1, 2.5), "missing": None}
 
+        tile_persistent_cache.set(*ENTRY, value)
 
-def test_get_returns_none_when_not_cached():
-    assert tile_persistent_cache.get("materials", "1", 12, 1, 1) is None
+        assert tile_persistent_cache.get(*ENTRY) == value
 
+    def test_an_empty_value_is_not_the_same_as_never_having_computed_it(self):
+        """Edgeが1本も無いタイルは実在する。空を未キャッシュへ倒すと、そのタイルだけ
+        毎回DBから作り直す。
+        """
+        tile_persistent_cache.set(*ENTRY, {})
 
-def test_set_then_get_roundtrip():
-    tile_persistent_cache.set("materials", "1", 12, 5, 6, {"edges": ["e1", "e2"]})
+        assert tile_persistent_cache.get(*ENTRY) == {}
 
-    result = tile_persistent_cache.get("materials", "1", 12, 5, 6)
+    def test_writing_the_same_tile_again_replaces_what_was_there(self):
+        tile_persistent_cache.set(*ENTRY, "old")
 
-    assert result == {"edges": ["e1", "e2"]}
+        tile_persistent_cache.set(*ENTRY, "new")
 
+        assert tile_persistent_cache.get(*ENTRY) == "new"
 
-def test_roundtrip_preserves_arbitrary_picklable_object_not_just_plain_types():
-    # pickleはモジュールトップレベルで定義されたクラスのみ復元できる（テスト関数内の
-    # ローカルクラスはpickle化不能なため、_DummyForRoundtripはモジュール直下に置く）。
-    tile_persistent_cache.set("materials", "1", 12, 1, 1, _DummyForRoundtrip("payload"))
 
-    assert tile_persistent_cache.get("materials", "1", 12, 1, 1) == _DummyForRoundtrip("payload")
+class TestWhatMakesTwoEntriesDifferent:
+    @pytest.mark.parametrize("part", range(len(ENTRY)))
+    def test_changing_any_part_of_the_key_is_another_entry(self, part):
+        """世代を上げても前の値が読めるなら、形の変わったキャッシュを新しいコードが読む。"""
+        tile_persistent_cache.set(*ENTRY, "value")
+        other = list(ENTRY)
+        other[part] = "other" if isinstance(other[part], str) else other[part] + 1
 
+        assert tile_persistent_cache.get(*other) is None
 
-def test_different_tile_coordinates_are_independent():
-    tile_persistent_cache.set("materials", "1", 12, 5, 6, "a")
-    tile_persistent_cache.set("materials", "1", 12, 5, 7, "b")
 
-    assert tile_persistent_cache.get("materials", "1", 12, 5, 6) == "a"
-    assert tile_persistent_cache.get("materials", "1", 12, 5, 7) == "b"
+class TestTellingTheCallerHowLongTheReadTook:
+    def test_a_hit_reports_the_time_spent_reading(self):
+        tile_persistent_cache.set(*ENTRY, "value")
+        stats: dict[str, object] = {}
 
+        tile_persistent_cache.get(*ENTRY, stats)
 
-def test_different_namespaces_are_independent_even_for_the_same_tile():
-    # graph_material_cache（"materials"）とtile_score_matrix_cache（"score_matrix"）が
-    # 同じタイル座標を使っても互いのキャッシュを踏まないことを確認する。
-    tile_persistent_cache.set("materials", "1", 12, 1, 1, "materials-value")
-    tile_persistent_cache.set("score_matrix", "1", 12, 1, 1, "score-matrix-value")
+        assert isinstance(stats["read_ms"], float)
 
-    assert tile_persistent_cache.get("materials", "1", 12, 1, 1) == "materials-value"
-    assert tile_persistent_cache.get("score_matrix", "1", 12, 1, 1) == "score-matrix-value"
+    def test_a_miss_leaves_the_stats_untouched(self):
+        """ミスでも数字が入ると、要求ごとのサマリが「ディスクから読めた」ことになる。"""
+        stats: dict[str, object] = {}
 
+        tile_persistent_cache.get(*ENTRY, stats)
 
-# --- 境界ケース: 世代不一致（PBF再取込・precomputeバッチ実行後の無効化）---
+        assert stats == {}
 
-def test_version_mismatch_is_treated_as_cache_miss():
-    # 世代の文字列が違えば別のファイルパスになり、旧世代の内容は新世代から見えない。
-    tile_persistent_cache.set("materials", "1", 12, 1, 1, "old-generation-value")
 
-    assert tile_persistent_cache.get("materials", "2", 12, 1, 1) is None
-    # 旧世代のパスからは引き続き読める（明示的な削除は行わない設計）。
-    assert tile_persistent_cache.get("materials", "1", 12, 1, 1) == "old-generation-value"
+class TestWhenTheDiskRefuses:
+    def test_a_value_that_cannot_be_stored_is_dropped_rather_than_raised(self):
+        """書き込みの失敗で応答を止めない。読み手からは未キャッシュと同じに見える。"""
+        tile_persistent_cache.set(*ENTRY, lambda: None)
 
+        assert tile_persistent_cache.get(*ENTRY) is None
 
-def test_bumping_version_after_batch_rerun_makes_old_cache_invisible():
-    # PBF再取込・precomputeバッチを実行した運用を模す: 旧世代で書き込み済みのキャッシュが
-    # あっても、バージョンを上げた後は新しい値を書き込むまでミスとして扱われる。
-    tile_persistent_cache.set("materials", "1", 12, 1, 1, "before-batch")
-    assert tile_persistent_cache.get("materials", "1", 12, 1, 1) == "before-batch"
+    def test_a_read_that_blows_up_is_a_miss(self, monkeypatch):
+        """壊れたエントリ・SQLiteの障害で止めると、キャッシュの不調がそのまま機能停止になる。"""
+        tile_persistent_cache.set(*ENTRY, "value")
+        monkeypatch.setattr(tile_persistent_cache, "cache", _boom)
 
-    new_version = "2"
-    assert tile_persistent_cache.get("materials", new_version, 12, 1, 1) is None
+        assert tile_persistent_cache.get(*ENTRY) is None
 
-    tile_persistent_cache.set("materials", new_version, 12, 1, 1, "after-batch")
-    assert tile_persistent_cache.get("materials", new_version, 12, 1, 1) == "after-batch"
 
+class TestEntriesThatExpire:
+    def test_an_entry_still_within_its_time_is_read(self):
+        tile_persistent_cache.set_by_key(ENTRY, "value", expire=600)
 
-# --- 境界ケース: ファイル破損・部分書き込み ---
+        assert tile_persistent_cache.get_by_key(ENTRY) == "value"
 
-# --- 境界ケース: 書き込み失敗のno-opフォールバック ---
+    def test_an_entry_whose_time_has_passed_is_a_miss(self):
+        tile_persistent_cache.set_by_key(ENTRY, "value", expire=-1)
 
-def test_set_swallows_unpicklable_value_and_logs_instead_of_raising():
-    unpicklable = lambda: None  # noqa: E731 関数オブジェクトは既定でpickle化できない
+        assert tile_persistent_cache.get_by_key(ENTRY) is None
 
-    # 例外を送出せずno-opにフォールバックする（呼び出し元のレスポンスを止めない）。
-    tile_persistent_cache.set("materials", "1", 12, 1, 1, unpicklable)
 
-    assert tile_persistent_cache.get("materials", "1", 12, 1, 1) is None
+class TestKeysTheCallerDesigns:
+    def test_a_key_of_another_shape_round_trips(self):
+        """タイル座標に収まらない鍵（材料・時刻帯・方位…）を持つ呼び出し元がある。"""
+        key = ("way_values", 7, "material_a", 12, 3630, 1612, "09", None, None)
 
+        tile_persistent_cache.set_by_key(key, {"w1": 1.5})
 
-# --- 一部タイルが空（Edge0件）のケースに相当する境界値 ---
-
-def test_roundtrip_preserves_falsy_and_empty_values():
-    # 空グラフ相当（Edge0件のタイル、T536本番実測で発覚した混在ケースの土台）。
-    # 空dict/空listはNoneと区別されなければならない（getのNone=未キャッシュと衝突しない）。
-    tile_persistent_cache.set("materials", "1", 12, 9, 9, {})
-
-    result = tile_persistent_cache.get("materials", "1", 12, 9, 9)
-
-    assert result == {}
-    assert result is not None
-
-
-# --- clear_namespace / clear_all ---
-
-def test_clear_namespace_removes_only_that_namespace():
-    tile_persistent_cache.set("materials", "1", 12, 1, 1, "materials-value")
-    tile_persistent_cache.set("score_matrix", "1", 12, 1, 1, "score-matrix-value")
-
-    tile_persistent_cache.clear_namespace("materials")
-
-    assert tile_persistent_cache.get("materials", "1", 12, 1, 1) is None
-    assert tile_persistent_cache.get("score_matrix", "1", 12, 1, 1) == "score-matrix-value"
-
-
-def test_clear_namespace_on_absent_namespace_does_not_raise():
-    tile_persistent_cache.clear_namespace("never-written")
-
-
-def test_clear_all_removes_every_namespace():
-    tile_persistent_cache.set("materials", "1", 12, 1, 1, "a")
-    tile_persistent_cache.set("score_matrix", "1", 12, 1, 1, "b")
-
-    tile_persistent_cache.clear_all()
-
-    assert tile_persistent_cache.get("materials", "1", 12, 1, 1) is None
-    assert tile_persistent_cache.get("score_matrix", "1", 12, 1, 1) is None
-
-
-# --- アトミック書き込みの回帰（tile_cache.py: T464相当）---
-
-# --- 読み出し所要時間の計測（stats引数）---
-
-
-def test_get_with_stats_records_read_ms_on_hit():
-    tile_persistent_cache.set("materials", "1", 12, 1, 1, {"key": "value"})
-
-    stats: dict[str, object] = {}
-    result = tile_persistent_cache.get("materials", "1", 12, 1, 1, stats=stats)
-
-    assert result == {"key": "value"}
-    assert isinstance(stats["read_ms"], float) and stats["read_ms"] >= 0
-
-
-def test_get_with_stats_leaves_stats_untouched_on_miss():
-    stats: dict[str, object] = {}
-
-    result = tile_persistent_cache.get("materials", "1", 12, 1, 1, stats=stats)
-
-    assert result is None
-    assert stats == {}
-
-
-def test_get_without_stats_argument_still_works_unmodified():
-    # statsを渡さない既存呼び出し（graph_material_cache.py等）が無修正で動くことの確認。
-    tile_persistent_cache.set("materials", "1", 12, 1, 1, "value")
-
-    assert tile_persistent_cache.get("materials", "1", 12, 1, 1) == "value"
-
-
+        assert tile_persistent_cache.get_by_key(key) == {"w1": 1.5}

@@ -61,6 +61,11 @@ def build_lazy_road_graph(
 
     並行Edge（同一Node間の複数Edge）はedge_idの昇順で先頭を採用する——コストは
     リクエストごとに変わるため、トポロジを組む時点では決められない。
+
+    **`graph`が自分の区間の両端Nodeを持つことをここで確かめ**、欠けていれば
+    `RoutingError`を送出する。飛ばすと、その道だけが探索から静かに消えて「なぜかその道を
+    通らない経路」になる。ここを通った後は、同じ`graph`と`lazy_graph`を読む側
+    （方位・ノード属性）がNodeの有無を確かめ直す必要がない。
     """
     node_ids = list(graph.nodes.keys())
     node_id_to_index = {node_id: i for i, node_id in enumerate(node_ids)}
@@ -73,7 +78,10 @@ def build_lazy_road_graph(
         from_index = node_id_to_index.get(edge.from_node_id)
         to_index = node_id_to_index.get(edge.to_node_id)
         if from_index is None or to_index is None:
-            continue
+            missing = edge.from_node_id if from_index is None else edge.to_node_id
+            raise RoutingError(
+                f"edge {edge_id!r} refers to node {missing!r} which is not in the graph"
+            )
         pair = (from_index, to_index)
         if pair not in best_by_pair:
             best_by_pair[pair] = edge_id
@@ -218,18 +226,20 @@ def build_search_graph_statics(
 
 def overlap_ratio(candidate_edges: np.ndarray, accepted_edges: np.ndarray, edge_length_m: np.ndarray) -> float:
     """`candidate_edges`（Edge index配列）のうち`accepted_edges`と共有する部分の距離加重
-    割合（0〜1）。候補の総距離が0なら0。候補1件対採用済み1件向けの定義で、
-    `select_diverse_by_overlap`の間引き本体は同じ定義を採用済み複数件へbulk展開している
-    ——判定式を変えるなら両方を揃えること。
+    割合（0〜1）。候補1件対採用済み1件向けの定義。
+
+    `select_diverse_by_overlap`の間引き本体はこれを呼ぶ（同じ定義を2箇所に書かない
+    ——書けば、片方だけ変えても何も落ちない）。
     """
     if len(candidate_edges) == 0:
         return 0.0
     lengths = edge_length_m[candidate_edges]
-    total = float(lengths.sum())
-    if total <= 0:
-        return 0.0
-    shared = float(lengths[np.isin(candidate_edges, accepted_edges)].sum())
-    return shared / total
+    return _shared_ratio(lengths, np.isin(candidate_edges, accepted_edges))
+
+
+def _shared_ratio(lengths: np.ndarray, shared_mask: np.ndarray) -> float:
+    """共有部分の距離加重割合。`overlap_ratio`と間引き本体が共有する唯一の定義。"""
+    return float(lengths[shared_mask].sum()) / float(lengths.sum())
 
 
 T = TypeVar("T")
@@ -258,8 +268,6 @@ def _pareto_front_mask(
     計算量はO(n log n)（aの昇順に走査しbの最小値を更新するだけ）。同値の扱いを含めて
     決定的で、入力順には依存しない。
     """
-    if len(minimize_a) == 0:
-        return np.zeros(0, dtype=bool)
     a = np.round(np.asarray(minimize_a, dtype=float) / quantum_a)
     b = np.round(np.asarray(minimize_b, dtype=float) / quantum_b)
     # aの昇順（同値内はbの昇順）に走査し、「自分より真に前にある点」の最小bと比べる。
@@ -387,20 +395,18 @@ def select_diverse_by_overlap(
     slot_bits = np.uint64(1) << np.arange(max(max_count, 1), dtype=np.uint64)
 
     def try_accept(item: T, edges: Sequence[int], max_overlap_ratio: float, rejected: list[T] | None) -> bool:
-        if len(selected) >= max_count:
-            return False
         edge_array = np.asarray(edges, dtype=np.int64)
-        if len(selected) and len(edge_array):
+        if len(selected):
             lengths = edge_length_m[edge_array]
-            total = float(lengths.sum())
-            if total > 0:
-                candidate_bits = edge_bits[edge_array]
-                shared_mask = (candidate_bits[:, None] & slot_bits[: len(selected)]) != 0
-                shared = (shared_mask * lengths[:, None]).sum(axis=0)
-                if bool((shared / total > max_overlap_ratio).any()):
-                    if rejected is not None:
-                        rejected.append(item)
-                    return False
+            candidate_bits = edge_bits[edge_array]
+            shared_mask = (candidate_bits[:, None] & slot_bits[: len(selected)]) != 0
+            ratios = [
+                _shared_ratio(lengths, shared_mask[:, slot]) for slot in range(len(selected))
+            ]
+            if any(ratio > max_overlap_ratio for ratio in ratios):
+                if rejected is not None:
+                    rejected.append(item)
+                return False
         edge_bits[edge_array] |= slot_bits[len(selected)]
         selected.append(item)
         return True
@@ -425,7 +431,8 @@ def select_diverse_by_overlap(
                     if is_compatible is not None and not is_compatible(item, selected):
                         continue
                     edges = edge_indices_of(item)
-                    if edges is None:
+                    # 空は「どれとも重複しない候補」ではなく「経路にならない」。Noneと同じ扱い。
+                    if not edges:
                         continue
                     if try_accept(item, edges, max_overlap_ratio, rejected_in_group):
                         accepted_at = position
@@ -538,14 +545,16 @@ def find_nearest_node_indexed(
     同時に抑えられる。「近くに無いなら寄せない」という意味を持つ呼び出しは、範囲の
     広さではなく距離でこれを表す。
     """
-    if not index.graph.nodes or index.cell_bounds is None:
+    if index.cell_bounds is None:
         return None
 
     cell_lat = math.floor(point.latitude / index.cell_size_deg)
     cell_lon = math.floor(point.longitude / index.cell_size_deg)
     # 経度方向1度あたりの物理距離（cos補正込み）を安全マージンに使う——2方向のうち
     # 常に短い（＝より保守的な）方でなければ、リング内に未探索の近い点が残りうる。
-    longitude_cos_factor = math.cos(math.radians(point.latitude))
+    # 極では`cos`が0へ落ちる。下限を置かないとセル幅が0になり、リング数の見積もりが
+    # ゼロ除算になる（`_bbox_around_point`が経度マージンで置いているのと同じ下限）。
+    longitude_cos_factor = max(math.cos(math.radians(point.latitude)), 1e-6)
     cell_size_km_lower_bound = index.cell_size_deg * KM_PER_DEGREE_LATITUDE * longitude_cos_factor
 
     nearest_node_id: str | None = None
@@ -674,6 +683,8 @@ class TurnExpandedStructure:
         前向きの遷移「状態a→状態b、待ちw」を、後ろ向きでは「状態b→状態a、待ちw」として
         並べ替える（待ちは元の進行方向で決まるため値は変えない）。
         """
+        # プロセス内で共有される構造だが、ロックは要らない——組み直しても同じ値になり、
+        # 重なったぶんは初回だけ計算を重複して払う（結果は壊れない）。
         if self._reverse is None:
             source = np.repeat(
                 np.arange(self.state_count, dtype=np.int64), np.diff(self.indptr)
@@ -688,17 +699,19 @@ class TurnExpandedStructure:
 
 def edge_bearings(graph: LeanRoadGraph, lazy_graph: LazyRoadGraph) -> np.ndarray:
     """`lazy_graph.edge_ids`順の方位（度）。`Edge.bearing_deg`（折れ線から求めた実際の向き）を
-    使い、持たないEdgeだけ両端のNode座標から補う。"""
-    bearings = np.zeros(len(lazy_graph.edge_ids))
+    使い、持たないEdgeだけ両端のNode座標から補う。
+
+    Edgeとその両端Nodeが`graph`にあることは前提にする（`build_lazy_road_graph`と
+    `build_search_graph_statics`が確かめる）——ここで補うと、取り違えたグラフの区間に
+    北向き0度が入り、その区間のターンの費用が静かに狂う。
+    """
+    bearings = np.empty(len(lazy_graph.edge_ids))
     for index, edge_id in enumerate(lazy_graph.edge_ids):
-        edge = graph.edges.get(edge_id)
-        value = edge.bearing_deg if edge is not None else None
-        if value is None and edge is not None:
-            from_node = graph.nodes.get(edge.from_node_id)
-            to_node = graph.nodes.get(edge.to_node_id)
-            if from_node is not None and to_node is not None:
-                value = bearing_between(from_node, to_node)
-        bearings[index] = 0.0 if value is None else float(value)
+        edge = graph.edges[edge_id]
+        value = edge.bearing_deg
+        if value is None:
+            value = bearing_between(graph.nodes[edge.from_node_id], graph.nodes[edge.to_node_id])
+        bearings[index] = float(value)
     return bearings
 
 
@@ -717,18 +730,22 @@ def build_turn_expanded_structure(
     csr: CsrGraphStructure,
     lazy_graph: LazyRoadGraph,
     bearing_deg: np.ndarray,
-    edge_rank: np.ndarray | None = None,
-    spec: TurnCostSpec | None = None,
-    node_has_signal: np.ndarray | None = None,
-    node_db_rank: np.ndarray | None = None,
+    edge_rank: np.ndarray,
+    spec: TurnCostSpec,
+    node_has_signal: np.ndarray,
+    node_db_rank: np.ndarray,
 ) -> TurnExpandedStructure:
     """`CsrGraphStructure`から、状態＝有向Edgeの遷移構造を組む。
 
     状態`e`の遷移先は「`e`の終点Nodeから出る有向Edge」で、遷移の数は
     Σ(入次数×出次数)。`e`の始点へ戻る遷移はUターンとして扱う（禁止はしない——袋小路からの
     折り返しに必要なため、費用で抑える）。
+
+    ターンの費用に要る入力はすべて引数で受け取り、**`None`を受け取らない**。既定を持たせても
+    実行時に`None`を許しても、渡し忘れた呼び出しが「上位の道の横断に待ちが付かない」構造を
+    黙って作る（例外もログも出ない）。`spec`についてはさらに、**この構造をキャッシュする鍵
+    （`TurnStructureKey`）が実際に使った費用と食い違う**。
     """
-    spec = spec if spec is not None else current_turn_cost()
     state_count = len(lazy_graph.edge_ids)
     edge_from = np.zeros(state_count, dtype=np.int64)
     edge_to = np.zeros(state_count, dtype=np.int64)
@@ -751,33 +768,31 @@ def build_turn_expanded_structure(
     is_uturn = csr.indices[entry_index].astype(np.int64) == edge_from[source]
     turn_seconds = _turn_seconds_for(bearing_deg[source], bearing_deg[target_state], is_uturn, spec)
 
-    if edge_rank is not None:
-        # ノードの階級は、読み込んだ部分グラフに現れる道から導く。DB側の事前集計値
-        # （`road_nodes.max_highway_rank`）があれば大きい方を採る——bboxの外へはみ出した
-        # 上位の道は部分グラフに現れないため、導出だけでは取りこぼす。未集計の0は導出値を
-        # 下回るので、バッチ未実行でも結果は変わらない。
-        node_rank = np.zeros(csr.node_count, dtype=np.int64)
-        np.maximum.at(node_rank, edge_to, edge_rank)
-        np.maximum.at(node_rank, edge_from, edge_rank)
-        if node_db_rank is not None:
-            node_rank = np.maximum(node_rank, node_db_rank)
-        # 「自分より上位」だけでなく「そもそも待ちの要る階級か」も見る
-        # （`MAJOR_CROSSING_MIN_RANK`、domain/traffic.py）。
-        target_node_rank = node_rank[edge_to[source]]
-        crosses_major = (target_node_rank > edge_rank[source]) & (
-            target_node_rank >= MAJOR_CROSSING_MIN_RANK
-        )
+    # ノードの階級は、読み込んだ部分グラフに現れる道から導く。DB側の事前集計値
+    # （`road_nodes.max_highway_rank`）があれば大きい方を採る——bboxの外へはみ出した
+    # 上位の道は部分グラフに現れないため、導出だけでは取りこぼす。未集計の0は導出値を
+    # 下回るので、バッチ未実行でも結果は変わらない。
+    node_rank = np.zeros(csr.node_count, dtype=np.int64)
+    np.maximum.at(node_rank, edge_to, edge_rank)
+    np.maximum.at(node_rank, edge_from, edge_rank)
+    node_rank = np.maximum(node_rank, node_db_rank)
+    # 「自分より上位」だけでなく「そもそも待ちの要る階級か」も見る
+    # （`MAJOR_CROSSING_MIN_RANK`、domain/traffic.py）。
+    target_node_rank = node_rank[edge_to[source]]
+    crosses_major = (
+        (target_node_rank > edge_rank[source])
+        & (target_node_rank >= MAJOR_CROSSING_MIN_RANK)
         # 信号のある交差点では足さない（待ちは停止密度の材料が走行モデルへ運ぶ）。
         # 未集計なら全ノードが「信号なし」で、この列の導入前と同じ結果になる。
-        if node_has_signal is not None:
-            crosses_major = crosses_major & ~node_has_signal[edge_to[source]]
-        delta = (bearing_deg[target_state] - bearing_deg[source] + 180.0) % 360.0 - 180.0
-        straight = np.abs(delta) <= spec.straight_max_deg
-        turn_seconds = turn_seconds + np.where(
-            crosses_major & ~is_uturn,
-            np.where(straight, spec.major_crossing_seconds, spec.major_turn_seconds),
-            0.0,
-        )
+        & ~node_has_signal[edge_to[source]]
+    )
+    delta = (bearing_deg[target_state] - bearing_deg[source] + 180.0) % 360.0 - 180.0
+    straight = np.abs(delta) <= spec.straight_max_deg
+    turn_seconds = turn_seconds + np.where(
+        crosses_major & ~is_uturn,
+        np.where(straight, spec.major_crossing_seconds, spec.major_turn_seconds),
+        0.0,
+    )
 
     return TurnExpandedStructure(
         state_count=state_count, indptr=new_indptr, target_state=target_state,
@@ -942,8 +957,9 @@ class TurnExpandedTree:
     node_length_m: np.ndarray
     node_seconds: np.ndarray
     # `predecessor`のPython list版（numpy配列への添字アクセスより、経路復元の
-    # ループが速い）。
-    predecessor_list: list[int] = field(default_factory=list, repr=False, compare=False)
+    # ループが速い）。既定値を持たせない——省略できると、渡し忘れた木が黙って
+    # 「どの状態からも経路が1本も辿れない」ふるまいになる。
+    predecessor_list: list[int] = field(repr=False, compare=False)
 
 
 def build_turn_expanded_tree(
@@ -969,16 +985,16 @@ def build_turn_expanded_tree(
     呼び出し元は1本のビンで呼ぶこと（`reverse=True`へ複数ビンを渡すと`ValueError`）。
     """
     state_count = structure.state_count
-    cost_bins = _as_time_bins(edge_cost)
-    seconds_bins = cost_bins if edge_seconds is None else _as_time_bins(edge_seconds)
-    if reverse and max(cost_bins.shape[0], seconds_bins.shape[0]) > 1:
+    cost_bins, seconds_bins = _time_bin_arrays(
+        "build_turn_expanded_tree", edge_cost, edge_seconds, bin_seconds
+    )
+    if reverse and cost_bins.shape[0] > 1:
         # 逆向きの木の`arrival`は「そこから目的地までの残り時間」で、出発からの経過時間では
         # ない。ビンを引くとその残り時間で引かれ、例外もNaNも出ないまま時刻が反転した条件で
         # 評価した経路が返る。
         raise ValueError(
             "build_turn_expanded_tree(reverse=True) cannot use time bins: "
-            f"got {cost_bins.shape[0]} cost bins and {seconds_bins.shape[0]} seconds bins "
-            "(pass a single bin; the reverse tree has no arrival clock)"
+            f"got {cost_bins.shape[0]} bins (pass a single bin; the reverse tree has no arrival clock)"
         )
     if reverse:
         indptr, target_state, transition_seconds = structure.reverse_transitions()
@@ -994,9 +1010,6 @@ def build_turn_expanded_tree(
         len(entry_state_indices) + _HEAP_INITIAL_SLACK,
     )
     dijkstra_ms = (time.perf_counter() - started) * 1000
-    if edge_seconds is None:
-        # 積算に使ったのはコスト配列（主観的割増込み）のため、秒として読ませない。
-        state_seconds = np.full(state_count, np.nan)
 
     fold_started = time.perf_counter()
     # Nodeごとに最小コストの状態を1つ選ぶ（正方向はNodeへ入る状態、逆方向は出る状態）。
@@ -1122,10 +1135,49 @@ def combine_forward_backward_at_nodes(
     )
 
 
-def _as_time_bins(values: np.ndarray) -> np.ndarray:
-    """1次元のEdge配列を`(1, 状態)`の時刻ビン形式へ揃える（2次元ならそのまま）。"""
+def _as_time_bins(caller: str, values: np.ndarray) -> np.ndarray:
+    """1次元のEdge配列を`(1, 状態)`の時刻ビン形式へ揃える（2次元ならそのまま）。
+
+    3次元以上は送出する。黙って`(1, n)`へ潰すと、後段のビン数の食い違いの検査もすり抜け、
+    JITした探索が範囲外を読む。
+    """
     array = np.asarray(values, dtype=np.float64)
+    if array.ndim > 2:
+        raise ValueError(f"{caller}: expected a 1-D or 2-D array, got {array.shape}")
     return array if array.ndim == 2 else array.reshape(1, -1)
+
+
+def _time_bin_arrays(
+    caller: str, edge_cost: np.ndarray, edge_seconds: np.ndarray | None, bin_seconds: float
+) -> tuple[np.ndarray, np.ndarray]:
+    """コスト配列と素の所要時間配列を`(時刻ビン, 状態)`へ揃え、時刻で引く契約を確かめる。
+
+    ビンが2本以上あるとき、探索は出発からの経過時間でビンを選ぶ。そのため素の所要時間
+    （主観的割増を掛ける前の秒）とビンの幅が要り、欠けると**時刻ごとの風が黙って効かなく
+    なる**——所要時間の代わりにコストで時計を進める、あるいは全区間が先頭のビンに落ちる、
+    という形で、例外もNaNも出さずに結果だけが変わる。
+
+    2つの配列の形が違えば送出する。JITした探索は配列の境界を検査しないため、ビン数が
+    食い違うと範囲外の読み出しになる。
+    """
+    cost_bins = _as_time_bins(caller, edge_cost)
+    if edge_seconds is None:
+        raise ValueError(
+            f"{caller}: edge_cost needs edge_seconds "
+            "(without it the arrival clock advances by cost, not by seconds)"
+        )
+    if cost_bins.shape[0] > 1:
+        if not math.isfinite(bin_seconds) or bin_seconds <= 0:
+            raise ValueError(
+                f"{caller}: time-binned edge_cost needs a positive finite bin_seconds "
+                f"(got {bin_seconds}; every state would fall into the first bin)"
+            )
+    seconds_bins = _as_time_bins(caller, edge_seconds)
+    if seconds_bins.shape != cost_bins.shape:
+        raise ValueError(
+            f"{caller}: edge_seconds{seconds_bins.shape} does not match edge_cost{cost_bins.shape}"
+        )
+    return cost_bins, seconds_bins
 
 
 @njit(cache=True)
@@ -1300,8 +1352,9 @@ def turn_expanded_shortest_path(
     素の所要時間`edge_seconds`（同じ形）とビンの幅`bin_seconds`も渡す——探索が出発からの
     経過時間を持ち回り、その時刻のビンからコストと所要時間を引く。
     """
-    cost_bins = _as_time_bins(edge_cost)
-    seconds_bins = cost_bins if edge_seconds is None else _as_time_bins(edge_seconds)
+    cost_bins, seconds_bins = _time_bin_arrays(
+        "turn_expanded_shortest_path", edge_cost, edge_seconds, bin_seconds
+    )
     capacity = len(origin_states) + _HEAP_INITIAL_SLACK
     predecessor, goal_state = _turn_expanded_astar(
         structure.indptr, structure.target_state, structure.turn_seconds, structure.edge_to,

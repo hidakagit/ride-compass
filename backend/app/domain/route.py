@@ -264,9 +264,15 @@ def merge_material_category_shares(segments: list[RouteSegmentDetail]) -> dict[s
     return shares
 
 
+#: ビンへ引き継ぐ辞書フィールドと、その畳み方。
+BIN_DICT_FIELD_MERGERS: dict[str, Callable[[list[RouteSegmentDetail]], dict[str, float]]] = {
+    "axis_difficulties": merge_axis_difficulties,
+    "axis_contributions": merge_axis_contributions,
+    "axis_raw_values": merge_axis_raw_values,
+    "material_values": merge_material_values,
+}
+
 # ビンへ畳むときに引き継がない辞書フィールドと、その理由。
-# `tests/test_route.py`がモデル側から辞書フィールドを引き、この宣言に無いものが
-# 落ちていないかを検査する（足し忘れは型でも例外でも現れないため）。
 BIN_DROPPED_DICT_FIELDS: dict[str, str] = {
     # categorical材料は平均できず、ビンの代表値を1つ選ぶと延長割合が500m単位へ量子化される。
     # ルート全体の割合（`RouteCandidate.material_category_shares`）はEdge単位のsegmentsから
@@ -274,6 +280,27 @@ BIN_DROPPED_DICT_FIELDS: dict[str, str] = {
     # 消費者がいない。
     "material_categories": "ビン代表値では延長割合が歪むため、ビニング前に候補全体の割合へ畳む",
 }
+
+
+def _undeclared_dict_fields() -> list[str]:
+    """`RouteSegmentDetail`の辞書フィールドのうち、ビンへの畳み方も、引き継がない理由も
+    宣言されていないもの。"""
+    declared = set(BIN_DICT_FIELD_MERGERS) | set(BIN_DROPPED_DICT_FIELDS)
+    return sorted(
+        name
+        for name, model_field in RouteSegmentDetail.model_fields.items()
+        if getattr(model_field.annotation, "__origin__", None) is dict and name not in declared
+    )
+
+
+if _undeclared_dict_fields():
+    # 宣言し忘れたフィールドはビンで空の辞書になるだけで、型でも例外でも現れない
+    # （区間インスペクタから値が消える）。読み込みの時点で止める。
+    raise RuntimeError(
+        f"RouteSegmentDetail の辞書フィールド {_undeclared_dict_fields()} は、"
+        "BIN_DICT_FIELD_MERGERS（ビンへの畳み方）か "
+        "BIN_DROPPED_DICT_FIELDS（引き継がない理由）のどちらかで宣言すること"
+    )
 
 
 def _merge_segment_bin(segments: list[RouteSegmentDetail]) -> RouteSegmentDetail:
@@ -287,9 +314,6 @@ def _merge_segment_bin(segments: list[RouteSegmentDetail]) -> RouteSegmentDetail
         cumulative_distance_km=first.cumulative_distance_km,
         distance_km=round(sum(s.distance_km for s in segments), 2),
         estimated_arrival_time=first.estimated_arrival_time,
-        axis_difficulties=merge_axis_difficulties(segments),
-        axis_contributions=merge_axis_contributions(segments),
-        axis_raw_values=merge_axis_raw_values(segments),
-        material_values=merge_material_values(segments),
         difficulty=distance_weighted_difficulty([(s.difficulty, s.distance_km) for s in segments]),
+        **{name: merge(segments) for name, merge in BIN_DICT_FIELD_MERGERS.items()},
     )

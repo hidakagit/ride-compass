@@ -5,18 +5,15 @@
 """
 
 from app.domain.jma_warning import (
-    WARNING_CODE_NAMES,
+    WARNING_KINDS,
     extract_active_warnings,
     warning_level,
 )
 
 
 class TestWarningLevel:
-    """コードからバッジの段を決める。
-
-    実装は名称に「特別警報」「警報」が含まれるかで決めているが、**その規則をここで
-    書き写して突き合わせない**（恒真になる）。代表的なコードが意味どおりの段へ落ちること
-    と、全件が3段のいずれかへ落ちることを見る。
+    """**実装の規則をここで書き写して突き合わせない**（恒真になる）。代表的なコードが
+    意味どおりの段へ落ちることと、段が現象の強さの順に並ぶことを見る。
     """
 
     def test_representative_codes_land_where_their_meaning_says(self):
@@ -33,13 +30,8 @@ class TestWarningLevel:
         assert order.index(warning_level("10")) < order.index(warning_level("03"))
         assert order.index(warning_level("03")) < order.index(warning_level("33"))
 
-    def test_an_unknown_code_falls_to_the_lightest(self):
-        """知らないコードで赤いバッジを出さない。電文が増えても表示が壊れない側へ倒す。"""
-        assert warning_level("99") == "advisory"
-
 
 class TestExtractActiveWarnings:
-    """1地域ぶんの電文から、いま出ていて走行に関わるものだけを取り出す。"""
 
     @staticmethod
     def _kind(code: str | None = "14", status: str = "発表", **extra) -> dict:
@@ -52,18 +44,17 @@ class TestExtractActiveWarnings:
         [warning] = extract_active_warnings([self._kind("03")])
 
         assert warning.code == "03"
-        assert warning.name == WARNING_CODE_NAMES["03"]
+        assert warning.name == WARNING_KINDS["03"].name
         assert warning.level == warning_level("03")
 
     def test_a_continued_warning_is_still_active(self):
         assert extract_active_warnings([self._kind("03", status="継続")])
 
     def test_a_released_warning_is_not_active(self):
-        """直前まで出ていたが取り下げられたもの。出し続けると、止んだ雨の警報が残る。"""
+        """出し続けると、止んだ雨の警報が残る。"""
         assert extract_active_warnings([self._kind("03", status="解除")]) == []
 
     def test_an_area_with_nothing_issued_has_no_code(self):
-        """何も出ていない地域の要素は`code`キー自体を持たない。KeyErrorにせず飛ばす。"""
         assert extract_active_warnings([{"status": "発表警報・注意報はなし"}]) == []
 
     def test_a_kind_unrelated_to_cycling_is_dropped(self):

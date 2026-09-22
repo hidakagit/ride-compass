@@ -138,7 +138,7 @@ axis_id → dedicated_way_value_axes().get(axis_id)（無ければ404）
   風（`wind_drag_ratio`）は風向が進行方向と独立に決まるためcos投影が正しく、ここは同型に
   できない。
 - **指定方位に対して直角に近い道路は、勾配の値を持たせずに結果から落とす**
-  （`domain/gradient.py: shows_gradient`、地図では「データなし」）。直角付近はその道を
+  （`domain/gradient.py: effective_gradient`がNoneを返す。地図では「データなし」）。直角付近はその道を
   どちら向きに辿るかが決まらず符号を選べない。0%として配ると、実際には急な坂の道が凡例の
   「平坦」の段へ入り、平坦な道と同じ色で塗られる——言えるのは「勾配を示せない」であって
   「平坦だ」ではない。落とす幅（`LENS_PERPENDICULAR_BAND_DEG`）は実地を見て決め直す値。
@@ -248,14 +248,14 @@ values = {
 | 関数 | 意味 | 符号 |
 |---|---|---|
 | `wind_drag_ratio_array`／`wind_drag_ratio`（`wind.py`） | 走行方位・風向風速・走行速度から、相対風速ベクトルの二乗則で無風時に対する空気抵抗の増分（時速20km無風の抵抗を1とする倍率、`WIND_DRAG_REFERENCE_SPEED_MS`） | 正=向かい風、負=追い風、純横風は小さな正。速いほど同じ風で大きい |
-| `GradientCalculator.effective_gradient`（`gradient.py`） | 道路自身の勾配・向きと走行方位から実効勾配 | 正=登り、負=下り（大きさは道路自身の勾配のまま。直角付近は`shows_gradient`が落とす） |
+| `GradientCalculator.effective_gradient`（`gradient.py`） | 道路自身の勾配・向きと走行方位から実効勾配 | 正=登り、負=下り（大きさは道路自身の勾配のまま。直角付近はNoneで、呼び出し側が落とす） |
 
 `wind_drag_ratio_array`は走行方位との角度差を係数として物理量へ反映するが、
 **`effective_gradient`は角度で大きさを変えない**——道路自身の勾配をそのまま使い、走行方位で
 決めるのは符号（登り／下り）だけ。示せない向き（直角に近く、どちら向きに辿るかが決まらない）
-は`shows_gradient`が先に落とす。同じ道路の逆方向（forward/backward）の`road_edges`行を
-使っても勾配の結果は変わらない（向きと勾配の符号が二重に反転して相殺する。
-`test_gradient.py: test_forward_and_backward_edge_agree`で検証済み）。`wind_drag_ratio_array`は横風0のとき1次元式`sign(x)·x² − v²`（x=走行速度+
+では同じ関数がNoneを返し、値そのものが配られない。同じ道路の逆方向（forward/backward）の
+`road_edges`行を使っても勾配の結果は変わらない（向きと勾配の符号が二重に反転して相殺する）。
+`wind_drag_ratio_array`は横風0のとき1次元式`sign(x)·x² − v²`（x=走行速度+
 向かい風成分）と一致し、追い風が走行速度を超える領域も連続。引数はスカラー・配列どちらも
 受け付け（numpyのブロードキャスト）、`domain/dynamic_materials.py: DYNAMIC_MATERIAL_EVALUATORS`が
 探索・区間表示の唯一の呼び出し元（[evaluation-scoring.md](evaluation-scoring.md)参照）。

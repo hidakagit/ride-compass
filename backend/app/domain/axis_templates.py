@@ -38,11 +38,10 @@ def evaluate_breakpoint_linear(value, breakpoints: list[tuple[float, float]]):
     return float(np.interp(value, xp, fp))
 
 
-def evaluate_categorical(value, mapping: dict, default: float | None = None):
-    """カテゴリ値→定数のマッピング。配列入力は要素ごとに`mapping`を適用し、NaN・None
-    （不明値のプレースホルダ、材料により表現が異なる。dtype=object の文字列配列は
-    欠損をNoneで表す）はそのまま伝播する（`mapping`に一致するキーが無い要素は
-    `default`、既定Noneなら数値配列の文脈に合わせてNaN）。
+def evaluate_categorical(value, mapping: dict):
+    """カテゴリ値→定数のマッピング。引けない値（欠損、および`mapping`に無い値）は
+    「評価不能」として、スカラーはNone・配列はNaNを返す。欠損の表現は材料により異なり、
+    dtype=object の文字列配列はNoneで表す。
 
     配列入力はキーでソートした`np.searchsorted`（二分探索）で該当インデックスを求める
     （mappingの各キーごとに配列全体を走査するO(要素数×キー数)ではなく、
@@ -51,12 +50,10 @@ def evaluate_categorical(value, mapping: dict, default: float | None = None):
     差し替えてから検索する必要がある（Noneはstr材料と順序比較できずsearchsorted自体が
     例外になるため）が、`keys[0]`はmappingの実在キーなので置き換えただけでは
     「一致した」ことにしてしまう——`missing`マスクを別途保持し、検索結果とは無関係に
-    強制的に不一致（=`default`）にする。
+    強制的に不一致にする。
     """
     if isinstance(value, np.ndarray):
-        fill = np.nan if default is None else float(default)
-        if not mapping:
-            return np.full(value.shape, fill, dtype=float)
+        fill = np.nan
         keys = sorted(mapping.keys())
         key_scores = np.array([mapping[key] for key in keys], dtype=float)
         keys_array = np.array(keys, dtype=value.dtype if value.dtype != object else object)
@@ -65,7 +62,7 @@ def evaluate_categorical(value, mapping: dict, default: float | None = None):
         idx = np.clip(np.searchsorted(keys_array, safe_value), 0, len(keys) - 1)
         matched = (keys_array[idx] == safe_value) & ~missing
         return np.where(matched, key_scores[idx], fill)
-    return mapping.get(value, default)
+    return mapping.get(value)
 
 
 def round1_array(values: np.ndarray) -> np.ndarray:

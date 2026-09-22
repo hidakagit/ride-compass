@@ -9,7 +9,7 @@ jma_warning_client.pyと同じ理由（更新頻度が高くない、機械ア�
 import httpx
 from cachetools import TTLCache
 
-from app.infrastructure.simple_api_client import UnexpectedShapeError, cached_fetch
+from app.infrastructure.simple_api_client import cached_fetch
 
 FLOOD_API_URL = "https://www.jma.go.jp/bosai/flood/data/r8/flood_xml.json"
 
@@ -32,8 +32,8 @@ async def fetch_flood_documents(client: httpx.AsyncClient) -> list | None:
         response = await client.get(FLOOD_API_URL, timeout=REQUEST_TIMEOUT)
         response.raise_for_status()
         data = response.json()
-        if not isinstance(data, list):
-            raise UnexpectedShapeError("flood documents response is not a list")
         return data
 
-    return await cached_fetch(_flood_cache, _FLOOD_CACHE_KEY, "weather:jma-flood", fetch)
+    return await cached_fetch(
+        "weather:jma-flood", fetch, cache=_flood_cache, key=_FLOOD_CACHE_KEY, expect=list
+    )

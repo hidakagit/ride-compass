@@ -9,44 +9,33 @@ import pytest
 
 from app.domain.jma_amedas import (
     apparent_temperature_from_amedas,
-    wind_direction_degrees_from_jma_code,
-    wind_direction_label_from_jma_code,
+    wind_direction_from_jma_code,
 )
 
 
 class TestWindDirectionFromJmaCode:
-    """**JMAの割当は独特**——0が静穏で、1が北北東、そこから22.5度ずつ時計回りに進み、
-    16で北（一周）へ戻る。0起点の一般的な16方位表をそのまま当てると全方位がずれる。
-    """
 
     def test_code_one_is_north_north_east(self):
-        assert wind_direction_label_from_jma_code(1) == "北北東"
-        assert wind_direction_degrees_from_jma_code(1) == 22.5
+        assert wind_direction_from_jma_code(1) == (22.5, "北北東")
 
     def test_the_last_code_wraps_back_to_north(self):
-        """16は360度ではなく0度（北）。360のまま配ると、方位の比較が0と360で割れる。"""
-        assert wind_direction_label_from_jma_code(16) == "北"
-        assert wind_direction_degrees_from_jma_code(16) == 0.0
+        """360のまま配ると、方位の比較が0と360で割れる。"""
+        assert wind_direction_from_jma_code(16) == (0.0, "北")
 
     def test_calm_has_no_direction(self):
-        """0は静穏（風速がほぼ0で方位不定）。北として配ると、無風の地点に矢印が出る。"""
-        assert wind_direction_label_from_jma_code(0) is None
-        assert wind_direction_degrees_from_jma_code(0) is None
+        """北として配ると、無風の地点に矢印が出る。"""
+        assert wind_direction_from_jma_code(0) is None
 
     def test_a_missing_reading_has_no_direction(self):
-        assert wind_direction_label_from_jma_code(None) is None
-        assert wind_direction_degrees_from_jma_code(None) is None
+        assert wind_direction_from_jma_code(None) is None
 
     def test_every_code_maps_to_a_distinct_direction(self):
-        labels = [wind_direction_label_from_jma_code(code) for code in range(1, 17)]
-        degrees = [wind_direction_degrees_from_jma_code(code) for code in range(1, 17)]
+        directions = [wind_direction_from_jma_code(code) for code in range(1, 17)]
 
-        assert len(set(labels)) == 16
-        assert len(set(degrees)) == 16
+        assert len(set(directions)) == 16
 
 
 class TestApparentTemperature:
-    """JMAは体感温度を配らないため、豪州気象局の式で自前計算する。"""
 
     def test_it_reproduces_the_published_formula(self):
         temperature, humidity, wind = 30.0, 70.0, 2.0
