@@ -8,6 +8,7 @@
 // - ルート未選択時はレイヤー自体が使えない（UI側で非活性）
 // 将来、トラフィック等「ルート沿いに出す有向・時間変化データ」もここへモードを足す。
 
+import palette from "@/types/generated/palette.json";
 import { debugLog } from "@/lib/debugLog";
 import type { LegendEntry } from "./legendFilter";
 import { bandLabelsForBandCount, LEGEND_NO_DATA_KEY, legendBandKey, rangeStepLabel } from "./mapColorLegend";
@@ -31,7 +32,7 @@ export type RouteStyleModeId = "difficulty" | "none" | (string & {});
 export type LensId = RouteStyleModeId;
 /** レンズの中立色。「なし」「総合難易度」のようにどの軸にも紐づかないレンズと、
  * 軸色が未設定の軸のフォールバックで使う（候補線の非選択色と同じ）。 */
-export const LENS_NEUTRAL_COLOR = "#64748b";
+export const LENS_NEUTRAL_COLOR = palette.semantic.neutral;
 
 export const LENS_NONE_ID: LensId = "none";
 export const LENS_DIFFICULTY_ID: LensId = "difficulty";

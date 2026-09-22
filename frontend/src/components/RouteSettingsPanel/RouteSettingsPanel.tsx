@@ -1,5 +1,6 @@
 "use client";
 
+import palette from "@/types/generated/palette.json";
 import { useEffect, useRef, useState } from "react";
 import InfoPopover from "@/components/Map/InfoPopover";
 import { axisIconFor } from "@/components/Map/axisIconPalette";
@@ -38,7 +39,7 @@ const SEGMENT_VALUE_MIN_PCT = 6;
 // 色ドットになるよう、この関数をそのまま再利用する（パネルをまたいでも同じ軸は同じ色、
 // という視覚的な一貫性のためexport）。
 export function stackBarColorForIndex(index: number, axisCount: number): string {
-  if (axisCount <= 0) return "#94a3b8";
+  if (axisCount <= 0) return palette.semantic.neutral;
   const hue = (index * (360 / axisCount)) % 360;
   return `hsl(${hue}, 62%, 55%)`;
 }

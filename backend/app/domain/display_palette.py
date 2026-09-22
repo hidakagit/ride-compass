@@ -54,3 +54,59 @@ def nominal_color(slot: int) -> str:
     hue = _NOMINAL_START_HUE_DEG + (360.0 / NOMINAL_HUE_SLOTS) * (slot % NOMINAL_HUE_SLOTS)
     lightness = _NOMINAL_LIGHTNESS_STEPS[slot // NOMINAL_HUE_SLOTS]
     return _hex(hue, _NOMINAL_SATURATION, lightness)
+
+
+#: 役割ごとの色。**画面はこの名前で引いて塗るだけ**で、色の値を持たない。
+#: 名前は「どこで使うか」ではなく「何を意味するか」で付ける——使い場所で名前を付けると、
+#: 同じ意味の色が使い場所の数だけ増える。
+SEMANTIC_COLORS: dict[str, str] = {
+    # 評価（2次）。良い側から悪い側への順序を持つ唯一の配色。
+    "evaluation_good": "#16a34a",
+    "evaluation_bad": "#dc2626",
+    # 符号を持つ材料（勾配）。0を境に別方向へ伸ばすため、下り側と登り側の中継点を持つ。
+    "signed_descent": "#0284c7",
+    "signed_climb_mid": "#eab308",
+    "signed_climb_extreme": "#7f1d1d",
+    # 値が無い・まだ来ていない・凡例で隠した。**取得中と対象外は見分けられる明度差を保つ**。
+    "no_data": "#9ca3af",
+    "loading": "#d1d5db",
+    "hidden": "rgba(0,0,0,0)",
+    # 利用者が作った線（ルート）。地図の分類色と競合しないよう、基礎地図の主要道路
+    # （暖色系）に溶け込まない寒色を参考線に、乗り換えと合成には暖色を使う。
+    "route_candidate": "#64748b",
+    "route_selected_halo": "#1e3a8a",
+    "route_casing": "rgba(15, 23, 42, 0.8)",
+    "route_splice": "#c2612b",
+    "route_arrow": "#ffffff",
+    "route_arrow_halo": "#111827",
+    # 記号の縁取りと、雷。
+    "mark_halo": "rgba(31, 41, 55, 0.85)",
+    "mark_stroke": "#ffffff",
+    "lightning": "#facc15",
+    # 押せるだけで見えない線。**不透明度0で塗るので色そのものは見えない**が、
+    # 値を省くとMapLibreが既定色で描く。
+    "hit": "#000000",
+    # 詳細を見ている1本の強調。どの分類の色とも重ならない色にする。
+    "inspected": "#f59e0b",
+    # レンズで色を決めない道／寄与が引けない軸。no_dataより青寄りにして、
+    # 「値が無い」と「この軸の対象外」を見分けられるようにする。
+    "neutral": "#94a3b8",
+    # 地点のピン。出発地は白い台の上に十字を描く（地図の上での慣習）。
+    "pin_origin_background": "#ffffff",
+    "pin_origin": "#e11d48",
+    "pin_origin_unresolved": "#9ca3af",
+    "pin_waypoint": "#2563eb",
+    "pin_destination": "#059669",
+}
+
+#: 比較スロットの色。**並べて見分けられることだけが要件**なので、順序の意味は持たない。
+COMPARISON_SLOT_COLORS: tuple[str, ...] = ("#16a34a", "#ea580c", "#9333ea")
+
+#: 評価（2次）の段を作る中継点。良い側から悪い側へ、位置（0〜1）付きで置く。
+#: 段が4つのときは4色そのままになり、段数が変わっても同じ系統のまま増減する。
+EVALUATION_RAMP_ANCHORS: tuple[tuple[float, str], ...] = (
+    (0.0, "#4caf50"),
+    (1 / 3, "#ffb300"),
+    (2 / 3, "#fb8c00"),
+    (1.0, "#e53935"),
+)

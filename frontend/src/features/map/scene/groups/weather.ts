@@ -8,6 +8,7 @@
  * 同じ（グループ, ソース）に描き方の違う宣言を並べてよい（降水は60分以内がラスタ、
  * それ以降は格子の塗り）。届いた中身の種類が、そのうちどれを出すかを決める。
  */
+import palette from "@/types/generated/palette.json";
 import type { FilterSpecification } from "maplibre-gl";
 
 import { createLidenIcon } from "@/components/Map/lidenIcon";
@@ -27,7 +28,7 @@ import { zoomScaleExpression } from "../sceneBuilders";
 
 /** 記号の縁取り。背景の明暗に関わらず記号の形が読めるようにする。**主層と同じレイヤーの
  * paintで出す**——別レイヤーにすると、同じ位置に2枚並ぶぶん衝突判定で縁取りが全部落ちる。 */
-const MARK_HALO_COLOR = "rgba(31, 41, 55, 0.85)";
+const MARK_HALO_COLOR = palette.semantic.mark_halo;
 const MARK_HALO_WIDTH_PX = 1.5;
 
 const WIND_ICON_MIN_SCALE = 0.9;
@@ -35,7 +36,7 @@ const WIND_ICON_MAX_SCALE = 2.6;
 /** この風速で最大の大きさになる。 */
 const WIND_FULL_SCALE_MS = 15;
 const LIDEN_SCALE = 0.8;
-const LIDEN_COLOR = "#facc15";
+const LIDEN_COLOR = palette.semantic.lightning;
 
 /** 描き方。面は下・線と点は上に置く（面どうしが重なると読めなくなるため）。 */
 const TIER_OF = {

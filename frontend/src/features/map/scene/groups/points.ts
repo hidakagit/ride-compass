@@ -12,6 +12,7 @@
  * **タイルの世代が届くまでソースを作らない**。先に作ると、世代の違う中身がブラウザの
  * キャッシュへ載って以後ずっと残る。
  */
+import palette from "@/types/generated/palette.json";
 import type { FilterSpecification } from "maplibre-gl";
 
 import primaryAttributes from "@/types/generated/primary-attributes.json";
@@ -25,7 +26,7 @@ const RADIUS_PX = 4;
 const FATAL_RADIUS_PX = 6;
 const NON_FATAL_RADIUS_PX = 3;
 const STROKE_WIDTH_PX = 1;
-const STROKE_COLOR = "#ffffff";
+const STROKE_COLOR = palette.semantic.mark_stroke;
 const OPACITY = 0.9;
 const ACCIDENT_OPACITY = 0.75;
 

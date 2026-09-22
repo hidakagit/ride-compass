@@ -12,6 +12,7 @@
  * 横へ割り付ける（1本なら中央）。線の太さと線種は意味を運ばない——1本の線へ2つの意味を
  * 載せると、色の意味がもう一方のON/OFFで入れ替わる。
  */
+import palette from "@/types/generated/palette.json";
 import type { FilterSpecification } from "maplibre-gl";
 
 import primaryAttributes from "@/types/generated/primary-attributes.json";
@@ -28,7 +29,7 @@ export const TRACK_OFFSET_STEP_PX = 2;
 export const KNOWN_LINE_OPACITY = 0.8;
 export const UNKNOWN_LINE_OPACITY = 0.15;
 /** 詳細を見ている道の強調。線の色に関係なく浮く色にする。 */
-const INSPECTED_COLOR = "#f59e0b";
+const INSPECTED_COLOR = palette.semantic.inspected;
 const INSPECTED_WIDTH_PX = 8;
 
 export const ROAD_LINE_SOURCE_ID = "road-tiles";

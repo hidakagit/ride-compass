@@ -4,6 +4,7 @@
 // 色分けがルートの有無でスケール・配色を変えないことをコード上で保証する。
 // MapLibre・DOMに依存しない純粋関数のみ。
 
+import palette from "@/types/generated/palette.json";
 import { LEGEND_NO_DATA_KEY, legendBandKey } from "./mapColorLegend";
 
 /** backend `GET /api/axis-catalog` の `map_value_kind`（domain/dynamic_way_values.py:
@@ -11,23 +12,23 @@ import { LEGEND_NO_DATA_KEY, legendBandKey } from "./mapColorLegend";
  * `signed_material`は単一材料の符号付き生値（勾配のように向きの符号が意味を持つ軸）。 */
 export type MapValueKind = "difficulty" | "signed_material";
 
-export const COLOR_EASY = "#16a34a";
-export const COLOR_HARD = "#dc2626";
-export const COLOR_NO_DATA = "#9ca3af";
+export const COLOR_EASY = palette.semantic.evaluation_good;
+export const COLOR_HARD = palette.semantic.evaluation_bad;
+export const COLOR_NO_DATA = palette.semantic.no_data;
 /** フェッチ進行中で、まだそのwayの値を一度も受け取っていない状態の色。
  * COLOR_NO_DATAより明るくし、「取得中」と「取得済みだが値が無い」を見分けられるようにする。 */
-export const COLOR_LOADING = "#d1d5db";
+export const COLOR_LOADING = palette.semantic.loading;
 /** 凡例で非表示にした段階の色。線は描かれるが透明で、下の路面レイヤーがそのまま見える。 */
-export const COLOR_HIDDEN = "rgba(0,0,0,0)";
+export const COLOR_HIDDEN = palette.semantic.hidden;
 /** 符号付き材料の負側（下り坂等、走行が楽になる側）の色。 */
-export const COLOR_SIGNED_LOW = "#0284c7";
+export const COLOR_SIGNED_LOW = palette.semantic.signed_descent;
 /** 符号付き材料の0付近（平坦）の色。難易度スケールの「易しい」と同じ緑にして、
  * 「楽な区間」の色をスケールの種類をまたいで揃える。 */
 export const COLOR_SIGNED_FLAT = COLOR_EASY;
 /** 符号付き材料の正側が赤へ向かう途中に置く色。段階数が増えても隣同士が見分けられるよう、
  * 色相だけでなく明度も動かす経路（緑→黄→赤→暗赤）にするための中継点。 */
-const COLOR_SIGNED_CLIMB_MID = "#eab308";
-const COLOR_SIGNED_CLIMB_EXTREME = "#7f1d1d";
+const COLOR_SIGNED_CLIMB_MID = palette.semantic.signed_climb_mid;
+const COLOR_SIGNED_CLIMB_EXTREME = palette.semantic.signed_climb_extreme;
 
 /** 符号付き材料の配色は0（平坦）を境に2方向へ分ける。1つの2色補間で全段階を塗ると、
  * 0付近の段階が両端のどちらかの色に寄り（勾配では平坦帯が濃い青になる）、段階を細かく

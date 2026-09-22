@@ -43,7 +43,13 @@ from app.infrastructure.vector_tile import (  # noqa: E402
 from app.main import app  # noqa: E402
 from app.domain.wind import ASSUMED_SPEED_KMH, MAX_ASSUMED_SPEED_KMH, MIN_ASSUMED_SPEED_KMH  # noqa: E402
 from app.domain.hard_filters import DEFAULT_HARD_FILTERS, HARD_FILTER_NAMES  # noqa: E402
-from app.domain.display_palette import nominal_color, ordered_colors  # noqa: E402
+from app.domain.display_palette import (  # noqa: E402
+    COMPARISON_SLOT_COLORS,
+    EVALUATION_RAMP_ANCHORS,
+    SEMANTIC_COLORS,
+    nominal_color,
+    ordered_colors,
+)
 from app.domain.gsi_tiles import (  # noqa: E402
     RELIEF_ATTRIBUTION,
     RELIEF_MAX_ZOOM,
@@ -77,6 +83,7 @@ JMA_TILE_CONFIG_PATH = GENERATED_DIR / "jma-tile-config.json"
 POI_KINDS_PATH = GENERATED_DIR / "poi-kinds.json"
 MATERIAL_CATALOG_PATH = GENERATED_DIR / "material-catalog.json"
 LANDCOVER_CLASSES_PATH = GENERATED_DIR / "landcover-classes.json"
+PALETTE_PATH = GENERATED_DIR / "palette.json"
 
 def _strip_prose(node: object, *, keep: bool = False) -> object:
     """docstring由来の`description`・`summary`を落とす。
@@ -174,6 +181,18 @@ def main() -> None:
                 "min_zoom": LANDCOVER_TILE_MIN_ZOOM,
                 "max_zoom": LANDCOVER_TILE_MAX_ZOOM,
             },
+        },
+    )
+    # 役割ごとの色（domain/display_palette.py）。**画面は色の値を持たず、この名前で引く**。
+    # 色を変えるときに触るのはbackendの1ファイルだけになる。
+    _write_json(
+        PALETTE_PATH,
+        {
+            "semantic": SEMANTIC_COLORS,
+            "comparison_slots": list(COMPARISON_SLOT_COLORS),
+            "evaluation_ramp_anchors": [
+                {"position": position, "color": color} for position, color in EVALUATION_RAMP_ANCHORS
+            ],
         },
     )
     # 土地被覆のクラス（画素値・割合列・表示名・色）。地図タイルの塗りと同じレジストリから

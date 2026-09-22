@@ -4,6 +4,7 @@
  * **重なりはこのファイルの宣言の並びだけが決める**（背面→前面）。押したときに拾う対象は
  * 見た目の線とは別の透明な線が持つ——見た目の太さと、指で押せる幅を別々に決めるため。
  */
+import palette from "@/types/generated/palette.json";
 import type { ExpressionSpecification, FilterSpecification } from "maplibre-gl";
 import type { Feature, FeatureCollection, LineString } from "geojson";
 
@@ -16,15 +17,15 @@ export type RoutePath = readonly RoutePoint[];
 
 // 見た目の値。基礎地図の主要道路（暖色系）に溶け込まない寒色を参考線に、
 // 乗り換えと合成には候補線と競合しない暖色を使う。
-const CANDIDATE_COLOR = "#64748b";
+const CANDIDATE_COLOR = palette.semantic.route_candidate;
 const CANDIDATE_WIDTH_PX = 2.5;
-const SELECTED_HALO_COLOR = "#1e3a8a";
+const SELECTED_HALO_COLOR = palette.semantic.route_selected_halo;
 const SELECTED_HALO_WIDTH_PX = 10;
 const SELECTED_HALO_OPACITY = 0.25;
 /** 縁取りは線の色にも背景にも依存しない一定の暗色——線と同系色の面が背景に来ても
  * 輪郭が残るようにする。 */
-const CASING_COLOR = "rgba(15, 23, 42, 0.8)";
-const SPLICE_COLOR = "#c2612b";
+const CASING_COLOR = palette.semantic.route_casing;
+const SPLICE_COLOR = palette.semantic.route_splice;
 const SPLICE_WIDTH_PX = 3;
 const SPLICE_SELECTED_WIDTH_PX = 5;
 const SPLICE_OPACITY = 0.85;
@@ -40,8 +41,8 @@ const HIT_WIDTH_PX = 24;
 const CANDIDATE_HIT_WIDTH_PX = 18;
 /** 矢印は本体を白・縁を濃色にする——区間の色分けはレンズのモードで変わるため、
  * 線と同系色になりうる有彩色を本体に使わない。 */
-const ARROW_COLOR = "#ffffff";
-const ARROW_HALO_COLOR = "#111827";
+const ARROW_COLOR = palette.semantic.route_arrow;
+const ARROW_HALO_COLOR = palette.semantic.route_arrow_halo;
 const ARROW_SPACING_PX = 80;
 const ARROW_HALO_SCALE = 1.5;
 /** 大きさはズームに追従させる——固定ピクセルだと、拡大するほど周囲の道路だけが太くなる。 */
@@ -52,7 +53,7 @@ const ARROW_SIZE_BY_ZOOM: readonly (readonly [number, number])[] = [
   [19, 1.6],
 ];
 
-const HIT_PAINT = { "line-color": "#000000", "line-opacity": 0 } as const;
+const HIT_PAINT = { "line-color": palette.semantic.hit, "line-opacity": 0 } as const;
 const ROUND_CAP = { "line-cap": "round", "line-join": "round" } as const;
 
 export const ROUTE_HIT_TARGET = "route";

@@ -20,6 +20,7 @@
 // 読めず数値の重み付け結合が成立しないため、tile_inputs.boolean=trueのときは
 // trueValue/falseValueで寄与値を直接指定する（weightは無視）。
 
+import palette from "@/types/generated/palette.json";
 import type { LegendEntry } from "./legendFilter";
 import { LEGEND_NO_DATA_KEY, legendBandKey, rangeStepLabel } from "./mapColorLegend";
 import type { MapValueKind } from "./valueScale";
@@ -313,12 +314,9 @@ export function dedicatedWayValueLineLayerId(axisId: string): string {
 // bandCount段階ぶんの色を線形補間で生成するため、bandCount=4のときは既存の4色と完全に
 // 一致し（axisLayers.test.ts参照）、bandCount≠4の軸でも同じ緑→赤の配色系統のまま段階数
 // ぶんの色を自動生成できる。
-const RAMP_COLOR_ANCHORS: readonly [number, string][] = [
-  [0, "#4caf50"],
-  [1 / 3, "#ffb300"],
-  [2 / 3, "#fb8c00"],
-  [1, "#e53935"],
-];
+const RAMP_COLOR_ANCHORS: readonly [number, string][] = palette.evaluation_ramp_anchors.map(
+  (anchor) => [anchor.position, anchor.color],
+);
 
 function hexToRgb(hex: string): [number, number, number] {
   const n = parseInt(hex.slice(1), 16);
@@ -372,7 +370,7 @@ export const AXIS_RAMP_COLORS = [
 // COLOR_UNKNOWNと同じ値（既存の路面レイヤー等の「不明」表現と地図全体で統一する）。
 // 循環import回避のため値を複製している（分類側がaxisLayers.tsを
 // importする向きのため、逆方向のimportはできない）。
-export const COLOR_UNKNOWN = "#9ca3af";
+export const COLOR_UNKNOWN = palette.semantic.no_data;
 
 /** hasUnknownFallback=trueのtile_inputについて、「不明」と判定すべきかを求める
  * MapLibre expression。該当する入力を持たない軸はnull（＝不明状態を持たない、

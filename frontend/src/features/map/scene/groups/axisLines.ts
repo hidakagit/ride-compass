@@ -6,6 +6,7 @@
  *
  * ソースは道路の線と同じ路面タイル。宣言は合成（`composeScene`）が1本へ畳む。
  */
+import palette from "@/types/generated/palette.json";
 import type { FilterSpecification } from "maplibre-gl";
 
 import type { MapSceneFeatureStates, MapSceneFeatureStateValue } from "../mapScene";
@@ -28,7 +29,7 @@ const UNDERLAY_WIDTH_PX = (ROAD_TRACKS.length - 1) * TRACK_OFFSET_STEP_PX + LINE
 const UNDERLAY_OPACITY = UNKNOWN_LINE_OPACITY;
 /** まだ値が来ていない間の色。**隠す指定があっても残す**——「まだ来ていない」と
  * 「隠した」が区別できなくなるため。 */
-const LOADING_COLOR = "#cbd5e1";
+const LOADING_COLOR = palette.semantic.loading;
 
 /** 段1つぶん。境界は下限で、判定は`>= 下限`・`< 次の下限`。 */
 export type AxisBand = {
