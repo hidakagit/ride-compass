@@ -215,3 +215,22 @@ CLAUDE.md参照。節見出しはタスクのテーマ分類で、日付は起�
 
 - [ ] [T1001](records/tasks/T1001.md). frontendを仕様から起こし直し、既存とdiffを取って再構成する 規模L
 - [ ] [T1004](records/tasks/T1004.md). E2Eが、地図が描けたかを見ていない 規模S〜M
+
+## 周期レビュー第12回の指摘（2026-09-23・4観点それぞれを独立した作業ツリーで実施、ユーザー承認済み）
+
+- [ ] [T1022](records/tasks/T1022.md). 周期レビュー第12回で判明した「機械が見ている」という嘘を一掃する 規模M
+- [ ] [T1023](records/tasks/T1023.md). scene移行で置き換えられた側の残骸を撤去し、列挙器の穴を塞ぐ 規模S
+- [ ] [T1024](records/tasks/T1024.md). 正本が、存在しない機構を1本道の追加点として名指ししている 規模S
+- [ ] [T1025](records/tasks/T1025.md). 見た目の値を1つ変えるだけで本番backendが入れ替わる 規模S
+- [ ] [T1026](records/tasks/T1026.md). 手書きの色表を消したときに一緒に落ちた「色の意味」を戻す 規模M
+- [ ] [T1027](records/tasks/T1027.md). 失敗・空・待ちの伝え方を1本の規約へ揃える 規模M
+- [ ] [T1028](records/tasks/T1028.md). 台帳の未完了タスクのうち、前提そのものが消えているものを棚卸しする 規模S
+- [ ] [T1029](records/tasks/T1029.md). sceneの入力語彙を、上位のReactコンポーネントのpropsから切り離す 規模S
+- [ ] [T1030](records/tasks/T1030.md). 規模ウォッチの閾値が、縮んだファイルに対して緩みっぱなしになっている 規模S
+- [ ] [T1031](records/tasks/T1031.md). 「単一の情報源」を自称するSQLを、batchの1本だけが手で写している 規模S
+- [ ] [T1032](records/tasks/T1032.md). frontend-design-system.mdが、モジュール文書の禁止事項をまとめて破っている 規模S
+- [ ] [T1033](records/tasks/T1033.md). way_materialsだけが「生データを差し替えたら下流を作り直す」契約から外れている 規模S
+- [ ] [T1034](records/tasks/T1034.md). 周期レビュー第12回の小さな指摘をまとめて直す 規模S
+- [ ] [T1035](records/tasks/T1035.md). batchの2つのSQLが、駆動側の取り方で余分な仕事をしている 規模S
+
+見送りとして判断を記録したもの（台帳には載せない）: [T1036](records/tasks/T1036.md)・[T1037](records/tasks/T1037.md)・[T1038](records/tasks/T1038.md)・[T1039](records/tasks/T1039.md)・[T1040](records/tasks/T1040.md)
