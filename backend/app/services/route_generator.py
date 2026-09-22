@@ -229,7 +229,7 @@ class RouteGenerator:
 
         # 評価前に目標距離に近い順へ並べておく（最終順序はoverall_difficultyで決まるが、
         # 同点[小数1桁]の候補はこの順で並ぶ——周囲に重みを振った軸のデータが無く全候補が
-        # 同じdifficultyになる場合、結果は実質的に目標距離に近い順になる。）。
+        # 同じdifficultyになる場合、結果は実質的に目標距離に近い順になる）。
         traced.sort(key=lambda t: abs(t.distance_km - distance_km))
 
         if not traced:
