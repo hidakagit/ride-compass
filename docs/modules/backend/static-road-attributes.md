@@ -10,7 +10,7 @@ OSM由来の道路データ（PBF取込）・警察庁事故データ・土地�
 
 | レイヤー | ファイル |
 |---|---|
-| domain | `road.py`・`attributes.py`・`accident.py`・`traffic.py`（OSMタグの解釈と分類。停止要因・補給POIの種別、通行方向、道の階級）・`landcover.py`（土地被覆クラス別割合の算出、評価軸の材料）・`divided_carriageway.py`（上下線が分かれた道の片側かを判定するしきい値）（[region.py](routing-engine.md)は別モジュール管轄） |
+| domain | `road.py`・`attributes.py`・`accident.py`・`traffic.py`（OSMタグの解釈と分類。停止要因・補給POIの種別、通行方向、道の階級）・`landcover.py`（土地被覆クラス別割合の算出、評価軸の材料）・`divided_carriageway.py`（上下線が分かれた道の片側かを判定するしきい値）・`map_display.py`・`display_palette.py`（地図の束ね方・描く寸法と配色。**本番プロセスは読まず**、`scripts/export_openapi.py`の生成物を経由してだけ画面へ届く。読み方は[地図: 静的レイヤー](../frontend/static-map-layers.md)）（[region.py](routing-engine.md)は別モジュール管轄） |
 | services | `tile_serving.py`・`accident_service.py`・`region_service.py`・`landcover_tile_service.py`（土地被覆ラスタタイルの配信）・`derived_data_freshness_service.py`（派生データ鮮度台帳）・`tile_version_service.py`（配信するタイル世代の組み立て。形の署名とDBの派生データ世代から作る）・`db_status_service.py`（本番DB状態の判定。しきい値と根拠を持つ） |
 | infrastructure | `vector_tile.py`・`tile_cache.py`・`landcover_raster.py`（土地被覆GeoTIFFの読み取り・再投影・着色）・`source_models.py`（外部ソースの生データを、ソースによらない1つの形で持つ。点・線・ラスタのタイルを同じ骨格へ載せ、取込1回ぶんを`source_runs`が記録する）・`derived_models.py`（生データから導いたもの。粒度ごとに1表で、バッチが1つ増えても表は増えない）・`orm_base.py`（ORMの基底。どのモデルからも辿れる位置に置き、モデル同士がimportで絡まないようにする）・`accident_repository.py`・`derived_data_freshness.py`（派生データ鮮度台帳）・`db_status.py`（本番DBの状態＝取込runの最終実行・テーブルの実数と容量・統計とVACUUMの鮮度・接続）・`proj_data.py`（rasterioが参照するPROJデータをrasterio同梱のものへ固定する。別インストールの`proj.db`を掴むとEPSG解決が失敗するため、rasterioのimport前に呼ぶ） |
 | api | `region.py`（路面/POI/動的材料/土地被覆タイル・区間インスペクタ）・`accidents.py`（事故タイル）・`_tile_http.py`（両者が共有する座標検証と応答組み立て）・`derived_data_freshness.py`（`GET /api/admin/derived-data/freshness`、Basic認証必須）・`db_status.py`（`GET /api/admin/db-status`、同） |

@@ -82,6 +82,15 @@ Windowsでは`uvicorn --reload`がリローダー親プロセスとワーカー�
 確認は`GET /health`（backend）と`GET /api/version`（frontend）の`commit`を、手元の
 `git rev-parse HEAD`と突き合わせる。
 
+**backendのデプロイは、本番プロセスに届く変更でだけ走る。** `deploy-backend.yml`の`paths`は
+`backend/**`から、イメージに入らないもの（テスト・lint設定等）と、イメージには入るが本番
+プロセスが読まないもの（`export_openapi.py`とそれだけが読む表示値の宣言）を外している。
+表示値の変更は生成物（`frontend/src/types/generated/`）を経由してfrontendのデプロイで
+画面へ届くため、backendのコンテナを入れ替える理由にならない。**外したモジュールを本番側が
+importすると、その変更だけが本番へ届かなくなる**（エラーにならず古い値で動き続ける）。
+`backend/tests/structure/test_deploy_exclusions.py`がワークフローとDockerfileから母集団を
+導いてこれを検査する。
+
 **タイルプロパティを削除する変更はデプロイ順序に制約がある。** backendとfrontendは別
 サービスとして独立にデプロイされ、反映タイミングは同期しない。プロパティの**追加**は
 常に後方互換（旧フロントは知らないプロパティを無視する）だが、**削除**を含む世代を

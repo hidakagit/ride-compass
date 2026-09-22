@@ -24,6 +24,21 @@ on:
       # 測ったかは、どの実行口もbenchmarks/_revision.pyが実行時に出力へ残す（まとめて
       # 走らせるrun_allは配信元と違えば止め、個別のベンチは警告に留める）。
       - "!backend/benchmarks/**"
+      # イメージに入らないもの（backend/DockerfileのCOPY対象外）。
+      - "!backend/tests/**"
+      - "!backend/pytest.ini"
+      - "!backend/ruff.toml"
+      - "!backend/requirements-dev.txt"
+      - "!backend/.env.example"
+      # イメージに入るが、本番プロセスが読まないもの。生成スクリプトとそれだけが読む表示値で、
+      # 変更は生成物（frontend/src/types/generated/）を経由してだけ画面へ届く。
+      # **backend/app配下はbackend/tests/structure/test_deploy_exclusions.pyが、本番側から
+      # importされていないことを検査する**——importされた時点で、ここに挙げたままでは
+      # 変更が本番へ届かなくなる。
+      - "!backend/scripts/export_openapi.py"
+      - "!backend/app/domain/map_display.py"
+      - "!backend/app/domain/display_palette.py"
+      - "!backend/app/domain/weather_display.py"
       - ".github/workflows/deploy-backend.yml"
   workflow_dispatch:
 
