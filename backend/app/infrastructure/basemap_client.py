@@ -68,4 +68,6 @@ class BasemapClient:
             return content, content_type
 
     def _rewrite_upstream_urls(self, content: bytes) -> bytes:
+        """書き換えるのはURLとして始まる出現（引用符に続くもの）だけで、地の文に現れる
+        上流の名前——出典の表記等——はそのまま残す。"""
         return content.replace(f'"{UPSTREAM_HOST}'.encode(), f'"{self._proxy_base_url}'.encode())

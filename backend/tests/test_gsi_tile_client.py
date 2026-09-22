@@ -1,168 +1,172 @@
-"""`infrastructure/gsi_tile_client.py`——地理院タイルの取り寄せと、整備区域外の記憶。
+"""`infrastructure/gsi_tile_client.py`——地理院タイルのプロキシとディスクキャッシュ。
 
 ここで見ないもの:
+- ディスクキャッシュそのものの読み書き（アトミック書き込み・容量上限） → `test_tile_cache.py`
+- 標高タイルをMapLibreが読む形へ移す変換 → `services/terrain_tile_service.py`側
+- 整備区域外の記憶を入れる器の大きさ（`NOT_FOUND_MAX_ENTRIES`の使い道） → `api/dependencies.py`側
 
-- ディスクキャッシュの表現（ファイル名・書き込みの原子性） → `test_tile_cache.py`
-- HTTPクライアントの使い回し → `test_http_client.py`
-- 取り寄せたタイルの配信・変換 → `test_gsi_tile_routes.py`・`test_gsi_dem_tile.py`
-
-**上流もディスクも触らない。** HTTPは`fake_tile_http.py`のフェイク、`tile_cache`は読み書きを
-覚えるだけの差し替えを与える。記録された結果は`/api/debug/stats`が読む集計を通して確かめる。
-区域外の記憶は呼び出し側が持つため、テストごとに新しい入れ物を渡す。
+ディスクキャッシュと上流HTTPは差し替えて与える。上流の応答は
+`tests/fake_tile_http.py`の共有フェイクから取る。
 """
 
+import contextlib
 import threading
 
-import httpx
-import pytest
-
-from app.infrastructure import debug_log, gsi_tile_client
-from cachetools import LRUCache
-
-from app.infrastructure.gsi_tile_client import (
-    GSI_TILE_NOT_FOUND,
-    NOT_FOUND_MAX_ENTRIES,
-    UPSTREAM_HOST,
-    GsiTileClient,
-)
+from app.infrastructure import gsi_tile_client
 from tests.fake_tile_http import FakeHttpClient
 
-CATEGORY = "gsi-relief-tile"
-PATH_A = "relief_a/10/900/400.png"
-TILE_A = b"tile_a"
-TILE_TYPE = "image/png"
+PATH = "xyz/relief/12/3637/1612.png"
 
 
 class FakeTileCache:
-    """`tile_cache`の読み書きを覚えるだけの差し替え（`threads`は読み書きを行ったスレッド）。"""
+    """`tile_cache`の差し替え。読み書きが走ったスレッドも憶える。"""
 
-    def __init__(self):
-        self.entries: dict[str, tuple[bytes, str]] = {}
-        self.threads: set[int] = set()
+    def __init__(self, seed: dict | None = None):
+        self.entries = dict(seed or {})
+        self.thread_idents: list[int] = []
 
-    def get(self, path: str) -> tuple[bytes, str] | None:
-        self.threads.add(threading.get_ident())
+    def get(self, path):
+        self.thread_idents.append(threading.get_ident())
         return self.entries.get(path)
 
-    def set(self, path: str, content: bytes, content_type: str) -> None:
-        self.threads.add(threading.get_ident())
+    def set(self, path, content, content_type):
+        self.thread_idents.append(threading.get_ident())
         self.entries[path] = (content, content_type)
 
 
-@pytest.fixture(autouse=True)
-def store(monkeypatch):
-    fake = FakeTileCache()
-    monkeypatch.setattr(gsi_tile_client.tile_cache, "get", fake.get)
-    monkeypatch.setattr(gsi_tile_client.tile_cache, "set", fake.set)
-    debug_log.reset_stats()
-    yield fake
-    debug_log.reset_stats()
+def install_fakes(monkeypatch, cache=None):
+    """ディスクキャッシュと`log_external_call`を差し替え、記録先を返す。
+
+    `fields`は`/api/debug/stats`のエラー集計とWARNINGの出し分けに使われるため、
+    その中身自体がこのモジュールの外向きの成果物になる。
+    """
+    cache = cache or FakeTileCache()
+    recorded: list[dict] = []
+
+    @contextlib.contextmanager
+    def fake_log_external_call(category, **fields):
+        recorded.append(fields)
+        yield fields
+
+    monkeypatch.setattr(gsi_tile_client, "tile_cache", cache)
+    monkeypatch.setattr(gsi_tile_client, "log_external_call", fake_log_external_call)
+    return cache, recorded
 
 
-def _client(http_client, not_found_paths: LRUCache | None = None) -> GsiTileClient:
-    """記憶の入れ物はテストごとに新しく作る（テスト間で漏れる大域を持たない）。"""
-    return GsiTileClient(http_client, not_found_paths or LRUCache(maxsize=NOT_FOUND_MAX_ENTRIES))
+def make_client(http_client, not_found_paths=None):
+    return gsi_tile_client.GsiTileClient(
+        http_client, not_found_paths if not_found_paths is not None else gsi_tile_client.LRUCache(maxsize=8)
+    )
 
 
-def _upstream(content: bytes = TILE_A, content_type: str = TILE_TYPE, raises=None) -> FakeHttpClient:
-    return FakeHttpClient(content, content_type, raises=raises)
+def http_status_error(status_code: int):
+    httpx = gsi_tile_client.httpx
+    request = httpx.Request("GET", f"{gsi_tile_client.UPSTREAM_HOST}/{PATH}")
+    return httpx.HTTPStatusError(
+        "upstream returned an error", request=request, response=httpx.Response(status_code, request=request)
+    )
 
 
-def _status_error(status_code: int) -> httpx.HTTPStatusError:
-    request = httpx.Request("GET", f"{UPSTREAM_HOST}/{PATH_A}")
-    response = httpx.Response(status_code, request=request)
-    return httpx.HTTPStatusError(str(status_code), request=request, response=response)
+async def test_path_known_to_be_outside_coverage_skips_cache_and_upstream(monkeypatch):
+    """整備区域外と分かっているパスは、ディスクも上流も触らずに済ませる。"""
+    cache, recorded = install_fakes(monkeypatch)
+    not_found_paths = gsi_tile_client.LRUCache(maxsize=8)
+    not_found_paths[PATH] = None
+    http_client = FakeHttpClient(b"tile", "image/png")
+
+    result = await make_client(http_client, not_found_paths).get(PATH)
+
+    assert isinstance(result, gsi_tile_client.GsiTileNotFound)
+    assert cache.thread_idents == []
+    assert http_client.requested_urls == []
+    assert recorded == []
 
 
-def _stats() -> dict:
-    return debug_log.get_stats()["external"][CATEGORY]
+async def test_cached_tile_is_returned_without_asking_upstream(monkeypatch):
+    cache, recorded = install_fakes(monkeypatch, FakeTileCache({PATH: (b"cached", "image/png")}))
+    http_client = FakeHttpClient(b"fresh", "image/png")
+
+    result = await make_client(http_client).get(PATH)
+
+    assert result == (b"cached", "image/png")
+    assert http_client.requested_urls == []
+    assert recorded[0]["cache"] == "hit"
 
 
-class TestFetchingATile:
-    async def test_the_path_is_asked_for_under_the_map_agency_host(self):
-        http_client = _upstream()
+async def test_uncached_tile_is_fetched_from_gsi_and_kept_for_next_time(monkeypatch):
+    cache, recorded = install_fakes(monkeypatch)
+    http_client = FakeHttpClient(b"png-bytes", "image/png")
 
-        await _client(http_client).get(PATH_A)
+    result = await make_client(http_client).get(PATH)
 
-        assert http_client.requested_urls == [f"{UPSTREAM_HOST}/{PATH_A}"]
-
-    async def test_what_came_back_is_returned_with_its_content_type(self):
-        assert await _client(_upstream()).get(PATH_A) == (TILE_A, TILE_TYPE)
-
-    async def test_what_came_back_is_kept_for_the_next_request(self, store):
-        """残さないと、同じ1枚を要求のたびに地理院へ取りに行く。"""
-        await _client(_upstream()).get(PATH_A)
-
-        assert store.entries == {PATH_A: (TILE_A, TILE_TYPE)}
-
-    async def test_a_tile_already_kept_is_served_without_asking_upstream(self, store):
-        store.entries[PATH_A] = (TILE_A, TILE_TYPE)
-        http_client = _upstream(b"other")
-
-        result = await _client(http_client).get(PATH_A)
-
-        assert result == (TILE_A, TILE_TYPE)
-        assert http_client.requested_urls == []
-        assert _stats()["cache_hits"] == 1
-
-    async def test_the_disk_is_read_and_written_off_the_event_loop(self, store):
-        """イベントループ上でディスクを触ると、同時に処理中のルート生成まで詰まる。"""
-        await _client(_upstream()).get(PATH_A)
-
-        assert store.threads and threading.get_ident() not in store.threads
+    assert result == (b"png-bytes", "image/png")
+    assert http_client.requested_urls == [f"{gsi_tile_client.UPSTREAM_HOST}/{PATH}"]
+    assert cache.entries[PATH] == (b"png-bytes", "image/png")
+    assert recorded[0]["cache"] == "miss"
+    assert recorded[0]["result"] == "ok"
+    assert recorded[0]["status"] == 200
 
 
-class TestTilesOutsideTheMappedArea:
-    async def test_a_missing_tile_is_told_apart_from_a_failure(self):
-        """同じNoneで返すと、呼び出し側は「地理院に無い」と「取れなかった」を区別できない。"""
-        result = await _client(_upstream(raises=_status_error(404))).get(PATH_A)
+async def test_tile_without_a_content_type_header_is_served_as_png(monkeypatch):
+    """上流がContent-Typeを付けずに返しても、地理院タイルはPNGとして配れる。"""
+    cache, _ = install_fakes(monkeypatch)
+    http_client = FakeHttpClient(b"png-bytes", None)
 
-        assert result is GSI_TILE_NOT_FOUND
+    result = await make_client(http_client).get(PATH)
 
-    async def test_a_missing_tile_is_not_counted_as_an_error(self):
-        """区域外は珍しくない。エラーに数えると、集計の中で本物の障害が埋もれる。"""
-        await _client(_upstream(raises=_status_error(404))).get(PATH_A)
-
-        assert _stats()["errors"] == 0
-
-    async def test_a_missing_tile_is_not_written_to_disk(self, store):
-        """書くと、地理院が整備を広げてもファイルを消すまで「無い」を返し続ける。"""
-        await _client(_upstream(raises=_status_error(404))).get(PATH_A)
-
-        assert store.entries == {}
-
-    async def test_a_tile_known_to_be_missing_is_not_asked_for_again(self):
-        """区域外のタイルは地図を動かすたびに要求されるため、毎回上流へ行くと帯域を食い潰す。"""
-        http_client = _upstream(raises=_status_error(404))
-        client = _client(http_client)
-
-        await client.get(PATH_A)
-        again = await client.get(PATH_A)
-
-        assert again is GSI_TILE_NOT_FOUND
-        assert len(http_client.requested_urls) == 1
+    assert result == (b"png-bytes", "image/png")
+    assert cache.entries[PATH] == (b"png-bytes", "image/png")
 
 
-class TestWhenTheFetchFails:
-    async def test_a_server_error_has_no_tile(self):
-        result = await _client(_upstream(raises=_status_error(500))).get(PATH_A)
+async def test_upstream_404_is_remembered_and_not_counted_as_a_failure(monkeypatch):
+    """整備区域外は平常運転の一部なので、エラー集計へ載せない。"""
+    cache, recorded = install_fakes(monkeypatch)
+    not_found_paths = gsi_tile_client.LRUCache(maxsize=8)
+    http_client = FakeHttpClient(b"", "image/png", raises=http_status_error(404))
 
-        assert result is None
-        assert _stats()["errors"] == 1
+    result = await make_client(http_client, not_found_paths).get(PATH)
 
-    async def test_a_connection_failure_has_no_tile(self):
-        result = await _client(_upstream(raises=httpx.RequestError("boom"))).get(PATH_A)
+    assert isinstance(result, gsi_tile_client.GsiTileNotFound)
+    assert PATH in not_found_paths
+    assert cache.entries == {}
+    assert recorded[0]["result"] == "ok"
+    assert recorded[0]["status"] == 404
 
-        assert result is None
-        assert _stats()["errors"] == 1
 
-    async def test_a_failure_is_not_remembered_as_a_missing_tile(self):
-        """一時的な障害を区域外として憶えると、上流が復旧してもプロセスを再起動するまで出ない。"""
-        await _client(_upstream(raises=_status_error(500))).get(PATH_A)
+async def test_upstream_server_error_is_reported_as_a_failure(monkeypatch):
+    """404以外のHTTPステータスは取得失敗で、記憶もしない（次回また取りに行く）。"""
+    cache, recorded = install_fakes(monkeypatch)
+    not_found_paths = gsi_tile_client.LRUCache(maxsize=8)
+    http_client = FakeHttpClient(b"", "image/png", raises=http_status_error(503))
 
-        assert await _client(_upstream()).get(PATH_A) == (TILE_A, TILE_TYPE)
+    result = await make_client(http_client, not_found_paths).get(PATH)
 
-    async def test_a_failure_is_not_written_to_disk(self, store):
-        await _client(_upstream(raises=httpx.RequestError("boom"))).get(PATH_A)
+    assert result is None
+    assert PATH not in not_found_paths
+    assert cache.entries == {}
+    assert recorded[0]["result"] == "error"
+    assert recorded[0]["error_type"]
 
-        assert store.entries == {}
+
+async def test_upstream_transport_failure_is_reported_as_a_failure(monkeypatch):
+    cache, recorded = install_fakes(monkeypatch)
+    not_found_paths = gsi_tile_client.LRUCache(maxsize=8)
+    http_client = FakeHttpClient(b"", "image/png", raises=gsi_tile_client.httpx.ConnectTimeout("timed out"))
+
+    result = await make_client(http_client, not_found_paths).get(PATH)
+
+    assert result is None
+    assert PATH not in not_found_paths
+    assert recorded[0]["result"] == "error"
+    assert recorded[0]["error_type"]
+
+
+async def test_disk_cache_access_stays_off_the_event_loop(monkeypatch):
+    """ディスクI/Oをイベントループ上で行うと、同時に処理中の他のリクエストが止まる。"""
+    cache, _ = install_fakes(monkeypatch)
+    http_client = FakeHttpClient(b"png-bytes", "image/png")
+
+    await make_client(http_client).get(PATH)
+
+    assert cache.thread_idents, "読みと書きの両方が記録されていない"
+    assert threading.get_ident() not in cache.thread_idents
