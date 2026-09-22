@@ -13,7 +13,7 @@
 ——軸は「その道を走るときのつらさ」、こちらは「そこを通るのにかかる時間」を表す。
 """
 
-from typing import Literal
+from typing import Literal, get_args
 from app.domain.tuning import TUNING_VALUES, stop_seconds_parameter_id
 
 # 交差点判定の次数しきい値（この数以上の異なる隣接Nodeを持つNodeを交差点とみなす）。
@@ -100,11 +100,10 @@ _TRAFFIC_CALMING_VALUES: frozenset[str] = frozenset(
 # 停止要因POIのkind正準集合（SQL側のkindフィルタ用）。補給POI（SupplyPoiKind）が同じ
 # `osm_raw_pois`テーブルへ入っているため、kindを絞らないCOUNTは停止密度へコンビニ・
 # 自販機を誤算入する。停止密度を数えるSQLは必ずこの集合でフィルタする。
-STOP_POI_KINDS = (
-    frozenset(_HIGHWAY_STOP_KINDS.values())
-    | frozenset(_RAILWAY_STOP_KINDS.values())
-    | {"barrier", "traffic_calming"}
-)
+#
+# **型の宣言から導く。** 集合を別に並べると、型に無いkindを集合へ入れられてしまい、
+# その分だけ停止密度が静かに増える（引き当ての表と突き合わせる検査が要らなくなる）。
+STOP_POI_KINDS: frozenset[str] = frozenset(get_args(StopPoiKind))
 
 
 # 停止要因の集計キー（`edge_attribute_counts.poi_counts`・`way_attribute_counts.poi_counts`の

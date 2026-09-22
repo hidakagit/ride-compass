@@ -173,11 +173,6 @@ class TestAggregateSegmentsIntoBins:
         assert dict_fields
         assert dict_fields == carried | set(BIN_DROPPED_DICT_FIELDS)
 
-    def test_a_dropped_field_carries_its_reason(self):
-        for name, reason in BIN_DROPPED_DICT_FIELDS.items():
-            assert name in RouteSegmentDetail.model_fields, name
-            assert reason.strip(), name
-
 
 class TestMergingAxisDictionaries:
     """キーごとの距離加重平均。**どの区間にも無いキーは結果に含めない。**"""

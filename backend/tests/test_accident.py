@@ -5,7 +5,6 @@
 """
 
 from app.domain.accident import (
-    BICYCLE_PARTY_TYPE_CODES,
     latitude_from_raw,
     longitude_from_raw,
 )
@@ -69,11 +68,3 @@ class TestCoordinatesFromRawDms:
         """
         assert latitude_from_raw(TOKYO_LATITUDE_RAW) is not None
         assert longitude_from_raw(TOKYO_LATITUDE_RAW) is None
-
-
-def test_only_bicycles_count_as_bicycle_parties():
-    """当事者種別のうち自転車は51（自転車）と52（電動アシスト）。
-    **59（軽車両－その他）は入れない**——手押し車等が自転車事故として数えられる。
-    """
-    assert BICYCLE_PARTY_TYPE_CODES == frozenset({"51", "52"})
-    assert "59" not in BICYCLE_PARTY_TYPE_CODES

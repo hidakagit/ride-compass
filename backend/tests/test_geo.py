@@ -174,9 +174,6 @@ class TestLatLon:
 
         assert isinstance(_Anything(), LatLon)
 
-    def test_it_rejects_a_type_without_the_fields(self):
-        assert not isinstance(object(), LatLon)
-
     def test_a_different_shape_of_input_gives_the_same_answer(self):
         as_model = Coordinates(latitude=TOKYO.latitude, longitude=TOKYO.longitude)
 

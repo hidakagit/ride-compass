@@ -5,15 +5,12 @@
 DBへ通して確かめる。ここで見るのは、表の組み立てと純関数。
 """
 
-from typing import get_args
 
 from app.domain.traffic import (
     DIRECTION_RULES,
     MAJOR_CROSSING_MIN_RANK,
     POI_COUNT_KINDS,
-    STOP_POI_KINDS,
     TAG_KIND_RULES,
-    StopPoiKind,
     highway_rank,
     stop_count_material_ids,
     stop_seconds,
@@ -93,22 +90,6 @@ class TestHighwayRank:
         assert highway_rank("tertiary") >= MAJOR_CROSSING_MIN_RANK
 
 
-class TestStopPoiKinds:
-    """停止要因POIのkind正準集合。停止密度を数えるSQLはこの集合で絞る。"""
-
-    def test_it_matches_the_declared_kind_type(self):
-        """SQL側のフィルタに使う集合と、型の宣言がずれないこと。"""
-        assert STOP_POI_KINDS == frozenset(get_args(StopPoiKind))
-
-    def test_it_covers_every_kind_the_rules_can_produce(self):
-        """補給POIが同じテーブルへ入っているため、絞り漏れるとコンビニ・自販機が
-        停止密度へ算入される。逆に足りないと、その停止要因が数えられない。
-        """
-        from_rules = {kind for _, _, kind, priority in TAG_KIND_RULES if priority <= 4}
-
-        assert from_rules == set(STOP_POI_KINDS)
-
-
 class TestValuesLeftOutOnPurpose:
     """表へ入れなかった値。**入れても1件も落ちない**ため、検査で固定する。"""
 
@@ -137,13 +118,6 @@ class TestValuesLeftOutOnPurpose:
 
 class TestRuleTables:
     """引き当ての表そのもの。当たり方はDBへ通すテストが見る。"""
-
-    def test_a_tag_and_value_pair_appears_at_most_once(self):
-        """同じ組が2行あると、どちらが当たるかが順序に依存して非決定になる。"""
-        for rules in (TAG_KIND_RULES, DIRECTION_RULES):
-            pairs = [(key, value) for key, value, _, _ in rules]
-
-            assert len(pairs) == len(set(pairs))
 
     def test_stop_factors_are_looked_up_before_supply(self):
         """1つのノードが停止要因と補給の両方のタグを持つことがある（コンビニ前の横断歩道

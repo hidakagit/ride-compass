@@ -58,17 +58,30 @@ WARNING_CODE_NAMES: dict[str, str] = {
     "49": "土砂災害危険警報",
 }
 
-# サイクリングに関連する種別への絞り込み。大雨・洪水・暴風/強風・波浪・大雪・雷が主対象で、
-# 土砂災害は山間部ロングライドの通行可否に直結するため含む。
-# 路面凍結系（霜・着氷・着雪・なだれ・低温）・濃霧は、警告としての出し方が他と違うため
-# ここには入れない。高潮・乾燥・その他の注意報は道路走行への関連が薄い。
-CYCLING_RELEVANT_WARNING_CODES: frozenset[str] = frozenset(
+# サイクリングに関わらないため出さない種別。**ここだけが判断を持ち**、対象は名称表から
+# 引き算して導く——2つの一覧を並べて持つと、名称の無いコードを対象へ入れられてしまい、
+# バッジにコード番号がそのまま出る。
+#
+# 路面凍結系（なだれ・低温・霜・着氷・着雪）と濃霧は、警告としての出し方が他と違うため
+# 別扱いにする。高潮・乾燥・その他の注意報は道路走行への関連が薄い。「解除」は発表の
+# 取り下げで、出すものが無い。
+#
+# **名称表へコードが増えたら既定で対象に入る。** 気象庁が新しい種別を出したとき、黙って
+# 隠すより出す側へ倒す（レベルは`warning_level`が名称から導き、不明なら注意報相当になる）。
+WARNING_CODES_NOT_RELEVANT_TO_CYCLING: frozenset[str] = frozenset(
     {
-        "02", "03", "04", "05", "06", "07", "09",
-        "10", "12", "13", "14", "15", "16", "18", "29",
-        "32", "33", "35", "36", "37", "39",
-        "43", "49",
+        "00",  # 解除
+        "08", "19", "38", "48",  # 高潮
+        "20",  # 濃霧
+        "21",  # 乾燥
+        "22", "23", "24", "25", "26",  # なだれ・低温・霜・着氷・着雪
+        "27",  # その他の注意報
+        "17",  # 融雪
     }
+)
+
+CYCLING_RELEVANT_WARNING_CODES: frozenset[str] = (
+    frozenset(WARNING_CODE_NAMES) - WARNING_CODES_NOT_RELEVANT_TO_CYCLING
 )
 
 # 警報・注意報が「現在発表中」であることを示すstatus値。「解除」（直前まで出ていたが
@@ -115,7 +128,7 @@ def extract_active_warnings(kinds: list[dict]) -> list[ActiveWarning]:
         result.append(
             ActiveWarning(
                 code=code,
-                name=WARNING_CODE_NAMES.get(code, code),
+                name=WARNING_CODE_NAMES[code],
                 level=warning_level(code),
                 additions=kind.get("additions", []),
             )
