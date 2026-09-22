@@ -7,11 +7,11 @@
 （docs/modules/frontend/axis-studio.md参照）。
 """
 
-from typing import Awaitable, Literal, TypeVar
+from typing import Awaitable, TypeVar
 
 from dataclasses import asdict
 from fastapi import APIRouter, Depends, HTTPException, status
-from pydantic import Field, field_validator, model_validator
+from pydantic import model_validator
 from sqlalchemy.exc import DBAPIError
 
 from app.api.admin_auth import require_admin_basic_auth
@@ -22,12 +22,10 @@ from app.api.dependencies import get_axis_registry_admin_service, implemented_de
 from app.domain.axis_definitions import (
     AXIS_DEFINITIONS,
     REQUEST_DYNAMIC_MATERIAL_IDS,
-    AxisCategory,
     AxisDefinition,
     AxisShape,
     BreakpointLinearShape,
     CategoricalShape,
-    PriorityCondition,
     referenced_materials,
 )
 from app.domain.axis_display import axis_display_for
@@ -62,146 +60,26 @@ async def _guard_db_errors(awaitable: Awaitable[_T]) -> _T:
         ) from exc
 
 
-class AxisDefinitionFields(StrictModel):
-    """`AxisDefinitionPayload`（書き込み）・`AxisDefinitionResponse`（読み取り）が
-    共有するフィールド定義のみを持つ基底クラス。
+class AxisDefinitionPayload(AxisDefinition):
+    """作成・更新リクエストボディ。
 
-    `AxisDefinitionResponse(AxisDefinitionPayload): pass`という継承にすると、
-    書き込み専用のバリデータ（`_check_materials_are_known`）まで読み取りレスポンスに
-    引き継いでしまう。`material_catalog.py`は「材料は今後コード変更で増減
-    しうる」設計のため、将来ある材料を削除・リネームした際、DBに永続化済みの
-    既存軸がまだその材料idを参照していると、一覧・単体取得（`_to_response`）が
-    Pydantic ValidationErrorで未捕捉の500になる——読み取りは「DBの内容をそのまま
-    返す」だけであるべきで、書き込み時点の妥当性を再検証すべきではない。
+    フィールドと、軸そのものの不変条件（重みの非負・折れ点のx昇順・段の境界の昇順・
+    段ラベルの件数・地図チップの文字数）は`AxisDefinition`が持つ。ここが足すのは
+    **書き込み時にしか問えないもの**——材料カタログ・既存の軸・配信実装という、
+    軸の外側の状態に照らす検証だけである。
     """
-
-    axis_id: str
-    shape: AxisShape
-    default_weight: float = Field(ge=0)
-    # 一般向けルート設定画面（RouteSettingsPanel）がGET /api/axis-catalog
-    # 経由で表示する表示名・説明・分類。labelは必須（表示名の無い軸はUIに出せないため）、
-    # description/categoryは省略可な補助情報として既定値を持つ。
-    label: str
-    description: str = ""
-    category: AxisCategory = "推定"
-    # 公開状態（一般向けGET /api/axis-catalogへ出るか）。既定Falseは
-    # 「新規作成した軸はまず下書き」という安全側の初期値。公開済み軸への更新・削除は
-    # AxisRegistryAdminServiceが拒否する（このPayload自体はis_published=falseで送っても
-    # 既存が公開済みなら通らない。ただし表示専用フィールドのみの差分は
-    # 例外的に許可する、サービス層のcheck_publish_immutability/is_cosmetic_only_update参照）。
-    is_published: bool = False
-    # 0次条件（探索除外のハードフィルタとは別の、評価を優先確定する条件。
-    # domain/axis_definitions.py: PriorityCondition参照）。
-    priority_overrides: list[PriorityCondition] = Field(default_factory=list)
-    # 地図チップ表示要素。全て省略可
-    # （未設定はフロント側の汎用フォールバックに委ねる、動作は壊れない）。
-    icon_id: str | None = None
-    chip_label: str | None = None
-    panel_hint: str | None = None
-    # falseなら地図上チップ・地図の見え方パネルの両方からこの軸を丸ごと
-    # 除外する（domain/axis_definitions.py: AxisDefinition.show_map_iconのdocstring参照）。
-    show_map_icon: bool = True
-    # axis_idハードコード分岐を性質ベースの宣言的フィールドへ汎用化した
-    # もの（domain/axis_definitions.py: AxisDefinition.time_scopeのdocstring参照）。
-    # AxisComposer.tsx（GUIフォーム）は現時点で編集UIを持たない（管理API経由の
-    # 直接編集のみ対応）。
-    time_scope: Literal["always", "night_only"] = "always"
-    # 地図の色分けしきい値だけを差し替える軽量な上書き（domain/
-    # axis_definitions.py: AxisDefinition.display_thresholds_overrideのdocstring参照）。
-    # AxisComposer.tsx（GUIフォーム）が「数値の配列を編集する」という単純なUIで
-    # 直接編集できる（バリデーションは下のAxisDefinitionPayload._check_display_
-    # thresholds_override_is_ascending参照）。
-    display_thresholds_override: list[float] | None = None
-    # display_thresholds_overrideと対になる、段階ごとの体感ラベルの軽量な
-    # 上書き（domain/axis_definitions.py: AxisDefinition.display_band_labels_overrideの
-    # docstring参照）。設定する場合はdisplay_thresholds_overrideも設定済みで要素数が
-    # 段階数と一致すること（バリデーションは下のAxisDefinitionPayload._check_display_
-    # band_labels_override参照）。
-    display_band_labels_override: list[str] | None = None
-    # この軸が専用のway_id→値配信レイヤー（Redis経由、domain/axis_definitions.py:
-    # AxisDefinition.dedicated_way_value_layerのdocstring参照）を持つかの宣言。
-    # time_scopeと同じ理由でAxisComposer.tsx（GUIフォーム）は現時点で編集UIを
-    # 持たない（管理API経由の直接編集のみ対応）。
-    dedicated_way_value_layer: bool = False
-    # dedicated_way_value_layer=trueの軸のみ意味を持つ（domain/
-    # axis_definitions.py: AxisDefinition.dynamic_way_value_needs_time/
-    # dynamic_way_value_needs_bearingのdocstring参照）。同じくGUI編集UIは現時点で未対応。
-    dynamic_way_value_needs_time: bool = False
-    dynamic_way_value_needs_bearing: bool = False
-    dynamic_way_value_needs_speed: bool = False
-
-
-class AxisDefinitionPayload(AxisDefinitionFields):
-    """作成・更新リクエストボディ。妥当性検証は型・範囲チェックのみ
-
-    （極端な重み設定に対する意味的な歯止めは設けない。
-    default_weightの非負制約はRoutePreferenceWeights（routers/routes.py）と同じ）。
-    """
-
-    @field_validator("chip_label")
-    @classmethod
-    def _check_chip_label_length(cls, value: str | None) -> str | None:
-        """地図チップは4文字以下を前提とした
-        固定サイズのタイル（MapOverlayControls.module.css）で設計されており、正式名
-        （label、例:「車の圧迫感」5文字）をそのまま出すとレイアウトが崩れる。chip_labelを
-        設定する場合は必ず4文字以下であることをここで検証する（未設定=Noneはこの
-        フィールド単体では対象外——label側の制約は`_check_label_length_or_chip_label`
-        [下記model_validator]がまとめて検証する）。
-        """
-        if value is not None and len(value) > 4:
-            raise ValueError(f"chip_label must be 4 characters or fewer (got {len(value)}: {value!r})")
-        return value
 
     @model_validator(mode="after")
-    def _check_label_length_or_chip_label(self) -> "AxisDefinitionPayload":
-        """上のfield_validatorは「chip_labelが明示的に4文字を超える場合」だけを弾く。
-        chip_label未設定のままlabelが4文字を超えると、フォールバック先のlabelそのものに
-        長さ制約が無いため同じレイアウト崩れが起きる。chip_label未設定時はlabelの長さも
-        検証する。
+    def _the_map_chip_needs_a_short_name(self) -> "AxisDefinitionPayload":
+        """`chip_label`未設定の軸は`label`をそのまま地図チップへ出すため、labelも4文字以内で
+        なければ固定サイズのタイルからはみ出す。labelの長さは軸そのものの不変条件ではない
+        （地図チップへ出ない内部軸・`show_map_icon=False`の軸にも同じ制約を課すことになる）
+        ので、新しく軸を作る側へ短い名前を要求するこの入口に置く。
         """
         if self.chip_label is None and len(self.label) > 4:
             raise ValueError(
                 f"label is longer than 4 characters ({len(self.label)}: {self.label!r}); "
                 "set chip_label explicitly (4 characters or fewer) for the map chip"
-            )
-        return self
-
-    @field_validator("display_thresholds_override")
-    @classmethod
-    def _check_display_thresholds_override_is_ascending(cls, value: list[float] | None) -> list[float] | None:
-        """色分けの段階境界値は昇順でなければ意味を持たない
-        （`buildAxisRampColorExpression`[axisLayers.ts]のMapLibre `step` expressionが
-        昇順を前提とする——降順・同値混在だと未定義動作になる）。空リストも「境界が
-        0個で常に1段階」を意味してしまい実質意味が無いため、設定する場合は最低1件を要求する
-        （入力欄の少なさに比べて事故りやすい値のためAPIレベルで弾く）。"""
-        if value is None:
-            return None
-        if len(value) == 0:
-            raise ValueError("display_thresholds_override is set but empty; provide at least one threshold or omit it")
-        if any(b <= a for a, b in zip(value, value[1:])):
-            raise ValueError(f"display_thresholds_override must be strictly ascending, got {value!r}")
-        return value
-
-    @model_validator(mode="after")
-    def _check_display_band_labels_override(self) -> "AxisDefinitionPayload":
-        """段階ラベルはdisplay_thresholds_overrideが決める段階数
-        （`len(display_thresholds_override)+1`）と1:1対応する必要がある。しきい値の
-        方が未設定（自動導出任せ）のまま段階数だけラベルで決め打ちすると、実際に
-        表示される段階数（自動導出の結果次第で変わりうる）とラベルの対応が保証
-        できないため、しきい値も明示済みであることを必須にする。"""
-        if self.display_band_labels_override is None:
-            return self
-        if self.display_thresholds_override is None:
-            raise ValueError(
-                "display_band_labels_override requires display_thresholds_override to be set "
-                "(band count must be known and fixed)"
-            )
-        expected_band_count = len(self.display_thresholds_override) + 1
-        if len(self.display_band_labels_override) != expected_band_count:
-            raise ValueError(
-                f"display_band_labels_override must have {expected_band_count} entries "
-                f"(display_thresholds_override has {len(self.display_thresholds_override)} thresholds), "
-                f"got {len(self.display_band_labels_override)}"
             )
         return self
 
@@ -284,15 +162,6 @@ class AxisDefinitionPayload(AxisDefinitionFields):
         if isinstance(self.shape, BreakpointLinearShape):
             materials = [term.material for term in self.shape.terms]
             expected_dtypes = {"numeric", "boolean"}
-            # shape.breakpointsのx昇順は`evaluate_breakpoint_linear`（axis_templates.py）
-            # のnp.interpが前提とする不変条件（display_thresholds_override側の
-            # 同種チェック[_check_display_thresholds_override_is_ascending]は
-            # 色分け表示用の別フィールドで、評価に使うこちらのshape.breakpointsとは別）。
-            # 昇順でないと補間結果が未定義動作になり、評価時に無警告のまま
-            # おかしいスコアが返り続ける。
-            xs = [bp[0] for bp in self.shape.breakpoints]
-            if any(b <= a for a, b in zip(xs, xs[1:])):
-                raise ValueError(f"shape.breakpoints must be strictly ascending by x, got {self.shape.breakpoints!r}")
         else:
             materials = [self.shape.material]
             expected_dtypes = {"boolean", "categorical"}
@@ -345,19 +214,18 @@ class AxisDefinitionPayload(AxisDefinitionFields):
         return self
 
     def to_definition(self) -> AxisDefinition:
-        """`AxisDefinitionPayload`は`AxisDefinitionFields`へバリデータのみを足す
-        （フィールドは追加しない）ため、フィールド名の集合は`AxisDefinition`
-        （domain/axis_definitions.py）と完全に一致する。フィールドを手書き列挙せず
-        model_dump()経由で展開することで、フィールド一覧そのものを両クラスの宣言
-        （1箇所ずつ）だけに保つ（`AxisDefinitionFields`へフィールドを追加した際、
-        こちらの更新漏れが起きない）。"""
+        """派生クラスのまま先へ渡すと、Pydanticの等価判定がクラスまで見るため
+        `is_cosmetic_only_update`の突き合わせが常に不一致になる。基底の型へ戻す。"""
         return AxisDefinition(**self.model_dump())
 
 
-class AxisDefinitionResponse(AxisDefinitionFields):
+class AxisDefinitionResponse(AxisDefinition):
     """一覧・単体取得のレスポンスボディ。DB由来の既存データをそのまま返すため、
     `AxisDefinitionPayload`の書き込み時専用バリデータ（`_check_materials_are_known`）は
-    継承しない（`AxisDefinitionFields`のdocstring参照）。
+    継承せず`AxisDefinition`から派生する。`material_catalog.py`は「材料は今後コード変更で
+    増減しうる」設計のため、ある材料を削除・リネームした後、DBに永続化済みの既存軸が
+    まだその材料idを参照していると、一覧・単体取得が未捕捉の500になる——読み取りは
+    「DBの内容をそのまま返す」だけであるべきで、書き込み時点の妥当性を再検証しない。
 
     `display`: `domain/axis_display.py: axis_display_for()`の計算結果
     （`GET /api/axis-catalog`と同じ関数）。軸スタジオのGUI（AxisComposer.tsx）が
@@ -370,10 +238,8 @@ class AxisDefinitionResponse(AxisDefinitionFields):
 
 
 def _to_response(definition: AxisDefinition) -> AxisDefinitionResponse:
-    """to_definition()と対になる同期ペア。`AxisDefinitionResponse`は
-    `AxisDefinitionFields`へ`display`を1つ足すのみ（フィールドは追加しない）ため、
-    フィールドを手書き列挙せずmodel_dump()経由で展開する（to_definition()の
-    docstring参照）。"""
+    """`AxisDefinitionResponse`は`AxisDefinition`へ`display`を1つ足すだけなので、
+    フィールドを手書き列挙せずmodel_dump()経由で展開する。"""
     return AxisDefinitionResponse(**definition.model_dump(), display=axis_display_for(definition))
 
 

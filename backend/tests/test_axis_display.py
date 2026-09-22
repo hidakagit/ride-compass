@@ -171,8 +171,14 @@ class TestLinearAxes:
             TileInputSpec(
                 property="t_bool_certain", boolean=True, true_value=10.0, false_value=0.0
             ),
+            # 欠損が「不明」を意味する材料は、軸の形が変わっても灰色の帯を保つ。落とすと
+            # 未観測の道が寄与0＝最良の色で塗られる。
             TileInputSpec(
-                property="t_bool_unknown", boolean=True, true_value=20.0, false_value=0.0
+                property="t_bool_unknown",
+                boolean=True,
+                true_value=20.0,
+                false_value=0.0,
+                has_unknown_fallback=True,
             ),
         ]
         # 取りうる合計は 0 / 10 / 20 / 30 の4通り。
