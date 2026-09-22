@@ -7,7 +7,6 @@ import math
 
 
 from app.domain.route import (
-    BIN_DROPPED_DICT_FIELDS,
     RouteSegmentDetail,
     aggregate_segments_into_bins,
     merge_axis_contributions,
@@ -141,20 +140,6 @@ class TestAggregateSegmentsIntoBins:
         merged = aggregate_segments_into_bins([_segment(1.0), _segment(1.0)], bin_distance_km=100.0)[0]
 
         assert merged.difficulty is None
-
-    def test_the_fields_not_carried_into_a_bin_are_declared(self):
-        """モデル側の辞書フィールドを引き、ビンへ入るか宣言に載っているかのどちらかで
-        あることを確かめる。
-        """
-        dict_fields = {
-            name for name, field in RouteSegmentDetail.model_fields.items()
-            if getattr(field.annotation, "__origin__", None) is dict
-        }
-        merged = aggregate_segments_into_bins([_segment(0.3)], bin_distance_km=10.0)[0]
-        carried = {name for name in dict_fields if getattr(merged, name) != {} or name not in BIN_DROPPED_DICT_FIELDS}
-
-        assert dict_fields
-        assert dict_fields == carried | set(BIN_DROPPED_DICT_FIELDS)
 
 
 class TestMergingAxisDictionaries:

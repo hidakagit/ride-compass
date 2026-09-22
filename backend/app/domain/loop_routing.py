@@ -39,8 +39,9 @@ class TracedLoop:
     data: list[str]
     # 経路上の各Edgeがどのレグ（`_RoadGraphContext.legs`の添字。周回は0=往路・1=復路、
     # 経由地ルートはレグ番号）のコスト配列で探索されたか。区間表示が探索と同じ配列から
-    # 値を読むために使う。Noneは全Edgeがレグ0。
-    leg_of_edge: list[int] | None = None
+    # 値を読むために使う。既定値を持たせない——省略できると、復路まで往路の時刻で評価した
+    # 区間表示が黙って出る（探索と表示が別の配列を読む）。
+    leg_of_edge: list[int]
 
 
 def candidate_identity(bearing: int | None) -> dict[str, str]:

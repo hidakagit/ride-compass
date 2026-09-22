@@ -11,7 +11,7 @@
 
 | レイヤー | ファイル |
 |---|---|
-| domain | `routing.py`・`graph.py`・`route.py`・`geo.py`・`errors.py`・`cycling_speed.py`（自転車の走行モデル。平地・無風の巡航速度からホイール出力を逆算し、勾配・向かい風・転がり抵抗から区間ごとの速度を走行方程式で解く。速度の逆算は`v`の3次方程式になるため二分法で、numpyでベクトル化してある。候補の所要時間と基準線の探索コストがここから出る）・`tuning.py`（ルーティング評価が読む固定値の宣言。走ってみて決める値［較正値］は既定ごとここが持ち、エンジンが読む値・管理画面が並べる項目・変更が効くために何をやり直す必要があるかをそこから導く。較正値ではない固定値は名前と種別だけを持つ） |・`loop_routing.py`（周回・目的地ルートの探索結果を運ぶ型。探索の実装と候補を並べる戦略のどちらにも属さない）
+| domain | `routing.py`・`graph.py`・`route.py`・`geo.py`・`errors.py`・`cycling_speed.py`（自転車の走行モデル。平地・無風の巡航速度からホイール出力を逆算し、勾配・向かい風・転がり抵抗から区間ごとの速度を走行方程式で解く。速度の逆算は`v`の3次方程式になるため二分法で、numpyでベクトル化してある。候補の所要時間と基準線の探索コストがここから出る）・`tuning.py`（ルーティング評価が読む固定値の宣言。走ってみて決める値［較正値］は既定ごとここが持ち、エンジンが読む値・管理画面が並べる項目・変更が効くために何をやり直す必要があるかをそこから導く。較正値ではない固定値は名前と種別だけを持つ）・`loop_routing.py`（周回・目的地ルートの探索結果を運ぶ型。探索の実装と候補を並べる戦略のどちらにも属さない） |
 | services | `route_generator.py`（戦略層）・`road_graph_engine.py`・`graph_service.py` |
 | infrastructure | `road_graph_models.py`・`road_graph_repository.py`（責務ごとに分割）・`graph_material_cache.py`・`tile_score_matrix_cache.py`・`search_graph_cache.py`・`tile_persistent_cache.py`・`cache_identity.py`（キャッシュ鍵の組み立て方の正本。手で書くリビジョンと、焼き込みSQL・pickleする列構成から導く署名を合成する。タイル配信側の世代も同じ関数を使う）・`derived_data_meta.py`（派生データの世代。バッチが中身を書き直すたびに進む単調カウンタで、デプロイを伴わない変化を表せる唯一の経路）・`cache_generation.py`（DBの世代とディスクへ書いた時点の記録を突き合わせる判断。軸定義と派生データが同じ実装を使う） |
 | api | `routes.py` |
@@ -648,7 +648,10 @@ Pythonの仕事が無い。列の並びは`material_array_columns()`が唯一の
 `edge_id→タイルindex`の遅延ビュー（`_CombinedEdgeMaterials`）で委譲する——bbox全体ぶんを
 1つの配列へ連結し直すコストを払わない。`LeanRoadGraph`（トポロジ側）も`__reduce__`で
 Node/Edgeを列（tupleのリスト）へ分解してpickle化し、復元時に`LeanNode`/`LeanEdge`を
-コンストラクタ呼び出しで作り直す。
+コンストラクタ呼び出しで作り直す。**列はdataclassの宣言から導き、列数の合わない行は
+送出する**——手で並べると、フィールドを足して列を足し忘れたときに復元側が既定値で埋め、
+キャッシュを通った値だけが黙って消える（`geometry`だけは載せない。pickleするのは
+タイルキャッシュのグラフに限られ、そこでは常に空リストのため）。
 
 **並列度設定が効く範囲**: `config.py: tile_cache_load_max_concurrent`（既定
 `min(4, os.cpu_count())`）が、`graph_service.py`の`_get_or_build_tile_materials`・
@@ -678,8 +681,10 @@ edge_idをまとめて1回・`preview_segment`が1回、いずれも逐次に呼
   （Edge index=`edge_ids`の添字）で、探索はコストをnumpy配列のまま受け取る（探索中に
   Pythonのコールバックを作らない設計の核心）。並行Edge（同じnode対の重複辺）はedge_idの
   昇順で先頭を採用する決定的な選択で解消する（タイル集合キーでキャッシュするための制約、
-  「探索・索引構築のキャッシュ」節参照）。
-- **`CsrGraphStructure`/`build_csr_structure`・`SearchGraphStatics`/
+  「探索・索引構築のキャッシュ」節参照）。**両端Nodeを持たない区間があれば`RoutingError`**
+  ——飛ばすとその道だけが探索から静かに消える。ここを通った後の消費者（方位・ノード属性）は
+  Nodeの有無を確かめ直さない。
+- **`CsrGraphStructure`/`_build_csr_structure`・`SearchGraphStatics`/
   `build_search_graph_statics`**: `LazyRoadGraph`と同じNode/Edge index
   空間のCSR（圧縮行格納）**構造のみ**（Edge重みは持たない。タイル集合だけで決まる
   純粋な派生物のため`LazyRoadGraph`と同じキーでキャッシュされる）。`SearchGraphStatics`は
@@ -693,11 +698,18 @@ edge_idをまとめて1回・`preview_segment`が1回、いずれも逐次に呼
   状態＝有向区間・辺＝ターンの遷移構造（「探索の状態」節参照）。`CsrGraphStructure`と
   同じくEdge重みは持たず、遷移とターンの秒だけを持つ。グラフを物理的に展開せず遷移を
   `CsrGraphStructure`から導くため、`LazyRoadGraph`と同じキーでキャッシュできる。
-  `edge_bearings`（区間の方位）・`turn_seconds_for`（方位差→秒）が入力になる。
+  `edge_bearings`（区間の方位）・`_turn_seconds_for`（方位差→秒）が入力になる。
+  **ターンの費用に効く入力はすべて引数で必須**——既定を持たせると、渡し忘れが
+  「上位の道の横断に待ちが付かない」構造を黙って作り、`TurnCostSpec`については
+  キャッシュの鍵（`TurnStructureKey`）と実際に使った費用が食い違う。
 - **`TurnExpandedTree`/`build_turn_expanded_tree`**: 起点からの一対全Dijkstra
   （numba、前任者付き、`cost_limit`で打ち切り可能）。実距離と素の所要時間は緩和のたびに
   そのまま積むため、前任者を遡り直す積算が要らない。状態ごとの値に加え、Nodeごとの
-  値（そのNodeへ入る区間の最小）も持つ。
+  値（そのNodeへ入る区間の最小）も持つ。**時刻ビンが2本以上あるのに素の所要時間か
+  ビンの幅が欠けていれば`ValueError`**（`turn_expanded_shortest_path`と共通）——
+  欠けたまま走ると、経過時間をコストで測る・全状態が先頭のビンへ落ちる、という形で
+  時刻ごとの風が黙って効かなくなる。コスト配列と所要時間配列の形の不一致も同様に断る
+  （JITした探索は配列の境界を検査しない）。
   `reverse=True`で遷移の向きだけを反転する（ターンの費用は元の進行方向のまま）。
   **逆向きの木は時刻ビンを使えない**——目的地から遡るため各状態の到達時刻が決まらない。
   複数ビンを渡すと`ValueError`で弾く（黙って通すと、到達時刻の代わりに「残り時間」で
@@ -754,13 +766,12 @@ edge_idをまとめて1回・`preview_segment`が1回、いずれも逐次に呼
   frontend`routeStyleModes.ts`がこの契約に依存する）・`RouteCandidate`。
 - `aggregate_segments_into_bins`（500m区間ビニング）・`merge_axis_difficulties`・
   `merge_axis_contributions`・`merge_axis_raw_values`・`merge_material_values`・
-  `merge_material_category_shares`・`_merge_segment_bin`。**`_merge_segment_bin`は表示用の
-  区間を組み直す場所のため、`RouteSegmentDetail`へ辞書フィールドを足したらここへも集約を
-  書き足す**（足し忘れは型でも例外でも現れず、APIからは「そのフィールドだけ空」に見える）。
-  引き継がない辞書フィールドは`BIN_DROPPED_DICT_FIELDS`が理由つきで宣言し、それ以外が
-  すべて引き継がれていることを`tests/test_route.py`が**値の型を問わずに**検査する
-  （`dict[str, float]`のように値型で母集団を絞ると、`dict[str, str]`のフィールドが
-  検査から静かに外れる）。
+  `merge_material_category_shares`・`_merge_segment_bin`。**`RouteSegmentDetail`の辞書
+  フィールドは、ビンへの畳み方（`BIN_DICT_FIELD_MERGERS`）か引き継がない理由
+  （`BIN_DROPPED_DICT_FIELDS`）のどちらかを必ず宣言する**。どちらにも無いフィールドは
+  `domain/route.py`の読み込み時に落ちる——放っておくと、型でも例外でも現れないまま
+  APIからは「そのフィールドだけ空」に見える。母集団は値の型を問わずモデルから引く
+  （`dict[str, float]`のように値型で絞ると、`dict[str, str]`のフィールドが静かに外れる）。
 - **`RouteCandidate.edge_point_offsets`は、その経路のEdgeが`geometry.coordinates`の
   どこで切り替わるか**を`edge_ids`より1件多く持つ。隣接Edgeの境界点は重複させずに連結する
   （`_concat_edge_geometries`）ため、**座標列だけからはEdgeの境目を復元できない**。
