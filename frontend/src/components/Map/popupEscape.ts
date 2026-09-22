@@ -13,7 +13,7 @@
 // バージョンを上げなくても到達経路が消える。
 
 /** HTMLの文字列リテラルへ安全に埋め込めるようエスケープする。 */
-export function escapeHtml(value: string): string {
+function escapeHtml(value: string): string {
   return value
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")

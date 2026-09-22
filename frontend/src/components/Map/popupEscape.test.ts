@@ -1,7 +1,7 @@
 // @vitest-environment node
 import { describe, expect, it } from "vitest";
 
-import { escapeHtml, labelOrEscapedRaw } from "./popupEscape";
+import { labelOrEscapedRaw } from "./popupEscape";
 
 const LABELS = { residential: "住宅街の道" };
 
@@ -32,16 +32,14 @@ describe("labelOrEscapedRaw", () => {
     expect(labelOrEscapedRaw(LABELS, "sett")).toBe("sett");
     expect(labelOrEscapedRaw(LABELS, "国道246号")).toBe("国道246号");
   });
-});
 
-describe("escapeHtml", () => {
   it("&を最初に置換する（後続の置換が生んだ実体参照を二重にしない）", () => {
     // `<`→`&lt;`のあとに`&`を置換すると`&amp;lt;`になり、画面に`&lt;`と出てしまう。
-    expect(escapeHtml("a & b < c")).toBe("a &amp; b &lt; c");
-    expect(escapeHtml("&lt;")).toBe("&amp;lt;");
+    expect(labelOrEscapedRaw(LABELS, "a & b < c")).toBe("a &amp; b &lt; c");
+    expect(labelOrEscapedRaw(LABELS, "&lt;")).toBe("&amp;lt;");
   });
 
   it("同じ文字が複数あってもすべて置換する", () => {
-    expect(escapeHtml("<<>>")).toBe("&lt;&lt;&gt;&gt;");
+    expect(labelOrEscapedRaw(LABELS, "<<>>")).toBe("&lt;&lt;&gt;&gt;");
   });
 });

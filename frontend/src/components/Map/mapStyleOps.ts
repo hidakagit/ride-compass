@@ -3,7 +3,6 @@
  * ここに置くのは「特定のレイヤー種を知らない」ものだけ。レイヤー固有の描画は
  * それぞれの担当ファイル（`features/map/scene/groups/*.ts`・`axisLayers.ts`等）が持つ。
  */
-import type * as maplibregl from "maplibre-gl";
 import type { Map as MapLibreMap } from "maplibre-gl";
 import { debugLog } from "@/lib/debugLog";
 
@@ -16,7 +15,7 @@ export function setLayerVisibility(map: MapLibreMap, layerId: string, visible: b
  * （残りのline/symbol/circle/heatmapは線・記号として、面の上に乗って読まれる側）。 */
 const AREA_LAYER_TYPES: ReadonlySet<string> = new Set(["background", "raster", "fill", "fill-extrusion", "hillshade"]);
 
-export function isAreaLayerType(type: string): boolean {
+function isAreaLayerType(type: string): boolean {
   return AREA_LAYER_TYPES.has(type);
 }
 
@@ -35,13 +34,13 @@ const ROAD_NETWORK_SOURCE_LAYER = "transportation";
  * `boundary_3`が返った）。道路網より後ろの面は`basemapAreaLayersAfter`が前へ動かす。
  *
  * 道路網を持たないスタイルではundefined（差し込み先が無く最前面になる）。 */
-export function areaLayerAnchorId(layers: readonly { id: string; "source-layer"?: string }[]): string | undefined {
+function areaLayerAnchorId(layers: readonly { id: string; "source-layer"?: string }[]): string | undefined {
   return layers.find((layer) => layer["source-layer"] === ROAD_NETWORK_SOURCE_LAYER)?.id;
 }
 
 /** `anchorId`より後ろにある面レイヤーのid（追加順のまま）。基礎地図が道路より後ろに置いて
  * いる面（建物）を指す。 */
-export function basemapAreaLayersAfter(layers: readonly { id: string; type: string }[], anchorId: string): string[] {
+function basemapAreaLayersAfter(layers: readonly { id: string; type: string }[], anchorId: string): string[] {
   const anchorIndex = layers.findIndex((layer) => layer.id === anchorId);
   if (anchorIndex < 0) return [];
   return layers

@@ -1,26 +1,13 @@
 // @vitest-environment node
-import { describe, expect, it, vi } from "vitest";
-import * as debugLogModule from "@/lib/debugLog";
-import { buildLegendFilterExpression } from "./legendFilter";
+import { describe, expect, it } from "vitest";
 import {
-  DEFAULT_ROUTE_STYLE_MODE_ID,
-  getRouteStyleMode,
-  isRouteStyleModeId,
   routeColorableModeFromAxis,
   routeStyleModesFromCatalogAxes,
 } from "./routeStyleModes";
-import { buildAxisRampLegend, rampAxesFromCatalogAxes, type CatalogAxis } from "./axisLayers";
+import type { CatalogAxis } from "./axisLayers";
 import { catalogAxis } from "./__fixtures__/catalogAxes";
-import { interpolateColors } from "./valueScale";
+import { bandColorsFor } from "./valueScale";
 
-/** 段階色式（`["case", noData, COLOR_NO_DATA, ["step", value, c0, b0, c1, …]]`）が
- * 実際に色を切り替える境界値。宣言ではなく組み立て結果から読むため、境界が式へ渡る
- * 途中で変換されていればその後の値が見える。 */
-function steppedBoundariesOf(mode: { colorExpression: unknown[] }): number[] {
-  const step = mode.colorExpression.find((part): part is unknown[] => Array.isArray(part) && part[0] === "step");
-  if (!step) return [];
-  return step.slice(3).filter((part): part is number => typeof part === "number");
-}
 // 色分けの組み立てが分岐する3つの形。**その分岐を起こす性質だけ**を載せる
 // （軸idは軸スタジオでユーザーが決める任意の値なので、実物の名前を当てにしない）。
 const signedAxis = catalogAxis({
@@ -87,15 +74,16 @@ describe("routeStyleModes", () => {
     ]);
   });
 
-  it("interpolateColorsは境界値の個数に関わらずcolorLow→colorHighの間をcount色生成する（固定色配列を持たない）", () => {
-    expect(interpolateColors("#16a34a", "#dc2626", 1)).toEqual(["#16a34a"]);
-    const three = interpolateColors("#16a34a", "#dc2626", 3);
+  it("段の色は境界の個数から作る（固定の色配列を持たない）", () => {
+    // 色そのものは源泉が配るので値を書かない。**個数に追従すること**だけを見る。
+    expect(bandColorsFor("difficulty", [])).toHaveLength(1);
+    const three = bandColorsFor("difficulty", [33, 66]);
     expect(three).toHaveLength(3);
-    expect(three[0]).toBe("#16a34a");
-    expect(three[2]).toBe("#dc2626");
-    const five = interpolateColors("#0284c7", "#dc2626", 5);
+    const five = bandColorsFor("difficulty", [20, 40, 60, 80]);
     expect(five).toHaveLength(5);
     expect(new Set(five).size).toBe(5); // 全段階が異なる色になる
+    expect(five[0]).toBe(three[0]);
+    expect(five.at(-1)).toBe(three.at(-1));
   });
 
   it("軸がカタログから消える（軸スタジオでunpublish）と、対応するモードも一覧から消える", () => {

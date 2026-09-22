@@ -5,7 +5,6 @@ import { legendBandKey } from "./mapColorLegend";
 import {
   bandColorsFor,
   buildSteppedColorExpression,
-  interpolateColorStops,
 } from "./valueScale";
 
 // 補間そのものを見るので、色は**テストが自分で持つ**。実装から借りると、源泉で色を
@@ -23,16 +22,29 @@ const FLAT = "#16a34a";
 const SIGNED_BANDS: readonly number[] = [-9, -6, -3, 3, 6, 9];
 
 describe("valueScale", () => {
-  describe("interpolateColorStops", () => {
-    it("中継点を通り、両端は中継点の端の色そのものになる", () => {
-      const colors = interpolateColorStops([LOW, HIGH], 5);
-      expect(colors[0]).toBe(LOW);
-      expect(colors[colors.length - 1]).toBe(HIGH);
+  // 色の補間は`bandColorsFor`の途中段階で、外へ口を持たない。段の数を変えたときに
+  // 何が起きるかは、入口が返す段の色で確かめられる。
+  describe("段の数と色の並び", () => {
+    it("両端は配色の端の色そのもので、間は段の数だけ埋まる", () => {
+      const colors = bandColorsFor("difficulty", [20, 40, 60, 80]);
+
       expect(colors).toHaveLength(5);
+      expect(colors[0]).toBe(LOW);
+      expect(colors.at(-1)).toBe(HIGH);
+      expect(new Set(colors).size).toBe(colors.length);
     });
 
-    it("count=1は先頭の色だけを返す（段階が1つしか無い軸）", () => {
-      expect(interpolateColorStops([LOW, HIGH], 1)).toEqual([LOW]);
+    it("段が1つしか無い軸では先頭の色だけになる", () => {
+      expect(bandColorsFor("difficulty", [])).toEqual([LOW]);
+    });
+
+    it("段を増やしても両端は動かない（間だけが増える）", () => {
+      const few = bandColorsFor("difficulty", [50]);
+      const many = bandColorsFor("difficulty", [20, 40, 60, 80]);
+
+      expect(many[0]).toBe(few[0]);
+      expect(many.at(-1)).toBe(few.at(-1));
+      expect(many.length).toBeGreaterThan(few.length);
     });
   });
 

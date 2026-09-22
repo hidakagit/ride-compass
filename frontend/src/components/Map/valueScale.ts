@@ -124,13 +124,13 @@ function mixColors(colorLow: string, colorHigh: string, t: number): string {
 
 /** 2色（colorLow/colorHigh）の間をHSL色空間でcount色に均等補間する。境界値の個数
  * （＝段階数）は軸スタジオが決めるため任意のcountに対応する。 */
-export function interpolateColors(colorLow: string, colorHigh: string, count: number): string[] {
+function interpolateColors(colorLow: string, colorHigh: string, count: number): string[] {
   return interpolateColorStops([colorLow, colorHigh], count);
 }
 
 /** 中継点を並べた配色（anchors）の上をcount色に均等補間する。2色補間では色相が一本道に
  * なり、段階数が増えるほど隣同士が近づく——中継点を置くと同じ段階数でも色差を稼げる。 */
-export function interpolateColorStops(anchors: readonly string[], count: number): string[] {
+function interpolateColorStops(anchors: readonly string[], count: number): string[] {
   if (count <= 1) return [anchors[0]];
   const segments = anchors.length - 1;
   return Array.from({ length: count }, (_, index) => {
