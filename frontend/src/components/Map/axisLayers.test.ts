@@ -5,7 +5,6 @@
 import { describe, expect, it } from "vitest";
 
 import {
-  AXIS_RAMP_COLORS,
   COLOR_UNKNOWN,
   type CatalogAxis,
   type RampAxis,
@@ -32,19 +31,16 @@ describe("axisLayers", () => {
 });
 
 describe("rampColorForBand（改善計画T292: 可変バンド数の配色一般化）", () => {
-  it("bandCount=4のとき旧AXIS_RAMP_COLORSと完全一致する（後方互換）", () => {
-    expect([0, 1, 2, 3].map((i) => rampColorForBand(i, 4))).toEqual([...AXIS_RAMP_COLORS]);
-  });
-
-  it("両端は常にアンカーの緑・赤になる（bandCountによらず）", () => {
+  it("両端は段の数によらず同じ色になる（端は常にアンカーそのもの）", () => {
+    const [low, high] = [rampColorForBand(0, 4), rampColorForBand(3, 4)];
     for (const bandCount of [2, 3, 5, 6]) {
-      expect(rampColorForBand(0, bandCount)).toBe(AXIS_RAMP_COLORS[0]);
-      expect(rampColorForBand(bandCount - 1, bandCount)).toBe(AXIS_RAMP_COLORS[3]);
+      expect(rampColorForBand(0, bandCount)).toBe(low);
+      expect(rampColorForBand(bandCount - 1, bandCount)).toBe(high);
     }
   });
 
-  it("bandCount=1は緑1色になる（範囲外を落ちなく処理する）", () => {
-    expect(rampColorForBand(0, 1)).toBe(AXIS_RAMP_COLORS[0]);
+  it("段が1つなら低い側の色になる（範囲外を落ちなく処理する）", () => {
+    expect(rampColorForBand(0, 1)).toBe(rampColorForBand(0, 4));
   });
 
   it("色は#rrggbb形式で、同一bandCount内で単調に変化する", () => {

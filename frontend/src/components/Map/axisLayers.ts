@@ -356,16 +356,6 @@ export function rampColorForBand(index: number, bandCount: number): string {
   return rampColorForRatio(t);
 }
 
-// 既存4段階軸（gradient/surface_q/night/accident等）・点や線の分類レイヤー
-// の非ramp用途（TUNNEL/ONEWAY等の固定4色引用）向けの後方互換export。
-// rampColorForBand(i, 4)と完全に同じ値（後方互換テストで担保）。
-export const AXIS_RAMP_COLORS = [
-  rampColorForBand(0, 4),
-  rampColorForBand(1, 4),
-  rampColorForBand(2, 4),
-  rampColorForBand(3, 4),
-] as const;
-
 // 「不明」（hasUnknownFallback材料のタイル欠損）専用の灰色。道路の線・点の分類が使う
 // COLOR_UNKNOWNと同じ値（既存の路面レイヤー等の「不明」表現と地図全体で統一する）。
 // 循環import回避のため値を複製している（分類側がaxisLayers.tsを

@@ -4,6 +4,7 @@ import { useState } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import RideConditionBar, { clampSpeedKmh, formatDepartureLabel, toDatetimeLocalValue } from "./RideConditionBar";
 import { stubEmblaBrowserApis } from "@/testing/emblaBrowserApis";
+import routeGenerateConfig from "@/types/generated/route-generate-config.json";
 
 // 出発時刻ポップオーバーはDynamicLayerTimeSliderを内包するため、Emblaが要るAPIを用意する。
 beforeEach(stubEmblaBrowserApis);
@@ -42,11 +43,23 @@ describe("formatDepartureLabel", () => {
 });
 
 describe("clampSpeedKmh", () => {
-  it("範囲外・非数値は範囲内へ丸める", () => {
-    expect(clampSpeedKmh(80)).toBe(60);
-    expect(clampSpeedKmh(1)).toBe(5);
-    expect(clampSpeedKmh(Number.NaN)).toBe(20);
-    expect(clampSpeedKmh(24.6)).toBe(25);
+  // 上限・下限・既定値は源泉が配る（route-generate-config.json）。値を書くと、
+  // backendで調整しただけでこのテストが落ちる。**丸めの性質**だけを見る。
+  const { min_assumed_speed_kmh: min, max_assumed_speed_kmh: max } = routeGenerateConfig;
+
+  it("上と下の外はそれぞれの端へ寄せる", () => {
+    expect(clampSpeedKmh(max + 100)).toBe(max);
+    expect(clampSpeedKmh(min - 100)).toBe(min);
+  });
+
+  it("数でない入力は既定値へ倒す（NaNのまま持ち回らない）", () => {
+    expect(clampSpeedKmh(Number.NaN)).toBe(routeGenerateConfig.default_assumed_speed_kmh);
+  });
+
+  it("小数は四捨五入する", () => {
+    const inRange = Math.floor((min + max) / 2);
+    expect(clampSpeedKmh(inRange + 0.6)).toBe(inRange + 1);
+    expect(clampSpeedKmh(inRange + 0.4)).toBe(inRange);
   });
 });
 

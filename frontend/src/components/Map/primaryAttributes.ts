@@ -10,6 +10,7 @@
 // 動く。このファイルにはprimaryAttributeIdsToLayerIds（一次属性id列→表示レイヤーid列への
 // 変換、PRIMARY_ATTRIBUTE_LAYER_IDSを引くだけの純粋関数）だけを残す。
 
+import { mapDisplay } from "@/types/generated/mapDisplay";
 import type { MapLayerId } from "./mapLayers";
 import { primaryAttributes as primaryAttributeCatalog } from "@/types/generated/primaryAttributes";
 
@@ -32,42 +33,12 @@ export const PRIMARY_ATTRIBUTE_LABELS: Record<string, string> = Object.fromEntri
 );
 
 // 一次属性→表示レイヤーIDの対応（Partial: キーが無い＝表示レイヤー無し）。highway/surfaceは
-// 「道路情報」（road）から分割された論理2レイヤー（roadType/roadSurface、物理描画は
-// 1本の線レイヤーへ合成、mapLayers.ts参照）を指す。tunnelはタイルへの焼き込み自体は
-// night軸の材料として持つが専用の色分けレイヤーも別途持つ。oneway（一方通行）はどの
-// 評価軸のinputsにも属さない（表示専用の一次属性）が、独立レイヤー自体は持つ。
-export const PRIMARY_ATTRIBUTE_LAYER_IDS: Partial<Record<string, MapLayerId>> = {
-  highway: "highway",
-  surface: "surface",
-  elevation: "elevation",
-  stop_poi: "stop_poi",
-  accident_point: "accident_point",
-  supply_poi: "supply_poi",
-  tunnel: "tunnel",
-  oneway: "oneway",
-  landcover: "landcover",
-};
-
-// 表示レイヤーを意図的に持たない一次属性。**どれがそれに当たるかは下の
-// `PRIMARY_ATTRIBUTES_WITHOUT_LAYER`が正本**で、ここへ並べると1つ増えたときに
-// この注釈だけが古くなる。cycleway
-// （highway_is_cycleway/cycleway_has_track等の正規化フラグ材料4種が参照する一次属性。
-// 複数の軸が参照するため、
-// domain/registry_defaults.pyでshared=Trueとして登録されている）は一次属性としては
-// 存在するが、地図上に単独では表示しない（地図表示は評価軸bicycle_infra_quality側に
-// 委ねる。ramp軸が地図レンズを自動で得るため、一次属性の側に専用レイヤーを足さない）。
-// PRIMARY_ATTRIBUTE_LAYER_IDSにキーが無いことが「未対応（漏れ）」なのか「意図的にレイヤー
-// 無し」なのかを区別できないため、後者をここへ明示する（ドリフト検知テスト参照）。
-export const PRIMARY_ATTRIBUTES_WITHOUT_LAYER: ReadonlySet<string> = new Set([
-  "lanes",
-  "maxspeed",
-  "lit",
-  "intersection",
-  "bicycle_access",
-  "motor_vehicle_access",
-  "geometry",
-  "cycleway",
-]);
+/** 一次属性のうち、地図に出るもの。**源泉が決める**——`display_axes`を持つ（線・点）か
+ * 面の幾何を持つものが出る。レイヤーの名前は属性idそのもので、対応表を持たない。
+ *
+ * 表を手で持つと「新しい属性を足したのに地図へ出ない／対応表への追加漏れ」が起き、
+ * それを見張る検査が要る。源泉から導けば、そもそもずれる余地が無い。 */
+const MAP_LAYER_ATTR_IDS: ReadonlySet<string> = new Set(mapDisplay.layerIds);
 
 /** 一次属性id列のうち、表示レイヤーを持つものだけをMapLayerIdの重複無し配列で返す
  * （推定指標レイヤーON時の観測データレイヤー連動ON用）。複数の一次属性が同じ表示
@@ -75,8 +46,6 @@ export const PRIMARY_ATTRIBUTES_WITHOUT_LAYER: ReadonlySet<string> = new Set([
  * attrId列（呼び出し側がSecondaryAxisSummary.primaryAttributeIds等、実行時カタログから
  * 既に持っている値）を受け取り、GUI作成軸を含む全軸に対して同じ関数で動く。 */
 export function primaryAttributeIdsToLayerIds(attrIds: readonly string[]): readonly MapLayerId[] {
-  const layerIds = attrIds
-    .map((attrId) => PRIMARY_ATTRIBUTE_LAYER_IDS[attrId])
-    .filter((layerId): layerId is MapLayerId => layerId !== undefined);
+  const layerIds = attrIds.filter((attrId): attrId is MapLayerId => MAP_LAYER_ATTR_IDS.has(attrId));
   return Array.from(new Set(layerIds));
 }
