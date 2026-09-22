@@ -5,8 +5,7 @@
 `test_material_catalog_routes.py`、地図表示の導出は`test_axis_display.py`が持つ。
 
 **カタログは丸ごと差し替える。** 性質だけを表す架空の材料で見る——実在の材料に由来する
-事実を持ち込むと、材料が1つ増えただけでここが落ちる。例外は最後の
-`TestAgainstTheRealCatalog`で、そこだけは実際の宣言へ全件の不変条件を当てる。
+事実を持ち込むと、材料が1つ増えただけでここが落ちる。
 """
 
 import pytest
@@ -34,7 +33,7 @@ WAY_DEFINITE = WayMaterialCoverageSpec(
 EDGE_UNKNOWN = EdgeMaterialCoverageSpec(
     present_count_sql="SELECT 0", source="架空", missing_semantics="unknown"
 )
-NOT_MEASURED = CoverageExcluded(reason="架空")
+NOT_MEASURED = CoverageExcluded(reason="架空", missing_semantics="definite")
 
 
 def _spec(material_id: str, dtype: str = "numeric", *, coverage=WAY_DEFINITE, **overrides):
@@ -81,9 +80,6 @@ class TestBoolDefault:
 
     def test_a_boolean_whose_missing_is_a_definite_value_folds_to_false(self):
         assert _spec("bool_a", "boolean", coverage=WAY_DEFINITE).bool_default == "false"
-
-    def test_a_boolean_that_is_not_measured_folds_to_false(self):
-        assert _spec("bool_a", "boolean", coverage=NOT_MEASURED).bool_default == "false"
 
     @pytest.mark.parametrize("dtype", ["numeric", "categorical"])
     def test_a_material_that_is_not_boolean_answers_without_looking(self, dtype):
@@ -178,7 +174,14 @@ class TestCoverage:
 
     def test_the_exclusion_carries_its_reason(self, catalog):
         """理由の無い除外は、次に見た人が測るべきか判断できない。"""
-        catalog.update({"num_a": _spec("num_a", coverage=CoverageExcluded(reason="実測できない"))})
+        catalog.update(
+            {
+                "num_a": _spec(
+                    "num_a",
+                    coverage=CoverageExcluded(reason="実測できない", missing_semantics="unknown"),
+                )
+            }
+        )
 
         assert material_coverage_exclusions() == {"num_a": "実測できない"}
 

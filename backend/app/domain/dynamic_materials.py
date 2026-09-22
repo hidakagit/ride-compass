@@ -69,11 +69,17 @@ def _evaluate_wind_drag_ratio_array(context: DynamicAxisRequestContext) -> np.nd
 # キーイングするのは、合成側（`dynamic_axis_topological_order`・`evaluate_axis_array`）が
 # 軸名をハードコードせず、動的材料さえ埋まればどんな軸でも合成できるため——軸スタジオで
 # 作られたカスタム軸もこの登録だけでカバーされる。
-# `REQUEST_DYNAMIC_MATERIAL_IDS`と1対1に揃える。片方だけだと
-# `evaluate_dynamic_material_arrays`がKeyErrorで失敗する。
 DYNAMIC_MATERIAL_EVALUATORS: dict[str, Callable[[DynamicAxisRequestContext], np.ndarray]] = {
     "wind_drag_ratio": _evaluate_wind_drag_ratio_array,
 }
+
+if set(DYNAMIC_MATERIAL_EVALUATORS) != set(REQUEST_DYNAMIC_MATERIAL_IDS):
+    # 動的だと宣言した材料に評価器が無ければ、その軸を含むリクエストだけが落ちる。
+    # 逆に評価器だけを足すと誰も呼ばない。どちらもimportの時点で止める。
+    raise RuntimeError(
+        "dynamic material evaluators and REQUEST_DYNAMIC_MATERIAL_IDS disagree: "
+        f"{sorted(set(DYNAMIC_MATERIAL_EVALUATORS) ^ set(REQUEST_DYNAMIC_MATERIAL_IDS))}"
+    )
 
 
 def evaluate_dynamic_material_arrays(context: DynamicAxisRequestContext) -> dict[str, np.ndarray]:

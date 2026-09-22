@@ -1,17 +1,23 @@
-"""一次属性・二次軸のレジストリ。
+"""一次属性・二次軸のレジストリと、地図表示の宣言の型。
 
-新しい一次属性・二次軸を、コアロジック（コスト関数・レイヤーパネル・区間インスペクタ等）を
-改修せず「ここへ1件登録する」だけで取り込めるようにするための宣言的な定義集。
+このモジュールが保証するのは2つだけである。
 
-一次属性は各軸へ排他的に帰属する。`register_axis()`は登録しようとする軸の`inputs`が
-登録済みの別軸とかぶっていれば`AxisInputConflictError`を送出する。
+1. **一次属性の語彙が一意であること**——同じ`attr_id`を2度登録できず、登録した語彙は
+   `all_primary_attributes()`が返す（ビルド時生成物`primary-attributes.json`の元）。
+2. **一次属性が2つの軸へ跨がらないこと**——`register_axis()`は未登録の一次属性・
+   重複した軸id・既存の軸との入力の重なりを送出して拒む。軸そのものは登録後に誰も
+   読まない（実行時の軸カタログは`GET /api/axis-catalog`が配る）。**軸の登録は、
+   この排他性の検査そのものである。**
+
+`AxisDisplaySpec`/`TileInputSpec`はレジストリの状態ではなく、地図が軸をどう塗るかの
+宣言の型で、`domain/axis_display.py`が組み立て`GET /api/axis-catalog`がそのまま配る。
 
 登録そのものはここでは行わない（`domain/registry_defaults.py`が呼ぶ）。
 """
 
 from typing import Literal
 
-from pydantic import Field, field_validator
+from pydantic import Field, field_validator, model_validator
 from app.domain.strict_model import StrictModel
 
 
@@ -57,7 +63,7 @@ class TileInputSpec(StrictModel):
     掛けるため、地図表示の対象には含める。`thresholds`は材料スケールの値のままでよい。
     """
 
-    property: str
+    property: str = Field(min_length=1)
     weight: float = 1.0
     boolean: bool = False
     true_value: float = 0.0
@@ -66,6 +72,30 @@ class TileInputSpec(StrictModel):
     categories: dict[str, float] | None = None
     breakpoints: list[tuple[float, float]] | None = None
     needs_runtime_scale: bool = False
+
+    @model_validator(mode="after")
+    def _check_one_form(self) -> "TileInputSpec":
+        """寄与値の置き場は形ごとに1つだけ。2つ載せるとフロントの式がどちらか片方を選び、
+        選ばれなかった側の指定が黙って消える。"""
+        forms = [
+            name
+            for name, declared in (
+                ("boolean", self.boolean),
+                ("categories", self.categories is not None),
+                ("breakpoints", self.breakpoints is not None),
+            )
+            if declared
+        ]
+        if len(forms) > 1:
+            raise ValueError(f"tile input '{self.property}' declares more than one form: {forms}")
+        if not self.boolean and (self.true_value or self.false_value):
+            raise ValueError(f"tile input '{self.property}' sets true/false values without boolean=True")
+        if self.boolean and self.weight != 1.0:
+            raise ValueError(
+                f"tile input '{self.property}' sets a weight the boolean form ignores; "
+                "put the weight into true_value/false_value"
+            )
+        return self
 
     @field_validator("categories")
     @classmethod
@@ -88,21 +118,35 @@ class AxisDisplaySpec(StrictModel):
     """
 
     kind: Literal["ramp", "none"]
-    label: str
+    label: str = Field(min_length=1)
     category: str = "trafficSafety"
     tile_inputs: list[TileInputSpec] = Field(default_factory=list)
     thresholds: list[float] = Field(default_factory=list)
     unit: str = ""
     note: str = ""
 
+    @model_validator(mode="after")
+    def _check_kind_carries_its_payload(self) -> "AxisDisplaySpec":
+        """`kind`とレイヤーの中身を食い違わせない。読む側は`kind`だけを見てレイヤーを
+        作るため、食い違いはどちらの側でも「地図に出ているのに何も塗られない」に化ける。
+        """
+        if self.kind == "ramp":
+            if not self.tile_inputs:
+                raise ValueError(f"ramp display '{self.label}' has nothing to read from the tile")
+        elif self.tile_inputs or self.thresholds:
+            raise ValueError(f"display '{self.label}' is kind=none but carries a ramp payload")
+        if any(b <= a for a, b in zip(self.thresholds, self.thresholds[1:])):
+            # 昇順でない段はフロントのstep式が読めず、境界が1つ先の帯へ吸われる。
+            raise ValueError(f"display '{self.label}' thresholds are not ascending: {self.thresholds}")
+        return self
+
 
 class AxisSpec(StrictModel):
     """二次軸の宣言。`inputs`は参照する一次属性の`attr_id`リストで、`register_axis`が
-    登録済みであることを検証する。`display`未指定はkind="none"相当。"""
+    登録済みであること・他の軸と重ならないことを検証する。"""
 
     axis_id: str
     inputs: list[str]
-    display: AxisDisplaySpec | None = None
 
 
 class AxisInputConflictError(ValueError):
