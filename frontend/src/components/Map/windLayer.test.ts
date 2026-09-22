@@ -275,11 +275,6 @@ describe("windLayer", () => {
   });
 
   describe("wind-grid-config.json（改善計画T198、backend/app/domain/wind_grid.pyが単一の情報源）との同期", () => {
-    it("WIND_GRID_SPACING_DEG/WIND_GRID_DETAIL_SPACING_DEGは生成物の値をそのまま反映する", () => {
-      expect(WIND_GRID_SPACING_DEG).toBe(windGridConfig.spacing_deg);
-      expect(WIND_GRID_DETAIL_SPACING_DEG).toBe(windGridConfig.detail_spacing_deg);
-    });
-
     it("WIND_GRID_DETAIL_SPACING_STOPSの間隔値は生成物のdetail_allowed_spacings_degと順序一致する", () => {
       expect(WIND_GRID_DETAIL_SPACING_STOPS.map((s) => s.spacingDeg)).toEqual(
         windGridConfig.detail_allowed_spacings_deg,

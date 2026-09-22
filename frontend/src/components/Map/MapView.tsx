@@ -1,5 +1,6 @@
 "use client";
 
+import regionTileConfig from "@/types/generated/region-tile-config.json";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { labelOrEscapedRaw } from "@/components/Map/popupEscape";
@@ -316,25 +317,14 @@ const MAP_BASE_ATTRIBUTION = [
   '土地被覆: <a href="https://livingatlas.arcgis.com/landcover/" target="_blank" rel="noreferrer">Esri, Impact Observatory, Microsoft</a> (CC BY 4.0)',
 ];
 
-// 路面のベクタタイル内のレイヤー名。バックエンド（infrastructure/vector_tile.pyの
-// ROAD_SURFACE_LAYER_NAME）と一致させる必要がある（export_openapi.pyが書き出す
-// generated/region-tile-config.jsonとregionTileConfig.test.tsの照合テストがドリフトを
-// 検知する。exportしているのはそのテストから参照するため）。
-export const ROAD_TILE_SOURCE_LAYER = "road_surface";
-
-// 事故レイヤー（外部静的データソース）のベクタタイル内のレイヤー名。バックエンド
-// （infrastructure/vector_tile.pyのACCIDENT_LAYER_NAME）と一致させる（ROAD_TILE_SOURCE_LAYERと
-// 同じドリフト検知の仕組み、region-tile-config.jsonのaccidentキー）。
-export const ACCIDENT_TILE_SOURCE_LAYER = "accidents";
-
-// 停止要因POIタイル内のレイヤー名。バックエンド
-// （infrastructure/vector_tile.pyのSTOP_POI_LAYER_NAME）と一致させる必要がある
-// （ROAD_TILE_SOURCE_LAYERと同じくregion-tile-config.json経由でドリフト検知、
-// regionApi.test.ts参照）。同じpoi-tilesタイルにバックエンドは交差点密度（intersection）も
-// 焼き込んでいるが、地図上の独立可視化レイヤーとしては提供しない（道が何本交わっているかは
-// 道路網を見れば分かり、可視化としての追加情報が薄いため。材料
-// `intersection_count_per_km`としては軸スタジオから引き続き選べる）ためフロント側では参照しない。
-export const STOP_POI_SOURCE_LAYER = "stop_poi";
+// ベクタタイル内のレイヤー名。**源泉が配る値をそのまま使う**
+// （backend infrastructure/vector_tile.py が正本）——写しを持つと、片側だけ名前を
+// 変えたときにソースは作られるのに地物が1つも出ない（例外にならない）。
+// 同じpoi-tilesタイルに交差点密度も焼き込んでいるが、地図の独立レイヤーとしては
+// 出さない（交差点の多さは道路網を見れば分かる。材料としては軸スタジオから選べる）。
+const ROAD_TILE_SOURCE_LAYER = regionTileConfig.road_surface.layer_name;
+const ACCIDENT_TILE_SOURCE_LAYER = regionTileConfig.accident.layer_name;
+const STOP_POI_SOURCE_LAYER = regionTileConfig.poi.stop_poi_layer_name;
 
 // 初期表示の覆い（「地図を読み込み中…」）を出しておく上限。覆いは最初の数秒の白紙を
 // 隠すためのもので、それを過ぎても残ると、描けている地図を隠して壊れているように見せる。

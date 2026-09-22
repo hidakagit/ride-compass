@@ -101,9 +101,4 @@ describe("isSplicedRoute", () => {
     expect(isSplicedRoute({ id: "route-waypoints" })).toBe(false);
   });
 
-  it("backendが付ける接頭辞と、フロントが組み立てるidが同じ1つの値から出る", () => {
-    // リテラルで確かめると「フロント側の定数が変わっていない」ことしか見ない。backendが
-    // 改名したら落ちるよう、生成物（backendが書き出す）と同じ値であることを見る。
-    expect(SPLICED_ROUTE_ID_PREFIX).toBe(routeGenerateConfig.spliced_route_id);
-  });
 });
