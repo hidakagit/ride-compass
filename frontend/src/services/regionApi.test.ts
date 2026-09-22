@@ -13,7 +13,6 @@ import { ACCIDENT_TILE_SOURCE_LAYER, ROAD_TILE_SOURCE_LAYER, STOP_POI_SOURCE_LAY
 import {
   ROAD_TILE_MAX_ZOOM,
   ROAD_TILE_MIN_ZOOM,
-  TILE_KINDS,
   accidentTileUrl,
   fetchAxisInspector,
   fetchDynamicWayValues,
@@ -52,13 +51,6 @@ describe("regionApi", () => {
   // 値を変えて再生成・コミットし忘れた状態をCIが検出する。
   it("路面ベクタタイルのレイヤー名がbackend生成物（region-tile-config.json）と一致する", () => {
     expect(ROAD_TILE_SOURCE_LAYER).toBe(regionTileConfig.road_surface.layer_name);
-  });
-
-  // **世代を配る系統の集合が片側だけ増えると、足りない側は「揃った」と判定したまま
-  // 配られない世代を待ち続ける**（hasTileVersionsが常にfalse／余分な系統のURLが組めない）。
-  // 上の?v=の照合は自分が入れた定数と比べるだけで、この食い違いは捕まえられない。
-  it("世代を配るタイルの系統がbackend生成物と一致する", () => {
-    expect([...TILE_KINDS].sort()).toEqual([...regionTileConfig.tile_version_kinds].sort());
   });
 
   it("poiTileUrlは配信オリジンとタイル世代クエリを使ったURLテンプレートを返す", () => {

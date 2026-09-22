@@ -13,11 +13,8 @@ import {
 } from "./dedicatedWayValueLayer";
 import { mapDisplay } from "@/types/generated/mapDisplay";
 import {
-  COLOR_HIDDEN,
   COLOR_LOADING,
   COLOR_NO_DATA,
-  COLOR_SIGNED_FLAT,
-  COLOR_SIGNED_LOW,
   DEFAULT_DIFFICULTY_BOUNDARIES,
   SIGNED_MATERIAL_BOUNDARIES,
   bandColorsFor,
@@ -26,6 +23,12 @@ import { LEGEND_NO_DATA_KEY, legendBandKey } from "./mapColorLegend";
 
 const difficultyDisplay: DedicatedWayValueDisplay = { kind: "difficulty", unit: "" };
 const signedDisplay: DedicatedWayValueDisplay = { kind: "signed_material", unit: "%" };
+
+// 隠した段は透明、下り側は寒色、という**性質**を見る。実装の定数を借りると、源泉で色を
+// 調整しただけで落ちる。
+const TRANSPARENT = "rgba(0,0,0,0)";
+const DESCENT = "#0284c7";
+const FLAT = "#16a34a";
 
 describe("dedicatedWayValueLayer", () => {
   describe("dedicatedWayValueColorExpression", () => {
@@ -77,13 +80,13 @@ describe("dedicatedWayValueLayer", () => {
       const hidden = dedicatedWayValueColorExpression("gradient", signedDisplay, false, [
         legendBandKey(0),
       ])[3] as unknown[];
-      expect(hidden[2]).toBe(COLOR_HIDDEN);
+      expect(hidden[2]).toBe(TRANSPARENT);
       expect(hidden.slice(3)).toEqual(visible.slice(3));
     });
 
     it("データなしを非表示にするとnull側が透明になる。ただしフェッチ中の色は残す", () => {
       const hidden = dedicatedWayValueColorExpression("gradient", signedDisplay, false, [LEGEND_NO_DATA_KEY]);
-      expect(hidden[2]).toBe(COLOR_HIDDEN);
+      expect(hidden[2]).toBe(TRANSPARENT);
       const loading = dedicatedWayValueColorExpression("gradient", signedDisplay, true, [LEGEND_NO_DATA_KEY]);
       expect(loading[2]).toBe(COLOR_LOADING);
     });
@@ -95,7 +98,7 @@ describe("dedicatedWayValueLayer", () => {
         legendBandKey(lastBandIndex),
       ])[3] as unknown[];
       expect(legend[lastBandIndex].key).toBe(legendBandKey(lastBandIndex));
-      expect(hidden[hidden.length - 1]).toBe(COLOR_HIDDEN);
+      expect(hidden[hidden.length - 1]).toBe(TRANSPARENT);
     });
   });
 
@@ -113,10 +116,10 @@ describe("dedicatedWayValueLayer", () => {
       expect(difficulty.slice(0, -1).map((b) => b.color)).toEqual(bandColorsFor("difficulty", [33, 66]));
 
       const signed = dedicatedWayValueLegend(signedDisplay);
-      expect(signed[0].color).toBe(COLOR_SIGNED_LOW);
+      expect(signed[0].color).toBe(DESCENT);
       // 0をまたぐ段階（平坦）が配色の分かれ目。
       const flatIndex = SIGNED_MATERIAL_BOUNDARIES.findIndex((boundary) => boundary > 0);
-      expect(signed[flatIndex].color).toBe(COLOR_SIGNED_FLAT);
+      expect(signed[flatIndex].color).toBe(FLAT);
       expect(signed).toHaveLength(SIGNED_MATERIAL_BOUNDARIES.length + 2);
     });
 

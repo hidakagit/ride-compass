@@ -14,19 +14,19 @@ import { LEGEND_NO_DATA_KEY, legendBandKey } from "./mapColorLegend";
 /** 地図がその軸について塗る値の種類。**正本はbackend**（`domain/dynamic_way_values.py`）。 */
 export type MapValueKind = NonNullable<components["schemas"]["AxisCatalogEntry"]["map_value_kind"]>;
 
-export const COLOR_EASY = palette.semantic.evaluation_good;
-export const COLOR_HARD = palette.semantic.evaluation_bad;
+const COLOR_EASY = palette.semantic.evaluation_good;
+const COLOR_HARD = palette.semantic.evaluation_bad;
 export const COLOR_NO_DATA = palette.semantic.no_data;
 /** フェッチ進行中で、まだそのwayの値を一度も受け取っていない状態の色。
  * COLOR_NO_DATAより明るくし、「取得中」と「取得済みだが値が無い」を見分けられるようにする。 */
 export const COLOR_LOADING = palette.semantic.loading;
 /** 凡例で非表示にした段階の色。線は描かれるが透明で、下の路面レイヤーがそのまま見える。 */
-export const COLOR_HIDDEN = palette.semantic.hidden;
+const COLOR_HIDDEN = palette.semantic.hidden;
 /** 符号付き材料の負側（下り坂等、走行が楽になる側）の色。 */
-export const COLOR_SIGNED_LOW = palette.semantic.signed_descent;
+const COLOR_SIGNED_LOW = palette.semantic.signed_descent;
 /** 符号付き材料の0付近（平坦）の色。難易度スケールの「易しい」と同じ緑にして、
  * 「楽な区間」の色をスケールの種類をまたいで揃える。 */
-export const COLOR_SIGNED_FLAT = COLOR_EASY;
+const COLOR_SIGNED_FLAT = COLOR_EASY;
 /** 符号付き材料の正側が赤へ向かう途中に置く色。段階数が増えても隣同士が見分けられるよう、
  * 色相だけでなく明度も動かす経路（緑→黄→赤→暗赤）にするための中継点。 */
 const COLOR_SIGNED_CLIMB_MID = palette.semantic.signed_climb_mid;

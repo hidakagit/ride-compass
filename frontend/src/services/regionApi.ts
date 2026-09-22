@@ -75,9 +75,10 @@ export function subscribeTileVersions(listener: () => void): () => void {
 }
 
 /** 配信されるタイルの系統。1つでも欠けたら「未取得」として扱う。
- *  backendの`tile_version_service.py: TILE_SHAPES`と同じ集合でなければならず、
- *  一致は生成物（`region-tile-config.json: tile_version_kinds`）との照合が固定する。 */
-export const TILE_KINDS = ["road_surface", "poi", "accident"] as const;
+ *  **源泉が配る一覧をそのまま使う**（`tile_version_service.py: TILE_SHAPES`が正本）
+ *  ——写しを持つと、片側だけ系統が増えたとき足りない側が「揃った」と判定したまま
+ *  配られない世代を待ち続ける。 */
+const TILE_KINDS = regionTileConfig.tile_version_kinds;
 type TileKind = (typeof TILE_KINDS)[number];
 
 export function hasTileVersions(): boolean {
