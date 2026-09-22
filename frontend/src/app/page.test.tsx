@@ -327,7 +327,7 @@ describe("Home（app/page.tsx） レイヤーの同時ON/OFF", () => {
   });
 
   // 災害チップは「環境」グループに並ぶが排他ドメインには属さない（mapLayers.ts:
-  // mapOverlayExclusiveDomainFor）。他の環境レイヤーを選んでいる間も災害情報が地図から
+  // 排他の仕組みは持たない）。他の環境レイヤーを選んでいる間も災害情報が地図から
   // 消えてはならないため。
   it("他の環境レイヤーをONにしても災害チップはONのまま残る", async () => {
     vi.mocked(getAxisCatalog).mockReturnValue(new Promise(() => {}));

@@ -48,14 +48,15 @@ function listing(...defs: ReturnType<typeof baseAxisDefinition>[]) {
 
 beforeEach(() => {
   vi.clearAllMocks();
-  // jsdomはResizeObserverを持たない。モーダル内のRadix Checkboxがこれを呼ぶ。
+  // happy-domはResizeObserverを持たない。モーダル内のRadix Checkboxがこれを呼ぶ。
   class ResizeObserverMock {
     observe = vi.fn();
     unobserve = vi.fn();
     disconnect = vi.fn();
   }
   window.ResizeObserver = ResizeObserverMock as unknown as typeof ResizeObserver;
-  // jsdomは`window.confirm`を実装しない（呼ぶと未実装エラーになる）。
+  // happy-domは`window.confirm`を定義しないため、自分で差し込む（jsdomと違い関数自体が
+  // 無いので、`vi.spyOn(window, "confirm")`では対象が見つからず失敗する）。
   window.confirm = vi.fn(() => true);
 });
 

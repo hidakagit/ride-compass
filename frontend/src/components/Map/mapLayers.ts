@@ -13,7 +13,7 @@
 //
 // kind は「データの性質」による分類（static: 地域に固定で時間によって変わらないデータ
 // [タイル配信系]／dynamic: 選択中ルートや時間によって変わるデータ）。静的データと動的データを
-// 混同しない、という設計方針（docs/static-road-attributes-plan.md）を表す。
+// 混同しない、という設計方針を表す。
 //
 // categoryはkind:"static"レイヤーのみが持つ中分類で、▶パネル（MapOverlayControls）の
 // グループ見出しに使う。staticをflatな一覧のまま並べると、増えるほど見つけにくくなる

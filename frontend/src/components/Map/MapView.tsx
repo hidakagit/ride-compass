@@ -581,7 +581,7 @@ export function nearestPointOnLineString(
 // 出す方式は、モバイルで「ルート結果」ボトムシートに隠れる・軸数が少ないとレーダーが
 // 機能しない問題があるため採らない。
 
-// 静的道路属性P0（docs/static-road-attributes-plan.md）で追加したプロパティ。
+// タイルへ焼き込んだ静的道路属性のプロパティ。
 // タグ・算出不能はundefined/null（MVTのST_AsMVTがNULLプロパティを省略するため、
 // 実際にはキー自体が存在しない）。
 export type { RoadSurfacePopupProperties } from "./roadFacts";

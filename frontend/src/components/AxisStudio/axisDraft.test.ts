@@ -2,7 +2,7 @@
 //
 // Draft⇔payloadの往復をコンポーネントを起動せずに直接検証する。
 //
-// 同じ性質はAxisComposer.test.tsx（フォームを描画してウィザードを操作し、onSaveへ渡る
+// 同じ性質はAxisComposer.test.tsx（フォームを描画して操作し、onSaveへ渡る
 // payloadを見る）でも押さえているが、そちらは「フォームの導線が壊れていないこと」も
 // 同時に見ているため、変換だけの誤りが導線の変更に紛れて読みにくい。
 import { describe, expect, it } from "vitest";

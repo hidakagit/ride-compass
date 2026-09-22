@@ -971,10 +971,6 @@ export default function Home() {
   // 軸ごとの「すべて表示」を1つずつ押させず、道路情報等の全軸＋ルート凡例の
   // 非表示キーを一度に空へ戻す。レイヤーのON/OFF（layerVisibility）は「絞り込み」とは別の
   // 状態（どのレイヤーを表示するか）のため、ここでは触らない。
-  const hasHiddenFilters = useMemo(
-    () => Object.values(hiddenLegendKeysByMode).some((keys) => keys.length > 0),
-    [hiddenLegendKeysByMode],
-  );
   const handleClearAllFilters = useCallback(() => setHiddenLegendKeysByMode({}), [setHiddenLegendKeysByMode]);
 
   // 地図への反映だけデバウンスする（チェックボックス・条件サマリは即時のroadHiddenKeysByMode/
@@ -1413,6 +1409,23 @@ export default function Home() {
     }
     return [];
   }, [lens, hasDetail, routeStyleModes, axisCatalog.rampAxes, axisCatalog.axes, dedicatedWayValueDisplays]);
+
+  // 一括クリアを出すかの判定。**保存された非表示キーの長さをそのまま見ない**——保存先は
+  // ルート確定の前後・レンズ・地図上チップで共通のため、段の綴りが変わった版の値や段数が
+  // 変わった軸の値が残る。いま描いている凡例に実在するキーだけを数える。
+  const hasHiddenFilters = useMemo(() => {
+    const shown: { axisId: string | undefined; keys: readonly string[] }[] = [
+      ...roadLegend.map((axis) => ({ axisId: axis.axisId, keys: axis.entries.map((entry) => entry.key) })),
+      ...staticFilterAxes.map((axis) => ({ axisId: axis.axisId, keys: axis.entries.map((entry) => entry.key) })),
+      ...disasterLegendDetails.map((axis) => ({ axisId: axis.axisId, keys: axis.legend.map((entry) => entry.key) })),
+      { axisId: lens, keys: lensLegend.map((entry) => entry.key) },
+    ];
+    return shown.some(({ axisId, keys }) =>
+      axisId === undefined
+        ? false
+        : (hiddenLegendKeysByMode[axisId] ?? NO_HIDDEN_LEGEND_KEYS).some((key) => keys.includes(key)),
+    );
+  }, [roadLegend, staticFilterAxes, disasterLegendDetails, lens, lensLegend, hiddenLegendKeysByMode]);
 
   // 専用way値配信軸ごとの非表示段階（ルート確定前の全道路の塗り側の絞り込み）。保存先は
   // ルート線と同じhiddenLegendKeysByMode[軸id]で、段階キーも共通（mapColorLegend.ts:
@@ -2256,7 +2269,7 @@ export default function Home() {
         )}
 
         {/* app-map-paneはglobals.css側のMapLibre帰属表示（オフセット・配色）規則
-            （.maplibregl-ctrl-bottom-*、globals.cssのapp-debug-console等と同じマーカークラスの
+            （.maplibregl-ctrl-bottom-* と同じ、位置だけを持つマーカークラスの
             手法）が参照するグローバルなマーカークラス。 */}
         {/* 下部シートが占める高さを地図側へ渡す。地図の操作ボタン（現在地・気象タイム
             ライン等）は画面の下端からの距離で置いているため、シートを持ち上げるとその裏へ

@@ -52,7 +52,7 @@ export function AxisMapDisplaySection({
   // 色分けのしきい値（display_thresholds_override）は境界値の並びをまとめて入力する。
   // 入力欄の文字列はこのコンポーネントが持ち、読めた時だけdraftへ反映する——読めない
   // 途中の状態でdraftを書き換えると、直前に入っていた並びが消えてしまう。読めないまま
-  // 次へ進もうとした場合はウィザードの検証が止める（下書きの値で黙って保存させない）。
+  // 保存しようとした場合はフォームの検証が止める（下書きの値で黙って保存させない）。
   function applyThresholdText(text: string) {
     setThresholdText(text);
     const { values, error } = parseThresholdList(text);

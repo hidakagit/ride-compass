@@ -111,9 +111,9 @@ backendから取り、タイル本体はrewrites経由に戻る。
 `scene/groups/*.ts`は色分け式・分類の**宣言**のみを持ち、
 DOM/MapLibreを一切知らない。
 
-**面で塗るレイヤーは基礎地図の道路網より下に入る**（`mapStyleOps.ts`）。追加するときに
-`type`が面（raster/fill等）なら`areaLayerAnchor`の返す位置を`beforeId`にする——判断は
-`ensureLayerFromSpec`1箇所にあり、レイヤーごとに持たない。そのため下記の並び順が効くのは
+**面で塗るレイヤーは基礎地図の道路網より下に入る**（`mapStyleOps.ts`）。段が面なら
+`areaLayerAnchor`の返す位置を`beforeId`にする——判断は`applyMapScene`1箇所にあり、
+レイヤーごとに持たない。そのため下記の並び順が効くのは
 **面どうし・線どうしの相対順**であって、面と線の間ではない（面をどれだけ濃くしても、
 基礎地図の道路・地名とこのアプリの線レイヤーはその上に残る）。
 
@@ -147,11 +147,11 @@ DOM/MapLibreを一切知らない。
 ルート。この並びは「後から追加される側が先の側を塗り潰さない」ために決めてあり、たとえば
 観測した事実の線は推定指標の線より前面に来る。
 
-面の段だけは路面ソースより先に`ensure`する（`layersUnderRoadSurface`）。`addLayer`は
-beforeId省略で最上位へ積むため、ここへ入らない面のレイヤーは**初回描画だけ**路面線の上に
-乗り、再描画で段どおりの重なりへ戻る（同じ場所を見ているのに色が変わる、という形でしか
-気づけない）。段が決めるのはこのアプリが足したレイヤーどうしの前後だけで、基礎地図に対する
-位置は`ensureLayerFromSpec`が`areaLayerAnchor`から決める（上記）。
+**作る順に関わらず段の順になる**。`applyMapScene`は1枚足すたびに「段の順で自分より前面に
+あり、かつ既に載っている最初のレイヤーの直下」へ差し込むため、宣言をどの順で並べても
+結果は変わる余地が無い（初回描画だけ重なりがずれて再描画で直る、という形の不具合が
+構造的に起きない）。段が決めるのはこのアプリが足したレイヤーどうしの前後だけで、
+基礎地図に対する位置は`areaLayerAnchor`が決める（上記）。
 
 
 「道路情報」の各軸は**それぞれ独立した線レイヤー**（`ROAD_TILE_LAYER_ID`=路面の種類、
@@ -211,19 +211,14 @@ filter・feature-state・visibilityの設定）は、`redrawAllLayers`から辿�
 カメラはここでは動かさない——表示範囲は利用者の操作に属し、フィットは候補一覧が
 変わったときだけ行う。
 
-## 並列トラック分離（`applyRoadMaterialTrackOffsets`）
+## 並列トラック分離（`scene/groups/roadLines.ts`）
 
-同じ道路ジオメトリへ複数の独立レイヤー（路面の種類・道路の種類・指定路線・トンネル・一方通行）を
-重ねて描画すると、後から描画されたレイヤーが前のレイヤーを覆い隠す。`line-offset`で
-道路と平行な複数トラックへ横並びに分離することでこれを避ける——ON中のレイヤーだけを
-対称に割り付ける（1件→0、2件→±1.5、3件→-3/0/+3）ため、どれかをOFFにすると残りが
-自動で中央へ寄り直す。
+同じ道路ジオメトリへ複数の線を重ねると、後から描いた方が前を覆い隠す。`line-offset`で
+道路と平行な複数トラックへ横並びに分離する——**出ている本数から対称に割り付ける**ので、
+どれかをOFFにすると残りが自動で中央（実際の道路の位置）へ寄り直す。間隔は線の太さより
+狭くして隣どうしをわずかに重ねる（離すと1本の道が複数に見える）。
 
-トラック本数（`ROAD_MATERIAL_TRACK_LAYER_IDS.length`）・オフセット間隔
-（`MATERIAL_TRACK_OFFSET_STEP`=2px）・1次レイヤーの太さ（`DEFAULT_ROAD_LINE_WIDTH`=3px）
-から、二次軸の下敷き幅（`SECONDARY_AXIS_CASING_WIDTH`）が式として算出される。
-
-## 二次軸の下敷き表現（`buildAxisOverlayLayers`の`casingLayerKeys`）
+## 二次軸の下敷き表現（`scene/groups/axisLines.ts`の`underlay`）
 
 二次(ramp)軸は「その材料（対応する一次属性の表示レイヤー）が1つでも同時に表示されて
 いるとき」だけ太く半透明な下敷きになる。材料が1つも表示されていなければ通常の太さ・
@@ -232,21 +227,11 @@ filter・feature-state・visibilityの設定）は、`redrawAllLayers`から辿�
 `MapView.tsx`は渡された`secondaryAxisCasingLayerIds`（キー集合）をそのまま使うだけの
 汎用描画係のまま保たれている。
 
-**暗黙の前提**: 下敷きかどうかは`makeEnsureAxisRampLayer`が組み立てる**レイヤーspecの
-`line-width`/`line-opacity`そのもの**として持ち、specの外から`setPaintProperty`で
-上書きする形は取らない。`ensureLayerFromSpec`はレイヤーが既にあるときspecのpaintを
-丸ごと再適用するため、spec外で太さを決めると、以後どこかで`ensure()`が呼ばれた時点
-（`setStaticOverlayFilters`はレイヤーごとに`ensure()`を呼ぶ）にspec側の値へ無条件で
-巻き戻り、材料が1つも表示されていない軸まで太く半透明のまま描かれる。この結びつきは
-`MapView.state.contract.test.ts`の「同じ状態を伝え直しても結果が変わらない
-巻き戻らない」で固定してある。
-
-**絞り込み（`filter`）はspecへ畳めない**——凡例のON/OFFという実行時の状態から
-`setStaticOverlayFilters`が組み立てるもので、`ensure`側はレイヤー固有の材料関係を知らない
-汎用描画係のままにしておきたい。そこで**どちらが持ち主かを呼び出し側が宣言する**
-（`ensureLayerFromSpec`の`specOwnsFilter`、必須引数）。キーの有無から推測する形だと、
-「自分の持ち物だが今は条件なし」と「外側が管理しているので触るな」が区別できず、後者を
-前者として扱った瞬間に利用者の絞り込みが表示ON/OFFのたびに巻き戻る。
+**見た目の値は、すべて宣言そのものが持つ**。下敷きの太さ・不透明度も、絞り込みも、
+グループが返す宣言の一部として出す。宣言の外から`setPaintProperty`や`setFilter`で
+足す形を取らないため、**「当てた後に誰かが巻き戻す」という経路が無い**（当てるのは
+`applyMapScene`だけで、前回の宣言との差分しか触らない）。この性質は
+`MapView.state.contract.test.ts`の「同じ状態を伝え直しても結果が変わらない」で固定してある。
 
 ## 初期表示の覆い（`initialTilesLoading`）
 
@@ -343,7 +328,7 @@ ramp軸[`dataNature==="composite"`]）に該当するものは`undefined`（地�
 グループは表示上のまとまりだけを表し、**どのレイヤーも複数同時にONにできる**。重なって
 読みにくくなった場合は、各チップの▶パネルで要素・カテゴリ単位に絞り込む（下記「凡例
 カテゴリの絞り込み」節）。道路グループの線同士は`line-offset`による並行トラック
-（`applyRoadMaterialTrackOffsets`）で重ならずに並ぶ。
+（`scene/groups/roadLines.ts`の横位置の割り付け）で重ならずに並ぶ。
 
 **開いておけるグループは`MAP_OVERLAY_MAX_EXPANDED_GROUPS`件まで**（別のグループを開くと
 古く開いたものから畳む。保存済みの状態にも同じ上限を効かせる——上限を下げる前に書かれた値は
@@ -451,6 +436,10 @@ JSの例外は飛ばず、`map.on("error")`にしか出ない。気づけるの�
 
 **`addLayer`へ渡す`beforeId`は、今のスタイルに在るものだけ。** 無いidを渡すと例外を投げる。
 記録しておいた差し込み位置が消えていたら`beforeId`を省いて最前面へ積む。
+
+**`filter`は、値が無いならキーごと省く。** `filter: undefined`を持たせたまま渡すと
+「filterには配列が必要」で弾かれる——MapLibreはキーの有無ではなく値の型で判定する。
+代役地図はstyle検証を持たないため、この誤りはテストでは捕まらない。
 
 ## 点で示すもの（`features/map/scene/groups/points.ts`）
 
