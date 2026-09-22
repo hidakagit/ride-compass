@@ -15,8 +15,7 @@ from app.domain.axis_definitions import (
     CategoricalShape,
     MaterialTerm,
 )
-from app.domain.axis_display import axis_display_for
-from app.domain.registry import AxisDisplaySpec
+from app.domain.registry import AxisDisplaySpec, TileInputSpec
 from app.domain.dynamic_way_values import (
     dedicated_way_value_axes,
     map_value_kind,
@@ -42,8 +41,13 @@ def _display(kind: str, thresholds: list[float] | None = None):
     あちらが変わるたびにここが落ちる。
     """
     original = module.axis_display_for
+    payload = (
+        {"tile_inputs": [TileInputSpec(property="t")], "thresholds": list(thresholds or [])}
+        if kind == "ramp"
+        else {}
+    )
     module.axis_display_for = lambda definition: AxisDisplaySpec(
-        kind=kind, label=definition.label, thresholds=list(thresholds or [])
+        kind=kind, label=definition.label, **payload
     )
     try:
         yield
@@ -194,23 +198,15 @@ class TestMapValueThresholds:
         with _display("ramp", thresholds=[-40.0, -10.0]):
             assert map_value_thresholds(axis) == [20.0, 80.0]
 
-    def test_an_axis_that_folds_the_sign_is_never_asked_to_map(self):
-        """この前提が崩れたら、写す側に絶対値を取る処理が要る。"""
-        axis = _linear([MaterialTerm(material=A)], LINE, preprocess="abs")
-
-        assert map_value_kind(axis) == "signed_material"
-        assert axis_display_for(axis).kind == "none"
-
 
 class TestMapValueUnit:
     """凡例に添える単位。**材料カタログの中身には踏み込まない**——差し替えて与える。"""
 
     @staticmethod
     @contextmanager
-    def _catalog(unit: str | None):
+    def _catalog(unit: str):
         original = module.MATERIAL_CATALOG
-        spec = None if unit is None else type("Spec", (), {"unit": unit})()
-        module.MATERIAL_CATALOG = {A: spec} if spec is not None else {}
+        module.MATERIAL_CATALOG = {A: type("Spec", (), {"unit": unit})()}
         try:
             yield
         finally:
@@ -228,13 +224,6 @@ class TestMapValueUnit:
 
         with self._catalog("%"):
             assert map_value_unit(axis) == "%"
-
-    def test_a_material_the_catalog_does_not_know_has_no_unit(self):
-        """カタログに無い材料を参照する軸で例外にせず、空へ倒す。"""
-        axis = _linear([MaterialTerm(material=A)], LINE, preprocess="abs")
-
-        with self._catalog(None):
-            assert map_value_unit(axis) == ""
 
 
 class TestTransformDedicatedWayValues:

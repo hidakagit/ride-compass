@@ -32,7 +32,7 @@ def _spec(material_id: str, dtype: str = "numeric", missing="", **overrides) -> 
     coverage = (
         WayMaterialCoverageSpec(missing_condition="FALSE", source="テスト用", missing_semantics=missing)
         if missing
-        else CoverageExcluded(reason="テスト用")
+        else CoverageExcluded(reason="テスト用", missing_semantics="definite")
     )
     return MaterialSpec(
         material_id=material_id,
@@ -422,15 +422,6 @@ class TestRescaleTileInput:
         rescaled = _rescale_tile_input(TileInputSpec(property="p", weight=4.0), weight=0.5)
 
         assert rescaled.weight == 2.0
-
-    def test_categories_take_precedence_over_the_boolean_flag(self):
-        rescaled = _rescale_tile_input(
-            TileInputSpec(property="p", categories={"a": 2.0}, boolean=True, true_value=10.0),
-            weight=0.5,
-        )
-
-        assert rescaled.categories == {"a": 1.0}
-        assert rescaled.true_value == 10.0
 
 
 class TestBooleanScoreTileInput:

@@ -28,7 +28,7 @@ from dataclasses import dataclass
 
 from typing import Literal
 
-from pydantic import ConfigDict, Field
+from pydantic import ConfigDict, Field, model_validator
 
 from app.domain.material_sql import (
     BICYCLE_NORMALIZED_SQL,
@@ -94,9 +94,14 @@ class EdgeMaterialCoverageSpec:
 class CoverageExcluded:
     """欠損率を測らない材料と、その理由。`MaterialSpec.coverage`が
     `WayMaterialCoverageSpec`/`EdgeMaterialCoverageSpec`とこの型のいずれかを必ず持つため、
-    「どちらの一覧にも載っていない材料」は型として作れない。"""
+    「どちらの一覧にも載っていない材料」は型として作れない。
+
+    測らない材料も`missing_semantics`は持つ。**欠損率を測るかと、値が無いときにどう
+    評価するかは別の問い**で、後者は`MaterialSpec.bool_default`が全材料に対して答える
+    ——3つの型のうち1つだけがこの宣言を欠くと、そこだけ答えを作り出すことになる。"""
 
     reason: str
+    missing_semantics: MissingSemantics
 
 
 MaterialCoverage = WayMaterialCoverageSpec | EdgeMaterialCoverageSpec | CoverageExcluded
@@ -146,8 +151,8 @@ class MaterialSpec(StrictModel):
     label: str
     # GET /api/material-catalogの公開レスポンスへ含め、
     # フロント側は選択中の材料の隣に情報アイコン(ⓘ)でこの説明文を表示する（AxisComposer.tsx:
-    # MaterialInfoButton）。extractor未配線（DEFER）の材料は、選んでも評価軸としては
-    # 機能しない旨をここに明記する（配線状況が変わったら追従が必要）。
+    # MaterialInfoButton）。`value_sql`を持たない材料は、選んでも評価軸としては機能しない
+    # 旨をここに明記する（配線状況が変わったら追従が必要）。
     # 空を許すと、軸スタジオのⓘが何も出さない材料を登録できてしまう。
     description: str = Field(min_length=1)
     dtype: MaterialDType
@@ -229,6 +234,20 @@ class MaterialSpec(StrictModel):
         value_labelと同じ理由で軸スタジオの材料選択肢に物理名[material_id]を併記する）。"""
         return f"{self.label} - {self.material_id}"
 
+    @model_validator(mode="after")
+    def _check_fields_match_the_dtype(self) -> "MaterialSpec":
+        """dtypeと噛み合わない宣言を登録時に落とす。通すと、その材料を選んだ画面だけが
+        黙って何も出さない（値の目安が空の折れ点編集、対訳の効かない値の候補）。"""
+        if self.total_unit is not None and not self.unit:
+            # 総量は生値へ距離を掛けた量で、単位の無い材料には掛ける相手が無い
+            # （`axis_raw_value.py: raw_value_total_unit`は`unit`が空の軸を先に落とす）。
+            raise ValueError(f"{self.material_id}: total_unitはunitを持つ材料にだけ置ける")
+        if self.value_labels and self.dtype != "categorical":
+            raise ValueError(f"{self.material_id}: value_labelsはcategorical材料の値にだけ付く")
+        if self.reference_points and self.dtype != "numeric":
+            raise ValueError(f"{self.material_id}: reference_pointsは数値材料の折れ点編集にだけ効く")
+        return self
+
 
     @property
     def bool_default(self) -> Literal["false", "nan"]:
@@ -240,7 +259,7 @@ class MaterialSpec(StrictModel):
         """
         if self.dtype != "boolean":
             return "false"  # bool配列を作らない材料では参照されない
-        return "nan" if getattr(self.coverage, "missing_semantics", None) == "unknown" else "false"
+        return "nan" if self.coverage.missing_semantics == "unknown" else "false"
 
 def _wind_drag_ratio_reference_points() -> list[MaterialReferencePoint]:
     """`wind_drag_ratio`材料の参考点（時速20km=基準速度で走行、走行方位0度を基準に
@@ -438,7 +457,10 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
         tile_property=None,
         tile_property_direction_dependent=True,
         reference_points=_wind_drag_ratio_reference_points(),
-        coverage=CoverageExcluded(reason="出発時刻の気象予報・想定速度から都度計算する動的材料で、DBに静的な値を持たない"),
+        coverage=CoverageExcluded(
+            reason="出発時刻の気象予報・想定速度から都度計算する動的材料で、DBに静的な値を持たない",
+            missing_semantics="unknown",
+        ),
     ),
     "trees_percent": MaterialSpec(
         material_id="trees_percent",
@@ -649,15 +671,15 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
         label="一方通行",
         description="OSMのタグから判定した一方通行区間かどうか。現時点では評価軸の材料として配線されておらず、選んでもこの軸は常に「データなし」として扱われます（地図表示専用）。",
         dtype="boolean",
-        # osm_raw_ways.direction（forward/backward/both）から算出（一次属性・地図
-        # レイヤーとして先行追加済み、本材料登録はその生値の網羅登録）。
-        # extractor未設定（データ源のdirectionはEdgeLikeが持たず、build_road_graphが
-        # forward/backward Edge生成の可否判定に消費するのみで保持しない。抽出フェーズへ
-        # 載せるにはEdgeLikeへのフィールド追加が要り、表示専用の一方通行材料のためだけに
-        # そこまでする理由が今は無い、DEFER）。
+        # 値の求め方を持たない（`value_sql=None`）: 元になるosm_raw_ways.directionは
+        # build_road_graphがforward/backward Edgeを作れるかの判定に消費するだけで、
+        # Edgeにも区間の材料列にも残らない。地図表示専用の材料。
         tile_property="oneway",
         primary_attribute_id="oneway",
-        coverage=CoverageExcluded(reason="osm_raw_ways.directionはNOT NULL列で、タグ不在は双方向(both)に解決済み（欠損の概念が無い）"),
+        coverage=CoverageExcluded(
+            reason="osm_raw_ways.directionはNOT NULL列で、タグ不在は双方向(both)に解決済み（欠損の概念が無い）",
+            missing_semantics="definite",
+        ),
     ),
     "maxspeed_kmh": MaterialSpec(
         material_id="maxspeed_kmh",
@@ -727,11 +749,9 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
                 missing_semantics="unknown",
             ),
     ),
-    # 自転車インフラを評価軸から切り離すための正規化フラグ材料群
-    # （_extract_highway_is_cycleway等のdocstring参照）。公開軸「自転車インフラ」
-    # （bicycle_infra_quality）がこれらを重み付き線形結合する（domain/axis_definitions.py
-    # 参照）。この群の材料はそれぞれ専用のtile_propertyを持ち、_ROAD_SURFACE_TILE_MVT_SQL
-    # （road_graph_repository.py）へ焼き込む。
+    # 自転車インフラの分類を、評価軸ではなく材料の側で正規化したフラグ群。軸はこれらを
+    # 重み付き線形結合するだけで、タグの読み方を知らない。それぞれ専用のtile_propertyを
+    # 持ち、MVTタイルへ焼き込む。
     "highway_is_cycleway": MaterialSpec(
         material_id="highway_is_cycleway",
         label="道路種別が自転車道",
@@ -826,11 +846,8 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
                 missing_semantics="unknown",
             ),
     ),
-    # 専用のPython関数を書かず、汎用ファクトリ（raw_way_tag_extractor）への宣言追加だけで
-    # 抽出可能にした材料。tracktypeはOSMの未舗装路面グレード（grade1[良好]〜grade5[粗悪]）で、
-    # smoothnessと同じ「単一タグの生値取得（正規化: lower/btrim）」パターンにそのまま収まる。
-    # MVTタイルへは未焼き込み（他の材料と異なり「既存焼き込み済みデータの網羅登録」では
-    # ない。地図表示で必要になれば別途タイルへ追加する）。
+    # tracktypeはOSMの未舗装路面グレード（grade1[良好]〜grade5[粗悪]）。MVTタイルへは
+    # 焼き込んでいないため（`tile_property=None`）地図には出ず、評価軸の材料としてだけ使える。
     "tracktype": MaterialSpec(
         material_id="tracktype",
         label="未舗装路グレード(tracktype)",
@@ -928,7 +945,7 @@ def material_coverage_specs() -> dict[str, WayMaterialCoverageSpec | EdgeMateria
     return {
         material_id: spec.coverage
         for material_id, spec in MATERIAL_CATALOG.items()
-        if spec.coverage is not None and not isinstance(spec.coverage, CoverageExcluded)
+        if not isinstance(spec.coverage, CoverageExcluded)
     }
 
 

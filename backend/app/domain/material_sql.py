@@ -2,9 +2,8 @@
 
 材料が何から導かれるかはdomainの知識のため、式をここに置く。参照する側
 （`road_graph_repository.py`のタイル配信・材料の読み出し、`material_coverage.py`の
-欠損割合集計）はいずれもRoad Graphのオブジェクトを構築せずDBを直接引くため、
-`material_catalog.py`のPython extractorをそのまま使えない。同じ判定式を呼び出し側ごとに
-独立して書くとドリフトするため、ここへ集約する。
+欠損割合集計）はいずれもRoad Graphのオブジェクトを構築せずDBを直接引く。同じ判定式を
+呼び出し側ごとに独立して書くとドリフトするため、ここへ集約する。
 
 式はテーブルのエイリアスを固定で参照する。FROM句は読み出し側が組み立てる:
 
@@ -87,11 +86,6 @@ BICYCLE_NORMALIZED_SQL = normalized_tag_sql("bicycle")
 CYCLEWAY_TAG_NAMES = ("cycleway", "cycleway:left", "cycleway:right", "cycleway:both")
 # 上記いずれかに値があるかを見るARRAY式（どのタグにも値が無い場合のみ欠損）。
 CYCLEWAY_TAGS_ARRAY_SQL = "ARRAY[" + ", ".join(f"lower(btrim(w.tags->>'{tag}'))" for tag in CYCLEWAY_TAG_NAMES) + "]"
-
-
-LANDCOVER_SQL_KEYS = (
-    "trees", "built", "crops", "rangeland", "water", "bare", "flooded_veg", "snow_ice",
-)
 
 
 def tag_absent_is_false_sql(condition: str) -> str:
