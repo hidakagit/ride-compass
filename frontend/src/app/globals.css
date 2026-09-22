@@ -134,6 +134,12 @@
   --map-ctrl-margin: 10px;
   --map-ctrl-stack-top: 6.5rem;
   --map-ctrl-stack-gap: 4px;
+
+  /* スマホ幅かどうか。**幅の分岐を書けるのはメディアクエリだけ**なので、
+   * この判定はCSSが持ち、JS（hooks/useIsMobile.ts）はこの旗を読むだけにする。
+   * JS側が同じ数値を持つと、片方だけ動いたときに「CSSはオーバーレイ表示なのに
+   * JSはデスクトップ判定」という形でずれる。 */
+  --is-mobile: 0;
 }
 
 /* かつては--background/--foreground以外のトークンをダークモードで再定義せず常に固定色
@@ -194,6 +200,7 @@
    frontend/src/hooks/useIsMobile.tsのMOBILE_BREAKPOINT_PXと一致させること。 */
 @media (max-width: 640px) {
   :root {
+    --is-mobile: 1;
     --space-1: 0.2rem;
     --space-2: 0.4rem;
     --space-3: 0.55rem;
