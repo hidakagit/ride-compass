@@ -1,83 +1,121 @@
-"""ディスク永続キャッシュの旧世代掃除と容量上限。
+"""`infrastructure/tile_persistent_cache.py`——置いたものを捨てる側。
 
-世代番号は参照先を切り替えるだけで、古い実体は残り続ける。掃除が効いていないと世代を
-上げるたびに積み上がるため、ここで振る舞いを固定する。容量上限（`diskcache`の
-`size_limit`）による自動退避も、ディスクが無制限に増えないことの担保として確認する。
+世代番号は参照先を切り替えるだけで、ディスクの旧実体は残る。ここはそれを消す側を見る。
+
+ここで見ないもの:
+- 読み書き・キーの同一性・失効 → `test_tile_persistent_cache.py`
+- どの世代を残すかの決め方 → `test_graph_material_cache.py`・`test_tile_score_matrix_cache.py`
+
+置き場は`conftest.py`のautouseフィクスチャがテストごとの一時ディレクトリへ差し替える。
 """
-
-import pytest
 
 from app.infrastructure import tile_persistent_cache
 
-
-@pytest.fixture
-def cache_dir(tmp_path, monkeypatch):
-    tile_persistent_cache.use_directory(tmp_path)
-    return tmp_path
+CURRENT = "v2"
+STALE = "v1"
 
 
-def _write(namespace: str, version: str, zoom: int, x: int, y: int, value) -> None:
-    tile_persistent_cache.set(namespace, version, zoom, x, y, value)
+def _boom(*_args, **_kwargs):
+    raise RuntimeError("sqlite")
 
 
-def test_prune_removes_other_generations_and_keeps_current(cache_dir):
-    _write("materials", "4", 12, 1, 1, {"old": True})
-    _write("materials", "5", 12, 1, 1, {"current": True})
-
-    removed = tile_persistent_cache.prune_stale_generations("materials", "5")
-
-    assert removed == 1
-    assert tile_persistent_cache.get("materials", "4", 12, 1, 1) is None
-    assert tile_persistent_cache.get("materials", "5", 12, 1, 1) == {"current": True}
+def _store(namespace: str, version: str, x: int = 0) -> tuple:
+    tile_persistent_cache.set(namespace, version, 12, x, 0, "value")
+    return (namespace, version, 12, x, 0)
 
 
-def test_prune_removes_every_stale_generation(cache_dir):
-    for version in ("2", "3", "4"):
-        _write("materials", version, 12, 1, 1, {"v": version})
-    _write("materials", "5", 12, 1, 1, {"v": "5"})
+class TestDroppingTheGenerationsNobodyReadsAnymore:
+    def test_an_entry_from_another_generation_is_removed(self):
+        """上限に達するまで居座るため、世代交代の時点で捨てる。"""
+        stale = _store("materials", STALE)
 
-    removed = tile_persistent_cache.prune_stale_generations("materials", "5")
+        tile_persistent_cache.prune_stale_generations("materials", CURRENT)
 
-    assert removed == 3
-    assert all(tile_persistent_cache.get("materials", v, 12, 1, 1) is None for v in ("2", "3", "4"))
-    assert tile_persistent_cache.get("materials", "5", 12, 1, 1) == {"v": "5"}
+        assert tile_persistent_cache.get_by_key(stale) is None
+
+    def test_the_generation_being_kept_survives(self):
+        current = _store("materials", CURRENT)
+
+        tile_persistent_cache.prune_stale_generations("materials", CURRENT)
+
+        assert tile_persistent_cache.get_by_key(current) == "value"
+
+    def test_another_namespace_is_never_touched(self):
+        """材料の世代を上げたときにスコア行列まで消えると、どちらの再計算も払い直す。"""
+        other = _store("scores", STALE)
+
+        tile_persistent_cache.prune_stale_generations("materials", CURRENT)
+
+        assert tile_persistent_cache.get_by_key(other) == "value"
+
+    def test_the_number_of_entries_removed_is_reported(self):
+        _store("materials", STALE, x=0)
+        _store("materials", STALE, x=1)
+
+        assert tile_persistent_cache.prune_stale_generations("materials", CURRENT) == 2
+
+    def test_a_place_with_nothing_stale_removes_nothing(self):
+        _store("materials", CURRENT)
+
+        assert tile_persistent_cache.prune_stale_generations("materials", CURRENT) == 0
+
+    def test_a_failure_while_pruning_is_reported_as_nothing_removed(self, monkeypatch):
+        """例外にすると、掃除を並べて呼ぶ側が2つ目以降を捨て損ねる。消せなかったぶんは
+        容量上限の退避が引き受ける。
+        """
+        monkeypatch.setattr(tile_persistent_cache, "cache", _boom)
+
+        assert tile_persistent_cache.prune_stale_generations("materials", CURRENT) == 0
 
 
-def test_prune_does_not_touch_other_namespaces(cache_dir):
-    _write("materials", "4", 12, 1, 1, {"v": "4"})
-    _write("score_matrix", "4", 12, 1, 1, {"v": "4"})
+class TestThrowingAwayAWholeNamespace:
+    def test_every_generation_of_that_namespace_goes(self):
+        """材料そのものが作り直されたら、どの世代の写しも正しくない。"""
+        stale = _store("materials", STALE)
+        current = _store("materials", CURRENT)
 
-    tile_persistent_cache.prune_stale_generations("materials", "5")
+        tile_persistent_cache.clear_namespace("materials")
 
-    assert tile_persistent_cache.get("score_matrix", "4", 12, 1, 1) == {"v": "4"}
+        assert tile_persistent_cache.get_by_key(stale) is None
+        assert tile_persistent_cache.get_by_key(current) is None
 
+    def test_another_namespace_stays(self):
+        other = _store("scores", CURRENT)
 
-def test_prune_is_noop_when_namespace_is_absent(cache_dir):
-    assert tile_persistent_cache.prune_stale_generations("materials", "5") == 0
+        tile_persistent_cache.clear_namespace("materials")
 
-
-def test_prune_is_noop_when_only_current_generation_exists(cache_dir):
-    _write("materials", "5", 12, 1, 1, {"v": "5"})
-
-    assert tile_persistent_cache.prune_stale_generations("materials", "5") == 0
-    assert tile_persistent_cache.get("materials", "5", 12, 1, 1) == {"v": "5"}
+        assert tile_persistent_cache.get_by_key(other) == "value"
 
 
-def test_size_limit_evicts_old_entries_instead_of_growing_without_bound(tmp_path, monkeypatch):
-    """容量上限を超えたら古いものから退避され、ディスクが無制限に増えない。"""
-    import diskcache
+class TestKeysThatAreNotTileCoordinates:
+    """タイル座標の形をしていない鍵は、世代・namespaceの掃除の対象ではない——持ち主が
+    知らないうちに消えると、その持ち主だけが作り直しを払う。
+    """
 
-    from app.infrastructure import tile_persistent_cache as tpc
+    KEY = ("way_values", 7, "material_a", 12, 3630, 1612, "09", None, None)
 
-    tpc.use_directory(tmp_path / "small")
-    monkeypatch.setattr(
-        tpc, "_cache", diskcache.Cache(str(tmp_path / "small"), size_limit=1024 * 1024, eviction_policy="least-recently-used")
-    )
-    payload = "x" * 200_000  # 1エントリ約200KB（上限1MBに対し5〜6件で頭打ちになる想定）
+    def test_a_generation_prune_leaves_it_alone(self):
+        tile_persistent_cache.set_by_key(self.KEY, "value")
 
-    for i in range(20):
-        tpc.set("materials", "1", 12, i, 0, payload)
+        tile_persistent_cache.prune_stale_generations("way_values", CURRENT)
 
-    volume = tpc.cache().volume()
-    assert volume <= 1024 * 1024 * 1.2, f"上限を超えて増え続けている: {volume}"
-    assert len(tpc.cache()) < 20
+        assert tile_persistent_cache.get_by_key(self.KEY) == "value"
+
+    def test_clearing_a_namespace_leaves_it_alone(self):
+        tile_persistent_cache.set_by_key(self.KEY, "value")
+
+        tile_persistent_cache.clear_namespace("way_values")
+
+        assert tile_persistent_cache.get_by_key(self.KEY) == "value"
+
+
+class TestThrowingEverythingAway:
+    def test_nothing_of_any_shape_is_left(self):
+        tile_coordinates = _store("materials", CURRENT)
+        other_shape = ("way_values", 7, "material_a")
+        tile_persistent_cache.set_by_key(other_shape, "value")
+
+        tile_persistent_cache.clear_all()
+
+        assert tile_persistent_cache.get_by_key(tile_coordinates) is None
+        assert tile_persistent_cache.get_by_key(other_shape) is None

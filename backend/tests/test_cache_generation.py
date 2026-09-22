@@ -1,78 +1,97 @@
-"""DBの世代とディスクの記録を突き合わせる共通機構。
+"""`infrastructure/cache_generation.py`——DBが持つ世代と、ディスクを書いた時点の記録の突き合わせ。
 
-判断の分岐（一致・不一致・読めない）をここで直接固定する。
+ここで見ないもの:
+- 記録を置くディスクそのもの（読み書き・掃除）→ `test_tile_persistent_cache.py`
+- 世代をDBのどこから読むか・誰がこの確認を呼ぶか → `test_derived_data_revision_service.py`
+- 食い違ったとき何を捨てるか → `test_graph_material_cache.py`・`test_tile_score_matrix_cache.py`
 """
 
 from app.infrastructure import cache_generation, tile_persistent_cache
 
-NAMESPACE = "test-cache-generation"
+NAMESPACE = "materials"
 VERSION = "v1"
 
 
-def setup_function():
-    tile_persistent_cache.clear_namespace(NAMESPACE)
+def _check(revision: int | None, *, namespace: str = NAMESPACE, version: str = VERSION):
+    """捨てたかどうか（戻り値）と、実際に捨てた回数の対。契約はこの2つが一致すること。"""
+    cleared: list[int] = []
+    reported = cache_generation.sync_with_revision(namespace, version, revision, lambda: cleared.append(1))
+    return reported, len(cleared)
 
 
-def teardown_function():
-    tile_persistent_cache.clear_namespace(NAMESPACE)
+class TestTheFirstLookAtADiskCache:
+    def test_a_cache_with_no_record_is_thrown_away(self):
+        """前のデプロイ・前のバッチが書いたものかもしれない。"""
+        assert _check(5) == (True, 1)
 
 
-def _sync(revision, cleared):
-    """`clear`は実物と同じくnamespaceごと消す（記録もそこに在るため、消えた後に
-    書き直されるかどうかが判定の分かれ目になる）。"""
+class TestWhenNothingHasChanged:
+    def test_the_same_generation_keeps_the_cache(self):
+        """確認はキャッシュを読む経路の入口にある。毎回捨てると一度も効かない。"""
+        _check(5)
 
-    def clear():
-        cleared.append(revision)
-        tile_persistent_cache.clear_namespace(NAMESPACE)
-
-    return cache_generation.sync_with_revision(NAMESPACE, VERSION, revision, clear)
+        assert _check(5) == (False, 0)
 
 
-def test_first_call_has_no_record_so_it_clears_and_records():
-    cleared = []
+class TestWhenTheGenerationMoves:
+    def test_a_newer_generation_throws_the_cache_away(self):
+        """バッチが作り直した値を、古い派生データのまま配り続ける。"""
+        _check(5)
 
-    assert _sync(1, cleared) is True
-    assert cleared == [1]
-    assert cache_generation.read_persisted_revision(NAMESPACE, VERSION) == 1
-
-
-def test_same_revision_keeps_the_disk_cache():
-    cleared = []
-    _sync(1, cleared)
-
-    assert _sync(1, cleared) is False
-    assert cleared == [1]  # 2回目は呼ばれない
+        assert _check(6) == (True, 1)
 
 
-def test_changed_revision_clears_and_records_the_new_one():
-    cleared = []
-    _sync(1, cleared)
+class TestWhenTheGenerationCannotBeRead:
+    def test_it_throws_the_cache_away_once(self):
+        assert _check(None) == (True, 1)
 
-    assert _sync(2, cleared) is True
-    assert cleared == [1, 2]
-    assert cache_generation.read_persisted_revision(NAMESPACE, VERSION) == 2
+    def test_it_does_not_keep_throwing_it_away(self):
+        """記録しないと、確認のたびに全消去が走る——確認の発火点が増えるほど消える。"""
+        _check(None)
 
+        assert _check(None) == (False, 0)
 
-def test_unreadable_revision_clears_once_and_remembers_that_it_was_unreadable():
-    """読めないときも一度は捨てる（安全側）が、繰り返しては捨てない。
+    def test_a_generation_that_became_readable_is_a_change(self):
+        """読めなかったことを世代の値そのもので表すと、この切り替わりを取りこぼす。"""
+        _check(None)
 
-    記録しないと、確認のたびに全消去が走る。確認の発火点はページを開くたび（TTL 300秒）まで
-    広がっており、`derived_data_meta`の行が無い環境では5分ごとに全タイルが消え続ける。
-    """
-    cleared = []
-    _sync(1, cleared)
-
-    assert _sync(None, cleared) is True
-    assert _sync(None, cleared) is False
-    assert _sync(None, cleared) is False
-    assert cleared == [1, None]
+        assert _check(5) == (True, 1)
 
 
-def test_revision_becoming_readable_again_clears_once():
-    """読めない状態から復帰したら、記録が食い違うので1度だけ捨てて記録し直す。"""
-    cleared = []
-    _sync(None, cleared)
+class TestTheRecordOutlivesTheClearing:
+    def test_a_clear_that_wipes_the_whole_place_does_not_take_the_record_with_it(self):
+        """記録はキャッシュと同じ置き場にある。捨ててから記録し直さないと、確認のたびに
+        捨て直すことになり、ディスクキャッシュが一度も効かない。
+        """
 
-    assert _sync(3, cleared) is True
-    assert cache_generation.read_persisted_revision(NAMESPACE, VERSION) == 3
-    assert _sync(3, cleared) is False
+        def clear() -> None:
+            tile_persistent_cache.clear_namespace(NAMESPACE)
+
+        cache_generation.sync_with_revision(NAMESPACE, VERSION, 5, clear)
+
+        assert cache_generation.sync_with_revision(NAMESPACE, VERSION, 5, clear) is False
+
+
+class TestEachCacheIsTrackedOnItsOwn:
+    def test_another_namespace_has_its_own_record(self):
+        _check(5, namespace="materials")
+
+        assert _check(5, namespace="scores") == (True, 1)
+
+    def test_another_version_has_its_own_record(self):
+        """形が変われば置き場ごと別になる。前の形の記録を引き継ぐと、新しい形の
+        ディスクを一度も確かめないまま使い始める。
+        """
+        _check(5, version="v1")
+
+        assert _check(5, version="v2") == (True, 1)
+
+
+class TestReadingBackWhatWasRecorded:
+    def test_nothing_is_recorded_before_the_first_check(self):
+        assert cache_generation.read_persisted_revision(NAMESPACE, VERSION) is None
+
+    def test_the_generation_of_the_last_check_is_readable(self):
+        _check(5)
+
+        assert cache_generation.read_persisted_revision(NAMESPACE, VERSION) == 5
