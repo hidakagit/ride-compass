@@ -163,6 +163,10 @@ export function useWeatherGrid(enabled: boolean, mapViewport: MapViewport | null
     };
   }, [enabled, debouncedMapViewport]);
 
+  // 詳細格子があるときは粗い格子を**置き換える**（重ねない）。半透明の面を2枚重ねると
+  // 重なった範囲だけ1-(1-X)^2で濃く見え、同じ階級が2つの濃さで出る。重ねて塗るなら、
+  // 粗いセルを落とす判定は中心1点の近傍ではなく**4隅すべてが詳細側に覆われているか**で
+  // 行う必要がある——中心だけを見ると、実際には覆われていないセルまで丸ごと落ちて穴があく。
   const effectiveGrid = detailGrid.length > 0 ? detailGrid : grid;
   const effectiveGridSpacingDeg = detailGrid.length > 0 ? detailSpacingDeg : WIND_GRID_SPACING_DEG;
 

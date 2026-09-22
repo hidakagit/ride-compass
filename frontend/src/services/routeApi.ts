@@ -43,13 +43,10 @@ export interface GenerationProgress {
 }
 
 const POLL_INTERVAL_MS = 1500;
-// road_graphエンジンの冷パス（未split・タイル未キャッシュ）の総所要時間（total_ms）を
-// 安全マージン込みで上回る値にする。開発機実測の最悪ケース（都心部、prepare_ms=355,516・
-// total_ms=360,625）が示すとおり、prepare_ms単体で数分規模になりうる（開発機のリソース
-// 競合で本番より悪化するが、本番でも同種の遅さ自体は再現する）。DBの
-// ROUTE_GENERATION_COMMAND_TIMEOUT_SECONDS（180秒、backend/app/infrastructure/
-// database.py）はクエリ1本ごとの上限でありprepare()全体の所要時間とは独立のため、
-// この値の決定には関与しない。
+// 冷パス（未split・タイル未キャッシュ）の総所要時間を安全マージン込みで上回る値。
+// **動かす前に docs/modules/frontend/route-settings-and-results.md「生成を待つ時間・投げる
+// 回数の根拠」を読む**——本番と開発機で別々の最悪ケースがあり、両方を上回る必要がある。
+// DBのROUTE_GENERATION_COMMAND_TIMEOUT_SECONDSはクエリ1本ごとの上限で、この値とは独立。
 const MAX_POLL_DURATION_MS = 600000;
 // 1回のポーリング失敗（一時的なネットワーク瞬断・5xx）で生成全体を即座に失敗させず、
 // この回数まで連続失敗を許容してから

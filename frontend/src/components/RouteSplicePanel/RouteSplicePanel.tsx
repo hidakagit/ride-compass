@@ -94,6 +94,8 @@ export default function RouteSplicePanel({
   axisColors,
 }: RouteSplicePanelProps) {
   // edge_idsを返さないエンジン・古い候補では区間を出せない（backendが空で返す）。
+  // 区間の指定は「どの軸をどこへ渡すか」を取り違えても値としては通ってしまい、
+  // **地図で光っている帯と実際に差し替わる区間がずれる**という形でしか現れない。
   const unavailable = displayed.edge_ids.length === 0;
   const busy = previewing || applying;
   const deltas = preview ? contributionDeltas(displayed.axis_contributions, preview.axis_contributions, axes) : [];

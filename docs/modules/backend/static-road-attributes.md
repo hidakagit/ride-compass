@@ -66,8 +66,9 @@ OSMは**行だけを絞り、タグは絞らない**。タグは容量の1.9%し
 
 路面（surface）は逆に**正準が1箇所**（`domain/road.py`）で、他はすべてそこから導く。
 フロントの表示グループだけは手で並べるため、`export_openapi.py`が書き出す
-`surface-tags.json`との突き合わせテストが「表示グループの全タグ＝正準分類済みタグ全体」を
-検証する。
+`surface-tags.json`との突き合わせを**フロント側の不変条件テスト**
+（`features/map/scene/groups/declarations.test.ts`）が行い、「表示グループの全タグ＝正準
+分類済みタグ全体」を検証する。
 
 ### 面のデータもタイル1枚=1行で持つ（`gsi_dem_tile.py`・`io_lulc_tile.py`）
 

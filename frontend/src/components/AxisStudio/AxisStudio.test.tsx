@@ -48,7 +48,9 @@ function listing(...defs: ReturnType<typeof baseAxisDefinition>[]) {
 
 beforeEach(() => {
   vi.clearAllMocks();
-  // happy-domはResizeObserverを持たない。モーダル内のRadix Checkboxがこれを呼ぶ。
+  // happy-domはResizeObserverを持たない。Radix Checkboxは**`<form>`直下に置かれたときだけ**
+  // 隠しinput（フォーム互換用）のサイズ同期でこれを呼ぶため、フォームの外で単体描画する
+  // テストでは要らず、このモーダルを開くテストでだけ未定義のまま例外になる。
   class ResizeObserverMock {
     observe = vi.fn();
     unobserve = vi.fn();

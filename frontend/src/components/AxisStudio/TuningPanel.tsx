@@ -9,7 +9,10 @@ import { listTuningParameters, updateTuningParameter, type TuningParameter } fro
 import styles from "./TuningPanel.module.css";
 
 /** 1件ぶんの行。入力中の値は親がまとめて持ち、この行は表示だけを担う
- * （保存はDBへの書き込みのため、押した時にまとめて送る）。 */
+ * （保存はDBへの書き込みのため、押した時にまとめて送る）。
+ *
+ * 説明と既定値・範囲は(i)の奥へ置く——**行ごとに説明を敷くと、縦に並んだ全体を
+ * 一覧として読めなくなる**（項目数は運用で増える）。 */
 function TuningRow({
   parameter,
   draft,

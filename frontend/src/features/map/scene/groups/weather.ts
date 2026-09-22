@@ -66,7 +66,9 @@ export type WeatherElement = {
   readonly sourceSpec: SceneSourceEntry["spec"];
   readonly sourceLayer?: string;
   /** 中身が届く前に指すタイル。**タイルを持たないソース宣言は成り立たない**ため、
-   * 届くまでの間もここを指す（実データのない架空のURL）。 */
+   * 届くまでの間もここを指す（実データのない架空のURL）。**このURLは実際に要求されうる**
+   * ——開発サーバーでは二重実行で一瞬表示状態になりうるので、配信元へ無駄な要求が
+   * 飛んでも害のない先にしておく。 */
   readonly placeholderTiles?: readonly string[];
   /** 中身が届く前の GeoJSON（同じ理由で、空の中身を持たせる）。 */
   readonly placeholderData?: unknown;

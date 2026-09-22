@@ -13,6 +13,8 @@ export interface UseLocationResult {
   // マウント時の自動取得（成功・失敗・API非対応のいずれか）が確定したかどうか。
   // page.tsxの天候・警報等のフェッチが、DEFAULT_LOCATIONぶんの使い捨てリクエストを
   // 発行せず「確定した1つの地点」だけで済むよう待ち合わせるために使う。
+  // **固定時間のデバウンスはこの代わりにならない**——位置情報の許可ダイアログへの応答は
+  // どんな長さを選んでもそれを超えることがあり、結局2地点ぶん問い合わせる。
   locationReady: boolean;
   locating: boolean;
   locateError: string | null;

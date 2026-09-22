@@ -6,10 +6,8 @@ import regionTileConfig from "@/types/generated/region-tile-config.json";
 
 import { declareGroup, type SceneLayerEntry, type SceneSourceEntry } from "../mapSceneGroups";
 
-/** 面の濃さ。
- *
- * 下げると薄い階級が背景と区別できなくなり、上げると面の下にある基礎地図の土地の塗りが
- * 潰れる。上下から挟まれているため、片側だけを見て動かさない。 */
+/** 面の濃さ。**動かす前に`docs/modules/frontend/static-map-layers.md`「面の濃さ」を読む**
+ * ——下限・上限の両方に根拠がある。 */
 const AREA_OPACITY = 0.55;
 
 /** 土地被覆タイルが実データを持つ範囲（正本は配信側。生成物から受け取る）。 */

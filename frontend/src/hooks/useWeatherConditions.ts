@@ -122,6 +122,8 @@ export function useWeatherConditions(location: Coordinates, locationReady: boole
   // 警告バッジ3種（JMA警報・注意報／WBGT／河川氾濫予報）。いずれも取得失敗を例外として
   // 見せず「警告なし」として静かに扱う（backend自体が失敗時に空の結果を返す契約のため、
   // ここへ来るのは主にネットワーク到達不能等）。表示側へは失敗時にnullを渡す。
+  // **安全側ではないトレードオフを承知で選んでいる**（docs/architecture/api-design.md
+  // 「防災・警報系だけはfail-open」。他の/api/weather系は502を返す）。
   const warnings = useLocationFetch(getWeatherWarnings, location, locationReady);
   const wbgt = useLocationFetch(getWbgtStatus, location, locationReady);
   const flood = useLocationFetch(getFloodForecasts, location, locationReady);

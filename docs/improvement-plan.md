@@ -187,8 +187,9 @@ CLAUDE.md参照。節見出しはタスクのテーマ分類で、日付は起�
 - [ ] [T1002](records/tasks/T1002.md). 動的way値サービスが、担当する軸を名前で宣言している 規模S〜M
 - [ ] [T1005](records/tasks/T1005.md). 応答で常に空になるフィールドが、API契約に乗っている 規模S
 - [ ] [T1010](records/tasks/T1010.md). 標準を「操作別」に見直す（撤去・移設の手順が無い穴を塞ぐ） 規模M
-- [ ] [T1011](records/tasks/T1011.md). 撤去で消えた判断を、全履歴から洗い出して戻す（frontend） 規模L
 - [ ] [T1009](records/tasks/T1009.md). 撤去済みのsplit工程が、docs/modulesに現行仕様として残っている 規模S〜M
+- [ ] [T1012](records/tasks/T1012.md). 地図の宣言に対する取り決めを決め、検査で固定する 規模M
+- [ ] [T1013](records/tasks/T1013.md). 撤去で根拠を失った5つの制約を、現行に照らして残すか外すか決める 規模M
 - [ ] [T978](records/tasks/T978.md). 標高タイルの取込が、製品を1つ選んで残りを捨てている 規模M
 - [ ] [T989](records/tasks/T989.md). docker composeで立てた環境は、手順どおりにしても使える状態にならない 規模S〜M
 

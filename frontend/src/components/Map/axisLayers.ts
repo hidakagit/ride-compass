@@ -389,6 +389,9 @@ export const COLOR_UNKNOWN = "#9ca3af";
  * 評価側の実際の意味論であり、地図表示側もこれに合わせる。categoriesを持たない
  * 真偽値材料（例: surface_good）は従来どおりプロパティ欠損のみで判定する
  * （欠損以外の「未登録値」という状態がそもそも存在しないため）。 */
+/** 欠損は`null`のままにせず、同じ型の番兵へ倒してから式へ入れる（文字列なら
+ * `"__unknown__"`、数値なら0）。**出力の型が混ざる`case`/`match`を作らない**ための流儀で、
+ * 式の評価が落ちてもMapLibreは例外を投げずそのレイヤーだけ黙って描かれなくなる。 */
 export function buildAxisRampUnknownExpression(axis: RampAxis): unknown[] | null {
   const checks = axis.tileInputs
     .filter((input) => input.hasUnknownFallback)
