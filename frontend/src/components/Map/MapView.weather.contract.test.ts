@@ -8,7 +8,7 @@
 import { describe, expect, it } from "vitest";
 
 import { createRecordingMap } from "@/testing/mapTrace/recordingMap";
-import { applyScene, sceneInputsFrom } from "@/components/Map/MapView";
+import { applyScene, sceneInputsFrom } from "@/features/map/scene/applyToMap";
 import { buildMapScene } from "@/features/map/scene/buildScene";
 import { weatherElementRole, weatherGroup, type WeatherRenderKind } from "@/features/map/scene/groups/weather";
 import { sceneLayerId } from "@/features/map/scene/sceneBuilders";

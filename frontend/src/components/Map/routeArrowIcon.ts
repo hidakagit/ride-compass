@@ -1,3 +1,6 @@
+/** 地図へ登録する名前。**登録側と参照側が同じ1つを使う**（綴りがずれると矢印が出ない）。 */
+export const ROUTE_ARROW_ICON_ID = "route-arrow-icon";
+
 // 周回ルートの採用向き（順回り/逆回り）を示す矢印アイコンのCanvas 2D描画。
 // windArrowIcon.tsと同じCanvas 2D + sdf:true登録パターンを流用するが、意匠は異なる:
 // 風は「曲線=気流」という視覚言語（windArrowIcon.ts参照）だが、ルート矢印は道路網に重ねる

@@ -17,7 +17,7 @@ import { POINT_LAYERS, pointGroup } from "@/features/map/scene/groups/points";
 import { ROAD_LINE_SOURCE_ID, ROAD_TRACKS, roadLineGroup } from "@/features/map/scene/groups/roadLines";
 import { WEATHER_ELEMENTS, weatherElementKey } from "@/features/map/scene/groups/weather";
 import { sceneLayerId } from "@/features/map/scene/sceneBuilders";
-import { applyScene, redrawAllLayers, sceneInputsFrom } from "@/components/Map/MapView";
+import { applyScene, redrawAllLayers, sceneInputsFrom } from "@/features/map/scene/applyToMap";
 import { buildMapScene } from "@/features/map/scene/buildScene";
 
 const RAMP_AXES = rampAxesFromCatalogAxes([
