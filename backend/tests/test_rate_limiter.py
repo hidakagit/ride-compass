@@ -1,3 +1,14 @@
+"""`infrastructure/rate_limiter.py`——プロセス内の固定窓レート制限。
+
+ここで見ないもの:
+- 超過をHTTPの429へ翻訳する層とキーの組み立て → `api/dependencies.py`を通る各ルーターのテスト
+- レート制限のキーになるクライアントidの決め方 → `test_client_ip_behind_proxy.py`
+
+**実時間を待たない。** 窓の長さと掃除の間隔はモジュールが読む時計だけで決まるため、その
+時計ごと差し替えて進める。掃除が走ったかどうかは辞書の鍵にしか現れないので、そこだけは
+モジュールの内部状態を読む。
+"""
+
 from collections import defaultdict
 
 import pytest
@@ -5,67 +16,92 @@ import pytest
 from app.infrastructure import rate_limiter
 
 
+class FakeClock:
+    def __init__(self, now: float = 1000.0) -> None:
+        self._now = now
+
+    def monotonic(self) -> float:
+        return self._now
+
+    def advance(self, seconds: float) -> None:
+        self._now += seconds
+
+
 @pytest.fixture(autouse=True)
-def isolated_hits(monkeypatch):
-    # _hitsはプロセス内グローバルな状態のため、テスト間で汚染しないよう毎回差し替える。
+def clock(monkeypatch):
+    """時計と集計を差し替える。集計はモジュール大域なので、戻さないと他のテストへ漏れる。"""
+    fake = FakeClock()
+    monkeypatch.setattr(rate_limiter, "time", fake)
     monkeypatch.setattr(rate_limiter, "_hits", defaultdict(list))
-    yield
+    monkeypatch.setattr(rate_limiter, "_last_sweep", fake.monotonic())
+    return fake
 
 
-def _set_now(monkeypatch, value: float) -> None:
-    monkeypatch.setattr(rate_limiter.time, "monotonic", lambda: value)
+class TestTheLimit:
+    def test_requests_up_to_the_limit_are_allowed(self):
+        allowed = [rate_limiter.check_rate_limit("a", 3) for _ in range(3)]
+
+        assert allowed == [True, True, True]
+
+    def test_the_request_after_the_limit_is_refused(self):
+        for _ in range(3):
+            rate_limiter.check_rate_limit("a", 3)
+
+        assert rate_limiter.check_rate_limit("a", 3) is False
+
+    def test_each_client_has_its_own_budget(self):
+        """1つのキーへ相乗りさせると、1人が上限に達した瞬間に全員が429になる。"""
+        for _ in range(3):
+            rate_limiter.check_rate_limit("a", 3)
+
+        assert rate_limiter.check_rate_limit("b", 3) is True
 
 
-def test_allows_requests_up_to_the_limit(monkeypatch):
-    _set_now(monkeypatch, 0.0)
+class TestTheWindow:
+    def test_a_hit_still_inside_the_window_counts(self, clock):
+        assert rate_limiter.check_rate_limit("a", 1) is True
+        clock.advance(rate_limiter._WINDOW_SECONDS - 1)
 
-    for _ in range(3):
-        assert rate_limiter.check_rate_limit("client-a", max_requests=3) is True
+        assert rate_limiter.check_rate_limit("a", 1) is False
 
+    def test_a_hit_that_is_exactly_a_window_old_no_longer_counts(self, clock):
+        """境界を内側へ倒すと、窓ぶんきっかり待って再試行した利用者が1回ぶん損をする。"""
+        assert rate_limiter.check_rate_limit("a", 1) is True
+        clock.advance(rate_limiter._WINDOW_SECONDS)
 
-def test_rejects_once_the_limit_is_exceeded(monkeypatch):
-    _set_now(monkeypatch, 0.0)
+        assert rate_limiter.check_rate_limit("a", 1) is True
 
-    for _ in range(3):
-        rate_limiter.check_rate_limit("client-a", max_requests=3)
+    def test_a_refusal_does_not_extend_the_window(self, clock):
+        """拒否もヒットとして数えると、連打をやめない利用者は窓が明けても回復できず、
+        タイルも天候も返らないまま固まる。
+        """
+        for _ in range(3):
+            rate_limiter.check_rate_limit("a", 3)
+        clock.advance(1)
+        for _ in range(5):
+            assert rate_limiter.check_rate_limit("a", 3) is False
+        clock.advance(rate_limiter._WINDOW_SECONDS - 1)
 
-    assert rate_limiter.check_rate_limit("client-a", max_requests=3) is False
-
-
-def test_clients_are_tracked_independently(monkeypatch):
-    _set_now(monkeypatch, 0.0)
-
-    for _ in range(3):
-        rate_limiter.check_rate_limit("client-a", max_requests=3)
-
-    # client-aが上限に達していても、別クライアントは独立してカウントされる。
-    assert rate_limiter.check_rate_limit("client-b", max_requests=3) is True
-
-
-def test_old_hits_outside_the_window_are_forgotten(monkeypatch):
-    _set_now(monkeypatch, 0.0)
-    for _ in range(3):
-        rate_limiter.check_rate_limit("client-a", max_requests=3, window_seconds=60.0)
-    assert rate_limiter.check_rate_limit("client-a", max_requests=3, window_seconds=60.0) is False
-
-    # ウィンドウ経過後は古いヒットが切り捨てられ、再度リクエストできる。
-    _set_now(monkeypatch, 61.0)
-    assert rate_limiter.check_rate_limit("client-a", max_requests=3, window_seconds=60.0) is True
+        assert rate_limiter.check_rate_limit("a", 3) is True
 
 
-def test_sweep_removes_stale_clients_after_interval(monkeypatch):
-    # _hitsはウィンドウ超過分のタイムスタンプを間引くが、キー自体はアクセスが無い限り
-    # 残り続ける（一度でもアクセスしたIPが辞書に無期限に溜まるメモリリーク対策の検証）。
-    monkeypatch.setattr(rate_limiter, "_last_sweep", 0.0)
-    _set_now(monkeypatch, 0.0)
-    rate_limiter.check_rate_limit("client-stale", max_requests=3, window_seconds=60.0)
+class TestForgettingClientsThatWentAway:
+    def test_a_sweep_drops_clients_with_no_recent_hits_and_keeps_the_others(self, clock):
+        """鍵はアクセスが止まった後も残るため、掃除が効かないとIPを変えられた数だけ
+        辞書が伸び続ける。逆に現役の履歴まで捨てると、上限に達していた利用者が掃除の
+        瞬間に回復する。
+        """
+        rate_limiter.check_rate_limit("gone", 1)
+        clock.advance(rate_limiter._SWEEP_INTERVAL_SECONDS)
 
-    # _SWEEP_INTERVAL_SECONDS(300秒)未満では、直近ウィンドウ外でもキーはまだ掃除されない。
-    _set_now(monkeypatch, 200.0)
-    rate_limiter.check_rate_limit("client-other", max_requests=3, window_seconds=60.0)
-    assert "client-stale" in rate_limiter._hits
+        assert rate_limiter.check_rate_limit("still-here", 1) is True
+        assert "gone" not in rate_limiter._hits
+        assert rate_limiter.check_rate_limit("still-here", 1) is False
 
-    # _SWEEP_INTERVAL_SECONDS経過後の次回呼び出しで、直近ウィンドウ内にヒットが無いキーが消える。
-    _set_now(monkeypatch, 305.0)
-    rate_limiter.check_rate_limit("client-other", max_requests=3, window_seconds=60.0)
-    assert "client-stale" not in rate_limiter._hits
+    def test_nothing_is_swept_before_the_interval_has_passed(self, clock):
+        """毎回走らせると、鍵が増えるほど全リクエストが辞書全件の走査を払う。"""
+        rate_limiter.check_rate_limit("gone", 1)
+        clock.advance(rate_limiter._SWEEP_INTERVAL_SECONDS - 1)
+        rate_limiter.check_rate_limit("other", 1)
+
+        assert "gone" in rate_limiter._hits

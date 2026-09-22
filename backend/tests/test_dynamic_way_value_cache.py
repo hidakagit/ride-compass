@@ -1,176 +1,116 @@
-"""dynamic_way_value_cache.py（動的＋向きあり材料の「フィーチャー→値」配信の
-cache-aside層、`dict[feature_key, float]`のAPI）のテスト。実体へは触らず、get/setだけを
-実装したフェイクで検証する。
+"""`infrastructure/dynamic_way_value_cache.py`——動的かつ向きに依存する材料の、タイル単位の
+値を配るディスクキャッシュ。
+
+ここで見ないもの:
+- ディスクへの読み書き・容量上限・世代の掃除 → `test_tile_persistent_cache.py`
+- 勾配の値そのものの作り方と、キャッシュを挟む制御フロー → `test_gradient_way_service.py`
+
+**鍵は外から見えないため、書いてから読んで確かめる。** 観測できるのは「同じ鍵なら戻る／
+違う鍵なら戻らない」だけで、鍵のタプルを並べて突き合わせるのは宣言の書き写しになる。
+保存先はテストごとのtmpディレクトリ（`conftest.py`のautouseフィクスチャ）。
 """
 
 import pytest
 
-from app.infrastructure import dynamic_way_value_cache, redis_json_cache
-from tests.fake_redis import FakeRedis
+from app.infrastructure import dynamic_way_value_cache
+from app.infrastructure.dynamic_way_value_cache import BEARING_BUCKET_DEG, bearing_bucket
 
-Z, X, Y = 14, 14551, 6447
-TTL = 3600
+MATERIAL = "material_a"
+TILE = (14, 1000, 2000)
+BEARING = 90.0
+REVISION = 7
+TTL_SECONDS = 60
+VALUES = {"edge-1": 3.2, "edge-2": -1.5}
 
 
-class BrokenRedis:
-    """疎通不能をシミュレートするフェイク（fail-open検証用）。"""
+async def _put(*, material=MATERIAL, tile=TILE, bearing=BEARING, revision=REVISION, values=VALUES):
+    z, x, y = tile
+    await dynamic_way_value_cache.set_tile_values(
+        material, z, x, y, None, bearing, values, TTL_SECONDS, revision=revision
+    )
 
-    async def get(self, key):
-        raise ConnectionError("boom")
 
-    async def set(self, key, value, ex=None):
-        raise ConnectionError("boom")
+async def _get(*, material=MATERIAL, tile=TILE, bearing=BEARING, revision=REVISION):
+    z, x, y = tile
+    return await dynamic_way_value_cache.get_tile_values(material, z, x, y, None, bearing, revision=revision)
 
 
-@pytest.fixture(autouse=True)
-def _reset_redis(monkeypatch):
-    fake = FakeRedis()
-    monkeypatch.setattr(redis_json_cache, "get_redis_client_or_none", lambda: fake)
-    return fake
+class TestRoundTrip:
+    async def test_what_was_stored_comes_back(self):
+        await _put()
 
+        assert await _get() == VALUES
 
-HOUR = "2026-08-30T09"
+    async def test_a_tile_nobody_computed_reads_as_nothing(self):
+        assert await _get() is None
 
+    async def test_a_tile_whose_features_all_came_out_valueless_is_remembered_as_empty(self):
+        """未計算と同じ「なし」へ畳むと、値を持たないタイルだけがパンのたびにDBを引き直す。"""
+        await _put(values={})
 
-async def test_get_tile_values_miss_returns_none():
-    result = await dynamic_way_value_cache.get_tile_values("wind", Z, X, Y, HOUR, 0.0, revision=7)
-    assert result is None
+        assert await _get() == {}
 
 
-async def test_set_then_get_roundtrip_scalar_broadcast():
-    # 風は「同じタイル内の全フィーチャーが同じ値」を、複数の鍵へ
-    # 同値をbroadcastしたdictとして表現する。
-    await dynamic_way_value_cache.set_tile_values("wind", Z, X, Y, HOUR, 0.0, {"1": 2.34, "2": 2.34}, TTL, revision=7)
+class TestWhatMakesEntriesDifferent:
+    @pytest.mark.parametrize(("stored", "asked"), [(7, 8), (None, 7), (7, None)])
+    async def test_another_generation_does_not_read_this_one(self, stored, asked):
+        """鍵の中身はバッチが作り直すたびに変わる`feature_key`で、世代をまたぐとどの地物にも
+        一致しない。フロントは色を当てる先を失い、TTLが切れるまで静かに塗られないままになる。
+        世代がまだ読めていない（None）間に書いたものも同じ。
+        """
+        await _put(revision=stored)
 
-    result = await dynamic_way_value_cache.get_tile_values("wind", Z, X, Y, HOUR, 0.0, revision=7)
+        assert await _get(revision=asked) is None
 
-    assert result == {"1": 2.34, "2": 2.34}
+    async def test_a_rebaked_tile_layout_does_not_read_the_earlier_one(self, monkeypatch):
+        """鍵は路面タイルの`feature_key`と一致して初めて意味を持つ。焼き方を変えただけの
+        デプロイはDBの世代を動かさないため、形の署名が鍵に無いと前の版のエントリがTTLの間
+        返り続ける——エラーにはならず、色だけが消える。
+        """
+        await _put()
+        monkeypatch.setattr(dynamic_way_value_cache, "ROAD_SURFACE_TILE_SHAPE", "another-shape")
 
+        assert await _get() is None
 
-async def test_a_new_derived_data_revision_does_not_reuse_the_old_entry():
-    """世代が変われば別のエントリになる。
+    async def test_another_material_does_not_read_this_one(self):
+        await _put()
 
-    ここに入る鍵は路面タイルの`feature_key`（`road_edges`の中身そのもの）と一致して初めて
-    意味を持つ。バッチが作り直すと同じSQLでも鍵の値が変わるため、世代をまたいだエントリは
-    **どの地物にも一致しないまま生き残り**、TTLが切れるまで（勾配は24時間）色が静かに消える。
-    バケットごとに新旧が混ざるので「コンパスを少し回すと色が出たり消えたりする」形で出る。
-    """
-    await dynamic_way_value_cache.set_tile_values("gradient", Z, X, Y, None, 0.0, {"e1": 3.2}, TTL, revision=7)
+        assert await _get(material="material_b") is None
 
-    same_revision = await dynamic_way_value_cache.get_tile_values("gradient", Z, X, Y, None, 0.0, revision=7)
-    after_batch = await dynamic_way_value_cache.get_tile_values("gradient", Z, X, Y, None, 0.0, revision=8)
+    @pytest.mark.parametrize("tile", [(15, 1000, 2000), (14, 1001, 2000), (14, 1000, 2001)])
+    async def test_another_tile_does_not_read_this_one(self, tile):
+        await _put()
 
-    assert same_revision == {"e1": 3.2}
-    assert after_batch is None
+        assert await _get(tile=tile) is None
 
+    async def test_a_bearing_in_the_same_bucket_reads_the_same_entry(self):
+        """生の方位を鍵にすると、コンパスを1度動かすたびに引き直しになりヒット率がほぼ0になる。"""
+        await _put(bearing=BEARING)
 
-async def test_set_then_get_roundtrip_per_way_values():
-    # 勾配はway単位で異なる値を持ちうる（道路自身の勾配%・向きがway固有のため）。
-    await dynamic_way_value_cache.set_tile_values("gradient", Z, X, Y, None, 0.0, {"1": 5.5, "2": -3.2}, TTL, revision=7)
+        assert await _get(bearing=BEARING + BEARING_BUCKET_DEG / 4) == VALUES
 
-    result = await dynamic_way_value_cache.get_tile_values("gradient", Z, X, Y, None, 0.0, revision=7)
+    async def test_a_bearing_in_another_bucket_does_not(self):
+        """勾配は進行方向で符号が変わる。別の向きの値を配ると、下りの道が登りの色で出る。"""
+        await _put(bearing=BEARING)
 
-    assert result == {"1": 5.5, "2": -3.2}
+        assert await _get(bearing=BEARING + BEARING_BUCKET_DEG) is None
 
 
-async def test_different_material_id_is_a_different_entry():
-    # 同じタイル・同じ時刻/向きバケットでも、材料が違えば別キー
-    # （風と勾配が互いのキャッシュへ干渉しない）。
-    await dynamic_way_value_cache.set_tile_values("wind", Z, X, Y, HOUR, 0.0, {"1": 1.0}, TTL, revision=7)
+class TestBearingBuckets:
+    @pytest.mark.parametrize(("bearing", "same_as"), [(360.0, 0.0), (-10.0, 350.0), (710.0, 350.0)])
+    def test_a_bearing_outside_one_turn_reads_as_the_same_direction(self, bearing, same_as):
+        """地図が渡す方位は一周を越えることも負になることもある。別のバケットへ落ちると、
+        同じ向きを向いているのに値を取り直す。
+        """
+        assert bearing_bucket(bearing) == bearing_bucket(same_as)
 
-    result = await dynamic_way_value_cache.get_tile_values("gradient", Z, X, Y, HOUR, 0.0, revision=7)
+    def test_the_last_half_bucket_wraps_round_to_the_first(self):
+        """丸めた先が一周を越えるため、折り返さないと北向きだけ鍵が2つに割れる。"""
+        assert bearing_bucket(360 - BEARING_BUCKET_DEG / 2) == bearing_bucket(0.0)
 
-    assert result is None
+    def test_the_bucket_boundary_rounds_a_half_upwards(self):
+        """半分を偶数側へ倒すと、バケットの幅が5度と10度で交互になる。"""
+        half = BEARING_BUCKET_DEG / 2
 
-
-async def test_different_tile_is_a_different_entry():
-    await dynamic_way_value_cache.set_tile_values("wind", Z, X, Y, HOUR, 0.0, {"1": 1.0}, TTL, revision=7)
-
-    result = await dynamic_way_value_cache.get_tile_values("wind", Z, X, Y + 1, HOUR, 0.0, revision=7)
-
-    assert result is None
-
-
-async def test_different_road_surface_tile_shape_is_a_different_entry(monkeypatch):
-    """路面タイルを焼き直した版のエントリは、前の版のものを拾わない。
-
-    ここに入る鍵は路面タイルの`feature_key`と一致して初めて意味を持つ。形の署名が鍵に
-    入っていないと、焼き方を変えたデプロイの直後、**どの地物にも一致しないエントリが
-    TTLの間そのまま返り続け、色だけが静かに消える**（エラーにならない）。
-    """
-    await dynamic_way_value_cache.set_tile_values("wind", Z, X, Y, HOUR, 0.0, {"1": 1.0}, TTL, revision=7)
-
-    monkeypatch.setattr(dynamic_way_value_cache, "ROAD_SURFACE_TILE_SHAPE", "deadbeefcafe")
-    result = await dynamic_way_value_cache.get_tile_values("wind", Z, X, Y, HOUR, 0.0, revision=7)
-
-    assert result is None
-
-
-async def test_different_hour_bucket_is_a_different_entry():
-    await dynamic_way_value_cache.set_tile_values("wind", Z, X, Y, "2026-08-30T09", 0.0, {"1": 1.0}, TTL, revision=7)
-
-    result = await dynamic_way_value_cache.get_tile_values("wind", Z, X, Y, "2026-08-30T10", 0.0, revision=7)
-
-    assert result is None
-
-
-async def test_none_hour_bucket_is_used_by_time_independent_materials():
-    # 勾配は時刻に依存しないためhour_bucket=Noneで呼ぶ（dynamic_way_values.py参照）。
-    await dynamic_way_value_cache.set_tile_values("gradient", Z, X, Y, None, 0.0, {"1": 1.0}, TTL, revision=7)
-
-    result = await dynamic_way_value_cache.get_tile_values("gradient", Z, X, Y, None, 0.0, revision=7)
-
-    assert result == {"1": 1.0}
-
-
-async def test_different_bearing_bucket_is_a_different_entry():
-    await dynamic_way_value_cache.set_tile_values("wind", Z, X, Y, HOUR, 0.0, {"1": 1.0}, TTL, revision=7)
-
-    result = await dynamic_way_value_cache.get_tile_values("wind", Z, X, Y, HOUR, 90.0, revision=7)
-
-    assert result is None
-
-
-async def test_bearing_within_same_bucket_hits_cache():
-    await dynamic_way_value_cache.set_tile_values("wind", Z, X, Y, HOUR, 10.0, {"1": 1.0}, TTL, revision=7)
-
-    result = await dynamic_way_value_cache.get_tile_values("wind", Z, X, Y, HOUR, 11.0, revision=7)
-
-    assert result == {"1": 1.0}
-
-
-def test_bearing_bucket_normalizes_360_to_0():
-    assert dynamic_way_value_cache.bearing_bucket(360.0) == dynamic_way_value_cache.bearing_bucket(0.0)
-
-
-def test_bearing_bucket_wraps_negative_values():
-    assert dynamic_way_value_cache.bearing_bucket(-5.0) == dynamic_way_value_cache.bearing_bucket(355.0)
-
-
-async def test_set_tile_values_overwrites_existing_entry():
-    await dynamic_way_value_cache.set_tile_values("wind", Z, X, Y, HOUR, 0.0, {"1": 1.0}, TTL, revision=7)
-    await dynamic_way_value_cache.set_tile_values("wind", Z, X, Y, HOUR, 0.0, {"1": -2.5}, TTL, revision=7)
-
-    result = await dynamic_way_value_cache.get_tile_values("wind", Z, X, Y, HOUR, 0.0, revision=7)
-
-    assert result == {"1": -2.5}
-
-
-async def test_get_tile_values_fails_open_on_redis_error(monkeypatch):
-    monkeypatch.setattr(redis_json_cache, "get_redis_client_or_none", lambda: BrokenRedis())
-    result = await dynamic_way_value_cache.get_tile_values("wind", Z, X, Y, HOUR, 0.0, revision=7)
-    assert result is None
-
-
-async def test_set_tile_values_swallows_redis_error(monkeypatch):
-    monkeypatch.setattr(redis_json_cache, "get_redis_client_or_none", lambda: BrokenRedis())
-    # 例外を送出せず静かに失敗することだけを確認する。
-    await dynamic_way_value_cache.set_tile_values("wind", Z, X, Y, HOUR, 0.0, {"1": 1.0}, TTL, revision=7)
-
-
-async def test_get_tile_values_ignores_corrupt_entry(_reset_redis):
-    _reset_redis.store[f"dynway:wind:{Z}:{X}:{Y}:{HOUR}:0"] = "not-json"
-
-    result = await dynamic_way_value_cache.get_tile_values("wind", Z, X, Y, HOUR, 0.0, revision=7)
-
-    assert result is None
+        assert bearing_bucket(half) == 1
+        assert bearing_bucket(half - 0.1) == 0

@@ -1,90 +1,124 @@
-import time
+"""`infrastructure/job_registry.py`——プロセス内の非同期ジョブ台帳。
+
+ここで見ないもの:
+- ジョブをHTTPへ出す層（202とjob_id・未知idの404・同時実行の上限） → `test_routes_generate.py`
+
+**実時間を待たない。** 完了したジョブを何秒持つかはモジュールが読む時計だけで決まるため、
+その時計ごと差し替えて進める。
+"""
+
+import pytest
 
 from app.infrastructure import job_registry
 
 
-def test_create_job_starts_as_queued():
-    job_id = job_registry.create_job()
+class FakeClock:
+    def __init__(self, now: float = 1000.0) -> None:
+        self._now = now
 
-    record = job_registry.get_job(job_id)
+    def monotonic(self) -> float:
+        return self._now
 
-    assert record is not None
-    assert record.status == "queued"
-    assert record.result is None
-    assert record.error is None
-
-
-def test_get_job_returns_none_for_unknown_job_id():
-    assert job_registry.get_job("does-not-exist") is None
+    def advance(self, seconds: float) -> None:
+        self._now += seconds
 
 
-def test_set_running_transitions_status():
-    job_id = job_registry.create_job()
-
-    job_registry.set_running(job_id)
-
-    assert job_registry.get_job(job_id).status == "running"
-
-
-def test_set_done_stores_result_and_finished_at():
-    job_id = job_registry.create_job()
-
-    job_registry.set_done(job_id, {"routes": []})
-
-    record = job_registry.get_job(job_id)
-    assert record.status == "done"
-    assert record.result == {"routes": []}
-    assert record.finished_at is not None
+@pytest.fixture(autouse=True)
+def clock(monkeypatch):
+    """時計と台帳を差し替える。台帳はモジュール大域なので、戻さないと他のテストへ漏れる。"""
+    fake = FakeClock()
+    monkeypatch.setattr(job_registry, "time", fake)
+    monkeypatch.setattr(job_registry, "_JOBS", {})
+    return fake
 
 
-def test_set_failed_stores_error_and_finished_at():
-    job_id = job_registry.create_job()
+class TestRegisteringAJob:
+    def test_a_new_job_is_queued(self):
+        job_id = job_registry.create_job()
 
-    job_registry.set_failed(job_id, "boom")
+        assert job_registry.get_job(job_id).status == "queued"
 
-    record = job_registry.get_job(job_id)
-    assert record.status == "failed"
-    assert record.error == "boom"
-    assert record.finished_at is not None
-
-
-def test_set_running_done_failed_are_noop_for_unknown_job_id():
-    # 未知のjob_id（TTL経過で既に掃除された、typo等）に対する状態更新はKeyError等では
-    # 落ちず、単に無視される（バックグラウンドジョブ側の防御的な呼び出しを安全にする）。
-    job_registry.set_running("does-not-exist")
-    job_registry.set_done("does-not-exist", "result")
-    job_registry.set_failed("does-not-exist", "error")
+    def test_a_job_id_nobody_registered_reads_as_nothing(self):
+        """例外にすると、破棄済みのジョブを聞かれた側が404へ翻訳できない。"""
+        assert job_registry.get_job("no-such-job") is None
 
 
-def test_purge_expired_removes_old_finished_jobs_on_create(monkeypatch):
-    job_id = job_registry.create_job()
-    job_registry.set_done(job_id, "result")
-    # TTLを経過させるため、finished_atを実際に古い時刻へ書き換える
-    # （_JOB_TTL_SECONDS分待つ実時間テストは避ける）。
-    record = job_registry.get_job(job_id)
-    record.finished_at = time.monotonic() - job_registry._JOB_TTL_SECONDS - 1
+class TestRecordingProgress:
+    def test_a_started_job_is_running_and_not_yet_finished(self):
+        job_id = job_registry.create_job()
 
-    job_registry.create_job()  # create_job()内のパージをトリガーする
+        job_registry.set_running(job_id)
 
-    assert job_registry.get_job(job_id) is None
+        record = job_registry.get_job(job_id)
+        assert (record.status, record.finished_at) == ("running", None)
+
+    def test_a_finished_job_carries_its_result(self, clock):
+        job_id = job_registry.create_job()
+        clock.advance(30)
+
+        job_registry.set_done(job_id, {"routes": 3})
+
+        record = job_registry.get_job(job_id)
+        assert (record.status, record.result, record.finished_at) == ("done", {"routes": 3}, clock.monotonic())
+
+    def test_a_failed_job_carries_its_message(self, clock):
+        job_id = job_registry.create_job()
+        clock.advance(30)
+
+        job_registry.set_failed(job_id, "ルート生成に失敗しました")
+
+        record = job_registry.get_job(job_id)
+        assert (record.status, record.error, record.finished_at) == (
+            "failed",
+            "ルート生成に失敗しました",
+            clock.monotonic(),
+        )
+
+    @pytest.mark.parametrize(
+        "update",
+        [
+            pytest.param(job_registry.set_running, id="running"),
+            pytest.param(lambda job_id: job_registry.set_done(job_id, "result"), id="done"),
+            pytest.param(lambda job_id: job_registry.set_failed(job_id, "error"), id="failed"),
+        ],
+    )
+    def test_writing_back_to_a_job_that_is_already_gone_does_nothing(self, update):
+        """例外にすると、切り離されたタスクがそこで死に、掴んだ同時実行の枠が解放されない
+        まま残る（プロセスを再起動するまでルート生成が細っていく）。
+        """
+        update("no-such-job")
+
+        assert job_registry.get_job("no-such-job") is None
 
 
-def test_purge_expired_keeps_recently_finished_jobs():
-    job_id = job_registry.create_job()
-    job_registry.set_done(job_id, "result")
+class TestForgettingFinishedJobs:
+    def test_a_job_finished_longer_ago_than_the_retention_is_dropped(self, clock):
+        job_id = job_registry.create_job()
+        job_registry.set_done(job_id, "result")
+        clock.advance(job_registry._JOB_TTL_SECONDS + 1)
 
-    job_registry.create_job()
+        job_registry.create_job()
 
-    assert job_registry.get_job(job_id) is not None
+        assert job_registry.get_job(job_id) is None
 
+    def test_a_job_finished_exactly_at_the_retention_is_still_there(self, clock):
+        """フロントが取りに来る前に捨てると、出来上がったルートがそのまま404になる。"""
+        job_id = job_registry.create_job()
+        job_registry.set_done(job_id, "result")
+        clock.advance(job_registry._JOB_TTL_SECONDS)
 
-def test_purge_expired_keeps_unfinished_jobs_regardless_of_age(monkeypatch):
-    # queued/running（finished_at is None）はTTL経過の判定対象外
-    # （ジョブが実際に終わるまでは掃除しない）。
-    job_id = job_registry.create_job()
-    record = job_registry.get_job(job_id)
-    record.created_at = time.monotonic() - job_registry._JOB_TTL_SECONDS - 1
+        job_registry.create_job()
 
-    job_registry.create_job()
+        assert job_registry.get_job(job_id) is not None
 
-    assert job_registry.get_job(job_id) is not None
+    def test_a_job_that_has_not_finished_is_never_dropped(self, clock):
+        """冷えたエリアの生成は数分かかる。走っている最中に捨てると、終わった頃には
+        結果を書き戻す先も取りに行く先も無い。
+        """
+        job_id = job_registry.create_job()
+        job_registry.set_running(job_id)
+        clock.advance(job_registry._JOB_TTL_SECONDS * 10)
+
+        job_registry.create_job()
+
+        assert job_registry.get_job(job_id) is not None
