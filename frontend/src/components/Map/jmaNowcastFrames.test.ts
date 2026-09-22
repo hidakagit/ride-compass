@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { fetchJmaTargetTimes, jmaProxyUrl } from "./jmaNowcastFrames";
+import { fetchJmaTargetTimes } from "./jmaNowcastFrames";
 
 // タイル配信オリジンは`@/lib/tileBaseUrl`が唯一の情報源で、その環境変数依存は
 // `src/lib/tileBaseUrl.test.ts`が検証する。ここで固定するのは、`process.env`が
@@ -54,18 +54,27 @@ describe("fetchJmaTargetTimes", () => {
   });
 });
 
-describe("jmaProxyUrl", () => {
+describe("JMAプロキシへ向ける先", () => {
   // 時刻一覧・GeoJSONはアプリ自身のfetch()で読むが、タイル本体と同じ配信オリジンへ向ける
   // （タイルURLは時刻一覧が返るまで確定しないため、フロントのホスティングを経由すると
   // 往復1つぶんが初回表示のクリティカルパスへ直列に乗る）。ここで見るのはオリジンの
   // 後ろのパス構造だけで、オリジンの決まり方は`src/lib/tileBaseUrl.test.ts`が持つ。
-  it("配信オリジンの後ろへJMAプロキシのパスを組み立てる", () => {
-    expect(jmaProxyUrl("/jmatile/data/risk/targetTimes.json")).toBe(
-      "/api/jma-tile/bosai/jmatile/data/risk/targetTimes.json",
-    );
-    expect(jmaProxyUrl("/jmatile/data/nowc/targetTimes_N3.json")).toBe(
-      "/api/jma-tile/bosai/jmatile/data/nowc/targetTimes_N3.json",
-    );
+  it("配信系統ごとに、プロキシの下の時刻一覧を取りに行く", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      headers: new Headers(),
+      json: async () => [],
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await fetchJmaTargetTimes("risk", "キキクル");
+    await fetchJmaTargetTimes("nowc_N3", "降水ナウキャスト");
+
+    const urls = fetchMock.mock.calls.map((call) => String(call[0]));
+    expect(urls).toContain("/api/jma-tile/bosai/jmatile/data/risk/targetTimes.json");
+    expect(urls).toContain("/api/jma-tile/bosai/jmatile/data/nowc/targetTimes_N3.json");
+    vi.unstubAllGlobals();
   });
 });
 

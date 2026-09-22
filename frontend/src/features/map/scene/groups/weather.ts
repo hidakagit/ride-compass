@@ -241,7 +241,7 @@ export type WeatherState = {
   readonly shown: ReadonlyMap<string, { readonly visible: boolean; readonly payload?: WeatherPayload }>;
 };
 
-export function weatherElementKey(element: Pick<WeatherElement, "group" | "source">): string {
+function weatherElementKey(element: Pick<WeatherElement, "group" | "source">): string {
   return `${element.group}/${element.source}`;
 }
 

@@ -17,7 +17,7 @@ import styles from "./DerivedDataFreshnessPanel.module.css";
  * 稼働中のbackendコンテナの中では走らせない——そのコンテナのメモリ上限まで使い切ると
  * コンテナごとOOM killされ、サービス全体が止まる。別のコンテナを`--memory`付きで立てれば、
  * 上限を超えても止まるのはバッチだけで済む。 */
-export const REBUILD_COMMAND = [
+const REBUILD_COMMAND = [
   "sudo docker run --rm --network=host --memory=4g \\",
   "  -v /home/ubuntu/ridecompass-cache-data:/app/data \\",
   "  --env-file /home/ubuntu/ridecompass-backend.env \\",

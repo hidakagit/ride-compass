@@ -235,11 +235,13 @@ export function windGridDetailSpacingDegForZoom(zoom: number): number {
 // wind-grid-config.jsonのdetail_max_points（900、backend/app/domain/wind_grid.py:
 // WIND_GRID_DETAIL_MAX_POINTSが単一の情報源）に対し、1辺25間隔（26×26=676点）で
 // 余裕を持たせる（以前の固定値0.5度＝0.02度間隔×25と同じ安全率を、間隔が変わっても保つ）。
-// 25という係数自体は「間隔から逆算する安全率」という設計判断でありconfigの値そのものの
-// 複製ではないため定数のまま持つが、windLayer.test.tsが
-// `(WIND_DETAIL_MAX_BBOX_SPAN_SIDE_INTERVALS + 1) ** 2 <= windGridConfig.detail_max_points`
-// を検証し、backend側の上限が下がった場合に安全率が崩れていないかをテストで検知する。
-export const WIND_DETAIL_MAX_BBOX_SPAN_SIDE_INTERVALS = 25;
+// 25という係数自体は「間隔から逆算する安全率」という設計判断で、configの値の複製ではない。
+// ただし**点数の上限を超えられない形で持つ**——`min`で挟んでおけば、backend側の上限が
+// 下がっても自動で従う。見張る検査は要らない（超える状態を作れないため）。
+const WIND_DETAIL_MAX_BBOX_SPAN_SIDE_INTERVALS = Math.min(
+  25,
+  Math.floor(Math.sqrt(windGridConfig.detail_max_points)) - 1,
+);
 
 /** 現在のビューポートから、詳細格子APIへ渡すbboxを求める。ビューポートがクリップ幅より
  * 狭ければビューポートそのまま、広ければ中心を基準に最大幅へクリップする（上記コメント参照）。

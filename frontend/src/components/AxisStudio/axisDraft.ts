@@ -27,7 +27,7 @@ type BackendShapeKind =
   | NonNullable<components["schemas"]["CategoricalShape"]["kind"]>;
 type ShapeKind = BackendShapeKind | "recipe_then_breakpoint_linear";
 
-export function generateAxisId(): string {
+function generateAxisId(): string {
   // crypto.randomUUIDはセキュアコンテキスト（HTTPS/localhost）でのみ定義される。/admin
   // が平文HTTPの非localhostオリジン（TLS終端がNext.jsの手前に無いオンプレ運用時の
   // 内部LAN IP等）から配信されると、この関数がuseState初期化子内でTypeErrorを送出し、
@@ -118,7 +118,7 @@ const DEFAULT_PASSTHROUGH_FIELDS: PassthroughFields = {
   dynamic_way_value_needs_speed: false,
 };
 
-export function pickPassthroughFields(def: AxisDefinitionResponse): PassthroughFields {
+function pickPassthroughFields(def: AxisDefinitionResponse): PassthroughFields {
   const picked: Record<string, unknown> = { ...DEFAULT_PASSTHROUGH_FIELDS };
   for (const key of PASSTHROUGH_PAYLOAD_KEYS) {
     const value = def[key];

@@ -95,7 +95,7 @@ export function generatorSettingsFrom(breakpoints: readonly [number, number][]):
 }
 
 /** 折れ点をx昇順へ並べ替える（ドラッグ・数値入力・自動生成のいずれの後も呼ぶ）。 */
-export function sortBreakpoints(breakpoints: readonly [number, number][]): [number, number][] {
+function sortBreakpoints(breakpoints: readonly [number, number][]): [number, number][] {
   return [...breakpoints].sort((a, b) => a[0] - b[0]);
 }
 

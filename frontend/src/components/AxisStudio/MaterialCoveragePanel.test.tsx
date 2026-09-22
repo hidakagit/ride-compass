@@ -2,7 +2,7 @@ import { act, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import type { MaterialCoverageEntry, MaterialCoverageResponse } from "@/types/route";
-import MaterialCoveragePanel, { sortByMissingRatioDesc } from "./MaterialCoveragePanel";
+import MaterialCoveragePanel from "./MaterialCoveragePanel";
 import { getMaterialCoverage } from "@/services/materialCoverageApi";
 
 vi.mock("@/services/materialCoverageApi", () => ({
@@ -170,14 +170,26 @@ describe("MaterialCoveragePanel", () => {
   });
 });
 
-describe("sortByMissingRatioDesc", () => {
-  it("欠損割合の降順に並べ、nullは末尾へ送る", () => {
-    const sorted = sortByMissingRatioDesc([
-      entry({ material_id: "a", missing_ratio: 0.1 }),
-      entry({ material_id: "b", missing_ratio: null }),
-      entry({ material_id: "c", missing_ratio: 0.9 }),
-    ]);
+describe("並び順", () => {
+  it("欠損割合の降順に並べ、割合を出せないものは末尾へ送る", async () => {
+    vi.mocked(getMaterialCoverage).mockResolvedValue({
+      ...REPORT,
+      materials: [
+        entry({ material_id: "a", label: "少ない - a", missing_ratio: 0.1 }),
+        entry({ material_id: "b", label: "不明 - b", missing_ratio: null }),
+        entry({ material_id: "c", label: "多い - c", missing_ratio: 0.9 }),
+      ],
+    });
+    const user = userEvent.setup();
+    render(<MaterialCoveragePanel />);
 
-    expect(sorted.map((e) => e.material_id)).toEqual(["c", "a", "b"]);
+    await clickAggregate(user);
+
+    const group = screen.getByRole("region", { name: "評価に影響する欠損" });
+    const labels = rowsOf(within(group).getByRole("table")).map(
+      (row) => within(row).getAllByRole("cell")[0].textContent,
+    );
+
+    expect(labels).toEqual(["多い - c", "少ない - a", "不明 - b"]);
   });
 });

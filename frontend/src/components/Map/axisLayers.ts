@@ -375,7 +375,7 @@ export const COLOR_UNKNOWN = palette.semantic.no_data;
 /** 欠損は`null`のままにせず、同じ型の番兵へ倒してから式へ入れる（文字列なら
  * `"__unknown__"`、数値なら0）。**出力の型が混ざる`case`/`match`を作らない**ための流儀で、
  * 式の評価が落ちてもMapLibreは例外を投げずそのレイヤーだけ黙って描かれなくなる。 */
-export function buildAxisRampUnknownExpression(axis: RampAxis): unknown[] | null {
+function buildAxisRampUnknownExpression(axis: RampAxis): unknown[] | null {
   const checks = axis.tileInputs
     .filter((input) => input.hasUnknownFallback)
     .map((input) => {

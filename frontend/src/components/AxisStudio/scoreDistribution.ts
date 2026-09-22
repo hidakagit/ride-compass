@@ -32,7 +32,7 @@ const FULL_BAND_INDEX = BAND_LABELS.length - 1;
 /** 区分線形の折れ点で値を得点へ写す。計算は`breakpointTools.ts`が単一の情報源
  * （丸め方・同じxが並んだときの返り値が別実装でずれると、同じ折れ点を与えた画面どうしで
  * 値が食い違う）。 */
-export const scoreForValue = (value: number, breakpoints: readonly [number, number][]): number =>
+const scoreForValue = (value: number, breakpoints: readonly [number, number][]): number =>
   breakpointScore(breakpoints, value);
 
 /** 生値の分布へ折れ点を当てはめ、得点帯ごとの延長割合を返す。 */

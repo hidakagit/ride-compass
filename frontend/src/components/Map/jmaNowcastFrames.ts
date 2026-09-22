@@ -26,7 +26,7 @@ const JMA_TILE_BASE_URL = "/api/jma-tile/bosai";
  * `tileBaseUrl()`は`window`を参照するため、モジュール読み込み時の定数ではなく
  * 呼び出し時に評価する関数として提供する（SSRで空文字に固定されるのを避ける）。
  */
-export function jmaProxyUrl(path: string): string {
+function jmaProxyUrl(path: string): string {
   return `${tileBaseUrl()}${JMA_TILE_BASE_URL}${path}`;
 }
 

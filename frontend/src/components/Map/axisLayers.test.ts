@@ -12,7 +12,6 @@ import {
   axisMapLayerId,
   buildAxisRampColorExpression,
   buildAxisRampLegend,
-  buildAxisRampUnknownExpression,
   buildAxisRampValueExpression,
   rampAxesFromCatalogAxes,
   rampColorForBand,

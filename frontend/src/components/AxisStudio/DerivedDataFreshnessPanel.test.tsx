@@ -2,7 +2,7 @@ import { act, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import type { DerivedDataFreshnessResponse } from "@/types/route";
-import DerivedDataFreshnessPanel, { REBUILD_COMMAND } from "./DerivedDataFreshnessPanel";
+import DerivedDataFreshnessPanel from "./DerivedDataFreshnessPanel";
 import { getDerivedDataFreshness } from "@/services/derivedDataFreshnessApi";
 
 vi.mock("@/services/derivedDataFreshnessApi", () => ({
@@ -142,18 +142,16 @@ describe("DerivedDataFreshnessPanel", () => {
     await clickAggregate(user);
 
     expect(screen.getByText("2件が作り直し待ち")).toBeInTheDocument();
-    // 改行を含むので既定の空白正規化では一致しない。要素のtextContentと丸ごと比べる。
-    expect(screen.getByText((_, element) => element?.textContent === REBUILD_COMMAND)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "コピー" })).toBeInTheDocument();
-  });
 
-  // 出すコマンドは本番へ効かせる形でなければならない。稼働中コンテナの中で走らせる形
-  // （`docker exec`）や、打つ場所の分からない素のモジュール名へ戻すと、手元の開発DBを
-  // 作り直して本番が古いまま残るか、本番のサービスごと止まる。
-  it("作り直しのコマンドは、本番で安全に実行できる形になっている", () => {
-    expect(REBUILD_COMMAND).toContain("docker run --rm");
-    expect(REBUILD_COMMAND).toContain("--memory=");
-    expect(REBUILD_COMMAND).not.toContain("docker exec");
+    // 出すコマンドは本番へ効かせる形でなければならない。稼働中コンテナの中で走らせる形
+    // （`docker exec`）や、打つ場所の分からない素のモジュール名へ戻すと、手元の開発DBを
+    // 作り直して本番が古いまま残るか、本番のサービスごと止まる。
+    // **画面に出ている文字列そのもの**を見る（利用者がコピーして打つのはこれ）。
+    const command = document.querySelector("code")?.textContent ?? "";
+    expect(command).toContain("docker run --rm");
+    expect(command).toContain("--memory=");
+    expect(command).not.toContain("docker exec");
   });
 
   it("一覧は1件1行で、run番号などの数字は開くまで出さない", async () => {

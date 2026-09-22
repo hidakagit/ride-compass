@@ -11,7 +11,6 @@ import {
   windFrames,
   windGridDetailSpacingDegForZoom,
   windRenderPayload,
-  WIND_DETAIL_MAX_BBOX_SPAN_SIDE_INTERVALS,
   WIND_GRID_DETAIL_SPACING_DEG,
   WIND_GRID_SPACING_DEG,
   WIND_SPEED_COLOR_STOPS,
@@ -270,13 +269,6 @@ describe("windLayer", () => {
       expect(bbox.maxLon).toBeLessThanOrEqual(viewport.east);
       expect(bbox.minLat).toBeGreaterThanOrEqual(viewport.south);
       expect(bbox.maxLat).toBeLessThanOrEqual(viewport.north);
-    });
-  });
-
-  describe("wind-grid-config.json（改善計画T198、backend/app/domain/wind_grid.pyが単一の情報源）との同期", () => {
-    it("クリップ幅の安全率(WIND_DETAIL_MAX_BBOX_SPAN_SIDE_INTERVALS)がdetail_max_pointsの範囲内に収まる（backend側の上限が下がった場合に検知する）", () => {
-      const worstCasePoints = (WIND_DETAIL_MAX_BBOX_SPAN_SIDE_INTERVALS + 1) ** 2;
-      expect(worstCasePoints).toBeLessThanOrEqual(windGridConfig.detail_max_points);
     });
   });
 });

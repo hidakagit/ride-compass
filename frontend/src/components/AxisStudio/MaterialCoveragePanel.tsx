@@ -29,7 +29,7 @@ function formatComputedAt(iso: string): string {
 }
 
 /** 集計対象の材料を欠損割合の高い順に並べる（同率はカタログ順を維持する安定ソート）。 */
-export function sortByMissingRatioDesc(entries: readonly MaterialCoverageEntry[]): MaterialCoverageEntry[] {
+function sortByMissingRatioDesc(entries: readonly MaterialCoverageEntry[]): MaterialCoverageEntry[] {
   return [...entries].sort((a, b) => (b.missing_ratio ?? -1) - (a.missing_ratio ?? -1));
 }
 

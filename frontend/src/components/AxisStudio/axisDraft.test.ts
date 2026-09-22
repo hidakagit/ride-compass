@@ -14,8 +14,6 @@ import {
   draftFromDuplicate,
   draftFromExisting,
   emptyDraft,
-  generateAxisId,
-  pickPassthroughFields,
   PASSTHROUGH_PAYLOAD_KEYS,
 } from "./axisDraft";
 
@@ -128,7 +126,7 @@ describe("編集欄を持たないフィールドの素通し", () => {
     // 素通し対象が増えたらこの入力も増やす（増やさないと既定値同士の比較になり検出力が落ちる）。
     expect([...PASSTHROUGH_PAYLOAD_KEYS].sort()).toEqual(Object.keys(values).sort());
 
-    const picked = pickPassthroughFields(baseAxisDefinition(values));
+    const picked = draftFromExisting(baseAxisDefinition(values), OPTIONS).passthrough;
 
     expect(picked).toEqual(values);
   });
@@ -157,19 +155,19 @@ describe("draftFromDuplicate", () => {
   });
 });
 
-describe("generateAxisId", () => {
-  it("crypto.randomUUIDが無い環境でもidを作れる（平文HTTPの/adminで落ちない）", () => {
+describe("新規の軸id", () => {
+  it("crypto.randomUUIDが無い環境でも下書きを作れる（平文HTTPの/adminで落ちない）", () => {
     const original = globalThis.crypto;
     // セキュアコンテキストでない環境ではrandomUUIDが未定義になる。
     Object.defineProperty(globalThis, "crypto", { value: {}, configurable: true });
     try {
-      expect(generateAxisId()).toMatch(/^axis_[0-9a-f]{12}$/);
+      expect(emptyDraft(OPTIONS).axisId).toMatch(/^axis_[0-9a-f]{12}$/);
     } finally {
       Object.defineProperty(globalThis, "crypto", { value: original, configurable: true });
     }
   });
 
-  it("毎回違うidを返す", () => {
-    expect(generateAxisId()).not.toBe(generateAxisId());
+  it("下書きごとに違うidになる", () => {
+    expect(emptyDraft(OPTIONS).axisId).not.toBe(emptyDraft(OPTIONS).axisId);
   });
 });
