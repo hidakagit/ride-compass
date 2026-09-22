@@ -264,25 +264,6 @@ export function StatusRows({ report }: { report: DbStatusResponse }) {
           </li>
         )),
       ])}
-      <li className={styles.groupTitle}>範囲</li>
-      <li>
-        <SplitCoverageRow />
-      </li>
     </ul>
-  );
-}
-
-/** split済み範囲の行。開いたときだけ地図を描く——MapLibreの初期化は重く、閉じたまま使う人に
- * 払わせる必要が無い（`<details>`は閉じている間、中身を描画しない）。 */
-export function SplitCoverageRow() {
-  return (
-    <details className={styles.row}>
-      <summary className={styles.rowSummary}>
-        <span className={styles.markFresh} aria-hidden="true" />
-        <span className={styles.rowName}>split済み範囲</span>
-        <span className={styles.rowScale}>地図で見る</span>
-      </summary>
-      <div className={styles.detail}></div>
-    </details>
   );
 }

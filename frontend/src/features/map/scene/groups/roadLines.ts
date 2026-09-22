@@ -14,6 +14,8 @@
  */
 import type { FilterSpecification } from "maplibre-gl";
 
+import { COLOR_UNKNOWN } from "@/components/Map/axisLayers";
+
 import { declareGroup, type SceneLayerEntry, type SceneSourceEntry } from "../mapSceneGroups";
 
 const LINE_WIDTH_PX = 3;
@@ -23,7 +25,6 @@ const TRACK_OFFSET_STEP_PX = 2;
 /** 分類がある道は濃く、無い道は薄く（消さずに薄くする）。 */
 export const KNOWN_LINE_OPACITY = 0.8;
 export const UNKNOWN_LINE_OPACITY = 0.15;
-const UNKNOWN_COLOR = "#94a3b8";
 /** 詳細を見ている道の強調。線の色に関係なく浮く色にする。 */
 const INSPECTED_COLOR = "#f59e0b";
 const INSPECTED_WIDTH_PX = 8;
@@ -178,7 +179,7 @@ function colorExpression(track: RoadTrackDecl): unknown[] {
     ["in", value, ["literal", [...category.values]]],
     category.color,
   ]);
-  return ["case", ...cases, UNKNOWN_COLOR];
+  return ["case", ...cases, COLOR_UNKNOWN];
 }
 
 function opacityExpression(track: RoadTrackDecl): unknown[] {

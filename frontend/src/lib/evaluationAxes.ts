@@ -2,9 +2,9 @@
 // 軸のid・重みキー・表示名をここへ一本化し、他のUI（RouteSettingsPanel等）へ
 // 手作業で分散させない。
 //
-// RoutePreferenceWeightsはindex signature型（axis_idキーの辞書）のためコンパイル時の
-// キー照合はできず、代わりにevaluationAxes.test.tsがaxis-catalog.jsonの
-// preference_defaultsとキー集合を突き合わせる。
+// RoutePreferenceWeightsはindex signature型（axis_idキーの辞書）のため、キーの綴り違いは
+// 型検査で落ちない。軸idを増減したときに気づけるのは、カタログとキー集合を突き合わせる
+// 検査だけである。
 import type { RoutePreferenceWeights } from "@/types/route";
 import type { MapValueKind } from "@/components/Map/valueScale";
 import type { CatalogAxis } from "@/components/Map/axisLayers";

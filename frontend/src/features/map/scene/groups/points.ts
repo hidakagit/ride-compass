@@ -16,6 +16,8 @@ import type { FilterSpecification } from "maplibre-gl";
 
 import poiKinds from "@/types/generated/poi-kinds.json";
 
+import { COLOR_UNKNOWN } from "@/components/Map/axisLayers";
+
 import { declareGroup, type SceneLayerEntry, type SceneSourceEntry } from "../mapSceneGroups";
 
 const RADIUS_PX = 4;
@@ -26,8 +28,6 @@ const STROKE_WIDTH_PX = 1;
 const STROKE_COLOR = "#ffffff";
 const OPACITY = 0.9;
 const ACCIDENT_OPACITY = 0.75;
-/** 分類に当てはまらない点の色。消さずに薄く出す。 */
-const UNKNOWN_COLOR = "#94a3b8";
 
 const KIND_PROPERTY = "kind";
 const INVOLVES_BICYCLE_PROPERTY = "involves_bicycle";
@@ -192,12 +192,12 @@ function valueOf(axis: PointAxis): unknown {
 function colorExpression(layer: PointLayerDecl): unknown {
   const axis = layer.axes[0];
   // 行が1つも無いときに`case`を出すと、対を持たない式になって地図が受け付けない。
-  if (axis === undefined || axis.categories.length === 0) return UNKNOWN_COLOR;
+  if (axis === undefined || axis.categories.length === 0) return COLOR_UNKNOWN;
   const cases = axis.categories.flatMap((category) => [
     ["in", valueOf(axis), ["literal", [...category.values]]],
     category.color,
   ]);
-  return ["case", ...cases, UNKNOWN_COLOR];
+  return ["case", ...cases, COLOR_UNKNOWN];
 }
 
 /** 通す分類だけを残す絞り込み。軸が複数あるときはすべてANDで効く。 */
