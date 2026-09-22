@@ -57,6 +57,14 @@ def install_fakes(monkeypatch, cache=None):
     return cache, recorded
 
 
+def http_status_error(status_code: int):
+    httpx = basemap_client.httpx
+    request = httpx.Request("GET", f"{basemap_client.UPSTREAM_HOST}/{STYLE_PATH}")
+    return httpx.HTTPStatusError(
+        "upstream returned an error", request=request, response=httpx.Response(status_code, request=request)
+    )
+
+
 def style_json(host: str) -> bytes:
     return ('{"sprite":"%s/sprites/ofm","glyphs":"%s/fonts/{fontstack}/{range}.pbf"}' % (host, host)).encode()
 
@@ -140,6 +148,46 @@ async def test_resource_without_a_content_type_header_is_treated_as_binary(monke
 
     assert result == (b"\x00\x01binary", "application/octet-stream")
     assert cache.entries == {TILE_PATH: (b"\x00\x01binary", "application/octet-stream")}
+
+
+async def test_a_rewritten_style_left_at_the_plain_key_is_not_served(monkeypatch):
+    """素の鍵にJSONが残っているのは、生の内容を別の鍵へ分ける前の世代が書いたもの。
+    当時の配信先が焼き付いているため、採用すると配信先を変えても古いものが配られ続ける。"""
+    cache, recorded = install_fakes(
+        monkeypatch, FakeTileCache({STYLE_PATH: (style_json(OTHER_PROXY), "application/json")})
+    )
+    http_client = FakeHttpClient(style_json(basemap_client.UPSTREAM_HOST), "application/json")
+
+    content, _ = await basemap_client.BasemapClient(http_client, PROXY).get(STYLE_PATH)
+
+    assert content == style_json(PROXY)
+    assert http_client.requested_urls == [f"{basemap_client.UPSTREAM_HOST}/{STYLE_PATH}"]
+    assert recorded[0]["stale"] == "rewritten-json"
+
+
+async def test_a_resource_the_upstream_does_not_have_is_not_a_failure(monkeypatch):
+    """用意されていない書体の範囲などは平常運転の一部で、上流の障害ではない。"""
+    cache, recorded = install_fakes(monkeypatch)
+    http_client = FakeHttpClient(b"", None, raises=http_status_error(404))
+
+    result = await basemap_client.BasemapClient(http_client, PROXY).get("fonts/NotoSans/40000-40255.pbf")
+
+    assert isinstance(result, basemap_client.BasemapNotFound)
+    assert cache.entries == {}
+    assert recorded[0]["result"] == "ok"
+    assert recorded[0]["status"] == 404
+
+
+async def test_upstream_server_error_is_reported_as_a_failure(monkeypatch):
+    cache, recorded = install_fakes(monkeypatch)
+    http_client = FakeHttpClient(b"", None, raises=http_status_error(500))
+
+    result = await basemap_client.BasemapClient(http_client, PROXY).get(TILE_PATH)
+
+    assert result is None
+    assert cache.entries == {}
+    assert recorded[0]["result"] == "error"
+    assert recorded[0]["error_type"]
 
 
 async def test_upstream_failure_is_reported_as_a_failure(monkeypatch):

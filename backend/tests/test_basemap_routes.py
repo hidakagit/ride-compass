@@ -51,6 +51,20 @@ def test_basemap_proxy_returns_502_on_upstream_failure():
     assert response.status_code == 502
 
 
+def test_basemap_proxy_returns_404_when_the_upstream_does_not_have_it():
+    """配信元に無い部品は上流障害ではない。502で返すと、本当の障害が埋もれる。"""
+    from app.infrastructure.basemap_client import BASEMAP_NOT_FOUND
+
+    app.dependency_overrides[get_basemap_client] = lambda: FakeBasemapClient(BASEMAP_NOT_FOUND)
+
+    try:
+        response = client.get("/api/basemap/fonts/NotoSans/40000-40255.pbf")
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 404
+
+
 def test_basemap_proxy_is_rate_limited_per_client():
     app.dependency_overrides[get_basemap_client] = lambda: FakeBasemapClient((b"x", "application/json"))
 
