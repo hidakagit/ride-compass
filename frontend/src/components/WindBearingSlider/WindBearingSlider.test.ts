@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { describe, expect, it } from "vitest";
-import { cardinalLabel } from "./WindBearingSlider";
+import { cardinalLabel } from "@/lib/cardinalLabel";
 
 // backend/app/domain/geo.py: compass_labelの二重実装に対するドリフト検知テスト。以下の
 // 既知入出力ペアはcompass_labelでも同じ値を返す（tests/test_geo.py参照）——値がずれたら

@@ -74,6 +74,16 @@ export const mapDisplay = {
     "static",
     "dynamic"
   ],
+  "compassLabels": [
+    "北",
+    "北東",
+    "東",
+    "南東",
+    "南",
+    "南西",
+    "西",
+    "北西"
+  ],
   "road": {
     "lineWidthPx": 3,
     "trackOffsetStepPx": 2,

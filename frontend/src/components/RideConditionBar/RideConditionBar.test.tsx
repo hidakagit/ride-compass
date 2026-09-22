@@ -2,7 +2,8 @@ import { fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { useState } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import RideConditionBar, { clampSpeedKmh, formatDepartureLabel, toDatetimeLocalValue } from "./RideConditionBar";
+import RideConditionBar from "./RideConditionBar";
+import { clampSpeedKmh, formatDepartureLabel, toDatetimeLocalValue } from "@/lib/rideConditions";
 import { stubEmblaBrowserApis } from "@/testing/emblaBrowserApis";
 import routeGenerateConfig from "@/types/generated/route-generate-config.json";
 

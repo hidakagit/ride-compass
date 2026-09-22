@@ -43,6 +43,7 @@ from app.infrastructure.vector_tile import (  # noqa: E402
 from app.main import app  # noqa: E402
 from app.domain.wind import ASSUMED_SPEED_KMH, MAX_ASSUMED_SPEED_KMH, MIN_ASSUMED_SPEED_KMH  # noqa: E402
 from app.domain.hard_filters import DEFAULT_HARD_FILTERS, HARD_FILTER_NAMES  # noqa: E402
+from app.domain.geo import COMPASS_LABELS  # noqa: E402
 from app.domain.map_display import (  # noqa: E402
     MAP_LAYER_CATEGORIES,
     MAP_LAYER_IDS,
@@ -264,6 +265,9 @@ def main() -> None:
             "layerDataNatures": list(MAP_LAYER_DATA_NATURES),
             "layerIds": list(MAP_LAYER_IDS),
             "layerKinds": list(MAP_LAYER_KINDS),
+            # 方位の呼び名。**画面が写しを持たない**——丸め規則が違うと境界で
+            # ラベルが食い違うため、並びは1箇所（domain/geo.py）だけが持つ。
+            "compassLabels": list(COMPASS_LABELS),
             "road": {
                 "lineWidthPx": ROAD_LINE_WIDTH_PX,
                 "trackOffsetStepPx": ROAD_TRACK_OFFSET_STEP_PX,
