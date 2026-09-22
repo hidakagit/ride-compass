@@ -741,9 +741,10 @@ def build_turn_expanded_structure(
     Σ(入次数×出次数)。`e`の始点へ戻る遷移はUターンとして扱う（禁止はしない——袋小路からの
     折り返しに必要なため、費用で抑える）。
 
-    ターンの費用に要る入力はすべて引数で受け取る。既定を持たせると、渡し忘れた呼び出しが
-    「上位の道の横断に待ちが付かない」構造を黙って作り、`spec`については**この構造を
-    キャッシュする鍵（`TurnStructureKey`）が実際に使った費用と食い違う**。
+    ターンの費用に要る入力はすべて引数で受け取り、**`None`を受け取らない**。既定を持たせても
+    実行時に`None`を許しても、渡し忘れた呼び出しが「上位の道の横断に待ちが付かない」構造を
+    黙って作る（例外もログも出ない）。`spec`についてはさらに、**この構造をキャッシュする鍵
+    （`TurnStructureKey`）が実際に使った費用と食い違う**。
     """
     state_count = len(lazy_graph.edge_ids)
     edge_from = np.zeros(state_count, dtype=np.int64)
@@ -767,33 +768,31 @@ def build_turn_expanded_structure(
     is_uturn = csr.indices[entry_index].astype(np.int64) == edge_from[source]
     turn_seconds = _turn_seconds_for(bearing_deg[source], bearing_deg[target_state], is_uturn, spec)
 
-    if edge_rank is not None:
-        # ノードの階級は、読み込んだ部分グラフに現れる道から導く。DB側の事前集計値
-        # （`road_nodes.max_highway_rank`）があれば大きい方を採る——bboxの外へはみ出した
-        # 上位の道は部分グラフに現れないため、導出だけでは取りこぼす。未集計の0は導出値を
-        # 下回るので、バッチ未実行でも結果は変わらない。
-        node_rank = np.zeros(csr.node_count, dtype=np.int64)
-        np.maximum.at(node_rank, edge_to, edge_rank)
-        np.maximum.at(node_rank, edge_from, edge_rank)
-        if node_db_rank is not None:
-            node_rank = np.maximum(node_rank, node_db_rank)
-        # 「自分より上位」だけでなく「そもそも待ちの要る階級か」も見る
-        # （`MAJOR_CROSSING_MIN_RANK`、domain/traffic.py）。
-        target_node_rank = node_rank[edge_to[source]]
-        crosses_major = (target_node_rank > edge_rank[source]) & (
-            target_node_rank >= MAJOR_CROSSING_MIN_RANK
-        )
+    # ノードの階級は、読み込んだ部分グラフに現れる道から導く。DB側の事前集計値
+    # （`road_nodes.max_highway_rank`）があれば大きい方を採る——bboxの外へはみ出した
+    # 上位の道は部分グラフに現れないため、導出だけでは取りこぼす。未集計の0は導出値を
+    # 下回るので、バッチ未実行でも結果は変わらない。
+    node_rank = np.zeros(csr.node_count, dtype=np.int64)
+    np.maximum.at(node_rank, edge_to, edge_rank)
+    np.maximum.at(node_rank, edge_from, edge_rank)
+    node_rank = np.maximum(node_rank, node_db_rank)
+    # 「自分より上位」だけでなく「そもそも待ちの要る階級か」も見る
+    # （`MAJOR_CROSSING_MIN_RANK`、domain/traffic.py）。
+    target_node_rank = node_rank[edge_to[source]]
+    crosses_major = (
+        (target_node_rank > edge_rank[source])
+        & (target_node_rank >= MAJOR_CROSSING_MIN_RANK)
         # 信号のある交差点では足さない（待ちは停止密度の材料が走行モデルへ運ぶ）。
         # 未集計なら全ノードが「信号なし」で、この列の導入前と同じ結果になる。
-        if node_has_signal is not None:
-            crosses_major = crosses_major & ~node_has_signal[edge_to[source]]
-        delta = (bearing_deg[target_state] - bearing_deg[source] + 180.0) % 360.0 - 180.0
-        straight = np.abs(delta) <= spec.straight_max_deg
-        turn_seconds = turn_seconds + np.where(
-            crosses_major & ~is_uturn,
-            np.where(straight, spec.major_crossing_seconds, spec.major_turn_seconds),
-            0.0,
-        )
+        & ~node_has_signal[edge_to[source]]
+    )
+    delta = (bearing_deg[target_state] - bearing_deg[source] + 180.0) % 360.0 - 180.0
+    straight = np.abs(delta) <= spec.straight_max_deg
+    turn_seconds = turn_seconds + np.where(
+        crosses_major & ~is_uturn,
+        np.where(straight, spec.major_crossing_seconds, spec.major_turn_seconds),
+        0.0,
+    )
 
     return TurnExpandedStructure(
         state_count=state_count, indptr=new_indptr, target_state=target_state,

@@ -66,12 +66,21 @@ TURN_SPEC = routing.TurnCostSpec(
 
 
 def build_all(graph, spec=FLAT_SPEC, edge_rank=None, node_has_signal=None, node_db_rank=None):
-    """lazy graph・静的派生物・ターン展開構造を一度に組む。"""
+    """lazy graph・静的派生物・ターン展開構造を一度に組む。
+
+    ターンの費用に要る3つの列は`None`を渡せない（渡し忘れが「上位の道の横断に待ちが付かない」
+    構造を黙って作るため）。省略したときは、待ちが付かない値——階級0・信号なし——で埋める。
+    """
     lazy = routing.build_lazy_road_graph(graph)
     statics = routing.build_search_graph_statics(lazy, graph)
     bearings = routing.edge_bearings(graph, lazy)
+    node_count = len(lazy.index_to_node_id)
     structure = routing.build_turn_expanded_structure(
-        statics.csr, lazy, bearings, edge_rank, spec, node_has_signal, node_db_rank
+        statics.csr, lazy, bearings,
+        np.zeros(len(lazy.edge_ids), dtype=np.int64) if edge_rank is None else edge_rank,
+        spec,
+        np.zeros(node_count, dtype=bool) if node_has_signal is None else node_has_signal,
+        np.zeros(node_count, dtype=np.int64) if node_db_rank is None else node_db_rank,
     )
     return lazy, statics, structure
 
@@ -740,15 +749,6 @@ def test_node_rank_comes_from_roads_that_leave_the_node_too(major_threshold):
     assert transition_seconds(lazy, structure)[("WC", "CE")] == pytest.approx(
         TURN_SPEC.major_crossing_seconds
     )
-
-
-def test_without_edge_rank_no_crossing_wait_is_computed():
-    """階級を渡さない呼び出しは、上位の道の待ちを一切足さない。"""
-    graph = make_graph(PLUS_NODES, PLUS_EDGES)
-    lazy, _, structure = build_all(graph, spec=TURN_SPEC, edge_rank=None)
-    seconds = transition_seconds(lazy, structure)
-    assert seconds[("WC", "CE")] == pytest.approx(0.0)
-    assert seconds[("WC", "CN")] == pytest.approx(TURN_SPEC.left_seconds)
 
 
 def test_reverse_transitions_flip_direction_and_carry_the_original_wait():
