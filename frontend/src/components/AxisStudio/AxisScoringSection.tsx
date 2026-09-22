@@ -25,7 +25,7 @@ import { BreakpointCurveEditor } from "./BreakpointCurveEditor";
 import { DistributionPreview } from "./DistributionPreview";
 import { MaterialRangeHint } from "./MaterialRangeHint";
 
-export interface AxisScoringSectionProps {
+interface AxisScoringSectionProps {
   draft: Draft;
   setDraft: React.Dispatch<React.SetStateAction<Draft>>;
   /** 材料カタログ（実行時取得）。 */

@@ -1,3 +1,4 @@
+import type { paths } from "@/types/generated/api";
 import { getMessages, requestJson } from "@/lib/fetchJson";
 import { DEFAULT_API_TIMEOUT_MS } from "@/lib/apiTimeouts";
 
@@ -11,11 +12,12 @@ import { DEFAULT_API_TIMEOUT_MS } from "@/lib/apiTimeouts";
 
 const API_BASE_URL = "/admin/api/debug/logs";
 
-// backend/app/api/routers/debug_admin.py: _LOG_LEVEL_NAMEと同じ名称の集合
-// （Python標準loggingのレベル名）。値そのものはbackend側が単一の情報源。
-export type LogLevelName = "DEBUG" | "INFO" | "WARNING" | "ERROR" | "CRITICAL";
+/** Python標準loggingのレベル名。**正本はbackend**で、契約から引く。 */
+export type LogLevelName = NonNullable<
+  NonNullable<paths["/api/admin/debug/logs"]["get"]["parameters"]["query"]>["min_level"]
+>;
 
-export interface GetRecentLogsParams {
+interface GetRecentLogsParams {
   /** 末尾からN件に絞り込む（省略時はbackend側の既定=保持している全件）。 */
   limit?: number;
   /** 部分一致フィルタ（例: "jma-tile"）。 */

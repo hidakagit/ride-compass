@@ -26,12 +26,12 @@ const JMA_TILE_BASE_URL = "/api/jma-tile/bosai";
  * `tileBaseUrl()`は`window`を参照するため、モジュール読み込み時の定数ではなく
  * 呼び出し時に評価する関数として提供する（SSRで空文字に固定されるのを避ける）。
  */
-export function jmaProxyUrl(path: string): string {
+function jmaProxyUrl(path: string): string {
   return `${tileBaseUrl()}${JMA_TILE_BASE_URL}${path}`;
 }
 
 /** 配信元のタイルパスが持つ可変部分。 */
-export interface JmaTileTarget {
+interface JmaTileTarget {
   /** 配信系統。`targetTimes.json`の在り処もこれで決まる。 */
   group: "risk" | "nowc" | "rasrf";
   /** 要素id（`land`・`rain_mesh`・`hrpns`・`thns`等）。 */
@@ -74,7 +74,7 @@ export function jmaElementUrl(target: Omit<JmaTileTarget, "extension">, suffix: 
  *
  * タイル座標より手前しか見ないため、実URLと`{z}/{x}/{y}`を含むテンプレートのどちらからも
  * 同じ前半が取れる。前半はbasetime・validtimeを含むので、フレームが変われば別の値になる。 */
-export interface JmaTileElementRef {
+interface JmaTileElementRef {
   element: string;
   prefix: string;
 }
@@ -118,7 +118,7 @@ export interface JmaNowcastFrame {
   isForecast: boolean;
 }
 
-export interface RawJmaTargetTime {
+interface RawJmaTargetTime {
   basetime: string;
   validtime: string;
   /** このエントリが実際にカバーする要素id（例: "thns"=雷ナウキャスト、"trns"=竜巻発生確度
@@ -142,7 +142,7 @@ const JMA_TARGET_TIMES_PATHS = {
   rasrf: "/jmatile/data/rasrf/targetTimes.json",
 } as const;
 
-export type JmaTargetTimesId = keyof typeof JMA_TARGET_TIMES_PATHS;
+type JmaTargetTimesId = keyof typeof JMA_TARGET_TIMES_PATHS;
 
 function jmaTargetTimesUrl(id: JmaTargetTimesId): string {
   return jmaProxyUrl(JMA_TARGET_TIMES_PATHS[id]);

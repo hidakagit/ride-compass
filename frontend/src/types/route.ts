@@ -25,11 +25,11 @@ export type PinRole = "origin" | "waypoint" | "destination";
 
 export type LocationSource = "geolocation" | "default" | "manual";
 
-export type RouteSegment = Omit<Required<Schemas["RouteSegment"]>, "geometry"> & {
+type RouteSegment = Omit<Required<Schemas["RouteSegment"]>, "geometry"> & {
   geometry: GeoJSON.LineString;
 };
 
-export type RoutePreviewRequest = Schemas["RoutePreviewRequest"];
+type RoutePreviewRequest = Schemas["RoutePreviewRequest"];
 
 // geometry: 区間の道なり形状（ルートgeometryの部分列）。バックエンドはdict|Noneのため
 // スキーマに構造が現れず、RouteCandidate.geometryと同じ理由で手動補正する（null許容）。

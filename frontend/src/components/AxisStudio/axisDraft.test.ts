@@ -2,35 +2,39 @@
 //
 // Draft⇔payloadの往復をコンポーネントを起動せずに直接検証する。
 //
-// 同じ性質はAxisComposer.test.tsx（フォームを描画してウィザードを操作し、onSaveへ渡る
+// 同じ性質はAxisComposer.test.tsx（フォームを描画して操作し、onSaveへ渡る
 // payloadを見る）でも押さえているが、そちらは「フォームの導線が壊れていないこと」も
 // 同時に見ているため、変換だけの誤りが導線の変更に紛れて読みにくい。
 import { describe, expect, it } from "vitest";
 
 import type { AxisMaterialOption } from "@/lib/axisMaterialsCatalog";
 import { baseAxisDefinition } from "@/testing/axisDefinitionFixtures";
-import {
-  buildShape,
-  draftFromDuplicate,
-  draftFromExisting,
-  emptyDraft,
-  generateAxisId,
-  pickPassthroughFields,
-  PASSTHROUGH_PAYLOAD_KEYS,
-} from "./axisDraft";
+import { buildShape, draftFromDuplicate, draftFromExisting, emptyDraft, PASSTHROUGH_PAYLOAD_KEYS } from "./axisDraft";
 
 // 性質だけを表す材料。どれが実在するかはこの変換の関心ではない。
 const NUMERIC: AxisMaterialOption = {
-  id: "num_a", label: "数値の材料 - num_a", name: "数値の材料",
-  description: "", dtype: "numeric", unit: "%",
+  id: "num_a",
+  label: "数値の材料 - num_a",
+  name: "数値の材料",
+  description: "",
+  dtype: "numeric",
+  unit: "%",
 };
 const BOOLEAN: AxisMaterialOption = {
-  id: "bool_a", label: "真偽の材料 - bool_a", name: "真偽の材料",
-  description: "", dtype: "boolean", unit: "",
+  id: "bool_a",
+  label: "真偽の材料 - bool_a",
+  name: "真偽の材料",
+  description: "",
+  dtype: "boolean",
+  unit: "",
 };
 const CATEGORICAL: AxisMaterialOption = {
-  id: "cat_a", label: "分類の材料 - cat_a", name: "分類の材料",
-  description: "", dtype: "categorical", unit: "",
+  id: "cat_a",
+  label: "分類の材料 - cat_a",
+  name: "分類の材料",
+  description: "",
+  dtype: "categorical",
+  unit: "",
 };
 const OPTIONS: readonly AxisMaterialOption[] = [NUMERIC, BOOLEAN, CATEGORICAL];
 
@@ -128,7 +132,7 @@ describe("編集欄を持たないフィールドの素通し", () => {
     // 素通し対象が増えたらこの入力も増やす（増やさないと既定値同士の比較になり検出力が落ちる）。
     expect([...PASSTHROUGH_PAYLOAD_KEYS].sort()).toEqual(Object.keys(values).sort());
 
-    const picked = pickPassthroughFields(baseAxisDefinition(values));
+    const picked = draftFromExisting(baseAxisDefinition(values), OPTIONS).passthrough;
 
     expect(picked).toEqual(values);
   });
@@ -157,19 +161,19 @@ describe("draftFromDuplicate", () => {
   });
 });
 
-describe("generateAxisId", () => {
-  it("crypto.randomUUIDが無い環境でもidを作れる（平文HTTPの/adminで落ちない）", () => {
+describe("新規の軸id", () => {
+  it("crypto.randomUUIDが無い環境でも下書きを作れる（平文HTTPの/adminで落ちない）", () => {
     const original = globalThis.crypto;
     // セキュアコンテキストでない環境ではrandomUUIDが未定義になる。
     Object.defineProperty(globalThis, "crypto", { value: {}, configurable: true });
     try {
-      expect(generateAxisId()).toMatch(/^axis_[0-9a-f]{12}$/);
+      expect(emptyDraft(OPTIONS).axisId).toMatch(/^axis_[0-9a-f]{12}$/);
     } finally {
       Object.defineProperty(globalThis, "crypto", { value: original, configurable: true });
     }
   });
 
-  it("毎回違うidを返す", () => {
-    expect(generateAxisId()).not.toBe(generateAxisId());
+  it("下書きごとに違うidになる", () => {
+    expect(emptyDraft(OPTIONS).axisId).not.toBe(emptyDraft(OPTIONS).axisId);
   });
 });

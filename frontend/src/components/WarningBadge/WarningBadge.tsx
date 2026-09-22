@@ -1,5 +1,6 @@
 "use client";
 
+import type { components } from "@/types/generated/api";
 import * as Popover from "@radix-ui/react-popover";
 import styles from "./WarningBadge.module.css";
 
@@ -10,13 +11,15 @@ import styles from "./WarningBadge.module.css";
 // WBGT（環境省の熱中症予防運動指針）は間の"severe_warning"（厳重警戒）も使う
 // （4段階のまま素直に表現し、JMAの3段階へ無理に丸め込まない）。
 
-export type WarningBadgeLevel = "advisory" | "warning" | "severe_warning" | "emergency_warning";
+/** **正本はbackend**（`domain/warning_levels.py`）。契約から引く——写すと、階級が
+ * 1つ増えたとき片側だけ知っている状態になる。 */
+type WarningBadgeLevel = NonNullable<components["schemas"]["ActiveWarning"]["level"]>;
 
 // バッジの出所。同じlevelキーでも出所ごとに正式な日本語表現が異なる
 // （例: level="warning"はJMA/氾濫予報では「警報」だが、WBGT（環境省の熱中症予防運動指針）
 // では「警戒」——「警報」は気象庁が発表する公式警報を指す別の意味の言葉のため、
 // WBGTの文脈で使うと誤解を招く）。サマリーボタンの表示語を出所別に切り替えるために持つ。
-export type WarningBadgeSource = "jma" | "wbgt" | "flood";
+type WarningBadgeSource = "jma" | "wbgt" | "flood";
 
 export interface WarningBadgeItem {
   id: string;
@@ -42,7 +45,12 @@ const LEVEL_ORDER: readonly WarningBadgeLevel[] = ["advisory", "warning", "sever
 const LEVEL_SUMMARY_LABEL: Record<WarningBadgeSource, Record<WarningBadgeLevel, string>> = {
   jma: { advisory: "注意報", warning: "警報", severe_warning: "厳重警戒", emergency_warning: "特別警報" },
   wbgt: { advisory: "注意", warning: "警戒", severe_warning: "厳重警戒", emergency_warning: "危険" },
-  flood: { advisory: "氾濫注意報", warning: "氾濫警報", severe_warning: "氾濫危険警報", emergency_warning: "氾濫特別警報" },
+  flood: {
+    advisory: "氾濫注意報",
+    warning: "氾濫警報",
+    severe_warning: "氾濫危険警報",
+    emergency_warning: "氾濫特別警報",
+  },
 };
 
 // 色もLEVEL_SUMMARY_LABELと同じ理由でsource別に分ける。JMA（気象庁の公式警報）と

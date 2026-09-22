@@ -75,9 +75,10 @@ export function subscribeTileVersions(listener: () => void): () => void {
 }
 
 /** 配信されるタイルの系統。1つでも欠けたら「未取得」として扱う。
- *  backendの`tile_version_service.py: TILE_SHAPES`と同じ集合でなければならず、
- *  一致は生成物（`region-tile-config.json: tile_version_kinds`）との照合が固定する。 */
-export const TILE_KINDS = ["road_surface", "poi", "accident"] as const;
+ *  **源泉が配る一覧をそのまま使う**（`tile_version_service.py: TILE_SHAPES`が正本）
+ *  ——写しを持つと、片側だけ系統が増えたとき足りない側が「揃った」と判定したまま
+ *  配られない世代を待ち続ける。 */
+const TILE_KINDS = regionTileConfig.tile_version_kinds;
 type TileKind = (typeof TILE_KINDS)[number];
 
 export function hasTileVersions(): boolean {
@@ -110,7 +111,7 @@ export function accidentTileUrl(): string {
   return `${tileBaseUrl()}${ACCIDENT_TILE_PATH}?v=${tileVersion("accident")}`;
 }
 
-// 停止要因POIと補給休憩POIは同じタイルを共有する（staticAttributeLayers.ts参照）。
+// 停止要因POIと補給休憩POIは同じタイルを共有する（種別の集合で分ける）。
 
 // 停止要因POIの地域レイヤーのベクタタイルURL。
 // roadSurfaceTileUrlと同じ理由（MapLibreのWeb Worker内取得のため絶対URL化が必要）で
@@ -126,7 +127,6 @@ export function poiTileUrl(): string {
 const LANDCOVER_TILE_PATH = "/api/region/landcover-tiles/{z}/{x}/{y}.png";
 const LANDCOVER_TILE_VERSION = regionTileConfig.landcover.tile_version;
 export const LANDCOVER_TILE_MIN_ZOOM = regionTileConfig.landcover.min_zoom;
-export const LANDCOVER_TILE_MAX_ZOOM = regionTileConfig.landcover.max_zoom;
 
 export function landcoverTileUrl(): string {
   return `${tileBaseUrl()}${LANDCOVER_TILE_PATH}?v=${LANDCOVER_TILE_VERSION}`;
@@ -202,7 +202,7 @@ export async function fetchAxisInspector(
 // 軸ごとの関数を持たない。
 const DYNAMIC_WAY_VALUES_PATH = "/api/region/dynamic-way-values";
 
-export interface DynamicWayValuesResult {
+interface DynamicWayValuesResult {
   values: Record<string, number>;
   /** 通信失敗（HTTPエラー・ネットワークエラー・タイムアウト）ならtrue。backendが正常応答で
    * 空オブジェクトを返した場合（対象範囲に本当にway_idが無い）はfalseのまま——呼び出し側が

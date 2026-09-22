@@ -3,5 +3,5 @@
 import type { components } from "./generated/api";
 
 // 区間インスペクタ。
-export type AxisInspectorAxis = components["schemas"]["AxisInspectorAxis"];
+type AxisInspectorAxis = components["schemas"]["AxisInspectorAxis"];
 export type AxisInspectorResult = components["schemas"]["AxisInspectorResult"];

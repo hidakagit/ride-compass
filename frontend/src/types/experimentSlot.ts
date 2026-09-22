@@ -1,3 +1,4 @@
+import palette from "@/types/generated/palette.json";
 import type { GenerationConditions, RouteCandidate } from "@/types/route";
 
 // フロントの実験スロット（研究インターフェース改善 §10-3）。直近の生成結果を条件付きで
@@ -18,4 +19,4 @@ export const MAX_EXPERIMENT_SLOTS = 3;
 
 // route-candidates-line（選択#2563eb/未選択#64748b）・selected-outline（#1e3a8a）と
 // 重ならない寒色以外の配色にして、スロット重ね描きを既存のルート表示と区別できるようにする。
-export const EXPERIMENT_SLOT_COLORS = ["#16a34a", "#ea580c", "#9333ea"] as const;
+export const EXPERIMENT_SLOT_COLORS: readonly string[] = palette.comparison_slots;

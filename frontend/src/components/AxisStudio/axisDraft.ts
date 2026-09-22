@@ -10,6 +10,7 @@
 // 打ち直しにならないようにするため）。保存時に`buildShape`が選択中のkindぶんだけを
 // 取り出してpayloadへ組み立てる。
 
+import type { components } from "@/types/generated/api";
 import type { AxisMaterialOption } from "@/lib/axisMaterialsCatalog";
 import type { AxisDefinitionPayload, AxisDefinitionResponse, AxisShape } from "@/types/route";
 
@@ -17,13 +18,16 @@ import type { AxisDefinitionPayload, AxisDefinitionResponse, AxisShape } from "@
 // 実際に画面上で意味を持つのは表示名(label)の方だけのため。新規作成・複製時にここで
 // 自動生成し、編集時は既存のaxis_idをそのまま使う（axis_id自体はbackend側で形式制約が
 // 無い[str]ため、半角英数字で読みやすいprefix+乱数のみで十分）。
-/** フォーム上の変換テンプレート3種。backendのshape.kindは2種
- * （`breakpoint_linear`・`categorical`）で、`recipe_then_breakpoint_linear`は
- * ユーザー向けの入り口としてだけ存在し、保存時に`breakpoint_linear`へ正規化する
- * （`buildShape`）。 */
-export type ShapeKind = "breakpoint_linear" | "recipe_then_breakpoint_linear" | "categorical";
+/** 点数の形。backendが持つ形は契約から引く——写すと、形が増えたとき片側だけ知っている
+ * 状態になる。`recipe_then_breakpoint_linear`だけは**編集画面の区別**で、backendの
+ * `breakpoint_linear`1種を「材料を直接使う」「他の軸を組み合わせる」の2つの編集モードへ
+ * 割ったもの（送信時は1種へ畳む。下の`toPayload`参照）。 */
+type BackendShapeKind =
+  | NonNullable<components["schemas"]["BreakpointLinearShape"]["kind"]>
+  | NonNullable<components["schemas"]["CategoricalShape"]["kind"]>;
+type ShapeKind = BackendShapeKind | "recipe_then_breakpoint_linear";
 
-export function generateAxisId(): string {
+function generateAxisId(): string {
   // crypto.randomUUIDはセキュアコンテキスト（HTTPS/localhost）でのみ定義される。/admin
   // が平文HTTPの非localhostオリジン（TLS終端がNext.jsの手前に無いオンプレ運用時の
   // 内部LAN IP等）から配信されると、この関数がuseState初期化子内でTypeErrorを送出し、
@@ -82,7 +86,7 @@ export const PASSTHROUGH_PAYLOAD_KEYS = [
 ] as const satisfies readonly (keyof AxisDefinitionPayload)[];
 
 type PassthroughPayloadKey = (typeof PASSTHROUGH_PAYLOAD_KEYS)[number];
-export type PassthroughFields = Pick<AxisDefinitionPayload, PassthroughPayloadKey>;
+type PassthroughFields = Pick<AxisDefinitionPayload, PassthroughPayloadKey>;
 
 type AssertNever<T extends never> = T;
 
@@ -114,7 +118,7 @@ const DEFAULT_PASSTHROUGH_FIELDS: PassthroughFields = {
   dynamic_way_value_needs_speed: false,
 };
 
-export function pickPassthroughFields(def: AxisDefinitionResponse): PassthroughFields {
+function pickPassthroughFields(def: AxisDefinitionResponse): PassthroughFields {
   const picked: Record<string, unknown> = { ...DEFAULT_PASSTHROUGH_FIELDS };
   for (const key of PASSTHROUGH_PAYLOAD_KEYS) {
     const value = def[key];

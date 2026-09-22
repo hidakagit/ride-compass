@@ -24,13 +24,13 @@
 | `services/axisCatalogApi.ts` | 上記フックが叩くbackend APIの薄いラッパー |
 | `lib/evaluationAxes.ts` | `PREFERENCE_AXES`（ルート設定・軸別内訳の並び順）・`DEFAULT_ROUTE_PREFERENCE`（route_preference既定値） |
 | `lib/difficultyLoadBar.ts` | 難易度の帯の高さ（`baselineDistanceKm`・`loadBarHeightRatio`・`LOAD_BAR_MAX_HEIGHT_RATIO`）。帯は長さが総合難易度なので、高さへ距離の倍率を与えると塗られた面積が`difficulty_load`、積み上げの色ごとの面積が軸別の負荷になる。基準（高さ1.0）は**一覧の中で最も短い候補**——目標距離やbackendの値から取ると、周回モードと目的地モードで基準の意味が変わり、同じ高さが別のことを指す。距離の比をそのまま高さにすると行が破綻するため上限で頭打ちにし、そのぶん面積は負荷に厳密比例しなくなるので数値を併記する |
-| `lib/geoDistance.ts` | 座標列の距離計算（`haversineKm`・`polylineLengthKm`・`cumulativeDistancesKm`）。区間の位置と代替の距離差を出すのに使う |
+| `lib/geoDistance.ts` | 座標列の距離計算（`haversineKm`・`cumulativeDistancesKm`）。区間の位置と代替の距離差を出すのに使う |
 | `lib/routePreferenceSync.ts` | `route_preference`のキー集合をカタログへ同期する共通ロジック |
 | `lib/hardFilterSync.ts` | 保存された`hard_filters`のキー集合を正本（`routeGenerateConfig.hard_filters`）へ整合させる。backendはキー集合の完全一致を要求するため、デプロイでフィルタが増減しても保存値をまたいで送信が成立するようにする |
 | `components/Map/recipeControls.tsx`（`FieldLabel`・`withAutoEnable`） | 上書き有効化・情報アイコン付きラベルの共有UI部品 |
 | `components/RouteSplicePanel/RouteSplicePanel.tsx` | 区間の乗り換えの結果面（「ルート結果」が編集モードのときの中身）。**選ぶのは地図、パネルは結果だけ**——地図の破線が「いまの道から乗り換えられる先」・太い実線が「いま作っているルート」で、タップすると乗り換わり、その先の分かれ道が次の破線になる（次に選べる区間は`lib/routeSplice.ts: buildSplicedShape`が組む「いまの組み合わせ」との差として求めるため、乗り換え先の道の上の分岐もそのまま現れる。候補どうしが同じ地点を通るかはbackendが返すNode id［`node_ids`］で判定し、**当てると一度通った地点へ戻る代替は選択肢に出さない**——backendは連結性しか見ず、折り返しも走れはするため落とさない）。パネルはルート結果と同じ指標（距離・所要・総合難易度・負荷）で元と編集後を**2列×2行**に並べ（1セルに「元→編集後 差」を収め、列見出しを持たない）、軸別は2本並べず**差だけの1本**（中央が0・左が楽になった側・長さが変化量・色は軸チップと同じ）。戻すのは見出し行のアイコン（1つ戻す・全部戻す）で、巻き戻せるのは直前の1手ずつ（適用済みの範囲はその時点の経路に対する位置のため、途中だけは外せない）。`edge_ids`が空の候補では「差が無い」と「そもそも出せない」を区別して伝える。使い方は画面へ書かず見出し脇の(i)の奥に置き、操作（差分を見る・新しいルートを作る）は「ルート結果」ヘッダーと同じアイコン枠へ揃える |
-| `components/Map/MapView.tsx`（`SPLICE_LAYER_ID`関連箇所のみ） | 他の候補が別の道を通る区間を地図へ帯で描き、**タップでその道を選べる**（`onSpliceStretchSelect`。選ぶ操作の中心を地図へ置く——パネルの行だけで選ばせると、どの行がどの帯かを目で対応づける必要がある）（`drawSpliceStretches`・`hideSpliceStretches`・`spliceStretchesToFeatureCollection`）。選んでいない区間は破線、選んだ区間は実線・太めで、選んだ側を最前面へ回す——未選択の帯が上に重なると差し替えた先が隠れて変化が見えない。`line-dasharray`がfeature式を受け付ける版に依存するため、`MapView.splice.test.ts`がstyle-specの評価器で検査する |
-| `components/Map/MapView.routes.ts` | ルート候補・選択中ルート・区間色分け・乗り換え帯・比較スロットの地図描画本体。`map`を引数で受け取る関数群で状態を持たない（`MapView.tsx`が呼ぶ） |
+| `features/map/scene/groups/routes.ts`（乗り換え帯の箇所） | 他の候補が別の道を通る区間を地図へ帯で描き、**タップでその道を選べる**（`onSpliceStretchSelect`。選ぶ操作の中心を地図へ置く——パネルの行だけで選ばせると、どの行がどの帯かを目で対応づける必要がある。帯と当たり判定は役割`spliceBand`・`spliceBandHit`として宣言する）。選んでいない区間は破線、選んだ区間は実線・太めで、選んだ側を最前面へ回す——未選択の帯が上に重なると差し替えた先が隠れて変化が見えない。破線の刻みはリテラルの配列で持つ（feature式に依存しない） |
+| `features/map/scene/groups/routes.ts` | ルート候補・選択中ルート・区間色分け・乗り換え帯・比較スロットの宣言。状態から載るべきレイヤーの並びを返すだけで、地図を直接は触らない |
 
 ## RouteSettingsPanel.tsx（一般向けメイン設定面）
 
@@ -244,6 +244,10 @@ page.tsx（[ページ全体構成・状態管理](page-composition.md)参照）�
 凡例に並べる軸は`legendAxes`で差し替えられる（省略時は帯グラフに出る軸だけ）。公開軸
 すべてを渡せば、寄与が出ない軸も凡例に残る。
 
+**軸の並び順に連続的な意味は無い。** 軸を横に並べて見せるUIでは、隣り合う軸の間に傾き・
+推移があるように見せない——値どうしを線やグラデーションでつなぐと、「隣の軸へ向かって
+増えている」という読み方が生まれる。高低は各軸の中だけで示す（色と長さ）。
+
 チップを詳細の入口にするかは`renderDetail`（軸→詳細の中身）が決める。prop自体を省略すれば
 どのチップも押せない静的な凡例になる。**`renderDetail`を渡したうえで軸ごとにnullを返すと、
 その軸は凡例から落ちる**（結果パネルは重み0の軸でnullを返しており、評価に使っていない軸は
@@ -292,6 +296,25 @@ non-nullの間、「ルート結果」タブはルート全体の内訳の代わ
 - 生成が成功したら比較タブから候補タブへ戻す（`page.tsx: handleGenerate`が
   `comparisonTabActive`を倒す）——押した操作の結果が見えないまま前回までの比較表が残ると、
   生成が効かなかったように見える。
+
+## 生成を待つ時間・投げる回数の根拠
+
+**ポーリングの打ち切り（`services/routeApi.ts: MAX_POLL_DURATION_MS`）は、冷パスの総所要時間を
+安全マージン込みで上回る値にする。** 根拠となる最悪ケースは2つあり、**両方**を上回ること。
+
+| 測った環境 | 最悪ケース |
+|---|---|
+| 本番 | 都心30km・未split（`save_graph`のバルクUPSERT込み）で約316秒 |
+| 開発機 | 都心部で`prepare_ms`=約356秒・`total_ms`=約361秒 |
+
+開発機は資源競合で本番より悪化するが、**同種の遅さ自体は本番でも再現する**。片方だけを見て
+詰めると、もう片方の環境で「生成できるのに打ち切られる」が起きる。DBの
+`ROUTE_GENERATION_COMMAND_TIMEOUT_SECONDS`はクエリ1本ごとの上限で、この値とは独立。
+
+**差分プレビューを自動で走らせず、押したときだけ投げる。** 評価はbackendでしか出せず
+（[design-principles.md](../../architecture/design-principles.md)構造仕様10）、かつ
+**生成APIにはレート上限（1分あたり10回）がある**ため、選んでいる途中の組み合わせごとに
+投げると上限へ当たる。選び終えてから押す形にし、同じ組み合わせの結果は覚えて投げ直さない。
 
 ## RouteForm.tsx・useRouteFormSubmit.ts
 

@@ -1,7 +1,7 @@
 // @vitest-environment node
 import { describe, expect, it } from "vitest";
 
-import { distributionWarnings, scoreBands, scoreForValue, type ValueDistribution } from "./scoreDistribution";
+import { distributionWarnings, scoreBands, type ValueDistribution } from "./scoreDistribution";
 
 const BP: [number, number][] = [
   [0, 0],
@@ -9,29 +9,6 @@ const BP: [number, number][] = [
   [4, 50],
   [12, 100],
 ];
-
-describe("scoreForValue", () => {
-  it("折れ点の間を線形に補間する", () => {
-    expect(scoreForValue(0, BP)).toBe(0);
-    expect(scoreForValue(1, BP)).toBeCloseTo(12.5);
-    expect(scoreForValue(2, BP)).toBe(25);
-    expect(scoreForValue(3, BP)).toBeCloseTo(37.5);
-  });
-
-  it("最初の折れ点より小さい値・最後より大きい値は端の値で頭打ちになる", () => {
-    expect(scoreForValue(-5, BP)).toBe(0);
-    expect(scoreForValue(999, BP)).toBe(100);
-  });
-
-  it("折れ点が順不同でも並べ替えて扱う", () => {
-    const shuffled: [number, number][] = [
-      [4, 50],
-      [0, 0],
-      [2, 25],
-    ];
-    expect(scoreForValue(1, shuffled)).toBeCloseTo(12.5);
-  });
-});
 
 function dist(bins: [number, number, number][]): ValueDistribution {
   return { sample_ways: 1, total_km: 1, quantiles: {}, bins, zero_share: 0 };

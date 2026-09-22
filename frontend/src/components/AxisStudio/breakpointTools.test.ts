@@ -1,6 +1,7 @@
 // @vitest-environment node
 import { describe, expect, it } from "vitest";
 import {
+  breakpointScore,
   BREAKPOINT_SHAPE_OPTIONS,
   generateBreakpoints,
   generatorSettingsFrom,
@@ -8,7 +9,6 @@ import {
   interpolateBreakpointScore,
   niceStep,
   snapToStep,
-  sortBreakpoints,
 } from "./breakpointTools";
 
 describe("generateBreakpoints", () => {
@@ -53,19 +53,23 @@ describe("generateBreakpoints", () => {
   });
 });
 
-describe("sortBreakpoints", () => {
-  it("x昇順へ並べ替える(元の配列は変更しない)", () => {
+describe("折れ点の並び", () => {
+  it("x昇順として扱う（渡した順に依らず同じ点を挿す・元の配列は変更しない）", () => {
     const original: [number, number][] = [
       [10, 100],
       [0, 0],
       [5, 50],
     ];
-    const sorted = sortBreakpoints(original);
-    expect(sorted).toEqual([
+
+    // 並べ替えは折れ線を扱う側の途中段階。順を入れ替えて渡しても同じ結果になることで見る。
+    const inserted = insertBreakpointAtLargestGap(original);
+    const sortedInput = insertBreakpointAtLargestGap([
       [0, 0],
       [5, 50],
       [10, 100],
     ]);
+
+    expect(inserted).toEqual(sortedInput);
     expect(original).toEqual([
       [10, 100],
       [0, 0],
@@ -213,5 +217,40 @@ describe("generatorSettingsFrom（自動生成フォームの復元）", () => {
       shape: "flat",
       matched: false,
     });
+  });
+});
+
+// 折れ点から得点を引く規則。**軸スタジオの分布プレビューも、地図の段も同じものを通す**
+// ——丸め方や同じxが並んだときの返り値が実装ごとにずれると、同じ折れ点を与えた画面どうしで
+// 値が食い違う。
+describe("breakpointScore", () => {
+  const BP: [number, number][] = [
+    [0, 0],
+    [2, 25],
+    [4, 50],
+    [8, 75],
+    [12, 100],
+  ];
+
+  it("折れ点の間を線形に補間する", () => {
+    expect(breakpointScore(BP, 0)).toBe(0);
+    expect(breakpointScore(BP, 1)).toBeCloseTo(12.5);
+    expect(breakpointScore(BP, 2)).toBe(25);
+    expect(breakpointScore(BP, 3)).toBeCloseTo(37.5);
+  });
+
+  it("最初の折れ点より小さい値・最後より大きい値は端の値で頭打ちになる", () => {
+    expect(breakpointScore(BP, -5)).toBe(0);
+    expect(breakpointScore(BP, 999)).toBe(100);
+  });
+
+  it("折れ点が順不同でも並べ替えて扱う", () => {
+    const shuffled: [number, number][] = [
+      [4, 50],
+      [0, 0],
+      [2, 25],
+    ];
+
+    expect(breakpointScore(shuffled, 1)).toBeCloseTo(12.5);
   });
 });

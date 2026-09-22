@@ -1,3 +1,6 @@
+/* `theme(--breakpoint-mobile)`を引くための参照（値の定義はglobals.cssに1つだけ）。 */
+@reference "../../app/globals.css";
+
 /*
  * 軸ごとの寄与を色で示す帯グラフと、その下に折り返して並ぶ軸チップ。
  *
@@ -72,7 +75,7 @@
   width: 100%;
 }
 
-@media (max-width: 640px) {
+@media (max-width: theme(--breakpoint-mobile)) {
   .legendChipBody {
     padding: 0.25rem 0.4rem 0.25rem 0.55rem;
   }

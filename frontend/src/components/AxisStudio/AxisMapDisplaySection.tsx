@@ -14,7 +14,7 @@ import styles from "./AxisStudio.module.css";
 import { SectionLabel } from "./AxisFormFields";
 import { formatThresholdList, parseThresholdList, resizeBandLabels, type Draft } from "./axisDraft";
 
-export interface AxisMapDisplaySectionProps {
+interface AxisMapDisplaySectionProps {
   draft: Draft;
   setDraft: React.Dispatch<React.SetStateAction<Draft>>;
   /** 編集対象（新規作成はnull）。地図表示ができない軸の注記の判定にだけ使う。 */
@@ -52,7 +52,7 @@ export function AxisMapDisplaySection({
   // 色分けのしきい値（display_thresholds_override）は境界値の並びをまとめて入力する。
   // 入力欄の文字列はこのコンポーネントが持ち、読めた時だけdraftへ反映する——読めない
   // 途中の状態でdraftを書き換えると、直前に入っていた並びが消えてしまう。読めないまま
-  // 次へ進もうとした場合はウィザードの検証が止める（下書きの値で黙って保存させない）。
+  // 保存しようとした場合はフォームの検証が止める（下書きの値で黙って保存させない）。
   function applyThresholdText(text: string) {
     setThresholdText(text);
     const { values, error } = parseThresholdList(text);
@@ -288,9 +288,7 @@ export function AxisMapDisplaySection({
             保存しても公開へ戻り、画面の操作結果が無言で反転する（design-principles.md
             「1つの状態は1つの場所でだけ操作する」）。ここでは事実だけを示す。 */}
         {republishing ? (
-          <p className={styles.hint}>
-            「調整する」で一時的に下書きへ戻しています。保存すると公開へ戻ります。
-          </p>
+          <p className={styles.hint}>「調整する」で一時的に下書きへ戻しています。保存すると公開へ戻ります。</p>
         ) : (
           !restrictedDisplayOnly && (
             <label className={styles.inlineCheckbox}>

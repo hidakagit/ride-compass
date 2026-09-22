@@ -20,6 +20,7 @@
 // 読めず数値の重み付け結合が成立しないため、tile_inputs.boolean=trueのときは
 // trueValue/falseValueで寄与値を直接指定する（weightは無視）。
 
+import palette from "@/types/generated/palette.json";
 import type { LegendEntry } from "./legendFilter";
 import { LEGEND_NO_DATA_KEY, legendBandKey, rangeStepLabel } from "./mapColorLegend";
 import type { MapValueKind } from "./valueScale";
@@ -27,9 +28,7 @@ import type { components } from "@/types/generated/api";
 
 // 改善計画T440: AxisDefinition.shapeのフロント側型（GET /api/axis-catalog:
 // AxisCatalogEntry.shapeと同じ、OpenAPI生成物由来）。
-export type AxisShape = components["schemas"]["BreakpointLinearShape"] | components["schemas"]["CategoricalShape"];
-
-export interface AxisTileInput {
+interface AxisTileInput {
   property: string;
   weight: number;
   /** true=真偽値材料（改善計画T278）。weightは無視し、trueValue/falseValueで寄与値を直接指定する。 */
@@ -51,6 +50,8 @@ export interface AxisTileInput {
    * 寄与値とする（registry.py: TileInputSpec.breakpoints参照）。 */
   breakpoints?: readonly (readonly [number, number])[];
 }
+
+export type AxisShape = components["schemas"]["BreakpointLinearShape"] | components["schemas"]["CategoricalShape"];
 
 export interface RampAxis {
   axisId: string;
@@ -251,11 +252,6 @@ export function axisMapLayerId(axisId: string): AxisMapLayerId {
   return `axis:${axisId}`;
 }
 
-/** MapLibreのlayer id（MapView内部） */
-export function axisLineLayerId(axisId: string): string {
-  return `region-axis-${axisId}-line`;
-}
-
 /** 専用のway_id→値配信レイヤーを持つ軸（`dedicated_way_value_layer=true`、現状: 風・勾配）。
  * ramp軸に対する`RampAxis`と同じ位置付けの、軸カタログ由来の地図向けビュー。
  * この型があることで、レイヤー登録・カタログ・可視性・フェッチのすべてを軸idの
@@ -312,12 +308,10 @@ export function dedicatedWayValueLineLayerId(axisId: string): string {
 // bandCount段階ぶんの色を線形補間で生成するため、bandCount=4のときは既存の4色と完全に
 // 一致し（axisLayers.test.ts参照）、bandCount≠4の軸でも同じ緑→赤の配色系統のまま段階数
 // ぶんの色を自動生成できる。
-const RAMP_COLOR_ANCHORS: readonly [number, string][] = [
-  [0, "#4caf50"],
-  [1 / 3, "#ffb300"],
-  [2 / 3, "#fb8c00"],
-  [1, "#e53935"],
-];
+const RAMP_COLOR_ANCHORS: readonly [number, string][] = palette.evaluation_ramp_anchors.map((anchor) => [
+  anchor.position,
+  anchor.color,
+]);
 
 function hexToRgb(hex: string): [number, number, number] {
   const n = parseInt(hex.slice(1), 16);
@@ -357,21 +351,11 @@ export function rampColorForBand(index: number, bandCount: number): string {
   return rampColorForRatio(t);
 }
 
-// 既存4段階軸（gradient/surface_q/night/accident等）・staticAttributeLayers.ts
-// の非ramp用途（TUNNEL/ONEWAY等の固定4色引用）向けの後方互換export。
-// rampColorForBand(i, 4)と完全に同じ値（後方互換テストで担保）。
-export const AXIS_RAMP_COLORS = [
-  rampColorForBand(0, 4),
-  rampColorForBand(1, 4),
-  rampColorForBand(2, 4),
-  rampColorForBand(3, 4),
-] as const;
-
-// 「不明」（hasUnknownFallback材料のタイル欠損）専用の灰色。staticAttributeLayers.ts:
+// 「不明」（hasUnknownFallback材料のタイル欠損）専用の灰色。道路の線・点の分類が使う
 // COLOR_UNKNOWNと同じ値（既存の路面レイヤー等の「不明」表現と地図全体で統一する）。
-// 循環import回避のため値を複製している（staticAttributeLayers.tsがaxisLayers.tsを
+// 循環import回避のため値を複製している（分類側がaxisLayers.tsを
 // importする向きのため、逆方向のimportはできない）。
-export const COLOR_UNKNOWN = "#9ca3af";
+export const COLOR_UNKNOWN = palette.semantic.no_data;
 
 /** hasUnknownFallback=trueのtile_inputについて、「不明」と判定すべきかを求める
  * MapLibre expression。該当する入力を持たない軸はnull（＝不明状態を持たない、
@@ -388,7 +372,10 @@ export const COLOR_UNKNOWN = "#9ca3af";
  * 評価側の実際の意味論であり、地図表示側もこれに合わせる。categoriesを持たない
  * 真偽値材料（例: surface_good）は従来どおりプロパティ欠損のみで判定する
  * （欠損以外の「未登録値」という状態がそもそも存在しないため）。 */
-export function buildAxisRampUnknownExpression(axis: RampAxis): unknown[] | null {
+/** 欠損は`null`のままにせず、同じ型の番兵へ倒してから式へ入れる（文字列なら
+ * `"__unknown__"`、数値なら0）。**出力の型が混ざる`case`/`match`を作らない**ための流儀で、
+ * 式の評価が落ちてもMapLibreは例外を投げずそのレイヤーだけ黙って描かれなくなる。 */
+function buildAxisRampUnknownExpression(axis: RampAxis): unknown[] | null {
   const checks = axis.tileInputs
     .filter((input) => input.hasUnknownFallback)
     .map((input) => {
@@ -474,7 +461,7 @@ function axisRampBandLabel(axis: RampAxis, index: number, lower: number | null, 
 }
 
 /** ramp軸の凡例（改善計画: 地図アイコンチップのグルーピング・研究タブ整理・停止/事故密度の
- * 凡例追加）。既存レイヤー（自転車インフラ等、staticAttributeLayers.ts参照）と
+ * 凡例追加）。分類で塗る既存レイヤーと
  * 同じLegendEntry型で返すことで、色スウォッチ付きの凡例チェックボックス
  * （LegendCheckboxList.tsx）・地図チップの▶展開凡例
  * （MapOverlayControls.tsx: legendDetails）・実際の絞り込み
@@ -483,7 +470,7 @@ function axisRampBandLabel(axis: RampAxis, index: number, lower: number | null, 
  * filterはbuildAxisRampValueExpression（地図の色分けが使うのと同じ線形結合）への
  * 範囲比較で、実際に塗られる色と凡例が食い違わないようにする。
  * hasUnknownFallbackな軸（例: surface_q）は末尾に「不明」エントリを追加し（既存の
- * staticAttributeLayers.tsの分類レイヤーと同じ「不明・他」の扱い方）、他の段階の
+ * 分類レイヤーと同じ「不明・他」の扱い方）、他の段階の
  * filterには「不明ではない」条件を足して二重分類を防ぐ（レビュー指摘の修正）。 */
 export function buildAxisRampLegend(axis: RampAxis): LegendEntry[] {
   const valueExpression = buildAxisRampValueExpression(axis);

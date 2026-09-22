@@ -1,7 +1,7 @@
 // 管理画面（/admin配下のBasic認証、proxy.ts）とbackend管理APIへの転送（adminApiProxy.ts）が
 // 共有する資格情報。どちらも同じ環境変数を見るため、読み取りと「未設定の扱い」をここ1箇所に置く。
 
-export interface AdminBasicAuthCredentials {
+interface AdminBasicAuthCredentials {
   username: string;
   password: string;
 }

@@ -10,11 +10,16 @@
 // 雷・竜巻は「回避一択」の危険のため評価軸には組み込まず、rasterTile表現（気象庁が
 // 生成した画像をそのまま重ねる）のみを持つ警告表示として扱う。
 
+import weatherScales from "@/types/generated/weather-scales.json";
 import type { DynamicWeatherFrame, DynamicWeatherRenderPayload } from "@/components/Map/dynamicWeather";
-import { fetchJmaTargetTimes, parseValidtime, type JmaNowcastFrame, jmaTileUrlTemplate } from "@/components/Map/jmaNowcastFrames";
+import {
+  fetchJmaTargetTimes,
+  parseValidtime,
+  type JmaNowcastFrame,
+  jmaTileUrlTemplate,
+} from "@/components/Map/jmaNowcastFrames";
 
 export type ThunderNowcastFrame = JmaNowcastFrame;
-
 
 /** 雷・竜巻共通の時刻一覧を取得する（1回のfetchで両方をカバー）。
  * targetTimes_N3.jsonは5分おきにエントリを持つが、雷・竜巻(thns/trns)自体は10分おきにしか
@@ -36,19 +41,31 @@ export function thunderFrames(frames: readonly ThunderNowcastFrame[]): DynamicWe
 }
 
 function tileUrlTemplate(frame: ThunderNowcastFrame, product: "thns" | "trns"): string {
-  return jmaTileUrlTemplate({ group: "nowc", element: product, basetime: frame.basetime, member: "none", validtime: frame.validtime });
+  return jmaTileUrlTemplate({
+    group: "nowc",
+    element: product,
+    basetime: frame.basetime,
+    member: "none",
+    validtime: frame.validtime,
+  });
 }
 
 /** thunderFramesが返したref（frames内のindex）から、雷ナウキャストの描画ペイロードを
  * 組み立てる（rasterTile、気象庁配信の画像タイルをそのまま重ねる）。 */
-export function thunderRenderPayload(frames: readonly ThunderNowcastFrame[], ref: number): DynamicWeatherRenderPayload | undefined {
+export function thunderRenderPayload(
+  frames: readonly ThunderNowcastFrame[],
+  ref: number,
+): DynamicWeatherRenderPayload | undefined {
   const frame = frames[ref];
   return frame ? { kind: "rasterTile", tileUrlTemplate: tileUrlTemplate(frame, "thns") } : undefined;
 }
 
 /** thunderFramesと同じフレーム列・同じrefで、竜巻発生確度ナウキャストの描画ペイロードを
  * 組み立てる（プロダクトコードのみthnsからtrnsへ差し替え）。 */
-export function tornadoRenderPayload(frames: readonly ThunderNowcastFrame[], ref: number): DynamicWeatherRenderPayload | undefined {
+export function tornadoRenderPayload(
+  frames: readonly ThunderNowcastFrame[],
+  ref: number,
+): DynamicWeatherRenderPayload | undefined {
   const frame = frames[ref];
   return frame ? { kind: "rasterTile", tileUrlTemplate: tileUrlTemplate(frame, "trns") } : undefined;
 }
@@ -60,19 +77,13 @@ export function tornadoRenderPayload(frames: readonly ThunderNowcastFrame[], ref
 // 色そのものは気象庁がタイル配色のカラーコードを公開していないため、同庁のナウキャスト系
 // 地図で一般的な「弱い＝黄→強い＝紫」の配色慣習に沿った近似値であり、実際のタイル画像の
 // 色と厳密には一致しない（precipitationNowcast.tsのPRECIPITATION_COLOR_STOPSと同じ扱い）。
-export const THUNDER_ACTIVITY_LEVELS: readonly { key: string; label: string; color: string }[] = [
-  { key: "level1", label: "活動度1: 雷雲発達の可能性（1時間以内に発雷のおそれ）", color: "#fde047" },
-  { key: "level2", label: "活動度2: 雷雲発生、落雷の可能性", color: "#fb923c" },
-  { key: "level3", label: "活動度3: 落雷が発生中", color: "#ef4444" },
-  { key: "level4", label: "活動度4: 激しい雷（雹に注意）", color: "#9333ea" },
-];
+export const THUNDER_ACTIVITY_LEVELS: readonly { key: string; label: string; color: string }[] =
+  weatherScales.thunder_activity;
 
 // 竜巻発生確度1・2の凡例。気象庁の解説
 // （https://www.jma.go.jp/jma/kishou/know/toppuu/tornado3-3.html、2026-08-22確認）に基づく
 // 要約: 発生確度1は見逃しを減らすよう広め・低い的中率（1〜7%）、発生確度2は気象庁の
 // 「竜巻注意」情報につながる絞り込んだ予測（的中率7〜14%）。数字は「切迫度」ではなく
 // 「可能性の程度」の違いを表す（気象庁の注記どおり）。色は雷と区別できる寒色系の近似値。
-export const TORNADO_POTENTIAL_LEVELS: readonly { key: string; label: string; color: string }[] = [
-  { key: "potential1", label: "発生確度1: 広く注意（見逃しを減らす、的中率1〜7%）", color: "#38bdf8" },
-  { key: "potential2", label: "発生確度2: 重点警戒（気象庁「竜巻注意」相当、的中率7〜14%）", color: "#1d4ed8" },
-];
+export const TORNADO_POTENTIAL_LEVELS: readonly { key: string; label: string; color: string }[] =
+  weatherScales.tornado_potential;

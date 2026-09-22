@@ -1,5 +1,6 @@
 "use client";
 
+import palette from "@/types/generated/palette.json";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import * as Tabs from "@radix-ui/react-tabs";
 import Disclosure from "@/components/Disclosure/Disclosure";
@@ -38,8 +39,7 @@ import type { LegendEntry } from "@/components/Map/legendFilter";
 import { primaryAttributeIdsToLayerIds } from "@/components/Map/primaryAttributes";
 import { type LegendFilterSummaryAxis } from "@/components/Map/legendFilter";
 import type { DisasterSourceKey } from "@/components/Map/dynamicWeather";
-import { ROAD_FILTER_AXES, type RoadFilterAxisId } from "@/components/Map/roadFilterAxes";
-import { buildStaticFilterAxes, type StaticFilterAxisId } from "@/components/Map/staticAttributeLayers";
+import { pointLegendAxes, roadLegendAxes, type SceneLegendAxis } from "@/features/map/scene/legends";
 import {
   DEFAULT_ROUTE_STYLE_MODE_ID,
   LENS_DIFFICULTY_ID,
@@ -77,7 +77,8 @@ import { RISK_LEVEL_COLORS } from "@/components/Map/riskMap";
 import { useDynamicWeatherLayers } from "@/hooks/useDynamicWeatherLayers";
 import { dedicatedWayValuesFor, useDedicatedWayValues } from "@/hooks/useDedicatedWayValues";
 import { useWeatherConditions } from "@/hooks/useWeatherConditions";
-import { CLIENT_TUNING_IDS, clientTuningValue, useAxisCatalog } from "@/hooks/useAxisCatalog";
+import { useAxisCatalog } from "@/hooks/useAxisCatalog";
+import { CLIENT_TUNING_IDS, clientTuningValue } from "@/lib/axisCatalog";
 import { useTileVersionsReady } from "@/hooks/useTileVersionsReady";
 import { useMaterialCatalog } from "@/hooks/useMaterialCatalog";
 import { syncHardFilterKeys } from "@/lib/hardFilterSync";
@@ -145,7 +146,7 @@ const LEGEND_FILTER_DEBOUNCE_MS = 400;
 
 // 色分けモード（ルート）の保存先。プライベートブラウジング等でlocalStorageが
 // 使えない環境があるため、読み書きとも失敗はデフォルトモードへのフォールバックとして
-// 握りつぶす。路面側は色分けモードを持たない（常に固定色。roadFilterAxes.ts参照）ため
+// 握りつぶす。道路の線は色分けモードを持たない（分類ごとの固定色）ため
 // 対応する保存先は無い。
 // レンズ（地図を何で塗るか）。保存キーはルート線の色分けモードと共通（同じ値を指す）。
 const ROUTE_STYLE_MODE_STORAGE_KEY = "ridecompass:route-style-mode";
@@ -208,7 +209,7 @@ const DISASTER_SOURCE_LEGEND: (LegendEntry & { key: DisasterSourceKey })[] = [
   { key: "flood", label: "洪水キキクル（河川）", color: RISK_LEVEL_COLORS[2].color, filter: UNUSED_LEGEND_FILTER },
   { key: "thunder", label: "雷ナウキャスト", color: THUNDER_ACTIVITY_LEVELS[1].color, filter: UNUSED_LEGEND_FILTER },
   { key: "tornado", label: "竜巻発生確度", color: TORNADO_POTENTIAL_LEVELS[0].color, filter: UNUSED_LEGEND_FILTER },
-  { key: "liden", label: "落雷（発生地点）", color: "#facc15", filter: UNUSED_LEGEND_FILTER },
+  { key: "liden", label: "落雷（発生地点）", color: palette.semantic.lightning, filter: UNUSED_LEGEND_FILTER },
 ];
 
 // 災害チップの凡例。precipitation/wind凡例と同じパターン（表示専用、filterはダミー値）で、
@@ -507,7 +508,7 @@ export default function Home() {
   // 生成済みのルート結果（候補一覧・地図描画・選択状態）だけをリセットする。経由地・
   // 目的地のピンは対象外（別々の「クリア」操作として使い分けられるようにする）。研究
   // モード中の生成はexperimentSlotsへも記録され地図へ重ね描きされる
-  // （EXPERIMENT_SLOT_COLORS[0]="#16a34a"=緑）ため、「ルートをクリア」を押した見た目
+  // （EXPERIMENT_SLOT_COLORSの先頭）ため、「ルートをクリア」を押した見た目
   // どおり地図が空になるよう、実験スロットも同時にクリアする（比較履歴を残すよりも
   // 「クリアしたら地図が本当に空になる」という一般的な期待を優先）。
   const handleRoutesClear = useCallback(() => {
@@ -556,11 +557,11 @@ export default function Home() {
         // （新形式で保存済みなら下のループがroadType/roadSurfaceを個別に上書きする）。
         if (
           typeof parsedRecord.road === "boolean" &&
-          parsedRecord.roadType === undefined &&
-          parsedRecord.roadSurface === undefined
+          parsedRecord.highway === undefined &&
+          parsedRecord.surface === undefined
         ) {
-          next.roadType = parsedRecord.road;
-          next.roadSurface = parsedRecord.road;
+          next.highway = parsedRecord.road;
+          next.surface = parsedRecord.road;
         }
         for (const id of Object.keys(next) as MapLayerId[]) {
           const value = parsedRecord[id];
@@ -895,19 +896,31 @@ export default function Home() {
   // （applyRoadLayerState→map.setFilter）に入るため、毎レンダー新規生成すると
   // 天候取得等の無関係な再レンダーのたびにフィルタ式の再適用が走ってしまう
   // （NO_HIDDEN_LEGEND_KEYSで参照固定した意図がここで無効化されていた。設計レビューB3）。
+  const roadLegend = useMemo(() => roadLegendAxes(), []);
   const roadHiddenKeysByMode = useMemo(
     () =>
       Object.fromEntries(
-        ROAD_FILTER_AXES.map((axis) => [axis.id, hiddenLegendKeysByMode[axis.id] ?? NO_HIDDEN_LEGEND_KEYS]),
-      ) as unknown as Record<RoadFilterAxisId, readonly string[]>,
-    [hiddenLegendKeysByMode],
+        roadLegend.map((axis) => [axis.axisId, hiddenLegendKeysByMode[axis.axisId] ?? NO_HIDDEN_LEGEND_KEYS]),
+      ) as Record<string, readonly string[]>,
+    [roadLegend, hiddenLegendKeysByMode],
   );
   // このファイル自身の凡例・絞り込み計算（staticLegendHiddenKeysByAxis・
   // staticFilterLegendDetails、下記）は、軸スタジオで新規公開したramp軸の凡例・絞り込み
   // 操作をこの画面のサマリ表示・▶パネルへ反映できるよう、mapLayers/
   // roadSurfaceSharedLayerIdsと同じくaxisCatalog.rampAxesから都度組み立てる
-  // （ビルド時静的buildStaticFilterAxes()は使わない）。
-  const staticFilterAxes = useMemo(() => buildStaticFilterAxes(axisCatalog.rampAxes), [axisCatalog.rampAxes]);
+  // （点の分類はグループの宣言、評価軸は実行時のカタログから組み立てる）。
+  const staticFilterAxes = useMemo<readonly SceneLegendAxis[]>(
+    () => [
+      ...pointLegendAxes(),
+      ...axisCatalog.rampAxes.map((axis) => ({
+        layerId: axisMapLayerId(axis.axisId),
+        axisId: axis.axisId,
+        label: "",
+        entries: buildAxisRampLegend(axis),
+      })),
+    ],
+    [axisCatalog.rampAxes],
+  );
   // 道路情報以外の絞り込み可能レイヤー（自転車インフラ・
   // 停止要因POI・事故の当事者/重大度）。roadHiddenKeysByModeと同じ理由でuseMemoにより
   // 参照を安定させる。
@@ -915,7 +928,7 @@ export default function Home() {
     () =>
       Object.fromEntries(
         staticFilterAxes.map((axis) => [axis.axisId, hiddenLegendKeysByMode[axis.axisId] ?? NO_HIDDEN_LEGEND_KEYS]),
-      ) as unknown as Record<StaticFilterAxisId, readonly string[]>,
+      ) as Record<string, readonly string[]>,
     [staticFilterAxes, hiddenLegendKeysByMode],
   );
   const hiddenRouteLegendKeys = hiddenLegendKeysByMode[lens] ?? NO_HIDDEN_LEGEND_KEYS;
@@ -960,10 +973,6 @@ export default function Home() {
   // 軸ごとの「すべて表示」を1つずつ押させず、道路情報等の全軸＋ルート凡例の
   // 非表示キーを一度に空へ戻す。レイヤーのON/OFF（layerVisibility）は「絞り込み」とは別の
   // 状態（どのレイヤーを表示するか）のため、ここでは触らない。
-  const hasHiddenFilters = useMemo(
-    () => Object.values(hiddenLegendKeysByMode).some((keys) => keys.length > 0),
-    [hiddenLegendKeysByMode],
-  );
   const handleClearAllFilters = useCallback(() => setHiddenLegendKeysByMode({}), [setHiddenLegendKeysByMode]);
 
   // 地図への反映だけデバウンスする（チェックボックス・条件サマリは即時のroadHiddenKeysByMode/
@@ -1017,16 +1026,18 @@ export default function Home() {
   // 「道路情報」は路面の種類（roadSurface）・道路の種類（roadType）へ分かれているため、
   // 軸ごとに個別のサマリ・内訳を持つ。
   // 軸ごとのサマリ・内訳は`ROAD_FILTER_AXES`を走査して作る。軸を名指しして同じ形の
-  // ブロックを並べると、軸を1つ足すたびに写経が増える（roadFilterAxes.tsの「軸定義を
+  // ブロックを並べると、軸を1つ足すたびに写経が増える（宣言を1本足すだけで済む形が
   // 1つ足すだけでよい」が成り立たなくなる）。
   const roadAxisPanels = useMemo(() => {
     const legendDetailsByLayerId: Record<string, LegendFilterSummaryAxis[]> = {};
-    for (const axis of ROAD_FILTER_AXES) {
-      const hiddenKeys = roadHiddenKeysByMode[axis.id] ?? NO_HIDDEN_LEGEND_KEYS;
-      legendDetailsByLayerId[axis.layerId] = [{ label: "", legend: axis.legend, hiddenKeys, axisId: axis.id }];
+    for (const axis of roadLegend) {
+      const hiddenKeys = roadHiddenKeysByMode[axis.axisId] ?? NO_HIDDEN_LEGEND_KEYS;
+      legendDetailsByLayerId[axis.layerId] = [
+        { label: axis.label, legend: axis.entries, hiddenKeys, axisId: axis.axisId },
+      ];
     }
     return { legendDetailsByLayerId };
-  }, [roadHiddenKeysByMode]);
+  }, [roadLegend, roadHiddenKeysByMode]);
 
   const routeLegendDetails = useMemo<LegendFilterSummaryAxis[]>(
     () =>
@@ -1052,12 +1063,12 @@ export default function Home() {
       const axes = staticFilterAxes
         .filter((axis) => axis.layerId === layerId)
         .map((axis) => ({
-          label: axis.label ?? "",
-          legend: axis.legend,
+          label: axis.label,
+          legend: axis.entries,
           hiddenKeys: staticLegendHiddenKeysByAxis[axis.axisId] ?? NO_HIDDEN_LEGEND_KEYS,
           axisId: axis.axisId,
         }));
-      result[layerId] = axes;
+      result[layerId as MapLayerId] = axes;
     }
     return result;
   }, [staticFilterAxes, staticLegendHiddenKeysByAxis]);
@@ -1400,6 +1411,23 @@ export default function Home() {
     }
     return [];
   }, [lens, hasDetail, routeStyleModes, axisCatalog.rampAxes, axisCatalog.axes, dedicatedWayValueDisplays]);
+
+  // 一括クリアを出すかの判定。**保存された非表示キーの長さをそのまま見ない**——保存先は
+  // ルート確定の前後・レンズ・地図上チップで共通のため、段の綴りが変わった版の値や段数が
+  // 変わった軸の値が残る。いま描いている凡例に実在するキーだけを数える。
+  const hasHiddenFilters = useMemo(() => {
+    const shown: { axisId: string | undefined; keys: readonly string[] }[] = [
+      ...roadLegend.map((axis) => ({ axisId: axis.axisId, keys: axis.entries.map((entry) => entry.key) })),
+      ...staticFilterAxes.map((axis) => ({ axisId: axis.axisId, keys: axis.entries.map((entry) => entry.key) })),
+      ...disasterLegendDetails.map((axis) => ({ axisId: axis.axisId, keys: axis.legend.map((entry) => entry.key) })),
+      { axisId: lens, keys: lensLegend.map((entry) => entry.key) },
+    ];
+    return shown.some(({ axisId, keys }) =>
+      axisId === undefined
+        ? false
+        : (hiddenLegendKeysByMode[axisId] ?? NO_HIDDEN_LEGEND_KEYS).some((key) => keys.includes(key)),
+    );
+  }, [roadLegend, staticFilterAxes, disasterLegendDetails, lens, lensLegend, hiddenLegendKeysByMode]);
 
   // 専用way値配信軸ごとの非表示段階（ルート確定前の全道路の塗り側の絞り込み）。保存先は
   // ルート線と同じhiddenLegendKeysByMode[軸id]で、段階キーも共通（mapColorLegend.ts:
@@ -2243,7 +2271,7 @@ export default function Home() {
         )}
 
         {/* app-map-paneはglobals.css側のMapLibre帰属表示（オフセット・配色）規則
-            （.maplibregl-ctrl-bottom-*、globals.cssのapp-debug-console等と同じマーカークラスの
+            （.maplibregl-ctrl-bottom-* と同じ、位置だけを持つマーカークラスの
             手法）が参照するグローバルなマーカークラス。 */}
         {/* 下部シートが占める高さを地図側へ渡す。地図の操作ボタン（現在地・気象タイム
             ライン等）は画面の下端からの距離で置いているため、シートを持ち上げるとその裏へ
@@ -2288,7 +2316,7 @@ export default function Home() {
             refreshToken={refreshToken}
             tileVersionsReady={tileVersionsReady}
             // experimentSlots（研究モード中の生成履歴、1件目は常にEXPERIMENT_SLOT_
-            // COLORS[0]="#16a34a"=緑）はdrawExperimentSlotsが無条件で描画するため、
+            // COLORSの先頭）はdrawExperimentSlotsが無条件で描画するため、
             // 実際に「比較」タブを見ているとき以外に地図へ残ると選択中ルートの色分けと
             // 紛らわしい。研究モード中の比較用オーバーレイという役割上、
             // comparisonTabActiveの間だけ渡すよう限定する（スロット自体の記録・

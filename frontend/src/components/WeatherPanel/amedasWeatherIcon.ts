@@ -8,7 +8,7 @@ import { MoonIcon, SunIcon } from "@/components/Map/icons";
 // temperature_cのみを根拠にする）ため、霧・雷雨は判別できず晴れ/くもり/雨/雪に留める。
 import { WEATHER_CATEGORY_ICON, WEATHER_CATEGORY_LABEL } from "./weatherCode";
 
-export type AmedasWeatherCategory = "clear" | "cloudy" | "rain" | "snow";
+type AmedasWeatherCategory = "clear" | "cloudy" | "rain" | "snow";
 
 // 降水がある場合に雨/雪を分ける気温しきい値（℃）。気象庁の目安（地上気温2℃前後が
 // 雨/雪の境目）に基づく簡易な近似——みぞれ等の中間状態は判別しない。
@@ -30,7 +30,7 @@ export function classifyAmedasWeather(
   return null;
 }
 
-export interface AmedasWeatherDisplay {
+interface AmedasWeatherDisplay {
   Icon: (props: { size?: number }) => ReactElement;
   label: string;
 }

@@ -1,6 +1,7 @@
 // @vitest-environment node
 import { describe, expect, it } from "vitest";
-import { buildLayerDataSources, ROAD_TILE_SOURCE_ID } from "./MapView";
+import { buildLayerDataSources } from "./MapView";
+import { ROAD_LINE_SOURCE_ID } from "@/features/map/scene/groups/roadLines";
 import { buildMapLayers } from "./mapLayers";
 import { ROAD_TILE_MIN_ZOOM } from "@/services/regionApi";
 import { clearStaleTrackedSourceErrors, computeLayerDataStatus } from "./useLayerDataStatus";
@@ -46,28 +47,28 @@ describe("computeLayerDataStatus", () => {
   });
 
   it("タイル取得中（isSourceLoaded=false）はloading", () => {
-    const map = fakeMap({ unloadedSourceIds: [sourceIdFor("accidents")] });
-    const status = computeLayerDataStatus(map, new Set(), { accidents: true }, LAYER_DATA_SOURCES);
-    expect(status).toEqual({ accidents: "loading" });
+    const map = fakeMap({ unloadedSourceIds: [sourceIdFor("accident_point")] });
+    const status = computeLayerDataStatus(map, new Set(), { accident_point: true }, LAYER_DATA_SOURCES);
+    expect(status).toEqual({ accident_point: "loading" });
   });
 
   it("読込済みだが対象source-layerのフィーチャーが0件のときはempty", () => {
     const map = fakeMap({
-      emptySourceLayers: [{ sourceId: sourceIdFor("stopPoi"), sourceLayer: "stop_poi" }],
+      emptySourceLayers: [{ sourceId: sourceIdFor("stop_poi"), sourceLayer: "stop_poi" }],
     });
-    const status = computeLayerDataStatus(map, new Set(), { stopPoi: true }, LAYER_DATA_SOURCES);
-    expect(status).toEqual({ stopPoi: "empty" });
+    const status = computeLayerDataStatus(map, new Set(), { stop_poi: true }, LAYER_DATA_SOURCES);
+    expect(status).toEqual({ stop_poi: "empty" });
   });
 
   it("erroredSourceIdsに含まれるsourceはisSourceLoaded/querySourceFeaturesの結果に関わらずerror", () => {
     const map = fakeMap({});
     const status = computeLayerDataStatus(
       map,
-      new Set([sourceIdFor("accidents")]),
-      { accidents: true },
+      new Set([sourceIdFor("accident_point")]),
+      { accident_point: true },
       LAYER_DATA_SOURCES,
     );
-    expect(status).toEqual({ accidents: "error" });
+    expect(status).toEqual({ accident_point: "error" });
   });
 
   it("読込済みかつフィーチャーがあれば正常（キー自体を持たない）", () => {
@@ -78,17 +79,17 @@ describe("computeLayerDataStatus", () => {
 
   it("roadType/roadSurface/axis:ramp/onewayは同じroad_surfaceタイルを再利用するため、同時にemptyになる（road_edges未構築地点を想定）", () => {
     const map = fakeMap({
-      emptySourceLayers: [{ sourceId: sourceIdFor("roadType"), sourceLayer: "road_surface" }],
+      emptySourceLayers: [{ sourceId: sourceIdFor("highway"), sourceLayer: "road_surface" }],
     });
     const status = computeLayerDataStatus(
       map,
       new Set(),
-      { roadType: true, roadSurface: true, "axis:ramp": true, oneway: true },
+      { highway: true, surface: true, "axis:ramp": true, oneway: true },
       LAYER_DATA_SOURCES,
     );
     expect(status).toEqual({
-      roadType: "empty",
-      roadSurface: "empty",
+      highway: "empty",
+      surface: "empty",
       "axis:ramp": "empty",
       oneway: "empty",
     });
@@ -118,17 +119,17 @@ describe("computeLayerDataStatus", () => {
     computeLayerDataStatus(
       map,
       new Set(),
-      { roadType: true, roadSurface: true, "axis:ramp": true, oneway: true },
+      { highway: true, surface: true, "axis:ramp": true, oneway: true },
       LAYER_DATA_SOURCES,
     );
     expect(calls).toHaveLength(1);
-    expect(calls[0]).toEqual({ sourceId: sourceIdFor("roadType"), sourceLayer: "road_surface" });
+    expect(calls[0]).toEqual({ sourceId: sourceIdFor("highway"), sourceLayer: "road_surface" });
   });
 
   it("別の(sourceId, sourceLayer)を持つレイヤーはそれぞれ個別にquerySourceFeaturesが呼ばれる", () => {
     const calls: { sourceId: string; sourceLayer: string }[] = [];
     const map = fakeMap({ querySourceFeaturesCalls: calls });
-    computeLayerDataStatus(map, new Set(), { roadType: true, stopPoi: true, accidents: true }, LAYER_DATA_SOURCES);
+    computeLayerDataStatus(map, new Set(), { highway: true, stop_poi: true, accident_point: true }, LAYER_DATA_SOURCES);
     expect(calls).toHaveLength(3);
   });
 });
@@ -142,18 +143,18 @@ describe("clearStaleTrackedSourceErrors", () => {
   // 解除する。
   it("isSourceLoaded=trueのsourceはerroredSourceIdsから取り除かれ、変更があったことをtrueで返す", () => {
     const map = fakeMap({});
-    const errored = new Set([sourceIdFor("accidents"), sourceIdFor("stopPoi")]);
+    const errored = new Set([sourceIdFor("accident_point"), sourceIdFor("stop_poi")]);
     const changed = clearStaleTrackedSourceErrors(map, errored);
     expect(changed).toBe(true);
     expect(errored.size).toBe(0);
   });
 
   it("isSourceLoaded=falseのまま（取得中）のsourceは取り除かれない", () => {
-    const map = fakeMap({ unloadedSourceIds: [sourceIdFor("accidents")] });
-    const errored = new Set([sourceIdFor("accidents")]);
+    const map = fakeMap({ unloadedSourceIds: [sourceIdFor("accident_point")] });
+    const errored = new Set([sourceIdFor("accident_point")]);
     const changed = clearStaleTrackedSourceErrors(map, errored);
     expect(changed).toBe(false);
-    expect(errored.has(sourceIdFor("accidents"))).toBe(true);
+    expect(errored.has(sourceIdFor("accident_point"))).toBe(true);
   });
 
   it("erroredSourceIdsが空のときは変更なしでfalseを返す", () => {
@@ -168,7 +169,7 @@ describe("路面タイルの最小ズーム", () => {
     // 宣言が無いレイヤーは、ONにしても何も出ない理由が画面から消える。同じタイルを
     // 共有する他のレイヤーには案内が出るぶん、抜けに気づきにくい。
     const byId = Object.fromEntries(buildMapLayers([], []).map((layer) => [layer.id, layer]));
-    const readsRoadTile = LAYER_DATA_SOURCES.filter((entry) => entry.sourceId === ROAD_TILE_SOURCE_ID)
+    const readsRoadTile = LAYER_DATA_SOURCES.filter((entry) => entry.sourceId === ROAD_LINE_SOURCE_ID)
       .map((entry) => entry.key)
       .filter((key) => key in byId);
     expect(readsRoadTile.length).toBeGreaterThan(0);

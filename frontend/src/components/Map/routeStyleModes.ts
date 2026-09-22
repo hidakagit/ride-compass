@@ -1,6 +1,6 @@
 // ルートレイヤー（有向・選択中ルート基準のデータ）の色分けモード定義。
 //
-// 路面レイヤーの絞り込み軸（roadFilterAxes.ts、無方向・地域固定データのタイル）との対比:
+// 道路の線の分類（無方向・地域固定データのタイル）との対比:
 // - ここで扱うのは進行方向で意味が変わる（FROM-TOで逆転する）有向データと、時間で変わる
 //   データ。ルートが決まって初めて計算できるため、表示対象は選択中ルートの線上のみ
 // - データ源はルート生成時に計算済みのRouteSegmentDetail（segments）。タイル取得は無く、
@@ -8,17 +8,12 @@
 // - ルート未選択時はレイヤー自体が使えない（UI側で非活性）
 // 将来、トラフィック等「ルート沿いに出す有向・時間変化データ」もここへモードを足す。
 
+import palette from "@/types/generated/palette.json";
 import { debugLog } from "@/lib/debugLog";
 import type { LegendEntry } from "./legendFilter";
 import { bandLabelsForBandCount, LEGEND_NO_DATA_KEY, legendBandKey, rangeStepLabel } from "./mapColorLegend";
 import type { CatalogAxis } from "./axisLayers";
-import {
-  bandColorsFor,
-  COLOR_NO_DATA,
-  DEFAULT_DIFFICULTY_BOUNDARIES,
-  valueScaleFor,
-  type MapValueKind,
-} from "./valueScale";
+import { bandColorsFor, COLOR_NO_DATA, DEFAULT_DIFFICULTY_BOUNDARIES, type MapValueKind } from "./valueScale";
 
 // gradient/roadは公開軸から動的に生成されるため固定IDでは表現しきれない。
 // "difficulty"（対応する軸を持たない唯一の例外、下記DIFFICULTY_MODE参照）だけを
@@ -31,7 +26,7 @@ export type RouteStyleModeId = "difficulty" | "none" | (string & {});
 export type LensId = RouteStyleModeId;
 /** レンズの中立色。「なし」「総合難易度」のようにどの軸にも紐づかないレンズと、
  * 軸色が未設定の軸のフォールバックで使う（候補線の非選択色と同じ）。 */
-export const LENS_NEUTRAL_COLOR = "#64748b";
+export const LENS_NEUTRAL_COLOR = palette.semantic.neutral;
 
 export const LENS_NONE_ID: LensId = "none";
 export const LENS_DIFFICULTY_ID: LensId = "difficulty";
@@ -126,7 +121,7 @@ function buildRangeSteppedMode(options: {
 // 専用way値レイヤー（dedicatedWayValueLayer.ts）と同じスケール・配色になる。
 export function routeColorableModeFromAxis(axis: CatalogAxis): RouteStyleMode {
   const kind: MapValueKind = axis.map_value_kind ?? "difficulty";
-  const boundaries = axis.map_value_thresholds ?? valueScaleFor(kind).defaultBoundaries;
+  const boundaries = axis.map_value_thresholds ?? DEFAULT_DIFFICULTY_BOUNDARIES;
   // backendは`map_value_kind`が`signed_material`になる条件としてterms 1件を要求するが
   // （domain/dynamic_way_values.py）、その不変条件はカタログのJSONには現れない。
   // 材料が引けないときは難易度モードへ倒す（塗れないより、軸の難易度で塗る方が近い）。

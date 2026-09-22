@@ -14,6 +14,8 @@ import { useEffect, useState } from "react";
 // とは別物として扱う。
 export const MAP_FETCH_DEBOUNCE_MS = 500;
 
+/** 値の変化をdelayMsだけ遅らせて返す。**初回の値は遅れない**（初期値としてそのまま返る）
+ * ので、最初の1回も遅らせたい側はこのフックを使わず自前で待つ。 */
 export function useDebouncedValue<T>(value: T, delayMs: number): T {
   const [debounced, setDebounced] = useState(value);
 

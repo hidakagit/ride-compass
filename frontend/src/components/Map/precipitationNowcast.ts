@@ -17,6 +17,7 @@
 // ファイル（precipitationFrames）が担い、表示層（page.tsx/MapView.tsx）へはdynamicWeather.ts
 // の共通契約（DynamicWeatherFrame/DynamicWeatherRenderPayload）だけを渡す。
 
+import weatherScales from "@/types/generated/weather-scales.json";
 import {
   gridCellRing,
   gridToFeatureCollection,
@@ -139,17 +140,8 @@ export async function fetchNowcastFrames(): Promise<NowcastFrame[]> {
 // （PRECIPITATION_INTENSITY_LEVELS）と延長予報の塗り（MapView.tsx側のfill-color）の
 // 両方がこの配列を単一の情報源として使う（windLayer.tsのWIND_SPEED_COLOR_STOPSと同じ
 // 「片側import」の考え方）。
-export const PRECIPITATION_COLOR_STOPS: readonly { mmPerHour: number; color: string }[] = [
-  { mmPerHour: 0, color: "#b8e6fd" },
-  { mmPerHour: 0.4, color: "#93dafc" },
-  { mmPerHour: 2, color: "#68ccfb" },
-  { mmPerHour: 4, color: "#38bdf8" },
-  { mmPerHour: 10, color: "#3b82f6" },
-  { mmPerHour: 20, color: "#eab308" },
-  { mmPerHour: 30, color: "#f97316" },
-  { mmPerHour: 50, color: "#dc2626" },
-  { mmPerHour: 80, color: "#9333ea" },
-];
+export const PRECIPITATION_COLOR_STOPS: readonly { mmPerHour: number; color: string }[] =
+  weatherScales.precipitation.map((stop) => ({ mmPerHour: stop.value, color: stop.color }));
 
 // 延長予報の塗り（gridFill）でこの値未満は「ほぼ降水なし」として非表示にする（windLayer.tsの
 // WIND_CALM_THRESHOLD_MSと同じ考え方）。0（完全な無降水）まで含めると格子点ぶんのセルが
@@ -231,7 +223,7 @@ function rasrfTileUrlTemplate(frame: RasrfFrame): string {
   });
 }
 
-export interface PrecipitationGridCellProperties {
+interface PrecipitationGridCellProperties {
   /** 降水量（mm/h相当）。 */
   mmPerHour: number;
 }
@@ -266,7 +258,7 @@ function precipitationGridToCellFeatureCollection(
  * rasrf=数値予報モデルによる予測、extended=MSMの粗いモデル予報）。
  * precipitationRenderPayloadだけがこの型を解釈する（表示層はDynamicWeatherFrameのtimeしか
  * 見ない、ファイル冒頭のコメント参照）。 */
-export type PrecipitationFrameRef =
+type PrecipitationFrameRef =
   { source: "nowcast"; index: number } | { source: "rasrf"; index: number } | { source: "extended"; index: number };
 
 /** 気象庁ナウキャスト（0〜60分）・降水短時間予報（60分〜15時間先）・

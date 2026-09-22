@@ -12,18 +12,6 @@ export function haversineKm(a: Coordinates, b: Coordinates): number {
   return 2 * EARTH_RADIUS_KM * Math.asin(Math.sqrt(h));
 }
 
-/** 座標列（GeoJSONの[lon, lat]）の総延長（km）。 */
-export function polylineLengthKm(coordinates: readonly GeoJSON.Position[]): number {
-  let total = 0;
-  for (let i = 1; i < coordinates.length; i += 1) {
-    total += haversineKm(
-      { latitude: coordinates[i - 1][1], longitude: coordinates[i - 1][0] },
-      { latitude: coordinates[i][1], longitude: coordinates[i][0] },
-    );
-  }
-  return total;
-}
-
 /** 座標列の各点までの累積距離（km）。`[0, ...]`で座標と同じ長さ。 */
 export function cumulativeDistancesKm(coordinates: readonly GeoJSON.Position[]): number[] {
   const cumulative = [0];

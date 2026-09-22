@@ -1,5 +1,6 @@
 "use client";
 
+import regionTileConfig from "@/types/generated/region-tile-config.json";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { labelOrEscapedRaw } from "@/components/Map/popupEscape";
@@ -11,7 +12,6 @@ import * as maplibregl from "maplibre-gl";
 import { configureMaplibreWorker } from "@/features/map/maplibreWorker";
 import type {
   ErrorEvent as MapLibreErrorEvent,
-  GeoJSONSource,
   Map as MapLibreMap,
   Marker,
   MapLayerMouseEvent,
@@ -27,120 +27,81 @@ import type {
   SelectedRouteSegment,
 } from "@/types/route";
 import type { ExperimentSlot } from "@/types/experimentSlot";
-import {
-  LANDCOVER_TILE_MAX_ZOOM,
-  LANDCOVER_TILE_MIN_ZOOM,
-  ROAD_TILE_MAX_ZOOM,
-  ROAD_TILE_MIN_ZOOM,
-  accidentTileUrl,
-  hasTileVersions,
-  landcoverTileUrl,
-  poiTileUrl,
-  roadSurfaceTileUrl,
-} from "@/services/regionApi";
+import { ROAD_TILE_MAX_ZOOM, ROAD_TILE_MIN_ZOOM } from "@/services/regionApi";
 import type { RideConditions } from "@/services/regionApi";
 import { tileContainingLonLat, type TileXY } from "@/components/Map/dynamicWayValues";
-import {
-  KNOWN_LINE_OPACITY,
-  ROAD_SURFACE_AXIS_ID,
-  ROAD_TYPE_AXIS_ID,
-  getRoadFilterAxis,
-  type RoadFilterAxisId,
-} from "@/components/Map/roadFilterAxes";
-import { getRouteStyleMode, type RouteStyleMode, type RouteStyleModeId } from "@/components/Map/routeStyleModes";
+import { type RouteStyleMode, type RouteStyleModeId } from "@/components/Map/routeStyleModes";
 import {
   ORIGIN_MARK_COLOR,
   ORIGIN_MARK_FALLBACK_COLOR,
   PIN_MARK_BACKGROUND,
   pinMarkHtml,
 } from "@/components/Map/pinMarks";
-import { buildCombinedLegendFilterExpression } from "@/components/Map/legendFilter";
-import {
-  ACCIDENT_COLOR_EXPRESSION,
-  ACCIDENT_RADIUS_EXPRESSION,
-  TUNNEL_COLOR_EXPRESSION,
-  TUNNEL_OPACITY_EXPRESSION,
-  ONEWAY_COLOR_EXPRESSION,
-  ONEWAY_OPACITY_EXPRESSION,
-  STOP_POI_COLOR_EXPRESSION,
-  STOP_POI_LABELS,
-  SUPPLY_POI_COLOR_EXPRESSION,
-  SUPPLY_POI_LABELS,
-  buildStaticFilterAxes,
-  type StaticFilterAxis,
-  type StaticFilterAxisId,
-} from "@/components/Map/staticAttributeLayers";
 import {
   buildMapLayers,
-  MAP_LAYER_PAINT_TIER_ORDER,
-  TILE_VERSION_GATED_SOURCES,
   tileZoomTooWideLayerIds,
   type LayerDataStatusByLayer,
   type MapLayerDataSource,
   type MapLayerDescriptor,
-  type MapLayerPaintTier,
   type MapLayerId,
   type MapLayerVisibility,
 } from "@/components/Map/mapLayers";
-import { WIND_CALM_THRESHOLD_MS, WIND_SPEED_COLOR_STOPS } from "@/components/Map/windLayer";
-import {
-  dedicatedWayValueColorExpression,
-  dedicatedWayValueOpacityExpression,
-  dedicatedWayValueFeatureStateKey,
-  type DedicatedWayValueDisplay,
-} from "@/components/Map/dedicatedWayValueLayer";
-import { PRECIPITATION_COLOR_STOPS, PRECIPITATION_NONE_THRESHOLD_MM } from "@/components/Map/precipitationNowcast";
+import { type DedicatedWayValueDisplay } from "@/components/Map/dedicatedWayValueLayer";
 import { tileBaseUrl } from "@/lib/tileBaseUrl";
-import { createLidenIcon } from "@/components/Map/lidenIcon";
-import { LIDEN_MARK_VALUE_PROPERTY } from "@/components/Map/lidenLayer";
-import { RISK_LEVEL_COLORS } from "@/components/Map/riskMap";
-import { createWindArrowIcon } from "@/components/Map/windArrowIcon";
-import { buildBandColorExpression } from "@/components/Map/valueScale";
 import {
-  areaLayerAnchor,
-  isAreaLayerType,
   prepareBasemapForAreaLayers,
   resetBasemapAreaLayerPreparation,
   runWhenStyleReady,
-  setLayerVisibility,
-  zoomAndPropertyIconSizeExpression,
 } from "@/components/Map/mapStyleOps";
+import { applyScene, sceneInputsFrom } from "@/features/map/scene/applyToMap";
+import { interactiveSceneLayerIds, sceneLayerIdsForHitTarget, type MapScene } from "@/features/map/scene/mapScene";
 import {
-  applyRouteLayerVisibility,
-  DETAIL_HIT_LAYER_ID,
-  drawDetailSegments,
-  drawExperimentSlots,
-  drawSpliceStretches,
-  drawSplicedRoute,
-  hideDetailSegments,
-  hideSpliceStretches,
-  hideSplicedRoute,
-  restoreRouteSegmentProperties,
-  ROUTES_HIT_LAYER_ID,
-  SPLICE_HIT_LAYER_ID,
-  type RouteSegmentProperties,
-  type SpliceStretchFeature,
-} from "@/components/Map/MapView.routes";
-import {
-  DYNAMIC_WEATHER_LAYER_IDS,
-  type DynamicWeatherGroupState,
-  type DynamicWeatherLayerId,
-  type DynamicWeatherSourceId,
-} from "@/components/Map/dynamicWeather";
-import {
-  axisLineLayerId,
-  axisMapLayerId,
-  buildAxisRampColorExpression,
-  dedicatedWayValueLineLayerId,
-  dedicatedWayValueMapLayerId,
-  type DedicatedWayValueAxis,
-  type RampAxis,
-} from "@/components/Map/axisLayers";
+  ROUTE_HIT_TARGET,
+  ROUTE_HIT_TARGET_CANDIDATE,
+  ROUTE_HIT_TARGET_SEGMENT,
+  ROUTE_HIT_TARGET_SPLICE_BAND,
+} from "@/features/map/scene/groups/routes";
+import { buildMapScene, type SceneInputs } from "@/features/map/scene/buildScene";
+import { POINT_LAYERS, pointSourceId } from "@/features/map/scene/groups/points";
+import { PRIMARY_ATTRIBUTE_LABELS } from "@/components/Map/primaryAttributes";
+import { AREA_SOURCE_ID } from "@/features/map/scene/groups/areaRasters";
+import { ROAD_LINE_SOURCE_ID } from "@/features/map/scene/groups/roadLines";
+import { sceneLayerId } from "@/features/map/scene/sceneBuilders";
+import { restoreRouteSegmentProperties, type RouteSegmentProperties } from "@/features/map/routeSegmentProperties";
+
+/** 乗り換えられる区間1本ぶんの入力。`index`は押されたときに呼び出し側が見分ける値。 */
+interface SpliceStretchFeature {
+  index: number;
+  /** 相手の道を選んでいる状態。 */
+  taken: boolean;
+  coordinates: GeoJSON.Position[];
+}
+
+/** 進行方向の矢印の絵。色を持たない単色のシルエットで、色はレイヤー側が決める。 */
+
+/** 押された点のレイヤーidから、その点の宣言を引く。idは役割から決まるので写しではない。 */
+const POINT_LAYER_BY_SCENE_ID = new Map(
+  POINT_LAYERS.map((layer) => [sceneLayerId(pointSourceId(layer.tile_kind), layer.attr_id), layer]),
+);
+
+/** 分類値→表示名。凡例と同じ宣言から引く。 */
+function pointValueLabels(layer: (typeof POINT_LAYERS)[number]): Record<string, string> {
+  const axis = layer.display_axes[0];
+  if (axis === undefined) return {};
+  return Object.fromEntries(
+    axis.categories.flatMap((category) => category.values.map((value) => [String(value), category.label])),
+  );
+}
+
+/** ルート線の当たり判定レイヤー。**idは scene が決める**ので、当たり判定の名前で引く。 */
+function routeHitLayerId(scene: MapScene, target: string): string | undefined {
+  return sceneLayerIdsForHitTarget(scene, target)[0];
+}
+import { type DynamicWeatherGroupState, type DynamicWeatherLayerId } from "@/components/Map/dynamicWeather";
+import { type DedicatedWayValueAxis, type RampAxis } from "@/components/Map/axisLayers";
 import { useLayerDataStatus } from "@/components/Map/useLayerDataStatus";
 import { useJmaTileIndex } from "@/hooks/useJmaTileIndex";
-import { jmaPlaceholderTileUrl } from "@/components/Map/jmaNowcastFrames";
-import { registerJmaTileProtocol, withJmaTileProtocol } from "@/components/Map/jmaTileProtocol";
-import jmaTileConfig from "@/types/generated/jma-tile-config.json";
+import { registerJmaTileProtocol } from "@/components/Map/jmaTileProtocol";
 import { debugLog } from "@/lib/debugLog";
 import styles from "./MapView.module.css";
 
@@ -204,12 +165,34 @@ function bindDragAwareClick(marker: maplibregl.Marker, element: HTMLElement, onC
   });
 }
 
-// 国土地理院の色別標高図（ラスタタイル、APIキー不要）。basemap/jma-tileと同じ
-// バックエンド経由（永続ファイルキャッシュ付き）・同一オリジンで配信する。
-const GSI_RELIEF_TILE_PATH = "/api/gsi-relief-tile/xyz/relief/{z}/{x}/{y}.png";
-const GSI_RELIEF_MAX_ZOOM = 15;
-const GSI_RELIEF_ATTRIBUTION =
-  '<a href="https://maps.gsi.go.jp/development/ichiran.html" target="_blank" rel="noreferrer">地理院タイル(色別標高図)</a>';
+// road_surfaceの1次「素材」線レイヤー（道路種別/路面の合成ROAD_TILE_LAYER_ID・自転車
+// インフラ）は同じ道路ジオメトリ上に重なる独立レイヤーのため、複数を同時に
+// ONにすると後から描画されたレイヤーが前のレイヤーを完全に覆い隠してしまう。line-offsetで
+// 道路と平行な複数トラックへ横並びに分離する（applyRoadMaterialTrackOffsets参照）。
+// トラック間隔はline-width（3px）の半分弱ずつ重なる値にしてある（重なりは色の切り替わりと
+
+// payload（page.tsx側が各要素のデータ層関数から計算した値）を反映する。グループ配下の
+// 各ソースについて、visibleとpayloadのどちらか一方でも欠けていれば非表示のまま（フェッチ
+// 未完了・取得失敗時、あるいは選択時刻がそのソースのデータ範囲外で「描画しない」場合に、
+// 古いフレームが一瞬見えるのを防ぐ）。payload.kindがそのソースのspecの複数サブレイヤー
+// （precipitationNowcast.mainのraster/gridFill等）のどれと対応するかだけを見て、対応しない
+// サブレイヤーは常に非表示にする（=同時に両方は出ない）。ソースをまたいだ複数payloadの
+// 同時表示（precipitationNowcastのmain+linearRainband等）は、グループ内の別ソースとして
+// 独立にvisible/payloadを持つことで実現する（このループ自体は各ソースを独立に処理するだけ）。
+
+// interactive: クリック・カーソル判定（handleClick/handleMouseMove）の対象にするか。
+// レイヤーを足すときにその場で答えさせるため必須にしてある——別の一覧で「対象外のkey」を
+// 数え上げる形にすると、新しいレイヤーが既定でクリック対象になり、「カーソルは
+// クリック可能を示すのに実際は何も起きない」という不整合が静かに増える。
+
+type LayerDataSource = { key: MapLayerId; sourceId: string; sourceLayer?: string };
+
+// 情報源の名前（`MapLayerDataSource`）→ 実際のMapLibreの(source, source-layer)。
+// **レイヤーごとではなく情報源ごとの表**で、新しい配信元を増やしたときだけ伸びる
+// （どのレイヤーがどれを読むかは記述子側の宣言）。同じタイルを読むレイヤーが
+// 同時にempty/errorになるのは正しい振る舞い（road_edgesが未構築の地点）。
+// 国土地理院のラスタタイル・土地被覆ラスタはsource-layerを持たないため、取得失敗のみ
+// 検知しempty判定はしない。
 // 地図へ常時出す出典（AttributionControlのcustomAttribution）。MapLibreがソースへ渡した
 // attributionを出すのは**そのソースが地図に載っている間だけ**で、レイヤーのON/OFFで消える。
 // ここに挙げるデータは路面タイルへ焼き込むか評価軸・ルートの計算に常時使っており、どの
@@ -225,1513 +208,32 @@ const MAP_BASE_ATTRIBUTION = [
   '土地被覆: <a href="https://livingatlas.arcgis.com/landcover/" target="_blank" rel="noreferrer">Esri, Impact Observatory, Microsoft</a> (CC BY 4.0)',
 ];
 
-// 路面のベクタタイル内のレイヤー名。バックエンド（infrastructure/vector_tile.pyの
-// ROAD_SURFACE_LAYER_NAME）と一致させる必要がある（export_openapi.pyが書き出す
-// generated/region-tile-config.jsonとregionTileConfig.test.tsの照合テストがドリフトを
-// 検知する。exportしているのはそのテストから参照するため）。
-export const ROAD_TILE_SOURCE_LAYER = "road_surface";
-
-// 事故レイヤー（外部静的データソース）のベクタタイル内のレイヤー名。バックエンド
-// （infrastructure/vector_tile.pyのACCIDENT_LAYER_NAME）と一致させる（ROAD_TILE_SOURCE_LAYERと
-// 同じドリフト検知の仕組み、region-tile-config.jsonのaccidentキー）。
-export const ACCIDENT_TILE_SOURCE_LAYER = "accidents";
-
-// 停止要因POIタイル内のレイヤー名。バックエンド
-// （infrastructure/vector_tile.pyのSTOP_POI_LAYER_NAME）と一致させる必要がある
-// （ROAD_TILE_SOURCE_LAYERと同じくregion-tile-config.json経由でドリフト検知、
-// regionApi.test.ts参照）。同じpoi-tilesタイルにバックエンドは交差点密度（intersection）も
-// 焼き込んでいるが、地図上の独立可視化レイヤーとしては提供しない（道が何本交わっているかは
-// 道路網を見れば分かり、可視化としての追加情報が薄いため。材料
-// `intersection_count_per_km`としては軸スタジオから引き続き選べる）ためフロント側では参照しない。
-export const STOP_POI_SOURCE_LAYER = "stop_poi";
+// ベクタタイル内のレイヤー名。源泉が配る値をそのまま使う。
+const ROAD_TILE_SOURCE_LAYER = regionTileConfig.road_surface.layer_name;
+const ACCIDENT_TILE_SOURCE_LAYER = regionTileConfig.accident.layer_name;
+const STOP_POI_SOURCE_LAYER = regionTileConfig.poi.stop_poi_layer_name;
 
 // 初期表示の覆い（「地図を読み込み中…」）を出しておく上限。覆いは最初の数秒の白紙を
 // 隠すためのもので、それを過ぎても残ると、描けている地図を隠して壊れているように見せる。
 // MapLibreの"idle"は表示中のすべての取得が落ち着くまで来ないため、外部データ
 // （既定ONの災害タイル等）が遅いセッションでは待ち続けてしまう。
 const INITIAL_TILES_OVERLAY_MAX_MS = 6000;
-// 面で塗るレイヤー（気象庁ナウキャスト系のラスタ・格子塗り・標高図）の不透明度。
-// 濃さはレイヤーごとに決めず1つの値を共有する——面が重なったときの濃さは重なりの数で
-// 決まるべきで、レイヤーごとの主張の強さで決まると、何が上に乗っているかを読めなくなる。
-//
-// 下の道路・地名が読めるかはこの値ではなく差し込み位置（mapStyleOps.ts: areaLayerAnchor、
-// 面は基礎地図の道路網より下へ入る）が担う。道路・地名までこの値で守ろうとすると、最も濃い色が
-// 下を潰さない値まで下げるほかなくなり、薄い色はその巻き添えで背景と区別が付かなくなる。
-//
-// この値に残るトレードオフは**上下から挟まれている**。下げると薄い階級（少雨・弱い危険度）が
-// 背景と区別できなくなり、上げると面の下にある基礎地図の土地の塗り（公園・土地利用・建物）の
-// 違いが潰れ、全面を覆う面（標高図・緑と水）で地図が一様な色になる。どちらも1つの値が決める
-// ため、片側だけを見て動かさないこと。
-export const AREA_LAYER_OPACITY = 0.55;
-const GSI_RELIEF_SOURCE_ID = "gsi-relief";
-const GSI_RELIEF_LAYER_ID = "gsi-relief-raster";
-const GSI_TERRAIN_SOURCE_ID = "gsi-terrain";
-const GSI_TERRAIN_LAYER_ID = "gsi-terrain-hillshade";
-const GSI_TERRAIN_TILE_PATH = "/api/gsi-terrain-tile/{z}/{x}/{y}.png";
-// 配信元が実データを持つ上限（backend services/terrain_tile_service.py と同じ値）。
-// これより上はMapLibreが拡大して見せる。
-const GSI_TERRAIN_MAX_ZOOM = 14;
-// 陰影の強さ。hillshadeレイヤーは不透明度のpaintプロパティを持たないため、面レイヤー共通の
-// 濃さ（AREA_LAYER_OPACITY）は影・光の色のalphaとして渡す。平坦な所は影も光も出ない
-// （傾きが0の画素は透明になる）ため、この値を上げても基礎地図の平地は濁らない。
-const HILLSHADE_SHADOW_COLOR = `rgba(60, 50, 40, ${AREA_LAYER_OPACITY})`;
-const HILLSHADE_HIGHLIGHT_COLOR = `rgba(255, 252, 245, ${AREA_LAYER_OPACITY})`;
-// 北西からの斜め光（陰影図の慣例。真上からだと起伏が出ない）。
-const HILLSHADE_ILLUMINATION_DIRECTION = 315;
-// 陰影の計算方法。既定の`standard`は傾きのsinに比例して塗るため、関東平野の傾き（数度）では
-// 実効の不透明度が0.03を下回り、出ていても気づけない。`igor`は傾きのarctanに比例し、
-// 同じ傾きで倍以上の濃さになる。**`basic`・`multidirectional`は使えない**——平坦な画素にも
-// 光を塗るため、面レイヤの「値のある所だけ塗る」を満たさない。
-const HILLSHADE_METHOD = "igor";
-// 標高を読むときの垂直方向の強調倍率。**タイルの値は実際の標高のまま**で、読み方だけを
-// 変える（`raster-dem`のcustom encodingは`r*redFactor + g*greenFactor + b*blueFactor -
-// baseShift`で標高を復元する。mapbox encodingの係数を倍率倍したものを渡す）。
-// 倍率を上げるほど緩い斜面が読めるようになるが、上げすぎると急斜面との差が潰れる。
-const TERRAIN_VERTICAL_EXAGGERATION = 5;
-const TERRAIN_RGB_RED_FACTOR = 6553.6;
-const TERRAIN_RGB_GREEN_FACTOR = 25.6;
-const TERRAIN_RGB_BLUE_FACTOR = 0.1;
-const TERRAIN_RGB_BASE_SHIFT = 10000;
-const LANDCOVER_SOURCE_ID = "landcover";
-const LANDCOVER_LAYER_ID = "landcover-raster";
 // 動的気象レイヤー（風・降水）のsource/layer id。要素id×ソース×描画方式（raster/fill/
 // mark）の組み合わせから機械的に決まるため、要素を追加してもここへ新しい定数を足す必要は
 // ない（DYNAMIC_WEATHER_RENDERERS・ensureDynamicWeatherLayer参照）。sourceを分けることで
 // 「1グループ=複数の名前付きソース」を表現できる（単一ソースのグループは"main"という
 // 1キーだけを持つ）。
-/** 気象庁タイル要素のズーム範囲。値は`backend/app/domain/jma_tile_specs.py`が配信元仕様
- * （`zoomUse`・`maxNativeZoom`）から導出したものを生成物経由で受け取る——ここで数値を
- * 手書きすると、配信元が実データを持たないズームを指してしまう（[T633]）。 */
-function jmaZoomRange(elementId: keyof typeof jmaTileConfig): { minzoom: number; maxzoom: number } {
-  const spec = jmaTileConfig[elementId];
-  return { minzoom: spec.min_zoom, maxzoom: spec.max_zoom };
-}
 
-export function dynamicWeatherIds(
-  id: DynamicWeatherLayerId,
-  source: DynamicWeatherSourceId,
-  sub: "raster" | "fill" | "mark" | "vector",
-) {
-  const base = `region-dynamic-weather-${id}-${source}-${sub}`;
-  return { sourceId: base, layerId: `${base}-main`, iconId: `${base}-icon` };
-}
-// 空のFeatureCollection（初期化時のsourceプレースホルダ、データ未取得の間の仮の初期値）。
-const EMPTY_FEATURE_COLLECTION: GeoJSON.FeatureCollection = { type: "FeatureCollection", features: [] };
-// exportはテスト専用（MapView.layerOps.test.ts）。
-export const ROAD_TILE_SOURCE_ID = "region-road-surface-tiles";
-export const ROAD_TILE_LAYER_ID = "region-road-surface-tiles-line";
-// 「道路の種類」は路面と同じソース上の独立レイヤー。1本の線へ複数の意味を載せず、
-// 同時表示は並列トラック（applyRoadMaterialTrackOffsets）で分ける。
-// exportはテスト専用（MapView.layerOps.test.ts）。
-export const ROAD_TYPE_LAYER_ID = "region-road-type-line";
-// クリックして詳細を見ている道の強調。路面タイルのフィーチャーを`osm_way_id`で絞る
-// 独立レイヤーで塗るため、専用のソースも取得も増えない。
-// exportはテスト専用（MapView.layerOps.test.ts）。
-export const ROAD_INSPECT_LAYER_ID = "region-road-inspect-line";
-// 専用way値配信軸（「評価軸」グループの風・勾配等）のMapLibre layer idは
-// axisLayers.ts: dedicatedWayValueLineLayerId が軸idから導出する。ROAD_TILE_SOURCE_ID/
-// ROAD_TILE_SOURCE_LAYERを共有する独立レイヤー（tunnel/onewayと同じ構成）だが、
-// 色分けはタイルのプロパティではなくsetFeatureState経由の値
-// （dedicatedWayValueColorExpression、dedicatedWayValueLayer.ts）を読む点が異なる。
-// exportはテスト専用（MapView.layerOps.test.ts）。
-export const TUNNEL_LAYER_ID = "region-tunnel-line";
-export const ONEWAY_LAYER_ID = "region-oneway-line";
-const ACCIDENT_TILE_SOURCE_ID = "region-accidents";
-const ACCIDENT_LAYER_ID = "region-accidents-circle";
-const POI_TILE_SOURCE_ID = "region-poi-tiles";
-export const STOP_POI_LAYER_ID = "region-stop-poi-circle";
-export const SUPPLY_POI_LAYER_ID = "region-supply-poi-circle";
-// 線レイヤーの太さは意味を運ばない（全レイヤー共通の規約、roadFilterAxes.tsの冒頭参照）。
-// exportはテスト専用（MapView.layerOps.test.ts）。
-export const DEFAULT_ROAD_LINE_WIDTH = 3;
-// 軸がopacityExpressionを持たない万一のフォールバック（実運用では両軸とも持つため通らない、
-// applyRoadLayerState参照）。
-const DEFAULT_ROAD_LINE_OPACITY = 0.8;
-// road_surfaceの1次「素材」線レイヤー（道路種別/路面の合成ROAD_TILE_LAYER_ID・自転車
-// インフラ）は同じ道路ジオメトリ上に重なる独立レイヤーのため、複数を同時に
-// ONにすると後から描画されたレイヤーが前のレイヤーを完全に覆い隠してしまう。line-offsetで
-// 道路と平行な複数トラックへ横並びに分離する（applyRoadMaterialTrackOffsets参照）。
-// トラック間隔はline-width（3px）の半分弱ずつ重なる値にしてある（重なりは色の切り替わりと
-// して視認できる範囲に収まり、完全な塗り潰しにはならない）。
-// exportはテスト専用（MapView.layerOps.test.ts）。
-export const MATERIAL_TRACK_OFFSET_STEP = 2;
-export const ROAD_MATERIAL_TRACK_LAYER_IDS = [
-  ROAD_TILE_LAYER_ID,
-  ROAD_TYPE_LAYER_ID,
-  TUNNEL_LAYER_ID,
-  ONEWAY_LAYER_ID,
-] as const;
-// ramp軸（停止密度・事故密度等、axisLayers.ts）は「推定」グループのメンバーで、
-// いずれも同じroad_surfaceソース上の独立レイヤーとして重ねて描画される。2次は太く半透明な
-// 「下敷き」、1次は細くくっきりした「上書き」として重ねることで、下に
-// 赤い区間があってもその上に事故地点の点や道路種別の線が乗って見えるようにする（描画順序は
-// buildStaticOverlayLayers()参照。1次より下・road_surfaceより上に置く）。
-// 幅は1次「素材」線が全部ONになったときの最大帯幅（トラック数×オフセット間隔＋自身の
-// 太さ）から式で算出する。この式にすることで、上記2定数（トラック本数・オフセット間隔）の
-// 変更に自動で追従する。
-// exportはテスト専用（MapView.layerOps.test.ts）。
-export const SECONDARY_AXIS_CASING_WIDTH =
-  (ROAD_MATERIAL_TRACK_LAYER_IDS.length - 1) * MATERIAL_TRACK_OFFSET_STEP + DEFAULT_ROAD_LINE_WIDTH;
-export const SECONDARY_AXIS_CASING_OPACITY = 0.45;
-// 詳細を見ている道の強調。線そのものの色分け（評価・分類）と混ざらないよう、どの軸の
-// 配色にも使っていない色を太く薄く敷く——上に元の線が乗ったままになり、何の道かは
-// 引き続き色で読める。対象はタイルへ焼き込み済みの`osm_way_id`で1本へ絞る
-// （どのタイルが読み込まれていても同じ式で当たる）。
-const ROAD_INSPECT_COLOR = "#f59e0b";
-const ROAD_INSPECT_WIDTH = 10;
-const ROAD_INSPECT_OPACITY = 0.55;
-
-// 路面・道路の種類レイヤーの初期化直後の仮の色（applyRoadLayerStateが呼び出し直後に必ず
-// 実際の値へ上書きする、placeholder的な役割のみ）。
-const ROAD_LINE_NEUTRAL_COLOR = "#9ca3af";
-
-// 路面・道路の種類レイヤーの色分け式は軸ごとに固定（roadFilterAxes.ts）、
-// ルートレイヤー（風・勾配）の色分け式はモード定義（routeStyleModes.ts）から取得する。
-// ルート側は以降のモード切替もsetPaintProperty/setFilterによる式の差し替えのみ（路面タイルには
-// surface_good/surface/highwayが、ルートのsegmentsにはaxis_difficulties（axis_id→difficultyの
-// 汎用dict）・material_values（材料id→値の汎用dict）がすべて入っているため再取得は不要）。
-
-/** レイヤーが無ければ追加し、既にあれば**spec側の設定をすべて再適用する**。
- *
- * ensure系が「既にあれば何もしない」で早期returnすると、addLayer時の値がそのまま固定され、
- * 後から入力（軸カタログ由来の色式・しきい値由来のfilter・サイズ曲線）が変わっても追随
- * しない。追加と再適用を同じspecから行うことで、「色は追随するのにfilterだけ古い」という
- * 片側だけの取り残しが起こりえない形にする——ensure関数ごとに再適用を書く形だと、
- * 新しいプロパティを足したときに書き足し忘れても何も落ちない。
- *
- * `visibility`だけは再適用しない。specが持つのは追加時の初期値で、実際の表示ON/OFFは
- * `setStaticOverlayVisibility`等が別に管理する状態のため、上書きすると利用者の選択が消える。
- *
- * `filter`は**どちらが持ち主かをspec側が宣言できない**——「キーが無い」が
- * 「自分の持ち物だが今は条件なし」と「外側が管理しているので触るな」の両方を意味しうる。
- * 呼び出し側が`specOwnsFilter`で答える（必須引数にしてあるのは、レイヤーを足すときに
- * その場で答えさせるため）。`false`のレイヤーは`setStaticOverlayFilters`が凡例の
- * ON/OFFから組み立てて与えており、ここで触ると利用者の絞り込みが巻き戻る。
- */
-export function ensureLayerFromSpec(
-  map: MapLibreMap,
-  spec: maplibregl.AddLayerObject,
-  { specOwnsFilter }: { specOwnsFilter: boolean },
-) {
-  if (!map.getLayer(spec.id)) {
-    // 面で塗るレイヤーは基礎地図の面の直後（＝道路・境界の線と地名の記号より下）へ差し込む。
-    // 面を最前面に積むと、下の情報を読めるかどうかが不透明度だけで決まり、最も濃い色に
-    // 合わせて下げるほかなくなる——薄い色はその巻き添えで背景と区別が付かなくなる。
-    map.addLayer(spec, isAreaLayerType(spec.type) ? areaLayerAnchor(map) : undefined);
-    return;
-  }
-  const withProps = spec as unknown as {
-    paint?: Record<string, unknown>;
-    layout?: Record<string, unknown>;
-    filter?: unknown;
-  };
-  // specのキーをそのまま流すため、プロパティ名を静的に知らない（型はレイヤー種ごとの
-  // 名前の集合を要求する）。
-  const setPaint = map.setPaintProperty.bind(map) as (id: string, name: string, value: unknown) => void;
-  const setLayout = map.setLayoutProperty.bind(map) as (id: string, name: string, value: unknown) => void;
-  for (const [name, value] of Object.entries(withProps.paint ?? {})) {
-    setPaint(spec.id, name, value);
-  }
-  for (const [name, value] of Object.entries(withProps.layout ?? {})) {
-    if (name === "visibility") continue;
-    setLayout(spec.id, name, value);
-  }
-  // filterはraster/background/hillshadeでは設定できない（MapLibreがstyle検証で弾く）。
-  // 持ち主のときは、specがfilterキーを失った場合（しきい値がnullへ変わった等）に
-  // undefinedで明示的に外す——残しておくと絞り込みだけが古い条件のまま効き続ける。
-  const canHaveFilter = spec.type !== "raster" && spec.type !== "background" && spec.type !== "hillshade";
-  if (specOwnsFilter && canHaveFilter) {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    map.setFilter(spec.id, (withProps.filter ?? undefined) as any);
-  }
-}
-
-// 標高（国土地理院 色別標高図）・路面はどちらも「変わらないデータ」として、選択候補に
-// 関係なく表示中の地図全体に重ね描きする。互いに排他ではなく同時にON/OFFできる。
-
-// 標高ラスタは地図初期化時に一度だけソース/レイヤーを追加し（visibilityはデフォルトnone）、
-// 以降はvisibilityの切替のみで表示・非表示する。面で塗る種別のため差し込み位置は
-// ensureLayerFromSpecが基礎地図の線・記号の下へ決め、他の重ね描きレイヤー（route/road）
-// より先に追加することで面どうしの中でも最も背景寄りになる。
-function ensureGsiReliefLayer(map: MapLibreMap) {
-  const applyData = () => {
-    if (!map.getSource(GSI_RELIEF_SOURCE_ID)) {
-      map.addSource(GSI_RELIEF_SOURCE_ID, {
-        type: "raster",
-        tiles: [`${tileBaseUrl()}${GSI_RELIEF_TILE_PATH}`],
-        tileSize: 256,
-        maxzoom: GSI_RELIEF_MAX_ZOOM,
-        attribution: GSI_RELIEF_ATTRIBUTION,
-      });
-    }
-    ensureLayerFromSpec(
-      map,
-      {
-        id: GSI_RELIEF_LAYER_ID,
-        type: "raster",
-        source: GSI_RELIEF_SOURCE_ID,
-        paint: { "raster-opacity": AREA_LAYER_OPACITY },
-        layout: { visibility: "none" },
-      },
-      { specOwnsFilter: true },
-    );
-  };
-  runWhenStyleReady(map, applyData);
-}
-
-// 土地被覆ラスタ。標高図と同じ「地域に固定・時間で変わらない面」で、登録も同じく一度だけ
-// 行いvisibilityの切替で表示・非表示する。元データの分解能を超えるズームはMapLibreが
-// 拡大して見せる（maxzoomより上を要求しない）。
-function ensureLandcoverLayer(map: MapLibreMap) {
-  const applyData = () => {
-    if (!map.getSource(LANDCOVER_SOURCE_ID)) {
-      map.addSource(LANDCOVER_SOURCE_ID, {
-        type: "raster",
-        tiles: [landcoverTileUrl()],
-        tileSize: 256,
-        minzoom: LANDCOVER_TILE_MIN_ZOOM,
-        maxzoom: LANDCOVER_TILE_MAX_ZOOM,
-      });
-    }
-    ensureLayerFromSpec(
-      map,
-      {
-        id: LANDCOVER_LAYER_ID,
-        type: "raster",
-        source: LANDCOVER_SOURCE_ID,
-        paint: { "raster-opacity": AREA_LAYER_OPACITY },
-        layout: { visibility: "none" },
-      },
-      { specOwnsFilter: true },
-    );
-  };
-  runWhenStyleReady(map, applyData);
-}
-
-// 起伏（陰影）。標高タイル（DEM）をraster-demソースとして読み、MapLibreのhillshadeが
-// 傾きから影を作る。色別標高図（上）が「この場所が何mか」を面で塗るのに対し、こちらは
-// 「どこに坂があるか」だけを塗る——傾きが0の画素は透明になるため、平地では基礎地図の
-// 土地の色がそのまま残る。
-function ensureTerrainHillshadeLayer(map: MapLibreMap) {
-  const applyData = () => {
-    if (!map.getSource(GSI_TERRAIN_SOURCE_ID)) {
-      map.addSource(GSI_TERRAIN_SOURCE_ID, {
-        type: "raster-dem",
-        tiles: [`${tileBaseUrl()}${GSI_TERRAIN_TILE_PATH}`],
-        tileSize: 256,
-        maxzoom: GSI_TERRAIN_MAX_ZOOM,
-        // backendが配信元の独自エンコードをTerrain-RGBへ移して返す（app/domain/terrain_rgb.py）。
-        // 標準のmapbox encodingではなくcustomにするのは、係数へ垂直方向の強調倍率を
-        // 掛けるため（TERRAIN_VERTICAL_EXAGGERATION参照）。
-        encoding: "custom",
-        redFactor: TERRAIN_RGB_RED_FACTOR * TERRAIN_VERTICAL_EXAGGERATION,
-        greenFactor: TERRAIN_RGB_GREEN_FACTOR * TERRAIN_VERTICAL_EXAGGERATION,
-        blueFactor: TERRAIN_RGB_BLUE_FACTOR * TERRAIN_VERTICAL_EXAGGERATION,
-        baseShift: TERRAIN_RGB_BASE_SHIFT * TERRAIN_VERTICAL_EXAGGERATION,
-      });
-    }
-    ensureLayerFromSpec(
-      map,
-      {
-        id: GSI_TERRAIN_LAYER_ID,
-        type: "hillshade",
-        source: GSI_TERRAIN_SOURCE_ID,
-        paint: {
-          "hillshade-method": HILLSHADE_METHOD,
-          // igorは傾きの大きさを`exaggeration * 2`倍してから角度へ直す。上限の1にする。
-          "hillshade-exaggeration": 1,
-          "hillshade-shadow-color": HILLSHADE_SHADOW_COLOR,
-          "hillshade-highlight-color": HILLSHADE_HIGHLIGHT_COLOR,
-          "hillshade-illumination-direction": HILLSHADE_ILLUMINATION_DIRECTION,
-          "hillshade-illumination-anchor": "map",
-        },
-        layout: { visibility: "none" },
-      },
-      { specOwnsFilter: true },
-    );
-  };
-  runWhenStyleReady(map, applyData);
-}
-
-// 気象庁 降水ナウキャストを含む動的気象レイヤーのソース/レイヤー登録・状態反映は、
-// 風の矢印・降水延長予報と共通の汎用関数（ensureDynamicWeatherLayer/
-// applyDynamicWeatherState）へ集約されている。定義は本ファイル後半、アイコン生成・色/
-// サイズ式が出揃った箇所（DYNAMIC_WEATHER_RENDERERS参照）にある。
-
-// 風の矢印。矢印アイコンのCanvas 2D描画本体（createWindArrowIcon等、MapLibre/DOM以外に
-// 依存しない純粋な幾何計算）はwindArrowIcon.tsへ分離済み。ここではMapLibre側の表現
-// （icon-rotate・icon-size・icon-color等）に関わる定数・式のみを持つ。ほぼ無風でも
-// 矢印を出すと違和感があるため、「無風」と呼べる範囲までは閾値未満としてfilterで
-// 非表示にする（関東でよく起きる1m/s未満の弱風は無風ではないため、この範囲を非表示に
-// すると矢印が全滅しセル塗りと組み合わせても何も描画されないように見えることに注意）。
-// アイコンサイズ（風速→スケール倍率）。最低スケールを一定以上に確保しないと、無風閾値
-// ぎりぎりの矢印がほぼ最小サイズのままで目立たない。最低〜最大スケールの幅を広く取るほど、
-// icon-sizeによる一様スケールが「長さで風速がわかる」度合いを強める
-// （色のグラデーションは別レイヤーの役割、WIND_COLOR_SCALE_EXPRESSION参照）。
-const WIND_ICON_MIN_SCALE = 0.9;
-const WIND_ICON_MAX_SCALE = 2.6;
-// icon-halo-*（SDFアイコンの縁取りpaintプロパティ）用の色・幅。主層と別レイヤーにしない
-// ため、地図の背景色に関わらず衝突判定の対象は主層のみで縁取りは必ず追従する。
-const WIND_ICON_HALO_COLOR = "rgba(31, 41, 55, 0.85)";
-const WIND_ICON_HALO_WIDTH_PX = 1.5;
-// 微風=水色→ロードバイクで走行が難しい強風域=濃い赤の連続グラデーション（ビューフォート
-// 風力階級準拠、windLayer.ts: WIND_SPEED_COLOR_STOPSのコメント参照）。矢印のicon-colorと
-// 地図チップの凡例（page.tsx）の2箇所で同じ配色を使うため、生データはwindLayer.tsを
-// 単一の情報源として持ち、MapLibre補間式への組み立てだけここで行う。
-export const WIND_COLOR_SCALE_EXPRESSION = buildBandColorExpression(
-  ["to-number", ["get", "speed"]],
-  WIND_SPEED_COLOR_STOPS.map((stop) => ({ from: stop.speedMs, color: stop.color })),
-) as unknown as maplibregl.ExpressionSpecification;
-
-// 降水延長予報（gridFill、格子セルを指定色で塗る）のfill-color。PRECIPITATION_COLOR_STOPS
-// （precipitationNowcast.ts、地図チップの凡例と単一の情報源）をMapLibre補間式へ組み立てる。
-export const PRECIPITATION_COLOR_SCALE_EXPRESSION = buildBandColorExpression(
-  ["to-number", ["get", "mmPerHour"]],
-  PRECIPITATION_COLOR_STOPS.map((stop) => ({ from: stop.mmPerHour, color: stop.color })),
-) as unknown as maplibregl.ExpressionSpecification;
-
-// 洪水キキクルのline-color。配信元のフィーチャーが持つ`level`
-// プロパティ（1〜4）をRISK_LEVEL_COLORS（riskMap.ts、土砂・大雨・浸水の3種と共通の
-// 危険度配色）へそのままmatchする。level=0・未設定のフィーチャー（平常時の基準線）は
-// DYNAMIC_WEATHER_RENDERERS.floodRiskのminValueToShowフィルタで描画対象から除外される
-// ため、フォールバック値（levelがmatchのどれにも該当しない場合）は実際には使われないが、
-// MapLibreのmatch式は仕様上フォールバックが必須のためRISK_LEVEL_COLORS[0]（level0の色）を
-// 割り当てておく。
-const FLOOD_RISK_LINE_COLOR_EXPRESSION = [
-  "match",
-  ["to-number", ["get", "level"]],
-  1,
-  RISK_LEVEL_COLORS[1].color,
-  2,
-  RISK_LEVEL_COLORS[2].color,
-  3,
-  RISK_LEVEL_COLORS[3].color,
-  4,
-  RISK_LEVEL_COLORS[4].color,
-  RISK_LEVEL_COLORS[0].color,
-] as unknown as maplibregl.ExpressionSpecification;
-
-// 河川の危険情報という性質上、低ズームでは目立たせすぎず、拡大するほど個々の河川区間を
-// 追いやすいよう太くする（JMA公式サイトのzoom依存weight式を単純化した近似値）。
-const FLOOD_RISK_LINE_WIDTH_EXPRESSION = [
-  "interpolate",
-  ["linear"],
-  ["zoom"],
-  6,
-  1.5,
-  10,
-  3,
-  14,
-  5,
-] as unknown as maplibregl.ExpressionSpecification;
-
-/** 動的気象レイヤー1要素ぶんの描画スペック。raster/gridFill/gridMarkのうち実際に使う
- * ものだけを持つ（例: windVectorはgridMarkのみ、precipitationNowcastはraster+gridFillの
- * 2つを併せ持ち、選択中の時刻が60分以内かどうかでpage.tsx側がどちらのkindのペイロードを
- * 渡すか決める。表示層は常にkindを見るだけで、この2レイヤーの扱いに差は無い）。 */
-interface DynamicWeatherRasterSpec {
-  placeholderTileUrl: string;
-  opacity: number;
-  minzoom?: number;
-  maxzoom?: number;
-  attribution?: string;
-}
-
-interface DynamicWeatherFillSpec {
-  valueProperty: string;
-  colorExpression: maplibregl.ExpressionSpecification;
-  opacity: number;
-  minValueToShow?: number;
-}
-
-interface DynamicWeatherMarkSpec {
-  createIcon: () => ImageData;
-  colorExpression: maplibregl.ExpressionSpecification;
-  valueProperty: string;
-  rotateProperty?: string;
-  minScale: number;
-  maxScale: number;
-  maxValueForFullScale: number;
-  haloColor: string;
-  haloWidth: number;
-  minValueToShow?: number;
-}
-
-/** 配信元のMapbox Vector Tile（.pbf）をMapLibre標準のvectorソース+lineレイヤーで
- * そのまま描画する（洪水キキクル）。gridFill/gridMarkと違い値は
- * フィーチャーのプロパティに焼き込み済みのため、feature-state・GeoJSON変換は不要——
- * source-layer名とMapLibre paint式（プロパティ参照）だけを持てばよい。 */
-interface DynamicWeatherVectorSpec {
-  placeholderTileUrl: string;
-  sourceLayer: string;
-  colorExpression: maplibregl.ExpressionSpecification;
-  lineWidthExpression: maplibregl.ExpressionSpecification;
-  /** フィルタ対象のプロパティ名（例: "level"）。minValueToShow未指定ならフィルタ無し。 */
-  valueProperty?: string;
-  minValueToShow?: number;
-  minzoom?: number;
-  maxzoom?: number;
-  attribution?: string;
-}
-
-interface DynamicWeatherRendererSpec {
-  raster?: DynamicWeatherRasterSpec;
-  gridFill?: DynamicWeatherFillSpec;
-  gridMark?: DynamicWeatherMarkSpec;
-  vector?: DynamicWeatherVectorSpec;
-}
-
-// 1グループ（=1 DynamicWeatherLayerId）配下の名前付きソースごとの描画スペック。
-// 単一ソースしか持たないグループは"main"という1キーだけを持つ。
-type DynamicWeatherGroupSpec = Partial<Record<DynamicWeatherSourceId, DynamicWeatherRendererSpec>>;
-
-// 動的気象レイヤーの描画スペック一覧（唯一の情報源）。新しい要素を追加するときはここへ
-// 1エントリ足すだけでよい（dynamicWeather.ts冒頭の「1本道」コメント参照）。色・アイコン式を
-// 参照するため、それらのconst定義より後（JSのconstはhoistされないため）に置く必要がある。
-export const DYNAMIC_WEATHER_RENDERERS: Record<DynamicWeatherLayerId, DynamicWeatherGroupSpec> = {
-  precipitationNowcast: {
-    main: {
-      raster: {
-        // 初期化時のsourceプレースホルダ（applyDynamicWeatherStateが本物のURLへsetTilesで
-        // 差し替えてからvisibility:visibleにする、ensureRoadSurfaceTileLayer等と同じ
-        // 「仮の初期値」パターン。setTiles→visibility切替の順序自体は守られている）。
-        // このプレースホルダURL（時刻部分が全ゼロの架空値）は、React Strict Modeの
-        // 開発時二重実行（mount→cleanup→再mount）で初回payload未確定時に一瞬visible=trueに
-        // なるタイミングが生じると、実際にタイルリクエストが飛びJMA側で404になりうる
-        // （`next dev`限定の想定、本番ビルドではStrict Modeの二重実行が発生しないため
-        // 再現しない）。表示自体は次のpayload反映で自己回復するため実害は無い。
-        placeholderTileUrl: jmaPlaceholderTileUrl("nowc", "hrpns"),
-        opacity: AREA_LAYER_OPACITY,
-        ...jmaZoomRange("hrpns"),
-        attribution: "気象庁",
-      },
-      gridFill: {
-        valueProperty: "mmPerHour",
-        colorExpression: PRECIPITATION_COLOR_SCALE_EXPRESSION,
-        opacity: AREA_LAYER_OPACITY,
-        minValueToShow: PRECIPITATION_NONE_THRESHOLD_MM,
-      },
-    },
-    // 線状降水帯予測マップ。ナウキャスト/rasrf/延長予報（"main"）と独立に重畳表示する——
-    // フレーム列を持たない単発スナップショットのため、共有タイムラインが「現在〜3時間先」の
-    // 範囲内にあるときだけpayloadが渡る（useDynamicWeatherLayers.ts: linearRainbandVisible参照）。
-    linearRainband: {
-      raster: {
-        placeholderTileUrl: jmaPlaceholderTileUrl("rasrf", "sjfcstmap"),
-        opacity: AREA_LAYER_OPACITY,
-        ...jmaZoomRange("sjfcstmap"),
-        attribution: "気象庁",
-      },
-    },
-  },
-  windVector: {
-    // 矢印。走行方位に依存しない風向・風速そのものの表示のみを持つ
-    // （評価軸としての向かい風/追い風の強さはRouteSettingsPanel「風」の「地図で色分け」
-    // ボタン[専用way値配信軸のレンズ]・地図の色分け[ルート確定後]が担う）。
-    arrow: {
-      gridMark: {
-        createIcon: createWindArrowIcon,
-        colorExpression: WIND_COLOR_SCALE_EXPRESSION,
-        valueProperty: "speed",
-        rotateProperty: "bearing",
-        minScale: WIND_ICON_MIN_SCALE,
-        maxScale: WIND_ICON_MAX_SCALE,
-        maxValueForFullScale: 15,
-        haloColor: WIND_ICON_HALO_COLOR,
-        haloWidth: WIND_ICON_HALO_WIDTH_PX,
-        minValueToShow: WIND_CALM_THRESHOLD_MS,
-      },
-    },
-  },
-  // 災害。配下の要素を名前付きソースとして同時に描画する1グループ（mapLayers.ts: "disaster"）。
-  // オブジェクトのキー順がそのままMapLibreのレイヤー追加順＝重なり順になる
-  // （ensureDynamicWeatherLayerがObject.entriesで走査する）ため、面（キキクル・雷・竜巻の
-  // ラスタ）を下に、局所的で見落としやすい線（洪水）・点（落雷）を上に置く。ラスタ同士が
-  // 重なった領域は混色になるが、危険度ゼロの領域は配信元のタイルが透明のため、平常時は
-  // 配下をすべてONにしても地図の見た目は変わらない。
-  disaster: {
-    // キキクル（危険度分布）。ズーム範囲はjmaZoomRangeが配信元仕様から導出する。
-    // 大雨は浸水・土砂双方を統合した指標のため、個別の土砂・浸水より下に置く。
-    heavyRain: {
-      raster: {
-        placeholderTileUrl: jmaPlaceholderTileUrl("risk", "rain_mesh"),
-        opacity: AREA_LAYER_OPACITY,
-        ...jmaZoomRange("rain_mesh"),
-        attribution: "気象庁",
-      },
-    },
-    landslide: {
-      raster: {
-        placeholderTileUrl: jmaPlaceholderTileUrl("risk", "land"),
-        opacity: AREA_LAYER_OPACITY,
-        ...jmaZoomRange("land"),
-        attribution: "気象庁",
-      },
-    },
-    inundation: {
-      raster: {
-        placeholderTileUrl: jmaPlaceholderTileUrl("risk", "inund"),
-        opacity: AREA_LAYER_OPACITY,
-        ...jmaZoomRange("inund"),
-        attribution: "気象庁",
-      },
-    },
-    // 雷ナウキャスト・竜巻発生確度ナウキャスト。降水ナウキャストと同じbosai/jmatile/
-    // data/nowc/系だが、60分より先の延長予報を持たない（MSM側に雷・竜巻に相当する
-    // データが無いため）。プロダクトコード違い（thns/trns）だけの単純なrasterのみの
-    // スペックで、gridFill/gridMarkは持たない。
-    thunder: {
-      raster: {
-        placeholderTileUrl: jmaPlaceholderTileUrl("nowc", "thns"),
-        opacity: AREA_LAYER_OPACITY,
-        ...jmaZoomRange("thns"),
-        attribution: "気象庁",
-      },
-    },
-    tornado: {
-      raster: {
-        placeholderTileUrl: jmaPlaceholderTileUrl("nowc", "trns"),
-        opacity: AREA_LAYER_OPACITY,
-        ...jmaZoomRange("trns"),
-        attribution: "気象庁",
-      },
-    },
-    // 洪水キキクル。他3種と異なり配信元がMapbox Vector Tile（.pbf）のためvector kind
-    // （riskMap.ts冒頭コメント参照）。source-layer名"flood"・プロパティ"level"（1〜4）は
-    // risk.properties.xmlのvectorTileLayerStyles.floodに対応する。
-    flood: {
-      vector: {
-        // ベクタタイルはMapLibreがWeb Worker内で取得するため、相対パスのままだとWorkerの
-        // base URLに対して解決できず例外になる（regionApi.ts: roadSurfaceTileUrl等と同じ
-        // 理由、riskMap.ts: tileUrlTemplateのpbf分岐参照）。DYNAMIC_WEATHER_RENDERERSは
-        // モジュール読み込み時に評価される定数のため、純ロジックのみをnode環境（windowを
-        // 持たない）でテストするMapView.routes.test.ts等からも本ファイルがimportされる。
-        // windowが無い環境ではこのプレースホルダURLの値自体は使われないため、その場合だけ
-        // 絶対URL化を諦め相対URLへ戻す（実ブラウザでは常にwindowが存在する）。
-        placeholderTileUrl: jmaPlaceholderTileUrl("risk", "flood", "pbf"),
-        sourceLayer: "flood",
-        colorExpression: FLOOD_RISK_LINE_COLOR_EXPRESSION,
-        lineWidthExpression: FLOOD_RISK_LINE_WIDTH_EXPRESSION,
-        valueProperty: "level",
-        // level>=1（=何らかの危険度あり）のフィーチャーだけを表示する（riskMap.ts冒頭
-        // コメント「危険情報のみ」方針参照）。既存のminValueToShowフィルタ（gridFill/
-        // gridMarkと共通のパターン）をそのまま流用する。
-        minValueToShow: 0,
-        ...jmaZoomRange("flood"),
-        attribution: "気象庁",
-      },
-    },
-    // 雷放電位置データ（落雷）。同じN3配信の雷ナウキャストと異なり、配信元が既にGeoJSON
-    // （個々の落雷地点）で提供するためraster設定を持たない。geojson自体は
-    // hooks/useDynamicWeatherLayers.tsが選択フレームごとに取得しstateへ持つ（他要素の
-    // gridMarkと異なり、既存の格子データからの合成ではなく配信元GeoJSONをそのまま渡す）。
-    // 落雷の強弱を示す値を配信元が持たないため、valueProperty（LIDEN_MARK_VALUE_PROPERTY）は
-    // 常に固定値で、minScale===maxScaleによりicon-sizeはズームだけに依存する。
-    liden: {
-      gridMark: {
-        createIcon: createLidenIcon,
-        colorExpression: "#facc15" as unknown as maplibregl.ExpressionSpecification,
-        valueProperty: LIDEN_MARK_VALUE_PROPERTY,
-        minScale: 0.8,
-        maxScale: 0.8,
-        maxValueForFullScale: 1,
-        haloColor: "rgba(31, 41, 55, 0.85)",
-        haloWidth: 1.5,
-      },
-    },
-  },
-};
-
-// 動的気象レイヤーのsource/レイヤーを初期化時に一度だけ追加する（GSI標高ラスタ等と同じ
-// パターン）。グループ配下の各ソースについて、spec.raster/gridFill/gridMark/vectorのうち
-// 実際に指定されているものだけを追加する。
-// レイヤーが既に存在する場合も各paintプロパティをsetPaintPropertyで再適用する
-// （addLayer時の値で固定させない）——map.setStyle()後の作り直しと、同じidへ別のgroupSpecが
-// 渡された場合のどちらでも、addLayerが「既にある」で早期returnして古い見た目が残るのを防ぐ。
-export function ensureDynamicWeatherLayer(
-  map: MapLibreMap,
-  id: DynamicWeatherLayerId,
-  groupSpec: DynamicWeatherGroupSpec,
-) {
-  const applyData = () => {
-    for (const [source, spec] of Object.entries(groupSpec)) {
-      if (!spec) continue;
-      if (spec.raster) {
-        const { sourceId, layerId } = dynamicWeatherIds(id, source, "raster");
-        if (!map.getSource(sourceId)) {
-          map.addSource(sourceId, {
-            type: "raster",
-            tiles: [withJmaTileProtocol(spec.raster.placeholderTileUrl)],
-            tileSize: 256,
-            minzoom: spec.raster.minzoom,
-            maxzoom: spec.raster.maxzoom,
-            attribution: spec.raster.attribution,
-          });
-        }
-        // specOwnsFilter: 動的気象レイヤーのspecが絞り込みの持ち主（外から与える経路が無い）。
-        ensureLayerFromSpec(
-          map,
-          {
-            id: layerId,
-            type: "raster",
-            source: sourceId,
-            paint: { "raster-opacity": spec.raster.opacity },
-            layout: { visibility: "none" },
-          },
-          { specOwnsFilter: true },
-        );
-      }
-      if (spec.gridFill) {
-        const { sourceId, layerId } = dynamicWeatherIds(id, source, "fill");
-        if (!map.getSource(sourceId)) {
-          map.addSource(sourceId, {
-            type: "geojson",
-            data: EMPTY_FEATURE_COLLECTION,
-            attribution: "気象庁MSM / Open-Meteo",
-          });
-        }
-        ensureLayerFromSpec(
-          map,
-          {
-            id: layerId,
-            type: "fill",
-            source: sourceId,
-            layout: { visibility: "none" },
-            paint: {
-              "fill-color": spec.gridFill.colorExpression,
-              "fill-opacity": spec.gridFill.opacity,
-            },
-            // filterキー自体を「値がundefinedのまま持たせる」と、MapLibreのstyle検証が
-            // 「filterには配列が必要」というエラーを出す（キーの有無ではなく値の型で
-            // 判定するため）。minValueToShowが無い場合はキーごと省略する。
-            ...(spec.gridFill.minValueToShow != null
-              ? {
-                  filter: [
-                    ">",
-                    ["to-number", ["get", spec.gridFill.valueProperty]],
-                    spec.gridFill.minValueToShow,
-                  ] as maplibregl.ExpressionSpecification,
-                }
-              : {}),
-          },
-          { specOwnsFilter: true },
-        );
-      }
-      if (spec.gridMark) {
-        const mark = spec.gridMark;
-        const { sourceId, layerId, iconId } = dynamicWeatherIds(id, source, "mark");
-        if (!map.hasImage(iconId)) {
-          // sdf:trueで登録すると、単色シルエット画像でもicon-colorでの着色対象になる
-          // （真のsigned distance fieldではなく塗りつぶし画像だが、本アイコンの表示サイズ
-          // 範囲では実用上問題ない簡易的な使い方）。icon-halo-*（縁取り）paintプロパティも
-          // sdf:true必須。
-          map.addImage(iconId, mark.createIcon(), { sdf: true });
-        }
-        if (!map.getSource(sourceId)) {
-          map.addSource(sourceId, {
-            type: "geojson",
-            data: EMPTY_FEATURE_COLLECTION,
-            attribution: "気象庁MSM / Open-Meteo",
-          });
-        }
-        // 縁取りは別レイヤーではなくicon-halo-*（主層と同じsymbolレイヤーのpaint
-        // プロパティ）で表現する。別レイヤーの縁取りは、MapLibreがレイヤーの上から順に
-        // シンボルを配置するため、先に置かれた主層と同位置・大きめの縁取り層が「衝突」として
-        // 全て落ちる（icon-allow-overlap: falseのため）。1層にまとめれば主層自身の衝突判定
-        // （密なズームで格子点を間引く）に縁取りが自動的に追従する。
-        ensureLayerFromSpec(
-          map,
-          {
-            id: layerId,
-            type: "symbol",
-            source: sourceId,
-            layout: {
-              "icon-image": iconId,
-              "icon-rotate": mark.rotateProperty ? ["to-number", ["get", mark.rotateProperty]] : 0,
-              "icon-rotation-alignment": mark.rotateProperty ? "map" : "viewport",
-              "icon-allow-overlap": false,
-              "icon-ignore-placement": false,
-              // 長さ・太さをまとめてスケールする（アイコン全体の一様拡大）。
-              "icon-size": zoomAndPropertyIconSizeExpression(
-                mark.valueProperty,
-                mark.minScale,
-                mark.maxScale,
-                mark.maxValueForFullScale,
-                1,
-              ),
-              visibility: "none",
-            },
-            paint: {
-              "icon-color": mark.colorExpression,
-              "icon-opacity": 1,
-              "icon-halo-color": mark.haloColor,
-              "icon-halo-width": mark.haloWidth,
-            },
-            ...(mark.minValueToShow != null
-              ? {
-                  filter: [
-                    ">",
-                    ["to-number", ["get", mark.valueProperty]],
-                    mark.minValueToShow,
-                  ] as maplibregl.ExpressionSpecification,
-                }
-              : {}),
-          },
-          { specOwnsFilter: true },
-        );
-      }
-      if (spec.vector) {
-        const vector = spec.vector;
-        const { sourceId, layerId } = dynamicWeatherIds(id, source, "vector");
-        if (!map.getSource(sourceId)) {
-          map.addSource(sourceId, {
-            type: "vector",
-            tiles: [withJmaTileProtocol(vector.placeholderTileUrl)],
-            minzoom: vector.minzoom,
-            maxzoom: vector.maxzoom,
-            attribution: vector.attribution,
-          });
-        }
-        ensureLayerFromSpec(
-          map,
-          {
-            id: layerId,
-            type: "line",
-            source: sourceId,
-            "source-layer": vector.sourceLayer,
-            paint: {
-              "line-color": vector.colorExpression,
-              "line-width": vector.lineWidthExpression,
-            },
-            layout: { visibility: "none" },
-            // gridFill/gridMarkと同じ理由（上記参照）でminValueToShow未設定時はfilterキー
-            // 自体を省略する。
-            ...(vector.minValueToShow != null && vector.valueProperty
-              ? {
-                  filter: [
-                    ">",
-                    ["to-number", ["get", vector.valueProperty]],
-                    vector.minValueToShow,
-                  ] as maplibregl.ExpressionSpecification,
-                }
-              : {}),
-          },
-          { specOwnsFilter: true },
-        );
-      }
-    }
-  };
-  runWhenStyleReady(map, applyData);
-}
-
-// payload（page.tsx側が各要素のデータ層関数から計算した値）を反映する。グループ配下の
-// 各ソースについて、visibleとpayloadのどちらか一方でも欠けていれば非表示のまま（フェッチ
-// 未完了・取得失敗時、あるいは選択時刻がそのソースのデータ範囲外で「描画しない」場合に、
-// 古いフレームが一瞬見えるのを防ぐ）。payload.kindがそのソースのspecの複数サブレイヤー
-// （precipitationNowcast.mainのraster/gridFill等）のどれと対応するかだけを見て、対応しない
-// サブレイヤーは常に非表示にする（=同時に両方は出ない）。ソースをまたいだ複数payloadの
-// 同時表示（precipitationNowcastのmain+linearRainband等）は、グループ内の別ソースとして
-// 独立にvisible/payloadを持つことで実現する（このループ自体は各ソースを独立に処理するだけ）。
-// setTiles()は同じURLを渡しても無条件にソースをリロードし、読み込み済みのタイルを
-// 破棄して取得し直す（ラスタは特にPNGデコード・GPUテクスチャアップロードのコストが
-// 大きい）。dynamicWeatherは風・降水・雷等いずれか1要素の更新だけでも新しいオブジェクト
-// 参照になり、applyDynamicWeatherStateは全グループぶん毎回呼ばれるため、URLが前回から
-// 変わっていないソースまで巻き添えで再読み込みされる。ソースごとに前回適用したURLを
-// 覚えておき、変化が無ければsetTilesを呼ばない。
-const lastAppliedTileUrl = new WeakMap<object, string>();
-
-// この関数を通るのは動的気象レイヤー（JMAタイル）のソースだけのため、ここで
-// jmatile://スキームを付ける（jmaTileProtocol.tsが在否インデックスを見て、空と分かって
-// いるタイルをネットワークへ出さずに透明タイルで返す）。
-function setTilesIfChanged(source: maplibregl.RasterTileSource | maplibregl.VectorTileSource, url: string): void {
-  const tileUrl = withJmaTileProtocol(url);
-  if (lastAppliedTileUrl.get(source) === tileUrl) return;
-  lastAppliedTileUrl.set(source, tileUrl);
-  source.setTiles([tileUrl]);
-}
-
-// gridFill/gridMark（GeoJSONSource）向けの同型ガード。setData()はネットワーク取得こそ
-// 無いが、渡したデータをワーカーへ送り直しインデックスを再構築させる点はsetTilesと同じ
-// 「無条件に再構築」挙動のため揃えておく。内容比較にJSON.stringifyを使うのは、
-// payloadが都度新しいオブジェクト参照で計算される（風グリッド・落雷位置等、都度数十〜
-// 数百点程度）ため参照比較では意味が無く、かつこの規模なら文字列化のコストは無視できる
-// ため。
-const lastAppliedGeojson = new WeakMap<object, string>();
-
-function setDataIfChanged(source: GeoJSONSource, geojson: GeoJSON.GeoJSON): void {
-  const serialized = JSON.stringify(geojson);
-  if (lastAppliedGeojson.get(source) === serialized) return;
-  lastAppliedGeojson.set(source, serialized);
-  source.setData(geojson);
-}
-
-export function applyDynamicWeatherState(
-  map: MapLibreMap,
-  id: DynamicWeatherLayerId,
-  groupSpec: DynamicWeatherGroupSpec,
-  groupState: DynamicWeatherGroupState | undefined,
-) {
-  runWhenStyleReady(map, () => {
-    ensureDynamicWeatherLayer(map, id, groupSpec);
-    for (const [source, spec] of Object.entries(groupSpec)) {
-      if (!spec) continue;
-      const state = groupState?.[source];
-      const visible = state?.visible ?? false;
-      const payload = state?.payload;
-      if (spec.raster) {
-        const { sourceId, layerId } = dynamicWeatherIds(id, source, "raster");
-        if (payload?.kind === "rasterTile") {
-          const rasterSource = map.getSource(sourceId) as maplibregl.RasterTileSource | undefined;
-          if (rasterSource) setTilesIfChanged(rasterSource, payload.tileUrlTemplate);
-        }
-        setLayerVisibility(map, layerId, visible && payload?.kind === "rasterTile");
-      }
-      if (spec.gridFill) {
-        const { sourceId, layerId } = dynamicWeatherIds(id, source, "fill");
-        if (payload?.kind === "gridFill") {
-          const fillSource = map.getSource(sourceId) as GeoJSONSource | undefined;
-          if (fillSource) setDataIfChanged(fillSource, payload.geojson);
-        }
-        setLayerVisibility(map, layerId, visible && payload?.kind === "gridFill");
-      }
-      if (spec.gridMark) {
-        const { sourceId, layerId } = dynamicWeatherIds(id, source, "mark");
-        if (payload?.kind === "gridMark") {
-          const markSource = map.getSource(sourceId) as GeoJSONSource | undefined;
-          if (markSource) setDataIfChanged(markSource, payload.geojson);
-        }
-        setLayerVisibility(map, layerId, visible && payload?.kind === "gridMark");
-      }
-      if (spec.vector) {
-        const { sourceId, layerId } = dynamicWeatherIds(id, source, "vector");
-        if (payload?.kind === "vectorTile") {
-          const vectorSource = map.getSource(sourceId) as maplibregl.VectorTileSource | undefined;
-          if (vectorSource) setTilesIfChanged(vectorSource, payload.tileUrlTemplate);
-        }
-        setLayerVisibility(map, layerId, visible && payload?.kind === "vectorTile");
-      }
-    }
-  });
-}
-
-// 路面もGSI標高ラスタと同じ考え方で、地図初期化時に一度だけベクタタイルのソース/レイヤーを
-// 追加し、以降はvisibilityの切替・setPaintProperty/setFilterのみで表示・非表示・見た目を
-// 変える。標高ラスタの直後に追加することで、標高の上・ルート系レイヤーの下に描画される。
-// paintの初期値は仮の中立値（applyRoadLayerStateが呼び出し直後に必ず実際の値へ上書きする）。
-// exportはテスト専用（MapView.layerOps.test.ts、promoteIdの固定）。
-export function ensureRoadSurfaceTileLayer(map: MapLibreMap) {
-  const applyData = () => {
-    // タイル世代（`GET /api/axis-catalog`）が届く前にソースを作ると、世代の違う中身が
-    // ブラウザのキャッシュへ載って以後ずっと残る。届いた時点で再描画される。
-    if (!hasTileVersions()) return;
-    if (map.getSource(ROAD_TILE_SOURCE_ID)) return;
-    map.addSource(ROAD_TILE_SOURCE_ID, {
-      type: "vector",
-      tiles: [roadSurfaceTileUrl()],
-      minzoom: ROAD_TILE_MIN_ZOOM,
-      maxzoom: ROAD_TILE_MAX_ZOOM,
-      // フィーチャー→値配信層（評価軸グループの風・勾配）がMapLibreのsetFeatureStateで
-      // このソースの地物へ後から値を差し込むために必要。MVTのフィーチャーは既定では安定した
-      // idを持たないため、タイルへ焼き込み済みの`feature_key`をfeature.idへ昇格させる。
-      // **`osm_way_id`ではなく`feature_key`を使う**——タイルのフィーチャーはズームによって
-      // way丸ごとにも区間にもなり（backendの`EDGE_UNIT_MIN_ZOOM`）、`feature_key`だけが
-      // その単位に追従する。配信APIの鍵も同じ列から作られる。
-      promoteId: { [ROAD_TILE_SOURCE_LAYER]: "feature_key" },
-    });
-    for (const layerId of [ROAD_TILE_LAYER_ID, ROAD_TYPE_LAYER_ID]) {
-      map.addLayer({
-        id: layerId,
-        type: "line",
-        source: ROAD_TILE_SOURCE_ID,
-        "source-layer": ROAD_TILE_SOURCE_LAYER,
-        paint: {
-          "line-color": ROAD_LINE_NEUTRAL_COLOR,
-          "line-width": DEFAULT_ROAD_LINE_WIDTH,
-          "line-opacity": DEFAULT_ROAD_LINE_OPACITY,
-          // 初期値は0（applyRoadMaterialTrackOffsetsが可視化のたびに実際の値へ上書きする）
-          "line-offset": 0,
-        },
-        layout: { visibility: "none" },
-      });
-    }
-    map.addLayer({
-      id: ROAD_INSPECT_LAYER_ID,
-      type: "line",
-      source: ROAD_TILE_SOURCE_ID,
-      "source-layer": ROAD_TILE_SOURCE_LAYER,
-      paint: {
-        "line-color": ROAD_INSPECT_COLOR,
-        "line-width": ROAD_INSPECT_WIDTH,
-        "line-opacity": ROAD_INSPECT_OPACITY,
-      },
-      // 対象はfilterで1本へ絞る（タイルへ焼き込み済みのosm_way_idで引く）。表示のたびに
-      // 該当wayを選び直す（applyInspectedWay）。
-      filter: ["==", ["get", "osm_way_id"], -1],
-      layout: { visibility: "none" },
-    });
-  };
-  runWhenStyleReady(map, applyData);
-}
-
-// 専用のway_id→動的値配信層を持つ軸（風・勾配）のensure/apply/clearは、レイヤーID・色式・
-// feature-stateキーだけが違う同型の関数を軸ごとに用意するのではなく、makeEnsureAxisRampLayer
-// （ramp軸向け、上記）と同じ「1ファクトリ+N呼び出し」パターンへ統一する。
-//
-// way_id→値配信層。tunnel/onewayと同じくROAD_TILE_
-// SOURCE_ID/ROAD_TILE_SOURCE_LAYERを共有する独立レイヤーだが、色分けはタイルの
-// プロパティではなくsetFeatureState経由の値（applyAxisFeatureStateValues参照）を読む。
-// ensureRoadSurfaceTileLayerを先に呼び、promoteId付きのsourceが確実に存在する状態で
-// レイヤーを追加する（既存レイヤーもこのソースへ依存する順序を暗黙に
-// 仮定しており、それと同じ前提）。colorExpressionはdedicatedWayValueDisplays
-// （軸カタログのmap_value_thresholds、実行時フェッチで後から変わりうる）に
-// 依存するため、レイヤーが既に存在する場合もsetPaintPropertyで再適用する
-// （初回作成時の値のまま固定させず、フェッチ完了後の値を反映させるため）。
-function makeEnsureDedicatedWayValueLayer(
-  layerId: string,
-  colorExpression: unknown[],
-  opacityExpression: unknown[],
-): (map: MapLibreMap) => void {
-  return (map: MapLibreMap) => {
-    ensureRoadSurfaceTileLayer(map);
-    const applyData = () => {
-      // specOwnsFilter: 専用way値レイヤーはbuildStaticFilterAxes()の対象外。凡例で非表示にした
-      // 段階はfilterではなく色式側で透明にする（値がfeature-state経由で入るため、
-      // MapLibreのfilterからは読めない。dedicatedWayValueLayer.ts参照）。
-      ensureLayerFromSpec(
-        map,
-        {
-          id: layerId,
-          type: "line",
-          source: ROAD_TILE_SOURCE_ID,
-          "source-layer": ROAD_TILE_SOURCE_LAYER,
-          paint: {
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            "line-color": colorExpression as any,
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            "line-opacity": opacityExpression as any,
-            "line-width": DEFAULT_ROAD_LINE_WIDTH,
-          },
-          layout: { visibility: "none" },
-        },
-        { specOwnsFilter: true },
-      );
-    };
-    runWhenStyleReady(map, applyData);
-  };
-}
-
-// useDedicatedWayValues（hooks）が取得した{feature_key: 値}をMapLibreのsetFeatureStateで
-// 地物へ差し込む。パン・ズームで
-// 表示範囲が変わり、直前に取得した一部の鍵が最新の応答に含まれなくなっても、
-// 明示的なremoveFeatureStateは行わない（windLayer.ts: mergeWindGridKeepingStaleと同じ
-// 判断——古い値が多少残る方が、穴が開いたように見えるより実用上マシという方針を踏襲する。
-// 値そのものはbackend側のRedis TTLの範囲でしか新鮮さを保証しないため、古い値が長時間
-// 残り続けることはない）。featureStateKeyだけが軸ごとに異なる（
-// dedicatedWayValueLayer.ts: dedicatedWayValueFeatureStateKey）。
-// exportはテスト専用（MapView.layerOps.test.ts）。
-export function applyAxisFeatureStateValues(
-  map: MapLibreMap,
-  featureStateKey: string,
-  values: ReadonlyMap<string, number>,
-) {
-  if (!map.getSource(ROAD_TILE_SOURCE_ID)) return;
-  values.forEach((value, featureKey) => {
-    map.setFeatureState(
-      { source: ROAD_TILE_SOURCE_ID, sourceLayer: ROAD_TILE_SOURCE_LAYER, id: featureKey },
-      { [featureStateKey]: value },
-    );
-  });
-}
-
-/** 専用way値配信軸（評価軸グループの風・勾配等、視界内の全道路への一律色分け）が
- * 終了する瞬間（どの軸も表示されなくなる瞬間——ルート確定・
- * 手動OFFのいずれも含む）に、それまでsetFeatureStateで差し込んだ全道路ぶんの値を
- * 明示的にクリアする。上のapplyAxisFeatureStateValuesは（enabledのままパン・ズームで
- * 一部way_idが新しい応答へ含まれなくなる通常のケース向けに）意図的に古い値を残す設計だが、
- * ルート確定後はルート以外の道路を無色に戻す必要がある——レイヤー自体はvisibility:noneで
- * 非表示になるため視覚上は問題ないが、値そのものも消しておく（再度ONにしたときに
- * 一瞬だけ古い値がちらつくのを防ぐ副次効果もある）。removeFeatureStateはsource/
- * sourceLayer単位で全キーをまとめて消す（MapLibreの仕様）ため、風・勾配どちらの
- * 終了判定からでも同じこの1関数を呼べばよい（feature-stateキーごとの個別クリアは
- * 元々できない）。 */
-// exportはテスト専用（MapView.layerOps.test.ts）。
-export function clearRoadTileFeatureState(map: MapLibreMap) {
-  if (!map.getSource(ROAD_TILE_SOURCE_ID)) return;
-  map.removeFeatureState({ source: ROAD_TILE_SOURCE_ID, sourceLayer: ROAD_TILE_SOURCE_LAYER });
-}
-
-/** 上記clearRoadTileFeatureStateを呼ぶべきかどうかの判定条件（専用way値配信軸が
- * 1つも表示されていないか）を、下のuseEffect内のif文から純粋関数として切り出したもの。
- * removeFeatureStateがsource/sourceLayer単位で全キーを一括で消すMapLibre仕様のため、
- * 表示中の軸が1つでも残っている間にクリアするとその軸の色分けまで巻き添えで消える。
- * 軸の件数に依存しない全称判定にしてあり、3件目の軸が公開されても条件は正しいまま。 */
-export function shouldClearDedicatedWayValueFeatureState(
-  dedicatedWayValueVisibility: Readonly<Record<string, boolean>>,
-): boolean {
-  return !Object.values(dedicatedWayValueVisibility).some(Boolean);
-}
-
-/** 詳細を見ている道を1本だけ強調する。nullで強調を消す。レイヤーがまだ無ければ何もしない
- * （作り直しの途中でも落ちないようにする）。exportはテスト専用
- * （MapView.layerOps.test.ts）。 */
-export function applyInspectedWay(map: MapLibreMap, osmWayId: number | null) {
-  if (!map.getLayer(ROAD_INSPECT_LAYER_ID)) return;
-  setLayerVisibility(map, ROAD_INSPECT_LAYER_ID, osmWayId !== null);
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  map.setFilter(ROAD_INSPECT_LAYER_ID, ["==", ["get", "osm_way_id"], osmWayId ?? -1] as any);
-}
-
-// 「道路情報」の各軸（路面の種類・道路の種類）は、それぞれ独立した線レイヤーとして描く。
-// 1本の線へ両方の意味を載せると色チャンネルの取り合いになり、同じレイヤーの色の意味が
-// もう一方のON/OFFで入れ替わる。同時にONのときは並列トラック（applyRoadMaterialTrackOffsets）
-// が横へ分離する。太さ・線種は意味を運ばない（roadFilterAxes.tsの冒頭参照）。
-function applyRoadLayerState(
-  map: MapLibreMap,
-  showRoadSurface: boolean,
-  showRoadType: boolean,
-  hiddenKeysByAxis: Record<RoadFilterAxisId, readonly string[]>,
-) {
-  runWhenStyleReady(map, () => {
-    ensureRoadSurfaceTileLayer(map);
-    for (const [layerId, axisId, visible] of [
-      [ROAD_TILE_LAYER_ID, ROAD_SURFACE_AXIS_ID, showRoadSurface],
-      [ROAD_TYPE_LAYER_ID, ROAD_TYPE_AXIS_ID, showRoadType],
-    ] as const) {
-      setLayerVisibility(map, layerId, visible);
-      if (!visible) continue;
-      const axis = getRoadFilterAxis(axisId);
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      map.setPaintProperty(layerId, "line-color", axis.colorExpression as any);
-      map.setPaintProperty(layerId, "line-width", DEFAULT_ROAD_LINE_WIDTH);
-      map.setPaintProperty(
-        layerId,
-        "line-opacity",
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        (axis.opacityExpression ?? DEFAULT_ROAD_LINE_OPACITY) as any,
-      );
-      const filter = buildCombinedLegendFilterExpression([
-        { legend: axis.legend, hiddenKeys: hiddenKeysByAxis[axis.id] ?? [] },
-      ]);
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      map.setFilter(layerId, filter as any);
-    }
-  });
-}
-
-// road_surfaceの1次「素材」線レイヤー（道路種別/路面の合成ROAD_TILE_LAYER_ID等）を
-// 並列トラックへ分離するオフセット計算。定数
-// （MATERIAL_TRACK_OFFSET_STEP/ROAD_MATERIAL_TRACK_LAYER_IDS）・下敷き幅との連動理由は
-// 上部のDEFAULT_ROAD_LINE_WIDTH直後のコメント参照。
-// 現在ONの素材レイヤー集合から各レイヤーのline-offsetを計算して適用する。ON中のものだけを
-// 対称に割り付ける（1件→0、2件→±1.5、3件→-3/0/+3）ため、どれかをOFFにすると残りが
-// 自動で中央（実際の道路の位置）へ寄り直す。OFF中のレイヤーもoffsetを0へ戻しておき、
-// 次にONにしたときに古いオフセット値が一瞬残らないようにする。
-// exportはテスト専用（MapView.layerOps.test.ts）。
-export function applyRoadMaterialTrackOffsets(
-  map: MapLibreMap,
-  visible: { roadSurface: boolean; roadType: boolean; tunnel: boolean; oneway: boolean },
-) {
-  runWhenStyleReady(map, () => {
-    const visibleByLayerId: Record<string, boolean> = {
-      [ROAD_TILE_LAYER_ID]: visible.roadSurface,
-      [ROAD_TYPE_LAYER_ID]: visible.roadType,
-      [TUNNEL_LAYER_ID]: visible.tunnel,
-      [ONEWAY_LAYER_ID]: visible.oneway,
-    };
-    const onLayerIds = ROAD_MATERIAL_TRACK_LAYER_IDS.filter((layerId) => visibleByLayerId[layerId]);
-    const center = (onLayerIds.length - 1) / 2;
-    for (const layerId of ROAD_MATERIAL_TRACK_LAYER_IDS) {
-      if (!map.getLayer(layerId)) continue;
-      const onIndex = onLayerIds.indexOf(layerId);
-      const offset = onIndex === -1 ? 0 : (onIndex - center) * MATERIAL_TRACK_OFFSET_STEP;
-      map.setPaintProperty(layerId, "line-offset", offset);
-    }
-  });
-}
-
-// tunnel・oneway（いずれも一次属性、路面と同じベクタソースを
-// 再利用する独立レイヤー）は、レイヤーID・色/不透明度式以外まったく同一のため、
-// makeEnsureAxisRampLayer/makeEnsureDedicatedWayValueLayerと同じ「1ファクトリ+N呼び出し」
-// パターンで共通化する。プロパティは該当区間のみ値を持ち、未該当はプロパティ欠落として
-// 各色式のcoalesce/case式が中立色に倒す。
-// specOwnsFilter=false: このレイヤーの絞り込みは凡例のON/OFFから`setStaticOverlayFilters`が
-// 組み立てて与える。ここで触ると、表示ON/OFFのたびに走る`ensure`が利用者の絞り込みを巻き戻す。
-function makeEnsureAttributeLineLayer(
-  layerId: string,
-  colorExpression: unknown[],
-  opacityExpression: unknown[],
-): (map: MapLibreMap) => void {
-  return (map: MapLibreMap) => {
-    const applyData = () => {
-      // 参照するソースは自分で用意する（ramp軸・専用way値レイヤーと同じ）。
-      // map.setStyle()の後の作り直しはレイヤーごとのensureを順に呼ぶだけで、路面ソースを
-      // 作る処理がこれより後に来ることがある——順序に頼るとそのときだけレイヤーが落ち、
-      // トンネル・一方通行の色分けが戻らない。
-      ensureRoadSurfaceTileLayer(map);
-      ensureLayerFromSpec(
-        map,
-        {
-          id: layerId,
-          type: "line",
-          source: ROAD_TILE_SOURCE_ID,
-          "source-layer": ROAD_TILE_SOURCE_LAYER,
-          paint: {
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            "line-color": colorExpression as any,
-            "line-width": 3,
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            "line-opacity": opacityExpression as any,
-          },
-          layout: { visibility: "none" },
-        },
-        { specOwnsFilter: false },
-      );
-    };
-    runWhenStyleReady(map, applyData);
-  };
-}
-
-// 事故レイヤー（外部静的データソース）。road_surfaceとは独立のベクタソース・タイル
-// エンドポイント（PBF取込範囲とは無関係に取込済みの警察庁データそのもの）のため、
-// ensureRoadSurfaceTileLayerと同じ「初期化時に一度だけ追加、以降はvisibility切替のみ」の
-// パターンだがソース自体を新規に持つ。円の色は自転車関連/その他（involves_bicycle）、
-// 大きさは死亡事故（fatal）の強調に使う（staticAttributeLayers.ts参照）。
-function ensureAccidentTileLayer(map: MapLibreMap) {
-  const applyData = () => {
-    // 判定は`ensureRoadSurfaceTileLayer`と同じく**遅延実行の中**で行う。外で判定すると、
-    // スタイルの準備を待っている間に世代が届いても、待ち始めた時点の答えのまま戻る。
-    if (!hasTileVersions()) return;
-    if (map.getSource(ACCIDENT_TILE_SOURCE_ID)) return;
-    map.addSource(ACCIDENT_TILE_SOURCE_ID, {
-      type: "vector",
-      tiles: [accidentTileUrl()],
-      minzoom: ROAD_TILE_MIN_ZOOM,
-      maxzoom: ROAD_TILE_MAX_ZOOM,
-    });
-    map.addLayer({
-      id: ACCIDENT_LAYER_ID,
-      type: "circle",
-      source: ACCIDENT_TILE_SOURCE_ID,
-      "source-layer": ACCIDENT_TILE_SOURCE_LAYER,
-      paint: {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        "circle-color": ACCIDENT_COLOR_EXPRESSION as any,
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        "circle-radius": ACCIDENT_RADIUS_EXPRESSION as any,
-        "circle-opacity": 0.75,
-        "circle-stroke-width": 1,
-        "circle-stroke-color": "#ffffff",
-      },
-      layout: { visibility: "none" },
-    });
-  };
-  runWhenStyleReady(map, applyData);
-}
-
-// 停止要因POI・交差点密度は点データのため、路面・自転車
-// インフラとは別のベクタソース（region-poi-tiles）を使う。ズーム範囲は路面と同じ
-// （regionApi.ts: ROAD_TILE_MIN_ZOOM/MAX_ZOOM、backend側も同じ範囲に準拠）。
-function ensurePoiTileSource(map: MapLibreMap) {
-  if (!hasTileVersions()) return;
-  if (map.getSource(POI_TILE_SOURCE_ID)) return;
-  map.addSource(POI_TILE_SOURCE_ID, {
-    type: "vector",
-    tiles: [poiTileUrl()],
-    minzoom: ROAD_TILE_MIN_ZOOM,
-    maxzoom: ROAD_TILE_MAX_ZOOM,
-  });
-}
-
-function ensureStopPoiLayer(map: MapLibreMap) {
-  const applyData = () => {
-    ensurePoiTileSource(map);
-    if (map.getLayer(STOP_POI_LAYER_ID)) return;
-    map.addLayer({
-      id: STOP_POI_LAYER_ID,
-      type: "circle",
-      source: POI_TILE_SOURCE_ID,
-      "source-layer": STOP_POI_SOURCE_LAYER,
-      paint: {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        "circle-color": STOP_POI_COLOR_EXPRESSION as any,
-        "circle-radius": 4,
-        "circle-stroke-width": 1,
-        "circle-stroke-color": "#ffffff",
-        "circle-opacity": 0.9,
-      },
-      layout: { visibility: "none" },
-    });
-  };
-  runWhenStyleReady(map, applyData);
-}
-
-// 補給・休憩ポイントPOI。停止要因POIと同じregion-poi-tiles
-// （source-layer: stop_poi）を共有する独立レイヤー。バックエンドのMVT SQLはkindを
-// 無条件で焼き込むため、この時点（addLayer）ではfilterを付けない。実際のkind値による
-// 絞り込みはsetStaticOverlayFilters側のbaseFilter（buildStaticFilterAxes(): supplyPoi）が
-// 常時ANDで適用する（同じ仕組みでstopPoi側もsupplyPoiのkindを除外している）。
-function ensureSupplyPoiLayer(map: MapLibreMap) {
-  const applyData = () => {
-    ensurePoiTileSource(map);
-    if (map.getLayer(SUPPLY_POI_LAYER_ID)) return;
-    map.addLayer({
-      id: SUPPLY_POI_LAYER_ID,
-      type: "circle",
-      source: POI_TILE_SOURCE_ID,
-      "source-layer": STOP_POI_SOURCE_LAYER,
-      paint: {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        "circle-color": SUPPLY_POI_COLOR_EXPRESSION as any,
-        "circle-radius": 4,
-        "circle-stroke-width": 1,
-        "circle-stroke-color": "#ffffff",
-        "circle-opacity": 0.9,
-      },
-      layout: { visibility: "none" },
-    });
-  };
-  runWhenStyleReady(map, applyData);
-}
-
-// 「変わらないデータ」系オーバーレイのうち、路面（フィルタ式も併せ持つため別扱い）を除く
-// ものは、いずれも「初期化時にensureで一度だけ追加、以降はvisibilityの切替のみ」という
-// 同型の生存期間を持つ。各レイヤーの見た目（addLayerの中身）は上のensure*Layer関数に残しつつ、
-// 「どのpropsフラグがどのensure関数・layerIdに対応するか」の対応表だけをここに集約する。
-// 二次軸の汎用rampレイヤー。axis-catalog.json（backendレジストリ生成物）の
-// kind="ramp"軸ごとに、road_surfaceタイルへ焼き込み済みの事実プロパティ（per-km密度）を
-// カタログ宣言のしきい値で色分けする線レイヤーを自動生成する。ensure関数は他の静的
-// レイヤー（makeEnsureAttributeLineLayer等）と同じ「初期化時に一度だけ追加、以降は
-// visibility切替のみ」パターンだが、axis（軸スタジオのしきい値・色定義）は実行時
-// フェッチで後から変わりうるため、レイヤーが既に存在する場合もsetPaintPropertyで
-// 再適用する。
-//
-// 下敷き表現（useCasing: 材料が同時表示中なら太く半透明、そうでなければ1次と同じ太さ・
-// 不透明度）もこのspecの一部として持つ。`ensureLayerFromSpec`はレイヤーが既にあるとき
-// specのpaintを丸ごと再適用するため、太さ・不透明度をspecの外から別途setPaintPropertyする
-// 形にすると、以後どこかでensureが呼ばれた時点（絞り込みの再適用等）に無条件でspec側の値へ
-// 巻き戻る。
-// specOwnsFilter=false: ramp軸の凡例フィルタも`setStaticOverlayFilters`が持つ
-// （`makeEnsureAttributeLineLayer`と同じ）。
-function makeEnsureAxisRampLayer(axis: RampAxis, useCasing: boolean): (map: MapLibreMap) => void {
-  return (map: MapLibreMap) => {
-    runWhenStyleReady(map, () => {
-      // 参照するソースは自分で用意する（makeEnsureDedicatedWayValueLayerと同じ）。
-      // map.setStyle()の後の作り直しはレイヤーごとのensureを順に呼ぶだけで、路面ソースを
-      // 作る処理がこれより後に来ることがある——順序に頼るとそのときだけレイヤーが落ち、
-      // その軸の色分けが戻らない。
-      ensureRoadSurfaceTileLayer(map);
-      const layerId = axisLineLayerId(axis.axisId);
-      const colorExpression = buildAxisRampColorExpression(axis);
-      ensureLayerFromSpec(
-        map,
-        {
-          id: layerId,
-          type: "line",
-          source: ROAD_TILE_SOURCE_ID,
-          "source-layer": ROAD_TILE_SOURCE_LAYER,
-          paint: {
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            "line-color": colorExpression as any,
-            "line-width": useCasing ? SECONDARY_AXIS_CASING_WIDTH : DEFAULT_ROAD_LINE_WIDTH,
-            "line-opacity": useCasing ? SECONDARY_AXIS_CASING_OPACITY : KNOWN_LINE_OPACITY,
-          },
-          layout: { visibility: "none" },
-        },
-        { specOwnsFilter: false },
-      );
-    });
-  };
-}
-
-// interactive: クリック・カーソル判定（handleClick/handleMouseMove）の対象にするか。
-// レイヤーを足すときにその場で答えさせるため必須にしてある——別の一覧で「対象外のkey」を
-// 数え上げる形にすると、新しいレイヤーが既定でクリック対象になり、「カーソルは
-// クリック可能を示すのに実際は何も起きない」という不整合が静かに増える。
-type OverlayLayerEntry = {
-  key: string;
-  layerId: string;
-  ensure: (map: MapLibreMap) => void;
-  interactive: boolean;
-  // 重なりの段（mapLayers.ts: MapLayerPaintTier）。記述子の宣言から`buildStaticOverlayLayers`が
-  // 入れるため、エントリを作る側は持たない（`OverlayLayerSpec`）。
-  paintTier: MapLayerPaintTier;
-};
-
-/** 段を入れる前のエントリ。**どこに重なるかを作る側に書かせない**ための型で、段は
- * レイヤーカタログの宣言だけが決める。 */
-type OverlayLayerSpec = Omit<OverlayLayerEntry, "paintTier">;
-
-// 軸スタジオが公開したramp軸（ビルド時静的フォールバックに限らず、実行時フェッチで
-// 増減しうる）を反映できるよう関数化してある。呼び出し側（コンポーネント内、useMemo経由）が
-// rampAxesを渡す。テスト（MapView.overlayFilters.test.ts等）から
-// build*(RAMP_AXES)として直接呼べるようexportしている。
-//
-// 2次（ramp軸）を太く半透明な下敷きにするのは、その材料（1次）が同時に表示されている
-// ときだけにする。材料が1つも表示されていなければ下に隠すものが無いため、通常の太さ・
-// 不透明度（1次と同じ、DEFAULT_ROAD_LINE_WIDTH/KNOWN_LINE_OPACITY）に戻す（常に太く
-// 半透明にすると、道路網が密な都市部では下敷きの重なりだけで地図全体がぼやけて
-// 見えてしまう）。casingLayerKeysは、どの2次レイヤーの材料が現在表示中かをpage.tsx側
-// （`secondaryAxisCasingLayerIds`）が判定して渡す（このファイルはレイヤー固有の材料関係を
-// 知らない汎用描画係のまま、という方針を保つ）。キーはaxisMapLayerId。
-/** 記述子の宣言した段で並べ直す（先頭＝背面）。同じ段の中はカタログ順を保つ。
- *
- * **作る側の配列の並びは順序に関係しない**——レイヤーを足す人が挿す位置を選ばないようにする
- * ため。この関数を経ずに並べると、挿す位置の間違いは「観測データが推定の下へ潜る」等の
- * 見た目だけに出る。 */
-export function sortedByPaintTier(entries: readonly OverlayLayerEntry[]): readonly OverlayLayerEntry[] {
-  return [...entries].sort(
-    (a, b) => MAP_LAYER_PAINT_TIER_ORDER.indexOf(a.paintTier) - MAP_LAYER_PAINT_TIER_ORDER.indexOf(b.paintTier),
-  );
-}
-
-/** レイヤーカタログが宣言した段を引く。
- *
- * 見つからないのはカタログに無いレイヤーを描こうとしているときだけで、そのレイヤーは
- * チップも表示状態も持たない（出したところで誰もONにできない）。黙ってどこかの段へ
- * 置くと、重なり順だけがずれた地図として出るためその場で落とす。 */
-function paintTierOf(layers: readonly MapLayerDescriptor[], key: string): MapLayerPaintTier {
-  const tier = layers.find((layer) => layer.id === key)?.paintTier;
-  if (tier === undefined) throw new Error(`レイヤーカタログに無いレイヤーを描こうとしています: ${key}`);
-  return tier;
-}
-
-export function buildAxisOverlayLayers(
-  rampAxes: readonly RampAxis[],
-  casingLayerKeys: ReadonlySet<string> = new Set(),
-): readonly OverlayLayerSpec[] {
-  return rampAxes.map((axis) => {
-    const key = axisMapLayerId(axis.axisId) as string;
-    return {
-      key,
-      layerId: axisLineLayerId(axis.axisId),
-      ensure: makeEnsureAxisRampLayer(axis, casingLayerKeys.has(key)),
-      // 区間インスペクタのポップアップに対応する専用表示を持たない。
-      interactive: false,
-    };
-  });
-}
-
-// この配列の並び順がそのままensureAllStaticOverlayLayers（下記）でのensure()呼び出し順＝
-// 実際の描画の重なり順（先＝背面、後＝前面）になる。線・記号は最上位へ積み上がり、面は
-// 基礎地図の線・記号の直前へ差し込まれる（ensureLayerFromSpec）ため、この並び順が効くのは
-// 面どうし・線どうしの間で、面が線を覆うことはない。
-// ramp軸（停止密度・事故密度等、推定/composite、SECONDARY_AXIS_CASING_
-// WIDTH/OPACITYの太く半透明な下敷き）をroad_surface本体の直上へまとめ、
-// accidents・stopPoi・supplyPoi（観測/raw、通常の太さ・不透明度のくっきりした
-// 上書き）をその上に置く——観測データと推定を同時に表示したとき、後から追加される側が
-// 先に追加された側を塗り潰さないようにする並び順である。
-export function buildStaticOverlayLayers(
-  // レイヤーカタログ（mapLayers.ts: buildMapLayers）。重なり順をここから引く。
-  layers: readonly MapLayerDescriptor[],
-  axisOverlayLayers: readonly OverlayLayerSpec[],
-  // 専用way値配信軸の一覧（軸カタログ由来）。レイヤーの登録自体をこの一覧から導出するため、
-  // 軸スタジオで3件目を公開すれば地図レイヤーもそのまま増える。
-  dedicatedAxes: readonly DedicatedWayValueAxis[],
-  // `dedicated_way_value_layer`軸のmap_value_thresholdsを
-  // 軸id→しきい値配列の汎用Mapとして受け取る（MapViewProps.dedicatedWayValueDisplays参照）。
-  dedicatedWayValueDisplays?: ReadonlyMap<string, DedicatedWayValueDisplay>,
-  // 同じ軸id→booleanの汎用Mapとして、フェッチ進行中かどうかを受け取る
-  // （MapViewProps.dedicatedWayValueLoading参照）。
-  dedicatedWayValueLoading?: ReadonlyMap<string, boolean>,
-  // 同じ軸id→非表示段階キーの汎用Mapとして、凡例の表示ON/OFFを受け取る
-  // （MapViewProps.dedicatedWayValueHiddenBands参照）。
-  dedicatedWayValueHiddenBands?: ReadonlyMap<string, readonly string[]>,
-): readonly OverlayLayerEntry[] {
-  const specs: readonly OverlayLayerSpec[] = [
-    // ラスタタイルのため地物クリック判定が効かない。
-    {
-      key: "elevation",
-      layerId: GSI_RELIEF_LAYER_ID,
-      ensure: ensureGsiReliefLayer,
-      interactive: false,
-    },
-    {
-      key: "hillshade",
-      layerId: GSI_TERRAIN_LAYER_ID,
-      ensure: ensureTerrainHillshadeLayer,
-      interactive: false,
-    },
-    {
-      key: "landcover",
-      layerId: LANDCOVER_LAYER_ID,
-      ensure: ensureLandcoverLayer,
-      interactive: false,
-    },
-    ...axisOverlayLayers,
-    {
-      key: "tunnel",
-      layerId: TUNNEL_LAYER_ID,
-      ensure: makeEnsureAttributeLineLayer(TUNNEL_LAYER_ID, TUNNEL_COLOR_EXPRESSION, TUNNEL_OPACITY_EXPRESSION),
-      interactive: true,
-    },
-    {
-      key: "oneway",
-      layerId: ONEWAY_LAYER_ID,
-      ensure: makeEnsureAttributeLineLayer(ONEWAY_LAYER_ID, ONEWAY_COLOR_EXPRESSION, ONEWAY_OPACITY_EXPRESSION),
-      interactive: true,
-    },
-    // 専用way値配信軸（評価軸グループとしての風・勾配等）。ensureは
-    // makeEnsureDedicatedWayValueLayer内でensureRoadSurfaceTileLayer（promoteId付き
-    // source）を先に呼ぶ。keyはmapLayers.tsのMapLayerIdと同じ値でなければならない
-    // （setStaticOverlayVisibilityがvisibility辞書をこのkeyで引くため）。
-    ...dedicatedAxes.map((axis) => ({
-      key: dedicatedWayValueMapLayerId(axis.axisId) as string,
-      layerId: dedicatedWayValueLineLayerId(axis.axisId),
-      ensure: makeEnsureDedicatedWayValueLayer(
-        dedicatedWayValueLineLayerId(axis.axisId),
-        dedicatedWayValueColorExpression(
-          axis.axisId,
-          dedicatedWayValueDisplays?.get(axis.axisId),
-          dedicatedWayValueLoading?.get(axis.axisId) ?? false,
-          dedicatedWayValueHiddenBands?.get(axis.axisId) ?? [],
-        ),
-        dedicatedWayValueOpacityExpression(axis.axisId, dedicatedWayValueLoading?.get(axis.axisId) ?? false),
-      ),
-      interactive: true,
-    })),
-    {
-      key: "accidents",
-      layerId: ACCIDENT_LAYER_ID,
-      ensure: ensureAccidentTileLayer,
-      interactive: true,
-    },
-    {
-      key: "stopPoi",
-      layerId: STOP_POI_LAYER_ID,
-      ensure: ensureStopPoiLayer,
-      interactive: true,
-    },
-    {
-      key: "supplyPoi",
-      layerId: SUPPLY_POI_LAYER_ID,
-      ensure: ensureSupplyPoiLayer,
-      interactive: true,
-    },
-  ];
-  // 段はカタログの宣言だけが決める。作る側の並びは順序に関係しない。
-  return sortedByPaintTier(specs.map((spec) => ({ ...spec, paintTier: paintTierOf(layers, spec.key) })));
-}
-
-type StaticOverlayKey = string;
-
-type LayerDataSource = { key: MapLayerId; sourceId: string; sourceLayer?: string };
-
-// 情報源の名前（`MapLayerDataSource`）→ 実際のMapLibreの(source, source-layer)。
-// **レイヤーごとではなく情報源ごとの表**で、新しい配信元を増やしたときだけ伸びる
-// （どのレイヤーがどれを読むかは記述子側の宣言）。同じタイルを読むレイヤーが
-// 同時にempty/errorになるのは正しい振る舞い（road_edgesが未構築の地点）。
-// 国土地理院のラスタタイル・土地被覆ラスタはsource-layerを持たないため、取得失敗のみ
-// 検知しempty判定はしない。
 const TILE_SOURCE_BY_DATA_SOURCE: Record<
   Exclude<MapLayerDataSource, "ownFetch">,
   { sourceId: string; sourceLayer?: string }
 > = {
-  roadTiles: { sourceId: ROAD_TILE_SOURCE_ID, sourceLayer: ROAD_TILE_SOURCE_LAYER },
-  accidentTiles: { sourceId: ACCIDENT_TILE_SOURCE_ID, sourceLayer: ACCIDENT_TILE_SOURCE_LAYER },
-  poiTiles: { sourceId: POI_TILE_SOURCE_ID, sourceLayer: STOP_POI_SOURCE_LAYER },
-  gsiRelief: { sourceId: GSI_RELIEF_SOURCE_ID },
-  gsiTerrain: { sourceId: GSI_TERRAIN_SOURCE_ID },
-  landcoverRaster: { sourceId: LANDCOVER_SOURCE_ID },
+  roadTiles: { sourceId: ROAD_LINE_SOURCE_ID, sourceLayer: ROAD_TILE_SOURCE_LAYER },
+  accidentTiles: { sourceId: pointSourceId("accident"), sourceLayer: ACCIDENT_TILE_SOURCE_LAYER },
+  poiTiles: { sourceId: pointSourceId("poi"), sourceLayer: STOP_POI_SOURCE_LAYER },
+  gsiRelief: { sourceId: AREA_SOURCE_ID.elevation },
+  gsiTerrain: { sourceId: AREA_SOURCE_ID.hillshade },
+  landcoverRaster: { sourceId: AREA_SOURCE_ID.landcover },
 };
 
 /** レイヤーごとのデータ取得状態の算出元。母集団はレイヤーカタログそのもので、
@@ -1746,108 +248,13 @@ export function buildLayerDataSources(layers: readonly MapLayerDescriptor[]): re
     layer.dataSource === "ownFetch" ? [] : [{ key: layer.id, ...TILE_SOURCE_BY_DATA_SOURCE[layer.dataSource] }],
   );
 }
-// レイヤーデータ状態（loading/empty/error）の算出・追跡（computeLayerDataStatus・
-// clearStaleTrackedSourceErrors・状態管理）はuseLayerDataStatus.tsに集約されている。
-/** 路面ソースより先に積むレイヤー（面で塗る段のもの）。
- *
- * ここをkeyの名指しで書くと、面のレイヤーを1つ足したときに**初回描画だけ**それが路面線の
- * 上に乗る（`addLayer`はbeforeId省略で最上位へ積む）。再描画を押すと段どおりの重なりへ
- * 戻るため、同じ場所を見ているのに色が変わる、という形でしか気づけない。
- *
- * これが決めるのは**このアプリが足したレイヤーどうしの前後**だけで、基礎地図に対する
- * 位置ではない。面は`ensureLayerFromSpec`が`mapStyleOps.ts: areaLayerAnchor`の返す位置へ
- * 差し込むため、基礎地図の道路網・地名は面をどれだけ濃くしても上に残る。
- */
-export function layersUnderRoadSurface(layers: readonly OverlayLayerEntry[]): readonly OverlayLayerEntry[] {
-  return layers.filter((layer) => layer.paintTier === "area");
-}
 
-// buildLayerDataSources自体はbuildStaticOverlayLayers等の他の関数と同じくこのファイルに
+// buildLayerDataSources自体は他の組み立て関数と同じくこのファイルに
 // 残し、フックへ引数として渡す（フック側からMapView.tsxを逆importしないため）。
-
-/** タイル世代（`GET /api/axis-catalog`）が届くまで作れないソース。
- *
- * どの情報源が世代を要るかは`mapLayers.ts`が宣言し、ここはそれを実際のMapLibreの
- * ソース名へ置き換えるだけ。 */
-export const TILE_VERSION_GATED_SOURCE_IDS: readonly string[] = Object.entries(TILE_SOURCE_BY_DATA_SOURCE)
-  .filter(([source]) => TILE_VERSION_GATED_SOURCES.has(source as MapLayerDataSource))
-  .map(([, tileSource]) => tileSource.sourceId);
 
 // ルート系の当たり判定専用レイヤー。見た目の線は細くモバイルでタップしづらいため、
 // 幅の広い透明なレイヤーを別に持つ。`handleClick`はここに当たったら道路のポップアップを
 // 開かず、それぞれの専用ハンドラへ任せる。
-const ROUTE_HIT_LAYER_IDS = [DETAIL_HIT_LAYER_ID, ROUTES_HIT_LAYER_ID, SPLICE_HIT_LAYER_ID];
-
-// クリック判定・カーソル変更（handleClick/handleMouseMove）の対象レイヤー一覧。
-// 各レイヤーが自分で宣言した`interactive`から導く（対象外のkeyをここで数え上げない、
-// OverlayLayerEntryのコメント参照）。これへbuildStaticOverlayLayers()の対象外である
-// ルート系の当たり判定レイヤー（`ROUTE_HIT_LAYER_IDS`）・ROAD_TILE_LAYER_ID（路面）・
-// ROAD_TYPE_LAYER_ID（道路の種類）を加える。handleClick/handleMouseMoveの両方が
-// この同じ一覧を参照する必要があり、片方だけ増減すると「ポップアップは出るがカーソルが
-// 変わらない」という非対称な劣化になるため、この関数へ集約する。
-// **`handleClick`が特別扱いするレイヤーもここへ含める**——専用ハンドラが応じるレイヤーは
-// 利用者から見ればクリックできる場所で、カーソルが変わらない理由が無い（候補線と
-// 乗り換え帯で実際にそうなっていた）。
-// exportはテスト専用（MapView.overlayFilters.test.ts）。
-export function buildInteractiveLayerIds(staticOverlayLayers: readonly OverlayLayerEntry[]): string[] {
-  return [
-    ...ROUTE_HIT_LAYER_IDS,
-    ROAD_TILE_LAYER_ID,
-    ROAD_TYPE_LAYER_ID,
-    ...staticOverlayLayers.filter((layer) => layer.interactive).map((layer) => layer.layerId),
-  ];
-}
-
-function ensureAllStaticOverlayLayers(map: MapLibreMap, staticOverlayLayers: readonly OverlayLayerEntry[]) {
-  for (const layer of staticOverlayLayers) layer.ensure(map);
-}
-
-function setStaticOverlayVisibility(
-  map: MapLibreMap,
-  flags: Record<StaticOverlayKey, boolean>,
-  staticOverlayLayers: readonly OverlayLayerEntry[],
-) {
-  runWhenStyleReady(map, () => {
-    for (const layer of staticOverlayLayers) {
-      layer.ensure(map);
-      setLayerVisibility(map, layer.layerId, flags[layer.key]);
-    }
-  });
-}
-
-// 標高を除く各レイヤー（事故・停止要因POI等）の絞り込み。
-// buildStaticFilterAxes()（staticAttributeLayers.ts）のlayerIdでbuildStaticOverlayLayers()のkeyと
-// 突き合わせ、そのレイヤーが持つ軸ぶんを道路情報と同じ
-// buildCombinedLegendFilterExpressionでAND束ねする。軸を持たない標高はスキップする（setFilterはvector/circleレイヤー用で
-// ラスタレイヤーには使えないため）。
-//
-// ramp軸はbackendのtile_inputs/thresholds（registry_defaults.py）から静的に決まる
-// ramp軸のため、他のramp軸（surface_q/accident等）と同じ扱いで統一的に処理できる。
-// MapView.overlayFilters.test.tsからフェイクmapで検証できるようexportしている
-// （computeLayerDataStatus等と同じ方針）。
-export function setStaticOverlayFilters(
-  map: MapLibreMap,
-  hiddenKeysByAxis: Record<StaticFilterAxisId, readonly string[]>,
-  staticOverlayLayers: readonly OverlayLayerEntry[],
-  staticFilterAxes: readonly StaticFilterAxis[],
-) {
-  runWhenStyleReady(map, () => {
-    for (const layer of staticOverlayLayers) {
-      const axes = staticFilterAxes.filter((axis) => axis.layerId === layer.key);
-      if (axes.length === 0) continue;
-      layer.ensure(map);
-      const filter = buildCombinedLegendFilterExpression(
-        axes.map((axis) => ({
-          legend: axis.legend,
-          hiddenKeys: hiddenKeysByAxis[axis.axisId] ?? [],
-          baseFilter: axis.baseFilter,
-        })),
-      );
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      map.setFilter(layer.layerId, filter as any);
-    }
-  });
-}
 
 // タイルの最小ズームを宣言したレイヤーのうち、いまのズームでは要求されないものを
 // 呼び出し側へ伝える（mapLayers.ts: tileZoomTooWideLayerIds）。レイヤーごとの閾値も
@@ -1867,7 +274,7 @@ function updateTileZoomHint(
 
 // 全候補のgeometryを包含するbounds計算そのものは地図インスタンスに依存しない純粋な処理
 // のため、fitBoundsToRoutesから切り出してベンチマーク可能にしてある（MapView.bench.ts）。
-export function computeRouteBounds(routes: RouteCandidate[]): maplibregl.LngLatBounds {
+function computeRouteBounds(routes: RouteCandidate[]): maplibregl.LngLatBounds {
   const bounds = new maplibregl.LngLatBounds();
   for (const route of routes) {
     for (const [lng, lat] of route.geometry.coordinates) {
@@ -1895,7 +302,7 @@ export interface RouteFitObscuredPx {
 /** 覆われている高さを基本余白へ足したフィット用paddingを返す。対向する2辺の合計が
  * 地図の幅・高さを食い尽くす場合は、可視領域がROUTE_FIT_MIN_VISIBLE_PX残るところまで
  * その2辺を同じ比率で縮める。 */
-export function computeRouteFitPadding(
+function computeRouteFitPadding(
   obscured: RouteFitObscuredPx | undefined,
   canvas: { width: number; height: number },
 ): { top: number; bottom: number; left: number; right: number } {
@@ -1944,7 +351,7 @@ const POPUP_BODY_STYLE = "font-size:var(--font-size-md); line-height:1.4;";
 // （handleRouteSegmentClick参照）。区間規模の距離感での見た目上のスナップが目的のため、
 // 球面上の正確な最近点ではなく経緯度を平面とみなした単純な線分への垂線ベースの近似で十分
 // （道路レベルのローカルな距離では誤差は無視できる）。
-export function nearestPointOnLineString(
+function nearestPointOnLineString(
   coordinates: readonly (readonly [number, number])[],
   point: readonly [number, number],
 ): [number, number] {
@@ -1982,7 +389,7 @@ export function nearestPointOnLineString(
 // 出す方式は、モバイルで「ルート結果」ボトムシートに隠れる・軸数が少ないとレーダーが
 // 機能しない問題があるため採らない。
 
-// 静的道路属性P0（docs/static-road-attributes-plan.md）で追加したプロパティ。
+// タイルへ焼き込んだ静的道路属性のプロパティ。
 // タグ・算出不能はundefined/null（MVTのST_AsMVTがNULLプロパティを省略するため、
 // 実際にはキー自体が存在しない）。
 export type { RoadSurfacePopupProperties } from "./roadFacts";
@@ -2012,7 +419,7 @@ function buildPoiPopupHtml(prefix: string, labels: Record<string, string>, prope
   return `<div style="${POPUP_BODY_STYLE}">${prefix}: ${label}</div>`;
 }
 
-interface MapViewProps {
+export interface MapViewProps {
   routes: RouteCandidate[];
   selectedRouteId: string | null;
   // 比較相手が別の道を通る区間。空/未指定なら帯を出さない。
@@ -2089,16 +496,15 @@ interface MapViewProps {
   axisVisibility: Record<string, boolean>;
   /** 2次（ramp軸）のうち、材料（1次）が同時に表示されているためcasing
    * （太く半透明な下敷き）で描くべきレイヤーのkey集合（"axis:accident"等、
-   * buildStaticOverlayLayers()のkeyと同じ）。page.tsx側が一次属性の表示状態とlayerVisibility
+   * レイヤーカタログのkeyと同じ）。page.tsx側が一次属性の表示状態とlayerVisibility
    * から算出する（buildAxisOverlayLayers参照）。 */
   secondaryAxisCasingLayerIds: readonly string[];
   /** 路面の各軸（路面の種類・道路の種類）それぞれの非表示カテゴリキー。軸ごとに独立した
    * レイヤーを持つため、絞り込みもレイヤーごとに独立して効く。 */
-  roadHiddenKeysByMode: Record<RoadFilterAxisId, readonly string[]>;
-  /** 自転車インフラ・停止要因POI・事故（当事者/重大度）の絞り込み軸
-   * （buildStaticFilterAxes()参照。事故のみ2軸を持ち、他は1軸。ramp軸は
-   * axisVisibility側と同様RAMP_AXES由来のためここには手書きされていない）。 */
-  staticLegendHiddenKeysByAxis: Record<StaticFilterAxisId, readonly string[]>;
+  roadHiddenKeysByMode: Record<string, readonly string[]>;
+  /** 点・評価軸の絞り込みで隠した行の鍵。鍵は`scene/legends.ts`が宣言から出す軸id
+   * （点は`役割:軸`、評価軸は軸id）で、ここには何も手書きしない。 */
+  staticLegendHiddenKeysByAxis: Record<string, readonly string[]>;
   routeLayerOn: boolean;
   /** ルート色分けモード一覧（axis-catalog由来、公開軸を無条件で動的に含む）。
    * page.tsx: axisCatalog.routeStyleModes（フェッチ完了までは静的フォールバック）を
@@ -2186,7 +592,7 @@ interface MapViewProps {
  *
  * 呼び出し側が毎フェッチ作り直すMapを、参照の同一性に依存するuseMemo/useEffectへ
  * そのまま渡せるようにするためのもの。 */
-export function useStableMap<K, V>(map: ReadonlyMap<K, V> | undefined): ReadonlyMap<K, V> | undefined {
+function useStableMap<K, V>(map: ReadonlyMap<K, V> | undefined): ReadonlyMap<K, V> | undefined {
   const signature = map
     ? [...map]
         .map(([key, value]) => `${String(key)}=${String(value)}`)
@@ -2198,136 +604,7 @@ export function useStableMap<K, V>(map: ReadonlyMap<K, V> | undefined): Readonly
   return useMemo(() => map, [signature]);
 }
 
-/** 乗り換えられる区間の帯と、編集中の合成ルートの出し分けを1箇所へ集約する。
- *
- * 「ルート」チップOFFのときは帯も合成ルートも出さない——候補線が消えている地図に
- * 差し替え先だけが浮いて見えるのを避けるため。 */
-export function applySpliceLayerVisibility(
-  map: MapLibreMap,
-  routeLayerOn: boolean,
-  spliceStretches: SpliceStretchFeature[] | undefined,
-  splicedRoute: readonly GeoJSON.Position[] | null | undefined,
-) {
-  const stretches = routeLayerOn ? (spliceStretches ?? []) : [];
-  if (stretches.length > 0) {
-    drawSpliceStretches(map, stretches);
-  } else {
-    hideSpliceStretches(map);
-  }
-  const current = routeLayerOn ? (splicedRoute ?? null) : null;
-  if (current && current.length > 1) {
-    drawSplicedRoute(map, current);
-  } else {
-    hideSplicedRoute(map);
-  }
-}
-
 /** `redrawAllLayers`が読む表示状態。コンポーネント側はrefで最新値を保持して渡す。 */
-export type RedrawAllLayersProps = Pick<
-  MapViewProps,
-  | "routes"
-  | "selectedRouteId"
-  | "routeLayerOn"
-  | "routeStyleModes"
-  | "routeStyleModeId"
-  | "hiddenRouteLegendKeys"
-  | "spliceStretches"
-  | "splicedRoute"
-  | "staticLayerVisibility"
-  | "dynamicWeather"
-  | "dedicatedWayValueVisibility"
-  | "axisVisibility"
-  | "roadHiddenKeysByMode"
-  | "staticLegendHiddenKeysByAxis"
-  | "experimentSlots"
-  | "dedicatedWayValues"
-> & {
-  staticOverlayLayers: readonly OverlayLayerEntry[];
-  staticFilterAxes: readonly StaticFilterAxis[];
-  /** 詳細を見ている道（ポップアップが開いている間だけ非null）。 */
-  inspectedWayId: number | null;
-};
-
-// map.setStyle()は基礎地図タイルのキャッシュクリア後の再読み込みに使うが、これは
-// カスタムソース/レイヤーを含むスタイル全体を差し替えるため、こちらで追加した
-// ルート/ハロー/風/地域レイヤーがすべて消える。style.loadイベント後にこの関数で
-// 現在の表示状態から全レイヤーを作り直す。標高・路面はいずれもタイルソースのため、
-// 再取得は不要（キャッシュがクリアされていれば次のタイル要求で自動的に新しいタイルが
-// 生成される）。
-//
-// **再描画で失われる副作用を持つ描画は、必ずここから辿れる位置へ置くこと**（ソース・
-// レイヤーの追加だけでなく、filter・feature-state・visibilityで持つ表示状態も含む）。
-// 辿れないものはsetStyle()後に作り直されず、押した人の地図から消えたまま戻らない。
-// 置き忘れは`scripts/review_checks.py`の`map_redraw_coverage`が機械的に落とす。
-//
-// カメラは動かさない——再描画は見た目を作り直すだけで、表示範囲は利用者の操作に属する
-// （フィットは「候補一覧が変わったとき」だけ、という下部effectの取り決めを破らない）。
-export function redrawAllLayers(map: MapLibreMap, props: RedrawAllLayersProps) {
-  const {
-    routes,
-    selectedRouteId,
-    routeLayerOn,
-    routeStyleModes,
-    routeStyleModeId,
-    hiddenRouteLegendKeys,
-    spliceStretches,
-    splicedRoute,
-    staticLayerVisibility,
-    dynamicWeather,
-    dedicatedWayValueVisibility,
-    axisVisibility,
-    roadHiddenKeysByMode,
-    staticLegendHiddenKeysByAxis,
-    experimentSlots,
-    staticOverlayLayers,
-    staticFilterAxes,
-    dedicatedWayValues,
-    inspectedWayId,
-  } = props;
-  setStaticOverlayVisibility(
-    map,
-    { ...staticLayerVisibility, ...dedicatedWayValueVisibility, ...axisVisibility },
-    staticOverlayLayers,
-  );
-  for (const id of DYNAMIC_WEATHER_LAYER_IDS) {
-    applyDynamicWeatherState(map, id, DYNAMIC_WEATHER_RENDERERS[id], dynamicWeather[id]);
-  }
-  // 専用way値配信軸の線レイヤー（評価軸グループの風・勾配等）はプロパティ
-  // ではなくsetFeatureStateで色付けするため、map.setStyle()でレイヤー自体が作り直された
-  // 後は明示的に再適用しないと無色のまま残ってしまう（値自体は変わっていないため、
-  // 通常の依存effectは再実行されない）。
-  for (const [axisId, values] of dedicatedWayValues) {
-    applyAxisFeatureStateValues(map, dedicatedWayValueFeatureStateKey(axisId), values);
-  }
-  setStaticOverlayFilters(map, staticLegendHiddenKeysByAxis, staticOverlayLayers, staticFilterAxes);
-  applyRoadLayerState(map, staticLayerVisibility.roadSurface, staticLayerVisibility.roadType, roadHiddenKeysByMode);
-  applyRoadMaterialTrackOffsets(map, staticLayerVisibility);
-
-  // applyRouteLayerVisibilityがrouteLayerOnを見て出し分けるため、「ルート」チップを
-  // OFFにして候補線・ハロー・矢印を隠している間は、地図データの再読み込み
-  // （map.setStyle()経由でこのredrawAllLayersが走る）でも再表示されない。
-  // 直後のdetail-segments分岐（routeLayerOn && selected?.segments）と同じ基準へ揃える。
-  const selected = routes.find((r) => r.id === selectedRouteId) ?? null;
-  applyRouteLayerVisibility(map, routeLayerOn, routes, selectedRouteId, Boolean(selected?.segments));
-  applySpliceLayerVisibility(map, routeLayerOn, spliceStretches, splicedRoute);
-  drawExperimentSlots(map, experimentSlots);
-
-  if (routeLayerOn && selected?.segments) {
-    drawDetailSegments(
-      map,
-      selected.segments,
-      getRouteStyleMode(routeStyleModes, routeStyleModeId),
-      hiddenRouteLegendKeys,
-    );
-  } else {
-    hideDetailSegments(map);
-  }
-
-  // 強調はレイヤーのfilterとvisibilityで持つため、setStyle()でソースごと消えると初期値
-  // （非表示・osm_way_id=-1）に戻る。ポップアップは開いたままなので、ここで復元しないと
-  // 「どの線の話か」だけが失われる。
-  applyInspectedWay(map, inspectedWayId);
-}
 
 export default function MapView({
   routes,
@@ -2404,39 +681,80 @@ export default function MapView({
   // （useAxisCatalogの実行時フェッチが完了する）たびに再計算する。下敷き表現の有無
   // （secondaryAxisCasingLayerIds）もレイヤーspecの一部のため、材料の表示が切り替わった
   // ときもここから作り直す。
-  const secondaryAxisCasingKeys = useMemo(() => new Set(secondaryAxisCasingLayerIds), [secondaryAxisCasingLayerIds]);
-  const axisOverlayLayers = useMemo(
-    () => buildAxisOverlayLayers(rampAxes, secondaryAxisCasingKeys),
-    [rampAxes, secondaryAxisCasingKeys],
-  );
   // フェッチ状態のMapは、値が同じでもフェッチのたびに作り直されて渡ってくる。そのまま
-  // 依存に置くと、パン・ズームのたびに全オーバーレイ層のspecを組み直してpaint/filterを
-  // 再適用することになる（公開ramp軸が増えるほど線形に増える）。中身が同じ間は同じ参照を使う。
+  // 依存に置くと、パン・ズームのたびに scene を組み直すことになる。中身が同じ間は同じ参照を使う。
   const stableDedicatedWayValueLoading = useStableMap(dedicatedWayValueLoading);
   const stableDedicatedWayValueHiddenBands = useStableMap(dedicatedWayValueHiddenBands);
   const mapLayerCatalog = useMemo(() => buildMapLayers(rampAxes, dedicatedAxes), [rampAxes, dedicatedAxes]);
-  const staticOverlayLayers = useMemo(
+  const layerDataSources = useMemo(() => buildLayerDataSources(mapLayerCatalog), [mapLayerCatalog]);
+  // 詳細を見ている道（ポップアップが開いている間だけ非null）。強調も scene の一部として
+  // 当てるため、状態から導く。
+  const inspectedWayId = roadPopup?.properties.osm_way_id ?? null;
+  // 地図に載るもの全部の入力。**ここが scene の唯一の組み立て口**で、家族ごとの
+  // 個別の反映経路を持たない。
+  const sceneInputs = useMemo<SceneInputs>(
     () =>
-      buildStaticOverlayLayers(
-        mapLayerCatalog,
-        axisOverlayLayers,
+      sceneInputsFrom({
+        routes,
+        selectedRouteId,
+        routeLayerOn,
+        routeStyleModes,
+        routeStyleModeId,
+        hiddenRouteLegendKeys,
+        spliceStretches,
+        splicedRoute,
+        experimentSlots,
+        staticLayerVisibility,
+        dynamicWeather,
+        dedicatedWayValueVisibility,
+        axisVisibility,
+        roadHiddenKeysByMode,
+        staticLegendHiddenKeysByAxis,
+        dedicatedWayValues,
+        rampAxes,
         dedicatedAxes,
         dedicatedWayValueDisplays,
-        stableDedicatedWayValueLoading,
-        stableDedicatedWayValueHiddenBands,
-      ),
+        dedicatedWayValueLoading: stableDedicatedWayValueLoading,
+        dedicatedWayValueHiddenBands: stableDedicatedWayValueHiddenBands,
+        secondaryAxisCasingLayerIds,
+        tileVersionsReady,
+        inspectedWayId,
+      }),
     [
-      mapLayerCatalog,
-      axisOverlayLayers,
+      routes,
+      selectedRouteId,
+      routeLayerOn,
+      routeStyleModes,
+      routeStyleModeId,
+      hiddenRouteLegendKeys,
+      spliceStretches,
+      splicedRoute,
+      experimentSlots,
+      staticLayerVisibility,
+      dynamicWeather,
+      dedicatedWayValueVisibility,
+      axisVisibility,
+      roadHiddenKeysByMode,
+      staticLegendHiddenKeysByAxis,
+      dedicatedWayValues,
+      rampAxes,
       dedicatedAxes,
       dedicatedWayValueDisplays,
       stableDedicatedWayValueLoading,
       stableDedicatedWayValueHiddenBands,
+      secondaryAxisCasingLayerIds,
+      tileVersionsReady,
+      inspectedWayId,
     ],
   );
-  const interactiveLayerIds = useMemo(() => buildInteractiveLayerIds(staticOverlayLayers), [staticOverlayLayers]);
-  const layerDataSources = useMemo(() => buildLayerDataSources(mapLayerCatalog), [mapLayerCatalog]);
-  const staticFilterAxes = useMemo(() => buildStaticFilterAxes(rampAxes), [rampAxes]);
+  const scene = useMemo(() => buildMapScene(sceneInputs), [sceneInputs]);
+  // 押せるのは scene が当たり判定を宣言したレイヤーだけ。
+  const interactiveLayerIds = useMemo(() => interactiveSceneLayerIds(scene), [scene]);
+  // スタイルの差し替え後に作り直すとき、その時点の宣言を読む。
+  const sceneRef = useRef(scene);
+  useEffect(() => {
+    sceneRef.current = scene;
+  }, [scene]);
   // handleClick/handleMouseMove（地図初期化effect内、一度だけ登録されるクロージャ）が
   // 最新のinteractiveLayerIdsを読めるようにするref（onTileZoomTooWideChangeRef等と同じ
   // 「安定コールバックが最新値を読む」パターン）。
@@ -2465,7 +783,6 @@ export default function MapView({
   const lastTileZoomHintRef = useRef("");
   // 詳細を見ている道。propsではなくこのコンポーネントのstate由来のため、redrawPropsRefとは
   // 別に持つ。
-  const inspectedWayIdRef = useRef<number | null>(null);
   const onViewportChangeRef = useRef(onViewportChange);
   const onLayerDataStatusChangeRef = useRef(onLayerDataStatusChange);
   // handleClick（地図初期化effect内、一度だけ登録されるクロージャ）が
@@ -2509,12 +826,8 @@ export default function MapView({
     roadHiddenKeysByMode,
     staticLegendHiddenKeysByAxis,
     experimentSlots,
-    staticOverlayLayers,
-    staticFilterAxes,
     dedicatedWayValues,
   });
-
-  const selectedCandidate = routes.find((r) => r.id === selectedRouteId) ?? null;
 
   useEffect(() => {
     onTileZoomTooWideChangeRef.current = onTileZoomTooWideChange;
@@ -2589,8 +902,6 @@ export default function MapView({
       roadHiddenKeysByMode,
       staticLegendHiddenKeysByAxis,
       experimentSlots,
-      staticOverlayLayers,
-      staticFilterAxes,
       dedicatedWayValues,
     };
   }, [
@@ -2608,8 +919,6 @@ export default function MapView({
     axisVisibility,
     roadHiddenKeysByMode,
     staticLegendHiddenKeysByAxis,
-    staticOverlayLayers,
-    staticFilterAxes,
     experimentSlots,
     dedicatedWayValues,
   ]);
@@ -2617,10 +926,7 @@ export default function MapView({
   // 再描画の中身はモジュールレベルの`redrawAllLayers`が持つ（テストから実物を呼べる形に
   // するため）。ここはrefが保持する最新値を渡すだけの薄い包み。
   const redrawFromCurrentProps = useCallback((map: MapLibreMap) => {
-    redrawAllLayers(map, {
-      ...redrawPropsRef.current,
-      inspectedWayId: inspectedWayIdRef.current,
-    });
+    applyScene(map, sceneRef.current, { reset: true });
   }, []);
 
   // レイヤーデータ状態（loading/empty/error）の状態管理・再計算はuseLayerDataStatusに
@@ -2722,27 +1028,8 @@ export default function MapView({
       mapRef.current?.resize();
     });
     resizeObserver.observe(mapContainerRef.current);
-    // 標高ラスタ・路面ベクタタイルは他の重ね描きレイヤーより先に追加し、常に背景寄りに
-    // 描画されるようにする（標高が最背面、その上に路面、さらに上にルート系レイヤー）。
-    // ensureAllStaticOverlayLayers内のramp軸はROAD_TILE_SOURCE_ID
-    // （road_surfaceベクタソース）を再利用する依存関係があるため、そのソースを実際に作る
-    // ensureRoadSurfaceTileLayerを先に呼ぶ必要がある。いずれも初回はmap.once("load", ...)への
-    // 登録（実行はスタイル読み込み完了後）のため、ここでの呼び出し順がそのまま発火順になる。
-    // ensureAllStaticOverlayLayersをensureRoadSurfaceTileLayerより先に呼ぶと、
-    // addLayerがソース未作成のまま実行され
-    // 「source "region-road-surface-tiles" not found」エラーになる。路面より下に置く
-    // レイヤー（記述子が面の段を宣言しているもの、`layersUnderRoadSurface`）を先にensureして
-    // から路面ソースを作ることで、「面のラスタが最背面、その上に路面」の意図を保つ
-    // （ensureAllStaticOverlayLayers内で二重に呼ばれるが各自のガードで無害化される）。
-    // staticOverlayLayersはredrawPropsRef.current経由で読む（このeffectは
-    // マウント時のみ実行され、propsのrampAxesが後から変わっても再実行されないため。
-    // 実行時フェッチで新しい軸が現れた場合の追従は、別途staticOverlayLayers変更時の
-    // effectで対応する）。
-    for (const layer of layersUnderRoadSurface(redrawPropsRef.current.staticOverlayLayers)) {
-      layer.ensure(map);
-    }
-    ensureRoadSurfaceTileLayer(map);
-    ensureAllStaticOverlayLayers(map, redrawPropsRef.current.staticOverlayLayers);
+    // レイヤーは scene の適用（applyScene）が作る。ここでは作らない——2通りの経路で
+    // 同じ地図を触ると、重なり順と表示が経路ごとに食い違う。
 
     // 路面レイヤーの区間・ルートレイヤーの詳細区間をクリックすると詳細をポップアップ表示する
     // （標高はラスタタイルのため、地物ごとのクリック判定は行わない）。**どれかの役割で武装して
@@ -2758,7 +1045,7 @@ export default function MapView({
       }
       // ルート線（当たり判定はDETAIL_HIT_LAYER_ID）は下の
       // handleRouteSegmentClickという専用ハンドラを別途
-      // map.on("click", DETAIL_HIT_LAYER_ID, ...)で登録している。MapLibreはmap全体の
+      // map.on("click", ROUTE_HIT_LAYER_ID.segment, ...)で登録している。MapLibreはmap全体の
       // genericな"click"（このhandleClick）とlayer-scopedな"click"を互いに独立して
       // 両方発火するため、ここで何もガードしないとルート線をクリックしたときに専用ハンドラの
       // マーカー表示・区間選択と、この下の一般道路網向けポップアップが同時に開いてしまう
@@ -2767,7 +1054,7 @@ export default function MapView({
       // 一切行わない。
       // 候補線（ROUTES_HIT_LAYER_ID）も同じ理由で専用ハンドラ（handleCandidateClick）を
       // 持つため、一般道路網向けのポップアップは開かない。
-      for (const hitLayerId of ROUTE_HIT_LAYER_IDS) {
+      for (const hitLayerId of sceneLayerIdsForHitTarget(sceneRef.current, ROUTE_HIT_TARGET)) {
         if (map.getLayer(hitLayerId) && map.queryRenderedFeatures(e.point, { layers: [hitLayerId] }).length > 0) {
           return;
         }
@@ -2782,14 +1069,17 @@ export default function MapView({
       // React部品（RoadInspectorPopup）で描く。HTML文字列を組み立てる方式だと、同じ
       // 「軸ごとの効き方」を別の見た目で見せることになる。点データ（事故・POI）は
       // 1〜3行の事実だけなのでHTMLのまま。
+      const point = POINT_LAYER_BY_SCENE_ID.get(feature.layer.id);
       const html =
-        feature.layer.id === ACCIDENT_LAYER_ID
-          ? buildAccidentPopupHtml(feature.properties as unknown as AccidentPopupProperties)
-          : feature.layer.id === STOP_POI_LAYER_ID
-            ? buildPoiPopupHtml("停止要因", STOP_POI_LABELS, feature.properties as unknown as PoiPopupProperties)
-            : feature.layer.id === SUPPLY_POI_LAYER_ID
-              ? buildPoiPopupHtml("補給・休憩", SUPPLY_POI_LABELS, feature.properties as unknown as PoiPopupProperties)
-              : null;
+        point === undefined
+          ? null
+          : point.attr_id === "accident_point"
+            ? buildAccidentPopupHtml(feature.properties as unknown as AccidentPopupProperties)
+            : buildPoiPopupHtml(
+                PRIMARY_ATTRIBUTE_LABELS[point.attr_id] ?? point.attr_id,
+                pointValueLabels(point),
+                feature.properties as unknown as PoiPopupProperties,
+              );
 
       popupRef.current?.remove();
       popupRef.current = null;
@@ -2992,9 +1282,15 @@ export default function MapView({
     map.on("click", handleClick);
     // ルート線専用（layer-scoped）。上のhandleClick（generic）とは独立して両方このイベントで
     // 発火するため、handleClick冒頭のガードと対で機能する。
-    map.on("click", DETAIL_HIT_LAYER_ID, handleRouteSegmentClick);
-    map.on("click", ROUTES_HIT_LAYER_ID, handleCandidateClick);
-    map.on("click", SPLICE_HIT_LAYER_ID, handleSpliceStretchClick);
+    // 専用ハンドラは当たり判定のレイヤーへ直接つなぐ（地図全体のclickと二重に発火させない）。
+    const routeHitLayers = {
+      segment: routeHitLayerId(sceneRef.current, ROUTE_HIT_TARGET_SEGMENT),
+      candidate: routeHitLayerId(sceneRef.current, ROUTE_HIT_TARGET_CANDIDATE),
+      spliceBand: routeHitLayerId(sceneRef.current, ROUTE_HIT_TARGET_SPLICE_BAND),
+    };
+    if (routeHitLayers.segment !== undefined) map.on("click", routeHitLayers.segment, handleRouteSegmentClick);
+    if (routeHitLayers.candidate !== undefined) map.on("click", routeHitLayers.candidate, handleCandidateClick);
+    if (routeHitLayers.spliceBand !== undefined) map.on("click", routeHitLayers.spliceBand, handleSpliceStretchClick);
     map.on("mousemove", handleMouseMove);
     map.on("zoom", handleZoom);
     map.on("load", handleLoad);
@@ -3017,9 +1313,10 @@ export default function MapView({
       map.off("sourcedata", collapseAttribution);
       map.off("style.load", prepareBasemap);
       map.off("click", handleClick);
-      map.off("click", DETAIL_HIT_LAYER_ID, handleRouteSegmentClick);
-      map.off("click", ROUTES_HIT_LAYER_ID, handleCandidateClick);
-      map.off("click", SPLICE_HIT_LAYER_ID, handleSpliceStretchClick);
+      if (routeHitLayers.segment !== undefined) map.off("click", routeHitLayers.segment, handleRouteSegmentClick);
+      if (routeHitLayers.candidate !== undefined) map.off("click", routeHitLayers.candidate, handleCandidateClick);
+      if (routeHitLayers.spliceBand !== undefined)
+        map.off("click", routeHitLayers.spliceBand, handleSpliceStretchClick);
       map.off("mousemove", handleMouseMove);
       map.off("zoom", handleZoom);
       map.off("load", handleLoad);
@@ -3181,25 +1478,16 @@ export default function MapView({
     runWhenStyleReady(map, applySelectedSegmentMarker);
   }, [selectedRouteSegment]);
 
-  // ルート候補のベース表示・選択中候補のハロー表示をまとめて更新する。候補線用・
-  // ハロー用に別々のeffectを持たせてそれぞれがif(routeLayerOn)分岐を手書きすると、
-  // redrawAllLayers側にも同じ分岐を書く必要が生じ、書き忘れるとrouteLayerOn（地図上
-  // 「ルート」チップ）をOFFにしても候補線・ハロー・矢印が消えない不整合になる。
-  // applyRouteLayerVisibility（MapView.tsx上部で定義）へ集約し、この1effectと
-  // redrawAllLayersの両方から同じ関数を呼ぶことで、呼び出し元が増えても分岐の
-  // 書き忘れが起きない構造にする。
+  // 地図に載るもの（面・道路の線・評価軸・点・気象・ルート）は、1つの scene として
+  // 組み立てて1本の経路で当てる。**表示・絞り込み・重なり順はすべてここを通る。**
   useEffect(() => {
     const map = mapRef.current;
     if (!map) return;
-
-    applyRouteLayerVisibility(map, routeLayerOn, routes, selectedRouteId, Boolean(selectedCandidate?.segments));
-  }, [routes, selectedRouteId, routeLayerOn, selectedCandidate]);
-
-  useEffect(() => {
-    const map = mapRef.current;
-    if (!map) return;
-    applySpliceLayerVisibility(map, routeLayerOn, spliceStretches, splicedRoute);
-  }, [spliceStretches, splicedRoute, routeLayerOn]);
+    applyScene(map, scene);
+    // OFF→ONで新しく可視になったレイヤーの取得状態を即座に出す（タイルがキャッシュ済みで
+    // sourcedataが発火しない場合でも状態が更新されるようにする）。
+    recomputeLayerDataStatus();
+  }, [scene, recomputeLayerDataStatus]);
 
   // 表示範囲のフィットは「候補一覧が変わったとき」だけに限定する。
   // selectedRouteIdを依存に含めると、候補選択の切り替えのたびに（fitBoundsToRoutesは
@@ -3213,130 +1501,6 @@ export default function MapView({
       fitBoundsToRoutes(map, routes, routeFitObscuredPxRef.current);
     }
   }, [routes]);
-
-  // 実験スロットの重ね描き（研究インターフェース改善 §10-3）。デバッグモードOFF時は
-  // 呼び出し側（page.tsx）が空配列を渡すため、レイヤーは作られるが常に空になる。
-  useEffect(() => {
-    const map = mapRef.current;
-    if (!map) return;
-    drawExperimentSlots(map, experimentSlots);
-  }, [experimentSlots]);
-
-  // ルートレイヤー（有向データ: 風・勾配。選択中候補のみ）。ON/OFF・色分けモード・
-  // 凡例フィルタのいずれの切替もスタイル式の差し替えだけで反映される
-  useEffect(() => {
-    const map = mapRef.current;
-    if (!map) return;
-
-    if (routeLayerOn && selectedCandidate?.segments) {
-      drawDetailSegments(
-        map,
-        selectedCandidate.segments,
-        getRouteStyleMode(routeStyleModes, routeStyleModeId),
-        hiddenRouteLegendKeys,
-      );
-    } else {
-      hideDetailSegments(map);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [routes, selectedRouteId, routeLayerOn, routeStyleModes, routeStyleModeId, hiddenRouteLegendKeys]);
-
-  // 標高・事故・ramp軸等は、いずれも「選択候補に関係なく地図全体に重ね描きし、
-  // 切替はvisibilityの差し替えのみ」という同型のレイヤー（staticOverlayLayersが並べる）の
-  // ため、1つのeffectでまとめて反映する
-  // （setLayerVisibilityは同じ値の再設定でも副作用が無いため、
-  // いずれか1つのフラグが変わったときに他を再設定しても表示に影響しない）。
-  useEffect(() => {
-    const map = mapRef.current;
-    if (!map) return;
-    setStaticOverlayVisibility(
-      map,
-      { ...staticLayerVisibility, ...dedicatedWayValueVisibility, ...axisVisibility },
-      staticOverlayLayers,
-    );
-    // OFF→ONで新たに可視になったレイヤー、またはOFFになったレイヤーの状態表示を
-    // 即座に反映する（タイルが既にキャッシュ済みでsourcedataイベントが発火しない場合でも
-    // 状態が更新されるようにするため）。
-    recomputeLayerDataStatus();
-  }, [
-    staticLayerVisibility,
-    dedicatedWayValueVisibility,
-    axisVisibility,
-    recomputeLayerDataStatus,
-    // staticOverlayLayersが変わる（軸スタジオの実行時フェッチで新しい軸が現れる・
-    // 材料の表示切替でramp軸の下敷き表現が変わる）たびにsetStaticOverlayVisibility経由で
-    // ensure()が再実行され、新しい軸のレイヤーもここで初めて登録される。
-    staticOverlayLayers,
-  ]);
-
-  // way_id→動的値配信層（風=wind_drag_ratio・勾配=effective_gradient）。
-  // hooks/useDedicatedWayValues.tsが現在のビューポートに対して取得した値を
-  // MapLibreのsetFeatureStateへ反映する。上のbuildStaticOverlayLayers()一括effect（表示ON/OFFの
-  // 切替）とは別のeffectにする理由は動的気象レイヤーと同じ——dedicatedWayValuesはパン・
-  // ズームのたびに変わりうる値のため、他のshow*系フラグ群と同居させると無関係な再実行が
-  // 増える。どの軸も表示されていない間も値自体はhooks側でenabled=falseにより
-  // 空のMapへ戻るため、ここでは値をそのまま反映するだけで十分（非表示レイヤーへ
-  // feature-stateを設定しても表示には影響しない）。dedicatedWayValues（axisId→値の汎用Map）を
-  // 1つのループで回すため、動的材料が増えてもこのeffect自体の変更は不要。
-  useEffect(() => {
-    const map = mapRef.current;
-    if (!map) return;
-    runWhenStyleReady(map, () => {
-      for (const [axisId, values] of dedicatedWayValues) {
-        applyAxisFeatureStateValues(map, dedicatedWayValueFeatureStateKey(axisId), values);
-      }
-    });
-  }, [dedicatedWayValues]);
-
-  // 専用way値配信軸が1つも表示されなくなった瞬間
-  // （ルート確定・手動OFFいずれも含む）に、それまでの全道路ぶんのfeature-stateを明示的に
-  // クリアする（clearRoadTileFeatureState参照）。`map.removeFeatureState({source,
-  // sourceLayer})`はMapLibreの仕様上キー単位の選択的削除ができずソース丸ごと消えるため、
-  // 複数の軸が同時ON（排他ドメインではない）の状態で1つだけをOFFにした瞬間にこの関数を
-  // 呼ぶと、まだONのままの他の軸の色分けまで巻き添えで消えてしまう。全てfalseになるまで
-  // クリアを遅らせることで、「まだONの軸を巻き添えにしない」かつ「最後の1つがOFFになったら
-  // 必ずクリアされる」を両立する。マウント直後（全フラグの初期値がfalse）にも走るが、
-  // その時点ではまだsetFeatureStateが1件も呼ばれていないため無害（空振り）。
-  useEffect(() => {
-    const map = mapRef.current;
-    if (!map || !shouldClearDedicatedWayValueFeatureState(dedicatedWayValueVisibility)) return;
-    runWhenStyleReady(map, () => clearRoadTileFeatureState(map));
-  }, [dedicatedWayValueVisibility]);
-
-  // 動的気象レイヤー（降水ナウキャスト・風の矢印）。いずれもpayloadが地図上の時刻
-  // スライダー操作のたびに変わるため、
-  // 上のbuildStaticOverlayLayers()一括effect（依存が多く再実行コストの大きいshowX系フラグ群）とは
-  // 分けた専用effectにまとめる（DYNAMIC_WEATHER_LAYER_IDSで回すため、要素が増えてもこの
-  // effect自体は変わらない）。
-  useEffect(() => {
-    const map = mapRef.current;
-    if (!map) return;
-    for (const id of DYNAMIC_WEATHER_LAYER_IDS) {
-      applyDynamicWeatherState(map, id, DYNAMIC_WEATHER_RENDERERS[id], dynamicWeather[id]);
-    }
-    recomputeLayerDataStatus();
-  }, [dynamicWeather, recomputeLayerDataStatus]);
-
-  // 停止要因POI・事故（当事者/重大度）・ramp軸等の絞り込み。道路情報の
-  // フィルタ効果（下）と同じく、visibility/フィルタ式の差し替えのみで反映される。
-  useEffect(() => {
-    const map = mapRef.current;
-    if (!map) return;
-    setStaticOverlayFilters(map, staticLegendHiddenKeysByAxis, staticOverlayLayers, staticFilterAxes);
-  }, [staticLegendHiddenKeysByAxis, staticOverlayLayers, staticFilterAxes]);
-
-  // 路面（道路の種類/路面の種類）ON/OFF・凡例フィルタの切替は、いずれも
-  // visibility/paint/フィルタ式の差し替えのみで反映される（データ取得はMapLibreがパン/
-  // ズームに応じて自動で行うため、明示的なfetchは不要）。色・太さ・線種は
-  // showRoadSurface/showRoadTypeの組み合わせでapplyRoadLayerStateが都度再計算する
-  // （固定ではなくなった、applyRoadLayerStateのコメント参照）。
-  useEffect(() => {
-    const map = mapRef.current;
-    if (!map) return;
-    applyRoadLayerState(map, staticLayerVisibility.roadSurface, staticLayerVisibility.roadType, roadHiddenKeysByMode);
-    applyRoadMaterialTrackOffsets(map, staticLayerVisibility);
-    recomputeLayerDataStatus();
-  }, [staticLayerVisibility, roadHiddenKeysByMode, recomputeLayerDataStatus]);
 
   // 「地図の表示を再描画」ボタン: スタイルを取り直して地図を組み直す（押した人の地図
   // インスタンスだけに閉じた操作で、サーバー側のタイルキャッシュには触れない）。
@@ -3378,9 +1542,6 @@ export default function MapView({
   // インスペクタが見せるのがway単位の属性のため）。
   useEffect(() => {
     const map = mapRef.current;
-    // 再描画（map.setStyle()）は強調を初期値へ戻すため、redrawAllLayersが復元できるよう
-    // 開いている道をrefで持つ。早期returnより前に置き、閉じたときもnullへ戻す。
-    inspectedWayIdRef.current = roadPopup?.properties.osm_way_id ?? null;
     if (!map || roadPopup === null) return;
     const container = document.createElement("div");
     const popup = new maplibregl.Popup({ closeButton: true, maxWidth: "20rem" })
@@ -3388,18 +1549,12 @@ export default function MapView({
       .setDOMContent(container)
       .addTo(map);
     setRoadPopupContainer(container);
-    const wayId = roadPopup.properties.osm_way_id;
-    runWhenStyleReady(map, () => {
-      ensureRoadSurfaceTileLayer(map);
-      applyInspectedWay(map, wayId ?? null);
-    });
     const close = () => setRoadPopup(null);
     popup.on("close", close);
     return () => {
       popup.off("close", close);
       popup.remove();
       setRoadPopupContainer(null);
-      applyInspectedWay(map, null);
     };
   }, [roadPopup]);
 
@@ -3420,9 +1575,9 @@ export default function MapView({
             top: "1rem",
             left: "50%",
             transform: "translateX(-50%)",
-            background: "#fef2f2",
-            color: "#991b1b",
-            border: "1px solid #fecaca",
+            background: "var(--color-danger-muted)",
+            color: "var(--color-danger)",
+            border: "1px solid var(--color-danger)",
             borderRadius: "0.5rem",
             padding: "0.5rem 1rem",
             fontSize: "0.85rem",

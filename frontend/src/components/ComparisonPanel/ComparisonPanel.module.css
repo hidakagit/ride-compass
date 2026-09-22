@@ -1,3 +1,6 @@
+/* `theme(--breakpoint-mobile)`を引くための参照（値の定義はglobals.cssに1つだけ）。 */
+@reference "../../app/globals.css";
+
 .hint {
   font-size: var(--font-size-sm);
   color: var(--color-muted);
@@ -55,7 +58,7 @@
 }
 
 /* 狭い画面では余白を詰める。列が増えるのは横方向だけなので、ここが効く。 */
-@media (max-width: 640px) {
+@media (max-width: theme(--breakpoint-mobile)) {
   .table th,
   .table td {
     padding: 2px var(--space-1);

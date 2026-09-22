@@ -6,7 +6,7 @@
  */
 import { setWorkerUrl } from "maplibre-gl";
 
-export const MAPLIBRE_WORKER_URL = "/maplibre/maplibre-gl-worker.mjs";
+const MAPLIBRE_WORKER_URL = "/maplibre/maplibre-gl-worker.mjs";
 
 let applied = false;
 

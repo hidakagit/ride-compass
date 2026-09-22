@@ -25,21 +25,6 @@ function lonLatToTileIndex(lon: number, lat: number, z: number): [number, number
   return [x, y];
 }
 
-/** XYZタイルの経緯度範囲を求める（backend/app/domain/region.py: tile_bounds_lonlatのJS版）。
- * 面表示のセル形状を組み立てるために使う。 */
-export function tileBoundsLonLat(
-  z: number,
-  x: number,
-  y: number,
-): { west: number; south: number; east: number; north: number } {
-  const n = 2 ** z;
-  const west = (x / n) * 360 - 180;
-  const east = ((x + 1) / n) * 360 - 180;
-  const northRad = Math.atan(Math.sinh(Math.PI * (1 - (2 * y) / n)));
-  const southRad = Math.atan(Math.sinh(Math.PI * (1 - (2 * (y + 1)) / n)));
-  return { west, east, north: (northRad * 180) / Math.PI, south: (southRad * 180) / Math.PI };
-}
-
 // 1回のフェッチで要求するタイル数の上限（安全弁）。ズームはminZoom〜maxZoomへクランプする
 // ため、road-surface-tiles同様ブラウザ1画面ぶんのビューポートで通常この上限に達することは
 // ない想定（極端に広いウィンドウ・低ズームでの防御的な上限）。
@@ -52,7 +37,7 @@ const MAX_TILES_PER_FETCH = 64;
  * 異なる——サーバ側はz/x/y個別の物理タイル座標で完結するが、こちらは「今フロントに見えている
  * ズーム」から「実際に道路タイルが読み込まれるであろうズーム」を逆算する必要があるため）。 */
 /** 道路タイルを引くズーム。地図のズームをタイルが存在する範囲へ丸める。 */
-export function roadTileZoom(zoom: number, minZoom: number, maxZoom: number): number {
+function roadTileZoom(zoom: number, minZoom: number, maxZoom: number): number {
   return Math.min(maxZoom, Math.max(minZoom, Math.floor(zoom)));
 }
 

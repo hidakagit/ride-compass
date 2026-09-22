@@ -1,5 +1,6 @@
 "use client";
 
+import palette from "@/types/generated/palette.json";
 import type React from "react";
 import type { ReactNode } from "react";
 import InfoPopover from "@/components/Map/InfoPopover";
@@ -39,7 +40,7 @@ interface AxisContributionBarProps {
   renderDetail?: (axis: PreferenceAxisDef) => ReactNode | null;
 }
 
-const FALLBACK_COLOR = "#94a3b8";
+const FALLBACK_COLOR = palette.semantic.neutral;
 
 /** 「重み付き寄与度」の内訳を積み上げ1本バー＋下の凡例（色ドット＋ラベル＋数値）で表示する
  * 共有部品。ルート結果タブ全体の内訳（RouteAxisProfile）と、区間クリック詳細

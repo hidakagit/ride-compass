@@ -11,6 +11,8 @@
 // DynamicWeatherFrame/DynamicWeatherRenderPayloadを組み立てる薄いラッパーのみを持つ
 // （実際のGeoJSON構築・色/サイズの式化はwindFrames/windRenderPayload、MapView.tsx側）。
 
+import palette from "@/types/generated/palette.json";
+import weatherScales from "@/types/generated/weather-scales.json";
 import {
   gridToFeatureCollection,
   type DynamicWeatherFrame,
@@ -95,18 +97,8 @@ export function mergeWindGridKeepingStale(
 // `name`は段ごとの体感表現（ビューフォート風力階級の呼び名を、自転車で走るときの感じ方へ
 // 寄せたもの）。**段の宣言そのものに持たせる**——別の配列に並べて添字で引くと、段を足した
 // ときに呼び名を足し忘れても型は通り、凡例に`undefined`が出る。
-export const WIND_SPEED_COLOR_STOPS: readonly { speedMs: number; color: string; name: string }[] = [
-  { speedMs: 0, color: "#7dd3fc", name: "微風" }, // 無風に近い
-  { speedMs: 1.5, color: "#38bdf8", name: "そよ風" }, // Bf1上限
-  { speedMs: 3.3, color: "#22d3ee", name: "心地よい風" }, // Bf2上限
-  { speedMs: 5.4, color: "#34d399", name: "やや強い風" }, // Bf3上限
-  { speedMs: 7.9, color: "#a3e635", name: "強い風・向かい風がこたえ始める" }, // Bf4上限
-  { speedMs: 10.7, color: "#facc15", name: "かなり強い風" }, // Bf5上限
-  // Bf6上限（ロードバイクで走行できる目安の上限）
-  { speedMs: 13.8, color: "#f97316", name: "ロードバイクでの走行が難しい強風" },
-  { speedMs: 17.1, color: "#dc2626", name: "暴風" }, // Bf7上限（走行困難域、ここから粒度は粗くする）
-  { speedMs: 24.4, color: "#7f1d1d", name: "猛烈な暴風" }, // Bf9上限（暴風、これ以上は同じ色のまま）
-];
+export const WIND_SPEED_COLOR_STOPS: readonly { speedMs: number; color: string; name: string }[] =
+  weatherScales.wind_speed.map((stop) => ({ speedMs: stop.value, color: stop.color, name: stop.name }));
 
 // この風速未満は「無風」として矢印を描画しない（MapView.tsx参照）。1.0m/s程度だと
 // 関東でごく普通に起きる弱風でも矢印が全滅するため、この値にしている。
@@ -128,7 +120,7 @@ const bandLabel = (index: number): string => {
 };
 
 export const WIND_SPEED_LEGEND_LEVELS: readonly { key: string; label: string; color: string }[] = [
-  { key: "calm", label: `無風（矢印なし、${WIND_CALM_THRESHOLD_MS}m/s未満）`, color: "#9ca3af" },
+  { key: "calm", label: `無風（矢印なし、${WIND_CALM_THRESHOLD_MS}m/s未満）`, color: palette.semantic.no_data },
   ...WIND_SPEED_COLOR_STOPS.map((stop, index) => ({
     key: `bf${index + 1}`,
     label: `${stop.name}（${bandLabel(index)}）`,
@@ -136,7 +128,7 @@ export const WIND_SPEED_LEGEND_LEVELS: readonly { key: string; label: string; co
   })),
 ];
 
-export interface WindPointFeatureProperties {
+interface WindPointFeatureProperties {
   /** 風速（m/s） */
   speed: number;
   /** 矢印の向き（度、MapLibreのicon-rotate用に「風が吹いていく方向」＝気象学的な風向
@@ -209,7 +201,7 @@ export interface Bbox {
 export const WIND_DETAIL_MIN_ZOOM = 10;
 
 // ズーム依存の詳細格子間隔。風の矢印のicon-size（ズームに応じて表示サイズを拡大、MapView.tsx:
-// zoomAndPropertyIconSizeExpression）はピクセル単位の記号なのでこの補正で足りるが、
+// 記号の拡大式）はピクセル単位の記号なのでこの補正で足りるが、
 // gridFillのセルは「1格子点が担当する実面積」を表す図形のため、表示サイズだけを縮めても
 // 隙間ができるだけで解決しない。根本原因は「同じ間隔の格子が、ズームインするほど画面上の
 // 面積を大きく占めて色の段差（ゴワゴワ）が目立つ」ことなので、ズームが進むほど格子間隔
@@ -217,7 +209,7 @@ export const WIND_DETAIL_MIN_ZOOM = 10;
 // わずかにずれ、generate_wind_grid_detail_pointsのキャッシュ共有が効かなくなるため）。
 // 間隔の値そのものはwind-grid-config.json（detail_allowed_spacings_deg、backend/app/
 // domain/wind_grid.py: WIND_GRID_DETAIL_ALLOWED_SPACINGS_DEGが単一の情報源）
-// から取る。zoom境界（10/13/16/19、ICON_ZOOM_SCALE_STOPS・MapView.tsxと同じ刻み）は
+// から取る。zoom境界（10/13/16/19、記号の拡大曲線と同じ刻み）は
 // 地図の見た目に関するUI側の判断のためフロント固有の定数として持つ。
 const WIND_GRID_DETAIL_SPACING_ZOOM_BREAKPOINTS: readonly number[] = [WIND_DETAIL_MIN_ZOOM, 13, 16, 19];
 export const WIND_GRID_DETAIL_SPACING_STOPS: readonly { zoom: number; spacingDeg: number }[] =
@@ -243,11 +235,13 @@ export function windGridDetailSpacingDegForZoom(zoom: number): number {
 // wind-grid-config.jsonのdetail_max_points（900、backend/app/domain/wind_grid.py:
 // WIND_GRID_DETAIL_MAX_POINTSが単一の情報源）に対し、1辺25間隔（26×26=676点）で
 // 余裕を持たせる（以前の固定値0.5度＝0.02度間隔×25と同じ安全率を、間隔が変わっても保つ）。
-// 25という係数自体は「間隔から逆算する安全率」という設計判断でありconfigの値そのものの
-// 複製ではないため定数のまま持つが、windLayer.test.tsが
-// `(WIND_DETAIL_MAX_BBOX_SPAN_SIDE_INTERVALS + 1) ** 2 <= windGridConfig.detail_max_points`
-// を検証し、backend側の上限が下がった場合に安全率が崩れていないかをテストで検知する。
-export const WIND_DETAIL_MAX_BBOX_SPAN_SIDE_INTERVALS = 25;
+// 25という係数自体は「間隔から逆算する安全率」という設計判断で、configの値の複製ではない。
+// ただし**点数の上限を超えられない形で持つ**——`min`で挟んでおけば、backend側の上限が
+// 下がっても自動で従う。見張る検査は要らない（超える状態を作れないため）。
+const WIND_DETAIL_MAX_BBOX_SPAN_SIDE_INTERVALS = Math.min(
+  25,
+  Math.floor(Math.sqrt(windGridConfig.detail_max_points)) - 1,
+);
 
 /** 現在のビューポートから、詳細格子APIへ渡すbboxを求める。ビューポートがクリップ幅より
  * 狭ければビューポートそのまま、広ければ中心を基準に最大幅へクリップする（上記コメント参照）。

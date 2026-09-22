@@ -1,0 +1,52 @@
+{
+  "semantic": {
+    "evaluation_good": "#16a34a",
+    "evaluation_bad": "#dc2626",
+    "signed_descent": "#0284c7",
+    "signed_climb_mid": "#eab308",
+    "signed_climb_extreme": "#7f1d1d",
+    "no_data": "#9ca3af",
+    "loading": "#d1d5db",
+    "hidden": "rgba(0,0,0,0)",
+    "route_candidate": "#64748b",
+    "route_selected_halo": "#1e3a8a",
+    "route_casing": "rgba(15, 23, 42, 0.8)",
+    "route_splice": "#c2612b",
+    "route_arrow": "#ffffff",
+    "route_arrow_halo": "#111827",
+    "mark_halo": "rgba(31, 41, 55, 0.85)",
+    "mark_stroke": "#ffffff",
+    "lightning": "#facc15",
+    "hit": "#000000",
+    "inspected": "#f59e0b",
+    "neutral": "#94a3b8",
+    "pin_origin_background": "#ffffff",
+    "pin_origin": "#e11d48",
+    "pin_origin_unresolved": "#9ca3af",
+    "pin_waypoint": "#2563eb",
+    "pin_destination": "#059669"
+  },
+  "comparison_slots": [
+    "#16a34a",
+    "#ea580c",
+    "#9333ea"
+  ],
+  "evaluation_ramp_anchors": [
+    {
+      "position": 0.0,
+      "color": "#4caf50"
+    },
+    {
+      "position": 0.3333333333333333,
+      "color": "#ffb300"
+    },
+    {
+      "position": 0.6666666666666666,
+      "color": "#fb8c00"
+    },
+    {
+      "position": 1.0,
+      "color": "#e53935"
+    }
+  ]
+}

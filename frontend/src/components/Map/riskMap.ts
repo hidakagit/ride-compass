@@ -35,6 +35,7 @@
 //   `inland_flood`（内水氾濫、`level`1〜2でtexture塗り）・`flood_riskline`も存在する
 //   関連製品だが、洪水キキクルのみのスコープ外として未実装のまま残す。
 
+import weatherScales from "@/types/generated/weather-scales.json";
 import { fetchJmaTargetTimes, parseValidtime, jmaTileUrlTemplate } from "@/components/Map/jmaNowcastFrames";
 import type { DynamicWeatherFrame, DynamicWeatherRenderPayload } from "@/components/Map/dynamicWeather";
 
@@ -144,10 +145,4 @@ export function linearRainbandRenderPayload(ref: RiskFrameRef): DynamicWeatherRe
 // （legend_jp_normal_*.svg）が公式カラーコードを公開していないため、実機で確認した
 // グラデーション近似値（precipitationNowcast.tsのPRECIPITATION_COLOR_STOPSと同じ扱い、
 // 実際のタイル画像の色と厳密には一致しない）。危険度が上がるほど白→黄→赤→紫→黒と変化する。
-export const RISK_LEVEL_COLORS: readonly { key: string; label: string; color: string }[] = [
-  { key: "level0", label: "平常（危険度なし）", color: "#ffffff" },
-  { key: "level1", label: "注意（黄）", color: "#f2e700" },
-  { key: "level2", label: "警戒（赤）", color: "#ff2800" },
-  { key: "level3", label: "危険（紫）", color: "#aa00aa" },
-  { key: "level4", label: "災害切迫（黒）", color: "#0c000c" },
-];
+export const RISK_LEVEL_COLORS: readonly { key: string; label: string; color: string }[] = weatherScales.risk_levels;

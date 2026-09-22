@@ -37,26 +37,26 @@
 //
 // このファイル自体はDOM/MapLibreを知らない純粋なデータ層（windLayer.ts等と同じ方針）。
 
+import { mapDisplay } from "@/types/generated/mapDisplay";
 import { parseJmaTileElement } from "@/components/Map/jmaNowcastFrames";
-import type { MapLayerId } from "@/components/Map/mapLayers";
 
 // 動的気象レイヤーの一覧（単一の情報源、MapView.tsx: DYNAMIC_WEATHER_RENDERERS・
 // page.tsxのdynamicWeather組み立ての両方がこの配列を見る）。新しい要素を追加するときは
 // ここへidを1つ足す（mapLayers.tsのMapLayerIdにも同名を追加しておくこと）。全要素が
 // チップ（layerVisibility）でON/OFFする（常時マウント・チップ無しの要素は持たない）。
-export const DYNAMIC_WEATHER_LAYER_IDS = [
-  "precipitationNowcast",
-  "windVector",
-  // 災害。雷ナウキャスト（thns）・竜巻発生確度ナウキャスト（trns）・雷放電位置データ
-  // （liden）・キキクル等を名前付きソースとして持つ1グループ
-  // （MapView.tsx: DYNAMIC_WEATHER_RENDERERSのdisasterグループが正本）。
-  // 線状降水帯予測マップはrasrf系統（降水短時間予報と同じ）のため災害ではなく「降水」
-  // チップの一部として扱う。洪水キキクルのみ配信元がベクタタイル（.pbf）形式のため、
-  // vectorTile kind（本ファイル冒頭コメント参照）で描画する。
-  "disaster",
-] as const satisfies readonly MapLayerId[];
+type DisasterFetchGroup = (typeof DISASTER_SOURCES)[number]["fetchGroup"];
 
-export type DynamicWeatherLayerId = (typeof DYNAMIC_WEATHER_LAYER_IDS)[number];
+interface DynamicWeatherSourceState {
+  visible: boolean;
+  payload: DynamicWeatherRenderPayload | undefined;
+}
+
+/** 動的気象のチップ。**源泉が配る**（`backend/app/domain/map_display.py: WEATHER_LAYER_GROUPS`）
+ * ——1つのチップが複数の名前付きソースを束ねるため、どれがチップかは配信側が決める。
+ *
+ * 線状降水帯予測マップはrasrf系統（降水短時間予報と同じ）のため災害ではなく「降水」チップの
+ * 一部として扱う。洪水キキクルのみ配信元がベクタタイル（.pbf）形式で、vectorTile kindで描く。 */
+export type DynamicWeatherLayerId = (typeof mapDisplay.weatherLayerGroups)[number];
 
 /** フレーム1つぶんの描画内容。表示層はこのkindだけで描画方法を決める（データソースの
  * 区別はここへ到達する前にデータ層が吸収済み）。 */
@@ -87,7 +87,6 @@ export const DISASTER_SOURCES = [
 ] as const;
 
 export type DisasterSourceKey = (typeof DISASTER_SOURCES)[number]["key"];
-export type DisasterFetchGroup = (typeof DISASTER_SOURCES)[number]["fetchGroup"];
 
 /** そのフェッチ単位に属するソースキー。 */
 export function disasterSourceKeys(fetchGroup: DisasterFetchGroup): readonly DisasterSourceKey[] {
@@ -98,13 +97,6 @@ export function disasterSourceKeys(fetchGroup: DisasterFetchGroup): readonly Dis
  * 一意であればよい。単一ソースしか持たないグループも"main"という1キーだけを持つ
  * ——ソース1つならキー省略可、という特例は設けず呼び出し側の分岐を増やさない。 */
 export type DynamicWeatherSourceId = string;
-
-/** 1ソースぶんの表示状態。visible/payloadどちらか欠けても非表示
- * （MapView.tsx: applyDynamicWeatherState参照）。 */
-export interface DynamicWeatherSourceState {
-  visible: boolean;
-  payload: DynamicWeatherRenderPayload | undefined;
-}
 
 /** 1グループぶんの状態。ソースキー→状態。 */
 export type DynamicWeatherGroupState = Partial<Record<DynamicWeatherSourceId, DynamicWeatherSourceState>>;
@@ -123,19 +115,6 @@ export function isWithinFutureWindow(target: Date, now: Date, windowMs: number):
 export interface DynamicWeatherFrame<TRef = unknown> {
   time: Date;
   ref: TRef;
-}
-
-/** ONの全レイヤーのフレーム時刻を統合し、昇順・重複排除した1本のタイムラインを返す
- * （共有スライダーの目盛り）。降水ナウキャスト（5分刻み）と格子予報（1時間刻み）が
- * 混ざると「近い将来は細かく、遠い将来は粗い」目盛りが自然にできる。 */
-export function mergeFrameTimes(frameLists: readonly (readonly { time: Date }[])[]): Date[] {
-  const byMs = new Map<number, Date>();
-  for (const frames of frameLists) {
-    for (const frame of frames) {
-      if (!byMs.has(frame.time.getTime())) byMs.set(frame.time.getTime(), frame.time);
-    }
-  }
-  return [...byMs.values()].sort((a, b) => a.getTime() - b.getTime());
 }
 
 /** 共有スライダーの表示用時刻ラベル（JST）。タイムラインは約48時間先まで日付をまたぐため

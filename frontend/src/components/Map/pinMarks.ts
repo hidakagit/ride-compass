@@ -1,3 +1,4 @@
+import palette from "@/types/generated/palette.json";
 import type { PinRole } from "@/types/route";
 
 // 地点（出発地・経由地・目的地）の印。**地図のピンと、ルート設定パネルの行の印は同じ図形**
@@ -9,14 +10,14 @@ import type { PinRole } from "@/types/route";
 
 export const PIN_MARK_BACKGROUND: Record<PinRole, string> = {
   // 出発地は白いバッジの中に十字を描く（地図の上でも「現在地」の慣習的な見た目になる）。
-  origin: "#fff",
-  waypoint: "#2563eb",
-  destination: "#059669",
+  origin: palette.semantic.pin_origin_background,
+  waypoint: palette.semantic.pin_waypoint,
+  destination: palette.semantic.pin_destination,
 };
 
 /** 出発地の十字（中身の色は呼び出し側が決める——位置が未取得の間は灰色にする）。 */
-export const ORIGIN_MARK_COLOR = "#e11d48";
-export const ORIGIN_MARK_FALLBACK_COLOR = "#9ca3af";
+export const ORIGIN_MARK_COLOR = palette.semantic.pin_origin;
+export const ORIGIN_MARK_FALLBACK_COLOR = palette.semantic.pin_origin_unresolved;
 
 function originCrosshairSvg(size: number, color: string): string {
   return (
@@ -38,7 +39,10 @@ interface PinMarkOptions {
 }
 
 /** 印の中身（HTML文字列）。地図のピンとパネルの行が同じものを使う。 */
-export function pinMarkHtml(role: PinRole, { label, size = 20, color = ORIGIN_MARK_COLOR }: PinMarkOptions = {}): string {
+export function pinMarkHtml(
+  role: PinRole,
+  { label, size = 20, color = ORIGIN_MARK_COLOR }: PinMarkOptions = {},
+): string {
   if (role === "origin") return originCrosshairSvg(size, color);
   if (role === "destination") return "⚑";
   return label ?? "";

@@ -16,12 +16,11 @@ import {
   LEGEND_NO_DATA_KEY,
   type MapColorLegendBand,
 } from "./mapColorLegend";
-import { FALLBACK_LINE_OPACITY, KNOWN_LINE_OPACITY } from "./roadFilterAxes";
 import {
   bandColorsFor,
   buildSteppedColorExpression,
   COLOR_NO_DATA,
-  valueScaleFor,
+  DEFAULT_DIFFICULTY_BOUNDARIES,
   type MapValueKind,
 } from "./valueScale";
 
@@ -40,7 +39,7 @@ export const DEFAULT_DEDICATED_WAY_VALUE_DISPLAY: DedicatedWayValueDisplay = { k
 
 /** setFeatureStateで差し込む状態キー。同じ路面タイルソースの地物へ複数の軸が値を持つため
  * 軸idごとに異なるキーにする。 */
-export function dedicatedWayValueFeatureStateKey(axisId: string): string {
+function dedicatedWayValueFeatureStateKey(axisId: string): string {
   return `${axisId}Value`;
 }
 
@@ -81,8 +80,8 @@ export function dedicatedWayValueColorExpression(
 }
 
 /** 値の有無で線の濃さを決めるMapLibre expression。値を受け取れなかった道は
- * `FALLBACK_LINE_OPACITY`で薄くし、値を持つ道だけが浮かび上がるようにする——
- * 地図全体の「薄い＝対象外、濃い＝分類あり」という読み方（roadFilterAxes.ts）を
+ * 薄くし、値を持つ道だけが浮かび上がるようにする——
+ * 地図全体の「薄い＝対象外、濃い＝分類あり」という読み方を
  * このレイヤーにも揃える。**薄くするのであって消さない**
  * （docs/architecture/design-principles.md「消さずに薄くする」）。
  *
@@ -94,20 +93,6 @@ export function dedicatedWayValueColorExpression(
  *
  * `loading`（まだ一度も値を受け取っていない）のあいだは薄くしない——取得中を示す
  * COLOR_LOADINGが見えなくなり、「取得中」と「対象外」の区別が付かなくなる。 */
-export function buildDedicatedWayValueOpacityExpression(valueExpression: unknown[], loading = false): unknown[] {
-  return [
-    "case",
-    ["==", valueExpression, null],
-    loading ? KNOWN_LINE_OPACITY : FALLBACK_LINE_OPACITY,
-    KNOWN_LINE_OPACITY,
-  ];
-}
-
-/** feature-state値から線の濃さを決めるMapLibre expression（色式と同じ値の取得元を使う）。 */
-export function dedicatedWayValueOpacityExpression(axisId: string, loading = false): unknown[] {
-  return buildDedicatedWayValueOpacityExpression(["feature-state", dedicatedWayValueFeatureStateKey(axisId)], loading);
-}
-
 /** 地図上の色分け凡例。色式と同じ配色・しきい値から段階ラベル付きの凡例を組み立てる。
  * 段階ラベル（bandLabels）は要素数が段階数と一致する間だけ数値レンジの前に添える
  * （不一致な保存データへの防御）。末尾の「データなし」は値を受け取れなかった道路の受け皿で、
@@ -115,7 +100,7 @@ export function dedicatedWayValueOpacityExpression(axisId: string, loading = fal
 export function dedicatedWayValueLegend(
   display: DedicatedWayValueDisplay = DEFAULT_DEDICATED_WAY_VALUE_DISPLAY,
 ): MapColorLegendBand[] {
-  const boundaries = display.boundaries ?? valueScaleFor(display.kind).defaultBoundaries;
+  const boundaries = display.boundaries ?? DEFAULT_DIFFICULTY_BOUNDARIES;
   const colors = bandColorsFor(display.kind, boundaries);
   const labels = bandLabelsForBandCount(display.bandLabels, boundaries.length + 1);
   return [

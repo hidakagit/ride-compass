@@ -48,14 +48,17 @@ function listing(...defs: ReturnType<typeof baseAxisDefinition>[]) {
 
 beforeEach(() => {
   vi.clearAllMocks();
-  // jsdomはResizeObserverを持たない。モーダル内のRadix Checkboxがこれを呼ぶ。
+  // happy-domはResizeObserverを持たない。Radix Checkboxは**`<form>`直下に置かれたときだけ**
+  // 隠しinput（フォーム互換用）のサイズ同期でこれを呼ぶため、フォームの外で単体描画する
+  // テストでは要らず、このモーダルを開くテストでだけ未定義のまま例外になる。
   class ResizeObserverMock {
     observe = vi.fn();
     unobserve = vi.fn();
     disconnect = vi.fn();
   }
   window.ResizeObserver = ResizeObserverMock as unknown as typeof ResizeObserver;
-  // jsdomは`window.confirm`を実装しない（呼ぶと未実装エラーになる）。
+  // happy-domは`window.confirm`を定義しないため、自分で差し込む（jsdomと違い関数自体が
+  // 無いので、`vi.spyOn(window, "confirm")`では対象が見つからず失敗する）。
   window.confirm = vi.fn(() => true);
 });
 
@@ -132,9 +135,7 @@ describe("モーダルの開き方", () => {
     await user.click(await screen.findByRole("tab", { name: /公開済み/ }));
     await user.click(await screen.findByRole("button", { name: "表示だけ編集" }));
 
-    expect(
-      screen.getByRole("dialog", { name: "表示専用フィールドを編集: 公開中の軸" }),
-    ).toBeInTheDocument();
+    expect(screen.getByRole("dialog", { name: "表示専用フィールドを編集: 公開中の軸" })).toBeInTheDocument();
   });
 
   it("「複製して新規作成」は、複製元の名前を見出しに出して新規作成で開く", async () => {
@@ -144,9 +145,7 @@ describe("モーダルの開き方", () => {
 
     await user.click(await screen.findByRole("button", { name: "複製して新規作成" }));
 
-    expect(
-      screen.getByRole("dialog", { name: "「複製元の軸」を複製して新しい軸を作る" }),
-    ).toBeInTheDocument();
+    expect(screen.getByRole("dialog", { name: "「複製元の軸」を複製して新しい軸を作る" })).toBeInTheDocument();
     // 複製元の値は引き継ぐ。
     expect(screen.getByRole("textbox", { name: "表示名" })).toHaveValue("複製元の軸");
     expect(screen.getByRole("spinbutton", { name: "既定重み" })).toHaveValue(0.42);
@@ -277,9 +276,7 @@ describe("公開の取り消し", () => {
 
     expect(unpublishAxisDefinition).toHaveBeenCalledWith("a");
     // 読み直した結果が反映され、ボタンが消える。
-    await waitFor(() =>
-      expect(screen.queryByRole("button", { name: "非公開に戻す" })).not.toBeInTheDocument(),
-    );
+    await waitFor(() => expect(screen.queryByRole("button", { name: "非公開に戻す" })).not.toBeInTheDocument());
   });
 
   it("失敗したら、理由をそのまま出す", async () => {

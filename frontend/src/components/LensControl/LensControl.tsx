@@ -26,7 +26,7 @@ export interface LensOption {
   routeOnly: boolean;
 }
 
-export interface LensControlProps {
+interface LensControlProps {
   lens: LensId;
   onLensChange: (id: LensId) => void;
   /** 軸カタログ順の公開軸（総合難易度・なしはこのコンポーネントが固定で足す）。 */

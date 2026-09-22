@@ -5,17 +5,13 @@ from app.api.dependencies import enforce_rate_limit, get_gsi_tile_client
 from app.api.routers._tile_http import validate_tile_coords
 from app.config import settings
 from app.infrastructure.gsi_tile_client import GsiTileClient, GsiTileNotFound
-from app.services.terrain_tile_service import (
-    PNG_CONTENT_TYPE,
-    TERRAIN_TILE_MAX_ZOOM,
-    TERRAIN_TILE_MIN_ZOOM,
-    get_terrain_rgb_tile,
-)
+from app.domain.gsi_tiles import RELIEF_ROUTE, TERRAIN_MAX_ZOOM, TERRAIN_MIN_ZOOM, TERRAIN_ROUTE
+from app.services.terrain_tile_service import PNG_CONTENT_TYPE, get_terrain_rgb_tile
 
 router = APIRouter()
 
 
-@router.get("/api/gsi-relief-tile/{path:path}")
+@router.get(RELIEF_ROUTE)
 async def gsi_relief_tile_proxy(
     path: str, request: Request, gsi_tile_client: GsiTileClient = Depends(get_gsi_tile_client)
 ) -> Response:
@@ -36,7 +32,7 @@ async def gsi_relief_tile_proxy(
     return Response(content=content, media_type=content_type)
 
 
-@router.get("/api/gsi-terrain-tile/{z}/{x}/{y}.png")
+@router.get(TERRAIN_ROUTE)
 async def gsi_terrain_tile(
     z: int,
     x: int,
@@ -50,7 +46,7 @@ async def gsi_terrain_tile(
     地図全体は成立する。
     """
     enforce_rate_limit(request, "gsi-terrain-tile", settings.gsi_tile_rate_limit_per_minute)
-    validate_tile_coords(z, x, y, TERRAIN_TILE_MIN_ZOOM, TERRAIN_TILE_MAX_ZOOM)
+    validate_tile_coords(z, x, y, TERRAIN_MIN_ZOOM, TERRAIN_MAX_ZOOM)
     result = await get_terrain_rgb_tile(gsi_tile_client, z, x, y)
     if isinstance(result, GsiTileNotFound):
         raise HTTPException(

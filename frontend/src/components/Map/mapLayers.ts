@@ -13,7 +13,7 @@
 //
 // kind は「データの性質」による分類（static: 地域に固定で時間によって変わらないデータ
 // [タイル配信系]／dynamic: 選択中ルートや時間によって変わるデータ）。静的データと動的データを
-// 混同しない、という設計方針（docs/static-road-attributes-plan.md）を表す。
+// 混同しない、という設計方針を表す。
 //
 // categoryはkind:"static"レイヤーのみが持つ中分類で、▶パネル（MapOverlayControls）の
 // グループ見出しに使う。staticをflatな一覧のまま並べると、増えるほど見つけにくくなる
@@ -26,6 +26,8 @@
 // 静的レイヤー側で重ねて持つ必要が無い。ramp軸は軸スタジオ由来のレイヤーとして
 // この区分の外に置く（isAxisStudioLayer）。
 
+import weatherScales from "@/types/generated/weather-scales.json";
+import { mapDisplay } from "@/types/generated/mapDisplay";
 import { LANDCOVER_TILE_MIN_ZOOM, ROAD_TILE_MIN_ZOOM } from "@/services/regionApi";
 import { axisIconFor } from "./axisIconPalette";
 import {
@@ -49,7 +51,7 @@ import { legendKindList, type LegendEntry } from "./legendFilter";
 import { LANDCOVER_PAINTED_CLASSES } from "./landcoverClasses";
 import { PRECIPITATION_INTENSITY_LEVELS } from "./precipitationNowcast";
 import { WIND_SPEED_LEGEND_LEVELS } from "./windLayer";
-import { STOP_POI_LEGEND, SUPPLY_POI_LEGEND } from "./staticAttributeLayers";
+import { pointLegendAxes } from "@/features/map/scene/legends";
 import {
   axisMapLayerId,
   dedicatedWayValueMapLayerId,
@@ -59,36 +61,17 @@ import {
   type RampAxis,
 } from "./axisLayers";
 
-export type MapLayerId =
-  | "elevation"
-  | "hillshade"
-  | "landcover"
-  | "roadType"
-  | "roadSurface"
-  | "tunnel"
-  | "oneway"
-  | "stopPoi"
-  | "supplyPoi"
-  | "accidents"
-  | "route"
-  // 気象庁 降水ナウキャスト。route以外のkind="dynamic"レイヤーとは異なり地域全体への
-  // 重ね描き（elevation等と同じ「選択候補に関係なく常設」の性質）のため、kind自体は
-  // staticのまま、dataNature="dynamic"（下記）だけで区別する。詳細はkind/
-  // MapLayerDataNatureのコメント参照。
-  | "precipitationNowcast"
-  // 風の矢印。バックエンドが返す固定格子点のサンプリング（GeoJSON source + symbolレイヤー）。
-  // precipitationNowcastと同じ理由でkind="static"・dataNature="dynamic"。
-  | "windVector"
-  | "disaster"
-  // 二次軸の汎用rampレイヤー。backendレジストリ生成物（axis-catalog.json）の
-  // kind="ramp"軸から自動生成されるためIDは動的（axisLayers.ts: axisMapLayerId参照）。
-  | AxisMapLayerId
-  // 専用のway_id→値配信レイヤーを持つ軸（`dedicated_way_value_layer=true`、現状: 風・勾配）。
-  // ramp軸と同じく軸カタログから自動生成され、IDも動的（axisLayers.ts:
-  // dedicatedWayValueMapLayerId参照）。地図上チップ（MapOverlayControls.tsx）・
-  // ▶パネル（MapOverlayControls.tsx）のどちらにも現れず（isAxisStudioLayer）、表示ON/OFFの
-  // 唯一の起動導線は地図上部中央のLensControl（レンズ）。
-  | DedicatedWayValueMapLayerId;
+/** チップの説明文へ差し込む種別名の並び。**凡例と同じ宣言から作る**——説明文が別に
+ * 数え上げると、種別を足したときに説明文だけが古くなる。 */
+function pointKindList(role: string): string {
+  const axis = pointLegendAxes().find((entry) => entry.layerId === role);
+  return axis === undefined ? "" : legendKindList(axis.entries);
+}
+
+/** 地図に載るものの名前。**静的な一覧は源泉が持つ**（`domain/map_display.py`が一次属性から
+ * 導く）——画面で並べ直すと、属性を1つ足したときに書き忘れても型が通る。軸スタジオ由来の
+ * 軸は運用で増えるため実行時に決まり、ここには現れない。 */
+export type MapLayerId = (typeof mapDisplay.layerIds)[number] | AxisMapLayerId | DedicatedWayValueMapLayerId;
 
 // kindは「選択中ルートにひもづくデータか、地域に固定で選択候補に関係なく重ね描きする
 // データか」を表す（dynamic=route、選択中候補が変わるたびに描き直す。static=それ以外、
@@ -96,22 +79,17 @@ export type MapLayerId =
 // 別軸（dataNature、下記）で表す。降水ナウキャスト（precipitationNowcast）は値こそ
 // 時々刻々変わるが、route選択とは無関係にstaticレイヤーと同じ「常設・visibility切替のみ」の
 // 描画方式のためkind="static"のまま、dataNature="dynamic"で区別する。
-export type MapLayerKind = "static" | "dynamic";
+type MapLayerKind = (typeof mapDisplay.layerKinds)[number];
 
 // staticレイヤーの中分類。▶パネル（MapOverlayControls）の見出しに使う。dynamic（route）は
 // 今のところ1種のみのため中分類を持たない（category未指定）。
-export type MapLayerCategory = "roadCondition" | "trafficSafety" | "terrain" | "amenity" | "weather" | "disaster";
+export type MapLayerCategory = (typeof mapDisplay.layerCategories)[number]["key"];
 
 // カテゴリの表示順・見出し文言の単一ソース。MapOverlayControls.tsxが参照する
 // （UI語彙のカタログ集約、片側importで揃える）。
-export const MAP_LAYER_CATEGORY_ORDER: readonly MapLayerCategory[] = [
-  "roadCondition",
-  "trafficSafety",
-  "terrain",
-  "amenity",
-  "weather",
-  "disaster",
-];
+export const MAP_LAYER_CATEGORY_ORDER: readonly MapLayerCategory[] = mapDisplay.layerCategories.map(
+  (category) => category.key,
+);
 
 /** 生データ（OSM/警察庁の生タグ・生座標をそのまま分類表示）か、複数要因から計算した
  * 推定指標（合成）か、時刻で内容が変わる動的データか。表示グルーピングの単位ではなく、
@@ -119,7 +97,7 @@ export const MAP_LAYER_CATEGORY_ORDER: readonly MapLayerCategory[] = [
  * 判定の入力に使う、(b) MapOverlayControls.tsxが"dynamic"（降水ナウキャスト等、帯単位の
  * 絞り込み機能を持たないレイヤー）を▶パネルの内訳から除外する判定に使う、
  * の2点で使われる。 */
-export type MapLayerDataNature = "raw" | "composite" | "dynamic";
+export type MapLayerDataNature = (typeof mapDisplay.layerDataNatures)[number];
 
 /** そのレイヤーの絵がどこから来るか。
  *
@@ -146,9 +124,9 @@ export type MapLayerDataNature = "raw" | "composite" | "dynamic";
 /** 絞り込めない表示専用の凡例の1ブロック。
  *
  * 配信元が色を焼き込んだラスタ等、カテゴリ単位で選べないレイヤーが持つ。絞り込める
- * 凡例（`hiddenKeys`と保存先の`axisId`を持つ）はここではなく`buildStaticFilterAxes`が出す
+ * 凡例（`hiddenKeys`と保存先の`axisId`を持つ）はここではなく`scene/legends.ts`が出す
  * ——型の上で分けてあるので、ここへ絞り込めるつもりの凡例を書いても黙って読み専用にはならない。 */
-export interface ReadOnlyLegendBlock {
+interface ReadOnlyLegendBlock {
   /** ブロックの見出し。単一ブロックのレイヤーは空文字列。 */
   label: string;
   legend: readonly LegendEntry[];
@@ -158,20 +136,7 @@ export interface ReadOnlyLegendBlock {
  * 式自体に意味が無く、一致しない式を入れてある。 */
 export const UNUSED_LEGEND_FILTER: unknown[] = ["==", 1, 0];
 
-export type MapLayerPaintTier = "area" | "estimateLine" | "rawLine" | "lensLine" | "point" | "route";
-
-/** 重なり順（先頭＝背面）。 */
-export const MAP_LAYER_PAINT_TIER_ORDER: readonly MapLayerPaintTier[] = [
-  "area",
-  "estimateLine",
-  "rawLine",
-  "lensLine",
-  "point",
-  "route",
-];
-
-export type MapLayerDataSource =
-  "roadTiles" | "accidentTiles" | "poiTiles" | "gsiRelief" | "gsiTerrain" | "landcoverRaster" | "ownFetch";
+export type MapLayerDataSource = (typeof mapDisplay.layerDataSources)[number];
 
 /** 地図上チップ（MapOverlayControls.tsx）最上位の3グループ。「対象（何についての情報か）」で束ねる。
  * - road（道路）: 道路の純粋な属性のみ（道路種別・路面種別・トンネル・一方通行）
@@ -185,15 +150,18 @@ export type MapLayerDataSource =
  * 確定後は「地図の色分け」（RouteAxisProfile.tsx、routeStyleModes.ts参照）から、
  * それぞれ起動する。軸スタジオ由来のレイヤー（ramp軸・専用way値配信軸）を地図UIの3グループ
  * 判定から除外する判定は`isAxisStudioLayer`（下記）が担う。 */
-export type MapOverlayGroup = "road" | "environment" | "spot";
+export type MapOverlayGroup = (typeof mapDisplay.overlayGroups)[number]["key"];
 
-export const MAP_OVERLAY_GROUP_LABELS: Record<MapOverlayGroup, string> = {
-  road: "道路",
-  environment: "環境",
-  spot: "スポット",
-};
-/** チップの表示順（道路→環境→スポット）。 */
-export const MAP_OVERLAY_GROUP_ORDER: readonly MapOverlayGroup[] = ["road", "environment", "spot"];
+export const MAP_OVERLAY_GROUP_LABELS: Readonly<Record<string, string>> = Object.fromEntries(
+  mapDisplay.overlayGroups.map((group) => [group.key, group.label]),
+);
+/** チップの表示順。**源泉の並びがそのまま並び順**（画面は並べ替えない）。 */
+export const MAP_OVERLAY_GROUP_ORDER: readonly MapOverlayGroup[] = mapDisplay.overlayGroups.map((group) => group.key);
+
+/** 種別が属するグループ。種別を1つ足すときは源泉の側で所属も決まる。 */
+const GROUP_BY_CATEGORY: Readonly<Record<string, MapOverlayGroup>> = Object.fromEntries(
+  mapDisplay.layerCategories.map((category) => [category.key, category.group]),
+);
 
 /** 軸スタジオ由来のレイヤーか。ramp軸（dataNature==="composite"）・専用way_id→動的値
  * 配信層を持つ軸（`axisStudioLayer`、buildMapLayersが軸カタログから生成する際に立てる）は、
@@ -226,11 +194,8 @@ export function mapOverlayGroupFor(layer: {
   axisStudioLayer?: boolean;
 }): MapOverlayGroup | undefined {
   if (isAxisStudioLayer(layer)) return undefined;
-  if (layer.category === "roadCondition") return "road";
-  if (layer.category === "terrain" || layer.category === "weather" || layer.category === "disaster")
-    return "environment";
-  if (layer.category === "trafficSafety" || layer.category === "amenity") return "spot";
-  return undefined;
+  if (layer.category === undefined) return undefined;
+  return GROUP_BY_CATEGORY[layer.category];
 }
 
 export interface MapLayerDescriptor {
@@ -259,10 +224,9 @@ export interface MapLayerDescriptor {
    *
    * **省略できない。** 描画側の配列の並びで順序を決める形だと、レイヤーを足す人が
    * 挿す位置を選ぶことになる。 */
-  paintTier: MapLayerPaintTier;
   /** 絞り込めない表示専用の凡例。▶を開いたときの中身になる。
    *
-   * 省略したレイヤーは、絞り込める凡例（`buildStaticFilterAxes`）か、画面の状態から
+   * 省略したレイヤーは、絞り込める凡例（`scene/legends.ts`）か、画面の状態から
    * 組み立てる凡例（ルートのレンズ・災害の要素トグル）を持つ。 */
   readOnlyLegend?: readonly ReadOnlyLegendBlock[];
   /** 軸スタジオの軸から生成したレイヤーか（専用way値配信軸）。ramp軸は
@@ -327,7 +291,6 @@ export function buildMapLayers(
   return [
     {
       id: "elevation",
-      paintTier: "area",
       dataSource: "gsiRelief",
       icon: ElevationIcon,
       // ルート指標の「獲得標高」と紛らわしいため、地図レイヤー側は「標高図」と呼び分ける
@@ -340,7 +303,6 @@ export function buildMapLayers(
     },
     {
       id: "hillshade",
-      paintTier: "area",
       dataSource: "gsiTerrain",
       icon: HillshadeIcon,
       // 「標高図」が何mかを塗るのに対し、こちらは坂の在りかだけを塗る。名前もその違いで
@@ -354,7 +316,6 @@ export function buildMapLayers(
     },
     {
       id: "landcover",
-      paintTier: "area",
       // 色・表示名はbackendのレジストリ（domain/landcover.py: LANDCOVER_CLASSES）由来の
       // 生成物がそのまま単一の情報源で、地図タイルの塗りと同じ値を使う。
       readOnlyLegend: [
@@ -392,8 +353,7 @@ export function buildMapLayers(
       // 合成する（同じ道路ジオメトリへ線レイヤーを2枚重ねると上が下を塗り潰し「色×太さ」の
       // 多重表現が壊れるため）。ON/OFF・凡例・絞り込み・データ状態は他のレイヤーと同じ
       // 汎用機構（roadType/roadSurfaceそれぞれ独立したMapLayerId）に乗る。
-      id: "roadType",
-      paintTier: "rawLine",
+      id: "highway",
       dataSource: "roadTiles",
       icon: RoadIcon,
       tileMinZoom: ROAD_TILE_MIN_ZOOM,
@@ -402,7 +362,7 @@ export function buildMapLayers(
       kind: "static",
       category: "roadCondition",
       description: "道路種別を線の太さで表示[幹線道路ほど太く・自転車専用道路ほど細く]",
-      // 道路種別ごとの濃淡（roadFilterAxes.ts: HIGHWAY_GROUPS、COLOR_HIGHWAY_*参照）。
+      // 道路種別ごとの濃淡（分類と色は`scene/groups/roadLines.ts`が宣言する）。
       // 「路面の種類」がONの間はそちらの色分けが優先されるため、この濃淡は「路面の種類」が
       // OFFのときだけ見える。
       panelHint:
@@ -411,8 +371,7 @@ export function buildMapLayers(
         "配色を優先します。",
     },
     {
-      id: "roadSurface",
-      paintTier: "rawLine",
+      id: "surface",
       dataSource: "roadTiles",
       icon: RoadSurfaceIcon,
       tileMinZoom: ROAD_TILE_MIN_ZOOM,
@@ -426,7 +385,6 @@ export function buildMapLayers(
       // トンネル（一次属性、OSMのtunnelタグ）。road_surfaceソースの
       // 独立レイヤー。
       id: "tunnel",
-      paintTier: "rawLine",
       dataSource: "roadTiles",
       icon: TunnelIcon,
       tileMinZoom: ROAD_TILE_MIN_ZOOM,
@@ -445,7 +403,6 @@ export function buildMapLayers(
       // 上下線が分かれた道の片側はここへ出さない（道路としては双方向で、逆方向は数m隣に
       // ある。判定はbackend側、way_divided_carriageway）。
       id: "oneway",
-      paintTier: "rawLine",
       dataSource: "roadTiles",
       icon: OnewayIcon,
       tileMinZoom: ROAD_TILE_MIN_ZOOM,
@@ -459,22 +416,20 @@ export function buildMapLayers(
         "生成されません）、このレイヤーは表示のみで評価には影響しません。",
     },
     {
-      id: "stopPoi",
-      paintTier: "point",
+      id: "stop_poi",
       dataSource: "poiTiles",
       icon: StopPoiIcon,
       label: "停止要因",
       kind: "static",
       category: "trafficSafety",
       tileMinZoom: ROAD_TILE_MIN_ZOOM,
-      description: `${legendKindList(STOP_POI_LEGEND)}の位置を種別ごとに色分け表示`,
+      description: `${pointKindList("stop_poi")}の位置を種別ごとに色分け表示`,
       panelHint:
-        `${legendKindList(STOP_POI_LEGEND)}の位置です。評価の「停止密度」軸が近傍のこれらを` +
+        `${pointKindList("stop_poi")}の位置です。評価の「停止密度」軸が近傍のこれらを` +
         "数えて算出しているものを、種別ごとの色分けで直接確認できます。",
     },
     {
-      id: "supplyPoi",
-      paintTier: "point",
+      id: "supply_poi",
       dataSource: "poiTiles",
       icon: SupplyPoiIcon,
       label: "補給・休憩ポイント",
@@ -485,7 +440,7 @@ export function buildMapLayers(
       kind: "static",
       category: "amenity",
       tileMinZoom: ROAD_TILE_MIN_ZOOM,
-      description: `${legendKindList(SUPPLY_POI_LEGEND)}の位置を種別ごとに色分け表示`,
+      description: `${pointKindList("supply_poi")}の位置を種別ごとに色分け表示`,
       // 実店舗とどれだけ合っているかの目安として、backend/scripts/measure_poi_freshness.pyで
       // OSM側の最終編集日時を計測している。コンビニは関東全域で直近2年以内の編集が62.4%と
       // 明確に新しいが、自販機・トイレ・給水・駐輪場は5年以上未編集が58〜59%と高く、
@@ -493,7 +448,7 @@ export function buildMapLayers(
       // 対象にしつつ、利用者へは正直にこの差を伝える（コンビニを優先的な目安、他4種は
       // 参考程度に）。
       panelHint:
-        `${legendKindList(SUPPLY_POI_LEGEND)}の位置です。自販機は飲み物が買えると分かって` +
+        `${pointKindList("supply_poi")}の位置です。自販機は飲み物が買えると分かって` +
         "いるものだけを「飲料自販機」として出し、売っているものが分からないものは薄い色の" +
         "「自販機(中身不明)」として区別します（たばこ・切符の機械は出しません）。" +
         "コンビニはOSMデータの更新が比較的新しく目安として使いやすい一方、自販機・トイレ・" +
@@ -501,8 +456,7 @@ export function buildMapLayers(
         "異なる場合があることをご留意ください。",
     },
     {
-      id: "accidents",
-      paintTier: "point",
+      id: "accident_point",
       dataSource: "accidentTiles",
       icon: AccidentIcon,
       label: "事故[警察庁統計]",
@@ -517,11 +471,10 @@ export function buildMapLayers(
     // 二次軸の汎用rampレイヤー（「事実はタイルに、解釈はクライアントに」）。backendレジストリ
     // 生成物（axis-catalog.json）のkind="ramp"軸から自動生成する。新しい軸はbackendの
     // レジストリ登録＋タイルへの事実焼き込みだけでここへ現れる（このファイルの編集は不要）。
-    // 凡例（段階・色・絞り込み）はbuildStaticFilterAxes()（staticAttributeLayers.ts、
-    // axisLayers.ts: buildAxisRampLegend由来）が他の静的レイヤーと同じ仕組みで提供する。
+    // 凡例（段階・色・絞り込み）は`scene/legends.ts`と`axisLayers.ts: buildAxisRampLegend`が
+    // 他の静的レイヤーと同じ仕組みで提供する。
     ...rampAxes.map((axis): MapLayerDescriptor => ({
       id: axisMapLayerId(axis.axisId),
-      paintTier: "estimateLine",
       dataSource: "roadTiles",
       icon: axisIconFor(axis.iconId),
       label: axis.label,
@@ -552,7 +505,6 @@ export function buildMapLayers(
       // layerVisibility.precipitationNowcast/windVectorのどちらかがONの間だけ表示、page.tsx参照）
       // で切り替えられる。
       id: "precipitationNowcast",
-      paintTier: "area",
       // 線状降水帯予測マップは「降水」チップの傘下のソースとして統合されているため、
       // 専用の凡例ブロックをここへ並べる（実データはriskMap.tsが単一の情報源）。
       readOnlyLegend: [
@@ -562,15 +514,15 @@ export function buildMapLayers(
         },
         {
           label: "線状降水帯予測マップ（現在〜3時間先のみ）",
-          // 色は配信元タイルの実際の塗り色（rgb(255,40,0)）に合わせる。凡例と地図で色が
-          // 違うと、どの塗りがこの凡例に対応するのか読み取れない。
+          // 色は配信元タイルの実際の塗り色そのもの（源泉が宣言する）。危険度の段の色で
+          // 代用すると、近いだけの別の色になり、地図の塗りと凡例が黙ってずれる。
           // 予測領域は格子単位で塗られ矩形に見えるため、形状も書いておく——降水ナウキャストの
           // 細かい雨域と重なると、矩形の塗りが描画不具合のように見える。
           legend: [
             {
               key: "linearRainband",
               label: "今後3時間以内に大雨のおそれ（矩形の予測領域）",
-              color: "#ff2800",
+              color: weatherScales.linear_rainband_color,
               filter: UNUSED_LEGEND_FILTER,
             },
           ],
@@ -607,7 +559,6 @@ export function buildMapLayers(
       // 気象庁MSM（ローカルへ同期した.omファイル）からサンプリングする自前実装のため、
       // GPLv2ライブラリ・気象庁の非公式配信のどちらにも依存しない。
       id: "windVector",
-      paintTier: "point",
       // 矢印（風速そのもの、向きに依存しない）の配色専用で、道路の色分け（風の評価軸、
       // 走行方位に対する向かい風/追い風）とは別の配色系統のため、「地図の色の凡例」との
       // 混同を避けて「矢印（風速）」と明示する。
@@ -636,15 +587,14 @@ export function buildMapLayers(
     // ramp軸と同じく軸カタログから自動生成する。label/chipLabel/panelHintはこの記述子が
     // 地図UIに現れない（isAxisStudioLayer）ため実際には表示されないが、他の記述子と同じ
     // 型を満たすため軸自身のデータから埋める（軸ごとの手書き文言をここへ持たない）。
-    // このエントリは地図の組み立てに実際に使う——重なりの段（`paintTier`）と情報源
-    // （`dataSource`）をここから引く（MapView: buildStaticOverlayLayers）。無いと
+    // このエントリは地図の組み立てに実際に使う——情報源
+    // （`dataSource`）をここから引く。無いと
     // そのレイヤーを描こうとした時点で落ちる。
     // ズーム不足の案内（`tileZoomTooWideLayerIds`）の対象には入らない。案内の出し先は
     // チップで、このレイヤーはチップを持たないため出す場所が無い（同じタイルを共有する
     // ので実際には一緒に消えるが、それは道路のチップ側の案内で分かる）。
     ...dedicatedAxes.map((axis): MapLayerDescriptor => ({
       id: dedicatedWayValueMapLayerId(axis.axisId),
-      paintTier: "lensLine",
       dataSource: "roadTiles",
       // 地図上チップとして描かれない（`axisStudioLayer`）ため実際には使われないが、
       // 記述子の型を満たすために汎用のものを持つ。
@@ -664,7 +614,6 @@ export function buildMapLayers(
       // キキクルは「現在の危険度」単一値のみの配信のため連動しない（riskMap.ts参照）。
       // 「回避一択」の危険のため評価軸には組み込まず表示のみを行う。
       id: "disaster",
-      paintTier: "area",
       dataSource: "ownFetch",
       icon: ShieldIcon,
       label: "災害",
@@ -692,7 +641,6 @@ export function buildMapLayers(
     },
     {
       id: "route",
-      paintTier: "route",
       dataSource: "ownFetch",
       icon: RouteIcon,
       label: "ルート",

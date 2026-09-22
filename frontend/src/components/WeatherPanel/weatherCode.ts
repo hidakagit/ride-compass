@@ -8,7 +8,7 @@ import { CloudIcon, FogIcon, RaindropIcon, SnowflakeIcon, SunIcon, ThunderIcon }
 // WMOコードの全パターンを個別に描き分けるのではなく、天候ヘッダーの小さい1アイコンに
 // 収まる粒度（6カテゴリ）へ意図的に粗く丸める（「晴れ時々くもり」等の細かい中間状態は
 // アイコンでは判別困難で、かえって視認性を落とすため）。
-export type WeatherCodeCategory = "clear" | "cloudy" | "fog" | "rain" | "snow" | "thunderstorm";
+type WeatherCodeCategory = "clear" | "cloudy" | "fog" | "rain" | "snow" | "thunderstorm";
 
 // backendが実際に返すのは雲量・雨・雪の段階に対応するコードだけ（domain/weather.py:
 // derive_weather_codeが正本。霧・雷雨はMSMの配信変数から判定できないため返さない）。
@@ -69,7 +69,7 @@ export const WEATHER_CATEGORY_ICON: Record<WeatherCodeCategory, (props: { size?:
   thunderstorm: ThunderIcon,
 };
 
-export interface WeatherCodeDisplay {
+interface WeatherCodeDisplay {
   Icon: (props: { size?: number }) => ReactElement;
   label: string;
 }

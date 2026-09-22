@@ -4,10 +4,10 @@ import type { RoutePreferenceWeights } from "@/types/route";
 // その軸は「チェックOFF」（weight>0が有効の判定基準）に化けるため、配分の調整操作で
 // 軸の有効/無効を兼ねさせない。
 export const WEIGHT_STEP = 0.01;
-export const MIN_AXIS_WEIGHT = WEIGHT_STEP;
-export const MAX_AXIS_WEIGHT = 0.6;
+const MIN_AXIS_WEIGHT = WEIGHT_STEP;
+const MAX_AXIS_WEIGHT = 0.6;
 
-export function roundToStep(value: number): number {
+function roundToStep(value: number): number {
   return Number(value.toFixed(2));
 }
 
@@ -27,7 +27,7 @@ export function totalWeight(weights: RoutePreferenceWeights): number {
 export function clampBoundaryDrag(
   weightA: number,
   weightB: number,
-  rawDelta: number
+  rawDelta: number,
 ): { weightA: number; weightB: number } {
   const lowerBound = Math.max(MIN_AXIS_WEIGHT - weightA, weightB - MAX_AXIS_WEIGHT);
   const upperBound = Math.min(MAX_AXIS_WEIGHT - weightA, weightB - MIN_AXIS_WEIGHT);

@@ -7,18 +7,15 @@
 
 import asyncio
 
+from app.domain.gsi_tiles import TERRAIN_UPSTREAM_PATH
 from app.domain.terrain_rgb import gsi_dem_png_to_terrain_rgb
 from app.infrastructure.gsi_tile_client import GsiTileClient, GsiTileNotFound
 
-# 地理院の標高タイル（DEM10B、10mメッシュ）。配信元が実データを持つのはz14まで。
-TERRAIN_TILE_PATH = "xyz/dem_png/{z}/{x}/{y}.png"
-TERRAIN_TILE_MIN_ZOOM = 2
-TERRAIN_TILE_MAX_ZOOM = 14
 PNG_CONTENT_TYPE = "image/png"
 
 
 async def get_terrain_rgb_tile(client: GsiTileClient, z: int, x: int, y: int) -> bytes | GsiTileNotFound | None:
-    result = await client.get(TERRAIN_TILE_PATH.format(z=z, x=x, y=y))
+    result = await client.get(TERRAIN_UPSTREAM_PATH.format(z=z, x=x, y=y))
     if isinstance(result, GsiTileNotFound) or result is None:
         return result
     content, _ = result

@@ -4,27 +4,9 @@
 
 import { describe, expect, it } from "vitest";
 
-import {
-  PRIMARY_ATTRIBUTES,
-  PRIMARY_ATTRIBUTE_LABELS,
-  PRIMARY_ATTRIBUTE_LAYER_IDS,
-  PRIMARY_ATTRIBUTES_WITHOUT_LAYER,
-  primaryAttributeIdsToLayerIds,
-} from "./primaryAttributes";
+import { PRIMARY_ATTRIBUTE_LABELS, primaryAttributeIdsToLayerIds } from "./primaryAttributes";
 
 describe("primaryAttributes", () => {
-  // ドリフト検知: 全一次属性が「表示レイヤーを持つ」か「意図的にレイヤー無しと明示」の
-  // どちらかであること。両方に無い（対応表への追加漏れ）を防ぐ。
-  it("カタログの全一次属性が表示レイヤーを持つか、レイヤー無しと明示されている", () => {
-    for (const attr of PRIMARY_ATTRIBUTES) {
-      const hasLayer = PRIMARY_ATTRIBUTE_LAYER_IDS[attr.attrId] !== undefined;
-      const isExplicitlyExcluded = PRIMARY_ATTRIBUTES_WITHOUT_LAYER.has(attr.attrId);
-      expect(hasLayer || isExplicitlyExcluded, `${attr.attrId}がどちらの対応表にも無い`).toBe(true);
-      // 両方に同時に該当するのは矛盾（レイヤーがあるのに「無し」とも明示している）
-      expect(hasLayer && isExplicitlyExcluded).toBe(false);
-    }
-  });
-
   it("正式名はaxis-catalog.jsonのprimary_attributes[].labelをそのまま反映する", () => {
     expect(PRIMARY_ATTRIBUTE_LABELS.highway).toBe("道路の種類");
     expect(PRIMARY_ATTRIBUTE_LABELS.accident_point).toBe("事故地点");
@@ -47,7 +29,7 @@ describe("primaryAttributes", () => {
       "tunnel",
       "motor_vehicle_access",
     ]);
-    expect(new Set(layerIds)).toEqual(new Set(["roadType", "tunnel"]));
+    expect(new Set(layerIds)).toEqual(new Set(["highway", "tunnel"]));
     expect(layerIds.length).toBe(new Set(layerIds).size); // 重複が無い
   });
 

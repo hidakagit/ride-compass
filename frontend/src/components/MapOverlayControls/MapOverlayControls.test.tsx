@@ -10,7 +10,7 @@ const TestIcon = () => <svg />;
 function baseLayers(): OverlayLayerChip[] {
   return [
     { id: "elevation", icon: TestIcon, label: "標高図", on: false },
-    { id: "roadSurface", icon: TestIcon, label: "路面", on: false },
+    { id: "surface", icon: TestIcon, label: "路面", on: false },
     { id: "route", icon: TestIcon, label: "ルート", on: false },
   ];
 }
@@ -60,7 +60,7 @@ describe("MapOverlayControls", () => {
     expect(onToggle).toHaveBeenCalledWith("elevation", true);
 
     await user.click(screen.getByRole("button", { name: "路面" }));
-    expect(onToggle).toHaveBeenCalledWith("roadSurface", false);
+    expect(onToggle).toHaveBeenCalledWith("surface", false);
   });
 
   // 全レイヤー一括OFFボタンは地図下部中央の時刻スライダー隣へ移設し、page.tsx
@@ -314,7 +314,7 @@ describe("MapOverlayControls", () => {
     const layers: OverlayLayerChip[] = [
       { id: "elevation", icon: TestIcon, label: "標高図", on: true, legendDetails: [] }, // 凡例無し
       {
-        id: "roadSurface",
+        id: "surface",
         icon: TestIcon,
         label: "路面",
         on: false,
@@ -352,7 +352,7 @@ describe("MapOverlayControls", () => {
     function groupedLayers(): OverlayLayerChip[] {
       return [
         { id: "route", icon: TestIcon, label: "ルート", on: false }, // どのグループにも属さない→単独のまま
-        { id: "roadType", icon: TestIcon, label: "道路の種類", on: false, category: "roadCondition" },
+        { id: "highway", icon: TestIcon, label: "道路の種類", on: false, category: "roadCondition" },
         { id: "tunnel", icon: TestIcon, label: "トンネル", on: true, category: "roadCondition" },
         {
           id: "axis:axis_sample",
@@ -362,7 +362,7 @@ describe("MapOverlayControls", () => {
           category: "trafficSafety",
           dataNature: "composite",
         },
-        { id: "accidents", icon: TestIcon, label: "事故地点", on: false, category: "trafficSafety" }, // dataNature省略→composite以外扱い
+        { id: "accident_point", icon: TestIcon, label: "事故地点", on: false, category: "trafficSafety" }, // dataNature省略→composite以外扱い
         { id: "elevation", icon: TestIcon, label: "標高図", on: false, category: "terrain" },
       ];
     }
@@ -444,9 +444,9 @@ describe("MapOverlayControls", () => {
   describe("同時に開けるグループの数", () => {
     function allGroupLayers(): OverlayLayerChip[] {
       return [
-        { id: "roadType", icon: TestIcon, label: "道路の種類", on: false, category: "roadCondition" },
+        { id: "highway", icon: TestIcon, label: "道路の種類", on: false, category: "roadCondition" },
         { id: "elevation", icon: TestIcon, label: "標高図", on: false, category: "terrain" },
-        { id: "stopPoi", icon: TestIcon, label: "停止要因", on: false, category: "trafficSafety" },
+        { id: "stop_poi", icon: TestIcon, label: "停止要因", on: false, category: "trafficSafety" },
       ];
     }
 
@@ -487,7 +487,7 @@ describe("MapOverlayControls", () => {
     function roadLayers(): OverlayLayerChip[] {
       return [
         { id: "elevation", icon: TestIcon, label: "標高図", on: false, category: "terrain" }, // 環境グループ側の対照用
-        { id: "roadType", icon: TestIcon, label: "道路の種類", on: false, category: "roadCondition" },
+        { id: "highway", icon: TestIcon, label: "道路の種類", on: false, category: "roadCondition" },
         { id: "tunnel", icon: TestIcon, label: "トンネル", on: true, category: "roadCondition" },
       ];
     }
@@ -635,7 +635,7 @@ describe("MapOverlayControls", () => {
           category: "roadCondition",
           panelHint: "これはテスト用の説明文です。",
         },
-        { id: "roadType", icon: TestIcon, label: "道路の種類", on: false, category: "roadCondition" }, // panelHint未設定
+        { id: "highway", icon: TestIcon, label: "道路の種類", on: false, category: "roadCondition" }, // panelHint未設定
       ];
       render(<MapOverlayControls {...baseProps()} layers={layers} />);
 
@@ -712,7 +712,7 @@ describe("MapOverlayControls", () => {
     it("道路グループのメンバータイルは凡例を持てば個別に▶展開ボタンが付き、開くと右へ凡例が出る", async () => {
       const user = userEvent.setup();
       const layers = roadLayers();
-      const roadType = layers.find((l) => l.id === "roadType")!;
+      const roadType = layers.find((l) => l.id === "highway")!;
       roadType.on = true;
       roadType.legendDetails = [
         {
@@ -884,10 +884,10 @@ describe("MapOverlayControls", () => {
     function spotLayers(): OverlayLayerChip[] {
       return [
         { id: "route", icon: TestIcon, label: "ルート", on: false },
-        { id: "stopPoi", icon: TestIcon, label: "停止要因", on: false, category: "trafficSafety" },
-        { id: "accidents", icon: TestIcon, label: "事故地点", on: true, category: "trafficSafety" },
+        { id: "stop_poi", icon: TestIcon, label: "停止要因", on: false, category: "trafficSafety" },
+        { id: "accident_point", icon: TestIcon, label: "事故地点", on: true, category: "trafficSafety" },
         {
-          id: "supplyPoi",
+          id: "supply_poi",
           icon: TestIcon,
           label: "補給・休憩ポイント",
           chipLabel: "補給休憩",
@@ -927,7 +927,7 @@ describe("MapOverlayControls", () => {
       expect(accidentsToggle).toHaveAttribute("aria-pressed", "true");
 
       await user.click(screen.getByRole("button", { name: "補給休憩" }));
-      expect(onToggle).toHaveBeenCalledWith("supplyPoi", true);
+      expect(onToggle).toHaveBeenCalledWith("supply_poi", true);
     });
 
     it("スポット見出しのグループ色分けクラスはiconChipGroupSpot", async () => {
@@ -1021,7 +1021,7 @@ describe("MapOverlayControls", () => {
     it("親が新しい配列参照でレンダーしてもResizeObserverは再構築されず、グループの展開/収納は壊れない", async () => {
       const user = userEvent.setup();
       const layers1: OverlayLayerChip[] = [
-        { id: "roadType", icon: TestIcon, label: "道路の種類", on: false, category: "roadCondition" },
+        { id: "highway", icon: TestIcon, label: "道路の種類", on: false, category: "roadCondition" },
         { id: "tunnel", icon: TestIcon, label: "トンネル", on: true, category: "roadCondition" },
       ];
       const { rerender } = render(

@@ -4,46 +4,48 @@
 import { describe, expect, it } from "vitest";
 import {
   buildDedicatedWayValueColorExpression,
-  buildDedicatedWayValueOpacityExpression,
   dedicatedWayValueColorExpression,
-  dedicatedWayValueOpacityExpression,
-  dedicatedWayValueFeatureStateKey,
   dedicatedWayValueLegend,
   type DedicatedWayValueDisplay,
 } from "./dedicatedWayValueLayer";
-import { FALLBACK_LINE_OPACITY, KNOWN_LINE_OPACITY } from "./roadFilterAxes";
-import {
-  COLOR_HIDDEN,
-  COLOR_LOADING,
-  COLOR_NO_DATA,
-  COLOR_SIGNED_FLAT,
-  COLOR_SIGNED_LOW,
-  DEFAULT_DIFFICULTY_BOUNDARIES,
-  SIGNED_MATERIAL_BOUNDARIES,
-  bandColorsFor,
-} from "./valueScale";
+import { COLOR_LOADING, COLOR_NO_DATA, DEFAULT_DIFFICULTY_BOUNDARIES, bandColorsFor } from "./valueScale";
 import { LEGEND_NO_DATA_KEY, legendBandKey } from "./mapColorLegend";
 
+/** 符号付き材料の段。**軸の折れ線の節を0対称に開いたもの**で、backendが軸ごとに返す
+ * （`domain/dynamic_way_values.py`）。ここでは形だけを借りて色の性質を見る。 */
+const SIGNED_BANDS: readonly number[] = [-9, -6, -3, 3, 6, 9];
+
 const difficultyDisplay: DedicatedWayValueDisplay = { kind: "difficulty", unit: "" };
-const signedDisplay: DedicatedWayValueDisplay = { kind: "signed_material", unit: "%" };
+const signedDisplay: DedicatedWayValueDisplay = { kind: "signed_material", unit: "%", boundaries: SIGNED_BANDS };
+
+// 隠した段は透明、下り側は寒色、という**性質**を見る。実装の定数を借りると、源泉で色を
+// 調整しただけで落ちる。
+const TRANSPARENT = "rgba(0,0,0,0)";
+const DESCENT = "#0284c7";
+const FLAT = "#16a34a";
 
 describe("dedicatedWayValueLayer", () => {
   describe("dedicatedWayValueColorExpression", () => {
-    it("feature-state未設定（null）はCOLOR_NO_DATAへ倒し、キーは軸idから機械的に導出する", () => {
+    it("feature-state未設定（null）はCOLOR_NO_DATAへ倒し、キーは軸ごとに別になる", () => {
       const expression = dedicatedWayValueColorExpression("wind", difficultyDisplay);
+
       expect(expression[0]).toBe("case");
-      expect(expression[1]).toEqual(["==", ["feature-state", dedicatedWayValueFeatureStateKey("wind")], null]);
+      expect(expression[1]).toEqual(["==", ["feature-state", expect.any(String)], null]);
       expect(expression[2]).toBe(COLOR_NO_DATA);
-      expect(dedicatedWayValueFeatureStateKey("wind")).not.toBe(dedicatedWayValueFeatureStateKey("gradient"));
+      // 同じソースへ複数の軸が値を載せるので、軸ごとに別のキーを読む必要がある。
+      // **キーの綴りは借りない**——式の中に現れる名前が軸で変わることだけを見る。
+      expect(JSON.stringify(expression[1])).not.toBe(
+        JSON.stringify(dedicatedWayValueColorExpression("gradient", difficultyDisplay)[1]),
+      );
     });
 
-    it("段階数はboundaries.length+1（省略時は種類ごとの既定しきい値）", () => {
+    it("段階数はboundaries.length+1（省略時は難易度の既定）", () => {
       const step = dedicatedWayValueColorExpression("wind", difficultyDisplay)[3] as unknown[];
       expect(step[0]).toBe("step");
       expect(step).toHaveLength(3 + DEFAULT_DIFFICULTY_BOUNDARIES.length * 2);
 
       const signedStep = dedicatedWayValueColorExpression("gradient", signedDisplay)[3] as unknown[];
-      expect(signedStep).toHaveLength(3 + SIGNED_MATERIAL_BOUNDARIES.length * 2);
+      expect(signedStep).toHaveLength(3 + SIGNED_BANDS.length * 2);
 
       const custom = dedicatedWayValueColorExpression("wind", {
         ...difficultyDisplay,
@@ -77,25 +79,25 @@ describe("dedicatedWayValueLayer", () => {
       const hidden = dedicatedWayValueColorExpression("gradient", signedDisplay, false, [
         legendBandKey(0),
       ])[3] as unknown[];
-      expect(hidden[2]).toBe(COLOR_HIDDEN);
+      expect(hidden[2]).toBe(TRANSPARENT);
       expect(hidden.slice(3)).toEqual(visible.slice(3));
     });
 
     it("データなしを非表示にするとnull側が透明になる。ただしフェッチ中の色は残す", () => {
       const hidden = dedicatedWayValueColorExpression("gradient", signedDisplay, false, [LEGEND_NO_DATA_KEY]);
-      expect(hidden[2]).toBe(COLOR_HIDDEN);
+      expect(hidden[2]).toBe(TRANSPARENT);
       const loading = dedicatedWayValueColorExpression("gradient", signedDisplay, true, [LEGEND_NO_DATA_KEY]);
       expect(loading[2]).toBe(COLOR_LOADING);
     });
 
     it("凡例の段階キーと色式の段階の並びが一致する（同じキーで同じ段階を隠せる）", () => {
       const legend = dedicatedWayValueLegend(signedDisplay);
-      const lastBandIndex = SIGNED_MATERIAL_BOUNDARIES.length;
+      const lastBandIndex = SIGNED_BANDS.length;
       const hidden = dedicatedWayValueColorExpression("gradient", signedDisplay, false, [
         legendBandKey(lastBandIndex),
       ])[3] as unknown[];
       expect(legend[lastBandIndex].key).toBe(legendBandKey(lastBandIndex));
-      expect(hidden[hidden.length - 1]).toBe(COLOR_HIDDEN);
+      expect(hidden[hidden.length - 1]).toBe(TRANSPARENT);
     });
   });
 
@@ -113,11 +115,11 @@ describe("dedicatedWayValueLayer", () => {
       expect(difficulty.slice(0, -1).map((b) => b.color)).toEqual(bandColorsFor("difficulty", [33, 66]));
 
       const signed = dedicatedWayValueLegend(signedDisplay);
-      expect(signed[0].color).toBe(COLOR_SIGNED_LOW);
+      expect(signed[0].color).toBe(DESCENT);
       // 0をまたぐ段階（平坦）が配色の分かれ目。
-      const flatIndex = SIGNED_MATERIAL_BOUNDARIES.findIndex((boundary) => boundary > 0);
-      expect(signed[flatIndex].color).toBe(COLOR_SIGNED_FLAT);
-      expect(signed).toHaveLength(SIGNED_MATERIAL_BOUNDARIES.length + 2);
+      const flatIndex = SIGNED_BANDS.findIndex((boundary) => boundary > 0);
+      expect(signed[flatIndex].color).toBe(FLAT);
+      expect(signed).toHaveLength(SIGNED_BANDS.length + 2);
     });
 
     it("bandLabelsは要素数が段階数と一致する間だけ数値レンジの前に添える", () => {
@@ -132,33 +134,6 @@ describe("dedicatedWayValueLayer", () => {
 
       const mismatch = dedicatedWayValueLegend({ ...difficultyDisplay, boundaries: [33, 66], bandLabels: ["a", "b"] });
       expect(mismatch[0].label).toBe("33未満");
-    });
-  });
-  describe("線の濃さ", () => {
-    // 地図全体の「薄い＝対象外、濃い＝分類あり」という読み方（roadFilterAxes.ts）を
-    // このレイヤーにも効かせる。方位を指定すると値を示せない道が街区の半分近くを
-    // 占めうるため、濃いまま塗ると値のある道がそこへ埋もれる。
-    const value = ["feature-state", "gradientValue"];
-
-    it("値を受け取れなかった道は薄く、値を持つ道は濃く塗る", () => {
-      const expression = buildDedicatedWayValueOpacityExpression(value);
-
-      expect(expression).toEqual(["case", ["==", value, null], FALLBACK_LINE_OPACITY, KNOWN_LINE_OPACITY]);
-      expect(FALLBACK_LINE_OPACITY).toBeLessThan(KNOWN_LINE_OPACITY);
-    });
-
-    it("取得中は薄くしない（「取得中」と「対象外」が見分けられなくなるため）", () => {
-      const expression = buildDedicatedWayValueOpacityExpression(value, true);
-
-      expect(expression).toEqual(["case", ["==", value, null], KNOWN_LINE_OPACITY, KNOWN_LINE_OPACITY]);
-    });
-
-    it("軸idから組み立てた式は、色式と同じ値の取得元を読む", () => {
-      const axisId = "gradient";
-
-      expect(dedicatedWayValueOpacityExpression(axisId)).toEqual(
-        buildDedicatedWayValueOpacityExpression(["feature-state", dedicatedWayValueFeatureStateKey(axisId)]),
-      );
     });
   });
 });

@@ -17,7 +17,7 @@ function fetchMaterialCatalogDeduped(): ReturnType<typeof getMaterialCatalog> {
   return request;
 }
 
-export interface MaterialCatalogState {
+interface MaterialCatalogState {
   materials: readonly AxisMaterialOption[];
   /** 取得が終わったか。成功・失敗のどちらでも真になる。**空と読み込み中を混同しない**
    *  ——静的な写しで埋めると、backendへ材料を足しても古い一覧が出続ける。 */
@@ -35,16 +35,15 @@ export function useMaterialCatalog(): MaterialCatalogState {
         if (!cancelled) {
           setState({
             loaded: true,
-            materials:
-              response.materials.map((m) => ({
-                id: m.material_id,
-                label: m.label,
-                name: m.name,
-                description: m.description,
-                dtype: m.dtype,
-                unit: m.unit,
-                referencePoints: m.reference_points,
-              })),
+            materials: response.materials.map((m) => ({
+              id: m.material_id,
+              label: m.label,
+              name: m.name,
+              description: m.description,
+              dtype: m.dtype,
+              unit: m.unit,
+              referencePoints: m.reference_points,
+            })),
           });
         }
       })

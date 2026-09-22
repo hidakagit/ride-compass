@@ -21,7 +21,7 @@ export interface JmaTileIndexLookup {
 }
 
 /** タイルURLから読み取った、在否判定に必要な情報。 */
-export interface JmaTileRef {
+interface JmaTileRef {
   element: string;
   basetime: string;
   z: number;
@@ -33,7 +33,7 @@ export interface JmaTileRef {
 const TILE_URL_PATTERN =
   /\/data\/[a-z]+\/(\d{14})\/[^/]+\/\d{14}\/surf\/([a-z0-9_]+)\/(\d+)\/(\d+)\/(\d+)\.(?:png|pbf)/;
 
-export function parseJmaTileUrl(url: string): JmaTileRef | null {
+function parseJmaTileUrl(url: string): JmaTileRef | null {
   const match = TILE_URL_PATTERN.exec(url);
   if (!match) return null;
   return {

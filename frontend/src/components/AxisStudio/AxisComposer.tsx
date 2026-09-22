@@ -303,6 +303,11 @@ export default function AxisComposer({
     // （step・min/max）へ任せると、小数の刻みが浮動小数の誤差で不一致と判定されたとき、
     // 何の表示も無いまま送信だけが止まる——1画面になって全ての欄が同時に検証対象へ入った
     // ぶん、この止まり方は起きやすい。
+    //
+    // このフォームの中で**ボタンの役割を切り替えるときは、同じ要素の`type`を書き換えない**。
+    // ブラウザは押された後の`type`で既定動作を判定するため、`"button"`→`"submit"`へ同期的に
+    // 変わるとフォームが暗黙に送信される。役割が変わるなら`key`を変えて別の要素として
+    // 作り直すこと（happy-domはこの判定のタイミング差を再現しないため、テストでは捕まらない）。
     <form onSubmit={handleSubmit} className={styles.composer} noValidate>
       {restrictedDisplayOnly && (
         <p className={styles.hint}>

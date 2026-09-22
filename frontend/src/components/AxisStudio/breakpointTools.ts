@@ -76,7 +76,10 @@ export function generatorSettingsFrom(breakpoints: readonly [number, number][]):
   // 生成した折れ点と総当たりで突き合わせる。向きは2通り（値が大きいほど点数が高い軸と、
   // 低いほど高い軸）あり、どちらが0点側かは折れ点そのものからしか分からない。
   for (const { id } of BREAKPOINT_SHAPE_OPTIONS) {
-    for (const [zeroValue, hundredValue] of [[lowX, highX], [highX, lowX]] as const) {
+    for (const [zeroValue, hundredValue] of [
+      [lowX, highX],
+      [highX, lowX],
+    ] as const) {
       const candidate = generateBreakpoints(zeroValue, hundredValue, id);
       if (candidate.length !== sorted.length) continue;
       if (candidate.every(([x, y], i) => x === sorted[i][0] && y === sorted[i][1])) {
@@ -95,7 +98,7 @@ export function generatorSettingsFrom(breakpoints: readonly [number, number][]):
 }
 
 /** 折れ点をx昇順へ並べ替える（ドラッグ・数値入力・自動生成のいずれの後も呼ぶ）。 */
-export function sortBreakpoints(breakpoints: readonly [number, number][]): [number, number][] {
+function sortBreakpoints(breakpoints: readonly [number, number][]): [number, number][] {
   return [...breakpoints].sort((a, b) => a[0] - b[0]);
 }
 

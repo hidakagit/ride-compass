@@ -21,16 +21,75 @@ from pydantic import Field, field_validator, model_validator
 from app.domain.strict_model import StrictModel
 
 
+#: 一次属性の値が載る図形。線=道の一部、点=地点、面=空間に広がる値。
+#: **地図へ出すかどうかはこれとは別で、画面側が決める**（点である交差点は出していない）。
+PrimaryAttributeGeometry = Literal["line", "point", "area"]
+
+
+class DisplayCategorySpec(StrictModel):
+    """地図と凡例に出す1行。**束ね方・行の名前・並び順をここが決める。色は決めない。**
+
+    `values`は、この行に属するタイルの値（真偽値の属性ならtrue）。利用者から見て区別する
+    意味の無い値は1行へまとめる（車道用と歩道用の踏切など）——網羅ではなく
+    「走りやすさの違いが出る単位」で束ねる。
+
+    色は軸の`palette`と行数から導く（評価軸の段の色を境界の個数から補間するのと同じ形）。
+    **行ごとに色を持たせない**——持たせると、行が1つ増えたときに色を手で決め直すことになり、
+    パレットの意味（中立か評価か）もその場の判断で破れる。
+    """
+
+    key: str
+    label: str
+    values: tuple[str | bool, ...]
+    #: 順序を持たない列挙（`palette="nominal"`）のとき、パレットのどの枠を使うか。
+    #: **軸をまたいで重複させない**——位置で決めると、1行しか持たない軸どうし
+    #: （トンネルと一方通行）が必ず同じ色になる。順序のある分類では使わない（並びが決める）。
+    color_slot: int | None = None
+
+
+class DisplayAxisSpec(StrictModel):
+    """地図の1レイヤーが持つ絞り込みの軸。行の並びと、行を判定するタイルのプロパティ。
+
+    ほとんどの属性は軸を1本しか持たない（プロパティ＝属性そのもの）。事故のように1つの点へ
+    複数の見方があるときだけ2本以上になり、**すべてANDで効く**。色は先頭の軸が決める。
+    """
+
+    key: str
+    #: 軸が1本だけなら見出しは要らない（レイヤー名で足りる）。
+    label: str = ""
+    #: 行の判定に使うタイルのプロパティ名。
+    property: str
+    #: 色の作り方。`ordered`＝順序のある分類（幹線→細街路）を単一色相の濃淡で、
+    #: `nominal`＝順序を持たない列挙を中立の色相で分ける。**評価配色（緑〜赤）は
+    #: 使わない**——観測された事実の分類へ良し悪しの順序を持ち込むと、地図の上で
+    #: 事実と評価が混ざる。
+    palette: Literal["ordered", "nominal"]
+    categories: tuple[DisplayCategorySpec, ...]
+
+
 class PrimaryAttributeSpec(StrictModel):
     """一次属性の宣言。
 
     `label`はユーザー向け正式名称の単一ソース。`export_openapi.py`がaxis-catalog.jsonへ
     書き出し、フロントはそこから略名（地図チップ用）への対応表だけを別途持つ（片側import）。
+
+    `geometry`は値が載る図形で、フロントはこれを読んでレイヤーの描き方（線・点・面）を
+    決める。持たせないと、どの属性をどう描くかを画面側が手で並べた表で持つことになる。
+
+    `display_axes`は地図に出す束ね方・行の名前・色。**画面はこれを受け取って塗るだけ**で、
+    分類も名前も色も持たない（評価軸の色と段を`axis-catalog`が配るのと同じ形）。空なら
+    地図に線・点としては出さない（幾何を持つことと、地図へ出すことは別）。
     """
 
     attr_id: str
     #: 空を許すと、地図チップ・サイドバー・研究タブが名前を引けない属性を登録できてしまう。
     label: str = Field(min_length=1)
+    geometry: PrimaryAttributeGeometry
+    display_axes: tuple[DisplayAxisSpec, ...] = ()
+    #: 値が載るタイルの系統（`tile_version_service.py: TILE_SHAPES`の名前）。地図へ出す
+    #: 属性だけが持つ。**どのソースから読むかを画面が決めない**——決めさせると、系統を
+    #: 1つ足したときに画面側の対応表も直すことになる。
+    tile_kind: str | None = None
 
 
 class TileInputSpec(StrictModel):

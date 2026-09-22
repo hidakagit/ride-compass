@@ -1,3 +1,6 @@
+/* `theme(--breakpoint-mobile)`を引くための参照（値の定義はglobals.cssに1つだけ）。 */
+@reference "../../app/globals.css";
+
 /* 地図（page.module.cssの.mapPane、position:relative）に重ねる。デスクトップ・モバイルとも
    常に左上（以前はモバイルのみ下部タブバー付近へ寄せていたが、アイコン化して縦一列に
    圧縮したことで常時左上に置いても地図の視界を大きく妨げなくなったため統一した）。
@@ -50,7 +53,7 @@
    frontend/src/hooks/）が.bottomControlRowの実測高さを.mapPaneへ`--bottom-control-row-
    height`としてinline styleで書き込み、ここで読む。未設定時（JS実行前・SSR）は
    0pxへフォールバックする。 */
-@media (max-width: 640px) {
+@media (max-width: theme(--breakpoint-mobile)) {
   .wrapper {
     bottom: calc(var(--space-3) + var(--mobile-tabbar-height) + var(--bottom-control-row-height, 0px));
   }

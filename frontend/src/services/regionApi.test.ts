@@ -9,11 +9,9 @@ vi.mock("@/lib/debugLog", () => ({ debugLog: vi.fn() }));
 // テストファイルをまたいで共有されるため（pool: vmThreads）、別ファイルが立てた
 // `NEXT_PUBLIC_TILE_BASE_URL`でこのファイルの期待値が変わらないようにするため。
 vi.mock("@/lib/tileBaseUrl", () => ({ tileBaseUrl: () => "https://tiles.test" }));
-import { ACCIDENT_TILE_SOURCE_LAYER, ROAD_TILE_SOURCE_LAYER, STOP_POI_SOURCE_LAYER } from "@/components/Map/MapView";
 import {
   ROAD_TILE_MAX_ZOOM,
   ROAD_TILE_MIN_ZOOM,
-  TILE_KINDS,
   accidentTileUrl,
   fetchAxisInspector,
   fetchDynamicWayValues,
@@ -50,16 +48,6 @@ describe("regionApi", () => {
 
   // region-tile-config.jsonはbackendの宣言からexport_openapi.pyが生成する。片側だけ
   // 値を変えて再生成・コミットし忘れた状態をCIが検出する。
-  it("路面ベクタタイルのレイヤー名がbackend生成物（region-tile-config.json）と一致する", () => {
-    expect(ROAD_TILE_SOURCE_LAYER).toBe(regionTileConfig.road_surface.layer_name);
-  });
-
-  // **世代を配る系統の集合が片側だけ増えると、足りない側は「揃った」と判定したまま
-  // 配られない世代を待ち続ける**（hasTileVersionsが常にfalse／余分な系統のURLが組めない）。
-  // 上の?v=の照合は自分が入れた定数と比べるだけで、この食い違いは捕まえられない。
-  it("世代を配るタイルの系統がbackend生成物と一致する", () => {
-    expect([...TILE_KINDS].sort()).toEqual([...regionTileConfig.tile_version_kinds].sort());
-  });
 
   it("poiTileUrlは配信オリジンとタイル世代クエリを使ったURLテンプレートを返す", () => {
     expect(poiTileUrl()).toBe(`https://tiles.test/api/region/poi-tiles/{z}/{x}/{y}.pbf?v=${TILE_VERSIONS.poi}`);
@@ -68,15 +56,9 @@ describe("regionApi", () => {
   // 停止要因POIタイル（改善計画T54）も同じドリフト検知の対象にする。交差点密度
   // （intersection）レイヤーは地図の独立可視化レイヤーとしては提供しない判断（T96）で
   // フロントから参照が無くなっていたため、バックエンド側の配信自体もT97で撤去済み。
-  it("POIベクタタイルのレイヤー名がbackend生成物と一致する", () => {
-    expect(STOP_POI_SOURCE_LAYER).toBe(regionTileConfig.poi.stop_poi_layer_name);
-  });
 
   // 外部静的データソース T50（警察庁事故データ）のMVTレイヤー名・世代も同じドリフト検知
   // の仕組みに乗せる（region-tile-config.jsonのaccidentキー、改善計画T19と同型）。
-  it("事故ベクタタイルのレイヤー名がbackend生成物（region-tile-config.json）と一致する", () => {
-    expect(ACCIDENT_TILE_SOURCE_LAYER).toBe(regionTileConfig.accident.layer_name);
-  });
 
   it("accidentTileUrlは配信オリジンとタイル世代クエリを使ったURLテンプレートを返す", () => {
     expect(accidentTileUrl()).toBe(

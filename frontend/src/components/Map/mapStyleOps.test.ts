@@ -2,9 +2,6 @@
 import { describe, expect, it } from "vitest";
 import {
   areaLayerAnchor,
-  areaLayerAnchorId,
-  basemapAreaLayersAfter,
-  isAreaLayerType,
   prepareBasemapForAreaLayers,
   resetBasemapAreaLayerPreparation,
 } from "@/components/Map/mapStyleOps";
@@ -134,15 +131,36 @@ symbol place label_country_1
     return sourceLayer === "-" ? { id, type } : { id, type, "source-layer": sourceLayer };
   });
 
-describe("areaLayerAnchorId（面レイヤーの差し込み位置）", () => {
-  it("実物の基礎地図では、道路網の最初のレイヤー（トンネルの一番下）を返す", () => {
-    expect(areaLayerAnchorId(LIBERTY_LAYERS)).toBe("tunnel_motorway_link_casing");
+/** スタイルの並びを持つだけの地図。動かされたレイヤーを記録する。 */
+function fakeMap(layers: { id: string; type?: string; "source-layer"?: string }[]) {
+  const moveCalls: { layerId: string; beforeId?: string }[] = [];
+  return {
+    moveCalls,
+    getStyle: () => ({ layers }),
+    getLayer: (id: string) => (layers.some((l) => l.id === id) ? {} : undefined),
+    moveLayer: (layerId: string, beforeId?: string) => moveCalls.push({ layerId, beforeId }),
+  };
+}
+
+/** 整えたあとの差し込み位置。**途中段階へ口を開けない**——位置の決め方も、どのレイヤーを
+ * 面とみなすかも、入口を通した結果として現れる。 */
+function anchorAfterPrepare(layers: { id: string; type?: string; "source-layer"?: string }[]) {
+  const map = fakeMap(layers);
+  prepareBasemapForAreaLayers(map as never);
+  return { anchorId: areaLayerAnchor(map as never), moveCalls: map.moveCalls };
+}
+
+describe("面レイヤーの差し込み位置", () => {
+  it("実物の基礎地図では、道路網の最初のレイヤー（トンネルの一番下）になる", () => {
+    expect(anchorAfterPrepare([...LIBERTY_LAYERS]).anchorId).toBe("tunnel_motorway_link_casing");
   });
 
   // トンネルより後ろを指すと、道路網がトンネル区間だけ面の下に沈んで道が途切れて見える
   // （実機で「道も途切れているものがあって、主要道と細かい道の間に色が差し込まれてない？」）。
   it("位置は地上の道路より前（トンネル区間が面の下に残らない）", () => {
-    const anchorIndex = LIBERTY_LAYERS.findIndex((l) => l.id === areaLayerAnchorId(LIBERTY_LAYERS));
+    const { anchorId } = anchorAfterPrepare([...LIBERTY_LAYERS]);
+
+    const anchorIndex = LIBERTY_LAYERS.findIndex((l) => l.id === anchorId);
     const roadNetwork = LIBERTY_LAYERS.map((l, i) => ({ ...l, i })).filter(
       (l) => l["source-layer"] === "transportation",
     );
@@ -151,50 +169,41 @@ describe("areaLayerAnchorId（面レイヤーの差し込み位置）", () => {
   });
 
   it("土地の塗り（公園・土地利用・水面・空港）は位置より前＝面の下に残る", () => {
-    const anchorIndex = LIBERTY_LAYERS.findIndex((l) => l.id === areaLayerAnchorId(LIBERTY_LAYERS));
+    const { anchorId } = anchorAfterPrepare([...LIBERTY_LAYERS]);
+
+    const anchorIndex = LIBERTY_LAYERS.findIndex((l) => l.id === anchorId);
     for (const id of ["park", "landuse_residential", "landcover_wood", "water", "aeroway_fill"]) {
       expect(LIBERTY_LAYERS.findIndex((l) => l.id === id)).toBeLessThan(anchorIndex);
     }
   });
-
-  it("道路網を持たないスタイルではundefined（差し込み先が無く最前面になる）", () => {
-    expect(areaLayerAnchorId([{ id: "background" }])).toBeUndefined();
-    expect(areaLayerAnchorId([])).toBeUndefined();
-  });
 });
 
-describe("basemapAreaLayersAfter（差し込み位置より後ろの面）", () => {
-  it("実物の基礎地図では、歩行者area・建物が道路網より後ろに残る（これを前へ動かす）", () => {
-    expect(basemapAreaLayersAfter(LIBERTY_LAYERS, "tunnel_motorway_link_casing")).toEqual([
-      "road_area_pattern",
-      "building",
-      "building-3d",
+describe("道路網より後ろの、面で塗るレイヤーだけを前へ動かす", () => {
+  it("下を隠す描き方は動かし、上に乗って読まれる描き方は動かさない", () => {
+    const { moveCalls } = anchorAfterPrepare([
+      { id: "road", type: "line", "source-layer": "transportation" },
+      { id: "面-raster", type: "raster" },
+      { id: "面-fill", type: "fill" },
+      { id: "面-fill-extrusion", type: "fill-extrusion" },
+      { id: "面-background", type: "background" },
+      { id: "面-hillshade", type: "hillshade" },
+      { id: "線", type: "line" },
+      { id: "記号", type: "symbol" },
+      { id: "丸", type: "circle" },
+      { id: "熱", type: "heatmap" },
     ]);
-  });
 
-  it("差し込み位置が並びに無ければ空（動かす対象を取り違えない）", () => {
-    expect(basemapAreaLayersAfter(LIBERTY_LAYERS, "存在しないレイヤー")).toEqual([]);
-  });
-});
-
-describe("isAreaLayerType（面で塗る種別か）", () => {
-  it("下を隠す描き方は面、上に乗って読まれる描き方は面ではない", () => {
-    expect(["raster", "fill", "fill-extrusion", "background", "hillshade"].every(isAreaLayerType)).toBe(true);
-    expect(["line", "symbol", "circle", "heatmap"].some(isAreaLayerType)).toBe(false);
+    expect(moveCalls.map((call) => call.layerId)).toEqual([
+      "面-raster",
+      "面-fill",
+      "面-fill-extrusion",
+      "面-background",
+      "面-hillshade",
+    ]);
   });
 });
 
 describe("prepareBasemapForAreaLayers（基礎地図を面レイヤー用に整える）", () => {
-  function fakeMap(layers: { id: string; type?: string; "source-layer"?: string }[]) {
-    const moveCalls: { layerId: string; beforeId?: string }[] = [];
-    return {
-      moveCalls,
-      getStyle: () => ({ layers }),
-      getLayer: (id: string) => (layers.some((l) => l.id === id) ? {} : undefined),
-      moveLayer: (layerId: string, beforeId?: string) => moveCalls.push({ layerId, beforeId }),
-    };
-  }
-
   it("道路網より後ろの面を道路網の手前へ動かし、差し込み位置を記録する", () => {
     const map = fakeMap([...LIBERTY_LAYERS]);
 

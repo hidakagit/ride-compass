@@ -1,0 +1,158 @@
+{
+  "precipitation": [
+    {
+      "value": 0,
+      "color": "#b8e6fd",
+      "name": ""
+    },
+    {
+      "value": 0.4,
+      "color": "#93dafc",
+      "name": ""
+    },
+    {
+      "value": 2,
+      "color": "#68ccfb",
+      "name": ""
+    },
+    {
+      "value": 4,
+      "color": "#38bdf8",
+      "name": ""
+    },
+    {
+      "value": 10,
+      "color": "#3b82f6",
+      "name": ""
+    },
+    {
+      "value": 20,
+      "color": "#eab308",
+      "name": ""
+    },
+    {
+      "value": 30,
+      "color": "#f97316",
+      "name": ""
+    },
+    {
+      "value": 50,
+      "color": "#dc2626",
+      "name": ""
+    },
+    {
+      "value": 80,
+      "color": "#9333ea",
+      "name": ""
+    }
+  ],
+  "wind_speed": [
+    {
+      "value": 0,
+      "color": "#7dd3fc",
+      "name": "微風"
+    },
+    {
+      "value": 1.5,
+      "color": "#38bdf8",
+      "name": "そよ風"
+    },
+    {
+      "value": 3.3,
+      "color": "#22d3ee",
+      "name": "心地よい風"
+    },
+    {
+      "value": 5.4,
+      "color": "#34d399",
+      "name": "やや強い風"
+    },
+    {
+      "value": 7.9,
+      "color": "#a3e635",
+      "name": "強い風・向かい風がこたえ始める"
+    },
+    {
+      "value": 10.7,
+      "color": "#facc15",
+      "name": "かなり強い風"
+    },
+    {
+      "value": 13.8,
+      "color": "#f97316",
+      "name": "ロードバイクでの走行が難しい強風"
+    },
+    {
+      "value": 17.1,
+      "color": "#dc2626",
+      "name": "暴風"
+    },
+    {
+      "value": 24.4,
+      "color": "#7f1d1d",
+      "name": "猛烈な暴風"
+    }
+  ],
+  "risk_levels": [
+    {
+      "key": "level0",
+      "label": "平常（危険度なし）",
+      "color": "#ffffff"
+    },
+    {
+      "key": "level1",
+      "label": "注意（黄）",
+      "color": "#f2e700"
+    },
+    {
+      "key": "level2",
+      "label": "警戒（赤）",
+      "color": "#ff2800"
+    },
+    {
+      "key": "level3",
+      "label": "危険（紫）",
+      "color": "#aa00aa"
+    },
+    {
+      "key": "level4",
+      "label": "災害切迫（黒）",
+      "color": "#0c000c"
+    }
+  ],
+  "linear_rainband_color": "#ff2800",
+  "thunder_activity": [
+    {
+      "key": "level1",
+      "label": "活動度1: 雷雲発達の可能性（1時間以内に発雷のおそれ）",
+      "color": "#fde047"
+    },
+    {
+      "key": "level2",
+      "label": "活動度2: 雷雲発生、落雷の可能性",
+      "color": "#fb923c"
+    },
+    {
+      "key": "level3",
+      "label": "活動度3: 落雷が発生中",
+      "color": "#ef4444"
+    },
+    {
+      "key": "level4",
+      "label": "活動度4: 激しい雷（雹に注意）",
+      "color": "#9333ea"
+    }
+  ],
+  "tornado_potential": [
+    {
+      "key": "potential1",
+      "label": "発生確度1: 広く注意（見逃しを減らす、的中率1〜7%）",
+      "color": "#38bdf8"
+    },
+    {
+      "key": "potential2",
+      "label": "発生確度2: 重点警戒（気象庁「竜巻注意」相当、的中率7〜14%）",
+      "color": "#1d4ed8"
+    }
+  ]
+}

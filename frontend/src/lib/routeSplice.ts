@@ -13,7 +13,7 @@
 import { cumulativeDistancesKm } from "@/lib/geoDistance";
 
 /** 表示中の候補が、比較相手と別の道を通る区間。`edge_ids`における`[start, end)`。 */
-export interface RouteStretch {
+interface RouteStretch {
   start: number;
   end: number;
 }
@@ -25,7 +25,7 @@ export interface RouteStretch {
  * 成立する。候補はすべて同じ前向き木・後ろ向き木から作られるので、軸に沿った候補どうしなら
  * 区間は1つになる（最短経路だけは別の木から作られるため複数になりうる）。
  */
-export function differingStretches(displayed: readonly string[], target: readonly string[]): RouteStretch[] {
+function differingStretches(displayed: readonly string[], target: readonly string[]): RouteStretch[] {
   const onTarget = new Set(target);
   const stretches: RouteStretch[] = [];
   let start: number | null = null;
@@ -39,50 +39,6 @@ export function differingStretches(displayed: readonly string[], target: readonl
   });
   if (start !== null) stretches.push({ start, end: displayed.length });
   return stretches;
-}
-
-/**
- * `displayed`の`stretch`を`target`側の道へ差し替えたときに通る、`target`のEdge id列。
- *
- * 区間の両端は2本が共有するEdge（または経路の端）なので、そのEdgeを目印に`target`側の
- * 対応する部分を切り出す。
- */
-export function targetStretchEdgeIds(
-  displayed: readonly string[],
-  target: readonly string[],
-  stretch: RouteStretch,
-): string[] {
-  const before = stretch.start > 0 ? displayed[stretch.start - 1] : null;
-  const after = stretch.end < displayed.length ? displayed[stretch.end] : null;
-  const from = before === null ? 0 : target.indexOf(before) + 1;
-  const to = after === null ? target.length : target.indexOf(after);
-  if (from <= 0 && before !== null) return [];
-  if (to < 0) return [];
-  return target.slice(from, Math.max(from, to));
-}
-
-/**
- * 選んだ区間を`target`側へ差し替えた経路のEdge id列を組み立てる。
- *
- * 後ろの区間から順に差し替える——先に前を差し替えると、後ろの区間の位置がずれる。
- * 結果はbackendの`spliced_edge_ids`へそのまま渡す（backendがこのグラフで実在・連結・
- * 起点を検証してから評価する）。
- */
-export function spliceEdgeIds(
-  displayed: readonly string[],
-  target: readonly string[],
-  selected: readonly RouteStretch[],
-): string[] {
-  const ordered = [...selected].sort((a, b) => b.start - a.start);
-  let path = [...displayed];
-  for (const stretch of ordered) {
-    path = [
-      ...path.slice(0, stretch.start),
-      ...targetStretchEdgeIds(displayed, target, stretch),
-      ...path.slice(stretch.end),
-    ];
-  }
-  return path;
 }
 
 /**
@@ -104,7 +60,7 @@ export function stretchCoordinateRange(
 }
 
 /** 表示中の候補の区間と、それに対応する相手側の区間の組。 */
-export interface PairedStretch {
+interface PairedStretch {
   displayed: RouteStretch;
   target: RouteStretch;
 }
@@ -117,7 +73,7 @@ export interface PairedStretch {
  * 現れる。本数が食い違ったら対応づけを諦める（片側だけ描くと、地図上の帯と実際に
  * 差し替わる道がずれる）。
  */
-export function pairedStretches(displayed: readonly string[], target: readonly string[]): PairedStretch[] {
+function pairedStretches(displayed: readonly string[], target: readonly string[]): PairedStretch[] {
   const onDisplayed = differingStretches(displayed, target);
   const onTarget = differingStretches(target, displayed);
   if (onDisplayed.length !== onTarget.length) return [];
@@ -159,7 +115,7 @@ export function insertByDifficulty<T extends OrderableCandidate>(routes: readonl
 }
 
 /** 区間を割るために要る経路の形（`RouteCandidate`の一部。lib側は候補の型に依存しない）。 */
-export interface RouteGeometryShape {
+interface RouteGeometryShape {
   coordinates: readonly GeoJSON.Position[];
   /** Edge iの始点が`coordinates`の何番目か（末尾に終点を持つ）。backendの`edge_point_offsets`。 */
   edgePointOffsets: readonly number[];
@@ -183,7 +139,7 @@ function boundaryNode(shape: RouteGeometryShape, edgeIndex: number): string | un
  * `minLengthKm`より短い断片は作らない。同じ地点かはbackendが返すNode id（`node_ids`）で
  * 判定する——グラフが持つ同一性をそのまま使う。
  */
-export function splitPairedStretch(
+function splitPairedStretch(
   base: RouteGeometryShape,
   target: RouteGeometryShape,
   pair: PairedStretch,
@@ -247,7 +203,7 @@ export interface StretchAlternative {
 }
 
 /** 重なり合う代替をまとめた1つの選択単位。グループ内は排他、グループ間は独立。 */
-export interface StretchGroup {
+interface StretchGroup {
   /** グループが覆う元ルート側の範囲（各代替の和）。 */
   stretch: RouteStretch;
   options: StretchAlternative[];
@@ -290,8 +246,8 @@ function createsRevisit(
  * なる。区間を主語にして、その区間の代替を候補横断で並べる。
  *
  * 元側の範囲が重なる代替は同じグループへ入れる——重なったまま両方を差し替えると経路が
- * 壊れるため、グループ内からは1つしか選べない。グループどうしは重ならないので、後ろから
- * 順に差し替えれば互いに影響しない（`spliceEdgeIdsFromAlternatives`）。
+ * 壊れるため、グループ内からは1つしか選べない。グループどうしは重ならないので、順に
+ * 積み上げても互いに影響しない（`buildSplicedShape`）。
  */
 export function stretchAlternativeGroups(
   baseEdgeIds: readonly string[],
@@ -317,9 +273,8 @@ export function stretchAlternativeGroups(
         : [pair],
     );
     for (const pair of pairs) {
-      // 差し替え後に通るEdgeは相手側の範囲そのもの。共有Edgeを目印に切り出す
-      // （`targetStretchEdgeIds`）と、共有**地点**で割った区間では両端に共有Edgeが無く
-      // 切り出せない。
+      // 差し替え後に通るEdgeは相手側の範囲そのもの。両端の共有Edgeを目印に切り出す形には
+      // できない——共有**地点**で割った区間は、両端に共有Edgeを持たない。
       const edgeIds = candidate.edgeIds.slice(pair.target.start, pair.target.end);
       if (edgeIds.length === 0) continue;
       if (
@@ -357,7 +312,7 @@ export function stretchAlternativeGroups(
 }
 
 /** 乗り換えを適用した後の経路の形。次に選べる区間の計算と、地図の描画が同じものを見る。 */
-export interface SplicedRouteShape extends RouteGeometryShape {
+interface SplicedRouteShape extends RouteGeometryShape {
   edgeIds: string[];
 }
 
@@ -422,26 +377,4 @@ export function buildSplicedShape(
     current = { edgeIds, coordinates, edgePointOffsets, nodeIds };
   }
   return current;
-}
-
-/**
- * 選んだ代替を差し替えた経路のEdge id列を組み立てる。
- *
- * 後ろの区間から順に差し替える——先に前を差し替えると、後ろの区間の位置がずれる。
- * 渡す代替は互いに重ならないこと（グループから1つずつ選べば満たされる）。
- */
-export function spliceEdgeIdsFromAlternatives(
-  baseEdgeIds: readonly string[],
-  chosen: readonly StretchAlternative[],
-): string[] {
-  const ordered = [...chosen].sort((a, b) => b.stretch.start - a.stretch.start);
-  let path = [...baseEdgeIds];
-  for (const alternative of ordered) {
-    path = [
-      ...path.slice(0, alternative.stretch.start),
-      ...alternative.edgeIds,
-      ...path.slice(alternative.stretch.end),
-    ];
-  }
-  return path;
 }

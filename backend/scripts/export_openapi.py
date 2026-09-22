@@ -43,6 +43,65 @@ from app.infrastructure.vector_tile import (  # noqa: E402
 from app.main import app  # noqa: E402
 from app.domain.wind import ASSUMED_SPEED_KMH, MAX_ASSUMED_SPEED_KMH, MIN_ASSUMED_SPEED_KMH  # noqa: E402
 from app.domain.hard_filters import DEFAULT_HARD_FILTERS, HARD_FILTER_NAMES  # noqa: E402
+from app.domain.geo import COMPASS_LABELS  # noqa: E402
+from app.domain.map_display import (  # noqa: E402
+    DEFAULT_DIFFICULTY_BOUNDARIES,
+    MAP_LAYER_CATEGORIES,
+    MAP_LAYER_IDS,
+    MAP_LAYER_KINDS,
+    WEATHER_LAYER_GROUPS,
+    ROUTE_ARROW_HALO_SCALE,
+    ROUTE_ARROW_SIZE_BY_ZOOM,
+    ROUTE_ARROW_SPACING_PX,
+    ROUTE_CASING_WIDTHS_PX,
+    ROUTE_LINE_OPACITIES,
+    ROUTE_LINE_WIDTHS_PX,
+    ROUTE_SPLICE_DASH,
+    AREA_OPACITY,
+    HILLSHADE_ILLUMINATION_DEG,
+    HILLSHADE_METHOD,
+    LIGHTNING_ICON_SCALE,
+    TERRAIN_EXAGGERATION,
+    WEATHER_MARK_HALO_WIDTH_PX,
+    WIND_FULL_SCALE_MS,
+    WIND_ICON_SCALE_RANGE,
+    ACCIDENT_POINT_OPACITY,
+    POINT_FATAL_RADIUS_PX,
+    POINT_NON_FATAL_RADIUS_PX,
+    POINT_OPACITY,
+    POINT_RADIUS_PX,
+    POINT_STROKE_WIDTH_PX,
+    ROAD_INSPECTED_WIDTH_PX,
+    ROAD_KNOWN_OPACITY,
+    ROAD_LINE_WIDTH_PX,
+    ROAD_TRACK_OFFSET_STEP_PX,
+    ROAD_UNKNOWN_OPACITY,
+    MAP_LAYER_DATA_NATURES,
+    MAP_LAYER_DATA_SOURCES,
+    MAP_OVERLAY_GROUPS,
+)
+from app.domain.weather_display import (  # noqa: E402
+    LINEAR_RAINBAND_COLOR,
+    PRECIPITATION_COLOR_STOPS,
+    RISK_LEVEL_COLORS,
+    THUNDER_ACTIVITY_LEVELS,
+    TORNADO_POTENTIAL_LEVELS,
+    WIND_SPEED_COLOR_STOPS,
+)
+from app.domain.display_palette import (  # noqa: E402
+    COMPARISON_SLOT_COLORS,
+    EVALUATION_RAMP_ANCHORS,
+    SEMANTIC_COLORS,
+    resolved_display_axes,
+)
+from app.domain.gsi_tiles import (  # noqa: E402
+    RELIEF_ATTRIBUTION,
+    RELIEF_MAX_ZOOM,
+    RELIEF_TILE_URL,
+    TERRAIN_MAX_ZOOM,
+    TERRAIN_TILE_URL,
+)
+from app.domain.terrain_rgb import TERRAIN_RGB_BASE_M, TERRAIN_RGB_UNIT_M  # noqa: E402
 from app.domain.landcover import (  # noqa: E402
     LANDCOVER_CLASSES,
     LANDCOVER_TILE_MAX_ZOOM,
@@ -61,13 +120,16 @@ GENERATED_DIR = Path(__file__).resolve().parents[2] / "frontend" / "src" / "type
 OUTPUT_PATH = GENERATED_DIR / "openapi.json"
 SURFACE_TAGS_PATH = GENERATED_DIR / "surface-tags.json"
 REGION_TILE_CONFIG_PATH = GENERATED_DIR / "region-tile-config.json"
-PRIMARY_ATTRIBUTES_PATH = GENERATED_DIR / "primary-attributes.json"
+PRIMARY_ATTRIBUTES_PATH = GENERATED_DIR / "primaryAttributes.ts"
 WIND_GRID_CONFIG_PATH = GENERATED_DIR / "wind-grid-config.json"
 ROUTE_GENERATE_CONFIG_PATH = GENERATED_DIR / "route-generate-config.json"
 JMA_TILE_CONFIG_PATH = GENERATED_DIR / "jma-tile-config.json"
 POI_KINDS_PATH = GENERATED_DIR / "poi-kinds.json"
 MATERIAL_CATALOG_PATH = GENERATED_DIR / "material-catalog.json"
 LANDCOVER_CLASSES_PATH = GENERATED_DIR / "landcover-classes.json"
+PALETTE_PATH = GENERATED_DIR / "palette.json"
+WEATHER_SCALES_PATH = GENERATED_DIR / "weather-scales.json"
+MAP_DISPLAY_PATH = GENERATED_DIR / "mapDisplay.ts"
 
 def _strip_prose(node: object, *, keep: bool = False) -> object:
     """docstring由来の`description`・`summary`を落とす。
@@ -101,6 +163,19 @@ def _write_json(path: Path, data: dict | list) -> None:
     # newline="\n"固定: Windowsで実行してもCRLFにならないようにする（CI（Linux）の
     # ドリフト検知と生成環境によらずバイト単位で一致させるため）。
     path.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8", newline="\n")
+    print(f"wrote {path}")
+
+
+def _write_ts(path: Path, name: str, data: dict | list) -> None:
+    """生成物をTypeScriptの`as const`で書く。
+
+    **JSONで出すと型が`string`へ広がり、存在しない値を渡しても型検査が通る**
+    （実際に広げた実績あり）。値の集合そのものが契約になるものは、この形で出す。
+    """
+    body = json.dumps(data, ensure_ascii=False, indent=2)
+    header = "// 生成物。`backend/scripts/export_openapi.py`が書き出す。手で編集しない。"
+    text = header + "\n" + f"export const {name} = {body} as const;" + "\n"
+    path.write_text(text, encoding="utf-8", newline="\n")
     print(f"wrote {path}")
 
 
@@ -140,6 +215,24 @@ def main() -> None:
             # backendだけ広げてもfrontendが要求せずレイヤーが黙って消える。
             "road_tile_min_zoom": ROAD_TILE_MIN_ZOOM,
             "road_tile_max_zoom": ROAD_TILE_MAX_ZOOM,
+            # 国土地理院タイル（色別標高図・標高）。配信元が実データを持つ範囲・画面が
+            # 要求するURL・出典表記・標高の読み戻し係数は、すべてbackendが正本を持つ
+            # （domain/gsi_tiles.py・domain/terrain_rgb.py）。**画面はこれを写さない**。
+            "gsi": {
+                "relief": {
+                    "tile_url": RELIEF_TILE_URL,
+                    "max_zoom": RELIEF_MAX_ZOOM,
+                    "attribution": RELIEF_ATTRIBUTION,
+                },
+                "terrain": {
+                    "tile_url": TERRAIN_TILE_URL,
+                    "max_zoom": TERRAIN_MAX_ZOOM,
+                    # 標高(m) = base + (R*65536 + G*256 + B) * unit。画面は係数を持たず、
+                    # この2つから組み立てる。
+                    "rgb_unit_m": TERRAIN_RGB_UNIT_M,
+                    "rgb_base_m": TERRAIN_RGB_BASE_M,
+                },
+            },
             # 土地被覆ラスタタイル。ズーム範囲は元データの分解能と読み取り量から
             # backendが決める（domain/landcover.py）。
             "landcover": {
@@ -147,6 +240,91 @@ def main() -> None:
                 "min_zoom": LANDCOVER_TILE_MIN_ZOOM,
                 "max_zoom": LANDCOVER_TILE_MAX_ZOOM,
             },
+        },
+    )
+    # 役割ごとの色（domain/display_palette.py）。**画面は色の値を持たず、この名前で引く**。
+    # 色を変えるときに触るのはbackendの1ファイルだけになる。
+    _write_json(
+        PALETTE_PATH,
+        {
+            "semantic": SEMANTIC_COLORS,
+            "comparison_slots": list(COMPARISON_SLOT_COLORS),
+            "evaluation_ramp_anchors": [
+                {"position": position, "color": color} for position, color in EVALUATION_RAMP_ANCHORS
+            ],
+        },
+    )
+    # 地図に出すものの最上位の束ね方（domain/map_display.py）。並びがチップの並び順。
+    # **JSONではなくTypeScriptで出す。** JSONのimportは型が`string`へ広がり、
+    # 存在しない値を渡しても型検査が通ってしまう（実際に広げた実績あり）。`as const`で
+    # 出すと、画面側の型は源泉の値そのものに狭まる。
+    _write_ts(
+        MAP_DISPLAY_PATH,
+        "mapDisplay",
+        {
+            "overlayGroups": [g._asdict() for g in MAP_OVERLAY_GROUPS],
+            "layerCategories": [c._asdict() for c in MAP_LAYER_CATEGORIES],
+            "layerDataSources": list(MAP_LAYER_DATA_SOURCES),
+            "layerDataNatures": list(MAP_LAYER_DATA_NATURES),
+            "layerIds": list(MAP_LAYER_IDS),
+            "layerKinds": list(MAP_LAYER_KINDS),
+            # 動的気象のチップ（1つが複数の名前付きソースを束ねる）。画面が写しを持たない。
+            "weatherLayerGroups": list(WEATHER_LAYER_GROUPS),
+            # 方位の呼び名。**画面が写しを持たない**——丸め規則が違うと境界で
+            # ラベルが食い違うため、並びは1箇所（domain/geo.py）だけが持つ。
+            "compassLabels": list(COMPASS_LABELS),
+            "road": {
+                "lineWidthPx": ROAD_LINE_WIDTH_PX,
+                "trackOffsetStepPx": ROAD_TRACK_OFFSET_STEP_PX,
+                "knownOpacity": ROAD_KNOWN_OPACITY,
+                "unknownOpacity": ROAD_UNKNOWN_OPACITY,
+                "inspectedWidthPx": ROAD_INSPECTED_WIDTH_PX,
+            },
+            "point": {
+                "radiusPx": POINT_RADIUS_PX,
+                "fatalRadiusPx": POINT_FATAL_RADIUS_PX,
+                "nonFatalRadiusPx": POINT_NON_FATAL_RADIUS_PX,
+                "strokeWidthPx": POINT_STROKE_WIDTH_PX,
+                "opacity": POINT_OPACITY,
+                "accidentOpacity": ACCIDENT_POINT_OPACITY,
+            },
+            "area": {
+                "opacity": AREA_OPACITY,
+                "hillshadeIlluminationDeg": HILLSHADE_ILLUMINATION_DEG,
+                "hillshadeMethod": HILLSHADE_METHOD,
+                "terrainExaggeration": TERRAIN_EXAGGERATION,
+            },
+            "weather": {
+                "markHaloWidthPx": WEATHER_MARK_HALO_WIDTH_PX,
+                "windIconScaleRange": list(WIND_ICON_SCALE_RANGE),
+                "windFullScaleMs": WIND_FULL_SCALE_MS,
+                "lightningIconScale": LIGHTNING_ICON_SCALE,
+            },
+            "valueScale": {
+                "difficultyBoundaries": list(DEFAULT_DIFFICULTY_BOUNDARIES),
+            },
+            "route": {
+                "lineWidthsPx": ROUTE_LINE_WIDTHS_PX,
+                "casingWidthsPx": ROUTE_CASING_WIDTHS_PX,
+                "opacities": ROUTE_LINE_OPACITIES,
+                "spliceDash": list(ROUTE_SPLICE_DASH),
+                "arrowSpacingPx": ROUTE_ARROW_SPACING_PX,
+                "arrowHaloScale": ROUTE_ARROW_HALO_SCALE,
+                "arrowSizeByZoom": [list(pair) for pair in ROUTE_ARROW_SIZE_BY_ZOOM],
+            },
+        },
+    )
+    # 気象の値を色へ写す段（domain/weather_display.py）。危険度・雷・竜巻は配信元が
+    # 決めた配色に合わせるもので、画面の好みではない。
+    _write_json(
+        WEATHER_SCALES_PATH,
+        {
+            "precipitation": [s._asdict() for s in PRECIPITATION_COLOR_STOPS],
+            "wind_speed": [s._asdict() for s in WIND_SPEED_COLOR_STOPS],
+            "risk_levels": [level._asdict() for level in RISK_LEVEL_COLORS],
+            "linear_rainband_color": LINEAR_RAINBAND_COLOR,
+            "thunder_activity": [level._asdict() for level in THUNDER_ACTIVITY_LEVELS],
+            "tornado_potential": [level._asdict() for level in TORNADO_POTENTIAL_LEVELS],
         },
     )
     # 土地被覆のクラス（画素値・割合列・表示名・色）。地図タイルの塗りと同じレジストリから
@@ -198,14 +376,16 @@ def main() -> None:
     # 地図が描かれ、伝播の失敗が見えなくなる。
     reset_registry_for_testing()
     register_defaults()
-    _write_json(
+    _write_ts(
         PRIMARY_ATTRIBUTES_PATH,
+        "primaryAttributes",
         # 一次属性カタログ（地図レイヤー階層の次数反転）。レジストリ
         # （`domain/registry.py`）だけから決まり、DBを読まない。各軸の
         # `primary_attribute_ids`は実行時の`GET /api/axis-catalog`が配るため、フロントは
         # この一覧のlabel（正式名）と突き合わせて1次↔2次の双方向導出ができる。
+        # 宣言をそのまま配る。色だけは宣言に無いので`resolved_display_axes`が決める。
         [
-            {"attr_id": attr.attr_id, "label": attr.label}
+            {**attr.model_dump(exclude={"display_axes"}), "display_axes": resolved_display_axes(attr)}
             for attr in all_primary_attributes()
         ],
     )
