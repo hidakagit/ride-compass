@@ -68,6 +68,13 @@ TASK_FILE_RE = re.compile(r"^T\d+[a-z0-9-]*\.md$")
 
 CODE_SUFFIXES = (".py", ".ts", ".tsx")
 
+#: この行数以上のファイルは、個別閾値（size_thresholds.json）を持つまで毎回発火する。
+#: 越えた周期だけ鳴らすと、分類で閾値を決めなかったファイルが以後+15%の成長でしか
+#: 鳴らなくなり、周期ごとの複利で黙って膨らむ。
+LARGE_FILE_LINES = 1000
+#: 個別閾値は自動では下がらない。到達率がこれを下回ったら、下げるか外すかを判断する。
+THRESHOLD_SLACK_RATIO = 0.5
+
 
 def git(*args: str, check: bool = True) -> str:
     result = subprocess.run(["git", *args], cwd=str(REPO_ROOT), capture_output=True,
@@ -250,7 +257,8 @@ def cmd_size(args: argparse.Namespace) -> int:
     top: set[str] = set()
     for members in groups.values():
         top.update(sorted(members, key=lambda f: -counts[f])[:args.top])
-    watched = sorted(top | set(thresholds), key=lambda f: -counts.get(f, 0))
+    large = {f for f, n in counts.items() if n >= LARGE_FILE_LINES}
+    watched = sorted(top | large | set(thresholds), key=lambda f: -counts.get(f, 0))
 
     tags = review_tags()
     base_tag, base_sha, base_date = tags[0] if tags else (None, None, None)
@@ -258,30 +266,38 @@ def cmd_size(args: argparse.Namespace) -> int:
 
     print(f"## 規模（対象 {git('rev-parse', '--short', 'HEAD').strip()}、"
           f"前回 {base_tag or '記録なし'} / {base_date or '-'}）")
-    print("| ファイル | 今回 | 前回 | 増分 | 閾値 | 発火 |")
-    print("|---|---:|---:|---:|---:|---|")
+    print("| ファイル | 今回 | 前回 | 増分 | 閾値 | 到達率 | 発火 |")
+    print("|---|---:|---:|---:|---:|---:|---|")
     fired = []
+    slack = []
     for f in watched:
         cur = counts.get(f)
+        th = thresholds.get(f)
         if cur is None:
-            print(f"| {f} | 削除済み | {prev.get(f, '-')} | - | - | - |")
+            print(f"| {f} | 削除済み | {prev.get(f, '-')} | - | {th or '-'} | - | - |")
+            if th:
+                slack.append(f"{f}（削除済み）")
             continue
         p = prev.get(f)
         reasons = []
         if p is not None and p > 0 and (cur - p) / p >= 0.15:
             reasons.append(f"+{(cur - p) / p * 100:.0f}%")
-        if p is not None and p < 1000 <= cur:
-            reasons.append("1,000行超過")
-        th = thresholds.get(f)
+        if th is None and cur >= LARGE_FILE_LINES:
+            reasons.append(f"{LARGE_FILE_LINES:,}行以上・閾値未設定")
         if th and cur >= th:
             reasons.append(f"閾値{th:,}超過")
         if reasons:
             fired.append(f)
+        if th and cur / th < THRESHOLD_SLACK_RATIO:
+            slack.append(f"{f}（{cur / th:.0%}）")
         delta = f"{cur - p:+d}" if p is not None else "新規"
+        rate = f"{cur / th:.0%}" if th else "-"
         print(f"| {f} | {cur:,} | {p if p is not None else '-'} | {delta} | {th or '-'} | "
-              f"{'・'.join(reasons)} |")
+              f"{rate} | {'・'.join(reasons)} |")
     print()
     print(f"発火 {len(fired)}件: " + (", ".join(fired) if fired else "なし"))
+    print(f"閾値の見直し（到達率{THRESHOLD_SLACK_RATIO:.0%}未満・削除済み） {len(slack)}件: "
+          + (", ".join(slack) if slack else "なし"))
     if not base_sha:
         print("（周期レビューのタグが無いため前回比は出していない）")
     return 0

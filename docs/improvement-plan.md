@@ -229,7 +229,6 @@ CLAUDE.md参照。節見出しはタスクのテーマ分類で、日付は起�
 - [ ] [T1027](records/tasks/T1027.md). 失敗・空・待ちの伝え方を1本の規約へ揃える 規模M
 - [ ] [T1028](records/tasks/T1028.md). 台帳の未完了タスクのうち、前提そのものが消えているものを棚卸しする 規模S
 - [ ] [T1029](records/tasks/T1029.md). sceneの入力語彙を、上位のReactコンポーネントのpropsから切り離す 規模S
-- [ ] [T1030](records/tasks/T1030.md). 規模ウォッチの閾値が、縮んだファイルに対して緩みっぱなしになっている 規模S
 - [ ] [T1031](records/tasks/T1031.md). 「単一の情報源」を自称するSQLを、batchの1本だけが手で写している 規模S
 - [ ] [T1032](records/tasks/T1032.md). frontend-design-system.mdが、モジュール文書の禁止事項をまとめて破っている 規模S
 - [ ] [T1033](records/tasks/T1033.md). way_materialsだけが「生データを差し替えたら下流を作り直す」契約から外れている 規模S
