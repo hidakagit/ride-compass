@@ -1,67 +1,31 @@
-"""flood_client.py（JMA指定河川洪水予報APIのクライアント）のテスト。
+"""`infrastructure/flood_client.py`——指定河川洪水予報の電文一覧を引く。
 
-他の外部APIクライアントのテストと同じ観点（正常系のレスポンス
-取得・キャッシュヒット・失敗時の挙動）を踏襲するが、このクライアントもjma_warning_client.pyと
-同じ理由（モジュールdocstring参照）でtenacity再試行を持たない。「リトライ」観点は
-「失敗時に再試行せず1回でNoneを返す」ことの確認に置き換える。
+ここで見ないもの:
+- TTLキャッシュの引き当てと、失敗をNoneへ倒す骨格 → `test_simple_api_client.py`
+- 電文の解釈（発表か解除か・対象河川） → `test_flood_forecast_domain.py`
 """
 
 import pytest
 
-from app.infrastructure import flood_client as flood_client_module
-from app.infrastructure.flood_client import fetch_flood_documents
-from tests.fake_api_http import (
-    FailingHttpClient,
-    FakeHttpClient,
-    HttpStatusErrorHttpClient,
-)
+from app.infrastructure import flood_client
+from tests.fake_api_http import FakeHttpClient
 
 
 @pytest.fixture(autouse=True)
-def clear_flood_cache():
-    flood_client_module._flood_cache.clear()
+def _clear_cache():
+    flood_client._flood_cache.clear()
     yield
-    flood_client_module._flood_cache.clear()
+    flood_client._flood_cache.clear()
 
 
-async def test_fetch_flood_documents_returns_documents_on_success():
-    http_client = FakeHttpClient([{"name": "多摩川", "code": "10"}])
+async def test_documents_pass_through_without_reshaping():
+    client = FakeHttpClient([{"river": "a"}, {"river": "b"}])
 
-    result = await fetch_flood_documents(http_client)
-
-    assert result == [{"name": "多摩川", "code": "10"}]
+    assert await flood_client.fetch_flood_documents(client) == [{"river": "a"}, {"river": "b"}]
 
 
-async def test_fetch_flood_documents_reuses_cache_within_ttl():
-    http_client = FakeHttpClient([{"name": "多摩川", "code": "10"}])
+async def test_non_list_response_yields_none():
+    """配列でない応答をそのまま通すと、電文を1件ずつ読む呼び出し元が落ちる。"""
+    client = FakeHttpClient({"message": "maintenance"})
 
-    first = await fetch_flood_documents(http_client)
-    second = await fetch_flood_documents(http_client)
-
-    assert first == second
-    assert http_client.call_count == 1
-
-
-async def test_fetch_flood_documents_returns_none_on_request_error_without_retry():
-    http_client = FailingHttpClient()
-
-    result = await fetch_flood_documents(http_client)
-
-    assert result is None
-
-
-async def test_fetch_flood_documents_returns_none_on_http_status_error_without_retry():
-    http_client = HttpStatusErrorHttpClient()
-
-    result = await fetch_flood_documents(http_client)
-
-    assert result is None
-    assert http_client.call_count == 1  # 429前提の再試行は設けない設計（再試行しない）
-
-
-async def test_fetch_flood_documents_returns_none_when_response_is_not_a_list():
-    http_client = FakeHttpClient({"unexpected": "shape"})
-
-    result = await fetch_flood_documents(http_client)
-
-    assert result is None
+    assert await flood_client.fetch_flood_documents(client) is None
