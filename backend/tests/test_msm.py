@@ -6,7 +6,7 @@
 import numpy as np
 import pytest
 
-from app.domain.msm import MsmGrid, interpolate_points, parse_bbox, wind_speed_and_direction
+from app.domain.msm import MsmGrid, parse_bbox, wind_speed_and_direction
 
 # 南30度・西120度から、0.5度刻みで5×5の格子。
 GRID = MsmGrid(lat_min=30.0, lon_min=120.0, d_lat=0.5, d_lon=0.5, n_lat=5, n_lon=5)
@@ -52,45 +52,45 @@ class TestGridFromBboxAndShape:
             MsmGrid.from_bbox_and_shape((30.0, 120.0, 32.0, 124.0), n_lat=5, n_lon=1)
 
 
-class TestContains:
-    def test_a_point_inside_is_contained(self):
-        assert GRID.contains(np.array([31.0]), np.array([121.0])) is True
+class TestWindow:
+    def test_it_takes_one_extra_row_and_column_beyond_the_point(self):
+        """ぴったり切ると、端の地点で索引が外れる。"""
+        window = GRID.window(np.array([30.2]), np.array([120.2]))
 
-    def test_the_far_corner_is_still_inside(self):
-        """ここを外すと、格子の端の地点だけ値を引けない。"""
-        assert GRID.contains(np.array([32.0]), np.array([122.0])) is True
+        assert (window.i0, window.i1) == (0, 2)
+        assert (window.j0, window.j1) == (0, 2)
 
-    def test_one_point_outside_makes_the_whole_set_outside(self):
+    def test_it_covers_every_point_in_the_set(self):
+        window = GRID.window(np.array([30.2, 31.6]), np.array([120.2, 121.8]))
+
+        assert window.i0 == 0 and window.i1 >= 4
+        assert window.j0 == 0 and window.j1 >= 4
+
+    def test_the_far_corner_does_not_run_past_the_grid(self):
+        """端の地点も引けなければならない。余分の1つを無条件に足すと格子をはみ出す。"""
+        window = GRID.window(np.array([32.0]), np.array([122.0]))
+
+        assert window.i1 <= GRID.n_lat
+        assert window.j1 <= GRID.n_lon
+
+    def test_the_slices_cut_exactly_the_window(self):
+        window = GRID.window(np.array([30.2]), np.array([120.2]))
+
+        assert (window.lat_slice, window.lon_slice) == (slice(0, 2), slice(0, 2))
+
+    @pytest.mark.parametrize(
+        ("latitudes", "longitudes"),
+        [
+            (np.array([31.0, 99.0]), np.array([121.0, 121.0])),
+            (np.array([31.0]), np.array([999.0])),
+        ],
+    )
+    def test_a_point_outside_the_grid_is_rejected(self, latitudes, longitudes):
         """1点でも外なら補間できない。部分的に返すと、どの地点が欠けたか呼び出し側が
         分からない。
         """
-        assert GRID.contains(np.array([31.0, 99.0]), np.array([121.0, 121.0])) is False
-        assert GRID.contains(np.array([31.0]), np.array([999.0])) is False
-
-
-class TestSliceBounds:
-    def test_it_takes_one_extra_row_and_column_beyond_the_point(self):
-        """ぴったり切ると、端の地点で索引が外れる。"""
-        i0, i1, j0, j1 = GRID.slice_bounds(np.array([30.2]), np.array([120.2]))
-
-        assert (i0, i1) == (0, 2)
-        assert (j0, j1) == (0, 2)
-
-    def test_it_covers_every_point_in_the_set(self):
-        i0, i1, j0, j1 = GRID.slice_bounds(np.array([30.2, 31.6]), np.array([120.2, 121.8]))
-
-        assert i0 == 0 and i1 >= 4
-        assert j0 == 0 and j1 >= 4
-
-    def test_it_does_not_run_past_the_grid(self):
-        i0, i1, j0, j1 = GRID.slice_bounds(np.array([32.0]), np.array([122.0]))
-
-        assert i1 <= GRID.n_lat
-        assert j1 <= GRID.n_lon
-
-    def test_a_point_outside_the_grid_is_rejected(self):
         with pytest.raises(ValueError):
-            GRID.slice_bounds(np.array([99.0]), np.array([121.0]))
+            GRID.window(latitudes, longitudes)
 
 
 class TestInterpolatePoints:
@@ -105,33 +105,32 @@ class TestInterpolatePoints:
         return block
 
     def test_a_point_on_a_grid_node_takes_that_node_s_value(self):
-        result = interpolate_points(self._block(), GRID, 0, 0, np.array([30.0]), np.array([120.0]))
+        result = GRID.window(np.array([30.0]), np.array([120.0])).interpolate(self._block())
 
         assert result.tolist() == [[0.0, 0.0]]
 
     def test_a_point_halfway_averages_the_four_corners(self):
-        result = interpolate_points(self._block(), GRID, 0, 0, np.array([30.25]), np.array([120.25]))
+        result = GRID.window(np.array([30.25]), np.array([120.25])).interpolate(self._block())
 
         assert result.tolist() == [[0.5, 0.5]]
 
     def test_the_weights_follow_each_axis_separately(self):
         """緯度と経度の重みを取り違えると、南北と東西が入れ替わった値になる。"""
-        result = interpolate_points(self._block(), GRID, 0, 0, np.array([30.25]), np.array([120.0]))
+        result = GRID.window(np.array([30.25]), np.array([120.0])).interpolate(self._block())
 
         assert result.tolist() == [[0.5, 0.0]]
 
     def test_the_block_offset_is_taken_into_account(self):
-        """原点からの索引で引くと、範囲外になる。"""
-        result = interpolate_points(self._block(), GRID, 2, 2, np.array([31.0]), np.array([121.0]))
+        """全体格子の原点からの索引で引くと、切り出したブロックの範囲外になる。"""
+        window = GRID.window(np.array([31.0]), np.array([121.0]))
 
-        assert result.tolist() == [[0.0, 0.0]]
+        assert (window.i0, window.j0) == (2, 2)
+        assert window.interpolate(self._block()).tolist() == [[0.0, 0.0]]
 
     def test_it_returns_one_series_per_point(self):
-        result = interpolate_points(
-            self._block(), GRID, 0, 0, np.array([30.0, 30.25]), np.array([120.0, 120.25])
-        )
+        window = GRID.window(np.array([30.0, 30.25]), np.array([120.0, 120.25]))
 
-        assert result.shape == (2, 2)
+        assert window.interpolate(self._block()).shape == (2, 2)
 
 
 class TestWindSpeedAndDirection:

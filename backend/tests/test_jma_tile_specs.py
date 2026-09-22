@@ -9,15 +9,12 @@ from app.domain.jma_tile_specs import (
     JmaTileSpec,
     effective_max_zoom,
     has_native_tile,
-    max_zoom_for,
     source_zoom_for_interpolation,
 )
 
 
 def _spec(zoom_use: str, max_native_zoom: int, min_zoom: int = 4) -> JmaTileSpec:
-    return JmaTileSpec(
-        element_id="synthetic", zoom_use=zoom_use, max_native_zoom=max_native_zoom, min_zoom=min_zoom
-    )
+    return JmaTileSpec(zoom_use=zoom_use, max_native_zoom=max_native_zoom, min_zoom=min_zoom)
 
 
 class TestEffectiveMaxZoom:
@@ -36,18 +33,6 @@ class TestEffectiveMaxZoom:
 
     def test_unconstrained_element_uses_the_maximum_as_is(self):
         assert effective_max_zoom(_spec("all", 11)) == 11
-
-
-class TestMaxZoomFor:
-    def test_a_registered_element_goes_through_the_parity_step_down(self):
-        """生の`max_native_zoom`をそのまま返すと、偶奇の合わないズームを上限として配る。"""
-        element_id, spec = next(iter(JMA_TILE_SPECS.items()))
-
-        assert max_zoom_for(element_id) == effective_max_zoom(spec)
-
-    def test_unregistered_element_is_none(self):
-        """未登録を既定値へ倒さない——知らない要素のタイルを要求し続けることになる。"""
-        assert max_zoom_for("no_such_element") is None
 
 
 class TestHasNativeTile:

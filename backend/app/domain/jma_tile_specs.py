@@ -21,10 +21,10 @@ ZoomUse = Literal["even", "odd", "all"]
 
 @dataclass(frozen=True)
 class JmaTileSpec:
-    """1要素分の配信元ズーム仕様。"""
+    """1要素分の配信元ズーム仕様。要素id（タイルパス中の
+    `.../surf/<element_id>/{z}/{x}/{y}.png`）は`JMA_TILE_SPECS`のキーが唯一の持ち主で、
+    ここには持たない——両方に書くと、ずれても探索は成功し、取りに行く先だけが変わる。"""
 
-    #: タイルパス中の要素id（`.../surf/<element_id>/{z}/{x}/{y}.png`）。
-    element_id: str
     zoom_use: ZoomUse
     max_native_zoom: int
     min_zoom: int = 4
@@ -52,28 +52,22 @@ def effective_max_zoom(spec: JmaTileSpec) -> int:
 #   降水/雷/竜巻 … `bosai/nowc/table/nowc.properties__<hash>.xml`
 JMA_TILE_SPECS: dict[str, JmaTileSpec] = {
     # キキクル（危険度分布）。土砂・大雨・浸水はラスタ、洪水はベクタ（.pbf）。
-    "land": JmaTileSpec("land", "even", 11),
-    "rain_mesh": JmaTileSpec("rain_mesh", "even", 11),
-    "inund": JmaTileSpec("inund", "even", 11),
+    "land": JmaTileSpec("even", 11),
+    "rain_mesh": JmaTileSpec("even", 11),
+    "inund": JmaTileSpec("even", 11),
     # floodは`zoomUse="even"`を持つが`maxNativeZoom`の記載が無い。同じrisk系の他要素と
     # 同じ11として扱う——z10に実データがありz11・z12が空という実測とも一致する。
-    "flood": JmaTileSpec("flood", "even", 11),
+    "flood": JmaTileSpec("even", 11),
     # 降水ナウキャスト。
-    "hrpns": JmaTileSpec("hrpns", "even", 10),
+    "hrpns": JmaTileSpec("even", 10),
     # 雷・竜巻ナウキャストはmaxNativeZoomが9で、他のJMAタイルより1段粗い。
-    "thns": JmaTileSpec("thns", "even", 9),
-    "trns": JmaTileSpec("trns", "even", 9),
+    "thns": JmaTileSpec("even", 9),
+    "trns": JmaTileSpec("even", 9),
     # 線状降水帯予測マップ。公式ページ（軽量版）が設定ファイルを外部化しておらず、
     # `zoomUse`・`maxNativeZoom`を一次情報で確認できていない。同じrasrf/nowc系の
     # `hrpns`と同じ値を暫定的に置く。
-    "sjfcstmap": JmaTileSpec("sjfcstmap", "even", 10, verified=False),
+    "sjfcstmap": JmaTileSpec("even", 10, verified=False),
 }
-
-
-def max_zoom_for(element_id: str) -> int | None:
-    """要素idに対する実データ上限ズーム。未登録の要素はNone。"""
-    spec = JMA_TILE_SPECS.get(element_id)
-    return effective_max_zoom(spec) if spec is not None else None
 
 
 def has_native_tile(spec: JmaTileSpec, zoom: int) -> bool:

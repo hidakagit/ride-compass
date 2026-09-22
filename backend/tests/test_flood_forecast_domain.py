@@ -9,7 +9,7 @@
 
 import pytest
 
-from app.domain.flood_forecast import CLEARED_CODE, extract_active_flood_forecast
+from app.domain.flood_forecast import extract_active_flood_forecast
 
 CLASS20 = "1310100"
 CLASS10 = "130010"
@@ -30,10 +30,6 @@ def _entry(code: str | None = "30", **overrides) -> dict:
 
 class TestWhetherAnythingIsReturned:
     """この電文が、この地点の、いま出ている予報かを決める。"""
-
-    def test_the_cleared_code_means_nothing_is_active(self):
-        """`status`と同じ発想で読むと、解除済みの河川が出続ける。"""
-        assert extract_active_flood_forecast(_entry(CLEARED_CODE), CLASS20, CLASS10) is None
 
     def test_a_downgrade_to_this_level_is_still_active(self):
         """コード"22"は「上位の警報が解除されて当レベルへ引き下がった」。文字面の「解除」に

@@ -20,8 +20,7 @@ from app.domain.geo import LatLonPoint, haversine_distance_km
 from app.domain.jma_amedas import (
     AmedasObservation,
     apparent_temperature_from_amedas,
-    wind_direction_degrees_from_jma_code,
-    wind_direction_label_from_jma_code,
+    wind_direction_from_jma_code,
 )
 from app.domain.route import Coordinates
 from app.domain.twilight import sunrise_sunset_jst
@@ -174,6 +173,7 @@ class JmaAmedasService:
             temperature_c = _first_value(raw.get("temp"))
             wind_speed_ms = _first_value(raw.get("wind"))
             humidity_percent = _first_value(raw.get("humidity"))
+            wind_direction_deg, wind_direction_label = wind_direction_from_jma_code(wind_direction_code) or (None, None)
             observations.append(
                 AmedasObservation(
                     station_id=station_id,
@@ -186,8 +186,8 @@ class JmaAmedasService:
                         temperature_c, humidity_percent, wind_speed_ms
                     ),
                     wind_speed_ms=wind_speed_ms,
-                    wind_direction_deg=wind_direction_degrees_from_jma_code(wind_direction_code),
-                    wind_direction_label=wind_direction_label_from_jma_code(wind_direction_code),
+                    wind_direction_deg=wind_direction_deg,
+                    wind_direction_label=wind_direction_label,
                     precipitation_10min_mm=_first_value(raw.get("precipitation10m")),
                     sunshine_10min_minutes=_first_value(raw.get("sun10m")),
                     # クエリ地点依存のためバッチ時点では決められない。

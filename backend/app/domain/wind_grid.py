@@ -26,23 +26,34 @@ WIND_GRID_BBOX: tuple[float, float, float, float] = (138.35, 34.85, 140.95, 37.2
 WIND_GRID_SPACING_DEG = 0.1
 
 
+def _lattice_coordinate(origin_deg: float, index: int, spacing_deg: float) -> float:
+    """ラティス上の1点の絶対座標。浮動小数の`+=`による誤差累積を避けるため整数の索引から
+    都度計算する。**この関数だけが原点からの座標と丸め桁を決める**——生成する側と最寄りを
+    求める側で別々に書くと、鍵にした座標が実際に配る格子点と一致しなくなり、派生値
+    キャッシュの共有が例外を出さないまま効かなくなる。"""
+    return round(origin_deg + index * spacing_deg, 4)
+
+
+def _last_index(span_deg: float, spacing_deg: float) -> int:
+    """原点からspan_deg以内に収まる最後の索引（端点が必ず格子点になる保証はしない、
+    密なメッシュを要求する用途ではないため許容）。"""
+    return int(span_deg / spacing_deg)
+
+
 def generate_wind_grid_points(
     bbox: tuple[float, float, float, float] = WIND_GRID_BBOX,
     spacing_deg: float = WIND_GRID_SPACING_DEG,
 ) -> list[Coordinates]:
-    """bbox内を格子状に走査した座標列を返す。浮動小数の`+=`による誤差累積を避けるため、
-    整数のステップ数から都度座標を計算する（端点が必ず入る保証はしない、密なメッシュを
-    要求する用途ではないため許容）。"""
+    """bbox内を格子状に走査した座標列を返す。"""
     min_lon, min_lat, max_lon, max_lat = bbox
-    lat_steps = int((max_lat - min_lat) / spacing_deg) + 1
-    lon_steps = int((max_lon - min_lon) / spacing_deg) + 1
-    points = []
-    for i in range(lat_steps):
-        lat = round(min_lat + i * spacing_deg, 4)
-        for j in range(lon_steps):
-            lon = round(min_lon + j * spacing_deg, 4)
-            points.append(Coordinates(latitude=lat, longitude=lon))
-    return points
+    return [
+        Coordinates(
+            latitude=_lattice_coordinate(min_lat, i, spacing_deg),
+            longitude=_lattice_coordinate(min_lon, j, spacing_deg),
+        )
+        for i in range(_last_index(max_lat - min_lat, spacing_deg) + 1)
+        for j in range(_last_index(max_lon - min_lon, spacing_deg) + 1)
+    ]
 
 
 def nearest_grid_point(
@@ -62,13 +73,11 @@ def nearest_grid_point(
     clamped_lat = min(max(point.latitude, min_lat), max_lat)
     clamped_lon = min(max(point.longitude, min_lon), max_lon)
     # 最寄りが最後の格子点より先になることがある（bboxの幅が間隔の整数倍とは限らない）。
-    # `generate_wind_grid_points`が作る最後の索引で止める——止めないと、生成側に存在しない
-    # 座標を鍵にすることになり、格子の表示と同じ点を引けない。
-    i = min(round((clamped_lat - min_lat) / spacing_deg), int((max_lat - min_lat) / spacing_deg))
-    j = min(round((clamped_lon - min_lon) / spacing_deg), int((max_lon - min_lon) / spacing_deg))
+    i = min(round((clamped_lat - min_lat) / spacing_deg), _last_index(max_lat - min_lat, spacing_deg))
+    j = min(round((clamped_lon - min_lon) / spacing_deg), _last_index(max_lon - min_lon, spacing_deg))
     return Coordinates(
-        latitude=round(min_lat + i * spacing_deg, 4),
-        longitude=round(min_lon + j * spacing_deg, 4),
+        latitude=_lattice_coordinate(min_lat, i, spacing_deg),
+        longitude=_lattice_coordinate(min_lon, j, spacing_deg),
     )
 
 
@@ -124,8 +133,8 @@ def generate_wind_grid_detail_points(
     # （`i_start`は0以上、`i_end`は`max_lat`を超えない）。
     return [
         Coordinates(
-            latitude=round(origin_lat + i * spacing_deg, 4),
-            longitude=round(origin_lon + j * spacing_deg, 4),
+            latitude=_lattice_coordinate(origin_lat, i, spacing_deg),
+            longitude=_lattice_coordinate(origin_lon, j, spacing_deg),
         )
         for i in range(i_start, i_end + 1)
         for j in range(j_start, j_end + 1)

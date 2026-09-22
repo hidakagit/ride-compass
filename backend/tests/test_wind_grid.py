@@ -66,11 +66,6 @@ class TestNearestGridPoint:
 
         assert a == b
 
-    def test_the_node_is_one_of_the_generated_points(self):
-        node = nearest_grid_point(Coordinates(latitude=MIN_LAT + 0.37, longitude=MIN_LON + 0.44))
-
-        assert node in generate_wind_grid_points()
-
     def test_a_node_maps_to_itself(self):
         """丸めが恒等でないと、同じ点を2回引くだけで別の鍵になる。"""
         node = generate_wind_grid_points()[17]

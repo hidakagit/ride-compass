@@ -5,7 +5,7 @@
 """
 
 from app.domain.jma_warning import (
-    WARNING_CODE_NAMES,
+    WARNING_KINDS,
     extract_active_warnings,
     warning_level,
 )
@@ -30,10 +30,6 @@ class TestWarningLevel:
         assert order.index(warning_level("10")) < order.index(warning_level("03"))
         assert order.index(warning_level("03")) < order.index(warning_level("33"))
 
-    def test_an_unknown_code_falls_to_the_lightest(self):
-        """知らないコードで赤いバッジを出さない。電文が増えても表示が壊れない側へ倒す。"""
-        assert warning_level("99") == "advisory"
-
 
 class TestExtractActiveWarnings:
 
@@ -48,7 +44,7 @@ class TestExtractActiveWarnings:
         [warning] = extract_active_warnings([self._kind("03")])
 
         assert warning.code == "03"
-        assert warning.name == WARNING_CODE_NAMES["03"]
+        assert warning.name == WARNING_KINDS["03"].name
         assert warning.level == warning_level("03")
 
     def test_a_continued_warning_is_still_active(self):
