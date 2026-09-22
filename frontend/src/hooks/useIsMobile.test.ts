@@ -34,7 +34,7 @@ describe("useIsMobile", () => {
 describe("CSSとの取り決め", () => {
   it("globals.cssは幅のメディアクエリの中で`--is-mobile`を立てる", () => {
     const css = readFileSync(path.resolve(process.cwd(), "src/app/globals.css"), "utf-8");
-    const mediaBlock = css.match(/@media \(max-width:[^)]*\)\s*\{[\s\S]*?\n\}/);
+    const mediaBlock = css.match(/@media \(max-width:[\s\S]*?\)\s*\{[\s\S]*?\n\}/);
 
     expect(mediaBlock).not.toBeNull();
     expect(mediaBlock![0]).toContain("--is-mobile: 1");

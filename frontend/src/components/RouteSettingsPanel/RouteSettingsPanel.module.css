@@ -1,3 +1,6 @@
+/* `theme(--breakpoint-mobile)`を引くための参照（値の定義はglobals.cssに1つだけ）。 */
+@reference "../../app/globals.css";
+
 .sectionLabel {
   font-size: var(--font-size-sm);
   color: var(--color-muted);
@@ -169,7 +172,7 @@
   composes: floatingPopover from "../ui/floatingPopover.module.css";
 }
 
-@media (max-width: 640px) {
+@media (max-width: theme(--breakpoint-mobile)) {
   .legendInfoButton {
     width: 1.5rem;
   }

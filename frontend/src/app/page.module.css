@@ -1,3 +1,6 @@
+/* `theme(--breakpoint-mobile)`を引くための参照（値の定義はglobals.cssに1つだけ）。 */
+@reference "./globals.css";
+
 /* 画面全体の外枠。常設の天候ヘッダ（.weatherHeader）＋既存の.app-shell行（globals.css）を
    縦に並べる（モバイル実機フィードバック対応T36）。画面の高さ確保はここが担う。 */
 .viewport {
@@ -379,7 +382,7 @@
 /* スマホの下部シートは低いほどよい（docs/tasks/T778.md）。候補が増えても一覧の高さで
    シートを押し上げないよう、狭幅では上限を付けて中をスクロールさせる——横スクロールと違い
    縦スクロールはシート自体の操作と同じ向きで、溢れに気づける。 */
-@media (max-width: 640px) {
+@media (max-width: theme(--breakpoint-mobile)) {
   /* 下部シートの高さいっぱいまで2カラムを伸ばし、余った高さは候補一覧が使う
      （固定の上限を置くと、シートに余白があっても一覧はそれ以上伸びない）。
      はみ出す候補は一覧の中を縦スクロールさせる。 */
@@ -487,7 +490,7 @@
    その下に隠れてしまう（実機フィードバック「下部パネルメニューとスライダーバーが被って
    隠れてしまう」）。.locateButton/.locateErrorと同じ底上げパターンで、タブバーの高さぶん
    持ち上げる。 */
-@media (max-width: 640px) {
+@media (max-width: theme(--breakpoint-mobile)) {
   .bottomControlRow {
     bottom: max(
       calc(var(--space-3) + var(--mobile-tabbar-height)),
@@ -580,7 +583,7 @@
    （--mobile-sheet-heightはpage.tsxが.mapPaneへ与える。シートが閉じている間は0）。
    底上げ後の位置が元の位置より低くなることは無いようmax()で比べる——シートが閉じている
    ときは従来どおり帰属表示（ⓘ）の上、開いているときはシートの上端のすぐ上に出す。 */
-@media (max-width: 640px) {
+@media (max-width: theme(--breakpoint-mobile)) {
   .locateButton {
     bottom: max(
       calc(5rem + var(--mobile-tabbar-height)),

@@ -18,6 +18,11 @@
    実機不具合を踏んだ(2026-08-25)。今後この付近のコメントを編集する際は該当パターンを
    避けること(セレクタ名を書く場合は「root要素」のように文字だけで表現する)。 */
 @theme {
+  /* スマホ幅の境目。**この値を持つのはここだけ**——メディアクエリはカスタム
+   * プロパティを条件に使えないので、各ファイルは`theme()`で引く（ビルド時に
+   * 実値へ置き換わる）。JS側は値を持たず、`--is-mobile`の旗を読む。 */
+  --breakpoint-mobile: 640px;
+
   --radius-sm: 6px;
   --radius-md: 10px;
   --radius-lg: 16px;
@@ -191,14 +196,13 @@
   }
 }
 
-/* 改善計画T505: モバイル（640px以下）は共通トークンの余白・フォントサイズを全体的に圧縮する
+/* モバイル幅（`--breakpoint-mobile`以下）は共通トークンの余白・フォントサイズを全体的に圧縮する
    （実機フィードバック「ボタンの大きさ・余白が全体的に大きい、省スペースに統一したい」への
    対応）。タップ領域確保（components/ui/Checkbox.tsxの1.4rem・.tabButton/.layerTitle等の
    44px）・iOS自動ズーム防止（.app-bottom-sheet input文字サイズ16px、下記@media参照）は
    いずれもこのトークンを参照しないハードコードされたリテラル値のため、ここを縮めても
-   影響しない（各コンポーネントの該当コメント参照）。このブレークポイント（640px）は
-   frontend/src/hooks/useIsMobile.tsのMOBILE_BREAKPOINT_PXと一致させること。 */
-@media (max-width: 640px) {
+   影響しない（各コンポーネントの該当コメント参照）。 */
+@media (max-width: theme(--breakpoint-mobile)) {
   :root {
     --is-mobile: 1;
     --space-1: 0.2rem;
@@ -261,7 +265,7 @@
      上書きしてしまう心配は無い。ここでは「未指定なら最低限これくらいは揃える」土台を敷く。
      改善計画T505: paddingは以前0.5rem 0.9remの固定値だったが、共通トークン（--space-2/
      --space-3）へ置き換えた——モバイル向けの個別上書きを別途増やさなくても、トークン側の
-     モバイル圧縮（上記@media (max-width: 640px)の:root再定義）に自動で追従する。 */
+     モバイル圧縮（上記@media (max-width: theme(--breakpoint-mobile))の:root再定義）に自動で追従する。 */
   button {
     font-family: inherit;
     font-size: var(--font-size-md);
@@ -363,10 +367,7 @@
 
 /* スマホ幅: サイドバー（ドロワー）の代わりに下部タブバー＋部分シート（BottomSheet）を使う
    （モバイル実機フィードバック対応T34。「編集中も地図を直接確認できない」という実機
-   フィードバックを受け、全面ドロワー＋暗幕だった旧UIを置き換えた）。このブレークポイント
-   （640px）はfrontend/src/hooks/useIsMobile.tsが出すMOBILE_BREAKPOINT_PXと一致させること。
-   ズレるとCSS上の見た目とJS側の分岐（page.tsxのisMobile）が食い違う
-   （frontend/src/hooks/useIsMobile.test.tsで自動検証している）。 */
+   フィードバックを受け、全面ドロワー＋暗幕だった旧UIを置き換えた）。 */
 /* maplibre-gl.cssの.maplibregl-popup-content既定は背景色#fff固定で文字色を指定しないため、
    bodyのcolor（var(--foreground)）を継承する。ダークモードではvar(--foreground)が明るい色に
    反転する一方この背景だけ白固定のままなので「白背景に薄い文字」（closeボタンの×含む）になる。
@@ -440,7 +441,7 @@
   border-left-color: color-mix(in srgb, var(--color-surface) 88%, transparent);
 }
 
-@media (max-width: 640px) {
+@media (max-width: theme(--breakpoint-mobile)) {
   /* T299フォローアップ（2026-08-25）: 以前はBottomSheet/FloatingPanel内の全<button>に
      一律44px+paddingを強制するブランケットルールだった。しかしこの「一律適用」自体が、
      LayerChip（意図的に36pxのピル型、.chip）やRadioGroup.Item（32px、.modeItem）が
@@ -448,10 +449,9 @@
      発覚）。「本当にメインの導線」だけがタップ領域を必要とするという方針に転換し、
      ブランケットのbuttonルール自体を廃止した。44pxが必要な主要ボタンは、そのコンポーネント
      自身のCSS Modulesファイルで個別に持たせる（このファイルへ一律ルールとして書き戻さない）。
-     .app-sidebarは`<aside>`要素がisMobile(=640px以下)時はそもそもレンダーされない
-     （frontend/src/hooks/useIsMobile.tsのMOBILE_BREAKPOINT_PXと本メディアクエリの
-     640pxが一致するよう自動検証されている）ため、このメディアクエリ内では常に
-     マッチ対象が存在しない死んだセレクタだった。削除して.app-bottom-sheet/
+     .app-sidebarは`<aside>`要素がスマホ幅のときそもそもレンダーされない
+     （JS側の分岐は同じ`--is-mobile`を読むため、この幅では必ず一致する）ため、
+     このメディアクエリ内では常にマッチ対象が存在しない死んだセレクタだった。削除して.app-bottom-sheet/
      .app-floating-panelのみに絞る。 */
 
   /* components/ui/Checkbox（Radix製<button role="checkbox">）・ネイティブの
@@ -489,7 +489,7 @@
    帰属表示は地図コンテナ自身の右下・左下に絶対配置されるため、モバイルで固定表示の
    タブバーが乗ると隠れてしまう。z-indexで競合させるのではなく、帰属表示自体を
    タブバーの高さぶん底上げする。 */
-@media (max-width: 640px) {
+@media (max-width: theme(--breakpoint-mobile)) {
   .app-map-pane .maplibregl-ctrl-bottom-left,
   .app-map-pane .maplibregl-ctrl-bottom-right {
     margin-bottom: var(--mobile-tabbar-height);
