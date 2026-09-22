@@ -315,19 +315,22 @@ def replace_constructed_types(monkeypatch):
 
 
 def test_representative_bin_is_the_bin_containing_the_middle_of_the_leg():
-    """表示と、時刻ラベルを持てない探索が読むビン。中間地点がどのビンに入るかで決まる。"""
+    """表示と、時刻ラベルを持てない探索が読むビン。中間地点がどのビンに入るかで決まる。
+
+    組み合わせは`_bin_count`が作れるものに限る（見込み3時間なら3本、5時間なら上限の4本）。
+    """
     assert engine._representative_bin(4, 5.0) == 2
-    assert engine._representative_bin(4, 1.0) == 0
+    assert engine._representative_bin(3, 3.0) == 1
 
 
-def test_representative_bin_is_zero_without_bins_or_duration():
+def test_representative_bin_is_zero_when_the_leg_is_a_single_bin():
+    """風の系列が無いレグは1本のスナップショット。見込み時間があっても代表は唯一のビン。"""
     assert engine._representative_bin(1, 5.0) == 0
-    assert engine._representative_bin(4, None) == 0
 
 
 def test_representative_bin_clamps_to_the_last_bin():
-    """見込み所要時間がビンの張られた長さを超えても、存在しないビンは指さない。"""
-    assert engine._representative_bin(2, 100.0) == 1
+    """ビンは上限4本で頭打ちになる。12時間のレグの中間は6本目に当たるが、存在しない。"""
+    assert engine._representative_bin(4, 12.0) == 3
 
 
 # --------------------------------------------------------------------------------------

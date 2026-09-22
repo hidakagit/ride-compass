@@ -236,8 +236,11 @@ class LegCostArrays:
 
 
 def _representative_bin(bin_count: int, duration_hours: float | None) -> int:
-    """表示と、時刻ラベルを持てない探索が使う代表ビンの添字。レグの中間地点が入るビン。"""
-    if bin_count <= 1 or duration_hours is None:
+    """表示と、時刻ラベルを持てない探索が使う代表ビンの添字。レグの中間地点が入るビン。
+
+    見込み時間が無ければビンは1本（`_bin_count`）なので、`bin_count`だけを見れば足りる。
+    """
+    if bin_count <= 1:
         return 0
     return min(bin_count - 1, int((duration_hours / 2) / TIME_BIN_HOURS))
 
