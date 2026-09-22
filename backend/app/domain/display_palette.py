@@ -5,11 +5,8 @@
 """
 
 import colorsys
-from typing import Literal
 
 from app.domain.registry import PrimaryAttributeSpec
-
-DisplayPalette = Literal["ordered", "nominal"]
 
 #: 順序のある分類（幹線→細街路）の色相と彩度。明度だけを動かして濃淡にする。
 _ORDERED_HUE_DEG = 215.0
