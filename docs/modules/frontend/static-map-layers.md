@@ -47,8 +47,8 @@
 ホスティング経由の往復を省く）、未設定ならフロント自身のオリジン（`next.config.ts`の
 rewritesでbackendへプロキシ）。`window`をSSR時に参照しないよう、モジュール定数ではなく
 呼び出し時に評価する関数になっている。適用範囲は路面/POI/事故のベクタタイルに限らず、
-基礎地図のスタイルJSON（`MapView.tsx: mapStyleUrl`）・国土地理院色別標高図（同
-`GSI_RELIEF_TILE_PATH`・`GSI_TERRAIN_TILE_PATH`）・土地被覆ラスタ（`regionApi.ts: landcoverTileUrl`）・JMA動的タイル
+基礎地図のスタイルJSON（`MapView.tsx: mapStyleUrl`）・国土地理院色別標高図
+（URLは源泉が配る。`region-tile-config.json: gsi`）・土地被覆ラスタ（`regionApi.ts: landcoverTileUrl`）・JMA動的タイル
 （`riskMap.ts`・`precipitationNowcast.ts`・`thunderNowcast.ts`のURLテンプレート）も同じ
 関数でオリジンを決める。JMAの`targetTimes`
 JSONやlidenのGeoJSONのようにアプリのfetch()で読む小さなデータは対象外（相対パスのまま）。
@@ -138,9 +138,8 @@ DOM/MapLibreを一切知らない。
 **暗黙の前提**: 建物を道路の手前へ動かすと、面レイヤーを1枚も出していないときの基礎地図も
 「建物の上に道路」へ変わる。この地図はpitchを持たないため影響は小さい。
 
-重なり順は**レイヤーカタログの宣言だけ**が決める（`mapLayers.ts: MapLayerPaintTier`と
-`MAP_LAYER_PAINT_TIER_ORDER`）。記述子が自分の段を宣言し、`buildStaticOverlayLayers`が
-その順へ並べ替えてから`ensure`を呼ぶ——**作る側の配列の並びは順序に関係せず、レイヤーを
+重なり順は**宣言だけ**が決める（段の並びは`scene/mapScene.ts: MAP_SCENE_TIERS`）。
+宣言が自分の段を持ち、`composeScene`が段の順に並べてから`applyMapScene`が当てる——**作る側の配列の並びは順序に関係せず、レイヤーを
 足す人が挿す位置を選ばない**。同じ段の中はカタログに現れる順を保つ。
 
 段は背面から順に、面で塗るもの・推定指標の線・観測した事実の線・レンズの線・点データ・
@@ -154,11 +153,11 @@ DOM/MapLibreを一切知らない。
 基礎地図に対する位置は`areaLayerAnchor`が決める（上記）。
 
 
-「道路情報」の各軸は**それぞれ独立した線レイヤー**（`ROAD_TILE_LAYER_ID`=路面の種類、
-`ROAD_TYPE_LAYER_ID`=道路の種類）で、同じベクタソースを共有する。`applyRoadLayerState`は
-レイヤーごとに、そのレイヤーの軸の色式・不透明度式・凡例の絞り込みだけを適用する——
-**どちらの色の意味も、もう一方のON/OFFでは変わらない**。太さは全レイヤー共通の
-`DEFAULT_ROAD_LINE_WIDTH`で、線種は使わない。両方ONのときは下記の並列トラックが横へ分ける。
+「道路情報」の各軸は**それぞれ独立した線レイヤー**で、同じベクタソースを共有する。
+レイヤーidは一次属性idそのもの（対応表を持たない）。`scene/groups/roadLines.ts`は
+レイヤーごとに、そのレイヤーの軸の色式・不透明度式・凡例の絞り込みだけを宣言する——
+**どちらの色の意味も、もう一方のON/OFFでは変わらない**。太さは全レイヤー共通で
+源泉が配る値（`mapDisplay.road.lineWidthPx`）を使い、線種は使わない。両方ONのときは下記の並列トラックが横へ分ける。
 
 ## 出典表記（`MapView.tsx: MAP_BASE_ATTRIBUTION`）
 
@@ -211,7 +210,7 @@ MapLibreはソースへ渡した`attribution`を**そのソースが地図に載
 **暗黙の前提**: ここから辿れない描画は作り直されず、そのレイヤーは押した人の地図から
 消えたまま戻らない（次にそのpropが変わるまで復旧しない）。**対象はsource/layerの追加に
 限らず、filter・feature-state・visibilityで持つ表示状態も同じ**——たとえば詳細を見ている
-道の強調（`applyInspectedWay`）はレイヤーのfilterとvisibilityだけで表され、ポップアップは
+道の強調（`scene/groups/roadLines.ts`の`inspected`）はレイヤーのfilterとvisibilityだけで表され、ポップアップは
 開いたままなので、復元しないと「どの線の話か」だけが失われる。そのため
 `redrawAllLayers`は表示状態のpropに加えて`inspectedWayId`（コンポーネントのstate由来、
 refで最新値を渡す）も受け取る。**再描画で失われる副作用を持つ宣言**（source/layerの追加・
@@ -452,9 +451,14 @@ backendの`domain/display_palette.py`が1箇所で作る（順序のある分類
 確認済み」ではなく「材料が無い」であり、緑が持つ「良い」という含意とは別物のため、
 中立グレーで薄く出す。
 
-**意味を運ぶのは色だけで、太さ・線種は情報を持たない。** 同じ道へ複数の線が重なるときは、
+**分類を運ぶのは色だけで、太さ・線種は分類を持たない。** 同じ道へ複数の線が重なるときは、
 色を掛け合わせず横へ平行に割り付ける（1本の線へ2つの意味を載せると、色の意味がもう一方の
 ON/OFFで入れ替わる）。
+
+**太さ・線種が運んでよいのは「操作の状態」だけ**——選んでいるかどうかは、色では表せない
+（色は分類に使い切っている）。乗り換え帯が未選択で破線・選択で実線かつ太いのはこれに当たる
+（[ルート設定と結果](route-settings-and-results.md)）。分類を線種で表し始めたら、この区別が
+崩れている。
 
 ## MapLibreの式を組むときの前提
 
@@ -503,7 +507,7 @@ JSの例外は飛ばず、`map.on("error")`にしか出ない。気づけるの�
 
 | レイヤー | ソース | 独立/共有 |
 |---|---|---|
-| 路面の種類・道路の種類・トンネル・一方通行 | `ROAD_TILE_SOURCE_ID`（同じソースを分け合う） | 独立レイヤー（並列トラック対象） |
+| 路面の種類・道路の種類・トンネル・一方通行 | `ROAD_LINE_SOURCE_ID`（同じソースを分け合う） | 独立レイヤー（並列トラック対象） |
 | 停止要因POI・補給休憩POI | `region-poi-tiles`（点データ） | 同一source-layer`stop_poi`を`kind`値集合で分ける（`baseFilter`必須） |
 | 事故 | `region-accidents`（点データ、別ソース） | 独立 |
 
