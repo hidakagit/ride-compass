@@ -1,21 +1,13 @@
-"""地理院の標高タイルをTerrain-RGBへ移す変換（`domain/terrain_rgb.py`）。
+"""`domain/terrain_rgb.py`——地理院の標高タイルをMapLibreのTerrain-RGBへ詰め直す。
 
-地図の「起伏」レイヤー（`MapView.tsx: ensureTerrainHillshadeLayer`）がMapLibreの
-`raster-dem`として読む唯一の出口。ここがずれると陰影が黙って変わる。
-
-入力の仕様（https://maps.gsi.go.jp/development/demtile.html）:
-- 「x = 2^16 R + 2^8 G + B」「u = 0.01」
-- 「x < 2^23 のとき h = xu」「x > 2^23 のとき h = (x - 2^24)u」
-- 「x = 2^23 のとき 標高値なし」「無効値の場合は (R,G,B)=(128,0,0)」
-
-出力の仕様（Mapbox Terrain-RGB）:
-- height = -10000 + (R * 256 * 256 + G * 256 + B) * 0.1
+どちらも標高を1画素のRGBへ入れるが、詰め方が違う。地理院はセンチメートル単位の符号付き
+整数を2の補数で置き、標高が無い画素に決め打ちの値を入れる。Terrain-RGBは-10000mを原点と
+する0.1m刻みの符号なし整数で、**無効値の表し方を持たない**。
 """
 
 import io
 
 import numpy as np
-import pytest
 from PIL import Image
 
 from app.domain.terrain_rgb import gsi_dem_png_to_terrain_rgb
@@ -23,72 +15,80 @@ from app.domain.terrain_rgb import gsi_dem_png_to_terrain_rgb
 GSI_NO_DATA_PIXEL = (128, 0, 0)
 
 
-def _gsi_png(*meters: float | None) -> bytes:
-    """標高（m）を地理院の詰め方でPNGにする。Noneは無効値。"""
-    pixels = []
-    for value in meters:
-        if value is None:
-            pixels.append(GSI_NO_DATA_PIXEL)
-            continue
-        x = round(value / 0.01)
-        if x < 0:
-            x += 1 << 24
-        pixels.append(((x >> 16) & 0xFF, (x >> 8) & 0xFF, x & 0xFF))
+def _gsi_png(pixels: list[tuple[int, int, int]]) -> bytes:
+    """与えた画素をそのまま並べた地理院タイル相当のPNG。"""
+    image = Image.new("RGB", (len(pixels), 1))
+    image.putdata(pixels)
     buffer = io.BytesIO()
-    Image.fromarray(np.array([pixels], dtype=np.uint8), mode="RGB").save(buffer, format="PNG")
+    image.save(buffer, format="PNG")
     return buffer.getvalue()
 
 
-def _decode(png: bytes) -> list[float]:
-    """Terrain-RGBのPNGを標高（m）へ戻す。MapLibreが行う計算をそのまま書く。"""
+def _gsi_pixel(meters: float) -> tuple[int, int, int]:
+    """標高（m）を地理院の詰め方（cm単位・2の補数）で1画素にする。"""
+    centimeters = round(meters * 100)
+    packed = centimeters if centimeters >= 0 else centimeters + (1 << 24)
+    return ((packed >> 16) & 0xFF, (packed >> 8) & 0xFF, packed & 0xFF)
+
+
+def _decoded_meters(png: bytes) -> list[float]:
+    """Terrain-RGBのPNGを、MapLibreと同じ式で標高（m）へ戻す。
+
+    刻みが0.1mなので、0.1m単位へ丸めてから比べる（二進小数の端数を持ち込まない）。
+    """
     with Image.open(io.BytesIO(png)) as image:
         rgb = np.asarray(image.convert("RGB"), dtype=np.int64).reshape(-1, 3)
-    return [-10000 + (int(r) * 256 * 256 + int(g) * 256 + int(b)) * 0.1 for r, g, b in rgb]
+    packed = (rgb[:, 0] << 16) | (rgb[:, 1] << 8) | rgb[:, 2]
+    return [round(-10000 + int(value) * 0.1, 1) for value in packed]
 
 
-def _roundtrip(*meters: float | None) -> list[float]:
-    return _decode(gsi_dem_png_to_terrain_rgb(_gsi_png(*meters)))
+def _convert(meters: list[float]) -> list[float]:
+    return _decoded_meters(gsi_dem_png_to_terrain_rgb(_gsi_png([_gsi_pixel(m) for m in meters])))
 
 
-@pytest.mark.parametrize("meters", [0.0, 3.5, 634.0, 3776.0])
-def test_正の標高が往復する(meters):
-    assert _roundtrip(meters) == pytest.approx([meters], abs=0.05)
+def test_positive_elevation_survives_the_round_trip():
+    assert _convert([0.0, 12.3, 1500.0, 3776.0]) == [0.0, 12.3, 1500.0, 3776.0]
 
 
-@pytest.mark.parametrize("meters", [-0.5, -4.5, -100.0])
-def test_負の標高が往復する(meters):
-    """海抜より低い土地（干拓地など）。2の補数の折り返しを読み違えると数万mになる。"""
-    assert _roundtrip(meters) == pytest.approx([meters], abs=0.05)
+def test_negative_elevation_is_read_as_two_s_complement():
+    """地理院は海面下をcmの2の補数で置く。符号を戻さないと、数千kmの高地として出る。"""
+    assert _convert([-1.0, -25.5]) == [-1.0, -25.5]
 
 
-def test_無効値は海抜0mへ倒す():
+def test_missing_elevation_becomes_sea_level():
     """Terrain-RGBに「値が無い」を表す手段が無い。大きな数のまま渡すと、標高のある画素との
-    境界がすべて崖になり、陰影が真っ黒な縁で埋まる。"""
-    assert _roundtrip(None) == pytest.approx([0.0], abs=0.05)
+    境界がすべて数万メートルの崖になり、陰影が真っ黒な縁で埋まる。
+    """
+    png = gsi_dem_png_to_terrain_rgb(_gsi_png([GSI_NO_DATA_PIXEL]))
+
+    assert _decoded_meters(png) == [0.0]
 
 
-def test_無効値の隣に崖を作らない():
-    """海沿いの1枚には有効な画素と無効な画素が隣り合う。差が数十mに収まること。"""
-    values = _roundtrip(12.0, None, 12.0)
-    assert max(values) - min(values) < 20.0
+def test_a_missing_pixel_does_not_become_a_cliff_next_to_its_neighbours():
+    """無効値をそのまま数として通すと約83,886m（2^23 cm）になり、標高のある画素との境界が
+    すべて崖になる。陰影の計算はその縁を真っ黒に塗る。
+    """
+    png = gsi_dem_png_to_terrain_rgb(_gsi_png([_gsi_pixel(100.0), GSI_NO_DATA_PIXEL, _gsi_pixel(100.0)]))
+
+    left, middle, right = _decoded_meters(png)
+
+    assert abs(middle - left) < 1000
+    assert abs(middle - right) < 1000
 
 
-def test_01m刻みへ丸める():
-    """地理院は0.01m単位、Terrain-RGBは0.1m刻み。切り捨てず最も近い刻みへ寄せる。"""
-    assert _roundtrip(1.04, 1.06) == pytest.approx([1.0, 1.1], abs=0.001)
+def test_centimetre_detail_is_rounded_to_the_terrain_rgb_step():
+    """地理院は1cm刻み、Terrain-RGBは10cm刻み。詰め直すときに丸める。"""
+    assert _convert([1.04, 1.06]) == [1.0, 1.1]
 
 
-def test_下限を割る値でも折り返さない():
-    """地理院が表せる最小は約-83,886m。Terrain-RGBの原点(-10000m)を下回るが、
-    符号を巻き戻して山に見せてはいけない。"""
-    assert _roundtrip(-50000.0) == pytest.approx([-10000.0], abs=0.05)
+def test_below_the_origin_is_clamped_instead_of_wrapping():
+    """-10000mが原点で、それより下は表せない。折り返すと海溝が高山として出る。"""
+    assert _convert([-10000.0, -12000.0]) == [-10000.0, -10000.0]
 
 
-def test_画素数と形が変わらない():
-    """タイルは256×256。欠けるとMapLibreがそのタイルを描かない。"""
-    source = Image.new("RGB", (4, 3), GSI_NO_DATA_PIXEL)
-    buffer = io.BytesIO()
-    source.save(buffer, format="PNG")
+def test_the_image_keeps_its_shape():
+    png = gsi_dem_png_to_terrain_rgb(_gsi_png([_gsi_pixel(1.0), _gsi_pixel(2.0), _gsi_pixel(3.0)]))
 
-    with Image.open(io.BytesIO(gsi_dem_png_to_terrain_rgb(buffer.getvalue()))) as out:
-        assert (out.size, out.mode) == ((4, 3), "RGB")
+    with Image.open(io.BytesIO(png)) as image:
+        assert image.size == (3, 1)
+        assert image.mode == "RGB"
