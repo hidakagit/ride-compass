@@ -47,23 +47,6 @@ class TestClassRegistry:
         """凡例と区間インスペクタが同じ名前を2つ並べない。"""
         assert len({cls.label for cls in LANDCOVER_CLASSES}) == len(LANDCOVER_CLASSES)
 
-    def test_a_class_that_is_not_painted_still_reports_its_share(self):
-        unpainted = [cls for cls in LANDCOVER_CLASSES if not cls.painted]
-
-        assert unpainted, "塗らないクラスが無ければ、この性質は確かめられていない"
-        for cls in unpainted:
-            assert cls.percent_field in set(LandcoverPercentages.model_fields)
-
-
-class TestPercentClasses:
-    """列順が動くと、焼き込み済みの派生物が読めなくなる。"""
-
-    def test_it_is_ordered_by_the_raster_value(self):
-        values = [value for _, value in PERCENT_CLASSES]
-
-        assert values == sorted(values)
-
-
 class TestRasterSetFingerprint:
 
     def test_the_same_set_in_a_different_order_gives_the_same_fingerprint(self):

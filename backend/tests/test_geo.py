@@ -5,7 +5,6 @@ import numpy as np
 from app.domain.geo import (
     COMPASS_LABELS,
     KM_PER_DEGREE_LATITUDE,
-    LatLon,
     LatLonPoint,
     bearing_between,
     bearing_between_array,
@@ -142,17 +141,6 @@ class TestHaversineDistanceKmArray:
 
 
 class TestLatLon:
-
-    def test_any_other_type_with_the_two_fields_is_accepted(self):
-        """構造的型なので、緯度経度さえ持てば通る。`Coordinates`側がこれを満たすかは
-        `Coordinates`の話で、ここでは見ない。
-        """
-
-        class _Anything:
-            latitude = 1.0
-            longitude = 2.0
-
-        assert isinstance(_Anything(), LatLon)
 
     def test_a_different_shape_of_input_gives_the_same_answer(self):
         as_model = Coordinates(latitude=TOKYO.latitude, longitude=TOKYO.longitude)

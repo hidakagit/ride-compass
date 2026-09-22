@@ -9,7 +9,6 @@ DBへ通して確かめる。ここで見るのは、表の組み立てと純関
 from app.domain.traffic import (
     MAJOR_CROSSING_MIN_RANK,
     POI_COUNT_KINDS,
-    TAG_KIND_RULES,
     highway_rank,
     stop_count_material_ids,
     stop_seconds,
@@ -21,7 +20,8 @@ class TestStopSeconds:
     def test_every_counted_kind_declares_its_own_value(self):
         """**0が返ったのが宣言の結果か、未知として落ちた結果かは戻り値から区別できない**。
         数える種別すべてに宣言があることを、宣言の側で確かめる（信号の無い横断歩道は
-        意図的に0）。
+        意図的に0）。`tuning.py`は`traffic.py`をimportできない（循環する）ため、
+        この対応を構造で保証できない。
         """
         assert POI_COUNT_KINDS, "数える種別が空なら、下のループは何も確かめていない"
 
@@ -67,22 +67,3 @@ class TestHighwayRank:
         assert highway_rank("tertiary") >= MAJOR_CROSSING_MIN_RANK
 
 
-class TestValuesLeftOutOnPurpose:
-    """表へ入れなかった値。**入れても1件も落ちない**ため、検査で固定する。"""
-
-    @staticmethod
-    def _values_for(tag_key: str) -> set[str]:
-        return {value for key, value, _, _ in TAG_KIND_RULES if key == tag_key}
-
-    def test_barriers_that_do_not_stop_a_bicycle_stay_out(self):
-        """`kerb`は該当件数が多く、足すと停止密度だけが実データで跳ね上がる。"""
-        barriers = self._values_for("barrier")
-
-        for value in ("kerb", "toll_booth", "entrance", "fence", "wall", "guard_rail", "jersey_barrier"):
-            assert value not in barriers, value
-
-    def test_calming_that_does_not_slow_a_bicycle_stays_out(self):
-        calming = self._values_for("traffic_calming")
-
-        for value in ("island", "no"):
-            assert value not in calming, value

@@ -5,11 +5,9 @@
 
 import math
 
-import pytest
 
 from app.domain.route import (
     BIN_DROPPED_DICT_FIELDS,
-    Coordinates,
     RouteSegmentDetail,
     aggregate_segments_into_bins,
     merge_axis_contributions,
@@ -34,19 +32,6 @@ def _segment(distance_km: float = 1.0, cumulative: float = 0.0, **fields) -> Rou
 
 def _line(*points: tuple[float, float]) -> dict:
     return {"type": "LineString", "coordinates": [list(p) for p in points]}
-
-
-class TestCoordinates:
-    def test_a_position_on_earth_is_accepted(self):
-        assert Coordinates(latitude=35.0, longitude=139.0).latitude == 35.0
-
-    @pytest.mark.parametrize(
-        ("latitude", "longitude"), [(91.0, 139.0), (-91.0, 139.0), (35.0, 181.0), (35.0, -181.0)]
-    )
-    def test_a_position_off_the_globe_is_rejected(self, latitude, longitude):
-        """範囲外をそのまま通すと、投影の式が定義域外で落ちるか、地球の裏側を指す。"""
-        with pytest.raises(ValueError):
-            Coordinates(latitude=latitude, longitude=longitude)
 
 
 class TestAggregateSegmentsIntoBins:

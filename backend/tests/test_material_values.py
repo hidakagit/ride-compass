@@ -31,7 +31,6 @@ from app.domain.material_sql import (
     ways_lookup_sql,
     ways_source_sql,
 )
-from app.domain.road import BAD_OSM_SURFACE_TAGS, GOOD_OSM_SURFACE_TAGS
 
 pytestmark = [
     pytest.mark.asyncio(loop_scope="module"),
@@ -63,14 +62,19 @@ async def _way_value(session, expr: str, tags: dict[str, str], *, surface=None, 
     return (await session.execute(query)).scalar()
 
 
+GOOD_A = "good_a"
+BAD_A = "bad_a"
+
+
 async def _surface_good(session, surface: str | None):
+    """良し悪しの語彙は架空の2値で与える。実在の語彙が正しいかは`road.py`側の話。"""
     return await _way_value(
         session,
         SURFACE_GOOD_CASE_SQL,
         {},
         surface=surface,
-        good_tags=sorted(GOOD_OSM_SURFACE_TAGS),
-        bad_tags=sorted(BAD_OSM_SURFACE_TAGS),
+        good_tags=[GOOD_A],
+        bad_tags=[BAD_A],
     )
 
 
@@ -141,10 +145,10 @@ class TestNumericTags:
 
 class TestSurfaceQuality:
     async def test_a_surface_in_the_good_list_is_good(self, road_graph_session):
-        assert await _surface_good(road_graph_session, sorted(GOOD_OSM_SURFACE_TAGS)[0]) is True
+        assert await _surface_good(road_graph_session, GOOD_A) is True
 
     async def test_a_surface_in_the_bad_list_is_bad(self, road_graph_session):
-        assert await _surface_good(road_graph_session, sorted(BAD_OSM_SURFACE_TAGS)[0]) is False
+        assert await _surface_good(road_graph_session, BAD_A) is False
 
     async def test_a_surface_in_neither_list_stays_unknown(self, road_graph_session):
         """どちらにも属さないタグを悪い側へ倒すと、未分類の路面が一律に遅く見積もられる。"""
@@ -155,9 +159,7 @@ class TestSurfaceQuality:
         assert await _surface_good(road_graph_session, None) is None
 
     async def test_the_case_a_contributor_used_does_not_matter(self, road_graph_session):
-        written = f" {sorted(GOOD_OSM_SURFACE_TAGS)[0].capitalize()} "
-
-        assert await _surface_good(road_graph_session, written) is True
+        assert await _surface_good(road_graph_session, f" {GOOD_A.upper()} ") is True
 
 
 class TestCyclewayTags:
@@ -264,8 +266,8 @@ class TestAgainstTheRealTables:
             "SELECT " + ", ".join(f"({expr})" for expr in sorted(expressions.values()))
             + f" FROM {ways_source_sql()} w, road_edges re, edge_materials em"
         ).bindparams(
-            bindparam("good_tags", value=sorted(GOOD_OSM_SURFACE_TAGS), type_=ARRAY(Text())),
-            bindparam("bad_tags", value=sorted(BAD_OSM_SURFACE_TAGS), type_=ARRAY(Text())),
+            bindparam("good_tags", value=[GOOD_A], type_=ARRAY(Text())),
+            bindparam("bad_tags", value=[BAD_A], type_=ARRAY(Text())),
             bindparam("accident_years", value=1),
         )
 
