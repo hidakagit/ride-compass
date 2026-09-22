@@ -27,6 +27,8 @@ export interface RecordingMap {
   layer(id: string): FakeLayer | undefined;
   sources(): string[];
   featureState(sourceId: string, featureId: string): Record<string, unknown> | undefined;
+  /** ソースへ最後に流し込まれた中身（`setData`・`setTiles`）。 */
+  sourceContent(sourceId: string): { data?: unknown; tiles?: readonly string[] } | undefined;
   /** スタイルを差し替えたときの状態（このアプリが足したものが消える）。 */
   dropEverything(): void;
   reset(): void;
@@ -37,6 +39,10 @@ export function createRecordingMap(options: { styleReady?: boolean; imagesRegist
   const trace: TraceEntry[] = [];
   let layers: FakeLayer[] = [];
   let sources = new Map<string, unknown>();
+  // **ソースの実体は id ごとに1つに保つ。** 実装側は「同じ中身なら流し込まない」の判定に
+  // ソースのインスタンスを鍵として使うため、呼ぶたびに別物を返すと毎回作り直しになる。
+  let sourceHandles = new Map<string, { setData: (data: unknown) => void; setTiles: (tiles: string[]) => void }>();
+  const content = new Map<string, { data?: unknown; tiles?: readonly string[] }>();
   let featureStates = new Map<string, Record<string, unknown>>();
 
   const record = (call: string, ...args: unknown[]) => {
@@ -55,12 +61,7 @@ export function createRecordingMap(options: { styleReady?: boolean; imagesRegist
 
     getStyle: () => ({ layers: layers.map((layer) => ({ id: layer.id, type: layer.type })) }),
     getLayer: (id: string) => layers[indexOf(id)],
-    getSource: (id: string) =>
-      sources.has(id)
-        ? {
-            setData: (data: unknown) => record("setData", id, data),
-          }
-        : undefined,
+    getSource: (id: string) => sourceHandles.get(id),
     // アイコンの生成はブラウザのcanvasを要るため、既定では「登録済み」を返して作らせない
     // （比べたいのはレイヤーの構成で、画像の中身ではない）。
     hasImage: (id: string) => (options.imagesRegistered ?? true) || sources.has(`image:${id}`),
@@ -68,10 +69,22 @@ export function createRecordingMap(options: { styleReady?: boolean; imagesRegist
     addSource: (id: string, spec: unknown) => {
       record("addSource", id, spec);
       sources.set(id, spec);
+      sourceHandles.set(id, {
+        setData: (data: unknown) => {
+          record("setData", id, data);
+          content.set(id, { ...content.get(id), data });
+        },
+        setTiles: (tiles: string[]) => {
+          record("setTiles", id, tiles);
+          content.set(id, { ...content.get(id), tiles });
+        },
+      });
     },
     removeSource: (id: string) => {
       record("removeSource", id);
       sources.delete(id);
+      sourceHandles.delete(id);
+      content.delete(id);
     },
     addImage: (id: string, ...rest: unknown[]) => {
       record("addImage", id, ...rest);
@@ -164,15 +177,20 @@ export function createRecordingMap(options: { styleReady?: boolean; imagesRegist
     layer: (id: string) => layers[indexOf(id)],
     sources: () => [...sources.keys()],
     featureState: (sourceId, featureId) => featureStates.get(`${sourceId}:${featureId}`),
+    sourceContent: (sourceId) => content.get(sourceId),
     dropEverything: () => {
       layers = [];
       sources = new Map();
+      sourceHandles = new Map();
+      content.clear();
       featureStates = new Map();
       trace.push({ call: "__styleReplaced", args: [] });
     },
     reset: () => {
       layers = [];
       sources = new Map();
+      sourceHandles = new Map();
+      content.clear();
       featureStates = new Map();
       trace.length = 0;
     },
