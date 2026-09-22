@@ -102,7 +102,7 @@ WARNINGへ昇格し、原因の内訳（どの段で減ったか）を同じ行�
 - ロガー名は`ridecompass.<用途>`（`external` / `access` / `generate` / `startup`、
   モジュール固有のものは`ridecompass.<モジュール名>`）。新しい用途を増やす場合も同じ
   接頭辞を使う——接頭辞単位でレベルを制御したとき、別接頭辞のロガーだけが漏れるため。
-  `tests/test_canonical_constants.py`が`getLogger`の引数を走査して機械的に検査する
+  `tests/structure/test_canonical_definitions.py`が`getLogger`の引数を走査して機械的に検査する
   （外部ライブラリのロガーをレベル制御のために名指しする場合だけ`EXTERNAL_LIBRARY_LOGGERS`
   で除外する）。
 - CPUバウンドの重い処理（グラフ構築・MVTエンコード等）を追加する場合も、外部APIと同様に

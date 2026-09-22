@@ -6,9 +6,7 @@ JMA警報・WBGT・河川氾濫予報は、判定の根拠（警報名・暑さ�
 未知の語彙をどの段階とも判定できず、実際より軽い警戒度として静かに扱う。
 """
 
-from typing import Literal, get_args
+from typing import Literal
 
-# 昇順（軽い→重い）。frontend側の順序（`WarningBadge.tsx: LEVEL_ORDER`）と一致させる。
+# 昇順（軽い→重い）。
 WarningBadgeLevel = Literal["advisory", "warning", "severe_warning", "emergency_warning"]
-
-WARNING_BADGE_LEVELS: tuple[WarningBadgeLevel, ...] = get_args(WarningBadgeLevel)
