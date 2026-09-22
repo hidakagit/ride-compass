@@ -202,7 +202,7 @@ export async function fetchAxisInspector(
 // 軸ごとの関数を持たない。
 const DYNAMIC_WAY_VALUES_PATH = "/api/region/dynamic-way-values";
 
-export interface DynamicWayValuesResult {
+interface DynamicWayValuesResult {
   values: Record<string, number>;
   /** 通信失敗（HTTPエラー・ネットワークエラー・タイムアウト）ならtrue。backendが正常応答で
    * 空オブジェクトを返した場合（対象範囲に本当にway_idが無い）はfalseのまま——呼び出し側が

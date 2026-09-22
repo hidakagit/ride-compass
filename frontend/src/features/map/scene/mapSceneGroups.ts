@@ -21,7 +21,11 @@ export type LegendRow = Pick<LegendEntry, "key" | "label" | "color"> & {
   readonly values: readonly (string | boolean)[];
 };
 
-/** レイヤー1枚ぶんの宣言。id は役割から決まる。 */
+/** レイヤー1枚ぶんの宣言。id は役割から決まる。
+ *
+ * **宣言を1件足すと、地図のレイヤーが1枚増える。** 段・表示・押せるかの付け方を家族ごとに
+ * 書かないための形で、どの家族でも同じ——足す場所が1つだから、増やしたときに
+ * 「差し込み位置を書き忘れて最前面へ出る」類の食い違いが起きない。 */
 export type SceneLayerEntry = {
   /** 役割。id の綴りはここから機械的に決まる。 */
   readonly role: string;

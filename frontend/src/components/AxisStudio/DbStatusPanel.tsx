@@ -46,7 +46,7 @@ interface StatusGroup {
   rows: StatusRow[];
 }
 
-export function groupsFromStatus(report: DbStatusResponse): StatusGroup[] {
+function groupsFromStatus(report: DbStatusResponse): StatusGroup[] {
   const imports: StatusRow[] = report.imports.map((entry) => ({
     name: entry.label,
     scale:
@@ -162,7 +162,7 @@ function sumBytes(entries: DbStatusResponse["tables"]): number {
 
 /** ヘッダーへ出す母数。畳んだ行の「N テーブル」が何分のNなのかは、全体の数が同じ画面に
  * 無いと読めない。 */
-export function summaryOf(report: DbStatusResponse): string {
+function summaryOf(report: DbStatusResponse): string {
   return [
     `${formatCount(report.tables.length)}テーブル`,
     `${formatCount(sumRows(report.tables))}行`,
@@ -234,7 +234,7 @@ export default function DbStatusPanel() {
 
 /** 行の描画。取得と分けてあるのは、認証の要る画面を通さずに見え方を確かめられるようにする
  * ため（DerivedDataFreshnessPanelのFreshnessReportViewと同じ理由）。 */
-export function StatusRows({ report }: { report: DbStatusResponse }) {
+function StatusRows({ report }: { report: DbStatusResponse }) {
   const groups = groupsFromStatus(report);
   return (
     <ul className={styles.rows}>

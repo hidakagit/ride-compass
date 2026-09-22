@@ -25,7 +25,7 @@ async function postJson<T>(path: string, body: unknown, timeoutMs: number): Prom
   });
 }
 
-export interface GenerateRoutesResult {
+interface GenerateRoutesResult {
   routes: RouteCandidate[];
   conditions: GenerationConditions;
   /** routesが空のときの原因（backend: RouteGenerator.last_no_candidates_reason）。

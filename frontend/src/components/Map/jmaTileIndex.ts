@@ -21,7 +21,7 @@ export interface JmaTileIndexLookup {
 }
 
 /** タイルURLから読み取った、在否判定に必要な情報。 */
-export interface JmaTileRef {
+interface JmaTileRef {
   element: string;
   basetime: string;
   z: number;

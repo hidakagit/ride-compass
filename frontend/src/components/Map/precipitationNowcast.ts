@@ -223,7 +223,7 @@ function rasrfTileUrlTemplate(frame: RasrfFrame): string {
   });
 }
 
-export interface PrecipitationGridCellProperties {
+interface PrecipitationGridCellProperties {
   /** 降水量（mm/h相当）。 */
   mmPerHour: number;
 }
@@ -258,7 +258,7 @@ function precipitationGridToCellFeatureCollection(
  * rasrf=数値予報モデルによる予測、extended=MSMの粗いモデル予報）。
  * precipitationRenderPayloadだけがこの型を解釈する（表示層はDynamicWeatherFrameのtimeしか
  * 見ない、ファイル冒頭のコメント参照）。 */
-export type PrecipitationFrameRef =
+type PrecipitationFrameRef =
   { source: "nowcast"; index: number } | { source: "rasrf"; index: number } | { source: "extended"; index: number };
 
 /** 気象庁ナウキャスト（0〜60分）・降水短時間予報（60分〜15時間先）・

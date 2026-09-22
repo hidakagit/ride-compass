@@ -27,7 +27,7 @@ export type AxisBand = {
   readonly color: string;
 };
 
-export type AxisValueSource =
+type AxisValueSource =
   /** タイルへ焼き込んだ材料から組み立てた値。絞り込みから読める。 */
   | { readonly kind: "tile"; readonly expression: unknown }
   /** 配信された値。feature-state で載せるため、絞り込みからは読めない。 */
@@ -48,7 +48,7 @@ export type AxisLineState = {
 };
 
 /** feature-state のキー。軸idから機械的に決める（同じソースへ複数の軸が値を載せるため）。 */
-export function axisFeatureStateKey(axisId: string): string {
+function axisFeatureStateKey(axisId: string): string {
   return `${axisId}Value`;
 }
 

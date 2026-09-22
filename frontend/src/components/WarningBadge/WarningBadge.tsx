@@ -13,13 +13,13 @@ import styles from "./WarningBadge.module.css";
 
 /** **正本はbackend**（`domain/warning_levels.py`）。契約から引く——写すと、階級が
  * 1つ増えたとき片側だけ知っている状態になる。 */
-export type WarningBadgeLevel = NonNullable<components["schemas"]["ActiveWarning"]["level"]>;
+type WarningBadgeLevel = NonNullable<components["schemas"]["ActiveWarning"]["level"]>;
 
 // バッジの出所。同じlevelキーでも出所ごとに正式な日本語表現が異なる
 // （例: level="warning"はJMA/氾濫予報では「警報」だが、WBGT（環境省の熱中症予防運動指針）
 // では「警戒」——「警報」は気象庁が発表する公式警報を指す別の意味の言葉のため、
 // WBGTの文脈で使うと誤解を招く）。サマリーボタンの表示語を出所別に切り替えるために持つ。
-export type WarningBadgeSource = "jma" | "wbgt" | "flood";
+type WarningBadgeSource = "jma" | "wbgt" | "flood";
 
 export interface WarningBadgeItem {
   id: string;

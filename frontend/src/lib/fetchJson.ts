@@ -19,14 +19,14 @@ import { formatErrorDetail } from "@/lib/apiError";
 //   「◯◯の取得に失敗しました」「◯◯の解析に失敗しました」で組み立てる。
 
 /** エラー時に利用者へ見せる文言。detailがサーバーから返る場合はそちらを優先する。 */
-export interface ApiRequestMessages {
+interface ApiRequestMessages {
   /** 通信エラー・HTTPエラー時のフォールバック（例:「天候情報の取得に失敗しました」）。 */
   failure: string;
   /** 成功応答のJSON解析に失敗したとき（例:「天候情報の解析に失敗しました」）。 */
   parseFailure: string;
 }
 
-export interface ApiRequestOptions {
+interface ApiRequestOptions {
   /** 既定はGET。bodyを指定するとContent-Type: application/jsonを自動で付ける。 */
   method?: "GET" | "POST" | "PUT" | "DELETE";
   body?: unknown;
@@ -147,7 +147,7 @@ export async function requestJson<T>(url: string, options: ApiRequestOptions): P
   return data;
 }
 
-export interface FetchJsonOptions {
+interface FetchJsonOptions {
   /** タイムアウト（ミリ秒）。 */
   timeoutMs: number;
   /** DebugConsole上のカテゴリ（例: "api:weather"）。 */

@@ -8,7 +8,7 @@
 
 import type { ValueDistribution } from "./scoreDistribution";
 
-export interface DistributionBar {
+interface DistributionBar {
   /** 横軸上の区間（生値）。表示範囲でクリップ済み。 */
   from: number;
   to: number;
@@ -16,12 +16,12 @@ export interface DistributionBar {
   share: number;
 }
 
-export interface QuantileMarker {
+interface QuantileMarker {
   label: string;
   value: number;
 }
 
-export interface OffRangeShare {
+interface OffRangeShare {
   /** 表示範囲より小さい側／大きい側にある延長の割合（0〜1）。 */
   below: number;
   above: number;

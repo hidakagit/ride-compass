@@ -24,7 +24,7 @@ export type MapSceneTarget = {
   removeFeatureState(target: FeatureIdentifier, key?: string): unknown;
 };
 
-export type ApplyMapSceneOptions = {
+type ApplyMapSceneOptions = {
   /** いま載っているべき宣言。 */
   readonly scene: MapScene;
   /**

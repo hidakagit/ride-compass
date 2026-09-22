@@ -128,7 +128,7 @@ export const WIND_SPEED_LEGEND_LEVELS: readonly { key: string; label: string; co
   })),
 ];
 
-export interface WindPointFeatureProperties {
+interface WindPointFeatureProperties {
   /** 風速（m/s） */
   speed: number;
   /** 矢印の向き（度、MapLibreのicon-rotate用に「風が吹いていく方向」＝気象学的な風向

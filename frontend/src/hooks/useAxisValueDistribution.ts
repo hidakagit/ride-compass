@@ -10,7 +10,7 @@ import type { ValueDistribution } from "@/components/AxisStudio/scoreDistributio
 import { fetchAxisValueDistribution } from "@/services/axisPreviewApi";
 import { MAP_FETCH_DEBOUNCE_MS, useDebouncedValue } from "@/hooks/useDebouncedValue";
 
-export interface AxisValueDistributionResult {
+interface AxisValueDistributionResult {
   distribution: ValueDistribution | null;
   loading: boolean;
   error: string | null;

@@ -13,7 +13,7 @@ import { declareGroup, type SceneLayerEntry, type SceneSourceEntry } from "../ma
 import { zoomScaleExpression } from "../sceneBuilders";
 
 /** [経度, 緯度] の並び。 */
-export type RoutePoint = readonly [number, number];
+type RoutePoint = readonly [number, number];
 export type RoutePath = readonly RoutePoint[];
 
 /** 見た目の値は源泉が配る（`backend/app/domain/map_display.py`）。ここは受け取って塗るだけ。 */

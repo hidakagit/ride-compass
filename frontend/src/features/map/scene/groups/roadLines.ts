@@ -22,11 +22,11 @@ import { COLOR_UNKNOWN } from "@/components/Map/axisLayers";
 
 import { declareGroup, type SceneLayerEntry, type SceneSourceEntry } from "../mapSceneGroups";
 
-export const ROAD = mapDisplay.road;
+const ROAD = mapDisplay.road;
 
 export const ROAD_LINE_SOURCE_ID = "road-tiles";
 /** 押したときに拾う対象。道路の線はどれも共通の名前を名乗る。 */
-export const ROAD_LINE_HIT_TARGET = "road";
+const ROAD_LINE_HIT_TARGET = "road";
 
 /** 地物へ安定したidを与えるための昇格先。**この綴りでなければ feature-state が効かない**
  * ——タイルの地物はズームによって道1本にも区間にもなり、この列だけがその単位に追従する。 */

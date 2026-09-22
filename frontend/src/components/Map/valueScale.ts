@@ -51,7 +51,7 @@ export const DEFAULT_DIFFICULTY_BOUNDARIES: readonly number[] = [33, 66];
  * 踏まずに済む点で差が小さいため粗い。 */
 export const SIGNED_MATERIAL_BOUNDARIES: readonly number[] = [-10, -5, -1, 1, 2, 3, 4, 5, 6, 7, 8, 10, 13];
 
-export interface ValueScale {
+interface ValueScale {
   defaultBoundaries: readonly number[];
 }
 

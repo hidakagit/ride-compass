@@ -16,7 +16,7 @@ import type { Coordinates } from "@/types/route";
 import type { AmedasObservation, WeatherConditions } from "@/types/weather";
 import type { WarningBadgeItem } from "@/components/WarningBadge/WarningBadge";
 
-export interface UseWeatherConditionsResult {
+interface UseWeatherConditionsResult {
   /** 今日の見通し（TodayOutlook向け）。気象庁MSMの予報値（日次集計・weather_code・
    * UV指数等）で、常設ヘッダーはこれを参照しない（常設エリアは実測値、今日の見通しは
    * 予測値という方針分離）。 */

@@ -49,7 +49,7 @@ export type WeatherPayload =
 
 /** 要素1つぶんの宣言。**ここへ1行足すと1要素増える**（ソースid・レイヤーid・段・
  * 差し替え方はすべてここから決まる）。 */
-export type WeatherElement = {
+type WeatherElement = {
   readonly group: string;
   readonly source: string;
   readonly kind: WeatherRenderKind;

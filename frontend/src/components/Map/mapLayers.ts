@@ -82,7 +82,7 @@ export type MapLayerId =
 // 別軸（dataNature、下記）で表す。降水ナウキャスト（precipitationNowcast）は値こそ
 // 時々刻々変わるが、route選択とは無関係にstaticレイヤーと同じ「常設・visibility切替のみ」の
 // 描画方式のためkind="static"のまま、dataNature="dynamic"で区別する。
-export type MapLayerKind = (typeof mapDisplay.layerKinds)[number];
+type MapLayerKind = (typeof mapDisplay.layerKinds)[number];
 
 // staticレイヤーの中分類。▶パネル（MapOverlayControls）の見出しに使う。dynamic（route）は
 // 今のところ1種のみのため中分類を持たない（category未指定）。
@@ -129,7 +129,7 @@ export type MapLayerDataNature = (typeof mapDisplay.layerDataNatures)[number];
  * 配信元が色を焼き込んだラスタ等、カテゴリ単位で選べないレイヤーが持つ。絞り込める
  * 凡例（`hiddenKeys`と保存先の`axisId`を持つ）はここではなく`scene/legends.ts`が出す
  * ——型の上で分けてあるので、ここへ絞り込めるつもりの凡例を書いても黙って読み専用にはならない。 */
-export interface ReadOnlyLegendBlock {
+interface ReadOnlyLegendBlock {
   /** ブロックの見出し。単一ブロックのレイヤーは空文字列。 */
   label: string;
   legend: readonly LegendEntry[];

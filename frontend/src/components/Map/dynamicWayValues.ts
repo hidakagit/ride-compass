@@ -52,7 +52,7 @@ const MAX_TILES_PER_FETCH = 64;
  * 異なる——サーバ側はz/x/y個別の物理タイル座標で完結するが、こちらは「今フロントに見えている
  * ズーム」から「実際に道路タイルが読み込まれるであろうズーム」を逆算する必要があるため）。 */
 /** 道路タイルを引くズーム。地図のズームをタイルが存在する範囲へ丸める。 */
-export function roadTileZoom(zoom: number, minZoom: number, maxZoom: number): number {
+function roadTileZoom(zoom: number, minZoom: number, maxZoom: number): number {
   return Math.min(maxZoom, Math.max(minZoom, Math.floor(zoom)));
 }
 

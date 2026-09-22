@@ -34,7 +34,7 @@ const EMPTY_GRID: WindGridPoint[] = [];
 // より鷹揚な間隔にしている（値自体はuseDebouncedValue.ts:
 // MAP_FETCH_DEBOUNCE_MSへ集約、他の地図系フェッチデバウンスと共有）。
 
-export interface UseWeatherGridResult {
+interface UseWeatherGridResult {
   /** 粗い格子（関東本土全域を常時カバー、trim済み＝「現在」より前を切り捨て済み）。 */
   grid: WindGridPoint[];
   /** 詳細格子（ズームイン時のみ現在のビューポート付近を密にカバー、trim済み）。 */

@@ -18,7 +18,7 @@ export function isMaxRoutesRelevant(routeMode: RouteMode, waypointCount: number)
   return routeMode === "loop" || waypointCount === 0;
 }
 
-export interface UseRouteFormSubmitOptions {
+interface UseRouteFormSubmitOptions {
   distance: string;
   maxRoutes: string;
   routeMode: RouteMode;
@@ -28,7 +28,7 @@ export interface UseRouteFormSubmitOptions {
   onGenerate: (distanceKm: number) => void;
 }
 
-export interface UseRouteFormSubmitResult {
+interface UseRouteFormSubmitResult {
   /** 検証エラー（距離・候補件数・目的地未指定）。生成結果の失敗と同じ場所
    * （「ルート結果」欄）へ出す——押した場所とは別のどこかに出ると見落とすため。 */
   error: string | null;

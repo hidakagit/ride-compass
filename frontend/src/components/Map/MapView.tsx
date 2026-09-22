@@ -724,7 +724,7 @@ interface MapViewProps {
  *
  * 呼び出し側が毎フェッチ作り直すMapを、参照の同一性に依存するuseMemo/useEffectへ
  * そのまま渡せるようにするためのもの。 */
-export function useStableMap<K, V>(map: ReadonlyMap<K, V> | undefined): ReadonlyMap<K, V> | undefined {
+function useStableMap<K, V>(map: ReadonlyMap<K, V> | undefined): ReadonlyMap<K, V> | undefined {
   const signature = map
     ? [...map]
         .map(([key, value]) => `${String(key)}=${String(value)}`)
@@ -738,7 +738,7 @@ export function useStableMap<K, V>(map: ReadonlyMap<K, V> | undefined): Readonly
 
 
 /** `redrawAllLayers`が読む表示状態。コンポーネント側はrefで最新値を保持して渡す。 */
-export type RedrawAllLayersProps = Pick<
+type RedrawAllLayersProps = Pick<
   MapViewProps,
   | "routes"
   | "selectedRouteId"

@@ -22,7 +22,7 @@ import {
   type RouteStyleMode,
 } from "@/components/Map/routeStyleModes";
 
-export interface AxisCatalog {
+interface AxisCatalog {
   /** axisId・label・descriptionの一覧。 */
   axes: readonly PreferenceAxisDef[];
   /** axis_idから既定重みを引く。未知のaxis_idには0を返す。 */

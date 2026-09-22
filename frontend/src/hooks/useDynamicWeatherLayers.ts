@@ -91,7 +91,7 @@ const EMPTY_RASRF_FRAMES: RasrfFrame[] = [];
 const EMPTY_THUNDER_NOWCAST_FRAMES: ThunderNowcastFrame[] = [];
 const EMPTY_LIDEN_FRAMES: LidenFrame[] = [];
 
-export interface UseDynamicWeatherLayersOptions {
+interface UseDynamicWeatherLayersOptions {
   /** 全レイヤーの表示状態（`MapLayerId`→boolean）。**動的気象レイヤーを足してもこの境界は
    * 変わらない**——レイヤーごとのbooleanを並べる形だと、1つ足すたびに呼ぶ側の宣言・
    * ここの宣言・分割代入へ同じ名前を書き足すことになり、どれか1つを忘れると「チップはONなのに
@@ -105,7 +105,7 @@ export interface UseDynamicWeatherLayersOptions {
   mapViewport: MapViewport | null;
 }
 
-export interface UseDynamicWeatherLayersResult {
+interface UseDynamicWeatherLayersResult {
   /** MapViewへそのまま渡す動的気象レイヤーのプロパティ。グループ内の複数ソース
    * [raster/gridFill/gridMark]を同時に持てる形にしてある。 */
   dynamicWeather: Partial<Record<DynamicWeatherLayerId, DynamicWeatherGroupState>>;

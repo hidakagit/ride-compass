@@ -12,9 +12,6 @@ import { STATUS_API_TIMEOUT_MS } from "@/lib/apiTimeouts";
 // （CIのapi-contractジョブがドリフトを検知する）。
 type Schemas = components["schemas"];
 
-// カテゴリはbackend/app/infrastructure/debug_log.pyのlog_external_call呼び出し元
-// （msm:read・weather:jma-tile・basemap:openfreemap・region:road-surface-tile等）に対応する。
-export type ExternalCallStats = Schemas["ExternalCallStatsResponse"];
 export type DebugStats = Schemas["DebugStatsResponse"];
 
 export async function getDebugStats(): Promise<DebugStats> {

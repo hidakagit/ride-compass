@@ -13,7 +13,7 @@
 import type { MapLayerId } from "./mapLayers";
 import { primaryAttributes as primaryAttributeCatalog } from "@/types/generated/primaryAttributes";
 
-export interface PrimaryAttribute {
+interface PrimaryAttribute {
   attrId: string;
   /** 正式名（サイドバー・研究タブで使う）。axis-catalog.json由来 */
   label: string;

@@ -11,7 +11,7 @@ import styles from "./RideConditionBar.module.css";
 
 const TRIGGER_ICON_SIZE_PX = 16;
 
-export interface RideConditionBarProps {
+interface RideConditionBarProps {
   /** 出発時刻（気象レイヤーの表示時刻と同じ共有state）。 */
   departureTime: Date;
   onDepartureTimeChange: (time: Date) => void;

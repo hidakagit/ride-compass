@@ -14,7 +14,7 @@ import type { components } from "@/types/generated/api";
 
 export type ValueDistribution = components["schemas"]["ValueDistributionResponse"];
 
-export interface ScoreBand {
+interface ScoreBand {
   label: string;
   /** この帯が占める延長の割合（0〜1） */
   share: number;

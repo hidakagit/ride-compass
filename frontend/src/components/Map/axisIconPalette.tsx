@@ -27,7 +27,7 @@ import {
   type MapIconComponent,
 } from "./icons";
 
-export type AxisIconComponent = MapIconComponent;
+type AxisIconComponent = MapIconComponent;
 
 interface AxisIconPaletteEntry {
   /** パレット選択UI（AxisComposer.tsx）に出す短い名前。 */

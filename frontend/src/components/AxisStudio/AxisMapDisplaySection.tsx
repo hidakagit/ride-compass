@@ -14,7 +14,7 @@ import styles from "./AxisStudio.module.css";
 import { SectionLabel } from "./AxisFormFields";
 import { formatThresholdList, parseThresholdList, resizeBandLabels, type Draft } from "./axisDraft";
 
-export interface AxisMapDisplaySectionProps {
+interface AxisMapDisplaySectionProps {
   draft: Draft;
   setDraft: React.Dispatch<React.SetStateAction<Draft>>;
   /** 編集対象（新規作成はnull）。地図表示ができない軸の注記の判定にだけ使う。 */

@@ -25,7 +25,7 @@ import type { AxisDefinitionPayload, AxisDefinitionResponse, AxisShape } from "@
 type BackendShapeKind =
   | NonNullable<components["schemas"]["BreakpointLinearShape"]["kind"]>
   | NonNullable<components["schemas"]["CategoricalShape"]["kind"]>;
-export type ShapeKind = BackendShapeKind | "recipe_then_breakpoint_linear";
+type ShapeKind = BackendShapeKind | "recipe_then_breakpoint_linear";
 
 export function generateAxisId(): string {
   // crypto.randomUUIDはセキュアコンテキスト（HTTPS/localhost）でのみ定義される。/admin
@@ -86,7 +86,7 @@ export const PASSTHROUGH_PAYLOAD_KEYS = [
 ] as const satisfies readonly (keyof AxisDefinitionPayload)[];
 
 type PassthroughPayloadKey = (typeof PASSTHROUGH_PAYLOAD_KEYS)[number];
-export type PassthroughFields = Pick<AxisDefinitionPayload, PassthroughPayloadKey>;
+type PassthroughFields = Pick<AxisDefinitionPayload, PassthroughPayloadKey>;
 
 type AssertNever<T extends never> = T;
 

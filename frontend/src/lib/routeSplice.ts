@@ -13,7 +13,7 @@
 import { cumulativeDistancesKm } from "@/lib/geoDistance";
 
 /** 表示中の候補が、比較相手と別の道を通る区間。`edge_ids`における`[start, end)`。 */
-export interface RouteStretch {
+interface RouteStretch {
   start: number;
   end: number;
 }
@@ -104,7 +104,7 @@ export function stretchCoordinateRange(
 }
 
 /** 表示中の候補の区間と、それに対応する相手側の区間の組。 */
-export interface PairedStretch {
+interface PairedStretch {
   displayed: RouteStretch;
   target: RouteStretch;
 }
@@ -159,7 +159,7 @@ export function insertByDifficulty<T extends OrderableCandidate>(routes: readonl
 }
 
 /** 区間を割るために要る経路の形（`RouteCandidate`の一部。lib側は候補の型に依存しない）。 */
-export interface RouteGeometryShape {
+interface RouteGeometryShape {
   coordinates: readonly GeoJSON.Position[];
   /** Edge iの始点が`coordinates`の何番目か（末尾に終点を持つ）。backendの`edge_point_offsets`。 */
   edgePointOffsets: readonly number[];
@@ -247,7 +247,7 @@ export interface StretchAlternative {
 }
 
 /** 重なり合う代替をまとめた1つの選択単位。グループ内は排他、グループ間は独立。 */
-export interface StretchGroup {
+interface StretchGroup {
   /** グループが覆う元ルート側の範囲（各代替の和）。 */
   stretch: RouteStretch;
   options: StretchAlternative[];
@@ -357,7 +357,7 @@ export function stretchAlternativeGroups(
 }
 
 /** 乗り換えを適用した後の経路の形。次に選べる区間の計算と、地図の描画が同じものを見る。 */
-export interface SplicedRouteShape extends RouteGeometryShape {
+interface SplicedRouteShape extends RouteGeometryShape {
   edgeIds: string[];
 }
 

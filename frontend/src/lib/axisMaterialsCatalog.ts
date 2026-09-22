@@ -5,10 +5,10 @@
  * ここは契約から引くだけ——写すと、種類が1つ増えたとき片側だけ知っている状態になる。 */
 import type { components } from "@/types/generated/api";
 
-export type AxisMaterialDType = NonNullable<components["schemas"]["MaterialCatalogEntry"]["dtype"]>;
+type AxisMaterialDType = NonNullable<components["schemas"]["MaterialCatalogEntry"]["dtype"]>;
 
 /** 軸スタジオの折れ点編集を助ける「値の目安」1点。 */
-export interface AxisMaterialReferencePoint {
+interface AxisMaterialReferencePoint {
   label: string;
   value: number;
 }

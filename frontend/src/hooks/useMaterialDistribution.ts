@@ -8,7 +8,7 @@ import { useEffect, useState } from "react";
 
 import { fetchMaterialDistribution, type MaterialDistribution } from "@/services/axisPreviewApi";
 
-export interface MaterialDistributionResult {
+interface MaterialDistributionResult {
   distribution: MaterialDistribution | null;
   loading: boolean;
 }

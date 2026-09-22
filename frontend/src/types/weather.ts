@@ -20,6 +20,6 @@ export type WeatherWarnings = components["schemas"]["WeatherWarnings"];
 export type ActiveWarning = components["schemas"]["ActiveWarning"];
 export type WbgtStatus = components["schemas"]["WbgtStatus"];
 export type FloodForecasts = components["schemas"]["FloodForecasts"];
-export type ActiveFloodForecast = components["schemas"]["ActiveFloodForecast"];
+type ActiveFloodForecast = components["schemas"]["ActiveFloodForecast"];
 // 最寄りアメダス観測所の実測値。常設ヘッダー（WeatherPanel）が使う。
 export type AmedasObservation = components["schemas"]["AmedasObservation"];

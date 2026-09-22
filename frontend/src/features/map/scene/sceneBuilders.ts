@@ -38,7 +38,7 @@ export function layerSpec(spec: {
  * 曲線が要るのは、`icon-size`が既定で画面上の固定ピクセルだからである。拡大するほど周囲の
  * 道路・建物は大きく描かれるのに記号だけ同じ大きさで残り、相対的に小さく・目立たなくなる。
  * 初期表示のズーム（13）を倍率1の基準に置く。 */
-export const ICON_ZOOM_SCALE: readonly (readonly [number, number])[] = [
+const ICON_ZOOM_SCALE: readonly (readonly [number, number])[] = [
   [10, 0.75],
   [13, 1],
   [16, 1.5],
@@ -80,12 +80,7 @@ export function tilesContent(tiles: readonly string[]): MapSceneSourceContent {
   };
 }
 
-/** GeoJSON のソース1本。中身は差し替えで入れ替わる。 */
-export function geojsonSource(id: string, data: unknown): MapSceneSource {
-  return { id, spec: { type: "geojson" }, content: geojsonContent(data) };
-}
-
-export type SceneLayerDeclaration<Role extends string, State> = {
+type SceneLayerDeclaration<Role extends string, State> = {
   readonly role: Role;
   /** 役割から決まった id を受け取り、そのレイヤーの宣言を返す。 */
   readonly build: (state: State, id: string) => {
@@ -95,25 +90,3 @@ export type SceneLayerDeclaration<Role extends string, State> = {
     readonly visible?: boolean;
   };
 };
-
-/**
- * 宣言の並びを、そのまま重なり（背面→前面）として scene のレイヤーへ写す。
- *
- * 段・表示・押せるかの付け方を家族ごとに書かないための骨格。**宣言を1件足すだけで
- * 1枚増える**形を、どの家族でも同じにする。
- */
-export function declaredSceneLayers<Role extends string, State>(
-  declarations: readonly SceneLayerDeclaration<Role, State>[],
-  options: { readonly state: State; readonly tier: MapSceneTier; readonly idPrefix: string; readonly visible: boolean },
-): readonly MapSceneLayer[] {
-  return declarations.map((declaration) => {
-    const body = declaration.build(options.state, sceneLayerId(options.idPrefix, declaration.role));
-    return {
-      spec: body.spec,
-      tier: options.tier,
-      visible: body.visible ?? options.visible,
-      hitTargets: body.hitTargets ?? [],
-      ...(body.filter === undefined ? {} : { filter: body.filter }),
-    };
-  });
-}

@@ -7,7 +7,7 @@ import type { Coordinates, LocationSource } from "@/types/route";
 export const DEFAULT_LOCATION: Coordinates = { latitude: 35.7597, longitude: 139.7387 };
 const GEOLOCATION_TIMEOUT_MS = 8000;
 
-export interface UseLocationResult {
+interface UseLocationResult {
   location: Coordinates;
   locationSource: LocationSource;
   // マウント時の自動取得（成功・失敗・API非対応のいずれか）が確定したかどうか。

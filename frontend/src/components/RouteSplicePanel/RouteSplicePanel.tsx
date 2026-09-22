@@ -62,7 +62,7 @@ function formatDelta(value: number, digits: number): string {
 }
 
 /** 元→編集後で寄与度が動いた軸（大きい順）。減った軸は負、増えた軸は正。 */
-export function contributionDeltas(
+function contributionDeltas(
   base: Record<string, number>,
   after: Record<string, number>,
   axes: readonly PreferenceAxisDef[],

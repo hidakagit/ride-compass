@@ -3,7 +3,7 @@ import { cn } from "@/lib/cn";
 
 // 汎用チェックボックス。Radix Checkbox（Disclosure/LayerChip等と同じ既存のRadix採用
 // パターンを踏襲）はindeterminate状態をネイティブのinputより表現しやすいため採用する。
-export interface CheckboxProps {
+interface CheckboxProps {
   checked?: boolean;
   onCheckedChange?: (checked: boolean) => void;
   disabled?: boolean;

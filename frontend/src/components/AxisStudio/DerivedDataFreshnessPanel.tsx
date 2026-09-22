@@ -50,7 +50,7 @@ interface FreshnessRow {
   note?: string;
 }
 
-export function rowsFromReport(report: DerivedDataFreshnessResponse): FreshnessRow[] {
+function rowsFromReport(report: DerivedDataFreshnessResponse): FreshnessRow[] {
   return report.tables.map((table) => {
     const incomplete = table.columns.filter((column) => column.is_incomplete);
     const absent = table.columns.filter((column) => !column.is_incomplete && column.null_count > 0);
@@ -155,7 +155,7 @@ export default function DerivedDataFreshnessPanel() {
 
 /** 集計結果の描画。取得と分けてあるのは、認証の要る画面を通さずに見え方を確かめられる
  * ようにするため（この形なら固定のレポートを渡すだけで描画できる）。 */
-export function FreshnessReportView({ report }: { report: DerivedDataFreshnessResponse }) {
+function FreshnessReportView({ report }: { report: DerivedDataFreshnessResponse }) {
   const rows = rowsFromReport(report);
   const staleCount = rows.filter((row) => row.needsRebuild).length;
 

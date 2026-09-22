@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { debugLog } from "@/lib/debugLog";
 
-export interface UsePolledFetchResult<T> {
+interface UsePolledFetchResult<T> {
   data: T;
   /** 初回フェッチが完了するまでtrue（2回目以降のポーリングでは変化しない）。使わない
    * 呼び出し側は無視してよい。 */
@@ -16,7 +16,7 @@ export interface UsePolledFetchResult<T> {
   hasFetched: boolean;
 }
 
-export interface UsePolledFetchOptions {
+interface UsePolledFetchOptions {
   /** falseの間はフェッチ・ポーリングを一切行わない（既存のdata/loading/errorは変化しない）。 */
   enabled: boolean;
   intervalMs: number;

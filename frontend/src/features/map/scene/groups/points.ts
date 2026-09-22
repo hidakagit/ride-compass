@@ -66,7 +66,7 @@ export function pointSourceId(tileKind: string): string {
 
 /** 押したときに拾う対象。**どの点も共通の`point`を名乗る**ので、点を1枚足しても
  * 拾う側の判定は変わらない。 */
-export const POINT_HIT_TARGET = "point";
+const POINT_HIT_TARGET = "point";
 
 /** 軸の絞り込みの鍵。役割をまたいで同じ軸名を使えるようにする。 */
 export function pointAxisKey(layer: PointLayer, axis: PointAxis): string {

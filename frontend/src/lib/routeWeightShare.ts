@@ -7,7 +7,7 @@ export const WEIGHT_STEP = 0.01;
 export const MIN_AXIS_WEIGHT = WEIGHT_STEP;
 export const MAX_AXIS_WEIGHT = 0.6;
 
-export function roundToStep(value: number): number {
+function roundToStep(value: number): number {
   return Number(value.toFixed(2));
 }
 

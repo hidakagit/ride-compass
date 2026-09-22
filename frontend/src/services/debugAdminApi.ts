@@ -17,7 +17,7 @@ export type LogLevelName = NonNullable<
   NonNullable<paths["/api/admin/debug/logs"]["get"]["parameters"]["query"]>["min_level"]
 >;
 
-export interface GetRecentLogsParams {
+interface GetRecentLogsParams {
   /** 末尾からN件に絞り込む（省略時はbackend側の既定=保持している全件）。 */
   limit?: number;
   /** 部分一致フィルタ（例: "jma-tile"）。 */

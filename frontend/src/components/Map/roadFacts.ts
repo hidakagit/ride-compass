@@ -24,7 +24,7 @@ export interface RoadSurfacePopupProperties {
   oneway?: boolean | null;
 }
 
-export interface RoadFactRow {
+interface RoadFactRow {
   label: string;
   value: string;
 }

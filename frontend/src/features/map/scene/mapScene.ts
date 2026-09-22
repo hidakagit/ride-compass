@@ -6,7 +6,7 @@ import type { FilterSpecification, LayerSpecification, SourceSpecification } fro
  * 並びは「後から前面へ積まれる側が、先に積まれた側を塗り潰さない」ように決める。
  * 面の塗りは下にあるものを隠すため、基礎地図の道路網より下へ潜らせる。
  */
-export const MAP_SCENE_TIERS = [
+const MAP_SCENE_TIERS = [
   { id: "area", underBasemapRoads: true },
   { id: "estimatedLine", underBasemapRoads: false },
   { id: "observedLine", underBasemapRoads: false },
@@ -38,7 +38,7 @@ type DistributiveOmit<T, K extends PropertyKey> = T extends unknown ? Omit<T, K>
  * 実行時に入れ替わる中身は型の上でここへ書けない——両方が持てると、入れ替えで済むものまで
  * 作り直して取得済みのタイルを捨てることになる。
  */
-export type MapSceneSourceSpec = DistributiveOmit<SourceSpecification, "tiles" | "data">;
+type MapSceneSourceSpec = DistributiveOmit<SourceSpecification, "tiles" | "data">;
 
 /**
  * あとから入れ替わるソースの中身。どう入れ替えるかは種類ごとに違うため、

@@ -27,7 +27,7 @@ function backendAuthHeader(): string | null {
 
 
 
-export interface ProxyToBackendAdminOptions {
+interface ProxyToBackendAdminOptions {
   /** backendへの転送タイムアウト（省略時15秒）。全表走査を伴う集計API等、既定より長く
    * かかることが分かっているエンドポイントだけ個別に延ばす。 */
   timeoutMs?: number;

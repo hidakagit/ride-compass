@@ -6,7 +6,7 @@
 
 import landcoverClassesJson from "@/types/generated/landcover-classes.json";
 
-export interface LandcoverClass {
+interface LandcoverClass {
   /** ラスタの画素値。 */
   value: number;
   /** AxisInspectorResult.landcoverの対応する割合列の名前。 */
