@@ -74,9 +74,7 @@ def _axis(axis_id: str, is_published: bool) -> AxisDefinition:
 
 class TestWhatGetsRegistered:
     def test_the_vocabulary_comes_from_both_declarations(self):
-        """材料を持つ一次属性と持たない一次属性は別の表にある。片方だけ登録すると、
-        その属性を指す表示が名前を引けない。
-        """
+        """片方だけ登録すると、その属性を指す表示が名前を引けない。"""
         with _empty_registry(), _axes({}):
             with _vocabulary({"with": "材料あり"}, {"without": "材料なし"}, {"m_a": "with"}):
                 register_defaults()
@@ -102,7 +100,7 @@ class TestWhatGetsRegistered:
                     register_defaults()
 
     def test_a_material_without_an_attribute_is_not_required_to_be_in_the_table(self):
-        """一次属性を持たない材料がある。Noneを語彙の欠落として扱うと、登録できなくなる。"""
+        """Noneを語彙の欠落として扱うと、登録できなくなる。"""
         with _empty_registry(), _axes({}):
             with _vocabulary({"known": "既知"}, {}, {"m_a": None}):
                 register_defaults()

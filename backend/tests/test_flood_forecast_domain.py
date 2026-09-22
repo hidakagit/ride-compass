@@ -35,10 +35,7 @@ class TestWhetherAnythingIsReturned:
         assert extract_active_flood_forecast(_entry(), CLASS20, CLASS10) is not None
 
     def test_the_cleared_code_means_nothing_is_active(self):
-        """JMA警報と違い、このAPIは`status`文字列を持たず**コード自体**が発表・継続・解除を
-        区別する。`CLEARED_CODE`だけが「現在は何も出ていない」で、他のコードはすべて現在
-        アクティブな状態——ここを`status`と同じ発想で読むと、解除済みの河川が出続ける。
-        """
+        """`status`と同じ発想で読むと、解除済みの河川が出続ける。"""
         assert extract_active_flood_forecast(_entry(CLEARED_CODE), CLASS20, CLASS10) is None
 
     def test_a_downgrade_to_this_level_is_still_active(self):

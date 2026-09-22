@@ -31,7 +31,6 @@ def test_speed_is_converted_from_kilometres_per_hour():
 
 
 class TestWindComponents:
-    """風向は気象の慣習で**吹いてくる方向**。走行方位との差が0なら正面から受ける。"""
 
     def test_a_headwind_is_positive_along_the_route(self):
         along, cross = wind_components(5.0, NORTHBOUND, NORTHBOUND)
@@ -57,7 +56,6 @@ class TestWindComponents:
 
 
 class TestWindDragRatio:
-    """無風時に対する進行方向の空気抵抗の増分。二乗則で、追い風が走行速度を超えても連続。"""
 
     def test_still_air_adds_nothing(self):
         assert wind_drag_ratio(0.0, NORTHBOUND, NORTHBOUND, CRUISE_MS) == pytest.approx(0.0)
@@ -70,7 +68,7 @@ class TestWindDragRatio:
         assert tail < 0
 
     def test_a_headwind_grows_with_the_square_of_the_wind(self):
-        """二乗則。線形にすると、強風の区間の負荷を大きく取りこぼす。"""
+        """線形にすると、強風の区間の負荷を大きく取りこぼす。"""
         light = wind_drag_ratio(2.0, NORTHBOUND, NORTHBOUND, CRUISE_MS)
         strong = wind_drag_ratio(4.0, NORTHBOUND, NORTHBOUND, CRUISE_MS)
 
@@ -89,25 +87,21 @@ class TestWindDragRatio:
     @pytest.mark.parametrize("wind_speed", [0.0, 2.0, 5.0, 12.0])
     @pytest.mark.parametrize("relative_angle", [0.0, 180.0])
     def test_without_a_crosswind_it_matches_the_one_dimensional_form(self, wind_speed, relative_angle):
-        """横風が無いとき、2次元の式は`sign(x)·x² − v²`と厳密に一致する。ここがずれると、
-        追い風と向かい風で別の尺度になる。
-        """
+        """ここがずれると、追い風と向かい風で別の尺度になる。"""
         along = CRUISE_MS + wind_speed * np.cos(np.radians(relative_angle))
         expected = (np.sign(along) * along * along - CRUISE_MS**2) / WIND_DRAG_REFERENCE_SPEED_MS**2
 
         assert wind_drag_ratio(wind_speed, relative_angle, NORTHBOUND, CRUISE_MS) == pytest.approx(expected)
 
     def test_a_pure_crosswind_costs_a_little(self):
-        """相対風速が増えるぶんだけ小さな正。0にすると、横風の区間が無風と同じに見える。"""
+        """0にすると、横風の区間が無風と同じに見える。"""
         cross = wind_drag_ratio(5.0, 90.0, NORTHBOUND, CRUISE_MS)
         head = wind_drag_ratio(5.0, NORTHBOUND, NORTHBOUND, CRUISE_MS)
 
         assert 0 < cross < head
 
     def test_a_tailwind_stronger_than_the_rider_stays_finite(self):
-        """追い風が走行速度を超えると相対風は背後から前へ変わる。1次元の`sign(x)x²`で
-        書くとこの境界で折れるが、二乗則のベクトル式なら連続に続く。
-        """
+        """1次元の`sign(x)x²`で書くとこの境界で折れる。"""
         values = [wind_drag_ratio(w, 180.0, NORTHBOUND, CRUISE_MS) for w in (4.0, 5.0, 6.0, 10.0, 20.0)]
 
         assert all(np.isfinite(values))
@@ -144,7 +138,6 @@ class TestWindDragRatio:
 
 
 class TestWindForecastSeries:
-    """1時間刻みの予報系列。通過予定時刻に最も近い時刻の値を引く。"""
 
     @staticmethod
     def _series(hours: int = 5) -> WindForecastSeries:
@@ -163,7 +156,7 @@ class TestWindForecastSeries:
         assert speed.tolist() == [0.0, 1.0, 2.0]
 
     def test_times_before_the_series_clamp_to_the_first_value(self):
-        """探索では欠損より端の値の方が妥当——欠損にすると、その区間だけ風を無視する。"""
+        """欠損にすると、その区間だけ風を無視する。"""
         series = self._series()
 
         speed, _ = series.sample(series.times[0], np.array([-5.0]))
@@ -214,7 +207,6 @@ class TestWindForecastSeries:
 
 
 class TestEstimatePassageHours:
-    """探索の前に、各区間の通過予定時刻を直線距離だけで見積もる。"""
 
     ANCHOR = Coordinates(latitude=35.0, longitude=139.0)
 
@@ -236,7 +228,7 @@ class TestEstimatePassageHours:
         assert far[0] > near[0] > 0
 
     def test_an_inbound_leg_gets_earlier_with_distance(self):
-        """基準点は到着予定時刻。遠い区間ほど先に通る。"""
+        """遠い区間ほど先に通る。"""
         hours = estimate_passage_hours(
             np.array([35.1]), np.array([139.0]), self.ANCHOR, offset_hours=3.0, direction=-1, speed_kmh=20.0
         )

@@ -15,8 +15,6 @@ TOKYO_LONGITUDE_RAW = "1394557000"  # 139度45分57.000秒
 
 
 class TestCoordinatesFromRawDms:
-    """度分秒の連結表記を10進の度へ直す。**根拠のない推測はしない**——読めない値は
-    Noneで返し、0度や既定の地点へ倒さない。"""
 
     def test_it_reads_degrees_minutes_and_seconds(self):
         assert latitude_from_raw(TOKYO_LATITUDE_RAW) == 35 + 40 / 60 + 52 / 3600
@@ -33,7 +31,7 @@ class TestCoordinatesFromRawDms:
         assert longitude is not None and round(longitude, 4) == round(141 + 3 / 60 + 28.320 / 3600, 4)
 
     def test_an_all_zero_value_is_none(self):
-        """欠損はゼロ埋めで入ってくる。0度0分0秒として通すと、ギニア湾に事故点が並ぶ。"""
+        """0度0分0秒として通すと、ギニア湾に事故点が並ぶ。"""
         assert latitude_from_raw("000000000") is None
         assert longitude_from_raw("0000000000") is None
 
@@ -56,9 +54,7 @@ class TestCoordinatesFromRawDms:
         assert latitude_from_raw("354060000") is None
 
     def test_a_result_outside_japan_is_none(self):
-        """度分秒の切り出しがずれると、桁の並びは正しいまま値だけが大きく外れる。
-        範囲の検査はその取り違えを捕まえるためのもので、対象地域の絞り込みではない。
-        """
+        """度分秒の切り出しがずれると、桁の並びは正しいまま値だけが大きく外れる。"""
         assert latitude_from_raw("104052000") is None  # 10度台
         assert longitude_from_raw("0994557000") is None  # 99度台
 

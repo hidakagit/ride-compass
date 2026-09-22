@@ -20,16 +20,12 @@ OSAKA = LatLonPoint(latitude=34.69, longitude=135.50)
 
 
 class TestCompassLabel:
-    """角度を8方位のラベルにする。"""
 
     def test_each_sector_centre_gets_its_own_label(self):
         assert [compass_label(45 * i) for i in range(8)] == COMPASS_LABELS
 
     def test_a_sector_boundary_rounds_up(self):
-        """**偶数丸めを使わない**。frontendの同じ表示（`cardinalLabel`）が`Math.round`
-        （half-up）のため、丸め規則が違うと境界だけラベルが食い違う。22.5度は偶数丸めなら
-        「北」、half-upなら「北東」。
-        """
+        """22.5度は偶数丸めなら「北」、half-upなら「北東」。"""
         assert compass_label(22.5) == "北東"
         assert compass_label(67.5) == "東"
 
@@ -44,7 +40,6 @@ class TestCompassLabel:
 
 
 class TestBearingBetween:
-    """始点から終点を見た初期方位角。0が北で時計回り。"""
 
     def test_due_north_is_zero(self):
         assert bearing_between(TOKYO, LatLonPoint(TOKYO.latitude + 1, TOKYO.longitude)) == 0.0
@@ -88,7 +83,6 @@ class TestBearingBetween:
 
 
 class TestBearingBetweenArray:
-    """ベクトル版。大量のNodeに対してスカラー版を回すのを避ける。"""
 
     def test_it_agrees_with_the_scalar_version(self):
         targets = [LatLonPoint(35.0, 139.0), LatLonPoint(36.5, 140.5), LatLonPoint(34.0, 138.0)]
@@ -118,16 +112,13 @@ class TestHaversineDistanceKm:
         assert 390.0 < haversine_distance_km(TOKYO, OSAKA) < 410.0
 
     def test_one_degree_of_latitude_is_about_the_declared_constant(self):
-        """`KM_PER_DEGREE_LATITUDE`は目安用途の概算。実測とかけ離れていると、空間索引の
-        バケット分割や矩形マージンが的外れになる。
-        """
+        """実測とかけ離れていると、空間索引のバケット分割や矩形マージンが的外れになる。"""
         one_degree = haversine_distance_km(TOKYO, LatLonPoint(TOKYO.latitude + 1, TOKYO.longitude))
 
         assert abs(one_degree - KM_PER_DEGREE_LATITUDE) < 1.0
 
 
 class TestHaversineDistanceKmArray:
-    """A*のヒューリスティックが、レグごとに全Nodeとの距離を1回の演算で求め直す。"""
 
     def test_it_agrees_with_the_scalar_version(self):
         points = [LatLonPoint(35.0, 139.0), LatLonPoint(36.5, 140.5), OSAKA]
@@ -157,8 +148,6 @@ class TestHaversineDistanceKmArray:
 
 
 class TestLatLon:
-    """緯度経度を持つ型なら何でも受ける構造的型。ホットパスで`Coordinates`を作り直さない
-    ために、Pydanticモデル固定にしていない。"""
 
     def test_the_lightweight_point_satisfies_it(self):
         assert isinstance(LatLonPoint(1.0, 2.0), LatLon)

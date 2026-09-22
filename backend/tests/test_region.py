@@ -21,7 +21,6 @@ TOKYO_TILE = (12, 3637, 1612)
 
 
 class TestParseBbox:
-    """CLIの`--bbox`を読む。**緯度が先**でCLI間の順序を揃える。"""
 
     def test_it_reads_four_values_in_latitude_first_order(self):
         bbox = parse_bbox("35.0,139.0,36.0,140.0")
@@ -31,7 +30,6 @@ class TestParseBbox:
         )
 
     def test_a_wrong_number_of_values_is_rejected(self):
-        """片方だけ経度を先に書いても4値の数としては通ってしまう。数を先に確かめる。"""
         with pytest.raises(ValueError):
             parse_bbox("35.0,139.0,36.0")
         with pytest.raises(ValueError):
@@ -54,7 +52,6 @@ class TestParseBbox:
 
 
 class TestTileBoundsLonlat:
-    """XYZタイルが覆う緯度経度の範囲。"""
 
     def test_the_world_tile_covers_the_whole_mercator_extent(self):
         bounds = tile_bounds_lonlat(0, 0, 0)
@@ -65,7 +62,7 @@ class TestTileBoundsLonlat:
         assert math.isclose(bounds.min_latitude, -85.0511, abs_tol=0.001)
 
     def test_y_increases_southwards(self):
-        """**緯度と逆向き**。取り違えると、南北が反転した範囲を取りに行く。"""
+        """取り違えると、南北が反転した範囲を取りに行く。"""
         upper = tile_bounds_lonlat(4, 7, 5)
         lower = tile_bounds_lonlat(4, 7, 6)
 
@@ -108,7 +105,6 @@ class TestTileBoundsLonlat:
 
 
 class TestTileAncestor:
-    """粗いズームの祖先タイルを引く。"""
 
     def test_one_zoom_up_halves_the_indices(self):
         assert tile_ancestor(12, 3637, 1612, 11) == (1818, 806)
@@ -117,7 +113,7 @@ class TestTileAncestor:
         assert tile_ancestor(12, 3637, 1612, 12) == (3637, 1612)
 
     def test_a_finer_ancestor_is_rejected(self):
-        """子孫は一意に定まらない。黙って1つ選ばず、前提違反として落とす。"""
+        """黙って1つ選ばず、前提違反として落とす。"""
         with pytest.raises(ValueError):
             tile_ancestor(10, 5, 5, 12)
 
@@ -135,7 +131,6 @@ class TestTileAncestor:
 
 
 class TestTilesCoveringBbox:
-    """矩形を覆うタイル群。"""
 
     def test_a_tile_s_own_bounds_always_include_that_tile(self):
         """変換と逆変換が噛み合っていることを往復で見る。**ちょうど1枚にはならない**——
@@ -198,9 +193,6 @@ class TestTilesCoveringBbox:
         assert len(tiles_covering_bbox(world, 2)) == 16
 
     def test_latitudes_beyond_mercator_do_not_blow_up(self):
-        """`BoundingBox`は緯度の範囲を検証しない。そのまま式へ入れると対数が定義域外で
-        落ちるため、投影の限界でクランプする。
-        """
         beyond = BoundingBox(
             min_latitude=-90.0, min_longitude=-180.0, max_latitude=90.0, max_longitude=180.0
         )

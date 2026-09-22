@@ -44,7 +44,6 @@ class TestRegisterPrimaryAttribute:
 
 
 class TestRegisterAxis:
-    """一次属性は各軸へ**排他的に**帰属する。"""
 
     def test_an_axis_with_registered_inputs_is_accepted(self):
         register_primary_attribute(_attribute("a"))
@@ -90,7 +89,6 @@ class TestRegisterAxis:
         assert "first" in message and "second" in message and "b" in message
 
     def test_a_rejected_axis_is_not_partially_registered(self):
-        """入力の一部だけ通った状態で登録されると、レジストリが宣言と食い違う。"""
         register_primary_attribute(_attribute("a"))
         register_axis(AxisSpec(axis_id="first", inputs=["a"]))
 
@@ -111,9 +109,7 @@ class TestRegisterAxis:
 
 class TestTileInputSpec:
     def test_the_category_table_is_stored_in_a_fixed_order(self):
-        """構築元（コード内リテラル・DB経由・APIレスポンス）で挿入順が変わる。順序が
-        違うだけで生成物の差分が出ると、意味の無い再デプロイが要る。
-        """
+        """順序が違うだけで生成物の差分が出ると、意味の無い再デプロイが要る。"""
         spec = TileInputSpec(property="p", categories={"c": 3.0, "a": 1.0, "b": 2.0})
 
         assert list(spec.categories) == ["a", "b", "c"]

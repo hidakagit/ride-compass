@@ -1,7 +1,6 @@
 """`domain/axis_templates.py`——評価軸が還元される2つのプリミティブと、配列版の丸め。
 
-スカラー経路（1区間ずつ）とベクトル経路（静的スコア行列の構築）が同じ実装を通ることで、
-軸のロジックが2箇所へ分かれない。**どちらの経路でも同じ答えになる**ことがここの要。
+**スカラー経路とベクトル経路で同じ答えになる**ことがここの要。
 """
 
 import numpy as np
@@ -13,7 +12,6 @@ LINE = [(0.0, 0.0), (10.0, 100.0)]
 
 
 class TestEvaluateBreakpointLinear:
-    """区分線形補間。折れ点はx昇順の(x, y)組で、両端はクランプする。"""
 
     def test_a_value_between_breakpoints_is_interpolated(self):
         assert evaluate_breakpoint_linear(2.5, LINE) == 25.0
@@ -38,9 +36,7 @@ class TestEvaluateBreakpointLinear:
         assert result.tolist() == [0.0, 25.0, 100.0]
 
     def test_a_missing_element_stays_missing(self):
-        """**`np.interp`はNaNを伝播しない**（内部の探索がNaNを0番目の区間として扱い、
-        下端の値を返す）。欠損が「最良」の点数に化けるため、明示的に戻す。
-        """
+        """欠損が「最良」の点数に化ける。"""
         result = evaluate_breakpoint_linear(np.array([np.nan, 2.5]), LINE)
 
         assert np.isnan(result[0])
@@ -57,7 +53,6 @@ class TestEvaluateBreakpointLinear:
 
 
 class TestEvaluateCategorical:
-    """離散値→点数のテーブル引き。"""
 
     BOOL_MAP = {True: 0.0, False: 80.0}
     STR_MAP = {"a": 1.0, "b": 2.0, "c": 3.0}
@@ -88,10 +83,7 @@ class TestEvaluateCategorical:
         assert np.isnan(result[1])
 
     def test_a_missing_element_falls_back_even_when_it_looks_like_the_first_key(self):
-        """欠損（None）は文字列と順序比較できず二分探索が例外になるため、検索の前に
-        **実在するキーへ一時的に差し替える**。差し替えただけだと「一致した」ことに
-        なってしまうので、欠損の印を別に持って強制的に不一致へ倒す。
-        """
+        """差し替えの痕跡が残ると、欠損が先頭キーの点数を受け取る。"""
         result = evaluate_categorical(np.array([None, "a"], dtype=object), self.STR_MAP)
 
         assert np.isnan(result[0])
@@ -119,9 +111,7 @@ class TestEvaluateCategorical:
         assert result.tolist() == scalar
 
     def test_a_numeric_array_propagates_its_missing_marker(self):
-        """欠損の表し方は材料によって違う——数値の材料はNaN、文字列の材料はNone。
-        片方だけ扱うと、もう片方が「一致しない値」として既定へ倒れる。
-        """
+        """片方だけ扱うと、もう片方が「一致しない値」として既定へ倒れる。"""
         result = evaluate_categorical(np.array([1.0, 0.0, np.nan]), {1.0: 0.0, 0.0: 80.0})
 
         assert result[0] == 0.0
@@ -129,9 +119,7 @@ class TestEvaluateCategorical:
         assert np.isnan(result[2])
 
     def test_many_keys_are_still_looked_up_correctly(self):
-        """キー数が多い材料（highway等）は二分探索で引く。走査から置き換えたときに
-        並び順の取り違えが起きやすい。
-        """
+        """走査から二分探索へ置き換えたときに、並び順の取り違えが起きやすい。"""
         mapping = {f"k{i:03d}": float(i) for i in range(200)}
         picks = ["k000", "k117", "k199"]
 
@@ -141,15 +129,11 @@ class TestEvaluateCategorical:
 
 
 class TestRound1Array:
-    """`round(x, 1)`とビット単位で一致させるための配列版。"""
 
     def test_it_rounds_to_one_decimal(self):
         assert round1_array(np.array([1.04, 1.06, -2.34])).tolist() == [1.0, 1.1, -2.3]
 
     def test_it_matches_the_builtin_on_exact_halves(self):
-        """`np.round`は「×10→rint→÷10」の掛け算で誤差が混じり、値がちょうど.X5の境界に
-        あると組み込みの`round()`と食い違う。境界の要素だけ組み込みで決め直す。
-        """
         values = [0.05, 0.15, 0.25, 0.35, 0.45, 2.55, -0.05, -0.15]
 
         result = round1_array(np.array(values))

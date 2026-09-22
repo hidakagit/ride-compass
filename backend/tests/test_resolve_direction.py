@@ -66,9 +66,7 @@ class TestTheOnewayTag:
 
 class TestWhichRuleWins:
     async def test_the_bicycle_exception_overrides_the_general_oneway(self, road_graph_session):
-        """`oneway:bicycle`は「自転車に限り一方通行規制の対象外」（逆走可の一方通行路）。
-        `oneway`に負けると、通れる道を避けて遠回りする。
-        """
+        """`oneway`に負けると、通れる道を避けて遠回りする。"""
         tags = {"oneway": "yes", "oneway:bicycle": "no"}
 
         assert await _directions(road_graph_session, tags) == ["both"]

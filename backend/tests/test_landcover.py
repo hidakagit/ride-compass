@@ -1,6 +1,5 @@
 """`domain/landcover.py`——土地被覆の画素ヒストグラムを、クラス別の割合へ直す。
 
-**どのクラスが「遮蔽」でどれが「開放」かはここでは決めない**（評価軸の重み付けが表す）。
 どの画素を数えるかは`derive_raster_materials`の仕事で、ここが負うのは「数えた結果をどう
 割合にするか」だけ。**その判定はDB側で行うため、DBへ通して確かめる。**
 """
@@ -36,9 +35,7 @@ class TestClassRegistry:
             assert cls.percent_field in fields, cls.percent_field
 
     def test_no_class_is_one_of_the_values_excluded_from_the_denominator(self):
-        """No Data・Cloudsは分母から外す値で、割合を出す対象ではない。両方に入れると
-        「有効画素の何%か」の分母と分子が食い違う。
-        """
+        """両方に入れると、「有効画素の何%か」の分母と分子が食い違う。"""
         assert {cls.value for cls in LANDCOVER_CLASSES} & LULC_INVALID_VALUES == set()
 
     def test_values_and_columns_are_unique(self):
@@ -51,9 +48,6 @@ class TestClassRegistry:
         assert len({cls.label for cls in LANDCOVER_CLASSES}) == len(LANDCOVER_CLASSES)
 
     def test_a_class_that_is_not_painted_still_reports_its_share(self):
-        """塗らないのは地図の見え方の都合。数値の内訳からは外さない——外すと他のクラスの
-        割合が実際より大きく見える。
-        """
         unpainted = [cls for cls in LANDCOVER_CLASSES if not cls.painted]
 
         assert unpainted, "塗らないクラスが無ければ、この性質は確かめられていない"
@@ -62,8 +56,7 @@ class TestClassRegistry:
 
 
 class TestPercentClasses:
-    """SQLの列順。**表示順とは別に持つ**——表示順を変えただけで焼き込み済みの列順が
-    動くと、既存の派生物が読めなくなる。"""
+    """列順が動くと、焼き込み済みの派生物が読めなくなる。"""
 
     def test_it_is_ordered_by_the_raster_value(self):
         values = [value for _, value in PERCENT_CLASSES]
@@ -75,10 +68,9 @@ class TestPercentClasses:
 
 
 class TestRasterSetFingerprint:
-    """派生物は「どのラスタを開いていたか」に従属する。構成が変われば古い結果を捨てる。"""
 
     def test_the_same_set_in_a_different_order_gives_the_same_fingerprint(self):
-        """渡す順は呼び出し側の都合で変わる。順に依存させると、同じ構成が別物に見える。"""
+        """順に依存させると、同じ構成が別物に見える。"""
         assert raster_set_fingerprint(["a.tif", "b.tif"]) == raster_set_fingerprint(["b.tif", "a.tif"])
 
     def test_only_the_file_name_matters(self):
@@ -86,7 +78,6 @@ class TestRasterSetFingerprint:
         assert raster_set_fingerprint(["/data/a.tif"]) == raster_set_fingerprint(["/mnt/other/a.tif"])
 
     def test_adding_a_raster_changes_the_fingerprint(self):
-        """1枚足せば、境界またぎ・範囲外で「値なし」だった場所が値を持ちうる。"""
         assert raster_set_fingerprint(["a.tif"]) != raster_set_fingerprint(["a.tif", "b.tif"])
 
     def test_an_empty_set_still_has_a_fingerprint(self):
@@ -97,7 +88,6 @@ class TestRasterSetFingerprint:
 
 
 class TestPercentagesFromPixelCounts:
-    """クラスごとの画素数を、有効画素に対する割合(%)へ直す。"""
 
     # road_graph_session（conftest.py）と同じDBを使うため、docs/conventions/testing.md
     # パターン2どおり loop_scope="module"・xdist_group="postgis" が要る。
@@ -147,17 +137,13 @@ class TestPercentagesFromPixelCounts:
         assert await self._percentages(road_graph_session, {LULC_CLOUDS: 100}) is None
 
     async def test_too_few_valid_pixels_means_no_row(self, road_graph_session):
-        """帯がラスタの外へはみ出た区間は、割合として信頼できない。0と区別できるよう
-        行そのものを作らない。
-        """
+        """0と区別できるよう、行そのものを作らない。"""
         row = await self._percentages(road_graph_session, {LULC_TREES: MIN_VALID_PIXELS - 1})
 
         assert row is None
 
     async def test_exactly_the_minimum_is_enough(self, road_graph_session):
-        """下限は「これ未満は作らない」。ちょうどの区間まで落とすと、境界の区間が
-        静かに消える。
-        """
+        """ちょうどの区間まで落とすと、境界の区間が静かに消える。"""
         row = await self._percentages(road_graph_session, {LULC_TREES: MIN_VALID_PIXELS})
 
         assert row is not None

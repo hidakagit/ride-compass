@@ -1,6 +1,6 @@
 """`domain/wbgt_points.py`——最寄りの暑さ指数（WBGT）情報提供地点を選ぶ。
 
-地点はアメダス観測所ベースで行政区画に紐づかないため、素直な最近傍探索で選ぶ。
+選んだ地点の値を取る側は`test_wbgt_service.py`が持つ。
 """
 
 from app.domain.wbgt_points import WbgtPoint, nearest_point
@@ -29,10 +29,7 @@ def test_a_single_point_is_always_the_nearest():
 
 
 def test_longitude_differences_shrink_with_latitude():
-    """**経度差を`cos(緯度)`で補正する。** 補正しないと、高緯度では経度方向の距離を
-    過大評価し、実際には近い東西の地点より遠い南北の地点を選ぶ。
-
-    緯度45度では経度1度は緯度1度の約0.71倍の距離しかない。補正が無ければ両者は
+    """緯度45度では経度1度は緯度1度の約0.71倍の距離しかない。補正が無ければ両者は
     同距離に見え、先に並んでいる北の地点が選ばれてしまう。
     """
     north = _point("north", 46.0, 140.0)
