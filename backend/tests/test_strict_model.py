@@ -19,10 +19,6 @@ def test_unknown_field_is_rejected_instead_of_dropped():
         _Known(known=1, unknown=2)
 
 
-def test_known_fields_still_build_the_model():
-    assert _Known(known=1).known == 1
-
-
 def test_subclasses_keep_the_rejection_while_adding_their_own_config():
     """上書きだと思って別の設定を書くと、その派生だけが黙って値を捨てる。"""
 

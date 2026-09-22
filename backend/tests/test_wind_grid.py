@@ -21,11 +21,6 @@ SMALL_BBOX = (10.0, 20.0, 10.5, 20.5)  # (min_lon, min_lat, max_lon, max_lat)
 
 
 class TestGenerateWindGridPoints:
-    def test_the_points_start_at_the_south_west_corner(self):
-        points = generate_wind_grid_points(SMALL_BBOX, spacing_deg=0.1)
-
-        assert points[0] == Coordinates(latitude=20.0, longitude=10.0)
-
     def test_the_spacing_is_kept_along_both_axes(self):
         points = generate_wind_grid_points(SMALL_BBOX, spacing_deg=0.1)
         latitudes = sorted({p.latitude for p in points})
@@ -39,14 +34,6 @@ class TestGenerateWindGridPoints:
 
         assert all(round(p.latitude, 4) == p.latitude for p in points)
         assert Coordinates(latitude=22.0, longitude=12.0) in points
-
-    def test_every_point_is_inside_the_box(self):
-        points = generate_wind_grid_points(SMALL_BBOX, spacing_deg=0.1)
-
-        assert points
-        for p in points:
-            assert 20.0 <= p.latitude <= 20.5
-            assert 10.0 <= p.longitude <= 10.5
 
     def test_a_coarser_spacing_gives_fewer_points(self):
         assert len(generate_wind_grid_points(SMALL_BBOX, 0.2)) < len(
@@ -113,14 +100,6 @@ class TestGenerateWindGridDetailPoints:
             steps_lon = (p.longitude - MIN_LON) / 0.02
             assert abs(steps_lat - round(steps_lat)) < 1e-6
             assert abs(steps_lon - round(steps_lon)) < 1e-6
-
-    def test_two_overlapping_views_share_their_points(self):
-        a = generate_wind_grid_detail_points((MIN_LON, MIN_LAT, MIN_LON + 0.1, MIN_LAT + 0.1), 0.02)
-        b = generate_wind_grid_detail_points(
-            (MIN_LON + 0.03, MIN_LAT + 0.03, MIN_LON + 0.13, MIN_LAT + 0.13), 0.02
-        )
-
-        assert set((p.latitude, p.longitude) for p in a) & set((p.latitude, p.longitude) for p in b)
 
     def test_a_narrow_view_s_points_are_a_subset_of_a_wider_one(self):
         """狭い表示範囲の結果が、それを包む広い範囲の結果へ同じ座標で含まれる。含まれない

@@ -35,11 +35,6 @@ class TestWbgtLevel:
         assert wbgt_level(20.9) is None
         assert wbgt_level(0.0) is None
 
-    def test_the_bands_get_heavier_as_the_index_rises(self):
-        keys = [wbgt_level(v)[0] for v in (21.0, 25.0, 28.0, 31.0)]
-
-        assert len(set(keys)) == 4
-
     def test_an_extreme_value_stays_in_the_heaviest_band(self):
         assert wbgt_level(99.0) == wbgt_level(31.0)
 

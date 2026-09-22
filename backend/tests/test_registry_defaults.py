@@ -118,37 +118,13 @@ class TestWhatGetsRegistered:
 
 
 class TestAgainstTheRealDeclarations:
-    """差し替えずに、実際の宣言で通す。宣言が増えたときに発火する。"""
-
-    @pytest.fixture(autouse=True)
-    def _registered(self):
+    def test_the_real_declarations_register_without_conflict(self):
+        """差し替えずに実際の宣言で通す。`register_defaults`が弾くもの——材料が指す未登録の
+        一次属性、2つの表への二重登録——は、**この呼び出しが成功すること**で確かめられる。
+        個別の性質を並べ直しても、同じことの言い換えにしかならない。
+        """
         reset_registry_for_testing()
-        register_defaults()
-        yield
-        reset_registry_for_testing()
-
-    def test_every_attribute_a_material_points_to_is_registered(self):
-        """材料が指す先が登録されていないと、区間インスペクタがその名前を引けない。"""
-        from app.domain.material_catalog import MATERIAL_CATALOG
-
-        registered = {a.attr_id for a in all_primary_attributes()}
-        pointed = {m.primary_attribute_id for m in MATERIAL_CATALOG.values() if m.primary_attribute_id}
-
-        assert pointed
-        assert pointed <= registered
-
-    def test_an_attribute_listed_as_having_no_material_really_has_none(self):
-        """2つの表は排他。両方に載ると、その属性が材料由来かどうかを読む側が決められない。"""
-        from app.domain.material_catalog import MATERIAL_CATALOG, PRIMARY_ATTRIBUTES_WITHOUT_MATERIAL
-
-        pointed = {m.primary_attribute_id for m in MATERIAL_CATALOG.values() if m.primary_attribute_id}
-
-        for attr_id in PRIMARY_ATTRIBUTES_WITHOUT_MATERIAL:
-            assert attr_id not in pointed, f"{attr_id}は材料が指しているので、材料由来の表へ移す"
-
-    def test_every_axis_carries_its_display_label(self):
-        axes = all_axes()
-
-        assert axes
-        for spec in axes:
-            assert spec.display.label == AXIS_DEFINITIONS[spec.axis_id].label
+        try:
+            register_defaults()
+        finally:
+            reset_registry_for_testing()

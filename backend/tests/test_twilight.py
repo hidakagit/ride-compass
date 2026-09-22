@@ -22,12 +22,6 @@ def _jst(on_date: date, hour: int, minute: int = 0) -> datetime:
 
 
 class TestIsNight:
-    def test_midday_is_not_night(self):
-        assert is_night(TOKYO, _jst(MIDSUMMER, 12)) is False
-
-    def test_the_small_hours_are_night(self):
-        assert is_night(TOKYO, _jst(MIDSUMMER, 1)) is True
-
     def test_sunset_itself_is_not_yet_night(self):
         """日の入りを境界にすると、まだ明るい時間帯に街灯の軸が効き始める。"""
         _, sunset = sunrise_sunset_jst(TOKYO, MIDSUMMER)

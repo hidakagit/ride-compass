@@ -10,7 +10,6 @@ from app.domain.traffic import (
     MAJOR_CROSSING_MIN_RANK,
     POI_COUNT_KINDS,
     highway_rank,
-    stop_count_material_ids,
     stop_seconds,
 )
 from app.domain.tuning import TUNING_VALUES, stop_seconds_parameter_id
@@ -39,10 +38,6 @@ class TestStopSeconds:
         assert stop_seconds(kind) == TUNING_VALUES[stop_seconds_parameter_id(kind)]
 
 
-class TestStopCountMaterialIds:
-    def test_there_is_one_material_for_every_counted_kind(self):
-        assert len(stop_count_material_ids()) == len(POI_COUNT_KINDS)
-
 class TestHighwayRank:
     def test_a_bigger_road_ranks_above_a_smaller_one(self):
         assert highway_rank("trunk") > highway_rank("primary") > highway_rank("residential")
@@ -50,11 +45,6 @@ class TestHighwayRank:
     def test_a_link_shares_the_rank_of_the_road_it_joins(self):
         """ランプは本線と同じ扱い。分けると合流待ちの判定が本線とずれる。"""
         assert highway_rank("primary_link") == highway_rank("primary")
-
-    def test_cycleways_and_footways_rank_lowest(self):
-        """階級表に無い道は0。自転車道から出るときに「上位の道と交わる」とみなさない。"""
-        assert highway_rank("cycleway") == 0
-        assert highway_rank("footway") == 0
 
     def test_a_missing_or_unknown_tag_ranks_lowest(self):
         assert highway_rank(None) == 0

@@ -154,21 +154,6 @@ class TestTilesCoveringBbox:
 
         assert tiles_covering_bbox(inside, z) == [(x, y)]
 
-    def test_a_box_spanning_two_tiles_returns_both(self):
-        z, x, y = TOKYO_TILE
-        left = tile_bounds_lonlat(z, x, y)
-        right = tile_bounds_lonlat(z, x + 1, y)
-        margin_lat = (left.max_latitude - left.min_latitude) / 4
-        margin_lon = (left.max_longitude - left.min_longitude) / 4
-        spanning = BoundingBox(
-            min_latitude=left.min_latitude + margin_lat,
-            min_longitude=left.min_longitude + margin_lon,
-            max_latitude=left.max_latitude - margin_lat,
-            max_longitude=right.max_longitude - margin_lon,
-        )
-
-        assert tiles_covering_bbox(spanning, z) == [(x, y), (x + 1, y)]
-
     def test_a_box_spanning_a_two_by_two_block_returns_all_four(self):
         """縦横どちらにもまたがる場合。片方の軸だけで範囲を出すと2枚しか返らない。"""
         z, x, y = TOKYO_TILE

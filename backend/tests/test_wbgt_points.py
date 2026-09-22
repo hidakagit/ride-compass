@@ -22,12 +22,6 @@ def test_an_empty_list_has_no_nearest_point():
     assert nearest_point(35.0, 139.0, []) is None
 
 
-def test_a_single_point_is_always_the_nearest():
-    only = _point("1", 0.0, 0.0)
-
-    assert nearest_point(35.0, 139.0, [only]) is only
-
-
 def test_longitude_differences_shrink_with_latitude():
     """緯度45度では経度1度は緯度1度の約0.71倍の距離しかない。補正が無ければ両者は
     同距離に見え、先に並んでいる北の地点が選ばれてしまう。

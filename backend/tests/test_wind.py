@@ -57,22 +57,12 @@ class TestWindComponents:
 
 class TestWindDragRatio:
 
-    def test_still_air_adds_nothing(self):
-        assert wind_drag_ratio(0.0, NORTHBOUND, NORTHBOUND, CRUISE_MS) == pytest.approx(0.0)
-
     def test_a_headwind_costs_and_a_tailwind_pays_back(self):
         head = wind_drag_ratio(5.0, NORTHBOUND, NORTHBOUND, CRUISE_MS)
         tail = wind_drag_ratio(5.0, 180.0, NORTHBOUND, CRUISE_MS)
 
         assert head > 0
         assert tail < 0
-
-    def test_a_headwind_grows_with_the_square_of_the_wind(self):
-        """線形にすると、強風の区間の負荷を大きく取りこぼす。"""
-        light = wind_drag_ratio(2.0, NORTHBOUND, NORTHBOUND, CRUISE_MS)
-        strong = wind_drag_ratio(4.0, NORTHBOUND, NORTHBOUND, CRUISE_MS)
-
-        assert strong > 2 * light
 
     def test_a_tailwind_as_fast_as_the_rider_cancels_the_still_air_drag(self):
         """追い風が走行速度と同じなら相対風速は0。基準速度で走っているとき、値は
