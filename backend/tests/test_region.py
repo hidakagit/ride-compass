@@ -6,6 +6,7 @@
 import math
 
 import pytest
+from pydantic import ValidationError
 
 from app.domain.region import (
     ROAD_GRAPH_TILE_ZOOM,
@@ -39,16 +40,26 @@ class TestParseBbox:
         with pytest.raises(ValueError):
             parse_bbox("35.0,139.0,north,140.0")
 
-    def test_a_range_that_is_not_increasing_is_rejected(self):
-        """minとmaxが入れ替わっていると、覆うタイルが0件になって黙って何も処理しない。"""
-        with pytest.raises(ValueError):
-            parse_bbox("36.0,139.0,35.0,140.0")
-        with pytest.raises(ValueError):
-            parse_bbox("35.0,140.0,36.0,139.0")
 
-    def test_a_degenerate_range_is_rejected(self):
-        with pytest.raises(ValueError):
-            parse_bbox("35.0,139.0,35.0,140.0")
+class TestBoundingBox:
+
+    def test_a_range_that_is_not_increasing_is_rejected(self):
+        """4値を並べて渡す形のため、minとmaxの入れ替わりは数としては通る。矩形として
+        成立しないことをここで落とさないと、`tiles_covering_bbox`が昇順へ並べ直すぶんだけ
+        「それらしいタイル一覧」になって、黙って別の場所を処理する。
+        """
+        with pytest.raises(ValidationError):
+            BoundingBox(
+                min_latitude=36.0, min_longitude=139.0, max_latitude=35.0, max_longitude=140.0
+            )
+        with pytest.raises(ValidationError):
+            BoundingBox(
+                min_latitude=35.0, min_longitude=140.0, max_latitude=36.0, max_longitude=139.0
+            )
+        with pytest.raises(ValidationError):
+            BoundingBox(
+                min_latitude=35.0, min_longitude=139.0, max_latitude=35.0, max_longitude=140.0
+            )
 
 
 class TestTileBoundsLonlat:
