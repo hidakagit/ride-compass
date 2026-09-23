@@ -13,7 +13,7 @@
 - 表記の要件は画面の出典表記（[static-map-layers.md](../modules/frontend/static-map-layers.md)
   「出典表記」）が満たす。行を足したら、表記が要件を満たしているかも見る。
 - 観測や第三者の記事から推測して埋めない。公式の文言を読めなかった項目は「要確認」と書き、
-  確認の手順を起票する。
+  確認の手順を起票案にする（[asking-user.md](../conventions/asking-user.md)「起票は承認制」）。
 
 ## 母集団の取り方
 
