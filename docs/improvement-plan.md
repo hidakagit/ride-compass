@@ -222,5 +222,6 @@ CLAUDE.md参照。節見出しはタスクのテーマ分類で、日付は起�
 - [ ] [T1045](records/tasks/T1045.md). commit・pushが重いときがある——pre-pushの門を、検査を落とさずに速くする 規模S〜M
 - [ ] [T1046](records/tasks/T1046.md). colorトークンをTailwindのテーマへ、ダークモード追従を壊さずに取り込めるか確かめる 規模S
 - [ ] [T1049](records/tasks/T1049.md). 司令塔（複数エージェントの並行実行）の運用を規約にし、回すたびに実測で改善する 規模M
+- [ ] [T1054](records/tasks/T1054.md). 評価軸の表示名を、内部名で画面に出ない形へ一本化する（風の直書きを消す） 規模S
 
 見送りとして判断を記録したもの（台帳には載せない）: [T1036](records/tasks/T1036.md)・[T1037](records/tasks/T1037.md)・[T1038](records/tasks/T1038.md)・[T1039](records/tasks/T1039.md)・[T1040](records/tasks/T1040.md)
