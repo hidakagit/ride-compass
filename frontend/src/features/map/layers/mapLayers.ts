@@ -66,8 +66,7 @@ function attributeLabel(attrId: (typeof primaryAttributes)[number]["attr_id"]): 
 /** チップの説明文へ差し込む種別名の並び。**凡例と同じ宣言から作る**——説明文が別に
  * 数え上げると、種別を足したときに説明文だけが古くなる。 */
 function pointKindList(role: string): string {
-  const axis = pointLegendAxes().find((entry) => entry.layerId === role);
-  return axis === undefined ? "" : legendKindList(axis.entries);
+  return legendKindList(pointLegendAxes().find((entry) => entry.layerId === role)!.entries);
 }
 
 /** 地図に載るものの名前。**静的な一覧は源泉が持つ**（`domain/map_display.py`が一次属性から

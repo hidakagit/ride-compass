@@ -8,7 +8,7 @@ import { fetchJson } from "@/lib/fetchJson";
 import { tileBaseUrl } from "@/lib/tileBaseUrl";
 import { DEFAULT_API_TIMEOUT_MS } from "@/lib/apiTimeouts";
 import { mapDisplay } from "@/types/generated/mapDisplay";
-import type { DynamicWeatherRenderPayload } from "@/features/map/layers/dynamicWeather";
+import type { DynamicWeatherFrame, DynamicWeatherRenderPayload } from "@/features/map/layers/dynamicWeather";
 
 // JMA bosaiタイル系（時刻一覧JSON・ラスタタイルPNG）の共通ベースURL。
 // バックエンドのプロキシ＋キャッシュ（backend/app/infrastructure/jma_tile_client.py、
@@ -112,8 +112,7 @@ interface JmaTileTarget {
   /** risk/rasrfはエントリ自身が持つ値、nowcは常に"none"。 */
   member: string;
   validtime: string;
-  /** 洪水キキクルのみベクタタイル。 */
-  extension?: "png" | "pbf";
+  extension: "png" | "pbf";
 }
 
 /** ソース初期化時の仮URLに使う、実在しない時刻。 */
@@ -127,8 +126,7 @@ const PLACEHOLDER_TIME = "00000000000000";
  * 組み立てると、要素を1つ足すたびに同じ並びを書き写すことになる。
  */
 export function jmaTileUrlTemplate(target: JmaTileTarget): string {
-  const extension = target.extension ?? "png";
-  return jmaElementUrl(target, `{z}/{x}/{y}.${extension}`);
+  return jmaElementUrl(target, `{z}/{x}/{y}.${target.extension}`);
 }
 
 /**
@@ -170,14 +168,10 @@ export interface JmaNowcastFrame {
 interface RawJmaTargetTime {
   basetime: string;
   validtime: string;
-  /** このエントリが実際にカバーする要素id（例: "thns"=雷ナウキャスト、"trns"=竜巻発生確度
-   * ナウキャスト、"liden"=雷放電位置データ）。降水ナウキャスト（N1/N2）は1エントリ1要素
-   * 固定のため使わないが、雷・竜巻（N3）は5分おきのエントリの一部が"liden"のみ（雷放電
-   * 位置データのみ、雷ナウキャスト自体は10分おきにしか更新されないため）で、その回だけ
-   * thns/trnsのタイルが存在しない（5分ズレのbasetimeを使うと雷ナウキャストタイルが
-   * 404になる）。thunderNowcast.ts側で、この配列にthns/trnsが含まれるエントリだけへ
-   * 絞り込むために使う。 */
-  elements?: string[];
+  /** このエントリのタイルがある要素id。1つのファイルに複数の要素が載り、要素ごとに更新間隔が
+   * 違う——雷・竜巻（N3）は5分おきのエントリの一部が落雷（"liden"）だけを持ち、その回は
+   * 雷ナウキャストのタイルが無い（取りに行くと404）。 */
+  elements: string[];
 }
 
 // 未解決のフェッチだけを時刻一覧のパスごとに共有する（useAxisCatalog.tsのinFlightCatalogFetchと
@@ -235,6 +229,22 @@ export async function fetchJmaTargetTimes<T = RawJmaTargetTime>(delivery: JmaDel
     throw firstFailure?.status === "rejected" ? firstFailure.reason : new Error(`${label}の時刻一覧が宣言されていない`);
   }
   return fulfilled.flatMap((result) => result.value) as T[];
+}
+
+/** 配信要素の時刻一覧から、その要素のタイルがあるエントリだけを時刻順のフレームにする。
+ * 予測はvalidtimeがbasetimeより先のエントリ。 */
+export async function fetchJmaNowcastFrames(key: JmaElementKey, label: string): Promise<JmaNowcastFrame[]> {
+  const delivery = jmaDelivery(key);
+  const raw = await fetchJmaTargetTimes(delivery, label);
+  return raw
+    .filter((entry) => entry.elements.includes(delivery.id))
+    .map(({ basetime, validtime }) => ({ basetime, validtime, isForecast: validtime > basetime }))
+    .sort((a, b) => a.validtime.localeCompare(b.validtime));
+}
+
+/** 共有タイムラインへ載せるフレーム列。refはフレームそのもの。 */
+export function jmaFrameTimeline<T extends JmaNowcastFrame>(frames: readonly T[]): DynamicWeatherFrame<T>[] {
+  return frames.map((frame) => ({ time: parseValidtime(frame.validtime), ref: frame }));
 }
 
 /** 実況の最新フレーム（＝「現在」に最も近い実況値）のindex。実況フレームが1件も無ければ

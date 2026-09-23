@@ -1,159 +1,131 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
+
+import { LAYER_DATA_STATUS_LABELS } from "@/features/map/layers/mapLayers";
+import { FIXED_LENS_LABELS, LENS_DIFFICULTY_ID, LENS_NONE_ID } from "@/lib/mapDisplay/routeStyleModes";
+
 import LensControl, { type LensOption } from "./LensControl";
 
-const OPTIONS: LensOption[] = [
-  { id: "wind", label: "風", color: "#111", unused: false, routeOnly: false },
-  { id: "axis_sample", label: "見本の軸", color: "#222", unused: false, routeOnly: false },
-  { id: "night", label: "夜間", color: "#333", unused: true, routeOnly: true },
-];
-
+const option = (id: string, overrides: Partial<LensOption> = {}): LensOption => ({
+  id,
+  label: `${id}の軸`,
+  color: "#123456",
+  unused: false,
+  routeOnly: false,
+  ...overrides,
+});
+const OPTIONS = [option("used"), option("idle", { unused: true }), option("route", { routeOnly: true })];
 const LEGEND = [
-  { key: "a", label: "0〜50", color: "#0f0", filter: [] },
-  { key: "b", label: "50〜100", color: "#f00", filter: [] },
+  { key: "step-0", label: "低い", color: "#00ff00", filter: [] },
+  { key: "step-1", label: "高い", color: "#ff0000", filter: [] },
 ];
 
-function baseProps(overrides: Partial<Parameters<typeof LensControl>[0]> = {}) {
-  return {
-    lens: "difficulty",
+function renderLens(props: Partial<Parameters<typeof LensControl>[0]> = {}) {
+  const handlers = {
     onLensChange: vi.fn(),
-    axisOptions: OPTIONS,
-    legend: LEGEND,
-    hiddenLegendKeys: [] as readonly string[],
     onToggleLegendKey: vi.fn(),
     onSetHiddenLegendKeys: vi.fn(),
-    keepAfterRoute: true,
     onKeepAfterRouteChange: vi.fn(),
-    hasDetail: false,
-    ...overrides,
   };
+  render(
+    <LensControl
+      lens="used"
+      axisOptions={OPTIONS}
+      legend={LEGEND}
+      hiddenLegendKeys={[]}
+      keepAfterRoute
+      hasDetail={false}
+      {...handlers}
+      {...props}
+    />,
+  );
+  return handlers;
 }
+const pill = () => screen.getByRole("button", { name: /^レンズ:/ });
+const open = () => userEvent.click(pill());
 
-describe("LensControl", () => {
-  it("ピルは現在のレンズ名を示し、タップで単一選択の一覧（なし/総合難易度/使用中/未使用）が開く", async () => {
-    const user = userEvent.setup();
-    render(<LensControl {...baseProps()} />);
+describe("LensControl（レンズのピル）", () => {
+  it("ピルは今のレンズの名前（固定のレンズは固定の名前）を出し、隠していない段の色見本を並べる", () => {
+    renderLens({ hiddenLegendKeys: ["step-1"] });
+    expect(pill()).toHaveAccessibleName("レンズ: usedの軸（タップで変更）");
+    const swatches = pill().querySelectorAll("[title]");
+    expect([...swatches].map((swatch) => swatch.getAttribute("title"))).toEqual(["低い"]);
+  });
 
-    await user.click(screen.getByRole("button", { name: "レンズ: 総合難易度（タップで変更）" }));
+  it("固定のレンズ（なし・総合難易度）は固定の名前", () => {
+    renderLens({ lens: LENS_DIFFICULTY_ID });
+    expect(pill()).toHaveAccessibleName(`レンズ: ${FIXED_LENS_LABELS[LENS_DIFFICULTY_ID]}（タップで変更）`);
+  });
 
-    const radios = screen.getAllByRole("radio");
-    expect(radios.map((r) => r.textContent)).toEqual([
-      "なし",
-      "総合難易度",
-      "風",
-      "見本の軸",
-      "夜間未使用ルート後のみ",
+  it("取得状態は、ピルのtitleと、開いた先の文で伝える", async () => {
+    renderLens({ dataStatus: "error" });
+    expect(pill()).toHaveAttribute("title", LAYER_DATA_STATUS_LABELS.error);
+    await open();
+    expect(screen.getByRole("status")).toHaveTextContent(LAYER_DATA_STATUS_LABELS.error);
+  });
+
+  it("選択肢は「なし」「総合難易度」、評価に使用中の軸、未使用の軸の順で、未使用・ルート後のみの印を付ける", async () => {
+    renderLens();
+    await open();
+    const group = screen.getByRole("radiogroup", { name: "レンズ" });
+    const labels = within(group)
+      .getAllByRole("radio")
+      .map((item) => item.textContent);
+    expect(labels).toEqual([
+      FIXED_LENS_LABELS[LENS_NONE_ID],
+      FIXED_LENS_LABELS[LENS_DIFFICULTY_ID],
+      "usedの軸",
+      "routeの軸ルート後のみ",
+      "idleの軸未使用",
     ]);
-    expect(screen.getByRole("radio", { name: /総合難易度/ })).toHaveAttribute("aria-checked", "true");
-    expect(screen.getByText("評価に使用中")).toBeInTheDocument();
-    expect(screen.getAllByText("未使用")).toHaveLength(2); // グループ見出し＋バッジ
+    expect(within(group).getByText("評価に使用中")).toBeInTheDocument();
+    // 見出しの「未使用」と、未使用の軸の印
+    expect(within(group).getAllByText("未使用")).toHaveLength(2);
   });
 
-  it("選択するとonLensChangeが呼ばれ、ポップオーバーが閉じる", async () => {
-    const user = userEvent.setup();
-    const onLensChange = vi.fn();
-    render(<LensControl {...baseProps({ onLensChange })} />);
-
-    await user.click(screen.getByRole("button", { name: /レンズ:/ }));
-    await user.click(screen.getByRole("radio", { name: /^風$/ }));
-
-    expect(onLensChange).toHaveBeenCalledWith("wind");
-    expect(screen.queryByRole("radiogroup")).not.toBeInTheDocument();
-  });
-
-  it("重み0の軸も選べる（未使用バッジ付き）。ルート後は「ルート後のみ」バッジを出さない", async () => {
-    const user = userEvent.setup();
-    const onLensChange = vi.fn();
-    render(<LensControl {...baseProps({ onLensChange, hasDetail: true })} />);
-
-    await user.click(screen.getByRole("button", { name: /レンズ:/ }));
+  it("ルート確定後は「ルート後のみ」を付けず、使用中・未使用の見出しは中身があるときだけ", async () => {
+    renderLens({ hasDetail: true, axisOptions: [option("used")] });
+    await open();
     expect(screen.queryByText("ルート後のみ")).not.toBeInTheDocument();
-    await user.click(screen.getByRole("radio", { name: /夜間/ }));
-
-    expect(onLensChange).toHaveBeenCalledWith("night");
+    expect(screen.queryByText("未使用")).not.toBeInTheDocument();
   });
 
-  it("「ルート後も周囲の道路を薄く塗る」の切替がonKeepAfterRouteChangeへ届く", async () => {
-    const user = userEvent.setup();
-    const onKeepAfterRouteChange = vi.fn();
-    render(<LensControl {...baseProps({ onKeepAfterRouteChange })} />);
+  it("選ぶとレンズを変えて閉じる", async () => {
+    const { onLensChange } = renderLens();
+    await open();
+    await userEvent.click(screen.getByRole("radio", { name: /idleの軸/ }));
+    expect(onLensChange).toHaveBeenCalledWith("idle");
+    expect(screen.queryByRole("radiogroup", { name: "レンズ" })).not.toBeInTheDocument();
+  });
 
-    await user.click(screen.getByRole("button", { name: /レンズ:/ }));
-    await user.click(screen.getByRole("checkbox", { name: "ルート後も周囲の道路を薄く塗る" }));
-
+  it("ルート後も周囲を塗るかを切り替えられる", async () => {
+    const { onKeepAfterRouteChange } = renderLens();
+    await open();
+    await userEvent.click(screen.getByRole("checkbox", { name: "ルート後も周囲の道路を薄く塗る" }));
     expect(onKeepAfterRouteChange).toHaveBeenCalledWith(false);
   });
 
-  it("ルート後は凡例の段階を非表示にできる（hiddenLegendKeys/onToggleLegendKeyがあるときだけチェックボックス）", async () => {
-    const user = userEvent.setup();
-    const onToggleLegendKey = vi.fn();
-    render(<LensControl {...baseProps({ hasDetail: true, hiddenLegendKeys: [], onToggleLegendKey })} />);
-
-    await user.click(screen.getByRole("button", { name: /レンズ:/ }));
-    await user.click(screen.getByRole("checkbox", { name: /0〜50/ }));
-
-    expect(onToggleLegendKey).toHaveBeenCalledWith("a");
+  it("凡例の見出しのチェックは、全段を隠す／全段を戻す", async () => {
+    const first = renderLens();
+    await open();
+    await userEvent.click(screen.getByRole("checkbox", { name: "凡例の全段階をまとめて表示/非表示" }));
+    expect(first.onSetHiddenLegendKeys).toHaveBeenCalledWith(["step-0", "step-1"]);
+    await userEvent.click(screen.getByRole("checkbox", { name: "低い" }));
+    expect(first.onToggleLegendKey).toHaveBeenCalledWith("step-0");
   });
 
-  it("レンズ「なし」でもピルは残る（入口が消えない）", () => {
-    render(<LensControl {...baseProps({ lens: "none", legend: [] })} />);
-
-    expect(screen.getByRole("button", { name: "レンズ: なし（タップで変更）" })).toBeInTheDocument();
+  it("一部でも隠していれば、見出しのチェックは全段を戻す", async () => {
+    const { onSetHiddenLegendKeys } = renderLens({ hiddenLegendKeys: ["step-0"] });
+    await open();
+    await userEvent.click(screen.getByRole("checkbox", { name: "凡例の全段階をまとめて表示/非表示" }));
+    expect(onSetHiddenLegendKeys).toHaveBeenCalledWith([]);
   });
 
-  it("ルート確定前でも凡例の段階をチェックで絞り込める（ルート前の全道路の塗りが対象）", async () => {
-    const user = userEvent.setup();
-    const onToggleLegendKey = vi.fn();
-    render(<LensControl {...baseProps({ hasDetail: false, onToggleLegendKey })} />);
-
-    await user.click(screen.getByRole("button", { name: /レンズ:/ }));
-    await user.click(screen.getByRole("checkbox", { name: "0〜50" }));
-
-    expect(onToggleLegendKey).toHaveBeenCalledWith("a");
-  });
-
-  it("凡例の見出しチェックで全段階をまとめて隠し、もう一度押すと全部戻る", async () => {
-    const user = userEvent.setup();
-    const onSetHiddenLegendKeys = vi.fn();
-    const { rerender } = render(<LensControl {...baseProps({ onSetHiddenLegendKeys })} />);
-
-    await user.click(screen.getByRole("button", { name: /レンズ:/ }));
-    await user.click(screen.getByRole("checkbox", { name: "凡例の全段階をまとめて表示/非表示" }));
-    expect(onSetHiddenLegendKeys).toHaveBeenCalledWith(["a", "b"]);
-
-    rerender(<LensControl {...baseProps({ onSetHiddenLegendKeys, hiddenLegendKeys: ["a", "b"] })} />);
-    await user.click(screen.getByRole("checkbox", { name: "凡例の全段階をまとめて表示/非表示" }));
-    expect(onSetHiddenLegendKeys).toHaveBeenLastCalledWith([]);
-  });
-
-  it("非表示にした段階はピルの色見本から消える", async () => {
-    render(<LensControl {...baseProps({ hiddenLegendKeys: ["a"] })} />);
-
-    const swatches = screen.getByRole("button", { name: /レンズ:/ }).querySelectorAll("[title]");
-    expect([...swatches].map((s) => s.getAttribute("title"))).toEqual(["50〜100"]);
-  });
-
-  it("dataStatus未指定（正常時）はピルにtitleを付けない", () => {
-    render(<LensControl {...baseProps({ lens: "wind" })} />);
-
-    expect(screen.getByRole("button", { name: /レンズ:/ })).not.toHaveAttribute("title");
-  });
-
-  it("状態があるとき、開いたポップオーバーで状態を文として読める（titleに頼らない）", async () => {
-    const user = userEvent.setup();
-    render(<LensControl {...baseProps({ lens: "wind", dataStatus: "loading" })} />);
-
-    await user.click(screen.getByRole("button", { name: /レンズ:/ }));
-    expect(screen.getByRole("status")).toHaveTextContent("読み込み中です");
-  });
-
-  it("dataStatus='error'のとき、専用配信軸のフェッチ失敗をピルのtitleで示す", () => {
-    render(<LensControl {...baseProps({ lens: "wind", dataStatus: "error" })} />);
-
-    expect(screen.getByRole("button", { name: /レンズ:/ })).toHaveAttribute(
-      "title",
-      "データの取得に失敗しました。しばらくしてから再読み込みしてください",
-    );
+  it("凡例が無いレンズは、ピルにも開いた先にも凡例を出さない", async () => {
+    renderLens({ legend: [] });
+    expect(pill().querySelectorAll("[title]")).toHaveLength(0);
+    await open();
+    expect(screen.queryByText("凡例")).not.toBeInTheDocument();
   });
 });

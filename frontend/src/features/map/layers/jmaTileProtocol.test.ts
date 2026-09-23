@@ -1,307 +1,159 @@
 // @vitest-environment node
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-
 import { inflateSync } from "node:zlib";
 
-import type { JmaTileIndexResponse } from "@/features/map/layers/jmaTileIndex";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-type ProtocolHandler = (params: { url: string }, abort: AbortController) => Promise<{ data: ArrayBuffer | Uint8Array }>;
+const { addProtocol, debugLog } = vi.hoisted(() => ({ addProtocol: vi.fn(), debugLog: vi.fn() }));
+vi.mock("maplibre-gl", () => ({ addProtocol }));
+vi.mock("@/lib/debugLog", () => ({ debugLog }));
 
-const { protocolHandlers } = vi.hoisted(() => ({ protocolHandlers: new Map<string, ProtocolHandler>() }));
+type Handler = (params: { url: string }, abort: AbortController) => Promise<{ data: ArrayBuffer | Uint8Array }>;
 
-vi.mock("maplibre-gl", () => ({
-  addProtocol: (scheme: string, handler: ProtocolHandler) => protocolHandlers.set(scheme, handler),
-}));
-
-const BT = "20260907025000";
-const REAL_URL = `https://example.test/api/jma-tile/bosai/jmatile/data/risk/${BT}/immed0/${BT}/surf/rain_mesh/10/909/403.png`;
-
-const INDEX: JmaTileIndexResponse = {
+const BASETIME = "20260924000000";
+const VALIDTIME = "20260924010000";
+const PREFIX = `https://www.jma.go.jp/bosai/jmatile/data/risk/${BASETIME}/none/${VALIDTIME}/surf/inund/`;
+const EMPTY_PNG_URL = `${PREFIX}5/28/12.png`;
+const PRESENT_PNG_URL = `${PREFIX}5/28/13.png`;
+const INDEX = {
   available: true,
-  coverage: {
-    min_longitude: 138.35,
-    min_latitude: 34.85,
-    max_longitude: 140.95,
-    max_latitude: 37.2,
-  },
-  elements: {
-    // (909,403)にだけ中身がある。
-    rain_mesh: { basetime: BT, validtime: BT, member: "immed0", zooms: { "10": [[909, 403]] } },
-  },
+  coverage: { min_longitude: 122, min_latitude: 24, max_longitude: 146, max_latitude: 46 },
+  elements: { inund: { basetime: BASETIME, validtime: VALIDTIME, member: "none", zooms: { "5": [[28, 13]] } } },
 };
 
-/** ハンドラが受け取るのと同じ形のタイルURL。 */
-function tileUrl(basetime: string, x: number, y: number): string {
-  return `https://example.test/api/jma-tile/bosai/jmatile/data/nowc/${basetime}/immed0/${basetime}/surf/rain_mesh/10/${x}/${y}.png`;
+// 失敗の記録とインデックスはモジュールが持つため、テストごとに読み込み直す。
+async function load() {
+  vi.resetModules();
+  addProtocol.mockClear();
+  const protocol = await import("./jmaTileProtocol");
+  protocol.registerJmaTileProtocol();
+  const handler = addProtocol.mock.calls[0][1] as Handler;
+  const request = (url: string, abort = new AbortController()) =>
+    handler({ url: protocol.withJmaTileProtocol(url) }, abort);
+  return { ...protocol, request };
 }
 
-/** インデックスに載っていない＝空と分かっているタイル。 */
-const EMPTY_TILE = tileUrl(BT, 910, 403);
-/** インデックスに載っている＝中身があるタイル。 */
-const FILLED_TILE = tileUrl(BT, 909, 403);
-
-// このモジュールはインデックスと失敗の記録をモジュールスコープに持つ（ハンドラはMapLibre
-// 内部から都度呼ばれるため）。テストごとに読み込み直して初期状態へ戻す——**本番へ
-// 「テストのために戻す」口を置かないため**。
-let mod: typeof import("@/features/map/layers/jmaTileProtocol");
-let handler: ProtocolHandler;
-
-beforeEach(async () => {
-  vi.resetModules();
-  protocolHandlers.clear();
-  mod = await import("@/features/map/layers/jmaTileProtocol");
-  mod.registerJmaTileProtocol();
-  handler = protocolHandlers.get("jmatile") as ProtocolHandler;
-  expect(handler).toBeDefined();
+const fetchMock = vi.fn<typeof fetch>();
+beforeEach(() => {
+  fetchMock.mockReset();
+  debugLog.mockClear();
+  vi.stubGlobal("fetch", fetchMock);
 });
-
 afterEach(() => {
   vi.unstubAllGlobals();
-  vi.restoreAllMocks();
 });
 
-/** 配信元の応答を差し替え、呼ばれたかを見られるようにする。 */
-function stubFetch(status = 200): ReturnType<typeof vi.fn> {
-  const fetchMock = vi.fn(
-    async () => ({ ok: status < 400, status, arrayBuffer: async () => new ArrayBuffer(0) }) as Response,
-  );
-  vi.stubGlobal("fetch", fetchMock);
-  return fetchMock;
-}
-
-/** 空と分かっているタイルをハンドラから受け取る。 */
-async function emptyTileBytes(url: string): Promise<Uint8Array> {
-  mod.setJmaTileIndex(INDEX);
-  const { data } = await handler({ url: mod.withJmaTileProtocol(url) }, new AbortController());
-  return data as Uint8Array;
-}
-
-describe("URLのスキーム", () => {
-  it("スキームを剥がした実URLへ取りに行く", async () => {
-    const fetchMock = stubFetch();
-
-    await handler({ url: mod.withJmaTileProtocol(REAL_URL) }, new AbortController());
-
-    expect(fetchMock).toHaveBeenCalledWith(REAL_URL, expect.anything());
-  });
-
-  it("スキームが付いていないURLはそのまま使う", async () => {
-    const fetchMock = stubFetch();
-
-    await handler({ url: REAL_URL }, new AbortController());
-
-    expect(fetchMock).toHaveBeenCalledWith(REAL_URL, expect.anything());
-  });
-});
-
-// 間引きが効いているかは「ネットワークへ出たか」でしか確かめられない。インデックスを
-// 保持しているかだけを見ると、古いものを握り続けても気づけない。
-describe("インデックスによる間引き", () => {
-  it("インデックスが無い間は間引かない", async () => {
-    const fetchMock = stubFetch();
-
-    await handler({ url: mod.withJmaTileProtocol(EMPTY_TILE) }, new AbortController());
-
-    expect(fetchMock).toHaveBeenCalled();
-  });
-
-  it("available:false も無効として扱う", async () => {
-    mod.setJmaTileIndex({ available: false });
-    const fetchMock = stubFetch();
-
-    await handler({ url: mod.withJmaTileProtocol(EMPTY_TILE) }, new AbortController());
-
-    expect(fetchMock).toHaveBeenCalled();
-  });
-
-  it("空と分かっているタイルはネットワークへ出さない", async () => {
-    mod.setJmaTileIndex(INDEX);
-    const fetchMock = stubFetch();
-
-    await handler({ url: mod.withJmaTileProtocol(EMPTY_TILE) }, new AbortController());
-
-    expect(fetchMock).not.toHaveBeenCalled();
-  });
-
-  it("中身のあるタイルは取りに行く", async () => {
-    mod.setJmaTileIndex(INDEX);
-    const fetchMock = stubFetch();
-
-    await handler({ url: mod.withJmaTileProtocol(FILLED_TILE) }, new AbortController());
-
-    expect(fetchMock).toHaveBeenCalled();
-  });
-
-  it("nullへ戻すと間引きが止まる", async () => {
-    mod.setJmaTileIndex(INDEX);
-    mod.setJmaTileIndex(null);
-    const fetchMock = stubFetch();
-
-    await handler({ url: mod.withJmaTileProtocol(EMPTY_TILE) }, new AbortController());
-
-    expect(fetchMock).toHaveBeenCalled();
-  });
-
-  it("差し替えるたびに最新のものが使われる", async () => {
-    const NEW_BT = "20260907030000";
-    mod.setJmaTileIndex(INDEX);
-    // basetimeが進んだ新しいインデックスへ差し替え（新しい版では909,403に中身が無い）。
-    mod.setJmaTileIndex({
-      ...INDEX,
-      elements: {
-        rain_mesh: { basetime: NEW_BT, validtime: NEW_BT, member: "immed0", zooms: { "10": [[910, 403]] } },
-      },
-    });
-    const fetchMock = stubFetch();
-
-    // 旧basetimeのURLは判定の対象外へ落ちる（古い版で判定し続けない）。
-    await handler({ url: mod.withJmaTileProtocol(tileUrl(BT, 910, 403)) }, new AbortController());
-    // 新しい版で中身があるタイルも取りに行く。
-    await handler({ url: mod.withJmaTileProtocol(tileUrl(NEW_BT, 910, 403)) }, new AbortController());
-    expect(fetchMock).toHaveBeenCalledTimes(2);
-
-    // 新しい版に載っていないタイルだけが空。
-    await handler({ url: mod.withJmaTileProtocol(tileUrl(NEW_BT, 909, 403)) }, new AbortController());
-    expect(fetchMock).toHaveBeenCalledTimes(2);
-  });
-});
-
-describe("空タイルとして返すもの", () => {
-  /** PNGのIHDRとIDATから1画素目のRGBAを取り出す。 */
-  function firstPixel(png: Uint8Array): { width: number; height: number; rgba: number[] } {
-    const view = new DataView(png.buffer, png.byteOffset, png.byteLength);
-    let pos = 8;
-    let width = 0;
-    let height = 0;
-    const idat: Uint8Array[] = [];
-    while (pos < png.length) {
-      const length = view.getUint32(pos);
-      const type = String.fromCharCode(...png.slice(pos + 4, pos + 8));
-      const data = png.slice(pos + 8, pos + 8 + length);
-      if (type === "IHDR") {
-        width = view.getUint32(pos + 8);
-        height = view.getUint32(pos + 12);
-        // カラータイプ6（RGBA）以外だと下の画素の読み方が変わる。
-        expect(data[9]).toBe(6);
-      }
-      if (type === "IDAT") idat.push(data);
-      pos += 12 + length;
-    }
-    const raw = inflateSync(Buffer.concat(idat.map((d) => Buffer.from(d))));
-    // 先頭1バイトは行のフィルタ種別。
-    return { width, height, rgba: [...raw.slice(1, 5)] };
+/** PNGの画素がすべて完全な透明か（IDATを展開し、各行のフィルタ種別の後ろを見る）。 */
+function isFullyTransparentPng(bytes: Uint8Array): boolean {
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  const idat: number[] = [];
+  for (let at = 8; at < bytes.length;) {
+    const length = view.getUint32(at);
+    const type = String.fromCharCode(...bytes.subarray(at + 4, at + 8));
+    if (type === "IDAT") idat.push(...bytes.subarray(at + 8, at + 8 + length));
+    at += 12 + length;
   }
+  const raw = inflateSync(Uint8Array.from(idat));
+  expect(raw.length).toBeGreaterThan(1);
+  return raw.subarray(1).every((value) => value === 0);
+}
 
-  it("ラスタは1画素が完全に透明なPNG", async () => {
-    const { width, height, rgba } = firstPixel(await emptyTileBytes(EMPTY_TILE));
-
-    expect([width, height]).toEqual([1, 1]);
-    // MapLibreはこの1画素をタイル全面へ引き伸ばす。不透明な画素だと地図全体が塗られる
-    // （災害レイヤーが関東全域を緑一色にした実例、docs/records/tasks/T754.md）。
-    expect(rgba).toEqual([0, 0, 0, 0]);
+describe("jmatile:// プロトコル", () => {
+  it("MapLibreへの登録は1回だけ", async () => {
+    const { registerJmaTileProtocol } = await load();
+    registerJmaTileProtocol();
+    expect(addProtocol).toHaveBeenCalledTimes(1);
+    expect(addProtocol.mock.calls[0][0]).toBe("jmatile");
   });
 
-  it("ラスタの空タイルは要求のたびに別のバッファ", async () => {
-    const first = await emptyTileBytes(EMPTY_TILE);
-    const second = await emptyTileBytes(EMPTY_TILE);
+  it("空と分かっているタイルはネットワークへ出さず、完全に透明な画像を毎回新しく作って返す", async () => {
+    const { setJmaTileIndex, request } = await load();
+    setJmaTileIndex(INDEX);
+    const first = (await request(EMPTY_PNG_URL)).data as Uint8Array;
+    const second = (await request(EMPTY_PNG_URL)).data as Uint8Array;
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(isFullyTransparentPng(first)).toBe(true);
+    expect(second.buffer).not.toBe(first.buffer);
+  });
 
-    expect(first.buffer).not.toBe(second.buffer);
+  it("空と分かっているベクタタイルは0バイト（地物なし）", async () => {
+    const { setJmaTileIndex, request } = await load();
+    setJmaTileIndex(INDEX);
+    expect((await request(EMPTY_PNG_URL.replace(".png", ".pbf"))).data).toHaveLength(0);
+  });
+
+  it("それ以外は実URLへ取りに行き、中身をそのまま返す（インデックスが無い間は全部取りに行く）", async () => {
+    const { setJmaTileIndex, request } = await load();
+    fetchMock.mockImplementation(async () => new Response(new Uint8Array([1, 2, 3])));
+    const abort = new AbortController();
+    const { data } = await request(EMPTY_PNG_URL, abort);
+    expect(fetchMock).toHaveBeenCalledWith(EMPTY_PNG_URL, { signal: abort.signal });
+    expect(new Uint8Array(data as ArrayBuffer)).toEqual(new Uint8Array([1, 2, 3]));
+
+    setJmaTileIndex(INDEX);
+    await request(PRESENT_PNG_URL);
+    expect(fetchMock).toHaveBeenLastCalledWith(PRESENT_PNG_URL, expect.anything());
   });
 });
 
-// MapLibreはタイルのデータをWorkerへtransferして渡すため、返したArrayBufferはdetachedに
-// なる。空タイルを共有のインスタンスで返していると、2回目以降のpostMessageが
-// "An ArrayBuffer is detached and could not be cloned"で失敗し、そのタイルが描画されない。
-// 空タイルは404（疎な格子状タイルの正常系）でも返るため、実機では常時起きる。
-describe("空タイルのバッファ", () => {
-  const PBF_URL = "https://example.test/api/jma-tile/bosai/jmatile/data/risk/flood/10/909/403.pbf";
+describe("配信の失敗の記録", () => {
+  it("5xxは空タイルで代替し、要素配下のURLを失敗として記録して購読者へ知らせる", async () => {
+    const { request, jmaTileFailures, subscribeJmaTileFailures } = await load();
+    const listener = vi.fn();
+    subscribeJmaTileFailures(listener);
+    fetchMock.mockResolvedValue(new Response(null, { status: 503 }));
 
-  it("要求のたびに別のバッファを返す（1つ目をtransferしても2つ目が壊れない）", async () => {
-    stubFetch(500);
-
-    const first = (await handler({ url: mod.withJmaTileProtocol(PBF_URL) }, new AbortController())).data as Uint8Array;
-    const second = (await handler({ url: mod.withJmaTileProtocol(PBF_URL) }, new AbortController())).data as Uint8Array;
-
-    const firstBuffer = first.buffer as ArrayBuffer;
-    const secondBuffer = second.buffer as ArrayBuffer;
-    expect(firstBuffer).not.toBe(secondBuffer);
-    structuredClone(firstBuffer, { transfer: [firstBuffer] });
-    expect(firstBuffer.detached).toBe(true);
-    expect(secondBuffer.detached).toBe(false);
-  });
-});
-
-// 配信の障害は空タイルで代替されるため、MapLibreのソースイベントにも地図の見た目にも
-// 現れない。「平常時は透明」が正常系のレイヤーで危険度ゼロと見分けるための記録。
-describe("配信障害の記録", () => {
-  const ELEMENT_PREFIX = `https://example.test/api/jma-tile/bosai/jmatile/data/risk/${BT}/immed0/${BT}/surf/rain_mesh/`;
-
-  it("5xxはその要素の失敗として残り、購読者へ届く", async () => {
-    const notified = vi.fn();
-    const unsubscribe = mod.subscribeJmaTileFailures(notified);
-    stubFetch(503);
-
-    await handler({ url: mod.withJmaTileProtocol(REAL_URL) }, new AbortController());
-
-    expect(mod.jmaTileFailures().get("rain_mesh")).toBe(ELEMENT_PREFIX);
-    expect(notified).toHaveBeenCalled();
-    unsubscribe();
+    const { data } = await request(PRESENT_PNG_URL);
+    expect(isFullyTransparentPng(data as Uint8Array)).toBe(true);
+    expect(jmaTileFailures()).toEqual(new Map([["inund", PREFIX]]));
+    expect(listener).toHaveBeenCalledTimes(1);
+    expect(debugLog).toHaveBeenCalledWith("weather", expect.any(String), expect.anything(), "warn");
   });
 
-  it("取得できるようになれば解除される", async () => {
-    stubFetch(503);
-    await handler({ url: mod.withJmaTileProtocol(REAL_URL) }, new AbortController());
-    expect(mod.jmaTileFailures().size).toBe(1);
-
-    stubFetch(200);
-    await handler({ url: mod.withJmaTileProtocol(REAL_URL) }, new AbortController());
-
-    expect(mod.jmaTileFailures().size).toBe(0);
+  it("同じ失敗が続く間は記録の参照を変えず、知らせもしない", async () => {
+    const { request, jmaTileFailures, subscribeJmaTileFailures } = await load();
+    fetchMock.mockResolvedValue(new Response(null, { status: 500 }));
+    await request(PRESENT_PNG_URL);
+    const recorded = jmaTileFailures();
+    const listener = vi.fn();
+    subscribeJmaTileFailures(listener);
+    await request(`${PREFIX}5/29/13.png`);
+    expect(jmaTileFailures()).toBe(recorded);
+    expect(listener).not.toHaveBeenCalled();
   });
 
-  // 疎な格子状タイルでは404が正常系で、配信元が「空」と答えている＝配信は生きている。
-  it("404は失敗として数えず、直前の失敗を解除する", async () => {
-    stubFetch(503);
-    await handler({ url: mod.withJmaTileProtocol(REAL_URL) }, new AbortController());
+  it("配信元が応答すれば（404の空応答も含む）その要素の失敗を消す", async () => {
+    const { request, jmaTileFailures } = await load();
+    fetchMock.mockResolvedValueOnce(new Response(null, { status: 502 }));
+    await request(PRESENT_PNG_URL);
+    fetchMock.mockResolvedValueOnce(new Response(null, { status: 404 }));
+    await request(PRESENT_PNG_URL);
+    expect(jmaTileFailures().size).toBe(0);
+    expect(debugLog).toHaveBeenCalledTimes(1);
 
-    stubFetch(404);
-    await handler({ url: mod.withJmaTileProtocol(REAL_URL) }, new AbortController());
-
-    expect(mod.jmaTileFailures().size).toBe(0);
+    fetchMock.mockResolvedValueOnce(new Response(null, { status: 502 }));
+    await request(PRESENT_PNG_URL);
+    fetchMock.mockResolvedValueOnce(new Response(new Uint8Array([1])));
+    await request(PRESENT_PNG_URL);
+    expect(jmaTileFailures().size).toBe(0);
   });
 
-  it("配信元へ到達できない場合も失敗として残す", async () => {
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async () => {
-        throw new TypeError("Failed to fetch");
-      }),
-    );
+  it("到達できなければ失敗として記録して例外を返す。取り消し（中断）は失敗に数えない", async () => {
+    const { request, jmaTileFailures } = await load();
+    fetchMock.mockRejectedValueOnce(new DOMException("aborted", "AbortError"));
+    await expect(request(PRESENT_PNG_URL)).rejects.toThrow("aborted");
+    expect(jmaTileFailures().size).toBe(0);
 
-    await expect(handler({ url: mod.withJmaTileProtocol(REAL_URL) }, new AbortController())).rejects.toThrow();
-
-    expect(mod.jmaTileFailures().get("rain_mesh")).toBe(ELEMENT_PREFIX);
+    fetchMock.mockRejectedValueOnce(new TypeError("network"));
+    await expect(request(PRESENT_PNG_URL)).rejects.toThrow("network");
+    expect(jmaTileFailures().get("inund")).toBe(PREFIX);
   });
 
-  it("中断（パン・ズームでの取り消し）は失敗として数えない", async () => {
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async () => {
-        throw new DOMException("aborted", "AbortError");
-      }),
-    );
-
-    await expect(handler({ url: mod.withJmaTileProtocol(REAL_URL) }, new AbortController())).rejects.toThrow();
-
-    expect(mod.jmaTileFailures().size).toBe(0);
-  });
-
-  it("スナップショットは内容が変わらないかぎり同じ参照を返す", async () => {
-    stubFetch(503);
-    await handler({ url: mod.withJmaTileProtocol(REAL_URL) }, new AbortController());
-    const first = mod.jmaTileFailures();
-    await handler({ url: mod.withJmaTileProtocol(REAL_URL) }, new AbortController());
-
-    expect(mod.jmaTileFailures()).toBe(first);
+  it("購読を外せば知らせない", async () => {
+    const { request, subscribeJmaTileFailures } = await load();
+    const listener = vi.fn();
+    subscribeJmaTileFailures(listener)();
+    fetchMock.mockResolvedValue(new Response(null, { status: 500 }));
+    await request(PRESENT_PNG_URL);
+    expect(listener).not.toHaveBeenCalled();
   });
 });

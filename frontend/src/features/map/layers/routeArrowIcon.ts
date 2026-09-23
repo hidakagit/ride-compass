@@ -1,3 +1,5 @@
+import { drawSdfIcon } from "@/features/map/layers/sdfIcon";
+
 /** 地図へ登録する名前。**登録側と参照側が同じ1つを使う**（綴りがずれると矢印が出ない）。 */
 export const ROUTE_ARROW_ICON_ID = "route-arrow-icon";
 
@@ -18,24 +20,17 @@ const ROUTE_ARROW_SIZE_PX = 20;
 /** 右（東）を向くシンプルな矢じり（シェブロン、"❯"のような形）。中心の水平線に対して
  * 上下対称。sdf:true登録前提の単色シルエットのため、塗り色自体に意味はない。 */
 export function createRouteArrowIcon(): ImageData {
-  const canvas = document.createElement("canvas");
-  canvas.width = ROUTE_ARROW_SIZE_PX;
-  canvas.height = ROUTE_ARROW_SIZE_PX;
-  const ctx = canvas.getContext("2d");
-  if (!ctx) return new ImageData(ROUTE_ARROW_SIZE_PX, ROUTE_ARROW_SIZE_PX);
-  ctx.fillStyle = "#ffffff";
-
   const cx = ROUTE_ARROW_SIZE_PX / 2;
   const cy = ROUTE_ARROW_SIZE_PX / 2;
   const tipX = cx + 7;
   const tailX = cx - 7;
-  ctx.beginPath();
-  ctx.moveTo(tipX, cy);
-  ctx.lineTo(tailX, cy - 6);
-  ctx.lineTo(tailX + 3.5, cy);
-  ctx.lineTo(tailX, cy + 6);
-  ctx.closePath();
-  ctx.fill();
-
-  return ctx.getImageData(0, 0, ROUTE_ARROW_SIZE_PX, ROUTE_ARROW_SIZE_PX);
+  return drawSdfIcon(ROUTE_ARROW_SIZE_PX, (ctx) => {
+    ctx.beginPath();
+    ctx.moveTo(tipX, cy);
+    ctx.lineTo(tailX, cy - 6);
+    ctx.lineTo(tailX + 3.5, cy);
+    ctx.lineTo(tailX, cy + 6);
+    ctx.closePath();
+    ctx.fill();
+  });
 }

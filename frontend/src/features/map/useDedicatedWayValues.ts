@@ -1,7 +1,6 @@
 "use client";
 
-// 専用way値配信軸（`dedicated_way_value_layer=true`の軸、現状: 風・勾配）の
-// フィーチャー→値フェッチ・状態管理。
+// 専用way値配信軸（`dedicated_way_value_layer=true`の軸）のフィーチャー→値フェッチ・状態管理。
 // useWeatherGrid.ts（風の詳細格子）のdetailGrid取得effectと同じ「viewportをデバウンスして
 // から、タイル単位でまとめてfetchする」パターンを踏襲する——パン・ズームのたびに個別way_idを
 // 都度問い合わせず、表示中のタイル範囲ぶんをまとめて1回のリクエストで取得する。取得対象の
@@ -10,8 +9,9 @@
 // 対象の軸ごとに別インスタンスを持たず、1つのフックが軸の配列を受け取って全軸ぶんを賄う
 // （Reactのフック規則により、実行時に増減しうる軸の件数だけフックを呼ぶことはできない
 // ——軸スタジオで3件目が公開されても呼び出し側の変更が要らないようにするための構造）。
-// 時刻・想定速度をどの軸のリクエストへ載せるかは軸カタログの宣言（`needsTime`/`needsSpeed`）
-// から決め、載せない軸はその入力が変わっても再フェッチしない（キーが変わらないため）。
+// 時刻・向き・想定速度をどの軸のリクエストへ載せるかは軸カタログの宣言
+// （`needsTime`/`needsBearing`/`needsSpeed`）から決め、載せない軸はその入力が変わっても
+// 再フェッチしない（キーが変わらないため）。
 
 import { useEffect, useRef, useState } from "react";
 import { mergeDynamicWayValues, tilesCoveringViewport, type TileXY } from "@/features/map/layers/dynamicWayValues";
@@ -52,17 +52,17 @@ const EMPTY_DEDICATED_WAY_VALUES_RESULT: DedicatedWayValuesResult = {
 const EMPTY_RESULTS: ReadonlyMap<string, DedicatedWayValuesResult> = new Map();
 
 /** その軸の1回のフェッチを一意に決める入力（軸id＋その軸へ載せるクエリパラメータ＋
- * 向き＋対象タイル集合）。同じキーの間は再フェッチしない——時刻に依存しない軸は時刻が
+ * 対象タイル集合）。同じキーの間は再フェッチしない——時刻に依存しない軸は時刻が
  * 変わってもキーが変わらないため、時刻スライダーの操作で巻き添えの再取得が起きない。 */
 function requestKey(
   axisId: string,
   at: Date | undefined,
   speedKmh: number | undefined,
-  bearingDeg: number,
+  bearingDeg: number | undefined,
   tiles: readonly TileXY[],
 ): string {
   const tileKey = tiles.map((tile) => `${tile.z}/${tile.x}/${tile.y}`).join(",");
-  return [axisId, at?.toISOString() ?? "", speedKmh ?? "", bearingDeg, tileKey].join("|");
+  return [axisId, at?.toISOString() ?? "", speedKmh ?? "", bearingDeg ?? "", tileKey].join("|");
 }
 
 /** `axes`（取得対象の専用way値配信軸。呼び出し側がuseMemoで安定した参照を渡すこと）について、
@@ -71,9 +71,9 @@ function requestKey(
  * リクエストの世代（seq）で最新のものだけを反映する（useWeatherGridのcancelledパターンと
  * 同じ意図、複数タイルのPromise.allをまたぐため世代番号で判定する）。
  *
- * `bearingDeg`はviewportと同様デバウンス後の値を使い、どちらかが変わるたびに再フェッチする。
- * `at`（時刻）・`speedKmh`（想定速度）は全軸で共有の入力で、実際にリクエストへ載るのは
- * それを必要とすると宣言した軸（`needsTime`/`needsSpeed`）だけ。 */
+ * `at`（時刻）・`bearingDeg`（向き）・`speedKmh`（想定速度）は全軸で共有の入力で、実際に
+ * リクエストへ載るのはそれを必要とすると宣言した軸（`needsTime`/`needsBearing`/`needsSpeed`）だけ。
+ * 向きと想定速度はviewportと同様デバウンス後の値を使う。 */
 export function useDedicatedWayValues(
   axes: readonly DedicatedWayValueAxis[],
   mapViewport: MapViewport | null,
@@ -105,12 +105,13 @@ export function useDedicatedWayValues(
       const params = axes.map((axis) => ({
         axisId: axis.axisId,
         at: axis.needsTime ? at : undefined,
+        bearingDeg: axis.needsBearing ? debouncedBearingDeg : undefined,
         speedKmh: axis.needsSpeed ? debouncedSpeedKmh : undefined,
       }));
       const keys = new Map(
         params.map((param) => [
           param.axisId,
-          requestKey(param.axisId, param.at, param.speedKmh, debouncedBearingDeg, tiles),
+          requestKey(param.axisId, param.at, param.speedKmh, param.bearingDeg, tiles),
         ]),
       );
       const stale = params.filter((param) => fetchedKeysRef.current.get(param.axisId) !== keys.get(param.axisId));
@@ -135,15 +136,7 @@ export function useDedicatedWayValues(
           axisId: param.axisId,
           responses: await Promise.all(
             tiles.map((tile) =>
-              fetchDynamicWayValues(
-                param.axisId,
-                tile.z,
-                tile.x,
-                tile.y,
-                debouncedBearingDeg,
-                param.at,
-                param.speedKmh,
-              ),
+              fetchDynamicWayValues(param.axisId, tile.z, tile.x, tile.y, param.bearingDeg, param.at, param.speedKmh),
             ),
           ),
         })),

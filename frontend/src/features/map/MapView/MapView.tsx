@@ -67,7 +67,10 @@ import { POINT_LAYERS, pointSourceId } from "@/features/map/scene/groups/points"
 import { AREA_SOURCE_ID } from "@/features/map/scene/groups/areaRasters";
 import { ROAD_LINE_SOURCE_ID } from "@/features/map/scene/groups/roadLines";
 import { sceneLayerId } from "@/features/map/scene/sceneBuilders";
-import { restoreRouteSegmentProperties, type RouteSegmentProperties } from "@/features/map/routeSegmentProperties";
+import {
+  restoreRouteSegmentProperties,
+  type SerializedRouteSegmentProperties,
+} from "@/features/map/routeSegmentProperties";
 
 /** 押された点のレイヤーidから、その点の宣言を引く。idは役割から決まるので写しではない。 */
 const POINT_LAYER_BY_SCENE_ID = new Map(
@@ -797,7 +800,7 @@ export default function MapView({
       // （このハンドラ自体はもうポップアップを開かないが、以前のクリックで開いたままの
       // ポップアップが残っていれば片付ける）。
       popupRef.current?.remove();
-      const rawProperties = feature.properties as unknown as RouteSegmentProperties;
+      const rawProperties = feature.properties as unknown as SerializedRouteSegmentProperties;
       const segment: RouteSegmentDetail = { ...restoreRouteSegmentProperties(rawProperties), geometry: null };
       // 当たり判定（sceneの役割`detailHit`、幅24px）は見た目の線
       // （6px）より広いため、クリック地点をそのまま使うとマーカーがルート線から目に

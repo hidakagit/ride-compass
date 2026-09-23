@@ -12,19 +12,16 @@ import {
   fetchRasrfFrames,
   precipitationFrames,
   precipitationRenderPayload,
-  type NowcastFrame,
   type RasrfFrame,
 } from "@/features/map/layers/precipitationNowcast";
-import { trimToCurrentAndFuture } from "@/features/map/layers/jmaNowcastFrames";
+import { jmaFrameTimeline, trimToCurrentAndFuture, type JmaNowcastFrame } from "@/features/map/layers/jmaNowcastFrames";
 import { windFrames, windRenderPayload, type MapViewport } from "@/features/map/layers/windLayer";
 import {
   fetchThunderNowcastFrames,
-  thunderFrames,
   thunderRenderPayload,
   tornadoRenderPayload,
-  type ThunderNowcastFrame,
 } from "@/features/map/layers/thunderNowcast";
-import { fetchLidenFrames, fetchLidenGeojson, lidenFrames, type LidenFrame } from "@/features/map/layers/lidenLayer";
+import { fetchLidenFrames, fetchLidenGeojson } from "@/features/map/layers/lidenLayer";
 import {
   fetchCurrentRiskFrames,
   fetchLinearRainbandFrames,
@@ -73,10 +70,17 @@ const EMPTY_CURRENT_RISK_FRAMES: CurrentRiskFrames = {
   inundation: EMPTY_RISK_FRAMES,
   flood: EMPTY_RISK_FRAMES,
 };
-const EMPTY_NOWCAST_FRAMES: NowcastFrame[] = [];
+const EMPTY_NOWCAST_FRAMES: JmaNowcastFrame[] = [];
 const EMPTY_RASRF_FRAMES: RasrfFrame[] = [];
-const EMPTY_THUNDER_NOWCAST_FRAMES: ThunderNowcastFrame[] = [];
-const EMPTY_LIDEN_FRAMES: LidenFrame[] = [];
+
+/** 「現在」の単一値だけを配る要素（キキクル・線状降水帯）の描画内容。取れていなければ描かない。 */
+function currentRiskPayload(
+  frames: readonly DynamicWeatherFrame<RiskFrameRef>[],
+  render: (ref: RiskFrameRef) => DynamicWeatherRenderPayload,
+): DynamicWeatherRenderPayload | undefined {
+  const [frame] = frames;
+  return frame && render(frame.ref);
+}
 
 interface UseDynamicWeatherLayersOptions {
   /** 全レイヤーの表示状態（`MapLayerId`→boolean）。**動的気象レイヤーを足してもこの境界は
@@ -180,7 +184,7 @@ export function useDynamicWeatherLayers({
     loading: thunderNowcastLoading,
     error: thunderNowcastError,
     hasFetched: thunderNowcastHasFetched,
-  } = usePolledFetch(fetchThunderNowcastFrames, EMPTY_THUNDER_NOWCAST_FRAMES, {
+  } = usePolledFetch(fetchThunderNowcastFrames, EMPTY_NOWCAST_FRAMES, {
     enabled: fetchThunderFrames,
     intervalMs: NOWCAST_REFRESH_INTERVAL_MS,
     label: "雷・竜巻ナウキャスト",
@@ -198,7 +202,7 @@ export function useDynamicWeatherLayers({
     loading: lidenNowcastLoading,
     error: lidenNowcastError,
     hasFetched: lidenNowcastHasFetched,
-  } = usePolledFetch(fetchLidenFrames, EMPTY_LIDEN_FRAMES, {
+  } = usePolledFetch(fetchLidenFrames, EMPTY_NOWCAST_FRAMES, {
     enabled: fetchLidenFramesEnabled,
     intervalMs: NOWCAST_REFRESH_INTERVAL_MS,
     label: "雷放電位置データ",
@@ -255,8 +259,8 @@ export function useDynamicWeatherLayers({
     [nowcastFrames, rasrfFrames, windGrid],
   );
   // 雷・竜巻は同じthunderNowcastFramesを共有する1本のフレーム列。
-  const thunderFramesList = useMemo(() => thunderFrames(thunderNowcastFrames), [thunderNowcastFrames]);
-  const lidenFramesList = useMemo(() => lidenFrames(lidenNowcastFrames), [lidenNowcastFrames]);
+  const thunderFramesList = useMemo(() => jmaFrameTimeline(thunderNowcastFrames), [thunderNowcastFrames]);
+  const lidenFramesList = useMemo(() => jmaFrameTimeline(lidenNowcastFrames), [lidenNowcastFrames]);
   // キキクル3種+線状降水帯予測マップ。riskMap.tsが既にDynamicWeatherFrame
   // 形式で返すが、他レイヤーと異なり共有タイムライン・frameIndexForTimeには乗せない
   // （下記の理由）。
@@ -274,57 +278,43 @@ export function useDynamicWeatherLayers({
   // （rasterTile）か延長予報由来（gridFill）かはここで既に吸収済み。
   const windPayload = useMemo(() => {
     const index = frameIndexForTime(windFramesList, dynamicLayerTargetTime);
-    if (index == null || effectiveWindGrid.length === 0) return undefined;
+    if (index == null) return undefined;
     return windRenderPayload(effectiveWindGrid, windFramesList[index].ref);
   }, [windFramesList, dynamicLayerTargetTime, effectiveWindGrid]);
   const precipitationPayload = useMemo(() => {
     const index = frameIndexForTime(precipFramesList, dynamicLayerTargetTime);
     if (index == null) return undefined;
-    return precipitationRenderPayload(
-      nowcastFrames,
-      rasrfFrames,
-      effectiveWindGrid,
-      effectiveGridSpacingDeg,
-      precipFramesList[index].ref,
-    );
-  }, [
-    precipFramesList,
-    dynamicLayerTargetTime,
-    nowcastFrames,
-    rasrfFrames,
-    effectiveWindGrid,
-    effectiveGridSpacingDeg,
-  ]);
-  // 雷・竜巻は同じフレーム列・同じrefを共有し、プロダクトコードだけが異なる
-  // （thunderRenderPayload/tornadoRenderPayloadの違い、thunderNowcast.ts参照）。
-  const thunderPayload = useMemo(() => {
+    return precipitationRenderPayload(effectiveWindGrid, effectiveGridSpacingDeg, precipFramesList[index].ref);
+  }, [precipFramesList, dynamicLayerTargetTime, effectiveWindGrid, effectiveGridSpacingDeg]);
+  // 雷・竜巻は同じフレーム列を共有し、要素だけが異なる（thunderNowcast.ts参照）。
+  const thunderFrame = useMemo(() => {
     const index = frameIndexForTime(thunderFramesList, dynamicLayerTargetTime);
-    if (index == null) return undefined;
-    return thunderRenderPayload(thunderNowcastFrames, thunderFramesList[index].ref);
-  }, [thunderFramesList, dynamicLayerTargetTime, thunderNowcastFrames]);
-  const tornadoPayload = useMemo(() => {
-    const index = frameIndexForTime(thunderFramesList, dynamicLayerTargetTime);
-    if (index == null) return undefined;
-    return tornadoRenderPayload(thunderNowcastFrames, thunderFramesList[index].ref);
-  }, [thunderFramesList, dynamicLayerTargetTime, thunderNowcastFrames]);
+    return index == null ? undefined : thunderFramesList[index].ref;
+  }, [thunderFramesList, dynamicLayerTargetTime]);
+  const thunderPayload = useMemo(() => thunderFrame && thunderRenderPayload(thunderFrame), [thunderFrame]);
+  const tornadoPayload = useMemo(() => thunderFrame && tornadoRenderPayload(thunderFrame), [thunderFrame]);
   // 雷放電位置データ。配信元が実際の落雷地点をGeoJSONで提供するため、
   // 他要素と異なり選択フレームが変わるたびに個別fetchが要る（lidenLayer.ts参照）。
-  // 取得済みgeojsonにref（frames内のindex）を添えて保持し、選択中のindexと一致する
+  // 取得済みgeojsonにそのフレームの時刻を添えて保持し、選択中のフレームと一致する
   // ときだけpayloadへ反映する——scrub中に古いフェッチが新しいフェッチより後に解決しても、
-  // 直前に選んでいた古い時刻のデータを新しい時刻の表示へ混ぜない。
+  // 直前に選んでいた古い時刻のデータを新しい時刻の表示へ混ぜない（時刻一覧の再取得で
+  // フレームの実体が作り直されても、同じ時刻なら同じ観測を指す）。
   // 雷放電は予測を持たず観測だけが届くため、共有時刻は配信の遅れのぶんだけ常に最新
   // フレームより後ろにある。範囲外で描かない規約（frameIndexForTime）をそのまま当てると
   // 常に何も描かれないため、遅れのぶんは最新の観測を出す（observationIndexForTime）。
   const lidenIndex = observationIndexForTime(lidenFramesList, dynamicLayerTargetTime);
-  const lidenRef = lidenIndex == null ? undefined : lidenFramesList[lidenIndex].ref;
-  const [lidenFetched, setLidenFetched] = useState<{ ref: number; geojson: GeoJSON.FeatureCollection } | undefined>();
+  const lidenFrame = lidenIndex == null ? undefined : lidenFramesList[lidenIndex].ref;
+  const lidenValidtime = lidenFrame?.validtime;
+  const [lidenFetched, setLidenFetched] = useState<
+    { validtime: string; geojson: GeoJSON.FeatureCollection } | undefined
+  >();
   useEffect(() => {
-    if (!fetchLidenFramesEnabled || lidenRef == null) return;
+    if (!fetchLidenFramesEnabled || lidenFrame === undefined) return;
     let cancelled = false;
-    fetchLidenGeojson(lidenNowcastFrames, lidenRef)
+    fetchLidenGeojson(lidenFrame)
       .then((geojson) => {
-        if (cancelled || !geojson) return;
-        setLidenFetched({ ref: lidenRef, geojson });
+        if (cancelled) return;
+        setLidenFetched({ validtime: lidenFrame.validtime, geojson });
       })
       .catch(() => {
         // フェッチ失敗は表示しないだけに留める（他要素と同じフェイルソフト方針、
@@ -333,33 +323,26 @@ export function useDynamicWeatherLayers({
     return () => {
       cancelled = true;
     };
-  }, [fetchLidenFramesEnabled, lidenRef, lidenNowcastFrames]);
+  }, [fetchLidenFramesEnabled, lidenFrame]);
   const lidenPayload = useMemo((): DynamicWeatherRenderPayload | undefined => {
-    if (lidenIndex == null || !lidenFetched || lidenFetched.ref !== lidenRef) return undefined;
+    if (lidenValidtime === undefined || lidenFetched?.validtime !== lidenValidtime) return undefined;
     return { kind: "gridMark", geojson: lidenFetched.geojson };
-  }, [lidenIndex, lidenFetched, lidenRef]);
+  }, [lidenFetched, lidenValidtime]);
   // キキクル4種は未来方向のフレームを持たず「現在の危険度」単一値のみを
   // 配信するため、選択中の共有時刻に関わらずframes[0]（現在値）があれば表示する
   // （riskMap.ts冒頭コメント「他の動的レイヤーと違い共有タイムライン・frameIndexForTimeには
   // 乗せない」と対）。
-  const landslideRiskPayload = useMemo(() => {
-    const frame = landFramesList[0];
-    return frame ? landRenderPayload(frame.ref) : undefined;
-  }, [landFramesList]);
-  const heavyRainRiskPayload = useMemo(() => {
-    const frame = heavyRainFramesList[0];
-    return frame ? heavyRainRenderPayload(frame.ref) : undefined;
-  }, [heavyRainFramesList]);
-  const inundationRiskPayload = useMemo(() => {
-    const frame = inundationFramesList[0];
-    return frame ? inundationRenderPayload(frame.ref) : undefined;
-  }, [inundationFramesList]);
-  // 洪水キキクル。他3種と同じ「frames[0]があれば表示」方針
-  // （vectorTile kindのため戻り値の中身は異なるが、ここでの扱いは同型）。
-  const floodRiskPayload = useMemo(() => {
-    const frame = floodFramesList[0];
-    return frame ? floodRenderPayload(frame.ref) : undefined;
-  }, [floodFramesList]);
+  const landslideRiskPayload = useMemo(() => currentRiskPayload(landFramesList, landRenderPayload), [landFramesList]);
+  const heavyRainRiskPayload = useMemo(
+    () => currentRiskPayload(heavyRainFramesList, heavyRainRenderPayload),
+    [heavyRainFramesList],
+  );
+  const inundationRiskPayload = useMemo(
+    () => currentRiskPayload(inundationFramesList, inundationRenderPayload),
+    [inundationFramesList],
+  );
+  // 洪水キキクルは他3種と違いvectorTile kindだが、ここでの扱いは同じ。
+  const floodRiskPayload = useMemo(() => currentRiskPayload(floodFramesList, floodRenderPayload), [floodFramesList]);
   // 線状降水帯予測マップ（「降水」チップ傘下）。他のキキクル3種と異なり
   // 「今後3時間以内におそれ」という予報の性質上、共有
   // タイムラインの選択時刻が現在〜3時間先の範囲内にあるときだけ、ナウキャスト/rasrf/
@@ -368,11 +351,10 @@ export function useDynamicWeatherLayers({
     () => isWithinFutureWindow(dynamicLayerTargetTime, now, LINEAR_RAINBAND_WINDOW_MS),
     [dynamicLayerTargetTime, now],
   );
-  const linearRainbandPayload = useMemo(() => {
-    if (!linearRainbandVisible) return undefined;
-    const frame = linearRainbandFrames[0];
-    return frame ? linearRainbandRenderPayload(frame.ref) : undefined;
-  }, [linearRainbandFrames, linearRainbandVisible]);
+  const linearRainbandPayload = useMemo(
+    () => (linearRainbandVisible ? currentRiskPayload(linearRainbandFrames, linearRainbandRenderPayload) : undefined),
+    [linearRainbandFrames, linearRainbandVisible],
+  );
 
   // MapViewへ渡す単一プロパティ（T183再設計、旧5個のprecipitation/wind個別propsを統合）。
   // 1グループが複数の名前付きソースを同時に持てる——precipitationNowcastは時系列3段

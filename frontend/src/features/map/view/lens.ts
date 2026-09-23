@@ -9,8 +9,6 @@ import {
   bandLabelsForBandCount,
   buildRangeLegendBands,
   LEGEND_NO_DATA_KEY,
-  legendBandKey,
-  rangeStepLabel,
   type MapColorLegendBand,
 } from "@/lib/mapDisplay/mapColorLegend";
 import { bandColorsFor, COLOR_NO_DATA, DEFAULT_DIFFICULTY_BOUNDARIES } from "@/lib/mapDisplay/valueScale";
@@ -70,29 +68,11 @@ export function lensOptions(
   }));
 }
 
-/** 段階の下限（inclusive）・上限（exclusive）。両端はnull（下限/上限なし）。 */
-function axisRampBand(thresholds: readonly number[], index: number): { lower: number | null; upper: number | null } {
-  return {
-    lower: index === 0 ? null : thresholds[index - 1],
-    upper: index === thresholds.length ? null : thresholds[index],
-  };
-}
-
-/** 段階ラベル（例: 「1回/km未満」「1〜2回/km」「4回/km以上」）。thresholds.length+1件。
- * 範囲の文字起こしは`mapColorLegend.ts: rangeStepLabel`に任せる（表記規則を書き直さない）。
- * `axis.bandLabelsOverride`の要素数が段階数と一致する間は、数値レンジの
- * 前に体感ラベルを添える（`mapColorLegend.ts: buildRangeLegendBands`と同じ考え方）。 */
-function axisRampBandLabel(axis: RampAxis, index: number, lower: number | null, upper: number | null): string {
-  const bandCount = axis.thresholds.length + 1;
-  const rangeLabel = rangeStepLabel(lower, upper, axis.unit);
-  if (axis.bandLabelsOverride && axis.bandLabelsOverride.length === bandCount) {
-    return `${axis.bandLabelsOverride[index]}（${rangeLabel}）`;
-  }
-  return rangeLabel;
-}
-
 /** ramp軸の凡例。分類で塗るレイヤーと同じLegendEntry型で返し、凡例のチェックボックス・
- * 地図チップの▶展開凡例をそのまま共有する。
+ * 地図チップの▶展開凡例をそのまま共有する。段の鍵・範囲の文字・体感ラベルの添え方は
+ * 専用配信軸の凡例と同じ`buildRangeLegendBands`が決める——段の鍵はルート確定前後で共通で、
+ * **軸idを混ぜない**（非表示にした段の保存先は前後で同じ軸idの下なので、別の綴りにすると
+ * 隠した段がルート生成で黙って戻る）。
  * filterはbuildAxisRampValueExpression（地図の色分けが使うのと同じ線形結合）への
  * 範囲比較で、実際に塗られる色と凡例が食い違わないようにする。
  * hasUnknownFallbackな軸は末尾に「不明」エントリを足し、他の段階のfilterには
@@ -100,22 +80,16 @@ function axisRampBandLabel(axis: RampAxis, index: number, lower: number | null, 
 function buildAxisRampLegend(axis: RampAxis): LegendEntry[] {
   const valueExpression = buildAxisRampValueExpression(axis);
   const unknownExpression = buildAxisRampUnknownExpression(axis);
-  const bandCount = axis.thresholds.length + 1;
-  const bands = Array.from({ length: bandCount }, (_, index) => {
-    const { lower, upper } = axisRampBand(axis.thresholds, index);
+  const { thresholds } = axis;
+  const bandCount = thresholds.length + 1;
+  const colors = Array.from({ length: bandCount }, (_, index) => rampColorForBand(index, bandCount));
+  const labels = bandLabelsForBandCount(axis.bandLabelsOverride, bandCount);
+  const bands = buildRangeLegendBands(thresholds, colors, axis.unit, labels).map((band, index) => {
     const filterParts: unknown[] = ["all"];
     if (unknownExpression !== null) filterParts.push(["!", unknownExpression]);
-    if (lower !== null) filterParts.push([">=", valueExpression, lower]);
-    if (upper !== null) filterParts.push(["<", valueExpression, upper]);
-    return {
-      // 段の識別子はルート確定前後で共通（`mapColorLegend.ts: legendBandKey`）。**軸idを
-      // 混ぜない**——非表示にした段の保存先は前後で同じ`hiddenLegendKeysByMode[軸id]`
-      // なので、別の綴りにすると隠した段がルート生成で黙って戻る。
-      key: legendBandKey(index),
-      label: axisRampBandLabel(axis, index, lower, upper),
-      color: rampColorForBand(index, bandCount),
-      filter: filterParts,
-    };
+    if (index > 0) filterParts.push([">=", valueExpression, thresholds[index - 1]]);
+    if (index < thresholds.length) filterParts.push(["<", valueExpression, thresholds[index]]);
+    return { ...band, filter: filterParts };
   });
   if (unknownExpression === null) return bands;
   return [

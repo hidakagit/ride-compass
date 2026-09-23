@@ -1,173 +1,146 @@
-import { renderHook, waitFor } from "@testing-library/react";
-import { afterEach, describe, expect, it, vi } from "vitest";
-import { useDedicatedWayValues } from "./useDedicatedWayValues";
+import { act, renderHook } from "@testing-library/react";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
-/** 取りに行っていない軸は結果を持たないため、空の結果として読む。 */
-const resultOf = (results: ReturnType<typeof useDedicatedWayValues>, axisId: string) =>
-  results.get(axisId) ?? { values: new Map<string, number>(), loading: false, error: false, hasFetched: false };
-import type { DedicatedWayValueAxis } from "@/lib/mapDisplay/axisLayers";
-import { fetchDynamicWayValues } from "@/services/regionApi";
+const { fetchDynamicWayValues } = vi.hoisted(() => ({ fetchDynamicWayValues: vi.fn() }));
+vi.mock("@/services/regionApi", async (importOriginal) => ({
+  ...(await importOriginal<object>()),
+  fetchDynamicWayValues,
+}));
+// 待ち時間の間引き自体はuseDebouncedValueの持ち物。ここは値が届いた後の振る舞いを見る。
+vi.mock("@/hooks/useDebouncedValue", () => ({ MAP_FETCH_DEBOUNCE_MS: 0, useDebouncedValue: <T>(value: T) => value }));
+
+import { catalogOf, dedicatedEntry } from "@/features/map/view/__fixtures__/catalog";
 import type { MapViewport } from "@/features/map/layers/windLayer";
 
-vi.mock("@/services/regionApi", async () => {
-  const actual = await vi.importActual<typeof import("@/services/regionApi")>("@/services/regionApi");
-  return {
-    ...actual,
-    fetchDynamicWayValues: vi.fn(),
-  };
+import { useDedicatedWayValues } from "./useDedicatedWayValues";
+
+const { dedicatedAxes } = catalogOf([
+  dedicatedEntry("timed", [1], {
+    dynamic_way_value_needs_time: true,
+    dynamic_way_value_needs_bearing: true,
+    dynamic_way_value_needs_speed: true,
+  }),
+  dedicatedEntry("static", [1]),
+]);
+const [TIMED, STATIC] = dedicatedAxes;
+// z14で横2枚×縦1枚のタイルにまたがる範囲
+const VIEWPORT: MapViewport = { west: 139.76, south: 35.68, east: 139.77, north: 35.685, zoom: 14 };
+const AT = new Date("2026-09-24T00:00:00Z");
+
+async function settle() {
+  await act(async () => {
+    for (let i = 0; i < 10; i += 1) await Promise.resolve();
+  });
+}
+
+beforeEach(() => {
+  fetchDynamicWayValues.mockReset().mockImplementation(async (axisId: string, z: number, x: number) => ({
+    values: { [`${axisId}-${x}`]: x },
+    error: false,
+  }));
 });
 
-const VIEWPORT: MapViewport = { west: 139.699, south: 35.699, east: 139.701, north: 35.701, zoom: 14 };
+type Props = { axes: typeof dedicatedAxes; viewport: MapViewport | null; bearing: number; at: Date; speed?: number };
+function render(initialProps: Props) {
+  return renderHook(
+    ({ axes, viewport, bearing, at, speed }: Props) => useDedicatedWayValues(axes, viewport, bearing, at, speed),
+    { initialProps },
+  );
+}
+const calledAxes = () => fetchDynamicWayValues.mock.calls.map((call) => call[0]);
 
-const WIND: DedicatedWayValueAxis = {
-  axisId: "wind",
-  label: "風",
-  needsTime: true,
-  needsBearing: true,
-  needsSpeed: true,
-  display: { kind: "difficulty", unit: "" },
-};
-const GRADIENT: DedicatedWayValueAxis = {
-  axisId: "gradient",
-  label: "勾配",
-  needsTime: false,
-  needsBearing: true,
-  needsSpeed: false,
-  display: { kind: "signed_material", unit: "%" },
-};
-const NO_AXES: readonly DedicatedWayValueAxis[] = [];
-const WIND_ONLY: readonly DedicatedWayValueAxis[] = [WIND];
-const BOTH: readonly DedicatedWayValueAxis[] = [WIND, GRADIENT];
-
-describe("useDedicatedWayValues（専用way値配信軸のフェッチ・状態管理）", () => {
-  afterEach(() => {
-    vi.clearAllMocks();
-  });
-
-  it("対象軸が0件の間はフェッチせず、空の結果を返す", () => {
-    const { result } = renderHook(() => useDedicatedWayValues(NO_AXES, VIEWPORT, 0, undefined));
+describe("useDedicatedWayValues（専用配信の値）", () => {
+  it("画面か対象の軸が無い間は取りに行かない", async () => {
+    render({ axes: dedicatedAxes, viewport: null, bearing: 0, at: AT });
+    render({ axes: [], viewport: VIEWPORT, bearing: 0, at: AT });
+    await settle();
     expect(fetchDynamicWayValues).not.toHaveBeenCalled();
-    expect(result.current.size).toBe(0);
-    expect(resultOf(result.current, "wind").values.size).toBe(0);
-    expect(resultOf(result.current, "wind").hasFetched).toBe(false);
   });
 
-  it("viewportがnullの間はフェッチしない", () => {
-    const { result } = renderHook(() => useDedicatedWayValues(WIND_ONLY, null, 0, undefined));
-    expect(fetchDynamicWayValues).not.toHaveBeenCalled();
-    expect(result.current.size).toBe(0);
-  });
-
-  it("現在のビューポートを覆うタイル分をaxis_id付きでフェッチし、統合した結果を軸ごとに返す", async () => {
-    vi.mocked(fetchDynamicWayValues).mockResolvedValue({ values: { "1": 2.5, "2": -1.0 }, error: false });
-    const at = new Date("2026-08-30T09:00:00Z");
-
-    const { result } = renderHook(() => useDedicatedWayValues(WIND_ONLY, VIEWPORT, 90, at, 20));
-
-    await waitFor(() => expect(resultOf(result.current, "wind").values.size).toBe(2));
-    const wind = resultOf(result.current, "wind");
-    expect(wind.values.get("1")).toBe(2.5);
-    expect(wind.values.get("2")).toBe(-1.0);
-    expect(wind.error).toBe(false);
-    expect(fetchDynamicWayValues).toHaveBeenCalledWith("wind", 14, 14549, 6450, 90, at, 20);
-  });
-
-  it("複数の軸を1回のフックで同時に取得する（軸ごとにフックを呼ばない）", async () => {
-    vi.mocked(fetchDynamicWayValues).mockImplementation(async (axisId) => ({
-      values: (axisId === "wind" ? { "1": 2.5 } : { "3": 4.5 }) as Record<string, number>,
+  it("画面を覆うタイルごとに軸の値を取り、1つにまとめる", async () => {
+    const { result } = render({ axes: [STATIC], viewport: VIEWPORT, bearing: 90, at: AT });
+    await settle();
+    const tileXs = fetchDynamicWayValues.mock.calls.map((call) => call[2]);
+    expect(new Set(tileXs).size).toBeGreaterThan(1);
+    expect(result.current.get("static")).toEqual({
+      values: new Map(tileXs.map((x) => [`static-${x}`, x])),
+      loading: false,
       error: false,
-    }));
-
-    const { result } = renderHook(() => useDedicatedWayValues(BOTH, VIEWPORT, 45, undefined));
-
-    await waitFor(() => expect(result.current.size).toBe(2));
-    expect(resultOf(result.current, "wind").values.get("1")).toBe(2.5);
-    expect(resultOf(result.current, "gradient").values.get("3")).toBe(4.5);
-  });
-
-  it("時刻・想定速度は、それを必要とすると宣言した軸のリクエストにだけ載る", async () => {
-    vi.mocked(fetchDynamicWayValues).mockResolvedValue({ values: {}, error: false });
-    const at = new Date("2026-08-30T09:00:00Z");
-
-    renderHook(() => useDedicatedWayValues(BOTH, VIEWPORT, 45, at, 20));
-
-    await waitFor(() => expect(fetchDynamicWayValues).toHaveBeenCalledTimes(2));
-    expect(fetchDynamicWayValues).toHaveBeenCalledWith("wind", 14, 14549, 6450, 45, at, 20);
-    // 勾配はneedsTime=false・needsSpeed=falseのため、共有入力を受け取っても載せない。
-    expect(fetchDynamicWayValues).toHaveBeenCalledWith("gradient", 14, 14549, 6450, 45, undefined, undefined);
-  });
-
-  it("時刻が変わっても、時刻に依存しない軸は再フェッチしない", async () => {
-    vi.mocked(fetchDynamicWayValues).mockResolvedValue({ values: { "3": 4.5 }, error: false });
-
-    const { rerender } = renderHook(({ at }: { at: Date }) => useDedicatedWayValues(BOTH, VIEWPORT, 45, at), {
-      initialProps: { at: new Date("2026-08-30T09:00:00Z") },
+      hasFetched: true,
     });
-
-    await waitFor(() => expect(fetchDynamicWayValues).toHaveBeenCalledTimes(2));
-    vi.mocked(fetchDynamicWayValues).mockClear();
-
-    rerender({ at: new Date("2026-08-30T12:00:00Z") });
-
-    await waitFor(() => expect(fetchDynamicWayValues).toHaveBeenCalledTimes(1));
-    expect(fetchDynamicWayValues).toHaveBeenCalledWith("wind", 14, 14549, 6450, 45, expect.any(Date), undefined);
   });
 
-  it("対象軸から外すと、その軸の結果を捨てる", async () => {
-    vi.mocked(fetchDynamicWayValues).mockResolvedValue({ values: { "1": 2.5 }, error: false });
+  it("時刻・向き・想定速度は、要ると宣言した軸のリクエストにだけ載せる", async () => {
+    render({ axes: dedicatedAxes, viewport: VIEWPORT, bearing: 90, at: AT, speed: 22 });
+    await settle();
+    const argsOf = (axisId: string) => fetchDynamicWayValues.mock.calls.find((call) => call[0] === axisId)!.slice(4);
+    expect(argsOf("timed")).toEqual([90, AT, 22]);
+    expect(argsOf("static")).toEqual([undefined, undefined, undefined]);
+  });
 
-    const { result, rerender } = renderHook(
-      ({ axes }: { axes: readonly DedicatedWayValueAxis[] }) => useDedicatedWayValues(axes, VIEWPORT, 0, undefined),
-      { initialProps: { axes: WIND_ONLY } },
+  it("入力が変わった軸だけを取り直し、取り直す間は前の値を残して読み込み中にする", async () => {
+    const { result, rerender } = render({ axes: dedicatedAxes, viewport: VIEWPORT, bearing: 90, at: AT });
+    await settle();
+    const staticBefore = result.current.get("static");
+    fetchDynamicWayValues.mockClear();
+    const pending: ((value: unknown) => void)[] = [];
+    fetchDynamicWayValues.mockImplementation(() => new Promise((resolve) => pending.push(resolve)));
+
+    rerender({ axes: dedicatedAxes, viewport: VIEWPORT, bearing: 180, at: AT });
+    await settle();
+    expect(new Set(calledAxes())).toEqual(new Set(["timed"]));
+    expect(result.current.get("timed")).toMatchObject({ loading: true, hasFetched: true });
+    expect(result.current.get("timed")?.values.size).toBeGreaterThan(0);
+    expect(result.current.get("static")).toBe(staticBefore);
+
+    pending.forEach((resolve) => resolve({ values: { next: 1 }, error: false }));
+    await settle();
+    expect(result.current.get("timed")?.loading).toBe(false);
+  });
+
+  it("入力が何も変わらなければ取り直さず、結果の参照も変えない", async () => {
+    const { result, rerender } = render({ axes: dedicatedAxes, viewport: VIEWPORT, bearing: 90, at: AT });
+    await settle();
+    const before = result.current;
+    fetchDynamicWayValues.mockClear();
+    rerender({ axes: dedicatedAxes, viewport: { ...VIEWPORT }, bearing: 90, at: AT });
+    await settle();
+    expect(fetchDynamicWayValues).not.toHaveBeenCalled();
+    expect(result.current).toBe(before);
+  });
+
+  it("1枚でもタイルの取得に失敗すれば失敗として返す", async () => {
+    fetchDynamicWayValues.mockImplementation(async (_axisId: string, _z: number, x: number) =>
+      x % 2 === 0 ? { values: {}, error: true } : { values: { a: 1 }, error: false },
     );
-
-    await waitFor(() => expect(resultOf(result.current, "wind").values.size).toBe(1));
-
-    rerender({ axes: NO_AXES });
-
-    await waitFor(() => expect(resultOf(result.current, "wind").values.size).toBe(0));
-    expect(resultOf(result.current, "wind").loading).toBe(false);
+    const { result } = render({ axes: [STATIC], viewport: VIEWPORT, bearing: 0, at: AT });
+    await settle();
+    expect(result.current.get("static")?.error).toBe(true);
   });
 
-  it("フェッチ中はloading=trueになり、応答が届くとfalseに戻る", async () => {
-    let resolveFetch!: (value: { values: Record<string, number>; error: boolean }) => void;
-    vi.mocked(fetchDynamicWayValues).mockReturnValue(
-      new Promise((resolve) => {
-        resolveFetch = resolve;
-      }),
-    );
-
-    const { result } = renderHook(() => useDedicatedWayValues(WIND_ONLY, VIEWPORT, 0, undefined));
-
-    await waitFor(() => expect(resultOf(result.current, "wind").loading).toBe(true));
-    expect(resultOf(result.current, "wind").values.size).toBe(0);
-
-    resolveFetch({ values: { "1": 2.5 }, error: false });
-
-    await waitFor(() => expect(resultOf(result.current, "wind").loading).toBe(false));
-    expect(resultOf(result.current, "wind").values.get("1")).toBe(2.5);
+  it("対象から外れた軸の結果は落とし、画面が無くなれば空へ戻す", async () => {
+    const { result, rerender } = render({ axes: dedicatedAxes, viewport: VIEWPORT, bearing: 0, at: AT });
+    await settle();
+    rerender({ axes: [STATIC], viewport: VIEWPORT, bearing: 0, at: AT });
+    await settle();
+    expect([...result.current.keys()]).toEqual(["static"]);
+    rerender({ axes: [STATIC], viewport: null, bearing: 0, at: AT });
+    await settle();
+    expect(result.current.size).toBe(0);
   });
 
-  it("タイル取得が本当に空（backendが正常応答でerror:falseの空values）なら、例外を投げず空の結果に収束しerrorはfalseのまま", async () => {
-    vi.mocked(fetchDynamicWayValues).mockResolvedValue({ values: {}, error: false });
-
-    const { result } = renderHook(() => useDedicatedWayValues(WIND_ONLY, VIEWPORT, 0, undefined));
-
-    await waitFor(() => expect(fetchDynamicWayValues).toHaveBeenCalled());
-    await waitFor(() => expect(resultOf(result.current, "wind").hasFetched).toBe(true));
-    expect(resultOf(result.current, "wind").values.size).toBe(0);
-    expect(resultOf(result.current, "wind").error).toBe(false);
-  });
-
-  it("いずれかのタイルの取得が失敗（error:true）したら、その軸の結果のerrorをtrueにする", async () => {
-    vi.mocked(fetchDynamicWayValues).mockResolvedValue({ values: {}, error: true });
-
-    const { result } = renderHook(() => useDedicatedWayValues(WIND_ONLY, VIEWPORT, 0, undefined));
-
-    // 初期状態のloading（空の結果）もfalseのため、loading===falseだけを待つと
-    // フェッチ完了前に条件が満たされてしまう。フェッチが呼ばれたことをまず待つ。
-    await waitFor(() => expect(fetchDynamicWayValues).toHaveBeenCalled());
-    await waitFor(() => expect(resultOf(result.current, "wind").error).toBe(true));
-    expect(resultOf(result.current, "wind").values.size).toBe(0);
+  it("入力を変えた後に前の入力の答えが届いても使わない", async () => {
+    const pending: ((value: unknown) => void)[] = [];
+    fetchDynamicWayValues.mockImplementation(() => new Promise((resolve) => pending.push(resolve)));
+    const { result, rerender } = render({ axes: [TIMED], viewport: VIEWPORT, bearing: 0, at: AT });
+    await settle();
+    const firstBatch = pending.splice(0);
+    rerender({ axes: [TIMED], viewport: VIEWPORT, bearing: 45, at: AT });
+    await settle();
+    pending.splice(0).forEach((resolve) => resolve({ values: { fresh: 1 }, error: false }));
+    await settle();
+    firstBatch.forEach((resolve) => resolve({ values: { stale: 1 }, error: false }));
+    await settle();
+    expect([...(result.current.get("timed")?.values.keys() ?? [])]).toEqual(["fresh"]);
   });
 });

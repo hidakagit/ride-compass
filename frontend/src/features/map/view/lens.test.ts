@@ -1,139 +1,126 @@
 // @vitest-environment node
-// `lens.ts`——レンズの1つの値から、全道路を塗る軸・凡例・選択肢を導く。
-//
-// ここで見ないもの:
-// - 凡例の段の境界・ラベルの規則そのもの → `mapColorLegend.test.ts`
+import { featureFilter, type FilterSpecification } from "@maplibre/maplibre-gl-style-spec";
 import { describe, expect, it } from "vitest";
 
-import { catalogOf, catalogEntry, dedicatedEntry, rampEntry } from "@/features/map/view/__fixtures__/catalog";
-import { rampAxesFromCatalogAxes } from "@/lib/mapDisplay/axisLayers";
-import { catalogAxis } from "@/lib/mapDisplay/__fixtures__/catalogAxes";
-import type { DedicatedWayValueDisplay } from "@/lib/mapDisplay/dedicatedWayValueLayer";
 import { LEGEND_NO_DATA_KEY } from "@/lib/mapDisplay/mapColorLegend";
-import { bandColorsFor, COLOR_NO_DATA } from "@/lib/mapDisplay/valueScale";
-import type { RampAxis } from "@/lib/mapDisplay/axisLayers";
-import { lensLegend, lensOptions, paintedAxisId } from "./lens";
+import { DEFAULT_DIFFICULTY_BOUNDARIES } from "@/lib/mapDisplay/valueScale";
 
-// 凡例はレンズの入口（`lensLegend`）から引く。ルート確定前・その軸だけを持つカタログで引けば、
-// ramp軸・専用配信軸それぞれの凡例そのものになる。
-function rampLegend(axis: RampAxis) {
-  return lensLegend(axis.axisId, false, { routeStyleModes: [], rampAxes: [axis], dedicatedAxes: [] });
+import { catalogEntry, catalogOf, dedicatedEntry, rampEntry } from "./__fixtures__/catalog";
+import { isRouteStyleModeId, lensLegend, lensOptions, paintedAxisId } from "./lens";
+
+/** 材料`num_a`がそのまま値になるramp軸（`rampEntry`）の、材料が欠けた道を「不明」にする版。 */
+function unknownFallbackRamp(axisId: string, thresholds: number[]) {
+  const entry = rampEntry(axisId, thresholds);
+  if (entry.display.kind !== "ramp") throw new Error("ramp軸ではない");
+  entry.display.tile_inputs![0].has_unknown_fallback = true;
+  return entry;
 }
-function dedicatedWayValueLegend(display: DedicatedWayValueDisplay) {
-  const axis = { axisId: "d", label: "d", needsTime: false, needsBearing: false, needsSpeed: false, display };
-  return lensLegend("d", false, { routeStyleModes: [], rampAxes: [], dedicatedAxes: [axis] });
+
+const catalog = catalogOf([
+  rampEntry("ramp", [10, 20], { raw_value_unit: "%" }),
+  rampEntry("labelled", [10], { display_band_labels_override: ["平ら", "坂"] }),
+  rampEntry("mislabelled", [10], { display_band_labels_override: ["1つだけ"] }),
+  unknownFallbackRamp("unknown", [10]),
+  dedicatedEntry("dedicated", [1, 3], { map_value_unit: "m/s" }),
+  dedicatedEntry("defaults", [], { map_value_thresholds: null }),
+]);
+
+/** 凡例の行の述語が、その値の道に当てはまるか（MapLibreと同じ評価器で評価する）。 */
+function matches(filter: unknown, properties: Record<string, unknown>): boolean {
+  return featureFilter(filter as FilterSpecification, "filter").filter(
+    { zoom: 14 } as never,
+    {
+      type: 2,
+      properties,
+    } as never,
+  );
 }
 
-// ramp表示を持つ軸・専用配信を持つ軸・どちらも持たない軸。
-const CATALOG = catalogOf([rampEntry("r", [1, 2]), dedicatedEntry("d", [0]), catalogEntry({ axis_id: "p" })]);
-
-describe("paintedAxisId（全道路を塗っている軸）", () => {
-  it("ルート確定前はレンズの軸を塗り、確定後は周囲も塗り続ける設定の間だけ塗る", () => {
-    expect(paintedAxisId("r", false, false)).toBe("r");
-    expect(paintedAxisId("r", true, true)).toBe("r");
-    expect(paintedAxisId("r", true, false)).toBeNull();
+describe("paintedAxisId（全道路を塗る軸）", () => {
+  it("ルートを確定するまではレンズの軸、確定後は周囲も塗り続ける設定の間だけ", () => {
+    expect(paintedAxisId("ramp", false, false)).toBe("ramp");
+    expect(paintedAxisId("ramp", true, true)).toBe("ramp");
+    expect(paintedAxisId("ramp", true, false)).toBeNull();
   });
 });
 
 describe("lensLegend（レンズの凡例）", () => {
-  it("ルート確定前は、その軸で全道路を塗る手段の段を出す", () => {
-    expect(lensLegend("r", false, CATALOG).map((entry) => entry.label)).toEqual(["1未満", "1〜2", "2以上"]);
-    expect(lensLegend("d", false, CATALOG).map((entry) => entry.label)).toEqual(["0未満", "0以上", "データなし"]);
+  it("ramp軸は、どの値の道も当てはまる行がちょうど1つ（境界は上の段）で、範囲を単位つきで名乗る", () => {
+    const legend = lensLegend("ramp", false, catalog);
+    expect(legend.map((entry) => entry.label)).toEqual(["10%未満", "10〜20%", "20%以上"]);
+    for (const [value, expected] of [
+      [5, 0],
+      [10, 1],
+      [19.9, 1],
+      [20, 2],
+    ] as const) {
+      const hits = legend.flatMap((entry, index) => (matches(entry.filter, { num_a: value }) ? [index] : []));
+      expect(hits).toEqual([expected]);
+    }
   });
 
-  it("ルート確定の前後で段の鍵が同じなので、隠した段がルート生成をまたいで残る", () => {
-    const before = lensLegend("d", false, CATALOG).map((entry) => entry.key);
-    expect(lensLegend("d", true, CATALOG).map((entry) => entry.key)).toEqual(before);
+  it("段の鍵は軸idを含まず、ルート確定後の凡例と同じ綴り", () => {
+    expect(lensLegend("ramp", false, catalog).map((entry) => entry.key)).toEqual(["step-0", "step-1", "step-2"]);
   });
 
-  it("地図がそのレンズで何も塗らない間は、凡例を出さない", () => {
-    expect(lensLegend("difficulty", false, CATALOG)).toEqual([]);
-    expect(lensLegend("p", false, CATALOG)).toEqual([]);
-    expect(lensLegend("none", true, CATALOG)).toEqual([]);
+  it("体感ラベルは段数と一致するときだけ添える", () => {
+    expect(lensLegend("labelled", false, catalog).map((entry) => entry.label)).toEqual([
+      "平ら（10未満）",
+      "坂（10以上）",
+    ]);
+    expect(lensLegend("mislabelled", false, catalog).map((entry) => entry.label)).toEqual(["10未満", "10以上"]);
+  });
+
+  it("材料が欠けて評価できない道は、数値の段ではなく末尾の「不明」だけに当てはまる", () => {
+    const legend = lensLegend("unknown", false, catalog);
+    expect(legend.at(-1)).toMatchObject({ key: LEGEND_NO_DATA_KEY, label: "不明", isFallback: true });
+    const hitsFor = (properties: Record<string, unknown>) =>
+      legend.flatMap((entry) => (matches(entry.filter, properties) ? [entry.key] : []));
+    expect(hitsFor({})).toEqual([LEGEND_NO_DATA_KEY]);
+    expect(hitsFor({ num_a: 5 })).toEqual(["step-0"]);
+  });
+
+  it("専用配信軸は、配信値の境界で段を作り、末尾に値を受け取れなかった道の行を持つ", () => {
+    const legend = lensLegend("dedicated", false, catalog);
+    expect(legend.map((entry) => entry.label)).toEqual(["1m/s未満", "1〜3m/s", "3m/s以上", "データなし"]);
+    expect(legend.at(-1)).toMatchObject({ key: LEGEND_NO_DATA_KEY, isFallback: true });
+  });
+
+  it("専用配信軸が境界を持たなければ、難易度の既定の境界で段を作る", () => {
+    expect(lensLegend("defaults", false, catalog)).toHaveLength(DEFAULT_DIFFICULTY_BOUNDARIES.length + 2);
+  });
+
+  it("ルート確定後は、ルート線の色分けモードの凡例。塗る軸でない・無いモードは空", () => {
+    const mode = catalog.routeStyleModes.find((entry) => entry.legend.length > 0)!;
+    expect(lensLegend(mode.id, true, catalog)).toBe(mode.legend);
+    expect(lensLegend("missing", true, catalog)).toEqual([]);
+    expect(lensLegend("missing", false, catalog)).toEqual([]);
   });
 });
 
 describe("lensOptions（レンズの選択肢）", () => {
-  const paintable = new Set(["r", "d"]);
-  const byId = (usedWeights: Record<string, number> | null) =>
-    Object.fromEntries(lensOptions(CATALOG.axes, paintable, usedWeights, {}).map((option) => [option.id, option]));
+  const { axes } = catalogOf([rampEntry("ramp", [1]), catalogEntry({ axis_id: "route_only" })]);
+  const paintable = new Set(["ramp"]);
 
-  it("公開軸をカタログの並びのまま並べる", () => {
-    expect(lensOptions(CATALOG.axes, paintable, null, {}).map((option) => option.id)).toEqual(["r", "d", "p"]);
+  it("全道路を塗れない軸はルートだけの印を持ち、識別色が無ければ中立色", () => {
+    const [ramp, routeOnly] = lensOptions(axes, paintable, null, { ramp: "#123456" });
+    expect(ramp).toMatchObject({ id: "ramp", label: "ramp", color: "#123456", routeOnly: false, unused: false });
+    expect(routeOnly.routeOnly).toBe(true);
+    expect(routeOnly.color).not.toBe("#123456");
   });
 
-  it("生成前は未使用を付けず、生成後は使われた重みが0か無い軸だけを未使用にする", () => {
-    expect(Object.values(byId(null)).some((option) => option.unused)).toBe(false);
-    const after = byId({ r: 0.5, d: 0 });
-    expect([after.r.unused, after.d.unused, after.p.unused]).toEqual([false, true, true]);
-  });
-
-  it("ルート確定前に塗る手段を持たない軸だけが「ルート後のみ」になる", () => {
-    const options = byId(null);
-    expect([options.r.routeOnly, options.d.routeOnly, options.p.routeOnly]).toEqual([false, false, true]);
+  it("「未使用」は、生成に使った重みが0以下の軸にだけ、生成した後で付ける", () => {
+    const [ramp, routeOnly] = lensOptions(axes, paintable, { ramp: 2 }, {});
+    expect(ramp.unused).toBe(false);
+    expect(routeOnly.unused).toBe(true);
+    expect(lensOptions(axes, paintable, null, {}).some((option) => option.unused)).toBe(false);
   });
 });
 
-describe("ramp軸の凡例の単位", () => {
-  const rampDisplay = { tile_inputs: [{ property: "v", weight: 1 }], thresholds: [1, 2] };
-
-  it("軸カタログのraw_value_unitを段階ラベルへ添える", () => {
-    const [axis] = rampAxesFromCatalogAxes([catalogAxis({ raw_value_unit: "回/km", display: rampDisplay })]);
-
-    expect(rampLegend(axis).map((band) => band.label)).toEqual(["1回/km未満", "1〜2回/km", "2回/km以上"]);
-  });
-
-  it("単位が定まらない軸（raw_value_unitがnull）は数値だけの段階ラベルになる", () => {
-    const [axis] = rampAxesFromCatalogAxes([catalogAxis({ raw_value_unit: null, display: rampDisplay })]);
-
-    expect(rampLegend(axis).map((band) => band.label)).toEqual(["1未満", "1〜2", "2以上"]);
-  });
-});
-
-/** 符号付き材料の段。**軸の折れ線の節を0対称に開いたもの**で、backendが軸ごとに返す
- * （`domain/dynamic_way_values.py`）。ここでは形だけを借りて色の性質を見る。 */
-const SIGNED_BANDS: readonly number[] = [-9, -6, -3, 3, 6, 9];
-
-const difficultyDisplay: DedicatedWayValueDisplay = { kind: "difficulty", unit: "" };
-const signedDisplay: DedicatedWayValueDisplay = { kind: "signed_material", unit: "%", boundaries: SIGNED_BANDS };
-
-// 下り側は寒色、平坦は緑、という**性質**を見る。実装の定数を借りると、源泉で色を
-// 調整しただけで落ちる。
-const DESCENT = "#0284c7";
-const FLAT = "#16a34a";
-
-describe("dedicatedWayValueLegend", () => {
-  it("段階数はboundaries.length+1で、境界値と単位からラベルを機械的に組み立てる（末尾はデータなし）", () => {
-    const legend = dedicatedWayValueLegend({ ...signedDisplay, boundaries: [0, 5] });
-    expect(legend.map((b) => b.label)).toEqual(["0%未満", "0〜5%", "5%以上", "データなし"]);
-    expect(legend[legend.length - 1].key).toBe(LEGEND_NO_DATA_KEY);
-    expect(legend[legend.length - 1].color).toBe(COLOR_NO_DATA);
-  });
-
-  it("難易度スケールは単位なし・緑→赤、符号付き材料は0を境に下り側・上り側で配色を分ける", () => {
-    const difficulty = dedicatedWayValueLegend({ ...difficultyDisplay, boundaries: [33, 66] });
-    expect(difficulty.slice(0, -1).map((b) => b.label)).toEqual(["33未満", "33〜66", "66以上"]);
-    expect(difficulty.slice(0, -1).map((b) => b.color)).toEqual(bandColorsFor("difficulty", [33, 66]));
-
-    const signed = dedicatedWayValueLegend(signedDisplay);
-    expect(signed[0].color).toBe(DESCENT);
-    // 0をまたぐ段階（平坦）が配色の分かれ目。
-    const flatIndex = SIGNED_BANDS.findIndex((boundary) => boundary > 0);
-    expect(signed[flatIndex].color).toBe(FLAT);
-    expect(signed).toHaveLength(SIGNED_BANDS.length + 2);
-  });
-
-  it("bandLabelsは要素数が段階数と一致する間だけ数値レンジの前に添える", () => {
-    const labels = ["追い風・無風", "弱い向かい風", "向かい風", "強い向かい風", "非常に強い"];
-    const legend = dedicatedWayValueLegend({
-      ...difficultyDisplay,
-      boundaries: [20, 40, 60, 80],
-      bandLabels: labels,
-    });
-    expect(legend[0].label).toBe("追い風・無風（20未満）");
-    expect(legend[4].label).toBe("非常に強い（80以上）");
-
-    const mismatch = dedicatedWayValueLegend({ ...difficultyDisplay, boundaries: [33, 66], bandLabels: ["a", "b"] });
-    expect(mismatch[0].label).toBe("33未満");
+describe("isRouteStyleModeId", () => {
+  it("いまのカタログにあるモードの綴りだけを受ける（保存値の読み戻し）", () => {
+    expect(isRouteStyleModeId(catalog.routeStyleModes, catalog.routeStyleModes[0].id)).toBe(true);
+    expect(isRouteStyleModeId(catalog.routeStyleModes, "gone")).toBe(false);
+    expect(isRouteStyleModeId(catalog.routeStyleModes, null)).toBe(false);
   });
 });

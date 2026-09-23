@@ -1,181 +1,130 @@
-import { renderHook, waitFor } from "@testing-library/react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { act, renderHook } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+const { debugLog } = vi.hoisted(() => ({ debugLog: vi.fn() }));
+vi.mock("@/lib/debugLog", () => ({ debugLog }));
+
 import { usePolledFetch } from "./usePolledFetch";
 
-// 改善計画T470: useDynamicWeatherLayers.tsに5箇所独立実装されていた「cancelledフラグ+
-// Promise+catch」の同型フェッチ骨格を統合したusePolledFetch自体の単体テスト。
-describe("usePolledFetch", () => {
-  afterEach(() => {
-    vi.useRealTimers();
+const INTERVAL_MS = 60_000;
+const OPTIONS = { intervalMs: INTERVAL_MS, label: "テスト対象" };
+
+async function settle() {
+  await act(async () => {
+    for (let i = 0; i < 10; i += 1) await Promise.resolve();
+  });
+}
+
+beforeEach(() => {
+  vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
+  debugLog.mockClear();
+});
+afterEach(() => {
+  vi.useRealTimers();
+});
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((r) => {
+    resolve = r;
+  });
+  return { promise, resolve };
+}
+
+describe("usePolledFetch（定期取得）", () => {
+  it("有効な間だけ、すぐ1回取り、以後は間隔ごとに取り直す", async () => {
+    const fetcher = vi.fn(async () => fetcher.mock.calls.length);
+    const { result } = renderHook(() => usePolledFetch(fetcher, 0, { ...OPTIONS, enabled: true }));
+    await settle();
+    expect(result.current).toEqual({ data: 1, loading: false, error: null, hasFetched: true });
+
+    act(() => vi.advanceTimersByTime(INTERVAL_MS));
+    await settle();
+    expect(result.current.data).toBe(2);
   });
 
-  it("マウント時に即座に1回フェッチし、成功結果をdataへ反映する", async () => {
-    const fetcher = vi.fn().mockResolvedValue("result-1");
-
-    const { result } = renderHook(() =>
-      usePolledFetch(fetcher, "initial", { enabled: true, intervalMs: 100000, label: "テスト" }),
-    );
-
-    expect(result.current.data).toBe("initial");
-    await waitFor(() => expect(result.current.data).toBe("result-1"));
-    expect(fetcher).toHaveBeenCalledTimes(1);
-    expect(result.current.error).toBeNull();
-  });
-
-  it("hasFetchedは初回フェッチの完了で立つ（enabled=falseの間はfalseのまま）", async () => {
-    // 「まだ取りに行っていない」と「取得したが空だった」を呼び出し側が区別するための入力
-    // （mapLayers.ts: deriveFetchLayerStatus）。無いと未取得が「データがありません」になる。
-    const fetcher = vi.fn().mockResolvedValue("result-1");
-
-    const { result } = renderHook(() =>
-      usePolledFetch(fetcher, "initial", { enabled: true, intervalMs: 100000, label: "テスト" }),
-    );
-
-    expect(result.current.hasFetched).toBe(false);
-    await waitFor(() => expect(result.current.hasFetched).toBe(true));
-  });
-
-  it("フェッチが失敗してもhasFetchedは立つ（試みた事実を表すため）", async () => {
-    const fetcher = vi.fn().mockRejectedValue(new Error("失敗"));
-
-    const { result } = renderHook(() =>
-      usePolledFetch(fetcher, "initial", { enabled: true, intervalMs: 100000, label: "テスト" }),
-    );
-
-    await waitFor(() => expect(result.current.error).not.toBeNull());
-    expect(result.current.hasFetched).toBe(true);
-  });
-
-  it("enabled=falseの間はhasFetchedがfalseのまま", async () => {
-    const fetcher = vi.fn().mockResolvedValue("result-1");
-
-    const { result } = renderHook(() =>
-      usePolledFetch(fetcher, "initial", { enabled: false, intervalMs: 100000, label: "テスト" }),
-    );
-
-    await new Promise((resolve) => setTimeout(resolve, 10));
-
-    expect(result.current.hasFetched).toBe(false);
-  });
-
-  it("enabled=falseの間はフェッチせず、初期値のまま", async () => {
-    const fetcher = vi.fn().mockResolvedValue("result-1");
-
-    renderHook(() => usePolledFetch(fetcher, "initial", { enabled: false, intervalMs: 100000, label: "テスト" }));
-
-    await new Promise((resolve) => setTimeout(resolve, 10));
+  it("無効な間は取りに行かず、初期値のまま「まだ取りに行っていない」", async () => {
+    const fetcher = vi.fn(async () => 1);
+    const { result } = renderHook(() => usePolledFetch(fetcher, 0, { ...OPTIONS, enabled: false }));
+    await settle();
+    act(() => vi.advanceTimersByTime(INTERVAL_MS * 3));
     expect(fetcher).not.toHaveBeenCalled();
+    expect(result.current).toEqual({ data: 0, loading: false, error: null, hasFetched: false });
   });
 
-  it("失敗時はerrorへメッセージを記録し、dataは変化しない", async () => {
-    const fetcher = vi.fn().mockRejectedValue(new Error("boom"));
-
-    const { result } = renderHook(() =>
-      usePolledFetch(fetcher, "initial", { enabled: true, intervalMs: 100000, label: "テスト" }),
-    );
-
-    await waitFor(() => expect(result.current.error).toBe("boom"));
-    expect(result.current.data).toBe("initial");
-  });
-
-  it("Errorインスタンスでない失敗はlabelから組み立てた既定メッセージになる", async () => {
-    const fetcher = vi.fn().mockRejectedValue("not-an-error");
-
-    const { result } = renderHook(() =>
-      usePolledFetch(fetcher, "initial", { enabled: true, intervalMs: 100000, label: "テスト対象" }),
-    );
-
-    await waitFor(() => expect(result.current.error).toBe("テスト対象の取得に失敗しました"));
-  });
-
-  it("失敗後に成功すると、errorがnullへ戻る", async () => {
-    const fetcher = vi.fn().mockRejectedValueOnce(new Error("boom")).mockResolvedValueOnce("result-1");
-
-    vi.useFakeTimers();
-    const { result } = renderHook(() =>
-      usePolledFetch(fetcher, "initial", { enabled: true, intervalMs: 1000, label: "テスト" }),
-    );
-
-    await vi.waitFor(() => expect(result.current.error).toBe("boom"));
-
-    await vi.advanceTimersByTimeAsync(1000);
-
-    await vi.waitFor(() => expect(result.current.error).toBeNull());
-    expect(result.current.data).toBe("result-1");
-  });
-
-  it("intervalMsごとに再フェッチする", async () => {
-    const fetcher = vi.fn().mockResolvedValue("result");
-
-    vi.useFakeTimers();
-    renderHook(() => usePolledFetch(fetcher, "initial", { enabled: true, intervalMs: 1000, label: "テスト" }));
-
-    await vi.waitFor(() => expect(fetcher).toHaveBeenCalledTimes(1));
-
-    await vi.advanceTimersByTimeAsync(1000);
-    expect(fetcher).toHaveBeenCalledTimes(2);
-
-    await vi.advanceTimersByTimeAsync(1000);
-    expect(fetcher).toHaveBeenCalledTimes(3);
-  });
-
-  it("loadingは初回フェッチの間だけtrueになり、2回目以降は変化しない", async () => {
-    let resolveFirst: (value: string) => void = () => {};
-    const first = new Promise<string>((resolve) => {
-      resolveFirst = resolve;
+  it("読み込み中を出すのは最初の1回だけ（定期の取り直しでは出さない）", async () => {
+    const calls: ReturnType<typeof deferred<number>>[] = [];
+    const fetcher = vi.fn(() => {
+      const call = deferred<number>();
+      calls.push(call);
+      return call.promise;
     });
-    const fetcher = vi.fn().mockReturnValueOnce(first).mockResolvedValue("later");
+    const { result } = renderHook(() => usePolledFetch(fetcher, 0, { ...OPTIONS, enabled: true }));
+    await settle();
+    expect(result.current.loading).toBe(true);
+    calls[0].resolve(1);
+    await settle();
+    expect(result.current.loading).toBe(false);
 
-    vi.useFakeTimers();
-    const { result } = renderHook(() =>
-      usePolledFetch(fetcher, "initial", { enabled: true, intervalMs: 1000, label: "テスト" }),
-    );
-
-    await vi.waitFor(() => expect(result.current.loading).toBe(true));
-
-    resolveFirst("result-1");
-    await vi.waitFor(() => expect(result.current.loading).toBe(false));
-
-    await vi.advanceTimersByTimeAsync(1000);
-    // 2回目以降（ポーリング）はisFirstLoad=falseのためloadingは変化しない。
+    act(() => vi.advanceTimersByTime(INTERVAL_MS));
+    await settle();
+    expect(calls).toHaveLength(2);
     expect(result.current.loading).toBe(false);
   });
 
-  it("enabledがfalseへ戻るとhasFetchedもfalseへ戻る", async () => {
-    // hasFetchedは「取りに行った結果、値が無かった」（empty表示）と「まだ取りに行って
-    // いない」を分ける唯一の手掛かり（deriveFetchLayerStatus）。trueのまま残すと、
-    // レイヤーを消しただけの状態が「データなし」と表示されうる。
-    const fetcher = vi.fn().mockResolvedValue("result-1");
-
-    const { result, rerender } = renderHook(
-      ({ enabled }: { enabled: boolean }) =>
-        usePolledFetch(fetcher, "initial", { enabled, intervalMs: 100000, label: "テスト" }),
-      { initialProps: { enabled: true } },
+  it("失敗は前回の値を残して文言だけを出し、警告として記録する。次に成功すれば文言を消す", async () => {
+    let fail = false;
+    const fetcher = vi.fn(async () => {
+      if (fail) throw new Error("通信できません");
+      return "値";
+    });
+    const { result } = renderHook(() =>
+      usePolledFetch(fetcher, "", { ...OPTIONS, enabled: true, debugLogCategory: "api:test" }),
+    );
+    await settle();
+    fail = true;
+    act(() => vi.advanceTimersByTime(INTERVAL_MS));
+    await settle();
+    expect(result.current).toMatchObject({ data: "値", error: "通信できません" });
+    expect(debugLog).toHaveBeenCalledWith(
+      "api:test",
+      "テスト対象の読み込みに失敗",
+      { error: "通信できません" },
+      "warn",
     );
 
-    await waitFor(() => expect(result.current.hasFetched).toBe(true));
-
-    rerender({ enabled: false });
-
-    expect(result.current.hasFetched).toBe(false);
+    fail = false;
+    act(() => vi.advanceTimersByTime(INTERVAL_MS));
+    await settle();
+    expect(result.current.error).toBeNull();
   });
 
-  it("アンマウント後は古いフェッチの解決結果を反映しない", async () => {
-    let resolveFetch: (value: string) => void = () => {};
-    const fetcher = vi.fn().mockReturnValue(
-      new Promise<string>((resolve) => {
-        resolveFetch = resolve;
-      }),
-    );
+  it("Errorでない失敗は、対象名から作った文言にする", async () => {
+    const fetcher = vi.fn(() => Promise.reject("理由不明"));
+    const { result } = renderHook(() => usePolledFetch(fetcher, 0, { ...OPTIONS, enabled: true }));
+    await settle();
+    expect(result.current.error).toBe("テスト対象の取得に失敗しました");
+  });
 
-    const { result, unmount } = renderHook(() =>
-      usePolledFetch(fetcher, "initial", { enabled: true, intervalMs: 100000, label: "テスト" }),
-    );
+  it("無効へ切り替えると「まだ取りに行っていない」へ戻り、取りかけの応答と以後の取り直しを捨てる", async () => {
+    const pending = deferred<number>();
+    const fetcher = vi.fn(async () => 1);
+    const { result, rerender } = renderHook(({ enabled }) => usePolledFetch(fetcher, 0, { ...OPTIONS, enabled }), {
+      initialProps: { enabled: true },
+    });
+    await settle();
+    expect(result.current.hasFetched).toBe(true);
 
-    unmount();
-    resolveFetch("result-1");
-    await new Promise((resolve) => setTimeout(resolve, 10));
+    fetcher.mockImplementationOnce(() => pending.promise);
+    act(() => vi.advanceTimersByTime(INTERVAL_MS));
+    rerender({ enabled: false });
+    expect(result.current.hasFetched).toBe(false);
 
-    expect(result.current.data).toBe("initial");
+    pending.resolve(99);
+    await settle();
+    act(() => vi.advanceTimersByTime(INTERVAL_MS * 2));
+    await settle();
+    expect(result.current.data).toBe(1);
+    expect(fetcher).toHaveBeenCalledTimes(2);
   });
 });

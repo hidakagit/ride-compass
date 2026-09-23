@@ -3,47 +3,47 @@
     {
       "value": 0,
       "color": "#b8e6fd",
-      "name": ""
+      "name": "ごく弱い雨"
     },
     {
       "value": 0.4,
       "color": "#93dafc",
-      "name": ""
+      "name": "ポツポツ"
     },
     {
       "value": 2,
       "color": "#68ccfb",
-      "name": ""
+      "name": "パラパラ"
     },
     {
       "value": 4,
       "color": "#38bdf8",
-      "name": ""
+      "name": "ザーッ"
     },
     {
       "value": 10,
       "color": "#3b82f6",
-      "name": ""
+      "name": "ザーザー"
     },
     {
       "value": 20,
       "color": "#eab308",
-      "name": ""
+      "name": "強い雨"
     },
     {
       "value": 30,
       "color": "#f97316",
-      "name": ""
+      "name": "激しい雨"
     },
     {
       "value": 50,
       "color": "#dc2626",
-      "name": ""
+      "name": "非常に激しい雨"
     },
     {
       "value": 80,
       "color": "#9333ea",
-      "name": ""
+      "name": "猛烈な雨"
     }
   ],
   "wind_speed": [

@@ -1,386 +1,178 @@
 // @vitest-environment node
 import { afterEach, describe, expect, it, vi } from "vitest";
+
+import { makeResponse } from "@/testing/fetchMocks";
+import type { WindGridPoint } from "@/types/weather";
+
+import { jmaDelivery, type JmaNowcastFrame } from "./jmaNowcastFrames";
 import {
-  fetchNowcastFrames,
   fetchRasrfFrames,
-  precipitationFrames,
-  precipitationRenderPayload,
   PRECIPITATION_COLOR_STOPS,
   PRECIPITATION_INTENSITY_LEVELS,
+  precipitationFrames,
+  precipitationRenderPayload,
+  type RasrfFrame,
 } from "./precipitationNowcast";
-import { parseValidtime, trimToCurrentAndFuture } from "./jmaNowcastFrames";
-import { parseJstTime, WIND_GRID_SPACING_DEG } from "./windLayer";
-import type { WindGridPoint } from "@/types/weather";
-// タイル配信オリジンは`@/lib/tileBaseUrl`が唯一の情報源で、その環境変数依存は
-// `src/lib/tileBaseUrl.test.ts`が検証する。ここで固定するのは、`process.env`が
-// テストファイルをまたいで共有されるため（pool: vmThreads）、別ファイルが立てた
-// `NEXT_PUBLIC_TILE_BASE_URL`でこのファイルの期待値が変わらないようにするため。
-vi.mock("@/lib/tileBaseUrl", () => ({ tileBaseUrl: () => "" }));
 
-const N1 = [
-  { basetime: "20260820030000", validtime: "20260820030000" },
-  { basetime: "20260820025500", validtime: "20260820025500" },
-];
-const N2 = [
-  { basetime: "20260820030000", validtime: "20260820030500" },
-  { basetime: "20260820030000", validtime: "20260820031000" },
-];
+const SHORT_RANGE = jmaDelivery("precipitationNowcast/main", 1);
+const RAINBAND = jmaDelivery("precipitationNowcast/linearRainband").id;
+const SHORT_RANGE_FILE = `/api/jma-tile/bosai/jmatile/data/${SHORT_RANGE.pathGroup}/${SHORT_RANGE.targetTimeFiles[0]}`;
 
-function jsonResponse(body: unknown, ok = true, status = 200) {
-  return { ok, status, json: async () => body, headers: new Headers() };
+afterEach(() => {
+  vi.unstubAllGlobals();
+});
+
+function stubShortRange(rows: unknown[]) {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (url: string) =>
+      url === SHORT_RANGE_FILE ? makeResponse({ json: async () => rows }) : makeResponse({ ok: false, status: 404 }),
+    ),
+  );
 }
 
-describe("precipitationNowcast", () => {
-  afterEach(() => {
-    vi.unstubAllGlobals();
-  });
+const entry = (basetime: string, validtime: string, member: string, elements = [SHORT_RANGE.id]) => ({
+  basetime,
+  validtime,
+  member,
+  elements,
+});
 
-  it("fetchNowcastFramesは実況(N1)・予測(N2)を合わせてvalidtime昇順に並べ、isForecastを正しく付与する", async () => {
-    const fetchMock = vi.fn((url: string) => {
-      if (url.includes("N1")) return Promise.resolve(jsonResponse(N1));
-      return Promise.resolve(jsonResponse(N2));
-    });
-    vi.stubGlobal("fetch", fetchMock);
-
-    const frames = await fetchNowcastFrames();
-
-    expect(frames.map((f) => f.validtime)).toEqual([
-      "20260820025500",
-      "20260820030000",
-      "20260820030500",
-      "20260820031000",
+describe("fetchRasrfFrames（降水短時間予報の時刻一覧）", () => {
+  it("系列ごとに、validtimeを複数持つ最新のラン（完全な予報）だけを使う——単発の中間ランは使わない", async () => {
+    stubShortRange([
+      entry("20260924000000", "20260924010000", "immed"),
+      entry("20260924000000", "20260924020000", "immed"),
+      // 後から来た中間ラン（validtime 1つだけ）
+      entry("20260924001000", "20260924001000", "immed"),
+      // 古い完全なラン
+      entry("20260923230000", "20260924000000", "immed"),
+      entry("20260923230000", "20260924010000", "immed"),
     ]);
-    expect(frames.map((f) => f.isForecast)).toEqual([false, false, true, true]);
+    expect(await fetchRasrfFrames()).toEqual([
+      { basetime: "20260924000000", validtime: "20260924010000", member: "immed", isForecast: true },
+      { basetime: "20260924000000", validtime: "20260924020000", member: "immed", isForecast: true },
+    ]);
   });
 
-  it("片方(N1)の取得に失敗しても、もう片方(N2)だけの部分的な時系列を返す", async () => {
-    const fetchMock = vi.fn((url: string) => {
-      if (url.includes("N1")) return Promise.resolve(jsonResponse(null, false, 500));
-      return Promise.resolve(jsonResponse(N2));
-    });
-    vi.stubGlobal("fetch", fetchMock);
-
-    const frames = await fetchNowcastFrames();
-
-    expect(frames.map((f) => f.validtime)).toEqual(["20260820030500", "20260820031000"]);
-    expect(frames.every((f) => f.isForecast)).toBe(true);
+  it("同じファイルに混ざる別の要素（線状降水帯）の行は数えない", async () => {
+    stubShortRange([
+      entry("20260924000000", "20260924010000", "immed"),
+      entry("20260924000000", "20260924020000", "immed"),
+      entry("20260924001000", "20260924011000", "immed", [RAINBAND]),
+      entry("20260924001000", "20260924021000", "immed", [RAINBAND]),
+    ]);
+    expect((await fetchRasrfFrames()).map((frame) => frame.basetime)).toEqual(["20260924000000", "20260924000000"]);
   });
 
-  it("両方とも取得に失敗した場合は例外を投げる", async () => {
-    const fetchMock = vi.fn(() => Promise.resolve(jsonResponse(null, false, 500)));
-    vi.stubGlobal("fetch", fetchMock);
-
-    await expect(fetchNowcastFrames()).rejects.toThrow();
+  it("直近（immed）と先（none）の2系列を1本の時刻順につなげ、同じ時刻は詳細な直近を採る", async () => {
+    stubShortRange([
+      entry("20260924000000", "20260924080000", "none"),
+      entry("20260924000000", "20260924060000", "none"),
+      entry("20260924001000", "20260924050000", "immed"),
+      entry("20260924001000", "20260924060000", "immed"),
+    ]);
+    expect((await fetchRasrfFrames()).map((frame) => [frame.validtime, frame.member])).toEqual([
+      ["20260924050000", "immed"],
+      ["20260924060000", "immed"],
+      ["20260924080000", "none"],
+    ]);
   });
 
-  describe("fetchRasrfFrames（改善計画T407: 降水短時間予報、immed=直近0〜6時間・none=7〜15時間先）", () => {
-    const RASRF_ELEMENTS = ["rasrf", "rasrf_point", "rasrf_nd"];
+  it("完全なランが無ければ空", async () => {
+    stubShortRange([entry("20260924001000", "20260924001000", "immed")]);
+    expect(await fetchRasrfFrames()).toEqual([]);
+  });
+});
 
-    it("各memberの「複数フレームを持つ最新basetime」だけを採用し、validtime昇順で統合する", async () => {
-      const raw = [
-        // none: 10分毎の中間ラン（単発、validtime===basetime）は無視する。
-        { basetime: "20260829161000", validtime: "20260829161000", member: "none", elements: RASRF_ELEMENTS },
-        // none: 毎正時の完全な予報ラン（複数フレーム）。最新basetime=20260829160000を採用。
-        { basetime: "20260829160000", validtime: "20260829230000", member: "none", elements: RASRF_ELEMENTS },
-        { basetime: "20260829160000", validtime: "20260830000000", member: "none", elements: RASRF_ELEMENTS },
-        // none: より古い完全な予報ラン（採用しない）。
-        { basetime: "20260829150000", validtime: "20260829220000", member: "none", elements: RASRF_ELEMENTS },
-        { basetime: "20260829150000", validtime: "20260829230000", member: "none", elements: RASRF_ELEMENTS },
-        // immed: 最新basetime=20260829161000の完全な予報ラン。
-        { basetime: "20260829161000", validtime: "20260829171000", member: "immed", elements: RASRF_ELEMENTS },
-        { basetime: "20260829161000", validtime: "20260829181000", member: "immed", elements: RASRF_ELEMENTS },
-      ];
-      vi.stubGlobal(
-        "fetch",
-        vi.fn(() => Promise.resolve(jsonResponse(raw))),
-      );
+const nowcast = (validtime: string, isForecast = true): JmaNowcastFrame => ({
+  basetime: "20260924000000",
+  validtime,
+  isForecast,
+});
+const rasrf = (validtime: string, member = "immed"): RasrfFrame => ({
+  basetime: "20260924000000",
+  validtime,
+  member,
+  isForecast: true,
+});
+/** 延長予報の格子（日本時間・オフセット無しの時刻）。 */
+const gridPoint = (times: string[], precipitation: (number | null)[], latitude = 35, longitude = 139): WindGridPoint =>
+  ({
+    latitude,
+    longitude,
+    times,
+    wind_speed_ms: times.map(() => 1),
+    wind_direction_deg: times.map(() => 0),
+    precipitation_mm: precipitation,
+  }) as WindGridPoint;
 
-      const frames = await fetchRasrfFrames();
-
-      expect(frames.map((f) => f.validtime)).toEqual([
-        "20260829171000",
-        "20260829181000",
-        "20260829230000",
-        "20260830000000",
-      ]);
-      expect(frames.map((f) => f.member)).toEqual(["immed", "immed", "none", "none"]);
-      expect(frames.every((f) => f.isForecast)).toBe(true);
-    });
-
-    it("いずれかのmemberに完全な予報ランが無ければ、そのmember分は空のまま返す", async () => {
-      const raw = [
-        { basetime: "20260829161000", validtime: "20260829161000", member: "none", elements: RASRF_ELEMENTS },
-      ];
-      vi.stubGlobal(
-        "fetch",
-        vi.fn(() => Promise.resolve(jsonResponse(raw))),
-      );
-
-      expect(await fetchRasrfFrames()).toEqual([]);
-    });
-
-    it("elementsにrasrfを含まない行（線状降水帯予測マップ[sjfcstmap]等の別プロダクト）は除外する", async () => {
-      // 実機確認（2026-08-30）で判明したパターン: 同じ(basetime, validtime, member)組に対し、
-      // rasrfを含む行とsjfcstmap単体の行が別々に存在することがある。sjfcstmap単体行が
-      // 複数validtimeの「完全な予報ラン」に誤ってカウントされ、rasrf画像が存在しない
-      // タイルURLを組み立ててしまうことの回帰テスト。
-      const raw = [
-        // 完全な予報ラン（rasrf搭載、2 validtime）。
-        { basetime: "20260829160000", validtime: "20260829230000", member: "none", elements: RASRF_ELEMENTS },
-        { basetime: "20260829160000", validtime: "20260830000000", member: "none", elements: RASRF_ELEMENTS },
-        // より新しいbasetimeだが、sjfcstmap単体（rasrf無し）の行しか無い中間ラン。
-        // rasrfを含まないため「完全な予報ラン」として誤採用してはいけない。
-        { basetime: "20260829163000", validtime: "20260829163000", member: "none", elements: ["sjfcstmap"] },
-      ];
-      vi.stubGlobal(
-        "fetch",
-        vi.fn(() => Promise.resolve(jsonResponse(raw))),
-      );
-
-      const frames = await fetchRasrfFrames();
-
-      expect(frames.map((f) => f.validtime)).toEqual(["20260829230000", "20260830000000"]);
-      expect(frames.every((f) => f.member === "none")).toBe(true);
-    });
-
-    it("応答が配列でなければ例外を投げる", async () => {
-      vi.stubGlobal(
-        "fetch",
-        vi.fn(() => Promise.resolve(jsonResponse({ not: "an array" }))),
-      );
-
-      await expect(fetchRasrfFrames()).rejects.toThrow();
-    });
+describe("precipitationFrames（3段を1本のタイムラインへ）", () => {
+  it("ナウキャスト→短時間予報→延長予報の順に、前の段の最後より後の時刻だけを継ぐ", () => {
+    const frames = precipitationFrames(
+      [nowcast("20260924000000", false), nowcast("20260924010000")],
+      [rasrf("20260924010000"), rasrf("20260924020000")],
+      // 日本時間 11:00 = 協定世界時 02:00（短時間予報の最後と同時刻）、12:00 = 03:00
+      [gridPoint(["2026-09-24T11:00", "2026-09-24T12:00"], [0, 1])],
+    );
+    expect(frames.map((frame) => [frame.time.toISOString(), frame.ref.source])).toEqual([
+      ["2026-09-24T00:00:00.000Z", "nowcast"],
+      ["2026-09-24T01:00:00.000Z", "nowcast"],
+      ["2026-09-24T02:00:00.000Z", "shortRange"],
+      ["2026-09-24T03:00:00.000Z", "extended"],
+    ]);
+    expect(frames[3].ref).toEqual({ source: "extended", index: 1 });
   });
 
-  describe("trimToCurrentAndFuture（実機フィードバック「過去の風、雨を気にすることはアプリの性質上ない、デフォルト位置を左端に」）", () => {
-    function frame(validtime: string, isForecast: boolean) {
-      return { basetime: "a", validtime, isForecast };
-    }
+  it("短時間予報が取れていなければ、ナウキャストの直後から延長予報を継ぐ", () => {
+    const frames = precipitationFrames(
+      [nowcast("20260924000000", false)],
+      [],
+      [gridPoint(["2026-09-24T09:00", "2026-09-24T10:00"], [0, 1])],
+    );
+    expect(frames.map((frame) => frame.ref.source)).toEqual(["nowcast", "extended"]);
+  });
 
-    it("「現在」より前の実況フレームをすべて切り捨て、「現在」がindex 0（左端）に来るようにする", () => {
-      const frames = [frame("1", false), frame("2", false), frame("3", false), frame("4", true), frame("5", true)];
-      const result = trimToCurrentAndFuture(frames);
-      expect(result.map((f) => f.validtime)).toEqual(["3", "4", "5"]);
-      expect(result.filter((f) => !f.isForecast)).toEqual([frame("3", false)]);
+  it("どの段も無ければ空", () => {
+    expect(precipitationFrames([], [], [])).toEqual([]);
+  });
+});
+
+describe("precipitationRenderPayload（コマの描き方）", () => {
+  it("ナウキャスト・短時間予報は配信元のタイル（短時間予報だけ系列がURLに入る）", () => {
+    const [now, short] = precipitationFrames([nowcast("20260924000000", false)], [rasrf("20260924020000", "none")], []);
+    expect(precipitationRenderPayload([], 0.1, now.ref)).toMatchObject({
+      kind: "rasterTile",
+      tileUrlTemplate: expect.stringContaining("/20260924000000/none/20260924000000/surf/"),
     });
-
-    it("実況フレームが「現在」の1件しか無ければ何も切り詰めない", () => {
-      const frames = [frame("1", false), frame("2", true), frame("3", true)];
-      expect(trimToCurrentAndFuture(frames)).toEqual(frames);
-    });
-
-    it("改善計画T425回帰テスト: 実況フレームが1件も無い（全てisForecast=true）場合、末尾の1件だけに削られず全フレームを残す", () => {
-      // 以前はフォールバックが逆転しており（latestObservedFrameIndexが末尾indexを返す）、
-      // 実況0件時に最も未来の1フレームだけが残り、降水/雷/竜巻ナウキャストが実質空に
-      // なっていた（ゼロベース網羅レビュー指摘）。
-      const frames = [frame("1", true), frame("2", true), frame("3", true)];
-      expect(trimToCurrentAndFuture(frames)).toEqual(frames);
-    });
-
-    it("空配列を渡すと空配列を返す", () => {
-      expect(trimToCurrentAndFuture([])).toEqual([]);
+    expect(precipitationRenderPayload([], 0.1, short.ref)).toMatchObject({
+      kind: "rasterTile",
+      tileUrlTemplate: expect.stringContaining(`/20260924000000/none/20260924020000/surf/${SHORT_RANGE.id}/`),
     });
   });
 
-  it("parseValidtimeはUTCのvalidtimeをDateへ変換する", () => {
-    // 20260820030000 (UTC) = JST 12:00
-    expect(parseValidtime("20260820030000").toISOString()).toBe("2026-08-20T03:00:00.000Z");
+  it("延長予報は、描く格子の各点を中心とする正方形をその時刻の降水量で塗る（欠けた点は飛ばす）", () => {
+    const grid = [gridPoint(["2026-09-24T12:00"], [2.5], 35, 139), gridPoint(["2026-09-24T12:00"], [null], 35.1, 139)];
+    const payload = precipitationRenderPayload(grid, 0.1, { source: "extended", index: 0 });
+    expect(payload.kind).toBe("gridFill");
+    const { features } = payload.kind === "gridFill" ? payload.geojson : { features: [] };
+    expect(features).toHaveLength(1);
+    expect(features[0].properties).toEqual({ mmPerHour: 2.5 });
+    expect(features[0].geometry).toMatchObject({ type: "Polygon" });
   });
+});
 
-  describe("PRECIPITATION_COLOR_STOPS", () => {
-    it("mm/hは単調増加する", () => {
-      for (let i = 1; i < PRECIPITATION_COLOR_STOPS.length; i++) {
-        expect(PRECIPITATION_COLOR_STOPS[i].mmPerHour).toBeGreaterThan(PRECIPITATION_COLOR_STOPS[i - 1].mmPerHour);
-      }
+describe("降水強度の凡例", () => {
+  it("色の段1つにつき1行、同じ順・同じ色で、帯の境界の値を名乗る", () => {
+    expect(PRECIPITATION_INTENSITY_LEVELS.map((level) => level.color)).toEqual(
+      PRECIPITATION_COLOR_STOPS.map((stop) => stop.color),
+    );
+    PRECIPITATION_INTENSITY_LEVELS.forEach((level, i) => {
+      const next = PRECIPITATION_COLOR_STOPS[i + 1];
+      if (next) expect(level.label).toContain(`${next.mmPerHour}mm/h`);
     });
-  });
-
-  describe("PRECIPITATION_INTENSITY_LEVELS", () => {
-    it("数値・色はPRECIPITATION_COLOR_STOPSと食い違わない（単一の情報源）", () => {
-      expect(PRECIPITATION_INTENSITY_LEVELS).toHaveLength(PRECIPITATION_COLOR_STOPS.length);
-      expect(PRECIPITATION_INTENSITY_LEVELS[0].color).toBe(PRECIPITATION_COLOR_STOPS[0].color);
-      expect(PRECIPITATION_INTENSITY_LEVELS.at(-1)?.color).toBe(PRECIPITATION_COLOR_STOPS.at(-1)?.color);
-      expect(PRECIPITATION_INTENSITY_LEVELS[1].label).toContain(`${PRECIPITATION_COLOR_STOPS[1].mmPerHour}`);
-    });
-  });
-
-  describe("precipitationFrames（T183+T407: ナウキャスト+降水短時間予報+延長予報のデータ取得層での統合、dynamicWeather.tsの共通フレーム列へ変換）", () => {
-    function nowcastFrame(validtime: string, isForecast: boolean) {
-      return { basetime: "a", validtime, isForecast };
-    }
-    function rasrfFrame(validtime: string) {
-      return { basetime: "a", validtime, isForecast: true, member: "immed" };
-    }
-    function extendedGrid(times: readonly string[]): WindGridPoint[] {
-      return [
-        {
-          latitude: 35.68,
-          longitude: 139.77,
-          times: [...times],
-          wind_speed_ms: times.map(() => 0),
-          wind_direction_deg: times.map(() => 0),
-          precipitation_mm: times.map(() => 1),
-        },
-      ];
-    }
-
-    it("ナウキャスト→降水短時間予報→延長予報の順に並べ、それぞれ正しいref・timeを付ける", () => {
-      // 20260820030000 UTC = 12:00 JST。ナウキャストは実況1件・予測1件（12:00, 12:05 JST）。
-      const nowcastFrames = [nowcastFrame("20260820030000", false), nowcastFrame("20260820030500", true)];
-      const rasrfFrames = [rasrfFrame("20260820040000"), rasrfFrame("20260820050000")]; // 13:00, 14:00 JST
-      // 延長側（風と共通の格子点マップ由来）は15:00, 16:00 JST（JSTのオフセット無し表記）。
-      const frames = precipitationFrames(
-        nowcastFrames,
-        rasrfFrames,
-        extendedGrid(["2026-08-20T15:00", "2026-08-20T16:00"]),
-      );
-
-      expect(frames).toEqual([
-        { time: parseValidtime("20260820030000"), ref: { source: "nowcast", index: 0 } },
-        { time: parseValidtime("20260820030500"), ref: { source: "nowcast", index: 1 } },
-        { time: parseValidtime("20260820040000"), ref: { source: "shortRange", index: 0 } },
-        { time: parseValidtime("20260820050000"), ref: { source: "shortRange", index: 1 } },
-        { time: parseJstTime("2026-08-20T15:00"), ref: { source: "extended", index: 0 } },
-        { time: parseJstTime("2026-08-20T16:00"), ref: { source: "extended", index: 1 } },
-      ]);
-    });
-
-    it("ナウキャストの最終フレーム以前の降水短時間予報時刻は除外する(近い将来の二重表示を避ける)", () => {
-      const nowcastFrames = [nowcastFrame("20260820030000", false), nowcastFrame("20260820030500", true)];
-      const rasrfFrames = [rasrfFrame("20260820030000"), rasrfFrame("20260820040000")]; // 12:00(除外), 13:00(採用)
-      const frames = precipitationFrames(nowcastFrames, rasrfFrames, []);
-
-      expect(frames.filter((f) => f.ref.source === "shortRange")).toEqual([
-        { time: parseValidtime("20260820040000"), ref: { source: "shortRange", index: 1 } },
-      ]);
-    });
-
-    it("降水短時間予報の最終フレーム以前の延長予報時刻は除外する(rasrf→extended境界の二重表示を避ける)", () => {
-      const rasrfFrames = [rasrfFrame("20260820040000")]; // 13:00 JST
-      // 延長側の13:00はrasrfの最終フレームと同時刻なので除外、14:00は採用される。
-      const frames = precipitationFrames([], rasrfFrames, extendedGrid(["2026-08-20T13:00", "2026-08-20T14:00"]));
-
-      expect(frames.filter((f) => f.ref.source === "extended")).toEqual([
-        { time: parseJstTime("2026-08-20T14:00"), ref: { source: "extended", index: 1 } },
-      ]);
-    });
-
-    it("降水短時間予報が空でも、延長予報はナウキャストの最終フレーム基準でフォールバックする", () => {
-      const nowcastFrames = [nowcastFrame("20260820030000", false), nowcastFrame("20260820030500", true)];
-      const frames = precipitationFrames(nowcastFrames, [], extendedGrid(["2026-08-20T12:00", "2026-08-20T13:00"]));
-
-      expect(frames.filter((f) => f.ref.source === "extended")).toEqual([
-        { time: parseJstTime("2026-08-20T13:00"), ref: { source: "extended", index: 1 } },
-      ]);
-    });
-
-    it("全て空なら空配列を返す", () => {
-      expect(precipitationFrames([], [], [])).toEqual([]);
-    });
-  });
-
-  describe("precipitationRenderPayload（アイコンは1つ、内部は時間によって使い分ける。sourceでrasterTile/gridFillを切り替える）", () => {
-    const nowcastFrames = [{ basetime: "20260820030000", validtime: "20260820030500", isForecast: true }];
-    const rasrfFrames = [
-      { basetime: "20260820030000", validtime: "20260820040000", isForecast: true, member: "immed" },
-    ];
-    const extendedGrid: WindGridPoint[] = [
-      {
-        latitude: 35.68,
-        longitude: 139.77,
-        times: ["t0", "t1"],
-        wind_speed_ms: [0, 0],
-        wind_direction_deg: [0, 0],
-        precipitation_mm: [0.5, 3.2],
-      },
-      {
-        latitude: 36.0,
-        longitude: 140.0,
-        times: ["t0", "t1"],
-        wind_speed_ms: [0, 0],
-        wind_direction_deg: [0, 0],
-        precipitation_mm: [0, 12.5],
-      },
-    ];
-
-    it("source=nowcastならkind=rasterTileで、basetime/validtimeを埋め込んだタイルURLを返す", () => {
-      const payload = precipitationRenderPayload(nowcastFrames, rasrfFrames, extendedGrid, WIND_GRID_SPACING_DEG, {
-        source: "nowcast",
-        index: 0,
-      });
-      expect(payload).toEqual({
-        kind: "rasterTile",
-        tileUrlTemplate:
-          "/api/jma-tile/bosai/jmatile/data/nowc/20260820030000/none/20260820030500/surf/hrpns/{z}/{x}/{y}.png",
-      });
-    });
-
-    it("source=nowcastでも該当indexのフレームが無ければundefinedを返す", () => {
-      expect(
-        precipitationRenderPayload(nowcastFrames, rasrfFrames, extendedGrid, WIND_GRID_SPACING_DEG, {
-          source: "nowcast",
-          index: 5,
-        }),
-      ).toBeUndefined();
-    });
-
-    it("source=rasrfならkind=rasterTileで、basetime/member/validtimeを埋め込んだタイルURLを返す", () => {
-      const payload = precipitationRenderPayload(nowcastFrames, rasrfFrames, extendedGrid, WIND_GRID_SPACING_DEG, {
-        source: "shortRange",
-        index: 0,
-      });
-      expect(payload).toEqual({
-        kind: "rasterTile",
-        tileUrlTemplate:
-          "/api/jma-tile/bosai/jmatile/data/rasrf/20260820030000/immed/20260820040000/surf/rasrf/{z}/{x}/{y}.png",
-      });
-    });
-
-    it("source=rasrfでも該当indexのフレームが無ければundefinedを返す", () => {
-      expect(
-        precipitationRenderPayload(nowcastFrames, rasrfFrames, extendedGrid, WIND_GRID_SPACING_DEG, {
-          source: "shortRange",
-          index: 5,
-        }),
-      ).toBeUndefined();
-    });
-
-    it("source=extendedならkind=gridFillで、指定indexの降水量からGeoJSON Polygonを構築する", () => {
-      const payload = precipitationRenderPayload(nowcastFrames, rasrfFrames, extendedGrid, WIND_GRID_SPACING_DEG, {
-        source: "extended",
-        index: 1,
-      });
-      expect(payload?.kind).toBe("gridFill");
-      if (payload?.kind !== "gridFill") throw new Error("unreachable");
-      expect(payload.geojson.features).toHaveLength(2);
-      expect(payload.geojson.features[0].properties?.mmPerHour).toBe(3.2);
-      expect(payload.geojson.features[1].properties?.mmPerHour).toBe(12.5);
-      const geometry = payload.geojson.features[0].geometry;
-      if (geometry.type !== "Polygon") throw new Error("unreachable");
-      expect(geometry.coordinates[0][0]).toEqual([
-        139.77 - WIND_GRID_SPACING_DEG / 2,
-        35.68 - WIND_GRID_SPACING_DEG / 2,
-      ]);
-    });
-
-    it("source=extendedでextendedGridが空ならundefinedを返す", () => {
-      expect(
-        precipitationRenderPayload(nowcastFrames, rasrfFrames, [], WIND_GRID_SPACING_DEG, {
-          source: "extended",
-          index: 0,
-        }),
-      ).toBeUndefined();
-    });
-
-    it("source=extendedで値が欠損している格子点はスキップする(欠損に頑健)", () => {
-      const payload = precipitationRenderPayload(nowcastFrames, rasrfFrames, extendedGrid, WIND_GRID_SPACING_DEG, {
-        source: "extended",
-        index: 5,
-      });
-      expect(payload?.kind).toBe("gridFill");
-      if (payload?.kind !== "gridFill") throw new Error("unreachable");
-      expect(payload.geojson.features).toHaveLength(0);
-    });
+    expect(new Set(PRECIPITATION_INTENSITY_LEVELS.map((level) => level.key)).size).toBe(
+      PRECIPITATION_INTENSITY_LEVELS.length,
+    );
   });
 });

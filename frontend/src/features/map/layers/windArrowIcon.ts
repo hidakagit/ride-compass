@@ -1,6 +1,7 @@
-// 風の矢印アイコンのCanvas 2D描画。MapLibre/DOM（canvas要素の生成のみ）以外に依存しない
-// 純粋な描画コード。どのレイヤーへ使うかは描き方の宣言（`features/map/scene/groups/weather.ts`）
+// 風の矢印アイコン。どのレイヤーへ使うかは描き方の宣言（`features/map/scene/groups/weather.ts`）
 // が持つ。
+
+import { drawSdfIcon } from "@/features/map/layers/sdfIcon";
 
 // 風の矢印は、バックエンドの格子点マップAPI（GET /api/weather/wind-grid、気象庁MSM
 // REST地点評価と同じ仕組み）が返す風向・風速をMapLibre標準のGeoJSON source + symbol
@@ -66,34 +67,26 @@ function fillTaperedRibbon(
 // 視覚言語を地図上でも踏襲する。道路・POI等の地図上オブジェクトのアイコン
 // （icons.tsx）は直線・単純な多角形が主体のため、曲線を基調にするだけでも見分けがつきやすい。
 export function createWindArrowIcon(): ImageData {
-  const canvas = document.createElement("canvas");
-  canvas.width = WIND_ARROW_SIZE_PX;
-  canvas.height = WIND_ARROW_SIZE_PX;
-  const ctx = canvas.getContext("2d");
-  if (!ctx) return new ImageData(WIND_ARROW_SIZE_PX, WIND_ARROW_SIZE_PX);
-  ctx.fillStyle = "#ffffff";
-
   // 北（画像上方向）を向くアイコンとして描き、実際の向きはicon-rotate（風向から計算した
   // bearing、windLayer.ts参照）で回転させる。
+  return drawSdfIcon(WIND_ARROW_SIZE_PX, (ctx) => {
+    // 主流線: 緩やかなS字を描きながら下（尾）から上（矢じりの根元）へ伸びる帯。
+    // 尾は太く、矢じりに近づくほど細くなる（風上から風下へ流れていく感覚を出す）。
+    fillTaperedRibbon(ctx, { x: 16, y: 29 }, { x: 12, y: 21 }, { x: 19, y: 15 }, { x: 16, y: 11 }, 5, 2, 14);
 
-  // 主流線: 緩やかなS字を描きながら下（尾）から上（矢じりの根元）へ伸びる帯。
-  // 尾は太く、矢じりに近づくほど細くなる（風上から風下へ流れていく感覚を出す）。
-  fillTaperedRibbon(ctx, { x: 16, y: 29 }, { x: 12, y: 21 }, { x: 19, y: 15 }, { x: 16, y: 11 }, 5, 2, 14);
+    // 左右の副流線（風チップのWindIconと同じ「複数の曲線が寄り添う」構図）。主流線より
+    // 細く短く、主流線に沿うように少しずれた位置を並走させ、単なる矢印ではなく
+    // 「複数の気流が束になって流れている」印象を加える。
+    fillTaperedRibbon(ctx, { x: 9, y: 27 }, { x: 7, y: 22 }, { x: 9, y: 18 }, { x: 11.5, y: 15 }, 1.6, 0.2, 10);
+    fillTaperedRibbon(ctx, { x: 23, y: 27 }, { x: 25, y: 22 }, { x: 23, y: 18 }, { x: 20.5, y: 15 }, 1.6, 0.2, 10);
 
-  // 左右の副流線（風チップのWindIconと同じ「複数の曲線が寄り添う」構図）。主流線より
-  // 細く短く、主流線に沿うように少しずれた位置を並走させ、単なる矢印ではなく
-  // 「複数の気流が束になって流れている」印象を加える。
-  fillTaperedRibbon(ctx, { x: 9, y: 27 }, { x: 7, y: 22 }, { x: 9, y: 18 }, { x: 11.5, y: 15 }, 1.6, 0.2, 10);
-  fillTaperedRibbon(ctx, { x: 23, y: 27 }, { x: 25, y: 22 }, { x: 23, y: 18 }, { x: 20.5, y: 15 }, 1.6, 0.2, 10);
-
-  // 矢じり（先端が尖った細身の三角形。流線の延長として自然に繋がる幅に絞っている）。
-  ctx.beginPath();
-  ctx.moveTo(16, 2);
-  ctx.lineTo(21, 12.5);
-  ctx.lineTo(16, 10);
-  ctx.lineTo(11, 12.5);
-  ctx.closePath();
-  ctx.fill();
-
-  return ctx.getImageData(0, 0, WIND_ARROW_SIZE_PX, WIND_ARROW_SIZE_PX);
+    // 矢じり（先端が尖った細身の三角形。流線の延長として自然に繋がる幅に絞っている）。
+    ctx.beginPath();
+    ctx.moveTo(16, 2);
+    ctx.lineTo(21, 12.5);
+    ctx.lineTo(16, 10);
+    ctx.lineTo(11, 12.5);
+    ctx.closePath();
+    ctx.fill();
+  });
 }

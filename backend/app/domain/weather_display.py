@@ -14,7 +14,7 @@ class ValueColorStop(NamedTuple):
 
     value: float
     color: str
-    name: str = ""
+    name: str
 
 
 class LevelColor(NamedTuple):
@@ -26,17 +26,18 @@ class LevelColor(NamedTuple):
 
 
 #: 降水の強さ（mm/h）。背景と同じ色にすると「降っていない」と見分けが付かないため、
-#: いちばん弱い段も色を持つ。
+#: いちばん弱い段も色を持つ。20mm/h以上の切れ目と名前は気象庁「雨の強さと降り方」の分類、
+#: それ未満は公式の区分が無いため体感の言い方（ポツポツ・パラパラ等）で分ける。
 PRECIPITATION_COLOR_STOPS: tuple[ValueColorStop, ...] = (
-    ValueColorStop(0, "#b8e6fd"),
-    ValueColorStop(0.4, "#93dafc"),
-    ValueColorStop(2, "#68ccfb"),
-    ValueColorStop(4, "#38bdf8"),
-    ValueColorStop(10, "#3b82f6"),
-    ValueColorStop(20, "#eab308"),
-    ValueColorStop(30, "#f97316"),
-    ValueColorStop(50, "#dc2626"),
-    ValueColorStop(80, "#9333ea"),
+    ValueColorStop(0, "#b8e6fd", "ごく弱い雨"),
+    ValueColorStop(0.4, "#93dafc", "ポツポツ"),
+    ValueColorStop(2, "#68ccfb", "パラパラ"),
+    ValueColorStop(4, "#38bdf8", "ザーッ"),
+    ValueColorStop(10, "#3b82f6", "ザーザー"),
+    ValueColorStop(20, "#eab308", "強い雨"),
+    ValueColorStop(30, "#f97316", "激しい雨"),
+    ValueColorStop(50, "#dc2626", "非常に激しい雨"),
+    ValueColorStop(80, "#9333ea", "猛烈な雨"),
 )
 
 #: 風速（m/s）。段の切れ目はビューフォート風力階級の上限で、名前は自転車で走るときの

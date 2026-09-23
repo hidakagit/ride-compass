@@ -6,11 +6,11 @@ import {
   formatJstDateTime,
   formatJstHourMinute,
   formatJstMinute,
-  fromJstDatetimeLocalValue,
   isSameJstDay,
   jstParts,
   nearestTimeIndex,
-  toJstDatetimeLocalValue,
+  parseJstLocalValue,
+  toJstLocalValue,
 } from "./time";
 
 // 協定世界時では前日の15:30、日本時間では当日の0:30。
@@ -34,14 +34,14 @@ describe("日本時間の暦と時刻", () => {
   });
 });
 
-describe("日時の入力欄（datetime-local）の値", () => {
+describe("時刻帯を持たない YYYY-MM-DDTHH:mm（入力欄の値・気象の格子の時刻）", () => {
   it("日本時間の YYYY-MM-DDTHH:mm で書き、同じ時点へ読み戻す", () => {
-    expect(toJstDatetimeLocalValue(JUST_AFTER_JST_MIDNIGHT)).toBe("2026-09-24T00:30");
-    expect(fromJstDatetimeLocalValue("2026-09-24T00:30").getTime()).toBe(JUST_AFTER_JST_MIDNIGHT.getTime());
+    expect(toJstLocalValue(JUST_AFTER_JST_MIDNIGHT)).toBe("2026-09-24T00:30");
+    expect(parseJstLocalValue("2026-09-24T00:30").getTime()).toBe(JUST_AFTER_JST_MIDNIGHT.getTime());
   });
 
   it("読めない値は無効な時点になる（呼び出し側が捨てる）", () => {
-    expect(Number.isNaN(fromJstDatetimeLocalValue("").getTime())).toBe(true);
+    expect(Number.isNaN(parseJstLocalValue("").getTime())).toBe(true);
   });
 });
 

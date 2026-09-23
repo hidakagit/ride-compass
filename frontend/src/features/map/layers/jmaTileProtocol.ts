@@ -10,10 +10,10 @@ import { addProtocol } from "maplibre-gl";
 
 import { debugLog } from "@/lib/debugLog";
 
-import { parseJmaTileElement } from "@/features/map/layers/jmaTileIndex";
 import {
   buildJmaTileIndexLookup,
   isKnownEmptyTile,
+  parseJmaTileElement,
   type JmaTileIndexLookup,
   type JmaTileIndexResponse,
 } from "@/features/map/layers/jmaTileIndex";
@@ -48,13 +48,6 @@ let registered = false;
 /** 在否インデックスを差し替える。取得できていない間はnullのままで、その間は素通しになる。 */
 export function setJmaTileIndex(response: JmaTileIndexResponse | null): void {
   lookup = buildJmaTileIndexLookup(response);
-}
-
-/** そのタイルURLを「空と分かっている」として素通りさせるか。**いま保持している
- * インデックス**を見る（「インデックスが有効か」だけを見ると、古いものを握り続けても
- * 気づけない）。 */
-function isKnownEmptyTileUrl(realUrl: string): boolean {
-  return isKnownEmptyTile(lookup, realUrl);
 }
 
 // 配信の障害で返せなかったタイルは空タイルで代替するため、MapLibreのソースイベントにも
@@ -118,7 +111,7 @@ async function handleJmaTileRequest(
   abortController: AbortController,
 ): Promise<{ data: ArrayBuffer | Uint8Array }> {
   const realUrl = toRealUrl(params.url);
-  if (isKnownEmptyTileUrl(realUrl)) {
+  if (isKnownEmptyTile(lookup, realUrl)) {
     // ネットワークへ出さない。ベクタとラスタで空の表現が違うため拡張子で分ける。
     return { data: emptyTileBytes(realUrl) };
   }

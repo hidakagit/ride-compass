@@ -28,16 +28,14 @@ const ROAD_NETWORK_SOURCE_LAYER = "transportation";
  * レイヤーの次」を採ると位置が道路の後ろまで下がり、面が道路を覆ったまま残る（実機で
  * `boundary_3`が返った）。道路網より後ろの面は`basemapAreaLayersAfter`が前へ動かす。
  *
- * 道路網を持たないスタイルではundefined（差し込み先が無く最前面になる）。 */
-function areaLayerAnchorId(layers: readonly { id: string; "source-layer"?: string }[]): string | undefined {
-  return layers.find((layer) => layer["source-layer"] === ROAD_NETWORK_SOURCE_LAYER)?.id;
+ * 道路網を持たないスタイルでは-1（差し込み先が無く最前面になる）。 */
+function areaLayerAnchorIndex(layers: readonly { id: string; "source-layer"?: string }[]): number {
+  return layers.findIndex((layer) => layer["source-layer"] === ROAD_NETWORK_SOURCE_LAYER);
 }
 
-/** `anchorId`より後ろにある面レイヤーのid（追加順のまま）。基礎地図が道路より後ろに置いて
+/** 差し込み位置より後ろにある面レイヤーのid（追加順のまま）。基礎地図が道路より後ろに置いて
  * いる面（建物）を指す。 */
-function basemapAreaLayersAfter(layers: readonly { id: string; type: string }[], anchorId: string): string[] {
-  const anchorIndex = layers.findIndex((layer) => layer.id === anchorId);
-  if (anchorIndex < 0) return [];
+function basemapAreaLayersAfter(layers: readonly { id: string; type: string }[], anchorIndex: number): string[] {
   return layers
     .slice(anchorIndex + 1)
     .filter((layer) => isAreaLayerType(layer.type))
@@ -68,14 +66,15 @@ export function prepareBasemapForAreaLayers(map: MapLibreMap): void {
   if (style === undefined) return;
   tagged.__rcAreaLayerAnchorResolved = true;
 
-  const layers = style.layers ?? [];
-  const anchorId = areaLayerAnchorId(layers);
+  const { layers } = style;
+  const anchorIndex = areaLayerAnchorIndex(layers);
+  const anchorId = anchorIndex < 0 ? undefined : layers[anchorIndex].id;
   tagged.__rcAreaLayerAnchorId = anchorId;
   if (anchorId === undefined) {
     debugLog("map:lifecycle", "面レイヤーの差し込み位置が求まらず、面を最前面へ積む", { anchorId: null }, "warn");
     return;
   }
-  const lowered = basemapAreaLayersAfter(layers, anchorId);
+  const lowered = basemapAreaLayersAfter(layers, anchorIndex);
   for (const layerId of lowered) map.moveLayer(layerId, anchorId);
   debugLog("map:lifecycle", "面レイヤーの差し込み位置", { anchorId, lowered });
 }

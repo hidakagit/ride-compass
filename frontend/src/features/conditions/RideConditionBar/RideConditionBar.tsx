@@ -6,7 +6,7 @@ import routeGenerateConfig from "@/types/generated/route-generate-config.json";
 import { clampSpeedKmh, formatDepartureLabel } from "@/features/conditions/rideConditions";
 
 import DynamicLayerTimeSlider from "@/features/conditions/DynamicLayerTimeSlider/DynamicLayerTimeSlider";
-import { fromJstDatetimeLocalValue, nearestTimeIndex, toJstDatetimeLocalValue } from "@/lib/time";
+import { nearestTimeIndex, parseJstLocalValue, toJstLocalValue } from "@/lib/time";
 import { ClockIcon, SpeedGaugeIcon } from "@/components/ui/icons/icons";
 import { buildDepartureFrames, buildDepartureTimeline } from "./departureTimeline";
 import { Button } from "@/components/ui/Button/Button";
@@ -96,9 +96,9 @@ export default function RideConditionBar({
             id={departureInputId}
             type="datetime-local"
             aria-label="出発日時を直接指定"
-            value={toJstDatetimeLocalValue(departureTime)}
+            value={toJstLocalValue(departureTime)}
             onChange={(e) => {
-              const next = fromJstDatetimeLocalValue(e.target.value);
+              const next = parseJstLocalValue(e.target.value);
               if (!Number.isNaN(next.getTime())) onDepartureTimeChange(next);
             }}
             className="h-8 tabular-nums"

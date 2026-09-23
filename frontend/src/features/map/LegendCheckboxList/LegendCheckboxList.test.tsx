@@ -1,65 +1,53 @@
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
-import type { LegendEntry } from "@/lib/mapDisplay/legendFilter";
+
 import LegendCheckboxList from "./LegendCheckboxList";
 
-// 改善計画T525: 凡例のチェックボックス一覧とRouteAxisProfile.tsxの
-// 凡例チェックボックス重複を統合したコンポーネント。widthの有無によるスウォッチ/
-// isFallback行への追加classの付与を検証する。
-describe("LegendCheckboxList", () => {
-  const LEGEND: LegendEntry[] = [
-    { key: "asphalt", label: "アスファルト", color: "#111", filter: [] },
-    { key: "unknown", label: "不明・他", color: "#999", filter: [], isFallback: true },
-  ];
+const LEGEND = [
+  { key: "a", label: "舗装", color: "#111111", filter: [] },
+  { key: "b", label: "大きい点", color: "#222222", filter: [], diameterPx: 12 },
+  { key: "other", label: "不明・他", color: "#333333", filter: [], isFallback: true },
+];
 
-  it("凡例ごとにチェックボックスを描画し、hiddenKeysに含まれる項目は未チェックにする", () => {
-    render(
-      <LegendCheckboxList
-        legend={LEGEND}
-        hiddenKeys={["unknown"]}
-        onToggle={vi.fn()}
-        listClassName="list"
-        rowClassName="row"
-        swatchClassName="swatch"
-      />,
-    );
-    expect(screen.getByRole("checkbox", { name: "アスファルト" })).toBeChecked();
-    expect(screen.getByRole("checkbox", { name: "不明・他" })).not.toBeChecked();
+function renderList(props: Partial<Parameters<typeof LegendCheckboxList>[0]> = {}) {
+  const onToggle = vi.fn();
+  render(
+    <LegendCheckboxList
+      legend={LEGEND}
+      hiddenKeys={["b"]}
+      onToggle={onToggle}
+      listClassName="list"
+      rowClassName="row"
+      swatchClassName="swatch"
+      {...props}
+    />,
+  );
+  return onToggle;
+}
+
+describe("LegendCheckboxList（凡例のチェック一覧）", () => {
+  it("隠していない行にチェックが付き、押すとその行の鍵で切り替えを頼む", async () => {
+    const onToggle = renderList();
+    expect(screen.getByRole("checkbox", { name: "舗装" })).toBeChecked();
+    expect(screen.getByRole("checkbox", { name: "大きい点" })).not.toBeChecked();
+    await userEvent.click(screen.getByRole("checkbox", { name: "大きい点" }));
+    expect(onToggle).toHaveBeenCalledWith("b");
   });
 
-  it("チェックボックスをクリックするとそのentryのkeyでonToggleを呼ぶ", async () => {
-    const user = userEvent.setup();
-    const onToggle = vi.fn();
-    render(
-      <LegendCheckboxList
-        legend={LEGEND}
-        hiddenKeys={[]}
-        onToggle={onToggle}
-        listClassName="list"
-        rowClassName="row"
-        swatchClassName="swatch"
-      />,
+  it("色見本は行の色で、大きさで意味を示す行だけ地図の点と同じ大きさにする", () => {
+    renderList();
+    const [plain, sized] = [screen.getByText("舗装"), screen.getByText("大きい点")].map(
+      (row) => row.querySelector(".swatch") as HTMLElement,
     );
-    await user.click(screen.getByRole("checkbox", { name: "アスファルト" }));
-    expect(onToggle).toHaveBeenCalledWith("asphalt");
+    expect(plain).toHaveStyle({ background: "#111111" });
+    expect(plain.style.width).toBe("");
+    expect(sized).toHaveStyle({ background: "#222222", width: "12px", height: "12px" });
   });
 
-  it("rowFallbackClassNameを指定すると、isFallback行のみrowClassNameへ追加classを付与する", () => {
-    render(
-      <LegendCheckboxList
-        legend={LEGEND}
-        hiddenKeys={[]}
-        onToggle={vi.fn()}
-        listClassName="list"
-        rowClassName="row"
-        rowFallbackClassName="rowFallback"
-        swatchClassName="swatch"
-      />,
-    );
-    const normalRow = screen.getByRole("checkbox", { name: "アスファルト" }).closest("label");
-    const fallbackRow = screen.getByRole("checkbox", { name: "不明・他" }).closest("label");
-    expect(normalRow?.className).toBe("row");
-    expect(fallbackRow?.className).toBe("row rowFallback");
+  it("受け皿の行は、呼び出し側が見た目を渡したときだけ区別する", () => {
+    renderList({ rowFallbackClassName: "fallback" });
+    expect(screen.getByText("不明・他")).toHaveClass("row", "fallback");
+    expect(screen.getByText("舗装")).not.toHaveClass("fallback");
   });
 });

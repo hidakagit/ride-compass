@@ -1,35 +1,39 @@
 // @vitest-environment node
-// `legendFilters.ts`——凡例で隠した行の保存先の読み書き。
 import { describe, expect, it } from "vitest";
 
-import { deserializeHiddenLegendKeys, presentHiddenKeys, toggleHiddenKey, withHiddenKeys } from "./legendFilters";
+import {
+  deserializeHiddenLegendKeys,
+  hiddenKeysOf,
+  presentHiddenKeys,
+  toggleHiddenKey,
+  withHiddenKeys,
+} from "./legendFilters";
 
-describe("隠した行の切り替え", () => {
-  it("押すたびに隠す・戻すが入れ替わり、最後の1行を戻すと保存先から鍵ごと消える", () => {
-    const hidden = toggleHiddenKey({}, "a", "k1");
-    expect(hidden).toEqual({ a: ["k1"] });
-    expect(toggleHiddenKey(hidden, "a", "k1")).toEqual({});
+describe("凡例で隠した行の保存先", () => {
+  it("軸ごとに隠した鍵を持ち、無い軸は空", () => {
+    expect(hiddenKeysOf({ a: ["x"] }, "a")).toEqual(["x"]);
+    expect(hiddenKeysOf({ a: ["x"] }, "b")).toEqual([]);
   });
 
-  it("まとめて置き換えるときも、空にした鍵は消し、他の鍵は残す", () => {
-    expect(withHiddenKeys({ a: ["k1"], b: ["k2"] }, "a", [])).toEqual({ b: ["k2"] });
-  });
-});
-
-describe("presentHiddenKeys（いま描いている凡例に実在する鍵）", () => {
-  it("凡例に無い古い鍵は数えない", () => {
-    expect(presentHiddenKeys([{ key: "a" }, { key: "b" }], ["b", "old"])).toEqual(["b"]);
-  });
-});
-
-describe("保存値の読み込み", () => {
-  it("書いた値をそのまま読み戻せる", () => {
-    const saved = { a: ["k1", "k2"] };
-    expect(deserializeHiddenLegendKeys(JSON.stringify(saved))).toEqual(saved);
+  it("書き換えは他の軸を残し、空にした軸は保存先から消す", () => {
+    expect(withHiddenKeys({ a: ["x"], b: ["y"] }, "a", ["z"])).toEqual({ a: ["z"], b: ["y"] });
+    expect(withHiddenKeys({ a: ["x"], b: ["y"] }, "a", [])).toEqual({ b: ["y"] });
   });
 
-  it("文字列の配列でない鍵と空の鍵は捨て、残りは読む", () => {
-    expect(deserializeHiddenLegendKeys(JSON.stringify({ a: ["k1"], b: "k2", c: [1], d: [] }))).toEqual({ a: ["k1"] });
+  it("行を押すたびに隠す・戻すが入れ替わる", () => {
+    const hidden = toggleHiddenKey({}, "a", "x");
+    expect(hidden).toEqual({ a: ["x"] });
+    expect(toggleHiddenKey(toggleHiddenKey(hidden, "a", "y"), "a", "x")).toEqual({ a: ["y"] });
+    expect(toggleHiddenKey(hidden, "a", "x")).toEqual({});
+  });
+
+  it("いまの凡例に無い鍵（段の綴りや段数が変わる前の保存値）は、隠した行に数えない", () => {
+    expect(presentHiddenKeys([{ key: "x" }, { key: "y" }], ["y", "gone"])).toEqual(["y"]);
+  });
+
+  it("保存値は、文字列の並びを持つ軸だけを読み、それ以外は捨てる", () => {
+    expect(deserializeHiddenLegendKeys(JSON.stringify({ a: ["x"], b: [], c: [1], d: "x" }))).toEqual({ a: ["x"] });
     expect(deserializeHiddenLegendKeys("null")).toBeNull();
+    expect(deserializeHiddenLegendKeys("3")).toBeNull();
   });
 });

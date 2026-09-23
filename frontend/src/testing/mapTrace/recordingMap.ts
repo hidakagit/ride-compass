@@ -35,7 +35,7 @@ export interface RecordingMap {
 }
 
 /** `map`として実装へ渡す値と、記録を読む側のハンドルを返す。 */
-export function createRecordingMap(options: { styleReady?: boolean; imagesRegistered?: boolean } = {}) {
+export function createRecordingMap(options: { styleReady?: boolean } = {}) {
   const trace: TraceEntry[] = [];
   let layers: FakeLayer[] = [];
   let sources = new Map<string, unknown>();
@@ -62,9 +62,9 @@ export function createRecordingMap(options: { styleReady?: boolean; imagesRegist
     getStyle: () => ({ layers: layers.map((layer) => ({ id: layer.id, type: layer.type })) }),
     getLayer: (id: string) => layers[indexOf(id)],
     getSource: (id: string) => sourceHandles.get(id),
-    // アイコンの生成はブラウザのcanvasを要るため、既定では「登録済み」を返して作らせない
-    // （比べたいのはレイヤーの構成で、画像の中身ではない）。
-    hasImage: (id: string) => (options.imagesRegistered ?? true) || sources.has(`image:${id}`),
+    // 記号の絵はブラウザのcanvasが要るため、「登録済み」を返して作らせない
+    // （比べたいのはレイヤーの構成で、絵の中身ではない）。
+    hasImage: () => true,
 
     addSource: (id: string, spec: unknown) => {
       record("addSource", id, spec);
@@ -85,10 +85,6 @@ export function createRecordingMap(options: { styleReady?: boolean; imagesRegist
       sources.delete(id);
       sourceHandles.delete(id);
       content.delete(id);
-    },
-    addImage: (id: string, ...rest: unknown[]) => {
-      record("addImage", id, ...rest);
-      sources.set(`image:${id}`, true);
     },
     addLayer: (
       spec: { id: string; type: string; source?: string; paint?: unknown; layout?: unknown; filter?: unknown },

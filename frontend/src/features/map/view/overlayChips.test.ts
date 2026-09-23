@@ -1,124 +1,119 @@
 // @vitest-environment node
-// `overlayChips.ts`——地図上チップ1枚ずつの状態と、レイヤーのON/OFFの保存形式。
-//
-// ここで見ないもの:
-// - チップの描き方・▶パネルの開閉 → `MapOverlayControls.test.tsx`
-// - 絞り込みの宣言（道路の線・点の凡例の中身）→ `scene/legends.test.ts`
 import { describe, expect, it } from "vitest";
 
 import {
   buildDefaultLayerVisibility,
   buildMapLayers,
-  type MapLayerDescriptor,
-  type MapLayerId,
-  type MapLayerVisibility,
+  TILE_VERSIONS_MISSING_NOTICE,
+  TILE_ZOOM_TOO_WIDE_NOTICE,
 } from "@/features/map/layers/mapLayers";
-import { DISASTER_LAYER_ID } from "@/features/map/scene/legends";
-import { mapDisplay } from "@/types/generated/mapDisplay";
+import { disasterSourceLegendAxis, roadLegendAxes } from "@/features/map/scene/legends";
 
+import { catalogOf, dedicatedEntry, rampEntry } from "./__fixtures__/catalog";
 import { deserializeLayerVisibility, overlayChips } from "./overlayChips";
 
-const ICON = (() => null) as unknown as MapLayerDescriptor["icon"];
+const catalog = catalogOf([rampEntry("ramp_a", [1]), dedicatedEntry("dedicated_b", [1])]);
+const LAYERS = buildMapLayers(catalog.rampAxes, catalog.dedicatedAxes);
 
-// 架空のレイヤー。idは型を満たすために`MapLayerId`へ寄せるだけで、実在のレイヤーを指さない。
-function layer(id: string, overrides: Partial<MapLayerDescriptor> = {}): MapLayerDescriptor {
-  return {
-    id: id as MapLayerId,
-    label: id,
-    kind: "static",
-    icon: ICON,
-    dataSource: "ownFetch",
-    description: "",
-    ...overrides,
-  };
-}
-
-function chipsOf(options: Partial<Parameters<typeof overlayChips>[0]> & { layers: MapLayerDescriptor[] }) {
+type Options = Parameters<typeof overlayChips>[0];
+function chips(options: Partial<Options> = {}) {
   return overlayChips({
-    visibility: {} as MapLayerVisibility,
+    layers: LAYERS,
+    visibility: buildDefaultLayerVisibility(),
     hidden: {},
     screenLegends: {},
     dataStatus: {},
     zoomTooWideLayerIds: [],
     versionMissingLayerIds: [],
-    catalogSettled: false,
+    catalogSettled: true,
     hasSelectedRoute: true,
     ...options,
   });
 }
+const chipOf = (list: ReturnType<typeof chips>, id: string) => list.find((chip) => chip.id === id)!;
 
-const A = "layer_a" as MapLayerId;
-
-describe("世代が届いていないレイヤー", () => {
-  it("カタログを取りに行っている間は読み込み中として示し、「取得できない」とは言わない", () => {
-    const [chip] = chipsOf({ layers: [layer(A)], versionMissingLayerIds: [A], zoomTooWideLayerIds: [A] });
-    expect(chip.dataStatus).toBe("loading");
-    expect(chip.notice).toBe("ズームインすると表示されます");
-  });
-
-  it("取り終えたのに世代が無ければ失敗として示し、ズーム不足より先に理由を出す", () => {
-    const [chip] = chipsOf({
-      layers: [layer(A)],
-      versionMissingLayerIds: [A],
-      zoomTooWideLayerIds: [A],
-      catalogSettled: true,
-    });
-    expect(chip.dataStatus).toBe("error");
-    expect(chip.notice).toBe("配信情報を取得できず表示できません");
-  });
-});
-
-describe("チップの母集団と押せる条件", () => {
+describe("overlayChips（地図上チップの状態）", () => {
   it("軸スタジオ由来のレイヤーはチップにしない", () => {
-    const chips = chipsOf({
-      layers: [layer(A), layer("dedicated", { axisStudioLayer: true }), layer("ramp", { dataNature: "composite" })],
+    const ids = chips().map((chip) => chip.id);
+    expect(ids).not.toContain("axis:ramp_a");
+    expect(ids).not.toContain("dedicated_bAxis");
+    expect(ids).toContain("highway");
+  });
+
+  it("表示状態をそのまま映し、略名が無ければ正式名で出す", () => {
+    const list = chips({ visibility: { ...buildDefaultLayerVisibility(), surface: true } });
+    const surface = LAYERS.find((layer) => layer.id === "surface")!;
+    const disaster = LAYERS.find((layer) => layer.id === "disaster")!;
+    expect(chipOf(list, "surface")).toMatchObject({
+      on: true,
+      chipLabel: surface.chipLabel,
+      title: surface.description,
     });
-    expect(chips.map((chip) => chip.id)).toEqual([A]);
+    const withoutChipLabel = LAYERS.find((layer) => layer.chipLabel === undefined && layer.id !== "route")!;
+    expect(chipOf(list, withoutChipLabel.id).chipLabel).toBe(withoutChipLabel.label);
+    expect(chipOf(list, disaster.id).chipLabel).toBe(disaster.chipLabel);
   });
 
   it("ルートにひもづくレイヤーは、候補を選ぶまで押せない", () => {
-    const route = layer("route_like", { kind: "dynamic" });
-    expect(chipsOf({ layers: [route], hasSelectedRoute: false })[0].disabled).toBe(true);
-    expect(chipsOf({ layers: [route], hasSelectedRoute: true })[0].disabled).toBe(false);
-  });
-});
-
-describe("チップの凡例（▶パネル）", () => {
-  const legend = [{ key: "k1", label: "1", color: "#111" }];
-
-  it("保存先を持つ凡例には、いま凡例に実在する隠した行だけを渡し、持たない凡例は隠した行を持たない", () => {
-    const [chip] = chipsOf({
-      layers: [layer(A, { readOnlyLegend: [{ label: "読み方", legend }] })],
-      hidden: { saved: ["k1", "gone"] },
-      screenLegends: { [A]: [{ label: "", legend, axisId: "saved" }] },
-    });
-    expect(chip.legendDetails).toEqual([
-      { label: "読み方", legend, hiddenKeys: [] },
-      { label: "", legend, hiddenKeys: ["k1"], axisId: "saved" },
-    ]);
+    expect(chipOf(chips({ hasSelectedRoute: false }), "route").disabled).toBe(true);
+    expect(chipOf(chips({ hasSelectedRoute: false }), "highway").disabled).toBe(false);
+    expect(chipOf(chips(), "route").disabled).toBe(false);
   });
 
-  it("災害チップには、源泉が宣言した災害の要素がすべて、宣言した名前で切り替えの行として並ぶ", () => {
-    const disaster = buildMapLayers([], []).filter((entry) => entry.id === DISASTER_LAYER_ID);
-    const [chip] = chipsOf({ layers: disaster });
-    const toggles = chip.legendDetails?.find((axis) => axis.axisId === DISASTER_LAYER_ID);
-    const declared = new Map(
-      mapDisplay.weatherElements
-        .filter((element) => element.group === DISASTER_LAYER_ID)
-        .map((element) => [element.source, element.label]),
+  it("タイル世代が無いときは、カタログを取り終えていれば失敗・取得中なら読み込み中として出す", () => {
+    const settled = chipOf(chips({ versionMissingLayerIds: ["highway"], zoomTooWideLayerIds: ["highway"] }), "highway");
+    expect(settled).toMatchObject({ notice: TILE_VERSIONS_MISSING_NOTICE, dataStatus: "error" });
+
+    const waiting = chipOf(
+      chips({ versionMissingLayerIds: ["highway"], zoomTooWideLayerIds: ["highway"], catalogSettled: false }),
+      "highway",
     );
-    expect(new Map(toggles?.legend.map((entry) => [entry.key, entry.label]))).toEqual(declared);
+    expect(waiting).toMatchObject({ notice: TILE_ZOOM_TOO_WIDE_NOTICE, dataStatus: "loading" });
+  });
+
+  it("世代があれば、ズーム不足の案内と、地図が報告した取得状態を出す", () => {
+    const list = chips({ zoomTooWideLayerIds: ["surface"], dataStatus: { surface: "empty" } });
+    expect(chipOf(list, "surface")).toMatchObject({ notice: TILE_ZOOM_TOO_WIDE_NOTICE, dataStatus: "empty" });
+    expect(chipOf(list, "highway")).toMatchObject({ notice: null, dataStatus: undefined });
+  });
+
+  it("▶パネルの凡例は、絞り込める凡例（隠した行つき）・表示専用の凡例・画面から渡した凡例の順", () => {
+    const [road] = roadLegendAxes();
+    const [first, second] = road.entries;
+    const screenLegend = { label: "画面から", legend: [] };
+    const list = chips({
+      hidden: { [road.axisId]: [second.key, "gone"] },
+      screenLegends: { [road.layerId]: [screenLegend] },
+    });
+    const details = chipOf(list, road.layerId).legendDetails ?? [];
+    expect(details[0]).toMatchObject({ axisId: road.axisId, hiddenKeys: [second.key] });
+    expect(details[0].legend[0].key).toBe(first.key);
+    expect(details.at(-1)).toEqual({ ...screenLegend, hiddenKeys: [] });
+
+    const precipitation = chipOf(list, "precipitationNowcast").legendDetails ?? [];
+    expect(precipitation.length).toBeGreaterThan(0);
+    expect(precipitation.every((detail) => detail.axisId === undefined && detail.hiddenKeys.length === 0)).toBe(true);
+  });
+
+  it("災害のチップは、要素を選ぶ凡例を先頭に持つ", () => {
+    const disaster = disasterSourceLegendAxis();
+    const [first] =
+      chipOf(chips({ hidden: { [disaster.axisId]: [disaster.entries[0].key] } }), "disaster").legendDetails ?? [];
+    expect(first).toMatchObject({ axisId: disaster.axisId, hiddenKeys: [disaster.entries[0].key] });
   });
 });
 
-describe("レイヤーのON/OFFの保存値", () => {
-  const defaults = buildDefaultLayerVisibility();
-  const [someId] = Object.keys(defaults) as MapLayerId[];
+describe("deserializeLayerVisibility（表示状態の保存値）", () => {
+  it("いまのカタログにある鍵の真偽値だけを読み、無い鍵は既定のまま", () => {
+    const defaults = buildDefaultLayerVisibility();
+    const restored = deserializeLayerVisibility(
+      JSON.stringify({ surface: true, disaster: false, gone: true, highway: "yes" }),
+    );
+    expect(restored).toEqual({ ...defaults, surface: true, disaster: false });
+  });
 
-  it("いまのカタログにある鍵の真偽値だけを読み、無い鍵・形の合わない値は既定のまま", () => {
-    const flipped = { ...defaults, [someId]: !defaults[someId] };
-    expect(deserializeLayerVisibility(JSON.stringify(flipped))).toEqual(flipped);
-    expect(deserializeLayerVisibility(JSON.stringify({ [someId]: "yes", unknown_layer: true }))).toEqual(defaults);
-    expect(deserializeLayerVisibility("[]")).toEqual(defaults);
+  it("読めない形なら既定", () => {
+    expect(deserializeLayerVisibility("null")).toEqual(buildDefaultLayerVisibility());
+    expect(deserializeLayerVisibility("[]")).toEqual(buildDefaultLayerVisibility());
   });
 });

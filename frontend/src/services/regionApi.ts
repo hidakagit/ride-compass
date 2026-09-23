@@ -226,11 +226,12 @@ export async function fetchDynamicWayValues(
   z: number,
   x: number,
   y: number,
-  bearingDeg: number,
+  bearingDeg: number | undefined,
   at?: Date,
   speedKmh?: number,
 ): Promise<DynamicWayValuesResult> {
-  const params = new URLSearchParams({ bearing_deg: String(bearingDeg) });
+  const params = new URLSearchParams();
+  if (bearingDeg !== undefined) params.set("bearing_deg", String(bearingDeg));
   if (at) params.set("at", at.toISOString());
   // 走行速度に依存する軸（needs_speed）だけがbackend側で使う。他の軸へ渡しても無視される。
   if (speedKmh !== undefined && Number.isFinite(speedKmh)) params.set("speed_kmh", String(speedKmh));

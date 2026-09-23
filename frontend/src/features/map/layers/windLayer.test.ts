@@ -1,271 +1,154 @@
 // @vitest-environment node
-// DOM/MapLibreを一切使わない純粋関数のみを検証するため、jsdom環境構築コストを省く
-// （docs/conventions/testing.mdパターン3。windLayer.tsは型importのみでランタイムのDOM依存が
-// 無いことを確認済み。windArrowIcon.tsはdocument.createElement("canvas")を使うため
-// 対象外のまま）。
 import { describe, expect, it } from "vitest";
+
+import palette from "@/types/generated/palette.json";
+import windGridConfig from "@/types/generated/wind-grid-config.json";
+import type { WindGridPoint } from "@/types/weather";
+
 import {
   clampWindDetailBbox,
   mergeWindGridKeepingStale,
   trimWindGridToCurrentAndFuture,
+  WIND_CALM_THRESHOLD_MS,
+  WIND_SPEED_COLOR_STOPS,
+  WIND_SPEED_LEGEND_LEVELS,
   windFrames,
   windGridDetailSpacingDegForZoom,
   windRenderPayload,
-  WIND_SPEED_COLOR_STOPS,
-  WIND_SPEED_LEGEND_LEVELS,
 } from "./windLayer";
-import type { WindGridPoint } from "@/types/weather";
 
-describe("windLayer", () => {
-  describe("windFrames（T183: dynamicWeather.tsの共通フレーム列へ変換）", () => {
-    it("grid[0]の時刻配列をJSTとしてパースし、times内のindexをrefへ持つフレーム列を返す", () => {
-      const grid: WindGridPoint[] = [
-        {
-          latitude: 35.68,
-          longitude: 139.77,
-          times: ["2026-08-20T00:00", "2026-08-20T03:00"],
-          wind_speed_ms: [1, 2],
-          wind_direction_deg: [10, 20],
-          precipitation_mm: [0, 0],
-        },
-      ];
-      const frames = windFrames(grid);
-      expect(frames).toHaveLength(2);
-      expect(frames[0]).toEqual({ time: new Date("2026-08-20T00:00:00+09:00"), ref: 0 });
-      expect(frames[1]).toEqual({ time: new Date("2026-08-20T03:00:00+09:00"), ref: 1 });
-    });
+/** 格子点1つ。時刻はbackendと同じ日本時間・オフセット無し。 */
+function point(
+  times: string[],
+  { latitude = 35, longitude = 139, speed = times.map(() => 2), direction = times.map(() => 90) } = {} as {
+    latitude?: number;
+    longitude?: number;
+    speed?: (number | null)[];
+    direction?: (number | null)[];
+  },
+): WindGridPoint {
+  return {
+    latitude,
+    longitude,
+    times,
+    wind_speed_ms: speed,
+    wind_direction_deg: direction,
+    precipitation_mm: times.map((_, i) => i),
+  } as WindGridPoint;
+}
 
-    it("空配列を渡すと空配列を返す", () => {
-      expect(windFrames([])).toEqual([]);
-    });
+const HOURS = ["2026-09-24T09:00", "2026-09-24T10:00", "2026-09-24T11:00"];
+const jst = (text: string) => new Date(`${text}+09:00`);
+
+describe("trimWindGridToCurrentAndFuture（今より前の時刻を落とす）", () => {
+  it("今が属する1時間から先だけを、全格子点・全系列で同じだけ残す", () => {
+    const [trimmed] = trimWindGridToCurrentAndFuture([point(HOURS)], jst("2026-09-24T10:59"));
+    expect(trimmed.times).toEqual(HOURS.slice(1));
+    expect(trimmed.wind_speed_ms).toHaveLength(2);
+    expect(trimmed.wind_direction_deg).toHaveLength(2);
+    expect(trimmed.precipitation_mm).toEqual([1, 2]);
   });
 
-  describe("windRenderPayload（gridMark、格子中央にマーク＝矢印を出す表現）", () => {
-    const grid: WindGridPoint[] = [
-      {
-        latitude: 35.68,
-        longitude: 139.77,
-        times: ["t0", "t1"],
-        wind_speed_ms: [2.5, 3.1],
-        wind_direction_deg: [90, 180],
-        precipitation_mm: [0, 0],
-      },
-      {
-        latitude: 36.0,
-        longitude: 140.0,
-        times: ["t0", "t1"],
-        wind_speed_ms: [1.0, 4.2],
-        wind_direction_deg: [0, 270],
-        precipitation_mm: [0, 0],
-      },
+  it("正時ちょうどはその1時間に入る", () => {
+    expect(trimWindGridToCurrentAndFuture([point(HOURS)], jst("2026-09-24T11:00"))[0].times).toEqual(HOURS.slice(2));
+  });
+
+  it("先頭がまだ来ていなければ何も落とさず、空は空", () => {
+    expect(trimWindGridToCurrentAndFuture([point(HOURS)], jst("2026-09-24T08:30"))[0].times).toEqual(HOURS);
+    expect(trimWindGridToCurrentAndFuture([], jst("2026-09-24T10:00"))).toEqual([]);
+  });
+
+  it("どの端末の時刻帯でも、格子の時刻は日本時間として読む", () => {
+    // 協定世界時 01:30 = 日本時間 10:30
+    expect(trimWindGridToCurrentAndFuture([point(HOURS)], new Date("2026-09-24T01:30:00Z"))[0].times).toEqual(
+      HOURS.slice(1),
+    );
+  });
+});
+
+describe("mergeWindGridKeepingStale（取り損ねた地点を前回の値で補う）", () => {
+  it("今回の格子に、今回欠けた地点だけを前回から足す（同じ地点は今回の値）", () => {
+    const previous = [point(HOURS, { latitude: 35 }), point(HOURS, { latitude: 35.1 })];
+    const next = [point(HOURS, { latitude: 35, speed: [9, 9, 9] })];
+    const merged = mergeWindGridKeepingStale(previous, next);
+    expect(merged.map((p) => [p.latitude, p.wind_speed_ms[0]])).toEqual([
+      [35, 9],
+      [35.1, 2],
+    ]);
+  });
+});
+
+describe("風の格子のコマと描き方", () => {
+  it("コマは先頭の格子点の時刻（日本時間）、refはその時刻の位置", () => {
+    expect(windFrames([point(HOURS.slice(0, 2))])).toEqual([
+      { time: jst("2026-09-24T09:00"), ref: 0 },
+      { time: jst("2026-09-24T10:00"), ref: 1 },
+    ]);
+    expect(windFrames([])).toEqual([]);
+  });
+
+  it("矢印は風が吹いていく向き（風向+180度）を指し、風速か風向の欠けた地点は描かない", () => {
+    const grid = [
+      point(["t"], { longitude: 139, speed: [4], direction: [270] }),
+      point(["t"], { longitude: 139.1, speed: [null], direction: [0] }),
+      point(["t"], { longitude: 139.2, speed: [3], direction: [null] }),
     ];
-
-    it("kind=gridMarkで、指定フレームの値からGeoJSON FeatureCollectionを構築する", () => {
-      const payload = windRenderPayload(grid, 0);
-      expect(payload.kind).toBe("gridMark");
-      if (payload.kind !== "gridMark") throw new Error("unreachable");
-      expect(payload.geojson.features).toHaveLength(2);
-      expect(payload.geojson.features[0].geometry).toEqual({ type: "Point", coordinates: [139.77, 35.68] });
-      expect(payload.geojson.features[0].properties?.speed).toBe(2.5);
-      // bearing = (direction + 180) % 360（風が吹いていく方向）
-      expect(payload.geojson.features[0].properties?.bearing).toBe(270);
-      expect(payload.geojson.features[1].properties?.bearing).toBe(180);
-    });
-
-    it("refが変わると値も追従する", () => {
-      const payload = windRenderPayload(grid, 1);
-      if (payload.kind !== "gridMark") throw new Error("unreachable");
-      expect(payload.geojson.features[0].properties?.speed).toBe(3.1);
-      expect(payload.geojson.features[1].properties?.speed).toBe(4.2);
-    });
-
-    it("refが範囲外の格子点はスキップする(欠損に頑健)", () => {
-      const payload = windRenderPayload(grid, 5);
-      if (payload.kind !== "gridMark") throw new Error("unreachable");
-      expect(payload.geojson.features).toHaveLength(0);
-    });
-
-    it("空配列を渡すと空のFeatureCollectionを返す", () => {
-      const payload = windRenderPayload([], 0);
-      if (payload.kind !== "gridMark") throw new Error("unreachable");
-      expect(payload.geojson.features).toHaveLength(0);
-    });
-  });
-
-  describe("trimWindGridToCurrentAndFuture（実機フィードバック「過去の風、雨を気にすることはアプリの性質上ない、デフォルト位置を左端に」）", () => {
-    const times = ["2026-08-20T00:00", "2026-08-20T01:00", "2026-08-20T02:00", "2026-08-20T03:00"];
-    const grid: WindGridPoint[] = [
+    const payload = windRenderPayload(grid, 0);
+    expect(payload.kind).toBe("gridMark");
+    const features = payload.kind === "gridMark" ? payload.geojson.features : [];
+    expect(features).toEqual([
       {
-        latitude: 35.68,
-        longitude: 139.77,
-        times,
-        wind_speed_ms: [1, 2, 3, 4],
-        wind_direction_deg: [10, 20, 30, 40],
-        precipitation_mm: [0, 0, 0, 0],
+        type: "Feature",
+        geometry: { type: "Point", coordinates: [139, 35] },
+        properties: { speed: 4, bearing: 90 },
       },
-      {
-        latitude: 36.0,
-        longitude: 140.0,
-        times,
-        wind_speed_ms: [5, 6, 7, 8],
-        wind_direction_deg: [50, 60, 70, 80],
-        precipitation_mm: [0, 0, 0, 0],
-      },
-    ];
+    ]);
+  });
+});
 
-    it("「現在時刻以下で最も新しい」時刻より前を全格子点・全配列から切り捨てる", () => {
-      // 02:30 JSTは02:00(index2)が属する時間帯 -> index2から末尾まで残す
-      const result = trimWindGridToCurrentAndFuture(grid, new Date("2026-08-20T02:30:00+09:00"));
-      expect(result[0].times).toEqual(["2026-08-20T02:00", "2026-08-20T03:00"]);
-      expect(result[0].wind_speed_ms).toEqual([3, 4]);
-      expect(result[0].wind_direction_deg).toEqual([30, 40]);
-      expect(result[1].wind_speed_ms).toEqual([7, 8]);
+describe("風速の凡例", () => {
+  it("先頭は矢印を出さない無風の範囲、続いて色の段1つにつき1行（同じ順・同じ色・段の名前）", () => {
+    expect(WIND_SPEED_LEGEND_LEVELS[0]).toMatchObject({
+      label: `無風・矢印なし（${WIND_CALM_THRESHOLD_MS}m/s未満）`,
+      color: palette.semantic.no_data,
     });
-
-    it("正時ちょうどならその時刻から残す（切り上げず現在の時間帯を含める）", () => {
-      const result = trimWindGridToCurrentAndFuture(grid, new Date("2026-08-20T02:00:00+09:00"));
-      expect(result[0].times).toEqual(["2026-08-20T02:00", "2026-08-20T03:00"]);
-    });
-
-    it("空配列を渡すと空配列を返す", () => {
-      expect(trimWindGridToCurrentAndFuture([], new Date())).toEqual([]);
-    });
+    const bands = WIND_SPEED_LEGEND_LEVELS.slice(1);
+    expect(bands.map((band) => band.color)).toEqual(WIND_SPEED_COLOR_STOPS.map((stop) => stop.color));
+    bands.forEach((band, i) => expect(band.label.startsWith(`${WIND_SPEED_COLOR_STOPS[i].name}（`)).toBe(true));
   });
 
-  describe("WIND_SPEED_COLOR_STOPS（実機フィードバック「風の色分けをもっと細かくして。ロードバイクで走れない強風域は粒度粗く。微風からそこまでは粒度を細かくして」）", () => {
-    // ロードバイクで通常走行できる目安の上限（ビューフォート風力階級6の上限、windLayer.ts
-    // のコメント参照）。以降は粒度を粗くする境界。
-    const UNRIDEABLE_THRESHOLD_MS = 13.8;
+  it("最初の色の帯は無風の上から、最後の帯は上限なしで始まる", () => {
+    const stops = WIND_SPEED_COLOR_STOPS;
+    expect(WIND_SPEED_LEGEND_LEVELS[1].label).toContain(`（${WIND_CALM_THRESHOLD_MS}〜${stops[1].speedMs}m/s）`);
+    expect(WIND_SPEED_LEGEND_LEVELS.at(-1)?.label).toContain(`（${stops.at(-1)?.speedMs}m/s以上）`);
+  });
+});
 
-    it("風速は単調増加する", () => {
-      for (let i = 1; i < WIND_SPEED_COLOR_STOPS.length; i++) {
-        expect(WIND_SPEED_COLOR_STOPS[i].speedMs).toBeGreaterThan(WIND_SPEED_COLOR_STOPS[i - 1].speedMs);
-      }
-    });
+describe("詳細格子の間隔と範囲", () => {
+  const spacings = windGridConfig.detail_allowed_spacings_deg;
 
-    it("走行可能域（0〜走行困難の境界）は、それ以降の強風域より段の間隔が細かい", () => {
-      const rideable = WIND_SPEED_COLOR_STOPS.filter((s) => s.speedMs <= UNRIDEABLE_THRESHOLD_MS);
-      const unrideable = WIND_SPEED_COLOR_STOPS.filter((s) => s.speedMs >= UNRIDEABLE_THRESHOLD_MS);
-      // 走行可能域には少なくとも5段以上の刻みがある(細かい)
-      expect(rideable.length).toBeGreaterThanOrEqual(6);
-      const rideableIntervals = rideable.slice(1).map((s, i) => s.speedMs - rideable[i].speedMs);
-      const unrideableIntervals = unrideable.slice(1).map((s, i) => s.speedMs - unrideable[i].speedMs);
-      const avg = (xs: number[]) => xs.reduce((a, b) => a + b, 0) / xs.length;
-      expect(avg(rideableIntervals)).toBeLessThan(avg(unrideableIntervals));
-    });
+  it("ズームの段（10・13・16・19）を越えるたびに、許された間隔を1段ずつ細かくする", () => {
+    expect(windGridDetailSpacingDegForZoom(10)).toBe(spacings[0]);
+    expect(windGridDetailSpacingDegForZoom(12.9)).toBe(spacings[0]);
+    expect(windGridDetailSpacingDegForZoom(13)).toBe(spacings[1]);
+    expect(windGridDetailSpacingDegForZoom(16)).toBe(spacings[2]);
+    expect(windGridDetailSpacingDegForZoom(22)).toBe(spacings[3]);
   });
 
-  describe("WIND_SPEED_LEGEND_LEVELS", () => {
-    // 凡例の行を束ねると、地図が塗り分けている複数の帯を1つの色見本で代表することになり、
-    // 束ねた中の値がまた見本と食い違う（T915）。行と帯は1対1に保つ。
-    it("無風以外の行は、地図が塗り分ける帯と1対1で対応する", () => {
-      const bands = WIND_SPEED_LEGEND_LEVELS.slice(1);
-      expect(bands).toHaveLength(WIND_SPEED_COLOR_STOPS.length);
-      expect(bands.map((level) => level.color)).toEqual(WIND_SPEED_COLOR_STOPS.map((stop) => stop.color));
+  it("狭い画面はそのまま、広い画面は中心から点数の上限に収まる範囲へ切る", () => {
+    const small = { west: 139.7, south: 35.6, east: 139.72, north: 35.62, zoom: 15 };
+    expect(clampWindDetailBbox(small, spacings[0])).toEqual({
+      minLon: 139.7,
+      minLat: 35.6,
+      maxLon: 139.72,
+      maxLat: 35.62,
     });
 
-    it("各行のラベルが、その帯の範囲を下限〜上限で示す（最後は「以上」）", () => {
-      expect(WIND_SPEED_LEGEND_LEVELS[1].label).toContain(`〜${WIND_SPEED_COLOR_STOPS[1].speedMs}m/s`);
-      expect(WIND_SPEED_LEGEND_LEVELS[2].label).toContain(
-        `${WIND_SPEED_COLOR_STOPS[1].speedMs}〜${WIND_SPEED_COLOR_STOPS[2].speedMs}m/s`,
-      );
-      expect(WIND_SPEED_LEGEND_LEVELS.at(-1)?.label).toContain(`${WIND_SPEED_COLOR_STOPS.at(-1)?.speedMs}m/s以上`);
-    });
-  });
-
-  describe("mergeWindGridKeepingStale（実機フィードバック「画面端が塗られないことがある」）", () => {
-    function point(lat: number, lon: number, speed: number): WindGridPoint {
-      return {
-        latitude: lat,
-        longitude: lon,
-        times: ["t0"],
-        wind_speed_ms: [speed],
-        wind_direction_deg: [0],
-        precipitation_mm: [0],
-      };
-    }
-
-    it("nextに存在する地点はnextの値を優先する（更新される）", () => {
-      const previous = [point(35, 139, 1)];
-      const next = [point(35, 139, 9)];
-      const result = mergeWindGridKeepingStale(previous, next);
-      expect(result).toHaveLength(1);
-      expect(result[0].wind_speed_ms).toEqual([9]);
-    });
-
-    it("nextに無い地点はpreviousの値のまま残す（一時的な取得失敗で穴を開けない）", () => {
-      const previous = [point(35, 139, 1), point(36, 140, 2)];
-      const next = [point(35, 139, 9)]; // (36,140)が取得失敗で欠落した想定
-      const result = mergeWindGridKeepingStale(previous, next);
-      expect(result).toHaveLength(2);
-      expect(result.find((p) => p.latitude === 36)?.wind_speed_ms).toEqual([2]);
-    });
-
-    it("previousが空でもnextだけの結果を返す", () => {
-      const next = [point(35, 139, 9)];
-      expect(mergeWindGridKeepingStale([], next)).toEqual(next);
-    });
-
-    it("nextが空ならpreviousを丸ごと残す", () => {
-      const previous = [point(35, 139, 1)];
-      expect(mergeWindGridKeepingStale(previous, [])).toEqual(previous);
-    });
-  });
-
-  describe("windGridDetailSpacingDegForZoom（T185、実機フィードバック「拡大率が大きいとgridFillの格子がゴワゴワして気になる」）", () => {
-    it("段階の境界未満のズームでは、直前の段階（より粗い間隔）を返す", () => {
-      expect(windGridDetailSpacingDegForZoom(12.9)).toBe(0.02);
-      expect(windGridDetailSpacingDegForZoom(15.9)).toBe(0.01);
-      expect(windGridDetailSpacingDegForZoom(18.9)).toBe(0.005);
-    });
-
-    it("段階の境界ちょうど・それ以上では、その段階の間隔を返す", () => {
-      expect(windGridDetailSpacingDegForZoom(13)).toBe(0.01);
-      expect(windGridDetailSpacingDegForZoom(16)).toBe(0.005);
-      expect(windGridDetailSpacingDegForZoom(19)).toBe(0.0025);
-      expect(windGridDetailSpacingDegForZoom(22)).toBe(0.0025);
-    });
-
-    it("ズームが上がるほど間隔は単調に細かくなる（矛盾する段階を足さない回帰テスト）", () => {
-      const zooms = [10, 11, 13, 14, 16, 17, 19, 20];
-      const spacings = zooms.map(windGridDetailSpacingDegForZoom);
-      for (let i = 1; i < spacings.length; i++) {
-        expect(spacings[i]).toBeLessThanOrEqual(spacings[i - 1]);
-      }
-    });
-  });
-
-  describe("clampWindDetailBbox", () => {
-    it("クリップ幅より狭いビューポートはそのまま返す", () => {
-      const bbox = clampWindDetailBbox({ west: 139.7, south: 35.6, east: 139.8, north: 35.7, zoom: 13 }, 0.01);
-      expect(bbox).toEqual({ minLon: 139.7, minLat: 35.6, maxLon: 139.8, maxLat: 35.7 });
-    });
-
-    it("クリップ幅より広いビューポートは中心を基準に間隔なりの広さへクリップする(spacingDeg=0.02のとき0.5度四方)", () => {
-      // 経度方向に3度と広いビューポート(横長デスクトップ・低ズーム相当)
-      const bbox = clampWindDetailBbox({ west: 138.0, south: 35.5, east: 141.0, north: 35.7, zoom: 10 }, 0.02);
-      const centerLon = (138.0 + 141.0) / 2;
-      expect(bbox.minLon).toBeCloseTo(centerLon - 0.25);
-      expect(bbox.maxLon).toBeCloseTo(centerLon + 0.25);
-      expect(bbox.maxLon - bbox.minLon).toBeCloseTo(0.5);
-    });
-
-    it("spacingDegが細かいほどクリップ幅も比例して狭くなる", () => {
-      const viewport = { west: 138.0, south: 35.5, east: 141.0, north: 35.7, zoom: 16 };
-      const coarse = clampWindDetailBbox(viewport, 0.02);
-      const fine = clampWindDetailBbox(viewport, 0.005);
-      const coarseSpan = coarse.maxLon - coarse.minLon;
-      const fineSpan = fine.maxLon - fine.minLon;
-      expect(fineSpan).toBeCloseTo(coarseSpan / 4);
-    });
-
-    it("クリップ後もビューポートの範囲内に収まる(ビューポートより外側へはみ出さない)", () => {
-      const viewport = { west: 139.0, south: 35.0, east: 140.0, north: 36.0, zoom: 8 };
-      const bbox = clampWindDetailBbox(viewport, 0.02);
-      expect(bbox.minLon).toBeGreaterThanOrEqual(viewport.west);
-      expect(bbox.maxLon).toBeLessThanOrEqual(viewport.east);
-      expect(bbox.minLat).toBeGreaterThanOrEqual(viewport.south);
-      expect(bbox.maxLat).toBeLessThanOrEqual(viewport.north);
-    });
+    const wide = { west: 139, south: 35, east: 141, north: 37, zoom: 10 };
+    const bbox = clampWindDetailBbox(wide, spacings[0]);
+    expect((bbox.minLon + bbox.maxLon) / 2).toBeCloseTo(140);
+    expect((bbox.minLat + bbox.maxLat) / 2).toBeCloseTo(36);
+    const side = Math.round((bbox.maxLon - bbox.minLon) / spacings[0]) + 1;
+    expect(side * side).toBeLessThanOrEqual(windGridConfig.detail_max_points);
   });
 });

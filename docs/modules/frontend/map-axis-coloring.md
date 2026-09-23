@@ -66,7 +66,7 @@ backend（`domain/dynamic_way_values.py: map_value_thresholds`）が軸の折れ
 |---|---|---|
 | 専用のフィーチャー配信レイヤーを持つか | `AxisDefinition.dedicated_way_value_layer` | `axisLayers.ts: dedicatedWayValueAxesFromCatalogAxes`が抽出し、`useAxisCatalog`の`dedicatedAxes`として配る |
 | 地図レイヤーID（表示ON/OFFのキー） | 軸id（文字列合成） | `mapLayers.ts: dedicatedWayValueMapLayerId`（`${axisId}Axis`）。MapLibreのレイヤーidは宣言が役割（軸id）から決める（[静的レイヤー](static-map-layers.md)「ソース名とレイヤーidの決め方」） |
-| フェッチに時刻／想定速度を載せるか | `AxisCatalogEntry.dynamic_way_value_needs_time` / `_needs_speed` | `useDedicatedWayValues`（載せない入力は依存キーからも外れるため、その入力が変わっても再フェッチしない） |
+| フェッチに時刻／向き／想定速度を載せるか | `AxisCatalogEntry.dynamic_way_value_needs_time` / `_needs_bearing` / `_needs_speed` | `useDedicatedWayValues`（載せない入力は依存キーからも外れるため、その入力が変わっても再フェッチしない） |
 | 符号付き材料を直接読むか／難易度を読むか | `AxisCatalogEntry.map_value_kind`（backend `domain/dynamic_way_values.py: map_value_kind`が`shape`から導出） | `routeStyleModes.ts: routeColorableModeFromAxis`・`dedicatedWayValueLayer.ts`（`DedicatedWayValueDisplay.kind`） |
 | 凡例の単位 | `AxisCatalogEntry.map_value_unit`（材料カタログの`unit`） | 同上 |
 | ramp軸（タイル焼き込み）の凡例の単位 | `AxisCatalogEntry.raw_value_unit`（段の境界は折れ点を通す前の重み付き和の目盛り。単位が定まらない軸は`null`で、数値だけの段階ラベルになる） | `axisLayers.ts: rampAxesFromCatalogAxes`が`RampAxis.unit`へ載せ、`axisRampBandLabel`が段階ラベルへ添える |
@@ -286,7 +286,7 @@ axisId)`が未取得・対象外の軸を空の結果へ倒して読み出す。
   「取りに行った結果、値が無かった」として扱われる。
 
 **軸ごとの再フェッチ判定**: 軸id・その軸へ載せるクエリパラメータ（`needsTime`なら時刻、
-`needsSpeed`なら想定速度）・向き・対象タイル集合からリクエストキーを作り、キーが変わって
+`needsBearing`なら向き、`needsSpeed`なら想定速度）・対象タイル集合からリクエストキーを作り、キーが変わって
 いない軸は再フェッチしない。時刻に依存しない軸（勾配）は時刻スライダーを動かしても
 キーが変わらないため、風だけが再取得される。連続する呼び出しの間に古いリクエストが後から
 解決しても新しい結果を上書きしないよう、リクエストの世代（`seq`、複数タイルの

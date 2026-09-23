@@ -55,7 +55,7 @@ export function buildJmaTileIndexLookup(response: JmaTileIndexResponseType | nul
     // （その要素は従来どおり全タイルを取りに行く）。
     if (!entry.basetime || !entry.validtime) continue;
     const present = new Set<string>();
-    for (const [zoom, coords] of Object.entries(entry.zooms ?? {})) {
+    for (const [zoom, coords] of Object.entries(entry.zooms)) {
       for (const [x, y] of coords) present.add(`${zoom}/${x}/${y}`);
     }
     elements.set(elementId, { frame: `${entry.basetime}/${entry.member}/${entry.validtime}`, present });

@@ -1,47 +1,22 @@
-// 気象庁 雷放電位置データ（liden）のフレーム列・GeoJSON取得。
+// 気象庁 雷放電位置データ（liden）の時刻一覧・GeoJSON取得。
 //
-// thunderNowcast.tsと同じtargetTimes_N3.json由来だが、liden自体は5分おきの全エントリに
-// 存在する（thns/trnsは10分おきのエントリにしか無い、jmaNowcastFrames.tsのコメント参照）。
-// また、他の動的気象要素（gridFill/gridMark）が既に取得済みの格子データから同期的に
-// GeoJSONを組み立てるのに対し、lidenは実際の落雷地点そのもの（配信元が既にGeoJSONで
-// 提供）を選択フレームごとに個別取得する必要がある——フレームの切り替えに追従して
-// 都度fetchするのはこの要素だけの性質のため、features/map/useDynamicWeatherLayers.ts側に
-// 専用のfetch effectを持つ（他要素のuseMemoだけで完結する構成とは異なる）。
+// 雷・竜巻と同じtargetTimes_N3.json由来だが、lidenは5分おきの全エントリに存在する。
+// また、他の動的気象要素が既に取得済みのデータから描画内容を組み立てるのに対し、lidenは
+// 実際の落雷地点そのもの（配信元がGeoJSONで提供）を選択フレームごとに個別取得する——
+// フレームの切り替えに追従して都度fetchするのはこの要素だけの性質のため、
+// features/map/useDynamicWeatherLayers.ts側に専用のfetch effectを持つ。
 
-import type { DynamicWeatherFrame } from "@/features/map/layers/dynamicWeather";
 import {
+  fetchJmaNowcastFrames,
   jmaDelivery,
-  fetchJmaTargetTimes,
-  parseValidtime,
-  type JmaNowcastFrame,
   jmaElementUrl,
+  type JmaNowcastFrame,
 } from "@/features/map/layers/jmaNowcastFrames";
 import { fetchJson } from "@/lib/fetchJson";
 import { DEFAULT_API_TIMEOUT_MS } from "@/lib/apiTimeouts";
 
-export type LidenFrame = JmaNowcastFrame;
-
-/** liden（雷放電位置データ）のフレーム時刻一覧を取得する。 */
-export async function fetchLidenFrames(): Promise<LidenFrame[]> {
-  const raw = await fetchJmaTargetTimes(jmaDelivery("disaster/liden"), "雷放電位置データ");
-  const lidenElement = jmaDelivery("disaster/liden").id;
-  const withLidenData = raw.filter((t) => t.elements?.includes(lidenElement));
-  const frames: LidenFrame[] = withLidenData.map((t) => ({ ...t, isForecast: t.validtime > t.basetime }));
-  frames.sort((a, b) => a.validtime.localeCompare(b.validtime));
-  return frames;
-}
-
-/** dynamicWeather.tsの共通フレーム列へ変換する（thunderFramesと同型、refはframes内のindex）。 */
-export function lidenFrames(frames: readonly LidenFrame[]): DynamicWeatherFrame<number>[] {
-  return frames.map((frame, index) => ({ time: parseValidtime(frame.validtime), ref: index }));
-}
-
-function lidenGeojsonUrl(frame: LidenFrame): string {
-  const { id: jmaElement, pathGroup } = jmaDelivery("disaster/liden");
-  return jmaElementUrl(
-    { group: pathGroup, element: jmaElement, basetime: frame.basetime, member: "none", validtime: frame.validtime },
-    `data.geojson?id=${jmaElement}`,
-  );
+export function fetchLidenFrames(): Promise<JmaNowcastFrame[]> {
+  return fetchJmaNowcastFrames("disaster/liden", "雷放電位置データ");
 }
 
 /** 落雷ごとの強弱を示す値を配信元が持たないため、gridMarkのicon-size式が必須で参照する
@@ -49,16 +24,14 @@ function lidenGeojsonUrl(frame: LidenFrame): string {
  * この定数を参照する。 */
 export const LIDEN_MARK_VALUE_PROPERTY = "value";
 
-/** lidenFramesが返したref（frames内のindex）に対応する実際の落雷地点GeoJSONを取得する。
- * 他要素のRenderPayload組み立て関数と異なり、既に手元にあるデータからではなく配信元へ
- * 都度fetchするため非同期。frameが無ければ（refが範囲外）undefinedを返す。 */
-export async function fetchLidenGeojson(
-  frames: readonly LidenFrame[],
-  ref: number,
-): Promise<GeoJSON.FeatureCollection | undefined> {
-  const frame = frames[ref];
-  if (!frame) return undefined;
-  const geojson = await fetchJson<GeoJSON.FeatureCollection>(lidenGeojsonUrl(frame), {
+/** そのフレームの落雷地点。 */
+export async function fetchLidenGeojson(frame: JmaNowcastFrame): Promise<GeoJSON.FeatureCollection> {
+  const { id: jmaElement, pathGroup } = jmaDelivery("disaster/liden");
+  const url = jmaElementUrl(
+    { group: pathGroup, element: jmaElement, basetime: frame.basetime, member: "none", validtime: frame.validtime },
+    `data.geojson?id=${jmaElement}`,
+  );
+  const geojson = await fetchJson<GeoJSON.FeatureCollection>(url, {
     timeoutMs: DEFAULT_API_TIMEOUT_MS,
     category: "api:liden",
     errorLabel: "雷放電位置データ",

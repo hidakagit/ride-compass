@@ -1,390 +1,334 @@
-import { act, renderHook, waitFor } from "@testing-library/react";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { useDynamicWeatherLayers } from "./useDynamicWeatherLayers";
-import { fetchNowcastFrames, fetchRasrfFrames, type NowcastFrame } from "@/features/map/layers/precipitationNowcast";
-import { fetchThunderNowcastFrames } from "@/features/map/layers/thunderNowcast";
-import { fetchLidenFrames, fetchLidenGeojson } from "@/features/map/layers/lidenLayer";
-import { fetchCurrentRiskFrames, fetchLinearRainbandFrames } from "@/features/map/layers/riskMap";
-import { useWeatherGrid } from "@/features/map/useWeatherGrid";
-import { jmaTileFailures } from "@/features/map/layers/jmaTileProtocol";
-import { parseJmaTileElement } from "@/features/map/layers/jmaTileIndex";
+import { act, renderHook } from "@testing-library/react";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
-vi.mock("@/features/map/layers/precipitationNowcast", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("@/features/map/layers/precipitationNowcast")>()),
+import { buildDefaultLayerVisibility, type MapLayerVisibility } from "@/features/map/layers/mapLayers";
+import { jmaDelivery, type JmaNowcastFrame } from "@/features/map/layers/jmaNowcastFrames";
+import type { WindGridPoint } from "@/types/weather";
+
+// 配信元への取得は差し替え、時刻一覧から描画内容を組み立てる部分は本物を通す。
+const fetchers = vi.hoisted(() => ({
   fetchNowcastFrames: vi.fn(),
   fetchRasrfFrames: vi.fn(),
-}));
-vi.mock("@/features/map/layers/thunderNowcast", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("@/features/map/layers/thunderNowcast")>()),
   fetchThunderNowcastFrames: vi.fn(),
-}));
-vi.mock("@/features/map/layers/lidenLayer", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("@/features/map/layers/lidenLayer")>()),
   fetchLidenFrames: vi.fn(),
   fetchLidenGeojson: vi.fn(),
-}));
-vi.mock("@/features/map/layers/riskMap", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("@/features/map/layers/riskMap")>()),
   fetchCurrentRiskFrames: vi.fn(),
   fetchLinearRainbandFrames: vi.fn(),
-}));
-vi.mock("@/features/map/useWeatherGrid", () => ({
   useWeatherGrid: vi.fn(),
+  failures: { current: new Map<string, string>() as ReadonlyMap<string, string>, listeners: new Set<() => void>() },
 }));
-// 実際の記録はjmaTileProtocol.test.tsが検証する。ここは記録が状態へ届く配線だけを見る。
-// useSyncExternalStoreのスナップショットのため、内容が同じなら同じ参照を返す必要がある
-// （毎回新しいMapを返すと再レンダーが止まらない）。
-const { noTileFailures } = vi.hoisted(() => ({ noTileFailures: new Map<string, string>() }));
+vi.mock("@/features/map/layers/precipitationNowcast", async (importOriginal) => ({
+  ...(await importOriginal<object>()),
+  fetchNowcastFrames: fetchers.fetchNowcastFrames,
+  fetchRasrfFrames: fetchers.fetchRasrfFrames,
+}));
+vi.mock("@/features/map/layers/thunderNowcast", async (importOriginal) => ({
+  ...(await importOriginal<object>()),
+  fetchThunderNowcastFrames: fetchers.fetchThunderNowcastFrames,
+}));
+vi.mock("@/features/map/layers/lidenLayer", () => ({
+  fetchLidenFrames: fetchers.fetchLidenFrames,
+  fetchLidenGeojson: fetchers.fetchLidenGeojson,
+}));
+vi.mock("@/features/map/layers/riskMap", async (importOriginal) => ({
+  ...(await importOriginal<object>()),
+  fetchCurrentRiskFrames: fetchers.fetchCurrentRiskFrames,
+  fetchLinearRainbandFrames: fetchers.fetchLinearRainbandFrames,
+}));
+vi.mock("@/features/map/useWeatherGrid", () => ({ useWeatherGrid: fetchers.useWeatherGrid }));
 vi.mock("@/features/map/layers/jmaTileProtocol", () => ({
-  jmaTileFailures: vi.fn(() => noTileFailures),
-  subscribeJmaTileFailures: () => () => {},
+  jmaTileFailures: () => fetchers.failures.current,
+  subscribeJmaTileFailures: (listener: () => void) => {
+    fetchers.failures.listeners.add(listener);
+    return () => fetchers.failures.listeners.delete(listener);
+  },
 }));
 
-const EMPTY_CURRENT_RISK_FRAMES = { land: [], heavyRain: [], inundation: [], flood: [] };
+import { useDynamicWeatherLayers } from "./useDynamicWeatherLayers";
 
-// 表示状態はレイヤーごとのbooleanではなく`MapLayerVisibility`1つで渡る。テストも
-// そのまま同じ形で組み、必要なレイヤーだけ`shown()`でONにする。
-import { buildDefaultLayerVisibility, type MapLayerId } from "@/features/map/layers/mapLayers";
-import { useDepartureTime } from "@/features/conditions/useDepartureTime";
+const THUNDER = jmaDelivery("disaster/thunder").id;
+const TORNADO = jmaDelivery("disaster/tornado").id;
 
-const FIVE_MIN_MS = 5 * 60 * 1000;
-// 表示する時刻。実データ側のフレームも「今」を5分へ丸めた時刻から始まる。
-const NOW = new Date(Math.floor(Date.now() / FIVE_MIN_MS) * FIVE_MIN_MS);
+// 日本時間 9:05（協定世界時 0:05）の出発時刻。
+const NOW = new Date("2026-09-24T00:05:00Z");
+const utc = (hhmm: string) => `20260924${hhmm}00`;
+const frame = (validtime: string, basetime = utc("0005")): JmaNowcastFrame => ({
+  basetime,
+  validtime,
+  isForecast: validtime > basetime,
+});
+// 実況は 23:55・0:05、予測は 0:15・0:25（協定世界時）。
+const NOWCAST = [frame("20260923235500", "20260923235500"), frame(utc("0005")), frame(utc("0015")), frame(utc("0025"))];
+const riskFrame = (basetime: string) => ({ time: new Date(), ref: { basetime, validtime: basetime, member: "none" } });
 
-const BASE_OPTIONS = {
-  visibility: buildDefaultLayerVisibility(),
-  hiddenDisasterSources: [],
-  mapViewport: null,
-  at: NOW,
-  now: NOW,
-};
+const gridPoint = (times: string[]): WindGridPoint =>
+  ({
+    latitude: 35,
+    longitude: 139,
+    times,
+    wind_speed_ms: times.map(() => 3),
+    wind_direction_deg: times.map(() => 0),
+    precipitation_mm: times.map(() => 2),
+  }) as WindGridPoint;
+const GRID = [gridPoint(["2026-09-24T09:00", "2026-09-24T10:00"])];
 
-function shown(...layerIds: MapLayerId[]) {
-  const visibility = { ...buildDefaultLayerVisibility() };
-  for (const id of layerIds) visibility[id] = true;
-  return { ...BASE_OPTIONS, visibility };
+async function settle() {
+  await act(async () => {
+    for (let i = 0; i < 10; i += 1) await Promise.resolve();
+  });
 }
 
-/** Date → 気象庁のタイムスタンプ形式（YYYYMMDDHHmmss、UTC）。 */
-function jmaTimestamp(time: Date): string {
-  return time.toISOString().replace(/[-:T]/g, "").slice(0, 14);
+function visibility(on: Partial<MapLayerVisibility>): MapLayerVisibility {
+  return { ...buildDefaultLayerVisibility(), disaster: false, route: false, ...on };
 }
 
-function stubHappyPath() {
-  vi.mocked(jmaTileFailures).mockReturnValue(noTileFailures);
-  vi.mocked(fetchNowcastFrames).mockResolvedValue([]);
-  vi.mocked(fetchRasrfFrames).mockResolvedValue([]);
-  vi.mocked(fetchThunderNowcastFrames).mockResolvedValue([]);
-  vi.mocked(fetchLidenFrames).mockResolvedValue([]);
-  vi.mocked(fetchCurrentRiskFrames).mockResolvedValue(EMPTY_CURRENT_RISK_FRAMES);
-  vi.mocked(fetchLinearRainbandFrames).mockResolvedValue([]);
-  vi.mocked(useWeatherGrid).mockReturnValue({
-    grid: [],
+beforeEach(() => {
+  fetchers.fetchNowcastFrames.mockReset().mockResolvedValue(NOWCAST);
+  fetchers.fetchRasrfFrames.mockReset().mockResolvedValue([]);
+  fetchers.fetchThunderNowcastFrames.mockReset().mockResolvedValue(NOWCAST);
+  fetchers.fetchLidenFrames.mockReset().mockResolvedValue(NOWCAST.slice(0, 2));
+  fetchers.fetchLidenGeojson.mockReset().mockImplementation(async (lidenFrame: JmaNowcastFrame) => ({
+    type: "FeatureCollection",
+    features: [],
+    id: lidenFrame.validtime,
+  }));
+  fetchers.fetchCurrentRiskFrames.mockReset().mockResolvedValue({
+    land: [riskFrame(utc("0000"))],
+    heavyRain: [riskFrame(utc("0000"))],
+    inundation: [],
+    flood: [riskFrame(utc("0000"))],
+  });
+  fetchers.fetchLinearRainbandFrames.mockReset().mockResolvedValue([riskFrame(utc("0000"))]);
+  fetchers.useWeatherGrid.mockReset().mockReturnValue({
+    grid: GRID,
     detailGrid: [],
-    effectiveGrid: [],
-    effectiveGridSpacingDeg: 0.05,
+    effectiveGrid: GRID,
+    effectiveGridSpacingDeg: 0.1,
     loading: false,
-    hasFetched: true,
     error: null,
+    hasFetched: true,
   });
+  fetchers.failures.current = new Map();
+});
+
+type Options = Parameters<typeof useDynamicWeatherLayers>[0];
+function render(options: Partial<Options> = {}) {
+  const initialProps: Options = {
+    visibility: visibility({}),
+    hiddenDisasterSources: [],
+    mapViewport: null,
+    at: NOW,
+    now: NOW,
+    ...options,
+  };
+  return renderHook((props: Options) => useDynamicWeatherLayers(props), { initialProps });
 }
 
-describe("useDynamicWeatherLayers（改善計画T425: キキクル・線状降水帯予測マップのエラー可視化）", () => {
-  afterEach(() => {
-    vi.clearAllMocks();
+describe("取りに行くかどうか", () => {
+  it("チップがOFFの間は何も取りに行かない", async () => {
+    render();
+    await settle();
+    for (const fetcher of [
+      fetchers.fetchNowcastFrames,
+      fetchers.fetchRasrfFrames,
+      fetchers.fetchThunderNowcastFrames,
+      fetchers.fetchLidenFrames,
+      fetchers.fetchCurrentRiskFrames,
+      fetchers.fetchLinearRainbandFrames,
+    ]) {
+      expect(fetcher).not.toHaveBeenCalled();
+    }
+    expect(fetchers.useWeatherGrid).toHaveBeenLastCalledWith(false, null);
   });
 
-  it("全フェッチ成功時はどのレイヤーもerrorにならない（フレーム0件のためempty）", async () => {
-    stubHappyPath();
+  it("降水はナウキャスト・短時間予報・線状降水帯・延長予報の格子を取り、風は格子だけを取る", async () => {
+    const precipitation = render({ visibility: visibility({ precipitationNowcast: true }) });
+    await settle();
+    expect(fetchers.fetchNowcastFrames).toHaveBeenCalled();
+    expect(fetchers.fetchRasrfFrames).toHaveBeenCalled();
+    expect(fetchers.fetchLinearRainbandFrames).toHaveBeenCalled();
+    expect(fetchers.useWeatherGrid).toHaveBeenLastCalledWith(true, null);
+    precipitation.unmount();
 
-    const { result } = renderHook(() => useDynamicWeatherLayers(shown("precipitationNowcast", "disaster")));
-
-    await waitFor(() => expect(fetchCurrentRiskFrames).toHaveBeenCalled());
-    await waitFor(() => expect(fetchLinearRainbandFrames).toHaveBeenCalled());
-    await waitFor(() => expect(result.current.dynamicWeatherDataStatus.precipitationNowcast).toBe("empty"));
-    await waitFor(() => expect(result.current.dynamicWeatherDataStatus.disaster).toBe("empty"));
+    fetchers.fetchNowcastFrames.mockClear();
+    render({ visibility: visibility({ windVector: true }) });
+    await settle();
+    expect(fetchers.fetchNowcastFrames).not.toHaveBeenCalled();
+    expect(fetchers.useWeatherGrid).toHaveBeenLastCalledWith(true, null);
   });
 
-  it("キキクル（現在のリスク分布）の取得失敗が、災害チップ1つ分のdynamicWeatherDataStatusへ反映される", async () => {
-    stubHappyPath();
-    vi.mocked(fetchCurrentRiskFrames).mockRejectedValue(new Error("kikkuru boom"));
-
-    const { result } = renderHook(() => useDynamicWeatherLayers(shown("disaster")));
-
-    await waitFor(() => expect(result.current.dynamicWeatherDataStatus.disaster).toBe("error"));
-  });
-
-  it("線状降水帯予測マップの取得失敗が、降水チップON時にdynamicWeatherDataStatus.precipitationNowcastへ反映される", async () => {
-    stubHappyPath();
-    vi.mocked(fetchLinearRainbandFrames).mockRejectedValue(new Error("linear rainband boom"));
-
-    const { result } = renderHook(() => useDynamicWeatherLayers(shown("precipitationNowcast")));
-
-    await waitFor(() => expect(result.current.dynamicWeatherDataStatus.precipitationNowcast).toBe("error"));
-  });
-
-  it("線状降水帯予測マップの取得失敗は、降水チップOFF時はフェッチ自体走らずdynamicWeatherDataStatusに反映されない", async () => {
-    stubHappyPath();
-
-    renderHook(() => useDynamicWeatherLayers(shown("disaster")));
-
-    await waitFor(() => expect(fetchCurrentRiskFrames).toHaveBeenCalled());
-    expect(fetchLinearRainbandFrames).not.toHaveBeenCalled();
-  });
-
-  describe("dynamicWeatherDataStatus（改善計画T608: MapLibreのソースイベントを経由しない統一IF）", () => {
-    it("フェッチが解決するまでloading、解決後はpayloadの有無に応じてempty/正常になる", async () => {
-      let resolveFetch!: (frames: Awaited<ReturnType<typeof fetchThunderNowcastFrames>>) => void;
-      vi.mocked(fetchThunderNowcastFrames).mockReturnValue(
-        new Promise((resolve) => {
-          resolveFetch = resolve;
-        }),
-      );
-
-      const { result } = renderHook(() => useDynamicWeatherLayers(shown("disaster")));
-
-      await waitFor(() => expect(result.current.dynamicWeatherDataStatus.disaster).toBe("loading"));
-
-      resolveFetch([]);
-
-      await waitFor(() => expect(result.current.dynamicWeatherDataStatus.disaster).toBe("empty"));
+  it("災害は、同じ時刻一覧を読む要素がすべて非表示の単位だけ取りに行かない", async () => {
+    render({
+      visibility: visibility({ disaster: true }),
+      hiddenDisasterSources: ["thunder", "tornado", "liden"],
     });
-
-    it("windVectorも同じ仕組みで判定する（風の格子点フェッチがエラーならerror）", async () => {
-      stubHappyPath();
-      vi.mocked(useWeatherGrid).mockReturnValue({
-        grid: [],
-        detailGrid: [],
-        effectiveGrid: [],
-        effectiveGridSpacingDeg: 0.05,
-        loading: false,
-        hasFetched: true,
-        error: "wind grid boom",
-      });
-
-      const { result } = renderHook(() => useDynamicWeatherLayers(shown("windVector")));
-
-      await waitFor(() => expect(result.current.dynamicWeatherDataStatus.windVector).toBe("error"));
-    });
-
-    it("OFF中のレイヤーは取得を試みていないため状態を持たない（emptyと断定しない）", () => {
-      // OFFの間はフェッチ自体が走らない（enabled: false）。ここをemptyにすると
-      // 「この範囲に表示できるデータがありません」と読めてしまい、配線ミスで
-      // フェッチが走っていない状態と区別が付かなくなる。
-      stubHappyPath();
-
-      const { result } = renderHook(() => useDynamicWeatherLayers(BASE_OPTIONS));
-
-      expect(result.current.dynamicWeatherDataStatus.disaster).toBeUndefined();
-    });
-  });
-
-  // 配信元のタイルが返らない状態は空タイルで代替されるため、フェッチ側は正常のまま
-  // （jmaTileProtocol.ts）。キキクルのように「平常時は透明」が正常系のレイヤーでは、
-  // 状態が出ないかぎり利用者が危険度ゼロと読む。
-  describe("タイル配信の障害", () => {
-    const RISK_FRAME = {
-      time: new Date("2026-09-14T12:30:00Z"),
-      ref: { basetime: "20260914123000", validtime: "20260914123000", member: "immed0" },
-    };
-
-    it("表示中のキキクルのタイルが返らなければ、フェッチが正常でもerrorになる", async () => {
-      stubHappyPath();
-      vi.mocked(fetchCurrentRiskFrames).mockResolvedValue({
-        ...EMPTY_CURRENT_RISK_FRAMES,
-        land: [RISK_FRAME],
-      });
-
-      const { result, rerender } = renderHook(() => useDynamicWeatherLayers(shown("disaster")));
-      await waitFor(() => expect(result.current.dynamicWeather.disaster?.landslide?.payload).toBeDefined());
-
-      const payload = result.current.dynamicWeather.disaster?.landslide?.payload;
-      const template = payload?.kind === "rasterTile" ? payload.tileUrlTemplate : "";
-      const ref = parseJmaTileElement(template);
-      expect(ref).not.toBeNull();
-      vi.mocked(jmaTileFailures).mockReturnValue(new Map([[ref!.element, ref!.prefix]]));
-
-      // 購読の通知はこのモックが持たないため、再レンダーでスナップショットを読み直させる。
-      rerender();
-      await waitFor(() => expect(result.current.dynamicWeatherDataStatus.disaster).toBe("error"));
-    });
-  });
-
-  describe("災害グループ（雷・竜巻・落雷・キキクル4種を1チップへ統合）", () => {
-    it("OFFの間は3本のフェッチ（キキクル・雷竜巻・落雷）いずれも走らない", () => {
-      stubHappyPath();
-
-      renderHook(() => useDynamicWeatherLayers(BASE_OPTIONS));
-
-      expect(fetchCurrentRiskFrames).not.toHaveBeenCalled();
-      expect(fetchThunderNowcastFrames).not.toHaveBeenCalled();
-      expect(fetchLidenFrames).not.toHaveBeenCalled();
-    });
-
-    it("ONにすると3本のフェッチがまとめて走る", async () => {
-      stubHappyPath();
-
-      renderHook(() => useDynamicWeatherLayers(shown("disaster")));
-
-      await waitFor(() => expect(fetchCurrentRiskFrames).toHaveBeenCalled());
-      expect(fetchThunderNowcastFrames).toHaveBeenCalled();
-      expect(fetchLidenFrames).toHaveBeenCalled();
-    });
-
-    it("7ソースすべてが1つのチップのON/OFFに連動し、payloadはデータのある要素にだけ載る", async () => {
-      stubHappyPath();
-      const frame = [{ time: new Date(), ref: { basetime: "0", validtime: "0", member: "" } }];
-      vi.mocked(fetchCurrentRiskFrames).mockResolvedValue({ land: frame, heavyRain: frame, inundation: [], flood: [] });
-
-      const { result } = renderHook(() => useDynamicWeatherLayers(shown("disaster")));
-
-      await waitFor(() => expect(result.current.dynamicWeather.disaster?.landslide?.payload).toBeDefined());
-      const disaster = result.current.dynamicWeather.disaster;
-      for (const source of ["heavyRain", "landslide", "inundation", "thunder", "tornado", "flood", "liden"]) {
-        expect(disaster?.[source]?.visible).toBe(true);
-      }
-      // フレームを返さなかった要素はpayload未確定のまま（visibleとpayloadの両方が
-      // 揃わない限りMapView側は描画しない）。
-      expect(disaster?.heavyRain?.payload).toBeDefined();
-      expect(disaster?.inundation?.payload).toBeUndefined();
-      expect(disaster?.flood?.payload).toBeUndefined();
-    });
-  });
-
-  describe("災害グループの要素トグル（▶パネルの「表示する情報」）", () => {
-    it("非表示に選ばれた要素はvisible: falseになり、他の要素は表示のまま残る", async () => {
-      stubHappyPath();
-
-      const { result } = renderHook(() =>
-        useDynamicWeatherLayers({
-          ...shown("disaster"),
-          hiddenDisasterSources: ["thunder", "tornado", "liden"],
-        }),
-      );
-
-      await waitFor(() => expect(fetchCurrentRiskFrames).toHaveBeenCalled());
-      const disaster = result.current.dynamicWeather.disaster;
-      expect(disaster?.thunder?.visible).toBe(false);
-      expect(disaster?.tornado?.visible).toBe(false);
-      expect(disaster?.liden?.visible).toBe(false);
-      expect(disaster?.heavyRain?.visible).toBe(true);
-      expect(disaster?.flood?.visible).toBe(true);
-    });
-
-    it("1本のtargetTimes.jsonを共有する要素がすべて非表示なら、そのフェッチ自体を行わない", async () => {
-      stubHappyPath();
-
-      renderHook(() =>
-        useDynamicWeatherLayers({
-          ...shown("disaster"),
-          hiddenDisasterSources: ["heavyRain", "landslide", "inundation", "flood", "liden"],
-        }),
-      );
-
-      // 雷・竜巻だけが表示中なので、雷竜巻のフレーム取得だけが走る。
-      await waitFor(() => expect(fetchThunderNowcastFrames).toHaveBeenCalled());
-      expect(fetchCurrentRiskFrames).not.toHaveBeenCalled();
-      expect(fetchLidenFrames).not.toHaveBeenCalled();
-    });
-  });
-
-  describe("雷放電位置データ（liden、災害グループのソースの1つ）", () => {
-    it("時刻一覧の取得失敗がdynamicWeatherDataStatus.disasterへ反映される", async () => {
-      stubHappyPath();
-      vi.mocked(fetchLidenFrames).mockRejectedValue(new Error("liden boom"));
-
-      const { result } = renderHook(() => useDynamicWeatherLayers(shown("disaster")));
-
-      await waitFor(() => expect(result.current.dynamicWeatherDataStatus.disaster).toBe("error"));
-    });
-
-    it("選択中フレームのGeoJSONが取得できるとdisasterグループのlidenソースのpayloadへ反映される", async () => {
-      stubHappyPath();
-      // 見るのはGeoJSONがpayloadへ届く配線であって時刻範囲の判定ではないため、フレームを
-      // 共有時刻そのもの（5分へ丸めた現在時刻）に置く。気象庁のlidenのvalidtimeは実際に
-      // 5分刻みのため、任意の秒を持つ時刻はそもそも実データに存在しない。
-      const validtime = jmaTimestamp(new Date(Math.floor(Date.now() / FIVE_MIN_MS) * FIVE_MIN_MS));
-      vi.mocked(fetchLidenFrames).mockResolvedValue([{ basetime: validtime, validtime, isForecast: false }]);
-      const geojson = { type: "FeatureCollection" as const, features: [] };
-      vi.mocked(fetchLidenGeojson).mockResolvedValue(geojson);
-
-      const { result } = renderHook(() => useDynamicWeatherLayers(shown("disaster")));
-
-      await waitFor(() =>
-        expect(result.current.dynamicWeather.disaster?.liden?.payload).toEqual({ kind: "gridMark", geojson }),
-      );
-    });
-
-    // 配信元の観測は「今」より遅れて届く（実測5〜10分、T861）。共有時刻は5分刻みで「今」へ
-    // 追従するため最新フレームより後ろに来るのが常態で、範囲外で描かない規約をそのまま
-    // 当てると雷放電は常に描画されない（本番実測: 最新フレーム22:55に対し共有時刻23:00）。
-    it("最新フレームが配信の遅れのぶん過去でも、最新の観測を描く", async () => {
-      stubHappyPath();
-      const sharedTime = Math.floor(Date.now() / FIVE_MIN_MS) * FIVE_MIN_MS;
-      const delayed = jmaTimestamp(new Date(sharedTime - FIVE_MIN_MS));
-      vi.mocked(fetchLidenFrames).mockResolvedValue([{ basetime: delayed, validtime: delayed, isForecast: false }]);
-      const geojson = { type: "FeatureCollection" as const, features: [] };
-      vi.mocked(fetchLidenGeojson).mockResolvedValue(geojson);
-
-      const { result } = renderHook(() => useDynamicWeatherLayers(shown("disaster")));
-
-      await waitFor(() =>
-        expect(result.current.dynamicWeather.disaster?.liden?.payload).toEqual({ kind: "gridMark", geojson }),
-      );
-    });
+    await settle();
+    expect(fetchers.fetchCurrentRiskFrames).toHaveBeenCalled();
+    expect(fetchers.fetchThunderNowcastFrames).not.toHaveBeenCalled();
+    expect(fetchers.fetchLidenFrames).not.toHaveBeenCalled();
   });
 });
 
-describe("出発時刻と気象レイヤー", () => {
-  const STEP_MS = FIVE_MIN_MS;
-  // 5分境界ちょうどではない時刻から始め、丸めが効いていることも同時に見る。
-  const T0 = Date.UTC(2026, 8, 15, 10, 2, 30);
+describe("選んだ時刻に描くもの", () => {
+  it("降水は最新の実況から先を描き、それより前（過去）の時刻では描かない", async () => {
+    const { result, rerender } = render({ visibility: visibility({ precipitationNowcast: true }) });
+    await settle();
+    expect(result.current.dynamicWeather.precipitationNowcast?.main).toMatchObject({
+      visible: true,
+      payload: { kind: "rasterTile", tileUrlTemplate: expect.stringContaining(`/none/${utc("0005")}/surf/`) },
+    });
 
-  /** 実況1件＋60分先までの予測。実況の時刻は呼ばれた瞬間の「今」を5分へ丸めたもの
-   * ——本物の気象庁が5分毎に実況を更新し、trimToCurrentAndFutureがフレーム列の先頭を
-   * そこへ切り詰めるのを再現する。 */
-  function nowcastFramesForNow(): NowcastFrame[] {
-    const observed = Math.floor(Date.now() / STEP_MS) * STEP_MS;
-    const frames: NowcastFrame[] = [
-      { basetime: jmaTimestamp(new Date(observed)), validtime: jmaTimestamp(new Date(observed)), isForecast: false },
-    ];
-    for (let offset = STEP_MS; offset <= 60 * 60 * 1000; offset += STEP_MS) {
-      frames.push({
-        basetime: jmaTimestamp(new Date(observed)),
-        validtime: jmaTimestamp(new Date(observed + offset)),
-        isForecast: true,
-      });
-    }
-    return frames;
-  }
-
-  beforeEach(() => {
-    vi.useFakeTimers();
-    vi.setSystemTime(T0);
+    rerender({
+      visibility: visibility({ precipitationNowcast: true }),
+      hiddenDisasterSources: [],
+      mapViewport: null,
+      at: new Date("2026-09-23T23:50:00Z"),
+      now: NOW,
+    });
+    expect(result.current.dynamicWeather.precipitationNowcast?.main?.payload).toBeUndefined();
   });
 
-  afterEach(() => {
-    vi.useRealTimers();
+  it("ナウキャストより先は、延長予報の格子を塗る", async () => {
+    const { result } = render({
+      visibility: visibility({ precipitationNowcast: true }),
+      at: new Date("2026-09-24T10:00:00+09:00"),
+    });
+    await settle();
+    expect(result.current.dynamicWeather.precipitationNowcast?.main?.payload?.kind).toBe("gridFill");
   });
 
-  it("出発時刻が「今」へ追従して進む間は、実況が更新されても降水が消えない", async () => {
-    stubHappyPath();
-    vi.mocked(fetchNowcastFrames).mockImplementation(async () => nowcastFramesForNow());
+  it("風は格子のその時刻の矢印", async () => {
+    const { result } = render({ visibility: visibility({ windVector: true }) });
+    await settle();
+    expect(result.current.dynamicWeather.windVector?.arrow).toMatchObject({
+      visible: true,
+      payload: { kind: "gridMark" },
+    });
+  });
 
-    const { result } = renderHook(() => {
-      const departure = useDepartureTime();
-      return useDynamicWeatherLayers({ ...shown("precipitationNowcast"), at: departure.at, now: departure.now });
+  it("雷と竜巻は同じコマの、それぞれの要素のタイル。範囲の外の時刻では描かない", async () => {
+    const { result, rerender } = render({ visibility: visibility({ disaster: true }) });
+    await settle();
+    const { thunder, tornado } = result.current.dynamicWeather.disaster ?? {};
+    expect(thunder?.payload).toMatchObject({
+      tileUrlTemplate: expect.stringContaining(`/${utc("0005")}/surf/${THUNDER}/`),
+    });
+    expect(tornado?.payload).toMatchObject({
+      tileUrlTemplate: expect.stringContaining(`/${utc("0005")}/surf/${TORNADO}/`),
     });
 
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(0);
+    rerender({
+      visibility: visibility({ disaster: true }),
+      hiddenDisasterSources: [],
+      mapViewport: null,
+      at: new Date("2026-09-24T03:00:00Z"),
+      now: NOW,
     });
-    expect(result.current.dynamicWeather.precipitationNowcast?.main?.payload).toBeDefined();
+    expect(result.current.dynamicWeather.disaster?.thunder?.payload).toBeUndefined();
+  });
 
-    // 実況が2回更新される長さ。時刻が止まっていればここで範囲外へ落ちる。
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(11 * 60 * 1000);
+  it("キキクルは選んだ時刻に関わらず「現在」の危険度を描き、取れていない要素は描かない", async () => {
+    const { result } = render({ visibility: visibility({ disaster: true }), at: new Date("2026-09-24T12:00:00Z") });
+    await settle();
+    const disaster = result.current.dynamicWeather.disaster ?? {};
+    expect(disaster.landslide?.payload?.kind).toBe("rasterTile");
+    expect(disaster.flood?.payload?.kind).toBe("vectorTile");
+    expect(disaster.inundation?.payload).toBeUndefined();
+  });
+
+  it("線状降水帯は、今から3時間先までの時刻を選んでいる間だけ重ねる", async () => {
+    const { result, rerender } = render({ visibility: visibility({ precipitationNowcast: true }) });
+    await settle();
+    expect(result.current.dynamicWeather.precipitationNowcast?.linearRainband?.payload?.kind).toBe("rasterTile");
+    rerender({
+      visibility: visibility({ precipitationNowcast: true }),
+      hiddenDisasterSources: [],
+      mapViewport: null,
+      at: new Date(NOW.getTime() + 3 * 60 * 60 * 1000 + 60_000),
+      now: NOW,
     });
-    expect(result.current.dynamicWeather.precipitationNowcast?.main?.payload).toBeDefined();
+    expect(result.current.dynamicWeather.precipitationNowcast?.linearRainband?.payload).toBeUndefined();
+  });
+
+  it("▶パネルで非表示にした災害の要素は、描く内容があっても非表示", async () => {
+    const { result } = render({ visibility: visibility({ disaster: true }), hiddenDisasterSources: ["landslide"] });
+    await settle();
+    expect(result.current.dynamicWeather.disaster?.landslide?.visible).toBe(false);
+    expect(result.current.dynamicWeather.disaster?.heavyRain?.visible).toBe(true);
+  });
+});
+
+describe("落雷（観測だけが届く要素）", () => {
+  const liden = (at: Date) =>
+    render({ visibility: visibility({ disaster: true }), hiddenDisasterSources: ["thunder", "tornado"], at });
+
+  it("配信の遅れの間は最新の観測の地点を取って描く", async () => {
+    const { result } = liden(new Date("2026-09-24T00:15:00Z"));
+    await settle();
+    expect(fetchers.fetchLidenGeojson).toHaveBeenLastCalledWith(NOWCAST[1]);
+    expect(result.current.dynamicWeather.disaster?.liden?.payload).toMatchObject({
+      kind: "gridMark",
+      geojson: { id: utc("0005") },
+    });
+  });
+
+  it("遅れの幅より先の時刻では描かない", async () => {
+    const { result } = liden(new Date("2026-09-24T01:00:00Z"));
+    await settle();
+    expect(result.current.dynamicWeather.disaster?.liden?.payload).toBeUndefined();
+  });
+
+  it("コマを動かした後に前のコマの地点が届いても使わず、取得の失敗では描かない", async () => {
+    let resolveLatest!: (geojson: unknown) => void;
+    fetchers.fetchLidenGeojson
+      .mockImplementationOnce(() => new Promise((resolve) => (resolveLatest = resolve)))
+      .mockRejectedValueOnce(new Error("取れません"));
+    const { result, rerender } = liden(NOW);
+    await settle();
+    rerender({
+      visibility: visibility({ disaster: true }),
+      hiddenDisasterSources: ["thunder", "tornado"],
+      mapViewport: null,
+      at: new Date("2026-09-23T23:55:00Z"),
+      now: NOW,
+    });
+    await settle();
+    resolveLatest({ type: "FeatureCollection", features: [], id: "stale" });
+    await settle();
+    expect(result.current.dynamicWeather.disaster?.liden?.payload).toBeUndefined();
+  });
+});
+
+describe("取得状態", () => {
+  it("グループ内のどれかが描けていれば空とせず、どれも描けず取り終えていれば空", async () => {
+    const { result } = render({ visibility: visibility({ disaster: true }) });
+    await settle();
+    expect(result.current.dynamicWeatherDataStatus.disaster).toBeUndefined();
+
+    fetchers.fetchCurrentRiskFrames.mockResolvedValue({ land: [], heavyRain: [], inundation: [], flood: [] });
+    fetchers.fetchThunderNowcastFrames.mockResolvedValue([]);
+    fetchers.fetchLidenFrames.mockResolvedValue([]);
+    const empty = render({ visibility: visibility({ disaster: true }) });
+    await settle();
+    expect(empty.result.current.dynamicWeatherDataStatus.disaster).toBe("empty");
+  });
+
+  it("グループ内のどの取得が失敗しても失敗", async () => {
+    fetchers.fetchRasrfFrames.mockRejectedValue(new Error("短時間予報を取れません"));
+    const { result } = render({ visibility: visibility({ precipitationNowcast: true }) });
+    await settle();
+    expect(result.current.dynamicWeatherDataStatus.precipitationNowcast).toBe("error");
+  });
+
+  it("表示中のタイルの配信が止まっていれば、取得が成功していても失敗", async () => {
+    const { result } = render({ visibility: visibility({ disaster: true }) });
+    await settle();
+    const url = result.current.dynamicWeather.disaster?.thunder?.payload;
+    const template = url && "tileUrlTemplate" in url ? url.tileUrlTemplate : "";
+    act(() => {
+      fetchers.failures.current = new Map([[THUNDER, template.slice(0, template.indexOf("{z}"))]]);
+      fetchers.failures.listeners.forEach((listener) => listener());
+    });
+    expect(result.current.dynamicWeatherDataStatus.disaster).toBe("error");
   });
 });

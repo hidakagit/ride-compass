@@ -1,241 +1,124 @@
 // @vitest-environment node
 import { describe, expect, it } from "vitest";
+
+import { catalogOf, dedicatedEntry, rampEntry } from "@/features/map/view/__fixtures__/catalog";
+import { pointLegendAxes } from "@/features/map/scene/legends";
+import { mapDisplay } from "@/types/generated/mapDisplay";
+
+import { LANDCOVER_CLASSES, LANDCOVER_PAINTED_CLASSES } from "./landcoverClasses";
 import {
   buildDefaultLayerVisibility,
   buildMapLayers,
   deriveFetchLayerStatus,
   isAxisStudioLayer,
   mapOverlayGroupFor,
+  tileVersionGatedLayerIds,
   tileZoomTooWideLayerIds,
+  type MapLayerDescriptor,
 } from "./mapLayers";
-import { LANDCOVER_TILE_MIN_ZOOM, ROAD_TILE_MIN_ZOOM } from "@/services/regionApi";
-import { dedicatedWayValueAxesFromCatalogAxes } from "@/lib/mapDisplay/axisLayers";
-import { catalogAxis } from "@/lib/mapDisplay/__fixtures__/catalogAxes";
 
-// 軸カタログはDBが配るため、ビルド時の一覧を当てにしない。変換が分岐する形を
-// 一通り含む合成入力から、本番と同じ関数で作る。
-const DEDICATED_WAY_VALUE_AXES = dedicatedWayValueAxesFromCatalogAxes([
-  catalogAxis({
-    axis_id: "ded",
-    dedicated_way_value_layer: true,
-    display: { tile_inputs: [{ property: "v", weight: 1 }], thresholds: [50] },
-  }),
+const catalog = catalogOf([
+  rampEntry("ramp_a", [10, 20], { raw_value_unit: "%", chip_label: "勾配" }),
+  dedicatedEntry("dedicated_b", [1, 2]),
 ]);
+const withAxes = buildMapLayers(catalog.rampAxes, catalog.dedicatedAxes, [2021, 2019, 2020]);
+const withoutAxes = buildMapLayers([], []);
+const layer = (layers: readonly MapLayerDescriptor[], id: string) => layers.find((entry) => entry.id === id)!;
 
-describe("mapLayers（改善計画T440: axis_idハードコード比較の撤去）", () => {
-  it("isAxisStudioLayer: 専用way値配信軸の記述子は、axis_idのハードコード比較ではなく軸カタログ由来のフラグでtrueになる", () => {
-    const withoutAxes = new Set(buildMapLayers([], []).map((layer) => layer.id));
-    const added = buildMapLayers([], DEDICATED_WAY_VALUE_AXES).filter((layer) => !withoutAxes.has(layer.id));
-    expect(added).toHaveLength(DEDICATED_WAY_VALUE_AXES.length);
-    expect(added).not.toHaveLength(0);
-    for (const descriptor of added) expect(isAxisStudioLayer(descriptor)).toBe(true);
+describe("buildMapLayers（レイヤーの一覧）", () => {
+  it("源泉が地図に載せると宣言したものは、どれも1つずつ記述子を持つ", () => {
+    expect(withoutAxes.map((entry) => entry.id).sort()).toEqual([...mapDisplay.layerIds].sort());
   });
 
-  it('isAxisStudioLayer: dataNature==="composite"（ramp軸）もtrue', () => {
-    expect(isAxisStudioLayer({ id: "highway", dataNature: "composite" })).toBe(true);
+  it("軸を渡すと、ramp軸と専用配信軸のレイヤーが軸ごとに別の名前で加わる（どちらも軸スタジオ由来）", () => {
+    const added = withAxes.filter((entry) => !(mapDisplay.layerIds as readonly string[]).includes(entry.id));
+    expect(added.map((entry) => entry.id)).toEqual(["axis:ramp_a", "dedicated_bAxis"]);
+    expect(added.every(isAxisStudioLayer)).toBe(true);
+    expect(new Set(withAxes.map((entry) => entry.id)).size).toBe(withAxes.length);
   });
 
-  it("isAxisStudioLayer: どちらにも該当しないレイヤーはfalse", () => {
-    expect(isAxisStudioLayer({ id: "route" })).toBe(false);
-    expect(isAxisStudioLayer({ id: "highway", dataNature: "raw" })).toBe(false);
+  it("ramp軸のレイヤーは軸の名前・略名・単位と、軸が属する種別を使う", () => {
+    expect(layer(withAxes, "axis:ramp_a")).toMatchObject({
+      label: "ramp_a",
+      chipLabel: "勾配",
+      category: "roadCondition",
+      description: expect.stringContaining("ramp_a[%]"),
+    });
   });
 
-  // 3件目の軸を軸スタジオで公開したときに、地図レイヤーの登録・地図UIからの除外が
-  // すべて自動で追従すること（軸ごとのハードコードが残っていないこと）。
-  it("軸スタジオで公開した3件目の専用way値配信軸へ自動追従する", () => {
-    const extended = [
-      ...DEDICATED_WAY_VALUE_AXES,
-      {
-        axisId: "surface_temp",
-        label: "路面温度",
-        needsTime: true,
-        needsBearing: false,
-        needsSpeed: false,
-        display: { kind: "difficulty" as const, unit: "" },
-      },
-    ];
-    const before = new Set(buildMapLayers([], DEDICATED_WAY_VALUE_AXES).map((layer) => layer.id));
-    const [descriptor, ...rest] = buildMapLayers([], extended).filter((layer) => !before.has(layer.id));
-    expect(rest).toHaveLength(0);
-    expect(descriptor).toBeDefined();
-    // 地図上チップ・サイドバーの両方から除外される（レンズだけが起動導線）。
-    expect(isAxisStudioLayer(descriptor!)).toBe(true);
-    expect(mapOverlayGroupFor(descriptor!)).toBeUndefined();
+  it("事故の説明は収録年を、連続していれば範囲で言う（年が届くまでは触れない）", () => {
+    expect(layer(withAxes, "accident_point").description).toContain("[2019〜2021年]");
+    expect(layer(buildMapLayers([], [], [2018, 2020]), "accident_point").description).toContain("[2018・2020年]");
+    expect(layer(buildMapLayers([], [], [2020]), "accident_point").description).toContain("[2020年]");
+    expect(layer(withoutAxes, "accident_point").description).not.toContain("[");
   });
 
-  describe("災害チップ（雷・竜巻・落雷・キキクル4種を1つへ統合）", () => {
-    const layers = buildMapLayers([], DEDICATED_WAY_VALUE_AXES);
-    const byId = Object.fromEntries(layers.map((layer) => [layer.id, layer]));
-
-    it('category="disaster"・dataNature="dynamic"のMapLayerDescriptorを1つだけ持つ', () => {
-      expect(byId.disaster).toBeDefined();
-      expect(byId.disaster.category).toBe("disaster");
-      expect(byId.disaster.dataNature).toBe("dynamic");
-      for (const removed of [
-        "thunderNowcast",
-        "tornadoNowcast",
-        "liden",
-        "landslideRisk",
-        "heavyRainRisk",
-        "inundationRisk",
-        "floodRisk",
-      ]) {
-        expect(byId[removed]).toBeUndefined();
+  it("停止要因・補給休憩の説明は、凡例と同じ種別名を並べる（受け皿の種別は除く）", () => {
+    const pointAxes = pointLegendAxes().filter((axis) => axis.layerId === "stop_poi" || axis.layerId === "supply_poi");
+    expect(pointAxes).toHaveLength(2);
+    for (const axis of pointAxes) {
+      const description = layer(withoutAxes, axis.layerId).description;
+      for (const entry of axis.entries) {
+        if (entry.isFallback) expect(description).not.toContain(entry.label);
+        else expect(description).toContain(entry.label);
       }
-    });
+    }
+  });
 
-    it("「環境」グループに並ぶ（降水・風・標高図と同じグループ）", () => {
-      expect(mapOverlayGroupFor(byId.disaster)).toBe("environment");
-      expect(mapOverlayGroupFor(byId.precipitationNowcast)).toBe("environment");
-    });
+  it("土地被覆の凡例は、地図に塗るクラスだけを並べる", () => {
+    expect(LANDCOVER_PAINTED_CLASSES.length).toBeLessThan(LANDCOVER_CLASSES.length);
+    const [block] = layer(withoutAxes, "landcover").readOnlyLegend ?? [];
+    expect(block.legend.map((entry) => entry.label)).toEqual(LANDCOVER_PAINTED_CLASSES.map((cls) => cls.label));
   });
 });
 
-// --- deriveFetchLayerStatus（"empty"は「読込済みだが値なし」だけを指す） ---
+describe("地図上チップのグループ", () => {
+  it("種別が属するグループへ入れ、軸スタジオ由来・種別を持たないもの（ルート）はどこにも入れない", () => {
+    for (const category of mapDisplay.layerCategories) {
+      expect(mapOverlayGroupFor({ id: "highway", category: category.key })).toBe(category.group);
+    }
+    expect(mapOverlayGroupFor(layer(withAxes, "axis:ramp_a"))).toBeUndefined();
+    expect(mapOverlayGroupFor(layer(withAxes, "dedicated_bAxis"))).toBeUndefined();
+    expect(mapOverlayGroupFor(layer(withoutAxes, "route"))).toBeUndefined();
+  });
+});
 
-describe("deriveFetchLayerStatus", () => {
-  it("まだ取りに行っていない間は状態を返さない（未取得を「データがありません」と断定しない）", () => {
-    // レイヤーを有効化した直後や、配線ミスでフェッチ自体が走っていない状態がここに該当する。
-    expect(deriveFetchLayerStatus(false, null, false, false)).toBeUndefined();
+describe("出せない理由の案内", () => {
+  it("タイル世代が届くまで描けないのは、世代を持つ配信（路面・点・事故のタイル）を読むレイヤー（ramp軸を含む）", () => {
+    const gated = tileVersionGatedLayerIds(catalog.rampAxes);
+    expect(gated).toContain("axis:ramp_a");
+    expect(gated).toContain("highway");
+    expect(gated).toContain("accident_point");
+    expect(gated).not.toContain("elevation");
+    expect(gated).not.toContain("precipitationNowcast");
   });
 
-  it("取得を終えて値が無ければempty", () => {
-    expect(deriveFetchLayerStatus(false, null, false, true)).toBe("empty");
+  it("タイルの最小ズーム未満のレイヤーだけを、ズーム不足として出す", () => {
+    const tileLayers = withoutAxes.filter((entry) => entry.tileMinZoom !== undefined);
+    expect(tileLayers).not.toHaveLength(0);
+    const lowest = Math.min(...tileLayers.map((entry) => entry.tileMinZoom!));
+    expect(tileZoomTooWideLayerIds(lowest)).toEqual(
+      tileLayers.filter((entry) => entry.tileMinZoom! > lowest).map((entry) => entry.id),
+    );
+    expect(tileZoomTooWideLayerIds(lowest - 0.1)).toEqual(tileLayers.map((entry) => entry.id));
+    expect(tileZoomTooWideLayerIds(22)).toEqual([]);
   });
+});
 
-  it("取得を終えて値があれば状態を返さない", () => {
-    expect(deriveFetchLayerStatus(false, null, true, true)).toBeUndefined();
+describe("buildDefaultLayerVisibility（表示の既定値）", () => {
+  it("チップで切り替えられるレイヤーだけがキーを持ち、既定表示を宣言したものだけがON", () => {
+    const visibility = buildDefaultLayerVisibility();
+    expect(Object.keys(visibility).sort()).toEqual([...mapDisplay.layerIds].sort());
+    for (const entry of withoutAxes) expect(visibility[entry.id]).toBe(entry.defaultOn === true);
   });
+});
 
-  it("読込中はloading（取得済みかどうかによらない）", () => {
+describe("deriveFetchLayerStatus（自前で取るレイヤーの取得状態）", () => {
+  it("失敗 > 読み込み中 > 取り終えて値なし の順に1つ決め、まだ取りに行っていない間と値がある間は何も出さない", () => {
+    expect(deriveFetchLayerStatus(true, "失敗", false, true)).toBe("error");
     expect(deriveFetchLayerStatus(true, null, false, false)).toBe("loading");
-    expect(deriveFetchLayerStatus(true, null, false, true)).toBe("loading");
-  });
-
-  it("エラーが最優先", () => {
-    expect(deriveFetchLayerStatus(true, "failed", true, true)).toBe("error");
-    expect(deriveFetchLayerStatus(false, "failed", false, false)).toBe("error");
-  });
-});
-
-describe("既定ONのレイヤー", () => {
-  it("記述子を持つレイヤーには必ず初期値がある（レイヤーを足しても書き足す場所が無い）", () => {
-    const visibility = buildDefaultLayerVisibility();
-
-    for (const layer of buildMapLayers([], [])) {
-      expect(visibility).toHaveProperty(layer.id);
-    }
-  });
-
-  it("地図を覆う静的レイヤーで既定ONなのは防災級のものだけ", () => {
-    // 既定ONは性質で決める。ここが「1つずつ手で書く」形に戻ると、防災系が2つ目に増えた
-    // ときに片方だけONという説明できない状態が生まれる。
-    const onByNature = buildMapLayers([], [])
-      .filter((layer) => layer.kind === "static" && layer.defaultOn === true)
-      .map((layer) => layer.category);
-
-    expect(new Set(onByNature)).toEqual(new Set(["disaster"]));
-  });
-
-  it("軸スタジオ由来のレイヤーは初期値を持たない（表示はレンズだけが決める）", () => {
-    const visibility = buildDefaultLayerVisibility();
-
-    for (const layer of buildMapLayers([], DEDICATED_WAY_VALUE_AXES)) {
-      if (!isAxisStudioLayer(layer)) continue;
-      expect(visibility).not.toHaveProperty(layer.id);
-    }
-  });
-});
-
-describe("タイルの最小ズーム（ズーム不足の案内）", () => {
-  it("宣言したレイヤーは、そのズームを下回ると全件が対象になる", () => {
-    // 同じタイルを共有するのに一部のレイヤーだけ案内が出ない、という状態を作らせない。
-    const declared = buildMapLayers([], []).filter((layer) => layer.tileMinZoom !== undefined);
-    expect(declared.length).toBeGreaterThan(0);
-
-    const widest = Math.min(...declared.map((layer) => layer.tileMinZoom!));
-    const tooWide = tileZoomTooWideLayerIds(widest - 0.5);
-
-    expect([...tooWide].sort()).toEqual(declared.map((layer) => layer.id).sort());
-  });
-
-  it("宣言していないレイヤーは、どれだけ広げても対象にならない", () => {
-    const undeclared = buildMapLayers([], [])
-      .filter((layer) => layer.tileMinZoom === undefined)
-      .map((layer) => layer.id);
-    expect(undeclared.length).toBeGreaterThan(0);
-
-    const tooWide = tileZoomTooWideLayerIds(0);
-
-    for (const id of undeclared) {
-      expect(tooWide).not.toContain(id);
-    }
-  });
-
-  it("充分に寄れば1件も対象にならない", () => {
-    const deepest = Math.max(
-      ...buildMapLayers([], [])
-        .filter((layer) => layer.tileMinZoom !== undefined)
-        .map((layer) => layer.tileMinZoom!),
-    );
-
-    expect(tileZoomTooWideLayerIds(deepest)).toEqual([]);
-  });
-
-  it("道路タイルと土地被覆タイルの閾値を、それぞれの配信元の値から取っている", () => {
-    const byId = Object.fromEntries(buildMapLayers([], []).map((layer) => [layer.id, layer]));
-
-    expect(byId.surface.tileMinZoom).toBe(ROAD_TILE_MIN_ZOOM);
-    expect(byId.landcover.tileMinZoom).toBe(LANDCOVER_TILE_MIN_ZOOM);
-  });
-
-  it("POIタイル由来のレイヤーも閾値を宣言している（ONにしても何も出ないズームで案内が出る）", () => {
-    // POIタイルは道路タイルと同じズーム範囲で配信される。宣言が無いと、広域でONにした
-    // 利用者には「出ない理由」が何も示されない。
-    const byId = Object.fromEntries(buildMapLayers([], []).map((layer) => [layer.id, layer]));
-
-    expect(byId.stop_poi.tileMinZoom).toBe(ROAD_TILE_MIN_ZOOM);
-    expect(byId.supply_poi.tileMinZoom).toBe(ROAD_TILE_MIN_ZOOM);
-    expect(tileZoomTooWideLayerIds(ROAD_TILE_MIN_ZOOM - 0.5)).toEqual(
-      expect.arrayContaining(["stop_poi", "supply_poi"]),
-    );
-  });
-});
-
-// --- 事故レイヤーが書く収録範囲（年はDBの取込の宣言から来る） ---
-
-/** 事故レイヤーの説明文。収録年は`GET /api/axis-catalog`の`accident_years`（backendの
- * 取込の宣言そのもの）から来るため、ここでは年を書かずに渡した値の映り方だけを見る。 */
-function accidentTexts(years: readonly number[]): string {
-  const layer = buildMapLayers([], [], years).find((entry) => entry.id === "accident_point");
-  return [layer?.description ?? "", layer?.panelHint ?? ""].join(" / ");
-}
-
-describe("事故レイヤーが書く収録範囲", () => {
-  it("1年だけならその年を書く", () => {
-    const texts = accidentTexts([2024]);
-
-    expect(texts).toContain("[2024年]");
-    expect(texts).toContain("[本票、2024年]");
-  });
-
-  it("続いている年は範囲にする", () => {
-    expect(accidentTexts([2022, 2023, 2024])).toContain("[2022〜2024年]");
-  });
-
-  it("飛んでいる年は並べる（範囲にすると取り込んでいない年まで含んでしまう）", () => {
-    expect(accidentTexts([2020, 2024])).toContain("[2020・2024年]");
-  });
-
-  it("順不同で渡っても並べ替えて書く", () => {
-    expect(accidentTexts([2024, 2022, 2023])).toContain("2022〜2024年");
-  });
-
-  it("取れていないときは年に触れない（取得前に既定の年を出すと正しいものに見える）", () => {
-    const texts = accidentTexts([]);
-
-    expect(texts).toContain("オープンデータの発生地点を表示");
-    expect(texts).toContain("[本票]");
-    expect(texts).not.toMatch(/\d{4}年/);
+    expect(deriveFetchLayerStatus(false, null, false, true)).toBe("empty");
+    expect(deriveFetchLayerStatus(false, null, false, false)).toBeUndefined();
+    expect(deriveFetchLayerStatus(false, null, true, true)).toBeUndefined();
   });
 });

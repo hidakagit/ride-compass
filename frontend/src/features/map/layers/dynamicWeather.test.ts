@@ -1,162 +1,153 @@
 // @vitest-environment node
-// DOM/MapLibreを一切使わない純粋関数のみを検証するため、jsdom環境構築コストを省く
-// （docs/conventions/testing.mdパターン3。dynamicWeather.tsが値としてimportするのはURL解析の純関数
-// だけで、ランタイムのDOM依存が無いことを確認済み）。
 import { describe, expect, it } from "vitest";
+
 import {
   frameIndexForTime,
-  observationIndexForTime,
   gridCellRing,
+  gridToFeatureCollection,
   isWithinFutureWindow,
+  observationIndexForTime,
   tileDeliveryFailureLayerIds,
+  type DynamicWeatherGroupState,
+  type DynamicWeatherRenderPayload,
 } from "./dynamicWeather";
-import type { DynamicWeatherGroupState, DynamicWeatherLayerId } from "./dynamicWeather";
 
-describe("dynamicWeather（T183再設計: 動的気象レイヤーの共通契約）", () => {
-  // 予測を持たないレイヤー（観測だけが届く）。配信の遅れで共有時刻が最新フレームより後ろに
-  // なるのは常態で、frameIndexForTimeの規約をそのまま当てると常に何も描かれない（実測:
-  // 雷放電の最新フレームが5.0分前で、5分刻みの共有時刻が必ずその後ろに来る、T861）。
-  describe("observationIndexForTime（予測を持たないレイヤー）", () => {
-    const frames = [{ time: new Date("2026-08-20T12:50:00+09:00") }, { time: new Date("2026-08-20T12:55:00+09:00") }];
+const at = (minute: number, second = 0) => new Date(Date.UTC(2026, 8, 24, 0, minute, second));
+const MINUTE = 60_000;
 
-    it("配信の遅れのぶん後ろを指していても、最新の観測を返す", () => {
-      expect(observationIndexForTime(frames, new Date("2026-08-20T13:00:00+09:00"))).toBe(1);
-      expect(observationIndexForTime(frames, new Date("2026-08-20T13:14:00+09:00"))).toBe(1);
-    });
+// 10分おきの3コマ（0分・10分・20分）。
+const frames = [0, 10, 20].map((minute) => ({ time: at(minute) }));
 
-    it("許容の幅を超えて先を指していればnull（古い観測をその時刻の値として出さない）", () => {
-      expect(observationIndexForTime(frames, new Date("2026-08-20T13:20:00+09:00"))).toBeNull();
-      expect(observationIndexForTime(frames, new Date("2026-08-20T20:00:00+09:00"))).toBeNull();
-    });
-
-    it("範囲内の時刻はframeIndexForTimeと同じく最も近いフレーム", () => {
-      expect(observationIndexForTime(frames, new Date("2026-08-20T12:51:00+09:00"))).toBe(0);
-    });
-
-    it("最初のフレームより前はnull（過去は範囲外のまま）", () => {
-      expect(observationIndexForTime(frames, new Date("2026-08-20T11:00:00+09:00"))).toBeNull();
-    });
-
-    it("フレームが空ならnull", () => {
-      expect(observationIndexForTime([], new Date())).toBeNull();
-    });
+describe("frameIndexForTime（共有時刻に対して描くコマ）", () => {
+  it("データの範囲内なら最も近いコマ", () => {
+    expect(frameIndexForTime(frames, at(0))).toBe(0);
+    expect(frameIndexForTime(frames, at(4))).toBe(0);
+    expect(frameIndexForTime(frames, at(6))).toBe(1);
+    expect(frameIndexForTime(frames, at(20))).toBe(2);
   });
 
-  describe("frameIndexForTime（要件「該当時間データがない場合、地図には描画しない」）", () => {
-    const frames = [
-      { time: new Date("2026-08-20T12:00:00+09:00") },
-      { time: new Date("2026-08-20T13:00:00+09:00") },
-      { time: new Date("2026-08-20T14:00:00+09:00") },
-    ];
-
-    it("データ範囲内の時刻には最も近いフレームのindexを返す", () => {
-      expect(frameIndexForTime(frames, new Date("2026-08-20T12:40:00+09:00"))).toBe(1);
-    });
-
-    it("データ範囲より前・後の時刻はnull（描画しない）を返す(従来のクランプ挙動は廃止)", () => {
-      expect(frameIndexForTime(frames, new Date("2026-08-20T00:00:00+09:00"))).toBeNull();
-      expect(frameIndexForTime(frames, new Date("2026-08-21T00:00:00+09:00"))).toBeNull();
-    });
-
-    it("境界ちょうどの時刻は範囲内として扱う", () => {
-      expect(frameIndexForTime(frames, new Date("2026-08-20T12:00:00+09:00"))).toBe(0);
-      expect(frameIndexForTime(frames, new Date("2026-08-20T14:00:00+09:00"))).toBe(2);
-    });
-
-    it("フレームが空ならnullを返す", () => {
-      expect(frameIndexForTime([], new Date())).toBeNull();
-    });
+  it("範囲の外なら描かない——過ぎた時刻を指しても、最初のコマを出し続けない", () => {
+    expect(frameIndexForTime(frames, at(-1))).toBeNull();
+    expect(frameIndexForTime(frames, at(21))).toBeNull();
+    expect(frameIndexForTime([], at(0))).toBeNull();
   });
 
-  describe("gridCellRing（gridFill表現のセルジオメトリ）", () => {
-    it("格子点を中心とする1辺spacingDegの閉じた正方形リングを返す", () => {
-      const ring = gridCellRing(35.68, 139.77, 0.1);
-      expect(ring).toHaveLength(5);
-      const [minLon, minLat] = ring[0];
-      const [maxLon, maxLat] = ring[2];
-      expect(minLon).toBeCloseTo(139.72);
-      expect(minLat).toBeCloseTo(35.63);
-      expect(maxLon).toBeCloseTo(139.82);
-      expect(maxLat).toBeCloseTo(35.73);
-      expect(ring[0]).toEqual(ring[ring.length - 1]);
-    });
-  });
-
-  describe("isWithinFutureWindow（改善計画T432、線状降水帯予測マップの表示時間窓判定）", () => {
-    const now = new Date("2026-08-30T12:00:00+09:00");
-    const windowMs = 3 * 60 * 60 * 1000;
-
-    it("現在時刻ちょうどは範囲内", () => {
-      expect(isWithinFutureWindow(now, now, windowMs)).toBe(true);
-    });
-
-    it("時間窓の範囲内（例: 2時間59分先）は範囲内", () => {
-      const target = new Date(now.getTime() + windowMs - 60 * 1000);
-      expect(isWithinFutureWindow(target, now, windowMs)).toBe(true);
-    });
-
-    it("時間窓ちょうど（3時間先）は範囲内", () => {
-      const target = new Date(now.getTime() + windowMs);
-      expect(isWithinFutureWindow(target, now, windowMs)).toBe(true);
-    });
-
-    it("時間窓を超えた未来（3時間1分先）は範囲外", () => {
-      const target = new Date(now.getTime() + windowMs + 60 * 1000);
-      expect(isWithinFutureWindow(target, now, windowMs)).toBe(false);
-    });
-
-    it("過去（現在より前）は範囲外", () => {
-      const target = new Date(now.getTime() - 60 * 1000);
-      expect(isWithinFutureWindow(target, now, windowMs)).toBe(false);
-    });
+  it("端ちょうどは1秒までの揺れを範囲内に含める", () => {
+    expect(frameIndexForTime(frames, new Date(at(0).getTime() - 1000))).toBe(0);
+    expect(frameIndexForTime(frames, new Date(at(20).getTime() + 1000))).toBe(2);
+    expect(frameIndexForTime(frames, new Date(at(20).getTime() + 1001))).toBeNull();
   });
 });
 
-// 配信元のタイルが返らない状態は空タイルで代替されるため、フェッチ側のerrorには現れない
-// （jmaTileProtocol.ts）。表示中のフレームと突き合わせて、そのタイルを出しているチップだけを
-// エラーにする。
-describe("tileDeliveryFailureLayerIds", () => {
-  const BT = "20260914123000";
-  const PREFIX = `https://example.test/api/jma-tile/bosai/jmatile/data/risk/${BT}/immed0/${BT}/surf/land/`;
-  const TEMPLATE = `${PREFIX}{z}/{x}/{y}.png`;
-
-  function groups(state: DynamicWeatherGroupState): Partial<Record<DynamicWeatherLayerId, DynamicWeatherGroupState>> {
-    return { disaster: state };
-  }
-
-  it("表示中のタイルの配信が落ちていればそのチップを返す", () => {
-    const result = tileDeliveryFailureLayerIds(
-      groups({ landslide: { visible: true, payload: { kind: "rasterTile", tileUrlTemplate: TEMPLATE } } }),
-      new Map([["land", PREFIX]]),
-    );
-    expect(result).toEqual(["disaster"]);
+describe("observationIndexForTime（観測だけが届くレイヤーのコマ）", () => {
+  it("最新の観測より後ろでも、届くまでの遅れ（20分）の間は最新の観測を出す", () => {
+    expect(observationIndexForTime(frames, at(35))).toBe(2);
+    expect(observationIndexForTime(frames, at(40))).toBe(2);
+    expect(observationIndexForTime(frames, at(40, 1))).toBeNull();
   });
 
-  it("非表示のソースは対象外", () => {
-    const result = tileDeliveryFailureLayerIds(
-      groups({ landslide: { visible: false, payload: { kind: "rasterTile", tileUrlTemplate: TEMPLATE } } }),
-      new Map([["land", PREFIX]]),
-    );
-    expect(result).toEqual([]);
+  it("遅れの幅は呼び出し側が変えられる", () => {
+    expect(observationIndexForTime(frames, at(25), 5 * MINUTE)).toBe(2);
+    expect(observationIndexForTime(frames, at(26), 5 * MINUTE)).toBeNull();
   });
 
-  // 失敗の記録はbasetime・validtimeを含むため、フレームが進めば古い失敗は当たらない。
-  it("別のフレームを表示していれば当たらない", () => {
-    const result = tileDeliveryFailureLayerIds(
-      groups({ landslide: { visible: true, payload: { kind: "rasterTile", tileUrlTemplate: TEMPLATE } } }),
-      new Map([["land", PREFIX.replace(BT, "20260914124000")]]),
-    );
-    expect(result).toEqual([]);
+  it("観測の範囲内は最も近いコマ、最初の観測より前と空は描かない", () => {
+    expect(observationIndexForTime(frames, at(12))).toBe(1);
+    expect(observationIndexForTime(frames, at(-5))).toBeNull();
+    expect(observationIndexForTime([], at(0))).toBeNull();
   });
+});
 
-  // 格子・GeoJSONを自前のfetchで取る表現は、フェッチ自身のloading/errorが状態を持つ。
-  it("タイルを配信元から引かない表現は対象外", () => {
-    const result = tileDeliveryFailureLayerIds(
-      groups({
-        liden: { visible: true, payload: { kind: "gridMark", geojson: { type: "FeatureCollection", features: [] } } },
+describe("isWithinFutureWindow（単発の予測を出す時間窓）", () => {
+  const now = at(0);
+  it("今から窓の幅まで（両端を含み、今の側は1秒の揺れを許す）", () => {
+    expect(isWithinFutureWindow(now, now, 60 * MINUTE)).toBe(true);
+    expect(isWithinFutureWindow(new Date(now.getTime() - 1000), now, 60 * MINUTE)).toBe(true);
+    expect(isWithinFutureWindow(at(60), now, 60 * MINUTE)).toBe(true);
+    expect(isWithinFutureWindow(new Date(now.getTime() - 1001), now, 60 * MINUTE)).toBe(false);
+    expect(isWithinFutureWindow(at(60, 1), now, 60 * MINUTE)).toBe(false);
+  });
+});
+
+describe("gridToFeatureCollection・gridCellRing（格子から地物へ）", () => {
+  it("値の取れた点だけを、並びを保って地物にする（欠損した点は飛ばす）", () => {
+    const grid = [
+      { id: "a", value: 1 },
+      { id: "b", value: null },
+      { id: "c", value: undefined },
+      { id: "d", value: 0 },
+    ];
+    const collection = gridToFeatureCollection(
+      grid,
+      (point) => point.value ?? null,
+      (point, value) => ({
+        type: "Feature",
+        geometry: { type: "Point", coordinates: [0, 0] },
+        properties: { id: point.id, value },
       }),
-      new Map([["land", PREFIX]]),
     );
-    expect(result).toEqual([]);
+    expect(collection.type).toBe("FeatureCollection");
+    expect(collection.features.map((feature) => feature.properties)).toEqual([
+      { id: "a", value: 1 },
+      { id: "d", value: 0 },
+    ]);
+  });
+
+  it("格子点を中心とする1辺spacingの閉じた正方形", () => {
+    expect(gridCellRing(35, 139, 0.1)).toEqual([
+      [138.95, 34.95],
+      [139.05, 34.95],
+      [139.05, 35.05],
+      [138.95, 35.05],
+      [138.95, 34.95],
+    ]);
+  });
+});
+
+describe("tileDeliveryFailureLayerIds（配信が止まっている要素を表示中のチップ）", () => {
+  const PREFIX = "https://www.jma.go.jp/bosai/jmatile/data/risk/20260924000000/none/20260924010000/surf/inund/";
+  const tile = (kind: "rasterTile" | "vectorTile", prefix = PREFIX): DynamicWeatherRenderPayload => ({
+    kind,
+    tileUrlTemplate: `${prefix}{z}/{x}/{y}.png`,
+  });
+  const failures = new Map([["inund", PREFIX]]);
+  const group = (payload: DynamicWeatherRenderPayload | undefined, visible = true): DynamicWeatherGroupState => ({
+    main: { visible, payload },
+  });
+
+  it("表示中のタイルが、いま失敗している要素配下を指すチップ（ラスタ・ベクタとも）", () => {
+    expect(tileDeliveryFailureLayerIds({ disaster: group(tile("vectorTile")) }, failures)).toEqual(["disaster"]);
+    expect(
+      tileDeliveryFailureLayerIds(
+        { precipitationNowcast: group(tile("rasterTile")), windVector: group(undefined) },
+        failures,
+      ),
+    ).toEqual(["precipitationNowcast"]);
+  });
+
+  it("フレームが進んで別の前半を指していれば、古い失敗は当たらない", () => {
+    const nextFrame = PREFIX.replace("20260924010000", "20260924011000");
+    expect(tileDeliveryFailureLayerIds({ disaster: group(tile("vectorTile", nextFrame)) }, failures)).toEqual([]);
+  });
+
+  it("非表示のソース・自前で取る表現（格子）・要素を読めないURLは対象外", () => {
+    const grid: DynamicWeatherRenderPayload = {
+      kind: "gridFill",
+      geojson: { type: "FeatureCollection", features: [] },
+    };
+    const foreign: DynamicWeatherRenderPayload = {
+      kind: "rasterTile",
+      tileUrlTemplate: "https://example.com/{z}/{x}/{y}.png",
+    };
+    expect(
+      tileDeliveryFailureLayerIds(
+        { disaster: group(tile("vectorTile"), false), precipitationNowcast: group(grid), windVector: group(foreign) },
+        failures,
+      ),
+    ).toEqual([]);
+  });
+
+  it("失敗が無ければ空", () => {
+    expect(tileDeliveryFailureLayerIds({ disaster: group(tile("vectorTile")) }, new Map())).toEqual([]);
   });
 });

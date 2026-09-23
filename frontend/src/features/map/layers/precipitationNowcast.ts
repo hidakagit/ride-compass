@@ -18,6 +18,7 @@
 // の共通契約（DynamicWeatherFrame/DynamicWeatherRenderPayload）だけを渡す。
 
 import weatherScales from "@/types/generated/weather-scales.json";
+import { buildRangeLegendBands, type MapColorLegendBand } from "@/lib/mapDisplay/mapColorLegend";
 import {
   gridCellRing,
   gridToFeatureCollection,
@@ -25,16 +26,15 @@ import {
   type DynamicWeatherRenderPayload,
 } from "@/features/map/layers/dynamicWeather";
 import {
+  fetchJmaNowcastFrames,
   fetchJmaTargetTimes,
   jmaDelivery,
   parseValidtime,
   type JmaNowcastFrame,
   jmaTilePayload,
 } from "@/features/map/layers/jmaNowcastFrames";
-import { parseJstTime } from "@/features/map/layers/windLayer";
+import { parseJstLocalValue } from "@/lib/time";
 import type { WindGridPoint } from "@/types/weather";
-
-export type NowcastFrame = JmaNowcastFrame;
 
 /** 降水の`main`ラスタの時刻の段（源泉`precipitationNowcast/main`の配信要素の並び。近い時刻から）。
  * 段ごとに時刻一覧の読み方が違う（実況の外挿と数値予報のラン）ため、段はここで名指す。 */
@@ -111,90 +111,31 @@ export async function fetchRasrfFrames(): Promise<RasrfFrame[]> {
   return [...byValidtime.values()].sort((a, b) => a.validtime.localeCompare(b.validtime));
 }
 
-/** 実況・予測を合わせた時系列を、validtime昇順（過去→未来）で返す。実況と予測は別々の時刻一覧に
- * 載り、片方の取得だけ失敗しても、もう片方が使えるなら部分的な時系列を返す（両方失敗したときだけ
- * 例外、`fetchJmaTargetTimes`）。予測はvalidtimeがbasetimeより先の行。 */
-export async function fetchNowcastFrames(): Promise<NowcastFrame[]> {
-  const raw = await fetchJmaTargetTimes(jmaDelivery(MAIN_SOURCE, NOWCAST_STAGE), "降水ナウキャスト");
-  const frames: NowcastFrame[] = raw.map((t) => ({ ...t, isForecast: t.validtime > t.basetime }));
-  frames.sort((a, b) => a.validtime.localeCompare(b.validtime));
-  return frames;
+/** 実況・予測を合わせた時系列。実況と予測は別々の時刻一覧に載り、片方の取得だけ失敗しても、
+ * もう片方が使えるなら部分的な時系列を返す（両方失敗したときだけ例外、`fetchJmaTargetTimes`）。 */
+export function fetchNowcastFrames(): Promise<JmaNowcastFrame[]> {
+  return fetchJmaNowcastFrames(MAIN_SOURCE, "降水ナウキャスト");
 }
 
-// 降水強度→色の対応。20mm/h以上の境界値（mm/h）は気象庁公式の「雨の強さと降り方」の分類
-// （https://www.jma.go.jp/jma/kishou/know/yougo_hp/amehyo.html）と同じ。
-// 同ページに公式区分の無い20mm/h未満は、0.4/2/4/10mm/hの4段階境界と「ポツポツ」
-// 「パラパラ」「ザーッ」「ザーザー」という体感表現を採用する——気象庁の「雨の程度を
-// 表すことば」ページにも載っている一般的な天気アプリの慣用表現であり、特定アプリ固有の
-// ものではない（ブランド固有のアイコン・配色までは再現しない）。10mm/h未満を
-// 0.4/2/4mm/hの境界で3段階、10〜20mm/hをさらに1段（「弱い雨」からの独立表示ではなく
-// 気象庁の用語「ザーザー」寄りの体感表現に統一）へ細分化している。一方で色そのものは
-// 気象庁がタイル配色のカラーコードを公開していないため、同庁のナウキャスト・レーダー系
-// 地図で一般的な「弱い＝青→強い＝紫」の配色慣習に沿った近似値であり、実際のタイル画像の
-// 色と厳密には一致しない（凡例としての目安）。**弱い側の段は、面へ塗ったとき基礎地図の
-// 背景と区別が付く濃さから決める**——青を白へ寄せていくほど段は増やせるが、塗った結果が
-// 背景と同じなら「降っていない」と見分けが付かない。地図チップの凡例
-// （PRECIPITATION_INTENSITY_LEVELS）と延長予報の塗り（MapView.tsx側のfill-color）の
-// 両方がこの配列を単一の情報源として使う（windLayer.tsのWIND_SPEED_COLOR_STOPSと同じ
-// 「片側import」の考え方）。
-export const PRECIPITATION_COLOR_STOPS: readonly { mmPerHour: number; color: string }[] =
-  weatherScales.precipitation.map((stop) => ({ mmPerHour: stop.value, color: stop.color }));
+// 降水強度→色の段（帯の下限）と段の呼び名。値・色・呼び名は源泉（backend
+// `domain/weather_display.py`）が持ち、延長予報の塗り（`features/map/scene/groups/weather.ts`）と
+// 地図チップの凡例の両方がこの並びを使う。気象庁はタイル配色のカラーコードを公開していないため、
+// 色はナウキャスト等のタイル画像の色と厳密には一致しない（凡例としての目安）。
+export const PRECIPITATION_COLOR_STOPS: readonly { mmPerHour: number; color: string; name: string }[] =
+  weatherScales.precipitation.map((stop) => ({ mmPerHour: stop.value, color: stop.color, name: stop.name }));
 
 // 延長予報の塗り（gridFill）でこの値未満は「ほぼ降水なし」として非表示にする（windLayer.tsの
 // WIND_CALM_THRESHOLD_MSと同じ考え方）。0（完全な無降水）まで含めると格子点ぶんのセルが
 // 常時全域を埋め尽くしてしまうため、視覚的なノイズを避ける小さな閾値を設ける。
 export const PRECIPITATION_NONE_THRESHOLD_MM = 0.1;
 
-// 降水強度の凡例（地図チップ、page.tsx）。
-// 数値はPRECIPITATION_COLOR_STOPSからそのまま持ってくるため、境界値・色を変えてもここは
-// 自動で追従する（windLayer.tsのWIND_SPEED_LEGEND_LEVELSと同じパターン）。
-export const PRECIPITATION_INTENSITY_LEVELS: readonly { key: string; label: string; color: string }[] = [
-  {
-    key: "negligible",
-    label: `ごく弱い雨（${PRECIPITATION_COLOR_STOPS[1].mmPerHour}mm/h未満）`,
-    color: PRECIPITATION_COLOR_STOPS[0].color,
-  },
-  {
-    key: "pattering",
-    label: `ポツポツ（${PRECIPITATION_COLOR_STOPS[1].mmPerHour}〜${PRECIPITATION_COLOR_STOPS[2].mmPerHour}mm/h）`,
-    color: PRECIPITATION_COLOR_STOPS[1].color,
-  },
-  {
-    key: "drizzling",
-    label: `パラパラ（${PRECIPITATION_COLOR_STOPS[2].mmPerHour}〜${PRECIPITATION_COLOR_STOPS[3].mmPerHour}mm/h）`,
-    color: PRECIPITATION_COLOR_STOPS[2].color,
-  },
-  {
-    key: "showering",
-    label: `ザーッ（${PRECIPITATION_COLOR_STOPS[3].mmPerHour}〜${PRECIPITATION_COLOR_STOPS[4].mmPerHour}mm/h）`,
-    color: PRECIPITATION_COLOR_STOPS[3].color,
-  },
-  {
-    key: "pouring",
-    label: `ザーザー（${PRECIPITATION_COLOR_STOPS[4].mmPerHour}〜${PRECIPITATION_COLOR_STOPS[5].mmPerHour}mm/h）`,
-    color: PRECIPITATION_COLOR_STOPS[4].color,
-  },
-  {
-    key: "strong",
-    label: `強い雨（${PRECIPITATION_COLOR_STOPS[5].mmPerHour}〜${PRECIPITATION_COLOR_STOPS[6].mmPerHour}mm/h）`,
-    color: PRECIPITATION_COLOR_STOPS[5].color,
-  },
-  {
-    key: "intense",
-    label: `激しい雨（${PRECIPITATION_COLOR_STOPS[6].mmPerHour}〜${PRECIPITATION_COLOR_STOPS[7].mmPerHour}mm/h）`,
-    color: PRECIPITATION_COLOR_STOPS[6].color,
-  },
-  {
-    key: "very-intense",
-    label: `非常に激しい雨（${PRECIPITATION_COLOR_STOPS[7].mmPerHour}〜${PRECIPITATION_COLOR_STOPS[8].mmPerHour}mm/h）`,
-    color: PRECIPITATION_COLOR_STOPS[7].color,
-  },
-  {
-    key: "violent",
-    label: `猛烈な雨（${PRECIPITATION_COLOR_STOPS[8].mmPerHour}mm/h以上）`,
-    color: PRECIPITATION_COLOR_STOPS[8].color,
-  },
-];
+/** 降水強度の凡例（地図チップ）。色の段1つにつき1行。 */
+export const PRECIPITATION_INTENSITY_LEVELS: readonly MapColorLegendBand[] = buildRangeLegendBands(
+  PRECIPITATION_COLOR_STOPS.slice(1).map((stop) => stop.mmPerHour),
+  PRECIPITATION_COLOR_STOPS.map((stop) => stop.color),
+  "mm/h",
+  PRECIPITATION_COLOR_STOPS.map((stop) => stop.name),
+);
 
 interface PrecipitationGridCellProperties {
   /** 降水量（mm/h相当）。 */
@@ -222,18 +163,15 @@ function precipitationGridToCellFeatureCollection(
   );
 }
 
-/** 降水フレームの内部参照。sourceが"nowcast"なら気象庁ナウキャスト（実況〜60分先、
- * 5分刻み、レーダー実況の外挿）由来でindexはnowcastFrames内のindex、"shortRange"なら気象庁
- * 降水短時間予報（60分〜15時間先、数値予報モデルによる予測）由来で
- * indexはrasrfFrames内のindex、"extended"なら風と共通の格子点マップ（MSM由来、
- * 15時間先以降・約48時間先まで・1時間刻み）由来でindexはそのgridのtimes/precipitation_mm
- * 内のindexを指す。3段は精度の性質が異なる（nowcast=実況外挿で直近ほど高信頼、
- * rasrf=数値予報モデルによる予測、extended=MSMの粗いモデル予報）。
- * precipitationRenderPayloadだけがこの型を解釈する（表示層はDynamicWeatherFrameのtimeしか
- * 見ない、ファイル冒頭のコメント参照）。 */
+/** 降水フレームの内部参照。気象庁ナウキャスト（実況〜60分先、5分刻み、レーダー実況の外挿）と
+ * 降水短時間予報（60分〜15時間先、数値予報モデルによる予測）はタイルを描くフレームそのもの、
+ * 延長予報（風と共通の格子点マップ、MSM由来・1時間刻み）は格子のtimes/precipitation_mm内のindex。
+ * 延長予報だけindexなのは、描くときの格子（ズーム依存の詳細格子になりうる）がフレーム列を
+ * 作った格子と別物になりうるため。precipitationRenderPayloadだけがこの型を解釈する
+ * （表示層はDynamicWeatherFrameのtimeしか見ない）。 */
 type PrecipitationFrameRef =
-  | { source: "nowcast"; index: number }
-  | { source: "shortRange"; index: number }
+  | { source: "nowcast"; frame: JmaNowcastFrame }
+  | { source: "shortRange"; frame: RasrfFrame }
   | { source: "extended"; index: number };
 
 /** 気象庁ナウキャスト（0〜60分）・降水短時間予報（60分〜15時間先）・
@@ -243,30 +181,30 @@ type PrecipitationFrameRef =
  * rasrf→extendedの境界も同じ考え方）。rasrfFramesが空（取得失敗等）の場合はnowcastの
  * 直後からextendedを採用する形へ自然にフォールバックする。 */
 export function precipitationFrames(
-  nowcastFrames: readonly NowcastFrame[],
+  nowcastFrames: readonly JmaNowcastFrame[],
   rasrfFrames: readonly RasrfFrame[],
   extendedGrid: readonly WindGridPoint[],
 ): DynamicWeatherFrame<PrecipitationFrameRef>[] {
-  const nowcastPart: DynamicWeatherFrame<PrecipitationFrameRef>[] = nowcastFrames.map((frame, index) => ({
+  const nowcastPart: DynamicWeatherFrame<PrecipitationFrameRef>[] = nowcastFrames.map((frame) => ({
     time: parseValidtime(frame.validtime),
-    ref: { source: "nowcast", index },
+    ref: { source: "nowcast", frame },
   }));
   const lastNowcastMs =
     nowcastFrames.length > 0 ? parseValidtime(nowcastFrames[nowcastFrames.length - 1].validtime).getTime() : -Infinity;
 
   const rasrfPart: DynamicWeatherFrame<PrecipitationFrameRef>[] = [];
   let lastRasrfMs = lastNowcastMs;
-  rasrfFrames.forEach((frame, index) => {
+  rasrfFrames.forEach((frame) => {
     const parsedTime = parseValidtime(frame.validtime);
     if (parsedTime.getTime() <= lastNowcastMs) return;
-    rasrfPart.push({ time: parsedTime, ref: { source: "shortRange", index } });
+    rasrfPart.push({ time: parsedTime, ref: { source: "shortRange", frame } });
     lastRasrfMs = Math.max(lastRasrfMs, parsedTime.getTime());
   });
 
   const extendedTimes = extendedGrid[0]?.times ?? [];
   const extendedPart: DynamicWeatherFrame<PrecipitationFrameRef>[] = [];
   extendedTimes.forEach((time, index) => {
-    const parsedTime = parseJstTime(time);
+    const parsedTime = parseJstLocalValue(time);
     if (parsedTime.getTime() <= lastRasrfMs) return;
     extendedPart.push({ time: parsedTime, ref: { source: "extended", index } });
   });
@@ -281,27 +219,15 @@ export function precipitationFrames(
  * （useWeatherGrid.tsのeffectiveGridSpacingDeg、ズーム依存の詳細間隔になりうるため、
  * このファイル自身は「粗いか詳細か」の判定を持たず、渡された値をそのまま使うだけにする）。 */
 export function precipitationRenderPayload(
-  nowcastFrames: readonly NowcastFrame[],
-  rasrfFrames: readonly RasrfFrame[],
   extendedGrid: readonly WindGridPoint[],
   spacingDeg: number,
   ref: PrecipitationFrameRef,
-): DynamicWeatherRenderPayload | undefined {
+): DynamicWeatherRenderPayload {
   if (ref.source === "nowcast") {
-    const frame = nowcastFrames[ref.index];
-    return frame
-      ? jmaTilePayload(
-          MAIN_SOURCE,
-          { basetime: frame.basetime, member: "none", validtime: frame.validtime },
-          NOWCAST_STAGE,
-        )
-      : undefined;
+    const { basetime, validtime } = ref.frame;
+    return jmaTilePayload(MAIN_SOURCE, { basetime, member: "none", validtime }, NOWCAST_STAGE);
   }
-  if (ref.source === "shortRange") {
-    // 降水短時間予報はナウキャストと異なりmemberがURLパスにそのまま入る（"immed"/"none"、fetchRasrfFrames参照）。
-    const frame = rasrfFrames[ref.index];
-    return frame ? jmaTilePayload(MAIN_SOURCE, frame, SHORT_RANGE_STAGE) : undefined;
-  }
-  if (extendedGrid.length === 0) return undefined;
+  // 降水短時間予報はナウキャストと異なりmemberがURLパスにそのまま入る（"immed"/"none"、fetchRasrfFrames参照）。
+  if (ref.source === "shortRange") return jmaTilePayload(MAIN_SOURCE, ref.frame, SHORT_RANGE_STAGE);
   return { kind: "gridFill", geojson: precipitationGridToCellFeatureCollection(extendedGrid, ref.index, spacingDeg) };
 }

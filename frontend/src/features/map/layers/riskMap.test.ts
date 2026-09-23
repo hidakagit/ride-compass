@@ -1,168 +1,76 @@
+// @vitest-environment node
 import { afterEach, describe, expect, it, vi } from "vitest";
-import {
-  fetchCurrentRiskFrames,
-  fetchLinearRainbandFrames,
-  floodRenderPayload,
-  heavyRainRenderPayload,
-  inundationRenderPayload,
-  landRenderPayload,
-  linearRainbandRenderPayload,
-  RISK_LEVEL_COLORS,
-} from "./riskMap";
-import { parseValidtime } from "./jmaNowcastFrames";
-// タイル配信オリジンは`@/lib/tileBaseUrl`が唯一の情報源で、その環境変数依存は
-// `src/lib/tileBaseUrl.test.ts`が検証する。ここで固定するのは、`process.env`が
-// テストファイルをまたいで共有されるため（pool: vmThreads）、別ファイルが立てた
-// `NEXT_PUBLIC_TILE_BASE_URL`でこのファイルの期待値が変わらないようにするため。
-vi.mock("@/lib/tileBaseUrl", () => ({ tileBaseUrl: () => "" }));
 
-function jsonResponse(body: unknown, ok = true, status = 200) {
-  return { ok, status, json: async () => body, headers: new Headers() };
+import { makeResponse } from "@/testing/fetchMocks";
+
+import { jmaDelivery } from "./jmaNowcastFrames";
+import { fetchCurrentRiskFrames, fetchLinearRainbandFrames } from "./riskMap";
+
+const LAND = jmaDelivery("disaster/landslide");
+const FLOOD = jmaDelivery("disaster/flood").id;
+const RAINBAND = jmaDelivery("precipitationNowcast/linearRainband");
+const SHORT_RANGE = jmaDelivery("precipitationNowcast/main", 1).id;
+const fileOf = (delivery: { pathGroup: string; targetTimeFiles: readonly string[] }) =>
+  `/api/jma-tile/bosai/jmatile/data/${delivery.pathGroup}/${delivery.targetTimeFiles[0]}`;
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+});
+
+function stubFiles(files: Record<string, unknown[]>) {
+  const fetchMock = vi.fn(async (url: string) =>
+    url in files ? makeResponse({ json: async () => files[url] }) : makeResponse({ ok: false, status: 500 }),
+  );
+  vi.stubGlobal("fetch", fetchMock);
+  return fetchMock;
 }
 
-describe("riskMap（改善計画T410: キキクル+線状降水帯予測マップ）", () => {
-  afterEach(() => {
-    vi.unstubAllGlobals();
+const entry = (basetime: string, elements: string[], member = "none") => ({
+  basetime,
+  validtime: basetime,
+  member,
+  elements,
+});
+
+describe("fetchCurrentRiskFrames（キキクルの「現在」）", () => {
+  it("要素ごとに、その要素を載せた最新の1件だけを「現在」のコマにする（無い要素は空）", async () => {
+    const fetchMock = stubFiles({
+      [fileOf(LAND)]: [
+        entry("20260924000000", [LAND.id, FLOOD]),
+        entry("20260924001000", [LAND.id]),
+        entry("20260923235000", [FLOOD]),
+      ],
+    });
+    const frames = await fetchCurrentRiskFrames();
+    expect(frames.land).toEqual([
+      {
+        time: new Date("2026-09-24T00:10:00Z"),
+        ref: expect.objectContaining({ basetime: "20260924001000", member: "none" }),
+      },
+    ]);
+    expect(frames.flood.map((frame) => frame.ref.basetime)).toEqual(["20260924000000"]);
+    expect(frames.heavyRain).toEqual([]);
+    expect(frames.inundation).toEqual([]);
+    // 同じファイルに載る要素どうしは往復を1回に畳む
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
-  describe("fetchCurrentRiskFrames（キキクル: 土砂・大雨・浸水・洪水）", () => {
-    it("各要素の最新basetimeを1件だけ選び、DynamicWeatherFrameへ変換する", async () => {
-      const raw = [
-        { basetime: "20260829160000", validtime: "20260829160000", member: "immed1", elements: ["land", "inund"] },
-        {
-          basetime: "20260829170000",
-          validtime: "20260829170000",
-          member: "immed0",
-          elements: ["land", "rain_mesh", "inund", "flood"],
-        },
-        { basetime: "20260829165000", validtime: "20260829165000", member: "immed2", elements: ["rain_mesh"] },
-      ];
-      vi.stubGlobal(
-        "fetch",
-        vi.fn(() => Promise.resolve(jsonResponse(raw))),
-      );
-
-      const frames = await fetchCurrentRiskFrames();
-
-      expect(frames.land).toEqual([{ time: parseValidtime("20260829170000"), ref: raw[1] }]);
-      expect(frames.heavyRain).toEqual([{ time: parseValidtime("20260829170000"), ref: raw[1] }]);
-      expect(frames.inundation).toEqual([{ time: parseValidtime("20260829170000"), ref: raw[1] }]);
-      // 改善計画T416: 洪水キキクルも同じtargetTimes.json（elements配列に"flood"）由来。
-      expect(frames.flood).toEqual([{ time: parseValidtime("20260829170000"), ref: raw[1] }]);
-    });
-
-    it("対象の要素を含む行が無ければ空配列を返す", async () => {
-      const raw = [{ basetime: "20260829170000", validtime: "20260829170000", member: "immed0", elements: ["land"] }];
-      vi.stubGlobal(
-        "fetch",
-        vi.fn(() => Promise.resolve(jsonResponse(raw))),
-      );
-
-      const frames = await fetchCurrentRiskFrames();
-
-      expect(frames.heavyRain).toEqual([]);
-      expect(frames.inundation).toEqual([]);
-      expect(frames.flood).toEqual([]);
-    });
-
-    it("取得に失敗した場合は例外を投げる", async () => {
-      vi.stubGlobal(
-        "fetch",
-        vi.fn(() => Promise.resolve(jsonResponse(null, false, 500))),
-      );
-
-      await expect(fetchCurrentRiskFrames()).rejects.toThrow();
-    });
-
-    it("応答が配列でなければ例外を投げる", async () => {
-      vi.stubGlobal(
-        "fetch",
-        vi.fn(() => Promise.resolve(jsonResponse({ not: "an array" }))),
-      );
-
-      await expect(fetchCurrentRiskFrames()).rejects.toThrow();
-    });
+  it("時刻一覧が取れなければ投げる", async () => {
+    stubFiles({});
+    await expect(fetchCurrentRiskFrames()).rejects.toThrow("危険度分布（キキクル）");
   });
+});
 
-  describe("fetchLinearRainbandFrames（線状降水帯予測マップ、rasrfのtargetTimes.json由来）", () => {
-    it("elementsにsjfcstmapを含む最新の1件を返す", async () => {
-      const raw = [
-        { basetime: "20260829160000", validtime: "20260829160000", member: "none", elements: ["sjfcstmap"] },
-        { basetime: "20260829165000", validtime: "20260829165000", member: "none", elements: ["sjfcstmap"] },
-        // rasrf搭載行（sjfcstmapを持たないため対象外）。
-        { basetime: "20260829163000", validtime: "20260829173000", member: "immed", elements: ["rasrf"] },
-      ];
-      vi.stubGlobal(
-        "fetch",
-        vi.fn(() => Promise.resolve(jsonResponse(raw))),
-      );
-
-      const frames = await fetchLinearRainbandFrames();
-
-      expect(frames).toEqual([{ time: parseValidtime("20260829165000"), ref: raw[1] }]);
+describe("fetchLinearRainbandFrames（線状降水帯予測の「現在」）", () => {
+  it("降水短時間予報と同じファイルのうち、線状降水帯の行だけから最新の1件を取る", async () => {
+    stubFiles({
+      [fileOf(RAINBAND)]: [
+        entry("20260924002000", [SHORT_RANGE], "immed"),
+        entry("20260924001000", [RAINBAND.id], "immed"),
+      ],
     });
-
-    it("sjfcstmapを含む行が無ければ空配列を返す", async () => {
-      const raw = [{ basetime: "20260829160000", validtime: "20260829160000", member: "immed", elements: ["rasrf"] }];
-      vi.stubGlobal(
-        "fetch",
-        vi.fn(() => Promise.resolve(jsonResponse(raw))),
-      );
-
-      expect(await fetchLinearRainbandFrames()).toEqual([]);
-    });
-  });
-
-  describe("render payload関数（タイルURLの組み立て）", () => {
-    const ref = { basetime: "20260829170000", validtime: "20260829170000", member: "immed0" };
-
-    it("landRenderPayloadはrisk/{basetime}/{member}/{validtime}/surf/land/... を返す", () => {
-      expect(landRenderPayload(ref)).toEqual({
-        kind: "rasterTile",
-        tileUrlTemplate: `/api/jma-tile/bosai/jmatile/data/risk/20260829170000/immed0/20260829170000/surf/land/{z}/{x}/{y}.png`,
-      });
-    });
-
-    it("heavyRainRenderPayloadは要素コードrain_mesh（imageType定義に準拠）を使う", () => {
-      expect(heavyRainRenderPayload(ref)).toEqual({
-        kind: "rasterTile",
-        tileUrlTemplate: `/api/jma-tile/bosai/jmatile/data/risk/20260829170000/immed0/20260829170000/surf/rain_mesh/{z}/{x}/{y}.png`,
-      });
-    });
-
-    it("inundationRenderPayloadは要素コードinundを使う", () => {
-      expect(inundationRenderPayload(ref)).toEqual({
-        kind: "rasterTile",
-        tileUrlTemplate: `/api/jma-tile/bosai/jmatile/data/risk/20260829170000/immed0/20260829170000/surf/inund/{z}/{x}/{y}.png`,
-      });
-    });
-
-    // 洪水キキクルは他3種と異なりkind="vectorTile"・拡張子.pbf（risk.properties.xmlの
-    // imageType id="flood" type="pbf"）。ベクタタイルはMapLibreがWeb Worker内で取得する
-    // ため、配信オリジンを付けた絶対URLでなければURL解決に失敗する（他3種のラスタタイルは
-    // メインスレッドのImage読み込みのため相対でも動く）。オリジンの付き方自体は
-    // `tileBaseUrl`の担当で、ここではその先のパス構造だけを見る。
-    it("floodRenderPayloadはkind=vectorTile・拡張子.pbfで要素コードfloodを使う", () => {
-      expect(floodRenderPayload(ref)).toEqual({
-        kind: "vectorTile",
-        tileUrlTemplate: `/api/jma-tile/bosai/jmatile/data/risk/20260829170000/immed0/20260829170000/surf/flood/{z}/{x}/{y}.pbf`,
-      });
-    });
-
-    it("linearRainbandRenderPayloadはrasrfグループ・要素コードsjfcstmapを使う", () => {
-      const sjfcstRef = { basetime: "20260829165000", validtime: "20260829165000", member: "none" };
-      expect(linearRainbandRenderPayload(sjfcstRef)).toEqual({
-        kind: "rasterTile",
-        tileUrlTemplate: `/api/jma-tile/bosai/jmatile/data/rasrf/20260829165000/none/20260829165000/surf/sjfcstmap/{z}/{x}/{y}.png`,
-      });
-    });
-  });
-
-  describe("RISK_LEVEL_COLORS", () => {
-    it("平常(白)から災害切迫(黒)まで5段階を持つ", () => {
-      expect(RISK_LEVEL_COLORS).toHaveLength(5);
-      expect(RISK_LEVEL_COLORS[0].color).toBe("#ffffff");
-      expect(RISK_LEVEL_COLORS.at(-1)?.color).toBe("#0c000c");
-    });
+    expect((await fetchLinearRainbandFrames()).map((frame) => frame.ref)).toEqual([
+      expect.objectContaining({ basetime: "20260924001000", member: "immed" }),
+    ]);
   });
 });

@@ -52,14 +52,15 @@ export function isSameJstDay(a: Date, b: Date): boolean {
   return x.year === y.year && x.month === y.month && x.day === y.day;
 }
 
-/** `input[type=datetime-local]`の値（時刻帯を持たない`YYYY-MM-DDTHH:mm`）を、日本時間として書く。 */
-export function toJstDatetimeLocalValue(time: Date): string {
+/** 時刻帯を持たない`YYYY-MM-DDTHH:mm`（`input[type=datetime-local]`の値）を、日本時間として書く。 */
+export function toJstLocalValue(time: Date): string {
   const { year, month, day, hour, minute } = jstParts(time);
   return `${year}-${pad2(month)}-${pad2(day)}T${pad2(hour)}:${pad2(minute)}`;
 }
 
-/** `input[type=datetime-local]`の値を、日本時間として読む（ブラウザは端末の時刻帯で読む）。 */
-export function fromJstDatetimeLocalValue(value: string): Date {
+/** 時刻帯を持たない`YYYY-MM-DDTHH:mm`を、日本時間として読む。入力欄の値（ブラウザは端末の時刻帯で
+ * 読む）と、backendが日本時間をオフセット無しで返す時刻（気象の格子）の両方がこの形。 */
+export function parseJstLocalValue(value: string): Date {
   return new Date(`${value}+09:00`);
 }
 

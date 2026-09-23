@@ -724,7 +724,7 @@ DOM環境の構築コストはテストファイルごとにかかるため、�
 （速度だけの問題）。判断に迷ったら、そのテストファイルが
 `render`/`renderHook`/`screen`/`document`/`window`のいずれかを使っているか確認する
 ——ただし**テストファイル自身だけでなく、importしている実装側の関数が内部で
-`document.createElement`等を呼んでいないかも確認すること**（`windArrowIcon.ts`が
+`document.createElement`等を呼んでいないかも確認すること**（地図の記号の絵（`sdfIcon.ts`）が
 `document.createElement("canvas")`を使う実例。テストファイル単体では判断できない
 「実装側の隠れたDOM依存」を見落とし、node環境化すると実行時エラーになる）。
 
@@ -915,8 +915,6 @@ frontendは`frontend/src/testing/`が同じ役割を持つ。
 | モジュール | 中身 | 使う場面 |
 |---|---|---|
 | `fetchMocks.ts` | `makeResponse()` | `vi.stubGlobal("fetch", ...)`へ渡すレスポンス |
-| `emblaBrowserApis.ts` | `stubEmblaBrowserApis()` | Embla Carouselを含むコンポーネントの`beforeEach` |
-| `imageDataPolyfill.ts` | `installImageDataPolyfill()` | canvasのフォールバックで`ImageData`を返す実装 |
 | `axisDefinitionFixtures.ts` | `baseAxisDefinition()` | 軸スタジオのテストが土台に使う軸定義 |
 | `routeFixtures.ts` | `makeRouteCandidate()` | ルート候補を組み立てるすべての場所（`e2e/fixtures.ts`も同じものを使う）。`RouteCandidate`は全フィールドが必須のため、置き場を分けるとフィールドが増えるたびに同じ数の差分が要る |
 | `fakeDataStatusMap.ts` | `createFakeDataStatusMap()` | `computeLayerDataStatus`が読む3メソッドだけのフェイクmap |

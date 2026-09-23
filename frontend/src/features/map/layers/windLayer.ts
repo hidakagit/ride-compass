@@ -21,15 +21,8 @@ import {
 } from "@/features/map/layers/dynamicWeather";
 import type { WindGridPoint } from "@/types/weather";
 import windGridConfig from "@/types/generated/wind-grid-config.json";
-
-/** "YYYY-MM-DDTHH:MM"（backendがJST・オフセット無しで返す表記）を
- * JSTとして解釈するDateへ変換する。オフセット無しのままDateへ渡すとブラウザのローカル
- * タイムゾーンとして解釈されてしまう（日本国外の閲覧環境で時刻がずれる）ため、明示的に
- * +09:00を付与する。降水延長予報（precipitationNowcast.ts）も同じ格子点マップ由来の時刻を
- * パースするため、このファイルからexportして共有する。 */
-export function parseJstTime(time: string): Date {
-  return new Date(`${time}+09:00`);
-}
+import { parseJstLocalValue } from "@/lib/time";
+import { buildRangeLegendBands, type MapColorLegendBand } from "@/lib/mapDisplay/mapColorLegend";
 
 /** 時刻配列は通常「現在時刻の正時」から始まるが、フェッチから時間が経てば先頭が過去に
  * なりうる。gridを「現在時刻の属する時間帯」以降だけへ
@@ -49,7 +42,7 @@ export function trimWindGridToCurrentAndFuture(
   const nowMs = now.getTime();
   let startIndex = 0;
   for (let i = 0; i < times.length; i++) {
-    if (parseJstTime(times[i]).getTime() <= nowMs) startIndex = i;
+    if (parseJstLocalValue(times[i]).getTime() <= nowMs) startIndex = i;
   }
   if (startIndex === 0) return grid.slice();
   return grid.map((point) => ({
@@ -107,27 +100,17 @@ export const WIND_CALM_THRESHOLD_MS = 0.3;
 
 // 風速の色の段（WIND_SPEED_COLOR_STOPS）は**帯の下限**で、地図はこの配列をそのまま
 // step式へ組み立てて塗る（`features/map/scene/groups/weather.ts`）。凡例もこの配列から
-// 帯の範囲を書き出すため、地図に出る色と凡例の行は1対1で対応する——連続補間で塗っていた
-// ころは、帯の中ほどの値（例: 4.0m/s）がどの色見本とも違う色になっていた。
+// 帯の範囲を書き出すため、地図に出る色と凡例の行は1対1で対応する。矢印を出さない無風の範囲も
+// 1行として先頭に置き、最初の色の帯はその上から始まる。
 //
 // **行を束ねないこと。** 束ねた行は、地図が塗り分けている複数の帯を1つの色見本で代表する
-// ことになり、束ねた中の値がまた見本と食い違う。粒度を粗くしたいなら段自体を減らす。
-const bandLabel = (index: number): string => {
-  const from = WIND_SPEED_COLOR_STOPS[index].speedMs;
-  const next = WIND_SPEED_COLOR_STOPS[index + 1];
-  if (next === undefined) return `${from}m/s以上`;
-  if (index === 0) return `〜${next.speedMs}m/s`;
-  return `${from}〜${next.speedMs}m/s`;
-};
-
-export const WIND_SPEED_LEGEND_LEVELS: readonly { key: string; label: string; color: string }[] = [
-  { key: "calm", label: `無風（矢印なし、${WIND_CALM_THRESHOLD_MS}m/s未満）`, color: palette.semantic.no_data },
-  ...WIND_SPEED_COLOR_STOPS.map((stop, index) => ({
-    key: `bf${index + 1}`,
-    label: `${stop.name}（${bandLabel(index)}）`,
-    color: stop.color,
-  })),
-];
+// ことになり、束ねた中の値が見本と食い違う。粒度を粗くしたいなら段自体を減らす。
+export const WIND_SPEED_LEGEND_LEVELS: readonly MapColorLegendBand[] = buildRangeLegendBands(
+  [WIND_CALM_THRESHOLD_MS, ...WIND_SPEED_COLOR_STOPS.slice(1).map((stop) => stop.speedMs)],
+  [palette.semantic.no_data, ...WIND_SPEED_COLOR_STOPS.map((stop) => stop.color)],
+  "m/s",
+  ["無風・矢印なし", ...WIND_SPEED_COLOR_STOPS.map((stop) => stop.name)],
+);
 
 interface WindPointFeatureProperties {
   /** 風速（m/s） */
@@ -165,7 +148,7 @@ function windGridToFeatureCollection(
  * もと、grid[0]だけを見る。 */
 export function windFrames(grid: readonly WindGridPoint[]): DynamicWeatherFrame<number>[] {
   const times = grid[0]?.times ?? [];
-  return times.map((time, index) => ({ time: parseJstTime(time), ref: index }));
+  return times.map((time, index) => ({ time: parseJstLocalValue(time), ref: index }));
 }
 
 /** windFramesが返したref（times内のindex）から、地図へ渡す描画ペイロード（gridMark、
@@ -180,7 +163,6 @@ export function windRenderPayload(grid: readonly WindGridPoint[], ref: number): 
 // 書き出すwind-grid-config.jsonを単一の情報源とする。降水延長予報のgridFill表現
 // （precipitationNowcast.ts）がセルの1辺の長さとして使う。
 export const WIND_GRID_SPACING_DEG = windGridConfig.spacing_deg;
-const WIND_GRID_DETAIL_SPACING_DEG = windGridConfig.detail_spacing_deg;
 
 export interface MapViewport {
   west: number;
@@ -213,12 +195,10 @@ const WIND_GRID_DETAIL_SPACING_STOPS: readonly { zoom: number; spacingDeg: numbe
   }));
 
 /** 現在のズームから、詳細格子を要求するときの格子間隔（度）を求める。
- * WIND_GRID_DETAIL_SPACING_STOPSのうちzoom以下の段階で最も細かい（配列は昇順前提）ものを返す。zoomが
- * 最初の段階未満のときはWIND_GRID_DETAIL_SPACING_DEG（最も粗い段階）を返す（呼び出し側は
- * WIND_DETAIL_MIN_ZOOM以上でしか使わない想定だが、単体では境界を知らない関数として
- * フォールバックを持たせておく）。 */
+ * WIND_GRID_DETAIL_SPACING_STOPSのうちzoom以下の段階で最も細かい（配列は昇順前提）もの。
+ * 詳細格子を取るのはWIND_DETAIL_MIN_ZOOM以上だけなので、最初の段階が最も粗い間隔になる。 */
 export function windGridDetailSpacingDegForZoom(zoom: number): number {
-  let spacingDeg = WIND_GRID_DETAIL_SPACING_DEG;
+  let spacingDeg = WIND_GRID_DETAIL_SPACING_STOPS[0].spacingDeg;
   for (const stop of WIND_GRID_DETAIL_SPACING_STOPS) {
     if (zoom >= stop.zoom) spacingDeg = stop.spacingDeg;
   }
