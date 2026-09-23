@@ -10,10 +10,7 @@ import type { HardFilterOverride } from "@/types/route";
 //
 // `route_preference`側の同じ問題は`routePreferenceSync.ts`が扱う（あちらは軸カタログが
 // 実行時フェッチのため、復元時ではなくマウント時と送信時に補正する）。
-export function syncHardFilterKeys(
-  stored: HardFilterOverride,
-  canonical: HardFilterOverride
-): HardFilterOverride {
+export function syncHardFilterKeys(stored: HardFilterOverride, canonical: HardFilterOverride): HardFilterOverride {
   const synced: HardFilterOverride = {};
   for (const [key, defaultEnabled] of Object.entries(canonical)) {
     // 保存値にあるキーは利用者の選択を尊重し、無いキー（新設されたフィルタ）は既定値。

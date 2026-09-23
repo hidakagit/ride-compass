@@ -26,4 +26,3 @@
 .infoTooltip {
   composes: floatingPopover from "../ui/floatingPopover.module.css";
 }
-

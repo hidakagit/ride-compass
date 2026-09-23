@@ -221,7 +221,11 @@ export default function DynamicLayerTimeSlider({
           >
             <div className={styles.rulerTrack}>
               {frames.map((f, i) => (
-                <div key={i} className={f.hourMark ? styles.tickHour : styles.tickMinor} style={{ width: frameWidth(f) }}>
+                <div
+                  key={i}
+                  className={f.hourMark ? styles.tickHour : styles.tickMinor}
+                  style={{ width: frameWidth(f) }}
+                >
                   <span className={styles.tickMark} aria-hidden="true" />
                   {/* 空文字でも.tickLabelの高さ・行送りは常に確保する（CSS側、コマによって
                       縦位置がガタつかないようにするコメント参照）ため、tickLabel無しのコマも

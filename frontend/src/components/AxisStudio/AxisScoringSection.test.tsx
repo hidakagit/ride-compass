@@ -41,14 +41,7 @@ function openSection() {
   function Harness() {
     const [draft, setDraft] = useState<Draft>(latest.draft);
     latest.draft = draft;
-    return (
-      <AxisScoringSection
-        draft={draft}
-        setDraft={setDraft}
-        materialOptions={MATERIALS}
-        axisTermOptions={[]}
-      />
-    );
+    return <AxisScoringSection draft={draft} setDraft={setDraft} materialOptions={MATERIALS} axisTermOptions={[]} />;
   }
 
   render(<Harness />);

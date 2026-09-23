@@ -12,7 +12,7 @@ describe("InfoPopover", () => {
     render(
       <InfoPopover triggerClassName="trigger" triggerAriaLabel="説明" contentClassName="content">
         中身のテキスト
-      </InfoPopover>
+      </InfoPopover>,
     );
     expect(screen.queryByText("中身のテキスト")).not.toBeInTheDocument();
   });
@@ -22,7 +22,7 @@ describe("InfoPopover", () => {
     render(
       <InfoPopover triggerClassName="trigger" triggerAriaLabel="説明" contentClassName="content">
         中身のテキスト
-      </InfoPopover>
+      </InfoPopover>,
     );
     await user.click(screen.getByRole("button", { name: "説明を表示" }));
     expect(await screen.findByText("中身のテキスト")).toBeInTheDocument();

@@ -79,7 +79,8 @@ describe("公開済み軸の「調整する」", () => {
       expect(updateAxisDefinition).toHaveBeenCalledWith(
         "stop_density",
         expect.objectContaining({ is_published: true }),
-      ));
+      ),
+    );
     // 成功した直後に中断の通知を出さない。setRepublishAxisId(null)の直後に
     // closeComposerを呼ぶと、そのレンダーのクロージャは古い値のままで必ず出てしまう。
     expect(screen.queryByText(/一般ユーザーには表示されません/)).not.toBeInTheDocument();

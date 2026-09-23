@@ -78,7 +78,7 @@ describe("TodayOutlook（改善計画T385・T387フォローアップ）", () =>
         })}
         loading={false}
         error={null}
-      />
+      />,
     );
 
     await user.click(screen.getByRole("button", { name: "今日の見通しを表示" }));
@@ -93,9 +93,7 @@ describe("TodayOutlook（改善計画T385・T387フォローアップ）", () =>
 
   it("値が無い項目は行ごと表示しない", async () => {
     const user = userEvent.setup();
-    render(
-      <TodayOutlook weather={makeWeather({ precipitation_max_mm: 1.2 })} loading={false} error={null} />
-    );
+    render(<TodayOutlook weather={makeWeather({ precipitation_max_mm: 1.2 })} loading={false} error={null} />);
 
     await user.click(screen.getByRole("button", { name: "今日の見通しを表示" }));
 
@@ -130,9 +128,7 @@ describe("TodayOutlook（改善計画T385・T387フォローアップ）", () =>
 
   it("today_periodsが空の場合は天気の流れセクションを出さない", async () => {
     const user = userEvent.setup();
-    render(
-      <TodayOutlook weather={makeWeather({ precipitation_max_mm: 1.2 })} loading={false} error={null} />
-    );
+    render(<TodayOutlook weather={makeWeather({ precipitation_max_mm: 1.2 })} loading={false} error={null} />);
 
     await user.click(screen.getByRole("button", { name: "今日の見通しを表示" }));
 
@@ -164,5 +160,4 @@ describe("TodayOutlook（改善計画T385・T387フォローアップ）", () =>
     expect(screen.getByText(/05:12/)).toBeInTheDocument();
     expect(screen.getByText(/18:24/)).toBeInTheDocument();
   });
-
 });

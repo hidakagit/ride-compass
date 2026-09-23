@@ -204,7 +204,12 @@ describe("getWindGridDetail", () => {
     vi.stubGlobal(
       "fetch",
       vi.fn().mockResolvedValue(
-        makeResponse({ ok: false, status: 400, json: async () => ({ detail: "表示範囲が広すぎます。ズームインしてください。" }), headers }),
+        makeResponse({
+          ok: false,
+          status: 400,
+          json: async () => ({ detail: "表示範囲が広すぎます。ズームインしてください。" }),
+          headers,
+        }),
       ),
     );
 

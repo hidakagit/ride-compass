@@ -7,7 +7,6 @@ import { fetchLidenFrames, fetchLidenGeojson, lidenFrames, LIDEN_MARK_VALUE_PROP
 // `NEXT_PUBLIC_TILE_BASE_URL`でこのファイルの期待値が変わらないようにするため。
 vi.mock("@/lib/tileBaseUrl", () => ({ tileBaseUrl: () => "" }));
 
-
 function jsonResponse(body: unknown, ok = true, status = 200) {
   return { ok, status, json: async () => body, headers: new Headers() };
 }
@@ -42,7 +41,10 @@ describe("lidenLayer（改善計画T541）", () => {
 
   it("elementsにlidenを含まないエントリは除外する", async () => {
     const withGap = [...N3, { basetime: "20260822061000", validtime: "20260822061000", elements: ["thns", "trns"] }];
-    vi.stubGlobal("fetch", vi.fn(() => Promise.resolve(jsonResponse(withGap))));
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() => Promise.resolve(jsonResponse(withGap))),
+    );
 
     const frames = await fetchLidenFrames();
 
@@ -50,7 +52,10 @@ describe("lidenLayer（改善計画T541）", () => {
   });
 
   it("取得に失敗した場合は例外を投げる", async () => {
-    vi.stubGlobal("fetch", vi.fn(() => Promise.resolve(jsonResponse(null, false, 500))));
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() => Promise.resolve(jsonResponse(null, false, 500))),
+    );
     await expect(fetchLidenFrames()).rejects.toThrow();
   });
 
@@ -76,7 +81,11 @@ describe("lidenLayer（改善計画T541）", () => {
       const geojson = {
         type: "FeatureCollection",
         features: [
-          { type: "Feature", geometry: { type: "Point", coordinates: [139.7, 35.7] }, properties: { id: "a", type: 1 } },
+          {
+            type: "Feature",
+            geometry: { type: "Point", coordinates: [139.7, 35.7] },
+            properties: { id: "a", type: 1 },
+          },
         ],
       };
       vi.stubGlobal(
@@ -84,13 +93,13 @@ describe("lidenLayer（改善計画T541）", () => {
         vi.fn((url: string) => {
           requestedUrl = url;
           return Promise.resolve(jsonResponse(geojson));
-        })
+        }),
       );
 
       const result = await fetchLidenGeojson(frames, 0);
 
       expect(requestedUrl).toBe(
-        "/api/jma-tile/bosai/jmatile/data/nowc/20260822055500/none/20260822055500/surf/liden/data.geojson?id=liden"
+        "/api/jma-tile/bosai/jmatile/data/nowc/20260822055500/none/20260822055500/surf/liden/data.geojson?id=liden",
       );
       expect(result?.features[0].properties).toEqual({ id: "a", type: 1, [LIDEN_MARK_VALUE_PROPERTY]: 1 });
     });

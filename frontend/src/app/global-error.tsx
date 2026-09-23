@@ -7,12 +7,7 @@
 // **色はトークン（var(--color-muted)等）を使わず直値で書く**。layout.tsxごと置き換わる
 // ため`globals.css`が読み込まれておらず、トークンは未定義＝色指定が丸ごと無効になる
 // （error.tsxはlayout配下なのでトークンを使える）。
-export default function GlobalError({
-  retry,
-}: {
-  error: Error & { digest?: string };
-  retry: () => void;
-}) {
+export default function GlobalError({ retry }: { error: Error & { digest?: string }; retry: () => void }) {
   return (
     <html lang="ja">
       <body>

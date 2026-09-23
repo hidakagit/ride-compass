@@ -82,14 +82,35 @@ Windowsでは`uvicorn --reload`がリローダー親プロセスとワーカー�
 確認は`GET /health`（backend）と`GET /api/version`（frontend）の`commit`を、手元の
 `git rev-parse HEAD`と突き合わせる。
 
-**backendのデプロイは、本番プロセスに届く変更でだけ走る。** `deploy-backend.yml`の`paths`は
+**backendのデプロイは、masterのCIが通ったコミットを、本番プロセスに届く変更があるときだけ
+出す。** `ci.yml`の最後のジョブ（`deploy-backend`）が、masterへのpushで他の全ジョブが通った
+ときだけ`deploy-backend.yml`を呼ぶ——どれかが赤ならデプロイは起動しない。呼ばれた側は、本番で
+動いているコミット（コンテナの`GIT_COMMIT`）からCIを通ったコミットまでの差分を
+`scripts/deploy_backend_gate.py`で見て、出すかを決める。
+
+- **差分の起点は直前のpushではなく、本番で動いているコミット。** CIが赤で出せなかった変更は、
+  次にCIを通ったコミットの差分にそのまま含まれて出る（直前のpushとの差分では、テストだけを
+  直したコミットがコードの変更を運ばず、その変更が次の変更まで出なくなる）。
+- **出すのはCIを通ったそのコミットで、masterの先端ではない**（先端はCIを通っていないことがある）。
+  後から終わった古いCIの実行は、本番のコミットより古ければ出さない。判定とデプロイは1つの
+  ジョブで1本ずつ走る。
+- **CIを待つぶん、反映はpushからCIの所要だけ遅れる。** 急ぎの修正でも待つ。待たずに出す手段は
+  `deploy-backend.yml`の手動起動（`workflow_dispatch`）で、選んだrefの先端を判定なしで出す。
+
+振り分けの一覧（`deploy_backend_gate.py`の`DEPLOY_PATHS`。GitHubの`paths`と同じ規則で読む）は
 `backend/**`から、イメージに入らないもの（テスト・lint設定等）と、イメージには入るが本番
 プロセスが読まないもの（`export_openapi.py`とそれだけが読む表示値の宣言）を外している。
 表示値の変更は生成物（`frontend/src/types/generated/`）を経由してfrontendのデプロイで
 画面へ届くため、backendのコンテナを入れ替える理由にならない。**外したモジュールを本番側が
 importすると、その変更だけが本番へ届かなくなる**（エラーにならず古い値で動き続ける）。
-`backend/tests/structure/test_deploy_exclusions.py`がワークフローとDockerfileから母集団を
+`backend/tests/structure/test_deploy_exclusions.py`がその一覧とDockerfileから母集団を
 導いてこれを検査する。
+
+**frontend（Render）のデプロイがCIを待つかは、Renderのダッシュボードの設定で決まり、
+リポジトリには無い。** Renderの自動デプロイの設定のうち「On Commit」はpushで即デプロイし、
+「After CI Checks Pass」はそのコミットのGitHubのチェックが全て成功（skipped・neutralを含む）
+したときだけデプロイする（チェックが1件も無いコミットは出さない。Render公式の
+[Deploys](https://render.com/docs/deploys)）。
 
 **タイルプロパティを削除する変更はデプロイ順序に制約がある。** backendとfrontendは別
 サービスとして独立にデプロイされ、反映タイミングは同期しない。プロパティの**追加**は
@@ -111,8 +132,8 @@ publicリポジトリで標準のGitHubホストランナーを使う実行を�
 
 - `ci.yml`・`docs-consistency.yml`はmasterに加えて並行実行の作業ブランチ（`orch/**`）への
   pushでも走り、重い検査を開発機から外す（手順はdocs/conventions/orchestration.md「完了とpush」）。
-  `.githooks/pre-push`は`orch/**`へのpushでは検査を省く。本番へのデプロイ（`deploy-backend.yml`）は
-  masterへのpushでだけ走る。
+  `.githooks/pre-push`は`orch/**`へのpushでは検査を省く。backendの本番へのデプロイは、masterへの
+  pushでCIが通ったときだけ`ci.yml`から呼ばれる（上の「デプロイの反映確認」）。
 - 同じブランチへの新しいpushで古い実行を打ち切らない。監査は報告のコミットごとのCIの結論を
   読むため、打ち切るとそのコミットの結論が残らない。
 - ジョブの分け方・キャッシュ・`paths-ignore`は、所要時間と同時実行の枠で決める（理由は各

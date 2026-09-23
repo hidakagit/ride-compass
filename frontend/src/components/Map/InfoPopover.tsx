@@ -47,11 +47,7 @@ export default function InfoPopover({
   const [open, setOpen] = useState(false);
   const trigger = (
     <Popover.Trigger asChild>
-      <button
-        type="button"
-        className={triggerClassName}
-        aria-label={`${triggerAriaLabel}を${open ? "隠す" : "表示"}`}
-      >
+      <button type="button" className={triggerClassName} aria-label={`${triggerAriaLabel}を${open ? "隠す" : "表示"}`}>
         {triggerContent ?? <InfoIcon />}
       </button>
     </Popover.Trigger>

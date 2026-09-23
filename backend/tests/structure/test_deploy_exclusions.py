@@ -1,11 +1,11 @@
 """backendのデプロイ対象から外したファイルが、本番で読まれていないことの検査。
 
-`.github/workflows/deploy-backend.yml`の`paths`は、本番プロセスに届かない変更でコンテナを
+`scripts/deploy_backend_gate.py`の`DEPLOY_PATHS`は、本番プロセスに届かない変更でコンテナを
 入れ替えないよう、一部のファイルを`!`で外している。外したファイルを本番側のコードが
 importすると、**そのファイルの変更だけが本番へ届かなくなる**。エラーにはならず、古い値で
 動き続ける。
 
-母集団はワークフローとDockerfileから導く。外したパターンのうちイメージへ入るコード
+母集団はその一覧とDockerfileから導く。外したパターンのうちイメージへ入るコード
 （DockerfileがCOPYするディレクトリ配下の`.py`）に当たるものについて、外していない同じ
 範囲の`.py`からの参照（関数内の遅延importと、モジュール名を文字列で渡す形を含む）を探す。
 """
@@ -13,20 +13,19 @@ importすると、**そのファイルの変更だけが本番へ届かなくな
 from __future__ import annotations
 
 import ast
+import importlib.util
 from pathlib import Path
-
-import yaml
 
 BACKEND = Path(__file__).resolve().parents[2]
 REPO = BACKEND.parent
-WORKFLOW = REPO / ".github" / "workflows" / "deploy-backend.yml"
+
+_SPEC = importlib.util.spec_from_file_location("deploy_backend_gate", REPO / "scripts" / "deploy_backend_gate.py")
+_GATE = importlib.util.module_from_spec(_SPEC)
+_SPEC.loader.exec_module(_GATE)
 
 
 def _excluded_patterns() -> list[str]:
-    doc = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
-    # YAML 1.1では`on`が真偽値として読まれる。
-    triggers = doc.get("on", doc.get(True))
-    return [p[1:] for p in triggers["push"]["paths"] if p.startswith("!")]
+    return [p[1:] for p in _GATE.DEPLOY_PATHS if p.startswith("!")]
 
 
 def _image_code_dirs() -> list[Path]:
@@ -94,6 +93,6 @@ def test_excluded_code_in_the_image_is_not_referenced_by_production_code() -> No
                 violations.append(f"{path.relative_to(BACKEND).as_posix()} -> {name}")
 
     assert violations == [], (
-        "deploy-backend.ymlのpathsで外したモジュールを本番側のコードが参照している。"
-        "参照を残すならpathsの除外を外す:\n" + "\n".join(violations)
+        "deploy_backend_gate.pyのDEPLOY_PATHSで外したモジュールを本番側のコードが参照している。"
+        "参照を残すならDEPLOY_PATHSの除外を外す:\n" + "\n".join(violations)
     )

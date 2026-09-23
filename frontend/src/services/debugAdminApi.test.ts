@@ -44,10 +44,7 @@ describe("getRecentLogs", () => {
   });
 
   it("fetch自体が失敗すると通信エラーとして例外を投げる", async () => {
-    vi.stubGlobal(
-      "fetch",
-      vi.fn().mockRejectedValue(new TypeError("fetch failed")),
-    );
+    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new TypeError("fetch failed")));
 
     await expect(getRecentLogs({})).rejects.toThrow("ログの取得に失敗しました");
   });

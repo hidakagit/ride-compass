@@ -8,7 +8,9 @@ export function formatErrorDetail(detail: unknown): string | undefined {
   if (typeof detail === "string") return detail;
   if (Array.isArray(detail)) {
     const messages = detail
-      .map((item) => (item && typeof item === "object" && "msg" in item ? String((item as { msg: unknown }).msg) : null))
+      .map((item) =>
+        item && typeof item === "object" && "msg" in item ? String((item as { msg: unknown }).msg) : null,
+      )
       .filter((msg): msg is string => msg !== null);
     if (messages.length > 0) return messages.join(" / ");
   }

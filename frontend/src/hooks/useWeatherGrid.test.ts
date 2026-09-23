@@ -59,7 +59,7 @@ describe("useWeatherGrid（T183: 風・延長降水予報が共有する格子�
     vi.mocked(getWindGrid).mockResolvedValue([point()]);
 
     const { result } = renderHook(() =>
-      useWeatherGrid(true, { west: 139.7, south: 35.6, east: 139.8, north: 35.7, zoom: 8 })
+      useWeatherGrid(true, { west: 139.7, south: 35.6, east: 139.8, north: 35.7, zoom: 8 }),
     );
 
     await waitFor(() => expect(result.current.grid).toHaveLength(1));
@@ -74,7 +74,7 @@ describe("useWeatherGrid（T183: 風・延長降水予報が共有する格子�
     vi.mocked(getWindGridDetail).mockResolvedValue([detailPoint]);
 
     const { result } = renderHook(() =>
-      useWeatherGrid(true, { west: 139.7, south: 35.6, east: 139.8, north: 35.7, zoom: 13 })
+      useWeatherGrid(true, { west: 139.7, south: 35.6, east: 139.8, north: 35.7, zoom: 13 }),
     );
 
     await waitFor(() => expect(result.current.detailGrid).toHaveLength(1));
@@ -88,7 +88,7 @@ describe("useWeatherGrid（T183: 風・延長降水予報が共有する格子�
       vi.mocked(getWindGridDetail).mockResolvedValue([point()]);
 
       const { result } = renderHook(() =>
-        useWeatherGrid(true, { west: 139.7, south: 35.6, east: 139.8, north: 35.7, zoom: 13 })
+        useWeatherGrid(true, { west: 139.7, south: 35.6, east: 139.8, north: 35.7, zoom: 13 }),
       );
 
       await waitFor(() => expect(result.current.detailGrid).toHaveLength(1));
@@ -101,7 +101,7 @@ describe("useWeatherGrid（T183: 風・延長降水予報が共有する格子�
       vi.mocked(getWindGridDetail).mockResolvedValue([point()]);
 
       const { result } = renderHook(() =>
-        useWeatherGrid(true, { west: 139.7, south: 35.6, east: 139.8, north: 35.7, zoom: 19 })
+        useWeatherGrid(true, { west: 139.7, south: 35.6, east: 139.8, north: 35.7, zoom: 19 }),
       );
 
       await waitFor(() => expect(result.current.detailGrid).toHaveLength(1));
@@ -117,7 +117,7 @@ describe("useWeatherGrid（T183: 風・延長降水予報が共有する格子�
 
       const { result, rerender } = renderHook(
         ({ viewport }: { viewport: MapViewport }) => useWeatherGrid(true, viewport),
-        { initialProps: { viewport: { west: 139.7, south: 35.6, east: 139.8, north: 35.7, zoom: 13 } } }
+        { initialProps: { viewport: { west: 139.7, south: 35.6, east: 139.8, north: 35.7, zoom: 13 } } },
       );
 
       // まず正常系: 詳細格子が1件取得できることを確認してから、続く再取得を失敗させる。
@@ -149,7 +149,7 @@ describe("useWeatherGrid（T183: 風・延長降水予報が共有する格子�
           initialProps: {
             viewport: { west: 139.6, south: 35.55, east: 139.85, north: 35.75, zoom: 13 },
           },
-        }
+        },
       );
 
       await waitFor(() => expect(result.current.detailGrid).toHaveLength(1));

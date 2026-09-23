@@ -16,7 +16,6 @@ import { parseValidtime } from "./jmaNowcastFrames";
 // `NEXT_PUBLIC_TILE_BASE_URL`でこのファイルの期待値が変わらないようにするため。
 vi.mock("@/lib/tileBaseUrl", () => ({ tileBaseUrl: () => "" }));
 
-
 function jsonResponse(body: unknown, ok = true, status = 200) {
   return { ok, status, json: async () => body, headers: new Headers() };
 }
@@ -38,28 +37,26 @@ describe("riskMap（改善計画T410: キキクル+線状降水帯予測マッ�
         },
         { basetime: "20260829165000", validtime: "20260829165000", member: "immed2", elements: ["rain_mesh"] },
       ];
-      vi.stubGlobal("fetch", vi.fn(() => Promise.resolve(jsonResponse(raw))));
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(() => Promise.resolve(jsonResponse(raw))),
+      );
 
       const frames = await fetchCurrentRiskFrames();
 
-      expect(frames.land).toEqual([
-        { time: parseValidtime("20260829170000"), ref: raw[1] },
-      ]);
-      expect(frames.heavyRain).toEqual([
-        { time: parseValidtime("20260829170000"), ref: raw[1] },
-      ]);
-      expect(frames.inundation).toEqual([
-        { time: parseValidtime("20260829170000"), ref: raw[1] },
-      ]);
+      expect(frames.land).toEqual([{ time: parseValidtime("20260829170000"), ref: raw[1] }]);
+      expect(frames.heavyRain).toEqual([{ time: parseValidtime("20260829170000"), ref: raw[1] }]);
+      expect(frames.inundation).toEqual([{ time: parseValidtime("20260829170000"), ref: raw[1] }]);
       // 改善計画T416: 洪水キキクルも同じtargetTimes.json（elements配列に"flood"）由来。
-      expect(frames.flood).toEqual([
-        { time: parseValidtime("20260829170000"), ref: raw[1] },
-      ]);
+      expect(frames.flood).toEqual([{ time: parseValidtime("20260829170000"), ref: raw[1] }]);
     });
 
     it("対象の要素を含む行が無ければ空配列を返す", async () => {
       const raw = [{ basetime: "20260829170000", validtime: "20260829170000", member: "immed0", elements: ["land"] }];
-      vi.stubGlobal("fetch", vi.fn(() => Promise.resolve(jsonResponse(raw))));
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(() => Promise.resolve(jsonResponse(raw))),
+      );
 
       const frames = await fetchCurrentRiskFrames();
 
@@ -69,13 +66,19 @@ describe("riskMap（改善計画T410: キキクル+線状降水帯予測マッ�
     });
 
     it("取得に失敗した場合は例外を投げる", async () => {
-      vi.stubGlobal("fetch", vi.fn(() => Promise.resolve(jsonResponse(null, false, 500))));
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(() => Promise.resolve(jsonResponse(null, false, 500))),
+      );
 
       await expect(fetchCurrentRiskFrames()).rejects.toThrow();
     });
 
     it("応答が配列でなければ例外を投げる", async () => {
-      vi.stubGlobal("fetch", vi.fn(() => Promise.resolve(jsonResponse({ not: "an array" }))));
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(() => Promise.resolve(jsonResponse({ not: "an array" }))),
+      );
 
       await expect(fetchCurrentRiskFrames()).rejects.toThrow();
     });
@@ -89,7 +92,10 @@ describe("riskMap（改善計画T410: キキクル+線状降水帯予測マッ�
         // rasrf搭載行（sjfcstmapを持たないため対象外）。
         { basetime: "20260829163000", validtime: "20260829173000", member: "immed", elements: ["rasrf"] },
       ];
-      vi.stubGlobal("fetch", vi.fn(() => Promise.resolve(jsonResponse(raw))));
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(() => Promise.resolve(jsonResponse(raw))),
+      );
 
       const frames = await fetchLinearRainbandFrames();
 
@@ -98,7 +104,10 @@ describe("riskMap（改善計画T410: キキクル+線状降水帯予測マッ�
 
     it("sjfcstmapを含む行が無ければ空配列を返す", async () => {
       const raw = [{ basetime: "20260829160000", validtime: "20260829160000", member: "immed", elements: ["rasrf"] }];
-      vi.stubGlobal("fetch", vi.fn(() => Promise.resolve(jsonResponse(raw))));
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(() => Promise.resolve(jsonResponse(raw))),
+      );
 
       expect(await fetchLinearRainbandFrames()).toEqual([]);
     });

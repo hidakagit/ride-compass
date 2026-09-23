@@ -99,11 +99,15 @@ describe("useStoredState", () => {
 
     const { result, rerender } = renderHook(
       ({ reloadKey }: { reloadKey: boolean }) =>
-        useStoredState("k3", { fixed: false, dynamic: false }, {
-          serialize: (v) => JSON.stringify(v),
-          deserialize,
-          reloadKey,
-        }),
+        useStoredState(
+          "k3",
+          { fixed: false, dynamic: false },
+          {
+            serialize: (v) => JSON.stringify(v),
+            deserialize,
+            reloadKey,
+          },
+        ),
       { initialProps: { reloadKey: false } },
     );
 
@@ -123,10 +127,9 @@ describe("useStoredState", () => {
   it("keyが変化し、新しいkeyに保存値が無い場合はdefaultValueへ戻る（前のkeyの値を引きずらない）", () => {
     window.localStorage.setItem("k5-a", "42");
 
-    const { result, rerender } = renderHook(
-      ({ key }: { key: string }) => useStoredState(key, 1, jsonOptions),
-      { initialProps: { key: "k5-a" } },
-    );
+    const { result, rerender } = renderHook(({ key }: { key: string }) => useStoredState(key, 1, jsonOptions), {
+      initialProps: { key: "k5-a" },
+    });
     expect(result.current[0]).toBe(42);
 
     rerender({ key: "k5-b" }); // k5-bには保存値が無い
@@ -138,10 +141,9 @@ describe("useStoredState", () => {
     window.localStorage.setItem("k6-a", "42");
     window.localStorage.setItem("k6-b", "99");
 
-    const { result, rerender } = renderHook(
-      ({ key }: { key: string }) => useStoredState(key, 1, jsonOptions),
-      { initialProps: { key: "k6-a" } },
-    );
+    const { result, rerender } = renderHook(({ key }: { key: string }) => useStoredState(key, 1, jsonOptions), {
+      initialProps: { key: "k6-a" },
+    });
     expect(result.current[0]).toBe(42);
 
     rerender({ key: "k6-b" });

@@ -27,7 +27,7 @@ describe("DynamicLayerTimeSlider", () => {
         loadingLabel="取得中..."
         error={null}
         ariaLabel="表示時刻"
-      />
+      />,
     );
     expect(screen.getByText("取得中...")).toBeInTheDocument();
     expect(screen.queryByRole("slider")).not.toBeInTheDocument();
@@ -45,7 +45,7 @@ describe("DynamicLayerTimeSlider", () => {
         loadingLabel="取得中..."
         error="取得に失敗しました"
         ariaLabel="表示時刻"
-      />
+      />,
     );
     expect(screen.getByText("取得に失敗しました")).toBeInTheDocument();
     expect(screen.queryByRole("slider")).not.toBeInTheDocument();
@@ -63,7 +63,7 @@ describe("DynamicLayerTimeSlider", () => {
         loadingLabel="取得中..."
         error={null}
         ariaLabel="表示時刻"
-      />
+      />,
     );
     expect(screen.getByText("12:00")).toBeInTheDocument();
   });
@@ -80,7 +80,7 @@ describe("DynamicLayerTimeSlider", () => {
         loadingLabel="取得中..."
         error={null}
         ariaLabel="気象レイヤーの表示時刻"
-      />
+      />,
     );
 
     const slider = screen.getByRole("slider", { name: "気象レイヤーの表示時刻" });
@@ -104,7 +104,7 @@ describe("DynamicLayerTimeSlider", () => {
           loadingLabel="取得中..."
           error={null}
           ariaLabel="気象レイヤーの表示時刻"
-        />
+        />,
       );
       const slider = screen.getByRole("slider", { name: "気象レイヤーの表示時刻" });
 
@@ -128,7 +128,7 @@ describe("DynamicLayerTimeSlider", () => {
           loadingLabel="取得中..."
           error={null}
           ariaLabel="気象レイヤーの表示時刻"
-        />
+        />,
       );
       fireEvent.keyDown(screen.getByRole("slider", { name: "気象レイヤーの表示時刻" }), { key: "ArrowRight" });
       expect(onIndexChange).not.toHaveBeenCalled();
@@ -147,7 +147,7 @@ describe("DynamicLayerTimeSlider", () => {
           loadingLabel="取得中..."
           error={null}
           ariaLabel="気象レイヤーの表示時刻"
-        />
+        />,
       );
       const slider = screen.getByRole("slider", { name: "気象レイヤーの表示時刻" });
 
@@ -174,7 +174,7 @@ describe("DynamicLayerTimeSlider", () => {
           loadingLabel="取得中..."
           error={null}
           ariaLabel="気象レイヤーの表示時刻"
-        />
+        />,
       );
 
       await user.click(screen.getByRole("button", { name: "気象レイヤーの表示時刻を1つ次へ" }));
@@ -195,7 +195,7 @@ describe("DynamicLayerTimeSlider", () => {
           loadingLabel="取得中..."
           error={null}
           ariaLabel="気象レイヤーの表示時刻"
-        />
+        />,
       );
 
       await user.click(screen.getByRole("button", { name: "気象レイヤーの表示時刻を1つ前へ" }));
@@ -214,7 +214,7 @@ describe("DynamicLayerTimeSlider", () => {
           loadingLabel="取得中..."
           error={null}
           ariaLabel="気象レイヤーの表示時刻"
-        />
+        />,
       );
       expect(screen.getByRole("button", { name: "気象レイヤーの表示時刻を1つ前へ" })).toBeDisabled();
       expect(screen.getByRole("button", { name: "気象レイヤーの表示時刻を1つ次へ" })).not.toBeDisabled();
@@ -230,7 +230,7 @@ describe("DynamicLayerTimeSlider", () => {
           loadingLabel="取得中..."
           error={null}
           ariaLabel="気象レイヤーの表示時刻"
-        />
+        />,
       );
       expect(screen.getByRole("button", { name: "気象レイヤーの表示時刻を1つ前へ" })).not.toBeDisabled();
       expect(screen.getByRole("button", { name: "気象レイヤーの表示時刻を1つ次へ" })).toBeDisabled();
@@ -250,7 +250,7 @@ describe("DynamicLayerTimeSlider", () => {
           loadingLabel="取得中..."
           error={null}
           ariaLabel="気象レイヤーの表示時刻"
-        />
+        />,
       );
       expect(screen.getByRole("button", { name: "気象レイヤーの表示時刻を現在に戻す" })).toBeDisabled();
     });
@@ -270,7 +270,7 @@ describe("DynamicLayerTimeSlider", () => {
           loadingLabel="取得中..."
           error={null}
           ariaLabel="気象レイヤーの表示時刻"
-        />
+        />,
       );
 
       const nowButton = screen.getByRole("button", { name: "気象レイヤーの表示時刻を現在に戻す" });

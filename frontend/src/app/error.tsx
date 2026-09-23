@@ -6,13 +6,7 @@ import { useEffect } from "react";
 // （WeatherPanel/MapView等のnull未ガード箇所を踏んだ場合の最終防衛線）。App Routerの
 // error.tsxはルートセグメント配下のレンダリングエラーをここで捕捉し、フォールバックUIを
 // 表示する。
-export default function Error({
-  error,
-  retry,
-}: {
-  error: Error & { digest?: string };
-  retry: () => void;
-}) {
+export default function Error({ error, retry }: { error: Error & { digest?: string }; retry: () => void }) {
   useEffect(() => {
     console.error(error);
   }, [error]);

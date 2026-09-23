@@ -6,7 +6,7 @@ describe("syncRoutePreferenceKeys", () => {
   it("カタログから消えた軸（unpublish後）のキーを削除する", () => {
     const result = syncRoutePreferenceKeys(
       { gradient: 0.5, surface_q: 0.3, night: 0.2 },
-      { gradient: 0.1, surface_q: 0.1 }
+      { gradient: 0.1, surface_q: 0.1 },
     );
     expect(result).toEqual({ gradient: 0.5, surface_q: 0.3 });
   });

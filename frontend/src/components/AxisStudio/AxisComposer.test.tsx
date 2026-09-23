@@ -197,9 +197,7 @@ describe("既定重みの相対表示", () => {
     // 比率が出るのは新規作成のときだけ——公開済みの軸を編集する画面は制限モードで、
     // 重みの欄自体を描かない。
     const { user } = await openComposer({
-      otherAxes: [
-        baseAxisDefinition({ axis_id: "axis_b", is_published: true, default_weight: 3 }),
-      ],
+      otherAxes: [baseAxisDefinition({ axis_id: "axis_b", is_published: true, default_weight: 3 })],
     });
 
     const weight = screen.getByRole("spinbutton", { name: "既定重み" });
@@ -239,9 +237,7 @@ describe("材料カタログが届くまで", () => {
     const { getMaterialCatalog } = await import("@/services/materialCatalogApi");
     vi.mocked(getMaterialCatalog).mockReturnValue(new Promise(() => {}));
 
-    render(
-      <AxisComposer editing={null} duplicateFrom={null} onCancelEdit={vi.fn()} onSave={makeSaveSpy()} />,
-    );
+    render(<AxisComposer editing={null} duplicateFrom={null} onCancelEdit={vi.fn()} onSave={makeSaveSpy()} />);
 
     expect(screen.getByText(/材料カタログを読み込んでいます/)).toBeInTheDocument();
     expect(screen.queryByRole("textbox", { name: "表示名" })).not.toBeInTheDocument();

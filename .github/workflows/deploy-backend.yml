@@ -12,45 +12,49 @@
 name: Deploy Backend to Oracle VM
 
 on:
-  push:
-    branches: [master]
-    # イメージに入る変更だけを対象にする（このワークフローはVMの作業コピーを最新にし、
-    # イメージを作り直してコンテナを入れ替える）。
-    paths:
-      - "backend/**"
-      # ベンチマークはイメージに入らない（backend/Dockerfileのcopy対象外。VM上の作業コピー
-      # から実行する）。押しただけでビルドとコンテナ入れ替えを起こさないよう除外し、VMの
-      # 作業コピーを新しくしたいときはworkflow_dispatchで明示的に起動する。どのコードを
-      # 測ったかは、どの実行口もbenchmarks/_revision.pyが実行時に出力へ残す（まとめて
-      # 走らせるrun_allは配信元と違えば止め、個別のベンチは警告に留める）。
-      - "!backend/benchmarks/**"
-      # イメージに入らないもの（backend/DockerfileのCOPY対象外）。
-      - "!backend/tests/**"
-      - "!backend/pytest.ini"
-      - "!backend/ruff.toml"
-      - "!backend/requirements-dev.txt"
-      - "!backend/.env.example"
-      # イメージに入るが、本番プロセスが読まないもの。生成スクリプトとそれだけが読む表示値で、
-      # 変更は生成物（frontend/src/types/generated/）を経由してだけ画面へ届く。
-      # **backend/app配下はbackend/tests/structure/test_deploy_exclusions.pyが、本番側から
-      # importされていないことを検査する**——importされた時点で、ここに挙げたままでは
-      # 変更が本番へ届かなくなる。
-      - "!backend/scripts/export_openapi.py"
-      - "!backend/app/domain/map_display.py"
-      - "!backend/app/domain/display_palette.py"
-      - "!backend/app/domain/weather_display.py"
-      - ".github/workflows/deploy-backend.yml"
+  # ci.ymlが、masterへのpushでCIの全ジョブが通ったあとに呼ぶ（どれかが赤なら呼ばれない）。
+  # 呼ばれたときの`github.sha`は、CIを通ったそのコミット。
+  workflow_call:
+  # 手動のデプロイ。CIを待たず、選んだrefの先端をそのまま出す。
   workflow_dispatch:
-
-concurrency:
-  group: deploy-backend
-  cancel-in-progress: false
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
+    # 判定とデプロイを1つのジョブにし、まとめて1本ずつ走らせる。判定だけ先に済ませると、
+    # 後から終わった古いCIの実行が、その間に出た新しいコミットを上書きしうる。
+    concurrency:
+      group: deploy-backend
+      cancel-in-progress: false
     steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - name: 本番で動いているコミットを読む
+        id: deployed
+        env:
+          HOST: ${{ secrets.ORACLE_VM_HOST }}
+          KEY: ${{ secrets.ORACLE_VM_SSH_KEY }}
+        run: |
+          install -m 600 /dev/null "$RUNNER_TEMP/key"
+          printf '%s\n' "$KEY" > "$RUNNER_TEMP/key"
+          # 読めなければ空のまま進む（判定は「分からないので出す」になる）。
+          sha=$(ssh -i "$RUNNER_TEMP/key" -o StrictHostKeyChecking=accept-new -o ConnectTimeout=20 "ubuntu@$HOST" \
+            "sudo docker inspect -f '{{range .Config.Env}}{{println .}}{{end}}' ridecompass-backend" \
+            | sed -n 's/^GIT_COMMIT=//p') || sha=""
+          rm -f "$RUNNER_TEMP/key"
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+      - name: 出すかを決める
+        id: gate
+        run: |
+          if [ "${{ github.event_name }}" = workflow_dispatch ]; then
+            echo "出す: 手動の起動"
+            echo "deploy=true" >> "$GITHUB_OUTPUT"
+          else
+            python3 scripts/deploy_backend_gate.py "${{ steps.deployed.outputs.sha }}" "${{ github.sha }}"
+          fi
       - name: Deploy via SSH (native arm64 build on VM)
+        if: steps.gate.outputs.deploy == 'true'
         uses: appleboy/ssh-action@v1.2.0
         with:
           host: ${{ secrets.ORACLE_VM_HOST }}
@@ -60,8 +64,9 @@ jobs:
           script: |
             set -e
             cd ~/ridecompass-repo
-            git fetch --depth 1 origin master
-            git reset --hard origin/master
+            # CIを通ったそのコミットを出す（masterの先端はCIを通っていないことがある）。
+            git fetch --depth 1 origin ${{ github.sha }}
+            git reset --hard FETCH_HEAD
 
             cd backend
             # GIT_COMMIT: Renderは`RENDER_GIT_COMMIT`をデプロイ先へ自動注入していたが、

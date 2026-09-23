@@ -91,7 +91,12 @@ export default function FloatingPanel({
         }}
       >
         <div className={styles.header}>
-          <div className={styles.dragHandle} role="separator" aria-label="ドラッグしてパネルを移動" title="ドラッグして移動">
+          <div
+            className={styles.dragHandle}
+            role="separator"
+            aria-label="ドラッグしてパネルを移動"
+            title="ドラッグして移動"
+          >
             ⠿
           </div>
           <strong className={styles.title}>{title}</strong>

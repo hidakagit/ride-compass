@@ -36,7 +36,7 @@ interface UseStoredStateOptions<T> {
 export function useStoredState<T>(
   key: string,
   defaultValue: T,
-  { serialize, deserialize, autoSave = true, reloadKey }: UseStoredStateOptions<T>
+  { serialize, deserialize, autoSave = true, reloadKey }: UseStoredStateOptions<T>,
 ): [T, (value: T | ((prev: T) => T)) => void, (value: T) => void] {
   const [value, setValue] = useState(defaultValue);
   // serializeは呼び出し側がインライン関数で渡すため参照が毎レンダー変わりうるが、
@@ -80,7 +80,7 @@ export function useStoredState<T>(
         // 保存不可でもこのセッション内の値は有効
       }
     },
-    [key]
+    [key],
   );
 
   const setStoredValue = useCallback(
@@ -91,7 +91,7 @@ export function useStoredState<T>(
         return resolved;
       });
     },
-    [autoSave, commit]
+    [autoSave, commit],
   );
 
   return [value, setStoredValue, commit];
@@ -103,7 +103,7 @@ export function useStoredState<T>(
 // 壊れた保存値はデフォルト値へフォールバックする（useStoredStateの既定動作）。
 export function useStoredJsonState<T>(
   key: string,
-  defaultValue: T
+  defaultValue: T,
 ): [T, (value: T | ((prev: T) => T)) => void, (value: T) => void] {
   return useStoredState<T>(key, defaultValue, {
     serialize: (v) => JSON.stringify(v),

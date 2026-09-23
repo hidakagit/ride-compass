@@ -30,7 +30,7 @@ describe("Button", () => {
     render(
       <Button disabled onClick={onClick}>
         押す
-      </Button>
+      </Button>,
     );
 
     const button = screen.getByRole("button", { name: "押す" });
@@ -43,7 +43,7 @@ describe("Button", () => {
     render(
       <Button variant="primary" size="sm">
         押す
-      </Button>
+      </Button>,
     );
     const button = screen.getByRole("button", { name: "押す" });
     expect(button.className).toContain("bg-[var(--color-accent)]");

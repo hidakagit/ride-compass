@@ -13,7 +13,7 @@ import type { RoutePreferenceWeights } from "@/types/route";
 // 判定に使う）。
 export function syncRoutePreferenceKeys(
   routePreference: RoutePreferenceWeights,
-  catalogDefaultWeights: RoutePreferenceWeights
+  catalogDefaultWeights: RoutePreferenceWeights,
 ): RoutePreferenceWeights | null {
   const catalogAxisIds = new Set(Object.keys(catalogDefaultWeights));
   const missingAxisIds = Object.keys(catalogDefaultWeights).filter((id) => !(id in routePreference));

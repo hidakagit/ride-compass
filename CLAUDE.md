@@ -329,8 +329,8 @@ T536でそれを置き換えた`compute_edge_costs_bulk`まで同じ理由で残
   (docs/conventions/deployment-sync.md)参照**（開発DBのみの反映で完了扱いにしない）。
 - **既存DBの行データを新しいコードが読めなくなる変更（Pydanticモデルの破壊的変更等）を
   含む`backend/**`の変更は、本番DBのデータ移行を完了させてからpushする**。
-  `.github/workflows/deploy-backend.yml`はbackendの変更を検知すると本番へ自動デプロイする
-  （対象と、コンテナを入れ替えるかの振り分けはそのワークフローが正本）。
+  masterへのpushでCI（`.github/workflows/ci.yml`）が通ると、backendは本番へ自動デプロイされる
+  （コンテナを入れ替えるかの振り分けは`scripts/deploy_backend_gate.py`が正本）。
   DB移行より先にpushすると、新コードが本番DBに残る旧形式データを読めず、
   `refresh_axis_definitions`等のfail-fast設計により本番backendが起動失敗する
   （本番障害の実績あり、詳細は[T396](docs/records/tasks/T396.md)参照）。

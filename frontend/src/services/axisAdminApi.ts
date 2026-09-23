@@ -36,10 +36,7 @@ export function createAxisDefinition(payload: AxisDefinitionPayload): Promise<Ax
   return adminFetch<AxisDefinitionResponse>(API_BASE_URL, "POST", payload);
 }
 
-export function updateAxisDefinition(
-  axisId: string,
-  payload: AxisDefinitionPayload,
-): Promise<AxisDefinitionResponse> {
+export function updateAxisDefinition(axisId: string, payload: AxisDefinitionPayload): Promise<AxisDefinitionResponse> {
   return adminFetch<AxisDefinitionResponse>(`${API_BASE_URL}/${encodeURIComponent(axisId)}`, "PUT", payload);
 }
 

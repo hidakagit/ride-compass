@@ -15,7 +15,6 @@ import { trimToCurrentAndFuture } from "./jmaNowcastFrames";
 // `NEXT_PUBLIC_TILE_BASE_URL`でこのファイルの期待値が変わらないようにするため。
 vi.mock("@/lib/tileBaseUrl", () => ({ tileBaseUrl: () => "" }));
 
-
 function jsonResponse(body: unknown, ok = true, status = 200) {
   return { ok, status, json: async () => body, headers: new Headers() };
 }
@@ -69,7 +68,10 @@ describe("thunderNowcast（改善計画T204）", () => {
   ];
 
   it("targetTimes_N3.jsonの最新エントリがliden-only（thns/trnsを持たない5分ズレ）でも、直近のthns/trnsを持つエントリまで遡って『現在』フレームとして使う（改善計画T514フォローアップ）", async () => {
-    vi.stubGlobal("fetch", vi.fn(() => Promise.resolve(jsonResponse(N3_WITH_LIDEN_ONLY_GAP))));
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() => Promise.resolve(jsonResponse(N3_WITH_LIDEN_ONLY_GAP))),
+    );
 
     const frames = await fetchThunderNowcastFrames();
     const trimmed = trimToCurrentAndFuture(frames);
@@ -81,14 +83,15 @@ describe("thunderNowcast（改善計画T204）", () => {
     const payload = thunderRenderPayload(trimmed, 0);
     expect(payload).toEqual({
       kind: "rasterTile",
-      tileUrlTemplate: "/api/jma-tile/bosai/jmatile/data/nowc/20260831165000/none/20260831165000/surf/thns/{z}/{x}/{y}.png",
+      tileUrlTemplate:
+        "/api/jma-tile/bosai/jmatile/data/nowc/20260831165000/none/20260831165000/surf/thns/{z}/{x}/{y}.png",
     });
   });
 
   it("取得に失敗した場合は例外を投げる", async () => {
     vi.stubGlobal(
       "fetch",
-      vi.fn(() => Promise.resolve(jsonResponse(null, false, 500)))
+      vi.fn(() => Promise.resolve(jsonResponse(null, false, 500))),
     );
     await expect(fetchThunderNowcastFrames()).rejects.toThrow();
   });
@@ -114,7 +117,8 @@ describe("thunderNowcast（改善計画T204）", () => {
       const payload = thunderRenderPayload(frames, 0);
       expect(payload).toEqual({
         kind: "rasterTile",
-        tileUrlTemplate: "/api/jma-tile/bosai/jmatile/data/nowc/20260822085000/none/20260822090000/surf/thns/{z}/{x}/{y}.png",
+        tileUrlTemplate:
+          "/api/jma-tile/bosai/jmatile/data/nowc/20260822085000/none/20260822090000/surf/thns/{z}/{x}/{y}.png",
       });
     });
 
@@ -122,7 +126,8 @@ describe("thunderNowcast（改善計画T204）", () => {
       const payload = tornadoRenderPayload(frames, 0);
       expect(payload).toEqual({
         kind: "rasterTile",
-        tileUrlTemplate: "/api/jma-tile/bosai/jmatile/data/nowc/20260822085000/none/20260822090000/surf/trns/{z}/{x}/{y}.png",
+        tileUrlTemplate:
+          "/api/jma-tile/bosai/jmatile/data/nowc/20260822085000/none/20260822090000/surf/trns/{z}/{x}/{y}.png",
       });
     });
 

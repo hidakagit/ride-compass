@@ -4,12 +4,15 @@
 #   road_graph_session）は、ランナーへ直接入れたPostgreSQL＋PostGIS + TEST_DATABASE_URL 注入で実行する。
 # - api-contract: API契約のドリフト検知。DBを読まないため、postgresを持たない別ジョブにして
 #   backendジョブと並べて走らせる。
-# - frontend: eslint → tsc --noEmit → vitest の順。型エラー・lintは実行の速い順に先へ置き、
-#   失敗を早く返す。
+# - frontend: prettier → eslint → tsc --noEmit → vitest の順。書式・lint・型エラーは実行の速い順に
+#   先へ置き、失敗を早く返す。
 # - e2e: 本番ビルドを実ブラウザで開き、実機でしか出ないもの（収まる・押せる、ブラウザと地図の
 #   実挙動、カスケード）を見る（対象の定義は docs/conventions/testing.md パターン4）。
 #   バックエンド・外部APIには依存せず、frontend/e2e/fixtures.tsのネットワークモックで置き換える
 #   （API契約の正しさはapi-contractジョブが別途担保）。DB・APIキーが不要なため独立ジョブにできる。
+# - deploy-backend: masterへのpushで上の全ジョブが通ったときだけ、backendを本番へ出す
+#   （出すかの判定と手順は deploy-backend.yml）。**本番へ出る前の検査はこのワークフロー**で、
+#   どれかが赤ならデプロイは起動しない。
 name: CI
 
 on:
@@ -130,6 +133,8 @@ jobs:
           cache: npm
           cache-dependency-path: frontend/package-lock.json
       - run: npm ci
+      # 書式。設定はfrontend/.prettierrc.json・.prettierignore（生成物は外してある）。
+      - run: ./node_modules/.bin/prettier --check "src/**/*.{ts,tsx,css}"
       - run: npm run lint
       # LayoutProps等のNext.jsが生成するグローバル型（.next/types/、tsconfigのincludeに
       # 含まれる）を作る。ローカルはnext devの実行で自然に生成済みだが、CIのクリーン
@@ -160,3 +165,9 @@ jobs:
           name: playwright-report
           path: frontend/playwright-report/
           retention-days: 7
+
+  deploy-backend:
+    needs: [backend, api-contract, frontend, e2e]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+    uses: ./.github/workflows/deploy-backend.yml
+    secrets: inherit

@@ -9,9 +9,7 @@ type Params = { params: Promise<{ materialId: string }> };
 
 export async function GET(request: Request, { params }: Params) {
   const { materialId } = await params;
-  return proxyToBackendAdmin(
-    request,
-    `/api/admin/material-catalog/${encodeURIComponent(materialId)}/distribution`,
-    { timeoutMs: DISTRIBUTION_API_TIMEOUT_MS },
-  );
+  return proxyToBackendAdmin(request, `/api/admin/material-catalog/${encodeURIComponent(materialId)}/distribution`, {
+    timeoutMs: DISTRIBUTION_API_TIMEOUT_MS,
+  });
 }

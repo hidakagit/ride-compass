@@ -32,12 +32,9 @@ export async function fetchAxisValueDistribution(shape: unknown): Promise<ValueD
 
 /** 1材料の値が実データでどの範囲に散らばっているかを取る。 */
 export async function fetchMaterialDistribution(materialId: string): Promise<MaterialDistribution> {
-  return requestJson<MaterialDistribution>(
-    `/admin/api/material-distribution/${encodeURIComponent(materialId)}`,
-    {
-      timeoutMs: DISTRIBUTION_API_TIMEOUT_MS,
-      category: "api:axisPreview",
-      messages: DISTRIBUTION_MESSAGES,
-    },
-  );
+  return requestJson<MaterialDistribution>(`/admin/api/material-distribution/${encodeURIComponent(materialId)}`, {
+    timeoutMs: DISTRIBUTION_API_TIMEOUT_MS,
+    category: "api:axisPreview",
+    messages: DISTRIBUTION_MESSAGES,
+  });
 }

@@ -30,9 +30,7 @@ describe("createRouteArrowIcon（描画コードパスの実行検証）", () =>
       fillStyle: "",
       getImageData: vi.fn(() => new ImageData(20, 20)),
     };
-    vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue(
-      ctx as unknown as CanvasRenderingContext2D
-    );
+    vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue(ctx as unknown as CanvasRenderingContext2D);
     return ctx;
   }
 
