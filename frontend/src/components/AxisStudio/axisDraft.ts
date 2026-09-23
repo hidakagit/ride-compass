@@ -352,6 +352,13 @@ export function thresholdsKeptOnMap(thresholds: readonly number[], droppedOnMap:
   return thresholds.filter((threshold) => !droppedOnMap.includes(threshold));
 }
 
+/** 入力の段ごとの体感ラベルを、地図の段の並びで引き直す。地図のどの段が入力のどの段に当たるかは
+ * backend（`domain/axis_display.py: bands_the_map_keeps`）が決め、ここはその番号で引くだけ。
+ * 判定が無い間（`bandsOnMap`がnull）は入力どおりの段で出す。 */
+export function bandLabelsOnMap(labels: readonly string[], bandsOnMap: readonly number[] | null): readonly string[] {
+  return bandsOnMap === null ? labels : bandsOnMap.map((band) => labels[band] ?? "");
+}
+
 /** 段階ラベルを段階数（しきい値の件数+1）へ合わせる。増えた分は空欄、減った分は末尾から
  * 落とす。しきい値をまとめて入れ替えると段階数が何段階も動くため、1件ずつの増減では
  * 追従しきれない。 */

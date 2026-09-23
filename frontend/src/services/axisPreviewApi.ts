@@ -33,9 +33,16 @@ export async function fetchAxisValueDistribution(shape: unknown): Promise<ValueD
 
 export type DisplayThresholdsPreviewRequest = components["schemas"]["DisplayThresholdsPreviewRequest"];
 
-/** 編集中の軸で、人が刻んだ段の境界のうち地図では段にならないものを取る。判定はbackendが
- * 地図の段を作るのと同じ関数で行う。DBを読まないため既定のタイムアウトで足りる。 */
-export async function fetchThresholdsDroppedOnMap(body: DisplayThresholdsPreviewRequest): Promise<number[]> {
+/** 人が刻んだ段の境界が地図でどうなるか。`bandsOnMap`は地図の各段が入力のどの段に当たるか
+ * （入力の段の番号、下から0始まり）で、nullは判定が無い（入力どおりの段で出す）。 */
+export interface MapBandsOfThresholds {
+  droppedOnMap: readonly number[];
+  bandsOnMap: readonly number[] | null;
+}
+
+/** 編集中の軸で、人が刻んだ段の境界のうち地図では段にならないものと、地図に残る段を取る。
+ * 判定はbackendが地図の段を作るのと同じ関数で行う。DBを読まないため既定のタイムアウトで足りる。 */
+export async function fetchMapBandsOfThresholds(body: DisplayThresholdsPreviewRequest): Promise<MapBandsOfThresholds> {
   const response = await requestJson<components["schemas"]["DisplayThresholdsPreviewResponse"]>(
     "/admin/api/axis-definitions/preview-display-thresholds",
     {
@@ -46,7 +53,7 @@ export async function fetchThresholdsDroppedOnMap(body: DisplayThresholdsPreview
       messages: { failure: "しきい値の確認に失敗しました", parseFailure: "しきい値の確認結果を解析できませんでした" },
     },
   );
-  return response.dropped_on_map;
+  return { droppedOnMap: response.dropped_on_map, bandsOnMap: response.bands_on_map };
 }
 
 /** 1材料の値が実データでどの範囲に散らばっているかを取る。 */

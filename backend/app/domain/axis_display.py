@@ -270,17 +270,44 @@ def axis_display_for(definition: AxisDefinition) -> AxisDisplaySpec:
     )
 
 
-def thresholds_the_map_drops(
+def bands_the_map_keeps(
     axis_id: str, shape: AxisShape, priority_overrides: list[PriorityCondition], thresholds: list[float]
-) -> list[float]:
-    """人が上書きした段の境界のうち、地図が段として作らないもの（`axis_display_for`と同じ規則）。
+) -> list[int]:
+    """人が上書きした境界が作る段（下から0始まり、境界の件数+1）のうち、地図が段として作るものの
+    番号を地図の段の並び順で返す（`axis_display_for`と同じ規則）。
+
+    境界が落ちると上下の段が1つにまとまり、まとまった段は下側の段として扱う——地図の段の下端は、
+    残った境界（または最下段）で始まる入力の段の下端と同じ値だから。段に添える体感ラベルは
+    この番号で引く（`map_band_labels`・軸スタジオの段階プレビュー）。
 
     軸スタジオは保存前の下書きでこれを問うため、表示名・重みのような段に関わらない項目を
     揃えずに、段を決めるのに要る入力だけを受け取る。ramp表示を持たない軸（地図に出ない軸・
-    専用way値配信の軸）は上書きをそのまま使うため、落ちるものは無い。
+    専用way値配信の軸）は上書きをそのまま使うため、全段が残る。
     """
     ramp = _derive_ramp_inputs(axis_id, shape, referenced_materials(shape, priority_overrides))
     if ramp is None:
-        return []
+        return list(range(len(thresholds) + 1))
     kept = set(_map_band_thresholds(ramp, shape, thresholds))
-    return [threshold for threshold in thresholds if threshold not in kept]
+    return [0] + [index + 1 for index, threshold in enumerate(thresholds) if threshold in kept]
+
+
+def thresholds_the_map_drops(
+    axis_id: str, shape: AxisShape, priority_overrides: list[PriorityCondition], thresholds: list[float]
+) -> list[float]:
+    """人が上書きした段の境界のうち、地図が段として作らないもの（入力の並び順）。"""
+    kept_bands = set(bands_the_map_keeps(axis_id, shape, priority_overrides, thresholds))
+    return [threshold for index, threshold in enumerate(thresholds) if index + 1 not in kept_bands]
+
+
+def map_band_labels(definition: AxisDefinition) -> list[str] | None:
+    """地図の段ごとの体感ラベル（地図の段の並び順で、件数は地図の段数と一致する）。
+
+    上書き（`display_band_labels_override`）は人が刻んだ境界の段ごとに付くため、地図で落ちる
+    境界があると件数が合わない。地図に残る段のラベルを`bands_the_map_keeps`の番号で引く。
+    """
+    labels = definition.display_band_labels_override
+    thresholds = definition.display_thresholds_override
+    if labels is None or thresholds is None:
+        return None
+    bands = bands_the_map_keeps(definition.axis_id, definition.shape, definition.priority_overrides, thresholds)
+    return [labels[band] for band in bands]

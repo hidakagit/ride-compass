@@ -29,7 +29,7 @@ from app.domain.axis_definitions import (
     PriorityCondition,
     referenced_materials,
 )
-from app.domain.axis_display import axis_display_for, thresholds_the_map_drops
+from app.domain.axis_display import axis_display_for, bands_the_map_keeps, thresholds_the_map_drops
 from app.domain.material_catalog import is_known_material, material_dtype
 from app.domain.registry import AxisDisplaySpec
 from app.services.axis_registry_service import AxisRegistryAdminService
@@ -392,16 +392,19 @@ class DisplayThresholdsPreviewRequest(StrictModel):
 class DisplayThresholdsPreviewResponse(StrictModel):
     #: 入力のうち、地図が段として作らない境界（入力の並び順）。
     dropped_on_map: list[float]
+    #: 地図の各段が入力のどの段に当たるか（入力の段の番号、下から0始まり。地図の段の並び順）。
+    #: 体感ラベルはこの番号で引く。
+    bands_on_map: list[int]
 
 
 @router.post("/preview-display-thresholds", dependencies=[Depends(require_admin_basic_auth)])
 async def preview_display_thresholds(payload: DisplayThresholdsPreviewRequest) -> DisplayThresholdsPreviewResponse:
-    """編集中の軸で、人が刻んだ段の境界のうち地図では効かないものを返す。
+    """編集中の軸で、人が刻んだ段の境界のうち地図では効かないものと、地図に残る段を返す。
 
     判定は保存後に地図が段を作るのと同じ関数で行い、軸スタジオは結果を印として出すだけにする。
     """
+    args = (payload.axis_id, payload.shape, payload.priority_overrides, payload.thresholds)
     return DisplayThresholdsPreviewResponse(
-        dropped_on_map=thresholds_the_map_drops(
-            payload.axis_id, payload.shape, payload.priority_overrides, payload.thresholds
-        )
+        dropped_on_map=thresholds_the_map_drops(*args),
+        bands_on_map=bands_the_map_keeps(*args),
     )

@@ -1181,6 +1181,8 @@ export interface components {
         DisplayThresholdsPreviewResponse: {
             /** Dropped On Map */
             dropped_on_map: number[];
+            /** Bands On Map */
+            bands_on_map: number[];
         };
         /** ExternalCallStatsResponse */
         ExternalCallStatsResponse: {

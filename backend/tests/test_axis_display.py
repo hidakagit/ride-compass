@@ -21,6 +21,8 @@ from app.domain.axis_display import (
     _drop_thresholds_that_share_a_score,
     _rescale_tile_input,
     axis_display_for,
+    bands_the_map_keeps,
+    map_band_labels,
     thresholds_the_map_drops,
 )
 from app.domain.material_catalog import CoverageExcluded, MaterialSpec, WayMaterialCoverageSpec
@@ -422,6 +424,49 @@ class TestThresholdsTheMapDrops:
         shape = CategoricalShape(material="cat_kind", mapping={"a": 2.0, "b": 4.0})
 
         assert thresholds_the_map_drops("subject", shape, [], [3.0, 5.0]) == []
+
+
+class TestBandsTheMapKeeps:
+    def test_bands_merged_past_the_saturation_point_are_named_by_their_lower_band(self):
+        shape = _linear([MaterialTerm(material="num_a")])
+
+        # 15・20が落ちると「12〜15」「15〜20」「20以上」が「12以上」の1段になり、その下端12で
+        # 始まる入力の段（4番）として残る。
+        assert bands_the_map_keeps("subject", shape, [], [2.0, 4.0, 7.0, 12.0, 15.0, 20.0]) == [0, 1, 2, 3, 4]
+
+    def test_a_dropped_boundary_in_the_middle_leaves_the_band_below_it(self):
+        # 折れ線は5〜8で平ら（50点）。6は5と同じ点数なので落ち、「5〜6」「6〜9」が「5〜9」になる。
+        shape = _linear(
+            [MaterialTerm(material="num_a")], breakpoints=[(0.0, 0.0), (5.0, 50.0), (8.0, 50.0), (10.0, 100.0)]
+        )
+
+        assert bands_the_map_keeps("subject", shape, [], [2.0, 5.0, 6.0, 9.0]) == [0, 1, 2, 4]
+
+    def test_an_axis_the_map_cannot_paint_as_a_ramp_keeps_every_band(self):
+        shape = _linear([MaterialTerm(material="num_offtile")])
+
+        assert bands_the_map_keeps("subject", shape, [], [5.0, 12.0]) == [0, 1, 2]
+
+
+class TestMapBandLabels:
+    def test_labels_follow_the_bands_the_map_keeps(self):
+        shape = _linear(
+            [MaterialTerm(material="num_a")], breakpoints=[(0.0, 0.0), (5.0, 50.0), (8.0, 50.0), (10.0, 100.0)]
+        )
+        axis = _axis(
+            shape,
+            display_thresholds_override=[2.0, 5.0, 6.0, 9.0],
+            display_band_labels_override=["とても楽", "楽", "ふつう", "きつい", "とてもきつい"],
+        )
+
+        # 地図の段は「2未満」「2〜5」「5〜9」「9以上」。「5〜9」は下端5で始まる「ふつう」を持つ。
+        assert map_band_labels(axis) == ["とても楽", "楽", "ふつう", "とてもきつい"]
+        assert len(map_band_labels(axis)) == len(axis_display_for(axis).thresholds) + 1
+
+    def test_no_labels_without_an_override(self):
+        axis = _axis(_linear([MaterialTerm(material="num_a")]), display_thresholds_override=[2.0, 4.0])
+
+        assert map_band_labels(axis) is None
 
 
 class TestRescaleTileInput:

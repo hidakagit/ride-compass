@@ -7,7 +7,7 @@
 import { useCallback, useState } from "react";
 import { FieldLabel } from "@/components/Map/recipeControls";
 import { useMaterialCatalog } from "@/hooks/useMaterialCatalog";
-import { useThresholdsDroppedOnMap } from "@/hooks/useThresholdsDroppedOnMap";
+import { useMapBandsOfThresholds } from "@/hooks/useMapBandsOfThresholds";
 import type { AxisDefinitionPayload, AxisDefinitionResponse } from "@/types/route";
 import type { AxisMaterialOption } from "@/lib/axisMaterialsCatalog";
 import styles from "./AxisStudio.module.css";
@@ -95,7 +95,7 @@ export default function AxisComposer({
   const [error, setError] = useState<string | null>(null);
   const isNew = editing === null;
   const thresholds = draft.displayThresholdsOverride;
-  const thresholdsDroppedOnMap = useThresholdsDroppedOnMap(
+  const mapBands = useMapBandsOfThresholds(
     thresholds && thresholds.length > 0 && materialOptions.length > 0
       ? {
           axis_id: draft.axisId,
@@ -344,7 +344,7 @@ export default function AxisComposer({
         republishing={republishing}
         mapBandColors={mapBandColors}
         mapValueUnit={mapValueUnit}
-        thresholdsDroppedOnMap={thresholdsDroppedOnMap}
+        mapBands={mapBands}
         onThresholdErrorChange={setThresholdError}
       />
 
