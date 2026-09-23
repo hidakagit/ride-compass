@@ -2,8 +2,8 @@
 
     python scripts/orchestrate.py <サブコマンド> ...
 
-使い方は`scripts/orchestration/core.py`の冒頭。`asks`・`prereqs`・`priority`・`slot`・`ledger`は
-依頼で足した別のモジュール（`scripts/orchestration/asks.py`・`queue.py`・`slots.py`・`ledger.py`）へ渡す——核はそれらを
+使い方は`scripts/orchestration/core.py`の冒頭。`asks`・`prereqs`・`priority`・`slot`・`ledger`・`effort-ci`は
+依頼で足した別のモジュール（`scripts/orchestration/asks.py`・`queue.py`・`slots.py`・`ledger.py`・`effort_ci.py`）へ渡す——核はそれらを
 importしないため、振り分けはここで行う。
 """
 
@@ -31,6 +31,11 @@ def main() -> int:
 
         sys.stdout.reconfigure(encoding="utf-8")
         return queue.main(argv)
+    if argv[i:i + 1] == ["effort-ci"]:
+        from orchestration import effort_ci
+
+        sys.stdout.reconfigure(encoding="utf-8")
+        return effort_ci.main(argv[i + 1:])
     if argv[i:i + 1] == ["slot"]:
         from orchestration import slots
 
