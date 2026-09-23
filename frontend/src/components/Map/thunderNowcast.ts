@@ -13,7 +13,7 @@
 import weatherScales from "@/types/generated/weather-scales.json";
 import type { DynamicWeatherFrame, DynamicWeatherRenderPayload } from "@/components/Map/dynamicWeather";
 import {
-  declaredJmaElement,
+  jmaDelivery,
   fetchJmaTargetTimes,
   jmaTilePayload,
   parseValidtime,
@@ -28,8 +28,8 @@ export type ThunderNowcastFrame = JmaNowcastFrame;
  * 持たず、thns/trnsのタイルが存在しない。elementsに"thns"（"trns"も常に同じエントリへ
  * 同居するため代表して"thns"だけ見ればよい）を含むエントリだけへ絞り込んでから使う。 */
 export async function fetchThunderNowcastFrames(): Promise<ThunderNowcastFrame[]> {
-  const raw = await fetchJmaTargetTimes("nowc_N3", "雷ナウキャスト");
-  const thunderElement = declaredJmaElement("disaster/thunder").jmaElement;
+  const raw = await fetchJmaTargetTimes(jmaDelivery("disaster/thunder"), "雷ナウキャスト");
+  const thunderElement = jmaDelivery("disaster/thunder").id;
   const withThunderData = raw.filter((t) => t.elements?.includes(thunderElement));
   const frames: ThunderNowcastFrame[] = withThunderData.map((t) => ({ ...t, isForecast: t.validtime > t.basetime }));
   frames.sort((a, b) => a.validtime.localeCompare(b.validtime));

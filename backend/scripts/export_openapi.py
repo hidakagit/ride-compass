@@ -52,7 +52,7 @@ from app.domain.map_display import (  # noqa: E402
     WEATHER_LAYER_GROUPS,
     WeatherElement,
     weather_element_attribution,
-    weather_element_path_group,
+    weather_element_deliveries,
     weather_element_tile,
     ROUTE_ARROW_HALO_SCALE,
     ROUTE_ARROW_SIZE_BY_ZOOM,
@@ -189,9 +189,12 @@ def _weather_element_entry(element: WeatherElement) -> dict:
         "group": element.group,
         "source": element.source,
         "kind": element.kind,
-        "jmaElement": element.jma_element,
-        # 画面のデータ層は、配信元のURLを要素idとこの系統から組み立てる。
-        "pathGroup": weather_element_path_group(element),
+        # 時刻の段の順（近い時刻から）。画面のデータ層は、配信元のURLを要素idと系統から、
+        # 時刻一覧のURLを系統とファイル名から組み立てる。
+        "jmaElements": [
+            {"id": element_id, "pathGroup": path_group, "targetTimeFiles": list(files)}
+            for element_id, path_group, files in weather_element_deliveries(element)
+        ],
         "attribution": weather_element_attribution(element),
         # タイルで描くものだけが持つ。ズームの上限は配信元に実データがある範囲から導く。
         "tile": None

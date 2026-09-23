@@ -134,20 +134,35 @@ fail-open方針の非対称性: 警報・WBGT・洪水予報は失敗時に警�
 この1箇所から決まる。パスの系統（`risk`・`nowc`・`rasrf`）も同じ仕様が持ち、タイルで配らない
 配信要素（落雷のGeoJSON）の系統だけは`JMA_NON_TILE_PATH_GROUPS`が持つ（1つの要素idの系統は
 どちらか一方だけ。`jma_path_group()`が引く）。プリウォームの取得先はここから、画面の仮のURLと
-データ層が組み立てる実データのURLは生成物の要素ごとの`pathGroup`・`jmaElement`から組み立てる。
+データ層が組み立てる実データのURLは生成物の要素ごとの`jmaElements`（時刻の段の順に並んだ
+配信要素id・系統・時刻一覧のファイル）から組み立てる。1つの名前付きソースが時刻によって別の配信要素
+から届く（降水の`main`は`hrpns`→`rasrf`）ため段の並びで持ち、段の間でソースのズーム範囲が
+食い違えば`map_display.weather_element_tile()`が生成時に落とす。
 
 | 要素 | zoomUse | maxNativeZoom | 導出される上限 |
 |---|---|---|---|
 | `land`・`rain_mesh`・`inund`・`flood`（キキクル） | even | 11 | 10 |
-| `hrpns`（降水ナウキャスト） | even | 10 | 10 |
+| `hrpns`（降水ナウキャスト）・`rasrf`（降水短時間予報） | even | 10 | 10 |
 | `thns`・`trns`（雷・竜巻） | even | 9 | **8** |
 | `sjfcstmap`（線状降水帯予測マップ） | even | 10 | 10 |
 
+出典は各要素を表示する公式ページ（`bosai/risk/`・`bosai/nowc/`・`bosai/kaikotan/`）が読み込む
+`table/<ページ>.properties__<hash>.xml`。降水短時間予報と線状降水帯予測マップは「今後の雨」
+（`bosai/kaikotan/`）の設定ファイルが持つ。
+
 上限を超えるズームを指定すると、その要素のタイルは存在せず空タイル（334バイトのRGBA PNG、
 ベクタは0バイト）が返るため、地図から色が消える。上限の内側にある「偶奇の合わないズーム」
-（キキクル・降水のz5/z7/z9、雷竜巻のz5/z7）も同じく空になるため、そちらは下記の補間で埋める。`sjfcstmap`だけは配信元の設定ファイルを
-一次情報で確認できておらず（公式ページが設定を外部化していない）、同系統の`hrpns`と同じ値を
-暫定的に置いている（`JmaTileSpec.verified=False`）。
+（キキクル・降水のz5/z7/z9、雷竜巻のz5/z7）も同じく空になるため、そちらは下記の補間で埋める。
+**仕様に無い要素は補間されない**——`source_zoom_for_interpolation`は仕様を持たない要素idに
+Noneを返し、上流の空タイルがそのまま画面へ届く。
+
+**時刻一覧の在り処**（同じファイル）: 配信元は系統ごとに時刻一覧のファイルを持つ（公式ページの
+設定ファイルの`<dataRootUrl>`配下の`<timeFile>`、`JMA_TARGET_TIME_FILES`）。`nowc`だけが複数の
+ファイルに分かれ、どの要素がどのファイルに載るかは設定ファイルに無く、各ファイルの行の
+`elements`で決まる（`JMA_TARGET_TIME_FILES_BY_ELEMENT`。降水の実況・予測と、雷・竜巻・落雷で
+ファイルが違う）。系統の全ファイルを読む形にしないのは、要素の行が1件も無いファイルの取得失敗まで
+その要素の失敗に数えることになるため。`jma_target_time_files()`が要素ごとのファイルを引き、
+プリウォームはここから、画面は生成物の`jmaElements[].targetTimeFiles`から時刻一覧を取りに行く。
 
 **配信元が持たないズームの補間（`infrastructure/jma_tile_interpolation.py`）**:
 MapLibreのソース設定は連続したズーム区間しか表現できず「偶数だけ使う」を伝えられないため、

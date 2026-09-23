@@ -10,7 +10,7 @@
 
 import type { DynamicWeatherFrame } from "@/components/Map/dynamicWeather";
 import {
-  declaredJmaElement,
+  jmaDelivery,
   fetchJmaTargetTimes,
   parseValidtime,
   type JmaNowcastFrame,
@@ -23,8 +23,8 @@ export type LidenFrame = JmaNowcastFrame;
 
 /** liden（雷放電位置データ）のフレーム時刻一覧を取得する。 */
 export async function fetchLidenFrames(): Promise<LidenFrame[]> {
-  const raw = await fetchJmaTargetTimes("nowc_N3", "雷放電位置データ");
-  const lidenElement = declaredJmaElement("disaster/liden").jmaElement;
+  const raw = await fetchJmaTargetTimes(jmaDelivery("disaster/liden"), "雷放電位置データ");
+  const lidenElement = jmaDelivery("disaster/liden").id;
   const withLidenData = raw.filter((t) => t.elements?.includes(lidenElement));
   const frames: LidenFrame[] = withLidenData.map((t) => ({ ...t, isForecast: t.validtime > t.basetime }));
   frames.sort((a, b) => a.validtime.localeCompare(b.validtime));
@@ -37,7 +37,7 @@ export function lidenFrames(frames: readonly LidenFrame[]): DynamicWeatherFrame<
 }
 
 function lidenGeojsonUrl(frame: LidenFrame): string {
-  const { jmaElement, pathGroup } = declaredJmaElement("disaster/liden");
+  const { id: jmaElement, pathGroup } = jmaDelivery("disaster/liden");
   return jmaElementUrl(
     { group: pathGroup, element: jmaElement, basetime: frame.basetime, member: "none", validtime: frame.validtime },
     `data.geojson?id=${jmaElement}`,

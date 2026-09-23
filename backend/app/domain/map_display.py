@@ -6,7 +6,14 @@
 
 from typing import Literal, NamedTuple
 
-from app.domain.jma_tile_specs import JMA_TILE_SPECS, JmaTileSpec, PathGroup, jma_path_group
+from app.domain.jma_tile_specs import (
+    JMA_TILE_SPECS,
+    JmaTileSpec,
+    PathGroup,
+    effective_max_zoom,
+    jma_path_group,
+    jma_target_time_files,
+)
 from app.domain.material_catalog import PRIMARY_ATTRIBUTES
 
 
@@ -73,45 +80,58 @@ class WeatherElement(NamedTuple):
     #: （届いた中身の種類がどちらを出すかを決める）。
     source: str
     kind: WeatherRenderKind
-    #: 気象庁の配信要素id（配信元のパス`.../surf/<id>/`）。タイルで描くものは
-    #: `JMA_TILE_SPECS`に仕様を持つ。自前のMSM格子から描くものはNone。
-    jma_element: str | None
+    #: 気象庁の配信要素id（配信元のパス`.../surf/<id>/`）を、**時刻の段の順**（近い時刻から）に並べる
+    #: ——1つの名前付きソースが、選んだ時刻によって別の配信要素から届くことがある。タイルで描くものは
+    #: 全段が`JMA_TILE_SPECS`に仕様を持ち、ソースのズーム範囲は1つなので段の間で一致する。
+    #: 自前のMSM格子から描くものは空。
+    jma_elements: tuple[str, ...]
 
 
 #: 並びが同じ段（面・線・記号）の中の重なり順になる。災害は面を下に、見落としやすい線（洪水）・
 #: 点（落雷）を上に置き、大雨は土砂・浸水を統合した指標なので個別の2つより下に置く。
 WEATHER_ELEMENTS: tuple[WeatherElement, ...] = (
-    # 降水。60分以内は配信元のラスタ、それ以降は自前の格子を塗る。どちらが届くかは選んだ時刻で決まる。
-    WeatherElement("precipitationNowcast", "main", "rasterTile", "hrpns"),
-    WeatherElement("precipitationNowcast", "main", "gridFill", None),
-    WeatherElement("precipitationNowcast", "linearRainband", "rasterTile", "sjfcstmap"),
-    WeatherElement("windVector", "arrow", "gridMark", None),
-    WeatherElement("disaster", "heavyRain", "rasterTile", "rain_mesh"),
-    WeatherElement("disaster", "landslide", "rasterTile", "land"),
-    WeatherElement("disaster", "inundation", "rasterTile", "inund"),
-    WeatherElement("disaster", "thunder", "rasterTile", "thns"),
-    WeatherElement("disaster", "tornado", "rasterTile", "trns"),
-    WeatherElement("disaster", "flood", "vectorTile", "flood"),
-    WeatherElement("disaster", "liden", "gridMark", "liden"),
+    # 降水。60分先までは降水ナウキャスト、その先15時間先までは降水短時間予報を配信元のラスタで、
+    # それ以降は自前の格子を塗る。どれが届くかは選んだ時刻で決まる。
+    WeatherElement("precipitationNowcast", "main", "rasterTile", ("hrpns", "rasrf")),
+    WeatherElement("precipitationNowcast", "main", "gridFill", ()),
+    WeatherElement("precipitationNowcast", "linearRainband", "rasterTile", ("sjfcstmap",)),
+    WeatherElement("windVector", "arrow", "gridMark", ()),
+    WeatherElement("disaster", "heavyRain", "rasterTile", ("rain_mesh",)),
+    WeatherElement("disaster", "landslide", "rasterTile", ("land",)),
+    WeatherElement("disaster", "inundation", "rasterTile", ("inund",)),
+    WeatherElement("disaster", "thunder", "rasterTile", ("thns",)),
+    WeatherElement("disaster", "tornado", "rasterTile", ("trns",)),
+    WeatherElement("disaster", "flood", "vectorTile", ("flood",)),
+    WeatherElement("disaster", "liden", "gridMark", ("liden",)),
 )
 
 
 def weather_element_tile(element: WeatherElement) -> JmaTileSpec | None:
-    """タイルで描く要素の配信元仕様。タイルで描かない要素はNone。"""
+    """タイルで描く要素の配信元仕様。タイルで描かない要素はNone。
+
+    段ごとに仕様が違っても、1つのソースが持てるズーム範囲とベクタのレイヤー名は1つだけなので、
+    食い違えば`ValueError`。"""
     if element.kind not in _TILE_KINDS:
         return None
-    if element.jma_element is None:
+    if not element.jma_elements:
         raise ValueError(f"タイルで描く要素に配信要素idが無い: {element.group}/{element.source}")
-    return JMA_TILE_SPECS[element.jma_element]
+    specs = [JMA_TILE_SPECS[element_id] for element_id in element.jma_elements]
+    shapes = {(spec.min_zoom, effective_max_zoom(spec), spec.vector_layer) for spec in specs}
+    if len(shapes) > 1:
+        raise ValueError(f"時刻の段の間でタイルのズーム範囲が食い違う: {element.group}/{element.source} {shapes}")
+    return specs[0]
 
 
-def weather_element_path_group(element: WeatherElement) -> PathGroup | None:
-    """配信元から取る要素のパスの系統。自前のMSM格子から描く要素はNone。"""
-    return None if element.jma_element is None else jma_path_group(element.jma_element)
+def weather_element_deliveries(element: WeatherElement) -> list[tuple[str, PathGroup, tuple[str, ...]]]:
+    """配信元から取る段ごとの（配信要素id, パスの系統, 時刻一覧のファイル）。自前のMSM格子から描く要素は空。"""
+    return [
+        (element_id, jma_path_group(element_id), jma_target_time_files(element_id))
+        for element_id in element.jma_elements
+    ]
 
 
 def weather_element_attribution(element: WeatherElement) -> str:
-    return "気象庁MSM" if element.jma_element is None else "気象庁"
+    return "気象庁" if element.jma_elements else "気象庁MSM"
 
 
 #: 気象のまとまり（チップ）。要素の宣言から導く——並びは最初に現れた順。

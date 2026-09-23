@@ -37,7 +37,7 @@
 
 import weatherScales from "@/types/generated/weather-scales.json";
 import {
-  declaredJmaElement,
+  jmaDelivery,
   fetchJmaTargetTimes,
   jmaTilePayload,
   parseValidtime,
@@ -47,7 +47,7 @@ import type { DynamicWeatherFrame, DynamicWeatherRenderPayload } from "@/compone
 
 // 線状降水帯予測マップ(sjfcstmap)は降水短時間予報(rasrf)と同じtargetTimes.jsonに
 // elements違いの別行として混在する（precipitationNowcast.tsも同じファイルを読むが、
-// 見る行が違うためフェッチは別々に行う）。
+// 見る行が違うため、それぞれが自分の要素の宣言から時刻一覧を引く）。
 
 interface RawRiskTargetTime {
   basetime: string;
@@ -68,7 +68,7 @@ export interface RiskFrameRef {
 /** rawの中から、その要素の配信要素idを含む最新の1件を返す（無ければnull）。全エントリが
  * validtime===basetimeの単一時点データのため、basetime降順の先頭が「現在」にあたる。 */
 function latestEntry(raw: readonly RawRiskTargetTime[], key: JmaElementKey): RawRiskTargetTime | null {
-  const elementId = declaredJmaElement(key).jmaElement;
+  const elementId = jmaDelivery(key).id;
   const entries = raw.filter((e) => e.elements.includes(elementId));
   if (entries.length === 0) return null;
   return [...entries].sort((a, b) => b.basetime.localeCompare(a.basetime))[0];
@@ -90,22 +90,27 @@ export interface CurrentRiskFrames {
   flood: DynamicWeatherFrame<RiskFrameRef>[];
 }
 
-/** キキクル4種（土砂・大雨・浸水・洪水）の「現在」フレームをまとめて取得する（1回のfetchで
- * targetTimes.json自体は4種共通、要素ごとに最新エントリを個別に選ぶ）。 */
+async function currentFrames(key: JmaElementKey, label: string): Promise<DynamicWeatherFrame<RiskFrameRef>[]> {
+  const raw = await fetchJmaTargetTimes<RawRiskTargetTime>(jmaDelivery(key), label);
+  return toFrames(latestEntry(raw, key));
+}
+
+/** キキクル4種（土砂・大雨・浸水・洪水）の「現在」フレームをまとめて取得する。要素ごとに時刻一覧を
+ * 引くが、同じファイルに載る要素どうしは同時に取りに行くため往復は1回に畳まれる。 */
 export async function fetchCurrentRiskFrames(): Promise<CurrentRiskFrames> {
-  const raw = await fetchJmaTargetTimes<RawRiskTargetTime>("risk", "危険度分布（キキクル）");
-  return {
-    land: toFrames(latestEntry(raw, "disaster/landslide")),
-    heavyRain: toFrames(latestEntry(raw, "disaster/heavyRain")),
-    inundation: toFrames(latestEntry(raw, "disaster/inundation")),
-    flood: toFrames(latestEntry(raw, "disaster/flood")),
-  };
+  const label = "危険度分布（キキクル）";
+  const [land, heavyRain, inundation, flood] = await Promise.all([
+    currentFrames("disaster/landslide", label),
+    currentFrames("disaster/heavyRain", label),
+    currentFrames("disaster/inundation", label),
+    currentFrames("disaster/flood", label),
+  ]);
+  return { land, heavyRain, inundation, flood };
 }
 
 /** 線状降水帯予測マップの「現在」フレームを取得する。 */
 export async function fetchLinearRainbandFrames(): Promise<DynamicWeatherFrame<RiskFrameRef>[]> {
-  const raw = await fetchJmaTargetTimes<RawRiskTargetTime>("rasrf", "線状降水帯予測マップ");
-  return toFrames(latestEntry(raw, "precipitationNowcast/linearRainband"));
+  return currentFrames("precipitationNowcast/linearRainband", "線状降水帯予測マップ");
 }
 
 export function landRenderPayload(ref: RiskFrameRef): DynamicWeatherRenderPayload {

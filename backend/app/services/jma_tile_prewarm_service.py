@@ -24,6 +24,7 @@ from app.domain.jma_tile_specs import (
     JMA_TILE_SPECS,
     effective_max_zoom,
     has_native_tile,
+    jma_target_times_paths,
     source_zoom_for_interpolation,
 )
 from app.domain.region import BoundingBox, tiles_covering_bbox
@@ -48,35 +49,31 @@ _MAX_CONCURRENCY = 8
 
 
 class _PrewarmLayer:
-    def __init__(self, label: str, element_id: str, extension: str, target_times_path: str):
+    def __init__(self, label: str, element_id: str, extension: str):
         self.label = label
         self.element_id = element_id
         self.extension = extension
-        self.target_times_path = target_times_path
         # 配信元仕様は`domain/jma_tile_specs.py`が持つ。ここで引いておくことで、
         # 登録の無い要素idを書いた時点（import時）にKeyErrorで落ちる——既定のズームへ
         # 倒すと、綴り違いのレイヤーが「1段も温まらない」だけで静かに通る。
         self.spec = JMA_TILE_SPECS[element_id]
         self.group = self.spec.path_group
+        self.target_times_paths = jma_target_times_paths(element_id)
 
     @property
     def max_zoom(self) -> int:
         return effective_max_zoom(self.spec)
 
 
-_RISK_TARGET_TIMES = "bosai/jmatile/data/risk/targetTimes.json"
-_RASRF_TARGET_TIMES = "bosai/jmatile/data/rasrf/targetTimes.json"
-_NOWC_TARGET_TIMES = "bosai/jmatile/data/nowc/targetTimes_N3.json"
-
 # frontendが描く動的気象レイヤーと1対1で対応させる。ここに無い要素は温まらない。
 _LAYERS: tuple[_PrewarmLayer, ...] = (
-    _PrewarmLayer("キキクル・土砂", "land", "png", _RISK_TARGET_TIMES),
-    _PrewarmLayer("キキクル・大雨", "rain_mesh", "png", _RISK_TARGET_TIMES),
-    _PrewarmLayer("キキクル・浸水", "inund", "png", _RISK_TARGET_TIMES),
-    _PrewarmLayer("キキクル・洪水", "flood", "pbf", _RISK_TARGET_TIMES),
-    _PrewarmLayer("線状降水帯予測マップ", "sjfcstmap", "png", _RASRF_TARGET_TIMES),
-    _PrewarmLayer("雷ナウキャスト", "thns", "png", _NOWC_TARGET_TIMES),
-    _PrewarmLayer("竜巻ナウキャスト", "trns", "png", _NOWC_TARGET_TIMES),
+    _PrewarmLayer("キキクル・土砂", "land", "png"),
+    _PrewarmLayer("キキクル・大雨", "rain_mesh", "png"),
+    _PrewarmLayer("キキクル・浸水", "inund", "png"),
+    _PrewarmLayer("キキクル・洪水", "flood", "pbf"),
+    _PrewarmLayer("線状降水帯予測マップ", "sjfcstmap", "png"),
+    _PrewarmLayer("雷ナウキャスト", "thns", "png"),
+    _PrewarmLayer("竜巻ナウキャスト", "trns", "png"),
 )
 
 
@@ -189,6 +186,17 @@ async def _store_index(
     await set_index(payload)
 
 
+async def _fetch_target_times(client: JmaTileClient, path: str) -> list[dict] | None:
+    raw = await client.get(path)
+    if raw is None or isinstance(raw, EmptyTile):
+        return None
+    content, _content_type = raw
+    try:
+        return json.loads(content)
+    except (ValueError, TypeError):
+        return None
+
+
 async def prewarm_jma_tiles(client: JmaTileClient) -> None:
     """対象範囲のタイルを列挙し、`JmaTileClient.get()`で取得する。
 
@@ -202,17 +210,11 @@ async def prewarm_jma_tiles(client: JmaTileClient) -> None:
     layer_entries: dict[str, dict] = {}
 
     for layer in _LAYERS:
-        if layer.target_times_path not in target_times_cache:
-            raw = await client.get(layer.target_times_path)
-            if raw is None or isinstance(raw, EmptyTile):
-                target_times_cache[layer.target_times_path] = None
-            else:
-                content, _content_type = raw
-                try:
-                    target_times_cache[layer.target_times_path] = json.loads(content)
-                except (ValueError, TypeError):
-                    target_times_cache[layer.target_times_path] = None
-        raw_entries = target_times_cache[layer.target_times_path]
+        raw_entries: list[dict] = []
+        for target_times_path in layer.target_times_paths:
+            if target_times_path not in target_times_cache:
+                target_times_cache[target_times_path] = await _fetch_target_times(client, target_times_path)
+            raw_entries.extend(target_times_cache[target_times_path] or [])
         if not raw_entries:
             skipped_labels.append(layer.label)
             continue
