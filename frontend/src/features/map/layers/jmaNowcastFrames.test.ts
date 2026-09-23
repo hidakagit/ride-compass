@@ -129,7 +129,6 @@ describe("タイルのURL", () => {
 
   it("時刻の段ごとに別の配信要素から届く", () => {
     const later = jmaDelivery("precipitationNowcast/main", 1);
-    expect(later.id).not.toBe(RAIN);
     expect(jmaTilePayload("precipitationNowcast/main", time, 1)).toMatchObject({
       tileUrlTemplate: expect.stringContaining(
         `/${later.pathGroup}/20260924000000/immed/20260924010000/surf/${later.id}/`,

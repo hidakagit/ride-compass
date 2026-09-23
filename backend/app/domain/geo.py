@@ -32,6 +32,7 @@ class LatLonPoint(NamedTuple):
     latitude: float
     longitude: float
 
+
 # 緯度1度あたりの概算距離（km、地球を球とみなす近似）。空間索引のバケット分割・打ち切り
 # 判定・矩形マージンの見積もりという「目安」用途にのみ使う。実際の距離計算は常に
 # haversine_distance_kmで正確に行う。
@@ -41,13 +42,14 @@ COMPASS_LABELS = ["北", "北東", "東", "南東", "南", "南西", "西", "北
 
 
 def compass_label(bearing_deg: float) -> str:
-    """任意の角度（0=北、時計回り）を8方位のラベルに変換する。
+    """任意の角度（0=北、時計回り）を方位の呼び名に変換する。区分の幅は呼び名の数から決まる。
 
-    区分の境界（22.5°・67.5°…）は上の区分へ倒す（half-up）。組み込みの`round`は
-    偶数丸めのため使わない——画面側も同じhalf-upで丸めており、規則が違うと境界だけ
-    ラベルが食い違う（呼び名の並びは生成物で配るので、そこはずれない）。
+    区分の境界は上の区分へ倒す（half-up）。組み込みの`round`は偶数丸めのため使わない——
+    画面側も同じhalf-upで丸めており、規則が違うと境界だけラベルが食い違う（呼び名の並びは
+    生成物で配るので、そこはずれない）。
     """
-    index = math.floor((bearing_deg % 360) / 45 + 0.5) % 8
+    count = len(COMPASS_LABELS)
+    index = math.floor((bearing_deg % 360) / (360 / count) + 0.5) % count
     return COMPASS_LABELS[index]
 
 
@@ -107,4 +109,3 @@ def haversine_distance_km_array(lat: np.ndarray, lon: np.ndarray, target: LatLon
     dlon = lon2 - lon1
     h = np.sin(dlat / 2) ** 2 + np.cos(lat1) * math.cos(lat2) * np.sin(dlon / 2) ** 2
     return 2 * EARTH_RADIUS_KM * np.arcsin(np.sqrt(h))
-

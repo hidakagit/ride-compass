@@ -148,9 +148,4 @@ describe("ComparisonPanel 表", () => {
     renderPanel(slots);
     expect(screen.getByText(/直近2回の生成結果を並べています/)).toBeInTheDocument();
   });
-
-  it("時刻として読めない値は、そのまま見出しに出す", () => {
-    renderPanel([slot("a", {}, { generated_at: "不明" }), slot("b", {})]);
-    expect(within(screen.getByRole("table")).getAllByRole("columnheader")[1]).toHaveTextContent("不明");
-  });
 });

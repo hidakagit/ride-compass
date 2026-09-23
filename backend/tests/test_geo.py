@@ -18,28 +18,30 @@ TOKYO = LatLonPoint(latitude=35.68, longitude=139.77)
 OSAKA = LatLonPoint(latitude=34.69, longitude=135.50)
 
 
-class TestCompassLabel:
+#: 区分の幅は呼び名の数から決まる。
+SECTOR = 360 / len(COMPASS_LABELS)
 
+
+class TestCompassLabel:
     def test_each_sector_centre_gets_its_own_label(self):
-        assert [compass_label(45 * i) for i in range(8)] == COMPASS_LABELS
+        assert [compass_label(SECTOR * i) for i in range(len(COMPASS_LABELS))] == COMPASS_LABELS
 
     def test_a_sector_boundary_rounds_up(self):
-        """22.5度は偶数丸めなら「北」、half-upなら「北東」。"""
-        assert compass_label(22.5) == "北東"
-        assert compass_label(67.5) == "東"
+        """ちょうど半分は、偶数丸めなら手前の区分、half-upなら次の区分。"""
+        assert compass_label(SECTOR / 2) == COMPASS_LABELS[1]
+        assert compass_label(SECTOR * 1.5) == COMPASS_LABELS[2]
 
     def test_angles_outside_one_turn_are_folded(self):
         assert compass_label(360) == compass_label(0)
-        assert compass_label(-45) == compass_label(315)
+        assert compass_label(-SECTOR) == compass_label(360 - SECTOR)
         assert compass_label(725) == compass_label(5)
 
-    def test_the_last_sector_wraps_back_to_north(self):
-        """357.75度以上は次の区分＝北へ入る。畳まずに索引を引くと範囲外になる。"""
-        assert compass_label(359) == "北"
+    def test_the_last_sector_wraps_back_to_the_first(self):
+        """最後の区分の後半は最初の区分へ入る。畳まずに索引を引くと範囲外になる。"""
+        assert compass_label(359) == COMPASS_LABELS[0]
 
 
 class TestBearingBetween:
-
     def test_due_east_is_ninety(self):
         east = bearing_between(TOKYO, LatLonPoint(TOKYO.latitude, TOKYO.longitude + 1))
 
@@ -76,7 +78,6 @@ class TestBearingBetween:
 
 
 class TestBearingBetweenArray:
-
     def test_it_agrees_with_the_scalar_version(self):
         targets = [LatLonPoint(35.0, 139.0), LatLonPoint(36.5, 140.5), LatLonPoint(34.0, 138.0)]
         expected = [bearing_between(TOKYO, t) for t in targets]
@@ -112,7 +113,6 @@ class TestHaversineDistanceKm:
 
 
 class TestHaversineDistanceKmArray:
-
     def test_it_agrees_with_the_scalar_version(self):
         points = [LatLonPoint(35.0, 139.0), LatLonPoint(36.5, 140.5), OSAKA]
         expected = [haversine_distance_km(p, TOKYO) for p in points]
@@ -130,13 +130,11 @@ class TestHaversineDistanceKmArray:
 
 
 class TestLatLon:
-
     def test_a_different_shape_of_input_gives_the_same_answer(self):
         as_model = Coordinates(latitude=TOKYO.latitude, longitude=TOKYO.longitude)
 
         assert haversine_distance_km(as_model, OSAKA) == haversine_distance_km(TOKYO, OSAKA)
         assert bearing_between(as_model, OSAKA) == bearing_between(TOKYO, OSAKA)
-
 
 
 def test_the_compass_has_a_label_for_every_sector():

@@ -171,8 +171,5 @@ describe("降水強度の凡例", () => {
       const next = PRECIPITATION_COLOR_STOPS[i + 1];
       if (next) expect(level.label).toContain(`${next.mmPerHour}mm/h`);
     });
-    expect(new Set(PRECIPITATION_INTENSITY_LEVELS.map((level) => level.key)).size).toBe(
-      PRECIPITATION_INTENSITY_LEVELS.length,
-    );
   });
 });

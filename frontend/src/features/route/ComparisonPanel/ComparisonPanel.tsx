@@ -121,9 +121,7 @@ function formatWeights(slot: ExperimentSlot, axisLabels: Record<string, string>)
 // 同じ分に2回生成した場合の区別は色（swatch）が持ち、正確な時刻とエンジン・重みは
 // 見出しのtitleが持つ。
 function formatGeneratedAt(iso: string): string {
-  const date = new Date(iso);
-  if (Number.isNaN(date.getTime())) return iso;
-  return formatJstHourMinute(date);
+  return formatJstHourMinute(new Date(iso));
 }
 
 /** 見出しへ載せきれない素性（正確な時刻・その回の重み）。 */

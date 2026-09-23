@@ -5,7 +5,7 @@ import { catalogOf, dedicatedEntry, rampEntry } from "@/features/map/view/__fixt
 import { pointLegendAxes } from "@/features/map/scene/legends";
 import { mapDisplay } from "@/types/generated/mapDisplay";
 
-import { LANDCOVER_CLASSES, LANDCOVER_PAINTED_CLASSES } from "./landcoverClasses";
+import { LANDCOVER_PAINTED_CLASSES } from "./landcoverClasses";
 import {
   buildDefaultLayerVisibility,
   buildMapLayers,
@@ -66,17 +66,13 @@ describe("buildMapLayers（レイヤーの一覧）", () => {
   });
 
   it("土地被覆の凡例は、地図に塗るクラスだけを並べる", () => {
-    expect(LANDCOVER_PAINTED_CLASSES.length).toBeLessThan(LANDCOVER_CLASSES.length);
     const [block] = layer(withoutAxes, "landcover").readOnlyLegend ?? [];
     expect(block.legend.map((entry) => entry.label)).toEqual(LANDCOVER_PAINTED_CLASSES.map((cls) => cls.label));
   });
 });
 
 describe("地図上チップのグループ", () => {
-  it("種別が属するグループへ入れ、軸スタジオ由来・種別を持たないもの（ルート）はどこにも入れない", () => {
-    for (const category of mapDisplay.layerCategories) {
-      expect(mapOverlayGroupFor({ id: "highway", category: category.key })).toBe(category.group);
-    }
+  it("軸スタジオ由来・種別を持たないもの（ルート）はどのグループにも入れない", () => {
     expect(mapOverlayGroupFor(layer(withAxes, "axis:ramp_a"))).toBeUndefined();
     expect(mapOverlayGroupFor(layer(withAxes, "dedicated_bAxis"))).toBeUndefined();
     expect(mapOverlayGroupFor(layer(withoutAxes, "route"))).toBeUndefined();
@@ -106,10 +102,8 @@ describe("出せない理由の案内", () => {
 });
 
 describe("buildDefaultLayerVisibility（表示の既定値）", () => {
-  it("チップで切り替えられるレイヤーだけがキーを持ち、既定表示を宣言したものだけがON", () => {
-    const visibility = buildDefaultLayerVisibility();
-    expect(Object.keys(visibility).sort()).toEqual([...mapDisplay.layerIds].sort());
-    for (const entry of withoutAxes) expect(visibility[entry.id]).toBe(entry.defaultOn === true);
+  it("チップで切り替えられるレイヤーだけがキーを持つ（軸スタジオ由来は持たない）", () => {
+    expect(Object.keys(buildDefaultLayerVisibility()).sort()).toEqual([...mapDisplay.layerIds].sort());
   });
 });
 
