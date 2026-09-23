@@ -1,4 +1,4 @@
-import type { DataStatusMapLike } from "@/components/Map/useLayerDataStatus";
+import type { DataStatusMapLike } from "@/features/map/MapView/useLayerDataStatus";
 
 interface FakeMapOptions {
   addedSourceIds?: readonly string[];

@@ -10,17 +10,21 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 // useStoredJsonState経由でのlocalStorage同期もここで検証していたが、total_score撤去に
 // 伴いWeightPanel自体を削除したため対応するテストも削除した）。
 
-vi.mock("@/components/BackendStatus", () => ({ default: () => <div data-testid="backend-status" /> }));
-vi.mock("@/components/DebugPanel/DebugPanel", () => ({ default: () => <div data-testid="debug-panel" /> }));
-vi.mock("@/components/ResearchPanel/ResearchPanel", () => ({ default: () => <div data-testid="research-panel" /> }));
-vi.mock("@/components/AxisStudio/AxisStudio", () => ({ default: () => <div data-testid="axis-studio" /> }));
-vi.mock("@/components/AxisStudio/MaterialCoveragePanel", () => ({
+vi.mock("@/features/admin/BackendStatus/BackendStatus", () => ({
+  default: () => <div data-testid="backend-status" />,
+}));
+vi.mock("@/features/admin/DebugPanel/DebugPanel", () => ({ default: () => <div data-testid="debug-panel" /> }));
+vi.mock("@/features/admin/ResearchPanel/ResearchPanel", () => ({
+  default: () => <div data-testid="research-panel" />,
+}));
+vi.mock("@/features/admin/AxisStudio/AxisStudio", () => ({ default: () => <div data-testid="axis-studio" /> }));
+vi.mock("@/features/admin/AxisStudio/MaterialCoveragePanel", () => ({
   default: () => <div data-testid="material-coverage-panel" />,
 }));
-vi.mock("@/components/AxisStudio/DerivedDataFreshnessPanel", () => ({
+vi.mock("@/features/admin/AxisStudio/DerivedDataFreshnessPanel", () => ({
   default: () => <div data-testid="derived-data-freshness-panel" />,
 }));
-vi.mock("@/components/SystemStatusPanel/SystemStatusPanel", () => ({
+vi.mock("@/features/admin/SystemStatusPanel/SystemStatusPanel", () => ({
   default: ({ open, onClose }: { open: boolean; onClose: () => void }) => (
     <div data-testid="system-status-panel" data-open={open}>
       <button type="button" onClick={onClose}>

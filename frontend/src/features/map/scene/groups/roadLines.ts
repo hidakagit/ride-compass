@@ -12,16 +12,16 @@
  * 横へ割り付ける（1本なら中央）。線の太さと線種は意味を運ばない——1本の線へ2つの意味を
  * 載せると、色の意味がもう一方のON/OFFで入れ替わる。
  */
-import { sceneSourceId } from "../sceneBuilders";
+import { sceneSourceId } from "@/features/map/scene/sceneBuilders";
 import { mapDisplay } from "@/types/generated/mapDisplay";
 import palette from "@/types/generated/palette.json";
 import type { FilterSpecification } from "maplibre-gl";
 
 import { primaryAttributes } from "@/types/generated/primaryAttributes";
 
-import { COLOR_UNKNOWN } from "@/components/Map/axisLayers";
+import { COLOR_UNKNOWN } from "@/features/map/scene/sceneBuilders";
 
-import { declareGroup, type SceneLayerEntry, type SceneSourceEntry } from "../mapSceneGroups";
+import { declareGroup, type SceneLayerEntry, type SceneSourceEntry } from "@/features/map/scene/mapSceneGroups";
 
 const ROAD = mapDisplay.road;
 

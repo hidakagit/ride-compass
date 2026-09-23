@@ -2,7 +2,7 @@
 /** 凡例の見本が、地図に実際に描かれるものだけを示すこと。 */
 import { describe, expect, it } from "vitest";
 
-import { pointGroup } from "./groups/points";
+import { pointGroup } from "@/features/map/scene/groups/points";
 import { pointLegendAxes } from "./legends";
 
 const TILES = {

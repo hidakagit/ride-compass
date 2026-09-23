@@ -1,7 +1,7 @@
 // 研究モードの「比較」タブ（ComparisonPanel）が、狭い画面で値の列まで読めること
 // （パターン4 観点1）。表の列幅は実寸でしか決まらず、vitest（happy-dom）では捕まらない。
 import { expect, test } from "@playwright/test";
-import { catalogAxis } from "@/components/Map/__fixtures__/catalogAxes";
+import { catalogAxis } from "@/lib/mapDisplay/__fixtures__/catalogAxes";
 import {
   MOBILE_VIEWPORT,
   axisCatalogFixture,

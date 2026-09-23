@@ -16,17 +16,17 @@ import { mapDisplay } from "@/types/generated/mapDisplay";
 import palette from "@/types/generated/palette.json";
 import type { FilterSpecification } from "maplibre-gl";
 
-import { createLidenIcon } from "@/components/Map/lidenIcon";
-import { LIDEN_MARK_VALUE_PROPERTY } from "@/components/Map/lidenLayer";
-import { jmaPlaceholderTileUrl } from "@/components/Map/jmaNowcastFrames";
-import { PRECIPITATION_COLOR_STOPS, PRECIPITATION_NONE_THRESHOLD_MM } from "@/components/Map/precipitationNowcast";
-import { RISK_LEVEL_COLORS } from "@/components/Map/riskMap";
-import { createWindArrowIcon } from "@/components/Map/windArrowIcon";
-import { WIND_CALM_THRESHOLD_MS, WIND_SPEED_COLOR_STOPS } from "@/components/Map/windLayer";
+import { createLidenIcon } from "@/features/map/layers/lidenIcon";
+import { LIDEN_MARK_VALUE_PROPERTY } from "@/features/map/layers/lidenLayer";
+import { jmaPlaceholderTileUrl } from "@/features/map/layers/jmaNowcastFrames";
+import { PRECIPITATION_COLOR_STOPS, PRECIPITATION_NONE_THRESHOLD_MM } from "@/features/map/layers/precipitationNowcast";
+import { RISK_LEVEL_COLORS } from "@/features/map/layers/riskMap";
+import { createWindArrowIcon } from "@/features/map/layers/windArrowIcon";
+import { WIND_CALM_THRESHOLD_MS, WIND_SPEED_COLOR_STOPS } from "@/features/map/layers/windLayer";
 
-import { declareGroup, type SceneLayerEntry, type SceneSourceEntry } from "../mapSceneGroups";
+import { declareGroup, type SceneLayerEntry, type SceneSourceEntry } from "@/features/map/scene/mapSceneGroups";
 import { AREA_OPACITY } from "./areaRasters";
-import { zoomScaleExpression, sceneSourceId, type SceneSourceId } from "../sceneBuilders";
+import { zoomScaleExpression, sceneSourceId, type SceneSourceId } from "@/features/map/scene/sceneBuilders";
 
 const WEATHER = mapDisplay.weather;
 

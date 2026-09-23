@@ -2,12 +2,12 @@
  *
  * どれも基礎地図の道路網より下へ入り、**明示的にONにしたものだけ**が出る。
  */
-import { sceneSourceId, type SceneSourceId } from "../sceneBuilders";
+import { sceneSourceId, type SceneSourceId } from "@/features/map/scene/sceneBuilders";
 import { mapDisplay } from "@/types/generated/mapDisplay";
 import { primaryAttributes } from "@/types/generated/primaryAttributes";
 import regionTileConfig from "@/types/generated/region-tile-config.json";
 
-import { declareGroup, type SceneLayerEntry, type SceneSourceEntry } from "../mapSceneGroups";
+import { declareGroup, type SceneLayerEntry, type SceneSourceEntry } from "@/features/map/scene/mapSceneGroups";
 
 /** 面の濃さ。**動かす前に`docs/modules/frontend/static-map-layers.md`「面の濃さ」を読む**
  * ——下限・上限の両方に根拠がある。 */

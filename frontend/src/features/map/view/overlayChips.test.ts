@@ -12,7 +12,7 @@ import {
   type MapLayerDescriptor,
   type MapLayerId,
   type MapLayerVisibility,
-} from "@/components/Map/mapLayers";
+} from "@/features/map/layers/mapLayers";
 import { DISASTER_LAYER_ID } from "@/features/map/scene/legends";
 import { mapDisplay } from "@/types/generated/mapDisplay";
 

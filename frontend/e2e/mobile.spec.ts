@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { catalogAxis } from "@/components/Map/__fixtures__/catalogAxes";
+import { catalogAxis } from "@/lib/mapDisplay/__fixtures__/catalogAxes";
 import { MOBILE_VIEWPORT, axisCatalogFixture, openMobileApp } from "./fixtures";
 
 // モバイル（390px）で、要素が幅に収まり押せること（パターン4 観点1）。要素は画面外へ

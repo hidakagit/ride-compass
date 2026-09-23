@@ -12,16 +12,16 @@
  * **タイルの世代が届くまでソースを作らない**。先に作ると、世代の違う中身がブラウザの
  * キャッシュへ載って以後ずっと残る。
  */
-import { sceneSourceId, type SceneSourceId } from "../sceneBuilders";
+import { sceneSourceId, type SceneSourceId } from "@/features/map/scene/sceneBuilders";
 import { mapDisplay } from "@/types/generated/mapDisplay";
 import palette from "@/types/generated/palette.json";
 import type { FilterSpecification } from "maplibre-gl";
 
 import { primaryAttributes } from "@/types/generated/primaryAttributes";
 
-import { COLOR_UNKNOWN } from "@/components/Map/axisLayers";
+import { COLOR_UNKNOWN } from "@/features/map/scene/sceneBuilders";
 
-import { declareGroup, type SceneLayerEntry, type SceneSourceEntry } from "../mapSceneGroups";
+import { declareGroup, type SceneLayerEntry, type SceneSourceEntry } from "@/features/map/scene/mapSceneGroups";
 
 const POINT = mapDisplay.point;
 

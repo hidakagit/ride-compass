@@ -14,13 +14,13 @@ import {
   type CatalogAxis,
   type DedicatedWayValueAxis,
   type RampAxis,
-} from "@/components/Map/axisLayers";
-import { secondaryAxesFromCatalogAxes, type SecondaryAxisSummary } from "@/components/Map/secondaryAxes";
+} from "@/lib/mapDisplay/axisLayers";
+import { secondaryAxesFromCatalogAxes, type SecondaryAxisSummary } from "@/lib/secondaryAxes";
 import {
   ROUTE_STYLE_MODES_WITHOUT_AXES,
   routeStyleModesFromCatalogAxes,
   type RouteStyleMode,
-} from "@/components/Map/routeStyleModes";
+} from "@/lib/mapDisplay/routeStyleModes";
 
 /** 軸カタログ。`GET /api/axis-catalog`の応答から導いた、画面が読む形。 */
 export interface AxisCatalog {
@@ -68,7 +68,7 @@ export interface AxisCatalog {
  * （route-generate-config.json）に必ず在る**ことをテストが固定する——backendの宣言から
  * 消す/綴りを変えると、フロントは引けないまま黙って別の値で動くため。 */
 export const CLIENT_TUNING_IDS = {
-  /** 区間を割る下限（km）。これ未満の共有区間では割らない（`lib/routeSplice.ts`）。 */
+  /** 区間を割る下限（km）。これ未満の共有区間では割らない（`features/route/routeSplice.ts`）。 */
   minStretchKm: "splice.min_stretch_km",
 } as const;
 

@@ -23,7 +23,7 @@ describe("GET /admin/api/derived-data-freshness", () => {
     expect(proxyToBackendAdmin).toHaveBeenCalledWith(request, "/api/admin/derived-data/freshness", {
       timeoutMs: HEAVY_ADMIN_API_TIMEOUT_MS,
     });
-    // ブラウザ側のクライアント（services/derivedDataFreshnessApi.ts）と同じ定数であることが、
+    // ブラウザ側のクライアント（features/admin/derivedDataFreshnessApi.ts）と同じ定数であることが、
     // 「片方だけ延ばしても症状が変わらない」状態を防ぐ。
     expect(HEAVY_ADMIN_API_TIMEOUT_MS).toBeGreaterThan(DEFAULT_API_TIMEOUT_MS);
     expect(response).toBe(sentinelResponse);

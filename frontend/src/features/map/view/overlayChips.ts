@@ -4,7 +4,7 @@
  * 凡例は`scene/legends.ts`、表示専用の凡例は記述子の`readOnlyLegend`。画面の状態からしか
  * 作れない凡例（ルート線の段）だけを呼び出し側が渡す。
  */
-import type { LegendEntry, LegendFilterSummaryAxis } from "@/components/Map/legendFilter";
+import type { LegendEntry } from "@/lib/mapDisplay/legendFilter";
 import {
   buildDefaultLayerVisibility,
   isAxisStudioLayer,
@@ -14,8 +14,8 @@ import {
   type MapLayerDescriptor,
   type MapLayerId,
   type MapLayerVisibility,
-} from "@/components/Map/mapLayers";
-import type { OverlayLayerChip } from "@/components/MapOverlayControls/MapOverlayControls";
+} from "@/features/map/layers/mapLayers";
+import type { LegendFilterSummaryAxis, OverlayLayerChip } from "@/features/map/MapOverlayControls/MapOverlayControls";
 import { disasterSourceLegendAxis, pointLegendAxes, roadLegendAxes } from "@/features/map/scene/legends";
 
 import { hiddenKeysOf, presentHiddenKeys } from "./legendFilters";

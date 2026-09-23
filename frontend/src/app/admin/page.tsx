@@ -2,17 +2,17 @@
 
 import { useState } from "react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/Tabs/Tabs";
-import BackendStatus from "@/components/BackendStatus";
-import DebugPanel from "@/components/DebugPanel/DebugPanel";
-import BackendLogsPanel from "@/components/BackendLogsPanel/BackendLogsPanel";
-import ResearchPanel from "@/components/ResearchPanel/ResearchPanel";
-import SystemStatusPanel from "@/components/SystemStatusPanel/SystemStatusPanel";
-import AxisStudio from "@/components/AxisStudio/AxisStudio";
-import MaterialCoveragePanel from "@/components/AxisStudio/MaterialCoveragePanel";
-import DerivedDataFreshnessPanel from "@/components/AxisStudio/DerivedDataFreshnessPanel";
-import DbStatusPanel from "@/components/AxisStudio/DbStatusPanel";
-import TileCachePanel from "@/components/AxisStudio/TileCachePanel";
-import TuningPanel from "@/components/AxisStudio/TuningPanel";
+import BackendStatus from "@/features/admin/BackendStatus/BackendStatus";
+import DebugPanel from "@/features/admin/DebugPanel/DebugPanel";
+import BackendLogsPanel from "@/features/admin/BackendLogsPanel/BackendLogsPanel";
+import ResearchPanel from "@/features/admin/ResearchPanel/ResearchPanel";
+import SystemStatusPanel from "@/features/admin/SystemStatusPanel/SystemStatusPanel";
+import AxisStudio from "@/features/admin/AxisStudio/AxisStudio";
+import MaterialCoveragePanel from "@/features/admin/AxisStudio/MaterialCoveragePanel";
+import DerivedDataFreshnessPanel from "@/features/admin/AxisStudio/DerivedDataFreshnessPanel";
+import DbStatusPanel from "@/features/admin/AxisStudio/DbStatusPanel";
+import TileCachePanel from "@/features/admin/AxisStudio/TileCachePanel";
+import TuningPanel from "@/features/admin/AxisStudio/TuningPanel";
 import { useDebugEnabled } from "@/hooks/useDebugLog";
 import { buttonVariants } from "@/components/ui/Button/Button";
 import { Toggle } from "@/components/ui/Toggle/Toggle";

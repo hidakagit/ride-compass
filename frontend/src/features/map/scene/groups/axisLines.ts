@@ -10,10 +10,11 @@ import { mapDisplay } from "@/types/generated/mapDisplay";
 import palette from "@/types/generated/palette.json";
 import type { FilterSpecification } from "maplibre-gl";
 
-import type { MapSceneFeatureStates, MapSceneFeatureStateValue } from "../mapScene";
-import { declareGroup, type SceneLayerEntry, type SceneSourceEntry } from "../mapSceneGroups";
-import { COLOR_UNKNOWN } from "@/components/Map/axisLayers";
-import { LEGEND_NO_DATA_KEY } from "@/components/Map/mapColorLegend";
+import type { MapSceneFeatureStates, MapSceneFeatureStateValue } from "@/features/map/scene/mapScene";
+import { declareGroup, type SceneLayerEntry, type SceneSourceEntry } from "@/features/map/scene/mapSceneGroups";
+import type { RampAxis } from "@/lib/mapDisplay/axisLayers";
+import { COLOR_UNKNOWN } from "@/features/map/scene/sceneBuilders";
+import { LEGEND_NO_DATA_KEY } from "@/lib/mapDisplay/mapColorLegend";
 
 import { ROAD_LINE_SOURCE_ID, ROAD_TRACKS } from "./roadLines";
 
@@ -162,3 +163,63 @@ export const axisLineGroup = declareGroup<AxisLineState>((state) => {
 
   return { sources, layers };
 });
+
+/** hasUnknownFallbackの入力について、その道の値を「不明」とすべきかを返す式。該当する
+ * 入力を持たない軸はnull（不明という状態を持たない）。
+ *
+ * 分類材料（N値文字列、例: highway）は、プロパティの欠損に加えて**値はあるが分類表に
+ * 無い**ときも不明に含める。backendの評価（`domain/axis_definitions.py:
+ * evaluate_axis_scalar`）は未登録値を評価不能として扱うため、地図だけ「寄与0（最良側）」で
+ * 塗ると評価と食い違う。真偽値材料には「未登録値」という状態が無いので欠損だけで判定する。
+ *
+ * 欠損は`null`のままにせず、同じ型の番兵へ倒してから式へ入れる（文字列なら
+ * `"__unknown__"`、数値なら0）。**出力の型が混ざる`case`/`match`を作らない**ための流儀で、
+ * 式の評価が落ちてもMapLibreは例外を投げずそのレイヤーだけ黙って描かれなくなる。 */
+export function buildAxisRampUnknownExpression(axis: RampAxis): unknown[] | null {
+  const checks = axis.tileInputs
+    .filter((input) => input.hasUnknownFallback)
+    .map((input) => {
+      if (input.categories) {
+        const knownValuePairs = Object.keys(input.categories).flatMap((key) => [key, false]);
+        return ["match", ["coalesce", ["get", input.property], "__unknown__"], ...knownValuePairs, true];
+      }
+      return ["!", ["has", input.property]];
+    });
+  if (checks.length === 0) return null;
+  return checks.length === 1 ? checks[0] : ["any", ...checks];
+}
+
+/** ramp軸の値を組み立てるMapLibre expression。
+ *
+ * 数値材料はΣ property×weight。重みは軸定義が持ちカタログ経由で届く（フロントに係数を書かない）。
+ * プロパティの欠損はタイル側が「0をNULLIFでキー省略」した結果なので0へ倒す。
+ * 真偽値材料はMVTの真偽値を比較でしか読めず重み付き和が成り立たないため、
+ * ["case", 真偽比較, trueValue, falseValue]で寄与値を直接置く。N値文字列材料・自己変換材料は
+ * それぞれ["match", ...]・["interpolate", ...]で寄与値を作る。 */
+export function buildAxisRampValueExpression(axis: RampAxis): unknown[] {
+  const terms = axis.tileInputs.map((input) => {
+    if (input.boolean) {
+      const comparison = ["==", ["get", input.property], true];
+      return ["case", comparison, input.trueValue ?? 0, input.falseValue ?? 0];
+    }
+    if (input.categories) {
+      const value = [
+        "match",
+        ["coalesce", ["get", input.property], "__unknown__"],
+        ...Object.entries(input.categories).flatMap(([key, score]) => [key, score * input.weight]),
+        0,
+      ];
+      return value;
+    }
+    if (input.breakpoints) {
+      // 欠損はbackendのrequired=False材料と同じく寄与0にする。coalesceで端へ倒すとinterpolateが
+      // 端の値（例: -1）を返し、寄与0にならない。
+      const interpolated = ["interpolate", ["linear"], ["get", input.property], ...input.breakpoints.flat()];
+      const value = input.weight === 1 ? interpolated : ["*", interpolated, input.weight];
+      return ["case", ["!", ["has", input.property]], 0, value];
+    }
+    return ["*", ["coalesce", ["get", input.property], 0], input.weight];
+  });
+  if (terms.length === 1) return terms[0];
+  return ["+", ...terms];
+}

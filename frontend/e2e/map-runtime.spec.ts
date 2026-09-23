@@ -1,5 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
-import { catalogAxis } from "@/components/Map/__fixtures__/catalogAxes";
+import { catalogAxis } from "@/lib/mapDisplay/__fixtures__/catalogAxes";
 import { mapDisplay } from "@/types/generated/mapDisplay";
 import regionTileConfig from "@/types/generated/region-tile-config.json";
 import {

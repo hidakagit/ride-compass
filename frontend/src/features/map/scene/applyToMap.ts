@@ -13,37 +13,25 @@
 import * as maplibregl from "maplibre-gl";
 import type { Map as MapLibreMap } from "maplibre-gl";
 
-import type { MapLayerVisibility } from "@/components/Map/mapLayers";
-import {
-  COLOR_UNKNOWN,
-  buildAxisRampUnknownExpression,
-  buildAxisRampValueExpression,
-  rampColorForBand,
-  type DedicatedWayValueAxis,
-  type RampAxis,
-} from "@/components/Map/axisLayers";
-import type { DedicatedWayValueDisplay } from "@/components/Map/dedicatedWayValueLayer";
+import type { MapLayerVisibility } from "@/features/map/layers/mapLayers";
+import { rampColorForBand, type DedicatedWayValueAxis, type RampAxis } from "@/lib/mapDisplay/axisLayers";
+import { debugLog } from "@/lib/debugLog";
+import type { DedicatedWayValueDisplay } from "@/lib/mapDisplay/dedicatedWayValueLayer";
 import type {
   DynamicWeatherGroupState,
   DynamicWeatherLayerId,
   DynamicWeatherRenderPayload,
-} from "@/components/Map/dynamicWeather";
-import { withJmaTileProtocol } from "@/components/Map/jmaTileProtocol";
-import { buildLegendFilterExpression } from "@/components/Map/legendFilter";
-import { legendBandKey } from "@/components/Map/mapColorLegend";
-import { areaLayerAnchor, runWhenStyleReady } from "@/components/Map/mapStyleOps";
-import { primaryAttributeIdsToLayerIds } from "@/components/Map/primaryAttributes";
-import { ROUTE_ARROW_ICON_ID, createRouteArrowIcon } from "@/components/Map/routeArrowIcon";
-import {
-  LENS_NEUTRAL_COLOR,
-  getRouteStyleMode,
-  type LensId,
-  type RouteStyleMode,
-} from "@/components/Map/routeStyleModes";
-import type { SecondaryAxisSummary } from "@/components/Map/secondaryAxes";
+} from "@/features/map/layers/dynamicWeather";
+import { withJmaTileProtocol } from "@/features/map/layers/jmaTileProtocol";
+import { legendBandKey } from "@/lib/mapDisplay/mapColorLegend";
+import { areaLayerAnchor, prepareBasemapForAreaLayers, runWhenStyleReady } from "@/features/map/layers/mapStyleOps";
+import { primaryAttributeIdsToLayerIds } from "@/features/map/layers/primaryAttributes";
+import { ROUTE_ARROW_ICON_ID, createRouteArrowIcon } from "@/features/map/layers/routeArrowIcon";
+import { LENS_NEUTRAL_COLOR, type LensId, type RouteStyleMode } from "@/lib/mapDisplay/routeStyleModes";
+import type { SecondaryAxisSummary } from "@/lib/secondaryAxes";
 import type { ExperimentSlot } from "@/types/experimentSlot";
 import type { RouteCandidate } from "@/types/route";
-import { bandColorsFor, DEFAULT_DIFFICULTY_BOUNDARIES } from "@/components/Map/valueScale";
+import { bandColorsFor, DEFAULT_DIFFICULTY_BOUNDARIES } from "@/lib/mapDisplay/valueScale";
 import { tileBaseUrl } from "@/lib/tileBaseUrl";
 import {
   ROAD_TILE_MAX_ZOOM,
@@ -62,10 +50,12 @@ export const ACCIDENT_TILE_SOURCE_LAYER = regionTileConfig.accident.layer_name;
 export const STOP_POI_SOURCE_LAYER = regionTileConfig.poi.stop_poi_layer_name;
 
 import { applyMapScene } from "./applyMapScene";
+import { buildAxisRampUnknownExpression, buildAxisRampValueExpression } from "./groups/axisLines";
+import { buildLegendFilterExpression, COLOR_UNKNOWN } from "./sceneBuilders";
 import type { SceneInputs } from "./buildScene";
-import type { AxisBand, AxisLineState } from "./groups/axisLines";
-import type { RoutePath, RouteState } from "./groups/routes";
-import { WEATHER_ICONS, type WeatherPayload, type WeatherState } from "./groups/weather";
+import type { AxisBand, AxisLineState } from "@/features/map/scene/groups/axisLines";
+import type { RoutePath, RouteState } from "@/features/map/scene/groups/routes";
+import { WEATHER_ICONS, type WeatherPayload, type WeatherState } from "@/features/map/scene/groups/weather";
 import { EMPTY_MAP_SCENE, type MapScene } from "./mapScene";
 
 /** 乗り換えられる区間1本ぶんの入力。`index`は押されたときに呼び出し側が見分ける値。 */
@@ -322,6 +312,7 @@ export function applyScene(map: MapLibreMap, scene: MapScene, options: { reset?:
     for (const icon of SCENE_ICONS) {
       if (!map.hasImage(icon.id)) map.addImage(icon.id, icon.create(), { sdf: true });
     }
+    prepareBasemapForAreaLayers(map);
     applyMapScene(map, {
       scene,
       previous: options.reset === true ? EMPTY_MAP_SCENE : (appliedScene.get(map) ?? EMPTY_MAP_SCENE),
@@ -329,4 +320,17 @@ export function applyScene(map: MapLibreMap, scene: MapScene, options: { reset?:
     });
     appliedScene.set(map, scene);
   });
+}
+
+function getRouteStyleMode(modes: readonly RouteStyleMode[], id: LensId): RouteStyleMode {
+  const found = modes.find((mode) => mode.id === id);
+  if (found) return found;
+  // 軸の非公開等でidのモードが消えていたら先頭へ倒す。選択中の色分けが黙って変わるため警告を残す。
+  debugLog(
+    "map:route-style-mode",
+    `route style mode "${id}" not found, falling back to "${modes[0]?.id ?? "(no modes)"}"`,
+    { requestedId: id, availableIds: modes.map((mode) => mode.id) },
+    "warn",
+  );
+  return modes[0];
 }

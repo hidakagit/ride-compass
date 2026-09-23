@@ -23,7 +23,7 @@ describe("GET /admin/api/material-coverage", () => {
     expect(proxyToBackendAdmin).toHaveBeenCalledWith(request, "/api/admin/material-catalog/coverage", {
       timeoutMs: HEAVY_ADMIN_API_TIMEOUT_MS,
     });
-    // ブラウザ側のクライアント（services/materialCoverageApi.ts）と同じ定数であることが、
+    // ブラウザ側のクライアント（features/admin/materialCoverageApi.ts）と同じ定数であることが、
     // 「片方だけ延ばしても症状が変わらない」状態を防ぐ。
     expect(HEAVY_ADMIN_API_TIMEOUT_MS).toBeGreaterThan(DEFAULT_API_TIMEOUT_MS);
     expect(response).toBe(sentinelResponse);

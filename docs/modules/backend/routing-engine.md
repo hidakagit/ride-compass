@@ -249,7 +249,7 @@ dataclassのフィールド既定値に置く）と、実行時に変えた値�
 ——上下限として効く値——は、頭打ちになる入力を1つ通して観測する
 （`tests/test_cycling_speed.py`）。**フロント側が値を送ってしまうと、この解決そのものが
 迂回される**ため、
-画面から変える手段が無い値はリクエストへ載せない（`lib/generationRequest.ts`）。
+画面から変える手段が無い値はリクエストへ載せない（`features/route/generationRequest.ts`）。
 
 既定から動かした値は`tuning_overrides`テーブルが**差分だけ**を持つ。行そのものが定義である
 `axis_definitions`と違い、**行が1つも無くても宣言どおりに動く**ため、fresh bootstrap

@@ -15,15 +15,16 @@
 | レイヤー | ファイル |
 |---|---|
 | app | `page.tsx`・`layout.tsx`・`error.tsx`・`global-error.tsx` |
-| services | `routeApi.ts`（ルート生成・プレビューAPI） |
-| hooks | `useStoredState.ts`・`useIsMobile.ts`・`useElementHeightCssVar.ts`・`useLocation.ts`・`useDebouncedValue.ts`・`useIsomorphicLayoutEffect.ts`・`useDepartureTime.ts`（出発時刻。選ぶまでは5分刻みの「今」へ追従し、選んだ時刻は動かさない） |
+| hooks | `useStoredState.ts`・`useIsMobile.ts`・`useElementHeightCssVar.ts`・`useLocation.ts`・`useDebouncedValue.ts`・`useIsomorphicLayoutEffect.ts` |
 | features/map/view | `useMapView.ts`（地図の見え方の状態と、地図・操作部品へ渡す値）・`mapLook.ts`（地図へ渡す見え方の値の型）・`lens.ts`（レンズから塗る軸・凡例・選択肢を導く）・`overlayChips.ts`（地図上チップの状態とレイヤー表示の保存形式）・`legendFilters.ts`（凡例で隠した行の保存先の読み書き） |
-| lib | `apiBaseUrl.ts`・`apiError.ts`・`backendInternalUrl.ts`・`fetchJson.ts`・`apiTimeouts.ts`（APIリクエストのタイムアウト。呼び出しの性質ごとの名前付き定数）・`formatDuration.ts`（秒を「1時間42分」の形にする）・`safeStorage.ts`（localStorageの読み書きで例外を外へ出さない薄いラッパ）・`generationRequest.ts`（生成リクエストのpayloadと`conditionsDirty`の比較キーを同じ入力から導出する純関数）・`routeSplice.ts`（候補どうしが別々の道を通る区間を`edge_ids`の集合演算で求め、表示中の側と相手側を対応づけ、選んだ区間を差し替えた経路を組み立て、合成結果を生成候補と同じ並び順の規約［`overall_difficulty`昇順、基準線（所要時間が最小の候補、backendの`is_fastest`）だけは先頭固定］へ差し込む純関数。差し替えた経路の評価はbackendが行うため計算式は持たない。**並び順の規約はbackendにもある**——backendは合成結果を1件しか返さず他候補を知らないため差し込む位置をここで決めるしかなく、片方を変えたらもう片方も変える。区間を割る下限は持たず呼び出し側から受け取る［backendの較正値で、管理画面から変えられる］）・`rideConditions.ts`（走行条件の出発時刻ラベルと想定速度の丸め。速度の上下限はbackendの`routeGenerateConfig`から読む）・`paletteCssVariables.ts`（地図に塗る色と同じ色をUIにも出す箇所へ、配信された値をCSS変数として流す。`layout.tsx`がサーバー側で`:root`へ入れる。CSSが値を持つのはライト/ダークで2値を持つものだけ） |
+| features/map/MapView | `useLayerDataStatus.ts`（`layerDataStatus` stateの実装） |
+| lib | `apiBaseUrl.ts`・`apiError.ts`・`backendInternalUrl.ts`・`fetchJson.ts`・`apiTimeouts.ts`（APIリクエストのタイムアウト。呼び出しの性質ごとの名前付き定数）・`safeStorage.ts`（localStorageの読み書きで例外を外へ出さない薄いラッパ）・`paletteCssVariables.ts`（地図に塗る色と同じ色をUIにも出す箇所へ、配信された値をCSS変数として流す。`layout.tsx`がサーバー側で`:root`へ入れる。CSSが値を持つのはライト/ダークで2値を持つものだけ） |
+| features/route | `routeApi.ts`（ルート生成・プレビューAPI）・`formatDuration.ts`（秒を「1時間42分」の形にする）・`generationRequest.ts`（生成リクエストのpayloadと`conditionsDirty`の比較キーを同じ入力から導出する純関数）・`routeSplice.ts`（候補どうしが別々の道を通る区間を`edge_ids`の集合演算で求め、表示中の側と相手側を対応づけ、選んだ区間を差し替えた経路を組み立て、合成結果を生成候補と同じ並び順の規約［`overall_difficulty`昇順、基準線（所要時間が最小の候補、backendの`is_fastest`）だけは先頭固定］へ差し込む純関数。差し替えた経路の評価はbackendが行うため計算式は持たない。**並び順の規約はbackendにもある**——backendは合成結果を1件しか返さず他候補を知らないため差し込む位置をここで決めるしかなく、片方を変えたらもう片方も変える。区間を割る下限は持たず呼び出し側から受け取る［backendの較正値で、管理画面から変えられる］） |
+| features/conditions | `useDepartureTime.ts`（出発時刻。選ぶまでは5分刻みの「今」へ追従し、選んだ時刻は動かさない）・`rideConditions.ts`（走行条件の出発時刻ラベルと想定速度の丸め。速度の上下限はbackendの`routeGenerateConfig`から読む） |
 | types | `types/route.ts`（`RouteCandidate`等の生成APIレスポンス型） |
-| components/Map | `useLayerDataStatus.ts`（`layerDataStatus` stateの実装） |
 | components（特定モジュールの責務ではない共通部品） | `ErrorText/ErrorText.tsx`（フォームのエラー文言表示）・`BottomSheet/BottomSheet.tsx`（モバイル下部シート、下記「モバイル/デスクトップのレイアウト分岐」節参照）・`Disclosure/Disclosure.tsx`（折りたたみ表示、[ルート設定・結果パネル](route-settings-and-results.md)等が使う） |
-| components/RideConditionBar | `RideConditionBar.tsx`（地図右上、走行方位アイコン直下の走行条件アイコン列本体。出発時刻・想定速度ともTravelBearingControlと同じ列の幅のアイコンボタンで、アイコンの下へ現在値（出発時刻は当日なら「12:40」、別の日は「9/24」「12:40」の2行。想定速度は「20km/h」）を出す。表示・`aria-label`・`title`は同じ文字列から作る。タップしたポップオーバー内はドラッグ式タイムライン＋`input[type=datetime-local]`の直接指定[出発時刻]、スライダー＋数値入力[想定速度]）・`departureTimeline.ts`（出発時刻ポップオーバーのドラッグタイムライン用の目盛り生成。気象レイヤーの実フレームには依存しない自己完結した合成タイムライン） |
-| components/DynamicLayerTimeSlider | `DynamicLayerTimeSlider.tsx`（ドラッグ/横スクロールで時刻を選ぶ汎用タイムラインUI。`RideConditionBar`が出発時刻ピッカーとして使う唯一の呼び出し元） |
+| features/conditions/RideConditionBar | `RideConditionBar.tsx`（地図右上、走行方位アイコン直下の走行条件アイコン列本体。出発時刻・想定速度ともTravelBearingControlと同じ列の幅のアイコンボタンで、アイコンの下へ現在値（出発時刻は当日なら「12:40」、別の日は「9/24」「12:40」の2行。想定速度は「20km/h」）を出す。表示・`aria-label`・`title`は同じ文字列から作る。タップしたポップオーバー内はドラッグ式タイムライン＋`input[type=datetime-local]`の直接指定[出発時刻]、スライダー＋数値入力[想定速度]）・`departureTimeline.ts`（出発時刻ポップオーバーのドラッグタイムライン用の目盛り生成。気象レイヤーの実フレームには依存しない自己完結した合成タイムライン） |
+| features/conditions/DynamicLayerTimeSlider | `DynamicLayerTimeSlider.tsx`（ドラッグ/横スクロールで時刻を選ぶ汎用タイムラインUI。`RideConditionBar`が出発時刻ピッカーとして使う唯一の呼び出し元） |
 
 `apiBaseUrl.ts`/`backendInternalUrl.ts`はブラウザからのfetch先（`NEXT_PUBLIC_API_URL`）と
 Next.js route handlerからのサーバー間fetch先を区別する（後者はコンテナ内部
@@ -72,7 +73,7 @@ Next.js route handlerからのサーバー間fetch先を区別する（後者は
    （`lib/adminApiProxy.ts`の転送失敗）も同じで、ランタイム由来の英語はサーバーのログにだけ
    残す。**エラーを受け取って言い直す側は、原因を断定
    しない**——ポーリングの連続失敗のように原因が複数ありうる場所は、最後の失敗の文言を
-   添える（`services/routeApi.ts`）。
+   添える（`features/route/routeApi.ts`）。
 3. **常時見せるのは状態の合図まで、文は1タップ奥。** 地図に重なるUIは視界を削らないため、
    常時出すのは状態ドット（`components/ui/Dot`）のような小さな合図に留め、
    その意味を文で読ませる置き場は▶パネル（地図上チップ）・ポップオーバー（レンズ）に置く。
@@ -94,14 +95,14 @@ Next.js route handlerからのサーバー間fetch先を区別する（後者は
 拾えた失敗は**バッジが無いことを「警告なし」と読ませない**ために、常設ヘッダーへ
 失敗している間だけ小さな印（`WarningBadge.tsx`の「未取得」）を出し、どの出所が取れて
 いないかと失敗の文言はタップで開くポップオーバーに置く。成功している間は何も足さない
-（`hooks/useWeatherConditions.ts: warningFetchFailures`）。backend内部の失敗は空応答と
+（`features/conditions/useWeatherConditions.ts: warningFetchFailures`）。backend内部の失敗は空応答と
 区別できないため、この印には現れない。
 
 ## 主な構成要素（import元）
 
 | 種別 | コンポーネント |
 |---|---|
-| 地図本体 | `Map/MapView`（全静的/動的レイヤーのMapLibre実装本体） |
+| 地図本体 | `features/map/MapView/MapView`（全静的/動的レイヤーのMapLibre実装本体） |
 | 地図オーバーレイ制御 | `MapOverlayControls`（地図上チップ）・`TravelBearingControl`（走行方位ダイヤルの地図右上アイコン）・`LensControl`（地図上部中央のレンズ選択ピル）・`RideConditionBar`（走行方位アイコン直下、地図右上の走行条件アイコン列、出発時刻・想定速度） |
 | ルート設定 | `RouteForm`（モード切替/距離/候補件数/生成ボタン）・`RouteSettingsPanel`（0次除外・軸選択・重み） |
 | ルート結果 | `RouteAxisProfile`（候補ごとのタブの中身、軸別難易度）。候補の一覧（縦タブ）自体は独立コンポーネントを持たずpage.tsxが直接組み立てる |
@@ -134,7 +135,7 @@ Next.js route handlerからのサーバー間fetch先を区別する（後者は
 検査し、外れていれば既定値のまま扱う（スライダーの範囲が縮んだ後でも範囲外の値が送られない）。
 
 復元時の注意が要るのは、**正本がbackend側にある設定**だけである。`hardFilters`は
-`lib/hardFilterSync.ts: syncHardFilterKeys`が、保存済みの値を正本
+`features/route/hardFilterSync.ts: syncHardFilterKeys`が、保存済みの値を正本
 （`routeGenerateConfig.hard_filters`）のキー集合へ整合させてから使う——キー集合の完全一致を
 要求するAPIのため、フィルタが増減した後の古い保存値をそのまま送ると全リクエストが422になる。
 
@@ -146,7 +147,7 @@ Next.js route handlerからのサーバー間fetch先を区別する（後者は
 （走行方位という1つの概念を表す単一state）:
 
 ```
-travelBearingDeg（page.tsxの単一useState、TravelBearingControlで操作）。出発時刻は`hooks/useDepartureTime.ts`の`at`、想定速度は`assumedSpeedKmh`（いずれも地図右上の条件アイコン列`components/RideConditionBar/RideConditionBar.tsx`で操作し、生成リクエストの`start_time`/`assumed_speed_kmh`とレンズの`speed_kmh`へ同じ値が乗る）
+travelBearingDeg（page.tsxの単一useState、TravelBearingControlで操作）。出発時刻は`features/conditions/useDepartureTime.ts`の`at`、想定速度は`assumedSpeedKmh`（いずれも地図右上の条件アイコン列`features/conditions/RideConditionBar/RideConditionBar.tsx`で操作し、生成リクエストの`start_time`/`assumed_speed_kmh`とレンズの`speed_kmh`へ同じ値が乗る）
   │
   ├─→ 風:   [時刻]出発時刻（useDepartureTime由来）
   │           │
@@ -222,7 +223,7 @@ Reactの外（モジュール評価時に初期値を決めるシングルトン
 - `routePreference`（`RouteSettingsPanel`が編集）→ `syncRoutePreferenceKeys`による
   キー整合補正 → ルート生成リクエスト。整合補正は役割の違う経路へ分かれる: `RouteSettingsPanel`の
   マウント時（`useEffect`）は**stateを書き換える**、生成リクエストの組み立て
-  （`lib/routePreferenceSync.ts: routePreferenceToSend`）は**送る値だけを整える**（stateは
+  （`features/route/routePreferenceSync.ts: routePreferenceToSend`）は**送る値だけを整える**（stateは
   触らない。パネルを開かずに生成する経路の穴埋め）。**利用者が重みを上書きしていない間
   （`weightOverrideEnabled`がfalse）と、軸カタログを取得できていない間は`route_preference`
   自体を送らず、backendの既定の重みへ委ねる**——上書きしていない利用者の保存値は利用者が
@@ -250,7 +251,7 @@ Reactの外（モジュール評価時に初期値を決めるシングルトン
   （`Tabs.Root orientation="vertical"`）で、右に選択中候補の中身が並ぶ2カラム——横並びの
   タブは候補が増えると列が表示幅を超えて伸び、溢れた候補が存在ごと見えなくなる。
   行は「順位・距離・総合難易度（数値と長さ）」を持ち、**バーの高さには距離の倍率**
-  （`lib/difficultyLoadBar.ts`、基準は一覧の中で最も短い候補）を与える——長さが総合難易度の
+  （`features/route/difficultyLoadBar.ts`、基準は一覧の中で最も短い候補）を与える——長さが総合難易度の
   ため、塗られた面積がそのまま負荷（`difficulty_load`）になり、候補の中身の内訳バーと同じ
   見方で読める。行は**一覧の中で所要時間が最小の候補に
   「最速」、他の候補にはそこから何分余計にかかるか（`+8分`）を添える**——並び順は総合難易度の
@@ -321,7 +322,7 @@ GPX出力・「ルートをクリア」、下記`renderRouteOutcomeSectionBody`�
 の判定でdirection_label[固定文言]をそのまま表示する。
 基準線（一覧の中で所要時間が最小の候補。`fastestRouteId`）には順位番号に加えて
 「最速」を添え、他の候補には距離の後ろへ基準線からの超過時間[`+12分`]を添える
-[`lib/routeTabLabel.ts`]——軸設定に沿ったルートを走る対価であり、候補を見比べる
+[`features/route/routeTabLabel.ts`]——軸設定に沿ったルートを走る対価であり、候補を見比べる
 タブ列に無いと比較のたびにタブを開き直すことになるため。**backendの`is_fastest`は
 この表示に使わない**——目的地モードでしか付かず、主用途の周回では基準線が一度も
 決まらない）＋「比較」
@@ -335,7 +336,7 @@ GPX出力・「ルートをクリア」、下記`renderRouteOutcomeSectionBody`�
 `experimentSlots`（比較タブ・地図重ね描き用の履歴）も同時に空にする（`handleRoutesClear`）。
 
 `conditionsDirty`（表示中の候補を作った条件と現在のフォーム値のずれ）は、
-`lib/generationRequest.ts`が組み立てる比較キーの一致で決まる。**送るpayloadと比較キーを
+`features/route/generationRequest.ts`が組み立てる比較キーの一致で決まる。**送るpayloadと比較キーを
 同じ入力（`GenerationInput`）から導出する**ため、payloadへフィールドを足したときに比較側へ
 足し忘れることが起きない。比較から外すのは`IGNORED_WHEN_COMPARING`に理由付きで列挙した
 ものだけで、現在は`lens_axis_id`（地図の見え方の選択で候補の選定には影響しない）。
@@ -355,7 +356,7 @@ destinationCorrected`）。補正時は地図上の目的地ピンも
 「ルート結果」ヘッダの操作枠は`renderRouteResultHeaderActions()`という1つのヘルパーで、
 **選択中の候補に対する操作**を横並びにする（区間の乗り換えの入口・「GPX出力」・
 「ルートをクリア」）。「GPX出力」（`DownloadIcon`、`selectedCandidate`をタップで
-`lib/gpxExport.ts: downloadGpx`へ渡す）は候補が未選択の間はdisabled。「ルートをクリア」
+`features/route/gpxExport.ts: downloadGpx`へ渡す）は候補が未選択の間はdisabled。「ルートをクリア」
 （`ClearRoutesIcon`＝ゴミ箱のアイコンボタン、`handleRoutesClear`）に**バツ印は使わない**
 ——シートの閉じる✕の隣に並ぶため、同じ形だとどちらがどちらか分からない。総合難易度の説明は
 `RouteAxisProfile`側（総合難易度の表示の隣、`InfoPopover`）にあり、候補タブごとに
@@ -385,7 +386,7 @@ composite_difficulty`と同じ考え方で軸の重みを反映した寄与度�
 （`ExperimentSlot.conditions.route_preference`）が>0だった軸に絞り込む（現在のライブな
 `routePreference`ではない）。
 
-## `MapView`（`Map/MapView.tsx`）との境界
+## `MapView`（`features/map/MapView/MapView.tsx`）との境界
 
 `page.tsx`は`MapView`へ、見え方の値1つ（`look`）・走行条件と、ルート・地点・レイアウト由来の
 値（候補・選択・経由地・覆われた高さ等）を渡す。`MapView`自身はレイヤー固有の判断ロジックを

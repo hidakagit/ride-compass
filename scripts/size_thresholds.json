@@ -8,9 +8,9 @@
     "backend/app/services/road_graph_engine.py": 2700,
     "backend/tests/test_routing.py": 1500,
     "frontend/src/app/page.tsx": 2600,
-    "frontend/src/components/AxisStudio/AxisScoringSection.tsx": 900,
-    "frontend/src/components/Map/MapView.tsx": 1900,
-    "frontend/src/components/Map/icons.tsx": 1000,
-    "frontend/src/components/MapOverlayControls/MapOverlayControls.tsx": 1400
+    "frontend/src/features/admin/AxisStudio/AxisScoringSection.tsx": 900,
+    "frontend/src/features/map/MapView/MapView.tsx": 1900,
+    "frontend/src/components/ui/icons/icons.tsx": 1000,
+    "frontend/src/features/map/MapOverlayControls/MapOverlayControls.tsx": 1400
   }
 }

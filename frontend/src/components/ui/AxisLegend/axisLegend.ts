@@ -11,7 +11,7 @@ export const legendChipClass =
 export const legendChipBodyClass =
   "inline-flex w-full items-center gap-1 whitespace-nowrap px-2 py-1 text-[length:var(--font-size-sm)] text-[var(--foreground)]";
 
-/** 帯グラフ。高さは基準距離に対する倍率（lib/difficultyLoadBar.ts、styleの--load-bar-height-ratio）。長さが総合難易度を
+/** 帯グラフ。高さは基準距離に対する倍率（features/route/difficultyLoadBar.ts、styleの--load-bar-height-ratio）。長さが総合難易度を
  * 表すため、高さへ距離を与えると塗られた面積が負荷、色ごとの面積が軸別の負荷になる。 */
 export const stackBarClass =
   "flex h-[calc(10px*var(--load-bar-height-ratio,1))] overflow-hidden rounded-[5px] bg-[var(--color-surface-2)]";

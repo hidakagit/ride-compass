@@ -55,7 +55,7 @@ export type RouteGenerateResponse = Omit<Required<Schemas["RouteGenerateResponse
 
 // ルート生成のバックグラウンドジョブ化に伴う型。POST /api/routes/generateは即座に
 // job_idを返し、GET /api/routes/generate/{job_id}をポーリングして結果を得る
-// （frontend services/routeApi.ts参照）。
+// （frontend features/route/routeApi.ts参照）。
 export type RouteGenerateJobCreatedResponse = Schemas["RouteGenerateJobCreatedResponse"];
 
 export type RouteGenerateJobStatusResponse = Omit<Required<Schemas["RouteGenerateJobStatusResponse"]>, "result"> & {
@@ -88,7 +88,7 @@ export type MaterialCatalogResponse = Schemas["MaterialCatalogResponse"];
 
 // JMA動的タイルの在否インデックス。GET /api/jma-tile-indexのレスポンス。
 // 平常時に空タイルを取りに行かないための「どのタイルに中身があるか」の一覧
-// （components/Map/jmaTileIndex.tsが解釈する）。
+// （features/map/layers/jmaTileIndex.tsが解釈する）。
 export type JmaTileIndexResponse = Schemas["JmaTileIndexResponse"];
 
 // 材料の実データ値一覧。GET /api/admin/material-catalog/{material_id}/valuesのレスポンス。

@@ -5,7 +5,7 @@ import { useResearchEnabled } from "@/hooks/useResearchMode";
 import { setResearchEnabled } from "@/lib/researchMode";
 import { Checkbox } from "@/components/ui/Checkbox/Checkbox";
 import { Button } from "@/components/ui/Button/Button";
-import { LogIcon, MenuIcon } from "@/components/Map/icons";
+import { LogIcon, MenuIcon } from "@/components/ui/icons/icons";
 import { Toggle } from "@/components/ui/Toggle/Toggle";
 import { toggleVariants } from "@/components/ui/Toggle/Toggle";
 

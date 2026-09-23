@@ -8,7 +8,7 @@
  */
 import { useMemo, useState, type ComponentProps } from "react";
 
-import type LensControl from "@/components/LensControl/LensControl";
+import type LensControl from "@/features/map/LensControl/LensControl";
 import {
   buildDefaultLayerVisibility,
   buildMapLayers,
@@ -17,17 +17,17 @@ import {
   tileZoomTooWideLayerIds,
   type LayerDataStatusByLayer,
   type MapLayerVisibility,
-} from "@/components/Map/mapLayers";
-import { DEFAULT_ROUTE_STYLE_MODE_ID, isRouteStyleModeId, type LensId } from "@/components/Map/routeStyleModes";
-import type { MapViewport } from "@/components/Map/windLayer";
-import type MapOverlayControls from "@/components/MapOverlayControls/MapOverlayControls";
+} from "@/features/map/layers/mapLayers";
+import type { LensId } from "@/lib/mapDisplay/routeStyleModes";
+import type { MapViewport } from "@/features/map/layers/windLayer";
+import type MapOverlayControls from "@/features/map/MapOverlayControls/MapOverlayControls";
 import { DISASTER_LAYER_ID } from "@/features/map/scene/legends";
 import { useAxisCatalog } from "@/hooks/useAxisCatalog";
 import { useDebouncedValue } from "@/hooks/useDebouncedValue";
-import { useDedicatedWayValues } from "@/hooks/useDedicatedWayValues";
-import { useDynamicWeatherLayers } from "@/hooks/useDynamicWeatherLayers";
+import { useDedicatedWayValues } from "@/features/map/useDedicatedWayValues";
+import { useDynamicWeatherLayers } from "@/features/map/useDynamicWeatherLayers";
 import { useStoredBooleanState, useStoredState } from "@/hooks/useStoredState";
-import { useTileVersionsReady } from "@/hooks/useTileVersionsReady";
+import { useTileVersionsReady } from "@/features/map/useTileVersionsReady";
 
 import {
   deserializeHiddenLegendKeys,
@@ -36,7 +36,7 @@ import {
   toggleHiddenKey,
   withHiddenKeys,
 } from "./legendFilters";
-import { lensLegend, lensOptions, paintedAxisId } from "./lens";
+import { DEFAULT_ROUTE_STYLE_MODE_ID, isRouteStyleModeId, lensLegend, lensOptions, paintedAxisId } from "./lens";
 import type { HiddenLegendKeys, MapLook } from "./mapLook";
 import { deserializeLayerVisibility, overlayChips } from "./overlayChips";
 

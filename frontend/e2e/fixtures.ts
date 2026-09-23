@@ -1,6 +1,6 @@
 import { expect, type Page } from "@playwright/test";
 import type { RouteCandidate, RouteGenerateResponse } from "@/types/route";
-import { catalogAxis } from "@/components/Map/__fixtures__/catalogAxes";
+import { catalogAxis } from "@/lib/mapDisplay/__fixtures__/catalogAxes";
 import { makeRouteCandidate as makeCandidate } from "@/testing/routeFixtures";
 import type { AmedasObservation, WeatherConditions } from "@/types/weather";
 import nextConfig from "../next.config";
@@ -184,7 +184,7 @@ export async function installApiMocks(page: Page): Promise<void> {
   // 改善計画T265: ルート生成はバックグラウンドジョブ化された。POST（ジョブ投稿）は
   // 即座にjob_idを返し、GET .../generate/{job_id}（ポーリング）は1回目から
   // status="done"を返す（e2eはUI操作の疎通確認が目的で、待ち状態の遷移自体は
-  // frontend/src/services/routeApi.test.tsが検証するためここでは再現しない）。
+  // frontend/src/features/route/routeApi.test.tsが検証するためここでは再現しない）。
   await page.route(`${API_BASE}/api/routes/generate`, (route) =>
     route.fulfill({ status: 202, json: { job_id: "e2e-fake-job" } }),
   );

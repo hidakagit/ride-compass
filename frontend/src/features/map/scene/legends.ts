@@ -3,17 +3,17 @@
  * **色と分類の正本はグループ（`groups/*.ts`）にしかない**——凡例が別に色を持つと、
  * 地図とチップの色が静かに食い違う。ここはその宣言を凡例の形へ移すだけで、値を持たない。
  */
-import { COLOR_UNKNOWN } from "@/components/Map/axisLayers";
-import type { DisasterSourceKey } from "@/components/Map/dynamicWeather";
-import type { LegendEntry } from "@/components/Map/legendFilter";
-import { LEGEND_NO_DATA_KEY } from "@/components/Map/mapColorLegend";
+import { COLOR_UNKNOWN } from "@/features/map/scene/sceneBuilders";
+import type { DisasterSourceKey } from "@/features/map/layers/dynamicWeather";
+import type { LegendEntry } from "@/lib/mapDisplay/legendFilter";
+import { LEGEND_NO_DATA_KEY } from "@/lib/mapDisplay/mapColorLegend";
 
 import { mapDisplay } from "@/types/generated/mapDisplay";
 import palette from "@/types/generated/palette.json";
 import weatherScales from "@/types/generated/weather-scales.json";
 
-import { POINT_LAYERS, pointAxisKey, pointCategoryRadiusPx, type PointAxis } from "./groups/points";
-import { ROAD_TRACKS, roadTrackAxis } from "./groups/roadLines";
+import { POINT_LAYERS, pointAxisKey, pointCategoryRadiusPx, type PointAxis } from "@/features/map/scene/groups/points";
+import { ROAD_TRACKS, roadTrackAxis } from "@/features/map/scene/groups/roadLines";
 
 /** 凡例1本ぶん。1つのチップが複数の軸を持つことがある（事故は当事者と重大度）。 */
 type SceneLegendAxis = {

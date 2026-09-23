@@ -5,10 +5,10 @@
 // RoutePreferenceWeightsはaxis_idキーの辞書で、キーの綴り違いは型検査で落ちない。キーは
 // 実行時の軸カタログ（`defaultWeights`）からだけ作り、送る前に`syncRoutePreferenceKeys`で
 // カタログのキー集合へ揃える。
-import type { CatalogAxis } from "@/components/Map/axisLayers";
-import type { MapValueKind } from "@/components/Map/valueScale";
-import type { AxisMaterialBreakdown } from "@/components/Map/secondaryAxes";
-import { materialBreakdownFromCatalog } from "@/components/Map/secondaryAxes";
+import type { CatalogAxis } from "@/lib/mapDisplay/axisLayers";
+import type { MapValueKind } from "@/lib/mapDisplay/valueScale";
+import type { AxisMaterialBreakdown } from "@/lib/secondaryAxes";
+import { materialBreakdownFromCatalog } from "@/lib/secondaryAxes";
 
 export interface PreferenceAxisDef {
   /** route_preference（axis_idキーの重み辞書）のキー。backend
@@ -17,7 +17,7 @@ export interface PreferenceAxisDef {
   /** 区間の色分け・RouteSettingsPanelの入力欄ラベルに共通で使う表示名 */
   label: string;
   /** 軸自身が持つアイコン（`icon_id`）。地図チップと内訳の凡例が同じ意匠を引く
-   * （`components/Map/axisIconPalette.tsx: axisIconFor`）。 */
+   * （`lib/mapDisplay/axisIconPalette.tsx: axisIconFor`）。 */
   iconId?: string | null;
   /** 地図チップと同じ略名（`chip_label`、最大4文字）。狭い幅で軸を並べる場所が使う。
    * 未設定の軸はlabelをそのまま使う（4文字以内のため略す必要がない）。 */

@@ -1,6 +1,6 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 
-import type { MapViewport } from "@/components/Map/windLayer";
+import type { MapViewport } from "@/features/map/layers/windLayer";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AxisCatalogResponse } from "@/types/route";
 import { makeRouteCandidate } from "@/testing/routeFixtures";
@@ -13,16 +13,16 @@ import { makeRouteCandidate } from "@/testing/routeFixtures";
 // MapOverlayControlsだけは、実際に組み立てられたlayers（id・on）をそのまま可視化する
 // スタブにして、テストからlayerVisibilityの実効値を検証できるようにする。
 
-vi.mock("@/components/Map/MapView", () => ({ default: () => null }));
-vi.mock("@/components/RouteForm/RouteForm", () => ({ default: () => null }));
-vi.mock("@/components/WeatherPanel/WeatherPanel", () => ({ default: () => null }));
-vi.mock("@/components/WarningBadge/WarningBadge", () => ({ default: () => null }));
-vi.mock("@/components/ComparisonPanel/ComparisonPanel", () => ({ default: () => null }));
+vi.mock("@/features/map/MapView/MapView", () => ({ default: () => null }));
+vi.mock("@/features/route/RouteForm/RouteForm", () => ({ default: () => null }));
+vi.mock("@/features/conditions/WeatherPanel/WeatherPanel", () => ({ default: () => null }));
+vi.mock("@/features/conditions/WarningBadge/WarningBadge", () => ({ default: () => null }));
+vi.mock("@/features/route/ComparisonPanel/ComparisonPanel", () => ({ default: () => null }));
 vi.mock("@/components/DebugConsole/DebugConsole", () => ({ default: () => null }));
-vi.mock("@/lib/gpxExport", () => ({ downloadGpx: vi.fn() }));
+vi.mock("@/features/route/gpxExport", () => ({ downloadGpx: vi.fn() }));
 
-vi.mock("@/components/RouteSettingsPanel/RouteSettingsPanel", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("@/components/RouteSettingsPanel/RouteSettingsPanel")>();
+vi.mock("@/features/route/RouteSettingsPanel/RouteSettingsPanel", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/features/route/RouteSettingsPanel/RouteSettingsPanel")>();
   return { ...actual, default: () => null };
 });
 
@@ -30,7 +30,7 @@ vi.mock("@/components/RouteSettingsPanel/RouteSettingsPanel", async (importOrigi
 // 改善計画T406: 排他ドメイン（道路/評価軸/環境/スポット）のON/OFF実装はpage.tsx:
 // handleLayerToggle側にあるため、そのハンドラをテストから直接クリックで駆動できるよう
 // レイヤーごとの切り替えボタンも描画する（onToggle(id, !on)を呼ぶだけの薄いスタブ）。
-vi.mock("@/components/MapOverlayControls/MapOverlayControls", () => ({
+vi.mock("@/features/map/MapOverlayControls/MapOverlayControls", () => ({
   default: (props: {
     layers: Array<{
       id: string;
@@ -357,8 +357,8 @@ describe("Home（app/page.tsx） レイヤーの同時ON/OFF", () => {
 import { useEffect, useState } from "react";
 import { act } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { generateRoutes } from "@/services/routeApi";
-import { downloadGpx } from "@/lib/gpxExport";
+import { generateRoutes } from "@/features/route/routeApi";
+import { downloadGpx } from "@/features/route/gpxExport";
 import {
   getAmedasObservation,
   getCurrentWeather,
@@ -375,9 +375,9 @@ import type {
   FloodForecasts,
 } from "@/types/weather";
 
-// "@/services/routeApi"はこれまでどのテストもモックしていなかった新規モジュール。
+// "@/features/route/routeApi"はこれまでどのテストもモックしていなかった新規モジュール。
 // generateRoutesは実I/O（fetch）を伴うため、既存の他サービスモックと同じくvi.fn()化する。
-vi.mock("@/services/routeApi", () => ({
+vi.mock("@/features/route/routeApi", () => ({
   generateRoutes: vi.fn(),
 }));
 
@@ -496,14 +496,14 @@ async function renderFreshHome(options: RenderFreshHomeOptions = {}) {
   }));
 
   if (options.realRouteForm) {
-    vi.doUnmock("@/components/RouteForm/RouteForm");
+    vi.doUnmock("@/features/route/RouteForm/RouteForm");
   } else {
-    vi.doMock("@/components/RouteForm/RouteForm", () => ({ default: () => null }));
+    vi.doMock("@/features/route/RouteForm/RouteForm", () => ({ default: () => null }));
   }
 
   if (options.exposeViewportChange) {
     // 実物のMapViewはパン・ズームが確定するたびにビューポート（ズームを含む）を伝える。
-    vi.doMock("@/components/Map/MapView", () => ({
+    vi.doMock("@/features/map/MapView/MapView", () => ({
       default: (props: { look: { onViewportChange: (viewport: MapViewport) => void } }) => (
         <button onClick={() => props.look.onViewportChange({ west: 139, south: 35, east: 140, north: 36, zoom: 5 })}>
           テスト用に広域へズームアウト
@@ -511,7 +511,7 @@ async function renderFreshHome(options: RenderFreshHomeOptions = {}) {
       ),
     }));
   } else if (options.exposeMapClickHandlers || options.exposeSegmentSelect) {
-    vi.doMock("@/components/Map/MapView", () => ({
+    vi.doMock("@/features/map/MapView/MapView", () => ({
       default: (props: {
         onPinPlace: (role: "origin" | "waypoint" | "destination", c: { latitude: number; longitude: number }) => void;
         onRouteSegmentSelect: (selection: SelectedRouteSegment | null) => void;
@@ -591,7 +591,7 @@ async function renderFreshHome(options: RenderFreshHomeOptions = {}) {
 
   vi.doMock("@/hooks/useIsMobile", () => ({ useIsMobile: () => options.mobile ?? false }));
 
-  vi.doMock("@/components/ComparisonPanel/ComparisonPanel", () => ({
+  vi.doMock("@/features/route/ComparisonPanel/ComparisonPanel", () => ({
     // slot.id自体は`slot-${generated_at}-${random}`という生成条件由来の識別子であり
     // 候補を区別できないため、実際に記録された候補（topCandidate.id）の並びを見る。
     default: options.exposeComparisonSlots
@@ -601,7 +601,7 @@ async function renderFreshHome(options: RenderFreshHomeOptions = {}) {
       : () => null,
   }));
 
-  vi.doMock("@/components/WeatherPanel/WeatherPanel", () => ({
+  vi.doMock("@/features/conditions/WeatherPanel/WeatherPanel", () => ({
     default: options.exposeWeatherPanel
       ? (props: { amedas: { temperature_c: number } | null }) => (
           <div data-testid="weather-panel">{JSON.stringify({ temp: props.amedas?.temperature_c ?? null })}</div>
@@ -609,7 +609,7 @@ async function renderFreshHome(options: RenderFreshHomeOptions = {}) {
       : () => null,
   }));
 
-  vi.doMock("@/components/WarningBadge/WarningBadge", () => ({
+  vi.doMock("@/features/conditions/WarningBadge/WarningBadge", () => ({
     default: options.exposeWarningBadges
       ? (props: { items: Array<{ id: string; source: string; label: string }> }) => (
           <div data-testid="warning-badges">{JSON.stringify(props.items.map((i) => [i.source, i.id, i.label]))}</div>
@@ -2054,7 +2054,7 @@ describe("タイル世代が届かないとき（T938）", () => {
   // 画面のどこにも無いことだけ。
   async function panelsAndStatus() {
     // `renderFreshHome`は使わない——`vi.resetModules()`後の動的importでは先頭の
-    // `vi.mock("@/components/Map/MapView")`が効かず、世代フラグを読む器が描かれない。
+    // `vi.mock("@/features/map/MapView/MapView")`が効かず、世代フラグを読む器が描かれない。
     render(<Home />);
     await act(async () => {});
     const panels = new Map(
@@ -2161,7 +2161,7 @@ describe("土地被覆レイヤーのズーム不足の案内", () => {
   it("最小ズームを宣言したレイヤーは、どれも同じ案内になる", async () => {
     // 以前は道路系と土地被覆で判定も配線も別々で、同じタイルを共有するのに
     // tunnel/onewayには案内が出ていなかった。
-    const { buildMapLayers } = await import("@/components/Map/mapLayers");
+    const { buildMapLayers } = await import("@/features/map/layers/mapLayers");
     const declared = buildMapLayers([], [])
       .filter((layer) => layer.tileMinZoom !== undefined)
       .map((layer) => layer.id);

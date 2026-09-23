@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useCopyToClipboard } from "@/hooks/useCopyToClipboard";
 import { useDebugEnabled, useDebugLogEntries } from "@/hooks/useDebugLog";
-import { CopyIcon } from "@/components/Map/icons";
+import { CopyIcon } from "@/components/ui/icons/icons";
 import { clearDebugLog, type DebugLogLevel } from "@/lib/debugLog";
 import FloatingPanel from "@/components/FloatingPanel/FloatingPanel";
 import { Button } from "@/components/ui/Button/Button";

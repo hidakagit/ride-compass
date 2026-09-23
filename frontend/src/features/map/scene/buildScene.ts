@@ -8,12 +8,12 @@
  */
 import type { MapScene } from "./mapScene";
 import { composeScene, type SceneGroup } from "./mapSceneGroups";
-import { areaRasterGroup, type AreaRasterState } from "./groups/areaRasters";
-import { axisLineGroup, type AxisLineState } from "./groups/axisLines";
-import { pointGroup, type PointState } from "./groups/points";
-import { roadLineGroup, type RoadLineState } from "./groups/roadLines";
-import { routeGroup, type RouteState } from "./groups/routes";
-import { weatherGroup, type WeatherState } from "./groups/weather";
+import { areaRasterGroup, type AreaRasterState } from "@/features/map/scene/groups/areaRasters";
+import { axisLineGroup, type AxisLineState } from "@/features/map/scene/groups/axisLines";
+import { pointGroup, type PointState } from "@/features/map/scene/groups/points";
+import { roadLineGroup, type RoadLineState } from "@/features/map/scene/groups/roadLines";
+import { routeGroup, type RouteState } from "@/features/map/scene/groups/routes";
+import { weatherGroup, type WeatherState } from "@/features/map/scene/groups/weather";
 
 export type SceneInputs = {
   readonly area: AreaRasterState;

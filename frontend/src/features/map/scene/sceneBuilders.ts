@@ -6,6 +6,8 @@
 import type { LayerSpecification } from "maplibre-gl";
 
 import type { MapSceneSourceContent } from "./mapScene";
+import palette from "@/types/generated/palette.json";
+import type { LegendEntry } from "@/lib/mapDisplay/legendFilter";
 
 declare const sceneSourceBrand: unique symbol;
 
@@ -96,4 +98,19 @@ export function tilesContent(tiles: readonly string[]): MapSceneSourceContent {
       (source as { setTiles: (tiles: string[]) => void }).setTiles([...tiles]);
     },
   };
+}
+
+/** 「不明」（評価できない・分類を持たない）を塗る色。地図全体で同じ1色を使う。 */
+export const COLOR_UNKNOWN = palette.semantic.no_data;
+
+// 凡例で非表示にしたカテゴリを除外するMapLibreフィルタ式を組み立てる。
+// 全カテゴリ表示中はnull（フィルタ無し）。未知のキーは無視する（モード切替や定義変更で
+// 過去の非表示キーが残っていても安全）。
+export function buildLegendFilterExpression(
+  legend: readonly LegendEntry[],
+  hiddenKeys: readonly string[],
+): unknown[] | null {
+  const hidden = legend.filter((entry) => hiddenKeys.includes(entry.key));
+  if (hidden.length === 0) return null;
+  return ["all", ...hidden.flatMap((entry) => (entry.filter === undefined ? [] : [["!", entry.filter]]))];
 }

@@ -1,6 +1,6 @@
 // sceneの入口（`sceneInputsFrom`）へ渡す状態。既定は「何も出していない」空だけで、見たい性質は
 // 各テストが上書きで書く。
-import type { MapLayerVisibility } from "@/components/Map/mapLayers";
+import type { MapLayerVisibility } from "@/features/map/layers/mapLayers";
 import type { sceneInputsFrom } from "@/features/map/scene/applyToMap";
 
 export type SceneState = Parameters<typeof sceneInputsFrom>[0];

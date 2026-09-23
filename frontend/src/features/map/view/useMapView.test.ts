@@ -7,10 +7,10 @@
 import { act, renderHook } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { buildDefaultLayerVisibility, type MapLayerId } from "@/components/Map/mapLayers";
+import { buildDefaultLayerVisibility, type MapLayerId } from "@/features/map/layers/mapLayers";
 import { EMPTY_CATALOG, type AxisCatalog } from "@/lib/axisCatalog";
 
-import { catalogOf, dedicatedEntry, rampEntry } from "./__fixtures__/catalog";
+import { catalogOf, dedicatedEntry, rampEntry } from "@/features/map/view/__fixtures__/catalog";
 import { useMapView } from "./useMapView";
 
 type MapViewInputs = Parameters<typeof useMapView>[0];
@@ -18,7 +18,7 @@ type MapViewInputs = Parameters<typeof useMapView>[0];
 // 軸カタログと気象レイヤーは外部へ取りに行くため、取りに行かない代役へ差し替える（ネットワーク境界）。
 const SOURCES = vi.hoisted(() => ({ catalog: undefined as unknown as AxisCatalog }));
 vi.mock("@/hooks/useAxisCatalog", () => ({ useAxisCatalog: () => SOURCES.catalog }));
-vi.mock("@/hooks/useDynamicWeatherLayers", () => ({
+vi.mock("@/features/map/useDynamicWeatherLayers", () => ({
   useDynamicWeatherLayers: () => ({ dynamicWeather: {}, dynamicWeatherDataStatus: {} }),
 }));
 

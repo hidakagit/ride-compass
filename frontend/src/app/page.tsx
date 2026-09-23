@@ -5,8 +5,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/Tabs/T
 import Disclosure from "@/components/Disclosure/Disclosure";
 import { Button } from "@/components/ui/Button/Button";
 import { cn } from "@/lib/cn";
-import MapView, { type RouteFitObscuredPx } from "@/components/Map/MapView";
-import MapOverlayControls from "@/components/MapOverlayControls/MapOverlayControls";
+import MapView, { type RouteFitObscuredPx } from "@/features/map/MapView/MapView";
+import MapOverlayControls from "@/features/map/MapOverlayControls/MapOverlayControls";
 import {
   ClearAllFiltersIcon,
   ClearAllLayersIcon,
@@ -16,17 +16,18 @@ import {
   RedrawMapIcon,
   RouteIcon,
   RouteSettingsIcon,
-} from "@/components/Map/icons";
+} from "@/components/ui/icons/icons";
 import BottomSheet, { clampSheetHeightVh, DEFAULT_SHEET_HEIGHT_VH } from "@/components/BottomSheet/BottomSheet";
-import LensControl from "@/components/LensControl/LensControl";
-import { LENS_DIFFICULTY_ID, LENS_NONE_ID } from "@/components/Map/routeStyleModes";
+import LensControl from "@/features/map/LensControl/LensControl";
+import { LENS_DIFFICULTY_ID, LENS_NONE_ID } from "@/lib/mapDisplay/routeStyleModes";
 import ErrorText from "@/components/ErrorText/ErrorText";
-import RouteForm, { type RouteMode, type SettingsTab } from "@/components/RouteForm/RouteForm";
-import { useRouteFormSubmit } from "@/components/RouteForm/useRouteFormSubmit";
-import RouteSettingsPanel from "@/components/RouteSettingsPanel/RouteSettingsPanel";
-import HardFilterPanel, { DEFAULT_HARD_FILTERS } from "@/components/RouteSettingsPanel/HardFilterPanel";
-import RouteAxisProfile from "@/components/RouteAxisProfile/RouteAxisProfile";
-import RouteSplicePanel from "@/components/RouteSplicePanel/RouteSplicePanel";
+import RouteForm, { type SettingsTab } from "@/features/route/RouteForm/RouteForm";
+import type { RouteMode } from "@/features/route/RouteForm/useRouteFormSubmit";
+import { useRouteFormSubmit } from "@/features/route/RouteForm/useRouteFormSubmit";
+import RouteSettingsPanel from "@/features/route/RouteSettingsPanel/RouteSettingsPanel";
+import HardFilterPanel, { DEFAULT_HARD_FILTERS } from "@/features/route/RouteSettingsPanel/HardFilterPanel";
+import RouteAxisProfile from "@/features/route/RouteAxisProfile/RouteAxisProfile";
+import RouteSplicePanel from "@/features/route/RouteSplicePanel/RouteSplicePanel";
 import { haversineKm } from "@/lib/geoDistance";
 import {
   buildSplicedShape,
@@ -34,32 +35,36 @@ import {
   stretchAlternativeGroups,
   stretchCoordinateRange,
   type StretchAlternative,
-} from "@/lib/routeSplice";
-import AxisContributionBar from "@/components/RouteAxisProfile/AxisContributionBar";
-import WeatherPanel from "@/components/WeatherPanel/WeatherPanel";
-import TodayOutlook from "@/components/TodayOutlook/TodayOutlook";
-import WarningBadgeList from "@/components/WarningBadge/WarningBadge";
+} from "@/features/route/routeSplice";
+import AxisContributionBar from "@/components/AxisContributionBar/AxisContributionBar";
+import WeatherPanel from "@/features/conditions/WeatherPanel/WeatherPanel";
+import TodayOutlook from "@/features/conditions/TodayOutlook/TodayOutlook";
+import WarningBadgeList from "@/features/conditions/WarningBadge/WarningBadge";
 import HeaderMenu from "@/components/HeaderMenu/HeaderMenu";
-import RideConditionBar from "@/components/RideConditionBar/RideConditionBar";
-import TravelBearingControl from "@/components/TravelBearingControl/TravelBearingControl";
-import { useWeatherConditions } from "@/hooks/useWeatherConditions";
+import RideConditionBar from "@/features/conditions/RideConditionBar/RideConditionBar";
+import TravelBearingControl from "@/features/conditions/TravelBearingControl/TravelBearingControl";
+import { useWeatherConditions } from "@/features/conditions/useWeatherConditions";
 import { useAxisCatalog } from "@/hooks/useAxisCatalog";
 import { CLIENT_TUNING_IDS, clientTuningValue } from "@/lib/axisCatalog";
 import { useMaterialCatalog } from "@/hooks/useMaterialCatalog";
-import { syncHardFilterKeys } from "@/lib/hardFilterSync";
-import { buildGenerateRequest, generationConditionsKey, type GenerationInput } from "@/lib/generationRequest";
-import { routePreferenceToSend } from "@/lib/routePreferenceSync";
+import { syncHardFilterKeys } from "@/features/route/hardFilterSync";
+import {
+  buildGenerateRequest,
+  generationConditionsKey,
+  type GenerationInput,
+} from "@/features/route/generationRequest";
+import { routePreferenceToSend } from "@/features/route/routePreferenceSync";
 import { formatMaterialValue, materialCatalogName } from "@/lib/axisMaterialsCatalog";
-import { downloadGpx } from "@/lib/gpxExport";
-import { baselineDistanceKm, loadBarHeightRatio } from "@/lib/difficultyLoadBar";
+import { downloadGpx } from "@/features/route/gpxExport";
+import { baselineDistanceKm, loadBarHeightRatio } from "@/features/route/difficultyLoadBar";
 import {
   SPLICED_ROUTE_ID_PREFIX,
   extraDurationLabel,
   isSplicedRoute,
   fastestDurationSeconds,
   fastestRouteId,
-} from "@/lib/routeTabLabel";
-import ComparisonPanel from "@/components/ComparisonPanel/ComparisonPanel";
+} from "@/features/route/routeTabLabel";
+import ComparisonPanel from "@/features/route/ComparisonPanel/ComparisonPanel";
 import DebugConsole from "@/components/DebugConsole/DebugConsole";
 import { debugLog } from "@/lib/debugLog";
 import { useDebugEnabled } from "@/hooks/useDebugLog";
@@ -69,9 +74,9 @@ import { useElementHeightCssVar } from "@/hooks/useElementHeightCssVar";
 import { useIsomorphicLayoutEffect } from "@/hooks/useIsomorphicLayoutEffect";
 import { useLocation } from "@/hooks/useLocation";
 import { useStoredState, useStoredBooleanState, useStoredJsonState } from "@/hooks/useStoredState";
-import { useDepartureTime } from "@/hooks/useDepartureTime";
+import { useDepartureTime } from "@/features/conditions/useDepartureTime";
 import { useMapView } from "@/features/map/view/useMapView";
-import { generateRoutes, type GenerationProgress } from "@/services/routeApi";
+import { generateRoutes, type GenerationProgress } from "@/features/route/routeApi";
 import type {
   Coordinates,
   PinRole,
@@ -363,7 +368,7 @@ export default function Home() {
   // 表示中の候補を生成したときの条件スナップショット。重みは値の組をJSON文字列で比較する
   // （フィールド比較の列挙より差分検知の漏れが出にくい）。
   const [generatedConditions, setGeneratedConditions] = useState<{
-    // 生成に実際に送ったpayloadから導出した比較キー（lib/generationRequest.ts:
+    // 生成に実際に送ったpayloadから導出した比較キー（features/route/generationRequest.ts:
     // generationConditionsKey）。現在のフォーム値から同じ関数で作ったキーと突き合わせる
     // だけでconditionsDirtyが決まるため、比較したいフィールドを個別に持たない。
     key: string;
@@ -706,7 +711,7 @@ export default function Home() {
 
   // 現在のフォーム値から生成リクエストの入力一式を組み立てる。生成時（handleGenerate）と
   // dirty判定の両方がこの1つの関数を通るため、送る値を足したときに比較側へ足し忘れる形の
-  // 欠陥が起きない（lib/generationRequest.ts参照）。
+  // 欠陥が起きない（features/route/generationRequest.ts参照）。
   // `destinationOverride`はbackendが補正した目的地を渡すためのもの。補正後のキーを作るとき
   // フィールドを個別に差し替えると、そのフィールドから導かれる値（distanceKm）が補正前の
   // ままになる——同じ組み立てをここ1箇所に通すことで、その取りこぼしが起きない。
@@ -844,7 +849,7 @@ export default function Home() {
       // 既にある候補を選ぶだけにする。
       const sameRoute = routes.find((route) => route.edge_ids.join(",") === spliced.edge_ids.join(","));
       // 素の結果と本質的に区別しないため、生成候補と同じ並び順の規約へ乗せる
-      // （lib/routeSplice.ts: insertByDifficulty）。見分けはタブの名前で付ける。
+      // （features/route/routeSplice.ts: insertByDifficulty）。見分けはタブの名前で付ける。
       // max_routesによる切り詰めはしない——上限は「生成が何本探すか」の指定で、
       // 利用者が作った組み合わせを押し出す理由が無い。
       const unique = { ...spliced, id: `${SPLICED_ROUTE_ID_PREFIX}-${routes.length}` };
@@ -865,7 +870,7 @@ export default function Home() {
     setGeneration({ status: "running", progress: null });
     let message: string | null = null;
     try {
-      // 送るpayloadとdirty判定の比較キーを同じ入力から導出する（lib/generationRequest.ts）。
+      // 送るpayloadとdirty判定の比較キーを同じ入力から導出する（features/route/generationRequest.ts）。
       // 候補数はステッパー（‹/›）操作のみで変更でき、1〜MAX_ROUTES範囲の整数文字列以外には
       // なり得ないため、buildCurrentGenerationInput側でそのままNumber化して使う。
       const generationInput = buildCurrentGenerationInput(distanceKm);
@@ -1149,7 +1154,7 @@ export default function Home() {
     const fastestSeconds = fastestDurationSeconds(routes);
     const fastestRouteIdInList = fastestRouteId(routes);
     // 難易度の帯の高さ1.0とする距離。帯の長さは総合難易度なので、高さへ距離を与えると
-    // 塗られた面積が負荷（difficulty_load）になる（lib/difficultyLoadBar.ts）。一覧の行と
+    // 塗られた面積が負荷（difficulty_load）になる（features/route/difficultyLoadBar.ts）。一覧の行と
     // 候補の中身（RouteAxisProfile）で同じ基準を使う——同じ見た目の帯が場所によって別の
     // 尺度になると、行と中身で面積が食い違う。
     const loadBarBaselineKm = baselineDistanceKm(routes);

@@ -9,8 +9,8 @@ import palette from "@/types/generated/palette.json";
 import type { ExpressionSpecification, FilterSpecification } from "maplibre-gl";
 import type { Feature, FeatureCollection, LineString } from "geojson";
 
-import { declareGroup, type SceneLayerEntry, type SceneSourceEntry } from "../mapSceneGroups";
-import { zoomScaleExpression, sceneSourceId } from "../sceneBuilders";
+import { declareGroup, type SceneLayerEntry, type SceneSourceEntry } from "@/features/map/scene/mapSceneGroups";
+import { zoomScaleExpression, sceneSourceId } from "@/features/map/scene/sceneBuilders";
 
 /** [経度, 緯度] の並び。 */
 type RoutePoint = readonly [number, number];

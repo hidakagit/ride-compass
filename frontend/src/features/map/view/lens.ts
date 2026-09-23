@@ -3,11 +3,27 @@
  * 全道路の塗り（ramp軸・専用配信軸）もルート線の色分けも同じ`lens`から導き、軸の種類ごとの
  * 分岐は持たない——軸を公開すれば、ここへ何も足さずに選択肢と塗り分けへ現れる。
  */
-import { buildAxisRampLegend, type DedicatedWayValueAxis, type RampAxis } from "@/components/Map/axisLayers";
-import { dedicatedWayValueLegend } from "@/components/Map/dedicatedWayValueLayer";
-import type { LegendEntry } from "@/components/Map/legendFilter";
-import { LENS_NEUTRAL_COLOR, type LensId, type RouteStyleMode } from "@/components/Map/routeStyleModes";
-import type { LensOption } from "@/components/LensControl/LensControl";
+import { rampColorForBand, type DedicatedWayValueAxis, type RampAxis } from "@/lib/mapDisplay/axisLayers";
+import type { DedicatedWayValueDisplay } from "@/lib/mapDisplay/dedicatedWayValueLayer";
+import {
+  bandLabelsForBandCount,
+  buildRangeLegendBands,
+  LEGEND_NO_DATA_KEY,
+  legendBandKey,
+  rangeStepLabel,
+  type MapColorLegendBand,
+} from "@/lib/mapDisplay/mapColorLegend";
+import { bandColorsFor, COLOR_NO_DATA, DEFAULT_DIFFICULTY_BOUNDARIES } from "@/lib/mapDisplay/valueScale";
+import { buildAxisRampUnknownExpression, buildAxisRampValueExpression } from "@/features/map/scene/groups/axisLines";
+import { COLOR_UNKNOWN } from "@/features/map/scene/sceneBuilders";
+import type { LegendEntry } from "@/lib/mapDisplay/legendFilter";
+import {
+  LENS_DIFFICULTY_ID,
+  LENS_NEUTRAL_COLOR,
+  type LensId,
+  type RouteStyleMode,
+} from "@/lib/mapDisplay/routeStyleModes";
+import type { LensOption } from "@/features/map/LensControl/LensControl";
 import type { PreferenceAxisDef } from "@/lib/evaluationAxes";
 
 /** 全道路を塗っている軸。ルート確定後は、周囲も塗り続ける設定の間だけ塗る。 */
@@ -52,4 +68,89 @@ export function lensOptions(
     unused: usedWeights !== null && (usedWeights[axis.axisId] ?? 0) <= 0,
     routeOnly: !paintableAxisIds.has(axis.axisId),
   }));
+}
+
+/** 段階の下限（inclusive）・上限（exclusive）。両端はnull（下限/上限なし）。 */
+function axisRampBand(thresholds: readonly number[], index: number): { lower: number | null; upper: number | null } {
+  return {
+    lower: index === 0 ? null : thresholds[index - 1],
+    upper: index === thresholds.length ? null : thresholds[index],
+  };
+}
+
+/** 段階ラベル（例: 「1回/km未満」「1〜2回/km」「4回/km以上」）。thresholds.length+1件。
+ * 範囲の文字起こしは`mapColorLegend.ts: rangeStepLabel`に任せる（表記規則を書き直さない）。
+ * `axis.bandLabelsOverride`の要素数が段階数と一致する間は、数値レンジの
+ * 前に体感ラベルを添える（`mapColorLegend.ts: buildRangeLegendBands`と同じ考え方）。 */
+function axisRampBandLabel(axis: RampAxis, index: number, lower: number | null, upper: number | null): string {
+  const bandCount = axis.thresholds.length + 1;
+  const rangeLabel = rangeStepLabel(lower, upper, axis.unit);
+  if (axis.bandLabelsOverride && axis.bandLabelsOverride.length === bandCount) {
+    return `${axis.bandLabelsOverride[index]}（${rangeLabel}）`;
+  }
+  return rangeLabel;
+}
+
+/** ramp軸の凡例。分類で塗るレイヤーと同じLegendEntry型で返し、凡例のチェックボックス・
+ * 地図チップの▶展開凡例をそのまま共有する。
+ * filterはbuildAxisRampValueExpression（地図の色分けが使うのと同じ線形結合）への
+ * 範囲比較で、実際に塗られる色と凡例が食い違わないようにする。
+ * hasUnknownFallbackな軸は末尾に「不明」エントリを足し、他の段階のfilterには
+ * 「不明ではない」条件を足して二重分類を防ぐ。 */
+function buildAxisRampLegend(axis: RampAxis): LegendEntry[] {
+  const valueExpression = buildAxisRampValueExpression(axis);
+  const unknownExpression = buildAxisRampUnknownExpression(axis);
+  const bandCount = axis.thresholds.length + 1;
+  const bands = Array.from({ length: bandCount }, (_, index) => {
+    const { lower, upper } = axisRampBand(axis.thresholds, index);
+    const filterParts: unknown[] = ["all"];
+    if (unknownExpression !== null) filterParts.push(["!", unknownExpression]);
+    if (lower !== null) filterParts.push([">=", valueExpression, lower]);
+    if (upper !== null) filterParts.push(["<", valueExpression, upper]);
+    return {
+      // 段の識別子はルート確定前後で共通（`mapColorLegend.ts: legendBandKey`）。**軸idを
+      // 混ぜない**——非表示にした段の保存先は前後で同じ`hiddenLegendKeysByMode[軸id]`
+      // なので、別の綴りにすると隠した段がルート生成で黙って戻る。
+      key: legendBandKey(index),
+      label: axisRampBandLabel(axis, index, lower, upper),
+      color: rampColorForBand(index, bandCount),
+      filter: filterParts,
+    };
+  });
+  if (unknownExpression === null) return bands;
+  return [
+    ...bands,
+    {
+      // 値を持たない道の受け皿もルート線側と同じキー（ルート線は「データなし」と呼ぶ）。
+      key: LEGEND_NO_DATA_KEY,
+      label: "不明",
+      color: COLOR_UNKNOWN,
+      filter: ["all", unknownExpression],
+      isFallback: true,
+    },
+  ];
+}
+
+/** 地図上の色分け凡例。地図の線と同じ配色・しきい値から段階ラベル付きの凡例を組み立てる。
+ * 段階ラベル（bandLabels）は要素数が段階数と一致する間だけ数値レンジの前に添える
+ * （不一致な保存データへの防御）。末尾の「データなし」は値を受け取れなかった道路の受け皿で、
+ * ルート確定後のルート線の凡例（`routeStyleModes.ts`）と段階の並び・キーを揃える。 */
+function dedicatedWayValueLegend(display: DedicatedWayValueDisplay): MapColorLegendBand[] {
+  const boundaries = display.boundaries ?? DEFAULT_DIFFICULTY_BOUNDARIES;
+  const colors = bandColorsFor(display.kind, boundaries);
+  const labels = bandLabelsForBandCount(display.bandLabels, boundaries.length + 1);
+  return [
+    ...buildRangeLegendBands(boundaries, colors, display.unit, labels),
+    { key: LEGEND_NO_DATA_KEY, label: "データなし", color: COLOR_NO_DATA, isFallback: true },
+  ];
+}
+
+// 既定のレンズは総合難易度（軸の公開状態に依存せず常に存在するモード）。
+export const DEFAULT_ROUTE_STYLE_MODE_ID: LensId = LENS_DIFFICULTY_ID;
+
+export function isRouteStyleModeId(
+  modes: readonly RouteStyleMode[],
+  value: string | null | undefined,
+): value is LensId {
+  return modes.some((mode) => mode.id === value);
 }

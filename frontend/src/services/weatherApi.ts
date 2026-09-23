@@ -8,8 +8,7 @@ import type {
   WindGridPoint,
   WindGridResponse,
 } from "@/types/weather";
-import type { Bbox } from "@/components/Map/windLayer";
-import type { JmaTileIndexResponse } from "@/components/Map/jmaTileIndex";
+import type { JmaTileIndexResponse } from "@/types/route";
 import { API_BASE_URL } from "@/lib/apiBaseUrl";
 import { debugLog } from "@/lib/debugLog";
 import { fetchJson } from "@/lib/fetchJson";
@@ -122,6 +121,13 @@ export async function getWindGrid(): Promise<WindGridPoint[]> {
 // bboxはwindLayer.tsのclampWindDetailBboxで安全な広さへクリップ済みのものを、spacingDegは
 // windGridDetailSpacingDegForZoomで求めたものを渡す想定（呼び出し元が責務を持つ、この関数は
 // 素直にリクエストするだけ）。
+export interface Bbox {
+  minLon: number;
+  minLat: number;
+  maxLon: number;
+  maxLat: number;
+}
+
 export async function getWindGridDetail(bbox: Bbox, spacingDeg: number): Promise<WindGridPoint[]> {
   const params = new URLSearchParams({
     min_lon: String(bbox.minLon),
