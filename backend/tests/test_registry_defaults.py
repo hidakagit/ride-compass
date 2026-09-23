@@ -1,10 +1,6 @@
-"""`domain/registry_defaults.py`——ビルド時生成物のためにレジストリを1回だけ埋める。
+"""`domain/registry_defaults.py`——ビルド時生成物のために一次属性の語彙を1回だけ埋める。
 
-実行時の軸カタログは`GET /api/axis-catalog`が配る。ここが埋めるのは、frontendが読込中・
-エラー時に使うビルド時の写しのためのレジストリ。
-
-`inputs`・`display`の導出そのものは`test_axis_definitions.py`・`test_axis_display.py`が
-持つ。ここで見るのは**何を登録し、何を登録しないか**。
+ここで見るのは**何を登録し、何を拒むか**。
 """
 
 from contextlib import contextmanager
@@ -12,16 +8,12 @@ from contextlib import contextmanager
 import pytest
 
 from app.domain import registry_defaults
-from app.domain.axis_definitions import AXIS_DEFINITIONS, AxisDefinition, BreakpointLinearShape, MaterialTerm
 from app.domain.registry import (
     PrimaryAttributeSpec,
-    all_axes,
     all_primary_attributes,
     reset_registry_for_testing,
 )
 from app.domain.registry_defaults import register_defaults
-
-LINE = [(0.0, 0.0), (10.0, 100.0)]
 
 
 @contextmanager
@@ -48,50 +40,19 @@ def _vocabulary(labels: dict[str, str], material_attributes: dict[str, str]):
         (registry_defaults.PRIMARY_ATTRIBUTES, registry_defaults.MATERIAL_CATALOG) = saved
 
 
-@contextmanager
-def _axes(definitions: dict[str, AxisDefinition]):
-    original = dict(AXIS_DEFINITIONS)
-    AXIS_DEFINITIONS.clear()
-    AXIS_DEFINITIONS.update(definitions)
-    try:
-        yield
-    finally:
-        AXIS_DEFINITIONS.clear()
-        AXIS_DEFINITIONS.update(original)
-
-
-def _axis(axis_id: str, is_published: bool) -> AxisDefinition:
-    return AxisDefinition(
-        axis_id=axis_id,
-        shape=BreakpointLinearShape(terms=[MaterialTerm(material="m_a")], breakpoints=LINE),
-        default_weight=0.1,
-        label=f"軸[{axis_id}]",
-        is_published=is_published,
-    )
-
-
 class TestWhatGetsRegistered:
-    def test_only_published_axes_are_registered(self):
-        """下書きの軸がビルド時の写しへ入ると、一般向けの画面に出る。"""
-        with _empty_registry():
-            with _vocabulary({"with": "材料あり"}, {"m_a": "with"}):
-                with _axes({"shown": _axis("shown", True), "draft": _axis("draft", False)}):
-                    register_defaults()
-
-                    assert {a.axis_id for a in all_axes()} == {"shown"}
-
     def test_a_material_pointing_at_an_unknown_attribute_is_rejected(self):
         """登録の時点で落とす。軸の公開まで持ち越すと、名前を引けない属性を指したまま
         公開できてしまう。
         """
-        with _empty_registry(), _axes({}):
+        with _empty_registry():
             with _vocabulary({"known": "既知"}, {"m_a": "no_such_attribute"}):
                 with pytest.raises(ValueError, match="no_such_attribute"):
                     register_defaults()
 
     def test_a_material_without_an_attribute_is_not_required_to_be_in_the_table(self):
         """Noneを語彙の欠落として扱うと、登録できなくなる。"""
-        with _empty_registry(), _axes({}):
+        with _empty_registry():
             with _vocabulary({"known": "既知"}, {"m_a": None}):
                 register_defaults()
 
@@ -99,7 +60,7 @@ class TestWhatGetsRegistered:
 
     def test_calling_it_twice_is_rejected(self):
         """レジストリは大域の状態。二重に埋めると、どちらの内容か分からなくなる。"""
-        with _empty_registry(), _axes({}):
+        with _empty_registry():
             with _vocabulary({"with": "材料あり"}, {"m_a": "with"}):
                 register_defaults()
 

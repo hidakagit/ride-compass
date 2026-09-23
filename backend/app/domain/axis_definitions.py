@@ -348,10 +348,10 @@ AXIS_DEFINITIONS: dict[str, AxisDefinition] = {}
 class AxisMaterialConflictError(ValueError):
     """新規/更新しようとした軸の材料が、既存の別軸と重複している場合に送出する。
 
-    `registry.py: register_axis`の`AxisInputConflictError`（表示用レジストリの排他帰属
-    チェック）と同じ「1つの材料は原則1つの軸だけが使う」原則を、実際にルーティング計算を
-    駆動する`AXIS_DEFINITIONS`側へ適用したもの。軸スタジオで任意の軸を登録できるため、
-    既存軸が使う材料を新軸が黙って再利用し二重計上が混入する事故を構造的に防ぐ。
+    「1つの材料は原則1つの軸だけが使う」原則を、ルーティング計算を駆動する
+    `AXIS_DEFINITIONS`への書き込み時に強制する（この原則の唯一の検査）。軸スタジオで
+    任意の軸を登録できるため、既存軸が使う材料を新軸が黙って再利用し二重計上が混入する
+    事故を構造的に防ぐ。
     """
 
     def __init__(self, axis_id: str, conflicting_axis_id: str, overlapping_materials: set[str]) -> None:

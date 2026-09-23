@@ -214,7 +214,6 @@ CLAUDE.md参照。節見出しはタスクのテーマ分類で、日付は起�
 - [ ] [T1024](records/tasks/T1024.md). 正本が、存在しない機構を1本道の追加点として名指ししている 規模S
 - [ ] [T1027](records/tasks/T1027.md). 失敗・空・待ちの伝え方を1本の規約へ揃える 規模M
 - [ ] [T1029](records/tasks/T1029.md). sceneの入力語彙を、上位のReactコンポーネントのpropsから切り離す 規模S
-- [ ] [T1034](records/tasks/T1034.md). 周期レビュー第12回の小さな指摘をまとめて直す 規模S
 - [ ] [T1044](records/tasks/T1044.md). ノードの生データを読む綴りが、共有断片を持たないまま手書きで散っている 規模S
 - [ ] [T1042](records/tasks/T1042.md). 作業ツリーが自動で片付かず、しかも普通には消せない 規模M
 - [ ] [T1043](records/tasks/T1043.md). routing-engine.mdを、読む人の入口ごとに分割する 規模M

@@ -267,25 +267,21 @@ compute_edge_axis_scores`経由、下記「呼び出し元」参照）。周回�
 `GET /api/axis-catalog`が`material_breakdown`として、材料id・表示名・型・単位・
 正規化重みの並びで配信する（フロントは材料の対応表も並べ替えも持たない）。
 
-## 一次属性・二次軸レジストリ（`domain/registry.py`・`registry_defaults.py`、別系統）
+## 一次属性レジストリ（`domain/registry.py`・`registry_defaults.py`、別系統）
 
-**`AXIS_DEFINITIONS`とは別の、並行するレジストリ機構**。`register_axis()`/
-`register_primary_attribute()`が`_AXES`/`_PRIMARY_ATTRIBUTES`（モジュールレベルdict、
-`AXIS_DEFINITIONS`とは別オブジェクト）へ登録し、独自の排他制約チェック
-（`AxisInputConflictError`、`AXIS_DEFINITIONS`側の`check_material_exclusivity`/
-`AxisMaterialConflictError`とは別実装）を持つ。
+**`AXIS_DEFINITIONS`とは別の、一次属性の語彙だけを持つレジストリ**。
+`register_primary_attribute()`が`_PRIMARY_ATTRIBUTES`（モジュールレベルdict）へ登録し、
+同じ`attr_id`の二重登録を拒む。軸は登録しない——材料が2つの軸へ跨がらないことの検査は
+`AXIS_DEFINITIONS`側の`check_material_exclusivity`/`AxisMaterialConflictError`（軸の書き込み時）
+だけが持つ。
 
 **暗黙の前提（最重要）**: `register_defaults()`は**FastAPIアプリの起動時には一切呼ばれない**。
 実際の呼び出し元は`scripts/export_openapi.py`（ビルド時、一次属性の名前を
-`primary-attributes.json`へ書き出す）とテストのみ。**軸カタログそのものにビルド時の写しは
+`primaryAttributes.ts`へ書き出す）とテストのみ。**軸カタログそのものにビルド時の写しは
 無い**——frontendは`GET /api/axis-catalog`が返したものだけを使う
-（[設計原則](../../architecture/design-principles.md)構造仕様9）。
-
-`_register_axes()`（`registry_defaults.py`）は`AXIS_DEFINITIONS`を走査して公開軸のみを
-登録する（特定のaxis_idを名指しした条件分岐は持たない）。`inputs`・
-`display`は`primary_attribute_ids_for()`・`axis_display_for()`（実行時APIと同一の純粋
-関数）から導出するため、ビルド時静的生成物と実行時APIの計算ロジック自体は分岐しない
-（分岐するのは「いつのAXIS_DEFINITIONSを見るか」というタイミングのみ）。
+（[設計原則](../../architecture/design-principles.md)構造仕様9）。ビルド時には
+`AXIS_DEFINITIONS`が空（DBから埋めるのは実行時の`refresh_axis_definitions`だけ）なので、
+ビルド時に軸を見る検査は置けない。
 
 ## API
 
