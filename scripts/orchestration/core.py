@@ -33,6 +33,9 @@
   （cherry-pickでshaが変わっても、変更の中身が同じなら入ったとみなす）。前回のpushの時刻は
   origin/masterの先端のコミットの時刻。
 - 監査待ちかは、監査の記録（報告の受領`reported`が最後の`audit_done`より新しい）。
+- 担当の作業ツリーは、スロットなら渡した印（`git worktree lock`の理由`slot agent-<id> <時刻>`）、
+  それ以外は作業ツリーの名前`agent-<id>`から、表の`id`で引く（`worktree_of`）。印は監査を
+  通したとき（`audit_result=通す`）に、作業ツリーにしか無い成果が無ければ外す（`release_slot`）。
 
 担当の現在のタスク（`current_task`）とその着手時刻（`task_first_started`）は、振り出し
 （`board add ... current_task=Txxx`、`board set ... current_task=Txxx`）で入り、監査を通したとき
@@ -158,6 +161,9 @@ TASK_HEADING_RE = re.compile(r"^# T\d+[a-z0-9-]*\.\s*(.*)$")
 EXPECTED_HOOKS_PATH = ".githooks"
 #: どの作業ツリーにも自動で作られる設定。作業の進みを表さない。
 IGNORED_CHANGES = (".claude/settings.local.json",)
+#: スロット（scripts/orchestration/slots.py）を渡した印は`git worktree lock`の理由
+#: `slot <渡し先> <時刻>`。渡し先はClaude CodeがWorktreeCreateフックへ渡す名前（`agent-<id>`）。
+SLOT_LOCK_PREFIX = "slot "
 
 #: 監査の同期ルール（CLAUDE.md「コミット時の同期ルール」）で、生成物の再生成を要する宣言の場所。
 API_DECL_RE = re.compile(r"^backend/(app/(api|domain)/|app/config\.py|scripts/export_openapi\.py)")
@@ -525,8 +531,11 @@ def audit_pending(agent: dict) -> bool:
 
 
 class Worktree:
-    def __init__(self, path: str, head: str | None, branch: str | None, main: bool):
+    def __init__(self, path: str, head: str | None, branch: str | None, main: bool,
+                 locked: str | None = None):
         self.path, self.head, self.branch, self.main = path, head, branch, main
+        #: `git worktree lock`の理由（ロックが無ければNone、理由の無いロックは空文字）。
+        self.locked = locked
         self.exists = os.path.isdir(path)
         self.commit_time: dt.datetime | None = None
         self.dirty: int | None = None
@@ -552,7 +561,7 @@ def list_worktrees(ctx: Context) -> list[Worktree]:
         if "worktree" in fields:
             branch = fields.get("branch", "").removeprefix("refs/heads/") or None
             trees.append(Worktree(os.path.normpath(fields["worktree"]), fields.get("HEAD"),
-                                  branch, main=not trees))
+                                  branch, main=not trees, locked=fields.get("locked")))
     heads = [t.head for t in trees if t.head]
     times = git_out(ctx.repo, "log", "--no-walk=unsorted", "--format=%H %ct", *heads) if heads else ""
     by_sha = {}
@@ -585,7 +594,17 @@ def inspect_changes(tree: Worktree) -> None:
     tree.newest_change = dt.datetime.fromtimestamp(newest).astimezone() if newest else None
 
 
+def slot_owner(tree: Worktree) -> str | None:
+    """スロットを渡した印の渡し先。スロットの印でなければNone。"""
+    reason = tree.locked or ""
+    if not reason.startswith(SLOT_LOCK_PREFIX):
+        return None
+    return reason[len(SLOT_LOCK_PREFIX):].split(" ", 1)[0] or None
+
+
 def worktree_of(agent: dict, trees: list[Worktree]) -> Worktree | None:
+    """担当の作業ツリー。スロットで動く担当は、渡した印の渡し先（`agent-<id>`）から導く——
+    スロットの名前は担当を表さず、印が外れれば担当とスロットの対応も消える。"""
     explicit = agent.get("worktree")
     if explicit:
         target = os.path.normcase(os.path.normpath(str(explicit)))
@@ -593,10 +612,54 @@ def worktree_of(agent: dict, trees: list[Worktree]) -> Worktree | None:
                      or os.path.basename(t.path) == explicit), None)
     agent_id, name = agent.get("id"), str(agent.get("name", "")).lower()
     if agent_id:
-        found = next((t for t in trees if os.path.basename(t.path) == f"agent-{agent_id}"), None)
+        key = f"agent-{agent_id}"
+        found = next((t for t in trees if os.path.basename(t.path) == key or slot_owner(t) == key), None)
         if found:
             return found
     return next((t for t in trees if not t.main and t.branch in (name, f"orch/{name}")), None)
+
+
+def unsaved_work(path: Path) -> list[str]:
+    """作業ツリーにしか無い成果。空なら、作業ツリーを次の担当へ渡しても何も失われない。
+    確かめられなかったときも、失われうるものとして返す。"""
+    r = git(path, "status", "--porcelain=v1", "-z", "--no-renames", "--untracked-files=all")
+    if r is None or r.returncode != 0:
+        return ["git statusが失敗した（未コミットの変更を確かめられない）"]
+    entries = r.stdout.decode("utf-8", errors="replace").split("\0")
+    dirty = [e[3:] for e in entries if len(e) > 3 and e[3:] not in IGNORED_CHANGES]
+    out = []
+    if dirty:
+        shown = "、".join(dirty[:5]) + (f" ほか{len(dirty) - 5}件" if len(dirty) > 5 else "")
+        out.append(f"未コミットの変更がある: {shown}")
+    unpushed = git_out(path, "rev-list", "--count", "HEAD", "--not", "--remotes=origin")
+    if unpushed is None:
+        out.append("pushしていないコミットを確かめられない（git rev-listが失敗した）")
+    elif unpushed != "0":
+        out.append(f"どのリモートの枝からも届かないコミットが{unpushed}件ある（pushしていない成果）")
+    return out
+
+
+def release_slot(ctx: Context, agent: dict) -> None:
+    """担当に渡したスロットの印を外す。作業ツリーにしか無い成果が残っていれば外さずに理由を出す。
+    Claude Codeは担当の終了時にWorktreeRemoveフックを呼ばない（中身のある作業ツリーは残す）ため、
+    印を外す契機は司令塔が担当を監査で通したときに置く。"""
+    if not agent.get("id"):
+        return
+    owner = f"agent-{agent['id']}"
+    tree = next((t for t in list_worktrees(ctx) if slot_owner(t) == owner), None)
+    if tree is None:
+        return
+    slot = os.path.basename(tree.path)
+    problems = unsaved_work(Path(tree.path))
+    if problems:
+        print(f"{slot}の印を残した（渡し先 {owner}）: " + " / ".join(problems))
+        return
+    r = git(ctx.repo, "worktree", "unlock", tree.path)
+    if r is None or r.returncode != 0:
+        err = "時間切れ" if r is None else r.stderr.decode("utf-8", errors="replace").strip()
+        print(f"{slot}の印を外せなかった（渡し先 {owner}）: {err}")
+        return
+    print(f"{slot}の印を外した（渡し先だった {owner}）")
 
 
 class Facts:
@@ -746,6 +809,17 @@ def cmd_gate(ctx: Context, args: argparse.Namespace) -> int:
 # ---------------------------------------------------------------- status
 
 
+def stale_slot(f: Facts, a: dict) -> str | None:
+    """止まって監査も待っていない担当が、スロットの印を持ったままか。持っていれば外し方の文。
+    印が残ると、そのスロットは次の担当へ渡らず、同時に動かせる本数が1つ減る。"""
+    t = f.tree(a)
+    if a.get("state") not in STOPPED_STATES or t is None or not slot_owner(t) or audit_pending(a):
+        return None
+    name = os.path.basename(t.path)
+    return (f"表は{a.get('state')}だが{name}の印が残っている（監査で通すと外れる。通さずに止めたなら"
+            f" orchestrate.py slot release {name.removeprefix('slot-')}）")
+
+
 def agent_marks(f: Facts, a: dict, states: dict[str, str | None], listed: set[str]) -> list[str]:
     """状態の表と事実の食い違い（!）と、確かめるべき点（?）。"""
     marks = []
@@ -757,6 +831,9 @@ def agent_marks(f: Facts, a: dict, states: dict[str, str | None], listed: set[st
             marks.append("! 表は稼働だが作業ツリーが無い")
         if state not in ACTIVE_STATES and t is not None and t.active(f.at, f.active_min):
             marks.append(f"! 表は{state}だが作業ツリーが{hm(t.newest_change)}に変更されている")
+        held = stale_slot(f, a)
+        if held:
+            marks.append(f"! {held}")
     task = a.get("current_task")
     if task:
         st, in_ledger = states.get(task), task in listed
@@ -867,6 +944,9 @@ def cmd_check(ctx: Context, args: argparse.Namespace) -> int:
                                 f"未コミット変更が{t.dirty}件積み上がっている（最新の変更 {hm(t.newest_change)}）")
         elif t is not None and not is_cloud(a) and t.active(f.at, f.active_min):
             problems.append(f"{a.get('name')}: 表は{a.get('state')}だが作業ツリーが{hm(t.newest_change)}に変更されている")
+        held = None if is_cloud(a) else stale_slot(f, a)
+        if held:
+            problems.append(f"{a.get('name')}: {held}")
         if audit_pending(a):
             reported = parse_time(a.get("reported"))
             if reported is None:
@@ -1187,6 +1267,7 @@ def cmd_board(ctx: Context, args: argparse.Namespace) -> int:
         if agent.get("state") == "稼働":
             restore_hooks_path(ctx)
         urgent = bool(agent.pop("urgent", False))
+        passed = "audit_done" in keys and agent.get("audit_result") == "通す"
         if "audit_done" in keys:
             # 監査の待ち時間（受領→結果）を回の記録で測るため、1件ごとに残す。
             entry = {k: agent.get(k) for k in (
@@ -1200,6 +1281,9 @@ def cmd_board(ctx: Context, args: argparse.Namespace) -> int:
                 agent["task_first_started"] = None
         save_board(ctx, board)
         print(json.dumps(agent, ensure_ascii=False, indent=1))
+        # 差し戻しでは同じ担当が同じスロットで再開するので、印は監査を通すまで外さない。
+        if passed and agent.get("state") in STOPPED_STATES:
+            release_slot(ctx, agent)
         return 0
     if args.board_cmd == "unpushed":
         return cmd_unpushed(ctx, board, at)

@@ -401,8 +401,10 @@ T536でそれを置き換えた`compute_edge_costs_bulk`まで同じ理由で残
   思われる場合は、変更内容を報告してユーザーに確認してから行う。
   `git checkout --`等で破棄した未ステージの変更は、gitオブジェクトとして残らないため
   多くの場合復元不能である。
-- **worktreeはタスク単位で作り捨てず、テーマ単位で使い回す**。frontendの依存は実体が
-  32,000ファイル超あり、作り直すたびに`npm ci`の数分を払う。**`node_modules`を
+- **エージェントの作業ツリーは作り捨てず、固定数のスロット（`.claude/worktrees/slot-<N>`）を
+  使い回す**。`isolation: "worktree"`で起動するとWorktreeCreateフックが空いているスロットを渡し、
+  空きが無ければ起動が失敗する。印は担当の終了では外れない——外し方と止まる条件は
+  docs/conventions/orchestration.md「作業ツリーのスロット」節。**`node_modules`を
   ジャンクション等で共有しないこと**——`next dev`が「プロジェクトルート外を指すリンク」
   として拒否するうえ、一方のworktreeを`git worktree remove --force`すると再帰削除が
   リンクの中へ入り共有元を壊す（実測、[T768](docs/records/tasks/T768.md)）。
@@ -417,6 +419,8 @@ T536でそれを置き換えた`compute_edge_costs_bulk`まで同じ理由で残
   指定する**（isolationを指定しないと自分自身の並行作業やユーザーの手元の変更と衝突・
   混在するリスクがあり、「並行セッションが同じ作業ツリーを触りうる」という本節の前提が
   自分のAgent委任にもそのまま当てはまる。詳細は[T414](docs/records/tasks/T414.md)参照）。
+  これで渡るのも上のスロットなので、司令塔の外で委任したときは、担当の終了後に
+  `python scripts/orchestrate.py slot release <N>`で印を外す。
 - **タスク番号（Txxx）は手で採番せず、
   `python scripts/new_task.py "タイトル" --section "台帳の節見出しの一部" --size S [--background "背景"]`
   で確保する**（複数セッションが同時に「次の番号」を計算するため、手で採番すると衝突する）。
