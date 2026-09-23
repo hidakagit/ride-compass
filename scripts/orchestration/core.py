@@ -619,6 +619,17 @@ def population_view(ctx: Context, board: dict, rows: dict[str, dict]) -> dict:
             "ended": bool(entries) and not remaining}
 
 
+def run_closed_reason(view: dict) -> str | None:
+    """回の側から振り出しを止める理由。母集団の外は振り出さないので、母集団が無ければ振り出せるものが無い。"""
+    if not view["entries"]:
+        return "回が始まっていない（母集団が表に無い。board run start・goal・add で目的と母集団を置いてから振り出す）"
+    if view["ended"]:
+        return (f"回「{view['name'] or '-'}」（目的: {view['goal'] or '未設定'}）は終わりの条件1に当たっている"
+                f"——母集団{len(view['entries'])}件がすべて完了かトリガー待ち。新しいタスクは振り出さず、"
+                "終わった状態を揃える（規約「回の始まりと終わり」）")
+    return None
+
+
 def run_summary_lines(view: dict, *, detail: bool) -> list[str]:
     """回の目的・母集団の残り・終わりの条件1の行。detailなら母集団の全件を1行ずつ出す。"""
     lines = [f"回: {view['name'] or '-'}  目的: {view['goal'] or '未設定（board run goal <文>）'}"]
@@ -794,6 +805,7 @@ class Facts:
         self.lock_holders = self._lock_holders()
         self.ledger = ledger_rows(ctx)
         self.budgets = effort_budgets(effort_records(ctx))
+        self.run_view = population_view(ctx, self.board, self.ledger)
 
     def _recent_locks(self) -> list[dict]:
         log = self.ctx.lock_root / "log.jsonl"
@@ -901,6 +913,9 @@ def gate_reasons(f: Facts, args: argparse.Namespace) -> list[str]:
         ng.append(f"直近{LOCK_WINDOW_MINUTES}分にロック待ち{LOCK_WAIT_LIMIT_MINUTES}分以上: " + "、".join(locks))
     if f.cpu is not None and f.cpu >= args.cpu_max:
         ng.append(f"CPUが飽和している（{f.cpu:.0f}% ≥ {args.cpu_max}%）")
+    closed = run_closed_reason(f.run_view)
+    if closed:
+        ng.append(closed)
     return ng
 
 
@@ -979,7 +994,7 @@ def cmd_status(ctx: Context, args: argparse.Namespace) -> int:
     master_sha, _, master_ts = master.partition(" ")
 
     b = f.board
-    view = population_view(ctx, b, f.ledger)
+    view = f.run_view
     for line in run_summary_lines(view, detail=False):
         print(line)
     population = {e["task"] for e in view["entries"]}
@@ -1143,7 +1158,7 @@ def cmd_check(ctx: Context, args: argparse.Namespace) -> int:
     if push_due(ctx, unpushed, f.at):
         problems.append(f"要対応: {push_due_line(ctx, unpushed, f.at)}（board unpushed）")
     problems += [f"表に写しのキーがある: {k}" for k in board_copy_keys(f.board)]
-    view = population_view(ctx, f.board, f.ledger)
+    view = f.run_view
     population = {e["task"] for e in view["entries"]}
     if not population and any(a.get("state") in ACTIVE_STATES for a in f.board["agents"]):
         problems.append("担当が稼働しているのに、回の目的と母集団が表に無い（board run goal・board run add）")
@@ -1152,10 +1167,9 @@ def cmd_check(ctx: Context, args: argparse.Namespace) -> int:
         problems.append("要対応: 回の終わりの条件1に当たっている（母集団がすべて完了かトリガー待ち）。新しいタスクは"
                         "振り出さず、終わった状態を揃える（規約「回の始まりと終わり」）")
     # 門がNGで見送った振り出しは、門が開いた最初の確認で拾う（「落ち着いたら」を人の注意に頼らない）。
-    # 回に母集団があれば、その外のタスクは次の回の候補なので拾わない。終わりに入ったら何も拾わない。
-    waiting_dispatch = [] if view["ended"] else [
-        i for i in ready_to_dispatch(ctx, f.board.get("queue") or [])
-        if not population or str(i.get("task")) in population]
+    # 母集団の外のタスクは次の回の候補なので拾わない。回が始まっていない・終わりに入ったときは門が閉じている。
+    waiting_dispatch = [i for i in ready_to_dispatch(ctx, f.board.get("queue") or [])
+                        if str(i.get("task")) in population]
     if waiting_dispatch and not gate_reasons(f, args):
         first = str(waiting_dispatch[0].get("task"))
         problems.append(f"要対応: 振り出し待ち{len(waiting_dispatch)}件があり、門が開いている"
@@ -1636,25 +1650,37 @@ def cmd_board(ctx: Context, args: argparse.Namespace) -> int:
     # 振り出し待ちは、前提（after）がorigin/masterで完了したものだけが取り出せる。
     done = done_tasks(ctx, sorted({t for i in items for t in prereqs_of_item(i)})) if dispatch else set()
     ready = [i for i in order if all(t in done for t in prereqs_of_item(items[i]))]
+    # 振り出し待ちから取り出せるのは回の母集団の中だけ。回が始まっていない・終わりに入ったときは取り出さない。
+    rows = ledger_rows(ctx) if dispatch else {}
+    view = population_view(ctx, board, rows) if dispatch else None
+    population = {e["task"] for e in view["entries"]} if view else set()
     if args.op == "pop":
-        candidates = ready if dispatch else order
+        closed = run_closed_reason(view) if view else None
+        if closed:
+            print(f"取り出さない: {closed}")
+            return 1
+        candidates = [i for i in ready if str(items[i].get("task")) in population] if dispatch else order
         if not candidates:
-            print("キューは空" if not items else "前提が済んだものが無い（board dispatch list で前提を見る）")
+            print("キューは空" if not items else "回の母集団の中に、前提が済んだものが無い（board dispatch list で見る）")
             return 1
         index = candidates[0] if args.index is None else order[args.index - 1]
+        if dispatch and str(items[index].get("task")) not in population:
+            print(f"取り出さない: {items[index].get('task')}は回の母集団の外（次の回の候補。回で進めるなら board run add）")
+            return 1
         item = items.pop(index)
         save_board(ctx, board)
         print(f"取り出した: {json.dumps(item, ensure_ascii=False)}")
         return 0
     if not items:
         print("キューは空")
-    rows = ledger_rows(ctx) if dispatch else {}
     for n, i in enumerate(order, 1):
         item = items[i]
         if dispatch:
             waiting = [t for t in prereqs_of_item(item) if t not in done]
             mark = "  前提待ち: " + "・".join(waiting) if waiting else "  前提: 済"
             task = str(item.get("task"))
+            if task not in population:
+                mark += "  回の母集団の外"
             rest = {k: v for k, v in item.items() if k not in ("task", "priority", "added", "after")}
             print(f"{n}. [{item.get('priority', '-')}] {task}: {task_title(ctx, task, rows)}"
                   f"  （{hm(parse_time(item.get('added')))}）{mark}"
