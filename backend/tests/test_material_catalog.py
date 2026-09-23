@@ -1,195 +1,165 @@
-"""`domain/material_catalog.py`——材料の宣言から、下流が要るものを導く。
+"""`domain/material_catalog.py`——材料の宣言の型と、カタログから導く一覧（値の式・行列の列・欠損率の測り方）。
 
-カタログの中身（どの材料が実在し、どのSQLで求まるか）は`test_material_values.py`、
-欠損率の測り方は`test_material_coverage.py`、公開APIの形は
-`test_material_catalog_routes.py`、地図表示の導出は`test_axis_display.py`が持つ。
+ここで見ないもの:
+- 値の式（SQL）が実際に値を返すか → `test_material_values.py`（DBへ流す）
+- 一次属性の表示定義と正準分類の突き合わせ → `test_primary_attribute_display.py`
+- 欠損率の集計 → `test_material_coverage.py`
+- カタログを配るAPI → `test_material_catalog_routes.py`
 
-**カタログは丸ごと差し替える。** 性質だけを表す架空の材料で見る——実在の材料に由来する
-事実を持ち込むと、材料が1つ増えただけでここが落ちる。
+**導く関数はカタログを差し替えて見る。** どの材料が実在するかではなく、「値の式を持つ真偽の材料」の
+ように性質だけを持つ架空の材料を与える。差し替えないのは末尾の`TestTheDeclaredCatalog`だけで、
+型でも導出でも保証されていない本物の宣言の性質を、全材料に対して見る。
 """
 
+from typing import get_args
+
 import pytest
+from pydantic import ValidationError
 
 from app.domain import material_catalog
-from app.domain.material_catalog import (
-    CoverageExcluded,
-    EdgeMaterialCoverageSpec,
-    MaterialSpec,
-    WayMaterialCoverageSpec,
-    material_array_columns,
-    material_array_group,
-    material_coverage_exclusions,
-    material_coverage_specs,
-    material_dtype,
-    material_value_sql,
-)
 
-WAY_UNKNOWN = WayMaterialCoverageSpec(
-    missing_condition="TRUE", source="架空", missing_semantics="unknown"
-)
-WAY_DEFINITE = WayMaterialCoverageSpec(
-    missing_condition="TRUE", source="架空", missing_semantics="definite"
-)
-EDGE_UNKNOWN = EdgeMaterialCoverageSpec(
-    present_condition="TRUE", source="架空", missing_semantics="unknown"
-)
-NOT_MEASURED = CoverageExcluded(reason="架空", missing_semantics="definite")
+MaterialSpec = material_catalog.MaterialSpec
 
 
-def _spec(material_id: str, dtype: str = "numeric", *, coverage=WAY_DEFINITE, **overrides):
+def spec(material_id, dtype="numeric", value_sql=None, coverage=None, **fields):
     return MaterialSpec(
         material_id=material_id,
-        label=overrides.pop("label", f"材料[{material_id}]"),
-        description="架空の材料",
+        label=f"{material_id}の名前",
+        description="説明",
         dtype=dtype,
-        coverage=coverage,
-        **overrides,
+        value_sql=value_sql,
+        coverage=coverage
+        or material_catalog.CoverageExcluded(reason=f"{material_id}は測らない", missing_semantics="unknown"),
+        **fields,
+    )
+
+
+def way(missing_semantics):
+    return material_catalog.WayMaterialCoverageSpec(
+        missing_condition="x IS NULL", source="元", missing_semantics=missing_semantics
+    )
+
+
+def edge(missing_semantics):
+    return material_catalog.EdgeMaterialCoverageSpec(
+        present_condition="x IS NOT NULL", source="元", missing_semantics=missing_semantics
     )
 
 
 @pytest.fixture
 def catalog(monkeypatch):
-    """カタログを差し替える。返る辞書へ入れた材料だけが見える。"""
-    fake: dict[str, MaterialSpec] = {}
-    monkeypatch.setattr(material_catalog, "MATERIAL_CATALOG", fake)
-    return fake
+    specs = {
+        "num": spec("num", value_sql="n", coverage=way("unknown")),
+        "flag_definite": spec("flag_definite", "boolean", value_sql="f", coverage=way("definite")),
+        "flag_unknown": spec("flag_unknown", "boolean", value_sql="u", coverage=edge("unknown")),
+        "cat": spec("cat", "categorical", value_sql="c"),
+        "no_sql": spec("no_sql"),
+    }
+    monkeypatch.setattr(material_catalog, "MATERIAL_CATALOG", specs)
+    return specs
 
 
-class TestLabels:
-    def test_a_known_value_gets_its_japanese_name_beside_the_tag(self):
-        spec = _spec("cat_a", "categorical", value_labels={"v": "論理名"})
+class TestMaterialSpec:
+    @pytest.mark.parametrize(
+        ("fields", "reason"),
+        [
+            ({"dtype": "numeric", "total_unit": "回"}, "total_unit"),
+            ({"dtype": "boolean", "value_labels": {"a": "エー"}}, "value_labels"),
+            (
+                {
+                    "dtype": "categorical",
+                    "reference_points": [material_catalog.MaterialReferencePoint(label="目安", value=1.0)],
+                },
+                "reference_points",
+            ),
+        ],
+        ids=["単位の無い総量", "分類でない材料の値の対訳", "数値でない材料の目安"],
+    )
+    def test_declarations_that_do_not_fit_the_dtype_are_refused(self, fields, reason):
+        with pytest.raises(ValidationError, match=reason):
+            spec("m", **fields)
 
-        assert spec.value_label("v") == "論理名 - v"
-
-    def test_a_value_nobody_translated_is_shown_as_it_is(self):
-        """新しいOSMタグ値がDBへ現れても軸スタジオの値候補が落ちない。区切りの" - "も
-        付けない——論理名の無い値が「 - v」として並ぶ。
-        """
-        spec = _spec("cat_a", "categorical", value_labels={"v": "論理名"})
-
-        assert spec.value_label("other") == "other"
-
-    def test_the_material_itself_is_labelled_the_same_way(self):
-        assert _spec("num_a", label="数値").full_label() == "数値 - num_a"
-
-
-class TestBoolDefault:
-    def test_a_boolean_whose_missing_means_unknown_keeps_nan(self):
-        """「不明」を「非該当」へ畳むと、タグの無い道が確定的に偽として評価される。"""
-        assert _spec("bool_a", "boolean", coverage=WAY_UNKNOWN).bool_default == "nan"
-
-    def test_a_boolean_whose_missing_is_a_definite_value_folds_to_false(self):
-        assert _spec("bool_a", "boolean", coverage=WAY_DEFINITE).bool_default == "false"
-
-    @pytest.mark.parametrize("dtype", ["numeric", "categorical"])
-    def test_a_material_that_is_not_boolean_answers_without_looking(self, dtype):
-        assert _spec("a", dtype, coverage=WAY_UNKNOWN).bool_default == "false"
-
-
-class TestWhichMatrixAMaterialLandsOn:
-    def test_a_categorical_material_goes_to_the_object_matrix(self):
-        assert material_array_group(_spec("cat_a", "categorical")) == "categorical"
-
-    def test_a_numeric_material_goes_to_the_float_matrix(self):
-        assert material_array_group(_spec("num_a")) == "numeric"
-
-    def test_a_boolean_material_goes_to_the_bool_matrix(self):
-        assert material_array_group(_spec("bool_a", "boolean", coverage=WAY_DEFINITE)) == "boolean"
-
-    def test_a_boolean_that_can_be_unknown_goes_to_the_float_matrix(self):
-        """bool配列はNaNを持てない。真偽の側へ載せると「不明」が偽へ落ちる。"""
-        spec = _spec("bool_a", "boolean", coverage=WAY_UNKNOWN)
-
-        assert material_array_group(spec) == "numeric"
-
-
-class TestTheColumnOrder:
-    def test_the_three_groups_split_the_materials_that_have_a_value(self, catalog):
-        catalog.update(
-            {
-                "num_a": _spec("num_a", value_sql="1"),
-                "bool_a": _spec("bool_a", "boolean", coverage=WAY_DEFINITE, value_sql="TRUE"),
-                "cat_a": _spec("cat_a", "categorical", value_sql="'x'"),
-            }
+    def test_declarations_that_fit_the_dtype_are_accepted(self):
+        spec(
+            "counted",
+            unit="回/km",
+            total_unit="回",
+            reference_points=[material_catalog.MaterialReferencePoint(label="目安", value=1.0)],
         )
+        spec("named", "categorical", value_labels={"a": "エー"})
 
-        numeric, boolean, categorical = material_array_columns()
+    @pytest.mark.parametrize(("value", "expected"), [("a", "エー - a"), ("b", "b")])
+    def test_a_value_is_labelled_by_its_translation_when_there_is_one(self, value, expected):
+        assert spec("m", "categorical", value_labels={"a": "エー"}).value_label(value) == expected
 
-        assert (numeric, boolean, categorical) == (("num_a",), ("bool_a",), ("cat_a",))
+    def test_the_full_label_pairs_the_name_with_the_id(self):
+        assert spec("m").full_label() == "mの名前 - m"
 
-    def test_a_material_without_a_value_is_in_no_group(self, catalog):
-        """値を求められない材料（リクエスト時に決まる風等）の列を空けておくと、
-        行列の幅と材料の数が食い違う。
-        """
-        catalog.update({"num_a": _spec("num_a", value_sql="1"), "num_b": _spec("num_b")})
+    @pytest.mark.parametrize(
+        ("dtype", "missing_semantics", "expected"),
+        [("boolean", "unknown", "nan"), ("boolean", "definite", "false"), ("numeric", "unknown", "false")],
+    )
+    def test_how_a_missing_flag_is_held_follows_what_missing_means(self, dtype, missing_semantics, expected):
+        coverage = material_catalog.CoverageExcluded(reason="測らない", missing_semantics=missing_semantics)
 
-        assert material_array_columns() == (("num_a",), (), ())
-
-    def test_the_order_inside_a_group_does_not_depend_on_the_declaration_order(self, catalog):
-        """宣言の順で並べると、カタログの行を入れ替えただけで焼き込み済みの列がずれる。"""
-        catalog.update(
-            {
-                "num_c": _spec("num_c", value_sql="1"),
-                "num_a": _spec("num_a", value_sql="1"),
-                "num_b": _spec("num_b", value_sql="1"),
-            }
-        )
-
-        assert material_array_columns()[0] == ("num_a", "num_b", "num_c")
-
-    def test_a_boolean_that_can_be_unknown_is_listed_with_the_numbers(self, catalog):
-        catalog.update(
-            {"bool_a": _spec("bool_a", "boolean", coverage=WAY_UNKNOWN, value_sql="TRUE")}
-        )
-
-        assert material_array_columns() == (("bool_a",), (), ())
+        assert spec("m", dtype, coverage=coverage).bool_default == expected
 
 
-class TestValueSql:
-    def test_only_the_materials_that_can_be_asked_of_the_db_are_listed(self, catalog):
-        catalog.update({"num_a": _spec("num_a", value_sql="1 + 1"), "num_b": _spec("num_b")})
-
-        assert material_value_sql() == {"num_a": "1 + 1"}
-
-
-class TestCoverage:
-    def test_the_measured_and_the_excluded_split_every_material(self, catalog):
-        """片方の一覧だけを見ると、測り方を書き忘れた材料が「測ったが0%」として
-        画面に出る。
-        """
-        catalog.update(
-            {
-                "num_a": _spec("num_a", coverage=WAY_DEFINITE),
-                "num_b": _spec("num_b", coverage=EDGE_UNKNOWN),
-                "num_c": _spec("num_c", coverage=NOT_MEASURED),
-            }
-        )
-
-        measured = set(material_coverage_specs())
-        excluded = set(material_coverage_exclusions())
-
-        assert measured == {"num_a", "num_b"}
-        assert excluded == {"num_c"}
-        assert measured | excluded == set(catalog)
-
-    def test_the_exclusion_carries_its_reason(self, catalog):
-        """理由の無い除外は、次に見た人が測るべきか判断できない。"""
-        catalog.update(
-            {
-                "num_a": _spec(
-                    "num_a",
-                    coverage=CoverageExcluded(reason="実測できない", missing_semantics="unknown"),
-                )
-            }
-        )
-
-        assert material_coverage_exclusions() == {"num_a": "実測できない"}
+class TestLookup:
+    @pytest.mark.parametrize(("material_id", "known", "dtype"), [("cat", True, "categorical"), ("ghost", False, None)])
+    def test_a_material_is_known_only_if_the_catalog_has_it(self, catalog, material_id, known, dtype):
+        assert material_catalog.is_known_material(material_id) is known
+        assert material_catalog.material_dtype(material_id) == dtype
 
 
-class TestLookingUpAnUnknownMaterial:
-    def test_an_unknown_id_has_no_dtype_instead_of_raising(self, catalog):
-        """綴り違いで軸カタログの配信ごと落とさない。"""
-        catalog.update({"num_a": _spec("num_a")})
+class TestDerivedFromTheCatalog:
+    @pytest.mark.parametrize(
+        ("material_id", "group"),
+        [("num", "numeric"), ("flag_definite", "boolean"), ("flag_unknown", "numeric"), ("cat", "categorical")],
+    )
+    def test_the_matrix_a_material_goes_to_follows_its_dtype_and_what_missing_means(self, catalog, material_id, group):
+        """欠損を「不明」とする真偽の材料は、「非該当」と混同しないよう欠損を持てる数値の行列へ載せる。"""
+        assert material_catalog.material_array_group(catalog[material_id]) == group
 
-        assert material_dtype("num_a") == "numeric"
-        assert material_dtype("no_such_material") is None
+    def test_array_columns_are_the_materials_with_a_value_grouped_and_sorted(self, catalog):
+        assert material_catalog.material_array_columns() == (("flag_unknown", "num"), ("flag_definite",), ("cat",))
+
+    def test_value_sql_covers_only_materials_that_have_one(self, catalog):
+        assert material_catalog.material_value_sql() == {
+            "num": "n",
+            "flag_definite": "f",
+            "flag_unknown": "u",
+            "cat": "c",
+        }
+
+    def test_every_material_is_either_measured_for_coverage_or_excluded_with_a_reason(self, catalog):
+        assert material_catalog.material_coverage_specs() == {
+            "num": catalog["num"].coverage,
+            "flag_definite": catalog["flag_definite"].coverage,
+            "flag_unknown": catalog["flag_unknown"].coverage,
+        }
+        assert material_catalog.material_coverage_exclusions() == {"cat": "catは測らない", "no_sql": "no_sqlは測らない"}
+
+
+class TestTheDeclaredCatalog:
+    """本物の宣言に対する性質。型でも導出でも保証されていないものだけを置く。"""
+
+    def test_every_material_is_filed_under_its_own_id(self):
+        """キーとidが食い違うと、材料が在るかの判定と画面に出るidが別の材料を指す。"""
+        mismatched = {
+            key: s.material_id for key, s in material_catalog.MATERIAL_CATALOG.items() if key != s.material_id
+        }
+
+        assert material_catalog.MATERIAL_CATALOG
+        assert mismatched == {}
+
+    @pytest.mark.parametrize(
+        ("labels", "literal"),
+        [
+            (material_catalog.POPULATION_LABELS, material_catalog.Population),
+            (material_catalog.MISSING_SEMANTICS_DISPLAY, material_catalog.MissingSemantics),
+        ],
+        ids=["母集団の表示名", "欠損の扱いの見出し"],
+    )
+    def test_every_value_the_admin_screen_groups_by_has_a_heading(self, labels, literal):
+        assert set(labels) == set(get_args(literal))
