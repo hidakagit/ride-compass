@@ -296,7 +296,7 @@ MaterialSpec]`が単一ソース。
 | `primary_attribute_id` | 対応する一次属性id（[軸スタジオ](axis-studio.md)・frontendの`primaryAttributes.ts`が使う名前空間）。材料idと名前が異なるため明示的に対応させる |
 | `value_sql` | その材料の値をDBから求めるSQL式。`None`は「SQLでは求められない」（リクエスト時に決まる風、評価へ配線していないトリガー付きDEFER） |
 | `coverage` | 欠損率の測り方。way単位・区間単位・対象外の3択で、**どれかを必ず持つ**（どちらの一覧にも載っていない材料を型として作れなくする） |
-| `bool_default` | `dtype="boolean"`の材料が欠損を取りうるときの配列上の扱い。`"false"`（真偽の行列へ載せる多数派）か`"nan"`（不明を非該当と混同しないため数値の行列へ載せる少数派）を材料ごとに固定する（数値的に等価ではない） |
+| `bool_default` | `dtype="boolean"`の材料が欠損を取りうるときの配列上の扱い。`"false"`（真偽の行列へ載せる）か`"nan"`（不明を非該当と混同しないため数値の行列へ載せる）で、数値的に等価ではない。**宣言ではなく`coverage.missing_semantics`から導くプロパティ**（`"unknown"`なら`"nan"`）——欠損の意味を2か所に宣言すると、片方だけ書き換えたときに画面と評価が食い違う |
 | `value_labels` | categorical材料の値ごとの日本語ラベル対訳表（`GET /api/admin/material-catalog/{id}/values`が返す） |
 | `reference_points` | 軸スタジオの折れ点編集を助ける「値の目安」一覧（`MaterialReferencePoint`のlabel/value）。値域が直感的でない材料（風等）ほど有用で、真偽値・categorical材料や単純な材料は空リストのままでよい。換算式はbackendだけが持ち、値はここで計算済みのものを持たせる |
 
@@ -378,8 +378,8 @@ way粒度で引くときは、同じ式のまま`w`の行から同じ名前の�
 埋めるかどうかの判断は軸定義側へ委ねる。「欠損」は元データ（OSMタグ・派生テーブルの行）の
 不在を指し、評価パイプラインが不在をどう扱うかは`missing_semantics`として併記する。
 
-`MATERIAL_COVERAGE_SPECS: dict[str, WayMaterialCoverageSpec | EdgeMaterialCoverageSpec]`が
-材料id→「どの母集団の、どの条件が成り立てば欠損か」の宣言テーブル。
+材料id→「どの母集団の、どの条件が成り立てば欠損か」は各材料の`MaterialSpec.coverage`が宣言し、
+`material_coverage_specs()`がカタログから集めて`MATERIAL_COVERAGE_SPECS`（導いた値で、宣言ではない）にする。
 
 | 母集団 | 対象 | 判定 |
 |---|---|---|
@@ -391,8 +391,8 @@ way粒度で引くときは、同じ式のまま`w`の行から同じ名前の�
   値がNULLの行を「データあり」と数えてしまう。判定は評価が実際に読む**列**のNULLまで見る。
 - `missing_semantics`: `"unknown"`（欠損は不明値[NaN/None]として扱われ、その材料を使う軸は
   評価対象外になる）／`"definite"`（欠損は確定値[タグ不在=非該当等]として扱われ、軸は
-  通常どおり評価される）。`MaterialSpec.bool_default`からは導出しない——前者はタグの不在を
-  どう読むかで、後者は「wayの行そのものが無い」を配列上どう表すかであり、別の欠損を指す。
+  通常どおり評価される）。真偽の材料の配列上の欠損の持ち方（`MaterialSpec.bool_default`）は
+  これから導く——`"unknown"`の材料は欠損を`NaN`で持ち、非該当（`false`）と混同しない。
 - `CoverageExcluded(reason=...)`: 集計対象外の材料とその理由（動的計算材料の
   `wind_drag_ratio`、NOT NULL列由来の`oneway`等）。
   管理画面はこの理由をそのまま表示する。

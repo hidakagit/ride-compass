@@ -51,7 +51,13 @@ from app.domain.material_sql import (
 )
 from app.domain.region import BoundingBox
 from app.domain.road import BAD_OSM_SURFACE_TAGS, GOOD_OSM_SURFACE_TAGS
-from app.domain.traffic import POI_CLUSTER_EPS_M, POI_COUNT_KINDS, STOP_POI_KINDS
+from app.domain.traffic import (
+    POI_CLUSTER_EPS_M,
+    POI_COUNT_KINDS,
+    STOP_POI_KINDS,
+    poi_count_column,
+    poi_density_material_id,
+)
 from app.infrastructure import derived_data_meta
 from app.infrastructure.cache_identity import shape_digest
 from app.infrastructure.derived_models import EdgeMaterialRow, WayMaterialRow
@@ -211,7 +217,7 @@ def _density_column_sql(column: str, precision: int) -> str:
 #: 停止要因の種別別密度。列名は材料id（`poi_<種別>_per_km`）と同じにして対応を自明にする。
 #: `POI_COUNT_KINDS`から生成するので、キーを増やしてもこの式は変わらない。
 _POI_TILE_COLUMNS_SQL = "".join(
-    _density_column_sql(f"poi_{kind}", 1) + f" AS poi_{kind}_per_km,"
+    _density_column_sql(poi_count_column(kind), 1) + f" AS {poi_density_material_id(kind)},"
     for kind in POI_COUNT_KINDS
 )
 

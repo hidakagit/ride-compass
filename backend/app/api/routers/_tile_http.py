@@ -7,6 +7,7 @@ region.py（路面/POI/土地被覆タイル）・accidents.py（事故タイル
 
 from fastapi import HTTPException, Response
 
+from app.api.cache_policy import NO_STORE
 from app.domain.region import ROAD_TILE_MAX_ZOOM, ROAD_TILE_MIN_ZOOM
 from app.services.tile_serving import MVT_CONTENT_TYPE, TileResponse
 
@@ -42,5 +43,5 @@ def tile_response(tile: TileResponse, media_type: str = MVT_CONTENT_TYPE) -> Res
     付けるが、一時的な失敗で空タイルを返した場合だけは`no-store`を明示して、その空白が
     利用者のブラウザへ1時間残らないようにする（`TileResponse`のdocstring参照）。
     """
-    headers = None if tile.cacheable else {"Cache-Control": "no-store"}
+    headers = None if tile.cacheable else {"Cache-Control": NO_STORE.header()}
     return Response(content=tile.content, media_type=media_type, headers=headers)

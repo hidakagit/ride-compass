@@ -10,27 +10,16 @@
 
 値の出し方そのものはdomainが持つ（`elevation_values_sql`・`class_percentages_sql`）。
 このバッチは画素の引き方を組み立てるだけで、勾配の上限や有効画素数の下限を持たない。
-
-実行方法（backendディレクトリから）:
-    .venv\\Scripts\\python.exe -m app.batch.derive_raster_materials
 """
 
-import argparse
-import asyncio
 import logging
-import sys
 import time
-from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+import asyncpg
 
-import asyncpg  # noqa: E402
-
-from app.batch._common import asyncpg_dsn, with_derived_data_revision_bump  # noqa: E402
-from app.config import settings  # noqa: E402
-from app.domain.attributes import elevation_values_sql  # noqa: E402
-from app.domain.landcover import PERCENT_CLASSES, class_percentages_sql  # noqa: E402
-from app.domain.material_sql import (  # noqa: E402
+from app.domain.attributes import elevation_values_sql
+from app.domain.landcover import PERCENT_CLASSES, class_percentages_sql
+from app.domain.material_sql import (
     BRIDGE_NORMALIZED_SQL,
     TUNNEL_NORMALIZED_SQL,
     WAYS_SOURCE_SQL,
@@ -214,26 +203,3 @@ async def derive(conn: asyncpg.Connection) -> None:
         await derive_elevation(conn)
         await derive_landcover(conn)
         await conn.execute(_way_rollup_sql())
-
-
-async def run(database_url: str) -> int:
-    conn = await asyncpg.connect(asyncpg_dsn(database_url))
-    try:
-        await derive(conn)
-    finally:
-        await conn.close()
-    return 0
-
-
-def main() -> int:
-    logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s %(message)s")
-    parser = argparse.ArgumentParser(description="面のデータを線へ落とす")
-    parser.add_argument("--database-url", default=None)
-    args = parser.parse_args()
-    database_url = args.database_url or settings.database_url
-    return asyncio.run(with_derived_data_revision_bump(
-        run(database_url), database_url=database_url, dry_run=False))
-
-
-if __name__ == "__main__":
-    raise SystemExit(main())

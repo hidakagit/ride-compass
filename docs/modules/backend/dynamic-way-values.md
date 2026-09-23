@@ -95,7 +95,7 @@ _check_dedicated_layer_is_implemented`）、既存データ等で万一そうな
 
 | 関数 | 意味 |
 |---|---|
-| `map_value_kind(definition)` | `BreakpointLinearShape`かつ`preprocess="abs"`かつterms単数なら`signed_material`、それ以外は`difficulty` |
+| `map_value_kind(definition)` | `BreakpointLinearShape`かつ`preprocess="abs"`かつterms単数で、その項が材料（`MATERIAL_CATALOG`にある）を指すなら`signed_material`、それ以外は`difficulty`。項は軸を指すこともあり、その値は参照先の得点で符号にも単位にも材料の意味が無い |
 | `map_value_unit(definition)` | `signed_material`なら材料カタログの`unit`、`difficulty`は空文字 |
 | `transform_dedicated_way_values(definition, material_id, values)` | 生値→地図表示値。`difficulty`は`evaluate_axis_scalar`で評価（同じ生値は1回だけ評価）、`signed_material`は素通し |
 

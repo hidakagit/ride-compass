@@ -2,27 +2,16 @@
 
 **通行方向はここでタグから決める**。引き当ての表は`domain/traffic.py`が持ち、
 このバッチはそれをSQLへ渡すだけで、タグを読むために行を取り出さない。
-
-実行方法（backendディレクトリから）:
-    .venv\\Scripts\\python.exe -m app.batch.derive_way_materials
 """
 
-import argparse
-import asyncio
 import logging
-import sys
 import time
-from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+import asyncpg
 
-import asyncpg  # noqa: E402
-
-from app.batch._common import asyncpg_dsn, with_derived_data_revision_bump  # noqa: E402
-from app.config import settings  # noqa: E402
-from app.domain import divided_carriageway as dc  # noqa: E402
-from app.domain.material_sql import WAYS_SOURCE_SQL  # noqa: E402
-from app.domain.traffic import direction_sql  # noqa: E402
+from app.domain import divided_carriageway as dc
+from app.domain.material_sql import WAYS_SOURCE_SQL
+from app.domain.traffic import direction_sql
 
 logger = logging.getLogger("ridecompass.derive_way_materials")
 
@@ -130,26 +119,3 @@ async def derive(conn: asyncpg.Connection) -> None:
         count = await _load_directions(conn)
         logger.info("通行方向を決めた: %d本", count)
         await derive_divided(conn)
-
-
-async def run(database_url: str) -> int:
-    conn = await asyncpg.connect(asyncpg_dsn(database_url))
-    try:
-        await derive(conn)
-    finally:
-        await conn.close()
-    return 0
-
-
-def main() -> int:
-    logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s %(message)s")
-    parser = argparse.ArgumentParser(description="道1本の性質を埋める")
-    parser.add_argument("--database-url", default=None)
-    args = parser.parse_args()
-    database_url = args.database_url or settings.database_url
-    return asyncio.run(with_derived_data_revision_bump(
-        run(database_url), database_url=database_url, dry_run=False))
-
-
-if __name__ == "__main__":
-    raise SystemExit(main())
