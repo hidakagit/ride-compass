@@ -11,7 +11,7 @@
 手動タスクの前提（始める前に済ませておくタスク）は、そのタスク自身の記録（origin/masterの
 `docs/records/tasks/Txxx.md`）の`## 前提（並行実行）`節に、1行1件の箇条書きで書く（行の最初の
 Txxxが前提）。状態の表は、どのタスクが手動中か（`manual`のタスク番号の並び）だけを持つ。
-前提が判断待ちかは、前提のタスクの記録に未決の保留があるか（`decisions.record_holds`）で導く。
+前提が判断待ちかは、前提のタスクの記録に未決の保留があるか（`asks.record_holds`）で導く。
 """
 
 from __future__ import annotations
@@ -20,6 +20,7 @@ import argparse
 import re
 from pathlib import Path
 
+from orchestration.asks import record_holds
 from orchestration.core import (
     ACTIVE_STATES,
     PLAN_DOC,
@@ -33,7 +34,6 @@ from orchestration.core import (
     load_board,
     save_board,
 )
-from orchestration.decisions import record_holds
 
 #: 優先度の語。振り出し待ちは数の小さい順に取り出す。
 PRIORITY_WORDS = {"高": 4, "中": 5, "低": 6}
