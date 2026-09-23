@@ -92,6 +92,10 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 #: コマンドの入口（scripts/orchestrate.py）。フックから確認を起こすときに使う。
 ENTRY = REPO_ROOT / "scripts" / "orchestrate.py"
 PLAN_DOC = "docs/improvement-plan.md"
+#: 重い段の定義（「重い処理は機械全体で1本ずつ」節の「対象」の項目）を持つ規約。
+CONVENTION_DOC = "docs/conventions/orchestration.md"
+HEAVY_TARGET_PREFIX = "- **対象**:"
+HEAVY_LOCK = "heavy"
 TASKS_DIR = "docs/records/tasks"
 PLAN_ENTRY_RE = re.compile(r"^- \[[ x]\] \[(T\d+[a-z0-9-]*)\]\(")
 TASK_ID_RE = re.compile(r"T\d+[a-z0-9-]*")
@@ -1041,6 +1045,62 @@ def cmd_status(ctx: Context, args: argparse.Namespace) -> int:
 # ---------------------------------------------------------------- check
 
 
+def heavy_stages(convention: str) -> list[str]:
+    """規約の「対象」の項目にコード書式で挙げた重い段（例: `tsc --noEmit`）。別の一覧は持たない。"""
+    lines = convention.splitlines()
+    for i, line in enumerate(lines):
+        if line.startswith(HEAVY_TARGET_PREFIX):
+            block = [line]
+            for rest in lines[i + 1:]:
+                if not rest.startswith("  "):
+                    break
+                block.append(rest)
+            return re.findall(r"`([^`]+)`", " ".join(block))
+    return []
+
+
+def stage_pattern(stage: str) -> re.Pattern:
+    """段の語が、1つのコマンドの中にこの順で現れるか。先頭の語はパスの末尾・拡張子付きでもよい
+    （`node .../typescript/bin/tsc --noEmit`・`vitest.mjs run`）。"""
+    words = stage.split()
+    head = r"(?:^|[\s/\\'\"`(&;|])" + re.escape(words[0]) + r"(?:\.(?:cmd|exe|mjs|js))?"
+    tail = "".join(r"(?:\s+[^\s;&|]+)*?\s+" + re.escape(w) for w in words[1:])
+    return re.compile(head + tail + r"(?=$|[\s'\"`;&|)])")
+
+
+def heavy_outside_lock(ctx: Context) -> list[str]:
+    """枠（`heavy`の保持者）の子孫でないところで走っている重い段。候補であって判定ではない
+    （コマンドラインに段の語を含むだけの`grep`等も拾う）。"""
+    from orchestration import procs
+
+    table = procs.processes()
+    if table is None:
+        return []
+    convention = cat_files(ctx.repo, [f"origin/master:{CONVENTION_DOC}"])[f"origin/master:{CONVENTION_DOC}"]
+    stages = [(s, stage_pattern(s)) for s in heavy_stages(convention or "")]
+    if not stages:
+        return [f"重い段を規約から読めない（origin/master:{CONVENTION_DOC}の「{HEAVY_TARGET_PREFIX}」の項目）"]
+    try:
+        holder = json.loads((ctx.lock_root / HEAVY_LOCK / "owner.json").read_text(encoding="utf-8")).get("pid")
+    except (OSError, ValueError, AttributeError):
+        holder = None
+    matched = {}
+    for p in table.values():
+        # lockrunを呼んだ包み（待っている間も含む）は、コマンドラインに段の語を持つが枠の外で走ってはいない。
+        if p.cmdline and "lockrun.py" not in p.cmdline:
+            stage = next((s for s, rx in stages if rx.search(p.cmdline)), None)
+            if stage:
+                matched[p.pid] = stage
+    out = []
+    for pid, stage in sorted(matched.items()):
+        chain = procs.ancestors(table, pid)
+        if any(a.pid in matched for a in chain) or any(a.pid == holder for a in chain):
+            continue
+        cmd = " ".join(table[pid].cmdline.split())
+        out.append(f"{stage}（pid {pid}、{table[pid].name}）: {cmd[:120]}")
+    return out
+
+
 def cmd_check(ctx: Context, args: argparse.Namespace) -> int:
     f = Facts(ctx, args)
     problems: list[str] = []
@@ -1077,6 +1137,7 @@ def cmd_check(ctx: Context, args: argparse.Namespace) -> int:
     problems += [f"ロック待ち: {x}" for x in f.lock_wait_problems()]
     if f.cpu is not None and f.cpu >= args.cpu_max:
         problems.append(f"CPUが飽和している（{f.cpu:.0f}% ≥ {args.cpu_max}%）")
+    problems += [f"枠の外の重い処理: {x}" for x in heavy_outside_lock(ctx)]
     problems += ci_duration_problems(ctx, f.board)
     unpushed = audited_unpushed(ctx, f.board, f.at)
     if push_due(ctx, unpushed, f.at):
