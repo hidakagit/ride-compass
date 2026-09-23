@@ -1,9 +1,12 @@
 "use client";
 
 import type { components } from "@/types/generated/api";
-import * as Popover from "@radix-ui/react-popover";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/Popover/Popover";
 import { WarningTriangleIcon } from "@/components/Map/icons";
-import styles from "./WarningBadge.module.css";
+import { Button } from "@/components/ui/Button/Button";
+import { vocabulary } from "@/types/generated/vocabulary";
+import { cn } from "@/lib/cn";
+import { textVariants } from "@/components/ui/Text/Text";
 
 // JMA警報・注意報バッジとWBGT警告が共有する表示コンポーネント。
 // 「地図レイヤーではなく警告バッジ」という表現形式を揃えるため、JMA固有の型
@@ -16,11 +19,8 @@ import styles from "./WarningBadge.module.css";
  * 1つ増えたとき片側だけ知っている状態になる。 */
 type WarningBadgeLevel = NonNullable<components["schemas"]["ActiveWarning"]["level"]>;
 
-// バッジの出所。同じlevelキーでも出所ごとに正式な日本語表現が異なる
-// （例: level="warning"はJMA/氾濫予報では「警報」だが、WBGT（環境省の熱中症予防運動指針）
-// では「警戒」——「警報」は気象庁が発表する公式警報を指す別の意味の言葉のため、
-// WBGTの文脈で使うと誤解を招く）。サマリーボタンの表示語を出所別に切り替えるために持つ。
-type WarningBadgeSource = "jma" | "wbgt" | "flood";
+// バッジの出所。同じ段階でも出所ごとに呼び名が違う（backendの宣言が持つ）。
+type WarningBadgeSource = keyof typeof vocabulary.warningBadge;
 
 export interface WarningBadgeItem {
   id: string;
@@ -44,32 +44,11 @@ interface WarningBadgeListProps {
   failures?: readonly WarningFetchFailure[];
 }
 
-const LEVEL_ORDER: readonly WarningBadgeLevel[] = ["advisory", "warning", "severe_warning", "emergency_warning"];
+// 段階の並び（軽い→重い）と、出所ごとの呼び名・色は、backendの宣言（domain/warning_display.py）が配る。
+const LEVEL_ORDER: readonly WarningBadgeLevel[] = vocabulary.warningBadge.jma.map((entry) => entry.level);
 
-// サマリーボタンに出す短い日本語表現。出所ごとの正式な語彙に合わせる
-// （JMA: 気象庁の警報・注意報の呼称そのもの。WBGT: domain/wbgt.py:
-// _LEVEL_THRESHOLDSの表示名と一致させる。flood: domain/flood_forecast.py:
-// FloodLevelのsuffixと一致させる。JMAはsevere_warningを発表しないため実際には
-// 到達しないが、Record型を満たすため値だけ埋めてある）。
-const LEVEL_SUMMARY_LABEL: Record<WarningBadgeSource, Record<WarningBadgeLevel, string>> = {
-  jma: { advisory: "注意報", warning: "警報", severe_warning: "厳重警戒", emergency_warning: "特別警報" },
-  wbgt: { advisory: "注意", warning: "警戒", severe_warning: "厳重警戒", emergency_warning: "危険" },
-  flood: {
-    advisory: "氾濫注意報",
-    warning: "氾濫警報",
-    severe_warning: "氾濫危険警報",
-    emergency_warning: "氾濫特別警報",
-  },
-};
-
-// 色もLEVEL_SUMMARY_LABELと同じ理由でsource別に分ける。JMA（気象庁の公式警報）と
-// flood（河川管理者の公式氾濫警報、氾濫注意報→氾濫警報→…→氾濫特別警報という同じ4段階の
-// 公式警報語彙を持つ）は「公式警報」として同じ配色（.advisory〜.emergency_warning）を
-// 共有してよいが、WBGT（環境省の熱中症予防運動指針、気象庁の警報とは無関係の別基準）は
-// 見た目からして別物と分かるよう専用の配色（.wbgt_advisory〜.wbgt_emergency_warning、
-// 緑→黄→橙→赤の熱中症指数らしい配色でJMA/floodのどの色とも重複しない）を持つ。
-function levelColorClassName(item: WarningBadgeItem): string {
-  return item.source === "wbgt" ? `wbgt_${item.level}` : item.level;
+function levelDisplay(item: WarningBadgeItem): { label: string; color: string } {
+  return vocabulary.warningBadge[item.source].find((entry) => entry.level === item.level)!;
 }
 
 // 複数件のitemsのうち最も警戒度が高いitemを1つ返す（LEVEL_ORDERの並び=警戒度の昇順）。
@@ -100,62 +79,79 @@ export default function WarningBadgeList({ items, failures = [] }: WarningBadgeL
 function WarningFetchFailureMark({ failures }: { failures: readonly WarningFetchFailure[] }) {
   const labels = failures.map((failure) => failure.label).join("・");
   return (
-    <Popover.Root>
-      <Popover.Trigger asChild>
-        <button
-          type="button"
-          className={styles.failureMark}
+    <Popover>
+      <PopoverTrigger asChild>
+        {/* 警告の配色（白抜き・塗り）と取り違えないよう、塗らずに枠線と前景色だけで描く。 */}
+        <Button
+          size="xs"
+          shape="pill"
+          className="bg-transparent"
           aria-label={`${labels}を取得できていません。押すと詳細を表示`}
         >
           <WarningTriangleIcon size={14} />
           <span>未取得</span>
-        </button>
-      </Popover.Trigger>
-      <Popover.Portal>
-        <Popover.Content className={styles.detailPanel} side="bottom" align="end" sideOffset={6}>
-          <p className={styles.failureHeading}>{labels}を取得できていません</p>
-          <p className={styles.detailText}>出ていてもバッジは表示されません。</p>
-          <ul className={styles.failureList}>
-            {failures.map((failure) => (
-              <li key={failure.id} className={styles.detailText}>
-                {failure.label}: {failure.detail}
-              </li>
-            ))}
-          </ul>
-        </Popover.Content>
-      </Popover.Portal>
-    </Popover.Root>
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent
+        layer="header"
+        className="max-h-[60vh] max-w-[min(90vw,20rem)] overflow-y-auto"
+        side="bottom"
+        align="end"
+      >
+        <p className={cn(textVariants({ variant: "heading" }), "mb-1 text-[length:var(--font-size-sm)]")}>
+          {labels}を取得できていません
+        </p>
+        <p className={cn(textVariants({ variant: "hint" }), "leading-[1.4]")}>出ていてもバッジは表示されません。</p>
+        <ul className="mt-1 mb-0 pl-4">
+          {failures.map((failure) => (
+            <li key={failure.id} className={cn(textVariants({ variant: "hint" }), "leading-[1.4]")}>
+              {failure.label}: {failure.detail}
+            </li>
+          ))}
+        </ul>
+      </PopoverContent>
+    </Popover>
   );
 }
 
 function WarningSummary({ items }: { items: WarningBadgeItem[] }) {
   const topItem = highestLevelItem(items);
-  const topLabel = LEVEL_SUMMARY_LABEL[topItem.source][topItem.level];
+  const topLabel = levelDisplay(topItem).label;
   const summaryLabel = items.length > 1 ? `${topLabel}${items.length}件` : topLabel;
 
   return (
-    <Popover.Root>
-      <Popover.Trigger asChild>
-        <button
-          type="button"
-          className={`${styles.summaryButton} ${styles[levelColorClassName(topItem)]}`}
+    <Popover>
+      <PopoverTrigger asChild>
+        <Button
+          size="xs"
+          shape="pill"
+          className="border-0 font-bold text-white data-[state=open]:text-white"
+          style={{ backgroundColor: levelDisplay(topItem).color }}
           aria-label={`気象警報・注意報あり: ${summaryLabel}。押すと詳細を表示`}
         >
           {summaryLabel}
-        </button>
-      </Popover.Trigger>
-      <Popover.Portal>
-        <Popover.Content className={styles.detailPanel} side="bottom" align="end" sideOffset={6}>
-          <div role="list" aria-label="気象警報・注意報の詳細" className={styles.detailList}>
-            {items.map((item) => (
-              <div key={item.id} role="listitem" className={styles.detailItem}>
-                <span className={`${styles.badge} ${styles[levelColorClassName(item)]}`}>{item.label}</span>
-                {item.title && <p className={styles.detailText}>{item.title}</p>}
-              </div>
-            ))}
-          </div>
-        </Popover.Content>
-      </Popover.Portal>
-    </Popover.Root>
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent
+        layer="header"
+        className="max-h-[60vh] max-w-[min(90vw,20rem)] overflow-y-auto"
+        side="bottom"
+        align="end"
+      >
+        <div role="list" aria-label="気象警報・注意報の詳細" className="flex flex-col gap-2">
+          {items.map((item) => (
+            <div key={item.id} role="listitem" className="flex flex-col gap-1">
+              <span
+                className="inline-flex shrink-0 items-center whitespace-nowrap rounded-full px-2 py-0.5 text-[length:var(--font-size-md)] font-bold text-white"
+                style={{ backgroundColor: levelDisplay(item).color }}
+              >
+                {item.label}
+              </span>
+              {item.title && <p className={cn(textVariants({ variant: "hint" }), "leading-[1.4]")}>{item.title}</p>}
+            </div>
+          ))}
+        </div>
+      </PopoverContent>
+    </Popover>
   );
 }

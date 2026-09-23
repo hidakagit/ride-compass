@@ -2,7 +2,7 @@
 
 import { useLayoutEffect, useRef, type ReactNode } from "react";
 import { Rnd } from "react-rnd";
-import styles from "./FloatingPanel.module.css";
+import { Button } from "@/components/ui/Button/Button";
 
 interface FloatingPanelProps {
   /** パネル自体の開閉。呼び出し側（DebugConsole/SystemStatusPanel）が個別に持つ状態 */
@@ -72,42 +72,38 @@ export default function FloatingPanel({
       default={{ x: 0, y: 0, width: "auto", height: "auto" }}
       bounds="window"
       enableResizing={false}
-      dragHandleClassName={styles.dragHandle}
+      dragHandleClassName="floating-panel-drag-handle"
       // Rndの既定style（position:"absolute"）だとページスクロールに追従してしまうため、
       // 元のCSS（.panel { position: fixed }）と同じ「常にビューポート基準」の浮遊挙動を
       // 保つためfixedへ上書きする（Rnd内部でstyleは最後にspreadされ上書きできる）。
       style={{ position: "fixed", zIndex: "var(--z-floating-panel)" }}
     >
-      {/* app-floating-panelはglobals.css側のモバイル向けタップ領域ルール
-          （.app-sidebar button, .app-floating-panel button）が参照するグローバルなマーカー
-          クラス。CSS Modulesのクラス名はハッシュ化されグローバルCSSから参照できないため、
-          見た目自体はstyles.panelに任せつつ、このマーカークラスだけ併用している。 */}
       <div
         ref={panelRef}
-        className={`${styles.panel} app-floating-panel`}
+        className="flex flex-col rounded-md border border-[var(--color-border-strong)] bg-[var(--color-surface)] text-[length:var(--font-size-xs)] text-[var(--foreground)] shadow-float"
         style={{
           width: `min(${widthRem}rem, calc(100vw - 2 * var(--space-3)))`,
           maxHeight: `${maxHeightPx}px`,
         }}
       >
-        <div className={styles.header}>
+        <div className="flex flex-shrink-0 items-center gap-1.5 border-b border-[var(--color-border)] px-2 py-1">
           <div
-            className={styles.dragHandle}
+            className="floating-panel-drag-handle cursor-grab touch-none px-1 text-[var(--color-muted)]"
             role="separator"
             aria-label="ドラッグしてパネルを移動"
             title="ドラッグして移動"
           >
             ⠿
           </div>
-          <strong className={styles.title}>{title}</strong>
-          <div className={styles.headerButtons}>
+          <strong className="min-w-0 flex-1 truncate">{title}</strong>
+          <div className="flex items-center gap-2">
             {headerButtons}
-            <button type="button" onClick={onClose} aria-label={`${title}を閉じる`} className={styles.closeButton}>
+            <Button variant="ghost" size="xs" onClick={onClose} aria-label={`${title}を閉じる`}>
               ✕
-            </button>
+            </Button>
           </div>
         </div>
-        <div className={styles.body}>{children}</div>
+        <div className="flex min-h-0 flex-1 flex-col overflow-hidden">{children}</div>
       </div>
     </Rnd>
   );

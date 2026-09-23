@@ -1,8 +1,7 @@
 from app.domain.strict_model import StrictModel
 
 # 天気コードの導出しきい値。MSMは天気そのものを配信しないため、降水量・雲量・気温から
-# WMO天気コード相当へ落とす。値の意味・アイコンへの変換はfrontendが持ち、backendは
-# 数値コードだけを返す。
+# WMO天気コード相当へ落とす。コードの分類と表示名はdomain/weather_display.py（WEATHER_CATEGORIES）が持つ。
 _PRECIPITATION_MIN_MM = 0.1
 _PRECIPITATION_MODERATE_MM = 1.0
 _PRECIPITATION_HEAVY_MM = 4.0

@@ -99,7 +99,8 @@ import { useLayerDataStatus } from "@/components/Map/useLayerDataStatus";
 import { useJmaTileIndex } from "@/hooks/useJmaTileIndex";
 import { registerJmaTileProtocol } from "@/components/Map/jmaTileProtocol";
 import { debugLog } from "@/lib/debugLog";
-import styles from "./MapView.module.css";
+import { textVariants } from "@/components/ui/Text/Text";
+import { cn } from "@/lib/cn";
 
 // 基礎地図のスタイルJSON。オリジンは`tileBaseUrl()`（lib/tileBaseUrl.ts: 既定はフロント
 // 自身のオリジン＝Next.jsのrewrites経由、`NEXT_PUBLIC_TILE_BASE_URL`設定時はbackend直接）
@@ -132,7 +133,7 @@ function createOriginMarkerElement(color: string): HTMLDivElement {
 // 地図のどの配色の上でも輪郭が消えないために要る。
 // touch-action:noneが無いと、地図をドラッグでパンしようとした指の起点がこの要素に乗った
 // 場合、ブラウザが要素自身のタッチ挙動（既定=auto）を優先してMapLibre側のパンジェスチャー
-// として確定しないことがある（.locateButtonが同じ理由で持っている対策と同じもの）。
+// として確定しないことがある（地図の上のボタンが同じ理由で持っている対策と同じもの）。
 function createPointMarkerElement(role: PinRole, label?: string): HTMLDivElement {
   const el = document.createElement("div");
   const background = PIN_MARK_BACKGROUND[role];
@@ -1222,9 +1223,14 @@ export default function MapView({
     <div style={{ position: "relative", width: "100%", height: "100%" }}>
       <div ref={mapContainerRef} style={{ width: "100%", height: "100%" }} />
       {initialTilesLoading && !styleLoadFailed && (
-        <div className={styles.loadingOverlay} aria-hidden="true">
-          <span className={styles.spinner} />
-          <span className={styles.loadingText}>地図を読み込み中…</span>
+        <div
+          className="pointer-events-none absolute inset-0 z-5 flex flex-col items-center justify-center gap-2.5 bg-[var(--color-surface-2)]"
+          aria-hidden="true"
+        >
+          <span className="size-7 animate-spin rounded-full border-3 border-[var(--color-border-strong)] border-t-[var(--color-accent)] motion-reduce:animate-none" />
+          <span className={cn(textVariants({ variant: "hint" }), "text-[var(--color-muted-strong)]")}>
+            地図を読み込み中…
+          </span>
         </div>
       )}
       {styleLoadFailed && (

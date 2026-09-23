@@ -3,6 +3,10 @@ import { afterAll, afterEach } from "vitest";
 // DOMを使わないテスト（`// @vitest-environment node`docblock付き）では
 // Testing Library自体が不要なため読み込まない。
 if (typeof window !== "undefined") {
+  // 地図に重なる部品は、親が`pointer-events: none`で地図の操作を通し、押せる部品だけがTailwindの
+  // `pointer-events-auto`で戻す。テスト環境はTailwindの規則を作らない（CSS Modulesだけを読む）ため、
+  // この1つだけを置く——無いと親の`none`だけが見え、押せるはずのボタンを押せないと判定される。
+  document.head.insertAdjacentHTML("beforeend", "<style>.pointer-events-auto{pointer-events:auto}</style>");
   await import("@testing-library/jest-dom/vitest");
   const { cleanup } = await import("@testing-library/react");
   afterEach(() => {

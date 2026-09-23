@@ -1,7 +1,7 @@
 "use client";
 
 import InfoPopover from "./InfoPopover";
-import styles from "./recipeControls.module.css";
+import { cn } from "@/lib/cn";
 
 // 一般向けルート設定画面（RouteSettingsPanel）・軸スタジオが使う上書きUI部品。
 
@@ -22,9 +22,7 @@ export function withAutoEnable<T>(
 // （MapOverlayControlsのaria-expanded凡例トグルと同じ規約）。説明本体はRadix Popoverで
 // フローティング表示する——トリガー位置基準のためDOM上の配置形（div直後 vs テーブル行内等）
 // に依存しない。開閉状態は`InfoPopover`が持つため、呼び出し側は`description`を
-// 渡すだけでよい。`className`は任意の追加クラス（highway別基準値テーブル内では
-// nowrap/flex-shrink:0を打ち消して折り返しを許可する必要があり、呼び出し側の
-// module.cssでその上書きクラスを定義してここへ渡す）。
+// 渡すだけでよい。`className`は置き場に合わせた足し分（表の中で折り返しを許す等）。
 
 export function FieldLabel({
   label,
@@ -42,11 +40,9 @@ export function FieldLabel({
 }) {
   return (
     <InfoPopover
-      triggerClassName={styles.infoButton}
       triggerAriaLabel={`${label}の説明`}
-      contentClassName={styles.infoTooltip}
       label={label}
-      labelClassName={className ? `${styles.fieldLabel} ${className}` : styles.fieldLabel}
+      labelClassName={cn("inline-flex shrink-0 items-center gap-1 whitespace-nowrap", className)}
       hideLabel={hideLabel}
     >
       {description}

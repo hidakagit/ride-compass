@@ -82,3 +82,23 @@ TORNADO_POTENTIAL_LEVELS: tuple[LevelColor, ...] = (
     LevelColor("potential1", "発生確度1: 広く注意（見逃しを減らす、的中率1〜7%）", "#38bdf8"),
     LevelColor("potential2", "発生確度2: 重点警戒（気象庁「竜巻注意」相当、的中率7〜14%）", "#1d4ed8"),
 )
+
+
+class WeatherCategory(NamedTuple):
+    """天気コード（WMO）の分類。画面はこの分類ごとにアイコンと名前を出す。"""
+
+    key: str
+    label: str
+    codes: tuple[int, ...]
+
+
+#: 天気コードの分類。どれにも当たらないコードは「くもり」として出す（`WEATHER_CATEGORY_FALLBACK`）。
+WEATHER_CATEGORIES: tuple[WeatherCategory, ...] = (
+    WeatherCategory("clear", "晴れ", (0, 1)),
+    WeatherCategory("cloudy", "くもり", (2, 3)),
+    WeatherCategory("fog", "霧", (45, 48)),
+    WeatherCategory("rain", "雨", (51, 53, 55, 56, 57, 61, 63, 65, 66, 67, 80, 81, 82)),
+    WeatherCategory("snow", "雪", (71, 73, 75, 77, 85, 86)),
+    WeatherCategory("thunderstorm", "雷雨", (95, 96, 99)),
+)
+WEATHER_CATEGORY_FALLBACK = "cloudy"

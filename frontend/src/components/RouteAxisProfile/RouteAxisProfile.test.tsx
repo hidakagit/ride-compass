@@ -132,18 +132,18 @@ describe("RouteAxisProfile", () => {
       <RouteAxisProfile {...baseProps({ axisContributions: { axis_sample: 36.2, wind: 0, night: 2.9 } })} />,
     );
 
-    const segments = container.querySelectorAll('[class*="stackSegment"]');
+    const segments = screen.getByRole("img", { name: "難易度の内訳" }).children;
     expect(segments).toHaveLength(2);
     // 重み0の軸（風）は帯にもチップにも出ない。
     expect(screen.queryByLabelText("風")).not.toBeInTheDocument();
   });
 
-  it("内訳バーは積み上げ1本バー（RouteSettingsPanel.module.cssのstackBar/stackSegmentを流用）として描画される", () => {
+  it("内訳バーは積み上げ1本バーとして描画される", () => {
     const { container } = render(<RouteAxisProfile {...baseProps()} />);
 
-    const bar = container.querySelector('[class*="stackBar"]');
+    const bar = screen.queryByRole("img", { name: "難易度の内訳" });
     expect(bar).not.toBeNull();
-    const segments = container.querySelectorAll('[class*="stackSegment"]');
+    const segments = screen.getByRole("img", { name: "難易度の内訳" }).children;
     expect(segments).toHaveLength(2);
   });
 
@@ -158,8 +158,8 @@ describe("RouteAxisProfile", () => {
       <RouteAxisProfile {...baseProps({ axisContributions: { axis_sample: 52.1, night: 2.9 } })} />,
     );
 
-    const values = Array.from(container.querySelectorAll('[class*="legendValue"]')).map((el) => el.textContent);
-    expect(values).toEqual(["52.1", "2.9"]);
+    expect(screen.getByText("52.1")).toBeInTheDocument();
+    expect(screen.getByText("2.9")).toBeInTheDocument();
   });
 
   it("総合難易度（絶対基準0-100）を表示する", () => {

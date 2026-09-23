@@ -1,7 +1,9 @@
 "use client";
 
 import { useEffect, useLayoutEffect, useRef } from "react";
-import styles from "./BottomSheet.module.css";
+import { Button } from "@/components/ui/Button/Button";
+import { textVariants } from "@/components/ui/Text/Text";
+import { cn } from "@/lib/cn";
 
 interface BottomSheetProps {
   open: boolean;
@@ -187,22 +189,22 @@ export default function BottomSheet({
   }
 
   return (
-    // app-bottom-sheetはglobals.css側のモバイル向けタップ領域ルール
-    // （.app-sidebar button, .app-bottom-sheet button等）が参照するグローバルなマーカー
-    // クラス。CSS Modulesのクラス名はハッシュ化されグローバルCSSから参照できないため、
-    // 見た目自体はstyles.sheetに任せつつ、このマーカークラスだけ併用している
-    // （FloatingPanelの.app-floating-panelと同じ手法）。
+    // app-bottom-sheetはglobals.cssのモバイル向けの規則（シート内の入力欄・チェックボックスを大きくする）の目印。
     <div
       ref={sheetRef}
-      className={`${styles.sheet} app-bottom-sheet`}
+      className={cn(
+        "fixed right-0 bottom-[var(--mobile-tabbar-height)] left-0 z-[var(--z-bottom-sheet)] flex flex-col rounded-t-lg bg-[var(--background)] shadow-[0_-2px_16px_rgba(0,0,0,0.3)]",
+        "app-bottom-sheet",
+      )}
       role="dialog"
       aria-labelledby={titleId}
       style={{ height: `${heightVh}vh` }}
       onTouchStart={handleTouchStart}
       onTouchEnd={handleTouchEnd}
     >
+      {/* 高さを変える帯。全幅の帯は小さいボタンより押し外しにくいため、縦は44pxより薄くして地図を空ける。 */}
       <div
-        className={styles.handle}
+        className="flex w-full flex-shrink-0 cursor-ns-resize touch-none items-center justify-center py-2 before:h-1 before:w-9 before:rounded-sm before:bg-[var(--color-border-strong)] before:content-[''] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--color-accent)]"
         role="separator"
         aria-orientation="horizontal"
         aria-label="パネルの高さを変更"
@@ -216,16 +218,26 @@ export default function BottomSheet({
         onTouchStart={handleHandleTouchStart}
         onKeyDown={handleHandleKeyDown}
       />
-      <div className={styles.header}>
-        <h2 id={titleId} tabIndex={-1} className={styles.title}>
+      <div className="flex flex-shrink-0 items-center justify-between gap-2 border-b border-[var(--color-border)] px-3">
+        <h2
+          id={titleId}
+          tabIndex={-1}
+          className={cn(textVariants({ variant: "heading" }), "min-w-0 truncate focus:outline-none")}
+        >
           {title}
         </h2>
-        {headerLead && <div className={styles.headerLead}>{headerLead}</div>}
-        <div className={styles.headerActions}>
+        {headerLead && <div className="mr-auto flex min-w-0 items-center">{headerLead}</div>}
+        <div className="flex flex-shrink-0 items-center gap-2">
           {headerAction}
-          <button type="button" onClick={onClose} aria-label="閉じる" className={styles.closeButton}>
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={onClose}
+            aria-label="閉じる"
+            className="size-7 text-base text-[var(--foreground)]"
+          >
             ✕
-          </button>
+          </Button>
         </div>
       </div>
       {/* シート内容のスクロールがシート全体の下スワイプ判定（handleTouchStart/
@@ -233,7 +245,7 @@ export default function BottomSheet({
           スクロールで指を大きく動かしただけで「下スワイプで閉じる」と誤認されてしまう。 */}
       <div
         ref={bodyRef}
-        className={styles.body}
+        className="flex flex-col gap-2 overflow-y-auto px-3 pt-2 pb-3"
         onTouchStart={(e) => e.stopPropagation()}
         onTouchEnd={(e) => e.stopPropagation()}
       >

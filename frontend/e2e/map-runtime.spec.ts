@@ -133,7 +133,7 @@ test("モバイル: ルート結果を見ている間は地図タップでピン
   await openMobileApp(page);
 
   const settings = await openMobileSheet(page, "ルート設定");
-  await settings.getByRole("button", { name: "目的地", exact: true }).click();
+  await settings.getByRole("radio", { name: "目的地", exact: true }).click();
   await page.locator(".app-map-pane canvas").click({ position: { x: 180, y: 150 } });
   await expect(settings.getByRole("button", { name: "目的地を置き直す" })).toBeVisible();
 

@@ -1,6 +1,6 @@
 "use client";
 
-import * as Tabs from "@radix-ui/react-tabs";
+import { TabsContent } from "@/components/ui/Tabs/Tabs";
 import InfoPopover from "@/components/Map/InfoPopover";
 import {
   ORIGIN_MARK_COLOR,
@@ -11,7 +11,11 @@ import {
 import type { PinRole } from "@/types/route";
 import routeGenerateConfig from "@/types/generated/route-generate-config.json";
 import { isMaxRoutesRelevant } from "./useRouteFormSubmit";
-import styles from "./RouteForm.module.css";
+import { Button } from "@/components/ui/Button/Button";
+import { Toggle } from "@/components/ui/Toggle/Toggle";
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/ToggleGroup/ToggleGroup";
+import { textVariants } from "@/components/ui/Text/Text";
+import { cn } from "@/lib/cn";
 
 export type RouteMode = "loop" | "destination";
 
@@ -102,13 +106,16 @@ export default function RouteForm({
   ) {
     const armed = armedPinRole === role;
     return (
-      <div className={styles.pointRow} data-armed={armed}>
+      <div
+        className="group flex items-center rounded-sm border border-[var(--color-border)] pr-1 data-[armed=true]:border-[var(--color-accent)] data-[armed=true]:shadow-[inset_0_0_0_1px_var(--color-accent)]"
+        data-armed={armed}
+      >
         {/* 行全体が「その地点を置く」1つの押下領域。押す場所を探させず、行の幅も詰まる。
             クリア（✕）・現在地に戻すは別の操作なので、入れ子にせず行の外側へ並べる。 */}
-        <button
-          type="button"
-          className={styles.pointMain}
-          aria-pressed={armed}
+        <Toggle
+          variant="plain"
+          className="flex min-w-0 flex-auto items-center gap-2 rounded-sm px-1.5 py-1"
+          pressed={armed}
           aria-label={armed ? `${label}の指定をやめる` : `${label}を${armLabel}`}
           onClick={() => onArmPinRole(armed ? null : role)}
         >
@@ -117,7 +124,7 @@ export default function RouteForm({
               違う見た目になる。 */}
           <span
             aria-hidden="true"
-            className={styles.pointMark}
+            className="inline-flex size-4.5 flex-none items-center justify-center rounded-full text-[0.7rem] text-white"
             style={{ background: PIN_MARK_BACKGROUND[role] }}
             dangerouslySetInnerHTML={{
               __html: pinMarkHtml(role, {
@@ -127,12 +134,28 @@ export default function RouteForm({
               }),
             }}
           />
-          <span className={styles.pointLabel}>{label}</span>
-          <span className={styles.pointValue}>{armed ? armedHint : value}</span>
-          <span aria-hidden="true" className={armed ? styles.pointHintArmed : styles.pointHint}>
+          <span
+            className={cn(
+              textVariants({ variant: "hint" }),
+              "w-14 flex-none text-left group-data-[armed=true]:text-[var(--color-accent-strong)]",
+            )}
+          >
+            {label}
+          </span>
+          <span className="min-w-0 flex-auto truncate text-left text-[length:var(--font-size-sm)]">
+            {armed ? armedHint : value}
+          </span>
+          <span
+            aria-hidden="true"
+            className={
+              armed
+                ? "flex-none rounded-sm bg-[var(--color-accent)] px-1.5 py-px text-[length:var(--font-size-sm)] text-[var(--color-surface)]"
+                : "flex-none text-[length:var(--font-size-sm)] text-[var(--color-accent-strong)]"
+            }
+          >
             {armed ? "やめる" : armLabel}
           </span>
-        </button>
+        </Toggle>
         {extra}
       </div>
     );
@@ -140,74 +163,63 @@ export default function RouteForm({
 
   return (
     <div>
-      {/* forceMount+data-stateでの表示切替（page.module.css: .outcomeTabPanelと同じ方式）。
+      {/* forceMount+data-stateでの表示切替（ルート結果のタブと同じ方式）。
           候補数等はpage.tsx側の制御stateのため非表示中も値は失われないが、
           重みタブ（RouteSettingsPanel）はドラッグ中の帯グラフ・チェックOFF前の
           重み記憶をローカルstateで持つため、タブ切替のたびにアンマウントすると失われる。 */}
-      <Tabs.Content value="generate" forceMount className={styles.tabPanel}>
+      <TabsContent value="generate" forceMount className="data-[state=inactive]:hidden">
         {/* モードと候補数は同じ行に置く。候補数はどちらのモードでも効く共通の条件で、
             モードごとの入力（距離／地点）とは別の階層にある。 */}
-        <div className={styles.modeRow}>
-          <div className={styles.modeToggle} role="group" aria-label="ルート生成モード">
-            <button
-              type="button"
-              onClick={() => onRouteModeChange("loop")}
-              aria-pressed={routeMode === "loop"}
-              className={routeMode === "loop" ? styles.modeButtonActive : styles.modeButton}
-            >
-              周回
-            </button>
-            <button
-              type="button"
-              onClick={() => onRouteModeChange("destination")}
-              aria-pressed={routeMode === "destination"}
-              className={routeMode === "destination" ? styles.modeButtonActive : styles.modeButton}
-            >
-              目的地
-            </button>
-          </div>
+        <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+          <ToggleGroup
+            className="shrink-0"
+            value={routeMode}
+            onValueChange={(mode) => onRouteModeChange(mode as RouteMode)}
+            aria-label="ルート生成モード"
+          >
+            <ToggleGroupItem value="loop">周回</ToggleGroupItem>
+            <ToggleGroupItem value="destination">目的地</ToggleGroupItem>
+          </ToggleGroup>
           {/* 経由地があるとbackendは常に1件へ固定する（route_generator.py:
               generate_via_waypoints）。押せない状態で残す——消えると壊れて見えるうえ、
               複数候補へ広げる予定があるため置き場を動かさない。理由は隣の(i)の奥。 */}
-          <div className={styles.stepperField} data-disabled={!maxRoutesRelevant}>
-            <span className={styles.stepperLabel}>候補数</span>
+          <div className="flex items-center gap-2 data-[disabled=true]:opacity-55" data-disabled={!maxRoutesRelevant}>
+            <span className={cn(textVariants({ variant: "hint" }), "flex-shrink-0")}>候補数</span>
             {!maxRoutesRelevant && (
-              <InfoPopover
-                triggerClassName={styles.stepperInfo}
-                triggerAriaLabel="候補数を変えられない理由"
-                contentClassName={styles.stepperInfoPopover}
-              >
+              <InfoPopover triggerAriaLabel="候補数を変えられない理由">
                 経由地を置いている間は、その地点を通る経路を1本だけ引きます。候補数は経由地を 消すと使えます。
               </InfoPopover>
             )}
-            <div className={styles.stepper}>
-              <button
-                type="button"
-                className={styles.stepperButton}
+            <div className="inline-flex items-center gap-2">
+              <Button
+                variant="stepper"
+                size="sm"
                 onClick={() => stepMaxRoutes(-1)}
                 disabled={!maxRoutesRelevant || Number(maxRoutes) <= 1}
                 aria-label="候補数を減らす"
               >
                 ‹
-              </button>
-              <span className={styles.stepperValue}>{maxRoutesRelevant ? `${maxRoutes}件` : "1件"}</span>
-              <button
-                type="button"
-                className={styles.stepperButton}
+              </Button>
+              <span className="min-w-[2.5em] text-center tabular-nums">
+                {maxRoutesRelevant ? `${maxRoutes}件` : "1件"}
+              </span>
+              <Button
+                variant="stepper"
+                size="sm"
                 onClick={() => stepMaxRoutes(1)}
                 disabled={!maxRoutesRelevant || Number(maxRoutes) >= MAX_ROUTES}
                 aria-label="候補数を増やす"
               >
                 ›
-              </button>
+              </Button>
             </div>
           </div>
         </div>
 
-        <div className={styles.fieldsColumn}>
+        <div className="flex flex-col gap-2">
           {routeMode === "loop" ? (
-            <div className={styles.sliderField}>
-              <label htmlFor="route-form-distance" className={styles.sliderLabel}>
+            <div className="flex items-center gap-2">
+              <label htmlFor="route-form-distance" className={cn(textVariants({ variant: "hint" }), "flex-shrink-0")}>
                 距離
               </label>
               <input
@@ -218,12 +230,12 @@ export default function RouteForm({
                 step={1}
                 value={distance}
                 onChange={(e) => onDistanceChange(e.target.value)}
-                className={styles.slider}
+                className="min-w-0 flex-1"
               />
-              <span className={styles.sliderValue}>{distance}km</span>
+              <span className="min-w-[3.5em] flex-shrink-0 text-right tabular-nums">{distance}km</span>
             </div>
           ) : (
-            <div className={styles.pointRows}>
+            <div className="flex flex-col gap-1">
               {renderPointRow(
                 "origin",
                 "出発地",
@@ -231,14 +243,9 @@ export default function RouteForm({
                 originManual ? "地図で指定" : "現在地",
                 "地図で選ぶ",
                 originManual ? (
-                  <button
-                    type="button"
-                    className={styles.pointSubAction}
-                    aria-label="出発地を現在地に戻す"
-                    onClick={onOriginReset}
-                  >
+                  <Button size="xs" aria-label="出発地を現在地に戻す" onClick={onOriginReset}>
                     現在地に戻す
-                  </button>
+                  </Button>
                 ) : undefined,
               )}
               {renderPointRow(
@@ -248,14 +255,15 @@ export default function RouteForm({
                 waypointCount > 0 ? `${waypointCount}地点` : "なし",
                 "追加",
                 waypointCount > 0 ? (
-                  <button
-                    type="button"
-                    className={styles.pointClear}
+                  <Button
+                    variant="ghost"
+                    size="bare"
+                    className="p-1 text-xs"
                     aria-label="経由地をクリア"
                     onClick={onWaypointsClear}
                   >
                     ✕
-                  </button>
+                  </Button>
                 ) : undefined,
                 waypointCount > 0 ? `地図をタップ（${waypointCount}地点）` : "地図をタップ",
               )}
@@ -266,28 +274,29 @@ export default function RouteForm({
                 destinationSet ? "地図で指定" : "未設定",
                 destinationSet ? "置き直す" : "地図で選ぶ",
                 destinationSet ? (
-                  <button
-                    type="button"
-                    className={styles.pointClear}
+                  <Button
+                    variant="ghost"
+                    size="bare"
+                    className="p-1 text-xs"
                     aria-label="目的地をクリア"
                     onClick={onDestinationClear}
                   >
                     ✕
-                  </button>
+                  </Button>
                 ) : undefined,
               )}
             </div>
           )}
         </div>
-      </Tabs.Content>
+      </TabsContent>
 
-      <Tabs.Content value="weights" forceMount className={styles.tabPanel}>
+      <TabsContent value="weights" forceMount className="data-[state=inactive]:hidden">
         {weightsPanel}
-      </Tabs.Content>
+      </TabsContent>
 
-      <Tabs.Content value="exclusions" forceMount className={styles.tabPanel}>
+      <TabsContent value="exclusions" forceMount className="data-[state=inactive]:hidden">
         {exclusionsPanel}
-      </Tabs.Content>
+      </TabsContent>
     </div>
   );
 }

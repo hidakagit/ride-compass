@@ -22,7 +22,7 @@
 | `features/map/scene/applyToMap.ts`（`weatherStateFrom`・`weatherPayloadFrom`） | `dynamicWeather`（チップid→名前付きソース→表示・中身）を宣言の入力へ移す。JMAタイルのURLへ`jmatile://`スキームを付ける |
 | `hooks/useDynamicWeatherLayers.ts`・`useWeatherGrid.ts`・`useWeatherConditions.ts` | 状態管理・フェッチ。定期取得は`usePolledFetch`（粗い風格子を含む全系統）、現在地に追随する取得は`useWeatherConditions`内の`useLocationFetch`が骨格を持ち、個々のフェッチはfetcherだけを渡す |
 | `hooks/usePolledFetch.ts` | 「マウント時に即座に1回フェッチ＋以降intervalMsごとに再フェッチ、cancelledフラグで古いレスポンスの反映を防止」という、`useDynamicWeatherLayers.ts`内の定期取得（降水ナウキャスト・雷放電位置データ等）が共有するフェッチ骨格の共通実装 |
-| `components/WeatherPanel/WeatherPanel.tsx`・`amedasWeatherIcon.ts`・`weatherCode.ts`・`components/TodayOutlook/TodayOutlook.tsx`・`components/WarningBadge/WarningBadge.tsx` | UI |
+| `components/WeatherPanel/WeatherPanel.tsx`・`amedasWeatherIcon.ts`・`weatherCode.ts`・`components/TodayOutlook/TodayOutlook.tsx`・`components/WarningBadge/WarningBadge.tsx` | UI（警報バッジの出所ごとの段階の呼び名と色は、backendの宣言`domain/warning_display.py`が生成物`vocabulary.ts`で配る） |
 | `services/weatherApi.ts`・`types/weather.ts` | API呼び出し・型定義 |
 
 ## 共通契約（4本柱、`dynamicWeather.ts`冒頭コメント）
@@ -343,7 +343,8 @@ trueとする。
 
 `WeatherPanel`（常設ヘッダー、`amedasWeatherIcon.ts`が天気分類を担う）は**アメダス実測値**
 のみで構成し、予報とは独立にフェッチする。`TodayOutlook`（`weatherCode.ts`がWMOコードを
-分類）は**MSM予報**（今日の最大降水量・最大風速・気温レンジ・日の出日没・天気の流れ）を
+分類。分類と名前はbackendの宣言〔`domain/weather_display.py: WEATHER_CATEGORIES`〕が生成物`vocabulary.ts`で配り、
+画面が持つのは分類ごとのアイコンだけ）は**MSM予報**（今日の最大降水量・最大風速・気温レンジ・日の出日没・天気の流れ）を
 扱う。両者は別APIに依存する独立コンポーネントで、本モジュールの動的地図レイヤーとは別の
 フェッチ経路を持つ。
 

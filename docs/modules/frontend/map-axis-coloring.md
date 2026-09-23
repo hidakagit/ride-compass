@@ -275,7 +275,7 @@ axisId)`が未取得・対象外の軸を空の結果へ倒して読み出す。
   （`COLOR_NO_DATA`）になり見分けが付かないため、`useMapView`がレンズの軸の値を
   取りに行っている間だけ`error`/`loading`/`values`の有無から
   `deriveFetchLayerStatus`（`mapLayers.ts`、動的気象レイヤーと共有する判定関数）で
-  `LayerDataStatus`を1つ算出し、`LensControl`のピルへ小さな状態ドット（`LayerChip`と
+  `LayerDataStatus`を1つ算出し、`LensControl`のピルへ小さな状態ドット（`ui/Dot`。地図上チップと
   同じ視覚表現）として表示し、その意味をポップオーバーの見出しの下へ文として出す
   （`title`はスマホで出ないため）。取得失敗の原因（429・通信エラー）は`error: boolean`へ
   畳むため区別しない（[ページ全体構成](page-composition.md)「失敗・空・待ちの伝え方」）。判定には`hasFetched`（一度でも取得を試みて完了したか）も

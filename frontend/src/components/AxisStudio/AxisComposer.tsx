@@ -10,11 +10,17 @@ import { useMaterialCatalog } from "@/hooks/useMaterialCatalog";
 import { useMapBandsOfThresholds } from "@/hooks/useMapBandsOfThresholds";
 import type { AxisDefinitionPayload, AxisDefinitionResponse } from "@/types/route";
 import type { AxisMaterialOption } from "@/lib/axisMaterialsCatalog";
-import styles from "./AxisStudio.module.css";
-import { NumberField } from "./AxisFormFields";
+
 import { AxisMapDisplaySection } from "./AxisMapDisplaySection";
 import { AxisScoringSection } from "./AxisScoringSection";
 import { buildShape, draftFromDuplicate, draftFromExisting, emptyDraft, type Draft } from "./axisDraft";
+import { Button } from "@/components/ui/Button/Button";
+import { NumberInput } from "@/components/ui/NumberInput/NumberInput";
+import { Input, Textarea } from "@/components/ui/Input/Input";
+import { textVariants } from "@/components/ui/Text/Text";
+import { cn } from "@/lib/cn";
+import { cardVariants } from "@/components/ui/Card/Card";
+import { fieldClass } from "@/components/ui/Input/Input";
 
 interface AxisComposerProps {
   /** 編集対象。nullなら新規作成（下記duplicateFromが無ければ空欄から）。公開済み軸も
@@ -111,18 +117,26 @@ export default function AxisComposer({
   // ——同じ文言にすると、通信が遅いだけのときに利用者がbackendの異常を疑う。
   // フックの呼び出しはすべてこのガードより前で終えているためRules of Hooksには反しない。
   if (!catalogLoaded) {
-    return <div className={styles.composer}>材料カタログを読み込んでいます…</div>;
+    return (
+      <div
+        className={cn(cardVariants({ variant: "outline" }), "flex flex-col gap-3 border-[var(--color-border-strong)]")}
+      >
+        材料カタログを読み込んでいます…
+      </div>
+    );
   }
   if (materialOptions.length === 0) {
     return (
-      <div className={styles.composer}>
-        <p className={styles.errorText}>
+      <div
+        className={cn(cardVariants({ variant: "outline" }), "flex flex-col gap-3 border-[var(--color-border-strong)]")}
+      >
+        <p className={textVariants({ variant: "error" })}>
           材料カタログを取得できませんでした（0件の応答）。時間をおいて再度開くか、backend側の材料カタログ（material_catalog.py）の状態を確認してください。
         </p>
-        <div className={styles.row}>
-          <button type="button" onClick={onCancelEdit}>
+        <div className="flex flex-wrap items-center gap-3">
+          <Button size="sm" onClick={onCancelEdit}>
             閉じる
-          </button>
+          </Button>
         </div>
       </div>
     );
@@ -250,7 +264,7 @@ export default function AxisComposer({
     if (!otherAxes) return null;
     if (!draft.isPublished) {
       return (
-        <p className={styles.hint}>
+        <p className={textVariants({ variant: "hint" })}>
           この軸は現在非公開のため、重みはルート探索へ直接使われません（公開すると、他の公開軸との比率で効くようになります）。
         </p>
       );
@@ -260,7 +274,7 @@ export default function AxisComposer({
     if (total <= 0) return null;
     const sharePercent = (draft.defaultWeight / total) * 100;
     return (
-      <p className={styles.hint}>
+      <p className={textVariants({ variant: "hint" })}>
         参考: 現在の公開軸全体（{publishedOthers.length + 1}軸）の重み合計に対して約{sharePercent.toFixed(1)}%です。
       </p>
     );
@@ -269,12 +283,12 @@ export default function AxisComposer({
   function renderBasicFields() {
     return (
       <>
-        <div className={styles.field}>
+        <div className={fieldClass}>
           <FieldLabel
             label="表示名"
             description="一般ユーザー向けのルート設定画面・地図の凡例に表示される名前です。（API: label）"
           />
-          <input
+          <Input
             type="text"
             value={draft.label}
             aria-label="表示名"
@@ -283,26 +297,27 @@ export default function AxisComposer({
           />
         </div>
 
-        <label className={styles.fieldFull}>
+        <label className={fieldClass}>
           説明
-          <textarea
+          <Textarea
             value={draft.description}
             onChange={(e) => setDraft((d) => ({ ...d, description: e.target.value }))}
             rows={2}
           />
         </label>
 
-        <div className={styles.field}>
+        <div className={fieldClass}>
           <FieldLabel
             label="既定重み"
             description="この軸を誰も上書きしていないときに使われる重みです。他の公開軸の重みとの比率だけがルートの選ばれ方を左右します（数値そのものに意味はありません。例: 全軸の重みを一律2倍にしても結果は変わりません）。大きくするほど、他の軸に対して相対的にこの軸を重視します。0にすると計算から除外されます。（API: default_weight）"
           />
-          <NumberField
+          <NumberInput
+            commitOn="input"
             min="0"
             step="any"
             aria-label="既定重み"
             value={draft.defaultWeight}
-            onChange={(next) => setDraft((d) => ({ ...d, defaultWeight: next }))}
+            onValueChange={(next) => setDraft((d) => ({ ...d, defaultWeight: next }))}
           />
           {renderWeightShare()}
         </div>
@@ -320,9 +335,13 @@ export default function AxisComposer({
     // ブラウザは押された後の`type`で既定動作を判定するため、`"button"`→`"submit"`へ同期的に
     // 変わるとフォームが暗黙に送信される。役割が変わるなら`key`を変えて別の要素として
     // 作り直すこと（happy-domはこの判定のタイミング差を再現しないため、テストでは捕まらない）。
-    <form onSubmit={handleSubmit} className={styles.composer} noValidate>
+    <form
+      onSubmit={handleSubmit}
+      className={cn(cardVariants({ variant: "outline" }), "flex flex-col gap-3 border-[var(--color-border-strong)]")}
+      noValidate
+    >
       {restrictedDisplayOnly && (
-        <p className={styles.hint}>
+        <p className={textVariants({ variant: "hint" })}>
           公開済みの軸のため、地図表示に関わる項目のみ編集できます（材料・計算式・重みを変えたい場合は「複製して新規作成」してください）。
         </p>
       )}
@@ -348,16 +367,16 @@ export default function AxisComposer({
         onThresholdErrorChange={setThresholdError}
       />
 
-      {error && <p className={styles.errorText}>{error}</p>}
+      {error && <p className={textVariants({ variant: "error" })}>{error}</p>}
 
-      <div className={styles.row}>
-        <button type="submit" disabled={saving} className={styles.saveButton}>
+      <div className="flex flex-wrap items-center gap-3">
+        <Button variant="primary" size="sm" type="submit" disabled={saving}>
           {saving ? "保存中..." : isNew ? "作成する" : "更新する"}
-        </button>
+        </Button>
         {!isNew && (
-          <button type="button" onClick={onCancelEdit} disabled={saving}>
+          <Button size="sm" onClick={onCancelEdit} disabled={saving}>
             編集をやめる
-          </button>
+          </Button>
         )}
       </div>
     </form>

@@ -1,12 +1,13 @@
 "use client";
 
-import * as Popover from "@radix-ui/react-popover";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/Popover/Popover";
 import { useResearchEnabled } from "@/hooks/useResearchMode";
 import { setResearchEnabled } from "@/lib/researchMode";
 import { Checkbox } from "@/components/ui/Checkbox/Checkbox";
 import { Button } from "@/components/ui/Button/Button";
 import { LogIcon, MenuIcon } from "@/components/Map/icons";
-import styles from "./HeaderMenu.module.css";
+import { Toggle } from "@/components/ui/Toggle/Toggle";
+import { toggleVariants } from "@/components/ui/Toggle/Toggle";
 
 interface HeaderMenuProps {
   /** デバッグログ項目自体の表示可否（デバッグモードのON/OFFは/adminで切り替える、
@@ -30,35 +31,28 @@ export default function HeaderMenu({ debugEnabled, debugConsoleOpen, onToggleDeb
   const researchEnabled = useResearchEnabled();
 
   return (
-    <Popover.Root>
-      <Popover.Trigger asChild>
+    <Popover>
+      <PopoverTrigger asChild>
         <Button variant="ghost" size="sm" aria-label="メニュー" className="shrink-0">
           <MenuIcon size={15} />
         </Button>
-      </Popover.Trigger>
-      <Popover.Portal>
-        <Popover.Content className={styles.menuPanel} side="bottom" align="end" sideOffset={6}>
-          <label className={styles.menuItem}>
-            <Checkbox
-              checked={researchEnabled}
-              onCheckedChange={setResearchEnabled}
-              aria-label="研究モード[実験スロット・比較・材料値]"
-            />
-            研究モード[実験スロット・比較・材料値]
-          </label>
-          {debugEnabled && (
-            <button
-              type="button"
-              className={styles.menuItem}
-              onClick={onToggleDebugConsole}
-              aria-pressed={debugConsoleOpen}
-            >
-              <LogIcon size={15} />
-              {debugConsoleOpen ? "デバッグログを隠す" : "デバッグログを表示"}
-            </button>
-          )}
-        </Popover.Content>
-      </Popover.Portal>
-    </Popover.Root>
+      </PopoverTrigger>
+      <PopoverContent layer="header" className="flex min-w-56 flex-col gap-1 p-1.5" side="bottom" align="end">
+        <label className={toggleVariants({ variant: "menu" })}>
+          <Checkbox
+            checked={researchEnabled}
+            onCheckedChange={setResearchEnabled}
+            aria-label="研究モード[実験スロット・比較・材料値]"
+          />
+          研究モード[実験スロット・比較・材料値]
+        </label>
+        {debugEnabled && (
+          <Toggle variant="menu" onClick={onToggleDebugConsole} pressed={debugConsoleOpen}>
+            <LogIcon size={15} />
+            {debugConsoleOpen ? "デバッグログを隠す" : "デバッグログを表示"}
+          </Toggle>
+        )}
+      </PopoverContent>
+    </Popover>
   );
 }

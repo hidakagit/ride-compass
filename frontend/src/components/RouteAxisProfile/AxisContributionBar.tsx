@@ -7,7 +7,14 @@ import InfoPopover from "@/components/Map/InfoPopover";
 import { axisIconFor } from "@/components/Map/axisIconPalette";
 import { InfoIcon } from "@/components/Map/icons";
 import type { PreferenceAxisDef } from "@/lib/evaluationAxes";
-import styles from "./AxisContributionBar.module.css";
+import {
+  legendChipBodyClass,
+  legendChipClass,
+  legendChipsClass,
+  legendIconClass,
+  stackBarClass,
+} from "@/components/ui/AxisLegend/axisLegend";
+import { cn } from "@/lib/cn";
 
 interface AxisContributionBarProps {
   /** 表示対象の軸一覧（順序・ラベルの正本）。contributionsにキーが無い軸・値が0の軸は
@@ -76,22 +83,22 @@ export default function AxisContributionBar({
   };
 
   return (
-    <div className={styles.wrap}>
-      <div className={styles.stackBar} style={barStyle}>
+    <div className="flex min-w-30 flex-auto flex-col gap-1">
+      <div className={stackBarClass} style={barStyle} role="img" aria-label="難易度の内訳">
         {rows.map((axis) => {
           const value = Math.min(100, Math.max(0, contributions[axis.axisId]));
           const color = axisColors[axis.axisId] ?? FALLBACK_COLOR;
           return (
             <div
               key={axis.axisId}
-              className={styles.stackSegment}
+              className="h-full"
               style={{ width: `${value}%`, background: color }}
               title={`${axis.label} ${value.toFixed(1)}`}
             />
           );
         })}
       </div>
-      <ul className={styles.legend}>
+      <ul className={legendChipsClass}>
         {(legendAxes ?? rows)
           // renderDetailは軸あたり1回だけ呼ぶ（絞り込みと本体で別々に呼ぶと、片方で
           // 組み立てたJSXがそのまま捨てられる）。
@@ -106,10 +113,12 @@ export default function AxisContributionBar({
             const Icon = axisIconFor(axis.iconId);
             const body = (
               <>
-                <span aria-hidden="true" className={styles.legendIcon} style={{ color }}>
+                <span aria-hidden="true" className={legendIconClass} style={{ color }}>
                   <Icon size={14} />
                 </span>
-                {value != null && value !== 0 && <span className={styles.legendValue}>{value.toFixed(1)}</span>}
+                {value != null && value !== 0 && (
+                  <span className="text-[var(--color-muted)] tabular-nums">{value.toFixed(1)}</span>
+                )}
               </>
             );
             return (
@@ -118,18 +127,17 @@ export default function AxisContributionBar({
               // 薄く描かれて理由の無い弱め方になる。
               <li
                 key={axis.axisId}
-                className={styles.legendChip}
+                className={legendChipClass}
                 data-checked={renderDetail == null ? undefined : detail !== null}
               >
                 {detail === null ? (
-                  <span className={styles.legendChipBody} title={axis.label} aria-label={axis.label} role="img">
+                  <span className={legendChipBodyClass} title={axis.label} aria-label={axis.label} role="img">
                     {body}
                   </span>
                 ) : (
                   <InfoPopover
-                    triggerClassName={styles.legendTrigger}
+                    triggerClassName={cn(legendChipBodyClass, "cursor-pointer [&>svg]:text-[var(--color-muted)]")}
                     triggerAriaLabel={`${axis.label}の詳細`}
-                    contentClassName={styles.legendPopover}
                     // チップ全体が押せることを、このアプリで「押すと説明が出る」を表している
                     // (i)で示す（押せる／押せないの差が輪郭の濃さだけでは伝わらない）。
                     triggerContent={

@@ -197,7 +197,7 @@ export interface MapLayerDescriptor {
   /** サイドバーのセクション見出し・条件サマリ・チップのtitleで使う正式名称 */
   label: string;
   /** 地図上のアイコンチップ下に出す短縮表記。未指定ならlabelをそのまま使う。
-   * チップ幅は文字数に連動するため（MapOverlayControls.module.cssの.iconChip参照）、
+   * チップ幅は文字数に連動するため、
    * 長いlabelはここで短くしてチップ幅を他レイヤーと揃える。正式名称は引き続きlabel
    * （サイドバー見出し・条件サマリ・チップのtitle）で示すため、意味の省略は許容する。 */
   chipLabel?: string;

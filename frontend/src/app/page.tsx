@@ -1,9 +1,10 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import * as Tabs from "@radix-ui/react-tabs";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/Tabs/Tabs";
 import Disclosure from "@/components/Disclosure/Disclosure";
 import { Button } from "@/components/ui/Button/Button";
+import { cn } from "@/lib/cn";
 import MapView, { type RouteFitObscuredPx } from "@/components/Map/MapView";
 import MapOverlayControls from "@/components/MapOverlayControls/MapOverlayControls";
 import {
@@ -81,7 +82,9 @@ import type {
 } from "@/types/route";
 import { EXPERIMENT_SLOT_COLORS, MAX_EXPERIMENT_SLOTS, type ExperimentSlot } from "@/types/experimentSlot";
 import routeGenerateConfig from "@/types/generated/route-generate-config.json";
-import styles from "./page.module.css";
+import { textVariants } from "@/components/ui/Text/Text";
+import { cardVariants } from "@/components/ui/Card/Card";
+import { dotVariants } from "@/components/ui/Dot/Dot";
 
 // 経由地ルートのid（常に1件、「方位」という概念が無いためタブに順位番号を付けない）。
 const NON_DIRECTIONAL_ROUTE_IDS = new Set(["route-waypoints"]);
@@ -592,10 +595,8 @@ export default function Home() {
 
   const isMobile = useIsMobile();
 
-  // 地図上の▼ページ送り判定（MapOverlayControls.tsx: usePagedOverflow）が、兄弟要素として
-  // 重なる気象タイムラインパネル（下記.bottomControlRow）の占有高さを知らず、パネル表示中に
-  // 一番下のアイコンチップがパネルの裏へ隠れてしまう不具合への対応。共通の祖先（.mapPane）へ
-  // 実測高さをCSS変数として反映し、MapOverlayControls.module.cssの.wrapper側で読む。
+  // 地図のチップ列（MapOverlayControls）は、兄弟要素として重なる下部の行（時刻スライダー等）の高さを知らない。
+  // 共通の祖先（地図の枠）へ実測の高さをCSS変数で渡し、チップ列の下端をその上で止める。
   // 地図へピンを置けるのは「ルート設定」を見ている間だけ。ルート結果を見ているときは
   // 候補線を選ぼうとして少し外すたびに経由地が増えてしまう——生成に関わる操作は
   // 「ルート生成」ボタンがある場所でだけ受け付ける。モバイルはシートの排他表示、
@@ -632,7 +633,7 @@ export default function Home() {
   useElementHeightCssVar(bottomControlRowRef, mapPaneRef, "--bottom-control-row-height");
 
   // 地図キャンバスはモバイルの下部タブバー・ボトムシートの下にも描画されている
-  // （page.module.css .mobileTabBar参照）ため、ルート生成直後のフィットが既定の余白だけ
+  // ため、ルート生成直後のフィットが既定の余白だけ
   // だと、ルート全体がシートの裏へ収まって1本も見えない。覆われている高さを、地図がフィットする
   // 瞬間に測って渡す（地図はその瞬間の値しか使わない）。タブバーの高さはCSS
   // （--mobile-tabbar-height）が正のため実測し、シートは高さ自体をvhで持っている（BottomSheet）
@@ -981,28 +982,22 @@ export default function Home() {
   // ボタンは右端と、行の中でも離して置く。
   function renderSettingsTabs() {
     return (
-      <Tabs.List className={styles.settingsTabList} aria-label="ルート設定">
-        <Tabs.Trigger className={styles.settingsTabTrigger} value="generate">
-          条件
-        </Tabs.Trigger>
-        <Tabs.Trigger className={styles.settingsTabTrigger} value="weights">
-          重み
-        </Tabs.Trigger>
-        <Tabs.Trigger className={styles.settingsTabTrigger} value="exclusions">
-          除外
-        </Tabs.Trigger>
-      </Tabs.List>
+      <TabsList className="gap-2 overflow-visible border-b-0" aria-label="ルート設定">
+        <TabsTrigger value="generate">条件</TabsTrigger>
+        <TabsTrigger value="weights">重み</TabsTrigger>
+        <TabsTrigger value="exclusions">除外</TabsTrigger>
+      </TabsList>
     );
   }
 
   function renderRouteSectionHeaderActions() {
     return (
-      <div className={styles.routeSectionHeaderActions}>
+      <div className="flex items-center gap-2">
         {/* 「生成条件が変更されています」は結果欄の先頭にも出るが、条件を変えている本人は
             設定側を見ている。押すべきボタンの隣でも同じことを知らせる。 */}
         {conditionsDirty && (
           <span
-            className={styles.dirtyDot}
+            className={dotVariants({ tone: "warning" })}
             role="img"
             aria-label="生成条件が変更されています"
             title="生成条件が変更されています"
@@ -1054,13 +1049,13 @@ export default function Home() {
   // 両方から呼ぶ。候補0件で生成前の案内文へ戻ると「押したのに何も起きていない」ように見える。
   function renderRouteOutcomeEmptyState() {
     if (loading) {
-      return <p className={styles.emptyHint}>{generationProgressLabel ?? "生成中..."}</p>;
+      return <p className={textVariants({ variant: "hint" })}>{generationProgressLabel ?? "生成中..."}</p>;
     }
     const failure = routeFormSubmit.error ?? (generation.status === "idle" ? generation.message : null);
     if (failure) {
       return <ErrorText>{failure}</ErrorText>;
     }
-    return <p className={styles.emptyHint}>「ルート生成」を押すと候補がここに並びます</p>;
+    return <p className={textVariants({ variant: "hint" })}>「ルート生成」を押すと候補がここに並びます</p>;
   }
 
   // 一般ユーザー向けルート設定。0次(除外)・軸選択・重みを生成前に調整できる、常時表示の
@@ -1091,9 +1086,8 @@ export default function Home() {
             アイコン列へ置く。乗り換えできない生成（周回・候補1件）では出さない——押しても
             何もできない入口を残さない。編集中は戻る導線がパネル側にあるため重ねない。 */}
         {canSpliceDisplayedRoute() && editingRoute === null && (
-          <button
-            type="button"
-            className={styles.outcomeHeaderIcon}
+          <Button
+            size="icon"
             onClick={() => {
               if (!selectedCandidate) return;
               setSplice({ routeId: selectedCandidate.id, applied: [], previews: {}, task: SPLICE_IDLE });
@@ -1105,32 +1099,25 @@ export default function Home() {
             aria-label="このルートを編集"
           >
             <RouteSpliceIcon size={18} />
-          </button>
+          </Button>
         )}
         {/* 選択中候補のgeometry（区間分割前の連続したLineString）をGPXへ書き出す。
             selectedCandidateがnullの間は押せない（比較タブ表示中等）。 */}
-        <button
-          type="button"
-          className={styles.outcomeHeaderIcon}
+        <Button
+          size="icon"
           disabled={!selectedCandidate}
           onClick={() => selectedCandidate && downloadGpx(selectedCandidate)}
           title="GPX出力"
           aria-label="GPX出力"
         >
           <DownloadIcon size={18} />
-        </button>
+        </Button>
         {/* 生成済みの候補一覧・地図描画・選択状態だけをリセットする（経由地・目的地のピンは
             対象外、別々のクリア操作として使い分ける）。押した瞬間に実行する即実行アクション。
             保存・GPX出力と並ぶアイコンボタンにし、他の2つと見た目を揃える。 */}
-        <button
-          type="button"
-          className={styles.outcomeHeaderIcon}
-          onClick={handleRoutesClear}
-          title="ルートをクリア"
-          aria-label="ルートをクリア"
-        >
+        <Button size="icon" onClick={handleRoutesClear} title="ルートをクリア" aria-label="ルートをクリア">
           <ClearRoutesIcon size={18} />
-        </button>
+        </Button>
       </>
     );
   }
@@ -1174,17 +1161,21 @@ export default function Home() {
 
     return (
       <>
-        {conditionsDirty && <p className={styles.dirtyHint}>生成条件が変更されています</p>}
+        {conditionsDirty && (
+          <p className="m-0 text-[length:var(--font-size-sm)] text-[var(--color-warning-strong)]">
+            生成条件が変更されています
+          </p>
+        )}
         {/* 指定した目的地が自転車で行ける道路につながっていなかったため、backendが
             最寄りのアクセス可能な地点へ補正して生成した場合の案内（地図上のピンも
             補正後の地点へ動かす、handleGenerate参照）。 */}
         {generatedConditions?.destinationCorrected && (
-          <p className={styles.dirtyHint}>
+          <p className="m-0 text-[length:var(--font-size-sm)] text-[var(--color-warning-strong)]">
             指定した地点は自転車で行けない場所だったため、近くのアクセス可能な地点へ補正しました。
           </p>
         )}
-        <Tabs.Root
-          className={styles.outcomeTabs}
+        <Tabs
+          className="flex min-h-0 flex-row items-stretch gap-2 max-mobile:flex-auto"
           // 候補は横並びのタブだと幅に収まらず（8件で列の必要幅が表示幅の3倍近くになる）、
           // 溢れた候補が存在ごと見えなくなる。1行1候補の縦並びにして、行の中へ距離と
           // 総合難易度を並べる——横幅の制約から外れるぶん、タブを開かずに見比べられる。
@@ -1203,10 +1194,10 @@ export default function Home() {
             }
           }}
         >
-          <div className={styles.outcomeTabBar}>
-            <Tabs.List className={styles.outcomeTabList} aria-label="ルート結果">
+          <div className="flex w-40 flex-none items-stretch border-r border-[var(--color-border)]">
+            <TabsList variant="side" aria-label="ルート結果">
               {routes.map((route, index) => (
-                <Tabs.Trigger key={route.id} className={styles.outcomeTabTrigger} value={route.id}>
+                <TabsTrigger key={route.id} value={route.id}>
                   {/* タブは候補を見分ける表記（順位番号・距離）と、開かずに見比べるための
                       総合難易度を持つ。
                       並び順（overall_difficulty昇順）に沿った1始まりの順位番号を先頭に
@@ -1219,22 +1210,26 @@ export default function Home() {
                       ルート(route-destination-00形式、前方一致)は経由地を伴わなければ
                       via-node方式で複数件になりうる——方位という概念は無いため「方向」は
                       付けないが、複数件を見分けられるよう順位番号は付ける。 */}
-                  <span className={styles.outcomeTabMain}>
+                  <span className="truncate">
                     {NON_DIRECTIONAL_ROUTE_IDS.has(route.id) ? route.direction_label : `${index + 1}`}{" "}
                     {route.distance_km.toFixed(1)}km
                     {/* 区間を乗り換えて作った候補。並び順は生成候補と同じ規約に乗せ
                         （insertByDifficulty）、見分けは名前で付ける。 */}
-                    {isSplicedRoute(route) && <span className={styles.outcomeTabExtra}>合成</span>}
+                    {isSplicedRoute(route) && (
+                      <span className="ml-1 font-normal text-[var(--color-muted-strong)]">合成</span>
+                    )}
                     {/* 基準線（一覧の中で所要時間が最小の候補）と、そこから何分余計に
                         かかるか。軸設定に沿ったルートを走る対価であり、候補を見比べるこの
                         場所に無いと、比較のたびにタブを開き直すことになる。同じ列へ時間の
                         最上級と距離の最上級を並べると何と比べているのか読めなくなるため、
                         ここは時間に絞る。 */}
                     {route.id === fastestRouteIdInList ? (
-                      <span className={styles.outcomeTabExtra}>最速</span>
+                      <span className="ml-1 font-normal text-[var(--color-muted-strong)]">最速</span>
                     ) : (
                       extraDurationLabel(route, fastestSeconds) && (
-                        <span className={styles.outcomeTabExtra}>{extraDurationLabel(route, fastestSeconds)}</span>
+                        <span className="ml-1 font-normal text-[var(--color-muted-strong)]">
+                          {extraDurationLabel(route, fastestSeconds)}
+                        </span>
                       )
                     )}
                   </span>
@@ -1242,9 +1237,9 @@ export default function Home() {
                       両方で出す（数値だけだと並びの中の位置が読み取りにくい）。 */}
                   {/* 算出できなかった候補（overall_difficultyがnull）は、長さを描かず
                       「—」だけ出す——0と欠損を同じ見た目にしない。 */}
-                  <span className={styles.outcomeTabScore}>
+                  <span className="flex flex-shrink-0 items-center justify-end gap-1">
                     <span
-                      className={styles.outcomeTabScoreTrack}
+                      className="h-[calc(0.35rem*var(--load-bar-height-ratio,1))] w-6 flex-shrink-0 overflow-hidden rounded-[2px] bg-[var(--color-border)]"
                       style={
                         {
                           "--load-bar-height-ratio": String(loadBarHeightRatio(route.distance_km, loadBarBaselineKm)),
@@ -1252,29 +1247,28 @@ export default function Home() {
                       }
                     >
                       {route.overall_difficulty !== null && (
-                        <span className={styles.outcomeTabScoreBar} style={{ width: `${route.overall_difficulty}%` }} />
+                        <span
+                          className="block h-full rounded-l-[2px] bg-[var(--color-accent)] opacity-70"
+                          style={{ width: `${route.overall_difficulty}%` }}
+                        />
                       )}
                     </span>
-                    <span className={styles.outcomeTabScoreValue}>
+                    <span className="font-normal text-[var(--color-muted-strong)] tabular-nums">
                       {route.overall_difficulty === null ? "—" : Math.round(route.overall_difficulty)}
                     </span>
                   </span>
-                </Tabs.Trigger>
+                </TabsTrigger>
               ))}
               {/* 比較タブ: researchEnabledの間は常に出す。ComparisonPanel自身が実験
                   スロット2件未満の間は中身を持たない自己ガードを持つ（ComparisonPanel.tsx
                   参照）ため、ここでスロット件数を重複判定しない。 */}
-              {showComparisonTab && (
-                <Tabs.Trigger className={styles.outcomeTabTrigger} value="comparison">
-                  比較
-                </Tabs.Trigger>
-              )}
-            </Tabs.List>
+              {showComparisonTab && <TabsTrigger value="comparison">比較</TabsTrigger>}
+            </TabsList>
           </div>
           {/* 右カラム。選ばれている候補の中身だけがここに出る（Radixが他を[hidden]にする）。 */}
-          <div className={styles.outcomeTabPanes}>
+          <div className="min-w-0 flex-auto">
             {routes.map((route) => (
-              <Tabs.Content key={route.id} className={styles.outcomeTabPanel} value={route.id}>
+              <TabsContent key={route.id} className="flex flex-col gap-2 data-[state=inactive]:hidden" value={route.id}>
                 {/* 区間がクリックされている間（selectedRouteSegment）は、ルート全体の
                   内訳の代わりにその区間の地点・到達予想時刻＋軸別内訳（AxisContributionBar、
                   ルート全体の内訳と同じ表示部品）を表示する。地図側の詳細区間（sceneの役割
@@ -1282,22 +1276,23 @@ export default function Home() {
                   ため、区間クリックは常に現在アクティブなこのタブのルートに対して起きる
                   （他候補のタブが誤って区間詳細を出すことは無い）。 */}
                 {selectedRouteSegment ? (
-                  <div className={styles.selectedSegmentPanel}>
-                    <div className={styles.selectedSegmentHeader}>
-                      <span className={styles.selectedSegmentTitle}>
+                  <div className="flex flex-col gap-2">
+                    <div className="flex items-baseline justify-between gap-2">
+                      <span className="inline-flex items-baseline gap-2 text-[length:var(--font-size-md)] font-medium">
                         {selectedRouteSegment.segment.cumulative_distance_km.toFixed(1)} km地点
-                        <span className={styles.selectedSegmentTime}>
+                        <span className={textVariants({ variant: "hint" })}>
                           到達予想 {formatSegmentArrivalTime(selectedRouteSegment.segment.estimated_arrival_time)}
                         </span>
                       </span>
-                      <button
-                        type="button"
-                        className={styles.selectedSegmentClearButton}
+                      <Button
+                        variant="ghost"
+                        size="bare"
+                        className="px-1 text-[1.1rem]"
                         aria-label="区間の選択を解除"
                         onClick={() => setSelectedRouteSegment(null)}
                       >
                         ×
-                      </button>
+                      </Button>
                     </div>
                     <AxisContributionBar
                       axes={axisCatalog.axes}
@@ -1305,7 +1300,7 @@ export default function Home() {
                       axisColors={axisCatalog.axisColors}
                     />
                     {researchEnabled && Object.keys(selectedRouteSegment.segment.material_values).length > 0 && (
-                      <ul className={styles.selectedSegmentMaterialValues}>
+                      <ul className={cn(textVariants({ variant: "hint" }), "m-0 flex list-none flex-col gap-0.5 p-0")}>
                         {/* 名前を引けない材料は出さない——材料idは内部名。 */}
                         {Object.entries(selectedRouteSegment.segment.material_values).flatMap(([materialId, value]) => {
                           const name = materialCatalogName(materialId, materialCatalog);
@@ -1337,14 +1332,13 @@ export default function Home() {
                     axisColors={axisCatalog.axisColors}
                   />
                 )}
-              </Tabs.Content>
+              </TabsContent>
             ))}
             {showComparisonTab && (
               // forceMount: 比較タブを開いていない間もComparisonPanelをマウントし続ける
               // （実験スロットは生成のたびにpage.tsxのstateへ積まれ続けるため、タブが
-              // 非アクティブな間だけ更新が止まる状態を避ける。非アクティブ時の非表示は
-              // page.module.cssの[data-state="inactive"]セレクタで行う）。
-              <Tabs.Content className={styles.outcomeTabPanel} value="comparison" forceMount>
+              // 非アクティブな間だけ更新が止まる状態を避ける。非アクティブの間はdata-stateで隠す）。
+              <TabsContent className="flex flex-col gap-2 data-[state=inactive]:hidden" value="comparison" forceMount>
                 {/* 比較表の軸は、ライブなroutePreference（「今」の設定）ではなく各スロットの
                   生成時点の重み（conditions.route_preference）を見る——いずれかのスロットで
                   一度でも重み>0だった軸は、現在のroutePreferenceの値に関わらず残す。「今」の
@@ -1360,10 +1354,10 @@ export default function Home() {
                   )}
                   materials={materialCatalog}
                 />
-              </Tabs.Content>
+              </TabsContent>
             )}
           </div>
-        </Tabs.Root>
+        </Tabs>
       </>
     );
   }
@@ -1410,30 +1404,33 @@ export default function Home() {
   }
 
   return (
-    <div className={styles.viewport}>
+    <div className="flex h-dvh flex-col">
       {/* 天候は生成条件（風評価の起点）のため、サイドバー内に埋もれさせず常設ヘッダに
           置く。デスクトップ・モバイル共通の1箇所。 */}
-      <header className={styles.weatherHeader} title="風向・風速はルート候補の評価に使われます">
+      <header
+        className="flex flex-shrink-0 flex-nowrap items-center gap-2 overflow-x-auto border-b border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+        title="風向・風速はルート候補の評価に使われます"
+      >
         {/* 風向・風速はルート評価の起点（ヘッダー本来の主目的、header自身のtitle参照）
             であるため、警報バッジより優先して常に見える側に置く: flex-shrink: 0で
             常に自然幅を保ち、position: sticky; left: 0で.weatherHeaderの左端に固定する。
             警報バッジ・デバッグアイコン（.headerActions）は代わりに、入り切らなければ
             スクロールしないと見えない状態を許容する。 */}
-        <div className={styles.weatherStats}>
+        <div className="left-0 flex flex-shrink-0 items-center gap-2 sticky z-1 bg-[var(--color-surface)]">
           <WeatherPanel amedas={amedas} loading={amedasLoading} error={amedasError} />
           {/* 「今日の見通し」（日没・今日の降水確率最大・最大風速・気温レンジ）。
               .weatherStatsと同じ左寄せ固定グループに含め、警報バッジより優先して常に
               見える側に置く（瞬間値のWeatherPanelとは別枠のトグルにする）。 */}
           <TodayOutlook weather={weather} loading={weatherLoading} error={weatherError} />
         </div>
-        <div className={styles.headerActions}>
+        <div className="ml-auto flex flex-shrink-0 items-center gap-2">
           <WarningBadgeList items={warningBadgeItems} failures={warningFetchFailures} />
           {/* 研究モードON/OFF・デバッグログ表示アイコンを1個のメニューへ集約する
               （ヘッダーの個別ボタンを増やさないため）。debugEnabled時のみデバッグログ項目を
               表示（デバッグモードのON/OFF自体は/adminで切り替える、DebugConsole.tsx参照）。
               DebugConsole自体はposition:fixedのFloatingPanelベースで自己完結しており、
               JSXツリー上のどこに置いても見た目は変わらない。 */}
-          <div className={styles.headerMenuSlot}>
+          <div className="right-0 flex items-center sticky z-1 bg-[var(--color-surface)]">
             <HeaderMenu
               debugEnabled={debugEnabled}
               debugConsoleOpen={debugConsoleOpen}
@@ -1447,14 +1444,14 @@ export default function Home() {
       <div className="app-shell">
         {!isMobile && (
           <aside className={`app-sidebar${sidebarCollapsed ? " is-collapsed" : ""}`}>
-            <button
-              type="button"
+            <Button
+              size="sm"
               onClick={() => setSidebarCollapsed((v) => !v)}
               aria-label={sidebarCollapsed ? "パネルを開く" : "パネルを閉じる"}
-              className={styles.toggleButton}
+              className="self-start"
             >
               {sidebarCollapsed ? "☰" : "✕"}
-            </button>
+            </Button>
 
             {!sidebarCollapsed && (
               <>
@@ -1463,21 +1460,27 @@ export default function Home() {
                     「ルート結果」の中のモードで、独立した区分を持たない。各区分は独立して
                     開閉し、開閉状態はlocalStorageへ保存する。 */}
                 {/* タブ列（見出し行）とタブの中身（本文）の両方を囲む。 */}
-                <Tabs.Root value={settingsTab} onValueChange={(value) => setSettingsTab(value as SettingsTab)}>
+                <Tabs value={settingsTab} onValueChange={(value) => setSettingsTab(value as SettingsTab)}>
                   <Disclosure
-                    className={styles.blockSection}
-                    headerClassName={styles.blockHeaderRow}
-                    triggerClassName={styles.blockSummary}
-                    bodyClassName={styles.blockBody}
+                    className="border-t border-[var(--color-border)] pt-2"
+                    headerClassName={"flex items-center justify-between gap-2"}
+                    triggerClassName={cn(
+                      textVariants({ variant: "heading" }),
+                      "group flex cursor-pointer items-center gap-1.5",
+                    )}
+                    bodyClassName={"flex flex-col gap-2"}
                     id={GENERATE_SECTION_TITLE_ID}
                     summary={
                       <>
-                        <span aria-hidden="true" className={styles.blockChevron} />
+                        <span
+                          aria-hidden="true"
+                          className="size-2 flex-shrink-0 -rotate-45 border-r-2 border-b-2 border-[var(--color-neutral)] transition-transform duration-150 group-data-[state=open]:rotate-45"
+                        />
                         ルート設定
                       </>
                     }
                     trailing={
-                      <div className={styles.routeSectionHeaderRow}>
+                      <div className="flex min-w-0 flex-auto items-center justify-between gap-2">
                         {renderSettingsTabs()}
                         {renderRouteSectionHeaderActions()}
                       </div>
@@ -1487,25 +1490,31 @@ export default function Home() {
                   >
                     {renderRouteSectionBody()}
                   </Disclosure>
-                </Tabs.Root>
+                </Tabs>
 
                 {/* ルート結果: 見出し行の右側が操作枠（保存・GPX出力・クリア・説明）。
                     候補が無い間は本文が空になるだけで、区分自体は常に出す。 */}
                 <Disclosure
-                  className={styles.blockSection}
-                  headerClassName={styles.blockHeaderRow}
-                  triggerClassName={styles.blockSummary}
-                  bodyClassName={styles.blockBody}
+                  className="border-t border-[var(--color-border)] pt-2"
+                  headerClassName={"flex items-center justify-between gap-2"}
+                  triggerClassName={cn(
+                    textVariants({ variant: "heading" }),
+                    "group flex cursor-pointer items-center gap-1.5",
+                  )}
+                  bodyClassName={"flex flex-col gap-2"}
                   id={OUTCOME_SECTION_TITLE_ID}
                   summary={
                     <>
-                      <span aria-hidden="true" className={styles.blockChevron} />
+                      <span
+                        aria-hidden="true"
+                        className="size-2 flex-shrink-0 -rotate-45 border-r-2 border-b-2 border-[var(--color-neutral)] transition-transform duration-150 group-data-[state=open]:rotate-45"
+                      />
                       ルート結果
                     </>
                   }
                   trailing={
                     routes.length > 0 ? (
-                      <div className={styles.outcomeSectionHeaderActions}>{renderRouteResultHeaderActions()}</div>
+                      <div className="flex flex-shrink-0 items-center gap-2">{renderRouteResultHeaderActions()}</div>
                     ) : undefined
                   }
                   open={outcomeOpen}
@@ -1526,7 +1535,7 @@ export default function Home() {
             隠れる。CSS側はこの値を足した位置と元の位置の大きい方を使う。 */}
         <div
           ref={mapPaneRef}
-          className={`${styles.mapPane} app-map-pane`}
+          className="app-map-pane relative flex-1"
           style={
             {
               "--mobile-sheet-height": isMobile && mobileSheet ? `${mobileSheetHeightVh}vh` : "0px",
@@ -1579,41 +1588,44 @@ export default function Home() {
           {/* 地図下部中央の行。「まとめて元に戻す」操作を並べる（design-principles.md
               「UI仕様」: 地図の視界を圧迫しない）。レイヤーのON/OFFと凡例の絞り込みは
               別の状態のため、戻す操作も別々に要る。 */}
-          <div ref={bottomControlRowRef} className={styles.bottomControlRow}>
-            <button
-              type="button"
+          <div
+            ref={bottomControlRowRef}
+            className="pointer-events-none absolute bottom-3 left-1/2 z-[var(--z-map-control)] flex max-w-[100vw] -translate-x-1/2 flex-row items-center gap-2 max-mobile:bottom-[max(calc(var(--space-3)+var(--mobile-tabbar-height)),calc(var(--space-2)+var(--mobile-tabbar-height)+var(--mobile-sheet-height)))]"
+          >
+            <Button
+              variant="float"
+              size="iconRound"
               onClick={mapView.bulk.hideAllLayers}
               disabled={!mapView.bulk.anyLayerOn}
               aria-label="表示中のレイヤーをすべて非表示にする"
               title="表示中のレイヤーをすべて非表示にする"
-              className={styles.clearAllButton}
             >
               <ClearAllLayersIcon size={14} />
-            </button>
-            <button
-              type="button"
+            </Button>
+            <Button
+              variant="float"
+              size="iconRound"
               onClick={mapView.bulk.showAllLegendRows}
               disabled={!mapView.bulk.anyLegendHidden}
               aria-label="絞り込みをすべて解除する"
               title="絞り込みをすべて解除する"
-              className={styles.clearAllButton}
             >
               <ClearAllFiltersIcon size={14} />
-            </button>
+            </Button>
             {/* このページが持つ地図インスタンスだけを描き直す。押した人の
                 画面にしか影響しない純粋なクライアント操作で、サーバー側のタイルキャッシュには
                 触れない（そちらは全利用者へ影響するため/adminのTileCachePanelにある）。
                 ページ全体を再読み込みすると生成済みのルート候補が消えるため、地図だけを
                 描き直す入口をここへ残す。 */}
-            <button
-              type="button"
+            <Button
+              variant="float"
+              size="iconRound"
               onClick={mapView.bulk.redraw}
               aria-label="地図の表示を再描画する"
               title="地図の表示を再描画する"
-              className={styles.clearAllButton}
             >
               <RedrawMapIcon size={14} />
-            </button>
+            </Button>
           </div>
 
           {/* 走行方位（風・勾配の評価に使う向き）。出発時刻・想定速度と同じ走行条件の一部として
@@ -1624,7 +1636,7 @@ export default function Home() {
               （狭いスマホ画面でも地図の視界を圧迫しないよう、地図上部中央のレンズピルとは
               別のアイコン列にする）。出発時刻は気象レイヤーの表示時刻と同じ共有state
               （出発時刻）。 */}
-          <div className={styles.rideConditionColumn}>
+          <div className="pointer-events-none absolute top-[calc(var(--map-ctrl-stack-top)+var(--map-ctrl-button-size)+var(--map-ctrl-stack-gap))] right-[var(--map-ctrl-margin)] z-[var(--z-map-control)]">
             <RideConditionBar
               departureTime={departure.at}
               onDepartureTimeChange={departure.setAt}
@@ -1634,13 +1646,19 @@ export default function Home() {
             />
           </div>
 
-          <button
-            type="button"
+          <Button
+            variant="float"
+            size="bare"
+            shape="pill"
             onClick={handleLocateMe}
             disabled={locating}
             aria-label="現在地に移動"
             title="現在地に移動"
-            className={locating ? `${styles.locateButton} ${styles.locateButtonBusy}` : styles.locateButton}
+            className={cn(
+              "absolute right-[calc(var(--map-ctrl-margin)+(var(--map-ctrl-column-width)-44px)/2)] bottom-10 z-[var(--z-map-control)] max-mobile:bottom-[max(calc(5rem+var(--mobile-tabbar-height)),calc(var(--space-2)+var(--mobile-tabbar-height)+var(--mobile-sheet-height)))]",
+              "size-11 text-[1.3rem]",
+              locating && "cursor-wait opacity-60",
+            )}
           >
             {locating ? (
               "…"
@@ -1658,51 +1676,66 @@ export default function Home() {
                 />
               </svg>
             )}
-          </button>
+          </Button>
 
-          {locateError && <p className={styles.locateError}>{locateError}</p>}
+          {locateError && (
+            <p
+              className={cn(
+                cardVariants({ variant: "float" }),
+                "pointer-events-none absolute right-3 bottom-25 z-[var(--z-map-control)] max-w-55 border-0 px-2.5 py-1.5 text-[length:var(--font-size-sm)] text-[var(--color-danger)] max-mobile:bottom-[max(calc(8.5rem+var(--mobile-tabbar-height)),calc(var(--space-2)+3.5rem+var(--mobile-tabbar-height)+var(--mobile-sheet-height)))]",
+              )}
+            >
+              {locateError}
+            </p>
+          )}
         </div>
       </div>
 
       {/* モバイル: 下部タブバー＋部分シート（「ルート設定」「ルート結果」。地図の見え方は
-          シートではなく地図上のチップで操作する）。各タブはアイコン+1行ラベル（地図上のiconChip、
-          MapOverlayControls.module.cssと同じ構成）。「ルート結果」タブには、設定変更後
+          シートではなく地図上のチップで操作する）。各タブはアイコン+1行ラベル（地図上のチップと同じ構成）。「ルート結果」タブには、設定変更後
           未反映（conditionsDirty）に気づけるよう小さいバッジを付ける。シート表示中も
           地図の上側が見えたままパン/ズームできる（暗幕なし、詳細はBottomSheetの
           コメント参照）。 */}
       {isMobile && (
         <>
-          <nav ref={mobileTabBarRef} className={styles.mobileTabBar} aria-label="パネル切り替え">
-            <button
-              type="button"
+          <nav
+            ref={mobileTabBarRef}
+            className="fixed right-0 bottom-0 left-0 z-[var(--z-bottom-sheet)] flex h-[var(--mobile-tabbar-height)] touch-none border-t border-[var(--color-border)] bg-[var(--color-surface)] shadow-[0_-1px_8px_rgba(0,0,0,0.15)]"
+            aria-label="パネル切り替え"
+          >
+            <Button
+              variant="ghost"
+              size="bare"
+              className="relative min-h-11 flex-1 touch-none flex-col gap-0.5 rounded-none border-0 text-[var(--foreground)] aria-expanded:bg-[var(--color-accent-bg)] aria-expanded:font-bold aria-expanded:text-[var(--color-accent-strong)]"
               aria-expanded={mobileSheet === "routeSettings"}
               onClick={() => handleMobileTabClick("routeSettings")}
-              className={
-                mobileSheet === "routeSettings" ? `${styles.tabButton} ${styles.tabButtonActive}` : styles.tabButton
-              }
             >
               <RouteSettingsIcon />
-              <span className={styles.tabLabel}>ルート設定</span>
-            </button>
-            <button
-              type="button"
+              <span className="text-[0.62rem] leading-none whitespace-nowrap">ルート設定</span>
+            </Button>
+            <Button
+              variant="ghost"
+              size="bare"
+              className="relative min-h-11 flex-1 touch-none flex-col gap-0.5 rounded-none border-0 text-[var(--foreground)] aria-expanded:bg-[var(--color-accent-bg)] aria-expanded:font-bold aria-expanded:text-[var(--color-accent-strong)]"
               aria-expanded={mobileSheet === "routeOutcome"}
               onClick={() => handleMobileTabClick("routeOutcome")}
-              className={`relative ${
-                mobileSheet === "routeOutcome" ? `${styles.tabButton} ${styles.tabButtonActive}` : styles.tabButton
-              }`}
             >
               <RouteIcon />
-              <span className={styles.tabLabel}>ルート結果</span>
+              <span className="text-[0.62rem] leading-none whitespace-nowrap">ルート結果</span>
               {/* conditionsDirty（生成前に条件が変わった）とhasUnseenResults（生成が完了し
                   新しい結果が用意できた）の両方をこのドットで知らせる。前者は生成完了と
                   同時に消える一方後者は生成完了時に立つため、生成の前後を通じて「ルート
                   結果タブを見るべきタイミング」の合図が途切れない。 */}
-              {(conditionsDirty || hasUnseenResults) && <span aria-hidden="true" className={styles.dirtyDotOnTab} />}
-            </button>
+              {(conditionsDirty || hasUnseenResults) && (
+                <span
+                  aria-hidden="true"
+                  className={cn(dotVariants({ tone: "warning" }), "absolute top-1.5 right-2.5")}
+                />
+              )}
+            </Button>
           </nav>
 
-          <Tabs.Root value={settingsTab} onValueChange={(value) => setSettingsTab(value as SettingsTab)}>
+          <Tabs value={settingsTab} onValueChange={(value) => setSettingsTab(value as SettingsTab)}>
             <BottomSheet
               open={mobileSheet === "routeSettings"}
               onClose={() => setMobileSheet(null)}
@@ -1718,7 +1751,7 @@ export default function Home() {
             >
               {renderRouteSectionBody()}
             </BottomSheet>
-          </Tabs.Root>
+          </Tabs>
 
           <BottomSheet
             open={mobileSheet === "routeOutcome"}

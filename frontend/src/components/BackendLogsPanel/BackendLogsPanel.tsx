@@ -7,7 +7,9 @@ import { Card } from "@/components/ui/Card/Card";
 import { Input } from "@/components/ui/Input/Input";
 import { Button } from "@/components/ui/Button/Button";
 import { getRecentLogs, type LogLevelName } from "@/services/debugAdminApi";
-import styles from "./BackendLogsPanel.module.css";
+import { Select } from "@/components/ui/Input/Input";
+import { LogLine } from "@/components/ui/LogLine/LogLine";
+import { textVariants } from "@/components/ui/Text/Text";
 
 const DEFAULT_LIMIT = 200;
 const LOG_LEVEL_OPTIONS: readonly LogLevelName[] = ["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"];
@@ -16,6 +18,11 @@ const LOG_LEVEL_OPTIONS: readonly LogLevelName[] = ["DEBUG", "INFO", "WARNING", 
 // 「レベルで色分けする」見た目に揃える。backendの整形済みログ行（request_log.py:
 // LOG_FORMAT）は先頭付近に"[LEVELNAME]"を含むため、そこから正規表現で取り出す。
 const LEVEL_PATTERN = /\[(DEBUG|INFO|WARNING|ERROR|CRITICAL)\]/;
+
+function logTone(level: LogLevelName | null): "error" | "warning" | "normal" {
+  if (level === "ERROR" || level === "CRITICAL") return "error";
+  return level === "WARNING" ? "warning" : "normal";
+}
 
 function parseLogLevel(line: string): LogLevelName | null {
   const match = line.match(LEVEL_PATTERN);
@@ -56,18 +63,17 @@ export default function BackendLogsPanel() {
   };
 
   return (
-    <Card className={styles.panel}>
-      <div className={styles.heading}>バックエンドの直近ログ</div>
-      <p className={styles.hint}>
+    <Card className="flex flex-col gap-2">
+      <div className={textVariants({ variant: "heading" })}>バックエンドの直近ログ</div>
+      <p className={textVariants({ variant: "hint" })}>
         debug_modeがOFFの間もWARNING以上（エラー・429拒否等）は記録されている。DEBUGレベルの
         詳細を見るには上の「デバッグログを表示」ではなく、backend側でdebug_modeを有効化する 必要がある（`POST
         /api/admin/debug/mode`、このパネルの対象外）。
       </p>
-      <div className={styles.controls}>
-        <select
+      <div className="flex flex-wrap items-center gap-2">
+        <Select
           value={minLevel}
           onChange={(e) => setMinLevel(e.target.value as LogLevelName | "")}
-          className={styles.levelSelect}
           aria-label="最小レベル"
         >
           <option value="">すべてのレベル</option>
@@ -76,33 +82,35 @@ export default function BackendLogsPanel() {
               {level}以上
             </option>
           ))}
-        </select>
+        </Select>
         <Input
           type="text"
           placeholder="絞り込み（部分一致、例: jma-tile）"
           value={contains}
           onChange={(e) => setContains(e.target.value)}
-          className={styles.containsInput}
+          className="min-w-48 flex-1"
         />
         <Input
           type="number"
           min={1}
           value={limit}
           onChange={(e) => setLimit(e.target.value)}
-          className={styles.limitInput}
+          className="w-24"
           aria-label="件数"
         />
         <Button onClick={handleFetch} disabled={loading}>
           {loading ? "取得中…" : "取得"}
         </Button>
       </div>
-      {error && <p className={styles.error}>取得失敗: {error}</p>}
-      {lines && lines.length === 0 && !error && <p className={styles.hint}>該当するログはありません。</p>}
+      {error && <p className={textVariants({ variant: "error" })}>取得失敗: {error}</p>}
+      {lines && lines.length === 0 && !error && (
+        <p className={textVariants({ variant: "hint" })}>該当するログはありません。</p>
+      )}
       {lines && lines.length > 0 && (
         <>
           {/* 行ごとのdivを1件ずつドラッグ選択するのは手間なため、表示中の全行を
               まとめてクリップボードへコピーするボタンを用意する。 */}
-          <div className={styles.logActions}>
+          <div className="flex justify-end">
             <Button
               variant="secondary"
               onClick={handleCopy}
@@ -113,12 +121,12 @@ export default function BackendLogsPanel() {
             </Button>
           </div>
           {/* ログ取得の失敗（error）とは原因も対処も別なので、同じ行へ混ぜない。 */}
-          {copyError && <p className={styles.error}>{copyError}</p>}
-          <div className={styles.logBody}>
+          {copyError && <p className={textVariants({ variant: "error" })}>{copyError}</p>}
+          <div className="max-h-96 overflow-auto rounded-sm border border-[var(--color-border-muted)] bg-[var(--color-surface)] p-2">
             {lines.map((line, i) => (
-              <div key={i} className={styles.logLine} data-level={parseLogLevel(line)}>
+              <LogLine key={i} tone={logTone(parseLogLevel(line))} data-level={parseLogLevel(line)}>
                 {line}
-              </div>
+              </LogLine>
             ))}
           </div>
         </>

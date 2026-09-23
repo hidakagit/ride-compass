@@ -6,7 +6,7 @@ import { formatDurationShort } from "@/lib/formatDuration";
 import type { RoutePreferenceWeights } from "@/types/route";
 import AxisContributionBar, { hasContribution } from "./AxisContributionBar";
 import { formatAxisRawValue, formatCategoryBreakdown, formatMaterialBreakdown } from "./axisRawValue";
-import styles from "./RouteAxisProfile.module.css";
+import { textVariants } from "@/components/ui/Text/Text";
 
 interface RouteAxisProfileProps {
   /** 公開軸すべて（軸カタログの順序・ラベルの正本）。重みによる絞り込みは行わない。 */
@@ -95,33 +95,29 @@ export default function RouteAxisProfile({
       .filter((text): text is string => text !== null);
     return (
       <>
-        <span className={styles.detailHeading}>{axis.label}</span>
-        <span className={styles.detailScore}>
+        <span className="block font-medium">{axis.label}</span>
+        <span className="mt-1 block tabular-nums">
           {/* 重みを掛ける前の、この軸単体の難易度。チップの数字（重み付き寄与度）とは別物。 */}
           {difficulty == null ? "データなし" : `軸別難易度 ${Math.round(difficulty)}/100`}
         </span>
-        {rawText && <span className={styles.detailValue}>{rawText}</span>}
+        {rawText && <span className="block text-[var(--color-muted-strong)] tabular-nums">{rawText}</span>}
         {breakdownTexts.length > 0 && (
-          <span className={styles.detailValue}>{`この軸の内訳: ${breakdownTexts.join("・")}`}</span>
+          <span className="block text-[var(--color-muted-strong)] tabular-nums">{`この軸の内訳: ${breakdownTexts.join("・")}`}</span>
         )}
-        <span className={styles.detailDescription}>{axis.description}</span>
+        <span className="mt-2 block text-[var(--color-muted)]">{axis.description}</span>
       </>
     );
   };
 
   return (
-    <div className={styles.wrap}>
+    <div className="flex flex-col">
       {overallDifficulty != null && (
-        <div className={styles.scores}>
-          <span className={styles.scoreItem}>
-            <span className={styles.scoreLabel}>総合難易度</span>
-            <span className={styles.scoreValue}>{Math.round(overallDifficulty)}</span>
-            <span className={styles.scoreLabel}>/100</span>
-            <InfoPopover
-              triggerClassName={styles.infoButton}
-              triggerAriaLabel="総合難易度の説明"
-              contentClassName={styles.infoPopover}
-            >
+        <div className="mx-0.5 mt-0.5 mb-1 flex flex-wrap items-center gap-x-3 gap-y-0.5">
+          <span className="inline-flex flex-shrink-0 items-baseline gap-0.5">
+            <span className={textVariants({ variant: "hint" })}>総合難易度</span>
+            <span className="text-[1.05rem] font-semibold">{Math.round(overallDifficulty)}</span>
+            <span className={textVariants({ variant: "hint" })}>/100</span>
+            <InfoPopover triggerAriaLabel="総合難易度の説明">
               <p>
                 区間ごとの難しさを距離で重みづけて平均した値です。長く走っても難しさが同じなら増えません。
                 軸の重み配分を反映していて、下の内訳の合計とほぼ一致します。候補タブはこの値が小さい順に並びます。
@@ -129,14 +125,10 @@ export default function RouteAxisProfile({
             </InfoPopover>
           </span>
           {estimatedDurationSeconds != null && (
-            <span className={styles.scoreItem}>
-              <span className={styles.scoreLabel}>所要</span>
-              <span className={styles.scoreValue}>{formatDurationShort(estimatedDurationSeconds)}</span>
-              <InfoPopover
-                triggerClassName={styles.infoButton}
-                triggerAriaLabel="所要時間の説明"
-                contentClassName={styles.infoPopover}
-              >
+            <span className="inline-flex flex-shrink-0 items-baseline gap-0.5">
+              <span className={textVariants({ variant: "hint" })}>所要</span>
+              <span className="text-[1.05rem] font-semibold">{formatDurationShort(estimatedDurationSeconds)}</span>
+              <InfoPopover triggerAriaLabel="所要時間の説明">
                 <p>
                   走行時間（勾配・風・想定した巡航速度から区間ごとに計算）に、信号などで止まる
                   待ちと、交差点で曲がる待ちを足した見積もりです。実際の信号のタイミングや 走り方で変わります。
@@ -145,16 +137,12 @@ export default function RouteAxisProfile({
             </span>
           )}
           {difficultyLoad != null && (
-            <span className={styles.scoreItem}>
+            <span className="inline-flex flex-shrink-0 items-baseline gap-0.5">
               {/* 「難易度×距離」という中身は説明（ⓘ）が持つ。狭い右カラムで折り返す
                   ぶんだけ縦を食うため、見出しは短い語に留める。 */}
-              <span className={styles.scoreLabel}>負荷</span>
-              <span className={styles.scoreValue}>{Math.round(difficultyLoad)}</span>
-              <InfoPopover
-                triggerClassName={styles.infoButton}
-                triggerAriaLabel="負荷の説明"
-                contentClassName={styles.infoPopover}
-              >
+              <span className={textVariants({ variant: "hint" })}>負荷</span>
+              <span className="text-[1.05rem] font-semibold">{Math.round(difficultyLoad)}</span>
+              <InfoPopover triggerAriaLabel="負荷の説明">
                 <p>
                   総合難易度に距離を掛けた総量で、走り切るまでのしんどさの目安です。
                   平均は遠回りして難所を避けるほど下がりますが、負荷は走った分だけ増えます。
@@ -178,7 +166,7 @@ export default function RouteAxisProfile({
               renderDetail={renderAxisDetail}
             />
           ) : (
-            <p className={styles.empty}>このルートで表示できる評価軸データがありません</p>
+            <p className={textVariants({ variant: "hint" })}>このルートで表示できる評価軸データがありません</p>
           )}
         </div>
       )}

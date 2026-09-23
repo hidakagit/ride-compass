@@ -9,7 +9,9 @@ import type { AxisInspectorResult } from "@/types/traffic";
 import { LANDCOVER_CLASSES } from "./landcoverClasses";
 import { PRIMARY_ATTRIBUTE_LABELS } from "./primaryAttributes";
 import { roadDisplayName, roadFactRows, type RoadSurfacePopupProperties } from "./roadFacts";
-import styles from "./RoadInspectorPopup.module.css";
+import { Button } from "@/components/ui/Button/Button";
+import { textVariants } from "@/components/ui/Text/Text";
+import { cn } from "@/lib/cn";
 
 interface RoadInspectorPopupProps {
   properties: RoadSurfacePopupProperties;
@@ -57,31 +59,31 @@ export default function RoadInspectorPopup({ properties, axes, axisColors, condi
   }
 
   return (
-    <div className={styles.body}>
-      {name !== null && <div className={styles.name}>{name}</div>}
-      <dl className={styles.facts}>
+    <div className="max-w-68 text-[length:var(--font-size-md)] leading-[1.4]">
+      {name !== null && <div className="mb-1 font-semibold">{name}</div>}
+      <dl className="m-0 grid gap-0.5">
         {facts.map((row) => (
-          <div key={row.label} className={styles.factRow}>
-            <dt className={styles.factLabel}>{row.label}</dt>
-            <dd className={styles.factValue}>{row.value}</dd>
+          <div key={row.label} className="grid grid-cols-[5.5rem_1fr] gap-1.5">
+            <dt className={cn(textVariants({ variant: "hint" }), "m-0")}>{row.label}</dt>
+            <dd className="m-0 [overflow-wrap:anywhere]">{row.value}</dd>
           </div>
         ))}
       </dl>
       {wayId != null && result === null && (
-        <button type="button" className={styles.action} onClick={load} disabled={state === "loading"}>
+        <Button size="sm" className="mt-1 disabled:cursor-progress" onClick={load} disabled={state === "loading"}>
           {state === "loading" ? "評価を取得中…" : "この道の評価を見る"}
-        </button>
+        </Button>
       )}
       {/* デバッグログONのときだけ道の識別子を出す。値がおかしい道を見つけたとき、
           地図で押した1本をそのままbackendの調査（scripts/measure_gradient_outliers.py
           --way）へ渡せるようにする。一般の利用者には読めない値のため常時は出さない。 */}
-      {isDebugEnabled() && wayId != null && <p className={styles.note}>OSM way id: {wayId}</p>}
-      {state === "error" && <p className={styles.note}>評価を取得できませんでした。</p>}
+      {isDebugEnabled() && wayId != null && <p className={textVariants({ variant: "hint" })}>OSM way id: {wayId}</p>}
+      {state === "error" && <p className={textVariants({ variant: "hint" })}>評価を取得できませんでした。</p>}
       {result !== null && (
-        <div className={styles.result}>
+        <div className="mt-1 grid gap-1.5 border-t border-[var(--color-border)] pt-1">
           <RoadTagRows result={result} />
           <RoadLandcoverRows result={result} />
-          <div className={styles.sectionLabel}>評価への効き方</div>
+          <div className={textVariants({ variant: "hint" })}>評価への効き方</div>
           {Object.keys(contributions).length > 0 ? (
             <AxisContributionBar
               axes={axes}
@@ -92,18 +94,18 @@ export default function RoadInspectorPopup({ properties, axes, axisColors, condi
                 if (found === undefined || found.difficulty === null) return null;
                 return (
                   <>
-                    <span className={styles.detailHeading}>{axis.label}</span>
-                    <span className={styles.detailValue}>{`軸別難易度 ${Math.round(found.difficulty)}/100`}</span>
-                    <span className={styles.detailDescription}>{axis.description}</span>
+                    <span className="font-semibold">{axis.label}</span>
+                    <span className="text-[length:var(--font-size-sm)]">{`軸別難易度 ${Math.round(found.difficulty)}/100`}</span>
+                    <span className={textVariants({ variant: "hint" })}>{axis.description}</span>
                   </>
                 );
               }}
             />
           ) : (
-            <p className={styles.note}>この区間で算出できる軸がありません。</p>
+            <p className={textVariants({ variant: "hint" })}>この区間で算出できる軸がありません。</p>
           )}
           {result.composite_difficulty !== null && (
-            <p className={styles.note}>
+            <p className={textVariants({ variant: "hint" })}>
               {`この道だけで見た合成: ${result.composite_difficulty.toFixed(1)}/100`}
               {result.covered_weight_fraction !== null && result.covered_weight_fraction < 0.999
                 ? `（重みの約${Math.round(result.covered_weight_fraction * 100)}%ぶんの軸だけ。勾配・風は進む向きが決まらないと出せません）`
@@ -131,13 +133,15 @@ function RoadLandcoverRows({ result }: { result: AxisInspectorResult }) {
   if (rows.length === 0) return null;
   const top = rows[0];
   return (
-    <details className={styles.others}>
-      <summary className={styles.othersSummary}>{`周囲の土地被覆: ${top.label} ${Math.round(top.value)}%`}</summary>
-      <dl className={styles.facts}>
+    <details className="[&>summary]:cursor-pointer">
+      <summary
+        className={textVariants({ variant: "hint" })}
+      >{`周囲の土地被覆: ${top.label} ${Math.round(top.value)}%`}</summary>
+      <dl className="m-0 grid gap-0.5">
         {rows.map((row) => (
-          <div key={row.label} className={styles.factRow}>
-            <dt className={styles.factLabel}>{row.label}</dt>
-            <dd className={styles.factValue}>{`${Math.round(row.value)}%`}</dd>
+          <div key={row.label} className="grid grid-cols-[5.5rem_1fr] gap-1.5">
+            <dt className={cn(textVariants({ variant: "hint" }), "m-0")}>{row.label}</dt>
+            <dd className="m-0 [overflow-wrap:anywhere]">{`${Math.round(row.value)}%`}</dd>
           </div>
         ))}
       </dl>
@@ -156,27 +160,27 @@ function RoadTagRows({ result }: { result: AxisInspectorResult }) {
   }
   return (
     <>
-      <div className={styles.sectionLabel}>この道の属性</div>
-      <dl className={styles.facts}>
-        <div className={styles.factRow}>
-          <dt className={styles.factLabel}>{PRIMARY_ATTRIBUTE_LABELS.highway}</dt>
-          <dd className={styles.factValue}>{result.highway ?? "不明"}</dd>
+      <div className={textVariants({ variant: "hint" })}>この道の属性</div>
+      <dl className="m-0 grid gap-0.5">
+        <div className="grid grid-cols-[5.5rem_1fr] gap-1.5">
+          <dt className={cn(textVariants({ variant: "hint" }), "m-0")}>{PRIMARY_ATTRIBUTE_LABELS.highway}</dt>
+          <dd className="m-0 [overflow-wrap:anywhere]">{result.highway ?? "不明"}</dd>
         </div>
         {known.map(([key, value]) => (
-          <div key={key} className={styles.factRow}>
-            <dt className={styles.factLabel}>{PRIMARY_ATTRIBUTE_LABELS[key]}</dt>
-            <dd className={styles.factValue}>{value}</dd>
+          <div key={key} className="grid grid-cols-[5.5rem_1fr] gap-1.5">
+            <dt className={cn(textVariants({ variant: "hint" }), "m-0")}>{PRIMARY_ATTRIBUTE_LABELS[key]}</dt>
+            <dd className="m-0 [overflow-wrap:anywhere]">{value}</dd>
           </div>
         ))}
       </dl>
       {others.length > 0 && (
-        <details className={styles.others}>
-          <summary className={styles.othersSummary}>その他のタグ</summary>
-          <dl className={styles.facts}>
+        <details className="[&>summary]:cursor-pointer">
+          <summary className={textVariants({ variant: "hint" })}>その他のタグ</summary>
+          <dl className="m-0 grid gap-0.5">
             {others.map(([key, value]) => (
-              <div key={key} className={styles.factRow}>
-                <dt className={styles.factLabel}>{key}</dt>
-                <dd className={styles.factValue}>{value}</dd>
+              <div key={key} className="grid grid-cols-[5.5rem_1fr] gap-1.5">
+                <dt className={cn(textVariants({ variant: "hint" }), "m-0")}>{key}</dt>
+                <dd className="m-0 [overflow-wrap:anywhere]">{value}</dd>
               </div>
             ))}
           </dl>

@@ -61,7 +61,7 @@ describe("AxisContributionBar", () => {
       <AxisContributionBar axes={AXES} contributions={{ axis_sample: 30, night: 5 }} axisColors={AXIS_COLORS} />,
     );
 
-    const segments = Array.from(container.querySelectorAll('[class*="stackSegment"]')) as HTMLElement[];
+    const segments = Array.from(screen.getByRole("img", { name: "難易度の内訳" }).children) as HTMLElement[];
     expect(segments).toHaveLength(2);
     expect(segments[0].style.width).toBe("30%");
     expect(segments[0].style.background).toBe("#111111");
@@ -78,7 +78,7 @@ describe("AxisContributionBar", () => {
       />,
     );
 
-    const bar = container.querySelector('[class*="stackBar"]') as HTMLElement;
+    const bar = screen.getByRole("img", { name: "難易度の内訳" });
     expect(bar.style.getPropertyValue("--load-bar-height-ratio")).toBe("1.43");
   });
 
@@ -87,7 +87,7 @@ describe("AxisContributionBar", () => {
       <AxisContributionBar axes={AXES} contributions={{ axis_sample: 30, night: 5 }} axisColors={AXIS_COLORS} />,
     );
 
-    const bar = container.querySelector('[class*="stackBar"]') as HTMLElement;
+    const bar = screen.getByRole("img", { name: "難易度の内訳" });
     expect(bar.style.getPropertyValue("--load-bar-height-ratio")).toBe("1");
   });
 
@@ -168,7 +168,7 @@ describe("AxisContributionBar", () => {
       <AxisContributionBar axes={AXES} contributions={{ axis_sample: -10, night: 150 }} axisColors={AXIS_COLORS} />,
     );
 
-    const segments = Array.from(container.querySelectorAll('[class*="stackSegment"]')) as HTMLElement[];
+    const segments = Array.from(screen.getByRole("img", { name: "難易度の内訳" }).children) as HTMLElement[];
     expect(segments[0].style.width).toBe("0%");
     expect(segments[1].style.width).toBe("100%");
   });

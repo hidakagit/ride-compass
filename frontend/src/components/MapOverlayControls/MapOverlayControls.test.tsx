@@ -2,6 +2,7 @@ import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import MapOverlayControls, { type OverlayLayerChip } from "./MapOverlayControls";
+import { LAYER_DATA_STATUS_LABELS } from "@/components/Map/mapLayers";
 import { MAP_OVERLAY_MAX_EXPANDED_GROUPS } from "@/components/Map/mapLayers";
 
 // このコンポーネントは渡されたアイコンをそのまま描くだけで、形を見ない。
@@ -62,11 +63,6 @@ describe("MapOverlayControls", () => {
     await user.click(screen.getByRole("button", { name: "路面" }));
     expect(onToggle).toHaveBeenCalledWith("surface", false);
   });
-
-  // 全レイヤー一括OFFボタンは地図下部中央の時刻スライダー隣へ移設し、page.tsx
-  // （handleClearAllLayers）が持つようになったため、このコンポーネント自体はもう
-  // 描画しない（実機フィードバック「左上の全クリアアイコンをスライドバーの左側に
-  // 移動して」、MapOverlayControls.module.css参照）。
 
   it("disabledのチップは押せず、on=trueでもaria-pressedはfalseのまま", () => {
     const layers = baseLayers();
@@ -304,7 +300,7 @@ describe("MapOverlayControls", () => {
       const row = screen.getByText(label).closest("li")!;
       const dot = row.querySelector("span") as HTMLElement;
       expect(dot).toBeTruthy();
-      expect(dot.className).toMatch(/detailSwatchDot/);
+      expect(dot.getAttribute("style") ?? "").toContain("background");
       // 太さバーは高さをインラインで持っていた。色ドットは持たない。
       expect(dot.style.height).toBe("");
     }
@@ -497,36 +493,13 @@ describe("MapOverlayControls", () => {
       const { container } = render(<MapOverlayControls {...baseProps()} layers={roadLayers()} />);
 
       await user.click(screen.getByRole("button", { name: "道路" }));
-      expect(container.querySelector('[class*="detailPanelBase"]')).not.toBeInTheDocument();
+      expect(screen.queryByRole("region")).not.toBeInTheDocument();
 
       const roadButton = screen.getByRole("button", { name: "道路" });
       const tunnelButton = screen.getByRole("button", { name: "トンネル" });
-      expect(roadButton.closest('[class*="chipRowItem"]')?.parentElement).toBe(
-        tunnelButton.closest('[class*="chipRowItem"]')?.parentElement,
+      expect(roadButton.closest('[data-slot="chip-row-item"]')?.parentElement).toBe(
+        tunnelButton.closest('[data-slot="chip-row-item"]')?.parentElement,
       );
-    });
-
-    it("ONのメンバーもグループ色分けクラス(iconChipGroupRoad)を保持したままiconChipActiveが付く", async () => {
-      const user = userEvent.setup();
-      render(<MapOverlayControls {...baseProps()} layers={roadLayers()} />);
-      await user.click(screen.getByRole("button", { name: "道路" }));
-      const tunnelButton = screen.getByRole("button", { name: "トンネル" });
-      expect(tunnelButton.className).toMatch(/iconChipGroupRoad/);
-      expect(tunnelButton.className).toMatch(/iconChipActive/);
-    });
-
-    it("道路見出しは折りたたみ時iconChipExpandedを持たず、展開するとgroupHeaderChip+iconChipGroupRoad+iconChipExpandedの組み合わせになる", async () => {
-      const user = userEvent.setup();
-      render(<MapOverlayControls {...baseProps()} layers={roadLayers()} />);
-      const roadButton = screen.getByRole("button", { name: "道路" });
-      expect(roadButton.className).toMatch(/groupHeaderChip/);
-      expect(roadButton.className).toMatch(/iconChipGroupRoad/);
-      expect(roadButton.className).not.toMatch(/iconChipExpanded/);
-
-      await user.click(roadButton);
-      expect(roadButton.className).toMatch(/groupHeaderChip/);
-      expect(roadButton.className).toMatch(/iconChipGroupRoad/);
-      expect(roadButton.className).toMatch(/iconChipExpanded/);
     });
 
     it("道路グループを開くとcategory小見出しを出さずメンバーのON/OFFボタンがフラットに並ぶ", async () => {
@@ -671,7 +644,7 @@ describe("MapOverlayControls", () => {
       render(<MapOverlayControls {...baseProps()} layers={roadLayers()} />);
 
       await user.click(screen.getByRole("button", { name: "道路の表示項目を設定" }));
-      const panel = document.querySelector('[class*="detailPanel"]') as HTMLElement;
+      const panel = screen.getByRole("region", { name: "道路の表示項目" });
       expect(panel).toBeTruthy();
       expect(panel.style.maxHeight).toBe("120px");
 
@@ -767,12 +740,12 @@ describe("MapOverlayControls", () => {
       const { container } = render(<MapOverlayControls {...baseProps()} layers={environmentLayers()} />);
 
       await user.click(screen.getByRole("button", { name: "環境" }));
-      expect(container.querySelector('[class*="detailPanelBase"]')).not.toBeInTheDocument();
+      expect(screen.queryByRole("region")).not.toBeInTheDocument();
 
       const environmentButton = screen.getByRole("button", { name: "環境" });
       const memberButton = screen.getByRole("button", { name: "降水" });
-      expect(environmentButton.closest('[class*="chipRowItem"]')?.parentElement).toBe(
-        memberButton.closest('[class*="chipRowItem"]')?.parentElement,
+      expect(environmentButton.closest('[data-slot="chip-row-item"]')?.parentElement).toBe(
+        memberButton.closest('[data-slot="chip-row-item"]')?.parentElement,
       );
     });
 
@@ -929,18 +902,6 @@ describe("MapOverlayControls", () => {
       await user.click(screen.getByRole("button", { name: "補給休憩" }));
       expect(onToggle).toHaveBeenCalledWith("supply_poi", true);
     });
-
-    it("スポット見出しのグループ色分けクラスはiconChipGroupSpot", async () => {
-      const user = userEvent.setup();
-      render(<MapOverlayControls {...baseProps()} layers={spotLayers()} />);
-      const spotButton = screen.getByRole("button", { name: "スポット" });
-      expect(spotButton.className).toMatch(/iconChipGroupSpot/);
-
-      await user.click(spotButton);
-      const accidentsButton = screen.getByRole("button", { name: "事故地点" });
-      expect(accidentsButton.className).toMatch(/iconChipGroupSpot/);
-      expect(accidentsButton.className).toMatch(/iconChipActive/);
-    });
   });
 
   describe("凡例の絞り込み中の印", () => {
@@ -962,7 +923,6 @@ describe("MapOverlayControls", () => {
       render(<MapOverlayControls {...baseProps()} layers={layers} />);
 
       const chip = screen.getByRole("button", { name: "路面" });
-      expect(chip.querySelector('[class*="iconFilterMark"]')).not.toBeNull();
       expect(chip.getAttribute("title")).toContain("絞り込み中");
     });
 
@@ -972,8 +932,8 @@ describe("MapOverlayControls", () => {
       layers[1] = { ...layers[1], on: true, legendDetails: filteredLegend([]) };
       render(<MapOverlayControls {...baseProps()} layers={layers} />);
 
-      expect(screen.getByRole("button", { name: "標高図" }).querySelector('[class*="iconFilterMark"]')).toBeNull();
-      expect(screen.getByRole("button", { name: "路面" }).querySelector('[class*="iconFilterMark"]')).toBeNull();
+      expect(screen.getByRole("button", { name: "標高図" }).getAttribute("title") ?? "").not.toContain("絞り込み中");
+      expect(screen.getByRole("button", { name: "路面" }).getAttribute("title") ?? "").not.toContain("絞り込み中");
     });
 
     it("畳んだグループの見出しは、メンバーの絞り込みを印で示す（開くとメンバー側が持つ）", async () => {
@@ -991,13 +951,11 @@ describe("MapOverlayControls", () => {
       render(<MapOverlayControls {...baseProps()} layers={layers} />);
 
       const header = screen.getByRole("button", { name: "スポット" });
-      expect(header.querySelector('[class*="iconFilterMark"]')).not.toBeNull();
+      expect(header.getAttribute("title")).toContain("絞り込み中");
 
       await user.click(header);
-      expect(header.querySelector('[class*="iconFilterMark"]')).toBeNull();
-      expect(
-        screen.getByRole("button", { name: "事故地点" }).querySelector('[class*="iconFilterMark"]'),
-      ).not.toBeNull();
+      expect(header.getAttribute("title") ?? "").not.toContain("絞り込み中");
+      expect(screen.getByRole("button", { name: "事故地点" }).getAttribute("title")).toContain("絞り込み中");
     });
   });
 
@@ -1016,7 +974,6 @@ describe("MapOverlayControls", () => {
       );
 
       const chip = screen.getByRole("button", { name: "ルート" });
-      expect(chip.querySelector('[class*="iconStatusDot_loading"]')).not.toBeNull();
       expect(chip).toHaveAttribute("title", "選択中ルート（読み込み中です）");
     });
 
@@ -1034,7 +991,7 @@ describe("MapOverlayControls", () => {
       );
 
       const chip = screen.getByRole("button", { name: "ルート" });
-      expect(chip.querySelector('[class*="iconStatusDot"]')).toBeNull();
+      expect(chip.getAttribute("title") ?? "").not.toContain(LAYER_DATA_STATUS_LABELS.error);
     });
 
     it("ON中で状態があるチップは、凡例が無くても▶を出し、開くと状態を文で読める（titleに頼らない）", async () => {
@@ -1089,73 +1046,7 @@ describe("MapOverlayControls", () => {
       );
 
       const chip = screen.getByRole("button", { name: "ルート" });
-      expect(chip.querySelector('[class*="iconStatusDot"]')).toBeNull();
-    });
-  });
-
-  // 改善計画T471項目4: usePagedOverflow内のregisterViewport/registerTrack（chipRowの
-  // はみ出しページ送りが使うResizeObserver接続用コールバックref）はuseCallback化前、
-  // 親の再レンダーのたびに新しい関数として渡り、Reactがref変更とみなして毎回
-  // detach（null呼び出し）→reattachし、rewireObserver（ResizeObserverの破棄・再構築）が
-  // 無関係な再レンダーのたびに走っていた。jsdom/happy-domはResizeObserverを実装しない
-  // ため、useElementHeightCssVar.test.ts等と同じ最小モックで構築・disconnect回数を
-  // 直接観測する（統合レビュー第3回`history/2026-08-31_all.md` Shard E指摘、T476）。
-  describe("usePagedOverflowの安定性（改善計画T471のregisterViewport/registerTrack useCallback化）", () => {
-    let resizeObserverInstances: { disconnect: ReturnType<typeof vi.fn> }[];
-
-    beforeEach(() => {
-      resizeObserverInstances = [];
-      class ResizeObserverMock {
-        observe = vi.fn();
-        unobserve = vi.fn();
-        disconnect = vi.fn();
-        constructor() {
-          resizeObserverInstances.push(this);
-        }
-      }
-      window.ResizeObserver = ResizeObserverMock as unknown as typeof ResizeObserver;
-    });
-
-    it("親が新しい配列参照でレンダーしてもResizeObserverは再構築されず、グループの展開/収納は壊れない", async () => {
-      const user = userEvent.setup();
-      const layers1: OverlayLayerChip[] = [
-        { id: "highway", icon: TestIcon, label: "道路の種類", on: false, category: "roadCondition" },
-        { id: "tunnel", icon: TestIcon, label: "トンネル", on: true, category: "roadCondition" },
-      ];
-      const { rerender } = render(
-        <MapOverlayControls
-          layers={layers1}
-          onToggle={vi.fn()}
-          onLegendEntryToggle={vi.fn()}
-          onLegendAxisSetHidden={vi.fn()}
-        />,
-      );
-
-      // 初回マウントでchipRowViewport/chipRowTrackの両方が揃った時点で1つだけ構築される
-      expect(resizeObserverInstances).toHaveLength(1);
-      expect(resizeObserverInstances[0].disconnect).not.toHaveBeenCalled();
-
-      // 「親の再レンダー」を、内容は同じだが参照は新しいlayers配列を渡すことで模す
-      // （page.tsx側でstate更新のたびに新しい配列を作ってMapOverlayControlsへ渡す実態と同じ）
-      const layers2: OverlayLayerChip[] = layers1.map((layer) => ({ ...layer }));
-      rerender(
-        <MapOverlayControls
-          layers={layers2}
-          onToggle={vi.fn()}
-          onLegendEntryToggle={vi.fn()}
-          onLegendAxisSetHidden={vi.fn()}
-        />,
-      );
-
-      // useCallbackでref関数の同一性が保たれていればReactはref callbackを再実行せず、
-      // ResizeObserverの再構築（disconnect→new）は起きない
-      expect(resizeObserverInstances).toHaveLength(1);
-      expect(resizeObserverInstances[0].disconnect).not.toHaveBeenCalled();
-
-      // 観測系の安定性だけでなく、再レンダーを挟んでも実際の展開/収納が機能し続けることも確認する
-      await user.click(screen.getByRole("button", { name: "道路" }));
-      expect(screen.getByRole("button", { name: "道路" })).toHaveAttribute("aria-expanded", "true");
-      expect(screen.getByRole("button", { name: "トンネル" })).toBeInTheDocument();
+      expect(chip.getAttribute("title") ?? "").not.toContain(LAYER_DATA_STATUS_LABELS.error);
     });
   });
 });

@@ -20,7 +20,6 @@ import {
   OFF_RANGE_NOTICE_THRESHOLD,
 } from "./curveDistributionOverlay";
 import type { ValueDistribution } from "./scoreDistribution";
-import styles from "./AxisStudio.module.css";
 
 /** きりのいい目盛り位置の一覧（min〜maxの範囲内、niceStep刻み）。 */
 function niceTicks(min: number, max: number): number[] {
@@ -127,7 +126,7 @@ export function BreakpointCurveEditor({
   return (
     <svg
       viewBox={`0 0 ${width} ${height}`}
-      className={styles.curveEditor}
+      className="h-40 w-full max-w-96 touch-none rounded-sm bg-[var(--color-surface-2)]"
       role="img"
       aria-label="折れ点の曲線プレビュー（背景は実データの分布。ドラッグまたは矢印キーで調整可能）"
     >
@@ -145,7 +144,7 @@ export function BreakpointCurveEditor({
             y={height - padding - h}
             width={Math.max(x1 - x0, 0.5)}
             height={h}
-            className={styles.curveDistributionBar}
+            className="pointer-events-none fill-[var(--color-muted)] opacity-20"
           />
         );
       })}
@@ -153,8 +152,19 @@ export function BreakpointCurveEditor({
         const [sx] = toScreen([marker.value, 0]);
         return (
           <g key={`q-${marker.label}`}>
-            <line x1={sx} y1={padding} x2={sx} y2={height - padding} className={styles.curveQuantileLine} />
-            <text x={sx} y={padding - 3} className={styles.curveQuantileLabel} textAnchor="middle">
+            <line
+              x1={sx}
+              y1={padding}
+              x2={sx}
+              y2={height - padding}
+              className="pointer-events-none stroke-[var(--color-muted)] opacity-55 [stroke-dasharray:1_3] [stroke-width:1]"
+            />
+            <text
+              x={sx}
+              y={padding - 3}
+              className="pointer-events-none fill-[var(--color-muted)] text-[7px]"
+              textAnchor="middle"
+            >
               {marker.label}
             </text>
           </g>
@@ -163,15 +173,28 @@ export function BreakpointCurveEditor({
       {yTicks.map((y) => {
         const [, sy] = toScreen([xMin, y]);
         return (
-          <line key={`y-${y}`} x1={padding} y1={sy} x2={width - padding} y2={sy} className={styles.curveGridline} />
+          <line
+            key={`y-${y}`}
+            x1={padding}
+            y1={sy}
+            x2={width - padding}
+            y2={sy}
+            className="stroke-[var(--color-border)] [stroke-dasharray:2_2] [stroke-width:1]"
+          />
         );
       })}
       {xTicks.map((x) => {
         const [sx] = toScreen([x, yMin]);
         return (
           <g key={`x-${x}`}>
-            <line x1={sx} y1={padding} x2={sx} y2={height - padding} className={styles.curveGridline} />
-            <text x={sx} y={height - padding + 12} className={styles.curveTickLabel} textAnchor="middle">
+            <line
+              x1={sx}
+              y1={padding}
+              x2={sx}
+              y2={height - padding}
+              className="stroke-[var(--color-border)] [stroke-dasharray:2_2] [stroke-width:1]"
+            />
+            <text x={sx} y={height - padding + 12} className="fill-[var(--color-muted)] text-[8px]" textAnchor="middle">
               {x}
             </text>
           </g>
@@ -182,10 +205,16 @@ export function BreakpointCurveEditor({
         y1={height - padding}
         x2={width - padding}
         y2={height - padding}
-        className={styles.curveAxis}
+        className="stroke-[var(--color-border-strong)] [stroke-width:1]"
       />
-      <line x1={padding} y1={padding} x2={padding} y2={height - padding} className={styles.curveAxis} />
-      <polyline points={polyline} className={styles.curveLine} />
+      <line
+        x1={padding}
+        y1={padding}
+        x2={padding}
+        y2={height - padding}
+        className="stroke-[var(--color-border-strong)] [stroke-width:1]"
+      />
+      <polyline points={polyline} className="fill-none stroke-[var(--color-accent)] [stroke-width:2]" />
       {points.map(([x, y], i) => (
         <circle
           key={i}
@@ -196,7 +225,7 @@ export function BreakpointCurveEditor({
           role="slider"
           aria-label={`折れ点${i + 1}（入力値${breakpoints[i][0]}、スコア${breakpoints[i][1]}）`}
           aria-valuenow={breakpoints[i][1]}
-          className={styles.curvePoint}
+          className="cursor-grab fill-[var(--color-accent)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--color-accent)]"
           onPointerDown={(e) => {
             e.currentTarget.setPointerCapture(e.pointerId);
             setDraggingIndex(i);
@@ -209,17 +238,32 @@ export function BreakpointCurveEditor({
       {/* 表示範囲の外にある延長。黙って切ると「分布は全部見えている」と読めてしまい、
           折れ点が実データの範囲と合っていないこと自体が画面から消える。 */}
       {offRange.below >= OFF_RANGE_NOTICE_THRESHOLD && (
-        <text x={padding} y={padding - 3} className={styles.curveOffRangeLabel} textAnchor="start">
+        <text
+          x={padding}
+          y={padding - 3}
+          className="pointer-events-none fill-[var(--foreground)] text-[8px] tabular-nums"
+          textAnchor="start"
+        >
           ←{(offRange.below * 100).toFixed(0)}%
         </text>
       )}
       {offRange.above >= OFF_RANGE_NOTICE_THRESHOLD && (
-        <text x={width - padding} y={padding - 3} className={styles.curveOffRangeLabel} textAnchor="end">
+        <text
+          x={width - padding}
+          y={padding - 3}
+          className="pointer-events-none fill-[var(--foreground)] text-[8px] tabular-nums"
+          textAnchor="end"
+        >
           {(offRange.above * 100).toFixed(0)}%→
         </text>
       )}
       {dragging && draggingScreen && (
-        <text x={draggingScreen[0]} y={draggingScreen[1] - 12} className={styles.curveDragLabel} textAnchor="middle">
+        <text
+          x={draggingScreen[0]}
+          y={draggingScreen[1] - 12}
+          className="pointer-events-none fill-[var(--foreground)] text-[9px] font-semibold tabular-nums"
+          textAnchor="middle"
+        >
           {dragging[0]} → {dragging[1]}
         </text>
       )}

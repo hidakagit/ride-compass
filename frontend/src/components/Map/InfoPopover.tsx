@@ -1,15 +1,18 @@
 "use client";
 
 import { useState, type ReactNode } from "react";
-import * as Popover from "@radix-ui/react-popover";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/Popover/Popover";
 import { InfoIcon } from "./icons";
+import { Button } from "@/components/ui/Button/Button";
 
 interface InfoPopoverProps {
-  triggerClassName: string;
+  /** 置き場に合わせた余白・大きさ（見た目の土台は(i)のボタン）。 */
+  triggerClassName?: string;
   /** (i)ボタンのアクセシブル名の**主語**（例:「欠損割合の見方」）。開閉状態に応じて
    * 「◯◯を表示」「◯◯を隠す」を組み立てるため、呼び出し側は動詞を含めない。 */
   triggerAriaLabel: string;
-  contentClassName: string;
+  /** 幅など、置き場に合わせた足し分（見た目の土台は(i)から開く短い説明の浮きパネル）。 */
+  contentClassName?: string;
   /** 指定するとトリガーの手前に見出し文言を描画し、見出しとトリガーを1つの要素で囲む
    * （フォーム項目のラベル脇に(i)を置く形）。省略時はトリガー単体。 */
   label?: ReactNode;
@@ -46,14 +49,19 @@ export default function InfoPopover({
 }: InfoPopoverProps) {
   const [open, setOpen] = useState(false);
   const trigger = (
-    <Popover.Trigger asChild>
-      <button type="button" className={triggerClassName} aria-label={`${triggerAriaLabel}を${open ? "隠す" : "表示"}`}>
+    <PopoverTrigger asChild>
+      <Button
+        variant="info"
+        size="bare"
+        className={triggerClassName}
+        aria-label={`${triggerAriaLabel}を${open ? "隠す" : "表示"}`}
+      >
         {triggerContent ?? <InfoIcon />}
-      </button>
-    </Popover.Trigger>
+      </Button>
+    </PopoverTrigger>
   );
   return (
-    <Popover.Root open={open} onOpenChange={setOpen}>
+    <Popover open={open} onOpenChange={setOpen}>
       {label === undefined ? (
         trigger
       ) : (
@@ -62,14 +70,9 @@ export default function InfoPopover({
           {trigger}
         </span>
       )}
-      {/* Portalでdocument.body直下へ描画する（呼び出し側がoverflow-y:autoの
-          サイドバー・BottomSheet内にあっても、その祖先要素のoverflowでクリップされない
-          ようにするため）。 */}
-      <Popover.Portal>
-        <Popover.Content className={contentClassName} side={side} align={align} sideOffset={sideOffset}>
-          {children}
-        </Popover.Content>
-      </Popover.Portal>
-    </Popover.Root>
+      <PopoverContent tone="note" className={contentClassName} side={side} align={align} sideOffset={sideOffset}>
+        {children}
+      </PopoverContent>
+    </Popover>
   );
 }

@@ -4,7 +4,8 @@
 // つけるためのもので、取得できないときは何も出さない（編集の補助情報のため）。
 
 import { useMaterialDistribution } from "@/hooks/useMaterialDistribution";
-import styles from "./DistributionPreview.module.css";
+import { textVariants } from "@/components/ui/Text/Text";
+import { cn } from "@/lib/cn";
 
 /** 表示する分位。中央値と上側だけを出す（下側は0に張り付く材料が多く情報量が無い）。 */
 const SHOWN = ["p50", "p75", "p90"] as const;
@@ -26,7 +27,7 @@ export function MaterialRangeHint({
   );
   if (parts.length === 0) return null;
   return (
-    <p className={className ? `${styles.quantiles} ${className}` : styles.quantiles}>
+    <p className={cn(textVariants({ variant: "hint" }), "tabular-nums", className)}>
       実データ: {parts.join("  ")}
       {unit ? ` (${unit})` : ""}
       {distribution.zero_share > 0 ? `  ゼロ${Math.round(distribution.zero_share * 100)}%` : ""}

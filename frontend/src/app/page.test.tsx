@@ -851,7 +851,7 @@ describe("Home（app/page.tsx） handleGenerateハンドラ", () => {
     const HomeFresh = await renderFreshHome({ realRouteForm: true });
     render(<HomeFresh />);
 
-    await user.click(screen.getByRole("button", { name: "目的地" }));
+    await user.click(screen.getByRole("radio", { name: "目的地" }));
 
     expect(screen.getByRole("button", { name: "目的地の指定をやめる" })).toBeInTheDocument();
   });
@@ -861,10 +861,10 @@ describe("Home（app/page.tsx） handleGenerateハンドラ", () => {
     const HomeFresh = await renderFreshHome({ realRouteForm: true, exposeMapClickHandlers: true });
     render(<HomeFresh />);
 
-    await user.click(screen.getByRole("button", { name: "目的地" }));
+    await user.click(screen.getByRole("radio", { name: "目的地" }));
     await user.click(screen.getByRole("button", { name: "テスト用に目的地を設定" }));
-    await user.click(screen.getByRole("button", { name: "周回" }));
-    await user.click(screen.getByRole("button", { name: "目的地" }));
+    await user.click(screen.getByRole("radio", { name: "周回" }));
+    await user.click(screen.getByRole("radio", { name: "目的地" }));
 
     expect(screen.getByRole("button", { name: "目的地をクリア" })).toBeInTheDocument();
   });
@@ -875,7 +875,7 @@ describe("Home（app/page.tsx） handleGenerateハンドラ", () => {
     const HomeFresh = await renderFreshHome({ realRouteForm: true, exposeMapClickHandlers: true });
     render(<HomeFresh />);
 
-    await user.click(screen.getByRole("button", { name: "目的地" }));
+    await user.click(screen.getByRole("radio", { name: "目的地" }));
     await user.click(screen.getByRole("button", { name: "テスト用に目的地を設定" }));
 
     await user.click(screen.getByRole("button", { name: "目的地を置き直す" }));
@@ -899,7 +899,7 @@ describe("Home（app/page.tsx） handleGenerateハンドラ", () => {
     const HomeFresh = await renderFreshHome({ realRouteForm: true, exposeMapClickHandlers: true });
     render(<HomeFresh />);
 
-    await user.click(screen.getByRole("button", { name: "目的地" }));
+    await user.click(screen.getByRole("radio", { name: "目的地" }));
     await user.click(screen.getByRole("button", { name: "テスト用に目的地を設定" }));
     await user.click(screen.getByRole("button", { name: "ルート生成" }));
 
@@ -937,7 +937,7 @@ describe("Home（app/page.tsx） handleGenerateハンドラ", () => {
     const HomeFresh = await renderFreshHome({ realRouteForm: true, exposeMapClickHandlers: true });
     render(<HomeFresh />);
 
-    await user.click(screen.getByRole("button", { name: "目的地" }));
+    await user.click(screen.getByRole("radio", { name: "目的地" }));
     await user.click(screen.getByRole("button", { name: "テスト用に目的地を設定" }));
     await user.click(screen.getByRole("button", { name: "ルート生成" }));
     await screen.findByText("指定した地点は自転車で行けない場所だったため、近くのアクセス可能な地点へ補正しました。");
@@ -1082,7 +1082,10 @@ describe("Home（app/page.tsx） handleGenerateハンドラ", () => {
     await waitFor(() => {
       expect(screen.getByRole("tab", { name: /^1 40\.0km/ })).toBeInTheDocument();
     });
-    const tracks = Array.from(container.querySelectorAll('[class*="outcomeTabScoreTrack"]')) as HTMLElement[];
+    const tracks = screen
+      .getAllByRole("tab")
+      .map((tab) => tab.querySelector<HTMLElement>('[style*="--load-bar-height-ratio"]'))
+      .filter((track): track is HTMLElement => track !== null);
     expect(tracks).toHaveLength(2);
     // 40km / 20km = 2.0（上限）。基準の20kmは1.0。
     expect(tracks[0].style.getPropertyValue("--load-bar-height-ratio")).toBe("2");
@@ -1136,7 +1139,7 @@ describe("Home（app/page.tsx） handleGenerateハンドラ", () => {
     const HomeFresh = await renderFreshHome({ realRouteForm: true, exposeMapClickHandlers: true });
     render(<HomeFresh />);
 
-    await user.click(screen.getByRole("button", { name: "目的地" }));
+    await user.click(screen.getByRole("radio", { name: "目的地" }));
     await user.click(screen.getByRole("button", { name: "テスト用に目的地を設定" }));
     await user.click(screen.getByRole("button", { name: "ルート生成" }));
     await waitFor(() => expect(screen.getByRole("tab", { name: /^1 18\.0km/ })).toBeInTheDocument());
@@ -1168,7 +1171,7 @@ describe("Home（app/page.tsx） handleGenerateハンドラ", () => {
     const HomeFresh = await renderFreshHome({ realRouteForm: true, exposeMapClickHandlers: true });
     render(<HomeFresh />);
 
-    await user.click(screen.getByRole("button", { name: "目的地" }));
+    await user.click(screen.getByRole("radio", { name: "目的地" }));
     await user.click(screen.getByRole("button", { name: "テスト用に目的地を設定" }));
     await user.click(screen.getByRole("button", { name: "ルート生成" }));
     await waitFor(() => expect(screen.getByRole("tab", { name: /^1 18/ })).toBeInTheDocument());
@@ -1210,7 +1213,7 @@ describe("Home（app/page.tsx） handleGenerateハンドラ", () => {
     const HomeFresh = await renderFreshHome({ realRouteForm: true, exposeMapClickHandlers: true });
     render(<HomeFresh />);
 
-    await user.click(screen.getByRole("button", { name: "目的地" }));
+    await user.click(screen.getByRole("radio", { name: "目的地" }));
     await user.click(screen.getByRole("button", { name: "テスト用に目的地を設定" }));
     await user.click(screen.getByRole("button", { name: "ルート生成" }));
     await waitFor(() => expect(screen.getByRole("tab", { name: /^1 18/ })).toBeInTheDocument());
@@ -1253,7 +1256,7 @@ describe("Home（app/page.tsx） handleGenerateハンドラ", () => {
     });
     render(<HomeFresh />);
 
-    await user.click(screen.getByRole("button", { name: "目的地" }));
+    await user.click(screen.getByRole("radio", { name: "目的地" }));
     await user.click(screen.getByRole("button", { name: "テスト用に目的地を設定" }));
     await user.click(screen.getByRole("button", { name: "ルート生成" }));
     await waitFor(() => expect(screen.getByRole("tab", { name: /^1 18\.0km/ })).toBeInTheDocument());
@@ -1289,7 +1292,7 @@ describe("Home（app/page.tsx） handleGenerateハンドラ", () => {
     const HomeFresh = await renderFreshHome({ realRouteForm: true, exposeMapClickHandlers: true });
     render(<HomeFresh />);
 
-    await user.click(screen.getByRole("button", { name: "目的地" }));
+    await user.click(screen.getByRole("radio", { name: "目的地" }));
     await user.click(screen.getByRole("button", { name: "テスト用に目的地を設定" }));
     await user.click(screen.getByRole("button", { name: "ルート生成" }));
     await waitFor(() => expect(screen.getByRole("tab", { name: /^1 18\.0km/ })).toBeInTheDocument());
@@ -1319,7 +1322,7 @@ describe("Home（app/page.tsx） handleGenerateハンドラ", () => {
     const HomeFresh = await renderFreshHome({ realRouteForm: true, exposeMapClickHandlers: true });
     render(<HomeFresh />);
 
-    await user.click(screen.getByRole("button", { name: "目的地" }));
+    await user.click(screen.getByRole("radio", { name: "目的地" }));
     await user.click(screen.getByRole("button", { name: "テスト用に目的地を設定" }));
     await user.click(screen.getByRole("button", { name: "ルート生成" }));
     await waitFor(() => expect(screen.getByRole("tab", { name: /^1 18/ })).toBeInTheDocument());
@@ -1401,7 +1404,7 @@ describe("Home（app/page.tsx） handleGenerateハンドラ", () => {
     const HomeFresh = await renderFreshHome({ realRouteForm: true, exposeMapClickHandlers: true });
     render(<HomeFresh />);
 
-    await user.click(screen.getByRole("button", { name: "目的地" }));
+    await user.click(screen.getByRole("radio", { name: "目的地" }));
     await user.click(screen.getByRole("button", { name: "テスト用に目的地を設定" }));
     await user.click(screen.getByRole("button", { name: "ルート生成" }));
     await waitFor(() => expect(screen.getByRole("tab", { name: /^1 18\.0km/ })).toBeInTheDocument());
@@ -1447,7 +1450,7 @@ describe("Home（app/page.tsx） handleGenerateハンドラ", () => {
     const HomeFresh = await renderFreshHome({ realRouteForm: true, exposeMapClickHandlers: true });
     render(<HomeFresh />);
 
-    await user.click(screen.getByRole("button", { name: "目的地" }));
+    await user.click(screen.getByRole("radio", { name: "目的地" }));
     await user.click(screen.getByRole("button", { name: "テスト用に目的地を設定" }));
     await user.click(screen.getByRole("button", { name: "ルート生成" }));
     await waitFor(() => expect(screen.getByRole("tab", { name: /^1 18\.0km/ })).toBeInTheDocument());

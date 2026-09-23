@@ -4,9 +4,11 @@ import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/Button/Button";
 import { Card } from "@/components/ui/Card/Card";
 import InfoPopover from "@/components/Map/InfoPopover";
-import floatingPopoverStyles from "@/components/ui/floatingPopover.module.css";
 import { listTuningParameters, updateTuningParameter, type TuningParameter } from "@/services/tuningApi";
-import styles from "./TuningPanel.module.css";
+import { NumberInput } from "@/components/ui/NumberInput/NumberInput";
+import { textVariants } from "@/components/ui/Text/Text";
+import { dotVariants } from "@/components/ui/Dot/Dot";
+import { cn } from "@/lib/cn";
 
 /** 1件ぶんの行。入力中の値は親がまとめて持ち、この行は表示だけを担う
  * （保存はDBへの書き込みのため、押した時にまとめて送る）。
@@ -20,19 +22,20 @@ function TuningRow({
   onChange,
 }: {
   parameter: TuningParameter;
-  draft: string;
+  draft: number;
   edited: boolean;
-  onChange: (value: string) => void;
+  onChange: (value: number) => void;
 }) {
   return (
-    <li className={styles.row}>
-      <span className={parameter.overridden ? styles.markSaved : styles.mark} aria-hidden="true" />
+    <li className="flex items-center gap-2 border-b border-[var(--color-border)] py-1">
+      <span
+        className={parameter.overridden ? dotVariants({ tone: "accent" }) : dotVariants({ tone: "none" })}
+        aria-hidden="true"
+      />
       <InfoPopover
-        triggerClassName={styles.infoButton}
         triggerAriaLabel={`${parameter.label}の説明`}
-        contentClassName={floatingPopoverStyles.floatingPopover}
         label={parameter.label}
-        labelClassName={styles.rowName}
+        labelClassName={cn(textVariants({ variant: "body" }), "min-w-0 flex-auto [overflow-wrap:anywhere]")}
       >
         <p>{parameter.description}</p>
         <p>
@@ -40,9 +43,12 @@ function TuningRow({
           {parameter.unit}（{parameter.minimum}〜{parameter.maximum}）
         </p>
       </InfoPopover>
-      <input
-        className={edited ? styles.inputEdited : styles.input}
-        type="number"
+      <NumberInput
+        commitOn="input"
+        className={cn(
+          "w-18 flex-none px-1 py-0.5 text-[length:var(--font-size-sm)] tabular-nums",
+          edited && "border-[var(--color-accent)]",
+        )}
         // 刻みを決めない（既定の1だと転がり抵抗0.005のような値が「刻みに合わない」扱いになる）。
         step="any"
         inputMode="decimal"
@@ -50,9 +56,9 @@ function TuningRow({
         value={draft}
         min={parameter.minimum}
         max={parameter.maximum}
-        onChange={(event) => onChange(event.target.value)}
+        onValueChange={onChange}
       />
-      <span className={styles.unit}>{parameter.unit}</span>
+      <span className={cn(textVariants({ variant: "note" }), "min-w-9 flex-none")}>{parameter.unit}</span>
     </li>
   );
 }
@@ -69,8 +75,8 @@ function TuningRow({
  */
 export default function TuningPanel() {
   const [parameters, setParameters] = useState<TuningParameter[] | null>(null);
-  // 入力中の値（id → 文字列）。触った行だけを持ち、触っていない行はbackendの値を映す。
-  const [drafts, setDrafts] = useState<Record<string, string>>({});
+  // 入力中の値（id → 値）。触った行だけを持ち、触っていない行はbackendの値を映す。
+  const [drafts, setDrafts] = useState<Record<string, number>>({});
   const [error, setError] = useState<string | null>(null);
   // 開いた時点で取りに行くため、最初から読み込み中で始める。
   const [loading, setLoading] = useState(true);
@@ -100,21 +106,19 @@ export default function TuningPanel() {
   }, [reloadToken]);
 
   const rows = parameters ?? [];
-  const draftOf = (parameter: TuningParameter) => drafts[parameter.id] ?? String(parameter.value);
+  const draftOf = (parameter: TuningParameter) => drafts[parameter.id] ?? parameter.value;
 
   // 書き込む対象＝数として読めて、いま効いている値と違う行だけ。
   const edited = rows.filter((parameter) => {
     const draft = drafts[parameter.id];
-    if (draft === undefined || draft.trim() === "") return false;
-    const parsed = Number(draft);
-    return !Number.isNaN(parsed) && parsed !== parameter.value;
+    return draft !== undefined && draft !== parameter.value;
   });
 
   const save = async () => {
     setSaving(true);
     try {
       for (const parameter of edited) {
-        const next = Number(drafts[parameter.id]);
+        const next = drafts[parameter.id]!;
         // 既定と同じ値に戻したら上書きを消す（DBに持つのは動かしたぶんだけ）。
         const updated = await updateTuningParameter(parameter.id, next === parameter.default ? null : next);
         setParameters((prev) => prev?.map((p) => (p.id === updated.id ? updated : p)) ?? prev);
@@ -148,17 +152,13 @@ export default function TuningPanel() {
   }
 
   return (
-    <Card className={styles.panel}>
+    <Card className="flex flex-col gap-2">
       {/* 操作を上端へ置く（他の管理パネルと同じ並び）。一覧が縦に長いため、タブを開いた
           時点で「変えたらここで保存する」が目に入る位置に要る。 */}
-      <div className={styles.controls}>
-        <span className={styles.headingRow}>
-          <h2 className={styles.heading}>較正値</h2>
-          <InfoPopover
-            triggerClassName={styles.infoButton}
-            triggerAriaLabel="較正値の説明"
-            contentClassName={floatingPopoverStyles.floatingPopover}
-          >
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="flex items-center gap-1">
+          <h2 className={textVariants({ variant: "heading" })}>較正値</h2>
+          <InfoPopover triggerAriaLabel="較正値の説明">
             <p>走ってみて決める値です。変えて保存すると、デプロイなしで効きます。</p>
             <p>●はDBへ保存済みの行です。既定と同じ値にして保存すると消えます。</p>
           </InfoPopover>
@@ -168,15 +168,15 @@ export default function TuningPanel() {
             {saving ? "保存中…" : "DBへ保存"}
           </Button>
         )}
-        {edited.length > 0 && <span className={styles.note}>{edited.length}件が未保存</span>}
-        {loading && <span className={styles.note}>読み込み中…</span>}
+        {edited.length > 0 && <span className={textVariants({ variant: "note" })}>{edited.length}件が未保存</span>}
+        {loading && <span className={textVariants({ variant: "note" })}>読み込み中…</span>}
       </div>
 
       {error && (
-        <p className={styles.error}>
+        <p className={cn(textVariants({ variant: "error" }), "flex flex-wrap items-center gap-2")}>
           {error}
           {parameters === null && (
-            <Button className={styles.retry} size="sm" onClick={() => setReloadToken((token) => token + 1)}>
+            <Button className="flex-none" size="sm" onClick={() => setReloadToken((token) => token + 1)}>
               読み込み直す
             </Button>
           )}
@@ -185,8 +185,8 @@ export default function TuningPanel() {
 
       {groups.map((group) => (
         <div key={group.effect}>
-          <p className={styles.groupTitle}>{group.title}</p>
-          <ul className={styles.rows}>
+          <p className={cn(textVariants({ variant: "note" }), "mt-2")}>{group.title}</p>
+          <ul className="m-0 flex list-none flex-col p-0">
             {group.rows.map((parameter) => (
               <TuningRow
                 key={parameter.id}

@@ -89,5 +89,5 @@
 | [地図: 動的気象レイヤー](frontend/dynamic-weather-layers.md) | 風・降水・キキクル等の地図表示 |
 | [地図: 静的レイヤー・道路表示](frontend/static-map-layers.md) | 路面・道路種別・POI・事故の地図表示 |
 | [ページ全体構成・状態管理](frontend/page-composition.md) | `page.tsx`のコンポジション・永続化。特定モジュールの責務ではない共通部品（`ErrorText`・`BottomSheet`・`Disclosure`等）もここへ集約する |
-| [デザイン基盤](frontend/frontend-design-system.md) | `components/ui/`・デザイントークン（`globals.css`）・Tailwind/CSS Modulesの使い分け |
+| [デザイン基盤](frontend/frontend-design-system.md) | `components/ui/`・デザイントークン（`globals.css`）・見た目は部品が持ち画面は並べ方だけを書く決まり |
 | [開発者/研究者機能](frontend/developer-research-tools.md) | デバッグログ・システム状況・研究モード |

@@ -3,17 +3,19 @@
 import { useState } from "react";
 import { Button } from "@/components/ui/Button/Button";
 import { Card } from "@/components/ui/Card/Card";
+import { vocabulary } from "@/types/generated/vocabulary";
 import InfoPopover from "@/components/Map/InfoPopover";
-import infoButtonStyles from "@/components/ui/infoButton.module.css";
-import floatingPopoverStyles from "@/components/ui/floatingPopover.module.css";
 import { getMaterialCoverage } from "@/services/materialCoverageApi";
 import type { MaterialCoverageEntry, MaterialCoverageResponse } from "@/types/route";
-import styles from "./MaterialCoveragePanel.module.css";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/Table/Table";
+import { textVariants } from "@/components/ui/Text/Text";
+import { cn } from "@/lib/cn";
 
-const POPULATION_LABELS: Record<NonNullable<MaterialCoverageEntry["population"]>, string> = {
-  way: "Way",
-  edge: "Edge",
-};
+// 母集団の名前と欠損の扱いの見出し・説明は、材料カタログの宣言（backend domain/material_catalog.py）が配る。
+const POPULATION_LABELS = Object.fromEntries(vocabulary.materialPopulations.map((p) => [p.key, p.label])) as Record<
+  NonNullable<MaterialCoverageEntry["population"]>,
+  string
+>;
 
 function formatPercent(ratio: number | null): string {
   return ratio === null ? "-" : `${(ratio * 100).toFixed(1)}%`;
@@ -35,26 +37,12 @@ function sortByMissingRatioDesc(entries: readonly MaterialCoverageEntry[]): Mate
 
 type MissingSemantics = NonNullable<MaterialCoverageEntry["missing_semantics"]>;
 
-// 「欠損時の扱い」でグループ分けする。欠損が「不明」（軸が評価対象外になる）の材料と、
-// タグ不在をそのまま確定値（非該当等）として評価する材料は、欠損割合の数字が同じでも
-// 意味が正反対のため、同じ表へ並べず見出しで分ける。
-//
-// Recordで全semanticsを要求する（配列で持つと、3値目が増えたときに足し忘れても
-// 型エラーにならず、その材料が表にも件数にも現れないまま黙って消える）。型で塞げない
-// のはnull（集計対象の材料には付かないはずの値）だけで、そちらは下の未分類グループが
-// 拾う——どちらの経路でも「表から消える」が起きないようにする。
-const GROUP_BY_SEMANTICS: Record<MissingSemantics, { title: string; hint: string }> = {
-  unknown: {
-    title: "評価に影響する欠損",
-    hint: "元データが無い区間では、この材料を使う軸が評価対象外になる。",
-  },
-  definite: {
-    title: "タグ不在を確定値として評価する材料（参考）",
-    hint: "欠損は「該当なし」を意味し、評価に穴は開かない。",
-  },
-};
+// 「欠損時の扱い」でグループ分けする（見出しと並びはbackendの宣言）。宣言に無い扱い・null（集計対象の材料には
+// 付かないはずの値）の材料は、下の未分類グループが拾う——表から消える材料を作らない。
+const GROUP_BY_SEMANTICS = Object.fromEntries(
+  vocabulary.materialMissingSemantics.map((entry) => [entry.key, { title: entry.title, hint: entry.hint }]),
+) as Record<MissingSemantics, { title: string; hint: string }>;
 
-// 表示順はGROUP_BY_SEMANTICSの宣言順（Object.keysは文字列キーの挿入順を保つ）。
 const GROUPS = (Object.keys(GROUP_BY_SEMANTICS) as MissingSemantics[]).map((semantics) => ({
   semantics,
   ...GROUP_BY_SEMANTICS[semantics],
@@ -62,40 +50,40 @@ const GROUPS = (Object.keys(GROUP_BY_SEMANTICS) as MissingSemantics[]).map((sema
 
 function CoverageTable({ entries }: { entries: readonly MaterialCoverageEntry[] }) {
   return (
-    <div className={styles.tableWrap}>
-      <table className={styles.table}>
-        <thead>
-          <tr>
-            <th scope="col">材料</th>
-            <th scope="col">母集団</th>
-            <th scope="col">欠損割合</th>
-          </tr>
-        </thead>
-        <tbody>
-          {entries.map((entry) => (
-            <tr key={entry.material_id} data-missing-semantics={entry.missing_semantics ?? undefined}>
-              <td title={entry.source}>{entry.label}</td>
-              <td>{entry.population ? POPULATION_LABELS[entry.population] : "-"}</td>
-              <td>
-                <div className={styles.ratioCell}>
-                  <div className={styles.ratioRow}>
-                    <span className={styles.ratioValue}>{formatPercent(entry.missing_ratio)}</span>
-                    <span
-                      className={styles.ratioBar}
-                      role="presentation"
-                      style={{ width: `${Math.round((entry.missing_ratio ?? 0) * 100)}%` }}
-                    />
-                  </div>
-                  <span className={styles.ratioCounts}>
-                    {formatCount(entry.missing)} / {formatCount(entry.total)}
+    <Table>
+      <TableHead>
+        <TableRow>
+          <TableHeader scope="col">材料</TableHeader>
+          <TableHeader scope="col">母集団</TableHeader>
+          <TableHeader scope="col">欠損割合</TableHeader>
+        </TableRow>
+      </TableHead>
+      <TableBody>
+        {entries.map((entry) => (
+          <TableRow key={entry.material_id} data-missing-semantics={entry.missing_semantics ?? undefined}>
+            <TableCell title={entry.source}>{entry.label}</TableCell>
+            <TableCell>{entry.population ? POPULATION_LABELS[entry.population] : "-"}</TableCell>
+            <TableCell>
+              <div className="flex min-w-32 flex-col gap-0.5">
+                <div className="flex items-center gap-2">
+                  <span className="min-w-14 whitespace-nowrap text-right tabular-nums">
+                    {formatPercent(entry.missing_ratio)}
                   </span>
+                  <span
+                    className="block h-1.5 max-w-full rounded-full bg-[var(--color-accent)] in-data-[missing-semantics=definite]:bg-[var(--color-border-strong)]"
+                    role="presentation"
+                    style={{ width: `${Math.round((entry.missing_ratio ?? 0) * 100)}%` }}
+                  />
                 </div>
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
+                <span className={cn(textVariants({ variant: "note" }), "whitespace-nowrap tabular-nums")}>
+                  {formatCount(entry.missing)} / {formatCount(entry.total)}
+                </span>
+              </div>
+            </TableCell>
+          </TableRow>
+        ))}
+      </TableBody>
+    </Table>
   );
 }
 
@@ -128,65 +116,66 @@ export default function MaterialCoveragePanel() {
   );
 
   return (
-    <Card className={styles.panel}>
-      <div className={styles.headingRow}>
-        <div className={styles.heading}>材料ごとの欠損割合</div>
-        <InfoPopover
-          triggerClassName={infoButtonStyles.infoButton}
-          triggerAriaLabel="欠損割合の見方"
-          contentClassName={floatingPopoverStyles.floatingPopover}
-        >
-          <p className={styles.popoverParagraph}>
+    <Card className="flex flex-col gap-2">
+      <div className="flex items-center gap-1">
+        <div className={textVariants({ variant: "heading" })}>材料ごとの欠損割合</div>
+        <InfoPopover triggerAriaLabel="欠損割合の見方">
+          <p className="m-0 [&+&]:mt-2">
             材料の元データ（OSMタグ、またはEdge単位の派生テーブルの行）を持たない区間の割合。母集団はWay=
             osm_raw_ways全件、Edge=road_edges全件で、件数ベース（距離加重ではない）。
           </p>
-          <p className={styles.popoverParagraph}>
+          <p className="m-0 [&+&]:mt-2">
             材料名にマウスを乗せると欠損の判定根拠（参照しているタグ・テーブル）を表示する。集計はDB全体を
             走査するため手動実行。
           </p>
         </InfoPopover>
       </div>
-      <div className={styles.controls}>
+      <div className="flex flex-wrap items-center gap-2">
         <Button onClick={handleFetch} disabled={loading}>
           {loading ? "集計中…" : report ? "再集計する" : "集計する"}
         </Button>
         {report && (
-          <span className={styles.summary}>
+          <span className={textVariants({ variant: "hint" })}>
             集計時刻 {formatComputedAt(report.computed_at)} ・ Way {formatCount(report.way_total)}件 ・ Edge{" "}
             {formatCount(report.edge_total)}件
           </span>
         )}
       </div>
-      {error && <p className={styles.error}>集計失敗: {error}</p>}
+      {error && <p className={textVariants({ variant: "error" })}>集計失敗: {error}</p>}
       {report && (
         <>
           {GROUPS.map((group) => {
             const entries = covered.filter((entry) => entry.missing_semantics === group.semantics);
             if (entries.length === 0) return null;
             return (
-              <section key={group.semantics} className={styles.group} aria-label={group.title}>
-                <div className={styles.groupTitle}>{group.title}</div>
-                <p className={styles.hint}>{group.hint}</p>
+              <section key={group.semantics} className="mt-2 flex flex-col gap-1" aria-label={group.title}>
+                <div className={cn(textVariants({ variant: "body" }), "font-bold")}>{group.title}</div>
+                <p className={textVariants({ variant: "hint" })}>{group.hint}</p>
                 <CoverageTable entries={entries} />
               </section>
             );
           })}
           {ungrouped.length > 0 && (
-            <section className={styles.group} aria-label="欠損時の扱いが不明な材料">
-              <div className={styles.groupTitle}>欠損時の扱いが不明な材料</div>
-              <p className={styles.hint}>
+            <section className="mt-2 flex flex-col gap-1" aria-label="欠損時の扱いが不明な材料">
+              <div className={cn(textVariants({ variant: "body" }), "font-bold")}>欠損時の扱いが不明な材料</div>
+              <p className={textVariants({ variant: "hint" })}>
                 集計対象なのにmissing_semanticsが付いていない。backend側の宣言漏れの可能性がある。
               </p>
               <CoverageTable entries={ungrouped} />
             </section>
           )}
           {excluded.length > 0 && (
-            <details className={styles.excluded}>
+            <details
+              className={cn(
+                textVariants({ variant: "hint" }),
+                "[&_summary]:cursor-pointer [&_ul]:mt-1 [&_ul]:mb-0 [&_ul]:pl-5",
+              )}
+            >
               <summary>集計対象外の材料（{excluded.length}件）</summary>
               <ul>
                 {excluded.map((entry) => (
                   <li key={entry.material_id}>
-                    <span className={styles.excludedLabel}>{entry.label}</span>: {entry.excluded_reason}
+                    <span className="text-[var(--foreground)]">{entry.label}</span>: {entry.excluded_reason}
                   </li>
                 ))}
               </ul>

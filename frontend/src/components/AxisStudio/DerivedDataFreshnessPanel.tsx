@@ -4,10 +4,11 @@ import { useState } from "react";
 import { Button } from "@/components/ui/Button/Button";
 import { Card } from "@/components/ui/Card/Card";
 import InfoPopover from "@/components/Map/InfoPopover";
-import floatingPopoverStyles from "@/components/ui/floatingPopover.module.css";
 import { getDerivedDataFreshness } from "@/services/derivedDataFreshnessApi";
 import type { DerivedDataFreshnessResponse } from "@/types/route";
-import styles from "./DerivedDataFreshnessPanel.module.css";
+import { type StatusRow, StatusRowList, StatusVerdict } from "./StatusRowList";
+import { textVariants } from "@/components/ui/Text/Text";
+import { cn } from "@/lib/cn";
 
 /** 派生データを段の順に作り直す単一の入口（`backend/app/batch/derive_cli.py`）を、
  * **本番へ効かせるために実際に打つ形**で置く。古い・未計算がどれであっても打つのはこの1つ
@@ -41,16 +42,7 @@ function formatComputedAt(iso: string): string {
 /** 表1つぶんの状態。「取込が新しくなったのに派生が古い」と「値の列に未計算が残っている」は
  * 判定の方式が違うが、読み手が知りたいのは「作り直しが要るかどうか」で同じ。行の見た目を
  * 揃え、方式の違いは開いた先の中身で表す。 */
-interface FreshnessRow {
-  name: string;
-  /** 名前の右に出す規模（行数）。 */
-  scale: string;
-  needsRebuild: boolean;
-  detail: { label: string; value: string }[];
-  note?: string;
-}
-
-function rowsFromReport(report: DerivedDataFreshnessResponse): FreshnessRow[] {
+function rowsFromReport(report: DerivedDataFreshnessResponse): StatusRow[] {
   return report.tables.map((table) => {
     const incomplete = table.columns.filter((column) => column.is_incomplete);
     const absent = table.columns.filter((column) => !column.is_incomplete && column.null_count > 0);
@@ -59,7 +51,7 @@ function rowsFromReport(report: DerivedDataFreshnessResponse): FreshnessRow[] {
     return {
       name: table.table_name,
       scale: `${formatCount(table.row_count)}行`,
-      needsRebuild: table.is_stale || incomplete.length > 0 || missing > 0,
+      flagged: table.is_stale || incomplete.length > 0 || missing > 0,
       detail: [
         {
           label: table.source ?? "取込",
@@ -101,9 +93,9 @@ function CopyButton({ text }: { text: string }) {
       .catch(() => setCopied(false));
   };
   return (
-    <button type="button" className={styles.copyButton} onClick={handleCopy}>
+    <Button size="xs" onClick={handleCopy}>
       {copied ? "コピーした" : "コピー"}
-    </button>
+    </Button>
   );
 }
 
@@ -126,14 +118,10 @@ export default function DerivedDataFreshnessPanel() {
   };
 
   return (
-    <Card className={styles.panel}>
-      <div className={styles.headingRow}>
-        <span className={styles.heading}>派生データ鮮度台帳</span>
-        <InfoPopover
-          triggerClassName={styles.infoButton}
-          triggerAriaLabel="派生データ鮮度台帳の説明"
-          contentClassName={floatingPopoverStyles.floatingPopover}
-        >
+    <Card className="flex flex-col gap-2">
+      <div className="flex items-center gap-1">
+        <span className={textVariants({ variant: "heading" })}>派生データ鮮度台帳</span>
+        <InfoPopover triggerAriaLabel="派生データ鮮度台帳の説明">
           取り込んだ生データ（OSM・事故など）が新しくなったのに、そこから計算した派生データが
           古いまま残っていないかを機械判定する。対象はbackendの宣言（ORM）が決めるため、表や列が
           増減しても一覧は自動で追従する。あわせて値の列ごとに未計算の件数を数える——「確定して
@@ -141,13 +129,13 @@ export default function DerivedDataFreshnessPanel() {
           DB全体の走査を伴うため集計には時間がかかる。
         </InfoPopover>
       </div>
-      <div className={styles.controls}>
+      <div className="flex flex-wrap items-center gap-2">
         <Button onClick={handleFetch} disabled={loading}>
           {loading ? "集計中…" : report ? "再集計する" : "集計する"}
         </Button>
-        {report && <span className={styles.summary}>{formatComputedAt(report.computed_at)}</span>}
+        {report && <span className={textVariants({ variant: "hint" })}>{formatComputedAt(report.computed_at)}</span>}
       </div>
-      {error && <p className={styles.error}>集計失敗: {error}</p>}
+      {error && <p className={textVariants({ variant: "error" })}>集計失敗: {error}</p>}
       {report && <FreshnessReportView report={report} />}
     </Card>
   );
@@ -157,23 +145,26 @@ export default function DerivedDataFreshnessPanel() {
  * ようにするため（この形なら固定のレポートを渡すだけで描画できる）。 */
 function FreshnessReportView({ report }: { report: DerivedDataFreshnessResponse }) {
   const rows = rowsFromReport(report);
-  const staleCount = rows.filter((row) => row.needsRebuild).length;
+  const staleCount = rows.filter((row) => row.flagged).length;
 
   return (
     <>
-      <div className={staleCount > 0 ? styles.verdictStale : styles.verdictFresh}>
+      <StatusVerdict flagged={staleCount > 0}>
         {staleCount > 0 ? (
           <>
-            <span className={styles.verdictText}>{staleCount}件が作り直し待ち</span>
-            <div className={styles.commandRow}>
-              <code className={styles.command}>{REBUILD_COMMAND}</code>
-              <div className={styles.commandActions}>
+            <span>{staleCount}件が作り直し待ち</span>
+            <div className="flex min-w-0 flex-[1_1_100%] items-start gap-2">
+              <code
+                className={cn(
+                  textVariants({ variant: "code" }),
+                  "block min-w-0 flex-[1_1_12rem] overflow-x-auto whitespace-pre rounded-sm bg-[var(--color-surface)] px-1.5 py-0.5 text-[var(--color-muted-strong)]",
+                )}
+              >
+                {REBUILD_COMMAND}
+              </code>
+              <div className="flex flex-shrink-0 items-start gap-1">
                 <CopyButton text={REBUILD_COMMAND} />
-                <InfoPopover
-                  triggerClassName={styles.infoButton}
-                  triggerAriaLabel="このコマンドをどこで打つかの説明"
-                  contentClassName={floatingPopoverStyles.floatingPopover}
-                >
+                <InfoPopover triggerAriaLabel="このコマンドをどこで打つかの説明">
                   打つ場所は本番VM（SSHで入る）。手元の端末で打っても、そこから見えるのは
                   開発用のDBで、本番は古いまま変わらない。稼働中のDBに対して実行したあとは
                   タイル材料キャッシュの世代を上げる必要がある（上げないと、既にキャッシュ済み
@@ -183,33 +174,11 @@ function FreshnessReportView({ report }: { report: DerivedDataFreshnessResponse 
             </div>
           </>
         ) : (
-          <span className={styles.verdictText}>すべて最新</span>
+          <span>すべて最新</span>
         )}
-      </div>
+      </StatusVerdict>
 
-      <ul className={styles.rows}>
-        {rows.map((row) => (
-          <li key={row.name}>
-            <details className={styles.row}>
-              <summary className={styles.rowSummary}>
-                <span className={row.needsRebuild ? styles.markStale : styles.markFresh} aria-hidden="true" />
-                <span className={styles.rowName}>{row.name}</span>
-                <span className={styles.rowScale}>{row.scale}</span>
-                <span className={styles.srOnly}>{row.needsRebuild ? "作り直しが必要" : "最新"}</span>
-              </summary>
-              <dl className={styles.detail}>
-                {row.detail.map((item) => (
-                  <div key={item.label} className={styles.detailItem}>
-                    <dt className={styles.detailLabel}>{item.label}</dt>
-                    <dd className={styles.detailValue}>{item.value}</dd>
-                  </div>
-                ))}
-              </dl>
-              {row.note && <p className={styles.note}>{row.note}</p>}
-            </details>
-          </li>
-        ))}
-      </ul>
+      <StatusRowList groups={[{ rows }]} flaggedLabel="作り直しが必要" okLabel="最新" />
     </>
   );
 }

@@ -10,7 +10,6 @@ import { AXIS_ICON_PALETTE, axisIconFor } from "@/components/Map/axisIconPalette
 import { Checkbox } from "@/components/ui/Checkbox/Checkbox";
 import { FieldLabel } from "@/components/Map/recipeControls";
 import type { AxisDefinitionResponse } from "@/types/route";
-import styles from "./AxisStudio.module.css";
 import { InfoPopoverButton, SectionLabel } from "./AxisFormFields";
 import { NO_MAP_BANDS_JUDGEMENT } from "@/hooks/useMapBandsOfThresholds";
 import type { MapBandsOfThresholds } from "@/services/axisPreviewApi";
@@ -22,6 +21,12 @@ import {
   thresholdsKeptOnMap,
   type Draft,
 } from "./axisDraft";
+import { Button } from "@/components/ui/Button/Button";
+import { Input, Select, Textarea } from "@/components/ui/Input/Input";
+import { textVariants } from "@/components/ui/Text/Text";
+import { cn } from "@/lib/cn";
+import { cardVariants } from "@/components/ui/Card/Card";
+import { fieldClass } from "@/components/ui/Input/Input";
 
 interface AxisMapDisplaySectionProps {
   draft: Draft;
@@ -120,20 +125,24 @@ export function AxisMapDisplaySection({
     );
     const bands = buildRangeLegendBands(boundaries, colors, mapValueUnit, labels);
     return (
-      <div className={styles.bandPreview} aria-label={`色分けプレビュー（${bandCount}段階）`}>
-        <p className={styles.bandPreviewHeading}>{bandCount}段階になります</p>
-        <ul className={styles.bandPreviewList}>
+      <div className="mt-2" aria-label={`色分けプレビュー（${bandCount}段階）`}>
+        <p className={cn(textVariants({ variant: "hint" }), "mb-1")}>{bandCount}段階になります</p>
+        <ul className="m-0 grid list-none grid-cols-[repeat(auto-fill,minmax(10rem,1fr))] gap-x-2 gap-y-0.5 p-0">
           {bands.map((band) => (
-            <li key={band.key} className={styles.bandPreviewRow}>
+            <li key={band.key} className="flex items-center gap-1.5 text-[length:var(--font-size-sm)] tabular-nums">
               {band.color && (
-                <span aria-hidden="true" className={styles.bandPreviewSwatch} style={{ background: band.color }} />
+                <span
+                  aria-hidden="true"
+                  className="inline-block h-2 w-3.5 shrink-0 rounded-[1px]"
+                  style={{ background: band.color }}
+                />
               )}
               {band.label}
             </li>
           ))}
         </ul>
         {!mapBandColors && (
-          <p className={styles.hint}>
+          <p className={textVariants({ variant: "hint" })}>
             この軸が地図で使う配色はまだ決まっていません（公開して地図に出ると色が付きます）。
           </p>
         )}
@@ -171,34 +180,34 @@ export function AxisMapDisplaySection({
     return (
       <>
         {showMapDisplayUnavailableNote && (
-          <p className={styles.hint}>
+          <p className={textVariants({ variant: "hint" })}>
             この軸で使っている材料の一部は、まだ地図表示用のデータ取得経路が用意されていません（ルート探索のコストには反映されます）
           </p>
         )}
 
-        <div className={styles.shapeGroup}>
+        <div className={cn(cardVariants({ variant: "muted" }), "flex flex-col gap-2")}>
           <SectionLabel
             label="地図の色分けしきい値(任意)"
             description="未設定のままなら自動計算されたしきい値が使われます。段階を細かく刻みたい場合だけ、境界値を小さい順にまとめて入力してください（区切りはカンマでも空白でも構いません）。下に実際の段階とその色が出ます。地図表示自体ができない軸（上の注記が出ている場合）には効果がありません。"
           />
           {draft.displayThresholdsOverride === null ? (
-            <button type="button" className={styles.addButton} onClick={enableThresholdOverride}>
+            <Button size="sm" className="self-start" onClick={enableThresholdOverride}>
               + しきい値を自分で設定する
-            </button>
+            </Button>
           ) : (
             <>
-              <input
+              <Input
                 type="text"
-                className={styles.thresholdListInput}
+                className="w-full tabular-nums"
                 value={thresholdText}
                 aria-label="色分けのしきい値（まとめて入力）"
                 placeholder="例: -10, -5, -1, 1, 2, 3"
                 onChange={(e) => applyThresholdText(e.target.value)}
               />
-              {thresholdError && <p className={styles.thresholdError}>{thresholdError}</p>}
+              {thresholdError && <p className={cn(textVariants({ variant: "error" }), "mt-1")}>{thresholdError}</p>}
               {!thresholdError && thresholdsDroppedOnMap.length > 0 && (
-                <div className={styles.sectionLabelRow}>
-                  <p className={styles.thresholdError}>
+                <div className="flex items-center gap-1">
+                  <p className={cn(textVariants({ variant: "error" }), "mt-1")}>
                     地図では効かない: {formatThresholdList(thresholdsDroppedOnMap)}
                   </p>
                   <InfoPopoverButton
@@ -208,54 +217,54 @@ export function AxisMapDisplaySection({
                 </div>
               )}
               {renderBandPreview()}
-              <div className={styles.row}>
-                <button type="button" onClick={disableThresholdOverride}>
+              <div className="flex flex-wrap items-center gap-3">
+                <Button size="sm" onClick={disableThresholdOverride}>
                   自動計算に戻す
-                </button>
+                </Button>
               </div>
             </>
           )}
         </div>
 
         {draft.displayThresholdsOverride !== null && (
-          <div className={styles.shapeGroup}>
+          <div className={cn(cardVariants({ variant: "muted" }), "flex flex-col gap-2")}>
             <SectionLabel
               label="地図の色分け体感ラベル(任意)"
               description="未設定のままなら数値レンジ（例:「2〜6」）だけの凡例になります。段階ごとに「強い向かい風」のような体感で分かる短い言葉を添えたい場合だけ入力してください。しきい値の上書きを解除する（自動計算に戻す）と、体感ラベルの上書きも一緒に解除されます。"
             />
             {draft.displayBandLabelsOverride === null ? (
-              <button type="button" className={styles.addButton} onClick={enableBandLabelsOverride}>
+              <Button size="sm" className="self-start" onClick={enableBandLabelsOverride}>
                 + 体感ラベルを設定する
-              </button>
+              </Button>
             ) : (
               <>
                 {draft.displayBandLabelsOverride.map((value, i) => (
-                  <div key={i} className={styles.termRow}>
-                    <input
+                  <div key={i} className="flex flex-wrap items-center gap-2">
+                    <Input
                       type="text"
                       value={value}
                       aria-label={`体感ラベル${i + 1}`}
                       onChange={(e) => updateBandLabelOverrideValue(i, e.target.value)}
                     />
                     {mapBands.bandsOnMap && !mapBands.bandsOnMap.includes(i) && (
-                      <span className={styles.hint}>地図には出ない</span>
+                      <span className={textVariants({ variant: "hint" })}>地図には出ない</span>
                     )}
                   </div>
                 ))}
-                <button type="button" onClick={disableBandLabelsOverride}>
+                <Button size="sm" onClick={disableBandLabelsOverride}>
                   体感ラベルの設定をやめる
-                </button>
+                </Button>
               </>
             )}
           </div>
         )}
 
-        <div className={styles.shapeGroup}>
+        <div className={cn(cardVariants({ variant: "muted" }), "flex flex-col gap-2")}>
           <SectionLabel
             label="地図チップ表示要素(任意)"
             description="いずれも未設定のままでよい（アイコンは汎用アイコン、略称は表示名(label)、レイヤー一覧の説明は説明(description)がそれぞれ代わりに使われる）。"
           />
-          <label className={styles.inlineCheckbox}>
+          <label className="inline-flex items-center gap-1 text-[length:var(--font-size-sm)]">
             <Checkbox
               checked={draft.showMapIcon}
               onCheckedChange={(next) => setDraft((d) => ({ ...d, showMapIcon: next }))}
@@ -263,13 +272,13 @@ export function AxisMapDisplaySection({
             />
             地図に出す（オフにすると地図上チップにこの軸が現れなくなります）
           </label>
-          <div className={styles.field}>
+          <div className={fieldClass}>
             <FieldLabel
               label="アイコン"
               description="地図チップに表示するアイコン。既存の意匠から選ぶ（新しい形状の追加はコード変更が必要）。"
             />
-            <div className={styles.row}>
-              <select
+            <div className="flex flex-wrap items-center gap-3">
+              <Select
                 value={draft.iconId}
                 aria-label="アイコン"
                 onChange={(e) => setDraft((d) => ({ ...d, iconId: e.target.value }))}
@@ -280,17 +289,17 @@ export function AxisMapDisplaySection({
                     {entry.label}
                   </option>
                 ))}
-              </select>
+              </Select>
               {renderIconPreview()}
             </div>
           </div>
 
-          <div className={styles.field}>
+          <div className={fieldClass}>
             <FieldLabel
               label="チップの略称"
               description="4文字以内（地図チップは固定サイズのタイルのため必須の上限。未設定時は表示名(label)がそのまま使われるが、正式名が4文字を超える場合はここで略称を設定すること）。"
             />
-            <input
+            <Input
               type="text"
               value={draft.chipLabel}
               aria-label="チップの略称"
@@ -300,9 +309,9 @@ export function AxisMapDisplaySection({
             />
           </div>
 
-          <label className={styles.fieldFull}>
+          <label className={fieldClass}>
             地図のレイヤー一覧向け説明文(panel_hint)
-            <textarea
+            <Textarea
               value={draft.panelHint}
               onChange={(e) => setDraft((d) => ({ ...d, panelHint: e.target.value }))}
               rows={2}
@@ -320,10 +329,12 @@ export function AxisMapDisplaySection({
             保存しても公開へ戻り、画面の操作結果が無言で反転する（design-principles.md
             「1つの状態は1つの場所でだけ操作する」）。ここでは事実だけを示す。 */}
         {republishing ? (
-          <p className={styles.hint}>「調整する」で一時的に下書きへ戻しています。保存すると公開へ戻ります。</p>
+          <p className={textVariants({ variant: "hint" })}>
+            「調整する」で一時的に下書きへ戻しています。保存すると公開へ戻ります。
+          </p>
         ) : (
           !restrictedDisplayOnly && (
-            <label className={styles.inlineCheckbox}>
+            <label className="inline-flex items-center gap-1 text-[length:var(--font-size-sm)]">
               <Checkbox
                 checked={draft.isPublished}
                 onCheckedChange={(next) => setDraft((d) => ({ ...d, isPublished: next }))}

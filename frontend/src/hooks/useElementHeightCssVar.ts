@@ -9,8 +9,8 @@ import { useEffect, type RefObject } from "react";
  * .bottomControlRow]の占有高さを直接は知らないため、これで補う）。
  *
  * 兄弟要素同士でDOMの高さを直接やり取りする手段が無いため、共通の祖先（page.tsxの
- * .mapPane）へinline styleでCSS変数を書き込み、そちらを参照する側（MapOverlayControls.
- * module.cssの.wrapper）のCSS計算へ反映させる（globals.cssの`--mobile-tabbar-height`と
+ * 地図の枠）へinline styleでCSS変数を書き込み、そちらを参照する側（MapOverlayControlsのチップ列）の
+ * CSS計算へ反映させる（globals.cssの`--mobile-tabbar-height`と
  * 同じ「CSS変数で高さを共有する」パターン。あちらは固定値だが、こちらは
  * ResizeObserverで実測するため表示中のレイヤー数による高さの変化[.dynamicLayerSliders
  * のflex-wrap]にも追従する）。

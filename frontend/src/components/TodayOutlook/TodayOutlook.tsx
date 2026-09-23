@@ -1,11 +1,13 @@
 "use client";
 
-import * as Popover from "@radix-ui/react-popover";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/Popover/Popover";
 import { ClockIcon, RaindropIcon, ThermometerIcon, WindIcon } from "@/components/Map/icons";
 import { formatDynamicFrameHourMinute } from "@/components/Map/dynamicWeather";
 import { getWeatherCodeDisplay } from "@/components/WeatherPanel/weatherCode";
 import type { WeatherConditions, WeatherPeriodOutlook } from "@/types/weather";
-import styles from "./TodayOutlook.module.css";
+import { Button } from "@/components/ui/Button/Button";
+import { textVariants } from "@/components/ui/Text/Text";
+import { cn } from "@/lib/cn";
 
 interface TodayOutlookProps {
   weather: WeatherConditions | null;
@@ -46,13 +48,13 @@ function PeriodSlot({ period }: { period: WeatherPeriodOutlook }) {
   // is_dayをコマ単位では取得していないため、
   const display = getWeatherCodeDisplay(period.weather_code);
   return (
-    <div className={styles.periodSlot}>
-      <span className={styles.periodTime}>{formatPeriodLabel(period.period)}</span>
-      {display ? <display.Icon size={17} /> : <span className={styles.periodIconFallback}>-</span>}
-      <span className={styles.periodTemp}>
+    <div className="flex w-10 flex-shrink-0 flex-col items-center gap-1 text-[var(--color-accent)]">
+      <span className={cn(textVariants({ variant: "note" }), "tabular-nums")}>{formatPeriodLabel(period.period)}</span>
+      {display ? <display.Icon size={17} /> : <span className="text-[var(--color-muted)]">-</span>}
+      <span className="text-[length:var(--font-size-sm)] font-semibold text-[var(--foreground)] tabular-nums">
         {period.temperature_c != null ? `${Math.round(period.temperature_c)}℃` : "-"}
       </span>
-      <span className={styles.periodPrecip}>
+      <span className={cn(textVariants({ variant: "note" }), "tabular-nums")}>
         {period.precipitation_mm != null ? formatPrecipitation(period.precipitation_mm) : "-"}
       </span>
     </div>
@@ -66,19 +68,30 @@ export default function TodayOutlook({ weather, loading, error }: TodayOutlookPr
   // 失敗していてもそちらを優先する（WeatherPanelと同じ扱い）。
   if (error && !weather) {
     return (
-      <Popover.Root>
-        <Popover.Trigger asChild>
-          <button type="button" className={styles.triggerError} aria-label="今日の見通しの取得に失敗しました">
+      <Popover>
+        <PopoverTrigger asChild>
+          <Button
+            variant="danger"
+            size="xs"
+            shape="pill"
+            className="font-semibold"
+            aria-label="今日の見通しの取得に失敗しました"
+          >
             今日
-          </button>
-        </Popover.Trigger>
-        <Popover.Portal>
-          <Popover.Content className={styles.panel} side="bottom" align="start" sideOffset={6}>
-            <p className={styles.title}>今日の見通し</p>
-            <p>取得に失敗しました: {error}</p>
-          </Popover.Content>
-        </Popover.Portal>
-      </Popover.Root>
+          </Button>
+        </PopoverTrigger>
+        <PopoverContent
+          layer="header"
+          className="w-76 max-w-[calc(100vw-2*var(--space-3))]"
+          side="bottom"
+          align="start"
+        >
+          <p className={cn(textVariants({ variant: "note" }), "mb-2 font-bold tracking-wide uppercase")}>
+            今日の見通し
+          </p>
+          <p>取得に失敗しました: {error}</p>
+        </PopoverContent>
+      </Popover>
     );
   }
   // ロード中はまだ何とも言えないため、直前の表示を保つよりチラつきを避けて何も出さない
@@ -100,79 +113,77 @@ export default function TodayOutlook({ weather, loading, error }: TodayOutlookPr
   if (!hasAnyOutlookStat) return null;
 
   return (
-    <Popover.Root>
-      <Popover.Trigger asChild>
-        <button type="button" className={styles.trigger} aria-label="今日の見通しを表示">
+    <Popover>
+      <PopoverTrigger asChild>
+        <Button size="xs" shape="pill" className="bg-transparent font-semibold" aria-label="今日の見通しを表示">
           今日
-        </button>
-      </Popover.Trigger>
-      <Popover.Portal>
-        <Popover.Content className={styles.panel} side="bottom" align="start" sideOffset={6}>
-          <p className={styles.title}>今日の見通し</p>
-          <div className={styles.grid}>
-            {weather.precipitation_max_mm != null && (
-              <div className={styles.item}>
-                <RaindropIcon size={15} />
-                <span>
-                  <span className={styles.label}>降水量（最大）</span>
-                  <span className={styles.value}>
-                    {weather.precipitation_max_mm.toFixed(1)}
-                    <span className={styles.unit}>mm/h</span>
-                  </span>
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent layer="header" className="w-76 max-w-[calc(100vw-2*var(--space-3))]" side="bottom" align="start">
+        <p className={cn(textVariants({ variant: "note" }), "mb-2 font-bold tracking-wide uppercase")}>今日の見通し</p>
+        <div className="grid grid-cols-2 gap-x-3 gap-y-2">
+          {weather.precipitation_max_mm != null && (
+            <div className="flex items-start gap-1.5 text-[var(--color-accent)] [&_svg]:mt-0.5 [&_svg]:shrink-0">
+              <RaindropIcon size={15} />
+              <span>
+                <span className={cn(textVariants({ variant: "note" }), "block")}>降水量（最大）</span>
+                <span className="block text-[length:var(--font-size-md)] leading-[1.3] font-semibold text-[var(--foreground)]">
+                  {weather.precipitation_max_mm.toFixed(1)}
+                  <span className="text-[0.75em] font-normal text-[var(--color-muted)]">mm/h</span>
                 </span>
-              </div>
-            )}
-            {weather.wind_speed_max_ms != null && (
-              <div className={styles.item}>
-                <WindIcon size={15} />
-                <span>
-                  <span className={styles.label}>風（最大）</span>
-                  <span className={styles.value}>
-                    {weather.wind_speed_max_ms.toFixed(1)}
-                    <span className={styles.unit}>m/s</span>
-                  </span>
-                </span>
-              </div>
-            )}
-            {(weather.temperature_max_c != null || weather.temperature_min_c != null) && (
-              <div className={styles.item}>
-                <ThermometerIcon size={15} />
-                <span>
-                  <span className={styles.label}>気温</span>
-                  <span className={styles.value}>
-                    {weather.temperature_min_c != null && `${Math.round(weather.temperature_min_c)}℃〜`}
-                    {weather.temperature_max_c != null && `${Math.round(weather.temperature_max_c)}℃`}
-                  </span>
-                </span>
-              </div>
-            )}
-            {hasTwilight && (
-              <div className={styles.item}>
-                <ClockIcon size={15} />
-                <span>
-                  <span className={styles.label}>日の出・日没</span>
-                  <span className={styles.value}>
-                    {weather.sunrise != null ? formatClockTime(weather.sunrise) : "--:--"}
-                    <span className={styles.unit}>〜</span>
-                    {weather.sunset != null ? formatClockTime(weather.sunset) : "--:--"}
-                  </span>
-                </span>
-              </div>
-            )}
-          </div>
-          {hasFlow && (
-            <div className={styles.flow}>
-              <p className={styles.flowTitle}>天気の流れ</p>
-              {/* コマがスマホ横幅に収まりきらない場合は、パネル内だけで横スクロールさせる。 */}
-              <div className={styles.flowScroll}>
-                {weather.today_periods.map((period) => (
-                  <PeriodSlot key={period.period} period={period} />
-                ))}
-              </div>
+              </span>
             </div>
           )}
-        </Popover.Content>
-      </Popover.Portal>
-    </Popover.Root>
+          {weather.wind_speed_max_ms != null && (
+            <div className="flex items-start gap-1.5 text-[var(--color-accent)] [&_svg]:mt-0.5 [&_svg]:shrink-0">
+              <WindIcon size={15} />
+              <span>
+                <span className={cn(textVariants({ variant: "note" }), "block")}>風（最大）</span>
+                <span className="block text-[length:var(--font-size-md)] leading-[1.3] font-semibold text-[var(--foreground)]">
+                  {weather.wind_speed_max_ms.toFixed(1)}
+                  <span className="text-[0.75em] font-normal text-[var(--color-muted)]">m/s</span>
+                </span>
+              </span>
+            </div>
+          )}
+          {(weather.temperature_max_c != null || weather.temperature_min_c != null) && (
+            <div className="flex items-start gap-1.5 text-[var(--color-accent)] [&_svg]:mt-0.5 [&_svg]:shrink-0">
+              <ThermometerIcon size={15} />
+              <span>
+                <span className={cn(textVariants({ variant: "note" }), "block")}>気温</span>
+                <span className="block text-[length:var(--font-size-md)] leading-[1.3] font-semibold text-[var(--foreground)]">
+                  {weather.temperature_min_c != null && `${Math.round(weather.temperature_min_c)}℃〜`}
+                  {weather.temperature_max_c != null && `${Math.round(weather.temperature_max_c)}℃`}
+                </span>
+              </span>
+            </div>
+          )}
+          {hasTwilight && (
+            <div className="flex items-start gap-1.5 text-[var(--color-accent)] [&_svg]:mt-0.5 [&_svg]:shrink-0">
+              <ClockIcon size={15} />
+              <span>
+                <span className={cn(textVariants({ variant: "note" }), "block")}>日の出・日没</span>
+                <span className="block text-[length:var(--font-size-md)] leading-[1.3] font-semibold text-[var(--foreground)]">
+                  {weather.sunrise != null ? formatClockTime(weather.sunrise) : "--:--"}
+                  <span className="text-[0.75em] font-normal text-[var(--color-muted)]">〜</span>
+                  {weather.sunset != null ? formatClockTime(weather.sunset) : "--:--"}
+                </span>
+              </span>
+            </div>
+          )}
+        </div>
+        {hasFlow && (
+          <div className="mt-2 border-t border-[var(--color-border)] pt-2">
+            <p className={cn(textVariants({ variant: "note" }), "mb-1")}>天気の流れ</p>
+            {/* コマがスマホ横幅に収まりきらない場合は、パネル内だけで横スクロールさせる。 */}
+            <div className="-mx-3 flex gap-2 overflow-x-auto px-3 pb-0.5">
+              {weather.today_periods.map((period) => (
+                <PeriodSlot key={period.period} period={period} />
+              ))}
+            </div>
+          </div>
+        )}
+      </PopoverContent>
+    </Popover>
   );
 }

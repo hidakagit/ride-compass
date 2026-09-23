@@ -38,22 +38,4 @@ describe("Button", () => {
     await user.click(button);
     expect(onClick).not.toHaveBeenCalled();
   });
-
-  it("variant/sizeに応じたクラスが付与される", () => {
-    render(
-      <Button variant="primary" size="sm">
-        押す
-      </Button>,
-    );
-    const button = screen.getByRole("button", { name: "押す" });
-    expect(button.className).toContain("bg-[var(--color-accent)]");
-    expect(button.className).toContain("px-2");
-  });
-
-  it("classNameを渡すと合成される(tailwind-mergeで同種プロパティは後勝ち)", () => {
-    render(<Button className="px-10">押す</Button>);
-    const button = screen.getByRole("button", { name: "押す" });
-    expect(button.className).toContain("px-10");
-    expect(button.className).not.toMatch(/px-\[0\.9rem\]/);
-  });
 });

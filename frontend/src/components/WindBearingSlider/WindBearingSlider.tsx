@@ -22,7 +22,9 @@
 import { cardinalLabel } from "@/lib/cardinalLabel";
 import { useRef } from "react";
 import { WindDirectionArrowIcon } from "@/components/Map/icons";
-import styles from "./WindBearingSlider.module.css";
+import { textVariants } from "@/components/ui/Text/Text";
+import { cn } from "@/lib/cn";
+import { cardVariants } from "@/components/ui/Card/Card";
 
 function normalizeDeg(deg: number): number {
   return ((deg % 360) + 360) % 360;
@@ -88,11 +90,16 @@ export default function WindBearingSlider({ value, onChange, ariaLabel }: WindBe
 
   const roundedValue = Math.round(value);
   return (
-    <div className={styles.wrapper}>
-      <div className={styles.panel}>
+    <div className="pointer-events-none">
+      <div
+        className={cn(
+          cardVariants({ variant: "float" }),
+          "pointer-events-auto inline-flex flex-col items-center gap-1 rounded-sm p-1.5",
+        )}
+      >
         <div
           ref={dialRef}
-          className={styles.dial}
+          className="relative flex cursor-grab touch-none items-center justify-center rounded-full border border-[var(--color-border-muted)] bg-[var(--color-surface-2)] active:cursor-grabbing focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--color-accent)]"
           style={{ width: DIAL_SIZE_PX, height: DIAL_SIZE_PX }}
           role="slider"
           aria-label={ariaLabel}
@@ -106,13 +113,13 @@ export default function WindBearingSlider({ value, onChange, ariaLabel }: WindBe
         >
           <span
             aria-hidden="true"
-            className={styles.arrow}
+            className="inline-flex items-center justify-center text-[var(--color-accent-strong)] transition-transform duration-50 ease-linear"
             style={{ width: ARROW_SIZE_PX, height: ARROW_SIZE_PX, transform: `rotate(${value}deg)` }}
           >
             <WindDirectionArrowIcon size={ARROW_SIZE_PX} />
           </span>
         </div>
-        <p className={styles.readout}>
+        <p className={cn(textVariants({ variant: "hint" }), "whitespace-nowrap tabular-nums")}>
           {roundedValue}° {cardinalLabel(value)}
         </p>
       </div>

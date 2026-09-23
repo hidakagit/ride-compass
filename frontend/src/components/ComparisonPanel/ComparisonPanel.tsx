@@ -3,7 +3,8 @@
 import { formatMaterialValue, materialCatalogName, type AxisMaterialOption } from "@/lib/axisMaterialsCatalog";
 import type { PreferenceAxisDef } from "@/lib/evaluationAxes";
 import type { ExperimentSlot } from "@/types/experimentSlot";
-import styles from "./ComparisonPanel.module.css";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/Table/Table";
+import { textVariants } from "@/components/ui/Text/Text";
 
 interface ComparisonPanelProps {
   slots: ExperimentSlot[];
@@ -136,7 +137,7 @@ export default function ComparisonPanel({ slots, axisLabels, axes, materials }: 
   // タブの下が空白になり、壊れているように見える。
   if (slots.length < 2) {
     return (
-      <p className={styles.empty}>
+      <p className={textVariants({ variant: "hint" })}>
         {slots.length === 0
           ? "ルートを生成すると、その回の結果がここへ積まれます。2回目以降を生成すると条件の違いを並べて比べられます。"
           : "もう1回生成すると、前回との違いをここで並べて比べられます。"}
@@ -155,37 +156,39 @@ export default function ComparisonPanel({ slots, axisLabels, axes, materials }: 
 
   return (
     <div className="flex flex-col gap-2">
-      <p className={styles.hint}>
+      <p className={textVariants({ variant: "hint" })}>
         直近{slots.length}回の生成結果を並べています。各列はその回の先頭候補（最も易しい1本）で、
         行は上から順に、ルートそのものの量・材料の実測値・軸ごとの難易度（0〜100）・総合難易度です。
       </p>
-      <div className={styles.tableWrap}>
-        <table className={styles.table}>
-          <thead>
-            <tr>
-              <th />
-              {slots.map((slot) => (
-                <th key={slot.id} title={slotProvenance(slot, axisLabels)}>
-                  <span className={styles.swatch} style={{ background: slot.color }} aria-hidden="true" />
-                  {formatGeneratedAt(slot.conditions.generated_at)}
-                </th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((row) => (
-              <tr key={row.label}>
-                <th scope="row" className={styles.rowHeader}>
-                  {row.label}
-                </th>
-                {slots.map((slot) => (
-                  <td key={slot.id}>{row.format(slot)}</td>
-                ))}
-              </tr>
+      <Table>
+        <TableHead>
+          <TableRow>
+            <TableHeader />
+            {slots.map((slot) => (
+              <TableHeader key={slot.id} title={slotProvenance(slot, axisLabels)}>
+                <span
+                  className="mr-1 inline-block size-2.5 rounded-full"
+                  style={{ background: slot.color }}
+                  aria-hidden="true"
+                />
+                {formatGeneratedAt(slot.conditions.generated_at)}
+              </TableHeader>
             ))}
-          </tbody>
-        </table>
-      </div>
+          </TableRow>
+        </TableHead>
+        <TableBody>
+          {rows.map((row) => (
+            <TableRow key={row.label}>
+              <TableHeader scope="row" className="w-24 whitespace-normal">
+                {row.label}
+              </TableHeader>
+              {slots.map((slot) => (
+                <TableCell key={slot.id}>{row.format(slot)}</TableCell>
+              ))}
+            </TableRow>
+          ))}
+        </TableBody>
+      </Table>
     </div>
   );
 }

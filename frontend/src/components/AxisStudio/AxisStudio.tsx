@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import * as Tabs from "@radix-ui/react-tabs";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/Tabs/Tabs";
 import { DialogContent, DialogRoot } from "@/components/ui/Dialog/Dialog";
 import { materialCatalogLabel, type AxisMaterialOption } from "@/lib/axisMaterialsCatalog";
 import { useMaterialCatalog } from "@/hooks/useMaterialCatalog";
@@ -17,7 +17,10 @@ import { bandColorsFor } from "@/components/Map/valueScale";
 import { useAxisCatalog } from "@/hooks/useAxisCatalog";
 import type { AxisDefinitionPayload, AxisDefinitionResponse, AxisShape } from "@/types/route";
 import AxisComposer from "./AxisComposer";
-import styles from "./AxisStudio.module.css";
+import { Button } from "@/components/ui/Button/Button";
+import { textVariants } from "@/components/ui/Text/Text";
+import { cn } from "@/lib/cn";
+import { cardVariants } from "@/components/ui/Card/Card";
 
 // shapeが参照する材料id一覧（`kind`ごとにフィールド名が異なるため統一する）。この中には
 // 材料カタログの材料idだけでなく、他axis_idを指すもの（他axis_idを材料として参照する
@@ -212,11 +215,11 @@ export default function AxisStudio() {
 
   function renderRowMain(def: AxisDefinitionResponse) {
     return (
-      <div className={styles.listRowMain}>
-        <span className={styles.listLabel} title={`axis_id: ${def.axis_id}`}>
+      <div className="flex min-w-0 flex-col">
+        <span className={textVariants({ variant: "heading" })} title={`axis_id: ${def.axis_id}`}>
           {def.label}
         </span>
-        <span className={styles.listMeta}>
+        <span className={cn(textVariants({ variant: "hint" }), "[overflow-wrap:anywhere]")}>
           {def.category} ・ 重み{def.default_weight.toFixed(2)} ・{" "}
           {materialIdsOf(def.shape)
             .map((id) => labelForMaterialOrAxis(id, definitions ?? [], materials))
@@ -227,9 +230,9 @@ export default function AxisStudio() {
   }
 
   return (
-    <div className={styles.studio}>
-      {listError && <p className={styles.errorText}>{listError}</p>}
-      {notice && <p className={styles.errorText}>{notice}</p>}
+    <div className="flex flex-col gap-3">
+      {listError && <p className={textVariants({ variant: "error" })}>{listError}</p>}
+      {notice && <p className={textVariants({ variant: "error" })}>{notice}</p>}
 
       {/* 下書きタブが既定表示。公開済みタブに削除ボタンは出さない（削除は先に
           「非公開に戻す」という導線を残す）。編集ボタンは「表示だけ編集」として、
@@ -237,83 +240,87 @@ export default function AxisStudio() {
           制限モードへ切り替わる（材料・計算式・重みを変えたい場合は「複製して
           新規作成」に導線を残す。詳細はdocs/modules/frontend/axis-studio.md
           「AxisStudio.tsx（一覧・状態管理）」節参照）。 */}
-      <Tabs.Root className={styles.tabs} defaultValue="draft">
-        <Tabs.List className={styles.tabList}>
-          <Tabs.Trigger className={styles.tabTrigger} value="draft">
-            下書き（{draftDefs.length}）
-          </Tabs.Trigger>
-          <Tabs.Trigger className={styles.tabTrigger} value="published">
-            公開済み（{publishedDefs.length}）
-          </Tabs.Trigger>
-        </Tabs.List>
+      <Tabs className="flex flex-col gap-2" defaultValue="draft">
+        <TabsList>
+          <TabsTrigger value="draft">下書き（{draftDefs.length}）</TabsTrigger>
+          <TabsTrigger value="published">公開済み（{publishedDefs.length}）</TabsTrigger>
+        </TabsList>
 
-        <Tabs.Content className={styles.list} value="draft">
-          {draftDefs.length === 0 && <p className={styles.hint}>下書きの軸はありません。</p>}
+        <TabsContent className={cn(cardVariants({ variant: "outline" }), "flex flex-col gap-2")} value="draft">
+          {draftDefs.length === 0 && <p className={textVariants({ variant: "hint" })}>下書きの軸はありません。</p>}
           {draftDefs.map((def) => (
-            <div key={def.axis_id} className={styles.listRow}>
+            <div
+              key={def.axis_id}
+              className="flex flex-wrap items-center justify-between gap-2 border-b border-[var(--color-border)] pb-2 last:border-b-0 last:pb-0"
+            >
               {renderRowMain(def)}
-              <div className={styles.listRowActions}>
-                <button type="button" onClick={() => setEditingAxisId(def.axis_id)}>
+              <div className="flex flex-wrap gap-1">
+                <Button size="sm" onClick={() => setEditingAxisId(def.axis_id)}>
                   編集
-                </button>
-                <button type="button" onClick={() => handleDuplicate(def)}>
+                </Button>
+                <Button size="sm" onClick={() => handleDuplicate(def)}>
                   複製して新規作成
-                </button>
-                <button
-                  type="button"
-                  className={styles.deleteButton}
+                </Button>
+                <Button
+                  variant="danger"
+                  size="sm"
                   onClick={() => handleDelete(def.axis_id)}
                   disabled={deletingAxisId === def.axis_id || (definitions?.length ?? 0) <= 1}
                   title={(definitions?.length ?? 0) <= 1 ? "最後の1軸は削除できません" : undefined}
                 >
                   削除
-                </button>
+                </Button>
               </div>
             </div>
           ))}
-        </Tabs.Content>
+        </TabsContent>
 
-        <Tabs.Content className={styles.list} value="published">
-          {publishedDefs.length === 0 && <p className={styles.hint}>公開済みの軸はありません。</p>}
+        <TabsContent className={cn(cardVariants({ variant: "outline" }), "flex flex-col gap-2")} value="published">
+          {publishedDefs.length === 0 && (
+            <p className={textVariants({ variant: "hint" })}>公開済みの軸はありません。</p>
+          )}
           {publishedDefs.map((def) => (
-            <div key={def.axis_id} className={styles.listRow}>
+            <div
+              key={def.axis_id}
+              className="flex flex-wrap items-center justify-between gap-2 border-b border-[var(--color-border)] pb-2 last:border-b-0 last:pb-0"
+            >
               {renderRowMain(def)}
-              <div className={styles.listRowActions}>
-                <button
-                  type="button"
+              <div className="flex flex-wrap gap-1">
+                <Button
+                  size="sm"
                   onClick={() => setEditingAxisId(def.axis_id)}
                   title="材料・計算式・重みは変更できません。地図チップ・色分けしきい値等の表示専用フィールドのみ編集できます"
                 >
                   表示だけ編集
-                </button>
-                <button
-                  type="button"
+                </Button>
+                <Button
+                  size="sm"
                   onClick={() => handleAdjustPublished(def)}
                   disabled={unpublishingAxisId === def.axis_id}
                   title="材料・計算式・折れ点を変更します。編集中は一時的に下書きへ戻り、保存すると公開へ戻ります"
                 >
                   調整する
-                </button>
-                <button type="button" onClick={() => handleDuplicate(def)}>
+                </Button>
+                <Button size="sm" onClick={() => handleDuplicate(def)}>
                   複製して新規作成
-                </button>
-                <button
-                  type="button"
+                </Button>
+                <Button
+                  size="sm"
                   onClick={() => handleUnpublish(def.axis_id)}
                   disabled={unpublishingAxisId === def.axis_id}
                   title="一般ユーザー向けの軸カタログから外し、下書きへ戻します（削除するにはこの後もう一度「削除」を押します）"
                 >
                   非公開に戻す
-                </button>
+                </Button>
               </div>
             </div>
           ))}
-        </Tabs.Content>
-      </Tabs.Root>
+        </TabsContent>
+      </Tabs>
 
-      <button
-        type="button"
-        className={styles.newAxisButton}
+      <Button
+        size="sm"
+        className="self-start font-bold"
         onClick={() => {
           setEditingAxisId(null);
           setDuplicateFrom(null);
@@ -321,7 +328,7 @@ export default function AxisStudio() {
         }}
       >
         + 新しい軸を作る
-      </button>
+      </Button>
 
       <DialogRoot
         open={composerOpen}

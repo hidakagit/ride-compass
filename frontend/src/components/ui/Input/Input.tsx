@@ -1,26 +1,39 @@
 import { forwardRef } from "react";
 import { cn } from "@/lib/cn";
 
-// 汎用テキスト/数値入力。type属性をそのままパススルーするためtext/numberどちらの
-// 用途にも使える。色は必ずvar(--color-*)を任意値記法で参照する(docs/modules/frontend/frontend-design-system.md)。
+// 入力欄（1行・複数行・選択）の見た目。3つとも同じ枠・大きさ・フォーカスの輪を持つ。
+export const controlClass = cn(
+  "rounded-sm border border-[var(--color-border-strong)] bg-[var(--color-surface)] px-2 py-1",
+  "text-[length:var(--font-size-md)] text-[var(--foreground)]",
+  "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--color-accent)]",
+  "read-only:bg-[var(--color-surface-2)] read-only:text-[var(--color-muted)] disabled:opacity-50 aria-invalid:border-[var(--color-danger)]",
+);
+
 interface InputProps extends React.InputHTMLAttributes<HTMLInputElement> {
-  /** true時にaria-invalidを付与し赤枠にする。ErrorTextとの結線は今回は行わない。 */
+  /** true時にaria-invalidを付与し赤枠にする。 */
   invalid?: boolean;
 }
 
 export const Input = forwardRef<HTMLInputElement, InputProps>(function Input({ className, invalid, ...props }, ref) {
-  return (
-    <input
-      ref={ref}
-      aria-invalid={invalid || undefined}
-      className={cn(
-        "rounded-sm border border-[var(--color-border-strong)] bg-[var(--color-surface)] px-[0.6rem] py-[0.4rem]",
-        "text-[length:var(--font-size-md)] text-[var(--foreground)]",
-        "focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--color-accent)] focus-visible:outline-offset-2",
-        invalid && "border-[var(--color-danger)]",
-        className,
-      )}
-      {...props}
-    />
-  );
+  return <input ref={ref} aria-invalid={invalid || undefined} className={cn(controlClass, className)} {...props} />;
 });
+
+export const Textarea = forwardRef<HTMLTextAreaElement, React.TextareaHTMLAttributes<HTMLTextAreaElement>>(
+  function Textarea({ className, ...props }, ref) {
+    return <textarea ref={ref} className={cn(controlClass, className)} {...props} />;
+  },
+);
+
+export const Select = forwardRef<HTMLSelectElement, React.SelectHTMLAttributes<HTMLSelectElement>>(function Select(
+  { className, ...props },
+  ref,
+) {
+  return <select ref={ref} className={cn(controlClass, className)} {...props} />;
+});
+
+/** 入力欄と、その上に置く名前を縦に並べる。 */
+export const fieldClass = "flex min-w-0 flex-col gap-0.5 text-[length:var(--font-size-sm)] text-[var(--color-muted)]";
+
+export function Field({ className, ...props }: React.LabelHTMLAttributes<HTMLLabelElement>) {
+  return <label className={cn(fieldClass, className)} {...props} />;
+}

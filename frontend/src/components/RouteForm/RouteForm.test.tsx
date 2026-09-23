@@ -122,7 +122,7 @@ describe("RouteForm", () => {
       const user = userEvent.setup();
       render(<ControlledRouteForm />);
 
-      await user.click(screen.getByRole("button", { name: "目的地" }));
+      await user.click(screen.getByRole("radio", { name: "目的地" }));
 
       expect(screen.queryByRole("slider", { name: "距離" })).not.toBeInTheDocument();
       expect(screen.getByRole("button", { name: "出発地を地図で選ぶ" })).toBeInTheDocument();

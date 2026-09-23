@@ -8,7 +8,10 @@ import { NewRouteIcon, RouteDiffIcon, UndoAllIcon, UndoIcon } from "@/components
 import type { PreferenceAxisDef } from "@/lib/evaluationAxes";
 import { formatDurationShort } from "@/lib/formatDuration";
 import type { RouteCandidate } from "@/types/route";
-import styles from "./RouteSplicePanel.module.css";
+import { Button } from "@/components/ui/Button/Button";
+import { textVariants } from "@/components/ui/Text/Text";
+import { cn } from "@/lib/cn";
+import { cardVariants } from "@/components/ui/Card/Card";
 
 interface RouteSplicePanelProps {
   /** 編集の元。1本に固定で、地図で他候補を押しても変わらない。 */
@@ -143,55 +146,48 @@ export default function RouteSplicePanel({
   const halves = [metrics.slice(0, 2), metrics.slice(2)];
 
   return (
-    <section className={styles.panel} aria-labelledby="splice-heading">
-      <div className={styles.headingRow}>
-        <button type="button" className={styles.back} aria-label="編集をやめて候補へ戻る" onClick={onCancel}>
+    <section
+      className={cn(
+        cardVariants({ variant: "outline" }),
+        "flex flex-col gap-1.5 rounded-lg border-[var(--color-border)] bg-[var(--color-surface-2)]",
+      )}
+      aria-labelledby="splice-heading"
+    >
+      <div className="flex items-center gap-1">
+        <Button
+          variant="ghost"
+          size="bare"
+          className="px-0.5 text-[15px]"
+          aria-label="編集をやめて候補へ戻る"
+          onClick={onCancel}
+        >
           ‹
-        </button>
-        <h3 className={styles.heading} id="splice-heading">
+        </Button>
+        <h3 className={cn(textVariants({ variant: "heading" }), "font-semibold")} id="splice-heading">
           区間の乗り換え
         </h3>
         {/* 使い方は画面へ書かずここへ置く（設計原則「冗長なものは削る」）。 */}
-        <InfoPopover
-          triggerClassName={styles.headingInfo}
-          triggerAriaLabel="区間の乗り換えの説明"
-          contentClassName={styles.headingInfoPopover}
-        >
+        <InfoPopover triggerAriaLabel="区間の乗り換えの説明">
           地図の破線が、いまの道から乗り換えられる先です。タップするとそこへ乗り換わり、その先に
           分かれ道があれば次の破線が出ます。太い線が、いま作っているルートです。天秤は結果を
           評価するボタン、その隣は新しい候補として作るボタンです。軸の棒は中央が0で、左（−）へ
           伸びた軸ほど難易度が下がり、右（＋）へ伸びた軸ほど上がっています。
         </InfoPopover>
-        {appliedCount > 0 && <span className={styles.appliedCount}>{appliedCount}回</span>}
+        {appliedCount > 0 && <span className={cn(textVariants({ variant: "hint" }), "ml-1")}>{appliedCount}回</span>}
         {!unavailable && (
-          <div className={styles.headingActions}>
+          <div className="ml-auto flex items-center gap-1.5">
             {appliedCount > 0 && (
               <>
-                <button
-                  type="button"
-                  className={styles.actionIcon}
-                  onClick={onUndo}
-                  disabled={busy}
-                  aria-label="1つ戻す"
-                  title="1つ戻す"
-                >
+                <Button size="icon" onClick={onUndo} disabled={busy} aria-label="1つ戻す" title="1つ戻す">
                   <UndoIcon size={18} />
-                </button>
-                <button
-                  type="button"
-                  className={styles.actionIcon}
-                  onClick={onReset}
-                  disabled={busy}
-                  aria-label="全部戻す"
-                  title="全部戻す"
-                >
+                </Button>
+                <Button size="icon" onClick={onReset} disabled={busy} aria-label="全部戻す" title="全部戻す">
                   <UndoAllIcon size={18} />
-                </button>
+                </Button>
               </>
             )}
-            <button
-              type="button"
-              className={styles.actionIcon}
+            <Button
+              size="icon"
               onClick={onPreview}
               disabled={appliedCount === 0 || busy}
               aria-busy={previewing}
@@ -199,10 +195,9 @@ export default function RouteSplicePanel({
               title="差分を見る"
             >
               <RouteDiffIcon size={18} />
-            </button>
-            <button
-              type="button"
-              className={styles.actionIcon}
+            </Button>
+            <Button
+              size="icon"
               onClick={onApply}
               disabled={appliedCount === 0 || busy}
               aria-busy={applying}
@@ -210,40 +205,43 @@ export default function RouteSplicePanel({
               title="新しいルートを作る"
             >
               <NewRouteIcon size={18} />
-            </button>
+            </Button>
           </div>
         )}
       </div>
 
       {unavailable ? (
-        <p className={styles.note}>この候補は経路のEdge情報を持たないため、区間を出せません。</p>
+        <p className={textVariants({ variant: "hint" })}>この候補は経路のEdge情報を持たないため、区間を出せません。</p>
       ) : (
         <>
           {/* 指標はルート結果と同じ項目。2列×2行で、元→編集後の位置を縦に揃える。 */}
-          <div className={styles.metrics}>
+          <div className="grid grid-cols-2 gap-x-3 gap-y-0.5 text-[length:var(--font-size-md)]">
             {halves.map((half, index) => (
               // 5つの要素をこのgridの直接の子にする（行のラッパを挟むと列が行ごとに独立し、
               // 「所要」と「28分」のように縦位置が揃わない）。
-              <dl className={styles.metricHalf} key={index}>
+              <dl
+                className="m-0 grid grid-cols-[max-content_minmax(0,max-content)_max-content_minmax(0,max-content)_max-content] items-baseline gap-x-1 gap-y-0.5"
+                key={index}
+              >
                 {half.map((metric) => {
                   const shown = metric.delta != null ? roundToDigits(metric.delta, digitsOf(metric.label)) : null;
                   return (
                     <Fragment key={metric.label}>
-                      <dt className={styles.metricLabel}>{metric.label}</dt>
-                      <dd className={styles.metricBase}>{metric.base ?? "—"}</dd>
+                      <dt className={textVariants({ variant: "note" })}>{metric.label}</dt>
+                      <dd className="m-0 text-right text-[var(--color-muted)]">{metric.base ?? "—"}</dd>
                       {/* 評価前は矢印も出さない（行き先が無いのに→だけ残ると読み手が待たされる）。 */}
-                      <dd className={styles.metricArrow} aria-hidden="true">
+                      <dd className={cn(textVariants({ variant: "note" }), "m-0")} aria-hidden="true">
                         {metric.after ? "→" : ""}
                       </dd>
                       <dd
-                        className={styles.metricAfter}
+                        className="m-0 font-bold data-[better=true]:text-[var(--color-accent)] data-[worse=true]:text-[var(--color-route-splice)]"
                         data-worse={shown != null && shown > 0}
                         data-better={shown != null && shown < 0}
                       >
                         {metric.after ?? ""}
                       </dd>
                       <dd
-                        className={styles.metricDelta}
+                        className="m-0 text-[length:var(--font-size-xs)] data-[better=true]:text-[var(--color-accent)] data-[worse=true]:text-[var(--color-route-splice)]"
                         data-worse={shown != null && shown > 0}
                         data-better={shown != null && shown < 0}
                       >
@@ -258,20 +256,22 @@ export default function RouteSplicePanel({
 
           {/* 軸別は元・編集後の2本を並べず、差だけの1本にする。中央が0で、左が楽になった側。 */}
           {deltas.length > 0 && (
-            <div className={styles.deltaRow}>
-              <span className={styles.better}>−</span>
+            <div className="mt-0.5 flex items-center gap-1.5">
+              <span className="text-[length:var(--font-size-sm)] leading-none font-bold text-[var(--color-accent)]">
+                −
+              </span>
               <div
-                className={styles.deltaTrack}
+                className="flex h-3 min-w-0 flex-1 items-stretch"
                 role="img"
                 aria-label={deltas.map((item) => `${item.label} ${formatDelta(item.delta, 1)}`).join("、")}
               >
-                <div className={styles.deltaSide}>
+                <div className="flex min-w-0 flex-[1_1_50%] justify-end">
                   {deltas
                     .filter((item) => item.delta < 0)
                     .map((item) => (
                       <span
                         key={item.axisId}
-                        className={styles.deltaSegment}
+                        className="block h-full"
                         style={{
                           width: `${(Math.abs(item.delta) / scale) * 50}%`,
                           background: axisColors[item.axisId] ?? "var(--color-muted)",
@@ -279,14 +279,14 @@ export default function RouteSplicePanel({
                       />
                     ))}
                 </div>
-                <div className={styles.deltaCenter} />
-                <div className={`${styles.deltaSide} ${styles.deltaSideRight}`}>
+                <div className="-my-0.5 w-0.5 bg-[var(--foreground)]" />
+                <div className="flex min-w-0 flex-[1_1_50%] justify-start">
                   {deltas
                     .filter((item) => item.delta > 0)
                     .map((item) => (
                       <span
                         key={item.axisId}
-                        className={styles.deltaSegment}
+                        className="block h-full"
                         style={{
                           width: `${(Math.abs(item.delta) / scale) * 50}%`,
                           background: axisColors[item.axisId] ?? "var(--color-muted)",
@@ -295,16 +295,18 @@ export default function RouteSplicePanel({
                     ))}
                 </div>
               </div>
-              <span className={styles.worse}>＋</span>
+              <span className="text-[length:var(--font-size-sm)] leading-none font-bold text-[var(--color-route-splice)]">
+                ＋
+              </span>
             </div>
           )}
 
           {error && <ErrorText>{error}</ErrorText>}
 
-          <p className={styles.note}>
+          <p className={textVariants({ variant: "hint" })}>
             {deltas.length > 0
               ? deltas.slice(0, LABELLED_DELTA_COUNT).map((item) => (
-                  <span className={styles.axisDelta} key={item.axisId}>
+                  <span className="mr-2.5" key={item.axisId}>
                     {item.label} {formatDelta(item.delta, 1)}
                   </span>
                 ))

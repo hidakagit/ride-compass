@@ -1,6 +1,6 @@
 "use client";
 
-import * as Popover from "@radix-ui/react-popover";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/Popover/Popover";
 import { useId, useMemo, useState } from "react";
 import routeGenerateConfig from "@/types/generated/route-generate-config.json";
 import { clampSpeedKmh, formatDepartureLabel, toDatetimeLocalValue } from "@/lib/rideConditions";
@@ -11,7 +11,10 @@ import DynamicLayerTimeSlider from "@/components/DynamicLayerTimeSlider/DynamicL
 import { nearestTimeIndex } from "@/components/Map/dynamicWeather";
 import { ClockIcon, SpeedGaugeIcon } from "@/components/Map/icons";
 import { buildDepartureFrames, buildDepartureTimeline } from "./departureTimeline";
-import styles from "./RideConditionBar.module.css";
+import { Button } from "@/components/ui/Button/Button";
+import { NumberInput } from "@/components/ui/NumberInput/NumberInput";
+import { Input } from "@/components/ui/Input/Input";
+import { textVariants } from "@/components/ui/Text/Text";
 
 interface RideConditionBarProps {
   /** 出発時刻（気象レイヤーの表示時刻と同じ共有state）。 */
@@ -39,7 +42,6 @@ export default function RideConditionBar({
   speedKmh,
   onSpeedKmhChange,
 }: RideConditionBarProps) {
-  const [speedDraft, setSpeedDraft] = useState<string | null>(null);
   // ドラッグタイムラインの目盛りは開いた瞬間の時刻を基準に生成する（開いたまま長時間放置
   // されても「現在」ボタン・目盛りの基準がずれないよう、開くたびに作り直す）。閉じている間は
   // nullのままにしてPopover.Content自体が非マウントの間の無駄な計算を避ける。
@@ -54,116 +56,113 @@ export default function RideConditionBar({
   const departureLabel = formatDepartureLabel(departureTime);
   const speedLabel = `${speedKmh}km/h`;
 
-  function commitSpeedDraft() {
-    if (speedDraft == null) return;
-    onSpeedKmhChange(clampSpeedKmh(Number(speedDraft)));
-    setSpeedDraft(null);
-  }
-
   return (
-    <div className={styles.bar} role="group" aria-label="走行条件">
-      <Popover.Root onOpenChange={(open) => setDepartureAnchor(open ? new Date() : null)}>
-        <Popover.Trigger asChild>
-          <button
-            type="button"
-            className={styles.trigger}
+    <div
+      className="pointer-events-auto flex flex-col gap-[var(--map-ctrl-stack-gap)]"
+      role="group"
+      aria-label="走行条件"
+    >
+      <Popover onOpenChange={(open) => setDepartureAnchor(open ? new Date() : null)}>
+        <PopoverTrigger asChild>
+          <Button
+            variant="mapCtrl"
+            size="mapCtrl"
+            className="h-auto min-h-[var(--map-ctrl-button-size)] flex-col gap-px py-[3px]"
             aria-label={`出発時刻: ${departureLabel}（タップで変更）`}
             title={`出発時刻: ${departureLabel}`}
           >
             <ClockIcon />
             {/* 別の日は「9/24 12:40」になるため、列の幅に収まるよう日付と時刻を2行に分ける。 */}
-            <span className={styles.value}>
+            <span className="flex flex-col items-center text-[10px] leading-[1.1] font-semibold whitespace-nowrap">
               {departureLabel.split(" ").map((part) => (
-                <span key={part} className={styles.valueLine}>
+                <span key={part} className="block">
                   {part}
                 </span>
               ))}
             </span>
-          </button>
-        </Popover.Trigger>
-        <Popover.Portal>
-          <Popover.Content
-            className={styles.timelinePopover}
-            side="bottom"
-            align="end"
-            sideOffset={6}
-            collisionPadding={8}
-          >
-            <input
-              id={departureInputId}
-              type="datetime-local"
-              aria-label="出発日時を直接指定"
-              value={toDatetimeLocalValue(departureTime)}
-              onChange={(e) => {
-                const next = new Date(e.target.value);
-                if (!Number.isNaN(next.getTime())) onDepartureTimeChange(next);
+          </Button>
+        </PopoverTrigger>
+        <PopoverContent
+          tone="bare"
+          className="flex max-w-[var(--radix-popover-content-available-width)] flex-col items-end gap-1"
+          side="bottom"
+          align="end"
+          sideOffset={6}
+          collisionPadding={8}
+        >
+          <Input
+            id={departureInputId}
+            type="datetime-local"
+            aria-label="出発日時を直接指定"
+            value={toDatetimeLocalValue(departureTime)}
+            onChange={(e) => {
+              const next = new Date(e.target.value);
+              if (!Number.isNaN(next.getTime())) onDepartureTimeChange(next);
+            }}
+            className="h-8 tabular-nums"
+          />
+          {departureAnchor && (
+            <DynamicLayerTimeSlider
+              frames={departureFrames}
+              index={nearestTimeIndex(departureTimeline, departureTime)}
+              onIndexChange={(index) => {
+                const time = departureTimeline[index];
+                if (time) onDepartureTimeChange(time);
               }}
-              className={`${styles.input} ${styles.directInput}`}
+              currentIndex={nearestTimeIndex(departureTimeline, departureAnchor)}
+              onNow={onDepartureNow}
+              loading={false}
+              loadingLabel=""
+              error={null}
+              ariaLabel="出発時刻"
             />
-            {departureAnchor && (
-              <DynamicLayerTimeSlider
-                frames={departureFrames}
-                index={nearestTimeIndex(departureTimeline, departureTime)}
-                onIndexChange={(index) => {
-                  const time = departureTimeline[index];
-                  if (time) onDepartureTimeChange(time);
-                }}
-                currentIndex={nearestTimeIndex(departureTimeline, departureAnchor)}
-                onNow={onDepartureNow}
-                loading={false}
-                loadingLabel=""
-                error={null}
-                ariaLabel="出発時刻"
-              />
-            )}
-          </Popover.Content>
-        </Popover.Portal>
-      </Popover.Root>
+          )}
+        </PopoverContent>
+      </Popover>
 
-      <Popover.Root onOpenChange={(open) => !open && commitSpeedDraft()}>
-        <Popover.Trigger asChild>
-          <button
-            type="button"
-            className={styles.trigger}
+      <Popover>
+        <PopoverTrigger asChild>
+          <Button
+            variant="mapCtrl"
+            size="mapCtrl"
+            className="h-auto min-h-[var(--map-ctrl-button-size)] flex-col gap-px py-[3px]"
             aria-label={`想定速度: ${speedLabel}（タップで変更）`}
             title={`想定速度: ${speedLabel}`}
           >
             <SpeedGaugeIcon />
-            <span className={styles.value}>{speedLabel}</span>
-          </button>
-        </Popover.Trigger>
-        <Popover.Portal>
-          <Popover.Content className={styles.popover} side="bottom" align="end" sideOffset={6} collisionPadding={8}>
-            <div className={styles.speedRow}>
-              <input
-                type="range"
-                aria-label="想定速度スライダー"
-                min={MIN_SPEED_KMH}
-                max={MAX_SPEED_KMH}
-                step={1}
-                value={speedKmh}
-                onChange={(e) => onSpeedKmhChange(clampSpeedKmh(Number(e.target.value)))}
-                className={styles.slider}
-              />
-              <input
-                id={speedInputId}
-                type="number"
-                aria-label="想定速度（km/h）"
-                inputMode="numeric"
-                min={MIN_SPEED_KMH}
-                max={MAX_SPEED_KMH}
-                step={1}
-                value={speedDraft ?? String(speedKmh)}
-                onChange={(e) => setSpeedDraft(e.target.value)}
-                onBlur={commitSpeedDraft}
-                onFocus={(e) => e.currentTarget.select()}
-                className={styles.input}
-              />
-              <span className={styles.unit}>km/h</span>
-            </div>
-          </Popover.Content>
-        </Popover.Portal>
-      </Popover.Root>
+            <span className="flex flex-col items-center text-[10px] leading-[1.1] font-semibold whitespace-nowrap">
+              {speedLabel}
+            </span>
+          </Button>
+        </PopoverTrigger>
+        <PopoverContent className="flex flex-col gap-2 px-2 py-1.5" side="bottom" align="end" collisionPadding={8}>
+          <div className="flex items-center gap-2">
+            <input
+              type="range"
+              aria-label="想定速度スライダー"
+              min={MIN_SPEED_KMH}
+              max={MAX_SPEED_KMH}
+              step={1}
+              value={speedKmh}
+              onChange={(e) => onSpeedKmhChange(clampSpeedKmh(Number(e.target.value)))}
+              className="min-w-32 flex-1"
+            />
+            <NumberInput
+              commitOn="commit"
+              id={speedInputId}
+              aria-label="想定速度（km/h）"
+              inputMode="numeric"
+              min={MIN_SPEED_KMH}
+              max={MAX_SPEED_KMH}
+              step={1}
+              value={speedKmh}
+              onValueChange={(next) => onSpeedKmhChange(clampSpeedKmh(next))}
+              className="h-8 w-18 tabular-nums"
+            />
+            <span className={textVariants({ variant: "hint" })}>km/h</span>
+          </div>
+        </PopoverContent>
+      </Popover>
     </div>
   );
 }

@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { useState } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -92,8 +92,8 @@ describe("RideConditionBar", () => {
     expect(timePart).toBe("12:40");
     const departure = screen.getByRole("button", { name: `出発時刻: ${label}（タップで変更）` });
     expect(departure).toHaveAttribute("title", `出発時刻: ${label}`);
-    const lines = Array.from(departure.querySelectorAll('[class*="valueLine"]')).map((el) => el.textContent);
-    expect(lines).toEqual([datePart, timePart]);
+    // 日付と時刻は別々の行（要素）に出る
+    expect(within(departure).getByText(datePart)).not.toBe(within(departure).getByText(timePart));
   });
 
   it("出発チップをタップするとドラッグ式タイムラインが開き、キーボード操作で出発時刻を進められる", async () => {

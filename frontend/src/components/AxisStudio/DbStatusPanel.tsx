@@ -4,10 +4,10 @@ import { useState } from "react";
 import { Button } from "@/components/ui/Button/Button";
 import { Card } from "@/components/ui/Card/Card";
 import InfoPopover from "@/components/Map/InfoPopover";
-import floatingPopoverStyles from "@/components/ui/floatingPopover.module.css";
 import { getDbStatus } from "@/services/dbStatusApi";
 import type { DbStatusResponse } from "@/types/route";
-import styles from "./DerivedDataFreshnessPanel.module.css";
+import { type StatusRow, StatusRowList, StatusVerdict } from "./StatusRowList";
+import { textVariants } from "@/components/ui/Text/Text";
 
 function formatCount(value: number): string {
   return value.toLocaleString("ja-JP");
@@ -31,14 +31,6 @@ function formatDuration(seconds: number): string {
 
 /** 「データ保守」タブの他のパネルと同じ1行の形。判定の種類（取込・テーブル・接続）が違っても、
  * 読み手が知りたいのは「注意が要るか」で同じなので見た目を揃える。 */
-interface StatusRow {
-  name: string;
-  scale: string;
-  needsAttention: boolean;
-  detail: { label: string; value: string }[];
-  note?: string;
-}
-
 /** 行の見た目を揃えたぶん、何と何が並んでいるのかは見出しが引き受ける。並び順に根拠がある
  * 群（テーブルは容量の大きい順）は、その根拠も見出しへ書く。 */
 interface StatusGroup {
@@ -53,7 +45,7 @@ function groupsFromStatus(report: DbStatusResponse): StatusGroup[] {
       entry.latest_id === null
         ? "記録なし"
         : `#${entry.latest_id} ${entry.latest_status === "succeeded" ? "成功" : entry.latest_status}`,
-    needsAttention: entry.needs_attention,
+    flagged: entry.needs_attention,
     detail: [
       {
         label: "最終実行",
@@ -86,7 +78,7 @@ function groupsFromStatus(report: DbStatusResponse): StatusGroup[] {
     // 見出しの「接続」と同じ名前にすると、群と行の区別がつかない。
     name: "同時接続",
     scale: `${report.connections.total} / ${report.connections.max_connections}`,
-    needsAttention: report.connections.needs_attention,
+    flagged: report.connections.needs_attention,
     detail: [
       {
         label: "接続数",
@@ -115,7 +107,7 @@ function groupsFromStatus(report: DbStatusResponse): StatusGroup[] {
   const tableRow = (entry: DbStatusResponse["tables"][number]): StatusRow => ({
     name: entry.table_name,
     scale: `${formatCount(entry.row_count)}行 ・ ${formatBytes(entry.total_bytes)}`,
-    needsAttention: entry.needs_attention,
+    flagged: entry.needs_attention,
     detail: [
       { label: "行数", value: `${formatCount(entry.row_count)}件（実数）` },
       { label: "容量", value: formatBytes(entry.total_bytes) },
@@ -135,7 +127,7 @@ function groupsFromStatus(report: DbStatusResponse): StatusGroup[] {
         {
           name: `注意なし ${rest.length}テーブル`,
           scale: `${formatCount(sumRows(rest))}行 ・ ${formatBytes(sumBytes(rest))}`,
-          needsAttention: false,
+          flagged: false,
           detail: rest.map((entry) => ({
             label: entry.table_name,
             value: `${formatCount(entry.row_count)}行 ・ ${formatBytes(entry.total_bytes)}`,
@@ -190,41 +182,35 @@ export default function DbStatusPanel() {
   const attentionCount = report
     ? groupsFromStatus(report)
         .flatMap((group) => group.rows)
-        .filter((row) => row.needsAttention).length
+        .filter((row) => row.flagged).length
     : 0;
 
   return (
-    <Card className={styles.panel}>
-      <div className={styles.headingRow}>
-        <span className={styles.heading}>本番DBの状態</span>
-        <InfoPopover
-          triggerClassName={styles.infoButton}
-          triggerAriaLabel="本番DBの状態の説明"
-          contentClassName={floatingPopoverStyles.floatingPopover}
-        >
+    <Card className="flex flex-col gap-2">
+      <div className="flex items-center gap-1">
+        <span className={textVariants({ variant: "heading" })}>本番DBの状態</span>
+        <InfoPopover triggerAriaLabel="本番DBの状態の説明">
           派生データの鮮度が拠って立つ土台の側を見る。生データの取込そのものが失敗していないか、
           行が本当に入っているか、プランナが使う統計が取れているか、トランザクションが放置されて
           いないか。行数は統計値ではなく実数を数えるため、DB全体の走査を伴い集計には時間がかかる。
         </InfoPopover>
       </div>
-      <div className={styles.controls}>
+      <div className="flex flex-wrap items-center gap-2">
         <Button onClick={handleFetch} disabled={loading}>
           {loading ? "集計中…" : report ? "再集計する" : "集計する"}
         </Button>
         {report && (
-          <span className={styles.summary}>
+          <span className={textVariants({ variant: "hint" })}>
             {summaryOf(report)} ・ {formatMoment(report.computed_at)}
           </span>
         )}
       </div>
-      {error && <p className={styles.error}>集計失敗: {error}</p>}
+      {error && <p className={textVariants({ variant: "error" })}>集計失敗: {error}</p>}
       {report && (
         <>
-          <div className={attentionCount > 0 ? styles.verdictStale : styles.verdictFresh}>
-            <span className={styles.verdictText}>
-              {attentionCount > 0 ? `${attentionCount}件に注意` : "注意はなし"}
-            </span>
-          </div>
+          <StatusVerdict flagged={attentionCount > 0}>
+            <span>{attentionCount > 0 ? `${attentionCount}件に注意` : "注意はなし"}</span>
+          </StatusVerdict>
           <StatusRows report={report} />
         </>
       )}
@@ -232,38 +218,7 @@ export default function DbStatusPanel() {
   );
 }
 
-/** 行の描画。取得と分けてあるのは、認証の要る画面を通さずに見え方を確かめられるようにする
- * ため（DerivedDataFreshnessPanelのFreshnessReportViewと同じ理由）。 */
+/** 行の描画。取得と分けてあるのは、認証の要る画面を通さずに見え方を確かめられるようにするため。 */
 function StatusRows({ report }: { report: DbStatusResponse }) {
-  const groups = groupsFromStatus(report);
-  return (
-    <ul className={styles.rows}>
-      {groups.flatMap((group) => [
-        <li key={`title:${group.title}`} className={styles.groupTitle}>
-          {group.title}
-        </li>,
-        ...group.rows.map((row) => (
-          <li key={row.name}>
-            <details className={styles.row}>
-              <summary className={styles.rowSummary}>
-                <span className={row.needsAttention ? styles.markStale : styles.markFresh} aria-hidden="true" />
-                <span className={styles.rowName}>{row.name}</span>
-                <span className={styles.rowScale}>{row.scale}</span>
-                <span className={styles.srOnly}>{row.needsAttention ? "注意が要る" : "問題なし"}</span>
-              </summary>
-              <dl className={styles.detail}>
-                {row.detail.map((item) => (
-                  <div key={item.label} className={styles.detailItem}>
-                    <dt className={styles.detailLabel}>{item.label}</dt>
-                    <dd className={styles.detailValue}>{item.value}</dd>
-                  </div>
-                ))}
-              </dl>
-              {row.note && <p className={styles.note}>{row.note}</p>}
-            </details>
-          </li>
-        )),
-      ])}
-    </ul>
-  );
+  return <StatusRowList groups={groupsFromStatus(report)} flaggedLabel="注意が要る" okLabel="問題なし" />;
 }

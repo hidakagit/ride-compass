@@ -6,7 +6,11 @@ import { useDebugEnabled, useDebugLogEntries } from "@/hooks/useDebugLog";
 import { CopyIcon } from "@/components/Map/icons";
 import { clearDebugLog, type DebugLogLevel } from "@/lib/debugLog";
 import FloatingPanel from "@/components/FloatingPanel/FloatingPanel";
-import styles from "./DebugConsole.module.css";
+import { Button } from "@/components/ui/Button/Button";
+import { Select } from "@/components/ui/Input/Input";
+import { LogLine } from "@/components/ui/LogLine/LogLine";
+import { textVariants } from "@/components/ui/Text/Text";
+import { cn } from "@/lib/cn";
 
 interface DebugConsoleProps {
   /** パネル自体の開閉（デバッグモードのON/OFFとは別。常時占有させたくないため
@@ -69,49 +73,54 @@ export default function DebugConsole({ open, onClose }: DebugConsoleProps) {
       maxHeightPx={420}
       headerButtons={
         <>
-          <select
+          <Select
             value={minLevel}
             onChange={(e) => setMinLevel(e.target.value as DebugLogLevel)}
-            className={styles.levelSelect}
+            className="px-1 py-0.5 text-[length:var(--font-size-xs)]"
             aria-label="表示するログレベルの下限"
           >
             <option value="info">すべて</option>
             <option value="warn">警告以上</option>
             <option value="error">エラーのみ</option>
-          </select>
-          <button
-            type="button"
+          </Select>
+          <Button
+            size="xs"
             onClick={() => copy(visibleEntriesText)}
-            className={styles.iconButton}
             disabled={visibleEntries.length === 0}
             aria-label={copied ? "表示中のログをコピーしました" : "表示中のログをコピー"}
             title={copied ? "コピーしました" : "表示中のログをコピー"}
           >
             <CopyIcon size={14} />
-          </button>
-          <button type="button" onClick={clearDebugLog} className={styles.clearButton}>
+          </Button>
+          <Button size="xs" onClick={clearDebugLog}>
             クリア
-          </button>
+          </Button>
         </>
       }
     >
-      {copyError !== null && <p className={styles.copyError}>{copyError}</p>}
-      <div ref={listRef} className={styles.entries}>
+      {copyError !== null && <p className={cn(textVariants({ variant: "error" }), "mb-1")}>{copyError}</p>}
+      <div ref={listRef} className="min-h-0 flex-1 overflow-y-auto px-2 py-1 [overflow-wrap:anywhere]">
         {entries.length === 0 && (
-          <p className={styles.emptyMessage}>イベント待機中...[地図を操作するかAPIを呼び出してください]</p>
+          <p className={textVariants({ variant: "hint" })}>
+            イベント待機中...[地図を操作するかAPIを呼び出してください]
+          </p>
         )}
         {entries.length > 0 && visibleEntries.length === 0 && (
-          <p className={styles.emptyMessage}>
+          <p className={textVariants({ variant: "hint" })}>
             条件に一致するログがありません[フィルタを「すべて」に戻すと{entries.length}件表示されます]
           </p>
         )}
         {visibleEntries.map((entry) => (
-          <div key={entry.id} className={styles.entry} data-level={entry.level}>
-            <span className={styles.entryTime}>{entry.time}</span>{" "}
-            <span className={styles.entryCategory}>[{entry.category}]</span>{" "}
-            <span className={styles.entryMessage}>{entry.message}</span>
-            {entry.detail != null && <span className={styles.entryDetail}> {JSON.stringify(entry.detail)}</span>}
-          </div>
+          <LogLine
+            key={entry.id}
+            tone={entry.level === "error" ? "error" : entry.level === "warn" ? "warning" : "normal"}
+            data-level={entry.level}
+          >
+            <span className="text-[var(--color-muted)]">{entry.time}</span>{" "}
+            <span className="text-[var(--color-accent)]">[{entry.category}]</span>{" "}
+            <span className="">{entry.message}</span>
+            {entry.detail != null && <span className="text-[var(--color-muted)]"> {JSON.stringify(entry.detail)}</span>}
+          </LogLine>
         ))}
       </div>
     </FloatingPanel>

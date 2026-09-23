@@ -9,7 +9,11 @@ import { WEIGHT_STEP, clampBoundaryDrag, totalWeight } from "@/lib/routeWeightSh
 import { retryAxisCatalogFetch, useAxisCatalog } from "@/hooks/useAxisCatalog";
 import type { PreferenceAxisDef } from "@/lib/evaluationAxes";
 import type { RoutePreferenceWeights } from "@/types/route";
-import styles from "./RouteSettingsPanel.module.css";
+import { Button } from "@/components/ui/Button/Button";
+import { Toggle } from "@/components/ui/Toggle/Toggle";
+import { cn } from "@/lib/cn";
+import { legendChipBodyClass, legendChipClass, legendIconClass } from "@/components/ui/AxisLegend/axisLegend";
+import { calloutVariants } from "@/components/ui/Callout/Callout";
 
 // 「ルート設定」区分の「重み」タブ。重み配分バー（帯グラフ、全軸の取り分が1本に収まり、
 // 境界のドラッグで配分し直す）→軸チップ（有効な軸を先頭に%付きで並べ、タップで有効/無効、
@@ -212,27 +216,30 @@ export default function RouteSettingsPanel({
     const color = catalog.axisColors[axis.axisId];
     const label = axis.chipLabel ?? axis.label;
     return (
-      <span key={axis.axisId} className={styles.legendChip} data-checked={checked}>
-        <button
-          type="button"
-          className={styles.legendToggle}
-          aria-pressed={checked}
+      <span key={axis.axisId} className={legendChipClass} data-checked={checked}>
+        <Toggle
+          variant="plain"
+          className={cn(legendChipBodyClass, "cursor-pointer")}
+          pressed={checked}
           aria-label={checked ? `${axis.label}を無効にする` : `${axis.label}を有効にする`}
           onClick={() => handleToggle(axis.axisId, !checked)}
         >
-          <span aria-hidden="true" className={styles.legendIcon} style={{ color }}>
+          <span aria-hidden="true" className={legendIconClass} style={{ color }}>
             <AxisIcon axis={axis} />
           </span>
           {/* 略名は地図チップと同じ`chip_label`（最大4文字）。狭い幅で軸が折り返すぶんだけ
               縦を食うため、選ぶのに足りる長さへ詰める。押したときの説明・aria-labelは
               フルネームのまま。 */}
-          <span className={styles.legendLabel}>{label}</span>
-          {checked && <span className={styles.legendPct}>{Math.round(sharePct(weight))}%</span>}
-        </button>
+          <span>{label}</span>
+          {checked && (
+            <span className="text-[length:var(--font-size-sm)] font-semibold tabular-nums">
+              {Math.round(sharePct(weight))}%
+            </span>
+          )}
+        </Toggle>
         <InfoPopover
-          triggerClassName={styles.legendInfoButton}
+          triggerClassName={"w-7 border-l border-[var(--color-border-muted)] max-mobile:w-6"}
           triggerAriaLabel={`${axis.label}の説明`}
-          contentClassName={styles.legendInfoPopover}
         >
           {axis.description}
         </InfoPopover>
@@ -250,37 +257,46 @@ export default function RouteSettingsPanel({
           事故も出ない（世代の違う中身をブラウザのキャッシュへ残さないよう、届くまでソースを
           作らない）。地図側のチップにも理由を出すが、この再試行導線はここにしかない。 */}
       {catalog.failed && (
-        <p className={styles.catalogErrorNotice} role="status">
+        <p
+          className={cn(
+            calloutVariants({ tone: "warning" }),
+            "flex flex-wrap items-center gap-2 text-[length:var(--font-size-xs)]",
+          )}
+          role="status"
+        >
           <span>
             {/* JSXは行の折り返しを半角スペース1つに畳む。日本語の文の途中では読点の直後に
                 不自然な空きが出るため、文字列として繋ぐ。 */}
             {"軸一覧を取得できませんでした。地図の道路・POI・事故は表示できず、このまま生成すると" +
               "重み配分は反映されずサーバー既定の配分で探索します。"}
           </span>
-          <button type="button" className={styles.catalogErrorRetry} onClick={retryAxisCatalogFetch}>
+          <Button variant="warning" size="xs" onClick={retryAxisCatalogFetch}>
             再試行
-          </button>
+          </Button>
         </p>
       )}
-      <div className={styles.stackBarWrap}>
-        <div className={styles.stackBarOuter} ref={stackBarRef}>
-          <div className={styles.stackBar}>
+      <div className="flex flex-col">
+        <div className="relative" ref={stackBarRef}>
+          <div className="flex h-7.5 gap-px overflow-hidden rounded-sm bg-[var(--color-surface-2)]">
             {enabledAxes.map(({ axis, weight }) => {
               const pct = sharePct(weight);
               return (
                 <div
                   key={axis.axisId}
-                  className={styles.stackSegment}
+                  className="flex h-full min-w-0 flex-col items-center justify-center gap-px overflow-hidden"
                   style={{ width: `${pct}%`, background: catalog.axisColors[axis.axisId] }}
                   title={`${axis.label} ${Math.round(pct)}%`}
                 >
                   {pct >= SEGMENT_ICON_MIN_PCT && (
-                    <span aria-hidden="true" className={styles.segmentIcon}>
+                    <span aria-hidden="true" className="inline-flex text-[rgba(15,23,42,0.85)]">
                       <AxisIcon axis={axis} size={13} />
                     </span>
                   )}
                   {pct >= SEGMENT_VALUE_MIN_PCT && (
-                    <span aria-hidden="true" className={styles.segmentValue}>
+                    <span
+                      aria-hidden="true"
+                      className="text-[0.625rem] leading-none font-bold text-[rgba(15,23,42,0.85)] tabular-nums"
+                    >
                       {Math.round(pct)}
                       {pct >= SEGMENT_ICON_MIN_PCT ? "%" : ""}
                     </span>
@@ -305,7 +321,7 @@ export default function RouteSettingsPanel({
               return (
                 <div
                   key={`boundary-${left.axisId}-${right.axis.axisId}`}
-                  className={styles.stackBarHandle}
+                  className="absolute -top-1.5 -bottom-1.5 flex w-4 -translate-x-1/2 cursor-col-resize touch-none items-center justify-center after:h-3.5 after:w-0.5 after:rounded-[1px] after:bg-[var(--color-surface)] after:shadow-[0_0_0_1px_var(--color-border-strong)] after:content-[''] hover:after:bg-[var(--color-accent)] hover:after:shadow-[0_0_0_1px_var(--color-accent)] focus-visible:outline-none focus-visible:after:bg-[var(--color-accent)] focus-visible:after:shadow-[0_0_0_1px_var(--color-accent)]"
                   style={{ left: `${cumulativePct}%` }}
                   role="slider"
                   aria-label={`${left.label}と${right.axis.label}の配分`}
@@ -322,7 +338,9 @@ export default function RouteSettingsPanel({
         </div>
       </div>
 
-      <div className={styles.legendRow}>{orderedAxes.map(({ axis, weight }) => renderLegendChip(axis, weight))}</div>
+      <div className="flex max-h-26 flex-wrap gap-2 overflow-y-auto">
+        {orderedAxes.map(({ axis, weight }) => renderLegendChip(axis, weight))}
+      </div>
     </div>
   );
 }

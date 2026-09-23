@@ -1,9 +1,9 @@
 "use client";
 
-import * as Popover from "@radix-ui/react-popover";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/Popover/Popover";
 import WindBearingSlider from "@/components/WindBearingSlider/WindBearingSlider";
 import { WindDirectionArrowIcon } from "@/components/Map/icons";
-import styles from "./TravelBearingControl.module.css";
+import { Button } from "@/components/ui/Button/Button";
 
 interface TravelBearingControlProps {
   value: number;
@@ -16,7 +16,7 @@ interface TravelBearingControlProps {
 // 別概念を並べて示す。幅・高さ・アイコンの大きさは右上の列の共通値
 // （globals.css: --map-ctrl-*）に合わせてある。
 //
-// トリガーアイコンはWindBearingSlider.module.cssの`.dial`/`.arrow`と同じ配色・比率
+// トリガーアイコンは風向ダイヤル（WindBearingSlider）と同じ配色・比率
 // （矢印サイズ/ダイヤル直径≒0.65）を踏襲した「開く前のダイヤルのミニチュア」で、
 // `value`に応じて矢印自体を回転させ、開く前から現在の走行方位が一目でわかるようにする。
 // この矢印は実機の向き（ジャイロ/磁気センサー）とは一切連動しない、ユーザーがドラッグして
@@ -24,19 +24,26 @@ interface TravelBearingControlProps {
 // 優先する。
 export default function TravelBearingControl({ value, onChange }: TravelBearingControlProps) {
   return (
-    <Popover.Root>
-      <Popover.Trigger asChild>
-        <button type="button" className={styles.trigger} aria-label="走行方位を設定">
-          <span aria-hidden="true" className={styles.triggerArrow} style={{ transform: `rotate(${value}deg)` }}>
+    <Popover>
+      <PopoverTrigger asChild>
+        <Button
+          variant="mapCtrl"
+          size="mapCtrl"
+          className="absolute top-[var(--map-ctrl-stack-top)] right-[var(--map-ctrl-margin)] z-[var(--z-map-control)]"
+          aria-label="走行方位を設定"
+        >
+          <span
+            aria-hidden="true"
+            className="inline-flex items-center justify-center transition-transform duration-50 ease-linear"
+            style={{ transform: `rotate(${value}deg)` }}
+          >
             <WindDirectionArrowIcon />
           </span>
-        </button>
-      </Popover.Trigger>
-      <Popover.Portal>
-        <Popover.Content className={styles.popoverContent} side="left" align="start" sideOffset={8}>
-          <WindBearingSlider value={value} onChange={onChange} ariaLabel="走行方位" />
-        </Popover.Content>
-      </Popover.Portal>
-    </Popover.Root>
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent className="p-2" side="left" align="start" sideOffset={8}>
+        <WindBearingSlider value={value} onChange={onChange} ariaLabel="走行方位" />
+      </PopoverContent>
+    </Popover>
   );
 }

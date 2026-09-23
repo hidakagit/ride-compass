@@ -1,6 +1,6 @@
 "use client";
 
-import * as Popover from "@radix-ui/react-popover";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/Popover/Popover";
 import { useState } from "react";
 import LegendCheckboxList from "@/components/Map/LegendCheckboxList";
 import type { LegendEntry } from "@/components/Map/legendFilter";
@@ -13,7 +13,12 @@ import {
   type LensId,
 } from "@/components/Map/routeStyleModes";
 import { Checkbox } from "@/components/ui/Checkbox/Checkbox";
-import styles from "./LensControl.module.css";
+import { Button } from "@/components/ui/Button/Button";
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/ToggleGroup/ToggleGroup";
+import { Dot } from "@/components/ui/Dot/Dot";
+import { textVariants } from "@/components/ui/Text/Text";
+import { cn } from "@/lib/cn";
+import { badgeVariants } from "@/components/ui/Badge/Badge";
 
 export interface LensOption {
   id: LensId;
@@ -83,26 +88,16 @@ export default function LensControl({
   };
 
   function renderOption(id: LensId, label: string, color: string, badges: string[] = []) {
-    const checked = lens === id;
     return (
-      <li key={id} className={styles.option}>
-        <button
-          type="button"
-          role="radio"
-          aria-checked={checked}
-          className={styles.optionButton}
-          data-checked={checked}
-          onClick={() => select(id)}
-        >
-          <span aria-hidden="true" className={styles.dot} style={{ background: color }} />
-          <span className={styles.optionLabel}>{label}</span>
-          {badges.map((badge) => (
-            <span key={badge} className={styles.badge}>
-              {badge}
-            </span>
-          ))}
-        </button>
-      </li>
+      <ToggleGroupItem key={id} value={id}>
+        <span aria-hidden="true" className="size-2.5 flex-shrink-0 rounded-full" style={{ background: color }} />
+        <span className="flex-auto">{label}</span>
+        {badges.map((badge) => (
+          <span key={badge} className={badgeVariants({ variant: "warning" })}>
+            {badge}
+          </span>
+        ))}
+      </ToggleGroupItem>
     );
   }
 
@@ -114,91 +109,115 @@ export default function LensControl({
   }
 
   return (
-    <div className={styles.wrap}>
-      <Popover.Root open={open} onOpenChange={setOpen}>
-        <Popover.Trigger asChild>
-          <button
-            type="button"
-            className={styles.pill}
+    <div className="absolute top-3 left-1/2 z-[var(--z-map-control)] max-w-[min(14rem,calc(100%-7rem))] -translate-x-1/2">
+      <Popover open={open} onOpenChange={setOpen}>
+        <PopoverTrigger asChild>
+          <Button
+            variant="float"
+            size="bare"
+            shape="pill"
+            className="flex-col items-stretch gap-1 border-0 px-2.5 py-1 text-[length:var(--font-size-sm)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--color-accent-strong)]"
             aria-label={`レンズ: ${current.label}（タップで変更）`}
             title={statusLabel}
           >
-            <span className={styles.pillHeader}>
-              <span aria-hidden="true" className={styles.dot} style={{ background: current.color }} />
-              <span className={styles.pillLabel}>{current.label}</span>
-              {dataStatus && (
-                <span aria-hidden="true" className={`${styles.statusDot} ${styles[`statusDot_${dataStatus}`]}`} />
-              )}
-              <span aria-hidden="true" className={styles.chevron}>
+            <span className="flex items-center justify-center gap-1.5 whitespace-nowrap">
+              <span
+                aria-hidden="true"
+                className="size-2.5 flex-shrink-0 rounded-full"
+                style={{ background: current.color }}
+              />
+              <span className="font-semibold">{current.label}</span>
+              {dataStatus && <Dot aria-hidden="true" tone={dataStatus} />}
+              <span aria-hidden="true" className="text-[0.7rem] text-[var(--color-muted)]">
                 ▾
               </span>
             </span>
             {legend.length > 0 && (
-              <span className={styles.swatchRow} aria-hidden="true">
+              <span className="flex flex-wrap justify-center gap-0.5" aria-hidden="true">
                 {legend
                   .filter((entry) => !hiddenLegendKeys.includes(entry.key))
                   .map((entry) => (
                     <span
                       key={entry.key}
-                      className={styles.swatch}
+                      className="inline-block h-1.5 w-2.5 flex-shrink-0 rounded-[1px]"
                       style={{ background: entry.color }}
                       title={entry.label}
                     />
                   ))}
               </span>
             )}
-          </button>
-        </Popover.Trigger>
-        <Popover.Portal>
-          <Popover.Content className={styles.content} side="bottom" align="center" sideOffset={6} collisionPadding={8}>
-            <p className={styles.heading}>レンズ</p>
-            {/* ピルの状態ドットの意味。titleはスマホでは出ないため、開いた先で文として読ませる。 */}
-            {statusLabel && (
-              <p className={styles.statusNotice} role="status">
-                {statusLabel}
-              </p>
+          </Button>
+        </PopoverTrigger>
+        <PopoverContent
+          className="max-h-[70vh] w-[min(24rem,calc(100vw-1.5rem))] overflow-y-auto rounded-sm px-3 py-2.5"
+          side="bottom"
+          align="center"
+          sideOffset={6}
+          collisionPadding={8}
+        >
+          <p className="mb-1.5 font-semibold">レンズ</p>
+          {/* ピルの状態ドットの意味。titleはスマホでは出ないため、開いた先で文として読ませる。 */}
+          {statusLabel && (
+            <p className="mb-1.5 text-[length:var(--font-size-sm)]" role="status">
+              {statusLabel}
+            </p>
+          )}
+          <ToggleGroup
+            variant="list"
+            className="m-0 grid list-none grid-cols-[repeat(auto-fill,minmax(9rem,1fr))] gap-x-1 p-0"
+            value={lens}
+            onValueChange={(id) => select(id as LensId)}
+            aria-label="レンズ"
+          >
+            {renderOption(LENS_NONE_ID, FIXED_LENS_LABELS[LENS_NONE_ID], LENS_NEUTRAL_COLOR)}
+            {renderOption(LENS_DIFFICULTY_ID, FIXED_LENS_LABELS[LENS_DIFFICULTY_ID], LENS_NEUTRAL_COLOR)}
+            {used.length > 0 && (
+              <span className={cn(textVariants({ variant: "note" }), "col-span-full mt-1.5 py-0.5 tracking-wide")}>
+                評価に使用中
+              </span>
             )}
-            <ul className={styles.list} role="radiogroup" aria-label="レンズ">
-              {renderOption(LENS_NONE_ID, FIXED_LENS_LABELS[LENS_NONE_ID], LENS_NEUTRAL_COLOR)}
-              {renderOption(LENS_DIFFICULTY_ID, FIXED_LENS_LABELS[LENS_DIFFICULTY_ID], LENS_NEUTRAL_COLOR)}
-              {used.length > 0 && <li className={styles.groupLabel}>評価に使用中</li>}
-              {used.map(renderAxis)}
-              {unused.length > 0 && <li className={styles.groupLabel}>未使用</li>}
-              {unused.map(renderAxis)}
-            </ul>
-            <label className={styles.keepRow}>
-              <Checkbox
-                checked={keepAfterRoute}
-                onCheckedChange={onKeepAfterRouteChange}
-                aria-label="ルート後も周囲の道路を薄く塗る"
-              />
-              ルート後も周囲の道路を薄く塗る
-            </label>
-            {legend.length > 0 && (
-              <div className={styles.legendBlock}>
-                <label className={styles.legendHeaderRow}>
-                  <Checkbox
-                    checked={hiddenLegendKeys.length === 0}
-                    onCheckedChange={() =>
-                      onSetHiddenLegendKeys(hiddenLegendKeys.length === 0 ? legend.map((entry) => entry.key) : [])
-                    }
-                    aria-label="凡例の全段階をまとめて表示/非表示"
-                  />
-                  凡例
-                </label>
-                <LegendCheckboxList
-                  legend={legend}
-                  hiddenKeys={hiddenLegendKeys}
-                  onToggle={onToggleLegendKey}
-                  listClassName={styles.legendList}
-                  rowClassName={styles.legendRow}
-                  swatchClassName={styles.swatch}
+            {used.map(renderAxis)}
+            {unused.length > 0 && (
+              <span className={cn(textVariants({ variant: "note" }), "col-span-full mt-1.5 py-0.5 tracking-wide")}>
+                未使用
+              </span>
+            )}
+            {unused.map(renderAxis)}
+          </ToggleGroup>
+          <label className="mt-2 flex items-center gap-1.5 border-t border-dashed border-[var(--color-border)] pt-2">
+            <Checkbox
+              checked={keepAfterRoute}
+              onCheckedChange={onKeepAfterRouteChange}
+              aria-label="ルート後も周囲の道路を薄く塗る"
+            />
+            ルート後も周囲の道路を薄く塗る
+          </label>
+          {legend.length > 0 && (
+            <div className="mt-2 border-t border-[var(--color-border)] pt-2">
+              <label className="mb-1 flex cursor-pointer items-center gap-1.5 font-semibold text-[var(--color-muted)]">
+                <Checkbox
+                  checked={hiddenLegendKeys.length === 0}
+                  onCheckedChange={() =>
+                    onSetHiddenLegendKeys(hiddenLegendKeys.length === 0 ? legend.map((entry) => entry.key) : [])
+                  }
+                  aria-label="凡例の全段階をまとめて表示/非表示"
                 />
-              </div>
-            )}
-          </Popover.Content>
-        </Popover.Portal>
-      </Popover.Root>
+                凡例
+              </label>
+              <LegendCheckboxList
+                legend={legend}
+                hiddenKeys={hiddenLegendKeys}
+                onToggle={onToggleLegendKey}
+                listClassName={
+                  "m-0 grid list-none grid-cols-[repeat(auto-fill,minmax(9rem,1fr))] gap-x-2 gap-y-0.5 p-0"
+                }
+                rowClassName={"flex items-center gap-1 tabular-nums [overflow-wrap:anywhere]"}
+                swatchClassName={"inline-block h-1.5 w-2.5 flex-shrink-0 rounded-[1px]"}
+              />
+            </div>
+          )}
+        </PopoverContent>
+      </Popover>
     </div>
   );
 }

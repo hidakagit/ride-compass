@@ -401,6 +401,7 @@ way粒度で引くときは、同じ式のまま`w`の行から同じ名前の�
   `api/dependencies.py: get_material_coverage_service`はルート生成用の長い
   `command_timeout`（180秒）を持つセッションを渡す（全表走査がタイル配信用の20秒を
   超えうるため）。
+- 欠損の扱いと母集団の画面の名前（管理画面の欠損率の見出し・説明）は、同じファイルの`MISSING_SEMANTICS_DISPLAY`・`POPULATION_LABELS`が持ち、生成物`vocabulary.ts`で画面へ届く。
 
 ## 区間インスペクタ（`axis_inspector_breakdown`）
 

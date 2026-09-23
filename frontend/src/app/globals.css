@@ -120,16 +120,9 @@
   --z-floating-panel: 50;
   --z-top-popover: 60;
 
-  /* ログ・稼働状況の重大度色。**固定ダークな面（FloatingPanel・ログ本文）の上でだけ使う**
-   * ため、ライト/ダークで切り替えない（--color-danger等のテーマトークンは明るい面向けの
-   * 濃さで、暗い面では沈んで読めない）。 */
-  --color-log-error: #f87171;
-  --color-log-warning: #fbbf24;
-  --color-log-info: #60a5fa;
-
   /* MapLibre自身のコントロール（ズーム+/−・回転）の実寸。アプリが地図右上へ足す
    * ボタンは、テーマトークンではなくこの値へ揃えることで「MapLibreのボタン列の続き」
-   * として見える（components/ui/mapCtrlButton.module.css参照）。 */
+   * として見える（components/ui/ButtonのmapCtrl）。 */
   --map-ctrl-button-size: 29px;
   --map-ctrl-margin: 10px;
   --map-ctrl-stack-gap: 4px;
@@ -199,7 +192,7 @@
 
 /* モバイル幅（`--breakpoint-mobile`以下）は共通トークンの余白・フォントサイズを全体的に圧縮する
    （実機フィードバック「ボタンの大きさ・余白が全体的に大きい、省スペースに統一したい」への
-   対応）。タップ領域確保（components/ui/Checkbox.tsxの1.4rem・.tabButton/.layerTitle等の
+   対応）。タップ領域確保（components/ui/Checkbox.tsxの1.4rem・下部タブ/.layerTitle等の
    44px）・iOS自動ズーム防止（.app-bottom-sheet input文字サイズ16px、下記@media参照）は
    いずれもこのトークンを参照しないハードコードされたリテラル値のため、ここを縮めても
    影響しない（各コンポーネントの該当コメント参照）。 */
@@ -267,54 +260,13 @@
     text-decoration: none;
   }
 
-  /* ボタン・入力欄の既定見た目。個々のCSS Module側のクラスセレクタ（.chip等）は
-     unlayeredのため本レイヤーより優先度が高く、意図的にスタイル済みの要素（地図上のチップ等）を
-     上書きしてしまう心配は無い。ここでは「未指定なら最低限これくらいは揃える」土台を敷く。
-     改善計画T505: paddingは以前0.5rem 0.9remの固定値だったが、共通トークン（--space-2/
-     --space-3）へ置き換えた——モバイル向けの個別上書きを別途増やさなくても、トークン側の
-     モバイル圧縮（上記@media (max-width: theme(--breakpoint-mobile))の:root再定義）に自動で追従する。 */
-  button {
-    font-family: inherit;
-    font-size: var(--font-size-md);
-    border-radius: var(--radius-sm);
-    border: 1px solid var(--color-border-strong);
-    background: var(--color-surface);
-    color: var(--foreground);
-    padding: var(--space-2) var(--space-3);
-    cursor: pointer;
-    transition:
-      border-color 0.15s ease,
-      background-color 0.15s ease,
-      opacity 0.15s ease;
-  }
-
-  button:hover:not(:disabled) {
-    border-color: var(--color-accent);
-  }
-
+  /* ボタンの見た目はcomponents/ui/の部品（Button・Toggle・ToggleGroup・Tabs）だけが決める。ここに
+     全ボタン共通の見た目を置くと、部品の側で打ち消し忘れたプロパティがそのまま素通しされる。
+     キーボードのフォーカスの輪だけは、どの押せる要素にも同じものを出す。 */
   button:focus-visible,
   input:focus-visible {
     outline: 2px solid var(--color-accent);
     outline-offset: 2px;
-  }
-
-  button:disabled {
-    cursor: default;
-    opacity: 0.55;
-  }
-
-  /* type="submit"は各フォームの主操作（ルート生成・緯度経度の設定）のため、
-     アクセントカラーで塗って他のボタンと差をつける */
-  button[type="submit"] {
-    background: var(--color-accent);
-    border-color: var(--color-accent);
-    color: #ffffff;
-    font-weight: 600;
-  }
-
-  button[type="submit"]:hover:not(:disabled) {
-    background: var(--color-accent-strong);
-    border-color: var(--color-accent-strong);
   }
 
   /* 改善計画T505: こちらも固定値0.4rem 0.6remからトークン（--space-1/--space-2）へ置き換え、
@@ -413,11 +365,9 @@
   z-index: var(--z-map-popup);
 }
 
-/* closeボタンはbutton要素のため、上のグローバルbutton既定（padding: var(--space-2)
-   var(--space-3)、フォーム用に大きめ）がここにも継承される。地図ポップアップの×には過大で、
-   縮めた本文padding（同じvar(--space-2) var(--space-3)）と並ぶと不釣り合いに大きく
-   間延びして見えたため、専用に詰める。セレクタの詳細度の理由は.maplibregl-popup-content側の
-   コメントと同じ（maplibre-gl.css既定との詳細度同点によるビルド順依存を避ける）。 */
+/* 地図ポップアップの×を、詰めた本文の余白（var(--space-2) var(--space-3)）に釣り合う大きさにする。
+   セレクタの詳細度の理由は.maplibregl-popup-content側のコメントと同じ（maplibre-gl.css既定との
+   詳細度同点によるビルド順依存を避ける）。 */
 .maplibregl-popup > .maplibregl-popup-close-button {
   color: var(--foreground);
   font-size: var(--font-size-md);
@@ -449,17 +399,8 @@
 }
 
 @media (max-width: theme(--breakpoint-mobile)) {
-  /* T299フォローアップ（2026-08-25）: 以前はBottomSheet/FloatingPanel内の全<button>に
-     一律44px+paddingを強制するブランケットルールだった。しかしこの「一律適用」自体が、
-     LayerChip（意図的に36pxのピル型、.chip）やRadioGroup.Item（32px、.modeItem）が
-     既に持っていた自前サイズを詳細度で踏みつぶす不具合の温床だった（実機Playwrightで
-     発覚）。「本当にメインの導線」だけがタップ領域を必要とするという方針に転換し、
-     ブランケットのbuttonルール自体を廃止した。44pxが必要な主要ボタンは、そのコンポーネント
-     自身のCSS Modulesファイルで個別に持たせる（このファイルへ一律ルールとして書き戻さない）。
-     .app-sidebarは`<aside>`要素がスマホ幅のときそもそもレンダーされない
-     （JS側の分岐は同じ`--is-mobile`を読むため、この幅では必ず一致する）ため、
-     このメディアクエリ内では常にマッチ対象が存在しない死んだセレクタだった。削除して.app-bottom-sheet/
-     .app-floating-panelのみに絞る。 */
+  /* 全<button>へ一律に44pxを掛けない（部品が意図して持つ大きさを詳細度で潰す）。44pxが要る主要な導線は、
+     その部品自身が持つ（docs/modules/frontend/frontend-design-system.md 8節）。 */
 
   /* components/ui/Checkbox（Radix製<button role="checkbox">）・ネイティブの
      input[type=checkbox]は、モバイルでは1.4rem角（ラベルのテキスト・スウォッチを

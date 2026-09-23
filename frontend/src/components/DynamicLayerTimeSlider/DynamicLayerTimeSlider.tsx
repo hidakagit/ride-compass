@@ -3,7 +3,10 @@
 import { useEffect, useRef } from "react";
 import useEmblaCarousel from "embla-carousel-react";
 import { WheelGesturesPlugin } from "embla-carousel-wheel-gestures";
-import styles from "./DynamicLayerTimeSlider.module.css";
+import { Button } from "@/components/ui/Button/Button";
+import { textVariants } from "@/components/ui/Text/Text";
+import { cn } from "@/lib/cn";
+import { cardVariants } from "@/components/ui/Card/Card";
 
 /** スライダーの1フレーム分の表示内容。ONの全レイヤーのフレーム時刻を統合した1本の
  * 共有タイムラインを表すため、時刻ラベルのみを持つ（レイヤー固有の実況/予測ラベルは、
@@ -168,15 +171,29 @@ export default function DynamicLayerTimeSlider({
 
   if (error) {
     return (
-      <div className={styles.wrapper}>
-        <p className={styles.error}>{error}</p>
+      <div className="pointer-events-none">
+        <p
+          className={cn(
+            cardVariants({ variant: "float" }),
+            "pointer-events-auto touch-none rounded-sm px-2 py-1.5 text-[length:var(--font-size-sm)] text-[var(--color-danger)]",
+          )}
+        >
+          {error}
+        </p>
       </div>
     );
   }
   if (loading || frames.length === 0) {
     return (
-      <div className={styles.wrapper}>
-        <p className={styles.loading}>{loadingLabel}</p>
+      <div className="pointer-events-none">
+        <p
+          className={cn(
+            cardVariants({ variant: "float" }),
+            "pointer-events-auto touch-none rounded-sm px-2 py-1.5 text-[length:var(--font-size-sm)] text-[var(--color-muted)]",
+          )}
+        >
+          {loadingLabel}
+        </p>
       </div>
     );
   }
@@ -184,31 +201,39 @@ export default function DynamicLayerTimeSlider({
   const frame = frames[Math.min(index, frames.length - 1)];
 
   return (
-    <div className={styles.wrapper}>
-      <div className={styles.panel}>
+    <div className="pointer-events-none">
+      <div
+        className={cn(
+          cardVariants({ variant: "float" }),
+          "flex w-[min(90vw,26rem)] max-w-[min(26rem,100%)] flex-col gap-1 rounded-sm px-2 py-1.5",
+        )}
+      >
         {/* 現在選択中のコマの正確な日時（日付付き）。ルーラーの上へ1行で出す。ルーラー側の
             目盛り文字（tickLabel）は日付を持たないため、日付をまたいだときの曖昧さはこの
             1行だけが解消する。 */}
-        <div className={styles.timeHeader}>{frame.label}</div>
-        <div className={styles.controlsRow}>
+        <div className={cn(textVariants({ variant: "heading" }), "pointer-events-auto touch-none tabular-nums")}>
+          {frame.label}
+        </div>
+        <div className="flex items-center gap-2">
           {/* 1つ前のコマへ（上記stepIndexコメント参照）。 */}
-          <button
-            type="button"
-            className={styles.stepButton}
+          <Button
+            variant="stepper"
+            size="sm"
+            className="pointer-events-auto touch-none"
             onClick={() => stepIndex(-1)}
             disabled={index <= 0}
             aria-label={`${ariaLabel}を1つ前へ`}
             title="1つ前へ"
           >
             ‹
-          </button>
+          </Button>
           {/* ネイティブのinput[type=range]（つまみをドラッグ・目盛りへコマ送り）ではなく、
               横スクロールで目盛り自体を動かすルーラー。左端固定の目印（.leftIndicator）に
               対して、スクロールでどのコマを合わせるかを選ぶ操作感になる（Emblaのalign関数で
               実現、ファイル冒頭のemblaOptionsコメント参照）。 */}
           <div
             ref={emblaRef}
-            className={styles.rulerViewport}
+            className="pointer-events-auto relative h-8 min-w-30 flex-1 cursor-grab touch-none overflow-x-auto overflow-y-hidden select-none [-webkit-tap-highlight-color:transparent] [-webkit-user-drag:none] [scrollbar-width:none] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--color-accent)] [&::-webkit-scrollbar]:hidden"
             onKeyDown={handleKeyDown}
             role="slider"
             tabIndex={0}
@@ -219,48 +244,60 @@ export default function DynamicLayerTimeSlider({
             aria-valuenow={index}
             aria-valuetext={frame.label}
           >
-            <div className={styles.rulerTrack}>
+            <div className="flex h-full">
               {frames.map((f, i) => (
                 <div
                   key={i}
-                  className={f.hourMark ? styles.tickHour : styles.tickMinor}
+                  className="group flex flex-shrink-0 flex-col items-center justify-start pt-2"
+                  data-hour={f.hourMark}
                   style={{ width: frameWidth(f) }}
                 >
-                  <span className={styles.tickMark} aria-hidden="true" />
+                  <span
+                    className="h-2 w-px bg-[var(--color-border-strong)] group-data-[hour=true]:h-3.5 group-data-[hour=true]:w-0.5 group-data-[hour=true]:bg-[var(--color-muted-strong)]"
+                    aria-hidden="true"
+                  />
                   {/* 空文字でも.tickLabelの高さ・行送りは常に確保する（CSS側、コマによって
                       縦位置がガタつかないようにするコメント参照）ため、tickLabel無しのコマも
                       このspan自体は描画する。 */}
-                  <span className={styles.tickLabel}>{f.tickLabel ?? ""}</span>
+                  <span className="mt-1 block h-3 max-w-9 truncate text-[0.55rem] leading-3 text-[var(--color-muted)] tabular-nums">
+                    {f.tickLabel ?? ""}
+                  </span>
                 </div>
               ))}
             </div>
-            <div className={styles.leftIndicator} style={{ left: INDICATOR_OFFSET_PX }} aria-hidden="true" />
+            <div
+              className="pointer-events-none absolute top-0.5 h-6 w-0.5 -translate-x-1/2 rounded-full bg-[var(--color-accent)]"
+              style={{ left: INDICATOR_OFFSET_PX }}
+              aria-hidden="true"
+            />
           </div>
           {/* 1つ次のコマへ（上記「1つ前のコマへ」ボタンと対）。 */}
-          <button
-            type="button"
-            className={styles.stepButton}
+          <Button
+            variant="stepper"
+            size="sm"
+            className="pointer-events-auto touch-none"
             onClick={() => stepIndex(1)}
             disabled={index >= frames.length - 1}
             aria-label={`${ariaLabel}を1つ次へ`}
             title="1つ次へ"
           >
             ›
-          </button>
+          </Button>
           {/* 「現在」に戻るボタン。未来・過去側を見ていたスライダー位置を、ワンタップで
               実時刻へ戻す（onNowコメント参照）。既に「現在」を見ているときはno-opのため
               無効化する（MapOverlayControls.tsxの全レイヤー一括OFFボタンと同じ、押しても
               何も起きない状態を無効表示にする方針）。 */}
-          <button
-            type="button"
-            className={styles.nowButton}
+          <Button
+            variant="stepper"
+            size="sm"
+            className="pointer-events-auto touch-none"
             onClick={onNow}
             disabled={index === currentIndex}
             aria-label={`${ariaLabel}を現在に戻す`}
             title="現在に戻す"
           >
             現在
-          </button>
+          </Button>
         </div>
       </div>
     </div>

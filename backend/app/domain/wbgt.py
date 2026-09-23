@@ -25,6 +25,10 @@ _LEVEL_THRESHOLDS: list[tuple[float, WarningBadgeLevel, str]] = [
 ]
 
 
+#: 段階ごとの表示名（警戒度バッジが出す語。domain/warning_display.py）。
+WBGT_LEVEL_LABELS: dict[WarningBadgeLevel, str] = {level: label for _, level, label in _LEVEL_THRESHOLDS}
+
+
 def wbgt_level(value: float) -> tuple[WarningBadgeLevel, str] | None:
     """暑さ指数の値から(levelキー, 表示名)を返す。21未満（ほぼ安全）はNone。"""
     for threshold, level, label in _LEVEL_THRESHOLDS:

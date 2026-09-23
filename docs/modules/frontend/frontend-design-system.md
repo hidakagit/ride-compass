@@ -2,20 +2,17 @@
 
 ## 1. 目的・適用範囲
 
-`frontend/src/components/ui/`は、Tailwind CSS（CSS Modulesと併用）と Radix UI を束ねる
-共通UIコンポーネント層で、新しいUIを作るときの標準。採用済みのRadixのパッケージは
-`frontend/package.json`の`@radix-ui/*`を見る。
-
-**適用範囲は新規UI・機能改修時の段階移行のみ**。既存CSS Modules資産の一括置換は行わない
-（大規模な一括移行は保守リスクが高く、機能改修と無関係な差分が積み上がるため）。
+`frontend/src/components/ui/`は、Radix UI（振る舞い）とTailwind CSS（見た目）を束ねる共通UI部品の層。
+**画面の見た目はこの層だけが決める**——画面は部品を置き、並べ方（flex・grid・gap・位置・幅）だけを
+Tailwindのユーティリティで書く。CSS Modulesは使わない（CSSのファイルは`globals.css`だけ）。
+採用済みのRadixのパッケージは`frontend/package.json`の`@radix-ui/*`を見る。
 
 **対象ファイル**
 
 | レイヤー | ファイル |
 |---|---|
-| components/ui（部品） | `Button/Button.tsx`（`variant`・`size`。`type`未指定時は`"button"`に固定し、グローバルの`button[type=submit]`リセットを誤って継承しない）・`Input/Input.tsx`（`type`をパススルー、`invalid`でaria-invalid＋赤枠）・`Card/Card.tsx`（背景だけを持つカード状の箱。枠線は持たない）・`Dialog/Dialog.tsx`（Radix Dialogのラップ。`title`必須でアクセシブル名を型で強制）・`Checkbox/Checkbox.tsx`（Radix Checkboxのラップ） |
-| components/ui（`composes`で取り込む共有スタイル） | `adminPanel.module.css`（管理画面パネルの外枠と一覧表のシェル）・`floatingPopover.module.css`（情報アイコンから開く浮きパネル）・`infoButton.module.css`（見出し脇の(i)トリガー。開いている間はアクセント色）・`roundIconButton.module.css`（地図に重ねる小さい丸アイコンボタン）・`mapCtrlButton.module.css`（MapLibre純正コントロールの続きに見える四角ボタン）・`stepperButton.module.css`（値を1段ずつ増減する枠線ボタン）・`statusDot.module.css`（データ取得状態の表現：点滅／中空／danger）・`unusedBadge.module.css`（使われていないことを示す小さなバッジ）・`axisLegend.module.css`（軸の寄与を示す帯グラフと凡例ドット） |
-| lib | `cn.ts`（`clsx`で条件付きclassNameをまとめ、`tailwind-merge`で同じプロパティを指すクラスの後勝ちを解決する） |
+| components/ui（部品） | `Button/Button.tsx`（押すと1回動く。`variant`が役割、`size`が大きさ。`type`未指定時は`"button"`）・`Toggle/Toggle.tsx`（押して切り替える。押下状態は呼び出し側が持つ）・`ToggleGroup/ToggleGroup.tsx`（並んだ選択肢から1つを選ぶ。選んでいるものは外れない）・`Tabs/Tabs.tsx`（タブの列とタブの見た目。Root・ContentはRadixのものを出す）・`Popover/Popover.tsx`（押すと開く浮きパネル。中身はdocument.body直下へ描く）・`Input/Input.tsx`（1行・複数行・選択の入力欄と、名前を上に置く`Field`。3つとも同じ枠）・`NumberInput/NumberInput.tsx`（入力途中の文字を部品が持つ数値欄。打つたびに渡すか、欄を離れたとき・Enterで渡すかを選ぶ）・`Text/Text.tsx`（文字の役割ごとの大きさ・太さ・色）・`Table/Table.tsx`（一覧表）・`Card/Card.tsx`（ひとまとまりの面）・`Callout/Callout.tsx`（本文の中の注意の1かたまり）・`Badge/Badge.tsx`（名前の横に添える札）・`Dot/Dot.tsx`（状態の小さな丸）・`LogLine/LogLine.tsx`（ログの1行）・`Dialog/Dialog.tsx`（`title`必須でアクセシブル名を型で強制）・`Checkbox/Checkbox.tsx`・`AxisLegend/axisLegend.ts`（軸の帯グラフと軸チップの形。重み配分の設定とルート結果の内訳が共有する） |
+| lib | `cn.ts`（`clsx`で条件付きclassNameをまとめ、`tailwind-merge`で同じプロパティを指すクラスの後勝ちを解決する）・`paletteCssVariables.ts`（backendが配る色のうちCSSから参照するものを、CSS変数として流す） |
 | app | `globals.css`（デザイントークン・`@theme`登録・リセット・レスポンシブレイアウト・MapLibreのDOM上書き。下記8節） |
 
 部品はいずれも`class-variance-authority`（variant管理）＋`cn()`を使うshadcn/ui方式
@@ -24,20 +21,25 @@
 ## 2. 使い分け基準
 
 - **新しいUI機構（スライダー・タブ・ボトムシート等）は、自前実装より先に定番ライブラリ
-  （Radix UI・vaul等）で賄えないかを検討する。** 既存パターンの単純な拡張（コンポーネントへの
-  prop追加等）はこの原則の対象外。既存の`components/BottomSheet`だけは例外で、地図のピンチ
+  （Radix UI・Embla等）で賄えないかを検討する。** 既存の`components/BottomSheet`だけは例外で、地図のピンチ
   ズームと衝突しないよう`touch-action`を実機で詰めた自前実装であり、暗幕なし・部分表示という
   独自要件を持つ——置き換えを検討するならこの挙動を壊さないかを先に確かめ、着手前に
   ユーザーへ相談する。
-- **新規UIコンポーネントは`components/ui/`のプリミティブ + Tailwindユーティリティクラスを優先する。**
-- **既存CSS Modulesファイルは、その周辺で機能改修が発生したタイミングでのみ移行する。** 見た目を
-  変えない目的だけでのリファクタリングは行わない。移すのは「本当に同一実装」と確かめられた
-  重複だけ。
-- Tailwindのクラスが各画面に無秩序に散らばらないよう、繰り返し使う見た目（ボタン・カード・
-  ダイアログ等）は必ず`components/ui/`のコンポーネントへ集約する。個別ファイルで
-  独自に`cva`バリアントを増やしたり、同じ見た目のdivへ直接Tailwindクラスを都度書いたり
-  しない（後者は「レイアウトのみで色を持たない」単純なケース——`flex flex-col gap-*`等
-  ——に限り許容する）。
+- **見た目は部品が持つ。** 色・枠・角丸・影・文字の大きさと太さは`components/ui/`の部品（cvaのvariant）
+  だけが持つ。画面は部品の役割（variant）を選び、並べ方だけを書く。1画面にしか無い形（地図のチップ・風向の
+  ダイヤル等）はその画面でTailwindのクラスとして書いてよいが、同じ形が2か所目に出たら部品へ出す。
+- **実績のある既成部品を既定にする。** 自前で持つのは、仕様が理由を持って要求している見た目・振る舞いだけ
+  （例: 地図の上の操作は親の`pointer-events: none`を押せる部品だけが戻し、`touch-action: none`で地図の
+  ピンチを守る＝`Button`の`float`。右上の列はMapLibre純正の続きに見せる＝`mapCtrl`）。理由の書かれて
+  いない色味・角丸・余白は、既成部品の既定へ寄せる（見た目が変わることを許容する）。
+- **backendが源泉の値・名前・色は読む。** 生成物（`types/generated/`）とAPIが配る値（地図の配色・凡例の色・
+  語彙の名前と段階の色〔`vocabulary.ts`〕等）を画面で書き直さない。CSSから参照する必要がある色は
+  `lib/paletteCssVariables.ts`がCSS変数として流す。
+- 同じ見た目のdivへ直接Tailwindクラスを都度書かない（「レイアウトのみで色を持たない」単純なケース——
+  `flex flex-col gap-*`等——は画面が書く）。
+- **余白の短縮形と、同じ辺を指す個別の形を1つの要素に並べない。** 部品の余白を呼び出し側で変えるときは、
+  `cn()`が後勝ちで置き換えられる同じ種類（`px`同士等）にする。`p-2`と`px-3`を並べると先の方が効かない
+  クラスとして残る（E2Eの余白ユーティリティの検査が落とす）。部品の土台（cvaの第1引数）は余白を持たない。
 
 ## 3. Design Token
 
@@ -46,13 +48,13 @@
 | spacing | `--space-*`はTailwind既定のスペーシングスケール（0.25rem単位）と数値が一致する。`@theme`への追加登録は不要で、`gap-2`等がそのまま既存トークンと揃う |
 | radius | `--radius-sm/md/lg`を`globals.css`の`@theme`へ登録済み。`rounded-sm/md/lg`で使える |
 | shadow | `--shadow-float`を`@theme`へ登録済み。`shadow-float`で使える |
-| font-size | `@theme`へは追加していない。`components/ui/`はTailwind既定の`text-*`スケールをそのまま使う（`--font-size-*`とはわずかにズレるが、両者は別ファイルに閉じており実害なし）。`*.module.css`側は素の`rem`ではなく`--font-size-*`トークンを使う |
+| font-size | `@theme`へは追加していない。文字の大きさは`--font-size-xs/sm/md`の3段（モバイル幅で詰まる）をTailwindの任意値記法（`text-[length:var(--font-size-sm)]`）で参照し、役割ごとの組み合わせは`ui/Text`の`textVariants`が持つ。Tailwind既定の`text-*`スケールは使わない |
 | **color** | **`@theme`へ取り込んでいない。** `components/ui/`のコンポーネントも色は必ず`var(--color-*)`をTailwindの任意値記法（`bg-[var(--color-surface)]`等）で参照する。**Tailwind既定パレット（`bg-white`/`text-gray-900`等）は使用禁止。** 取り込むこと自体はダークモードの追従を壊さない——`@theme inline { --color-surface: var(--color-surface); }`の形ならユーティリティは`var(--color-surface)`参照のまま出力され、`@theme`の変数が出る`@layer theme`の`:root`より、`globals.css`のunlayeredな`:root`とダーク側の再定義が常に勝つ。壊れるのは、`@theme inline`へ色の値そのものを書いた場合（ユーティリティへ値が焼き込まれる）と、`globals.css`の`:root`に再定義の無い名前を`@theme`にだけ置いた場合。任意値記法のままでいる側の利点は綴り違いを止められること: `var(--color-*)`の綴り違いは`cssTokens.test.ts`が落とすが、短い名前（`bg-surfce`）の綴り違いはTailwindが警告なしにクラスを生成しないだけで何も止めない |
 
 ### 重なり順（z-index）
 
 画面全体で重なり合う層は`globals.css`の`:root`にある`--z-*`トークンがすべてで、各
-`*.module.css`は素の数値を持たない。Radix Portalで`document.body`直下へ出る要素同士は、
+部品・画面は素の数値を持たない（`z-[var(--z-map-control)]`の形で参照する）。Radix Portalで`document.body`直下へ出る要素同士は、
 記述順ではなくこの値だけで前後が決まるため、**新しい浮動UIを足すときは既存のどの層より
 上/下なのかをこの表で決める**。
 
@@ -64,18 +66,10 @@
 | `--z-bottom-sheet` | 45 | モバイルのBottomSheet・下部タブバー |
 | `--z-header-popover` | 46 | ヘッダー由来のポップオーバー（メニュー・警報バッジ・今日の見通し） |
 | `--z-floating-panel` | 50 | 開発者向けFloatingPanel・`ui/Dialog` |
-| `--z-top-popover` | 60 | 開いた時点で必ず見えるべき浮きパネル（`ui/floatingPopover`・レンズ一覧・走行条件） |
+| `--z-top-popover` | 60 | 開いた時点で必ず見えるべき浮きパネル（`ui/Popover`の既定・レンズ一覧・走行条件） |
 
 1つの部品の内側だけで重なる要素（読み込みオーバーレイ・sticky列見出し等）はこのスケールの
 対象外で、素の小さい値のままでよい。
-
-### 固定ダークな面の上の色
-
-開発者向けFloatingPanel（`SystemStatusPanel`・`DebugConsole`）とログ本文
-（`BackendLogsPanel`）はテーマに追従しない暗い面のため、重大度色は`--color-danger`等の
-テーマトークンではなく`--color-log-error`/`--color-log-warning`/`--color-log-info`
-（ライト/ダークで切り替えない固定値）を使う。テーマトークンは明るい面向けの濃さで、
-暗い面では沈んで読めなくなる。
 
 **存在しないトークン名を書かない**。`var(--color-text)`のように規約どおりの見た目でも
 定義が無ければ継承値へ落ち、SVGの`fill`だとダークモードで文字が読めなくなる。
@@ -93,24 +87,22 @@
 それを定義とみなして通す。
 
 `@theme`ブロックの値は`globals.css`の`:root`内`--radius-*`/`--shadow-float`定義と意図的に
-重複させている（`:root`側はunlayeredで既存CSS Modulesが依存しており、動かすことによる
-予期せぬCascade Layers影響を避けるため）。変更時は両方揃えて直すこと。`@theme`直前の
+重複させている（`:root`側はunlayeredで、部品の任意値記法〔`var(--radius-sm)`等〕が参照しているため）。変更時は両方揃えて直すこと。`@theme`直前の
 コメントには、Lightning CSSのコメント解釈に関する書き方の制約がある（`globals.css`の
 該当コメント参照）。
 
-## 4. 共有スタイルの取り込み方
+## 4. 部品の作り方
 
-**別コンポーネントの`*.module.css`を直接importして借りない**。CSS Modulesは存在しない
-クラス名に対して`undefined`を返すため、貸し手側の改名が無スタイルのまま本番へ出る
-（tscもlintも止めない）。共有したい見た目は`components/ui/`へ出し、双方が`composes`で
-取り込む（5-4節）。
+- 部品は`cva`で役割（variant）と大きさ（size）を宣言し、呼び出し側の`className`を`cn()`で後に足す
+  （tailwind-mergeが同じプロパティの後勝ちを解決する）。
+- **状態の見た目は属性で書く**（`data-[state=on]:`・`data-[state=open]:`・`aria-expanded:`等）。Radixが付ける
+  属性で切り替えると、状態を見た目のために二重に持たない。親の状態で子を変えるときは`group`/`group-data-*`、
+  祖先の属性で変えるときは`in-data-*`を使う。
+- 狭い画面だけの違いは`max-mobile:`（`--breakpoint-mobile`から導かれる）。
+- 部品の構造の目印が要るとき（テストが兄弟関係を見る等）は`data-slot`（shadcn/uiの慣習）を付ける。
 
 ## 5. 意図的に作らない・統合しないもの
 
-- **Select**: 利用箇所が無いため`components/ui/`に作らない。実需が生じたら追加する。
-- **Tabs**: `components/ui/`でラップせず、`@radix-ui/react-tabs`を各画面が直接使う。
-- **汎用Chip**: `components/Map/LayerChip.tsx`（Radix Toggleラッパー）があるため、
-  `components/ui/`に汎用Chipは作らない。
 - **FloatingPanel/BottomSheetとDialogの統合**: 前者2つはドラッグ移動（react-rnd）・高さドラッグ
   （自前pointerイベント）という専用の振る舞いを持ち、Dialogでは表現できないため統合しない。
   Dialogは新規の単純なモーダル要求（ドラッグ不要な確認ダイアログ等）向けの土台。
@@ -133,14 +125,6 @@
 - **UIの文言に開発用語を出さない。** 「デフォルト」「フォールバック」「キャッシュ」などは、
   初見の利用者が意味を取れる表現へ置き換える。
 
-## 5-4. CSS Modulesの`composes`が安全な理由
-
-共有したいスタイルは`components/ui/`へ出して双方が`composes`する（4節と同じく、同じクラスを
-直に共有しない）。**`composes`は取り込み側に新しいローカルクラスを発行したうえでベースの
-規則を合成する**ため、取り込み側が足す状態セレクタ（`[aria-pressed="true"]`等）は自分の
-生成後クラスにしか掛からず、元のクラスや他の取り込み側へ波及しない。同じクラスを直接
-共有した場合と違い、意図しない汚染が起きないのはこの性質による。
-
 ## 5-5. ブラウザ・ライブラリの既定に踏まれる所
 
 - **Reactの`onWheel`で`preventDefault`は効かない。** React 17以降、ホイールイベントは
@@ -153,6 +137,11 @@
 `components/Map/recipeControls.test.tsx`（`FieldLabel`、Radix Popoverラッパー）を参照実装と
 する。vitest + `@testing-library/react`で`render`/`screen`、`getByRole`/`aria-*`属性ベースの
 アサーションに統一し、Radix内部のDOM構造には依存しない。`components/ui/*/*.test.tsx`も同じ方針。
+
+**要素をクラス名で探さない**——見た目のクラスは部品の都合で変わる。役割・名前・`title`・`style`で探し、
+構造の目印が要るときだけ`data-slot`を使う。部品が宣言したクラス文字列を書き写して突き合わせるテストは
+書かない。テスト環境はTailwindの規則を作らないため、地図の上の部品を押せるかの
+判定に要る`pointer-events-auto`の1規則だけを`vitest.setup.ts`が置く。
 
 `Disclosure`（Radix Accordion）の本文は、閉じている間`hidden`で実際に隠れる。中身の挙動を
 見るテストは、レンダー直後にその節を開いてからクエリする。`aria-expanded`でトリガーを集める
@@ -171,21 +160,22 @@
 `globals.css`はデザイントークン・標準的なCSSリセット・レスポンシブレイアウト（インライン
 styleでは`@media`が書けないための必然）・サードパーティ（MapLibre）のDOM上書きなど、
 **「グローバルであること自体に意味がある」ルールに限定する**。「たまたま複数箇所で似た
-見た目が必要だから」という理由でのブランケットルールは避け、コンポーネント自身のCSS
-Modulesファイルに持たせる。
+見た目が必要だから」という理由でのブランケットルールは避け、部品か、その画面のクラスに持たせる。
+ボタンの見た目の規則も置かない——全ボタン共通の見た目を置くと、部品の側で打ち消し忘れたプロパティが
+そのまま素通しされる。キーボードのフォーカスの輪だけは、どの押せる要素にも同じものを出す。
 
 ### タップ領域（44px）は、主要な導線だけが自前で持つ
 
 コンテナ配下の全`<button>`へ一律に`min-height`を掛けるようなブランケットルールは置かない。
-一律適用は、既に自前の意図したサイズを持つ部品（`LayerChip`のピル・`components/ui/Checkbox`
+一律適用は、既に自前の意図したサイズを持つ部品（`Toggle`のチップ・`components/ui/Checkbox`
 等）を詳細度で潰す。
 
-**「本当にメインの導線」だけが個別に44pxを持つ**（例: モバイル下部タブの
-`page.module.css: .tabButton`のように、画面の切り替えそのものを担う操作）。補助的な
+**「本当にメインの導線」だけが個別に44pxを持つ**（例: モバイル下部タブ〔`page.tsx`〕のように、
+画面の切り替えそのものを担う操作）。補助的な
 ボタン（一括操作リンク・情報アイコン・開発者向けボタン等）は44pxへ揃えず自然なサイズのまま
 にする。**新しく「主要な導線」を追加する際は、globals.cssへブランケットルールを足すのでは
-なく、そのコンポーネント自身のCSS Modules（または Tailwindの`min-h-11`等）へ
-`@media (max-width: 640px)`スコープで明示すること**。
+なく、そのコンポーネント自身のクラス（Tailwindの`min-h-11`等。狭い幅だけなら`max-mobile:`）で
+明示すること**。
 
 `globals.css`に置いてよいモバイル向けルールは、特定の要素カテゴリ全体に共通し、
 コンポーネント個別の意図が入り込む余地の無いものだけ（例: `.app-bottom-sheet`スコープの

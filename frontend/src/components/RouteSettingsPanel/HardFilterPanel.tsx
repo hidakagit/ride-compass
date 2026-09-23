@@ -1,10 +1,11 @@
 "use client";
 
 import InfoPopover from "@/components/Map/InfoPopover";
-import LayerChip from "@/components/Map/LayerChip";
 import type { HardFilterOverride } from "@/types/route";
 import routeGenerateConfig from "@/types/generated/route-generate-config.json";
-import styles from "./RouteSettingsPanel.module.css";
+import { Button } from "@/components/ui/Button/Button";
+import { Toggle } from "@/components/ui/Toggle/Toggle";
+import { textVariants } from "@/components/ui/Text/Text";
 
 // 「ルート設定」区分の「除外」タブ。ここでONにした種類は重みづけの対象ですらなく、
 // 探索グラフから外れる（通らない）。将来の除外条件（未舗装路等）もこのタブへ足す。
@@ -34,36 +35,33 @@ export default function HardFilterPanel({ hardFilters, onHardFiltersChange }: Ha
 
   return (
     <div className="flex flex-col gap-3">
-      <div className={styles.sectionHeader}>
-        <p className={styles.sectionLabel}>除外する道路</p>
-        <InfoPopover
-          triggerClassName={styles.sectionInfoButton}
-          triggerAriaLabel="除外する道路の説明"
-          contentClassName={styles.legendInfoPopover}
-        >
+      <div className="flex items-center gap-1">
+        <p className={textVariants({ variant: "hint" })}>除外する道路</p>
+        <InfoPopover triggerAriaLabel="除外する道路の説明">
           ONにした種類は経路から完全に外れます（重みづけと違い、多少コストが高くても通る、ということが無くなります）。
         </InfoPopover>
       </div>
-      <div className={styles.chipRow}>
+      <div className="flex flex-wrap gap-2">
         {HARD_FILTER_CHIPS.map(({ key, label }) => (
-          <LayerChip
+          <Toggle
             key={key}
-            label={label}
-            on={hardFilters[key] ?? DEFAULT_HARD_FILTERS[key]}
-            ariaLabel={`${label}を除外`}
+            pressed={hardFilters[key] ?? DEFAULT_HARD_FILTERS[key]}
+            aria-label={`${label}を除外`}
             onClick={() =>
               onHardFiltersChange({
                 ...hardFilters,
                 [key]: !(hardFilters[key] ?? DEFAULT_HARD_FILTERS[key]),
               })
             }
-          />
+          >
+            {label}
+          </Toggle>
         ))}
       </div>
       {customized && (
-        <button type="button" className={styles.resetButton} onClick={() => onHardFiltersChange(DEFAULT_HARD_FILTERS)}>
+        <Button size="sm" className="self-start" onClick={() => onHardFiltersChange(DEFAULT_HARD_FILTERS)}>
           除外を既定値に戻す
-        </button>
+        </Button>
       )}
     </div>
   );

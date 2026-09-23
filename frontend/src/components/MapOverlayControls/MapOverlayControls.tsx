@@ -1,15 +1,9 @@
 "use client";
 
-import {
-  useCallback,
-  useEffect,
-  useRef,
-  useState,
-  type CSSProperties,
-  type PointerEvent as ReactPointerEvent,
-  type ReactElement,
-} from "react";
+import { useEffect, useRef, useState, type CSSProperties, type ReactElement } from "react";
 import { createPortal } from "react-dom";
+import useEmblaCarousel from "embla-carousel-react";
+import { WheelGesturesPlugin } from "embla-carousel-wheel-gestures";
 import { useStoredState } from "@/hooks/useStoredState";
 import {
   isAxisStudioLayer,
@@ -30,7 +24,11 @@ import LegendCheckboxList from "@/components/Map/LegendCheckboxList";
 import { Checkbox } from "@/components/ui/Checkbox/Checkbox";
 import { EnvironmentDataIcon, InfoIcon, RoadIcon, SpotDataIcon, type MapIconComponent } from "@/components/Map/icons";
 import palette from "@/types/generated/palette.json";
-import styles from "./MapOverlayControls.module.css";
+import { Button } from "@/components/ui/Button/Button";
+import { cn } from "@/lib/cn";
+import { Dot } from "@/components/ui/Dot/Dot";
+import { cardVariants } from "@/components/ui/Card/Card";
+import { badgeVariants } from "@/components/ui/Badge/Badge";
 
 /** 内訳パネルの色見本を載せる台（地図の地色）。CSSは源泉の値を持てないのでここで渡す。 */
 const SWATCH_GROUND_STYLE = { "--swatch-ground": palette.semantic.basemap_ground } as CSSProperties;
@@ -135,8 +133,7 @@ const MAP_OVERLAY_GROUP_ICONS: Record<MapOverlayGroup, (props: { size?: number }
 // アイコン行と▶トグルの間の間隔（CSS変数--space-2と一致させる。内訳パネルの位置を
 // JSで計算する際、CSS側の見た目の間隔と揃えるために数値でも持つ必要がある）。
 const PANEL_GAP_PX = 8;
-// 内訳パネルの既定の最大高さ（MapOverlayControls.module.css: .detailPanelBaseの
-// `max-height: min(45vh, 16rem)`のうちrem側の値と一致させる。PANEL_GAP_PXと同じ理由で、
+// 内訳パネルの既定の最大高さ（パネルのクラスの`max-h-[min(45vh,16rem)]`のうちrem側の値と一致させる。PANEL_GAP_PXと同じ理由で、
 // 画面下端からのはみ出し対策（下記toggleExpanded参照）をJS側で計算するために数値でも
 // 持つ必要がある）。
 const DETAIL_PANEL_MAX_HEIGHT_PX = 256; // 16rem（ブラウザ既定のroot font-size 16pxベース）
@@ -232,7 +229,12 @@ interface PanelRect {
 // 凡例1カテゴリぶんのスウォッチ。線レイヤーは太さ・線種で意味を運ばないため、どのカテゴリも
 // 色ドットだけで示す。
 function renderLegendSwatch(entry: LegendEntry) {
-  return <span className={styles.detailSwatchDot} style={{ background: entry.color }} />;
+  return (
+    <span
+      className="box-content size-[7px] flex-shrink-0 rounded-full border-2 border-[var(--swatch-ground,transparent)] shadow-[0_0_0_1px_var(--color-border-strong)]"
+      style={{ background: entry.color }}
+    />
+  );
 }
 
 // ▶を開いたときの内訳パネル。軸に属する全カテゴリを表示中/非表示の別なく並べる
@@ -247,15 +249,15 @@ function renderLegendDetails(
   onAxisSetHidden: (axisId: string, hiddenKeys: string[]) => void,
 ) {
   return (
-    <div className={styles.detailBody}>
+    <div className="flex flex-col gap-2">
       {axes.map((axis, axisIndex) => (
-        <div key={axis.axisId ?? axis.label ?? axisIndex} className={styles.detailAxis}>
+        <div key={axis.axisId ?? axis.label ?? axisIndex} className="flex flex-col gap-1">
           {axis.axisId ? (
             // 一括ON/OFF。1つ残らず表示中のときだけチェックが入り、押すと全部隠す。
             // 1つでも隠れていれば未チェックで、押すと全部表示に戻る——狭い▶パネルに
             // 「すべて表示」「すべて隠す」の2ボタン（サイドバー側の形）を置く余地が
             // 無いため、1つのチェックボックスで両方向を兼ねる。
-            <label className={styles.detailAxisHeader}>
+            <label className="flex cursor-pointer items-center gap-1.5">
               <Checkbox
                 checked={axis.hiddenKeys.length === 0}
                 onCheckedChange={() =>
@@ -266,35 +268,45 @@ function renderLegendDetails(
                 }
                 aria-label={`${axis.label || "すべての項目"}をまとめて表示/非表示`}
               />
-              <span className={styles.detailAxisLabel}>{axis.label || "すべて"}</span>
+              <span className="text-[length:var(--font-size-xs)] font-bold text-[var(--color-neutral)]">
+                {axis.label || "すべて"}
+              </span>
             </label>
           ) : (
-            axis.label && <div className={styles.detailAxisLabel}>{axis.label}</div>
+            axis.label && (
+              <div className="text-[length:var(--font-size-xs)] font-bold text-[var(--color-neutral)]">
+                {axis.label}
+              </div>
+            )
           )}
           {axis.axisId ? (
             <LegendCheckboxList
               legend={axis.legend}
               hiddenKeys={axis.hiddenKeys}
               onToggle={(key) => onEntryToggle(axis.axisId!, key)}
-              listClassName={styles.detailList}
-              rowClassName={styles.detailRow}
-              rowFallbackClassName={styles.detailRowFallback}
-              swatchClassName={styles.detailSwatchDot}
+              listClassName={"m-0 flex list-none flex-col gap-0.5 p-0"}
+              rowClassName={"flex items-center gap-1.5 text-[length:var(--font-size-sm)]"}
+              rowFallbackClassName={"mt-1 border-t border-dashed border-[var(--color-border)] pt-1"}
+              swatchClassName={
+                "box-content size-[7px] flex-shrink-0 rounded-full border-2 border-[var(--swatch-ground,transparent)] shadow-[0_0_0_1px_var(--color-border-strong)]"
+              }
             />
           ) : (
-            <ul className={styles.detailList}>
+            <ul className="m-0 flex list-none flex-col gap-0.5 p-0">
               {axis.legend.map((entry) => {
                 const hidden = axis.hiddenKeys.includes(entry.key);
                 // 「不明・他」等の受け皿カテゴリは他の項目と同列の判定値ではないため、区切り線で
                 // 分離する。
-                const rowClasses = [styles.detailRow];
-                if (hidden) rowClasses.push(styles.detailRowHidden);
-                if (entry.isFallback) rowClasses.push(styles.detailRowFallback);
+                const rowClasses = cn(
+                  "flex items-center gap-1.5 text-[length:var(--font-size-sm)]",
+                  hidden && "opacity-50",
+                  entry.isFallback && "mt-1 border-t border-dashed border-[var(--color-border)] pt-1",
+                );
                 return (
-                  <li key={entry.key} className={rowClasses.join(" ")}>
+                  <li key={entry.key} className={rowClasses}>
                     {renderLegendSwatch(entry)}
-                    <span className={styles.detailRowLabel}>{entry.label}</span>
-                    {hidden && <span className={styles.detailHiddenTag}>非表示</span>}
+                    <span className="min-w-0 flex-1">{entry.label}</span>
+                    {hidden && <span className={badgeVariants({ variant: "outline" })}>非表示</span>}
                   </li>
                 );
               })}
@@ -304,175 +316,6 @@ function renderLegendDetails(
       ))}
     </div>
   );
-}
-
-// はみ出したアイコンは、はみ出した分だけ▼/▶ボタンでページ送りする方式にしてある。
-// ボタンのクリックはtouch-actionの影響を受けない（touch-actionはpan/zoom等の
-// "ジェスチャー"だけを制御する仕様で、タップ由来のclickは対象外）ため、地図との
-// ピンチズーム競合を避けるための.iconChip自身のtouch-action: noneと衝突しない。
-//
-// 表示領域（overflow: hiddenで固定サイズ、スクロールバー自体が存在しない）の中身を
-// translateX/Yで押し引きし、まだ隠れている分がある間だけ矢印ボタンを出す。
-const PAGE_STEP_PX = 56; // 1回の送りで進める量（アイコン1個ぶん強、タイル+gapの実測値に近い）
-
-function usePagedOverflow(axis: "x" | "y") {
-  const viewportRef = useRef<HTMLDivElement | null>(null);
-  const trackRef = useRef<HTMLDivElement | null>(null);
-  const resizeObserverRef = useRef<ResizeObserver | null>(null);
-  const [offset, setOffset] = useState(0);
-  const [maxOffset, setMaxOffset] = useState(0);
-
-  const measure = useCallback(() => {
-    const viewport = viewportRef.current;
-    const track = trackRef.current;
-    if (!viewport || !track) return;
-    const viewportSize = axis === "x" ? viewport.clientWidth : viewport.clientHeight;
-    const trackSize = axis === "x" ? track.scrollWidth : track.scrollHeight;
-    const nextMax = Math.max(0, trackSize - viewportSize);
-    setMaxOffset(nextMax);
-    setOffset((prev) => Math.min(prev, nextMax));
-  }, [axis]);
-
-  // viewport（表示領域）・track（実コンテンツ）はコールバックrefのため、どちらが先に
-  // アタッチされるか（マウント順）に依存せず、両方揃った時点でResizeObserverを張り直す
-  // （どちらかがアンマウントされたら破棄する）。ResizeObserverを使うことで、軸の増減・
-  // 展開/収納・フィルタ設定・画面回転等、はみ出し量に影響しうる変化を網羅的に検知する
-  // （個々の変化のたびに手動でmeasure()を呼ぶ箇所を列挙する保守コストを避ける）。
-  const rewireObserver = useCallback(() => {
-    resizeObserverRef.current?.disconnect();
-    resizeObserverRef.current = null;
-    const viewport = viewportRef.current;
-    const track = trackRef.current;
-    if (!viewport || !track) return;
-    const observer = new ResizeObserver(measure);
-    observer.observe(viewport);
-    observer.observe(track);
-    resizeObserverRef.current = observer;
-    measure();
-  }, [measure]);
-
-  // registerViewport/registerTrackはコールバックrefとしてJSXへ渡すため、useCallbackで
-  // 参照を安定させないと親コンポーネントが再レンダーするたびに新しい関数が渡り、Reactが
-  // ref変更とみなして毎回detach（null呼び出し）→reattachし、rewireObserver
-  // （ResizeObserverの破棄・再構築）が無関係な再レンダーのたびに走ってしまう。
-  const registerViewport = useCallback(
-    (el: HTMLDivElement | null) => {
-      viewportRef.current = el;
-      rewireObserver();
-    },
-    [rewireObserver],
-  );
-  const registerTrack = useCallback(
-    (el: HTMLDivElement | null) => {
-      trackRef.current = el;
-      rewireObserver();
-    },
-    [rewireObserver],
-  );
-
-  const pageForward = () => setOffset((prev) => Math.min(maxOffset, prev + PAGE_STEP_PX));
-  const pageBackward = () => setOffset((prev) => Math.max(0, prev - PAGE_STEP_PX));
-  const reset = () => setOffset(0);
-
-  return {
-    registerViewport,
-    registerTrack,
-    offset,
-    pageForward,
-    pageBackward,
-    reset,
-    hasMore: offset < maxOffset,
-    hasLess: offset > 0,
-  };
-}
-
-// ページ送りボタンは押しっぱなしで連続送りできる。ワンタップ=1ステップのみだと、
-// 複数ステップ送るのに小さい丸ボタン（1.6rem四方）へ連打が必要になり、hasMore/hasLessの
-// 変化でボタン自体の出現・消滅が起きて位置がわずかに動くため、タップが外れて地図
-// キャンバス側の誤操作（ダブルタップズーム等）を誘発しやすい。押しっぱなしでの連続送りは
-// この連打そのものを不要にする。
-//
-// クリック（マウス・タッチ・キーボードのEnter/Spaceいずれも最終的にonClickへ集約される）
-// を「1回押した分」の唯一の実行経路として維持しつつ、pointerdown/upだけで「長押し中の
-// 追加リピート」を制御する。素早いワンタップはpointerdown後すぐにpointerupするため
-// delayMs待ちのタイマーが発火する前に解除され、onClickの1回だけが実行される。長押し時
-// だけタイマー発火後にintervalMsごとの追加ステップが走る。長押し後に指を離すと通常どおり
-// clickイベントも発火するが、直前にリピートが一度でも発火していれば「既に十分送った後の
-// 余計な1回」になるためheldRefで判定して無視する。
-// canRepeatは呼び出し側のhasMore/hasLessをそのまま渡す。ページ送りが上限/下限に達すると
-// 呼び出し元のJSXがボタン自体を描画しなくなり（押している最中でも起こりうる）、その
-// 瞬間pointerup/leaveがこの要素へ届かない可能性があるため、タイマー発火のたびに
-// canRepeatRef（render毎に最新値へ更新）を確認し、falseならタイマー自身を止めて
-// 放置されたintervalが動き続けないようにする。
-function useHoldRepeat(action: () => void, canRepeat: boolean, delayMs = 450, intervalMs = 120) {
-  const actionRef = useRef(action);
-  const canRepeatRef = useRef(canRepeat);
-  const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  // 直前のpointerdown長押しで実際にリピートが1回でも発火したか（発火直後のclickを
-  // 抑止するための判定に使う）。
-  const heldRef = useRef(false);
-
-  const clearTimers = () => {
-    if (timeoutRef.current !== null) {
-      clearTimeout(timeoutRef.current);
-      timeoutRef.current = null;
-    }
-    if (intervalRef.current !== null) {
-      clearInterval(intervalRef.current);
-      intervalRef.current = null;
-    }
-  };
-
-  // ref書き込みはレンダー中に行えない（react-hooks/refsルール）ため、コミット後の
-  // 副作用として同期する。setTimeout/setIntervalのコールバックは複数レンダーを
-  // またいで生存するため、古いレンダーのaction/canRepeatを掴んだままにならないよう
-  // 常に最新値を参照できるようにする。
-  useEffect(() => {
-    actionRef.current = action;
-    canRepeatRef.current = canRepeat;
-  });
-
-  // グループの折りたたみ等でボタン自体がアンマウントされてもタイマーが残り続けない
-  // ようにする。
-  useEffect(() => clearTimers, []);
-
-  const fireIfPossible = () => {
-    if (!canRepeatRef.current) {
-      clearTimers();
-      return;
-    }
-    actionRef.current();
-  };
-
-  const handlePointerDown = (event: ReactPointerEvent<HTMLButtonElement>) => {
-    if (event.button !== 0) return; // 主ボタン（左クリック・タッチ・ペン）以外は対象外
-    clearTimers();
-    heldRef.current = false;
-    timeoutRef.current = setTimeout(() => {
-      heldRef.current = true;
-      fireIfPossible();
-      intervalRef.current = setInterval(fireIfPossible, intervalMs);
-    }, delayMs);
-  };
-
-  const stop = () => clearTimers();
-
-  const handleClick = () => {
-    if (heldRef.current) {
-      heldRef.current = false;
-      return;
-    }
-    actionRef.current();
-  };
-
-  return {
-    onPointerDown: handlePointerDown,
-    onPointerUp: stop,
-    onPointerLeave: stop,
-    onPointerCancel: stop,
-    onClick: handleClick,
-  };
 }
 
 // チップ本体の共通コンポーネント。単独チップ（グループ化されないレイヤー）とグループ
@@ -485,15 +328,61 @@ function useHoldRepeat(action: () => void, canRepeat: boolean, delayMs = 450, in
 // になり、Reactが毎回アンマウント/再マウントしてDOMノードの同一性が失われる（展開直後に
 // 別要素へ差し替わり、テストや実機のフォーカス・aria状態が壊れる）ため、モジュール直下の
 // 安定した関数として定義する。panelRects/rowRefsは親の状態のためprops経由で受け取る。
-// groupTint（MapOverlayGroup）→CSSクラスの対訳表。ChipButtonはチップ1個ごとに呼ばれるため
-// モジュール直下の定数として1回だけ作る（レンダーごとの再生成を避ける）。
-const GROUP_TINT_CLASSES: Record<MapOverlayGroup, string> = {
-  road: styles.iconChipGroupRoad,
-  environment: styles.iconChipGroupEnvironment,
-  spot: styles.iconChipGroupSpot,
-};
+// グループ（道路/環境/スポット）の色。見出しとメンバーが同じ色を持ち、縦に並んだチップがどのグループの
+// 一員か一目で分かる。OFF＝枠線だけグループ色、ON＝グループ色で塗りつぶし。ONの文字色は
+// --color-group-on-text（ダークモードでは-onの色が明るいため白文字だとコントラストが足りない）。
+const GROUP_TINTS: Record<MapOverlayGroup, CSSProperties> = {
+  road: {
+    "--tint": "var(--color-group-road)",
+    "--tint-on": "var(--color-group-road-on)",
+    "--tint-bg": "var(--color-group-road-bg)",
+  },
+  environment: {
+    "--tint": "var(--color-group-environment)",
+    "--tint-on": "var(--color-group-environment-on)",
+    "--tint-bg": "var(--color-group-environment-bg)",
+  },
+  spot: {
+    "--tint": "var(--color-group-spot)",
+    "--tint-on": "var(--color-group-spot-on)",
+    "--tint-bg": "var(--color-group-spot-bg)",
+  },
+} as Record<MapOverlayGroup, CSSProperties>;
+
+/** 地図上のチップ（アイコン＋短いラベルを縦に積む）。枠線の太さが、グループ・ON/展開の状態を読む手がかり。 */
+function chipClass({ tinted, header, on }: { tinted: boolean; header: boolean; on: boolean }): string {
+  return cn(
+    "relative min-w-13 w-max flex-col gap-0.5 rounded-md border-2 p-1 text-center leading-[1.15] disabled:text-[var(--color-neutral)] disabled:opacity-100",
+    tinted && "border-[var(--tint)] hover:enabled:border-[var(--tint)]",
+    // 見出しはメンバーのON/OFFを表さないため青を使わない（「グループの内容が地図に出ている」と読まれる）。
+    // 折りたたみ＝灰色、展開＝グループの薄色。
+    header &&
+      !on &&
+      "border-[var(--color-neutral)] bg-[var(--color-surface-2)] hover:enabled:border-[var(--color-neutral)]",
+    header && on && "bg-[var(--tint-bg)] text-[var(--tint)]",
+    !header && on && !tinted && "border-[var(--color-accent)] bg-[var(--color-accent)] text-white",
+    !header &&
+      on &&
+      tinted &&
+      "border-[var(--tint-on)] bg-[var(--tint-on)] text-[var(--color-group-on-text)] hover:enabled:border-[var(--tint-on)]",
+  );
+}
+
+/** チップ横の丸い開閉ボタン。開いている間は枠をアクセント色にする。 */
+const ROUND_TOGGLE =
+  "text-[var(--color-neutral)] shadow-none aria-expanded:border-[var(--color-accent)] aria-expanded:text-[var(--foreground)]";
 
 const FILTERED_LABEL = "絞り込み中";
+
+/** ▶・ⓘで開く内訳パネル（地図の上に浮かせ、開いた瞬間の行の位置へ置く）。 */
+const DETAIL_PANEL_CLASS = cn(
+  cardVariants({ variant: "glass" }),
+  "fixed z-[var(--z-map-detail)] max-h-[min(45vh,16rem)] w-72 max-w-[calc(100vw-2*var(--space-3))] overflow-y-auto px-3 py-2",
+);
+
+/** チップの行はそれぞれ高さが違うため、吸着させずに離した位置で止める（dragFree）。先頭を上端に揃え、
+ * 末尾より先へは送らない。 */
+const CHIP_ROW_OPTIONS = { axis: "y", align: "start", dragFree: true, containScroll: "trimSnaps" } as const;
 
 /** ONのレイヤーが凡例の絞り込みで一部を隠しているか。OFFの間は地図に何も出さないため数えない。 */
 function isLegendFiltered(layer: OverlayLayerChip): boolean {
@@ -546,12 +435,7 @@ function ChipButton({
    * 描画せず、本体ボタンのactive見た目とaria-expandedで開閉状態を表す。本体タップは
    * 元々onTapにtoggleExpandedと同じ関数を渡しているため、押下対象は変わらない
    * （挙動はそのまま、見た目と意味づけだけを変える）。単独チップ（ON/OFFと凡例展開が
-   * 別アクション）はこの対象外で、独立した丸トグルを持つ。active見た目には
-   * .iconChipActive（青、ON/OFFチップと同じ＝「地図に反映されている」の意味）ではなく
-   * .iconChipExpanded（展開中は薄色でON、展開解除は灰色でOFFを示す。CSS側は
-   * .groupHeaderChipマーカーとgroupTintの組み合わせで折りたたみ=灰色・展開=そのグループの
-   * 薄色塗りを出す）を使う。見出し自体はメンバーのON/OFFを表さないため、青
-   * （.iconChipActive）を使うと「このグループの内容が地図に出ている」と誤読されてしまう。 */
+   * 別アクション）はこの対象外で、独立した丸トグルを持つ。見出しの見た目は`chipClass`の`header`。 */
   expandViaSelf?: boolean;
   /** 最上位グループ（道路/環境/スポット）の色分け。未指定＝どのグループにも属さない
    * 単独チップ（ルート等）は無色のまま。 */
@@ -564,14 +448,8 @@ function ChipButton({
   filtered?: boolean;
 }) {
   const arrowGlyph = expandDirection === "right" ? "▶" : "▼";
-  const arrowOpenClass = expandDirection === "right" ? styles.expandArrowOpen : styles.expandArrowDownOpen;
+  const arrowOpenClass = expandDirection === "right" ? "rotate-90" : "rotate-180";
   const isActiveVisual = expandViaSelf ? isExpanded : active;
-  const groupTintClass = groupTint ? GROUP_TINT_CLASSES[groupTint] : "";
-  // グループ見出し（観測、expandViaSelf=true）だけに付く印。展開中は薄色でON、展開解除は
-  // 灰色でOFFを示す。メンバータイルは常に枠線だけグループ色のままにしたいため、見出しだけを
-  // 区別するマーカークラスをCSS側のコンパウンドセレクタ（.groupHeaderChip.iconChipGroupRaw
-  // 等）で使う。
-  const headerMarkerClass = expandViaSelf ? styles.groupHeaderChip : "";
   // レイヤーのデータ取得状態。LayerChip.tsxと同じ「ONの間だけ」判定（OFF中はチップ自体の
   // 見た目でON/OFFが分かるため出さない）。
   const showStatusDot = active && dataStatus != null;
@@ -580,47 +458,51 @@ function ChipButton({
   const chipTitle =
     titleNotes.length > 0 ? (title ? `${title}（${titleNotes.join("・")}）` : titleNotes.join("・")) : title;
   return (
-    <div ref={registerRow} className={styles.chipRowItem}>
-      <div className={styles.iconToggleRow}>
-        <button
-          type="button"
+    <div ref={registerRow} data-slot="chip-row-item" className="flex flex-shrink-0 flex-col gap-1 self-start">
+      <div className="flex items-center gap-1">
+        <Button
+          variant="float"
+          size="bare"
           aria-pressed={expandViaSelf ? undefined : active}
           aria-expanded={expandViaSelf ? isExpanded : undefined}
           disabled={disabled}
           title={chipTitle}
           onClick={onTap}
-          className={
-            isActiveVisual
-              ? `${styles.iconChip} ${groupTintClass} ${headerMarkerClass} ${expandViaSelf ? styles.iconChipExpanded : styles.iconChipActive}`
-              : `${styles.iconChip} ${groupTintClass} ${headerMarkerClass}`
-          }
+          style={groupTint ? GROUP_TINTS[groupTint] : undefined}
+          className={chipClass({ tinted: groupTint !== undefined, header: expandViaSelf === true, on: isActiveVisual })}
         >
           <Icon />
-          {/* 状態→CSSクラスの対訳表をコンポーネント内に持たず、LayerDataStatusの値と
-              そろえたクラス名（MapOverlayControls.module.css: iconStatusDot_loading等）を
-              直接組み立てて参照する（LayerChip.tsxと同じUI語彙のカタログ集約）。 */}
           {showStatusDot && dataStatus && (
-            <span aria-hidden="true" className={`${styles.iconStatusDot} ${styles[`iconStatusDot_${dataStatus}`]}`} />
+            <Dot aria-hidden="true" tone={dataStatus} className="absolute top-0.5 right-0.5" />
           )}
-          {filtered && <span aria-hidden="true" className={styles.iconFilterMark} />}
-          <span className={styles.iconLabel}>{chipLabel}</span>
-        </button>
+          {filtered && (
+            <span
+              aria-hidden="true"
+              className="absolute top-1 left-1 h-2 w-2.5 bg-current [clip-path:polygon(0_0,100%_0,62%_50%,62%_100%,38%_100%,38%_50%)]"
+            />
+          )}
+          <span className="whitespace-nowrap text-[0.58rem]">{chipLabel}</span>
+        </Button>
         {canExpand && !expandViaSelf && (
-          <button
-            type="button"
+          <Button
+            variant="float"
+            size="iconRound"
+            className={ROUND_TOGGLE}
             onClick={onExpandToggle}
             aria-expanded={isExpanded}
             aria-label={`${label}の凡例を${isExpanded ? "隠す" : "表示"}`}
             title={isExpanded ? "凡例を隠す" : "凡例を表示"}
-            className={isExpanded ? `${styles.expandToggle} ${styles.expandToggleActive}` : styles.expandToggle}
           >
             <span
               aria-hidden="true"
-              className={isExpanded ? `${styles.expandArrow} ${arrowOpenClass}` : styles.expandArrow}
+              className={cn(
+                "inline-block text-[0.6rem] leading-none transition-transform duration-150",
+                isExpanded && arrowOpenClass,
+              )}
             >
               {arrowGlyph}
             </span>
-          </button>
+          </Button>
         )}
       </div>
       {isExpanded &&
@@ -628,7 +510,9 @@ function ChipButton({
         panelRect &&
         createPortal(
           <div
-            className={styles.detailPanel}
+            role="region"
+            aria-label={`${label}の内訳`}
+            className={DETAIL_PANEL_CLASS}
             style={{
               ...SWATCH_GROUND_STYLE,
               top: panelRect.top,
@@ -688,20 +572,11 @@ export default function MapOverlayControls({
   // 行の実際の画面位置をJSで測ってposition: fixedで配置することでクリップを回避する。
   const [panelRects, setPanelRects] = useState<Partial<Record<string, PanelRect>>>({});
   const rowRefs = useRef<Partial<Record<string, HTMLDivElement | null>>>({});
-  // .chipRowの、はみ出し分のページ送り（usePagedOverflow参照）。JSXのprops側で
-  // オブジェクトのメンバー式（例: chipRowPaging.registerTrack）を直接参照すると、
-  // react-hooks/refs lintルールが「レンダー中のref参照」と誤検知するため（返り値にref操作を
-  // 含む関数を持つカスタムフックのため保守的に判定される）、ここで一度分割代入し裸の変数として
-  // JSXへ渡す。
-  const {
-    registerViewport: registerChipRowViewport,
-    registerTrack: registerChipRowTrack,
-    offset: chipRowOffset,
-    pageForward: pageChipRowForward,
-    pageBackward: pageChipRowBackward,
-    hasMore: chipRowHasMore,
-    hasLess: chipRowHasLess,
-  } = usePagedOverflow("y");
+  // チップ列が縦にはみ出したら、列をなぞって（PCはホイールでも）送る。▲▼は、まだ隠れている側がある間だけ出し、
+  // 押すと1段送る。送り・はみ出しの測り直し（チップの増減・展開）はEmblaが持つ。
+  const [chipRowRef, chipRowApi] = useEmblaCarousel(CHIP_ROW_OPTIONS, [WheelGesturesPlugin({ forceWheelAxis: "y" })]);
+  const [chipRowHasLess, setChipRowHasLess] = useState(false);
+  const [chipRowHasMore, setChipRowHasMore] = useState(false);
 
   // 道路/環境/スポットグループで「表示する項目を選ぶ」設定。グループ見出しのⓘボタンから、
   // 配下メンバーの表示・非表示を選べる設定パネルを開く。グループ本体を開くと、ここで
@@ -828,17 +703,46 @@ export default function MapOverlayControls({
     });
   };
 
-  // ▲▼/◀▶それぞれの「押しっぱなしで連続送り」（useHoldRepeat参照）。
-  // closeFloatingPanels()はページ送りのたびに呼ぶ（何も開いていなければsetExpandedIdsが
-  // 同一参照を返すため再レンダーは発生せず、繰り返し呼んでも無害）。
-  const chipRowBackwardHold = useHoldRepeat(() => {
+  // 内訳パネルは開いた瞬間の行の位置へ浮かせているため、列が動いたら閉じる（何も開いていなければ
+  // setExpandedIdsが同じ参照を返すので、送りのたびに呼んでも描き直さない）。
+  const closeFloatingPanelsRef = useRef(closeFloatingPanels);
+  useEffect(() => {
+    closeFloatingPanelsRef.current = closeFloatingPanels;
+  });
+  useEffect(() => {
+    if (!chipRowApi) return;
+    const sync = () => {
+      setChipRowHasLess(chipRowApi.canScrollPrev());
+      setChipRowHasMore(chipRowApi.canScrollNext());
+    };
+    // 閉じるのは、なぞって列を動かしたときだけ。押しただけ（チップ・▶を押す）で閉じると、押した▶の開閉と打ち消し合う。
+    let dragging = false;
+    const down = () => {
+      dragging = true;
+    };
+    const up = () => {
+      dragging = false;
+    };
+    const scroll = () => {
+      sync();
+      if (dragging) closeFloatingPanelsRef.current();
+    };
+    sync();
+    chipRowApi.on("select", sync).on("reInit", sync).on("scroll", scroll).on("pointerDown", down).on("pointerUp", up);
+    return () => {
+      chipRowApi
+        .off("select", sync)
+        .off("reInit", sync)
+        .off("scroll", scroll)
+        .off("pointerDown", down)
+        .off("pointerUp", up);
+    };
+  }, [chipRowApi]);
+  const pageChipRow = (direction: "prev" | "next") => {
     closeFloatingPanels();
-    pageChipRowBackward();
-  }, chipRowHasLess);
-  const chipRowForwardHold = useHoldRepeat(() => {
-    closeFloatingPanels();
-    pageChipRowForward();
-  }, chipRowHasMore);
+    if (direction === "prev") chipRowApi?.scrollPrev();
+    else chipRowApi?.scrollNext();
+  };
 
   // グループの1メンバー。「アイコン+略名の四角タイル+
   // 隣に付随する凡例展開ボタン」をChipButtonの再利用で表す（見た目を全要素で統一する）。
@@ -852,12 +756,13 @@ export default function MapOverlayControls({
    * 「ONにしても何も出ない」状態だけで、そのときの凡例は地図に存在しない色見本の表になる。
    * グループのメンバーと単独チップで同じ判断をするため、ここ1箇所に置く。 */
   function panelContentFor(layer: OverlayLayerChip) {
-    if (layer.notice) return <p className={styles.detailNotice}>{layer.notice}</p>;
+    if (layer.notice)
+      return <p className="m-0 text-[length:var(--font-size-sm)] text-[var(--foreground)]">{layer.notice}</p>;
     const status = dataStatusNoticeFor(layer);
     return (
       <>
         {status && (
-          <p className={styles.detailStatus} role="status">
+          <p className="mb-2 text-[length:var(--font-size-sm)] text-[var(--foreground)]" role="status">
             {status}
           </p>
         )}
@@ -967,28 +872,32 @@ export default function MapOverlayControls({
         ref={(el) => {
           rowRefs.current[legendKey] = el;
         }}
-        className={styles.chipRowItem}
+        data-slot="chip-row-item"
+        className="flex flex-shrink-0 flex-col gap-1 self-start"
       >
-        <div className={styles.iconToggleRow}>
-          <button
-            type="button"
+        <div className="flex items-center gap-1">
+          <Button
+            variant="float"
+            size="iconRound"
+            className={ROUND_TOGGLE}
             onClick={() => toggleExpanded(legendKey, "down")}
             aria-expanded={isOpen}
             aria-label={`${groupLabel}の表示項目を${isOpen ? "隠す" : "設定"}`}
             title="表示する項目を選ぶ"
-            className={isOpen ? `${styles.expandToggle} ${styles.expandToggleActive}` : styles.expandToggle}
           >
             <InfoIcon size={12} />
-          </button>
+          </Button>
         </div>
         {isOpen &&
           rect &&
           createPortal(
             <div
-              className={styles.detailPanel}
+              role="region"
+              aria-label={`${groupLabel}の表示項目`}
+              className={DETAIL_PANEL_CLASS}
               style={{ top: rect.top, left: rect.left, maxWidth: rect.maxWidth, maxHeight: rect.maxHeight }}
             >
-              <ul className={styles.detailList}>
+              <ul className="m-0 flex list-none flex-col gap-0.5 p-0">
                 {items.flatMap((item) => {
                   const hiddenKey = `${scope}:${item.key}`;
                   const isHidden = hiddenIds.has(hiddenKey);
@@ -998,37 +907,35 @@ export default function MapOverlayControls({
                   const infoKey = hiddenKey;
                   const isInfoOpen = openInfoKeys.has(infoKey);
                   const row = (
-                    <li key={item.key} className={styles.detailRow}>
+                    <li key={item.key} className="flex items-center gap-1.5 text-[length:var(--font-size-sm)]">
                       <Checkbox
                         checked={!isHidden}
                         onCheckedChange={() => toggleHidden(hiddenKey, item.layerId, item.on)}
                         aria-label={`${item.label}を${isHidden ? "表示する" : "表示しない"}`}
                       />
                       <item.Icon size={16} />
-                      <span className={styles.detailRowLabel}>{item.label}</span>
+                      <span className="min-w-0 flex-1">{item.label}</span>
                       {item.description && (
-                        <button
-                          type="button"
+                        <Button
+                          size="iconRound"
+                          className={cn("size-5", ROUND_TOGGLE)}
                           onClick={() => toggleInfo(infoKey)}
                           aria-expanded={isInfoOpen}
                           aria-label={`${item.label}の説明を${isInfoOpen ? "隠す" : "表示"}`}
                           title={isInfoOpen ? "説明を隠す" : "説明を表示"}
-                          className={
-                            isInfoOpen
-                              ? `${styles.visibilityInfoButton} ${styles.visibilityInfoButtonActive}`
-                              : styles.visibilityInfoButton
-                          }
                         >
                           <InfoIcon size={12} />
-                        </button>
+                        </Button>
                       )}
                     </li>
                   );
                   if (!item.description || !isInfoOpen) return [row];
                   return [
                     row,
-                    <li key={`${item.key}:info`} className={styles.visibilityInfoRow}>
-                      <p className={styles.detailNotice}>{item.description}</p>
+                    <li key={`${item.key}:info`} className="pl-8">
+                      <p className="m-0 text-[length:var(--font-size-sm)] text-[var(--foreground)]">
+                        {item.description}
+                      </p>
                     </li>,
                   ];
                 })}
@@ -1043,24 +950,21 @@ export default function MapOverlayControls({
   const chipGroups = buildChipGroups(layers);
 
   return (
-    <div className={styles.wrapper}>
+    <div className="pointer-events-none absolute top-3 left-3 z-[var(--z-map-control)] flex w-max max-w-[calc(100%-2*var(--space-3)-3rem)] flex-col items-start gap-2 max-mobile:bottom-[calc(var(--space-3)+var(--mobile-tabbar-height)+var(--bottom-control-row-height,0px))]">
       {chipRowHasLess && (
-        <button
-          type="button"
-          className={styles.pageButton}
-          {...chipRowBackwardHold}
+        <Button
+          variant="float"
+          size="bare"
+          className="h-6.5 self-stretch rounded-md px-1 text-[1.1rem] shadow-none"
+          onClick={() => pageChipRow("prev")}
           aria-label="上を表示"
           title="上を表示"
         >
           ▲
-        </button>
+        </Button>
       )}
-      <div className={styles.chipRowViewport} ref={registerChipRowViewport}>
-        <div
-          className={styles.chipRow}
-          ref={registerChipRowTrack}
-          style={{ transform: `translateY(-${chipRowOffset}px)` }}
-        >
+      <div className="w-max max-w-full max-h-[min(80vh,42rem)] overflow-hidden" ref={chipRowRef}>
+        <div className="flex w-max max-w-full flex-col gap-2">
           {chipGroups.flatMap((group) => {
             // 道路/環境/スポットグループは「▼縦積み・地続き展開」の構成を共有する。▼を
             // 開くと、独立したカードに閉じ込めず、メンバーをchipRowの直接の子として
@@ -1109,7 +1013,11 @@ export default function MapOverlayControls({
               return [
                 <div
                   key={`${group.key}:row`}
-                  className={isExpanded ? styles.observedExpandedColumn : styles.headerLegendRow}
+                  className={
+                    isExpanded
+                      ? "flex flex-col gap-2 self-start"
+                      : "flex min-w-0 max-w-full items-start gap-1 self-start"
+                  }
                 >
                   {header}
                   {isExpanded
@@ -1163,15 +1071,16 @@ export default function MapOverlayControls({
         </div>
       </div>
       {chipRowHasMore && (
-        <button
-          type="button"
-          className={styles.pageButton}
-          {...chipRowForwardHold}
+        <Button
+          variant="float"
+          size="bare"
+          className="h-6.5 self-stretch rounded-md px-1 text-[1.1rem] shadow-none"
+          onClick={() => pageChipRow("next")}
           aria-label="下を表示"
           title="下を表示"
         >
           ▼
-        </button>
+        </Button>
       )}
     </div>
   );

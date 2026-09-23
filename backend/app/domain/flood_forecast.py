@@ -31,6 +31,11 @@ _WARNING = FloodLevel(3, "warning", "氾濫警報")
 _DANGER = FloodLevel(4, "severe_warning", "氾濫危険警報")
 _EMERGENCY = FloodLevel(5, "emergency_warning", "氾濫特別警報")
 
+#: 段階ごとの表示名（警戒度バッジが出す語。domain/warning_display.py）。
+FLOOD_LEVEL_LABELS: dict[WarningBadgeLevel, str] = {
+    flood.badge_level: flood.suffix for flood in (_WATCH, _WARNING, _DANGER, _EMERGENCY)
+}
+
 # item.code → 段。
 FLOOD_CODE_LEVELS: dict[str, FloodLevel] = {
     "20": _WATCH,

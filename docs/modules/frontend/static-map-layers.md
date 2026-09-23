@@ -43,7 +43,6 @@
 | `hooks/useTileVersionsReady.ts` | タイル世代が揃ったかを購読する薄いフック。地図がソースを作れるかの判定と、チップの縮退表示がこれ1つを見る |
 | `lib/tileBaseUrl.ts` | タイル配信元オリジンの決定（既定はフロント自身のオリジン＝rewrites経由、`NEXT_PUBLIC_TILE_BASE_URL`設定時はbackend直接）。路面/POI/事故タイル・基礎地図スタイル（`MapView.tsx: mapStyleUrl`）・国土地理院色別標高図・JMA動的タイル（[動的気象レイヤー](dynamic-weather-layers.md)）が共通に使う |
 | `components/MapOverlayControls/` | 地図上チップ（フローティングUI）。グループの開閉キー（`group:<グループ>`）は`MAP_OVERLAY_GROUP_ORDER`から生成・逆引きし、キー文字列を手で並べない——グループを増やしたとき見出しが「グループ本体」と認識されず2件目以降がチップ列から消えるのを防ぐ |
-| `Map/LayerChip.tsx` | ON/OFFトグルの共通部品（`RouteSettingsPanel/HardFilterPanel.tsx`が使う） |
 | `Map/InfoPopover.tsx` | 見出し脇の(i)アイコン→ポップオーバーという外枠の共通部品（開閉state・開閉に追随するアクセシブル名「◯◯を表示/隠す」・任意の見出し文言を含む）。中身はchildrenで呼び出し側が渡す。`RouteSettingsPanel`・`RouteAxisProfile`・`recipeControls.tsx: FieldLabel`・軸スタジオの材料説明が共用し、(i)→Popoverの組み立てを自前で持つ箇所は無い |
 | `Map/LegendCheckboxList.tsx` | 凡例のチェックボックス一覧（チェックボックス+色スウォッチ+ラベル）の共通部品。リスト/行の見た目（class名）は呼び出し側が指定する（`LensControl`・`MapOverlayControls`の▶パネルで共用） |
 
@@ -300,13 +299,11 @@ ON/OFFから行う（画面の側は下敷きの有無を知らない）。
 覆いが残り続け、白紙で固まったように見える。覆いの役目は最初の白紙を隠すことなので、
 `idle`が来なくても`INITIAL_TILES_OVERLAY_MAX_MS`（6秒）で外す。
 
-## レイヤーのデータ取得状態（`ChipButton`/`LayerChip`共通のドット表現）
+## レイヤーのデータ取得状態（地図上チップの状態ドット）
 
-`MapOverlayControls`の`ChipButton`は、`LayerChip.tsx`と同じ`LayerDataStatus`（`mapLayers.ts`、"loading"/"empty"/"error"）を受け取り、
-「表示ON かつ dataStatus が設定されている」間だけアイコン右上へ小さな状態ドットを描画する
-（`on`/`active`がfalseの間は出さない）。クラス名は`LayerDataStatus`の値とそろえて
-（`MapOverlayControls.module.css: .iconStatusDot_loading`等）動的に組み立てる点も
-`LayerChip.module.css`側と同じ設計。
+`MapOverlayControls`の`ChipButton`は、`LayerDataStatus`（`mapLayers.ts`、"loading"/"empty"/"error"）を受け取り、
+「表示ON かつ dataStatus が設定されている」間だけアイコン右上へ小さな状態ドット（`ui/Dot`。`tone`が
+`LayerDataStatus`の値そのもの）を描画する（`on`/`active`がfalseの間は出さない）。
 
 ドットの意味（`mapLayers.ts: LAYER_DATA_STATUS_LABELS`）は、ドットを出している間▶パネルの
 凡例の上へ文として出す。凡例を持たないチップも、状態がある間は▶を出す——`title`だけでは
@@ -523,8 +520,7 @@ good側（`paving_stones`・`bricks`）とbad側（`sett`・`cobblestone`等）�
 
 **凡例の色見本は、地図と同じ地色の台に載せる。** ダークモードの▶パネルは暗いが、地図は
 明るいままで、分類色はその明るい地から浮くように作ってある。見本を暗いパネルへ直に置くと
-濃い色ほどパネルに沈むので、台（地色）の上に置き、地図で見える通りに見せる
-（`MapOverlayControls.module.css: .detailSwatchDot`）。
+濃い色ほどパネルに沈むので、台（地色、`--swatch-ground`）の上に置き、地図で見える通りに見せる。
 
 **色だけでなく、描くときの寸法も宣言しない。** 線の太さ・点の半径・面の濃さ・不透明度・
 アイコンの拡大率・標高の強調倍率は、backendの`domain/map_display.py`等が宣言し、生成物

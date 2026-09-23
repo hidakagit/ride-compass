@@ -1,7 +1,7 @@
 import { RaindropIcon, ThermometerIcon, WindDirectionArrowIcon } from "@/components/Map/icons";
 import type { AmedasObservation } from "@/types/weather";
 import { classifyAmedasWeather, getAmedasWeatherDisplay } from "./amedasWeatherIcon";
-import styles from "./WeatherPanel.module.css";
+import { textVariants } from "@/components/ui/Text/Text";
 
 interface WeatherPanelProps {
   amedas: AmedasObservation | null;
@@ -31,12 +31,12 @@ export default function WeatherPanel({ amedas, loading, error }: WeatherPanelPro
   // 手元に観測値があるなら、直近の取り直しが失敗していてもそちらを出す（失敗の文言で
   // 値を置き換えない）。取得は一定間隔で続くため、回復すれば表示も戻る。
   if (!amedas) {
-    if (loading) return <p className={styles.loading}>天候取得中...</p>;
+    if (loading) return <p className={textVariants({ variant: "hint" })}>天候取得中...</p>;
     // backendは観測所の解決失敗・欠測・上流の取得失敗を区別せず502にするため、「無い」と
     // 断定せず取得できなかったことだけを出す。原因の詳細（混雑・HTTPステータス等）はtitleへ回す。
     if (error)
       return (
-        <p className={styles.error} title={error}>
+        <p className={textVariants({ variant: "error" })} title={error}>
           観測値を取得できません
         </p>
       );
@@ -56,45 +56,57 @@ export default function WeatherPanel({ amedas, loading, error }: WeatherPanelPro
 
   return (
     // 気温・風向風速・降水量・天気アイコンをアイコン+数値だけの統計チップとして1行に並べる
-    // （スマホ最適化方針、WeatherPanel.module.css参照）。
-    <div className={styles.row}>
-      <span className={styles.stat} title={temperatureTitle}>
+    // （はみ出した分は横へ流し、ヘッダーを2行にしない）。
+    <div className="flex flex-nowrap items-center gap-2 overflow-x-auto text-[var(--foreground)] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden [&_svg]:shrink-0">
+      <span
+        className="inline-flex flex-shrink-0 items-center gap-1 whitespace-nowrap text-[length:var(--font-size-md)] font-semibold"
+        title={temperatureTitle}
+      >
         <ThermometerIcon size={16} />
-        <span className={styles.srOnly}>気温: </span>
+        <span className="sr-only">気温: </span>
         {/* 数値と単位は1つのspanにまとめて.statのgapが間に入らないようにする
             （flexboxのgapは直接の子要素すべての間に均等に効くため、数値と単位を別々の
             子要素のままにすると、アイコン↔数値と同じ間隔が数値↔単位にも入ってしまい
             意図しない余白になる）。 */}
         <span>
           {amedas.temperature_c != null ? amedas.temperature_c.toFixed(1) : "-"}
-          <span className={styles.unit}>℃</span>
+          <span className="text-[0.8em] font-normal text-[var(--color-muted)]">℃</span>
         </span>
       </span>
 
-      <span className={styles.divider} aria-hidden="true" />
+      <span className="w-px flex-shrink-0 self-stretch bg-[var(--color-border)]" aria-hidden="true" />
 
       {amedas.wind_speed_ms != null && amedas.wind_direction_deg != null && (
-        <span className={styles.stat} title={windTitle}>
-          <span className={styles.windArrow} style={{ transform: `rotate(${amedas.wind_direction_deg + 180}deg)` }}>
+        <span
+          className="inline-flex flex-shrink-0 items-center gap-1 whitespace-nowrap text-[length:var(--font-size-md)] font-semibold"
+          title={windTitle}
+        >
+          <span
+            className="inline-flex transition-transform duration-200"
+            style={{ transform: `rotate(${amedas.wind_direction_deg + 180}deg)` }}
+          >
             <WindDirectionArrowIcon size={16} />
           </span>
-          <span className={styles.srOnly}>{amedas.wind_direction_label}の風: </span>
+          <span className="sr-only">{amedas.wind_direction_label}の風: </span>
           <span>
             {amedas.wind_speed_ms.toFixed(1)}
-            <span className={styles.unit}>m/s</span>
+            <span className="text-[0.8em] font-normal text-[var(--color-muted)]">m/s</span>
           </span>
         </span>
       )}
 
       {amedas.precipitation_10min_mm != null && (
         <>
-          <span className={styles.divider} aria-hidden="true" />
-          <span className={styles.stat} title="直近10分間の降水量">
+          <span className="w-px flex-shrink-0 self-stretch bg-[var(--color-border)]" aria-hidden="true" />
+          <span
+            className="inline-flex flex-shrink-0 items-center gap-1 whitespace-nowrap text-[length:var(--font-size-md)] font-semibold"
+            title="直近10分間の降水量"
+          >
             <RaindropIcon size={16} />
-            <span className={styles.srOnly}>降水量: </span>
+            <span className="sr-only">降水量: </span>
             <span>
               {amedas.precipitation_10min_mm.toFixed(1)}
-              <span className={styles.unit}>mm</span>
+              <span className="text-[0.8em] font-normal text-[var(--color-muted)]">mm</span>
             </span>
           </span>
         </>
@@ -102,10 +114,13 @@ export default function WeatherPanel({ amedas, loading, error }: WeatherPanelPro
 
       {weatherDisplay != null && (
         <>
-          <span className={styles.divider} aria-hidden="true" />
-          <span className={styles.stat} title={weatherDisplay.label}>
+          <span className="w-px flex-shrink-0 self-stretch bg-[var(--color-border)]" aria-hidden="true" />
+          <span
+            className="inline-flex flex-shrink-0 items-center gap-1 whitespace-nowrap text-[length:var(--font-size-md)] font-semibold"
+            title={weatherDisplay.label}
+          >
             <weatherDisplay.Icon size={16} />
-            <span className={styles.srOnly}>天気: {weatherDisplay.label}</span>
+            <span className="sr-only">天気: {weatherDisplay.label}</span>
           </span>
         </>
       )}

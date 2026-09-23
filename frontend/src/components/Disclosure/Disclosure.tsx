@@ -2,7 +2,7 @@
 
 import * as Accordion from "@radix-ui/react-accordion";
 import type { ReactNode } from "react";
-import styles from "./Disclosure.module.css";
+import { cn } from "@/lib/cn";
 
 // ネイティブ<details>/<summary>の共通置き換え。
 // 常に1項目だけを持つRadix Accordion（type="single" collapsible）として実装する
@@ -66,8 +66,8 @@ export default function Disclosure({
       : { defaultValue: defaultOpen ? ITEM_VALUE : "", onValueChange: handleValueChange };
 
   const trigger = (
-    <Accordion.Header className={trailing ? styles.header : `${styles.header} ${headerClassName ?? ""}`.trim()}>
-      <Accordion.Trigger className={triggerClassName ? `${styles.trigger} ${triggerClassName}` : styles.trigger}>
+    <Accordion.Header className={cn("m-0 [font:inherit]", !trailing && headerClassName)}>
+      <Accordion.Trigger className={cn("block w-full cursor-pointer text-left", triggerClassName)}>
         {summary}
       </Accordion.Trigger>
     </Accordion.Header>
@@ -75,7 +75,7 @@ export default function Disclosure({
 
   return (
     <Accordion.Root id={id} type="single" collapsible className={className} {...controlledProps}>
-      <Accordion.Item value={ITEM_VALUE} className={styles.item}>
+      <Accordion.Item value={ITEM_VALUE} className="contents">
         {/* trailing（LayerChip等）がある場合のみ、見出し行の視覚的な横並び（flex row）を
             担う素のdivを追加してheaderClassNameをそちらへ渡す。h3（Accordion.Header）自体は
             Triggerだけを包む薄い意味付けに留め、trailingの文言（例:「表示」）がh3の

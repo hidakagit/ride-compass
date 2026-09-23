@@ -86,7 +86,10 @@ from app.domain.map_display import (  # noqa: E402
     MAP_LAYER_DATA_SOURCES,
     MAP_OVERLAY_GROUPS,
 )
+from app.domain.warning_display import WARNING_BADGE_DISPLAY  # noqa: E402
 from app.domain.weather_display import (  # noqa: E402
+    WEATHER_CATEGORIES,
+    WEATHER_CATEGORY_FALLBACK,
     LINEAR_RAINBAND_COLOR,
     PRECIPITATION_COLOR_STOPS,
     RISK_LEVEL_COLORS,
@@ -115,7 +118,7 @@ from app.domain.landcover import (  # noqa: E402
 )
 from app.services.landcover_tile_service import LANDCOVER_TILE_VERSION  # noqa: E402
 from app.domain.jma_tile_specs import effective_max_zoom  # noqa: E402
-from app.domain.material_catalog import MATERIAL_CATALOG  # noqa: E402
+from app.domain.material_catalog import MATERIAL_CATALOG, MISSING_SEMANTICS_DISPLAY, POPULATION_LABELS  # noqa: E402
 from app.domain.region import ROAD_TILE_MAX_ZOOM, ROAD_TILE_MIN_ZOOM  # noqa: E402
 from app.domain.traffic import STOP_POI_KINDS, SupplyPoiKind  # noqa: E402
 from app.services.route_generator import SPLICED_ROUTE_ID, DEFAULT_MAX_ROUTES, MAX_ROUTES  # noqa: E402
@@ -135,6 +138,7 @@ LANDCOVER_CLASSES_PATH = GENERATED_DIR / "landcover-classes.json"
 PALETTE_PATH = GENERATED_DIR / "palette.json"
 WEATHER_SCALES_PATH = GENERATED_DIR / "weather-scales.json"
 MAP_DISPLAY_PATH = GENERATED_DIR / "mapDisplay.ts"
+VOCABULARY_PATH = GENERATED_DIR / "vocabulary.ts"
 
 
 def _strip_prose(node: object, *, keep: bool = False) -> object:
@@ -338,6 +342,23 @@ def main() -> None:
                 "arrowHaloScale": ROUTE_ARROW_HALO_SCALE,
                 "arrowSizeByZoom": [list(pair) for pair in ROUTE_ARROW_SIZE_BY_ZOOM],
             },
+        },
+    )
+    # backendの語彙に付く、画面に出す名前と色。画面は写しを持たずこれを読む。キーで引く画面側の表（アイコン等）が
+    # 語彙の増減で型検査に落ちるよう、mapDisplayと同じくTypeScriptの`as const`で出す。
+    _write_ts(
+        VOCABULARY_PATH,
+        "vocabulary",
+        {
+            "warningBadge": {
+                source: [level._asdict() for level in levels] for source, levels in WARNING_BADGE_DISPLAY.items()
+            },
+            "weatherCategories": [{"key": c.key, "label": c.label, "codes": list(c.codes)} for c in WEATHER_CATEGORIES],
+            "weatherCategoryFallback": WEATHER_CATEGORY_FALLBACK,
+            "materialPopulations": [{"key": key, "label": label} for key, label in POPULATION_LABELS.items()],
+            "materialMissingSemantics": [
+                {"key": key, "title": title, "hint": hint} for key, (title, hint) in MISSING_SEMANTICS_DISPLAY.items()
+            ],
         },
     )
     # 気象の値を色へ写す段（domain/weather_display.py）。危険度・雷・竜巻は配信元が

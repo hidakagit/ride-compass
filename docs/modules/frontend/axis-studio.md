@@ -20,13 +20,12 @@ APIを呼ぶ）・「データ保守」タブ（派生データ鮮度台帳の�
 | `components/AxisStudio/AxisComposer.tsx` | 1画面フォームの本体。draftの状態・保存前の検証・保存と、節の組み立てだけを持つ |
 | `components/AxisStudio/AxisScoringSection.tsx` | 「点数の決め方」の節。材料の選択と、その材料の型に応じた点数入力（0点/100点・効き方、はい/いいえ、値ごと、他軸の係数）。折れ点の直接編集は畳んだ詳細設定の中 |
 | `components/AxisStudio/AxisMapDisplaySection.tsx` | 「地図表示・公開」の節。アイコン・チップ略称・パネル補足・色分けしきい値のまとめ入力と段階プレビュー・公開チェック |
-| `components/AxisStudio/AxisFormFields.tsx` | 上記2節とAxisComposerが共有する入力部品（`InfoPopoverButton`・`MaterialInfoButton`・`SectionLabel`・`NumberField`・`SliderNumberField`） |
+| `components/AxisStudio/AxisFormFields.tsx` | 上記2節とAxisComposerが共有する入力部品（`InfoPopoverButton`・`MaterialInfoButton`・`SectionLabel`・`SliderNumberField`） |
 | `components/AxisStudio/axisDraft.ts` | Draft（フォームの内部状態）とbackendのpayloadの相互変換。`buildShape`・`draftFromExisting`・`pickPassthroughFields`・`PASSTHROUGH_PAYLOAD_KEYS`。変更理由はbackendのpayloadスキーマで、フォームUIの増減とは独立している |
 | `components/AxisStudio/BreakpointCurveEditor.tsx` | 折れ点をドラッグ・矢印キーで調整できるSVGの曲線エディタ。背景へ実データの分布を重ねる |
 | `components/AxisStudio/curveDistributionOverlay.ts` | 曲線エディタの背景へ分布を重ねるための純粋関数（DOM非依存。階級のクリップ・按分、分位線、表示範囲外の割合） |
 | `components/AxisStudio/scoreDistribution.ts` | 生値の分布へ折れ点を当てはめ、得点帯ごとの延長割合と警告を求める純粋関数（DOM非依存、`DistributionPreview.tsx`が使う） |
 | `components/AxisStudio/DistributionPreview.tsx` | 折れ点の下に「この折れ点での得点分布」を出すパネル。満点への張り付き・0点への偏りを警告する |
-| `components/AxisStudio/DistributionPreview.module.css` | 上記2コンポーネント（`MaterialRangeHint`と共有）のスタイル |
 | `components/AxisStudio/MaterialRangeHint.tsx` | 材料選択行の下に、その材料が実データで取る値の分位（p50/p75/p90）を出す1行表示 |
 | `services/axisPreviewApi.ts` | 分布プレビューと、しきい値が地図で効くかの問い合わせのAPIクライアント（`app/admin/api/axis-definitions/preview-distribution/`・`preview-display-thresholds/`・`app/admin/api/material-distribution/[materialId]/`経由） |
 | `app/admin/api/axis-definitions/preview-display-thresholds/route.ts` | `proxyToBackendAdmin`でbackend `POST /api/admin/axis-definitions/preview-display-thresholds`へ転送する |
@@ -38,12 +37,13 @@ APIを呼ぶ）・「データ保守」タブ（派生データ鮮度台帳の�
 | `components/AxisStudio/breakpointTools.ts` | 折れ点の自動生成・区分線形補間・追加位置決定・ドラッグスナップ刻み幅算出（DOM非依存の純粋関数、`AxisComposer.tsx`が使う） |
 | `services/axisAdminApi.ts` | backend `axis_admin.py`への薄いHTTPラッパー（`listAxisDefinitions`・`createAxisDefinition`・`updateAxisDefinition`・`deleteAxisDefinition`・`unpublishAxisDefinition`） |
 | `app/admin/api/axis-definitions/route.ts`・`[axisId]/route.ts`・`[axisId]/unpublish/route.ts` | `axisAdminApi.ts`が叩くNext.js route handler群。`proxyToBackendAdmin`でbackend `/api/admin/axis-definitions`（一覧取得・作成/PUT更新/DELETE削除/POST非公開化）へそのまま転送する |
-| `components/AxisStudio/MaterialCoveragePanel.tsx` | 「材料」タブ本体。材料ごとの欠損割合を「欠損時の扱い」で2グループに分けた表（各グループ内は欠損割合降順）と集計対象外材料の理由一覧。集計は「集計する」ボタン押下時のみ |
+| `components/AxisStudio/MaterialCoveragePanel.tsx` | 「材料」タブ本体。材料ごとの欠損割合を「欠損時の扱い」でグループに分けた表（各グループ内は欠損割合降順）と集計対象外材料の理由一覧。グループの見出し・説明と母集団の名前はbackendの宣言（`material_catalog.py`の`MISSING_SEMANTICS_DISPLAY`・`POPULATION_LABELS`）が生成物`vocabulary.ts`で配る。集計は「集計する」ボタン押下時のみ |
 | `services/materialCoverageApi.ts` | `MaterialCoveragePanel`が使うAPIクライアント（`app/admin/api/material-coverage/`経由、90秒タイムアウト） |
 | `app/admin/api/material-coverage/route.ts` | `materialCoverageApi.ts`が叩くroute handler。`proxyToBackendAdmin`でbackend `GET /api/admin/material-catalog/coverage`へ転送する。全表走査を伴うため`timeoutMs`で既定（15秒）より長い転送タイムアウトを指定する |
 | `app/admin/api/material-values/[materialId]/route.ts` | `materialCatalogApi.ts: getMaterialValues`が叩くroute handler。`proxyToBackendAdmin`でbackend `GET /api/admin/material-catalog/{material_id}/values`へ転送する（Next.js 16の`params`はPromise） |
 | `components/AxisStudio/DerivedDataFreshnessPanel.tsx` | 「データ保守」タブ本体。派生テーブルごとに、鮮度（最新取込runと反映済み最古run）・被覆（親に対して行が無い件数）・完成度（値の列の未計算件数）を1行へまとめて表示。対象の表・列はbackendが宣言から導く（`source_run_id`を持つ表が派生データ）。集計は「集計する」ボタン押下時のみ |
 | `components/AxisStudio/DbStatusPanel.tsx` | 「データ保守」タブ・本番DBの状態。取込runの最終実行・テーブルの実数と容量・統計とVACUUMの鮮度・接続を1件1行で出す |
+| `components/AxisStudio/StatusRowList.tsx` | 上記2パネルが共有する点検の行の一覧（状態の丸・名前・規模、開くと項目と値）と、結果の一言（手当てが要れば目立たせる） |
 | `services/dbStatusApi.ts`・`app/admin/api/db-status/route.ts` | 上記のAPIクライアントと、/adminのBasic認証セッションを再利用する同一オリジンのroute handler |
 | `services/derivedDataFreshnessApi.ts` | `DerivedDataFreshnessPanel`が使うAPIクライアント（`app/admin/api/derived-data-freshness/`経由、90秒タイムアウト） |
 | `app/admin/api/derived-data-freshness/route.ts` | `derivedDataFreshnessApi.ts`が叩くroute handler。`proxyToBackendAdmin`でbackend `GET /api/admin/derived-data/freshness`へ転送する |
@@ -285,16 +285,11 @@ default_weight等）は`draftFromExisting`が読み込んだ既存値のまま�
 - `SliderNumberField`（`AxisFormFields.tsx`）: 係数・スコアをスライダー（大まかな目安）＋数値入力（正確な値）の
   組み合わせで編集する。スライダーの範囲は材料ごとに大きく異なる値の目安にすぎず、
   範囲外の値は数値入力欄から直接指定できる。
-- `NumberField`（`AxisFormFields.tsx`）: フォーム内の数値入力（`SliderNumberField`の数値欄・既定重み・
-  折れ点の入力値/スコア・地図の色分けしきい値）が共通で使う`<input type="number">`
-  ラッパー。DOM値をコンポーネント自身のローカル文字列stateで保持し、有限数として
-  パースできた時点でだけ`onChange`で親へ伝える（「-」や末尾の小数点のような未確定の
-  中間状態を親の`value`へ反映しないことで、Reactが管理する制御値に上書きされず
-  最後まで打ち切れる。素の`onChange={e => onChange(Number(e.target.value))}`パターンは
-  `Number("-")===NaN`により入力途中の「-」が消え負数を打てない）。ローカル文字列は
-  外部起因の`value`変化にだけ追従させる（useEffectではなくレンダー中に前回値との差分を
-  見て補正するReact公式推奨パターンを使い、無駄な多重レンダーを避ける）。`onFocus`で
-  既存の値を全選択する（タップ/クリック1回で上書きできるようにする）。
+- 数値の入力欄は共通部品`ui/NumberInput`（`commitOn="input"`）: `SliderNumberField`の数値欄・既定重み・
+  折れ点の入力値/スコア・地図の色分けしきい値が使う。入力途中の文字（「-」・末尾の小数点等）は部品が持ち、
+  数として読めた時点でだけ親へ渡す——素の`onChange={e => onChange(Number(e.target.value))}`では
+  `Number("-")===NaN`により入力途中の「-」が消え、負数を打てない。折れ点はグラフを見ながら動かすため、
+  打つたびに渡す（走行条件の速度は欄を離れたとき・Enterで渡す`commit`）。欄を選ぶと中身を全選択する（1回で上書きできる）。
 
 ### categorical材料の値入力
 
@@ -410,8 +405,7 @@ default_weight等）は`draftFromExisting`が読み込んだ既存値のまま�
 (ⓘ)アイコンを置き、backend `material_catalog.py: MaterialSpec.description`をポップオーバー
 表示する。外枠（開閉state・Radix Popover・開閉に追随するアクセシブル名）は共通部品
 `Map/InfoPopover.tsx`が持ち、ここはラベル文言を持たない小型トリガーとしての薄いラッパー。
-ポップオーバーのCSS自体は共有部品の`@/components/ui/infoButton.module.css`・
-`floatingPopover.module.css`をそのままimportし、二重定義しない。
+見た目は共通部品（`ui/Button`の`info`・`ui/Popover`の`note`）が持つ。
 
 ## useMaterialCatalog.ts / useMaterialValues.ts（材料カタログhook）
 
