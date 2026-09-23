@@ -496,8 +496,17 @@ class Facts:
 # ---------------------------------------------------------------- gate
 
 
-def cmd_gate(ctx: Context, args: argparse.Namespace) -> int:
-    f = Facts(ctx, args)
+def restore_hooks_path(ctx: Context) -> None:
+    """Claude Codeは作業ツリーを作るたびに共有のcore.hooksPathを本体の絶対パスへ書き換える
+    （anthropics/claude-code#66993）。振り出し・再開を表へ記録するこの時点で相対へ戻す。"""
+    current = git_out(ctx.repo, "config", "--get", "core.hooksPath")
+    if current != EXPECTED_HOOKS_PATH:
+        subprocess.run(["git", "config", "core.hooksPath", EXPECTED_HOOKS_PATH], cwd=ctx.repo, check=True)
+        print(f"core.hooksPathを相対の{EXPECTED_HOOKS_PATH}へ戻した（{current}）")
+
+
+def gate_reasons(f: Facts, args: argparse.Namespace) -> list[str]:
+    """門を閉じている理由。空なら振り出してよい。"""
     ng: list[str] = []
     active = f.active()
     if len(active) >= f.limit:
@@ -509,12 +518,19 @@ def cmd_gate(ctx: Context, args: argparse.Namespace) -> int:
     if over:
         ng.append("見込み超過がある: " + "、".join(over))
     if f.stop:
-        ng.append(f"停止ファイルがある（{ctx.stop_path}）")
+        ng.append(f"停止ファイルがある（{f.ctx.stop_path}）")
     locks = f.lock_wait_problems()
     if locks:
         ng.append(f"直近{LOCK_WINDOW_MINUTES}分にロック待ち{LOCK_WAIT_LIMIT_MINUTES}分以上: " + "、".join(locks))
     if f.cpu is not None and f.cpu >= args.cpu_max:
         ng.append(f"CPUが飽和している（{f.cpu:.0f}% ≥ {args.cpu_max}%）")
+    return ng
+
+
+def cmd_gate(ctx: Context, args: argparse.Namespace) -> int:
+    f = Facts(ctx, args)
+    ng = gate_reasons(f, args)
+    active = f.active()
 
     print(f"{'NG' if ng else 'OK'}: 振り出し{'不可' if ng else '可'}")
     for reason in ng:
@@ -659,6 +675,11 @@ def cmd_check(ctx: Context, args: argparse.Namespace) -> int:
         problems.append(f"要対応: {push_due_line(f.board, f.at)}（board unpushed list）")
     if f.board.get("push_blocked"):
         problems.append(f"masterへのpushが止まっている: {f.board['push_blocked']}")
+    # 門がNGで見送った振り出しは、門が開いた最初の確認で拾う（「落ち着いたら」を人の注意に頼らない）。
+    waiting_dispatch = f.board.get("queue") or []
+    if waiting_dispatch and not gate_reasons(f, args):
+        problems.append(f"要対応: 振り出し待ち{len(waiting_dispatch)}件があり、門が開いている"
+                        f"（例: {waiting_dispatch[0].get('what')}。board dispatch pop で取り出して振り出す）")
 
     cpu = "未取得" if f.cpu is None else f"{f.cpu:.0f}%"
     if problems:
@@ -1037,6 +1058,8 @@ def cmd_board(ctx: Context, args: argparse.Namespace) -> int:
         elif agent is None:
             raise SystemExit(f"状態の表に無い: {args.name}（board add で追加する）")
         apply_pairs(agent, args.pairs, at)
+        if agent.get("state") == "稼働":
+            restore_hooks_path(ctx)
         urgent = bool(agent.pop("urgent", False))
         if any(p.split("=", 1)[0] == "audit_done" for p in args.pairs):
             # 監査の待ち時間（受領→結果）を回の記録で測るため、1件ごとに残す。
