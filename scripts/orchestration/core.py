@@ -204,6 +204,14 @@ def task_state(text: str | None) -> str | None:
     return value[:10]
 
 
+def ready_to_dispatch(ctx: Context, items: list[dict]) -> list[dict]:
+    """振り出し待ちのうち、前提（`after`のTxxx）がorigin/masterで完了しているもの。"""
+    deps = sorted({str(i["after"]) for i in items if i.get("after")})
+    texts = cat_files(ctx.repo, [f"origin/master:{TASKS_DIR}/{t}.md" for t in deps])
+    done = {t for t in deps if task_state(texts[f"origin/master:{TASKS_DIR}/{t}.md"]) == "完了"}
+    return [i for i in items if not i.get("after") or str(i["after"]) in done]
+
+
 def ledger_ids(plan_text: str | None) -> set[str]:
     if plan_text is None:
         return set()
@@ -676,7 +684,7 @@ def cmd_check(ctx: Context, args: argparse.Namespace) -> int:
     if f.board.get("push_blocked"):
         problems.append(f"masterへのpushが止まっている: {f.board['push_blocked']}")
     # 門がNGで見送った振り出しは、門が開いた最初の確認で拾う（「落ち着いたら」を人の注意に頼らない）。
-    waiting_dispatch = f.board.get("queue") or []
+    waiting_dispatch = ready_to_dispatch(ctx, f.board.get("queue") or [])
     if waiting_dispatch and not gate_reasons(f, args):
         problems.append(f"要対応: 振り出し待ち{len(waiting_dispatch)}件があり、門が開いている"
                         f"（例: {waiting_dispatch[0].get('what')}。board dispatch pop で取り出して振り出す）")
