@@ -183,7 +183,7 @@ def main() -> None:
     GENERATED_DIR.mkdir(parents=True, exist_ok=True)
     _write_json(OUTPUT_PATH, _strip_prose(app.openapi()))  # type: ignore[arg-type]
     # 地域ベクタタイルのレイヤー名・世代。フロントの手書き定数（MapView.tsxのソース
-    # レイヤー名、regionApi.ts: 各tileUrl()の?v=）がこのJSONとregionApi.test.tsで
+    # レイヤー名、regionApi.ts: roadSurfaceTileUrl()等の?v=）がこのJSONとregionApi.test.tsで
     # 突き合わされる（CIのapi-contractジョブがドリフト検知）。
     _write_json(
         REGION_TILE_CONFIG_PATH,

@@ -44,20 +44,12 @@ export interface PreferenceAxisDef {
   materialBreakdown?: readonly AxisMaterialBreakdown[];
 }
 
-// 重み一覧は公開軸すべてを対象にする。並び順はSECONDARY_AXES（secondaryAxes.ts、
-// 地図チップの推定グループが共有する単一ソース）をそのままなぞり、
-// 「この重みは地図のどの軸に対応するか」が名前と並びだけで分かるようにする（片側import）。
-//
-// SECONDARY_AXESは地図チップに出す軸だけへ絞り込まれている（show_map_icon=false の軸が
-// 落ちる）。**地図チップに出すかどうかと、重みを設定できるかどうかは別の判断**のため、
-// 落ちた公開軸はカタログの並び順のまま後ろへ足す——前者の都合で後者を落とすと、
-// 軸スタジオで地図アイコンをOFFにした軸が重み一覧からも消える。
-//
-// **SECONDARY_AXESからは並び順だけを取り、中身は必ずカタログから組み立てる**。
-// 並びの由来ごとに別の組み立てを書くと、片方にだけフィールドを書き足した状態が
-// 型検査を通ってしまう（`PreferenceAxisDef`のフィールドはすべてoptionalのため）。
+// 重み一覧は公開軸すべてを対象にし、カタログの並び順のまま並べる。地図チップの一覧
+// （secondaryAxes.ts）はshow_map_icon=falseの軸を落とすが、**地図チップに出すかどうかと、
+// 重みを設定できるかどうかは別の判断**のため、重み一覧はそこから作らない——前者の都合で
+// 後者を落とすと、軸スタジオで地図アイコンをOFFにした軸が重み一覧からも消える。
 
-/** カタログ1件を重み一覧の1行へ。実行時API経路（useAxisCatalog）と共有する唯一の変換。 */
+/** カタログ1件を重み一覧の1行へ。 */
 export function preferenceAxisFromCatalog(axis: CatalogAxis): PreferenceAxisDef {
   return {
     axisId: axis.axis_id,

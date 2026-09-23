@@ -8,12 +8,9 @@
 LRU」でキャッシュする。
 
 **キャッシュキーは`frozenset[tuple[zoom, x, y]]`（bboxを覆うz12タイル集合）**。
-`GraphService.get_search_materials_for_bbox`が「bboxを覆う全z12タイルの材料キャッシュを
-そのまま結合したグラフ」を返した場合のみこの集合が得られる（`_build_search_materials_
-from_tile_cache`経由）。split鮮度が古くbbox限定で再構築した場合（`_build_search_materials_
-uncached`）はタイル集合がNoneになり、呼び出し側はこのキャッシュを経由しない——タイル境界と
-一致しない不完全な集合を書き込むと、後続の正規リクエストへ不完全な結果を返しかねないため
-（`graph_material_cache`が同じ理由でこのbboxを書き込まないのと同じ設計）。
+`GraphService.get_search_materials_for_bbox`は「bboxを覆う全z12タイルの材料キャッシュを
+そのまま結合したグラフ」を返す（`_build_search_materials_from_tile_cache`）ため、
+グラフはこの集合だけで決まる。
 
 無効化はプロセス寿命とLRUだけで、軸定義の変更とは無関係（静的スコア行列
 [`tile_score_matrix_cache`]と違い、探索コストの値自体を持たないため）。

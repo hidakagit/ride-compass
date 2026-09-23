@@ -21,7 +21,7 @@ import type { AxisDefinitionPayload, AxisDefinitionResponse, AxisShape } from "@
 /** 点数の形。backendが持つ形は契約から引く——写すと、形が増えたとき片側だけ知っている
  * 状態になる。`recipe_then_breakpoint_linear`だけは**編集画面の区別**で、backendの
  * `breakpoint_linear`1種を「材料を直接使う」「他の軸を組み合わせる」の2つの編集モードへ
- * 割ったもの（送信時は1種へ畳む。下の`toPayload`参照）。 */
+ * 割ったもの（送信時は1種へ畳む。下の`buildShape`参照）。 */
 type BackendShapeKind =
   | NonNullable<components["schemas"]["BreakpointLinearShape"]["kind"]>
   | NonNullable<components["schemas"]["CategoricalShape"]["kind"]>;
@@ -316,8 +316,8 @@ export function buildShape(draft: Draft, materialOptions: readonly AxisMaterialO
  * 読点のいずれでもよい——利用者は他所からコピーした並びをそのまま貼るため、区切りの
  * 種類を当てさせない。
  *
- * 昇順・重複の検査はbackendの保存時検証（`axis_admin.py:
- * _check_display_thresholds_override_is_ascending`）と同じ条件で、入力した場で返す。
+ * 昇順・重複の検査はbackendの保存時検証（`axis_definitions.py:
+ * AxisDefinition._thresholds_must_be_strictly_ascending`）と同じ条件で、入力した場で返す。
  * 空文字は「1件も無い」（`values: []`）として返し、エラーにはしない——入力欄を空にする
  * 途中の状態を打ち消さないため、その判断は呼び出し側が行う。 */
 export function parseThresholdList(text: string): { values: number[]; error: string | null } {

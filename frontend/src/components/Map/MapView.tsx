@@ -158,12 +158,6 @@ function bindDragAwareClick(marker: maplibregl.Marker, element: HTMLElement, onC
   });
 }
 
-// road_surfaceの1次「素材」線レイヤー（道路種別/路面の合成ROAD_TILE_LAYER_ID・自転車
-// インフラ）は同じ道路ジオメトリ上に重なる独立レイヤーのため、複数を同時に
-// ONにすると後から描画されたレイヤーが前のレイヤーを完全に覆い隠してしまう。line-offsetで
-// 道路と平行な複数トラックへ横並びに分離する（applyRoadMaterialTrackOffsets参照）。
-// トラック間隔はline-width（3px）の半分弱ずつ重なる値にしてある（重なりは色の切り替わりと
-
 // payload（page.tsx側が各要素のデータ層関数から計算した値）を反映する。グループ配下の
 // 各ソースについて、visibleとpayloadのどちらか一方でも欠けていれば非表示のまま（フェッチ
 // 未完了・取得失敗時、あるいは選択時刻がそのソースのデータ範囲外で「描画しない」場合に、
@@ -252,8 +246,6 @@ function updateTileZoomHint(
   onChange(tooWide);
 }
 
-// 全候補のgeometryを包含するbounds計算そのものは地図インスタンスに依存しない純粋な処理
-// のため、fitBoundsToRoutesから切り出してベンチマーク可能にしてある（MapView.bench.ts）。
 function computeRouteBounds(routes: RouteCandidate[]): maplibregl.LngLatBounds {
   const bounds = new maplibregl.LngLatBounds();
   for (const route of routes) {
@@ -320,7 +312,7 @@ function fitBoundsToRoutes(map: MapLibreMap, routes: RouteCandidate[], obscured?
   });
 }
 
-// 区間クリックの当たり判定（DETAIL_HIT_LAYER_ID、幅24px）は見た目の線（6px）より広いため、
+// 区間クリックの当たり判定（sceneの役割`detailHit`、幅24px）は見た目の線（6px）より広いため、
 // クリック地点（e.lngLat）をそのままマーカー位置に使うと、ルート線から目に見えてズレた
 // 場所にマーカーが立ってしまう。クリックされた区間のgeometry（LineString）上で
 // クリック地点にもっとも近い点を求め、そちらをマーカー位置として使う
@@ -409,8 +401,8 @@ export interface MapViewProps {
    * （風=wind_drag_ratio[m/s、正=向かい風・負=追い風]、勾配=effective_gradient[%、
    * 正=登り・負=下り]）を、axisId→(feature_key→値)の汎用Mapとしてまとめて受け取る
    * （page.tsx: useDedicatedWayValuesの結果を軸id→valuesへ写して構築）。
-   * show{Wind,Gradient}Axisがtrueの間、変化のたびにMapLibreのsetFeatureStateで
-   * 路面タイルの地物へ差し込む（applyAxisFeatureStateValues参照）。軸ごとに別名のpropを
+   * 変化のたびにMapLibreのsetFeatureStateで路面タイルの地物へ差し込む
+   * （features/map/scene/applyMapScene.ts）。軸ごとに別名のpropを
    * 新設せず（design-principles.md構造仕様3参照）汎用Mapへ統合してある。未設定の軸idは
    * 空Map扱い（get()がundefinedを返す）として処理される。 */
   dedicatedWayValues: ReadonlyMap<string, ReadonlyMap<string, number>>;
@@ -435,7 +427,7 @@ export interface MapViewProps {
   /** 2次（ramp軸）のうち、材料（1次）が同時に表示されているためcasing
    * （太く半透明な下敷き）で描くべきレイヤーのkey集合（"axis:accident"等、
    * レイヤーカタログのkeyと同じ）。page.tsx側が一次属性の表示状態とlayerVisibility
-   * から算出する（buildAxisOverlayLayers参照）。 */
+   * から算出し、scene（features/map/scene/applyToMap.ts）が下敷きの描き方へ反映する。 */
   secondaryAxisCasingLayerIds: readonly string[];
   /** 路面の各軸（路面の種類・道路の種類）それぞれの非表示カテゴリキー。軸ごとに独立した
    * レイヤーを持つため、絞り込みもレイヤーごとに独立して効く。 */
@@ -445,8 +437,7 @@ export interface MapViewProps {
   staticLegendHiddenKeysByAxis: Record<string, readonly string[]>;
   routeLayerOn: boolean;
   /** ルート色分けモード一覧（axis-catalog由来、公開軸を無条件で動的に含む）。
-   * page.tsx: axisCatalog.routeStyleModes（フェッチ完了までは静的フォールバック）を
-   * そのまま渡す。 */
+   * page.tsx: axisCatalog.routeStyleModesをそのまま渡す。 */
   routeStyleModes: readonly RouteStyleMode[];
   routeStyleModeId: RouteStyleModeId;
   hiddenRouteLegendKeys: readonly string[];
@@ -472,9 +463,8 @@ export interface MapViewProps {
    * 空配列を渡すため、通常利用ではレイヤーは作られない。 */
   experimentSlots: ExperimentSlot[];
   /** 二次軸の汎用rampレイヤー一覧。呼び出し側（page.tsx）が
-   * useAxisCatalog経由で取得したもの（取得完了までとエラー時は静的フォールバック
-   * RAMP_AXES）を渡す。軸スタジオでの新規公開軸もここへ含まれれば、再デプロイなしに
-   * 地図レイヤーとして現れる。 */
+   * useAxisCatalog経由で取得したもの（取得完了までとエラー時は空）を渡す。軸スタジオでの
+   * 新規公開軸もここへ含まれれば、再デプロイなしに地図レイヤーとして現れる。 */
   rampAxes: readonly RampAxis[];
   /** 公開軸すべて（順序・ラベル・説明の正本）。道をクリックしたときの詳細
    * （RoadInspectorPopup）が、ルート結果と同じ並び・同じ部品で軸ごとの効き方を出すために
@@ -731,7 +721,7 @@ export default function MapView({
   // いる高さの変化（シートの開閉・高さドラッグ）でフィットをやり直さないようrefで読む。
   const routeFitObscuredPxRef = useRef(routeFitObscuredPx);
   // handleRouteSegmentClick（地図初期化effect内で一度だけ登録）が最新の
-  // onRouteSegmentSelectを読めるようにするref（onWaypointAddRefと同じパターン）。
+  // onRouteSegmentSelectを読めるようにするref。
   const onRouteSegmentSelectRef = useRef(onRouteSegmentSelect);
   const onRouteSelectRef = useRef(onRouteSelect);
   const onSpliceStretchSelectRef = useRef(onSpliceStretchSelect);
@@ -917,16 +907,16 @@ export default function MapView({
         onPinPlaceRef.current(armed, { latitude: e.lngLat.lat, longitude: e.lngLat.lng });
         return;
       }
-      // ルート線（当たり判定はDETAIL_HIT_LAYER_ID）は下の
-      // handleRouteSegmentClickという専用ハンドラを別途
-      // map.on("click", ROUTE_HIT_LAYER_ID.segment, ...)で登録している。MapLibreはmap全体の
+      // ルート線（当たり判定の的`ROUTE_HIT_TARGET_SEGMENT`）は下の
+      // handleRouteSegmentClickという専用ハンドラを別途、当たり判定のレイヤーへ
+      // map.on("click", layerId, ...)で登録している。MapLibreはmap全体の
       // genericな"click"（このhandleClick）とlayer-scopedな"click"を互いに独立して
       // 両方発火するため、ここで何もガードしないとルート線をクリックしたときに専用ハンドラの
       // マーカー表示・区間選択と、この下の一般道路網向けポップアップが同時に開いてしまう
-      // （ルート線は常にroad_surfaceタイルより上に重ねて描画される、drawDetailSegments参照）。
+      // （ルート線は常に路面タイルより上に重ねて描画される）。
       // ルート線がヒットした場合はここで即座に抜け、一般道路網側の判定・ポップアップ表示を
       // 一切行わない。
-      // 候補線（ROUTES_HIT_LAYER_ID）も同じ理由で専用ハンドラ（handleCandidateClick）を
+      // 候補線（的`ROUTE_HIT_TARGET_CANDIDATE`）も同じ理由で専用ハンドラ（handleCandidateClick）を
       // 持つため、一般道路網向けのポップアップは開かない。
       for (const hitLayerId of sceneLayerIdsForHitTarget(sceneRef.current, ROUTE_HIT_TARGET)) {
         if (map.getLayer(hitLayerId) && map.queryRenderedFeatures(e.point, { layers: [hitLayerId] }).length > 0) {
@@ -975,14 +965,15 @@ export default function MapView({
     // ルート線専用のクリックハンドラ。MapLibreのlayer-scoped listener
     // （map.on(type, layerId, listener)）を使い、上のhandleClick（一般道路網向け、複数レイヤーを
     // queryRenderedFeaturesで横断判定する汎用ディスパッチャ）とは別経路として独立させている。
-    // DETAIL_HIT_LAYER_IDがまだstyleに追加されていない（ルート未生成）間はMapLibre側が内部で
+    // 当たり判定のレイヤーがまだstyleに追加されていない（ルート未生成）間はMapLibre側が内部で
     // existingLayersを毎回フィルタしており、レイヤー不在でも例外を投げず単に発火しない
     // （maplibre-gl-dev.js: Map.prototype._createDelegatedListener参照）ため、地図初期化時に
     // 先読み登録しても安全。feature.properties（RouteSegmentDetailのgeometry除いた形、
-    // segmentsToFeatureCollectionが焼き込み済み）をそのまま使い、サーバーへの新規リクエストは
-    // 発生させない。
-    // 候補線（当たり判定はROUTES_HIT_LAYER_ID）を押したら、その候補を選ぶ。選択中候補は
-    // DETAIL_LAYER_ID側が区間の詳細を持つため、こちらは未選択候補への乗り換えだけを担う。
+    // scene（features/map/scene/groups/routes.ts）が地物へ載せたもの）をそのまま使い、
+    // サーバーへの新規リクエストは発生させない。
+    // 候補線（的`ROUTE_HIT_TARGET_CANDIDATE`）を押したら、その候補を選ぶ。選択中候補は
+    // 詳細区間（的`ROUTE_HIT_TARGET_SEGMENT`）側が区間の詳細を持つため、こちらは未選択候補への
+    // 乗り換えだけを担う。
     function handleCandidateClick(e: MapLayerMouseEvent) {
       const routeId = e.features?.[0]?.properties?.routeId;
       if (typeof routeId !== "string") return;
@@ -1008,7 +999,7 @@ export default function MapView({
       popupRef.current?.remove();
       const rawProperties = feature.properties as unknown as RouteSegmentProperties;
       const segment: RouteSegmentDetail = { ...restoreRouteSegmentProperties(rawProperties), geometry: null };
-      // 当たり判定（DETAIL_HIT_LAYER_ID、幅24px）は見た目の線
+      // 当たり判定（sceneの役割`detailHit`、幅24px）は見た目の線
       // （6px）より広いため、クリック地点をそのまま使うとマーカーがルート線から目に
       // 見えてズレる。区間のgeometry（LineString）上の最近点へ補正する
       // （nearestPointOnLineString参照）。geometryが無い/空の異常系はクリック地点
@@ -1021,7 +1012,7 @@ export default function MapView({
           : [e.lngLat.lng, e.lngLat.lat];
       // 地図上はテキストポップアップを出さず、クリック地点（上記の補正後）へ
       // 軽量なマーカーのみ立てる（下部の`selectedRouteSegment`監視useEffectが実際の
-      // マーカー表示を担う、destinationMarkerと同じcontrolled propパターン）。区間の地点・
+      // マーカー表示を担う、destinationMarkerRefと同じcontrolled propパターン）。区間の地点・
       // 到達予想時刻・軸別内訳（積み上げバー）はすべてボトムシート側
       // （page.tsx: selectedRouteSegment state、RouteAxisProfile）が表示する。
       onRouteSegmentSelectRef.current({ segment, latitude: snappedLat, longitude: snappedLng });
@@ -1054,7 +1045,7 @@ export default function MapView({
       const sourceId = (e as unknown as { sourceId?: string }).sourceId;
       // スタイル自体がまだ一度もreadyになっていない状態でのerrorは、個別タイルの一過性の
       // 失敗ではなくスタイル取得そのものの失敗である可能性が高い（runWhenStyleReadyが
-      // 頼るmap.once("load", ...)がこの後発火しないままdrawBaseRoutes等の描画コールバックが
+      // 頼るmap.once("load", ...)がこの後発火しないまま、そこで待たせた描画コールバックが
       // 永久にスキップされる）。デバッグモードに関わらずユーザーへ気づけるようにする。
       const tagged = map as unknown as { __rcStyleReady?: boolean };
       // __rcStyleReadyは初回ロード成功後は永久にtrueのままのため、それだけでは
@@ -1325,7 +1316,7 @@ export default function MapView({
 
   // 区間クリックで選択中の区間があれば、クリック地点へ軽量なマーカーのみを
   // 立てる（テキストポップアップは出さない——地点・到達予想時刻・軸別内訳はボトムシート側
-  // [RouteAxisProfile]が表示する）。destinationMarkerと同じcontrolled propパターン
+  // [RouteAxisProfile]が表示する）。destinationMarkerRefと同じcontrolled propパターン
   // （selectedRouteSegmentがnullになれば、page.tsx側の×ボタン操作・別候補への切り替え等
   // どの経路でクリアされてもここでマーカーが消える）。
   useEffect(() => {
@@ -1402,7 +1393,7 @@ export default function MapView({
   }, [refreshToken, redrawFromCurrentProps]);
 
   // タイル世代が届いた時点で、まだ作れていなかったタイルのソースを作る
-  // （ensureRoadSurfaceTileLayer等は世代が無いあいだ何もせずに戻る）。
+  // （sceneは世代が無いあいだタイルのソースを作らない。applyToMap.ts: sceneInputsFrom）。
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !tileVersionsReady) return;

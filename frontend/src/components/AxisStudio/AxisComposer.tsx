@@ -82,7 +82,7 @@ export default function AxisComposer({
   }
   // categorical材料の値入力欄に候補選択を添えるための実データ値一覧。
   // dtype="categorical"の材料を選んでいる間だけ取得する（boolean材料選択中・
-  // categorical材料でも動的値一覧に対応していない場合[bicycle_infra等]は空配列が返り、
+  // categorical材料でも動的値一覧に対応していない場合は空配列が返り、
   // 呼び出し先の入力欄は自由テキストのままになる）。
   // 公開済み軸は、backendが表示専用フィールドの差分しか受け付けない
   // （`domain/axis_definitions.py: _COSMETIC_ONLY_FIELDS`）。編集できない節は
@@ -163,13 +163,13 @@ export default function AxisComposer({
       }
     }
     if (target === "display_publish") {
-      // backend側の検証（axis_admin.py: _check_label_length_or_chip_label）と同じ条件を
+      // backend側の検証（axis_admin.py: _the_map_chip_needs_a_short_name）と同じ条件を
       // ここでも先回りしてチェックし、保存時まで待たせない。
       if (draft.chipLabel.trim() === "" && draft.label.trim().length > 4) {
         return "表示名が4文字を超えています。チップの略称を設定してください。";
       }
-      // backend側の検証（axis_admin.py: AxisDefinitionPayload._check_
-      // display_thresholds_override_is_ascending）と同じ条件を先回りしてチェックする。
+      // backend側の検証（axis_definitions.py:
+      // AxisDefinition._thresholds_must_be_strictly_ascending）と同じ条件を先回りしてチェックする。
       if (draft.displayThresholdsOverride !== null) {
         if (thresholdError) return thresholdError;
         if (draft.displayThresholdsOverride.length === 0) {

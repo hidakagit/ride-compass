@@ -19,7 +19,7 @@ interface MaterialValuesState {
  * backend/app/domain/material_catalog.py: MaterialSpec.value_labelsが単一ソース
  * （地図の絞り込みUIのグルーピングとは独立）。
  *
- * `materialId`がnull、または動的値一覧に対応していない材料（bicycle_infra等）・取得中は
+ * `materialId`がnull、または動的値一覧に対応していない材料・取得中は
  * 空配列を返す——呼び出し側は空配列を「動的値一覧が使えない」の合図として自由テキスト
  * 入力へフォールバックする（材料カタログと違い静的な一覧を持たない。
  * 値の一覧は材料ごとに異なる実データそのものであり、コード側で妥当なフォールバック値を

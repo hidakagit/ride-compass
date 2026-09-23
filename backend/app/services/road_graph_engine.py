@@ -543,7 +543,7 @@ class _RoadGraphContext:
     accident_years_covered: int
     weather: WeatherConditions | None
     origin_node: str
-    # 1リクエスト内で繰り返し呼ばれるfind_nearest_node相当（prepareの起点・trace_loopの
+    # 1リクエスト内で繰り返す最寄りNodeの探索（prepareの起点・trace_loopの
     # 各経由地と目的地・preview_segmentの両端）を都度線形探索せず使い回すための索引
     # （domain/routing.py参照）。
     node_index: NodeSpatialIndex
@@ -561,11 +561,11 @@ class _RoadGraphContext:
     full_edge_row: dict[str, int]
     # 周回の復路レグ・目的地ルートの後ろ向き木の基準点に使う起点座標。
     origin: Coordinates
-    # A*のestimate_cost_fn（ヒューリスティック）を、レグごとの目的地に対して
+    # A*のヒューリスティック（`_estimate_distances_m`）を、レグごとの目的地に対して
     # numpyで1回だけベクトル計算するための、lazy_graph.index_to_node_id順の緯度・経度配列。
     node_lat: np.ndarray
     node_lon: np.ndarray
-    # prepare実行時点で起点が市民薄明の外（夜間）だったかどうか。search_edge_costs
+    # prepare実行時点で起点が市民薄明の外（夜間）だったかどうか。レグのコスト配列の
     # 構築時に使った値と同じものを_build_segment_details（表示用difficulty）でも使い、探索コストと
     # 表示を一致させる（詳細はprepare()参照）。
     night_active: bool
@@ -702,8 +702,7 @@ class RoadGraphEngine:
         if not search_materials.graph.edges:
             return None
         graph = search_materials.graph
-        # surface・edge_attribute_counts（stop/intersection/accident件数）・
-        # way_tags・elevation_attributeは、材料の列へ
+        # 区間の材料（路面・停止要因/交差点/事故の件数・標高由来の値等）は、材料の列へ
         # 統合済みの1辞書としてそのまま使う（表示用[_build_segment_details]の
         # 一部フィールド取得にのみ使う）。
         edge_materials = search_materials.materials
@@ -771,7 +770,7 @@ class RoadGraphEngine:
             score_matrix.distance_m[missing_axis_mask].sum() / float(score_matrix.distance_m.sum())
         )
 
-        # A*のestimate_cost_fn（ヒューリスティック）をレグごとにnumpyで1回だけ計算できる
+        # A*のヒューリスティック（`_estimate_distances_m`）をレグごとにnumpyで1回だけ計算できる
         # よう、lazy_graph.index_to_node_id順の緯度・経度配列を1回だけ構築する。
         node_lat = np.array([graph.nodes[node_id].latitude for node_id in lazy_graph.index_to_node_id])
         node_lon = np.array([graph.nodes[node_id].longitude for node_id in lazy_graph.index_to_node_id])
@@ -2303,9 +2302,8 @@ def _reverse_elevation_attribute(forward: ElevationAttribute, reverse_edge_id: s
     代数的に導出する。標高は地形の物理量で進行方向に依存しないため、
     この変換は厳密に正しい: 獲得標高↔喪失標高の入れ替え、始点/終点標高の入れ替え、
     平均勾配の符号反転、最大/最小勾配の符号反転＋入れ替え（domain/attributes.py:
-    compute_elevation_attributeが区間の形状点列を進行方向の順で積算するため、逆順に
-    辿ると各区間のdiff＝勾配の符号がすべて反転し、max/minも入れ替わる）。GSI標高APIを
-    叩き直さない。
+    elevation_values_sqlが区間の頂点列を進行方向の順で積算するため、逆順に
+    辿ると各区間のdiff＝勾配の符号がすべて反転し、max/minも入れ替わる）。
     """
     return ElevationAttribute(
         edge_id=reverse_edge_id,

@@ -9,7 +9,7 @@ export interface ExperimentSlot {
   color: string;
   conditions: GenerationConditions;
   // 比較の代表候補。生成直後にoverall_difficulty昇順の先頭（=デフォルト選択候補）で固定する。
-  // 以降ユーザーがRouteListで別候補を選び直しても、過去スロットの比較対象は変えない
+  // 以降ユーザーがルート結果のタブで別候補を選び直しても、過去スロットの比較対象は変えない
   // （「生成結果のスナップショット」として扱う）。
   topCandidate: RouteCandidate;
 }
@@ -17,6 +17,6 @@ export interface ExperimentSlot {
 // 最新3スロットまで保持（研究インターフェース改善 §10-3、多すぎると地図が輻輳するため）。
 export const MAX_EXPERIMENT_SLOTS = 3;
 
-// route-candidates-line（選択#2563eb/未選択#64748b）・selected-outline（#1e3a8a）と
-// 重ならない寒色以外の配色にして、スロット重ね描きを既存のルート表示と区別できるようにする。
+// ルートの候補線・選択中候補の縁取りの色と重ならない配色にして、スロット重ね描きを
+// 既存のルート表示と区別できるようにする。
 export const EXPERIMENT_SLOT_COLORS: readonly string[] = palette.comparison_slots;

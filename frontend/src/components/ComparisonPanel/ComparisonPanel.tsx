@@ -98,7 +98,7 @@ function buildAxisDifficultyRows(slots: ExperimentSlot[], axes: readonly Prefere
 
 // 重み表示は評価軸カタログ（lib/evaluationAxes.ts）から生成する。ハードコードした
 // 軸一覧を持たないため、軸が増減しても表示から漏れない。カタログはRouteSettingsPanel/
-// RouteListと同じ表示名を使うため、ラベルも自動的に揃う。
+// ルート結果と同じ表示名を使うため、ラベルも自動的に揃う。
 //
 // pref行は`slot.conditions.route_preference`（その回のgenerateへ実際に送られ、
 // backendがエコーした条件）のキー集合（Object.keys(p)）を正とする。名前は

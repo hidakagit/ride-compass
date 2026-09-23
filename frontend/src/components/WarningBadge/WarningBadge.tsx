@@ -49,7 +49,7 @@ const LEVEL_ORDER: readonly WarningBadgeLevel[] = ["advisory", "warning", "sever
 // サマリーボタンに出す短い日本語表現。出所ごとの正式な語彙に合わせる
 // （JMA: 気象庁の警報・注意報の呼称そのもの。WBGT: domain/wbgt.py:
 // _LEVEL_THRESHOLDSの表示名と一致させる。flood: domain/flood_forecast.py:
-// LEVEL_SUFFIXESと一致させる。JMAはsevere_warningを発表しないため実際には
+// FloodLevelのsuffixと一致させる。JMAはsevere_warningを発表しないため実際には
 // 到達しないが、Record型を満たすため値だけ埋めてある）。
 const LEVEL_SUMMARY_LABEL: Record<WarningBadgeSource, Record<WarningBadgeLevel, string>> = {
   jma: { advisory: "注意報", warning: "警報", severe_warning: "厳重警戒", emergency_warning: "特別警報" },

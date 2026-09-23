@@ -225,8 +225,8 @@ interface PrecipitationGridCellProperties {
 /** grid（風と共通の格子点マップ、windLayer.ts参照）のframeIndex番目の時刻ぶんの降水量を、
  * 各格子点を中心とする1辺spacingDegの正方形セル（gridCellRing、dynamicWeather.ts参照）の
  * FeatureCollectionへ変換する。frameIndexが範囲外、または値が欠損している格子点はスキップ
- * する（1点の欠損で全体を落とさない）。「ほぼ降水なし」の間引き（PRECIPITATION_NONE_
- * THRESHOLD_MM）はここでは行わない（風の矢印と同じくMapLibre側のfilterに任せる）。 */
+ * する（1点の欠損で全体を落とさない）。「ほぼ降水なし」の間引き
+ * （PRECIPITATION_NONE_THRESHOLD_MM）はここでは行わない（風の矢印と同じくMapLibre側のfilterに任せる）。 */
 function precipitationGridToCellFeatureCollection(
   grid: readonly WindGridPoint[],
   frameIndex: number,

@@ -8,8 +8,7 @@ interface BottomSheetProps {
   onClose: () => void;
   /** シートの見出し（アクセシブル名にも使う） */
   title: string;
-  /** 見出しのDOM id。外部からこのシートの中身へフォーカスを送る起点として使うことがある
-   *（page.tsxのhandleGoToGenerate参照）。 */
+  /** 見出しのDOM id（シートの`aria-labelledby`が指す）。 */
   titleId: string;
   /** ヘッダ右側、閉じるボタンの手前へ差し込む任意の要素。シートごとの補足説明の
    * 情報アイコン・アクションボタンをヘッダ右上へ集約するための差し込み口（page.tsx:
