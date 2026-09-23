@@ -2,8 +2,8 @@
 
     python scripts/orchestrate.py <サブコマンド> ...
 
-使い方は`scripts/orchestration/core.py`の冒頭。`decision`・`prereqs`・`priority`・`slot`は
-依頼で足した別のモジュール（`scripts/orchestration/decisions.py`・`queue.py`・`slots.py`）へ渡す——核はそれらを
+使い方は`scripts/orchestration/core.py`の冒頭。`asks`・`prereqs`・`priority`・`slot`は
+依頼で足した別のモジュール（`scripts/orchestration/asks.py`・`queue.py`・`slots.py`）へ渡す——核はそれらを
 importしないため、振り分けはここで行う。
 """
 
@@ -21,11 +21,11 @@ def main() -> int:
     i = 0
     while i < len(argv) and argv[i] in ("--repo", "--dir"):
         i += 2
-    if argv[i:i + 1] == ["decision"]:
-        from orchestration import decisions
+    if argv[i:i + 1] == ["asks"]:
+        from orchestration import asks
 
         sys.stdout.reconfigure(encoding="utf-8")
-        return decisions.main(argv[:i] + argv[i + 1:])
+        return asks.main(argv[:i] + argv[i + 1:])
     if argv[i:i + 1] and argv[i] in ("prereqs", "priority"):
         from orchestration import queue
 
