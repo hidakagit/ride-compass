@@ -26,7 +26,7 @@ import asyncpg  # noqa: E402
 
 from app.batch._common import asyncpg_dsn, with_derived_data_revision_bump  # noqa: E402
 from app.config import settings  # noqa: E402
-from app.domain.material_sql import WAYS_SOURCE_SQL  # noqa: E402
+from app.domain.material_sql import NODES_SOURCE_SQL, WAYS_SOURCE_SQL  # noqa: E402
 from app.domain.traffic import (  # noqa: E402
     HIGHWAY_RANK,
     TRAFFIC_SIGNAL_SQL,
@@ -42,8 +42,8 @@ SIGNAL_RADIUS_M = 25.0
 def _source_nodes(extra_columns: str = "") -> str:
     """タグから種別・信号を判定する側が期待する形（`id`・`tags`）へ生データを写す。
     タグの無いノード（形状の頂点）はどの規則にも当たらないので、先に落とす。"""
-    return (f"SELECT natural_key::bigint AS id, attrs AS tags{extra_columns}"
-            " FROM source_features WHERE source = 'osm_node' AND attrs <> '{}'::jsonb")
+    return (f"SELECT n.osm_node_id AS id, n.tags{extra_columns}"
+            f" FROM {NODES_SOURCE_SQL} n WHERE n.tags <> '{{}}'::jsonb")
 
 
 _UPSERT_KIND = f"""
@@ -62,13 +62,13 @@ _CLEAR_SIGNALS = "UPDATE node_materials SET has_traffic_signals = false WHERE ha
 #: 信号の側から近くのノードを探す——索引を引く回数が、全ノード数ではなく信号の数で決まる。
 #: `&&`の前置フィルタを先に置くのは、`::geography`へのキャストがgeometryのGiSTを
 #: 使えなくするため。矩形で絞ってから正確な距離を測る。
-_UPDATE_SIGNALS = """
+_UPDATE_SIGNALS = f"""
 UPDATE node_materials nm SET has_traffic_signals = true
 FROM (
-    SELECT DISTINCT near.natural_key::bigint AS osm_node_id
+    SELECT DISTINCT near.osm_node_id
     FROM _signal_nodes sk
-    JOIN source_features near ON near.source = 'osm_node'
-     AND near.geom && ST_Expand(sk.geom, $2)
+    JOIN {NODES_SOURCE_SQL} near
+      ON near.geom && ST_Expand(sk.geom, $2)
      AND ST_DWithin(sk.geom::geography, near.geom::geography, $1)
 ) hit
 WHERE hit.osm_node_id = nm.osm_node_id

@@ -11,7 +11,7 @@
 
 | レイヤー | ファイル |
 |---|---|
-| domain | `evaluation.py`（Edge Costの算出。スカラー／ベクトル／タイル静的行列の3表現）・`hard_filters.py`（0次フィルタ）・`route_preference.py`（重み指定）・`dynamic_materials.py`（風などリクエスト時に決まる材料）・`axis_inspector.py`（区間インスペクタ）・`difficulty.py`・`material_catalog.py`・`material_sql.py`（材料の値をSQLで導出する式） |
+| domain | `evaluation.py`（Edge Costの算出。スカラー／ベクトル／タイル静的行列の3表現）・`hard_filters.py`（0次フィルタ）・`route_preference.py`（重み指定）・`dynamic_materials.py`（風などリクエスト時に決まる材料）・`axis_inspector.py`（区間インスペクタ）・`difficulty.py`・`material_catalog.py`・`material_sql.py`（材料の値をSQLで導出する式と、道・ノードの生データの読み方） |
 | services | `evaluation_service.py`・`material_coverage_service.py` |
 | infrastructure | `material_coverage.py`（材料ごとの欠損割合の集計クエリ） |
 | api | `material_catalog.py`（材料カタログ・材料値一覧・欠損割合のエンドポイント） |

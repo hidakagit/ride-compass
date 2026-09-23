@@ -39,11 +39,13 @@ from app.domain.material_sql import (
     LIT_NORMALIZED_SQL,
     MAXSPEED_KMH_CASE_SQL,
     MOTOR_VEHICLE_NORMALIZED_SQL,
+    NODES_SOURCE_SQL,
     SMOOTHNESS_NORMALIZED_SQL,
     SURFACE_GOOD_CASE_SQL,
     SURFACE_NORMALIZED_SQL,
     TUNNEL_NORMALIZED_SQL,
     WAYS_SOURCE_SQL,
+    nodes_lookup_sql,
     ways_lookup_sql,
     ways_source_sql,
 )
@@ -422,10 +424,9 @@ _POI_TILE_MVT_SQL = text(
                                        ST_Transform(p.geom, 3857),
                                        eps := :cluster_eps_m, minpoints := 1
                                    ) OVER (PARTITION BY {_POI_TILE_KIND_EXPR})
-                               ELSE 'n' || p.natural_key END AS cluster_key
-                        FROM node_materials nm
-                        JOIN source_features p
-                          ON p.source = 'osm_node' AND p.natural_key = nm.osm_node_id::text
+                               ELSE 'n' || p.osm_node_id END AS cluster_key
+                        FROM {NODES_SOURCE_SQL} p
+                        JOIN node_materials nm ON nm.osm_node_id = p.osm_node_id
                         WHERE nm.kind IS NOT NULL
                           AND ST_Intersects(
                               p.geom,
@@ -647,10 +648,8 @@ LEFT JOIN road_edges re
 LEFT JOIN LATERAL {ways_lookup_sql('ids.osm_way_id')} w ON true
 LEFT JOIN way_materials wm ON wm.osm_way_id = ids.osm_way_id
 {_EDGE_MATERIALS_LATERAL}
-LEFT JOIN source_features nf
-       ON nf.source = 'osm_node' AND nf.natural_key = re.from_node_id::text
-LEFT JOIN source_features nt
-       ON nt.source = 'osm_node' AND nt.natural_key = re.to_node_id::text
+LEFT JOIN LATERAL {nodes_lookup_sql('re.from_node_id')} nf ON true
+LEFT JOIN LATERAL {nodes_lookup_sql('re.to_node_id')} nt ON true
 """
 
 #: 材料の式と付随列を1つの内包から並べる（別々に書くと`ORDER BY`がずれても気付けない）。
@@ -698,13 +697,13 @@ LEFT JOIN way_materials wm ON wm.osm_way_id = re.osm_way_id
 WHERE ST_Intersects(re.geom, ST_MakeEnvelope(:xmin, :ymin, :xmax, :ymax, 4326))
 """)
 
-_TOPOLOGY_NODES_SQL = text("""
-SELECT n.natural_key::bigint AS osm_node_id, ST_X(n.geom) AS longitude, ST_Y(n.geom) AS latitude,
+_TOPOLOGY_NODES_SQL = text(f"""
+SELECT n.osm_node_id, ST_X(n.geom) AS longitude, ST_Y(n.geom) AS latitude,
        COALESCE(nm.has_traffic_signals, false) AS has_traffic_signals,
        COALESCE(nm.max_highway_rank, 0) AS max_highway_rank
-FROM source_features n
-LEFT JOIN node_materials nm ON nm.osm_node_id = n.natural_key::bigint
-WHERE n.source = 'osm_node' AND n.natural_key = ANY(:node_keys)
+FROM unnest(CAST(:node_ids AS bigint[])) AS ids(osm_node_id)
+JOIN LATERAL {nodes_lookup_sql("ids.osm_node_id")} n ON true
+LEFT JOIN node_materials nm ON nm.osm_node_id = ids.osm_node_id
 """)
 
 _EDGE_GEOMETRIES_SQL = text("""
@@ -878,7 +877,7 @@ class RoadGraphRepository:
         node_rows = []
         for id_chunk in _chunked(node_ids, _ID_CHUNK_SIZE):
             node_rows.extend((await self._session.execute(
-                _TOPOLOGY_NODES_SQL, {"node_keys": [str(i) for i in id_chunk]})).all())
+                _TOPOLOGY_NODES_SQL, {"node_ids": id_chunk})).all())
 
         # 数万〜十数万区間ぶんのオブジェクト構築はイベントループを塞ぐ長さになる。
         return await asyncio.to_thread(_topology_rows_to_road_graph, edge_rows, node_rows)
