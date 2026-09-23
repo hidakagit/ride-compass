@@ -21,6 +21,8 @@ export interface LegendEntry {
   key: string;
   color: string;
   label: string;
+  /** 大きさで意味を示す行の見本の直径。持つ行は色ではなく大きさを見せる（地図の点と同じ大きさ）。 */
+  diameterPx?: number;
   /** この地物がカテゴリに属するときtrueになるMapLibre式（凡例フィルタ用の述語）。
    * 絞り込みを自分で持つレイヤー（scene のグループが宣言するもの）は持たない。 */
   filter?: unknown[];

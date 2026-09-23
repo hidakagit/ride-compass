@@ -540,13 +540,18 @@
   padding: 0.05rem 0.4rem;
 }
 
+/* 色見本は地図の地色（--swatch-ground、内訳パネルが源泉の値を渡す）の台に載せる。分類色は
+   地図の上では常にこの地に載るため、ダークモードの暗いパネルへ直に置くと、地図では
+   読める濃い色がパネルに沈む。外側の細い線は、台がパネルと近い色のときの輪郭。
+   大きさで意味を示す行は幅・高さをインラインで地図の点の直径にする（台はその外側）。 */
 .detailSwatchDot {
-  width: 9px;
-  height: 9px;
+  box-sizing: content-box;
+  width: 7px;
+  height: 7px;
   border-radius: 50%;
   flex-shrink: 0;
-  /* パネルの地色に近い色（土地被覆の裸地・雪氷等）でも輪郭が残るようにする。 */
-  border: 1px solid var(--color-border-strong);
+  border: 2px solid var(--swatch-ground, transparent);
+  box-shadow: 0 0 0 1px var(--color-border-strong);
 }
 
 /* 改善計画T374: はみ出した分のページ送りボタン（▲▼、MapOverlayControls.tsx参照）。

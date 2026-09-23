@@ -5,6 +5,7 @@ import {
   useEffect,
   useRef,
   useState,
+  type CSSProperties,
   type PointerEvent as ReactPointerEvent,
   type ReactElement,
 } from "react";
@@ -28,7 +29,11 @@ import type { LegendEntry, LegendFilterSummaryAxis } from "@/components/Map/lege
 import LegendCheckboxList from "@/components/Map/LegendCheckboxList";
 import { Checkbox } from "@/components/ui/Checkbox/Checkbox";
 import { EnvironmentDataIcon, InfoIcon, RoadIcon, SpotDataIcon, type MapIconComponent } from "@/components/Map/icons";
+import palette from "@/types/generated/palette.json";
 import styles from "./MapOverlayControls.module.css";
+
+/** 内訳パネルの色見本を載せる台（地図の地色）。CSSは源泉の値を持てないのでここで渡す。 */
+const SWATCH_GROUND_STYLE = { "--swatch-ground": palette.semantic.basemap_ground } as CSSProperties;
 
 /** 地図上のチップ1つ分の表示状態。page.tsxがMAP_LAYERS（レイヤーカタログ）から組み立てる。 */
 export interface OverlayLayerChip {
@@ -611,6 +616,7 @@ function ChipButton({
           <div
             className={styles.detailPanel}
             style={{
+              ...SWATCH_GROUND_STYLE,
               top: panelRect.top,
               left: panelRect.left,
               maxWidth: panelRect.maxWidth,

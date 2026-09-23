@@ -107,11 +107,32 @@ function layerFilter(layer: PointLayer, hiddenKeys: PointState["hiddenKeys"]): F
   return ["all", ...clauses] as unknown as FilterSpecification;
 }
 
-/** 重大度の軸を持つ点だけ、大きさでも重大度を示す。 */
+/** 大きさで示す軸。色は先頭の軸が持つので、重大度は大きさだけで示す（色を取り合わない）。 */
+function sizeAxis(layer: PointLayer): PointAxis | undefined {
+  return layer.display_axes.find((axis) => axis.key === "severity");
+}
+
+/** 行が地図に描かれる半径。**凡例の見本も同じ関数を読む**——凡例が別に大きさを持つと、
+ * 地図と食い違う。大きさの軸でない行は既定の半径。 */
+export function pointCategoryRadiusPx(
+  layer: PointLayer,
+  axis: PointAxis,
+  category: PointAxis["categories"][number],
+): number {
+  if (axis !== sizeAxis(layer)) return POINT.radiusPx;
+  return (category.values as readonly (string | boolean)[]).includes(true)
+    ? POINT.fatalRadiusPx
+    : POINT.nonFatalRadiusPx;
+}
+
 function radiusExpression(layer: PointLayer): unknown {
-  const severity = layer.display_axes.find((axis) => axis.key === "severity");
-  if (severity === undefined) return POINT.radiusPx;
-  return ["case", ["==", ["get", severity.property], true], POINT.fatalRadiusPx, POINT.nonFatalRadiusPx];
+  const axis = sizeAxis(layer);
+  if (axis === undefined) return POINT.radiusPx;
+  const cases = axis.categories.flatMap((category) => [
+    ["in", valueOf(axis), ["literal", [...category.values]]],
+    pointCategoryRadiusPx(layer, axis, category),
+  ]);
+  return ["case", ...cases, POINT.radiusPx];
 }
 
 export const pointGroup = declareGroup<PointState>("point", (state) => {

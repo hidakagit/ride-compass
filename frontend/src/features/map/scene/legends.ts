@@ -7,7 +7,9 @@ import { COLOR_UNKNOWN } from "@/components/Map/axisLayers";
 import type { LegendEntry } from "@/components/Map/legendFilter";
 import { LEGEND_NO_DATA_KEY } from "@/components/Map/mapColorLegend";
 
-import { POINT_LAYERS, pointAxisKey, type PointAxis } from "./groups/points";
+import palette from "@/types/generated/palette.json";
+
+import { POINT_LAYERS, pointAxisKey, pointCategoryRadiusPx, type PointAxis } from "./groups/points";
 import { ROAD_TRACKS, roadTrackAxis } from "./groups/roadLines";
 
 /** 凡例1本ぶん。1つのチップが複数の軸を持つことがある（事故は当事者と重大度）。 */
@@ -46,19 +48,28 @@ export function roadLegendAxes(): readonly SceneLegendAxis[] {
   }));
 }
 
-function pointAxisLegend(layer: (typeof POINT_LAYERS)[number], axis: PointAxis): SceneLegendAxis {
+/** 点の凡例。**色見本を出すのは、地図の色式が読む先頭の軸だけ**——2本目以降（重大度）は
+ * 地図では大きさだけで表れるので、見本も色を持たない灰で、地図と同じ大きさにする。 */
+function pointAxisLegend(layer: (typeof POINT_LAYERS)[number], axis: PointAxis, index: number): SceneLegendAxis {
   return {
     layerId: layer.attr_id,
     axisId: pointAxisKey(layer, axis),
     label: axis.label ?? "",
-    entries: axis.categories.map((category) => ({
-      key: category.key,
-      label: category.label,
-      color: category.color,
-    })),
+    entries: axis.categories.map((category) =>
+      index === 0 && "color" in category
+        ? { key: category.key, label: category.label, color: category.color }
+        : {
+            key: category.key,
+            label: category.label,
+            color: palette.semantic.legend_size_only,
+            diameterPx: 2 * pointCategoryRadiusPx(layer, axis, category),
+          },
+    ),
   };
 }
 
 export function pointLegendAxes(): readonly SceneLegendAxis[] {
-  return POINT_LAYERS.flatMap((layer) => layer.display_axes.map((axis) => pointAxisLegend(layer, axis)));
+  return POINT_LAYERS.flatMap((layer) =>
+    layer.display_axes.map((axis: PointAxis, index: number) => pointAxisLegend(layer, axis, index)),
+  );
 }

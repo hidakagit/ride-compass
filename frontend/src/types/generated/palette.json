@@ -17,6 +17,8 @@
     "mark_halo": "rgba(31, 41, 55, 0.85)",
     "mark_stroke": "#ffffff",
     "lightning": "#facc15",
+    "basemap_ground": "#f8f4f0",
+    "legend_size_only": "#6b7280",
     "hit": "#000000",
     "inspected": "#f59e0b",
     "neutral": "#94a3b8",

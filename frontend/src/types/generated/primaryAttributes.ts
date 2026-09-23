@@ -22,7 +22,7 @@ export const primaryAttributes = [
               "primary",
               "primary_link"
             ],
-            "color": "#3b4554"
+            "color": "#272d31"
           },
           {
             "key": "secondary",
@@ -33,7 +33,7 @@ export const primaryAttributes = [
               "tertiary",
               "tertiary_link"
             ],
-            "color": "#56657b"
+            "color": "#38434d"
           },
           {
             "key": "local",
@@ -45,7 +45,7 @@ export const primaryAttributes = [
               "service",
               "road"
             ],
-            "color": "#75869f"
+            "color": "#4a5c6a"
           },
           {
             "key": "cycleway",
@@ -58,7 +58,7 @@ export const primaryAttributes = [
               "bridleway",
               "steps"
             ],
-            "color": "#9ca8ba"
+            "color": "#5c7589"
           },
           {
             "key": "track",
@@ -66,7 +66,7 @@ export const primaryAttributes = [
             "values": [
               "track"
             ],
-            "color": "#c3cad5"
+            "color": "#6f8fa9"
           }
         ]
       }
@@ -112,7 +112,7 @@ export const primaryAttributes = [
               "paved",
               "chipseal"
             ],
-            "color": "#456187"
+            "color": "#48886f"
           },
           {
             "key": "concrete",
@@ -122,7 +122,7 @@ export const primaryAttributes = [
               "concrete:plates",
               "concrete:lanes"
             ],
-            "color": "#4b4587"
+            "color": "#3085a4"
           },
           {
             "key": "stones",
@@ -134,7 +134,7 @@ export const primaryAttributes = [
               "unhewn_cobblestone",
               "bricks"
             ],
-            "color": "#6b4587"
+            "color": "#8873a1"
           },
           {
             "key": "gravel",
@@ -146,7 +146,7 @@ export const primaryAttributes = [
               "pebblestone",
               "rock"
             ],
-            "color": "#874581"
+            "color": "#ab6a6c"
           },
           {
             "key": "dirt",
@@ -161,7 +161,7 @@ export const primaryAttributes = [
               "grass",
               "woodchips"
             ],
-            "color": "#874561"
+            "color": "#8a7b4c"
           }
         ]
       }
@@ -198,7 +198,7 @@ export const primaryAttributes = [
             "values": [
               true
             ],
-            "color": "#874b45"
+            "color": "#8e729e"
           }
         ]
       }
@@ -221,7 +221,7 @@ export const primaryAttributes = [
             "values": [
               true
             ],
-            "color": "#876b45"
+            "color": "#a66e5b"
           }
         ]
       }
@@ -251,7 +251,7 @@ export const primaryAttributes = [
             "values": [
               "traffic_signals"
             ],
-            "color": "#818745"
+            "color": "#a36b89"
           },
           {
             "key": "crossing",
@@ -259,7 +259,7 @@ export const primaryAttributes = [
             "values": [
               "crossing"
             ],
-            "color": "#618745"
+            "color": "#a96d61"
           },
           {
             "key": "stop",
@@ -267,7 +267,7 @@ export const primaryAttributes = [
             "values": [
               "stop"
             ],
-            "color": "#45874b"
+            "color": "#8e7a4c"
           },
           {
             "key": "give_way",
@@ -275,7 +275,7 @@ export const primaryAttributes = [
             "values": [
               "give_way"
             ],
-            "color": "#45876b"
+            "color": "#61855c"
           },
           {
             "key": "level_crossing",
@@ -284,7 +284,7 @@ export const primaryAttributes = [
               "level_crossing",
               "railway_crossing"
             ],
-            "color": "#458187"
+            "color": "#2e8984"
           },
           {
             "key": "barrier",
@@ -292,7 +292,7 @@ export const primaryAttributes = [
             "values": [
               "barrier"
             ],
-            "color": "#6886b1"
+            "color": "#3684a6"
           },
           {
             "key": "traffic_calming",
@@ -300,7 +300,7 @@ export const primaryAttributes = [
             "values": [
               "traffic_calming"
             ],
-            "color": "#6e68b1"
+            "color": "#7878a8"
           }
         ]
       }
@@ -323,7 +323,7 @@ export const primaryAttributes = [
             "values": [
               true
             ],
-            "color": "#86b168"
+            "color": "#4682aa"
           },
           {
             "key": "other",
@@ -331,7 +331,7 @@ export const primaryAttributes = [
             "values": [
               false
             ],
-            "color": "#68b16e"
+            "color": "#97764e"
           }
         ]
       },
@@ -345,16 +345,14 @@ export const primaryAttributes = [
             "label": "死亡事故",
             "values": [
               true
-            ],
-            "color": "#68b192"
+            ]
           },
           {
             "key": "non_fatal",
             "label": "死亡以外",
             "values": [
               false
-            ],
-            "color": "#68abb1"
+            ]
           }
         ]
       }
@@ -391,7 +389,7 @@ export const primaryAttributes = [
             "values": [
               "convenience"
             ],
-            "color": "#9268b1"
+            "color": "#6d7aaa"
           },
           {
             "key": "vending_drinks",
@@ -399,7 +397,7 @@ export const primaryAttributes = [
             "values": [
               "vending_drinks"
             ],
-            "color": "#b168ab"
+            "color": "#a36b89"
           },
           {
             "key": "vending_unknown",
@@ -407,7 +405,7 @@ export const primaryAttributes = [
             "values": [
               "vending_unknown"
             ],
-            "color": "#b16886"
+            "color": "#a66e5b"
           },
           {
             "key": "toilets",
@@ -415,7 +413,7 @@ export const primaryAttributes = [
             "values": [
               "toilets"
             ],
-            "color": "#b16e68"
+            "color": "#807e4d"
           },
           {
             "key": "drinking_water",
@@ -423,7 +421,7 @@ export const primaryAttributes = [
             "values": [
               "drinking_water"
             ],
-            "color": "#b19268"
+            "color": "#48886f"
           },
           {
             "key": "bicycle_parking",
@@ -431,7 +429,7 @@ export const primaryAttributes = [
             "values": [
               "bicycle_parking"
             ],
-            "color": "#abb168"
+            "color": "#25879d"
           }
         ]
       }

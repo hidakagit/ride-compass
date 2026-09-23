@@ -1,5 +1,7 @@
 "use client";
 
+import type { CSSProperties } from "react";
+
 import { Checkbox } from "@/components/ui/Checkbox/Checkbox";
 import type { LegendEntry } from "./legendFilter";
 
@@ -14,6 +16,12 @@ interface LegendCheckboxListProps {
   rowFallbackClassName?: string;
   /** widthを持たないLegendEntry（色のみで区別する軸）のスウォッチに使うclass。 */
   swatchClassName: string;
+}
+
+/** 色見本の見た目。大きさで意味を示す行だけ、色見本の大きさを地図の点へ合わせる。 */
+function legendSwatchStyle(entry: LegendEntry): CSSProperties {
+  if (entry.diameterPx === undefined) return { background: entry.color };
+  return { background: entry.color, width: entry.diameterPx, height: entry.diameterPx };
 }
 
 // 凡例をチェックボックス一覧として描画する共通部品（MapOverlayControls.tsx・
@@ -39,7 +47,7 @@ export default function LegendCheckboxList({
         return (
           <label key={entry.key} className={className}>
             <Checkbox checked={visible} onCheckedChange={() => onToggle(entry.key)} aria-label={entry.label} />
-            <span aria-hidden="true" className={swatchClassName} style={{ background: entry.color }} />
+            <span aria-hidden="true" className={swatchClassName} style={legendSwatchStyle(entry)} />
             {entry.label}
           </label>
         );

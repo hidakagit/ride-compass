@@ -430,8 +430,6 @@ PRIMARY_ATTRIBUTES: tuple[PrimaryAttributeSpec, ...] = (
                         label="自転車・歩行者道",
                         values=("cycleway", "path", "footway", "pedestrian", "bridleway", "steps"),
                     ),
-                    # 自転車・歩行者道と濃淡が近く見分けが付かないため、未舗装路のイメージが
-                    # 重なる土の色を流用する（別のトラックへ分かれるので画面上で競合しない）。
                     DisplayCategorySpec(key="track", label="農道・林道", values=("track",)),
                 ),
             ),
@@ -453,27 +451,28 @@ PRIMARY_ATTRIBUTES: tuple[PrimaryAttributeSpec, ...] = (
                 key="surface",
                 property="surface",
                 palette="nominal",
+                hue_slot=9,
                 categories=(
                     DisplayCategorySpec(
-                        key="asphalt", color_slot=0, label="アスファルト",
+                        key="asphalt", label="アスファルト",
                         values=("asphalt", "paved", "chipseal"),
                     ),
                     DisplayCategorySpec(
-                        key="concrete", color_slot=1, label="コンクリート",
+                        key="concrete", label="コンクリート",
                         values=("concrete", "concrete:plates", "concrete:lanes"),
                     ),
                     # 正準分類で良い側（paving_stones・bricks）と悪い側（sett・cobblestone等）が
                     # 混じる唯一の行。材質として同類なので良否で割らず、色も良し悪しを示さない。
                     DisplayCategorySpec(
-                        key="stones", color_slot=2, label="石畳・敷石",
+                        key="stones", label="石畳・敷石",
                         values=("paving_stones", "sett", "cobblestone", "unhewn_cobblestone", "bricks"),
                     ),
                     DisplayCategorySpec(
-                        key="gravel", color_slot=3, label="砂利・締固め",
+                        key="gravel", label="砂利・締固め",
                         values=("gravel", "fine_gravel", "compacted", "pebblestone", "rock"),
                     ),
                     DisplayCategorySpec(
-                        key="dirt", color_slot=4, label="土・草・砂",
+                        key="dirt", label="土・草・砂",
                         values=("unpaved", "dirt", "ground", "earth", "mud", "sand", "grass", "woodchips"),
                     ),
                 ),
@@ -492,7 +491,8 @@ PRIMARY_ATTRIBUTES: tuple[PrimaryAttributeSpec, ...] = (
                 key="tunnel",
                 property="tunnel",
                 palette="nominal",
-                categories=(DisplayCategorySpec(key="tunnel", color_slot=5, label="トンネル", values=(True,)),),
+                hue_slot=2,
+                categories=(DisplayCategorySpec(key="tunnel", label="トンネル", values=(True,)),),
             ),
         ),
     ),
@@ -506,7 +506,8 @@ PRIMARY_ATTRIBUTES: tuple[PrimaryAttributeSpec, ...] = (
                 key="oneway",
                 property="oneway",
                 palette="nominal",
-                categories=(DisplayCategorySpec(key="oneway", color_slot=6, label="一方通行", values=(True,)),),
+                hue_slot=5,
+                categories=(DisplayCategorySpec(key="oneway", label="一方通行", values=(True,)),),
             ),
         ),
     ),
@@ -523,19 +524,20 @@ PRIMARY_ATTRIBUTES: tuple[PrimaryAttributeSpec, ...] = (
                 key="kind",
                 property="kind",
                 palette="nominal",
+                hue_slot=3,
                 categories=(
-                    DisplayCategorySpec(key="traffic_signals", color_slot=7, label="信号", values=("traffic_signals",)),
-                    DisplayCategorySpec(key="crossing", color_slot=8, label="横断歩道", values=("crossing",)),
-                    DisplayCategorySpec(key="stop", color_slot=9, label="一時停止", values=("stop",)),
-                    DisplayCategorySpec(key="give_way", color_slot=10, label="徐行", values=("give_way",)),
+                    DisplayCategorySpec(key="traffic_signals", label="信号", values=("traffic_signals",)),
+                    DisplayCategorySpec(key="crossing", label="横断歩道", values=("crossing",)),
+                    DisplayCategorySpec(key="stop", label="一時停止", values=("stop",)),
+                    DisplayCategorySpec(key="give_way", label="徐行", values=("give_way",)),
                     # 車道用と歩道・自転車道用の踏切は、利用者から見れば同じ「線路を渡る点」。
                     DisplayCategorySpec(
-                        key="level_crossing", color_slot=11, label="踏切",
+                        key="level_crossing", label="踏切",
                         values=("level_crossing", "railway_crossing"),
                     ),
-                    DisplayCategorySpec(key="barrier", color_slot=12, label="車止め・ゲート", values=("barrier",)),
+                    DisplayCategorySpec(key="barrier", label="車止め・ゲート", values=("barrier",)),
                     DisplayCategorySpec(
-                        key="traffic_calming", color_slot=13, label="ハンプ・狭さく", values=("traffic_calming",)
+                        key="traffic_calming", label="ハンプ・狭さく", values=("traffic_calming",)
                     ),
                 ),
             ),
@@ -554,20 +556,20 @@ PRIMARY_ATTRIBUTES: tuple[PrimaryAttributeSpec, ...] = (
                 label="当事者",
                 property="involves_bicycle",
                 palette="nominal",
+                hue_slot=0,
                 categories=(
-                    # 自転車関連だけが事故密度の材料になる（寄与しない側は中立色のまま）。
-                    DisplayCategorySpec(key="bicycle", color_slot=20, label="自転車関連", values=(True,)),
-                    DisplayCategorySpec(key="other", color_slot=21, label="その他", values=(False,)),
+                    # 自転車関連だけが事故密度の材料になる。
+                    DisplayCategorySpec(key="bicycle", label="自転車関連", values=(True,)),
+                    DisplayCategorySpec(key="other", label="その他", values=(False,)),
                 ),
             ),
             DisplayAxisSpec(
                 key="severity",
                 label="重大度",
                 property="fatal",
-                palette="nominal",
                 categories=(
-                    DisplayCategorySpec(key="fatal", color_slot=22, label="死亡事故", values=(True,)),
-                    DisplayCategorySpec(key="non_fatal", color_slot=23, label="死亡以外", values=(False,)),
+                    DisplayCategorySpec(key="fatal", label="死亡事故", values=(True,)),
+                    DisplayCategorySpec(key="non_fatal", label="死亡以外", values=(False,)),
                 ),
             ),
         ),
@@ -584,20 +586,21 @@ PRIMARY_ATTRIBUTES: tuple[PrimaryAttributeSpec, ...] = (
                 key="kind",
                 property="kind",
                 palette="nominal",
+                hue_slot=1,
                 categories=(
-                    DisplayCategorySpec(key="convenience", color_slot=14, label="コンビニ", values=("convenience",)),
+                    DisplayCategorySpec(key="convenience", label="コンビニ", values=("convenience",)),
                     # 自販機は「ここで飲み物が買える」という約束として読まれる。中身が
                     # 分からないものを同じ確からしさに見せない。
                     DisplayCategorySpec(
-                        key="vending_drinks", color_slot=15, label="飲料自販機", values=("vending_drinks",)
+                        key="vending_drinks", label="飲料自販機", values=("vending_drinks",)
                     ),
                     DisplayCategorySpec(
-                        key="vending_unknown", color_slot=16, label="自販機(中身不明)", values=("vending_unknown",)
+                        key="vending_unknown", label="自販機(中身不明)", values=("vending_unknown",)
                     ),
-                    DisplayCategorySpec(key="toilets", color_slot=17, label="トイレ", values=("toilets",)),
-                    DisplayCategorySpec(key="drinking_water", color_slot=18, label="給水", values=("drinking_water",)),
+                    DisplayCategorySpec(key="toilets", label="トイレ", values=("toilets",)),
+                    DisplayCategorySpec(key="drinking_water", label="給水", values=("drinking_water",)),
                     DisplayCategorySpec(
-                        key="bicycle_parking", color_slot=19, label="駐輪場", values=("bicycle_parking",)
+                        key="bicycle_parking", label="駐輪場", values=("bicycle_parking",)
                     ),
                 ),
             ),
