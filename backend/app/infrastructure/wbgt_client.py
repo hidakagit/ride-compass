@@ -9,6 +9,7 @@
 
 import csv
 import io
+import logging
 
 import httpx
 from cachetools import TTLCache
@@ -29,6 +30,8 @@ _POINT_MASTER_CACHE_TTL_SECONDS = 24 * 60 * 60
 _FORECAST_CACHE_TTL_SECONDS = 60 * 60
 
 REQUEST_TIMEOUT = httpx.Timeout(connect=3.0, read=8.0, write=5.0, pool=5.0)
+
+logger = logging.getLogger("ridecompass.wbgt_client")
 
 _POINT_MASTER_CACHE_KEY = "point_master"
 _point_master_cache: TTLCache = TTLCache(maxsize=1, ttl=_POINT_MASTER_CACHE_TTL_SECONDS)
@@ -67,10 +70,13 @@ def _parse_point_master(csv_text: str) -> list[WbgtPoint]:
     予測値APIのクエリへ載り、その地点の予測が引けなくなる。
     """
     reader = csv.reader(io.StringIO(csv_text))
-    rows = list(reader)
+    # 空行はデータ行に数えない（配布CSVの末尾に付きうる）。
+    rows = [row for row in list(reader)[1:] if any(cell.strip() for cell in row)]  # 先頭行はヘッダー
     points: list[WbgtPoint] = []
-    for row in rows[1:]:  # 先頭行はヘッダー
+    unreadable = 0
+    for row in rows:
         if len(row) < 13:
+            unreadable += 1
             continue
         end_date = row[12].strip()
         if end_date != "9999-99-99":
@@ -81,8 +87,17 @@ def _parse_point_master(csv_text: str) -> list[WbgtPoint]:
             latitude = float(row[7].strip()) + float(row[8].strip()) / 60.0
             longitude = float(row[9].strip()) + float(row[10].strip()) / 60.0
         except ValueError:
-            continue  # 欠損行はスキップ（他地点で近傍検索を続行できる）
+            unreadable += 1
+            continue
         points.append(WbgtPoint(no=no, name=name, latitude=latitude, longitude=longitude))
+    # 読めない行は他の地点で近傍検索を続けるために飛ばすが、飛ばしたことは必ず出す。
+    # 列構成が変わると読める行だけが残り、遠い地点の値が何事もなく表示される。
+    # 行ごとに出すと列構成の変化で全行に出るため、取得1回につき1行にまとめる。
+    if unreadable:
+        logger.warning(
+            "暑さ指数の地点マスタに読めない行があり読み飛ばしました unreadable=%d rows=%d points=%d",
+            unreadable, len(rows), len(points),
+        )
     return points
 
 

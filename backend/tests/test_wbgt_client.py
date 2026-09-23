@@ -7,6 +7,8 @@
   選択） → `domain/wbgt_points.py`・`wbgt_service.py`側
 """
 
+import logging
+
 import pytest
 from cachetools import TTLCache
 
@@ -78,18 +80,33 @@ async def test_point_master_excludes_retired_points():
     assert [point.no for point in points] == ["44132"]
 
 
-async def test_point_master_skips_rows_without_the_end_date_column():
-    """配布CSVの末尾の空行は列数を満たさない。1行でも落とすとマスタ全体がNoneになる。"""
+async def test_point_master_does_not_count_a_trailing_blank_line_as_unreadable(caplog):
+    """配布CSVの末尾の空行はデータ行ではない。数えると取得のたびに警告が出て、本物が埋もれる。"""
     client = FakeHttpClient(
         text=_csv([_row("44132", "東京", "35", "41.4", "139", "45.6", _ACTIVE)]) + "\n"
     )
 
-    points = await wbgt_client.fetch_point_master(client)
+    with caplog.at_level(logging.WARNING, logger="ridecompass.wbgt_client"):
+        points = await wbgt_client.fetch_point_master(client)
 
     assert [point.no for point in points] == ["44132"]
+    assert caplog.records == []
 
 
-async def test_point_master_skips_rows_with_unparsable_coordinates():
+async def test_point_master_skips_rows_without_the_end_date_column_and_says_so(caplog):
+    """列構成が変わると読める行だけが残り、遠い地点の値が何事もなく表示される。"""
+    client = FakeHttpClient(
+        text=_csv(["44100,列が足りない", _row("44132", "東京", "35", "41.4", "139", "45.6", _ACTIVE)])
+    )
+
+    with caplog.at_level(logging.WARNING, logger="ridecompass.wbgt_client"):
+        points = await wbgt_client.fetch_point_master(client)
+
+    assert [point.no for point in points] == ["44132"]
+    assert "unreadable=1 rows=2" in caplog.text
+
+
+async def test_point_master_skips_rows_with_unparsable_coordinates_and_says_so(caplog):
     client = FakeHttpClient(
         text=_csv(
             [
@@ -99,9 +116,21 @@ async def test_point_master_skips_rows_with_unparsable_coordinates():
         )
     )
 
-    points = await wbgt_client.fetch_point_master(client)
+    with caplog.at_level(logging.WARNING, logger="ridecompass.wbgt_client"):
+        points = await wbgt_client.fetch_point_master(client)
 
     assert [point.no for point in points] == ["44132"]
+    assert "unreadable=1 rows=2" in caplog.text
+
+
+async def test_point_master_does_not_count_retired_points_as_unreadable(caplog):
+    """運用終了は配布元が宣言した除外で、読めなかったのではない。"""
+    client = FakeHttpClient(text=_csv([_row("44166", "旧地点", "35", "30.0", "139", "30.0", "2025-03-31")]))
+
+    with caplog.at_level(logging.WARNING, logger="ridecompass.wbgt_client"):
+        assert await wbgt_client.fetch_point_master(client) == []
+
+    assert caplog.records == []
 
 
 async def test_point_master_trims_surrounding_whitespace():
