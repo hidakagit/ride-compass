@@ -777,6 +777,8 @@ edge_idをまとめて1回・`preview_segment`が1回、いずれも逐次に呼
   `domain/route.py`の読み込み時に落ちる——放っておくと、型でも例外でも現れないまま
   APIからは「そのフィールドだけ空」に見える。母集団は値の型を問わずモデルから引く
   （`dict[str, float]`のように値型で絞ると、`dict[str, str]`のフィールドが静かに外れる）。
+  ただし数えるのは型注釈が`dict[...]`そのもののフィールドだけで、`dict[...] | None`や
+  辞書でないフィールドは数えない——宣言が無ければ、ビンでは黙って既定値になる。
 - **`RouteCandidate.edge_point_offsets`は、その経路のEdgeが`geometry.coordinates`の
   どこで切り替わるか**を`edge_ids`より1件多く持つ。隣接Edgeの境界点は重複させずに連結する
   （`_concat_edge_geometries`）ため、**座標列だけからはEdgeの境目を復元できない**。
@@ -795,6 +797,10 @@ edge_idをまとめて1回・`preview_segment`が1回、いずれも逐次に呼
   `merge_material_category_shares`を呼び、結果を`RouteCandidate`へ載せる。
   `route_generator`の後段はこの値に触らない（触ると、区間側が空になっている以上
   必ず`{}`で上書きされる）。
+- **生値・材料値に無限大は来ない**。材料の値式は区間の長さが0なら割らずに欠損にし
+  （`domain/material_catalog.py`・`material_sql.py`の密度の式）、動的材料（風）は定数で割り、
+  生値は材料の値と参照先の軸の得点の重み付き和である。欠損（NaN）は区間を組み立てる`road_graph_engine`が落とす。
+  有効数字の丸め（`_round_significant`）が非有限値をそのまま返す分岐は、この前提の下では通らない。
 
 ### `domain/geo.py`・`domain/errors.py`
 
