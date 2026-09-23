@@ -226,6 +226,5 @@ CLAUDE.md参照。節見出しはタスクのテーマ分類で、日付は起�
 - [ ] [T1043](records/tasks/T1043.md). routing-engine.mdを、読む人の入口ごとに分割する 規模M
 - [ ] [T1045](records/tasks/T1045.md). commit・pushが重いときがある——pre-pushの門を、検査を落とさずに速くする 規模S〜M
 - [ ] [T1046](records/tasks/T1046.md). colorトークンをTailwindのテーマへ、ダークモード追従を壊さずに取り込めるか確かめる 規模S
-- [ ] [T1047](records/tasks/T1047.md). タスク番号の確保を1コマンドにする（手書きの衝突判定をなくす） 規模S〜M
 
 見送りとして判断を記録したもの（台帳には載せない）: [T1036](records/tasks/T1036.md)・[T1037](records/tasks/T1037.md)・[T1038](records/tasks/T1038.md)・[T1039](records/tasks/T1039.md)・[T1040](records/tasks/T1040.md)
