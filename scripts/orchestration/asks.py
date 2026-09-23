@@ -46,6 +46,12 @@ KINDS = (
     ("実施", "済んだら見出しを「## ユーザー操作（済 日付）: …」へ変えると外れる"),
     ("改善の承認", "見出しを「## 改善提案（承認 日付）: …」か「（見送り 日付）」へ変えると外れる"),
 )
+#: 一覧に出す種類の名前。誰が何をする待ちかを名前だけで読めるようにする（「実施」だけでは司令塔が実施したものと読める）。
+KIND_LABELS = {
+    "判断": "決めてほしいこと",
+    "実施": "ユーザーに実行してほしい操作",
+    "改善の承認": "入れてよいか決めてほしい改善案（まだ入れていない）",
+}
 #: 一覧に出す1件の行数の上限（節全体が単位なので、表や測定値まで含むことがある）。
 SHOWN_LINES = 12
 
@@ -121,10 +127,10 @@ def cmd_asks(ctx: Context, args: argparse.Namespace) -> int:
     found, open_tasks = collect_asks(ctx.repo, args.tasks)
     total = sum(len(items) for by_task in found.values() for items in by_task.values())
     print(f"確認待ち {total}件（origin/masterのタスク記録から。"
-          + "・".join(f"{kind} {sum(len(v) for v in found[kind].values())}件" for kind, _ in KINDS) + "）")
+          + "・".join(f"{KIND_LABELS[kind]} {sum(len(v) for v in found[kind].values())}件" for kind, _ in KINDS) + "）")
     for kind, how in KINDS:
         by_task = found[kind]
-        print(f"\n== {kind} {sum(len(v) for v in by_task.values())}件（{how}）")
+        print(f"\n== {KIND_LABELS[kind]} {sum(len(v) for v in by_task.values())}件（{how}）")
         for task, items in by_task.items():
             closed = "" if task in open_tasks else "（閉じたタスク: 台帳に行が無い）"
             print(f"\n出所: {task}{closed} {len(items)}件")
