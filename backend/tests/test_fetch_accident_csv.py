@@ -14,6 +14,7 @@ from scripts import fetch_accident_csv
 class _FakeResponse:
     def __init__(self, payload: bytes):
         self._payload = payload
+        self.headers: dict[str, str] = {}
 
     def raise_for_status(self) -> None:
         pass

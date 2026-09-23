@@ -4,10 +4,13 @@
 """
 
 import logging
-from collections.abc import AsyncIterator, Awaitable
+import time
+from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
+from pathlib import Path
 from typing import TypeVar
 
+import httpx
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from app.config import settings
@@ -98,3 +101,66 @@ def format_progress(done: int, total: int | None, elapsed: float, unit: str = "�
                 f" / 経過 {format_duration(elapsed)} / {rate:.1f}{unit}/秒"
                 f" / 残り およそ {format_duration(remaining)}")
     return line
+
+
+#: 取得途中の一時ファイルの印。所定の名前と紛れないもの。
+FETCH_PART_SUFFIX = ".part"
+
+#: 落としたが開けなかったものを退ける先。消さないのは、開けない理由が壊れていることとは
+#: 限らず、消すと落とし直しにまた時間を払うため。
+FETCH_BROKEN_SUFFIX = ".broken"
+
+
+def fetch_verified(
+    url: str,
+    destination: Path,
+    readable: Callable[[Path], bool],
+    *,
+    timeout: httpx.Timeout | float,
+    logger: logging.Logger,
+) -> bool:
+    """配布元のファイルを手元の所定の名前へ写す。何度実行しても安全で、終わる。
+
+    - 手元にあって読めるファイルは落とし直さない
+    - 一時ファイルへ書いてから所定の名前へ移す。途中で落ちた半端なものを「取得済み」に
+      見せない
+    - 落とし終えたら`readable`で実際に開いてみる。開けなければ退けてFalseを返す——読めない
+      ファイルを置いたまま成功を報告すると、次に落ちるのはそれを読む取込の途中になる
+
+    大きさだけでは半端なファイルも配布元が200で返すエラー本文も弾けないため、`readable`は
+    中身を開いて確かめるものを渡す。通信の失敗は例外のまま呼び出し側へ出す。
+    """
+    if destination.exists() and readable(destination):
+        logger.info("既にある %s", destination)
+        return True
+    logger.info("取りに行く %s", url)
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    temporary = destination.with_name(destination.name + FETCH_PART_SUFFIX)
+    started = time.perf_counter()
+    last_report = started
+    written = 0
+    with httpx.stream("GET", url, timeout=timeout, follow_redirects=True) as response:
+        response.raise_for_status()
+        total = int(response.headers.get("content-length") or 0) or None
+        with temporary.open("wb") as sink:
+            for chunk in response.iter_bytes():
+                sink.write(chunk)
+                written += len(chunk)
+                now = time.perf_counter()
+                if now - last_report < PROGRESS_INTERVAL_SECONDS:
+                    continue
+                last_report = now
+                logger.info("取得中 %s", format_progress(
+                    written // (1024 * 1024),
+                    total // (1024 * 1024) if total else None,
+                    now - started, "MB"))
+    temporary.replace(destination)
+    logger.info("取得した %s（%.1f MB / %s）", destination.name,
+                written / (1024 * 1024), format_duration(time.perf_counter() - started))
+    if readable(destination):
+        return True
+    broken = destination.with_name(destination.name + FETCH_BROKEN_SUFFIX)
+    destination.replace(broken)
+    logger.error("落としたが開けない: %s（%s へ退けた。もう一度実行すると取り直す）",
+                 destination.name, broken.name)
+    return False

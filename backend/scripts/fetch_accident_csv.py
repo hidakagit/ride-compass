@@ -2,13 +2,8 @@ r"""警察庁の交通事故統計（本票CSV）を配布元から手元へ写�
 
 取込はローカルのファイルを読むだけにする（`source_adapters/npa_honhyo.py`）。
 
-**何度実行しても安全で、終わる。**
-
-- 手元にあって読めるファイルは落とし直さない
-- 一時ファイルへ書いてから所定の名前へ移す。途中で落ちた半端なものを「取得済み」に
-  見せない
-- 落とし終えたら実際に開いてみる。開けなければ退けて失敗させる——読めないファイルを
-  置いたまま成功を報告すると、次に落ちるのは取込の途中になる
+取得の手順（読めるものは落とし直さない・一時ファイル経由・落とし終えたら開いてみる）は
+`app.batch._common.fetch_verified`が持つ。
 
 どの年を要するかはプロファイルが持つ（`npa_honhyo`ソースの`rows.years`）。配布元のURLの
 組み立て方だけがここにある。
@@ -28,6 +23,7 @@ import httpx
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+from app.batch._common import fetch_verified  # noqa: E402
 from app.batch.source_adapters.npa_honhyo import ENCODING, honhyo_path  # noqa: E402
 from app.batch.source_profile import load_source_profile  # noqa: E402
 
@@ -37,18 +33,11 @@ logger = logging.getLogger("ridecompass.fetch_accident_csv")
 HONHYO_URL_TEMPLATE = (
     "https://www.npa.go.jp/publications/statistics/koutsuu/opendata/{year}/honhyo_{year}.csv")
 
-#: 一時ファイルの印。所定の名前と紛れないもの。
-_PART_SUFFIX = ".part"
-
-#: 落としたが開けなかったものを退ける先。消さないのは、開けない理由が壊れていることとは
-#: 限らないため。
-_BROKEN_SUFFIX = ".broken"
-
 _REQUEST_TIMEOUT = httpx.Timeout(connect=10.0, read=120.0, write=30.0, pool=30.0)
 
 
 def _readable(path: Path) -> bool:
-    """本票として読めるか。大きさだけでは半端なファイルも配信元のエラーページも弾けない。"""
+    """本票として読めるか（見出しと1行以上）。"""
     try:
         with open(path, encoding=ENCODING, newline="") as f:
             reader = csv.DictReader(f)
@@ -57,38 +46,12 @@ def _readable(path: Path) -> bool:
         return False
 
 
-def _download(url: str, destination: Path) -> None:
-    destination.parent.mkdir(parents=True, exist_ok=True)
-    temporary = destination.with_name(destination.name + _PART_SUFFIX)
-    written = 0
-    with httpx.stream("GET", url, timeout=_REQUEST_TIMEOUT, follow_redirects=True) as response:
-        response.raise_for_status()
-        with temporary.open("wb") as sink:
-            for chunk in response.iter_bytes():
-                sink.write(chunk)
-                written += len(chunk)
-    temporary.replace(destination)
-    logger.info("取得した %s（%.1f MB）", destination.name, written / (1024 * 1024))
-
-
 def fetch(years: list[int]) -> int:
-    failures = 0
-    for year in years:
-        destination = honhyo_path(year)
-        if destination.exists() and _readable(destination):
-            logger.info("既にある %s", destination)
-            continue
-        url = HONHYO_URL_TEMPLATE.format(year=year)
-        logger.info("取りに行く %s", url)
-        _download(url, destination)
-        if _readable(destination):
-            continue
-        broken = destination.with_name(destination.name + _BROKEN_SUFFIX)
-        destination.replace(broken)
-        logger.error("落としたが読めない: %d年（%s へ退けた。もう一度実行すると取り直す）",
-                     year, broken.name)
-        failures += 1
-    return failures
+    return sum(
+        not fetch_verified(HONHYO_URL_TEMPLATE.format(year=year), honhyo_path(year), _readable,
+                           timeout=_REQUEST_TIMEOUT, logger=logger)
+        for year in years
+    )
 
 
 def main() -> int:

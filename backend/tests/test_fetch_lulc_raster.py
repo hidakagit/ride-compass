@@ -16,6 +16,7 @@ from scripts import fetch_lulc_raster
 class _FakeResponse:
     def __init__(self, payload: bytes):
         self._payload = payload
+        self.headers: dict[str, str] = {}
 
     def raise_for_status(self) -> None:
         pass
@@ -78,13 +79,14 @@ def test_downloads_missing_raster_from_the_bucket(tmp_path, monkeypatch, stub_do
 
 def test_keeps_existing_raster_untouched(tmp_path, monkeypatch, stub_download):
     calls, _payload = stub_download
+    existing = _geotiff_bytes(tmp_path)
     destination = tmp_path / "54S_2024.tif"
-    destination.write_bytes(b"already here")
+    destination.write_bytes(existing)
     monkeypatch.setattr(settings, "lulc_raster_paths", str(destination))
 
     assert fetch_lulc_raster.main() == 0
 
-    assert destination.read_bytes() == b"already here"
+    assert destination.read_bytes() == existing
     assert calls == []
 
 

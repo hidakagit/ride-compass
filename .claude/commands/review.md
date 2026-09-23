@@ -59,7 +59,7 @@ $ARGUMENTS があればそれを対象範囲とする。
 機械的に出せるもの（規模・docsの整合）は先にコマンドで取り、その出力を読む:
 
 ```bash
-python scripts/review_checks.py metrics --full
+python scripts/review_checks.py metrics
 python scripts/review_checks.py size
 python scripts/review_checks.py docs
 ```

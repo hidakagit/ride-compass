@@ -3,13 +3,9 @@ r"""OSMの抽出ファイル（`.pbf`）を配布元から手元へ写す（取�
 取込はローカルのファイルを読むだけにする。手で落とすと、置き場所と名前を間違えたまま
 「取得済み」に見える。
 
-**何度実行しても安全で、終わる。**
-
-- 手元にあって読めるファイルは落とし直さない
-- 一時ファイルへ書いてから所定の名前へ移す。途中で落ちた半端なものを「取得済み」に
-  見せない
-- 落とし終えたら実際に開いてみる。開けなければ消して失敗させる——読めないファイルを
-  置いたまま成功を報告すると、次に落ちるのは何時間もかかる取込の途中になる
+取得の手順（読めるものは落とし直さない・一時ファイル経由・落とし終えたら開いてみる）は
+`app.batch._common.fetch_verified`が持つ。読めないPBFを置いたまま成功を報告すると、
+次に落ちるのは何時間もかかる取込の途中になる。
 
 どのファイルを要するかはプロファイルが持つ（OSMを読むソースの`rows.file`）。配布元の
 URLの組み立て方だけがここにある。
@@ -22,18 +18,13 @@ URLの組み立て方だけがここにある。
 import argparse
 import logging
 import sys
-import time
 from pathlib import Path
 
 import httpx
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from app.batch._common import (  # noqa: E402
-    PROGRESS_INTERVAL_SECONDS,
-    format_duration,
-    format_progress,
-)
+from app.batch._common import fetch_verified  # noqa: E402
 from app.batch.source_adapters.osm_pbf import DATA_DIR  # noqa: E402
 from app.batch.source_profile import load_source_profile  # noqa: E402
 
@@ -43,18 +34,11 @@ logger = logging.getLogger("ridecompass.fetch_osm_pbf")
 #: Geofabrikの日本の抽出は`asia/japan/`の下に地方ごとに置かれている。
 PBF_URL = "https://download.geofabrik.de/asia/japan/{name}"
 
-#: 一時ファイルの印。所定の名前と紛れないもの。
-_PART_SUFFIX = ".part"
-
-#: 落としたが開けなかったものを退ける先。消さないのは、開けない理由が壊れていること
-#: とは限らないため。
-_BROKEN_SUFFIX = ".broken"
-
 _REQUEST_TIMEOUT = httpx.Timeout(connect=10.0, read=60.0, write=30.0, pool=30.0)
 
 
 def _readable(path: Path) -> bool:
-    """osmiumが開けるか。大きさだけでは半端なファイルを弾けない。
+    """osmiumが開けるか。
 
     **渡すのは、可能なら現在位置からの相対パス**——pyosmiumは非ASCIIを含む絶対パスの
     ファイルを開けない。絶対パスだけで試すと、中身が正しいファイルを壊れていると
@@ -77,51 +61,12 @@ def _readable(path: Path) -> bool:
     return False
 
 
-def _download(url: str, destination: Path) -> None:
-    destination.parent.mkdir(parents=True, exist_ok=True)
-    temporary = destination.with_name(destination.name + _PART_SUFFIX)
-    started = time.perf_counter()
-    last_report = started
-    written = 0
-    with httpx.stream("GET", url, timeout=_REQUEST_TIMEOUT, follow_redirects=True) as response:
-        response.raise_for_status()
-        total = int(response.headers.get("content-length") or 0) or None
-        with temporary.open("wb") as sink:
-            for chunk in response.iter_bytes():
-                sink.write(chunk)
-                written += len(chunk)
-                now = time.perf_counter()
-                if now - last_report < PROGRESS_INTERVAL_SECONDS:
-                    continue
-                last_report = now
-                logger.info("取得中 %s", format_progress(
-                    written // (1024 * 1024),
-                    total // (1024 * 1024) if total else None,
-                    now - started, "MB"))
-    temporary.replace(destination)
-    logger.info("取得した %s（%.0f MB / %s）", destination.name,
-                written / (1024 * 1024), format_duration(time.perf_counter() - started))
-
-
 def _fetch(names: list[str]) -> int:
-    failures = 0
-    for name in names:
-        destination = DATA_DIR / name
-        if destination.exists() and _readable(destination):
-            logger.info("既にある %s", destination)
-            continue
-        logger.info("取りに行く %s", PBF_URL.format(name=name))
-        _download(PBF_URL.format(name=name), destination)
-        if _readable(destination):
-            continue
-        # 読めないものを置いたまま成功を報告しない。ただし**消さずに退ける**——
-        # 開けない理由は壊れているとは限らず、消すと落とし直しにまた時間を払う。
-        broken = destination.with_name(destination.name + _BROKEN_SUFFIX)
-        destination.replace(broken)
-        logger.error("落としたが開けない: %s（%s へ退けた。もう一度実行すると取り直す）",
-                     name, broken.name)
-        failures += 1
-    return failures
+    return sum(
+        not fetch_verified(PBF_URL.format(name=name), DATA_DIR / name, _readable,
+                           timeout=_REQUEST_TIMEOUT, logger=logger)
+        for name in names
+    )
 
 
 def main() -> int:
