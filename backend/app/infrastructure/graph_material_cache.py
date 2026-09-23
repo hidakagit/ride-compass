@@ -69,10 +69,6 @@ def sync_disk_cache_with_derived_data_revision(revision: int | None) -> bool:
     )
 
 
-def read_persisted_revision() -> int | None:
-    return cache_generation.read_persisted_revision(_CACHE_NAMESPACE, TILE_MATERIALS_CACHE_VERSION)
-
-
 def prune_stale_disk_generations() -> int:
     """ディスク永続化キャッシュから、現行世代以外のタイル材料を削除する（解放バイト数を返す）。"""
     return tile_persistent_cache.prune_stale_generations(_CACHE_NAMESPACE, TILE_MATERIALS_CACHE_VERSION)

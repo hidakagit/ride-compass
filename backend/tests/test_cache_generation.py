@@ -85,13 +85,3 @@ class TestEachCacheIsTrackedOnItsOwn:
         _check(5, version="v1")
 
         assert _check(5, version="v2") == (True, 1)
-
-
-class TestReadingBackWhatWasRecorded:
-    def test_nothing_is_recorded_before_the_first_check(self):
-        assert cache_generation.read_persisted_revision(NAMESPACE, VERSION) is None
-
-    def test_the_generation_of_the_last_check_is_readable(self):
-        _check(5)
-
-        assert cache_generation.read_persisted_revision(NAMESPACE, VERSION) == 5

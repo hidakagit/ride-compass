@@ -249,7 +249,7 @@ class TestSyncDiskCacheWithDerivedDataRevision:
 
         assert graph_material_cache.sync_disk_cache_with_derived_data_revision(1) is True
         assert graph_material_cache.get_tile_materials(12, 5, 6) is None
-        assert graph_material_cache.read_persisted_revision() == 1
+        assert graph_material_cache.sync_disk_cache_with_derived_data_revision(1) is False
 
     def test_same_revision_across_simulated_restart_preserves_disk_cache(self):
         # プロセス再起動を模す: 世代を記録→ディスクへ書く→メモリだけ空にする。
@@ -270,7 +270,7 @@ class TestSyncDiskCacheWithDerivedDataRevision:
 
         assert graph_material_cache.sync_disk_cache_with_derived_data_revision(6) is True
         assert graph_material_cache.get_tile_materials(12, 5, 6) is None
-        assert graph_material_cache.read_persisted_revision() == 6
+        assert graph_material_cache.sync_disk_cache_with_derived_data_revision(6) is False
 
     def test_none_revision_clears_once_then_stops(self):
         # 行が無い等の想定外。安全側（消す）へ倒すが、読めなかったことを記録して
@@ -279,5 +279,5 @@ class TestSyncDiskCacheWithDerivedDataRevision:
 
         assert graph_material_cache.sync_disk_cache_with_derived_data_revision(None) is True
         assert graph_material_cache.sync_disk_cache_with_derived_data_revision(None) is False
-        # 記録されているのは実際の世代ではない（intとしては読めない）。
-        assert graph_material_cache.read_persisted_revision() != 5
+        # 記録されているのは「読めなかった」ことで、前の世代ではない。
+        assert graph_material_cache.sync_disk_cache_with_derived_data_revision(5) is True

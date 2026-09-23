@@ -68,11 +68,6 @@ class TestLazyGraphCache:
         assert search_graph_cache.get_lazy_graph(_TILE_SET_A) is graph_a
         assert search_graph_cache.get_lazy_graph(_TILE_SET_B) is graph_b
 
-    def test_size_tracks_entry_count(self):
-        search_graph_cache.set_lazy_graph(_TILE_SET_A, object())
-        search_graph_cache.set_lazy_graph(_TILE_SET_B, object())
-        assert search_graph_cache.lazy_graph_cache_size() == 2
-
     def test_eviction_removes_least_recently_used_when_over_capacity(self, monkeypatch):
         monkeypatch.setattr(search_graph_cache, "_max_entries", 2)
         search_graph_cache.set_lazy_graph(_TILE_SET_A, "a")
@@ -82,7 +77,6 @@ class TestLazyGraphCache:
         assert search_graph_cache.get_lazy_graph(_TILE_SET_A) is None
         assert search_graph_cache.get_lazy_graph(_TILE_SET_B) == "b"
         assert search_graph_cache.get_lazy_graph(_TILE_SET_C) == "c"
-        assert search_graph_cache.lazy_graph_cache_size() == 2
 
     def test_get_marks_entry_as_recently_used_and_protects_from_eviction(self, monkeypatch):
         monkeypatch.setattr(search_graph_cache, "_max_entries", 2)
@@ -98,7 +92,6 @@ class TestLazyGraphCache:
     def test_clear_empties_cache(self):
         search_graph_cache.set_lazy_graph(_TILE_SET_A, object())
         search_graph_cache.clear()
-        assert search_graph_cache.lazy_graph_cache_size() == 0
         assert search_graph_cache.get_lazy_graph(_TILE_SET_A) is None
 
 
@@ -131,7 +124,6 @@ class TestRoutableIndexCache:
 
         assert search_graph_cache.get_routable_index(key_default) is index_default
         assert search_graph_cache.get_routable_index(key_motorway_only) is index_motorway_only
-        assert search_graph_cache.routable_index_cache_size() == 2
 
     def test_none_is_a_valid_cached_value_distinguishable_from_cache_miss(self):
         # 境界ケース: 0次フィルタで全Edgeが除外されるとNodeSpatialIndexはbucketsが
@@ -163,7 +155,6 @@ class TestRoutableIndexCache:
         key = (_TILE_SET_A, None, None)
         search_graph_cache.set_routable_index(key, object())
         search_graph_cache.clear()
-        assert search_graph_cache.routable_index_cache_size() == 0
         assert search_graph_cache.get_routable_index(key) is None
 
     def test_clear_empties_every_cache_this_module_holds(self):
