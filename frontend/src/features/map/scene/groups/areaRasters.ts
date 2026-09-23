@@ -120,7 +120,7 @@ function layersFor(state: AreaRasterState): readonly SceneLayerEntry[] {
   ];
 }
 
-export const areaRasterGroup = declareGroup<AreaRasterState>("area", (state) => ({
+export const areaRasterGroup = declareGroup<AreaRasterState>((state) => ({
   sources: sourcesFor(state),
   layers: layersFor(state),
 }));

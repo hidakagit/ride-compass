@@ -229,7 +229,7 @@ export const primaryAttributes = [
   },
   {
     "attr_id": "elevation",
-    "label": "標高",
+    "label": "標高図",
     "geometry": "area",
     "tile_kind": null,
     "display_axes": []
@@ -308,7 +308,7 @@ export const primaryAttributes = [
   },
   {
     "attr_id": "accident_point",
-    "label": "事故地点",
+    "label": "事故[警察庁統計]",
     "geometry": "point",
     "tile_kind": "accident",
     "display_axes": [
@@ -367,7 +367,7 @@ export const primaryAttributes = [
   },
   {
     "attr_id": "landcover",
-    "label": "土地被覆",
+    "label": "緑と水",
     "geometry": "area",
     "tile_kind": null,
     "display_axes": []

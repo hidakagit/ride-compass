@@ -343,7 +343,6 @@ export const mapDisplay = {
       "candidate": 2.5,
       "selectedHalo": 10,
       "splice": 3,
-      "spliceSelected": 5,
       "composite": 7,
       "slot": 4,
       "detail": 6

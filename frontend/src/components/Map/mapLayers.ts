@@ -26,6 +26,7 @@
 
 import weatherScales from "@/types/generated/weather-scales.json";
 import { mapDisplay } from "@/types/generated/mapDisplay";
+import { primaryAttributes } from "@/types/generated/primaryAttributes";
 import { LANDCOVER_TILE_MIN_ZOOM, ROAD_TILE_MIN_ZOOM } from "@/services/regionApi";
 import { axisIconFor } from "./axisIconPalette";
 import {
@@ -58,6 +59,11 @@ import {
   type DedicatedWayValueMapLayerId,
   type RampAxis,
 } from "./axisLayers";
+
+/** 一次属性を描くレイヤーの名前。**名前は源泉の一次属性の宣言が持つ**（同じものを画面で名付け直さない）。 */
+function attributeLabel(attrId: (typeof primaryAttributes)[number]["attr_id"]): string {
+  return primaryAttributes.find((attr) => attr.attr_id === attrId)!.label;
+}
 
 /** チップの説明文へ差し込む種別名の並び。**凡例と同じ宣言から作る**——説明文が別に
  * 数え上げると、種別を足したときに説明文だけが古くなる。 */
@@ -274,7 +280,7 @@ export function buildMapLayers(
       dataSource: "gsiRelief",
       icon: ElevationIcon,
       // ルート指標の「獲得標高」と紛らわしいため、地図レイヤー側は「標高図」と呼び分ける
-      label: "標高図",
+      label: attributeLabel("elevation"),
       kind: "static",
       category: "terrain",
       description: "国土地理院の色別標高図を重ねる",
@@ -314,7 +320,7 @@ export function buildMapLayers(
       tileMinZoom: LANDCOVER_TILE_MIN_ZOOM,
       // 塗るのは自然被覆だけ（建物は塗らない、domain/landcover.py: LANDCOVER_CLASSES）。
       // 「土地被覆」のままだと、都心でONにしても何も出ないことが名前と食い違う。
-      label: "緑と水",
+      label: attributeLabel("landcover"),
       // 配信元の10m画素をそのまま塗った面。道路の周囲がどう使われているか（`way_landcover`が
       // 道1本ぶんへ畳んでいる元のデータ）を、畳む前の1画素1クラスのまま見るためのもの。
       description: "周囲の緑・水辺・農地を面で重ねる[建物は塗らない]",
@@ -332,7 +338,7 @@ export function buildMapLayers(
       dataSource: "roadTiles",
       icon: RoadIcon,
       tileMinZoom: ROAD_TILE_MIN_ZOOM,
-      label: "道路の種類",
+      label: attributeLabel("highway"),
       chipLabel: "道路種別",
       kind: "static",
       category: "roadCondition",
@@ -350,7 +356,7 @@ export function buildMapLayers(
       dataSource: "roadTiles",
       icon: RoadSurfaceIcon,
       tileMinZoom: ROAD_TILE_MIN_ZOOM,
-      label: "路面の種類",
+      label: attributeLabel("surface"),
       chipLabel: "路面",
       kind: "static",
       category: "roadCondition",
@@ -363,7 +369,7 @@ export function buildMapLayers(
       dataSource: "roadTiles",
       icon: TunnelIcon,
       tileMinZoom: ROAD_TILE_MIN_ZOOM,
-      label: "トンネル",
+      label: attributeLabel("tunnel"),
       kind: "static",
       category: "roadCondition",
       description: "トンネル区間[OSMのtunnelタグ]を色分け表示",
@@ -381,7 +387,7 @@ export function buildMapLayers(
       dataSource: "roadTiles",
       icon: OnewayIcon,
       tileMinZoom: ROAD_TILE_MIN_ZOOM,
-      label: "一方通行",
+      label: attributeLabel("oneway"),
       kind: "static",
       category: "roadCondition",
       description: "来た道を戻れない区間を色分け表示",
@@ -394,7 +400,7 @@ export function buildMapLayers(
       id: "stop_poi",
       dataSource: "poiTiles",
       icon: StopPoiIcon,
-      label: "停止要因",
+      label: attributeLabel("stop_poi"),
       kind: "static",
       category: "trafficSafety",
       tileMinZoom: ROAD_TILE_MIN_ZOOM,
@@ -407,7 +413,7 @@ export function buildMapLayers(
       id: "supply_poi",
       dataSource: "poiTiles",
       icon: SupplyPoiIcon,
-      label: "補給・休憩ポイント",
+      label: attributeLabel("supply_poi"),
       // 地図上のチップ幅は文字数に連動する（他レイヤーは4文字以内）ため、
       // 「補給・休憩」（読点込み5文字）だとこのチップだけ幅が広がってしまう。読点を省いた
       // 「補給休憩」（4文字）に短縮（正式名称は引き続きlabelの「補給・休憩ポイント」）。
@@ -434,7 +440,7 @@ export function buildMapLayers(
       id: "accident_point",
       dataSource: "accidentTiles",
       icon: AccidentIcon,
-      label: "事故[警察庁統計]",
+      label: attributeLabel("accident_point"),
       chipLabel: "事故",
       kind: "static",
       category: "trafficSafety",

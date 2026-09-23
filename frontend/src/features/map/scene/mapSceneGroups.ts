@@ -48,16 +48,14 @@ export type SceneSourceEntry = {
 
 /** 地図に載るもののひとまとまり。状態から、ソースとレイヤーの並びを返す。 */
 export type SceneGroup<State> = {
-  /** ソース名の接頭辞。**レイヤーidには入らない**（レイヤーidはソース名＋役割）。 */
-  readonly idPrefix: string;
   readonly build: (state: State) => {
     readonly sources: readonly SceneSourceEntry[];
     readonly layers: readonly SceneLayerEntry[];
   };
 };
 
-export function declareGroup<State>(idPrefix: string, build: SceneGroup<State>["build"]): SceneGroup<State> {
-  return { idPrefix, build };
+export function declareGroup<State>(build: SceneGroup<State>["build"]): SceneGroup<State> {
+  return { build };
 }
 
 /**
@@ -74,14 +72,14 @@ export function composeScene<State>(groups: readonly SceneGroup<State>[], state:
   for (const group of groups) {
     const built = group.build(state);
     for (const entry of built.sources) mergeSource(sources, entry);
-    for (const entry of built.layers) layers.push(toSceneLayer(group.idPrefix, entry));
+    for (const entry of built.layers) layers.push(toSceneLayer(entry));
   }
 
   // 段で並べ直してから返す——ここで正規化しておけば、下流はグループの並べ方を知らずに済む。
   return { sources: [...sources.values()], layers: [...orderedSceneLayers({ sources: [], layers })] };
 }
 
-function toSceneLayer(idPrefix: string, entry: SceneLayerEntry): MapSceneLayer {
+function toSceneLayer(entry: SceneLayerEntry): MapSceneLayer {
   return {
     role: entry.role,
     spec: layerSpec({

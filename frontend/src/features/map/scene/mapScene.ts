@@ -8,7 +8,6 @@ import type { FilterSpecification, LayerSpecification, SourceSpecification } fro
  */
 const MAP_SCENE_TIERS = [
   { id: "area", underBasemapRoads: true },
-  { id: "estimatedLine", underBasemapRoads: false },
   { id: "observedLine", underBasemapRoads: false },
   { id: "lensLine", underBasemapRoads: false },
   { id: "point", underBasemapRoads: false },

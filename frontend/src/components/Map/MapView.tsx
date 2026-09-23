@@ -1,6 +1,5 @@
 "use client";
 
-import regionTileConfig from "@/types/generated/region-tile-config.json";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import {
@@ -52,7 +51,14 @@ import {
   resetBasemapAreaLayerPreparation,
   runWhenStyleReady,
 } from "@/components/Map/mapStyleOps";
-import { applyScene, sceneInputsFrom, type SpliceStretchInput } from "@/features/map/scene/applyToMap";
+import {
+  ACCIDENT_TILE_SOURCE_LAYER,
+  applyScene,
+  ROAD_TILE_SOURCE_LAYER,
+  sceneInputsFrom,
+  STOP_POI_SOURCE_LAYER,
+  type SpliceStretchInput,
+} from "@/features/map/scene/applyToMap";
 import { interactiveSceneLayerIds, sceneLayerIdsForHitTarget, type MapScene } from "@/features/map/scene/mapScene";
 import {
   ROUTE_HIT_TARGET,
@@ -190,11 +196,6 @@ const MAP_BASE_ATTRIBUTION = [
   "交通事故統計情報（警察庁）を加工して作成",
   '土地被覆: <a href="https://livingatlas.arcgis.com/landcover/" target="_blank" rel="noreferrer">Esri, Impact Observatory, Microsoft</a> (CC BY 4.0)',
 ];
-
-// ベクタタイル内のレイヤー名。源泉が配る値をそのまま使う。
-const ROAD_TILE_SOURCE_LAYER = regionTileConfig.road_surface.layer_name;
-const ACCIDENT_TILE_SOURCE_LAYER = regionTileConfig.accident.layer_name;
-const STOP_POI_SOURCE_LAYER = regionTileConfig.poi.stop_poi_layer_name;
 
 // 初期表示の覆い（「地図を読み込み中…」）を出しておく上限。覆いは最初の数秒の白紙を
 // 隠すためのもので、それを過ぎても残ると、描けている地図を隠して壊れているように見せる。

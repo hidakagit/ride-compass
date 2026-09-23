@@ -99,7 +99,7 @@ function offsetsFor(visibleCount: number): readonly number[] {
   return Array.from({ length: visibleCount }, (_, index) => (index - (visibleCount - 1) / 2) * ROAD.trackOffsetStepPx);
 }
 
-export const roadLineGroup = declareGroup<RoadLineState>("road", (state) => {
+export const roadLineGroup = declareGroup<RoadLineState>((state) => {
   if (state.tiles === null) return { sources: [], layers: [] };
   const tiles = state.tiles;
 

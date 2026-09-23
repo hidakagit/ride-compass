@@ -135,7 +135,7 @@ function radiusExpression(layer: PointLayer): unknown {
   return ["case", ...cases, POINT.radiusPx];
 }
 
-export const pointGroup = declareGroup<PointState>("point", (state) => {
+export const pointGroup = declareGroup<PointState>((state) => {
   if (state.tiles === null) return { sources: [], layers: [] };
   const tiles = state.tiles;
 

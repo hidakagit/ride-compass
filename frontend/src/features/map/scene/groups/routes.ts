@@ -33,7 +33,6 @@ export const ROUTE_HIT_TARGET_SEGMENT = "routeSegment";
 export const ROUTE_HIT_TARGET_SPLICE_BAND = "routeSpliceBand";
 
 const ROUTE_ID_PROPERTY = "routeId";
-const SPLICE_SELECTED_PROPERTY = "spliceSelected";
 const SLOT_COLOR_PROPERTY = "slotColor";
 
 type Shape = { readonly path: RoutePath; readonly properties?: Readonly<Record<string, unknown>> };
@@ -47,11 +46,11 @@ export type RouteState = {
   readonly segmentColor: string | ExpressionSpecification;
   /** 凡例で隠した段を落とす絞り込み。色分け線・縁取り・当たり判定の3枚へ同じものを当てる。 */
   readonly hiddenBandFilter?: FilterSpecification;
-  readonly spliceBands: readonly (Shape & { readonly selected: boolean })[];
+  readonly spliceBands: readonly Shape[];
   readonly composite: Shape | null;
   readonly comparisonSlots: readonly { readonly path: RoutePath; readonly color: string }[];
   /** 進行方向の矢印の絵。色を持たないシルエット（SDF）であること——色はレイヤーが決める。 */
-  readonly arrowIconImage: string | null;
+  readonly arrowIconImage: string;
 };
 
 const SOURCE = {
@@ -79,13 +78,12 @@ function arrowSize(scale: number): unknown {
   return zoomScaleExpression(scale, ROUTE.arrowSizeByZoom);
 }
 
-export const routeGroup = declareGroup<RouteState>("route", (state) => {
+export const routeGroup = declareGroup<RouteState>((state) => {
   const selected = state.candidates.find((candidate) => candidate.routeId === state.selectedRouteId) ?? null;
   // 区間を描いている候補は参考線から外す——同じ線を2本重ねると、上の色分け線の下から
   // 単色の線がはみ出す。
   const detailed = state.segments.length > 0 ? selected : null;
   const references = state.candidates.filter((candidate) => candidate !== detailed);
-  const bands = (selectedBand: boolean) => state.spliceBands.filter((band) => band.selected === selectedBand);
 
   const sources: readonly SceneSourceEntry[] = [
     {
@@ -106,9 +104,7 @@ export const routeGroup = declareGroup<RouteState>("route", (state) => {
     {
       id: SOURCE.spliceBands,
       spec: { type: "geojson" },
-      data: collection(
-        state.spliceBands.map((b) => line(b.path, { ...b.properties, [SPLICE_SELECTED_PROPERTY]: b.selected })),
-      ),
+      data: collection(state.spliceBands.map((b) => line(b.path, b.properties))),
     },
     {
       id: SOURCE.composite,
@@ -121,21 +117,6 @@ export const routeGroup = declareGroup<RouteState>("route", (state) => {
       data: collection(state.comparisonSlots.map((s) => line(s.path, { [SLOT_COLOR_PROPERTY]: s.color }))),
     },
   ];
-
-  const banded = (role: string, selectedBand: boolean): SceneLayerEntry => ({
-    role,
-    tier: "route",
-    source: SOURCE.spliceBands,
-    type: "line",
-    paint: {
-      "line-color": palette.semantic.route_splice,
-      "line-width": selectedBand ? ROUTE.lineWidthsPx.spliceSelected : ROUTE.lineWidthsPx.splice,
-      "line-opacity": ROUTE.opacities.splice,
-      ...(selectedBand ? {} : { "line-dasharray": [...ROUTE.spliceDash] }),
-    },
-    visible: state.visible && bands(selectedBand).length > 0,
-    filter: ["==", ["get", SPLICE_SELECTED_PROPERTY], selectedBand] as unknown as FilterSpecification,
-  });
 
   const withBandFilter = (entry: SceneLayerEntry): SceneLayerEntry =>
     state.hiddenBandFilter === undefined ? entry : { ...entry, filter: state.hiddenBandFilter };
@@ -199,8 +180,19 @@ export const routeGroup = declareGroup<RouteState>("route", (state) => {
         "line-opacity": 0.85,
       },
     },
-    banded("spliceBandLine", false),
-    banded("spliceBandSelectedLine", true),
+    {
+      role: "spliceBandLine",
+      tier: "route",
+      source: SOURCE.spliceBands,
+      type: "line",
+      paint: {
+        "line-color": palette.semantic.route_splice,
+        "line-width": ROUTE.lineWidthsPx.splice,
+        "line-opacity": ROUTE.opacities.splice,
+        "line-dasharray": [...ROUTE.spliceDash],
+      },
+      visible: state.visible && state.spliceBands.length > 0,
+    },
     {
       role: "compositeCasing",
       tier: "route",
@@ -255,43 +247,41 @@ export const routeGroup = declareGroup<RouteState>("route", (state) => {
       paint: { ...HIT_PAINT, "line-width": HIT_WIDTH_PX },
       hitTargets: [ROUTE_HIT_TARGET, ROUTE_HIT_TARGET_SPLICE_BAND],
     },
-    ...(state.arrowIconImage === null
-      ? []
-      : [
-          // 衝突判定を無効にする——有効にすると、同じ位置の2層のうち後ろが丸ごと落ちる。
-          {
-            role: "arrowHalo",
-            tier: "route" as const,
-            source: SOURCE.selected,
-            type: "symbol" as const,
-            visible: state.visible,
-            layout: {
-              "icon-image": state.arrowIconImage,
-              "symbol-placement": "line",
-              "symbol-spacing": ROUTE.arrowSpacingPx,
-              "icon-allow-overlap": true,
-              "icon-ignore-placement": true,
-              "icon-size": arrowSize(ROUTE.arrowHaloScale),
-            },
-            paint: { "icon-color": palette.semantic.route_arrow_halo, "icon-opacity": 0.95 },
-          },
-          {
-            role: "arrow",
-            tier: "route" as const,
-            source: SOURCE.selected,
-            type: "symbol" as const,
-            visible: state.visible,
-            layout: {
-              "icon-image": state.arrowIconImage,
-              "symbol-placement": "line",
-              "symbol-spacing": ROUTE.arrowSpacingPx,
-              "icon-allow-overlap": true,
-              "icon-ignore-placement": true,
-              "icon-size": arrowSize(1),
-            },
-            paint: { "icon-color": palette.semantic.route_arrow, "icon-opacity": 1 },
-          },
-        ]),
+    // 衝突判定を無効にする——有効にすると、同じ位置の2層のうち後ろが丸ごと落ちる。
+    ...[
+      {
+        role: "arrowHalo",
+        tier: "route" as const,
+        source: SOURCE.selected,
+        type: "symbol" as const,
+        visible: state.visible,
+        layout: {
+          "icon-image": state.arrowIconImage,
+          "symbol-placement": "line",
+          "symbol-spacing": ROUTE.arrowSpacingPx,
+          "icon-allow-overlap": true,
+          "icon-ignore-placement": true,
+          "icon-size": arrowSize(ROUTE.arrowHaloScale),
+        },
+        paint: { "icon-color": palette.semantic.route_arrow_halo, "icon-opacity": 0.95 },
+      },
+      {
+        role: "arrow",
+        tier: "route" as const,
+        source: SOURCE.selected,
+        type: "symbol" as const,
+        visible: state.visible,
+        layout: {
+          "icon-image": state.arrowIconImage,
+          "symbol-placement": "line",
+          "symbol-spacing": ROUTE.arrowSpacingPx,
+          "icon-allow-overlap": true,
+          "icon-ignore-placement": true,
+          "icon-size": arrowSize(1),
+        },
+        paint: { "icon-color": palette.semantic.route_arrow, "icon-opacity": 1 },
+      },
+    ],
   ];
 
   return { sources, layers };

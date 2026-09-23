@@ -123,7 +123,7 @@ function featureStatesFor(state: AxisLineState): MapSceneFeatureStates {
   return states;
 }
 
-export const axisLineGroup = declareGroup<AxisLineState>("axis", (state) => {
+export const axisLineGroup = declareGroup<AxisLineState>((state) => {
   if (state.sourceLayer === null) return { sources: [], layers: [] };
 
   const sources: readonly SceneSourceEntry[] = [

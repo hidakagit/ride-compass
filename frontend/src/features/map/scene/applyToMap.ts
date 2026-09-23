@@ -57,9 +57,9 @@ import {
 import regionTileConfig from "@/types/generated/region-tile-config.json";
 
 /** ベクタタイル内のレイヤー名。源泉が配る値をそのまま使う。 */
-const ROAD_TILE_SOURCE_LAYER = regionTileConfig.road_surface.layer_name;
-const ACCIDENT_TILE_SOURCE_LAYER = regionTileConfig.accident.layer_name;
-const STOP_POI_SOURCE_LAYER = regionTileConfig.poi.stop_poi_layer_name;
+export const ROAD_TILE_SOURCE_LAYER = regionTileConfig.road_surface.layer_name;
+export const ACCIDENT_TILE_SOURCE_LAYER = regionTileConfig.accident.layer_name;
+export const STOP_POI_SOURCE_LAYER = regionTileConfig.poi.stop_poi_layer_name;
 
 import { applyMapScene } from "./applyMapScene";
 import type { SceneInputs } from "./buildScene";
@@ -71,8 +71,6 @@ import { EMPTY_MAP_SCENE, type MapScene } from "./mapScene";
 /** 乗り換えられる区間1本ぶんの入力。`index`は押されたときに呼び出し側が見分ける値。 */
 export interface SpliceStretchInput {
   readonly index: number;
-  /** 相手の道を選んでいる状態。 */
-  readonly taken: boolean;
   readonly coordinates: readonly GeoJSON.Position[];
 }
 
@@ -159,7 +157,6 @@ function routeStateFrom(props: SceneWiringProps): RouteState {
     ...(hiddenBandFilter === null ? {} : { hiddenBandFilter }),
     spliceBands: bands.map((band) => ({
       path: band.coordinates as unknown as RoutePath,
-      selected: band.taken,
       properties: { index: band.index },
     })),
     composite: composite !== null && composite.length > 1 ? { path: composite as unknown as RoutePath } : null,

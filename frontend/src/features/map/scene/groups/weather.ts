@@ -273,7 +273,7 @@ export function weatherSourceId(element: Pick<WeatherElement, "group" | "source"
   return sceneSourceId(`${element.group}-${element.source}-${element.kind}`);
 }
 
-export const weatherGroup = declareGroup<WeatherState>("weather", (state) => {
+export const weatherGroup = declareGroup<WeatherState>((state) => {
   const sources: SceneSourceEntry[] = [];
   const layers: SceneLayerEntry[] = [];
 

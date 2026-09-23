@@ -26,7 +26,7 @@ export type SceneInputs = {
 
 /** 家族ごとの状態を、全体の状態から選んで渡す。 */
 function selecting<Part>(group: SceneGroup<Part>, select: (inputs: SceneInputs) => Part): SceneGroup<SceneInputs> {
-  return { idPrefix: group.idPrefix, build: (inputs) => group.build(select(inputs)) };
+  return { build: (inputs) => group.build(select(inputs)) };
 }
 
 const GROUPS: readonly SceneGroup<SceneInputs>[] = [

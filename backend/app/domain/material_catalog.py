@@ -510,7 +510,7 @@ PRIMARY_ATTRIBUTES: tuple[PrimaryAttributeSpec, ...] = (
             ),
         ),
     ),
-    PrimaryAttributeSpec(attr_id="elevation", label="標高", geometry="area"),
+    PrimaryAttributeSpec(attr_id="elevation", label="標高図", geometry="area"),
     PrimaryAttributeSpec(
         attr_id="stop_poi",
         tile_kind="poi",
@@ -545,7 +545,7 @@ PRIMARY_ATTRIBUTES: tuple[PrimaryAttributeSpec, ...] = (
     PrimaryAttributeSpec(
         attr_id="accident_point",
         tile_kind="accident",
-        label="事故地点",
+        label="事故[警察庁統計]",
         geometry="point",
         # 1つの点に2つの見方がある。色は先頭の軸（当事者）が決め、重大度は大きさで示す
         # ——重大度を色でも表すと当事者の色と取り合う。
@@ -574,7 +574,7 @@ PRIMARY_ATTRIBUTES: tuple[PrimaryAttributeSpec, ...] = (
         ),
     ),
     PrimaryAttributeSpec(attr_id="intersection", label="交差点", geometry="point"),
-    PrimaryAttributeSpec(attr_id="landcover", label="土地被覆", geometry="area"),
+    PrimaryAttributeSpec(attr_id="landcover", label="緑と水", geometry="area"),
     PrimaryAttributeSpec(
         attr_id="supply_poi",
         tile_kind="poi",

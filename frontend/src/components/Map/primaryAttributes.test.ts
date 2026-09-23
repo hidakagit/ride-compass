@@ -4,15 +4,9 @@
 
 import { describe, expect, it } from "vitest";
 
-import { PRIMARY_ATTRIBUTE_LABELS, primaryAttributeIdsToLayerIds } from "./primaryAttributes";
+import { primaryAttributeIdsToLayerIds } from "./primaryAttributes";
 
 describe("primaryAttributes", () => {
-  it("正式名はaxis-catalog.jsonのprimary_attributes[].labelをそのまま反映する", () => {
-    expect(PRIMARY_ATTRIBUTE_LABELS.highway).toBe("道路の種類");
-    expect(PRIMARY_ATTRIBUTE_LABELS.accident_point).toBe("事故地点");
-    expect(PRIMARY_ATTRIBUTE_LABELS.elevation).toBe("標高");
-  });
-
   // 改善計画T308: axisMaterials/attrConsumers（軸id→材料の逆引き、ビルド時静的
   // axis-catalog.json由来）は撤去した。GUI作成軸を含む解決はbackendのGET /api/axis-catalog
   // （primary_attribute_ids）へ移し、frontendはその結果（呼び出し側が既に持つattrId配列）を

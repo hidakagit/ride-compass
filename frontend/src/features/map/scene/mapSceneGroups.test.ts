@@ -13,17 +13,17 @@ function line(role: string, tier: SceneLayerEntry["tier"], extra: Partial<SceneL
   return { role, tier, source: sceneSourceId("road"), type: "line", visible: true, ...extra };
 }
 
-const area = declareGroup<State>("area", () => ({
+const area = declareGroup<State>(() => ({
   sources: [{ id: sceneSourceId("relief"), spec: { type: "raster" }, tiles: ["https://example.test/{z}/{x}/{y}.png"] }],
   layers: [{ role: "relief", tier: "area", source: sceneSourceId("relief"), type: "raster", visible: true }],
 }));
 
-const roadLines = declareGroup<State>("road", (state) => ({
+const roadLines = declareGroup<State>((state) => ({
   sources: [{ ...ROAD_SOURCE, featureStates: new Map([["surface", new Map([["w1", 1]])]]) }],
   layers: [line("surface", "observedLine", { visible: state.on })],
 }));
 
-const axes = declareGroup<State>("axis", () => ({
+const axes = declareGroup<State>(() => ({
   sources: [{ ...ROAD_SOURCE, featureStates: new Map([["windValue", new Map([["w1", 3]])]]) }],
   layers: [line("wind", "lensLine")],
 }));

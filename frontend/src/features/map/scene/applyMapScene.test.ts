@@ -219,7 +219,6 @@ function scene(
 
 const SCENE_LAYERS: readonly MapSceneLayer[] = [
   fillLayer("landcover-fill"),
-  lineLayer("axis-line", "estimatedLine"),
   lineLayer("surface-line", "observedLine", { hitTargets: ["road"] }),
   lineLayer("lens-line", "lensLine"),
   lineLayer("poi", "point", { hitTargets: ["poi"] }),
@@ -231,7 +230,6 @@ const EXPECTED_ORDER = [
   "landcover-fill",
   "basemap-road",
   "basemap-label",
-  "axis-line",
   "surface-line",
   "lens-line",
   "poi",
@@ -244,7 +242,7 @@ function applied(map: FakeMap, next: MapScene, previous = EMPTY_MAP_SCENE): void
 
 function statesScene(states: ReadonlyMap<string, ReadonlyMap<string, MapSceneFeatureStateValue>>): MapScene {
   return scene(
-    [fillLayer("landcover-fill"), lineLayer("axis-line", "estimatedLine")],
+    [fillLayer("landcover-fill"), lineLayer("axis-line", "observedLine")],
     [roadsSource({ featureStates: states }), LANDCOVER_SOURCE],
   );
 }
@@ -267,7 +265,7 @@ describe("applyMapScene", () => {
 
     expect(map.order()).toEqual(EXPECTED_ORDER);
     expect(map.getSource("roads")?.spec).toEqual({ type: "vector", tiles: ROAD_TILES });
-    expect(map.layer("axis-line").layout).toEqual({ visibility: "visible" });
+    expect(map.layer("surface-line").layout).toEqual({ visibility: "visible" });
   });
 
   it("重なりは段の宣言だけで決まり、渡した配列の並びには依存しない", () => {
@@ -280,13 +278,13 @@ describe("applyMapScene", () => {
 
   it("あとから足したレイヤーも段の順の位置へ入る", () => {
     const map = new FakeMap(BASEMAP_LAYER_IDS);
-    const before = scene([lineLayer("axis-line", "estimatedLine"), lineLayer("route", "route")]);
+    const before = scene([lineLayer("axis-line", "observedLine"), lineLayer("route", "route")]);
     applied(map, before);
 
     applied(
       map,
       scene([
-        lineLayer("axis-line", "estimatedLine"),
+        lineLayer("axis-line", "observedLine"),
         lineLayer("route", "route"),
         lineLayer("tunnel-line", "observedLine"),
         fillLayer("landcover-fill"),
@@ -359,7 +357,7 @@ describe("applyMapScene", () => {
 
   it("中身だけが変わったソースは、作り直さずに差し替わる", () => {
     const map = new FakeMap(BASEMAP_LAYER_IDS);
-    const before = scene([lineLayer("axis-line", "estimatedLine")]);
+    const before = scene([lineLayer("axis-line", "observedLine")]);
     applied(map, before);
     const handle = map.getSource("roads");
 
@@ -367,7 +365,7 @@ describe("applyMapScene", () => {
     applied(
       map,
       scene(
-        [lineLayer("axis-line", "estimatedLine")],
+        [lineLayer("axis-line", "observedLine")],
         [roadsSource({ content: tileContent(nextTiles) }), LANDCOVER_SOURCE],
       ),
       before,
@@ -380,14 +378,14 @@ describe("applyMapScene", () => {
   it("作り直せない宣言が変わったソースは作り直され、レイヤーとfeature-stateも戻る", () => {
     const map = new FakeMap(BASEMAP_LAYER_IDS);
     const states = new Map([["windValue", new Map([["w1", 3]])]]);
-    const before = scene([lineLayer("axis-line", "estimatedLine")], [roadsSource({ featureStates: states })]);
+    const before = scene([lineLayer("axis-line", "observedLine")], [roadsSource({ featureStates: states })]);
     applied(map, before);
     const handle = map.getSource("roads");
 
     applied(
       map,
       scene(
-        [lineLayer("axis-line", "estimatedLine")],
+        [lineLayer("axis-line", "observedLine")],
         [roadsSource({ spec: { type: "vector", maxzoom: 15 }, featureStates: states })],
       ),
       before,
@@ -452,13 +450,13 @@ describe("applyMapScene", () => {
   it("途中の scene を経由しても、同じ scene を当てた地図と同じ状態になる", () => {
     const first = scene([
       fillLayer("landcover-fill", "#999999"),
-      lineLayer("axis-line", "estimatedLine"),
+      lineLayer("axis-line", "observedLine"),
       lineLayer("surface-line", "observedLine"),
       lineLayer("route", "route"),
     ]);
     const second = scene([
       fillLayer("landcover-fill"),
-      lineLayer("axis-line", "estimatedLine", { visible: false }),
+      lineLayer("axis-line", "observedLine", { visible: false }),
       lineLayer("tunnel-line", "observedLine"),
       lineLayer("poi", "point", { hitTargets: ["poi"] }),
       lineLayer("route", "route"),

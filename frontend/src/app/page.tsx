@@ -567,7 +567,7 @@ export default function Home() {
           if (!range) return [];
           const coordinates = (target.geometry.coordinates as GeoJSON.Position[]).slice(range.start, range.end + 1);
           if (coordinates.length < 2) return [];
-          return [{ index: spliceFeatureIndex(groupIndex, optionIndex), taken: false, coordinates }];
+          return [{ index: spliceFeatureIndex(groupIndex, optionIndex), coordinates }];
         }),
       ),
     [spliceGroups, routes],
