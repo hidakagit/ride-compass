@@ -220,5 +220,6 @@ CLAUDE.md参照。節見出しはタスクのテーマ分類で、日付は起�
 - [ ] [T1055](records/tasks/T1055.md). コードのコメントが、存在しない生成物の名前と古い正本を指している 規模S
 - [ ] [T1056](records/tasks/T1056.md). 並行実行のキューをタスク単位にし、手動タスクの前提一覧と優先度をコマンドにする 規模S
 - [ ] [T1057](records/tasks/T1057.md). 並行実行の重い処理を機械全体で1つの枠に並べ、CPUの取り合いを無くす 規模S
+- [ ] [T1058](records/tasks/T1058.md). 並行実行の作業ブランチでもCIを動かし、重い検査を手元から外す 規模M
 
 見送りとして判断を記録したもの（台帳には載せない）: [T1036](records/tasks/T1036.md)・[T1037](records/tasks/T1037.md)・[T1038](records/tasks/T1038.md)・[T1039](records/tasks/T1039.md)・[T1040](records/tasks/T1040.md)
