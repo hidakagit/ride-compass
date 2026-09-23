@@ -200,5 +200,6 @@ CLAUDE.md参照。節見出しはタスクのテーマ分類で、日付は起�
 - [ ] [T1064](records/tasks/T1064.md). 本番とCIのGEOS・PROJをPGDGの版へ上げ、土地被覆を作り直す 規模M
 - [ ] [T1066](records/tasks/T1066.md). 並行実行の作業ツリーを固定数にし、消さずに使い回す 規模M
 - [ ] [T1073](records/tasks/T1073.md). ユーザーへの確認待ち（判断と操作）を1つのコマンドで記録から出す 規模S
+- [ ] [T1076](records/tasks/T1076.md). scripts/new_task.pyの--helpがWindowsの既定の文字コード（cp932）で落ちるのを直す 規模S
 
 見送りとして判断を記録したもの（台帳には載せない）: [T1036](records/tasks/T1036.md)・[T1037](records/tasks/T1037.md)・[T1038](records/tasks/T1038.md)・[T1039](records/tasks/T1039.md)・[T1040](records/tasks/T1040.md)
