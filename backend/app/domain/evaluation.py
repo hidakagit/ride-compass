@@ -457,7 +457,7 @@ def compose_costs_from_axis_matrix(
     distance_m: np.ndarray,
     axis_arrays: Mapping[str, np.ndarray],
     weights: dict[str, float],
-    penalty_strength: float = 1.0,
+    penalty_strength: float,
     base: np.ndarray | None = None,
     static_sums: tuple[np.ndarray, np.ndarray] | None = None,
     with_contributions: bool = True,

@@ -116,7 +116,9 @@ way1本を指す区間インスペクタだけはスカラーで評価する（`
 `evaluate_axes_scalar`）。
 
 - 評価できなかった軸は合成から除外され、残りの重みで再正規化される。
-- `penalty_strength`（P、既定1.0）は**主観的割増と時間の換算レート**。探索のコストは
+- `penalty_strength`（P）は**主観的割増と時間の換算レート**。リクエストが省略したときの値は
+  較正値`evaluation.penalty_strength`（`domain/tuning.py`）だけが持ち、`resolve_penalty_strength`が
+  リクエスト処理時に読む（`compose_costs_from_axis_matrix`は既定を持たない）。探索のコストは
   `所要時間 × (1 + P × difficulty/100)`＝体感の所要時間で、P=1は「難易度100の道は
   体感で2倍の時間」を意味する。P=0で`cost=下地`（好みを一切考慮しない＝時間最短、
   `select_fastest_route`が返す基準線と同じ物差し）、Pを上げるほど悪路が強く避けられる。
