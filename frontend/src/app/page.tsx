@@ -400,7 +400,7 @@ export default function Home() {
   const handleArmPinRole = useCallback((role: PinRole | null) => setArmedPinRole(role), []);
 
   // 距離入力（文字列のまま保持）。RouteForm内ではなくここで持つのは、表示中の候補を
-  // 生成したときの条件と現在のフォーム値を比較して「条件が変更されています」ヒントを
+  // 生成したときの条件と現在のフォーム値を比較して「生成条件が変更されています」ヒントを
   // 出すため。
   const [distanceInput, setDistanceInput] = useStoredState(DISTANCE_STORAGE_KEY, "30", {
     serialize: (value) => value,
@@ -1765,14 +1765,14 @@ export default function Home() {
   function renderRouteSectionHeaderActions() {
     return (
       <div className={styles.routeSectionHeaderActions}>
-        {/* 「条件が変更されています」は結果欄の先頭にも出るが、条件を変えている本人は
+        {/* 「生成条件が変更されています」は結果欄の先頭にも出るが、条件を変えている本人は
             設定側を見ている。押すべきボタンの隣でも同じことを知らせる。 */}
         {conditionsDirty && (
           <span
             className={styles.dirtyDot}
             role="img"
-            aria-label="条件が変更されています"
-            title="条件が変更されています"
+            aria-label="生成条件が変更されています"
+            title="生成条件が変更されています"
           />
         )}
         <Button variant="primary" size="sm" type="button" disabled={loading} onClick={routeFormSubmit.handleSubmit}>
@@ -1947,7 +1947,7 @@ export default function Home() {
 
     return (
       <>
-        {conditionsDirty && <p className={styles.dirtyHint}>条件が変更されています</p>}
+        {conditionsDirty && <p className={styles.dirtyHint}>生成条件が変更されています</p>}
         {/* 指定した目的地が自転車で行ける道路につながっていなかったため、backendが
             最寄りのアクセス可能な地点へ補正して生成した場合の案内（地図上のピンも
             補正後の地点へ動かす、handleGenerate参照）。 */}

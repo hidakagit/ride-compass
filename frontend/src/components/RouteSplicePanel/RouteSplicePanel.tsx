@@ -122,7 +122,7 @@ export default function RouteSplicePanel({
           : null,
     },
     {
-      label: "難易度",
+      label: "総合難易度",
       base: rounded(displayed.overall_difficulty),
       after: rounded(preview?.overall_difficulty),
       delta:

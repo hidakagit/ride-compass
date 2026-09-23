@@ -178,7 +178,7 @@ describe("RouteForm", () => {
         <ControlledRouteForm initialRouteMode="destination" destinationSet onDestinationClear={onDestinationClear} />,
       );
 
-      await user.click(screen.getByRole("button", { name: "目的地を解除" }));
+      await user.click(screen.getByRole("button", { name: "目的地をクリア" }));
 
       expect(onDestinationClear).toHaveBeenCalledTimes(1);
     });

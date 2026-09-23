@@ -58,7 +58,7 @@ describe("RouteSplicePanel", () => {
   it("指標はルート結果と同じ項目で、評価前は編集後が空", () => {
     render(<RouteSplicePanel {...baseProps({ appliedCount: 1 })} />);
 
-    for (const label of ["距離", "所要", "難易度", "負荷"]) {
+    for (const label of ["距離", "所要", "総合難易度", "負荷"]) {
       expect(screen.getByText(label)).toBeInTheDocument();
     }
     // 元の値は出るが、編集後の欄は空のまま（評価してから入る）

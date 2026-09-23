@@ -20,7 +20,7 @@ function setup(overrides: {
       waypointCount: overrides.waypointCount ?? 0,
       destinationSet: overrides.destinationSet ?? false,
       onGenerate,
-    })
+    }),
   );
   return { result, onGenerate };
 }
@@ -75,7 +75,7 @@ describe("useRouteFormSubmit（周回モード）", () => {
     act(() => result.current.handleSubmit());
 
     expect(onGenerate).not.toHaveBeenCalled();
-    expect(result.current.error).toBe("候補件数は整数で入力してください。");
+    expect(result.current.error).toBe("候補数は整数で入力してください。");
   });
 
   it("候補件数が範囲外(0や16)だとonGenerateは呼ばれずエラーになる", () => {
@@ -83,7 +83,7 @@ describe("useRouteFormSubmit（周回モード）", () => {
     act(() => result.current.handleSubmit());
 
     expect(onGenerate).not.toHaveBeenCalled();
-    expect(result.current.error).toBe("候補件数は1〜15件で入力してください。");
+    expect(result.current.error).toBe("候補数は1〜15件で入力してください。");
   });
 
   it("候補件数が上限(15件)ちょうどなら送信できる", () => {
@@ -122,6 +122,6 @@ describe("useRouteFormSubmit（目的地モード）", () => {
     act(() => result.current.handleSubmit());
 
     expect(onGenerate).not.toHaveBeenCalled();
-    expect(result.current.error).toBe("候補件数は1〜15件で入力してください。");
+    expect(result.current.error).toBe("候補数は1〜15件で入力してください。");
   });
 });

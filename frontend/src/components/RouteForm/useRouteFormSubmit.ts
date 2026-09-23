@@ -53,11 +53,11 @@ export function useRouteFormSubmit({
   function validateMaxRoutes(): boolean {
     const maxRoutesValue = Number(maxRoutes);
     if (maxRoutes.trim() === "" || Number.isNaN(maxRoutesValue) || !Number.isInteger(maxRoutesValue)) {
-      setError("候補件数は整数で入力してください。");
+      setError("候補数は整数で入力してください。");
       return false;
     }
     if (maxRoutesValue < 1 || maxRoutesValue > MAX_ROUTES) {
-      setError(`候補件数は1〜${MAX_ROUTES}件で入力してください。`);
+      setError(`候補数は1〜${MAX_ROUTES}件で入力してください。`);
       return false;
     }
     return true;

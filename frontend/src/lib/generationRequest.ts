@@ -1,6 +1,6 @@
 import type { Coordinates, HardFilterOverride, RouteGenerateRequest, RoutePreferenceWeights } from "@/types/route";
 
-// 生成リクエストのpayloadと、「条件が変更されています」（conditionsDirty）の比較キーを
+// 生成リクエストのpayloadと、「生成条件が変更されています」（conditionsDirty）の比較キーを
 // **同じ入力から**組み立てる。
 //
 // payloadと比較対象を別々に並べると、送る値を足したときに比較側へ足し忘れても何も壊れず、
@@ -66,7 +66,7 @@ export function buildGenerateRequest(input: GenerationInput): RouteGenerateReque
  * 比較側へ足し忘れることが起きないよう、除外は明示的な列挙だけに限る。 */
 const IGNORED_WHEN_COMPARING = {
   // レンズは地図の見え方の選択で、候補の選定（探索コスト）には影響しない。頻繁に
-  // 切り替えるため、変えるたびに「条件が変更されています」を出すと通知が意味を失う。
+  // 切り替えるため、変えるたびに「生成条件が変更されています」を出すと通知が意味を失う。
   lens_axis_id: "地図の見え方の選択で、候補の選定には影響しない",
 } as const;
 
@@ -94,7 +94,7 @@ function stableStringify(value: unknown): string {
  *
  * `startTimePinned=false`（利用者が出発時刻を選んでいない）のときは`start_time`も外す
  * ——共有時刻は「今」へ5分刻みで追従するので、放置するだけで値が変わる。利用者が何も
- * していないのに「条件が変更されています」が点くと、印そのものが合図として機能しなくなる。
+ * していないのに「生成条件が変更されています」が点くと、印そのものが合図として機能しなくなる。
  */
 export function generationConditionsKey(input: GenerationInput): string {
   const request = buildGenerateRequest(input) as Record<string, unknown>;

@@ -98,13 +98,13 @@ export default function RouteForm({
     armLabel: string,
     extra?: React.ReactNode,
     /** 武装中に値の代わりに出す文言。置いた数を隠さないため、経由地は件数を添える。 */
-    armedHint: string = "地図をタップ"
+    armedHint: string = "地図をタップ",
   ) {
     const armed = armedPinRole === role;
     return (
       <div className={styles.pointRow} data-armed={armed}>
         {/* 行全体が「その地点を置く」1つの押下領域。押す場所を探させず、行の幅も詰まる。
-            解除（✕）・現在地に戻すは別の操作なので、入れ子にせず行の外側へ並べる。 */}
+            クリア（✕）・現在地に戻すは別の操作なので、入れ子にせず行の外側へ並べる。 */}
         <button
           type="button"
           className={styles.pointMain}
@@ -177,8 +177,7 @@ export default function RouteForm({
                 triggerAriaLabel="候補数を変えられない理由"
                 contentClassName={styles.stepperInfoPopover}
               >
-                経由地を置いている間は、その地点を通る経路を1本だけ引きます。候補数は経由地を
-                消すと使えます。
+                経由地を置いている間は、その地点を通る経路を1本だけ引きます。候補数は経由地を 消すと使えます。
               </InfoPopover>
             )}
             <div className={styles.stepper}>
@@ -270,7 +269,7 @@ export default function RouteForm({
                   <button
                     type="button"
                     className={styles.pointClear}
-                    aria-label="目的地を解除"
+                    aria-label="目的地をクリア"
                     onClick={onDestinationClear}
                   >
                     ✕

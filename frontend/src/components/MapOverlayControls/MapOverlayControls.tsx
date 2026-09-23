@@ -592,7 +592,7 @@ function ChipButton({
             onClick={onExpandToggle}
             aria-expanded={isExpanded}
             aria-label={`${label}の凡例を${isExpanded ? "隠す" : "表示"}`}
-            title="凡例を表示"
+            title={isExpanded ? "凡例を隠す" : "凡例を表示"}
             className={isExpanded ? `${styles.expandToggle} ${styles.expandToggleActive}` : styles.expandToggle}
           >
             <span
@@ -991,7 +991,7 @@ export default function MapOverlayControls({
                           onClick={() => toggleInfo(infoKey)}
                           aria-expanded={isInfoOpen}
                           aria-label={`${item.label}の説明を${isInfoOpen ? "隠す" : "表示"}`}
-                          title="説明を表示"
+                          title={isInfoOpen ? "説明を隠す" : "説明を表示"}
                           className={
                             isInfoOpen
                               ? `${styles.visibilityInfoButton} ${styles.visibilityInfoButtonActive}`

@@ -930,7 +930,7 @@ describe("Home（app/page.tsx） handleGenerateハンドラ", () => {
     await user.click(screen.getByRole("button", { name: "周回" }));
     await user.click(screen.getByRole("button", { name: "目的地" }));
 
-    expect(screen.getByRole("button", { name: "目的地を解除" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "目的地をクリア" })).toBeInTheDocument();
   });
 
   // 生成後に目的地を変えたいとき、解除してから指定し直す2段階を踏ませない（T761）。
@@ -1006,7 +1006,7 @@ describe("Home（app/page.tsx） handleGenerateハンドラ", () => {
     await user.click(screen.getByRole("button", { name: "ルート生成" }));
     await screen.findByText("指定した地点は自転車で行けない場所だったため、近くのアクセス可能な地点へ補正しました。");
 
-    expect(screen.queryByText("条件が変更されています")).not.toBeInTheDocument();
+    expect(screen.queryByText("生成条件が変更されています")).not.toBeInTheDocument();
   });
 
   it("生成後に条件を変えると、条件変更の印が点く", async () => {
@@ -1022,12 +1022,12 @@ describe("Home（app/page.tsx） handleGenerateハンドラ", () => {
     await waitFor(() => {
       expect(screen.getByRole("tab", { name: /^1 / })).toBeInTheDocument();
     });
-    expect(screen.queryByText("条件が変更されています")).not.toBeInTheDocument();
+    expect(screen.queryByText("生成条件が変更されています")).not.toBeInTheDocument();
 
     // 距離はスライダー（range）。値を動かすと生成条件が変わる。
     fireEvent.change(screen.getByLabelText("距離"), { target: { value: "40" } });
 
-    expect(await screen.findByText("条件が変更されています")).toBeInTheDocument();
+    expect(await screen.findByText("生成条件が変更されています")).toBeInTheDocument();
   });
 
   it("改善計画T531: 候補タブに順位番号を表示し、同じ方位の候補を区別できる", async () => {
