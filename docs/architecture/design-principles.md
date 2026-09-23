@@ -52,9 +52,8 @@
 7. **トランザクション境界はサービス層。Repositoryはcommitしない構造とする。**
 8. **拡張可能なレジストリは常に1本道の追加点を持つ**（原則3「評価軸の追加は1本道のみ」の
    一般化）。評価軸に限らず、材料カタログ（`material_catalog.py`へ1件追加するだけで
-   軸スタジオの選択肢へ反映）・動的気象要素（`wind_grid.py`の値フィールド追加→データ層
-   モジュール新設→`features/map/scene/groups/weather.ts: WEATHER_ELEMENTS`へ1件→
-   地図チップ登録、という定められた4段階）等、「種類が増えうるもの」はすべて、追加時に消費側の既存コードへ手を入れず
+   軸スタジオの選択肢へ反映）・動的気象要素（backendの`domain/map_display.py: WEATHER_ELEMENTS`へ1件→データ層
+   モジュール新設→画面は配られた一覧をループし、描き方だけを`scene/groups/weather.ts`が持つ）等、「種類が増えうるもの」はすべて、追加時に消費側の既存コードへ手を入れず
    1箇所（レジストリ・カタログ・宣言テーブル）への追加だけで下流の全消費者へ伝播する構造に
    する（`docs/modules/backend/axis-studio.md`・`evaluation-scoring.md`・
    `docs/modules/frontend/dynamic-weather-layers.md`参照）。

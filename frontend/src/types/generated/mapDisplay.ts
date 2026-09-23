@@ -79,6 +79,136 @@ export const mapDisplay = {
     "windVector",
     "disaster"
   ],
+  "weatherElements": [
+    {
+      "group": "precipitationNowcast",
+      "source": "main",
+      "kind": "rasterTile",
+      "jmaElement": "hrpns",
+      "attribution": "気象庁",
+      "tile": {
+        "pathGroup": "nowc",
+        "minZoom": 4,
+        "maxZoom": 10,
+        "vectorLayer": null
+      }
+    },
+    {
+      "group": "precipitationNowcast",
+      "source": "main",
+      "kind": "gridFill",
+      "jmaElement": null,
+      "attribution": "気象庁MSM",
+      "tile": null
+    },
+    {
+      "group": "precipitationNowcast",
+      "source": "linearRainband",
+      "kind": "rasterTile",
+      "jmaElement": "sjfcstmap",
+      "attribution": "気象庁",
+      "tile": {
+        "pathGroup": "rasrf",
+        "minZoom": 4,
+        "maxZoom": 10,
+        "vectorLayer": null
+      }
+    },
+    {
+      "group": "windVector",
+      "source": "arrow",
+      "kind": "gridMark",
+      "jmaElement": null,
+      "attribution": "気象庁MSM",
+      "tile": null
+    },
+    {
+      "group": "disaster",
+      "source": "heavyRain",
+      "kind": "rasterTile",
+      "jmaElement": "rain_mesh",
+      "attribution": "気象庁",
+      "tile": {
+        "pathGroup": "risk",
+        "minZoom": 4,
+        "maxZoom": 10,
+        "vectorLayer": null
+      }
+    },
+    {
+      "group": "disaster",
+      "source": "landslide",
+      "kind": "rasterTile",
+      "jmaElement": "land",
+      "attribution": "気象庁",
+      "tile": {
+        "pathGroup": "risk",
+        "minZoom": 4,
+        "maxZoom": 10,
+        "vectorLayer": null
+      }
+    },
+    {
+      "group": "disaster",
+      "source": "inundation",
+      "kind": "rasterTile",
+      "jmaElement": "inund",
+      "attribution": "気象庁",
+      "tile": {
+        "pathGroup": "risk",
+        "minZoom": 4,
+        "maxZoom": 10,
+        "vectorLayer": null
+      }
+    },
+    {
+      "group": "disaster",
+      "source": "thunder",
+      "kind": "rasterTile",
+      "jmaElement": "thns",
+      "attribution": "気象庁",
+      "tile": {
+        "pathGroup": "nowc",
+        "minZoom": 4,
+        "maxZoom": 8,
+        "vectorLayer": null
+      }
+    },
+    {
+      "group": "disaster",
+      "source": "tornado",
+      "kind": "rasterTile",
+      "jmaElement": "trns",
+      "attribution": "気象庁",
+      "tile": {
+        "pathGroup": "nowc",
+        "minZoom": 4,
+        "maxZoom": 8,
+        "vectorLayer": null
+      }
+    },
+    {
+      "group": "disaster",
+      "source": "flood",
+      "kind": "vectorTile",
+      "jmaElement": "flood",
+      "attribution": "気象庁",
+      "tile": {
+        "pathGroup": "risk",
+        "minZoom": 4,
+        "maxZoom": 10,
+        "vectorLayer": "flood"
+      }
+    },
+    {
+      "group": "disaster",
+      "source": "liden",
+      "kind": "gridMark",
+      "jmaElement": "liden",
+      "attribution": "気象庁",
+      "tile": null
+    }
+  ],
   "compassLabels": [
     "北",
     "北東",

@@ -14,7 +14,7 @@ from app.domain.jma_tile_specs import (
 
 
 def _spec(zoom_use: str, max_native_zoom: int, min_zoom: int = 4) -> JmaTileSpec:
-    return JmaTileSpec(zoom_use=zoom_use, max_native_zoom=max_native_zoom, min_zoom=min_zoom)
+    return JmaTileSpec(path_group="risk", zoom_use=zoom_use, max_native_zoom=max_native_zoom, min_zoom=min_zoom)
 
 
 class TestEffectiveMaxZoom:

@@ -18,7 +18,7 @@
 | `Map/jmaTileIndex.ts` | 在否インデックスの解釈（URL解析・「空だと確認済み」の判定、純ロジック） |
 | `Map/jmaTileProtocol.ts` | `jmatile://`スキームのMapLibreプロトコル。空と分かっているタイルをネットワークへ出さずに透明タイルで返し、配信の失敗を要素ごとに記録して購読できるようにする |
 | `hooks/useJmaTileIndex.ts` | 在否インデックスの定期取得 |
-| `features/map/scene/groups/weather.ts` | 動的気象の描き方の宣言。`WEATHER_ELEMENTS`（1要素＝チップid・名前付きソース・描き方・ソースの宣言・色）が唯一の登録点で、ソース名（`weatherSourceId`）・レイヤー・記号の絵（`WEATHER_ICONS`）はここから導かれる |
+| `features/map/scene/groups/weather.ts` | 動的気象の描き方。何を描くか（チップid・名前付きソース・描き方の種類・配信元）は源泉の`mapDisplay.weatherElements`をループして受け取り、ここは要素ごとの見た目（`paint`・`layout`・`filter`・記号の絵）だけを持つ。ソース名（`weatherSourceId`）・ソースの宣言・レイヤー・記号の絵の登録（`WEATHER_ICONS`）はこの2つから導かれる |
 | `features/map/scene/applyToMap.ts`（`weatherStateFrom`・`weatherPayloadFrom`） | `dynamicWeather`（チップid→名前付きソース→表示・中身）を宣言の入力へ移す。JMAタイルのURLへ`jmatile://`スキームを付ける |
 | `hooks/useDynamicWeatherLayers.ts`・`useWeatherGrid.ts`・`useWeatherConditions.ts` | 状態管理・フェッチ。定期取得は`usePolledFetch`（粗い風格子を含む全系統）、現在地に追随する取得は`useWeatherConditions`内の`useLocationFetch`が骨格を持ち、個々のフェッチはfetcherだけを渡す |
 | `hooks/usePolledFetch.ts` | 「マウント時に即座に1回フェッチ＋以降intervalMsごとに再フェッチ、cancelledフラグで古いレスポンスの反映を防止」という、`useDynamicWeatherLayers.ts`内の定期取得（降水ナウキャスト・雷放電位置データ等）が共有するフェッチ骨格の共通実装 |
@@ -72,8 +72,9 @@ useDynamicWeatherLayers（フック、page.tsx経由）
 scene/applyToMap.ts: weatherStateFrom  … `${チップid}/${名前付きソース}`で引ける形へ移す
                             │
                             ▼
-scene/groups/weather.ts: WEATHER_ELEMENTS（唯一の描画の宣言）
+scene/groups/weather.ts: mapDisplay.weatherElements（源泉の宣言）をループ
   for each 要素:
+    見た目 = 描き方の鍵（チップ/ソース/描き方）で引く（配信元のラスタは共通の1つ）
     ソース = 要素の宣言＋届いた中身（届く前は仮の中身）
     レイヤー: 表示 = visible かつ payload.kind が要素の描き方と一致するとき
                             │
@@ -145,11 +146,11 @@ postMessageが`An ArrayBuffer is detached and could not be cloned`で失敗し�
 取得に失敗した応答（404を含む）も空タイルとして返す——MapLibreは失敗タイルを再試行しない
 ため、ここで例外にするとその位置が永久に空白になる。
 
-JMAタイル系ソースの`minzoom`/`maxzoom`は`jmaZoomRange(elementId)`が
-`types/generated/jma-tile-config.json`から引く（正本は
+JMAタイル系ソースの`minzoom`/`maxzoom`・パスの系統・ベクタのレイヤー名は、源泉の宣言の`tile`
+（`mapDisplay.weatherElements`）から受け取る（正本は
 [気象・動的レイヤー](../backend/weather-dynamic-layers.md)の`domain/jma_tile_specs.py`）。
 配信元は要素ごとに実データを持つズームが異なり、上限を超えると空タイルが返って地図から色が
-消えるため、この値をスペック側へ直接書かない。
+消えるため、この値を画面側へ書かない。
 
 `gridMark`（`weather.ts: markElement`）の縁取りは、主層と別のsymbolレイヤーではなく
 `icon-halo-color`/`icon-halo-width`（SDFアイコンのpaintプロパティ、`icon-image`に
@@ -174,8 +175,8 @@ JMAタイル系ソースの`minzoom`/`maxzoom`は`jmaZoomRange(elementId)`が
 | `disaster` | `liden` | gridMark | `lidenLayer.ts`（配信元GeoJSONをそのまま使う唯一の要素、下記参照） |
 
 `disaster`（災害）は`DISASTER_SOURCES`のソースを1チップへまとめたグループで、全ソースが1つの`showDisaster`に
-連動する。同じ段（描き方ごとに決まる。`weather.ts: TIER_OF`）の中では`WEATHER_ELEMENTS`の
-並び順が重なり順になるため、面（キキクル3種・雷・竜巻のラスタ）を下に、局所的で見落としやすい線（洪水）・点
+連動する。同じ段（描き方ごとに決まる。`weather.ts: TIER_OF`）の中では源泉の宣言
+（backendの`domain/map_display.py: WEATHER_ELEMENTS`）の並び順が重なり順になるため、面（キキクル3種・雷・竜巻のラスタ）を下に、局所的で見落としやすい線（洪水）・点
 （落雷）を上に置く。面同士が重なった領域は混色し危険度5段階を読み取れなくなるが、危険度
 ゼロの領域は配信元のタイルが透明のため平常時の地図の見た目は変わらない。**この並び順が
 効くのは面どうし・線どうしの間だけである**——面は基礎地図の線・記号より下へ差し込まれ
@@ -202,21 +203,30 @@ icon-sizeはズームのみに依存する。
 
 ## 新しい動的要素を追加する1本道
 
-1. backend: `wind_grid.py`の`WindGridPoint`へ値フィールドを追加、`msm_client.py`の
-   `FORECAST_VARIABLES`へMSM変数を足す（この経路は風・降水延長予報限定）
-2. データ層: 要素モジュールを新設し、フレーム列（`DynamicWeatherFrame[]`）とペイロード
+1. backend: `domain/map_display.py: WEATHER_ELEMENTS`へ宣言を1件足す（チップid・名前付き
+   ソース・描き方の種類・気象庁の配信要素id）。タイルで描くなら`domain/jma_tile_specs.py:
+   JMA_TILE_SPECS`へ配信元の仕様（パスの系統・ズーム・ベクタのレイヤー名）を1件足す。
+   新しいチップidを名乗ればチップも増える（`WEATHER_LAYER_GROUPS`はこの宣言から導かれ、
+   生成物経由で`DynamicWeatherLayerId`・`MapLayerId`になる）。`scripts/export_openapi.py`で
+   生成物（`mapDisplay.ts`の`weatherElements`）を作り直す。自前のMSM格子から描くなら、
+   `wind_grid.py`の`WindGridPoint`へ値フィールドを、`msm_client.py`の`FORECAST_VARIABLES`へ
+   MSM変数を足す（この経路は風・降水延長予報限定）
+2. `features/map/scene/groups/weather.ts`: 配信元のラスタ（`rasterTile`）なら何も足さない
+   （見た目は共通の1つ）。それ以外は`DRAWINGS`へ見た目（`paint`・`layout`・`filter`・記号）を
+   1件足す——鍵は生成物から導かれるため、足し忘れると型検査が落ちる。ソース名・ソースの宣言・
+   レイヤー・記号の絵の登録はここから導かれる
+3. データ層: 要素モジュールを新設し、フレーム列（`DynamicWeatherFrame[]`）とペイロード
    関数を実装する
-3. `features/map/scene/groups/weather.ts`: `WEATHER_ELEMENTS`へ描き方の宣言を1件足す
-   （チップid・名前付きソース・描き方・ソースの宣言・色）。ソース名・レイヤー・記号の絵の
-   登録はこの1件から導かれる。既存のチップへ名前付きソースを1つ足す場合も同じ
-4. 新しいチップを足すときだけ: backendの`domain/map_display.py: WEATHER_LAYER_GROUPS`へ
-   チップidを1語足し（生成物経由で`DynamicWeatherLayerId`・`MapLayerId`になる）、
-   `mapLayers.ts`へ記述子（アイコン・凡例・`dataSource: "ownFetch"`）を1エントリ足す
+4. 新しいチップを足したときだけ: `mapLayers.ts`へ記述子（アイコン・凡例・
+   `dataSource: "ownFetch"`）を1エントリ足す
 5. `hooks/useDynamicWeatherLayers.ts`: フェッチeffect・フレーム列・payload計算・
-   `dynamicWeather`オブジェクトへの追加（3〜4と違い自動反映の仕組みは無い、手書き作業）。
+   `dynamicWeather`オブジェクトへの追加（1〜2と違い自動反映の仕組みは無い、手書き作業）。
    `dynamicWeatherDataStatus`（下記「データ取得状態」節）へも同じ要素の
    `deriveFetchLayerStatus(loading, error, payload !== undefined, hasFetched)`呼び出しを
    1行足す。
+
+契約テスト（`MapView.state.contract.test.ts`の全部を載せた状態）の母集団も生成物の
+`mapDisplay.weatherElements`で、1で足した要素はそのまま検査の対象になる。
 
 ## データ取得状態
 
@@ -328,7 +338,7 @@ trueとする。
   実際の描画は`effectiveWindGrid`（詳細格子があればそちらを優先）を使う。フレーム時刻の
   計算元と実際に塗る値の元が別グリッドである点は初見では見落としやすい。
 - **JMAプロキシ配下のURLはすべて`jmaNowcastFrames.ts: jmaProxyUrl(path)`で組み立てる**
-  （タイルテンプレート・時刻一覧・GeoJSON・`WEATHER_ELEMENTS`の届く前の仮のURLの
+  （タイルテンプレート・時刻一覧・GeoJSON・`scene/groups/weather.ts`の届く前の仮のURLの
   区別なく）。配信オリジン（`lib/tileBaseUrl.ts: tileBaseUrl()`）を付けるかどうかを
   呼び出し側の判断に委ねると、付け忘れた箇所だけがフロントのホスティング経由になる。
   常に絶対URLにする理由:

@@ -4,8 +4,9 @@
 軸スタジオ由来の軸はここに載らない（運用で増減し、出すかは軸自身の設定が決める）。
 """
 
-from typing import NamedTuple
+from typing import Literal, NamedTuple
 
+from app.domain.jma_tile_specs import JMA_TILE_SPECS, JmaTileSpec
 from app.domain.material_catalog import PRIMARY_ATTRIBUTES
 
 
@@ -57,8 +58,59 @@ MAP_LAYER_CATEGORIES: tuple[LayerCategory, ...] = (
 #: **値が時間で変わるかとは別軸**——降水は中身が変わるがルートとは無関係なので`static`。
 MAP_LAYER_KINDS: tuple[str, ...] = ("static", "dynamic")
 
-#: 気象のまとまり。1つのチップが複数の配信要素（面・線・記号）をまとめて出す。
-WEATHER_LAYER_GROUPS: tuple[str, ...] = ("precipitationNowcast", "windVector", "disaster")
+#: 動的気象の描き方の種類。配信元が描いた画像（`rasterTile`）・配信元の地物（`vectorTile`）・
+#: 自前の格子の面（`gridFill`）・格子や地点の記号（`gridMark`）。
+WeatherRenderKind = Literal["rasterTile", "vectorTile", "gridFill", "gridMark"]
+_TILE_KINDS: frozenset[str] = frozenset({"rasterTile", "vectorTile"})
+
+
+class WeatherElement(NamedTuple):
+    """動的気象で地図に描くもの1つ。**ここへ1件足すと要素が1つ増える**（画面は描き方だけを持つ）。"""
+
+    #: チップid。1つのチップが複数の要素をまとめて出す。
+    group: str
+    #: チップの中の名前付きソース。同じ名前を描き方違いで複数の要素が名乗ってよい
+    #: （届いた中身の種類がどちらを出すかを決める）。
+    source: str
+    kind: WeatherRenderKind
+    #: 気象庁の配信要素id（配信元のパス`.../surf/<id>/`）。タイルで描くものは
+    #: `JMA_TILE_SPECS`に仕様を持つ。自前のMSM格子から描くものはNone。
+    jma_element: str | None
+
+
+#: 並びが同じ段（面・線・記号）の中の重なり順になる。災害は面を下に、見落としやすい線（洪水）・
+#: 点（落雷）を上に置き、大雨は土砂・浸水を統合した指標なので個別の2つより下に置く。
+WEATHER_ELEMENTS: tuple[WeatherElement, ...] = (
+    # 降水。60分以内は配信元のラスタ、それ以降は自前の格子を塗る。どちらが届くかは選んだ時刻で決まる。
+    WeatherElement("precipitationNowcast", "main", "rasterTile", "hrpns"),
+    WeatherElement("precipitationNowcast", "main", "gridFill", None),
+    WeatherElement("precipitationNowcast", "linearRainband", "rasterTile", "sjfcstmap"),
+    WeatherElement("windVector", "arrow", "gridMark", None),
+    WeatherElement("disaster", "heavyRain", "rasterTile", "rain_mesh"),
+    WeatherElement("disaster", "landslide", "rasterTile", "land"),
+    WeatherElement("disaster", "inundation", "rasterTile", "inund"),
+    WeatherElement("disaster", "thunder", "rasterTile", "thns"),
+    WeatherElement("disaster", "tornado", "rasterTile", "trns"),
+    WeatherElement("disaster", "flood", "vectorTile", "flood"),
+    WeatherElement("disaster", "liden", "gridMark", "liden"),
+)
+
+
+def weather_element_tile(element: WeatherElement) -> JmaTileSpec | None:
+    """タイルで描く要素の配信元仕様。タイルで描かない要素はNone。"""
+    if element.kind not in _TILE_KINDS:
+        return None
+    if element.jma_element is None:
+        raise ValueError(f"タイルで描く要素に配信要素idが無い: {element.group}/{element.source}")
+    return JMA_TILE_SPECS[element.jma_element]
+
+
+def weather_element_attribution(element: WeatherElement) -> str:
+    return "気象庁MSM" if element.jma_element is None else "気象庁"
+
+
+#: 気象のまとまり（チップ）。要素の宣言から導く——並びは最初に現れた順。
+WEATHER_LAYER_GROUPS: tuple[str, ...] = tuple(dict.fromkeys(element.group for element in WEATHER_ELEMENTS))
 
 #: 利用者が作った線。属性でも配信でもないので、ここだけが名前を持つ。
 ROUTE_LAYER_ID = "route"

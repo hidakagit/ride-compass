@@ -5,7 +5,12 @@
 「チップが無い」としか見えない（例外にならない）。
 """
 
-from app.domain.map_display import MAP_LAYER_CATEGORIES, MAP_OVERLAY_GROUPS
+from app.domain.map_display import (
+    MAP_LAYER_CATEGORIES,
+    MAP_OVERLAY_GROUPS,
+    WEATHER_ELEMENTS,
+    weather_element_tile,
+)
 
 
 def test_グループの鍵は重複しない() -> None:
@@ -29,3 +34,20 @@ def test_すべてのグループに属する種別がある() -> None:
     used = {category.group for category in MAP_LAYER_CATEGORIES}
     for group in MAP_OVERLAY_GROUPS:
         assert group.key in used, f"{group.key} に属する種別が無い"
+
+
+def test_気象の要素はチップ_名前付きソース_描き方の組で一意() -> None:
+    """同じ組が2件あると、画面では同じソース・レイヤーへ畳まれて片方が黙って消える。"""
+    keys = [(element.group, element.source, element.kind) for element in WEATHER_ELEMENTS]
+    assert len(keys) == len(set(keys))
+
+
+def test_タイルで描く気象の要素は配信元の仕様を持つ() -> None:
+    """仕様が無いと画面はズーム範囲もパスの系統も知らずにソースを作ることになる。"""
+    for element in WEATHER_ELEMENTS:
+        if element.kind not in ("rasterTile", "vectorTile"):
+            continue
+        tile = weather_element_tile(element)
+        assert tile is not None, f"{element.group}/{element.source}"
+        if element.kind == "vectorTile":
+            assert tile.vector_layer is not None, f"{element.group}/{element.source} のベクタのレイヤー名が無い"
