@@ -3,7 +3,8 @@
  *
  * アプリの浮動UI（現在地ボタン等のcolor-surfaceトークン）ではなく、MapLibreの
  * .maplibregl-ctrl-group自身の見た目——白背景・角丸4px・薄いリング状のbox-shadow・
- * 29px四方・ダークグレーのアイコン——へ寸分たがわず揃える。**テーマトークンを使わず
+ * 高さ29px・ダークグレーのアイコン——へ揃える。幅は右上の列の共通値で、MapLibre側の
+ * ボタンもglobals.cssで同じ幅へ広げてある。**テーマトークンを使わず
  * 固定色なのは意図的**で、MapLibre側がテーマに追従しないため、追従させると同じ列に
  * 並んだボタンだけが色違いになる。寸法はglobals.cssの--map-ctrl-*（縦積みの位置計算にも
  * 使うため各ファイルでの直書きを避ける）。
@@ -12,8 +13,9 @@
  */
 
 .mapCtrlButton {
-  width: var(--map-ctrl-button-size);
+  width: var(--map-ctrl-column-width);
   height: var(--map-ctrl-button-size);
+  padding: 0;
   border-radius: 4px;
   border: none;
   background: #fff;
@@ -24,6 +26,13 @@
   color: #333;
   cursor: pointer;
   touch-action: none;
+}
+
+/* 列の中のアイコンは呼び出し側で大きさを選ばず、ここでそろえる。 */
+.mapCtrlButton svg {
+  width: var(--map-ctrl-icon-size);
+  height: var(--map-ctrl-icon-size);
+  flex-shrink: 0;
 }
 
 .mapCtrlButton[data-state="open"] {

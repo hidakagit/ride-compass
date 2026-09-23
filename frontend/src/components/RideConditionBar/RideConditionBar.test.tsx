@@ -65,6 +65,37 @@ describe("clampSpeedKmh", () => {
 });
 
 describe("RideConditionBar", () => {
+  // 画面に出す値・読み上げ（aria-label）・ホバー（title）は同じ文字列から作る。
+  // 片方だけ古くなると、見えている値と読み上げの値が食い違う。
+  it("ボタンに出す現在値は、titleとaria-labelに載る値と同じ", () => {
+    const initial = new Date();
+    render(<Harness initialTime={initial} />);
+
+    const label = formatDepartureLabel(initial);
+    const departure = screen.getByRole("button", { name: `出発時刻: ${label}（タップで変更）` });
+    expect(departure).toHaveAttribute("title", `出発時刻: ${label}`);
+    expect(departure).toHaveTextContent(label);
+
+    const speed = screen.getByRole("button", { name: "想定速度: 20km/h（タップで変更）" });
+    expect(speed).toHaveAttribute("title", "想定速度: 20km/h");
+    expect(speed).toHaveTextContent("20km/h");
+  });
+
+  it("別の日を選ぶと、ボタンの値は日付と時刻の2行になる", () => {
+    const tomorrow = new Date(Date.now() + 24 * 3600 * 1000);
+    tomorrow.setHours(12, 40, 0, 0);
+    render(<Harness initialTime={tomorrow} />);
+
+    const label = formatDepartureLabel(tomorrow);
+    const [datePart, timePart] = label.split(" ");
+    expect(datePart).toBe(`${tomorrow.getMonth() + 1}/${tomorrow.getDate()}`);
+    expect(timePart).toBe("12:40");
+    const departure = screen.getByRole("button", { name: `出発時刻: ${label}（タップで変更）` });
+    expect(departure).toHaveAttribute("title", `出発時刻: ${label}`);
+    const lines = Array.from(departure.querySelectorAll('[class*="valueLine"]')).map((el) => el.textContent);
+    expect(lines).toEqual([datePart, timePart]);
+  });
+
   it("出発チップをタップするとドラッグ式タイムラインが開き、キーボード操作で出発時刻を進められる", async () => {
     const user = userEvent.setup();
     const onTime = vi.fn();
@@ -131,14 +162,14 @@ describe("RideConditionBar", () => {
     const user = userEvent.setup();
     render(<Harness initialTime={new Date()} />);
 
-    await user.click(screen.getByRole("button", { name: "想定速度: 20 km/h（タップで変更）" }));
+    await user.click(screen.getByRole("button", { name: "想定速度: 20km/h（タップで変更）" }));
     const input = screen.getByRole("spinbutton", { name: "想定速度（km/h）" });
     await user.clear(input);
     await user.type(input, "80");
     await user.tab();
-    expect(screen.getByRole("button", { name: "想定速度: 60 km/h（タップで変更）" })).toHaveAttribute(
+    expect(screen.getByRole("button", { name: "想定速度: 60km/h（タップで変更）" })).toHaveAttribute(
       "title",
-      "想定速度: 60 km/h",
+      "想定速度: 60km/h",
     );
   });
 });

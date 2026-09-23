@@ -13,8 +13,6 @@ import { ClockIcon, SpeedGaugeIcon } from "@/components/Map/icons";
 import { buildDepartureFrames, buildDepartureTimeline } from "./departureTimeline";
 import styles from "./RideConditionBar.module.css";
 
-const TRIGGER_ICON_SIZE_PX = 16;
-
 interface RideConditionBarProps {
   /** 出発時刻（気象レイヤーの表示時刻と同じ共有state）。 */
   departureTime: Date;
@@ -31,9 +29,9 @@ interface RideConditionBarProps {
 // 地図右上の走行条件アイコン列。走行条件（出発時刻・想定速度）は評価軸の風（通過予測時刻・
 // 風の抵抗）と気象レイヤーの表示時刻の両方が参照する共有stateのため、ルート設定フォームでは
 // なく地図上に常時置き、アイコンをタップしてその場で変えられるようにする。TravelBearingControl
-// と同じアイコンボタンの見た目（29px四方）に揃え、値そのものはポップオーバーを開くまで
-// 画面に出さない。現在値は読み上げ（aria-label）とホバー（title）の両方に同じ語で載せる
-// （page.tsx: .rideConditionColumnがTravelBearingControlの直下へ積む）。
+// と同じ列の幅のアイコンボタンに揃え、アイコンの下へ現在値を出す。表示・読み上げ
+// （aria-label）・ホバー（title）は同じ文字列から作る（page.tsx: .rideConditionColumnが
+// TravelBearingControlの直下へ積む）。
 export default function RideConditionBar({
   departureTime,
   onDepartureTimeChange,
@@ -54,6 +52,7 @@ export default function RideConditionBar({
   const speedInputId = useId();
   const departureInputId = useId();
   const departureLabel = formatDepartureLabel(departureTime);
+  const speedLabel = `${speedKmh}km/h`;
 
   function commitSpeedDraft() {
     if (speedDraft == null) return;
@@ -71,7 +70,15 @@ export default function RideConditionBar({
             aria-label={`出発時刻: ${departureLabel}（タップで変更）`}
             title={`出発時刻: ${departureLabel}`}
           >
-            <ClockIcon size={TRIGGER_ICON_SIZE_PX} />
+            <ClockIcon />
+            {/* 別の日は「9/24 12:40」になるため、列の幅に収まるよう日付と時刻を2行に分ける。 */}
+            <span className={styles.value}>
+              {departureLabel.split(" ").map((part) => (
+                <span key={part} className={styles.valueLine}>
+                  {part}
+                </span>
+              ))}
+            </span>
           </button>
         </Popover.Trigger>
         <Popover.Portal>
@@ -118,10 +125,11 @@ export default function RideConditionBar({
           <button
             type="button"
             className={styles.trigger}
-            aria-label={`想定速度: ${speedKmh} km/h（タップで変更）`}
-            title={`想定速度: ${speedKmh} km/h`}
+            aria-label={`想定速度: ${speedLabel}（タップで変更）`}
+            title={`想定速度: ${speedLabel}`}
           >
-            <SpeedGaugeIcon size={TRIGGER_ICON_SIZE_PX} />
+            <SpeedGaugeIcon />
+            <span className={styles.value}>{speedLabel}</span>
           </button>
         </Popover.Trigger>
         <Popover.Portal>

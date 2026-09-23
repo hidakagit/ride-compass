@@ -529,7 +529,8 @@
 
 .locateButton {
   position: absolute;
-  right: var(--space-3);
+  /* 右上の列と中心をそろえる（列より太いぶんの半分だけ右へはみ出させる）。 */
+  right: calc(var(--map-ctrl-margin) + (var(--map-ctrl-column-width) - 44px) / 2);
   /* MapLibreの既定のアトリビューション表示（右下）と重ならないよう間隔を空ける。 */
   bottom: 2.5rem;
   z-index: var(--z-map-control);

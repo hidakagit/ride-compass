@@ -134,8 +134,14 @@
    * として見える（components/ui/mapCtrlButton.module.css参照）。 */
   --map-ctrl-button-size: 29px;
   --map-ctrl-margin: 10px;
-  --map-ctrl-stack-top: 6.5rem;
   --map-ctrl-stack-gap: 4px;
+  /* 右上の列（MapLibreのズーム+/−・回転と、その下に積むアプリのボタン）の共通の幅。
+   * 値を中に出すボタン（走行条件）が「9/24」「20km/h」を収められる幅にそろえる。 */
+  --map-ctrl-column-width: 40px;
+  --map-ctrl-icon-size: 18px;
+  /* アプリのボタンを積み始める位置。MapLibreのNavigationControlは既定で3ボタン
+   * （ズーム+・ズーム−・回転）を1まとまりに縦へ並べるため、その下端から同じ間隔で続ける。 */
+  --map-ctrl-stack-top: calc(var(--map-ctrl-margin) + 3 * var(--map-ctrl-button-size) + var(--map-ctrl-stack-gap));
 
   /* スマホ幅かどうか。**幅の分岐を書けるのはメディアクエリだけ**なので、
    * この判定はCSSが持ち、JS（hooks/useIsMobile.ts）はこの旗を読むだけにする。
@@ -491,6 +497,12 @@
   .app-map-pane .maplibregl-ctrl-bottom-right {
     margin-bottom: var(--mobile-tabbar-height);
   }
+}
+
+/* 右上のMapLibre純正コントロール（ズーム+/−・回転）を、その下に積むアプリのボタンと同じ幅に
+   そろえて1本の列にする（高さはMapLibreのまま）。上の帰属表示と同じ理由でここに置く。 */
+.app-map-pane .maplibregl-ctrl-top-right .maplibregl-ctrl-group button {
+  width: var(--map-ctrl-column-width);
 }
 
 /* MapView.tsxがattributionControlを常時コンパクト（ⓘアイコン）固定にしているため、

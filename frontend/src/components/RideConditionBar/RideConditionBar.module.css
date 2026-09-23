@@ -12,6 +12,27 @@
    位置指定は持たない——ここは.rideConditionColumn内でflexの通常配置に従う。 */
 .trigger {
   composes: mapCtrlButton from "../ui/mapCtrlButton.module.css";
+  /* 値を出すぶん高さだけ中身に合わせて伸ばす（幅は列のまま）。 */
+  height: auto;
+  min-height: var(--map-ctrl-button-size);
+  flex-direction: column;
+  gap: 1px;
+  padding: 3px 0;
+}
+
+/* アイコンの下の現在値。列の幅（--map-ctrl-column-width）に収める。 */
+.value {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  font-size: 10px;
+  line-height: 1.1;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.valueLine {
+  display: block;
 }
 
 /* 箱の見た目（角丸・余白・影）は隣に並ぶ出発時刻側の中身
