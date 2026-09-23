@@ -1,12 +1,11 @@
-"""仕掛中のダッシュボードの件を、台帳・状態の表と読み合わせる。依頼で足した側の機能。
+"""仕掛中のダッシュボードの件の読み込みとバックアップ。依頼で足した側の機能。
 
 ダッシュボード（非公開のArtifactのデータベース、collection `pending`）は`ArtifactData`でしか読めず、
-このスクリプトからは直接読めない。呼ぶ側（`/dashboard`・`/asks`・`/orchestrate:prereqs`・日次のバックアップ）が
+このスクリプトからは直接読めない。呼ぶ側（`/orchestrate:prereqs`・`/orchestrate:priority`・日次のバックアップ）が
 `ArtifactData`の`list`に`out_dir`を付けて全件をファイルへ書き出し、そのディレクトリを`--pending`で渡す
 （`<out_dir>/pending/<doc_id>.json`が1件。ファイル名が件のdoc_id）。置き場と1件の形の正本は
 `docs/conventions/asking-user.md`「仕掛中のダッシュボード」節。核はこのモジュールをimportしない。
 
-    python scripts/orchestrate.py dashboard --pending <dir>        # 仕掛中のタスクごとの一覧（保存しない）
     python scripts/orchestrate.py pending-backup --pending <dir>   # 全件を日付のファイルへ書き出す（直近14日を残す）
 """
 
@@ -19,21 +18,10 @@ import re
 from pathlib import Path
 
 from orchestration.core import (
-    ACTIVE_STATES,
     TASK_ID_RE,
     Context,
-    audit_pending,
-    hm,
-    ledger_rows,
-    load_board,
-    minutes,
-    parse_time,
 )
 
-#: 人の答えを待つ種類。答え（`answer`）が空なら待っている。
-WAITING_KINDS = ("保留", "操作", "改善案", "起票案")
-#: 1つのタスクの下に並べる順。件名は見出しになり、この並びには入らない。
-KIND_ORDER = ("保留", "操作", "改善案", "前提", "決定")
 BACKUP_KEEP_DAYS = 14
 BACKUP_NAME_RE = re.compile(r"^(\d{4}-\d{2}-\d{2})\.json$")
 
@@ -131,95 +119,13 @@ def cmd_backup(ctx: Context, args: argparse.Namespace) -> int:
     return 0
 
 
-def cmd_dashboard(ctx: Context, args: argparse.Namespace) -> int:
-    items = load_pending(args.pending)
-    rows = ledger_rows(ctx)
-    board_readable = ctx.board_path.exists()
-    board = load_board(ctx) if board_readable else {"agents": []}
-    now = dt.datetime.now().astimezone()
-    workers: dict[str, list[str]] = {}
-    for a in board.get("agents") or []:
-        task = a.get("current_task")
-        if not task or a.get("state") not in ACTIVE_STATES:
-            continue
-        start = parse_time(a.get("task_first_started")) or parse_time(a.get("started"))
-        note = f"{a.get('name')}（{a.get('state')}"
-        if start:
-            note += f"・着手{hm(start)}から{minutes(now - start)}分"
-        if audit_pending(a):
-            note += "・監査待ち"
-        workers.setdefault(task, []).append(note + "）")
-    for task in board.get("manual") or []:
-        workers.setdefault(task, []).append("ユーザーが手動で進めている")
-
-    by_task: dict[str, list[tuple[str, dict]]] = {}
-    proposals = []
-    for doc_id, item in sorted(items.items()):
-        task = str(item.get("task") or "")
-        if item.get("kind") == "起票案" or not task:
-            proposals.append((doc_id, item))
-        else:
-            by_task.setdefault(task, []).append((doc_id, item))
-    tasks = sorted(set(by_task) | set(workers), key=lambda t: (int(m.group(1)) if (m := re.match(r"T(\d+)", t)) else 0, t))
-
-    waiting = sum(1 for i in items.values() if i.get("kind") in WAITING_KINDS and not answered(i))
-    done = sum(1 for i in items.values() if i.get("kind") in WAITING_KINDS + ("決定",) and answered(i))
-    print(f"仕掛中のタスク {len(tasks)}件・人の手を待っているもの {waiting}件・答えが出て記録へ移す前のもの {done}件"
-          f"（ダッシュボード {len(items)}件）")
-    if not board_readable:
-        print("担当の様子は手元のセッションでだけ出せる（状態の表がこの機械に無い）。ダッシュボードの件と台帳だけを出す")
-    if alert := backup_alert(ctx):
-        print(f"! {alert}")
-
-    rank = {k: n for n, k in enumerate(KIND_ORDER)}
-    for task in tasks:
-        entries = by_task.get(task, [])
-        subject = next((str(i.get("text")) for _, i in entries if i.get("kind") == "件名"), None)
-        row = rows.get(task)
-        print(f"\n## {subject or task + '（件名はまだ無い）'}")
-        print(f"  台帳: {row['title'] if row else '行が無い'}")
-        if board_readable:
-            print(f"  進めている: {'・'.join(workers.get(task, [])) or '状態の表に無い'}")
-        if not row and not workers.get(task):
-            print("  ! 移し忘れ: 台帳に行の無いタスクの件が残っている（開け直すか、答えを記録へ移して消す）")
-        for doc_id, item in sorted(entries, key=lambda e: (rank.get(e[1].get("kind"), len(rank)), e[0])):
-            kind = item.get("kind")
-            if kind == "件名":
-                continue
-            state = f"答え: {item.get('answer')}" if answered(item) else (
-                "待っている" if kind in WAITING_KINDS else "")
-            print(f"  - [{kind}] {doc_id}{'  ' + state if state else ''}（{item.get('source') or '書き手不明'}）")
-            print_body(item)
-    if proposals:
-        print("\n## 新しいタスクの案（起票案）")
-        for doc_id, item in proposals:
-            state = f"答え: {item.get('answer')}" if answered(item) else "待っている"
-            print(f"  - [{item.get('kind')}] {doc_id}  {state}（{item.get('source') or '書き手不明'}）")
-            print_body(item)
-    return 0
-
-
-def print_body(item: dict) -> None:
-    """1件の見出し・選択肢（推奨に印）・細部を字下げして出す。"""
-    for line in str(item.get("text") or "").splitlines():
-        print(f"      {line}")
-    options = item.get("options") or []
-    recommend = item.get("recommend")
-    for n, option in enumerate(options, 1):
-        print(f"        ({n}) {option}{'（推奨）' if n == recommend else ''}")
-    for line in str(item.get("detail") or "").splitlines():
-        print(f"      | {line}")
-
-
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(prog="orchestrate.py", description="仕掛中のダッシュボードの一覧とバックアップ")
+    parser = argparse.ArgumentParser(prog="orchestrate.py", description="仕掛中のダッシュボードのバックアップ")
     parser.add_argument("--repo", default=str(Path(__file__).resolve().parents[2]))
     parser.add_argument("--dir", default=None)
     sub = parser.add_subparsers(dest="cmd", required=True)
-    for name, help_text in (("dashboard", "仕掛中のタスクごとの一覧（台帳・状態の表と読み合わせる）"),
-                            ("pending-backup", "ダッシュボードの全件を日付のファイルへ書き出す")):
-        p = sub.add_parser(name, help=help_text)
-        p.add_argument("--pending", required=True, help="ArtifactDataのlistでout_dirに書き出したディレクトリ")
+    p = sub.add_parser("pending-backup", help="ダッシュボードの全件を日付のファイルへ書き出す")
+    p.add_argument("--pending", required=True, help="ArtifactDataのlistでout_dirに書き出したディレクトリ")
     args = parser.parse_args(argv)
     ctx = Context(Path(args.repo), args.dir)
-    return cmd_dashboard(ctx, args) if args.cmd == "dashboard" else cmd_backup(ctx, args)
+    return cmd_backup(ctx, args)

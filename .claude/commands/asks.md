@@ -8,7 +8,7 @@ argument-hint: [Txxx...（省略時は全件）]
 問いの形の正本は`docs/conventions/asking-user.md`（全文）、置き場は同じ文書の「仕掛中のダッシュボード」節。先に読む。
 
 **出すのは問いだけ**——ダッシュボードのkind `保留`で答えの無いもの。実行してほしい操作・
-改善案・起票案・前提は出さない（それは`/dashboard`）。
+改善案・起票案・前提は出さない（それはダッシュボードのページ）。
 
 1. **集める**: `ArtifactData`の`list`（url `https://claude.ai/artifact/E8G458My7xPA8RpbkU3RWF`・collection `pending`・
    `query.limit` 1000）。kind `保留`で`answer`が空のもの（引数があれば`task`で絞る）。
