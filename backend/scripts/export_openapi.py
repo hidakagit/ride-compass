@@ -41,7 +41,7 @@ from app.infrastructure.vector_tile import (  # noqa: E402
 )
 from app.main import app  # noqa: E402
 from app.domain.wind import ASSUMED_SPEED_KMH, MAX_ASSUMED_SPEED_KMH, MIN_ASSUMED_SPEED_KMH  # noqa: E402
-from app.domain.hard_filters import DEFAULT_HARD_FILTERS, HARD_FILTER_NAMES  # noqa: E402
+from app.domain.hard_filters import DEFAULT_HARD_FILTERS, HARD_FILTER_LABELS, HARD_FILTER_NAMES  # noqa: E402
 from app.domain.geo import COMPASS_LABELS  # noqa: E402
 from app.domain.map_display import (  # noqa: E402
     DEFAULT_DIFFICULTY_BOUNDARIES,
@@ -427,11 +427,12 @@ def main() -> None:
             # フロントが使う較正値の**既定**（`domain/tuning.py`の宣言そのまま）。
             # 実際に効いている値はGET /api/axis-catalogが返し、これはそれを取れるまでの値。
             "client_tuning": client_tuning_values(),
-            # 0次ハードフィルタのキー一覧と既定値。backendは`_check_filter_keys`で
+            # 0次ハードフィルタのキー一覧・画面に出す名前・既定値。backendは`_check_filter_keys`で
             # **キー集合の完全一致**を要求するため、frontendが手書きで持っていると
-            # キーを1つ足した瞬間にすべてのルート生成が422になる。
+            # キーを1つ足した瞬間にすべてのルート生成が422になる。名前も同じ行で配る——
+            # 別に持つと、足したフィルタの名前が無く画面に内部名が出る。
             "hard_filters": {
-                "keys": sorted(HARD_FILTER_NAMES),
+                "filters": [{"key": name, "label": HARD_FILTER_LABELS[name]} for name in sorted(HARD_FILTER_NAMES)],
                 "defaults": sorted(DEFAULT_HARD_FILTERS),
             },
         },

@@ -12,7 +12,7 @@
 | `components/RouteForm/RouteForm.tsx` | 距離スライダー・候補数ステッパー・周回/目的地モード切替の入力欄。「ルート設定」区分の各タブの中身を`Tabs.Content`として並べる（タブ列と選択状態は`page.tsx`、下記参照） |
 | `components/RouteForm/useRouteFormSubmit.ts` | 上記の検証・送信ロジック（`{error, handleSubmit}`）。「ルート生成」ボタン自体は`RouteForm`の外（`page.tsx`の見出し行）にあるため分離している（下記参照） |
 | `components/RouteSettingsPanel/RouteSettingsPanel.tsx` | 一般向け軸重み設定（「重み」タブの中身。地図の色分けはここになく`LensControl`のみが持つ、下記参照） |
-| `components/RouteSettingsPanel/HardFilterPanel.tsx` | 0次ハードフィルタ（「除外」タブの中身）。キーと既定値は生成物`route-generate-config.json`が正で、表示ラベルだけをUIの語彙として持つ。重みづけとの違い（通らない）は見出し脇の(i)の奥に置く |
+| `components/RouteSettingsPanel/HardFilterPanel.tsx` | 0次ハードフィルタ（「除外」タブの中身）。キー・画面に出す名前・既定値はすべて生成物`route-generate-config.json`（backend `domain/hard_filters.py`）が正で、名前をフロントに持たない——キーと名前を別々に持つと、足したフィルタに名前が無く内部名が出る。重みづけとの違い（通らない）は見出し脇の(i)の奥に置く |
 | `lib/routeWeightShare.ts` | 重み配分の純関数（帯グラフの境界ドラッグ`clampBoundaryDrag`・刻みと上下限） |
 | `components/WindBearingSlider/WindBearingSlider.tsx` | 走行方位の指定コンパスダイヤル（`TravelBearingControl`から使われる。単体としての設置場所は[ページ全体構成・状態管理](page-composition.md)参照） |
 | `lib/cardinalLabel.ts` | 角度を8方位の呼び名へ。呼び名の並びはbackend（`domain/geo.py: COMPASS_LABELS`）が配り、丸めはbackendと同じhalf-up——違うと境界の角度でラベルが食い違う |
@@ -274,7 +274,7 @@ non-nullの間、「ルート結果」タブはルート全体の内訳の代わ
 （`researchEnabled`）の間だけ、`AxisContributionBar`の下へ区間の材料値
 （`RouteSegmentDetail.material_values`）の一覧を追加表示する——一般ユーザー向けには
 出さない（走行中のスマホ利用が主で情報量を増やしたくないという方針、ComparisonPanel.tsxの
-材料値行と同じ`lib/axisMaterialsCatalog.ts: materialCatalogLabel`/`formatMaterialValue`を使う）。
+材料値行と同じ`lib/axisMaterialsCatalog.ts: materialCatalogName`/`formatMaterialValue`を使う。名前を引けない材料は出さない）。
 
 ## ComparisonPanel.tsx
 

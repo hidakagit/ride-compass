@@ -13,15 +13,20 @@ describe("buildPoiPopupContent", () => {
     expect(buildPoiPopupContent("停止要因", LABELS, { kind: "traffic_signals" }).textContent).toBe("停止要因: 信号");
   });
 
-  it("対訳表に無いOSMタグの生値へ仕込んだタグ・属性は、要素として描かれず文字のまま出る", () => {
+  // 種別は内部名なので、名前を引けないときも画面に出さない。
+  it("対訳表に無い種別は種別そのものを出さず「不明」にする", () => {
+    expect(buildPoiPopupContent("停止要因", LABELS, { kind: "unregistered_kind" }).textContent).toBe("停止要因: 不明");
+  });
+
+  it("見出しへ仕込んだタグ・属性は、要素として描かれず文字のまま出る", () => {
     const attack = '<img src=x onerror="alert(1)"><script>alert(2)</script><details open ontoggle="alert(3)">';
 
-    const content = buildPoiPopupContent("停止要因", LABELS, { kind: attack });
+    const content = buildPoiPopupContent(attack, LABELS, { kind: "traffic_signals" });
     document.body.appendChild(content);
 
     expect(content.querySelector("img, script, details")).toBeNull();
     expect(content.querySelectorAll("[onerror], [ontoggle]")).toHaveLength(0);
-    expect(content.textContent).toBe(`停止要因: ${attack}`);
+    expect(content.textContent).toBe(`${attack}: 信号`);
   });
 
   it("kindが無ければ「不明」", () => {

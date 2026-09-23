@@ -254,6 +254,15 @@ describe("rampAxesFromCatalogAxes / axisLabelsFromCatalogAxes（改善計画T308
     expect(axisLabelsFromCatalogAxes(catalogAxes).not_derivable_axis).toBe("地図に出ない軸");
   });
 
+  it("地図表示を持たない軸（display===null）でも、名前は軸定義のlabelで、軸idでは埋めない", () => {
+    const catalogAxes: CatalogAxis[] = [{ axis_id: "internal_axis_name", label: "表示名", display: null }];
+
+    const labels = axisLabelsFromCatalogAxes(catalogAxes);
+
+    expect(labels.internal_axis_name).toBe("表示名");
+    expect(Object.values(labels)).not.toContain("internal_axis_name");
+  });
+
   // 改善計画T404: needs_runtime_scale=trueなtile_inputは、runtimeScales引数
   // （GET /api/axis-catalogのmaterial_runtime_scales）を使ってweightへ構築時に
   // 一度だけ掛け合わせて解決する。

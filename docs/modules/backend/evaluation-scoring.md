@@ -52,10 +52,10 @@ NULLへ畳み、フィーチャーからキーを省いてタイルを軽くす�
   ロードバイクの周回ルートにとって実務上走りにくい・危険という**用途上の判断**で外して
   いる。trunkは地図表示（幹線道路の把握・回避判断）のために取り込みはする——取込
   スコープと探索スコープが食い違っているのは意図した役割分担である。
-  highway種別のフィルタは`HARD_FILTER_HIGHWAY_TYPES`（フィルタ名→対象highway値）が唯一の
+  highway種別のフィルタは`HARD_FILTER_HIGHWAY_TYPES`（フィルタ名→画面に出す名前と対象highway値）が唯一の
   レジストリで、`compute_hard_filter_excluded`はこの辞書をループする（`compute_hard_filter_excluded`が受け取るのはフィルタ名→該当フラグ配列の
   `hard_filter_flags`で、フィルタごとの専用引数・専用フィールドは持たない。タグ由来の
-  フィルタは`HARD_FILTER_TAG_PREDICATE_SQL`が名前と判定式をまとめて持ち、
+  フィルタは`HARD_FILTER_TAG_PREDICATE_SQL`が名前・画面に出す名前・判定式をまとめて持ち、
   `HARD_FILTER_NAMES`も読み出し用のSQLの列もそこから導く）。
   フィルタを1件増やしても変わるのはこの辞書だけ。
   highwayタグが無い・way_tagsが未取得の場合は除外しない（判断材料が無いEdgeまで一律

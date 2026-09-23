@@ -71,7 +71,7 @@ def material_arrays(
     no_bicycle = set(no_bicycle_edge_ids)
     for column, name in enumerate(hard_filter_ids):
         if name in HARD_FILTER_HIGHWAY_TYPES:
-            types = HARD_FILTER_HIGHWAY_TYPES[name]
+            types = HARD_FILTER_HIGHWAY_TYPES[name].highway_types
             hard_filter_flags[:, column] = [_highway(graph, e) in types for e in edge_ids]
         elif name == "no_bicycle":
             hard_filter_flags[:, column] = [e in no_bicycle for e in edge_ids]
@@ -95,9 +95,7 @@ def material_arrays(
         hard_filter_ids=hard_filter_ids,
         hard_filter_flags=hard_filter_flags,
         distance_m=np.array([_edge_value(graph, e, "distance_m", 0.0) for e in edge_ids], float),
-        bearing_deg=np.array(
-            [_edge_value(graph, e, "bearing_deg", np.nan) for e in edge_ids], float
-        ),
+        bearing_deg=np.array([_edge_value(graph, e, "bearing_deg", np.nan) for e in edge_ids], float),
         mid_lat=_mid(graph, edge_ids, "latitude"),
         mid_lon=_mid(graph, edge_ids, "longitude"),
         elevation_present=np.array([e in elevation for e in edge_ids], dtype=bool),

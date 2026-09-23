@@ -189,10 +189,7 @@ describe("useAxisCatalog（改善計画T308: rampAxes/axisLabels/secondaryAxes�
 
     await waitFor(() => expect(result.current.axes).toEqual([]));
     expect(result.current.rampAxes).toEqual([]);
-    // windは軸スタジオのレジストリ（AXIS_DEFINITIONS）とは別枠の構造的な特別扱い
-    // （axisLayers.ts: axisLabelsFromCatalogAxes、専用の動的気象UIを別に持つため
-    // 元々map表示レジストリに未登録）で、公開軸が0件でも変わらず残る想定どおりの挙動。
-    expect(result.current.axisLabels).toEqual({ wind: "風" });
+    expect(result.current.axisLabels).toEqual({});
     expect(result.current.secondaryAxes).toEqual([]);
     expect(result.current.defaultWeights).toEqual({});
   });

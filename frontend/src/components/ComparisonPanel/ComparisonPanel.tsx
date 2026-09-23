@@ -51,13 +51,20 @@ function buildMaterialValueRows(slots: ExperimentSlot[], materials: readonly Axi
       materialIds.add(materialId);
     }
   }
-  return [...materialIds].map((materialId) => ({
-    label: materialCatalogName(materialId, materials),
-    format: (slot: ExperimentSlot) => {
-      const value = slot.topCandidate.material_values[materialId];
-      return value != null ? formatMaterialValue(materialId, value, materials) : "—";
-    },
-  }));
+  // 名前を引けない材料（カタログを取れていない間等）は行ごと出さない——材料idは内部名。
+  return [...materialIds].flatMap((materialId) => {
+    const label = materialCatalogName(materialId, materials);
+    if (label === undefined) return [];
+    return [
+      {
+        label,
+        format: (slot: ExperimentSlot) => {
+          const value = slot.topCandidate.material_values[materialId];
+          return value != null ? formatMaterialValue(materialId, value, materials) : "—";
+        },
+      },
+    ];
+  });
 }
 
 // 全軸を合成した総合difficulty（RouteSegmentDetail.difficulty由来、domain/difficulty.py）。
@@ -94,14 +101,18 @@ function buildAxisDifficultyRows(slots: ExperimentSlot[], axes: readonly Prefere
 // RouteListと同じ表示名を使うため、ラベルも自動的に揃う。
 //
 // pref行は`slot.conditions.route_preference`（その回のgenerateへ実際に送られ、
-// backendがエコーした条件）のキー集合（Object.keys(p)）を正とする。ラベルは
-// axisLabels（呼び出し側がuseAxisCatalog経由で取得した動的辞書）から引き、未知の
-// axis_id（axisLabelsに無い）はaxis_idそのものにフォールバックする。
+// backendがエコーした条件）のキー集合（Object.keys(p)）を正とする。名前は
+// axisLabels（公開軸の軸定義の名前）から引く。**名前を引けない軸は軸idで埋めず、件数だけ
+// 出す**——軸idは内部名で、その回の後に非公開になった軸や、カタログを取れていない間に
+// そのまま画面へ出る。
 function formatWeights(slot: ExperimentSlot, axisLabels: Record<string, string>): string {
-  const p = slot.conditions.route_preference;
-  return `pref ${Object.entries(p)
-    .map(([axisId, weight]) => `${axisLabels[axisId] ?? axisId}${weight}`)
-    .join("/")}`;
+  const entries = Object.entries(slot.conditions.route_preference);
+  const named = entries.flatMap(([axisId, weight]) => {
+    const label = axisLabels[axisId];
+    return label === undefined ? [] : [`${label}${weight}`];
+  });
+  const unnamed = entries.length - named.length;
+  return `pref ${[...named, ...(unnamed > 0 ? [`ほか${unnamed}軸`] : [])].join("/")}`;
 }
 
 // 列見出しは時刻だけにする（秒まで出すと狭い画面で列が伸び、値が画面外へ出る）。

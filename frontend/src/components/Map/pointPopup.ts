@@ -40,6 +40,8 @@ export function buildPoiPopupContent(
   labels: Record<string, string>,
   properties: PoiPopupProperties,
 ): HTMLDivElement {
-  const label = properties.kind ? (labels[properties.kind] ?? properties.kind) : "不明";
+  // 種別はbackendの分類器が付ける内部名。名前を引けないときに種別で埋めると、それが
+  // そのまま画面に出るため、種別が無いときと同じ「不明」にする。
+  const label = (properties.kind ? labels[properties.kind] : undefined) ?? "不明";
   return popupBody([`${prefix}: ${label}`]);
 }

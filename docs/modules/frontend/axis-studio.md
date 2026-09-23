@@ -54,7 +54,7 @@ APIを呼ぶ）・「データ保守」タブ（派生データ鮮度台帳の�
 | `hooks/useMaterialCatalog.ts` | `GET /api/material-catalog`取得。取得完了まで・失敗時は`lib/axisMaterialsCatalog.ts`の静的フォールバックを返す |
 | `hooks/useMaterialValues.ts` | `GET /api/admin/material-catalog/{material_id}/values`取得（`app/admin/api/material-values/[materialId]/`のroute handler経由）。categorical材料の候補選択セレクトに使う実データ値一覧 |
 | `services/materialCatalogApi.ts` | 上記2フックが叩くbackend APIの薄いラッパー |
-| `lib/axisMaterialsCatalog.ts` | 材料選択候補の静的フォールバック（`AXIS_MATERIAL_OPTIONS`）。`materialCatalogLabel`（論理名 - 物理名）/`materialCatalogName`（論理名だけ、一般向けの表示用）/`formatMaterialValue`は軸スタジオ外（[ルート設定・結果パネル](route-settings-and-results.md)のComparisonPanel、page.tsxの区間クリック詳細）が`material_values`のラベル・単位表記に使う共用ヘルパー |
+| `lib/axisMaterialsCatalog.ts` | 材料の型（`AxisMaterialOption`。一覧そのものは`hooks/useMaterialCatalog.ts`が取る）と、材料idを表示へ変える関数。`materialCatalogLabel`（論理名 - 物理名、軸スタジオ専用）/`materialCatalogName`（論理名だけ。カタログに無いidはundefinedで、呼び出し側はその材料を出さない）/`formatMaterialValue`。後の2つは軸スタジオ外（[ルート設定・結果パネル](route-settings-and-results.md)のComparisonPanel、page.tsxの区間クリック詳細）が`material_values`のラベル・単位表記に使う共用ヘルパー |
 | `components/Map/axisIconPalette.tsx` | 地図チップアイコンの固定パレット（`icon_id`→アイコンコンポーネント） |
 | `components/Map/recipeControls.tsx`（`FieldLabel`のみ使用） | 情報アイコン付きラベルの共有UI部品（RouteSettingsPanel等とも共有） |
 

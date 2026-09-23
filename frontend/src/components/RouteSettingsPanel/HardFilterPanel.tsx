@@ -9,25 +9,14 @@ import styles from "./RouteSettingsPanel.module.css";
 // 「ルート設定」区分の「除外」タブ。ここでONにした種類は重みづけの対象ですらなく、
 // 探索グラフから外れる（通らない）。将来の除外条件（未舗装路等）もこのタブへ足す。
 
-// 0次ハードフィルタ。**キーと既定値はbackendが正**で、生成物
-// （route-generate-config.json、domain/evaluation.py由来）から受け取る——backendは
-// キー集合の完全一致を要求するため、手書きで複製すると4つ目を足した瞬間に
-// すべてのルート生成が422になる。表示ラベルはUIの語彙なのでここが持つ。
-const HARD_FILTER_LABELS: Record<string, string> = {
-  no_bicycle: "自転車通行禁止",
-  motorway: "高速道路",
-  trunk: "幹線道路(trunk)",
-};
-
-const HARD_FILTER_CHIPS: { key: string; label: string }[] = routeGenerateConfig.hard_filters.keys.map(
-  (key) => ({ key, label: HARD_FILTER_LABELS[key] ?? key }),
-);
+// 0次ハードフィルタ。**キー・画面に出す名前・既定値はbackendが正**で、生成物
+// （route-generate-config.json、domain/hard_filters.py由来）から受け取る——backendは
+// キー集合の完全一致を要求するため、手書きで複製すると1つ足した瞬間にすべての
+// ルート生成が422になる。名前もキーと同じ行で届くので、名前の無いキーは無い。
+const HARD_FILTER_CHIPS: readonly { key: string; label: string }[] = routeGenerateConfig.hard_filters.filters;
 
 export const DEFAULT_HARD_FILTERS: HardFilterOverride = Object.fromEntries(
-  routeGenerateConfig.hard_filters.keys.map((key) => [
-    key,
-    routeGenerateConfig.hard_filters.defaults.includes(key),
-  ]),
+  HARD_FILTER_CHIPS.map(({ key }) => [key, routeGenerateConfig.hard_filters.defaults.includes(key)]),
 );
 
 interface HardFilterPanelProps {
@@ -72,11 +61,7 @@ export default function HardFilterPanel({ hardFilters, onHardFiltersChange }: Ha
         ))}
       </div>
       {customized && (
-        <button
-          type="button"
-          className={styles.resetButton}
-          onClick={() => onHardFiltersChange(DEFAULT_HARD_FILTERS)}
-        >
+        <button type="button" className={styles.resetButton} onClick={() => onHardFiltersChange(DEFAULT_HARD_FILTERS)}>
           除外を既定値に戻す
         </button>
       )}

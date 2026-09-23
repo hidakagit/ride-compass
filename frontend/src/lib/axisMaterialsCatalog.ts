@@ -35,15 +35,16 @@ export function materialOptionText(option: { label: string; unit?: string }): st
   return option.unit ? `${option.label}（${option.unit}）` : option.label;
 }
 
-/** 材料idの表示名。未知idはidをそのまま返す。 */
+/** 軸スタジオ（管理画面）に出す材料名（「論理名 - 物理名」）。物理名を見せるのが目的の
+ * 画面なので、カタログに無いidはidのまま返す。一般向けの画面では使わない。 */
 export function materialCatalogLabel(materialId: string, materials: readonly AxisMaterialOption[]): string {
   return materials.find((m) => m.id === materialId)?.label ?? materialId;
 }
 
-/** 一般向けの表示に使う材料名（論理名だけ）。物理名まで出す軸スタジオは
- * `materialCatalogLabel`を使う。 */
-export function materialCatalogName(materialId: string, materials: readonly AxisMaterialOption[]): string {
-  return materials.find((m) => m.id === materialId)?.name ?? materialId;
+/** 一般向けの表示に使う材料名（論理名だけ）。**カタログに無いidはundefined**——idで埋めると
+ * 内部名がそのまま画面に出るため、呼び出し側はその材料を出さない。 */
+export function materialCatalogName(materialId: string, materials: readonly AxisMaterialOption[]): string | undefined {
+  return materials.find((m) => m.id === materialId)?.name;
 }
 
 /** material_valuesの生値1件を「値 単位」表記にする。単位が無い（無次元）材料は値のみ。 */

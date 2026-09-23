@@ -191,16 +191,11 @@ export interface CatalogAxis {
   dynamic_way_value_needs_speed?: boolean;
 }
 
-/** 全軸のラベル辞書。区間インスペクタが軸ごとの専用UIを持たず、名前をここから引く。
- *
- * `wind`だけ直書きするのは、**全軸非公開でカタログからwindが消えてもキーを残す**ため
- * ——`dedicatedWayValueLayer.ts`はこの辞書からwindの名前を引く。カタログにwindが
- * 在るときは、`axes`からのspreadが同じ値で上書きする。 */
+/** 公開軸の表示名の辞書（軸id→軸定義の`label`）。**ここに無い軸idを画面へ出さない**——
+ * 引けなかったときに軸idで埋めると、内部名（例: `wind`）がそのまま画面に出る。
+ * 軸の名前は軸定義の`label`だけが持つ（地図表示の`display.label`は地図に出る軸にしか無い）。 */
 export function axisLabelsFromCatalogAxes(axes: readonly CatalogAxis[]): Record<string, string> {
-  return {
-    wind: "風",
-    ...Object.fromEntries(axes.map((axis) => [axis.axis_id, axis.display?.label ?? axis.axis_id])),
-  };
+  return Object.fromEntries(axes.map((axis) => [axis.axis_id, axis.label]));
 }
 
 /** `runtimeScales`（改善計画T404、GET /api/axis-catalogのmaterial_runtime_scales、

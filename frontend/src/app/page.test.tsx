@@ -98,6 +98,22 @@ vi.mock("@/services/weatherApi", () => ({
   getWeatherWarnings: vi.fn().mockRejectedValue(new Error("mock: unused in this test")),
 }));
 
+// 区間クリック詳細の材料値は、カタログの名前で出す（材料idは内部名で、画面に出さない）。
+vi.mock("@/services/materialCatalogApi", () => ({
+  getMaterialCatalog: vi.fn(async () => ({
+    materials: [
+      {
+        material_id: "wind_drag_ratio",
+        label: "風の追加負荷 - wind_drag_ratio",
+        name: "風の追加負荷",
+        description: "",
+        dtype: "numeric",
+        unit: "",
+        reference_points: [],
+      },
+    ],
+  })),
+}));
 vi.mock("@/services/axisCatalogApi", () => ({
   getAxisCatalog: vi.fn(),
 }));
@@ -1616,7 +1632,8 @@ describe("Home（app/page.tsx） handleGenerateハンドラ", () => {
     await waitFor(() => expect(screen.getByRole("button", { name: "テスト用に区間を選択" })).toBeInTheDocument());
     await user.click(screen.getByRole("button", { name: "テスト用に区間を選択" }));
 
-    expect(screen.getByText(/wind_drag_ratio.*1\.96/)).toBeInTheDocument();
+    expect(await screen.findByText(/風の追加負荷.*1\.96/)).toBeInTheDocument();
+    expect(screen.queryByText(/wind_drag_ratio/)).not.toBeInTheDocument();
   });
 
   it("T592フォローアップ: 研究モードでなければ区間クリック詳細に材料値を表示しない", async () => {
@@ -1632,7 +1649,7 @@ describe("Home（app/page.tsx） handleGenerateハンドラ", () => {
     await waitFor(() => expect(screen.getByRole("button", { name: "テスト用に区間を選択" })).toBeInTheDocument());
     await user.click(screen.getByRole("button", { name: "テスト用に区間を選択" }));
 
-    expect(screen.queryByText(/wind_drag_ratio/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/風の追加負荷/)).not.toBeInTheDocument();
   });
 
   it("候補0件で成功したとき、専用のエラーメッセージを表示する", async () => {

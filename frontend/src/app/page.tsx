@@ -84,7 +84,7 @@ import { useMaterialCatalog } from "@/hooks/useMaterialCatalog";
 import { syncHardFilterKeys } from "@/lib/hardFilterSync";
 import { buildGenerateRequest, generationConditionsKey, type GenerationInput } from "@/lib/generationRequest";
 import { syncRoutePreferenceKeys } from "@/lib/routePreferenceSync";
-import { formatMaterialValue, materialCatalogLabel } from "@/lib/axisMaterialsCatalog";
+import { formatMaterialValue, materialCatalogName } from "@/lib/axisMaterialsCatalog";
 import { downloadGpx } from "@/lib/gpxExport";
 import { baselineDistanceKm, loadBarHeightRatio } from "@/lib/difficultyLoadBar";
 import {
@@ -2069,12 +2069,17 @@ export default function Home() {
                     />
                     {researchEnabled && Object.keys(selectedRouteSegment.segment.material_values).length > 0 && (
                       <ul className={styles.selectedSegmentMaterialValues}>
-                        {Object.entries(selectedRouteSegment.segment.material_values).map(([materialId, value]) => (
-                          <li key={materialId}>
-                            {materialCatalogLabel(materialId, materialCatalog)}:{" "}
-                            {formatMaterialValue(materialId, value, materialCatalog)}
-                          </li>
-                        ))}
+                        {/* 名前を引けない材料は出さない——材料idは内部名。 */}
+                        {Object.entries(selectedRouteSegment.segment.material_values).flatMap(([materialId, value]) => {
+                          const name = materialCatalogName(materialId, materialCatalog);
+                          return name === undefined
+                            ? []
+                            : [
+                                <li key={materialId}>
+                                  {name}: {formatMaterialValue(materialId, value, materialCatalog)}
+                                </li>,
+                              ];
+                        })}
                       </ul>
                     )}
                   </div>

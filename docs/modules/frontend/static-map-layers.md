@@ -612,8 +612,9 @@ ramp軸ぶんの絞り込み軸は`rampAxes`（実行時フェッチ、軸スタ
 ## ポップアップへOSMタグの生値を出すときはHTMLとして解釈させない
 
 ポップアップの値は`osm_raw_ways`/`osm_raw_pois`のタグ由来＝**第三者が編集できるデータ**で、
-対訳表に載らない値は生のまま出る（`SMOOTHNESS_LABELS`・停止要因/補給POIの
-ラベル辞書はいずれも`?? 生値`のフォールバックを持つ）。
+対訳表に載らない値は生のまま出る（`SMOOTHNESS_LABELS`の`?? 生値`）。停止要因/補給POIの
+`kind`はOSMの生値ではなくbackendの分類器が付ける内部名なので、対訳が無ければ生値ではなく
+「不明」を出す（[design-principles.md](../../architecture/design-principles.md)UI仕様「内部名を画面に出さない」）。
 行き先は2通りあり、**どちらも値をテキストノードとして入れる**。道路の詳細はReactで描く
 （`RoadInspectorPopup.tsx`）。点データ（事故・POI）は`pointPopup.ts`がDOMを組み、
 `Popup.setDOMContent()`へ渡す。

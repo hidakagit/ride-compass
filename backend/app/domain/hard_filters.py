@@ -6,7 +6,7 @@
 増やしても判定側は無変更で反映される。
 """
 
-from typing import Mapping
+from typing import Mapping, NamedTuple
 
 import numpy as np
 
@@ -14,27 +14,42 @@ from app.domain.graph import LeanRoadGraph
 from app.domain.material_sql import BICYCLE_NORMALIZED_SQL, HIGHWAY_SQL
 
 
-# highway種別で決まるフィルタ。名前→除外するhighwayの値。ここへ1行足すだけで、名前の
-# 集合も判定式の列も増える。
+class HighwayHardFilter(NamedTuple):
+    #: 画面に出す名前。フィルタと同じ行に持つ——名前だけ別の表にすると、フィルタを
+    #: 足したときに名前の無い行ができ、画面に内部名が出る。
+    label: str
+    highway_types: frozenset[str]
+
+
+class TagHardFilter(NamedTuple):
+    label: str
+    #: 「該当するか」をSQLで表す式。
+    predicate_sql: str
+
+
+# highway種別で決まるフィルタ。ここへ1行足すだけで、名前の集合も判定式の列も画面の
+# 名前も増える。
 #
 # 日本のtrunk（国道等の幹線道路）は法的には自転車通行可能な場合が多いが、ロードバイクの
 # 周回ルートにとって「実質的に走りにくい・危険」という実務判断で除外対象に含める。
-HARD_FILTER_HIGHWAY_TYPES: dict[str, frozenset[str]] = {
-    "motorway": frozenset({"motorway", "motorway_link"}),
-    "trunk": frozenset({"trunk", "trunk_link"}),
+HARD_FILTER_HIGHWAY_TYPES: dict[str, HighwayHardFilter] = {
+    "motorway": HighwayHardFilter("高速道路", frozenset({"motorway", "motorway_link"})),
+    "trunk": HighwayHardFilter("幹線道路", frozenset({"trunk", "trunk_link"})),
 }
 
-# highwayでは決まらない、タグ由来のフィルタ。名前→「該当するか」をSQLで表す式。
-# 足すならここへ1エントリ書くだけでよい。
-HARD_FILTER_TAG_PREDICATE_SQL: dict[str, str] = {
-    "no_bicycle": f"COALESCE({BICYCLE_NORMALIZED_SQL} = 'no', false)",
+# highwayでは決まらない、タグ由来のフィルタ。足すならここへ1エントリ書くだけでよい。
+HARD_FILTER_TAG_PREDICATE_SQL: dict[str, TagHardFilter] = {
+    "no_bicycle": TagHardFilter("自転車通行禁止", f"COALESCE({BICYCLE_NORMALIZED_SQL} = 'no', false)"),
+}
+
+#: フィルタ名→画面に出す名前。上の2つの宣言から導く。
+HARD_FILTER_LABELS: dict[str, str] = {
+    name: spec.label for name, spec in {**HARD_FILTER_HIGHWAY_TYPES, **HARD_FILTER_TAG_PREDICATE_SQL}.items()
 }
 
 # APIの`hard_filters`が受け付けるキー集合の正本。**別の場所で組み立て直さないこと**
 # ——キー完全一致で検証するため、片方だけ増えた瞬間にすべてのルート生成が422になる。
-HARD_FILTER_NAMES: frozenset[str] = frozenset(
-    {*HARD_FILTER_TAG_PREDICATE_SQL, *HARD_FILTER_HIGHWAY_TYPES}
-)
+HARD_FILTER_NAMES: frozenset[str] = frozenset({*HARD_FILTER_TAG_PREDICATE_SQL, *HARD_FILTER_HIGHWAY_TYPES})
 
 # 既定レシピは全フィルタを常時有効にする。「受け付けるキー」と「既定でONのキー」は別の
 # 概念で、たまたま一致している。
@@ -50,8 +65,8 @@ def _highway_is_one_of_sql(highway_types: frozenset[str]) -> str:
 # 列として受け取る。**フィルタごとに専用の列を作らない**——上の2つのレジストリから導く
 # ため、`HARD_FILTER_NAMES`とキー集合がずれようがない。
 HARD_FILTER_VALUE_SQL: dict[str, str] = {
-    **{name: _highway_is_one_of_sql(types) for name, types in HARD_FILTER_HIGHWAY_TYPES.items()},
-    **HARD_FILTER_TAG_PREDICATE_SQL,
+    **{name: _highway_is_one_of_sql(spec.highway_types) for name, spec in HARD_FILTER_HIGHWAY_TYPES.items()},
+    **{name: spec.predicate_sql for name, spec in HARD_FILTER_TAG_PREDICATE_SQL.items()},
 }
 
 

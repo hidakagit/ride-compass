@@ -149,17 +149,23 @@ describe("ComparisonPanel", () => {
     expect(screen.queryByText("舗装率")).not.toBeInTheDocument();
   });
 
-  it("材料カタログに無いmaterial_id(表示専用に格下げされた旧材料等)はidそのものをラベルにする", () => {
+  // 材料idは内部名なので、名前を引けない材料（カタログを取れていない間・表示専用に格下げ
+  // された旧材料等）は行ごと出さない。
+  it("材料カタログに無いmaterial_idは、idを見出しにせず行ごと出さない", () => {
     const slots = [
-      makeSlot({ id: "a", topCandidate: makeCandidate({ material_values: { unknown_material_id: 2.1 } }) }),
+      makeSlot({
+        id: "a",
+        topCandidate: makeCandidate({ material_values: { unknown_material_id: 2.1, gradient_percent: 3.2 } }),
+      }),
       makeSlot({ id: "b", topCandidate: makeCandidate({ material_values: {} }) }),
     ];
     render(
       <ComparisonPanel slots={slots} axisLabels={SAMPLE_AXIS_LABELS} axes={SAMPLE_AXES} materials={SAMPLE_MATERIALS} />,
     );
 
-    expect(screen.getByText("unknown_material_id")).toBeInTheDocument();
-    expect(screen.getByText("2.10")).toBeInTheDocument();
+    expect(screen.queryByText("unknown_material_id")).not.toBeInTheDocument();
+    expect(screen.queryByText("2.10")).not.toBeInTheDocument();
+    expect(screen.getByText("勾配%（符号付き）")).toBeInTheDocument();
   });
 
   it("個別軸の行はaxis_difficultiesベースで動的生成する(改善計画T421、旧stop_density等のレガシーフィールド直接参照を撤去)", () => {
@@ -244,13 +250,15 @@ describe("ComparisonPanel", () => {
     }
   });
 
-  it("改善計画T320: 軸スタジオのGUI作成軸(axisLabelsに無いaxis_id)はaxis_idのまま重み表示に含める", () => {
+  // 名前を引けない軸（その回の後に非公開になった軸・カタログを取れていない間）の軸idは
+  // 内部名なので、画面に出さない。重みがあったこと自体は件数で残す。
+  it("名前を引けない軸は軸idを出さず、件数だけを出す", () => {
     const slots = [
       makeSlot({
         id: "a",
         conditions: {
           ...makeSlot({}).conditions,
-          route_preference: { gui_published_axis: 0.3 },
+          route_preference: { gui_published_axis: 0.3, surface_q: 0.2 },
         },
       }),
       makeSlot({ id: "b" }),
@@ -260,7 +268,10 @@ describe("ComparisonPanel", () => {
     );
 
     const headers = screen.getAllByRole("columnheader").filter((el) => el.hasAttribute("title"));
-    expect(headers[0].getAttribute("title")).toContain("gui_published_axis0.3");
+    const title = headers[0].getAttribute("title") ?? "";
+    expect(title).not.toContain("gui_published_axis");
+    expect(title).toContain("舗装質0.2");
+    expect(title).toContain("ほか1軸");
   });
 
   it("改善計画T320: 非公開化された軸はroute_preferenceから既に消えているため重み表示にも出ない", () => {

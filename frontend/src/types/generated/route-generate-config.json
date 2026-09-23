@@ -12,10 +12,19 @@
     "splice.min_stretch_km": 0.2
   },
   "hard_filters": {
-    "keys": [
-      "motorway",
-      "no_bicycle",
-      "trunk"
+    "filters": [
+      {
+        "key": "motorway",
+        "label": "高速道路"
+      },
+      {
+        "key": "no_bicycle",
+        "label": "自転車通行禁止"
+      },
+      {
+        "key": "trunk",
+        "label": "幹線道路"
+      }
     ],
     "defaults": [
       "motorway",

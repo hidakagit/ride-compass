@@ -67,7 +67,6 @@ import {
 } from "@/features/map/scene/groups/routes";
 import { buildMapScene, type SceneInputs } from "@/features/map/scene/buildScene";
 import { POINT_LAYERS, pointSourceId } from "@/features/map/scene/groups/points";
-import { PRIMARY_ATTRIBUTE_LABELS } from "@/components/Map/primaryAttributes";
 import { AREA_SOURCE_ID } from "@/features/map/scene/groups/areaRasters";
 import { ROAD_LINE_SOURCE_ID } from "@/features/map/scene/groups/roadLines";
 import { sceneLayerId } from "@/features/map/scene/sceneBuilders";
@@ -951,7 +950,7 @@ export default function MapView({
           : point.attr_id === "accident_point"
             ? buildAccidentPopupContent(feature.properties as unknown as AccidentPopupProperties)
             : buildPoiPopupContent(
-                PRIMARY_ATTRIBUTE_LABELS[point.attr_id] ?? point.attr_id,
+                point.label,
                 pointValueLabels(point),
                 feature.properties as unknown as PoiPopupProperties,
               );
