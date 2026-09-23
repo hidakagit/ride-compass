@@ -662,8 +662,8 @@ test_accident_routes.py, test_routes_preview.py, test_routes_generate.py
 3. 素の`@pytest.fixture`でasync generatorを書かない。`@pytest_asyncio.fixture`を明示的に使う
    （前者は互換用の内部変換パスを通り、モジュールスコープのイベントループと衝突する）。
 
-実例: test_road_graph_repository.py, test_health.py（db_status_test_engine）,
-test_match_designations.py（designation_conn）, test_accident_repository.py
+実例: test_material_values.py（road_graph_sessionを直接使う）, test_derive_topology.py（自前の
+module fixtureを重ねる）
 
 **xdist_group="postgis"（改善計画T233フォローアップ、pytest-xdist導入後は必須）**:
 CIは`-n auto --dist loadgroup`でDB以外のテストを並列化している。road_graph_session系

@@ -390,7 +390,7 @@ way粒度で引くときは、同じ式のまま`w`の行から同じ名前の�
   通常どおり評価される）。`MaterialSpec.bool_default`からは導出しない——前者はタグの不在を
   どう読むかで、後者は「wayの行そのものが無い」を配列上どう表すかであり、別の欠損を指す。
 - `CoverageExcluded(reason=...)`: 集計対象外の材料とその理由（動的計算材料の
-  `wind_drag_ratio`、NOT NULL列由来の`oneway`、行の有無がそのまま確定値の`designation`系）。
+  `wind_drag_ratio`、NOT NULL列由来の`oneway`等）。
   管理画面はこの理由をそのまま表示する。
 - **どちらか一方を必ず持つことは型が保証する**: `MaterialSpec.coverage`は必須で、
   way単位・Edge単位・対象外の3択（`MaterialCoverage`）のいずれかしか取れない。

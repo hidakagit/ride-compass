@@ -18,7 +18,6 @@ function inspectorResult() {
   return {
     highway: "residential",
     tags: { lit: "yes", name: "明治通り" },
-    is_designated: false,
     axes: [
       { axis_id: "axis_sample", difficulty: 60, weight: 1, available: true, contribution: 30 },
       { axis_id: "night", difficulty: 20, weight: 1, available: true, contribution: 10 },
