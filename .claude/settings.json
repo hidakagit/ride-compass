@@ -1,16 +1,5 @@
 {
   "hooks": {
-    "SessionStart": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "ROOT=$(git rev-parse --show-toplevel 2>/dev/null) && [ -n \"$ROOT\" ] && [ -f \"$ROOT/scripts/pre-commit.sh\" ] && cp \"$ROOT/scripts/pre-commit.sh\" \"$ROOT/.git/hooks/pre-commit\" && chmod +x \"$ROOT/.git/hooks/pre-commit\" || true",
-            "timeout": 10
-          }
-        ]
-      }
-    ],
     "PostToolUse": [
       {
         "hooks": [
@@ -18,6 +7,28 @@
             "type": "command",
             "command": "f=\"$CLAUDE_PROJECT_DIR/scripts/orchestration/hook.sh\"; [ -f \"$f\" ] || exit 0; . \"$f\"",
             "timeout": 120
+          }
+        ]
+      }
+    ],
+    "WorktreeCreate": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "timeout": 1800,
+            "command": "python \"$CLAUDE_PROJECT_DIR/scripts/orchestrate.py\" slot hook-create"
+          }
+        ]
+      }
+    ],
+    "WorktreeRemove": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "timeout": 60,
+            "command": "python \"$CLAUDE_PROJECT_DIR/scripts/orchestrate.py\" slot hook-remove"
           }
         ]
       }

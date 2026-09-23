@@ -36,4 +36,5 @@ backend/data/
 # restart-dev.bat のバックグラウンド起動ログ
 /logs/
 .claude/worktrees/
+.claude/settings.local.json
 .jscpd-report/
