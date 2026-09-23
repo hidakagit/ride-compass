@@ -21,6 +21,27 @@ describe("WarningBadgeList（改善計画T205、UI改善2026-08-24でサマリ�
     expect(container).toBeEmptyDOMElement();
   });
 
+  it("取得に失敗した出所があれば、バッジが0件でも印を出し、開くと何が取れていないかを読める", async () => {
+    const user = userEvent.setup();
+    render(
+      <WarningBadgeList
+        items={[]}
+        failures={[{ id: "jma", label: "警報・注意報", detail: "警報・注意報の取得に失敗しました[通信エラー]" }]}
+      />,
+    );
+
+    await user.click(screen.getByRole("button", { name: /警報・注意報を取得できていません/ }));
+    expect(screen.getByText("警報・注意報を取得できていません")).toBeInTheDocument();
+    expect(screen.getByText(/警報・注意報の取得に失敗しました\[通信エラー\]/)).toBeInTheDocument();
+  });
+
+  it("取得に失敗した出所が無ければ、失敗の印は出さない", () => {
+    const items: WarningBadgeItem[] = [{ id: "14", label: "雷注意報", level: "advisory", source: "jma" }];
+    render(<WarningBadgeList items={items} failures={[]} />);
+
+    expect(screen.queryByRole("button", { name: /取得できていません/ })).not.toBeInTheDocument();
+  });
+
   it("1件のときはそのレベルの名称だけをボタンに表示する", () => {
     const items: WarningBadgeItem[] = [{ id: "14", label: "雷注意報", level: "advisory", source: "jma" }];
     render(<WarningBadgeList items={items} />);

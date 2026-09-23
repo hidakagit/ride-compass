@@ -1285,8 +1285,16 @@ export default function Home() {
   // 状態管理（useWeatherConditionsが持つ。weather[MSM予報]とamedas[アメダス実測]は
   // 独立フェッチ）。locationReadyになるまで待ち、その後はlocationが変わるたびに
   // 再フェッチする。
-  const { weather, weatherLoading, weatherError, amedas, amedasLoading, amedasError, warningBadgeItems } =
-    useWeatherConditions(location, locationReady);
+  const {
+    weather,
+    weatherLoading,
+    weatherError,
+    amedas,
+    amedasLoading,
+    amedasError,
+    warningBadgeItems,
+    warningFetchFailures,
+  } = useWeatherConditions(location, locationReady);
 
   // 動的材料の状態別表現契約の[時刻,向き]のうち「向き」は、風・勾配で単一の共有state
   // （travelBearingDeg、実際の進行方向という1つの概念を表す）を使う。「環境」グループの
@@ -2195,7 +2203,7 @@ export default function Home() {
           <TodayOutlook weather={weather} loading={weatherLoading} error={weatherError} />
         </div>
         <div className={styles.headerActions}>
-          <WarningBadgeList items={warningBadgeItems} />
+          <WarningBadgeList items={warningBadgeItems} failures={warningFetchFailures} />
           {/* 研究モードON/OFF・デバッグログ表示アイコンを1個のメニューへ集約する
               （ヘッダーの個別ボタンを増やさないため）。debugEnabled時のみデバッグログ項目を
               表示（デバッグモードのON/OFF自体は/adminで切り替える、DebugConsole.tsx参照）。

@@ -286,6 +286,28 @@ describe("useWeatherConditions", () => {
     expect(result.current.weatherError).toBeNull();
   });
 
+  it("警告バッジの取得に失敗した出所だけをwarningFetchFailuresで返す（失敗を「警告なし」と区別する）", async () => {
+    mockAllQuiet();
+    vi.mocked(getWbgtStatus).mockRejectedValue(new Error("暑さ指数の取得に失敗しました[通信エラー]"));
+
+    const { result } = renderHook(() => useWeatherConditions(TOKYO, true));
+
+    await waitFor(() =>
+      expect(result.current.warningFetchFailures).toEqual([
+        { id: "wbgt", label: "暑さ指数", detail: "暑さ指数の取得に失敗しました[通信エラー]" },
+      ]),
+    );
+  });
+
+  it("警告バッジがすべて取得できていれば、warningFetchFailuresは空", async () => {
+    mockAllQuiet();
+
+    const { result } = renderHook(() => useWeatherConditions(TOKYO, true));
+
+    await waitFor(() => expect(result.current.weather).not.toBeNull());
+    expect(result.current.warningFetchFailures).toEqual([]);
+  });
+
   it("weather・amedasの失敗はそれぞれ独立してエラーになる", async () => {
     mockAllQuiet();
     vi.mocked(getCurrentWeather).mockRejectedValue(new Error("予報の取得に失敗"));

@@ -2,6 +2,7 @@
 
 import type { components } from "@/types/generated/api";
 import * as Popover from "@radix-ui/react-popover";
+import { WarningTriangleIcon } from "@/components/Map/icons";
 import styles from "./WarningBadge.module.css";
 
 // JMA警報・注意報バッジとWBGT警告が共有する表示コンポーネント。
@@ -31,8 +32,16 @@ export interface WarningBadgeItem {
   title?: string;
 }
 
+/** 取得に失敗した警告の出所。`detail`は失敗の文言（429の案内・`[通信エラー]`等）。 */
+export interface WarningFetchFailure {
+  id: string;
+  label: string;
+  detail: string;
+}
+
 interface WarningBadgeListProps {
   items: WarningBadgeItem[];
+  failures?: readonly WarningFetchFailure[];
 }
 
 const LEVEL_ORDER: readonly WarningBadgeLevel[] = ["advisory", "warning", "severe_warning", "emergency_warning"];
@@ -77,9 +86,49 @@ function highestLevelItem(items: readonly WarningBadgeItem[]): WarningBadgeItem 
 // 方針自体は変えず（警報の存在に気づけないことを避ける）、ボタンの文言・色だけで
 // 「今の最高警戒度」が常に分かり、内訳は開かないと見えないぶん、常時全件表示より
 // 一歩踏み込む操作が要るという妥当なトレードオフ。
-export default function WarningBadgeList({ items }: WarningBadgeListProps) {
-  if (items.length === 0) return null;
+export default function WarningBadgeList({ items, failures = [] }: WarningBadgeListProps) {
+  return (
+    <>
+      {items.length > 0 && <WarningSummary items={items} />}
+      {failures.length > 0 && <WarningFetchFailureMark failures={failures} />}
+    </>
+  );
+}
 
+// 取得に失敗している間だけ出す印。バッジが0件のときに「警告なし」と読ませないためのもので、
+// 成功している間は何も出さない。常時は小さな印だけにし、何が取れていないかはタップで開く。
+function WarningFetchFailureMark({ failures }: { failures: readonly WarningFetchFailure[] }) {
+  const labels = failures.map((failure) => failure.label).join("・");
+  return (
+    <Popover.Root>
+      <Popover.Trigger asChild>
+        <button
+          type="button"
+          className={styles.failureMark}
+          aria-label={`${labels}を取得できていません。押すと詳細を表示`}
+        >
+          <WarningTriangleIcon size={14} />
+          <span>未取得</span>
+        </button>
+      </Popover.Trigger>
+      <Popover.Portal>
+        <Popover.Content className={styles.detailPanel} side="bottom" align="end" sideOffset={6}>
+          <p className={styles.failureHeading}>{labels}を取得できていません</p>
+          <p className={styles.detailText}>出ていてもバッジは表示されません。</p>
+          <ul className={styles.failureList}>
+            {failures.map((failure) => (
+              <li key={failure.id} className={styles.detailText}>
+                {failure.label}: {failure.detail}
+              </li>
+            ))}
+          </ul>
+        </Popover.Content>
+      </Popover.Portal>
+    </Popover.Root>
+  );
+}
+
+function WarningSummary({ items }: { items: WarningBadgeItem[] }) {
   const topItem = highestLevelItem(items);
   const topLabel = LEVEL_SUMMARY_LABEL[topItem.source][topItem.level];
   const summaryLabel = items.length > 1 ? `${topLabel}${items.length}件` : topLabel;

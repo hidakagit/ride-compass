@@ -172,28 +172,30 @@ function emptyMapStyleFixture() {
  * 各テストの冒頭（page.goto前）で呼ぶ。
  */
 export async function installApiMocks(page: Page): Promise<void> {
-  await page.route(`${API_BASE}/health`, (route) =>
-    route.fulfill({ json: { status: "ok" } })
-  );
+  await page.route(`${API_BASE}/health`, (route) => route.fulfill({ json: { status: "ok" } }));
 
-  await page.route(`${API_BASE}/api/weather*`, (route) =>
-    route.fulfill({ json: weatherConditionsFixture() })
-  );
+  await page.route(`${API_BASE}/api/weather*`, (route) => route.fulfill({ json: weatherConditionsFixture() }));
   // /api/weather*より後に登録し、Playwrightのルート優先順位（後から登録した方が先に
   // マッチ判定される）で/api/weather/amedasだけこちらを優先させる。
-  await page.route(`${API_BASE}/api/weather/amedas*`, (route) =>
-    route.fulfill({ json: amedasObservationFixture() })
+  await page.route(`${API_BASE}/api/weather/amedas*`, (route) => route.fulfill({ json: amedasObservationFixture() }));
+  // 警告バッジ3種は「警告なし」の成功応答にする。応答しないと取得失敗の印がヘッダーに出る。
+  await page.route(`${API_BASE}/api/weather/warnings*`, (route) =>
+    route.fulfill({ json: { area_name: null, report_datetime: null, warnings: [] } }),
   );
+  await page.route(`${API_BASE}/api/weather/wbgt*`, (route) =>
+    route.fulfill({ json: { level: null, label: null, value: null, observed_at: null } }),
+  );
+  await page.route(`${API_BASE}/api/weather/flood-forecast*`, (route) => route.fulfill({ json: { forecasts: [] } }));
 
   // 改善計画T265: ルート生成はバックグラウンドジョブ化された。POST（ジョブ投稿）は
   // 即座にjob_idを返し、GET .../generate/{job_id}（ポーリング）は1回目から
   // status="done"を返す（e2eはUI操作の疎通確認が目的で、待ち状態の遷移自体は
   // frontend/src/services/routeApi.test.tsが検証するためここでは再現しない）。
   await page.route(`${API_BASE}/api/routes/generate`, (route) =>
-    route.fulfill({ status: 202, json: { job_id: "e2e-fake-job" } })
+    route.fulfill({ status: 202, json: { job_id: "e2e-fake-job" } }),
   );
   await page.route(`${API_BASE}/api/routes/generate/*`, (route) =>
-    route.fulfill({ json: { status: "done", result: routeGenerateResponseFixture(), error: null } })
+    route.fulfill({ json: { status: "done", result: routeGenerateResponseFixture(), error: null } }),
   );
 
   // 軸カタログ。ビルド時の静的カタログをそのまま返す（実DBの軸構成と同じ形で、
@@ -202,7 +204,13 @@ export async function installApiMocks(page: Page): Promise<void> {
     route.fulfill({
       json: {
         axes: [
-          { ...catalogAxis({ axis_id: "ramp", display: { tile_inputs: [{ property: "v", weight: 1 }], thresholds: [50] } }), default_weight: 0 },
+          {
+            ...catalogAxis({
+              axis_id: "ramp",
+              display: { tile_inputs: [{ property: "v", weight: 1 }], thresholds: [50] },
+            }),
+            default_weight: 0,
+          },
           // 凡例の幅を見るテスト向け。**本番の軸名を持ち込まない**——公開されている軸は
           // DBが決めるもので、リポジトリはその写しを持たない。段階の細かさと単位の長さ
           // だけが要るので、ここで作る。
@@ -229,14 +237,12 @@ export async function installApiMocks(page: Page): Promise<void> {
 
   // 基礎地図スタイル（/api/basemap/styles/liberty）と、それ以外のbasemap配下
   // （タイル等、空スタイルなら通常発生しない）をまとめて空スタイルで応答する。
-  await page.route("**/api/basemap/**", (route) =>
-    route.fulfill({ json: emptyMapStyleFixture() })
-  );
+  await page.route("**/api/basemap/**", (route) => route.fulfill({ json: emptyMapStyleFixture() }));
 
   // 道路情報レイヤーのベクタタイル。空スタイル配下ではソース登録自体は行われるため
   // （MapView.tsxがstyledata後にaddSourceする）、要求されたら空バイナリで応答する。
   await page.route("**/api/region/road-surface-tiles/**", (route) =>
-    route.fulfill({ status: 204, body: Buffer.alloc(0) })
+    route.fulfill({ status: 204, body: Buffer.alloc(0) }),
   );
 }
 
@@ -273,7 +279,7 @@ export async function seedStoredState(page: Page, entries: Record<string, string
  */
 export async function openMobileApp(
   page: Page,
-  { storedState }: { storedState?: Record<string, string> } = {}
+  { storedState }: { storedState?: Record<string, string> } = {},
 ): Promise<void> {
   await installApiMocks(page);
   await page.setViewportSize(MOBILE_VIEWPORT);

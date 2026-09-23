@@ -14,7 +14,7 @@ import {
 } from "@/services/weatherApi";
 import type { Coordinates } from "@/types/route";
 import type { AmedasObservation, WeatherConditions } from "@/types/weather";
-import type { WarningBadgeItem } from "@/components/WarningBadge/WarningBadge";
+import type { WarningBadgeItem, WarningFetchFailure } from "@/components/WarningBadge/WarningBadge";
 
 interface UseWeatherConditionsResult {
   /** 今日の見通し（TodayOutlook向け）。気象庁MSMの予報値（日次集計・weather_code・
@@ -30,6 +30,8 @@ interface UseWeatherConditionsResult {
   amedasError: string | null;
   /** JMA警報・注意報・WBGT・河川氾濫予報を統合したバッジ一覧（WarningBadgeList向け）。 */
   warningBadgeItems: WarningBadgeItem[];
+  /** 警告バッジの取得に失敗した出所（WarningBadgeList向け）。成功している間は空。 */
+  warningFetchFailures: WarningFetchFailure[];
 }
 
 /** 現在地の天候・警告バッジ3種のフェッチ・状態管理。locationReadyが
@@ -119,11 +121,10 @@ export function useWeatherConditions(location: Coordinates, locationReady: boole
   // 常設ヘッダーの表示が予報側の障害・遅延から影響を受けないようにする。
   const amedas = useLocationFetch(getAmedasObservation, location, locationReady);
 
-  // 警告バッジ3種（JMA警報・注意報／WBGT／河川氾濫予報）。いずれも取得失敗を例外として
-  // 見せず「警告なし」として静かに扱う（backend自体が失敗時に空の結果を返す契約のため、
-  // ここへ来るのは主にネットワーク到達不能等）。表示側へは失敗時にnullを渡す。
-  // **安全側ではないトレードオフを承知で選んでいる**（docs/architecture/api-design.md
-  // 「防災・警報系だけはfail-open」。他の/api/weather系は502を返す）。
+  // 警告バッジ3種（JMA警報・注意報／WBGT／河川氾濫予報）。取得失敗の間はその出所のバッジを
+  // 出さず、代わりに失敗した出所を`warningFetchFailures`で渡す——バッジが無いことを
+  // 「警告なし」と読ませないため。backend内部の失敗は空応答（fail-open、
+  // docs/architecture/api-design.md）で届くためここでは区別できず、拾えるのは通信エラー・429等。
   const warnings = useLocationFetch(getWeatherWarnings, location, locationReady);
   const wbgt = useLocationFetch(getWbgtStatus, location, locationReady);
   const flood = useLocationFetch(getFloodForecasts, location, locationReady);
@@ -171,6 +172,16 @@ export function useWeatherConditions(location: Coordinates, locationReady: boole
     return [...jmaItems, ...wbgtItem, ...floodItems];
   }, [weatherWarnings, wbgtStatus, floodForecasts]);
 
+  const warningFetchFailures = useMemo<WarningFetchFailure[]>(
+    () =>
+      [
+        { id: "jma", label: "警報・注意報", error: warnings.error },
+        { id: "wbgt", label: "暑さ指数", error: wbgt.error },
+        { id: "flood", label: "河川氾濫予報", error: flood.error },
+      ].flatMap(({ id, label, error }) => (error ? [{ id, label, detail: error }] : [])),
+    [warnings.error, wbgt.error, flood.error],
+  );
+
   return {
     weather: weather.data,
     weatherLoading: weather.loading,
@@ -179,5 +190,6 @@ export function useWeatherConditions(location: Coordinates, locationReady: boole
     amedasLoading: amedas.loading,
     amedasError: amedas.error,
     warningBadgeItems,
+    warningFetchFailures,
   };
 }
