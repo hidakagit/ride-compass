@@ -78,7 +78,6 @@ CLAUDE.md参照。節見出しはタスクのテーマ分類で、日付は起�
 
 ### 第2段: 検知の空白を埋める
 
-- [ ] [T703](records/tasks/T703.md) ポップアップのXSS到達経路を塞ぐ（maplibre-gl `DOM.sanitize()` バイパス、CVSS 10） 規模S＋M
 - [ ] [T726](records/tasks/T726.md) Supabaseプロジェクトの後始末 規模S
 
 ### 第3段: P2/P3を型ごとに束ねたもの

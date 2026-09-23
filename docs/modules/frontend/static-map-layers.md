@@ -33,7 +33,7 @@
 | `Map/MapView.tsx`（静的レイヤーのsource/layer初期化・並列トラック分離・下敷き表現箇所のみ） | 表示層本体 |
 | `Map/mapStyleOps.ts` | 地図インスタンスへの低水準操作（レイヤーの表示切替・スタイル読み込み後の実行・面レイヤーの差し込み位置・ズーム依存のicon-size式）。このアプリのどのレイヤーかを知らないものだけを置く |
 | `Map/routeArrowIcon.ts`・`icons.tsx` | ルート矢印・アイコン集（下記「本モジュールとの関係」参照） |
-| `Map/popupEscape.ts` | ポップアップHTMLへOSMタグの生値を埋め込む前のエスケープ（`labelOrEscapedRaw`。対訳表に載る値は素通し、フォールバック側だけ潰す） |
+| `Map/pointPopup.ts` | 点データ（事故・POI）をクリックしたときのポップアップ本文。値をテキストノードで入れたDOMを組み、`Popup.setDOMContent()`へ渡す（下記「ポップアップへOSMタグの生値を出すときはHTMLとして解釈させない」） |
 | `Map/RoadInspectorPopup.tsx` | 道をクリックしたときの詳細（**Reactで描き、MapLibreのPopupへportalで差し込む**）。事実（この道の属性）を先に出し、評価は押したときだけ取りに行く（backend `POST /api/region/axis-inspector`、[静的道路属性・タイル配信](../backend/static-road-attributes.md)参照）。軸ごとの効き方は**ルート結果と同じ`AxisContributionBar`**で出す——同じものを別の見た目で見せると読み方を2つ覚えることになる。寄与度はbackendが返す値をそのまま使い、フロントで重みを掛け直さない。**デバッグログONのときだけ`osm_way_id`を出す**——値がおかしい道を見つけたとき、地図で押した1本をそのままbackendの調査（`scripts/measure_gradient_outliers.py --way`）へ渡せるようにする |
 | `Map/roadFacts.ts` | クリックした道の「事実」（道路名・路面・路面状態・トンネル・橋・一方通行）をタイルのプロパティから組み立てる純関数。該当しない項目は行ごと出さない（「なし」が並ぶと該当する項目が埋もれる） |
 | `types/traffic.ts` | 停止要因POI・補給休憩POIの`kind`列挙型定義 |
@@ -594,24 +594,26 @@ JSの例外は飛ばず、`map.on("error")`にしか出ない。気づけるの�
 交差点ノードはそもそも含まれない（材料`intersection_count_per_km`としては軸スタジオから
 引き続き選べるが、現在この材料を使う公開軸は無い）。
 
-## ポップアップへOSMタグの生値を出すときはエスケープする
+## ポップアップへOSMタグの生値を出すときはHTMLとして解釈させない
 
 ポップアップの値は`osm_raw_ways`/`osm_raw_pois`のタグ由来＝**第三者が編集できるデータ**で、
-対訳表に載らない値は生のまま文字列へ入る（`SMOOTHNESS_LABELS`・停止要因/補給POIの
+対訳表に載らない値は生のまま出る（`SMOOTHNESS_LABELS`・停止要因/補給POIの
 ラベル辞書はいずれも`?? 生値`のフォールバックを持つ）。
-行き先は2通りある。**道路の詳細はReactで描くため、生値はテキストノードとして入る**
-（`RoadInspectorPopup.tsx`）。点データ（事故・POI）はHTML文字列を`Popup.setHTML()`へ渡す
-経路で、こちらはMapLibreの`DOM.sanitize()`が走る。
+行き先は2通りあり、**どちらも値をテキストノードとして入れる**。道路の詳細はReactで描く
+（`RoadInspectorPopup.tsx`）。点データ（事故・POI）は`pointPopup.ts`がDOMを組み、
+`Popup.setDOMContent()`へ渡す。
 
-このサニタイザにはバイパスが報告されることがあり、**ライブラリのサニタイザ1枚に
-安全性を預けない**。埋め込む前に`popupEscape.ts`の
-`escapeHtml`／`labelOrEscapedRaw`を通す。
+**`Popup.setHTML()`は使わない**。MapLibreの`setHTML()`は受け取った文字列をサニタイズせず
+そのまま`innerHTML`へ入れる（APIの文書に「信頼できる内容にだけ使うこと」と明記され、
+実装も同じ）。ライブラリの`DOM.sanitize()`が走るのは帰属表示（`AttributionControl`）だけで、
+ポップアップの安全はこちらが持つ。
 
-判断の基準は**行き先ではなく出所**にする。固定の対訳表に載る値は素通しでよく、
-`?? 生値`のフォールバック・OSMタグのキーと値・軸スタジオ経由でDBに入る軸ラベルと軸idは、
-`setHTML()`か`innerHTML`かに関わらずエスケープする——「サニタイザが後ろにいるから
-ここは要らない」と経路ごとに判断すると、サニタイザを通らない経路が後から増えたときに
-そこだけ素通しで残る。
+判断の基準は**行き先ではなく出所**にする。固定の文言（対訳表・定数）だけで組む文字列なら
+HTMLでもよい（例: `pinMarks.ts`の`pinMarkHtml`）。第三者が書ける値——`?? 生値`の
+フォールバック・OSMタグのキーと値・軸スタジオ経由でDBに入る軸ラベルと軸id——が1つでも
+混ざるなら、HTML文字列を組まずにテキストノード（React・`textContent`・`createTextNode`）で
+入れる。「この経路はサニタイザを通るから要らない」と経路ごとに判断すると、サニタイザを
+通らない経路が後から増えたときにそこだけ素通しで残る。
 
 ## 本モジュールとの関係が薄いファイル
 

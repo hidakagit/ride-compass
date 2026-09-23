@@ -3,7 +3,12 @@
 import regionTileConfig from "@/types/generated/region-tile-config.json";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { labelOrEscapedRaw } from "@/components/Map/popupEscape";
+import {
+  type AccidentPopupProperties,
+  buildAccidentPopupContent,
+  buildPoiPopupContent,
+  type PoiPopupProperties,
+} from "@/components/Map/pointPopup";
 import RoadInspectorPopup from "@/components/Map/RoadInspectorPopup";
 import type { RoadSurfacePopupProperties } from "@/components/Map/roadFacts";
 import type { PreferenceAxisDef } from "@/lib/evaluationAxes";
@@ -340,10 +345,6 @@ function fitBoundsToRoutes(map: MapLibreMap, routes: RouteCandidate[], obscured?
   });
 }
 
-// ポップアップ本文の共通スタイル。line-height 1.4はサイドバーの他カード
-// （components/ui/Card等）に近い密度に合わせている。
-const POPUP_BODY_STYLE = "font-size:var(--font-size-md); line-height:1.4;";
-
 // 区間クリックの当たり判定（DETAIL_HIT_LAYER_ID、幅24px）は見た目の線（6px）より広いため、
 // クリック地点（e.lngLat）をそのままマーカー位置に使うと、ルート線から目に見えてズレた
 // 場所にマーカーが立ってしまう。クリックされた区間のgeometry（LineString）上で
@@ -393,31 +394,6 @@ function nearestPointOnLineString(
 // タグ・算出不能はundefined/null（MVTのST_AsMVTがNULLプロパティを省略するため、
 // 実際にはキー自体が存在しない）。
 export type { RoadSurfacePopupProperties } from "./roadFacts";
-
-// 外部静的データソース（警察庁交通事故統計）のクリックポップアップ用プロパティ。
-interface AccidentPopupProperties {
-  fatal?: boolean | null;
-  involves_bicycle?: boolean | null;
-  occurred_year?: number | null;
-}
-
-function buildAccidentPopupHtml(properties: AccidentPopupProperties): string {
-  const rows = [properties.involves_bicycle ? "自転車関連事故" : "事故[自転車以外]"];
-  if (properties.fatal) rows.push("死亡事故");
-  if (properties.occurred_year != null) rows.push(`発生年: ${properties.occurred_year}`);
-  return `<div style="${POPUP_BODY_STYLE}">${rows.join("<br/>")}</div>`;
-}
-
-// 停止要因POI・補給休憩POIのクリックポップアップ用プロパティは同じ形（{kind}）で、
-// ラベル辞書とprefix文言が違うだけのため、1つの関数へ統合する。
-interface PoiPopupProperties {
-  kind?: string | null;
-}
-
-function buildPoiPopupHtml(prefix: string, labels: Record<string, string>, properties: PoiPopupProperties): string {
-  const label = properties.kind ? labelOrEscapedRaw(labels, properties.kind) : "不明";
-  return `<div style="${POPUP_BODY_STYLE}">${prefix}: ${label}</div>`;
-}
 
 export interface MapViewProps {
   routes: RouteCandidate[];
@@ -1068,14 +1044,14 @@ export default function MapView({
       // 道路は「この道は何者で、なぜこの評価なのか」に答える面のため、ルート結果と同じ
       // React部品（RoadInspectorPopup）で描く。HTML文字列を組み立てる方式だと、同じ
       // 「軸ごとの効き方」を別の見た目で見せることになる。点データ（事故・POI）は
-      // 1〜3行の事実だけなのでHTMLのまま。
+      // 1〜3行の事実だけなのでMapLibreのPopupへ直接載せる。
       const point = POINT_LAYER_BY_SCENE_ID.get(feature.layer.id);
-      const html =
+      const pointContent =
         point === undefined
           ? null
           : point.attr_id === "accident_point"
-            ? buildAccidentPopupHtml(feature.properties as unknown as AccidentPopupProperties)
-            : buildPoiPopupHtml(
+            ? buildAccidentPopupContent(feature.properties as unknown as AccidentPopupProperties)
+            : buildPoiPopupContent(
                 PRIMARY_ATTRIBUTE_LABELS[point.attr_id] ?? point.attr_id,
                 pointValueLabels(point),
                 feature.properties as unknown as PoiPopupProperties,
@@ -1083,9 +1059,12 @@ export default function MapView({
 
       popupRef.current?.remove();
       popupRef.current = null;
-      if (html !== null) {
+      if (pointContent !== null) {
         setRoadPopup(null);
-        popupRef.current = new maplibregl.Popup({ closeButton: true }).setLngLat(e.lngLat).setHTML(html).addTo(map);
+        popupRef.current = new maplibregl.Popup({ closeButton: true })
+          .setLngLat(e.lngLat)
+          .setDOMContent(pointContent)
+          .addTo(map);
         return;
       }
       setRoadPopup({
