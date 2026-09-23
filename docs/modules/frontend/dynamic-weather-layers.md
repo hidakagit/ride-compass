@@ -142,7 +142,8 @@ postMessageが`An ArrayBuffer is detached and could not be cloned`で失敗し�
 ある——載せずにおくとクライアントがそこを一律「空」と見なし、補間が一度も動かないまま
 そのズームだけ危険度が消える。
 
-**取りこぼしより空振りを選ぶ**: 判断がつかない場合（インデックス未取得・要素の`basetime`が
+**取りこぼしより空振りを選ぶ**: 判断がつかない場合（インデックス未取得・要素のフレーム
+（`basetime`・`validtime`・`member`。1つの`basetime`に実況と複数の予測が載るため3つで照合する）が
 要求と違う・インデックスの網羅範囲外・URLを解釈できない）は必ず「取りに行く」へ倒す。
 誤って省くと危険情報が地図から消えるため、省けるのは空だと確認済みの場合だけに限る。
 取得に失敗した応答（404を含む）も空タイルとして返す——MapLibreは失敗タイルを再試行しない
@@ -178,7 +179,7 @@ JMAタイル系ソースの`minzoom`/`maxzoom`・パスの系統・ベクタの�
 
 `disaster`（災害）は源泉がチップ`disaster`として宣言したソース（`dynamicWeather.ts: DisasterSourceKey`）を1チップへまとめたグループで、全ソースが1つの`showDisaster`に
 連動する。同じ段（描き方ごとに決まる。`weather.ts: TIER_OF`）の中では源泉の宣言
-（backendの`domain/map_display.py: WEATHER_ELEMENTS`）の並び順が重なり順になるため、面（キキクル3種・雷・竜巻のラスタ）を下に、局所的で見落としやすい線（洪水）・点
+（backendの`domain/weather_elements.py: WEATHER_ELEMENTS`）の並び順が重なり順になるため、面（キキクル3種・雷・竜巻のラスタ）を下に、局所的で見落としやすい線（洪水）・点
 （落雷）を上に置く。面同士が重なった領域は混色し危険度5段階を読み取れなくなるが、危険度
 ゼロの領域は配信元のタイルが透明のため平常時の地図の見た目は変わらない。**この並び順が
 効くのは面どうし・線どうしの間だけである**——面は基礎地図の線・記号より下へ差し込まれ
@@ -187,7 +188,7 @@ JMAタイル系ソースの`minzoom`/`maxzoom`・パスの系統・ベクタの�
 ラスタ画像でしか配信せず現在の警戒レベルを返すAPIを持たないため、「重なっているなら最も
 危険な1枚だけ出す」といった自動制御は実装できない。代わりに、チップの▶パネルの
 「表示する情報」でソースを個別に間引ける——行（要素の呼び名）は源泉の要素の宣言
-（backend `domain/map_display.py: WEATHER_ELEMENTS`の`label`）から`scene/legends.ts:
+（backend `domain/weather_elements.py: WEATHER_ELEMENTS`の`label`）から`scene/legends.ts:
 disasterSourceLegendAxis`が作り、隠したソースは他の凡例絞り込みと同じ保存先
 （`useMapView`が持つ）へ入って、`hiddenDisasterSources`としてこのフックへ渡る。
 ソースごとの`visible`だけでなく、1本の`targetTimes`JSONを共有する要素がすべて非表示なら
@@ -232,7 +233,7 @@ icon-sizeはズームのみに依存する。
 
 ## 新しい動的要素を追加する1本道
 
-1. backend: `domain/map_display.py: WEATHER_ELEMENTS`へ宣言を1件足す（チップid・名前付き
+1. backend: `domain/weather_elements.py: WEATHER_ELEMENTS`へ宣言を1件足す（チップid・名前付き
    ソース・描き方の種類・気象庁の配信要素id）。タイルで描くなら`domain/jma_tile_specs.py:
    JMA_TILE_SPECS`へ配信元の仕様（パスの系統・ズーム・ベクタのレイヤー名）を1件足す。
    配信元から取るがタイルでは描かない要素（落雷のGeoJSON等）は、同じファイルの

@@ -6,13 +6,8 @@
 """
 
 from app.domain.jma_tile_specs import JMA_TARGET_TIME_FILES
-from app.domain.map_display import (
-    MAP_LAYER_CATEGORIES,
-    MAP_OVERLAY_GROUPS,
-    WEATHER_ELEMENTS,
-    weather_element_deliveries,
-    weather_element_tile,
-)
+from app.domain.map_display import MAP_LAYER_CATEGORIES, MAP_OVERLAY_GROUPS
+from app.domain.weather_elements import WEATHER_ELEMENTS, weather_element_deliveries, weather_element_tile
 
 
 def test_グループの鍵は重複しない() -> None:

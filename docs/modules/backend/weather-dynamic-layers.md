@@ -27,7 +27,7 @@ MSMは数値予報モデルの出力で観測値・公式発表の代わりに�
 
 | レイヤー | ファイル |
 |---|---|
-| domain | `msm.py`（MSM格子の幾何・双一次補間）・`jma_tile_specs.py`（配信元の要素ごとの仕様レジストリ。パスの系統・ズーム・ベクタのレイヤー名）・`weather.py`・`jma_amedas.py`・`jma_area.py`・`jma_warning.py`・`wbgt.py`・`wbgt_points.py`・`twilight.py`・`flood_forecast.py`・`terrain_rgb.py`（標高タイルのエンコード変換、純関数）・`gsi_tiles.py`（国土地理院タイルの製品ごとの事実——実データを持つズーム範囲・上流のパス・出典表記。中継ルートと画面へ配るURLもここから導く）・`weather_display.py`（気象の値を色へ写す段。**本番プロセスは読まず**、`scripts/export_openapi.py`の生成物を経由してだけ画面へ届く） |
+| domain | `msm.py`（MSM格子の幾何・双一次補間）・`jma_tile_specs.py`（配信元の要素ごとの仕様レジストリ。パスの系統・ズーム・ベクタのレイヤー名）・`weather_elements.py`（動的気象で地図に描くものの宣言。画面へは生成物で届き、本番プロセスではプリウォームが温める要素をここから導く。**本番が読むため**、本番が読まない表示値の宣言`map_display.py`とは別のファイルに置く——デプロイの要否はファイル単位で決まる）・`weather.py`・`jma_amedas.py`・`jma_area.py`・`jma_warning.py`・`wbgt.py`・`wbgt_points.py`・`twilight.py`・`flood_forecast.py`・`terrain_rgb.py`（標高タイルのエンコード変換、純関数）・`gsi_tiles.py`（国土地理院タイルの製品ごとの事実——実データを持つズーム範囲・上流のパス・出典表記。中継ルートと画面へ配るURLもここから導く）・`weather_display.py`（気象の値を色へ写す段。**本番プロセスは読まず**、`scripts/export_openapi.py`の生成物を経由してだけ画面へ届く） |
 | services | `weather_service.py`・`jma_amedas_service.py`・`wbgt_service.py`・`warning_service.py`・`flood_service.py`・`jma_tile_prewarm_service.py`（定期プリウォームバッチ）・`terrain_tile_service.py`（地理院の標高タイルをTerrain-RGBへ変換して配信） |
 | infrastructure | `msm_client.py`（MSMの同期・読み出し）・`jma_tile_client.py`・`jma_tile_redis_cache.py`（タイル本体のRedis cache-aside）・`jma_tile_interpolation.py`（配信元が持たないズームの補間）・`jma_tile_index.py`（在否インデックス）・`jma_tile_content.py`（タイルが空かどうかの判定。キャッシュと在否インデックスが共有する）・`jma_amedas_client.py`・`jma_warning_client.py`・`wbgt_client.py`・`flood_client.py`・`basemap_client.py`・`gsi_tile_client.py`・`simple_api_client.py`（後者4クライアントが共有する定型文、後述） |
 | api | `weather.py`・`jma_tile.py`・`basemap.py`・`gsi_tile.py` |
@@ -129,7 +129,7 @@ fail-open方針の非対称性: 警報・WBGT・洪水予報は失敗時に警�
 （使用するズームの偶奇）と`maxNativeZoom`（画像が実在する最大ズーム）を持ち、**両方を
 突き合わせないと実データの無いズームを指す**。`effective_max_zoom()`が
 「`maxNativeZoom`以下で`zoomUse`の偶奇を満たす最大値」を導出し、MapLibreの`maxzoom`
-（frontendへは動的気象の要素の宣言`domain/map_display.py: WEATHER_ELEMENTS`の生成物
+（frontendへは動的気象の要素の宣言`domain/weather_elements.py: WEATHER_ELEMENTS`の生成物
 `mapDisplay.weatherElements`の`tile`として配る）とプリウォームの対象ズームの両方が
 この1箇所から決まる。パスの系統（`risk`・`nowc`・`rasrf`）も同じ仕様が持ち、タイルで配らない
 配信要素（落雷のGeoJSON）の系統だけは`JMA_NON_TILE_PATH_GROUPS`が持つ（1つの要素idの系統は
@@ -137,7 +137,7 @@ fail-open方針の非対称性: 警報・WBGT・洪水予報は失敗時に警�
 データ層が組み立てる実データのURLは生成物の要素ごとの`jmaElements`（時刻の段の順に並んだ
 配信要素id・系統・時刻一覧のファイル）から組み立てる。1つの名前付きソースが時刻によって別の配信要素
 から届く（降水の`main`は`hrpns`→`rasrf`）ため段の並びで持ち、段の間でソースのズーム範囲が
-食い違えば`map_display.weather_element_tile()`が生成時に落とす。
+食い違えば`weather_elements.weather_element_tile()`が生成時に落とす。
 
 | 要素 | zoomUse | maxNativeZoom | 導出される上限 |
 |---|---|---|---|
@@ -196,6 +196,7 @@ URLも変わるため、ブラウザキャッシュ（`api/cache_policy.py`）�
 | 補間で埋めるズーム | プリウォームは実データのあるズームしか温めないが、**インデックスは「載っていないタイルは空」を意味する**ため、補間対象のズームを載せずにおくとクライアントがそこを一律「空」と見なし補間が一度も動かない。補間結果が空になるのは親が空のときだけなので、中身のある親タイルの4象限を子ズームの中身ありとして載せる（`_with_interpolated_zooms`、追加の取得は発生しない） |
 | 判定不能時 | **「中身あり」に倒す**（誤って空と判定すると危険情報が表示されなくなる） |
 | 保持 | `redis_json_cache`経由、固定キー1つにTTL20分。要素ごとに`basetime`が異なるためキーには含めず、ペイロード側の要素ごとに持たせる |
+| フレームの照合 | 要素ごとに温めたフレームの`basetime`・`validtime`・`member`を持たせ、クライアントは3つが要求のタイルと一致するときだけ信用する。**1つの`basetime`に実況と複数の予測の`validtime`が載る**（降水ナウキャストの予測は最新の実況と同じ`basetime`、雷・竜巻も同様）ため、`basetime`だけで照合すると、実況で空だったタイルを予測のフレームでも取りに行かず、予測にだけある雨・雷が地図から消える |
 | `coverage` | インデックスが網羅する地理範囲。**この外は在否が不明**のためクライアントは従来どおり取得する |
 | 未保存時 | `available: false`を返し、クライアントは従来どおり全タイルを取りに行く（インデックスが無いことで表示が欠けてはならない） |
 | 応答の型 | `JmaTileIndexResponse`（`api/routers/jma_tile.py`のPydanticモデル）。frontendは生成型をそのまま使い構造を手書きしない——組み立て（`_store_index`）と応答が別ファイルのため、構造の変更は「表示は正常なまま間引きだけが黙って効かなくなる」形でしか現れない |
@@ -205,9 +206,17 @@ URLも変わるため、ブラウザキャッシュ（`api/cache_policy.py`）�
 `next_run_time=datetime.now()`で起動直後にも即時実行）が、アプリの実運用範囲
 （`domain/wind_grid.py: WIND_GRID_BBOX`）ぶんのタイルをあらかじめ`JmaTileClient.get()`
 経由でRedisへ温める。対象ズームは上記`effective_max_zoom()`が導出した上限まで——超過
-ズームはMapLibreがクライアント側で拡大表示するだけで追加の通信が発生しないため。雷/竜巻ナウキャストは
-未来方向の予報フレームを複数持つが、プリウォームは直近の実況フレーム（1件）のみを
-対象にする（キキクル・線状降水帯予測マップは元々未来フレームを持たないため対象外）。
+ズームはMapLibreがクライアント側で拡大表示するだけで追加の通信が発生しないため。
+温める要素は動的気象の要素の宣言（`WEATHER_ELEMENTS`）のうちタイルで描くものの配信要素すべてで、
+宣言から導く（プリウォーム側に要素idの一覧を持たない。宣言へ1件足せば温まる）。
+予報フレームを複数持つ要素（降水・雷・竜巻）も、温めるのは要素ごとに1フレームだけ——
+全フレームを温めるとタイル数が桁違いに膨らむ。選ぶのは、時刻の段の先頭の配信要素
+（降水ナウキャスト・雷・竜巻・キキクル等）では直近の実況フレーム、2段目以降（降水短時間予報）では
+**画面がその段に入って最初に描くフレーム**（前の段の最後の`validtime`より後で、`member`ごとの
+最新の完全な予報ラン＝異なる`validtime`を複数持つ`basetime`の、最も近い`validtime`）。
+2段目以降の時刻一覧には単発の中間ラン（`validtime`=`basetime`）や古いランの行も載るため、
+実況を選ぶ規則をそのまま当てると画面が描かないフレームを温める。前の段の時刻一覧が取れなければ
+段の境目が分からないため、後の段も温めない。
 
 **JMAへの実フェッチの秒間上限**: `jma_tile.py`の300/分（クライアント単位）とは別に、
 `JmaTileClient.fetch`自身が実際にJMAへ問い合わせる直前で、プロセス全体で共有する

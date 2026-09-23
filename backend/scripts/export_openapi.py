@@ -43,17 +43,19 @@ from app.main import app  # noqa: E402
 from app.domain.wind import ASSUMED_SPEED_KMH, MAX_ASSUMED_SPEED_KMH, MIN_ASSUMED_SPEED_KMH  # noqa: E402
 from app.domain.hard_filters import DEFAULT_HARD_FILTERS, HARD_FILTER_LABELS, HARD_FILTER_NAMES  # noqa: E402
 from app.domain.geo import COMPASS_LABELS  # noqa: E402
-from app.domain.map_display import (  # noqa: E402
-    DEFAULT_DIFFICULTY_BOUNDARIES,
-    MAP_LAYER_CATEGORIES,
-    MAP_LAYER_IDS,
-    MAP_LAYER_KINDS,
+from app.domain.weather_elements import (  # noqa: E402
     WEATHER_ELEMENTS,
     WEATHER_LAYER_GROUPS,
     WeatherElement,
     weather_element_attribution,
     weather_element_deliveries,
     weather_element_tile,
+)
+from app.domain.map_display import (  # noqa: E402
+    DEFAULT_DIFFICULTY_BOUNDARIES,
+    MAP_LAYER_CATEGORIES,
+    MAP_LAYER_IDS,
+    MAP_LAYER_KINDS,
     ROUTE_ARROW_HALO_SCALE,
     ROUTE_ARROW_SIZE_BY_ZOOM,
     ROUTE_ARROW_SPACING_PX,
