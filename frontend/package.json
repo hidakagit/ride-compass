@@ -15,7 +15,7 @@
     "lint": "eslint",
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:e2e": "playwright test",
+    "test:e2e": "npm run build && playwright test",
     "generate:api": "openapi-typescript src/types/generated/openapi.json -o src/types/generated/api.d.ts"
   },
   "dependencies": {

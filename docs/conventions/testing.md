@@ -672,42 +672,86 @@ DOM環境の構築コストはテストファイルごとにかかるため、�
 `document.createElement("canvas")`を使う実例。テストファイル単体では判断できない
 「実装側の隠れたDOM依存」を見落とし、node環境化すると実行時エラーになる）。
 
-## パターン4: フロントエンドのPlaywright（E2E）→ 本番同等サーバー・ローカルworkers=1
+## パターン4: フロントエンドのE2E（Playwright）→ 実機でしか出ないものだけを見る
 
-1. **webServerは本番と同じエントリポイントを使う。** `frontend/next.config.ts`は
-   `output: "standalone"`（本番Dockerfileが`node server.js`で起動する構成）のため、
-   `playwright.config.ts`のwebServerも`npm run build && npm run start:standalone`
-   （`frontend/scripts/prepare-standalone.mjs`でDockerfileのCOPY相当を再現してから
-   `node .next/standalone/server.js`を起動）を使う。以前は`next start`
-   （`npm run start`）を使っていたが、standalone構成とは組み合わせ不可という警告が
-   出ており、standalone構成固有の問題（静的アセット配置ずれ等）をE2Eが検知できない
-   状態だった（T252併用導入の実機検証で発覚、2026-08-23）。
-2. **ローカル実行はworkers=1に固定する。** `playwright.config.ts`の既定
-   （CPU論理コア数ベースの並列worker）のまま実行すると、同一のwebServer（Next.js
-   サーバー1プロセス）へ複数のヘッドレスChromiumが同時に地図（MapLibre GL・WASM）を
-   読み込みに行き、ページ遷移・`beforeEach`フックが軒並み30秒タイムアウトする事象を
-   複数回実測した（2026-08-23）。workers=1へ絞ると同条件で安定して全green。
-   CIはGitHub Actions側のジョブ専有リソースを前提に対象外（`process.env.CI`判定）。
+### 何を対象にするか
 
-3. **「見たい画面まで進める段取り」は`e2e/fixtures.ts`のヘルパーを使い、テストごとに
+E2Eは、**実ブラウザ・本番ビルドでしか出ず、かつ機械で判定できるもの**を確かめる場である。
+単体テスト（vitest・happy-dom）は実寸を返さず、CSSのカスケードを解かず、地図は代役
+（Worker・描画・スタイル検証を持たない）なので、次の3つの観点はE2Eでしか見られない。
+
+| 観点 | 例 | 何で判定するか |
+|---|---|---|
+| 1. 収まる・押せる | ヘッダーが幅からはみ出す、凡例の行がセルからはみ出す、下部のバーの下に潜り込んで押せない | `scrollWidth`/`clientWidth`・`boundingBox()`の実寸 |
+| 2. ブラウザ・ランタイムの実挙動 | ブラウザ既定の動作（暗黙のフォーム送信・タッチ操作の割り当て）、実イベントが地図を通って届くか、MapLibreのWorker・描画・スタイル検証・`idle` | 実イベントを起こした結果・画素・コンソール |
+| 3. カスケードの勝ち負け | `@layer`の外に置いたリセットがTailwindのユーティリティを潰す、モジュールCSSの詳細度が部品の既定サイズを踏む | `getComputedStyle`の計算後の値 |
+
+**対象にしないもの**:
+
+- **読みやすさ・色**（配色が凡例と合っているか、縁取りが見えるか）。人が見る
+  （[frontend-design-system.md](../modules/frontend/frontend-design-system.md)「実機確認の方法」）。
+  機械にやらせると画面写真の突き合わせになり、保存した過去の値と比べる形になる。
+- **DOMの状態・ロジックだけの主張**（押すと何が出るか・候補が何件並ぶか・`aria-pressed`が
+  反転するか）。vitestで確かめる。E2Eへ置くと同じことを何倍も遅く確かめるだけで、
+  実機でしか出ない壊れ方は1つも捕まえない（地図のWorkerが死んでもDOMの主張は緑のまま通る）。
+
+各テストは、冒頭のコメントで**どの観点を見ているか**を言えること。言えないテストは置かない。
+ブラウザはChromiumだけにする（ブラウザ間の差を見ることは目的に入れていない）。
+
+### 共通フィクスチャに置くもの
+
+`e2e/fixtures.ts`に置いてよいのは、**目的の画面まで進める導線**だけ——アプリが起動する
+ためのAPIモックの既定応答と、`openMobileApp`・`openMobileSheet`・`generateRoutes`・
+`seedStoredState`のような段取りのヘルパー。
+
+**判定対象になる値は、各テストが自分で用意する**（幅を測るための長いラベル・段階の細かい
+軸・描けたかを見る塗り色等）。共通側の応答を上書きするには、テストの中で同じURLへ
+`page.route`を後から登録する（Playwrightは後から登録したルートを先に当てる）。
+判定対象の値を共通側に置くと、1本の都合が他の全テストの前提になり、その値を変えた人は
+別のテストの判定対象を変えたことに気づけない。
+
+### 走らせ方
+
+- **`npm run test:e2e`**（`npm run build`→`playwright test`）。CIのe2eジョブも同じ
+  コマンドを使う。並行実行の開発機では`heavy`の枠を通す（[orchestration.md](orchestration.md)）。
+- 起動するのは、本番Dockerfileと同じ`node .next/standalone/server.js`
+  （`npm run start:standalone`。`scripts/prepare-standalone.mjs`がDockerfileのCOPYと同じ
+  静的ファイルの配置を作る）。`next start`・`next dev`は使わない——standalone構成に固有の
+  配置ずれを捕まえられず、devは初回コンパイルの待ち時間が読めない。
+- `playwright.config.ts`の`webServer`は**起動だけ**を行う。E2E専用のポートを使い、
+  **既に動いているサーバーを使い回さない**（devサーバーや古いビルドを試してしまうため）。
+  同じポートが塞がっていれば起動の時点で失敗する。
+- specだけを直して回し直すときは、直前のビルドを使って
+  `./node_modules/.bin/playwright test e2e/<ファイル>`でよい。`frontend/src`を変えたら
+  `npm run test:e2e`からやり直す（直前のビルドは変更前のコードである）。
+- 開発機ではworkers=1で走る（`playwright.config.ts`）。1つのサーバーへ複数のChromiumが
+  同時に地図を読みに行くと、ページ遷移とフックが30秒の枠を超える。
+- 実データ・実backendで見る系統の置き場と走らせ方: 未定（D-017）。
+
+### 書き方
+
+1. **「見たい画面まで進める段取り」は`e2e/fixtures.ts`のヘルパーを使い、テストごとに
    書き直さない。** モバイルはデスクトップと導線が別（下部タブバーとボトムシート）で、
    シートを開く・生成の完了を待つ書き方を外すとUIの中身を見る前に落ちる。
    `openMobileApp`（モック登録・390x812・goto）→`openMobileSheet`（タブを押して開く。
    ハイドレーション前のクリックは効かないため開くまで再試行する）→`generateRoutes`
    （距離指定→生成→完了待ち）の順に呼ぶ。保存される画面状態（レイヤーのON/OFF等）は
    クリックで作らず`seedStoredState`でlocalStorageへ与える。
-4. **レイアウトの溢れは座標・幅を実測して押さえる。** 画面外へ出た要素もアクセシビリティ
+2. **レイアウトの溢れは座標・幅を実測して押さえる。** 画面外へ出た要素もアクセシビリティ
    ツリーには残るため、role・名前で見つかることは「押せる」ことを意味しない。
    `scrollWidth`/`clientWidth`の比較と`boundingBox()`で確かめる（`e2e/mobile.spec.ts`の
    ヘッダー検査）。
-5. **ロケータを当て推量で書かない。** 落ちたテストは`test-results/<テスト名>/
+3. **ロケータを当て推量で書かない。** 落ちたテストは`test-results/<テスト名>/
    error-context.md`へその時点の画面構造（role・アクセシブル名）を吐くので、
    実際の名前はそこで確かめる。
-6. **地図が描けたかは画素で見る。** Workerが読めない・スタイルが読めない等で地図が何も
+4. **地図が描けたかは画素で見る。** Workerが読めない・スタイルが読めない等で地図が何も
    描かれなくても、canvasは残り、サイズもDOMの状態も変わらない。DOMだけを見るテストは
    その状態で緑になる。描けたことを見るのは`e2e/map-runtime.spec.ts`の1本だけに置き
    （GeoJSONの面を専用色で塗り、canvasの写しにその色の画素が出るかを数える）、他の
    テストへ同じ確認を足さない。
+5. **足したテストは、わざと壊した入力で落ちることを見てから完了にする**（CLAUDE.md
+   「修正の原則」）。E2Eは壊れていても緑で通る形になりやすい——地図のWorkerを外した
+   ビルドで、DOMだけを見るテストは全て緑のまま通った。
 
 ## パターン5: 外部クライアント・Redisのフェイクは共有モジュールから取る
 

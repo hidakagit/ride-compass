@@ -7,9 +7,9 @@
 #   backendジョブと並べて走らせる。
 # - frontend: eslint → tsc --noEmit → vitest の順。型エラー・lintは実行の速い順に先へ置き、
 #   失敗を早く返す。
-# - e2e: クリティカルパス（ルート生成→表示、レイヤー切替）のPlaywrightスモークテスト
-#   （改善計画「別の切り口」対応）。バックエンド・外部API（openrouteservice/Open-Meteo/
-#   OpenFreeMap）には依存せず、frontend/e2e/fixtures.tsのネットワークモックで置き換える
+# - e2e: 本番ビルドを実ブラウザで開き、実機でしか出ないもの（収まる・押せる、ブラウザと地図の
+#   実挙動、カスケード）を見る（対象の定義は docs/conventions/testing.md パターン4）。
+#   バックエンド・外部APIには依存せず、frontend/e2e/fixtures.tsのネットワークモックで置き換える
 #   （API契約の正しさはapi-contractジョブが別途担保）。DB・APIキーが不要なため独立ジョブにできる。
 name: CI
 
