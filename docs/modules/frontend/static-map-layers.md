@@ -30,7 +30,9 @@
 | `Map/primaryAttributes.ts` | 一次属性のカタログと、二次軸→一次属性の導出（軸増減時の観測データ連動表示に使用） |
 | `Map/secondaryAxes.ts` | 「推定指標（合成）」チップグループの軸一覧生成（略名・対応`MapLayerId`・アイコン・パネル説明）。`show_map_icon`による除外を持つ |
 | `Map/mapLayers.ts` | レイヤーカタログ本体（`MapLayerDescriptor[]`）・地図上チップの最上位グループ（`MAP_OVERLAY_GROUP_ORDER`が正本。現在は道路/環境/スポット）判定・軸スタジオ由来レイヤーの除外判定・`deriveFetchLayerStatus`（MapLibreのソースイベントを経由しないレイヤーのデータ状態判定） |
-| `Map/MapView.tsx`（静的レイヤーのsource/layer初期化・並列トラック分離・下敷き表現箇所のみ） | 表示層本体 |
+| `features/map/scene/mapScene.ts` | 地図に載っているべきものの宣言の型（ソース・レイヤー・feature-state）と、重なりの段（`MAP_SCENE_TIERS`）・押せるレイヤーの引き方 |
+| `features/map/scene/applyMapScene.ts` | 宣言を地図へ当てる唯一の実装（`addSource`/`addLayer`/`setPaintProperty`/`setFilter`/`setFeatureState`）。前回の宣言との差分だけを当て、段の順に差し込む |
+| `Map/MapView.tsx`（静的レイヤーの箇所のみ） | 画面の状態をsceneの入力へ渡す配線・押された点や道の判定とポップアップ・レイヤーのデータ取得状態の算出元（`buildLayerDataSources`）。レイヤーの描画コードは持たない |
 | `Map/mapStyleOps.ts` | 地図インスタンスへの低水準操作（スタイル読み込み後の実行・面レイヤーの差し込み位置・ズーム依存のicon-size式）。このアプリのどのレイヤーかを知らないものだけを置く |
 | `Map/routeArrowIcon.ts`・`icons.tsx` | ルート矢印・アイコン集（下記「本モジュールとの関係」参照） |
 | `Map/pointPopup.ts` | 点データ（事故・POI）をクリックしたときのポップアップ本文。値をテキストノードで入れたDOMを組み、`Popup.setDOMContent()`へ渡す（下記「ポップアップへOSMタグの生値を出すときはHTMLとして解釈させない」） |
@@ -90,14 +92,18 @@ backendから取り、タイル本体はrewrites経由に戻る。
 
 ## レイヤーを1枚足すときに触る場所
 
-記述子（`mapLayers.ts: MapLayerDescriptor`）を1エントリ足し、`MapView.tsx`へ描画コードを
-書く。アイコン・情報源・重なりの段・表示専用の凡例はすべて記述子の宣言で、**描画側に
+記述子（`mapLayers.ts: MapLayerDescriptor`）を1エントリ足し、そのレイヤーの描き方を
+家族の宣言（`features/map/scene/groups/*.ts`。道路の線なら`roadLines.ts`、点なら`points.ts`、
+面なら`areaRasters.ts`）へ足す。描き方の分類・色が源泉（backendの一次属性カタログ）の行で
+決まる家族では、源泉へ1行足せば宣言が導かれる。新しい家族そのものを足すときだけ、
+`buildScene.ts`の家族の並びへ1行足す。アイコン・情報源・表示専用の凡例は記述子の宣言、
+重なりの段は家族の宣言が持ち、**描画側に
 レイヤーidの対応表を持たない**——対応表に書き足す形だと、忘れても汎用の既定値で描けて
 しまい「他のレイヤーと見分けが付かないアイコン」「状態ドットが永久に出ない」「初回描画だけ
 重なりがずれる」という、画面を細かく見ないと気づけない壊れ方になる。記述子の側は必須
 フィールドのため、書き忘れは型検査が落とす。
 
-**描画コードの書き忘れだけは機械が検知しない**。記述子だけ足すと、チップはONになり凡例も
+**描き方の宣言の書き忘れだけは機械が検知しない**。記述子だけ足すと、チップはONになり凡例も
 出るのに地図には何も出ない。
 
 ## 表示専用の凡例（`MapLayerDescriptor.readOnlyLegend`）
@@ -110,12 +116,13 @@ backendから取り、タイル本体はrewrites経由に戻る。
 画面の状態からしか作れない凡例（選択中の候補とレンズで変わるルート、要素ごとの表示ON/OFFを
 持つ災害）だけは`page.tsx`が組み立てる。
 
-## 表示層の実装（`MapView.tsx`）
+## 表示層の実装（`scene/applyMapScene.ts`）
 
 このモジュールが扱う静的レイヤーの実際のMapLibre実装（`addSource`/`addLayer`/
-`setPaintProperty`/`setFilter`呼び出し）はすべて`MapView.tsx`にある。
+`setPaintProperty`/`setFilter`呼び出し）はすべて`scene/applyMapScene.ts`にある。
 `scene/groups/*.ts`は色分け式・分類の**宣言**のみを持ち、
-DOM/MapLibreを一切知らない。
+DOM/MapLibreを一切知らない。`MapView.tsx`は画面の状態をsceneの入力へ渡すだけで、
+レイヤーを直接は触らない。
 
 **面で塗るレイヤーは基礎地図の道路網より下に入る**（`mapStyleOps.ts`）。段が面なら
 `areaLayerAnchor`の返す位置を`beforeId`にする——判断は`applyMapScene`1箇所にあり、

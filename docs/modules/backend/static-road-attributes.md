@@ -57,7 +57,7 @@ OSMは**行だけを絞り、タグは絞らない**。タグは容量の1.9%し
 |---|---|---|---|
 | 取込 | `batch/source_profile.yaml` | DBへ入れるか | データ容量と、表示/探索の少なくとも一方で使うか |
 | 探索可否（0次フィルタ） | `domain/hard_filters.py: HARD_FILTER_HIGHWAY_TYPES` | 探索グラフへ入れるか | 法規・実務判断（[評価・スコアリング](evaluation-scoring.md)「0次ハードフィルタ」） |
-| 表示グルーピング | `frontend/.../scene/groups/roadLines.ts: ROAD_TRACKS` | 地図で何色に塗るか | 地図の見やすさ |
+| 表示グルーピング | `domain/material_catalog.py`（一次属性の`display_axes`。フロントは生成物`primaryAttributes.ts`で受け取る） | 地図でどの行に束ねるか | 地図の見やすさ |
 
 **取込スコープと探索スコープは意図的に食い違う**（幹線国道は幹線道路の把握・回避判断の
 ために取り込むが、探索からは外す）。**表示グルーピングを取込プロファイルへ機械的に
@@ -65,10 +65,10 @@ OSMは**行だけを絞り、タグは絞らない**。タグは容量の1.9%し
 凡例に取込対象外の値が並ぶのは、この選択の結果である。
 
 路面（surface）は逆に**正準が1箇所**（`domain/road.py`）で、他はすべてそこから導く。
-フロントの表示グループだけは手で並べるため、`export_openapi.py`が書き出す
-`surface-tags.json`との突き合わせを**フロント側の不変条件テスト**
-（`features/map/scene/groups/declarations.test.ts`）が行い、「表示グループの全タグ＝正準
-分類済みタグ全体」を検証する。
+地図の表示行（`material_catalog.py`の路面属性の`display_axes`）だけは手で並べるため、
+**backendの不変条件テスト**（`tests/test_primary_attribute_display.py`）が「表示行の全タグ＝
+正準分類済みタグ全体」を検証する。フロントは生成物（`primaryAttributes.ts`）で表示行を
+受け取るだけで、突き合わせを持たない。
 
 ### 面のデータもタイル1枚=1行で持つ（`gsi_dem_tile.py`・`io_lulc_tile.py`）
 

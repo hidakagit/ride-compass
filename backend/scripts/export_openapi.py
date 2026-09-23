@@ -27,7 +27,6 @@ from app.domain.registry import (  # noqa: E402
     reset_registry_for_testing,
 )
 from app.domain.registry_defaults import register_defaults  # noqa: E402
-from app.domain.road import BAD_OSM_SURFACE_TAGS, GOOD_OSM_SURFACE_TAGS  # noqa: E402
 from app.domain.wind_grid import (  # noqa: E402
     WIND_GRID_DETAIL_ALLOWED_SPACINGS_DEG,
     WIND_GRID_DETAIL_MAX_POINTS,
@@ -119,7 +118,6 @@ from app.services.tile_version_service import TILE_SHAPES  # noqa: E402
 
 GENERATED_DIR = Path(__file__).resolve().parents[2] / "frontend" / "src" / "types" / "generated"
 OUTPUT_PATH = GENERATED_DIR / "openapi.json"
-SURFACE_TAGS_PATH = GENERATED_DIR / "surface-tags.json"
 REGION_TILE_CONFIG_PATH = GENERATED_DIR / "region-tile-config.json"
 PRIMARY_ATTRIBUTES_PATH = GENERATED_DIR / "primaryAttributes.ts"
 WIND_GRID_CONFIG_PATH = GENERATED_DIR / "wind-grid-config.json"
@@ -131,6 +129,7 @@ LANDCOVER_CLASSES_PATH = GENERATED_DIR / "landcover-classes.json"
 PALETTE_PATH = GENERATED_DIR / "palette.json"
 WEATHER_SCALES_PATH = GENERATED_DIR / "weather-scales.json"
 MAP_DISPLAY_PATH = GENERATED_DIR / "mapDisplay.ts"
+
 
 def _strip_prose(node: object, *, keep: bool = False) -> object:
     """docstring由来の`description`・`summary`を落とす。
@@ -183,13 +182,6 @@ def _write_ts(path: Path, name: str, data: dict | list) -> None:
 def main() -> None:
     GENERATED_DIR.mkdir(parents=True, exist_ok=True)
     _write_json(OUTPUT_PATH, _strip_prose(app.openapi()))  # type: ignore[arg-type]
-    # 路面語彙の正準タグ集合（domain/road.py）。フロントの表示グループ定義
-    # （roadFilterAxes.ts）が正準分類とずれていないことをroadFilterAxes.test.tsが
-    # このJSONと突き合わせて検証する（地図の色とルート評価の食い違いを防ぐ）。
-    _write_json(
-        SURFACE_TAGS_PATH,
-        {"good": sorted(GOOD_OSM_SURFACE_TAGS), "bad": sorted(BAD_OSM_SURFACE_TAGS)},
-    )
     # 地域ベクタタイルのレイヤー名・世代。フロントの手書き定数（MapView.tsxのソース
     # レイヤー名、regionApi.ts: 各tileUrl()の?v=）がこのJSONとregionApi.test.tsで
     # 突き合わされる（CIのapi-contractジョブがドリフト検知）。
@@ -390,8 +382,8 @@ def main() -> None:
             for attr in all_primary_attributes()
         ],
     )
-    # 気象庁タイルの要素ごとのズーム範囲（domain/jma_tile_specs.py）。frontendの
-    # MapView.tsx: DYNAMIC_WEATHER_RENDERERSがmaxzoomを手書きせずここから受け取る。
+    # 気象庁タイルの要素ごとのズーム範囲（domain/jma_tile_specs.py）。frontendの動的気象の
+    # 描き方の宣言（features/map/scene/groups/weather.ts）がmaxzoomを手書きせずここから受け取る。
     _write_json(
         JMA_TILE_CONFIG_PATH,
         {

@@ -5,9 +5,9 @@
 # 両方へ書いたときにそのタグが良くも悪くもある状態になり、どちらで塗られるかは読む側の
 # 評価順で決まる。表なら1つのタグに1つの判定しか書けない。
 #
-# この表が路面語彙の単一ソースで、PostGIS側のMVT生成SQLもフロントの表示グループも
-# ここへ追従する。タグを増減したらexport_openapi.py（surface-tags.jsonを書き出す）の
-# 再実行と、フロントのグループ定義の追従が要る。
+# この表が路面語彙の単一ソース。PostGIS側のMVT生成SQLはここから導かれ、地図の表示行
+# （material_catalog.pyの路面属性のdisplay_axes）がこの分類を過不足なく覆うことは
+# tests/test_primary_attribute_display.pyが見る——タグを増減したら表示行もそこで揃える。
 _SURFACE_IS_GOOD: dict[str, bool] = {
     "asphalt": True,
     "paved": True,

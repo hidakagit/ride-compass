@@ -91,10 +91,10 @@ export function parseJmaTileElement(url: string): JmaTileElementRef | null {
 }
 
 /**
- * ソース初期化時のプレースホルダURL（`MapView.tsx: DYNAMIC_WEATHER_RENDERERS`）。
+ * ソースを作るときの仮のURL（`features/map/scene/groups/weather.ts: WEATHER_ELEMENTS`）。
  *
- * 実データが来る前にsourceを作るための仮の値で、`applyDynamicWeatherState`が本物のURLへ
- * 差し替える。時刻部分は実在しない値のため、万一このまま要求されても配信元で404になる。
+ * 実データが来る前にsourceを作るための仮の値で、中身が届くと本物のURLへ差し替わる。
+ * 時刻部分は実在しない値のため、万一このまま要求されても配信元で404になる。
  */
 export function jmaPlaceholderTileUrl(
   group: JmaTileTarget["group"],

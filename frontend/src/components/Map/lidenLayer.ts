@@ -9,12 +9,16 @@
 // 専用のfetch effectを持つ（他要素のuseMemoだけで完結する構成とは異なる）。
 
 import type { DynamicWeatherFrame } from "@/components/Map/dynamicWeather";
-import { fetchJmaTargetTimes, parseValidtime, type JmaNowcastFrame, jmaElementUrl } from "@/components/Map/jmaNowcastFrames";
+import {
+  fetchJmaTargetTimes,
+  parseValidtime,
+  type JmaNowcastFrame,
+  jmaElementUrl,
+} from "@/components/Map/jmaNowcastFrames";
 import { fetchJson } from "@/lib/fetchJson";
 import { DEFAULT_API_TIMEOUT_MS } from "@/lib/apiTimeouts";
 
 export type LidenFrame = JmaNowcastFrame;
-
 
 /** liden（雷放電位置データ）のフレーム時刻一覧を取得する。 */
 export async function fetchLidenFrames(): Promise<LidenFrame[]> {
@@ -37,9 +41,9 @@ function lidenGeojsonUrl(frame: LidenFrame): string {
   );
 }
 
-/** 落雷ごとの強弱を示す値を配信元が持たないため、DynamicWeatherMarkSpec.valueProperty
- * （gridMarkのicon-size式が必須で参照するプロパティ）を満たすための固定値。
- * MapView.tsx側のgridMarkスペック定義（valueProperty）もこの定数を参照する。 */
+/** 落雷ごとの強弱を示す値を配信元が持たないため、gridMarkのicon-size式が必須で参照する
+ * プロパティを満たすための固定値。描き方の宣言（`features/map/scene/groups/weather.ts`）も
+ * この定数を参照する。 */
 export const LIDEN_MARK_VALUE_PROPERTY = "value";
 
 /** lidenFramesが返したref（frames内のindex）に対応する実際の落雷地点GeoJSONを取得する。
@@ -47,7 +51,7 @@ export const LIDEN_MARK_VALUE_PROPERTY = "value";
  * 都度fetchするため非同期。frameが無ければ（refが範囲外）undefinedを返す。 */
 export async function fetchLidenGeojson(
   frames: readonly LidenFrame[],
-  ref: number
+  ref: number,
 ): Promise<GeoJSON.FeatureCollection | undefined> {
   const frame = frames[ref];
   if (!frame) return undefined;

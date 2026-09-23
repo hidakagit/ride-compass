@@ -211,11 +211,6 @@ const STOP_POI_SOURCE_LAYER = regionTileConfig.poi.stop_poi_layer_name;
 // MapLibreの"idle"は表示中のすべての取得が落ち着くまで来ないため、外部データ
 // （既定ONの災害タイル等）が遅いセッションでは待ち続けてしまう。
 const INITIAL_TILES_OVERLAY_MAX_MS = 6000;
-// 動的気象レイヤー（風・降水）のsource/layer id。要素id×ソース×描画方式（raster/fill/
-// mark）の組み合わせから機械的に決まるため、要素を追加してもここへ新しい定数を足す必要は
-// ない（DYNAMIC_WEATHER_RENDERERS・ensureDynamicWeatherLayer参照）。sourceを分けることで
-// 「1グループ=複数の名前付きソース」を表現できる（単一ソースのグループは"main"という
-// 1キーだけを持つ）。
 
 const TILE_SOURCE_BY_DATA_SOURCE: Record<
   Exclude<MapLayerDataSource, "ownFetch">,
@@ -398,7 +393,7 @@ export interface MapViewProps {
    * page.tsx側が各要素のデータ層関数（precipitationRenderPayload/windRenderPayload）から
    * 計算した「選択中の共有時刻に対応するペイロード」を渡す。payloadが未定（フェッチ未完了・
    * 取得失敗、あるいは選択時刻がその要素のデータ範囲外で「描画しない」場合）の間はvisible=
-   * trueでも非表示のまま（DYNAMIC_WEATHER_RENDERERS・applyDynamicWeatherState参照）。
+   * trueでも非表示のまま（`features/map/scene/groups/weather.ts`）。
    * 要素・ソースを追加してもこのプロパティ自体は変わらない。 */
   dynamicWeather: Partial<Record<DynamicWeatherLayerId, DynamicWeatherGroupState>>;
   /** 専用way値配信軸（「評価軸」グループの風・勾配等）の表示フラグを、

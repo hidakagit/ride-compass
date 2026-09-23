@@ -29,8 +29,8 @@
 //   区分、当面未使用）を持つ。`level`が無い（=平常時）フィーチャーはJMA公式サイトでは
 //   薄い水色の基準線として常時描画されるが、本アプリでは「危険情報のみ」を見せる方針
 //   （他3種のラスタタイルも平常時は透明で何も見えない）に揃えるため、`level>=1`の
-//   フィーチャーだけを表示する（MapView.tsx: DYNAMIC_WEATHER_RENDERERS.floodRiskの
-//   `minValueToShow`フィルタ参照）。
+//   フィーチャーだけを表示する（`features/map/scene/groups/weather.ts`の洪水の要素の
+//   `filter`）。
 // - 同じtargetTimes.jsonのelementsには`flood_mesh`・`designated_river(_nation)`・
 //   `inland_flood`（内水氾濫、`level`1〜2でtexture塗り）・`flood_riskline`も存在する
 //   関連製品だが、洪水キキクルのみのスコープ外として未実装のまま残す。
@@ -131,8 +131,8 @@ export function inundationRenderPayload(ref: RiskFrameRef): DynamicWeatherRender
   return { kind: "rasterTile", tileUrlTemplate: tileUrlTemplate("risk", "inund", ref) };
 }
 
-/** 洪水キキクル。他3種と異なりvectorTile——source-layer名・色分けは
- * MapView.tsx: DYNAMIC_WEATHER_RENDERERS.floodRiskが持つ（本ファイル冒頭コメント参照）。 */
+/** 洪水キキクル。他3種と異なりvectorTile——source-layer名・色分けは描き方の宣言
+ * （`features/map/scene/groups/weather.ts`）が持つ。 */
 export function floodRenderPayload(ref: RiskFrameRef): DynamicWeatherRenderPayload {
   return { kind: "vectorTile", tileUrlTemplate: tileUrlTemplate("risk", "flood", ref, "pbf") };
 }

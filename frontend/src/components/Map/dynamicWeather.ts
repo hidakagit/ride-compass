@@ -25,25 +25,14 @@
 //    描画内容（DynamicWeatherRenderPayload）を返す。表示層（page.tsx/MapView.tsx）は
 //    ペイロードのkindしか見ず、どのソース由来かを一切意識しない。
 //
-// **新しい動的要素を追加する1本道**:
-//   (1) バックエンド: wind_grid.pyのWindGridPointへ値フィールドを追加し、
-//       msm_client.pyのFORECAST_VARIABLESへMSM変数を足す（同期・読み出しは相乗り）
-//   (2) データ層: 要素モジュールを新設し、フレーム列（DynamicWeatherFrame[]）と
-//       ペイロード関数（ref→DynamicWeatherRenderPayload）を実装する
-//   (3) MapView.tsx: DYNAMIC_WEATHER_RENDERERSへ描画スペック（raster/gridFill/gridMark/
-//       vectorTileの宣言と配色・アイコン）を1エントリ追加する
-//   (4) mapLayers.ts: 地図チップを追加し、MapLayerId・DYNAMIC_WEATHER_LAYER_IDSへ
-//       1行足す
+// 新しい動的要素を足す手順は、docs/modules/frontend/dynamic-weather-layers.md
+// 「新しい動的要素を追加する1本道」節が持つ。
 //
 // このファイル自体はDOM/MapLibreを知らない純粋なデータ層（windLayer.ts等と同じ方針）。
 
 import { mapDisplay } from "@/types/generated/mapDisplay";
 import { parseJmaTileElement } from "@/components/Map/jmaNowcastFrames";
 
-// 動的気象レイヤーの一覧（単一の情報源、MapView.tsx: DYNAMIC_WEATHER_RENDERERS・
-// page.tsxのdynamicWeather組み立ての両方がこの配列を見る）。新しい要素を追加するときは
-// ここへidを1つ足す（mapLayers.tsのMapLayerIdにも同名を追加しておくこと）。全要素が
-// チップ（layerVisibility）でON/OFFする（常時マウント・チップ無しの要素は持たない）。
 type DisasterFetchGroup = (typeof DISASTER_SOURCES)[number]["fetchGroup"];
 
 interface DynamicWeatherSourceState {
@@ -64,10 +53,9 @@ export type DynamicWeatherRenderPayload =
   | { kind: "rasterTile"; tileUrlTemplate: string }
   | { kind: "gridFill"; geojson: GeoJSON.FeatureCollection }
   | { kind: "gridMark"; geojson: GeoJSON.FeatureCollection }
-  // 配信元のMapbox Vector Tile（.pbf）をそのままMapLibreのvectorソースへ渡す（改善計画
-  // T416）。色分けに使うプロパティ名・source-layer名等の静的なスタイル定義は
-  // MapView.tsx側のDynamicWeatherVectorSpecが持ち、ここではURLテンプレートだけを運ぶ
-  // （rasterTileと対称的な役割分担）。
+  // 配信元のMapbox Vector Tile（.pbf）をそのままMapLibreのvectorソースへ渡す。色分けに
+  // 使うプロパティ名・source-layer名等の静的なスタイル定義は描き方の宣言
+  // （`features/map/scene/groups/weather.ts`）が持ち、ここではURLテンプレートだけを運ぶ。
   | { kind: "vectorTile"; tileUrlTemplate: string };
 
 /** 災害グループの名前付きソース。**このリストが唯一の情報源**で、凡例（▶パネルの

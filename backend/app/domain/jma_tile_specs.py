@@ -5,7 +5,7 @@
 いる値）を持つ。アプリがタイルを要求してよい最大ズームはこの2つの組み合わせで決まり、
 どちらか一方だけを見ると実データの無いズームを指してしまう。
 
-MapLibreの`maxzoom`（frontend: `MapView.tsx: DYNAMIC_WEATHER_RENDERERS`）と
+MapLibreの`maxzoom`（frontend: `features/map/scene/groups/weather.ts`）と
 プリウォームバッチの対象ズーム（`services/jma_tile_prewarm_service.py`）は、いずれも
 `effective_max_zoom()`でこの1箇所から導く。
 

@@ -108,7 +108,7 @@ function toRealUrl(url: string): string {
   return url.replace(new RegExp(`^${JMA_TILE_PROTOCOL}://`), "");
 }
 
-/** タイルURLへスキームを付ける（`DYNAMIC_WEATHER_RENDERERS`のテンプレートで使う）。 */
+/** タイルURLへスキームを付ける。 */
 export function withJmaTileProtocol(url: string): string {
   return `${JMA_TILE_PROTOCOL}://${url}`;
 }

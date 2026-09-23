@@ -1,8 +1,6 @@
 // 風の矢印アイコンのCanvas 2D描画。MapLibre/DOM（canvas要素の生成のみ）以外に依存しない
-// 純粋な描画コードのため、MapView.tsx（地図の初期化・レイヤー登録・propsに専念する
-// ファイル）から切り出した（描画スペック（DYNAMIC_WEATHER_RENDERERS）はMapView.tsxに
-// 集約する契約だが、アイコンの中身をCanvas座標で描く幾何計算はその契約の対象外の
-// 純粋関数であり、windLayer.ts等と同じ「DOM/MapLibre非依存のデータ/描画層」に属する）。
+// 純粋な描画コード。どのレイヤーへ使うかは描き方の宣言（`features/map/scene/groups/weather.ts`）
+// が持つ。
 
 // 風の矢印は、バックエンドの格子点マップAPI（GET /api/weather/wind-grid、気象庁MSM
 // REST地点評価と同じ仕組み）が返す風向・風速をMapLibre標準のGeoJSON source + symbol
@@ -38,7 +36,7 @@ function fillTaperedRibbon(
   p3: Point2D,
   widthStart: number,
   widthEnd: number,
-  steps = 12
+  steps = 12,
 ) {
   const center = Array.from({ length: steps + 1 }, (_, i) => cubicBezierPoint(p0, p1, p2, p3, i / steps));
   const left: Point2D[] = [];
@@ -52,7 +50,7 @@ function fillTaperedRibbon(
     // 接線に垂直な単位ベクトル（法線）。
     const nx = -dy / len;
     const ny = dx / len;
-    const halfWidth = ((widthStart + (widthEnd - widthStart) * (i / steps)) / 2) || 0.001;
+    const halfWidth = (widthStart + (widthEnd - widthStart) * (i / steps)) / 2 || 0.001;
     left.push({ x: center[i].x + nx * halfWidth, y: center[i].y + ny * halfWidth });
     right.push({ x: center[i].x - nx * halfWidth, y: center[i].y - ny * halfWidth });
   }
