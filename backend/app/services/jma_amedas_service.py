@@ -11,7 +11,9 @@
 """
 
 import logging
+from collections.abc import Awaitable
 from datetime import datetime
+from typing import cast
 
 import httpx
 
@@ -97,7 +99,8 @@ class JmaAmedasService:
         if client is None:
             return None
         try:
-            fields = await client.hgetall(_redis_key(station_id))
+            # redis-pyは同期・非同期のクライアントで型を共有し、戻り値を`Awaitable[X] | X`と宣言している。
+            fields = await cast(Awaitable[dict], client.hgetall(_redis_key(station_id)))
         except Exception as exc:  # noqa: BLE001 Redis障害は「観測値なし」にfail-open
             record_redis_failure()
             log_throttled_warning("cache:jma-amedas-redis", "[cache:jma-amedas-redis] read failed error=%r", exc)

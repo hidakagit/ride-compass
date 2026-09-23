@@ -39,7 +39,7 @@ from app.domain.cycling_speed import (
 )
 from app.domain.traffic import stop_count_material_ids, POI_COUNT_KINDS, highway_rank, stop_seconds
 from app.domain.tuning import tuning_value
-from app.domain.attributes import EdgeMaterialArrays, ElevationAttribute
+from app.domain.attributes import ElevationAttribute, ElevationSource
 from app.domain.axis_definitions import (
     AXIS_DEFINITIONS,
     REQUEST_DYNAMIC_MATERIAL_IDS,
@@ -238,10 +238,13 @@ class LegCostArrays:
 def _representative_bin(bin_count: int, duration_hours: float | None) -> int:
     """表示と、時刻ラベルを持てない探索が使う代表ビンの添字。レグの中間地点が入るビン。
 
-    見込み時間が無ければビンは1本（`_bin_count`）なので、`bin_count`だけを見れば足りる。
+    見込み時間が無ければビンは1本（`_bin_count`）になる。ビンが2本以上あるのに見込み時間が
+    無いのは組み立ての誤りで、代表ビンを決められないため送出する。
     """
     if bin_count <= 1:
         return 0
+    if duration_hours is None:
+        raise ValueError(f"見込み時間が無いのにビンが{bin_count}本ある")
     return min(bin_count - 1, int((duration_hours / 2) / TIME_BIN_HOURS))
 
 
@@ -536,10 +539,8 @@ class _RoadGraphContext:
     """prepareで構築し、全方位のtrace_loop/evaluate_loopsで共有するリクエスト単位の状態。"""
 
     graph: LeanRoadGraph
-    # 材料の列（`domain/attributes.py: EdgeMaterialArrays`）。Edge単位の材料アクセスは探索コスト算出の
-    # ホットパスからは外れているが、`_build_segment_details`の表示用フィールド
-    # （surface等）取得には引き続き使う。
-    materials: EdgeMaterialArrays
+    # 探索コストはスコア行列から引くため、ここから読むのは確定した経路の標高属性だけ。
+    materials: ElevationSource
     accident_years_covered: int
     weather: WeatherConditions | None
     origin_node: str
@@ -583,7 +584,7 @@ class _RoadGraphContext:
     tile_set: frozenset[tuple[int, int, int]]
     # 復路探索（折返し点→起点）のA*ヒューリスティック配列。目的地が常に起点の
     # ため、リクエストで1回だけ計算し全候補で共有する（初回の復路探索時に遅延構築）。
-    origin_estimate: np.ndarray | None = None
+    origin_estimate: list[float] | None = None
     # select_via_nodesが目的地を最寄りのアクセス可能なNodeへ補正した場合の
     # 実際の座標（補正が無ければNone）。RouteGenerator.last_no_candidates_reasonと同じ
     # side channel——Protocolの戻り値型（list[TracedLoop]）を変えずにRouteGenerator側へ
@@ -609,7 +610,7 @@ class _SearchGraph:
     lazy_graph: LazyRoadGraph
     # bboxを覆うタイル集合。探索用グラフ・索引・統計はすべてこれを鍵にキャッシュする。
     tile_set: frozenset[tuple[int, int, int]]
-    materials: EdgeMaterialArrays
+    materials: ElevationSource
     accident_years_covered: int
     weather: WeatherConditions | None
     night_active: bool
@@ -623,7 +624,7 @@ class _SearchGraph:
     # `score_matrix.edge_ids`と、それに対応する0次フィルタ除外配列
     # （`compute_hard_filter_excluded`、cost_arrayをinfにするのに使ったのと同じ配列）。
     # `_get_or_build_node_index`がroutable Node判定にこの配列をそのまま使い回すことで、
-    # `materials`（`EdgeMaterialArrays`）への依存を持たない。
+    # `materials`への依存を持たない。
     edge_ids: list[str]
     hard_filter_excluded: np.ndarray
 
@@ -1011,9 +1012,10 @@ class RoadGraphEngine:
         if end_point.latitude == waypoints[0].latitude and end_point.longitude == waypoints[0].longitude:
             end_node = context.origin_node
         else:
-            end_node = find_nearest_node_indexed(context.node_index, end_point)
-            if end_node is None:
+            snapped = find_nearest_node_indexed(context.node_index, end_point)
+            if snapped is None:
                 raise RoutingError(f"direction {bearing}: could not snap destination to road graph")
+            end_node = snapped
         node_sequence = [context.origin_node, *interior_nodes, end_node]
 
         # A*ヒューリスティックはレグごとに目的地が変わるため、レグごとにnumpyで1回だけ
@@ -2207,7 +2209,7 @@ def _heuristic_seconds(straight_m: np.ndarray | list[float]) -> np.ndarray:
     return np.asarray(straight_m, dtype=float) / kmh_to_ms(tuning_value("speed.max_descent_kmh"))
 
 
-def _origin_estimate(context: _RoadGraphContext) -> np.ndarray:
+def _origin_estimate(context: _RoadGraphContext) -> list[float]:
     """復路探索（目的地＝起点）のA*ヒューリスティック。起点は1リクエストで固定のため
     初回だけ`_estimate_distances_m`で計算し、以降の候補はcontextに保持した配列を共有する。
     """

@@ -208,13 +208,13 @@ class DerivedDataFreshnessQuery:
                     source, latest = run.source, run.latest_run_id
             coverage = None
             coverage_sql = build_coverage_sql(table)
-            if coverage_sql is not None:
-                params = {}
-                if ":source" in coverage_sql:
-                    params["source"] = covered_source(table)[0]
+            parent = coverage_parent(table)
+            if coverage_sql is not None and parent is not None:
+                covered = covered_source(table)
+                params = {"source": covered[0]} if covered is not None else {}
                 counts = (await self._session.execute(text(coverage_sql), params)).mappings().one()
                 coverage = Coverage(
-                    parent=coverage_parent(table),
+                    parent=parent,
                     parent_row_count=int(counts["parent_row_count"]),
                     missing_rows=int(counts["missing_rows"]),
                 )

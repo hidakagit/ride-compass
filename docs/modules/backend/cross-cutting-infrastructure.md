@@ -35,6 +35,7 @@ DB接続・Redis・HTTPクライアント・レート制限・ログ・デバッ
 | infrastructure | `tuning_overrides.py` | 較正値の上書き（宣言の既定値から動かしたぶんだけをDBへ持つ）。起動時と管理APIの書き込み直後にプロセス内へ読み込む |
 | services | `tuning_service.py` | 較正値の上書きの取引境界（構造仕様7）。書いた直後にプロセス内の値まで反映するところまでを持つ |
 | api | `tuning_admin.py` | 較正値の一覧・更新（管理画面用、`require_admin_basic_auth`の内側）。並べる項目も、効き方ごとの見出しと並び順も宣言から導く |
+| scripts | `_stdio.py` | `scripts/`の実行口が共通で使う、標準出力・標準エラーのUTF-8化 |
 
 ## Pydanticモデルの基底（`domain/strict_model.py`）
 

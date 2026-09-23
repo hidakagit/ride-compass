@@ -17,12 +17,16 @@ _WaySink = Callable[[dict, dict[int, tuple[float, float]]], None]
 _NodeSink = Callable[[dict], None]
 
 
+def _accept_all(_tags: dict[str, str]) -> bool:
+    return True
+
+
 class _WayHandler(osmium.SimpleHandler):
     def __init__(
         self,
         tag_filter: Callable[[dict[str, str]], bool],
         sink: _WaySink,
-        node_tag_filter: Callable[[dict[str, str]], bool] | None = None,
+        node_tag_filter: Callable[[dict[str, str]], bool] = _accept_all,
         node_sink: _NodeSink | None = None,
     ):
         super().__init__()
@@ -68,7 +72,7 @@ def stream_ways(
     pbf_path: str | Path,
     tag_filter: Callable[[dict[str, str]], bool],
     sink: _WaySink,
-    node_tag_filter: Callable[[dict[str, str]], bool] | None = None,
+    node_tag_filter: Callable[[dict[str, str]], bool] = _accept_all,
     node_sink: _NodeSink | None = None,
 ) -> None:
     """PBF内の全way（・node_sink指定時はnodeも）を1パスで読み、tag_filter/node_tag_filterを

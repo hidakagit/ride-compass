@@ -114,7 +114,7 @@ async def fetch_forecast(client: httpx.AsyncClient, wbgt_no: str, range_from: st
     だけを使う。レスポンスの`forecast_val`は暑さ指数を10倍した整数文字列（例:
     東京地点でforecast_val="280"→暑さ指数28.0）のため、呼び出し元で10で割ること。
     """
-    params = {
+    params: dict[str, str | int] = {
         "location_type": 1,
         "date_search_type": 1,
         "wbgt_nos": wbgt_no,

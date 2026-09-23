@@ -114,9 +114,9 @@ def extract_active_warnings(kinds: list[dict]) -> list[ActiveWarning]:
     result: list[ActiveWarning] = []
     for kind in kinds:
         code = kind.get("code")
-        if kind.get("status") not in ACTIVE_STATUSES:
+        if code is None or kind.get("status") not in ACTIVE_STATUSES:
             continue
-        registered = WARNING_KINDS.get(code) if code is not None else None
+        registered = WARNING_KINDS.get(code)
         if registered is None or not registered.relevant_to_cycling:
             continue
         result.append(

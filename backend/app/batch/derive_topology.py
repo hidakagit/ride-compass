@@ -168,6 +168,8 @@ async def derive(conn: asyncpg.Connection) -> tuple[int, int]:
                     await conn.fetchval("SELECT count(*) FROM _seg"))
 
         unusable = await conn.fetchrow(_COUNT_UNUSABLE)
+        if unusable is None:
+            raise RuntimeError("集計の問い合わせが行を返さなかった")
         if any(unusable.values()):
             logger.warning(
                 "表へ入れられない区間を落とした: 方位が定義できない %d本 / 長さ0 %d本 / "

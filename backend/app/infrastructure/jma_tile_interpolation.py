@@ -20,7 +20,7 @@ import re
 import mapbox_vector_tile
 from PIL import Image
 from shapely.affinity import scale, translate
-from shapely.geometry import box, shape
+from shapely.geometry import GeometryCollection, box, shape
 from shapely.geometry.base import BaseGeometry
 
 #: `bosai/jmatile/data/<group>/<basetime>/<member>/<validtime>/surf/<element>/<z>/<x>/<y>.<ext>`
@@ -105,12 +105,10 @@ def _same_family_parts(clipped: BaseGeometry, family: str) -> BaseGeometry | Non
     """
     if clipped.is_empty:
         return None
-    if clipped.geom_type == "GeometryCollection":
+    if isinstance(clipped, GeometryCollection):
         parts = [g for g in clipped.geoms if _geometry_family(g) == family and not g.is_empty]
         if not parts:
             return None
-        from shapely.geometry import GeometryCollection  # 局所import: 通常経路では使わない
-
         merged = GeometryCollection(parts)
         return merged if len(parts) > 1 else parts[0]
     return clipped if _geometry_family(clipped) == family else None

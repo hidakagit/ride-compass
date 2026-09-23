@@ -71,7 +71,8 @@ def extract_active_flood_forecast(
     （行政区画の親子関係を辿るjma_area.resolve_areaで解決済みの値を渡す想定）。
     """
     item = entry.get("item") or {}
-    flood_level = FLOOD_CODE_LEVELS.get(item.get("code"))
+    code = item.get("code")
+    flood_level = FLOOD_CODE_LEVELS.get(code) if code is not None else None
     if flood_level is None:
         return None
 

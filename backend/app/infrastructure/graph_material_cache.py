@@ -33,7 +33,7 @@ _accident_years_covered_cache: int | None = None
 
 def get_tile_materials(
     zoom: int, x: int, y: int, read_stats: dict[str, object] | None = None
-) -> SearchMaterials | None:
+) -> SearchMaterials[EdgeMaterialArrays] | None:
     """`read_stats`を渡すと、"source"（memory/disk）と、ディスク経由時は
     追加で"read_ms"（`tile_persistent_cache.get`参照）を書き込む
     （`graph_service.py`がリクエスト単位の1行INFOサマリへ集約する）。
@@ -43,7 +43,7 @@ def get_tile_materials(
         if read_stats is not None:
             read_stats["source"] = "memory"
         return cached
-    persisted: SearchMaterials | None = tile_persistent_cache.get(
+    persisted: SearchMaterials[EdgeMaterialArrays] | None = tile_persistent_cache.get(
         _CACHE_NAMESPACE, TILE_MATERIALS_CACHE_VERSION, zoom, x, y, stats=read_stats
     )
     if persisted is None:
@@ -54,7 +54,7 @@ def get_tile_materials(
     return persisted
 
 
-def set_tile_materials(zoom: int, x: int, y: int, materials: SearchMaterials) -> None:
+def set_tile_materials(zoom: int, x: int, y: int, materials: SearchMaterials[EdgeMaterialArrays]) -> None:
     _tile_materials_cache[(zoom, x, y)] = materials
     tile_persistent_cache.set(_CACHE_NAMESPACE, TILE_MATERIALS_CACHE_VERSION, zoom, x, y, materials)
 

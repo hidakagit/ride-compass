@@ -17,7 +17,7 @@ import logging
 
 import numpy as np
 import shapely
-from sqlalchemy import Float, Text, bindparam, text
+from sqlalchemy import Float, Row, Text, bindparam, text
 from sqlalchemy.dialects.postgresql import ARRAY
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession
 
@@ -550,7 +550,7 @@ _SAMPLE_WAY_MATERIAL_VALUES_IN_BBOX_SQL = _sample_way_materials_sql(
 _WAY_MATERIAL_COLUMN_PREFIX = "m_"
 
 
-def _material_values_from_row(row: object) -> dict[str, object]:
+def _material_values_from_row(row: Row) -> dict[str, object]:
     """way向けクエリの1行から材料id→値の辞書を作る。列別名は`m_<材料id>`で付けるため、
     材料の一覧をここへ書かない。"""
     return {
@@ -764,7 +764,7 @@ def _topology_rows_to_road_graph(edge_rows, node_rows) -> LeanRoadGraph:
     return LeanRoadGraph(graph_version=_CACHED_GRAPH_VERSION, nodes=nodes, edges=edges)
 
 
-def _rows_to_directed_edges(rows, wanted: dict[tuple[int, int], list[bool]]
+def _rows_to_directed_edges(rows, wanted: dict[tuple[int | None, int | None], list[bool]]
                             ) -> dict[str, LeanEdge]:
     """ジオメトリ付きの`LeanEdge`。逆向きは形状点列を逆順にする。
 
@@ -804,7 +804,7 @@ def _shared_strings(values: list) -> list:
     return [pool.setdefault(v, v) for v in values]
 
 
-def _edge_triples(edges: list[LeanEdge]) -> tuple[list[int], list[int], list[bool]]:
+def _edge_triples(edges: list[LeanEdge]) -> tuple[list[int | None], list[int | None], list[bool]]:
     return (
         [e.osm_way_id for e in edges],
         [e.segment_index for e in edges],
@@ -874,7 +874,7 @@ class RoadGraphRepository:
 
         node_ids = sorted({row.from_node_id for row in edge_rows}
                           | {row.to_node_id for row in edge_rows})
-        node_rows = []
+        node_rows: list[Row] = []
         for id_chunk in _chunked(node_ids, _ID_CHUNK_SIZE):
             node_rows.extend((await self._session.execute(
                 _TOPOLOGY_NODES_SQL, {"node_ids": id_chunk})).all())
@@ -890,7 +890,7 @@ class RoadGraphRepository:
         """
         if not edges:
             return {}
-        wanted: dict[tuple[int, int], list[bool]] = {}
+        wanted: dict[tuple[int | None, int | None], list[bool]] = {}
         for edge in edges:
             wanted.setdefault((edge.osm_way_id, edge.segment_index), []).append(edge.forward)
         keys = sorted(wanted)

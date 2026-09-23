@@ -123,7 +123,9 @@ async def compare_routes(old: str, new: str, latitude: float, longitude: float,
             pct = (n["distance_km"] - o["distance_km"]) / o["distance_km"] * 100
             print(f"{direction:<8} {o['distance_km']:>8.2f} {n['distance_km']:>8.2f} {pct:>+7.1f}%")
         else:
-            shown = (o or n)["distance_km"]
+            row = o or n
+            assert row is not None  # directionはどちらかの候補の方位から来る
+            shown = row["distance_km"]
             side = "旧のみ" if o else "新のみ"
             print(f"{direction:<8} {shown:>8.2f} {'':>8} {side:>8}")
 

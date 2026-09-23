@@ -1,6 +1,6 @@
 # CI。masterと並行実行の作業ブランチ（orch/**）へのpush・PRごとに、backend・frontendの全チェックを回す。
 #
-# - backend: ruff（lint）→ pytest（PostGIS統合テスト込み）。PostGIS統合テスト（tests/conftest.py の
+# - backend: ruff（lint）→ mypy（型検査）→ pytest（PostGIS統合テスト込み）。PostGIS統合テスト（tests/conftest.py の
 #   road_graph_session）は、ランナーへ直接入れたPostgreSQL＋PostGIS + TEST_DATABASE_URL 注入で実行する。
 # - api-contract: API契約のドリフト検知。DBを読まないため、postgresを持たない別ジョブにして
 #   backendジョブと並べて走らせる。
@@ -81,6 +81,8 @@ jobs:
       # lintはテストより先に置く（frontendジョブがeslint→tsc→vitestの順であるのと同じ、
       # 実行の速いものから）。設定はbackend/ruff.toml。
       - run: python -m ruff check app scripts benchmarks tests
+      # 関数の宣言と違う型の値を渡す呼び出しを止める。対象と設定はbackend/mypy.ini。
+      - run: python -m mypy
       # -n auto（pytest-xdist、改善計画T233フォローアップ）でCPUコア数ぶん並列化する。
       # PostGIS統合テストは全ファイルxdist_group="postgis"で同一workerへ固定済み
       # （同じridecompass_test DBへの同時TRUNCATEレースを防ぐ、docs/conventions/testing.mdパターン2）

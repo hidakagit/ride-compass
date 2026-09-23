@@ -2,11 +2,13 @@ import asyncio
 import logging
 import time
 from collections import Counter
+from typing import SupportsFloat, cast
 
 from app.config import settings
 from app.domain.attributes import (
     EdgeMaterialArrays,
     ElevationAttribute,
+    ElevationSource,
     SearchMaterials,
 )
 from app.domain.evaluation import (
@@ -69,7 +71,7 @@ class GraphService:
 
     async def get_search_materials_for_bbox(
         self, bbox: BoundingBox
-    ) -> tuple[SearchMaterials, StaticEdgeScoreMatrix, frozenset[tuple[int, int, int]]] | None:
+    ) -> tuple[SearchMaterials[ElevationSource], StaticEdgeScoreMatrix, frozenset[tuple[int, int, int]]] | None:
         """探索フェーズ向けに、グラフのトポロジ＋材料と静的スコア行列をまとめて返す。
 
         bboxをタイルへ分解し、タイル単位でプロセス内キャッシュを経由する。既にキャッシュ
@@ -94,7 +96,7 @@ class GraphService:
 
     async def _build_search_materials_from_tile_cache(
         self, bbox: BoundingBox, accident_years_covered: int
-    ) -> tuple[SearchMaterials, StaticEdgeScoreMatrix, frozenset[tuple[int, int, int]]]:
+    ) -> tuple[SearchMaterials[ElevationSource], StaticEdgeScoreMatrix, frozenset[tuple[int, int, int]]]:
         combined_nodes: dict[str, LeanNode] = {}
         combined_edges: dict[str, LeanEdge] = {}
 
@@ -132,7 +134,7 @@ class GraphService:
 
         all_stats = materials_read_stats + matrix_read_stats
         source_counts = Counter(str(stats.get("source", "unknown")) for stats in all_stats)
-        total_read_ms = sum(float(stats.get("read_ms", 0.0)) for stats in all_stats)
+        total_read_ms = sum(float(cast(SupportsFloat, stats.get("read_ms", 0.0))) for stats in all_stats)
         materials_ms = round((time.monotonic() - materials_stage_started) * 1000)
         logger.info(
             "_build_search_materials_from_tile_cache tiles=%d memory=%d disk=%d db=%d computed=%d "
@@ -155,7 +157,7 @@ class GraphService:
 
     async def _get_or_build_tile_materials(
         self, x: int, y: int, accident_years_covered: int, read_stats: dict[str, object] | None = None
-    ) -> SearchMaterials:
+    ) -> SearchMaterials[EdgeMaterialArrays]:
         # ディスク読み込みは同期I/Oのため、スレッドへ逃がさないと並列に呼んでも順番に待つ。
         # `read_stats`は呼び出し元が渡す出力用の辞書で、渡されたときだけ"source"
         # （memory/disk/db）とディスク経由時のread_msを書き込む。
@@ -198,7 +200,7 @@ class GraphService:
         self,
         x: int,
         y: int,
-        materials: SearchMaterials,
+        materials: SearchMaterials[EdgeMaterialArrays],
         read_stats: dict[str, object] | None = None,
     ) -> StaticEdgeScoreMatrix:
         """タイル単位の「Edge×公開軸」静的スコア行列。材料とは別枠のキャッシュを使う。

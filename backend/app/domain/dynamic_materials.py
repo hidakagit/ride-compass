@@ -42,14 +42,11 @@ class DynamicAxisRequestContext:
     start: datetime | None = None
     passage_hours: np.ndarray | None = None
 
-    def time_varying(self) -> bool:
-        return self.wind_series is not None and self.start is not None and self.passage_hours is not None
-
     def wind_inputs(self) -> tuple[np.ndarray, np.ndarray] | None:
         """各Edgeに適用する（風速, 風向）。時別系列と通過予定時刻が揃っていればEdgeごとに
         その時刻の値、揃っていなければ出発時点のスナップショット（全Edge共通のスカラー）。
         風が無ければNone。"""
-        if self.time_varying():
+        if self.wind_series is not None and self.start is not None and self.passage_hours is not None:
             return self.wind_series.sample(self.start, self.passage_hours)
         if self.weather is None:
             return None
