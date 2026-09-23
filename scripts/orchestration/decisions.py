@@ -16,55 +16,49 @@ from pathlib import Path
 
 from orchestration.core import PLAN_DOC, TASKS_DIR, Context, cat_files
 
-#: タスク記録の保留の書き方（見出しに「保留」を含む節・「保留:」で始まる段落）。
+#: タスク記録の保留の書き方（規約「ユーザーの判断待ち」節）。保留の単位は、2段目以下の見出しに「保留」を
+#: 含む節（次の同じか上の見出しまで）か、保留を宣言する段落（次の見出しか次の保留の段落まで）。
+#: 中の番号付きの項目は、その1件の保留の選択肢として扱う。
 HEADING_RE = re.compile(r"^(#+)\s")
-HOLD_HEADING_RE = re.compile(r"^(#+)\s.*保留")
-HOLD_ITEM_RE = re.compile(r"^(\d+\.\s|\*\*保留\s*\d)")
-HOLD_LINE_RE = re.compile(r"^(?:[-*]\s+)?\**保留[:：]")
-DECIDED_RE = re.compile(r"ユーザー決定")
+#: 保留を宣言する段落の書き出し: `**保留（ユーザー判断）**:`・`**保留1:`・`保留:`等。「**保留し続けた場合に
+#: 何が起きるか**」（タスクエントリの書き方が求める文）のように、保留が続く語の一部であるものは含めない。
+HOLD_PARAGRAPH_RE = re.compile(r"^(?:[-*]\s+)?(?:\*\*保留(?:[（(:：]|\s*\d)|保留[:：])")
+#: 決定は、保留の単位の中に、行頭が`**ユーザー決定（日付`の段落として書く。位置から推測して拾わない。
+DECISION_RE = re.compile(r"^(?:[-*]\s+)?\*\*ユーザー決定（")
 OPEN_ENTRY_RE = re.compile(r"^- \[ \] \[(T\d+[a-z0-9-]*)\]\(")
+#: 一覧に出す1件の行数の上限（節全体が単位なので、表や測定値まで含むことがある）。
+SHOWN_LINES = 12
 
 
-def split_hold_items(block: list[str]) -> list[str]:
-    """保留の節を1件ずつへ分ける。番号付きの項目は字下げが続く間、「**保留N」の段落は次の項目まで。"""
-    starts = [k for k, line in enumerate(block) if HOLD_ITEM_RE.match(line)]
-    if not starts:
-        text = "\n".join(block).strip()
-        return [text] if text else []
-    preamble = "\n".join(block[:starts[0]]).strip()
-    items = []
-    for n, s in enumerate(starts):
-        seg = block[s:starts[n + 1] if n + 1 < len(starts) else len(block)]
-        if re.match(r"^\d+\.\s", seg[0]):
-            end = next((k for k in range(1, len(seg)) if seg[k] and not seg[k].startswith((" ", "\t"))), len(seg))
-            seg = seg[:end]
-        items.append(("\n".join(seg).strip(), preamble))
-    return [f"{text}\n（節の前置き: {pre}）" if pre else text for text, pre in items]
-
-
-def record_holds(text: str) -> list[str]:
-    """タスク記録の保留（見出しに「保留」を含む節の各項目と、「保留:」で始まる段落）。"""
+def hold_units(text: str) -> list[list[str]]:
+    """保留の単位（行の並び）を順に。"""
     lines = text.splitlines()
-    out: list[str] = []
+    units: list[list[str]] = []
     i = 0
     while i < len(lines):
-        m = HOLD_HEADING_RE.match(lines[i])
-        if m:
-            level = len(m.group(1))
+        heading = HEADING_RE.match(lines[i])
+        # 1段目の見出しはタスクの題名で、題名に「保留」の語があっても保留の宣言ではない。
+        if heading and len(heading.group(1)) >= 2 and "保留" in lines[i]:
+            level = len(heading.group(1))
             j = i + 1
             while j < len(lines) and not ((h := HEADING_RE.match(lines[j])) and len(h.group(1)) <= level):
                 j += 1
-            out += split_hold_items(lines[i + 1:j])
-            i = j
-        elif HOLD_LINE_RE.match(lines[i]):
+        elif not heading and HOLD_PARAGRAPH_RE.match(lines[i]):
             j = i + 1
-            while j < len(lines) and lines[j].strip() and not HEADING_RE.match(lines[j]):
+            while j < len(lines) and not HEADING_RE.match(lines[j]) and not HOLD_PARAGRAPH_RE.match(lines[j]):
                 j += 1
-            out.append("\n".join(lines[i:j]).strip())
-            i = j
         else:
             i += 1
-    return [h for h in out if not DECIDED_RE.search(h.split("\n（節の前置き")[0])]
+            continue
+        units.append(lines[i:j])
+        i = j
+    return units
+
+
+def record_holds(text: str) -> list[str]:
+    """タスク記録の未決の保留（保留の単位のうち、決定の段落を持たないもの）。"""
+    return ["\n".join(unit).strip() for unit in hold_units(text)
+            if not any(DECISION_RE.match(line) for line in unit)]
 
 
 def collect_record_holds(repo: Path) -> list[tuple[str, str]]:
@@ -79,11 +73,15 @@ def collect_record_holds(repo: Path) -> list[tuple[str, str]]:
 
 def cmd_list(ctx: Context, args: argparse.Namespace) -> int:
     holds = [(t, h) for t, h in collect_record_holds(ctx.repo) if not args.tasks or t in args.tasks]
-    print(f"判断待ち: タスク記録の未決の保留 {len(holds)}件（回答は各タスクの記録の保留へ「ユーザー決定（日付）」として書く）")
+    print(f"判断待ち: タスク記録の未決の保留 {len(holds)}件（回答は各保留の中へ、行頭が"
+          f"「**ユーザー決定（日付）**:」の段落として書く）")
     for task, hold in holds:
         print(f"\n出所: {task}")
-        for line in hold.splitlines():
+        lines = hold.splitlines()
+        for line in lines[:SHOWN_LINES]:
             print(f"  | {line}")
+        if len(lines) > SHOWN_LINES:
+            print(f"  | …（ほか{len(lines) - SHOWN_LINES}行。全文は{task}.md）")
     return 0
 
 

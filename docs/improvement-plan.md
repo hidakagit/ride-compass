@@ -200,6 +200,5 @@ CLAUDE.md参照。節見出しはタスクのテーマ分類で、日付は起�
 - [ ] [T1060](records/tasks/T1060.md). sceneが旧居（components/Map）から借りている宣言を、持ち主の置き場へ移す 規模M — トリガー: T1001段階D
 - [ ] [T1064](records/tasks/T1064.md). 本番とCIのGEOS・PROJをPGDGの版へ上げ、土地被覆を作り直す 規模M
 - [ ] [T1066](records/tasks/T1066.md). 並行実行の作業ツリーを固定数にし、消さずに使い回す 規模M
-- [ ] [T1070](records/tasks/T1070.md). 判断待ちの一覧が、保留の選択肢を別々の保留として数え、節の後ろのユーザー決定を認識しない 規模S
 
 見送りとして判断を記録したもの（台帳には載せない）: [T1036](records/tasks/T1036.md)・[T1037](records/tasks/T1037.md)・[T1038](records/tasks/T1038.md)・[T1039](records/tasks/T1039.md)・[T1040](records/tasks/T1040.md)
