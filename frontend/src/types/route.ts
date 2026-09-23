@@ -25,12 +25,6 @@ export type PinRole = "origin" | "waypoint" | "destination";
 
 export type LocationSource = "geolocation" | "default" | "manual";
 
-type RouteSegment = Omit<Required<Schemas["RouteSegment"]>, "geometry"> & {
-  geometry: GeoJSON.LineString;
-};
-
-type RoutePreviewRequest = Schemas["RoutePreviewRequest"];
-
 // geometry: 区間の道なり形状（ルートgeometryの部分列）。バックエンドはdict|Noneのため
 // スキーマに構造が現れず、RouteCandidate.geometryと同じ理由で手動補正する（null許容）。
 export type RouteSegmentDetail = Omit<Required<Schemas["RouteSegmentDetail"]>, "geometry"> & {
@@ -84,8 +78,8 @@ export type AxisCatalogResponse = Schemas["AxisCatalogResponse"];
 // 軸スタジオが使う評価軸定義のCRUD型。/api/admin/axis-definitions。
 export type AxisDefinitionPayload = Schemas["AxisDefinitionPayload"];
 export type AxisDefinitionResponse = Schemas["AxisDefinitionResponse"];
-export type BreakpointLinearShape = Schemas["BreakpointLinearShape"];
-export type CategoricalShape = Schemas["CategoricalShape"];
+type BreakpointLinearShape = Schemas["BreakpointLinearShape"];
+type CategoricalShape = Schemas["CategoricalShape"];
 export type AxisShape = BreakpointLinearShape | CategoricalShape;
 
 // 材料カタログ。GET /api/material-catalogのレスポンス。軸スタジオの

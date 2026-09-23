@@ -75,7 +75,7 @@ type EditedPayloadKey =
 /** このフォームが編集欄を持たないpayloadフィールド。既存軸の値をそのまま送り返す
  * （送らないとサーバー側の既定値で上書きされ、公開済み軸を非公開へ戻して軽微な編集を
  * しただけでこの値が黙って失われる——エラーも警告も出ない静かなデータ破壊になる）。 */
-export const PASSTHROUGH_PAYLOAD_KEYS = [
+const PASSTHROUGH_PAYLOAD_KEYS = [
   "category",
   "priority_overrides",
   "time_scope",

@@ -99,28 +99,6 @@ export const MAP_LAYER_CATEGORY_ORDER: readonly MapLayerCategory[] = mapDisplay.
  * の2点で使われる。 */
 export type MapLayerDataNature = (typeof mapDisplay.layerDataNatures)[number];
 
-/** そのレイヤーの絵がどこから来るか。
- *
- * 取得状態（読み込み中・空・失敗）の算出はここから導く。同じタイルを読むレイヤーが
- * 同時に空・失敗になるのが正しい振る舞いなため、複数のレイヤーが同じ値を名乗る。
- *
- * `ownFetch`はMapLibreのソースを経由せず自前のJSで取りに行くもの（動的気象レイヤー・
- * ルート）。MapLibreのソースイベントは外部フェッチの待ち時間・失敗を観測できないため、
- * それぞれのフェッチ自身が状態を出す。 */
-/** そのレイヤーの絵が重なりのどの段に入るか。
- *
- * 地図の重なり順はこの段だけで決まり、**レイヤーを足す人が位置を選ばない**。段を持たずに
- * 配列の並びで順序を決めると、挿す位置の間違いは「観測データが推定の下へ潜る」等の見た目に
- * しか出ない。
- *
- * - `area`: 面で塗るもの（ラスタ・塗りつぶし）。基礎地図の道路網の**下**へ差し込む
- *   （実際の差し込み先は`mapStyleOps.ts: areaLayerAnchor`が基礎地図のスキーマから求める）。
- * - `estimateLine`: 推定指標の線（ramp軸）。材料が同時に出ている間は太く半透明な下敷きになる。
- * - `rawLine`: 観測した事実の線（路面・道路種別・トンネル・一方通行）。推定の上へ置く
- *   ——同時に出したときに、後から追加される側が先の側を塗り潰さないようにする。
- * - `lensLine`: レンズ（専用way値配信軸）の線。見たいものを選んで出すため事実の線より上。
- * - `point`: 点データ（事故・停止要因POI・補給POI・風の矢印）。線に隠れないよう最上位側。
- * - `route`: 選択中のルート。探索の結果そのものなので常に一番上。 */
 /** 絞り込めない表示専用の凡例の1ブロック。
  *
  * 配信元が色を焼き込んだラスタ等、カテゴリ単位で選べないレイヤーが持つ。絞り込める
@@ -136,6 +114,14 @@ interface ReadOnlyLegendBlock {
  * 式自体に意味が無く、一致しない式を入れてある。 */
 export const UNUSED_LEGEND_FILTER: unknown[] = ["==", 1, 0];
 
+/** そのレイヤーの絵がどこから来るか。
+ *
+ * 取得状態（読み込み中・空・失敗）の算出はここから導く。同じタイルを読むレイヤーが
+ * 同時に空・失敗になるのが正しい振る舞いなため、複数のレイヤーが同じ値を名乗る。
+ *
+ * `ownFetch`はMapLibreのソースを経由せず自前のJSで取りに行くもの（動的気象レイヤー・
+ * ルート）。MapLibreのソースイベントは外部フェッチの待ち時間・失敗を観測できないため、
+ * それぞれのフェッチ自身が状態を出す。 */
 export type MapLayerDataSource = (typeof mapDisplay.layerDataSources)[number];
 
 /** 地図上チップ（MapOverlayControls.tsx）最上位の3グループ。「対象（何についての情報か）」で束ねる。
@@ -220,10 +206,6 @@ export interface MapLayerDescriptor {
    * **省略できない。** 描画側の対応表で引く形だと、表へ書き忘れたレイヤーは
    * 取得状態を持たないままになり、チップの状態ドットが永久に出ない。 */
   dataSource: MapLayerDataSource;
-  /** 重なりのどの段に入るか（`MapLayerPaintTier`）。
-   *
-   * **省略できない。** 描画側の配列の並びで順序を決める形だと、レイヤーを足す人が
-   * 挿す位置を選ぶことになる。 */
   /** 絞り込めない表示専用の凡例。▶を開いたときの中身になる。
    *
    * 省略したレイヤーは、絞り込める凡例（`scene/legends.ts`）か、画面の状態から
@@ -681,11 +663,7 @@ export const TILE_VERSIONS_MISSING_NOTICE = "配信情報を取得できず表�
  * 世代は配信元の性質なので**情報源の側で宣言する**。レイヤーごとにも宣言させると
  * 同じことを2回言うことになり、ずれたときに「描けていないのにチップが黙る」。
  * 国土地理院のラスタ・土地被覆ラスタは世代を持たない別系統のため含まない。 */
-export const TILE_VERSION_GATED_SOURCES: ReadonlySet<MapLayerDataSource> = new Set([
-  "roadTiles",
-  "accidentTiles",
-  "poiTiles",
-]);
+const TILE_VERSION_GATED_SOURCES: ReadonlySet<MapLayerDataSource> = new Set(["roadTiles", "accidentTiles", "poiTiles"]);
 
 /** タイル世代が届くまで何も描けないレイヤーのid。
  *

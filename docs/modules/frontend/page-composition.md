@@ -171,10 +171,12 @@ travelBearingDeg（page.tsxの単一useState、TravelBearingControlで操作）�
 
 **暗黙の前提**: way_id単位の実データ本体（`dedicatedWayValues: ReadonlyMap<axisId,
 ReadonlyMap<wayId, value>>`）・フェッチ進行中フラグ（`dedicatedWayValueLoading:
-ReadonlyMap<axisId, boolean>`）・表示宣言（`dedicatedWayValueDisplays:
-ReadonlyMap<axisId, DedicatedWayValueDisplay>`）は、いずれも`MapView.tsx`の`MapViewProps`上で
+ReadonlyMap<axisId, boolean>`）は、いずれも`MapView.tsx`の`MapViewProps`上で
 軸id→値の1つの汎用propにまとまっている（design-principles.md構造仕様3「軸ごとにpropを
-新設しない」）。`page.tsx`が`axisCatalog.dedicatedAxes`（軸カタログから抽出済みの
+新設しない」）。表示宣言（種類・単位・しきい値・段階ラベル）は軸そのもの
+（`dedicatedAxes`の各要素の`display`）が持ち、別のpropでは渡さない——軸と表示宣言を
+別々に配ると、片方にだけ在る軸が生まれ、それを既定値で埋める経路が要る。
+`page.tsx`が`axisCatalog.dedicatedAxes`（軸カタログから抽出済みの
 専用way値配信軸一覧）を横断して構築するため、`dedicated_way_value_layer`軸が増えても
 これらのprop自体の変更は不要。専用way値配信軸に軸専用のpropは無い。
 
@@ -384,9 +386,10 @@ composite_difficulty`と同じ考え方で軸の重みを反映した寄与度�
 `MapView`自身はレイヤー固有の判断ロジックを持たず、渡された値をそのままMapLibreの
 source/layer操作へ変換する「汎用描画係」という位置づけを保っている
 （[静的レイヤー・道路表示](static-map-layers.md)・[動的気象レイヤー](dynamic-weather-layers.md)参照）。
-地図初期化用の`useEffect`は空配列依存でマウント時に1度だけ実行され、最新props値は
-`redrawPropsRef`（refへ都度同期）経由で読む——`useEffect`の依存配列に載せると再マウント
-のたびにMapLibreインスタンスが作り直されてしまうため。
+地図初期化用の`useEffect`は空配列依存でマウント時に1度だけ実行され、そこで登録した
+ハンドラは最新の値をref（コールバックごとの`on…Ref`・いまの宣言を持つ`sceneRef`等、
+都度同期する）経由で読む——`useEffect`の依存配列に載せると再マウントのたびにMapLibre
+インスタンスが作り直されてしまうため。
 
 地図キャンバスはモバイルの下部タブバー・ボトムシートの下にも描画される（`page.module.css`の
 `.mobileTabBar`参照）。ルート生成直後のフィット（`fitBoundsToRoutes`）が覆われた領域へ

@@ -1,7 +1,10 @@
 // @vitest-environment node
+import { createExpression, featureFilter, type FilterSpecification } from "@maplibre/maplibre-gl-style-spec";
 import { describe, expect, it } from "vitest";
 
+import { LEGEND_NO_DATA_KEY } from "@/components/Map/mapColorLegend";
 import { mapDisplay } from "@/types/generated/mapDisplay";
+import palette from "@/types/generated/palette.json";
 
 import { axisLineGroup, type AxisLineState } from "./axisLines";
 
@@ -39,5 +42,103 @@ describe("レンズの線の濃さ", () => {
     expect(opacityOf({ kind: "delivered", values: new Map(), loading: false }, true)).toBe(
       mapDisplay.road.unknownOpacity,
     );
+  });
+});
+
+// 以下は式をMapLibreと同じ評価器（docs/architecture/tech-stack.md）で実際に評価し、
+// 1本の道がどの色になるか・残るかを見る。式の形を見ると、同じ意味の別の書き方で落ちる。
+const GLOBALS = { zoom: 14 } as never;
+const TRANSPARENT = "rgba(0,0,0,0)";
+
+/** 上の段から並べた3段（applyToMapが渡す順）。 */
+const THREE_BANDS = [
+  { key: "high", lowerBound: 20, color: "#dc2626" },
+  { key: "mid", lowerBound: 10, color: "#f59e0b" },
+  { key: "low", lowerBound: Number.NEGATIVE_INFINITY, color: "#16a34a" },
+];
+
+/** タイルの材料から組み立てる軸。材料`v`が欠けた道は評価できない。 */
+const TILE_VALUE = {
+  kind: "tile" as const,
+  expression: ["coalesce", ["get", "v"], 0],
+  unknown: ["!", ["has", "v"]],
+};
+
+function layerFor(value: AxisLineState["axes"][number]["value"], hiddenBandKeys: readonly string[] = []) {
+  const state: AxisLineState = {
+    sourceLayer: "road",
+    axes: [{ axisId: "ax", visible: true, bands: THREE_BANDS, value, hiddenBandKeys, underlay: false }],
+  };
+  return axisLineGroup.build(state).layers[0];
+}
+
+function evaluate(expression: unknown, properties: Record<string, unknown>, state: Record<string, unknown> = {}) {
+  const compiled = createExpression(expression, "paint");
+  if (compiled.result !== "success") {
+    throw new Error(compiled.value.map((error) => `${error.key}: ${error.message}`).join("; "));
+  }
+  return compiled.value.evaluateWithoutErrorHandling(GLOBALS, { type: 2, properties } as never, state);
+}
+
+function kept(filter: unknown, properties: Record<string, unknown>): boolean {
+  if (filter === undefined) return true;
+  return featureFilter(filter as FilterSpecification, "filter").filter(GLOBALS, { type: 2, properties } as never);
+}
+
+describe("タイルの材料から塗る軸", () => {
+  it("評価できない道は段の色ではなく「不明」の色で、薄く塗る", () => {
+    // 欠損を番兵（0）へ倒した値で段を引くと、評価できない道が最良の段の色になる。
+    const layer = layerFor(TILE_VALUE);
+
+    expect(evaluate(layer.paint?.["line-color"], {})).toBe(palette.semantic.no_data);
+    expect(evaluate(layer.paint?.["line-opacity"], {})).toBe(mapDisplay.road.unknownOpacity);
+    expect(evaluate(layer.paint?.["line-color"], { v: 15 })).toBe("#f59e0b");
+    expect(evaluate(layer.paint?.["line-opacity"], { v: 15 })).toBe(mapDisplay.road.knownOpacity);
+  });
+
+  it("中ほどの段を隠すと、その段の道だけが落ちる（上の段は残る）", () => {
+    const filter = layerFor(TILE_VALUE, ["mid"]).filter;
+
+    expect(kept(filter, { v: 5 })).toBe(true);
+    expect(kept(filter, { v: 15 })).toBe(false);
+    expect(kept(filter, { v: 25 })).toBe(true);
+    expect(kept(filter, {})).toBe(true);
+  });
+
+  it("「不明」を隠すと、評価できない道だけが落ちる", () => {
+    const filter = layerFor(TILE_VALUE, [LEGEND_NO_DATA_KEY]).filter;
+
+    expect(kept(filter, {})).toBe(false);
+    expect(kept(filter, { v: 5 })).toBe(true);
+  });
+
+  it("不明という状態を持たない軸は、段を隠しても全段が評価できる", () => {
+    const filter = layerFor({ ...TILE_VALUE, unknown: null }, ["low"]).filter;
+
+    expect(kept(filter, { v: 5 })).toBe(false);
+    expect(kept(filter, { v: 15 })).toBe(true);
+  });
+});
+
+describe("配信された値で塗る軸", () => {
+  // 値はfeature-stateで載る。絞り込みからは読めないため、隠すのは色を透明にして行う。
+  const delivered = (loading = false) => ({ kind: "delivered" as const, values: new Map<string, number>(), loading });
+  const color = (value: ReturnType<typeof delivered>, hidden: readonly string[], state: Record<string, unknown>) =>
+    evaluate(layerFor(value, hidden).paint?.["line-color"], {}, state);
+
+  it("値が無い道は「データなし」の色、取得中は取得中の色", () => {
+    expect(color(delivered(), [], {})).toBe(palette.semantic.no_data);
+    expect(color(delivered(true), [], {})).toBe(palette.semantic.loading);
+  });
+
+  it("隠した段の道だけが透明になり、他の段の色は変わらない", () => {
+    expect(color(delivered(), ["mid"], { axValue: 15 })).toBe(TRANSPARENT);
+    expect(color(delivered(), ["mid"], { axValue: 25 })).toBe("#dc2626");
+    expect(color(delivered(), ["mid"], { axValue: 5 })).toBe("#16a34a");
+  });
+
+  it("「データなし」を隠すと値の無い道が透明になる。ただし取得中の色は残す", () => {
+    expect(color(delivered(), [LEGEND_NO_DATA_KEY], {})).toBe(TRANSPARENT);
+    expect(color(delivered(true), [LEGEND_NO_DATA_KEY], {})).toBe(palette.semantic.loading);
   });
 });

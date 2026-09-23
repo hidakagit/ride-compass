@@ -1,15 +1,10 @@
 /** MapLibreの地図インスタンスに対する、どのレイヤーからも使う低水準の操作。
  *
  * ここに置くのは「特定のレイヤー種を知らない」ものだけ。レイヤー固有の描画は
- * それぞれの担当ファイル（`features/map/scene/groups/*.ts`・`axisLayers.ts`等）が持つ。
+ * それぞれの担当ファイル（`features/map/scene/groups/*.ts`）が持つ。
  */
 import type { Map as MapLibreMap } from "maplibre-gl";
 import { debugLog } from "@/lib/debugLog";
-
-export function setLayerVisibility(map: MapLibreMap, layerId: string, visible: boolean) {
-  if (!map.getLayer(layerId)) return;
-  map.setLayoutProperty(layerId, "visibility", visible ? "visible" : "none");
-}
 
 /** 「面で塗る」レイヤー種。地図の一区画を色で覆い、下にあるものを隠す描き方をまとめて指す
  * （残りのline/symbol/circle/heatmapは線・記号として、面の上に乗って読まれる側）。 */

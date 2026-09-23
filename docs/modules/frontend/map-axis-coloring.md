@@ -13,17 +13,18 @@
 | ファイル | 責務 |
 |---|---|
 | `Map/routeStyleModes.ts` | ルート確定後の色分けモード一覧・色式 |
-| `Map/dedicatedWayValueLayer.ts` | ルート確定前の評価軸グループ線（専用way値レイヤー、風・勾配共通）の色式・凡例・feature-stateキー。軸カタログの表示宣言（`DedicatedWayValueDisplay`）だけから組み立て、軸ごとのファイル・定数を持たない |
-| `Map/valueScale.ts` | 地図表示値の種類（`MapValueKind`: 難易度／符号付き材料）ごとの既定しきい値・配色、HSL補間、段階分け色式。ルート前後の色分けが共有する葉モジュール |
+| `Map/dedicatedWayValueLayer.ts` | ルート確定前の評価軸グループ線（専用way値レイヤー）の表示宣言の型（`DedicatedWayValueDisplay`）と凡例。軸カタログの表示宣言だけから組み立て、軸ごとのファイル・定数を持たない |
+| `Map/valueScale.ts` | 地図表示値の種類（`MapValueKind`: 難易度／符号付き材料）ごとの既定しきい値・配色（HSL補間）。ルート前後の色分けと凡例が共有する葉モジュール |
+| `features/map/scene/groups/axisLines.ts` | ルート確定前に評価軸（ramp軸・専用way値配信軸）で道を塗る線の宣言。段の色、値が無い道・取得中の道の色と濃さ、凡例で隠した段の落とし方（下記「評価軸の線」） |
 | `Map/dynamicWayValues.ts` | タイル座標計算・複数タイル応答の統合（材料非依存の共通部分） |
 | `Map/axisLayers.ts` | `rampColorForBand`/`COLOR_UNKNOWN`（ramp軸の共有色ヘルパー）。ramp軸自体の全面的な生成ロジックは主に[地図: 静的レイヤー・道路表示](static-map-layers.md)の管轄 |
 | `Map/__fixtures__/catalogAxes.ts` | 軸カタログの変換関数へ渡す合成入力（テスト専用）。**実際の公開軸を入力に使わない**——公開軸はDBが持ち軸スタジオで増減するため、実物を当てにすると変換の正しさではなく「いま何が公開されているか」を検証するテストになる |
 | `Map/mapColorLegend.ts` | 地図上の色分け凡例（`MapColorLegendBand`型・`buildRangeLegendBands`・`rangeStepLabel`）の共通ロジック。`dedicatedWayValueLegend`が使う |
 | `components/LensControl/LensControl.tsx` | レンズ（地図を何で塗るか）の唯一の入口。地図上部中央のピルが現在のレンズと凡例を示し、タップで単一選択の一覧（なし／総合難易度／評価に使用中の軸／未使用の軸）と「ルート後も周囲の道路を薄く塗る」トグルを開く（`page.tsx`が選択肢・凡例を組み立てる） |
 | `Map/mapLayers.ts` | `isAxisStudioLayer`（レイヤーID判定） |
-| `Map/MapView.tsx`（専用way値配信軸/DETAIL_LAYER_ID関連箇所のみ） | MapLibreへの実際の配線——ensure/apply関数群・setFeatureState反映・effect分割 |
+| `Map/MapView.tsx`（専用way値配信軸・ルート線の区間クリックの箇所のみ） | 画面の状態を宣言の入力へ渡すだけの配線（下記「MapView.tsx側の配線」）。軸ごとの処理は持たない |
 | `features/map/scene/groups/routes.ts` | 色分け線そのものを引く側。レンズの配色式・凡例フィルタを受け取ってMapLibreの線レイヤーへ流す |
-| `Map/axisLayers.ts`（`DedicatedWayValueAxis`関連のみ） | 軸カタログ→専用way値配信軸一覧の変換（`dedicatedWayValueAxesFromCatalogAxes`）とレイヤーIDの導出（`dedicatedWayValueMapLayerId`/`dedicatedWayValueLineLayerId`） |
+| `Map/axisLayers.ts`（`DedicatedWayValueAxis`関連のみ） | 軸カタログ→専用way値配信軸一覧の変換（`dedicatedWayValueAxesFromCatalogAxes`。表示宣言`display`も同じ行から軸へ載せる）とレイヤーIDの導出（`dedicatedWayValueMapLayerId`） |
 | `hooks/useDedicatedWayValues.ts` | フェッチ・状態管理（viewportデバウンス＋タイル単位取得、全軸を1つのフックで賄う） |
 | `services/axisAdminApi.ts`・`regionApi.ts`（`fetchDynamicWayValues`のみ） | backend APIラッパー |
 
@@ -64,7 +65,7 @@ backend（`domain/dynamic_way_values.py: map_value_thresholds`）が軸の折れ
 | 判定 | 使う軸データ属性 | 関数・場所 |
 |---|---|---|
 | 専用のフィーチャー配信レイヤーを持つか | `AxisDefinition.dedicated_way_value_layer` | `axisLayers.ts: dedicatedWayValueAxesFromCatalogAxes`が抽出し、`useAxisCatalog`の`dedicatedAxes`として配る |
-| 地図レイヤーID・MapLibre layer id | 軸id（文字列合成） | `axisLayers.ts: dedicatedWayValueMapLayerId`（`${axisId}Axis`）・`dedicatedWayValueLineLayerId`（`region-${axisId}-axis-line`） |
+| 地図レイヤーID（表示ON/OFFのキー） | 軸id（文字列合成） | `axisLayers.ts: dedicatedWayValueMapLayerId`（`${axisId}Axis`）。MapLibreのレイヤーidは宣言が役割（軸id）から決める（[静的レイヤー](static-map-layers.md)「ソース名とレイヤーidの決め方」） |
 | フェッチに時刻／想定速度を載せるか | `AxisCatalogEntry.dynamic_way_value_needs_time` / `_needs_speed` | `useDedicatedWayValues`（載せない入力は依存キーからも外れるため、その入力が変わっても再フェッチしない） |
 | 符号付き材料を直接読むか／難易度を読むか | `AxisCatalogEntry.map_value_kind`（backend `domain/dynamic_way_values.py: map_value_kind`が`shape`から導出） | `routeStyleModes.ts: routeColorableModeFromAxis`・`dedicatedWayValueLayer.ts`（`DedicatedWayValueDisplay.kind`） |
 | 凡例の単位 | `AxisCatalogEntry.map_value_unit`（材料カタログの`unit`） | 同上 |
@@ -114,24 +115,34 @@ backend（`domain/dynamic_way_values.py: map_value_thresholds`）が軸の折れ
     前提にする——`signed_material`は「絶対値で評価すると宣言した軸」（backend
     `domain/dynamic_way_values.py: map_value_kind`）なので、負側も同じだけ辛い軸が必要に
     なったら配色を足すのではなく種類を増やす側になる。
-- `buildSteppedColorExpression({valueExpression, kind, boundaries?, numericExpression?, loading?, hiddenBandKeys?})`:
-  null→`loading`がtrueなら`COLOR_LOADING`（フェッチ進行中でまだ値を受け取っていない）、
-  falseなら`COLOR_NO_DATA`（取得済みだが値が無い）。それ以外は`["step", ...]`の色式。
-  `hiddenBandKeys`（凡例で非表示にした段階）の色は`COLOR_HIDDEN`（透明）にする。
-  **feature-state経由の値はMapLibreの`filter`から読めない**ため、線を間引くのではなく
-  透明にして下の路面レイヤーを見せる。フェッチ進行中の色だけは非表示指定があっても残す
-  （「まだ来ていない」と「隠した」が区別できなくなるため）。
-- `buildDedicatedWayValueOpacityExpression(valueExpression, loading?)`:
-  値を受け取れなかった道は薄く、値を持つ道は濃く塗る（濃さは源泉が配る
+
+## 評価軸の線（`scene/groups/axisLines.ts`）
+
+ルート確定前に道を塗る線は、ramp軸（タイルへ焼き込んだ材料から値を組み立てる）と
+専用way値配信軸（配信された値をfeature-stateで載せる）の両方を同じ1つの宣言で描く。
+値の届き方の違いは「値が無い道をどう見分けるか」と「隠した段をどう落とすか」だけに出る。
+
+- **値が無い道は段の色で塗らない。** 配信値ではfeature-stateが未設定（null）の道、ramp軸では
+  `hasUnknownFallback`な材料が欠けている（または分類表に無い値を持つ）道
+  （`axisLayers.ts: buildAxisRampUnknownExpression`）が該当する。ramp軸の値の式は欠損を
+  番兵（0）へ倒してあるため、その値で段を引くと評価できない道が最良の段の色になる。
+  値が無い道は「データなし／不明」の色で、**取得中**（配信値でまだ一度も値を受け取っていない間）は
+  取得中の色で塗る。
+- **値が無い道は薄く、値を持つ道は濃く塗る**（濃さは源泉が配る
   `mapDisplay.road.unknownOpacity`/`knownOpacity`をそのまま使い、
   地図全体の「薄い＝対象外、濃い＝分類あり」という読み方に揃える）。
-  **暗黙の前提**: 値が無い道には、標高が計算されていない道と、
+  **暗黙の前提**: 配信値が無い道には、標高が計算されていない道と、
   勾配のように向きを指定する軸で**その向きに対して直角に近く値を示せない道**
   （backend `domain/gradient.py: effective_gradient`がNoneを返す）が同じnullとして届く。配信側が
   種類を持たないため地図では区別できない。方位を1つ指定すると後者が街区の
   半分近くを占めうるため、薄くしないと値のある道がそこへ埋もれる。
-  `loading`のあいだは薄くしない——`COLOR_LOADING`が見えなくなり「取得中」と
-  「対象外」の区別が付かなくなる。
+  取得中は薄くしない——取得中の色が見えなくなり「取得中」と「対象外」の区別が付かなくなる。
+- **凡例で隠した段の落とし方は、値の届き方で分かれる。** ramp軸の値はタイルのプロパティなので
+  絞り込み（filter）で道ごと落とす。段は下限だけを持つため、上限は1つ上の段の下限から決める
+  ——下限だけで落とすと、それより上の段まで一緒に消える。「不明」を隠したときだけ評価できない道を
+  落とす。**feature-state経由の値はMapLibreの`filter`から読めない**ため、配信値の軸は線を
+  間引くのではなく隠した段の色を透明にして下の路面レイヤーを見せる。取得中の色だけは
+  「データなし」を隠していても残す（「まだ来ていない」と「隠した」が区別できなくなるため）。
 
 ## routeStyleModes.ts（ルート確定後）
 
@@ -196,17 +207,12 @@ axis_display_for`が前の境界を決め、`domain/dynamic_way_values.py: map_v
 
 ## dedicatedWayValueLayer.ts（ルート確定前の評価軸グループ線）
 
-- `DedicatedWayValueDisplay`: `{kind, unit, boundaries?, bandLabels?}`。`page.tsx`が
-  `axisCatalog.axes`から`dedicatedWayValueLayer===true`の軸を横断的に抽出し、
-  `mapValueKind`/`mapValueUnit`/`displayThresholdsOverride`/`displayBandLabelsOverride`から
-  組み立てて`MapViewProps.dedicatedWayValueDisplays`（axisId→宣言の汎用Map）として渡す。
-  未設定の軸は`DEFAULT_DEDICATED_WAY_VALUE_DISPLAY`（難易度スケール・単位なし）。
-- `dedicatedWayValueFeatureStateKey(axisId)`: setFeatureStateのキー（`${axisId}Value`）。
-  同じ路面タイルソースの地物へ複数の軸が値を持つため軸idごとに異なる。
-- `buildDedicatedWayValueColorExpression(valueExpression, display, loading?)`: 値の取得元
-  （feature-state or geojsonプロパティ）だけが呼び出し側で異なる共通ロジック。評価軸
-  グループ（`dedicatedWayValueColorExpression`、feature-state経由）が使う。値の取得元を
-  引数に取る形のまま残してあり、feature-state以外から値を読む呼び出し側を足せる。`loading`は`buildSteppedColorExpression`へそのまま渡す（後述）。
+- `DedicatedWayValueDisplay`: `{kind, unit, boundaries?, bandLabels?}`。軸カタログの
+  `map_value_kind`/`map_value_unit`/`map_value_thresholds`/`display_band_labels_override`から、
+  `axisLayers.ts: dedicatedWayValueAxesFromCatalogAxes`が軸と同じ行で組み立てて
+  `DedicatedWayValueAxis.display`へ載せる。**軸と表示宣言を別々に配らない**——別々に配ると
+  「軸はあるのに表示宣言が無い」状態が生まれ、それを既定値で埋める経路が要る（既定値で
+  埋めると、伝播の失敗が地図の見た目に出なくなる）。
 - `dedicatedWayValueLegend(display)`: 同じ配色・しきい値から地図上の凡例
   （`mapColorLegend.ts: MapColorLegendBand[]`）を組み立てる。段階ラベル（軸スタジオの
   `display_band_labels_override`）は`mapColorLegend.ts: bandLabelsForBandCount`が
@@ -257,8 +263,8 @@ axisId)`が未取得・対象外の軸を空の結果へ倒して読み出す。
 - `loading: boolean`（現在のビューポートぶんのフェッチが進行中か）——
   `values`は古い値をそのまま残す設計（パン・ズームで一部の鍵が最新の応答に含まれなく
   なっても明示的に消さない）ため、`loading`だけを見て「まだ一度も値を受け取っていない
-  wayが読込中なのか、取得済みだが値が無いのか」を呼び出し側（`valueScale.ts`の
-  `COLOR_LOADING`/`COLOR_NO_DATA`）が判定する。
+  wayが読込中なのか、取得済みだが値が無いのか」を呼び出し側（上記「評価軸の線」）が
+  塗り分ける。
 - `error: boolean`（直近に完了したフェッチで、いずれかのタイルの取得が通信失敗したか）——
   `fetchDynamicWayValues`の`DynamicWayValuesResult.error`をタイル横断でOR集約する。
   backendが正常応答で空オブジェクトを返した場合（対象範囲に本当に道路が無い）は
@@ -285,8 +291,8 @@ axisId)`が未取得・対象外の軸を空の結果へ倒して読み出す。
 
 ## MapView.tsx側の配線
 
-`dedicatedWayValueLayer.ts`が組み立てる色式（純粋なMapLibre expression）は、
-それ自体では地図に何も描かない。実際の地図反映は`MapView.tsx`側の以下の機構が担う。
+専用way値配信軸の線・値は、他の地図の要素と同じく**宣言**（`features/map/scene/`）の一部で、
+`MapView.tsx`は画面の状態を宣言の入力へ渡すだけである。軸ごとの処理・effectは持たない。
 
 ```
 page.tsx
@@ -296,51 +302,34 @@ page.tsx
   ├─ dedicatedWayValues        = そのMapのvaluesだけを写したMap<axisId, Map<wayId, value>>
   ├─ dedicatedWayValueLoading  = 同じくloadingだけを写したMap<axisId, boolean>
   ▼
-<MapView dedicatedWayValues={...} dedicatedWayValueLoading={...} .../>
-  ├─ buildStaticOverlayLayers(..., dedicatedAxes, ...)がdedicatedAxesをmapし、軸ごとに
-  │     makeEnsureDedicatedWayValueLayer(layerId, colorExpression)（色式はdedicatedWayValueDisplays・
-  │     dedicatedWayValueLoadingから）
-  │     → 各軸の線レイヤーをroad_surfaceタイルの独立レイヤーとして初回のみ追加
-  │       （ensureRoadSurfaceTileLayerが先にpromoteId付きsourceを用意している前提）
-  ├─ dedicatedWayValuesのエントリを1つのeffectでループし、各軸へ
-  │   applyAxisFeatureStateValues(map, dedicatedWayValueFeatureStateKey(axisId), values)
-  │     → map.setFeatureState({source, sourceLayer, id: wayId}, {[key]: value}) を全way分実行
-  └─ clearRoadTileFeatureState(map)
-        → dedicatedWayValueVisibilityの値がすべてfalseへ揃った瞬間、setFeatureStateした
-          全道路ぶんの値を明示的にクリアする1つのeffectに統合されている
-          （`map.removeFeatureState`はsource/sourceLayer単位で全キーを一括で消す
-          MapLibre仕様のため、いずれか1軸だけがOFFになった時点でクリアすると
-          まだONの軸の色分けまで巻き添えで消える。全てfalseになるまで待つガードで防ぐ。
-          いまは`applyMapScene.ts: applyFeatureStates`が、宣言の差だけを当てる
-          汎用の形で持つ——軸を名指しせず、前回の宣言に在って今回無いものを消す）
+<MapView dedicatedAxes={...} dedicatedWayValues={...} dedicatedWayValueLoading={...} .../>
+  ├─ sceneInputsFrom(...)（scene/applyToMap.ts）が軸ごとの段（軸のdisplayから）・値・
+  │   取得中フラグ・隠した段を評価軸の線の入力へ移す
+  ├─ buildMapScene → 評価軸の線（scene/groups/axisLines.ts）が、路面タイルのソースへ
+  │   軸ごとのfeature-state（キーは軸idから機械的に決まる）と、軸ごとの線レイヤーを宣言する
+  └─ applyScene → 前回の宣言との差だけを地図へ当てる（applyMapScene.ts）
 ```
 
-- `promoteId: { [ROAD_TILE_SOURCE_LAYER]: "feature_key" }`（`ensureRoadSurfaceTileLayer`）が
-  MVTフィーチャーへ安定したidを持たせる前提条件——これが無いと`setFeatureState`が使えない。
-  **`osm_way_id`では代用できない**（タイルのフィーチャーはズームによってway丸ごとにも
-  区間にもなり、`feature_key`だけがその単位に追従する）。ここを取り違えても例外も警告も
-  出ず、ただ色が付かなくなるだけのため、`MapView.state.contract.test.ts`が固定している。
-- 専用way値配信軸の線は、路面本体と同じ`ROAD_LINE_SOURCE_ID`/`ROAD_TILE_SOURCE_LAYER`を
-  共有する独立レイヤーとして宣言される（`tunnel`/`oneway`と同型の構成）。
-- `dedicatedWayValues`はパン・ズームのたびに変わりうる値のため、「表示ON/OFF」を担う
-  一括の適用（宣言から組んだシーンを当てる経路）とは別に、値だけをfeature-stateで反映する
-  （無関係な再実行を避けるため）。
-- **`map.setStyle()`（「地図の表示を再描画」ボタン経由のスタイル取り直し）は
-  カスタムレイヤーを全て消すため、`redrawAllLayers`が全レイヤーを再構築する。この際
-  `dedicatedWayValues`の値自体は変わっていないため通常の依存effectは再実行されないが、
-  `redrawAllLayers`が`applyAxisFeatureStateValues`を明示的に再呼び出しすることで、
-  setStyle直後に評価軸レイヤーが無色のまま残る事故を防いでいる**（暗黙の前提:
-  この明示的な再適用を忘れると、setStyle後は視覚的にレイヤー自体は存在するが完全に無色の
-  ままになる）。
+- **feature-stateは道の識別子`feature_key`で載せる。** 路面タイルのソースは
+  `promoteId`でこのプロパティを地物のidにする（`scene/groups/roadLines.ts`）——これが無いと
+  `setFeatureState`が使えない。**`osm_way_id`では代用できない**（タイルのフィーチャーはズームに
+  よってway丸ごとにも区間にもなり、`feature_key`だけがその単位に追従する）。ここを取り違えても
+  例外も警告も出ず、ただ色が付かなくなるだけのため、`MapView.state.contract.test.ts`が固定している。
+- 専用way値配信軸の線は、路面本体と同じ`ROAD_LINE_SOURCE_ID`を共有する独立レイヤーとして
+  宣言される（`tunnel`/`oneway`と同型の構成）。
+- **軸の値が来なくなったときは、その軸のキーだけを消す。** `map.removeFeatureState`は
+  source/sourceLayer単位で全キーを一括で消すMapLibre仕様のため、1軸ぶんを消す目的で呼ぶと
+  まだONの軸の色分けまで巻き添えで消える。`applyMapScene.ts`は前回の宣言に在って今回無い
+  キーだけを消す。
+- **`map.setStyle()`（「地図の表示を再描画」）の後は、値も含めて宣言を空から当て直す**
+  （[静的レイヤー](static-map-layers.md)「スタイル取り直し後の作り直し」）。feature-stateは
+  宣言の一部なので、値が変わっていなくても再び載る——宣言の外で当てると、スタイル切替後に
+  レイヤーはあるのに完全に無色のまま残る。
 
-`dedicatedWayValues`は`MapViewProps`上、`ReadonlyMap<axisId, ReadonlyMap<wayId, value>>`
-という1つの汎用propにまとまっている（`dedicatedWayValueDisplays`・`dedicatedWayValueLoading`
-（`ReadonlyMap<axisId, boolean>`）と同じく、design-principles.md構造仕様3
-「軸ごとにpropを新設しない」に沿う）。`useDedicatedWayValues`も軸の配列を受け取る1つの
-フックで、軸ごとのフック呼び出しを持たない（Reactのフック規則により、実行時に増減しうる
-軸の件数だけフックを呼ぶことはできないため）。feature-stateキーは
-`dedicatedWayValueFeatureStateKey(axisId)`で軸idから機械的に導出するため、軸ごとの対応表は
-持たない。
+`dedicatedWayValues`・`dedicatedWayValueLoading`は`MapViewProps`上、軸id→値の1つの汎用propに
+まとまっている（design-principles.md構造仕様3「軸ごとにpropを新設しない」）。
+`useDedicatedWayValues`も軸の配列を受け取る1つのフックで、軸ごとのフック呼び出しを持たない
+（Reactのフック規則により、実行時に増減しうる軸の件数だけフックを呼ぶことはできないため）。
 
 ## 動的気象レイヤーとの関係
 
@@ -361,10 +350,10 @@ isAxisStudioLayer`により地図上チップ（`MapOverlayControls.tsx`）に�
 | 追従するもの | 導出元 |
 |---|---|
 | `MapLayerId`・`MapLayerDescriptor`（地図UIからの除外を含む） | `buildMapLayers(rampAxes, dedicatedAxes)` |
-| MapLibreの線レイヤー登録・色式と濃さの再適用 | `buildStaticOverlayLayers(..., dedicatedAxes, ...)` |
+| MapLibreの線レイヤー・色式・濃さ・feature-state | `scene/applyToMap.ts: sceneInputsFrom`が`dedicatedAxes`を評価軸の線（`scene/groups/axisLines.ts`）の入力へ移す |
 | 表示ON/OFF（レンズ選択） | `page.tsx: dedicatedWayValueVisibility` |
 | way値のフェッチとクエリパラメータの取捨 | `useDedicatedWayValues` + 軸カタログの`needsTime`/`needsSpeed` |
-| feature-stateキー・色式・濃さ・凡例 | `dedicatedWayValueFeatureStateKey`/`dedicatedWayValueColorExpression`/`dedicatedWayValueOpacityExpression`/`dedicatedWayValueLegend` |
+| 表示宣言・凡例 | `dedicatedWayValueAxesFromCatalogAxes`（軸の`display`）/`dedicatedWayValueLegend` |
 
 **追従しないもの**: 値を組み立てるbackendのサービス本体（`_DEDICATED_WAY_VALUE_SERVICE_
 FACTORIES`への登録、[dynamic-way-values.md](../backend/dynamic-way-values.md)参照）。

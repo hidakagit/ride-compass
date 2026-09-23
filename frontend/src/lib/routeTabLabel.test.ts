@@ -1,4 +1,3 @@
-import routeGenerateConfig from "@/types/generated/route-generate-config.json";
 // @vitest-environment node
 import { describe, expect, it } from "vitest";
 import {

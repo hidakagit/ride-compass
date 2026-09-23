@@ -51,7 +51,6 @@ import {
   type MapLayerId,
   type MapLayerVisibility,
 } from "@/components/Map/mapLayers";
-import { type DedicatedWayValueDisplay } from "@/components/Map/dedicatedWayValueLayer";
 import { tileBaseUrl } from "@/lib/tileBaseUrl";
 import {
   prepareBasemapForAreaLayers,
@@ -81,8 +80,6 @@ interface SpliceStretchFeature {
   taken: boolean;
   coordinates: GeoJSON.Position[];
 }
-
-/** 進行方向の矢印の絵。色を持たない単色のシルエットで、色はレイヤー側が決める。 */
 
 /** 押された点のレイヤーidから、その点の宣言を引く。idは役割から決まるので写しではない。 */
 const POINT_LAYER_BY_SCENE_ID = new Map(
@@ -253,13 +250,6 @@ export function buildLayerDataSources(layers: readonly MapLayerDescriptor[]): re
   );
 }
 
-// buildLayerDataSources自体は他の組み立て関数と同じくこのファイルに
-// 残し、フックへ引数として渡す（フック側からMapView.tsxを逆importしないため）。
-
-// ルート系の当たり判定専用レイヤー。見た目の線は細くモバイルでタップしづらいため、
-// 幅の広い透明なレイヤーを別に持つ。`handleClick`はここに当たったら道路のポップアップを
-// 開かず、それぞれの専用ハンドラへ任せる。
-
 // タイルの最小ズームを宣言したレイヤーのうち、いまのズームでは要求されないものを
 // 呼び出し側へ伝える（mapLayers.ts: tileZoomTooWideLayerIds）。レイヤーごとの閾値も
 // 「どのレイヤーが対象か」も記述子が持つため、ここは伝えるだけ。
@@ -389,11 +379,6 @@ function nearestPointOnLineString(
 // 出す方式は、モバイルで「ルート結果」ボトムシートに隠れる・軸数が少ないとレーダーが
 // 機能しない問題があるため採らない。
 
-// タイルへ焼き込んだ静的道路属性のプロパティ。
-// タグ・算出不能はundefined/null（MVTのST_AsMVTがNULLプロパティを省略するため、
-// 実際にはキー自体が存在しない）。
-export type { RoadSurfacePopupProperties } from "./roadFacts";
-
 export interface MapViewProps {
   routes: RouteCandidate[];
   selectedRouteId: string | null;
@@ -448,17 +433,9 @@ export interface MapViewProps {
    * （RoadInspectorPopup）へも渡す——揃えないと同じ場所で色と数字が食い違う。
    * 軸ごとのpropは持たない（design-principles.md構造仕様3）。 */
   rideConditions?: RideConditions;
-  /** `dedicated_way_value_layer`軸の地図表示宣言（種類・単位・しきい値・段階ラベル、
-   * 軸カタログ由来）をaxisId→宣言の汎用Mapとして受け取る（page.tsx: axisCatalog.axesから
-   * `dedicatedWayValueLayer===true`の軸を横断的に抽出して構築）。評価軸グループの線・
-   * 環境グループの勾配gridFillがこの1つのMapから該当軸の宣言を引く。未設定の軸idは
-   * 難易度スケールの既定（dedicatedWayValueLayer.ts: DEFAULT_DEDICATED_WAY_VALUE_DISPLAY）
-   * へフォールバックする。 */
-  dedicatedWayValueDisplays?: ReadonlyMap<string, DedicatedWayValueDisplay>;
   /** `dedicated_way_value_layer`軸ごとのフェッチ進行中フラグ
    * （hooks/useDedicatedWayValues.ts: loading）をaxisId→booleanの汎用Mapとして受け取る。
-   * dedicatedWayValueDisplaysと同じ理由（design-principles.md構造仕様3: 軸ごとにpropを
-   * 新設しない）で、windLoading/gradientLoadingのような別名propは持たない。未設定の軸idは
+   * 軸ごとのpropは持たない（design-principles.md構造仕様3）。未設定の軸idは
    * false（フェッチ中でない）扱い。 */
   dedicatedWayValueLoading?: ReadonlyMap<string, boolean>;
   /** `dedicated_way_value_layer`軸ごとに、凡例で非表示にした段階のキー
@@ -535,7 +512,6 @@ export interface MapViewProps {
   /** ユーザーが地図クリックで指定した経由地（起点→経由地1→...→起点の順で
    * 通過する単一経路の生成に使う、page.tsx側のstate）。 */
   waypoints: Coordinates[];
-  /** 空白地点クリック時の「経由地に追加」ボタン押下で呼ばれる。 */
   /** 武装中の役割。nullの間、地図のタップはピンを置かない（地物の詳細表示のみ）。 */
   armedPinRole: PinRole | null;
   /** 地点（出発地・経由地・目的地）をつかんで動かす・押して消すことを受け付けるか。
@@ -579,8 +555,6 @@ function useStableMap<K, V>(map: ReadonlyMap<K, V> | undefined): ReadonlyMap<K, 
   return useMemo(() => map, [signature]);
 }
 
-/** `redrawAllLayers`が読む表示状態。コンポーネント側はrefで最新値を保持して渡す。 */
-
 export default function MapView({
   routes,
   selectedRouteId,
@@ -595,7 +569,6 @@ export default function MapView({
   dedicatedAxes,
   dedicatedWayValues,
   rideConditions,
-  dedicatedWayValueDisplays,
   dedicatedWayValueLoading,
   dedicatedWayValueHiddenBands,
   axisVisibility,
@@ -688,7 +661,6 @@ export default function MapView({
         dedicatedWayValues,
         rampAxes,
         dedicatedAxes,
-        dedicatedWayValueDisplays,
         dedicatedWayValueLoading: stableDedicatedWayValueLoading,
         dedicatedWayValueHiddenBands: stableDedicatedWayValueHiddenBands,
         secondaryAxisCasingLayerIds,
@@ -714,7 +686,6 @@ export default function MapView({
       dedicatedWayValues,
       rampAxes,
       dedicatedAxes,
-      dedicatedWayValueDisplays,
       stableDedicatedWayValueLoading,
       stableDedicatedWayValueHiddenBands,
       secondaryAxisCasingLayerIds,
@@ -756,8 +727,6 @@ export default function MapView({
   const onTileZoomTooWideChangeRef = useRef(onTileZoomTooWideChange);
   //: 直前に伝えたズーム不足レイヤーの並び（同じ内容で呼び直さないため）。
   const lastTileZoomHintRef = useRef("");
-  // 詳細を見ている道。propsではなくこのコンポーネントのstate由来のため、redrawPropsRefとは
-  // 別に持つ。
   const onViewportChangeRef = useRef(onViewportChange);
   const onLayerDataStatusChangeRef = useRef(onLayerDataStatusChange);
   // handleClick（地図初期化effect内、一度だけ登録されるクロージャ）が
@@ -785,24 +754,8 @@ export default function MapView({
   // location/locationSourceが更新された直後に不要なカメラ移動（ズームリセットを含む）を
   // 起こさないようにするためのワンショットフラグ（dragendハンドラでtrueに立てる）。
   const skipNextFlyToRef = useRef(false);
-  const redrawPropsRef = useRef({
-    routes,
-    selectedRouteId,
-    routeLayerOn,
-    spliceStretches,
-    splicedRoute,
-    routeStyleModes,
-    routeStyleModeId,
-    hiddenRouteLegendKeys,
-    staticLayerVisibility,
-    dynamicWeather,
-    dedicatedWayValueVisibility,
-    axisVisibility,
-    roadHiddenKeysByMode,
-    staticLegendHiddenKeysByAxis,
-    experimentSlots,
-    dedicatedWayValues,
-  });
+  // 取得状態の再計算（地図イベントから呼ばれる）が、最新の表示ON/OFFを読むためのref。
+  const layerVisibilityRef = useRef({ ...staticLayerVisibility, ...axisVisibility });
 
   useEffect(() => {
     onTileZoomTooWideChangeRef.current = onTileZoomTooWideChange;
@@ -861,57 +814,17 @@ export default function MapView({
   }, [onSpliceStretchSelect]);
 
   useEffect(() => {
-    redrawPropsRef.current = {
-      routes,
-      selectedRouteId,
-      routeLayerOn,
-      spliceStretches,
-      splicedRoute,
-      routeStyleModes,
-      routeStyleModeId,
-      hiddenRouteLegendKeys,
-      staticLayerVisibility,
-      dynamicWeather,
-      dedicatedWayValueVisibility,
-      axisVisibility,
-      roadHiddenKeysByMode,
-      staticLegendHiddenKeysByAxis,
-      experimentSlots,
-      dedicatedWayValues,
-    };
-  }, [
-    routes,
-    selectedRouteId,
-    routeLayerOn,
-    spliceStretches,
-    splicedRoute,
-    routeStyleModes,
-    routeStyleModeId,
-    hiddenRouteLegendKeys,
-    staticLayerVisibility,
-    dynamicWeather,
-    dedicatedWayValueVisibility,
-    axisVisibility,
-    roadHiddenKeysByMode,
-    staticLegendHiddenKeysByAxis,
-    experimentSlots,
-    dedicatedWayValues,
-  ]);
+    layerVisibilityRef.current = { ...staticLayerVisibility, ...axisVisibility };
+  }, [staticLayerVisibility, axisVisibility]);
 
-  // 再描画の中身はモジュールレベルの`redrawAllLayers`が持つ（テストから実物を呼べる形に
-  // するため）。ここはrefが保持する最新値を渡すだけの薄い包み。
+  // スタイルを差し替えた後、いまの宣言を空から当て直す。
   const redrawFromCurrentProps = useCallback((map: MapLibreMap) => {
     applyScene(map, sceneRef.current, { reset: true });
   }, []);
 
   // レイヤーデータ状態（loading/empty/error）の状態管理・再計算はuseLayerDataStatusに
-  // 集約されている。ここでは「今の表示ON/OFFフラグをどう読むか」だけを
-  // 安定した関数として渡す（redrawPropsRef自体を渡さないのは、フック側をrefの内部構造に
-  // 依存させないため）。
-  const getLayerVisibility = useCallback(() => {
-    const { staticLayerVisibility, axisVisibility } = redrawPropsRef.current;
-    return { ...staticLayerVisibility, ...axisVisibility };
-  }, []);
+  // 集約されている。ここでは「今の表示ON/OFFフラグをどう読むか」だけを安定した関数として渡す。
+  const getLayerVisibility = useCallback(() => layerVisibilityRef.current, []);
   // useLayerDataStatusは呼び出しのたびに新しいオブジェクトを返すため、依存配列に安定した
   // 参照を渡せるよう個々の関数を分割代入する（layerDataStatus.recomputeのようにプロパティ
   // アクセスのまま依存配列へ書くと、react-hooks/exhaustive-depsがオブジェクト全体への依存を
@@ -1482,13 +1395,13 @@ export default function MapView({
 
   // 「地図の表示を再描画」ボタン: スタイルを取り直して地図を組み直す（押した人の地図
   // インスタンスだけに閉じた操作で、サーバー側のタイルキャッシュには触れない）。
-  // setStyle()はカスタムレイヤーを消すため、style.load後にredrawAllLayersで全て描き直す。
+  // setStyle()はカスタムレイヤーを消すため、style.load後にいまの宣言を空から当て直す。
   useEffect(() => {
     const map = mapRef.current;
     if (!map || refreshToken === 0) return;
     // refreshTokenが短時間に連続変化した場合（連打）、複数のsetStyle呼び出しが重なることへの
     // ガード。MapLibreは新しいsetStyle呼び出しで前のスタイル読み込みを打ち切りうるため、
-    // 1回目のstyle.loadリスナーが発火せずredrawAllLayersが一度も呼ばれない可能性がある。
+    // 1回目のstyle.loadリスナーが発火せず作り直しが一度も走らない可能性がある。
     // 既に進行中（style.load未確定）ならこの呼び出しはスキップする。
     if (styleReloadPendingRef.current) return;
     styleReloadPendingRef.current = true;

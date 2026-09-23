@@ -47,7 +47,14 @@ describe("mapLayers（改善計画T440: axis_idハードコード比較の撤去
   it("軸スタジオで公開した3件目の専用way値配信軸へ自動追従する", () => {
     const extended = [
       ...DEDICATED_WAY_VALUE_AXES,
-      { axisId: "surface_temp", label: "路面温度", needsTime: true, needsBearing: false, needsSpeed: false },
+      {
+        axisId: "surface_temp",
+        label: "路面温度",
+        needsTime: true,
+        needsBearing: false,
+        needsSpeed: false,
+        display: { kind: "difficulty" as const, unit: "" },
+      },
     ];
     const layerId = dedicatedWayValueMapLayerId("surface_temp");
 

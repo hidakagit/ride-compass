@@ -12,7 +12,6 @@
 // 同じくaxisMapLayerId経由で専用レイヤーを持つようになった。
 
 import type { MapLayerId } from "./mapLayers";
-import type { MapValueKind } from "./valueScale";
 import { axisMapLayerId, type CatalogAxis } from "./axisLayers";
 
 // 改善計画T308: 実行時API（GET /api/axis-catalog）から取得したエントリからも同じ形へ
@@ -46,24 +45,12 @@ export interface SecondaryAxisSummary {
    * 説明文。軸自身のデータ（AXIS_DEFINITIONS.panel_hint）をそのまま反映する。未設定なら
    * 情報アイコン自体を出さない。 */
   panelHint?: string;
-  /** プレルート表示（評価軸ライン・環境グループ塗り）の色分けしきい値。
-   * 地図が塗る値のスケールでの境界（GET /api/axis-catalogのmap_value_thresholds）を反映する
-   * ——軸スタジオが編集する生値はramp表示を持つ軸では材料の重み付き和のスケールで、
-   * 難易度と直接比べられない。未設定はkind="none"軸の各実装が持つビルド時既定値（例:
-   * 源泉が配る符号付き材料の既定境界）へのフォールバックに委ねる。 */
-  mapValueThresholds?: readonly number[] | null;
-  /** mapValueThresholdsと対になる、段階ごとの体感ラベルの軽量な
-   * 上書き（AXIS_DEFINITIONS.display_band_labels_overrideをそのまま反映）。 */
-  displayBandLabelsOverride?: readonly string[] | null;
   /** 改善計画T473: 軸自身のデータ（AXIS_DEFINITIONS.dedicated_way_value_layer）をそのまま
    * 反映する。以前はこのフィールド自体を持たず、evaluationAxes.ts側がSECONDARY_AXES由来の
    * 軸を一律falseとして扱っていたが、gradientのように「kind='none'（材料がタイル非依存）
    * かつdedicated_way_value_layer=true」という組み合わせが実在するため誤りだった
    * （evaluationAxes.ts参照）。 */
   dedicatedWayValueLayer?: boolean;
-  /** 地図がこの軸について塗る値の種類・単位（CatalogAxis.map_value_kind/map_value_unit）。 */
-  mapValueKind?: MapValueKind;
-  mapValueUnit?: string;
   /** 折れ点を通す前の生値の単位（GET /api/axis-catalogのraw_value_unit）。単位が定まる
    * 軸だけが持ち、それ以外はnull。 */
   rawValueUnit?: string | null;
@@ -145,11 +132,7 @@ export function secondaryAxesFromCatalogAxes(axes: readonly CatalogAxis[]): Seco
         primaryAttributeIds: axis.primary_attribute_ids ?? [],
         iconId: axis.icon_id ?? undefined,
         panelHint: axis.panel_hint ?? undefined,
-        mapValueThresholds: axis.map_value_thresholds ?? undefined,
-        displayBandLabelsOverride: axis.display_band_labels_override ?? undefined,
         dedicatedWayValueLayer: axis.dedicated_way_value_layer ?? false,
-        mapValueKind: axis.map_value_kind,
-        mapValueUnit: axis.map_value_unit,
         rawValueUnit: axis.raw_value_unit ?? null,
         rawValueTotalUnit: axis.raw_value_total_unit ?? null,
         materialBreakdown: materialBreakdownFromCatalog(axis.material_breakdown),

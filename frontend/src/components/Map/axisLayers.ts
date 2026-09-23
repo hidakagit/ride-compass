@@ -23,8 +23,9 @@
 import palette from "@/types/generated/palette.json";
 import type { LegendEntry } from "./legendFilter";
 import { LEGEND_NO_DATA_KEY, legendBandKey, rangeStepLabel } from "./mapColorLegend";
+import type { DedicatedWayValueDisplay } from "./dedicatedWayValueLayer";
 import type { MapValueKind } from "./valueScale";
-import type { components } from "@/types/generated/api";
+import type { AxisShape } from "@/types/route";
 
 // 改善計画T440: AxisDefinition.shapeのフロント側型（GET /api/axis-catalog:
 // AxisCatalogEntry.shapeと同じ、OpenAPI生成物由来）。
@@ -50,8 +51,6 @@ interface AxisTileInput {
    * 寄与値とする（registry.py: TileInputSpec.breakpoints参照）。 */
   breakpoints?: readonly (readonly [number, number])[];
 }
-
-export type AxisShape = components["schemas"]["BreakpointLinearShape"] | components["schemas"]["CategoricalShape"];
 
 export interface RampAxis {
   axisId: string;
@@ -270,6 +269,8 @@ export interface DedicatedWayValueAxis {
   needsTime: boolean;
   needsBearing: boolean;
   needsSpeed: boolean;
+  /** 地図に塗るときの表示宣言。軸と同じカタログの行から作るため、軸が在れば必ず在る。 */
+  display: DedicatedWayValueDisplay;
 }
 
 /** ビルド時静的json（CatalogAxis[]）・実行時APIのどちらからでも同じ形へ変換する共通関数
@@ -285,6 +286,12 @@ export function dedicatedWayValueAxesFromCatalogAxes(axes: readonly CatalogAxis[
       needsTime: axis.dynamic_way_value_needs_time ?? false,
       needsBearing: axis.dynamic_way_value_needs_bearing ?? false,
       needsSpeed: axis.dynamic_way_value_needs_speed ?? false,
+      display: {
+        kind: axis.map_value_kind ?? "difficulty",
+        unit: axis.map_value_unit ?? "",
+        boundaries: axis.map_value_thresholds ?? undefined,
+        bandLabels: axis.display_band_labels_override ?? undefined,
+      },
     }));
 }
 
@@ -294,11 +301,6 @@ export type DedicatedWayValueMapLayerId = `${string}Axis`;
 
 export function dedicatedWayValueMapLayerId(axisId: string): DedicatedWayValueMapLayerId {
   return `${axisId}Axis`;
-}
-
-/** MapLibreのlayer id（MapView内部） */
-export function dedicatedWayValueLineLayerId(axisId: string): string {
-  return `region-${axisId}-axis-line`;
 }
 
 // 共有ランプ配色（低→高、緑→黄→橙→赤）のアンカー。全ramp軸が同じ配色系統を使うことで
@@ -357,25 +359,18 @@ export function rampColorForBand(index: number, bandCount: number): string {
 // importする向きのため、逆方向のimportはできない）。
 export const COLOR_UNKNOWN = palette.semantic.no_data;
 
-/** hasUnknownFallback=trueのtile_inputについて、「不明」と判定すべきかを求める
- * MapLibre expression。該当する入力を持たない軸はnull（＝不明状態を持たない、
- * 従来どおりstep色分けのみでよい）。
+/** hasUnknownFallbackの入力について、その道の値を「不明」とすべきかを返す式。該当する
+ * 入力を持たない軸はnull（不明という状態を持たない）。
  *
- * 改善計画T297: categories材料（N値文字列、例: highway）は、プロパティが欠損している
- * 場合に加えて、**値はあるがcategoriesに未登録**の場合も「不明」に含める（以前は
- * プロパティ欠損のみを見ており、値が未登録のケースを見落としていた——例:
- * highway="footway"はプロパティとしては常に存在するため、`!has(property)`だけでは
- * 一生「不明」にならなかった）。backend側の評価（`domain/axis_definitions.py:
- * evaluate_axis_scalar`のCategoricalShape分岐）は、未登録値も`mapping.get(value, None)`
- * によりNone（評価不能）を返す——required=Trueの材料でNoneは軸全体を評価不能にする
- * ため、「未登録値=寄与0（最良側）」ではなく「未登録値=評価不能（不明）」が
- * 評価側の実際の意味論であり、地図表示側もこれに合わせる。categoriesを持たない
- * 真偽値材料（例: surface_good）は従来どおりプロパティ欠損のみで判定する
- * （欠損以外の「未登録値」という状態がそもそも存在しないため）。 */
-/** 欠損は`null`のままにせず、同じ型の番兵へ倒してから式へ入れる（文字列なら
+ * 分類材料（N値文字列、例: highway）は、プロパティの欠損に加えて**値はあるが分類表に
+ * 無い**ときも不明に含める。backendの評価（`domain/axis_definitions.py:
+ * evaluate_axis_scalar`）は未登録値を評価不能として扱うため、地図だけ「寄与0（最良側）」で
+ * 塗ると評価と食い違う。真偽値材料には「未登録値」という状態が無いので欠損だけで判定する。
+ *
+ * 欠損は`null`のままにせず、同じ型の番兵へ倒してから式へ入れる（文字列なら
  * `"__unknown__"`、数値なら0）。**出力の型が混ざる`case`/`match`を作らない**ための流儀で、
  * 式の評価が落ちてもMapLibreは例外を投げずそのレイヤーだけ黙って描かれなくなる。 */
-function buildAxisRampUnknownExpression(axis: RampAxis): unknown[] | null {
+export function buildAxisRampUnknownExpression(axis: RampAxis): unknown[] | null {
   const checks = axis.tileInputs
     .filter((input) => input.hasUnknownFallback)
     .map((input) => {
@@ -422,24 +417,7 @@ export function buildAxisRampValueExpression(axis: RampAxis): unknown[] {
   return ["+", ...terms];
 }
 
-/** thresholdsによるstep色分けのMapLibre expression。hasUnknownFallbackなtile_inputの
- * プロパティが欠損している場合は、step色分けより先にCOLOR_UNKNOWN（灰色）で塗る
- * （レビュー指摘の修正: 以前はfalseValueへ自動的に倒れ「不明」が「悪い」側の色で
- * 誤表示されていた）。 */
-export function buildAxisRampColorExpression(axis: RampAxis): unknown[] {
-  const bandCount = axis.thresholds.length + 1;
-  const stepExpression: unknown[] = ["step", buildAxisRampValueExpression(axis), rampColorForBand(0, bandCount)];
-  axis.thresholds.forEach((threshold, index) => {
-    stepExpression.push(threshold, rampColorForBand(index + 1, bandCount));
-  });
-  const unknownExpression = buildAxisRampUnknownExpression(axis);
-  if (unknownExpression === null) return stepExpression;
-  return ["case", unknownExpression, COLOR_UNKNOWN, stepExpression];
-}
-
-/** 段階の下限（inclusive）・上限（exclusive）。両端はnull（下限/上限なし）。
- * buildAxisRampLegendと▶パネル等の凡例UI・setStaticOverlayFiltersの絞り込みが
- * 同じ境界定義を共有する（片側importで揃える）。 */
+/** 段階の下限（inclusive）・上限（exclusive）。両端はnull（下限/上限なし）。 */
 function axisRampBand(thresholds: readonly number[], index: number): { lower: number | null; upper: number | null } {
   return {
     lower: index === 0 ? null : thresholds[index - 1],
@@ -460,18 +438,12 @@ function axisRampBandLabel(axis: RampAxis, index: number, lower: number | null, 
   return rangeLabel;
 }
 
-/** ramp軸の凡例（改善計画: 地図アイコンチップのグルーピング・研究タブ整理・停止/事故密度の
- * 凡例追加）。分類で塗る既存レイヤーと
- * 同じLegendEntry型で返すことで、色スウォッチ付きの凡例チェックボックス
- * （LegendCheckboxList.tsx）・地図チップの▶展開凡例
- * （MapOverlayControls.tsx: legendDetails）・実際の絞り込み
- * （MapView.tsx: setStaticOverlayFilters、buildCombinedLegendFilterExpression）を
- * 他レイヤーと同じ仕組みでそのまま共有できる（新規UIコンポーネント不要）。
+/** ramp軸の凡例。分類で塗るレイヤーと同じLegendEntry型で返し、凡例のチェックボックス・
+ * 地図チップの▶展開凡例をそのまま共有する。
  * filterはbuildAxisRampValueExpression（地図の色分けが使うのと同じ線形結合）への
  * 範囲比較で、実際に塗られる色と凡例が食い違わないようにする。
- * hasUnknownFallbackな軸（例: surface_q）は末尾に「不明」エントリを追加し（既存の
- * 分類レイヤーと同じ「不明・他」の扱い方）、他の段階の
- * filterには「不明ではない」条件を足して二重分類を防ぐ（レビュー指摘の修正）。 */
+ * hasUnknownFallbackな軸は末尾に「不明」エントリを足し、他の段階のfilterには
+ * 「不明ではない」条件を足して二重分類を防ぐ。 */
 export function buildAxisRampLegend(axis: RampAxis): LegendEntry[] {
   const valueExpression = buildAxisRampValueExpression(axis);
   const unknownExpression = buildAxisRampUnknownExpression(axis);

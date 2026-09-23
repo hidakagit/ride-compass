@@ -21,6 +21,7 @@ const WIND: DedicatedWayValueAxis = {
   needsTime: true,
   needsBearing: true,
   needsSpeed: true,
+  display: { kind: "difficulty", unit: "" },
 };
 const GRADIENT: DedicatedWayValueAxis = {
   axisId: "gradient",
@@ -28,6 +29,7 @@ const GRADIENT: DedicatedWayValueAxis = {
   needsTime: false,
   needsBearing: true,
   needsSpeed: false,
+  display: { kind: "signed_material", unit: "%" },
 };
 const NO_AXES: readonly DedicatedWayValueAxis[] = [];
 const WIND_ONLY: readonly DedicatedWayValueAxis[] = [WIND];

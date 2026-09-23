@@ -30,8 +30,7 @@ interface DedicatedWayValuesResult {
   values: ReadonlyMap<string, number>;
   /** 現在のビューポートぶんのフェッチが進行中か。falseへ戻るまでの間、
    * まだ一度も値を受け取っていないway（feature-stateキー未設定）は「取得中」、フェッチ
-   * 完了後になお値を持たないwayは「その範囲に値が無い」と呼び出し側が区別できるようにする
-   * （valueScale.ts: COLOR_LOADING/COLOR_NO_DATA参照）。 */
+   * 完了後になお値を持たないwayは「その範囲に値が無い」と呼び出し側が区別できるようにする。 */
   loading: boolean;
   /** 直近に完了したフェッチで、いずれかのタイルの取得が通信失敗（HTTPエラー・
    * ネットワークエラー）したか。falseは「本当にその範囲にway_idが無い」場合と区別する

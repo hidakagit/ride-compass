@@ -101,8 +101,8 @@ export function clearStaleTrackedSourceErrors(map: DataStatusMapLike, erroredSou
 interface UseLayerDataStatusArgs {
   mapRef: RefObject<DataStatusMapLike | null>;
   layerDataSources: readonly LayerDataSourceEntry[];
-  /** 現在の表示ON/OFFフラグを都度読む（redrawPropsRef.current等、refを直接渡さず
-   * 呼び出し側で安定した関数として包む）。 */
+  /** 現在の表示ON/OFFフラグを都度読む（refを直接渡さず、呼び出し側で安定した関数として
+   * 包む）。 */
   getVisibility: () => Partial<Record<MapLayerId, boolean>>;
   onChangeRef: RefObject<(status: LayerDataStatusByLayer) => void>;
 }

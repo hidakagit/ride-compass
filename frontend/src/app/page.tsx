@@ -33,7 +33,7 @@ import {
   type MapLayerVisibility,
 } from "@/components/Map/mapLayers";
 import { axisMapLayerId, buildAxisRampLegend, dedicatedWayValueMapLayerId } from "@/components/Map/axisLayers";
-import { dedicatedWayValueLegend, type DedicatedWayValueDisplay } from "@/components/Map/dedicatedWayValueLayer";
+import { dedicatedWayValueLegend } from "@/components/Map/dedicatedWayValueLayer";
 import LensControl, { type LensOption } from "@/components/LensControl/LensControl";
 import type { LegendEntry } from "@/components/Map/legendFilter";
 import { primaryAttributeIdsToLayerIds } from "@/components/Map/primaryAttributes";
@@ -1359,8 +1359,7 @@ export default function Home() {
   );
   // MapViewへは軸id→値／軸id→フェッチ進行中の汎用Mapとして渡す
   // （design-principles.md構造仕様3: 軸ごとにpropを新設しない）。MapView側はこれを使い、
-  // まだ値を受け取っていないwayを「取得中」（COLOR_LOADING）と「取得済みだが値が無い」
-  // （COLOR_NO_DATA）で塗り分ける。
+  // まだ値を受け取っていないwayを「取得中」と「取得済みだが値が無い」で塗り分ける。
   const dedicatedWayValues = useMemo(
     () => new Map([...dedicatedWayValueResults].map(([axisId, result]) => [axisId, result.values])),
     [dedicatedWayValueResults],
@@ -1384,23 +1383,6 @@ export default function Home() {
       result.hasFetched,
     );
   }, [axisCatalog.dedicatedAxes, lens, lensBackgroundShown, dedicatedWayValueResults]);
-  // `dedicated_way_value_layer`軸の地図表示宣言（種類・単位・しきい値・段階ラベル、いずれも
-  // 軸カタログ由来）を、axisId→宣言の汎用MapとしてMapView・凡例へ配線する。軸ごとの
-  // useMemo・propは持たない（design-principles.md構造仕様3）。
-  const dedicatedWayValueDisplays = useMemo(() => {
-    const map = new Map<string, DedicatedWayValueDisplay>();
-    for (const axis of axisCatalog.axes) {
-      if (!axis.dedicatedWayValueLayer) continue;
-      map.set(axis.axisId, {
-        kind: axis.mapValueKind ?? "difficulty",
-        unit: axis.mapValueUnit ?? "",
-        boundaries: axis.mapValueThresholds ?? undefined,
-        bandLabels: axis.displayBandLabelsOverride ?? undefined,
-      });
-    }
-    return map;
-  }, [axisCatalog.axes]);
-
   // レンズの選択肢（公開軸すべて、軸カタログ順）。「未使用」はこの候補を評価した重み
   // （生成後はgeneratedRoutePreference、生成前はライブなroutePreference）で判定し、
   // 「ルート後のみ」はルート前に塗る手段（ramp・専用配信）を持たない軸に付ける。
@@ -1424,17 +1406,17 @@ export default function Home() {
     if (hasDetail) return getRouteStyleMode(routeStyleModes, lens).legend;
     const rampAxis = axisCatalog.rampAxes.find((axis) => axis.axisId === lens);
     if (rampAxis) return buildAxisRampLegend(rampAxis);
-    const axis = axisCatalog.axes.find((a) => a.axisId === lens);
-    if (axis?.dedicatedWayValueLayer) {
+    const dedicatedAxis = axisCatalog.dedicatedAxes.find((a) => a.axisId === lens);
+    if (dedicatedAxis) {
       // 専用way値配信軸の段階はfilter述語を持てない（値がfeature-state経由で入る）。
       // 絞り込みは色式側（dedicatedWayValueHiddenBands）が担うため、ここは空のfilterで渡す。
-      return dedicatedWayValueLegend(dedicatedWayValueDisplays.get(lens)).map((band) => ({
+      return dedicatedWayValueLegend(dedicatedAxis.display).map((band) => ({
         ...band,
         filter: [],
       }));
     }
     return [];
-  }, [lens, hasDetail, routeStyleModes, axisCatalog.rampAxes, axisCatalog.axes, dedicatedWayValueDisplays]);
+  }, [lens, hasDetail, routeStyleModes, axisCatalog.rampAxes, axisCatalog.dedicatedAxes]);
 
   // 一括クリアを出すかの判定。**保存された非表示キーの長さをそのまま見ない**——保存先は
   // ルート確定の前後・レンズ・地図上チップで共通のため、段の綴りが変わった版の値や段数が
@@ -2324,7 +2306,6 @@ export default function Home() {
             dedicatedAxes={axisCatalog.dedicatedAxes}
             dedicatedWayValues={dedicatedWayValues}
             rideConditions={rideConditions}
-            dedicatedWayValueDisplays={dedicatedWayValueDisplays}
             dedicatedWayValueLoading={dedicatedWayValueLoading}
             axisVisibility={axisVisibility}
             secondaryAxisCasingLayerIds={secondaryAxisCasingLayerIds}

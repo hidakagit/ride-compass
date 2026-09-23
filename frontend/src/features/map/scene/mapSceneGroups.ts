@@ -9,17 +9,9 @@
  */
 import type { FilterSpecification, LayerSpecification } from "maplibre-gl";
 
-import type { LegendEntry } from "@/components/Map/legendFilter";
-
 import { orderedSceneLayers } from "./mapScene";
 import type { MapScene, MapSceneFeatureStates, MapSceneLayer, MapSceneSource, MapSceneTier } from "./mapScene";
 import { geojsonContent, layerSpec, sceneLayerId, type SceneSourceId, tilesContent } from "./sceneBuilders";
-
-/** 凡例の1行。**地図と凡例が同じ1つの形を共有する**——別々に持つと色が静かに食い違う。
- * `values` は「この行に属するタイルの値」で、地図の絞り込みと色分けの両方がこれを使う。 */
-export type LegendRow = Pick<LegendEntry, "key" | "label" | "color"> & {
-  readonly values: readonly (string | boolean)[];
-};
 
 /** レイヤー1枚ぶんの宣言。id は役割から決まる。
  *

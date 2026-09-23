@@ -34,7 +34,7 @@ const TERRAIN_RGB = {
 const HILLSHADE_SHADOW_COLOR = `rgba(60, 50, 40, ${AREA.opacity})`;
 const HILLSHADE_HIGHLIGHT_COLOR = `rgba(255, 252, 245, ${AREA.opacity})`;
 
-export type AreaRasterRole = Extract<(typeof primaryAttributes)[number], { geometry: "area" }>["attr_id"] | "hillshade";
+type AreaRasterRole = Extract<(typeof primaryAttributes)[number], { geometry: "area" }>["attr_id"] | "hillshade";
 
 export type AreaRasterState = {
   /** 表示ON/OFF。指定が無い役割は出さない。 */

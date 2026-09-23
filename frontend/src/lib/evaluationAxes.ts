@@ -5,9 +5,8 @@
 // RoutePreferenceWeightsはindex signature型（axis_idキーの辞書）のため、キーの綴り違いは
 // 型検査で落ちない。軸idを増減したときに気づけるのは、カタログとキー集合を突き合わせる
 // 検査だけである。
-import type { RoutePreferenceWeights } from "@/types/route";
-import type { MapValueKind } from "@/components/Map/valueScale";
 import type { CatalogAxis } from "@/components/Map/axisLayers";
+import type { MapValueKind } from "@/components/Map/valueScale";
 import type { AxisMaterialBreakdown } from "@/components/Map/secondaryAxes";
 import { materialBreakdownFromCatalog } from "@/components/Map/secondaryAxes";
 
@@ -27,22 +26,10 @@ export interface PreferenceAxisDef {
   /** この軸が専用のway_id→値配信レイヤー（Redis経由、ルート未確定時から地図上で
    * 視界内の全道路を線色分け表示できる）を持つかの宣言（domain/axis_definitions.py:
    * AxisDefinition.dedicated_way_value_layer参照）。`page.tsx`が、axis_idの
-   * ハードコード比較ではなくこのフィールドで`dedicatedWayValueDisplays`
-   * （軸id→表示宣言の汎用Map）・レンズ選択肢の`routeOnly`判定を行う。 */
+   * ハードコード比較ではなくこのフィールドでレンズ選択肢の`routeOnly`判定を行う。 */
   dedicatedWayValueLayer: boolean;
-  /** 地図が塗る値のスケールでの段階境界（GET /api/axis-catalogのmap_value_thresholds、
-   * 未設定時はundefined）。dedicatedWayValueLayer軸の評価軸グループ色分けしきい値に使う
-   * （dedicatedWayValueLayer.ts: dedicatedWayValueColorExpression）。軸スタジオが編集する
-   * 生値（display_thresholds_override）をそのまま使ってはならない——ramp表示を持つ軸では
-   * 材料の重み付き和のスケールで書かれており、難易度と直接比べられない。
-   * SECONDARY_AXES由来の軸はkind="ramp"のためこのフィールドを使わない（常にundefined）。 */
-  mapValueThresholds?: readonly number[] | null;
-  /** mapValueThresholdsと対になる、段階ごとの体感ラベルの軽量な上書き。
-   * SECONDARY_AXES由来の軸はkind="ramp"のためこのフィールドを使わない
-   * （常にundefined、dedicatedWayValueLegendの消費者のみが対象）。 */
-  displayBandLabelsOverride?: readonly string[] | null;
   /** 地図がこの軸について塗る値の種類・単位（GET /api/axis-catalogのmap_value_kind/
-   * map_value_unit）。専用way値レイヤーの色式・凡例（dedicatedWayValueLayer.ts）が使う。 */
+   * map_value_unit）。軸スタジオのしきい値プレビューが、地図と同じ配色・単位で段を描くのに使う。 */
   mapValueKind?: MapValueKind;
   mapValueUnit?: string;
   /** 折れ点を通す前の生値の単位（GET /api/axis-catalogのraw_value_unit）。単位が定まる
@@ -79,9 +66,7 @@ export function preferenceAxisFromCatalog(axis: CatalogAxis): PreferenceAxisDef 
     chipLabel: axis.chip_label ?? null,
     description: axis.description ?? "",
     dedicatedWayValueLayer: axis.dedicated_way_value_layer ?? false,
-    mapValueThresholds: axis.map_value_thresholds ?? undefined,
-    displayBandLabelsOverride: axis.display_band_labels_override ?? undefined,
-    mapValueKind: axis.map_value_kind as MapValueKind | undefined,
+    mapValueKind: axis.map_value_kind,
     mapValueUnit: axis.map_value_unit,
     rawValueUnit: axis.raw_value_unit ?? null,
     rawValueTotalUnit: axis.raw_value_total_unit ?? null,

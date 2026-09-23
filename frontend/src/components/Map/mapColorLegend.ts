@@ -1,13 +1,12 @@
 // 地図上の色分け凡例の共通型・ラベル生成。
 //
-// 色分けを実際に塗る側（axisLayers.ts: buildAxisRampColorExpression・
-// dedicatedWayValueLayer.ts: buildDedicatedWayValueColorExpression）とは別に、段階の
+// 色分けを実際に塗る側（`features/map/scene/groups/axisLines.ts`）とは別に、段階の
 // ラベル・色・安定キーだけを持つ軽量な型。ramp軸の凡例（axisLayers.ts:
 // buildAxisRampLegend）は▶パネル・MapOverlayControlsの絞り込み機構と共有する
 // LegendEntry（MapLibreのfilter述語が必須）を返すが、専用way値配信軸の値は
 // feature-state経由で入るためfilterでは絞り込めない（MapLibreのfilterはfeature-stateを
-// 読めない）。段階の表示ON/OFFは色式側で透明にして実現する（valueScale.ts:
-// buildSteppedColorExpression）ため、ここでは述語を持たないこの型を使う。
+// 読めない）。段階の表示ON/OFFは色式側で透明にして実現するため、ここでは述語を持たない
+// この型を使う。
 
 export interface MapColorLegendBand {
   /** 段階の安定識別子（表示ON/OFFの保存キー）。`legendBandKey`が唯一の出どころ。 */

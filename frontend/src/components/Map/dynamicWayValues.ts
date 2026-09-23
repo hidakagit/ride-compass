@@ -30,12 +30,6 @@ function lonLatToTileIndex(lon: number, lat: number, z: number): [number, number
 // ない想定（極端に広いウィンドウ・低ズームでの防御的な上限）。
 const MAX_TILES_PER_FETCH = 64;
 
-/** 現在のビューポートを覆う道路タイル（road-surface-tilesと同じXYZ座標系）の一覧を返す。
- * ズームはminZoom〜maxZoomへクランプする（road-surface-tilesのvector source自身がminzoom/
- * maxzoom外はタイルを要求しないのと同じ理屈。backend/app/domain/region.py:
- * tiles_covering_bboxのJS版だが、呼び出し側がビューポートの実ズーム値をそのまま渡す点が
- * 異なる——サーバ側はz/x/y個別の物理タイル座標で完結するが、こちらは「今フロントに見えている
- * ズーム」から「実際に道路タイルが読み込まれるであろうズーム」を逆算する必要があるため）。 */
 /** 道路タイルを引くズーム。地図のズームをタイルが存在する範囲へ丸める。 */
 function roadTileZoom(zoom: number, minZoom: number, maxZoom: number): number {
   return Math.min(maxZoom, Math.max(minZoom, Math.floor(zoom)));
@@ -50,6 +44,12 @@ export function tileContainingLonLat(lon: number, lat: number, zoom: number, min
   return { z, x: Math.max(0, Math.min(x, n - 1)), y: Math.max(0, Math.min(y, n - 1)) };
 }
 
+/** 現在のビューポートを覆う道路タイル（road-surface-tilesと同じXYZ座標系）の一覧を返す。
+ * ズームはminZoom〜maxZoomへクランプする（road-surface-tilesのvector source自身がminzoom/
+ * maxzoom外はタイルを要求しないのと同じ理屈。backend/app/domain/region.py:
+ * tiles_covering_bboxのJS版だが、呼び出し側がビューポートの実ズーム値をそのまま渡す点が
+ * 異なる——サーバ側はz/x/y個別の物理タイル座標で完結するが、こちらは「今フロントに見えている
+ * ズーム」から「実際に道路タイルが読み込まれるであろうズーム」を逆算する必要があるため）。 */
 export function tilesCoveringViewport(
   viewport: { west: number; north: number; east: number; south: number; zoom: number },
   minZoom: number,

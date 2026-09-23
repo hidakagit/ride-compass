@@ -12,10 +12,10 @@ import {
   fetchRasrfFrames,
   precipitationFrames,
   precipitationRenderPayload,
-  trimToCurrentAndFuture,
   type NowcastFrame,
   type RasrfFrame,
 } from "@/components/Map/precipitationNowcast";
+import { trimToCurrentAndFuture } from "@/components/Map/jmaNowcastFrames";
 import { windFrames, windRenderPayload, type MapViewport } from "@/components/Map/windLayer";
 import {
   fetchThunderNowcastFrames,

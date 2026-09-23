@@ -14,10 +14,9 @@ import { weatherSourceId, type WeatherRenderKind } from "@/features/map/scene/gr
 import { sceneLayerId } from "@/features/map/scene/sceneBuilders";
 import type { DynamicWeatherGroupState } from "@/components/Map/dynamicWeather";
 
-/** ソース名は源泉の語（チップid）＋名前付きソース、レイヤーidはそこへ描き方を足したもの。
- * **綴りを組み立て直さない**——`sceneLayerId`と`weatherSourceId`からしか作らない。 */
+/** **綴りを組み立て直さない**——`sceneLayerId`と`weatherSourceId`からしか作らない。 */
 function dynamicWeatherIds(group: string, source: string, kind: WeatherRenderKind) {
-  const sourceId = weatherSourceId({ group, source });
+  const sourceId = weatherSourceId({ group, source, kind });
   return { sourceId, layerId: sceneLayerId(sourceId, kind) };
 }
 

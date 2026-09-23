@@ -9,7 +9,7 @@ import { describe, expect, it } from "vitest";
 
 import type { AxisMaterialOption } from "@/lib/axisMaterialsCatalog";
 import { baseAxisDefinition } from "@/testing/axisDefinitionFixtures";
-import { buildShape, draftFromDuplicate, draftFromExisting, emptyDraft, PASSTHROUGH_PAYLOAD_KEYS } from "./axisDraft";
+import { buildShape, draftFromDuplicate, draftFromExisting, emptyDraft } from "./axisDraft";
 
 // 性質だけを表す材料。どれが実在するかはこの変換の関心ではない。
 const NUMERIC: AxisMaterialOption = {
@@ -118,19 +118,19 @@ describe("draftFromExisting → buildShape の往復", () => {
 
 describe("編集欄を持たないフィールドの素通し", () => {
   it("既存値をそのまま拾う（拾わないとサーバー側の既定値で上書きされる）", () => {
-    const values = {
+    // 素通し対象が増えたらこの入力も増やす（増やさないと既定値同士の比較になり検出力が
+    // 落ちる）。型を`Required`にしてあるので、増やし忘れは型検査が落とす。
+    const values: Required<ReturnType<typeof draftFromExisting>["passthrough"]> = {
       // 既定値（新規軸の"推定"）と違う値を置く——同じ値だと素通しが効いているのか
       // 既定値が偶然一致しているだけなのか区別できない。
-      category: "観測" as const,
+      category: "観測",
       priority_overrides: [{ material: "motor_vehicle_no", equals: "true", value: 100 }],
-      time_scope: "night_only" as const,
+      time_scope: "night_only",
       dedicated_way_value_layer: true,
       dynamic_way_value_needs_time: true,
       dynamic_way_value_needs_bearing: true,
       dynamic_way_value_needs_speed: true,
     };
-    // 素通し対象が増えたらこの入力も増やす（増やさないと既定値同士の比較になり検出力が落ちる）。
-    expect([...PASSTHROUGH_PAYLOAD_KEYS].sort()).toEqual(Object.keys(values).sort());
 
     const picked = draftFromExisting(baseAxisDefinition(values), OPTIONS).passthrough;
 

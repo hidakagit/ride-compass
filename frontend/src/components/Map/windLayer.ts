@@ -105,7 +105,7 @@ export const WIND_SPEED_COLOR_STOPS: readonly { speedMs: number; color: string; 
 export const WIND_CALM_THRESHOLD_MS = 0.3;
 
 // 風速の色の段（WIND_SPEED_COLOR_STOPS）は**帯の下限**で、地図はこの配列をそのまま
-// step式へ組み立てて塗る（valueScale.ts: buildBandColorExpression）。凡例もこの配列から
+// step式へ組み立てて塗る（`features/map/scene/groups/weather.ts`）。凡例もこの配列から
 // 帯の範囲を書き出すため、地図に出る色と凡例の行は1対1で対応する——連続補間で塗っていた
 // ころは、帯の中ほどの値（例: 4.0m/s）がどの色見本とも違う色になっていた。
 //
@@ -179,7 +179,7 @@ export function windRenderPayload(grid: readonly WindGridPoint[], ref: number): 
 // 書き出すwind-grid-config.jsonを単一の情報源とする。降水延長予報のgridFill表現
 // （precipitationNowcast.ts）がセルの1辺の長さとして使う。
 export const WIND_GRID_SPACING_DEG = windGridConfig.spacing_deg;
-export const WIND_GRID_DETAIL_SPACING_DEG = windGridConfig.detail_spacing_deg;
+const WIND_GRID_DETAIL_SPACING_DEG = windGridConfig.detail_spacing_deg;
 
 export interface MapViewport {
   west: number;
@@ -212,7 +212,7 @@ export const WIND_DETAIL_MIN_ZOOM = 10;
 // から取る。zoom境界（10/13/16/19、記号の拡大曲線と同じ刻み）は
 // 地図の見た目に関するUI側の判断のためフロント固有の定数として持つ。
 const WIND_GRID_DETAIL_SPACING_ZOOM_BREAKPOINTS: readonly number[] = [WIND_DETAIL_MIN_ZOOM, 13, 16, 19];
-export const WIND_GRID_DETAIL_SPACING_STOPS: readonly { zoom: number; spacingDeg: number }[] =
+const WIND_GRID_DETAIL_SPACING_STOPS: readonly { zoom: number; spacingDeg: number }[] =
   WIND_GRID_DETAIL_SPACING_ZOOM_BREAKPOINTS.map((zoom, i) => ({
     zoom,
     spacingDeg: windGridConfig.detail_allowed_spacings_deg[i],

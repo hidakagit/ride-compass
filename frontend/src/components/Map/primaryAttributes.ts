@@ -22,7 +22,7 @@ interface PrimaryAttribute {
 
 /** 一次属性の一覧（正式名付き）。`primary-attributes.json`（backendのレジストリ宣言から
  * 生成、DBを読まない）をそのまま反映する。 */
-export const PRIMARY_ATTRIBUTES: readonly PrimaryAttribute[] = primaryAttributeCatalog.map((attr) => ({
+const PRIMARY_ATTRIBUTES: readonly PrimaryAttribute[] = primaryAttributeCatalog.map((attr) => ({
   attrId: attr.attr_id,
   label: attr.label,
 }));

@@ -3,13 +3,12 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   fetchNowcastFrames,
   fetchRasrfFrames,
-  parseValidtime,
   precipitationFrames,
   precipitationRenderPayload,
-  trimToCurrentAndFuture,
   PRECIPITATION_COLOR_STOPS,
   PRECIPITATION_INTENSITY_LEVELS,
 } from "./precipitationNowcast";
+import { parseValidtime, trimToCurrentAndFuture } from "./jmaNowcastFrames";
 import { parseJstTime, WIND_GRID_SPACING_DEG } from "./windLayer";
 import type { WindGridPoint } from "@/types/weather";
 // タイル配信オリジンは`@/lib/tileBaseUrl`が唯一の情報源で、その環境変数依存は
@@ -17,7 +16,6 @@ import type { WindGridPoint } from "@/types/weather";
 // テストファイルをまたいで共有されるため（pool: vmThreads）、別ファイルが立てた
 // `NEXT_PUBLIC_TILE_BASE_URL`でこのファイルの期待値が変わらないようにするため。
 vi.mock("@/lib/tileBaseUrl", () => ({ tileBaseUrl: () => "" }));
-
 
 const N1 = [
   { basetime: "20260820030000", validtime: "20260820030000" },
@@ -92,18 +90,31 @@ describe("precipitationNowcast", () => {
         { basetime: "20260829161000", validtime: "20260829171000", member: "immed", elements: RASRF_ELEMENTS },
         { basetime: "20260829161000", validtime: "20260829181000", member: "immed", elements: RASRF_ELEMENTS },
       ];
-      vi.stubGlobal("fetch", vi.fn(() => Promise.resolve(jsonResponse(raw))));
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(() => Promise.resolve(jsonResponse(raw))),
+      );
 
       const frames = await fetchRasrfFrames();
 
-      expect(frames.map((f) => f.validtime)).toEqual(["20260829171000", "20260829181000", "20260829230000", "20260830000000"]);
+      expect(frames.map((f) => f.validtime)).toEqual([
+        "20260829171000",
+        "20260829181000",
+        "20260829230000",
+        "20260830000000",
+      ]);
       expect(frames.map((f) => f.member)).toEqual(["immed", "immed", "none", "none"]);
       expect(frames.every((f) => f.isForecast)).toBe(true);
     });
 
     it("いずれかのmemberに完全な予報ランが無ければ、そのmember分は空のまま返す", async () => {
-      const raw = [{ basetime: "20260829161000", validtime: "20260829161000", member: "none", elements: RASRF_ELEMENTS }];
-      vi.stubGlobal("fetch", vi.fn(() => Promise.resolve(jsonResponse(raw))));
+      const raw = [
+        { basetime: "20260829161000", validtime: "20260829161000", member: "none", elements: RASRF_ELEMENTS },
+      ];
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(() => Promise.resolve(jsonResponse(raw))),
+      );
 
       expect(await fetchRasrfFrames()).toEqual([]);
     });
@@ -121,7 +132,10 @@ describe("precipitationNowcast", () => {
         // rasrfを含まないため「完全な予報ラン」として誤採用してはいけない。
         { basetime: "20260829163000", validtime: "20260829163000", member: "none", elements: ["sjfcstmap"] },
       ];
-      vi.stubGlobal("fetch", vi.fn(() => Promise.resolve(jsonResponse(raw))));
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(() => Promise.resolve(jsonResponse(raw))),
+      );
 
       const frames = await fetchRasrfFrames();
 
@@ -130,7 +144,10 @@ describe("precipitationNowcast", () => {
     });
 
     it("応答が配列でなければ例外を投げる", async () => {
-      vi.stubGlobal("fetch", vi.fn(() => Promise.resolve(jsonResponse({ not: "an array" }))));
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(() => Promise.resolve(jsonResponse({ not: "an array" }))),
+      );
 
       await expect(fetchRasrfFrames()).rejects.toThrow();
     });
@@ -142,13 +159,7 @@ describe("precipitationNowcast", () => {
     }
 
     it("「現在」より前の実況フレームをすべて切り捨て、「現在」がindex 0（左端）に来るようにする", () => {
-      const frames = [
-        frame("1", false),
-        frame("2", false),
-        frame("3", false),
-        frame("4", true),
-        frame("5", true),
-      ];
+      const frames = [frame("1", false), frame("2", false), frame("3", false), frame("4", true), frame("5", true)];
       const result = trimToCurrentAndFuture(frames);
       expect(result.map((f) => f.validtime)).toEqual(["3", "4", "5"]);
       expect(result.filter((f) => !f.isForecast)).toEqual([frame("3", false)]);
@@ -219,7 +230,11 @@ describe("precipitationNowcast", () => {
       const nowcastFrames = [nowcastFrame("20260820030000", false), nowcastFrame("20260820030500", true)];
       const rasrfFrames = [rasrfFrame("20260820040000"), rasrfFrame("20260820050000")]; // 13:00, 14:00 JST
       // 延長側（風と共通の格子点マップ由来）は15:00, 16:00 JST（JSTのオフセット無し表記）。
-      const frames = precipitationFrames(nowcastFrames, rasrfFrames, extendedGrid(["2026-08-20T15:00", "2026-08-20T16:00"]));
+      const frames = precipitationFrames(
+        nowcastFrames,
+        rasrfFrames,
+        extendedGrid(["2026-08-20T15:00", "2026-08-20T16:00"]),
+      );
 
       expect(frames).toEqual([
         { time: parseValidtime("20260820030000"), ref: { source: "nowcast", index: 0 } },
@@ -296,7 +311,8 @@ describe("precipitationNowcast", () => {
       });
       expect(payload).toEqual({
         kind: "rasterTile",
-        tileUrlTemplate: "/api/jma-tile/bosai/jmatile/data/nowc/20260820030000/none/20260820030500/surf/hrpns/{z}/{x}/{y}.png",
+        tileUrlTemplate:
+          "/api/jma-tile/bosai/jmatile/data/nowc/20260820030000/none/20260820030500/surf/hrpns/{z}/{x}/{y}.png",
       });
     });
 
@@ -305,7 +321,7 @@ describe("precipitationNowcast", () => {
         precipitationRenderPayload(nowcastFrames, rasrfFrames, extendedGrid, WIND_GRID_SPACING_DEG, {
           source: "nowcast",
           index: 5,
-        })
+        }),
       ).toBeUndefined();
     });
 
@@ -316,7 +332,8 @@ describe("precipitationNowcast", () => {
       });
       expect(payload).toEqual({
         kind: "rasterTile",
-        tileUrlTemplate: "/api/jma-tile/bosai/jmatile/data/rasrf/20260820030000/immed/20260820040000/surf/rasrf/{z}/{x}/{y}.png",
+        tileUrlTemplate:
+          "/api/jma-tile/bosai/jmatile/data/rasrf/20260820030000/immed/20260820040000/surf/rasrf/{z}/{x}/{y}.png",
       });
     });
 
@@ -325,7 +342,7 @@ describe("precipitationNowcast", () => {
         precipitationRenderPayload(nowcastFrames, rasrfFrames, extendedGrid, WIND_GRID_SPACING_DEG, {
           source: "rasrf",
           index: 5,
-        })
+        }),
       ).toBeUndefined();
     });
 
@@ -341,12 +358,18 @@ describe("precipitationNowcast", () => {
       expect(payload.geojson.features[1].properties?.mmPerHour).toBe(12.5);
       const geometry = payload.geojson.features[0].geometry;
       if (geometry.type !== "Polygon") throw new Error("unreachable");
-      expect(geometry.coordinates[0][0]).toEqual([139.77 - WIND_GRID_SPACING_DEG / 2, 35.68 - WIND_GRID_SPACING_DEG / 2]);
+      expect(geometry.coordinates[0][0]).toEqual([
+        139.77 - WIND_GRID_SPACING_DEG / 2,
+        35.68 - WIND_GRID_SPACING_DEG / 2,
+      ]);
     });
 
     it("source=extendedでextendedGridが空ならundefinedを返す", () => {
       expect(
-        precipitationRenderPayload(nowcastFrames, rasrfFrames, [], WIND_GRID_SPACING_DEG, { source: "extended", index: 0 })
+        precipitationRenderPayload(nowcastFrames, rasrfFrames, [], WIND_GRID_SPACING_DEG, {
+          source: "extended",
+          index: 0,
+        }),
       ).toBeUndefined();
     });
 

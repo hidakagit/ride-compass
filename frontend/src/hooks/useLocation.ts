@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { Coordinates, LocationSource } from "@/types/route";
 
 // 開発時の初期地点フォールバック: 東京都北区・王子駅付近
-export const DEFAULT_LOCATION: Coordinates = { latitude: 35.7597, longitude: 139.7387 };
+const DEFAULT_LOCATION: Coordinates = { latitude: 35.7597, longitude: 139.7387 };
 const GEOLOCATION_TIMEOUT_MS = 8000;
 
 interface UseLocationResult {

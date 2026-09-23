@@ -76,7 +76,7 @@ export type DynamicWeatherRenderPayload =
  *
  * `fetchGroup`は1本の`targetTimes.json`を共有する単位。同じグループの要素がすべて
  * 非表示なら、そのフェッチ自体を行わない。 */
-export const DISASTER_SOURCES = [
+const DISASTER_SOURCES = [
   { key: "heavyRain", fetchGroup: "risk" },
   { key: "landslide", fetchGroup: "risk" },
   { key: "inundation", fetchGroup: "risk" },
@@ -96,7 +96,7 @@ export function disasterSourceKeys(fetchGroup: DisasterFetchGroup): readonly Dis
 /** 1グループ（=1 DynamicWeatherLayerId）配下の名前付きソースを識別するキー。グループ内で
  * 一意であればよい。単一ソースしか持たないグループも"main"という1キーだけを持つ
  * ——ソース1つならキー省略可、という特例は設けず呼び出し側の分岐を増やさない。 */
-export type DynamicWeatherSourceId = string;
+type DynamicWeatherSourceId = string;
 
 /** 1グループぶんの状態。ソースキー→状態。 */
 export type DynamicWeatherGroupState = Partial<Record<DynamicWeatherSourceId, DynamicWeatherSourceState>>;

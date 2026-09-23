@@ -1,8 +1,8 @@
 /** 画面の状態を地図へ当てる。**ここが唯一の適用の入口**。
  *
  * 状態 → 各家族の入力（`sceneInputsFrom`）→ 望ましい並び（`buildMapScene`）→
- * 差分を当てる（`applyMapScene`）の1本道。作り直し（`redrawAllLayers`）も同じ道を通り、
- * 前回との差分ではなく空から当て直すだけが違う。
+ * 差分を当てる（`applyMapScene`）の1本道。スタイルを差し替えた後の作り直しも同じ道を通り、
+ * 前回との差分ではなく空から当て直す（`applyScene`の`reset`）だけが違う。
  *
  * **再描画で失われる副作用を持つ描画は、必ずここから辿れる位置へ置く。** レイヤーの
  * 追加だけでなく、filter・feature-state・visibilityで持つ表示状態も同じ。辿れないものは
@@ -17,15 +17,13 @@ import type { MapViewProps } from "@/components/Map/MapView";
 import {
   COLOR_UNKNOWN,
   axisMapLayerId,
+  buildAxisRampUnknownExpression,
   buildAxisRampValueExpression,
   dedicatedWayValueMapLayerId,
   rampColorForBand,
   type RampAxis,
 } from "@/components/Map/axisLayers";
-import {
-  DEFAULT_DEDICATED_WAY_VALUE_DISPLAY,
-  type DedicatedWayValueDisplay,
-} from "@/components/Map/dedicatedWayValueLayer";
+import type { DedicatedWayValueDisplay } from "@/components/Map/dedicatedWayValueLayer";
 import type { DynamicWeatherRenderPayload } from "@/components/Map/dynamicWeather";
 import { withJmaTileProtocol } from "@/components/Map/jmaTileProtocol";
 import { buildLegendFilterExpression } from "@/components/Map/legendFilter";
@@ -52,13 +50,15 @@ const ACCIDENT_TILE_SOURCE_LAYER = regionTileConfig.accident.layer_name;
 const STOP_POI_SOURCE_LAYER = regionTileConfig.poi.stop_poi_layer_name;
 
 import { applyMapScene } from "./applyMapScene";
-import { buildMapScene, type SceneInputs } from "./buildScene";
+import type { SceneInputs } from "./buildScene";
 import type { AxisBand, AxisLineState } from "./groups/axisLines";
 import type { RoutePath, RouteState } from "./groups/routes";
 import { WEATHER_ICONS, type WeatherPayload, type WeatherState } from "./groups/weather";
 import { EMPTY_MAP_SCENE, type MapScene } from "./mapScene";
 
-type RedrawAllLayersProps = Pick<
+/** 地図に載るもの全部の入力。**実行時にしか決まらない値だけ**をここで集め、見た目は
+ * 各グループが持つ。 */
+type SceneWiringProps = Pick<
   MapViewProps,
   | "routes"
   | "selectedRouteId"
@@ -76,40 +76,19 @@ type RedrawAllLayersProps = Pick<
   | "staticLegendHiddenKeysByAxis"
   | "experimentSlots"
   | "dedicatedWayValues"
+  | "rampAxes"
+  | "dedicatedAxes"
+  | "dedicatedWayValueLoading"
+  | "dedicatedWayValueHiddenBands"
+  | "secondaryAxisCasingLayerIds"
+  | "tileVersionsReady"
 > & {
   /** 詳細を見ている道（ポップアップが開いている間だけ非null）。 */
   inspectedWayId: number | null;
 };
 
-// map.setStyle()は基礎地図タイルのキャッシュクリア後の再読み込みに使うが、これは
-// カスタムソース/レイヤーを含むスタイル全体を差し替えるため、こちらで追加した
-// ルート/ハロー/風/地域レイヤーがすべて消える。style.loadイベント後にこの関数で
-// 現在の表示状態から全レイヤーを作り直す。標高・路面はいずれもタイルソースのため、
-// 再取得は不要（キャッシュがクリアされていれば次のタイル要求で自動的に新しいタイルが
-// 生成される）。
-//
-// **再描画で失われる副作用を持つ描画は、必ずここから辿れる位置へ置くこと**（ソース・
-// レイヤーの追加だけでなく、filter・feature-state・visibilityで持つ表示状態も含む）。
-// 辿れないものはsetStyle()後に作り直されず、押した人の地図から消えたまま戻らない。
-//
-// カメラは動かさない——再描画は見た目を作り直すだけで、表示範囲は利用者の操作に属する
-// （フィットは「候補一覧が変わったとき」だけ、という下部effectの取り決めを破らない）。
-/** 地図に載るもの全部の入力。**実行時にしか決まらない値だけ**をここで集め、見た目は
- * 各グループが持つ。 */
-type SceneWiringProps = RedrawAllLayersProps &
-  Pick<
-    MapViewProps,
-    | "rampAxes"
-    | "dedicatedAxes"
-    | "dedicatedWayValueDisplays"
-    | "dedicatedWayValueLoading"
-    | "dedicatedWayValueHiddenBands"
-    | "secondaryAxisCasingLayerIds"
-    | "tileVersionsReady"
-  >;
-
 type RouteSceneInputs = Pick<
-  RedrawAllLayersProps,
+  SceneWiringProps,
   | "routes"
   | "selectedRouteId"
   | "routeLayerOn"
@@ -197,25 +176,26 @@ function axisStateFrom(props: SceneWiringProps, sourceLayer: string | null): Axi
     axisId: axis.axisId,
     visible: props.axisVisibility[axisMapLayerId(axis.axisId)] === true,
     bands: rampAxisBands(axis),
-    value: { kind: "tile" as const, expression: buildAxisRampValueExpression(axis) },
+    value: {
+      kind: "tile" as const,
+      expression: buildAxisRampValueExpression(axis),
+      unknown: buildAxisRampUnknownExpression(axis),
+    },
     hiddenBandKeys: props.staticLegendHiddenKeysByAxis[axis.axisId] ?? [],
     underlay: casing.has(axisMapLayerId(axis.axisId)),
   }));
-  const dedicated = props.dedicatedAxes.map((axis) => {
-    const display = props.dedicatedWayValueDisplays?.get(axis.axisId) ?? DEFAULT_DEDICATED_WAY_VALUE_DISPLAY;
-    return {
-      axisId: axis.axisId,
-      visible: props.dedicatedWayValueVisibility[dedicatedWayValueMapLayerId(axis.axisId)] === true,
-      bands: dedicatedAxisBands(display),
-      value: {
-        kind: "delivered" as const,
-        values: props.dedicatedWayValues.get(axis.axisId) ?? new Map<string, number>(),
-        loading: props.dedicatedWayValueLoading?.get(axis.axisId) === true,
-      },
-      hiddenBandKeys: props.dedicatedWayValueHiddenBands?.get(axis.axisId) ?? [],
-      underlay: false,
-    };
-  });
+  const dedicated = props.dedicatedAxes.map((axis) => ({
+    axisId: axis.axisId,
+    visible: props.dedicatedWayValueVisibility[dedicatedWayValueMapLayerId(axis.axisId)] === true,
+    bands: dedicatedAxisBands(axis.display),
+    value: {
+      kind: "delivered" as const,
+      values: props.dedicatedWayValues.get(axis.axisId) ?? new Map<string, number>(),
+      loading: props.dedicatedWayValueLoading?.get(axis.axisId) === true,
+    },
+    hiddenBandKeys: props.dedicatedWayValueHiddenBands?.get(axis.axisId) ?? [],
+    underlay: false,
+  }));
   return { axes: [...ramp, ...dedicated], sourceLayer };
 }
 
@@ -314,11 +294,4 @@ export function applyScene(map: MapLibreMap, scene: MapScene, options: { reset?:
     });
     appliedScene.set(map, scene);
   });
-}
-
-/** スタイルを差し替えた後、いまの状態から全部を作り直す。
- *
- * カメラは動かさない——作り直すのは見た目だけで、表示範囲は利用者の操作に属する。 */
-export function redrawAllLayers(map: MapLibreMap, props: SceneWiringProps) {
-  applyScene(map, buildMapScene(sceneInputsFrom(props)), { reset: true });
 }

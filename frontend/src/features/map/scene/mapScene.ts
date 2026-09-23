@@ -116,12 +116,6 @@ export function sceneLayerIdsForHitTarget(scene: MapScene, target: string): read
   return sceneLayerIdsWhere(scene, (layer) => layer.hitTargets.includes(target));
 }
 
-/** 役割からレイヤーidを引く。**綴りを組み立て直さない**——組み立て直すと、規則を変えたときに
- * 引く側だけが古い綴りのまま残る。 */
-export function sceneLayerIdsForRole(scene: MapScene, role: string): readonly string[] {
-  return sceneLayerIdsWhere(scene, (layer) => layer.role === role);
-}
-
 function tierIndex(tier: MapSceneTier): number {
   return MAP_SCENE_TIERS.findIndex((entry) => entry.id === tier);
 }

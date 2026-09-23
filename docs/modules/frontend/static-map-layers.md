@@ -19,19 +19,19 @@
 | `features/map/scene/groups/points.ts` | 停止要因POI・補給休憩POI・事故の分類・配色と、同じタイルを分け合う条件 |
 | `features/map/scene/groups/areaRasters.ts` | 面（色別標高図・土地被覆・起伏の陰影） |
 | `features/map/scene/legends.ts` | 上の宣言から凡例の行を作る（色と分類の正本はグループにしかない） |
-| `features/map/scene/mapSceneGroups.ts` | 家族（面・道路の線・点・評価軸・ルート・気象）を「いまの状態から、載っているべきレイヤーの並びを返す」1つの形で宣言する型と、それらを1つのsceneへ畳む`composeScene`（同じソースを名乗る家族を1本へまとめる）。地図と凡例が共有する凡例の行の型もここ |
+| `features/map/scene/mapSceneGroups.ts` | 家族（面・道路の線・点・評価軸・ルート・気象）を「いまの状態から、載っているべきレイヤーの並びを返す」1つの形で宣言する型と、それらを1つのsceneへ畳む`composeScene`（同じソースを名乗る家族を1本へまとめる） |
 | `features/map/scene/sceneBuilders.ts` | sceneを組み立てる道具のうち、どの家族でも同じ形になるもの（ソース名・レイヤーidを作る唯一の口。型で縛り、手で文字列を組み立てられないようにする） |
 | `features/map/scene/buildScene.ts` | 地図に載るもの全部を1つのsceneへ組み立てる唯一の口（`buildMapScene`）。受け取るのは実行時にしか決まらない値だけで、見た目の値は各グループが持つ。家族を1つ足すのはここの並びへ1行足すこと |
 | `features/map/scene/applyToMap.ts` | 画面の状態を地図へ当てる唯一の入口（状態→各家族の入力`sceneInputsFrom`→`buildMapScene`→`applyMapScene`）。作り直しも同じ道を通り、空から当て直すだけが違う。**再描画で失われる表示状態（filter・feature-state・visibility）を持つ描画は、ここから辿れる位置へ置く**——辿れないものは`setStyle()`後に作り直されない |
 | `features/map/maplibreWorker.ts` | MapLibreのWorkerの場所を、ビルド前に静的配信へ複製したもの（`scripts/copy-maplibre-worker.mjs`）へ向ける。地図を作る前に呼ばないと、Workerがバンドラの解決できないURLを読みに行き、スタイル処理とタイル取得が止まる |
 | `features/map/routeSegmentProperties.ts` | 押されたルート区間から読み戻したプロパティを元の形へ戻す。MapLibreはGeoJSONの地物のプロパティをプリミティブしか保持できず、オブジェクトをJSON文字列へ直すため |
-| `Map/legendFilter.ts` | カテゴリ絞り込みの汎用機構（凡例フィルタ式の組み立て・AND束ね） |
+| `Map/legendFilter.ts` | 凡例の行の型（`LegendEntry`）と、凡例で隠した行を落とす絞り込み式の組み立て（ルート線のモードが使う） |
 | `Map/landcoverClasses.ts` | 土地被覆のクラス（表示名・色・割合列・地図に塗るか）。backendのレジストリ由来の生成物（`landcover-classes.json`）を読むだけの薄い層で、凡例（`page.tsx`）と区間インスペクタ（`RoadInspectorPopup.tsx`）が共有する。色は地図タイルの塗りと同じ値のため、凡例と地図がずれない。**凡例は塗るクラスだけ**（`LANDCOVER_PAINTED_CLASSES`）——塗らないクラスを並べると色見本があるのに地図のどこにも無い表になる。区間インスペクタは数値なので全クラスを出す |
 | `Map/primaryAttributes.ts` | 一次属性のカタログと、二次軸→一次属性の導出（軸増減時の観測データ連動表示に使用） |
 | `Map/secondaryAxes.ts` | 「推定指標（合成）」チップグループの軸一覧生成（略名・対応`MapLayerId`・アイコン・パネル説明）。`show_map_icon`による除外を持つ |
 | `Map/mapLayers.ts` | レイヤーカタログ本体（`MapLayerDescriptor[]`）・地図上チップの最上位グループ（`MAP_OVERLAY_GROUP_ORDER`が正本。現在は道路/環境/スポット）判定・軸スタジオ由来レイヤーの除外判定・`deriveFetchLayerStatus`（MapLibreのソースイベントを経由しないレイヤーのデータ状態判定） |
 | `Map/MapView.tsx`（静的レイヤーのsource/layer初期化・並列トラック分離・下敷き表現箇所のみ） | 表示層本体 |
-| `Map/mapStyleOps.ts` | 地図インスタンスへの低水準操作（レイヤーの表示切替・スタイル読み込み後の実行・面レイヤーの差し込み位置・ズーム依存のicon-size式）。このアプリのどのレイヤーかを知らないものだけを置く |
+| `Map/mapStyleOps.ts` | 地図インスタンスへの低水準操作（スタイル読み込み後の実行・面レイヤーの差し込み位置・ズーム依存のicon-size式）。このアプリのどのレイヤーかを知らないものだけを置く |
 | `Map/routeArrowIcon.ts`・`icons.tsx` | ルート矢印・アイコン集（下記「本モジュールとの関係」参照） |
 | `Map/pointPopup.ts` | 点データ（事故・POI）をクリックしたときのポップアップ本文。値をテキストノードで入れたDOMを組み、`Popup.setDOMContent()`へ渡す（下記「ポップアップへOSMタグの生値を出すときはHTMLとして解釈させない」） |
 | `Map/RoadInspectorPopup.tsx` | 道をクリックしたときの詳細（**Reactで描き、MapLibreのPopupへportalで差し込む**）。事実（この道の属性）を先に出し、評価は押したときだけ取りに行く（backend `POST /api/region/axis-inspector`、[静的道路属性・タイル配信](../backend/static-road-attributes.md)参照）。軸ごとの効き方は**ルート結果と同じ`AxisContributionBar`**で出す——同じものを別の見た目で見せると読み方を2つ覚えることになる。寄与度はbackendが返す値をそのまま使い、フロントで重みを掛け直さない。**デバッグログONのときだけ`osm_way_id`を出す**——値がおかしい道を見つけたとき、地図で押した1本をそのままbackendの調査（`scripts/measure_gradient_outliers.py --way`）へ渡せるようにする |
@@ -207,21 +207,21 @@ MapLibreはソースへ渡した`attribution`を**そのソースが地図に載
 **暗黙の前提**: 陰影の濃さはズームにも依る（MapLibreは1画素あたりの標高差から傾きを求める
 ため、拡大するほど同じ斜面の濃淡が薄くなる）。倍率は広域で見るときを基準に決めている。
 
-## スタイル取り直し後の作り直し（`redrawAllLayers`）
+## スタイル取り直し後の作り直し（`applyScene`の`reset`）
 
 「地図の表示を再描画」は`map.setStyle()`でスタイル全体を差し替えるため、このアプリが
-足したsource/layerは一度すべて消える。`MapView.tsx: redrawAllLayers`（モジュールレベルの
-関数で、表示状態を引数で受け取る）が現在の状態から作り直す。
+足したsource/layerは一度すべて消える。`MapView.tsx`は`style.load`を待って、いまの宣言
+（`sceneRef`）を`applyScene(map, scene, { reset: true })`で空から当て直す——画面の状態が
+変わるたびに通る経路と同じ宣言・同じ適用で、前回との差分を取らないことだけが違う。
 
-**暗黙の前提**: ここから辿れない描画は作り直されず、そのレイヤーは押した人の地図から
+**暗黙の前提**: 宣言から辿れない描画は作り直されず、そのレイヤーは押した人の地図から
 消えたまま戻らない（次にそのpropが変わるまで復旧しない）。**対象はsource/layerの追加に
 限らず、filter・feature-state・visibilityで持つ表示状態も同じ**——たとえば詳細を見ている
 道の強調（`scene/groups/roadLines.ts`の`inspected`）はレイヤーのfilterとvisibilityだけで表され、ポップアップは
 開いたままなので、復元しないと「どの線の話か」だけが失われる。そのため
-`redrawAllLayers`は表示状態のpropに加えて`inspectedWayId`（コンポーネントのstate由来、
-refで最新値を渡す）も受け取る。**再描画で失われる副作用を持つ宣言**（source/layerの追加・
-filter・feature-state・visibilityの設定）は、`redrawAllLayers`から辿れる位置に置く
-——辿れない位置に置いたものは、スタイル切替後に再追加されず消える。
+詳細を見ている道（コンポーネントのstate由来）も宣言の入力に含める。**再描画で失われる
+副作用を持つもの**（source/layerの追加・filter・feature-state・visibilityの設定）は、
+宣言の一部として書く——宣言の外で当てたものは、スタイル切替後に再追加されず消える。
 カメラはここでは動かさない——表示範囲は利用者の操作に属し、フィットは候補一覧が
 変わったときだけ行う。
 
@@ -244,7 +244,8 @@ filter・feature-state・visibilityの設定）は、`redrawAllLayers`から辿�
 1つの線に縁取り・当たり判定・矢印を重ねる。**どこか1つのグループだけ「1ソース1レイヤー」に
 縛らない**——縛ると、そこだけ2枚目が要る日に規則が崩れる。
 
-**綴りを外から組み立て直さない。** 役割からレイヤーを引くときは`sceneLayerIdsForRole`を使う。
+**綴りを手で書かない。** 家族の外でidが要るとき（押されたレイヤーの判定・テスト）は、
+その家族が出すソース名と役割を`sceneLayerId`へ渡して作る。
 
 ## 重なりの段（`scene/mapScene.ts: MAP_SCENE_TIERS`）
 
@@ -513,8 +514,10 @@ ON/OFFで入れ替わる）。
 ## MapLibreの式を組むときの前提
 
 **スタイル式の誤りは例外にならない。** `addLayer`や`setPaintProperty`が式を受け付けなくても
-JSの例外は飛ばず、`map.on("error")`にしか出ない。気づけるのはそのハンドラか、記録用の
-代役地図を通すテストだけで、画面上は**そのレイヤーだけが黙って描かれない**。
+JSの例外は飛ばず、`map.on("error")`にしか出ない。画面上は**そのレイヤーだけが黙って
+描かれない**。記録用の代役地図は式を検証しないため、`MapView.state.contract.test.ts`が
+出せるものを全部出した状態の宣言（凡例の絞り込みを含む）をMapLibreと同じ版のstyle検証
+（`@maplibre/maplibre-gl-style-spec: validateStyleMin`）へ通す。
 
 **式の中へ配列を渡すときは`["literal", [...]]`で包む。** 包まないとMapLibreが先頭要素を
 演算子名として読み、`Expression name must be a string`でそのレイヤーの追加が失敗する。
@@ -528,7 +531,6 @@ JSの例外は飛ばず、`map.on("error")`にしか出ない。気づけるの�
 
 **`filter`は、値が無いならキーごと省く。** `filter: undefined`を持たせたまま渡すと
 「filterには配列が必要」で弾かれる——MapLibreはキーの有無ではなく値の型で判定する。
-代役地図はstyle検証を持たないため、この誤りはテストでは捕まらない。
 
 ## 点で示すもの（`features/map/scene/groups/points.ts`）
 
@@ -575,9 +577,10 @@ JSの例外は飛ばず、`map.on("error")`にしか出ない。気づけるの�
 点の色も上の「地図全体で共有する配色の読み方」に従う。事故の当事者区分のように評価へ寄与する
 分類も、評価配色（緑〜赤）ではなく中立の色相で分ける。
 
-各レイヤーの絞り込みは`scene/legends.ts`が宣言から出し、`legendFilter.ts`の
-汎用機構（`buildLegendFilterExpression`/`buildCombinedLegendFilterExpression`）をそのまま
-流用する。ramp軸ぶんの絞り込み軸は`rampAxes`（実行時フェッチ、軸スタジオの公開軸を含む）
+各レイヤーの凡例の行は`scene/legends.ts`が宣言から出し、地図の絞り込み式は同じ宣言から
+各グループ（`scene/groups/*.ts`）が組み立てる。同じタイルを分け合う点（停止要因・補給）は、
+凡例で何も隠していない間も自分の種別だけを通す条件を常に持つ（`points.ts: baseFilter`）。
+ramp軸ぶんの絞り込み軸は`rampAxes`（実行時フェッチ、軸スタジオの公開軸を含む）
 から関数的に組み立てる——ビルド時静的リストの手書き列挙ではない。
 
 ## 面で出せるもの・出せないもの

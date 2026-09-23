@@ -77,8 +77,11 @@ MapView.tsx: DYNAMIC_WEATHER_RENDERERS（唯一の描画スペック情報源）
           payload.kind が spec の該当サブレイヤーと一致するときだけ表示にする
 ```
 
-ソース名は**チップid＋名前付きソース**（`weatherSourceId`）、レイヤーidはそこへ**描き方**を
-足したもの（[静的レイヤー・道路表示](static-map-layers.md)「ソース名とレイヤーidの決め方」）。
+ソース名は**チップid＋名前付きソース＋描き方**（`weatherSourceId`）、レイヤーidはそこへ
+**描き方**を足したもの（[静的レイヤー・道路表示](static-map-layers.md)「ソース名とレイヤーidの決め方」）。
+**描き方をソース名から落とさない**——同じ名前付きソースを描き方違いで2要素が名乗ることがあり
+（降水の`main`は配信元のラスタと自前の格子の面）、落とすとソースが1本へ畳まれて、後から
+名乗った側のレイヤーが種類の合わないソースを指し、そのレイヤーだけが黙って描かれない。
 **チップidは源泉の語をそのまま使う**——ここで別の呼び名を付け直すと、源泉が知っているものに
 画面だけの語彙が重なる。
 
@@ -89,7 +92,7 @@ MapView.tsx: DYNAMIC_WEATHER_RENDERERS（唯一の描画スペック情報源）
 
 風速（`windLayer.ts: WIND_SPEED_COLOR_STOPS`）・降水強度（`precipitationNowcast.ts:
 PRECIPITATION_COLOR_STOPS`）の色の段は**帯の下限＋色**で、地図はこの配列をそのまま
-`step`式へ組み立てて塗る（`valueScale.ts: buildBandColorExpression`）。凡例
+`step`式へ組み立てて塗る（`features/map/scene/groups/weather.ts`）。凡例
 （`WIND_SPEED_LEGEND_LEVELS`・`PRECIPITATION_INTENSITY_LEVELS`）も同じ配列から帯の範囲を
 書き出すため、地図に出る色と凡例の行は1対1で対応する。
 

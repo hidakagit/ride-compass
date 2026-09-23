@@ -28,9 +28,11 @@ export type AxisBand = {
 };
 
 type AxisValueSource =
-  /** タイルへ焼き込んだ材料から組み立てた値。絞り込みから読める。 */
-  | { readonly kind: "tile"; readonly expression: unknown }
-  /** 配信された値。feature-state で載せるため、絞り込みからは読めない。 */
+  /** タイルへ焼き込んだ材料から組み立てた値。絞り込みから読める。値の式は欠損を番兵へ
+   * 倒してあるため null にならず、評価できない道は `unknown`（真になる式）が示す。
+   * 不明という状態を持たない軸は null。 */
+  | { readonly kind: "tile"; readonly expression: unknown; readonly unknown: unknown }
+  /** 配信された値。feature-state で載せるため、絞り込みからは読めない。値が無い道は null。 */
   | { readonly kind: "delivered"; readonly values: ReadonlyMap<string, number>; readonly loading: boolean };
 
 export type AxisLineState = {
@@ -56,35 +58,58 @@ function valueExpression(axisId: string, value: AxisValueSource): unknown {
   return value.kind === "tile" ? value.expression : ["feature-state", axisFeatureStateKey(axisId)];
 }
 
-/** 段ごとの色。値が無い道と、まだ来ていない道は別の色にする。 */
+/** その道の値が無い（評価できない）ことを示す式。無いという状態を持たない軸は null。
+ * 段の大小比較はこれが偽のときにだけ評価させる——欠損と数値の比較は評価時エラーになり、
+ * そのレイヤーだけが黙って描かれなくなる。 */
+function missingCondition(axisId: string, value: AxisValueSource): unknown {
+  return value.kind === "tile" ? value.unknown : ["==", valueExpression(axisId, value), null];
+}
+
+/** 段ごとの色。値が無い道と、まだ来ていない道は別の色にする。値が無い道を段の色で
+ * 塗らない——欠損を番兵へ倒した値で段を引くと、評価できない道が最良の段の色になる。 */
 function colorExpression(axisId: string, axis: AxisLineState["axes"][number]): unknown {
   const value = valueExpression(axisId, axis.value);
+  const delivered = axis.value.kind === "delivered";
   const loading = axis.value.kind === "delivered" && axis.value.loading;
   const cases: unknown[] = [];
   for (const band of axis.bands) {
     const hidden = axis.hiddenBandKeys.includes(band.key);
     // 読めない値の段は、落とすのではなく透明にする（下の路面の線を見せる）。
-    const color = hidden && axis.value.kind === "delivered" ? "rgba(0,0,0,0)" : band.color;
+    const color = hidden && delivered ? palette.semantic.hidden : band.color;
     cases.push([">=", value, band.lowerBound], color);
   }
-  return [
-    "case",
-    ["==", value, null],
-    loading ? palette.semantic.loading : COLOR_UNKNOWN,
-    ...cases.flat(),
-    COLOR_UNKNOWN,
-  ];
+  const missing = missingCondition(axisId, axis.value);
+  if (missing === null) return ["case", ...cases, COLOR_UNKNOWN];
+  // 取得中の色は「値なし」を隠していても残す——消すと「まだ来ていない」と「隠した」が
+  // 区別できなくなる。
+  const missingColor = loading
+    ? palette.semantic.loading
+    : delivered && axis.hiddenBandKeys.includes(LEGEND_NO_DATA_KEY)
+      ? palette.semantic.hidden
+      : COLOR_UNKNOWN;
+  return ["case", missing, missingColor, ...cases, COLOR_UNKNOWN];
 }
 
-/** 絞り込みから読める値のときだけ、隠した段を落とす。 */
+/** 絞り込みから読める値のときだけ、隠した段を落とす。段は下限だけを持つので、上限は
+ * 1つ上の段の下限から決める（下限だけで落とすと、それより上の段まで一緒に消える）。 */
 function bandFilter(axis: AxisLineState["axes"][number], axisId: string): FilterSpecification | undefined {
   if (axis.value.kind !== "tile" || axis.hiddenBandKeys.length === 0) return undefined;
   const value = valueExpression(axisId, axis.value);
-  const hidden = axis.bands.filter((band) => axis.hiddenBandKeys.includes(band.key));
-  const clauses: unknown[] = hidden.map((band) => ["!", [">=", value, band.lowerBound]]);
-  // 値を持たない道は、段を隠しただけでは落ちない（大小比較が成り立たないため）。
-  // 「値なし」の段を隠したときだけ落とす。
-  if (axis.hiddenBandKeys.includes(LEGEND_NO_DATA_KEY)) clauses.push(["!=", value, null]);
+  const missing = missingCondition(axisId, axis.value);
+  const ascending = [...axis.bands].sort((a, b) => a.lowerBound - b.lowerBound);
+  const clauses: unknown[] = [];
+  ascending.forEach((band, index) => {
+    if (!axis.hiddenBandKeys.includes(band.key)) return;
+    const upper = ascending[index + 1]?.lowerBound;
+    const inBand = [
+      "all",
+      ...(Number.isFinite(band.lowerBound) ? [[">=", value, band.lowerBound]] : []),
+      ...(upper === undefined ? [] : [["<", value, upper]]),
+    ];
+    clauses.push(missing === null ? ["!", inBand] : ["any", missing, ["!", inBand]]);
+  });
+  // 値を持たない道は段に属さないため、「値なし」の段を隠したときだけ落とす。
+  if (missing !== null && axis.hiddenBandKeys.includes(LEGEND_NO_DATA_KEY)) clauses.push(["!", missing]);
   if (clauses.length === 0) return undefined;
   return ["all", ...clauses] as unknown as FilterSpecification;
 }
@@ -111,30 +136,29 @@ export const axisLineGroup = declareGroup<AxisLineState>("axis", (state) => {
     },
   ];
 
-  const layers: readonly SceneLayerEntry[] = state.axes.map((axis) => ({
-    role: axis.axisId,
-    tier: "lensLine",
-    source: ROAD_LINE_SOURCE_ID,
-    sourceLayer: state.sourceLayer ?? undefined,
-    type: "line",
-    paint: {
-      "line-color": colorExpression(axis.axisId, axis),
-      "line-width": axis.underlay ? UNDERLAY_WIDTH_PX : mapDisplay.road.lineWidthPx,
-      // 取得中は薄くしない——薄くすると「まだ来ていない」と「対象外」が区別できない。
-      "line-opacity": axis.underlay
-        ? mapDisplay.road.unknownOpacity
-        : axis.value.kind === "delivered" && axis.value.loading
-          ? mapDisplay.road.knownOpacity
-          : [
-              "case",
-              ["==", valueExpression(axis.axisId, axis.value), null],
-              mapDisplay.road.unknownOpacity,
-              mapDisplay.road.knownOpacity,
-            ],
-    },
-    visible: axis.visible,
-    ...(bandFilter(axis, axis.axisId) === undefined ? {} : { filter: bandFilter(axis, axis.axisId) }),
-  }));
+  const layers: readonly SceneLayerEntry[] = state.axes.map((axis) => {
+    const missing = missingCondition(axis.axisId, axis.value);
+    const filter = bandFilter(axis, axis.axisId);
+    return {
+      role: axis.axisId,
+      tier: "lensLine",
+      source: ROAD_LINE_SOURCE_ID,
+      sourceLayer: state.sourceLayer ?? undefined,
+      type: "line",
+      paint: {
+        "line-color": colorExpression(axis.axisId, axis),
+        "line-width": axis.underlay ? UNDERLAY_WIDTH_PX : mapDisplay.road.lineWidthPx,
+        // 取得中は薄くしない——薄くすると「まだ来ていない」と「対象外」が区別できない。
+        "line-opacity": axis.underlay
+          ? mapDisplay.road.unknownOpacity
+          : (axis.value.kind === "delivered" && axis.value.loading) || missing === null
+            ? mapDisplay.road.knownOpacity
+            : ["case", missing, mapDisplay.road.unknownOpacity, mapDisplay.road.knownOpacity],
+      },
+      visible: axis.visible,
+      ...(filter === undefined ? {} : { filter }),
+    };
+  });
 
   return { sources, layers };
 });

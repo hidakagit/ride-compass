@@ -254,9 +254,12 @@ export const WEATHER_ICONS: readonly { id: string; create: () => ImageData }[] =
 
 /** 要素が持つソースの名前。**チップidは源泉の語をそのまま使う**
  * （`mapDisplay.weatherLayerGroups`）——ここで別の呼び名を付け直すと、源泉が知っている
- * ものに画面だけの語彙が重なる。1要素＝1ソース（要素ごとに配信先が違うため相乗りできない）。 */
-export function weatherSourceId(element: Pick<WeatherElement, "group" | "source">): SceneSourceId {
-  return sceneSourceId(`${element.group}-${element.source}`);
+ * ものに画面だけの語彙が重なる。1要素＝1ソース（要素ごとに配信先が違うため相乗りできない）。
+ * **描き方も名前に含める**——同じ名前付きソースを描き方違いで2要素が名乗る（降水の`main`は
+ * 配信元のラスタと自前の格子の面）。描き方を落とすとソースが1本へ畳まれ、後から名乗った側の
+ * レイヤーが種類の合わないソースを指して、そのレイヤーだけが黙って描かれない。 */
+export function weatherSourceId(element: Pick<WeatherElement, "group" | "source" | "kind">): SceneSourceId {
+  return sceneSourceId(`${element.group}-${element.source}-${element.kind}`);
 }
 
 export const weatherGroup = declareGroup<WeatherState>("weather", (state) => {

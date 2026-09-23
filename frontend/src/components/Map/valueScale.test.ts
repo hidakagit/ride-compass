@@ -1,14 +1,12 @@
 // @vitest-environment node
 // 配色・段階分けの純粋関数のみを検証する（docs/conventions/testing.mdパターン3）。
 import { describe, expect, it } from "vitest";
-import { legendBandKey } from "./mapColorLegend";
-import { bandColorsFor, buildSteppedColorExpression } from "./valueScale";
+import { bandColorsFor } from "./valueScale";
 
 // 補間そのものを見るので、色は**テストが自分で持つ**。実装から借りると、源泉で色を
 // 調整しただけでこのテストが落ちる（自分は何も変えていないのに）。
 const LOW = "#16a34a";
 const HIGH = "#dc2626";
-const TRANSPARENT = "rgba(0,0,0,0)";
 /** 符号付き材料の下り側は寒色（平坦の緑とは別系統）。 */
 const DESCENT = "#0284c7";
 /** 平坦は評価の「良い」側と同じ色を使う（0付近が最も走りやすい）。 */
@@ -77,22 +75,6 @@ describe("valueScale", () => {
       const colors = bandColorsFor("difficulty", [33, 66]);
       expect(colors[0]).toBe(LOW);
       expect(colors[colors.length - 1]).toBe(HIGH);
-    });
-  });
-
-  describe("buildSteppedColorExpression（非表示段階）", () => {
-    it("非表示の段階だけが透明になる", () => {
-      const expression = buildSteppedColorExpression({
-        valueExpression: ["feature-state", "gradientValue"],
-        kind: "signed_material",
-        boundaries: [-1, 1],
-        hiddenBandKeys: [legendBandKey(1)],
-      });
-      const step = expression[3] as unknown[];
-      // ["step", value, 色0, -1, 色1, 1, 色2]
-      expect(step[2]).not.toBe(TRANSPARENT);
-      expect(step[4]).toBe(TRANSPARENT);
-      expect(step[6]).not.toBe(TRANSPARENT);
     });
   });
 });

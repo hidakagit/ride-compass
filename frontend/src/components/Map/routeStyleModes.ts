@@ -119,7 +119,7 @@ function buildRangeSteppedMode(options: {
 // 種類（符号付き材料か難易度か）・単位・既定しきい値はbackendの`map_value_kind`/
 // `map_value_unit`（domain/dynamic_way_values.py）とvalueScale.tsが決め、ルート確定前の
 // 専用way値レイヤー（dedicatedWayValueLayer.ts）と同じスケール・配色になる。
-export function routeColorableModeFromAxis(axis: CatalogAxis): RouteStyleMode {
+function routeColorableModeFromAxis(axis: CatalogAxis): RouteStyleMode {
   const kind: MapValueKind = axis.map_value_kind ?? "difficulty";
   const boundaries = axis.map_value_thresholds ?? DEFAULT_DIFFICULTY_BOUNDARIES;
   // backendは`map_value_kind`が`signed_material`になる条件としてterms 1件を要求するが

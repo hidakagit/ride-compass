@@ -27,7 +27,6 @@ import {
 import {
   fetchJmaTargetTimes,
   parseValidtime,
-  trimToCurrentAndFuture,
   type JmaNowcastFrame,
   jmaTileUrlTemplate,
 } from "@/components/Map/jmaNowcastFrames";
@@ -35,11 +34,6 @@ import { parseJstTime } from "@/components/Map/windLayer";
 import type { WindGridPoint } from "@/types/weather";
 
 export type NowcastFrame = JmaNowcastFrame;
-
-// parseValidtime・trimToCurrentAndFuture（jmaNowcastFrames.tsで定義、
-// 雷ナウキャストと共有する汎用ロジック）はこのファイルからも既存の呼び出し元（page.tsx）
-// の import パスを変えずに使えるよう再エクスポートする。
-export { parseValidtime, trimToCurrentAndFuture };
 
 // 気象庁 降水短時間予報（rasrf）。ナウキャスト（実況の外挿、60分先が上限）とは異なり
 // 数値予報モデルによる正真正銘の「予測」で、最大15時間先まで存在する。

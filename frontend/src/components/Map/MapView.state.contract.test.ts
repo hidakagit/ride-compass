@@ -2,32 +2,38 @@
 /** 画面の状態を地図へ伝えたとき、**最後にどうなっているか**。
  *
  * 筋書きは[遷移表](../../../../docs/records/tasks/T1001.md)から取っている。入口は
- * `redrawAllLayers`——「いまの状態から地図を作り直す」1本で、面・道路の線・点・
+ * 本番と同じ`sceneInputsFrom`→`buildMapScene`→`applyScene`の1本で、面・道路の線・点・
  * 評価軸・気象・ルートのすべてがここを通る。
  */
+import { validateStyleMin } from "@maplibre/maplibre-gl-style-spec";
 import { beforeEach, describe, expect, it } from "vitest";
 
 import { setTileVersions } from "@/services/regionApi";
 import { createRecordingMap } from "@/testing/mapTrace/recordingMap";
 import { catalogAxis } from "@/components/Map/__fixtures__/catalogAxes";
 import { dedicatedWayValueAxesFromCatalogAxes, rampAxesFromCatalogAxes } from "@/components/Map/axisLayers";
-import { AREA_SOURCE_ID, type AreaRasterRole } from "@/features/map/scene/groups/areaRasters";
+import { AREA_SOURCE_ID } from "@/features/map/scene/groups/areaRasters";
 import { POINT_LAYERS, pointSourceId } from "@/features/map/scene/groups/points";
 import { ROAD_LINE_SOURCE_ID, ROAD_TRACKS } from "@/features/map/scene/groups/roadLines";
 import { WEATHER_ELEMENTS } from "@/features/map/scene/groups/weather";
-import { applyScene, redrawAllLayers, sceneInputsFrom } from "@/features/map/scene/applyToMap";
+import { pointLegendAxes, roadLegendAxes } from "@/features/map/scene/legends";
+import { LEGEND_NO_DATA_KEY, legendBandKey } from "@/components/Map/mapColorLegend";
+import { applyScene, sceneInputsFrom } from "@/features/map/scene/applyToMap";
 import { buildMapScene } from "@/features/map/scene/buildScene";
 import { sceneLayerId } from "@/features/map/scene/sceneBuilders";
 
 const RAMP_AXES = rampAxesFromCatalogAxes([
-  catalogAxis({ axis_id: "ramp", display: { tile_inputs: [{ property: "v", weight: 1 }], thresholds: [50] } }),
+  catalogAxis({
+    axis_id: "ramp",
+    display: { tile_inputs: [{ property: "v", weight: 1, has_unknown_fallback: true }], thresholds: [50] },
+  }),
 ]);
 const DEDICATED_AXES = dedicatedWayValueAxesFromCatalogAxes([
   catalogAxis({ axis_id: "ded1", dedicated_way_value_layer: true }),
   catalogAxis({ axis_id: "ded2", dedicated_way_value_layer: true }),
 ]);
 
-type State = Parameters<typeof redrawAllLayers>[1];
+type State = Parameters<typeof sceneInputsFrom>[0];
 
 /** 何も出していない状態。個々のテストは必要な分だけ上書きする。 */
 function baseState(): State {
@@ -58,7 +64,7 @@ function baseState(): State {
 
 // レイヤーidは**ソース名＋役割**で決まる。綴りは`sceneLayerId`からしか作らない
 // ——ここで組み立て直すと、規則を変えたときテストだけが古い綴りのまま残る。
-const areaLayerId = (role: AreaRasterRole) => sceneLayerId(AREA_SOURCE_ID[role], role);
+const areaLayerId = (role: keyof typeof AREA_SOURCE_ID) => sceneLayerId(AREA_SOURCE_ID[role], role);
 const roadLayerId = (role: string) => sceneLayerId(ROAD_LINE_SOURCE_ID, role);
 const axisLayerId = (role: string) => sceneLayerId(ROAD_LINE_SOURCE_ID, role);
 const pointLayerId = (role: string) =>
@@ -71,6 +77,11 @@ function show(map: unknown, state: State) {
   applyScene(map as never, buildMapScene(sceneInputsFrom(state)));
 }
 
+/** 空から作り直す経路（スタイルを差し替えた後に通るのはこちら）。 */
+function rebuild(map: unknown, state: State) {
+  applyScene(map as never, buildMapScene(sceneInputsFrom(state)), { reset: true });
+}
+
 describe("状態を地図へ伝えた結果", () => {
   beforeEach(() => {
     setTileVersions(READY_VERSIONS);
@@ -80,7 +91,7 @@ describe("状態を地図へ伝えた結果", () => {
     it("表示ONにしたものだけが見えている", () => {
       const { map, handle } = createRecordingMap();
 
-      redrawAllLayers(
+      rebuild(
         map as never,
         {
           ...baseState(),
@@ -96,7 +107,7 @@ describe("状態を地図へ伝えた結果", () => {
     it("面は、道路の線より背面にある", () => {
       const { map, handle } = createRecordingMap();
 
-      redrawAllLayers(
+      rebuild(
         map as never,
         {
           ...baseState(),
@@ -114,7 +125,7 @@ describe("状態を地図へ伝えた結果", () => {
       setTileVersions({});
       const { map, handle } = createRecordingMap();
 
-      redrawAllLayers(map as never, { ...baseState(), staticLayerVisibility: { surface: true } } as unknown as State);
+      rebuild(map as never, { ...baseState(), staticLayerVisibility: { surface: true } } as unknown as State);
 
       expect(handle.sources()).not.toContain(ROAD_LINE_SOURCE_ID);
     });
@@ -123,10 +134,10 @@ describe("状態を地図へ伝えた結果", () => {
       setTileVersions({});
       const { map, handle } = createRecordingMap();
       const state = { ...baseState(), staticLayerVisibility: { surface: true } } as State;
-      redrawAllLayers(map as never, state);
+      rebuild(map as never, state);
 
       setTileVersions(READY_VERSIONS);
-      redrawAllLayers(map as never, state);
+      rebuild(map as never, state);
 
       expect(handle.sources()).toContain(ROAD_LINE_SOURCE_ID);
       expect(handle.layer(roadLayerId("surface"))?.visibility).toBe("visible");
@@ -136,7 +147,7 @@ describe("状態を地図へ伝えた結果", () => {
     it("路面と道路種別を同時に出すと、線が左右へ分かれる", () => {
       const { map, handle } = createRecordingMap();
 
-      redrawAllLayers(
+      rebuild(
         map as never,
         {
           ...baseState(),
@@ -154,7 +165,7 @@ describe("状態を地図へ伝えた結果", () => {
     it("凡例で隠した分類は、その線から落ちる", () => {
       const { map, handle } = createRecordingMap();
 
-      redrawAllLayers(
+      rebuild(
         map as never,
         {
           ...baseState(),
@@ -171,7 +182,7 @@ describe("状態を地図へ伝えた結果", () => {
     it("停止要因と補給は、同じソースの別レイヤーとして出る", () => {
       const { map, handle } = createRecordingMap();
 
-      redrawAllLayers(
+      rebuild(
         map as never,
         {
           ...baseState(),
@@ -190,7 +201,7 @@ describe("状態を地図へ伝えた結果", () => {
     it("同じタイルを分け合う点は、互いの種別を混ぜない", () => {
       const { map, handle } = createRecordingMap();
 
-      redrawAllLayers(map as never, { ...baseState(), staticLayerVisibility: { stop_poi: true } } as unknown as State);
+      rebuild(map as never, { ...baseState(), staticLayerVisibility: { stop_poi: true } } as unknown as State);
 
       // 分ける条件を持たないと、補給の点が停止要因の色で出る。
       expect(handle.layer(pointLayerId("stop_poi"))?.filter).toBeDefined();
@@ -200,7 +211,7 @@ describe("状態を地図へ伝えた結果", () => {
   describe("評価軸の線", () => {
     function withValues(visibility: Record<string, boolean>, values: ReadonlyMap<string, ReadonlyMap<string, number>>) {
       const { map, handle } = createRecordingMap();
-      redrawAllLayers(
+      rebuild(
         map as never,
         {
           ...baseState(),
@@ -303,11 +314,21 @@ describe("レイヤーを横断する要求", () => {
         },
       ],
     };
+    // 絞り込みの式も検証の対象にするため、凡例の先頭の行と「値なし」を隠しておく。
+    const firstKeyHidden = (axes: readonly { axisId: string; entries: readonly { key: string }[] }[]) =>
+      Object.fromEntries(axes.map((axis) => [axis.axisId, axis.entries.slice(0, 1).map((entry) => entry.key)]));
+    const bandsHidden = [legendBandKey(0), LEGEND_NO_DATA_KEY];
     return {
       ...baseState(),
       staticLayerVisibility: visibility,
       dedicatedWayValueVisibility: dedicatedVisibility,
       axisVisibility,
+      roadHiddenKeysByMode: firstKeyHidden(roadLegendAxes()),
+      staticLegendHiddenKeysByAxis: {
+        ...firstKeyHidden(pointLegendAxes()),
+        ...Object.fromEntries(RAMP_AXES.map((axis) => [axis.axisId, bandsHidden])),
+      },
+      dedicatedWayValueHiddenBands: new Map(DEDICATED_AXES.map((axis) => [axis.axisId, bandsHidden])),
       dynamicWeather: everyWeatherGroupState(),
       routes: [candidate],
       selectedRouteId: "a",
@@ -323,15 +344,37 @@ describe("レイヤーを横断する要求", () => {
   it("スタイルを差し替えても、同じ状態を伝え直せば元へ戻る", () => {
     const { map, handle } = createRecordingMap();
     const state = everythingVisible();
-    redrawAllLayers(map as never, state);
+    rebuild(map as never, state);
     const before = handle.layerOrder();
     // 空振りしていないこと（載っていなければ比較は常に通る）。
     expect(before.length).toBeGreaterThan(WEATHER_ELEMENTS.length);
 
     handle.dropEverything();
-    redrawAllLayers(map as never, state);
+    rebuild(map as never, state);
 
     expect(handle.layerOrder()).toEqual(before);
+  });
+
+  // 式の誤りは例外にならず、そのレイヤーだけが黙って描かれない（代役地図は式を検証しない）。
+  // 出せるものを全部出した状態の宣言を、MapLibreと同じ版のstyle検証へ通す。
+  it("地図へ渡すソースとレイヤーは、すべてMapLibreのstyle検証を通る", () => {
+    const { map, handle } = createRecordingMap();
+    rebuild(map, everythingVisible());
+    const sources = Object.fromEntries(
+      handle.trace.filter((entry) => entry.call === "addSource").map((entry) => [entry.args[0], entry.args[1]]),
+    );
+    const layers = handle.trace.filter((entry) => entry.call === "addLayer").map((entry) => entry.args[2]);
+    // 空振りしていないこと（載っていなければ検証は常に通る）。
+    expect(layers.length).toBeGreaterThan(WEATHER_ELEMENTS.length);
+
+    const errors = validateStyleMin({
+      version: 8,
+      glyphs: "https://example.test/{fontstack}/{range}.pbf",
+      sources,
+      layers,
+    } as never);
+
+    expect(errors.map((error) => error.message)).toEqual([]);
   });
 
   // 世代が届く前にソースを作ると、世代の違う中身がブラウザのキャッシュへ載って以後ずっと残る。
@@ -340,11 +383,11 @@ describe("レイヤーを横断する要求", () => {
 
     setTileVersions(READY_VERSIONS);
     const ready = createRecordingMap();
-    redrawAllLayers(ready.map as never, state);
+    rebuild(ready.map as never, state);
 
     setTileVersions({});
     const pending = createRecordingMap();
-    redrawAllLayers(pending.map as never, state);
+    rebuild(pending.map as never, state);
 
     const gated = ready.handle.sources().filter((id) => !pending.handle.sources().includes(id));
     // 世代で守られているソースが実際にあること（0件なら、この検査は何も見ていない）。
@@ -356,10 +399,10 @@ describe("レイヤーを横断する要求", () => {
     setTileVersions({});
     const { map, handle } = createRecordingMap();
     const state = everythingVisible();
-    redrawAllLayers(map as never, state);
+    rebuild(map as never, state);
 
     setTileVersions(READY_VERSIONS);
-    redrawAllLayers(map as never, state);
+    rebuild(map as never, state);
 
     expect(handle.sources()).toContain(ROAD_LINE_SOURCE_ID);
   });

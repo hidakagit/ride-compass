@@ -42,11 +42,6 @@ interface AxisContributionBarProps {
 
 const FALLBACK_COLOR = palette.semantic.neutral;
 
-/** 「重み付き寄与度」の内訳を積み上げ1本バー＋下の凡例（色ドット＋ラベル＋数値）で表示する
- * 共有部品。ルート結果タブ全体の内訳（RouteAxisProfile）と、区間クリック詳細
- * （ボトムシート側）の両方が同じこのコンポーネントを使う——値の出どころごとに別の
- * 表現は持たない。contributionsが1件も無ければ何も描画しない（呼び出し側の空状態
- * 文言に委ねる）。 */
 /** その軸に「表示すべき寄与」があるか。
  *
  * 値0（重み0の軸は常にちょうど0.0になる、backend: compose_costs_from_axis_matrix参照）は、
@@ -60,6 +55,11 @@ export function hasContribution(contributions: Record<string, number>, axisId: s
   return value != null && value !== 0;
 }
 
+/** 「重み付き寄与度」の内訳を積み上げ1本バー＋下の凡例（色ドット＋ラベル＋数値）で表示する
+ * 共有部品。ルート結果タブ全体の内訳（RouteAxisProfile）と、区間クリック詳細
+ * （ボトムシート側）の両方が同じこのコンポーネントを使う——値の出どころごとに別の
+ * 表現は持たない。contributionsが1件も無ければ何も描画しない（呼び出し側の空状態
+ * 文言に委ねる）。 */
 export default function AxisContributionBar({
   axes,
   contributions,

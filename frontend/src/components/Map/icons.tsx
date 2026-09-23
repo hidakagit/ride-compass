@@ -460,8 +460,6 @@ export function SnowflakeIcon({ size = 16 }: IconProps) {
   );
 }
 
-/** 生成した候補を捨てる: ゴミ箱。**バツ印を使わない**——このボタンはパネルを閉じる
- * ✕の隣に並ぶため、同じ形だとどちらがどちらか分からなくなる。 */
 /** 区間の乗り換え: 2本の道が合流して1本になる形。「別の候補の道を取り込んで1本にする」
  * という操作そのものを絵にする（鉛筆の「編集」だと、どのルートの何を変えるのかが伝わらない）。
  * 分岐点・合流点に節を置き、取り込む側の道を太く描く。 */
@@ -569,6 +567,8 @@ export function UndoAllIcon({ size = 16 }: IconProps) {
   );
 }
 
+/** 生成した候補を捨てる: ゴミ箱。**バツ印を使わない**——このボタンはパネルを閉じる
+ * ✕の隣に並ぶため、同じ形だとどちらがどちらか分からなくなる。 */
 export function ClearRoutesIcon({ size = 16 }: IconProps) {
   return (
     <svg width={size} height={size} {...svgProps}>

@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { describe, expect, it } from "vitest";
-import { routeColorableModeFromAxis, routeStyleModesFromCatalogAxes } from "./routeStyleModes";
+import { routeStyleModesFromCatalogAxes } from "./routeStyleModes";
 import type { CatalogAxis } from "./axisLayers";
 import { catalogAxis } from "./__fixtures__/catalogAxes";
 import { bandColorsFor } from "./valueScale";
@@ -23,6 +23,13 @@ const categoricalAxis = catalogAxis({
   shape: { kind: "categorical", material: "surface", mapping: { asphalt: 100 } },
 });
 
+/** 軸1本ぶんのモード。入口（軸カタログ→モード一覧）を通し、その軸のidで引く。 */
+function modeFor(axis: CatalogAxis) {
+  const mode = routeStyleModesFromCatalogAxes([axis]).find((candidate) => candidate.id === axis.axis_id);
+  if (mode === undefined) throw new Error(`${axis.axis_id}のモードが無い`);
+  return mode;
+}
+
 describe("routeStyleModes", () => {
   // 軸idを名指しせずカタログ順をそのまま期待するのは、公開軸の集合が軸スタジオ（DB）で
   // 決まり生成物の再取り込みで変わるため（GUI作成軸のidは固定値ですらない）。
@@ -31,7 +38,7 @@ describe("routeStyleModes", () => {
 
   it('gradient(map_value_kind==="signed_material")はgradient_percentを符号付きのまま直接読む——軸idのハードコード分岐ではなくbackendの宣言で判定する', () => {
     expect(signedAxis.map_value_kind).toBe("signed_material");
-    const mode = routeColorableModeFromAxis(signedAxis);
+    const mode = modeFor(signedAxis);
     expect(mode.id).toBe(signedAxis.axis_id);
     expect(mode.colorExpression[1]).toEqual(["==", ["get", "signed_value", ["get", "material_values"]], null]);
   });
@@ -42,14 +49,14 @@ describe("routeStyleModes", () => {
       axis_id: "gradient_test",
       map_value_thresholds: [0, 5],
     };
-    const mode = routeColorableModeFromAxis(axis);
+    const mode = modeFor(axis);
     expect(mode.legend.map((e) => e.key)).toEqual(["step-0", "step-1", "step-2", "nodata"]);
     expect(mode.legend.map((e) => e.label)).toEqual(["0未満", "0〜5", "5以上", "データなし"]);
   });
 
   it('windはmap_value_kind==="difficulty"のため難易度経路を使う（axis_difficulties経由）', () => {
     expect(difficultyAxis.map_value_kind).toBe("difficulty");
-    const wind = routeColorableModeFromAxis(difficultyAxis);
+    const wind = modeFor(difficultyAxis);
     expect(wind.id).toBe(difficultyAxis.axis_id);
     expect(wind.label).toBe(`${difficultyAxis.label}の影響`);
     expect(wind.colorExpression[1]).toEqual([
@@ -61,7 +68,7 @@ describe("routeStyleModes", () => {
 
   it("surface_q（shape.kind==='categorical'）も通常の絶対値差難易度経路を使い、ラベルは他の動的モードと同じ汎用形式になる（roadという専用名は無い）", () => {
     expect(categoricalAxis.shape?.kind).toBe("categorical");
-    const surfaceQ = routeColorableModeFromAxis(categoricalAxis);
+    const surfaceQ = modeFor(categoricalAxis);
     expect(surfaceQ.id).toBe(categoricalAxis.axis_id);
     expect(surfaceQ.label).toBe(`${categoricalAxis.label}の影響`);
     expect(surfaceQ.colorExpression[1]).toEqual([
