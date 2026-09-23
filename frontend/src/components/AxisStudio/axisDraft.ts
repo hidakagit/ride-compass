@@ -346,6 +346,12 @@ export function formatThresholdList(values: readonly number[]): string {
   return values.join(", ");
 }
 
+/** 上書きしたしきい値のうち、地図が段として作るもの。どれが落ちるかの判定はbackend
+ * （`domain/axis_display.py: thresholds_the_map_drops`）が持ち、ここはその結果を除くだけ。 */
+export function thresholdsKeptOnMap(thresholds: readonly number[], droppedOnMap: readonly number[]): number[] {
+  return thresholds.filter((threshold) => !droppedOnMap.includes(threshold));
+}
+
 /** 段階ラベルを段階数（しきい値の件数+1）へ合わせる。増えた分は空欄、減った分は末尾から
  * 落とす。しきい値をまとめて入れ替えると段階数が何段階も動くため、1件ずつの増減では
  * 追従しきれない。 */

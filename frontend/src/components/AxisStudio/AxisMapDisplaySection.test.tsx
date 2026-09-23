@@ -141,6 +141,24 @@ describe("色分けのしきい値", () => {
     expect(screen.getByText("地図では効かない: 15, 20")).toBeInTheDocument();
   });
 
+  it("地図で効かない値を含むとき、段階プレビューは地図の凡例と同じ段で出す", () => {
+    // 地図は[2, 4, 7, 12]で段を作るため、凡例は5段階で最上位は「12以上」。
+    openSection({
+      editing: baseAxisDefinition({ display_thresholds_override: [2, 4, 7, 12, 15, 20] }),
+      thresholdsDroppedOnMap: [15, 20],
+    });
+
+    expect(screen.getByText("5段階になります")).toBeInTheDocument();
+    expect(screen.getByLabelText("色分けプレビュー（5段階）")).toBeInTheDocument();
+    expect(screen.getAllByRole("listitem").map((item) => item.textContent)).toEqual([
+      "2未満",
+      "2〜4",
+      "4〜7",
+      "7〜12",
+      "12以上",
+    ]);
+  });
+
   it("すべての値が地図で効くときは印を出さない", () => {
     openSection({
       editing: baseAxisDefinition({ display_thresholds_override: [2, 4, 7] }),
