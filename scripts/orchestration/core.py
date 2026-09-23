@@ -21,6 +21,7 @@
     python scripts/orchestrate.py board run goal <文>         # 回の目的
     python scripts/orchestrate.py board run add <Txxx>... [from=<Tyyy>]  # 母集団へ足す（派生元つき）
     python scripts/orchestrate.py board run remove <Txxx>...  # 母集団から外す
+    python scripts/orchestrate.py board run handover <文>     # 打ち切りの引き継ぎ（次の start が次の回へ移す）
     python scripts/orchestrate.py board run [list]            # 回の目的と母集団の各タスクの状態（導出）
     python scripts/orchestrate.py board todo push|pop|list    # 司令塔のキュー（中断・待ちの作業）
     python scripts/orchestrate.py board dispatch push <Txxx>|pop|list  # 振り出し待ちのキュー
@@ -38,9 +39,11 @@
   （cherry-pickでshaが変わっても、変更の中身が同じなら入ったとみなす）。前回のpushの時刻は
   origin/masterの先端のコミットの時刻。
 - 監査待ちかは、監査の記録（報告の受領`reported`が最後の`audit_done`より新しい）。
-- 回（`run`）が持つのは名前・目的・母集団（タスク番号と派生元）だけ。母集団の各タスクが完了・
-  トリガー待ち・残りのどれかと、終わりの条件1に当たっているかは、origin/masterの記録の`状態:`と
-  台帳の行から読むたびに導く（`population_view`）。
+- 回（`run`）が持つのは名前・目的・母集団（タスク番号と派生元）・打ち切りの引き継ぎ（`handover`）・
+  前の回から移した引き継ぎ（`inherited`）だけ。母集団の各タスクが完了・トリガー待ち・残りのどれかと、
+  終わりの条件1に当たっているかは、origin/masterの記録の`状態:`と台帳の行から読むたびに導く
+  （`population_view`）。`board run start`は前の回の引き継ぎを、前の回の名前・目的・母集団と一緒に
+  新しい回の`inherited`へ移す（前の回の母集団の残りも、その母集団から同じように導く）。
 - 担当の作業ツリーは、スロットなら渡した印（`git worktree lock`の理由`slot agent-<id> <時刻>`）、
   それ以外は作業ツリーの名前`agent-<id>`から、表の`id`で引く（`worktree_of`）。印は監査を
   通したとき（`audit_result=通す`）に、作業ツリーにしか無い成果が無ければ外す（`release_slot`）。
@@ -140,12 +143,17 @@ FORBIDDEN_KEYS = {
 }
 
 #: 回（`run`）が持つキー。回の各タスクの状態・残り・終わりの条件は記録と台帳から導くので、
-#: これ以外（出来事・進め方の指示の文を含む）は持たない。
-RUN_KEYS = ("name", "started", "goal", "population")
+#: これ以外（出来事・進め方の指示の文を含む）は持たない。打ち切りの引き継ぎ（`handover`）は、次の回の
+#: 司令塔が最初に読む文で、他のどこにも無い（規約・道具の変更が無い回は回の記録を残さない）ので表に置く。
+RUN_KEYS = ("name", "started", "goal", "population", "handover", "inherited")
 #: 母集団の1件が持つキー。`task`と派生元`from`は表にしか無い事実、`added`は足した時刻。
 POPULATION_ITEM_KEYS = ("task", "from", "added")
+#: 引き継ぎ（`handover`）が持つキー。
+HANDOVER_KEYS = ("text", "written")
+#: 前の回から移した引き継ぎ（`inherited`）が持つキー。母集団は前の回の表の値そのもの（状態は導く）。
+INHERITED_KEYS = ("run", "goal", "population", *HANDOVER_KEYS)
 #: `board run`の語（k=v でないもの）。
-RUN_OPS = ("start", "goal", "add", "remove", "list")
+RUN_OPS = ("start", "goal", "add", "remove", "handover", "list")
 #: 台帳の行で、着手の条件を待っている（ユーザーの判断で先送りした）ことを表す印。
 TRIGGER_MARK = "— トリガー:"
 
@@ -615,8 +623,13 @@ def population_view(ctx: Context, board: dict, rows: dict[str, dict]) -> dict:
             note = "・".join(waiting) + "待ち" if waiting else "・".join(named) + "は完了"
             e["kind"], e["where"] = "残り", note + (f"・{e['where']}" if e["where"] else "")
     remaining = [e for e in entries if e["kind"] in ("残り", "記録なし")]
+    inherited = run.get("inherited") if isinstance(run.get("inherited"), dict) else None
+    if inherited:
+        before = population_view(ctx, {**board, "run": {"population": inherited.get("population") or []}}, rows)
+        inherited = {**inherited, "remaining": [e["task"] for e in before["remaining"]]}
+    handover = run.get("handover") if isinstance(run.get("handover"), dict) else None
     return {"name": run.get("name"), "goal": run.get("goal"), "entries": entries, "remaining": remaining,
-            "ended": bool(entries) and not remaining}
+            "ended": bool(entries) and not remaining, "handover": handover, "inherited": inherited}
 
 
 def run_closed_reason(view: dict) -> str | None:
@@ -633,6 +646,16 @@ def run_closed_reason(view: dict) -> str | None:
 def run_summary_lines(view: dict, *, detail: bool) -> list[str]:
     """回の目的・母集団の残り・終わりの条件1の行。detailなら母集団の全件を1行ずつ出す。"""
     lines = [f"回: {view['name'] or '-'}  目的: {view['goal'] or '未設定（board run goal <文>）'}"]
+    inherited = view["inherited"]
+    if inherited:
+        in_run = {e["task"] for e in view["entries"]}
+        rest = "、".join(t + ("" if t in in_run else "（この回の母集団の外）") for t in inherited["remaining"])
+        lines.append(f"前の回「{inherited.get('run') or '-'}」（目的: {inherited.get('goal') or '未設定'}）の引き継ぎ"
+                     f"（{inherited.get('written') or '時刻不明'}）: {inherited.get('text')}")
+        lines.append(f"  前の回の母集団の残り: {rest or 'なし'}")
+    if view["handover"]:
+        lines.append(f"この回の引き継ぎ（{view['handover'].get('written')}、次の board run start が次の回へ移す）: "
+                     f"{view['handover'].get('text')}")
     entries = view["entries"]
     if not entries:
         lines.append("母集団: 未設定（board run add <Txxx> from=<派生元>）")
@@ -1509,6 +1532,10 @@ def nested_key_reason(key: str) -> str | None:
     if head == "run" and sub:
         if leaf == "population":
             return "母集団は board run add・remove で足し引きする（各タスクの状態は記録と台帳から導く）"
+        if leaf == "handover":
+            return "引き継ぎは board run handover <文> で書く"
+        if leaf == "inherited":
+            return "前の回の引き継ぎは board run start が前の回から移す（手で書くと前の回に無かった文が紛れ込む）"
         if leaf not in RUN_KEYS:
             return (f"回に持つのは {'・'.join(RUN_KEYS)} だけ（母集団の状態・残り・終わりの条件は記録と台帳から"
                     "導き、出来事とまとめは回の記録 Txxx.md へ）")
@@ -1539,6 +1566,12 @@ def board_copy_keys(board: dict) -> list[str]:
             out += [f"run.population {item.get('task')}.{k}（母集団の1件に持つのは"
                     f" {'・'.join(POPULATION_ITEM_KEYS)} だけ。状態・題名は記録と台帳から導く）"
                     for k in item if k not in POPULATION_ITEM_KEYS]
+        for name, allowed in (("handover", HANDOVER_KEYS), ("inherited", INHERITED_KEYS)):
+            value = run.get(name)
+            if value is not None and not isinstance(value, dict):
+                out.append(f"run.{name}（形が違う。{'・'.join(allowed)} を持つ表）")
+            elif isinstance(value, dict):
+                out += [f"run.{name}.{k}（引き継ぎに持つのは {'・'.join(allowed)} だけ）" for k in value if k not in allowed]
     return out
 
 
@@ -1693,22 +1726,34 @@ def cmd_board(ctx: Context, args: argparse.Namespace) -> int:
 
 
 def cmd_run(ctx: Context, board: dict, words: list[str], at: dt.datetime) -> int:
-    """回の目的と母集団: start <名前> / goal <文> / add <Txxx>... [from=<Tyyy>] / remove <Txxx>... / list。"""
+    """回の目的と母集団: start <名前> / goal <文> / add <Txxx>... [from=<Tyyy>] / remove <Txxx>... /
+    handover <文> / list。"""
     op, rest = words[0], words[1:]
     if op == "list":
         for line in run_summary_lines(population_view(ctx, board, ledger_rows(ctx)), detail=True):
             print(line)
         return 0
     run = run_of(board)
-    if op in ("start", "goal"):
+    if op in ("start", "goal", "handover"):
         if not rest:
-            raise SystemExit(f"board run {op} の後に{'回の名前' if op == 'start' else '目的の文'}を書く")
+            what = {"start": "回の名前", "goal": "目的の文", "handover": "引き継ぎの文"}[op]
+            raise SystemExit(f"board run {op} の後に{what}を書く")
         if op == "start":
             if run:
                 print("前の回（置き換える）: " + json.dumps(run, ensure_ascii=False))
+            old = run
             run = {"name": " ".join(rest), "started": iso(at), "goal": None, "population": []}
-        else:
+            # 引き継ぎは次の回の司令塔が最初に読むものなので、回を置き換えても消さずに移す。
+            # 引き継ぎの無い回（目的で終わった回）からは何も移さない（前の前の回の引き継ぎも移さない）。
+            if isinstance(old.get("handover"), dict):
+                run["inherited"] = {"run": old.get("name"), "goal": old.get("goal"),
+                                    "population": old.get("population") or [], **old["handover"]}
+        elif op == "goal":
             run["goal"] = " ".join(rest)
+        else:
+            if isinstance(run.get("handover"), dict):
+                print("前の引き継ぎ（置き換える）: " + json.dumps(run["handover"], ensure_ascii=False))
+            run["handover"] = {"text": " ".join(rest), "written": iso(at)}
     else:
         origin = None
         tasks = []
