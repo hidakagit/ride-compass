@@ -1,8 +1,8 @@
 import { expect, test, type Page } from "@playwright/test";
-import { installApiMocks } from "./fixtures";
+import { installApiMocks, openMobileApp, openMobileSheet } from "./fixtures";
 
-// 地図（MapLibre）が実ブラウザでしか見せない挙動。単体テストの代役地図はWorker・描画・
-// スタイル検証を持たないため、ここでしか確かめられない。
+// 地図（MapLibre）が実ブラウザでしか見せない挙動（パターン4 観点2）。単体テストの代役地図は
+// Worker・描画・スタイル検証・`idle`・canvasへの実クリックを持たないため、ここでしか確かめられない。
 
 /** 描けたかを見分けるための塗り色。基礎地図・アプリのUIが使わない色にする。 */
 const PROBE_FILL = { r: 255, g: 0, b: 255 };
@@ -89,4 +89,55 @@ test("地図が描ける（Workerが動き、ソースの面が画素になる�
 
   // 地図の上にはチップ・パネル等が重なるため、全面ではなく過半を条件にする。
   await expect.poll(() => probeFillRatio(page), { timeout: 20_000 }).toBeGreaterThan(0.5);
+});
+
+// 初期表示の覆い（「地図を読み込み中…」）はMapLibreの"idle"で外すが、idleは表示中の
+// すべての取得が落ち着くまで来ない。取得が終わらないソースが1つでもあると、地図が
+// 描けていても覆いが残り「壊れている」ように見える。
+test("タイル取得が終わらなくても地図の覆いは外れる", async ({ page }) => {
+  await installApiMocks(page);
+  await page.route("**/api/basemap/**", (route) =>
+    route.fulfill({
+      json: {
+        version: 8,
+        sources: { slow: { type: "raster", tiles: ["https://slow.invalid/{z}/{x}/{y}.png"], tileSize: 256 } },
+        layers: [{ id: "slow", type: "raster", source: "slow" }],
+      },
+    }),
+  );
+  // 応答しない（fulfillもabortもしない）ことで取得を宙吊りにする。
+  await page.route("https://slow.invalid/**", () => {});
+
+  await page.goto("/");
+
+  const overlay = page.getByText("地図を読み込み中…");
+  await expect(overlay).toBeVisible({ timeout: 5000 });
+  await expect(overlay).toBeHidden({ timeout: 12_000 });
+});
+
+// 生成に関わる操作は「ルート生成」ボタンがある場所でだけ受け付ける。ルート結果で候補線を
+// 選ぼうとして外すたびに経由地が増えるのを防ぐ。canvasへの実クリックがMapLibreの
+// clickとして届いた上で、受け付けるかどうかが画面の状態で分かれることを見る。
+test("モバイル: ルート結果を見ている間は地図タップでピンが置かれない", async ({ page }) => {
+  await openMobileApp(page);
+
+  const settings = await openMobileSheet(page, "ルート設定");
+  await settings.getByRole("button", { name: "目的地", exact: true }).click();
+  await page.locator(".app-map-pane canvas").click({ position: { x: 180, y: 150 } });
+  await expect(settings.getByRole("button", { name: "目的地を置き直す" })).toBeVisible();
+
+  // 経由地を置ける状態にしてから「ルート結果」へ移る。結果を見ている間は、置ける状態の
+  // ままでも地図のタップでピンが増えない。
+  await settings.getByRole("button", { name: "経由地を追加" }).click();
+  await openMobileSheet(page, "ルート結果");
+  await page.locator(".app-map-pane canvas").click({ position: { x: 220, y: 200 } });
+  await page.waitForTimeout(400);
+
+  // 戻ってきても「置ける状態」は保たれている（離れている間だけ置けない）。経由地が増えて
+  // いないことは、件数>0のときだけ出るクリアボタンが無いことで見る。
+  const settingsAgain = await openMobileSheet(page, "ルート設定");
+  await expect(settingsAgain.getByRole("button", { name: "経由地の指定をやめる" })).toBeVisible();
+  await expect(settingsAgain.getByRole("button", { name: "経由地をクリア" })).toHaveCount(0);
+  await page.locator(".app-map-pane canvas").click({ position: { x: 240, y: 220 } });
+  await expect(settingsAgain.getByRole("button", { name: "経由地をクリア" })).toBeVisible({ timeout: 5000 });
 });

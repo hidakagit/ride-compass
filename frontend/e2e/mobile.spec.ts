@@ -1,26 +1,17 @@
 import { expect, test } from "@playwright/test";
-import { FINE_STEP_AXIS_LABEL, MOBILE_VIEWPORT, generateRoutes, openMobileApp, openMobileSheet } from "./fixtures";
+import { catalogAxis } from "@/components/Map/__fixtures__/catalogAxes";
+import { MOBILE_VIEWPORT, axisCatalogFixture, openMobileApp } from "./fixtures";
 
-// モバイル（390px）の導線は下部タブバーとボトムシートで、デスクトップ用の
-// smoke.spec.tsが通る経路とは別物。主用途（走行中のスマホ）側の最小疎通を押さえる。
-test("モバイル: ルート生成→「ルート結果」シートに候補が並ぶ", async ({ page }) => {
-  await openMobileApp(page);
-  await generateRoutes(page, { distanceKm: 20 });
+// モバイル（390px）で、要素が幅に収まり押せること（パターン4 観点1）。要素は画面外へ
+// 出てもアクセシビリティツリーに残るため、役割・名前では捕まらない。幅と座標を実測する。
 
-  const outcome = await openMobileSheet(page, "ルート結果");
-  await expect(outcome.getByRole("tab", { name: /^1 20\.3km/ })).toBeVisible();
-  await expect(outcome.getByRole("tab", { name: /^2 19\.8km/ })).toBeVisible();
-});
-
-// ヘッダーの溢れは、要素自体はariaツリーに存在するため役割・名前ベースの検査では
-// 捕まらない（画面外にあっても見つかってしまう）。幅と座標を実測して押さえる。
 test("モバイル: 観測値の取得に失敗してもヘッダーが幅に収まり、メニューが押せる", async ({ page }) => {
-  await openMobileApp(page);
-  // installApiMocksより後に登録して優先させる（Playwrightは後勝ち）。
-  await page.route("**/api/weather/amedas*", (route) =>
-    route.fulfill({ status: 503, json: { detail: "アメダス観測値の取得に失敗しました" } }),
-  );
-  await page.reload();
+  await openMobileApp(page, {
+    routes: (page) =>
+      page.route("**/api/weather/amedas*", (route) =>
+        route.fulfill({ status: 503, json: { detail: "アメダス観測値の取得に失敗しました" } }),
+      ),
+  });
 
   // 一般画面にはリクエストIDを含む長い文言を出さない。
   await expect(page.getByText("観測値を取得できません")).toBeVisible();
@@ -35,37 +26,45 @@ test("モバイル: 観測値の取得に失敗してもヘッダーが幅に収
   expect((menu?.x ?? 0) + (menu?.width ?? 0)).toBeLessThanOrEqual(MOBILE_VIEWPORT.width);
 });
 
-// 生成に関わる操作は「ルート生成」ボタンがある場所でだけ受け付ける。ルート結果で候補線を
-// 選ぼうとして外すたびに経由地が増えるのを防ぐ（T781）。
-test("モバイル: ルート結果を見ている間は地図タップでピンが置かれない", async ({ page }) => {
-  await openMobileApp(page);
+/** 段階が細かく、凡例の1行（「とても少ない（0.125〜0.375箇所/km）」）が長くなる軸。
+ * 本番の軸名・値は使わない。 */
+const FINE_STEP_AXIS_LABEL = "段階の細かい軸";
 
-  const settings = await openMobileSheet(page, "ルート設定");
-  await settings.getByRole("button", { name: "目的地", exact: true }).click();
-  await page.locator(".app-map-pane canvas").click({ position: { x: 180, y: 150 } });
-  await expect(settings.getByRole("button", { name: "目的地を置き直す" })).toBeVisible();
-
-  // 経由地を置ける状態にしてから「ルート結果」へ移る。結果を見ている間は、置ける状態の
-  // ままでも地図のタップでピンが増えない。
-  await settings.getByRole("button", { name: "経由地を追加" }).click();
-  await openMobileSheet(page, "ルート結果");
-  await page.locator(".app-map-pane canvas").click({ position: { x: 220, y: 200 } });
-  await page.waitForTimeout(400);
-
-  // 戻ってきても「置ける状態」は保たれている（離れている間だけ置けない）。経由地が増えて
-  // いないことは、件数>0のときだけ出るクリアボタンが無いことで見る。
-  const settingsAgain = await openMobileSheet(page, "ルート設定");
-  await expect(settingsAgain.getByRole("button", { name: "経由地の指定をやめる" })).toBeVisible();
-  await expect(settingsAgain.getByRole("button", { name: "経由地をクリア" })).toHaveCount(0);
-  await page.locator(".app-map-pane canvas").click({ position: { x: 240, y: 220 } });
-  await expect(settingsAgain.getByRole("button", { name: "経由地をクリア" })).toBeVisible({ timeout: 5000 });
-});
-
-// レンズの凡例は段階の細かい軸ほど1行が長い。2列グリッド＋`white-space: nowrap`は、幅が
-// 足りないと行がセルからはみ出し、値の右側が読めなくなる。要素はariaツリーに存在するため
-// 役割・名前ベースでは捕まらない（ヘッダーの溢れと同じ）。幅を実測して押さえる。
+// レンズの凡例は段階の細かい軸ほど1行が長い。グリッドのセルに収まらないと、値の右側が読めなくなる。
 test("モバイル: レンズの凡例が、段階の細かい軸でも幅に収まる", async ({ page }) => {
-  await openMobileApp(page);
+  await openMobileApp(page, {
+    routes: (page) =>
+      page.route("**/api/axis-catalog*", (route) =>
+        route.fulfill({
+          json: axisCatalogFixture([
+            {
+              ...catalogAxis({
+                axis_id: "fine_steps",
+                label: FINE_STEP_AXIS_LABEL,
+                raw_value_unit: "箇所/km",
+                display_band_labels_override: [
+                  "ほとんど無い",
+                  "とても少ない",
+                  "かなり少ない",
+                  "やや少ない",
+                  "ふつう",
+                  "やや多い",
+                  "かなり多い",
+                  "とても多い",
+                  "非常に多い",
+                ],
+                display: {
+                  label: FINE_STEP_AXIS_LABEL,
+                  tile_inputs: [{ property: "v", weight: 1 }],
+                  thresholds: [0.125, 0.375, 0.625, 0.875, 1.125, 1.375, 1.625, 1.875],
+                },
+              }),
+              default_weight: 0,
+            },
+          ]),
+        }),
+      ),
+  });
 
   await page.getByRole("button", { name: /^レンズ:/ }).click();
   await page.getByRole("radio", { name: FINE_STEP_AXIS_LABEL }).click();
@@ -83,7 +82,5 @@ test("モバイル: レンズの凡例が、段階の細かい軸でも幅に収
   });
 
   expect(rows.length).toBeGreaterThan(0);
-  // 単位は軸カタログのraw_value_unitから段階ラベルへ入る。幅を測る意味もそこにある。
-  expect(rows.filter((row) => row.label.includes("箇所/km")).length).toBeGreaterThan(0);
   expect(rows.filter((row) => row.overflowPx > 0 || row.beyondViewportPx > 0)).toEqual([]);
 });

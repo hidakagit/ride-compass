@@ -166,9 +166,17 @@ function emptyMapStyleFixture() {
   return { version: 8, sources: {}, layers: [] };
 }
 
+/** `GET /api/axis-catalog`の応答。軸以外（世代・尺度・調整値）は空で返す。 */
+export function axisCatalogFixture(axes: Array<ReturnType<typeof catalogAxis> & { default_weight: number }>) {
+  return { axes, tile_versions: {}, material_runtime_scales: {}, client_tuning: {} };
+}
+
 /**
  * バックエンド・外部APIへの依存を断ち切るネットワークモックを登録する。
- * 各テストの冒頭（page.goto前）で呼ぶ。
+ * 各テストの冒頭（page.goto前）で呼ぶ。ここの応答はアプリを起動して画面を進めるための
+ * 既定値であり、テストが判定する値を持たせない（docs/conventions/testing.md パターン4）。
+ * テストが自分の値を返すときは、この後に同じURLへ`page.route`を登録する（後から登録した
+ * ルートが先に当たる）。
  */
 export async function installApiMocks(page: Page): Promise<void> {
   await page.route(`${API_BASE}/health`, (route) => route.fulfill({ json: { status: "ok" } }));
@@ -197,40 +205,18 @@ export async function installApiMocks(page: Page): Promise<void> {
     route.fulfill({ json: { status: "done", result: routeGenerateResponseFixture(), error: null } }),
   );
 
-  // 軸カタログ。ビルド時の静的カタログをそのまま返す（実DBの軸構成と同じ形で、
-  // 「重みづけ」タブ・ルート結果の内訳が軸一覧を引けるようにする）。
+  // 軸カタログ。アプリが軸一覧を引ける最小の1軸だけを持つ。
   await page.route(`${API_BASE}/api/axis-catalog*`, (route) =>
     route.fulfill({
-      json: {
-        axes: [
-          {
-            ...catalogAxis({
-              axis_id: "ramp",
-              display: { tile_inputs: [{ property: "v", weight: 1 }], thresholds: [50] },
-            }),
-            default_weight: 0,
-          },
-          // 凡例の幅を見るテスト向け。**本番の軸名を持ち込まない**——公開されている軸は
-          // DBが決めるもので、リポジトリはその写しを持たない。段階の細かさと単位の長さ
-          // だけが要るので、ここで作る。
-          {
-            ...catalogAxis({
-              axis_id: "fine_steps",
-              label: FINE_STEP_AXIS_LABEL,
-              raw_value_unit: "箇所/km",
-              display: {
-                label: FINE_STEP_AXIS_LABEL,
-                tile_inputs: [{ property: "v", weight: 1 }],
-                thresholds: [10, 20, 30, 40, 50, 60, 70, 80],
-              },
-            }),
-            default_weight: 0,
-          },
-        ],
-        tile_versions: {},
-        material_runtime_scales: {},
-        client_tuning: {},
-      },
+      json: axisCatalogFixture([
+        {
+          ...catalogAxis({
+            axis_id: "ramp",
+            display: { tile_inputs: [{ property: "v", weight: 1 }], thresholds: [50] },
+          }),
+          default_weight: 0,
+        },
+      ]),
     }),
   );
 
@@ -250,9 +236,6 @@ export async function installApiMocks(page: Page): Promise<void> {
 // 1箇所へ集約する（docs/records/tasks/T768.md）。
 
 /** スマホ縦持ち相当。useIsMobile（MOBILE_BREAKPOINT_PX=640）のモバイル分岐に入る幅。 */
-/** 凡例の幅を見るテストが選ぶ軸の名前。段階が細かく単位が長いことだけが要件。 */
-export const FINE_STEP_AXIS_LABEL = "段階の細かい軸";
-
 export const MOBILE_VIEWPORT = { width: 390, height: 812 };
 
 /** モバイルの下部タブバーが持つシート。値はタブのラベル兼シートのアクセシブル名。 */
@@ -273,14 +256,16 @@ export async function seedStoredState(page: Page, entries: Record<string, string
 
 /**
  * モバイル幅でアプリを開く（APIモックの登録・ビューポート設定・goto）。
+ * `routes`は既定のモックの後・goto前に呼ばれる——テストが判定に使う応答はここで上書きする。
  * 呼んだ直後は、まだクリックが効かない（ハイドレーション前の）可能性がある——
  * 操作はopenMobileSheet等のヘルパー経由で行う。
  */
 export async function openMobileApp(
   page: Page,
-  { storedState }: { storedState?: Record<string, string> } = {},
+  { storedState, routes }: { storedState?: Record<string, string>; routes?: (page: Page) => Promise<unknown> } = {},
 ): Promise<void> {
   await installApiMocks(page);
+  if (routes) await routes(page);
   await page.setViewportSize(MOBILE_VIEWPORT);
   if (storedState) await seedStoredState(page, storedState);
   await page.goto("/");

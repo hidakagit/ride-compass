@@ -1835,6 +1835,60 @@ describe("Home（app/page.tsx） handleGenerateハンドラ", () => {
       expect(screen.getByTestId("comparison-slots")).toHaveTextContent('["route-b"]');
     });
   });
+
+  // 押した操作（生成）の結果が見えないまま前の比較表が残らないようにする。
+  it("比較タブを開いたまま生成すると、新しい候補のタブが選ばれる", async () => {
+    const user = userEvent.setup();
+    vi.mocked(generateRoutes)
+      .mockResolvedValueOnce({
+        routes: [makeCandidate({ id: "route-a", distance_km: 20.3 })],
+        conditions: makeConditions(),
+      })
+      .mockResolvedValueOnce({
+        routes: [makeCandidate({ id: "route-b", distance_km: 22.4 })],
+        conditions: makeConditions(),
+      });
+    const HomeFresh = await renderFreshHome({
+      realRouteForm: true,
+      researchEnabled: true,
+      exposeComparisonSlots: true,
+    });
+    render(<HomeFresh />);
+
+    const generateButton = screen.getByRole("button", { name: "ルート生成" });
+    await user.click(generateButton);
+    const comparisonTab = await screen.findByRole("tab", { name: "比較" });
+    await user.click(comparisonTab);
+    expect(comparisonTab).toHaveAttribute("aria-selected", "true");
+
+    await user.click(generateButton);
+    await waitFor(() => {
+      expect(screen.getByRole("tab", { name: /^1 22\.4km/ })).toHaveAttribute("aria-selected", "true");
+    });
+    expect(screen.getByRole("tab", { name: "比較" })).toHaveAttribute("aria-selected", "false");
+  });
+
+  it("モバイルでも、生成すると「ルート結果」に候補のタブが並ぶ", async () => {
+    const user = userEvent.setup();
+    vi.mocked(generateRoutes).mockResolvedValueOnce({
+      routes: [
+        makeCandidate({ id: "route-00", distance_km: 30.1 }),
+        makeCandidate({ id: "route-01", distance_km: 31.4 }),
+      ],
+      conditions: makeConditions(),
+    });
+    const HomeFresh = await renderFreshHome({ realRouteForm: true, mobile: true });
+    render(<HomeFresh />);
+
+    await user.click(screen.getByRole("button", { name: "ルート設定" }));
+    await user.click(await screen.findByRole("button", { name: "ルート生成" }));
+    await user.click(screen.getByRole("button", { name: /ルート結果/ }));
+
+    await waitFor(() => {
+      expect(screen.getByRole("tab", { name: /^1 30\.1km/ })).toBeInTheDocument();
+      expect(screen.getByRole("tab", { name: /^2 31\.4km/ })).toBeInTheDocument();
+    });
+  });
 });
 
 describe("Home（app/page.tsx） 天候・警報・WBGT・氾濫予報の並列fetchの競合対策", () => {
