@@ -48,9 +48,8 @@ _MAX_CONCURRENCY = 8
 
 
 class _PrewarmLayer:
-    def __init__(self, label: str, group: str, element_id: str, extension: str, target_times_path: str):
+    def __init__(self, label: str, element_id: str, extension: str, target_times_path: str):
         self.label = label
-        self.group = group
         self.element_id = element_id
         self.extension = extension
         self.target_times_path = target_times_path
@@ -58,6 +57,7 @@ class _PrewarmLayer:
         # 登録の無い要素idを書いた時点（import時）にKeyErrorで落ちる——既定のズームへ
         # 倒すと、綴り違いのレイヤーが「1段も温まらない」だけで静かに通る。
         self.spec = JMA_TILE_SPECS[element_id]
+        self.group = self.spec.path_group
 
     @property
     def max_zoom(self) -> int:
@@ -70,13 +70,13 @@ _NOWC_TARGET_TIMES = "bosai/jmatile/data/nowc/targetTimes_N3.json"
 
 # frontendが描く動的気象レイヤーと1対1で対応させる。ここに無い要素は温まらない。
 _LAYERS: tuple[_PrewarmLayer, ...] = (
-    _PrewarmLayer("キキクル・土砂", "risk", "land", "png", _RISK_TARGET_TIMES),
-    _PrewarmLayer("キキクル・大雨", "risk", "rain_mesh", "png", _RISK_TARGET_TIMES),
-    _PrewarmLayer("キキクル・浸水", "risk", "inund", "png", _RISK_TARGET_TIMES),
-    _PrewarmLayer("キキクル・洪水", "risk", "flood", "pbf", _RISK_TARGET_TIMES),
-    _PrewarmLayer("線状降水帯予測マップ", "rasrf", "sjfcstmap", "png", _RASRF_TARGET_TIMES),
-    _PrewarmLayer("雷ナウキャスト", "nowc", "thns", "png", _NOWC_TARGET_TIMES),
-    _PrewarmLayer("竜巻ナウキャスト", "nowc", "trns", "png", _NOWC_TARGET_TIMES),
+    _PrewarmLayer("キキクル・土砂", "land", "png", _RISK_TARGET_TIMES),
+    _PrewarmLayer("キキクル・大雨", "rain_mesh", "png", _RISK_TARGET_TIMES),
+    _PrewarmLayer("キキクル・浸水", "inund", "png", _RISK_TARGET_TIMES),
+    _PrewarmLayer("キキクル・洪水", "flood", "pbf", _RISK_TARGET_TIMES),
+    _PrewarmLayer("線状降水帯予測マップ", "sjfcstmap", "png", _RASRF_TARGET_TIMES),
+    _PrewarmLayer("雷ナウキャスト", "thns", "png", _NOWC_TARGET_TIMES),
+    _PrewarmLayer("竜巻ナウキャスト", "trns", "png", _NOWC_TARGET_TIMES),
 )
 
 

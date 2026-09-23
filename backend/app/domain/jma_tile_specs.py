@@ -1,15 +1,13 @@
-"""気象庁タイル配信のズーム仕様レジストリ。
+"""気象庁タイル配信の要素ごとの仕様レジストリ（パスの系統・ズーム・ベクタのレイヤー名）。
 
 配信元（気象庁の各`*.properties__<hash>.xml`）は要素ごとに`zoomUse`（使用するズームの
 偶奇）と`maxNativeZoom`（XML中のコメントで「画像が実在する最大ズームレベル」と説明されて
 いる値）を持つ。アプリがタイルを要求してよい最大ズームはこの2つの組み合わせで決まり、
 どちらか一方だけを見ると実データの無いズームを指してしまう。
 
-MapLibreの`maxzoom`（frontend: `features/map/scene/groups/weather.ts`）と
-プリウォームバッチの対象ズーム（`services/jma_tile_prewarm_service.py`）は、いずれも
-`effective_max_zoom()`でこの1箇所から導く。
-
-frontendへは`scripts/export_openapi.py`が`jma-tile-config.json`として書き出す。
+MapLibreの`maxzoom`（frontendへは`domain/map_display.py: WEATHER_ELEMENTS`の生成物
+`mapDisplay.weatherElements`経由で届く）とプリウォームバッチの対象ズーム
+（`services/jma_tile_prewarm_service.py`）は、いずれも`effective_max_zoom()`でこの1箇所から導く。
 """
 
 from dataclasses import dataclass
@@ -18,16 +16,22 @@ from typing import Literal
 #: 配信元がタイルを生成するズームの偶奇。`"all"`は偶奇の制約が無いことを表す。
 ZoomUse = Literal["even", "odd", "all"]
 
+#: 配信元のパスの系統（`.../jmatile/data/<系統>/...`）。系統ごとに時刻一覧と更新間隔が別になる。
+PathGroup = Literal["risk", "nowc", "rasrf"]
+
 
 @dataclass(frozen=True)
 class JmaTileSpec:
-    """1要素分の配信元ズーム仕様。要素id（タイルパス中の
+    """1要素分の配信元仕様。要素id（タイルパス中の
     `.../surf/<element_id>/{z}/{x}/{y}.png`）は`JMA_TILE_SPECS`のキーが唯一の持ち主で、
     ここには持たない——両方に書くと、ずれても探索は成功し、取りに行く先だけが変わる。"""
 
+    path_group: PathGroup
     zoom_use: ZoomUse
     max_native_zoom: int
     min_zoom: int = 4
+    #: ベクタタイル（.pbf）の中のレイヤー名。ラスタの要素はNone。
+    vector_layer: str | None = None
     #: 配信元の`properties.xml`で`zoom_use`・`max_native_zoom`の両方を直接確認できたか。
     #: Falseの要素は実測と近縁要素からの推定を含むため、扱いを変える場合はここを見る。
     verified: bool = True
@@ -52,21 +56,21 @@ def effective_max_zoom(spec: JmaTileSpec) -> int:
 #   降水/雷/竜巻 … `bosai/nowc/table/nowc.properties__<hash>.xml`
 JMA_TILE_SPECS: dict[str, JmaTileSpec] = {
     # キキクル（危険度分布）。土砂・大雨・浸水はラスタ、洪水はベクタ（.pbf）。
-    "land": JmaTileSpec("even", 11),
-    "rain_mesh": JmaTileSpec("even", 11),
-    "inund": JmaTileSpec("even", 11),
+    "land": JmaTileSpec("risk", "even", 11),
+    "rain_mesh": JmaTileSpec("risk", "even", 11),
+    "inund": JmaTileSpec("risk", "even", 11),
     # floodは`zoomUse="even"`を持つが`maxNativeZoom`の記載が無い。同じrisk系の他要素と
     # 同じ11として扱う——z10に実データがありz11・z12が空という実測とも一致する。
-    "flood": JmaTileSpec("even", 11),
+    "flood": JmaTileSpec("risk", "even", 11, vector_layer="flood"),
     # 降水ナウキャスト。
-    "hrpns": JmaTileSpec("even", 10),
+    "hrpns": JmaTileSpec("nowc", "even", 10),
     # 雷・竜巻ナウキャストはmaxNativeZoomが9で、他のJMAタイルより1段粗い。
-    "thns": JmaTileSpec("even", 9),
-    "trns": JmaTileSpec("even", 9),
+    "thns": JmaTileSpec("nowc", "even", 9),
+    "trns": JmaTileSpec("nowc", "even", 9),
     # 線状降水帯予測マップ。公式ページ（軽量版）が設定ファイルを外部化しておらず、
     # `zoomUse`・`maxNativeZoom`を一次情報で確認できていない。同じrasrf/nowc系の
     # `hrpns`と同じ値を暫定的に置く。
-    "sjfcstmap": JmaTileSpec("even", 10, verified=False),
+    "sjfcstmap": JmaTileSpec("rasrf", "even", 10, verified=False),
 }
 
 

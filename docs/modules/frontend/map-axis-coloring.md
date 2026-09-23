@@ -337,7 +337,7 @@ page.tsx
 `dedicatedWayValueLayer.ts`が扱う「評価軸グループ」（道路そのものを線で塗る）は、
 `windVector`（矢印表示、環境グループの探索用表現）とは完全に独立した見せ方であり、
 同じ`[時刻/向き]`入力を共有するだけで、レイヤー・ソース・フェッチ経路はすべて別individual。
-[地図: 動的気象レイヤー](dynamic-weather-layers.md)が扱う動的気象の描き方の宣言（`scene/groups/weather.ts: WEATHER_ELEMENTS`）
+[地図: 動的気象レイヤー](dynamic-weather-layers.md)が扱う動的気象の描き方（`scene/groups/weather.ts`）
 （風の矢印・降水ナウキャスト等）とは異なり、専用way値配信軸は`mapLayers.ts:
 isAxisStudioLayer`により地図上チップ（`MapOverlayControls.tsx`）に一切現れない。表示ON/OFFの起動導線は地図上部中央の
 `LensControl`のみが持つ（本ファイル冒頭「対象ファイル」参照）。

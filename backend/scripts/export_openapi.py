@@ -48,7 +48,11 @@ from app.domain.map_display import (  # noqa: E402
     MAP_LAYER_CATEGORIES,
     MAP_LAYER_IDS,
     MAP_LAYER_KINDS,
+    WEATHER_ELEMENTS,
     WEATHER_LAYER_GROUPS,
+    WeatherElement,
+    weather_element_attribution,
+    weather_element_tile,
     ROUTE_ARROW_HALO_SCALE,
     ROUTE_ARROW_SIZE_BY_ZOOM,
     ROUTE_ARROW_SPACING_PX,
@@ -107,7 +111,7 @@ from app.domain.landcover import (  # noqa: E402
     LANDCOVER_TILE_MIN_ZOOM,
 )
 from app.services.landcover_tile_service import LANDCOVER_TILE_VERSION  # noqa: E402
-from app.domain.jma_tile_specs import JMA_TILE_SPECS, effective_max_zoom  # noqa: E402
+from app.domain.jma_tile_specs import effective_max_zoom  # noqa: E402
 from app.domain.material_catalog import MATERIAL_CATALOG  # noqa: E402
 from app.domain.region import ROAD_TILE_MAX_ZOOM, ROAD_TILE_MIN_ZOOM  # noqa: E402
 from app.domain.traffic import STOP_POI_KINDS, SupplyPoiKind  # noqa: E402
@@ -122,7 +126,6 @@ REGION_TILE_CONFIG_PATH = GENERATED_DIR / "region-tile-config.json"
 PRIMARY_ATTRIBUTES_PATH = GENERATED_DIR / "primaryAttributes.ts"
 WIND_GRID_CONFIG_PATH = GENERATED_DIR / "wind-grid-config.json"
 ROUTE_GENERATE_CONFIG_PATH = GENERATED_DIR / "route-generate-config.json"
-JMA_TILE_CONFIG_PATH = GENERATED_DIR / "jma-tile-config.json"
 POI_KINDS_PATH = GENERATED_DIR / "poi-kinds.json"
 MATERIAL_CATALOG_PATH = GENERATED_DIR / "material-catalog.json"
 LANDCOVER_CLASSES_PATH = GENERATED_DIR / "landcover-classes.json"
@@ -177,6 +180,26 @@ def _write_ts(path: Path, name: str, data: dict | list) -> None:
     text = header + "\n" + f"export const {name} = {body} as const;" + "\n"
     path.write_text(text, encoding="utf-8", newline="\n")
     print(f"wrote {path}")
+
+
+def _weather_element_entry(element: WeatherElement) -> dict:
+    tile = weather_element_tile(element)
+    return {
+        "group": element.group,
+        "source": element.source,
+        "kind": element.kind,
+        "jmaElement": element.jma_element,
+        "attribution": weather_element_attribution(element),
+        # タイルで描くものだけが持つ。ズームの上限は配信元に実データがある範囲から導く。
+        "tile": None
+        if tile is None
+        else {
+            "pathGroup": tile.path_group,
+            "minZoom": tile.min_zoom,
+            "maxZoom": effective_max_zoom(tile),
+            "vectorLayer": tile.vector_layer,
+        },
+    }
 
 
 def main() -> None:
@@ -263,6 +286,8 @@ def main() -> None:
             "layerKinds": list(MAP_LAYER_KINDS),
             # 動的気象のチップ（1つが複数の名前付きソースを束ねる）。画面が写しを持たない。
             "weatherLayerGroups": list(WEATHER_LAYER_GROUPS),
+            # 動的気象で描くもの。画面はこれをループし、描き方（paint・layout・filter・記号）だけを持つ。
+            "weatherElements": [_weather_element_entry(element) for element in WEATHER_ELEMENTS],
             # 方位の呼び名。**画面が写しを持たない**——丸め規則が違うと境界で
             # ラベルが食い違うため、並びは1箇所（domain/geo.py）だけが持つ。
             "compassLabels": list(COMPASS_LABELS),
@@ -381,21 +406,6 @@ def main() -> None:
             {**attr.model_dump(exclude={"display_axes"}), "display_axes": resolved_display_axes(attr)}
             for attr in all_primary_attributes()
         ],
-    )
-    # 気象庁タイルの要素ごとのズーム範囲（domain/jma_tile_specs.py）。frontendの動的気象の
-    # 描き方の宣言（features/map/scene/groups/weather.ts）がmaxzoomを手書きせずここから受け取る。
-    _write_json(
-        JMA_TILE_CONFIG_PATH,
-        {
-            element_id: {
-                "min_zoom": spec.min_zoom,
-                "max_zoom": effective_max_zoom(spec),
-                "zoom_use": spec.zoom_use,
-                "max_native_zoom": spec.max_native_zoom,
-                "verified": spec.verified,
-            }
-            for element_id, spec in JMA_TILE_SPECS.items()
-        },
     )
     # 風・降水延長予報の格子間隔（domain/wind_grid.py）。APIレスポンスは間隔を含まない
     # ため、frontend（windLayer.ts）はこのJSONから読む以外に値を知る手段がない。

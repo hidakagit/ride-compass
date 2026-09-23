@@ -91,7 +91,7 @@ export function parseJmaTileElement(url: string): JmaTileElementRef | null {
 }
 
 /**
- * ソースを作るときの仮のURL（`features/map/scene/groups/weather.ts: WEATHER_ELEMENTS`）。
+ * ソースを作るときの仮のURL（`features/map/scene/groups/weather.ts`）。
  *
  * 実データが来る前にsourceを作るための仮の値で、中身が届くと本物のURLへ差し替わる。
  * 時刻部分は実在しない値のため、万一このまま要求されても配信元で404になる。

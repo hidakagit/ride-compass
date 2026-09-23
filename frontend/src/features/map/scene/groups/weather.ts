@@ -1,11 +1,15 @@
 /** 動的気象（降水・風・災害）。
  *
+ * **何を描くか（チップ・名前付きソース・描き方の種類・配信元）は源泉が配る**
+ * （`mapDisplay.weatherElements`、backendの`domain/map_display.py: WEATHER_ELEMENTS`）。
+ * ここが持つのは描き方（paint・layout・filter・記号）だけ。
+ *
  * 1つのチップ（グループ）が複数の名前付きソースを持ち、ソースごとに描き方が決まっている。
  * **中身は時刻の変化で何度も入れ替わる**ため、ソースは作り直さず中身だけを差し替える。
  * **中身の種類が宣言と一致するときだけ**表示する——種類が合わないものを出すと、
  * 前の時刻の絵が残ったように見える。
  *
- * 同じ（グループ, ソース）に描き方の違う宣言を並べてよい（降水は60分以内がラスタ、
+ * 同じ（グループ, ソース）に描き方の違う宣言が並ぶことがある（降水は60分以内がラスタ、
  * それ以降は格子の塗り）。届いた中身の種類が、そのうちどれを出すかを決める。
  */
 import { mapDisplay } from "@/types/generated/mapDisplay";
@@ -19,24 +23,23 @@ import { PRECIPITATION_COLOR_STOPS, PRECIPITATION_NONE_THRESHOLD_MM } from "@/co
 import { RISK_LEVEL_COLORS } from "@/components/Map/riskMap";
 import { createWindArrowIcon } from "@/components/Map/windArrowIcon";
 import { WIND_CALM_THRESHOLD_MS, WIND_SPEED_COLOR_STOPS } from "@/components/Map/windLayer";
-import jmaTileConfig from "@/types/generated/jma-tile-config.json";
 
 import { declareGroup, type SceneLayerEntry, type SceneSourceEntry } from "../mapSceneGroups";
 import { AREA_OPACITY } from "./areaRasters";
 import { zoomScaleExpression, sceneSourceId, type SceneSourceId } from "../sceneBuilders";
 
-/** 記号の縁取り。背景の明暗に関わらず記号の形が読めるようにする。**主層と同じレイヤーの
- * paintで出す**——別レイヤーにすると、同じ位置に2枚並ぶぶん衝突判定で縁取りが全部落ちる。 */
 const WEATHER = mapDisplay.weather;
+
+type DeclaredElement = (typeof mapDisplay.weatherElements)[number];
+
+export type WeatherRenderKind = DeclaredElement["kind"];
 
 const TIER_OF = {
   rasterTile: "area",
   gridFill: "area",
   vectorTile: "observedLine",
   gridMark: "point",
-} as const;
-
-export type WeatherRenderKind = keyof typeof TIER_OF;
+} as const satisfies Record<WeatherRenderKind, string>;
 
 /** いま届いている中身。種類が宣言と合うときだけ描く。 */
 export type WeatherPayload =
@@ -45,35 +48,29 @@ export type WeatherPayload =
   | { readonly kind: "gridFill"; readonly data: unknown }
   | { readonly kind: "gridMark"; readonly data: unknown };
 
-/** 要素1つぶんの宣言。**ここへ1行足すと1要素増える**（ソースid・レイヤーid・段・
- * 差し替え方はすべてここから決まる）。 */
-type WeatherElement = {
-  readonly group: string;
-  readonly source: string;
-  readonly kind: WeatherRenderKind;
-  /** 種類ごとに決まる見た目。 */
+/** 要素1つぶんの見た目。画面が決めてよいのはここだけ。 */
+type Drawing = {
   readonly paint: Readonly<Record<string, unknown>>;
   readonly layout?: Readonly<Record<string, unknown>>;
-  readonly sourceSpec: SceneSourceEntry["spec"];
-  readonly sourceLayer?: string;
-  /** 中身が届く前に指すタイル。**タイルを持たないソース宣言は成り立たない**ため、
-   * 届くまでの間もここを指す（実データのない架空のURL）。**このURLは実際に要求されうる**
-   * ——開発サーバーでは二重実行で一瞬表示状態になりうるので、配信元へ無駄な要求が
-   * 飛んでも害のない先にしておく。 */
-  readonly placeholderTiles?: readonly string[];
-  /** 中身が届く前の GeoJSON（同じ理由で、空の中身を持たせる）。 */
-  readonly placeholderData?: unknown;
   readonly filter?: FilterSpecification;
   /** 記号を描くのに要るアイコン。登録してからでないと出ない。 */
   readonly icon?: { readonly id: string; readonly create: () => ImageData };
 };
 
-const EMPTY_FEATURE_COLLECTION = { type: "FeatureCollection", features: [] } as const;
-
-function jmaZoom(elementId: keyof typeof jmaTileConfig): { minzoom: number; maxzoom: number } {
-  const spec = jmaTileConfig[elementId];
-  return { minzoom: spec.min_zoom, maxzoom: spec.max_zoom };
+/** 宣言1件の鍵（チップ/名前付きソース/描き方）。同じ名前付きソースを描き方違いで2要素が名乗るため、
+ * 描き方まで含めないと一意にならない。 */
+type ElementKey<E> = E extends {
+  readonly group: infer G extends string;
+  readonly source: infer S extends string;
+  readonly kind: infer K extends string;
 }
+  ? `${G}/${S}/${K}`
+  : never;
+
+/** 配信元が描いた画像は、どの要素も同じ濃さで重ねるだけなので個別の見た目を持たない。 */
+type DrawnKey = ElementKey<Exclude<DeclaredElement, { kind: "rasterTile" }>>;
+
+const EMPTY_FEATURE_COLLECTION = { type: "FeatureCollection", features: [] } as const;
 
 /** 帯の下限と色の並びから、値→色の段階式を作る。 */
 function bandColorExpression(value: unknown, stops: readonly { from: number; color: string }[]): unknown {
@@ -85,44 +82,20 @@ function aboveFilter(property: string, min: number): FilterSpecification {
   return [">", ["to-number", ["get", property]], min] as unknown as FilterSpecification;
 }
 
-/** 配信元のラスタタイル1枚ぶんの宣言（キキクル・ナウキャスト）。 */
-function rasterElement(
-  group: string,
-  source: string,
-  product: keyof typeof jmaTileConfig,
-  path: string,
-): WeatherElement {
-  return {
-    group,
-    source,
-    kind: "rasterTile",
-    sourceSpec: { type: "raster", tileSize: 256, ...jmaZoom(product), attribution: "気象庁" },
-    placeholderTiles: [path],
-    paint: { "raster-opacity": AREA_OPACITY },
-  };
-}
+const RASTER_DRAWING: Drawing = { paint: { "raster-opacity": AREA_OPACITY } };
 
-function markElement(
-  group: string,
-  source: string,
-  options: {
-    readonly iconId: string;
-    readonly createIcon: () => ImageData;
-    readonly color: unknown;
-    readonly valueProperty: string;
-    readonly rotateProperty?: string;
-    readonly minScale: number;
-    readonly maxScale: number;
-    readonly fullScaleValue: number;
-    readonly minValueToShow?: number;
-  },
-): WeatherElement {
+function markDrawing(options: {
+  readonly iconId: string;
+  readonly createIcon: () => ImageData;
+  readonly color: unknown;
+  readonly valueProperty: string;
+  readonly rotateProperty?: string;
+  readonly minScale: number;
+  readonly maxScale: number;
+  readonly fullScaleValue: number;
+  readonly minValueToShow?: number;
+}): Drawing {
   return {
-    group,
-    source,
-    kind: "gridMark",
-    sourceSpec: { type: "geojson", attribution: "気象庁" },
-    placeholderData: EMPTY_FEATURE_COLLECTION,
     icon: { id: options.iconId, create: options.createIcon },
     layout: {
       "icon-image": options.iconId,
@@ -144,6 +117,8 @@ function markElement(
     paint: {
       "icon-color": options.color,
       "icon-opacity": 1,
+      // 記号の縁取り。背景の明暗に関わらず記号の形が読めるようにする。**主層と同じレイヤーの
+      // paintで出す**——別レイヤーにすると、同じ位置に2枚並ぶぶん衝突判定で縁取りが全部落ちる。
       "icon-halo-color": palette.semantic.mark_halo,
       "icon-halo-width": WEATHER.markHaloWidthPx,
     },
@@ -153,17 +128,10 @@ function markElement(
   };
 }
 
-/** 動的気象で描くもの。**ここへ1件足すと要素が1つ増える。** */
-export const WEATHER_ELEMENTS: readonly WeatherElement[] = [
-  // 降水。60分以内は配信元のラスタ、それ以降は自前の格子を塗る。どちらが届くかは
-  // 選んだ時刻で決まり、ここは両方を宣言しておく。
-  rasterElement("precipitationNowcast", "main", "hrpns", jmaPlaceholderTileUrl("nowc", "hrpns")),
-  {
-    group: "precipitationNowcast",
-    source: "main",
-    kind: "gridFill",
-    sourceSpec: { type: "geojson", attribution: "気象庁MSM" },
-    placeholderData: EMPTY_FEATURE_COLLECTION,
+/** 配信元のラスタ以外の要素の見た目。**源泉に要素が増えて見た目が無ければ型検査が落ちる**
+ * （鍵は生成物から導く）。 */
+const DRAWINGS: { readonly [K in DrawnKey]: Drawing } = {
+  "precipitationNowcast/main/gridFill": {
     paint: {
       "fill-color": bandColorExpression(
         ["get", "mmPerHour"],
@@ -174,9 +142,7 @@ export const WEATHER_ELEMENTS: readonly WeatherElement[] = [
     // 降っていない格子まで塗ると、地図全体が薄く覆われて下が読めない。
     filter: aboveFilter("mmPerHour", PRECIPITATION_NONE_THRESHOLD_MM),
   },
-  rasterElement("precipitationNowcast", "linearRainband", "sjfcstmap", jmaPlaceholderTileUrl("rasrf", "sjfcstmap")),
-
-  markElement("windVector", "arrow", {
+  "windVector/arrow/gridMark": markDrawing({
     iconId: "weather-wind-arrow",
     createIcon: createWindArrowIcon,
     color: bandColorExpression(
@@ -191,21 +157,7 @@ export const WEATHER_ELEMENTS: readonly WeatherElement[] = [
     // ほぼ無風の矢印は向きが意味を持たない。
     minValueToShow: WIND_CALM_THRESHOLD_MS,
   }),
-
-  // 災害。面を下に、見落としやすい線（洪水）と点（落雷）を上に置く。大雨は土砂・浸水を
-  // 統合した指標なので、個別の2つより下に置く。
-  rasterElement("disaster", "heavyRain", "rain_mesh", jmaPlaceholderTileUrl("risk", "rain_mesh")),
-  rasterElement("disaster", "landslide", "land", jmaPlaceholderTileUrl("risk", "land")),
-  rasterElement("disaster", "inundation", "inund", jmaPlaceholderTileUrl("risk", "inund")),
-  rasterElement("disaster", "thunder", "thns", jmaPlaceholderTileUrl("nowc", "thns")),
-  rasterElement("disaster", "tornado", "trns", jmaPlaceholderTileUrl("nowc", "trns")),
-  {
-    group: "disaster",
-    source: "flood",
-    kind: "vectorTile",
-    sourceSpec: { type: "vector", ...jmaZoom("flood"), attribution: "気象庁" },
-    sourceLayer: "flood",
-    placeholderTiles: [jmaPlaceholderTileUrl("risk", "flood", "pbf")],
+  "disaster/flood/vectorTile": {
     paint: {
       "line-color": [
         "match",
@@ -226,7 +178,7 @@ export const WEATHER_ELEMENTS: readonly WeatherElement[] = [
     // 平常時の基準線（level=0）まで出すと、危険情報が無い日も川が全部塗られる。
     filter: aboveFilter("level", 0),
   },
-  markElement("disaster", "liden", {
+  "disaster/liden/gridMark": markDrawing({
     iconId: "weather-liden",
     createIcon: createLidenIcon,
     // 落雷の強弱を配信元が持たないため、大きさはズームだけで決まる。
@@ -236,7 +188,66 @@ export const WEATHER_ELEMENTS: readonly WeatherElement[] = [
     maxScale: WEATHER.lightningIconScale,
     fullScaleValue: 1,
   }),
-];
+};
+
+/** 源泉の宣言1件を、地図へ渡すソース・レイヤーの材料へ移したもの。 */
+type WeatherElement = {
+  readonly group: string;
+  readonly source: string;
+  readonly kind: WeatherRenderKind;
+  readonly drawing: Drawing;
+  readonly sourceSpec: SceneSourceEntry["spec"];
+  readonly sourceLayer?: string;
+  /** 中身が届く前に指すタイル。**タイルを持たないソース宣言は成り立たない**ため、
+   * 届くまでの間もここを指す（実データのない架空のURL）。**このURLは実際に要求されうる**
+   * ——開発サーバーでは二重実行で一瞬表示状態になりうるので、配信元へ無駄な要求が
+   * 飛んでも害のない先にしておく。 */
+  readonly placeholderTiles?: readonly string[];
+  /** 中身が届く前の GeoJSON（同じ理由で、空の中身を持たせる）。 */
+  readonly placeholderData?: unknown;
+};
+
+function drawingOf(element: DeclaredElement): Drawing {
+  if (element.kind === "rasterTile") return RASTER_DRAWING;
+  return DRAWINGS[`${element.group}/${element.source}/${element.kind}` as DrawnKey];
+}
+
+function sourceOf(
+  element: DeclaredElement,
+): Pick<WeatherElement, "sourceSpec" | "sourceLayer" | "placeholderTiles" | "placeholderData"> {
+  const { attribution } = element;
+  switch (element.kind) {
+    case "rasterTile":
+      return {
+        sourceSpec: {
+          type: "raster",
+          tileSize: 256,
+          minzoom: element.tile.minZoom,
+          maxzoom: element.tile.maxZoom,
+          attribution,
+        },
+        placeholderTiles: [jmaPlaceholderTileUrl(element.tile.pathGroup, element.jmaElement)],
+      };
+    case "vectorTile":
+      return {
+        sourceSpec: { type: "vector", minzoom: element.tile.minZoom, maxzoom: element.tile.maxZoom, attribution },
+        sourceLayer: element.tile.vectorLayer,
+        placeholderTiles: [jmaPlaceholderTileUrl(element.tile.pathGroup, element.jmaElement, "pbf")],
+      };
+    case "gridFill":
+    case "gridMark":
+      return { sourceSpec: { type: "geojson", attribution }, placeholderData: EMPTY_FEATURE_COLLECTION };
+  }
+}
+
+/** 並びは源泉の宣言のまま。同じ段（`TIER_OF`）の中ではこの並びが重なり順になる。 */
+const WEATHER_ELEMENTS: readonly WeatherElement[] = mapDisplay.weatherElements.map((element) => ({
+  group: element.group,
+  source: element.source,
+  kind: element.kind,
+  drawing: drawingOf(element),
+  ...sourceOf(element),
+}));
 
 export type WeatherState = {
   /** 表示ON/OFFと中身。鍵は `${group}/${source}`。 */
@@ -249,12 +260,12 @@ function weatherElementKey(element: Pick<WeatherElement, "group" | "source">): s
 
 /** 登録が要るアイコン。**出す前に登録しないと記号が描かれない。** */
 export const WEATHER_ICONS: readonly { id: string; create: () => ImageData }[] = WEATHER_ELEMENTS.flatMap((element) =>
-  element.icon === undefined ? [] : [element.icon],
+  element.drawing.icon === undefined ? [] : [element.drawing.icon],
 );
 
-/** 要素が持つソースの名前。**チップidは源泉の語をそのまま使う**
- * （`mapDisplay.weatherLayerGroups`）——ここで別の呼び名を付け直すと、源泉が知っている
- * ものに画面だけの語彙が重なる。1要素＝1ソース（要素ごとに配信先が違うため相乗りできない）。
+/** 要素が持つソースの名前。**チップidは源泉の語をそのまま使う**——ここで別の呼び名を
+ * 付け直すと、源泉が知っているものに画面だけの語彙が重なる。1要素＝1ソース（要素ごとに
+ * 配信先が違うため相乗りできない）。
  * **描き方も名前に含める**——同じ名前付きソースを描き方違いで2要素が名乗る（降水の`main`は
  * 配信元のラスタと自前の格子の面）。描き方を落とすとソースが1本へ畳まれ、後から名乗った側の
  * レイヤーが種類の合わないソースを指して、そのレイヤーだけが黙って描かれない。 */
@@ -271,6 +282,7 @@ export const weatherGroup = declareGroup<WeatherState>("weather", (state) => {
     const payload = shown?.payload;
     const matches = payload !== undefined && payload.kind === element.kind;
     const id = weatherSourceId(element);
+    const { drawing } = element;
 
     sources.push({
       id,
@@ -294,10 +306,10 @@ export const weatherGroup = declareGroup<WeatherState>("weather", (state) => {
       source: id,
       ...(element.sourceLayer === undefined ? {} : { sourceLayer: element.sourceLayer }),
       type: layerTypeOf(element.kind),
-      paint: element.paint,
-      ...(element.layout === undefined ? {} : { layout: element.layout }),
+      paint: drawing.paint,
+      ...(drawing.layout === undefined ? {} : { layout: drawing.layout }),
       visible: (shown?.visible ?? false) && matches,
-      ...(element.filter === undefined ? {} : { filter: element.filter }),
+      ...(drawing.filter === undefined ? {} : { filter: drawing.filter }),
     });
   }
 

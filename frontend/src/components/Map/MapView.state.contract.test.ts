@@ -15,12 +15,12 @@ import { dedicatedWayValueAxesFromCatalogAxes, rampAxesFromCatalogAxes } from "@
 import { AREA_SOURCE_ID } from "@/features/map/scene/groups/areaRasters";
 import { POINT_LAYERS, pointSourceId } from "@/features/map/scene/groups/points";
 import { ROAD_LINE_SOURCE_ID, ROAD_TRACKS } from "@/features/map/scene/groups/roadLines";
-import { WEATHER_ELEMENTS } from "@/features/map/scene/groups/weather";
 import { pointLegendAxes, roadLegendAxes } from "@/features/map/scene/legends";
 import { LEGEND_NO_DATA_KEY, legendBandKey } from "@/components/Map/mapColorLegend";
 import { applyScene, sceneInputsFrom } from "@/features/map/scene/applyToMap";
 import { buildMapScene } from "@/features/map/scene/buildScene";
 import { sceneLayerId } from "@/features/map/scene/sceneBuilders";
+import { mapDisplay } from "@/types/generated/mapDisplay";
 
 const RAMP_AXES = rampAxesFromCatalogAxes([
   catalogAxis({
@@ -262,11 +262,11 @@ describe("状態を地図へ伝えた結果", () => {
 describe("レイヤーを横断する要求", () => {
   const EMPTY_GEOJSON: GeoJSON.FeatureCollection = { type: "FeatureCollection", features: [] };
 
-  /** 宣言された描き方に合う中身を、全要素ぶん作る。**名指ししない**——要素が増えたら
-   * そのまま対象になる。 */
+  /** 宣言された描き方に合う中身を、全要素ぶん作る。**名指ししない**——母集団は源泉の
+   * 宣言（生成物）なので、backendが要素を増やせばそのまま対象になる。 */
   function everyWeatherGroupState(): Record<string, Record<string, unknown>> {
     const groups: Record<string, Record<string, unknown>> = {};
-    for (const element of WEATHER_ELEMENTS) {
+    for (const element of mapDisplay.weatherElements) {
       const payload =
         element.kind === "rasterTile"
           ? { kind: "rasterTile", tileUrlTemplate: "https://example.test/{z}/{x}/{y}.png" }
@@ -347,7 +347,7 @@ describe("レイヤーを横断する要求", () => {
     rebuild(map as never, state);
     const before = handle.layerOrder();
     // 空振りしていないこと（載っていなければ比較は常に通る）。
-    expect(before.length).toBeGreaterThan(WEATHER_ELEMENTS.length);
+    expect(before.length).toBeGreaterThan(mapDisplay.weatherElements.length);
 
     handle.dropEverything();
     rebuild(map as never, state);
@@ -365,7 +365,7 @@ describe("レイヤーを横断する要求", () => {
     );
     const layers = handle.trace.filter((entry) => entry.call === "addLayer").map((entry) => entry.args[2]);
     // 空振りしていないこと（載っていなければ検証は常に通る）。
-    expect(layers.length).toBeGreaterThan(WEATHER_ELEMENTS.length);
+    expect(layers.length).toBeGreaterThan(mapDisplay.weatherElements.length);
 
     const errors = validateStyleMin({
       version: 8,
