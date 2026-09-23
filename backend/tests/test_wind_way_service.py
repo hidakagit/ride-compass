@@ -4,6 +4,7 @@
 中心1点で代表させる。その結果、同じタイル内の全wayが同じ値を持つ。
 """
 
+import inspect
 from datetime import datetime, timedelta, timezone
 
 import pytest
@@ -13,6 +14,7 @@ from app.domain.route import Coordinates
 from app.domain.wind import kmh_to_ms, wind_drag_ratio
 from app.domain.wind_grid import WIND_GRID_DETAIL_SPACING_DEG, WindGridPoint, nearest_grid_point
 from app.domain.time_zone import JST
+from app.infrastructure.road_graph_repository import RoadGraphRepository
 from app.services.wind_way_service import WindWayService
 
 Z, X, Y = 14, 14551, 6447
@@ -20,15 +22,20 @@ SPEED_KMH = 20.0
 
 
 class FakeWayIdsRepository:
-    """RoadGraphRepositoryのうちget_feature_keys_in_tileだけを実装したフェイク。"""
+    """RoadGraphRepositoryのうちget_feature_keys_in_tileだけを実装したフェイク。
+
+    引数は本物の定義へ当てて照合する。フェイクが自前の引数を持つと、本物の引数が変わっても
+    呼び出し側の食い違いを通してしまう。
+    """
 
     def __init__(self, way_ids: list[int] | None, error: Exception | None = None):
         self._way_ids = way_ids
         self._error = error
-        self.calls: list[tuple[int, int, int, tuple[int, int, int]]] = []
+        self.calls: list[tuple] = []
 
-    async def get_feature_keys_in_tile(self, z, x, y, bbox, coverage_tile):
-        self.calls.append((z, x, y, coverage_tile))
+    async def get_feature_keys_in_tile(self, *args, **kwargs):
+        inspect.signature(RoadGraphRepository.get_feature_keys_in_tile).bind(self, *args, **kwargs)
+        self.calls.append(args)
         if self._error is not None:
             raise self._error
         return self._way_ids
@@ -225,12 +232,21 @@ async def test_time_outside_wind_grid_range_returns_empty_dict():
 
 
 async def test_repository_error_returns_empty_dict():
-    repository = FakeWayIdsRepository(way_ids=None, error=RuntimeError("db down"))
+    repository = FakeWayIdsRepository(way_ids=None, error=ConnectionRefusedError("db down"))
     service = WindWayService(repository=repository, weather_service=FakeWeatherService(TIMES, None))
 
     result = await service.get_way_values(Z, X, Y, AT, 0.0, SPEED_KMH)
 
     assert result == {}
+
+
+async def test_an_implementation_error_is_not_turned_into_an_empty_result():
+    """DB障害でない例外まで空へ倒すと、利用者には「データなし」に見えて誰も気づかない。"""
+    repository = FakeWayIdsRepository(way_ids=None, error=TypeError("wrong arguments"))
+    service = WindWayService(repository=repository, weather_service=FakeWeatherService(TIMES, None))
+
+    with pytest.raises(TypeError):
+        await service.get_way_values(Z, X, Y, AT, 0.0, SPEED_KMH)
 
 
 async def test_at_none_defaults_to_now_without_raising():

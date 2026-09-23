@@ -18,6 +18,7 @@ import time
 
 from app.config import settings
 from app.infrastructure import graph_material_cache, tile_score_matrix_cache
+from app.infrastructure.database import DB_UNAVAILABLE_ERRORS
 
 logger = logging.getLogger("ridecompass.derived_data_revision")
 
@@ -55,7 +56,7 @@ async def ensure_caches_match_db(repository, *, force: bool = False) -> None:
 
     try:
         revision = await repository.get_derived_data_revision()
-    except Exception:
+    except DB_UNAVAILABLE_ERRORS:
         # この確認はキャッシュの鮮度を保つためのもので、ルート生成そのものの前提ではない。
         # ここで落とすと、世代を読めないだけでルートが返せなくなる。TTLは先に進めてあるため
         # ログが溢れることもない。

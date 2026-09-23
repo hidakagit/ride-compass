@@ -203,7 +203,7 @@ axis_id → dedicated_way_value_axes().get(axis_id)（無ければ404）
 get_way_values(z, x, y, at, bearing_deg, speed_kmh)
   ├─ bearing_deg・speed_kmh のいずれかがNoneなら即ValueError
   ├─ repository未接続 → {}
-  ├─ get_feature_keys_in_tile → 鍵の一覧（カバレッジ外はNone→{}、DB障害も{}）
+  ├─ get_feature_keys_in_tile → 鍵の一覧（カバレッジ外はNone→{}、DB障害も{}。それ以外の例外は500）
   ├─ nearest_grid_point(タイル中心) → get_wind_grid([grid_point])
   ├─ _nearest_time_index（範囲外はNone→{}）
   ├─ wind_drag_ratio(speed, direction, bearing_deg, kmh_to_ms(speed_kmh))
@@ -245,6 +245,11 @@ values = {
 
 両サービスとも`get_way_values(z, x, y, at, bearing_deg, speed_kmh) -> dict[str, float]`という
 同じシグネチャで`region.py`から材料非依存に呼ばれる（勾配は`at`・`speed_kmh`を無視する）。
+
+両サービスが空dictへ倒すのは**DB障害だけ**（`database.py`の`DB_UNAVAILABLE_ERRORS`。
+[横断インフラ](cross-cutting-infrastructure.md)「DB障害として扱う例外」節）。リポジトリとの
+引数の食い違いのような実装の誤りまで空へ倒すと、応答は200・空のままになり、地図では
+「データなし」と見分けがつかない。
 
 ## 純粋計算ロジック（domain層）
 

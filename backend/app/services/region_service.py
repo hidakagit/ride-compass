@@ -3,6 +3,7 @@ import logging
 from app.domain.axis_inspector import AxisInspectorResult, axis_inspector_breakdown
 from app.domain.route_preference import RoutePreference
 from app.domain.region import tile_bounds_lonlat
+from app.infrastructure.database import DB_UNAVAILABLE_ERRORS
 from app.infrastructure.debug_log import error_type_label, log_external_call, log_throttled_warning
 from app.infrastructure.road_graph_repository import (
     POI_TILE_SHAPE,
@@ -64,7 +65,7 @@ class RegionService:
             tile_bytes = await getattr(self._repository, repository_method)(
                 z, x, y, tile_bounds_lonlat(z, x, y)
             )
-        except Exception as exc:  # noqa: BLE001 DB障害は空タイル返却で吸収する（上記docstring）
+        except DB_UNAVAILABLE_ERRORS as exc:
             # パン/ズームのたびに大量のタイルリクエストが飛びうる高頻度な経路のため
             # 抑制ヘルパー経由で出す。
             log_throttled_warning(
@@ -179,7 +180,7 @@ class RegionService:
                 )
                 # 地図が塗っている値と同じ単位で読む（区間が特定できるときは区間単位）。
                 landcover = await self._repository.get_feature_landcover(osm_way_id, edge_id)
-            except Exception as exc:  # noqa: BLE001 DB障害は安全側(None)へ倒す（他タイル系と同じ方針）
+            except DB_UNAVAILABLE_ERRORS as exc:
                 fields["result"] = "error"
                 fields["warned"] = True
                 fields["error_type"] = error_type_label(exc)
@@ -217,7 +218,7 @@ class RegionService:
         with log_external_call("region:accident-years-covered") as fields:
             try:
                 years = await self._repository.get_accident_years()
-            except Exception as exc:  # noqa: BLE001 DB障害は安全側(空)へ倒す（他メソッドと同じ方針）
+            except DB_UNAVAILABLE_ERRORS as exc:
                 fields["result"] = "error"
                 fields["warned"] = True
                 fields["error_type"] = error_type_label(exc)
@@ -240,7 +241,7 @@ class RegionService:
         with log_external_call("region:material-values", material_id=material_id) as fields:
             try:
                 values = await self._repository.get_distinct_material_values(material_id)
-            except Exception as exc:  # noqa: BLE001 DB障害は安全側(空リスト)へ倒す（他メソッドと同じ方針）
+            except DB_UNAVAILABLE_ERRORS as exc:
                 fields["result"] = "error"
                 fields["warned"] = True
                 fields["error_type"] = error_type_label(exc)

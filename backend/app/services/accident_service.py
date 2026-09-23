@@ -2,6 +2,7 @@ import logging
 
 from app.domain.region import tile_bounds_lonlat
 from app.infrastructure.accident_repository import ACCIDENT_TILE_SHAPE, AccidentTileQuery
+from app.infrastructure.database import DB_UNAVAILABLE_ERRORS
 from app.infrastructure.vector_tile import encode_empty_accident_tile
 from app.services import derived_data_revision_service
 from app.services.tile_serving import MVT_CONTENT_TYPE, TileResponse, serve_cached_tile
@@ -32,7 +33,7 @@ class AccidentService:
                 return None
             try:
                 tile_bytes = await self._repository.get_accident_tile_mvt(z, x, y, tile_bounds_lonlat(z, x, y))
-            except Exception as exc:  # noqa: BLE001 DB障害は空タイル返却で吸収する
+            except DB_UNAVAILABLE_ERRORS as exc:
                 logger.warning("事故タイルのPostGIS読み取りに失敗 z=%d x=%d y=%d error=%r", z, x, y, exc)
                 fields["postgis"] = "error"
                 fields["postgis_error"] = repr(exc)

@@ -10,7 +10,8 @@ import logging
 from datetime import datetime
 
 from app.domain.gradient import GradientCalculator
-from app.domain.region import ROAD_GRAPH_TILE_ZOOM, tile_ancestor, tile_bounds_lonlat
+from app.domain.region import tile_bounds_lonlat
+from app.infrastructure.database import DB_UNAVAILABLE_ERRORS
 from app.infrastructure.debug_log import log_external_call
 from app.infrastructure.dynamic_way_value_cache import get_tile_values, set_tile_values
 from app.services import derived_data_revision_service
@@ -54,7 +55,6 @@ class GradientWayService:
         if self._repository is None:
             return {}
         bbox = tile_bounds_lonlat(z, x, y)
-        ancestor_x, ancestor_y = tile_ancestor(z, x, y, ROAD_GRAPH_TILE_ZOOM)
 
         with log_external_call("region:gradient-way-values", z=z, x=x, y=y) as fields:
             # 世代は鍵の一部。渡し忘れると世代をまたいだ値を配る。
@@ -67,10 +67,8 @@ class GradientWayService:
             fields["cache_status"] = "miss"
 
             try:
-                inputs = await self._repository.get_feature_gradient_inputs_in_tile(
-                    z, x, y, bbox, (ROAD_GRAPH_TILE_ZOOM, ancestor_x, ancestor_y)
-                )
-            except Exception as exc:  # noqa: BLE001 DB障害は空dictへ倒す（他タイル系と同じ方針）
+                inputs = await self._repository.get_feature_gradient_inputs_in_tile(z, x, y, bbox)
+            except DB_UNAVAILABLE_ERRORS as exc:
                 fields["result"] = "error"
                 fields["warned"] = True
                 logger.warning("勾配の評価軸配信のway入力取得に失敗 z=%d x=%d y=%d error=%r", z, x, y, exc)

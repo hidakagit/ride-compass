@@ -158,7 +158,7 @@ async def test_accident_years_come_from_the_import_profile():
 
 
 async def test_accident_years_fall_back_to_empty_on_db_error():
-    service = RegionService(repository=_AccidentYearsRepository(error=RuntimeError("db down")))
+    service = RegionService(repository=_AccidentYearsRepository(error=ConnectionRefusedError("db down")))
 
     assert await service.get_accident_years() == []
     assert await service.get_accident_years_covered() == 0

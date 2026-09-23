@@ -248,6 +248,9 @@ def test_タイル世代はDBの派生データ世代を前置きして配る():
         async def get_derived_data_revision(self):
             return 42
 
+        async def get_accident_years(self):
+            return []
+
     derived_data_revision_service.reset_for_tests()
     app.dependency_overrides[get_region_service] = lambda: RegionService(
         repository=RepositoryWithRevision()

@@ -67,7 +67,7 @@ async def test_empty_tile_from_postgis_is_also_cached():
 
 
 async def test_postgis_error_returns_empty_mvt_that_browsers_must_not_keep():
-    repository = FakeAccidentRepository(error=RuntimeError("db down"))
+    repository = FakeAccidentRepository(error=ConnectionRefusedError("db down"))
     service = AccidentService(repository=repository)
 
     response = await service.get_accident_tile(Z, X, Y)
