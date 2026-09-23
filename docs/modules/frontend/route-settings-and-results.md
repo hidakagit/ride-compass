@@ -57,8 +57,7 @@ useAxisCatalog() ──→ catalog.axes（公開軸一覧、is_published=Trueの
 - **カタログ1件→`PreferenceAxisDef`の変換は`evaluationAxes.ts: preferenceAxisFromCatalog`
   1本**で、カタログから重み一覧を作る経路はすべてこれを通る——経路ごとに組み立てを
   書くと、片方にだけフィールドを書き足した状態が型検査を通ってしまう
-  （`PreferenceAxisDef`のフィールドはすべてoptional）。カタログ側に値がある
-  フィールドが変換後も残ることは`evaluationAxes.test.ts`が検査する。
+  （`PreferenceAxisDef`のフィールドはすべてoptional）。
 - カテゴリ（観測/推定/動的）によるグルーピング表示は行わない。軸スタジオは常に
   `category="推定"`固定で軸を作るため、フラットな1本のリストで表示する。
 - **軸が増えてもパネルの高さが変わらない構成**にする（走行中のスマホで扱うため）。
