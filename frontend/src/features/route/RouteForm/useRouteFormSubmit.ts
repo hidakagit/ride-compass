@@ -1,11 +1,11 @@
 import { useState } from "react";
 import routeGenerateConfig from "@/types/generated/route-generate-config.json";
 
+export type RouteMode = "loop" | "destination";
+
 // backend/app/api/routers/routes.py: RouteGenerateRequest.distance_km（Field(gt=0,
 // le=MAX_ROUTE_DISTANCE_KM)）と一致させる。backend側の唯一の情報源
 // （export_openapi.py: ROUTE_GENERATE_CONFIG_PATH）から導出する。
-export type RouteMode = "loop" | "destination";
-
 const MAX_DISTANCE_KM = routeGenerateConfig.max_distance_km;
 // backend/app/api/routers/routes.py: RouteGenerateRequest.max_routes（Field(ge=1,
 // le=MAX_ROUTES)）と一致させる。距離入力と同じくハードコードせずroute-generate-config.jsonを

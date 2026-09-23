@@ -135,7 +135,8 @@ export default function RouteSettingsPanel({
   }
 
   const total = totalWeight(routePreference);
-  const sharePct = (weight: number) => (total > 0 ? (weight / total) * 100 : 0);
+  // 有効な軸（重み>0）にだけ使うため、合計は必ず正。
+  const sharePct = (weight: number) => (weight / total) * 100;
 
   // 有効な軸（重み>0）を先、無効な軸を後ろに並べる。有効な軸の%が先頭にまとまるため、
   // チップ領域をスクロールせずに「今どの軸が何%か」を読める。
@@ -150,21 +151,10 @@ export default function RouteSettingsPanel({
   // 境界を1つ動かすと、その両隣の2軸間でだけ重みが移動する（他の軸・合計自体は
   // 変わらない）。
   const stackBarRef = useRef<HTMLDivElement>(null);
-  // ドラッグ中の起点情報。境界ハンドルは16px幅しかなく、ドラッグ中にポインタが実際の
-  // ハンドル要素の外へ出るのが常態のため、React要素スコープのonPointerMove（要素の外に
-  // 出ると届かない）ではなくwindowへ直接pointermove/upを登録する（pointer captureは
-  // 環境によって確実に効くとは限らないため使わない）。ハンドル自身の
-  // onPointerDown（16px幅、touch-action:noneはこのハンドルだけに絞ってあり、帯全体は
-  // 覆わない——スクロールジェスチャーを妨げないための配慮）だけがReact要素側で、
-  // 以降はwindow側のリスナーで完結する。
-  const boundaryDragRef = useRef<{
-    axisIdA: string;
-    startWeightA: number;
-    axisIdB: string;
-    startWeightB: number;
-    startClientX: number;
-    pixelsPerUnit: number;
-  } | null>(null);
+  // 境界ハンドルは16px幅しかなく、ドラッグ中にポインタがハンドル要素の外へ出るのが常態のため、
+  // React要素スコープのonPointerMove（要素の外に出ると届かない）ではなくwindowへ直接
+  // pointermove/upを登録する（pointer captureは環境によって確実に効くとは限らないため使わない）。
+  // touch-action:noneはハンドルだけに絞り、帯全体のスクロールジェスチャーを妨げない。
   function startBoundaryDrag(
     e: React.PointerEvent<HTMLDivElement>,
     axisIdA: string,
@@ -173,26 +163,17 @@ export default function RouteSettingsPanel({
     startWeightB: number,
   ) {
     const bar = stackBarRef.current;
-    if (!bar || total <= 0) return;
+    if (!bar) return;
     const barWidthPx = bar.getBoundingClientRect().width;
     if (barWidthPx <= 0) return;
-    boundaryDragRef.current = {
-      axisIdA,
-      startWeightA,
-      axisIdB,
-      startWeightB,
-      startClientX: e.clientX,
-      pixelsPerUnit: barWidthPx / total,
-    };
+    const startClientX = e.clientX;
+    const pixelsPerUnit = barWidthPx / total;
     const handleWindowPointerMove = (moveEvent: PointerEvent) => {
-      const drag = boundaryDragRef.current;
-      if (!drag) return;
-      const rawDelta = (moveEvent.clientX - drag.startClientX) / drag.pixelsPerUnit;
-      const { weightA, weightB } = clampBoundaryDrag(drag.startWeightA, drag.startWeightB, rawDelta);
-      handlePairWeightChange(drag.axisIdA, weightA, drag.axisIdB, weightB);
+      const rawDelta = (moveEvent.clientX - startClientX) / pixelsPerUnit;
+      const { weightA, weightB } = clampBoundaryDrag(startWeightA, startWeightB, rawDelta);
+      handlePairWeightChange(axisIdA, weightA, axisIdB, weightB);
     };
     const handleWindowPointerUp = () => {
-      boundaryDragRef.current = null;
       window.removeEventListener("pointermove", handleWindowPointerMove);
       window.removeEventListener("pointerup", handleWindowPointerUp);
       window.removeEventListener("pointercancel", handleWindowPointerUp);

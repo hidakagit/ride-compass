@@ -1,57 +1,68 @@
 // @vitest-environment node
 import { describe, expect, it } from "vitest";
 
-import { formatAxisRawValue } from "./axisRawValue";
+import { formatAxisRawValue, formatCategoryBreakdown, formatMaterialBreakdown } from "./axisRawValue";
 
-describe("formatAxisRawValue", () => {
-  it("総量の単位が来たら、経路全体の実数を添える", () => {
-    // 0.8回/km × 32.5km ≒ 26回
-    expect(formatAxisRawValue(0.8, "回/km", "回", 32.5)).toBe("0.8回/km・約26回");
+describe("formatAxisRawValue（軸の生値の文）", () => {
+  it("生値に単位を付ける。数の桁は大きさで決める（10以上は整数・1以上は小数1桁・1未満は有効数字2桁）", () => {
+    expect(formatAxisRawValue(12.46, "%", null, null)).toBe("12%");
+    expect(formatAxisRawValue(3.14, "%", null, null)).toBe("3.1%");
+    expect(formatAxisRawValue(0.0412, "件/km", null, null)).toBe("0.041件/km");
+    expect(formatAxisRawValue(0.08, "件/km", null, null)).toBe("0.08件/km");
+    expect(formatAxisRawValue(0, "件/km", null, null)).toBe("0件/km");
+    expect(formatAxisRawValue(-2.5, "%", null, null)).toBe("-2.5%");
   });
 
-  it("総量の単位が無ければ実数を添えない", () => {
-    expect(formatAxisRawValue(4.2, "%", null, 32.5)).toBe("4.2%");
+  it("総量の単位が来た軸だけ、走行距離を掛けた総量を「約N」で添える", () => {
+    expect(formatAxisRawValue(0.8, "回/km", "回", 32.4)).toBe("0.8回/km・約26回");
+    expect(formatAxisRawValue(0.8, "回/km", null, 32.4)).toBe("0.8回/km");
   });
 
-  it("「◯◯/km」でも、総量が読めない軸には添えない（角度の「約3322度」）", () => {
-    // 単位の綴りで決めていたころは、151度/km × 22km を「約3322度」と出していた。
-    // 距離を掛けられること（度/km）と、掛けた値が判断を変えること（回・件）は別。
-    expect(formatAxisRawValue(151, "度/km", null, 22)).toBe("151度/km");
+  it("総量が0.5に満たない・距離が無い・距離が0以下なら、総量は添えない", () => {
+    expect(formatAxisRawValue(0.01, "回/km", "回", 10)).toBe("0.01回/km");
+    expect(formatAxisRawValue(0.8, "回/km", "回", null)).toBe("0.8回/km");
+    expect(formatAxisRawValue(0.8, "回/km", "回", 0)).toBe("0.8回/km");
   });
 
-  it("値の大きさに応じて桁を変える（行動が変わらない細かさは出さない）", () => {
-    expect(formatAxisRawValue(15.4, "回/km", "回", null)).toBe("15回/km");
-    expect(formatAxisRawValue(3.2, "回/km", "回", null)).toBe("3.2回/km");
-    expect(formatAxisRawValue(0.08, "回/km", "回", null)).toBe("0.08回/km");
+  it("生値か単位が無ければ出さない", () => {
+    expect(formatAxisRawValue(undefined, "%", null, null)).toBeNull();
+    expect(formatAxisRawValue(1, null, null, null)).toBeNull();
+    expect(formatAxisRawValue(1, "", null, null)).toBeNull();
+  });
+});
+
+describe("formatMaterialBreakdown（材料の内訳1件）", () => {
+  it("真偽値の材料は延長の割合（%）", () => {
+    expect(formatMaterialBreakdown({ label: "街灯あり", dtype: "boolean", unit: "" }, 0.684)).toBe("街灯あり 68%");
   });
 
-  // backendが実際に配信する精度で確かめる。生値は`domain/route.py: merge_axis_raw_values`が
-  // 有効数字4桁へ丸めて返すため（T698）、桁の小さい軸では0.0413のような値が届く。
-  // 「配信されない値だけを固定したテスト」は、丸め方が変わっても赤くならない。
-  it("backendが配信する丸め（有効数字4桁）の値をそのまま読める形で出す", () => {
-    expect(formatAxisRawValue(0.0413, "件/(km・年)", null, 32.5)).toBe("0.041件/(km・年)");
-    expect(formatAxisRawValue(0.1234, "件/(km・年)", null, 32.5)).toBe("0.12件/(km・年)");
-    expect(formatAxisRawValue(1.234, "回/km", "回", 32.5)).toBe("1.2回/km・約40回");
-    expect(formatAxisRawValue(123.4, "度/km", null, null)).toBe("123度/km");
+  it("数値の材料は値と単位", () => {
+    expect(formatMaterialBreakdown({ label: "制限速度", dtype: "numeric", unit: "km/h" }, 42.3)).toBe(
+      "制限速度 42km/h",
+    );
   });
 
-  // 統合レビュー第6回の指摘I-5: 1未満を一律小数2桁で出していたため、桁の小さい軸
-  // （事故密度は件/(km・年)で代表点0.02/0.1/0.3）の実データが「0.00」に潰れ、
-  // 値の無い道と区別できなくなっていた。有効数字2桁を残す。
-  it("桁の小さい軸でも値が0へ潰れない", () => {
-    expect(formatAxisRawValue(0.041, "件/(km・年)", null, 32.5)).toBe("0.041件/(km・年)");
-    expect(formatAxisRawValue(0.0041, "件/(km・年)", null, 32.5)).toBe("0.0041件/(km・年)");
-    // 本当に0のときだけ0と出る。
-    expect(formatAxisRawValue(0, "件/(km・年)", null, 32.5)).toBe("0件/(km・年)");
+  it("値が無い・有限でない・数値でも真偽値でもない材料は出さない", () => {
+    const numeric = { label: "x", dtype: "numeric", unit: "" };
+    expect(formatMaterialBreakdown(numeric, undefined)).toBeNull();
+    expect(formatMaterialBreakdown(numeric, Number.NaN)).toBeNull();
+    expect(formatMaterialBreakdown({ label: "x", dtype: "categorical", unit: "" }, 1)).toBeNull();
+  });
+});
+
+describe("formatCategoryBreakdown（分類の材料の内訳1件）", () => {
+  it("先頭の値（backendが延長の割合の降順で返す）を、対訳の名前と割合で出す", () => {
+    const entry = { label: "道の種類", valueLabels: { residential: "住宅街の道" } };
+    expect(formatCategoryBreakdown(entry, { residential: 0.62, primary: 0.3 })).toBe("住宅街の道 62%");
   });
 
-  it("実数が1回に満たなければ添えない（「約0回」は情報にならない）", () => {
-    expect(formatAxisRawValue(0.01, "回/km", "回", 20)).toBe("0.01回/km");
+  it("対訳の無い値は、タグの値をそのまま出す", () => {
+    expect(formatCategoryBreakdown({ label: "道の種類" }, { living_street: 0.5 })).toBe("living_street 50%");
   });
 
-  it("値や単位が無ければ何も出さない", () => {
-    expect(formatAxisRawValue(undefined, "回/km", "回", 20)).toBeNull();
-    expect(formatAxisRawValue(0.8, null, null, 20)).toBeNull();
-    expect(formatAxisRawValue(0.8, "", null, 20)).toBeNull();
+  it("値が無い・割合が有限でなければ出さない", () => {
+    expect(formatCategoryBreakdown({ label: "道の種類" }, undefined)).toBeNull();
+    expect(formatCategoryBreakdown({ label: "道の種類" }, {})).toBeNull();
+    expect(formatCategoryBreakdown({ label: "道の種類" }, { a: Number.NaN })).toBeNull();
   });
 });

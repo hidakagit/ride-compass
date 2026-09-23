@@ -1,322 +1,244 @@
-import { useState } from "react";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it, vi } from "vitest";
-import type { AxisCatalogResponse, RoutePreferenceWeights } from "@/types/route";
+import { useState } from "react";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
+import { EMPTY_CATALOG, type AxisCatalog } from "@/lib/axisCatalog";
+import type { PreferenceAxisDef } from "@/lib/evaluationAxes";
+import type { RoutePreferenceWeights } from "@/types/route";
+
 import RouteSettingsPanel from "./RouteSettingsPanel";
 
-// 改善計画T302: unpublishでカタログから軸が消えた場合、RouteSettingsPanelが
-// routePreferenceから対応するキーを自動で取り除く（自己修復）ことの回帰テスト。
-// これが無いと、unpublish直後に旧設定を保持したブラウザで次のルート生成が
-// RoutePreferenceWeightsのキー完全一致検証（backend/app/api/routers/routes.py）で
-// 422になる（docs/records/decisions/t221-axis-registry.md「Stage D拡張3」参照）。
-vi.mock("@/services/axisCatalogApi", () => ({
-  getAxisCatalog: vi.fn(),
+// 軸カタログはテストが直接決める（取得の流れは`useAxisCatalog`自身のテストが見る）。
+const hook = vi.hoisted(() => ({ catalog: null as unknown as AxisCatalog, retry: vi.fn() }));
+vi.mock("@/hooks/useAxisCatalog", () => ({
+  useAxisCatalog: () => hook.catalog,
+  retryAxisCatalogFetch: hook.retry,
 }));
 
-vi.mock("@/hooks/useAxisCatalog", async (importOriginal) => {
-  // 共有ストアを持たない代役を当てる（本番へ初期化の口を開けないため。testing/fakeAxisCatalogHook.ts）。
-  const actual = await importOriginal<typeof import("@/hooks/useAxisCatalog")>();
-  const fake = await import("@/testing/fakeAxisCatalogHook");
-  return { ...actual, useAxisCatalog: fake.useFakeAxisCatalog, retryAxisCatalogFetch: fake.retryFakeAxisCatalogFetch };
+const axis = (axisId: string, label: string, chipLabel: string | null = null): PreferenceAxisDef => ({
+  axisId,
+  label,
+  chipLabel,
+  description: `${label}の説明文`,
+  dedicatedWayValueLayer: false,
 });
 
-import { getAxisCatalog } from "@/services/axisCatalogApi";
+const AXES = [axis("surface", "路面の質", "路面"), axis("traffic", "交通量"), axis("slope", "勾配")];
 
-// GET /api/axis-catalogの応答を軸id一覧から組み立てるヘルパ。このパネルのテストは
-// 軸の表示宣言（display.kind・dedicated_way_value_layer）を見ないため、どちらも固定値。
-function catalogResponse(axisIds: string[]): AxisCatalogResponse {
+function catalogOf(overrides: Partial<AxisCatalog> = {}): AxisCatalog {
   return {
-    axes: axisIds.map((axisId) => {
-      const kind = "none" as const;
-      return {
-        axis_id: axisId,
-        label: `ラベル[${axisId}]`,
-        description: "",
-        category: "観測",
-        default_weight: 0.1,
-        // 改善計画T308: GET /api/axis-catalogのレスポンスへdisplay/primary_attribute_idsが
-        // 必須フィールドとして追加された。改善計画T310でicon_id/chip_label/panel_hintも
-        // 同様に必須（値はnull許容）となった。改善計画T318でshow_map_icon（真偽値、
-        // null不可）も必須フィールドに加わった。このテストはどれも内容を検証しないため
-        // kind="none"・空配列・null・trueで済ませる（kind="ramp"のtile_inputs/thresholdsは
-        // このテストはtile_inputs/thresholdsの内容を見ないため空でよい）。
-        display: {
-          kind,
-          label: `ラベル[${axisId}]`,
-          category: "trafficSafety",
-          tile_inputs: [],
-          thresholds: [],
-        },
-        primary_attribute_ids: [],
-        icon_id: null,
-        chip_label: null,
-        panel_hint: null,
-        show_map_icon: true,
-        shape: {
-          kind: "breakpoint_linear",
-          terms: [{ material: "gradient_percent", weight: 1.0, required: true }],
-          preprocess: "identity",
-          breakpoints: [
-            [0, 0],
-            [10, 100],
-          ],
-        },
-        display_thresholds_override: null,
-        display_band_labels_override: null,
-        dedicated_way_value_layer: false,
-        map_value_kind: "difficulty",
-        map_value_unit: "",
-        map_value_thresholds: null,
-        dynamic_way_value_needs_time: false,
-        dynamic_way_value_needs_bearing: false,
-        dynamic_way_value_needs_speed: false,
-        raw_value_unit: null,
-        raw_value_total_unit: null,
-        material_breakdown: [],
-      };
-    }),
-    // 改善計画T404: material_runtime_scalesはAxisCatalogResponseの必須フィールド
-    // （既定{}だがopenapi-typescriptはdefault付きフィールドをoptionalにしない）。
-    material_runtime_scales: {},
-    accident_years: [],
-    client_tuning: {},
-    tile_versions: {},
+    ...EMPTY_CATALOG,
+    axes: AXES,
+    defaultWeights: { surface: 0.5, traffic: 0.3, slope: 0.2 },
+    axisColors: { surface: "#111111", traffic: "#222222", slope: "#333333" },
+    loaded: true,
+    ...overrides,
   };
 }
 
-describe("RouteSettingsPanel", () => {
-  describe("軸カタログの取得失敗", () => {
-    // 取得できていない間、重み配分は編集できるがhandleGenerateが送信時に省略するため、
-    // 黙って捨てられていることに気づけない（実験結果を取り違える）。
-    it("失敗を利用者へ見せ、再試行で通常表示へ戻る", async () => {
-      vi.mocked(getAxisCatalog).mockRejectedValueOnce(new Error("network error"));
+beforeEach(() => {
+  hook.catalog = catalogOf();
+  hook.retry.mockClear();
+});
 
-      render(
-        <RouteSettingsPanel
-          routePreference={{ gradient: 0.5 }}
-          onRoutePreferenceChange={vi.fn()}
-          overrideEnabled={false}
-          onOverrideEnabledChange={vi.fn()}
-        />,
-      );
-
-      const notice = await screen.findByText(/軸一覧を取得できませんでした/);
-      expect(notice).toBeTruthy();
-
-      vi.mocked(getAxisCatalog).mockResolvedValueOnce(catalogResponse(["gradient", "surface_q"]));
-      await userEvent.click(screen.getByRole("button", { name: "再試行" }));
-
-      await waitFor(() => expect(screen.queryByText(/軸一覧を取得できませんでした/)).toBeNull());
-    });
-
-    it("取得成功時は何も出さない", async () => {
-      vi.mocked(getAxisCatalog).mockResolvedValue(catalogResponse(["gradient", "surface_q"]));
-
-      render(
-        <RouteSettingsPanel
-          routePreference={{ gradient: 0.5, surface_q: 0.5 }}
-          onRoutePreferenceChange={vi.fn()}
-          overrideEnabled={false}
-          onOverrideEnabledChange={vi.fn()}
-        />,
-      );
-
-      await waitFor(() => expect(getAxisCatalog).toHaveBeenCalled());
-      expect(screen.queryByText(/軸一覧を取得できませんでした/)).toBeNull();
-    });
-  });
-
-  it("カタログから消えた軸（unpublish後）のキーをroutePreferenceから取り除く", async () => {
-    vi.mocked(getAxisCatalog).mockResolvedValue(catalogResponse(["gradient", "surface_q"]));
-    const onRoutePreferenceChange = vi.fn();
-
-    render(
+/** 重みと上書きの有効フラグを親として持つ。親へ渡った値は`changes`に並ぶ。 */
+function renderPanel(initial: RoutePreferenceWeights, { overrideEnabled = false } = {}) {
+  const changes: RoutePreferenceWeights[] = [];
+  const onOverrideEnabledChange = vi.fn();
+  function Parent() {
+    const [weights, setWeights] = useState(initial);
+    return (
       <RouteSettingsPanel
-        // "night"は下書きへ戻った(unpublishされた)想定の古いキー。
-        routePreference={{ gradient: 0.5, surface_q: 0.3, night: 0.2 }}
-        onRoutePreferenceChange={onRoutePreferenceChange}
-        overrideEnabled={false}
-        onOverrideEnabledChange={vi.fn()}
-      />,
+        routePreference={weights}
+        onRoutePreferenceChange={(next) => {
+          changes.push(next);
+          setWeights(next);
+        }}
+        overrideEnabled={overrideEnabled}
+        onOverrideEnabledChange={onOverrideEnabledChange}
+      />
     );
+  }
+  const view = render(<Parent />);
+  /** 同じ画面のまま描き直す（カタログを差し替えた後に、新しいカタログを読ませる）。 */
+  const refresh = () => view.rerender(<Parent />);
+  return { changes, onOverrideEnabledChange, refresh, ...view };
+}
 
-    await waitFor(() => expect(onRoutePreferenceChange).toHaveBeenCalled());
+const chipNames = () =>
+  screen.getAllByRole("button", { name: /を(有効|無効)にする$/ }).map((chip) => chip.getAttribute("aria-label"));
 
-    const synced = onRoutePreferenceChange.mock.calls.at(-1)?.[0];
-    expect(synced).toEqual({ gradient: 0.5, surface_q: 0.3 });
+describe("RouteSettingsPanel 軸のチップ", () => {
+  it("有効な軸を先に、無効な軸を後ろに、それぞれカタログの並びで出す", () => {
+    renderPanel({ surface: 0, traffic: 0.3, slope: 0.2 });
+    expect(chipNames()).toEqual(["交通量を無効にする", "勾配を無効にする", "路面の質を有効にする"]);
   });
 
-  it("カタログに新しく現れた軸の既定重みをroutePreferenceへ補う", async () => {
-    vi.mocked(getAxisCatalog).mockResolvedValue(catalogResponse(["gradient", "surface_q"]));
-    const onRoutePreferenceChange = vi.fn();
-
-    render(
-      <RouteSettingsPanel
-        routePreference={{ gradient: 0.5 }}
-        onRoutePreferenceChange={onRoutePreferenceChange}
-        overrideEnabled={false}
-        onOverrideEnabledChange={vi.fn()}
-      />,
-    );
-
-    await waitFor(() => expect(onRoutePreferenceChange).toHaveBeenCalled());
-
-    const synced = onRoutePreferenceChange.mock.calls.at(-1)?.[0];
-    expect(synced).toEqual({ gradient: 0.5, surface_q: 0.1 });
+  it("有効な軸だけに、全体に対する取り分（%）を添える。名前は略名があれば略名", () => {
+    renderPanel({ surface: 0, traffic: 0.3, slope: 0.2 });
+    expect(screen.getByRole("button", { name: "交通量を無効にする" })).toHaveTextContent("交通量60%");
+    expect(screen.getByRole("button", { name: "勾配を無効にする" })).toHaveTextContent("勾配40%");
+    expect(screen.getByRole("button", { name: "路面の質を有効にする" })).toHaveTextContent(/^路面$/);
   });
 
-  it("routePreferenceがカタログと既に一致している場合は呼び出さない", async () => {
-    // 軸は取得完了で初めて現れる（ビルド時の写しを持たない）。取得前の0件と突き合わせて
-    // 空へ潰さないことも、ここで一緒に押さえている。
-    vi.mocked(getAxisCatalog).mockResolvedValue(catalogResponse(["gradient", "surface_q"]));
-    const onRoutePreferenceChange = vi.fn();
-
-    render(
-      <RouteSettingsPanel
-        routePreference={{ gradient: 0.1, surface_q: 0.1 }}
-        onRoutePreferenceChange={onRoutePreferenceChange}
-        overrideEnabled={false}
-        onOverrideEnabledChange={vi.fn()}
-      />,
-    );
-
-    // フェッチが解決してeffectが走り切るまで待つ（呼ばれないことの確認のため一呼吸置く）。
-    await new Promise((resolve) => setTimeout(resolve, 0));
-
-    expect(onRoutePreferenceChange).not.toHaveBeenCalled();
+  it("軸の説明は、軸ごとの(i)から読める", async () => {
+    renderPanel({ surface: 0.5, traffic: 0.3, slope: 0.2 });
+    await userEvent.click(screen.getByRole("button", { name: "交通量の説明を表示" }));
+    expect(await screen.findByText("交通量の説明文")).toBeInTheDocument();
   });
 
-  // 改善計画T471: lastWeights（チェックを外した軸の重みを覚えておく内部state）は
-  // マウント時点のcatalog.defaultWeights（フェッチ完了前は静的フォールバック値）で
-  // 初期化される。以前はフェッチ完了後にcatalog.defaultWeightsが実際の値へ更新されても
-  // 追従せず、一度チェックを外して戻すと古いフォールバック値へ復元されていた。
-  it("フェッチ完了で既定重みが変わった場合、チェックを外して戻すと新しい既定値へ復元される（古いフォールバック値ではない）", async () => {
-    const user = userEvent.setup();
-    // 取得前（軸0件）と取得後で既定重みが変わる状況を再現する。
-    const response = catalogResponse(["gradient"]);
-    response.axes[0].default_weight = 0.42;
-    vi.mocked(getAxisCatalog).mockResolvedValue(response);
-    const onRoutePreferenceChange = vi.fn();
+  it("無効にすると重みを0にし、上書きをONにする（既にONなら触らない）", async () => {
+    const off = renderPanel({ surface: 0.5, traffic: 0.3, slope: 0.2 });
+    await userEvent.click(screen.getByRole("button", { name: "交通量を無効にする" }));
+    expect(off.changes.at(-1)).toEqual({ surface: 0.5, traffic: 0, slope: 0.2 });
+    expect(off.onOverrideEnabledChange).toHaveBeenCalledWith(true);
+    off.unmount();
 
-    function Wrapper() {
-      const [routePreference, setRoutePreference] = useState<RoutePreferenceWeights>({ gradient: 0.5 });
-      return (
-        <RouteSettingsPanel
-          routePreference={routePreference}
-          onRoutePreferenceChange={(next) => {
-            onRoutePreferenceChange(next);
-            setRoutePreference(next);
-          }}
-          overrideEnabled={false}
-          onOverrideEnabledChange={vi.fn()}
-        />
-      );
-    }
-
-    render(<Wrapper />);
-
-    // フェッチ完了（default_weight=0.42への追従）を待つ。
-    await waitFor(() => expect(getAxisCatalog).toHaveBeenCalled());
-    await new Promise((resolve) => setTimeout(resolve, 0));
-
-    // ユーザー要望（2026-08-31、凡例チップへの集約）でチェックボックスは廃止され、
-    // 凡例チップのトグルボタン（色ドット+ラベル、aria-labelに有効/無効の状態を含む）に
-    // 置き換わった。状態が変わるとaria-labelも変わるため、クリックのたびに再取得する。
-    await user.click(screen.getByRole("button", { name: "ラベル[gradient]を無効にする" })); // チェックを外す(weight=0)
-    await user.click(screen.getByRole("button", { name: "ラベル[gradient]を有効にする" })); // 再度チェックする(lastWeightsから復元)
-
-    const restored = onRoutePreferenceChange.mock.calls.at(-1)?.[0];
-    expect(restored.gradient).toBe(0.42);
+    const alreadyOn = renderPanel({ surface: 0.5, traffic: 0.3, slope: 0.2 }, { overrideEnabled: true });
+    await userEvent.click(screen.getByRole("button", { name: "交通量を無効にする" }));
+    expect(alreadyOn.onOverrideEnabledChange).not.toHaveBeenCalled();
   });
 
-  // ユーザー要望（2026-08-31、「複数要素を足し合わせて1にするのを直感的に省スペース設定
-  // できるUIはないか」）: 重み配分バー（帯グラフ）の境界を操作すると、隣接する2軸間でだけ
-  // 重みが移動し、合計（2軸ぶんの和）は変わらないことの回帰テスト。実際のポインタドラッグは
-  // happy-domがレイアウト（getBoundingClientRect）を計算しないため単体テストで再現できず、
-  // Browserペインでの実機確認で検証済み（docs/records/tasks/T495.md参照）。ここでは
-  // getBoundingClientRectに依存しないキーボード操作（矢印キー）経路で、隣接軸ペアの
-  // 重み移動ロジック（clampBoundaryDrag）自体を検証する。
-  describe("重み配分バー（帯グラフ）の境界操作", () => {
-    it("境界をArrowRightキーで操作すると隣接する2軸の重みだけがWEIGHT_STEP分移動し、2軸の合計は変わらない", async () => {
-      vi.mocked(getAxisCatalog).mockResolvedValue(catalogResponse(["gradient", "surface_q"]));
-      const onRoutePreferenceChange = vi.fn();
+  it("有効に戻すと、最後に使っていた重みに戻す", async () => {
+    const { changes } = renderPanel({ surface: 0.5, traffic: 0.3, slope: 0.2 });
+    const boundary = screen.getByRole("slider", { name: "路面の質と交通量の配分" });
+    act(() => boundary.focus());
+    await userEvent.keyboard("{ArrowLeft}");
+    await userEvent.click(screen.getByRole("button", { name: "交通量を無効にする" }));
+    await userEvent.click(screen.getByRole("button", { name: "交通量を有効にする" }));
+    expect(changes.at(-1)?.traffic).toBe(0.31);
+  });
 
-      render(
-        <RouteSettingsPanel
-          routePreference={{ gradient: 0.5, surface_q: 0.3 }}
-          onRoutePreferenceChange={onRoutePreferenceChange}
-          overrideEnabled={false}
-          onOverrideEnabledChange={vi.fn()}
-        />,
-      );
+  it("使っていた重みが無ければ既定の重み、既定も無ければ0.1にする", async () => {
+    hook.catalog = catalogOf({ axes: [...AXES, axis("night", "夜道")] });
+    const { changes } = renderPanel({ surface: 0, traffic: 0.3, slope: 0.2, night: 0 });
+    await userEvent.click(screen.getByRole("button", { name: "路面の質を有効にする" }));
+    expect(changes.at(-1)?.surface).toBe(0.5);
+    await userEvent.click(screen.getByRole("button", { name: "夜道を有効にする" }));
+    expect(changes.at(-1)?.night).toBe(0.1);
+  });
 
-      const handle = await screen.findByRole("slider", { name: "ラベル[gradient]とラベル[surface_q]の配分" });
-      fireEvent.keyDown(handle, { key: "ArrowRight" });
+  it("既定の重みが後から変わったら、利用者が変えていない軸の戻し先はその値に、変えた軸は変えた値のままにする", async () => {
+    const { changes, refresh } = renderPanel({ surface: 0, traffic: 0.3, slope: 0.2 });
+    // 交通量の戻し先を、利用者の操作で0.31にしておく。
+    act(() => screen.getByRole("slider", { name: "交通量と勾配の配分" }).focus());
+    await userEvent.keyboard("{ArrowRight}");
+    hook.catalog = catalogOf({ defaultWeights: { surface: 0.4, traffic: 0.4, slope: 0.2 } });
+    refresh();
 
-      const updated = onRoutePreferenceChange.mock.calls.at(-1)?.[0];
-      expect(updated.gradient).toBeCloseTo(0.51);
-      expect(updated.surface_q).toBeCloseTo(0.29);
+    await userEvent.click(screen.getByRole("button", { name: "路面の質を有効にする" }));
+    expect(changes.at(-1)?.surface).toBe(0.4);
+    await userEvent.click(screen.getByRole("button", { name: "交通量を無効にする" }));
+    await userEvent.click(screen.getByRole("button", { name: "交通量を有効にする" }));
+    expect(changes.at(-1)?.traffic).toBe(0.31);
+  });
+});
+
+describe("RouteSettingsPanel 軸カタログとの合わせ込み", () => {
+  it("取得できたら、重みのキーをカタログへ合わせる（値は変えないので上書きはONにしない）", () => {
+    const { changes, onOverrideEnabledChange } = renderPanel({ surface: 0.2, removed: 0.8 });
+    expect(changes).toEqual([{ surface: 0.2, traffic: 0.3, slope: 0.2 }]);
+    expect(onOverrideEnabledChange).not.toHaveBeenCalled();
+  });
+
+  it("取得できていない間は合わせない（軸0件へ合わせると保存済みの重みが消える）", () => {
+    hook.catalog = catalogOf({ loaded: false });
+    const { changes } = renderPanel({ surface: 0.2, removed: 0.8 });
+    expect(changes).toEqual([]);
+  });
+
+  it("取得に失敗したら、何が起きるかを伝え、再試行できるようにする", async () => {
+    hook.catalog = { ...EMPTY_CATALOG, failed: true };
+    renderPanel({});
+    expect(screen.getByRole("status")).toHaveTextContent("軸一覧を取得できませんでした");
+    await userEvent.click(screen.getByRole("button", { name: "再試行" }));
+    expect(hook.retry).toHaveBeenCalled();
+  });
+
+  it("失敗していなければ、その案内は出さない", () => {
+    renderPanel({ surface: 0.5, traffic: 0.3, slope: 0.2 });
+    expect(screen.queryByRole("button", { name: "再試行" })).not.toBeInTheDocument();
+  });
+});
+
+describe("RouteSettingsPanel 配分の帯", () => {
+  const segment = (label: string) => screen.getByTitle(new RegExp(`^${label} `));
+
+  it("有効な軸ごとに、取り分の幅の区間を並べる", () => {
+    renderPanel({ surface: 0, traffic: 0.3, slope: 0.2 });
+    expect(segment("交通量")).toHaveAttribute("title", "交通量 60%");
+    expect(segment("交通量").style.width).toBe("60%");
+    expect(screen.queryByTitle(/^路面の質 /)).not.toBeInTheDocument();
+  });
+
+  it("区間の中の表記は幅で落とす（10%以上はアイコンと%・6%以上は数字だけ・それ未満は何も出さない）", () => {
+    renderPanel({ surface: 0.9, traffic: 0.07, slope: 0.03 });
+    expect(segment("路面の質")).toHaveTextContent("90%");
+    expect(segment("路面の質").querySelector("svg")).not.toBeNull();
+    expect(segment("交通量")).toHaveTextContent(/^7$/);
+    expect(segment("勾配")).toHaveTextContent(/^$/);
+  });
+
+  it("10%ちょうどならアイコンと%、6%ちょうどなら数字を出す", () => {
+    renderPanel({ surface: 0.84, traffic: 0.1, slope: 0.06 });
+    expect(segment("交通量")).toHaveTextContent(/^10%$/);
+    expect(segment("交通量").querySelector("svg")).not.toBeNull();
+    expect(segment("勾配")).toHaveTextContent(/^6$/);
+  });
+
+  it("隣り合う有効な軸の間に区切りを置き、区切りの位置を累積の%で示す", () => {
+    renderPanel({ surface: 0.5, traffic: 0.3, slope: 0.2 });
+    const boundaries = screen.getAllByRole("slider");
+    expect(boundaries.map((b) => b.getAttribute("aria-label"))).toEqual([
+      "路面の質と交通量の配分",
+      "交通量と勾配の配分",
+    ]);
+    expect(boundaries.map((b) => b.getAttribute("aria-valuenow"))).toEqual(["50", "80"]);
+  });
+
+  it("区切りを矢印キーで動かすと、両隣の2軸の間でだけ0.01ずつ重みを移す（1回の変更で両方）", async () => {
+    const { changes } = renderPanel({ surface: 0.5, traffic: 0.3, slope: 0.2 });
+    act(() => screen.getByRole("slider", { name: "路面の質と交通量の配分" }).focus());
+    await userEvent.keyboard("{ArrowRight}");
+    expect(changes).toEqual([{ surface: 0.51, traffic: 0.29, slope: 0.2 }]);
+    await userEvent.keyboard("{ArrowDown}");
+    expect(changes.at(-1)).toEqual({ surface: 0.5, traffic: 0.3, slope: 0.2 });
+  });
+
+  it("矢印以外のキーと、もう動かせない向きの矢印では何もしない", async () => {
+    const { changes } = renderPanel({ surface: 0.59, traffic: 0.01, slope: 0.2 });
+    act(() => screen.getByRole("slider", { name: "路面の質と交通量の配分" }).focus());
+    await userEvent.keyboard("{Enter}");
+    await userEvent.keyboard("{ArrowRight}");
+    expect(changes).toEqual([]);
+  });
+
+  it("帯の幅が取れない間（描かれていない）は、ドラッグしても配分を変えない", () => {
+    const { changes } = renderPanel({ surface: 0.25, traffic: 0.25, slope: 0 });
+    const boundary = screen.getByRole("slider", { name: "路面の質と交通量の配分" });
+    vi.spyOn(boundary.parentElement!, "getBoundingClientRect").mockReturnValue({ width: 0 } as DOMRect);
+    fireEvent.pointerDown(boundary, { clientX: 50 });
+    act(() => {
+      window.dispatchEvent(new MouseEvent("pointermove", { clientX: 60 }));
     });
-
-    it("境界をArrowLeftキーで操作すると逆方向に移動する", async () => {
-      vi.mocked(getAxisCatalog).mockResolvedValue(catalogResponse(["gradient", "surface_q"]));
-      const onRoutePreferenceChange = vi.fn();
-
-      render(
-        <RouteSettingsPanel
-          routePreference={{ gradient: 0.5, surface_q: 0.3 }}
-          onRoutePreferenceChange={onRoutePreferenceChange}
-          overrideEnabled={false}
-          onOverrideEnabledChange={vi.fn()}
-        />,
-      );
-
-      const handle = await screen.findByRole("slider", { name: "ラベル[gradient]とラベル[surface_q]の配分" });
-      fireEvent.keyDown(handle, { key: "ArrowLeft" });
-
-      const updated = onRoutePreferenceChange.mock.calls.at(-1)?.[0];
-      expect(updated.gradient).toBeCloseTo(0.49);
-      expect(updated.surface_q).toBeCloseTo(0.31);
-    });
-
-    it("上限(0.6)に達している軸へさらに寄せようとしても超えない", async () => {
-      vi.mocked(getAxisCatalog).mockResolvedValue(catalogResponse(["gradient", "surface_q"]));
-      const onRoutePreferenceChange = vi.fn();
-
-      render(
-        <RouteSettingsPanel
-          routePreference={{ gradient: 0.6, surface_q: 0.2 }}
-          onRoutePreferenceChange={onRoutePreferenceChange}
-          overrideEnabled={false}
-          onOverrideEnabledChange={vi.fn()}
-        />,
-      );
-
-      const handle = await screen.findByRole("slider", { name: "ラベル[gradient]とラベル[surface_q]の配分" });
-      // 取得完了までに呼ばれた回数を基準にし、キー操作で新規呼び出しが増えないことを見る。
-      await waitFor(() => expect(getAxisCatalog).toHaveBeenCalled());
-      await new Promise((resolve) => setTimeout(resolve, 0));
-      const callCountBeforeKeyDown = onRoutePreferenceChange.mock.calls.length;
-
-      fireEvent.keyDown(handle, { key: "ArrowRight" });
-
-      expect(onRoutePreferenceChange).toHaveBeenCalledTimes(callCountBeforeKeyDown);
-    });
+    expect(changes).toEqual([]);
   });
-  it("有効な軸のチップに現在の%が出る", async () => {
-    vi.mocked(getAxisCatalog).mockResolvedValue(catalogResponse(["gradient", "surface_q"]));
 
-    render(
-      <RouteSettingsPanel
-        routePreference={{ gradient: 0.6, surface_q: 0.2 }}
-        onRoutePreferenceChange={vi.fn()}
-        overrideEnabled={false}
-        onOverrideEnabledChange={vi.fn()}
-      />,
-    );
-
-    const chip = await screen.findByRole("button", { name: "ラベル[gradient]を無効にする" });
-    expect(chip).toHaveTextContent("75%");
+  it("区切りをドラッグすると、動かした幅を重みに換算して2軸の間で移し、指を離したら止まる", () => {
+    const { changes } = renderPanel({ surface: 0.25, traffic: 0.25, slope: 0 });
+    const boundary = screen.getByRole("slider", { name: "路面の質と交通量の配分" });
+    // 帯の幅100pxに全体0.5が乗る＝1pxあたり0.005。
+    vi.spyOn(boundary.parentElement!, "getBoundingClientRect").mockReturnValue({ width: 100 } as DOMRect);
+    fireEvent.pointerDown(boundary, { clientX: 50 });
+    act(() => {
+      window.dispatchEvent(new MouseEvent("pointermove", { clientX: 60 }));
+    });
+    expect(changes.at(-1)).toMatchObject({ surface: 0.3, traffic: 0.2 });
+    act(() => {
+      window.dispatchEvent(new MouseEvent("pointerup"));
+      window.dispatchEvent(new MouseEvent("pointermove", { clientX: 90 }));
+    });
+    expect(changes).toHaveLength(1);
   });
 });

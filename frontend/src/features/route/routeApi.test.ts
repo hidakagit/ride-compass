@@ -1,357 +1,150 @@
 // @vitest-environment node
-import { afterEach, describe, expect, it, vi } from "vitest";
-import type { GenerationConditions, RouteCandidate, RouteGenerateRequest } from "@/types/route";
-import { makeRouteCandidate } from "@/testing/routeFixtures";
-import { debugLog } from "@/lib/debugLog";
-import { generateRoutes } from "./routeApi";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
 import { makeResponse } from "@/testing/fetchMocks";
 import routeGenerateConfig from "@/types/generated/route-generate-config.json";
+import type { RouteGenerateRequest } from "@/types/route";
 
-vi.mock("@/lib/debugLog", () => ({ debugLog: vi.fn() }));
+import { generateRoutes } from "./routeApi";
 
-describe("routeApi", () => {
-  afterEach(() => {
-    vi.unstubAllGlobals();
+// backendの生成はジョブで、POSTがjob_idを返し、GETで結果を問い合わせる。
+// 1回ごとの応答は`respond`へ並べ、fetchは並んだ順に返す（尽きたら最後の応答を返し続ける）。
+type Step = { json: unknown } | { status: number } | { reject: Error };
+let steps: Step[];
+let calls: { url: string; init: RequestInit }[];
+
+const REQUEST = { latitude: 35.6, longitude: 139.7, distance_km: 20 } as RouteGenerateRequest;
+const DONE = {
+  status: "done",
+  result: { routes: [{ id: "r1" }], conditions: { distance_km: 20 }, no_candidates_reason: null },
+};
+
+function respond(...next: Step[]) {
+  steps = next;
+}
+
+beforeEach(() => {
+  vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "performance", "Date"] });
+  calls = [];
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (url: string, init: RequestInit) => {
+      calls.push({ url, init });
+      const step = steps.length > 1 ? steps.shift()! : steps[0];
+      if ("reject" in step) throw step.reject;
+      if ("status" in step) return makeResponse({ ok: false, status: step.status, json: async () => ({}) });
+      return makeResponse({ json: async () => step.json });
+    }),
+  );
+});
+
+afterEach(() => {
+  vi.useRealTimers();
+  vi.unstubAllGlobals();
+});
+
+/** 生成を始め、fetchが返るたびにタイマーを進めて最後まで回す。 */
+async function run(onProgress?: Parameters<typeof generateRoutes>[1]) {
+  const promise = generateRoutes(REQUEST, onProgress);
+  promise.catch(() => {});
+  await vi.runAllTimersAsync();
+  return promise;
+}
+
+const polls = () => calls.filter((call) => call.init.method === "GET" || call.init.method === undefined);
+
+describe("generateRoutes", () => {
+  it("ジョブを投稿し、そのjob_idの結果を問い合わせて、候補と生成条件を返す", async () => {
+    respond({ json: { job_id: "job-7" } }, { json: DONE });
+    const result = await run();
+
+    expect(calls[0].url).toMatch(/\/api\/routes\/generate$/);
+    expect(calls[0].init.method).toBe("POST");
+    expect(JSON.parse(String(calls[0].init.body))).toEqual(REQUEST);
+    expect(calls[1].url).toMatch(/\/api\/routes\/generate\/job-7$/);
+    expect(result).toEqual({ routes: [{ id: "r1" }], conditions: { distance_km: 20 }, noCandidatesReason: undefined });
   });
 
-  // POST共通の骨格（postJson）のエラー経路。本番から呼ばれるgenerateRoutesの
-  // ジョブ投稿段階を通して検証する（同じpostJsonを経由する）。
-  describe("postJson（generateRoutesのジョブ投稿段階を通した検証）", () => {
-    const request: RouteGenerateRequest = {
-      latitude: 35.0,
-      longitude: 139.0,
-      distance_km: 30,
-      distance_tolerance_km: 5,
-      route_type: "loop",
-      penalty_strength: 1.0,
-      max_routes: 8,
-      assumed_speed_kmh: 20,
-      start_time: "2026-09-05T09:30:00+09:00",
-    };
-
-    it("ok:falseの場合はdetailとx-request-idからエラーメッセージを組み立てて投げる", async () => {
-      const headers = new Headers({ "x-request-id": "req-123" });
-      vi.stubGlobal(
-        "fetch",
-        vi.fn().mockResolvedValue(
-          makeResponse({
-            ok: false,
-            status: 502,
-            json: async () => ({ detail: "エラー詳細" }),
-            headers,
-          }),
-        ),
-      );
-
-      await expect(generateRoutes(request)).rejects.toThrow("エラー詳細");
-    });
-
-    it("x-request-idヘッダが無い場合はメッセージに(req: ...)が付かない", async () => {
-      vi.stubGlobal(
-        "fetch",
-        vi.fn().mockResolvedValue(
-          makeResponse({
-            ok: false,
-            status: 502,
-            json: async () => ({ detail: "エラー詳細" }),
-            headers: new Headers(),
-          }),
-        ),
-      );
-
-      await expect(generateRoutes(request)).rejects.toThrow("エラー詳細");
-      try {
-        await generateRoutes(request);
-        throw new Error("should have thrown");
-      } catch (e) {
-        expect((e as Error).message).toBe("エラー詳細");
-      }
-    });
-
-    it("ok:falseでjson()がrejectする場合はフォールバックメッセージになる", async () => {
-      vi.stubGlobal(
-        "fetch",
-        vi.fn().mockResolvedValue(
-          makeResponse({
-            ok: false,
-            status: 502,
-            json: async () => {
-              throw new Error("parse failed");
-            },
-            headers: new Headers(),
-          }),
-        ),
-      );
-
-      await expect(generateRoutes(request)).rejects.toThrow("リクエストに失敗しました[HTTP 502]");
-    });
-
-    // 2026-08-24回帰テスト: fetch()自体が失敗する場合（タイムアウト・通信エラー）は
-    // response.okのチェック以前の例外のため、try/catchで捕まえていないとdebugLogに
-    // 一切記録が残らない（実機で「20kmルート生成がfail to fetchで失敗するがログに
-    // 何も出ない」という報告を受けて発覚、lib/fetchJson.tsのGET用実装と同じ穴）。
-    it("AbortSignal.timeoutによるタイムアウトはTimeoutErrorとしてdebugLogに記録し、日本語の文言で投げる", async () => {
-      const timeoutError = new DOMException("The operation was aborted.", "TimeoutError");
-      vi.stubGlobal("fetch", vi.fn().mockRejectedValue(timeoutError));
-
-      await expect(generateRoutes(request)).rejects.toThrow("リクエストに失敗しました[タイムアウト]");
-      expect(debugLog).toHaveBeenCalledWith(
-        "api:route",
-        expect.stringContaining("タイムアウト"),
-        expect.objectContaining({ error: expect.stringContaining("TimeoutError") }),
-        "error",
-      );
-    });
-
-    it("fetch()自体が失敗する通信エラー（バックエンド到達不能等）もdebugLogに記録し、日本語の文言で投げる", async () => {
-      const networkError = new TypeError("Failed to fetch");
-      vi.stubGlobal("fetch", vi.fn().mockRejectedValue(networkError));
-
-      await expect(generateRoutes(request)).rejects.toThrow("リクエストに失敗しました[通信エラー]");
-      expect(debugLog).toHaveBeenCalledWith(
-        "api:route",
-        "失敗 (通信エラー)",
-        expect.objectContaining({ error: expect.stringContaining("Failed to fetch") }),
-        "error",
-      );
-    });
+  it("候補が0件なら、その理由を返す", async () => {
+    const empty = { status: "done", result: { routes: [], conditions: {}, no_candidates_reason: "候補がありません" } };
+    respond({ json: { job_id: "j" } }, { json: empty });
+    await expect(run()).resolves.toMatchObject({ routes: [], noCandidatesReason: "候補がありません" });
   });
 
-  describe("generateRoutes（改善計画T265: バックグラウンドジョブ化）", () => {
-    const request: RouteGenerateRequest = {
-      latitude: 35.0,
-      longitude: 139.0,
-      distance_km: 30,
-      distance_tolerance_km: 5,
-      route_type: "loop",
-      penalty_strength: 1.0,
-      max_routes: 8,
-      assumed_speed_kmh: 20,
-      start_time: "2026-09-05T09:30:00+09:00",
-    };
+  it("最初の問い合わせは待たずに行い、以降は1.5秒おきに問い合わせる", async () => {
+    respond({ json: { job_id: "j" } }, { json: { status: "queued" } }, { json: { status: "running" } }, { json: DONE });
+    const promise = generateRoutes(REQUEST);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(polls()).toHaveLength(1);
+    await vi.advanceTimersByTimeAsync(1499);
+    expect(polls()).toHaveLength(1);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(polls()).toHaveLength(2);
+    await vi.advanceTimersByTimeAsync(1500);
+    await expect(promise).resolves.toMatchObject({ routes: [{ id: "r1" }] });
+  });
 
-    const routes: RouteCandidate[] = [makeRouteCandidate()];
-    const conditions: GenerationConditions = {
-      latitude: 35.0,
-      longitude: 139.0,
-      distance_km: 30,
-      distance_tolerance_km: 5,
-      route_preference: {
-        gradient: 0.15,
-        surface_q: 0.19,
-        wind: 0.26,
-        stop_density: 0.2,
-        axis_sample: 0.2,
-        accident: 0.08,
-        night: 0.0,
-      },
-      penalty_strength: 1.0,
-      max_average_grade_percent: null,
-      hard_filters: { no_bicycle: true, motorway: true, trunk: true },
-      max_routes: 8,
-      assumed_speed_kmh: 20,
-      start_time: "2026-09-05T09:30:00+09:00",
-      waypoints: null,
-      destination: null,
-      generated_at: "2026-08-15T12:00:00+09:00",
-    };
+  it("待ち・実行中の間は、問い合わせのたびに状態と経過時間を知らせる", async () => {
+    respond({ json: { job_id: "j" } }, { json: { status: "queued" } }, { json: { status: "running" } }, { json: DONE });
+    const progress: { status: string; elapsedMs: number }[] = [];
+    await run((p) => progress.push(p));
+    expect(progress.map((p) => p.status)).toEqual(["queued", "running"]);
+    expect(progress[1].elapsedMs).toBeGreaterThan(progress[0].elapsedMs);
+  });
 
-    /** POST /api/routes/generateはjob_idを、GET .../generate/{job_id}は
-     * pollResponsesを順に1回ずつ返すfetchモック（複数回目以降は最後の要素を返し続ける）。 */
-    function stubFetchForJob(pollResponses: unknown[]) {
-      let pollCount = 0;
-      const fetchMock = vi.fn().mockImplementation((url: string, options?: { method?: string }) => {
-        if (options?.method === "POST") {
-          return Promise.resolve(makeResponse({ json: async () => ({ job_id: "job-1" }) }));
-        }
-        const body = pollResponses[Math.min(pollCount, pollResponses.length - 1)];
-        pollCount += 1;
-        return Promise.resolve(makeResponse({ json: async () => body }));
-      });
-      vi.stubGlobal("fetch", fetchMock);
-      return fetchMock;
-    }
+  it("ジョブが失敗したら、backendの文言で失敗する（文言が無ければ既定の文言）", async () => {
+    respond({ json: { job_id: "j" } }, { json: { status: "failed", error: "探索に失敗しました" } });
+    await expect(run()).rejects.toThrow("探索に失敗しました");
+    respond({ json: { job_id: "j" } }, { json: { status: "failed", error: null } });
+    await expect(run()).rejects.toThrow("ルート生成に失敗しました");
+  });
 
-    afterEach(() => {
-      vi.useRealTimers();
-    });
+  it("完了なのに結果が無ければ失敗する", async () => {
+    respond({ json: { job_id: "j" } }, { json: { status: "done", result: null } });
+    await expect(run()).rejects.toThrow("結果を取得できませんでした");
+  });
 
-    it("投稿直後（sleep無し）のポーリングで完了していればroutes・conditions・engineを返す", async () => {
-      // 改善計画T386（T265コードレビュー指摘6件目）: 初回はsleepを挟まず即座にポーリング
-      // するため、タイマーを進めなくても解決する。
-      stubFetchForJob([{ status: "done", result: { routes, conditions } }]);
-
-      const result = await generateRoutes(request);
-
-      expect(result).toEqual({ routes, conditions });
-    });
-
-    it(
-      "改善計画T441: routesが空でno_candidates_reasonがある場合、noCandidatesReasonとして返し" +
-        "warnレベルでdebugLogに記録する（SSHでサーバーログを見ずに原因が分かるようにする対応）",
-      async () => {
-        stubFetchForJob([
-          {
-            status: "done",
-            result: { routes: [], conditions, no_candidates_reason: "5件の折返し候補で復路の探索に失敗しました" },
-          },
-        ]);
-
-        const result = await generateRoutes(request);
-
-        expect(result.noCandidatesReason).toBe("5件の折返し候補で復路の探索に失敗しました");
-        expect(debugLog).toHaveBeenCalledWith(
-          "api:route",
-          "5件の折返し候補で復路の探索に失敗しました",
-          expect.anything(),
-          "warn",
-        );
-      },
+  it("問い合わせの一時的な失敗は4回続いても諦めず、成功すれば数え直す", async () => {
+    const fail = { status: 503 };
+    respond(
+      { json: { job_id: "j" } },
+      fail,
+      fail,
+      fail,
+      fail,
+      { json: { status: "running" } },
+      fail,
+      fail,
+      fail,
+      fail,
+      { json: DONE },
     );
+    await expect(run()).resolves.toMatchObject({ routes: [{ id: "r1" }] });
+  });
 
-    it("queued→runningの間はonProgressへ経過時間つきで通知し、doneで結果を返す", async () => {
-      vi.useFakeTimers();
-      stubFetchForJob([
-        { status: "queued" },
-        { status: "running" },
-        { status: "done", result: { routes, conditions } },
-      ]);
-      const onProgress = vi.fn();
+  it("問い合わせが5回続けて失敗したら、最後の失敗の文言を添えて諦める", async () => {
+    respond({ json: { job_id: "j" } }, { reject: new TypeError("Failed to fetch") });
+    const error = await run().catch((e: Error) => e);
+    expect(error).toBeInstanceOf(Error);
+    expect((error as Error).message).toMatch(
+      /^ルート生成の状況確認に続けて失敗しました（.+）。時間をおいて再度お試しください。$/,
+    );
+    expect((error as Error).message).not.toContain("Failed to fetch");
+    expect((error as Error).cause).toBeInstanceOf(Error);
+    expect(polls()).toHaveLength(5);
+  });
 
-      const resultPromise = generateRoutes(request, onProgress);
-      // 初回ポーリングはsleep無しのため、2回目以降の分だけ進めればよい。
-      await vi.advanceTimersByTimeAsync(1500 * 2);
-      await resultPromise;
+  it("backendが結果を持つ時間を過ぎても終わらなければ、時間切れで失敗する", async () => {
+    respond({ json: { job_id: "j" } }, { json: { status: "running" } });
+    const promise = generateRoutes(REQUEST);
+    promise.catch(() => {});
+    await vi.advanceTimersByTimeAsync(routeGenerateConfig.job_result_ttl_seconds * 1000 + 2000);
+    await expect(promise).rejects.toThrow("タイムアウト");
+  });
 
-      expect(onProgress).toHaveBeenNthCalledWith(1, { status: "queued", elapsedMs: expect.any(Number) });
-      expect(onProgress).toHaveBeenNthCalledWith(2, { status: "running", elapsedMs: expect.any(Number) });
-      expect(onProgress).toHaveBeenCalledTimes(2); // doneの回はonProgressを呼ばない
-    });
-
-    it("failedの場合はerrorメッセージでrejectする", async () => {
-      stubFetchForJob([{ status: "failed", error: "冷パスでタイムアウトしました" }]);
-
-      await expect(generateRoutes(request)).rejects.toThrow("冷パスでタイムアウトしました");
-    });
-
-    it("backendが結果を持つ時間を過ぎても終わらない場合は、それ以上待たずにrejectする", async () => {
-      // 保持時間より長く待つと、掃除済みのjob_idを引いて結果の代わりに404を見る。
-      vi.useFakeTimers();
-      stubFetchForJob([{ status: "running" }]); // 常にrunningを返し続ける
-
-      const resultPromise = generateRoutes(request);
-      let rejection: unknown;
-      resultPromise.catch((error: unknown) => {
-        rejection = error;
-      });
-      // 打ち切りの判定はポーリングの合間にしか走らないため、間隔2回分だけ余分に進める。
-      await vi.advanceTimersByTimeAsync(routeGenerateConfig.job_result_ttl_seconds * 1000 + 1500 * 2);
-
-      expect(rejection).toBeInstanceOf(Error);
-      expect((rejection as Error).message).toContain("タイムアウト");
-    });
-
-    it("onProgressへ渡すelapsedMsはGET応答が返った直後の最新値になる", async () => {
-      // 改善計画T386（T265コードレビュー指摘8件目）: 以前はsleep・GETの前（古い時点）で
-      // 計算していたため、実際の経過時間よりPOLL_INTERVAL_MS分ほど少なく表示され続けていた。
-      vi.useFakeTimers();
-      let pollCount = 0;
-      const fetchMock = vi.fn().mockImplementation((url: string, options?: { method?: string }) => {
-        if (options?.method === "POST") {
-          return Promise.resolve(makeResponse({ json: async () => ({ job_id: "job-1" }) }));
-        }
-        pollCount += 1;
-        if (pollCount === 1) {
-          return Promise.resolve(makeResponse({ json: async () => ({ status: "running" }) }));
-        }
-        return Promise.resolve(
-          makeResponse({ json: async () => ({ status: "done", result: { routes, conditions } }) }),
-        );
-      });
-      vi.stubGlobal("fetch", fetchMock);
-      const onProgress = vi.fn();
-
-      const resultPromise = generateRoutes(request, onProgress);
-      await vi.advanceTimersByTimeAsync(1500);
-      await resultPromise;
-
-      // 1回目のポーリング（sleep無し、GET直後）で観測されたelapsedMsは、
-      // POLL_INTERVAL_MS(1500ms)分の待機より前の極小値のはず。
-      expect(onProgress).toHaveBeenCalledTimes(1);
-      expect(onProgress.mock.calls[0][0].elapsedMs).toBeLessThan(1500);
-    });
-
-    it("ポーリングが一時的に失敗しても、規定回数までは生成全体を失敗させずリトライする", async () => {
-      // 改善計画T386（T265コードレビュー指摘2件目）: 1回の一時的な通信エラー・5xxで
-      // generateRoutes全体を即座に失敗させない。
-      vi.useFakeTimers();
-      let pollCount = 0;
-      const fetchMock = vi.fn().mockImplementation((url: string, options?: { method?: string }) => {
-        if (options?.method === "POST") {
-          return Promise.resolve(makeResponse({ json: async () => ({ job_id: "job-1" }) }));
-        }
-        pollCount += 1;
-        if (pollCount <= 2) {
-          return Promise.resolve(
-            makeResponse({ ok: false, status: 503, json: async () => ({ detail: "一時的なエラー" }) }),
-          );
-        }
-        return Promise.resolve(
-          makeResponse({ json: async () => ({ status: "done", result: { routes, conditions } }) }),
-        );
-      });
-      vi.stubGlobal("fetch", fetchMock);
-
-      const resultPromise = generateRoutes(request);
-      await vi.advanceTimersByTimeAsync(1500 * 3);
-      const result = await resultPromise;
-
-      expect(result).toEqual({ routes, conditions });
-    });
-
-    it("ポーリングの失敗が規定回数連続した場合は、原因を断定せず最後の失敗の文言（429のdetail等）を添えてrejectする", async () => {
-      vi.useFakeTimers();
-      const fetchMock = vi.fn().mockImplementation((url: string, options?: { method?: string }) => {
-        if (options?.method === "POST") {
-          return Promise.resolve(makeResponse({ json: async () => ({ job_id: "job-1" }) }));
-        }
-        return Promise.resolve(
-          makeResponse({
-            ok: false,
-            status: 429,
-            json: async () => ({ detail: "リクエストが多すぎます。しばらく待ってから再試行してください。" }),
-          }),
-        );
-      });
-      vi.stubGlobal("fetch", fetchMock);
-
-      const resultPromise = generateRoutes(request);
-      resultPromise.catch(() => {}); // 未処理rejection警告を避ける（下でassertする）
-      await vi.advanceTimersByTimeAsync(1500 * 10);
-
-      await expect(resultPromise).rejects.toThrow(
-        "ルート生成の状況確認に続けて失敗しました（リクエストが多すぎます。しばらく待ってから再試行してください）。時間をおいて再度お試しください。",
-      );
-    });
-
-    it("T523回帰テスト: 個々のポーリングがAbortSignal.timeoutで5回連続失敗しても、生の英語メッセージ（signal timed out等）を画面へ出さない", async () => {
-      vi.useFakeTimers();
-      const fetchMock = vi.fn().mockImplementation((url: string, options?: { method?: string }) => {
-        if (options?.method === "POST") {
-          return Promise.resolve(makeResponse({ json: async () => ({ job_id: "job-1" }) }));
-        }
-        return Promise.reject(new DOMException("signal timed out", "TimeoutError"));
-      });
-      vi.stubGlobal("fetch", fetchMock);
-
-      const resultPromise = generateRoutes(request);
-      resultPromise.catch(() => {});
-      await vi.advanceTimersByTimeAsync(1500 * 10);
-
-      await expect(resultPromise).rejects.toThrow(
-        "ルート生成の状況確認に続けて失敗しました（ルート生成の状態の取得に失敗しました[タイムアウト]）。時間をおいて再度お試しください。",
-      );
-      await expect(resultPromise).rejects.not.toThrow("signal timed out");
-    });
+  it("投稿に失敗したら、問い合わせずに失敗する", async () => {
+    respond({ status: 500 });
+    await expect(run()).rejects.toThrow();
+    expect(calls).toHaveLength(1);
   });
 });

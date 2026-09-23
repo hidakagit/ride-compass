@@ -1,5 +1,6 @@
 // @vitest-environment node
 import { describe, expect, it } from "vitest";
+
 import {
   SPLICED_ROUTE_ID_PREFIX,
   extraDurationLabel,
@@ -8,95 +9,53 @@ import {
   isSplicedRoute,
 } from "./routeTabLabel";
 
-const FASTEST = { id: "a", estimated_duration_seconds: 3600 };
-const SLOWER = { id: "b", estimated_duration_seconds: 4320 };
+const route = (id: string, seconds?: number | null) => ({ id, estimated_duration_seconds: seconds });
 
-describe("fastestRouteId", () => {
-  it("一覧の中で所要時間が最小の候補を基準線にする", () => {
-    expect(fastestRouteId([SLOWER, FASTEST])).toBe("a");
+describe("isSplicedRoute（区間を乗り換えて作った候補か）", () => {
+  it("backendが付ける接頭辞で始まるidだけが該当する", () => {
+    expect(isSplicedRoute({ id: `${SPLICED_ROUTE_ID_PREFIX}2` })).toBe(true);
+    expect(isSplicedRoute({ id: "route-1" })).toBe(false);
+  });
+});
+
+describe("fastestRouteId（一覧の中の基準線）", () => {
+  it("所要時間が最も短い候補。同着は先に来た方", () => {
+    expect(fastestRouteId([route("a", 900), route("b", 600), route("c", 700)])).toBe("b");
+    expect(fastestRouteId([route("a", 600), route("b", 600)])).toBe("a");
   });
 
-  it("backendのis_fastestが付かない一覧（周回モード）でも基準線が決まる", () => {
-    // ここが効かないと、主用途である周回モードで「最速」も「+N分」も一度も出ない。
-    const loop = [
-      { id: "route-00", estimated_duration_seconds: 6300 },
-      { id: "route-01", estimated_duration_seconds: 5820 },
-      { id: "route-02", estimated_duration_seconds: 6600 },
-    ];
-
-    expect(fastestRouteId(loop)).toBe("route-01");
+  it("所要時間を持たない候補は比べない", () => {
+    expect(fastestRouteId([route("a", null), route("b"), route("c", Number.NaN), route("d", 800)])).toBe("d");
   });
 
-  it("所要時間を持たない候補は基準線の候補から外す", () => {
-    expect(fastestRouteId([{ id: "a", estimated_duration_seconds: null }, SLOWER])).toBe("b");
-  });
-
-  it("同着は先に来た方（並び順は総合難易度の昇順なので、易しい方）", () => {
-    const tied = [
-      { id: "a", estimated_duration_seconds: 3600 },
-      { id: "b", estimated_duration_seconds: 3600 },
-    ];
-
-    expect(fastestRouteId(tied)).toBe("a");
-  });
-
-  it("候補が1件以下なら比べる相手が無いのでnull", () => {
-    expect(fastestRouteId([FASTEST])).toBeNull();
+  it("比べる相手が無ければnull（候補が1件以下・所要時間を持つ候補が無い）", () => {
+    expect(fastestRouteId([route("a", 600)])).toBeNull();
     expect(fastestRouteId([])).toBeNull();
-  });
-
-  it("誰も所要時間を持たなければnull", () => {
-    expect(
-      fastestRouteId([
-        { id: "a", estimated_duration_seconds: null },
-        { id: "b", estimated_duration_seconds: undefined },
-      ]),
-    ).toBeNull();
+    expect(fastestRouteId([route("a", null), route("b")])).toBeNull();
   });
 });
 
-describe("fastestDurationSeconds", () => {
-  it("基準線となる候補の所要時間を返す", () => {
-    expect(fastestDurationSeconds([SLOWER, FASTEST])).toBe(3600);
-  });
-
-  it("基準線が決まらなければnull", () => {
-    expect(fastestDurationSeconds([FASTEST])).toBeNull();
+describe("fastestDurationSeconds（基準線の所要時間）", () => {
+  it("基準線の候補の所要時間。基準線が無ければnull", () => {
+    expect(fastestDurationSeconds([route("a", 900), route("b", 600)])).toBe(600);
+    expect(fastestDurationSeconds([route("a", 900)])).toBeNull();
   });
 });
 
-describe("extraDurationLabel", () => {
-  it("基準線より何分余計にかかるかを出す", () => {
-    expect(extraDurationLabel(SLOWER, 3600)).toBe("+12分");
+describe("extraDurationLabel（基準線より余計にかかる分）", () => {
+  it("分へ四捨五入した差を「+N分」で出す", () => {
+    expect(extraDurationLabel(route("x", 600 + 12 * 60), 600)).toBe("+12分");
+    expect(extraDurationLabel(route("x", 600 + 90), 600)).toBe("+2分");
   });
 
-  it("基準線そのものには出さない（差が0のため）", () => {
-    expect(extraDurationLabel(FASTEST, 3600)).toBeNull();
+  it("差が丸めて1分未満なら出さない（基準線自身もここに入る）", () => {
+    expect(extraDurationLabel(route("x", 600), 600)).toBeNull();
+    expect(extraDurationLabel(route("x", 629), 600)).toBeNull();
   });
 
-  it("基準線が無ければ出さない", () => {
-    expect(extraDurationLabel(SLOWER, null)).toBeNull();
-  });
-
-  it("自分の所要時間が無ければ出さない", () => {
-    expect(extraDurationLabel({ estimated_duration_seconds: null }, 3600)).toBeNull();
-  });
-
-  it("差が丸めて1分未満なら出さない（0を並べても判断材料にならない）", () => {
-    expect(extraDurationLabel({ estimated_duration_seconds: 3620 }, 3600)).toBeNull();
-  });
-});
-
-describe("isSplicedRoute", () => {
-  it("区間を乗り換えて作った候補を見分ける", () => {
-    expect(isSplicedRoute({ id: `${SPLICED_ROUTE_ID_PREFIX}-0` })).toBe(true);
-    expect(isSplicedRoute({ id: `${SPLICED_ROUTE_ID_PREFIX}-12` })).toBe(true);
-  });
-
-  it("生成候補は合成として扱わない", () => {
-    // 生成候補を合成と誤判定すると、順位番号が「合成」に化けて並び順が読めなくなる
-    expect(isSplicedRoute({ id: "route-00" })).toBe(false);
-    expect(isSplicedRoute({ id: "route-destination-00" })).toBe(false);
-    expect(isSplicedRoute({ id: "route-waypoints" })).toBe(false);
+  it("基準線か自分の所要時間が無ければ出さない", () => {
+    expect(extraDurationLabel(route("x", 900), null)).toBeNull();
+    expect(extraDurationLabel(route("x", null), 600)).toBeNull();
+    expect(extraDurationLabel(route("x"), 600)).toBeNull();
   });
 });

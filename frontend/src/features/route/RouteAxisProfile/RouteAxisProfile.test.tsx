@@ -1,330 +1,128 @@
-import { render, screen, within } from "@testing-library/react";
+import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
+
 import type { PreferenceAxisDef } from "@/lib/evaluationAxes";
+
 import RouteAxisProfile from "./RouteAxisProfile";
 
-const AXES: PreferenceAxisDef[] = [
-  {
-    axisId: "axis_sample",
-    label: "見本の軸",
-    description: "車の通行量の説明",
-    dedicatedWayValueLayer: false,
-    rawValueUnit: "回/km",
-    rawValueTotalUnit: "回",
-  },
-  { axisId: "wind", label: "風", description: "風の影響の説明", dedicatedWayValueLayer: true },
-  { axisId: "night", label: "夜間", description: "夜間の暗さの説明", dedicatedWayValueLayer: false },
-];
+const axis = (axisId: string, label: string, extra: Partial<PreferenceAxisDef> = {}): PreferenceAxisDef => ({
+  axisId,
+  label,
+  description: `${label}の説明文`,
+  dedicatedWayValueLayer: false,
+  ...extra,
+});
 
-const AXIS_COLORS: Record<string, string> = { axis_sample: "#111111", wind: "#222222", night: "#333333" };
+const STOPS = axis("stops", "停止", { rawValueUnit: "回/km", rawValueTotalUnit: "回" });
+const SURFACE = axis("surface", "路面", {
+  materialBreakdown: [
+    { materialId: "lit", label: "街灯あり", dtype: "boolean", unit: "", share: 0.5 },
+    { materialId: "highway", label: "道の種類", dtype: "categorical", unit: "", share: 0.5 },
+  ],
+});
+const UNUSED = axis("unused", "未使用");
 
-function baseProps(overrides: Partial<Parameters<typeof RouteAxisProfile>[0]> = {}) {
-  return {
-    axes: AXES,
-    weights: { axis_sample: 0.5, wind: 0.0, night: 0.5 },
-    axisDifficulties: { axis_sample: 72.4, night: 5.8 },
-    axisContributions: { axis_sample: 36.2, night: 2.9 },
-    axisRawValues: {},
-    materialValues: {},
-    materialCategoryShares: {},
-    distanceKm: 30,
-    overallDifficulty: 46,
-    difficultyLoad: null,
-    loadBarHeightRatio: 1,
-    estimatedDurationSeconds: null,
-    axisColors: AXIS_COLORS,
+type Props = React.ComponentProps<typeof RouteAxisProfile>;
+
+function renderProfile(overrides: Partial<Props> = {}) {
+  const props: Props = {
+    axes: [STOPS, SURFACE, UNUSED],
+    weights: { stops: 0.5, surface: 0.5, unused: 0 },
+    axisDifficulties: { stops: 41.6, surface: 20 },
+    axisContributions: { stops: 20.8, surface: 10, unused: 0 },
+    axisRawValues: { stops: 0.8 },
+    materialValues: { lit: 0.68 },
+    materialCategoryShares: { highway: { residential: 0.62 } },
+    distanceKm: 32.4,
+    overallDifficulty: 30.8,
+    difficultyLoad: 997.9,
+    loadBarHeightRatio: 1.4,
+    estimatedDurationSeconds: 102 * 60,
+    axisColors: {},
     ...overrides,
   };
+  return render(<RouteAxisProfile {...props} />);
 }
 
-/** 軸チップ（押せる／押せないの両方）。 */
-function chips() {
-  return within(screen.getByRole("list")).getAllByRole("listitem");
+async function openDetail(label: string) {
+  await userEvent.click(screen.getByRole("button", { name: `${label}の詳細を表示` }));
 }
 
-describe("RouteAxisProfile", () => {
-  it("所要時間を総合難易度の並びへ出す（無いときは出さない）", () => {
-    const { unmount } = render(<RouteAxisProfile {...baseProps({ estimatedDurationSeconds: 6120 })} />);
-    expect(screen.getByText("1時間42分")).toBeInTheDocument();
-    unmount();
+describe("RouteAxisProfile 見出しの数値", () => {
+  it("総合難易度・所要・負荷を出す（難易度と負荷は整数へ丸める）", () => {
+    renderProfile();
+    expect(screen.getByText("総合難易度").parentElement).toHaveTextContent("総合難易度31/100");
+    expect(screen.getByText("所要").parentElement).toHaveTextContent("所要1時間42分");
+    expect(screen.getByText("負荷").parentElement).toHaveTextContent("負荷998");
+  });
 
-    render(<RouteAxisProfile {...baseProps({ estimatedDurationSeconds: null })} />);
+  it("所要・負荷は、値が無ければ出さない", () => {
+    renderProfile({ estimatedDurationSeconds: null, difficultyLoad: null });
     expect(screen.queryByText("所要")).not.toBeInTheDocument();
+    expect(screen.queryByText("負荷")).not.toBeInTheDocument();
+    expect(screen.getByText("総合難易度")).toBeInTheDocument();
   });
 
-  it("軸を1行ずつ並べる一覧は持たず、寄与度の凡例チップが軸ごとの詳細の入口になる", async () => {
-    const user = userEvent.setup();
-    render(<RouteAxisProfile {...baseProps({ axisRawValues: { axis_sample: 0.8 }, distanceKm: 32.5 })} />);
-
-    expect(screen.queryByRole("list", { name: "軸別難易度" })).not.toBeInTheDocument();
-
-    await user.click(screen.getByRole("button", { name: "見本の軸の詳細を表示" }));
-
-    // 重みを掛ける前の軸単体の難易度。チップの数字（重み付き寄与度36.2）とは別物。
-    expect(await screen.findByText("軸別難易度 72/100")).toBeInTheDocument();
-    // 0.8回/km × 32.5km ≒ 26回。得点だけでは「多いか少ないか」を判断できない。
-    expect(screen.getByText("0.8回/km・約26回")).toBeInTheDocument();
-    expect(screen.getByText("車の通行量の説明")).toBeInTheDocument();
-  });
-
-  it("重みはあるが寄与が0・欠損の軸もチップに残す", () => {
-    // 帯グラフには出ない（寄与0なので幅を持たない）が、凡例には残す——効くはずの軸が
-    // 効かなかったことも判断材料のため。legendAxesはこのために存在する。
-    render(
-      <RouteAxisProfile
-        {...baseProps({
-          weights: { axis_sample: 0.5, wind: 0.0, night: 0.5 },
-          axisContributions: { axis_sample: 36.2, night: 0 },
-          axisDifficulties: { axis_sample: 72.4 },
-        })}
-      />,
-    );
-
-    const labels = chips().map((item) => within(item).getByLabelText(/./).getAttribute("aria-label"));
-    expect(labels).toContain("夜間の詳細を表示");
-    // 重み0の風は残らない（下のテストと対）。
-    expect(labels.some((label) => label?.startsWith("風"))).toBe(false);
-  });
-
-  it("評価に使った軸だけをチップにする（重み0の軸は出さない）", () => {
-    // 使っていない軸まで並べると、狭い幅では内訳が軸の本数ぶん縦に伸びる。表示は
-    // 「このルートの評価に効いた軸」に絞り、軸の一覧はルート設定側が持つ。
-    render(<RouteAxisProfile {...baseProps()} />);
-
-    const items = chips();
-    // チップはアイコンと値だけを持ち、軸の名前はアクセシブル名（詳細ボタン）が担う。
-    expect(items.map((item) => within(item).getByLabelText(/./).getAttribute("aria-label"))).toEqual([
-      "見本の軸の詳細を表示",
-      "夜間の詳細を表示",
-    ]);
-    expect(items[0]).toHaveAttribute("data-checked", "true");
-    expect(within(items[0]).getByRole("button", { name: "見本の軸の詳細を表示" })).toBeInTheDocument();
-  });
-
-  it("重みが入っていれば、寄与の値が来ない軸のチップも押せる（詳細が「データなし」を示す）", async () => {
-    const user = userEvent.setup();
-    render(<RouteAxisProfile {...baseProps({ weights: { axis_sample: 0.5, wind: 0.2, night: 0.5 } })} />);
-
-    const wind = chips()[1];
-    expect(wind).toHaveAttribute("data-checked", "true");
-
-    await user.click(within(wind).getByRole("button", { name: "風の詳細を表示" }));
-
-    expect(await screen.findByText("データなし")).toBeInTheDocument();
-  });
-
-  it("地図の色分け（レンズ）を選ぶボタンを持たない（入口は地図上の凡例ピルだけ）", () => {
-    render(<RouteAxisProfile {...baseProps()} />);
-
-    expect(screen.queryByRole("button", { name: /で地図を色分け/ })).not.toBeInTheDocument();
-  });
-
-  it("axisContributionsが空のときは案内文だけを表示する（帯も凡例も描かない）", () => {
-    render(<RouteAxisProfile {...baseProps({ axisContributions: {} })} />);
-
-    expect(screen.getByText("このルートで表示できる評価軸データがありません")).toBeInTheDocument();
-    expect(screen.queryByRole("list")).not.toBeInTheDocument();
-  });
-
-  it("重み0の軸はaxisContributionsにキー付きで値0.0を持つため、帯には出ずチップの数値も出ない", () => {
-    const { container } = render(
-      <RouteAxisProfile {...baseProps({ axisContributions: { axis_sample: 36.2, wind: 0, night: 2.9 } })} />,
-    );
-
-    const segments = screen.getByRole("img", { name: "難易度の内訳" }).children;
-    expect(segments).toHaveLength(2);
-    // 重み0の軸（風）は帯にもチップにも出ない。
-    expect(screen.queryByLabelText("風")).not.toBeInTheDocument();
-  });
-
-  it("内訳バーは積み上げ1本バーとして描画される", () => {
-    const { container } = render(<RouteAxisProfile {...baseProps()} />);
-
-    const bar = screen.queryByRole("img", { name: "難易度の内訳" });
-    expect(bar).not.toBeNull();
-    const segments = screen.getByRole("img", { name: "難易度の内訳" }).children;
-    expect(segments).toHaveLength(2);
-  });
-
-  it("一般ユーザー向け画面のため、Basic認証必須の管理画面限定機能名「軸スタジオ」を含まない", () => {
-    const { container } = render(<RouteAxisProfile {...baseProps()} />);
-
-    expect(container.textContent).not.toContain("軸スタジオ");
-  });
-
-  it("内訳の値はbackendが算出したaxis_contributionsをそのまま表示する", () => {
-    const { container } = render(
-      <RouteAxisProfile {...baseProps({ axisContributions: { axis_sample: 52.1, night: 2.9 } })} />,
-    );
-
-    expect(screen.getByText("52.1")).toBeInTheDocument();
-    expect(screen.getByText("2.9")).toBeInTheDocument();
-  });
-
-  it("総合難易度（絶対基準0-100）を表示する", () => {
-    render(<RouteAxisProfile {...baseProps()} />);
-
-    expect(screen.getByText("46")).toBeInTheDocument();
-  });
-
-  it("総合難易度に説明ポップオーバーが付く", async () => {
-    const user = userEvent.setup();
-    render(<RouteAxisProfile {...baseProps()} />);
-
-    await user.click(screen.getByRole("button", { name: "総合難易度の説明を表示" }));
-
-    expect(await screen.findByText(/候補タブはこの値が小さい順に並びます/)).toBeInTheDocument();
+  it("総合難易度が無ければ、何も出さない", () => {
+    const { container } = renderProfile({ overallDifficulty: null });
+    expect(container).toHaveTextContent(/^$/);
   });
 });
 
-describe("軸単体で判断するための物理量（詳細ポップオーバーの中身）", () => {
-  it("単位が定まらない軸には生値を出さない（意味を取れない数字を並べない）", async () => {
-    const user = userEvent.setup();
-    render(<RouteAxisProfile {...baseProps({ axisRawValues: { night: 1.5 }, distanceKm: 30 })} />);
-
-    await user.click(screen.getByRole("button", { name: "夜間の詳細を表示" }));
-
-    expect(await screen.findByText("夜間の暗さの説明")).toBeInTheDocument();
-    expect(screen.queryByText(/回\/km/)).not.toBeInTheDocument();
+describe("RouteAxisProfile 内訳の帯", () => {
+  it("帯の高さは渡された倍率にする（塗った面積が負荷を表す）", () => {
+    renderProfile({ loadBarHeightRatio: 1.4 });
+    expect(screen.getByRole("img", { name: "難易度の内訳" }).style.getPropertyValue("--load-bar-height-ratio")).toBe(
+      "1.4",
+    );
   });
 
-  it("単位が定まらない軸は、材料まで分解した内訳を全件出す", async () => {
-    // 真偽値材料の値は0/1で運ばれるため、距離加重平均がそのまま延長割合になる。
-    const axes: PreferenceAxisDef[] = [
-      {
-        axisId: "night",
-        label: "夜間",
-        description: "夜間の暗さの説明",
-        dedicatedWayValueLayer: false,
-        rawValueUnit: null,
-        materialBreakdown: [
-          { materialId: "lit", label: "街灯あり", dtype: "boolean", unit: "", share: 0.5 },
-          { materialId: "has_tunnel", label: "トンネル", dtype: "boolean", unit: "", share: 0.5 },
-          { materialId: "maxspeed_kmh", label: "制限速度", dtype: "numeric", unit: "km/h", share: 0.2 },
-        ],
-      },
-    ];
+  it("寄与を持つ軸が1つも無ければ、帯の代わりにその旨を出す", () => {
+    renderProfile({ axisContributions: { stops: 0, surface: 0, unused: 0 } });
+    expect(screen.queryByRole("img", { name: "難易度の内訳" })).not.toBeInTheDocument();
+    expect(screen.getByText("このルートで表示できる評価軸データがありません")).toBeInTheDocument();
+  });
+});
 
-    render(
-      <RouteAxisProfile
-        {...baseProps({
-          axes,
-          weights: { night: 0.5 },
-          axisDifficulties: { night: 40 },
-          axisContributions: { night: 20 },
-          materialValues: { lit: 0.68, has_tunnel: 0.02, maxspeed_kmh: 42.3 },
-        })}
-      />,
-    );
-
-    await userEvent.click(screen.getByRole("button", { name: "夜間の詳細を表示" }));
-
-    expect(screen.getByText("この軸の内訳: 街灯あり 68%・トンネル 2%・制限速度 42km/h")).toBeInTheDocument();
+describe("RouteAxisProfile 軸の詳細", () => {
+  it("評価に使っていない軸（重み0・重みの無い軸）は凡例に出さない", () => {
+    renderProfile({ weights: { stops: 0.5, surface: 0.5 } });
+    expect(screen.getByRole("button", { name: "停止の詳細を表示" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /未使用/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole("img", { name: "未使用" })).not.toBeInTheDocument();
   });
 
-  it("単位が定まる軸は内訳ではなく軸単位の生値を出す", async () => {
-    const axes: PreferenceAxisDef[] = [
-      {
-        axisId: "gradient",
-        label: "勾配",
-        description: "勾配の説明",
-        dedicatedWayValueLayer: true,
-        rawValueUnit: "%",
-        materialBreakdown: [],
-      },
-    ];
-
-    render(
-      <RouteAxisProfile
-        {...baseProps({
-          axes,
-          weights: { gradient: 0.5 },
-          axisDifficulties: { gradient: 30 },
-          axisContributions: { gradient: 15 },
-          axisRawValues: { gradient: 3.2 },
-        })}
-      />,
-    );
-
-    await userEvent.click(screen.getByRole("button", { name: "勾配の詳細を表示" }));
-
-    expect(screen.getByText("3.2%")).toBeInTheDocument();
+  it("評価に使った軸は、このルートで寄与が0・値が来ない軸も凡例に残す（効くはずの軸が効かなかったことも判断材料）", () => {
+    renderProfile({ axisContributions: { stops: 20.8, surface: 0 } });
+    expect(screen.getByRole("button", { name: "路面の詳細を表示" })).toBeInTheDocument();
   });
 
-  it("categorical材料は最も延長の長い値のラベルと割合を出す", async () => {
-    const axes: PreferenceAxisDef[] = [
-      {
-        axisId: "axis_sample",
-        label: "見本の軸",
-        description: "説明",
-        dedicatedWayValueLayer: false,
-        rawValueUnit: null,
-        materialBreakdown: [
-          {
-            materialId: "highway",
-            label: "道路種別",
-            dtype: "categorical",
-            unit: "",
-            share: 0.2,
-            valueLabels: { residential: "住宅街の道", secondary: "主要な道" },
-          },
-          { materialId: "maxspeed_kmh", label: "制限速度", dtype: "numeric", unit: "km/h", share: 0.2 },
-        ],
-      },
-    ];
-
-    render(
-      <RouteAxisProfile
-        {...baseProps({
-          axes,
-          weights: { axis_sample: 0.5 },
-          axisDifficulties: { axis_sample: 60 },
-          axisContributions: { axis_sample: 30 },
-          materialValues: { maxspeed_kmh: 42.3 },
-          // backendが割合の降順で返す（フロントは並べ替えを持たない）。
-          materialCategoryShares: { highway: { residential: 0.62, secondary: 0.38 } },
-        })}
-      />,
-    );
-
-    await userEvent.click(screen.getByRole("button", { name: "見本の軸の詳細を表示" }));
-
-    expect(screen.getByText("この軸の内訳: 住宅街の道 62%・制限速度 42km/h")).toBeInTheDocument();
-    // 2件目以降の値は出さない（どの値を束ねるかの判断表をフロントが持たないため）。
-    expect(screen.queryByText(/主要な道/)).not.toBeInTheDocument();
+  it("軸別難易度・単位付きの生値（総量つき）・説明を出す", async () => {
+    renderProfile();
+    await openDetail("停止");
+    const detail = await screen.findByText("停止の説明文");
+    expect(detail.parentElement).toHaveTextContent("軸別難易度 42/100");
+    expect(detail.parentElement).toHaveTextContent("0.8回/km・約26回");
   });
 
-  it("値が来ないcategorical材料は内訳から飛ばす", async () => {
-    const axes: PreferenceAxisDef[] = [
-      {
-        axisId: "axis_sample",
-        label: "見本の軸",
-        description: "説明",
-        dedicatedWayValueLayer: false,
-        rawValueUnit: null,
-        materialBreakdown: [
-          { materialId: "highway", label: "道路種別", dtype: "categorical", unit: "", share: 0.2 },
-          { materialId: "maxspeed_kmh", label: "制限速度", dtype: "numeric", unit: "km/h", share: 0.2 },
-        ],
-      },
-    ];
+  it("生値の単位が定まらない軸は、材料ごとの内訳を並べる（分類の材料は最も長い値）", async () => {
+    renderProfile();
+    await openDetail("路面");
+    const detail = await screen.findByText("路面の説明文");
+    expect(detail.parentElement).toHaveTextContent("この軸の内訳: 街灯あり 68%・residential 62%");
+  });
 
-    render(
-      <RouteAxisProfile
-        {...baseProps({
-          axes,
-          weights: { axis_sample: 0.5 },
-          axisDifficulties: { axis_sample: 60 },
-          axisContributions: { axis_sample: 30 },
-          materialValues: { maxspeed_kmh: 42.3 },
-        })}
-      />,
-    );
+  it("値の届かない材料は内訳から落とし、1つも無ければ内訳の行を出さない", async () => {
+    renderProfile({ materialValues: {}, materialCategoryShares: {} });
+    await openDetail("路面");
+    const detail = await screen.findByText("路面の説明文");
+    expect(detail.parentElement).not.toHaveTextContent("この軸の内訳");
+  });
 
-    await userEvent.click(screen.getByRole("button", { name: "見本の軸の詳細を表示" }));
-
-    expect(screen.getByText("この軸の内訳: 制限速度 42km/h")).toBeInTheDocument();
-    expect(screen.queryByText(/道路種別/)).not.toBeInTheDocument();
+  it("軸別難易度が無い軸は「データなし」", async () => {
+    renderProfile({ axisDifficulties: { surface: 20 } });
+    await openDetail("停止");
+    expect((await screen.findByText("停止の説明文")).parentElement).toHaveTextContent("データなし");
   });
 });

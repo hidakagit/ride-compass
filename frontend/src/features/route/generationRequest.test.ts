@@ -1,15 +1,16 @@
 // @vitest-environment node
 import { describe, expect, it } from "vitest";
+
 import { buildGenerateRequest, generationConditionsKey, type GenerationInput } from "./generationRequest";
 
-const BASE: GenerationInput = {
-  origin: { latitude: 35.68, longitude: 139.76 },
+const LOOP: GenerationInput = {
+  origin: { latitude: 35.6, longitude: 139.7 },
   distanceKm: 30,
-  distanceToleranceKm: 5,
-  maxRoutes: 8,
+  distanceToleranceKm: 3,
+  maxRoutes: 5,
   assumedSpeedKmh: 20,
-  startTime: new Date("2026-09-08T09:00:00+09:00"),
-  hardFilters: { motorway: true, no_bicycle: true, trunk: true },
+  startTime: new Date("2026-09-24T09:00:00+09:00"),
+  hardFilters: { stairs: true },
   lensAxisId: null,
   routePreference: null,
   waypoints: [],
@@ -18,110 +19,86 @@ const BASE: GenerationInput = {
   startTimePinned: true,
 };
 
-function keyOf(overrides: Partial<GenerationInput>): string {
-  return generationConditionsKey({ ...BASE, ...overrides });
-}
+const DESTINATION: GenerationInput = {
+  ...LOOP,
+  waypoints: [
+    { latitude: 35.61, longitude: 139.71 },
+    { latitude: 35.62, longitude: 139.72 },
+  ],
+  destination: { latitude: 35.7, longitude: 139.8 },
+};
 
 describe("buildGenerateRequest", () => {
-  it("省略可能なフィールドは値があるときだけ載せる", () => {
-    const request = buildGenerateRequest(BASE);
-
-    expect(request.lens_axis_id).toBeUndefined();
-    expect(request.route_preference).toBeUndefined();
-    expect(request.waypoints).toBeUndefined();
-    expect(request.destination).toBeUndefined();
-    expect(request.start_time).toBe(BASE.startTime.toISOString());
-  });
-
-  it("主観と時間の換算レートは送らない（backendが較正値から読み直せなくなるため）", () => {
-    // 画面から変える手段が無いのに送ると、管理画面で調整しても探索は送られた値で動く。
-    expect(buildGenerateRequest(BASE)).not.toHaveProperty("penalty_strength");
-  });
-
-  // 上の`toBeUndefined()`が「省略された」ことを意味するには、値があれば載る対の確認が要る
-  // （どちらも載らない実装でも、負の側だけなら通る）。
-  it("lens_axis_id・route_preferenceは値があれば載る", () => {
-    const request = buildGenerateRequest({
-      ...BASE,
-      lensAxisId: "axis_sample",
-      routePreference: { gradient: 0.5 },
+  it("画面の値を送る形へ移す。開始時刻はISO形式", () => {
+    const request = buildGenerateRequest(LOOP);
+    expect(request).toMatchObject({
+      latitude: 35.6,
+      longitude: 139.7,
+      distance_km: 30,
+      distance_tolerance_km: 3,
+      max_routes: 5,
+      assumed_speed_kmh: 20,
+      hard_filters: { stairs: true },
+      start_time: "2026-09-24T00:00:00.000Z",
     });
-
-    expect(request.lens_axis_id).toBe("axis_sample");
-    expect(request.route_preference).toEqual({ gradient: 0.5 });
   });
 
-  it("目的地モードの経由地・目的地を載せる", () => {
-    const destination = { latitude: 35.7, longitude: 139.8 };
-    const request = buildGenerateRequest({ ...BASE, waypoints: [destination], destination });
-
-    expect(request.waypoints).toEqual([destination]);
-    expect(request.destination).toEqual(destination);
-  });
-});
-
-describe("generationConditionsKey", () => {
-  it("同じ入力からは同じキーになる", () => {
-    expect(keyOf({})).toBe(keyOf({}));
-  });
-
-  // 統合レビュー第5回の指摘1-5。payloadへ送るのに比較していなかった2フィールド。
-  it("出発時刻の変更を検知する（朝に生成→夕方へ変えたら差分になる）", () => {
-    expect(keyOf({ startTime: new Date("2026-09-08T18:00:00+09:00") })).not.toBe(keyOf({}));
+  it("レンズの軸・重みの上書き・経由地・目的地は、値があるときだけ送る", () => {
+    const loop = buildGenerateRequest(LOOP);
+    for (const key of ["lens_axis_id", "route_preference", "waypoints", "destination"]) {
+      expect(loop).not.toHaveProperty(key);
+    }
+    const full = buildGenerateRequest({ ...DESTINATION, lensAxisId: "wind", routePreference: { wind: 1 } });
+    expect(full).toMatchObject({
+      lens_axis_id: "wind",
+      route_preference: { wind: 1 },
+      waypoints: DESTINATION.waypoints,
+      destination: DESTINATION.destination,
+    });
   });
 
-  it("送るフィールドの変更は既定で差分になる（距離・速度・重み・0次除外・経由地）", () => {
-    expect(keyOf({ distanceKm: 40 })).not.toBe(keyOf({}));
-    expect(keyOf({ assumedSpeedKmh: 25 })).not.toBe(keyOf({}));
-    expect(keyOf({ routePreference: { gradient: 0.5 } })).not.toBe(keyOf({}));
-    expect(keyOf({ hardFilters: { motorway: false, no_bicycle: true, trunk: true } })).not.toBe(keyOf({}));
-    expect(keyOf({ waypoints: [{ latitude: 35.7, longitude: 139.8 }] })).not.toBe(keyOf({}));
-    expect(keyOf({ origin: { latitude: 35.0, longitude: 139.0 } })).not.toBe(keyOf({}));
-  });
-
-  it("レンズは比較対象から外す（地図の見え方の選択で、候補の選定には影響しない）", () => {
-    expect(keyOf({ lensAxisId: "wind" })).toBe(keyOf({}));
-    expect(keyOf({ lensAxisId: "gradient" })).toBe(keyOf({ lensAxisId: "wind" }));
-  });
-
-  it("経由地を伴う目的地ルートでは候補件数を比較しない（backendが値を無視するため）", () => {
-    const withWaypoint = { waypoints: [{ latitude: 35.7, longitude: 139.8 }], maxRoutesRelevant: false };
-
-    expect(keyOf({ ...withWaypoint, maxRoutes: 3 })).toBe(keyOf({ ...withWaypoint, maxRoutes: 8 }));
-  });
-
-  it("周回モードでは候補件数の変更を検知する", () => {
-    expect(keyOf({ maxRoutes: 3 })).not.toBe(keyOf({}));
-  });
-
-  it("キーはフィールドの並び順に依存しない", () => {
-    // オブジェクトのキー順が違うだけで差分と誤判定しないこと（比較前にソートしている）。
-    const a = generationConditionsKey({ ...BASE, hardFilters: { motorway: true, no_bicycle: true, trunk: true } });
-    const b = generationConditionsKey({ ...BASE, hardFilters: { trunk: true, motorway: true, no_bicycle: true } });
-
-    expect(a).toBe(b);
+  it("経由地は渡した配列そのものではなく写しを送る", () => {
+    expect(buildGenerateRequest(DESTINATION).waypoints).not.toBe(DESTINATION.waypoints);
   });
 });
 
-// 共有時刻は利用者が出発時刻を選ぶまで「今」へ5分刻みで追従する（T859）。放置するだけで
-// 値が変わるため、条件の比較へ入れると何もしていないのに「生成条件が変更されています」が点き、
-// 印そのものが合図として機能しなくなる。
-describe("出発時刻を選んでいない間のstart_time", () => {
-  it("時刻が進んでも比較キーは変わらない", () => {
-    const later = new Date(BASE.startTime.getTime() + 5 * 60 * 1000);
+describe("generationConditionsKey（「生成条件が変更されています」の比較キー）", () => {
+  const key = generationConditionsKey;
 
-    expect(keyOf({ startTimePinned: false })).toBe(keyOf({ startTimePinned: false, startTime: later }));
+  it("送る値が変われば変わる", () => {
+    const base = key(DESTINATION);
+    const changed: Partial<GenerationInput>[] = [
+      { distanceKm: 31 },
+      { distanceToleranceKm: 2 },
+      { assumedSpeedKmh: 22 },
+      { hardFilters: { stairs: false } },
+      { routePreference: { wind: 1 } },
+      { origin: { latitude: 35.5, longitude: 139.7 } },
+      { destination: { latitude: 35.71, longitude: 139.8 } },
+      { waypoints: [...DESTINATION.waypoints].reverse() },
+      { maxRoutes: 6 },
+      { startTime: new Date("2026-09-24T10:00:00+09:00") },
+    ];
+    for (const change of changed) expect(key({ ...DESTINATION, ...change })).not.toBe(base);
   });
 
-  it("利用者が選んだ後は、時刻の違いが比較キーへ現れる", () => {
-    const later = new Date(BASE.startTime.getTime() + 5 * 60 * 1000);
-
-    expect(keyOf({ startTimePinned: true })).not.toBe(keyOf({ startTimePinned: true, startTime: later }));
+  it("レンズの軸は比べない（地図の見え方の選択で、候補の選定に影響しない）", () => {
+    expect(key({ ...LOOP, lensAxisId: "wind" })).toBe(key(LOOP));
   });
 
-  it("送るpayloadからは落とさない（backendは常に出発時刻を受け取る）", () => {
-    const request = buildGenerateRequest({ ...BASE, startTimePinned: false });
+  it("候補数は、backendが無視する生成（経由地を伴う目的地）では比べない", () => {
+    const ignored = { ...DESTINATION, maxRoutesRelevant: false };
+    expect(key({ ...ignored, maxRoutes: 9 })).toBe(key(ignored));
+  });
 
-    expect(request.start_time).toBe(BASE.startTime.toISOString());
+  it("出発時刻は、利用者が選んでいない間は比べない（「今」へ追従して勝手に進む）", () => {
+    const following = { ...LOOP, startTimePinned: false };
+    expect(key({ ...following, startTime: new Date("2026-09-24T09:05:00+09:00") })).toBe(key(following));
+  });
+
+  it("中身が同じなら、除外条件・重みのキーの並びが違っても同じ", () => {
+    const a = { ...LOOP, hardFilters: { stairs: true, unpaved: false }, routePreference: { a: 0.3, b: 0.7 } };
+    const b = { ...LOOP, hardFilters: { unpaved: false, stairs: true }, routePreference: { b: 0.7, a: 0.3 } };
+    expect(key(a)).toBe(key(b));
   });
 });

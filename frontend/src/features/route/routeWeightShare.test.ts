@@ -1,42 +1,40 @@
 // @vitest-environment node
 import { describe, expect, it } from "vitest";
-import { clampBoundaryDrag } from "./routeWeightShare";
 
-// 帯グラフの境界ドラッグ（隣り合う2軸の間だけで重みを移す）。合計が動かないことと、
-// 上下限で止まることを見る。下限は0ではない——0まで下げるとその軸が「チェックOFF」に
-// 化けるため、配分の調整が軸の有効/無効を兼ねてしまう。
-describe("clampBoundaryDrag", () => {
-  it("移した量だけ一方が増え他方が減り、2軸の合計は変わらない", () => {
-    const { weightA, weightB } = clampBoundaryDrag(0.3, 0.2, 0.05);
+import { clampBoundaryDrag, totalWeight } from "./routeWeightShare";
 
-    expect(weightA).toBeCloseTo(0.35, 2);
-    expect(weightB).toBeCloseTo(0.15, 2);
-    expect(weightA + weightB).toBeCloseTo(0.5, 2);
+describe("totalWeight", () => {
+  it("正の重みだけを足す（0以下の軸は有効でないため合計に入れない）", () => {
+    expect(totalWeight({ a: 0.25, b: 0.5, c: 0, d: -0.2 })).toBeCloseTo(0.75);
+    expect(totalWeight({})).toBe(0);
+  });
+});
+
+describe("clampBoundaryDrag（帯の境界をドラッグして2軸の間で重みを移す）", () => {
+  it("移した量だけ一方が増え、もう一方が減る（0.01刻みへ丸める）", () => {
+    expect(clampBoundaryDrag(0.3, 0.3, 0.1)).toEqual({ weightA: 0.4, weightB: 0.2 });
+    expect(clampBoundaryDrag(0.3, 0.3, 0.123)).toEqual({ weightA: 0.42, weightB: 0.18 });
+    expect(clampBoundaryDrag(0.3, 0.3, -0.05)).toEqual({ weightA: 0.25, weightB: 0.35 });
   });
 
-  it("逆向きにも同じだけ移る", () => {
-    const { weightA, weightB } = clampBoundaryDrag(0.3, 0.2, -0.05);
-
-    expect(weightA).toBeCloseTo(0.25, 2);
-    expect(weightB).toBeCloseTo(0.25, 2);
+  it("どちらの軸も0.01を下回らない（0まで下げると軸が無効に化ける）", () => {
+    expect(clampBoundaryDrag(0.3, 0.3, 1)).toEqual({ weightA: 0.59, weightB: 0.01 });
+    expect(clampBoundaryDrag(0.3, 0.3, -1)).toEqual({ weightA: 0.01, weightB: 0.59 });
   });
 
-  it("上限を超えて寄せられない", () => {
-    // 上限の値は借りない。**上限に居るときは、そこから先へ動かない**ことだけを見る。
-    const atLimit = clampBoundaryDrag(0.6, 0.2, 0);
-    const pushed = clampBoundaryDrag(0.6, 0.2, 0.1);
-
-    expect(pushed.weightA).toBeCloseTo(atLimit.weightA, 2);
-    expect(pushed.weightB).toBeCloseTo(0.2, 2);
+  it("どちらの軸も0.6を超えない", () => {
+    expect(clampBoundaryDrag(0.5, 0.5, 1)).toEqual({ weightA: 0.6, weightB: 0.4 });
+    expect(clampBoundaryDrag(0.5, 0.5, -1)).toEqual({ weightA: 0.4, weightB: 0.6 });
   });
 
-  it("相手を下限より下へ押し下げない（無効な軸に化けさせない）", () => {
-    // 押す量を増やしても、相手はそれ以上減らない。合計は常に保たれる。
-    const pushed = clampBoundaryDrag(0.3, 0.05, 0.1);
-    const pushedHarder = clampBoundaryDrag(0.3, 0.05, 0.5);
-
-    expect(pushedHarder.weightB).toBeCloseTo(pushed.weightB, 2);
-    expect(pushedHarder.weightB).toBeGreaterThan(0);
-    expect(pushedHarder.weightA + pushedHarder.weightB).toBeCloseTo(0.35, 2);
+  it("2軸の合計は、どの量を動かしても変わらない", () => {
+    for (const [a, b, delta] of [
+      [0.33, 0.27, 0.017],
+      [0.1, 0.45, -0.333],
+      [0.2, 0.2, 0.5],
+    ] as const) {
+      const { weightA, weightB } = clampBoundaryDrag(a, b, delta);
+      expect(Number((weightA + weightB).toFixed(2))).toBe(Number((a + b).toFixed(2)));
+    }
   });
 });
