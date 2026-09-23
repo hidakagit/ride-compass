@@ -12,7 +12,13 @@ import { FieldLabel } from "@/components/Map/recipeControls";
 import type { AxisDefinitionResponse } from "@/types/route";
 import styles from "./AxisStudio.module.css";
 import { InfoPopoverButton, SectionLabel } from "./AxisFormFields";
-import { formatThresholdList, parseThresholdList, resizeBandLabels, type Draft } from "./axisDraft";
+import {
+  formatThresholdList,
+  parseThresholdList,
+  resizeBandLabels,
+  thresholdsKeptOnMap,
+  type Draft,
+} from "./axisDraft";
 
 interface AxisMapDisplaySectionProps {
   draft: Draft;
@@ -94,12 +100,14 @@ export function AxisMapDisplaySection({
   }
 
   /** いま入力されているしきい値が地図でどう見えるか（段階のレンジ・体感ラベル・色）を
-   * そのまま描く。凡例の組み立ては地図と同じ`buildRangeLegendBands`を通すため、ここで
-   * 見えているものと地図の凡例がずれることがない。色は親から渡された軸の配色
-   * （`mapBandColors`）で、地図に出る経路がまだ決まっていない軸では色を持たない。 */
+   * そのまま描く。段は地図が作るものだけ（地図では効かない値は除く）で数え、凡例の組み立ては
+   * 地図と同じ`buildRangeLegendBands`を通すため、ここで見えているものと地図の凡例がずれる
+   * ことがない。色は親から渡された軸の配色（`mapBandColors`）で、地図に出る経路がまだ
+   * 決まっていない軸では色を持たない。 */
   function renderBandPreview() {
-    const boundaries = draft.displayThresholdsOverride ?? [];
-    if (boundaries.length === 0) return null;
+    const entered = draft.displayThresholdsOverride ?? [];
+    if (entered.length === 0) return null;
+    const boundaries = thresholdsKeptOnMap(entered, thresholdsDroppedOnMap);
     const bandCount = boundaries.length + 1;
     const colors = mapBandColors?.(boundaries) ?? Array.from({ length: bandCount }, () => "");
     const labels = bandLabelsForBandCount(draft.displayBandLabelsOverride, bandCount);
@@ -188,7 +196,7 @@ export function AxisMapDisplaySection({
                   </p>
                   <InfoPopoverButton
                     ariaLabel="地図では効かない値の説明"
-                    description="点数の決め方で、この値は1つ手前の境界と同じ点数になります。地図は点数が変わらない所に段を作らないため、下の段階は地図ではこの値の分だけ減ります。刻みたい場合は、点数の決め方（0点・100点にする値や折れ点）を先に広げてください。"
+                    description="点数の決め方で、この値は1つ手前の境界と同じ点数になります。地図は点数が変わらない所に段を作らないため、下の段階はこの値を除いた地図の段で出しています。刻みたい場合は、点数の決め方（0点・100点にする値や折れ点）を先に広げてください。"
                   />
                 </div>
               )}
