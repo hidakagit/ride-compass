@@ -94,3 +94,28 @@ async def test_equidistant_accident_goes_to_exactly_one_existing_segment(counts_
         " WHERE a.source = 'accident'")
     # 前提: 3区間とも本当に等距離（タイを作れている）。
     assert [r["d"] for r in distances] == [0.0]
+
+
+async def test_way_values_of_a_way_gone_from_the_raw_data_do_not_survive(counts_conn):
+    """生データから道が消えたら、作り直した後にその道の値は残らない。残る道の値は
+    後ろの段が埋めたものを保ったまま、世代だけ新しくなる。"""
+    await counts_conn.execute(
+        "UPDATE way_materials SET direction = 'forward' WHERE osm_way_id = 100")
+    await counts_conn.execute(
+        "CREATE TEMP TABLE _removed AS SELECT * FROM source_features"
+        " WHERE source = 'osm_way' AND natural_key = '200'")
+    await counts_conn.execute(
+        "DELETE FROM source_features WHERE source = 'osm_way' AND natural_key = '200'")
+    new_run = await _insert_run(counts_conn, "osm_way")
+    await counts_conn.execute(
+        "UPDATE source_features SET run_id = $1 WHERE source = 'osm_way'", new_run)
+    try:
+        await derive_topology.derive(counts_conn)
+        await derive_counts.derive(counts_conn)
+        rows = await counts_conn.fetch(
+            "SELECT osm_way_id, direction, source_run_id FROM way_materials ORDER BY osm_way_id")
+        assert [(r["osm_way_id"], r["direction"], r["source_run_id"]) for r in rows] == [
+            (100, "forward", new_run), (300, "both", new_run)]
+    finally:
+        await counts_conn.execute("INSERT INTO source_features SELECT * FROM _removed")
+        await counts_conn.execute("DROP TABLE _removed")

@@ -151,6 +151,11 @@ WHERE s.osm_way_id = m.osm_way_id AND s.segment_index = m.segment_index
 
 _EDGE_ACCIDENT_ZERO = "UPDATE edge_materials SET accident_count = 0 WHERE accident_count IS NULL"
 
+_WAY_ORPHANS = """
+DELETE FROM way_materials w
+WHERE NOT EXISTS (SELECT 1 FROM road_edges e WHERE e.osm_way_id = w.osm_way_id)
+"""
+
 _WAY_FROM_EDGES = """
 INSERT INTO way_materials (osm_way_id, accident_count, intersection_count,
                            poi_signal, poi_crossing, poi_stop, poi_level_crossing, poi_barrier,
@@ -168,7 +173,8 @@ ON CONFLICT (osm_way_id) DO UPDATE SET
     poi_crossing = EXCLUDED.poi_crossing,
     poi_stop = EXCLUDED.poi_stop,
     poi_level_crossing = EXCLUDED.poi_level_crossing,
-    poi_barrier = EXCLUDED.poi_barrier
+    poi_barrier = EXCLUDED.poi_barrier,
+    source_run_id = EXCLUDED.source_run_id
 """
 
 
@@ -186,6 +192,7 @@ async def derive(conn: asyncpg.Connection) -> None:
         await conn.execute(_EDGE_INTERSECTIONS, INTERSECTION_DEGREE_THRESHOLD)
         await conn.execute(_EDGE_ACCIDENTS, ACCIDENT_FATAL_WEIGHT, degrees)
         await conn.execute(_EDGE_ACCIDENT_ZERO)
+        await conn.execute(_WAY_ORPHANS)
         await conn.execute(_WAY_FROM_EDGES)
         await conn.execute("ANALYZE way_materials")
 
