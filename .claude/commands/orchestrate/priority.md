@@ -5,7 +5,9 @@ argument-hint: <Txxx>... <高|中|低>  または  --prereqs-of <Txxx> <高|中|
 
 # 振り出し待ちの優先度
 
-`python scripts/orchestrate.py priority $ARGUMENTS`を実行し、結果を1〜2行で返す。
+`python scripts/orchestrate.py priority $ARGUMENTS`を実行し、結果を1〜2行で返す。`--prereqs-of <Txxx>`のときは、
+手動タスクの前提がダッシュボードにあるので、先に`/orchestrate:prereqs`の1.と同じく書き出し、`--pending <そのディレクトリ>`を
+足して実行する。
 
 - 振り出し待ちは優先度の小さい順（高→中→低）に、前提が済んだものから取り出される
   （`board dispatch pop`）。優先度を上げても、前提が済むまでは振り出されず、回の母集団の外のタスクは
