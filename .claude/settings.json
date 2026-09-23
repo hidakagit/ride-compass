@@ -10,6 +10,17 @@
           }
         ]
       }
+    ],
+    "PostToolUse": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "f=\"$CLAUDE_PROJECT_DIR/scripts/orchestration/hook.sh\"; [ -f \"$f\" ] || exit 0; . \"$f\"",
+            "timeout": 120
+          }
+        ]
+      }
     ]
   }
 }
