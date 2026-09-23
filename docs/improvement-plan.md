@@ -211,7 +211,6 @@ CLAUDE.md参照。節見出しはタスクのテーマ分類で、日付は起�
 - [ ] [T1042](records/tasks/T1042.md). 作業ツリーが自動で片付かず、しかも普通には消せない 規模M
 - [ ] [T1043](records/tasks/T1043.md). routing-engine.mdを、読む人の入口ごとに分割する 規模M
 - [ ] [T1045](records/tasks/T1045.md). commit・pushが重いときがある——pre-pushの門を、検査を落とさずに速くする 規模S〜M
-- [ ] [T1046](records/tasks/T1046.md). colorトークンをTailwindのテーマへ、ダークモード追従を壊さずに取り込めるか確かめる 規模S
 - [ ] [T1049](records/tasks/T1049.md). 司令塔（複数エージェントの並行実行）の運用を規約にし、回すたびに実測で改善する 規模M
 - [ ] [T1054](records/tasks/T1054.md). 評価軸の表示名を、内部名で画面に出ない形へ一本化する（風の直書きを消す） 規模S
 - [ ] [T1055](records/tasks/T1055.md). コードのコメントが、存在しない生成物の名前と古い正本を指している 規模S
