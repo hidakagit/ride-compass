@@ -13,20 +13,6 @@ import nextConfig from "../next.config";
 
 const API_BASE = "http://localhost:8000";
 
-// キーはaxis_id（改善計画T221 Stage B、backend AXIS_DEFINITIONS参照）。
-// RoutePreferenceWeightsはindex signature型のため旧キーでも型検査を通ってしまう
-// （コンパイルではドリフト検知できない）。実キー集合の正はaxis-catalog.jsonの
-// preference_defaults（evaluationAxes.test.tsが照合）。
-const ROUTE_PREFERENCE = {
-  gradient: 1,
-  surface_q: 1,
-  wind: 1,
-  stop_density: 1,
-  car_stress: 1,
-  accident: 1,
-  night: 0,
-};
-
 // backend/app/domain/route.py RouteCandidate相当の最小フィクスチャ（1候補）。
 function makeSegment(index: number, coordinates: [number, number][]) {
   return {
@@ -38,10 +24,10 @@ function makeSegment(index: number, coordinates: [number, number][]) {
     cumulative_distance_km: index * 10,
     distance_km: 10,
     estimated_arrival_time: null,
-    axis_difficulties: { gradient: 10 + index * 20 },
+    axis_difficulties: {},
     material_values: {},
     axis_raw_values: {},
-    axis_contributions: { gradient: 5 },
+    axis_contributions: {},
     difficulty: 20 + index * 30,
   };
 }
@@ -93,7 +79,7 @@ export function routeGenerateResponseFixture(): RouteGenerateResponse {
       longitude: 139.7387,
       distance_km: 20,
       distance_tolerance_km: 5,
-      route_preference: ROUTE_PREFERENCE,
+      route_preference: {},
       penalty_strength: 1.0,
       max_average_grade_percent: null,
       hard_filters: { no_bicycle: true, motorway: true, trunk: true },

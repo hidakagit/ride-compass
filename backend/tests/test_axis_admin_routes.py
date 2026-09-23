@@ -12,7 +12,7 @@ from app.domain.axis_definitions import (
     check_publish_immutability,
 )
 from app.main import app
-from tests.admin_auth import AUTH_HEADERS, basic_auth_header
+from tests.admin_auth import ADMIN_USERNAME, AUTH_HEADERS, basic_auth_header
 
 client = TestClient(app)
 
@@ -142,7 +142,7 @@ def test_list_rejects_missing_credentials(override_service):
 
 def test_list_rejects_wrong_credentials(override_service):
     response = client.get(
-        "/api/admin/axis-definitions", headers={"Authorization": basic_auth_header("admin-user", "wrong")}
+        "/api/admin/axis-definitions", headers={"Authorization": basic_auth_header(ADMIN_USERNAME, "wrong")}
     )
 
     assert response.status_code == 401

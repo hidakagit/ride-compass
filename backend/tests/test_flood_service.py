@@ -1,6 +1,6 @@
 from app.services import flood_service
 from app.services.flood_service import FloodService
-from tests.jma_area_fixtures import CHIYODA_POINT, patch_area_lookup
+from tests.jma_area_fixtures import CHIYODA_POINT, CLASS10_CODE, CLASS20_CODE, patch_area_lookup
 
 
 def _patch(monkeypatch, **kwargs):
@@ -39,8 +39,8 @@ async def test_get_forecasts_returns_matching_active_forecast(monkeypatch):
             "item": {"name": "レベル４氾濫危険警報", "code": "40", "condition": "レベル４氾濫危険警報（発表）"},
             "riverCode": "830304004400",
             "riverName": "神田川",
-            "class20Codes": ["1310100"],
-            "class10Codes": ["130010"],
+            "class20Codes": [CLASS20_CODE],
+            "class10Codes": [CLASS10_CODE],
         }
     ]
     _patch(monkeypatch, documents=documents)
@@ -61,8 +61,8 @@ async def test_get_forecasts_ignores_cleared_and_non_matching_and_test_operation
             "item": {"name": "レベル２氾濫注意報解除", "code": "10", "condition": "レベル２氾濫注意報解除"},
             "riverCode": "830304004900",
             "riverName": "善福寺川",
-            "class20Codes": ["1310100"],
-            "class10Codes": ["130010"],
+            "class20Codes": [CLASS20_CODE],
+            "class10Codes": [CLASS10_CODE],
         },
         # 対象エリア外（対象外）
         {
@@ -81,8 +81,8 @@ async def test_get_forecasts_ignores_cleared_and_non_matching_and_test_operation
             "item": {"name": "レベル４氾濫危険警報", "code": "40", "condition": "レベル４氾濫危険警報（発表）"},
             "riverCode": "830304004400",
             "riverName": "神田川",
-            "class20Codes": ["1310100"],
-            "class10Codes": ["130010"],
+            "class20Codes": [CLASS20_CODE],
+            "class10Codes": [CLASS10_CODE],
         },
     ]
     _patch(monkeypatch, documents=documents)
@@ -100,8 +100,8 @@ async def test_get_forecasts_returns_multiple_rivers_when_both_match(monkeypatch
             "item": {"name": "レベル４氾濫危険警報", "code": "40", "condition": "レベル４氾濫危険警報（発表）"},
             "riverCode": "830304004400",
             "riverName": "神田川",
-            "class20Codes": ["1310100"],
-            "class10Codes": ["130010"],
+            "class20Codes": [CLASS20_CODE],
+            "class10Codes": [CLASS10_CODE],
         },
         {
             "status": "通常",
@@ -109,8 +109,8 @@ async def test_get_forecasts_returns_multiple_rivers_when_both_match(monkeypatch
             "item": {"name": "レベル２氾濫注意報", "code": "21", "condition": "レベル２氾濫注意報"},
             "riverCode": "830304004900",
             "riverName": "善福寺川",
-            "class20Codes": ["1310100"],
-            "class10Codes": ["130010"],
+            "class20Codes": [CLASS20_CODE],
+            "class10Codes": [CLASS10_CODE],
         },
     ]
     _patch(monkeypatch, documents=documents)
