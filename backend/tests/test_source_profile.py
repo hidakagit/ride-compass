@@ -15,7 +15,7 @@ from app.batch.source_profile import SourceProfileError, load_source_profile
 def _profile() -> dict:
     return {
         "version": 1,
-        "target": {"prefectures": "all", "bbox": [35.0, 139.0, 36.0, 140.0]},
+        "target": {"bbox": [35.0, 139.0, 36.0, 140.0]},
         "sources": [{"name": "accident", "adapter": "npa_honhyo", "rows": {"years": [2024]}}],
     }
 

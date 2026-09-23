@@ -23,7 +23,7 @@ from typing import Any
 import asyncpg
 
 from app.batch._common import PROGRESS_INTERVAL_SECONDS, format_progress
-from app.batch.source_profile import NoFields, SourceProfile, SourceSpec, Target
+from app.batch.source_profile import NoFields, SourceProfile, SourceSpec
 
 logger = logging.getLogger("ridecompass.ingest")
 
@@ -120,7 +120,7 @@ async def _open_run(conn: asyncpg.Connection, spec: SourceSpec, profile: SourceP
         spec.name,
         datetime.now(timezone.utc),
         _json(origin),
-        _json({"profile_hash": profile.profile_hash, "target": _target_dict(profile.target),
+        _json({"profile_hash": profile.profile_hash, "target": asdict(profile.target),
                "source": _source_dict(spec)}),
         _json({}),
     )
@@ -140,11 +140,6 @@ async def _close_run(conn: asyncpg.Connection, run_id: int, status: str,
 
 def _json(value: Any) -> str:
     return json.dumps(value, ensure_ascii=False, default=str)
-
-
-def _target_dict(target: Target) -> dict[str, Any]:
-    return {"prefectures": list(target.prefectures) if target.prefectures else "all",
-            "bbox": list(target.bbox)}
 
 
 def _source_dict(spec: SourceSpec) -> dict[str, Any]:

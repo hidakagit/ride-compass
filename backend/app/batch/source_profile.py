@@ -4,8 +4,8 @@
 広げるときに直す場所が1つになり、適用した内容をそのまま`source_runs.profile`へ
 記録できる。
 
-対象範囲（`target`）はソース共通で、全ソースがそれを使う。
-都道府県はJIS X 0401（国の標準）で書き、ソースごとの採番への変換はアダプタが持つ。
+対象範囲（`target`）はソース共通で、全ソースがそれを使う。範囲は緯度経度の枠
+（`target.bbox`）だけで決まる。
 
 **書いた欄は必ず効く**。どの段（ファイル全体・`target`・各ソース・その`rows`/`grid`）でも、
 読む側が知らない欄があれば取込を始める前に止め、その場所と名前を名指しする。知っている欄は
@@ -41,8 +41,6 @@ class NoFields:
 class Target:
     """全ソース共通の対象範囲。"""
 
-    #: JIS X 0401の都道府県コード。全国は`None`（`all`と書いたとき）。
-    prefectures: tuple[str, ...] | None
     #: (min_lat, min_lon, max_lat, max_lon)。
     bbox: tuple[float, float, float, float]
 
@@ -108,21 +106,13 @@ def _parse_target(raw: object) -> Target:
     if not isinstance(raw, dict):
         raise SourceProfileError("target はマッピングが必要です")
     _reject_unknown(raw, Target, "target")
-    prefectures_raw = raw.get("prefectures")
-    if prefectures_raw == "all":
-        prefectures: tuple[str, ...] | None = None
-    elif isinstance(prefectures_raw, list) and prefectures_raw:
-        prefectures = tuple(str(p) for p in prefectures_raw)
-    else:
-        raise SourceProfileError('target.prefectures は "all" か空でないリストが必要です')
-
     bbox_raw = raw.get("bbox")
     if not (isinstance(bbox_raw, list) and len(bbox_raw) == 4):
         raise SourceProfileError("target.bbox は4つの数（min_lat, min_lon, max_lat, max_lon）が必要です")
     bbox = tuple(float(v) for v in bbox_raw)
     if not (bbox[0] < bbox[2] and bbox[1] < bbox[3]):
         raise SourceProfileError("target.bbox は min < max である必要があります")
-    return Target(prefectures=prefectures, bbox=bbox)  # type: ignore[arg-type]
+    return Target(bbox=bbox)  # type: ignore[arg-type]
 
 
 def _parse_source(raw: object, adapters: dict[str, Any]) -> SourceSpec:
