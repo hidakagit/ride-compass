@@ -9,7 +9,7 @@
 警報と無関係の別の基準のため、一目で系統が違うと分かる別の配色にする。
 """
 
-from typing import Literal, NamedTuple
+from typing import Literal, NamedTuple, get_args
 
 from app.domain.flood_forecast import FLOOD_LEVEL_LABELS
 from app.domain.warning_levels import WarningBadgeLevel
@@ -45,7 +45,7 @@ _JMA_LABELS: dict[WarningBadgeLevel, str] = {
     "emergency_warning": "特別警報",
 }
 
-_LEVELS: tuple[WarningBadgeLevel, ...] = ("advisory", "warning", "severe_warning", "emergency_warning")
+_LEVELS: tuple[WarningBadgeLevel, ...] = get_args(WarningBadgeLevel)
 
 
 def _display(

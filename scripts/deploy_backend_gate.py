@@ -45,6 +45,7 @@ DEPLOY_PATHS = (
     "!backend/app/domain/map_display.py",
     "!backend/app/domain/display_palette.py",
     "!backend/app/domain/weather_display.py",
+    "!backend/app/domain/warning_display.py",
     # デプロイの手順そのもの。
     ".github/workflows/deploy-backend.yml",
     "scripts/deploy_backend_gate.py",

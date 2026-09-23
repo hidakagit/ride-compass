@@ -160,7 +160,8 @@ export default function ComparisonPanel({ slots, axisLabels, axes, materials }: 
         直近{slots.length}回の生成結果を並べています。各列はその回の先頭候補（最も易しい1本）で、
         行は上から順に、ルートそのものの量・材料の実測値・軸ごとの難易度（0〜100）・総合難易度です。
       </p>
-      <Table>
+      {/* 列は内容ではなく器の幅で決める。内容に合わせて伸ばすと、狭い画面で値の列が画面外へ出る。 */}
+      <Table className="table-fixed [&_td]:[overflow-wrap:anywhere] [&_th]:whitespace-normal [&_th]:[overflow-wrap:anywhere]">
         <TableHead>
           <TableRow>
             <TableHeader />
