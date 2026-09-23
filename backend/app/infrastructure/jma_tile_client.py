@@ -44,8 +44,8 @@ def is_target_times_path(path: str) -> bool:
 
 # JMA非公式APIへの実フェッチを秒間`settings.jma_tile_upstream_max_requests_per_second`回
 # までに抑える。`JmaTileClient`はリクエストごとに使い捨てでインスタンス化されるため、
-# 上限の状態はモジュールレベルで持つ。backendが単一プロセス構成であることに依存している
-# ——ワーカーを増やすと実効の秒間リクエスト数がその倍数になる。
+# 上限の状態はモジュールレベルで持つ。プロセスをまたいでは効かないため、ワーカーを
+# 複数にした起動は`single_process.py`が止める。
 _rate_limit_lock = asyncio.Lock()
 _last_fetch_at: float | None = None
 

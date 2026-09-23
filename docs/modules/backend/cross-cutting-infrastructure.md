@@ -31,6 +31,7 @@ DB接続・マイグレーション・Redis・HTTPクライアント・レート
 | infrastructure | `debug_log.py` | 外部I/O（外部API・タイル/標高キャッシュ）イベントのログと集計 |
 | infrastructure | `debug_control.py` | `debug_mode`のランタイム切替・直近ログの保持 |
 | infrastructure | `job_registry.py` | 汎用の非同期ジョブレジストリ（プロセス内メモリのみ） |
+| infrastructure | `single_process.py` | 起動時にワーカー数を読み、複数なら起動を止める（プロセス内に持つ状態の前提を落ちる形にする） |
 | infrastructure | `tuning_overrides.py` | 較正値の上書き（宣言の既定値から動かしたぶんだけをDBへ持つ）。起動時と管理APIの書き込み直後にプロセス内へ読み込む |
 | services | `tuning_service.py` | 較正値の上書きの取引境界（構造仕様7）。書いた直後にプロセス内の値まで反映するところまでを持つ |
 | api | `tuning_admin.py` | 較正値の一覧・更新（管理画面用、`require_admin_basic_auth`の内側）。並べる項目も、効き方ごとの見出しと並び順も宣言から導く |
@@ -61,6 +62,7 @@ DB接続・マイグレーション・Redis・HTTPクライアント・レート
 ```
 FastAPI(lifespan=lifespan)
         │
+        ├─ (0) require_single_worker()。ワーカーが複数なら起動を止める（下記「1プロセスの境界」）
         ├─ (1) httpx.AsyncClientのウォームアップ（10.0秒/15.0秒タイムアウト分を事前構築。
         │       SSLコンテキスト構築が数百ms〜1秒かかるため、デプロイ直後の最初のリクエストが
         │       このコストを負わないようにする）
@@ -101,6 +103,23 @@ FastAPI(lifespan=lifespan)
   外部呼び出しの記録は`debug_log.py: log_external_call`が別途担う）。
 - 未処理例外（500）発生時も`unhandled_exception_handler`（`request_log.py`）経由で
   `X-Request-ID`ヘッダを付けて返す（通常レスポンスと同じ追跡性を保つ）。
+
+## 1プロセスの境界（`single_process.py`）
+
+backendは**1プロセスでしか正しく動かない**。プロセス内に持つ状態が多数あり（ジョブ台帳・
+JMAへの実フェッチの秒間上限・軸定義と較正値の反映・レート制限・APSchedulerの定期ジョブ等）、
+ワーカーを増やしても何も落ちずに意味だけが変わる——上限はワーカー数倍になり、ジョブは
+別ワーカーへ届いたポーリングから見つからず、定期ジョブはワーカー数だけ重なって走る。
+
+そこでlifespanの最初に`require_single_worker(sys.argv, os.environ)`を呼び、複数なら
+`RuntimeError`で起動を止める。ワーカーは`multiprocessing`のspawnで起動され親の`sys.argv`を
+受け継ぐため、ワーカーの中からuvicornに渡された引数が読める。引数の解釈はuvicorn自身の
+CLI定義（`uvicorn.main.main.make_context`）に任せ、`--reload`ではワーカー指定を無視する・
+未指定なら`WEB_CONCURRENCY`を読む、という既定の決め方だけをuvicornの`Config`に合わせる。
+uvicorn以外からの起動（テスト・スクリプト）は1とみなす。
+
+プロセスをまたいで状態を持つ（Redisへ置く）形にしないのは、状態が1つではないため——
+秒間上限だけをRedisへ移しても、他の状態がワーカーごとに分かれたまま残る。
 
 ## 設定（`config.py: Settings`）
 

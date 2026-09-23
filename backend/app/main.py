@@ -1,6 +1,8 @@
 import asyncio
 import functools
 import logging
+import os
+import sys
 from collections.abc import Awaitable, Callable
 from contextlib import asynccontextmanager
 from datetime import datetime
@@ -27,6 +29,7 @@ from app.infrastructure.request_log import (
     unhandled_exception_handler,
 )
 from app.infrastructure.response_compression import ContentTypeGZipMiddleware
+from app.infrastructure.single_process import require_single_worker
 from app.infrastructure.tuning_overrides import refresh_tuning_values
 from app.services.axis_registry_service import refresh_axis_definitions
 from app.services.jma_amedas_service import AMEDAS_REFRESH_INTERVAL_MINUTES, JmaAmedasService
@@ -127,6 +130,8 @@ async def _prune_stale_disk_generations_job() -> None:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    require_single_worker(sys.argv, os.environ)
+
     # httpx.AsyncClientの生成はSSLコンテキスト構築を伴い、環境によっては数百ms〜1秒かかる。
     # 遅延生成のままだとデプロイ直後の最初のリクエストがこのコストを負い、接続タイムアウトが
     # タイトな外部呼び出しではConnectTimeoutを誘発する。実際に使うtimeout値を先に構築しておく。
