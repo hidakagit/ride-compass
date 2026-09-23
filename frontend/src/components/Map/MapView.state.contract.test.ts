@@ -18,6 +18,7 @@ import { ROAD_LINE_SOURCE_ID, ROAD_TRACKS } from "@/features/map/scene/groups/ro
 import { pointLegendAxes, roadLegendAxes } from "@/features/map/scene/legends";
 import { LEGEND_NO_DATA_KEY, legendBandKey } from "@/components/Map/mapColorLegend";
 import { applyScene, sceneInputsFrom } from "@/features/map/scene/applyToMap";
+import { sceneState, type SceneState, type SceneStateOverrides } from "@/features/map/scene/__fixtures__/sceneState";
 import { buildMapScene } from "@/features/map/scene/buildScene";
 import { sceneLayerId } from "@/features/map/scene/sceneBuilders";
 import { mapDisplay } from "@/types/generated/mapDisplay";
@@ -33,33 +34,12 @@ const DEDICATED_AXES = dedicatedWayValueAxesFromCatalogAxes([
   catalogAxis({ axis_id: "ded2", dedicated_way_value_layer: true }),
 ]);
 
-type State = Parameters<typeof sceneInputsFrom>[0];
+type State = SceneState;
+const CATALOG = { rampAxes: RAMP_AXES, dedicatedAxes: DEDICATED_AXES };
 
-/** 何も出していない状態。個々のテストは必要な分だけ上書きする。 */
-function baseState(): State {
-  return {
-    routes: [],
-    selectedRouteId: null,
-    routeLayerOn: false,
-    routeStyleModes: [],
-    routeStyleModeId: "none",
-    hiddenRouteLegendKeys: [],
-    spliceStretches: [],
-    splicedRoute: null,
-    staticLayerVisibility: {},
-    dynamicWeather: {},
-    dedicatedWayValueVisibility: {},
-    axisVisibility: {},
-    roadHiddenKeysByMode: {},
-    staticLegendHiddenKeysByAxis: {},
-    experimentSlots: [],
-    dedicatedWayValues: new Map(),
-    rampAxes: RAMP_AXES,
-    dedicatedAxes: DEDICATED_AXES,
-    secondaryAxisCasingLayerIds: [],
-    tileVersionsReady: true,
-    inspectedWayId: null,
-  } as unknown as State;
+/** 表示ONのレイヤーだけを持つ状態。 */
+function shown(layerVisibility: Record<string, boolean>, look: SceneStateOverrides["look"] = {}) {
+  return sceneState({ catalog: CATALOG, look: { ...look, layerVisibility } });
 }
 
 // レイヤーidは**ソース名＋役割**で決まる。綴りは`sceneLayerId`からしか作らない
@@ -91,13 +71,7 @@ describe("状態を地図へ伝えた結果", () => {
     it("表示ONにしたものだけが見えている", () => {
       const { map, handle } = createRecordingMap();
 
-      rebuild(
-        map as never,
-        {
-          ...baseState(),
-          staticLayerVisibility: { elevation: true, landcover: false, hillshade: false },
-        } as unknown as State,
-      );
+      rebuild(map as never, shown({ elevation: true, landcover: false, hillshade: false }));
 
       expect(handle.layer(areaLayerId("elevation"))?.visibility).toBe("visible");
       expect(handle.layer(areaLayerId("landcover"))?.visibility).toBe("none");
@@ -107,13 +81,7 @@ describe("状態を地図へ伝えた結果", () => {
     it("面は、道路の線より背面にある", () => {
       const { map, handle } = createRecordingMap();
 
-      rebuild(
-        map as never,
-        {
-          ...baseState(),
-          staticLayerVisibility: { elevation: true, surface: true, tunnel: true },
-        } as unknown as State,
-      );
+      rebuild(map as never, shown({ elevation: true, surface: true, tunnel: true }));
 
       const order = handle.layerOrder();
       expect(order.indexOf(areaLayerId("elevation"))).toBeLessThan(order.indexOf(roadLayerId("tunnel")));
@@ -125,7 +93,7 @@ describe("状態を地図へ伝えた結果", () => {
       setTileVersions({});
       const { map, handle } = createRecordingMap();
 
-      rebuild(map as never, { ...baseState(), staticLayerVisibility: { surface: true } } as unknown as State);
+      rebuild(map as never, shown({ surface: true }));
 
       expect(handle.sources()).not.toContain(ROAD_LINE_SOURCE_ID);
     });
@@ -133,7 +101,7 @@ describe("状態を地図へ伝えた結果", () => {
     it("世代が届いた後に同じ状態を伝えると、道路の線が見えている", () => {
       setTileVersions({});
       const { map, handle } = createRecordingMap();
-      const state = { ...baseState(), staticLayerVisibility: { surface: true } } as State;
+      const state = shown({ surface: true });
       rebuild(map as never, state);
 
       setTileVersions(READY_VERSIONS);
@@ -147,13 +115,7 @@ describe("状態を地図へ伝えた結果", () => {
     it("路面と道路種別を同時に出すと、線が左右へ分かれる", () => {
       const { map, handle } = createRecordingMap();
 
-      rebuild(
-        map as never,
-        {
-          ...baseState(),
-          staticLayerVisibility: { surface: true, highway: true },
-        } as unknown as State,
-      );
+      rebuild(map as never, shown({ surface: true, highway: true }));
 
       const offsets = ROAD_TRACKS.map((track) => handle.layer(roadLayerId(track.attr_id))?.paint["line-offset"]).filter(
         (value) => value !== undefined,
@@ -165,14 +127,7 @@ describe("状態を地図へ伝えた結果", () => {
     it("凡例で隠した分類は、その線から落ちる", () => {
       const { map, handle } = createRecordingMap();
 
-      rebuild(
-        map as never,
-        {
-          ...baseState(),
-          staticLayerVisibility: { surface: true },
-          roadHiddenKeysByMode: { surface: ["asphalt"] },
-        } as unknown as State,
-      );
+      rebuild(map as never, shown({ surface: true }, { hiddenLegendKeys: { surface: ["asphalt"] } }));
 
       expect(handle.layer(roadLayerId("surface"))?.filter).toBeDefined();
     });
@@ -182,13 +137,7 @@ describe("状態を地図へ伝えた結果", () => {
     it("停止要因と補給は、同じソースの別レイヤーとして出る", () => {
       const { map, handle } = createRecordingMap();
 
-      rebuild(
-        map as never,
-        {
-          ...baseState(),
-          staticLayerVisibility: { stop_poi: true, supply_poi: true },
-        } as unknown as State,
-      );
+      rebuild(map as never, shown({ stop_poi: true, supply_poi: true }));
 
       const stop = handle.layer(pointLayerId("stop_poi"));
       const supply = handle.layer(pointLayerId("supply_poi"));
@@ -201,7 +150,7 @@ describe("状態を地図へ伝えた結果", () => {
     it("同じタイルを分け合う点は、互いの種別を混ぜない", () => {
       const { map, handle } = createRecordingMap();
 
-      rebuild(map as never, { ...baseState(), staticLayerVisibility: { stop_poi: true } } as unknown as State);
+      rebuild(map as never, shown({ stop_poi: true }));
 
       // 分ける条件を持たないと、補給の点が停止要因の色で出る。
       expect(handle.layer(pointLayerId("stop_poi"))?.filter).toBeDefined();
@@ -209,50 +158,37 @@ describe("状態を地図へ伝えた結果", () => {
   });
 
   describe("評価軸の線", () => {
-    function withValues(visibility: Record<string, boolean>, values: ReadonlyMap<string, ReadonlyMap<string, number>>) {
+    const delivered = (values: Record<string, Record<string, number>>) =>
+      new Map(
+        Object.entries(values).map(([axisId, byWay]) => [
+          axisId,
+          { values: new Map(Object.entries(byWay)), loading: false },
+        ]),
+      );
+
+    it("配られた値は、道路のソースの地物へ載り、塗っている軸の線が見える", () => {
       const { map, handle } = createRecordingMap();
       rebuild(
         map as never,
-        {
-          ...baseState(),
-          staticLayerVisibility: { surface: true },
-          dedicatedWayValueVisibility: visibility,
-          dedicatedWayValues: values,
-        } as unknown as State,
-      );
-      return { map, handle };
-    }
-
-    it("配られた値は、道路のソースの地物へ載る", () => {
-      const { handle } = withValues(
-        { ded1Axis: true, ded2Axis: true },
-        new Map([
-          ["ded1", new Map([["w1", 3]])],
-          ["ded2", new Map([["w1", 7]])],
-        ]),
+        shown(
+          { surface: true },
+          { paintedAxisId: "ded1", dedicatedWayValues: delivered({ ded1: { w1: 3 }, ded2: { w1: 7 } }) },
+        ),
       );
 
       expect(handle.featureState(ROAD_LINE_SOURCE_ID, "w1")).toEqual({ ded1Value: 3, ded2Value: 7 });
       expect(handle.layer(axisLayerId("ded1"))?.visibility).toBe("visible");
+      expect(handle.layer(axisLayerId("ded2"))?.visibility).toBe("none");
     });
 
     it("片方の軸の値が来なくなっても、もう片方の値は残る", () => {
       const { map, handle } = createRecordingMap();
-      const both = {
-        ...baseState(),
-        dedicatedWayValueVisibility: { ded1Axis: true, ded2Axis: true },
-        dedicatedWayValues: new Map([
-          ["ded1", new Map([["w1", 3]])],
-          ["ded2", new Map([["w1", 7]])],
-        ]),
-      } as unknown as State;
-      show(map, both);
+      show(
+        map,
+        shown({}, { paintedAxisId: "ded1", dedicatedWayValues: delivered({ ded1: { w1: 3 }, ded2: { w1: 7 } }) }),
+      );
 
-      show(map, {
-        ...both,
-        dedicatedWayValueVisibility: { ded1Axis: false, ded2Axis: true },
-        dedicatedWayValues: new Map([["ded2", new Map([["w1", 7]])]]),
-      } as unknown as State);
+      show(map, shown({}, { paintedAxisId: "ded2", dedicatedWayValues: delivered({ ded2: { w1: 7 } }) }));
 
       expect(handle.featureState(ROAD_LINE_SOURCE_ID, "w1")).toEqual({ ded2Value: 7 });
     });
@@ -284,10 +220,7 @@ describe("レイヤーを横断する要求", () => {
     for (const track of ROAD_TRACKS) visibility[track.attr_id] = true;
     for (const layer of POINT_LAYERS) visibility[layer.attr_id] = true;
     for (const role of ["elevation", "landcover", "hillshade"]) visibility[role] = true;
-    const axisVisibility: Record<string, boolean> = {};
-    for (const axis of RAMP_AXES) axisVisibility[`axis:${axis.axisId}`] = true;
-    const dedicatedVisibility: Record<string, boolean> = {};
-    for (const axis of DEDICATED_AXES) dedicatedVisibility[`${axis.axisId}Axis`] = true;
+    visibility.route = true;
     const mode = { id: "difficulty", label: "難易度", colorExpression: ["literal", "#16a34a"], legend: [] };
     const candidate = {
       id: "a",
@@ -318,25 +251,24 @@ describe("レイヤーを横断する要求", () => {
     const firstKeyHidden = (axes: readonly { axisId: string; entries: readonly { key: string }[] }[]) =>
       Object.fromEntries(axes.map((axis) => [axis.axisId, axis.entries.slice(0, 1).map((entry) => entry.key)]));
     const bandsHidden = [legendBandKey(0), LEGEND_NO_DATA_KEY];
-    return {
-      ...baseState(),
-      staticLayerVisibility: visibility,
-      dedicatedWayValueVisibility: dedicatedVisibility,
-      axisVisibility,
-      roadHiddenKeysByMode: firstKeyHidden(roadLegendAxes()),
-      staticLegendHiddenKeysByAxis: {
-        ...firstKeyHidden(pointLegendAxes()),
-        ...Object.fromEntries(RAMP_AXES.map((axis) => [axis.axisId, bandsHidden])),
+    // 評価軸は一度に1本しか塗らないが、どの軸のレイヤーも常に宣言され、塗るかは表示だけが変わる。
+    return sceneState({
+      catalog: { ...CATALOG, routeStyleModes: [mode] as never },
+      look: {
+        layerVisibility: visibility,
+        paintedAxisId: RAMP_AXES[0].axisId,
+        lens: "difficulty",
+        hiddenLegendKeys: {
+          ...firstKeyHidden(roadLegendAxes()),
+          ...firstKeyHidden(pointLegendAxes()),
+          ...Object.fromEntries([...RAMP_AXES, ...DEDICATED_AXES].map((axis) => [axis.axisId, bandsHidden])),
+        },
+        dynamicWeather: everyWeatherGroupState() as never,
       },
-      dedicatedWayValueHiddenBands: new Map(DEDICATED_AXES.map((axis) => [axis.axisId, bandsHidden])),
-      dynamicWeather: everyWeatherGroupState(),
-      routes: [candidate],
+      routes: [candidate] as never,
       selectedRouteId: "a",
-      routeLayerOn: true,
-      routeStyleModes: [mode],
-      routeStyleModeId: "difficulty",
-      experimentSlots: [{ color: "#16a34a", topCandidate: candidate }],
-    } as unknown as State;
+      experimentSlots: [{ color: "#16a34a", topCandidate: candidate }] as never,
+    });
   }
 
   // 「差し替え後に戻るか」はレイヤーごとの性質ではないので、家族ごとに繰り返さず

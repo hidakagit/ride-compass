@@ -29,7 +29,13 @@ import { useDynamicWeatherLayers } from "@/hooks/useDynamicWeatherLayers";
 import { useStoredBooleanState, useStoredState } from "@/hooks/useStoredState";
 import { useTileVersionsReady } from "@/hooks/useTileVersionsReady";
 
-import { deserializeHiddenLegendKeys, hiddenKeysOf, toggleHiddenKey, withHiddenKeys } from "./legendFilters";
+import {
+  deserializeHiddenLegendKeys,
+  hiddenKeysOf,
+  presentHiddenKeys,
+  toggleHiddenKey,
+  withHiddenKeys,
+} from "./legendFilters";
 import { lensLegend, lensOptions, paintedAxisId } from "./lens";
 import type { HiddenLegendKeys, MapLook } from "./mapLook";
 import { deserializeLayerVisibility, overlayChips } from "./overlayChips";
@@ -125,6 +131,7 @@ export function useMapView({ hasSelectedRoute, hasDetail, ride, now, usedWeights
   );
 
   const legend = lensLegend(lens, hasDetail, catalog);
+  const lensHidden = presentHiddenKeys(legend, hiddenKeysOf(hidden, lens));
   const lensFetch = dedicatedWayValues.get(lens);
   const chips = overlayChips({
     layers: buildMapLayers(catalog.rampAxes, catalog.dedicatedAxes, catalog.accidentYears),
@@ -158,7 +165,7 @@ export function useMapView({ hasSelectedRoute, hasDetail, ride, now, usedWeights
         catalog.axisColors,
       ),
       legend,
-      hiddenLegendKeys: hiddenKeysOf(hidden, lens),
+      hiddenLegendKeys: lensHidden,
       onToggleLegendKey: (key) => toggleHiddenFor(lens, key),
       onSetHiddenLegendKeys: (keys) => setHiddenFor(lens, keys),
       keepAfterRoute,
@@ -185,7 +192,9 @@ export function useMapView({ hasSelectedRoute, hasDetail, ride, now, usedWeights
         setLayerVisibility(
           (prev) => Object.fromEntries(Object.keys(prev).map((id) => [id, false])) as MapLayerVisibility,
         ),
-      anyLegendHidden: Object.keys(hidden).length > 0,
+      anyLegendHidden:
+        lensHidden.length > 0 ||
+        chips.some((chip) => (chip.legendDetails ?? []).some((axis) => axis.hiddenKeys.length > 0)),
       showAllLegendRows: () => setHidden(NO_HIDDEN),
       redraw: () => setRefreshToken((token) => token + 1),
     },

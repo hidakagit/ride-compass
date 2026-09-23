@@ -2,7 +2,7 @@
 // `legendFilters.ts`——凡例で隠した行の保存先の読み書き。
 import { describe, expect, it } from "vitest";
 
-import { deserializeHiddenLegendKeys, toggleHiddenKey, withHiddenKeys } from "./legendFilters";
+import { deserializeHiddenLegendKeys, presentHiddenKeys, toggleHiddenKey, withHiddenKeys } from "./legendFilters";
 
 describe("隠した行の切り替え", () => {
   it("押すたびに隠す・戻すが入れ替わり、最後の1行を戻すと保存先から鍵ごと消える", () => {
@@ -13,6 +13,12 @@ describe("隠した行の切り替え", () => {
 
   it("まとめて置き換えるときも、空にした鍵は消し、他の鍵は残す", () => {
     expect(withHiddenKeys({ a: ["k1"], b: ["k2"] }, "a", [])).toEqual({ b: ["k2"] });
+  });
+});
+
+describe("presentHiddenKeys（いま描いている凡例に実在する鍵）", () => {
+  it("凡例に無い古い鍵は数えない", () => {
+    expect(presentHiddenKeys([{ key: "a" }, { key: "b" }], ["b", "old"])).toEqual(["b"]);
   });
 });
 

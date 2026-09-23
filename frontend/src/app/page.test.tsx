@@ -1,6 +1,6 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 
-import { buildMapLayers } from "@/components/Map/mapLayers";
+import type { MapViewport } from "@/components/Map/windLayer";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AxisCatalogResponse } from "@/types/route";
 import { makeRouteCandidate } from "@/testing/routeFixtures";
@@ -13,14 +13,7 @@ import { makeRouteCandidate } from "@/testing/routeFixtures";
 // MapOverlayControlsだけは、実際に組み立てられたlayers（id・on）をそのまま可視化する
 // スタブにして、テストからlayerVisibilityの実効値を検証できるようにする。
 
-// 地図本体は描かないが、**世代が揃ったと伝えたかどうか**だけは読めるようにする。
-// ここがカタログの取得完了で代用されていると、世代を返さない版のbackendが応答した窓で
-// URL組み立てが例外になる（T938）。
-vi.mock("@/components/Map/MapView", () => ({
-  default: (props: { tileVersionsReady?: boolean }) => (
-    <div data-testid="map-tile-versions-ready">{String(props.tileVersionsReady)}</div>
-  ),
-}));
+vi.mock("@/components/Map/MapView", () => ({ default: () => null }));
 vi.mock("@/components/RouteForm/RouteForm", () => ({ default: () => null }));
 vi.mock("@/components/WeatherPanel/WeatherPanel", () => ({ default: () => null }));
 vi.mock("@/components/WarningBadge/WarningBadge", () => ({ default: () => null }));
@@ -215,26 +208,6 @@ describe("Home（app/page.tsx） layerVisibilityの永続化", () => {
     const text = screen.getByTestId("overlay-layers").textContent ?? "";
     expect(text).not.toContain("axis:gui_created_axis");
   });
-
-  it(
-    "route:false（T518以前の意味で保存された値）は移行後trueとしてlocalStorageへも" +
-      "書き戻される（実バグ修正の回帰テスト、2026-09-03ユーザー指摘「進行方向の矢印が" +
-      "以前は出てたのに消えている」）。reloadKey（axisCatalog.loaded）によりdeserializeが" +
-      "マウント直後・カタログ取得完了後の2回走るが、1回目の移行結果をlocalStorageへ" +
-      "書き戻さないと2回目が古いroute:falseを読み直して巻き戻る不具合があった",
-    async () => {
-      vi.mocked(getAxisCatalog).mockResolvedValue(catalogWithGuiCreatedAxis());
-      window.localStorage.setItem(LAYER_VISIBILITY_STORAGE_KEY, JSON.stringify({ route: false }));
-
-      render(<Home />);
-
-      await waitFor(() => {
-        const stored = window.localStorage.getItem(LAYER_VISIBILITY_STORAGE_KEY);
-        expect(stored).not.toBeNull();
-        expect((JSON.parse(stored ?? "{}") as { route?: boolean }).route).toBe(true);
-      });
-    },
-  );
 });
 
 // ============================================================================
@@ -362,45 +335,6 @@ describe("Home（app/page.tsx） レイヤーの同時ON/OFF", () => {
 // dataNature自体を見る形へ修正済みであることを、titleの実際の値で確認する。
 // **案内の文言そのものは固定しない**——入口が変われば文言も変わるのが正しく、
 // 固定すると誤った案内を検査が守ることになる。見るのは「付くかどうか」だけ。
-describe("Home（app/page.tsx） 地図上チップのtitle（改善計画T468: dataNature単一ソース化）", () => {
-  beforeEach(() => {
-    window.localStorage.clear();
-  });
-  afterEach(() => {
-    window.localStorage.clear();
-    vi.mocked(getAxisCatalog).mockReset();
-  });
-
-  function overlayLayerTitles(): Map<string, string | undefined> {
-    const text = screen.getByTestId("overlay-layer-titles").textContent ?? "[]";
-    const layers = JSON.parse(text) as Array<[string, string | undefined]>;
-    return new Map(layers);
-  }
-
-  it("dataNature=dynamicのwindVectorは設定への案内を付けずlayer.descriptionそのままをtitleにする", async () => {
-    vi.mocked(getAxisCatalog).mockReturnValue(new Promise(() => {}));
-    render(<Home />);
-
-    await screen.findByTestId("overlay-layer-titles");
-    const title = overlayLayerTitles().get("windVector");
-    expect(title).toBe("気象庁MSMの風向・風速予報を矢印で表示[1〜3日先まで]");
-  });
-
-  it("dataNature=static（既定）のroadTypeは設定への案内が付いたtitleになる", async () => {
-    vi.mocked(getAxisCatalog).mockReturnValue(new Promise(() => {}));
-    render(<Home />);
-
-    await screen.findByTestId("overlay-layer-titles");
-    const title = overlayLayerTitles().get("highway");
-    // 文言ではなく「descriptionの後ろに案内が付いていること」を見る。案内の文言は
-    // 入口が変われば変わるのが正しく、固定すると誤った案内を検査が守ることになる。
-    const description = buildMapLayers([], []).find((layer) => layer.id === "highway")?.description;
-    expect(description).toBeTruthy();
-    expect(title).not.toBe(description);
-    expect(title?.startsWith(description as string)).toBe(true);
-  });
-});
-
 // ============================================================================
 // 改善計画T331: handleGenerateハンドラ・4並列fetch（天候・警報・WBGT・氾濫予報）の競合
 // 対策ロジックのテスト追加。上のdescribeブロックはlayerVisibilityの永続化のみを検証して
@@ -568,21 +502,10 @@ async function renderFreshHome(options: RenderFreshHomeOptions = {}) {
   }
 
   if (options.exposeViewportChange) {
-    // 実物のMapViewはズームのたびに、記述子が宣言した最小ズームを下回ったレイヤーを
-    // 伝える（tileZoomTooWideLayerIds）。スタブもここだけは実物と同じ導出を使う——
-    // レイヤーidを手で並べると、宣言を足したときにこのテストだけが古くなる。
-    const { tileZoomTooWideLayerIds } = await import("@/components/Map/mapLayers");
+    // 実物のMapViewはパン・ズームが確定するたびにビューポート（ズームを含む）を伝える。
     vi.doMock("@/components/Map/MapView", () => ({
-      default: (props: {
-        onViewportChange: (viewport: { zoom: number; latitude: number; longitude: number }) => void;
-        onTileZoomTooWideChange: (ids: readonly string[]) => void;
-      }) => (
-        <button
-          onClick={() => {
-            props.onViewportChange({ zoom: 5, latitude: 35.68, longitude: 139.76 });
-            props.onTileZoomTooWideChange(tileZoomTooWideLayerIds(5));
-          }}
-        >
+      default: (props: { look: { onViewportChange: (viewport: MapViewport) => void } }) => (
+        <button onClick={() => props.look.onViewportChange({ west: 139, south: 35, east: 140, north: 36, zoom: 5 })}>
           テスト用に広域へズームアウト
         </button>
       ),
@@ -2164,9 +2087,6 @@ describe("タイル世代が届かないとき（T938）", () => {
 
     expect(panels.get("surface")?.[1]).toBe("配信情報を取得できず表示できません");
     expect(status.get("surface")).toBe("error");
-    // カタログは「取得済み」なのに世代は揃っていない。ここをカタログ側で代用すると、
-    // 地図はURLを組み立てようとして例外になる。
-    expect(screen.getByTestId("map-tile-versions-ready").textContent).toBe("false");
   });
 
   it("世代が揃えば理由は消える", async () => {
@@ -2176,7 +2096,6 @@ describe("タイル世代が届かないとき（T938）", () => {
 
     expect(panels.get("surface")?.[1]).not.toBe("配信情報を取得できず表示できません");
     expect(status.get("surface")).not.toBe("error");
-    expect(screen.getByTestId("map-tile-versions-ready").textContent).toBe("true");
   });
 });
 

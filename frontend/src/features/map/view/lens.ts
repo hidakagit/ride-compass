@@ -15,15 +15,6 @@ export function paintedAxisId(lens: LensId, hasDetail: boolean, keepAfterRoute: 
   return !hasDetail || keepAfterRoute ? lens : null;
 }
 
-/** 軸ごとのレイヤーid → 表示するか。塗っている軸のレイヤーだけがtrue。 */
-export function axisLayerVisibility(
-  axes: readonly { axisId: string }[],
-  layerIdOf: (axisId: string) => string,
-  painted: LensId | null,
-): Record<string, boolean> {
-  return Object.fromEntries(axes.map((axis) => [layerIdOf(axis.axisId), axis.axisId === painted]));
-}
-
 /** レンズの凡例。地図がいま塗っているものの凡例だけを出す——塗っていない間に出すと、
  * 地図のどこにも無い色見本の表になる。ルート確定後はルート線のモードの凡例。 */
 export function lensLegend(

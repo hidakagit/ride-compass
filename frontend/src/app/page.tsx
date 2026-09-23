@@ -1,12 +1,11 @@
 "use client";
 
-import palette from "@/types/generated/palette.json";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import * as Tabs from "@radix-ui/react-tabs";
 import Disclosure from "@/components/Disclosure/Disclosure";
 import { Button } from "@/components/ui/Button/Button";
 import MapView, { type RouteFitObscuredPx } from "@/components/Map/MapView";
-import MapOverlayControls, { type OverlayLayerChip } from "@/components/MapOverlayControls/MapOverlayControls";
+import MapOverlayControls from "@/components/MapOverlayControls/MapOverlayControls";
 import {
   ClearAllFiltersIcon,
   ClearAllLayersIcon,
@@ -18,41 +17,12 @@ import {
   RouteSettingsIcon,
 } from "@/components/Map/icons";
 import BottomSheet, { clampSheetHeightVh, DEFAULT_SHEET_HEIGHT_VH } from "@/components/BottomSheet/BottomSheet";
-import {
-  buildMapLayers,
-  deriveFetchLayerStatus,
-  isAxisStudioLayer,
-  type LayerDataStatus,
-  type LayerDataStatusByLayer,
-  type MapLayerId,
-  buildDefaultLayerVisibility,
-  TILE_ZOOM_TOO_WIDE_NOTICE,
-  UNUSED_LEGEND_FILTER,
-  TILE_VERSIONS_MISSING_NOTICE,
-  tileVersionGatedLayerIds,
-  type MapLayerVisibility,
-} from "@/components/Map/mapLayers";
-import { axisMapLayerId, buildAxisRampLegend, dedicatedWayValueMapLayerId } from "@/components/Map/axisLayers";
-import { dedicatedWayValueLegend } from "@/components/Map/dedicatedWayValueLayer";
-import LensControl, { type LensOption } from "@/components/LensControl/LensControl";
-import type { LegendEntry } from "@/components/Map/legendFilter";
-import { primaryAttributeIdsToLayerIds } from "@/components/Map/primaryAttributes";
-import { type LegendFilterSummaryAxis } from "@/components/Map/legendFilter";
-import type { DisasterSourceKey } from "@/components/Map/dynamicWeather";
-import { pointLegendAxes, roadLegendAxes, type SceneLegendAxis } from "@/features/map/scene/legends";
-import {
-  DEFAULT_ROUTE_STYLE_MODE_ID,
-  LENS_DIFFICULTY_ID,
-  LENS_NEUTRAL_COLOR,
-  LENS_NONE_ID,
-  getRouteStyleMode,
-  isRouteStyleModeId,
-  type LensId,
-} from "@/components/Map/routeStyleModes";
+import LensControl from "@/components/LensControl/LensControl";
+import { LENS_DIFFICULTY_ID, LENS_NONE_ID } from "@/components/Map/routeStyleModes";
 import ErrorText from "@/components/ErrorText/ErrorText";
 import RouteForm, { type RouteMode, type SettingsTab } from "@/components/RouteForm/RouteForm";
 import { useRouteFormSubmit } from "@/components/RouteForm/useRouteFormSubmit";
-import RouteSettingsPanel, { stackBarColorForIndex } from "@/components/RouteSettingsPanel/RouteSettingsPanel";
+import RouteSettingsPanel from "@/components/RouteSettingsPanel/RouteSettingsPanel";
 import HardFilterPanel, { DEFAULT_HARD_FILTERS } from "@/components/RouteSettingsPanel/HardFilterPanel";
 import RouteAxisProfile from "@/components/RouteAxisProfile/RouteAxisProfile";
 import RouteSplicePanel from "@/components/RouteSplicePanel/RouteSplicePanel";
@@ -71,19 +41,13 @@ import WarningBadgeList from "@/components/WarningBadge/WarningBadge";
 import HeaderMenu from "@/components/HeaderMenu/HeaderMenu";
 import RideConditionBar from "@/components/RideConditionBar/RideConditionBar";
 import TravelBearingControl from "@/components/TravelBearingControl/TravelBearingControl";
-import type { MapViewport } from "@/components/Map/windLayer";
-import { THUNDER_ACTIVITY_LEVELS, TORNADO_POTENTIAL_LEVELS } from "@/components/Map/thunderNowcast";
-import { RISK_LEVEL_COLORS } from "@/components/Map/riskMap";
-import { useDynamicWeatherLayers } from "@/hooks/useDynamicWeatherLayers";
-import { dedicatedWayValuesFor, useDedicatedWayValues } from "@/hooks/useDedicatedWayValues";
 import { useWeatherConditions } from "@/hooks/useWeatherConditions";
 import { useAxisCatalog } from "@/hooks/useAxisCatalog";
 import { CLIENT_TUNING_IDS, clientTuningValue } from "@/lib/axisCatalog";
-import { useTileVersionsReady } from "@/hooks/useTileVersionsReady";
 import { useMaterialCatalog } from "@/hooks/useMaterialCatalog";
 import { syncHardFilterKeys } from "@/lib/hardFilterSync";
 import { buildGenerateRequest, generationConditionsKey, type GenerationInput } from "@/lib/generationRequest";
-import { syncRoutePreferenceKeys } from "@/lib/routePreferenceSync";
+import { routePreferenceToSend } from "@/lib/routePreferenceSync";
 import { formatMaterialValue, materialCatalogName } from "@/lib/axisMaterialsCatalog";
 import { downloadGpx } from "@/lib/gpxExport";
 import { baselineDistanceKm, loadBarHeightRatio } from "@/lib/difficultyLoadBar";
@@ -96,7 +60,6 @@ import {
 } from "@/lib/routeTabLabel";
 import ComparisonPanel from "@/components/ComparisonPanel/ComparisonPanel";
 import DebugConsole from "@/components/DebugConsole/DebugConsole";
-import { useDebouncedValue } from "@/hooks/useDebouncedValue";
 import { debugLog } from "@/lib/debugLog";
 import { useDebugEnabled } from "@/hooks/useDebugLog";
 import { useResearchEnabled } from "@/hooks/useResearchMode";
@@ -105,6 +68,8 @@ import { useElementHeightCssVar } from "@/hooks/useElementHeightCssVar";
 import { useIsomorphicLayoutEffect } from "@/hooks/useIsomorphicLayoutEffect";
 import { useLocation } from "@/hooks/useLocation";
 import { useStoredState, useStoredBooleanState, useStoredJsonState } from "@/hooks/useStoredState";
+import { useDepartureTime } from "@/hooks/useDepartureTime";
+import { useMapView } from "@/features/map/view/useMapView";
 import { generateRoutes, type GenerationProgress } from "@/services/routeApi";
 import type {
   Coordinates,
@@ -138,33 +103,6 @@ const MAX_DISTANCE_KM = routeGenerateConfig.max_distance_km;
 // 目的地モードでは距離をユーザーに入力させず、地図上の経由地・目的地から自動算出する
 // （backend/app/domain/geo.py: haversine_distance_kmと同じ球面距離の簡易実装。フロントは
 // 既存の距離計算ユーティリティを持たないためここに最小実装する）。
-// 凡例の絞り込みチェックを地図へ反映するまでの猶予。チェック自体は即時反映が原則だが、
-// 連続タップのたびにMapLibreのフィルタ再適用を走らせない（useDebouncedValue参照）。
-// 道路情報の2軸に加え、停止要因POI・事故（当事者/重大度）の
-// 絞り込みにも同じ猶予を適用する。
-const LEGEND_FILTER_DEBOUNCE_MS = 400;
-
-// 色分けモード（ルート）の保存先。プライベートブラウジング等でlocalStorageが
-// 使えない環境があるため、読み書きとも失敗はデフォルトモードへのフォールバックとして
-// 握りつぶす。道路の線は色分けモードを持たない（分類ごとの固定色）ため
-// 対応する保存先は無い。
-// レンズ（地図を何で塗るか）。保存キーはルート線の色分けモードと共通（同じ値を指す）。
-const ROUTE_STYLE_MODE_STORAGE_KEY = "ridecompass:route-style-mode";
-const LENS_KEEP_AFTER_ROUTE_STORAGE_KEY = "ridecompass:lens-keep-after-route";
-
-// 地図の見え方（系統B、レイヤーのON/OFF・絞り込み・レンズ）の設定はすべてlocalStorageへ
-// 保存し、リロード後も復元する。
-// 生成条件（系統A）のうち、ルート設定パネルが操作する評価の設定（重み・0次除外）も
-// 保存する——同じパネルで並んでいる設定の片方だけが消えると、利用者は何が残るか予測
-// できない。毎回初期化するのは「その場で決まる」出発地点・距離だけにする。
-const LAYER_VISIBILITY_STORAGE_KEY = "ridecompass:layer-visibility";
-// layerVisibility.routeは「候補線・ハロー・矢印・色分けレイヤー全体」を指す。過去に
-// 明示的にfalseへ変更・保存していた利用者は、更新後にルートを生成しても地図に候補線が
-// 1本も出ない状態から始まってしまう（復帰手段の地図チップもhasDetail成立まで無効化
-// されているため気づきにくい）。1回限りの移行マーカー——このキーが無い間だけ
-// route:falseをtrueへ強制し、以後はユーザーの選択どおり保存・復元する。
-const ROUTE_LAYER_MEANING_MIGRATED_STORAGE_KEY = "ridecompass:route-layer-meaning-migrated-v1";
-const HIDDEN_LEGEND_KEYS_STORAGE_KEY = "ridecompass:hidden-legend-keys";
 const GENERATE_OPEN_STORAGE_KEY = "ridecompass:generate-open";
 const OUTCOME_OPEN_STORAGE_KEY = "ridecompass:outcome-open";
 // モバイル下部シートの高さ。シートは排他表示のため1つの値を共有する
@@ -182,60 +120,6 @@ const MAX_ROUTES_STORAGE_KEY = "ridecompass:max-routes";
 // 走行条件（地図上のRideConditionBar）のうち想定速度だけを持つ。巡航速度は利用者固有の
 // 安定した値だが、出発時刻・走行方位は行くたびに変わる。
 const ASSUMED_SPEED_STORAGE_KEY = "ridecompass:assumed-speed-kmh";
-
-// 地図チップ・サイドバーからON/OFFできるレイヤーの既定値。記述子の`defaultOn`から導く
-// （レイヤーを足してもここは変わらない。既定ONにするかはレイヤーの性質の側で宣言する）。
-//
-// 「道路情報」（road）はhighway（道路の種類）/surface（路面の種類）という別々のレイヤーへ分かれている。
-// 旧保存値（road: boolean）からの移行処理はuseStoredStateのdeserialize（下記）参照。線状降水帯予測マップは
-// 「降水」チップの傘下へ統合されており、個別のキーを持たない（hooks/
-// useDynamicWeatherLayers.ts参照）。
-const DEFAULT_LAYER_VISIBILITY: MapLayerVisibility = buildDefaultLayerVisibility();
-
-// 「どのモードでも非表示カテゴリ無し」を表す共通の空配列。useStateの外に置いて参照を
-// 固定し、MapView側のエフェクト依存（hidden*LegendKeys）が毎レンダーで発火しないようにする。
-const NO_HIDDEN_LEGEND_KEYS: string[] = [];
-
-// 災害チップの要素トグルの保存先ID（hiddenLegendKeysByModeのキー）。実際の絞り込み軸
-// （路面の種類等）のIDと衝突しないよう、レイヤーIDそのものを使う。
-const DISASTER_SOURCE_AXIS_ID = "disaster";
-
-// 災害チップの▶パネルに出す「表示する情報」（ソースごとの個別トグル）。axisIdを持つため
-// LegendCheckboxListで描画され、非表示キーはhiddenLegendKeysByMode[DISASTER_SOURCE_AXIS_ID]
-// へ保存される（▶パネルの絞り込みと同じ保存先・同じ操作感）。
-// 面同士は重なると混色して危険度を読み取れないため、混んできたらここで絞り込む。
-// keyは源泉が配る災害のソース（dynamicWeather.ts: `DisasterSourceKey`）でなければならない。型で縛る。
-const DISASTER_SOURCE_LEGEND: (LegendEntry & { key: DisasterSourceKey })[] = [
-  { key: "heavyRain", label: "大雨キキクル", color: RISK_LEVEL_COLORS[2].color, filter: UNUSED_LEGEND_FILTER },
-  { key: "landslide", label: "土砂災害キキクル", color: RISK_LEVEL_COLORS[2].color, filter: UNUSED_LEGEND_FILTER },
-  { key: "inundation", label: "浸水キキクル", color: RISK_LEVEL_COLORS[2].color, filter: UNUSED_LEGEND_FILTER },
-  { key: "flood", label: "洪水キキクル（河川）", color: RISK_LEVEL_COLORS[2].color, filter: UNUSED_LEGEND_FILTER },
-  { key: "thunder", label: "雷ナウキャスト", color: THUNDER_ACTIVITY_LEVELS[1].color, filter: UNUSED_LEGEND_FILTER },
-  { key: "tornado", label: "竜巻発生確度", color: TORNADO_POTENTIAL_LEVELS[0].color, filter: UNUSED_LEGEND_FILTER },
-  { key: "liden", label: "落雷（発生地点）", color: palette.semantic.lightning, filter: UNUSED_LEGEND_FILTER },
-];
-
-// 災害チップの凡例。precipitation/wind凡例と同じパターン（表示専用、filterはダミー値）で、
-// 危険度の色の意味を要素の種類ごとに並べる。実データ（活動度・発生確度・危険度5段階の
-// ラベルと近似色）はthunderNowcast.ts・riskMap.tsが単一の情報源。キキクル4種は4つとも
-// 同じ5段階配色のため、凡例も1ブロックにまとめる。
-const DISASTER_LEGEND_DETAILS_BASE: readonly LegendFilterSummaryAxis[] = [
-  {
-    label: "キキクル（土砂災害・大雨・浸水・洪水）",
-    legend: RISK_LEVEL_COLORS.map((level) => ({ ...level, filter: UNUSED_LEGEND_FILTER })),
-    hiddenKeys: NO_HIDDEN_LEGEND_KEYS,
-  },
-  {
-    label: "雷ナウキャスト（活動度）",
-    legend: THUNDER_ACTIVITY_LEVELS.map((level) => ({ ...level, filter: UNUSED_LEGEND_FILTER })),
-    hiddenKeys: NO_HIDDEN_LEGEND_KEYS,
-  },
-  {
-    label: "竜巻発生確度ナウキャスト",
-    legend: TORNADO_POTENTIAL_LEVELS.map((level) => ({ ...level, filter: UNUSED_LEGEND_FILTER })),
-    hiddenKeys: NO_HIDDEN_LEGEND_KEYS,
-  },
-];
 
 // 「ルートを作る」セクション見出しのDOM id。デスクトップの<summary>専用（モバイルは
 // 「ルート設定」「ルート結果」の2タブへ分割しているため、専用の
@@ -537,150 +421,6 @@ export default function Home() {
     setSelectedRouteSegment(null);
   }, []);
 
-  // MapViewから伝わる現在のビューポート（MapView.tsx: onViewportChange参照）。
-  // moveend/zoomendのたびに素の値が来るため、フェッチ用にはデバウンスして使う
-  // （useWeatherGrid内の詳細格子[getWindGridDetail]のフェッチeffect参照）。
-  const [mapViewport, setMapViewport] = useState<MapViewport | null>(null);
-
-  // 地図レイヤーのON/OFF（MapLayerId単位。既定値はレイヤー記述子の`defaultOn`から
-  // 導かれるため、レイヤーを足してもここへ足すものは無い）。
-  // localStorageへの保存・復元はuseStoredState参照。既知のレイヤーID
-  // かつboolean値のものだけ採用する（レイヤーの増減や壊れた保存値があっても、残りの設定は
-  // 活かしてデフォルトで埋める）。
-  //
-  // reloadKeyにaxisCatalog.loadedを渡し、マウント直後とカタログ取得完了後の2段階で復元する
-  // （useStoredState.ts参照）。キー集合自体はカタログに依存しないが、下の「route:falseの
-  // 意味変更」移行が1回目の復元で書き戻した値を、2回目の復元がそのまま読み直せるように
-  // 揃えている。
-  const [layerVisibility, setLayerVisibility] = useStoredState<MapLayerVisibility>(
-    LAYER_VISIBILITY_STORAGE_KEY,
-    DEFAULT_LAYER_VISIBILITY,
-    {
-      serialize: (v) => JSON.stringify(v),
-      reloadKey: axisCatalog.loaded,
-      deserialize: (raw) => {
-        let parsed: unknown;
-        try {
-          parsed = JSON.parse(raw);
-        } catch {
-          return null;
-        }
-        if (typeof parsed !== "object" || parsed === null) return null;
-        const next: MapLayerVisibility = { ...DEFAULT_LAYER_VISIBILITY };
-        const parsedRecord = parsed as Record<string, unknown>;
-        // 「道路情報」（road）の論理分割（highway/surface）に伴う旧保存値の移行。
-        // 旧形式（road: boolean、新キーが無い）が残っていれば両方の新キーへ引き継ぐ
-        // （新形式で保存済みなら下のループがhighway/surfaceを個別に上書きする）。
-        if (
-          typeof parsedRecord.road === "boolean" &&
-          parsedRecord.highway === undefined &&
-          parsedRecord.surface === undefined
-        ) {
-          next.highway = parsedRecord.road;
-          next.surface = parsedRecord.road;
-        }
-        for (const id of Object.keys(next) as MapLayerId[]) {
-          const value = parsedRecord[id];
-          if (typeof value === "boolean") next[id] = value;
-        }
-        // 1回限りの移行。マーカーが未設定の間だけroute:falseをtrueへ戻す（旧い意味
-        // [色分けレイヤーのみ非表示]で保存された値を、新しい意味[全レイヤー非表示]の
-        // まま引き継がせないため）。マーカー自体はroute値に関わらず必ず立て、次回以降は
-        // ユーザーの選択どおり尊重する。
-        try {
-          if (window.localStorage.getItem(ROUTE_LAYER_MEANING_MIGRATED_STORAGE_KEY) == null) {
-            if (next.route === false) {
-              next.route = true;
-              // useStoredStateの復元effect（useStoredState.ts）はsetValueのみを呼びcommit
-              // （localStorageへの書き戻し）は行わない。この移行はreloadKey（axisCatalog.loaded）
-              // 経由でマウント直後（false）→フェッチ完了後（true）の2回deserializeが走るため、
-              // ここで明示的に書き戻さないと、1回目でnext.route=trueへ補正してもlocalStorage上は
-              // 元のroute:falseのまま残り、2回目のdeserializeが同じ生値を読み直して補正前の
-              // falseへ静かに巻き戻ってしまう（マーカー自体は1回目で立つため2回目は移行
-              // ブロックに入らずfalseのまま確定する）。route:falseが復元されるとMapViewの
-              // routeLayerOnがfalseになり、ルート線のレイヤー（候補線・ハロー・矢印・区間色分け等）が
-              // 全て非表示になる。
-              window.localStorage.setItem(LAYER_VISIBILITY_STORAGE_KEY, JSON.stringify(next));
-            }
-            window.localStorage.setItem(ROUTE_LAYER_MEANING_MIGRATED_STORAGE_KEY, "1");
-          }
-        } catch {
-          // 書き戻し・マーカーいずれかの読み書きに失敗した場合は移行が未完了のまま残る
-          // （マーカー未設定なら次回起動時に再試行される。通常のデフォルト値フォールバックにも
-          // 引き続き任せる）。
-        }
-        return next;
-      },
-    },
-  );
-  // 2次（ramp軸）を太く半透明な下敷きにするのは、その材料（1次、
-  // primaryAttributeIdsToLayerIds）が1つでも同時に表示されているときだけにする。材料が
-  // 1つも表示されていなければ、下に隠すものが無いため通常の太さ・不透明度で表示する
-  // （常に太く半透明にすると、道路網が密な都市部で下敷きの重なりだけで地図全体がぼやけて
-  // 見えてしまう）。軸→一次属性の解決はaxisCatalog.secondaryAxes（実行時カタログ、
-  // GUI作成軸を含む）のprimaryAttributeIdsから行う。
-  const secondaryAxisCasingLayerIds = useMemo(
-    () =>
-      axisCatalog.secondaryAxes
-        .filter((axis) => {
-          if (!axis.layerId) return false;
-          return primaryAttributeIdsToLayerIds(axis.primaryAttributeIds).some(
-            (materialId) => layerVisibility[materialId],
-          );
-        })
-        .map((axis) => axis.layerId as MapLayerId),
-    [layerVisibility, axisCatalog.secondaryAxes],
-  );
-  // レンズ（地図を何で塗るか）: "none" | "difficulty" | 公開軸のaxis_id。ルート前は全道路
-  // （rampタイル・専用配信）、ルート後はルート線を同じ識別子で塗る。生成・クリア・候補切替を
-  // またいで保持する。保存形式はJSON化しない生文字列（isRouteStyleModeIdによる妥当性検証が
-  // JSON.parseを兼ねる）。軸スタジオでunpublishされた軸idは総合難易度へ倒す。
-  // reloadKeyにaxisCatalog.loadedを渡す理由はlayerVisibilityと同じ。deserializeの妥当性判定が
-  // 実行時カタログ（routeStyleModes）に依存するため、カタログ取得前の1回だけで判定すると、
-  // ビルド後に公開された軸をレンズに選んでいた利用者の保存値が「未知のid」として捨てられ、
-  // 再訪のたびに無言で総合難易度へ戻る。
-  const [lens, setLens] = useStoredState<LensId>(ROUTE_STYLE_MODE_STORAGE_KEY, DEFAULT_ROUTE_STYLE_MODE_ID, {
-    serialize: (v) => v,
-    reloadKey: axisCatalog.loaded,
-    deserialize: (raw) => (isRouteStyleModeId(axisCatalog.routeStyleModes, raw) ? raw : null),
-  });
-  const routeStyleModes = axisCatalog.routeStyleModes;
-  useEffect(() => {
-    if (routeStyleModes.some((mode) => mode.id === lens)) return;
-    debugLog(
-      "map:route-style-mode",
-      `lens "${lens}" is not a known axis id, falling back to "${LENS_DIFFICULTY_ID}"`,
-      { requestedId: lens, availableIds: routeStyleModes.map((mode) => mode.id) },
-      "warn",
-    );
-    setLens(LENS_DIFFICULTY_ID);
-  }, [routeStyleModes, lens, setLens]);
-  // ルート確定後も周囲の道路（全道路の塗り）を残すか。
-  const [lensKeepAfterRoute, setLensKeepAfterRoute] = useStoredBooleanState(LENS_KEEP_AFTER_ROUTE_STORAGE_KEY, true);
-  // 凡例タップで非表示にしたカテゴリ（モード別に保持。モードを行き来しても各モードの
-  // 取捨選択が残る）。路面モードとルートモードのIDは互いに重複しないため1つのレコードで
-  // 両系統を管理できる。「文字列の配列」の形のエントリだけ復元時に採用する。
-  const [hiddenLegendKeysByMode, setHiddenLegendKeysByMode] = useStoredState<Record<string, string[]>>(
-    HIDDEN_LEGEND_KEYS_STORAGE_KEY,
-    {},
-    {
-      serialize: (v) => JSON.stringify(v),
-      deserialize: (raw) => {
-        let parsed: unknown;
-        try {
-          parsed = JSON.parse(raw);
-        } catch {
-          return null;
-        }
-        if (typeof parsed !== "object" || parsed === null) return null;
-        const entries = Object.entries(parsed as Record<string, unknown>).filter(
-          (entry): entry is [string, string[]] =>
-            Array.isArray(entry[1]) && entry[1].every((key) => typeof key === "string"),
-        );
-        return entries.length > 0 ? Object.fromEntries(entries) : null;
-      },
-    },
-  );
   // 「ルートを作る」セクションの開閉（デスクトップのみ。主機能のためデフォルト開）。
   // モバイルはBottomSheetの開閉自体がこれに相当するため参照しない。
   const [generateOpen, setGenerateOpen] = useStoredBooleanState(GENERATE_OPEN_STORAGE_KEY, true);
@@ -718,15 +458,6 @@ export default function Home() {
       // localStorageを使えない環境では「決めていない」（自動調整のまま）で構わない。
     }
   }, []);
-
-  // タイルの最小ズームを宣言したレイヤーのうち、いまのズームでは要求されないもの
-  // （MapView.tsx: onTileZoomTooWideChange）。どのレイヤーが対象かも閾値も記述子が持つ。
-  const [tileZoomTooWideLayerIds, setTileZoomTooWideLayerIds] = useState<readonly MapLayerId[]>([]);
-  // レイヤーごとのデータ取得状態。MapViewが実際のタイル取得結果（sourcedata/
-  // sourcedataloading/errorイベント）から算出する（動的気象レイヤーを除く、下記
-  // layerDataStatusのuseMemo参照）。
-  const [mapViewLayerDataStatus, setMapViewLayerDataStatus] = useState<LayerDataStatusByLayer>({});
-  const [refreshToken, setRefreshToken] = useState(0);
 
   // DebugPanel（デバッグモードON/OFFの設定）・SystemStatusPanel・BackendStatus
   // （バックエンド集計情報、地図に依存しない）は/adminにあるが、DebugConsole（地図の
@@ -904,346 +635,20 @@ export default function Home() {
     return { bottom: mobileViewportMetrics.tabBarPx + sheetPx };
   }, [isMobile, mobileSheet, mobileSheetHeightVh, mobileViewportMetrics]);
 
-  // 路面の2軸（路面の種類・道路の種類）は互いに独立なので常に両方同時に効かせる
-  // （例:「路面の種類=アスファルトのみ」かつ「道路の種類=自転車・歩行者道のみ」を
-  // 同時に絞り込みたい、という使い方に対応するため）。両軸分の非表示キーをまとめて
-  // MapView/MapOverlayControlsへ渡す。
-  // useMemoで参照を安定させる: このオブジェクトはMapView側のエフェクト依存
-  // （sceneの再適用→map.setFilter）に入るため、毎レンダー新規生成すると
-  // 天候取得等の無関係な再レンダーのたびにフィルタ式の再適用が走ってしまう。
-  const roadLegend = useMemo(() => roadLegendAxes(), []);
-  const roadHiddenKeysByMode = useMemo(
-    () =>
-      Object.fromEntries(
-        roadLegend.map((axis) => [axis.axisId, hiddenLegendKeysByMode[axis.axisId] ?? NO_HIDDEN_LEGEND_KEYS]),
-      ) as Record<string, readonly string[]>,
-    [roadLegend, hiddenLegendKeysByMode],
+  // 走行条件。地図の見え方・生成リクエスト・道の詳細が同じ値を読む。
+  const [travelBearingDeg, setTravelBearingDeg] = useState(0);
+  const departure = useDepartureTime();
+  const rideConditions = useMemo(
+    () => ({ bearingDeg: travelBearingDeg, at: departure.at, speedKmh: assumedSpeedKmh }),
+    [travelBearingDeg, departure.at, assumedSpeedKmh],
   );
-  // このファイル自身の凡例・絞り込み計算（staticLegendHiddenKeysByAxis・
-  // staticFilterLegendDetails、下記）は、軸スタジオで新規公開したramp軸の凡例・絞り込み
-  // 操作をこの画面のサマリ表示・▶パネルへ反映できるよう、mapLayers（下記）と
-  // 同じくaxisCatalog.rampAxesから都度組み立てる
-  // （点の分類はグループの宣言、評価軸は実行時のカタログから組み立てる）。
-  const staticFilterAxes = useMemo<readonly SceneLegendAxis[]>(
-    () => [
-      ...pointLegendAxes(),
-      ...axisCatalog.rampAxes.map((axis) => ({
-        layerId: axisMapLayerId(axis.axisId),
-        axisId: axis.axisId,
-        label: "",
-        entries: buildAxisRampLegend(axis),
-      })),
-    ],
-    [axisCatalog.rampAxes],
-  );
-  // 道路情報以外の絞り込み可能レイヤー（自転車インフラ・
-  // 停止要因POI・事故の当事者/重大度）。roadHiddenKeysByModeと同じ理由でuseMemoにより
-  // 参照を安定させる。
-  const staticLegendHiddenKeysByAxis = useMemo(
-    () =>
-      Object.fromEntries(
-        staticFilterAxes.map((axis) => [axis.axisId, hiddenLegendKeysByMode[axis.axisId] ?? NO_HIDDEN_LEGEND_KEYS]),
-      ) as Record<string, readonly string[]>,
-    [staticFilterAxes, hiddenLegendKeysByMode],
-  );
-  const hiddenRouteLegendKeys = hiddenLegendKeysByMode[lens] ?? NO_HIDDEN_LEGEND_KEYS;
-  const toggleHiddenLegendKey = useCallback(
-    (modeId: string, key: string) => {
-      setHiddenLegendKeysByMode((prev) => {
-        const current = prev[modeId] ?? [];
-        const nextKeys = current.includes(key) ? current.filter((k) => k !== key) : [...current, key];
-        return { ...prev, [modeId]: nextKeys };
-      });
-    },
-    [setHiddenLegendKeysByMode],
-  );
-  // 凡例カテゴリの「すべて表示/すべて隠す」一括操作（1軸分の非表示キー全体の置き換え）。
-  // 個別チェックはtoggleHiddenLegendKeyをそのまま使う（絞り込みは即時反映）。
-  const setHiddenLegendKeysForAxis = useCallback(
-    (axisId: string, hiddenKeys: string[]) => {
-      setHiddenLegendKeysByMode((prev) => ({ ...prev, [axisId]: hiddenKeys }));
-    },
-    [setHiddenLegendKeysByMode],
-  );
-  const handleRouteLegendToggle = useCallback(
-    (key: string) => toggleHiddenLegendKey(lens, key),
-    [lens, toggleHiddenLegendKey],
-  );
-  const handleLensLegendSetHidden = useCallback(
-    (hiddenKeys: string[]) => setHiddenLegendKeysForAxis(lens, hiddenKeys),
-    [lens, setHiddenLegendKeysForAxis],
-  );
-  // RouteAxisProfileの軸チップの色ドットを、RouteSettingsPanelの凡例チップと同じ色に
-  // する（同じ軸なら両パネルで同じ色、という視覚的な一貫性のため）。
-  // stackBarColorForIndexは表示順index・軸総数（catalog.axes.length）から色相環を
-  // 等分するため、両パネルとも同じaxisCatalog.axesの並び順・件数を渡す必要がある。
-  const axisChipColors = useMemo(() => {
-    const colors: Record<string, string> = {};
-    axisCatalog.axes.forEach((axis, index) => {
-      colors[axis.axisId] = stackBarColorForIndex(index, axisCatalog.axes.length);
-    });
-    return colors;
-  }, [axisCatalog.axes]);
-  // 「絞り込みを一括クリア」（ゆる～と等の地図ポータルの「消去」ボタンを参考に追加）。
-  // 軸ごとの「すべて表示」を1つずつ押させず、道路情報等の全軸＋ルート凡例の
-  // 非表示キーを一度に空へ戻す。レイヤーのON/OFF（layerVisibility）は「絞り込み」とは別の
-  // 状態（どのレイヤーを表示するか）のため、ここでは触らない。
-  const handleClearAllFilters = useCallback(() => setHiddenLegendKeysByMode({}), [setHiddenLegendKeysByMode]);
-
-  // 地図への反映だけデバウンスする（チェックボックス・条件サマリは即時のroadHiddenKeysByMode/
-  // staticLegendHiddenKeysByAxisを参照し、MapViewのフィルタ再適用のみ連続タップを1回へまとめる）。
-  const debouncedRoadHiddenKeysByMode = useDebouncedValue(roadHiddenKeysByMode, LEGEND_FILTER_DEBOUNCE_MS);
-  const debouncedStaticLegendHiddenKeysByAxis = useDebouncedValue(
-    staticLegendHiddenKeysByAxis,
-    LEGEND_FILTER_DEBOUNCE_MS,
-  );
-
-  // axisCatalog.rampAxes（実行時フェッチ、軸スタジオの公開軸を含む）から組み立てた
-  // レイヤーカタログを使う。
-  const mapLayers = useMemo(
-    () => buildMapLayers(axisCatalog.rampAxes, axisCatalog.dedicatedAxes, axisCatalog.accidentYears),
-    [axisCatalog.rampAxes, axisCatalog.dedicatedAxes, axisCatalog.accidentYears],
-  );
-
-  // 「推定指標をONにすると材料の観測データレイヤーも連動ON」するカスケードは持たない。
-  // 観測グループのメンバーを個別に「表示項目の設定」で非表示にできるため、非表示にした
-  // メンバーが推定指標側の操作で裏からONにされてしまうと、非表示設定でチップ自体が
-  // 隠れているためユーザーがOFFに戻す手段を失う（「チップからは消えたのに地図には出続ける」
-  // 不整合が起きる）。
-  //
-  // 地図上チップ（道路/環境/スポット）はどれも複数同時にONにできる。重なって読みにくく
-  // なった場合は、各チップの▶パネルで要素・カテゴリ単位に絞り込む
-  // （MapOverlayControls.tsx: renderLegendDetails）。道路グループの線同士は
-  // `line-offset`による並行トラック（features/map/scene/groups/roadLines.ts）で
-  // 重ならずに並ぶ。
-  //
-  // 軸スタジオ由来のレイヤー（isAxisStudioLayer、ramp軸・専用way値配信軸）は地図上チップ
-  // にもサイドバーにも現れず、layerVisibilityの対象外——表示ON/OFFはレンズ（LensControl）
-  // が単独で持つ（同じ道路の同じ位置を塗り分けるため重ねられず、レンズが常に1つだけ選ぶ）。
-  const handleLayerToggle = useCallback(
-    (id: MapLayerId, on: boolean) => {
-      setLayerVisibility((prev) => ({ ...prev, [id]: on }));
-    },
-    [setLayerVisibility],
-  );
-
-  // レンズを選ぶと、地図上の「ルート」チップ（layerVisibility.route）がOFFなら自動でONにする
-  // （選んだのに見えないままだと気づきにくいため）。
-  const handleLensChange = useCallback(
-    (id: LensId) => {
-      setLens(id);
-      if (!layerVisibility.route) handleLayerToggle("route", true);
-    },
-    [layerVisibility.route, handleLayerToggle, setLens],
-  );
-
-  // 地図上（MapOverlayControls）のサマリ行に出す「適用中の条件」の1行要約。
-  // 「道路情報」は路面の種類（surface）・道路の種類（highway）へ分かれているため、
-  // 軸ごとに個別のサマリ・内訳を持つ。
-  // 軸ごとのサマリ・内訳は`roadLegendAxes()`（roadLegend）を走査して作る。軸を名指しして
-  // 同じ形のブロックを並べると、軸を1つ足すたびに写経が増える。
-  const roadAxisPanels = useMemo(() => {
-    const legendDetailsByLayerId: Record<string, LegendFilterSummaryAxis[]> = {};
-    for (const axis of roadLegend) {
-      const hiddenKeys = roadHiddenKeysByMode[axis.axisId] ?? NO_HIDDEN_LEGEND_KEYS;
-      legendDetailsByLayerId[axis.layerId] = [
-        { label: axis.label, legend: axis.entries, hiddenKeys, axisId: axis.axisId },
-      ];
-    }
-    return { legendDetailsByLayerId };
-  }, [roadLegend, roadHiddenKeysByMode]);
-
-  const routeLegendDetails = useMemo<LegendFilterSummaryAxis[]>(
-    () =>
-      hasDetail
-        ? [
-            {
-              label: "",
-              legend: getRouteStyleMode(routeStyleModes, lens).legend,
-              hiddenKeys: hiddenRouteLegendKeys,
-              axisId: lens,
-            },
-          ]
-        : [],
-    [hasDetail, lens, hiddenRouteLegendKeys, routeStyleModes],
-  );
-
-  // 道路情報以外の絞り込み可能レイヤーの▶パネルの中身。1つのレイヤーが複数の軸を持つ
-  // ことがある（事故は当事者と重大度）ため、そのレイヤーの軸をまとめて渡す。
-  const staticFilterLegendDetails = useMemo(() => {
-    const result: Partial<Record<MapLayerId, LegendFilterSummaryAxis[]>> = {};
-    const layerIds = new Set(staticFilterAxes.map((axis) => axis.layerId));
-    for (const layerId of layerIds) {
-      const axes = staticFilterAxes
-        .filter((axis) => axis.layerId === layerId)
-        .map((axis) => ({
-          label: axis.label,
-          legend: axis.entries,
-          hiddenKeys: staticLegendHiddenKeysByAxis[axis.axisId] ?? NO_HIDDEN_LEGEND_KEYS,
-          axisId: axis.axisId,
-        }));
-      result[layerId as MapLayerId] = axes;
-    }
-    return result;
-  }, [staticFilterAxes, staticLegendHiddenKeysByAxis]);
-
-  // 動的気象レイヤー（降水ナウキャスト・風/延長降水予報・雷/竜巻ナウキャスト・キキクル）の
-  // フェッチ・共有タイムライン・MapView向け描画ペイロードは`useDynamicWeatherLayers`
-  // フックが持つ。各要素は対応するshow*がtrueの間だけフェッチする。overlayLayers
-  // （下記）がdataStatusとして参照するため、その手前で定義する。
-  // 災害チップ配下のソースのうち、▶パネルで非表示に選ばれているもの。面同士が重なると
-  // 混色して危険度を読み取れないため、ユーザーがその場で絞り込めるようにしている
-  // （保存先はサイドバーの絞り込みと同じhiddenLegendKeysByMode）。
-  const hiddenDisasterSources = hiddenLegendKeysByMode[DISASTER_SOURCE_AXIS_ID] ?? NO_HIDDEN_LEGEND_KEYS;
-  const disasterLegendDetails = useMemo<LegendFilterSummaryAxis[]>(
-    () => [
-      {
-        label: "表示する情報",
-        legend: DISASTER_SOURCE_LEGEND,
-        hiddenKeys: hiddenDisasterSources,
-        axisId: DISASTER_SOURCE_AXIS_ID,
-      },
-      ...DISASTER_LEGEND_DETAILS_BASE,
-    ],
-    [hiddenDisasterSources],
-  );
-  const {
-    dynamicWeather,
-    dynamicWeatherDataStatus,
-    dynamicLayerTargetTime,
-    setDynamicLayerTargetTime,
-    handleDynamicLayerNow,
-    departureTimePinned,
-  } = useDynamicWeatherLayers({
-    visibility: layerVisibility,
-    hiddenDisasterSources,
-    mapViewport,
+  const mapView = useMapView({
+    hasSelectedRoute: selectedCandidate !== null,
+    hasDetail,
+    ride: rideConditions,
+    now: departure.now,
+    usedWeights: generatedRoutePreference,
   });
-  // レイヤーごとのデータ取得状態を1つに統合する。mapViewLayerDataStatus（MapLibreの
-  // ソースイベントから算出）とdynamicWeatherDataStatus（動的気象レイヤー、フェッチ
-  // 自身のloading/errorから算出）はキーが重ならない（動的気象レイヤーは
-  // buildLayerDataSourcesの対象外）ため、マージの優先順位を気にする必要はない。
-  const layerDataStatus = useMemo<LayerDataStatusByLayer>(
-    () => ({ ...mapViewLayerDataStatus, ...dynamicWeatherDataStatus }),
-    [mapViewLayerDataStatus, dynamicWeatherDataStatus],
-  );
-
-  // タイル世代が届いていないあいだ、それを要るレイヤーは地図に何も描けない。**どのレイヤーが
-  // それに当たるかは数え上げない**——ソース対応表から引く（MapView: tileVersionGatedLayerIds）。
-  const tileVersionsReady = useTileVersionsReady();
-  const tileVersionGatedIds = useMemo(
-    () => (tileVersionsReady ? [] : tileVersionGatedLayerIds(axisCatalog.rampAxes)),
-    [tileVersionsReady, axisCatalog.rampAxes],
-  );
-  // 取得が終わっていない間の「まだ出ていない」と、取得が終わったのに世代が無い
-  // （カタログの取得失敗・世代を返さない版のbackendが応答）とを分ける。後者は利用者の
-  // 操作では直らないため、理由を出して再読み込みを促す。
-  const tileVersionsFailed = !tileVersionsReady && (axisCatalog.loaded || axisCatalog.failed);
-
-  // 地図上のチップ行はレイヤーカタログ（mapLayers）から組み立てる。レイヤーを追加したら
-  // 凡例の対応をここへ1行足すだけでよい（チップ・凡例パネルの描画は汎用）。
-  const overlayLayers = useMemo<OverlayLayerChip[]>(() => {
-    // 凡例はlayer.id→値のルックアップで組み立て、無ければstaticFilterLegendDetailsを
-    // フォールバックとして最後に見る。
-    // 残るのは**この画面の状態からしか作れない凡例**だけ。配信元が色を持つ表示専用の
-    // 凡例は記述子が宣言し（`readOnlyLegend`）、絞り込める凡例は`staticFilterAxes`が出す。
-    const legendDetailsByLayerId: Partial<Record<MapLayerId, LegendFilterSummaryAxis[]>> = {
-      ...roadAxisPanels.legendDetailsByLayerId,
-      // 選択中の候補とレンズで中身が変わる。
-      route: routeLegendDetails,
-      // 要素ごとの表示ON/OFF（hiddenDisasterSources）を持つ。
-      disaster: disasterLegendDetails,
-    };
-    // 専用way値配信軸（`${axisId}Axis`）・ramp軸（`axis:${string}`）は除く。これらの
-    // 表示はレンズ（lens→axisVisibility）だけが決めており、layerVisibility側の値は
-    // 表示に影響しない。チップとしても描画されない（評価軸はルート設定パネルへ移設済み、
-    // mapLayers.ts: isAxisStudioLayer）ため、ここに含めると「全レイヤー一括OFF」が
-    // 何も変えない項目を数えることになる。
-    return mapLayers
-      .filter((layer) => !isAxisStudioLayer(layer))
-      .map((layer) => {
-        // disabledとtitleが別々に同じlayer.id判定を繰り返さないよう、理由の文言と紐付けて
-        // 1箇所で決める（無効化理由が増えても1本追加するだけでdisabled/titleの両方に
-        // 反映される）。
-        // disabledReasonの判定はselectedCandidate基準に揃える——RouteAxisProfileの表示条件
-        // （selectedCandidateのみ）とhasDetail（segments取得済み）がズレると、候補選択
-        // 直後・segments未取得の間、地図の「ルート」チップは無効化されたままなのに、同時に
-        // 表示されるRouteAxisProfileのチップ操作でlayerVisibility.routeがONに変わって
-        // しまい、地図チップから直接OFFへ戻せない状態が生じる。
-        const disabledReason = layer.id === "route" && !selectedCandidate ? "ルートを生成・選択すると使えます" : null;
-        const disabled = disabledReason !== null;
-        // タイルの最小ズームを下回っているレイヤーは「ONにしても何も出ない理由」を出す。
-        // **判定も配線もここ1箇所**で、レイヤー側は記述子へ最小ズームを宣言するだけでよい。
-        const tileZoomTooWide = tileZoomTooWideLayerIds.includes(layer.id);
-        // 世代が無いレイヤーもズーム不足と同じ扱いにする——どちらも「ONにしても何も出ない」で、
-        // 違うのは理由だけ。
-        const tileVersionsGated = tileVersionGatedIds.includes(layer.id);
-        const notice =
-          tileVersionsGated && tileVersionsFailed
-            ? TILE_VERSIONS_MISSING_NOTICE
-            : tileZoomTooWide
-              ? TILE_ZOOM_TOO_WIDE_NOTICE
-              : null;
-        const legendDetails =
-          legendDetailsByLayerId[layer.id] ??
-          staticFilterLegendDetails[layer.id] ??
-          layer.readOnlyLegend?.map((block) => ({ ...block, hiddenKeys: NO_HIDDEN_LEGEND_KEYS }));
-        // 地図上チップの▶パネル本体には説明文を常時表示せず、凡例のみを表示する。折りたたみ中の
-        // 「表示する項目を選ぶ」設定パネル（MapOverlayControls.tsx: renderVisibilitySettings）
-        // 側は、各メンバー行に個別の情報アイコンを置き、押したメンバーだけ説明文を表示する
-        // （panelHintは推定/観測/動的の全メンバーへ渡すが、常時表示にはしない）。
-        // 「動的グループ」の判定はmapLayers.ts側の単一ソースdataNature==="dynamic"を見る
-        // （layer.idのハードコード列挙ではなく、この基準に揃えることで新規レイヤーが
-        // 増えても追従する）。
-        const isDynamicGroupLayer = layer.dataNature === "dynamic";
-        return {
-          id: layer.id,
-          icon: layer.icon,
-          label: layer.label,
-          chipLabel: layer.chipLabel ?? layer.label,
-          notice,
-          on: layerVisibility[layer.id],
-          disabled,
-          // 絞り込みを持たない動的グループには案内を付けない（開いても設定が無い）。
-          title: disabledReason ?? (isDynamicGroupLayer ? layer.description : `${layer.description}[設定は▶から]`),
-          legendDetails,
-          // 地図上チップのカテゴリ束ね（MapOverlayControls.tsx）用。
-          category: layer.category,
-          dataNature: layer.dataNature,
-          axisStudioLayer: layer.axisStudioLayer,
-          // 「表示する項目を選ぶ」設定パネルの個別情報アイコン用の説明文。
-          panelHint: layer.panelHint,
-          // レイヤーのデータ取得状態。LayerChip（サイドバー）と同じくOFF中の抑制は
-          // ChipButton自身が`active && dataStatus != null`で行うため、ここでは
-          // layerVisibilityで抑制せずそのまま渡す。
-          // ソースが1つも作られていないためMapLibreのイベントは何も言わない。
-          // 世代待ちは読み込み中、届かないと分かった後はエラーとして見せる。
-          dataStatus: tileVersionsGated ? (tileVersionsFailed ? "error" : "loading") : layerDataStatus[layer.id],
-        };
-      });
-  }, [
-    selectedCandidate,
-    layerVisibility,
-    tileZoomTooWideLayerIds,
-    tileVersionGatedIds,
-    tileVersionsFailed,
-    layerDataStatus,
-    roadAxisPanels,
-    routeLegendDetails,
-    staticFilterLegendDetails,
-    disasterLegendDetails,
-    mapLayers,
-  ]);
-
-  // 全レイヤー一括OFF。地図下部中央の時刻スライダー隣に置き、layers/onToggleを既に
-  // 持つこちらで扱う。何もONでないときはno-opのため無効化する（誤操作の起点自体を
-  // 減らす）。
-  const hasAnyLayerOn = overlayLayers.some((layer) => layer.on);
-  const handleClearAllLayers = useCallback(() => {
-    for (const layer of overlayLayers) {
-      if (layer.on) handleLayerToggle(layer.id, false);
-    }
-  }, [overlayLayers, handleLayerToggle]);
 
   // モバイルタブバーのボタン操作。同じタブを再タップしたら閉じる（トグル）。
   const handleMobileTabClick = useCallback(
@@ -1273,11 +678,6 @@ export default function Home() {
     [commitMobileSheetHeight],
   );
 
-  // MapViewからのビューポート通知（MapView.tsx: onViewportChange参照）。
-  const handleViewportChange = useCallback((viewport: MapViewport) => {
-    setMapViewport(viewport);
-  }, []);
-
   // 今日の見通し（TodayOutlook向け、気象庁MSM予報）・最寄りアメダス実測値（WeatherPanel＝
   // 常設ヘッダー向け）・警告バッジ3種（JMA警報・注意報／WBGT／河川氾濫予報）のフェッチ・
   // 状態管理（useWeatherConditionsが持つ。weather[MSM予報]とamedas[アメダス実測]は
@@ -1293,159 +693,6 @@ export default function Home() {
     warningBadgeItems,
     warningFetchFailures,
   } = useWeatherConditions(location, locationReady);
-
-  // 動的材料の状態別表現契約の[時刻,向き]のうち「向き」は、風・勾配で単一の共有state
-  // （travelBearingDeg、実際の進行方向という1つの概念を表す）を使う。「環境」グループの
-  // 勾配gridFill・評価軸としての風/勾配（専用way値配信軸）のいずれもこの1つの値を
-  // 共有する。設定UIは地図上のTravelBearingControl（`components/TravelBearingControl/`）
-  // 1箇所に集約されている。
-  const [travelBearingDeg, setTravelBearingDeg] = useState(0);
-
-  // レンズが全道路の塗りとして有効な間（ルート前、またはルート後も残す設定）。ルート確定後
-  // （hasDetail）は、視界内の全道路への一律色分けというこの機能の役割自体を終了し、ルート
-  // 自身の実際の進行方向・到達時刻を使う routeStyleModes.ts の routeColorableModeFromAxis へ委ねる
-  // （lensKeepAfterRouteがtrueなら周囲の道路も薄く残す）。
-  const lensBackgroundShown = !hasDetail || lensKeepAfterRoute;
-  // 二次軸rampレイヤーの表示フラグ（キー=axisMapLayerId）。レンズに選ばれたramp軸だけON。
-  const axisVisibility = useMemo(
-    () =>
-      Object.fromEntries(
-        axisCatalog.rampAxes.map((axis) => [axisMapLayerId(axis.axisId), lens === axis.axisId && lensBackgroundShown]),
-      ),
-    [axisCatalog.rampAxes, lens, lensBackgroundShown],
-  );
-  // 専用way値配信軸（`dedicated_way_value_layer=true`、現状: 風・勾配）のうち、いま
-  // フェッチすべき軸。レンズが指している軸（ルート前の全道路一律色分け）だけで、軸ごとの
-  // 分岐は持たない。
-  const dedicatedFetchAxes = useMemo(() => {
-    const lensAxis = axisCatalog.dedicatedAxes.find((axis) => axis.axisId === lens);
-    return lensAxis && lensBackgroundShown ? [lensAxis] : [];
-  }, [axisCatalog.dedicatedAxes, lens, lensBackgroundShown]);
-  // 想定速度（地図上のRideConditionBarの入力、値域の丸めはそちらのclampSpeedKmhが担う）は
-  // 走行速度に依存する軸（風）にも効く。時刻・想定速度を実際にリクエストへ載せるかは
-  // 軸カタログの宣言（needsTime/needsSpeed）が決めるため、ここでは全軸共通の入力として
-  // 渡すだけでよい。
-  const dedicatedWayValueResults = useDedicatedWayValues(
-    dedicatedFetchAxes,
-    mapViewport,
-    travelBearingDeg,
-    dynamicLayerTargetTime,
-    assumedSpeedKmh,
-  );
-  // 道をクリックしたときの内訳も、地図のレンズと同じ条件で計算させる（揃えないと同じ
-  // 場所で色と数字が食い違う）。レンズが今どの軸を出しているかには依存しない——押した道の
-  // 内訳は常に全軸ぶん出すため。
-  const rideConditions = useMemo(
-    () => ({
-      bearingDeg: travelBearingDeg,
-      at: dynamicLayerTargetTime,
-      speedKmh: assumedSpeedKmh,
-    }),
-    [travelBearingDeg, dynamicLayerTargetTime, assumedSpeedKmh],
-  );
-  // レイヤーID（`${axisId}Axis`）→表示フラグ。レンズに選ばれた専用配信軸だけON
-  // （axisVisibilityと同じ形。MapViewは軸ごとのpropを持たない）。
-  const dedicatedWayValueVisibility = useMemo(
-    () =>
-      Object.fromEntries(
-        axisCatalog.dedicatedAxes.map((axis) => [
-          dedicatedWayValueMapLayerId(axis.axisId),
-          lens === axis.axisId && lensBackgroundShown,
-        ]),
-      ),
-    [axisCatalog.dedicatedAxes, lens, lensBackgroundShown],
-  );
-  // MapViewへは軸id→値／軸id→フェッチ進行中の汎用Mapとして渡す
-  // （design-principles.md構造仕様3: 軸ごとにpropを新設しない）。MapView側はこれを使い、
-  // まだ値を受け取っていないwayを「取得中」と「取得済みだが値が無い」で塗り分ける。
-  const dedicatedWayValues = useMemo(
-    () => new Map([...dedicatedWayValueResults].map(([axisId, result]) => [axisId, result.values])),
-    [dedicatedWayValueResults],
-  );
-  const dedicatedWayValueLoading = useMemo(
-    () => new Map([...dedicatedWayValueResults].map(([axisId, result]) => [axisId, result.loading])),
-    [dedicatedWayValueResults],
-  );
-  // レンズが専用配信軸を指している間だけ、そのフェッチのloading/empty/errorをLensControlの
-  // ピルへ渡す（road_surface等の経路[useLayerDataStatus]はこれらのfetchを観測できないため、
-  // deriveFetchLayerStatusで動的気象レイヤーと同じ判定を共有する）。ramp軸・総合難易度・
-  // なしはこの失敗モードを持たないためundefinedのまま。
-  const lensFetchStatus = useMemo<LayerDataStatus | undefined>(() => {
-    if (!axisCatalog.dedicatedAxes.some((axis) => axis.axisId === lens)) return undefined;
-    if (!lensBackgroundShown) return undefined;
-    const result = dedicatedWayValuesFor(dedicatedWayValueResults, lens);
-    return deriveFetchLayerStatus(
-      result.loading,
-      result.error ? "fetch-failed" : null,
-      result.values.size > 0,
-      result.hasFetched,
-    );
-  }, [axisCatalog.dedicatedAxes, lens, lensBackgroundShown, dedicatedWayValueResults]);
-  // レンズの選択肢（公開軸すべて、軸カタログ順）。「未使用」はこの候補を評価した重み
-  // （生成後はgeneratedRoutePreference、生成前はライブなroutePreference）で判定し、
-  // 「ルート後のみ」はルート前に塗る手段（ramp・専用配信）を持たない軸に付ける。
-  const lensOptions = useMemo<LensOption[]>(() => {
-    const weights = generatedRoutePreference ?? routePreference;
-    const rampAxisIds = new Set(axisCatalog.rampAxes.map((axis) => axis.axisId));
-    return axisCatalog.axes.map((axis) => ({
-      id: axis.axisId,
-      label: axis.label,
-      color: axisChipColors[axis.axisId] ?? LENS_NEUTRAL_COLOR,
-      description: axis.description,
-      unused: (weights[axis.axisId] ?? 0) <= 0,
-      routeOnly: !rampAxisIds.has(axis.axisId) && !axis.dedicatedWayValueLayer,
-    }));
-  }, [axisCatalog.axes, axisCatalog.rampAxes, axisChipColors, generatedRoutePreference, routePreference]);
-  // 現在のレンズの凡例。ルート後はルート線のモード凡例、ルート前はramp軸・専用配信の凡例。
-  // どちらも塗る手段が無ければ空。段階の表示ON/OFFはどの経路でも効く（ramp軸は
-  // staticFilterAxesのfilter、専用配信は色式の透明化、ルート線はモードのfilter）。
-  const lensLegend = useMemo<LegendEntry[]>(() => {
-    if (lens === LENS_NONE_ID) return [];
-    if (hasDetail) return getRouteStyleMode(routeStyleModes, lens).legend;
-    const rampAxis = axisCatalog.rampAxes.find((axis) => axis.axisId === lens);
-    if (rampAxis) return buildAxisRampLegend(rampAxis);
-    const dedicatedAxis = axisCatalog.dedicatedAxes.find((a) => a.axisId === lens);
-    if (dedicatedAxis) {
-      // 専用way値配信軸の段階はfilter述語を持てない（値がfeature-state経由で入る）。
-      // 絞り込みは色式側（dedicatedWayValueHiddenBands）が担うため、ここは空のfilterで渡す。
-      return dedicatedWayValueLegend(dedicatedAxis.display).map((band) => ({
-        ...band,
-        filter: [],
-      }));
-    }
-    return [];
-  }, [lens, hasDetail, routeStyleModes, axisCatalog.rampAxes, axisCatalog.dedicatedAxes]);
-
-  // 一括クリアを出すかの判定。**保存された非表示キーの長さをそのまま見ない**——保存先は
-  // ルート確定の前後・レンズ・地図上チップで共通のため、段の綴りが変わった版の値や段数が
-  // 変わった軸の値が残る。いま描いている凡例に実在するキーだけを数える。
-  const hasHiddenFilters = useMemo(() => {
-    const shown: { axisId: string | undefined; keys: readonly string[] }[] = [
-      ...roadLegend.map((axis) => ({ axisId: axis.axisId, keys: axis.entries.map((entry) => entry.key) })),
-      ...staticFilterAxes.map((axis) => ({ axisId: axis.axisId, keys: axis.entries.map((entry) => entry.key) })),
-      ...disasterLegendDetails.map((axis) => ({ axisId: axis.axisId, keys: axis.legend.map((entry) => entry.key) })),
-      { axisId: lens, keys: lensLegend.map((entry) => entry.key) },
-    ];
-    return shown.some(({ axisId, keys }) =>
-      axisId === undefined
-        ? false
-        : (hiddenLegendKeysByMode[axisId] ?? NO_HIDDEN_LEGEND_KEYS).some((key) => keys.includes(key)),
-    );
-  }, [roadLegend, staticFilterAxes, disasterLegendDetails, lens, lensLegend, hiddenLegendKeysByMode]);
-
-  // 専用way値配信軸ごとの非表示段階（ルート確定前の全道路の塗り側の絞り込み）。保存先は
-  // ルート線と同じhiddenLegendKeysByMode[軸id]で、段階キーも共通（mapColorLegend.ts:
-  // legendBandKey）——ルート生成の前後で同じ段階が隠れたままになる。
-  const dedicatedWayValueHiddenBands = useMemo(
-    () =>
-      new Map(
-        axisCatalog.dedicatedAxes.map((axis) => [
-          axis.axisId,
-          hiddenLegendKeysByMode[axis.axisId] ?? NO_HIDDEN_LEGEND_KEYS,
-        ]),
-      ),
-    [axisCatalog.dedicatedAxes, hiddenLegendKeysByMode],
-  );
 
   // 現在のフォーム値から生成リクエストの入力一式を組み立てる。生成時（handleGenerate）と
   // dirty判定の両方がこの1つの関数を通るため、送る値を足したときに比較側へ足し忘れる形の
@@ -1477,21 +724,22 @@ export default function Home() {
         distanceToleranceKm: routeGenerateConfig.default_distance_tolerance_km,
         maxRoutes: Number(maxRoutesInput),
         assumedSpeedKmh,
-        startTime: dynamicLayerTargetTime,
-        startTimePinned: departureTimePinned,
+        startTime: departure.at,
+        startTimePinned: departure.pinned,
         hardFilters,
         // 軸カタログ未取得のまま軸idを送ると、backendは存在しない軸idを黙って無視する
         // （road_graph_engine.py: AXIS_DEFINITIONS.get(lens_axis_id)、422にはならない）。
         // route_preferenceと同じく、カタログが未確定の間は送らない——選んだ軸で塗られない
         // 事実が手掛かり無しで起きるのを避ける（失敗自体はRouteSettingsPanelが表示する）。
-        lensAxisId: axisCatalog.loaded && lens !== LENS_NONE_ID && lens !== LENS_DIFFICULTY_ID ? lens : null,
-        // 軸カタログ未取得のままキー整合を行うと静的フォールバック（既存軸）に合わせて
-        // 書き換えてしまうため、その場合はroute_preference自体を省略しbackendの既定値
-        // （load_route_preference、常に最新のAXIS_DEFINITIONS由来）へ委ねる。
-        routePreference:
-          weightOverrideEnabled && axisCatalog.loaded
-            ? (syncRoutePreferenceKeys(routePreference, axisCatalog.defaultWeights) ?? routePreference)
+        lensAxisId:
+          axisCatalog.loaded && mapView.lens !== LENS_NONE_ID && mapView.lens !== LENS_DIFFICULTY_ID
+            ? mapView.lens
             : null,
+        routePreference: routePreferenceToSend(
+          routePreference,
+          { loaded: axisCatalog.loaded, defaultWeights: axisCatalog.defaultWeights },
+          weightOverrideEnabled,
+        ),
         // 周回モードでは経由地・目的地の値が残っていても送らない（モード切り替え自体は
         // 値を消さないため、地図上にピンが残っていても周回モード中は無視する）。
         waypoints: routeMode === "destination" ? waypoints : [],
@@ -1506,10 +754,10 @@ export default function Home() {
       location,
       maxRoutesInput,
       assumedSpeedKmh,
-      dynamicLayerTargetTime,
-      departureTimePinned,
+      departure.at,
+      departure.pinned,
       hardFilters,
-      lens,
+      mapView.lens,
       weightOverrideEnabled,
       axisCatalog.loaded,
       axisCatalog.defaultWeights,
@@ -2063,7 +1311,7 @@ export default function Home() {
                     <AxisContributionBar
                       axes={axisCatalog.axes}
                       contributions={selectedRouteSegment.segment.axis_contributions}
-                      axisColors={axisChipColors}
+                      axisColors={axisCatalog.axisColors}
                     />
                     {researchEnabled && Object.keys(selectedRouteSegment.segment.material_values).length > 0 && (
                       <ul className={styles.selectedSegmentMaterialValues}>
@@ -2095,7 +1343,7 @@ export default function Home() {
                     difficultyLoad={route.difficulty_load ?? null}
                     loadBarHeightRatio={loadBarHeightRatio(route.distance_km, loadBarBaselineKm)}
                     estimatedDurationSeconds={route.estimated_duration_seconds ?? null}
-                    axisColors={axisChipColors}
+                    axisColors={axisCatalog.axisColors}
                   />
                 )}
               </Tabs.Content>
@@ -2163,7 +1411,7 @@ export default function Home() {
         onPreview={handlePreviewSplice}
         onApply={handleApplySplice}
         axes={axisCatalog.axes}
-        axisColors={axisChipColors}
+        axisColors={axisCatalog.axisColors}
         error={spliceError}
         applying={splicing}
       />
@@ -2302,27 +1550,8 @@ export default function Home() {
             selectedRouteId={selectedRouteId}
             location={location}
             locationSource={locationSource}
-            staticLayerVisibility={layerVisibility}
-            dynamicWeather={dynamicWeather}
-            dedicatedWayValueVisibility={dedicatedWayValueVisibility}
-            dedicatedWayValueHiddenBands={dedicatedWayValueHiddenBands}
-            dedicatedAxes={axisCatalog.dedicatedAxes}
-            dedicatedWayValues={dedicatedWayValues}
+            look={mapView.look}
             rideConditions={rideConditions}
-            dedicatedWayValueLoading={dedicatedWayValueLoading}
-            axisVisibility={axisVisibility}
-            secondaryAxisCasingLayerIds={secondaryAxisCasingLayerIds}
-            roadHiddenKeysByMode={debouncedRoadHiddenKeysByMode}
-            staticLegendHiddenKeysByAxis={debouncedStaticLegendHiddenKeysByAxis}
-            routeLayerOn={layerVisibility.route}
-            routeStyleModes={routeStyleModes}
-            routeStyleModeId={lens}
-            hiddenRouteLegendKeys={hiddenRouteLegendKeys}
-            onTileZoomTooWideChange={setTileZoomTooWideLayerIds}
-            onViewportChange={handleViewportChange}
-            onLayerDataStatusChange={setMapViewLayerDataStatus}
-            refreshToken={refreshToken}
-            tileVersionsReady={tileVersionsReady}
             // experimentSlots（研究モード中の生成履歴、1件目は常にEXPERIMENT_SLOT_COLORSの
             // 先頭）は地図側（sceneの役割`slotLine`）が無条件で描画するため、
             // 実際に「比較」タブを見ているとき以外に地図へ残ると選択中ルートの色分けと
@@ -2330,9 +1559,6 @@ export default function Home() {
             // comparisonTabActiveの間だけ渡すよう限定する（スロット自体の記録・
             // ComparisonPanelでの一覧表示は researchEnabled のみで動く）。
             experimentSlots={researchEnabled && comparisonTabActive ? experimentSlots : []}
-            rampAxes={axisCatalog.rampAxes}
-            axes={axisCatalog.axes}
-            axisColors={axisChipColors}
             selectedRouteSegment={selectedRouteSegment}
             // 区間詳細は「ルート結果」を見ている間だけ。編集中は詳細の置き場が編集面へ
             // 置き換わっており、選んでも地図にピンが残るだけになる。
@@ -2356,26 +1582,9 @@ export default function Home() {
             routeFitObscuredPx={routeFitObscuredPx}
           />
 
-          <LensControl
-            lens={lens}
-            onLensChange={handleLensChange}
-            axisOptions={lensOptions}
-            legend={lensLegend}
-            hiddenLegendKeys={hiddenRouteLegendKeys}
-            onToggleLegendKey={handleRouteLegendToggle}
-            onSetHiddenLegendKeys={handleLensLegendSetHidden}
-            keepAfterRoute={lensKeepAfterRoute}
-            onKeepAfterRouteChange={setLensKeepAfterRoute}
-            hasDetail={hasDetail}
-            dataStatus={lensFetchStatus}
-          />
+          <LensControl {...mapView.lensControl} />
 
-          <MapOverlayControls
-            layers={overlayLayers}
-            onToggle={handleLayerToggle}
-            onLegendEntryToggle={toggleHiddenLegendKey}
-            onLegendAxisSetHidden={setHiddenLegendKeysForAxis}
-          />
+          <MapOverlayControls {...mapView.overlayControls} />
 
           {/* 地図下部中央の行。「まとめて元に戻す」操作を並べる（design-principles.md
               「UI仕様」: 地図の視界を圧迫しない）。レイヤーのON/OFFと凡例の絞り込みは
@@ -2383,8 +1592,8 @@ export default function Home() {
           <div ref={bottomControlRowRef} className={styles.bottomControlRow}>
             <button
               type="button"
-              onClick={handleClearAllLayers}
-              disabled={!hasAnyLayerOn}
+              onClick={mapView.bulk.hideAllLayers}
+              disabled={!mapView.bulk.anyLayerOn}
               aria-label="表示中のレイヤーをすべて非表示にする"
               title="表示中のレイヤーをすべて非表示にする"
               className={styles.clearAllButton}
@@ -2393,22 +1602,22 @@ export default function Home() {
             </button>
             <button
               type="button"
-              onClick={handleClearAllFilters}
-              disabled={!hasHiddenFilters}
+              onClick={mapView.bulk.showAllLegendRows}
+              disabled={!mapView.bulk.anyLegendHidden}
               aria-label="絞り込みをすべて解除する"
               title="絞り込みをすべて解除する"
               className={styles.clearAllButton}
             >
               <ClearAllFiltersIcon size={14} />
             </button>
-            {/* このページが持つ地図インスタンスだけを描き直す（refreshToken）。押した人の
+            {/* このページが持つ地図インスタンスだけを描き直す。押した人の
                 画面にしか影響しない純粋なクライアント操作で、サーバー側のタイルキャッシュには
                 触れない（そちらは全利用者へ影響するため/adminのTileCachePanelにある）。
                 ページ全体を再読み込みすると生成済みのルート候補が消えるため、地図だけを
                 描き直す入口をここへ残す。 */}
             <button
               type="button"
-              onClick={() => setRefreshToken((v) => v + 1)}
+              onClick={mapView.bulk.redraw}
               aria-label="地図の表示を再描画する"
               title="地図の表示を再描画する"
               className={styles.clearAllButton}
@@ -2424,12 +1633,12 @@ export default function Home() {
           {/* 走行条件（出発時刻・想定速度）。走行方位アイコンの直下（地図右上）へ積む
               （狭いスマホ画面でも地図の視界を圧迫しないよう、地図上部中央のレンズピルとは
               別のアイコン列にする）。出発時刻は気象レイヤーの表示時刻と同じ共有state
-              （dynamicLayerTargetTime）。 */}
+              （出発時刻）。 */}
           <div className={styles.rideConditionColumn}>
             <RideConditionBar
-              departureTime={dynamicLayerTargetTime}
-              onDepartureTimeChange={setDynamicLayerTargetTime}
-              onDepartureNow={handleDynamicLayerNow}
+              departureTime={departure.at}
+              onDepartureTimeChange={departure.setAt}
+              onDepartureNow={departure.followNow}
               speedKmh={assumedSpeedKmh}
               onSpeedKmhChange={setAssumedSpeedKmh}
             />

@@ -21,6 +21,12 @@ export function toggleHiddenKey(store: HiddenLegendKeys, axisId: string, key: st
   return withHiddenKeys(store, axisId, current.includes(key) ? current.filter((k) => k !== key) : [...current, key]);
 }
 
+/** いま描いている凡例に実在する鍵だけ。保存先は段の綴りや段数が変わる前の値も持ちうるため、
+ * 保存値の長さをそのまま使うと、隠れた段が無いのに絞り込み中に見える。 */
+export function presentHiddenKeys(legend: readonly { key: string }[], hidden: readonly string[]): readonly string[] {
+  return hidden.filter((key) => legend.some((entry) => entry.key === key));
+}
+
 /** 文字列の配列でない鍵は捨てる（読めない保存値の例外は`useStoredState`が既定値へ倒す）。 */
 export function deserializeHiddenLegendKeys(raw: string): HiddenLegendKeys | null {
   const parsed: unknown = JSON.parse(raw);

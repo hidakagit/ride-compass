@@ -9,6 +9,7 @@ import { describe, expect, it } from "vitest";
 
 import { createRecordingMap } from "@/testing/mapTrace/recordingMap";
 import { applyScene, sceneInputsFrom } from "@/features/map/scene/applyToMap";
+import { sceneState } from "@/features/map/scene/__fixtures__/sceneState";
 import { buildMapScene } from "@/features/map/scene/buildScene";
 import { weatherSourceId, type WeatherRenderKind } from "@/features/map/scene/groups/weather";
 import { sceneLayerId } from "@/features/map/scene/sceneBuilders";
@@ -20,33 +21,6 @@ function dynamicWeatherIds(group: string, source: string, kind: WeatherRenderKin
   return { sourceId, layerId: sceneLayerId(sourceId, kind) };
 }
 
-/** 何も出していない状態。気象だけを差し替える。 */
-function baseState() {
-  return {
-    routes: [],
-    selectedRouteId: null,
-    routeLayerOn: false,
-    routeStyleModes: [],
-    routeStyleModeId: "none",
-    hiddenRouteLegendKeys: [],
-    spliceStretches: [],
-    splicedRoute: null,
-    staticLayerVisibility: {},
-    dynamicWeather: {},
-    dedicatedWayValueVisibility: {},
-    axisVisibility: {},
-    roadHiddenKeysByMode: {},
-    staticLegendHiddenKeysByAxis: {},
-    experimentSlots: [],
-    dedicatedWayValues: new Map(),
-    rampAxes: [],
-    dedicatedAxes: [],
-    secondaryAxisCasingLayerIds: [],
-    tileVersionsReady: false,
-    inspectedWayId: null,
-  };
-}
-
 const EMPTY_GEOJSON: GeoJSON.FeatureCollection = { type: "FeatureCollection", features: [] };
 
 function raster(tileUrlTemplate: string) {
@@ -54,7 +28,7 @@ function raster(tileUrlTemplate: string) {
 }
 
 function apply(map: unknown, id: "precipitationNowcast" | "windVector" | "disaster", state: DynamicWeatherGroupState) {
-  const inputs = sceneInputsFrom({ ...baseState(), dynamicWeather: { [id]: state } } as never);
+  const inputs = sceneInputsFrom(sceneState({ tileVersionsReady: false, look: { dynamicWeather: { [id]: state } } }));
   applyScene(map as never, buildMapScene(inputs));
 }
 

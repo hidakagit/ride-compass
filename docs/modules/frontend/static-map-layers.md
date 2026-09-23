@@ -6,7 +6,7 @@
 要因POI・補給休憩POI・事故）と二次(ramp)軸の汎用色分けレイヤーを地図上に表示し、チップ
 （`MapOverlayControls`）から表示/絞り込みを操作する。
 
-地図下部中央の一括操作行（`page.tsx: bottomControlRow`）は「まとめて元に戻す」操作を
+地図下部中央の一括操作行（下記「地図下部のまとめて操作する行」）は「まとめて元に戻す」操作を
 並べる。**レイヤーのON/OFFと凡例の絞り込みは別の状態のため、戻す操作も別々に要る**
 ——同じバツ印で並べると区別できないので、対象を形で示すアイコン（重なり＋×／漏斗＋×、
 `Map/icons.tsx`）を使い分ける。対象を表さない汎用のバツ印アイコンは置かない。
@@ -18,7 +18,7 @@
 | `features/map/scene/groups/roadLines.ts` | 道路の線（路面の種類・道路の種類・トンネル・一方通行）の分類・配色と、詳細を見ている1本の強調。**線レイヤーで意味を運ぶのは色だけで、太さ・線種は情報を持たない**——1本の線へ複数の意味を載せると、色の意味が他方のON/OFFで入れ替わる。同時表示は横へ平行に割り付けて分ける |
 | `features/map/scene/groups/points.ts` | 停止要因POI・補給休憩POI・事故の分類・配色と、同じタイルを分け合う条件 |
 | `features/map/scene/groups/areaRasters.ts` | 面（色別標高図・土地被覆・起伏の陰影） |
-| `features/map/scene/legends.ts` | 上の宣言から凡例の行を作る（色と分類の正本はグループにしかない） |
+| `features/map/scene/legends.ts` | 上の宣言から凡例の行を作る（色と分類の正本はグループにしかない）。災害チップの要素ごとの表示切替の行も、源泉の要素の宣言（backend `domain/map_display.py: WEATHER_ELEMENTS`の`label`）から作る |
 | `features/map/scene/mapSceneGroups.ts` | 家族（面・道路の線・点・評価軸・ルート・気象）を「いまの状態から、載っているべきレイヤーの並びを返す」1つの形で宣言する型と、それらを1つのsceneへ畳む`composeScene`（同じソースを名乗る家族を1本へまとめる） |
 | `features/map/scene/sceneBuilders.ts` | sceneを組み立てる道具のうち、どの家族でも同じ形になるもの（ソース名・レイヤーidを作る唯一の口。型で縛り、手で文字列を組み立てられないようにする） |
 | `features/map/scene/buildScene.ts` | 地図に載るもの全部を1つのsceneへ組み立てる唯一の口（`buildMapScene`）。受け取るのは実行時にしか決まらない値だけで、見た目の値は各グループが持つ。家族を1つ足すのはここの並びへ1行足すこと |
@@ -26,7 +26,7 @@
 | `features/map/maplibreWorker.ts` | MapLibreのWorkerの場所を、ビルド前に静的配信へ複製したもの（`scripts/copy-maplibre-worker.mjs`）へ向ける。地図を作る前に呼ばないと、Workerがバンドラの解決できないURLを読みに行き、スタイル処理とタイル取得が止まる |
 | `features/map/routeSegmentProperties.ts` | 押されたルート区間から読み戻したプロパティを元の形へ戻す。MapLibreはGeoJSONの地物のプロパティをプリミティブしか保持できず、オブジェクトをJSON文字列へ直すため |
 | `Map/legendFilter.ts` | 凡例の行の型（`LegendEntry`）と、凡例で隠した行を落とす絞り込み式の組み立て（ルート線のモードが使う） |
-| `Map/landcoverClasses.ts` | 土地被覆のクラス（表示名・色・割合列・地図に塗るか）。backendのレジストリ由来の生成物（`landcover-classes.json`）を読むだけの薄い層で、凡例（`page.tsx`）と区間インスペクタ（`RoadInspectorPopup.tsx`）が共有する。色は地図タイルの塗りと同じ値のため、凡例と地図がずれない。**凡例は塗るクラスだけ**（`LANDCOVER_PAINTED_CLASSES`）——塗らないクラスを並べると色見本があるのに地図のどこにも無い表になる。区間インスペクタは数値なので全クラスを出す |
+| `Map/landcoverClasses.ts` | 土地被覆のクラス（表示名・色・割合列・地図に塗るか）。backendのレジストリ由来の生成物（`landcover-classes.json`）を読むだけの薄い層で、凡例（レイヤーの記述子）と区間インスペクタ（`RoadInspectorPopup.tsx`）が共有する。色は地図タイルの塗りと同じ値のため、凡例と地図がずれない。**凡例は塗るクラスだけ**（`LANDCOVER_PAINTED_CLASSES`）——塗らないクラスを並べると色見本があるのに地図のどこにも無い表になる。区間インスペクタは数値なので全クラスを出す |
 | `Map/primaryAttributes.ts` | 一次属性のカタログと、二次軸→一次属性の導出（軸増減時の観測データ連動表示に使用） |
 | `Map/secondaryAxes.ts` | 「推定指標（合成）」チップグループの軸一覧生成（略名・対応`MapLayerId`・アイコン・パネル説明）。`show_map_icon`による除外を持つ |
 | `Map/mapLayers.ts` | レイヤーカタログ本体（`MapLayerDescriptor[]`）・地図上チップの最上位グループ（`MAP_OVERLAY_GROUP_ORDER`が正本。現在は道路/環境/スポット）判定・軸スタジオ由来レイヤーの除外判定・`deriveFetchLayerStatus`（MapLibreのソースイベントを経由しないレイヤーのデータ状態判定） |
@@ -113,8 +113,9 @@ backendから取り、タイル本体はrewrites経由に戻る。
 `axisId`を持ち、`scene/legends.ts`が出す——**型の上で分けてあるので、ここへ絞り込める
 つもりの凡例を書いても黙って読み取り専用にはならない**。
 
-画面の状態からしか作れない凡例（選択中の候補とレンズで変わるルート、要素ごとの表示ON/OFFを
-持つ災害）だけは`page.tsx`が組み立てる。
+画面の状態からしか作れない凡例（選択中の候補とレンズで変わるルート線の段）だけは
+`features/map/view/useMapView.ts`が組み立てる。災害の要素ごとの表示切替は絞り込める凡例と
+同じく`scene/legends.ts`が宣言から作る。
 
 ## 表示層の実装（`scene/applyMapScene.ts`）
 
@@ -280,10 +281,10 @@ MapLibreはソースへ渡した`attribution`を**そのソースが地図に載
 
 二次(ramp)軸は「その材料（対応する一次属性の表示レイヤー）が1つでも同時に表示されて
 いるとき」だけ太く半透明な下敷きになる。材料が1つも表示されていなければ通常の太さ・
-不透明度で表示する。「どの一次属性がどの二次軸の材料か」の解決は`page.tsx`が
-`axisCatalog.secondaryAxes`（実行時カタログ）の`primaryAttributeIds`から行い、
-`MapView.tsx`は渡された`secondaryAxisCasingLayerIds`（キー集合）をそのまま使うだけの
-汎用描画係のまま保たれている。
+不透明度で表示する——常に下敷きにすると、道路網が密な都市部では下敷きの重なりだけで地図
+全体がぼやける。「どの一次属性がどの二次軸の材料か」の解決はsceneの入口
+（`scene/applyToMap.ts`）が、軸カタログの`secondaryAxes`の`primaryAttributeIds`とレイヤーの
+ON/OFFから行う（画面の側は下敷きの有無を知らない）。
 
 **見た目の値は、すべて宣言そのものが持つ**。下敷きの太さ・不透明度も、絞り込みも、
 グループが返す宣言の一部として出す。宣言の外から`setPaintProperty`や`setFilter`で
@@ -318,7 +319,7 @@ MapLibreはソースへ渡した`attribution`を**そのソースが地図に載
 「データが無い」と読ませないための合図で、隠していない間は見た目を変えない。グループを
 畳んでいる間はメンバーが見えないため、見出しチップが同じ印でメンバーの絞り込みを示す。
 
-`page.tsx`の`layerDataStatus`（`overlayLayers`へ渡す値）は、
+チップの取得状態（`features/map/view/overlayChips.ts`へ渡す値）は、
 出所の異なる2つの`Partial<Record<MapLayerId, LayerDataStatus>>`をマージしたもので、
 内訳は次の2系統:
 
@@ -342,15 +343,20 @@ MapLibreはソースへ渡した`attribution`を**そのソースが地図に載
 ONにしても何も塗られない。「データが無い地域」と区別できるよう案内を出す。
 
 対象は**記述子が`tileMinZoom`を宣言したレイヤー**で、レイヤーごとの閾値も「どれが対象か」も
-記述子が持つ。`MapView.tsx: handleZoom`がズームのたびに`mapLayers.ts:
-tileZoomTooWideLayerIds(zoom)`を引き、結果が変わったときだけ`onTileZoomTooWideChange`で
-伝える（zoomイベントは1回のピンチ操作でも何十回と飛ぶ）。`page.tsx`は受け取ったidの
-チップへ`TILE_ZOOM_TOO_WIDE_NOTICE`を出す。▶の中身は**案内文があれば案内文、無ければ凡例**
+記述子が持つ。`features/map/view/useMapView.ts`が、地図から届く表示範囲（パン・ズームが確定する
+たびに届く）の`zoom`で`mapLayers.ts: tileZoomTooWideLayerIds(zoom)`を引き、そのチップへ
+`TILE_ZOOM_TOO_WIDE_NOTICE`を出す——ズームは表示範囲の通知に含まれているため、地図から別の
+通知として上げない。▶の中身は**案内文があれば案内文、無ければ凡例**
 の順で決まるため、呼ぶ側が凡例を空へ揃える必要はない（揃える形だと、揃え忘れたレイヤーで
 案内が黙って落ちる）。
 
 表示ON/OFFでは出し分けない。ONにする前に「いまの縮尺では出ない」と分かる方が、ONにして
 から何も起きない理由を探すより早い。
+
+**同じ判定を複数の出し先へ出すときは、判定を1か所で行い、結果を配る。** チップの案内文と
+状態ドットは、ズームと世代の判定を`overlayChips.ts`の1か所で行い、どちらもそこから作る——
+出し先ごとに判定すると、片方だけ抑制し忘れて「ドットは出ているのに理由の文が無い」食い違いが
+生まれる。
 
 ## 「配信情報を取得できず表示できません」の案内
 
@@ -362,9 +368,10 @@ tileZoomTooWideLayerIds(zoom)`を引き、結果が変わったときだけ`onTi
 
 ズーム不足と同じ仕組みに乗せる。対象は**記述子が宣言した情報源が世代を要るレイヤー**で、
 `mapLayers.ts: tileVersionGatedLayerIds`が引く（ramp軸は路面タイルへ焼き込んだ値を読むため、
-軸スタジオで公開が増えればそのまま対象になる）。`page.tsx`がそのチップへ
-`TILE_VERSIONS_MISSING_NOTICE`を出し、状態ドットを付ける——まだ取得中なら
-`loading`、取得が終わったのに世代が無ければ`error`。
+軸スタジオで公開が増えればそのまま対象になる）。`overlayChips.ts`がそのチップへ状態ドットを
+付ける——まだ取得中なら`loading`、取得が終わったのに世代が無ければ`error`。
+`TILE_VERSIONS_MISSING_NOTICE`は**取得が終わってから**出す——取得中に「取得できず」と出すと、
+待てば出るものを壊れていると読ませる。
 
 **暗黙の前提**: 「世代が揃ったか」を軸カタログの取得完了で代用しない。世代を返さない版の
 backendが200で応答する窓では、カタログは取得済みなのに世代は無く、そこでURLを組み立てた側が
@@ -402,6 +409,11 @@ ramp軸[`dataNature==="composite"`]）に該当するものは`undefined`（地�
 カテゴリの絞り込み」節）。道路グループの線同士は`line-offset`による並行トラック
 （`scene/groups/roadLines.ts`の横位置の割り付け）で重ならずに並ぶ。
 
+**あるチップをONにしたことにつられて、別のチップをONにしない**（推定指標をONにしても、その
+材料の観測レイヤーは連動しない）。観測グループのメンバーは「表示する項目の設定」で個別に
+チップ列から外せるため、裏からONにされるとチップが見えないまま地図にだけ出続け、OFFへ戻す
+手段が無くなる。
+
 **開いておけるグループは`MAP_OVERLAY_MAX_EXPANDED_GROUPS`（1つ）まで**（別のグループを開くと
 古く開いたものから畳む。保存済みの状態にも同じ上限を効かせる——上限を下げる前に書かれた値は
 保存側を直しても直らない）。開いたグループのメンバーはチップ列へ縦に積まれるため、開くほど
@@ -420,8 +432,8 @@ ramp軸[`dataNature==="composite"`]）に該当するものは`undefined`（地�
 ## 凡例カテゴリの絞り込み（サイドバーと地図上チップで同じ状態を共有）
 
 `LegendFilterSummaryAxis.axisId`（`legendFilter.ts`）を持つ軸だけがユーザー操作で
-絞り込める。`axisId`は非表示キーの保存先（`page.tsx: hiddenLegendKeysByMode`のキー）を
-指す。書き換える場所は▶パネル（`MapOverlayControls`）だけではない——レンズの凡例
+絞り込める。`axisId`は隠した行の保存先（`features/map/view/useMapView.ts`が持つ1つの表）の
+鍵を指す。書き換える場所は▶パネル（`MapOverlayControls`）だけではない——レンズの凡例
 （`LensControl`）も同じキーの状態を書き換える（保存先が1つなので、片方で隠した段は
 もう片方でも隠れたままになる。[地図: 軸・ルート色分け](map-axis-coloring.md)参照）。
 描画にはどちらも`LegendCheckboxList`を使う。
@@ -436,10 +448,25 @@ ramp軸[`dataNature==="composite"`]）に該当するものは`undefined`（地�
 いま描いている凡例に実在するキーだけを見ること——見ないと、隠れている段は1つも無いのに
 「一部非表示」だけが出る。
 
+レンズに選んだ軸の凡例も、**最後の1段どころか全段まで隠せる**。「急な坂だけを見る」のように
+段で絞って見る使い方があり、全段を隠した状態は、チェックが全部外れていること自体が理由を示す。
+
 例外として、災害チップの「表示する情報」だけは`axisId`を持ちながら地物の絞り込みではなく
 **レイヤーソースの表示切替**に使う（`useDynamicWeatherLayers`が非表示キーを見て各ソースの
 `visible`を決める、[動的気象レイヤー](dynamic-weather-layers.md)参照）。UIとしては
 他の絞り込みと同じチェックボックス行で、反映先だけが異なる。
+
+## 地図下部のまとめて操作する行
+
+地図の下部中央に、次の3つのボタンを並べる（`features/map/view/useMapView.ts`の`bulk`）。
+
+- **表示中のレイヤーをすべて非表示にする**: ONのチップを全部OFFにする（既定へ戻すのではない）。
+  ONのものが1つも無い間は押せない。
+- **絞り込みをすべて解除する**: 凡例で隠した行を全部戻す。隠している行が無い間は押せない
+  （数えるのは、いま描いている凡例に実在する行だけ。上記「凡例カテゴリの絞り込み」）。
+- **地図の表示を再描画する**: 押した人の地図インスタンスだけを、スタイルから取り直して組み直す。
+  ページの再読み込みと違い、生成済みのルート候補は消えない。サーバー側のタイルキャッシュには
+  触れない（そちらは全利用者へ影響するため管理画面にある）。
 
 ## 道路の線に出す分類（`features/map/scene/groups/roadLines.ts`）
 

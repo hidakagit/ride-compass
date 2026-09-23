@@ -86,7 +86,7 @@ describe("チップの母集団と押せる条件", () => {
 describe("チップの凡例（▶パネル）", () => {
   const legend = [{ key: "k1", label: "1", color: "#111" }];
 
-  it("保存先を持つ凡例には保存値をそのまま渡し、持たない凡例は隠した行を持たない", () => {
+  it("保存先を持つ凡例には、いま凡例に実在する隠した行だけを渡し、持たない凡例は隠した行を持たない", () => {
     const [chip] = chipsOf({
       layers: [layer(A, { readOnlyLegend: [{ label: "読み方", legend }] })],
       hidden: { saved: ["k1", "gone"] },
@@ -94,7 +94,7 @@ describe("チップの凡例（▶パネル）", () => {
     });
     expect(chip.legendDetails).toEqual([
       { label: "読み方", legend, hiddenKeys: [] },
-      { label: "", legend, hiddenKeys: ["k1", "gone"], axisId: "saved" },
+      { label: "", legend, hiddenKeys: ["k1"], axisId: "saved" },
     ]);
   });
 

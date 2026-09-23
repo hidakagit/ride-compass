@@ -16,7 +16,8 @@
 |---|---|
 | app | `page.tsx`・`layout.tsx`・`error.tsx`・`global-error.tsx` |
 | services | `routeApi.ts`（ルート生成・プレビューAPI） |
-| hooks | `useStoredState.ts`・`useIsMobile.ts`・`useElementHeightCssVar.ts`・`useLocation.ts`・`useDebouncedValue.ts`・`useIsomorphicLayoutEffect.ts` |
+| hooks | `useStoredState.ts`・`useIsMobile.ts`・`useElementHeightCssVar.ts`・`useLocation.ts`・`useDebouncedValue.ts`・`useIsomorphicLayoutEffect.ts`・`useDepartureTime.ts`（出発時刻。選ぶまでは5分刻みの「今」へ追従し、選んだ時刻は動かさない） |
+| features/map/view | `useMapView.ts`（地図の見え方の状態と、地図・操作部品へ渡す値）・`mapLook.ts`（地図へ渡す見え方の値の型）・`lens.ts`（レンズから塗る軸・凡例・選択肢を導く）・`overlayChips.ts`（地図上チップの状態とレイヤー表示の保存形式）・`legendFilters.ts`（凡例で隠した行の保存先の読み書き） |
 | lib | `apiBaseUrl.ts`・`apiError.ts`・`backendInternalUrl.ts`・`fetchJson.ts`・`apiTimeouts.ts`（APIリクエストのタイムアウト。呼び出しの性質ごとの名前付き定数）・`formatDuration.ts`（秒を「1時間42分」の形にする）・`safeStorage.ts`（localStorageの読み書きで例外を外へ出さない薄いラッパ）・`generationRequest.ts`（生成リクエストのpayloadと`conditionsDirty`の比較キーを同じ入力から導出する純関数）・`routeSplice.ts`（候補どうしが別々の道を通る区間を`edge_ids`の集合演算で求め、表示中の側と相手側を対応づけ、選んだ区間を差し替えた経路を組み立て、合成結果を生成候補と同じ並び順の規約［`overall_difficulty`昇順、基準線（所要時間が最小の候補、backendの`is_fastest`）だけは先頭固定］へ差し込む純関数。差し替えた経路の評価はbackendが行うため計算式は持たない。**並び順の規約はbackendにもある**——backendは合成結果を1件しか返さず他候補を知らないため差し込む位置をここで決めるしかなく、片方を変えたらもう片方も変える。区間を割る下限は持たず呼び出し側から受け取る［backendの較正値で、管理画面から変えられる］）・`rideConditions.ts`（走行条件の出発時刻ラベルと想定速度の丸め。速度の上下限はbackendの`routeGenerateConfig`から読む）・`paletteCssVariables.ts`（地図に塗る色と同じ色をUIにも出す箇所へ、配信された値をCSS変数として流す。`layout.tsx`がサーバー側で`:root`へ入れる。CSSが値を持つのはライト/ダークで2値を持つものだけ） |
 | types | `types/route.ts`（`RouteCandidate`等の生成APIレスポンス型） |
 | components/Map | `useLayerDataStatus.ts`（`layerDataStatus` stateの実装） |
@@ -109,9 +110,15 @@ Next.js route handlerからのサーバー間fetch先を区別する（後者は
 
 ## page.tsxの状態管理
 
-stateは`page.tsx`の`useState`に集約し、子コンポーネントへはpropsで渡す（子が独自に
-同じ状態を持たない）。全件の一覧は`page.tsx`を読むのが正で、ここでは**永続化するかどうかの
-判断基準**だけを示す——一覧を書き写すと、stateを1つ足したときにこの節だけが古くなる。
+状態は変更理由ごとに持ち主を分ける。**地図の見え方**（レイヤーのON/OFF・レンズ・凡例で
+隠した行・表示範囲・地図から上がる取得状態）は`features/map/view/useMapView.ts`が持ち、
+`page.tsx`から受け取るのはルートの文脈（候補を選んだか・区間まで確定したか）・走行条件・
+生成に使われた重みだけにする——評価軸・レイヤー・外部データ源を足したときに膨らむのは
+この部分だけで、軸やレイヤーの種類を知らない値だけを受け取る形にしておけば、足しても
+`page.tsx`は変わらない。残り（ルートの生成と結果・区間の乗り換え・レイアウト）は`page.tsx`が
+持ち、子コンポーネントへはpropsで渡す（子が独自に同じ状態を持たない）。全件の一覧は
+実装を読むのが正で、ここでは**永続化するかどうかの判断基準**だけを示す——一覧を書き写すと、
+状態を1つ足したときにこの節だけが古くなる。
 
 | 永続化 | 判断基準 | 代表例 |
 |---|---|---|
@@ -139,9 +146,9 @@ stateは`page.tsx`の`useState`に集約し、子コンポーネントへはprop
 （走行方位という1つの概念を表す単一state）:
 
 ```
-travelBearingDeg（page.tsxの単一useState、TravelBearingControlで操作）。出発時刻は`useDynamicWeatherLayers`の`dynamicLayerTargetTime`、想定速度は`assumedSpeedKmh`（いずれも地図右上の条件アイコン列`components/RideConditionBar/RideConditionBar.tsx`で操作し、生成リクエストの`start_time`/`assumed_speed_kmh`とレンズの`speed_kmh`へ同じ値が乗る）
+travelBearingDeg（page.tsxの単一useState、TravelBearingControlで操作）。出発時刻は`hooks/useDepartureTime.ts`の`at`、想定速度は`assumedSpeedKmh`（いずれも地図右上の条件アイコン列`components/RideConditionBar/RideConditionBar.tsx`で操作し、生成リクエストの`start_time`/`assumed_speed_kmh`とレンズの`speed_kmh`へ同じ値が乗る）
   │
-  ├─→ 風:   [時刻]dynamicLayerTargetTime（useDynamicWeatherLayers由来）
+  ├─→ 風:   [時刻]出発時刻（useDepartureTime由来）
   │           │
   │           ├─→ 環境: 矢印のみ（showWindVector = layerVisibility.windVector）。走行方位に
   │           │     依存する面塗りは持たない（[地図: 動的気象レイヤー](dynamic-weather-layers.md)参照）
@@ -151,17 +158,15 @@ travelBearingDeg（page.tsxの単一useState、TravelBearingControlで操作）�
               └─→ 評価軸（線）: レンズがその軸を指している間だけ（下記の共通経路）
 
   評価軸（線）の共通経路（軸ごとの分岐を持たない）:
-    dedicatedFetchAxes = [レンズが指す専用way値配信軸（lensBackgroundShown中）]
-    useDedicatedWayValues(dedicatedFetchAxes, mapViewport, travelBearingDeg,
-                          dynamicLayerTargetTime, assumedSpeedKmh)
-      → 時刻・想定速度は軸カタログのneedsTime/needsSpeedが立つ軸のリクエストにだけ載る
-    dedicatedWayValueVisibility = レイヤーID（`${axisId}Axis`）→ lens === axisId && lensBackgroundShown
+    塗っている軸 paintedAxisId = lens（ルート確定後は周囲も塗る設定の間だけ。それ以外はnull）
+    useDedicatedWayValues([塗っている専用way値配信軸], 表示範囲, 走行方位, 出発時刻, 想定速度)
+      （useMapViewの中。時刻・想定速度は軸カタログのneedsTime/needsSpeedが立つ軸のリクエストにだけ載る）
+    軸のレイヤーを出すか = 軸id === paintedAxisId（地図側のsceneが導く）
 ```
 
 **ルート確定後（`hasDetail`）**、評価軸グループの一律色分けは
-**`lensKeepAfterRoute`（既定ON）次第**で、ONの間はルート線の色分けと併せて
-周囲の道路も薄く塗り続ける（`lensBackgroundShown =
-!hasDetail || lensKeepAfterRoute`）。ルート線側の色分けは`routeStyleModes.ts`由来のモード
+**「ルート後も周囲を塗る」（既定ON）次第**で、ONの間はルート線の色分けと併せて
+周囲の道路も薄く塗り続ける（`features/map/view/lens.ts: paintedAxisId`）。ルート線側の色分けは`routeStyleModes.ts`由来のモード
 選択が担う。
 
 走行方位の設定UIは`TravelBearingControl`（地図右上、MapLibreのズーム+/−・回転コントロールの
@@ -176,16 +181,12 @@ travelBearingDeg（page.tsxの単一useState、TravelBearingControlで操作）�
 どこか1か所だけ別の値を持つと、その継ぎ目だけ間隔や幅がずれる。値を出すボタンは高さだけが
 中身に合わせて伸びる。右下の現在地ボタン（44px）も、この列と中心がそろう位置に置く。
 
-**暗黙の前提**: way_id単位の実データ本体（`dedicatedWayValues: ReadonlyMap<axisId,
-ReadonlyMap<wayId, value>>`）・フェッチ進行中フラグ（`dedicatedWayValueLoading:
-ReadonlyMap<axisId, boolean>`）は、いずれも`MapView.tsx`の`MapViewProps`上で
-軸id→値の1つの汎用propにまとまっている（design-principles.md構造仕様3「軸ごとにpropを
-新設しない」）。表示宣言（種類・単位・しきい値・段階ラベル）は軸そのもの
-（`dedicatedAxes`の各要素の`display`）が持ち、別のpropでは渡さない——軸と表示宣言を
-別々に配ると、片方にだけ在る軸が生まれ、それを既定値で埋める経路が要る。
-`page.tsx`が`axisCatalog.dedicatedAxes`（軸カタログから抽出済みの
-専用way値配信軸一覧）を横断して構築するため、`dedicated_way_value_layer`軸が増えても
-これらのprop自体の変更は不要。専用way値配信軸に軸専用のpropは無い。
+**暗黙の前提**: way_id単位の実データ本体と取得中かは、軸id→取得結果の1つの`Map`として
+見え方の値（`MapLook.dedicatedWayValues`）に載る（design-principles.md構造仕様3「軸ごとに
+propを新設しない」）。表示宣言（種類・単位・しきい値・段階ラベル）は軸そのもの（軸カタログの
+`dedicatedAxes`の各要素の`display`）が持ち、別の値では渡さない——軸と表示宣言を別々に配ると、
+片方にだけ在る軸が生まれ、それを既定値で埋める経路が要る。地図は軸カタログを共有ストアから
+自分で読むため、`dedicated_way_value_layer`軸が増えてもどの受け口も変わらない。
 
 ## 状態の永続化（`hooks/useStoredState.ts`）
 
@@ -197,11 +198,9 @@ localStorageへの保存・復元を1箇所に集約する。
 - 保存は「setter呼び出しのたびに即書き込む」方式（`autoSave`省略時true）。
 - `reloadKey`: 復元処理を再実行させたい追加の依存値。`deserialize`はrefへ退避しない
   （`reloadKey`が変わった際、その時点の最新の`deserialize`クロージャで再復元する）。例:
-  `layerVisibility`は`axisCatalog.loaded`を`reloadKey`にする。キー集合自体は
-  `DEFAULT_LAYER_VISIBILITY`固定でカタログに依存しないが、1回目の復元が書き戻した
-  移行後の値を2回目の復元がそのまま読み直せるよう揃えている（`page.tsx`の同箇所の
-  コメント参照）。レンズの選択（`lens`）は`deserialize`が実行時カタログの
-  `routeStyleModes`を参照するため、こちらは2段階復元が意味を持つ。
+  レンズの選択（`lens`）は`deserialize`が実行時カタログの`routeStyleModes`を参照するため、
+  `axisCatalog.loaded`を`reloadKey`にする——カタログ取得前の1回だけで判定すると、軸を指す
+  保存値が未知のidとして捨てられ、再訪のたびに総合難易度へ戻る。
 - `useStoredJsonState`は`JSON.stringify`/`JSON.parse`を既定にした薄いラッパー
   （`/admin`とのstate共有に使う）。
 - 読み書きの失敗（プライベートブラウジング等）はデフォルト値へのフォールバックとして
@@ -222,23 +221,21 @@ Reactの外（モジュール評価時に初期値を決めるシングルトン
 
 - `routePreference`（`RouteSettingsPanel`が編集）→ `syncRoutePreferenceKeys`による
   キー整合補正 → ルート生成リクエスト。整合補正は役割の違う経路へ分かれる: `RouteSettingsPanel`の
-  マウント時（`useEffect`）は**stateを書き換える**、`buildCurrentGenerationInput`は
-  **送る値だけを整える**（stateは触らない。パネルを開かずに生成する経路の穴埋め）。
-  後者は軸カタログ取得済みのときだけ行う——未取得のまま整合させると静的フォールバックに
-  合わせて書き換えてしまうため、その場合は`route_preference`自体を送らずbackendの既定へ
-  委ねる。
-- `layerVisibility`（`MapOverlayControls`が持つ）→ `MapView`の
-  一次属性・気象・スポットの表示制御。
-- `lens`（レンズ、`LensControl`が唯一の入口）→ 全道路の塗りは`axisVisibility`（ramp軸）と
-  `dedicatedWayValueVisibility`（専用way値配信軸）、ルート線は`MapView`の`routeStyleModeId`
-  へ、いずれも同じ1つの値から導出する（どちらもレイヤーID→booleanの汎用Recordで、軸ごとの
-  propを持たない。[地図: 軸・ルート色分け](map-axis-coloring.md)参照）。
-- `axisCatalog.rampAxes`・`axisCatalog.dedicatedAxes`
-  → `buildMapLayers`とsceneのグループ宣言からレイヤー構成を組み立てる。
-- `axisCatalog.secondaryAxes`（`primaryAttributeIds`）→ `secondaryAxisCasingLayerIds`
-  （二次軸の下敷き表現、[静的レイヤー・道路表示](static-map-layers.md)参照）。
-- `travelBearingDeg`/`dynamicLayerTargetTime` → 環境/評価軸の風・勾配表現が共有する入力
-  （上記「動的材料の状態別表現契約」参照）。
+  マウント時（`useEffect`）は**stateを書き換える**、生成リクエストの組み立て
+  （`lib/routePreferenceSync.ts: routePreferenceToSend`）は**送る値だけを整える**（stateは
+  触らない。パネルを開かずに生成する経路の穴埋め）。**利用者が重みを上書きしていない間
+  （`weightOverrideEnabled`がfalse）と、軸カタログを取得できていない間は`route_preference`
+  自体を送らず、backendの既定の重みへ委ねる**——上書きしていない利用者の保存値は利用者が
+  決めた重みではなく、取得前は軸が0件のため、そのまま整合させると保存済みの重みを全部消す。
+- 走行条件（走行方位・出発時刻・想定速度）→ 地図の見え方（`useMapView`の入力）・生成リクエスト・
+  道の詳細（`MapView`の`rideConditions`）が同じ値を読む（上記「動的材料の状態別表現契約」参照）。
+- 生成に使われた重み（`generatedRoutePreference`、backendが生成時に使った値を返す）→ レンズの
+  選択肢の「未使用」。**使う軸は生成した時点で決まる**ため、生成前は「未使用」を付けない。
+- 地図の見え方の値（`useMapView`の`look`）→ `MapView`。レイヤーのON/OFF・レンズ・塗っている軸・
+  隠した行・取得結果の状態そのものだけを渡し、そこから導けるもの（どのレイヤーを出すか・家族ごとの
+  隠した行・二次軸の下敷き）は地図側のscene（`features/map/scene/applyToMap.ts`）が導く。
+  軸カタログ・タイル世代は`MapView`と`useMapView`がそれぞれ共有ストアから読み、`page.tsx`は
+  渡さない。
 
 ## モバイル/デスクトップのレイアウト分岐
 
@@ -389,9 +386,9 @@ composite_difficulty`と同じ考え方で軸の重みを反映した寄与度�
 
 ## `MapView`（`Map/MapView.tsx`）との境界
 
-`page.tsx`は`MapView`へ多数のprops（表示フラグ・色分けデータ・コールバック）を渡す。
-`MapView`自身はレイヤー固有の判断ロジックを持たず、渡された値をそのままMapLibreの
-source/layer操作へ変換する「汎用描画係」という位置づけを保っている
+`page.tsx`は`MapView`へ、見え方の値1つ（`look`）・走行条件と、ルート・地点・レイアウト由来の
+値（候補・選択・経由地・覆われた高さ等）を渡す。`MapView`自身はレイヤー固有の判断ロジックを
+持たず、受け取った状態をsceneへ通してMapLibreへ当てる「汎用描画係」という位置づけを保っている
 （[静的レイヤー・道路表示](static-map-layers.md)・[動的気象レイヤー](dynamic-weather-layers.md)参照）。
 地図初期化用の`useEffect`は空配列依存でマウント時に1度だけ実行され、そこで登録した
 ハンドラは最新の値をref（コールバックごとの`on…Ref`・いまの宣言を持つ`sceneRef`等、

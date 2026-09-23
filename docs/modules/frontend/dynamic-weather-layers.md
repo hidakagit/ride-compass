@@ -37,8 +37,10 @@
    浸水・線状降水帯予測マップ）。加えて洪水キキクルのみ、配信元のMapbox Vector Tile
    （.pbf）をMapLibre標準のvectorソース+lineレイヤーでそのまま描画する`vectorTile`
    （feature-state・GeoJSON変換は不要、`riskMap.ts`冒頭コメント参照）。
-3. **時刻は共有state1つ**: 表示時刻は`dynamicLayerTargetTime`（条件バー`RideConditionBar`の
-   出発時刻と同じstate、`setDynamicLayerTargetTime`で書き換える）。各レイヤーは
+3. **時刻は共有state1つ**: 表示時刻は走行条件の出発時刻そのもの（`hooks/useDepartureTime.ts`の
+   `at`。条件バー`RideConditionBar`が書き換え、選ぶまでは5分刻みの「今」へ追従する）で、
+   このフックは状態を持たず受け取るだけにする——出発時刻は生成リクエストと専用配信軸も読む
+   走行条件で、気象レイヤーの持ち物ではない。各レイヤーは
    `frameIndexForTime`で選択時刻に対応する自分のフレームを求め、選択時刻が自分の
    データ範囲外なら何も描画しない。キキクル4種・線状降水帯予測マップはこの
    タイムラインに乗らない（下記「特殊系」参照）。
@@ -58,12 +60,12 @@
    共有時刻をキーに持つ取得（`useDedicatedWayValues`）だけが無効化される。
 4. **データ取得の差異はデータ層で吸収**: 各要素のデータ層モジュールがソース（1グループに
    つきN個ありうる）を統合し、フレームごとの描画内容（`DynamicWeatherRenderPayload`）を
-   返す。表示層（`page.tsx`/`MapView.tsx`）はペイロードの`kind`しか見ない。
+   返す。表示層（`MapView.tsx`とsceneの`groups/weather.ts`）はペイロードの`kind`しか見ない。
 
 ## 表示層の実装（`scene/groups/weather.ts`）
 
 ```
-useDynamicWeatherLayers（フック、page.tsx経由）
+useDynamicWeatherLayers（フック、features/map/view/useMapView.ts経由）
   ├─ フェッチ・共有タイムライン計算・payload組み立て
   └─ dynamicWeather: Partial<Record<DynamicWeatherLayerId, DynamicWeatherGroupState>>
                      を MapView へ渡す
@@ -184,8 +186,10 @@ JMAタイル系ソースの`minzoom`/`maxzoom`・パスの系統・ベクタの�
 面をどれだけ濃くしても線・点はその上に残る。気象庁は危険度を
 ラスタ画像でしか配信せず現在の警戒レベルを返すAPIを持たないため、「重なっているなら最も
 危険な1枚だけ出す」といった自動制御は実装できない。代わりに、チップの▶パネルの
-「表示する情報」でソースを個別に間引ける——非表示キーは他の凡例絞り込みと同じ
-`hiddenLegendKeysByMode`へ保存され、`hiddenDisasterSources`としてこのフックへ渡る。
+「表示する情報」でソースを個別に間引ける——行（要素の呼び名）は源泉の要素の宣言
+（backend `domain/map_display.py: WEATHER_ELEMENTS`の`label`）から`scene/legends.ts:
+disasterSourceLegendAxis`が作り、隠したソースは他の凡例絞り込みと同じ保存先
+（`useMapView`が持つ）へ入って、`hiddenDisasterSources`としてこのフックへ渡る。
 ソースごとの`visible`だけでなく、1本の`targetTimes`JSONを共有する要素がすべて非表示なら
 そのフェッチ自体も行わない（「表示中のものだけ叩く」方針）。どのソースがどのフェッチに
 属するか（`DISASTER_FETCH_GROUP`）はデータ層のフェッチ関数ごとに決まる画面の持ち物で、
@@ -298,9 +302,8 @@ trueとする。
 取得できるようになれば自然に外れる。グループ配下を機械的に走査するので、要素やチップが
 増えても足すコードは無い。
 
-算出した`dynamicWeatherDataStatus`は`page.tsx`が`mapViewLayerDataStatus`
-（ソースイベント側）とマージして1つの`layerDataStatus`にし、`overlayLayers`
-（`MapOverlayControls`の状態ドット）へ渡す
+算出した`dynamicWeatherDataStatus`は`useMapView`が地図から上がる取得状態（ソースイベント側）と
+マージし、地図上チップ（`MapOverlayControls`の状態ドット）へ渡す
 （[静的地図レイヤー](static-map-layers.md)「レイヤーのデータ取得状態」節参照）。
 
 ## キキクル・線状降水帯予測マップ（特殊系）
@@ -351,8 +354,8 @@ trueとする。
 ## 暗黙の前提
 
 - 各named sourceのvisibility判定（`linearRainbandVisible`のような追加条件）は汎用機構
-  （`dynamicWeather.ts`/`scene/groups/weather.ts`）の外、呼び出し側（`page.tsx`/
-  `useDynamicWeatherLayers.ts`）が都度手書きする。汎用機構自身は渡された`visible`
+  （`dynamicWeather.ts`/`scene/groups/weather.ts`）の外、呼び出し側（`useDynamicWeatherLayers.ts`）が
+  都度手書きする。汎用機構自身は渡された`visible`
   フラグをそのまま使うだけで、「なぜそのフラグなのか」を一切知らない。
 - `frameIndexForTime`の許容誤差（`FRAME_RANGE_EPSILON_MS`=1秒）は「複数フレームから
   該当する1枚を選ぶ」用途専用であり、「常に1枚だけの現在値スナップショットを表示し続ける」

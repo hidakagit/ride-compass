@@ -18,7 +18,7 @@ import {
 import type { OverlayLayerChip } from "@/components/MapOverlayControls/MapOverlayControls";
 import { disasterSourceLegendAxis, pointLegendAxes, roadLegendAxes } from "@/features/map/scene/legends";
 
-import { hiddenKeysOf } from "./legendFilters";
+import { hiddenKeysOf, presentHiddenKeys } from "./legendFilters";
 import type { HiddenLegendKeys } from "./mapLook";
 
 /** 凡例1本。`axisId`を持てば絞り込める（保存先の鍵）。 */
@@ -75,7 +75,8 @@ export function overlayChips(options: {
         legendDetails: chipLegends(layer, options.screenLegends[layer.id] ?? []).map(
           (axis): LegendFilterSummaryAxis => ({
             ...axis,
-            hiddenKeys: axis.axisId === undefined ? [] : hiddenKeysOf(hidden, axis.axisId),
+            hiddenKeys:
+              axis.axisId === undefined ? [] : presentHiddenKeys(axis.legend, hiddenKeysOf(hidden, axis.axisId)),
           }),
         ),
         category: layer.category,

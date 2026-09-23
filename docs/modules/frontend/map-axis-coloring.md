@@ -73,15 +73,17 @@ backend（`domain/dynamic_way_values.py: map_value_thresholds`）が軸の折れ
 
 公開軸は無条件でレンズの選択肢になる（`routeStyleModes.ts: routeStyleModesFromCatalogAxes`が
 公開軸すべて＋`difficulty`（総合難易度）＋`none`（塗らない）をマップする）。重み0の軸も
-選べ、`LensControl`が「未使用」バッジで示す。ルート前に塗る手段（ramp・専用配信）を
+選べ、生成に使われた重みが0だった軸は`LensControl`が「未使用」バッジで示す——使う軸は
+生成した時点で決まるため、生成前は付けない（`features/map/view/lens.ts: lensOptions`）。ルート前に塗る手段（ramp・専用配信）を
 持たない軸は「ルート後のみ」バッジ付きで選べるが、ルート前は何も塗らない。
 
-**レンズ状態は1つ**（`page.tsx: lens`、`"none" | "difficulty" | axis_id`。localStorage
-キーは`ridecompass:route-style-mode`）。ルート前は全道路（ramp軸は`axisVisibility`、
-専用配信は`dedicatedWayValueVisibility`。どちらもレイヤーID→booleanの汎用Recordで、
-軸ごとのpropを持たない）、ルート後はルート線（`MapView`の
-`routeStyleModeId`）をこの1つの値から導出する。ルート後も全道路の塗りを残すかは
-`lensKeepAfterRoute`（既定ON）。レンズが軸を指していれば生成リクエストへ`lens_axis_id`を
+**レンズ状態は1つ**（`features/map/view/useMapView.ts`の`lens`、`"none" | "difficulty" | axis_id`。
+localStorageキーは`ridecompass:route-style-mode`）。ルート前は全道路、ルート後はルート線を
+この1つの値から導く——地図へは「全道路を塗っている軸」（`paintedAxisId`）1つを渡し、ramp軸・
+専用配信軸のどちらのレイヤーを出すかは地図側（`scene/applyToMap.ts`）が導く（軸ごとの値を
+持たない）。ルート後も全道路の塗りを残すかは「ルート後も周囲を塗る」（既定ON）。
+**レンズを選ぶと、ルートのレイヤーがOFFならONにする**——選んだ色分けがルート線に出ないまま、
+理由が画面のどこにも無い状態を作らない。レンズが軸を指していれば生成リクエストへ`lens_axis_id`を
 載せ、重み0でもbackendが区間表示のため風の時変化合成（風に依存する軸の場合）・
 `material_values`への当該材料の封入（`signed_material`種の軸の場合）を行う
 （backend側は`axis_raw_value.py: displayed_material_ids`、[routing-engine.md](../backend/routing-engine.md)
@@ -162,7 +164,7 @@ axis_display_for`が前の境界を決め、`domain/dynamic_way_values.py: map_v
 
 同じ理由で段の識別子も前後で共通（`mapColorLegend.ts: legendBandKey`＝`step-N`、値を持たない
 道の受け皿は`LEGEND_NO_DATA_KEY`）。**軸idを綴りへ混ぜない**——非表示にした段の保存先は前後で
-同じ`hiddenLegendKeysByMode[軸id]`のため、別の綴りにすると隠した段がルート生成で黙って戻る
+同じ鍵（軸id）のため、別の綴りにすると隠した段がルート生成で黙って戻る
 。
 
 段の範囲を文字にするのは`mapColorLegend.ts: rangeStepLabel`だけ。**語は述語に合わせる**——
@@ -220,7 +222,7 @@ axis_display_for`が前の境界を決め、`domain/dynamic_way_values.py: map_v
   `mapColorLegend.ts: bandLabelsForBandCount`が
   「件数が段階数と一致する間だけ」に絞ってから数値レンジの前に添える——**ルート後の凡例も
   同じ関数を使う**（後述の`routeStyleModes.ts`）。単位は`display.unit`（難易度は空文字）。
-  `page.tsx`が現在のレンズに応じて凡例を1つ組み立てる（`lensLegend`: ルート後はルート線
+  `features/map/view/lens.ts: lensLegend`が現在のレンズに応じて凡例を1つ組み立てる（ルート後はルート線
   モードの凡例、ルート前はramp軸なら`axisLayers.ts: buildAxisRampLegend`、専用配信軸なら
   この関数）。`LensControl`（`components/LensControl/`）が地図上部中央のピルとポップオーバーに
   表示する（モバイルのBottomSheetが画面下側を覆っても隠れないための配置）。
@@ -229,17 +231,16 @@ axis_display_for`が前の境界を決め、`domain/dynamic_way_values.py: map_v
 
 ### 段階の表示ON/OFF（凡例のチェック）
 
-保存先はレンズを問わず`page.tsx: hiddenLegendKeysByMode[軸id]`1箇所で、地図上チップの
-▶パネルの絞り込み・「絞り込みをすべて解除する」もこの同じ場所を読み書きする。段階キーは
-`mapColorLegend.ts: legendBandKey`/`LEGEND_NO_DATA_KEY`が唯一の出どころで、ルート前と
-ルート後が同じキーを使う——**ルート生成をまたいでも同じ段階が隠れたまま**になる
-（専用way値配信軸の場合。ramp軸はルート前とルート後で塗る値のスケール自体が違うため、
-ramp凡例側のキー[`${axisId}-${index}`]と別になる）。効かせ方だけがレンズの種類で異なる。
+保存先はレンズを問わず隠した行の保存先（`useMapView`が持つ1つの表）の同じ鍵（軸id）で、
+地図上チップの▶パネルの絞り込み・「絞り込みをすべて解除する」もこの同じ場所を読み書きする。
+段階キーは`mapColorLegend.ts: legendBandKey`/`LEGEND_NO_DATA_KEY`が唯一の出どころで、軸の
+種類を問わずルート前とルート後が同じキーを使う——**ルート生成をまたいでも同じ段階が隠れた
+まま**になる。効かせ方だけがレンズの種類で異なる。
 
 | レンズ | ルート確定前 | ルート確定後 |
 |---|---|---|
-| 専用way値配信軸 | 色式で透明にする（`dedicatedWayValueHiddenBands`→`scene/groups/axisLines.ts`） | ルート線モードのfilter（`hiddenRouteLegendKeys`） |
-| ramp軸 | タイルのプロパティへのfilter（`staticFilterAxes`経由、[静的レイヤー](static-map-layers.md)） | 同上 |
+| 専用way値配信軸 | 色式で透明にする（`scene/groups/axisLines.ts`） | ルート線モードのfilter（`scene/groups/routes.ts`） |
+| ramp軸 | タイルのプロパティへのfilter（`scene/groups/axisLines.ts`、[静的レイヤー](static-map-layers.md)） | 同上 |
 
 ## useDedicatedWayValues.ts（フェッチ・状態管理）
 
@@ -271,8 +272,8 @@ axisId)`が未取得・対象外の軸を空の結果へ倒して読み出す。
   `fetchDynamicWayValues`の`DynamicWayValuesResult.error`をタイル横断でOR集約する。
   backendが正常応答で空オブジェクトを返した場合（対象範囲に本当に道路が無い）は
   `false`のまま。地図の色分け自体は「取得失敗」と「本当に空」のどちらも同じ無彩色
-  （`COLOR_NO_DATA`）になり見分けが付かないため、`page.tsx`が`lens`が
-  専用way値配信軸を指す間だけ`error`/`loading`/`values`の有無から
+  （`COLOR_NO_DATA`）になり見分けが付かないため、`useMapView`がレンズの軸の値を
+  取りに行っている間だけ`error`/`loading`/`values`の有無から
   `deriveFetchLayerStatus`（`mapLayers.ts`、動的気象レイヤーと共有する判定関数）で
   `LayerDataStatus`を1つ算出し、`LensControl`のピルへ小さな状態ドット（`LayerChip`と
   同じ視覚表現）として表示し、その意味をポップオーバーの見出しの下へ文として出す
@@ -297,14 +298,13 @@ axisId)`が未取得・対象外の軸を空の結果へ倒して読み出す。
 `MapView.tsx`は画面の状態を宣言の入力へ渡すだけである。軸ごとの処理・effectは持たない。
 
 ```
-page.tsx
-  ├─ dedicatedFetchAxes = [レンズが指す専用配信軸]
-  ├─ useDedicatedWayValues(dedicatedFetchAxes, viewport, travelBearingDeg, targetTime, assumedSpeedKmh)
+features/map/view/useMapView.ts
+  ├─ 取りに行く軸 = [塗っている専用配信軸]（paintedAxisId）
+  ├─ useDedicatedWayValues(取りに行く軸, 表示範囲, 走行方位, 出発時刻, 想定速度)
   │     → ReadonlyMap<axisId, {values, loading, error, hasFetched}>
-  ├─ dedicatedWayValues        = そのMapのvaluesだけを写したMap<axisId, Map<wayId, value>>
-  ├─ dedicatedWayValueLoading  = 同じくloadingだけを写したMap<axisId, boolean>
   ▼
-<MapView dedicatedAxes={...} dedicatedWayValues={...} dedicatedWayValueLoading={...} .../>
+<MapView look={{ …, paintedAxisId, dedicatedWayValues: 上のMapそのもの }} .../>
+  │   （軸の一覧は MapView が軸カタログの共有ストアから読む）
   ├─ sceneInputsFrom(...)（scene/applyToMap.ts）が軸ごとの段（軸のdisplayから）・値・
   │   取得中フラグ・隠した段を評価軸の線の入力へ移す
   ├─ buildMapScene → 評価軸の線（scene/groups/axisLines.ts）が、路面タイルのソースへ
@@ -328,8 +328,8 @@ page.tsx
   宣言の一部なので、値が変わっていなくても再び載る——宣言の外で当てると、スタイル切替後に
   レイヤーはあるのに完全に無色のまま残る。
 
-`dedicatedWayValues`・`dedicatedWayValueLoading`は`MapViewProps`上、軸id→値の1つの汎用propに
-まとまっている（design-principles.md構造仕様3「軸ごとにpropを新設しない」）。
+専用配信軸の取得結果（値と取得中か）は、見え方の値（`MapLook.dedicatedWayValues`）の中で軸id→
+取得結果の1つの`Map`にまとまっている（design-principles.md構造仕様3「軸ごとにpropを新設しない」）。
 `useDedicatedWayValues`も軸の配列を受け取る1つのフックで、軸ごとのフック呼び出しを持たない
 （Reactのフック規則により、実行時に増減しうる軸の件数だけフックを呼ぶことはできないため）。
 
@@ -353,7 +353,7 @@ isAxisStudioLayer`により地図上チップ（`MapOverlayControls.tsx`）に�
 |---|---|
 | `MapLayerId`・`MapLayerDescriptor`（地図UIからの除外を含む） | `buildMapLayers(rampAxes, dedicatedAxes)` |
 | MapLibreの線レイヤー・色式・濃さ・feature-state | `scene/applyToMap.ts: sceneInputsFrom`が`dedicatedAxes`を評価軸の線（`scene/groups/axisLines.ts`）の入力へ移す |
-| 表示ON/OFF（レンズ選択） | `page.tsx: dedicatedWayValueVisibility` |
+| 表示ON/OFF（レンズ選択） | 塗っている軸（`useMapView`の`paintedAxisId`）から`scene/applyToMap.ts`が導く |
 | way値のフェッチとクエリパラメータの取捨 | `useDedicatedWayValues` + 軸カタログの`needsTime`/`needsSpeed` |
 | 表示宣言・凡例 | `dedicatedWayValueAxesFromCatalogAxes`（軸の`display`）/`dedicatedWayValueLegend` |
 

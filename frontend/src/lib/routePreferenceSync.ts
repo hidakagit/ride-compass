@@ -25,3 +25,15 @@ export function syncRoutePreferenceKeys(
   for (const id of staleAxisIds) delete synced[id];
   return synced;
 }
+
+/** 生成リクエストへ載せる重み。利用者が重みを上書きしていない間と、軸カタログを取得できて
+ * いない間は送らず（null）、backendの既定の重みへ委ねる——取得前は軸が0件のため、そのまま
+ * 整合させると保存済みの重みを全部消す。 */
+export function routePreferenceToSend(
+  routePreference: RoutePreferenceWeights,
+  catalog: { loaded: boolean; defaultWeights: RoutePreferenceWeights },
+  overrideEnabled: boolean,
+): RoutePreferenceWeights | null {
+  if (!overrideEnabled || !catalog.loaded) return null;
+  return syncRoutePreferenceKeys(routePreference, catalog.defaultWeights) ?? routePreference;
+}

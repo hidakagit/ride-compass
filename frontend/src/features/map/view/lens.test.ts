@@ -5,10 +5,8 @@
 // - 凡例の段そのもの（境界・色・ラベルの規則）→ `mapColorLegend.test.ts`・`axisLayers.test.ts`
 import { describe, expect, it } from "vitest";
 
-import { axisMapLayerId } from "@/components/Map/axisLayers";
-
 import { catalogOf, catalogEntry, dedicatedEntry, rampEntry } from "./__fixtures__/catalog";
-import { axisLayerVisibility, lensLegend, lensOptions, paintedAxisId } from "./lens";
+import { lensLegend, lensOptions, paintedAxisId } from "./lens";
 
 // ramp表示を持つ軸・専用配信を持つ軸・どちらも持たない軸。
 const CATALOG = catalogOf([rampEntry("r", [1, 2]), dedicatedEntry("d", [0]), catalogEntry({ axis_id: "p" })]);
@@ -18,14 +16,6 @@ describe("paintedAxisId（全道路を塗っている軸）", () => {
     expect(paintedAxisId("r", false, false)).toBe("r");
     expect(paintedAxisId("r", true, true)).toBe("r");
     expect(paintedAxisId("r", true, false)).toBeNull();
-  });
-});
-
-describe("axisLayerVisibility（軸ごとのレイヤーを出すか）", () => {
-  it("塗っている軸のレイヤーだけを出し、塗っていなければどれも出さない", () => {
-    expect(axisLayerVisibility(CATALOG.rampAxes, axisMapLayerId, "r")).toEqual({ [axisMapLayerId("r")]: true });
-    expect(axisLayerVisibility(CATALOG.rampAxes, axisMapLayerId, "d")).toEqual({ [axisMapLayerId("r")]: false });
-    expect(axisLayerVisibility(CATALOG.rampAxes, axisMapLayerId, null)).toEqual({ [axisMapLayerId("r")]: false });
   });
 });
 

@@ -1,6 +1,5 @@
 "use client";
 
-import palette from "@/types/generated/palette.json";
 import { useEffect, useRef, useState } from "react";
 import InfoPopover from "@/components/Map/InfoPopover";
 import { axisIconFor } from "@/components/Map/axisIconPalette";
@@ -30,19 +29,6 @@ import styles from "./RouteSettingsPanel.module.css";
 // アイコン＋%→%のみ→何も出さない、の順に落とす（どの軸の%もチップ側では必ず読める）。
 const SEGMENT_ICON_MIN_PCT = 10;
 const SEGMENT_VALUE_MIN_PCT = 6;
-
-// 重み配分バーの軸ごとの色分け。色自体に意味は持たせない識別用で、HSL色相環を実際の
-// 軸数で等分して割り当てる（軸数がいくつであっても衝突しない）。indexは常に
-// catalog.axesの表示順（フルリスト内の位置）を使う——チェックを外した軸があっても、
-// 他の軸の色は動かない（表示順が変わらない限り、ある軸の色は常に同じという安定性を保つ）。
-// RouteAxisProfile.tsx（ルート選択タブへ統合した軸チップ）が、同じ軸ならここと同じ
-// 色ドットになるよう、この関数をそのまま再利用する（パネルをまたいでも同じ軸は同じ色、
-// という視覚的な一貫性のためexport）。
-export function stackBarColorForIndex(index: number, axisCount: number): string {
-  if (axisCount <= 0) return palette.semantic.neutral;
-  const hue = (index * (360 / axisCount)) % 360;
-  return `hsl(${hue}, 62%, 55%)`;
-}
 
 interface RouteSettingsPanelProps {
   routePreference: RoutePreferenceWeights;
@@ -137,13 +123,12 @@ export default function RouteSettingsPanel({
 
   // 有効な軸（重み>0）を先、無効な軸を後ろに並べる。有効な軸の%が先頭にまとまるため、
   // チップ領域をスクロールせずに「今どの軸が何%か」を読める。
-  const axesWithIndex = catalog.axes.map((axis, index) => ({
+  const axesWithWeight = catalog.axes.map((axis) => ({
     axis,
-    index,
     weight: routePreference[axis.axisId] ?? 0,
   }));
-  const enabledAxes = axesWithIndex.filter(({ weight }) => weight > 0);
-  const orderedAxes = [...enabledAxes, ...axesWithIndex.filter(({ weight }) => weight <= 0)];
+  const enabledAxes = axesWithWeight.filter(({ weight }) => weight > 0);
+  const orderedAxes = [...enabledAxes, ...axesWithWeight.filter(({ weight }) => weight <= 0)];
 
   // 重み配分バー（帯グラフ）の隣り合う2要素の境界をドラッグして配分し直せる。
   // 境界を1つ動かすと、その両隣の2軸間でだけ重みが移動する（他の軸・合計自体は
@@ -222,9 +207,9 @@ export default function RouteSettingsPanel({
 
   // 軸チップ1件。本体のタップで有効/無効を切り替え、(i)で軸の説明を読む。有効な軸には
   // 現在の%を併記する（帯の狭い区間には数字が入らないため、%を必ず読める場所がここ）。
-  function renderLegendChip(axis: PreferenceAxisDef, index: number, weight: number) {
+  function renderLegendChip(axis: PreferenceAxisDef, weight: number) {
     const checked = weight > 0;
-    const color = stackBarColorForIndex(index, catalog.axes.length);
+    const color = catalog.axisColors[axis.axisId];
     const label = axis.chipLabel ?? axis.label;
     return (
       <span key={axis.axisId} className={styles.legendChip} data-checked={checked}>
@@ -280,13 +265,13 @@ export default function RouteSettingsPanel({
       <div className={styles.stackBarWrap}>
         <div className={styles.stackBarOuter} ref={stackBarRef}>
           <div className={styles.stackBar}>
-            {enabledAxes.map(({ axis, index, weight }) => {
+            {enabledAxes.map(({ axis, weight }) => {
               const pct = sharePct(weight);
               return (
                 <div
                   key={axis.axisId}
                   className={styles.stackSegment}
-                  style={{ width: `${pct}%`, background: stackBarColorForIndex(index, catalog.axes.length) }}
+                  style={{ width: `${pct}%`, background: catalog.axisColors[axis.axisId] }}
                   title={`${axis.label} ${Math.round(pct)}%`}
                 >
                   {pct >= SEGMENT_ICON_MIN_PCT && (
@@ -337,9 +322,7 @@ export default function RouteSettingsPanel({
         </div>
       </div>
 
-      <div className={styles.legendRow}>
-        {orderedAxes.map(({ axis, index, weight }) => renderLegendChip(axis, index, weight))}
-      </div>
+      <div className={styles.legendRow}>{orderedAxes.map(({ axis, weight }) => renderLegendChip(axis, weight))}</div>
     </div>
   );
 }
