@@ -122,6 +122,26 @@ class TestDeclarationInvariants:
         assert definition.display_band_labels_override == ["低", "高"]
 
 
+class TestCategoricalMappingKeys:
+    """JSONのキーは文字列なので、真偽の材料の対応表は"true"/"false"で届く。"""
+
+    def test_true_and_false_are_read_as_the_flag_values(self):
+        shape = CategoricalShape.model_validate({"material": "bool_a", "mapping": {"true": 10.0, "false": 20.0}})
+
+        assert shape.mapping == {True: 10.0, False: 20.0}
+        assert all(isinstance(key, bool) for key in shape.mapping)
+
+    def test_every_other_spelling_stays_the_value_name_it_was_written_as(self):
+        """真偽として読める綴り（"yes"・"on"・"1"等）も、対応表では値の名前。"""
+        names = ["yes", "no", "on", "off", "1", "0", "y", "n", "t", "f", "True", "FALSE"]
+
+        shape = CategoricalShape.model_validate(
+            {"material": "cat_a", "mapping": {name: float(i) for i, name in enumerate(names)}}
+        )
+
+        assert list(shape.mapping) == names
+
+
 class TestReferencedMaterials:
     def test_linear_axis_lists_terms_then_override_materials_once_each(self):
         definition = linear_axis(
@@ -315,6 +335,22 @@ class TestEvaluateAxisScalar:
         definition = categorical_axis("a", "cat_a", {"x": 40.0})
 
         assert axis_definitions.evaluate_axis_scalar(definition, materials) == expected
+
+
+@pytest.mark.parametrize(
+    "evaluate",
+    [
+        lambda definition, value: axis_definitions.evaluate_axis_scalar(definition, {"num_a": value}),
+        lambda definition, value: axis_definitions.evaluate_axis_array(definition, {"num_a": np.array([value])})[0],
+    ],
+    ids=["区間1本", "配列"],
+)
+@pytest.mark.parametrize(("value", "expected"), [(0.15, 0.1), (0.25, 0.2), (0.35, 0.3), (0.45, 0.5)])
+def test_a_score_on_a_tenths_boundary_rounds_by_its_actual_binary_value(evaluate, value, expected):
+    """区間の表示とルート選びは同じ得点を使う。0.15は2進では0.1499…なので0.1、0.45は0.4500…なので0.5。"""
+    definition = linear_axis("a", "num_a", breakpoints=[(0.0, 0.0), (1.0, 1.0)])
+
+    assert evaluate(definition, value) == expected
 
 
 class TestEvaluateAxesScalar:

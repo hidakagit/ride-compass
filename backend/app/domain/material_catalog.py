@@ -273,22 +273,28 @@ class MaterialSpec(StrictModel):
             return "false"  # bool配列を作らない材料では参照されない
         return "nan" if self.coverage.missing_semantics == "unknown" else "false"
 
-def _wind_drag_ratio_reference_points() -> list[MaterialReferencePoint]:
-    """`wind_drag_ratio`材料の参考点（時速20km=基準速度で走行、走行方位0度を基準に
-    風向差0度=向かい風・180度=追い風・90度=真横として`wind_drag_ratio`で計算する）。"""
+_WIND_REFERENCE_SPEED_LABEL = f"時速{WIND_DRAG_REFERENCE_SPEED_MS * 3.6:.0f}km"
+
+
+def _wind_drag_ratio_by_situation() -> dict[str, float]:
+    """基準速度で走るときの代表的な風の状況ごとの`wind_drag_ratio`（走行方位0度を基準に、
+    風向差0度=向かい風・180度=追い風・90度=真横）。材料の目安の一覧と説明文の両方がこれを読む。"""
     v = WIND_DRAG_REFERENCE_SPEED_MS
-    scenarios = [
-        ("時速20km・向かい風2m/s", 2.0, 0.0),
-        ("時速20km・向かい風4m/s", 4.0, 0.0),
-        ("時速20km・向かい風8m/s", 8.0, 0.0),
-        ("時速20km・追い風4m/s", 4.0, 180.0),
-        ("時速20km・真横4m/s", 4.0, 90.0),
+    situations = [
+        ("向かい風2m/s", 2.0, 0.0),
+        ("向かい風4m/s", 4.0, 0.0),
+        ("向かい風8m/s", 8.0, 0.0),
+        ("追い風4m/s", 4.0, 180.0),
+        ("真横4m/s", 4.0, 90.0),
         ("走行速度と同じ追い風", v, 180.0),
     ]
-    return [
-        MaterialReferencePoint(label=label, value=round(wind_drag_ratio(wind_speed_ms, wind_direction_deg, 0.0, v), 2))
-        for label, wind_speed_ms, wind_direction_deg in scenarios
-    ]
+    return {
+        situation: round(wind_drag_ratio(wind_speed_ms, wind_direction_deg, 0.0, v), 2)
+        for situation, wind_speed_ms, wind_direction_deg in situations
+    }
+
+
+_WIND_DRAG_RATIO_BY_SITUATION = _wind_drag_ratio_by_situation()
 
 
 _GRADIENT_PERCENT_REFERENCE_POINTS = [
@@ -646,10 +652,11 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
         label="風の追加負荷(倍率)",
         description=(
             "出発時刻の気象予報・ルートの進行方向・想定速度から、相対風速の二乗則で求めた空気抵抗の増分"
-            "（時速20kmで無風のときの空気抵抗を1とする倍率）。プラス=向かい風で重くなる、マイナス=追い風で楽になる、"
+            f"（{_WIND_REFERENCE_SPEED_LABEL}で無風のときの空気抵抗を1とする倍率）。プラス=向かい風で重くなる、マイナス=追い風で楽になる、"
             "真横の風は小さなプラス。同じ風でも速く走るほど値が大きくなります。"
-            "目安（時速20km）: 向かい風2m/s→0.85、4m/s→1.96、8m/s→4.95、追い風4m/s→-0.92、真横4m/s→0.23、"
-            "走行速度と同じ追い風→-1.0。"
+            f"目安（{_WIND_REFERENCE_SPEED_LABEL}）: "
+            + "、".join(f"{situation}→{ratio}" for situation, ratio in _WIND_DRAG_RATIO_BY_SITUATION.items())
+            + "。"
         ),
         dtype="numeric",
         # 気象は動的データ（出発時刻依存）のためタイルに焼き込めない（`domain/wind.py:
@@ -657,7 +664,10 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
         # （動的気象は一次属性レジストリの対象外）。
         tile_property=None,
         tile_property_direction_dependent=True,
-        reference_points=_wind_drag_ratio_reference_points(),
+        reference_points=[
+            MaterialReferencePoint(label=f"{_WIND_REFERENCE_SPEED_LABEL}・{situation}", value=ratio)
+            for situation, ratio in _WIND_DRAG_RATIO_BY_SITUATION.items()
+        ],
         coverage=CoverageExcluded(
             reason="出発時刻の気象予報・想定速度から都度計算する動的材料で、DBに静的な値を持たない",
             missing_semantics="unknown",

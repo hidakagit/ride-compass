@@ -163,6 +163,17 @@ class TestMapValueThresholds:
 
         assert dynamic_way_values.map_value_thresholds(definition) == [3.3, 6.7, 10.0]
 
+    def test_an_axis_on_the_map_that_folds_the_sign_is_refused(self, map_display):
+        """地図に塗れる軸を符号を畳まない形に限るのは地図表示の導出で、そこが変われば負の境界が正の側へ
+        折り返り、ルート線が全区間同じ帯になる。黙って写さずに止める。"""
+        definition = axis("a", linear("grade", "speed", preprocess="abs"))
+        map_display["a"] = AxisDisplaySpec(
+            kind="ramp", label="aの名前", tile_inputs=[{"property": "grade"}], thresholds=[-1.0, 1.0]
+        )
+
+        with pytest.raises(ValueError, match="folds the sign"):
+            dynamic_way_values.map_value_thresholds(definition)
+
     def test_a_categorical_axis_on_the_map_keeps_its_bands_which_are_already_scores(self, map_display):
         definition = axis("a", CategoricalShape(material="grade", mapping={"x": 0.0, "z": 100.0}))
         map_display["a"] = AxisDisplaySpec(

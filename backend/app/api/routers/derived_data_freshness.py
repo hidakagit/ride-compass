@@ -17,7 +17,7 @@ from app.api.dependencies import get_derived_data_freshness_service
 from app.domain.strict_model import StrictModel
 from app.services.derived_data_freshness_service import DerivedDataFreshnessService
 
-router = APIRouter()
+router = APIRouter(dependencies=[Depends(require_admin_basic_auth)])
 
 
 class ColumnEntry(StrictModel):
@@ -58,7 +58,6 @@ class DerivedDataFreshnessResponse(StrictModel):
 @router.get(
     "/api/admin/derived-data/freshness",
     response_model=DerivedDataFreshnessResponse,
-    dependencies=[Depends(require_admin_basic_auth)],
 )
 async def get_derived_data_freshness(
     service: DerivedDataFreshnessService = Depends(get_derived_data_freshness_service),

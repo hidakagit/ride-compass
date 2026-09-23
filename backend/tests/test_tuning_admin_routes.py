@@ -8,6 +8,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.api.dependencies import get_tuning_session
+from app.api.routers import tuning_admin
 from app.domain import tuning
 from app.domain.tuning import TUNING_PARAMETERS_BY_ID
 from app.main import app
@@ -75,9 +76,13 @@ def fake_overrides(monkeypatch, admin_credentials):
     tuning.TUNING_VALUES.update(saved)
 
 
-def test_requires_admin_auth(admin_credentials):
+@pytest.mark.parametrize(
+    ("method", "path"),
+    [(method, route.path) for route in tuning_admin.router.routes for method in sorted(route.methods)],
+)
+def test_every_route_rejects_a_request_without_credentials(admin_credentials, method, path):
     # 走行モデルの振る舞いを直接変えられるため、軸スタジオと同じ認可境界の内側に置く。
-    assert client.get("/api/admin/tuning").status_code == 401
+    assert client.request(method, path.replace("{param_id}", _PARAM)).status_code == 401
 
 
 def test_each_row_carries_what_it_takes_for_the_change_to_apply(fake_overrides):

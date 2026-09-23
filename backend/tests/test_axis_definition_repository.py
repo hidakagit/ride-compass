@@ -72,11 +72,8 @@ async def test_upsert_then_list_all_round_trips_shape_and_weight(road_graph_sess
 
 
 async def test_upsert_then_list_all_round_trips_categorical_bool_keys(road_graph_session):
-    # 改善計画T292回帰テスト: CategoricalShape.mappingをdict[bool|str, float]へ広げた際、
-    # 既定のPydantic smart-mode union解決だとJSON文字列"true"/"false"がbool True/Falseへ
-    # 強制変換されずstr型のまま残ってしまい、DB往復後にmapping={"true": ..., "false": ...}
-    # （str キー）になる回帰が実データ検証で発覚した（本来はmapping={True: ..., False: ...}）。
-    # union_mode="left_to_right"でbool判定を先に試すよう修正済み。
+    # JSONBのキーは文字列で保存されるため、読み戻しで"true"/"false"が真偽へ戻らないと
+    # 真偽の材料の対応表が値の名前の表になり、その軸は全区間で欠損になる。
     definition = AxisDefinition(
         axis_id="bool_categorical_axis",
         shape=CategoricalShape(material="surface_good", mapping={True: 0.0, False: 80.0}),

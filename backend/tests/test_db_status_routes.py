@@ -2,10 +2,12 @@
 
 from datetime import datetime, timezone
 
+import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy.exc import DBAPIError
 
 from app.api.dependencies import get_db_status_service
+from app.api.routers import db_status
 from app.infrastructure.db_status import (
     ConnectionCounts,
     DbStatusCounts,
@@ -14,7 +16,7 @@ from app.infrastructure.db_status import (
 )
 from app.main import app
 from app.services.db_status_service import build_db_status_report
-from tests.admin_auth import AUTH_HEADERS, basic_auth_header
+from tests.admin_auth import AUTH_HEADERS
 
 client = TestClient(app)
 STATUS_URL = "/api/admin/db-status"
@@ -75,13 +77,11 @@ def teardown_function() -> None:
     app.dependency_overrides.clear()
 
 
-def test_requires_basic_auth():
-    assert client.get(STATUS_URL).status_code == 401
-
-
-def test_rejects_wrong_credentials(admin_credentials):
-    response = client.get(STATUS_URL, headers={"Authorization": basic_auth_header("wrong", "wrong")})
-    assert response.status_code == 401
+@pytest.mark.parametrize(
+    ("method", "path"), [(method, route.path) for route in db_status.router.routes for method in sorted(route.methods)]
+)
+def test_every_route_rejects_a_request_without_credentials(admin_credentials, method, path):
+    assert client.request(method, path).status_code == 401
 
 
 def test_returns_imports_tables_and_connections(admin_credentials):

@@ -126,6 +126,9 @@
   分類材料の文字列配列（欠損は`None`）、欠損を持たない真偽配列、欠損を「不明」とする真偽材料の
   数値配列（1.0/0.0、欠損は`NaN`。`material_catalog.material_array_group`が数値の行列へ載せる）。
   真偽のキーの対応表は、真偽配列と数値配列の両方で引かれる。
+  JSONのキーは文字列なので、真偽の材料の対応表は`"true"`/`"false"`で届く。真偽として読むのは
+  この2つの綴りだけで、それ以外（`"yes"`・`"on"`・`"1"`等、pydanticなら真偽と読む綴りを含む）は
+  書いたとおりの値の名前として扱う。
 - 数値変換の実装は`domain/axis_templates.py: evaluate_breakpoint_linear`/
   `evaluate_categorical`。「合成」（他軸のスコアを次の軸の入力として使う階層構造）は
   独立したプリミティブではなく、連続演算の結合ステップの性質から生じる（`terms`の各
@@ -149,6 +152,10 @@
 | `evaluate_axis_scalar(definition, materials)` | 1Edge分。欠損はNone |
 | `evaluate_axis_array(definition, materials)` | numpy配列版。欠損はNaN、ベクトル化経路用 |
 | `evaluate_axes_scalar(materials)` | 全軸を依存順（`topological_axis_order`、内部軸→公開軸）で評価し、公開軸のみのdifficulty辞書と全軸を含むmaterials辞書を返す |
+
+折れ線の得点は小数1桁へ丸め、配列版もスカラー版の`round()`と同じ値へ丸める
+（`axis_templates.round1_array`）。区間を押したときの内訳（スカラー）とルート選び（配列）が
+同じ得点を使うため——`np.round`は×10の丸め誤差で、端数がちょうど`.x5`の値を別の側へ丸める。
 
 `topological_axis_order`は深さ優先探索でトポロジカルソートし、結果を内容ベースの
 キー（各軸の`materials`）でメモ化する（件数上限つきの`cachetools.LRUCache`。軸スタジオの
@@ -220,7 +227,7 @@ DB側の値が変わっても追従しない。
 | `BreakpointLinearShape`で`preprocess="identity"`かつboolean材料混在なし | できる（breakpointsのx値をそのまま流用） |
 | `preprocess="abs"`を含む軸 | **できない**（実装しないと確定済み。方向依存材料[風・勾配]を含む軸は別の制約でも弾かれるため二重に対象外） |
 | タイル非依存材料・方向依存材料（`tile_property_direction_dependent`）を含む軸 | できない |
-| 他の軸を参照する`MaterialTerm`を含む軸 | 参照先を再帰的に解決できれば可（`_resolve_referenced_axis_tile_input`、car_stressが参照する内部軸が実例）。2段階以上のネストは非対応 |
+| 他の軸を参照する`MaterialTerm`を含む軸 | 参照先の軸を1段だけ解決して畳めれば可（`_resolve_referenced_axis_tile_input`、car_stressが参照する内部軸が実例）。2段階以上のネストは非対応 |
 
 `axis_display_for(definition)`の優先順位: ①自動導出成功＋`display_thresholds_override`
 設定済みなら両方を組み合わせる、②自動導出成功のみなら自動導出のしきい値をそのまま使う、
@@ -239,7 +246,8 @@ DB側の値が変わっても追従しない。
 判定は`axis_display_for`と同じ`_map_band_thresholds`を通し、frontendへ規則を写さない。
 入力は段を決めるのに要るもの（`axis_id`・`shape`・`priority_overrides`・しきい値）だけで、
 表示名・重みのような下書きの途中で欠けうる項目を揃えさせない——揃えさせると、書きかけの
-軸では印が出なくなる。
+軸では印が出なくなる。保存前の下書きなので自分自身を参照する軸も届く（保存は循環として拒否される）。
+その軸は、保存済みの自分を材料として畳まず、地図に出ない軸として扱う（全段が残る）。
 
 **段が落ちても、体感ラベルは地図の段へ引き直して配る。** 体感ラベルの上書き
 （`display_band_labels_override`）は人が刻んだ境界の段ごとに付くため、境界が落ちると件数が
@@ -317,6 +325,9 @@ DB側の値が変わっても追従しない。
 | `POST /api/admin/axis-definitions/{axis_id}/unpublish` | Basic認証必須 | 公開済み軸を下書きへ戻す（`is_published`以外は変更しない） |
 | `POST /api/admin/axis-definitions/preview-display-thresholds` | Basic認証必須 | 編集中の軸で、上書きしたしきい値のうち地図が段にしないものと、地図の各段に当たる入力の段（DBを読まない） |
 | `GET /api/axis-catalog` | 不要（公開） | `is_published=True`の軸のみ返す。`AxisDefinition`のほぼ全フィールドをそのまま返す |
+
+管理API（`/api/admin/axis-definitions`）のBasic認証はルーターの`dependencies`で1か所に宣言し、
+口ごとには付けない——口を足しても認証の付け忘れが起きない。
 
 `GET /api/axis-catalog`の`material_runtime_scales`（実行時にしか決まらないスケール係数）
 のみ、リクエストごとにDBを直接見る例外（現状`accident_count_per_km_year`のみ対象）。

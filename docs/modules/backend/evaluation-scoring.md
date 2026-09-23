@@ -142,7 +142,8 @@ Python組み込み`sum()`（Python 3.12以降、Neumaier補償加算を使う）
 スカラー経路（`composite_difficulty`）と食い違う。最終丸めも同じ理由で`round(x, 1)`と
 ビット単位で一致させる必要がある（`round1_array`）。`×10→np.rint→÷10`を配列全体で
 まとめて計算し、計算後の値がちょうど`.5`に乗った要素だけ、その要素の元の値へPythonの
-`round()`（10進の正しい丸め）を個別に適用して結果を決め直す。
+`round()`（10進の正しい丸め）を個別に適用して結果を決め直す。軸1本の得点
+（`evaluate_axis_array`）も同じ`round1_array`で丸める。
 
 **暗黙の前提**: 軸が読む材料の配列は`MATERIAL_CATALOG`の全材料ぶん確保する
 （`value_sql`を持たない材料も既定値[NaN/False]で確保）。確保しないと、値式が無い材料を

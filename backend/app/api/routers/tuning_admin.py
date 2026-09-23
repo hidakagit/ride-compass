@@ -25,7 +25,7 @@ from app.domain.tuning import (
 from app.infrastructure.tuning_overrides import TuningOverrideError
 from app.services.tuning_service import overridden_parameter_ids, save_override
 
-router = APIRouter(prefix="/api/admin/tuning", tags=["tuning-admin"])
+router = APIRouter(prefix="/api/admin/tuning", tags=["tuning-admin"], dependencies=[Depends(require_admin_basic_auth)])
 
 
 class TuningParameterView(StrictModel):
@@ -74,7 +74,6 @@ def _view(param_id: str, overridden_ids: set[str]) -> TuningParameterView:
 @router.get("", response_model=list[TuningParameterView])
 async def list_tuning_parameters(
     session: AsyncSession = Depends(get_tuning_session),
-    _: None = Depends(require_admin_basic_auth),
 ) -> list[TuningParameterView]:
     overridden = await overridden_parameter_ids(session)
     # **効き方の順に並べて返す**（`TuningEffect`の宣言順）。画面はこの順のまま
@@ -89,7 +88,6 @@ async def update_tuning_parameter(
     param_id: str,
     request: TuningUpdateRequest,
     session: AsyncSession = Depends(get_tuning_session),
-    _: None = Depends(require_admin_basic_auth),
 ) -> TuningParameterView:
     parameter = TUNING_PARAMETERS_BY_ID.get(param_id)
     if parameter is None:
