@@ -26,15 +26,21 @@ import {
 } from "@/components/Map/dynamicWeather";
 import {
   fetchJmaTargetTimes,
+  jmaDelivery,
   parseValidtime,
   type JmaNowcastFrame,
   jmaTilePayload,
-  jmaTileUrlTemplate,
 } from "@/components/Map/jmaNowcastFrames";
 import { parseJstTime } from "@/components/Map/windLayer";
 import type { WindGridPoint } from "@/types/weather";
 
 export type NowcastFrame = JmaNowcastFrame;
+
+/** 降水の`main`ラスタの時刻の段（源泉`precipitationNowcast/main`の配信要素の並び。近い時刻から）。
+ * 段ごとに時刻一覧の読み方が違う（実況の外挿と数値予報のラン）ため、段はここで名指す。 */
+const MAIN_SOURCE = "precipitationNowcast/main";
+const NOWCAST_STAGE = 0;
+const SHORT_RANGE_STAGE = 1;
 
 // 気象庁 降水短時間予報（rasrf）。ナウキャスト（実況の外挿、60分先が上限）とは異なり
 // 数値予報モデルによる正真正銘の「予測」で、最大15時間先まで存在する。
@@ -48,7 +54,7 @@ export type NowcastFrame = JmaNowcastFrame;
 // 別途存在しうる（本番相当データで114行中73行がelementsにrasrfを含まないsjfcstmap単体
 // 行だった）。これらは「異なるvalidtimeの
 // 種類数」を数える際にノイズになる上、そのままタイルURLを組み立てるとrasrf画像が存在しない
-// 組み合わせになりうるため、**必ずelements.includes("rasrf")で絞り込んでから**
+// 組み合わせになりうるため、**必ず降水短時間予報の要素idを持つ行へ絞り込んでから**
 // 「異なるvalidtimeの種類数が複数ある最新のbasetime」を選ぶ（絞り込み後は同一
 // (basetime, validtime, member)にrasrf行が高々1つのため、複数行の優先順位付けは不要）。
 
@@ -65,11 +71,15 @@ export interface RasrfFrame extends JmaNowcastFrame {
   member: string;
 }
 
-/** rawの中から、指定member・rasrf搭載行に絞ったうえで、最も新しい「異なるvalidtimeを
+/** rawの中から、指定member・その要素を載せた行に絞ったうえで、最も新しい「異なるvalidtimeを
  * 複数持つbasetime」（＝完全な予報ラン、単発の中間ランではない）のフレームだけを返す。
  * 該当が無ければ空配列。 */
-function latestFullRunFrames(raw: readonly RawRasrfTargetTime[], member: string): RawRasrfTargetTime[] {
-  const entries = raw.filter((e) => e.member === member && e.elements.includes("rasrf"));
+function latestFullRunFrames(
+  raw: readonly RawRasrfTargetTime[],
+  elementId: string,
+  member: string,
+): RawRasrfTargetTime[] {
+  const entries = raw.filter((e) => e.member === member && e.elements.includes(elementId));
   const validtimesByBasetime = new Map<string, Set<string>>();
   for (const e of entries) {
     if (!validtimesByBasetime.has(e.basetime)) validtimesByBasetime.set(e.basetime, new Set());
@@ -88,33 +98,25 @@ function latestFullRunFrames(raw: readonly RawRasrfTargetTime[], member: string)
  * validtimeの範囲が重ならない設計だが、念のためvalidtime重複時は
  * より詳細なimmed側を優先する（Map.setで後勝ちにするため、noneを先に積む）。 */
 export async function fetchRasrfFrames(): Promise<RasrfFrame[]> {
-  const raw = await fetchJmaTargetTimes<RawRasrfTargetTime>("rasrf", "降水短時間予報");
+  const delivery = jmaDelivery(MAIN_SOURCE, SHORT_RANGE_STAGE);
+  const raw = await fetchJmaTargetTimes<RawRasrfTargetTime>(delivery, "降水短時間予報");
 
   const byValidtime = new Map<string, RasrfFrame>();
-  for (const e of latestFullRunFrames(raw, "none")) {
+  for (const e of latestFullRunFrames(raw, delivery.id, "none")) {
     byValidtime.set(e.validtime, { basetime: e.basetime, validtime: e.validtime, isForecast: true, member: e.member });
   }
-  for (const e of latestFullRunFrames(raw, "immed")) {
+  for (const e of latestFullRunFrames(raw, delivery.id, "immed")) {
     byValidtime.set(e.validtime, { basetime: e.basetime, validtime: e.validtime, isForecast: true, member: e.member });
   }
   return [...byValidtime.values()].sort((a, b) => a.validtime.localeCompare(b.validtime));
 }
 
-/** 実況・予測を合わせた時系列を、validtime昇順（過去→未来）で返す。片方の取得だけ
- * 失敗しても、もう片方が使えるなら部分的な時系列を返す（両方失敗したときだけ例外）。 */
+/** 実況・予測を合わせた時系列を、validtime昇順（過去→未来）で返す。実況と予測は別々の時刻一覧に
+ * 載り、片方の取得だけ失敗しても、もう片方が使えるなら部分的な時系列を返す（両方失敗したときだけ
+ * 例外、`fetchJmaTargetTimes`）。予測はvalidtimeがbasetimeより先の行。 */
 export async function fetchNowcastFrames(): Promise<NowcastFrame[]> {
-  const results = await Promise.allSettled([
-    fetchJmaTargetTimes("nowc_N1", "降水ナウキャスト"),
-    fetchJmaTargetTimes("nowc_N2", "降水ナウキャスト"),
-  ]);
-  const [n1, n2] = results;
-  if (n1.status === "rejected" && n2.status === "rejected") {
-    throw n1.reason;
-  }
-  const frames: NowcastFrame[] = [
-    ...(n1.status === "fulfilled" ? n1.value.map((t) => ({ ...t, isForecast: false })) : []),
-    ...(n2.status === "fulfilled" ? n2.value.map((t) => ({ ...t, isForecast: true })) : []),
-  ];
+  const raw = await fetchJmaTargetTimes(jmaDelivery(MAIN_SOURCE, NOWCAST_STAGE), "降水ナウキャスト");
+  const frames: NowcastFrame[] = raw.map((t) => ({ ...t, isForecast: t.validtime > t.basetime }));
   frames.sort((a, b) => a.validtime.localeCompare(b.validtime));
   return frames;
 }
@@ -194,18 +196,6 @@ export const PRECIPITATION_INTENSITY_LEVELS: readonly { key: string; label: stri
   },
 ];
 
-/** 降水短時間予報のラスタタイルURLテンプレート。ナウキャストと異なりmemberがURLパスに
- * そのまま入る（"immed"/"none"、fetchRasrfFrames参照）。 */
-function rasrfTileUrlTemplate(frame: RasrfFrame): string {
-  return jmaTileUrlTemplate({
-    group: "rasrf",
-    element: "rasrf",
-    basetime: frame.basetime,
-    member: frame.member,
-    validtime: frame.validtime,
-  });
-}
-
 interface PrecipitationGridCellProperties {
   /** 降水量（mm/h相当）。 */
   mmPerHour: number;
@@ -233,7 +223,7 @@ function precipitationGridToCellFeatureCollection(
 }
 
 /** 降水フレームの内部参照。sourceが"nowcast"なら気象庁ナウキャスト（実況〜60分先、
- * 5分刻み、レーダー実況の外挿）由来でindexはnowcastFrames内のindex、"rasrf"なら気象庁
+ * 5分刻み、レーダー実況の外挿）由来でindexはnowcastFrames内のindex、"shortRange"なら気象庁
  * 降水短時間予報（60分〜15時間先、数値予報モデルによる予測）由来で
  * indexはrasrfFrames内のindex、"extended"なら風と共通の格子点マップ（MSM由来、
  * 15時間先以降・約48時間先まで・1時間刻み）由来でindexはそのgridのtimes/precipitation_mm
@@ -242,7 +232,9 @@ function precipitationGridToCellFeatureCollection(
  * precipitationRenderPayloadだけがこの型を解釈する（表示層はDynamicWeatherFrameのtimeしか
  * 見ない、ファイル冒頭のコメント参照）。 */
 type PrecipitationFrameRef =
-  { source: "nowcast"; index: number } | { source: "rasrf"; index: number } | { source: "extended"; index: number };
+  | { source: "nowcast"; index: number }
+  | { source: "shortRange"; index: number }
+  | { source: "extended"; index: number };
 
 /** 気象庁ナウキャスト（0〜60分）・降水短時間予報（60分〜15時間先）・
  * 風と共通の格子点マップ由来の延長予報（15時間先以降、約48時間先まで）を1つのフレーム列へ
@@ -267,7 +259,7 @@ export function precipitationFrames(
   rasrfFrames.forEach((frame, index) => {
     const parsedTime = parseValidtime(frame.validtime);
     if (parsedTime.getTime() <= lastNowcastMs) return;
-    rasrfPart.push({ time: parsedTime, ref: { source: "rasrf", index } });
+    rasrfPart.push({ time: parsedTime, ref: { source: "shortRange", index } });
     lastRasrfMs = Math.max(lastRasrfMs, parsedTime.getTime());
   });
 
@@ -298,16 +290,17 @@ export function precipitationRenderPayload(
   if (ref.source === "nowcast") {
     const frame = nowcastFrames[ref.index];
     return frame
-      ? jmaTilePayload("precipitationNowcast/main", {
-          basetime: frame.basetime,
-          member: "none",
-          validtime: frame.validtime,
-        })
+      ? jmaTilePayload(
+          MAIN_SOURCE,
+          { basetime: frame.basetime, member: "none", validtime: frame.validtime },
+          NOWCAST_STAGE,
+        )
       : undefined;
   }
-  if (ref.source === "rasrf") {
+  if (ref.source === "shortRange") {
+    // 降水短時間予報はナウキャストと異なりmemberがURLパスにそのまま入る（"immed"/"none"、fetchRasrfFrames参照）。
     const frame = rasrfFrames[ref.index];
-    return frame ? { kind: "rasterTile", tileUrlTemplate: rasrfTileUrlTemplate(frame) } : undefined;
+    return frame ? jmaTilePayload(MAIN_SOURCE, frame, SHORT_RANGE_STAGE) : undefined;
   }
   if (extendedGrid.length === 0) return undefined;
   return { kind: "gridFill", geojson: precipitationGridToCellFeatureCollection(extendedGrid, ref.index, spacingDeg) };

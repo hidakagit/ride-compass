@@ -76,7 +76,7 @@ def test_pick_current_entry_returns_none_for_empty_input():
 
 
 def test_tile_paths_for_layer_builds_expected_path_format():
-    layer = prewarm._PrewarmLayer("土砂", "land", "png", "irrelevant")
+    layer = prewarm._PrewarmLayer("土砂", "land", "png")
     entry = {"basetime": "20260829170000", "validtime": "20260829170000", "member": "immed0"}
 
     paths = prewarm._tile_paths_for_layer(layer, entry)
@@ -88,7 +88,7 @@ def test_tile_paths_for_layer_builds_expected_path_format():
 
 def test_tile_paths_for_layer_at_zoom4_covers_exactly_one_tile():
     """プリウォーム対象のbboxはzoom4では1タイルに収まる。"""
-    layer = prewarm._PrewarmLayer("test", "land", "png", "irrelevant")
+    layer = prewarm._PrewarmLayer("test", "land", "png")
     entry = {"basetime": "1", "validtime": "1", "member": "immed0"}
 
     paths = prewarm._tile_paths_for_layer(layer, entry)
@@ -97,7 +97,7 @@ def test_tile_paths_for_layer_at_zoom4_covers_exactly_one_tile():
 
 
 def test_tile_paths_for_layer_nowc_uses_literal_member_none():
-    layer = prewarm._PrewarmLayer("test", "thns", "png", "irrelevant")
+    layer = prewarm._PrewarmLayer("test", "thns", "png")
     entry = {"basetime": "1", "validtime": "1"}  # nowcのエントリはmemberフィールドを持たない
 
     paths = prewarm._tile_paths_for_layer(layer, entry)
@@ -112,8 +112,8 @@ async def test_prewarm_jma_tiles_dedupes_shared_target_times_fetch(monkeypatch):
         prewarm,
         "_LAYERS",
         (
-            prewarm._PrewarmLayer("土砂", "land", "png", risk_target_times),
-            prewarm._PrewarmLayer("大雨", "rain_mesh", "png", risk_target_times),
+            prewarm._PrewarmLayer("土砂", "land", "png"),
+            prewarm._PrewarmLayer("大雨", "rain_mesh", "png"),
         ),
     )
     raw_entries = [
@@ -139,7 +139,7 @@ async def test_prewarm_jma_tiles_dedupes_shared_target_times_fetch(monkeypatch):
 async def test_prewarm_jma_tiles_skips_layer_when_target_times_fetch_fails(monkeypatch):
     risk_target_times = "bosai/jmatile/data/risk/targetTimes.json"
     monkeypatch.setattr(
-        prewarm, "_LAYERS", (prewarm._PrewarmLayer("土砂", "land", "png", risk_target_times),)
+        prewarm, "_LAYERS", (prewarm._PrewarmLayer("土砂", "land", "png"),)
     )
     fake = FakeJmaTileClient({risk_target_times: None})
 
@@ -156,7 +156,7 @@ async def test_prewarm_jma_tiles_for_nowc_skips_liden_only_entry(monkeypatch):
     """
     nowc_target_times = "bosai/jmatile/data/nowc/targetTimes_N3.json"
     monkeypatch.setattr(
-        prewarm, "_LAYERS", (prewarm._PrewarmLayer("雷ナウキャスト", "thns", "png", nowc_target_times),)
+        prewarm, "_LAYERS", (prewarm._PrewarmLayer("雷ナウキャスト", "thns", "png"),)
     )
     raw_entries = [
         {"basetime": "20260831165000", "validtime": "20260831165000", "elements": ["thns", "trns"]},
@@ -175,7 +175,7 @@ async def test_prewarm_jma_tiles_for_nowc_skips_liden_only_entry(monkeypatch):
 async def test_prewarm_jma_tiles_skips_layer_when_element_not_in_target_times(monkeypatch):
     risk_target_times = "bosai/jmatile/data/risk/targetTimes.json"
     monkeypatch.setattr(
-        prewarm, "_LAYERS", (prewarm._PrewarmLayer("洪水", "flood", "pbf", risk_target_times),)
+        prewarm, "_LAYERS", (prewarm._PrewarmLayer("洪水", "flood", "pbf"),)
     )
     raw_entries = [
         {"basetime": "1", "validtime": "1", "member": "immed0", "elements": ["land"]},  # floodを含まない
@@ -231,7 +231,7 @@ async def test_prewarm_records_only_non_empty_tiles(monkeypatch):
     entries = [{"basetime": "20260907025000", "validtime": "20260907025000", "member": "immed0",
                 "elements": ["land"]}]
     monkeypatch.setattr(
-        prewarm, "_LAYERS", (prewarm._PrewarmLayer("土砂", "land", "png", risk_target_times),)
+        prewarm, "_LAYERS", (prewarm._PrewarmLayer("土砂", "land", "png"),)
     )
     stored = {}
 
@@ -256,7 +256,7 @@ async def test_prewarm_index_is_empty_when_all_tiles_are_blank(monkeypatch):
     entries = [{"basetime": "20260907025000", "validtime": "20260907025000", "member": "immed0",
                 "elements": ["land"]}]
     monkeypatch.setattr(
-        prewarm, "_LAYERS", (prewarm._PrewarmLayer("土砂", "land", "png", risk_target_times),)
+        prewarm, "_LAYERS", (prewarm._PrewarmLayer("土砂", "land", "png"),)
     )
     stored = {}
 

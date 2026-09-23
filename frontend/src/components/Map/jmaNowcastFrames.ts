@@ -2,8 +2,7 @@
 // 時刻一覧の取得・整形。JMAのタイムスタンプ形式
 // （YYYYMMDDHHmmss）・「実況フレームは現在より前を切り捨てる」というトリミング方針は
 // bosai/nowc APIファミリー全体の性質であり降水固有の判断ではないため、変更理由が同じもの
-// として共通化する。降水・雷それぞれ固有のURL構造（降水はN1実況/N2予測の
-// 2ファイル、雷/竜巻はN3の1ファイルに実況・予測が同居）は呼び出し元に残す。
+// として共通化する。要素ごとの時刻一覧の在り処（系統とファイル名）は源泉の宣言が持つ。
 
 import { fetchJson } from "@/lib/fetchJson";
 import { tileBaseUrl } from "@/lib/tileBaseUrl";
@@ -34,10 +33,13 @@ function jmaProxyUrl(path: string): string {
 
 type DeclaredElement = (typeof mapDisplay.weatherElements)[number];
 
-/** 配信元から取る要素の宣言。要素idとパスの系統は源泉が持つ。 */
-type DeliveredElement = Extract<DeclaredElement, { readonly jmaElement: string }>;
+/** 配信元から取る要素の宣言。要素id・パスの系統・時刻一覧のファイルは源泉が持つ。 */
+type DeliveredElement = Extract<DeclaredElement, { readonly jmaElements: readonly [unknown, ...unknown[]] }>;
 
-type JmaPathGroup = DeliveredElement["pathGroup"];
+/** 時刻の段1つぶんの配信要素。 */
+type JmaDelivery = DeliveredElement["jmaElements"][number];
+
+type JmaPathGroup = JmaDelivery["pathGroup"];
 
 type SourceKey<E> = E extends { readonly group: infer G extends string; readonly source: infer S extends string }
   ? `${G}/${S}`
@@ -51,13 +53,21 @@ export type JmaElementKey = SourceKey<DeliveredElement>;
 type JmaTileElementKey = SourceKey<Extract<DeliveredElement, { readonly kind: "rasterTile" | "vectorTile" }>>;
 
 /** 鍵に対応する源泉の宣言。 */
-export function declaredJmaElement(key: JmaElementKey): DeliveredElement {
+function declaredJmaElement(key: JmaElementKey): DeliveredElement {
   const found = mapDisplay.weatherElements.find(
     (element): element is DeliveredElement =>
-      element.jmaElement !== null && `${element.group}/${element.source}` === key,
+      element.jmaElements.length > 0 && `${element.group}/${element.source}` === key,
   );
   if (found === undefined) throw new Error(`配信元の要素が源泉に宣言されていない: ${key}`);
   return found;
+}
+
+/** 鍵の、時刻の段`stage`（源泉の並び。近い時刻から0, 1, …）の配信要素。1つの名前付きソースが、
+ * 選んだ時刻によって別の配信要素から届くことがある。 */
+export function jmaDelivery(key: JmaElementKey, stage = 0): JmaDelivery {
+  const delivery = declaredJmaElement(key).jmaElements[stage];
+  if (delivery === undefined) throw new Error(`時刻の段が源泉に宣言されていない: ${key} 段${stage}`);
+  return delivery;
 }
 
 /** 配信元はベクタで描く要素をMapbox Vector Tile（.pbf）、それ以外を画像（.png）で配る。 */
@@ -73,15 +83,17 @@ interface JmaTileTime {
   validtime: string;
 }
 
-/** 配信元のタイルで描く要素の、そのフレームの描画ペイロード。要素id・系統・描き方（拡張子）は源泉の宣言から引く。 */
-export function jmaTilePayload(key: JmaTileElementKey, time: JmaTileTime): DynamicWeatherRenderPayload {
+/** 配信元のタイルで描く要素の、そのフレームの描画ペイロード。要素id・系統・描き方（拡張子）は源泉の宣言から引く。
+ * `stage`はフレームが属する時刻の段（`jmaDelivery`）。 */
+export function jmaTilePayload(key: JmaTileElementKey, time: JmaTileTime, stage = 0): DynamicWeatherRenderPayload {
   const element = declaredJmaElement(key);
   if (element.kind !== "rasterTile" && element.kind !== "vectorTile") {
     throw new Error(`タイルで描かない要素のタイルを求めた: ${key}`);
   }
+  const delivery = jmaDelivery(key, stage);
   const tileUrlTemplate = jmaTileUrlTemplate({
-    group: element.pathGroup,
-    element: element.jmaElement,
+    group: delivery.pathGroup,
+    element: delivery.id,
     basetime: time.basetime,
     member: time.member,
     validtime: time.validtime,
@@ -156,10 +168,11 @@ export function parseJmaTileElement(url: string): JmaTileElementRef | null {
  * 実データが来る前にsourceを作るための仮の値で、中身が届くと本物のURLへ差し替わる。
  * 時刻部分は実在しない値のため、万一このまま要求されても配信元で404になる。
  */
-export function jmaPlaceholderTileUrl(element: Pick<DeliveredElement, "pathGroup" | "jmaElement" | "kind">): string {
+export function jmaPlaceholderTileUrl(element: Pick<DeliveredElement, "jmaElements" | "kind">): string {
+  const [first] = element.jmaElements;
   return jmaTileUrlTemplate({
-    group: element.pathGroup,
-    element: element.jmaElement,
+    group: first.pathGroup,
+    element: first.id,
     basetime: PLACEHOLDER_TIME,
     member: "none",
     validtime: PLACEHOLDER_TIME,
@@ -187,48 +200,21 @@ interface RawJmaTargetTime {
   elements?: string[];
 }
 
-/** 時刻一覧JSON（`targetTimes*.json`）の在り処。**配信元のパス構造を知る唯一の場所**で、
- * タイル本体（`jmaTileUrlTemplate`）と対になる。nowc系だけは要素グループごとに
- * N1（降水実況）・N2（降水予測）・N3（雷・竜巻）の3ファイルへ分かれる。 */
-const JMA_TARGET_TIMES_PATHS = {
-  nowc_N1: "/jmatile/data/nowc/targetTimes_N1.json",
-  nowc_N2: "/jmatile/data/nowc/targetTimes_N2.json",
-  nowc_N3: "/jmatile/data/nowc/targetTimes_N3.json",
-  risk: "/jmatile/data/risk/targetTimes.json",
-  rasrf: "/jmatile/data/rasrf/targetTimes.json",
-} as const;
+// 未解決のフェッチだけを時刻一覧のパスごとに共有する（useAxisCatalog.tsのinFlightCatalogFetchと
+// 同じ重複排除。解決したら即座に捨てる）。
+const inFlightTargetTimes = new Map<string, Promise<unknown[]>>();
 
-type JmaTargetTimesId = keyof typeof JMA_TARGET_TIMES_PATHS;
-
-function jmaTargetTimesUrl(id: JmaTargetTimesId): string {
-  return jmaProxyUrl(JMA_TARGET_TIMES_PATHS[id]);
-}
-
-// 未解決のフェッチだけをidごとに共有する（useAxisCatalog.tsのinFlightCatalogFetchと同じ
-// 重複排除。解決したら即座に捨てる）。
-const inFlightTargetTimes = new Map<JmaTargetTimesId, Promise<unknown[]>>();
-
-/** 気象庁の時刻一覧JSONを取得する。`label`はエラーメッセージに使う対象名（例:
- * 「降水ナウキャスト」「雷ナウキャスト」。「の時刻一覧」は本関数が付ける）。
- *
- * 行の形は系統ごとに違う（nowcはelements有無、risk/rasrfはmember必須等）ため、
- * 呼び出し側が期待する行型を型引数で指定する——検証するのは「配列であること」までで、
- * 個々のフィールドの解釈は呼び出し側の責務。
- *
- * 共通のfetchJson（lib/fetchJson.ts、通信エラー・HTTPエラー・解析エラーを全て
- * debugLogへ記録する）経由にすることで、fetch()自体の失敗（タイムアウト・通信エラー）が
- * どこにもログされない穴を防ぐ。
- *
- * 同じidを同時に取りに行く呼び出し元（`rasrf`は降水短時間予報と線状降水帯予測マップの
- * 2箇所）は、未解決のフェッチを共有して往復を1回に畳む。解決後はキャッシュしない——
- * 時刻一覧は数分で更新され、古い値を返すと表示が止まる。エラー文言に載る`label`は
- * 先に呼んだ側のものになる（どちらも同じURLの同じ失敗を指すため実害はない）。 */
-export async function fetchJmaTargetTimes<T = RawJmaTargetTime>(id: JmaTargetTimesId, label: string): Promise<T[]> {
-  const existing = inFlightTargetTimes.get(id);
-  if (existing) return (await existing) as T[];
+/** 時刻一覧のファイル1つを取得する。同じパスを同時に取りに行く呼び出し元（降水短時間予報と
+ * 線状降水帯予測マップ、キキクルの各要素等）は、未解決のフェッチを共有して往復を1回に畳む。
+ * 解決後はキャッシュしない——時刻一覧は数分で更新され、古い値を返すと表示が止まる。
+ * エラー文言に載る`label`は先に呼んだ側のものになる（同じURLの同じ失敗を指すため実害はない）。
+ * **共有の登録は同期的に済ませる**——同じ瞬間に並べて呼んだ側が、先の登録を見られるように。 */
+function fetchTargetTimesFile(path: string, label: string): Promise<unknown[]> {
+  const existing = inFlightTargetTimes.get(path);
+  if (existing) return existing;
 
   const request = (async () => {
-    const data = await fetchJson<unknown>(jmaTargetTimesUrl(id), {
+    const data = await fetchJson<unknown>(jmaProxyUrl(path), {
       timeoutMs: DEFAULT_API_TIMEOUT_MS,
       category: "api:jma-nowcast-times",
       errorLabel: `${label}の時刻一覧`,
@@ -236,12 +222,39 @@ export async function fetchJmaTargetTimes<T = RawJmaTargetTime>(id: JmaTargetTim
     if (!Array.isArray(data)) throw new Error(`${label}の時刻一覧の形式が想定と異なります`);
     return data as unknown[];
   })();
-  inFlightTargetTimes.set(id, request);
-  try {
-    return (await request) as T[];
-  } finally {
-    if (inFlightTargetTimes.get(id) === request) inFlightTargetTimes.delete(id);
+  inFlightTargetTimes.set(path, request);
+  void request.then(
+    () => inFlightTargetTimes.delete(path),
+    () => inFlightTargetTimes.delete(path),
+  );
+  return request;
+}
+
+/** 配信要素の時刻一覧（`targetTimes*.json`）を取得する。在り処（系統とファイル名）は源泉の宣言が持ち、
+ * ここは`.../data/<系統>/<ファイル>`というパス構造だけを知る（タイル本体の`jmaTileUrlTemplate`と対）。
+ * `label`はエラーメッセージに使う対象名（例: 「降水ナウキャスト」。「の時刻一覧」は本関数が付ける）。
+ *
+ * 行の形は系統ごとに違う（nowcはmemberを持たない、risk/rasrfはmember必須等）ため、
+ * 呼び出し側が期待する行型を型引数で指定する——検証するのは「配列であること」までで、
+ * 個々のフィールドの解釈は呼び出し側の責務。
+ *
+ * 時刻一覧が複数のファイルに分かれる要素（降水ナウキャストの実況と予測）は、全ファイルの行を
+ * 宣言の順につなげて返す。一部のファイルだけ取れなくても残りで部分的な時系列を返し、
+ * 全部取れなかったときだけ最初の失敗を投げる。
+ *
+ * 共通のfetchJson（lib/fetchJson.ts、通信エラー・HTTPエラー・解析エラーを全て
+ * debugLogへ記録する）経由にすることで、fetch()自体の失敗（タイムアウト・通信エラー）が
+ * どこにもログされない穴を防ぐ。 */
+export async function fetchJmaTargetTimes<T = RawJmaTargetTime>(delivery: JmaDelivery, label: string): Promise<T[]> {
+  const results = await Promise.allSettled(
+    delivery.targetTimeFiles.map((file) => fetchTargetTimesFile(`/jmatile/data/${delivery.pathGroup}/${file}`, label)),
+  );
+  const fulfilled = results.filter((result) => result.status === "fulfilled");
+  if (fulfilled.length === 0) {
+    const [firstFailure] = results;
+    throw firstFailure?.status === "rejected" ? firstFailure.reason : new Error(`${label}の時刻一覧が宣言されていない`);
   }
+  return fulfilled.flatMap((result) => result.value) as T[];
 }
 
 /** 実況の最新フレーム（＝「現在」に最も近い実況値）のindex。実況フレームが1件も無ければ

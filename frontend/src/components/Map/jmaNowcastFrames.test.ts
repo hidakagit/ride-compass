@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { fetchJmaTargetTimes } from "./jmaNowcastFrames";
+import { fetchJmaTargetTimes, jmaDelivery } from "./jmaNowcastFrames";
 
 // タイル配信オリジンは`@/lib/tileBaseUrl`が唯一の情報源で、その環境変数依存は
 // `src/lib/tileBaseUrl.test.ts`が検証する。ここで固定するのは、`process.env`が
@@ -27,7 +27,7 @@ describe("fetchJmaTargetTimes", () => {
       vi.fn(() => Promise.resolve(jsonResponse(raw))),
     );
 
-    const result = await fetchJmaTargetTimes("nowc_N3", "雷ナウキャスト");
+    const result = await fetchJmaTargetTimes(jmaDelivery("disaster/thunder"), "雷ナウキャスト");
     expect(result).toEqual(raw);
   });
 
@@ -37,7 +37,7 @@ describe("fetchJmaTargetTimes", () => {
       vi.fn(() => Promise.resolve(jsonResponse(null, false, 503))),
     );
 
-    await expect(fetchJmaTargetTimes("nowc_N3", "雷ナウキャスト")).rejects.toThrow(
+    await expect(fetchJmaTargetTimes(jmaDelivery("disaster/thunder"), "雷ナウキャスト")).rejects.toThrow(
       "雷ナウキャストの時刻一覧の取得に失敗しました[HTTP 503]",
     );
   });
@@ -48,7 +48,7 @@ describe("fetchJmaTargetTimes", () => {
       vi.fn(() => Promise.resolve(jsonResponse({ not: "an array" }))),
     );
 
-    await expect(fetchJmaTargetTimes("nowc_N3", "雷ナウキャスト")).rejects.toThrow(
+    await expect(fetchJmaTargetTimes(jmaDelivery("disaster/thunder"), "雷ナウキャスト")).rejects.toThrow(
       "雷ナウキャストの時刻一覧の形式が想定と異なります",
     );
   });
@@ -59,7 +59,7 @@ describe("JMAプロキシへ向ける先", () => {
   // （タイルURLは時刻一覧が返るまで確定しないため、フロントのホスティングを経由すると
   // 往復1つぶんが初回表示のクリティカルパスへ直列に乗る）。ここで見るのはオリジンの
   // 後ろのパス構造だけで、オリジンの決まり方は`src/lib/tileBaseUrl.test.ts`が持つ。
-  it("配信系統ごとに、プロキシの下の時刻一覧を取りに行く", async () => {
+  it("要素の宣言にある系統とファイルで、プロキシの下の時刻一覧を取りに行く", async () => {
     const fetchMock = vi.fn().mockResolvedValue({
       ok: true,
       status: 200,
@@ -68,8 +68,8 @@ describe("JMAプロキシへ向ける先", () => {
     });
     vi.stubGlobal("fetch", fetchMock);
 
-    await fetchJmaTargetTimes("risk", "キキクル");
-    await fetchJmaTargetTimes("nowc_N3", "降水ナウキャスト");
+    await fetchJmaTargetTimes(jmaDelivery("disaster/landslide"), "キキクル");
+    await fetchJmaTargetTimes(jmaDelivery("disaster/thunder"), "雷ナウキャスト");
 
     const urls = fetchMock.mock.calls.map((call) => String(call[0]));
     expect(urls).toContain("/api/jma-tile/bosai/jmatile/data/risk/targetTimes.json");
@@ -78,10 +78,10 @@ describe("JMAプロキシへ向ける先", () => {
   });
 });
 
-describe("fetchJmaTargetTimes（同一idの未解決フェッチを共有する）", () => {
-  // rasrfは降水短時間予報と線状降水帯予測マップの2箇所が独立に取りに行く。重複排除が
+describe("fetchJmaTargetTimes（同じ時刻一覧の未解決フェッチを共有する）", () => {
+  // 降水短時間予報と線状降水帯予測マップは同じ時刻一覧を独立に取りに行く。重複排除が
   // 無いと、降水チップをONにするたび同じURLへの往復が2回発生する。
-  it("同時に呼ばれた同じidは1回のfetchで済む", async () => {
+  it("同時に呼ばれた同じ時刻一覧は1回のfetchで済む", async () => {
     const fetchMock = vi.fn().mockResolvedValue({
       ok: true,
       status: 200,
@@ -91,8 +91,8 @@ describe("fetchJmaTargetTimes（同一idの未解決フェッチを共有する�
     vi.stubGlobal("fetch", fetchMock);
 
     const [a, b] = await Promise.all([
-      fetchJmaTargetTimes("rasrf", "降水短時間予報"),
-      fetchJmaTargetTimes("rasrf", "線状降水帯予測マップ"),
+      fetchJmaTargetTimes(jmaDelivery("precipitationNowcast/main", 1), "降水短時間予報"),
+      fetchJmaTargetTimes(jmaDelivery("precipitationNowcast/linearRainband"), "線状降水帯予測マップ"),
     ]);
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
@@ -109,8 +109,8 @@ describe("fetchJmaTargetTimes（同一idの未解決フェッチを共有する�
     });
     vi.stubGlobal("fetch", fetchMock);
 
-    await fetchJmaTargetTimes("rasrf", "降水短時間予報");
-    await fetchJmaTargetTimes("rasrf", "降水短時間予報");
+    await fetchJmaTargetTimes(jmaDelivery("precipitationNowcast/linearRainband"), "線状降水帯予測マップ");
+    await fetchJmaTargetTimes(jmaDelivery("precipitationNowcast/linearRainband"), "線状降水帯予測マップ");
 
     expect(fetchMock).toHaveBeenCalledTimes(2);
     vi.unstubAllGlobals();

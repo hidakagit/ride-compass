@@ -239,8 +239,8 @@ describe("precipitationNowcast", () => {
       expect(frames).toEqual([
         { time: parseValidtime("20260820030000"), ref: { source: "nowcast", index: 0 } },
         { time: parseValidtime("20260820030500"), ref: { source: "nowcast", index: 1 } },
-        { time: parseValidtime("20260820040000"), ref: { source: "rasrf", index: 0 } },
-        { time: parseValidtime("20260820050000"), ref: { source: "rasrf", index: 1 } },
+        { time: parseValidtime("20260820040000"), ref: { source: "shortRange", index: 0 } },
+        { time: parseValidtime("20260820050000"), ref: { source: "shortRange", index: 1 } },
         { time: parseJstTime("2026-08-20T15:00"), ref: { source: "extended", index: 0 } },
         { time: parseJstTime("2026-08-20T16:00"), ref: { source: "extended", index: 1 } },
       ]);
@@ -251,8 +251,8 @@ describe("precipitationNowcast", () => {
       const rasrfFrames = [rasrfFrame("20260820030000"), rasrfFrame("20260820040000")]; // 12:00(除外), 13:00(採用)
       const frames = precipitationFrames(nowcastFrames, rasrfFrames, []);
 
-      expect(frames.filter((f) => f.ref.source === "rasrf")).toEqual([
-        { time: parseValidtime("20260820040000"), ref: { source: "rasrf", index: 1 } },
+      expect(frames.filter((f) => f.ref.source === "shortRange")).toEqual([
+        { time: parseValidtime("20260820040000"), ref: { source: "shortRange", index: 1 } },
       ]);
     });
 
@@ -327,7 +327,7 @@ describe("precipitationNowcast", () => {
 
     it("source=rasrfならkind=rasterTileで、basetime/member/validtimeを埋め込んだタイルURLを返す", () => {
       const payload = precipitationRenderPayload(nowcastFrames, rasrfFrames, extendedGrid, WIND_GRID_SPACING_DEG, {
-        source: "rasrf",
+        source: "shortRange",
         index: 0,
       });
       expect(payload).toEqual({
@@ -340,7 +340,7 @@ describe("precipitationNowcast", () => {
     it("source=rasrfでも該当indexのフレームが無ければundefinedを返す", () => {
       expect(
         precipitationRenderPayload(nowcastFrames, rasrfFrames, extendedGrid, WIND_GRID_SPACING_DEG, {
-          source: "rasrf",
+          source: "shortRange",
           index: 5,
         }),
       ).toBeUndefined();

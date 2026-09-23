@@ -5,11 +5,12 @@
 「チップが無い」としか見えない（例外にならない）。
 """
 
+from app.domain.jma_tile_specs import JMA_TARGET_TIME_FILES
 from app.domain.map_display import (
     MAP_LAYER_CATEGORIES,
     MAP_OVERLAY_GROUPS,
     WEATHER_ELEMENTS,
-    weather_element_path_group,
+    weather_element_deliveries,
     weather_element_tile,
 )
 
@@ -54,15 +55,16 @@ def test_タイルで描く気象の要素は配信元の仕様を持つ() -> No
             assert tile.vector_layer is not None, f"{element.group}/{element.source} のベクタのレイヤー名が無い"
 
 
-def test_配信元から取る気象の要素はパスの系統を持つ() -> None:
-    """系統が無いと、画面のデータ層は配信元のURLを組み立てられない。"""
+def test_配信元から取る段はすべて系統と_系統の時刻一覧に在るファイルを持つ() -> None:
+    """系統が無いと画面は配信元のURLを、ファイルが無いと時刻一覧を取りに行けない。系統に無い
+    ファイル名は、配信元に存在しない時刻一覧を指す。"""
     for element in WEATHER_ELEMENTS:
-        if element.jma_element is None:
-            continue
-        assert weather_element_path_group(element) is not None, f"{element.group}/{element.source}"
+        for element_id, path_group, files in weather_element_deliveries(element):
+            assert files, f"{element.group}/{element.source} の {element_id}"
+            assert set(files) <= set(JMA_TARGET_TIME_FILES[path_group]), f"{element_id}: {files}"
 
 
 def test_配信元から取る気象の要素はチップと名前付きソースで一意() -> None:
     """画面のデータ層は（チップ, 名前付きソース）から配信要素idを引く。2件あるとどちらを取るか決まらない。"""
-    keys = [(element.group, element.source) for element in WEATHER_ELEMENTS if element.jma_element is not None]
+    keys = [(element.group, element.source) for element in WEATHER_ELEMENTS if element.jma_elements]
     assert len(keys) == len(set(keys))

@@ -84,8 +84,23 @@ export const mapDisplay = {
       "group": "precipitationNowcast",
       "source": "main",
       "kind": "rasterTile",
-      "jmaElement": "hrpns",
-      "pathGroup": "nowc",
+      "jmaElements": [
+        {
+          "id": "hrpns",
+          "pathGroup": "nowc",
+          "targetTimeFiles": [
+            "targetTimes_N1.json",
+            "targetTimes_N2.json"
+          ]
+        },
+        {
+          "id": "rasrf",
+          "pathGroup": "rasrf",
+          "targetTimeFiles": [
+            "targetTimes.json"
+          ]
+        }
+      ],
       "attribution": "気象庁",
       "tile": {
         "minZoom": 4,
@@ -97,8 +112,7 @@ export const mapDisplay = {
       "group": "precipitationNowcast",
       "source": "main",
       "kind": "gridFill",
-      "jmaElement": null,
-      "pathGroup": null,
+      "jmaElements": [],
       "attribution": "気象庁MSM",
       "tile": null
     },
@@ -106,8 +120,15 @@ export const mapDisplay = {
       "group": "precipitationNowcast",
       "source": "linearRainband",
       "kind": "rasterTile",
-      "jmaElement": "sjfcstmap",
-      "pathGroup": "rasrf",
+      "jmaElements": [
+        {
+          "id": "sjfcstmap",
+          "pathGroup": "rasrf",
+          "targetTimeFiles": [
+            "targetTimes.json"
+          ]
+        }
+      ],
       "attribution": "気象庁",
       "tile": {
         "minZoom": 4,
@@ -119,8 +140,7 @@ export const mapDisplay = {
       "group": "windVector",
       "source": "arrow",
       "kind": "gridMark",
-      "jmaElement": null,
-      "pathGroup": null,
+      "jmaElements": [],
       "attribution": "気象庁MSM",
       "tile": null
     },
@@ -128,8 +148,15 @@ export const mapDisplay = {
       "group": "disaster",
       "source": "heavyRain",
       "kind": "rasterTile",
-      "jmaElement": "rain_mesh",
-      "pathGroup": "risk",
+      "jmaElements": [
+        {
+          "id": "rain_mesh",
+          "pathGroup": "risk",
+          "targetTimeFiles": [
+            "targetTimes.json"
+          ]
+        }
+      ],
       "attribution": "気象庁",
       "tile": {
         "minZoom": 4,
@@ -141,8 +168,15 @@ export const mapDisplay = {
       "group": "disaster",
       "source": "landslide",
       "kind": "rasterTile",
-      "jmaElement": "land",
-      "pathGroup": "risk",
+      "jmaElements": [
+        {
+          "id": "land",
+          "pathGroup": "risk",
+          "targetTimeFiles": [
+            "targetTimes.json"
+          ]
+        }
+      ],
       "attribution": "気象庁",
       "tile": {
         "minZoom": 4,
@@ -154,8 +188,15 @@ export const mapDisplay = {
       "group": "disaster",
       "source": "inundation",
       "kind": "rasterTile",
-      "jmaElement": "inund",
-      "pathGroup": "risk",
+      "jmaElements": [
+        {
+          "id": "inund",
+          "pathGroup": "risk",
+          "targetTimeFiles": [
+            "targetTimes.json"
+          ]
+        }
+      ],
       "attribution": "気象庁",
       "tile": {
         "minZoom": 4,
@@ -167,8 +208,15 @@ export const mapDisplay = {
       "group": "disaster",
       "source": "thunder",
       "kind": "rasterTile",
-      "jmaElement": "thns",
-      "pathGroup": "nowc",
+      "jmaElements": [
+        {
+          "id": "thns",
+          "pathGroup": "nowc",
+          "targetTimeFiles": [
+            "targetTimes_N3.json"
+          ]
+        }
+      ],
       "attribution": "気象庁",
       "tile": {
         "minZoom": 4,
@@ -180,8 +228,15 @@ export const mapDisplay = {
       "group": "disaster",
       "source": "tornado",
       "kind": "rasterTile",
-      "jmaElement": "trns",
-      "pathGroup": "nowc",
+      "jmaElements": [
+        {
+          "id": "trns",
+          "pathGroup": "nowc",
+          "targetTimeFiles": [
+            "targetTimes_N3.json"
+          ]
+        }
+      ],
       "attribution": "気象庁",
       "tile": {
         "minZoom": 4,
@@ -193,8 +248,15 @@ export const mapDisplay = {
       "group": "disaster",
       "source": "flood",
       "kind": "vectorTile",
-      "jmaElement": "flood",
-      "pathGroup": "risk",
+      "jmaElements": [
+        {
+          "id": "flood",
+          "pathGroup": "risk",
+          "targetTimeFiles": [
+            "targetTimes.json"
+          ]
+        }
+      ],
       "attribution": "気象庁",
       "tile": {
         "minZoom": 4,
@@ -206,8 +268,15 @@ export const mapDisplay = {
       "group": "disaster",
       "source": "liden",
       "kind": "gridMark",
-      "jmaElement": "liden",
-      "pathGroup": "nowc",
+      "jmaElements": [
+        {
+          "id": "liden",
+          "pathGroup": "nowc",
+          "targetTimeFiles": [
+            "targetTimes_N3.json"
+          ]
+        }
+      ],
       "attribution": "気象庁",
       "tile": null
     }
