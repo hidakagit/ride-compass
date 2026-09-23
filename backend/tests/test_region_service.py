@@ -1,9 +1,7 @@
 
 import pytest
 
-from app.domain.axis_definitions import AXIS_DEFINITIONS, AxisDefinition
-from app.domain.dynamic_way_values import dedicated_way_value_axes
-from app.domain.material_catalog import is_known_material
+from app.domain.axis_definitions import AXIS_DEFINITIONS, AxisDefinition, BreakpointLinearShape, MaterialTerm
 from app.infrastructure import tile_cache
 from app.infrastructure.vector_tile import encode_empty_poi_tile, encode_empty_road_surface_tile
 from app.services import derived_data_revision_service
@@ -76,27 +74,31 @@ class _FakeWayRepository(RoadGraphRepository):
         return None
 
 
-def _direction_dependent_axis() -> AxisDefinition:
-    """向きが決まらないと値の出ない軸を1本選ぶ。
-
-    軸idを名指ししない——`dedicated_way_value_axes()`の宣言から引く。他の軸を参照する
-    合成軸は、材料を差し込んでも被参照側の欠損で落ちるため除く。
-    """
-    return next(
-        AXIS_DEFINITIONS[axis_id]
-        for axis_id, axis in dedicated_way_value_axes().items()
-        if axis.needs_bearing
-        and all(is_known_material(m) for m in AXIS_DEFINITIONS[axis_id].materials)
+@pytest.fixture
+def direction_dependent_axis(monkeypatch) -> AxisDefinition:
+    """向きが決まらないと値の出ない軸（専用way値配信で方位を要る）を1本だけ置く。"""
+    axis = AxisDefinition(
+        axis_id="axis_needs_bearing",
+        shape=BreakpointLinearShape(
+            terms=[MaterialTerm(material="wind_drag_ratio")], breakpoints=[(0.0, 0.0), (4.0, 100.0)]
+        ),
+        default_weight=0.1,
+        label="軸",
+        is_published=True,
+        dedicated_way_value_layer=True,
+        dynamic_way_value_needs_bearing=True,
     )
+    monkeypatch.setitem(AXIS_DEFINITIONS, axis.axis_id, axis)
+    return axis
 
 
 def _inspected_axis(result, axis_id: str):
     return next(axis for axis in result.axes if axis.axis_id == axis_id)
 
 
-async def test_axis_inspector_direction_dependent_axis_is_unavailable_without_dynamic_materials():
+async def test_axis_inspector_direction_dependent_axis_is_unavailable_without_dynamic_materials(direction_dependent_axis):
     # 1本の道は往復2方向で値が違うため、DBのway単位の材料だけでは求まらない
-    axis = _direction_dependent_axis()
+    axis = direction_dependent_axis
     service = RegionService(repository=_FakeWayRepository())
 
     result = await service.get_axis_inspector(12345)
@@ -104,8 +106,8 @@ async def test_axis_inspector_direction_dependent_axis_is_unavailable_without_dy
     assert _inspected_axis(result, axis.axis_id).available is False
 
 
-async def test_axis_inspector_uses_the_direction_dependent_materials_it_is_given():
-    axis = _direction_dependent_axis()
+async def test_axis_inspector_uses_the_direction_dependent_materials_it_is_given(direction_dependent_axis):
+    axis = direction_dependent_axis
     service = RegionService(repository=_FakeWayRepository())
 
     result = await service.get_axis_inspector(

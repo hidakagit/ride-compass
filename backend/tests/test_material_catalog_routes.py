@@ -10,7 +10,7 @@ from app.infrastructure.material_coverage import MATERIAL_COVERAGE_SPECS, Materi
 from app.main import app
 from app.services.material_coverage_service import build_material_coverage_report
 from app.services.region_service import RegionService
-from tests.admin_auth import AUTH_HEADERS, basic_auth_header
+from tests.admin_auth import ADMIN_USERNAME, AUTH_HEADERS, basic_auth_header
 
 client = TestClient(app)
 def test_get_material_catalog_reflects_material_catalog_content():
@@ -129,7 +129,7 @@ def test_get_material_values_requires_basic_auth(admin_credentials):
 
 
 def test_get_material_values_rejects_wrong_credentials(admin_credentials):
-    response = client.get(values_url("highway"), headers={"Authorization": basic_auth_header("admin-user", "wrong")})
+    response = client.get(values_url("highway"), headers={"Authorization": basic_auth_header(ADMIN_USERNAME, "wrong")})
 
     assert response.status_code == 401
 
@@ -233,7 +233,7 @@ def test_get_material_coverage_requires_basic_auth(admin_credentials):
 
 
 def test_get_material_coverage_rejects_wrong_credentials(admin_credentials):
-    response = client.get(COVERAGE_URL, headers={"Authorization": basic_auth_header("admin-user", "wrong")})
+    response = client.get(COVERAGE_URL, headers={"Authorization": basic_auth_header(ADMIN_USERNAME, "wrong")})
 
     assert response.status_code == 401
 

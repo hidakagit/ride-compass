@@ -198,9 +198,10 @@
 行は作らない。`refresh_axis_definitions`は0行を`AxisDefinitionSyncError`として扱うため、
 **新規環境は軸を1つ以上APIで登録するまでアプリが起動しない**。
 
-テストは`tests/axis_system_fixture.py`を`AXIS_DEFINITIONS`へ流し込む。これが配るのは
-軸の**性質**（shapeの種類・必須でない項・時間帯限定・表示の上書き・専用way値配信）で
-あって本番の軸ではない。DBの実データとは独立で、DB側の値が変わっても追従しない。
+テストの中でも`AXIS_DEFINITIONS`は空から始まる。軸の集合を必要とするテストは、見たい
+性質（shapeの種類・表示の上書き・専用way値配信等）だけを持つ軸をそのファイルで組み立て、
+`tests/axis_system_fixture.py`の道具で流し込む。本番の軸は模さず、DBの実データとは独立で、
+DB側の値が変わっても追従しない。
 
 ## 地図表示ルールの自動導出（`domain/axis_display.py`）
 

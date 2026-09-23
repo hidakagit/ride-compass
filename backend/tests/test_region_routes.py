@@ -12,6 +12,7 @@ from app.infrastructure import rate_limiter
 from app.services.tile_serving import TileResponse
 from app.domain.dynamic_way_values import transform_dedicated_way_values
 from app.main import app
+from tests.axis_system_fixture import replaced_axis_definitions
 
 client = TestClient(app)
 
@@ -321,10 +322,48 @@ class FakeDynamicWayValueService:
         return self._values
 
 
+#: 専用way値配信を持つ軸。時刻・方位・速度を要るもの（得点を塗る）と、方位だけを要るもの
+#: （符号付きの生値を塗る）の2本。
+DEDICATED_AXES = {
+    "axis_way_value_scored": AxisDefinition(
+        axis_id="axis_way_value_scored",
+        shape=BreakpointLinearShape(
+            terms=[MaterialTerm(material="wind_drag_ratio")],
+            breakpoints=[(-1.0, 0.0), (0.0, 20.0), (4.0, 100.0)],
+        ),
+        default_weight=0.2,
+        label="軸ウ",
+        dedicated_way_value_layer=True,
+        dynamic_way_value_needs_time=True,
+        dynamic_way_value_needs_bearing=True,
+        dynamic_way_value_needs_speed=True,
+    ),
+    "axis_way_value_signed": AxisDefinition(
+        axis_id="axis_way_value_signed",
+        shape=BreakpointLinearShape(
+            terms=[MaterialTerm(material="gradient_percent")],
+            preprocess="abs",
+            breakpoints=[(0.0, 0.0), (5.0, 50.0), (10.0, 100.0)],
+        ),
+        default_weight=0.2,
+        label="軸グ",
+        dedicated_way_value_layer=True,
+        dynamic_way_value_needs_bearing=True,
+    ),
+}
+
+
+@pytest.fixture
+def dedicated_axes():
+    with replaced_axis_definitions(DEDICATED_AXES):
+        yield
+
+
 # 応答はサービスの生値ではなく**地図が塗る値**（domain/dynamic_way_values.py:
 # transform_dedicated_way_values）。得点を塗る軸は写され、符号付き材料の軸はそのまま返る。
 # 写像そのものの検証はtest_dynamic_way_values.pyが持つため、ここでは軸の折れ点を写経せず
 # 同じ関数へ通した結果と突き合わせる——見たいのは「エンドポイントがこの写像を通すか」。
+@pytest.mark.usefixtures("dedicated_axes")
 @pytest.mark.parametrize(
     ("axis_id", "material_id", "speed_kmh"),
     [
@@ -352,6 +391,7 @@ def test_region_dedicated_way_values_returns_map_values_json(axis_id, material_i
     assert fake.last_request == (14, 14551, 6447, None, 90.0, speed_kmh)
 
 
+@pytest.mark.usefixtures("dedicated_axes")
 @pytest.mark.parametrize("material_id", ["axis_way_value_scored", "axis_way_value_signed"])
 def test_region_dedicated_way_values_requires_bearing_deg_query_param(material_id):
     app.dependency_overrides[get_dedicated_way_value_service] = lambda: FakeDynamicWayValueService()
@@ -449,6 +489,7 @@ def test_region_dedicated_way_values_resolves_the_service_by_the_axis_material(m
     assert response.status_code == status
 
 
+@pytest.mark.usefixtures("dedicated_axes")
 def test_region_dedicated_way_values_wind_passes_at_query_param():
     fake = FakeDynamicWayValueService()
     app.dependency_overrides[get_dedicated_way_value_service] = lambda: fake
@@ -465,6 +506,7 @@ def test_region_dedicated_way_values_wind_passes_at_query_param():
     assert fake.last_request[3].isoformat() == "2026-08-30T09:00:00"
 
 
+@pytest.mark.usefixtures("dedicated_axes")
 def test_region_dedicated_way_values_gradient_does_not_require_at_query_param():
     # 勾配は時刻に依存しないため、atを省略しても200（wind同様Noneが渡るだけ）。
     fake = FakeDynamicWayValueService()
@@ -479,6 +521,7 @@ def test_region_dedicated_way_values_gradient_does_not_require_at_query_param():
     assert fake.last_request == (14, 14551, 6447, None, 0.0, None)
 
 
+@pytest.mark.usefixtures("dedicated_axes")
 def test_region_dedicated_way_values_rejects_too_low_zoom():
     app.dependency_overrides[get_dedicated_way_value_service] = lambda: FakeDynamicWayValueService()
 
@@ -492,6 +535,7 @@ def test_region_dedicated_way_values_rejects_too_low_zoom():
     assert response.status_code == 400
 
 
+@pytest.mark.usefixtures("dedicated_axes")
 def test_region_dedicated_way_values_rate_limit_is_independent_from_road_surface_tile_rate_limit():
     app.dependency_overrides[get_region_service] = lambda: FakeRegionService()
     app.dependency_overrides[get_dedicated_way_value_service] = lambda: FakeDynamicWayValueService()

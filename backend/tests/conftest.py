@@ -24,7 +24,6 @@ from app.infrastructure.road_graph_repository import (
     create_tables,
 )
 from app.config import settings
-from tests.axis_system_fixture import fixture_axis_definitions
 from tests.admin_auth import ADMIN_PASSWORD, ADMIN_USERNAME
 
 
@@ -93,20 +92,6 @@ def _clear_tile_score_matrix_cache(_use_temp_tile_persistent_cache_dir):
     tile_score_matrix_cache.clear()
     yield
     tile_score_matrix_cache.clear()
-
-
-@pytest.fixture(autouse=True, scope="session")
-def _fixture_axis_definitions():
-    """全テストへ一貫した軸システムを用意する（tests/axis_system_fixture.py）。
-
-    **ここを個々のテストファイルへ移さない**——付け忘れたファイルは`AXIS_DEFINITIONS`が
-    空のまま、重み空・軸スコアNoneという退化した状態でも例外なく緑になる。
-
-    自前で`AXIS_DEFINITIONS`を書き換えて戻すテストとは独立に動く（あちらは「テスト開始
-    時点の中身」を憶えて戻すだけで、その中身がここ由来でも変わらない）。
-    """
-    with fixture_axis_definitions():
-        yield
 
 
 # road_graph_repository.pyのPostGIS統合テスト専用の接続先。開発機で稼働中の実DB

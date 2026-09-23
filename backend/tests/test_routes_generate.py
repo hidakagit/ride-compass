@@ -21,10 +21,8 @@ from app.services.evaluation_service import load_route_preference
 from app.services.graph_service import GraphService
 from app.services.route_generator import DEFAULT_MAX_ROUTES, MAX_ROUTES
 from app.services.weather_service import WeatherService
-from app.domain.axis_definitions import AXIS_DEFINITIONS
-
-# 軸システムはtests/conftest.pyのautouseフィクスチャが全テスト共通で用意する
-# （tests/axis_system_fixture.py）。
+from app.domain.axis_definitions import AXIS_DEFINITIONS, AxisDefinition, BreakpointLinearShape, MaterialTerm
+from tests.axis_system_fixture import replaced_axis_definitions
 
 client = TestClient(app)
 
@@ -35,6 +33,23 @@ REQUEST_BODY = {
     "distance_tolerance_km": 5,
     "route_type": "loop",
 }
+
+def _published_axis(axis_id: str, default_weight: float) -> AxisDefinition:
+    return AxisDefinition(
+        axis_id=axis_id,
+        shape=BreakpointLinearShape(terms=[MaterialTerm(material="dummy")], breakpoints=[(0.0, 0.0), (1.0, 100.0)]),
+        default_weight=default_weight,
+        label="軸",
+        is_published=True,
+    )
+
+
+@pytest.fixture
+def published_axes():
+    """重みの既定が互いに違う公開軸を2本置く。軸が無いと重みは空の辞書どうしで一致してしまう。"""
+    with replaced_axis_definitions({"axis_a": _published_axis("axis_a", 0.25), "axis_b": _published_axis("axis_b", 0.75)}):
+        yield
+
 
 @pytest.fixture(autouse=True)
 def clear_rate_limiter():
@@ -231,6 +246,7 @@ def test_generate_routes_corrected_destination_is_none_when_not_corrected(monkey
     assert conditions["corrected_destination"] is None
 
 
+@pytest.mark.usefixtures("published_axes")
 def test_generate_routes_echoes_applied_conditions(monkeypatch):
     # 実験の記録・再現用に、実際に適用された条件（重み含む）をレスポンスへエコーする
     # （研究インターフェース改善 §10-6）。上書き無しの場合は既定重みがそのまま入る。
@@ -251,6 +267,7 @@ def test_generate_routes_echoes_applied_conditions(monkeypatch):
     assert "+09:00" in conditions["generated_at"]
 
 
+@pytest.mark.usefixtures("published_axes")
 def test_generate_routes_applies_weight_overrides_and_echoes_them(monkeypatch):
     # リクエストの重み上書きがジョブへ渡り、conditionsに適用値がエコーされる
     # （研究インターフェース改善 §10-1）。

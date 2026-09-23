@@ -7,7 +7,7 @@ from fastapi.testclient import TestClient
 from app.config import settings
 from app.infrastructure.debug_control import get_recent_logs
 from app.main import app
-from tests.admin_auth import AUTH_HEADERS, basic_auth_header
+from tests.admin_auth import ADMIN_USERNAME, AUTH_HEADERS, basic_auth_header
 
 client = TestClient(app)
 
@@ -43,7 +43,7 @@ def test_update_mode_rejects_wrong_credentials():
     response = client.post(
         "/api/admin/debug/mode",
         json={"enabled": True},
-        headers={"Authorization": basic_auth_header("admin-user", "wrong")},
+        headers={"Authorization": basic_auth_header(ADMIN_USERNAME, "wrong")},
     )
 
     assert response.status_code == 401
