@@ -518,3 +518,15 @@
 .app-map-pane .maplibregl-ctrl-attrib a {
   color: var(--color-muted);
 }
+
+/* 地図の上に重なる操作部品は、そこから始まったピンチをページの拡大へ渡さない。viewportが
+   ページの拡大を許しているため、touch-actionが既定（auto）の部品に2本指を置くと、地図ではなく
+   ページ全体が拡大する。対象は、地図ペインの直下に重なる部品（地図を包むMapViewの要素は除く）と、
+   MapLibreが地図の中へ置く操作部品（どれも`maplibregl-ctrl`を持つ）・ポップアップ。ピンチの
+   許可は祖先の値との積で決まり、Chromiumではスクロール容器を越えても受け継がれる（スクロール
+   容器が戻すのはパンだけ）ので、直下の要素へ掛ければ中の部品すべてに効く。地図のcanvasの値は
+   MapLibre自身が決める。 */
+.app-map-pane > :not(:has(> .maplibregl-map)),
+.app-map-pane :is(.maplibregl-ctrl, .maplibregl-popup) {
+  touch-action: none;
+}
