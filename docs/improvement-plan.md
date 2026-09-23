@@ -173,7 +173,6 @@ CLAUDE.md参照。節見出しはタスクのテーマ分類で、日付は起�
 - [ ] [T1052](records/tasks/T1052.md). Open-Meteoと環境省WBGTの出典が画面に出ていない 規模S
 - [ ] [T1053](records/tasks/T1053.md). 利用条件を公式で確定できなかった外部ソース（逆ジオコーダ・MSMと気象業務法・WBGTの予測値API）の扱いを決める 規模S
 - [ ] [T1059](records/tasks/T1059.md). ワーカーを複数にした起動が本番の形（Linux・Docker）で実際に止まるかを見る 規模S
-- [ ] [T1074](records/tasks/T1074.md). car_stress軸を指定路線の材料なしで作り直すかを決める（判断待ち） 規模S
 - [ ] [T1075](records/tasks/T1075.md). 旧car_stress一族に代わる走りにくさの軸を、指定路線の材料なしで作り直す 規模M
 
 ## 完了扱いにしたが作業が残っていたもの（2026-09-21・タスクの状態表記を「完了／未完了」の2語へ揃えた際に判明）
@@ -197,7 +196,6 @@ CLAUDE.md参照。節見出しはタスクのテーマ分類で、日付は起�
 - [ ] [T1055](records/tasks/T1055.md). コードのコメントが、存在しない生成物の名前と古い正本を指している 規模S
 - [ ] [T1057](records/tasks/T1057.md). 並行実行の重い処理を機械全体で1つの枠に並べ、CPUの取り合いを無くす 規模S
 - [ ] [T1060](records/tasks/T1060.md). sceneが旧居（components/Map）から借りている宣言を、持ち主の置き場へ移す 規模M — トリガー: T1001段階D
-- [ ] [T1064](records/tasks/T1064.md). 本番とCIのGEOS・PROJをPGDGの版へ上げ、土地被覆を作り直す 規模M
 - [ ] [T1066](records/tasks/T1066.md). 並行実行の作業ツリーを固定数にし、消さずに使い回す 規模M
 - [ ] [T1073](records/tasks/T1073.md). ユーザーへの確認待ち（判断と操作）を1つのコマンドで記録から出す 規模S
 - [ ] [T1076](records/tasks/T1076.md). scripts/new_task.pyの--helpがWindowsの既定の文字コード（cp932）で落ちるのを直す 規模S
