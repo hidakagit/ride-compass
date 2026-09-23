@@ -6,8 +6,7 @@
 トランザクションが放置されていないか。
 
 認可を要求する理由・DB例外の扱いは`get_derived_data_freshness`と同じ（全表走査を伴うため
-認可なしに公開しない、DB例外は503へ変換し空レポートへ倒さない）。未適用migrationの一覧は
-`GET /api/debug/db-status`が既に返すため、ここでは重ねて持たない。
+認可なしに公開しない、DB例外は503へ変換し空レポートへ倒さない）。
 """
 
 from fastapi import APIRouter, Depends, HTTPException, status

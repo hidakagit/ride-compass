@@ -135,7 +135,7 @@ python scripts/review_checks.py docs
     （`graph_service`の`tile_set`で型5箇所・ガード12箇所）。
   - **共有断片から外れた手書き** — 共有の定数・SQL断片があるのに、1箇所だけ同じものを
     手で書いている。**共有側を直しても、その1本だけが古い世界を指し続ける**
-    （`material_coverage`が`FROM osm_raw_ways`を手書きし、欠損率APIが落ちていた）。
+    （`material_coverage`が旧スキーマのテーブル名を手書きし、欠損率APIが落ちていた）。
   - **同じ本体を持つ関数の対** — `set`と`set_empty`、`get`と`get_by_key`のように、
     引数以外が同じ。「〜と同じ」と書いたコメントが目印になる。
   - **参照0の公開シンボル** — importグラフで外部消費者を数える。0ならprivateにする

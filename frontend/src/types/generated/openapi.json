@@ -50,30 +50,6 @@
         }
       }
     },
-    "/api/debug/db-status": {
-      "get": {
-        "operationId": "db_status_api_debug_db_status_get",
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "additionalProperties": true,
-                  "type": "object",
-                  "title": "Response Db Status Api Debug Db Status Get"
-                }
-              }
-            }
-          }
-        },
-        "security": [
-          {
-            "HTTPBasic": []
-          }
-        ]
-      }
-    },
     "/api/routes/preview": {
       "post": {
         "operationId": "preview_route_api_routes_preview_post",

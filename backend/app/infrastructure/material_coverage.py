@@ -1,21 +1,20 @@
 """材料ごとの欠損割合（カバレッジ）を集計クエリで求める読み取り専用リポジトリ。
 
 `GET /api/admin/material-catalog/coverage`（`api/routers/material_catalog.py`）のデータ源。
-材料ごとに元データの置き場所が異なる（`osm_raw_ways`の専用列・`tags` JSONBのキー・
-Edge単位の派生テーブルの行有無）ため、「どの母集団の、どの条件が成り立てば欠損か」を
+材料ごとに元データの置き場所が異なる（道の生データのタグ・区間の材料の列）ため、「どの母集団の、どの条件が成り立てば欠損か」を
 材料ごとの宣言（`MaterialSpec.coverage`）から受け取り、集計クエリで数える（Edge/Way単位の
 Pythonループは回さない）。ここは測り方の実装だけを持つ。
 
 母集団は2種類:
 
-- `"way"`: `osm_raw_ways`全行（OSMタグ由来の材料）。全材料が同じ表の列・タグを見るため、
-  材料ごとの`count(*) FILTER`を並べた1回の走査にまとめる。欠損判定式は`domain/material_sql.py`の
-  共有SQL断片を`road_graph_repository.py: _ROAD_SURFACE_TILE_MVT_SQL`（地図タイル配信）と
-  共通で使う——両者ともRoad Graphを構築せず`osm_raw_ways`を直接クエリする経路のため、
+- `"way"`: 道の生データ全行（`WAYS_SOURCE_SQL`、OSMタグ由来の材料）。全材料が同じ行の
+  タグを見るため、材料ごとの`count(*) FILTER`を並べた1回の走査にまとめる。欠損判定式は
+  `domain/material_sql.py`の共有SQL断片を`road_graph_repository.py: _ROAD_SURFACE_TILE_MVT_SQL`
+  （地図タイル配信）と共通で使う——両者ともRoad Graphを構築せずDBを直接引く経路のため、
   独立に書くと片方だけ変更されるドリフトを招く。
 - `"edge"`: `road_edges`全行（Edge単位の材料）。値は`edge_materials`の列に並び、その
-  `edge_id`は`road_edges`へのFK（ON DELETE CASCADE）のため、「値が埋まっている行数」を
-  そのまま「値ありEdge数」として使え、`road_edges`とのJOINを省ける。way側と同じく
+  `(osm_way_id, segment_index)`は`road_edges`へのFK（ON DELETE CASCADE）のため、「値が
+  埋まっている行数」をそのまま「値ありEdge数」として使え、`road_edges`とのJOINを省ける。way側と同じく
   材料ごとの`count(*) FILTER`を並べた1回の走査にまとめる。
 
 「欠損」はあくまで元データ（タグ・行）の不在を指す。評価パイプラインがその不在をどう扱うか

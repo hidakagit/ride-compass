@@ -5,8 +5,8 @@
 「評価軸」（道路のEdge/区間ごとに0-100のdifficultyスコアを出す単位、例: 勾配・車の
 圧迫感・事故密度）を、`axis_definitions`DBテーブルを唯一の正本として定義・評価・配信する。
 
-評価軸の値は`road_graph_engine.py`から呼ばれる（`domain/evaluation.py:
-compute_edge_axis_scores`経由、下記「呼び出し元」参照）。周回ルート生成専用ではない
+評価軸の値はルート探索が区間の材料から求める（`domain/evaluation.py`が全軸を配列で
+まとめて評価する。[評価・スコアリング](evaluation-scoring.md)参照）。周回ルート生成専用ではない
 （地図表示等、他の消費者からも参照される設計）。
 
 **対象ファイル**

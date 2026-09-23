@@ -363,7 +363,8 @@ async def test_paired_edge_columns_are_not_swapped():
 
 
 async def test_way_is_looked_up_by_its_key_as_text():
-    """`osm_raw_ways`の主キーはtext。数で渡すと1件も当たらず、区間インスペクタが常に空になる。"""
+    """道の生データの主キー（`source_features.natural_key`）はtext。数で渡すと1件も当たらず、
+    区間インスペクタが常に空になる。"""
     repo, session = _repo([_Row(m_material_a=1.0)],
                           [_Row(highway="highway_a", tags={"tag_a": "value_a"}, surface=None)])
 

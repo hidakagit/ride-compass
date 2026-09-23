@@ -78,7 +78,7 @@ async def run(
         await engine.dispose()
 
     if not sample:
-        print("サンプルが0件でした（way_attribute_countsの集計が未実行の可能性）")
+        print("サンプルが0件でした（道の生データが未取込か、--bboxの範囲に道が無い可能性）")
         return 1
 
     total_km = sum(m for m, _ in sample) / 1000.0

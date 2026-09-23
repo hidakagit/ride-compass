@@ -578,7 +578,7 @@ segments構築はEdge単位の軽量な計算のため並行化してよい。�
 周回候補（waypoints指定でない場合）は、順方向の探索結果から逆方向候補を
 **追加のDB/API呼び出し無しに代数的に導出**する: 標高の獲得/喪失を入れ替え、勾配の符号を
 反転し、既にhydrate済みのgeometryを再利用する（`_reverse_traced_edges`/
-`_reverse_elevation_attribute(s)`）。両方向の`distance_weighted_difficulty`を比較し、
+`_reverse_elevation_attribute`・`_reverse_elevation_by_edge`）。両方向の`distance_weighted_difficulty`を比較し、
 小さい方を採用する（`_pick_better_candidate`）。`TracedLoop.bearing is None`
 （waypoints指定ルート）ではこの逆回り合成をスキップする——ユーザーが指定した訪問順序を
 尊重する必要があるため。

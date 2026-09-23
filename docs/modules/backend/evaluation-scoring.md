@@ -365,7 +365,7 @@ way粒度で引くときは、同じ式のまま`w`の行から同じ名前の�
 | エンドポイント | 認可 | 内容 |
 |---|---|---|
 | `GET /api/material-catalog` | 不要 | `display_only=False`の材料一覧（`material_id`/`label`[論理名 - 物理名]/`description`/`dtype`/`unit`/`reference_points`のみ。`tile_property`等のbackend内部フィールドは含めない） |
-| `GET /api/admin/material-catalog/{material_id}/values` | HTTP Basic | categorical材料の実データ値一覧（`RegionService.get_material_values`経由、未知idは404・未対応材料/DB未接続は空リスト）。索引の効かない`SELECT DISTINCT`をタイル配信と同じ接続プール上で実行するため、`coverage`と同じく認可を課す |
+| `GET /api/admin/material-catalog/{material_id}/values` | HTTP Basic | categorical材料の実データ値一覧（`RegionService.get_material_values`経由、未知idは404・値一覧を持たない材料は空リスト・DB未接続や障害は`available=false`）。索引の効かない`SELECT DISTINCT`をタイル配信と同じ接続プール上で実行するため、`coverage`と同じく認可を課す |
 | `GET /api/admin/material-catalog/coverage` | Basic認証必須 | 材料ごとの欠損割合（下記）。全表走査を伴うため認可なしには公開しない |
 
 ## 材料の欠損割合（`infrastructure/material_coverage.py`・`services/material_coverage_service.py`）

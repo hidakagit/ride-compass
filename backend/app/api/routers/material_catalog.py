@@ -198,8 +198,8 @@ async def get_material_values(
     region_service: RegionService = Depends(get_region_service),
 ) -> MaterialValuesResponse:
     """材料idに対応する実データの値一覧（ソート済み、重複無し）を返す。
-    未知の材料idは404（フロントのタイプミス検知用）。既知だが動的値一覧に対応していない
-    材料（`tracktype`等、事前に閉じた値集合を持つため本APIが不要）は`available=true`の空リスト、
+    未知の材料idは404（フロントのタイプミス検知用）。値一覧を持たない材料（カテゴリ以外の
+    真偽・数値の材料と、値の求め方を持たない材料）は`available=true`の空リスト、
     DB未接続・DB障害・タイムアウトは`available=false`を返す
     （`RegionService.get_material_values`参照。「候補が無い」と「候補を出せなかった」を
     画面が区別できるようにするため、両方を空リストへ倒さない）。
@@ -229,7 +229,7 @@ async def get_material_coverage(
     """全材料の欠損割合（`MATERIAL_CATALOG`の登録順、集計対象外の材料は理由付き）を返す。
 
     読み取り専用のAPIだがBasic認証を要求する:
-    osm_raw_ways/road_edgesの全表走査を伴う重いクエリで、認可なしに公開すると
+    道の生データと区間の材料の全表走査を伴う重いクエリで、認可なしに公開すると
     繰り返し呼ばれるだけでDBを圧迫できてしまう（管理画面`/admin`からのみ使う想定）。
     DB例外は`axis_admin.py`と同じく503へ変換する（診断用APIのため空レポートへ倒さない）。
     """

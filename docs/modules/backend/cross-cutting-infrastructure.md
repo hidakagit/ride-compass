@@ -2,7 +2,7 @@
 
 ## 責務
 
-DB接続・マイグレーション・Redis・HTTPクライアント・レート制限・ログ・デバッグ機構・
+DB接続・Redis・HTTPクライアント・レート制限・ログ・デバッグ機構・
 非同期ジョブ管理・アプリ起動（lifespan）・設定・管理API共通の認可境界という、
 特定のドメイン機能に属さない横断的な基盤を提供する。
 
@@ -19,7 +19,7 @@ DB接続・マイグレーション・Redis・HTTPクライアント・レート
 | api | `admin_auth.py` | 管理API共通の認可境界 |
 | api | `cache_policy.py` | 応答の`Cache-Control`（パスとポリシーの対応表・付与ミドルウェア） |
 | api | `dependencies.py`（横断的な部分のみ、他は各モジュール参照） | DI工場・`enforce_rate_limit`集約 |
-| api/routers | `health.py` | `/health`・`/api/debug/stats`・`/api/debug/db-status` |
+| api/routers | `health.py` | `/health`・`/api/debug/stats` |
 | api/routers | `debug_admin.py` | `debug_mode`のランタイム切替・直近ログ取得 |
 | infrastructure | `database.py` | PostGIS接続（SQLAlchemy） |
 | infrastructure | `redis_client.py` | Redis共有クライアント |
@@ -199,14 +199,11 @@ frontend側（`src/proxy.ts`）も同じ資格情報を別のBasic認証チェ�
 | エンドポイント | 認可 | 内容 |
 |---|---|---|
 | `GET /health` | 不要 | `status`・`commit`（デプロイされたコミットSHA）・`started_at` |
-| `GET /api/debug/stats` | 不要（集計値のみ、秘匿情報なし） | `debug_log.py`の集計（呼び出し数・エラー数・ヒット率・所要時間・429拒否数） |
-| `GET /api/debug/db-status` | 必要（`require_admin_basic_auth`） | pending migrations・主要テーブルの直近import run状況・行数。DB障害時も500にせずWARNINGログ＋`reachable=false`を返す |
+| `GET /api/debug/stats` | 不要（集計値のみ、秘匿情報なし） | `debug_log.py`の集計（呼び出し数・エラー数・ヒット率・所要時間・429拒否数）と、予報（MSM）の同期の鮮度 |
 
-`db-status`は「本番DBがコード上の期待に追いついているか」を1リクエストで確認する診断
-エンドポイント。`road_graph_use_repository=false`のときは接続を試みずその旨だけ返す。
-テーブル行数・migration適用状況・import run履歴という運用上機微な情報を返すため、
-`axis_admin.py`/`debug_admin.py`と同じ管理API認可境界を持つ。
-`/health`・`/api/debug/stats`（集計値のみで機微情報を含まない）は引き続き無認証。
+どちらも集計値だけで機微情報を含まないため無認証。本番DBがコードの期待に追いついているか
+（取込runの成否・テーブルの実数・統計とVACUUM）は、管理APIの`GET /api/admin/db-status`
+（[静的道路属性・タイル配信](static-road-attributes.md)「本番DBの状態」節）が返す。
 
 ## `debug_admin.py`（`debug_mode`のランタイム切替）
 

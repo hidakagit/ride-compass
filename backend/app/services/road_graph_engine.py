@@ -1768,10 +1768,10 @@ class RoadGraphEngine:
 
         経由地ルート（`bearing`がNone）は訪問順序そのものが要件のため、逆回りを作らない。
         """
-        elevation_attributes = self._elevation_attributes(context, edges_in_path)
+        elevation_by_edge = self._elevation_by_edge(context, edges_in_path)
         leg_of_edge = traced.leg_of_edge
         forward_candidate = self._build_candidate(
-            context, traced, edges_in_path, elevation_attributes, start_time, leg_of_edge
+            context, traced, edges_in_path, elevation_by_edge, start_time, leg_of_edge
         )
 
         if traced.bearing is None:
@@ -1780,15 +1780,15 @@ class RoadGraphEngine:
         reverse_edges = _reverse_traced_edges(edges_in_path, context.lazy_graph, context.graph)
         if reverse_edges is None:
             return forward_candidate
-        reverse_elevation_attributes = _reverse_elevation_attributes(
-            edges_in_path, reverse_edges, elevation_attributes
+        reverse_elevation_by_edge = _reverse_elevation_by_edge(
+            edges_in_path, reverse_edges, elevation_by_edge
         )
         reverse_candidate = self._build_candidate(
-            context, traced, reverse_edges, reverse_elevation_attributes, start_time, _reverse_leg_assignment(leg_of_edge)
+            context, traced, reverse_edges, reverse_elevation_by_edge, start_time, _reverse_leg_assignment(leg_of_edge)
         )
         return _pick_better_candidate(forward_candidate, reverse_candidate)
 
-    def _elevation_attributes(
+    def _elevation_by_edge(
         self, context: "_RoadGraphContext", edges_in_path: list[LeanEdge]
     ) -> dict[str, ElevationAttribute]:
         """経路の区間ぶんの標高属性。探索フェーズで読んだ材料がそのまま持っている。
@@ -1808,16 +1808,16 @@ class RoadGraphEngine:
         context: _RoadGraphContext,
         traced: TracedLoop,
         edges_in_path: list[LeanEdge],
-        elevation_attributes: dict[str, ElevationAttribute],
+        elevation_by_edge: dict[str, ElevationAttribute],
         start_time: datetime,
         leg_of_edge: list[int],
     ) -> RouteCandidate:
         # 区間と標高属性を引数で受けるのは、逆回り候補も同じ組み立てを通すため。
         # distance_km・bearingは同じ物理経路なので順方向の`traced`のものをそのまま使う。
         geometry, edge_point_offsets = _concat_edge_geometries(edges_in_path)
-        elevation_stats = _aggregate_elevation(edges_in_path, elevation_attributes)
+        elevation_stats = _aggregate_elevation(edges_in_path, elevation_by_edge)
         segments, segment_categories = self._build_segment_details(
-            edges_in_path, elevation_attributes, context, start_time, leg_of_edge
+            edges_in_path, elevation_by_edge, context, start_time, leg_of_edge
         )
         # categorical材料の延長割合は**集約より前に**Edge単位の値から畳む。集約後に
         # 計算すると、ビンの代表値を1つ選ぶ形になり割合がビンの粒度へ量子化される。
@@ -1891,7 +1891,7 @@ class RoadGraphEngine:
     def _build_segment_details(
         self,
         edges: list[LeanEdge],
-        elevation_attributes: dict,
+        elevation_by_edge: dict,
         context: _RoadGraphContext,
         start_time: datetime,
         leg_of_edge: list[int],
@@ -1913,7 +1913,7 @@ class RoadGraphEngine:
         for edge, leg_index in zip(edges, leg_of_edge):
             leg = context.legs[leg_index]
             distance_km = edge.distance_m / 1000
-            elevation_attr = elevation_attributes.get(edge.edge_id)
+            elevation_attr = elevation_by_edge.get(edge.edge_id)
 
             gradient_percent = elevation_attr.average_grade if elevation_attr else None
             # 勾配だけは`leg.material_arrays`ではなくこのループが持つ値から載せる
@@ -2317,10 +2317,10 @@ def _reverse_elevation_attribute(forward: ElevationAttribute, reverse_edge_id: s
     )
 
 
-def _reverse_elevation_attributes(
+def _reverse_elevation_by_edge(
     edges_in_path: list[LeanEdge],
     reverse_edges: list[LeanEdge],
-    elevation_attributes: dict[str, ElevationAttribute],
+    elevation_by_edge: dict[str, ElevationAttribute],
 ) -> dict[str, ElevationAttribute]:
     """逆方向Edge列ぶんの`ElevationAttribute`を、順方向の値から代数的に導出する。
 
@@ -2328,7 +2328,7 @@ def _reverse_elevation_attributes(
     """
     result: dict[str, ElevationAttribute] = {}
     for forward_edge, reverse_edge in zip(reversed(edges_in_path), reverse_edges):
-        forward_attribute = elevation_attributes.get(forward_edge.edge_id)
+        forward_attribute = elevation_by_edge.get(forward_edge.edge_id)
         if forward_attribute is not None:
             result[reverse_edge.edge_id] = _reverse_elevation_attribute(forward_attribute, reverse_edge.edge_id)
     return result
@@ -2420,8 +2420,8 @@ def _concat_edge_geometries(edges: list[LeanEdge]) -> tuple[dict, list[int]]:
     return {"type": "LineString", "coordinates": coordinates}, offsets
 
 
-def _aggregate_elevation(edges: list[LeanEdge], elevation_attributes: dict) -> dict:
-    attrs = [elevation_attributes.get(edge.edge_id) for edge in edges]
+def _aggregate_elevation(edges: list[LeanEdge], elevation_by_edge: dict) -> dict:
+    attrs = [elevation_by_edge.get(edge.edge_id) for edge in edges]
     valid = [a for a in attrs if a is not None]
 
     gains = [a.elevation_gain_m for a in valid if a.elevation_gain_m is not None]

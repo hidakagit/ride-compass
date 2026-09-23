@@ -474,13 +474,13 @@ def test_reverse_elevation_attribute_keeps_missing_grades_missing():
     assert reverse.min_grade is None
 
 
-def test_reverse_elevation_attributes_pairs_the_path_in_reverse_order():
+def test_reverse_elevation_by_edge_pairs_the_path_in_reverse_order():
     """逆方向Edgeの並びは順方向の逆。対応がずれると別の坂の値が付く。"""
     forward_edges = [FakeEdge(edge_id="f1"), FakeEdge(edge_id="f2")]
     reverse_edges = [FakeEdge(edge_id="r2"), FakeEdge(edge_id="r1")]
     attributes = {"f2": FakeElevation("f2", start_elevation_m=1.0, end_elevation_m=9.0)}
 
-    result = engine._reverse_elevation_attributes(forward_edges, reverse_edges, attributes)
+    result = engine._reverse_elevation_by_edge(forward_edges, reverse_edges, attributes)
 
     assert set(result) == {"r2"}
     assert result["r2"].start_elevation_m == 9.0
@@ -2108,11 +2108,11 @@ def elevation_context(world, attributes):
     )
 
 
-def test_elevation_attributes_only_carry_the_edges_that_have_one(search_world):
+def test_elevation_by_edge_only_carries_the_edges_that_have_one(search_world):
     context = elevation_context(search_world, {"e0": FakeElevation("e0", elevation_gain_m=5.0)})
     edges = [search_world.graph.edges["e0"], search_world.graph.edges["e1"]]
 
-    found = search_world.engine._elevation_attributes(context, edges)
+    found = search_world.engine._elevation_by_edge(context, edges)
 
     assert set(found) == {"e0"}
 
@@ -2146,7 +2146,7 @@ async def test_a_reversible_loop_keeps_the_easier_direction(search_world, monkey
     """逆走は勾配・風で評点が変わる。両方向を別候補として並べず、走りやすい方だけ残す。"""
     context = elevation_context(search_world, {})
     monkeypatch.setattr(engine, "_reverse_traced_edges", lambda *a: [search_world.graph.edges["e1"]])
-    monkeypatch.setattr(engine, "_reverse_elevation_attributes", lambda *a: {})
+    monkeypatch.setattr(engine, "_reverse_elevation_by_edge", lambda *a: {})
     monkeypatch.setattr(engine, "distance_weighted_difficulty", lambda pairs: pairs[0][0])
     built = []
 

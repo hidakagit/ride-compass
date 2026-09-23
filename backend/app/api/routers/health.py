@@ -1,17 +1,10 @@
-import logging
+from fastapi import APIRouter
 
-from fastapi import APIRouter, Depends
-from sqlalchemy import text
-
-from app.api.admin_auth import require_admin_basic_auth
 from app.config import settings
 from app.infrastructure.msm_client import freshness as msm_freshness
-from app.infrastructure.database import get_engine
 from app.infrastructure.debug_log import get_stats
 from app.version import STARTED_AT
 from app.domain.strict_model import StrictModel
-
-logger = logging.getLogger("ridecompass.health")
 
 router = APIRouter()
 
@@ -59,26 +52,6 @@ class DebugStatsResponse(StrictModel):
     rate_limit_rejections: dict[str, int]
     msm: MsmFreshnessResponse | None
 
-# migration適用状況・データ投入バッチの最終実行状況・主要テーブル行数を1エンドポイントで
-# 確認できるようにする。「デプロイの反映確認」（/healthのcommit）と同じ思想の、DB版の反映確認。
-#
-# *_import_runsテーブル（osm_import_runs/accident_import_runs）は
-# いずれも「1回のバッチ実行につき1行以上、status(running|succeeded|failed)・started_at・
-# finished_atを持つ」同型（各モデルのdocstring参照）のため、直近1行を取るクエリを共通化する。
-_IMPORT_RUN_TABLES = {
-    "osm": "osm_import_runs",
-    "accident": "accident_import_runs",
-}
-
-# import_runsが指す生データ・派生データの主要テーブル。0件やテーブル欠落自体が
-# 「バッチが本番で一度も走っていない」の直接的なシグナルになる。
-_KEY_TABLES = (
-    "osm_raw_ways",
-    "osm_raw_pois",
-    "road_edges",
-    "accident_points",
-)
-
 
 @router.get("/health")
 def health() -> dict[str, str | None]:
@@ -120,69 +93,3 @@ def _msm_freshness_response() -> MsmFreshnessResponse | None:
         remaining_hours=round(current.remaining_hours, 1),
         healthy=current.is_healthy,
     )
-
-
-async def _table_row_count(conn, table: str) -> int | None:
-    # to_regclassでテーブル存在確認してから数える（無ければNone。migration未適用の
-    # 直接的なシグナルになるため、存在しないテーブルを例外扱いにしない）。
-    exists = await conn.scalar(text("SELECT to_regclass(:t) IS NOT NULL"), {"t": table})
-    if not exists:
-        return None
-    return await conn.scalar(text(f"SELECT count(*) FROM {table}"))  # noqa: S608 tはハードコード辞書由来、外部入力なし
-
-
-async def _latest_import_run(conn, table: str) -> dict | None:
-    exists = await conn.scalar(text("SELECT to_regclass(:t) IS NOT NULL"), {"t": table})
-    if not exists:
-        return None
-    row = (
-        await conn.execute(
-            text(f"SELECT status, started_at, finished_at FROM {table} ORDER BY started_at DESC LIMIT 1")  # noqa: S608
-        )
-    ).first()
-    if row is None:
-        return {"status": None, "started_at": None, "finished_at": None}  # テーブルはあるが0行
-    status, started_at, finished_at = row
-    return {
-        "status": status,
-        "started_at": started_at.isoformat() if started_at else None,
-        "finished_at": finished_at.isoformat() if finished_at else None,
-    }
-
-
-@router.get("/api/debug/db-status", dependencies=[Depends(require_admin_basic_auth)])
-async def db_status() -> dict:
-    """本番DB(または任意環境)がコード上の期待（migration適用済み・データ投入バッチ実行済み）
-    に追いついているかを1回のリクエストで確認できる診断エンドポイント。
-
-    `road_graph_use_repository=false`（DBなし構成）のときは接続を試みず、その旨だけ返す。
-    DB接続自体に失敗した場合もエラーで落とさず、WARNINGログと共にreachable=falseを返す
-    （docs/conventions/logging.mdの「エラーは常時WARNING以上」方針。/healthと違い読み取り専用の
-    診断用途のため、DB障害時にHTTP 500にする必要はない）。認可境界の理由は
-    docs/modules/backend/cross-cutting-infrastructure.md「運用エンドポイント」節参照。
-    """
-    if not settings.road_graph_use_repository:
-        return {"commit": settings.git_commit, "database_configured": False}
-
-    try:
-        async with get_engine().connect() as conn:
-            import_runs = {
-                key: await _latest_import_run(conn, table) for key, table in _IMPORT_RUN_TABLES.items()
-            }
-            table_row_counts = {table: await _table_row_count(conn, table) for table in _KEY_TABLES}
-    except Exception as exc:  # noqa: BLE001 診断エンドポイントはDB障害でも500にせず可視化する
-        logger.warning("db-status診断のPostGIS読み取りに失敗 error=%r", exc)
-        return {
-            "commit": settings.git_commit,
-            "database_configured": True,
-            "reachable": False,
-            "error": repr(exc),
-        }
-
-    return {
-        "commit": settings.git_commit,
-        "database_configured": True,
-        "reachable": True,
-        "import_runs": import_runs,
-        "table_row_counts": table_row_counts,
-    }

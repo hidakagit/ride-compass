@@ -97,9 +97,9 @@ _TRAFFIC_CALMING_VALUES: frozenset[str] = frozenset(
     }
 )
 
-# 停止要因POIのkind正準集合（SQL側のkindフィルタ用）。補給POI（SupplyPoiKind）が同じ
-# `osm_raw_pois`テーブルへ入っているため、kindを絞らないCOUNTは停止密度へコンビニ・
-# 自販機を誤算入する。停止密度を数えるSQLは必ずこの集合でフィルタする。
+# 停止要因POIのkind正準集合（SQL側のkindフィルタ用）。補給POI（SupplyPoiKind）も同じ
+# `node_materials.kind`に入っているため、kindを絞らないCOUNTは停止密度へコンビニ・
+# 自販機を誤算入する。停止要因を数える・まとめるSQLは必ずこの集合でフィルタする。
 #
 # **型の宣言から導く。** 集合を別に並べると、型に無いkindを集合へ入れられてしまい、
 # その分だけ停止密度が静かに増える（引き当ての表と突き合わせる検査が要らなくなる）。

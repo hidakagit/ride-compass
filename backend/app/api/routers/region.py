@@ -78,10 +78,8 @@ async def region_poi_tile(
     request: Request,
     region_service: RegionService = Depends(get_region_service),
 ) -> Response:
-    """停止要因POI（信号・横断歩道・一時停止・踏切）レイヤー。静的道路属性P1で評価にのみ
-    使われていたosm_raw_poisの可視化（材料`intersection_count_per_km`の集計には
-    既存のリポジトリのメソッドを引き続き使う）。路面タイルと同じ歯止め・同時実行制御を
-    そのまま流用する。
+    """停止要因POI（信号・横断歩道・一時停止・踏切）と補給休憩POIの点レイヤー。
+    路面タイルと同じ歯止め・同時実行制御を使う。
     """
     _check_tile_rate_limit(request, "poi-tile")
     validate_tile_coords(z, x, y)
