@@ -8,24 +8,11 @@ import { textVariants } from "@/components/ui/Text/Text";
 import { cn } from "@/lib/cn";
 import { cardVariants } from "@/components/ui/Card/Card";
 
-/** スライダーの1フレーム分の表示内容。ONの全レイヤーのフレーム時刻を統合した1本の
- * 共有タイムラインを表すため、時刻ラベルのみを持つ（レイヤー固有の実況/予測ラベルは、
- * 1つの目盛りに複数レイヤーが同時に対応しうる設計では意味を持たないため持たない、
- * lib/frameTime.ts: formatDynamicFrameTime参照）。
- * labelは左端の指標の上に出す1行サマリ用で、日付をまたぐタイムラインの曖昧さを避けるため
- * 常に日付を含むフル表記（lib/frameTime.ts: formatDynamicFrameTime）。hourMarkはルーラーの
- * 目盛りの線を太くするかどうか（呼び出し側=page.tsxが正時判定して渡す）。降水ナウキャスト
- * （5分刻み、〜60分先）の区間では正時フレームがまばらにしか無く目盛りもまばらに、延長予報
- * （1時間刻み、〜48時間先）の区間では全フレームが正時のため毎コマに目盛りが付く。スライダー
- * 自体はコマ（インデックス）ごとに等間隔で並ぶ設計のままのため、目盛りをフレームごとの
- * 正時判定で間引くだけで「近い将来は目盛りがまばら＝連続的に細かく動かせる、遠い将来は
- * 毎コマに目盛り＝1時間刻みで止まる」という実際の間隔設計がひと目で伝わる（間隔設計自体は
- * 変更しない）。tickLabelは目盛りの線の下に出す短い文字。日付を持たず、正時なら
- * 「HH:mm」・そうでなければ分のみ2桁（RideConditionBar/departureTimeline.ts:
- * buildDepartureFrames参照）。undefined/空文字ならこのコマには文字を出さない
- * （延長予報のように毎コマ正時が続く区間で毎コマぶん文字まで出すと、1コマの目盛り間隔
- * [TICK_SPACING_HOUR_PX]に対して文字幅の方が広く重なってしまうため、呼び出し側で
- * 正時ラベルはさらに間引いて渡す）。 */
+/** スライダーの1コマ。`label`は選んだコマの正確な日時（日付付き）で、ルーラーの上へ1行で出す
+ * （目盛りの文字は日付を持たないため、日付をまたいだときの曖昧さはこの1行だけが解消する）。
+ * `hourMark`は目盛りの線を太くし、コマの幅も広げる。`tickLabel`は目盛りの下の短い文字で、
+ * 無ければそのコマには文字を出さない（毎コマ正時が続く区間で全コマに書くと文字が重なるため、
+ * 呼び出し側が間引いて渡す）。 */
 export interface DynamicLayerTimeSliderFrame {
   label: string;
   hourMark?: boolean;
@@ -52,7 +39,7 @@ function frameWidth(frame: DynamicLayerTimeSliderFrame): number {
 
 interface DynamicLayerTimeSliderProps {
   frames: readonly DynamicLayerTimeSliderFrame[];
-  /** framesのindex。framesが空、またはまだ範囲外なら効果なし（呼び出し側でclamp済み前提）。 */
+  /** framesのindex（範囲内）。framesは1コマ以上。 */
   index: number;
   onIndexChange: (index: number) => void;
   /** 「現在」に相当するframesのindex。「現在」ボタンを無効化する判定
@@ -63,12 +50,6 @@ interface DynamicLayerTimeSliderProps {
    * 戻す想定。onIndexChange(currentIndex)を呼ばないのは、currentIndexはframesの目盛り
    * 間隔に丸めた近似値であり、実時刻そのものより粗いため。 */
   onNow: () => void;
-  /** フレーム一覧の取得中（初回フェッチがまだ終わっていない）。 */
-  loading: boolean;
-  /** loading中に表示するメッセージ（レイヤーごとに文言が異なるため呼び出し側から渡す）。 */
-  loadingLabel: string;
-  /** 取得に失敗したときのメッセージ。非nullのときスライダー自体は出さない。 */
-  error: string | null;
   /** スライダー本体（role="slider"のルーラー）のaria-label。 */
   ariaLabel: string;
 }
@@ -97,9 +78,6 @@ export default function DynamicLayerTimeSlider({
   onIndexChange,
   currentIndex,
   onNow,
-  loading,
-  loadingLabel,
-  error,
   ariaLabel,
 }: DynamicLayerTimeSliderProps) {
   const [emblaRef, emblaApi] = useEmblaCarousel(emblaOptions, [WheelGesturesPlugin({ forceWheelAxis: "x" })]);
@@ -148,7 +126,6 @@ export default function DynamicLayerTimeSlider({
   // 矢印キー等の操作性はEmblaが提供しない分を自前で用意する。onIndexChangeを直接呼び、
   // スクロール位置の追従は上のuseEffect（外部由来のindex変化）に任せる。
   const handleKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
-    if (frames.length === 0) return;
     let next: number | null = null;
     if (e.key === "ArrowRight") next = Math.min(frames.length - 1, index + 1);
     else if (e.key === "ArrowLeft") next = Math.max(0, index - 1);
@@ -164,41 +141,11 @@ export default function DynamicLayerTimeSlider({
   // 1コマ単位調整という役割分担。キーボードのArrowLeft/Rightと同じ移動量だが、
   // タップ操作の主要導線として並べる。
   const stepIndex = (delta: number) => {
-    if (frames.length === 0) return;
-    const next = Math.min(frames.length - 1, Math.max(0, index + delta));
-    if (next !== index) onIndexChange(next);
+    // 端では押せないので、動かした先は必ず範囲の中。
+    onIndexChange(index + delta);
   };
 
-  if (error) {
-    return (
-      <div className="pointer-events-none">
-        <p
-          className={cn(
-            cardVariants({ variant: "float" }),
-            "pointer-events-auto touch-none rounded-sm px-2 py-1.5 text-[length:var(--font-size-sm)] text-[var(--color-danger)]",
-          )}
-        >
-          {error}
-        </p>
-      </div>
-    );
-  }
-  if (loading || frames.length === 0) {
-    return (
-      <div className="pointer-events-none">
-        <p
-          className={cn(
-            cardVariants({ variant: "float" }),
-            "pointer-events-auto touch-none rounded-sm px-2 py-1.5 text-[length:var(--font-size-sm)] text-[var(--color-muted)]",
-          )}
-        >
-          {loadingLabel}
-        </p>
-      </div>
-    );
-  }
-
-  const frame = frames[Math.min(index, frames.length - 1)];
+  const frame = frames[index];
 
   return (
     <div className="pointer-events-none">

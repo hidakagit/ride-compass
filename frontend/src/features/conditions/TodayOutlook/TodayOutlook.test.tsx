@@ -1,163 +1,120 @@
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
-import type { WeatherConditions, WeatherPeriodOutlook } from "@/types/weather";
+
+import type { WeatherConditions } from "@/types/weather";
+
 import TodayOutlook from "./TodayOutlook";
 
-function makeWeather(overrides: Partial<WeatherConditions>): WeatherConditions {
-  return {
-    temperature_c: 20,
-    wind_speed_ms: 3,
-    wind_direction_deg: 90,
-    wind_direction_label: "東",
-    precipitation_mm: null,
-    observed_at: "2026-08-28T00:00:00Z",
-    weather_code: null,
-    is_day: null,
-    sunrise: null,
-    sunset: null,
-    precipitation_max_mm: null,
-    wind_speed_max_ms: null,
-    temperature_max_c: null,
-    temperature_min_c: null,
-    today_periods: [],
-    ...overrides,
-  };
+const EMPTY = {
+  precipitation_max_mm: null,
+  wind_speed_max_ms: null,
+  temperature_max_c: null,
+  temperature_min_c: null,
+  sunrise: null,
+  sunset: null,
+  today_periods: [],
+};
+const weather = (overrides: Partial<WeatherConditions> = {}) => ({ ...EMPTY, ...overrides }) as WeatherConditions;
+
+async function open() {
+  await userEvent.click(screen.getByRole("button", { name: "今日の見通しを表示" }));
+  return screen.findByText("今日の見通し");
 }
 
-function makePeriod(overrides: Partial<WeatherPeriodOutlook>): WeatherPeriodOutlook {
-  return {
-    period: "12:00",
-    weather_code: 1,
-    precipitation_mm: null,
-    temperature_c: 27.0,
-    ...overrides,
-  };
-}
+/** 見出しの付いた1項目の値（見出しの次の文字）。 */
+const stat = (heading: string) => screen.getByText(heading).nextElementSibling?.textContent;
 
-// 日の出/日没は1日1個の値のためこのパネルが持つ（バーは瞬間値だけに絞る）。旧記述: 常設
-// ヘッダー（WeatherPanel）へ移設したため表示対象から外れた（旧「夜明け前/日没前の切り替え」テストは
-// WeatherPanel.test.tsxへ移設）。
-describe("TodayOutlook（改善計画T385・T387フォローアップ）", () => {
-  it("weatherがnullでloading/errorも無い場合は何も描画しない", () => {
-    const { container } = render(<TodayOutlook weather={null} loading={false} error={null} />);
+describe("TodayOutlook 取得の状態", () => {
+  it("見通しが無く失敗したら、警戒の見た目の入口を出し、開くと失敗の理由を出す", async () => {
+    render(<TodayOutlook weather={null} loading={false} error="混雑しています" />);
+    await userEvent.click(screen.getByRole("button", { name: "今日の見通しの取得に失敗しました" }));
+    expect(await screen.findByText("取得に失敗しました: 混雑しています")).toBeInTheDocument();
+  });
+
+  it("見通しがあれば、直近の取り直しが失敗していても見通しを出す", () => {
+    render(<TodayOutlook weather={weather({ wind_speed_max_ms: 5 })} loading={false} error="混雑しています" />);
+    expect(screen.getByRole("button", { name: "今日の見通しを表示" })).toBeInTheDocument();
+  });
+
+  it("読み込み中・見通しが無い・出せる値が1つも無い間は、入口を出さない", () => {
+    const { container, rerender } = render(
+      <TodayOutlook weather={weather({ wind_speed_max_ms: 5 })} loading error={null} />,
+    );
+    expect(container).toBeEmptyDOMElement();
+    rerender(<TodayOutlook weather={null} loading={false} error={null} />);
+    expect(container).toBeEmptyDOMElement();
+    rerender(<TodayOutlook weather={weather()} loading={false} error={null} />);
     expect(container).toBeEmptyDOMElement();
   });
+});
 
-  it("loading中は何も描画しない（トグルのチラつきを避ける）", () => {
-    const { container } = render(<TodayOutlook weather={null} loading={true} error={null} />);
-    expect(container).toBeEmptyDOMElement();
-  });
-
-  it("errorがある場合は警戒色のトリガーを表示し、開くとエラー内容が見える", async () => {
-    const user = userEvent.setup();
-    render(<TodayOutlook weather={null} loading={false} error="取得に失敗しました" />);
-
-    const trigger = screen.getByRole("button", { name: "今日の見通しの取得に失敗しました" });
-    expect(trigger).toBeInTheDocument();
-
-    await user.click(trigger);
-
-    expect(screen.getByText(/取得に失敗しました/)).toBeInTheDocument();
-  });
-
-  it("今日の見通しの各項目が全てnullの場合はトグル自体を出さない", () => {
-    const { container } = render(<TodayOutlook weather={makeWeather({})} loading={false} error={null} />);
-    expect(container).toBeEmptyDOMElement();
-  });
-
-  it("降水量(最大)・風(最大)・気温レンジがある場合はそれぞれ表示する", async () => {
-    const user = userEvent.setup();
+describe("TodayOutlook 1日の値", () => {
+  it("最大の降水量・風速は小数1桁、気温は最低〜最高を整数で出す", async () => {
     render(
       <TodayOutlook
-        weather={makeWeather({
-          precipitation_max_mm: 2.6,
-          wind_speed_max_ms: 4.2,
-          temperature_max_c: 27.0,
-          temperature_min_c: 15.4,
+        weather={weather({
+          precipitation_max_mm: 2.46,
+          wind_speed_max_ms: 7.04,
+          temperature_min_c: 17.6,
+          temperature_max_c: 25.4,
         })}
         loading={false}
         error={null}
       />,
     );
-
-    await user.click(screen.getByRole("button", { name: "今日の見通しを表示" }));
-
-    expect(screen.getByText("降水量（最大）")).toBeInTheDocument();
-    expect(screen.getByText("2.6")).toBeInTheDocument();
-    expect(screen.getByText("風（最大）")).toBeInTheDocument();
-    expect(screen.getByText("4.2")).toBeInTheDocument();
-    expect(screen.getByText("気温")).toBeInTheDocument();
-    expect(screen.getByText(/15℃〜27℃/)).toBeInTheDocument();
+    await open();
+    expect(stat("降水量（最大）")).toBe("2.5mm/h");
+    expect(stat("風（最大）")).toBe("7.0m/s");
+    expect(stat("気温")).toBe("18℃〜25℃");
   });
 
-  it("値が無い項目は行ごと表示しない", async () => {
-    const user = userEvent.setup();
-    render(<TodayOutlook weather={makeWeather({ precipitation_max_mm: 1.2 })} loading={false} error={null} />);
-
-    await user.click(screen.getByRole("button", { name: "今日の見通しを表示" }));
-
-    expect(screen.getByText("降水量（最大）")).toBeInTheDocument();
-    expect(screen.queryByText("風（最大）")).not.toBeInTheDocument();
-    expect(screen.queryByText("気温")).not.toBeInTheDocument();
+  it("値の無い項目は出さない。気温は片方だけでも出す", async () => {
+    render(<TodayOutlook weather={weather({ temperature_max_c: 25 })} loading={false} error={null} />);
+    await open();
+    expect(screen.queryByText("降水量（最大）")).not.toBeInTheDocument();
+    expect(screen.queryByText("日の出・日没")).not.toBeInTheDocument();
+    expect(stat("気温")).toBe("25℃");
   });
 
-  it("today_periodsが8コマある場合は天気の流れとして時刻・気温・降水量を表示する", async () => {
-    const user = userEvent.setup();
-    const periods = [
-      makePeriod({ period: "06:00", weather_code: 1, temperature_c: 22.0, precipitation_mm: 0.4 }),
-      makePeriod({ period: "08:00", weather_code: 2, temperature_c: 24.0, precipitation_mm: 0.0 }),
-      makePeriod({ period: "10:00", weather_code: 61, temperature_c: 26.5, precipitation_mm: 3.2 }),
-      makePeriod({ period: "12:00" }),
-      makePeriod({ period: "14:00" }),
-      makePeriod({ period: "16:00" }),
-      makePeriod({ period: "18:00" }),
-      makePeriod({ period: "20:00", temperature_c: 25.0, precipitation_mm: 1.1 }),
-    ];
-    render(<TodayOutlook weather={makeWeather({ today_periods: periods })} loading={false} error={null} />);
-
-    await user.click(screen.getByRole("button", { name: "今日の見通しを表示" }));
-
-    expect(screen.getByText("天気の流れ")).toBeInTheDocument();
-    expect(screen.getByText("6時")).toBeInTheDocument();
-    expect(screen.getByText("20時")).toBeInTheDocument();
-    expect(screen.getByText("22℃")).toBeInTheDocument();
-    expect(screen.getByText("0.4mm")).toBeInTheDocument();
-    expect(screen.getByText("3.2mm")).toBeInTheDocument();
-  });
-
-  it("today_periodsが空の場合は天気の流れセクションを出さない", async () => {
-    const user = userEvent.setup();
-    render(<TodayOutlook weather={makeWeather({ precipitation_max_mm: 1.2 })} loading={false} error={null} />);
-
-    await user.click(screen.getByRole("button", { name: "今日の見通しを表示" }));
-
-    expect(screen.queryByText("天気の流れ")).not.toBeInTheDocument();
-  });
-
-  it("コマのweather_codeがnullでも気温・降水量は表示しアイコン欠落を代替表示で埋める", async () => {
-    const user = userEvent.setup();
-    const periods = [makePeriod({ period: "06:00", weather_code: null, temperature_c: null, precipitation_mm: null })];
-    render(<TodayOutlook weather={makeWeather({ today_periods: periods })} loading={false} error={null} />);
-
-    await user.click(screen.getByRole("button", { name: "今日の見通しを表示" }));
-
-    expect(screen.getByText("6時")).toBeInTheDocument();
-    expect(screen.getAllByText("-").length).toBeGreaterThanOrEqual(2);
-  });
-  it("日の出・日没を1行で出す", async () => {
+  it("日の出・日没は日本時間で出し、片方が無い・読めないときは「--:--」", async () => {
     render(
       <TodayOutlook
-        weather={makeWeather({ sunrise: "2026-08-28T05:12:00+09:00", sunset: "2026-08-28T18:24:00+09:00" })}
+        weather={weather({ sunrise: "2026-09-23T20:30:00Z", sunset: "壊れた値" })}
         loading={false}
         error={null}
       />,
     );
+    await open();
+    expect(stat("日の出・日没")).toBe("05:30〜--:--");
+  });
 
-    await userEvent.click(screen.getByRole("button", { name: "今日の見通しを表示" }));
+  it("日の出だけ無くても、日没は出す", async () => {
+    render(<TodayOutlook weather={weather({ sunset: "2026-09-24T08:40:00Z" })} loading={false} error={null} />);
+    await open();
+    expect(stat("日の出・日没")).toBe("--:--〜17:40");
+  });
+});
 
-    expect(screen.getByText("日の出・日没")).toBeInTheDocument();
-    expect(screen.getByText(/05:12/)).toBeInTheDocument();
-    expect(screen.getByText(/18:24/)).toBeInTheDocument();
+describe("TodayOutlook 天気の流れ", () => {
+  const periods = [
+    { period: "06:00", weather_code: 0, temperature_c: 18.4, precipitation_mm: 0.05 },
+    { period: "08:00", weather_code: null, temperature_c: null, precipitation_mm: 1.26 },
+    { period: "昼", weather_code: 61, temperature_c: 22, precipitation_mm: null },
+  ];
+
+  it("コマごとに時・天気・気温（整数）・降水量を出す。降らない見込みと値の無いものは「-」", async () => {
+    render(<TodayOutlook weather={weather({ today_periods: periods } as never)} loading={false} error={null} />);
+    await open();
+    const slots = screen.getByText("天気の流れ").nextElementSibling!.children;
+    expect([...slots].map((slot) => slot.textContent)).toEqual(["6時18℃-", "8時--1.3mm", "昼22℃-"]);
+    expect(slots[0].querySelector("svg")).not.toBeNull();
+    expect(slots[1].querySelector("svg")).toBeNull();
+  });
+
+  it("コマが無ければ、流れの欄は出さない", async () => {
+    render(<TodayOutlook weather={weather({ wind_speed_max_ms: 3 })} loading={false} error={null} />);
+    await open();
+    expect(screen.queryByText("天気の流れ")).not.toBeInTheDocument();
   });
 });

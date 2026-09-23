@@ -33,7 +33,7 @@
 
 import { mapDisplay } from "@/types/generated/mapDisplay";
 import { parseJmaTileElement } from "@/features/map/layers/jmaTileIndex";
-import { nearestTimeIndex } from "@/lib/frameTime";
+import { nearestTimeIndex } from "@/lib/time";
 
 interface DynamicWeatherSourceState {
   visible: boolean;

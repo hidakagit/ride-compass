@@ -1,7 +1,7 @@
 // 出発時刻ピッカー（RideConditionBar）のドラッグタイムライン用の目盛り生成。気象レイヤーの
 // 取得結果に依存しない理由と刻みの粒度はdocs/modules/frontend/dynamic-weather-layers.md
 // 「共有タイムラインのラベル」節が持つ。
-import { formatDynamicFrameHourMinute, formatDynamicFrameMinuteOnly, formatDynamicFrameTime } from "@/lib/frameTime";
+import { formatJstDateTime, formatJstHourMinute, formatJstMinute, jstParts } from "@/lib/time";
 import type { DynamicLayerTimeSliderFrame } from "@/features/conditions/DynamicLayerTimeSlider/DynamicLayerTimeSlider";
 
 const FIVE_MIN_MS = 5 * 60_000;
@@ -29,18 +29,15 @@ export function buildDepartureTimeline(anchor: Date): Date[] {
 }
 
 /** DynamicLayerTimeSlider向けのラベル列。ラベルの書式は気象レイヤーの共有タイムラインと
- * 同じものを使う（dynamicWeather.tsのformatDynamicFrameTime/formatDynamicFrameMinuteOnly）。 */
+ * 同じものを使う（`lib/time.ts`）。正時の目盛りには、日本時間の偶数時だけ時刻を書く。 */
 export function buildDepartureFrames(timeline: readonly Date[]): DynamicLayerTimeSliderFrame[] {
   return timeline.map((time) => {
-    const isHour = time.getUTCMinutes() === 0;
+    const { hour, minute } = jstParts(time);
+    const isHour = minute === 0;
     return {
-      label: formatDynamicFrameTime(time),
+      label: formatJstDateTime(time),
       hourMark: isHour,
-      tickLabel: isHour
-        ? time.getUTCHours() % 2 === 0
-          ? formatDynamicFrameHourMinute(time)
-          : undefined
-        : formatDynamicFrameMinuteOnly(time),
+      tickLabel: isHour ? (hour % 2 === 0 ? formatJstHourMinute(time) : undefined) : formatJstMinute(time),
     };
   });
 }

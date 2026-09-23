@@ -3,18 +3,19 @@
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/Popover/Popover";
 import { useId, useMemo, useState } from "react";
 import routeGenerateConfig from "@/types/generated/route-generate-config.json";
-import { clampSpeedKmh, formatDepartureLabel, toDatetimeLocalValue } from "@/features/conditions/rideConditions";
+import { clampSpeedKmh, formatDepartureLabel } from "@/features/conditions/rideConditions";
 
-const MIN_SPEED_KMH = routeGenerateConfig.min_assumed_speed_kmh;
-const MAX_SPEED_KMH = routeGenerateConfig.max_assumed_speed_kmh;
 import DynamicLayerTimeSlider from "@/features/conditions/DynamicLayerTimeSlider/DynamicLayerTimeSlider";
-import { nearestTimeIndex } from "@/lib/frameTime";
+import { fromJstDatetimeLocalValue, nearestTimeIndex, toJstDatetimeLocalValue } from "@/lib/time";
 import { ClockIcon, SpeedGaugeIcon } from "@/components/ui/icons/icons";
 import { buildDepartureFrames, buildDepartureTimeline } from "./departureTimeline";
 import { Button } from "@/components/ui/Button/Button";
 import { NumberInput } from "@/components/ui/NumberInput/NumberInput";
 import { Input } from "@/components/ui/Input/Input";
 import { textVariants } from "@/components/ui/Text/Text";
+
+const MIN_SPEED_KMH = routeGenerateConfig.min_assumed_speed_kmh;
+const MAX_SPEED_KMH = routeGenerateConfig.max_assumed_speed_kmh;
 
 interface RideConditionBarProps {
   /** 出発時刻（気象レイヤーの表示時刻と同じ共有state）。 */
@@ -51,6 +52,7 @@ export default function RideConditionBar({
     [departureAnchor],
   );
   const departureFrames = useMemo(() => buildDepartureFrames(departureTimeline), [departureTimeline]);
+  const nowIndex = departureAnchor ? nearestTimeIndex(departureTimeline, departureAnchor) : 0;
   const speedInputId = useId();
   const departureInputId = useId();
   const departureLabel = formatDepartureLabel(departureTime);
@@ -94,9 +96,9 @@ export default function RideConditionBar({
             id={departureInputId}
             type="datetime-local"
             aria-label="出発日時を直接指定"
-            value={toDatetimeLocalValue(departureTime)}
+            value={toJstDatetimeLocalValue(departureTime)}
             onChange={(e) => {
-              const next = new Date(e.target.value);
+              const next = fromJstDatetimeLocalValue(e.target.value);
               if (!Number.isNaN(next.getTime())) onDepartureTimeChange(next);
             }}
             className="h-8 tabular-nums"
@@ -105,15 +107,13 @@ export default function RideConditionBar({
             <DynamicLayerTimeSlider
               frames={departureFrames}
               index={nearestTimeIndex(departureTimeline, departureTime)}
-              onIndexChange={(index) => {
-                const time = departureTimeline[index];
-                if (time) onDepartureTimeChange(time);
-              }}
-              currentIndex={nearestTimeIndex(departureTimeline, departureAnchor)}
+              // 「今」の目盛りを選んだら、その時刻に固定せず「今」への追従へ戻す——固定すると、
+              // 放置するうちに過去になり、予報のレイヤーの範囲から外れて表示が消える。
+              onIndexChange={(index) =>
+                index === nowIndex ? onDepartureNow() : onDepartureTimeChange(departureTimeline[index])
+              }
+              currentIndex={nowIndex}
               onNow={onDepartureNow}
-              loading={false}
-              loadingLabel=""
-              error={null}
               ariaLabel="出発時刻"
             />
           )}

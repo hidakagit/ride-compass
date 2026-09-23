@@ -2,7 +2,7 @@
 
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/Popover/Popover";
 import { ClockIcon, RaindropIcon, ThermometerIcon, WindIcon } from "@/components/ui/icons/icons";
-import { formatDynamicFrameHourMinute } from "@/lib/frameTime";
+import { formatJstHourMinute } from "@/lib/time";
 import { getWeatherCodeDisplay } from "@/features/conditions/WeatherPanel/weatherCode";
 import type { WeatherConditions, WeatherPeriodOutlook } from "@/types/weather";
 import { Button } from "@/components/ui/Button/Button";
@@ -27,7 +27,7 @@ interface TodayOutlookProps {
 function formatClockTime(iso: string): string {
   const date = new Date(iso);
   if (Number.isNaN(date.getTime())) return "--:--";
-  return formatDynamicFrameHourMinute(date);
+  return formatJstHourMinute(date);
 }
 
 // today_periodsの各コマ（2時間おきの代表時刻文字列"HH:MM"）の頭2桁を「6時」のような
@@ -44,8 +44,6 @@ function formatPrecipitation(mm: number): string {
 }
 
 function PeriodSlot({ period }: { period: WeatherPeriodOutlook }) {
-  // today_periodsは昼夜どちらのコマも含みうる（現在時刻を含む区間から2時間毎）が、
-  // is_dayをコマ単位では取得していないため、
   const display = getWeatherCodeDisplay(period.weather_code);
   return (
     <div className="flex w-10 flex-shrink-0 flex-col items-center gap-1 text-[var(--color-accent)]">

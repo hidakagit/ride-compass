@@ -1,283 +1,137 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { act, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import DynamicLayerTimeSlider from "./DynamicLayerTimeSlider";
-import { stubEmblaBrowserApis } from "@/testing/emblaBrowserApis";
 
-// jsdomはscrollTo/レイアウトを実装しないため、実際の横スクロールジェスチャー自体
-// （マウス/タッチのドラッグで.rulerViewportがスクロールし、慣性が止まったところで
-// onIndexChangeが呼ばれる一連の挙動）はここでは検証できない（Playwright実機/ブラウザ
-// 確認の領域）。ここではrole="slider"のARIA属性と、代替操作手段であるキーボード操作
-// （矢印キー・Home/End）がonIndexChangeを正しく呼ぶことを検証する。
+import DynamicLayerTimeSlider, { type DynamicLayerTimeSliderFrame } from "./DynamicLayerTimeSlider";
 
-beforeEach(stubEmblaBrowserApis);
+// ドラッグ・ホイール・吸着はEmbla（ライブラリ）が持つ。ここでは差し替えた代役で、
+// 「Emblaが選んだコマを報告する」「外から変わった位置へEmblaを動かす」つなぎだけを見る。
+const embla = vi.hoisted(() => {
+  const listeners = new Map<string, () => void>();
+  const api = {
+    selected: 0,
+    scrollTo: vi.fn(),
+    selectedScrollSnap: () => api.selected,
+    on: (event: string, handler: () => void) => listeners.set(event, handler),
+    off: (event: string) => listeners.delete(event),
+    /** Emblaが最寄りのコマを選び直したことにする。 */
+    select(index: number) {
+      api.selected = index;
+      listeners.get("select")?.();
+    },
+  };
+  return api;
+});
+vi.mock("embla-carousel-react", () => ({ default: () => [() => {}, embla] }));
+vi.mock("embla-carousel-wheel-gestures", () => ({ WheelGesturesPlugin: () => ({}) }));
 
-const FRAMES = [{ label: "12:00" }, { label: "12:05" }, { label: "12:10" }];
+const FRAMES: DynamicLayerTimeSliderFrame[] = [
+  { label: "9/24 09:55", tickLabel: "55" },
+  { label: "9/24 10:00", hourMark: true, tickLabel: "10:00" },
+  { label: "9/24 11:00", hourMark: true },
+];
 
-describe("DynamicLayerTimeSlider", () => {
-  it("loading=trueの間はloadingLabelを表示し、スライダーは出さない", () => {
-    render(
-      <DynamicLayerTimeSlider
-        frames={[]}
-        index={0}
-        onIndexChange={vi.fn()}
-        currentIndex={0}
-        onNow={vi.fn()}
-        loading={true}
-        loadingLabel="取得中..."
-        error={null}
-        ariaLabel="表示時刻"
-      />,
-    );
-    expect(screen.getByText("取得中...")).toBeInTheDocument();
-    expect(screen.queryByRole("slider")).not.toBeInTheDocument();
+beforeEach(() => {
+  embla.scrollTo.mockClear();
+  embla.selected = 0;
+});
+
+function renderSlider(index: number, currentIndex = 0) {
+  const onIndexChange = vi.fn();
+  const onNow = vi.fn();
+  const view = render(
+    <DynamicLayerTimeSlider
+      frames={FRAMES}
+      index={index}
+      onIndexChange={onIndexChange}
+      currentIndex={currentIndex}
+      onNow={onNow}
+      ariaLabel="出発時刻"
+    />,
+  );
+  return { onIndexChange, onNow, ...view };
+}
+
+describe("DynamicLayerTimeSlider 表示", () => {
+  it("選んだコマの日付つきの時刻を上に出し、読み上げにも同じ時刻と位置を渡す", () => {
+    renderSlider(1);
+    expect(screen.getByText("9/24 10:00", { selector: "div" })).toBeInTheDocument();
+    const ruler = screen.getByRole("slider", { name: "出発時刻" });
+    expect(ruler).toHaveAttribute("aria-valuetext", "9/24 10:00");
+    expect(ruler).toHaveAttribute("aria-valuenow", "1");
+    expect(ruler).toHaveAttribute("aria-valuemax", "2");
   });
 
-  it("errorがあればエラーメッセージを表示し、スライダーは出さない", () => {
-    render(
-      <DynamicLayerTimeSlider
-        frames={[]}
-        index={0}
-        onIndexChange={vi.fn()}
-        currentIndex={0}
-        onNow={vi.fn()}
-        loading={false}
-        loadingLabel="取得中..."
-        error="取得に失敗しました"
-        ariaLabel="表示時刻"
-      />,
-    );
-    expect(screen.getByText("取得に失敗しました")).toBeInTheDocument();
-    expect(screen.queryByRole("slider")).not.toBeInTheDocument();
+  it("目盛りはコマごとに1つ。正時は印を付けて広く取り、目盛りの文字はあるコマだけ", () => {
+    renderSlider(0);
+    const ticks = [...screen.getByRole("slider", { name: "出発時刻" }).firstElementChild!.children] as HTMLElement[];
+    expect(ticks.map((tick) => tick.dataset.hour)).toEqual([undefined, "true", "true"]);
+    expect(ticks.map((tick) => tick.textContent)).toEqual(["55", "10:00", ""]);
+    expect(parseFloat(ticks[1].style.width)).toBeGreaterThan(parseFloat(ticks[0].style.width));
+  });
+});
+
+describe("DynamicLayerTimeSlider 操作", () => {
+  it("‹・›で1コマずつ動かし、端ではそれ以上動かせない", async () => {
+    const first = renderSlider(0);
+    expect(screen.getByRole("button", { name: "出発時刻を1つ前へ" })).toBeDisabled();
+    await userEvent.click(screen.getByRole("button", { name: "出発時刻を1つ次へ" }));
+    expect(first.onIndexChange).toHaveBeenCalledWith(1);
+    first.unmount();
+
+    const last = renderSlider(2);
+    expect(screen.getByRole("button", { name: "出発時刻を1つ次へ" })).toBeDisabled();
+    await userEvent.click(screen.getByRole("button", { name: "出発時刻を1つ前へ" }));
+    expect(last.onIndexChange).toHaveBeenCalledWith(1);
   });
 
-  it("framesがあれば選択中フレームのlabelを表示する（T183: 統合タイムラインの共有ラベルのみ、レイヤー固有のbadgeは廃止）", () => {
-    render(
-      <DynamicLayerTimeSlider
-        frames={FRAMES}
-        index={0}
-        onIndexChange={vi.fn()}
-        currentIndex={0}
-        onNow={vi.fn()}
-        loading={false}
-        loadingLabel="取得中..."
-        error={null}
-        ariaLabel="表示時刻"
-      />,
-    );
-    expect(screen.getByText("12:00")).toBeInTheDocument();
+  it("矢印キーで1コマ、Home・Endで端へ動かす。もう動けない向きと他のキーでは何もしない", async () => {
+    const { onIndexChange } = renderSlider(1);
+    act(() => screen.getByRole("slider", { name: "出発時刻" }).focus());
+    for (const key of ["{ArrowRight}", "{ArrowLeft}", "{Home}", "{End}", "{Enter}"]) await userEvent.keyboard(key);
+    expect(onIndexChange.mock.calls.map(([index]) => index)).toEqual([2, 0, 0, 2]);
   });
 
-  it("role=sliderでARIA値（min/max/now/text）を反映する", () => {
-    render(
-      <DynamicLayerTimeSlider
-        frames={FRAMES}
-        index={1}
-        onIndexChange={vi.fn()}
-        currentIndex={0}
-        onNow={vi.fn()}
-        loading={false}
-        loadingLabel="取得中..."
-        error={null}
-        ariaLabel="気象レイヤーの表示時刻"
-      />,
-    );
-
-    const slider = screen.getByRole("slider", { name: "気象レイヤーの表示時刻" });
-    expect(slider).toHaveAttribute("aria-valuemin", "0");
-    expect(slider).toHaveAttribute("aria-valuemax", "2");
-    expect(slider).toHaveAttribute("aria-valuenow", "1");
-    expect(slider).toHaveAttribute("aria-valuetext", "12:05");
+  it("端では、その向きのキーは報告しない", async () => {
+    const { onIndexChange } = renderSlider(0);
+    act(() => screen.getByRole("slider", { name: "出発時刻" }).focus());
+    await userEvent.keyboard("{ArrowLeft}{Home}");
+    expect(onIndexChange).not.toHaveBeenCalled();
   });
 
-  describe("キーボード操作（input[type=range]ではなく横スクロールのルーラーのため、矢印キー等の代替操作を自前で用意している）", () => {
-    it("ArrowRight/ArrowLeftで1コマ前後にonIndexChangeが呼ばれる", () => {
-      const onIndexChange = vi.fn();
-      render(
-        <DynamicLayerTimeSlider
-          frames={FRAMES}
-          index={1}
-          onIndexChange={onIndexChange}
-          currentIndex={0}
-          onNow={vi.fn()}
-          loading={false}
-          loadingLabel="取得中..."
-          error={null}
-          ariaLabel="気象レイヤーの表示時刻"
-        />,
-      );
-      const slider = screen.getByRole("slider", { name: "気象レイヤーの表示時刻" });
+  it("「現在」は、今のコマを見ていない間だけ押せ、押すと親へ知らせる", async () => {
+    const away = renderSlider(2, 0);
+    await userEvent.click(screen.getByRole("button", { name: "出発時刻を現在に戻す" }));
+    expect(away.onNow).toHaveBeenCalled();
+    away.unmount();
 
-      fireEvent.keyDown(slider, { key: "ArrowRight" });
-      expect(onIndexChange).toHaveBeenCalledWith(2);
+    renderSlider(0, 0);
+    expect(screen.getByRole("button", { name: "出発時刻を現在に戻す" })).toBeDisabled();
+  });
+});
 
-      fireEvent.keyDown(slider, { key: "ArrowLeft" });
-      expect(onIndexChange).toHaveBeenCalledWith(0);
-    });
-
-    it("両端では境界を超えて呼ばれない", () => {
-      const onIndexChange = vi.fn();
-      render(
-        <DynamicLayerTimeSlider
-          frames={FRAMES}
-          index={2}
-          onIndexChange={onIndexChange}
-          currentIndex={0}
-          onNow={vi.fn()}
-          loading={false}
-          loadingLabel="取得中..."
-          error={null}
-          ariaLabel="気象レイヤーの表示時刻"
-        />,
-      );
-      fireEvent.keyDown(screen.getByRole("slider", { name: "気象レイヤーの表示時刻" }), { key: "ArrowRight" });
-      expect(onIndexChange).not.toHaveBeenCalled();
-    });
-
-    it("Home/Endで両端へ直接移動する", () => {
-      const onIndexChange = vi.fn();
-      render(
-        <DynamicLayerTimeSlider
-          frames={FRAMES}
-          index={1}
-          onIndexChange={onIndexChange}
-          currentIndex={0}
-          onNow={vi.fn()}
-          loading={false}
-          loadingLabel="取得中..."
-          error={null}
-          ariaLabel="気象レイヤーの表示時刻"
-        />,
-      );
-      const slider = screen.getByRole("slider", { name: "気象レイヤーの表示時刻" });
-
-      fireEvent.keyDown(slider, { key: "Home" });
-      expect(onIndexChange).toHaveBeenCalledWith(0);
-
-      fireEvent.keyDown(slider, { key: "End" });
-      expect(onIndexChange).toHaveBeenCalledWith(2);
-    });
+describe("DynamicLayerTimeSlider ルーラーとのつなぎ", () => {
+  it("開いた時は、選んでいるコマへすぐに合わせる", () => {
+    renderSlider(1);
+    expect(embla.scrollTo).toHaveBeenCalledWith(1, true);
   });
 
-  describe("1コマ戻る/進むボタン（ピンポイントの1コマ単位調整）", () => {
-    it("「1つ次へ」を押すとindex+1でonIndexChangeが呼ばれる", async () => {
-      const user = userEvent.setup();
-      const onIndexChange = vi.fn();
-      render(
-        <DynamicLayerTimeSlider
-          frames={FRAMES}
-          index={1}
-          onIndexChange={onIndexChange}
-          currentIndex={0}
-          onNow={vi.fn()}
-          loading={false}
-          loadingLabel="取得中..."
-          error={null}
-          ariaLabel="気象レイヤーの表示時刻"
-        />,
-      );
-
-      await user.click(screen.getByRole("button", { name: "気象レイヤーの表示時刻を1つ次へ" }));
-      expect(onIndexChange).toHaveBeenCalledWith(2);
-    });
-
-    it("「1つ前へ」を押すとindex-1でonIndexChangeが呼ばれる", async () => {
-      const user = userEvent.setup();
-      const onIndexChange = vi.fn();
-      render(
-        <DynamicLayerTimeSlider
-          frames={FRAMES}
-          index={1}
-          onIndexChange={onIndexChange}
-          currentIndex={0}
-          onNow={vi.fn()}
-          loading={false}
-          loadingLabel="取得中..."
-          error={null}
-          ariaLabel="気象レイヤーの表示時刻"
-        />,
-      );
-
-      await user.click(screen.getByRole("button", { name: "気象レイヤーの表示時刻を1つ前へ" }));
-      expect(onIndexChange).toHaveBeenCalledWith(0);
-    });
-
-    it("先頭では「1つ前へ」、末尾では「1つ次へ」が無効化される", () => {
-      const { rerender } = render(
-        <DynamicLayerTimeSlider
-          frames={FRAMES}
-          index={0}
-          onIndexChange={vi.fn()}
-          currentIndex={0}
-          onNow={vi.fn()}
-          loading={false}
-          loadingLabel="取得中..."
-          error={null}
-          ariaLabel="気象レイヤーの表示時刻"
-        />,
-      );
-      expect(screen.getByRole("button", { name: "気象レイヤーの表示時刻を1つ前へ" })).toBeDisabled();
-      expect(screen.getByRole("button", { name: "気象レイヤーの表示時刻を1つ次へ" })).not.toBeDisabled();
-
-      rerender(
-        <DynamicLayerTimeSlider
-          frames={FRAMES}
-          index={2}
-          onIndexChange={vi.fn()}
-          currentIndex={0}
-          onNow={vi.fn()}
-          loading={false}
-          loadingLabel="取得中..."
-          error={null}
-          ariaLabel="気象レイヤーの表示時刻"
-        />,
-      );
-      expect(screen.getByRole("button", { name: "気象レイヤーの表示時刻を1つ前へ" })).not.toBeDisabled();
-      expect(screen.getByRole("button", { name: "気象レイヤーの表示時刻を1つ次へ" })).toBeDisabled();
-    });
+  it("ルーラーが別のコマを選んだら親へ知らせ、同じコマのままなら知らせない", () => {
+    const { onIndexChange } = renderSlider(0);
+    act(() => embla.select(0));
+    expect(onIndexChange).not.toHaveBeenCalled();
+    act(() => embla.select(2));
+    expect(onIndexChange).toHaveBeenCalledWith(2);
   });
 
-  describe("「現在」に戻るボタン", () => {
-    it("index===currentIndexのときは無効化される", () => {
-      render(
-        <DynamicLayerTimeSlider
-          frames={FRAMES}
-          index={1}
-          onIndexChange={vi.fn()}
-          currentIndex={1}
-          onNow={vi.fn()}
-          loading={false}
-          loadingLabel="取得中..."
-          error={null}
-          ariaLabel="気象レイヤーの表示時刻"
-        />,
-      );
-      expect(screen.getByRole("button", { name: "気象レイヤーの表示時刻を現在に戻す" })).toBeDisabled();
-    });
-
-    it("未来側を見ているときは有効化され、押すとonNowが呼ばれる（onIndexChangeではない。風のcurrentIndexは実時刻より最大59分過去の正時に丸まるため、そこへ合わせると降水側が範囲外になる不具合があった）", async () => {
-      const user = userEvent.setup();
-      const onIndexChange = vi.fn();
-      const onNow = vi.fn();
-      render(
-        <DynamicLayerTimeSlider
-          frames={FRAMES}
-          index={2}
-          onIndexChange={onIndexChange}
-          currentIndex={1}
-          onNow={onNow}
-          loading={false}
-          loadingLabel="取得中..."
-          error={null}
-          ariaLabel="気象レイヤーの表示時刻"
-        />,
-      );
-
-      const nowButton = screen.getByRole("button", { name: "気象レイヤーの表示時刻を現在に戻す" });
-      expect(nowButton).not.toBeDisabled();
-      await user.click(nowButton);
-      expect(onNow).toHaveBeenCalledTimes(1);
-      expect(onIndexChange).not.toHaveBeenCalled();
-    });
+  it("外から位置が変わったときだけルーラーを動かす（自分が知らせた位置へは動かし直さない）", () => {
+    const { rerender, onIndexChange } = renderSlider(0);
+    embla.scrollTo.mockClear();
+    act(() => embla.select(2));
+    const props = { frames: FRAMES, onIndexChange, currentIndex: 0, onNow: vi.fn(), ariaLabel: "出発時刻" };
+    rerender(<DynamicLayerTimeSlider {...props} index={2} />);
+    expect(embla.scrollTo).not.toHaveBeenCalled();
+    rerender(<DynamicLayerTimeSlider {...props} index={0} />);
+    expect(embla.scrollTo).toHaveBeenCalledWith(0, false);
   });
 });

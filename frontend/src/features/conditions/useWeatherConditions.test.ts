@@ -1,360 +1,247 @@
-import { act, renderHook, waitFor } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { Coordinates } from "@/types/route";
-import type {
-  AmedasObservation,
-  FloodForecasts,
-  WbgtStatus,
-  WeatherConditions,
-  WeatherWarnings,
-} from "@/types/weather";
+import { act, renderHook } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-vi.mock("@/services/weatherApi", () => ({
+import { useWeatherConditions } from "./useWeatherConditions";
+
+// 通信はテストが決める（応答の形はbackendの契約で、ここでは画面へ渡すまでを見る）。
+const api = vi.hoisted(() => ({
   getCurrentWeather: vi.fn(),
   getAmedasObservation: vi.fn(),
   getWeatherWarnings: vi.fn(),
   getWbgtStatus: vi.fn(),
   getFloodForecasts: vi.fn(),
 }));
+vi.mock("@/services/weatherApi", () => api);
 
-import {
-  getAmedasObservation,
-  getCurrentWeather,
-  getFloodForecasts,
-  getWbgtStatus,
-  getWeatherWarnings,
-} from "@/services/weatherApi";
-import { useWeatherConditions } from "./useWeatherConditions";
+const TOKYO = { latitude: 35.68, longitude: 139.76 };
+const YOKOHAMA = { latitude: 35.44, longitude: 139.64 };
 
-const TOKYO: Coordinates = { latitude: 35.68, longitude: 139.76 };
-const OSAKA: Coordinates = { latitude: 34.69, longitude: 135.5 };
+const NO_WARNINGS = { warnings: [] };
+const NO_WBGT = { level: null, value: null, label: null };
+const NO_FLOOD = { forecasts: [] };
 
-function weatherAt(temperature: number): WeatherConditions {
-  return {
-    temperature_c: temperature,
-    wind_speed_ms: 1,
-    wind_direction_deg: 0,
-    wind_direction_label: "北",
-    precipitation_mm: 0,
-    observed_at: "2026-09-09T09:00:00+09:00",
-    weather_code: 0,
-    is_day: 1,
-    sunset: null,
-    sunrise: null,
-    precipitation_max_mm: null,
-    wind_speed_max_ms: null,
-    temperature_max_c: null,
-    temperature_min_c: null,
-    today_periods: [],
-  };
-}
+beforeEach(() => {
+  vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
+  api.getCurrentWeather.mockResolvedValue({ temperature_c: 20 });
+  api.getAmedasObservation.mockResolvedValue({ temperature_c: 21 });
+  api.getWeatherWarnings.mockResolvedValue(NO_WARNINGS);
+  api.getWbgtStatus.mockResolvedValue(NO_WBGT);
+  api.getFloodForecasts.mockResolvedValue(NO_FLOOD);
+});
 
-function amedasAt(stationName: string): AmedasObservation {
-  return {
-    station_id: "44132",
-    station_name: stationName,
-    latitude: 35.69,
-    longitude: 139.75,
-    observed_at: "2026-09-09T09:00:00+09:00",
-    temperature_c: 25,
-    apparent_temperature_c: null,
-    wind_speed_ms: null,
-    wind_direction_deg: null,
-    wind_direction_label: null,
-    precipitation_10min_mm: null,
-    sunshine_10min_minutes: null,
-    sunrise: null,
-    sunset: null,
-  };
-}
+afterEach(() => {
+  vi.useRealTimers();
+  vi.clearAllMocks();
+});
 
-const NO_WARNINGS: WeatherWarnings = { area_name: null, report_datetime: null, warnings: [] };
-const NO_WBGT: WbgtStatus = { level: null, label: null, value: null, observed_at: null };
-const NO_FLOOD: FloodForecasts = { forecasts: [] };
-
-/** 解決タイミングを呼び出し側から操作できるPromiseを返す。「古い応答が新しい応答を
- * 上書きしないか」の検証には、2回目を先に解決させてから1回目を解決させる必要がある。 */
-function deferred<T>() {
-  let resolve!: (value: T) => void;
-  let reject!: (reason: unknown) => void;
-  const promise = new Promise<T>((res, rej) => {
-    resolve = res;
-    reject = rej;
-  });
-  // 呼び出し元が解決させるまで待つPromiseのため、rejectを先に握り潰しておかないと
-  // vitestが「未処理のrejection」として扱う。
-  promise.catch(() => {});
-  return { promise, resolve, reject };
-}
-
-/** 保留中のPromiseチェーン（then/catch/finallyの各段）が反映され切るまで待つ。
- * 「古い応答を握り潰す」ガードは*状態を更新しない*ことで働くため、waitForのような
- * 「条件が満たされるまで待つ」書き方では反映前に通過してしまい検証にならない。 */
-async function flushPendingUpdates() {
+/** 取りに行く・応答を反映する、の非同期の段を最後まで進める（時間の早送りは取り直しの間隔だけ）。 */
+async function settle() {
   await act(async () => {
-    await new Promise((resolve) => setTimeout(resolve, 0));
+    for (let i = 0; i < 10; i += 1) await Promise.resolve();
   });
 }
 
-/** 5種すべてを「取得成功・警告なし」にする。個別の検証対象だけを各テストで上書きする。 */
-function mockAllQuiet() {
-  vi.mocked(getCurrentWeather).mockResolvedValue(weatherAt(20));
-  vi.mocked(getAmedasObservation).mockResolvedValue(amedasAt("東京"));
-  vi.mocked(getWeatherWarnings).mockResolvedValue(NO_WARNINGS);
-  vi.mocked(getWbgtStatus).mockResolvedValue(NO_WBGT);
-  vi.mocked(getFloodForecasts).mockResolvedValue(NO_FLOOD);
+function render(location = TOKYO, ready = true) {
+  return renderHook(({ location, ready }) => useWeatherConditions(location, ready), {
+    initialProps: { location, ready },
+  });
 }
 
-describe("useWeatherConditions", () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
+describe("useWeatherConditions 取得の時機", () => {
+  it("位置が決まるまでは取りに行かない", async () => {
+    render(TOKYO, false);
+    await settle();
+    expect(api.getCurrentWeather).not.toHaveBeenCalled();
+    expect(api.getWeatherWarnings).not.toHaveBeenCalled();
   });
 
-  it("locationReadyがfalseの間はどのAPIも呼ばない", () => {
-    mockAllQuiet();
+  it("位置が決まったら、予報・実測・警報・暑さ指数・氾濫予報をその位置で取る", async () => {
+    const { result } = render();
+    await settle();
+    expect(result.current.weather).toEqual({ temperature_c: 20 });
+    for (const fetcher of Object.values(api)) expect(fetcher).toHaveBeenCalledWith(TOKYO);
+    expect(result.current.amedas).toEqual({ temperature_c: 21 });
+  });
 
-    const { result } = renderHook(() => useWeatherConditions(TOKYO, false));
+  it("位置が変わったら、新しい位置で取り直す", async () => {
+    const { rerender } = render();
+    await settle();
+    expect(api.getCurrentWeather).toHaveBeenCalledTimes(1);
+    rerender({ location: YOKOHAMA, ready: true });
+    await settle();
+    expect(api.getCurrentWeather).toHaveBeenLastCalledWith(YOKOHAMA);
+  });
 
-    expect(getCurrentWeather).not.toHaveBeenCalled();
-    expect(getAmedasObservation).not.toHaveBeenCalled();
-    expect(getWeatherWarnings).not.toHaveBeenCalled();
-    expect(getWbgtStatus).not.toHaveBeenCalled();
-    expect(getFloodForecasts).not.toHaveBeenCalled();
+  it("開いたままでも10分ごとに取り直す", async () => {
+    render();
+    await settle();
+    expect(api.getAmedasObservation).toHaveBeenCalledTimes(1);
+    act(() => vi.advanceTimersByTime(10 * 60 * 1000));
+    expect(api.getAmedasObservation).toHaveBeenCalledTimes(2);
+  });
+
+  it("後から投げた問い合わせの結果だけを反映する（先に投げた遅い応答で上書きしない）", async () => {
+    let resolveSlow: (value: unknown) => void = () => {};
+    api.getCurrentWeather.mockReturnValueOnce(new Promise((resolve) => (resolveSlow = resolve)));
+    api.getCurrentWeather.mockResolvedValueOnce({ temperature_c: 25 });
+    const { result, rerender } = render();
+    await settle();
+    expect(api.getCurrentWeather).toHaveBeenCalledTimes(1);
+    rerender({ location: YOKOHAMA, ready: true });
+    await settle();
+    expect(result.current.weather).toEqual({ temperature_c: 25 });
+    await act(async () => resolveSlow({ temperature_c: 10 }));
+    expect(result.current.weather).toEqual({ temperature_c: 25 });
+  });
+
+  it("先に投げた問い合わせが後から失敗しても、失敗の文言を出さない（反映するのは最後の問い合わせだけ）", async () => {
+    let rejectSlow: (reason: unknown) => void = () => {};
+    api.getCurrentWeather.mockReturnValueOnce(new Promise((_, reject) => (rejectSlow = reject)));
+    api.getCurrentWeather.mockResolvedValueOnce({ temperature_c: 25 });
+    const { result, rerender } = render();
+    await settle();
+    rerender({ location: YOKOHAMA, ready: true });
+    await settle();
+    await act(async () => rejectSlow(new Error("遅れて失敗")));
+    expect(result.current.weatherError).toBeNull();
+    expect(result.current.weather).toEqual({ temperature_c: 25 });
+  });
+
+  it("先に投げた問い合わせが終わっても、最後の問い合わせを待つ間は読み込み中のまま", async () => {
+    let resolveSlow: (value: unknown) => void = () => {};
+    api.getCurrentWeather.mockReturnValueOnce(new Promise((resolve) => (resolveSlow = resolve)));
+    api.getCurrentWeather.mockReturnValueOnce(new Promise(() => {}));
+    const { result, rerender } = render();
+    await settle();
+    rerender({ location: YOKOHAMA, ready: true });
+    await settle();
+    await act(async () => resolveSlow({ temperature_c: 10 }));
+    expect(result.current.weatherLoading).toBe(true);
     expect(result.current.weather).toBeNull();
-    expect(result.current.warningBadgeItems).toEqual([]);
   });
 
-  it("locationReadyになると5種すべてを現在地でフェッチする", async () => {
-    mockAllQuiet();
-
-    const { result } = renderHook(() => useWeatherConditions(TOKYO, true));
-
-    await waitFor(() => expect(result.current.weather).toEqual(weatherAt(20)));
-    expect(result.current.amedas).toEqual(amedasAt("東京"));
-    for (const api of [getCurrentWeather, getAmedasObservation, getWeatherWarnings, getWbgtStatus, getFloodForecasts]) {
-      expect(api).toHaveBeenCalledWith(TOKYO);
-    }
+  it("画面を閉じた後は、取り直しも応答の反映もしない", async () => {
+    const { unmount } = render();
+    await settle();
+    expect(api.getCurrentWeather).toHaveBeenCalledTimes(1);
+    unmount();
+    act(() => vi.advanceTimersByTime(10 * 60 * 1000));
+    expect(api.getCurrentWeather).toHaveBeenCalledTimes(1);
   });
+});
 
-  it("locationが変わると同じ5種を新しい座標で再フェッチする", async () => {
-    mockAllQuiet();
+describe("useWeatherConditions 失敗の扱い", () => {
+  it("取り直しに失敗しても直前の値は残し、失敗の文言を添える。次に取れたら文言は消える", async () => {
+    const { result } = render();
+    await settle();
+    expect(result.current.weather).toEqual({ temperature_c: 20 });
 
-    const { result, rerender } = renderHook(({ location }) => useWeatherConditions(location, true), {
-      initialProps: { location: TOKYO },
-    });
-    await waitFor(() => expect(result.current.weather).not.toBeNull());
+    api.getCurrentWeather.mockRejectedValueOnce(new Error("予報を取得できませんでした"));
+    act(() => vi.advanceTimersByTime(10 * 60 * 1000));
+    await settle();
+    expect(result.current.weatherError).toBe("予報を取得できませんでした");
+    expect(result.current.weather).toEqual({ temperature_c: 20 });
 
-    rerender({ location: OSAKA });
-
-    await waitFor(() => expect(getCurrentWeather).toHaveBeenCalledWith(OSAKA));
-    for (const api of [getAmedasObservation, getWeatherWarnings, getWbgtStatus, getFloodForecasts]) {
-      expect(api).toHaveBeenCalledWith(OSAKA);
-    }
-  });
-
-  describe("古い応答が新しい応答を上書きしない（リクエストID競合ガード）", () => {
-    it("weather: 後発が先に解決した後に先発が解決しても、後発の値のまま", async () => {
-      const first = deferred<WeatherConditions>();
-      const second = deferred<WeatherConditions>();
-      mockAllQuiet();
-      vi.mocked(getCurrentWeather).mockReturnValueOnce(first.promise).mockReturnValueOnce(second.promise);
-
-      const { result, rerender } = renderHook(({ location }) => useWeatherConditions(location, true), {
-        initialProps: { location: TOKYO },
-      });
-      await waitFor(() => expect(getCurrentWeather).toHaveBeenCalledTimes(1));
-      rerender({ location: OSAKA });
-      await waitFor(() => expect(getCurrentWeather).toHaveBeenCalledTimes(2));
-
-      second.resolve(weatherAt(30));
-      await waitFor(() => expect(result.current.weather).toEqual(weatherAt(30)));
-      first.resolve(weatherAt(10));
-      await flushPendingUpdates();
-
-      expect(result.current.weather).toEqual(weatherAt(30));
-      expect(result.current.weatherLoading).toBe(false);
-    });
-
-    it("weather: 先発の失敗が後発の成功をエラーで塗り潰さない", async () => {
-      const first = deferred<WeatherConditions>();
-      const second = deferred<WeatherConditions>();
-      mockAllQuiet();
-      vi.mocked(getCurrentWeather).mockReturnValueOnce(first.promise).mockReturnValueOnce(second.promise);
-
-      const { result, rerender } = renderHook(({ location }) => useWeatherConditions(location, true), {
-        initialProps: { location: TOKYO },
-      });
-      await waitFor(() => expect(getCurrentWeather).toHaveBeenCalledTimes(1));
-      rerender({ location: OSAKA });
-      await waitFor(() => expect(getCurrentWeather).toHaveBeenCalledTimes(2));
-
-      second.resolve(weatherAt(30));
-      await waitFor(() => expect(result.current.weather).toEqual(weatherAt(30)));
-      first.reject(new Error("古い応答の失敗"));
-      await flushPendingUpdates();
-
-      expect(result.current.weatherError).toBeNull();
-      expect(result.current.weather).toEqual(weatherAt(30));
-      expect(result.current.weatherLoading).toBe(false);
-    });
-
-    it("amedas: 後発が先に解決した後に先発が解決しても、後発の値のまま", async () => {
-      const first = deferred<AmedasObservation>();
-      const second = deferred<AmedasObservation>();
-      mockAllQuiet();
-      vi.mocked(getAmedasObservation).mockReturnValueOnce(first.promise).mockReturnValueOnce(second.promise);
-
-      const { result, rerender } = renderHook(({ location }) => useWeatherConditions(location, true), {
-        initialProps: { location: TOKYO },
-      });
-      await waitFor(() => expect(getAmedasObservation).toHaveBeenCalledTimes(1));
-      rerender({ location: OSAKA });
-      await waitFor(() => expect(getAmedasObservation).toHaveBeenCalledTimes(2));
-
-      second.resolve(amedasAt("大阪"));
-      await waitFor(() => expect(result.current.amedas?.station_name).toBe("大阪"));
-      first.resolve(amedasAt("東京"));
-      await flushPendingUpdates();
-
-      expect(result.current.amedas?.station_name).toBe("大阪");
-      expect(result.current.amedasLoading).toBe(false);
-    });
-
-    it("警告バッジ3種: 先発の失敗が後発の結果を消さない", async () => {
-      const warningsFirst = deferred<WeatherWarnings>();
-      const warningsSecond = deferred<WeatherWarnings>();
-      const wbgtFirst = deferred<WbgtStatus>();
-      const wbgtSecond = deferred<WbgtStatus>();
-      const floodFirst = deferred<FloodForecasts>();
-      const floodSecond = deferred<FloodForecasts>();
-      mockAllQuiet();
-      vi.mocked(getWeatherWarnings)
-        .mockReturnValueOnce(warningsFirst.promise)
-        .mockReturnValueOnce(warningsSecond.promise);
-      vi.mocked(getWbgtStatus).mockReturnValueOnce(wbgtFirst.promise).mockReturnValueOnce(wbgtSecond.promise);
-      vi.mocked(getFloodForecasts).mockReturnValueOnce(floodFirst.promise).mockReturnValueOnce(floodSecond.promise);
-
-      const { result, rerender } = renderHook(({ location }) => useWeatherConditions(location, true), {
-        initialProps: { location: TOKYO },
-      });
-      await waitFor(() => expect(getWeatherWarnings).toHaveBeenCalledTimes(1));
-      rerender({ location: OSAKA });
-      await waitFor(() => expect(getWeatherWarnings).toHaveBeenCalledTimes(2));
-
-      warningsSecond.resolve({
-        area_name: "大阪府",
-        report_datetime: null,
-        warnings: [{ code: "03", name: "大雨警報", level: "warning", additions: ["浸水害"] }],
-      });
-      wbgtSecond.resolve({ level: "advisory", label: "警戒", value: 28.4, observed_at: null });
-      floodSecond.resolve({
-        forecasts: [
-          {
-            river_code: "8606050001",
-            river_name: "淀川",
-            level: 3,
-            badge_level: "warning",
-            label: "淀川 氾濫警戒",
-            condition: "氾濫警戒情報",
-            report_datetime: "2026-09-09T09:00:00+09:00",
-          },
-        ],
-      });
-      await waitFor(() => expect(result.current.warningBadgeItems).toHaveLength(3));
-
-      // 先発（東京ぶん）が後から失敗しても、表示中の大阪ぶんは消えない。
-      warningsFirst.reject(new Error("古い応答の失敗"));
-      wbgtFirst.reject(new Error("古い応答の失敗"));
-      floodFirst.reject(new Error("古い応答の失敗"));
-      await flushPendingUpdates();
-
-      expect(result.current.warningBadgeItems).toHaveLength(3);
-      expect(result.current.warningBadgeItems.map((item) => item.source)).toEqual(["jma", "wbgt", "flood"]);
-    });
-  });
-
-  it("警告バッジ3種はいずれも取得失敗を例外にせず「警告なし」として扱う", async () => {
-    mockAllQuiet();
-    vi.mocked(getWeatherWarnings).mockRejectedValue(new Error("network error"));
-    vi.mocked(getWbgtStatus).mockRejectedValue(new Error("network error"));
-    vi.mocked(getFloodForecasts).mockRejectedValue(new Error("network error"));
-
-    const { result } = renderHook(() => useWeatherConditions(TOKYO, true));
-
-    await waitFor(() => expect(result.current.weather).not.toBeNull());
-    expect(result.current.warningBadgeItems).toEqual([]);
+    act(() => vi.advanceTimersByTime(10 * 60 * 1000));
+    await settle();
     expect(result.current.weatherError).toBeNull();
   });
 
-  it("警告バッジの取得に失敗した出所だけをwarningFetchFailuresで返す（失敗を「警告なし」と区別する）", async () => {
-    mockAllQuiet();
-    vi.mocked(getWbgtStatus).mockRejectedValue(new Error("暑さ指数の取得に失敗しました[通信エラー]"));
-
-    const { result } = renderHook(() => useWeatherConditions(TOKYO, true));
-
-    await waitFor(() =>
-      expect(result.current.warningFetchFailures).toEqual([
-        { id: "wbgt", label: "暑さ指数", detail: "暑さ指数の取得に失敗しました[通信エラー]" },
-      ]),
-    );
+  it("Error以外で失敗したら、決まった文言にする", async () => {
+    api.getAmedasObservation.mockRejectedValue("boom");
+    const { result } = render();
+    await settle();
+    expect(result.current.amedasError).toBe("不明なエラーが発生しました");
   });
 
-  it("警告バッジがすべて取得できていれば、warningFetchFailuresは空", async () => {
-    mockAllQuiet();
-
-    const { result } = renderHook(() => useWeatherConditions(TOKYO, true));
-
-    await waitFor(() => expect(result.current.weather).not.toBeNull());
-    expect(result.current.warningFetchFailures).toEqual([]);
+  it("取っている間は読み込み中の印を立て、終われば下ろす", async () => {
+    let resolve: (value: unknown) => void = () => {};
+    api.getCurrentWeather.mockReturnValueOnce(new Promise((r) => (resolve = r)));
+    const { result } = render();
+    await settle();
+    expect(result.current.weatherLoading).toBe(true);
+    await act(async () => resolve({ temperature_c: 20 }));
+    expect(result.current.weatherLoading).toBe(false);
   });
+});
 
-  it("weather・amedasの失敗はそれぞれ独立してエラーになる", async () => {
-    mockAllQuiet();
-    vi.mocked(getCurrentWeather).mockRejectedValue(new Error("予報の取得に失敗"));
-
-    const { result } = renderHook(() => useWeatherConditions(TOKYO, true));
-
-    await waitFor(() => expect(result.current.weatherError).toBe("予報の取得に失敗"));
-    expect(result.current.weather).toBeNull();
-    // 実測（アメダス）は予報の失敗から独立して表示できる。
-    expect(result.current.amedas).toEqual(amedasAt("東京"));
-    expect(result.current.amedasError).toBeNull();
-  });
-
-  it("失敗したまま固定されず、一定間隔の取り直しが成功すればエラー表示が消える", async () => {
-    vi.useFakeTimers({ shouldAdvanceTime: true });
-    try {
-      mockAllQuiet();
-      vi.mocked(getAmedasObservation).mockRejectedValueOnce(new Error("アメダス観測値の取得に失敗しました"));
-
-      const { result } = renderHook(() => useWeatherConditions(TOKYO, true));
-
-      await waitFor(() => expect(result.current.amedasError).toBe("アメダス観測値の取得に失敗しました"));
-
-      // 次の取り直しの番が来ると成功し、エラーは消えて値が入る。
-      await act(async () => {
-        await vi.advanceTimersByTimeAsync(10 * 60 * 1000);
-      });
-
-      await waitFor(() => expect(result.current.amedasError).toBeNull());
-      expect(result.current.amedas).toEqual(amedasAt("東京"));
-    } finally {
-      vi.useRealTimers();
-    }
-  });
-
-  it("WBGTはlevelがあってもvalueがnullならバッジを出さない", async () => {
-    mockAllQuiet();
-    vi.mocked(getWbgtStatus).mockResolvedValue({
-      level: "warning",
-      label: "厳重警戒",
-      value: null,
-      observed_at: null,
+describe("useWeatherConditions 警報のバッジ", () => {
+  it("警報・暑さ指数・氾濫予報を、この順で1つの並びにする", async () => {
+    api.getWeatherWarnings.mockResolvedValue({
+      warnings: [
+        { code: "03", name: "大雨警報", level: "warning", additions: ["土砂災害", "浸水害"] },
+        { code: "10", name: "雷注意報", level: "advisory", additions: [] },
+      ],
     });
+    api.getWbgtStatus.mockResolvedValue({ level: "warning", value: 29.04, label: "厳重警戒" });
+    api.getFloodForecasts.mockResolvedValue({
+      forecasts: [{ river_code: "r1", label: "多摩川氾濫警戒", badge_level: "warning", condition: "氾濫警戒情報" }],
+    });
+    const { result } = render();
+    await settle();
+    expect(result.current.warningBadgeItems).toEqual([
+      {
+        id: "03",
+        label: "大雨警報",
+        level: "warning",
+        source: "jma",
+        title: "付随事項: 土砂災害・浸水害 / 取得できない場合は警報が出ていてもバッジが表示されないことがあります",
+      },
+      {
+        id: "10",
+        label: "雷注意報",
+        level: "advisory",
+        source: "jma",
+        title: "取得できない場合は警報が出ていてもバッジが表示されないことがあります",
+      },
+      {
+        id: "wbgt",
+        label: "暑さ指数厳重警戒",
+        level: "warning",
+        source: "wbgt",
+        title: "暑さ指数 29.0 / 取得できない場合は警戒レベルに関わらずバッジが表示されないことがあります",
+      },
+      {
+        id: "flood-r1",
+        label: "多摩川氾濫警戒",
+        level: "warning",
+        source: "flood",
+        title: "氾濫警戒情報 / 取得できない場合は氾濫予報が出ていてもバッジが表示されないことがあります",
+      },
+    ]);
+  });
 
-    const { result } = renderHook(() => useWeatherConditions(TOKYO, true));
+  it("暑さ指数の段階の呼び名が無ければ、「暑さ指数」とだけ出す", async () => {
+    api.getWbgtStatus.mockResolvedValue({ level: "advisory", value: 25, label: null });
+    const { result } = render();
+    await settle();
+    expect(result.current.warningBadgeItems.map((item) => item.label)).toEqual(["暑さ指数"]);
+  });
 
-    await waitFor(() => expect(result.current.weather).not.toBeNull());
+  it("暑さ指数は、段階と値の両方があるときだけ出す", async () => {
+    api.getWbgtStatus.mockResolvedValue({ level: "warning", value: null, label: "厳重警戒" });
+    const { result } = render();
+    await settle();
+    expect(api.getWbgtStatus).toHaveBeenCalled();
     expect(result.current.warningBadgeItems).toEqual([]);
+  });
+
+  it("取得に失敗した出所はバッジを出さず、失敗として名前と理由を渡す（「警告なし」と読ませない）", async () => {
+    api.getWeatherWarnings.mockResolvedValue({
+      warnings: [{ code: "03", name: "大雨警報", level: "warning", additions: [] }],
+    });
+    const { result } = render();
+    await settle();
+    expect(result.current.warningBadgeItems).toHaveLength(1);
+
+    api.getWeatherWarnings.mockRejectedValue(new Error("警報を取得できませんでした"));
+    api.getFloodForecasts.mockRejectedValue(new Error("氾濫予報を取得できませんでした"));
+    act(() => vi.advanceTimersByTime(10 * 60 * 1000));
+    await settle();
+    expect(result.current.warningBadgeItems).toEqual([]);
+    expect(result.current.warningFetchFailures).toEqual([
+      { id: "jma", label: "警報・注意報", detail: "警報を取得できませんでした" },
+      { id: "flood", label: "河川氾濫予報", detail: "氾濫予報を取得できませんでした" },
+    ]);
   });
 });

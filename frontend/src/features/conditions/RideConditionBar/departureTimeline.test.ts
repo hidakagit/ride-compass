@@ -1,45 +1,55 @@
 // @vitest-environment node
+// 時刻はどれも時点（オフセット付き）で与え、期待値はテストを動かす環境の時刻帯によらない。
 import { describe, expect, it } from "vitest";
+
 import { buildDepartureFrames, buildDepartureTimeline } from "./departureTimeline";
 
-describe("buildDepartureTimeline", () => {
-  it("直近60分は5分刻み、以降は1時間刻みで48時間先まで並ぶ", () => {
-    const anchor = new Date("2026-09-05T09:03:00+09:00");
-    const timeline = buildDepartureTimeline(anchor);
+const jst = (text: string) => new Date(`${text}+09:00`);
+const MINUTE = 60_000;
+const HOUR = 60 * MINUTE;
 
-    expect(timeline[0].toISOString()).toBe(new Date("2026-09-05T09:00:00+09:00").toISOString());
-    expect(timeline[1].toISOString()).toBe(new Date("2026-09-05T09:05:00+09:00").toISOString());
-
-    const fineCount = 60 / 5 + 1;
-    expect(timeline[fineCount - 1].toISOString()).toBe(new Date("2026-09-05T10:00:00+09:00").toISOString());
-    expect(timeline[fineCount].toISOString()).toBe(new Date("2026-09-05T11:00:00+09:00").toISOString());
-
-    const last = timeline[timeline.length - 1];
-    expect(last.getTime()).toBeGreaterThanOrEqual(anchor.getTime() + 47 * 60 * 60_000);
-    expect(last.getTime()).toBeLessThanOrEqual(anchor.getTime() + 48 * 60 * 60_000);
+describe("buildDepartureTimeline（出発時刻を選ぶ目盛り）", () => {
+  it("開いた時刻を5分刻みへ切り下げて始め、1時間以上先の最初の正時までは5分刻み", () => {
+    const times = buildDepartureTimeline(jst("2026-09-24T09:07"));
+    expect(times[0]).toEqual(jst("2026-09-24T09:05"));
+    const fine = times.slice(0, times.findIndex((t) => t.getTime() === jst("2026-09-24T11:00").getTime()) + 1);
+    expect(fine.every((t, i) => i === 0 || t.getTime() - fine[i - 1].getTime() === 5 * MINUTE)).toBe(true);
+    expect(fine.at(-1)).toEqual(jst("2026-09-24T11:00"));
   });
 
-  it("昇順かつ重複なし", () => {
-    const timeline = buildDepartureTimeline(new Date("2026-09-05T23:58:00+09:00"));
-    for (let i = 1; i < timeline.length; i++) {
-      expect(timeline[i].getTime()).toBeGreaterThan(timeline[i - 1].getTime());
-    }
+  it("5分刻みの後は、開いた時刻の48時間後まで1時間刻み", () => {
+    const anchor = jst("2026-09-24T09:07");
+    const times = buildDepartureTimeline(anchor);
+    const cut = times.findIndex((t) => t.getTime() === jst("2026-09-24T11:00").getTime());
+    const hourly = times.slice(cut);
+    expect(hourly.length).toBeGreaterThan(1);
+    expect(hourly.every((t, i) => i === 0 || t.getTime() - hourly[i - 1].getTime() === HOUR)).toBe(true);
+    expect(times.at(-1)).toEqual(jst("2026-09-26T09:00"));
+    expect(times.at(-1)!.getTime()).toBeLessThanOrEqual(anchor.getTime() + 48 * HOUR);
+  });
+
+  it("開いた時刻の1時間後がちょうど正時なら、そこで1時間刻みへ切り替える", () => {
+    const times = buildDepartureTimeline(jst("2026-09-24T09:00"));
+    const i = times.findIndex((t) => t.getTime() === jst("2026-09-24T10:00").getTime());
+    expect(times[i - 1]).toEqual(jst("2026-09-24T09:55"));
+    expect(times[i + 1]).toEqual(jst("2026-09-24T11:00"));
   });
 });
 
-describe("buildDepartureFrames", () => {
-  it("正時はhourMarkを立てて2時間おきにtickLabelを出す、それ以外は分のみ", () => {
-    const timeline = [
-      new Date("2026-09-05T09:00:00+09:00"),
-      new Date("2026-09-05T09:05:00+09:00"),
-      new Date("2026-09-05T10:00:00+09:00"),
-      new Date("2026-09-05T11:00:00+09:00"),
-    ];
-    const frames = buildDepartureFrames(timeline);
+describe("buildDepartureFrames（目盛りの表記）", () => {
+  const frames = buildDepartureFrames([
+    jst("2026-09-24T09:55"),
+    jst("2026-09-24T10:00"),
+    jst("2026-09-24T11:00"),
+    jst("2026-09-25T00:00"),
+  ]);
 
-    expect(frames[0]).toMatchObject({ hourMark: true, tickLabel: "09:00" });
-    expect(frames[1]).toMatchObject({ hourMark: false, tickLabel: "05" });
-    expect(frames[2]).toMatchObject({ hourMark: true, tickLabel: undefined });
-    expect(frames[3]).toMatchObject({ hourMark: true, tickLabel: "11:00" });
+  it("どの目盛りにも、日付つきの日本時間を添える", () => {
+    expect(frames.map((f) => f.label)).toEqual(["9/24 09:55", "9/24 10:00", "9/24 11:00", "9/25 00:00"]);
+  });
+
+  it("正時には印を付け、日本時間の偶数時だけ時刻を書く。正時でない目盛りは分だけ", () => {
+    expect(frames.map((f) => f.hourMark)).toEqual([false, true, true, true]);
+    expect(frames.map((f) => f.tickLabel)).toEqual(["55", "10:00", undefined, "00:00"]);
   });
 });

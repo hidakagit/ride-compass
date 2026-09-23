@@ -1,5 +1,6 @@
 "use client";
 
+import { formatJstHourMinute } from "@/lib/time";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/Tabs/Tabs";
 import Disclosure from "@/components/Disclosure/Disclosure";
@@ -99,7 +100,7 @@ function formatSegmentArrivalTime(iso: string | null): string {
   if (!iso) return "不明";
   const date = new Date(iso);
   if (Number.isNaN(date.getTime())) return "不明";
-  return date.toLocaleTimeString("ja-JP", { hour: "2-digit", minute: "2-digit" });
+  return formatJstHourMinute(date);
 }
 
 // backend/app/api/routers/routes.py: RouteGenerateRequest.distance_km（Field(gt=0,

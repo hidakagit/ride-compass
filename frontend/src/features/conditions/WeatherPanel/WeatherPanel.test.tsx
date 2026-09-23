@@ -1,141 +1,132 @@
 import { render, screen } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
 import type { AmedasObservation } from "@/types/weather";
+
 import WeatherPanel from "./WeatherPanel";
 
-// 改善計画T387フォローアップ（2026-08-29、方針「常設エリアは実測値、今日の見通しは予測値」）:
-// WeatherPanelは予報（WeatherConditions）ではなく最寄りアメダス観測所の実測値
-// （AmedasObservation）を表示する。降水確率→実測降水量、天気アイコン→アメダス実測ベースの
-// 簡易分類（amedasWeatherIcon.ts）、突風はアメダスに
-// フィールド自体が無いため非表示（旧テストのwind_gusts_ms関連は削除）。
-function makeAmedas(overrides: Partial<AmedasObservation>): AmedasObservation {
-  return {
-    station_id: "44132",
-    station_name: "東京",
-    latitude: 35.69,
-    longitude: 139.76,
-    observed_at: "2026-08-14T00:00:00+09:00",
-    temperature_c: 20,
-    apparent_temperature_c: null,
-    wind_speed_ms: 3,
+const NOW = new Date("2026-09-24T12:00:00+09:00");
+
+const observation = (overrides: Partial<AmedasObservation> = {}) =>
+  ({
+    temperature_c: 21.44,
+    apparent_temperature_c: 19.96,
+    wind_speed_ms: 3.25,
     wind_direction_deg: 90,
     wind_direction_label: "東",
-    precipitation_10min_mm: null,
-    sunshine_10min_minutes: null,
-    sunrise: null,
-    sunset: null,
+    precipitation_10min_mm: 0,
+    sunshine_10min_minutes: 10,
+    sunrise: "2026-09-24T05:30:00+09:00",
+    sunset: "2026-09-24T17:40:00+09:00",
     ...overrides,
-  };
-}
+  }) as AmedasObservation;
 
-describe("WeatherPanel", () => {
-  it("loading中は取得中メッセージを表示する", () => {
-    render(<WeatherPanel amedas={null} loading={true} error={null} />);
+beforeEach(() => {
+  vi.useFakeTimers({ toFake: ["Date"] });
+  vi.setSystemTime(NOW);
+});
+
+afterEach(() => {
+  vi.useRealTimers();
+});
+
+describe("WeatherPanel 取得の状態", () => {
+  it("観測値が無く取得中なら、取得中と出す", () => {
+    render(<WeatherPanel amedas={null} loading error={null} />);
     expect(screen.getByText("天候取得中...")).toBeInTheDocument();
   });
 
-  it("観測値が無くerrorがある場合は短い文言だけを表示し、詳細はtitleへ回す", () => {
-    render(<WeatherPanel amedas={null} loading={false} error="アメダス観測値の取得に失敗しました[HTTP 503]" />);
-    const message = screen.getByText("観測値を取得できません");
-    expect(message).toBeInTheDocument();
-    expect(message).toHaveAttribute("title", "アメダス観測値の取得に失敗しました[HTTP 503]");
-    expect(screen.queryByText(/の風/)).not.toBeInTheDocument();
+  it("観測値が無く失敗したら、取得できないとだけ出し、理由は補足に回す", () => {
+    render(<WeatherPanel amedas={null} loading={false} error="混雑しています" />);
+    expect(screen.getByText("観測値を取得できません")).toHaveAttribute("title", "混雑しています");
   });
 
-  it("観測値があればerrorが立っていても値の側を表示する（失敗の文言で値を置き換えない）", () => {
-    render(<WeatherPanel amedas={makeAmedas({})} loading={false} error="取り直しに失敗しました" />);
+  it("観測値があれば、取り直し中・直近の失敗でも観測値を出す", () => {
+    render(<WeatherPanel amedas={observation()} loading error="混雑しています" />);
     expect(screen.queryByText("観測値を取得できません")).not.toBeInTheDocument();
-    expect(screen.queryByText("取り直しに失敗しました")).not.toBeInTheDocument();
+    expect(screen.getByText("気温:").parentElement).toHaveTextContent("21.4℃");
   });
 
-  it("amedasがnullでloading/errorも無い場合は何も描画しない", () => {
+  it("観測値も失敗も無ければ何も出さない", () => {
     const { container } = render(<WeatherPanel amedas={null} loading={false} error={null} />);
     expect(container).toBeEmptyDOMElement();
   });
+});
 
-  it("amedasがある場合は気温・風向・風速を表示する", () => {
-    const amedas = makeAmedas({ temperature_c: 21.34, wind_direction_label: "北西", wind_speed_ms: 4.56 });
-    const { container } = render(<WeatherPanel amedas={amedas} loading={false} error={null} />);
-
-    expect(container.textContent).toMatch(/21\.3℃/);
-    expect(container.textContent).toMatch(/北西の風/);
-    expect(container.textContent).toMatch(/4\.6\s*m\/s/);
+describe("WeatherPanel 観測値", () => {
+  it("気温（体感は補足）・風速と風向・10分間の降水量を小数1桁で出す", () => {
+    render(<WeatherPanel amedas={observation({ precipitation_10min_mm: 1.25 })} loading={false} error={null} />);
+    const temperature = screen.getByText("気温:").parentElement!;
+    expect(temperature).toHaveTextContent("21.4℃");
+    expect(temperature).toHaveAttribute("title", "体感 20.0℃");
+    const wind = screen.getByText("東の風:").parentElement!;
+    expect(wind).toHaveTextContent("3.3m/s");
+    expect(wind).toHaveAttribute("title", "東の風");
+    expect(screen.getByText("降水量:").parentElement).toHaveTextContent("1.3mm");
   });
 
-  it("apparent_temperature_cがある場合は気温チップのtitleに体感温度を併記する", () => {
-    const amedas = makeAmedas({ apparent_temperature_c: 27.1 });
-    const { container } = render(<WeatherPanel amedas={amedas} loading={false} error={null} />);
-
-    expect(container.querySelector('[title*="体感 27.1"]')).toBeInTheDocument();
+  it("風向の呼び名が無くても風速は出し、補足は付けない", () => {
+    render(<WeatherPanel amedas={observation({ wind_direction_label: null })} loading={false} error={null} />);
+    const wind = screen.getByText("m/s").closest("[class]")!.parentElement!.parentElement!;
+    expect(wind).toHaveTextContent("3.3m/s");
+    expect(wind).not.toHaveAttribute("title");
   });
 
-  it("precipitation_10min_mmがある場合は実測降水量を表示する（確率ではなく実測mm）", () => {
-    const amedas = makeAmedas({ precipitation_10min_mm: 1.25 });
-    const { container } = render(<WeatherPanel amedas={amedas} loading={false} error={null} />);
-
-    expect(container.textContent).toMatch(/1\.3\s*mm/);
-    expect(container.querySelector('[title="直近10分間の降水量"]')).toBeInTheDocument();
+  it("風の矢印は、風が吹いていく向き（来る向きの反対）を指す", () => {
+    render(<WeatherPanel amedas={observation({ wind_direction_deg: 90 })} loading={false} error={null} />);
+    const arrow = screen.getByText("東の風:").parentElement!.firstElementChild as HTMLElement;
+    expect(arrow.style.transform).toBe("rotate(270deg)");
   });
 
-  it("precipitation_10min_mmが無い場合は降水チップを表示しない", () => {
-    const amedas = makeAmedas({ precipitation_10min_mm: null });
-    const { container } = render(<WeatherPanel amedas={amedas} loading={false} error={null} />);
-
-    expect(container.querySelector('[title="直近10分間の降水量"]')).not.toBeInTheDocument();
+  it("気温が無ければ「-」、風・降水量は値が無ければ出さない", () => {
+    render(
+      <WeatherPanel
+        amedas={observation({
+          temperature_c: null,
+          apparent_temperature_c: null,
+          wind_speed_ms: null,
+          precipitation_10min_mm: null,
+        })}
+        loading={false}
+        error={null}
+      />,
+    );
+    expect(screen.getByText("気温:").parentElement).toHaveTextContent("-℃");
+    expect(screen.getByText("気温:").parentElement).not.toHaveAttribute("title");
+    expect(screen.queryByText(/の風:/)).not.toBeInTheDocument();
+    expect(screen.queryByText("降水量:")).not.toBeInTheDocument();
   });
 
-  it("wind_speed_ms/wind_direction_degが無い場合は風チップを表示しない（アメダス欠測想定）", () => {
-    const amedas = makeAmedas({ wind_speed_ms: null, wind_direction_deg: null });
-    const { container } = render(<WeatherPanel amedas={amedas} loading={false} error={null} />);
-
-    expect(container.textContent).not.toMatch(/の風/);
+  it("天気は実測から分類し、日の出から日の入りまでを昼とする", () => {
+    const { unmount } = render(<WeatherPanel amedas={observation()} loading={false} error={null} />);
+    expect(screen.getByText(/^天気:/).parentElement!.querySelector("svg")).not.toBeNull();
+    const dayIcon = screen.getByText(/^天気:/).parentElement!.innerHTML;
+    unmount();
+    vi.setSystemTime(new Date("2026-09-24T20:00:00+09:00"));
+    render(<WeatherPanel amedas={observation()} loading={false} error={null} />);
+    expect(screen.getByText(/^天気:/).parentElement!.innerHTML).not.toBe(dayIcon);
   });
 
-  describe("天気アイコンの簡易分類（precipitation_10min_mm・sunshine_10min_minutes・temperature_c由来）", () => {
-    it("降水量>0かつ気温>2℃なら雨アイコン", () => {
-      const amedas = makeAmedas({ precipitation_10min_mm: 0.5, temperature_c: 10 });
-      const { container } = render(<WeatherPanel amedas={amedas} loading={false} error={null} />);
-
-      expect(container.querySelector('[title="雨"]')).toBeInTheDocument();
-    });
-
-    it("降水量>0かつ気温<=2℃なら雪アイコン", () => {
-      const amedas = makeAmedas({ precipitation_10min_mm: 0.5, temperature_c: 0 });
-      const { container } = render(<WeatherPanel amedas={amedas} loading={false} error={null} />);
-
-      expect(container.querySelector('[title="雪"]')).toBeInTheDocument();
-    });
-
-    it("降水量0かつ日照時間>0なら晴れアイコン", () => {
-      const amedas = makeAmedas({ precipitation_10min_mm: 0, sunshine_10min_minutes: 8 });
-      const { container } = render(<WeatherPanel amedas={amedas} loading={false} error={null} />);
-
-      expect(container.querySelector('[title="晴れ"]')).toBeInTheDocument();
-    });
-
-    it("降水量0かつ日照時間0ならくもりアイコン", () => {
-      const amedas = makeAmedas({ precipitation_10min_mm: 0, sunshine_10min_minutes: 0 });
-      const { container } = render(<WeatherPanel amedas={amedas} loading={false} error={null} />);
-
-      expect(container.querySelector('[title="くもり"]')).toBeInTheDocument();
-    });
-
-    it("降水量・日照時間のいずれも無ければ天気アイコンを表示しない", () => {
-      const amedas = makeAmedas({ precipitation_10min_mm: null, sunshine_10min_minutes: null });
-      const { container } = render(<WeatherPanel amedas={amedas} loading={false} error={null} />);
-
-      expect(
-        container.querySelector('[title="晴れ"], [title="くもり"], [title="雨"], [title="雪"]'),
-      ).not.toBeInTheDocument();
-    });
+  it("日の出・日の入りが分からなければ昼として扱う", () => {
+    vi.setSystemTime(new Date("2026-09-24T20:00:00+09:00"));
+    const { unmount } = render(
+      <WeatherPanel amedas={observation({ sunrise: null, sunset: null })} loading={false} error={null} />,
+    );
+    const unknown = screen.getByText(/^天気:/).parentElement!.innerHTML;
+    unmount();
+    vi.setSystemTime(NOW);
+    render(<WeatherPanel amedas={observation()} loading={false} error={null} />);
+    expect(screen.getByText(/^天気:/).parentElement!.innerHTML).toBe(unknown);
   });
 
-  // 日の出/日没は1日1個の値のため「今日」パネル（TodayOutlook）が持つ。バーは走行中に
-  // 何度も見る瞬間値だけに絞る。
-  it("日の出/日没はバーに出さない", () => {
-    const amedas = makeAmedas({ sunrise: "2026-08-28T05:12:00+09:00", sunset: "2026-08-28T18:24:00+09:00" });
-    const { container } = render(<WeatherPanel amedas={amedas} loading={false} error={null} />);
-
-    expect(container.textContent).not.toMatch(/05:12|18:24/);
+  it("天気を決められなければ、天気は出さない", () => {
+    render(
+      <WeatherPanel
+        amedas={observation({ precipitation_10min_mm: null, sunshine_10min_minutes: null })}
+        loading={false}
+        error={null}
+      />,
+    );
+    expect(screen.queryByText(/^天気:/)).not.toBeInTheDocument();
   });
 });

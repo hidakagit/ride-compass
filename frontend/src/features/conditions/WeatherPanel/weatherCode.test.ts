@@ -1,42 +1,29 @@
 // @vitest-environment node
 import { describe, expect, it } from "vitest";
-import { getWeatherCodeDisplay } from "./weatherCode";
 
-// backendが実際に返すWMO天気コード（domain/weather.py: derive_weather_codeのdocstringが
-// 宣言する契約）。frontend側にこの表が無いと、backendが新しいコードを返すようになっても
-// 未知コードのフォールバック（`?? "cloudy"`）で雨や雪まで黙ってくもり扱いになる。
-// 両側に境界値表を持つのはcompass_label（WindBearingSlider.test.ts ⇔ test_geo.py）と同じ形。
-const BACKEND_WEATHER_CODES = [0, 1, 2, 3, 61, 63, 65, 71, 73, 75] as const;
+import { vocabulary } from "@/types/generated/vocabulary";
 
-const EXPECTED_LABEL: Record<number, string> = {
-  0: "晴れ",
-  1: "晴れ",
-  2: "くもり",
-  3: "くもり",
-  61: "雨",
-  63: "雨",
-  65: "雨",
-  71: "雪",
-  73: "雪",
-  75: "雪",
-};
+import { getWeatherCodeDisplay, WEATHER_CATEGORY_ICON } from "./weatherCode";
 
-describe("getWeatherCodeDisplay", () => {
-  it("backendが返す全コードが、フォールバックへ落ちずに意図どおりのラベルになる", () => {
-    for (const code of BACKEND_WEATHER_CODES) {
-      const display = getWeatherCodeDisplay(code);
-      expect(display, `code=${code}`).not.toBeNull();
-      expect(display!.label, `code=${code}`).toBe(EXPECTED_LABEL[code]);
+describe("getWeatherCodeDisplay（予報の天気コード→アイコンと名前）", () => {
+  it("宣言された天気コードは、その分類のアイコンと名前になる", () => {
+    const codes = vocabulary.weatherCategories.flatMap((category) =>
+      category.codes.map((code) => ({ category, code })),
+    );
+    expect(codes).not.toHaveLength(0);
+    for (const { category, code } of codes) {
+      expect(getWeatherCodeDisplay(code)).toEqual({ Icon: WEATHER_CATEGORY_ICON[category.key], label: category.label });
     }
   });
 
-  it("weather_codeが無い（null）ならnullを返す（呼び出し元はチップ自体を出さない）", () => {
-    expect(getWeatherCodeDisplay(null)).toBeNull();
+  it("宣言に無いコードは、既定の分類へ倒す", () => {
+    const declared = new Set(vocabulary.weatherCategories.flatMap((category) => category.codes));
+    const unknown = Math.max(...declared) + 1;
+    const fallback = vocabulary.weatherCategories.find((c) => c.key === vocabulary.weatherCategoryFallback)!;
+    expect(getWeatherCodeDisplay(unknown)?.label).toBe(fallback.label);
   });
 
-  it("未知コードはくもりへ倒す（アイコンを消すより粗く出す方がまし）", () => {
-    // 表に無いコードでもnullにはしない。ただし「雨・雪が黙ってくもりになる」のを避けるため、
-    // 上のテストがbackendの実際の出力を全件押さえている。
-    expect(getWeatherCodeDisplay(9999)?.label).toBe("くもり");
+  it("コードが無ければ何も出さない", () => {
+    expect(getWeatherCodeDisplay(null)).toBeNull();
   });
 });

@@ -5,6 +5,7 @@ import type { PreferenceAxisDef } from "@/lib/evaluationAxes";
 import type { ExperimentSlot } from "@/types/experimentSlot";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/Table/Table";
 import { textVariants } from "@/components/ui/Text/Text";
+import { formatJstHourMinute } from "@/lib/time";
 
 interface ComparisonPanelProps {
   slots: ExperimentSlot[];
@@ -122,7 +123,7 @@ function formatWeights(slot: ExperimentSlot, axisLabels: Record<string, string>)
 function formatGeneratedAt(iso: string): string {
   const date = new Date(iso);
   if (Number.isNaN(date.getTime())) return iso;
-  return date.toLocaleTimeString("ja-JP", { hour: "2-digit", minute: "2-digit" });
+  return formatJstHourMinute(date);
 }
 
 /** 見出しへ載せきれない素性（正確な時刻・その回の重み）。 */
