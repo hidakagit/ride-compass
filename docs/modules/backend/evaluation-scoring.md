@@ -242,7 +242,9 @@ bbox全体ぶんのコストをリクエストにつき1回だけnumpyで合成�
 categorical材料は数値列に載せられないため、対になる別の列で運ぶ:
 `StaticEdgeScoreMatrix.categorical_material_ids`/`categorical_material_values`
 （文字列のobject配列、列を決める述語は`route_facing_categorical_material_ids`）→
-`RouteSegmentDetail.material_categories`（区間ごとの値）→
+区間ごとの値（`road_graph_engine.py: _build_segment_details`が区間の並びと対で返す。
+区間の器`RouteSegmentDetail`は約500mのビンへ畳まれ、分類値はビンの代表値1つにすると
+割合がビンの粒度へ量子化されるため、器には載せない）→
 `merge_material_category_shares`（距離加重で「値ごとの延長割合」へ畳む。分母はその材料の値を
 持つ区間だけで、値の無い区間は分母にも入れない）→`RouteCandidate.material_category_shares`。
 真偽値材料を0/1で運んで平均が割合になるのと同じ考え方を、値が3つ以上ある材料へ広げたもの。

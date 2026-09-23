@@ -4841,13 +4841,6 @@
             "type": "object",
             "title": "Material Values"
           },
-          "material_categories": {
-            "additionalProperties": {
-              "type": "string"
-            },
-            "type": "object",
-            "title": "Material Categories"
-          },
           "axis_raw_values": {
             "additionalProperties": {
               "type": "number"

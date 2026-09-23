@@ -204,42 +204,42 @@ class TestMergeMaterialCategoryShares:
 
     def test_each_value_gets_its_share_of_the_distance(self):
         segments = [
-            _segment(3.0, material_categories={"m": "a"}),
-            _segment(1.0, material_categories={"m": "b"}),
+            (3.0, {"m": "a"}),
+            (1.0, {"m": "b"}),
         ]
 
         assert merge_material_category_shares(segments) == {"m": {"a": 0.75, "b": 0.25}}
 
     def test_segments_without_a_value_are_not_in_the_denominator(self):
         """分母へ入れると、タグの無い道が多いほど全ての割合が小さく出る。"""
-        segments = [_segment(1.0, material_categories={"m": "a"}), _segment(9.0)]
+        segments = [(1.0, {"m": "a"}), (9.0, {})]
 
         assert merge_material_category_shares(segments) == {"m": {"a": 1.0}}
 
     def test_a_segment_with_no_length_is_skipped(self):
-        segments = [_segment(0.0, material_categories={"m": "a"}), _segment(1.0, material_categories={"m": "b"})]
+        segments = [(0.0, {"m": "a"}), (1.0, {"m": "b"})]
 
         assert merge_material_category_shares(segments) == {"m": {"b": 1.0}}
 
     def test_no_values_at_all_give_no_entry(self):
-        assert merge_material_category_shares([_segment(1.0)]) == {}
+        assert merge_material_category_shares([(1.0, {})]) == {}
 
     def test_the_values_are_ordered_by_share_then_by_name(self):
         """フロントは並べ替えを持たない。同率のときの並びも決めておかないと、実行ごとに
         凡例の順序が変わる。
         """
         segments = [
-            _segment(1.0, material_categories={"m": "b"}),
-            _segment(1.0, material_categories={"m": "a"}),
-            _segment(3.0, material_categories={"m": "c"}),
+            (1.0, {"m": "b"}),
+            (1.0, {"m": "a"}),
+            (3.0, {"m": "c"}),
         ]
 
         assert list(merge_material_category_shares(segments)["m"]) == ["c", "a", "b"]
 
     def test_each_material_is_counted_separately(self):
         segments = [
-            _segment(1.0, material_categories={"m": "a", "n": "x"}),
-            _segment(1.0, material_categories={"m": "b"}),
+            (1.0, {"m": "a", "n": "x"}),
+            (1.0, {"m": "b"}),
         ]
 
         shares = merge_material_category_shares(segments)

@@ -622,7 +622,6 @@ async function renderFreshHome(options: RenderFreshHomeOptions = {}) {
                     axis_raw_values: {},
                     axis_contributions: {},
                     material_values: { wind_drag_ratio: 1.964 },
-                    material_categories: {},
                     difficulty: null,
                     geometry: null,
                   },

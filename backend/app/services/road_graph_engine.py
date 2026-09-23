@@ -1817,10 +1817,14 @@ class RoadGraphEngine:
         # distance_km・bearingは同じ物理経路なので順方向の`traced`のものをそのまま使う。
         geometry, edge_point_offsets = _concat_edge_geometries(edges_in_path)
         elevation_stats = _aggregate_elevation(edges_in_path, elevation_attributes)
-        segments = self._build_segment_details(edges_in_path, elevation_attributes, context, start_time, leg_of_edge)
-        # categorical材料の延長割合は**集約より前に**Edge単位のsegmentsから畳む。集約後に
+        segments, segment_categories = self._build_segment_details(
+            edges_in_path, elevation_attributes, context, start_time, leg_of_edge
+        )
+        # categorical材料の延長割合は**集約より前に**Edge単位の値から畳む。集約後に
         # 計算すると、ビンの代表値を1つ選ぶ形になり割合がビンの粒度へ量子化される。
-        material_category_shares = merge_material_category_shares(segments)
+        material_category_shares = merge_material_category_shares(
+            zip((segment.distance_km for segment in segments), segment_categories)
+        )
         # 返すsegmentsは集約する。Edge単位のままだとペイロードとフロントの描画費用が嵩む。
         segments = aggregate_segments_into_bins(segments)
 
@@ -1892,13 +1896,18 @@ class RoadGraphEngine:
         context: _RoadGraphContext,
         start_time: datetime,
         leg_of_edge: list[int],
-    ) -> list[RouteSegmentDetail]:
-        """区間ごとの表示値を組み立てる。軸別スコア・合成difficulty・寄与度・材料値は、
+    ) -> tuple[list[RouteSegmentDetail], list[dict[str, str]]]:
+        """区間ごとの表示値と、区間ごとのcategorical材料の値（材料id→値）を組み立てる。
+        後者は平均できず区間の器（ビンへ畳まれる）に載せられないため、候補全体の延長割合へ
+        畳む`_build_candidate`へ並びのまま渡す。
+
+        軸別スコア・合成difficulty・寄与度・材料値は、
         そのEdgeが探索されたレグ（`leg_of_edge`）の合成済み配列（`context.legs`、
         `context.full_edge_row`で行を引く）からそのまま読み、探索コストと表示を一致させる
         （二重計算を持たない）。到達予想時刻は経路上の累積距離を仮定巡航速度で割って求める。
         """
         segments = []
+        segment_categories: list[dict[str, str]] = []
         cumulative_km = 0.0
         active_material_ids = displayed_material_ids(context.composer._weights, context.composer._lens_axis_id)
 
@@ -1942,13 +1951,11 @@ class RoadGraphEngine:
                     if (value := _material_value_at(leg, material_id, row)) is not None
                 },
             }
-            # categorical材料は数値として平均できないため、区間ごとの値をそのまま持ち、
-            # ルート集約側（merge_material_category_shares）で延長割合へ畳む。
-            material_categories = {
+            segment_categories.append({
                 material_id: str(raw)
                 for material_id, array in leg.categorical_material_arrays.items()
                 if material_id in active_material_ids and (raw := array[row]) is not None
-            }
+            })
 
             elapsed_hours = cumulative_km / self._assumed_speed_kmh
             arrival_time = start_time + timedelta(hours=elapsed_hours)
@@ -1977,13 +1984,12 @@ class RoadGraphEngine:
                     axis_raw_values=axis_raw_values,
                     axis_contributions=axis_contributions,
                     material_values=material_values,
-                    material_categories=material_categories,
                     difficulty=composite_difficulty_value,
                 )
             )
             cumulative_km += distance_km
 
-        return segments
+        return segments, segment_categories
 
 
 def _material_value_at(leg: LegCostArrays, material_id: str, row: int) -> float | None:

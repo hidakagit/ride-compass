@@ -39,7 +39,6 @@ function makeSegment(index: number, coordinates: [number, number][]) {
     estimated_arrival_time: null,
     axis_difficulties: { gradient: 10 + index * 20 },
     material_values: {},
-    material_categories: {},
     axis_raw_values: {},
     axis_contributions: { gradient: 5 },
     difficulty: 20 + index * 30,

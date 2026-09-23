@@ -1,7 +1,7 @@
 import math
 from collections import defaultdict
 
-from typing import Callable
+from typing import Callable, Iterable, Mapping
 
 from pydantic import Field
 
@@ -48,9 +48,6 @@ class RouteSegmentDetail(StrictModel):
     axis_contributions: dict[str, float] = Field(default_factory=dict)
     # 重み>0の公開軸が参照する材料id→値。評価に使っていない軸の材料は出ない。
     material_values: dict[str, float] = Field(default_factory=dict)
-    # categorical材料id→この区間の値（例: highway→"residential"）。材料の内訳としては
-    # `material_values`と同じものだが、値が文字列で平均できないため器を分ける。
-    material_categories: dict[str, str] = Field(default_factory=dict)
     # axis_id→折れ点を通す前の生値。単位が定まる軸だけが持つ。得点（0-100）は目盛りの
     # 引き方に依存する相対評価のため、軸単体で経路を判断するにはこの絶対値が要る。
     axis_raw_values: dict[str, float] = Field(default_factory=dict)
@@ -238,8 +235,11 @@ def merge_material_values(segments: list[RouteSegmentDetail]) -> dict[str, float
     return _merge_axis_value_dict(segments, lambda s: s.material_values, _round_significant)
 
 
-def merge_material_category_shares(segments: list[RouteSegmentDetail]) -> dict[str, dict[str, float]]:
-    """`RouteSegmentDetail.material_categories`を材料idごとに「値→延長割合」へ畳む。
+def merge_material_category_shares(
+    segments: Iterable[tuple[float, Mapping[str, str]]],
+) -> dict[str, dict[str, float]]:
+    """区間ごとのcategorical材料の値（区間の距離km, 材料id→値）を、材料idごとに
+    「値→延長割合」へ畳む。
 
     数値材料の`merge_material_values`（距離加重平均）に対応するcategorical版。真偽値材料を
     0/1で運んで平均が割合になるのと同じ考え方を、値が3つ以上ある材料へ広げたもの。
@@ -247,11 +247,10 @@ def merge_material_category_shares(segments: list[RouteSegmentDetail]) -> dict[s
     （「観測できた範囲でどの値が多いか」を表す）。
     """
     totals: dict[str, dict[str, float]] = defaultdict(lambda: defaultdict(float))
-    for segment in segments:
-        distance_km = segment.distance_km or 0.0
+    for distance_km, categories in segments:
         if distance_km <= 0:
             continue
-        for material_id, value in segment.material_categories.items():
+        for material_id, value in categories.items():
             totals[material_id][value] += distance_km
     shares: dict[str, dict[str, float]] = {}
     for material_id, by_value in totals.items():
@@ -272,24 +271,12 @@ BIN_DICT_FIELD_MERGERS: dict[str, Callable[[list[RouteSegmentDetail]], dict[str,
     "material_values": merge_material_values,
 }
 
-# ビンへ畳むときに引き継がない辞書フィールドと、その理由。
-BIN_DROPPED_DICT_FIELDS: dict[str, str] = {
-    # categorical材料は平均できず、ビンの代表値を1つ選ぶと延長割合が500m単位へ量子化される。
-    # ルート全体の割合（`RouteCandidate.material_category_shares`）はEdge単位のsegmentsから
-    # 畳む必要があるため、`road_graph_engine`がビニングの前に計算する。区間単位の値には
-    # 消費者がいない。
-    "material_categories": "ビン代表値では延長割合が歪むため、ビニング前に候補全体の割合へ畳む",
-}
-
-
 def _undeclared_dict_fields() -> list[str]:
-    """`RouteSegmentDetail`の辞書フィールドのうち、ビンへの畳み方も、引き継がない理由も
-    宣言されていないもの。"""
-    declared = set(BIN_DICT_FIELD_MERGERS) | set(BIN_DROPPED_DICT_FIELDS)
+    """`RouteSegmentDetail`の辞書フィールドのうち、ビンへの畳み方が宣言されていないもの。"""
     return sorted(
         name
         for name, model_field in RouteSegmentDetail.model_fields.items()
-        if getattr(model_field.annotation, "__origin__", None) is dict and name not in declared
+        if getattr(model_field.annotation, "__origin__", None) is dict and name not in BIN_DICT_FIELD_MERGERS
     )
 
 
@@ -298,8 +285,7 @@ if _undeclared_dict_fields():
     # （区間インスペクタから値が消える）。読み込みの時点で止める。
     raise RuntimeError(
         f"RouteSegmentDetail の辞書フィールド {_undeclared_dict_fields()} は、"
-        "BIN_DICT_FIELD_MERGERS（ビンへの畳み方）か "
-        "BIN_DROPPED_DICT_FIELDS（引き継がない理由）のどちらかで宣言すること"
+        "BIN_DICT_FIELD_MERGERS（ビンへの畳み方）で宣言すること"
     )
 
 

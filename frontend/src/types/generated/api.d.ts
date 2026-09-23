@@ -1669,10 +1669,6 @@ export interface components {
             material_values?: {
                 [key: string]: number;
             };
-            /** Material Categories */
-            material_categories?: {
-                [key: string]: string;
-            };
             /** Axis Raw Values */
             axis_raw_values?: {
                 [key: string]: number;

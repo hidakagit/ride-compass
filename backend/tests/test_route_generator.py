@@ -592,8 +592,8 @@ async def test_generate_destination_routes_without_fastest_route_marks_nothing()
 async def test_material_category_shares_survive_the_post_processing_steps():
     """categorical材料の延長割合は、エンジンがビニング前に計算して候補へ載せる。
 
-    戦略層が集約後の`segments`から計算し直すと、区間側の`material_categories`は畳むときに
-    落としてあるため必ず空になる。ここで見るのは「後段が上書きしない」ことそのもの。
+    戦略層が集約後の`segments`から計算し直すことはできない（区間はcategorical材料の値を
+    持たない）。ここで見るのは「後段が上書きしない」ことそのもの。
     """
     engine = DestinationSegmentedFakeEngine(
         via_node_traced=[TracedLoop(bearing=None, distance_km=20.0, data="a", leg_of_edge=[0])],

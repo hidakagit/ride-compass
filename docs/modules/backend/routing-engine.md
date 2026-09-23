@@ -770,8 +770,9 @@ edge_idをまとめて1回・`preview_segment`が1回、いずれも逐次に呼
 - `aggregate_segments_into_bins`（500m区間ビニング）・`merge_axis_difficulties`・
   `merge_axis_contributions`・`merge_axis_raw_values`・`merge_material_values`・
   `merge_material_category_shares`・`_merge_segment_bin`。**`RouteSegmentDetail`の辞書
-  フィールドは、ビンへの畳み方（`BIN_DICT_FIELD_MERGERS`）か引き継がない理由
-  （`BIN_DROPPED_DICT_FIELDS`）のどちらかを必ず宣言する**。どちらにも無いフィールドは
+  フィールドは、ビンへの畳み方（`BIN_DICT_FIELD_MERGERS`）を必ず宣言する**。
+  ビンへ引き継げない値（平均できない分類値等）はこの器に載せず、ビニングの前に
+  候補全体へ畳む（`merge_material_category_shares`）。宣言の無いフィールドは
   `domain/route.py`の読み込み時に落ちる——放っておくと、型でも例外でも現れないまま
   APIからは「そのフィールドだけ空」に見える。母集団は値の型を問わずモデルから引く
   （`dict[str, float]`のように値型で絞ると、`dict[str, str]`のフィールドが静かに外れる）。

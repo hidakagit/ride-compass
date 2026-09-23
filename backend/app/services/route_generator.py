@@ -81,7 +81,7 @@ SEGMENT_AGGREGATES: dict[str, Callable[[list[Any]], Any]] = {
     "axis_contributions": merge_axis_contributions,
     # 数値材料の集約。**categorical材料の延長割合はここで触らない**——`segments`は既に
     # 約500m単位へ畳まれており、代表値からでは正しい割合を作れない（エンジンがビニングの
-    # 前に計算して`RouteCandidate`へ載せている。`domain/route.py: BIN_DROPPED_DICT_FIELDS`）。
+    # 前に計算して`RouteCandidate`へ載せている。`road_graph_engine.py: _build_candidate`）。
     "material_values": merge_material_values,
 }
 

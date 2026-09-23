@@ -2167,18 +2167,19 @@ async def test_a_reversible_loop_keeps_the_easier_direction(search_world, monkey
 
 def test_material_category_shares_are_folded_before_the_segments_are_aggregated(search_world, monkeypatch):
     """集約後に畳むと、割合がビンの粒度へ量子化される。"""
-    detailed = [Bag(difficulty=1.0, distance_km=1.0), Bag(difficulty=2.0, distance_km=1.0)]
+    detailed = [Bag(difficulty=1.0, distance_km=1.0), Bag(difficulty=2.0, distance_km=3.0)]
+    categories = [{"cat_a": "paved"}, {}]
     folded = {}
     monkeypatch.setattr(
         engine, "merge_material_category_shares",
-        lambda segments: folded.setdefault("segments", list(segments)) or {"cat_a": {"paved": 1.0}},
+        lambda pairs: folded.setdefault("pairs", list(pairs)) or {"cat_a": {"paved": 1.0}},
     )
     monkeypatch.setattr(engine, "aggregate_segments_into_bins", lambda segments: ["BIN"])
     monkeypatch.setattr(engine, "candidate_identity", lambda bearing: {"bearing": bearing})
     monkeypatch.setattr(engine, "sum_or_none", lambda values: None)
     monkeypatch.setattr(engine, "min_or_none", lambda values: None)
     monkeypatch.setattr(engine, "max_or_none", lambda values: None)
-    search_world.engine._build_segment_details = lambda *a: detailed
+    search_world.engine._build_segment_details = lambda *a: (detailed, categories)
     search_world.engine._estimate_duration_seconds = lambda *a: 1234.0
     context = elevation_context(search_world, {})
     edges = [
@@ -2190,7 +2191,7 @@ def test_material_category_shares_are_folded_before_the_segments_are_aggregated(
         context, Bag(bearing=90, distance_km=2.0), edges, {}, NOW, [0, 0]
     )
 
-    assert folded["segments"] == detailed
+    assert folded["pairs"] == [(1.0, {"cat_a": "paved"}), (3.0, {})]
     assert candidate.segments == ["BIN"]
     assert candidate.node_ids == ["n0", "n1", "n2"]
     assert candidate.edge_ids == ["e0", "e1"]
@@ -2251,7 +2252,7 @@ def test_segment_details_accumulate_distance_and_arrival_time(segment_world):
     edges = two_segment_edges()
     context = segment_context(segment_world, [segment_leg()], edges)
 
-    segments = segment_world.engine._build_segment_details(edges, {}, context, NOW, [0, 0])
+    segments, _categories = segment_world.engine._build_segment_details(edges, {}, context, NOW, [0, 0])
 
     assert [s.cumulative_distance_km for s in segments] == [0.0, 1.0]
     assert [s.distance_km for s in segments] == [1.0, 2.0]
@@ -2264,18 +2265,17 @@ def test_segment_details_drop_values_the_leg_has_no_data_for(segment_world):
     edges = two_segment_edges()
     context = segment_context(segment_world, [segment_leg()], edges)
 
-    first, second = segment_world.engine._build_segment_details(edges, {}, context, NOW, [0, 0])
+    (first, second), categories = segment_world.engine._build_segment_details(edges, {}, context, NOW, [0, 0])
 
     assert first.axis_difficulties == {AXIS_STATIC: 0.5}
     assert first.axis_raw_values == {AXIS_STATIC: 3.0}
     assert first.difficulty == 12.0
     assert first.material_values == {MAT_STOP_A: 2.0}
-    assert first.material_categories == {"cat_a": "paved"}
     assert second.axis_difficulties == {}
     assert second.axis_raw_values == {}
     assert second.difficulty is None
     assert second.material_values == {}
-    assert second.material_categories == {}
+    assert categories == [{"cat_a": "paved"}, {}]
 
 
 def test_segment_details_take_the_gradient_from_the_elevation_attribute(segment_world):
@@ -2283,7 +2283,7 @@ def test_segment_details_take_the_gradient_from_the_elevation_attribute(segment_
     context = segment_context(segment_world, [segment_leg()], edges)
     attributes = {"e0": FakeElevation("e0", average_grade=3.46)}
 
-    first, second = segment_world.engine._build_segment_details(edges, attributes, context, NOW, [0, 0])
+    (first, second), _categories = segment_world.engine._build_segment_details(edges, attributes, context, NOW, [0, 0])
 
     assert first.material_values["gradient_percent"] == 3.5
     assert "gradient_percent" not in second.material_values
@@ -2296,10 +2296,12 @@ def test_segment_details_omit_materials_the_screen_is_not_showing(monkeypatch, s
     context = segment_context(segment_world, [segment_leg()], edges)
     attributes = {"e0": FakeElevation("e0", average_grade=3.4)}
 
-    first, _second = segment_world.engine._build_segment_details(edges, attributes, context, NOW, [0, 0])
+    (first, _second), categories = segment_world.engine._build_segment_details(
+        edges, attributes, context, NOW, [0, 0]
+    )
 
     assert first.material_values == {}
-    assert first.material_categories == {}
+    assert categories == [{}, {}]
 
 
 def test_segment_details_read_the_leg_the_edge_was_searched_on(segment_world):
@@ -2308,7 +2310,7 @@ def test_segment_details_read_the_leg_the_edge_was_searched_on(segment_world):
     inbound = segment_leg(difficulty_array=np.array([77.0, 88.0]))
     context = segment_context(segment_world, [segment_leg(), inbound], edges)
 
-    first, second = segment_world.engine._build_segment_details(edges, {}, context, NOW, [0, 1])
+    (first, second), _categories = segment_world.engine._build_segment_details(edges, {}, context, NOW, [0, 1])
 
     assert first.difficulty == 12.0
     assert second.difficulty == 88.0
@@ -2319,7 +2321,7 @@ def test_segment_details_have_no_geometry_when_the_edge_is_a_single_point(segmen
     edges = two_segment_edges()
     context = segment_context(segment_world, [segment_leg()], edges)
 
-    first, second = segment_world.engine._build_segment_details(edges, {}, context, NOW, [0, 0])
+    (first, second), _categories = segment_world.engine._build_segment_details(edges, {}, context, NOW, [0, 0])
 
     assert first.geometry == {"type": "LineString", "coordinates": [[139.0, 35.0], [139.1, 35.1]]}
     assert second.geometry is None
