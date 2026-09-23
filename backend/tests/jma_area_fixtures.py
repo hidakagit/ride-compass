@@ -9,6 +9,7 @@
 
 from app.domain.jma_area import municipality_code_to_class20_code
 from app.domain.route import Coordinates
+from tests.bound_fake import bound
 
 MUNICIPALITY_CODE = "13101"
 CLASS20_CODE = municipality_code_to_class20_code(MUNICIPALITY_CODE)
@@ -36,7 +37,7 @@ def patch_area_lookup(
     """サービスが呼ぶ3つの取得関数をフェイクへ差し替える。
 
     文書の取得関数はサービスごとに名前も引数の数も違うため、名前は`documents_attr`で
-    受け取り、フェイク側は位置引数を受け流す。
+    受け取り、フェイク側は位置引数を受け流す（数と並びは本物の署名で確かめる）。
     """
 
     async def fake_muni_cd(client, lat, lon):
@@ -50,4 +51,4 @@ def patch_area_lookup(
 
     monkeypatch.setattr(service_module, "fetch_municipality_code", fake_muni_cd)
     monkeypatch.setattr(service_module, "fetch_area_data", fake_area_data)
-    monkeypatch.setattr(service_module, documents_attr, fake_documents)
+    monkeypatch.setattr(service_module, documents_attr, bound(getattr(service_module, documents_attr), fake_documents))

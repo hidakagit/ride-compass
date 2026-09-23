@@ -77,14 +77,10 @@ export async function scanLayout(
       continue;
     let objectId = resolved.get(node.backendDOMNodeId);
     if (!objectId) {
-      try {
-        const { object } = (await client.send("DOM.resolveNode", { backendNodeId: node.backendDOMNodeId })) as {
-          object: { objectId?: string };
-        };
-        objectId = object.objectId;
-      } catch {
-        continue;
-      }
+      const { object } = (await client.send("DOM.resolveNode", { backendNodeId: node.backendDOMNodeId })) as {
+        object: { objectId?: string };
+      };
+      objectId = object.objectId;
       if (!objectId) continue;
       resolved.set(node.backendDOMNodeId, objectId);
     }

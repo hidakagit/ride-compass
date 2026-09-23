@@ -9,6 +9,7 @@ import pytest
 from app.batch.source_adapters import npa_honhyo
 from app.batch.source_adapters.npa_honhyo import ENCODING
 from scripts import fetch_accident_csv
+from tests.bound_fake import bound
 
 
 class _FakeResponse:
@@ -45,7 +46,7 @@ def stub_download(monkeypatch, tmp_path):
         calls.append(url)
         return _FakeResponse(payload["body"])
 
-    monkeypatch.setattr(fetch_accident_csv.httpx, "stream", fake_stream)
+    monkeypatch.setattr(fetch_accident_csv.httpx, "stream", bound(fetch_accident_csv.httpx.stream, fake_stream))
     monkeypatch.setattr(npa_honhyo, "DATA_DIR", tmp_path)
     return calls, payload
 

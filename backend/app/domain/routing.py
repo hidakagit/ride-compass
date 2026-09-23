@@ -553,7 +553,7 @@ def find_nearest_node_indexed(
     # 経度方向1度あたりの物理距離（cos補正込み）を安全マージンに使う——2方向のうち
     # 常に短い（＝より保守的な）方でなければ、リング内に未探索の近い点が残りうる。
     # 極では`cos`が0へ落ちる。下限を置かないとセル幅が0になり、リング数の見積もりが
-    # ゼロ除算になる（`_bbox_around_point`が経度マージンで置いているのと同じ下限）。
+    # ゼロ除算になる。
     longitude_cos_factor = max(math.cos(math.radians(point.latitude)), 1e-6)
     cell_size_km_lower_bound = index.cell_size_deg * KM_PER_DEGREE_LATITUDE * longitude_cos_factor
 

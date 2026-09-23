@@ -12,7 +12,7 @@ def use_temp_tile_cache(tmp_path, monkeypatch):
     yield
 
 
-@pytest.fixture(autouse=True)
+@pytest.fixture
 def known_derived_data_revision(monkeypatch):
     """世代が読めている状態を既定にする。
 
@@ -41,7 +41,7 @@ class FakeAccidentRepository:
         return self._tile
 
 
-async def test_tile_is_served_from_postgis_and_cached():
+async def test_tile_is_served_from_postgis_and_cached(known_derived_data_revision):
     repository = FakeAccidentRepository(tile=b"fake-accident-tile")
     service = AccidentService(repository=repository)
 
@@ -53,7 +53,7 @@ async def test_tile_is_served_from_postgis_and_cached():
     assert len(repository.mvt_calls) == 1
 
 
-async def test_empty_tile_from_postgis_is_also_cached():
+async def test_empty_tile_from_postgis_is_also_cached(known_derived_data_revision):
     """対象0件のタイルもキャッシュする。「データが無いことを確認済み」だからで、
     取れなかった場合とは区別される。"""
     repository = FakeAccidentRepository(tile=b"")

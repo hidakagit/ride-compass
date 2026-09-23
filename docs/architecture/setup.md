@@ -79,10 +79,11 @@ cd frontend && npx vitest run <対象ファイル> --pool=threads
 cd frontend && npx tsc --noEmit
 ```
 
-PostGIS統合テスト（`road_graph_session`フィクスチャを使うもの）は、テスト専用DB
-（既定`postgresql+asyncpg://ridecompass:ridecompass@localhost:5432/ridecompass_test`、
-`TEST_DATABASE_URL`で上書き可）へ接続できない環境では自動的にスキップされる
-（`backend/tests/conftest.py`）。
+PostGIS統合テスト（`road_graph_session`フィクスチャを使うもの。`postgis`マーカー付き）は、
+テスト専用DB（既定は作業ツリーごとのDB、`TEST_DATABASE_URL`で上書き可。
+[testing.md](../conventions/testing.md)「テストDBは作業ツリーごとに分かれる」）へ接続できないと
+落ちる（スキップにはしない。`backend/tests/conftest.py`）。DBの無い環境では
+`-m "not postgis"`で除外して回す。
 
 ## リポジトリの構成
 

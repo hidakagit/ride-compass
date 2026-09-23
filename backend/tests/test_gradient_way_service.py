@@ -5,19 +5,10 @@ import inspect
 import pytest
 
 from app.domain.gradient import GradientCalculator
-from app.infrastructure import redis_json_cache
 from app.infrastructure.road_graph_repository import RoadGraphRepository
 from app.services.gradient_way_service import GradientWayService
-from tests.fake_redis import FakeRedis
 
 Z, X, Y = 14, 14551, 6447
-
-
-@pytest.fixture(autouse=True)
-def use_fake_redis(monkeypatch):
-    fake = FakeRedis()
-    monkeypatch.setattr(redis_json_cache, "get_redis_client_or_none", lambda: fake)
-    return fake
 
 
 class FakeGradientInputsRepository:

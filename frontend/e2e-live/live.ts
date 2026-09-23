@@ -58,7 +58,7 @@ export function decodeRoadTile(body: Buffer): Record<string, unknown>[] {
 export interface Watch {
   mapErrors: string[];
   pageErrors: string[];
-  /** アプリがbackendから受け取った、backend自前の処理の失敗（429と、502・503・504以外の5xx）。 */
+  /** アプリがbackendから受け取った、backend自前の処理の失敗（429と、502・503・504以外の5xx、本文を解釈できない応答）。 */
   backendFailures: string[];
   /** backendが上流（外部の配信元・キャッシュ）の失敗として返した502・503・504（HTTPの定義で上流の失敗を表す）。合否に入れない。 */
   gatewayFailures: string[];
@@ -78,27 +78,28 @@ async function record(watch: Watch, response: Response): Promise<void> {
   if (isBackend && [502, 503, 504].includes(status)) watch.gatewayFailures.push(`${status} ${url}`);
   else if (isBackend && (status >= 500 || status === 429)) watch.backendFailures.push(`${status} ${url}`);
   if (!response.ok()) return;
+  const road = ROAD_TILE.exec(url);
+  const wayValues = WAY_VALUES.exec(url);
+  const isJmaTile = url.includes("/api/jma-tile/") && url.endsWith(".png");
+  const isGeneration = url.includes("/api/routes/generate/");
+  if (!road && !wayValues && !isJmaTile && !isGeneration) return;
+  let body: Buffer;
   try {
-    const road = ROAD_TILE.exec(url);
-    if (road) {
-      watch.roadTiles.set(`${road[1]}/${road[2]}/${road[3]}`, decodeRoadTile(await response.body()));
-      return;
-    }
-    const wayValues = WAY_VALUES.exec(url);
-    if (wayValues) {
-      watch.wayValues.push({ axisId: wayValues[1], url, values: await response.json() });
-      return;
-    }
-    if (url.includes("/api/jma-tile/") && url.endsWith(".png")) {
-      watch.jmaTiles.push({ url, body: await response.body() });
-      return;
-    }
-    if (url.includes("/api/routes/generate/")) {
-      const job = await response.json();
-      if (job.status === "done" && job.result) watch.generated.push(job.result);
-    }
+    body = await response.body();
   } catch {
     // ページを離れた後に本文を読もうとした応答は数えない（本文が無いことは失敗の記録に入らない）。
+    return;
+  }
+  try {
+    if (road) watch.roadTiles.set(`${road[1]}/${road[2]}/${road[3]}`, decodeRoadTile(body));
+    else if (wayValues) watch.wayValues.push({ axisId: wayValues[1], url, values: JSON.parse(body.toString("utf-8")) });
+    else if (isJmaTile) watch.jmaTiles.push({ url, body });
+    else {
+      const job = JSON.parse(body.toString("utf-8"));
+      if (job.status === "done" && job.result) watch.generated.push(job.result);
+    }
+  } catch (error) {
+    watch.backendFailures.push(`本文を解釈できない ${url}: ${String(error)}`);
   }
 }
 
@@ -274,10 +275,12 @@ export function reportExternal(watch: Watch, before: Record<string, number>, aft
   );
 }
 
-/** 幹の最後に見る、自前の失敗の不在（ページの例外・backendの5xx/429）。 */
+/** 幹の最後に見る、自前の失敗の不在（ページの例外・backendの5xx/429・解釈できない本文）。 */
 export function expectNoOwnFailures(watch: Watch): void {
   expect.soft(watch.pageErrors, "ページの例外").toEqual([]);
-  expect.soft(watch.backendFailures, "backend自前の失敗（429と、502・503・504以外の5xx）").toEqual([]);
+  expect
+    .soft(watch.backendFailures, "backend自前の失敗（429と、502・503・504以外の5xx、本文を解釈できない応答）")
+    .toEqual([]);
 }
 
 /** レンズを選ぶ（ピルを押して選択肢を押す。選ぶとポップオーバーは閉じる）。選択肢の名前には「未使用」等の印が続くので、ラベルの要素で当てる。 */
