@@ -3,7 +3,9 @@
 #
 # 道具を使うたびに全セッション（サブエージェントを含む）で走るため、何もしないときはプロセスを
 # 1つも起こさずに抜ける（シェルの組み込みだけを使う。この開発機ではpythonの起動だけで1秒かかる）。
-# 判定の正本はorchestrate.pyの側で、ここは起こすかどうかの前段にすぎない。
+# 判定の正本はorchestrate.pyの側で、ここは起こすかどうかの前段にすぎない。確認を起こすときは
+# origin/masterの版の道具で動かす（launch.py。本体のチェックアウトの道具は古いことがある）。
+# このファイル自体は本体から読まれるので、origin/masterと違えば確認の結果に「入口が古い」と出る。
 
 IFS= read -r -d '' hook_input
 orch_git="${CLAUDE_PROJECT_DIR:-.}/.git"
@@ -22,7 +24,16 @@ orch_dir="$orch_git/orchestration"
 [ -f "$orch_dir/board.json" ] || exit 0
 
 orch_run() {
-    printf '%s' "$hook_input" | python "${CLAUDE_PROJECT_DIR:-.}/scripts/orchestrate.py" check --if-due
+    # 本体のチェックアウトは古いことがあるので、起動役（launch.py）をorigin/masterから取り出して動かす。
+    # 起動役が道具一式もorigin/masterの版で動かす。取り出せない（origin/masterに無い）ときだけ本体の道具で。
+    orch_launch="$orch_dir/launch.py"
+    if git -C "${CLAUDE_PROJECT_DIR:-.}" show origin/master:scripts/orchestration/launch.py > "$orch_launch.tmp" 2>/dev/null; then
+        mv -f "$orch_launch.tmp" "$orch_launch"
+        printf '%s' "$hook_input" | python "$orch_launch" --project "${CLAUDE_PROJECT_DIR:-.}"
+    else
+        rm -f "$orch_launch.tmp"
+        printf '%s' "$hook_input" | python "${CLAUDE_PROJECT_DIR:-.}/scripts/orchestrate.py" check --if-due
+    fi
     exit 0
 }
 case "$hook_input" in *"orchestrate.py board claim"*) orch_run ;; esac
