@@ -33,6 +33,8 @@ def lock_root() -> str:
     common = subprocess.run(
         ["git", "rev-parse", "--path-format=absolute", "--git-common-dir"],
         capture_output=True, text=True, encoding="utf-8", check=True,
+        # 呼び出し元の作業ディレクトリはgitの外（スクラッチ等）のことがある。
+        cwd=os.path.dirname(os.path.abspath(__file__)),
     ).stdout.strip()
     root = os.path.join(common, "lockrun")
     os.makedirs(root, exist_ok=True)
