@@ -1125,8 +1125,9 @@ def cmd_audit(ctx: Context, args: argparse.Namespace) -> int:
         st = task_state(text)
         row = task in listed
         line = f"{task}: 状態={st or '削除'}  台帳={'あり' if row else 'なし'}"
-        if st == "完了" and row:
-            flag(line + " → 完了なのに台帳に行がある")
+        if st == "完了" and not row:
+            print(f"  ? {line} → 担当が台帳の行を消している（台帳の行は取り込みの後に ledger close が消す。"
+                  "隣の行を消した担当と取り込みで衝突しうる）")
         elif st == "未完了" and not row:
             flag(line + " → 未完了なのに台帳に行が無い")
         elif st not in ("完了", "未完了"):
@@ -1459,7 +1460,10 @@ def cmd_unpushed(ctx: Context, board: dict, at: dt.datetime) -> int:
                             else f"git cherry-pick {i.get('sha')}" for i in items)
         print("\n1回でpushする手順（司令塔の作業ツリーで。枠で包まない。衝突したら中止して担当へ差し戻す）:")
         print(f"  git fetch origin master && git switch -C land origin/master"
-              f" && {picks} && git push origin \"$(git rev-parse HEAD)\":refs/heads/master")
+              f" && {picks} && python scripts/orchestrate.py ledger close"
+              f" && git push origin \"$(git rev-parse HEAD)\":refs/heads/master")
+        print("  （ledger close は、取り込んだ記録で状態が完了のタスクの台帳の行を消すコミットを足す。"
+              "担当は台帳の行を消さない）")
         print("  （masterに入ったかは git から導くので、pushの後に表を書き換える手順は無い）")
     return 0
 
