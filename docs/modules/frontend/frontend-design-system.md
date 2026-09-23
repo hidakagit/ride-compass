@@ -1,16 +1,25 @@
 # フロントエンド デザイン基盤（Tailwind CSS + Radix UI + components/ui/）
 
-改善計画T299で新設。**現状の姿**を記す（decisions的な経緯はT299本文・改善計画参照）。
-
 ## 1. 目的・適用範囲
 
-`frontend/src`はCSS Modules（27ファイル・約2,900行）で個別実装されており、カード状コンテナ・
-チップ/トグル・入力欄で重複が目立っていた。Tailwind CSS（T252で併用導入済み）+ Radix UI
-（Accordion/Popover/RadioGroup/Toggleは既存採用）を束ねる共通UIコンポーネント層
-`frontend/src/components/ui/`を新設し、今後のUI開発の標準とする。
+`frontend/src/components/ui/`は、Tailwind CSS（CSS Modulesと併用）と Radix UI を束ねる
+共通UIコンポーネント層で、新しいUIを作るときの標準。採用済みのRadixのパッケージは
+`frontend/package.json`の`@radix-ui/*`を見る。
 
 **適用範囲は新規UI・機能改修時の段階移行のみ**。既存CSS Modules資産の一括置換は行わない
 （大規模な一括移行は保守リスクが高く、機能改修と無関係な差分が積み上がるため）。
+
+**対象ファイル**
+
+| レイヤー | ファイル |
+|---|---|
+| components/ui（部品） | `Button/Button.tsx`（`variant`・`size`。`type`未指定時は`"button"`に固定し、グローバルの`button[type=submit]`リセットを誤って継承しない）・`Input/Input.tsx`（`type`をパススルー、`invalid`でaria-invalid＋赤枠）・`Card/Card.tsx`（背景だけを持つカード状の箱。枠線は持たない）・`Dialog/Dialog.tsx`（Radix Dialogのラップ。`title`必須でアクセシブル名を型で強制）・`Checkbox/Checkbox.tsx`（Radix Checkboxのラップ） |
+| components/ui（`composes`で取り込む共有スタイル） | `adminPanel.module.css`（管理画面パネルの外枠と一覧表のシェル）・`floatingPopover.module.css`（情報アイコンから開く浮きパネル）・`infoButton.module.css`（見出し脇の(i)トリガー。開いている間はアクセント色）・`roundIconButton.module.css`（地図に重ねる小さい丸アイコンボタン）・`mapCtrlButton.module.css`（MapLibre純正コントロールの続きに見える四角ボタン）・`stepperButton.module.css`（値を1段ずつ増減する枠線ボタン）・`statusDot.module.css`（データ取得状態の表現：点滅／中空／danger）・`unusedBadge.module.css`（使われていないことを示す小さなバッジ）・`axisLegend.module.css`（軸の寄与を示す帯グラフと凡例ドット） |
+| lib | `cn.ts`（`clsx`で条件付きclassNameをまとめ、`tailwind-merge`で同じプロパティを指すクラスの後勝ちを解決する） |
+| app | `globals.css`（デザイントークン・`@theme`登録・リセット・レスポンシブレイアウト・MapLibreのDOM上書き。下記8節） |
+
+部品はいずれも`class-variance-authority`（variant管理）＋`cn()`を使うshadcn/ui方式
+（npmパッケージ導入ではなくコピー&オウン）。
 
 ## 2. 使い分け基準
 
@@ -22,8 +31,8 @@
   ユーザーへ相談する。
 - **新規UIコンポーネントは`components/ui/`のプリミティブ + Tailwindユーティリティクラスを優先する。**
 - **既存CSS Modulesファイルは、その周辺で機能改修が発生したタイミングでのみ移行する。** 見た目を
-  変えない目的だけでのリファクタリングは行わない（T299でも「本当に同一実装」と確認できた
-  重複のみ移行し、一括置換はしていない）。
+  変えない目的だけでのリファクタリングは行わない。移すのは「本当に同一実装」と確かめられた
+  重複だけ。
 - Tailwindのクラスが各画面に無秩序に散らばらないよう、繰り返し使う見た目（ボタン・カード・
   ダイアログ等）は必ず`components/ui/`のコンポーネントへ集約する。個別ファイルで
   独自に`cva`バリアントを増やしたり、同じ見た目のdivへ直接Tailwindクラスを都度書いたり
@@ -34,11 +43,11 @@
 
 | 種別 | 扱い |
 |---|---|
-| spacing | `--space-1〜4`（0.25/0.5/0.75/1rem）はTailwind既定のスペーシングスケールと数値一致（T251調査）。`@theme`への追加登録は不要、`gap-2`等がそのまま既存トークンと揃う |
-| radius | `--radius-sm/md/lg`（6px/10px/16px）を`globals.css`の`@theme`へ追加登録済み。`rounded-sm/md/lg`で使える |
-| shadow | `--shadow-float`を`@theme`へ`--shadow-float`として追加登録済み。`shadow-float`で使える |
-| font-size | `@theme`へは追加していない。`components/ui/`はTailwind既定の`text-*`スケールをそのまま使う（既存の`--font-size-xs`/`sm`/`md`とはわずかにズレるが、両者は別ファイルに閉じており実害なし）。`*.module.css`側は素の`rem`ではなくこの3段のトークンを使う |
-| **color** | **`@theme`へ統合しない。** ダークモードが`globals.css`の`@media (prefers-color-scheme: dark)`内`:root`再定義に依存しており、`@theme`に入れると値が静的に固定されダークモード追従が壊れるため（T252の判断を踏襲）。`components/ui/`のコンポーネントも色は必ず`var(--color-*)`をTailwindの任意値記法（`bg-[var(--color-surface)]`等）で参照する。**Tailwind既定パレット（`bg-white`/`text-gray-900`等）は使用禁止。** |
+| spacing | `--space-*`はTailwind既定のスペーシングスケール（0.25rem単位）と数値が一致する。`@theme`への追加登録は不要で、`gap-2`等がそのまま既存トークンと揃う |
+| radius | `--radius-sm/md/lg`を`globals.css`の`@theme`へ登録済み。`rounded-sm/md/lg`で使える |
+| shadow | `--shadow-float`を`@theme`へ登録済み。`shadow-float`で使える |
+| font-size | `@theme`へは追加していない。`components/ui/`はTailwind既定の`text-*`スケールをそのまま使う（`--font-size-*`とはわずかにズレるが、両者は別ファイルに閉じており実害なし）。`*.module.css`側は素の`rem`ではなく`--font-size-*`トークンを使う |
+| **color** | **`@theme`へ統合しない。** ダークモードが`globals.css`の`@media (prefers-color-scheme: dark)`内`:root`再定義に依存しており、`@theme`に入れると値が静的に固定されダークモード追従が壊れるため。`components/ui/`のコンポーネントも色は必ず`var(--color-*)`をTailwindの任意値記法（`bg-[var(--color-surface)]`等）で参照する。**Tailwind既定パレット（`bg-white`/`text-gray-900`等）は使用禁止。** |
 
 ### 重なり順（z-index）
 
@@ -79,66 +88,32 @@
 未定義であることを隠すだけで、トークン名の綴り違いはそのまま残る（同じトークン名なのに
 参照ごとに実効値が違う、という状態になる）。フォールバックを使ってよいのは、呼び出し側が
 インラインstyleで実行時に注入する変数
-（`--width-swatch-color`・`--bottom-control-row-height`等、定義がCSSに無いのが正しいもの）
+（`--bottom-control-row-height`・`--load-bar-height-ratio`等、定義がCSSに無いのが正しいもの）
 だけ——これらは`.ts`/`.tsx`側がトークン名を文字列リテラルで持つため、チェックは
 それを定義とみなして通す。
 
 `@theme`ブロックの値は`globals.css`の`:root`内`--radius-*`/`--shadow-float`定義と意図的に
 重複させている（`:root`側はunlayeredで既存CSS Modulesが依存しており、動かすことによる
-予期せぬCascade Layers影響を避けるため）。変更時は両方揃えて直すこと。
+予期せぬCascade Layers影響を避けるため）。変更時は両方揃えて直すこと。`@theme`直前の
+コメントには、Lightning CSSのコメント解釈に関する書き方の制約がある（`globals.css`の
+該当コメント参照）。
 
-**既知の落とし穴**: `@theme`ブロック直前のコメント内に、コロン直後にroot要素セレクタ名を
-続けて書くと、Lightning CSS（Tailwind v4のCSSエンジン）がコメント境界を誤認識しビルドエラーに
-なる実機不具合をT299実装時に踏んだ（`globals.css`の該当コメント参照）。この付近のコメントを
-編集する際は該当パターンを避けること。
-
-## 4. `components/ui/`一覧
-
-| コンポーネント | 概要 |
-|---|---|
-| `Button` | `variant`(primary/secondary/ghost)・`size`(sm/md)。`type`未指定時は`"button"`固定（グローバル`button[type=submit]`リセットの誤爆防止） |
-| `Input` | `type`をパススルー（text/number両対応）。`invalid`でaria-invalid＋赤枠 |
-| `Card` | 単一のシンプルなラッパー。`bg-[var(--color-surface-2)] rounded-md p-2`（既存の`legendCard`/`admin.card`と同一実装に合わせた） |
-| `Dialog` | Radix Dialogのラップ（Root/Trigger/Content）。`title`必須propsでアクセシブル名を型で強制 |
-| `Checkbox` | Radix Checkboxのラップ |
-
-CSSのみの共有スタイル（コンポーネントを介さず、各`*.module.css`から`composes`で取り込む）。
-現在あるものは`frontend/src/components/ui/`を見る。主なもの:
-
-| ファイル | 概要 |
-|---|---|
-| `adminPanel.module.css` | 管理画面パネルの外枠（見出し・補足文・操作列）と一覧表のシェル |
-| `floatingPopover.module.css` | 情報アイコンから開く浮きパネル |
-| `infoButton.module.css` | 見出し・ラベル脇の(i)トリガー（開いている間はアクセント色） |
-| `roundIconButton.module.css` | 地図に重ねる小さい丸アイコンボタン |
-| `mapCtrlButton.module.css` | MapLibre純正コントロールの続きに見える29px四方ボタン |
-| `stepperButton.module.css` | 値を1段ずつ増減する枠線ボタン |
-| `statusDot.module.css` | データ取得状態の表現（点滅／中空／danger） |
-| `unusedBadge.module.css` | 使われていないことを示す小さなバッジ |
-| `axisLegend.module.css` | 軸の寄与を示す帯グラフと凡例ドット |
+## 4. 共有スタイルの取り込み方
 
 **別コンポーネントの`*.module.css`を直接importして借りない**。CSS Modulesは存在しない
 クラス名に対して`undefined`を返すため、貸し手側の改名が無スタイルのまま本番へ出る
-（tscもlintも止めない）。共有したい見た目は上表のように`components/ui/`へ出し、双方が
-`composes`で取り込む。
-
-いずれも`class-variance-authority`（variant管理）+ `clsx`/`tailwind-merge`（`frontend/src/lib/cn.ts`の
-`cn()`ヘルパー）を使うshadcn/ui方式（npmパッケージ導入ではなくコピー&オウン）。
+（tscもlintも止めない）。共有したい見た目は`components/ui/`へ出し、双方が`composes`で
+取り込む（5-4節）。
 
 ## 5. 意図的に作らない・統合しないもの
 
-- **Select・Tabs**: 現状利用箇所ゼロのため見送り（YAGNI）。実需が生じたら追加する。
-- **汎用Chip**: `components/Map/LayerChip.tsx`が既に良い設計のRadix Toggleラッパーのため、
-  重複する汎用Chipは作らない。ただし`MapOverlayControls.tsx`のiconChip・`RouteList.tsx`の
-  item選択ボタンとの間で選択状態トグルのロジックが3系統に分かれて重複している実態があり、
-  将来的な統合候補として記録する（`MapOverlayControls.tsx`は563行の中心的な地図UIファイルで
-  直近もT292で大きく触られたため、T299では意図的に対象外とした）。
+- **Select**: 利用箇所が無いため`components/ui/`に作らない。実需が生じたら追加する。
+- **Tabs**: `components/ui/`でラップせず、`@radix-ui/react-tabs`を各画面が直接使う。
+- **汎用Chip**: `components/Map/LayerChip.tsx`（Radix Toggleラッパー）があるため、
+  `components/ui/`に汎用Chipは作らない。
 - **FloatingPanel/BottomSheetとDialogの統合**: 前者2つはドラッグ移動（react-rnd）・高さドラッグ
   （自前pointerイベント）という専用の振る舞いを持ち、Dialogでは表現できないため統合しない。
-  Dialogは今後の新規の単純なモーダル要求（ドラッグ不要な確認ダイアログ等）向けの土台。
-- **colorトークンの`@theme`統合**: Tailwind v4の`@theme inline`機能でCSS変数参照のまま
-  `@theme`へ取り込める可能性があるが、この開発環境ではダークモードの実機検証（ブラウザの
-  compositing）が難しく、T299では検証せず見送った。将来の別タスク候補。
+  Dialogは新規の単純なモーダル要求（ドラッグ不要な確認ダイアログ等）向けの土台。
 
 ## 5-2. レイアウトが動かないための決まり
 
@@ -160,7 +135,7 @@ CSSのみの共有スタイル（コンポーネントを介さず、各`*.modul
 
 ## 5-4. CSS Modulesの`composes`が安全な理由
 
-共有したいスタイルは`components/ui/`へ出して双方が`composes`する（5-2と同じく、同じクラスを
+共有したいスタイルは`components/ui/`へ出して双方が`composes`する（4節と同じく、同じクラスを
 直に共有しない）。**`composes`は取り込み側に新しいローカルクラスを発行したうえでベースの
 規則を合成する**ため、取り込み側が足す状態セレクタ（`[aria-pressed="true"]`等）は自分の
 生成後クラスにしか掛からず、元のクラスや他の取り込み側へ波及しない。同じクラスを直接
@@ -175,9 +150,9 @@ CSSのみの共有スタイル（コンポーネントを介さず、各`*.modul
 
 ## 6. テストパターン
 
-`recipeControls.test.tsx`（`FieldLabel`、Radix Popoverラッパー）を参照実装とする。vitest +
-`@testing-library/react`で`render`/`screen`、`getByRole`/`aria-*`属性ベースのアサーションに
-統一し、Radix内部のDOM構造には依存しない。`components/ui/*/*.test.tsx`も同じ方針。
+`components/Map/recipeControls.test.tsx`（`FieldLabel`、Radix Popoverラッパー）を参照実装と
+する。vitest + `@testing-library/react`で`render`/`screen`、`getByRole`/`aria-*`属性ベースの
+アサーションに統一し、Radix内部のDOM構造には依存しない。`components/ui/*/*.test.tsx`も同じ方針。
 
 `Disclosure`（Radix Accordion）の本文は、閉じている間`hidden`で実際に隠れる。中身の挙動を
 見るテストは、レンダー直後にその節を開いてからクエリする。`aria-expanded`でトリガーを集める
@@ -188,15 +163,10 @@ CSSのみの共有スタイル（コンポーネントを介さず、各`*.modul
 
 地図UI変更と同様、Claude Codeの Browser ペインは MapLibre 同様に `isStyleLoaded` 等が進まない
 既知の制約があり CSS の実描画確認に使えない。Playwright headless chromium を直接使う
-（`npx playwright`、`frontend/node_modules/playwright`が利用可能）。ライト/ダーク確認は
+（`frontend/node_modules/.bin/playwright`。`npx`は付けない）。ライト/ダーク確認は
 `chromium.newPage({ colorScheme: "light" | "dark" })`で行う。
 
-## 8. T275（Tailwind採否）との関係
-
-T275でTailwindの採否（(a)撤去/(b)新規のみ併用/(c)全面移行）を検討していたが、T299で
-**(b)を採用して決着**した。(c)全面移行の是非は引き続き別途判断とする。
-
-## 9. globals.cssのグローバルルールに関する方針（T299フォローアップ、2026-08-25）
+## 8. globals.cssのグローバルルールに関する方針
 
 `globals.css`はデザイントークン・標準的なCSSリセット・レスポンシブレイアウト（インライン
 styleでは`@media`が書けないための必然）・サードパーティ（MapLibre）のDOM上書きなど、
@@ -204,39 +174,32 @@ styleでは`@media`が書けないための必然）・サードパーティ（M
 見た目が必要だから」という理由でのブランケットルールは避け、コンポーネント自身のCSS
 Modulesファイルに持たせる。
 
-### 事例: モバイルの44pxタップ領域ルール（撤去済み）
+### タップ領域（44px）は、主要な導線だけが自前で持つ
 
-以前は`.app-sidebar button, .app-floating-panel button, .app-bottom-sheet button`という
-ブランケットルールが、これらのコンテナ配下の**全`<button>`**へ一律`min-height: 44px`を
-強制していた（T34、意図的にunlayeredで「常に勝つ安全網」として設計）。しかしこの一律適用が、
-`LayerChip`（意図的な36pxピル型）・`RadioGroup.Item`（32px）・`components/ui/Checkbox`
-（1.1rem）等、**既に自前の意図したサイズを持つコンポーネントを詳細度で踏みつぶす**という
-副作用を持っていた（実機Playwrightで発覚）。
+コンテナ配下の全`<button>`へ一律に`min-height`を掛けるようなブランケットルールは置かない。
+一律適用は、既に自前の意図したサイズを持つ部品（`LayerChip`のピル・`components/ui/Checkbox`
+等）を詳細度で潰す。
 
-T299フォローアップでこのブランケットルールを撤去し、**「本当にメインの導線」だけが
-個別に44pxを持つ方針へ転換した**（例: モバイル下部タブの`page.module.css: .tabButton`の
-ように、画面の切り替えそのものを担う操作が`min-height: 44px`を自前で持つ）。それ以外の補助的な
-ボタン（一括操作リンク・情報アイコン・開発者向けボタン等）は、あえて44pxへ揃えず
-自然なサイズのままにしている。
+**「本当にメインの導線」だけが個別に44pxを持つ**（例: モバイル下部タブの
+`page.module.css: .tabButton`のように、画面の切り替えそのものを担う操作）。補助的な
+ボタン（一括操作リンク・情報アイコン・開発者向けボタン等）は44pxへ揃えず自然なサイズのまま
+にする。**新しく「主要な導線」を追加する際は、globals.cssへブランケットルールを足すのでは
+なく、そのコンポーネント自身のCSS Modules（または Tailwindの`min-h-11`等）へ
+`@media (max-width: 640px)`スコープで明示すること**。
 
-このルールに従い、**新しく「主要な導線」を追加する際は、globals.cssへブランケット
-ルールを足すのではなく、そのコンポーネント自身のCSS Modules（または Tailwindの
-`min-h-11`等）へ`@media (max-width: 640px)`スコープで明示すること**。
-
-なお`globals.css`に残っているモバイル向けルール（`.app-bottom-sheet`スコープの
-チェックボックス1.4rem拡大・text/number inputの44px+`font-size:16px`・labelの
-44px）は、いずれも「特定の要素カテゴリ全体に共通する、コンポーネント個別の意図が
-入り込む余地のない」ルールのため、ブランケットの副作用リスクが無く、残している。
-特にinputの`font-size:16px`はiOS Safariの自動ズーム防止というOSレベルの挙動抑止で、
+`globals.css`に置いてよいモバイル向けルールは、特定の要素カテゴリ全体に共通し、
+コンポーネント個別の意図が入り込む余地の無いものだけ（例: `.app-bottom-sheet`スコープの
+チェックボックス拡大・text/number inputの44px＋`font-size:16px`・labelの44px）。
+とくにinputの`font-size:16px`はiOS Safariの自動ズーム防止というOSレベルの挙動抑止で、
 例外を許すと同じ不具合が再発しうるため、グローバルであることに必然性がある。
 
 ### `components/ui/`コンポーネント自身の自己防衛
 
 `components/ui/Checkbox`は`globals.css`側の個別パッチに頼らず、コンポーネント自身が
-`p-0 min-h-0`をTailwindユーティリティで明示している（`globals.css`の`@layer base
-button { padding: 0.5rem 0.9rem }`はTailwindの`utilities`レイヤーより弱いため通常は
+`p-0 min-h-0`をTailwindユーティリティで明示している（`globals.css`の`@layer base`にある
+`button`の既定paddingはTailwindの`utilities`レイヤーより弱いため通常は
 上書きできるが、「上書きできる」ことと「実際に上書きしている」ことは別で、対象の
 コンポーネントが明示的に宣言していない限りベースレイヤーの値がそのまま素通しされる）。
-今後`components/ui/`へ新しいプリミティブを追加する際も、ベースレイヤーの既定値
+`components/ui/`へ新しいプリミティブを追加する際も、ベースレイヤーの既定値
 （`button`のpadding等）と衝突しうるプロパティは、コンポーネント自身が明示的に
 Tailwindユーティリティで上書き宣言すること。

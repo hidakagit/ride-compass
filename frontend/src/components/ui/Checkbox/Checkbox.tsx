@@ -17,7 +17,7 @@ export function Checkbox({ checked, onCheckedChange, disabled, ...props }: Check
       onCheckedChange={(state) => onCheckedChange?.(state === true)}
       disabled={disabled}
       className={cn(
-        // p-0/min-h-0: globals.cssの@layer base button{padding:0.5rem 0.9rem}はTailwindの
+        // p-0/min-h-0: globals.cssの@layer baseにあるbuttonの既定paddingはTailwindの
         // utilitiesレイヤーより弱い(層として負ける)ため通常は無視できるが、padding自体は
         // このコンポーネントが明示的に上書きしていないと「未指定」のまま素通しされる
         // （層の勝敗はプロパティ単位ではなく宣言単位で決まるため）。Checkbox自身がここで

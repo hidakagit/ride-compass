@@ -7,16 +7,13 @@
    取り込まずvar(--color-*)をそのまま個別クラスで参照する運用とする。 */
 @import "tailwindcss";
 
-/* T299: components/ui配下がTailwindユーティリティ(rounded-sm/md/lg, shadow-float)として
-   使えるようにする登録。値は後方のroot要素の定義と必ず一致させること(変更時は両方直す)。
-   root要素側は移動しない(unlayeredで既存のCSS Modulesが依存しており、動かすことで
-   予期せぬCascade Layers影響を受けるリスクを避けるため)。colorトークンはここに含めない
-   (ダークモードがroot要素の再定義に依存しており、themeに入れると値が静的に固定され
-   ダークモード追従が壊れるため。詳細はdocs/frontend-design-system.md参照)。
-   注意: このコメント内で「コロン」の直後に続けてroot要素セレクタ名を書くと、Lightning CSS
-   (Tailwind v4のCSSエンジン)が@theme直前のコメント境界を誤認識しビルドエラーになる
-   実機不具合を踏んだ(2026-08-25)。今後この付近のコメントを編集する際は該当パターンを
-   避けること(セレクタ名を書く場合は「root要素」のように文字だけで表現する)。 */
+/* components/ui配下がTailwindユーティリティ(rounded-sm/md/lg, shadow-float)として
+   使えるようにする登録。値は後方のroot要素の定義と必ず一致させること(変更時は両方直す。
+   root要素側を動かさない理由と、colorトークンをここに含めない理由は
+   docs/modules/frontend/frontend-design-system.md「Design Token」)。
+   このコメント内で「コロン」の直後に続けてroot要素セレクタ名を書くと、Lightning CSS
+   (Tailwind v4のCSSエンジン)が@theme直前のコメント境界を誤認識しビルドエラーになる。
+   セレクタ名を書く場合は「root要素」のように文字だけで表現する。 */
 @theme {
   /* スマホ幅の境目。**この値を持つのはここだけ**——メディアクエリはカスタム
    * プロパティを条件に使えないので、各ファイルは`theme()`で引く（ビルド時に

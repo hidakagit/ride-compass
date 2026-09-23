@@ -7,7 +7,8 @@
 オーバーレイ制御（`MapOverlayControls`）・研究モードの比較表
 （`ComparisonPanel`）を1つのReactツリーへ束ね、状態を集約する。Next.jsのApp Router
 フレームワークファイル（レイアウト・エラーバウンダリ）と、特定の機能モジュールに
-属さない横断的なlib/hooks/UI基盤もここで扱う。
+属さない横断的なlib/hooks/部品もここで扱う（UI基盤の`components/ui/`・`lib/cn.ts`・
+`app/globals.css`は[デザイン基盤](frontend-design-system.md)）。
 
 **対象ファイル**
 
@@ -16,10 +17,9 @@
 | app | `page.tsx`・`layout.tsx`・`error.tsx`・`global-error.tsx` |
 | services | `routeApi.ts`（ルート生成・プレビューAPI） |
 | hooks | `useStoredState.ts`・`useIsMobile.ts`・`useElementHeightCssVar.ts`・`useLocation.ts`・`useDebouncedValue.ts`・`useIsomorphicLayoutEffect.ts` |
-| lib | `apiBaseUrl.ts`・`apiError.ts`・`backendInternalUrl.ts`・`fetchJson.ts`・`apiTimeouts.ts`（APIリクエストのタイムアウト。呼び出しの性質ごとの名前付き定数）・`cn.ts`・`formatDuration.ts`（秒を「1時間42分」の形にする）・`safeStorage.ts`（localStorageの読み書きで例外を外へ出さない薄いラッパ）・`generationRequest.ts`（生成リクエストのpayloadと`conditionsDirty`の比較キーを同じ入力から導出する純関数）・`routeSplice.ts`（候補どうしが別々の道を通る区間を`edge_ids`の集合演算で求め、表示中の側と相手側を対応づけ、選んだ区間を差し替えた経路を組み立て、合成結果を生成候補と同じ並び順の規約［`overall_difficulty`昇順、基準線（所要時間が最小の候補、backendの`is_fastest`）だけは先頭固定］へ差し込む純関数。差し替えた経路の評価はbackendが行うため計算式は持たない。**並び順の規約はbackendにもある**——backendは合成結果を1件しか返さず他候補を知らないため差し込む位置をここで決めるしかなく、片方を変えたらもう片方も変える。区間を割る下限は持たず呼び出し側から受け取る［backendの較正値で、管理画面から変えられる］）・`rideConditions.ts`（走行条件の出発時刻ラベルと想定速度の丸め。速度の上下限はbackendの`routeGenerateConfig`から読む）・`paletteCssVariables.ts`（地図に塗る色と同じ色をUIにも出す箇所へ、配信された値をCSS変数として流す。`layout.tsx`がサーバー側で`:root`へ入れる。CSSが値を持つのはライト/ダークで2値を持つものだけ） |
+| lib | `apiBaseUrl.ts`・`apiError.ts`・`backendInternalUrl.ts`・`fetchJson.ts`・`apiTimeouts.ts`（APIリクエストのタイムアウト。呼び出しの性質ごとの名前付き定数）・`formatDuration.ts`（秒を「1時間42分」の形にする）・`safeStorage.ts`（localStorageの読み書きで例外を外へ出さない薄いラッパ）・`generationRequest.ts`（生成リクエストのpayloadと`conditionsDirty`の比較キーを同じ入力から導出する純関数）・`routeSplice.ts`（候補どうしが別々の道を通る区間を`edge_ids`の集合演算で求め、表示中の側と相手側を対応づけ、選んだ区間を差し替えた経路を組み立て、合成結果を生成候補と同じ並び順の規約［`overall_difficulty`昇順、基準線（所要時間が最小の候補、backendの`is_fastest`）だけは先頭固定］へ差し込む純関数。差し替えた経路の評価はbackendが行うため計算式は持たない。**並び順の規約はbackendにもある**——backendは合成結果を1件しか返さず他候補を知らないため差し込む位置をここで決めるしかなく、片方を変えたらもう片方も変える。区間を割る下限は持たず呼び出し側から受け取る［backendの較正値で、管理画面から変えられる］）・`rideConditions.ts`（走行条件の出発時刻ラベルと想定速度の丸め。速度の上下限はbackendの`routeGenerateConfig`から読む）・`paletteCssVariables.ts`（地図に塗る色と同じ色をUIにも出す箇所へ、配信された値をCSS変数として流す。`layout.tsx`がサーバー側で`:root`へ入れる。CSSが値を持つのはライト/ダークで2値を持つものだけ） |
 | types | `types/route.ts`（`RouteCandidate`等の生成APIレスポンス型） |
 | components/Map | `useLayerDataStatus.ts`（`layerDataStatus` stateの実装） |
-| components/ui | `Button/Button.tsx`・`Card/Card.tsx`・`Checkbox/Checkbox.tsx`・`Dialog/Dialog.tsx`・`Input/Input.tsx`（汎用UI基盤、全モジュール共通）・`adminPanel.module.css`（管理画面パネルが共有する外枠スタイル）・`roundIconButton.module.css`（地図に重ねる小さい丸アイコンボタン）・`stepperButton.module.css`（値を1段ずつ増減する枠線ボタン）・`floatingPopover.module.css`（情報アイコンから開く浮きパネル）・`infoButton.module.css`（見出し脇の(i)トリガー）・`mapCtrlButton.module.css`（MapLibre純正コントロールの続きに見える29px四方ボタン）・`statusDot.module.css`（データ取得状態の3表現）・`axisLegend.module.css`（軸の寄与を示す帯グラフと凡例ドット）・`unusedBadge.module.css`（軸のラベルへ添える状態バッジ）。いずれも各CSS Modulesから`composes`で参照する共有スタイル |
 | components（特定モジュールの責務ではない共通部品） | `ErrorText/ErrorText.tsx`（フォームのエラー文言表示）・`BottomSheet/BottomSheet.tsx`（モバイル下部シート、下記「モバイル/デスクトップのレイアウト分岐」節参照）・`Disclosure/Disclosure.tsx`（折りたたみ表示、[ルート設定・結果パネル](route-settings-and-results.md)等が使う） |
 | components/RideConditionBar | `RideConditionBar.tsx`（地図右上、走行方位アイコン直下の走行条件アイコン列本体。出発時刻・想定速度ともTravelBearingControlと同じ29px四方のアイコンボタンで、タップしたポップオーバー内はドラッグ式タイムライン＋`input[type=datetime-local]`の直接指定[出発時刻]、スライダー＋数値入力[想定速度]）・`departureTimeline.ts`（出発時刻ポップオーバーのドラッグタイムライン用の目盛り生成。気象レイヤーの実フレームには依存しない自己完結した合成タイムライン） |
 | components/DynamicLayerTimeSlider | `DynamicLayerTimeSlider.tsx`（ドラッグ/横スクロールで時刻を選ぶ汎用タイムラインUI。`RideConditionBar`が出発時刻ピッカーとして使う唯一の呼び出し元） |
