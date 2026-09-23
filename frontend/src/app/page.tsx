@@ -183,12 +183,7 @@ export default function Home() {
   const { location, locationSource, locationReady, locating, locateError, handleLocateMe, setManualLocation } =
     useLocation();
 
-  // 出発地点は地図上の赤ピン自体をドラッグ&ドロップして動かす（MapView.tsx: onOriginSet、
-  // マーカーのdragendから呼ばれる）。「現在地に戻す」は既存の「現在地に移動」ボタン
-  // （handleLocateMe）がそのまま兼ねるため、専用のボタン・武装状態は持たない。
-  // 軸カタログ（ramp表示・凡例チップグルーピングを含む）を先頭で取得する。
-  // axisVisibility/secondaryAxisCasingLayerIds（下記）・地図チップ組み立てが参照するため、
-  // それらより前で宣言する必要がある。
+  // 「現在地に戻す」は「現在地に移動」ボタン（handleLocateMe）が兼ねるため、専用のボタンは持たない。
   const axisCatalog = useAxisCatalog();
   // 比較パネル（研究モード）の材料値行（material_values）のラベル・単位表記に使う
   // （ComparisonPanel.tsx参照）。
@@ -1574,7 +1569,6 @@ export default function Home() {
             armedPinRole={pinPlacementArmedRole}
             pointEditingEnabled={pointEditingEnabled}
             onPinPlace={handlePinPlace}
-            onOriginSet={setManualLocation}
             measureRouteFitObscuredPx={measureRouteFitObscuredPx}
           />
 

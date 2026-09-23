@@ -397,10 +397,6 @@ export interface MapViewProps {
   destination: Coordinates | null;
   /** 目的地マーカークリックで呼ばれる（解除）。 */
   onDestinationClear: () => void;
-  /** 出発地点マーカーをドラッグ&ドロップで動かした（dragend）
-   * ときに呼ばれる（page.tsx: useLocation().setManualLocation）。地図アプリで一般的な
-   * 「ピンをつかんで動かす」操作そのものなので説明用のUIを別途持たない。 */
-  onOriginSet: (coordinates: Coordinates) => void;
   /** 地図キャンバスの上に重なるUI（モバイルの下部タブバー・ボトムシート）で覆われている
    * 辺ごとの高さ(px)を、いま測って返す。ルート生成直後のフィットで、覆われた領域の中へルートが
    * 収まってしまうのを防ぐ。MapViewはシート・タブバーの存在を知らないため、レイアウトを持つ
@@ -430,7 +426,6 @@ export default function MapView({
   onWaypointMove,
   destination,
   onDestinationClear,
-  onOriginSet,
   measureRouteFitObscuredPx,
 }: MapViewProps) {
   const mapContainerRef = useRef<HTMLDivElement>(null);
@@ -536,8 +531,6 @@ export default function MapView({
   // 同じ理由で目的地関連のコールバック・armed状態もrefで最新値を読む。
   const onDestinationClearRef = useRef(onDestinationClear);
   // 周回モード中は空白地点クリックでの経由地追加を行わない。
-  // 出発地点マーカーのdragendコールバックもrefで最新値を読む。
-  const onOriginSetRef = useRef(onOriginSet);
   // フィットは「候補一覧が変わったとき」だけに限る（下部のuseEffect参照）ため、覆われて
   // いる高さの変化（シートの開閉・高さドラッグ）でフィットをやり直さないようrefで読む。
   const measureRouteFitObscuredPxRef = useRef(measureRouteFitObscuredPx);
@@ -591,10 +584,6 @@ export default function MapView({
   useEffect(() => {
     onDestinationClearRef.current = onDestinationClear;
   }, [onDestinationClear]);
-
-  useEffect(() => {
-    onOriginSetRef.current = onOriginSet;
-  }, [onOriginSet]);
 
   useEffect(() => {
     measureRouteFitObscuredPxRef.current = measureRouteFitObscuredPx;
@@ -1026,9 +1015,8 @@ export default function MapView({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // 位置が変わったら地図とマーカーを更新。出発地点マーカーはドラッグで
-  // 動かせる（draggable）。dragendでonOriginSet（page.tsx:
-  // setManualLocation）を呼び、位置・locationSourceを更新する。
+  // 位置が変わったら地図とマーカーを更新。出発地点マーカーはドラッグで動かせ（draggable）、
+  // 目的地のマーカーと同じく、動かした先を「地点を置く」受け口（onPinPlace）へ渡す。
   useEffect(() => {
     const map = mapRef.current;
     if (!map) return;
@@ -1057,7 +1045,7 @@ export default function MapView({
         markerRef.current.on("dragend", () => {
           const lngLat = markerRef.current!.getLngLat();
           skipNextFlyToRef.current = true;
-          onOriginSetRef.current({ latitude: lngLat.lat, longitude: lngLat.lng });
+          onPinPlaceRef.current("origin", { latitude: lngLat.lat, longitude: lngLat.lng });
         });
         appliedMarkerSourceRef.current = locationSource;
       }
