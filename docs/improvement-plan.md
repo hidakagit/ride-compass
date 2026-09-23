@@ -199,7 +199,6 @@ CLAUDE.md参照。節見出しはタスクのテーマ分類で、日付は起�
 - [ ] [T281](records/tasks/T281.md) 派生データ鮮度の段階対応（依存DAG文書化→統合エントリポイント→鮮度台帳）〔P2〕規模S→M — 段階1は2026-08-25完了
 - [ ] [T395](records/tasks/T395.md) 令和3年度道路交通センサスデータの活用可否調査〔調査のみ〕
 - [ ] [T396](records/tasks/T396.md) 軸スタジオの評価軸合成ロジックを4テンプレートから2プリミティブ+合成へ再設計 規模M
-- [ ] [T415](records/tasks/T415.md) pytest-xdist並列実行時のDB競合フレークを調査する（T248で発見・未着手のまま放置）
 - [ ] [T520](records/tasks/T520.md) nowcグループ（targetTimes_N3.json）の未使用element調査（liden・slmcs系）
 - [ ] [T533](records/tasks/T533.md) 過去の経緯だけで保持している冗長な分割・マージ漏れの総点検
 - [ ] [T568](records/tasks/T568.md) SearchGraphStatics/選定間引きのメモリ最適化（entry_keys撤去・int32化・ビットマスク化）

@@ -307,21 +307,29 @@ async def road_graph_engine():
         except Exception:  # noqa: BLE001
             pass
     await create_tables(engine)
+    # 前の実行が片付けの前に殺されると（時間切れ・中断）、その行がDBに残る。残った行は
+    # 次の実行で最初に走るテストだけを落とし、そのテストの片付けで消える——単独で回すと
+    # 通る失敗になる。ファイルの最初に消しておけば、どの実行も空から始まる。
+    await _delete_app_rows(engine)
 
     yield engine
     await engine.dispose()
 
 
+async def _delete_app_rows(engine) -> None:
+    async with engine.begin() as conn:
+        for table in reversed(Base.metadata.sorted_tables):
+            await conn.execute(table.delete())
+
+
 @pytest_asyncio.fixture(loop_scope="module")
 async def road_graph_session(road_graph_engine) -> AsyncSession:
-    """テストごとに空の状態から始めて後始末（truncate）するセッションを提供する。"""
+    """空の状態から始まり、テストの後で全行を消すセッションを提供する。"""
     async with AsyncSession(road_graph_engine, expire_on_commit=False) as session:
         yield session
         await session.rollback()
 
-    async with road_graph_engine.begin() as conn:
-        for table in reversed(Base.metadata.sorted_tables):
-            await conn.execute(table.delete())
+    await _delete_app_rows(road_graph_engine)
 
 
 @pytest_asyncio.fixture(loop_scope="module")
