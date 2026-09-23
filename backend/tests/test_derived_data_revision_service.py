@@ -98,7 +98,7 @@ async def test_db_failure_does_not_break_the_caller():
 
     class ExplodingRepository:
         async def get_derived_data_revision(self):
-            raise RuntimeError("DBに触れない")
+            raise ConnectionRefusedError("DBに触れない")
 
     graph_material_cache.set_tile_materials(12, 5, 6, _materials())
 

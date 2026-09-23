@@ -87,17 +87,6 @@ def _lonlat_to_tile_index(lon: float, lat: float, z: int) -> tuple[int, int]:
     return x, y
 
 
-def tile_ancestor(z: int, x: int, y: int, ancestor_zoom: int) -> tuple[int, int]:
-    """XYZタイル(z, x, y)を含む、より粗いズームancestor_zoomの祖先タイルの(x, y)を返す。
-
-    z < ancestor_zoomは前提違反（祖先ではなく子孫になり、一意に定まらない）。
-    """
-    if z < ancestor_zoom:
-        raise ValueError(f"z={z} is coarser than ancestor_zoom={ancestor_zoom}")
-    shift = z - ancestor_zoom
-    return x >> shift, y >> shift
-
-
 def tiles_covering_bbox(bbox: BoundingBox, z: int) -> list[tuple[int, int]]:
     """bboxを覆う最小限のXYZタイル群の(x, y)一覧を返す。
 

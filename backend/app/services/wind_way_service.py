@@ -11,10 +11,11 @@ import logging
 from datetime import datetime
 
 from app.domain.time_zone import JST
-from app.domain.region import ROAD_GRAPH_TILE_ZOOM, BoundingBox, tile_ancestor, tile_bounds_lonlat
+from app.domain.region import BoundingBox, tile_bounds_lonlat
 from app.domain.route import Coordinates
 from app.domain.wind import kmh_to_ms, wind_drag_ratio
 from app.domain.wind_grid import WIND_GRID_DETAIL_SPACING_DEG, nearest_grid_point
+from app.infrastructure.database import DB_UNAVAILABLE_ERRORS
 from app.infrastructure.debug_log import log_external_call
 from app.infrastructure.road_graph_repository import RoadGraphRepository
 from app.services.weather_service import WeatherService
@@ -82,14 +83,11 @@ class WindWayService:
             return {}
         target = at or datetime.now(JST)
         bbox = tile_bounds_lonlat(z, x, y)
-        ancestor_x, ancestor_y = tile_ancestor(z, x, y, ROAD_GRAPH_TILE_ZOOM)
 
         with log_external_call("region:wind-way-penalty", z=z, x=x, y=y) as fields:
             try:
-                feature_keys = await self._repository.get_feature_keys_in_tile(
-                    z, x, y, bbox, (ROAD_GRAPH_TILE_ZOOM, ancestor_x, ancestor_y)
-                )
-            except Exception as exc:  # noqa: BLE001 DB障害は空dictへ倒す（他タイル系と同じ方針）
+                feature_keys = await self._repository.get_feature_keys_in_tile(z, x, y, bbox)
+            except DB_UNAVAILABLE_ERRORS as exc:
                 fields["result"] = "error"
                 fields["warned"] = True
                 logger.warning("風の評価軸配信の鍵取得に失敗 z=%d x=%d y=%d error=%r", z, x, y, exc)

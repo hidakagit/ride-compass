@@ -306,8 +306,9 @@ DB障害時、`repository`未接続時は空タイルを返す。
   （`RoadGraphRepository.get_distinct_material_values`への薄い委譲）。
 - `get_accident_years_covered()`: [軸スタジオ](axis-studio.md)の`GET /api/axis-catalog`が
   地図表示の実行時スケール定数を組み立てるために使う。
-- `repository`未接続・DB例外はいずれも安全側（空タイル/None/0/空リスト）へ倒す一貫した
-  グレースフルデグレード方針。
+- `repository`未接続・DB障害はいずれも安全側（空タイル/None/0/空リスト）へ倒す一貫した
+  グレースフルデグレード方針。DB障害として捕まえるのは`DB_UNAVAILABLE_ERRORS`だけで、
+  実装の誤りは500になる（[横断インフラ](cross-cutting-infrastructure.md)「DB障害として扱う例外」節）。
 
 ### AccidentService（事故タイル）
 

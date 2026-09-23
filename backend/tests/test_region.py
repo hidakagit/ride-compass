@@ -12,7 +12,6 @@ from app.domain.region import (
     ROAD_GRAPH_TILE_ZOOM,
     BoundingBox,
     parse_bbox,
-    tile_ancestor,
     tile_bounds_lonlat,
     tiles_covering_bbox,
 )
@@ -113,32 +112,6 @@ class TestTileBoundsLonlat:
 
         assert bounds.min_latitude < bounds.max_latitude
         assert bounds.min_longitude < bounds.max_longitude
-
-
-class TestTileAncestor:
-
-    def test_one_zoom_up_halves_the_indices(self):
-        assert tile_ancestor(12, 3637, 1612, 11) == (1818, 806)
-
-    def test_the_same_zoom_is_the_tile_itself(self):
-        assert tile_ancestor(12, 3637, 1612, 12) == (3637, 1612)
-
-    def test_a_finer_ancestor_is_rejected(self):
-        """黙って1つ選ばず、前提違反として落とす。"""
-        with pytest.raises(ValueError):
-            tile_ancestor(10, 5, 5, 12)
-
-    def test_the_ancestor_contains_the_tile(self):
-        z, x, y = TOKYO_TILE
-        ax, ay = tile_ancestor(z, x, y, z - 3)
-
-        tile = tile_bounds_lonlat(z, x, y)
-        ancestor = tile_bounds_lonlat(z - 3, ax, ay)
-
-        assert ancestor.min_latitude <= tile.min_latitude
-        assert ancestor.max_latitude >= tile.max_latitude
-        assert ancestor.min_longitude <= tile.min_longitude
-        assert ancestor.max_longitude >= tile.max_longitude
 
 
 class TestTilesCoveringBbox:

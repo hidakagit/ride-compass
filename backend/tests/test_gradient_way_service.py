@@ -1,9 +1,12 @@
 """鍵→勾配配信層（`services/gradient_way_service.py`）のオーケストレーション。"""
 
+import inspect
+
 import pytest
 
 from app.domain.gradient import GradientCalculator
 from app.infrastructure import redis_json_cache
+from app.infrastructure.road_graph_repository import RoadGraphRepository
 from app.services.gradient_way_service import GradientWayService
 from tests.fake_redis import FakeRedis
 
@@ -18,15 +21,20 @@ def use_fake_redis(monkeypatch):
 
 
 class FakeGradientInputsRepository:
-    """RoadGraphRepositoryのうちget_feature_gradient_inputs_in_tileだけを実装したフェイク。"""
+    """RoadGraphRepositoryのうちget_feature_gradient_inputs_in_tileだけを実装したフェイク。
+
+    引数は本物の定義へ当てて照合する。フェイクが自前の引数を持つと、本物の引数が変わっても
+    呼び出し側の食い違いを通してしまう。
+    """
 
     def __init__(self, inputs: dict[int, tuple[float, float]] | None, error: Exception | None = None):
         self._inputs = inputs
         self._error = error
-        self.calls: list[tuple[int, int, int, tuple[int, int, int]]] = []
+        self.calls: list[tuple] = []
 
-    async def get_feature_gradient_inputs_in_tile(self, z, x, y, bbox, coverage_tile):
-        self.calls.append((z, x, y, coverage_tile))
+    async def get_feature_gradient_inputs_in_tile(self, *args, **kwargs):
+        inspect.signature(RoadGraphRepository.get_feature_gradient_inputs_in_tile).bind(self, *args, **kwargs)
+        self.calls.append(args)
         if self._error is not None:
             raise self._error
         return self._inputs
@@ -128,12 +136,21 @@ async def test_different_bearing_bucket_recomputes():
 
 
 async def test_repository_error_returns_empty_dict():
-    repository = FakeGradientInputsRepository(inputs=None, error=RuntimeError("db down"))
+    repository = FakeGradientInputsRepository(inputs=None, error=ConnectionRefusedError("db down"))
     service = GradientWayService(repository=repository)
 
     result = await service.get_way_values(Z, X, Y, None, 0.0)
 
     assert result == {}
+
+
+async def test_an_implementation_error_is_not_turned_into_an_empty_result():
+    """DB障害でない例外まで空へ倒すと、利用者には「データなし」に見えて誰も気づかない。"""
+    repository = FakeGradientInputsRepository(inputs=None, error=TypeError("wrong arguments"))
+    service = GradientWayService(repository=repository)
+
+    with pytest.raises(TypeError):
+        await service.get_way_values(Z, X, Y, None, 0.0)
 
 
 async def test_at_argument_is_ignored():

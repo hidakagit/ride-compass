@@ -160,6 +160,22 @@ road_graph一本のため、DATABASE_URLへの実接続なしで動く構成は�
 接続プールも分離しているため、ルート生成とタイル配信は接続を取り合わない（プール合計は
 最大30接続、本番PostgreSQLの`max_connections=100`に余裕）。
 
+### DB障害として扱う例外（`database.py: DB_UNAVAILABLE_ERRORS`）
+
+タイル配信・区間インスペクタ・動的way値等、DBの読み取りに失敗したら空（空タイル・空dict・
+None）へ倒す箇所は、`except Exception`ではなくこのタプルだけを捕まえる。実装の誤り
+（`TypeError`・`AttributeError`等）は捕まえず、500として表へ出す——空へ倒すと応答は正常の
+形のまま「データなし」に見え、誰も気づかない。
+
+中身はSQLAlchemy 2.0＋asyncpgで例外がどう届くかから決まっている（ソースで確認）:
+
+- 実行中の失敗はasyncpgの例外が`DBAPIError`へ訳される。プールの待ち切れは
+  `sqlalchemy.exc.TimeoutError`。どちらも`SQLAlchemyError`。
+- `command_timeout`の`TimeoutError`は訳されずに届く（Python 3.11以降は`OSError`の派生）。
+  接続の拒否・切断も`OSError`。
+- 接続を張る段階ではSQLAlchemyがasyncpgの`connect`を直接呼ぶため、接続数の上限・認証等の
+  失敗は`asyncpg.PostgresError`・`asyncpg.InterfaceError`のまま届く（`DBAPIError`にならない）。
+
 ## レート制限の集約（`api/dependencies.py: enforce_rate_limit`）
 
 `check_rate_limit`→超過時の記録→`HTTPException(429)`という一連の処理を
