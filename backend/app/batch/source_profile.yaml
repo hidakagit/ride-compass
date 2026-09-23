@@ -10,7 +10,7 @@ target:
   # JIS X 0401（国の標準）で書く。ソースごとの採番への変換はアダプタが持つ。
   # 全国へ広げるときは all にする。
   prefectures: ["08", "09", "10", "11", "12", "13", "14"]
-  # ラスタ・タイル系が覆う範囲（min_lat, min_lon, max_lat, max_lon）。
+  # 全ソースが取り込む範囲（min_lat, min_lon, max_lat, max_lon）。
   bbox: [34.9, 138.4, 37.2, 140.9]
 
 sources:
@@ -20,23 +20,24 @@ sources:
   - name: osm_way
     adapter: osm_pbf_way
     rows:
-      # 地図表示とルート探索の少なくとも一方で使う種別。
-      highway:
-        - trunk
-        - trunk_link
-        - primary
-        - primary_link
-        - secondary
-        - secondary_link
-        - tertiary
-        - tertiary_link
-        - unclassified
-        - residential
-        - living_street
-        - cycleway
-        - track
-      # 上の種別に入らないが、自転車が実際に走る道（河川敷のサイクリングロード等）。
+      # どれか1つの条件に合うwayを採る。1つの条件の中はAND。
       any_of:
+        # 地図表示とルート探索の少なくとも一方で使う種別。
+        - highway:
+            - trunk
+            - trunk_link
+            - primary
+            - primary_link
+            - secondary
+            - secondary_link
+            - tertiary
+            - tertiary_link
+            - unclassified
+            - residential
+            - living_street
+            - cycleway
+            - track
+        # 上の種別に入らないが、自転車が実際に走る道（河川敷のサイクリングロード等）。
         - highway: [footway, path]
           bicycle: ["yes", designated, permissive]
 
@@ -48,12 +49,11 @@ sources:
       referenced_by: osm_way
 
   # --- 年次の統計 -----------------------------------------------------------
-  # 絞りはbboxで行う。行政区画で絞ると採番の異なるコード表（警察庁独自 vs JIS）の
+  # 絞りは target.bbox で行う。行政区画で絞ると採番の異なるコード表（警察庁独自 vs JIS）の
   # 変換が要るが、母集団の指定としてはbboxで足りる。
   - name: accident
     adapter: npa_honhyo
     rows:
-      bbox: from_target
       years: [2024]
 
   # --- ラスタ ---------------------------------------------------------------
@@ -64,7 +64,6 @@ sources:
     grid:
       product: dem5a       # 5mメッシュ
       zoom: 15             # 3.86 m/画素。元データとほぼ同じ細かさ
-      bbox: from_target
 
   - name: lulc
     adapter: io_lulc_tile
@@ -72,5 +71,4 @@ sources:
       product: io-lulc-annual-v02
       year: 2024
       zoom: 14             # 7.73 m/画素。元データは10m画素
-      bbox: from_target
 

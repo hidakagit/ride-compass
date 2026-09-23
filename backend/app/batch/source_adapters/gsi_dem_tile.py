@@ -16,6 +16,7 @@
 import logging
 import struct
 from collections.abc import AsyncIterator
+from dataclasses import dataclass
 from typing import Any
 
 from app.batch.dem_tile_store import PRODUCT_PRIORITY, TILE_ROOT, read_tile, stored_product
@@ -59,12 +60,21 @@ def _pack(text: str) -> tuple[bytes, int]:
     return struct.pack(f"<{len(values)}i", *values), missing
 
 
-@register_adapter("gsi_dem_tile")
+@dataclass(frozen=True)
+class DemGrid:
+    """`gsi_dem_tile`の`grid`。"""
+
+    zoom: int
+    #: 配信元の製品名（`dem5a`等）。
+    product: str = PRODUCT_PRIORITY[0]
+
+
+@register_adapter("gsi_dem_tile", grid=DemGrid)
 async def read_gsi_dem_tiles(spec: SourceSpec, profile: SourceProfile,
                              origin: dict[str, Any]) -> AsyncIterator[SourceRecord]:
     target = profile.target
-    product = str(spec.grid.get("product", PRODUCT_PRIORITY[0]))
-    zoom = int(spec.grid["zoom"])
+    product = str(spec.grid.product)
+    zoom = int(spec.grid.zoom)
     # タイルは`fetch_dem_tiles.py`が先に写している。取込が読むのはその置き場。
     origin.update({"tile_root": str(TILE_ROOT), "product": product, "zoom": zoom})
     min_lat, min_lon, max_lat, max_lon = target.bbox

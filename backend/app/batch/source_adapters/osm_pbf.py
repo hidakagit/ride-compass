@@ -18,6 +18,7 @@ import queue
 import struct
 import threading
 from collections.abc import AsyncIterator
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -39,6 +40,26 @@ _QUEUE_DEPTH = 4
 _SENTINEL = object()
 
 
+@dataclass(frozen=True)
+class OsmWayRows:
+    """`osm_pbf_way`の`rows`。"""
+
+    #: 採るwayの条件。どれか1つに合えば採る。1つの条件はタグ名→許容値（`*`は値を問わない）のAND。
+    any_of: list[dict[str, Any]] = field(default_factory=list)
+    #: 読むPBF（`data/pbf/`の下）。省略すると関東の抽出。
+    file: str | None = None
+
+
+@dataclass(frozen=True)
+class OsmNodeRows:
+    """`osm_pbf_node`の`rows`。"""
+
+    #: 頂点を採るwayのソース。そのソースの条件とPBFを受け継ぐ。省略すると全wayの頂点。
+    referenced_by: str | None = None
+    #: 読むPBF。`referenced_by`があればそちらのものを使う。
+    file: str | None = None
+
+
 def _matches(tags: dict[str, str], rule: dict[str, Any]) -> bool:
     """1つのルール（タグ名→許容値）に対するANDマッチ。"""
     for key, allowed in rule.items():
@@ -54,18 +75,11 @@ def _matches(tags: dict[str, str], rule: dict[str, Any]) -> bool:
     return True
 
 
-def _way_matcher(rows: dict[str, Any]):
-    """`rows`から、wayを採るかどうかの判定を組み立てる。
-
-    `any_of`は「上の条件に入らないが拾いたいもの」を並べる枝で、どれか1つに合えば採る。
-    """
-    primary = {k: v for k, v in rows.items() if k not in ("any_of", "referenced_by", "file")}
-    alternatives = list(rows.get("any_of") or [])
+def _way_matcher(rows: OsmWayRows):
+    """`rows`から、wayを採るかどうかの判定を組み立てる。"""
 
     def matches(tags: dict[str, str]) -> bool:
-        if primary and _matches(tags, primary):
-            return True
-        return any(_matches(tags, alt) for alt in alternatives)
+        return any(_matches(tags, rule) for rule in rows.any_of)
 
     return matches
 
@@ -75,7 +89,7 @@ def _pbf_path(spec: SourceSpec) -> Path:
 
     非ASCIIを含む絶対パスを渡すとpyosmiumがファイルを開けない。
     """
-    path = DATA_DIR / str(spec.rows.get("file") or "kanto-latest.osm.pbf")
+    path = DATA_DIR / (spec.rows.file or "kanto-latest.osm.pbf")
     if not path.exists():
         raise FileNotFoundError(f"PBFがありません: {path}")
     try:
@@ -154,7 +168,7 @@ def _pbf_origin(path: Path) -> dict[str, Any]:
     return origin
 
 
-@register_adapter("osm_pbf_way")
+@register_adapter("osm_pbf_way", rows=OsmWayRows)
 async def read_osm_ways(spec: SourceSpec, profile: SourceProfile,
                         origin: dict[str, Any]) -> AsyncIterator[SourceRecord]:
     from app.batch.pbf_source import stream_ways
@@ -198,7 +212,7 @@ async def read_osm_ways(spec: SourceSpec, profile: SourceProfile,
         logger.warning("参照ノードの座標が欠けて取り込まなかったway: %d件", incomplete)
 
 
-@register_adapter("osm_pbf_node")
+@register_adapter("osm_pbf_node", rows=OsmNodeRows)
 async def read_osm_nodes(spec: SourceSpec, profile: SourceProfile,
                          origin: dict[str, Any]) -> AsyncIterator[SourceRecord]:
     """採ったwayが参照する頂点を、タグ込みで返す。
@@ -209,7 +223,7 @@ async def read_osm_nodes(spec: SourceSpec, profile: SourceProfile,
     from app.batch.pbf_source import stream_ways
 
     bbox = profile.target.bbox
-    referenced_by = spec.rows.get("referenced_by")
+    referenced_by = spec.rows.referenced_by
     # 参照先からは**どのwayを採るかと、どのファイルから採るか**の両方を受け継ぐ。
     # 片方だけ受け継ぐと、既定以外のPBFを指したプロファイルで頂点だけ別のファイルを読む。
     source_spec = profile.source(referenced_by) if referenced_by else spec

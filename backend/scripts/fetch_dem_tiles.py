@@ -118,9 +118,8 @@ async def _fetch_missing(root: Path, zoom: int, product: str,
 async def run(profile_path: Path | None, attempts: int) -> int:
     profile = load_source_profile(profile_path)
     spec = profile.source("dem")
-    grid = spec.grid or {}
-    zoom = int(grid["zoom"])
-    product = str(grid["product"])
+    zoom = int(spec.grid.zoom)
+    product = str(spec.grid.product)
     low_lat, low_lon, high_lat, high_lon = profile.target.bbox
     bbox = BoundingBox(min_latitude=low_lat, min_longitude=low_lon,
                        max_latitude=high_lat, max_longitude=high_lon)

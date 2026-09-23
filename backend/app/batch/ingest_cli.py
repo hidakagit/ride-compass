@@ -17,7 +17,6 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 import asyncpg  # noqa: E402
 
-from app.batch import source_adapters  # noqa: F401,E402  アダプタの登録が目的
 from app.batch._common import asyncpg_dsn, with_derived_data_revision_bump  # noqa: E402
 from app.batch.ingest import ingest_source  # noqa: E402
 from app.batch.source_profile import SourceProfile, load_source_profile  # noqa: E402
