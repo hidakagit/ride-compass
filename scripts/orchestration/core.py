@@ -25,7 +25,7 @@
     python scripts/orchestrate.py board run [list]            # 回の目的と母集団の各タスクの状態（導出）
     python scripts/orchestrate.py board todo push|pop|list    # 司令塔のキュー（中断・待ちの作業）
     python scripts/orchestrate.py board dispatch push <Txxx>|pop|list  # 振り出し待ちのキュー
-    python scripts/orchestrate.py board unpushed              # 監査済み・未pushのコミット（gitから導く）
+    python scripts/orchestrate.py board unpushed              # 監査済み・未pushのコミット（gitから導く）と取り込みの手順
 
 ## 表に持つもの、正本から導くもの
 
@@ -35,8 +35,8 @@
 - タスクの題名と規模札は台帳（origin/masterの`docs/improvement-plan.md`の行）。見込み超過の予算は、
   担当の現在のタスクの規模札（「S〜M」のような幅は大きい側）について、タスク記録の所要の行
   （`所要（並行実行）:`）を集めた80パーセンタイルから、読むたびに計算する（`effort_budgets`）。
-- 監査済みのコミットがmasterへ入ったかは、監査の記録（`audit_log`の`通す`）と`git cherry`
-  （cherry-pickでshaが変わっても、変更の中身が同じなら入ったとみなす）。前回のpushの時刻は
+- 監査済みのコミットがmasterへ入ったかは、監査の記録（`audit_log`の`通す`）と、そのコミットの件名の
+  先頭のタスク番号から始まる件名のコミットが監査の後にorigin/masterへ入ったか。前回のpushの時刻は
   origin/masterの先端のコミットの時刻。
 - 監査待ちかは、監査の記録（報告の受領`reported`が最後の`audit_done`より新しい）。
 - 回（`run`）が持つのは名前・目的・母集団（タスク番号と派生元）・打ち切りの引き継ぎ（`handover`）・
@@ -100,9 +100,13 @@ CONVENTION_DOC = "docs/conventions/orchestration.md"
 HEAVY_TARGET_PREFIX = "- **対象**:"
 HEAVY_LOCK = "heavy"
 TASKS_DIR = "docs/records/tasks"
-PLAN_ENTRY_RE = re.compile(r"^- \[[ x]\] \[(T\d+[a-z0-9-]*)\]\(")
+#: 台帳の1行（タスク番号・記録へのリンク先・題名以降）。リンク先は台帳からの相対パスで、番号ではなく
+#: リンク先で記録を引く（`T317`の2件目は`T317-2.md`を指す）。台帳の行を読み書きする道具はすべてこれを使う。
+LEDGER_ROW_RE = re.compile(r"^- \[ \] \[(T\d+[a-z0-9-]*)\]\(([^)]+)\)\.?\s*(.*)$")
 TASK_ID_RE = re.compile(r"T\d+[a-z0-9-]*")
 TASK_DOC_RE = re.compile(r"^docs/records/tasks/(T\d+[a-z0-9-]*)\.md$")
+#: コミットの件名の先頭のタスク番号の並び（CLAUDE.md「1タスク=1コミット」の件名）。
+SUBJECT_TASKS_RE = re.compile(r"^(T\d+[a-z0-9-]*(?:・T\d+[a-z0-9-]*)*)[:： ]")
 
 #: 状態の表の`state`の語彙。司令塔の指示（振り出した・止めた）だけで、監査の段階は監査の記録から導く。
 ACTIVE_STATES = ("稼働", "停止指示")
@@ -166,8 +170,6 @@ EFFORT_PREFIX = "所要（並行実行）"
 EFFORT_REAL_RE = re.compile(r"完了[^（(]*[（(]約?(\d+)分")
 EFFORT_FRAME_RE = re.compile(r"枠待ち約?(\d+)分")
 EFFORT_CI_RE = re.compile(r"CI待ち約?(\d+)分")
-#: 監査が書き足す、完了のコミットのCI（scripts/orchestration/effort_ci.py）。完了の時刻より後の時間。
-EFFORT_AFTER_CI_RE = re.compile(r"完了のコミットのCI\s*約?(\d+)分")
 EFFORT_SCALE_RE = re.compile(r"規模札([SML])(?:〜([SML]))?")
 EFFORT_REASON_RE = re.compile(r"超過[:：]\s*([^、。）\n]+)")
 BUDGET_PERCENTILE = 0.8
@@ -190,8 +192,6 @@ PUSH_INTERVAL_MINUTES = 60
 UNPUSHED_LOOKBACK_HOURS = 48
 #: CIの所要の基準にするmasterの実行を、対象のコミットの祖先から選ぶときに辿るコミット数。
 CI_ANCESTRY_DEPTH = 500
-#: 台帳の未完了の行と、その規模札。
-LEDGER_ROW_RE = re.compile(r"^- \[ \] \[(T\d+[a-z0-9-]*)\]\([^)]*\)\.?\s*(.*)$")
 SCALE_LABEL_RE = re.compile(r"規模([SML])(?:〜([SML]))?")
 TASK_HEADING_RE = re.compile(r"^# T\d+[a-z0-9-]*\.\s*(.*)$")
 EXPECTED_HOOKS_PATH = ".githooks"
@@ -330,9 +330,31 @@ def ledger_rows(ctx: Context) -> dict[str, dict]:
     for line in plan.splitlines():
         m = LEDGER_ROW_RE.match(line)
         if m:
-            s = SCALE_LABEL_RE.search(m.group(2))
-            rows[m.group(1)] = {"title": m.group(2).strip(), "scale": (s.group(2) or s.group(1)) if s else None}
+            s = SCALE_LABEL_RE.search(m.group(3))
+            rows[m.group(1)] = {"title": m.group(3).strip(), "scale": (s.group(2) or s.group(1)) if s else None}
     return rows
+
+
+def find_section(plan: str, needle: str) -> tuple[int | None, list[str]]:
+    """台帳の、needleを含む`## `見出しの行番号。一意でなければNoneと候補を返す。"""
+    headings = [(i, line) for i, line in enumerate(plan.splitlines()) if line.startswith("## ")]
+    hits = [(i, line) for i, line in headings if needle in line]
+    if len(hits) == 1:
+        return hits[0][0], []
+    return None, [line for _, line in (hits or headings)]
+
+
+def insert_ledger_row(plan: str, heading_index: int, row: str) -> str:
+    """台帳の節の最後のタスク行の直後へ行を入れる。タスク行が無ければ見出しの直後へ。"""
+    nl = "\r\n" if "\r\n" in plan else "\n"
+    lines = plan.split(nl)
+    end = next((i for i in range(heading_index + 1, len(lines)) if lines[i].startswith("## ")), len(lines))
+    items = [i for i in range(heading_index + 1, end) if lines[i].startswith("- [")]
+    if items:
+        lines.insert(items[-1] + 1, row)
+    else:
+        lines[heading_index + 1:heading_index + 1] = ["", row]
+    return nl.join(lines)
 
 
 def parse_effort(task: str, text: str) -> dict:
@@ -343,11 +365,6 @@ def parse_effort(task: str, text: str) -> dict:
 
     s = EFFORT_SCALE_RE.search(text)
     real, frame, ci = minutes_of(EFFORT_REAL_RE), minutes_of(EFFORT_FRAME_RE), minutes_of(EFFORT_CI_RE)
-    after = minutes_of(EFFORT_AFTER_CI_RE)
-    if after is not None:
-        # 完了の時刻の後の時間なので、実時間とCI待ちの両方へ足す（作業そのものの時間は変えない）。
-        real = real + after if real is not None else None
-        ci = ci + after if ci is not None else None
     reason = EFFORT_REASON_RE.search(text)
     return {"task": task, "scale": (s.group(2) or s.group(1)) if s else None, "real": real,
             "work": real - frame - ci if None not in (real, frame, ci) else None,
@@ -430,34 +447,43 @@ def master_tip_time(ctx: Context) -> dt.datetime | None:
     return dt.datetime.fromtimestamp(int(out)).astimezone() if out else None
 
 
+def subject_tasks(subject: str) -> list[str]:
+    """件名の先頭のタスク番号（`T1234: …`・`T1234 段階B: …`・`T1234・T1235: …`）。"""
+    m = SUBJECT_TASKS_RE.match(subject)
+    return m.group(1).split("・") if m else []
+
+
 def audited_unpushed(ctx: Context, board: dict, at: dt.datetime) -> list[dict]:
     """監査を通したコミットのうち、まだorigin/masterに入っていないもの。
 
-    入ったかは、変更の中身が同じ（`git cherry`のpatch-id）か、同じ件名のコミットがmasterにあるかで
-    見る——司令塔が取り込みで衝突を解くと中身が変わり、patch-idだけでは入っていないように見える。"""
+    入ったかは、監査で通したタスク（監査の記録の`task`）の番号から始まる件名のコミットが、監査の時刻より後に
+    origin/masterへ入ったかで見る。取り込みでは衝突を解き、後始末を畳み、件名を直すので、中身や件名の
+    一致では判定できない。タスクの無い監査の記録は、追う対象が無いので見ない。"""
     since = at - dt.timedelta(hours=UNPUSHED_LOOKBACK_HOURS)
-    subjects = set((git_out(ctx.repo, "log", "--format=%s", f"--since={iso(since - dt.timedelta(days=1))}",
-                            "origin/master") or "").splitlines())
+    landed: dict[str, list[dt.datetime]] = {}
+    log = git_out(ctx.repo, "log", "--format=%ct %s", f"--since={iso(since)}", "origin/master") or ""
+    for line in log.splitlines():
+        ts, _, subject = line.partition(" ")
+        for task in subject_tasks(subject):
+            landed.setdefault(task, []).append(dt.datetime.fromtimestamp(int(ts)).astimezone())
     out = []
     for agent in board.get("agents") or []:
         for entry in agent.get("audit_log") or []:
-            sha, done = entry.get("reported_sha"), parse_time(entry.get("audit_done"))
-            if entry.get("audit_result") != "通す" or not sha or (done and done < since):
+            task, done = entry.get("task"), parse_time(entry.get("audit_done"))
+            if entry.get("audit_result") != "通す" or not task or not done or done < since:
                 continue
-            base = entry.get("audit_base") or git_out(ctx.repo, "merge-base", "origin/master", str(sha))
-            cherry = git_out(ctx.repo, "cherry", "-v", "origin/master", str(sha), *([str(base)] if base else []))
-            missing = [line.split(" ", 2)[2] for line in (cherry or "").splitlines()
-                       if line.startswith("+ ") and line.count(" ") >= 2]
-            if cherry is None or any(subject not in subjects for subject in missing):
-                out.append({"agent": agent.get("name"), "sha": sha, "base": entry.get("audit_base"),
-                            "audited": entry.get("audit_done"), "urgent": bool(entry.get("urgent"))})
+            if any(t >= done for t in landed.get(str(task), [])):
+                continue
+            out.append({"agent": agent.get("name"), "task": task, "sha": entry.get("reported_sha"),
+                        "base": entry.get("audit_base"), "audited": entry.get("audit_done"),
+                        "urgent": bool(entry.get("urgent"))})
     return out
 
 
 def ledger_ids(plan_text: str | None) -> set[str]:
     if plan_text is None:
         return set()
-    return {m.group(1) for line in plan_text.splitlines() if (m := PLAN_ENTRY_RE.match(line))}
+    return {m.group(1) for line in plan_text.splitlines() if (m := LEDGER_ROW_RE.match(line))}
 
 
 def cpu_percent(sample: float = CPU_SAMPLE_SECONDS) -> float | None:
@@ -1337,30 +1363,32 @@ def cmd_audit(ctx: Context, args: argparse.Namespace) -> int:
     touched_tasks = [m.group(1) for p in files if (m := TASK_DOC_RE.match(p))]
     for task in touched_tasks:
         if agent and task not in queue:
-            print(f"  ? 担当のタスク外の記録を触っている: {task}（起票なら問題ない）")
+            flag(f"担当のタスク外の記録を触っている: {task}（担当が書くのは自分のタスクの記録だけ。"
+                 "起票は承認のあと司令塔が行う）")
 
     # 2. 記録の整合
     print("\n2. 記録の整合（報告のコミット時点）")
-    specs = [f"{sha}:{TASKS_DIR}/{t}.md" for t in touched_tasks] + [f"{sha}:{PLAN_DOC}"]
+    specs = ([f"{rev}:{TASKS_DIR}/{t}.md" for t in touched_tasks for rev in (sha, base)]
+             + [f"{sha}:{PLAN_DOC}"])
     blobs = cat_files(repo, specs)
     listed = ledger_ids(blobs[f"{sha}:{PLAN_DOC}"])
     if not touched_tasks:
         flag("タスク記録（docs/records/tasks/Txxx.md）を1件も触っていない")
     for task in touched_tasks:
-        text = blobs[f"{sha}:{TASKS_DIR}/{task}.md"]
-        st = task_state(text)
+        st = task_state(blobs[f"{sha}:{TASKS_DIR}/{task}.md"])
         row = task in listed
         line = f"{task}: 状態={st or '削除'}  台帳={'あり' if row else 'なし'}"
         if st == "完了" and not row:
-            print(f"  ? {line} → 担当が台帳の行を消している（台帳の行は取り込みの後に ledger close が消す。"
+            print(f"  ? {line} → 担当が台帳の行を消している（台帳の行は取り込みで ledger sync が消す。"
                   "隣の行を消した担当と取り込みで衝突しうる）")
+        elif st == "未完了" and not row and task_state(blobs[f"{base}:{TASKS_DIR}/{task}.md"]) == "完了":
+            print(f"  {line} → 閉じたタスクの開け直し（台帳の行は取り込みで ledger sync が戻す）")
         elif st == "未完了" and not row:
             flag(line + " → 未完了なのに台帳に行が無い")
         elif st not in ("完了", "未完了"):
             flag(line + " → 状態行が完了/未完了で始まらない")
         else:
-            hold = " 保留の記述あり" if st == "未完了" and text and "保留" in text else ""
-            print(f"  {line}{hold}")
+            print(f"  {line}")
 
     # 4. 検証の証拠
     print("\n4. 検証の証拠（コミットメッセージの記述の有無の目安。判定ではない）")
@@ -1403,9 +1431,6 @@ def cmd_audit(ctx: Context, args: argparse.Namespace) -> int:
     needs_user = False
     if not args.no_ci:
         needs_user = audit_ci_duration(ctx, sha, latest)
-        from orchestration import effort_ci
-
-        effort_ci.print_proposals(effort_ci.proposals(repo, args.name, base, sha, latest), args.name, sha, base)
 
     backend = any(p.startswith("backend/") for p in files)
     print("\n未判定（司令塔が判断する）:")
@@ -1631,7 +1656,10 @@ def cmd_board(ctx: Context, args: argparse.Namespace) -> int:
             entry = {k: agent.get(k) for k in (
                 "reported_sha", "audit_base", "reported", "audit_started", "audit_done",
                 "audit_result", "audit_blocked", "audit_errors")}
+            entry["task"] = agent.get("current_task")
             entry["urgent"] = urgent
+            if not entry["task"]:
+                print("注: 現在のタスクが無いまま監査を記録した。masterに入ったかを board unpushed で追えない")
             agent.setdefault("audit_log", []).append(entry)
             if agent.get("audit_result") == "通す":
                 # 監査を通ったタスクは表から外す（所要の実績は完了のコミットでTxxx.mdにある）。
@@ -1816,21 +1844,27 @@ def cmd_unpushed(ctx: Context, board: dict, at: dt.datetime) -> int:
     print(push_due_line(ctx, items, at))
     for i in items:
         rng = f"{i.get('base')}..{i.get('sha')}" if i.get("base") else str(i.get("sha"))
-        print(f"  {i.get('agent')}: {rng}  監査{hm(parse_time(i.get('audited')))}{'  即時' if i.get('urgent') else ''}")
-    if items:
-        # 範囲ごとに分けて取り込む（1回のcherry-pickへ並べると、範囲の和として解釈される）。
-        picks = " && ".join(f"git cherry-pick {i['base']}..{i['sha']}" if i.get("base")
-                            else f"git cherry-pick {i.get('sha')}" for i in items)
-        efforts = " && ".join(f"python scripts/orchestrate.py effort-ci {i.get('agent')} {i.get('sha')}"
-                              + (f" --base {i['base']}" if i.get("base") else "") for i in items)
-        print("\n1回でpushする手順（司令塔の作業ツリーで。枠で包まない。衝突したら中止して担当へ差し戻す）:")
-        print(f"  git fetch origin master && git switch -C land origin/master"
-              f" && {picks} && {efforts} && python scripts/orchestrate.py ledger close"
-              f" && git push origin \"$(git rev-parse HEAD)\":refs/heads/master")
-        print("  （effort-ci は、担当の所要の行へ完了のコミットのCIを書き足すコミットを足す。書き足せなければ飛ばす）")
-        print("  （ledger close は、取り込んだ記録で状態が完了のタスクの台帳の行を消すコミットを足す。"
-              "担当は台帳の行を消さない）")
-        print("  （masterに入ったかは git から導くので、pushの後に表を書き換える手順は無い）")
+        print(f"  {i.get('agent')}: {i['task']}  {rng}  監査{hm(parse_time(i.get('audited')))}"
+              f"{'  即時' if i.get('urgent') else ''}")
+    if not items:
+        return 0
+    print("\n取り込みの手順（司令塔の作業ツリーで、1行ずつ打つ。枠で包まない。衝突したら中止して担当へ差し戻す）:")
+    print("  git fetch origin master")
+    print("  git switch -C land origin/master")
+    for i in items:
+        rng = f"{i['base']}..{i['sha']}" if i.get("base") else f"{i.get('sha')}~1..{i.get('sha')}"
+        count = git_out(ctx.repo, "rev-list", "--count", rng) or "?"
+        print(f"  # {i.get('agent')}（{i['task']}）: 範囲のコミット{count}件。件名は{i['task']}から始める")
+        print(f"  git cherry-pick {rng}")
+        print("  python scripts/orchestrate.py ledger sync")
+        print(f"  git add {PLAN_DOC}")
+        if count == "1":
+            print("  git commit --amend --no-edit")
+        else:
+            print(f"  git reset --soft HEAD~{count}")
+            print("  git commit -F <1タスク=1コミットの書式で書いたメッセージのファイル>")
+    print("pushは、取り込みが最後まで通ったことを確かめてから別のコマンドで打つ（規約「監査の結果」）。"
+          "masterに入ったかは git から導くので、pushの後に表を書き換える手順は無い")
     return 0
 
 

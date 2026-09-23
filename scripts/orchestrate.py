@@ -2,9 +2,8 @@
 
     python scripts/orchestrate.py <サブコマンド> ...
 
-使い方は`scripts/orchestration/core.py`の冒頭。`pending-backup`・`prereqs`・`priority`・`slot`・`ledger`・
-`effort-ci`は依頼で足した別のモジュール（`scripts/orchestration/pending.py`・`queue.py`・`slots.py`・`ledger.py`・
-`effort_ci.py`）へ渡す——核はそれらを
+使い方は`scripts/orchestration/core.py`の冒頭。`pending-backup`・`prereqs`・`priority`・`slot`・`ledger`は依頼で足した
+別のモジュール（`scripts/orchestration/pending.py`・`queue.py`・`slots.py`・`ledger.py`）へ渡す——核はそれらを
 importしないため、振り分けはここで行う。
 """
 
@@ -22,33 +21,25 @@ def main() -> int:
     i = 0
     while i < len(argv) and argv[i] in ("--repo", "--dir"):
         i += 2
-    if argv[i:i + 1] and argv[i] == "pending-backup":
+    command = argv[i] if i < len(argv) else None
+    if command in ("pending-backup", "prereqs", "priority", "slot", "ledger"):
+        sys.stdout.reconfigure(encoding="utf-8")
+        sys.stderr.reconfigure(encoding="utf-8")
+    if command == "pending-backup":
         from orchestration import pending
 
-        sys.stdout.reconfigure(encoding="utf-8")
-        sys.stderr.reconfigure(encoding="utf-8")
         return pending.main(argv)
-    if argv[i:i + 1] and argv[i] in ("prereqs", "priority"):
+    if command in ("prereqs", "priority"):
         from orchestration import queue
 
-        sys.stdout.reconfigure(encoding="utf-8")
-        sys.stderr.reconfigure(encoding="utf-8")
         return queue.main(argv)
-    if argv[i:i + 1] == ["effort-ci"]:
-        from orchestration import effort_ci
-
-        sys.stdout.reconfigure(encoding="utf-8")
-        return effort_ci.main(argv[i + 1:])
-    if argv[i:i + 1] == ["slot"]:
+    if command == "slot":
         from orchestration import slots
 
-        sys.stdout.reconfigure(encoding="utf-8")
-        sys.stderr.reconfigure(encoding="utf-8")
         return slots.main(argv[:i] + argv[i + 1:])
-    if argv[i:i + 1] == ["ledger"]:
+    if command == "ledger":
         from orchestration import ledger
 
-        sys.stdout.reconfigure(encoding="utf-8")
         return ledger.main(argv[:i] + argv[i + 1:])
     return core.main(argv)
 

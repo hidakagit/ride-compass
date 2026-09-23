@@ -1,35 +1,35 @@
-"""タスク番号を確保する——スタブと台帳1行をorigin/masterへ即pushする。
+"""起票が承認されたタスクに番号を振り、記録の雛形と台帳の行を1コミットでorigin/masterへ入れる。
 
 ## 目的
 
 タスク番号（Txxx）は複数のセッション・エージェントが同時に「次の番号」を計算するため衝突する。
 番号を決めてからmasterへ載せるまでの時間窓を、fetch→書く→pushの一続きへ縮め、
-衝突したら自分の側を次の空き番号へ振り直す。これを手でやらずに1コマンドにする。
+衝突したら自分の側を次の空き番号へ振り直す。承認の1回のやり取りで承認された分は、件名
+`台帳: 起票 T1090・T1091`の1コミットにまとめる（CLAUDE.md「1タスク=1コミット」の例外）。
 
 ## 方法
 
 作業ツリーとブランチには触れずに、**リモートのmasterそのものを土台に**起票コミットを作る。
 
-1. `git fetch <remote> master` で土台を取る
-2. 土台の `docs/records/tasks/` のファイル名（`T1234.md`・`T317-2.md`・`T145a.md` 等）の
-   番号の最大+1を採る
-3. 一時インデックスへ土台のツリーを読み、スタブ `docs/records/tasks/Txxx.md` と
-   台帳 `docs/improvement-plan.md` の該当節の末尾の1行だけを足してコミットを作る
+1. `git fetch origin master` で土台を取る
+2. 土台の `docs/records/tasks/` のファイル名の番号の最大+1から、承認された件数ぶん順に採る
+3. 一時インデックスへ土台のツリーを読み、雛形 `docs/records/tasks/Txxx.md` と、台帳
+   `docs/improvement-plan.md` の該当節の末尾の1行を件数ぶん足してコミットを作る
    （作業ツリーの未コミット変更・ブランチ上の未pushコミットは、構造上このコミットに入らない）
-4. `git push <remote> <sha>:refs/heads/master`。pre-pushフックは通常どおり走る（検査はしない）
+4. `git push origin <sha>:refs/heads/master`
 5. 拒否されてリモートのmasterが動いていたら、新しい土台で2からやり直す（番号は土台から
    導くので、他者が先に取った番号は自然に避けられる）。リモートが動いていないのに拒否された
    （フック・認証等）なら、やり直さずに失敗する
 
-push後、確保したコミットを手元のブランチへ取り込む（ブランチが自分のコミットを持たなければ
-早送り、持っていればその上へcherry-pick）。手元の変更とぶつかって取り込めないときは、
-番号は確保済みのまま取り込みだけを飛ばし、手で取り込む方法を表示する。
+手元のブランチへは取り込まない（fetchで追う）。
 
 ## 使い方
 
-    python scripts/new_task.py "タイトル" --section "節見出しの一部" --size S [--background "背景"]
+    python scripts/new_task.py "タイトル" --section "節見出しの一部" --size S [--background "背景"] \\
+        [-- "タイトル2" --section ... --size M ...]
 
-終了コード: 確保できたら0。節が一意に決まらない・push できない等で確保できなければ1。
+`--`で区切って、承認された件を並べる。終了コード: 確保できたら0。節が一意に決まらない・pushできない等で
+確保できなければ1。
 """
 
 from __future__ import annotations
@@ -43,9 +43,13 @@ import sys
 import tempfile
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+from orchestration.core import PLAN_DOC, TASKS_DIR, find_section, insert_ledger_row
+
 REPO_ROOT = Path(__file__).resolve().parent.parent
-PLAN_DOC = "docs/improvement-plan.md"
-TASKS_DIR = "docs/records/tasks"
+REMOTE = "origin"
+ATTEMPTS = 10
 TASK_FILE_RE = re.compile(r"^T(\d+)")
 SIZE_RE = re.compile(r"^[SML](〜[SML])?$")
 
@@ -71,8 +75,8 @@ def git_out(*args: str, **kw) -> str:
     return decode(git(*args, **kw).stdout).strip()
 
 
-def fetch_base(remote: str) -> str:
-    git("fetch", "--quiet", remote, "master")
+def fetch_base() -> str:
+    git("fetch", "--quiet", REMOTE, "master")
     return git_out("rev-parse", "FETCH_HEAD")
 
 
@@ -84,41 +88,20 @@ def next_number(base: str) -> int:
     return max(numbers) + 1
 
 
-def find_section(plan: str, needle: str) -> tuple[int | None, list[str]]:
-    """needleを含む `## ` 見出しの行番号。一意でなければNoneと候補を返す。"""
-    lines = plan.splitlines()
-    headings = [(i, l) for i, l in enumerate(lines) if l.startswith("## ")]
-    hits = [(i, l) for i, l in headings if needle in l]
-    if len(hits) == 1:
-        return hits[0][0], []
-    return None, [l for _, l in (hits or headings)]
-
-
-def insert_ledger_line(plan: str, heading_index: int, entry: str) -> str:
-    """節の最後のタスク行の直後へ入れる。タスク行が無ければ見出しの直後へ。"""
-    nl = "\r\n" if "\r\n" in plan else "\n"
-    lines = plan.split(nl)
-    end = next((i for i in range(heading_index + 1, len(lines)) if lines[i].startswith("## ")),
-               len(lines))
-    items = [i for i in range(heading_index + 1, end) if lines[i].startswith("- [")]
-    if items:
-        lines.insert(items[-1] + 1, entry)
-    else:
-        lines[heading_index + 1:heading_index + 1] = ["", entry]
-    return nl.join(lines)
-
-
-def build_commit(base: str, number: int, title: str, heading_needle: str, size: str,
-                 background: str, today: str) -> str:
-    tid = f"T{number}"
+def build_commit(base: str, first: int, tasks: list[argparse.Namespace], today: str) -> tuple[str, list[str]]:
     plan = decode(git("show", f"{base}:{PLAN_DOC}").stdout)
-    heading_index, _ = find_section(plan, heading_needle)
-    if heading_index is None:
-        raise GitError(f"節「{heading_needle}」が土台 {base[:8]} で一意に決まらない")
-    entry = f"- [ ] [{tid}](records/tasks/{tid}.md). {title} 規模{size}"
-    new_plan = insert_ledger_line(plan, heading_index, entry)
-    stub = (f"# {tid}. {title}\n\n状態: 未完了（{today}起票）\n\n## 背景\n\n"
-            + (f"{background.strip()}\n" if background.strip() else ""))
+    files, ids = [], []
+    for number, task in enumerate(tasks, first):
+        tid = f"T{number}"
+        heading_index, _ = find_section(plan, task.section)
+        if heading_index is None:
+            raise GitError(f"節「{task.section}」が土台 {base[:8]} で一意に決まらない")
+        plan = insert_ledger_row(plan, heading_index, f"- [ ] [{tid}](records/tasks/{tid}.md). {task.title} 規模{task.size}")
+        stub = (f"# {tid}. {task.title}\n\n状態: 未完了（{today}起票）\n\n## 背景\n\n"
+                + (f"{task.background.strip()}\n" if task.background.strip() else ""))
+        files.append((f"{TASKS_DIR}/{tid}.md", stub))
+        ids.append(tid)
+    files.append((PLAN_DOC, plan))
 
     fd, index_path = tempfile.mkstemp(prefix="new_task_index_")
     os.close(fd)
@@ -126,88 +109,71 @@ def build_commit(base: str, number: int, title: str, heading_needle: str, size: 
     env = {**os.environ, "GIT_INDEX_FILE": index_path}
     try:
         git("read-tree", base, env=env)
-        for path, content in ((f"{TASKS_DIR}/{tid}.md", stub), (PLAN_DOC, new_plan)):
+        for path, content in files:
             blob = git_out("hash-object", "-w", "--stdin", stdin=content.encode("utf-8"))
             git("update-index", "--add", "--cacheinfo", f"100644,{blob},{path}", env=env)
         tree = git_out("write-tree", env=env)
     finally:
         if os.path.exists(index_path):
             os.unlink(index_path)
-    message = f"{tid}を起票: {title}（番号確保）\n"
-    return git_out("commit-tree", tree, "-p", base, stdin=message.encode("utf-8"))
+    message = (f"台帳: 起票 {'・'.join(ids)}\n\n"
+               + "".join(f"{tid}: {task.title}\n" for tid, task in zip(ids, tasks)))
+    return git_out("commit-tree", tree, "-p", base, stdin=message.encode("utf-8")), ids
 
 
-def push(remote: str, sha: str) -> tuple[bool, str]:
-    result = git("push", "--porcelain", remote, f"{sha}:refs/heads/master", check=False)
+def push(sha: str) -> tuple[bool, str]:
+    result = git("push", "--porcelain", REMOTE, f"{sha}:refs/heads/master", check=False)
     return result.returncode == 0, (decode(result.stdout) + decode(result.stderr)).strip()
 
 
-def integrate(sha: str) -> str:
-    """確保したコミットを手元のブランチへ取り込み、結果を返す。
-
-    ブランチが自分のコミットを持たなければ早送り、持っていればその上へcherry-pickする。
-    """
-    behind = git("merge-base", "--is-ancestor", "HEAD", sha, check=False).returncode == 0
-    if behind:
-        result = git("merge", "--ff-only", "--quiet", sha, check=False)
-    else:
-        result = git("cherry-pick", sha, check=False)
-        if result.returncode != 0 and git("rev-parse", "-q", "--verify", "CHERRY_PICK_HEAD",
-                                           check=False).returncode == 0:
-            git("cherry-pick", "--abort", check=False)
-    if result.returncode == 0:
-        return "手元のブランチへ取り込みました"
-    reason = decode(result.stdout + result.stderr).strip().splitlines()
-    how = f"git merge --ff-only {sha[:10]}" if behind else f"git rebase {sha[:10]}"
-    return ("手元への取り込みは飛ばしました（番号は確保済み。手元の変更を片付けてから "
-            f"{how} で取り込む）\n  git: {reason[0] if reason else '理由不明'}")
-
-
-def main() -> int:
-    parser = argparse.ArgumentParser(
-        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+def parse_tasks(argv: list[str]) -> list[argparse.Namespace]:
+    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("title", help="タスクのタイトル")
     parser.add_argument("--section", required=True, help="台帳の節見出しの一部（一意に決まること）")
     parser.add_argument("--size", required=True, help="規模（S・M・L・S〜M 等）")
     parser.add_argument("--background", default="", help="背景1〜2行")
-    parser.add_argument("--remote", default="origin", help="pushするリモート名またはURL")
-    parser.add_argument("--attempts", type=int, default=10, help="pushの最大試行回数")
-    args = parser.parse_args()
+    groups: list[list[str]] = [[]]
+    for arg in argv:
+        if arg == "--":
+            groups.append([])
+        else:
+            groups[-1].append(arg)
+    tasks = [parser.parse_args(g) for g in groups]
+    for task in tasks:
+        if not SIZE_RE.match(task.size):
+            parser.error(f"規模「{task.size}」は S・M・L か S〜M の形で指定する")
+        task.title = " ".join(task.title.split())
+    return tasks
 
-    if not SIZE_RE.match(args.size):
-        print(f"規模「{args.size}」は S・M・L か S〜M の形で指定する", file=sys.stderr)
-        return 1
-    title = " ".join(args.title.split())
+
+def main() -> int:
+    tasks = parse_tasks(sys.argv[1:])
     today = dt.datetime.now().astimezone().date().isoformat()
-
     try:
-        base = fetch_base(args.remote)
+        base = fetch_base()
         plan = decode(git("show", f"{base}:{PLAN_DOC}").stdout)
-        _, candidates = find_section(plan, args.section)
-        if candidates:
-            print(f"節「{args.section}」が一意に決まらない。候補:", file=sys.stderr)
-            for c in candidates:
-                print(f"  {c}", file=sys.stderr)
-            return 1
-
-        for attempt in range(1, args.attempts + 1):
-            number = next_number(base)
-            sha = build_commit(base, number, title, args.section, args.size,
-                               args.background, today)
-            ok, output = push(args.remote, sha)
-            if ok:
-                print(f"T{number} を確保しました（push: {sha}）")
-                print(integrate(sha))
-                return 0
-            new_base = fetch_base(args.remote)
-            if new_base == base:
-                print(f"pushが拒否されました（リモートのmasterは動いていない）:\n{output}",
-                      file=sys.stderr)
+        for task in tasks:
+            _, candidates = find_section(plan, task.section)
+            if candidates:
+                print(f"節「{task.section}」が一意に決まらない。候補:", file=sys.stderr)
+                for c in candidates:
+                    print(f"  {c}", file=sys.stderr)
                 return 1
-            print(f"T{number} のpushは先を越されました。土台を取り直して振り直します"
-                  f"（{attempt}/{args.attempts}回目）", file=sys.stderr)
+
+        for attempt in range(1, ATTEMPTS + 1):
+            sha, ids = build_commit(base, next_number(base), tasks, today)
+            ok, output = push(sha)
+            if ok:
+                print(f"{'・'.join(ids)} を確保しました（push: {sha}。手元へはfetchで取り込む）")
+                return 0
+            new_base = fetch_base()
+            if new_base == base:
+                print(f"pushが拒否されました（リモートのmasterは動いていない）:\n{output}", file=sys.stderr)
+                return 1
+            print(f"{'・'.join(ids)} のpushは先を越されました。土台を取り直して振り直します"
+                  f"（{attempt}/{ATTEMPTS}回目）", file=sys.stderr)
             base = new_base
-        print(f"{args.attempts}回続けて先を越されたため中止しました", file=sys.stderr)
+        print(f"{ATTEMPTS}回続けて先を越されたため中止しました", file=sys.stderr)
         return 1
     except GitError as e:
         print(str(e), file=sys.stderr)

@@ -6,7 +6,7 @@
 （`<out_dir>/pending/<doc_id>.json`が1件。ファイル名が件のdoc_id）。置き場と1件の形の正本は
 `docs/conventions/asking-user.md`「仕掛中のダッシュボード」節。核はこのモジュールをimportしない。
 
-    python scripts/orchestrate.py pending-backup --pending <dir>   # 全件を日付のファイルへ書き出す（直近14日を残す）
+    python scripts/orchestrate.py pending-backup --pending <dir>   # 全件を日付のファイルへ書き出す（直近14日を残す。移し忘れを知らせる）
 """
 
 from __future__ import annotations
@@ -19,7 +19,10 @@ from pathlib import Path
 
 from orchestration.core import (
     TASK_ID_RE,
+    TASKS_DIR,
     Context,
+    cat_files,
+    task_state,
 )
 
 BACKUP_KEEP_DAYS = 14
@@ -96,6 +99,28 @@ def backup_alert(ctx: Context) -> str | None:
     return None
 
 
+def left_behind(ctx: Context, items: dict[str, dict]) -> list[str]:
+    """記録へ移し忘れた・消し忘れた件。origin/masterの記録の状態から導く。
+
+    閉じたタスク（記録が完了）に残ってよいのは、答えを待っている問い・お願いだけ。答えが出た件は記録へ移し
+    （作業が生まれるなら開け直す）、件名はコミットで、前提は手動タスクが閉じたら消す。"""
+    tasks = sorted({str(i.get("task")) for i in items.values() if i.get("task")})
+    texts = cat_files(ctx.repo, [f"origin/master:{TASKS_DIR}/{t}.md" for t in tasks])
+    states = {t: task_state(texts[f"origin/master:{TASKS_DIR}/{t}.md"]) for t in tasks}
+    out = []
+    for doc_id, item in sorted(items.items()):
+        task, kind = str(item.get("task") or ""), item.get("kind")
+        if not task:
+            continue
+        if states[task] is None:
+            out.append(f"{doc_id}: {task}の記録がorigin/masterに無い（台帳にも記録にも無いタスクの件）")
+        elif states[task] == "完了" and (kind in ("件名", "前提") or answered(item)):
+            what = {"件名": "件名（コミットしたら消す）", "前提": "前提（手動タスクが閉じたら消す）"}.get(
+                kind, "答え（作業が生まれるなら開け直し、生まれないなら `記録: 答え …` で記録へ移す）")
+            out.append(f"{doc_id}: 閉じた{task}に{what}が残っている")
+    return out
+
+
 def cmd_backup(ctx: Context, args: argparse.Namespace) -> int:
     items = load_pending(args.pending)
     today = dt.datetime.now().astimezone().date()
@@ -113,10 +138,10 @@ def cmd_backup(ctx: Context, args: argparse.Namespace) -> int:
             removed.append(old.name)
     print(f"ダッシュボードの{len(items)}件を{path}へ書き出した"
           + (f"（{BACKUP_KEEP_DAYS}日より前の{'・'.join(removed)}を消した）" if removed else ""))
-    if alert := backup_alert(ctx):
+    alerts = [a for a in [backup_alert(ctx)] if a] + left_behind(ctx, items)
+    for alert in alerts:
         print(f"! {alert}")
-        return 1
-    return 0
+    return 1 if alerts else 0
 
 
 def main(argv: list[str] | None = None) -> int:

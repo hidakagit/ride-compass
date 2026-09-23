@@ -43,8 +43,12 @@ import sys
 from collections import defaultdict
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+from orchestration.core import LEDGER_ROW_RE, PLAN_DOC
+from orchestration.core import TASKS_DIR as TASKS_REL
+
 REPO_ROOT = Path(__file__).resolve().parent.parent
-PLAN_DOC = "docs/improvement-plan.md"
 #: 台帳の行を閉じた（消した）状態が揃っているべきブランチ。並行実行の作業ブランチでは、
 #: 台帳の行は取り込みの後に司令塔が消す（docs/conventions/orchestration.md「監査の結果」）。
 MAIN_BRANCH = "master"
@@ -64,8 +68,7 @@ TRIGGER_IMPL_LINES = 20_000
 MARKDOWN_LINK_RE = re.compile(r"\[[^\]]*\]\(([^)\s#]+)(?:#[^)]*)?\)")
 #: 雛形の綴り。「タスク番号1件=1ファイル」等を説明するためのもので、実在しなくてよい。
 PLACEHOLDER_RE = re.compile(r"Txxx|YYYY-MM-DD|<[^>]+>")
-PLAN_ENTRY_RE = re.compile(r"^- \[[ x]\] \[T\d+[a-z0-9-]*\]\(([^)]+)\)")
-TASKS_DIR = REPO_ROOT / "docs" / "records" / "tasks"
+TASKS_DIR = REPO_ROOT / TASKS_REL
 STATE_RE = re.compile(r"^状態: *(完了|未完了)")
 #: タスク記録のファイル名。日付名の実施記録や索引と区別する。
 TASK_FILE_RE = re.compile(r"^T\d+[a-z0-9-]*\.md$")
@@ -166,10 +169,10 @@ def find_plan_entry_problems() -> list[str]:
     seen: dict[str, int] = {}
     out = []
     for lineno, line in enumerate(read(plan).splitlines(), 1):
-        m = PLAN_ENTRY_RE.match(line)
+        m = LEDGER_ROW_RE.match(line)
         if not m:
             continue
-        target = m.group(1)
+        target = m.group(2)
         if not (plan.parent / target).exists():
             out.append(f"{PLAN_DOC}:{lineno}: リンク先 {target} が無い")
         elif target in seen:
@@ -201,15 +204,15 @@ def find_task_state_problems(on_main: bool) -> tuple[list[str], list[str]]:
     - `未完了` なのに台帳へ行が無い → 誤ってクローズした（誰も着手しない）
     - `完了` なのに台帳へ行がある → 閉じ忘れ（終わった話が候補に混ざる）
 
-    3つ目は`MAIN_BRANCH`でだけ違反にし、それ以外のブランチでは参考として出す。台帳は全担当が
-    1行ずつ触る共有のファイルで、別々のブランチが隣り合った行を消すと取り込みで衝突するため、
-    並行実行の担当は`状態:`だけを完了にし、行は司令塔が取り込みの後にまとめて消す
-    （`scripts/orchestrate.py ledger close`）。masterへ入る時点で行が消えていることは、
+    2つ目と3つ目は`MAIN_BRANCH`でだけ違反にし、それ以外のブランチでは参考として出す。台帳は全担当が
+    1行ずつ触る共有のファイルで、別々のブランチが隣り合った行を変えると取り込みで衝突するため、
+    並行実行の担当は`状態:`だけを変え（閉じる・開け直す）、行は司令塔が取り込みで直す
+    （`scripts/orchestrate.py ledger sync`）。masterへ入る時点で行が揃っていることは、
     masterへのpushのCIがこの検査で見る。
     """
     plan = REPO_ROOT / PLAN_DOC
-    listed = {m.group(1) for line in read(plan).splitlines()
-              if (m := PLAN_ENTRY_RE.match(line))} if plan.exists() else set()
+    listed = {m.group(2) for line in read(plan).splitlines()
+              if (m := LEDGER_ROW_RE.match(line))} if plan.exists() else set()
     out, notes = [], []
     for f in sorted(f for f in TASKS_DIR.glob("*.md") if TASK_FILE_RE.match(f.name)):
         rel_target = f"records/tasks/{f.name}"
@@ -220,7 +223,7 @@ def find_task_state_problems(on_main: bool) -> tuple[list[str], list[str]]:
             continue
         done = STATE_RE.match(state).group(1) == "完了"
         if not done and rel_target not in listed:
-            out.append(f"{rel_target}: 未完了なのに台帳に行が無い（誤ってクローズした）")
+            (out if on_main else notes).append(f"{rel_target}: 未完了なのに台帳に行が無い（誤ってクローズしたか、開け直した）")
         if done and rel_target in listed:
             (out if on_main else notes).append(f"{rel_target}: 完了なのに台帳に行がある（閉じ忘れ）")
     return out, notes
@@ -249,9 +252,9 @@ def cmd_docs(args: argparse.Namespace) -> int:
             print(f"  - {line}")
         total += len(lines)
     if state_notes:
-        print(f"## [参考] 完了なのに台帳に行がある: {len(state_notes)}件"
+        print(f"## [参考] 状態と台帳の行の食い違い: {len(state_notes)}件"
               f"（{branch or 'ブランチ不明'}は{MAIN_BRANCH}ではないので違反にしない。"
-              f"取り込みの後に司令塔が消す）")
+              f"取り込みで司令塔が ledger sync で直す）")
         for line in state_notes:
             print(f"  - {line}")
 
