@@ -25,7 +25,7 @@
 
     python scripts/review_checks.py docs      # 文書と台帳の整合（常に全件）
     python scripts/review_checks.py size      # 規模と前回比
-    python scripts/review_checks.py metrics   # 定量メトリクス
+    python scripts/review_checks.py metrics   # 定量メトリクスと総量の前回比
     python scripts/review_checks.py trigger   # 周期レビューの発火判定
 
 終了コード: `docs`は違反があれば1。それ以外は表示のみで常に0。
@@ -269,12 +269,56 @@ def cmd_docs(args: argparse.Namespace) -> int:
 # --- 計測（検査ではなく報告。前回値は保存せずタグから導く） -----------------
 
 def line_counts(paths: list[str], sha: str | None = None) -> dict[str, int]:
-    out = {}
-    for path in paths:
-        text = git("show", f"{sha}:{path}", check=False) if sha else read(REPO_ROOT / path)
-        if text:
-            out[path] = len(text.splitlines())
-    return out
+    """行数。`sha`を渡すとそのコミット時点の内容を1本の`git cat-file --batch`で読む。"""
+    if sha is None:
+        texts = {path: read(REPO_ROOT / path) for path in paths}
+    else:
+        texts = {}
+        result = subprocess.run(
+            ["git", "cat-file", "--batch"], cwd=str(REPO_ROOT), capture_output=True,
+            input="".join(f"{sha}:{path}\n" for path in paths).encode("utf-8"), check=False)
+        out, pos = result.stdout, 0
+        for path in paths:
+            end = out.index(b"\n", pos)
+            header = out[pos:end]
+            pos = end + 1
+            if header.endswith(b" missing"):
+                continue
+            size = int(header.rsplit(b" ", 1)[1])
+            try:
+                texts[path] = out[pos:pos + size].decode("utf-8")
+            except UnicodeDecodeError:
+                pass
+            pos += size + 1
+    return {path: len(text.splitlines()) for path, text in texts.items() if text}
+
+
+def files_at(sha: str) -> list[str]:
+    return [f for f in git("ls-tree", "-r", "-z", "--name-only", sha).split("\0") if f]
+
+
+def is_test(path: str) -> bool:
+    return ".test." in path or ".spec." in path or "/tests/" in path
+
+
+def volume_kind(path: str) -> str | None:
+    """総量を数える種別（実装・テスト・維持する文書）。数えないものはNone。"""
+    if path.endswith(CODE_SUFFIXES):
+        return "テスト" if is_test(path) else "実装"
+    if path.endswith(".md") and not path.startswith(FROZEN_PREFIXES):
+        return "文書"
+    return None
+
+
+def volume_counts(paths: list[str], sha: str | None = None) -> dict[str, int]:
+    return line_counts([f for f in paths if volume_kind(f)], sha)
+
+
+def volume_totals(counts: dict[str, int]) -> dict[str, int]:
+    totals = {"実装": 0, "テスト": 0, "文書": 0}
+    for f, n in counts.items():
+        totals[volume_kind(f)] += n
+    return totals
 
 
 def cmd_size(args: argparse.Namespace) -> int:
@@ -337,23 +381,24 @@ def cmd_size(args: argparse.Namespace) -> int:
 
 def cmd_metrics(args: argparse.Namespace) -> int:
     files = tracked_files()
-    code = [f for f in files if f.endswith(CODE_SUFFIXES)]
-    counts = line_counts(code)
+    volume = volume_counts(files)
+    counts = {f: n for f, n in volume.items() if f.endswith(CODE_SUFFIXES)}
     by_area: dict[str, int] = defaultdict(int)
     for f, n in counts.items():
         by_area[f.split("/")[0]] += n
-    tests = [f for f in code if ".test." in f or ".spec." in f or "/tests/" in f]
-    docs_lines = sum(len(read(REPO_ROOT / f).splitlines())
-                     for f in files if f.endswith(".md") and not f.startswith(FROZEN_PREFIXES))
+    tests = [f for f in counts if is_test(f)]
+    current = volume_totals(volume)
     records_lines = sum(len(read(REPO_ROOT / f).splitlines())
                         for f in files if f.startswith(FROZEN_PREFIXES))
 
     tags = review_tags()
     churn = "-"
+    previous = None
     if tags:
         stat = git("diff", "--shortstat", f"{tags[0][1]}..HEAD",
                    "--", "backend", "frontend", check=False)
         churn = f"{sum(int(x) for x in re.findall(r'(\d+) (?:insertion|deletion)', stat)):,}行"
+        previous = volume_totals(volume_counts(files_at(tags[0][1]), tags[0][1]))
 
     print(f"# 定量メトリクス（{dt.datetime.now(tz=dt.timezone.utc).date().isoformat()}、"
           f"対象 {git('rev-parse', '--short', 'HEAD').strip()}）\n")
@@ -363,9 +408,20 @@ def cmd_metrics(args: argparse.Namespace) -> int:
         print(f"| コード行数: {area} | {by_area[area]:,} |")
     print(f"| コードファイル数 | {len(counts):,} |")
     print(f"| うちテスト | {len(tests):,} |")
-    print(f"| 維持する文書 | {docs_lines:,}行 |")
+    print(f"| 維持する文書 | {current['文書']:,}行 |")
     print(f"| 記録（維持しない） | {records_lines:,}行 |")
     print(f"| 前回レビュー以降のコード変更 | {churn} |")
+    print()
+    if previous is None:
+        print("（周期レビューのタグが無いため総量の前回比は出していない）")
+        return 0
+    print(f"## 総量の前回比（前回 {tags[0][0]} / {tags[0][2] or '-'}）\n")
+    print("| 種別 | 今回 | 前回 | 差 | 増減率 |")
+    print("|---|---:|---:|---:|---:|")
+    for kind, cur in current.items():
+        prev = previous[kind]
+        rate = f"{(cur - prev) / prev:+.1%}" if prev else "-"
+        print(f"| {kind} | {cur:,} | {prev:,} | {cur - prev:+,} | {rate} |")
     return 0
 
 
@@ -398,7 +454,7 @@ def main() -> int:
     sub = parser.add_subparsers(dest="command", required=True)
     for name, help_text, func in (
         ("docs", "文書と台帳の整合（常に全件）", cmd_docs),
-        ("metrics", "定量メトリクス", cmd_metrics),
+        ("metrics", "定量メトリクスと総量の前回比", cmd_metrics),
         ("trigger", "周期レビューの発火判定", cmd_trigger),
     ):
         p = sub.add_parser(name, help=help_text)
