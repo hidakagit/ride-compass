@@ -73,6 +73,20 @@ JMA_TILE_SPECS: dict[str, JmaTileSpec] = {
     "sjfcstmap": JmaTileSpec("rasrf", "even", 10, verified=False),
 }
 
+#: タイルでは配らない配信要素の系統。落雷の位置（`liden`）は同じ系統の下にGeoJSONで配られる。
+#: 1つの要素idの系統は、ここか`JMA_TILE_SPECS`のどちらか一方だけが持つ。
+JMA_NON_TILE_PATH_GROUPS: dict[str, PathGroup] = {
+    "liden": "nowc",
+}
+
+
+def jma_path_group(element_id: str) -> PathGroup:
+    """配信要素のパスの系統。どちらの表にも無い要素idは`KeyError`。"""
+    spec = JMA_TILE_SPECS.get(element_id)
+    if spec is not None:
+        return spec.path_group
+    return JMA_NON_TILE_PATH_GROUPS[element_id]
+
 
 def has_native_tile(spec: JmaTileSpec, zoom: int) -> bool:
     """そのズームに配信元の実データが存在するか。

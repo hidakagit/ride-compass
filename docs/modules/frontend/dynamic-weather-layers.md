@@ -174,7 +174,7 @@ JMAタイル系ソースの`minzoom`/`maxzoom`・パスの系統・ベクタの�
 | `disaster` | `flood` | vector | `riskMap.ts: fetchCurrentRiskFrames`（`floodRenderPayload`） |
 | `disaster` | `liden` | gridMark | `lidenLayer.ts`（配信元GeoJSONをそのまま使う唯一の要素、下記参照） |
 
-`disaster`（災害）は`DISASTER_SOURCES`のソースを1チップへまとめたグループで、全ソースが1つの`showDisaster`に
+`disaster`（災害）は源泉がチップ`disaster`として宣言したソース（`dynamicWeather.ts: DisasterSourceKey`）を1チップへまとめたグループで、全ソースが1つの`showDisaster`に
 連動する。同じ段（描き方ごとに決まる。`weather.ts: TIER_OF`）の中では源泉の宣言
 （backendの`domain/map_display.py: WEATHER_ELEMENTS`）の並び順が重なり順になるため、面（キキクル3種・雷・竜巻のラスタ）を下に、局所的で見落としやすい線（洪水）・点
 （落雷）を上に置く。面同士が重なった領域は混色し危険度5段階を読み取れなくなるが、危険度
@@ -187,7 +187,21 @@ JMAタイル系ソースの`minzoom`/`maxzoom`・パスの系統・ベクタの�
 「表示する情報」でソースを個別に間引ける——非表示キーは他の凡例絞り込みと同じ
 `hiddenLegendKeysByMode`へ保存され、`hiddenDisasterSources`としてこのフックへ渡る。
 ソースごとの`visible`だけでなく、1本の`targetTimes`JSONを共有する要素がすべて非表示なら
-そのフェッチ自体も行わない（「表示中のものだけ叩く」方針）。
+そのフェッチ自体も行わない（「表示中のものだけ叩く」方針）。どのソースがどのフェッチに
+属するか（`DISASTER_FETCH_GROUP`）はデータ層のフェッチ関数ごとに決まる画面の持ち物で、
+パスの系統からは導けない（雷・竜巻と落雷は同じ`nowc`系統・同じ時刻一覧だが、表示の
+オンオフを別々に持つため別々に取りに行く）。鍵は源泉のソースから導くため、源泉に災害の
+ソースが増えて振り分けが無ければ型検査が落ちる。
+
+**配信元の要素idとパスの系統はデータ層も源泉から引く**（`jmaNowcastFrames.ts:
+declaredJmaElement`・`jmaTilePayload`）。データ層は（チップ/名前付きソース）の鍵だけを
+名指し、URLの要素id・系統・拡張子（ベクタなら`.pbf`）は`mapDisplay.weatherElements`の
+`jmaElement`・`pathGroup`・`kind`から組み立てる。鍵の型は生成物から導くため、源泉から
+要素が消えれば名指した側の型検査が落ち、要素idが変われば画面は新しいidで取りに行く
+（手で持っていると、古いidのタイルが404→空タイルとなり地図から黙って消える）。
+時刻一覧（`targetTimes*.json`）の中から自分の行を選ぶ`elements`の照合も同じ要素idを使う。
+降水の60分〜15時間先（降水短時間予報、要素`rasrf`）と時刻一覧の在り処
+（`JMA_TARGET_TIMES_PATHS`）だけは源泉に宣言が無く、画面が手で持つ。
 
 `liden`（雷放電位置データ）は、他要素が既に手元にある格子データ・タイルURLテンプレートから
 同期的にペイロードを組み立てるのに対し、配信元が実際の落雷地点をGeoJSONで提供するため
@@ -206,6 +220,8 @@ icon-sizeはズームのみに依存する。
 1. backend: `domain/map_display.py: WEATHER_ELEMENTS`へ宣言を1件足す（チップid・名前付き
    ソース・描き方の種類・気象庁の配信要素id）。タイルで描くなら`domain/jma_tile_specs.py:
    JMA_TILE_SPECS`へ配信元の仕様（パスの系統・ズーム・ベクタのレイヤー名）を1件足す。
+   配信元から取るがタイルでは描かない要素（落雷のGeoJSON等）は、同じファイルの
+   `JMA_NON_TILE_PATH_GROUPS`へパスの系統だけを足す。
    新しいチップidを名乗ればチップも増える（`WEATHER_LAYER_GROUPS`はこの宣言から導かれ、
    生成物経由で`DynamicWeatherLayerId`・`MapLayerId`になる）。`scripts/export_openapi.py`で
    生成物（`mapDisplay.ts`の`weatherElements`）を作り直す。自前のMSM格子から描くなら、
@@ -216,7 +232,8 @@ icon-sizeはズームのみに依存する。
    1件足す——鍵は生成物から導かれるため、足し忘れると型検査が落ちる。ソース名・ソースの宣言・
    レイヤー・記号の絵の登録はここから導かれる
 3. データ層: 要素モジュールを新設し、フレーム列（`DynamicWeatherFrame[]`）とペイロード
-   関数を実装する
+   関数を実装する。配信元のタイルなら`jmaTilePayload("<チップ>/<ソース>", 時刻)`で
+   ペイロードになる（要素id・系統を書かない）
 4. 新しいチップを足したときだけ: `mapLayers.ts`へ記述子（アイコン・凡例・
    `dataSource: "ownFetch"`）を1エントリ足す
 5. `hooks/useDynamicWeatherLayers.ts`: フェッチeffect・フレーム列・payload計算・

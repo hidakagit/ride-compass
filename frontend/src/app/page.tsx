@@ -204,7 +204,7 @@ const DISASTER_SOURCE_AXIS_ID = "disaster";
 // LegendCheckboxListで描画され、非表示キーはhiddenLegendKeysByMode[DISASTER_SOURCE_AXIS_ID]
 // へ保存される（▶パネルの絞り込みと同じ保存先・同じ操作感）。
 // 面同士は重なると混色して危険度を読み取れないため、混んできたらここで絞り込む。
-// keyは`DISASTER_SOURCES`（dynamicWeather.ts）と一致していなければならない。型で縛る。
+// keyは源泉が配る災害のソース（dynamicWeather.ts: `DisasterSourceKey`）でなければならない。型で縛る。
 const DISASTER_SOURCE_LEGEND: (LegendEntry & { key: DisasterSourceKey })[] = [
   { key: "heavyRain", label: "大雨キキクル", color: RISK_LEVEL_COLORS[2].color, filter: UNUSED_LEGEND_FILTER },
   { key: "landslide", label: "土砂災害キキクル", color: RISK_LEVEL_COLORS[2].color, filter: UNUSED_LEGEND_FILTER },

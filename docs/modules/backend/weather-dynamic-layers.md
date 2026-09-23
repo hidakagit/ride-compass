@@ -131,8 +131,10 @@ fail-open方針の非対称性: 警報・WBGT・洪水予報は失敗時に警�
 「`maxNativeZoom`以下で`zoomUse`の偶奇を満たす最大値」を導出し、MapLibreの`maxzoom`
 （frontendへは動的気象の要素の宣言`domain/map_display.py: WEATHER_ELEMENTS`の生成物
 `mapDisplay.weatherElements`の`tile`として配る）とプリウォームの対象ズームの両方が
-この1箇所から決まる。パスの系統（`risk`・`nowc`・`rasrf`）も同じ仕様が持ち、プリウォームの
-取得先と画面の仮のURLがそこから組み立てる。
+この1箇所から決まる。パスの系統（`risk`・`nowc`・`rasrf`）も同じ仕様が持ち、タイルで配らない
+配信要素（落雷のGeoJSON）の系統だけは`JMA_NON_TILE_PATH_GROUPS`が持つ（1つの要素idの系統は
+どちらか一方だけ。`jma_path_group()`が引く）。プリウォームの取得先はここから、画面の仮のURLと
+データ層が組み立てる実データのURLは生成物の要素ごとの`pathGroup`・`jmaElement`から組み立てる。
 
 | 要素 | zoomUse | maxNativeZoom | 導出される上限 |
 |---|---|---|---|

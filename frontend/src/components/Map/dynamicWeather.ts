@@ -34,8 +34,6 @@
 import { mapDisplay } from "@/types/generated/mapDisplay";
 import { parseJmaTileElement } from "@/components/Map/jmaNowcastFrames";
 
-type DisasterFetchGroup = (typeof DISASTER_SOURCES)[number]["fetchGroup"];
-
 interface DynamicWeatherSourceState {
   visible: boolean;
   payload: DynamicWeatherRenderPayload | undefined;
@@ -59,27 +57,32 @@ export type DynamicWeatherRenderPayload =
   // （`features/map/scene/groups/weather.ts`）が持ち、ここではURLテンプレートだけを運ぶ。
   | { kind: "vectorTile"; tileUrlTemplate: string };
 
-/** 災害グループの名前付きソース。**このリストが唯一の情報源**で、凡例（▶パネルの
- * 「表示する情報」）・フェッチの有効判定・描画の表示状態の3つがここを見る。3箇所へ
- * 独立に書くと、片方を改名したときチェックを外しても面が消えなくなる。
- *
- * `fetchGroup`は1本の`targetTimes.json`を共有する単位。同じグループの要素がすべて
- * 非表示なら、そのフェッチ自体を行わない。 */
-const DISASTER_SOURCES = [
-  { key: "heavyRain", fetchGroup: "risk" },
-  { key: "landslide", fetchGroup: "risk" },
-  { key: "inundation", fetchGroup: "risk" },
-  { key: "flood", fetchGroup: "risk" },
-  { key: "thunder", fetchGroup: "thunder" },
-  { key: "tornado", fetchGroup: "thunder" },
-  { key: "liden", fetchGroup: "liden" },
-] as const;
+/** 災害グループの名前付きソース。**源泉が配る**（`mapDisplay.weatherElements`のうち
+ * チップが`disaster`のもの）。凡例（▶パネルの「表示する情報」）・フェッチの有効判定・
+ * 描画の表示状態の3つがこの型を見る。 */
+export type DisasterSourceKey = Extract<(typeof mapDisplay.weatherElements)[number], { group: "disaster" }>["source"];
 
-export type DisasterSourceKey = (typeof DISASTER_SOURCES)[number]["key"];
+/** 災害のソースを、取りに行く単位へ振り分ける。同じ単位の要素がすべて非表示なら、その
+ * フェッチ自体を行わない。単位はデータ層のフェッチ関数ごとに決まる画面の持ち物で、パスの
+ * 系統からは導けない（雷・竜巻と落雷は同じ系統だが、別々に取りに行く）。鍵は生成物から
+ * 導くため、源泉に災害のソースが増えて振り分けが無ければ型検査が落ちる。 */
+const DISASTER_FETCH_GROUP = {
+  heavyRain: "risk",
+  landslide: "risk",
+  inundation: "risk",
+  flood: "risk",
+  thunder: "thunder",
+  tornado: "thunder",
+  liden: "liden",
+} as const satisfies Record<DisasterSourceKey, string>;
+
+type DisasterFetchGroup = (typeof DISASTER_FETCH_GROUP)[DisasterSourceKey];
 
 /** そのフェッチ単位に属するソースキー。 */
 export function disasterSourceKeys(fetchGroup: DisasterFetchGroup): readonly DisasterSourceKey[] {
-  return DISASTER_SOURCES.filter((source) => source.fetchGroup === fetchGroup).map((source) => source.key);
+  return (Object.keys(DISASTER_FETCH_GROUP) as DisasterSourceKey[]).filter(
+    (key) => DISASTER_FETCH_GROUP[key] === fetchGroup,
+  );
 }
 
 /** 1グループ（=1 DynamicWeatherLayerId）配下の名前付きソースを識別するキー。グループ内で
