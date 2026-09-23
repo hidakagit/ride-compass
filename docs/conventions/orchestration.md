@@ -377,7 +377,9 @@ backendのPythonは作業ツリーに`.venv`が無いため、本体のチェッ
   理由にならない。
 - **`next build`と`playwright test`は、変更がその経路に届くと示せるときか、タスクが画面の
   確認を求めるときだけ回す**。コンポーネントの単体で確かめられることは`vitest`で確かめる。
-  画面の確認は`frontend/e2e/fixtures.ts`のモックで撮る。
+  画面の確認は`frontend/e2e/fixtures.ts`のモックで撮る。**例外は`frontend/e2e-live/`**: 地図の描き方・
+  タイルへ焼く値・軸カタログ・気象・ルート生成の応答に触る担当は、作業ブランチを出す前に1回回す
+  （条件・前提・手順は[testing.md](testing.md)パターン4「走らせ方」）。
 - **`npm ci`は、スロットを渡すときに`frontend/package-lock.json`が前回から変わっていたときだけ**
   （「作業ツリーのスロット」節。渡す側が`heavy`の枠で走らせる）。担当は自分で`npm ci`しない。
 - **フルスイートは回さない**（CIの持ち物。CLAUDE.md「テスト方針」）。
