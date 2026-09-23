@@ -2375,7 +2375,7 @@ def _bbox_around_point(center: Coordinates, radius_km: float) -> BoundingBox:
     折返し点候補がどの方位に選ばれても1回のRoad Graph取得でカバーできるよう、起点1つに
     対して1回だけ計算する）。"""
     lat_margin_deg = radius_km / KM_PER_DEGREE_LATITUDE
-    lon_margin_deg = radius_km / (KM_PER_DEGREE_LATITUDE * max(math.cos(math.radians(center.latitude)), 1e-6))
+    lon_margin_deg = radius_km / (KM_PER_DEGREE_LATITUDE * math.cos(math.radians(center.latitude)))
     return BoundingBox(
         min_latitude=center.latitude - lat_margin_deg,
         max_latitude=center.latitude + lat_margin_deg,

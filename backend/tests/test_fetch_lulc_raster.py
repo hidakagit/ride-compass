@@ -11,6 +11,7 @@ from rasterio.transform import from_origin
 
 from app.config import settings
 from scripts import fetch_lulc_raster
+from tests.bound_fake import bound
 
 
 class _FakeResponse:
@@ -60,7 +61,7 @@ def stub_download(monkeypatch):
         calls.append(url)
         return _FakeResponse(payload["body"])
 
-    monkeypatch.setattr(fetch_lulc_raster.httpx, "stream", fake_stream)
+    monkeypatch.setattr(fetch_lulc_raster.httpx, "stream", bound(fetch_lulc_raster.httpx.stream, fake_stream))
     return calls, payload
 
 

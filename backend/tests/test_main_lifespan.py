@@ -18,6 +18,7 @@ from fastapi.testclient import TestClient
 from app import main as main_module
 from app.main import app
 from app.services.axis_registry_service import AxisDefinitionSyncError
+from tests.bound_fake import bound
 
 
 async def _noop(*args, **kwargs) -> None:
@@ -58,10 +59,10 @@ def _isolated_scheduler(monkeypatch):
     """
     fresh_scheduler = AsyncIOScheduler()
     monkeypatch.setattr(main_module, "_scheduler", fresh_scheduler)
-    monkeypatch.setattr(main_module, "refresh_axis_definitions", _noop)
-    monkeypatch.setattr(main_module, "refresh_tuning_values", _noop)
+    monkeypatch.setattr(main_module, "refresh_axis_definitions", bound(main_module.refresh_axis_definitions, _noop))
+    monkeypatch.setattr(main_module, "refresh_tuning_values", bound(main_module.refresh_tuning_values, _noop))
     for name in _startup_job_attribute_names():
-        monkeypatch.setattr(main_module, name, _noop_job)
+        monkeypatch.setattr(main_module, name, bound(getattr(main_module, name), _noop_job))
     monkeypatch.setattr(main_module, "get_http_client", lambda timeout: None)
     yield fresh_scheduler
     if fresh_scheduler.running:

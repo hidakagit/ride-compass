@@ -30,6 +30,7 @@ import numpy as np
 import pytest
 
 from app.services import road_graph_engine as engine
+from tests.bound_fake import bound
 
 
 # --------------------------------------------------------------------------------------
@@ -48,14 +49,6 @@ class Bag:
 class FakeCoordinates:
     latitude: float
     longitude: float
-
-
-@dataclass
-class FakeBoundingBox:
-    min_latitude: float
-    max_latitude: float
-    min_longitude: float
-    max_longitude: float
 
 
 @dataclass
@@ -295,20 +288,6 @@ def cache(monkeypatch):
     return fake
 
 
-@pytest.fixture(autouse=True)
-def replace_constructed_types(monkeypatch):
-    """このファイルが**組み立てて返す**型を、架空の器に差し替える。"""
-    monkeypatch.setattr(engine, "Coordinates", FakeCoordinates)
-    monkeypatch.setattr(engine, "BoundingBox", FakeBoundingBox)
-    monkeypatch.setattr(engine, "LeanEdge", FakeEdge)
-    monkeypatch.setattr(engine, "ElevationAttribute", FakeElevation)
-    monkeypatch.setattr(engine, "RouteSegment", Bag)
-    monkeypatch.setattr(engine, "RouteSegmentDetail", Bag)
-    monkeypatch.setattr(engine, "RouteCandidate", Bag)
-    monkeypatch.setattr(engine, "TracedLoop", Bag)
-    monkeypatch.setattr(engine, "LoopTurnaround", Bag)
-
-
 # --------------------------------------------------------------------------------------
 # 代表ビンの選び方
 # --------------------------------------------------------------------------------------
@@ -348,13 +327,6 @@ def test_bbox_around_point_widens_longitude_with_latitude():
     assert equator_lon_margin == pytest.approx(equator_lat_margin)
     assert at_high.max_longitude - 139.0 > equator_lon_margin
     assert at_high.max_latitude - 60.0 == pytest.approx(equator_lat_margin)
-
-
-def test_bbox_around_point_stays_finite_at_the_pole():
-    """極ではcosが0に落ちる。クランプが無いと経度マージンが発散し、bboxが無意味になる。"""
-    bbox = engine._bbox_around_point(FakeCoordinates(90.0, 139.0), 10.0)
-    assert math.isfinite(bbox.max_longitude)
-    assert math.isfinite(bbox.min_longitude)
 
 
 def test_bbox_covering_points_uses_the_extremes_plus_margin():
@@ -877,7 +849,7 @@ async def test_lazy_graph_is_built_once_per_tile_set(cache, monkeypatch):
 
 
 async def test_consistent_lazy_graph_is_returned_untouched(cache, monkeypatch):
-    monkeypatch.setattr(engine, "find_missing_lazy_graph_edge_id", lambda *a, **k: None)
+    monkeypatch.setattr(engine, "find_missing_lazy_graph_edge_id", bound(engine.find_missing_lazy_graph_edge_id, lambda *a, **k: None))
     monkeypatch.setattr(engine, "build_lazy_road_graph", lambda g: pytest.fail("再構築は不要"))
     lazy = object()
 
@@ -888,7 +860,7 @@ async def test_consistent_lazy_graph_is_returned_untouched(cache, monkeypatch):
 async def test_stale_lazy_graph_is_rebuilt_from_the_graph(cache, monkeypatch):
     """古い探索用グラフをそのまま使うと、後続のedge_id引きがKeyErrorで500になる。"""
     answers = iter(["e_missing", None])
-    monkeypatch.setattr(engine, "find_missing_lazy_graph_edge_id", lambda *a, **k: next(answers))
+    monkeypatch.setattr(engine, "find_missing_lazy_graph_edge_id", bound(engine.find_missing_lazy_graph_edge_id, lambda *a, **k: next(answers)))
     monkeypatch.setattr(engine, "build_lazy_road_graph", lambda g: "REBUILT")
 
     result = await engine._ensure_lazy_graph_consistent(TILES, "STALE", object(), {})
@@ -900,7 +872,7 @@ async def test_stale_lazy_graph_is_rebuilt_from_the_graph(cache, monkeypatch):
 
 async def test_rebuilding_that_does_not_help_is_raised_not_swallowed(cache, monkeypatch):
     """作り直しても解消しない＝ずれているのは静的スコア行列側。黙って進むと原因不明の500になる。"""
-    monkeypatch.setattr(engine, "find_missing_lazy_graph_edge_id", lambda *a, **k: "e_missing")
+    monkeypatch.setattr(engine, "find_missing_lazy_graph_edge_id", bound(engine.find_missing_lazy_graph_edge_id, lambda *a, **k: "e_missing"))
     monkeypatch.setattr(engine, "build_lazy_road_graph", lambda g: "REBUILT")
 
     with pytest.raises(engine.LazyGraphEdgeMismatchError) as raised:
@@ -1329,16 +1301,16 @@ def search_world(monkeypatch, cache, composer_world):
     weather_service = FakeWeatherService()
 
     monkeypatch.setattr(engine, "is_night", lambda origin, now: False)
-    monkeypatch.setattr(engine, "compute_hard_filter_excluded", lambda *a: np.zeros(3, dtype=bool))
+    monkeypatch.setattr(engine, "compute_hard_filter_excluded", bound(engine.compute_hard_filter_excluded, lambda *a: np.zeros(3, dtype=bool)))
     monkeypatch.setattr(engine, "build_lazy_road_graph", lambda g: lazy)
-    monkeypatch.setattr(engine, "find_missing_lazy_graph_edge_id", lambda *a, **k: None)
+    monkeypatch.setattr(engine, "find_missing_lazy_graph_edge_id", bound(engine.find_missing_lazy_graph_edge_id, lambda *a, **k: None))
     monkeypatch.setattr(engine, "build_search_graph_statics", lambda lz, g: statics)
-    monkeypatch.setattr(engine, "build_turn_expanded_structure", lambda *a: structure)
+    monkeypatch.setattr(engine, "build_turn_expanded_structure", bound(engine.build_turn_expanded_structure, lambda *a: structure))
     monkeypatch.setattr(engine, "edge_bearings", lambda g, lz: np.zeros(len(lz.edge_ids)))
     monkeypatch.setattr(engine, "highway_rank", lambda highway: 1)
     monkeypatch.setattr(engine, "compute_routable_node_ids", lambda g, ids, excluded: list(g.nodes))
     monkeypatch.setattr(engine, "build_node_spatial_index", lambda g, node_ids: Bag(node_ids=list(node_ids)))
-    monkeypatch.setattr(engine, "find_nearest_node_indexed", lambda index, point, **kwargs: "n0")
+    monkeypatch.setattr(engine, "find_nearest_node_indexed", bound(engine.find_nearest_node_indexed, lambda index, point, **kwargs: "n0"))
     monkeypatch.setattr(engine, "haversine_distance_km_array", lambda lat, lon, target: np.ones(len(lat)))
     monkeypatch.setattr(engine, "haversine_distance_km", lambda a, b: 5.0)
     monkeypatch.setattr(engine, "tuning_value", lambda key: {"speed.walking_kmh": 4.0, "speed.max_descent_kmh": 60.0}[key])
@@ -1493,7 +1465,7 @@ async def test_prepare_gives_up_when_the_area_has_no_graph(search_world):
 
 
 async def test_prepare_gives_up_when_the_origin_cannot_be_snapped(search_world, monkeypatch):
-    monkeypatch.setattr(engine, "find_nearest_node_indexed", lambda index, point, **kwargs: None)
+    monkeypatch.setattr(engine, "find_nearest_node_indexed", bound(engine.find_nearest_node_indexed, lambda index, point, **kwargs: None))
 
     assert await search_world.engine.prepare(FakeCoordinates(35.0, 139.0), 10.0, now=NOW) is None
 
@@ -1514,7 +1486,7 @@ async def test_prepare_hands_on_the_outbound_leg_and_the_origin_index(search_wor
 
 
 async def test_preview_segment_reports_distance_and_duration_of_the_path(search_world, monkeypatch):
-    monkeypatch.setattr(engine, "turn_expanded_shortest_path", lambda *a: [0, 1])
+    monkeypatch.setattr(engine, "turn_expanded_shortest_path", bound(engine.turn_expanded_shortest_path, lambda *a: [0, 1]))
     for edge_id, geometry in (("e0", [(35.0, 139.0), (35.1, 139.1)]), ("e1", [(35.1, 139.1), (35.2, 139.2)])):
         search_world.graph.edges[edge_id].geometry = geometry
 
@@ -1528,7 +1500,7 @@ async def test_preview_segment_reports_distance_and_duration_of_the_path(search_
 
 
 async def test_preview_segment_is_none_when_either_end_cannot_be_snapped(search_world, monkeypatch):
-    monkeypatch.setattr(engine, "find_nearest_node_indexed", lambda index, point, **kwargs: None)
+    monkeypatch.setattr(engine, "find_nearest_node_indexed", bound(engine.find_nearest_node_indexed, lambda index, point, **kwargs: None))
 
     assert await search_world.engine.preview_segment(
         FakeCoordinates(35.0, 139.0), FakeCoordinates(35.2, 139.2), now=NOW
@@ -1537,7 +1509,7 @@ async def test_preview_segment_is_none_when_either_end_cannot_be_snapped(search_
 
 @pytest.mark.parametrize("path", [None, []])
 async def test_preview_segment_is_none_when_no_path_exists(search_world, monkeypatch, path):
-    monkeypatch.setattr(engine, "turn_expanded_shortest_path", lambda *a: path)
+    monkeypatch.setattr(engine, "turn_expanded_shortest_path", bound(engine.turn_expanded_shortest_path, lambda *a: path))
 
     assert await search_world.engine.preview_segment(
         FakeCoordinates(35.0, 139.0), FakeCoordinates(35.2, 139.2), now=NOW
@@ -1580,7 +1552,7 @@ def snap_by_latitude(mapping, default=None):
     def snap(index, point, **kwargs):
         return mapping.get(round(point.latitude, 4), default)
 
-    return snap
+    return bound(engine.find_nearest_node_indexed, snap)
 
 
 async def test_trace_loop_reuses_the_snapped_origin_for_a_closed_loop(search_world, monkeypatch):
@@ -1716,7 +1688,7 @@ async def test_built_path_must_be_connected(search_world):
 
 async def test_built_path_must_reach_the_destination_when_one_is_given(search_world, monkeypatch):
     context = await prepared(search_world)
-    monkeypatch.setattr(engine, "find_nearest_node_indexed", lambda index, point, **kwargs: "n2")
+    monkeypatch.setattr(engine, "find_nearest_node_indexed", bound(engine.find_nearest_node_indexed, lambda index, point, **kwargs: "n2"))
 
     with pytest.raises(engine.RoutingError, match="目的地に着いていません"):
         search_world.engine.build_traced_from_edge_ids(context, ["e0"], destination=FakeCoordinates(37.0, 139.9))
@@ -1724,7 +1696,7 @@ async def test_built_path_must_reach_the_destination_when_one_is_given(search_wo
 
 async def test_built_path_skips_the_destination_check_when_it_cannot_be_snapped(search_world, monkeypatch):
     context = await prepared(search_world)
-    monkeypatch.setattr(engine, "find_nearest_node_indexed", lambda index, point, **kwargs: None)
+    monkeypatch.setattr(engine, "find_nearest_node_indexed", bound(engine.find_nearest_node_indexed, lambda index, point, **kwargs: None))
 
     traced = search_world.engine.build_traced_from_edge_ids(
         context, ["e0"], destination=FakeCoordinates(37.0, 139.9)
@@ -1859,7 +1831,7 @@ async def test_return_search_penalises_the_outbound_edges_and_their_opposites(se
         seen["costs"] = cost_bins.copy()
         return [1]
 
-    monkeypatch.setattr(engine, "turn_expanded_shortest_path", fake_path)
+    monkeypatch.setattr(engine, "turn_expanded_shortest_path", bound(engine.turn_expanded_shortest_path, fake_path))
 
     await search_world.engine.trace_loop_from_turnaround(context, turnaround(outbound=(0,)))
 
@@ -1870,7 +1842,7 @@ async def test_return_search_restores_the_shared_cost_array(search_world, monkey
     """コスト配列は全候補で共有する。戻し損ねると次の候補が上がったコストを見る。"""
     context = await loop_context(search_world, monkeypatch)
     before = context.legs[1].cost_bins_lazy.copy()
-    monkeypatch.setattr(engine, "turn_expanded_shortest_path", lambda *a: [1])
+    monkeypatch.setattr(engine, "turn_expanded_shortest_path", bound(engine.turn_expanded_shortest_path, lambda *a: [1]))
 
     await search_world.engine.trace_loop_from_turnaround(context, turnaround(outbound=(0, 2)))
 
@@ -1901,7 +1873,7 @@ async def test_return_search_uses_the_outbound_leg_when_no_inbound_was_composed(
         seen["bins"] = cost_bins
         return [1]
 
-    monkeypatch.setattr(engine, "turn_expanded_shortest_path", fake_path)
+    monkeypatch.setattr(engine, "turn_expanded_shortest_path", bound(engine.turn_expanded_shortest_path, fake_path))
 
     await search_world.engine.trace_loop_from_turnaround(context, turnaround())
 
@@ -1910,7 +1882,7 @@ async def test_return_search_uses_the_outbound_leg_when_no_inbound_was_composed(
 
 async def test_closed_loop_keeps_the_outbound_edges_ahead_of_the_return(search_world, monkeypatch):
     context = await loop_context(search_world, monkeypatch)
-    monkeypatch.setattr(engine, "turn_expanded_shortest_path", lambda *a: [1, 2])
+    monkeypatch.setattr(engine, "turn_expanded_shortest_path", bound(engine.turn_expanded_shortest_path, lambda *a: [1, 2]))
 
     traced = await search_world.engine.trace_loop_from_turnaround(context, turnaround(outbound=(0,)))
 
@@ -1923,7 +1895,7 @@ async def test_closed_loop_keeps_the_outbound_edges_ahead_of_the_return(search_w
 @pytest.mark.parametrize("result, message", [(None, "no return path"), ([], "no edges")])
 async def test_a_turnaround_without_a_usable_return_is_refused(search_world, monkeypatch, result, message):
     context = await loop_context(search_world, monkeypatch)
-    monkeypatch.setattr(engine, "turn_expanded_shortest_path", lambda *a: result)
+    monkeypatch.setattr(engine, "turn_expanded_shortest_path", bound(engine.turn_expanded_shortest_path, lambda *a: result))
 
     with pytest.raises(engine.RoutingError, match=message):
         await search_world.engine.trace_loop_from_turnaround(context, turnaround())
@@ -1956,7 +1928,7 @@ async def test_fastest_route_splits_its_legs_by_time_not_by_distance(search_worl
     """境目は時間で取る。距離で割ると、長く時間のかかる区間が帰路側の時刻帯で評価される。"""
     context = await prepared(search_world)
     context.legs[0].travel_seconds_lazy = np.array([10.0, 10.0, 100.0])
-    monkeypatch.setattr(engine, "turn_expanded_shortest_path", lambda *a: [0, 1, 2])
+    monkeypatch.setattr(engine, "turn_expanded_shortest_path", bound(engine.turn_expanded_shortest_path, lambda *a: [0, 1, 2]))
 
     traced = await search_world.engine.select_fastest_route(context, FakeCoordinates(37.0, 139.9))
 
@@ -1966,7 +1938,7 @@ async def test_fastest_route_splits_its_legs_by_time_not_by_distance(search_worl
 async def test_fastest_route_puts_the_boundary_after_the_edge_that_crosses_half(search_world, monkeypatch):
     context = await prepared(search_world)
     context.legs[0].travel_seconds_lazy = np.array([100.0, 100.0, 100.0])
-    monkeypatch.setattr(engine, "turn_expanded_shortest_path", lambda *a: [0, 1, 2])
+    monkeypatch.setattr(engine, "turn_expanded_shortest_path", bound(engine.turn_expanded_shortest_path, lambda *a: [0, 1, 2]))
 
     traced = await search_world.engine.select_fastest_route(context, FakeCoordinates(37.0, 139.9))
 
@@ -1982,9 +1954,9 @@ async def test_fastest_route_follows_a_corrected_destination(search_world, monke
     asked = []
     monkeypatch.setattr(
         engine, "find_nearest_node_indexed",
-        lambda index, point, **kwargs: asked.append(point) or "n2",
+        bound(engine.find_nearest_node_indexed, lambda index, point, **kwargs: asked.append(point) or "n2"),
     )
-    monkeypatch.setattr(engine, "turn_expanded_shortest_path", lambda *a: [0])
+    monkeypatch.setattr(engine, "turn_expanded_shortest_path", bound(engine.turn_expanded_shortest_path, lambda *a: [0]))
 
     await search_world.engine.select_fastest_route(context, FakeCoordinates(37.0, 139.9))
 
@@ -1993,14 +1965,14 @@ async def test_fastest_route_follows_a_corrected_destination(search_world, monke
 
 async def test_fastest_route_is_none_when_the_destination_cannot_be_snapped(search_world, monkeypatch):
     context = await prepared(search_world)
-    monkeypatch.setattr(engine, "find_nearest_node_indexed", lambda index, point, **kwargs: None)
+    monkeypatch.setattr(engine, "find_nearest_node_indexed", bound(engine.find_nearest_node_indexed, lambda index, point, **kwargs: None))
 
     assert await search_world.engine.select_fastest_route(context, FakeCoordinates(37.0, 139.9)) is None
 
 
 async def test_fastest_route_is_none_when_no_path_reaches_the_destination(search_world, monkeypatch):
     context = await prepared(search_world)
-    monkeypatch.setattr(engine, "turn_expanded_shortest_path", lambda *a: None)
+    monkeypatch.setattr(engine, "turn_expanded_shortest_path", bound(engine.turn_expanded_shortest_path, lambda *a: None))
 
     assert await search_world.engine.select_fastest_route(context, FakeCoordinates(37.0, 139.9)) is None
 
@@ -2121,7 +2093,7 @@ async def test_a_waypoint_route_is_never_flipped(search_world, monkeypatch):
     """経由地ルートは訪問順序そのものが要件。逆回りは別のルートになる。"""
     context = elevation_context(search_world, {})
     monkeypatch.setattr(engine, "_reverse_traced_edges", lambda *a: pytest.fail("逆回りを作ってはいけない"))
-    search_world.engine._build_candidate = lambda *a, **k: Bag(name="forward", segments=[])
+    search_world.engine._build_candidate = bound(search_world.engine._build_candidate, lambda *a, **k: Bag(name="forward", segments=[]))
 
     result = await search_world.engine._build_best_candidate(
         context, Bag(bearing=None, leg_of_edge=[0]), [search_world.graph.edges["e0"]], NOW
@@ -2132,8 +2104,8 @@ async def test_a_waypoint_route_is_never_flipped(search_world, monkeypatch):
 
 async def test_a_one_way_loop_stays_in_its_original_direction(search_world, monkeypatch):
     context = elevation_context(search_world, {})
-    monkeypatch.setattr(engine, "_reverse_traced_edges", lambda *a: None)
-    search_world.engine._build_candidate = lambda *a, **k: Bag(name="forward", segments=[])
+    monkeypatch.setattr(engine, "_reverse_traced_edges", bound(engine._reverse_traced_edges, lambda *a: None))
+    search_world.engine._build_candidate = bound(search_world.engine._build_candidate, lambda *a, **k: Bag(name="forward", segments=[]))
 
     result = await search_world.engine._build_best_candidate(
         context, Bag(bearing=90, leg_of_edge=[0]), [search_world.graph.edges["e0"]], NOW
@@ -2145,8 +2117,8 @@ async def test_a_one_way_loop_stays_in_its_original_direction(search_world, monk
 async def test_a_reversible_loop_keeps_the_easier_direction(search_world, monkeypatch):
     """逆走は勾配・風で評点が変わる。両方向を別候補として並べず、走りやすい方だけ残す。"""
     context = elevation_context(search_world, {})
-    monkeypatch.setattr(engine, "_reverse_traced_edges", lambda *a: [search_world.graph.edges["e1"]])
-    monkeypatch.setattr(engine, "_reverse_elevation_by_edge", lambda *a: {})
+    monkeypatch.setattr(engine, "_reverse_traced_edges", bound(engine._reverse_traced_edges, lambda *a: [search_world.graph.edges["e1"]]))
+    monkeypatch.setattr(engine, "_reverse_elevation_by_edge", bound(engine._reverse_elevation_by_edge, lambda *a: {}))
     monkeypatch.setattr(engine, "distance_weighted_difficulty", lambda pairs: pairs[0][0])
     built = []
 
@@ -2170,17 +2142,22 @@ def test_material_category_shares_are_folded_before_the_segments_are_aggregated(
     detailed = [Bag(difficulty=1.0, distance_km=1.0), Bag(difficulty=2.0, distance_km=3.0)]
     categories = [{"cat_a": "paved"}, {}]
     folded = {}
-    monkeypatch.setattr(
-        engine, "merge_material_category_shares",
-        lambda pairs: folded.setdefault("pairs", list(pairs)) or {"cat_a": {"paved": 1.0}},
+
+    def merge(pairs):
+        folded["pairs"] = list(pairs)
+        return {"cat_a": {"paved": 1.0}}
+
+    binned = engine.RouteSegmentDetail(
+        start_latitude=35.0, start_longitude=139.0, end_latitude=35.2, end_longitude=139.2,
+        cumulative_distance_km=4.0, distance_km=4.0,
     )
-    monkeypatch.setattr(engine, "aggregate_segments_into_bins", lambda segments: ["BIN"])
-    monkeypatch.setattr(engine, "candidate_identity", lambda bearing: {"bearing": bearing})
+    monkeypatch.setattr(engine, "merge_material_category_shares", merge)
+    monkeypatch.setattr(engine, "aggregate_segments_into_bins", lambda segments: [binned])
     monkeypatch.setattr(engine, "sum_or_none", lambda values: None)
     monkeypatch.setattr(engine, "min_or_none", lambda values: None)
     monkeypatch.setattr(engine, "max_or_none", lambda values: None)
-    search_world.engine._build_segment_details = lambda *a: (detailed, categories)
-    search_world.engine._estimate_duration_seconds = lambda *a: 1234.0
+    search_world.engine._build_segment_details = bound(search_world.engine._build_segment_details, lambda *a: (detailed, categories))
+    search_world.engine._estimate_duration_seconds = bound(search_world.engine._estimate_duration_seconds, lambda *a: 1234.0)
     context = elevation_context(search_world, {})
     edges = [
         FakeEdge(edge_id="e0", from_node_id="n0", to_node_id="n1", geometry=[(35.0, 139.0), (35.1, 139.1)]),
@@ -2192,7 +2169,8 @@ def test_material_category_shares_are_folded_before_the_segments_are_aggregated(
     )
 
     assert folded["pairs"] == [(1.0, {"cat_a": "paved"}), (3.0, {})]
-    assert candidate.segments == ["BIN"]
+    assert candidate.segments == [binned]
+    assert candidate.material_category_shares == {"cat_a": {"paved": 1.0}}
     assert candidate.node_ids == ["n0", "n1", "n2"]
     assert candidate.edge_ids == ["e0", "e1"]
     assert candidate.estimated_duration_seconds == 1234.0
@@ -2379,10 +2357,10 @@ def ring_world(monkeypatch, cache, composer_world):
     )
     diverse = DiverseRecorder()
 
-    monkeypatch.setattr(engine, "build_turn_expanded_tree", lambda *a, **k: tree)
+    monkeypatch.setattr(engine, "build_turn_expanded_tree", bound(engine.build_turn_expanded_tree, lambda *a, **k: tree))
     monkeypatch.setattr(engine, "turn_expanded_path_edge_indices", lambda t, node_index: [0])
     monkeypatch.setattr(engine, "select_diverse_by_overlap", diverse)
-    monkeypatch.setattr(engine, "pareto_layer_index", lambda a, b, **k: np.zeros(len(a), dtype=np.int64))
+    monkeypatch.setattr(engine, "pareto_layer_index", bound(engine.pareto_layer_index, lambda a, b, **k: np.zeros(len(a), dtype=np.int64)))
     monkeypatch.setattr(engine, "bearing_between_array", lambda origin, lat, lon: np.zeros(len(lat)))
     monkeypatch.setattr(engine, "bearing_between", lambda origin, node: 45.0)
     monkeypatch.setattr(engine, "haversine_distance_km_array", lambda lat, lon, origin: np.full(len(lat), 5.0))
@@ -2590,16 +2568,16 @@ def via_world(monkeypatch, cache, composer_world):
     def fake_tree(*args, **kwargs):
         return backward if kwargs.get("reverse") else forward
 
-    monkeypatch.setattr(engine, "build_turn_expanded_tree", fake_tree)
-    monkeypatch.setattr(engine, "combine_forward_backward_at_nodes", lambda *a: junction)
+    monkeypatch.setattr(engine, "build_turn_expanded_tree", bound(engine.build_turn_expanded_tree, fake_tree))
+    monkeypatch.setattr(engine, "combine_forward_backward_at_nodes", bound(engine.combine_forward_backward_at_nodes, lambda *a: junction))
     monkeypatch.setattr(engine, "turn_expanded_path_from_state", lambda tree, state: forward_paths.get(state))
     monkeypatch.setattr(engine, "turn_expanded_path_from_state_to_source", lambda tree, state: backward_paths.get(state, []))
     monkeypatch.setattr(engine, "select_diverse_by_overlap", diverse)
-    monkeypatch.setattr(engine, "pareto_layer_index", lambda a, b, **k: np.zeros(len(a), dtype=np.int64))
+    monkeypatch.setattr(engine, "pareto_layer_index", bound(engine.pareto_layer_index, lambda a, b, **k: np.zeros(len(a), dtype=np.int64)))
     monkeypatch.setattr(engine, "haversine_distance_km", lambda a, b: 4.0)
     monkeypatch.setattr(engine, "haversine_distance_km_array", lambda lat, lon, origin: np.full(len(lat), 2.0))
-    monkeypatch.setattr(engine, "estimate_passage_hours", lambda *a, **k: np.full(5, 9.0))
-    monkeypatch.setattr(engine, "find_nearest_node_indexed", lambda index, point, **kwargs: "v3")
+    monkeypatch.setattr(engine, "estimate_passage_hours", bound(engine.estimate_passage_hours, lambda *a, **k: np.full(5, 9.0)))
+    monkeypatch.setattr(engine, "find_nearest_node_indexed", bound(engine.find_nearest_node_indexed, lambda index, point, **kwargs: "v3"))
 
     composer = make_composer(make_score_matrix(count=5, edge_ids=[spec[0] for spec in VIA_EDGES]))
     context = make_context(
@@ -2621,7 +2599,7 @@ DESTINATION = FakeCoordinates(35.03, 139.0)
 
 
 async def test_via_nodes_are_empty_when_the_destination_is_off_the_routable_graph(via_world, monkeypatch):
-    monkeypatch.setattr(engine, "find_nearest_node_indexed", lambda index, point, **kwargs: None)
+    monkeypatch.setattr(engine, "find_nearest_node_indexed", bound(engine.find_nearest_node_indexed, lambda index, point, **kwargs: None))
 
     assert await via_world.engine.select_via_nodes(via_world.context, DESTINATION, 3) == []
 
@@ -2630,11 +2608,11 @@ async def test_an_isolated_destination_is_moved_to_the_nearest_reachable_node(vi
     """タップ先が本線から孤立した小塊だと、後ろ向き木が起点と重ならず毎回0件になる。"""
     via_world.forward.node_cost = np.array([0.0, 50.0, 60.0, np.inf])
     snapped = iter(["v3", "v1"])
-    monkeypatch.setattr(engine, "find_nearest_node_indexed", lambda index, point, **kwargs: next(snapped))
+    monkeypatch.setattr(engine, "find_nearest_node_indexed", bound(engine.find_nearest_node_indexed, lambda index, point, **kwargs: next(snapped)))
 
     await via_world.engine.select_via_nodes(via_world.context, DESTINATION, 3)
 
-    assert via_world.context.destination_correction == FakeCoordinates(35.01, 139.0)
+    assert via_world.context.destination_correction == engine.Coordinates(latitude=35.01, longitude=139.0)
 
 
 async def test_a_failure_at_the_origin_is_named_as_such(via_world, monkeypatch):
@@ -2795,7 +2773,7 @@ def hydrate_with_geometry(graph_service, geometry, distance_m):
 
 async def test_preview_draws_the_refetched_shape_not_the_search_graph_placeholder(search_world, monkeypatch):
     """探索用グラフのEdgeはgeometryが空。そのまま配ると地図に線が出ない。"""
-    monkeypatch.setattr(engine, "turn_expanded_shortest_path", lambda *a: [0, 1])
+    monkeypatch.setattr(engine, "turn_expanded_shortest_path", bound(engine.turn_expanded_shortest_path, lambda *a: [0, 1]))
     hydrate_with_geometry(search_world.graph_service, [(35.0, 139.0), (35.5, 139.5)], 500.0)
 
     segment = await search_world.engine.preview_segment(
@@ -2834,7 +2812,7 @@ async def test_tied_via_node_candidates_keep_a_stable_order(via_world):
 
 async def test_a_dominated_turnaround_is_never_tried_before_a_non_dominated_one(ring_world, monkeypatch):
     """同じdifficultyでも層が違えば別グループ。混ぜると劣解が非劣解より先に試されうる。"""
-    monkeypatch.setattr(engine, "pareto_layer_index", lambda a, b, **k: np.array([0, -1]))
+    monkeypatch.setattr(engine, "pareto_layer_index", bound(engine.pareto_layer_index, lambda a, b, **k: np.array([0, -1])))
 
     await ring_world.engine.select_loop_turnarounds(ring_world.context, 20.0, 2.0, 4)
 

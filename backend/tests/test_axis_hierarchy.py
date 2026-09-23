@@ -30,7 +30,7 @@ from app.domain.axis_definitions import (
 DYNAMIC = next(iter(REQUEST_DYNAMIC_MATERIAL_IDS))
 
 
-@pytest.fixture(autouse=True)
+@pytest.fixture
 def catalog(monkeypatch):
     """材料と認めるidを差し替える。ここに無いidは軸参照の候補になる。"""
     known = {"num_a", "num_b", DYNAMIC}
@@ -70,7 +70,7 @@ class TestWhichReferencesAreAxes:
 
         assert axis_dependencies(definition, {"outer", "inner"}) == {"inner"}
 
-    def test_a_material_is_never_a_dependency(self):
+    def test_a_material_is_never_a_dependency(self, catalog):
         """材料と同じ名前の軸を作れる。材料側を依存として扱うと、存在しない軸を辿る。"""
         definition = _axis("outer", ["num_a", "num_b"])
 

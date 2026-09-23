@@ -13,11 +13,6 @@ client = TestClient(app)
 
 
 @pytest.fixture(autouse=True)
-def _always_admin_credentials(admin_credentials):
-    """このファイルのテストはすべて管理画面APIを叩くため、認証情報を常に入れる。"""
-
-
-@pytest.fixture(autouse=True)
 def _restore_debug_mode():
     # settings.debug_mode・ルートロガーのレベルはプロセス全体で共有される可変状態のため、
     # このテストファイルでの切替が他のテストへ漏れないよう毎回元に戻す
@@ -32,14 +27,14 @@ def _restore_debug_mode():
 # --- 認可（require_admin_basic_auth、axis_admin.pyと共有） ---
 
 
-def test_update_mode_rejects_missing_credentials():
+def test_update_mode_rejects_missing_credentials(admin_credentials):
     response = client.post("/api/admin/debug/mode", json={"enabled": True})
 
     assert response.status_code == 401
     assert response.headers["www-authenticate"] == 'Basic realm="RideCompass admin"'
 
 
-def test_update_mode_rejects_wrong_credentials():
+def test_update_mode_rejects_wrong_credentials(admin_credentials):
     response = client.post(
         "/api/admin/debug/mode",
         json={"enabled": True},
@@ -58,7 +53,7 @@ def test_update_mode_rejects_any_credentials_when_unset(monkeypatch):
     assert response.status_code == 401
 
 
-def test_read_logs_requires_auth():
+def test_read_logs_requires_auth(admin_credentials):
     response = client.get("/api/admin/debug/logs")
 
     assert response.status_code == 401
@@ -67,7 +62,7 @@ def test_read_logs_requires_auth():
 # --- debug_modeのランタイム切替（再起動不要） ---
 
 
-def test_update_mode_enables_and_disables_without_restart():
+def test_update_mode_enables_and_disables_without_restart(admin_credentials):
     enable_response = client.post("/api/admin/debug/mode", json={"enabled": True}, headers=AUTH_HEADERS)
     assert enable_response.status_code == 200
     assert enable_response.json() == {"debug_mode": True}
@@ -81,7 +76,7 @@ def test_update_mode_enables_and_disables_without_restart():
     assert logging.getLogger().level == logging.INFO
 
 
-def test_read_mode_reflects_current_state():
+def test_read_mode_reflects_current_state(admin_credentials):
     client.post("/api/admin/debug/mode", json={"enabled": True}, headers=AUTH_HEADERS)
 
     response = client.get("/api/admin/debug/mode", headers=AUTH_HEADERS)
@@ -93,7 +88,7 @@ def test_read_mode_reflects_current_state():
 # --- ログ取得（リングバッファ、T318のユースケース: containsで絞り込み） ---
 
 
-def test_read_logs_filters_by_contains_and_limit():
+def test_read_logs_filters_by_contains_and_limit(admin_credentials):
     client.post("/api/admin/debug/mode", json={"enabled": True}, headers=AUTH_HEADERS)
     marker = uuid.uuid4().hex
     logger = logging.getLogger("test.t377")
@@ -109,7 +104,7 @@ def test_read_logs_filters_by_contains_and_limit():
     assert f"bearing=1 marker={marker}" in lines[0]
 
 
-def test_read_logs_filters_by_min_level():
+def test_read_logs_filters_by_min_level(admin_credentials):
     """改善計画T517: min_level=WARNINGを渡すとWARNING以上だけが返り、
     DEBUG/INFOは除外される。debug_modeをONにしてDEBUG行も記録させた上で検証する。"""
     client.post("/api/admin/debug/mode", json={"enabled": True}, headers=AUTH_HEADERS)
@@ -130,13 +125,13 @@ def test_read_logs_filters_by_min_level():
     assert all("[WARNING]" in line or "[ERROR]" in line for line in lines)
 
 
-def test_read_logs_rejects_unknown_min_level():
+def test_read_logs_rejects_unknown_min_level(admin_credentials):
     response = client.get("/api/admin/debug/logs", params={"min_level": "TRACE"}, headers=AUTH_HEADERS)
 
     assert response.status_code == 422
 
 
-def test_read_logs_returns_nothing_while_debug_mode_disabled():
+def test_read_logs_returns_nothing_while_debug_mode_disabled(admin_credentials):
     client.post("/api/admin/debug/mode", json={"enabled": False}, headers=AUTH_HEADERS)
     marker = uuid.uuid4().hex
     logging.getLogger("test.t377").debug("should not be recorded marker=%s", marker)

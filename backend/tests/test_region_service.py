@@ -4,7 +4,6 @@ import pytest
 from app.domain.axis_definitions import AXIS_DEFINITIONS, AxisDefinition, BreakpointLinearShape, MaterialTerm
 from app.infrastructure import tile_cache
 from app.infrastructure.vector_tile import encode_empty_poi_tile, encode_empty_road_surface_tile
-from app.services import derived_data_revision_service
 from app.infrastructure.road_graph_repository import RoadGraphRepository
 from app.services.region_service import RegionService
 
@@ -12,17 +11,6 @@ from app.services.region_service import RegionService
 @pytest.fixture(autouse=True)
 def use_temp_tile_cache(tmp_path, monkeypatch):
     monkeypatch.setattr(tile_cache, "CACHE_DIR", tmp_path / "tile_cache")
-    yield
-
-
-@pytest.fixture(autouse=True)
-def known_derived_data_revision(monkeypatch):
-    """世代が読めている状態を既定にする。
-
-    読めていないあいだタイルはディスクへ残らないため、キャッシュの挙動を見るテストは
-    この前提を明示する必要がある。
-    """
-    monkeypatch.setattr(derived_data_revision_service, "current_revision", lambda: 1)
     yield
 
 

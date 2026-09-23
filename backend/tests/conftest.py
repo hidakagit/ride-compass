@@ -267,10 +267,8 @@ async def road_graph_engine():
     """テストファイル単位で使い回すエンジン。PostGIS拡張の有効化とテーブル一式
     （空間インデックス込み）の作成もこの中で1回だけ行う。
 
-    **スキップしてよいのは接続できないときだけ**。用意そのものの失敗——拡張の不足、
-    ORM宣言とDBの食い違い——をスキップにすると、そのファイルのテストが1件も走らないまま
-    緑になり、「DBが無い環境」と見分けが付かなくなる。そのため接続の確認と用意を分け、
-    用意の失敗は例外のまま落とす。
+    **接続できないときも落とす（スキップにしない）**。スキップにすると、そのファイルの
+    テストが1件も走らないまま緑になる。DBを使わない実行は`-m "not postgis"`で選ぶ。
     """
     engine = create_async_engine(postgis_database_url())
     try:
@@ -280,7 +278,9 @@ async def road_graph_engine():
         await engine.dispose()
         # URLはそのまま出さない（パスワードを含む）。行き先はDB名で足りる。
         database = postgis_database_url().rsplit("/", 1)[-1]
-        pytest.skip(f"テストDB {database} へ接続できないためスキップ: {exc}")
+        pytest.fail(
+            f"テストDB {database} へ接続できない: {exc}（DBを使わない実行は -m \"not postgis\"）", pytrace=False
+        )
 
     # 拡張はアプリと同じ一覧から入れる（テスト側で書き写すと、スキーマが新しい拡張を
     # 要求し始めたときにここだけ古いまま「型が存在しません」で落ちる）。入れられない
