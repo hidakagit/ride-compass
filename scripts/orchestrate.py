@@ -2,8 +2,9 @@
 
     python scripts/orchestrate.py <サブコマンド> ...
 
-使い方は`scripts/orchestration/core.py`の冒頭。`decision`は依頼で足した別のモジュール
-（`scripts/orchestration/decisions.py`）へ渡す——核はそれらをimportしないため、振り分けはここで行う。
+使い方は`scripts/orchestration/core.py`の冒頭。`decision`・`queue`・`prereqs`・`priority`は依頼で
+足した別のモジュール（`scripts/orchestration/decisions.py`・`queue.py`）へ渡す——核はそれらを
+importしないため、振り分けはここで行う。
 """
 
 import sys
@@ -25,6 +26,11 @@ def main() -> int:
 
         sys.stdout.reconfigure(encoding="utf-8")
         return decisions.main(argv[:i] + argv[i + 1:])
+    if argv[i:i + 1] and argv[i] in ("queue", "prereqs", "priority"):
+        from orchestration import queue
+
+        sys.stdout.reconfigure(encoding="utf-8")
+        return queue.main(argv)
     return core.main(argv)
 
 

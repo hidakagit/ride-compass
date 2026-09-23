@@ -22,6 +22,11 @@
     python scripts/orchestrate.py board dispatch push|pop|list  # 振り出し待ちのキュー
     python scripts/orchestrate.py board unpushed add|done|list  # 監査済み・未pushのコミット
 
+担当の現在のタスク（`current_task`）は、振り出し（`board add`の担当キューの先頭、`board set`の
+`current_task=Txxx`）で切り替わり、その着手時刻（`task_first_started`）から規模札（`scale=S|M|L`）の
+予算と比べて見込み超過を測る。報告の受領（`reported=now`）でタスクを閉じ、実時間と予算の差を
+`task_log`へ残す。
+
 `board set <名前> audit_done=now audit_result=通す`は、監査の記録（audit_log）を1件残し、
 `reported_sha`を監査済み・未pushへ積む。
 
@@ -204,12 +209,24 @@ def task_state(text: str | None) -> str | None:
     return value[:10]
 
 
+def prereqs_of_item(item: dict) -> list[str]:
+    """振り出し待ちの1行の前提（`after`）。1件の文字列でも、配列でもよい。"""
+    after = item.get("after")
+    if not after:
+        return []
+    return [str(t) for t in (after if isinstance(after, list) else [after])]
+
+
+def done_tasks(ctx: Context, tasks: list[str]) -> set[str]:
+    """origin/masterのタスク記録で`状態: 完了`のもの。"""
+    texts = cat_files(ctx.repo, [f"origin/master:{TASKS_DIR}/{t}.md" for t in tasks])
+    return {t for t in tasks if task_state(texts[f"origin/master:{TASKS_DIR}/{t}.md"]) == "完了"}
+
+
 def ready_to_dispatch(ctx: Context, items: list[dict]) -> list[dict]:
-    """振り出し待ちのうち、前提（`after`のTxxx）がorigin/masterで完了しているもの。"""
-    deps = sorted({str(i["after"]) for i in items if i.get("after")})
-    texts = cat_files(ctx.repo, [f"origin/master:{TASKS_DIR}/{t}.md" for t in deps])
-    done = {t for t in deps if task_state(texts[f"origin/master:{TASKS_DIR}/{t}.md"]) == "完了"}
-    return [i for i in items if not i.get("after") or str(i["after"]) in done]
+    """振り出し待ちのうち、前提がすべてorigin/masterで完了しているもの。"""
+    done = done_tasks(ctx, sorted({t for i in items for t in prereqs_of_item(i)}))
+    return [i for i in items if all(t in done for t in prereqs_of_item(i))]
 
 
 def ledger_ids(plan_text: str | None) -> set[str]:
@@ -323,6 +340,33 @@ def budget_of(agent: dict) -> int | None:
     if isinstance(value, (int, float)):
         return int(value)
     return SCALE_BUDGET_MINUTES.get(str(agent.get("scale", "")))
+
+
+def start_task(agent: dict, task: str, at: dt.datetime, scale_given: bool) -> None:
+    """担当の現在のタスクを切り替える。見込み超過はタスクごとに、その着手からの通算で測るため、
+    差し戻しで同じタスクを再開したときは、最初の着手時刻を引き継ぐ。"""
+    earlier = next((e.get("started") for e in agent.get("task_log") or [] if e.get("task") == task), None)
+    agent["current_task"] = task
+    agent["task_first_started"] = earlier or iso(at)
+    if not scale_given:
+        # 前のタスクの規模札を持ち越すと、別のタスクの予算で測ることになる。
+        agent.pop("scale", None)
+        agent.pop("scale_budget_min", None)
+
+
+def close_task(agent: dict, at: dt.datetime) -> dict | None:
+    """報告の受領で現在のタスクを閉じ、実時間と規模札の予算の差を記録する。"""
+    task, start = agent.get("current_task"), parse_time(agent.get("task_first_started"))
+    if not task or not start:
+        return None
+    elapsed, budget = minutes(at - start), budget_of(agent)
+    entry = {"task": task, "started": iso(start), "reported": iso(at), "elapsed_min": elapsed,
+             "scale": agent.get("scale"), "budget_min": budget,
+             "over_min": elapsed - budget if budget is not None else None}
+    agent.setdefault("task_log", []).append(entry)
+    agent["current_task"] = None
+    agent["task_first_started"] = None
+    return entry
 
 
 def audit_pending(agent: dict) -> bool:
@@ -482,7 +526,8 @@ class Facts:
             if first and budget is not None:
                 total = minutes(self.at - first)
                 if total > budget:
-                    out.append(f"{a.get('name')}: 最初の振り出しから通算{total}分 / 規模の予算{budget}分")
+                    task = a.get("current_task") or "現在のタスク"
+                    out.append(f"{a.get('name')}: {task}の着手から通算{total}分 / 規模の予算{budget}分")
             start, expected = parse_time(a.get("started")), a.get("expected_min")
             if start and isinstance(expected, (int, float)):
                 elapsed = minutes(self.at - start)
@@ -610,7 +655,8 @@ def cmd_status(ctx: Context, args: argparse.Namespace) -> int:
             progress = f"  経過{minutes(f.at - start)}分/見込み{expected if expected is not None else '-'}分"
             first = parse_time(a.get("task_first_started"))
             if first:
-                progress += f"  通算{minutes(f.at - first)}分/予算{budget_of(a) or '-'}分"
+                progress += (f"  {a.get('current_task') or '現在のタスク'}: 着手から{minutes(f.at - first)}分"
+                             f"/予算{budget_of(a) or '-'}分")
         print(f"\n{a.get('name')}  [{state}]  {a.get('where', '-')}  開始{hm(start)}{progress}")
         t = f.tree(a)
         if t is None:
@@ -1089,13 +1135,28 @@ def cmd_board(ctx: Context, args: argparse.Namespace) -> int:
         if args.board_cmd == "add":
             if agent is not None:
                 raise SystemExit(f"既にある: {args.name}（board set で更新する）")
-            # task_first_startedは再開しても上書きしない（見込み超過を通算で見るため）。
             agent = {"name": args.name, "queue": [], "where": "local", "state": "稼働",
-                     "started": iso(at), "task_first_started": iso(at), "expected_min": None}
+                     "started": iso(at), "expected_min": None}
             board["agents"].append(agent)
         elif agent is None:
             raise SystemExit(f"状態の表に無い: {args.name}（board add で追加する）")
+        keys = {p.split("+=", 1)[0].split("=", 1)[0] for p in args.pairs}
+        previous_task = agent.get("current_task")
         apply_pairs(agent, args.pairs, at)
+        # 現在のタスクは、振り出し（current_taskの指定、addでは担当キューの先頭）と報告の受領で切り替える。
+        if "reported" in keys:
+            closed = close_task(agent, parse_time(agent.get("reported")) or at)
+            if closed:
+                over = closed["over_min"]
+                print(f"{closed['task']}を閉じた: 実時間{closed['elapsed_min']}分 / 規模の予算"
+                      f"{closed['budget_min'] if closed['budget_min'] is not None else '未設定'}分"
+                      f"{'' if over is None else f'（差 {over:+d}分）'}")
+        task = agent.get("current_task") if "current_task" in keys else (
+            (queue_tasks(agent) or [None])[0] if args.board_cmd == "add" else None)
+        if task and (task != previous_task or args.board_cmd == "add"):
+            start_task(agent, task, at, scale_given=bool(keys & {"scale", "scale_budget_min"}))
+            if budget_of(agent) is None:
+                print(f"注: {task}の規模の予算が未設定（scale=S|M|L を添える）。見込み超過をタスク単位で測れない")
         if agent.get("state") == "稼働":
             restore_hooks_path(ctx)
         urgent = bool(agent.pop("urgent", False))
@@ -1139,11 +1200,15 @@ def cmd_board(ctx: Context, args: argparse.Namespace) -> int:
         save_board(ctx, board)
         print(f"積んだ（{len(items)}件目）: {json.dumps(item, ensure_ascii=False)}")
         return 0
+    # 振り出し待ちは、前提（after）がorigin/masterで完了したものだけが取り出せる。
+    done = done_tasks(ctx, sorted({t for i in items for t in prereqs_of_item(i)})) if key == "queue" else set()
+    ready = [i for i in order if all(t in done for t in prereqs_of_item(items[i]))]
     if args.op == "pop":
-        if not items:
-            print("キューは空")
+        candidates = ready if key == "queue" else order
+        if not candidates:
+            print("キューは空" if not items else "前提が済んだものが無い（board dispatch list で前提を見る）")
             return 1
-        index = order[0] if args.index is None else order[args.index - 1]
+        index = candidates[0] if args.index is None else order[args.index - 1]
         item = items.pop(index)
         save_board(ctx, board)
         print(f"取り出した: {json.dumps(item, ensure_ascii=False)}")
@@ -1153,8 +1218,10 @@ def cmd_board(ctx: Context, args: argparse.Namespace) -> int:
     for n, i in enumerate(order, 1):
         item = items[i]
         rest = {k: v for k, v in item.items() if k not in ("what", "priority", "added")}
+        waiting = [t for t in prereqs_of_item(item) if t not in done]
+        mark = "" if key != "queue" else ("  前提待ち: " + "・".join(waiting) if waiting else "  前提: 済")
         print(f"{n}. [{item.get('priority', '-')}] {item.get('what')}  （{hm(parse_time(item.get('added')))}）"
-              f"{'  ' + json.dumps(rest, ensure_ascii=False) if rest else ''}")
+              f"{mark}{'  ' + json.dumps(rest, ensure_ascii=False) if rest else ''}")
     return 0
 
 
