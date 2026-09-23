@@ -34,9 +34,6 @@ HOLD_HEADING_RE = re.compile(r"^(#+)\s.*保留")
 HOLD_ITEM_RE = re.compile(r"^(\d+\.\s|\*\*保留\s*\d)")
 HOLD_LINE_RE = re.compile(r"^(?:[-*]\s+)?\**保留[:：]")
 DECIDED_RE = re.compile(r"ユーザー決定")
-OPTIONS_HINT_RE = re.compile(r"選択肢|[（(][a-dA-D][)）]|(^|[\s/])[A-D][:：]|[A-D]案|案[A-D]")
-#: これより短い保留は、背景を知らない人が判断できる形になっていない目安。
-HOLD_MIN_CHARS = 60
 OPEN_ENTRY_RE = re.compile(r"^- \[ \] \[(T\d+[a-z0-9-]*)\]\(")
 
 
@@ -98,23 +95,13 @@ def record_holds(text: str) -> list[str]:
     return [h for h in out if not DECIDED_RE.search(h.split("\n（節の前置き")[0])]
 
 
-def collect_record_holds(repo: Path) -> list[tuple[str, str, list[str]]]:
-    """台帳の未完了タスクのうち、記録に未決の保留があるもの。(タスク, 1件の本文, 足りないもの)。"""
+def collect_record_holds(repo: Path) -> list[tuple[str, str]]:
+    """台帳の未完了タスクのうち、記録に未決の保留があるもの。(タスク, 1件の本文)。"""
     plan = cat_files(repo, [f"origin/master:{PLAN_DOC}"])[f"origin/master:{PLAN_DOC}"] or ""
     tasks = [m.group(1) for line in plan.splitlines() if (m := OPEN_ENTRY_RE.match(line))]
     blobs = cat_files(repo, [f"origin/master:{TASKS_DIR}/{t}.md" for t in tasks])
-    out = []
-    for task in tasks:
-        text = blobs[f"origin/master:{TASKS_DIR}/{task}.md"]
-        for hold in record_holds(text or ""):
-            body = hold.split("\n（節の前置き")[0]
-            lacking = []
-            if not OPTIONS_HINT_RE.search(body):
-                lacking.append("選択肢")
-            if len(re.sub(r"\s", "", hold)) < HOLD_MIN_CHARS:
-                lacking.append("背景")
-            out.append((task, hold, lacking))
-    return out
+    return [(task, hold) for task in tasks
+            for hold in record_holds(blobs[f"origin/master:{TASKS_DIR}/{task}.md"] or "")]
 
 
 def cmd_decision(ctx: Context, args: argparse.Namespace) -> int:
@@ -180,12 +167,10 @@ def cmd_decision(ctx: Context, args: argparse.Namespace) -> int:
         else:
             print(f"  回答の書き方: 「{d.get('id')} {d.get('recommended')}」")
         print(f"  出所: {d.get('task')}")
-    for task, hold, lacking in holds:
+    for task, hold in holds:
         print(f"\n記録の保留  出所: {task}")
         for line in hold.splitlines():
             print(f"  | {line}")
-        if lacking:
-            print(f"  ! 記録の保留が判断に足る形で書かれていない（{'・'.join(lacking)}が無い）")
     return 0
 
 
