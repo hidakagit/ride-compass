@@ -493,6 +493,13 @@ const GROUP_TINT_CLASSES: Record<MapOverlayGroup, string> = {
   spot: styles.iconChipGroupSpot,
 };
 
+const FILTERED_LABEL = "絞り込み中";
+
+/** ONのレイヤーが凡例の絞り込みで一部を隠しているか。OFFの間は地図に何も出さないため数えない。 */
+function isLegendFiltered(layer: OverlayLayerChip): boolean {
+  return layer.on && !layer.disabled && (layer.legendDetails ?? []).some((axis) => axis.hiddenKeys.length > 0);
+}
+
 function ChipButton({
   Icon,
   label,
@@ -511,6 +518,7 @@ function ChipButton({
   expandViaSelf,
   groupTint,
   dataStatus,
+  filtered = false,
 }: {
   Icon: (props: { size?: number }) => ReactElement;
   label: string;
@@ -551,6 +559,9 @@ function ChipButton({
   /** レイヤーのデータ取得状態。LayerChip（サイドバー）と同じ
    * 「active && dataStatus != null」の間だけアイコン右上へ小さな状態ドットを添える。 */
   dataStatus?: LayerDataStatus;
+  /** 凡例の絞り込みで一部を隠しているか。立っている間だけアイコン左上へ小さな印を添える
+   * （絞り込みは保存されるため、次に開いたとき欠けた地図を「データが無い」と読ませない）。 */
+  filtered?: boolean;
 }) {
   const arrowGlyph = expandDirection === "right" ? "▶" : "▼";
   const arrowOpenClass = expandDirection === "right" ? styles.expandArrowOpen : styles.expandArrowDownOpen;
@@ -565,7 +576,9 @@ function ChipButton({
   // 見た目でON/OFFが分かるため出さない）。
   const showStatusDot = active && dataStatus != null;
   const statusLabel = dataStatus ? LAYER_DATA_STATUS_LABELS[dataStatus] : undefined;
-  const chipTitle = showStatusDot && statusLabel ? (title ? `${title}（${statusLabel}）` : statusLabel) : title;
+  const titleNotes = [showStatusDot ? statusLabel : undefined, filtered ? FILTERED_LABEL : undefined].filter(Boolean);
+  const chipTitle =
+    titleNotes.length > 0 ? (title ? `${title}（${titleNotes.join("・")}）` : titleNotes.join("・")) : title;
   return (
     <div ref={registerRow} className={styles.chipRowItem}>
       <div className={styles.iconToggleRow}>
@@ -589,6 +602,7 @@ function ChipButton({
           {showStatusDot && dataStatus && (
             <span aria-hidden="true" className={`${styles.iconStatusDot} ${styles[`iconStatusDot_${dataStatus}`]}`} />
           )}
+          {filtered && <span aria-hidden="true" className={styles.iconFilterMark} />}
           <span className={styles.iconLabel}>{chipLabel}</span>
         </button>
         {canExpand && !expandViaSelf && (
@@ -888,6 +902,7 @@ export default function MapOverlayControls({
         expandDirection="right"
         groupTint={groupTint}
         dataStatus={member.dataStatus}
+        filtered={isLegendFiltered(member)}
         panelContent={canExpand ? panelContentFor(member) : <></>}
         panelRect={panelRects[key]}
         registerRow={(el) => {
@@ -1076,6 +1091,7 @@ export default function MapOverlayControls({
                   expandDirection="flat"
                   expandViaSelf
                   groupTint={flatGroup}
+                  filtered={!isExpanded && group.members.some(isLegendFiltered)}
                   panelContent={<></>}
                   panelRect={panelRects[group.key]}
                   registerRow={(el) => {
@@ -1135,6 +1151,7 @@ export default function MapOverlayControls({
                 isExpanded={isExpanded}
                 onExpandToggle={() => toggleExpanded(layer.id)}
                 dataStatus={layer.dataStatus}
+                filtered={isLegendFiltered(layer)}
                 panelContent={panelContent}
                 panelRect={panelRects[layer.id]}
                 registerRow={(el) => {

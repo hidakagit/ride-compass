@@ -943,6 +943,64 @@ describe("MapOverlayControls", () => {
     });
   });
 
+  describe("凡例の絞り込み中の印", () => {
+    const filteredLegend = (hiddenKeys: string[]) => [
+      {
+        axisId: "surface",
+        label: "路面の種類",
+        legend: [
+          { key: "asphalt", label: "アスファルト", color: "#16a34a", filter: ["literal", true] },
+          { key: "gravel", label: "砂利", color: "#a16207", filter: ["literal", true] },
+        ],
+        hiddenKeys,
+      },
+    ];
+
+    it("ONで一部を隠しているチップだけに印を付け、titleにも添える", () => {
+      const layers = baseLayers();
+      layers[1] = { ...layers[1], on: true, legendDetails: filteredLegend(["gravel"]) };
+      render(<MapOverlayControls {...baseProps()} layers={layers} />);
+
+      const chip = screen.getByRole("button", { name: "路面" });
+      expect(chip.querySelector('[class*="iconFilterMark"]')).not.toBeNull();
+      expect(chip.getAttribute("title")).toContain("絞り込み中");
+    });
+
+    it("何も隠していない・OFFのチップには印を付けない", () => {
+      const layers = baseLayers();
+      layers[0] = { ...layers[0], on: false, legendDetails: filteredLegend(["gravel"]) };
+      layers[1] = { ...layers[1], on: true, legendDetails: filteredLegend([]) };
+      render(<MapOverlayControls {...baseProps()} layers={layers} />);
+
+      expect(screen.getByRole("button", { name: "標高図" }).querySelector('[class*="iconFilterMark"]')).toBeNull();
+      expect(screen.getByRole("button", { name: "路面" }).querySelector('[class*="iconFilterMark"]')).toBeNull();
+    });
+
+    it("畳んだグループの見出しは、メンバーの絞り込みを印で示す（開くとメンバー側が持つ）", async () => {
+      const user = userEvent.setup();
+      const layers: OverlayLayerChip[] = [
+        {
+          id: "accident_point",
+          icon: TestIcon,
+          label: "事故地点",
+          on: true,
+          category: "trafficSafety",
+          legendDetails: filteredLegend(["gravel"]),
+        },
+      ];
+      render(<MapOverlayControls {...baseProps()} layers={layers} />);
+
+      const header = screen.getByRole("button", { name: "スポット" });
+      expect(header.querySelector('[class*="iconFilterMark"]')).not.toBeNull();
+
+      await user.click(header);
+      expect(header.querySelector('[class*="iconFilterMark"]')).toBeNull();
+      expect(
+        screen.getByRole("button", { name: "事故地点" }).querySelector('[class*="iconFilterMark"]'),
+      ).not.toBeNull();
+    });
+  });
+
   describe("レイヤーのデータ取得状態（改善計画T87/T606: 地図上チップの状態ドット）", () => {
     it("dataStatusを渡すとON中のチップに状態ドットが描画され、titleへ状態文言が反映される", () => {
       const layers: OverlayLayerChip[] = [

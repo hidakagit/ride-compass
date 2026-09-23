@@ -234,6 +234,17 @@
   right: 0.15rem;
 }
 
+/* 凡例の絞り込み中の印（漏斗の形）。状態ドット（右上）と重ならないよう左上に置く。 */
+.iconFilterMark {
+  position: absolute;
+  top: 0.2rem;
+  left: 0.2rem;
+  width: 0.6rem;
+  height: 0.55rem;
+  background: currentColor;
+  clip-path: polygon(0 0, 100% 0, 62% 50%, 62% 100%, 38% 100%, 38% 50%);
+}
+
 .iconStatusDot_loading {
   composes: statusDot_loading from "../ui/statusDot.module.css";
 }
