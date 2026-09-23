@@ -1,5 +1,16 @@
-import { expect, test, type CDPSession, type Page } from "@playwright/test";
-import { MOBILE_VIEWPORT, installApiMocks, openMobileApp, openMobileSheet } from "./fixtures";
+import { expect, test, type Page } from "@playwright/test";
+import { catalogAxis } from "@/components/Map/__fixtures__/catalogAxes";
+import { mapDisplay } from "@/types/generated/mapDisplay";
+import regionTileConfig from "@/types/generated/region-tile-config.json";
+import {
+  MOBILE_VIEWPORT,
+  axisCatalogFixture,
+  installApiMocks,
+  openMobileApp,
+  openMobileSheet,
+  seedStoredState,
+} from "./fixtures";
+import { pinchOpen, scanPinch } from "./scans";
 
 // 地図（MapLibre）が実ブラウザでしか見せない挙動（パターン4 観点2）。単体テストの代役地図は
 // Worker・描画・スタイル検証・`idle`・canvasへの実クリックを持たないため、ここでしか確かめられない。
@@ -142,19 +153,50 @@ test("モバイル: ルート結果を見ている間は地図タップでピン
   await expect(settingsAgain.getByRole("button", { name: "経由地をクリア" })).toBeVisible({ timeout: 5000 });
 });
 
-/** 2本の指を(x, y)の左右に置き、外へ開く。Input.synthesizePinchGestureはページの拡大を再現しない
- * （docs/conventions/testing.md パターン4）。 */
-async function pinchOpen(client: CDPSession, x: number, y: number): Promise<void> {
-  const fingers = (spread: number) => [
-    { x: x - 2 - spread, y, id: 1 },
-    { x: x + 2 + spread, y, id: 2 },
-  ];
-  await client.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: fingers(0) });
-  for (let step = 1; step <= 12; step += 1) {
-    await client.send("Input.dispatchTouchEvent", { type: "touchMove", touchPoints: fingers(step * 8) });
-  }
-  await client.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
-}
+// sceneが組むレイヤーの式は、MapLibreのスタイル検証（addLayer時）を実ブラウザでしか通らない。
+// 検証に落ちても例外にはならず、map.on("error")へ出てそのレイヤーだけが黙って描かれない
+// （docs/modules/frontend/static-map-layers.md「MapLibreの式を組むときの前提」）。
+// タイル世代を配り（無いとタイルのソース自体が作られない）、宣言されたレイヤーを全部ONにして、
+// 取得の失敗（sourceIdを持つ）以外の地図のエラーが1件も出ないことを見る。
+test("宣言された地図レイヤーを全部ONにしても、スタイル検証のエラーが出ない", async ({ page }) => {
+  const styleErrors: string[] = [];
+  page.on("console", async (message) => {
+    if (!message.text().includes("[map:error]")) return;
+    const detail = (await message
+      .args()[1]
+      ?.jsonValue()
+      .catch(() => null)) as { sourceId?: string } | null;
+    if (!detail?.sourceId) styleErrors.push(message.text());
+  });
+
+  await installApiMocks(page);
+  const rampAxis = {
+    ...catalogAxis({
+      axis_id: "ramp",
+      display: { tile_inputs: [{ property: "v", weight: 1 }], thresholds: [50] },
+    }),
+    default_weight: 0,
+  };
+  await page.route("**/api/axis-catalog*", (route) =>
+    route.fulfill({
+      json: {
+        ...axisCatalogFixture([rampAxis]),
+        tile_versions: Object.fromEntries(regionTileConfig.tile_version_kinds.map((kind) => [kind, "e2e"])),
+      },
+    }),
+  );
+  await seedStoredState(page, {
+    "ridecompass:debug-enabled": "1",
+    "ridecompass:layer-visibility": JSON.stringify(Object.fromEntries(mapDisplay.layerIds.map((id) => [id, true]))),
+    "ridecompass:route-style-mode": rampAxis.axis_id,
+  });
+  await page.goto("/");
+  await expect(page.getByText("地図を読み込み中…")).toBeHidden({ timeout: 15_000 });
+  // 一部のレイヤーはカタログ・世代が届いてから作られる。落ち着くのを待つ。
+  await page.waitForTimeout(3000);
+
+  expect(styleErrors).toEqual([]);
+});
 
 // ページの拡大が許されている（viewportにmaximum-scaleを置かない）ため、地図の上に重なる部品が
 // touch-action: noneを持たないと、そこから始まったピンチをブラウザがページ全体の拡大として扱う
@@ -170,52 +212,10 @@ test.describe("タッチ端末", () => {
     await openMobileApp(page);
     await expect(page.getByText("地図を読み込み中…")).toBeHidden({ timeout: 15_000 });
 
-    const targets = await page.evaluate(() => {
-      const pane = document.querySelector(".app-map-pane")?.getBoundingClientRect();
-      const canvas = document.querySelector("canvas.maplibregl-canvas");
-      // 部品（押せる要素）ごとに1点。部品の中の子要素は、その部品と同じtouch-actionの祖先を持つ。
-      const found = new Map<Element, { x: number; y: number; label: string }>();
-      if (!pane) return [];
-      for (let y = pane.top + 4; y < Math.min(pane.bottom, window.innerHeight); y += 8) {
-        for (let x = pane.left + 4; x < Math.min(pane.right, window.innerWidth); x += 8) {
-          const element = document.elementFromPoint(x, y);
-          if (!element || element === canvas) continue;
-          const owner = element.closest("button, a, [role], label, input") ?? element;
-          if (found.has(owner)) continue;
-          const box = owner.getBoundingClientRect();
-          const center = { x: box.left + box.width / 2, y: box.top + box.height / 2 };
-          const hit = document.elementFromPoint(center.x, center.y);
-          const point = hit && owner.contains(hit) ? center : { x, y };
-          const name = owner.getAttribute("aria-label") ?? owner.textContent?.trim().slice(0, 16) ?? "";
-          found.set(owner, {
-            ...point,
-            label: `${element.tagName.toLowerCase()} in ${owner.tagName.toLowerCase()} "${name}"`,
-          });
-        }
-      }
-      return [...found.values()];
-    });
-    expect(targets.length).toBeGreaterThan(0);
-
     const client = await page.context().newCDPSession(page);
-    const zoomedFrom: string[] = [];
-    for (const target of targets) {
-      await pinchOpen(client, target.x, target.y);
-      await page.waitForTimeout(200);
-      const scale = await page.evaluate(() => window.visualViewport?.scale ?? 1);
-      if (scale !== 1) {
-        zoomedFrom.push(`${target.label} (${Math.round(target.x)},${Math.round(target.y)}) → ×${scale.toFixed(2)}`);
-        // 拡大されたままだと次の部品の座標がずれるので、倍率を戻す。戻らなければ残りは測れない。
-        await client.send("Emulation.setPageScaleFactor", { pageScaleFactor: 1 });
-        await page.waitForTimeout(200);
-        const restored = await page.evaluate(() => window.visualViewport?.scale ?? 1);
-        if (restored !== 1) {
-          zoomedFrom.push(`（倍率を戻せないため、残り${targets.length - targets.indexOf(target) - 1}件は未検査）`);
-          break;
-        }
-      }
-    }
-    expect(zoomedFrom).toEqual([]);
+    const { checked, problems } = await scanPinch(page, client);
+    expect(checked).toBeGreaterThan(0);
+    expect(problems).toEqual([]);
   });
 
   // 上の検査は部品の上のピンチを止めるだけなので、地図そのもののピンチが地図の拡大として

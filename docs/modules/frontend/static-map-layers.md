@@ -529,7 +529,11 @@ ON/OFFで入れ替わる）。
 JSの例外は飛ばず、`map.on("error")`にしか出ない。画面上は**そのレイヤーだけが黙って
 描かれない**。記録用の代役地図は式を検証しないため、`MapView.state.contract.test.ts`が
 出せるものを全部出した状態の宣言（凡例の絞り込みを含む）をMapLibreと同じ版のstyle検証
-（`@maplibre/maplibre-gl-style-spec: validateStyleMin`）へ通す。
+（`@maplibre/maplibre-gl-style-spec: validateStyleMin`）へ通す。実際のアプリの配線（カタログ・
+タイル世代・保存されたレイヤーのON/OFFから組まれたもの）が本物の地図の`addLayer`を通ることは、
+E2Eの`e2e/map-runtime.spec.ts`「宣言された地図レイヤーを全部ONにしても、スタイル検証のエラーが
+出ない」が見る（取得の失敗以外の地図のエラーが0件）。タイルの中身を読む評価時の誤り（下の
+欠損値の比較等）は、E2Eのタイルが空なので、どちらでも捕まらない。
 
 **式の中へ配列を渡すときは`["literal", [...]]`で包む。** 包まないとMapLibreが先頭要素を
 演算子名として読み、`Expression name must be a string`でそのレイヤーの追加が失敗する。

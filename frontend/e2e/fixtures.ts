@@ -3,6 +3,7 @@ import type { RouteCandidate, RouteGenerateResponse } from "@/types/route";
 import { catalogAxis } from "@/components/Map/__fixtures__/catalogAxes";
 import { makeRouteCandidate as makeCandidate } from "@/testing/routeFixtures";
 import type { AmedasObservation, WeatherConditions } from "@/types/weather";
+import nextConfig from "../next.config";
 
 // CIのE2Eスモークテストは「実バックエンド＋実外部API（
 // OpenFreeMap）」には依存しない。APIコントラクトの正しさはCIのapi-contractジョブ
@@ -220,15 +221,31 @@ export async function installApiMocks(page: Page): Promise<void> {
     }),
   );
 
+  // Next.jsのrewritesでbackendへ中継される経路（タイル・時刻一覧等）。モックしないと、E2Eの
+  // サーバーの中継が接続拒否をログへ出し続ける。経路は next.config.ts の宣言から取り、中身無しで
+  // 返す。応答に中身が要る経路は、この後で個別に上書きする（後から登録したルートが先に当たる）。
+  for (const { source } of await rewriteRules()) {
+    await page.route(`**${source.replace("/:path*", "/**")}`, (route) =>
+      route.fulfill({ status: 204, body: Buffer.alloc(0) }),
+    );
+  }
+
   // 基礎地図スタイル（/api/basemap/styles/liberty）と、それ以外のbasemap配下
   // （タイル等、空スタイルなら通常発生しない）をまとめて空スタイルで応答する。
   await page.route("**/api/basemap/**", (route) => route.fulfill({ json: emptyMapStyleFixture() }));
 
-  // 道路情報レイヤーのベクタタイル。空スタイル配下ではソース登録自体は行われるため
-  // （MapView.tsxがstyledata後にaddSourceする）、要求されたら空バイナリで応答する。
-  await page.route("**/api/region/road-surface-tiles/**", (route) =>
-    route.fulfill({ status: 204, body: Buffer.alloc(0) }),
+  // 気象庁の時刻一覧は配列が要る。空の配列（取得できたが時刻が無い）で返す。
+  await page.route(
+    (url) => url.pathname.startsWith("/api/jma-tile/") && url.pathname.includes("/targetTimes"),
+    (route) => route.fulfill({ json: [] }),
   );
+}
+
+async function rewriteRules(): Promise<{ source: string }[]> {
+  const rules = (await nextConfig.rewrites?.()) ?? [];
+  return Array.isArray(rules)
+    ? rules
+    : [...(rules.beforeFiles ?? []), ...(rules.afterFiles ?? []), ...(rules.fallback ?? [])];
 }
 
 // ここから下は「UIを見たい場所まで進める」導線のヘルパー。テストごとに書き直すと、
