@@ -2,8 +2,9 @@
 
     python scripts/orchestrate.py <サブコマンド> ...
 
-使い方は`scripts/orchestration/core.py`の冒頭。`asks`・`prereqs`・`priority`・`slot`・`ledger`・`effort-ci`は
-依頼で足した別のモジュール（`scripts/orchestration/asks.py`・`queue.py`・`slots.py`・`ledger.py`・`effort_ci.py`）へ渡す——核はそれらを
+使い方は`scripts/orchestration/core.py`の冒頭。`asks`・`dashboard`・`pending-backup`・`prereqs`・`priority`・`slot`・`ledger`・
+`effort-ci`は依頼で足した別のモジュール（`scripts/orchestration/asks.py`・`pending.py`・`queue.py`・`slots.py`・`ledger.py`・
+`effort_ci.py`）へ渡す——核はそれらを
 importしないため、振り分けはここで行う。
 """
 
@@ -26,10 +27,17 @@ def main() -> int:
 
         sys.stdout.reconfigure(encoding="utf-8")
         return asks.main(argv[:i] + argv[i + 1:])
+    if argv[i:i + 1] and argv[i] in ("dashboard", "pending-backup"):
+        from orchestration import pending
+
+        sys.stdout.reconfigure(encoding="utf-8")
+        sys.stderr.reconfigure(encoding="utf-8")
+        return pending.main(argv)
     if argv[i:i + 1] and argv[i] in ("prereqs", "priority"):
         from orchestration import queue
 
         sys.stdout.reconfigure(encoding="utf-8")
+        sys.stderr.reconfigure(encoding="utf-8")
         return queue.main(argv)
     if argv[i:i + 1] == ["effort-ci"]:
         from orchestration import effort_ci

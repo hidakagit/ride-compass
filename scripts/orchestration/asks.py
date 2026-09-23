@@ -1,10 +1,10 @@
-"""ユーザーへの確認待ち（判断・実施・改善の承認）。依頼で足した側の機能。
+"""ユーザーへの確認待ちのうち、タスクの記録にあるもの（判断・実施・改善の承認）。依頼で足した側の機能。
 
-確認待ちの正本は、各タスクの記録（origin/masterの`docs/records/tasks/Txxx.md`）に決まった書き方で
-置いたお願い（規約`docs/conventions/orchestration.md`「ユーザーへのお願いは記録に置く」節）。状態の表には
-写さない——表と記録の両方に持つと、片方だけが直され、もう片方が古いまま正しそうに残る。ここは
-origin/masterの全タスクの記録（台帳に行の無い、閉じたタスクも含む）から、3種類の待ちを集めるだけ。
-核はこのモジュールをimportしない。
+仕掛中のタスクへのお願いは仕掛中のダッシュボードに置く（`docs/conventions/asking-user.md`「仕掛中の
+ダッシュボード」節。`ArtifactData`でしか読めないので、ここでは読まない）。ここが拾うのは、記録
+（origin/masterの`docs/records/tasks/Txxx.md`）に決まった書き方で既に置かれた保留・操作・改善提案で、
+origin/masterの全タスクの記録（台帳に行の無い、閉じたタスクも含む）から集める。`/asks`・`/dashboard`が
+ダッシュボードの件と合わせて出す。状態の表には写さない。核はこのモジュールをimportしない。
 
     python scripts/orchestrate.py asks [Txxx...]
 """
@@ -24,6 +24,7 @@ from orchestration.core import (
     git_out,
     ledger_ids,
 )
+from orchestration.pending import backup_alert
 
 HEADING_RE = re.compile(r"^(#+)\s")
 #: 保留の宣言の書き出し: 「保留」の語のあとが行末・括弧・コロン・番号のもの（`保留`・`保留（ユーザー判断）`・
@@ -126,6 +127,8 @@ def collect_asks(repo: Path, tasks: list[str] | None = None) -> tuple[dict[str, 
 def cmd_asks(ctx: Context, args: argparse.Namespace) -> int:
     found, open_tasks = collect_asks(ctx.repo, args.tasks)
     total = sum(len(items) for by_task in found.values() for items in by_task.values())
+    if alert := backup_alert(ctx):
+        print(f"! {alert}")
     print(f"確認待ち {total}件（origin/masterのタスク記録から。"
           + "・".join(f"{KIND_LABELS[kind]} {sum(len(v) for v in found[kind].values())}件" for kind, _ in KINDS) + "）")
     for kind, how in KINDS:
