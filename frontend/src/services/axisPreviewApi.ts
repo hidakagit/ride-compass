@@ -1,6 +1,7 @@
 import type { ValueDistribution } from "@/components/AxisStudio/scoreDistribution";
 import { requestJson } from "@/lib/fetchJson";
-import { DISTRIBUTION_API_TIMEOUT_MS } from "@/lib/apiTimeouts";
+import { DEFAULT_API_TIMEOUT_MS, DISTRIBUTION_API_TIMEOUT_MS } from "@/lib/apiTimeouts";
+import type { components } from "@/types/generated/api";
 
 // 軸スタジオの分布プレビュー（backend/app/services/axis_preview_service.py）のクライアント。
 // axisAdminApi.tsと同じく同一オリジンのNext.js route handler経由で、Basic認証情報は
@@ -28,6 +29,24 @@ export async function fetchAxisValueDistribution(shape: unknown): Promise<ValueD
     category: "api:axisPreview",
     messages: DISTRIBUTION_MESSAGES,
   });
+}
+
+export type DisplayThresholdsPreviewRequest = components["schemas"]["DisplayThresholdsPreviewRequest"];
+
+/** 編集中の軸で、人が刻んだ段の境界のうち地図では段にならないものを取る。判定はbackendが
+ * 地図の段を作るのと同じ関数で行う。DBを読まないため既定のタイムアウトで足りる。 */
+export async function fetchThresholdsDroppedOnMap(body: DisplayThresholdsPreviewRequest): Promise<number[]> {
+  const response = await requestJson<components["schemas"]["DisplayThresholdsPreviewResponse"]>(
+    "/admin/api/axis-definitions/preview-display-thresholds",
+    {
+      method: "POST",
+      body,
+      timeoutMs: DEFAULT_API_TIMEOUT_MS,
+      category: "api:axisPreview",
+      messages: { failure: "しきい値の確認に失敗しました", parseFailure: "しきい値の確認結果を解析できませんでした" },
+    },
+  );
+  return response.dropped_on_map;
 }
 
 /** 1材料の値が実データでどの範囲に散らばっているかを取る。 */

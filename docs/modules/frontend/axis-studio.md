@@ -28,7 +28,9 @@ APIを呼ぶ）・「データ保守」タブ（派生データ鮮度台帳の�
 | `components/AxisStudio/DistributionPreview.tsx` | 折れ点の下に「この折れ点での得点分布」を出すパネル。満点への張り付き・0点への偏りを警告する |
 | `components/AxisStudio/DistributionPreview.module.css` | 上記2コンポーネント（`MaterialRangeHint`と共有）のスタイル |
 | `components/AxisStudio/MaterialRangeHint.tsx` | 材料選択行の下に、その材料が実データで取る値の分位（p50/p75/p90）を出す1行表示 |
-| `services/axisPreviewApi.ts` | 分布プレビューのAPIクライアント（`app/admin/api/axis-definitions/preview-distribution/`・`app/admin/api/material-distribution/[materialId]/`経由） |
+| `services/axisPreviewApi.ts` | 分布プレビューと、しきい値が地図で効くかの問い合わせのAPIクライアント（`app/admin/api/axis-definitions/preview-distribution/`・`preview-display-thresholds/`・`app/admin/api/material-distribution/[materialId]/`経由） |
+| `app/admin/api/axis-definitions/preview-display-thresholds/route.ts` | `proxyToBackendAdmin`でbackend `POST /api/admin/axis-definitions/preview-display-thresholds`へ転送する |
+| `hooks/useThresholdsDroppedOnMap.ts` | 下書きのしきい値のうち地図では段にならないものを取得する（下書きが落ち着いてから問い合わせる。失敗時は空） |
 | `app/admin/api/axis-definitions/preview-distribution/route.ts` | `proxyToBackendAdmin`でbackend `POST /api/admin/axis-definitions/preview-distribution`へ転送する。初回はWayの抽選を伴うため転送タイムアウトを長く取る |
 | `app/admin/api/material-distribution/[materialId]/route.ts` | 同じくbackend `GET /api/admin/material-catalog/{material_id}/distribution`へ転送する |
 | `hooks/useAxisValueDistribution.ts` | 編集中のshapeの生値分布を取得。取得キーに折れ点を含めないため、折れ点のドラッグ中は通信しない |
@@ -466,6 +468,14 @@ materialId ? state.values : []`）でリセットする——Reactの「propが�
 「その軸がどちらの経路で地図に出るか」の判定を持たない**——カタログの実際の分類を引くため、
 プレビューの色と地図の色がずれない。地図に出る経路がまだ無い軸（下書き等）は色を持たず、
 その旨を注記する。
+
+**地図では段にならない値は、入力欄のすぐ下で名指しする**（「地図では効かない: 12」、理由は
+ⓘの奥）。点数の決め方で1つ手前の境界と同じ点数になる値は、地図が段を作らない
+（[backend](../backend/axis-studio.md)「折れ線が同じスコアへ写す境界は落とす」）。
+**判定はbackendに問い、画面は規則を持たない**——`AxisComposer`が下書きの`shape`・
+`priority_overrides`・しきい値を`useThresholdsDroppedOnMap`へ渡し、結果を節へpropで渡す。
+点数の決め方を変えても判定し直すよう、問い合わせのキーには`shape`も含める。取得に失敗した
+ときは印を出さない（判定できないことを「効かない値がある」と取り違えさせない）。
 - **`category`は編集欄を持たない素通しフィールド**（`PASSTHROUGH_PAYLOAD_KEYS`）。新規
   作成時だけ`"推定"`になり、既存軸は既存の値をそのまま送り返す（観測/動的は材料側の性質で、
   材料を組み合わせて判定式を作る軸スタジオの仕組みからは生み出せないため、新規は推定で

@@ -21,6 +21,7 @@ from app.domain.axis_display import (
     _drop_thresholds_that_share_a_score,
     _rescale_tile_input,
     axis_display_for,
+    thresholds_the_map_drops,
 )
 from app.domain.material_catalog import CoverageExcluded, MaterialSpec, WayMaterialCoverageSpec
 from app.domain.registry import TileInputSpec
@@ -398,6 +399,29 @@ class TestDropThresholdsThatShareAScore:
         )
 
         assert _drop_thresholds_that_share_a_score([1.0, 2.0], shape) == [1.0]
+
+
+class TestThresholdsTheMapDrops:
+    def test_names_the_boundaries_past_the_point_the_curve_saturates(self):
+        shape = _linear([MaterialTerm(material="num_a")])
+
+        # 折れ線は10で100へ達する。12は7（70点）と区別できるが、その先は12と同じ100点。
+        assert thresholds_the_map_drops("subject", shape, [], [2.0, 4.0, 7.0, 12.0, 15.0, 20.0]) == [15.0, 20.0]
+
+    def test_nothing_is_dropped_while_every_boundary_gets_its_own_score(self):
+        shape = _linear([MaterialTerm(material="num_a")])
+
+        assert thresholds_the_map_drops("subject", shape, [], [2.0, 4.0, 7.0]) == []
+
+    def test_an_axis_the_map_cannot_paint_as_a_ramp_keeps_every_boundary(self):
+        shape = _linear([MaterialTerm(material="num_offtile")])
+
+        assert thresholds_the_map_drops("subject", shape, [], [5.0, 12.0]) == []
+
+    def test_a_categorical_axis_keeps_every_boundary(self):
+        shape = CategoricalShape(material="cat_kind", mapping={"a": 2.0, "b": 4.0})
+
+        assert thresholds_the_map_drops("subject", shape, [], [3.0, 5.0]) == []
 
 
 class TestRescaleTileInput:

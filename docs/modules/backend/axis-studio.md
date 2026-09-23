@@ -228,6 +228,13 @@ compute_edge_axis_scores`経由、下記「呼び出し元」参照）。周回�
 引くと、色だけが変わって評価は同じという見分けを地図が見せることになり、しかもルート線側は
 難易度を塗るためその段を作れない（前後で段の数が食い違う）。
 
+軸スタジオは刻んでいる最中にこの落ちる値を印として出すため、保存前の下書きで同じ判定を問う
+（`thresholds_the_map_drops`、`POST /api/admin/axis-definitions/preview-display-thresholds`）。
+判定は`axis_display_for`と同じ`_map_band_thresholds`を通し、frontendへ規則を写さない。
+入力は段を決めるのに要るもの（`axis_id`・`shape`・`priority_overrides`・しきい値）だけで、
+表示名・重みのような下書きの途中で欠けうる項目を揃えさせない——揃えさせると、書きかけの
+軸では印が出なくなる。
+
 **暗黙の前提（重要な既知の非対称性）**: 自動導出した表示と評価側の整合性は
 `required=False`の材料でのみ厳密に一致する。`required=True`の材料が欠損している場合、
 評価側（`evaluate_axis_scalar`）は軸全体を「評価不能（None）」にするが、フロント側の
@@ -294,6 +301,7 @@ compute_edge_axis_scores`経由、下記「呼び出し元」参照）。周回�
 | `PUT /api/admin/axis-definitions/{axis_id}` | Basic認証必須 | 更新（公開済みは原則拒否。ただし表示専用フィールド[`icon_id`/`chip_label`/`panel_hint`/`show_map_icon`/`display_thresholds_override`/`display_band_labels_override`]のみの差分は例外的に許可） |
 | `DELETE /api/admin/axis-definitions/{axis_id}` | Basic認証必須 | 削除 |
 | `POST /api/admin/axis-definitions/{axis_id}/unpublish` | Basic認証必須 | 公開済み軸を下書きへ戻す（`is_published`以外は変更しない） |
+| `POST /api/admin/axis-definitions/preview-display-thresholds` | Basic認証必須 | 編集中の軸で、上書きしたしきい値のうち地図が段にしないもの（DBを読まない） |
 | `GET /api/axis-catalog` | 不要（公開） | `is_published=True`の軸のみ返す。`AxisDefinition`のほぼ全フィールドをそのまま返す |
 
 `GET /api/axis-catalog`の`material_runtime_scales`（実行時にしか決まらないスケール係数）
