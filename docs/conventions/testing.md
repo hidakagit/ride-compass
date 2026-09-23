@@ -787,8 +787,16 @@ expect(expressionColors.length).toBeGreaterThan(0);
 for (const color of expressionColors) { expect(legendColors.has(color)).toBe(true); }
 ```
 
-この形を機械的に検出する仕組みは無い。空でないことの主張は**同じテストの中**に置く（別のテストにある主張は、このテストが
+空でないことの主張は**同じテストの中**に置く（別のテストにある主張は、このテストが
 空振りしないことの根拠にならない）。
+
+`backend/tests/structure/test_vacuous_loops.py`（Python、AST）と
+`frontend/src/structure/vacuousLoops.test.ts`（TypeScriptの構文木）が、この形の混入を止める。
+どちらも「ループ本体にアサーションがあり、反復対象が絞り込み（`if`付きの内包表記・`filter`）を
+経ていて、同じテストに空でないことの主張が無い」ループを落とす。**読めるのは上の例の形の
+主張だけ**で、別の形（`assert set(picked) == {...}`等）で確かめていても違反として出る——
+そのときは上の形の主張を1行足す。反復対象が関数の引数（parametrize等）のループは、母集団を
+呼び出し側が決めるため見ない。
 
 ## パターン7: 環境変数に依存する挙動のテスト → 判断を純関数へ出し、テストは環境変数に触らない
 

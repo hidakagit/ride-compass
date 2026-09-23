@@ -172,6 +172,7 @@ def test_被覆SQLは宣言にある名前だけで組む(table):
     declared = {column.name for column in table.columns}
     quoted = [word for word in sql.replace("(", " ").replace(")", " ").split()
               if word.startswith("d.")]
+    assert quoted, f"{table.name}の被覆SQLが派生表の列を1つも引いていない"
     for word in quoted:
         assert word.removeprefix("d.") in declared
 

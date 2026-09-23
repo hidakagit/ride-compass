@@ -92,6 +92,7 @@ def test_色相の起点は軸をまたいで重複しない() -> None:
     """**軸をまたいで重複させない。** 同じ起点だと、1行しか持たない軸どうし
     （トンネルと一方通行）が必ず同じ色になり、別の意味が同じ色で地図に載る。"""
     used: dict[int, str] = {}
+    assert DISPLAYED, "地図に出す一次属性が1つも無い"
     for attr in DISPLAYED:
         for axis in attr.display_axes:
             if axis.hue_slot is None:
@@ -113,6 +114,7 @@ def _resolved_colors() -> list[tuple[str, str, list[str]]]:
 
 
 def test_色を持たない軸の行は色を配らない() -> None:
+    assert DISPLAYED, "地図に出す一次属性が1つも無い"
     for attr in DISPLAYED:
         for spec, resolved in zip(attr.display_axes, resolved_display_axes(attr), strict=True):
             if spec.palette is None:
