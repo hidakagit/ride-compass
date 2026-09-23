@@ -32,8 +32,14 @@ export default function WeatherPanel({ amedas, loading, error }: WeatherPanelPro
   // 値を置き換えない）。取得は一定間隔で続くため、回復すれば表示も戻る。
   if (!amedas) {
     if (loading) return <p className={styles.loading}>天候取得中...</p>;
-    // 一般画面には短い文言だけを出し、原因の詳細（HTTPステータス等）はtitleへ回す。
-    if (error) return <p className={styles.error} title={error}>観測値なし</p>;
+    // backendは観測所の解決失敗・欠測・上流の取得失敗を区別せず502にするため、「無い」と
+    // 断定せず取得できなかったことだけを出す。原因の詳細（混雑・HTTPステータス等）はtitleへ回す。
+    if (error)
+      return (
+        <p className={styles.error} title={error}>
+          観測値を取得できません
+        </p>
+      );
     return null;
   }
 

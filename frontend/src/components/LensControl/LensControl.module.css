@@ -109,6 +109,11 @@
   font-weight: 600;
 }
 
+.statusNotice {
+  margin: 0 0 0.35rem;
+  font-size: var(--font-size-sm);
+}
+
 /* 軸の一覧も公開軸の本数ぶん縦に伸びるため、幅が許す限り列へ流す（凡例と同じ理由）。 */
 .list {
   list-style: none;

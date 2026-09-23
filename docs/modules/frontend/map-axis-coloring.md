@@ -267,7 +267,9 @@ axisId)`が未取得・対象外の軸を空の結果へ倒して読み出す。
   専用way値配信軸を指す間だけ`error`/`loading`/`values`の有無から
   `deriveFetchLayerStatus`（`mapLayers.ts`、動的気象レイヤーと共有する判定関数）で
   `LayerDataStatus`を1つ算出し、`LensControl`のピルへ小さな状態ドット（`LayerChip`と
-  同じ視覚表現）として表示する。判定には`hasFetched`（一度でも取得を試みて完了したか）も
+  同じ視覚表現）として表示し、その意味をポップオーバーの見出しの下へ文として出す
+  （`title`はスマホで出ないため）。取得失敗の原因（429・通信エラー）は`error: boolean`へ
+  畳むため区別しない（[ページ全体構成](page-composition.md)「失敗・空・待ちの伝え方」）。判定には`hasFetched`（一度でも取得を試みて完了したか）も
   渡す——`"empty"`（「この範囲に表示できるデータがありません」）は「読込済みだが値なし」
   だけを指し、まだ取りに行っていない状態はどの`LayerDataStatus`にも当てはめない。
 - `hasFetched: boolean`（上記の判定に使う）。フェッチを止めた（`enabled=false`になった）

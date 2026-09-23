@@ -43,9 +43,6 @@ export async function getRecentLogs(params: GetRecentLogsParams = {}): Promise<s
     messages: getMessages("ログ"),
     startLabel: `GET ${path}`,
     logMeta: { path },
-    // このパネルは例外のmessageをそのまま画面へ出す（BackendLogsPanel.tsx）ため、
-    // 通信エラーも「何の取得に失敗したか」が分かる文言へ包む。
-    wrapNetworkError: true,
   });
   return lines;
 }

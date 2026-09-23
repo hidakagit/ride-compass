@@ -93,12 +93,27 @@ describe("fetchJson", () => {
     ).rejects.toThrow("テストの解析に失敗しました");
   });
 
-  it("fetch()自体が失敗した場合（通信エラー）は元の例外をそのまま投げる", async () => {
-    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new TypeError("Failed to fetch")));
+  it("fetch()自体が失敗した場合（通信エラー）は、英語の元の文言をmessageへ入れずcauseに残す", async () => {
+    const original = new TypeError("Failed to fetch");
+    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(original));
+
+    const error = await fetchJson("https://example.test/api/x", {
+      timeoutMs: 5000,
+      category: "api:test",
+      errorLabel: "テスト",
+    }).catch((e: unknown) => e);
+
+    expect(error).toBeInstanceOf(Error);
+    expect((error as Error).message).toBe("テストの取得に失敗しました[通信エラー]");
+    expect((error as Error).cause).toBe(original);
+  });
+
+  it("タイムアウトは通信エラーと区別した文言で投げる", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new DOMException("signal timed out", "TimeoutError")));
 
     await expect(
       fetchJson("https://example.test/api/x", { timeoutMs: 5000, category: "api:test", errorLabel: "テスト" }),
-    ).rejects.toThrow("Failed to fetch");
+    ).rejects.toThrow("テストの取得に失敗しました[タイムアウト]");
   });
 
   it("timeoutMsをAbortSignal.timeoutへ渡す", async () => {

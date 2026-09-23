@@ -41,10 +41,6 @@ interface ApiRequestOptions {
   requestMeta?: Record<string, unknown>;
   /** 全ログ行へ載せる情報（同一カテゴリで複数エンドポイントを扱う場合のpath等）。 */
   logMeta?: Record<string, unknown>;
-  /** 通信エラーを`messages.failure`で包み直すか（既定false＝元のErrorをそのまま投げる）。
-   * 元の文言（"Failed to fetch"等）がそのまま画面へ出る呼び出し元だけtrueにする——
-   * これも`messages`と同じ「文言をどう出すか」の選択で、骨格自体は分岐しない。 */
-  wrapNetworkError?: boolean;
 }
 
 export interface ApiResponse {
@@ -73,17 +69,7 @@ class ApiError extends Error {
 /** 7段のうち「fetch→通信エラー処理→ok確認→失敗時throw」まで。成功時の`Response`を
  * そのまま返し、本文の解釈と成功ログは呼び出し側が行う。 */
 export async function requestOk(url: string, options: ApiRequestOptions): Promise<ApiResponse> {
-  const {
-    method = "GET",
-    body,
-    timeoutMs,
-    category,
-    messages,
-    startLabel,
-    requestMeta,
-    logMeta,
-    wrapNetworkError,
-  } = options;
+  const { method = "GET", body, timeoutMs, category, messages, startLabel, requestMeta, logMeta } = options;
   const startedAt = performance.now();
   const meta = { ...logMeta };
   debugLog(category, startLabel ?? "リクエスト開始", { url, ...meta, ...requestMeta });
@@ -117,11 +103,9 @@ export async function requestOk(url: string, options: ApiRequestOptions): Promis
       },
       "error",
     );
-    const detail = error instanceof Error ? `${error.name}: ${error.message}` : String(error);
-    if (wrapNetworkError) throw new Error(`${messages.failure}: ${detail}`, { cause: error });
-    // Error以外が投げられた場合だけ、失った情報を文言へ残す（fetchは通常Error/DOMException
-    // を投げるため実際にはほぼ通らない経路）。
-    throw error instanceof Error ? error : new Error(`${messages.failure}: ${detail}`);
+    // 呼び出し元の多くはmessageをそのまま画面へ出すため、ブラウザ由来の英語の文言
+    // （"Failed to fetch"・"signal timed out"）はmessageへ入れず、causeとdebugLogにだけ残す。
+    throw new Error(`${messages.failure}[${isTimeout ? "タイムアウト" : "通信エラー"}]`, { cause: error });
   }
   const durationMs = Math.round(performance.now() - startedAt);
   const requestId = response.headers.get("x-request-id");

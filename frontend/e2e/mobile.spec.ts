@@ -23,7 +23,7 @@ test("モバイル: 観測値の取得に失敗してもヘッダーが幅に収
   await page.reload();
 
   // 一般画面にはリクエストIDを含む長い文言を出さない。
-  await expect(page.getByText("観測値なし")).toBeVisible();
+  await expect(page.getByText("観測値を取得できません")).toBeVisible();
   await expect(page.getByText(/\[req:/)).toHaveCount(0);
 
   const header = page.locator("header").first();

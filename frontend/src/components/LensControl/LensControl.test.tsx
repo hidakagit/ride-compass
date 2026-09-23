@@ -140,6 +140,14 @@ describe("LensControl", () => {
     expect(screen.getByRole("button", { name: /レンズ:/ })).not.toHaveAttribute("title");
   });
 
+  it("状態があるとき、開いたポップオーバーで状態を文として読める（titleに頼らない）", async () => {
+    const user = userEvent.setup();
+    render(<LensControl {...baseProps({ lens: "wind", dataStatus: "loading" })} />);
+
+    await user.click(screen.getByRole("button", { name: /レンズ:/ }));
+    expect(screen.getByRole("status")).toHaveTextContent("読み込み中です");
+  });
+
   it("dataStatus='error'のとき、専用配信軸のフェッチ失敗をピルのtitleで示す", () => {
     render(<LensControl {...baseProps({ lens: "wind", dataStatus: "error" })} />);
 

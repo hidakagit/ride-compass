@@ -66,9 +66,9 @@ describe("refreshTileCache", () => {
     expect(calls.some(([, message]) => message === "失敗 (通信エラー)")).toBe(false);
   });
 
-  it("fetch自体が例外を投げる場合もエラーとして伝播する", async () => {
+  it("fetch自体が例外を投げる場合も、日本語の失敗文言のエラーとして伝播する", async () => {
     vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("network error")));
 
-    await expect(refreshTileCache()).rejects.toThrow("network error");
+    await expect(refreshTileCache()).rejects.toThrow("タイルキャッシュの消去に失敗しました[通信エラー]");
   });
 });

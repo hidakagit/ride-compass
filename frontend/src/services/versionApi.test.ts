@@ -40,9 +40,9 @@ describe("getFrontendVersion", () => {
     await expect(getFrontendVersion()).rejects.toThrow("フロントエンドのバージョンの解析に失敗しました");
   });
 
-  it("fetch自体が失敗した場合（通信エラー）もそのままエラーを投げる", async () => {
+  it("fetch自体が失敗した場合（通信エラー）は英語の元の文言を出さず、日本語の失敗文言で投げる", async () => {
     vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new TypeError("Failed to fetch")));
 
-    await expect(getFrontendVersion()).rejects.toThrow("Failed to fetch");
+    await expect(getFrontendVersion()).rejects.toThrow("フロントエンドのバージョンの取得に失敗しました[通信エラー]");
   });
 });

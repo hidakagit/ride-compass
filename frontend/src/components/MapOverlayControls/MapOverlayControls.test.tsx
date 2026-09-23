@@ -979,6 +979,46 @@ describe("MapOverlayControls", () => {
       expect(chip.querySelector('[class*="iconStatusDot"]')).toBeNull();
     });
 
+    it("ON中で状態があるチップは、凡例が無くても▶を出し、開くと状態を文で読める（titleに頼らない）", async () => {
+      const user = userEvent.setup();
+      const layers: OverlayLayerChip[] = [
+        { id: "route", icon: TestIcon, label: "ルート", on: true, dataStatus: "empty" },
+      ];
+      render(
+        <MapOverlayControls
+          layers={layers}
+          onToggle={vi.fn()}
+          onLegendEntryToggle={vi.fn()}
+          onLegendAxisSetHidden={vi.fn()}
+        />,
+      );
+
+      await user.click(screen.getByRole("button", { name: "ルートの凡例を表示" }));
+      expect(screen.getByRole("status")).toHaveTextContent("この範囲に表示できるデータがありません");
+    });
+
+    it("凡例を持つチップでは、状態の文を凡例と並べて出す", async () => {
+      const user = userEvent.setup();
+      const layers = baseLayers();
+      layers[1] = {
+        ...layers[1],
+        on: true,
+        dataStatus: "error",
+        legendDetails: [
+          {
+            label: "路面の種類",
+            legend: [{ key: "asphalt", label: "アスファルト", color: "#16a34a", filter: ["literal", true] }],
+            hiddenKeys: [],
+          },
+        ],
+      };
+      render(<MapOverlayControls {...baseProps()} layers={layers} />);
+
+      await user.click(screen.getByRole("button", { name: "路面の凡例を表示" }));
+      expect(screen.getByRole("status")).toHaveTextContent("データの取得に失敗しました");
+      expect(screen.getByText("アスファルト")).toBeInTheDocument();
+    });
+
     it("dataStatus未指定（正常）のチップはドットを出さない", () => {
       const layers: OverlayLayerChip[] = [{ id: "route", icon: TestIcon, label: "ルート", on: true }];
       render(

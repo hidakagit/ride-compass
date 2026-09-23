@@ -27,6 +27,7 @@ function setCreds() {
 afterEach(() => {
   credentials = null;
   vi.unstubAllGlobals();
+  vi.restoreAllMocks();
 });
 
 describe("proxyToBackendAdmin", () => {
@@ -240,8 +241,9 @@ describe("proxyToBackendAdmin", () => {
       await expect(response.json()).resolves.toEqual({ detail: "公開済みの軸は更新できません" });
     });
 
-    it("fetch()自体が失敗した場合（通信エラー）は502とエラー詳細を返す", async () => {
+    it("fetch()自体が失敗した場合（通信エラー）は502を返し、英語の元の文言はdetailへ入れない", async () => {
       vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new TypeError("fetch failed")));
+      vi.spyOn(console, "error").mockImplementation(() => {});
 
       const response = await proxyToBackendAdmin(
         new Request("https://example.test/admin/api/axis-definitions", { method: "GET" }),
@@ -250,8 +252,7 @@ describe("proxyToBackendAdmin", () => {
 
       expect(response.status).toBe(502);
       const body = await response.json();
-      expect(body.detail).toContain("backendへの接続に失敗しました");
-      expect(body.detail).toContain("fetch failed");
+      expect(body.detail).toBe("backendへの接続に失敗しました[通信エラー]");
     });
   });
 });

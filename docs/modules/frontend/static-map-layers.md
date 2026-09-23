@@ -299,6 +299,12 @@ filter・feature-state・visibilityの設定）は、`redrawAllLayers`から辿�
 （`MapOverlayControls.module.css: .iconStatusDot_loading`等）動的に組み立てる点も
 `LayerChip.module.css`側と同じ設計。
 
+ドットの意味（`mapLayers.ts: LAYER_DATA_STATUS_LABELS`）は、ドットを出している間▶パネルの
+凡例の上へ文として出す。凡例を持たないチップも、状態がある間は▶を出す——`title`だけでは
+スマホで読めない（規約は[ページ全体構成](page-composition.md)「失敗・空・待ちの伝え方」）。
+案内文（ズーム不足・配信情報なし）があるときは案内文だけを出し、状態の文は重ねない。
+タイル取得の失敗は原因（429・通信エラー・5xx）を区別せず同じ文言で出す（同節の規約4）。
+
 `page.tsx`の`layerDataStatus`（`overlayLayers`へ渡す値）は、
 出所の異なる2つの`Partial<Record<MapLayerId, LayerDataStatus>>`をマージしたもので、
 内訳は次の2系統:

@@ -63,8 +63,12 @@ export async function proxyToBackendAdmin(
       signal: AbortSignal.timeout(options.timeoutMs ?? DEFAULT_API_TIMEOUT_MS),
     });
   } catch (error) {
+    // detailは管理画面の本文へそのまま出るため、ランタイム由来の英語の文言（"fetch failed"等）は
+    // 入れず、原因の追跡用にサーバーのログへだけ残す。
+    console.error(`admin proxy: ${backendPath}`, error);
+    const isTimeout = error instanceof DOMException && error.name === "TimeoutError";
     return Response.json(
-      { detail: `backendへの接続に失敗しました: ${error instanceof Error ? error.message : String(error)}` },
+      { detail: `backendへの接続に失敗しました[${isTimeout ? "タイムアウト" : "通信エラー"}]` },
       { status: 502 },
     );
   }

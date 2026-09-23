@@ -439,6 +439,12 @@
   color: var(--foreground);
 }
 
+/* 状態ドットの意味（読み込み中・データなし・取得失敗）。凡例と並ぶため下に間を空ける。 */
+.detailStatus {
+  composes: detailNotice;
+  margin-bottom: var(--space-2);
+}
+
 /* 軸ごとの全カテゴリ内訳（表示中/非表示のいずれも並べる）。 */
 .detailBody {
   display: flex;

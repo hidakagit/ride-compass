@@ -89,11 +89,11 @@ describe("routeApi", () => {
     // response.okのチェック以前の例外のため、try/catchで捕まえていないとdebugLogに
     // 一切記録が残らない（実機で「20kmルート生成がfail to fetchで失敗するがログに
     // 何も出ない」という報告を受けて発覚、lib/fetchJson.tsのGET用実装と同じ穴）。
-    it("AbortSignal.timeoutによるタイムアウトはTimeoutErrorとしてdebugLogに記録した上で再送出する", async () => {
+    it("AbortSignal.timeoutによるタイムアウトはTimeoutErrorとしてdebugLogに記録し、日本語の文言で投げる", async () => {
       const timeoutError = new DOMException("The operation was aborted.", "TimeoutError");
       vi.stubGlobal("fetch", vi.fn().mockRejectedValue(timeoutError));
 
-      await expect(generateRoutes(request)).rejects.toThrow(timeoutError.message);
+      await expect(generateRoutes(request)).rejects.toThrow("リクエストに失敗しました[タイムアウト]");
       expect(debugLog).toHaveBeenCalledWith(
         "api:route",
         expect.stringContaining("タイムアウト"),
@@ -102,11 +102,11 @@ describe("routeApi", () => {
       );
     });
 
-    it("fetch()自体が失敗する通信エラー（バックエンド到達不能等）もdebugLogに記録した上で再送出する", async () => {
+    it("fetch()自体が失敗する通信エラー（バックエンド到達不能等）もdebugLogに記録し、日本語の文言で投げる", async () => {
       const networkError = new TypeError("Failed to fetch");
       vi.stubGlobal("fetch", vi.fn().mockRejectedValue(networkError));
 
-      await expect(generateRoutes(request)).rejects.toThrow("Failed to fetch");
+      await expect(generateRoutes(request)).rejects.toThrow("リクエストに失敗しました[通信エラー]");
       expect(debugLog).toHaveBeenCalledWith(
         "api:route",
         "失敗 (通信エラー)",
@@ -302,17 +302,18 @@ describe("routeApi", () => {
       expect(result).toEqual({ routes, conditions });
     });
 
-    it("ポーリングの失敗が規定回数連続した場合は、人間可読な日本語メッセージで失敗としてrejectする", async () => {
-      // 失敗の中身が何であれ（HTTPエラー・AbortSignal.timeout由来のタイムアウト等）、
-      // 5回連続で諦めた場合は生の例外メッセージをそのまま外へ出さず、必ずこの人間可読な
-      // 日本語メッセージへ包み直す（詳細はdocs/records/tasks/T523.md参照）。
+    it("ポーリングの失敗が規定回数連続した場合は、原因を断定せず最後の失敗の文言（429のdetail等）を添えてrejectする", async () => {
       vi.useFakeTimers();
       const fetchMock = vi.fn().mockImplementation((url: string, options?: { method?: string }) => {
         if (options?.method === "POST") {
           return Promise.resolve(makeResponse({ json: async () => ({ job_id: "job-1" }) }));
         }
         return Promise.resolve(
-          makeResponse({ ok: false, status: 503, json: async () => ({ detail: "サーバーエラー" }) }),
+          makeResponse({
+            ok: false,
+            status: 429,
+            json: async () => ({ detail: "リクエストが多すぎます。しばらく待ってから再試行してください。" }),
+          }),
         );
       });
       vi.stubGlobal("fetch", fetchMock);
@@ -322,7 +323,7 @@ describe("routeApi", () => {
       await vi.advanceTimersByTimeAsync(1500 * 10);
 
       await expect(resultPromise).rejects.toThrow(
-        "ルート生成の状況確認がネットワークの不調で繰り返し失敗しました。時間をおいて再度お試しください。",
+        "ルート生成の状況確認に続けて失敗しました（リクエストが多すぎます。しばらく待ってから再試行してください）。時間をおいて再度お試しください。",
       );
     });
 
@@ -341,7 +342,7 @@ describe("routeApi", () => {
       await vi.advanceTimersByTimeAsync(1500 * 10);
 
       await expect(resultPromise).rejects.toThrow(
-        "ルート生成の状況確認がネットワークの不調で繰り返し失敗しました。時間をおいて再度お試しください。",
+        "ルート生成の状況確認に続けて失敗しました（ルート生成の状態の取得に失敗しました[タイムアウト]）。時間をおいて再度お試しください。",
       );
       await expect(resultPromise).rejects.not.toThrow("signal timed out");
     });

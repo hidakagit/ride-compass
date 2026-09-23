@@ -36,7 +36,7 @@ describe("WeatherPanel", () => {
 
   it("観測値が無くerrorがある場合は短い文言だけを表示し、詳細はtitleへ回す", () => {
     render(<WeatherPanel amedas={null} loading={false} error="アメダス観測値の取得に失敗しました[HTTP 503]" />);
-    const message = screen.getByText("観測値なし");
+    const message = screen.getByText("観測値を取得できません");
     expect(message).toBeInTheDocument();
     expect(message).toHaveAttribute("title", "アメダス観測値の取得に失敗しました[HTTP 503]");
     expect(screen.queryByText(/の風/)).not.toBeInTheDocument();
@@ -44,7 +44,7 @@ describe("WeatherPanel", () => {
 
   it("観測値があればerrorが立っていても値の側を表示する（失敗の文言で値を置き換えない）", () => {
     render(<WeatherPanel amedas={makeAmedas({})} loading={false} error="取り直しに失敗しました" />);
-    expect(screen.queryByText("観測値なし")).not.toBeInTheDocument();
+    expect(screen.queryByText("観測値を取得できません")).not.toBeInTheDocument();
     expect(screen.queryByText("取り直しに失敗しました")).not.toBeInTheDocument();
   });
 
@@ -124,7 +124,9 @@ describe("WeatherPanel", () => {
       const amedas = makeAmedas({ precipitation_10min_mm: null, sunshine_10min_minutes: null });
       const { container } = render(<WeatherPanel amedas={amedas} loading={false} error={null} />);
 
-      expect(container.querySelector('[title="晴れ"], [title="くもり"], [title="雨"], [title="雪"]')).not.toBeInTheDocument();
+      expect(
+        container.querySelector('[title="晴れ"], [title="くもり"], [title="雨"], [title="雪"]'),
+      ).not.toBeInTheDocument();
     });
   });
 

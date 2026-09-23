@@ -120,19 +120,18 @@ export async function generateRoutes(
         "warn",
       );
       if (consecutivePollFailures >= MAX_CONSECUTIVE_POLL_FAILURES) {
-        // AbortSignal.timeoutが送出する例外（DOMException「signal timed out」等の
-        // ネイティブな英語メッセージ）をそのままthrowすると、呼び出し元（page.tsx）が
-        // error.messageをそのまま画面へ表示するため、ユーザーに未翻訳の英語エラーが
-        // 見えてしまう。MAX_POLL_DURATION_MS超過時と同じ方針で、人間可読な日本語
-        // メッセージへ包み直す（元の例外はこの直前のdebugLogに残る）。
         debugLog(
           "api:route",
           "失敗 (ポーリング連続失敗で諦め)",
           { jobId, elapsedMs: performance.now() - startedAt },
           "error",
         );
+        // 原因は通信エラー・混雑（429）・ジョブ消失（404）のどれもありうるため断定せず、
+        // 最後の失敗の文言（fetch骨格が日本語へ揃え済み）を添える。
+        const lastCause = error instanceof Error ? error.message.replace(/。$/, "") : null;
         throw new Error(
-          "ルート生成の状況確認がネットワークの不調で繰り返し失敗しました。時間をおいて再度お試しください。",
+          `ルート生成の状況確認に続けて失敗しました${lastCause ? `（${lastCause}）` : ""}。時間をおいて再度お試しください。`,
+          { cause: error },
         );
       }
       continue;

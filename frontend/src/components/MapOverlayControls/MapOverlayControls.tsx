@@ -832,16 +832,34 @@ export default function MapOverlayControls({
    * 「ONにしても何も出ない」状態だけで、そのときの凡例は地図に存在しない色見本の表になる。
    * グループのメンバーと単独チップで同じ判断をするため、ここ1箇所に置く。 */
   function panelContentFor(layer: OverlayLayerChip) {
-    return layer.notice ? (
-      <p className={styles.detailNotice}>{layer.notice}</p>
-    ) : (
-      renderLegendDetails(layer.legendDetails ?? [], onLegendEntryToggle, onLegendAxisSetHidden)
+    if (layer.notice) return <p className={styles.detailNotice}>{layer.notice}</p>;
+    const status = dataStatusNoticeFor(layer);
+    return (
+      <>
+        {status && (
+          <p className={styles.detailStatus} role="status">
+            {status}
+          </p>
+        )}
+        {renderLegendDetails(layer.legendDetails ?? [], onLegendEntryToggle, onLegendAxisSetHidden)}
+      </>
     );
   }
 
-  /** ▶自体を出すか。案内文も凡例も無ければ開いても空になる。 */
+  /** 状態ドットの意味を文で読ませる置き場は▶の中。`title`はスマホでは出ないため、
+   * ドットを出している間（ONかつ状態あり）は凡例の上へ同じ文言を出す。 */
+  function dataStatusNoticeFor(layer: OverlayLayerChip): string | null {
+    if (!layer.on || layer.disabled || !layer.dataStatus) return null;
+    return LAYER_DATA_STATUS_LABELS[layer.dataStatus];
+  }
+
+  /** ▶自体を出すか。案内文も状態も凡例も無ければ開いても空になる。 */
   function canExpandPanel(layer: OverlayLayerChip) {
-    return Boolean(layer.notice) || Boolean(layer.legendDetails && layer.legendDetails.length > 0);
+    return (
+      Boolean(layer.notice) ||
+      dataStatusNoticeFor(layer) !== null ||
+      Boolean(layer.legendDetails && layer.legendDetails.length > 0)
+    );
   }
 
   function renderRawMemberTile(member: OverlayLayerChip, groupTint: MapOverlayGroup) {

@@ -30,7 +30,15 @@ const axisResponse: AxisDefinitionResponse = {
   dynamic_way_value_needs_bearing: false,
   dynamic_way_value_needs_speed: false,
   // displayは必須フィールド。このテストの対象ではないのでkind="none"を置く。
-  display: { kind: "none", label: "路面品質", category: "trafficSafety", tile_inputs: [], thresholds: [], unit: "", note: "" },
+  display: {
+    kind: "none",
+    label: "路面品質",
+    category: "trafficSafety",
+    tile_inputs: [],
+    thresholds: [],
+    unit: "",
+    note: "",
+  },
 };
 
 const axisPayload: AxisDefinitionPayload = { ...axisResponse };
@@ -87,9 +95,7 @@ describe("axisAdminApi", () => {
   describe("deleteAxisDefinition", () => {
     it("DELETEを送り、204レスポンスはundefinedを返す（json()を呼ばない）", async () => {
       const jsonSpy = vi.fn();
-      const fetchMock = vi
-        .fn()
-        .mockResolvedValue(makeResponse({ status: 204, json: jsonSpy }));
+      const fetchMock = vi.fn().mockResolvedValue(makeResponse({ status: 204, json: jsonSpy }));
       vi.stubGlobal("fetch", fetchMock);
 
       await expect(deleteAxisDefinition("surface_q")).resolves.toBeUndefined();
@@ -103,7 +109,9 @@ describe("axisAdminApi", () => {
 
   describe("unpublishAxisDefinition", () => {
     it("POST .../{axisId}/unpublish へbody無しで送る", async () => {
-      const fetchMock = vi.fn().mockResolvedValue(makeResponse({ json: async () => ({ ...axisResponse, is_published: false }) }));
+      const fetchMock = vi
+        .fn()
+        .mockResolvedValue(makeResponse({ json: async () => ({ ...axisResponse, is_published: false }) }));
       vi.stubGlobal("fetch", fetchMock);
 
       await unpublishAxisDefinition("surface_q");
@@ -120,7 +128,14 @@ describe("axisAdminApi", () => {
       const headers = new Headers({ "x-request-id": "req-123" });
       vi.stubGlobal(
         "fetch",
-        vi.fn().mockResolvedValue(makeResponse({ ok: false, status: 409, json: async () => ({ detail: "公開済みの軸は更新できません" }), headers })),
+        vi.fn().mockResolvedValue(
+          makeResponse({
+            ok: false,
+            status: 409,
+            json: async () => ({ detail: "公開済みの軸は更新できません" }),
+            headers,
+          }),
+        ),
       );
 
       await expect(listAxisDefinitions()).rejects.toThrow("公開済みの軸は更新できません");
@@ -164,10 +179,10 @@ describe("axisAdminApi", () => {
       await expect(listAxisDefinitions()).rejects.toThrow("サーバーからの応答の解析に失敗しました");
     });
 
-    it("fetch()自体が失敗した場合（通信エラー）は元の例外をそのまま投げる", async () => {
+    it("fetch()自体が失敗した場合（通信エラー）は英語の元の文言を出さず、日本語の失敗文言で投げる", async () => {
       vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new TypeError("Failed to fetch")));
 
-      await expect(listAxisDefinitions()).rejects.toThrow("Failed to fetch");
+      await expect(listAxisDefinitions()).rejects.toThrow("リクエストに失敗しました[通信エラー]");
     });
   });
 });
