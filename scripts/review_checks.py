@@ -36,6 +36,7 @@ from __future__ import annotations
 import argparse
 import datetime as dt
 import json
+import os
 import re
 import subprocess
 import sys
@@ -44,6 +45,9 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 PLAN_DOC = "docs/improvement-plan.md"
+#: 台帳の行を閉じた（消した）状態が揃っているべきブランチ。並行実行の作業ブランチでは、
+#: 台帳の行は取り込みの後に司令塔が消す（docs/conventions/orchestration.md「監査の結果」）。
+MAIN_BRANCH = "master"
 SIZE_THRESHOLDS = REPO_ROOT / "scripts" / "size_thresholds.json"
 
 #: 記録。**維持しない**（`docs/records/README.md`）。記録時点で嘘が無ければよく、後から
@@ -175,8 +179,19 @@ def find_plan_entry_problems() -> list[str]:
     return out
 
 
-def find_task_state_problems() -> list[str]:
-    """タスク記録の状態表記と、台帳との対応。
+def checked_branch() -> str | None:
+    """検査しているコミットのブランチ。CIではワークフローを起動したref、手元では今のブランチ。
+
+    どちらも取れない（プルリクエストの合成コミット・detached HEAD）ならNone。
+    """
+    if os.environ.get("GITHUB_ACTIONS") == "true":
+        ref = os.environ.get("GITHUB_REF", "")
+        return ref.removeprefix("refs/heads/") if ref.startswith("refs/heads/") else None
+    return git("symbolic-ref", "--short", "-q", "HEAD", check=False).strip() or None
+
+
+def find_task_state_problems(on_main: bool) -> tuple[list[str], list[str]]:
+    """タスク記録の状態表記と、台帳との対応。(違反, 参考) を返す。
 
     **管理したいのは「片付いたかどうか」だけ**なので、`状態:` は `完了` か `未完了` で
     始まる。着手中・保留・設計確定といった作業中の呼び分けは一時的な話なので本文へ書く。
@@ -185,11 +200,17 @@ def find_task_state_problems() -> list[str]:
     - 表記が2語のどちらでもない → どちらか判定できない
     - `未完了` なのに台帳へ行が無い → 誤ってクローズした（誰も着手しない）
     - `完了` なのに台帳へ行がある → 閉じ忘れ（終わった話が候補に混ざる）
+
+    3つ目は`MAIN_BRANCH`でだけ違反にし、それ以外のブランチでは参考として出す。台帳は全担当が
+    1行ずつ触る共有のファイルで、別々のブランチが隣り合った行を消すと取り込みで衝突するため、
+    並行実行の担当は`状態:`だけを完了にし、行は司令塔が取り込みの後にまとめて消す
+    （`scripts/orchestrate.py ledger close`）。masterへ入る時点で行が消えていることは、
+    masterへのpushのCIがこの検査で見る。
     """
     plan = REPO_ROOT / PLAN_DOC
     listed = {m.group(1) for line in read(plan).splitlines()
               if (m := PLAN_ENTRY_RE.match(line))} if plan.exists() else set()
-    out = []
+    out, notes = [], []
     for f in sorted(f for f in TASKS_DIR.glob("*.md") if TASK_FILE_RE.match(f.name)):
         rel_target = f"records/tasks/{f.name}"
         state = next((l for l in read(f).splitlines() if l.startswith("状態:")), None)
@@ -201,12 +222,14 @@ def find_task_state_problems() -> list[str]:
         if not done and rel_target not in listed:
             out.append(f"{rel_target}: 未完了なのに台帳に行が無い（誤ってクローズした）")
         if done and rel_target in listed:
-            out.append(f"{rel_target}: 完了なのに台帳に行がある（閉じ忘れ）")
-    return out
+            (out if on_main else notes).append(f"{rel_target}: 完了なのに台帳に行がある（閉じ忘れ）")
+    return out, notes
 
 
 def cmd_docs(args: argparse.Namespace) -> int:
     universe = set(tracked_files())
+    branch = checked_branch()
+    state_problems, state_notes = find_task_state_problems(branch == MAIN_BRANCH)
     md_files = [f for f in universe
                 if f.endswith(".md") and not f.startswith(FROZEN_PREFIXES)]
 
@@ -216,7 +239,7 @@ def cmd_docs(args: argparse.Namespace) -> int:
         ("plan_entries", "台帳のエントリが同じ先を指している／リンク先が無い",
          find_plan_entry_problems()),
         ("task_state", "タスク記録の状態表記と、台帳との対応",
-         find_task_state_problems()),
+         state_problems),
     ]
 
     total = 0
@@ -225,6 +248,12 @@ def cmd_docs(args: argparse.Namespace) -> int:
         for line in lines:
             print(f"  - {line}")
         total += len(lines)
+    if state_notes:
+        print(f"## [参考] 完了なのに台帳に行がある: {len(state_notes)}件"
+              f"（{branch or 'ブランチ不明'}は{MAIN_BRANCH}ではないので違反にしない。"
+              f"取り込みの後に司令塔が消す）")
+        for line in state_notes:
+            print(f"  - {line}")
 
     print()
     if total:
