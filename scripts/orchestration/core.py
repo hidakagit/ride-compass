@@ -24,10 +24,11 @@
 ## 表に持つもの、正本から導くもの
 
 表に持つのは表にしか無い事実だけ（規約「状態の表」節）。他に正本があるものは写さず、読むときに
-導く（`ledger_rows`・`budget_of`・`task_title`・`audited_unpushed`・`master_tip_time`）:
+導く（`ledger_rows`・`effort_budgets`・`budget_of`・`task_title`・`audited_unpushed`・`master_tip_time`）:
 
 - タスクの題名と規模札は台帳（origin/masterの`docs/improvement-plan.md`の行）。見込み超過の予算は、
-  担当の現在のタスクの規模札から計算する（「S〜M」のような幅は大きい側）。
+  担当の現在のタスクの規模札（「S〜M」のような幅は大きい側）について、タスク記録の所要の行
+  （`所要（並行実行）:`）を集めた80パーセンタイルから、読むたびに計算する（`effort_budgets`）。
 - 監査済みのコミットがmasterへ入ったかは、監査の記録（`audit_log`の`通す`）と`git cherry`
   （cherry-pickでshaが変わっても、変更の中身が同じなら入ったとみなす）。前回のpushの時刻は
   origin/masterの先端のコミットの時刻。
@@ -64,6 +65,7 @@ from __future__ import annotations
 import argparse
 import datetime as dt
 import json
+import math
 import os
 import re
 import subprocess
@@ -121,8 +123,19 @@ FORBIDDEN_KEYS = {
 }
 
 DEFAULT_CONCURRENT = 3
-#: 規模札（CLAUDE.md「規模の目安」）の予算。
+#: 規模札の定義（CLAUDE.md「規模の目安」）の分。予算は所要の実績から計算し、これは実績の無い
+#: 規模札の補い（隣の規模札との比と、最後の既定値）にだけ使う。
 SCALE_BUDGET_MINUTES = {"S": 60, "M": 240, "L": 480}
+#: 所要の行（規約「完了とpush」の書式）。
+EFFORT_PREFIX = "所要（並行実行）"
+EFFORT_REAL_RE = re.compile(r"完了[^（(]*[（(]約?(\d+)分")
+EFFORT_FRAME_RE = re.compile(r"枠待ち約?(\d+)分")
+EFFORT_CI_RE = re.compile(r"CI待ち約?(\d+)分")
+EFFORT_SCALE_RE = re.compile(r"規模札([SML])(?:〜([SML]))?")
+EFFORT_REASON_RE = re.compile(r"超過[:：]\s*([^、。）\n]+)")
+BUDGET_PERCENTILE = 0.8
+#: これより少ない件数の規模札は、その件数だけで予算を決めない。
+BUDGET_MIN_SAMPLES = 5
 #: 作業ツリーの未コミット変更がこの時間内に更新されていれば「手元で動いている」と数える。
 ACTIVE_MINUTES = 15
 STALE_COMMIT_MINUTES = 30
@@ -280,6 +293,82 @@ def ledger_rows(ctx: Context) -> dict[str, dict]:
     return rows
 
 
+def parse_effort(task: str, text: str) -> dict:
+    """所要の1行（規約「完了とpush」の書式）を読む。読めない値はNone（「不明」も同じ）。"""
+    def minutes_of(rx: re.Pattern) -> int | None:
+        m = rx.search(text)
+        return int(m.group(1)) if m else None
+
+    s = EFFORT_SCALE_RE.search(text)
+    real, frame, ci = minutes_of(EFFORT_REAL_RE), minutes_of(EFFORT_FRAME_RE), minutes_of(EFFORT_CI_RE)
+    reason = EFFORT_REASON_RE.search(text)
+    return {"task": task, "scale": (s.group(2) or s.group(1)) if s else None, "real": real,
+            "work": real - frame - ci if None not in (real, frame, ci) else None,
+            "reason": reason.group(1).strip() if reason else None}
+
+
+def effort_records(ctx: Context) -> list[dict]:
+    """origin/masterのタスク記録にある所要の行（1回のgit grepで取る）。"""
+    out = git_out(ctx.repo, "grep", "--no-color", "-e", f"^{EFFORT_PREFIX}", "origin/master", "--",
+                  f"{TASKS_DIR}/*.md") or ""
+    records = []
+    for line in out.splitlines():
+        _, path, text = line.split(":", 2)
+        m = TASK_DOC_RE.match(path)
+        if m:
+            records.append(parse_effort(m.group(1), text))
+    return records
+
+
+def percentile(values: list[int], q: float) -> int:
+    """最近順位法の百分位（件数に1件足しても、外れ値の側へは順位1つ分しか動かない）。"""
+    ordered = sorted(values)
+    return ordered[max(math.ceil(q * len(ordered)) - 1, 0)]
+
+
+def effort_budgets(records: list[dict]) -> dict[str, dict]:
+    """規模札ごとの予算（分）を、所要の実績の80パーセンタイルから計算する。保存しない。
+
+    作業そのものの時間（実時間 − 枠待ち − CI待ち）の件数が足りればそれを、足りなければ実時間を
+    使う。どちらも足りない規模札は、実績のある隣の規模札に、規模札の定義の比（S:M:L=1:4:8）を
+    掛けて補い、隣も無ければ定義の値を使う。"""
+    stats: dict[str, dict] = {}
+    for scale in SCALE_BUDGET_MINUTES:
+        real = [r["real"] for r in records if r["scale"] == scale and r["real"] is not None]
+        work = [r["work"] for r in records if r["scale"] == scale and r["work"] is not None]
+        stat = {"n_real": len(real), "n_work": len(work),
+                "real": percentile(real, BUDGET_PERCENTILE) if real else None,
+                "work": percentile(work, BUDGET_PERCENTILE) if work else None, "value": None, "basis": ""}
+        if len(work) >= BUDGET_MIN_SAMPLES:
+            stat["value"], stat["basis"] = stat["work"], "作業そのものの時間"
+        elif len(real) >= BUDGET_MIN_SAMPLES:
+            stat["value"], stat["basis"] = stat["real"], "実時間"
+        stats[scale] = stat
+    order = list(SCALE_BUDGET_MINUTES)
+    for i, scale in enumerate(order):
+        if stats[scale]["value"] is not None:
+            continue
+        neighbors = sorted((abs(i - j), other) for j, other in enumerate(order)
+                           if other != scale and stats[other]["basis"] in ("作業そのものの時間", "実時間"))
+        if neighbors:
+            other = neighbors[0][1]
+            ratio = SCALE_BUDGET_MINUTES[scale] / SCALE_BUDGET_MINUTES[other]
+            stats[scale]["value"] = round(stats[other]["value"] * ratio)
+            stats[scale]["basis"] = f"{other}の実績×{ratio:g}"
+        else:
+            stats[scale]["value"], stats[scale]["basis"] = SCALE_BUDGET_MINUTES[scale], "規模札の定義"
+    return stats
+
+
+def budget_line(stats: dict[str, dict]) -> str:
+    parts = []
+    for scale, s in stats.items():
+        measured = (f"実時間p80 {s['real'] if s['real'] is not None else '-'}分/{s['n_real']}件・作業p80 "
+                    f"{s['work'] if s['work'] is not None else '-'}分/{s['n_work']}件")
+        parts.append(f"{scale} {s['value']}分（{s['basis']}。{measured}）")
+    return "予算（所要の実績の80パーセンタイル）: " + " ／ ".join(parts)
+
+
 def task_title(ctx: Context, task: str, rows: dict[str, dict]) -> str:
     """タスクの題名。台帳に行があればその行、無ければ（閉じたタスク等）記録の見出し。"""
     if task in rows:
@@ -413,11 +502,11 @@ def is_cloud(agent: dict) -> bool:
     return str(agent.get("where", "")).startswith("cloud")
 
 
-def budget_of(agent: dict, rows: dict[str, dict]) -> int | None:
-    """担当の現在のタスクの予算（分）。台帳の規模札から計算する（台帳に行が無ければ不明）。"""
+def budget_of(agent: dict, rows: dict[str, dict], budgets: dict[str, dict]) -> int | None:
+    """担当の現在のタスクの予算（分）: 台帳の規模札の、所要の実績から計算した予算（台帳に行が無ければ不明）。"""
     task = agent.get("current_task")
     scale = (rows.get(str(task)) or {}).get("scale") if task else None
-    return SCALE_BUDGET_MINUTES.get(scale) if scale else None
+    return budgets[scale]["value"] if scale in budgets else None
 
 
 def start_task(agent: dict, task: str, at: dt.datetime) -> None:
@@ -527,6 +616,7 @@ class Facts:
         self.lock_records = self._recent_locks()
         self.lock_holders = self._lock_holders()
         self.ledger = ledger_rows(ctx)
+        self.budgets = effort_budgets(effort_records(ctx))
 
     def _recent_locks(self) -> list[dict]:
         log = self.ctx.lock_root / "log.jsonl"
@@ -579,7 +669,7 @@ class Facts:
         for a in self.board["agents"]:
             if a.get("state") not in ACTIVE_STATES or audit_pending(a):
                 continue
-            first, budget = parse_time(a.get("task_first_started")), budget_of(a, self.ledger)
+            first, budget = parse_time(a.get("task_first_started")), budget_of(a, self.ledger, self.budgets)
             if first and budget is not None:
                 total = minutes(self.at - first)
                 if total > budget:
@@ -703,6 +793,15 @@ def cmd_status(ctx: Context, args: argparse.Namespace) -> int:
           f"（{hm(dt.datetime.fromtimestamp(int(master_ts)).astimezone()) if master_ts else '-'}。fetchはしない）")
     print(f"稼働（手元）{len(f.active())}本  監査待ち{len(f.audit_waiting())}本"
           f"  停止ファイル{'あり' if f.stop else 'なし'}  core.hooksPath={f.hooks_path}")
+    print(budget_line(f.budgets))
+    reasons: dict[str, dict[str, int]] = {}
+    for r in effort_records(ctx):
+        if r["reason"]:
+            by_scale = reasons.setdefault(r["scale"] or "規模札なし", {})
+            by_scale[r["reason"]] = by_scale.get(r["reason"], 0) + 1
+    if reasons:
+        print("超過の理由（所要の行の「超過:」）: " + " ／ ".join(
+            f"{s} " + "・".join(f"{k}{n}件" for k, n in c.items()) for s, c in reasons.items()))
     for a in agents:
         state = a.get("state", "-")
         start, expected = parse_time(a.get("started")), a.get("expected_min")
@@ -712,7 +811,7 @@ def cmd_status(ctx: Context, args: argparse.Namespace) -> int:
             first = parse_time(a.get("task_first_started"))
             if first:
                 progress += (f"  {a.get('current_task') or '現在のタスク'}: 着手から{minutes(f.at - first)}分"
-                             f"/予算{budget_of(a, f.ledger) or '-'}分")
+                             f"/予算{budget_of(a, f.ledger, f.budgets) or '-'}分")
         print(f"\n{a.get('name')}  [{state}]  {a.get('where', '-')}  開始{hm(start)}{progress}")
         t = f.tree(a)
         if t is None:
@@ -800,6 +899,7 @@ def cmd_check(ctx: Context, args: argparse.Namespace) -> int:
     else:
         print(f"異常なし（{hm(f.at)}、稼働{len(active)}本/上限{f.limit}本、"
               f"監査待ち{len(f.audit_waiting())}本、CPU {cpu}）")
+    print(budget_line(f.budgets))
     if args.record:
         board = load_board(ctx)
         board["last_check"] = iso(f.at)
@@ -1077,7 +1177,7 @@ def cmd_board(ctx: Context, args: argparse.Namespace) -> int:
         task = agent.get("current_task")
         if "current_task" in keys and task and task != previous_task:
             start_task(agent, str(task), at)
-            if budget_of(agent, ledger_rows(ctx)) is None:
+            if (ledger_rows(ctx).get(str(task)) or {}).get("scale") is None:
                 print(f"注: {task}は台帳に規模札のある行が無い。見込み超過をタスク単位で測れない")
         if agent.get("state") == "稼働":
             restore_hooks_path(ctx)
