@@ -25,10 +25,7 @@ GRADIENT_TILE_VALUES_TTL_SECONDS = 24 * 3600
 
 
 class GradientWayService:
-    #: 担当する軸id。登録キー・URLのパスパラメータ・キャッシュの名前空間はこれで揃える。
-    axis_id = "gradient"
-
-    #: 返す生値の材料id。`axis_id`とは別の名前空間。
+    #: 返す生値の材料id。この材料を参照する軸の配信を担当し、キャッシュの名前空間にもなる。
     material_id = "gradient_percent"
 
     def __init__(self, repository: RoadGraphRepository | None):
@@ -59,7 +56,7 @@ class GradientWayService:
         with log_external_call("region:gradient-way-values", z=z, x=x, y=y) as fields:
             # 世代は鍵の一部。渡し忘れると世代をまたいだ値を配る。
             revision = derived_data_revision_service.current_revision()
-            cached = await get_tile_values(self.axis_id, z, x, y, None, bearing_deg, revision=revision)
+            cached = await get_tile_values(self.material_id, z, x, y, None, bearing_deg, revision=revision)
             if cached is not None:
                 fields["cache_hit"] = len(cached)
                 fields["cache_status"] = "hit"
@@ -95,7 +92,7 @@ class GradientWayService:
                 if value is not None
             }
             await set_tile_values(
-                self.axis_id, z, x, y, None, bearing_deg, values, GRADIENT_TILE_VALUES_TTL_SECONDS,
+                self.material_id, z, x, y, None, bearing_deg, values, GRADIENT_TILE_VALUES_TTL_SECONDS,
                 revision=revision,
             )
             fields["computed"] = len(values)

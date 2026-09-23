@@ -8,11 +8,12 @@ from datetime import datetime
 import logging
 from contextlib import AsyncExitStack, asynccontextmanager
 from dataclasses import dataclass
-from typing import AsyncIterator, Awaitable, Callable, Protocol
+from typing import AsyncIterator, Awaitable, Callable, Iterable, Protocol
 
 from fastapi import Depends, HTTPException, Request
 
 from app.config import settings
+from app.domain.axis_definitions import AXIS_DEFINITIONS
 from app.domain.dynamic_way_values import dedicated_way_value_axes
 from app.domain.errors import RoutingError
 from app.domain.evaluation import resolve_penalty_strength
@@ -248,12 +249,12 @@ async def get_region_service():
         yield RegionService()
 
 
-# way_id→動的値配信の実装。**ここで軸を名指ししない**——どの軸を担当するかは各サービスの
-# `axis_id`属性が唯一の宣言で、この層はそれを読むだけにする（2箇所に名前があると、
-# 片方だけ変えたときにルーティングとキャッシュの名前空間が静かにずれる）。
+# way_id→動的値配信の実装。**軸を名指ししない**——各サービスは自分が返す材料
+# （`material_id`）だけを宣言し、軸との対応は軸定義が参照する材料から都度引く。軸はDBの行で
+# 増減する（公開済みの軸は複製で改良する）ため、実装が軸の名前を持つと複製した軸が配信されない。
 # サービスごとにコンストラクタ依存が違うため、生成は`build`の統一シグネチャ越しに行う。
 # 軸スタジオは`dedicated_way_value_layer=true`の軸を宣言だけで作れるが、配信できる値は
-# ここに実装があるものだけ——実装の無い軸は未知のaxis_idと同じく404で返す（500にすると
+# ここに実装がある材料だけ——実装の無い軸は未知のaxis_idと同じく404で返す（500にすると
 # フロントの「データなし」フォールバックが効かず、その軸のタイルが全て失敗する）。
 class DedicatedWayValueService(Protocol):
     """way_id→動的値配信の実装が満たす形（ルーターが使うのはこれだけ）。"""
@@ -265,19 +266,46 @@ class DedicatedWayValueService(Protocol):
     ) -> dict[str, float]: ...
 
 
+DedicatedWayValueServiceFactory = Callable[[RoadGraphRepository | None, WeatherService], DedicatedWayValueService]
+
 _DEDICATED_WAY_VALUE_SERVICES = (
     WindWayService,
     GradientWayService,
 )
 
-_DEDICATED_WAY_VALUE_SERVICE_FACTORIES: dict[
-    str, Callable[[RoadGraphRepository | None, WeatherService], DedicatedWayValueService]
-] = {service.axis_id: service.build for service in _DEDICATED_WAY_VALUE_SERVICES}
+
+def _factories_by_material(services) -> dict[str, DedicatedWayValueServiceFactory]:
+    """材料id→サービスの組み立て。1つの材料を2つのサービスが担当していたら起動時に落とす
+    ——どちらを選ぶかを黙って決めない。"""
+    factories: dict[str, DedicatedWayValueServiceFactory] = {}
+    for service in services:
+        if service.material_id in factories:
+            raise RuntimeError(
+                f"material '{service.material_id}' is served by more than one dedicated way value service"
+            )
+        factories[service.material_id] = service.build
+    return factories
 
 
-def implemented_dedicated_way_value_axis_ids() -> frozenset[str]:
-    """way_id→動的値配信の実装が登録済みのaxis_id。軸の書き込み時の検証が参照する。"""
-    return frozenset(_DEDICATED_WAY_VALUE_SERVICE_FACTORIES)
+_DEDICATED_WAY_VALUE_SERVICE_FACTORIES = _factories_by_material(_DEDICATED_WAY_VALUE_SERVICES)
+
+
+def served_dedicated_way_value_material(materials: Iterable[str]) -> str | None:
+    """軸が参照する材料のうち、way_id→値の配信を実装している材料。ちょうど1つのときだけ返す。
+
+    0件なら配信する値が無い。2件以上は、1つのサービスが1つの材料の値しか返さないため
+    その軸を評価しきれない。どちらも「実装が無い」として扱う（書き込み時の検証が拒否し、
+    配信側は404）。
+    """
+    served = {material for material in materials if material in _DEDICATED_WAY_VALUE_SERVICE_FACTORIES}
+    return next(iter(served)) if len(served) == 1 else None
+
+
+def _dedicated_way_value_factory(axis_id: str) -> DedicatedWayValueServiceFactory | None:
+    if axis_id not in dedicated_way_value_axes():
+        return None
+    material = served_dedicated_way_value_material(AXIS_DEFINITIONS[axis_id].materials)
+    return None if material is None else _DEDICATED_WAY_VALUE_SERVICE_FACTORIES[material]
 
 
 async def get_dedicated_way_value_service(
@@ -288,11 +316,11 @@ async def get_dedicated_way_value_service(
 
     `axis_id`はパスパラメータで、ルーター側と同名でなければFastAPIが解決できない。
     router側で軸ごとのサービスをそれぞれ`Depends`するとリクエストごとにDBセッションが
-    重複して開くため、この関数自体が分岐して1セッションで済ませる。未知の`axis_id`には
+    重複して開くため、この関数自体が分岐して1セッションで済ませる。配信できない`axis_id`には
     Noneを返し、呼び出し元が404を返す。
     """
-    factory = _DEDICATED_WAY_VALUE_SERVICE_FACTORIES.get(axis_id)
-    if axis_id not in dedicated_way_value_axes() or factory is None:
+    factory = _dedicated_way_value_factory(axis_id)
+    if factory is None:
         yield None
         return
 
@@ -323,19 +351,21 @@ async def directional_materials(
     になる）。
 
     **軸を名指ししない**——`dedicated_way_value_axes()`の宣言を回し、その軸が必要とする
-    ものが揃っているかで判断する。軸が増えてもここは変わらない。
+    ものが揃っているかで判断する。軸が増えてもここは変わらない。同じ材料を参照する軸が
+    複数あっても、材料ごとに1回だけ引く。
 
     値は地図のレンズが引くのと同じ経路（同じキャッシュ）から取るので、**地図の色と
     内訳が一致する**。
     """
     if z is None or x is None or y is None:
         return {}
-    wanted = [
-        axis_id for axis_id, axis in dedicated_way_value_axes().items()
-        if axis_id in _DEDICATED_WAY_VALUE_SERVICE_FACTORIES
-        and not (axis.needs_bearing and bearing_deg is None)
-        and not (axis.needs_speed and speed_kmh is None)
-    ]
+    wanted: dict[str, DedicatedWayValueServiceFactory] = {}
+    for axis_id, axis in dedicated_way_value_axes().items():
+        if (axis.needs_bearing and bearing_deg is None) or (axis.needs_speed and speed_kmh is None):
+            continue
+        material = served_dedicated_way_value_material(AXIS_DEFINITIONS[axis_id].materials)
+        if material is not None:
+            wanted[material] = _DEDICATED_WAY_VALUE_SERVICE_FACTORIES[material]
     if not wanted:
         return {}
 
@@ -344,11 +374,10 @@ async def directional_materials(
 
     async def collect(repository: RoadGraphRepository | None) -> dict[str, float]:
         found: dict[str, float] = {}
-        for axis_id in wanted:
-            service = _DEDICATED_WAY_VALUE_SERVICE_FACTORIES[axis_id](repository, weather_service)
-            values = await service.get_way_values(z, x, y, at, bearing_deg, speed_kmh)
+        for material, factory in wanted.items():
+            values = await factory(repository, weather_service).get_way_values(z, x, y, at, bearing_deg, speed_kmh)
             if key in values:
-                found[service.material_id] = values[key]
+                found[material] = values[key]
         return found
 
     if settings.road_graph_use_repository:

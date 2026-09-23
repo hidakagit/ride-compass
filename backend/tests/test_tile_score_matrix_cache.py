@@ -44,7 +44,7 @@ def _sample_matrix(edge_id: str = "edge-1", score: float = 50.0) -> StaticEdgeSc
     return StaticEdgeScoreMatrix(
         **_columns(1),
         edge_ids=[edge_id],
-        axis_ids=["gradient"],
+        axis_ids=["axis_a"],
         axis_scores=np.array([[score]]),
         distance_m=np.array([100.0]),
         bearing_deg=np.array([np.nan]),
@@ -63,7 +63,7 @@ def _empty_matrix() -> StaticEdgeScoreMatrix:
     return StaticEdgeScoreMatrix(
         **_columns(0),
         edge_ids=[],
-        axis_ids=["gradient"],
+        axis_ids=["axis_a"],
         axis_scores=np.zeros((0, 1)),
         distance_m=np.zeros(0),
         bearing_deg=np.zeros(0),

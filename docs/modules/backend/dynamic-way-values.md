@@ -25,16 +25,22 @@ get_feature_gradient_inputs_in_tile`・`get_feature_keys_in_tile`は
 
 ## 2つのidの名前空間（読む前の前提）
 
-この機構には名前の似た2つのidが出てくる。**混同すると無音の404・別の軸のキャッシュの
-読み書きになる**ため、常に区別する。
+この機構には名前の似た2つのidが出てくる。**混同すると無音の404・全道路の色なしになる**
+ため、常に区別する。
 
 | id | 何を指すか | 実体 | 出てくる場所 |
 |---|---|---|---|
-| **軸id** (`axis_id`) | 評価軸そのもの。例: `wind`・`gradient` | `axis_definitions.axis_id` | APIのパスパラメータ、`_DEDICATED_WAY_VALUE_SERVICE_FACTORIES`のキー、キャッシュの名前空間、各サービスの`axis_id`クラス属性 |
-| **材料id** (`material_id`) | サービスが返す生値が軸定義のどの材料か。例: `wind_drag_ratio`・`gradient_percent` | `material_catalog.py`のキー | 各サービスの`material_id`クラス属性、`transform_dedicated_way_values`の第2引数 |
+| **軸id** (`axis_id`) | 評価軸そのもの。軸スタジオでDBの行として増減する | `axis_definitions.axis_id` | APIのパスパラメータ、`dedicated_way_value_axes()`のキー |
+| **材料id** (`material_id`) | サービスが返す生値が軸定義のどの材料か。例: `wind_drag_ratio`・`gradient_percent` | `material_catalog.py`のキー | 各サービスの`material_id`クラス属性、`_DEDICATED_WAY_VALUE_SERVICE_FACTORIES`のキー、キャッシュの名前空間、`transform_dedicated_way_values`の第2引数 |
 
-`tests/test_dedicated_way_value_services.py`が、登録キー＝`axis_id`属性であること・
-`material_id`が材料カタログの既知材料であること・2つが同じ値でないことを検査する。
+**実装は軸idを持たない。** 軸とサービスは、軸定義が参照する材料（`AxisDefinition.materials`）と
+サービスの`material_id`の突き合わせで結ばれる。材料はコードが正本（GUIから増減しない）なので、
+実装が材料の名前を知るのは、DBの行で増減する軸の名前を知るのとは違う。公開済みの軸は直さずに
+複製して改良するため、軸の名前で結ぶと複製した軸が配信されない。
+
+`tests/test_dedicated_way_value_services.py`が、登録キー＝`material_id`属性であること・
+`material_id`が材料カタログの既知材料であること・1つの材料を2つのサービスが担当すると
+登録時に落ちることを検査する。
 
 ## 軸登録と地図表示値（`domain/dynamic_way_values.py`）
 
@@ -60,10 +66,12 @@ def dedicated_way_value_axes() -> dict[str, DedicatedWayValueAxis]:
 （`dedicated_way_value_layer`・`dynamic_way_value_needs_time`/
 `dynamic_way_value_needs_bearing`）はこの関数の戻り値へ自動的に反映される。
 
-ただし**配信できる値があるかは別**で、鍵→値を実際に組み立てるサービス本体を
-`api/dependencies.py`の`_DEDICATED_WAY_VALUE_SERVICE_FACTORIES`へ登録する必要がある
-（コード変更を伴う）。登録の無い`axis_id`に`dedicated_way_value_layer`を立てることは
-書き込み時に拒否され（`axis_admin.py:
+ただし**配信できる値があるかは別**で、軸が参照する材料の値を組み立てるサービス本体が
+`api/dependencies.py`の`_DEDICATED_WAY_VALUE_SERVICE_FACTORIES`に登録されている必要がある
+（材料ごとに1回のコード変更）。軸が参照する材料のうち、登録済みのものが**ちょうど1つ**
+（`served_dedicated_way_value_material`）でなければ配信できない——0件なら値が無く、2件以上は
+1つのサービスが1つの材料の値しか返さないため軸を評価しきれない。そういう軸へ
+`dedicated_way_value_layer`を立てることは書き込み時に拒否され（`axis_admin.py:
 _check_dedicated_layer_is_implemented`）、既存データ等で万一そうなっている場合も配信側は
 未知の`axis_id`と同じく404を返す（500にするとフロントの「データなし」
 フォールバックが効かない）。
@@ -75,8 +83,8 @@ _check_dedicated_layer_is_implemented`）、既存データ等で万一そうな
   必要とする）。
 - `needs_speed`: 想定速度（`speed_kmh`クエリパラメータ）に依存するか。走行速度依存の
   材料`wind_drag_ratio`を参照する風軸で立てる（勾配=No）。
-- `dedicated_way_value_layer=True`は軸スタジオで立てられるフラグで、立てた軸はコード変更
-  なしにこの配信経路へ載る（現在はwind・gradientが該当する）。
+- `dedicated_way_value_layer=True`は軸スタジオで立てられるフラグで、配信を実装した材料を
+  参照する軸なら、名前が何であってもコード変更なしにこの配信経路へ載る。
 
 3つの`needs_*`は`GET /api/axis-catalog`が`dynamic_way_value_needs_time`/
 `_needs_bearing`/`_needs_speed`としてそのまま公開し、frontendはどのクエリパラメータを
@@ -91,14 +99,14 @@ _check_dedicated_layer_is_implemented`）、既存データ等で万一そうな
 | `map_value_unit(definition)` | `signed_material`なら材料カタログの`unit`、`difficulty`は空文字 |
 | `transform_dedicated_way_values(definition, material_id, values)` | 生値→地図表示値。`difficulty`は`evaluate_axis_scalar`で評価（同じ生値は1回だけ評価）、`signed_material`は素通し |
 
-`api/dependencies.py: get_dedicated_way_value_service`内の`_DEDICATED_WAY_VALUE_SERVICE_
-FACTORIES`は、軸id→サービス実装本体（`WindWayService`/`GradientWayService`）の
-組み立てを担う別のdict。こちらはPython実装本体（コンストラクタ）の登録のため軸スタジオの
-宣言だけでは代替できず、新しい軸を追加する際は引き続きコード変更が必要
-（`dedicated_way_value_axes()`側とは別軸・別タイミングで拡張できる）。実装はクラス属性
-`axis_id`と統一シグネチャの`build`を持ち、インスタンスが`DedicatedWayValueService`
+`api/dependencies.py`の`_DEDICATED_WAY_VALUE_SERVICE_FACTORIES`は、材料id→サービス実装本体
+（`WindWayService`/`GradientWayService`）の組み立てを担うdict。こちらはPython実装本体
+（コンストラクタ）の登録のため軸スタジオの宣言だけでは代替できず、**新しい材料**の配信には
+コード変更が要る（同じ材料を参照する軸を増やすのには要らない）。実装はクラス属性
+`material_id`と統一シグネチャの`build`を持ち、インスタンスが`DedicatedWayValueService`
 （`material_id`・`get_way_values`）の形を満たせば、`_DEDICATED_WAY_VALUE_SERVICES`へ
-1行足すだけで登録される（キーは`axis_id`から取るため、名前を2箇所に書かない）。
+1行足すだけで登録される（キーは`material_id`から取るため、名前を2箇所に書かない）。
+1つの材料を2つのサービスが担当していると、モジュールの読み込み時（＝起動時）に落ちる。
 
 ## API（`api/routers/region.py`）
 
@@ -108,7 +116,8 @@ FACTORIES`は、軸id→サービス実装本体（`WindWayService`/`GradientWay
 axis_id → dedicated_way_value_axes().get(axis_id)（無ければ404）
         → needs_bearing かつ bearing_deg 省略 → 422
         → needs_speed かつ speed_kmh 省略 → 422（それ以外の軸はspeed_kmhを無視）
-        → get_dedicated_way_value_service(axis_id) が WindWayService/GradientWayService を組み立て
+        → get_dedicated_way_value_service(axis_id) が軸の参照する材料から WindWayService/GradientWayService を組み立て
+          （配信を実装した材料がちょうど1つでなければNone→404）
         → service.get_way_values(z, x, y, at, bearing_deg, speed_kmh)   … 材料の生値（キャッシュ対象）
         → transform_dedicated_way_values(AXIS_DEFINITIONS[axis_id], service.material_id, 生値)
         → {フィーチャーの鍵: 地図表示値} の辞書（JSON。鍵はタイルが焼いた`feature_key`と
@@ -174,9 +183,10 @@ axis_id → dedicated_way_value_axes().get(axis_id)（無ければ404）
 自前で再計算できるためRedisは使わず、1エントリが190KBでキーが
 (タイル×向き×速度×時刻)の組み合わせで増えるためプロセス内メモリにも置かない。
 
-キーは`_key(axis_id, z, x, y, hour_bucket, bearing_deg, speed_kmh)`のタプルへ**路面タイルの
-形の署名**（`ROAD_SURFACE_TILE_SHAPE`）を加えたもの（`axis_id`は各サービスの`axis_id`属性が
-そのまま入る＝ルーティングキーと同じ名前空間）。
+キーは`_key(material_id, z, x, y, hour_bucket, bearing_deg, speed_kmh)`のタプルへ**路面タイルの
+形の署名**（`ROAD_SURFACE_TILE_SHAPE`）と派生データの世代を加えたもの（`material_id`は各サービスの
+`material_id`属性がそのまま入る）。値は材料の生値で軸に依存しないため、同じ材料を参照する軸が
+複数あってもキャッシュを共有する。
 
 **世代を鍵へ入れる理由**: ここに入る鍵は路面タイルの`feature_key`と一字一句一致して初めて
 意味を持つ（フロントが`setFeatureState`のidとして使う）。タイルの焼き方を変えたデプロイの

@@ -114,7 +114,7 @@ def _score_matrix_with_current_columns() -> StaticEdgeScoreMatrix:
     categorical_material_ids = route_facing_categorical_material_ids()
     return StaticEdgeScoreMatrix(
         edge_ids=["edge-1"],
-        axis_ids=["gradient"],
+        axis_ids=["axis_a"],
         axis_scores=np.array([[50.0]]),
         distance_m=np.array([100.0]),
         bearing_deg=np.array([np.nan]),

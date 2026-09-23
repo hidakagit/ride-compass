@@ -63,12 +63,12 @@ def test_get_axis_catalog_reflects_axis_definitions_content():
 
     body = response.json()
     entries_by_id = {entry["axis_id"]: entry for entry in body["axes"]}
-    gradient = entries_by_id["gradient"]
+    gradient = entries_by_id["axis_way_value_signed"]
 
-    assert gradient["label"] == AXIS_DEFINITIONS["gradient"].label
-    assert gradient["description"] == AXIS_DEFINITIONS["gradient"].description
-    assert gradient["category"] == AXIS_DEFINITIONS["gradient"].category
-    assert gradient["default_weight"] == AXIS_DEFINITIONS["gradient"].default_weight
+    assert gradient["label"] == AXIS_DEFINITIONS["axis_way_value_signed"].label
+    assert gradient["description"] == AXIS_DEFINITIONS["axis_way_value_signed"].description
+    assert gradient["category"] == AXIS_DEFINITIONS["axis_way_value_signed"].category
+    assert gradient["default_weight"] == AXIS_DEFINITIONS["axis_way_value_signed"].default_weight
 
 
 def test_get_axis_catalog_reflects_display_fields():
@@ -78,7 +78,7 @@ def test_get_axis_catalog_reflects_display_fields():
 
     entries_by_id = {entry["axis_id"]: entry for entry in response.json()["axes"]}
 
-    assert entries_by_id["gradient"]["icon_id"] == "incline"
+    assert entries_by_id["axis_way_value_signed"]["icon_id"] == "incline"
     assert entries_by_id["axis_categorical"]["chip_label"] == "チップカ"
     assert entries_by_id["axis_categorical"]["icon_id"] is None
     # show_map_iconは既定True。falseにした軸だけがfalseで出る。
@@ -114,7 +114,7 @@ def test_get_axis_catalog_includes_display_for_hand_written_and_auto_derived_axe
     assert derived["tile_inputs"][0]["property"] == "surface_good"
 
     # gradientはどちらの経路でも導出できないためkind="none"。
-    assert entries_by_id["gradient"]["display"]["kind"] == "none"
+    assert entries_by_id["axis_way_value_signed"]["display"]["kind"] == "none"
 
 
 def test_get_axis_catalog_display_reflects_gui_created_published_axis():
@@ -152,7 +152,7 @@ def test_get_axis_catalog_primary_attribute_ids_match_legacy_static_inputs():
     response = client.get("/api/axis-catalog")
     entries_by_id = {entry["axis_id"]: entry for entry in response.json()["axes"]}
 
-    assert set(entries_by_id["gradient"]["primary_attribute_ids"]) == {"elevation"}
+    assert set(entries_by_id["axis_way_value_signed"]["primary_attribute_ids"]) == {"elevation"}
     assert set(entries_by_id["axis_categorical"]["primary_attribute_ids"]) == {"surface"}
     assert set(entries_by_id["axis_night_only"]["primary_attribute_ids"]) == {"lit", "tunnel"}
 
@@ -200,10 +200,10 @@ def test_get_axis_catalog_includes_map_value_kind_and_unit():
     # map_value_kind/map_value_unit）。勾配だけが符号付き材料（%）、他は難易度（無次元）。
     response = client.get("/api/axis-catalog")
     entries_by_id = {entry["axis_id"]: entry for entry in response.json()["axes"]}
-    assert entries_by_id["gradient"]["map_value_kind"] == "signed_material"
-    assert entries_by_id["gradient"]["map_value_unit"] == "%"
-    assert entries_by_id["wind"]["map_value_kind"] == "difficulty"
-    assert entries_by_id["wind"]["map_value_unit"] == ""
+    assert entries_by_id["axis_way_value_signed"]["map_value_kind"] == "signed_material"
+    assert entries_by_id["axis_way_value_signed"]["map_value_unit"] == "%"
+    assert entries_by_id["axis_way_value_scored"]["map_value_kind"] == "difficulty"
+    assert entries_by_id["axis_way_value_scored"]["map_value_unit"] == ""
 
 
 def test_get_axis_catalog_includes_raw_value_unit():
@@ -211,7 +211,7 @@ def test_get_axis_catalog_includes_raw_value_unit():
     # 勾配は単一材料をそのまま使うので%、内部軸を合成する軸は単位が定まらずnull。
     response = client.get("/api/axis-catalog")
     entries_by_id = {entry["axis_id"]: entry for entry in response.json()["axes"]}
-    assert entries_by_id["gradient"]["raw_value_unit"] == "%"
+    assert entries_by_id["axis_way_value_signed"]["raw_value_unit"] == "%"
     # 材料ごとに重みを変えて足す軸は、和がどの単位でも読めない——nullになる。
     assert entries_by_id["axis_optional_terms"]["raw_value_unit"] is None
 
@@ -223,7 +223,7 @@ def test_get_axis_catalog_includes_material_breakdown():
 
     entries_by_id = {entry["axis_id"]: entry for entry in response.json()["axes"]}
     # 単位が定まる軸は分解しない（軸単位の生値で足りる）。
-    assert entries_by_id["gradient"]["material_breakdown"] == []
+    assert entries_by_id["axis_way_value_signed"]["material_breakdown"] == []
     night = entries_by_id["axis_night_only"]["material_breakdown"]
     assert [entry["material_id"] for entry in night] == ["lit", "has_tunnel"]
     assert [entry["dtype"] for entry in night] == ["boolean", "boolean"]

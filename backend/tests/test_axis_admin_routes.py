@@ -282,9 +282,13 @@ def test_create_allows_dynamic_material_alone(override_service):
 
 
 def test_create_returns_422_when_dedicated_layer_has_no_delivery_implementation(override_service):
-    # 統合レビュー第5回の指摘1-9: 配信の実装（api/dependencies.pyのファクトリ）が無い軸に
+    # 配信の実装（api/dependencies.pyのファクトリ）がある材料を参照しない軸に
     # dedicated_way_value_layerを立てても配信できる値が無い。宣言だけをGUIから通さない。
-    payload = {**_PAYLOAD, "dedicated_way_value_layer": True}
+    payload = {
+        **_PAYLOAD,
+        "shape": {**_PAYLOAD["shape"], "terms": [{"material": "maxspeed_kmh", "weight": 1.0}]},
+        "dedicated_way_value_layer": True,
+    }
 
     response = client.post("/api/admin/axis-definitions", json=payload, headers=AUTH_HEADERS)
 
@@ -292,9 +296,9 @@ def test_create_returns_422_when_dedicated_layer_has_no_delivery_implementation(
     assert "dedicated_way_value_layer" in response.text
 
 
-def test_create_allows_dedicated_layer_for_implemented_axis(override_service):
-    # 実装があるaxis_id（wind/gradient）は通す。既存の公開軸を弾かないことの確認でもある。
-    payload = {**_PAYLOAD, "axis_id": "gradient", "dedicated_way_value_layer": True}
+def test_create_allows_dedicated_layer_for_axis_referencing_a_served_material(override_service):
+    # 配信は軸の名前ではなく材料で引くため、新しい名前の軸でも材料に実装があれば通す。
+    payload = {**_PAYLOAD, "dedicated_way_value_layer": True}
 
     response = client.post("/api/admin/axis-definitions", json=payload, headers=AUTH_HEADERS)
 
@@ -521,15 +525,15 @@ def test_create_persists_and_returns_dedicated_way_value_layer(override_service)
     # この軸が専用のway_id→値配信レイヤー（Redis経由）を持つかの宣言
     # （dedicated_way_value_layer）が管理API経由で設定・参照できること。
     # time_scope等と同じ配線パターン（axis_admin.py: AxisDefinitionFields参照）。
-    # このフラグは配信の実装があるaxis_idにしか立てられないため、実装済みの"gradient"で試す
-    # （_check_dedicated_layer_is_implemented）。
-    payload = {**_PAYLOAD, "axis_id": "gradient", "dedicated_way_value_layer": True}
+    # このフラグは配信の実装がある材料を参照する軸にしか立てられない。_PAYLOADの材料は
+    # 実装がある（_check_dedicated_layer_is_implemented）。
+    payload = {**_PAYLOAD, "dedicated_way_value_layer": True}
 
     response = client.post("/api/admin/axis-definitions", json=payload, headers=AUTH_HEADERS)
 
     assert response.status_code == 201
     assert response.json()["dedicated_way_value_layer"] is True
-    assert override_service._definitions["gradient"].dedicated_way_value_layer is True
+    assert override_service._definitions["test_axis"].dedicated_way_value_layer is True
 
 
 def test_create_leaves_dedicated_way_value_layer_false_when_omitted(override_service):
@@ -547,8 +551,6 @@ def test_create_persists_and_returns_dynamic_way_value_needs(override_service):
     # 設定・参照できること。dedicated_way_value_layerと同じ配線パターン。
     payload = {
         **_PAYLOAD,
-        # dedicated_way_value_layerは配信の実装があるaxis_idにしか立てられない（上記参照）。
-        "axis_id": "wind",
         "dedicated_way_value_layer": True,
         "dynamic_way_value_needs_time": True,
         "dynamic_way_value_needs_bearing": True,
@@ -560,8 +562,8 @@ def test_create_persists_and_returns_dynamic_way_value_needs(override_service):
     body = response.json()
     assert body["dynamic_way_value_needs_time"] is True
     assert body["dynamic_way_value_needs_bearing"] is True
-    assert override_service._definitions["wind"].dynamic_way_value_needs_time is True
-    assert override_service._definitions["wind"].dynamic_way_value_needs_bearing is True
+    assert override_service._definitions["test_axis"].dynamic_way_value_needs_time is True
+    assert override_service._definitions["test_axis"].dynamic_way_value_needs_bearing is True
 
 
 def test_create_leaves_dynamic_way_value_needs_false_when_omitted(override_service):

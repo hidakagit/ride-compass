@@ -52,10 +52,7 @@ class WindWayService:
         self._repository = repository
         self._weather_service = weather_service
 
-    #: 担当する軸id。登録キー・URLのパスパラメータ・キャッシュの名前空間はこれで揃える。
-    axis_id = "wind"
-
-    #: 返す生値の材料id。`axis_id`とは別の名前空間。
+    #: 返す生値の材料id。この材料を参照する軸の配信を担当する。
     material_id = "wind_drag_ratio"
 
     @classmethod
