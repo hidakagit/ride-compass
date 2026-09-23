@@ -1,14 +1,13 @@
 // 一次属性（生データ）のカタログ。
 //
-// 一次属性の正式名（label）はaxis-catalog.jsonのprimary_attributes[]が単一ソース。
-// このファイルが独自に持つのは、UI固有の対応（対応する表示レイヤーID）だけ（片側import）。
+// 一次属性の正式名（label）は生成物`types/generated/primaryAttributes.ts`（backendの
+// レジストリ宣言から書き出す）が単一ソース。
 //
 // 「2次軸→材料の一次属性一覧」（推定指標レイヤーON時の観測データレイヤー連動ON・
 // 推定グループの展開UIに材料一覧を出す）は、backendのGET /api/axis-catalogが軸ごとに
 // 解決して返すprimary_attribute_ids（SecondaryAxisSummary.primaryAttributeIds、
 // secondaryAxes.ts参照）を呼び出し側が使う——GUI作成軸を含む全軸に対して同じ経路で
-// 動く。このファイルにはprimaryAttributeIdsToLayerIds（一次属性id列→表示レイヤーid列への
-// 変換、PRIMARY_ATTRIBUTE_LAYER_IDSを引くだけの純粋関数）だけを残す。
+// 動く。
 
 import { mapDisplay } from "@/types/generated/mapDisplay";
 import type { MapLayerId } from "./mapLayers";
@@ -16,11 +15,11 @@ import { primaryAttributes as primaryAttributeCatalog } from "@/types/generated/
 
 interface PrimaryAttribute {
   attrId: string;
-  /** 正式名（サイドバー・研究タブで使う）。axis-catalog.json由来 */
+  /** 正式名（サイドバー・研究タブで使う） */
   label: string;
 }
 
-/** 一次属性の一覧（正式名付き）。`primary-attributes.json`（backendのレジストリ宣言から
+/** 一次属性の一覧（正式名付き）。生成物`primaryAttributes.ts`（backendのレジストリ宣言から
  * 生成、DBを読まない）をそのまま反映する。 */
 const PRIMARY_ATTRIBUTES: readonly PrimaryAttribute[] = primaryAttributeCatalog.map((attr) => ({
   attrId: attr.attr_id,
@@ -32,7 +31,6 @@ export const PRIMARY_ATTRIBUTE_LABELS: Record<string, string> = Object.fromEntri
   PRIMARY_ATTRIBUTES.map((attr) => [attr.attrId, attr.label]),
 );
 
-// 一次属性→表示レイヤーIDの対応（Partial: キーが無い＝表示レイヤー無し）。highway/surfaceは
 /** 一次属性のうち、地図に出るもの。**源泉が決める**——`display_axes`を持つ（線・点）か
  * 面の幾何を持つものが出る。レイヤーの名前は属性idそのもので、対応表を持たない。
  *

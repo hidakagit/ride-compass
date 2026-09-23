@@ -50,7 +50,7 @@ class TuningEffect(Enum):
     IMMEDIATE = ("immediate", "次のルート生成から効く")
     #: 探索木のプロセス内キャッシュが値で鍵を持つため、作り直しは自動で起きる。
     TURN_STRUCTURE = ("turn_structure", "次のルート生成から効く（1回だけ遅い）")
-    #: `road_nodes`の事前計算バッチをやり直さないと効かない。
+    #: `node_materials`を埋める派生バッチ（batch/derive_node_materials.py）をやり直さないと効かない。
     NODE_ATTRIBUTE_BATCH = ("node_attribute_batch", "交差点の事前計算をやり直すまで効かない")
     #: 画面を読み込み直すと効く（フロントが起動時のカタログ取得で受け取る値）。
     CLIENT_RELOAD = ("client_reload", "画面を読み込み直すと効く")

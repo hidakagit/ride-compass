@@ -106,8 +106,8 @@ _TRAFFIC_CALMING_VALUES: frozenset[str] = frozenset(
 STOP_POI_KINDS: frozenset[str] = frozenset(get_args(StopPoiKind))
 
 
-# 停止要因の集計キー（`edge_attribute_counts.poi_counts`・`way_attribute_counts.poi_counts`の
-# jsonbキー）と、その日本語ラベル。**キーの単一ソース**で、材料
+# 停止要因の集計キー（`edge_materials`・`way_materials`の件数列`poi_<キー>`）と、
+# その日本語ラベル。**キーの単一ソース**で、材料
 # （`domain/material_catalog.py`の`poi_*_per_km`）はこの一覧から生成する。
 #
 # `StopPoiKind`（取込時の分類）と1対1ではない。分ける基準は「評価軸で違う重みを付けたいか」

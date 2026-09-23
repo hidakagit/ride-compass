@@ -104,7 +104,7 @@ class CategoricalShape(StrictModel):
 
     キー型は`union_mode="left_to_right"`でbool判定を先に試す（既定のsmart modeだと
     JSON文字列"true"/"false"がboolへ強制変換されずstr型のまま残り、
-    `infrastructure/axis_definition_repository.py`のDB往復でsurface_q等の真偽値材料が
+    `infrastructure/axis_definition_repository.py`のDB往復でsurface_good等の真偽値材料が
     壊れる。"true"/"false"以外の文字列キーはbool変換に失敗してstrへフォールバックするため
     通常のcategorical材料には影響しない）。
     """
@@ -232,11 +232,10 @@ class AxisDefinition(StrictModel):
     作るときはこちらを明示する（`axis_admin.py: AxisDefinitionPayload`が書き込み時に
     要求する）。"""
     panel_hint: str | None = None
-    """地図の見え方パネル（MapLayersPanel）向けの噛み砕いた説明文。未設定は
-    descriptionをそのまま使う（開発者向けの技術説明のため読みにくい場合がある）。"""
+    """地図の「表示する項目を選ぶ」設定パネル（MapOverlayControls）向けの噛み砕いた
+    説明文。未設定はdescriptionをそのまま使う（開発者向けの技術説明のため読みにくい場合がある）。"""
     show_map_icon: bool = True
-    """falseなら地図上チップ（MapOverlayControls）・地図の見え方パネル
-    （MapLayersPanel）の両方からこの軸を丸ごと除外する
+    """falseなら地図上チップ（MapOverlayControls）の一覧からこの軸を丸ごと除外する
     （frontend/src/components/Map/secondaryAxes.ts: secondaryAxesFromCatalogAxes()の
     フィルタ条件）。"""
     time_scope: Literal["always", "night_only"] = "always"
@@ -651,8 +650,8 @@ def dynamic_axis_topological_order(definitions: dict[str, AxisDefinition]) -> li
 
 def default_axis_weights() -> dict[str, float]:
     """axis_idキーの既定重み辞書（APIで上書きされる前の値、`RoutePreference`の
-    既定値・`GET /api/axis-catalog`のpreference_defaultsが共通で参照する単一
-    ソース）。
+    既定値）。値は各軸の`default_weight`で、`GET /api/axis-catalog`が軸ごとに配る
+    `default_weight`と同じ。
 
     内部軸（`is_published=False`）は一般ユーザーの重み付け対象外のため
     除外する。`RoutePreference`のバリデーション（未知のaxis_idを拒否）もこの集合と

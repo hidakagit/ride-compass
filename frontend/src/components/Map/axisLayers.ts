@@ -87,7 +87,7 @@ interface CatalogTileInput {
   true_value?: number;
   false_value?: number;
   has_unknown_fallback?: boolean;
-  // JSON生成物（axis-catalog.json）はpydantic model_dump()の未設定optionalフィールドを
+  // `GET /api/axis-catalog`はpydanticの未設定optionalフィールドを
   // undefinedではなくnullとしてシリアライズするため、nullも許容する。
   categories?: Record<string, number> | null;
   breakpoints?: (readonly [number, number])[] | null;
@@ -138,20 +138,17 @@ export interface CatalogAxis {
     tile_inputs: CatalogTileInput[];
     thresholds: number[];
   } | null;
-  // 改善計画T308: この軸が参照する材料を一次属性idへ解決した一覧（GET /api/axis-catalogの
-  // primary_attribute_ids、backend側で解決済み）。ビルド時静的json（axis-catalog.json）には
-  // このフィールドが無いため、その場合はundefined（secondaryAxes.ts側で[]へ補う）。
+  // この軸が参照する材料を一次属性idへ解決した一覧（GET /api/axis-catalogの
+  // primary_attribute_ids、backend側で解決済み）。
   primary_attribute_ids?: string[];
-  // 改善計画T310: 地図チップ表示要素（既存軸だけ特別扱いしていたSECONDARY_AXIS_ICONS等の
-  // 軸id→値の手書き辞書を撤去し、軸自身のデータとして持たせたもの）。全てnull/undefined可
+  // 地図チップ表示要素（軸自身のデータ）。全てnull/undefined可
   // （未設定は各消費側の汎用フォールバックに委ねる）。
   icon_id?: string | null;
   chip_label?: string | null;
   panel_hint?: string | null;
   // falseならこの軸を地図上チップから丸ごと除外する
   // （secondaryAxes.ts: secondaryAxesFromCatalogAxes()参照）。未設定は
-  // 「表示する」（true相当）として扱う——ビルド時静的json（axis-catalog.json）は
-  // backendが必ずtrue/falseを返すため実質常に値を持つが、型上はoptionalにしておく。
+  // 「表示する」（true相当）として扱う。
   show_map_icon?: boolean;
   // 改善計画T440: 「軸スタジオで決められること」（AxisDefinitionが実際に持つ未公開の
   // フィールド）をまとめて返す方針（ユーザー指摘「axis-catalogは、軸スタジオで決められる
@@ -338,7 +335,7 @@ function rampColorForRatio(t: number): string {
 }
 
 /** bandCount段階中index番目(0始まり)の色。RAMP_COLOR_ANCHORSを緑(0)→赤(1)の相対位置で
- * 線形補間する。bandCount=4のときAXIS_RAMP_COLORSと完全一致する（axisLayers.test.ts）。 */
+ * 線形補間する。 */
 export function rampColorForBand(index: number, bandCount: number): string {
   const t = bandCount <= 1 ? 0 : index / (bandCount - 1);
   return rampColorForRatio(t);

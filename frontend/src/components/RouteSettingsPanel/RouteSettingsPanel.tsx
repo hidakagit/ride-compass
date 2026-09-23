@@ -48,7 +48,7 @@ interface RouteSettingsPanelProps {
   routePreference: RoutePreferenceWeights;
   onRoutePreferenceChange: (next: RoutePreferenceWeights) => void;
   /** route_preference上書きの有効フラグ（page.tsx参照）。既定値のまま操作しなければ
-   * 無効のままでよく（DEFAULT_ROUTE_PREFERENCE＝backend既定値のため挙動は変わらない）、
+   * 無効のままでよく（既定値はカタログの`defaultWeights`＝backend既定値のため挙動は変わらない）、
    * 値を変えると自動でONになる（withAutoEnable）。一般ユーザーはこのフラグの存在自体を
    * 意識しない（トグルUIをこのパネルには出さない）。 */
   overrideEnabled: boolean;
@@ -125,7 +125,8 @@ export default function RouteSettingsPanel({
   }
 
   // 帯グラフの境界ドラッグ用。隣り合う2軸ぶんを1回のstate更新へまとめる
-  // （handleWeightChangeを2回呼ぶとReactのバッチングに乗っても中間状態が生まれうるため）。
+  // （1軸ずつ`handlePreferenceChange`を2回呼ぶと、2回目も1回目を反映していない
+  // `routePreference`から組み立てるため、1回目の変更が消える）。
   function handlePairWeightChange(axisIdA: string, valueA: number, axisIdB: string, valueB: number) {
     setLastWeights((prev) => ({ ...prev, [axisIdA]: valueA, [axisIdB]: valueB }));
     handlePreferenceChange({ ...routePreference, [axisIdA]: valueA, [axisIdB]: valueB });

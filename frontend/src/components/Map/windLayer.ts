@@ -160,8 +160,8 @@ function windGridToFeatureCollection(
 
 /** grid[0]の時刻配列を、動的気象レイヤー共通のフレーム列（dynamicWeather.ts参照）へ変換する。
  * refはgrid各点のtimes/wind_speed_ms/wind_direction_deg内のindexを指し、windRenderPayloadへ
- * そのまま渡す。全格子点で時刻配列が共通という前提（同じforecast_days・timezoneで一括取得
- * しているため）のもと、grid[0]だけを見る。 */
+ * そのまま渡す。全格子点で時刻配列が共通という前提（全点を同じMSMのrunから一括で読むため）の
+ * もと、grid[0]だけを見る。 */
 export function windFrames(grid: readonly WindGridPoint[]): DynamicWeatherFrame<number>[] {
   const times = grid[0]?.times ?? [];
   return times.map((time, index) => ({ time: parseJstTime(time), ref: index }));
@@ -218,8 +218,8 @@ const WIND_GRID_DETAIL_SPACING_STOPS: readonly { zoom: number; spacingDeg: numbe
     spacingDeg: windGridConfig.detail_allowed_spacings_deg[i],
   }));
 
-/** 現在のズームから、詳細格子を要求するときの格子間隔（度）を求める。WIND_GRID_DETAIL_
- * SPACING_STOPSのうちzoom以下の段階で最も細かい（配列は昇順前提）ものを返す。zoomが
+/** 現在のズームから、詳細格子を要求するときの格子間隔（度）を求める。
+ * WIND_GRID_DETAIL_SPACING_STOPSのうちzoom以下の段階で最も細かい（配列は昇順前提）ものを返す。zoomが
  * 最初の段階未満のときはWIND_GRID_DETAIL_SPACING_DEG（最も粗い段階）を返す（呼び出し側は
  * WIND_DETAIL_MIN_ZOOM以上でしか使わない想定だが、単体では境界を知らない関数として
  * フォールバックを持たせておく）。 */

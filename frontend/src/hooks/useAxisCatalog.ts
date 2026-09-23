@@ -53,10 +53,9 @@ function getCatalogServerSnapshot(): AxisCatalog {
 function loadAxisCatalog(): void {
   fetchAxisCatalogDeduped()
     .then((response) => {
-      // 取得成功時はaxesが空でもそのままbuildCatalogへ渡す（フェッチ未完了・失敗時のみ
-      // 静的フォールバックに留まる、という区別に一本化する——「まだ取得中/取得失敗」と
-      // 「取得成功したが軸が0件（全軸非公開）」を同一視すると、軸スタジオで全軸を
-      // 非公開にしても静的フォールバックの軸が表示され続けてしまう）。
+      // 取得成功時はaxesが空でもそのまま`axisCatalogFromResponse`へ渡す。「まだ取得中/
+      // 取得失敗」は`loaded`/`failed`が表し、「取得成功したが軸が0件（全軸非公開）」とは
+      // 区別する。
       // タイル世代は地図のソースURLに入るため、カタログを公開する前に渡す
       // （`hasTileVersions()`がtrueになってから地図のレイヤーが作られる）。
       setTileVersions(response.tile_versions ?? {});

@@ -35,7 +35,7 @@ import styles from "./MapOverlayControls.module.css";
 /** 内訳パネルの色見本を載せる台（地図の地色）。CSSは源泉の値を持てないのでここで渡す。 */
 const SWATCH_GROUND_STYLE = { "--swatch-ground": palette.semantic.basemap_ground } as CSSProperties;
 
-/** 地図上のチップ1つ分の表示状態。page.tsxがMAP_LAYERS（レイヤーカタログ）から組み立てる。 */
+/** 地図上のチップ1つ分の表示状態。page.tsxがbuildMapLayers（レイヤーカタログ）から組み立てる。 */
 export interface OverlayLayerChip {
   id: MapLayerId;
   label: string;
@@ -123,7 +123,7 @@ function buildChipGroups(layers: readonly OverlayLayerChip[]): ChipGroup[] {
 }
 
 // 最上位グループチップ（道路/環境/スポット）を代表するアイコン。
-// 道路=RoadIcon（個別メンバーroadTypeと共用、群のテーマそのもの）・
+// 道路=RoadIcon（個別メンバーhighwayと共用、群のテーマそのもの）・
 // 環境=EnvironmentDataIcon（雲、terrain+weatherを併せて表す新規アイコン）・
 // スポット=SpotDataIcon（地図ピン、新規アイコン）。
 const MAP_OVERLAY_GROUP_ICONS: Record<MapOverlayGroup, (props: { size?: number }) => ReactElement> = {

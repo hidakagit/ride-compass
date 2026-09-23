@@ -326,11 +326,6 @@ export function buildMapLayers(
         "区間インスペクタの内訳には建物も出ます。",
     },
     {
-      // 「道路の種類」「路面の種類」は一次属性1つ=1レイヤーの原則に合わせた論理2レイヤー。
-      // MapView.tsx側の物理描画は1本のMapLibre線レイヤー（region-road-surface-tiles-line）に
-      // 合成する（同じ道路ジオメトリへ線レイヤーを2枚重ねると上が下を塗り潰し「色×太さ」の
-      // 多重表現が壊れるため）。ON/OFF・凡例・絞り込み・データ状態は他のレイヤーと同じ
-      // 汎用機構（roadType/roadSurfaceそれぞれ独立したMapLayerId）に乗る。
       id: "highway",
       dataSource: "roadTiles",
       icon: RoadIcon,
@@ -375,11 +370,11 @@ export function buildMapLayers(
         "夜間の危険度の判定に使われます。night軸自体も専用レイヤーを持ちます。",
     },
     {
-      // 一方通行（一次属性）。一方通行の逆方向は既にRoad Graph構築時
-      // （backend/app/domain/graph.py: build_road_graph）にEdge自体が生成されないため探索の
+      // 一方通行（一次属性）。一方通行の逆方向はグラフの読み出し
+      // （backend/app/infrastructure/road_graph_repository.py）でEdge自体が作られないため探索の
       // 正しさには無関係で、評価軸（route_preference）にも組み込まない表示専用の一次属性。
       // 上下線が分かれた道の片側はここへ出さない（道路としては双方向で、逆方向は数m隣に
-      // ある。判定はbackend側、way_divided_carriageway）。
+      // ある。判定はbackend側、`way_materials.divided`）。
       id: "oneway",
       dataSource: "roadTiles",
       icon: OnewayIcon,
@@ -446,9 +441,9 @@ export function buildMapLayers(
         `警察庁が公開する交通事故統計オープンデータ[本票${accidentCoverage ? `、${accidentCoverage}` : ""}]の` +
         "発生地点です。死亡事故（事故後24時間以内）は円を大きく表示します。",
     },
-    // 二次軸の汎用rampレイヤー（「事実はタイルに、解釈はクライアントに」）。backendレジストリ
-    // 生成物（axis-catalog.json）のkind="ramp"軸から自動生成する。新しい軸はbackendの
-    // レジストリ登録＋タイルへの事実焼き込みだけでここへ現れる（このファイルの編集は不要）。
+    // 二次軸の汎用rampレイヤー（「事実はタイルに、解釈はクライアントに」）。実行時の
+    // `GET /api/axis-catalog`が配るkind="ramp"軸から自動生成する。新しい軸は軸スタジオでの
+    // 公開＋タイルへの事実焼き込みだけでここへ現れる（このファイルの編集は不要）。
     // 凡例（段階・色・絞り込み）は`scene/legends.ts`と`axisLayers.ts: buildAxisRampLegend`が
     // 他の静的レイヤーと同じ仕組みで提供する。
     ...rampAxes.map((axis): MapLayerDescriptor => ({

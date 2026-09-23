@@ -587,7 +587,7 @@ export function AxisScoringSection({ draft, setDraft, materialOptions, axisTermO
                       // タグ値は画面に出さない——material_catalogに無い値を書く実運用上の
                       // 必要性は基本無く、直接入力を残すとタイプミスがそのまま「静かに
                       // 一致しない行」として残る落とし穴になる）。候補一覧が無い材料
-                      // （bicycle_infra等、動的値一覧に対応していない）だけ、従来どおり
+                      // （動的値一覧に対応していない）だけ、
                       // 自由テキスト入力のままにする（選ぶ元となる候補自体が存在しないため）。
                       const hasDynamicCandidates = categoricalMaterialValues.length > 0;
                       // 選択中の値のラベルは、取得済みの候補一覧（MaterialSpec.value_labels

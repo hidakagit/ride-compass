@@ -315,7 +315,7 @@ def _evaluate_axes_from_material_arrays(
         )
     # --- 計算フェーズ（Pythonループ無し） ---
     material_arrays.update({material_id: np.full(n, np.nan) for material_id in REQUEST_DYNAMIC_MATERIAL_IDS})
-    # スカラー版compute_edge_axis_scores（`evaluate_axes_scalar`）と同じ依存順評価
+    # スカラー版（`axis_definitions.py: evaluate_axes_scalar`）と同じ依存順評価
     # （軸が他の軸のdifficultyをmaterialとして参照できる階層構造）。
     # material_arrays_with_axesへは内部軸も含め全軸の結果を混ぜ込む（公開軸が内部軸を
     # materialとして参照できる必要があるため）が、axis_arrays（下の合成対象）は
@@ -545,8 +545,7 @@ def compose_costs_from_axis_matrix(
         cost_difficulty = composite
     else:
         cost_difficulty = np.where(np.isnan(composite), bbox_mean, composite)
-    # compute_cost_from_axis_scoresと同じ: difficultyがNaN(None相当)ならcostは下地そのもの
-    # （割増なし）。
+    # difficultyがNaN(None相当)ならcostは下地そのもの（割増なし）。
     penalty_multiplier = np.where(np.isnan(cost_difficulty), 1.0, 1.0 + penalty_strength * (cost_difficulty / 100))
     cost = cost_base * penalty_multiplier
     if base is None:

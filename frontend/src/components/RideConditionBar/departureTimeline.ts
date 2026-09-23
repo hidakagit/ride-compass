@@ -1,8 +1,6 @@
 // 出発時刻ピッカー（RideConditionBar）のドラッグタイムライン用の目盛り生成。気象レイヤーの
-// 実フレーム（フェッチ結果）には依存しない——出発時刻はレイヤーが1つもONでなくても設定できる
-// 必要があるため（dynamicWeather.ts: mergeFrameTimesはON中のレイヤーのフレームしか統合しない）。
-// 粒度は気象ナウキャスト・延長予報と同じ「直近60分は5分刻み、以降48時間先までは1時間刻み」に
-// 揃え、選んだ出発時刻が気象レイヤーのフレームへ素直に対応するようにする。
+// 取得結果に依存しない理由と刻みの粒度はdocs/modules/frontend/dynamic-weather-layers.md
+// 「共有タイムラインのラベル」節が持つ。
 import {
   formatDynamicFrameHourMinute,
   formatDynamicFrameMinuteOnly,

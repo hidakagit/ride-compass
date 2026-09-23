@@ -11,8 +11,8 @@ import styles from "./DerivedDataFreshnessPanel.module.css";
 
 /** 派生データを段の順に作り直す単一の入口（`backend/app/batch/derive_cli.py`）を、
  * **本番へ効かせるために実際に打つ形**で置く。古い・未計算がどれであっても打つのはこの1つ
- * なので、行ごとにバッチ名を散らさず画面に1つだけ置く。手順の正本は
- * `docs/disaster-recovery.md`。
+ * なので、行ごとにバッチ名を散らさず画面に1つだけ置く。本番DBとの同期の作業標準は
+ * `docs/conventions/deployment-sync.md`。
  *
  * 稼働中のbackendコンテナの中では走らせない——そのコンテナのメモリ上限まで使い切ると
  * コンテナごとOOM killされ、サービス全体が止まる。別のコンテナを`--memory`付きで立てれば、

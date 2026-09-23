@@ -186,7 +186,7 @@ const ASSUMED_SPEED_STORAGE_KEY = "ridecompass:assumed-speed-kmh";
 // 地図チップ・サイドバーからON/OFFできるレイヤーの既定値。記述子の`defaultOn`から導く
 // （レイヤーを足してもここは変わらない。既定ONにするかはレイヤーの性質の側で宣言する）。
 //
-// 「道路情報」（road）はroadType/roadSurfaceという別々のレイヤーへ分かれている。
+// 「道路情報」（road）はhighway（道路の種類）/surface（路面の種類）という別々のレイヤーへ分かれている。
 // 旧保存値（road: boolean）からの移行処理はuseStoredStateのdeserialize（下記）参照。線状降水帯予測マップは
 // 「降水」チップの傘下へ統合されており、個別のキーを持たない（hooks/
 // useDynamicWeatherLayers.ts参照）。
@@ -323,7 +323,7 @@ export default function Home() {
   const [loading, setLoading] = useState(false);
   // ルート生成のバックグラウンドジョブ化に伴う進捗表示。生成中(loading)の間だけ意味を
   // 持ち、待ち(queued)/実行中(running)の別と経過時間をボタン文言へ反映する
-  // （RouteForm.tsx: progressLabel参照）。生成開始直後・完了直後はnull
+  // （下のgenerationProgressLabel参照）。生成開始直後・完了直後はnull
   // （queued/runningのどちらかが確定するまでの一瞬はloadingのみでラベルを出さない）。
   const [generationProgress, setGenerationProgress] = useState<GenerationProgress | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -351,7 +351,7 @@ export default function Home() {
   // 経由地・目的地の操作はRouteForm（距離入力・生成ボタンと同じ場所）に統合されている。
   // モード切り替え自体は経由地・目的地の値を消さない（周回モードへ切り替えても地図上のピンは
   // 保持し、目的地モードへ戻れば復元される。地図への表示・追加受付だけがモードで変わる、
-  // handleGenerate/MapView.tsxのpinPlacementEnabled参照）。
+  // handleGenerate/MapView.tsxのpointEditingEnabled参照）。
   const [routeMode, setRouteMode] = useStoredState<RouteMode>(ROUTE_MODE_STORAGE_KEY, "loop", {
     serialize: (mode) => mode,
     deserialize: (raw) => (raw === "loop" || raw === "destination" ? raw : null),
@@ -539,10 +539,10 @@ export default function Home() {
 
   // MapViewから伝わる現在のビューポート（MapView.tsx: onViewportChange参照）。
   // moveend/zoomendのたびに素の値が来るため、フェッチ用にはデバウンスして使う
-  // （useDynamicWeatherLayers/useWeatherGrid内のwindDetailフェッチeffect参照）。
+  // （useWeatherGrid内の詳細格子[getWindGridDetail]のフェッチeffect参照）。
   const [mapViewport, setMapViewport] = useState<MapViewport | null>(null);
 
-  // 地図レイヤーのON/OFF（MAP_LAYERSのid単位。既定値はレイヤー記述子の`defaultOn`から
+  // 地図レイヤーのON/OFF（MapLayerId単位。既定値はレイヤー記述子の`defaultOn`から
   // 導かれるため、レイヤーを足してもここへ足すものは無い）。
   // localStorageへの保存・復元はuseStoredState参照。既知のレイヤーID
   // かつboolean値のものだけ採用する（レイヤーの増減や壊れた保存値があっても、残りの設定は
@@ -568,9 +568,9 @@ export default function Home() {
         if (typeof parsed !== "object" || parsed === null) return null;
         const next: MapLayerVisibility = { ...DEFAULT_LAYER_VISIBILITY };
         const parsedRecord = parsed as Record<string, unknown>;
-        // 「道路情報」（road）の論理分割（roadType/roadSurface）に伴う旧保存値の移行。
+        // 「道路情報」（road）の論理分割（highway/surface）に伴う旧保存値の移行。
         // 旧形式（road: boolean、新キーが無い）が残っていれば両方の新キーへ引き継ぐ
-        // （新形式で保存済みなら下のループがroadType/roadSurfaceを個別に上書きする）。
+        // （新形式で保存済みなら下のループがhighway/surfaceを個別に上書きする）。
         if (
           typeof parsedRecord.road === "boolean" &&
           parsedRecord.highway === undefined &&
@@ -597,9 +597,9 @@ export default function Home() {
               // ここで明示的に書き戻さないと、1回目でnext.route=trueへ補正してもlocalStorage上は
               // 元のroute:falseのまま残り、2回目のdeserializeが同じ生値を読み直して補正前の
               // falseへ静かに巻き戻ってしまう（マーカー自体は1回目で立つため2回目は移行
-              // ブロックに入らずfalseのまま確定する）。route:falseが復元されるとMapView側の
-              // applyRouteLayerVisibility（候補線・ハロー・矢印・区間色分けの4レイヤーを
-              // まとめて出し分ける）が全て非表示になる。
+              // ブロックに入らずfalseのまま確定する）。route:falseが復元されるとMapViewの
+              // routeLayerOnがfalseになり、ルート線のレイヤー（候補線・ハロー・矢印・区間色分け等）が
+              // 全て非表示になる。
               window.localStorage.setItem(LAYER_VISIBILITY_STORAGE_KEY, JSON.stringify(next));
             }
             window.localStorage.setItem(ROUTE_LAYER_MEANING_MIGRATED_STORAGE_KEY, "1");
@@ -909,9 +909,8 @@ export default function Home() {
   // 同時に絞り込みたい、という使い方に対応するため）。両軸分の非表示キーをまとめて
   // MapView/MapOverlayControlsへ渡す。
   // useMemoで参照を安定させる: このオブジェクトはMapView側のエフェクト依存
-  // （applyRoadLayerState→map.setFilter）に入るため、毎レンダー新規生成すると
-  // 天候取得等の無関係な再レンダーのたびにフィルタ式の再適用が走ってしまう
-  // （NO_HIDDEN_LEGEND_KEYSで参照固定した意図がここで無効化されていた。設計レビューB3）。
+  // （sceneの再適用→map.setFilter）に入るため、毎レンダー新規生成すると
+  // 天候取得等の無関係な再レンダーのたびにフィルタ式の再適用が走ってしまう。
   const roadLegend = useMemo(() => roadLegendAxes(), []);
   const roadHiddenKeysByMode = useMemo(
     () =>
@@ -922,8 +921,8 @@ export default function Home() {
   );
   // このファイル自身の凡例・絞り込み計算（staticLegendHiddenKeysByAxis・
   // staticFilterLegendDetails、下記）は、軸スタジオで新規公開したramp軸の凡例・絞り込み
-  // 操作をこの画面のサマリ表示・▶パネルへ反映できるよう、mapLayers/
-  // roadSurfaceSharedLayerIdsと同じくaxisCatalog.rampAxesから都度組み立てる
+  // 操作をこの画面のサマリ表示・▶パネルへ反映できるよう、mapLayers（下記）と
+  // 同じくaxisCatalog.rampAxesから都度組み立てる
   // （点の分類はグループの宣言、評価軸は実行時のカタログから組み立てる）。
   const staticFilterAxes = useMemo<readonly SceneLegendAxis[]>(
     () => [
@@ -999,8 +998,8 @@ export default function Home() {
     LEGEND_FILTER_DEBOUNCE_MS,
   );
 
-  // MAP_LAYERS（静的フォールバック）ではなく、axisCatalog.rampAxes（実行時フェッチ、
-  // 軸スタジオの公開軸を含む）から組み立てたレイヤーカタログを使う。
+  // axisCatalog.rampAxes（実行時フェッチ、軸スタジオの公開軸を含む）から組み立てた
+  // レイヤーカタログを使う。
   const mapLayers = useMemo(
     () => buildMapLayers(axisCatalog.rampAxes, axisCatalog.dedicatedAxes, axisCatalog.accidentYears),
     [axisCatalog.rampAxes, axisCatalog.dedicatedAxes, axisCatalog.accidentYears],
@@ -1015,7 +1014,7 @@ export default function Home() {
   // 地図上チップ（道路/環境/スポット）はどれも複数同時にONにできる。重なって読みにくく
   // なった場合は、各チップの▶パネルで要素・カテゴリ単位に絞り込む
   // （MapOverlayControls.tsx: renderLegendDetails）。道路グループの線同士は
-  // `line-offset`による並行トラック（MapView.tsx: applyRoadMaterialTrackOffsets）で
+  // `line-offset`による並行トラック（features/map/scene/groups/roadLines.ts）で
   // 重ならずに並ぶ。
   //
   // 軸スタジオ由来のレイヤー（isAxisStudioLayer、ramp軸・専用way値配信軸）は地図上チップ
@@ -1039,11 +1038,10 @@ export default function Home() {
   );
 
   // 地図上（MapOverlayControls）のサマリ行に出す「適用中の条件」の1行要約。
-  // 「道路情報」は路面の種類（roadSurface）・道路の種類（roadType）へ分かれているため、
+  // 「道路情報」は路面の種類（surface）・道路の種類（highway）へ分かれているため、
   // 軸ごとに個別のサマリ・内訳を持つ。
-  // 軸ごとのサマリ・内訳は`ROAD_FILTER_AXES`を走査して作る。軸を名指しして同じ形の
-  // ブロックを並べると、軸を1つ足すたびに写経が増える（宣言を1本足すだけで済む形が
-  // 1つ足すだけでよい」が成り立たなくなる）。
+  // 軸ごとのサマリ・内訳は`roadLegendAxes()`（roadLegend）を走査して作る。軸を名指しして
+  // 同じ形のブロックを並べると、軸を1つ足すたびに写経が増える。
   const roadAxisPanels = useMemo(() => {
     const legendDetailsByLayerId: Record<string, LegendFilterSummaryAxis[]> = {};
     for (const axis of roadLegend) {
@@ -2040,8 +2038,8 @@ export default function Home() {
               <Tabs.Content key={route.id} className={styles.outcomeTabPanel} value={route.id}>
                 {/* 区間がクリックされている間（selectedRouteSegment）は、ルート全体の
                   内訳の代わりにその区間の地点・到達予想時刻＋軸別内訳（AxisContributionBar、
-                  ルート全体の内訳と同じ表示部品）を表示する。地図側のDETAIL_LAYER_ID/
-                  DETAIL_HIT_LAYER_IDは選択中候補（selectedCandidate）にしか描画されない
+                  ルート全体の内訳と同じ表示部品）を表示する。地図側の詳細区間（sceneの役割
+                  `detailLine`/`detailHit`）は選択中候補の区間しか描かない（applyToMap.ts）
                   ため、区間クリックは常に現在アクティブなこのタブのルートに対して起きる
                   （他候補のタブが誤って区間詳細を出すことは無い）。 */}
                 {selectedRouteSegment ? (
@@ -2325,8 +2323,8 @@ export default function Home() {
             onLayerDataStatusChange={setMapViewLayerDataStatus}
             refreshToken={refreshToken}
             tileVersionsReady={tileVersionsReady}
-            // experimentSlots（研究モード中の生成履歴、1件目は常にEXPERIMENT_SLOT_
-            // COLORSの先頭）はdrawExperimentSlotsが無条件で描画するため、
+            // experimentSlots（研究モード中の生成履歴、1件目は常にEXPERIMENT_SLOT_COLORSの
+            // 先頭）は地図側（sceneの役割`slotLine`）が無条件で描画するため、
             // 実際に「比較」タブを見ているとき以外に地図へ残ると選択中ルートの色分けと
             // 紛らわしい。研究モード中の比較用オーバーレイという役割上、
             // comparisonTabActiveの間だけ渡すよう限定する（スロット自体の記録・

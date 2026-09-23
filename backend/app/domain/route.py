@@ -222,8 +222,7 @@ def merge_axis_contributions(segments: list[RouteSegmentDetail]) -> dict[str, fl
     """`RouteSegmentDetail.axis_contributions`（「重み付き寄与度」）を
     axis_idごとに距離加重平均へ集約する。`merge_axis_difficulties`と同じ集約方法
     （`_merge_axis_value_dict`共有実装）。`_merge_segment_bin`のビン単位集約、
-    `RouteCandidate.axis_contributions`（`route_generator.py:
-    _with_axis_contributions`）の両方が使う。
+    `RouteCandidate.axis_contributions`（`route_generator.py`の候補全体の集約）の両方が使う。
     """
     return _merge_axis_value_dict(segments, lambda s: s.axis_contributions)
 

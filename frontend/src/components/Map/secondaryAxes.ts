@@ -1,28 +1,22 @@
 // 二次軸（推定指標）のカタログ。
 //
-// axis-catalog.json（display!==null）の軸を要約として並べる（軸スタジオが作る新規軸も、
-// 材料がタイル焼き込み済みならここへ自動で入る）。読むのは軸→一次属性の解決
-// （page.tsx: 材料の観測データレイヤーとの連動判定）と、軸の材料内訳
-// （lib/evaluationAxes.ts）。
+// 実行時の`GET /api/axis-catalog`が配る軸のうち表示情報を持つもの（display!==null）を
+// 要約として並べる（軸スタジオが作る新規軸も、材料がタイル焼き込み済みならここへ自動で
+// 入る）。読むのは軸→一次属性の解決（page.tsx: 材料の観測データレイヤーとの連動判定）と、
+// 軸の材料内訳（lib/evaluationAxes.ts）。
 //
-// 正式名はaxis-catalog.json（display.label、backendのregistry_defaults.pyが単一ソース）を
-// そのまま使う。このファイルが独自に持つのは、UI固有の対応（略名・対応する表示レイヤーID・
-// レイヤー無し軸の代役案内文）だけ（片側import、primaryAttributes.tsと同じ設計）。
-// 合成軸もkind="ramp"で、他のkind="ramp"軸と
-// 同じくaxisMapLayerId経由で専用レイヤーを持つようになった。
+// 正式名・略名・アイコンは軸自身のデータ（正本は本番DBの軸定義）をそのまま使う。
+// 合成軸もkind="ramp"で、他のkind="ramp"軸と同じくaxisMapLayerId経由で専用レイヤーを持つ。
 
 import type { MapLayerId } from "./mapLayers";
 import { axisMapLayerId, type CatalogAxis } from "./axisLayers";
 
-// 改善計画T308: 実行時API（GET /api/axis-catalog）から取得したエントリからも同じ形へ
-// 変換できるよう、静的jsonの走査ロジックを共通関数として切り出す（axisLayers.tsの
-// rampAxesFromCatalogAxes等と同じ理由、片側import）。hooks/useAxisCatalog.tsが
-// フェッチ結果から呼ぶ。CatalogAxis型自体はaxisLayers.tsと共有する（同じ形の入力を
-// 両ファイルの変換関数が受け取るため、別々に定義しない）。
+// CatalogAxis型はaxisLayers.tsと共有する（同じ形の入力を両ファイルの変換関数が
+// 受け取るため、別々に定義しない）。
 
 export interface SecondaryAxisSummary {
   axisId: string;
-  /** 正式名（サイドバー・研究タブで使う）。axis-catalog.json由来 */
+  /** 正式名（サイドバー・研究タブで使う） */
   label: string;
   /** 軸自身の説明文（1〜2文の要約）。ルート設定パネルの重み一覧が出す。
    * 軸を1本足したときにfrontend側へ説明文を書き足さずに済むよう、軸自身のデータを引く。 */
@@ -31,10 +25,8 @@ export interface SecondaryAxisSummary {
   chipLabel: string;
   /** 対応する表示レイヤー。無ければ専用レイヤーを持たない軸(薄字表示) */
   layerId?: MapLayerId;
-  /** 改善計画T308: この軸が参照する材料の一次属性id一覧（primaryAttributes.ts:
-   * PRIMARY_ATTRIBUTE_LAYER_IDSのキーと同じ名前空間）。
-   * 実行時APIのprimary_attribute_idsをそのまま反映する。ビルド時静的フォールバックは
-   * この情報を持たないため空配列（取得完了までの一時的な機能低下、致命的ではない）。 */
+  /** この軸が参照する材料の一次属性id一覧（生成物`primaryAttributes.ts`のattr_idと
+   * 同じ名前空間）。実行時APIのprimary_attribute_idsをそのまま反映する。 */
   primaryAttributeIds: readonly string[];
   /** 改善計画T310: 地図チップのアイコン（axisIconPalette.tsxのicon_id）。軸自身のデータ
    * （AXIS_DEFINITIONS.icon_id）をそのまま反映する。未設定は汎用フォールバック
@@ -45,11 +37,9 @@ export interface SecondaryAxisSummary {
    * 説明文。軸自身のデータ（AXIS_DEFINITIONS.panel_hint）をそのまま反映する。未設定なら
    * 情報アイコン自体を出さない。 */
   panelHint?: string;
-  /** 改善計画T473: 軸自身のデータ（AXIS_DEFINITIONS.dedicated_way_value_layer）をそのまま
-   * 反映する。以前はこのフィールド自体を持たず、evaluationAxes.ts側がSECONDARY_AXES由来の
-   * 軸を一律falseとして扱っていたが、gradientのように「kind='none'（材料がタイル非依存）
-   * かつdedicated_way_value_layer=true」という組み合わせが実在するため誤りだった
-   * （evaluationAxes.ts参照）。 */
+  /** 軸自身のデータ（AXIS_DEFINITIONS.dedicated_way_value_layer）をそのまま反映する。
+   * display.kindからは導けない——gradientのように「kind='none'（材料がタイル非依存）
+   * かつdedicated_way_value_layer=true」の軸がある。 */
   dedicatedWayValueLayer?: boolean;
   /** 折れ点を通す前の生値の単位（GET /api/axis-catalogのraw_value_unit）。単位が定まる
    * 軸だけが持ち、それ以外はnull。 */
@@ -91,17 +81,6 @@ export interface AxisMaterialBreakdown {
   /** categorical材料の「タグ生値→論理名」対訳（他の型では空）。フロントは対応表を持たない。 */
   valueLabels?: Readonly<Record<string, string>>;
 }
-
-// 略名（改善計画T166確定命名表）は、以前は軸id→値の手書き辞書
-// （SECONDARY_AXIS_CHIP_LABELS）だったが、改善計画T310で軸自身のデータ
-// （AXIS_DEFINITIONS.chip_label、軸スタジオから登録可能）へ移設し、既存軸限定の
-// 特別扱いを解消した（下記secondaryAxesFromCatalogAxes参照）。
-// 改善計画T318（ユーザー判断: 「軸スタジオで、地図マップ上にアイコン表示するかどうか
-// ON/OFFできるようにして」）: 以前は専用レイヤーを持たない軸(display.kind==="none")を
-// 常に無効化されたチップとして表示し、代役案内文（旧proxy_hint）でその理由を説明する
-// 仕組みだったが、show_map_icon（AXIS_DEFINITIONS.show_map_icon、既定true）で軸自身が
-// 「そもそも地図上に表示するかどうか」を選べるようになったため、その案内文は不要になり
-// 撤去した。
 
 // kind==="ramp"の軸の専用レイヤーidはaxisMapLayerId(axis_id)で機械的に求まる（軸が
 // 増えてもここへ追記しない）。kind==="none"（例: gradient、材料がタイル非依存）は

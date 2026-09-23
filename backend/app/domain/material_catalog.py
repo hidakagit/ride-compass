@@ -189,13 +189,12 @@ class MaterialSpec(StrictModel):
     # `tile_property=None`と両輪で「この材料はramp化しない」を宣言する。
     tile_property_direction_dependent: bool = False
     # この材料の由来となる一次属性id（domain/registry.py:
-    # PrimaryAttributeSpec.attr_id、frontend側はprimaryAttributes.ts:
-    # PRIMARY_ATTRIBUTE_LAYER_IDS/PRIMARY_ATTRIBUTE_CHIP_LABELSのキー）。材料id（例:
-    # bicycle_infra・maxspeed_kmh・poi_signal_per_km）と一次属性id（例: cycleway・
-    # maxspeed・stop_poi）は名前が異なる別の名前空間のため、対応が自明でない材料には
-    # 明示的にここへ書く。Noneは「対応する一次属性が無い」（動的データ由来のwind_drag_ratio、
-    # 一次属性未登録のbridge/smoothness等）。GET /api/axis-catalogが軸ごとにこれを解決して
-    # 返すことで、frontend側（axisMaterialLayerIds、MapOverlayControls.tsxの材料一覧表示）が
+    # PrimaryAttributeSpec.attr_id、frontend側は生成物primaryAttributes.tsのattr_id）。
+    # 材料id（例: highway_is_cycleway・maxspeed_kmh・intersection_count_per_km）と一次属性id
+    # （例: cycleway・maxspeed・intersection）は名前が異なる別の名前空間のため、対応が
+    # 自明でない材料には明示的にここへ書く。Noneは「対応する一次属性が無い」（動的データ
+    # 由来のwind_drag_ratio、一次属性未登録のbridge/smoothness等）。GET /api/axis-catalogが
+    # 軸ごとにこれを解決して返すことで、frontend側（page.tsx: 軸と観測データレイヤーの連動）が
     # 軸スタジオ作成軸に対しても同じ仕組みで動く。
     primary_attribute_id: str | None = None
     # この材料の値をDBから求めるSQL式。読み出し側（`road_graph_repository.py`）が
@@ -325,7 +324,7 @@ _LANES_COUNT_REFERENCE_POINTS = [
 
 # 材料の値（OSMタグ生値）ごとの日本語ラベル対訳表。
 # MaterialSpec.value_labelsのdocstring参照——「地図表示と評価は別」という方針に基づき、
-# 地図の絞り込みUI（components/Map/roadFilterAxes.ts: HIGHWAY_GROUPS/SURFACE_GROUPS、
+# 地図の表示分類（一次属性`highway`/`surface`の`display_axes`が持つ`DisplayCategorySpec`、
 # 意図的に多対一）とは独立した1値1ラベルの専用対訳表。各値の日本語ラベルはOSM wiki
 # （Key:highway/Key:surface）の一般的なタグ定義に基づく。MaterialSpecの呼び出し直下へ
 # インラインで書くと材料定義ブロックの見通しが悪くなるためここへ分けているだけで、
@@ -782,10 +781,8 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
         unit="件/(km・年)",
         additive=True,
         # タイル側は年正規化前の"accident_per_km"（収録全年分の重み付き件数/km）。
-        # 年正規化はAXIS_DEFINITIONS側の評価ロジックが行うため、ramp化する場合は
-        # 閾値をタイル側のスケールへ再換算する必要がある。収録年数は実行時にDBから
-        # 取得し増え続けるため、静的な変換係数を持てない（registry_defaults.pyの
-        # 既存accident表示は手書きのまま維持する）。
+        # 収録年数は実行時にDBから取得し増え続けるため静的な変換係数を持てず、地図の
+        # ramp表示は年数での換算を実行時に行う（`tile_property_needs_runtime_scale`）。
         tile_property="accident_per_km",
         tile_property_needs_runtime_scale=True,
         primary_attribute_id="accident_point",
@@ -863,9 +860,9 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
         label="一方通行",
         description="OSMのタグから判定した一方通行区間かどうか。現時点では評価軸の材料として配線されておらず、選んでもこの軸は常に「データなし」として扱われます（地図表示専用）。",
         dtype="boolean",
-        # 値の求め方を持たない（`value_sql=None`）: 元になるosm_raw_ways.directionは
-        # build_road_graphがforward/backward Edgeを作れるかの判定に消費するだけで、
-        # Edgeにも区間の材料列にも残らない。地図表示専用の材料。
+        # 値の求め方を持たない（`value_sql=None`）: 元になる`way_materials.direction`は
+        # グラフの読み出し（`road_graph_repository.py`）がforward/backward Edgeを作れるかの
+        # 判定に消費するだけで、Edgeにも区間の材料列にも残らない。地図表示専用の材料。
         tile_property="oneway",
         primary_attribute_id="oneway",
         coverage=CoverageExcluded(

@@ -150,8 +150,8 @@ class RouteGenerateRequest(StrictModel):
     distance_km: float = Field(gt=0, le=MAX_ROUTE_DISTANCE_KM)
     distance_tolerance_km: float = Field(gt=0, le=50, default=DEFAULT_DISTANCE_TOLERANCE_KM)
     route_type: Literal["loop"] = "loop"
-    # 評価重みのリクエスト単位の上書き（研究用、docs/research-interface-review-2026-08-15.md
-    # §10-1）。省略時はAXIS_DEFINITIONS由来の既定値（load_route_preference）を使う。
+    # 評価重みのリクエスト単位の上書き（研究用）。省略時はAXIS_DEFINITIONS由来の既定値
+    # （load_route_preference）を使う。
     # 実際に適用された値はレスポンスのconditionsへエコーされる。
     route_preference: RoutePreferenceWeights | None = None
     # T12 ADR原則1: 主観的割増と時間の換算レート（P）。**省略が既定**で、そのとき使う値は

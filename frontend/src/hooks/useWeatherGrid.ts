@@ -22,8 +22,8 @@ import { getWindGrid, getWindGridDetail } from "@/services/weatherApi";
 import { MAP_FETCH_DEBOUNCE_MS, useDebouncedValue } from "@/hooks/useDebouncedValue";
 import { usePolledFetch } from "@/hooks/usePolledFetch";
 
-// バックエンド側のTTLキャッシュ（weather_client.py: WIND_GRID_CACHE_TTL_SECONDS）に合わせた
-// 間隔で再取得する。これより短い間隔で再取得してもキャッシュヒットするだけで新しいデータは
+// 配信元（気象庁MSM）のrunの更新間隔（backend msm_client.py: update_interval_seconds、
+// 既定3時間）に合わせた間隔で再取得する。これより短い間隔で再取得しても新しいデータは
 // 得られず、格子点ぶんの応答（MB級）を無駄に再ダウンロードするだけになる。
 const WEATHER_GRID_REFRESH_INTERVAL_MS = 3 * 60 * 60 * 1000;
 // usePolledFetchの初期値。毎レンダー新しい配列を渡すとdataの参照が無用に変わるため、
@@ -42,8 +42,8 @@ interface UseWeatherGridResult {
   /** 詳細格子が取得できていればそちらを優先し、無ければgridを使う（呼び出し側の既定の選択）。 */
   effectiveGrid: WindGridPoint[];
   /** effectiveGridの格子間隔（度）。detailGridを使っている間はズーム依存の間隔
-   * （windGridDetailSpacingDegForZoom、T185）、gridへフォールバックしている間はWIND_GRID_
-   * SPACING_DEG。gridFillのセルサイズ（precipitationNowcast.ts: precipitationRenderPayload）が
+   * （windGridDetailSpacingDegForZoom）、gridへフォールバックしている間は
+   * WIND_GRID_SPACING_DEG。gridFillのセルサイズ（precipitationNowcast.ts: precipitationRenderPayload）が
    * effectiveGridと矛盾しない間隔を使うために必要（実際のフェッチに使った値を返す。
    * windGridDetailSpacingDegForZoomを呼び出し側で再計算すると、フェッチ後にズームが
    * 動いていた場合に実際のデータと食い違いうる）。 */

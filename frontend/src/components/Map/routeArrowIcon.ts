@@ -8,8 +8,8 @@ export const ROUTE_ARROW_ICON_ID = "route-arrow-icon";
 // しての硬さ・視認性を優先する。
 //
 // symbol-placement: "line"時は、icon-rotateを指定しなくてもicon-rotation-alignment: "map"が
-// 線分の向きへ自動的に回転させる（MapView.tsx: ensureRouteArrowLayer参照、T293技術検証
-// Artifactで確認済み）。この自動回転の基準（rotate=0の未回転時にアイコンがどちらを向いて
+// 線分の向きへ自動的に回転させる（features/map/scene/groups/routes.tsの役割`arrow`）。
+// この自動回転の基準（rotate=0の未回転時にアイコンがどちらを向いて
 // いれば線の進行方向と一致するか）は、風の矢印（北=画像の上方向を基準にicon-rotateへ
 // 明示的な角度を渡す、windArrowIcon.ts参照）とは異なり、東（画像の右方向）が基準となる。
 // そのため、このアイコンは右（東）を向くシェブロンとして描く。

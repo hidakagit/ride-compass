@@ -12,15 +12,15 @@ export type RouteSegmentProperties = Omit<RouteSegmentDetail, "geometry">;
 // RouteSegmentPropertiesのうちオブジェクト値を持つフィールド。MapLibreはGeoJSONソースの
 // feature.propertiesをvector tile相当の内部表現へ変換する際、プリミティブ型
 // （string/number/boolean）しか保持できないvector tile仕様の制約でオブジェクト値を
-// JSON文字列へ自動的にシリアライズする。segmentsToFeatureCollectionが渡す時点では
+// JSON文字列へ自動的にシリアライズする。scene（scene/groups/routes.ts）が渡す時点では
 // 素のオブジェクトだが、クリック時にqueryRenderedFeatures経由で読み戻すと文字列化されて
 // いるため、handleRouteSegmentClickでここへ列挙した各フィールドをパースし直す。
 // 新しいオブジェクト型フィールドを追加するときはこの配列へも追加すること
-// （material_valuesの追加漏れで実際に実行時エラーが起きた）。
+// （漏れたフィールドは文字列のまま読まれ、使う側で実行時エラーになる）。
 const ROUTE_SEGMENT_OBJECT_PROPERTY_KEYS = ["axis_difficulties", "axis_contributions", "material_values"] as const;
 
-/** クリック時にqueryRenderedFeatures経由で読み戻したfeature.properties（ROUTE_SEGMENT_
- * OBJECT_PROPERTY_KEYS参照のとおりオブジェクト型フィールドが文字列化されている）を、
+/** クリック時にqueryRenderedFeatures経由で読み戻したfeature.properties
+ * （ROUTE_SEGMENT_OBJECT_PROPERTY_KEYS参照のとおりオブジェクト型フィールドが文字列化されている）を、
  * 元のオブジェクトへ復元する。文字列化されていなければそのまま返す。 */
 export function restoreRouteSegmentProperties(raw: RouteSegmentProperties): RouteSegmentProperties {
   const restored = { ...raw };

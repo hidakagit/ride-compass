@@ -13,8 +13,8 @@ const DEFAULT_LIMIT = 200;
 const LOG_LEVEL_OPTIONS: readonly LogLevelName[] = ["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"];
 
 // フロントのDebugConsole（lib/debugLog.ts、entry.level="info"/"warn"/"error"）と同じ
-// 「レベルで色分けする」見た目に揃える。backendの整形済みログ行（debug_control.py:
-// _LOG_FORMAT）は先頭付近に"[LEVELNAME]"を含むため、そこから正規表現で取り出す。
+// 「レベルで色分けする」見た目に揃える。backendの整形済みログ行（request_log.py:
+// LOG_FORMAT）は先頭付近に"[LEVELNAME]"を含むため、そこから正規表現で取り出す。
 const LEVEL_PATTERN = /\[(DEBUG|INFO|WARNING|ERROR|CRITICAL)\]/;
 
 function parseLogLevel(line: string): LogLevelName | null {

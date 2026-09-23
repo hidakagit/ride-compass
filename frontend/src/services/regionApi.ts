@@ -15,10 +15,10 @@ interface PostRequestOptions {
   timeoutMs?: number;
 }
 
-// POST系は成功時のレスポンス本体の解釈・成功ログのfieldsが呼び出しごとに異なる
-// （fetchAxisInspectorはJSONボディからcompositeを追加ログするが、refreshBasemapCacheは
-// ボディ自体を読まない）ため、共通骨格のうち`requestOk`（成功時のResponseをそのまま返す
-// 側、lib/fetchJson.ts参照）を使い、成功ログだけ呼び出し側が出す。
+// POST系は成功時のレスポンス本体の解釈・成功ログのfieldsが呼び出し側で決まる
+// （fetchAxisInspectorはJSONボディからcompositeを追加ログする）ため、共通骨格のうち
+// `requestOk`（成功時のResponseをそのまま返す側、lib/fetchJson.ts参照）を使い、
+// 成功ログだけ呼び出し側が出す。
 function postAndCheckOk(
   path: string,
   { category, errorLabel, body, timeoutMs = DEFAULT_API_TIMEOUT_MS }: PostRequestOptions,

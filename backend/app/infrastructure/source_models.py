@@ -5,7 +5,7 @@
 アダプタだけである。
 
 DBの起動時初期化（`create_tables`の`Base.metadata.create_all`）へ乗せるため、
-`road_graph_models.py`と同じ`Base`を使う。
+他のORMと同じ`Base`（`orm_base.py`）を使う。
 """
 
 from datetime import datetime

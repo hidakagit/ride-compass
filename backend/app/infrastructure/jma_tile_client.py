@@ -119,7 +119,7 @@ class JmaTileClient:
                     fields["status"] = 404
                     not_found = True
                     # 恒久404をキャッシュし、次回以降は上流へ問い合わせず
-                    # TileNotFoundで即座に済ませる（basetime/validtimeが確定した過去の
+                    # JmaTileNotFoundErrorで即座に済ませる（basetime/validtimeが確定した過去の
                     # 一時点への結果のため、再フェッチしても変わらない）。
                     if is_target_times:
                         _target_times_cache[path] = jma_tile_redis_cache.EMPTY_TILE

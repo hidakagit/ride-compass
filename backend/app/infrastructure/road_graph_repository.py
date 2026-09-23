@@ -135,7 +135,8 @@ EDGE_UNIT_MIN_ZOOM = 14
 
 
 def parse_edge_feature_key(key: str) -> tuple[int, int] | None:
-    """`edge_feature_key`の逆。way丸ごとの鍵（区切りが無い）はNone。"""
+    """`feature_key`（区間単位は`<osm_way_id>-<segment_index>`、SQL側で組み立てる）の逆。
+    way丸ごとの鍵（区切りが無い）はNone。"""
     way_id, separator, segment = key.partition("-")
     if not separator:
         return None
