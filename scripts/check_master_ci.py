@@ -20,7 +20,8 @@ import urllib.error
 import urllib.request
 
 REPO = "hidakagit/ride-compass"
-API = f"https://api.github.com/repos/{REPO}/actions/runs?branch=master&per_page=30"
+RUNS_API = f"https://api.github.com/repos/{REPO}/actions/runs"
+API = f"{RUNS_API}?branch=master&per_page=30"
 TIMEOUT_SECONDS = 6.0
 
 
@@ -39,30 +40,38 @@ def fetch_runs(url: str = API, timeout: float = TIMEOUT_SECONDS) -> list[dict] |
 def failing_workflows(runs: list[dict]) -> list[dict]:
     """**masterの最新コミット**について、完了していて失敗しているワークフロー。
 
-    ワークフローごとに最も新しい実行だけを見る（再実行や、concurrency設定に打ち切られた
-    実行が混ざるため）。並びは`created_at`の降順で先頭が新しいが、**同じ秒に作られた実行
-    どうしの順序は保証されない**ため、`run_number`（ワークフロー内で単調に増える）が
-    大きい方を採る。値が無い応答では並び順のまま先頭を残す。まだ実行中のものは結論が
-    出ていないので対象外——「まだ分からない」を赤として扱うと、押すたびに鳴る。
+    まだ実行中のものは結論が出ていないので対象外——「まだ分からない」を赤として扱うと、
+    押すたびに鳴る。
     """
     if not runs:
         return []
-    head_sha = runs[0].get("head_sha")
-    latest_per_workflow: dict[str, dict] = {}
+    return [run for run in latest_per_workflow(runs, runs[0].get("head_sha")) if is_failure(run)]
+
+
+def latest_per_workflow(runs: list[dict], head_sha: str | None) -> list[dict]:
+    """`head_sha`に対する実行を、ワークフローごとに最も新しい1件へ絞る。
+
+    同じコミットに複数の実行が混ざりうる（手動の再実行・concurrency設定に打ち切られた実行）。
+    並びは`created_at`の降順で先頭が新しいが、**同じ秒に作られた実行どうしの順序は保証
+    されない**ため、`run_number`（ワークフロー内で単調に増える）が大きい方を採る。値が無い
+    応答では並び順のまま先頭を残す。
+    """
+    latest: dict[str, dict] = {}
     for run in runs:
         if run.get("head_sha") != head_sha:
             continue
         name = run.get("name")
         if not isinstance(name, str):
             continue
-        previous = latest_per_workflow.get(name)
+        previous = latest.get(name)
         if previous is None or run_number(run) > run_number(previous):
-            latest_per_workflow[name] = run
-    return [
-        run
-        for run in latest_per_workflow.values()
-        if run.get("status") == "completed" and run.get("conclusion") not in ("success", "skipped", "neutral", None)
-    ]
+            latest[name] = run
+    return list(latest.values())
+
+
+def is_failure(run: dict) -> bool:
+    """完了していて成功ではない実行。実行中のものは結論が出ていないので含めない。"""
+    return run.get("status") == "completed" and run.get("conclusion") not in ("success", "skipped", "neutral", None)
 
 
 def run_number(run: dict) -> int:

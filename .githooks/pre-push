@@ -2,6 +2,11 @@
 # push直前の門。**1タスクにつき重い検査はここでの1回だけ**にするため、
 # pre-commitは何もせずここへ集約する。落ちたらpushを止める。
 #
+# 並行実行の作業ブランチ（orch/**）へのpushは検査せず、停止ファイルの確認だけで通す。
+# そこへのpushはCI（ci.yml・docs-consistency.yml）が走り、masterへ出る前には監査
+# （scripts/orchestrate.py audit）とmasterへのpushでのこの門を必ず通るため。
+# CIが走らないブランチへのpushは、masterと同じく検査する。
+#
 # 実行するのは「pushする範囲の変更が届くもの」だけ。届かない検査は動かさない。
 # フルスイート（backend全体・-m postgis・vitest全体）はCIの持ち物で、ここには置かない。
 #
@@ -45,11 +50,14 @@ find_venv() {
 # 手で動かすとき（git経由でない）は標準入力が空になるので、`</dev/null` を付けて呼ぶ。
 PAIRS=""
 LINES=0
+GATED_LINES=0
 CHANGED=""
 # 全0かの判定はshellの`case`で行う（`printf | grep`はそのたびにプロセスを2つ起こす。
 # この環境では1組で0.2秒前後かかり、行数ぶん積み上がる）。
-while read -r _lref lsha _rref rsha; do
+while read -r _lref lsha rref rsha; do
     LINES=$((LINES + 1))
+    case "${rref:-}" in refs/heads/orch/*) continue ;; esac
+    GATED_LINES=$((GATED_LINES + 1))
     [ -n "${lsha:-}" ] || continue
     case "$lsha" in *[!0]*) ;; *) continue ;; esac  # ローカルsha全0 = ブランチの削除
     base=""
@@ -64,6 +72,11 @@ while read -r _lref lsha _rref rsha; do
     CHANGED="$CHANGED
 $(git diff --name-only --diff-filter=d "$base" "$lsha")"
 done
+
+if [ "$LINES" -gt 0 ] && [ "$GATED_LINES" -eq 0 ]; then
+    echo '[pre-push] orch/**へのpushのため検査を省きます（CIが回します）' >&2
+    exit 0
+fi
 
 # 標準入力が無い（手で実行した）ときだけ、従来どおり上流との差分で代用する。
 if [ "$LINES" -eq 0 ]; then

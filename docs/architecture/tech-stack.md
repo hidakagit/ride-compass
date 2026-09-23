@@ -98,6 +98,33 @@ backendが先に配信すると、そのプロパティの有無を見ている�
 全地物に一致し、対象レイヤーが一時的に「不明・他」表示になる。frontendを先に（または
 同時に）デプロイする。
 
+## CIの実行枠（リポジトリがpublicである間の前提）
+
+**GitHub Actionsの実行時間は、リポジトリがpublicである間は課金も分数の上限も無い。** GitHubの
+公式（[Actionsの課金](https://docs.github.com/en/billing/concepts/product-billing/github-actions)）は、
+publicリポジトリで標準のGitHubホストランナーを使う実行を無料としている。残る制約は
+[Actionsの制限](https://docs.github.com/en/actions/reference/limits)で、Freeプランでは同時に
+動くジョブの数と1ジョブの実行時間（6時間）に上限がある。同時実行の上限を超えた分は失敗せず、
+空くまで待つ。
+
+この前提の上で、CIは次のように組んである。
+
+- `ci.yml`・`docs-consistency.yml`はmasterに加えて並行実行の作業ブランチ（`orch/**`）への
+  pushでも走り、重い検査を開発機から外す（手順はdocs/conventions/orchestration.md「完了とpush」）。
+  `.githooks/pre-push`は`orch/**`へのpushでは検査を省く。本番へのデプロイ（`deploy-backend.yml`）は
+  masterへのpushでだけ走る。
+- 同じブランチへの新しいpushで古い実行を打ち切らない。監査は報告のコミットごとのCIの結論を
+  読むため、打ち切るとそのコミットの結論が残らない。
+- ジョブの分け方・キャッシュ・`paths-ignore`は、所要時間と同時実行の枠で決める（理由は各
+  ワークフローのコメント）。
+
+**privateにしたら、この節の前提が崩れる。** 公式の同じページによれば、Freeプランのprivate
+リポジトリは標準ランナーで月2,000分までで、支払い方法が未登録なら使い切った時点で実行が止まる
+（登録済みなら超過分が課金される）。privateへ切り替えるときは、切り替えの前に次を見直す:
+作業ブランチ（`orch/**`）でCIを走らせるか、古い実行を打ち切るか（`concurrency`）、docs・`*.md`
+だけの変更で`ci.yml`を飛ばす範囲（`paths-ignore`）、ジョブの分け方とキャッシュ、pre-pushで
+検査を省く範囲。
+
 ## 本番PostgreSQLの設定（既定から変えたものと、その理由）
 
 既定から変えた設定はここへ理由つきで残す。**理由の無い設定変更を増やさない**——

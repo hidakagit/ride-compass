@@ -1,20 +1,17 @@
 # 文書と台帳の整合（scripts/review_checks.py docs）。
 #
-# メインのci.ymlはdocs/**・**/*.mdの変更を無償枠の消費対策でスキップするため、この検査
-# だけは別ワークフローにして常に走らせる。**常に全件**を見る——検知器はどの走査範囲でも
+# ci.ymlはdocs/**・*.mdだけの変更では走らないが、この検査はその変更こそが対象なので、
+# 別ワークフローにして常に走らせる。**常に全件**を見る——検知器はどの走査範囲でも
 # 同じ答えになる事実だけを扱うので、差分の起点を解決する必要がない（設計要件は
 # scripts/review_checks.py の冒頭）。pure pythonで数秒。
 name: Docs Consistency
 
 on:
   push:
-    branches: [master]
+    # orch/** は並行実行の作業ブランチ（ci.ymlと同じ）。
+    branches: [master, "orch/**"]
   pull_request:
   workflow_dispatch:
-
-concurrency:
-  group: docs-consistency-${{ github.ref }}
-  cancel-in-progress: true
 
 jobs:
   docs-consistency:

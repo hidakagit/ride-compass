@@ -14,7 +14,7 @@
     python scripts/orchestrate.py check --if-due              # フック用（scripts/orchestration/hook.sh から）
     python scripts/orchestrate.py board claim                 # このセッションを司令塔として記録する
     python scripts/orchestrate.py audit <名前> <sha> [--checks-in <検査用の作業ツリー>]
-                                                              # 監査のうち機械で見られる項目＋pre-pushと同じ静的検査
+                                                              # 監査のうち機械で見られる項目＋CIの結論＋pre-pushと同じ静的検査
     python scripts/orchestrate.py board set <名前> k=v ...    # エージェントの行を更新
     python scripts/orchestrate.py board add <名前> k=v ...    # エージェントの行を追加
     python scripts/orchestrate.py board run k=v ...           # 回の値（limits.concurrent等）を更新
@@ -866,6 +866,17 @@ def cmd_audit(ctx: Context, args: argparse.Namespace) -> int:
     print(f"  実装ファイル{len(code)}件・docs/modules/{len(modules)}件を変更"
           f"{'（実装を変えてモジュール文書が0件。追従が要らないか）' if code and not modules else ''}")
 
+    # 重い検査は担当が作業ブランチ（orch/<名前>）へpushしてCIに回すため、監査はその結論を読む。
+    print("\nCI（報告のコミットに対するGitHub Actionsの結論）")
+    if args.no_ci:
+        print("  （--no-ci により未取得）")
+    else:
+        for text, bad in ci_verdicts(sha):
+            if bad:
+                flag(text)
+            else:
+                print(f"  {text}")
+
     # 静的検査（pre-pushの門と同じもの）。masterへまとめてpushする時に初めて門で落ちると、
     # まとめた全体が止まるため、監査の時点で同じ検査を通す。
     live = [p for s, p in changes if s != "D"]
@@ -891,6 +902,25 @@ def cmd_audit(ctx: Context, args: argparse.Namespace) -> int:
     print(f"通すなら: python scripts/orchestrate.py board set {args.name} reported_sha={sha[:12]} "
           f"audit_base={base[:12]} audit_done=now audit_result=通す [urgent=true]")
     return 1 if flags else 0
+
+
+def ci_verdicts(sha: str) -> list[tuple[str, bool]]:
+    """`sha`に対するワークフローごとの最新の結論。2つめの値は、監査を通せない（失敗・結論待ち・
+    取得できない・実行が無い）ことを表す。"""
+    from check_master_ci import RUNS_API, fetch_runs, is_failure, latest_per_workflow
+
+    runs = fetch_runs(f"{RUNS_API}?head_sha={sha}&per_page=30")
+    if runs is None:
+        return [("CIの結論を取得できない（GitHub APIに届かない・未認証の上限超過等）", True)]
+    latest = sorted(latest_per_workflow(runs, sha), key=lambda r: str(r.get("name")))
+    if not latest:
+        return [("このコミットに対するCIの実行が無い（orch/<名前>へpushしていないか、pushした先端のコミットではない）", True)]
+    verdicts = []
+    for run in latest:
+        done = run.get("status") == "completed"
+        state = run.get("conclusion") if done else f"結論待ち（{run.get('status')}）"
+        verdicts.append((f"{run.get('name')}: {state}  {run.get('html_url', '')}", is_failure(run) or not done))
+    return verdicts
 
 
 def find_venv_python(place: Path, ctx: Context) -> str | None:
@@ -1210,6 +1240,7 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--base", help="比較の基点（既定: origin/master。分岐点を取る）")
     p.add_argument("--checks-in", help="静的検査を走らせる検査用の作業ツリー（shaを取り出す。変更なしであること）")
     p.add_argument("--no-checks", action="store_true", help="静的検査を走らせない")
+    p.add_argument("--no-ci", action="store_true", help="CIの結論を読まない")
 
     p = sub.add_parser("board", help="状態の表の更新")
     bsub = p.add_subparsers(dest="board_cmd", required=True)
