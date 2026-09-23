@@ -154,6 +154,8 @@ PUSH_BATCH_SIZE = 2
 PUSH_INTERVAL_MINUTES = 60
 #: これより古い監査の記録は、masterへ入ったかを調べない（1件ごとにgitを1回呼ぶため）。
 UNPUSHED_LOOKBACK_HOURS = 48
+#: CIの所要の基準にするmasterの実行を、対象のコミットの祖先から選ぶときに辿るコミット数。
+CI_ANCESTRY_DEPTH = 500
 #: 台帳の未完了の行と、その規模札。
 LEDGER_ROW_RE = re.compile(r"^- \[ \] \[(T\d+[a-z0-9-]*)\]\([^)]*\)\.?\s*(.*)$")
 SCALE_LABEL_RE = re.compile(r"規模([SML])(?:〜([SML]))?")
@@ -961,6 +963,7 @@ def cmd_check(ctx: Context, args: argparse.Namespace) -> int:
     problems += [f"ロック待ち: {x}" for x in f.lock_wait_problems()]
     if f.cpu is not None and f.cpu >= args.cpu_max:
         problems.append(f"CPUが飽和している（{f.cpu:.0f}% ≥ {args.cpu_max}%）")
+    problems += ci_duration_problems(ctx, f.board)
     unpushed = audited_unpushed(ctx, f.board, f.at)
     if push_due(ctx, unpushed, f.at):
         problems.append(f"要対応: {push_due_line(ctx, unpushed, f.at)}（board unpushed）")
@@ -1159,14 +1162,20 @@ def cmd_audit(ctx: Context, args: argparse.Namespace) -> int:
 
     # 重い検査は担当が作業ブランチ（orch/<名前>）へpushしてCIに回すため、監査はその結論を読む。
     print("\nCI（報告のコミットに対するGitHub Actionsの結論）")
+    latest: list[dict] = []
     if args.no_ci:
         print("  （--no-ci により未取得）")
     else:
-        for text, bad in ci_verdicts(sha):
+        verdicts, latest = ci_verdicts(sha)
+        for text, bad in verdicts:
             if bad:
                 flag(text)
             else:
                 print(f"  {text}")
+
+    needs_user = False
+    if not args.no_ci:
+        needs_user = audit_ci_duration(ctx, sha, latest)
 
     backend = any(p.startswith("backend/") for p in files)
     print("\n未判定（司令塔が判断する）:")
@@ -1175,33 +1184,101 @@ def cmd_audit(ctx: Context, args: argparse.Namespace) -> int:
     print(f"  6. 本番への影響 — backend/**を{'含む。DB行の互換・マイグレーション・本番操作の記述を確かめる' if backend else '含まない'}")
     print("  8. 報告の正確さ・9. 見積もりとのずれ — 記録")
     print(f"\n機械で見た項目の指摘 {flags}件")
+    if needs_user:
+        print("ユーザー確認（項目10）に当たる: 通さず、所要の比較を添えてユーザーへ上げる"
+              "（通す・縮めてから通す・CIの持ち場を変える）")
     print(f"通すなら: python scripts/orchestrate.py board set {args.name} reported_sha={sha[:12]} "
           f"audit_base={base[:12]} audit_done=now audit_result=通す [urgent=true]")
     return 1 if flags else 0
 
 
-def ci_verdicts(sha: str) -> list[tuple[str, bool]]:
-    """`sha`に対するワークフローごとの最新の結論。2つめの値は、監査を通せない（失敗・結論待ち・
-    取得できない・実行が無い）ことを表す。"""
-    from check_master_ci import RUNS_API, is_failure, latest_per_workflow
+def ci_verdicts(sha: str) -> tuple[list[tuple[str, bool]], list[dict]]:
+    """(`sha`に対するワークフローごとの最新の結論、その実行)。結論の2つめの値は、監査を通せない
+    （失敗・結論待ち・取得できない・実行が無い）ことを表す。"""
+    from check_master_ci import is_failure, latest_per_workflow
 
-    from orchestration.github import request_json, token
+    from orchestration.github import actions_runs
 
-    payload, limits, error = request_json(f"{RUNS_API}?head_sha={sha}&per_page=30")
-    runs = payload.get("workflow_runs") if isinstance(payload, dict) else None
-    if not isinstance(runs, list):
-        auth = "認証付き" if token() else "認証なし"
-        remaining = f"{limits.get('X-RateLimit-Remaining', '?')}/{limits.get('X-RateLimit-Limit', '?')}"
-        return [(f"CIの結論を取得できない（{error or '応答の形が違う'}、{auth}、残り{remaining}）", True)]
+    runs, error = actions_runs(f"head_sha={sha}&per_page=30")
+    if runs is None:
+        return [(f"CIの結論を取得できない（{error}）", True)], []
     latest = sorted(latest_per_workflow(runs, sha), key=lambda r: str(r.get("name")))
     if not latest:
-        return [("このコミットに対するCIの実行が無い（orch/<名前>へpushしていないか、pushした先端のコミットではない）", True)]
+        return [("このコミットに対するCIの実行が無い（orch/<名前>へpushしていないか、pushした先端のコミットではない）", True)], []
     verdicts = []
     for run in latest:
         done = run.get("status") == "completed"
         state = run.get("conclusion") if done else f"結論待ち（{run.get('status')}）"
         verdicts.append((f"{run.get('name')}: {state}  {run.get('html_url', '')}", is_failure(run) or not done))
-    return verdicts
+    return verdicts, latest
+
+
+def ancestors_of(ctx: Context, sha: str) -> set[str] | None:
+    """`sha`の祖先（master側の基準の実行を選ぶため）。コミットが手元に無ければNone。"""
+    out = git_out(ctx.repo, "rev-list", f"--max-count={CI_ANCESTRY_DEPTH}", sha)
+    return set(out.split()) if out else None
+
+
+def audit_ci_duration(ctx: Context, sha: str, latest: list[dict]) -> bool:
+    """監査の項目10の機械の比較を出す。ユーザー確認に当たればTrue。"""
+    from orchestration import ci_duration as cd
+
+    print(f"\n10. 共有資源への波及（CIのジョブごとの所要を、合流点までのmasterの直近{cd.BASELINE_RUNS}回の成功の"
+          f"同じジョブの最大値と比べる。{cd.MARGIN_SECONDS}秒以上長ければユーザー確認）")
+    target = next((r for r in latest if str(r.get("path", "")).endswith(f"/{cd.CI_WORKFLOW}")), None)
+    if target is None:
+        print(f"  {cd.CI_WORKFLOW}の実行が無い（docsだけの変更なら対象外）")
+        return False
+    if target.get("status") != "completed":
+        print("  CIが完了していない（完了してから比べる）")
+        return False
+    masters, error = cd.master_runs()
+    if masters is None:
+        print(f"  masterの実行を取得できない（{error}）。司令塔がGitHubのジョブの所要から手で出す")
+        return False
+    rows, base, error = cd.compare_run(target, ancestors_of(ctx, sha), ctx.dir, masters)
+    print(f"  基準: master {len(base)}回（" + "、".join(f"{str(r.get('head_sha'))[:8]}" for r in base) + "）")
+    if rows is None:
+        print(f"  {error}。司令塔がGitHubのジョブの所要から手で出す")
+        return False
+    for row in rows:
+        print(f"  {cd.row_line(row)}")
+    if any(row.differs or row.master_only_job for row in rows):
+        print("  masterでだけ走る段は作業ブランチのCIに出ない。その段を足す・伸ばす変更は、担当が手元で測った前後の所要で判断する")
+    return any(row.needs_user for row in rows)
+
+
+def ci_duration_problems(ctx: Context, board: dict) -> list[str]:
+    """定期確認: 稼働中・監査待ちの担当の作業ブランチ（orch/<名前>）の直近の成功したCIで、masterの基準より
+    伸びたジョブ。取得できなければ異常にしない（ネットワークの都合で定期確認を鳴らさない）。"""
+    from orchestration import ci_duration as cd
+    from orchestration.github import actions_runs
+
+    branches = {f"orch/{a.get('name')}" for a in board.get("agents") or []
+                if a.get("state") in ACTIVE_STATES or audit_pending(a)}
+    if not branches:
+        return []
+    runs, _ = actions_runs(f"status=completed&per_page={cd.BRANCH_LISTING}", cd.CI_WORKFLOW)
+    latest: dict[str, dict] = {}
+    for run in runs or []:
+        latest.setdefault(str(run.get("head_branch")), run)
+    targets = [r for b, r in sorted(latest.items()) if b in branches and r.get("conclusion") == "success"]
+    if not targets:
+        return []
+    masters, _ = cd.master_runs()
+    if masters is None:
+        return []
+    problems = []
+    for run in targets:
+        sha = str(run.get("head_sha"))
+        rows, _, _ = cd.compare_run(run, ancestors_of(ctx, sha), ctx.dir, masters)
+        over = [r for r in rows or [] if r.needs_user]
+        if over:
+            problems.append(f"共有資源への波及: {run.get('head_branch')} {sha[:8]}のCIで"
+                            + "、".join(f"{r.job} {r.seconds}秒（masterの基準の最大{max(r.baseline)}秒より+{r.over}秒）"
+                                       for r in over)
+                            + f"。監査では項目10のユーザー確認に当たる {run.get('html_url', '')}")
+    return problems
 
 
 # ---------------------------------------------------------------- board

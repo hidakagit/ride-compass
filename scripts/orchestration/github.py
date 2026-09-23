@@ -72,6 +72,63 @@ def get_json(url: str, timeout: float = TIMEOUT_SECONDS) -> dict | None:
     return request_json(url, timeout)[0]
 
 
+def failure_note(error: str, limits: dict[str, str]) -> str:
+    """問い合わせに失敗した理由（認証の有無と枠の残りを添える。トークンは含まない）。"""
+    auth = "認証付き" if token() else "認証なし"
+    remaining = f"{limits.get('X-RateLimit-Remaining', '?')}/{limits.get('X-RateLimit-Limit', '?')}"
+    return f"{error or '応答の形が違う'}、{auth}、残り{remaining}"
+
+
+def actions_runs(query: str, workflow: str | None = None) -> tuple[list[dict] | None, str]:
+    """Actionsの実行の一覧（新しい順）と失敗の理由。`query`は`?`の後ろ、`workflow`はワークフローの
+    ファイル名（`ci.yml`等）で、指定すればそのワークフローの実行だけを返す。"""
+    scope = f"workflows/{workflow}/runs" if workflow else "runs"
+    payload, limits, error = request_json(f"{API_ROOT}/repos/{REPO}/actions/{scope}?{query}")
+    runs = payload.get("workflow_runs") if isinstance(payload, dict) else None
+    return (runs, "") if isinstance(runs, list) else (None, failure_note(error, limits))
+
+
+#: ジョブのキャッシュに残す実行の件数。監査と定期確認が読むのは直近の実行だけなので、古いものから捨てる。
+JOBS_CACHE_ENTRIES = 200
+
+
+def run_jobs(run_id: int, cache: Path | None = None) -> list[dict] | None:
+    """実行のジョブ（名前・状態・結論・開始と終了の時刻・段の名前と結論）。取得できなければNone。
+
+    完了した実行のジョブは以後変わらないので、`cache`（JSONファイル）に持ち、同じ実行を2度問い合わせない
+    （定期確認は20分おきに同じ実行を見直すため、キャッシュが無いと枠を毎回使う）。
+    """
+    key = str(run_id)
+    stored: dict = {}
+    if cache is not None:
+        try:
+            stored = json.loads(cache.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            stored = {}
+        if isinstance(stored.get(key), list):
+            return stored[key]
+    payload = get_json(f"{API_ROOT}/repos/{REPO}/actions/runs/{run_id}/jobs?per_page=100")
+    raw = payload.get("jobs") if isinstance(payload, dict) else None
+    if not isinstance(raw, list):
+        return None
+    jobs = [{"name": j.get("name"), "status": j.get("status"), "conclusion": j.get("conclusion"),
+             "started_at": j.get("started_at"), "completed_at": j.get("completed_at"),
+             "steps": [{"name": s.get("name"), "conclusion": s.get("conclusion")} for s in j.get("steps") or []]}
+            for j in raw if isinstance(j, dict)]
+    if cache is not None and jobs and all(j["status"] == "completed" for j in jobs):
+        stored = {k: v for k, v in stored.items() if isinstance(v, list)}
+        stored[key] = jobs
+        kept = dict(list(stored.items())[-JOBS_CACHE_ENTRIES:])
+        try:
+            cache.parent.mkdir(parents=True, exist_ok=True)
+            tmp = cache.with_suffix(".tmp")
+            tmp.write_text(json.dumps(kept, ensure_ascii=False), encoding="utf-8")
+            os.replace(tmp, cache)
+        except OSError:
+            pass
+    return jobs
+
+
 def main() -> int:
     sys.stdout.reconfigure(encoding="utf-8")
     payload, limits, error = request_json(f"{API_ROOT}/rate_limit")
