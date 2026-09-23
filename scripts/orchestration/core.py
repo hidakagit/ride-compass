@@ -134,6 +134,8 @@ EFFORT_PREFIX = "所要（並行実行）"
 EFFORT_REAL_RE = re.compile(r"完了[^（(]*[（(]約?(\d+)分")
 EFFORT_FRAME_RE = re.compile(r"枠待ち約?(\d+)分")
 EFFORT_CI_RE = re.compile(r"CI待ち約?(\d+)分")
+#: 監査が書き足す、完了のコミットのCI（scripts/orchestration/effort_ci.py）。完了の時刻より後の時間。
+EFFORT_AFTER_CI_RE = re.compile(r"完了のコミットのCI\s*約?(\d+)分")
 EFFORT_SCALE_RE = re.compile(r"規模札([SML])(?:〜([SML]))?")
 EFFORT_REASON_RE = re.compile(r"超過[:：]\s*([^、。）\n]+)")
 BUDGET_PERCENTILE = 0.8
@@ -309,6 +311,11 @@ def parse_effort(task: str, text: str) -> dict:
 
     s = EFFORT_SCALE_RE.search(text)
     real, frame, ci = minutes_of(EFFORT_REAL_RE), minutes_of(EFFORT_FRAME_RE), minutes_of(EFFORT_CI_RE)
+    after = minutes_of(EFFORT_AFTER_CI_RE)
+    if after is not None:
+        # 完了の時刻の後の時間なので、実時間とCI待ちの両方へ足す（作業そのものの時間は変えない）。
+        real = real + after if real is not None else None
+        ci = ci + after if ci is not None else None
     reason = EFFORT_REASON_RE.search(text)
     return {"task": task, "scale": (s.group(2) or s.group(1)) if s else None, "real": real,
             "work": real - frame - ci if None not in (real, frame, ci) else None,
@@ -1177,6 +1184,9 @@ def cmd_audit(ctx: Context, args: argparse.Namespace) -> int:
     needs_user = False
     if not args.no_ci:
         needs_user = audit_ci_duration(ctx, sha, latest)
+        from orchestration import effort_ci
+
+        effort_ci.print_proposals(effort_ci.proposals(repo, args.name, base, sha, latest), args.name, sha, base)
 
     backend = any(p.startswith("backend/") for p in files)
     print("\n未判定（司令塔が判断する）:")
@@ -1458,10 +1468,13 @@ def cmd_unpushed(ctx: Context, board: dict, at: dt.datetime) -> int:
         # 範囲ごとに分けて取り込む（1回のcherry-pickへ並べると、範囲の和として解釈される）。
         picks = " && ".join(f"git cherry-pick {i['base']}..{i['sha']}" if i.get("base")
                             else f"git cherry-pick {i.get('sha')}" for i in items)
+        efforts = " && ".join(f"python scripts/orchestrate.py effort-ci {i.get('agent')} {i.get('sha')}"
+                              + (f" --base {i['base']}" if i.get("base") else "") for i in items)
         print("\n1回でpushする手順（司令塔の作業ツリーで。枠で包まない。衝突したら中止して担当へ差し戻す）:")
         print(f"  git fetch origin master && git switch -C land origin/master"
-              f" && {picks} && python scripts/orchestrate.py ledger close"
+              f" && {picks} && {efforts} && python scripts/orchestrate.py ledger close"
               f" && git push origin \"$(git rev-parse HEAD)\":refs/heads/master")
+        print("  （effort-ci は、担当の所要の行へ完了のコミットのCIを書き足すコミットを足す。書き足せなければ飛ばす）")
         print("  （ledger close は、取り込んだ記録で状態が完了のタスクの台帳の行を消すコミットを足す。"
               "担当は台帳の行を消さない）")
         print("  （masterに入ったかは git から導くので、pushの後に表を書き換える手順は無い）")
