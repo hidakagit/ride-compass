@@ -1,501 +1,310 @@
-"""`domain/axis_display.py`——軸を地図にどう出すか。
+"""`domain/axis_display.py`——軸を地図にどう塗るか（塗れるか・タイルのどの値を・どこで段を切るか）。
 
-材料カタログと軸カタログはこのファイルが丸ごと差し替える。実在の材料・軸に由来する事実は
-1つも持ち込まない——このモジュールが決めているのは「与えられた材料の性質と軸の形から何が
-導けるか」であって、どの材料が実在するかではない。
+ここで見ないもの:
+- ルート線側の境界への写し（`map_value_thresholds`） → `test_dynamic_way_values.py`
+- 軸の宣言そのものの検査・評価 → `test_axis_definitions.py`
+- 管理APIが下書きの段を問い合わせる口 → `test_axis_admin_routes.py`
+
+**材料カタログと軸の集合は差し替える。** 地図に出せるかは材料の性質（タイルに焼き込み済みか・
+向きで値が変わるか・欠損の意味）だけで決まるので、その性質だけを持つ架空の材料を与える。
 """
 
 import pytest
 
-from app.domain import axis_display
+from app.domain import axis_display, material_catalog
 from app.domain.axis_definitions import (
     AxisDefinition,
     BreakpointLinearShape,
     CategoricalShape,
     MaterialTerm,
+    PriorityCondition,
 )
-from app.domain.axis_display import (
-    _adjacent_midpoint_thresholds,
-    _boolean_score_tile_input,
-    _boolean_terms_thresholds,
-    _drop_thresholds_that_share_a_score,
-    _rescale_tile_input,
-    axis_display_for,
-    bands_the_map_keeps,
-    map_band_labels,
-    thresholds_the_map_drops,
-)
-from app.domain.material_catalog import CoverageExcluded, MaterialSpec, WayMaterialCoverageSpec
-from app.domain.registry import TileInputSpec
+
+TileInput = axis_display.TileInputSpec
 
 
-def _spec(material_id: str, dtype: str = "numeric", missing="", **overrides) -> MaterialSpec:
-    """欠損の意味を指定しない材料は欠損率を測らない扱いにする（`bool_default`は"false"）。"""
-    overrides.setdefault("tile_property", f"t_{material_id}")
-    coverage = (
-        WayMaterialCoverageSpec(missing_condition="FALSE", source="テスト用", missing_semantics=missing)
-        if missing
-        else CoverageExcluded(reason="テスト用", missing_semantics="definite")
-    )
-    return MaterialSpec(
+def material(material_id, dtype="numeric", tile_property=None, missing_semantics="unknown", **fields):
+    return material_catalog.MaterialSpec(
         material_id=material_id,
         label=material_id,
-        description=f"架空の材料[{material_id}]",
+        description=material_id,
         dtype=dtype,
-        coverage=coverage,
-        **overrides,
+        tile_property=tile_property,
+        coverage=material_catalog.CoverageExcluded(reason="テスト用", missing_semantics=missing_semantics),
+        **fields,
     )
 
 
-#: 表示の判断に効く性質だけを変えた材料。名前は性質を表すだけで、実在の材料を指さない。
-MATERIALS = {
-    "num_a": _spec("num_a"),
-    "num_b": _spec("num_b"),
-    "num_scaled": _spec("num_scaled", tile_property_needs_runtime_scale=True),
-    "num_directed": _spec("num_directed", tile_property_direction_dependent=True),
-    "num_offtile": _spec("num_offtile", tile_property=None),
-    "bool_unknown": _spec("bool_unknown", dtype="boolean", missing="unknown"),
-    "bool_certain": _spec("bool_certain", dtype="boolean", missing="definite"),
-    "cat_kind": _spec("cat_kind", dtype="categorical"),
-}
+BOOL_TERM_IDS = [f"bool_{i}" for i in range(13)]
 
 
-@pytest.fixture(autouse=True)
-def catalogs(monkeypatch) -> dict[str, AxisDefinition]:
-    """材料と軸をこのファイルのものへ差し替える。返る辞書へ入れた軸だけが参照先になる。"""
-    axes: dict[str, AxisDefinition] = {}
-    monkeypatch.setattr(axis_display, "MATERIAL_CATALOG", MATERIALS)
-    monkeypatch.setattr(axis_display, "AXIS_DEFINITIONS", axes)
-    return axes
+@pytest.fixture
+def catalog(monkeypatch):
+    specs = {
+        "num_a": material("num_a", tile_property="p_num_a"),
+        "num_b": material("num_b", tile_property="p_num_b"),
+        "num_scaled": material("num_scaled", tile_property="p_scaled", tile_property_needs_runtime_scale=True),
+        "num_dir": material("num_dir", tile_property="p_dir", tile_property_direction_dependent=True),
+        "num_notile": material("num_notile"),
+        "bool_unknown": material("bool_unknown", dtype="boolean", tile_property="p_bu"),
+        "bool_false": material("bool_false", dtype="boolean", tile_property="p_bf", missing_semantics="definite"),
+        "cat_a": material("cat_a", dtype="categorical", tile_property="p_cat"),
+        "cat_notile": material("cat_notile", dtype="categorical"),
+        **{
+            m: material(m, dtype="boolean", tile_property=f"p_{m}", missing_semantics="definite") for m in BOOL_TERM_IDS
+        },
+    }
+    monkeypatch.setattr(axis_display, "MATERIAL_CATALOG", specs)
+    return specs
 
 
-def _axis(shape, axis_id="subject", **overrides) -> AxisDefinition:
-    return AxisDefinition(
-        axis_id=axis_id, shape=shape, default_weight=0.1, label="対象軸", **overrides
-    )
+@pytest.fixture
+def axes(monkeypatch):
+    def install(*definitions: AxisDefinition) -> None:
+        monkeypatch.setattr(axis_display, "AXIS_DEFINITIONS", {d.axis_id: d for d in definitions})
+
+    install()
+    return install
 
 
-def _linear(terms, breakpoints=((0.0, 0.0), (10.0, 100.0)), preprocess="identity"):
+def term(material_id, weight=1.0):
+    return MaterialTerm(material=material_id, weight=weight)
+
+
+def linear(*terms, breakpoints=((0.0, 0.0), (10.0, 100.0)), preprocess="identity"):
     return BreakpointLinearShape(
-        terms=list(terms), breakpoints=[tuple(bp) for bp in breakpoints], preprocess=preprocess
+        terms=[t if isinstance(t, MaterialTerm) else term(t) for t in terms],
+        breakpoints=list(breakpoints),
+        preprocess=preprocess,
     )
 
 
-class TestCategoricalAxes:
-    def test_a_two_valued_boolean_axis_is_painted_from_the_two_scores(self):
-        display = axis_display_for(
-            _axis(CategoricalShape(material="bool_unknown", mapping={True: 0.0, False: 80.0}))
-        )
-
-        assert display.kind == "ramp"
-        assert display.label == "対象軸"
-        assert display.tile_inputs == [
-            TileInputSpec(
-                property="t_bool_unknown",
-                boolean=True,
-                true_value=0.0,
-                false_value=80.0,
-                has_unknown_fallback=True,
-            )
-        ]
-        assert display.thresholds == [40.0]
-
-    def test_a_material_whose_missing_value_means_false_gets_no_unknown_band(self):
-        display = axis_display_for(
-            _axis(CategoricalShape(material="bool_certain", mapping={True: 0.0, False: 80.0}))
-        )
-
-        assert display.tile_inputs[0].has_unknown_fallback is False
-
-    def test_a_many_valued_axis_carries_its_mapping_and_bands_the_distinct_scores(self):
-        display = axis_display_for(
-            _axis(CategoricalShape(material="cat_kind", mapping={"a": 2.0, "b": 4.0, "c": 4.0}))
-        )
-
-        assert display.tile_inputs[0].categories == {"a": 2.0, "b": 4.0, "c": 4.0}
-        # 未登録の値は寄与0ではなく「不明」へ倒す。
-        assert display.tile_inputs[0].has_unknown_fallback is True
-        assert display.thresholds == [3.0]
-
-    def test_a_mapping_with_a_single_distinct_score_has_nothing_to_paint(self):
-        display = axis_display_for(
-            _axis(CategoricalShape(material="cat_kind", mapping={"a": 2.0, "b": 2.0}))
-        )
-
-        assert display.kind == "none"
-
-    def test_a_mapping_mixing_booleans_and_strings_is_not_painted(self):
-        display = axis_display_for(
-            _axis(CategoricalShape(material="cat_kind", mapping={True: 1.0, "a": 2.0}))
-        )
-
-        assert display.kind == "none"
+def categorical(material_id, mapping):
+    return CategoricalShape(material=material_id, mapping=mapping)
 
 
-class TestLinearAxes:
-    def test_numeric_terms_become_weighted_inputs_and_the_breakpoints_become_bands(self):
-        display = axis_display_for(
-            _axis(
-                _linear(
-                    [
-                        MaterialTerm(material="num_a", weight=2.0),
-                        MaterialTerm(material="num_b", weight=-1.0),
-                    ],
-                    breakpoints=[(0.0, 0.0), (10.0, 50.0), (20.0, 100.0)],
-                )
-            )
-        )
-
-        assert display.tile_inputs == [
-            TileInputSpec(property="t_num_a", weight=2.0),
-            TileInputSpec(property="t_num_b", weight=-1.0),
-        ]
-        assert display.thresholds == [10.0, 20.0]
-
-    def test_a_material_whose_tile_value_needs_a_runtime_factor_is_marked_for_the_front(self):
-        display = axis_display_for(_axis(_linear([MaterialTerm(material="num_scaled")])))
-
-        assert display.tile_inputs[0].needs_runtime_scale is True
-
-    def test_boolean_terms_contribute_their_weight_and_band_every_reachable_sum(self):
-        display = axis_display_for(
-            _axis(
-                _linear(
-                    [
-                        MaterialTerm(material="bool_certain", weight=10.0),
-                        MaterialTerm(material="bool_unknown", weight=20.0),
-                    ],
-                    breakpoints=[(0.0, 0.0), (30.0, 100.0)],
-                )
-            )
-        )
-
-        assert display.tile_inputs == [
-            TileInputSpec(
-                property="t_bool_certain", boolean=True, true_value=10.0, false_value=0.0
-            ),
-            # 欠損が「不明」を意味する材料は、軸の形が変わっても灰色の帯を保つ。落とすと
-            # 未観測の道が寄与0＝最良の色で塗られる。
-            TileInputSpec(
-                property="t_bool_unknown",
-                boolean=True,
-                true_value=20.0,
-                false_value=0.0,
-                has_unknown_fallback=True,
-            ),
-        ]
-        # 取りうる合計は 0 / 10 / 20 / 30 の4通り。
-        assert display.thresholds == [5.0, 15.0, 25.0]
-
-    def test_too_many_boolean_terms_are_not_painted(self):
-        terms = [MaterialTerm(material="bool_certain", weight=float(i)) for i in range(1, 14)]
-
-        display = axis_display_for(_axis(_linear(terms, breakpoints=[(0.0, 0.0), (91.0, 100.0)])))
-
-        assert display.kind == "none"
-
-    def test_an_axis_that_folds_the_sign_away_is_not_painted(self):
-        display = axis_display_for(
-            _axis(_linear([MaterialTerm(material="num_a")], preprocess="abs"))
-        )
-
-        assert display.kind == "none"
+def axis(axis_id, shape, **fields):
+    return AxisDefinition(axis_id=axis_id, label=f"{axis_id}の表示名", default_weight=1.0, shape=shape, **fields)
 
 
-class TestMaterialsTheMapCannotPaint:
+def display(shape, **fields):
+    return axis_display.axis_display_for(axis("a", shape, **fields))
+
+
+def ramp(tile_inputs, thresholds):
+    return axis_display.AxisDisplaySpec(kind="ramp", label="aの表示名", tile_inputs=tile_inputs, thresholds=thresholds)
+
+
+NONE = axis_display.AxisDisplaySpec(kind="none", label="aの表示名")
+
+
+@pytest.mark.usefixtures("catalog", "axes")
+class TestCategoricalAxis:
     @pytest.mark.parametrize(
-        "material",
-        ["num_offtile", "num_directed", "ghost"],
-        ids=["タイルに無い", "進行方向で変わる", "存在しない"],
+        ("material_id", "tile_property", "unknown_is_its_own_band"),
+        [("bool_unknown", "p_bu", True), ("bool_false", "p_bf", False)],
     )
-    def test_the_axis_is_not_painted(self, material):
-        display = axis_display_for(_axis(_linear([MaterialTerm(material=material)])))
-
-        assert display.kind == "none"
-
-
-class TestAxesThatReferenceOtherAxes:
-    def test_a_referenced_categorical_axis_is_resolved_and_scaled_by_the_outer_weight(
-        self, catalogs
+    def test_a_flag_is_drawn_with_both_scores_split_at_their_midpoint(
+        self, material_id, tile_property, unknown_is_its_own_band
     ):
-        catalogs["inner"] = _axis(
-            CategoricalShape(material="bool_certain", mapping={True: 10.0, False: 0.0}),
-            axis_id="inner",
+        """欠損が「不明」を意味する材料だけ、値の無い道を不明として塗る。"""
+        result = display(categorical(material_id, {True: 20.0, False: 80.0}))
+
+        tile_input = TileInput(
+            property=tile_property,
+            boolean=True,
+            true_value=20.0,
+            false_value=80.0,
+            has_unknown_fallback=unknown_is_its_own_band,
+        )
+        assert result == ramp([tile_input], [50.0])
+
+    def test_a_flag_mapping_without_both_values_is_not_drawn(self):
+        assert display(categorical("bool_unknown", {True: 10.0})) == NONE
+
+    def test_named_values_are_drawn_with_unregistered_values_as_unknown(self):
+        result = display(categorical("cat_a", {"x": 0.0, "v": 50.0, "z": 50.0, "w": 100.0}))
+
+        tile_input = TileInput(
+            property="p_cat", categories={"w": 100.0, "x": 0.0, "v": 50.0, "z": 50.0}, has_unknown_fallback=True
+        )
+        assert result == ramp([tile_input], [25.0, 75.0])
+
+    def test_named_values_that_all_score_the_same_have_no_band_to_draw(self):
+        assert display(categorical("cat_a", {"x": 10.0, "v": 10.0})) == NONE
+
+    @pytest.mark.parametrize("material_id", ["cat_notile", "ref"], ids=["タイルに無い材料", "軸の参照"])
+    def test_a_value_the_tile_does_not_carry_is_not_drawn(self, axes, material_id):
+        axes(axis("ref", linear("num_a")))
+
+        assert display(categorical(material_id, {"x": 0.0, "v": 100.0})) == NONE
+
+
+@pytest.mark.usefixtures("catalog", "axes")
+class TestLinearAxis:
+    def test_numeric_terms_are_summed_on_the_map_and_cut_at_the_breakpoints(self):
+        """タイルの生値が実行時の係数を要する材料も塗る（係数はフロントが掛ける）。"""
+        result = display(linear("num_a", term("num_scaled", 0.5), breakpoints=[(0.0, 0.0), (5.0, 50.0), (10.0, 100.0)]))
+
+        assert result == ramp(
+            [TileInput(property="p_num_a"), TileInput(property="p_scaled", weight=0.5, needs_runtime_scale=True)],
+            [5.0, 10.0],
         )
 
-        display = axis_display_for(
-            _axis(_linear([MaterialTerm(material="inner", weight=0.5)]), axis_id="outer")
+    def test_a_flag_among_numeric_terms_contributes_its_weight_when_set(self):
+        result = display(linear("num_a", term("bool_false", 30.0)))
+
+        assert result == ramp(
+            [TileInput(property="p_num_a"), TileInput(property="p_bf", boolean=True, true_value=30.0)], [10.0]
         )
 
-        assert display.tile_inputs == [
-            TileInputSpec(property="t_bool_certain", boolean=True, true_value=5.0, false_value=0.0)
-        ]
-
-    def test_a_referenced_single_term_axis_becomes_a_self_converting_input(self, catalogs):
-        catalogs["inner"] = _axis(
-            _linear([MaterialTerm(material="num_a")], breakpoints=[(0.0, 0.0), (4.0, 100.0)]),
-            axis_id="inner",
+    def test_flags_only_are_cut_between_the_sums_they_can_reach_capped_at_the_last_breakpoint(self):
+        """重み20・50の2つのフラグが取れる和は0・20・50・70で、70は折れ線の端60で頭打ちになる。"""
+        result = display(
+            linear(term("bool_unknown", 20.0), term("bool_false", 50.0), breakpoints=[(0.0, 0.0), (60.0, 100.0)])
         )
 
-        display = axis_display_for(
-            _axis(_linear([MaterialTerm(material="inner", weight=0.5)]), axis_id="outer")
-        )
+        assert result.thresholds == [10.0, 35.0, 55.0]
 
-        assert display.tile_inputs == [
-            TileInputSpec(property="t_num_a", breakpoints=[(0.0, 0.0), (4.0, 100.0)], weight=0.5)
-        ]
+    @pytest.mark.parametrize(("count", "drawn"), [(12, True), (13, False)])
+    def test_flags_only_are_drawn_up_to_twelve_terms(self, count, drawn):
+        result = display(linear(*BOOL_TERM_IDS[:count]))
+
+        assert (result.kind == "ramp") is drawn
 
     @pytest.mark.parametrize(
-        "inner_shape",
+        "shape",
         [
-            _linear([MaterialTerm(material="num_a"), MaterialTerm(material="num_b")]),
-            _linear([MaterialTerm(material="num_a", weight=2.0)]),
-            _linear([MaterialTerm(material="num_a")], preprocess="abs"),
-            _linear([MaterialTerm(material="bool_certain")]),
+            linear("num_a", preprocess="abs"),
+            linear("num_a", "ghost"),
+            linear("num_a", "num_notile"),
+            linear("num_a", "num_dir"),
         ],
-        ids=["複数の項", "内側の重みが1でない", "符号を畳む", "真偽値の材料"],
+        ids=["符号を畳む", "カタログにも軸にも無いid", "タイルに無い材料", "向きで値が変わる材料"],
     )
-    def test_a_referenced_axis_the_tile_cannot_reproduce_is_not_painted(
-        self, catalogs, inner_shape
-    ):
-        catalogs["inner"] = _axis(inner_shape, axis_id="inner")
+    def test_shapes_the_map_cannot_reproduce_are_not_drawn(self, shape):
+        assert display(shape) == NONE
 
-        display = axis_display_for(
-            _axis(_linear([MaterialTerm(material="inner")]), axis_id="outer")
+    def test_an_override_material_the_tile_does_not_carry_keeps_the_axis_off_the_map(self):
+        result = display(
+            linear("num_a"), priority_overrides=[PriorityCondition(material="num_notile", equals="1", value=0.0)]
         )
 
-        assert display.kind == "none"
-
-    def test_a_two_level_reference_is_not_painted(self, catalogs):
-        catalogs["middle"] = _axis(_linear([MaterialTerm(material="inner")]), axis_id="middle")
-        catalogs["inner"] = _axis(_linear([MaterialTerm(material="num_a")]), axis_id="inner")
-
-        display = axis_display_for(
-            _axis(_linear([MaterialTerm(material="middle")]), axis_id="outer")
-        )
-
-        assert display.kind == "none"
-
-    def test_axes_that_reference_each_other_terminate_without_painting(self, catalogs):
-        catalogs["a"] = _axis(_linear([MaterialTerm(material="b")]), axis_id="a")
-        catalogs["b"] = _axis(_linear([MaterialTerm(material="a")]), axis_id="b")
-
-        assert axis_display_for(catalogs["a"]).kind == "none"
-
-    def test_an_axis_that_references_itself_terminates_without_painting(self, catalogs):
-        catalogs["loop"] = _axis(_linear([MaterialTerm(material="loop")]), axis_id="loop")
-
-        assert axis_display_for(catalogs["loop"]).kind == "none"
-
-    def test_a_referenced_categorical_axis_that_cannot_be_painted_stops_the_outer_axis(
-        self, catalogs
-    ):
-        catalogs["inner"] = _axis(
-            CategoricalShape(material="cat_kind", mapping={"a": 2.0, "b": 2.0}), axis_id="inner"
-        )
-
-        display = axis_display_for(
-            _axis(_linear([MaterialTerm(material="inner")]), axis_id="outer")
-        )
-
-        assert display.kind == "none"
-
-    def test_a_categorical_axis_whose_value_comes_from_another_axis_is_not_painted(self, catalogs):
-        catalogs["inner"] = _axis(_linear([MaterialTerm(material="num_a")]), axis_id="inner")
-
-        display = axis_display_for(
-            _axis(CategoricalShape(material="inner", mapping={"a": 2.0, "b": 4.0}), axis_id="outer")
-        )
-
-        assert display.kind == "none"
+        assert result == NONE
 
 
+@pytest.mark.usefixtures("catalog")
+class TestReferencedAxis:
+    """参照先の軸を、地図が同じ値を再現できる1件のタイル入力へ畳めるときだけ塗る。"""
+
+    def outer(self, weight=0.5):
+        return linear(term("ref", weight), breakpoints=[(0.0, 0.0), (100.0, 100.0)])
+
+    def test_a_referenced_flag_axis_contributes_its_scores_times_the_weight(self, axes):
+        axes(axis("ref", categorical("bool_unknown", {True: 80.0, False: 0.0})))
+
+        assert display(self.outer()).tile_inputs == [
+            TileInput(property="p_bu", boolean=True, true_value=40.0, has_unknown_fallback=True)
+        ]
+
+    def test_a_referenced_named_value_axis_contributes_its_scores_times_the_weight(self, axes):
+        axes(axis("ref", categorical("cat_a", {"x": 10.0, "v": 30.0})))
+
+        assert display(self.outer(2.0)).tile_inputs == [
+            TileInput(property="p_cat", categories={"x": 20.0, "v": 60.0}, has_unknown_fallback=True)
+        ]
+
+    def test_a_referenced_single_material_curve_is_applied_to_the_tile_value(self, axes):
+        axes(axis("ref", linear("num_a", breakpoints=[(0.0, 0.0), (4.0, 100.0)])))
+
+        assert display(self.outer()).tile_inputs == [
+            TileInput(property="p_num_a", breakpoints=[(0.0, 0.0), (4.0, 100.0)], weight=0.5)
+        ]
+
+    @pytest.mark.parametrize(
+        "referenced",
+        [
+            categorical("cat_notile", {"x": 0.0, "v": 1.0}),
+            linear("num_a", preprocess="abs"),
+            linear("num_a", "num_b"),
+            linear(term("num_a", 2.0)),
+            linear("inner"),
+            linear("num_notile"),
+            linear("num_dir"),
+            linear("num_scaled"),
+            linear("bool_false"),
+        ],
+        ids=[
+            "塗れない分類",
+            "符号を畳む",
+            "複数の項",
+            "内側の重みが1でない",
+            "さらに軸を参照する",
+            "タイルに無い材料",
+            "向きで値が変わる材料",
+            "実行時の係数が要る材料",
+            "フラグ",
+        ],
+    )
+    def test_referenced_axes_the_tile_form_cannot_express_keep_the_outer_axis_off_the_map(self, axes, referenced):
+        axes(axis("ref", referenced), axis("inner", linear("num_a")))
+
+        assert display(self.outer()) == NONE
+
+
+@pytest.mark.usefixtures("catalog", "axes")
 class TestBands:
-    def test_an_override_replaces_the_derived_bands(self):
-        display = axis_display_for(
-            _axis(
-                _linear([MaterialTerm(material="num_a")]),
-                display_thresholds_override=[3.0, 7.0],
-            )
+    """段の境界は、折れ線が写した得点が直前の境界の得点を上回らないものを落とす。上書きした境界も
+    同じ扱い。"""
+
+    PLATEAU = [(0.0, 0.0), (5.0, 50.0), (6.0, 50.0), (10.0, 100.0)]
+
+    def test_a_breakpoint_on_a_plateau_is_not_a_band_boundary(self):
+        assert display(linear("num_a", breakpoints=self.PLATEAU)).thresholds == [5.0, 10.0]
+
+    def test_scores_that_round_to_the_same_tenth_are_the_same_score(self):
+        breakpoints = [(0.0, 0.0), (5.0, 50.0), (6.0, 50.04), (10.0, 100.0)]
+
+        assert display(linear("num_a", breakpoints=breakpoints)).thresholds == [5.0, 10.0]
+
+    def test_a_curve_whose_score_falls_keeps_only_its_first_boundary(self):
+        """ルート線は難易度の昇順でしか段を切れないため、得点が下がる境界を地図にも作らない。"""
+        breakpoints = [(0.0, 100.0), (5.0, 50.0), (10.0, 0.0)]
+
+        assert display(linear("num_a", breakpoints=breakpoints)).thresholds == [5.0]
+
+    def test_overridden_thresholds_replace_the_breakpoints_and_lose_those_on_a_plateau(self):
+        result = display(linear("num_a", breakpoints=self.PLATEAU), display_thresholds_override=[2.0, 5.5, 6.0, 8.0])
+
+        assert result.thresholds == [2.0, 5.5, 8.0]
+
+    def test_overridden_thresholds_of_a_named_value_axis_are_kept_as_given(self):
+        result = display(categorical("cat_a", {"x": 0.0, "v": 100.0}), display_thresholds_override=[10.0, 20.0])
+
+        assert result.thresholds == [10.0, 20.0]
+
+    def test_bands_the_map_keeps_are_numbered_by_the_input_band_they_start_with(self):
+        """境界5.5が落ちると、5〜5.5と5.5〜6の段が1つにまとまり、下側（入力の段1）として扱われる。"""
+        args = ("a", linear("num_a", breakpoints=self.PLATEAU), [], [5.0, 5.5, 8.0])
+
+        assert axis_display.bands_the_map_keeps(*args) == [0, 1, 3]
+        assert axis_display.thresholds_the_map_drops(*args) == [5.5]
+
+    def test_an_axis_the_map_does_not_draw_keeps_every_input_band(self):
+        args = ("a", linear("num_a", preprocess="abs"), [], [1.0, 2.0])
+
+        assert axis_display.bands_the_map_keeps(*args) == [0, 1, 2]
+        assert axis_display.thresholds_the_map_drops(*args) == []
+
+    def test_band_labels_follow_the_bands_the_map_keeps(self):
+        definition = axis(
+            "a",
+            linear("num_a", breakpoints=self.PLATEAU),
+            display_thresholds_override=[5.0, 5.5, 8.0],
+            display_band_labels_override=["低", "中", "中2", "高"],
         )
 
-        assert display.thresholds == [3.0, 7.0]
+        assert axis_display.map_band_labels(definition) == ["低", "中", "高"]
 
-    def test_an_override_still_drops_bands_the_curve_cannot_separate(self):
-        display = axis_display_for(
-            _axis(
-                _linear([MaterialTerm(material="num_a")], breakpoints=[(0.0, 0.0), (5.0, 100.0)]),
-                display_thresholds_override=[2.0, 7.0, 12.0],
-            )
-        )
-
-        # 5で100へ達するため、7と12は同じ評価になる。
-        assert display.thresholds == [2.0, 7.0]
-
-    def test_an_axis_that_cannot_be_painted_keeps_its_label_and_paints_nothing(self):
-        display = axis_display_for(_axis(_linear([MaterialTerm(material="num_directed")])))
-
-        assert (display.kind, display.label, display.tile_inputs, display.thresholds) == (
-            "none",
-            "対象軸",
-            [],
-            [],
-        )
-
-
-class TestAdjacentMidpointThresholds:
-    def test_takes_the_midpoint_of_each_adjacent_pair(self):
-        assert _adjacent_midpoint_thresholds([0.0, 10.0, 40.0]) == [5.0, 25.0]
-
-    def test_sorts_before_pairing(self):
-        assert _adjacent_midpoint_thresholds([40.0, 0.0, 10.0]) == [5.0, 25.0]
-
-    def test_collapses_duplicate_scores(self):
-        assert _adjacent_midpoint_thresholds([10.0, 10.0, 30.0]) == [20.0]
-
-    @pytest.mark.parametrize("scores", [[], [7.0], [7.0, 7.0]])
-    def test_a_single_distinct_score_has_no_boundary(self, scores):
-        assert _adjacent_midpoint_thresholds(scores) == []
-
-
-class TestBooleanTermsThresholds:
-    def test_boundaries_come_from_every_subset_sum_including_none_selected(self):
-        assert _boolean_terms_thresholds([10.0, 20.0], cap=None) == [5.0, 15.0, 25.0]
-
-    def test_sums_are_clamped_to_the_cap(self):
-        assert _boolean_terms_thresholds([10.0, 20.0], cap=20.0) == [5.0, 15.0]
-
-    def test_negative_weights_widen_the_range_downward(self):
-        assert _boolean_terms_thresholds([-50.0, 50.0], cap=50.0) == [-25.0, 25.0]
-
-    def test_no_terms_means_no_boundary(self):
-        assert _boolean_terms_thresholds([], cap=None) == []
-
-
-class TestDropThresholdsThatShareAScore:
-    def test_keeps_boundaries_that_the_curve_separates(self):
-        shape = _linear([MaterialTerm(material="num_a")])
-
-        assert _drop_thresholds_that_share_a_score([2.0, 4.0, 6.0], shape) == [2.0, 4.0, 6.0]
-
-    def test_drops_boundaries_beyond_the_point_the_curve_saturates(self):
-        shape = _linear([MaterialTerm(material="num_a")])
-
-        assert _drop_thresholds_that_share_a_score([5.0, 12.0, 14.0], shape) == [5.0, 12.0]
-
-    def test_drops_a_boundary_whose_score_goes_back_down(self):
-        shape = _linear(
-            [MaterialTerm(material="num_a")], breakpoints=[(0.0, 0.0), (10.0, 100.0), (20.0, 0.0)]
-        )
-
-        assert _drop_thresholds_that_share_a_score([5.0, 15.0], shape) == [5.0]
-
-    def test_abs_preprocess_folds_the_negative_side_onto_the_positive(self):
-        shape = _linear([MaterialTerm(material="num_a")], preprocess="abs")
-
-        assert _drop_thresholds_that_share_a_score([-5.0, 5.0], shape) == [-5.0]
-
-    def test_scores_closer_than_one_tenth_of_a_point_are_treated_as_the_same(self):
-        shape = _linear(
-            [MaterialTerm(material="num_a")], breakpoints=[(0.0, 0.0), (10000.0, 100.0)]
-        )
-
-        assert _drop_thresholds_that_share_a_score([1.0, 2.0], shape) == [1.0]
-
-
-class TestThresholdsTheMapDrops:
-    def test_names_the_boundaries_past_the_point_the_curve_saturates(self):
-        shape = _linear([MaterialTerm(material="num_a")])
-
-        # 折れ線は10で100へ達する。12は7（70点）と区別できるが、その先は12と同じ100点。
-        assert thresholds_the_map_drops("subject", shape, [], [2.0, 4.0, 7.0, 12.0, 15.0, 20.0]) == [15.0, 20.0]
-
-    def test_nothing_is_dropped_while_every_boundary_gets_its_own_score(self):
-        shape = _linear([MaterialTerm(material="num_a")])
-
-        assert thresholds_the_map_drops("subject", shape, [], [2.0, 4.0, 7.0]) == []
-
-    def test_an_axis_the_map_cannot_paint_as_a_ramp_keeps_every_boundary(self):
-        shape = _linear([MaterialTerm(material="num_offtile")])
-
-        assert thresholds_the_map_drops("subject", shape, [], [5.0, 12.0]) == []
-
-    def test_a_categorical_axis_keeps_every_boundary(self):
-        shape = CategoricalShape(material="cat_kind", mapping={"a": 2.0, "b": 4.0})
-
-        assert thresholds_the_map_drops("subject", shape, [], [3.0, 5.0]) == []
-
-
-class TestBandsTheMapKeeps:
-    def test_bands_merged_past_the_saturation_point_are_named_by_their_lower_band(self):
-        shape = _linear([MaterialTerm(material="num_a")])
-
-        # 15・20が落ちると「12〜15」「15〜20」「20以上」が「12以上」の1段になり、その下端12で
-        # 始まる入力の段（4番）として残る。
-        assert bands_the_map_keeps("subject", shape, [], [2.0, 4.0, 7.0, 12.0, 15.0, 20.0]) == [0, 1, 2, 3, 4]
-
-    def test_a_dropped_boundary_in_the_middle_leaves_the_band_below_it(self):
-        # 折れ線は5〜8で平ら（50点）。6は5と同じ点数なので落ち、「5〜6」「6〜9」が「5〜9」になる。
-        shape = _linear(
-            [MaterialTerm(material="num_a")], breakpoints=[(0.0, 0.0), (5.0, 50.0), (8.0, 50.0), (10.0, 100.0)]
-        )
-
-        assert bands_the_map_keeps("subject", shape, [], [2.0, 5.0, 6.0, 9.0]) == [0, 1, 2, 4]
-
-    def test_an_axis_the_map_cannot_paint_as_a_ramp_keeps_every_band(self):
-        shape = _linear([MaterialTerm(material="num_offtile")])
-
-        assert bands_the_map_keeps("subject", shape, [], [5.0, 12.0]) == [0, 1, 2]
-
-
-class TestMapBandLabels:
-    def test_labels_follow_the_bands_the_map_keeps(self):
-        shape = _linear(
-            [MaterialTerm(material="num_a")], breakpoints=[(0.0, 0.0), (5.0, 50.0), (8.0, 50.0), (10.0, 100.0)]
-        )
-        axis = _axis(
-            shape,
-            display_thresholds_override=[2.0, 5.0, 6.0, 9.0],
-            display_band_labels_override=["とても楽", "楽", "ふつう", "きつい", "とてもきつい"],
-        )
-
-        # 地図の段は「2未満」「2〜5」「5〜9」「9以上」。「5〜9」は下端5で始まる「ふつう」を持つ。
-        assert map_band_labels(axis) == ["とても楽", "楽", "ふつう", "とてもきつい"]
-        assert len(map_band_labels(axis)) == len(axis_display_for(axis).thresholds) + 1
-
-    def test_no_labels_without_an_override(self):
-        axis = _axis(_linear([MaterialTerm(material="num_a")]), display_thresholds_override=[2.0, 4.0])
-
-        assert map_band_labels(axis) is None
-
-
-class TestRescaleTileInput:
-    def test_category_scores_are_scaled_and_the_weight_field_is_left_alone(self):
-        rescaled = _rescale_tile_input(
-            TileInputSpec(property="p", categories={"a": 2.0, "b": -4.0}), weight=0.5
-        )
-
-        assert rescaled.categories == {"a": 1.0, "b": -2.0}
-        assert rescaled.weight == 1.0
-
-    def test_boolean_values_are_scaled_and_the_weight_field_is_left_alone(self):
-        rescaled = _rescale_tile_input(
-            TileInputSpec(property="p", boolean=True, true_value=10.0, false_value=-2.0),
-            weight=0.5,
-        )
-
-        assert (rescaled.true_value, rescaled.false_value) == (5.0, -1.0)
-        assert rescaled.weight == 1.0
-
-    def test_a_plain_numeric_input_is_scaled_through_the_weight_field(self):
-        rescaled = _rescale_tile_input(TileInputSpec(property="p", weight=4.0), weight=0.5)
-
-        assert rescaled.weight == 2.0
-
-
-class TestBooleanScoreTileInput:
-    def test_carries_the_two_scores_onto_the_tile_property(self):
-        tile_input = _boolean_score_tile_input(MATERIALS["bool_certain"], 0.0, 80.0)
-
-        assert (tile_input.property, tile_input.boolean) == ("t_bool_certain", True)
-        assert (tile_input.true_value, tile_input.false_value) == (0.0, 80.0)
+    def test_an_axis_without_band_labels_has_none(self):
+        assert axis_display.map_band_labels(axis("a", linear("num_a"))) is None

@@ -1,887 +1,437 @@
+"""`api/routers/axis_admin.py`——軸スタジオの管理API（認可・書き込み時の検証・例外の変換）。
+
+ここで見ないもの:
+- 軸そのものの不変条件（折れ点・段の境界・段ラベル）と公開の不変性・材料の排他 → `test_axis_definitions.py`
+- 書き込みの本体（DBへの反映と`AXIS_DEFINITIONS`の差し替え） → `test_axis_registry_service.py`
+- 地図表示の導出・段が落ちるかの判定 → `test_axis_display.py`
+- 分布の計算 → `test_axis_preview_service.py`
+- Basic認証の判定そのもの → 認証情報の照合は`api/admin_auth.py`の責務。ここではどの口も
+  それを通すことだけを見る
+
+**ルーターが名前空間に持つ外向きの参照は差し替える**——材料カタログ（`is_known_material`・
+`material_dtype`）・軸の集合・動的材料の集合・配信実装の有無・地図表示の導出・分布の計算。
+材料と軸は性質だけを持つ架空のidで与える。
+"""
 
 import pytest
+from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from sqlalchemy.exc import DBAPIError
 
-from app.api.dependencies import get_axis_registry_admin_service
-from app.config import settings
-from app.domain.axis_definitions import (
-    AxisDefinition,
-    BreakpointLinearShape,
-    MaterialTerm,
-    check_publish_immutability,
-)
-from app.main import app
-from tests.admin_auth import ADMIN_USERNAME, AUTH_HEADERS, basic_auth_header
+from app.api.routers import axis_admin
+from app.services.axis_preview_service import ValueDistribution
+from tests.admin_auth import AUTH_HEADERS
+from tests.bound_fake import bound
 
-client = TestClient(app)
+BASE = "/api/admin/axis-definitions"
+DTYPES = {"num_a": "numeric", "num_b": "numeric", "dyn_a": "numeric", "bool_a": "boolean", "cat_a": "categorical"}
+REFERENCED_AXIS = "ref"
+REPOSITORY = object()
 
-_PAYLOAD = {
-    "axis_id": "test_axis",
-    "shape": {
+
+def linear_shape(*materials):
+    return {
         "kind": "breakpoint_linear",
-        "terms": [{"material": "gradient_percent", "weight": 1.0, "required": True}],
-        "preprocess": "identity",
-        "breakpoints": [[0.0, 0.0], [10.0, 100.0]],
-    },
-    "default_weight": 0.1,
-    "label": "テスト軸",
-    "description": "テスト用ダミー軸",
-    "category": "推定",
-}
+        "terms": [{"material": m} for m in materials],
+        "breakpoints": [[0, 0], [10, 100]],
+    }
 
-_DEFINITION = AxisDefinition(
-    axis_id="test_axis",
-    shape=BreakpointLinearShape(
-        terms=[MaterialTerm(material="gradient_percent")], breakpoints=[(0.0, 0.0), (10.0, 100.0)]
+
+def payload(axis_id="a", **fields):
+    body = {"axis_id": axis_id, "label": "軸A", "default_weight": 1.0, "shape": linear_shape("num_a")}
+    body.update(fields)
+    return body
+
+
+def stored(axis_id="a", **fields):
+    return axis_admin.AxisDefinition.model_validate(payload(axis_id, **fields))
+
+
+class FakeAxisRegistry:
+    """`AxisRegistryAdminService`の代役。受けた呼び出しを記録し、`errors`に置いた例外を送出する。"""
+
+    def __init__(self):
+        self.axes: dict[str, axis_admin.AxisDefinition] = {}
+        self.calls: list[tuple] = []
+        self.errors: dict[str, Exception] = {}
+
+    def _record(self, name, *args):
+        self.calls.append((name, *args))
+        if name in self.errors:
+            raise self.errors[name]
+
+    async def list_all(self):
+        self._record("list_all")
+        return dict(self.axes)
+
+    async def get(self, axis_id):
+        self._record("get", axis_id)
+        return self.axes.get(axis_id)
+
+    async def create(self, definition):
+        self._record("create", definition)
+        self.axes[definition.axis_id] = definition
+
+    async def update(self, axis_id, definition):
+        self._record("update", axis_id, definition)
+        self.axes[axis_id] = definition
+
+    async def delete(self, axis_id):
+        self._record("delete", axis_id)
+        self.axes.pop(axis_id)
+
+    async def unpublish(self, axis_id):
+        self._record("unpublish", axis_id)
+        self.axes[axis_id] = self.axes[axis_id].model_copy(update={"is_published": False})
+
+
+@pytest.fixture
+def registry():
+    return FakeAxisRegistry()
+
+
+@pytest.fixture
+def seams(monkeypatch):
+    """差し替えた外向きの参照が受けた引数を記録する。"""
+    received: dict[str, list] = {"served": [], "distribution": [], "drops": [], "keeps": []}
+
+    def served_dedicated_way_value_material(materials):
+        materials = list(materials)
+        received["served"].append(materials)
+        return "num_a" if materials == ["num_a"] else None
+
+    def axis_display_for(definition):
+        return axis_admin.AxisDisplaySpec(kind="none", label=f"表示:{definition.axis_id}")
+
+    async def axis_raw_value_distribution(repository, shape):
+        received["distribution"].append((repository, shape))
+        return ValueDistribution(
+            sample_ways=3, total_km=1.5, quantiles={"p50": 2.0}, bins=[(0.0, 4.0, 1.0)], zero_share=0.25
+        )
+
+    def thresholds_the_map_drops(axis_id, shape, priority_overrides, thresholds):
+        received["drops"].append((axis_id, shape, priority_overrides, thresholds))
+        return [thresholds[-1]]
+
+    def bands_the_map_keeps(axis_id, shape, priority_overrides, thresholds):
+        received["keeps"].append((axis_id, shape, priority_overrides, thresholds))
+        return [0, 1]
+
+    fakes = {
+        "is_known_material": lambda material_id: material_id in DTYPES,
+        "material_dtype": lambda material_id: DTYPES.get(material_id),
+        "served_dedicated_way_value_material": served_dedicated_way_value_material,
+        "axis_display_for": axis_display_for,
+        "axis_raw_value_distribution": axis_raw_value_distribution,
+        "thresholds_the_map_drops": thresholds_the_map_drops,
+        "bands_the_map_keeps": bands_the_map_keeps,
+    }
+    for name, fake in fakes.items():
+        monkeypatch.setattr(axis_admin, name, bound(getattr(axis_admin, name), fake))
+    monkeypatch.setattr(axis_admin, "AXIS_DEFINITIONS", {REFERENCED_AXIS: stored(REFERENCED_AXIS)})
+    monkeypatch.setattr(axis_admin, "REQUEST_DYNAMIC_MATERIAL_IDS", frozenset({"dyn_a"}))
+    return received
+
+
+@pytest.fixture
+def app(registry, seams):
+    app = FastAPI()
+    app.include_router(axis_admin.router)
+    app.dependency_overrides[axis_admin.get_axis_registry_admin_service] = lambda: registry
+    app.dependency_overrides[axis_admin.get_road_graph_repository] = lambda: REPOSITORY
+    return app
+
+
+@pytest.fixture
+def client(app, admin_credentials):
+    return TestClient(app, headers=AUTH_HEADERS)
+
+
+# 口ごとの(本文, DBが落ちたときの状態コード)。母集団は`router.routes`から取るので、口を足して
+# ここへ足し忘れるとKeyErrorで落ちる。
+ROUTE_CASES = {
+    ("GET", BASE): (None, 503),
+    ("POST", BASE): (payload(), 503),
+    ("GET", BASE + "/{axis_id}"): (None, 503),
+    ("PUT", BASE + "/{axis_id}"): (payload(), 503),
+    ("DELETE", BASE + "/{axis_id}"): (None, 503),
+    ("POST", BASE + "/{axis_id}/unpublish"): (None, 503),
+    ("POST", BASE + "/preview-distribution"): ({"shape": linear_shape("num_a")}, 503),
+    ("POST", BASE + "/preview-display-thresholds"): (
+        {"axis_id": "a", "shape": linear_shape("num_a"), "thresholds": [1.0]},
+        200,
     ),
-    default_weight=0.1,
-    label="テスト軸",
-    description="テスト用ダミー軸",
-    category="推定",
-)
-
-
-class FakeAxisRegistryAdminService:
-    def __init__(self, definitions: dict[str, AxisDefinition] | None = None):
-        self._definitions = definitions if definitions is not None else {}
-
-    async def list_all(self) -> dict[str, AxisDefinition]:
-        return self._definitions
-
-    async def get(self, axis_id: str) -> AxisDefinition | None:
-        return self._definitions.get(axis_id)
-
-    async def create(self, definition: AxisDefinition) -> None:
-        if definition.axis_id in self._definitions:
-            raise ValueError(f"axis_id={definition.axis_id} は既に存在します")
-        self._definitions[definition.axis_id] = definition
-
-    async def update(self, axis_id: str, definition: AxisDefinition) -> None:
-        if axis_id not in self._definitions:
-            raise KeyError(axis_id)
-        # 改善計画T501: candidateを渡すことで表示専用フィールドのみの差分を例外的に許可する
-        # （実サービスaxis_registry_service.py: update()と同じ呼び出し方に揃える）。
-        check_publish_immutability(self._definitions[axis_id], "updated", definition)
-        self._definitions[axis_id] = definition
-
-    async def delete(self, axis_id: str) -> None:
-        if axis_id not in self._definitions:
-            raise KeyError(axis_id)
-        if len(self._definitions) == 1:
-            raise ValueError("最後の1軸は削除できません")
-        check_publish_immutability(self._definitions[axis_id], "deleted")
-        del self._definitions[axis_id]
-
-    async def unpublish(self, axis_id: str) -> None:
-        if axis_id not in self._definitions:
-            raise KeyError(axis_id)
-        self._definitions[axis_id] = self._definitions[axis_id].model_copy(update={"is_published": False})
-
-
-def _dbapi_error() -> DBAPIError:
-    return DBAPIError("SELECT ...", {}, Exception('column "icon_id" does not exist'))
-
-
-class FailingAxisRegistryAdminService(FakeAxisRegistryAdminService):
-    """migration未適用時のDBAPIErrorを模す（軸スタジオ500エラー修正の回帰テスト用）。"""
-
-    async def list_all(self) -> dict[str, AxisDefinition]:
-        raise _dbapi_error()
-
-    async def get(self, axis_id: str) -> AxisDefinition | None:
-        raise _dbapi_error()
-
-    async def create(self, definition: AxisDefinition) -> None:
-        raise _dbapi_error()
-
-    async def update(self, axis_id: str, definition: AxisDefinition) -> None:
-        raise _dbapi_error()
-
-    async def delete(self, axis_id: str) -> None:
-        raise _dbapi_error()
-
-    async def unpublish(self, axis_id: str) -> None:
-        raise _dbapi_error()
-
-
-@pytest.fixture(autouse=True)
-def _always_admin_credentials(admin_credentials):
-    """このファイルのテストはすべて管理画面APIを叩くため、認証情報を常に入れる。"""
-
-
-@pytest.fixture
-def override_service():
-    fake = FakeAxisRegistryAdminService()
-    app.dependency_overrides[get_axis_registry_admin_service] = lambda: fake
-    try:
-        yield fake
-    finally:
-        app.dependency_overrides.clear()
-
-
-@pytest.fixture
-def override_failing_service():
-    failing = FailingAxisRegistryAdminService()
-    app.dependency_overrides[get_axis_registry_admin_service] = lambda: failing
-    try:
-        yield failing
-    finally:
-        app.dependency_overrides.clear()
-
-
-# --- 認可（require_admin_basic_auth） ---
-
-
-def test_list_rejects_missing_credentials(override_service):
-    response = client.get("/api/admin/axis-definitions")
-
-    assert response.status_code == 401
-    assert response.headers["www-authenticate"] == 'Basic realm="RideCompass admin"'
-
-
-def test_list_rejects_wrong_credentials(override_service):
-    response = client.get(
-        "/api/admin/axis-definitions", headers={"Authorization": basic_auth_header(ADMIN_USERNAME, "wrong")}
-    )
-
-    assert response.status_code == 401
-
-
-def test_list_rejects_any_credentials_when_unset(override_service, monkeypatch):
-    monkeypatch.setattr(settings, "admin_basic_auth_username", "")
-    monkeypatch.setattr(settings, "admin_basic_auth_password", "")
-
-    response = client.get("/api/admin/axis-definitions", headers=AUTH_HEADERS)
-
-    assert response.status_code == 401
-
-
-def test_list_succeeds_with_correct_credentials(override_service):
-    response = client.get("/api/admin/axis-definitions", headers=AUTH_HEADERS)
-
-    assert response.status_code == 200
-    assert response.json() == []
-
-
-# --- CRUD ---
-
-
-def test_create_returns_422_for_unknown_material(override_service):
-    # 改善計画T277: shapeが参照する材料はdomain/material_catalog.py: MATERIAL_CATALOGの
-    # 既知材料でなければ拒否する。
-    payload = {
-        **_PAYLOAD,
-        "shape": {
-            "kind": "breakpoint_linear",
-            "terms": [{"material": "not_a_real_material", "weight": 1.0, "required": True}],
-            "preprocess": "identity",
-            "breakpoints": [[0.0, 0.0], [10.0, 100.0]],
-        },
-    }
-
-    response = client.post("/api/admin/axis-definitions", json=payload, headers=AUTH_HEADERS)
-
-    assert response.status_code == 422
-    assert "not_a_real_material" in response.text
-
-
-def test_create_returns_422_when_dynamic_and_static_materials_are_mixed(override_service):
-    # 統合レビュー第5回の指摘1-8: 動的軸はリクエストごとの再評価経路
-    # （evaluate_dynamic_axis_arrays）で静的材料の配列を受け取らないため、混在させた軸は
-    # evaluate_axis_arrayがKeyErrorになり /api/routes/generate ごと500になる。
-    payload = {
-        **_PAYLOAD,
-        "shape": {
-            "kind": "breakpoint_linear",
-            "terms": [
-                {"material": "wind_drag_ratio", "weight": 1.0, "required": True},
-                {"material": "gradient_percent", "weight": 1.0, "required": True},
-            ],
-            "preprocess": "identity",
-            "breakpoints": [[0.0, 0.0], [10.0, 100.0]],
-        },
-    }
-
-    response = client.post("/api/admin/axis-definitions", json=payload, headers=AUTH_HEADERS)
-
-    assert response.status_code == 422
-    assert "cannot mix" in response.text
-
-
-def test_create_returns_422_when_static_material_comes_via_priority_overrides(override_service):
-    # 統合レビュー第6回の指摘I-7: 混在の判定はshape.termsだけでなくpriority_overridesも
-    # 見る。動的軸かどうかを決める_axes_depending_on_materialsがAxisDefinition.materials
-    # （terms＋priority_overrides）を根拠にしているため、ここだけtermsに絞ると
-    # 検証を素通りした軸が実行時にKeyErrorで落ちる。
-    payload = {
-        **_PAYLOAD,
-        "shape": {
-            "kind": "breakpoint_linear",
-            "terms": [{"material": "wind_drag_ratio", "weight": 1.0, "required": True}],
-            "preprocess": "identity",
-            "breakpoints": [[0.0, 0.0], [10.0, 100.0]],
-        },
-        "priority_overrides": [{"material": "motor_vehicle_no", "equals": "true", "value": 0.0}],
-    }
-
-    response = client.post("/api/admin/axis-definitions", json=payload, headers=AUTH_HEADERS)
-
-    assert response.status_code == 422
-    assert "cannot mix" in response.text
-    assert "motor_vehicle_no" in response.text
-
-
-def test_create_returns_422_when_categorical_shape_mixes_dynamic_via_priority_overrides(override_service):
-    # 同じくI-7: CategoricalShapeの軸も検証対象（以前はshapeの種別で早期returnしていた）。
-    payload = {
-        **_PAYLOAD,
-        "shape": {"kind": "categorical", "material": "highway", "mapping": {"primary": 50.0}},
-        "priority_overrides": [{"material": "wind_drag_ratio", "equals": "1.0", "value": 0.0}],
-    }
-
-    response = client.post("/api/admin/axis-definitions", json=payload, headers=AUTH_HEADERS)
-
-    assert response.status_code == 422
-    assert "cannot mix" in response.text
-
-
-def test_create_allows_static_material_in_priority_overrides_for_static_axis(override_service):
-    # 静的材料どうしの組み合わせは対象外（動的材料が1件も無ければ混在ではない）。
-    payload = {
-        **_PAYLOAD,
-        "shape": {
-            "kind": "breakpoint_linear",
-            "terms": [{"material": "gradient_percent", "weight": 1.0, "required": True}],
-            "preprocess": "identity",
-            "breakpoints": [[0.0, 0.0], [10.0, 100.0]],
-        },
-        "priority_overrides": [{"material": "motor_vehicle_no", "equals": "true", "value": 0.0}],
-    }
-
-    response = client.post("/api/admin/axis-definitions", json=payload, headers=AUTH_HEADERS)
-
-    assert response.status_code == 201, response.text
-
-
-def test_create_allows_dynamic_material_alone(override_service):
-    # 動的材料だけの軸（現行のwind軸と同じ形）は通す。
-    payload = {
-        **_PAYLOAD,
-        "shape": {
-            "kind": "breakpoint_linear",
-            "terms": [{"material": "wind_drag_ratio", "weight": 1.0, "required": True}],
-            "preprocess": "identity",
-            "breakpoints": [[0.0, 0.0], [10.0, 100.0]],
-        },
-    }
-
-    response = client.post("/api/admin/axis-definitions", json=payload, headers=AUTH_HEADERS)
-
-    assert response.status_code == 201
-
-
-def test_create_returns_422_when_dedicated_layer_has_no_delivery_implementation(override_service):
-    # 配信の実装（api/dependencies.pyのファクトリ）がある材料を参照しない軸に
-    # dedicated_way_value_layerを立てても配信できる値が無い。宣言だけをGUIから通さない。
-    payload = {
-        **_PAYLOAD,
-        "shape": {**_PAYLOAD["shape"], "terms": [{"material": "maxspeed_kmh", "weight": 1.0}]},
-        "dedicated_way_value_layer": True,
-    }
-
-    response = client.post("/api/admin/axis-definitions", json=payload, headers=AUTH_HEADERS)
-
-    assert response.status_code == 422
-    assert "dedicated_way_value_layer" in response.text
-
-
-def test_create_allows_dedicated_layer_for_axis_referencing_a_served_material(override_service):
-    # 配信は軸の名前ではなく材料で引くため、新しい名前の軸でも材料に実装があれば通す。
-    payload = {**_PAYLOAD, "dedicated_way_value_layer": True}
-
-    response = client.post("/api/admin/axis-definitions", json=payload, headers=AUTH_HEADERS)
-
-    assert response.status_code == 201
-
-
-def test_create_returns_422_when_breakpoint_linear_shape_breakpoints_not_ascending(override_service):
-    # 改善計画T425（ゼロベース網羅レビュー指摘）: shape.breakpointsのx昇順は
-    # evaluate_breakpoint_linear（axis_templates.py）のnp.interpが前提とする不変条件
-    # だが、これまで検証が一切無かった（display_thresholds_override側の同種チェック
-    # [T404]は色分け表示用の別フィールドで対象外）。昇順でないと補間結果が未定義動作に
-    # なり、評価時に無警告のままおかしいスコアが返り続ける。
-    payload = {
-        **_PAYLOAD,
-        "shape": {
-            "kind": "breakpoint_linear",
-            "terms": [{"material": "gradient_percent", "weight": 1.0, "required": True}],
-            "preprocess": "identity",
-            "breakpoints": [[10.0, 100.0], [0.0, 0.0]],
-        },
-    }
-
-    response = client.post("/api/admin/axis-definitions", json=payload, headers=AUTH_HEADERS)
-
-    assert response.status_code == 422
-    assert "breakpoints" in response.text
-
-
-def test_create_returns_422_when_categorical_shape_uses_numeric_material(override_service):
-    # CategoricalShape/FlagSumShapeはboolean材料前提。numeric材料を渡すと
-    # evaluate_categoricalのmapping.get(value)が常にNone/NaNを返し、その軸が
-    # 恒久的に欠損扱いになる（エラーもログも出ない）ため、登録時に弾く。
-    payload = {
-        **_PAYLOAD,
-        "shape": {
-            "kind": "categorical",
-            "material": "maxspeed_kmh",
-            "mapping": {"true": 0.0, "false": 80.0},
-        },
-    }
-
-    response = client.post("/api/admin/axis-definitions", json=payload, headers=AUTH_HEADERS)
-
-    assert response.status_code == 422
-    assert "maxspeed_kmh" in response.text
-
-
-def test_create_returns_422_when_breakpoint_linear_shape_uses_categorical_material(override_service):
-    # 改善計画T290: MATERIAL_CATALOGへ追加したdtype="categorical"材料（highway等）は
-    # 登録のみで評価軸には未対応（CategoricalShapeが現状booleanのみ対応のため）。
-    # numeric専用のBreakpointLinearShapeに指定した場合も、既存のdtype検証
-    # （expected_dtype != material_dtype）で正しく拒否されることを確認する
-    # （"numeric"でも"boolean"でもないcategoricalは、両方のexpected_dtype判定と
-    # 必ず不一致になる設計）。
-    payload = {
-        **_PAYLOAD,
-        "shape": {
-            "kind": "breakpoint_linear",
-            "terms": [{"material": "highway", "weight": 1.0, "required": True}],
-            "preprocess": "identity",
-            "breakpoints": [[0.0, 0.0], [10.0, 100.0]],
-        },
-    }
-
-    response = client.post("/api/admin/axis-definitions", json=payload, headers=AUTH_HEADERS)
-
-    assert response.status_code == 422
-    assert "highway" in response.text
-
-
-def test_create_accepts_categorical_shape_with_categorical_material(override_service):
-    # 改善計画T292: CategoricalShape.mappingがstrキーにも対応した（highway/tracktype等の
-    # dtype="categorical"材料、多値対応）ため、以前は拒否していたこの組み合わせが正当に
-    # 受理されるようになった（T290時点ではCategoricalShapeがbooleanキー専用だったため
-    # 422で拒否する回帰テストだったが、T292でその制約自体を撤廃したため意味が反転した）。
-    payload = {
-        **_PAYLOAD,
-        "shape": {
-            "kind": "categorical",
-            "material": "tracktype",
-            "mapping": {"grade1": 0.0, "grade3": 50.0, "grade5": 100.0},
-        },
-    }
-
-    response = client.post("/api/admin/axis-definitions", json=payload, headers=AUTH_HEADERS)
-
-    assert response.status_code == 201
-
-
-def test_create_returns_422_when_categorical_shape_mapping_keys_mismatch_material_dtype(override_service):
-    # コードレビュー指摘の修正確認: dtype「クラス」（boolean/categoricalのどちらか）の
-    # 一致だけを見ていた従来のチェックだと、highway（dtype="categorical"、文字列値）を
-    # 参照しつつmappingはboolキー（{"true": ..., "false": ...}）という組み合わせが
-    # 素通りしていた。これは評価時evaluate_categoricalが常にNoneを返す（=軸が恒久的に
-    # 欠損扱いになる）のと同型の無言バグのため、mappingキーの実際の型もmaterialの
-    # dtypeと一致することを検証するようにした。
-    payload = {
-        **_PAYLOAD,
-        "shape": {
-            "kind": "categorical",
-            "material": "highway",
-            "mapping": {"true": 0.0, "false": 80.0},
-        },
-    }
-
-    response = client.post("/api/admin/axis-definitions", json=payload, headers=AUTH_HEADERS)
-
-    assert response.status_code == 422
-    assert "highway" in response.text
-
-
-def test_create_returns_422_when_shape_kind_is_removed_flag_sum(override_service):
-    # 改善計画T396: FlagSumShapeはBreakpointLinearShapeへ統合され撤去された。
-    # 旧kind="flag_sum"は判別union自体が受け付けなくなったことを確認する回帰テスト。
-    payload = {
-        **_PAYLOAD,
-        "shape": {
-            "kind": "flag_sum",
-            "flags": [["has_tunnel", 50.0]],
-            "cap": 100.0,
-        },
-    }
-
-    response = client.post("/api/admin/axis-definitions", json=payload, headers=AUTH_HEADERS)
-
-    assert response.status_code == 422
-
-
-def test_create_returns_201_and_persists(override_service):
-    response = client.post("/api/admin/axis-definitions", json=_PAYLOAD, headers=AUTH_HEADERS)
-
-    assert response.status_code == 201
-    assert response.json()["axis_id"] == "test_axis"
-    assert "test_axis" in override_service._definitions
-
-
-def test_create_persists_and_returns_priority_overrides(override_service):
-    # コードレビュー指摘の修正確認: priority_overrides（0次条件）が管理API経由で
-    # 設定・参照できること（以前はAxisDefinitionFieldsに露出しておらず、
-    # 送信しても静かに無視されていた）。
-    payload = {
-        **_PAYLOAD,
-        "priority_overrides": [{"material": "motor_vehicle_no", "equals": "true", "value": 0.0}],
-    }
-
-    response = client.post("/api/admin/axis-definitions", json=payload, headers=AUTH_HEADERS)
-
-    assert response.status_code == 201
-    assert response.json()["priority_overrides"] == [
-        {"material": "motor_vehicle_no", "equals": "true", "value": 0.0}
-    ]
-    assert override_service._definitions["test_axis"].priority_overrides[0].material == "motor_vehicle_no"
-
-
-def test_create_returns_422_for_unknown_priority_override_material(override_service):
-    # 改善計画T425（ゼロベース網羅レビュー指摘）: priority_overrides[*].materialは
-    # shapeが参照する材料と違って検証されず、typo等の未知材料を指定しても保存できて
-    # しまい、評価時に0次条件が無警告のまま一切発動しないバグがあった。
-    payload = {
-        **_PAYLOAD,
-        "priority_overrides": [{"material": "not_a_real_material", "equals": "true", "value": 0.0}],
-    }
-
-    response = client.post("/api/admin/axis-definitions", json=payload, headers=AUTH_HEADERS)
-
-    assert response.status_code == 422
-    assert "not_a_real_material" in response.text
-    assert "test_axis" not in override_service._definitions
-
-
-def test_create_persists_and_returns_display_fields(override_service):
-    # 改善計画T310/T318: 地図チップ表示要素（icon_id/chip_label/panel_hint/
-    # show_map_icon）が管理API経由で設定・参照できること。
-    payload = {
-        **_PAYLOAD,
-        "icon_id": "incline",
-        "chip_label": "テスト",
-        "panel_hint": "パネル向け説明文",
-        "show_map_icon": False,
-    }
-
-    response = client.post("/api/admin/axis-definitions", json=payload, headers=AUTH_HEADERS)
-
-    assert response.status_code == 201
-    body = response.json()
-    assert body["icon_id"] == "incline"
-    assert body["chip_label"] == "テスト"
-    assert body["panel_hint"] == "パネル向け説明文"
-    assert body["show_map_icon"] is False
-    assert override_service._definitions["test_axis"].icon_id == "incline"
-
-
-def test_create_leaves_display_fields_none_when_omitted(override_service):
-    # 既定はicon_id/chip_label/panel_hintがNone
-    # （未設定=フロント側の汎用フォールバックに委ねる）、show_map_iconのみTrue
-    # （改善計画T318: 既定で地図上に表示する）。
-    response = client.post("/api/admin/axis-definitions", json=_PAYLOAD, headers=AUTH_HEADERS)
-
-    assert response.status_code == 201
-    body = response.json()
-    assert body["icon_id"] is None
-    assert body["chip_label"] is None
-    assert body["panel_hint"] is None
-    assert body["show_map_icon"] is True
-    assert body["display_thresholds_override"] is None
-    # 材料がタイル非依存なので地図には出ない。軸自身のデータには影響しない。
-    assert body["display"]["kind"] == "none"
-
-
-def test_create_persists_and_returns_display_thresholds_override(override_service):
-    # 改善計画T404: 色分けしきい値だけの軽量な上書き（display_thresholds_override）が
-    # 管理API経由で設定・参照できること。
-    payload = {**_PAYLOAD, "display_thresholds_override": [1.0, 2.0, 4.0]}
-
-    response = client.post("/api/admin/axis-definitions", json=payload, headers=AUTH_HEADERS)
-
-    assert response.status_code == 201
-    body = response.json()
-    assert body["display_thresholds_override"] == [1.0, 2.0, 4.0]
-    assert override_service._definitions["test_axis"].display_thresholds_override == [1.0, 2.0, 4.0]
-
-
-def test_create_persists_and_returns_dedicated_way_value_layer(override_service):
-    # この軸が専用のway_id→値配信レイヤー（Redis経由）を持つかの宣言
-    # （dedicated_way_value_layer）が管理API経由で設定・参照できること。
-    # time_scope等と同じ配線パターン（axis_admin.py: AxisDefinitionFields参照）。
-    # このフラグは配信の実装がある材料を参照する軸にしか立てられない。_PAYLOADの材料は
-    # 実装がある（_check_dedicated_layer_is_implemented）。
-    payload = {**_PAYLOAD, "dedicated_way_value_layer": True}
-
-    response = client.post("/api/admin/axis-definitions", json=payload, headers=AUTH_HEADERS)
-
-    assert response.status_code == 201
-    assert response.json()["dedicated_way_value_layer"] is True
-    assert override_service._definitions["test_axis"].dedicated_way_value_layer is True
-
-
-def test_create_leaves_dedicated_way_value_layer_false_when_omitted(override_service):
-    # 既定はFalse（この専用レイヤーを持たない大多数の軸の実際の状態と一致する）。
-    response = client.post("/api/admin/axis-definitions", json=_PAYLOAD, headers=AUTH_HEADERS)
-
-    assert response.status_code == 201
-    assert response.json()["dedicated_way_value_layer"] is False
-
-
-def test_create_persists_and_returns_dynamic_way_value_needs(override_service):
-    # 改善計画T458: dedicated_way_value_layer=trueの軸のGET /api/region/dynamic-way-values/
-    # {material_id}/...がat/bearing_degクエリパラメータを必須とするかの宣言
-    # （dynamic_way_value_needs_time/dynamic_way_value_needs_bearing）が管理API経由で
-    # 設定・参照できること。dedicated_way_value_layerと同じ配線パターン。
-    payload = {
-        **_PAYLOAD,
-        "dedicated_way_value_layer": True,
-        "dynamic_way_value_needs_time": True,
-        "dynamic_way_value_needs_bearing": True,
-    }
-
-    response = client.post("/api/admin/axis-definitions", json=payload, headers=AUTH_HEADERS)
-
-    assert response.status_code == 201
-    body = response.json()
-    assert body["dynamic_way_value_needs_time"] is True
-    assert body["dynamic_way_value_needs_bearing"] is True
-    assert override_service._definitions["test_axis"].dynamic_way_value_needs_time is True
-    assert override_service._definitions["test_axis"].dynamic_way_value_needs_bearing is True
-
-
-def test_create_leaves_dynamic_way_value_needs_false_when_omitted(override_service):
-    response = client.post("/api/admin/axis-definitions", json=_PAYLOAD, headers=AUTH_HEADERS)
-
-    assert response.status_code == 201
-    body = response.json()
-    assert body["dynamic_way_value_needs_time"] is False
-    assert body["dynamic_way_value_needs_bearing"] is False
-
-
-def test_create_persists_and_returns_display_band_labels_override(override_service):
-    # 改善計画T513: display_thresholds_overrideと対になる、段階ごとの体感ラベルの軽量な
-    # 上書き（display_band_labels_override）が管理API経由で設定・参照できること。
-    payload = {
-        **_PAYLOAD,
-        "display_thresholds_override": [1.0, 2.0],
-        "display_band_labels_override": ["低い", "中くらい", "高い"],
-    }
-
-    response = client.post("/api/admin/axis-definitions", json=payload, headers=AUTH_HEADERS)
-
-    assert response.status_code == 201
-    body = response.json()
-    assert body["display_band_labels_override"] == ["低い", "中くらい", "高い"]
-    assert override_service._definitions["test_axis"].display_band_labels_override == ["低い", "中くらい", "高い"]
-
-
-def test_create_leaves_display_band_labels_override_none_when_omitted(override_service):
-    response = client.post("/api/admin/axis-definitions", json=_PAYLOAD, headers=AUTH_HEADERS)
-
-    assert response.status_code == 201
-    assert response.json()["display_band_labels_override"] is None
-
-
-def test_get_returns_the_display_computed_from_the_axis_definition(override_service):
-    # 改善計画T404: displayフィールド（axis_display_for()の計算結果）が単体取得
-    # レスポンスにも含まれ、kind="none"の軸で軸スタジオが注記を出せるようにする
-    # （AxisComposer.tsx: showMapDisplayUnavailableNote参照）。
-    override_service._definitions["test_axis"] = _DEFINITION
-
-    response = client.get("/api/admin/axis-definitions/test_axis", headers=AUTH_HEADERS)
-
-    assert response.status_code == 200
-    body = response.json()
-    # _DEFINITIONの材料gradient_percentはタイル非依存のためkind="none"。
-    assert body["display"]["kind"] == "none"
-
-
-def test_create_rejects_label_over_four_characters_when_chip_label_omitted(override_service):
-    # chip_labelを省くとlabelがそのまま地図チップへ出るため、labelの長さも同じ上限で見る。
-    payload = {**_PAYLOAD, "label": "五文字超えラベル"}
-
-    response = client.post("/api/admin/axis-definitions", json=payload, headers=AUTH_HEADERS)
-
-    assert response.status_code == 422
-    assert "test_axis" not in override_service._definitions
-
-
-def test_create_accepts_label_over_four_characters_when_chip_label_set(override_service):
-    payload = {**_PAYLOAD, "label": "五文字超えラベル", "chip_label": "略称"}
-
-    response = client.post("/api/admin/axis-definitions", json=payload, headers=AUTH_HEADERS)
-
-    assert response.status_code == 201
-    assert response.json()["label"] == "五文字超えラベル"
-    assert response.json()["chip_label"] == "略称"
-
-
-def test_create_returns_409_on_duplicate(override_service):
-    override_service._definitions["test_axis"] = _DEFINITION
-
-    response = client.post("/api/admin/axis-definitions", json=_PAYLOAD, headers=AUTH_HEADERS)
-
-    assert response.status_code == 409
-
-
-def test_get_returns_404_for_unknown_axis_id(override_service):
-    response = client.get("/api/admin/axis-definitions/unknown", headers=AUTH_HEADERS)
-
-    assert response.status_code == 404
-
-
-def test_get_returns_definition(override_service):
-    override_service._definitions["test_axis"] = _DEFINITION
-
-    response = client.get("/api/admin/axis-definitions/test_axis", headers=AUTH_HEADERS)
-
-    assert response.status_code == 200
-    assert response.json()["axis_id"] == "test_axis"
-
-
-def test_list_and_get_succeed_for_axis_referencing_a_now_unknown_material(override_service):
-    # レビュー指摘の修正確認: AxisDefinitionResponseは書き込み専用バリデータ
-    # （_check_materials_are_known）を継承しないため、材料カタログから将来削除・
-    # リネームされた材料をまだ参照する既存軸（AxisDefinitionはPayload経由を通らず
-    # 直接構築されているためこのテストではその状況を模する）の読み取りが500に
-    # ならないことを確認する。
-    stale = AxisDefinition(
-        axis_id="stale_axis",
-        shape=BreakpointLinearShape(
-            terms=[MaterialTerm(material="removed_material")], breakpoints=[(0.0, 0.0), (10.0, 100.0)]
-        ),
-        default_weight=0.1,
-        label="廃止予定材料を参照する軸",
-        category="推定",
-    )
-    override_service._definitions["stale_axis"] = stale
-
-    list_response = client.get("/api/admin/axis-definitions", headers=AUTH_HEADERS)
-    get_response = client.get("/api/admin/axis-definitions/stale_axis", headers=AUTH_HEADERS)
-
-    assert list_response.status_code == 200
-    assert get_response.status_code == 200
-    assert get_response.json()["axis_id"] == "stale_axis"
-
-
-def test_update_returns_400_when_axis_id_mismatches_url(override_service):
-    override_service._definitions["test_axis"] = _DEFINITION
-
-    response = client.put("/api/admin/axis-definitions/other_id", json=_PAYLOAD, headers=AUTH_HEADERS)
-
-    assert response.status_code == 400
-
-
-def test_update_returns_404_for_unknown_axis_id(override_service):
-    response = client.put("/api/admin/axis-definitions/test_axis", json=_PAYLOAD, headers=AUTH_HEADERS)
-
-    assert response.status_code == 404
-
-
-def test_update_returns_200_and_persists(override_service):
-    override_service._definitions["test_axis"] = _DEFINITION
-    updated_payload = {**_PAYLOAD, "default_weight": 0.9}
-
-    response = client.put("/api/admin/axis-definitions/test_axis", json=updated_payload, headers=AUTH_HEADERS)
-
-    assert response.status_code == 200
-    assert override_service._definitions["test_axis"].default_weight == 0.9
-
-
-def test_update_returns_409_for_published_axis(override_service):
-    # 改善計画T271: 公開済み軸の更新は409で拒否される（以前はupdate_axis_definitionに
-    # ValueError用のexcept節が無く想定外の500になっていた抜け穴も合わせて塞いだ）。
-    override_service._definitions["test_axis"] = _DEFINITION.model_copy(update={"is_published": True})
-    updated_payload = {**_PAYLOAD, "default_weight": 0.9}
-
-    response = client.put("/api/admin/axis-definitions/test_axis", json=updated_payload, headers=AUTH_HEADERS)
-
-    assert response.status_code == 409
-    assert override_service._definitions["test_axis"].default_weight == 0.1
-
-
-def test_update_returns_200_for_published_axis_cosmetic_only_change(override_service):
-    # 改善計画T501: 表示専用フィールド（icon_id等）のみの差分なら、公開済み軸でも
-    # unpublishを経由せず直接更新できる。
-    override_service._definitions["test_axis"] = _DEFINITION.model_copy(update={"is_published": True})
-    updated_payload = {**_PAYLOAD, "is_published": True, "icon_id": "new_icon", "chip_label": "新略称"}
-
-    response = client.put("/api/admin/axis-definitions/test_axis", json=updated_payload, headers=AUTH_HEADERS)
-
-    assert response.status_code == 200
-    assert override_service._definitions["test_axis"].icon_id == "new_icon"
-    assert override_service._definitions["test_axis"].is_published is True
-
-
-def test_delete_returns_404_for_unknown_axis_id(override_service):
-    response = client.delete("/api/admin/axis-definitions/unknown", headers=AUTH_HEADERS)
-
-    assert response.status_code == 404
-
-
-def test_delete_returns_204_and_removes(override_service):
-    override_service._definitions["test_axis"] = _DEFINITION
-    override_service._definitions["other_axis"] = _DEFINITION
-
-    response = client.delete("/api/admin/axis-definitions/test_axis", headers=AUTH_HEADERS)
-
-    assert response.status_code == 204
-    assert "test_axis" not in override_service._definitions
-
-
-def test_delete_returns_409_for_published_axis(override_service):
-    override_service._definitions["test_axis"] = _DEFINITION.model_copy(update={"is_published": True})
-    override_service._definitions["other_axis"] = _DEFINITION.model_copy(update={"axis_id": "other_axis"})
-
-    response = client.delete("/api/admin/axis-definitions/test_axis", headers=AUTH_HEADERS)
-
-    assert response.status_code == 409
-    assert "test_axis" in override_service._definitions
-
-
-def test_delete_returns_409_for_last_remaining_axis(override_service):
-    override_service._definitions["test_axis"] = _DEFINITION
-
-    response = client.delete("/api/admin/axis-definitions/test_axis", headers=AUTH_HEADERS)
-
-    assert response.status_code == 409
-
-
-# --- unpublish（改善計画T302） ---
-
-
-def test_unpublish_returns_404_for_unknown_axis_id(override_service):
-    response = client.post("/api/admin/axis-definitions/unknown/unpublish", headers=AUTH_HEADERS)
-
-    assert response.status_code == 404
-
-
-def test_unpublish_returns_200_and_flips_published_axis_to_draft(override_service):
-    override_service._definitions["test_axis"] = _DEFINITION.model_copy(update={"is_published": True})
-
-    response = client.post("/api/admin/axis-definitions/test_axis/unpublish", headers=AUTH_HEADERS)
-
-    assert response.status_code == 200
-    assert response.json()["is_published"] is False
-    assert override_service._definitions["test_axis"].is_published is False
-
-
-def test_unpublish_then_delete_succeeds(override_service):
-    # unpublish→deleteの2段階が正式フロー（改善計画T302）。直接deleteは409で拒否される
-    # （test_delete_returns_409_for_published_axisで確認済み）が、unpublish後は成功する。
-    override_service._definitions["test_axis"] = _DEFINITION.model_copy(update={"is_published": True})
-    override_service._definitions["other_axis"] = _DEFINITION.model_copy(update={"axis_id": "other_axis"})
-
-    unpublish_response = client.post("/api/admin/axis-definitions/test_axis/unpublish", headers=AUTH_HEADERS)
-    delete_response = client.delete("/api/admin/axis-definitions/test_axis", headers=AUTH_HEADERS)
-
-    assert unpublish_response.status_code == 200
-    assert delete_response.status_code == 204
-    assert "test_axis" not in override_service._definitions
-
-
-def test_unpublish_rejects_missing_credentials(override_service):
-    override_service._definitions["test_axis"] = _DEFINITION.model_copy(update={"is_published": True})
-
-    response = client.post("/api/admin/axis-definitions/test_axis/unpublish")
-
-    assert response.status_code == 401
-
-
-# --- DBAPIError（migration未適用等）が診断可能な503になること ---
-# 軸スタジオを開くと500エラーになった実障害（migration 0019の本番未適用でaxis_definitions
-# テーブルに新カラムが無くSELECTが失敗）の回帰テスト。素の未処理500ではなく、
-# 原因（migration未適用の可能性）を示す503を返すことを確認する。
-
-
-def test_list_returns_503_on_db_error(override_failing_service):
-    response = client.get("/api/admin/axis-definitions", headers=AUTH_HEADERS)
-
-    assert response.status_code == 503
-    assert "migration" in response.json()["detail"]
-
-
-def test_get_returns_503_on_db_error(override_failing_service):
-    response = client.get("/api/admin/axis-definitions/test_axis", headers=AUTH_HEADERS)
-
-    assert response.status_code == 503
-
-
-def test_create_returns_503_on_db_error(override_failing_service):
-    response = client.post("/api/admin/axis-definitions", json=_PAYLOAD, headers=AUTH_HEADERS)
-
-    assert response.status_code == 503
-
-
-def test_update_returns_503_on_db_error(override_failing_service):
-    response = client.put("/api/admin/axis-definitions/test_axis", json=_PAYLOAD, headers=AUTH_HEADERS)
-
-    assert response.status_code == 503
-
-
-def test_delete_returns_503_on_db_error(override_failing_service):
-    response = client.delete("/api/admin/axis-definitions/test_axis", headers=AUTH_HEADERS)
-
-    assert response.status_code == 503
-
-
-def test_unpublish_returns_503_on_db_error(override_failing_service):
-    response = client.post("/api/admin/axis-definitions/test_axis/unpublish", headers=AUTH_HEADERS)
-
-    assert response.status_code == 503
-
-
-_THRESHOLDS_PREVIEW_PATH = "/api/admin/axis-definitions/preview-display-thresholds"
-_THRESHOLDS_PREVIEW_BODY = {
-    "axis_id": "test_axis",
-    "shape": _PAYLOAD["shape"],
-    "thresholds": [2.0, 12.0],
 }
+ROUTES = [(method, route.path) for route in axis_admin.router.routes for method in sorted(route.methods)]
 
 
-def test_preview_display_thresholds_requires_admin_auth():
-    response = client.post(_THRESHOLDS_PREVIEW_PATH, json=_THRESHOLDS_PREVIEW_BODY)
+def send(client, method, path):
+    body, _ = ROUTE_CASES[(method, path)]
+    return client.request(method, path.replace("{axis_id}", "a"), json=body)
+
+
+@pytest.mark.parametrize(("method", "path"), ROUTES)
+def test_every_route_rejects_a_request_without_credentials(app, admin_credentials, registry, method, path):
+    registry.axes["a"] = stored(is_published=True)
+
+    response = send(TestClient(app), method, path)
 
     assert response.status_code == 401
+    assert registry.calls == []
 
 
-def test_preview_display_thresholds_rejects_boundaries_out_of_order(admin_credentials):
-    body = {**_THRESHOLDS_PREVIEW_BODY, "thresholds": [12.0, 2.0]}
+@pytest.mark.parametrize(("method", "path"), ROUTES)
+def test_a_database_failure_becomes_a_503_on_every_route_that_reads_it(client, registry, monkeypatch, method, path):
+    failure = DBAPIError("SELECT 1", {}, Exception("接続できない"))
+    registry.axes["a"] = stored()
+    registry.errors = {name: failure for name in ("list_all", "get", "create", "update", "delete", "unpublish")}
 
-    response = client.post(_THRESHOLDS_PREVIEW_PATH, json=body, headers=AUTH_HEADERS)
+    async def failing_distribution(repository, shape):
+        raise failure
 
-    assert response.status_code == 422
+    monkeypatch.setattr(
+        axis_admin, "axis_raw_value_distribution", bound(axis_admin.axis_raw_value_distribution, failing_distribution)
+    )
+
+    response = send(client, method, path)
+
+    assert response.status_code == ROUTE_CASES[(method, path)][1]
+    if response.status_code == 503:
+        assert "migration" in response.json()["detail"]
 
 
-def test_preview_display_thresholds_returns_what_the_map_drops(admin_credentials, monkeypatch):
-    received = {}
+class TestRead:
+    def test_list_returns_every_axis_with_its_map_display(self, client, registry):
+        registry.axes = {"a": stored("a"), "b": stored("b")}
 
-    def _fake(axis_id, shape, priority_overrides, thresholds):
-        received.update(axis_id=axis_id, priority_overrides=priority_overrides, thresholds=thresholds)
-        return [12.0]
+        body = client.get(BASE).json()
 
-    monkeypatch.setattr("app.api.routers.axis_admin.thresholds_the_map_drops", _fake)
-    monkeypatch.setattr("app.api.routers.axis_admin.bands_the_map_keeps", lambda *_: [0, 1])
+        assert [(item["axis_id"], item["display"]["label"]) for item in body] == [("a", "表示:a"), ("b", "表示:b")]
 
-    response = client.post(_THRESHOLDS_PREVIEW_PATH, json=_THRESHOLDS_PREVIEW_BODY, headers=AUTH_HEADERS)
+    def test_get_returns_the_axis_with_its_map_display(self, client, registry):
+        registry.axes["a"] = stored()
 
-    assert response.status_code == 200
-    assert response.json() == {"dropped_on_map": [12.0], "bands_on_map": [0, 1]}
-    assert received == {"axis_id": "test_axis", "priority_overrides": [], "thresholds": [2.0, 12.0]}
+        body = client.get(BASE + "/a").json()
+
+        assert body["axis_id"] == "a"
+        assert body["display"]["label"] == "表示:a"
+
+    def test_get_of_an_unknown_axis_is_404(self, client):
+        assert client.get(BASE + "/missing").status_code == 404
+
+    def test_an_axis_whose_material_left_the_catalog_can_still_be_read(self, client, registry):
+        """読み出しは保存済みの内容を返すだけで、書き込み時の検証をやり直さない。"""
+        registry.axes["a"] = stored(shape=linear_shape("retired"))
+
+        assert client.get(BASE + "/a").status_code == 200
+
+
+class TestWrite:
+    def test_create_stores_a_plain_axis_definition_and_returns_it_with_its_display(self, client, registry):
+        """ペイロードの型のまま渡すと、公開後の見た目だけの更新を判定する等価比較が型の違いで
+        常に不一致になる。"""
+        response = client.post(BASE, json=payload(chip_label="略"))
+
+        assert response.status_code == 201
+        assert response.json()["display"]["label"] == "表示:a"
+        ((name, definition),) = registry.calls
+        assert name == "create"
+        assert type(definition) is axis_admin.AxisDefinition
+        assert definition.chip_label == "略"
+
+    def test_create_rejected_by_the_registry_is_a_409(self, client, registry):
+        registry.errors["create"] = ValueError("材料が重複している")
+
+        response = client.post(BASE, json=payload())
+
+        assert (response.status_code, response.json()["detail"]) == (409, "材料が重複している")
+
+    def test_update_stores_a_plain_axis_definition_under_the_axis_id(self, client, registry):
+        registry.axes["a"] = stored()
+
+        response = client.put(BASE + "/a", json=payload(default_weight=2.0))
+
+        assert response.status_code == 200
+        ((name, axis_id, definition),) = registry.calls
+        assert (name, axis_id, type(definition), definition.default_weight) == (
+            "update",
+            "a",
+            axis_admin.AxisDefinition,
+            2.0,
+        )
+
+    def test_update_whose_body_names_another_axis_is_a_400(self, client, registry):
+        response = client.put(BASE + "/a", json=payload("b"))
+
+        assert response.status_code == 400
+        assert registry.calls == []
+
+    @pytest.mark.parametrize(
+        ("method", "path", "body", "operation"),
+        [
+            ("PUT", BASE + "/a", payload(), "update"),
+            ("DELETE", BASE + "/a", None, "delete"),
+            ("POST", BASE + "/a/unpublish", None, "unpublish"),
+        ],
+    )
+    def test_an_operation_on_an_unknown_axis_is_a_404(self, client, registry, method, path, body, operation):
+        registry.errors[operation] = KeyError("a")
+
+        assert client.request(method, path, json=body).status_code == 404
+
+    @pytest.mark.parametrize(
+        ("method", "path", "body", "operation"),
+        [("PUT", BASE + "/a", payload(), "update"), ("DELETE", BASE + "/a", None, "delete")],
+    )
+    def test_an_operation_refused_by_the_registry_is_a_409(self, client, registry, method, path, body, operation):
+        registry.errors[operation] = ValueError("公開済みの軸は変更できない")
+
+        response = client.request(method, path, json=body)
+
+        assert (response.status_code, response.json()["detail"]) == (409, "公開済みの軸は変更できない")
+
+    def test_delete_is_a_204(self, client, registry):
+        registry.axes["a"] = stored()
+
+        assert client.delete(BASE + "/a").status_code == 204
+        assert "a" not in registry.axes
+
+    def test_unpublish_returns_the_axis_as_stored_afterwards(self, client, registry):
+        registry.axes["a"] = stored(is_published=True)
+
+        body = client.post(BASE + "/a/unpublish").json()
+
+        assert (body["is_published"], body["display"]["label"]) == (False, "表示:a")
+
+
+class TestPayloadValidation:
+    """新しく軸を書き込むときにだけ問える検証。拒否は422で、レジストリへは届かない。"""
+
+    @pytest.mark.parametrize(
+        ("fields", "reason"),
+        [
+            ({"label": "とても長い名前"}, "longer than 4 characters"),
+            ({"shape": linear_shape("dyn_a", "num_a")}, "cannot mix"),
+            (
+                {
+                    "shape": linear_shape("dyn_a"),
+                    "priority_overrides": [{"material": "bool_a", "equals": "true", "value": 0}],
+                },
+                "cannot mix",
+            ),
+            (
+                {"dedicated_way_value_layer": True, "shape": linear_shape("num_a", "num_b")},
+                "dedicated_way_value_layer requires",
+            ),
+            ({"shape": linear_shape("ghost")}, "in shape: ['ghost']"),
+            ({"shape": linear_shape("cat_a")}, "wrong dtype"),
+            ({"shape": {"kind": "categorical", "material": "num_a", "mapping": {"x": 1}}}, "wrong dtype"),
+            ({"shape": {"kind": "categorical", "material": "bool_a", "mapping": {"x": 1}}}, "mapping keys"),
+            ({"shape": {"kind": "categorical", "material": "cat_a", "mapping": {"true": 1}}}, "mapping keys"),
+            (
+                {"priority_overrides": [{"material": "ghost", "equals": "1", "value": 0}]},
+                "in priority_overrides: ['ghost']",
+            ),
+        ],
+        ids=[
+            "地図チップに収まらない表示名",
+            "動的材料と静的材料の混在",
+            "0次条件経由の混在",
+            "配信実装の無い専用レイヤー",
+            "カタログにも軸にも無い材料",
+            "折れ線に分類の材料",
+            "分類に数値の材料",
+            "真偽の材料に文字列のキー",
+            "分類の材料に真偽のキー",
+            "0次条件の未知の材料",
+        ],
+    )
+    def test_rejected(self, client, registry, fields, reason):
+        response = client.post(BASE, json=payload(**fields))
+
+        assert response.status_code == 422
+        assert reason in response.json()["detail"][0]["msg"]
+        assert registry.calls == []
+
+    @pytest.mark.parametrize(
+        "fields",
+        [
+            {"label": "とても長い名前", "chip_label": "長名"},
+            {"shape": linear_shape("dyn_a", REFERENCED_AXIS)},
+            {"shape": linear_shape(REFERENCED_AXIS, "bool_a")},
+            {"shape": {"kind": "categorical", "material": "bool_a", "mapping": {"true": 1, "false": 0}}},
+            {"shape": {"kind": "categorical", "material": "cat_a", "mapping": {"x": 1}}},
+            {"priority_overrides": [{"material": REFERENCED_AXIS, "equals": "1", "value": 0}]},
+            {"dedicated_way_value_layer": True},
+        ],
+        ids=[
+            "長い表示名に略称を添える",
+            "動的材料と軸の参照",
+            "軸の参照と真偽の材料",
+            "真偽の材料に真偽のキー",
+            "分類の材料に文字列のキー",
+            "0次条件が軸を参照する",
+            "配信実装のある材料1つの専用レイヤー",
+        ],
+    )
+    def test_accepted(self, client, fields):
+        assert client.post(BASE, json=payload(**fields)).status_code == 201
+
+    def test_the_delivery_check_sees_the_override_materials_too(self, client, seams):
+        client.post(
+            BASE,
+            json=payload(
+                dedicated_way_value_layer=True,
+                priority_overrides=[{"material": "bool_a", "equals": "true", "value": 0}],
+            ),
+        )
+
+        assert seams["served"] == [["num_a", "bool_a"]]
+
+
+class TestPreviews:
+    def test_distribution_is_computed_from_the_repository_for_the_draft_shape(self, client, seams):
+        body = client.post(BASE + "/preview-distribution", json={"shape": linear_shape("num_a")}).json()
+
+        assert body == {
+            "sample_ways": 3,
+            "total_km": 1.5,
+            "quantiles": {"p50": 2.0},
+            "bins": [[0.0, 4.0, 1.0]],
+            "zero_share": 0.25,
+        }
+        ((repository, shape),) = seams["distribution"]
+        assert repository is REPOSITORY
+        assert [t.material for t in shape.terms] == ["num_a"]
+
+    def test_distribution_without_a_database_is_a_503(self, client, app):
+        app.dependency_overrides[axis_admin.get_road_graph_repository] = lambda: None
+
+        assert client.post(BASE + "/preview-distribution", json={"shape": linear_shape("num_a")}).status_code == 503
+
+    def test_display_thresholds_answer_which_bands_the_map_drops_and_keeps(self, client, seams):
+        override = [{"material": "bool_a", "equals": "true", "value": 0.0}]
+
+        body = client.post(
+            BASE + "/preview-display-thresholds",
+            json={
+                "axis_id": "a",
+                "shape": linear_shape("num_a"),
+                "priority_overrides": override,
+                "thresholds": [1.0, 2.0],
+            },
+        ).json()
+
+        assert body == {"dropped_on_map": [2.0], "bands_on_map": [0, 1]}
+        for received in (seams["drops"], seams["keeps"]):
+            ((axis_id, shape, overrides, thresholds),) = received
+            assert (axis_id, [o.material for o in overrides], thresholds) == ("a", ["bool_a"], [1.0, 2.0])
+
+    @pytest.mark.parametrize("thresholds", [[2.0, 1.0], [1.0, 1.0]], ids=["降順", "同値"])
+    def test_display_thresholds_must_rise_strictly(self, client, thresholds):
+        response = client.post(
+            BASE + "/preview-display-thresholds",
+            json={"axis_id": "a", "shape": linear_shape("num_a"), "thresholds": thresholds},
+        )
+
+        assert response.status_code == 422
