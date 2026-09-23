@@ -137,8 +137,7 @@ def _target_dict(target: Target) -> dict[str, Any]:
 
 
 def _source_dict(spec: SourceSpec) -> dict[str, Any]:
-    return {"name": spec.name, "adapter": spec.adapter, "rows": spec.rows,
-            "grid": spec.grid, "columns": spec.columns, "tags": spec.tags}
+    return {"name": spec.name, "adapter": spec.adapter, "rows": spec.rows, "grid": spec.grid}
 
 
 async def ingest_source(

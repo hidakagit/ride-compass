@@ -38,8 +38,8 @@ class Target:
 class SourceSpec:
     """1ソースぶんの宣言。
 
-    `adapter`が外部の形を読む実装を指す。それ以外（絞り込みの適用・run記録・
-    パーティションの選択）は取込の共通経路が持つ。
+    `adapter`が外部の形を読む実装を指す。run記録とパーティションの選択は取込の
+    共通経路が持つ。
     """
 
     name: str
@@ -48,10 +48,6 @@ class SourceSpec:
     rows: dict[str, Any]
     #: ラスタ・タイル系の格子の指定。ベクタのソースは空。
     grid: dict[str, Any]
-    #: 列の絞り込み。`"all"`以外は今のところ使わない。
-    columns: str
-    #: タグの絞り込み。`"all"`以外は今のところ使わない。
-    tags: str
 
 
 @dataclass(frozen=True)
@@ -114,8 +110,6 @@ def _parse_source(raw: object) -> SourceSpec:
         adapter=adapter,
         rows=rows,
         grid=grid,
-        columns=str(raw.get("columns", "all")),
-        tags=str(raw.get("tags", "all")),
     )
 
 
