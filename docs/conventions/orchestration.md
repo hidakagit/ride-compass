@@ -630,7 +630,7 @@ Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -like '*\.claude\w
   - セキュリティか利用者に届いている欠陥の修正（`urgent=true`を添えて通す）は即時
 
   pushは`board unpushed`が出す手順で、司令塔の作業ツリーで行う（枠で包まない）
-  （origin/masterから枝を作り、範囲ごとにcherry-pickして1回でpush。衝突したら自分で解かず、
+  （origin/masterから枝を作り、範囲ごとにcherry-pickして1回でpush。**取り込みとpushは別のコマンドで打ち、取り込みが止まったらpushしない**——同じ行に続けると、止まった取り込みの手前までがmasterへ出る。衝突したら自分で解かず、
   担当へ差し戻す）。push後に表を書き換える手順は無い（入ったかはgitから導く）。
   **組み合わせた木を初めて検査するのはpush後のmasterのCI**で、赤ならbackendのデプロイは
   起動しない。定期確認でその結論を見て、赤ければ原因をログで特定する。
