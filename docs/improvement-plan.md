@@ -172,7 +172,6 @@ CLAUDE.md参照。節見出しはタスクのテーマ分類で、日付は起�
 - [ ] [T1057](records/tasks/T1057.md). 並行実行の重い処理を機械全体で1つの枠に並べ、CPUの取り合いを無くす 規模S
 - [ ] [T1077](records/tasks/T1077.md). 実データで回すe2e（frontend/e2e-live/）の中身を作る（まず定義案をユーザーへ出す） 規模M
 - [ ] [T1085](records/tasks/T1085.md). 地図で段が落ちると、体感ラベルの上書きが件数不一致で黙って捨てられる 規模S
-- [ ] [T1087](records/tasks/T1087.md). 担当の所要の1行のCI待ちを、監査のときにGitHubから取って書き足す 規模S
 - [ ] [T1088](records/tasks/T1088.md). 回の目的と母集団を状態の表で持ち、進め方の指示を記録へ書かない 規模S
 
 見送りとして判断を記録したもの（台帳には載せない）: [T1036](records/tasks/T1036.md)・[T1037](records/tasks/T1037.md)・[T1038](records/tasks/T1038.md)・[T1039](records/tasks/T1039.md)・[T1040](records/tasks/T1040.md)
