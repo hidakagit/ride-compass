@@ -185,7 +185,6 @@ CLAUDE.md参照。節見出しはタスクのテーマ分類で、日付は起�
 - [ ] [T1077](records/tasks/T1077.md). 実データで回すe2e（frontend/e2e-live/）の中身を作る（まず定義案をユーザーへ出す） 規模M
 - [ ] [T1078](records/tasks/T1078.md). E2Eの全状態の走査を、状態ごとに開き直さず画面の木をたどる形にして、CIのe2eの所要を縮める 規模M
 - [ ] [T1079](records/tasks/T1079.md). ページのピンチを止める規則を、E2Eの全状態の走査で確かめる（T1069の残り、T1078の後） 規模S — トリガー: [T1078](records/tasks/T1078.md)の完了
-- [ ] [T1083](records/tasks/T1083.md). 監査と定期確認に、作業ブランチのCIのジョブごとの所要をmasterの直近と比べる項目を足す 規模S
 - [ ] [T1085](records/tasks/T1085.md). 地図で段が落ちると、体感ラベルの上書きが件数不一致で黙って捨てられる 規模S
 
 見送りとして判断を記録したもの（台帳には載せない）: [T1036](records/tasks/T1036.md)・[T1037](records/tasks/T1037.md)・[T1038](records/tasks/T1038.md)・[T1039](records/tasks/T1039.md)・[T1040](records/tasks/T1040.md)
