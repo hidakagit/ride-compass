@@ -5,9 +5,7 @@ import type { AxisDefinitionResponse } from "@/types/route";
  * こうなる」がテストに混ざると、軸の定義が変わったときに関係の無いテストが落ちる。
  * 必要な特徴は各テストがoverridesで足す。
  */
-export function baseAxisDefinition(
-  overrides: Partial<AxisDefinitionResponse> = {},
-): AxisDefinitionResponse {
+export function baseAxisDefinition(overrides: Partial<AxisDefinitionResponse> = {}): AxisDefinitionResponse {
   return {
     axis_id: "axis_a",
     label: "軸A",
