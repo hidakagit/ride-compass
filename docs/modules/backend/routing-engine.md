@@ -4,8 +4,9 @@
 
 出発地点（＋任意で経由地・目的地）から、周回または経由地ルートの候補を複数生成し、
 距離・難易度でスコアリングして返す。実際の経路計算・軸評価はroad_graphエンジン
-（自前Road Graph + 辺基準グラフのlazy探索）が担う。Road Graph自体（ノード・Edge・交差点分割・
-空間索引）の構築・永続化・キャッシュもこのモジュールが担う。
+（自前Road Graph + 辺基準グラフのlazy探索）が担う。Road Graph（ノード・Edge）をPostGISから
+読み出し、探索用のグラフ・空間索引へ組んでキャッシュするところまでがこのモジュールの範囲で、
+交差点で切った区間そのものは取込・派生バッチが範囲全体ぶん先に作る（web側は作らない）。
 
 **対象ファイル**
 
@@ -13,7 +14,7 @@
 |---|---|
 | domain | `routing.py`・`graph.py`・`route.py`・`geo.py`・`errors.py`・`region.py`（矩形（`BoundingBox`）とXYZタイルの相互変換、Road Graphを取得する単位のズーム。タイル配信側もこの変換を共有する）・`cycling_speed.py`（自転車の走行モデル。平地・無風の巡航速度からホイール出力を逆算し、勾配・向かい風・転がり抵抗から区間ごとの速度を走行方程式で解く。速度の逆算は`v`の3次方程式になるため二分法で、numpyでベクトル化してある。候補の所要時間と基準線の探索コストがここから出る）・`tuning.py`（ルーティング評価が読む固定値の宣言。走ってみて決める値［較正値］は既定ごとここが持ち、エンジンが読む値・管理画面が並べる項目・変更が効くために何をやり直す必要があるかをそこから導く。較正値ではない固定値は載せず、使う側のモジュールが持つ）・`loop_routing.py`（周回・目的地ルートの探索結果を運ぶ型。探索の実装と候補を並べる戦略のどちらにも属さない） |
 | services | `route_generator.py`（戦略層）・`road_graph_engine.py`・`graph_service.py` |
-| infrastructure | `road_graph_repository.py`（責務ごとに分割）・`graph_material_cache.py`・`tile_score_matrix_cache.py`・`search_graph_cache.py`・`tile_persistent_cache.py`・`cache_identity.py`（キャッシュ鍵の組み立て方の正本。手で書くリビジョンと、焼き込みSQL・pickleする列構成から導く署名を合成する。タイル配信側の世代も同じ関数を使う）・`derived_data_meta.py`（派生データの世代。バッチが中身を書き直すたびに進む単調カウンタで、デプロイを伴わない変化を表せる唯一の経路）・`cache_generation.py`（DBの世代とディスクへ書いた時点の記録を突き合わせる判断。軸定義と派生データが同じ実装を使う） |
+| infrastructure | `road_graph_repository.py`（道路網・材料の読み出し専用）・`graph_material_cache.py`・`tile_score_matrix_cache.py`・`search_graph_cache.py`・`tile_persistent_cache.py`・`cache_identity.py`（キャッシュ鍵の組み立て方の正本。手で書くリビジョンと、焼き込みSQL・pickleする列構成から導く署名を合成する。タイル配信側の世代も同じ関数を使う）・`derived_data_meta.py`（派生データの世代。バッチが中身を書き直すたびに進む単調カウンタで、デプロイを伴わない変化を表せる唯一の経路）・`cache_generation.py`（DBの世代とディスクへ書いた時点の記録を突き合わせる判断。軸定義と派生データが同じ実装を使う） |
 | api | `routes.py` |
 
 探索が読む`road_edges`と材料のテーブル（ORMの宣言）・それを作るバッチは
@@ -224,7 +225,7 @@ RouteGenerator.generate_loops(origin, distance_km, distance_tolerance_km, max_ro
 
 較正値の宣言は「変えたとき効くまでに何が要るか」（`TuningEffect`）を持つ。これは
 **「変えたのに効かない」を宣言として持つ**ためのもので、ほとんどは次のリクエストから効くが、
-たとえば信号とみなす半径は`road_nodes`の事前計算バッチをやり直さないと効かない
+交差点の値を埋める派生バッチをやり直さないと効かないものもある
 （どの値がどの効き方かは`TuningEffect`の宣言が持つ）。
 
 **較正値ではない固定値は宣言へ載せず、使う側のモジュールが値と根拠を隣り合わせで持つ**
@@ -356,7 +357,7 @@ DBが`MaterialSpec.value_sql`で導出した値をdtypeごとの行列で持つ�
 ＋`StaticEdgeScoreMatrix`（タイル単位で
 キャッシュ済みの「Edge×公開軸」静的スコア行列）をまとめて取得し、`_build_search_graph`が
 探索用グラフ（`domain/routing.py: LazyRoadGraph`、`NodeSpatialIndex`）とbbox全体ぶんの
-コスト配列を構築する。データ未整備（対象タイル未取込）ならNoneを返し、呼び出し元
+コスト配列を構築する。データ未整備（取込の宣言した範囲の外）ならNoneを返し、呼び出し元
 （`RouteGenerator`）が候補0件として扱う。
 
 `_build_search_graph`は、`StaticEdgeScoreMatrix`（風などリクエストごとに変わる動的軸の列は
@@ -390,13 +391,10 @@ NaN）へ動的軸（風、`domain/dynamic_materials.py: evaluate_dynamic_axis_a
 走行モデルへ運ぶ（`domain/traffic.py: stop_seconds`）ため、ここで足すと二重に数える
 （`docs/architecture/design-principles.md`構造仕様13）。探索側は階級の意味を知らず、比較結果だけを使う。
 
-信号の有無と最大階級は`road_nodes`の事前集計列で、グラフのノードに載って探索まで届く。
-埋めるのは事前集計バッチ（`precompute_road_node_intersections.py`）と、交差点分割が自分の
-作ったノードへ行う穴埋め（`GraphService`。分割は新しいノードを作るため、バッチを待つと
-**その地点への最初のリクエストだけ**ターンの費用が変わる）で、**どちらも通っていない
-ノードだけが既定値**（信号なし・階級0）になる。既定値のときの結果はこの列の
-導入前と同じになる——信号なしとして扱えば従来どおり費用が付き、階級0は読み込んだ部分
-グラフからの導出を下回るため下限を上げる方向にしか効かない。
+信号の有無と最大階級は`node_materials`の列で、グラフのノードに載って探索まで届く。
+埋めるのは派生バッチ（下記「交差点の信号・最大階級」節）で、**行の無いノードは既定値**
+（信号なし・階級0）で読まれる。既定値は安全側に倒れる——信号なしとして扱えば横断の費用が
+付き、階級0は読み込んだ部分グラフからの導出を下回るため下限を上げる方向にしか効かない。
 
 グラフは辺基準へ物理的に展開せず、遷移は`SearchGraphStatics`のCSRから導く。目的地から
 遡る木は同じ遷移を転置した配列（`TurnExpandedStructure.reverse_transitions`、最初に
@@ -432,9 +430,8 @@ Nodeごとのコストは、そのNodeへ入る区間の最小を採る（木を
   `frozenset[(zoom,x,y)]`（bboxを覆うz12タイル集合）のみ。`NodeSpatialIndex`はこれに
   `hard_filters`・`max_average_grade_percent`（0次フィルタ、`RoadGraphEngine`の
   コンストラクタ引数）を加えたタプル。`GraphService.get_search_materials_for_bbox`が
-  タイル集合を返すのは、graphが「bboxを覆う全z12タイルの材料キャッシュをそのまま
-  結合したもの」の場合のみ——split鮮度が古くbbox限定で再構築した経路ではNoneが返り、
-  呼び出し側はこのキャッシュを経由しない。
+  返すgraphは常に「bboxを覆う全z12タイルの材料キャッシュをそのまま結合したもの」で、
+  同じタイル集合なら中身も同じになる——タイル集合がそのまま鍵として十分な理由はこれである。
 - `SearchGraphStatics`が持つCSR構造（`indptr`/`indices`とCSRエントリ順→Edge indexの
   並べ替え表）はタイル集合だけで決まる派生物のためキャッシュに含めるが、リクエストごとに
   変わるコスト配列は含めない——`select_loop_turnarounds`が一対全木を求めるたびに
@@ -446,11 +443,12 @@ Nodeごとのコストは、そのNodeへ入る区間の最小を採る（木を
   `TurnCostSpec`の組）でキャッシュする。遷移とターンの費用はこの2つだけで決まるため、
   同じタイル集合・同じターン費用なら作り直す必要がない（ノード側の信号・階級もタイル集合
   から来るため、この鍵に含まれている）。
-- **無効化方針は`graph_material_cache`と同じ**（プロセス寿命でのみキャッシュ、軸定義変更は
-  無関係、材料再取込の反映にはプロセス再起動が必要）。ただし例外として、タイル再split
-  （`save_graph`のedge_id再割当）でキャッシュ済み`LazyRoadGraph.edge_ids`が新しい
-  `graph.edges`に存在しなくなる不整合だけは、プロセス再起動を待たずリクエスト内で自己修復
-  する——`RoadGraphEngine._build_search_graph`（`prepare`・`preview_segment`共通）が
+- **無効化はプロセス寿命とLRUだけ**で、軸定義の変更とは無関係（探索コストの値自体を
+  持たないため）。派生バッチが区間を作り直すと、材料キャッシュは世代の突き合わせで捨てられる
+  （「タイル単位の探索用素材キャッシュ」節）がこのキャッシュは残るため、キャッシュ済み
+  `LazyRoadGraph.edge_ids`が新しい`graph.edges`に存在しなくなる不整合が起こりうる。
+  これはプロセス再起動を待たずリクエスト内で自己修復する——
+  `RoadGraphEngine._build_search_graph`（`prepare`・`preview_segment`共通）が
   `_ensure_lazy_graph_consistent`で`domain/routing.py: find_missing_lazy_graph_edge_id`
   （CSR構築を伴わない軽量チェック）を毎回呼び、不整合を検知したら該当タイル集合の
   キャッシュ（`LazyRoadGraph`・`SearchGraphStatics`・`NodeSpatialIndex`）を破棄して
@@ -598,41 +596,39 @@ segments構築はEdge単位の軽量な計算のため並行化してよい。�
 
 ## GraphService（`services/graph_service.py`）
 
-Road Graph（Node/Edge）をPostGIS経由で取得する。**PostGISのみを参照し、Overpassへの
-フォールバックは持たない**（未取込タイルは「データ未整備」としてNoneを返す）。地図表示
-（`RegionService`）もタイル配信のバックグラウンドで`get_or_build_graph_with_attributes`を
-呼ぶ（ルート生成した地点でしか道路グラフが構築されないと、地図を眺めるだけの利用では
-road_nodes/road_edgesが空のままになるため）。
+Road Graph（Node/Edge）と材料をPostGISから**読むだけで、作らない**。道路網は取込・派生
+バッチ（[静的道路属性・タイル配信](static-road-attributes.md)）が取込範囲全体ぶん先に作る
+ため、ここには「無ければ作る」経路が無い。外部（Overpass等）へのフォールバックも持たない。
 
-### 3段階の取得経路（`get_or_build_graph_with_attributes`）
+### 取得の入口（`get_search_materials_for_bbox`）
 
-1. **タイル未取込**: `_ensure_tiles_cached`がbboxを覆う全z12タイルの取込済みマーカー
-   （`road_graph_tiles`）を1クエリで判定。1つでも未取込ならNone（WARNING常時ログ）。
-2. **split鮮度が最新（省略パス）**: `_ensure_split_up_to_date`が`is_split_up_to_date`
-   （生データが前回split以降変わっていないか）を確認しTrueなら、`get_graph_in_bbox`＋
-   `get_surface_attributes`で直接読み出す。closure再計算・Edge全量再UPSERTを省略できる。
-3. **再構築（冷パス）**: `get_way_specs_with_closure`でDB上の既知の生データ全体から
-   対象Way＋近傍Wayを取得し、`build_road_graph`（純Python、CPU処理）を
-   `asyncio.to_thread`で実行する（イベントループを塞がずヘルスチェック無応答を防ぐ）。
-   保存は主対象Way分のみ（近傍Wayは分割の文脈情報のみで永続化しない）。ステージ別
-   所要時間（closure_ms/build_ms/save_ms/total_ms）を1行INFOサマリで出す。
+1. **派生データ世代の突き合わせ**: `derived_data_revision_service.ensure_caches_match_db`が
+   TTL付きでDBの`derived_data_meta.revision`を読み直し、変わっていれば材料・スコア行列の
+   キャッシュを捨てる。材料のディスクキャッシュを読むのはこの経路なので、突き合わせもここに
+   置く（他所へ移すと定常状態では一度も発火しない）。
+2. **カバレッジ判定**: `RoadGraphRepository.is_covered`が、bboxが取込の宣言した範囲
+   （成功した`osm_way`取込の`source_runs.profile`のtarget.bbox）に触れるかを1クエリで判定する。
+   範囲外ならNone（WARNING常時ログ）。マーカーの表は持たない——持つと取込範囲を広げたときに
+   2箇所を揃える必要が生まれる（判定式は路面タイルのMVT生成と共有、下記「派生delivery系
+   クエリ」）。
+3. **タイル単位の読み出し**: 下記のとおり、z12タイルごとにキャッシュを経由して結合する。
 
-### タイル単位の探索用素材キャッシュ（`get_search_materials_for_bbox`）
+### タイル単位の探索用素材キャッシュ
 
 bboxをz12タイルへ分解し、`graph_material_cache`（材料、プロセス内LRU、上限2,000タイル）と
 `tile_score_matrix_cache`（`StaticEdgeScoreMatrix`、材料キャッシュとは別枠の
 プロセス内LRU）をタイル単位で経由する。全タイルがキャッシュ済みならDBへの問い合わせも
-Edge単位の軸別スコア算出も発生しない（`_get_or_build_tile_score_matrix`）。戻り値は
-`tuple[SearchMaterials, StaticEdgeScoreMatrix, frozenset[tuple[int, int, int]] | None]`——
+Edge単位の軸別スコア算出も発生しない（`_get_or_build_tile_materials`・
+`_get_or_build_tile_score_matrix`）。キャッシュmissのタイルは`get_graph_topology_in_bbox`
+（トポロジ）と`get_edge_material_arrays`（材料）でDBから読む。道路の無いタイルも空の結果として
+キャッシュする（毎回問い合わせ直さないため）。戻り値は
+`tuple[SearchMaterials, StaticEdgeScoreMatrix, frozenset[tuple[int, int, int]]]`——
 複数タイルにまたがる場合は`domain/evaluation.py: combine_static_edge_score_matrices`が
 後勝ちセマンティクスで1つに結合する（`combined_edges.update(...)`と同じ結合順序）。
-3要素目（タイル集合）は`_build_search_materials_from_tile_cache`経由の場合のみ
-覆う全z12タイルの集合を持ち、`RoadGraphEngine`が`infrastructure/search_graph_cache.py`
-（探索用グラフ・索引のタイル集合キーLRU）のキーとして使う。split鮮度が古い場合
-（`_build_search_materials_uncached`）はNone——このgraphはタイル境界と一致しない不完全な
-集合のため、タイルキャッシュ・search_graph_cacheのどちらへも書き込まない（応答後に
-バックグラウンドで該当タイルを材料・スコア行列の両方とも温める、`_maybe_warm_tile_cache`→
-`_warm_tile_cache_background`）。
+3要素目（タイル集合）はbboxを覆う全z12タイルの集合で、`RoadGraphEngine`が
+`infrastructure/search_graph_cache.py`（探索用グラフ・索引のタイル集合キーLRU）のキーとして
+使う。タイルごとの読み出し元（memory/disk/db/computed）と所要時間は1行INFOサマリ
+（`_build_search_materials_from_tile_cache`）に出る。
 
 **暗黙の前提**: `graph_material_cache`・`tile_score_matrix_cache`はプロセス内メモリLRUに
 加え、`infrastructure/tile_persistent_cache.py`へディスク永続化する（`backend/data/
@@ -814,57 +810,34 @@ edge_idをまとめて1回・`preview_segment`が1回、いずれも逐次に呼
 
 ## infrastructure層
 
-### `road_graph_repository.py`（責務ごとに分けたリポジトリ構成）
+### `road_graph_repository.py`（読み出し専用のリポジトリ）
 
-変更理由が異なる操作を1クラスに同居させない設計:
+`RoadGraphRepository`は1つの`AsyncSession`を使う1クラスで、**読むだけ**である。書き込むのは
+`app/batch/`の取込（`ingest_cli.py`）と派生（`derive_cli.py`）だけで、web側に「無ければ作る」
+経路は無い（表の宣言は`derived_models.py`・`source_models.py`、[静的道路属性・タイル配信](static-road-attributes.md)
+の管轄）。
 
-| リポジトリ | 責務 | 変わる理由 |
-|---|---|---|
-| `RawOsmRepository` | 生OSM層（osm_raw_ways/osm_raw_nodes）・タイル取得マーカー | データ取込・closure読み出しの都合 |
-| `DerivedGraphRepository` | 派生グラフ（road_nodes/road_edges）・鮮度判定（split_at） | 交差点分割アルゴリズムの都合 |
-| `AttributeRepository` | Edge単位のRoad Attribute（elevation_attributes。surfaceはosm_raw_ways.surfaceをJOIN導出） | 属性の種類追加の都合 |
-| `RoadSurfaceTileQuery` | 地域路面レイヤー・POI/wind/gradient配信用MVT生成（読み取り専用） | 地図表示の都合 |
+区間（`road_edges`）は**向きを持たない1本1行**で、有向の枝は探索がメモリ上で組む
+（`get_graph_topology_in_bbox`。一方通行は`way_materials.direction`を見て走れる向きの枝だけを
+作る）。DBへ向きを伝えるのは`(osm_way_id, segment_index, forward)`の3つ組で、向きで変わる値
+（方位・標高）はSQLが入れ替え・符号反転して返す（`reversed_material_expression`）。材料の値の
+求め方は`domain/material_sql.py`・`domain/material_catalog.py`が持ち、リポジトリは式が前提に
+する別名（`w`/`re`/`em`/`wm`）のFROM句を組み立てるだけで式を書かない。
 
-`RoadGraphRepository`は4つを束ねるファサードで、**フラットな委譲メソッド群
-（`repository.save_raw_ways(...)`）がサービス層が依存する正式なインターフェース**
-（`repository.raw_osm.save_raw_ways(...)`という個別アクセスではない）。テストの
-`FakeRoadGraphRepository`もこのフラットな形をダックタイピングで模倣する。
-
-**トランザクション境界**: 本モジュールの書き込みメソッドは一切commitしない。
-呼び出し側（サービス層）が操作のまとまりごとに`RoadGraphRepository.commit()`を呼ぶ。
-
-#### `get_way_specs_with_closure`（タイル境界に依存しない交差点分割）
-
-生のOSM Way/Nodeデータ（`osm_raw_ways`/`osm_raw_nodes`）は、取得元タイルに依存しない
-形で蓄積される。Road Graph構築時はDB上の既知の生データ全体から必要な近傍Wayを含めて
-計算し直す。**主対象Way**（bboxとST_Intersects）＋**近傍Way**（主対象Way全体のextent、
-`NEIGHBOR_EXTENT_MAX_MARGIN_M=10,000m`でクランプ済み）の2段階。**既知の制約**: 近傍探索は
-1ホップ相当に限定——間接的に関係するWay同士の交差点は、そのWay自身が別のリクエストで
-「主対象」として処理されるまで更新されない（結果整合的）。
-
-#### `save_graph`のCOPYベース一括UPSERT
-
-一時テーブル経由のCOPY（バイナリプロトコル）で`road_nodes`/`road_edges`をUPSERTする
-（`_copy_upsert_road_nodes`/`_copy_upsert_road_edges`）。`way_ids_to_replace`指定時の
-DELETE対象抽出は、除外側集合（`new_edge_ids`）を一時テーブル化しPK索引の`NOT EXISTS`
-反結合で判定する（このトランザクションだけ`work_mem`を256MBへ引き上げる`SET LOCAL`も
-併用）。
-
-**暗黙の前提**: `_asyncpg_connection`はSQLAlchemyの`AsyncSession`が「autobegin」
-（何か実行するまでBEGINが送信されない）ことを踏まえ、`CREATE TEMP TABLE ... ON COMMIT
-DROP`前に軽いSELECTを1つ挟んで実トランザクションを確定させる。これを省くと一時テーブルが
-即座にDROPされ、直後のCOPYが失敗する。
+探索用グラフの枝はジオメトリを空のプレースホルダで持つ。実ジオメトリが要る確定した経路だけを
+`get_edges_with_geometry`が取り直す（逆向きの枝は形状点列を逆順にする）。
 
 #### 派生delivery系クエリ（wind/gradient/road surface/POI）
 
 `_ROAD_SURFACE_TILE_MVT_SQL`（路面・道路種別・車ストレス材料タグ等をPostGIS側で
 ST_AsMVT丸ごと生成）・`_FEATURE_KEYS_IN_TILE_SQL`（wind、道路自身の方位角は使わず鍵の
-一覧のみ返す）・`_FEATURE_GRADIENT_INPUTS_IN_TILE_SQL`（gradient。way単位のズームでは
-区間を長さで重み付けて平均した値を代表にし、区間単位のズームではその区間の実値をそのまま
-返す。JOINは区間の両方向の行を候補にする——標高属性は向きごとのedge行に付くため片方にしか
-無いことがあり、forward/backwardのどちらを拾っても向きと勾配の符号が二重に反転して
-打ち消し合う）はいずれも同じ「road_graph_tilesのz12祖先タイルマーク」でカバレッジ判定し、
-1タイル1DB往復にまとめる設計を共有する。いずれも**同じ`_TILE_FEATURE_SOURCE_SQL`から
+一覧のみ返す）・`_FEATURE_GRADIENT_INPUTS_IN_TILE_SQL`（gradient。そのフィーチャーに属する
+区間の値を長さで重み付けて平均する——区間単位のズームでは区間1本の値そのもの、way単位の
+ズームではwayの全区間をならした値になる。区間の勾配はジオメトリの始点→終点を正とするため、
+フィーチャーの基準方位とのcosの符号で向きを揃えてから平均する）は、いずれも
+`_COVERAGE_SQL`（取込の宣言した範囲か）をMVT生成と同じ1クエリへ畳み込み、1タイル1DB往復に
+まとめる設計を共有する。カバレッジ外はNone、カバレッジ内で0件なら空、という契約で呼び出し側
+（`RegionService`）が空タイルと区別する。いずれも**同じ`_TILE_FEATURE_SOURCE_SQL`から
 フィーチャーを引く**——別々に組み立てると、代表の選び方がタイルとずれた瞬間に鍵が噛み合わず
 色が一切付かない。詳細は[dynamic-way-values.md](dynamic-way-values.md)参照。
 
@@ -874,23 +847,6 @@ ST_AsMVT丸ごと生成）・`_FEATURE_KEYS_IN_TILE_SQL`（wind、道路自身�
 `_ROAD_SURFACE_TILE_MVT_SQL`・`material_coverage.py`
 （[evaluation-scoring.md](evaluation-scoring.md)）と共通で参照する。詳細は
 [axis-studio.md](axis-studio.md)参照。
-
-### `road_graph_models.py`（SQLAlchemy ORM）
-
-主要テーブル: `osm_raw_nodes`（GiST索引なし、空間検索が一度も行われないため）、
-`osm_raw_pois`（GiST索引あり、停止POI用）、`osm_raw_ways`（`split_at`列で鮮度判定、
-`geom`は実体化済みLINESTRING）、`road_nodes`（`degree`列、事前集計）、`road_edges`
-（`bearing_deg`列）、`elevation_attributes`、`edge_attribute_counts`（Edge単位
-事前集計）、`raw_intersection_nodes`（次数3以上の生ノード）、`way_attribute_counts`
-（Way単位事前集計、地図表示の母集団——`edge_attribute_counts`はルート生成済みエリア
-しかカバーしないため地図表示には使えない）、`osm_import_runs`、`road_graph_tiles`
-（取得済みマーカー）。
-
-`EdgeAttributeCountsRow`/`WayAttributeCountsRow`の`source_*_import_run_id`は素の
-`Integer`列で明示的な`ForeignKey()`を持たない——`ForeignKey(...)`を書くと
-`Base.metadata`経由で`accident_models.py`/`road_graph_models.py`双方のimportを要求する
-ようになり、`precompute_edge_attribute_counts.py`単体実行のような参照先モデルを一切
-importしないプロセスで`NoReferencedTableError`を起こす。
 
 ### キャッシュ（ルート生成はRedisを使わない）
 
@@ -902,11 +858,11 @@ importしないプロセスで`NoReferencedTableError`を起こす。
 | ディスク | タイル材料・静的スコア行列（プロセス再起動をまたぐ） | `tile_persistent_cache.py`（`diskcache`の包み。容量上限とLRU退避をライブラリが持つ） |
 | ディスク | 標高DEMタイル | `tile_cache.py` |
 
-タイルの取込完了判定（`road_graph_tiles`、1,000行規模）とsplit鮮度判定
-（`is_split_up_to_date`の空間クエリ）は、いずれも数ミリ秒で終わるためキャッシュせず毎回
-PostGISへ問い合わせる。エッジの実ジオメトリ（`get_edges_with_geometry`）も同様に毎回読む。
+カバレッジ判定（`is_covered`、`source_runs`への1クエリ）はキャッシュせず毎回PostGISへ
+問い合わせる。エッジの実ジオメトリ（`get_edges_with_geometry`）も同様に毎回読む。
 判断をキャッシュしない理由は[docs/conventions/caching.md](../../conventions/caching.md)参照——別プロセスのバッチが
-生データを書き換えるため、判断を保持すると危険側（「splitは最新」）で古い値を返しうる。
+取込の記録を書き換えるため、判断を保持すると古い範囲で答えうる。派生データそのものの
+書き換えへは、キャッシュを捨てる側（`derived_data_meta.revision`の突き合わせ）で追随する。
 
 ## API（`api/routers/routes.py`）
 
@@ -932,19 +888,12 @@ PostGISへ問い合わせる。エッジの実ジオメトリ（`get_edges_with_
   （PostGIS/内部処理のエラー詳細を含みうる）は`logger.exception`でサーバーログに
   のみ残す。
 
-## batch: `precompute_road_node_degrees.py`
+## 交差点の信号・最大階級（`batch/derive_node_materials.py`が埋める）
 
-`road_nodes.degree`（DB全体から見た真のグローバル次数）の事前集計バッチ。実際の集計SQL
-（`_RECOMPUTE_NODE_DEGREES_SQL`）は`DerivedGraphRepository.recompute_node_degrees`が
-実装済みで、本バッチはそれを呼び出すだけ。**`precompute_edge_attribute_counts.py`より
-先に実行する必要がある**（`intersection_count`がこのバッチの書く`degree`列を参照する
-ため）。
-
-## batch: `precompute_road_node_intersections.py`
-
-`road_nodes.has_traffic_signals`・`road_nodes.max_highway_rank`の事前集計バッチ。集計SQLは
-`DerivedGraphRepository.recompute_node_traffic_signals`・`recompute_node_max_highway_rank`が
-持ち、本バッチはそれを呼び出すだけ。
+ターンの費用が読むノードの値（`node_materials.has_traffic_signals`・`max_highway_rank`）は
+派生バッチ`derive_node_materials.py`が埋める（バッチ自体は[静的道路属性・タイル配信](static-road-attributes.md)
+の管轄。ここには探索側から見た前提だけを書く）。行の無いノードは`get_graph_topology_in_bbox`が
+既定値（信号なし・階級0）で読む。
 
 **信号の有無はノード単位でしか表せない**。ターンの費用は「進入した道より上位の道と交わる
 交差点」で秒数を足すが、信号での待ちは停止密度の材料が走行モデルへ運ぶ
@@ -953,28 +902,18 @@ PostGISへ問い合わせる。エッジの実ジオメトリ（`get_edges_with_
 どちらの端の信号かが失われて区別できない。
 
 信号は交差点そのもののノードではなく流入路ごと・横断歩道位置ごとの別ノードとして描かれる
-ため、判定は`osm_node_id`の一致ではなく半径（較正値の宣言が持つ「信号とみなす半径」）で行う。
-**半径は結果を大きく動かす**——広げるほど「信号あり」とみなすノードが増え、そのぶんターンの
-費用が下がる（幹線が集まる交差点で信号ありとみなす割合は、10mで37.4%・60mで67.9%まで変わり
-頭打ちが無い）。較正されていない値である。
+ため、判定は`osm_node_id`の一致ではなく半径（`derive_node_materials.py: SIGNAL_RADIUS_M`）で
+行う。**半径は結果を大きく動かす**——広げるほど「信号あり」とみなすノードが増え、そのぶん
+ターンの費用が下がる（幹線が集まる交差点で信号ありとみなす割合は、10mで37.4%・60mで67.9%まで
+変わり頭打ちが無い）。較正されていない値である。
 
-**暗黙の前提**: この半径は、同じ交差点の点をまとめる距離（`POI_CLUSTER_EPS_M`）と同じ値だが
-別の定数として持つ。問うていることが違う（あちらは「同じ停止か」、こちらは「この交差点に
-信号があるか」）ため、まとめる距離を較正で動かしたときに横断の費用まで一緒に動いてはいけない。
+**暗黙の前提**: この半径は、同じ交差点の点をまとめる距離（`POI_CLUSTER_EPS_M`）とは別の定数
+として持つ。問うていることが違う（あちらは「同じ停止か」、こちらは「この交差点に信号があるか」）
+ため、まとめる距離を較正で動かしたときに横断の費用まで一緒に動いてはいけない。
 
 `max_highway_rank`はDB全体から見た値で、探索は読み込んだ部分グラフからも同じ値を導ける。
 DB側の値は**その下限を上げるためだけ**に使う（bboxの外へはみ出した上位の道を取りこぼさない）
-——未集計の0でも探索側の導出が働くため、バッチ未実行でも挙動は変わらない。
-
-## batch: `presplit_road_graph.py`
-
-取込済み全z12タイル（`road_graph_tiles`）を走査し、`is_split_up_to_date`が偽なタイルへ
-`GraphService.get_or_build_graph_with_attributes`（実行時の遅延構築と同じ再構築経路）を
-順に適用する。新しい分割ロジックは持たず既存メソッドを呼ぶだけで、split済みタイルは
-スキップして冪等。タイルごとに新規DBセッションを開き1件ずつ処理する（並列化しない）。
-このバッチが処理中のタイルへ実行時の遅延構築が同時に到達すると、両者は独立に
-同じ`closure取得→build_road_graph→save_graph`を実行し、`road_edges`の行ロックで
-一方が他方の完了を待つ（edge_idが決定論的なため最終的には同じ結果へ収束する）。
+——既定値の0でも探索側の導出が働くため、バッチが埋めていないノードでも挙動は変わらない。
 
 ## 暗黙の前提のまとめ
 
@@ -1007,6 +946,7 @@ DB側の値は**その下限を上げるためだけ**に使う（bboxの外へ�
   軸編集はデプロイを伴わない実行時操作のため）。
 - **`search_graph_cache`（探索用グラフ・索引）はタイル集合キー**——
   `graph_material_cache`/`tile_score_matrix_cache`（いずれもタイル単位のキー）とは
-  粒度が異なる。`GraphService.get_search_materials_for_bbox`が「タイルキャッシュを
-  そのまま結合したgraph」を返した場合のみ有効なタイル集合が得られ、split鮮度が
-  古いbbox限定の再構築経路ではこのキャッシュ自体を経由しない。
+  粒度が異なる。`GraphService.get_search_materials_for_bbox`は常に「タイルキャッシュを
+  そのまま結合したgraph」を返すため、タイル集合だけで中身が決まる。材料キャッシュが
+  派生データ世代で捨てられてもこのキャッシュは残るため、区間の作り直し後の食い違いは
+  `_ensure_lazy_graph_consistent`が検知して作り直す（「探索・索引構築のキャッシュ」節）。

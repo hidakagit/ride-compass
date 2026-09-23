@@ -5,7 +5,7 @@
 - Node.js 20+
 - Python 3.11+
 - PostgreSQL + PostGIS（Road Graph・路面タイル生成の一次系統。**DBなしでは起動しない**）
-- Redis（JMA気象データ・road_graph_tilesのcache-aside層。未接続でもフォールバックする箇所が
+- Redis（JMA気象データの短命キャッシュ。未接続でもフォールバックする箇所が
   一部あるが、ローカル開発でも用意することを推奨）
 - Docker / Docker Compose（任意。frontend/backend/postgres/redisをまとめて起動する場合）
 
@@ -44,7 +44,8 @@ curl -X POST http://localhost:8000/api/routes/generate -H "Content-Type: applica
   -d '{"latitude":35.7597,"longitude":139.7387,"distance_km":15,"distance_tolerance_km":5,"route_type":"loop"}'
 ```
 
-対象エリアが未取込・split未済みだと自前Road Graphの構築コストが乗り、数十秒かかることがある。
+対象エリアが取込範囲の外なら候補0件になる。範囲内でも、タイル材料のキャッシュが冷えている
+（初回・派生データの作り直し直後）とDBからの読み出しが乗り、数十秒以上かかることがある。
 レート制限・同時実行数の上限に達すると429が返る。
 
 **`.env`を変えたらプロセスを止めて起動し直す。** `uvicorn --reload`はPythonファイルの変更は
