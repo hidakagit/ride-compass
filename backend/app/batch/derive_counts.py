@@ -129,24 +129,22 @@ FROM (
 WHERE c.osm_way_id = m.osm_way_id AND c.segment_index = m.segment_index
 """
 
-#: 事故は最も近い区間へ1件だけ付ける。
+#: 事故は最も近い区間へ1件だけ付ける。鍵の2列は同じ1回の探索から取る——別々に探すと、
+#: 等距離のタイで実在しない組を指しうる。
 _EDGE_ACCIDENTS = f"""
 WITH nearest AS (
-    SELECT a.natural_key,
-           CASE WHEN {FATAL_SQL} THEN $1 ELSE 1.0 END AS weight,
-           (SELECT e.osm_way_id FROM road_edges e
-             WHERE e.geom && ST_Expand(a.geom, $2)
-             ORDER BY e.geom <-> a.geom LIMIT 1) AS osm_way_id,
-           (SELECT e.segment_index FROM road_edges e
-             WHERE e.geom && ST_Expand(a.geom, $2)
-             ORDER BY e.geom <-> a.geom LIMIT 1) AS segment_index
-    FROM source_features a WHERE a.source = 'accident'
+    SELECT CASE WHEN {FATAL_SQL} THEN $1 ELSE 1.0 END AS weight, n.osm_way_id, n.segment_index
+    FROM source_features a
+    CROSS JOIN LATERAL (
+        SELECT e.osm_way_id, e.segment_index FROM road_edges e
+        WHERE e.geom && ST_Expand(a.geom, $2)
+        ORDER BY e.geom <-> a.geom, e.osm_way_id, e.segment_index LIMIT 1) n
+    WHERE a.source = 'accident'
 )
 UPDATE edge_materials m SET accident_count = COALESCE(s.total, 0)
 FROM (
     SELECT osm_way_id, segment_index, sum(weight) AS total
-    FROM nearest WHERE osm_way_id IS NOT NULL
-    GROUP BY osm_way_id, segment_index
+    FROM nearest GROUP BY osm_way_id, segment_index
 ) s
 WHERE s.osm_way_id = m.osm_way_id AND s.segment_index = m.segment_index
 """

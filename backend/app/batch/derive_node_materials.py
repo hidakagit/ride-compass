@@ -39,35 +39,39 @@ logger = logging.getLogger("ridecompass.derive_node_materials")
 #: `osm_node_id`の一致では大半を取りこぼす。
 SIGNAL_RADIUS_M = 25.0
 
-#: タグから種別・信号を判定する側が期待する形（`id`・`tags`）へ生データを写す。
-#: タグの無いノード（形状の頂点）はどの規則にも当たらないので、先に落とす。
-_SOURCE_NODES = ("SELECT natural_key::bigint AS id, attrs AS tags FROM source_features"
-                 " WHERE source = 'osm_node' AND attrs <> '{}'::jsonb")
+def _source_nodes(extra_columns: str = "") -> str:
+    """タグから種別・信号を判定する側が期待する形（`id`・`tags`）へ生データを写す。
+    タグの無いノード（形状の頂点）はどの規則にも当たらないので、先に落とす。"""
+    return (f"SELECT natural_key::bigint AS id, attrs AS tags{extra_columns}"
+            " FROM source_features WHERE source = 'osm_node' AND attrs <> '{}'::jsonb")
+
 
 _UPSERT_KIND = f"""
 INSERT INTO node_materials (osm_node_id, kind, source_run_id)
-SELECT id, kind, $1 FROM ({tag_kind_sql(_SOURCE_NODES)}) k
+SELECT id, kind, $1 FROM ({tag_kind_sql(_source_nodes())}) k
 ON CONFLICT (osm_node_id) DO UPDATE SET kind = EXCLUDED.kind
 """
 
 _SIGNAL_NODES = f"""
 CREATE TEMP TABLE _signal_nodes ON COMMIT DROP AS
-SELECT s.id AS osm_node_id FROM ({_SOURCE_NODES}) s WHERE {TRAFFIC_SIGNAL_SQL}
+SELECT s.id AS osm_node_id, s.geom FROM ({_source_nodes(", geom")}) s WHERE {TRAFFIC_SIGNAL_SQL}
 """
 
+_CLEAR_SIGNALS = "UPDATE node_materials SET has_traffic_signals = false WHERE has_traffic_signals"
+
+#: 信号の側から近くのノードを探す——索引を引く回数が、全ノード数ではなく信号の数で決まる。
 #: `&&`の前置フィルタを先に置くのは、`::geography`へのキャストがgeometryのGiSTを
 #: 使えなくするため。矩形で絞ってから正確な距離を測る。
 _UPDATE_SIGNALS = """
-UPDATE node_materials nm
-SET has_traffic_signals = EXISTS (
-    SELECT 1 FROM source_features sig
-    JOIN _signal_nodes sk ON sk.osm_node_id = sig.natural_key::bigint
-    WHERE sig.source = 'osm_node'
-      AND sig.geom && ST_Expand(self.geom, $2)
-      AND ST_DWithin(sig.geom::geography, self.geom::geography, $1)
-)
-FROM source_features self
-WHERE self.source = 'osm_node' AND self.natural_key = nm.osm_node_id::text
+UPDATE node_materials nm SET has_traffic_signals = true
+FROM (
+    SELECT DISTINCT near.natural_key::bigint AS osm_node_id
+    FROM _signal_nodes sk
+    JOIN source_features near ON near.source = 'osm_node'
+     AND near.geom && ST_Expand(sk.geom, $2)
+     AND ST_DWithin(sk.geom::geography, near.geom::geography, $1)
+) hit
+WHERE hit.osm_node_id = nm.osm_node_id
 """
 
 #: そのノードに集まる道の最大階級。
@@ -103,9 +107,10 @@ async def derive(conn: asyncpg.Connection) -> int:
     async with conn.transaction():
         classified = int((await conn.execute(_UPSERT_KIND, run_id)).split()[-1])
         await conn.execute(_SIGNAL_NODES)
-        await conn.execute("CREATE UNIQUE INDEX ON _signal_nodes (osm_node_id)")
         signals = await conn.fetchval("SELECT count(*) FROM _signal_nodes")
         await conn.execute("ANALYZE _signal_nodes")
+        # 単独で流し直したときに、前回だけ信号の近くにあったノードを戻す。
+        await conn.execute(_CLEAR_SIGNALS)
         # 緯度が高いほど1度は短い。取りこぼさないよう余裕を持たせる。
         await conn.execute(_UPDATE_SIGNALS, SIGNAL_RADIUS_M,
                            SIGNAL_RADIUS_M / 111_000.0 * 2.0)

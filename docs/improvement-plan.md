@@ -220,7 +220,6 @@ CLAUDE.md参照。節見出しはタスクのテーマ分類で、日付は起�
 - [ ] [T1029](records/tasks/T1029.md). sceneの入力語彙を、上位のReactコンポーネントのpropsから切り離す 規模S
 - [ ] [T1033](records/tasks/T1033.md). way_materialsだけが「生データを差し替えたら下流を作り直す」契約から外れている 規模S
 - [ ] [T1034](records/tasks/T1034.md). 周期レビュー第12回の小さな指摘をまとめて直す 規模S
-- [ ] [T1035](records/tasks/T1035.md). batchの2つのSQLが、駆動側の取り方で余分な仕事をしている 規模S
 - [ ] [T1044](records/tasks/T1044.md). ノードの生データを読む綴りが、共有断片を持たないまま手書きで散っている 規模S
 - [ ] [T1042](records/tasks/T1042.md). 作業ツリーが自動で片付かず、しかも普通には消せない 規模M
 - [ ] [T1043](records/tasks/T1043.md). routing-engine.mdを、読む人の入口ごとに分割する 規模M
