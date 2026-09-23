@@ -227,5 +227,6 @@ CLAUDE.md参照。節見出しはタスクのテーマ分類で、日付は起�
 - [ ] [T1044](records/tasks/T1044.md). ノードの生データを読む綴りが、共有断片を持たないまま手書きで散っている 規模S
 - [ ] [T1042](records/tasks/T1042.md). 作業ツリーが自動で片付かず、しかも普通には消せない 規模M
 - [ ] [T1043](records/tasks/T1043.md). routing-engine.mdを、読む人の入口ごとに分割する 規模M
+- [ ] [T1045](records/tasks/T1045.md). commit・pushが重いときがある——pre-pushの門を、検査を落とさずに速くする 規模S〜M
 
 見送りとして判断を記録したもの（台帳には載せない）: [T1036](records/tasks/T1036.md)・[T1037](records/tasks/T1037.md)・[T1038](records/tasks/T1038.md)・[T1039](records/tasks/T1039.md)・[T1040](records/tasks/T1040.md)
