@@ -13,8 +13,7 @@
     python scripts/orchestrate.py check [--record]            # 定期確認。異常だけを出す（0=異常なし / 1=あり）
     python scripts/orchestrate.py check --if-due              # フック用（scripts/orchestration/hook.sh から）
     python scripts/orchestrate.py board claim                 # このセッションを司令塔として記録する
-    python scripts/orchestrate.py audit <名前> <sha> [--checks-in <検査用の作業ツリー>]
-                                                              # 監査のうち機械で見られる項目＋CIの結論＋pre-pushと同じ静的検査
+    python scripts/orchestrate.py audit <名前> <sha>         # 監査のうち機械で見られる項目＋CIの結論
     python scripts/orchestrate.py board set <名前> k=v ...    # エージェントの行を更新
     python scripts/orchestrate.py board add <名前> k=v ...    # エージェントの行を追加
     python scripts/orchestrate.py board run k=v ...           # 回の値（limits.concurrent等）を更新
@@ -67,7 +66,6 @@ import datetime as dt
 import json
 import os
 import re
-import shutil
 import subprocess
 import sys
 import tempfile
@@ -134,7 +132,8 @@ LOCK_WAIT_LIMIT_MINUTES = 10
 CPU_SATURATED_PERCENT = 90
 CPU_SAMPLE_SECONDS = 2.0
 GIT_TIMEOUT_SECONDS = 60
-#: 監査を通したコミットは溜めてmasterへ1回でpushする（pre-pushの門を払う回数を減らす）。
+#: 監査を通したコミットは溜めてmasterへ1回でpushする（masterへのpushのたびにCIとbackendの
+#: デプロイ＝本番の再起動が走るため、回数を減らす）。
 PUSH_BATCH_SIZE = 2
 PUSH_INTERVAL_MINUTES = 60
 #: これより古い監査の記録は、masterへ入ったかを調べない（1件ごとにgitを1回呼ぶため）。
@@ -148,17 +147,11 @@ EXPECTED_HOOKS_PATH = ".githooks"
 IGNORED_CHANGES = (".claude/settings.local.json",)
 
 #: 監査の同期ルール（CLAUDE.md「コミット時の同期ルール」）で、生成物の再生成を要する宣言の場所。
-#: .githooks/pre-pushが再生成を走らせる条件と同じ。
 API_DECL_RE = re.compile(r"^backend/(app/(api|domain)/|app/config\.py|scripts/export_openapi\.py)")
 GENERATED_PREFIX = "frontend/src/types/generated/"
-#: pre-pushの門が書式を確かめる対象と同じ。
-PRETTIER_TARGET_RE = re.compile(r"^frontend/src/.*\.(ts|tsx|css)$")
-PRETTIER_BIN = "frontend/node_modules/prettier/bin/prettier.cjs"
-#: 変更ファイルを一時ディレクトリで検査するときに、報告のコミットから一緒に書き出す設定。
-TOOL_CONFIGS = ("backend/ruff.toml", "frontend/.prettierrc.json", "frontend/.prettierignore")
 STATIC_CHECK_TIMEOUT = 600
 #: 使い捨ての成果物が紛れ込みやすい形。混入の候補であって判定ではない。
-SCRATCH_RE = re.compile(r"(^|/)(scratch|tmp|temp)(/|$)|\.(log|png|jpe?g|webm|zip)$|(^|/)\.git-pre-push-", re.IGNORECASE)
+SCRATCH_RE = re.compile(r"(^|/)(scratch|tmp|temp)(/|$)|\.(log|png|jpe?g|webm|zip)$", re.IGNORECASE)
 E2E_SPEC_RE = re.compile(r"^frontend/e2e/.*\.spec\.[jt]s$")
 #: コミットメッセージに検証の証拠らしき記述があるかの目安。
 COMMAND_HINT_RE = re.compile(
@@ -995,21 +988,6 @@ def cmd_audit(ctx: Context, args: argparse.Namespace) -> int:
             else:
                 print(f"  {text}")
 
-    # 静的検査（pre-pushの門と同じもの）。masterへまとめてpushする時に初めて門で落ちると、
-    # まとめた全体が止まるため、監査の時点で同じ検査を通す。
-    live = [p for s, p in changes if s != "D"]
-    print("\n静的検査（pre-pushの門と同じ。変更ファイルへのruff・prettier、docs検査、OpenAPI生成物のずれ）")
-    if args.no_checks:
-        print("  （--no-checks により未実行）")
-    else:
-        for name, ok, detail in static_checks(ctx, args, sha, agent, live):
-            if ok:
-                print(f"  {name}: 通過{('（' + detail + '）') if detail else ''}")
-            elif ok is None:
-                print(f"  {name}: 対象なし")
-            else:
-                flag(f"{name}: {detail}")
-
     backend = any(p.startswith("backend/") for p in files)
     print("\n未判定（司令塔が判断する）:")
     print("  3. 完了条件 — Txxx.mdの完了条件の各項目に、何で確かめたかが書かれているか")
@@ -1039,122 +1017,6 @@ def ci_verdicts(sha: str) -> list[tuple[str, bool]]:
         state = run.get("conclusion") if done else f"結論待ち（{run.get('status')}）"
         verdicts.append((f"{run.get('name')}: {state}  {run.get('html_url', '')}", is_failure(run) or not done))
     return verdicts
-
-
-def find_venv_python(place: Path, ctx: Context) -> str | None:
-    """backend/.venvは作業ツリーへ複製されないため、本体のチェックアウトの側へ落ちる。"""
-    for root in (place, ctx.common.parent):
-        for rel in ("backend/.venv/Scripts/python.exe", "backend/.venv/bin/python"):
-            if (root / rel).exists():
-                return str(root / rel)
-    return None
-
-
-def run_tool(cmd: list[str], cwd: Path) -> tuple[bool, str]:
-    env = dict(os.environ, PYTHONIOENCODING="utf-8", GIT_OPTIONAL_LOCKS="0")
-    try:
-        r = subprocess.run(cmd, cwd=str(cwd), capture_output=True, env=env, timeout=STATIC_CHECK_TIMEOUT, check=False)
-    except (subprocess.TimeoutExpired, OSError) as e:
-        return False, f"実行できない（{e.__class__.__name__}）"
-    out = (r.stdout + r.stderr).decode("utf-8", errors="replace").strip().splitlines()
-    return r.returncode == 0, "\n      ".join(out[-12:])
-
-
-def checks_place(ctx: Context, args: argparse.Namespace, sha: str, agent: dict | None) -> tuple[Path | None, str]:
-    """検査を走らせる作業ツリー。指定があればそこへshaを取り出し、無ければ担当の作業ツリーが
-    ちょうどshaで変更なしのときだけ使う（検査は手元のファイルを読むため）。"""
-    if args.checks_in:
-        place = Path(args.checks_in)
-        common = git_out(place, "rev-parse", "--path-format=absolute", "--git-common-dir")
-        if common is None or os.path.normcase(common) != os.path.normcase(str(ctx.common)):
-            return None, f"{place} は同じリポジトリの作業ツリーではない"
-        tree = Worktree(str(place), None, None, main=False)
-        inspect_changes(tree)
-        if tree.dirty:
-            return None, f"{place} に未コミットの変更がある（検査用の作業ツリーは変更なしで使う）"
-        r = git(place, "checkout", "--detach", "--quiet", sha)
-        if r is None or r.returncode != 0:
-            return None, f"{place} へ {sha[:8]} を取り出せない"
-        return place, f"{place}（{sha[:8]}を取り出した）"
-    if agent is not None:
-        tree = worktree_of(agent, list_worktrees(ctx))
-        if tree is not None and tree.exists and tree.head == sha:
-            inspect_changes(tree)
-            if tree.dirty == 0:
-                return Path(tree.path), f"担当の作業ツリー {tree.label}"
-    return None, "担当の作業ツリーが報告のshaのまま変更なし、になっていない（--checks-in <検査用の作業ツリー>で走らせる）"
-
-
-def blob_checks(ctx: Context, sha: str, live: list[str], roots: list[Path]) -> list[tuple[str, bool | None, str]]:
-    """ruffとprettierを、報告のコミットの中身（blob）へ当てる。変更ファイルと設定ファイルだけを
-    一時ディレクトリへ同じパスで書き出して1回ずつ走らせるため、作業ツリーへの取り出しが要らず、
-    担当の作業ツリーが先へ進んでいても、道具（venv・node_modules）のある場所ならどこでも走る。"""
-    results: list[tuple[str, bool | None, str]] = []
-    py_files = [p for p in live if p.startswith("backend/") and p.endswith(".py")]
-    fe_files = [p for p in live if PRETTIER_TARGET_RE.match(p)]
-    if not py_files:
-        results.append(("ruff", None, ""))
-    if not fe_files:
-        results.append(("prettier", None, ""))
-    if not py_files and not fe_files:
-        return results
-    wanted = py_files + fe_files + list(TOOL_CONFIGS)
-    blobs = cat_files(ctx.repo, [f"{sha}:{p}" for p in wanted])
-    with tempfile.TemporaryDirectory(prefix="orch-audit-") as tmp:
-        for p in wanted:
-            if blobs[f"{sha}:{p}"] is not None:
-                target = Path(tmp, p)
-                target.parent.mkdir(parents=True, exist_ok=True)
-                target.write_bytes(blobs[f"{sha}:{p}"].encode("utf-8"))
-
-        python = next((p for r in roots if (p := find_venv_python(r, ctx))), None)
-        if py_files and python is None:
-            results.append(("ruff", False, "未実行: backend/.venv が見つからない"))
-        elif py_files:
-            ok, out = run_tool([python, "-m", "ruff", "check", *py_files], Path(tmp))
-            results.append(("ruff", ok, f"{len(py_files)}件" if ok else out))
-
-        root = next((r for r in roots if (r / PRETTIER_BIN).exists()), None)
-        if fe_files and root is None:
-            results.append(("prettier", False, "未実行: frontend/node_modules のある作業ツリーが見つからない"))
-        elif fe_files:
-            ok, out = run_tool(["node", str(root / PRETTIER_BIN), "--check", "--log-level", "warn",
-                                *[p.removeprefix("frontend/") for p in fe_files]], Path(tmp, "frontend"))
-            results.append(("prettier", ok, f"{len(fe_files)}件" if ok else out))
-    return results
-
-
-def static_checks(ctx: Context, args: argparse.Namespace, sha: str, agent: dict | None,
-                  live: list[str]) -> list[tuple[str, bool | None, str]]:
-    place, where = checks_place(ctx, args, sha, agent)
-    roots = [r for r in (place, ctx.repo, ctx.common.parent) if r is not None]
-    results = blob_checks(ctx, sha, live, roots)
-    if place is None:
-        results.append(("docs検査・OpenAPI生成物", False, f"未実行: {where}"))
-        return results
-    print(f"  取り出した場所: {where}")
-    python = find_venv_python(place, ctx)
-
-    ok, out = run_tool([python or sys.executable, "scripts/review_checks.py", "docs"], place)
-    results.append(("docs検査", ok, "" if ok else out))
-
-    if not any(API_DECL_RE.match(p) for p in live):
-        results.append(("OpenAPI生成物", None, ""))
-    elif not args.checks_in:
-        results.append(("OpenAPI生成物", False, "未実行: 再生成は作業ツリーを書き換えるため、--checks-in の検査用の作業ツリーでだけ走らせる"))
-    elif python is None or not (place / "frontend/node_modules").exists():
-        results.append(("OpenAPI生成物", False, "未実行: backend/.venv か frontend/node_modules が無い"))
-    else:
-        npm = shutil.which("npm") or "npm"
-        run_tool([python, "backend/scripts/export_openapi.py"], place)
-        run_tool([npm, "run", "--silent", "generate:api"], place / "frontend")
-        drift = git(place, "diff", "--quiet", "--", GENERATED_PREFIX)
-        ok = drift is not None and drift.returncode == 0
-        if not ok:
-            # 検査用の作業ツリーで自分が再生成した差分なので、次の監査のために戻す。
-            git(place, "checkout", "--", GENERATED_PREFIX)
-        results.append(("OpenAPI生成物", ok, "" if ok else "再生成すると差分が出る（生成物をコミットしていない）"))
-    return results
 
 
 # ---------------------------------------------------------------- board
@@ -1329,7 +1191,7 @@ def cmd_unpushed(ctx: Context, board: dict, at: dt.datetime) -> int:
         # 範囲ごとに分けて取り込む（1回のcherry-pickへ並べると、範囲の和として解釈される）。
         picks = " && ".join(f"git cherry-pick {i['base']}..{i['sha']}" if i.get("base")
                             else f"git cherry-pick {i.get('sha')}" for i in items)
-        print("\n1回でpushする手順（司令塔の作業ツリーで。枠で包まない——pre-pushの重い段はフックが枠を取る。衝突したら中止して担当へ差し戻す）:")
+        print("\n1回でpushする手順（司令塔の作業ツリーで。枠で包まない。衝突したら中止して担当へ差し戻す）:")
         print(f"  git fetch origin master && git switch -C land origin/master"
               f" && {picks} && git push origin \"$(git rev-parse HEAD)\":refs/heads/master")
         print("  （masterに入ったかは git から導くので、pushの後に表を書き換える手順は無い）")
@@ -1370,8 +1232,6 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("name")
     p.add_argument("sha")
     p.add_argument("--base", help="比較の基点（既定: origin/master。分岐点を取る）")
-    p.add_argument("--checks-in", help="静的検査を走らせる検査用の作業ツリー（shaを取り出す。変更なしであること）")
-    p.add_argument("--no-checks", action="store_true", help="静的検査を走らせない")
     p.add_argument("--no-ci", action="store_true", help="CIの結論を読まない")
 
     p = sub.add_parser("board", help="状態の表の更新")

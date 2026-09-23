@@ -109,7 +109,7 @@ def run(name: str, command: str) -> int:
         print(f"[lockrun] 停止ファイル（{stop_file}）があるため {name} を始めません", flush=True)
         return 75
     if name in os.environ.get(HELD_ENV, "").split(","):
-        # 枠を持った処理の中から同じ枠を取りに来た（pre-pushの重い段等）。待つと自分を待って止まる。
+        # 枠を持った処理の中から同じ枠を取りに来た。待つと自分を待って止まる。
         return subprocess.run([find_bash(), "-c", command], cwd=os.getcwd(), check=False).returncode
     path = os.path.join(root, name)
     start = datetime.now().astimezone().isoformat(timespec="seconds")

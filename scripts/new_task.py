@@ -16,7 +16,7 @@
 3. 一時インデックスへ土台のツリーを読み、スタブ `docs/records/tasks/Txxx.md` と
    台帳 `docs/improvement-plan.md` の該当節の末尾の1行だけを足してコミットを作る
    （作業ツリーの未コミット変更・ブランチ上の未pushコミットは、構造上このコミットに入らない）
-4. `git push <remote> <sha>:refs/heads/master`。pre-pushフックは通常どおり走る
+4. `git push <remote> <sha>:refs/heads/master`。pre-pushフックは通常どおり走る（検査はしない）
 5. 拒否されてリモートのmasterが動いていたら、新しい土台で2からやり直す（番号は土台から
    導くので、他者が先に取った番号は自然に避けられる）。リモートが動いていないのに拒否された
    （フック・認証等）なら、やり直さずに失敗する

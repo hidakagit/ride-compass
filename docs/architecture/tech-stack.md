@@ -132,7 +132,7 @@ publicリポジトリで標準のGitHubホストランナーを使う実行を�
 
 - `ci.yml`・`docs-consistency.yml`はmasterに加えて並行実行の作業ブランチ（`orch/**`）への
   pushでも走り、重い検査を開発機から外す（手順はdocs/conventions/orchestration.md「完了とpush」）。
-  `.githooks/pre-push`は`orch/**`へのpushでは検査を省く。backendの本番へのデプロイは、masterへの
+  `.githooks/pre-push`は検査をしない（docs/conventions/testing.md「検査の置き場」）。backendの本番へのデプロイは、masterへの
   pushでCIが通ったときだけ`ci.yml`から呼ばれる（上の「デプロイの反映確認」）。
 - 同じブランチへの新しいpushで古い実行を打ち切らない。監査は報告のコミットごとのCIの結論を
   読むため、打ち切るとそのコミットの結論が残らない。
@@ -143,8 +143,8 @@ publicリポジトリで標準のGitHubホストランナーを使う実行を�
 リポジトリは標準ランナーで月2,000分までで、支払い方法が未登録なら使い切った時点で実行が止まる
 （登録済みなら超過分が課金される）。privateへ切り替えるときは、切り替えの前に次を見直す:
 作業ブランチ（`orch/**`）でCIを走らせるか、古い実行を打ち切るか（`concurrency`）、docs・`*.md`
-だけの変更で`ci.yml`を飛ばす範囲（`paths-ignore`）、ジョブの分け方とキャッシュ、pre-pushで
-検査を省く範囲。
+だけの変更で`ci.yml`を飛ばす範囲（`paths-ignore`）、ジョブの分け方とキャッシュ。検査の門を
+CIだけに置いている（pre-pushは検査をしない）ため、CIの分数が尽きると検査そのものが止まる。
 
 ## DBの版（本番が正本）
 

@@ -1,14 +1,14 @@
 #!/bin/sh
-# push直前の門。**1タスクにつき重い検査はここでの1回だけ**にするため、
-# pre-commitは何もせずここへ集約する。落ちたらpushを止める。
+# push直前のフック。検査はしない——検査はCI（ci.yml・docs-consistency.yml）が持つ。
 #
-# 並行実行の作業ブランチ（orch/**）へのpushは検査せず、停止ファイルの確認だけで通す。
-# そこへのpushはCI（ci.yml・docs-consistency.yml）が走り、masterへ出る前には監査
-# （scripts/orchestrate.py audit）とmasterへのpushでのこの門を必ず通るため。
-# CIが走らないブランチへのpushは、masterと同じく検査する。
+# 検査の置き場（docs/conventions/testing.md「検査の置き場」）: 手元では直接触った範囲だけを
+# 確かめ、前提になっているテストと静的検査は作業ブランチ（orch/**）のCIが回し、本番へ出る前の
+# 検査はmasterのCIが持つ（通るまでbackendのデプロイは起動しない）。CIと同じ検査をここにも
+# 置くと、同じ答えをpushのたびに開発機で買い直すことになる。
 #
-# 実行するのは「pushする範囲の変更が届くもの」だけ。届かない検査は動かさない。
-# フルスイート（backend全体・-m postgis・vitest全体）はCIの持ち物で、ここには置かない。
+# ここに残すのは、CIにはできないことだけ:
+# - 並行実行の停止ファイルがある間、pushを拒否する
+# - masterのCIが赤いままなら知らせる（pushは止めない）
 #
 # 有効化: git config core.hooksPath .githooks
 # **相対パスで指定すること。** この設定は本体とworktreeで共有されるため、絶対パスを
@@ -16,173 +16,24 @@
 # ブランチに居ると、gitは黙ってフックを飛ばす（門があるのに一度も走らない状態になる）。
 
 set -eu
-# gitはフックを**リポジトリのトップレベルで実行する**ため、場所を訊き直さない
-# （`git rev-parse --show-toplevel`はこの環境で1.2秒かかる。門は毎回通るので、
-# 1本の呼び出しがそのまま毎回の待ち時間になる）。
-REPO_ROOT="$(pwd)"
 
 # 並行実行の停止ファイル（docs/conventions/orchestration.md「止める手段の段階」）。
 # 置かれている間はpushを拒否する——エージェントが指示に従わなくても、masterへ何も出さない。
 if [ -e "$(git rev-parse --git-common-dir)/orchestration/STOP" ]; then
-    printf '
-[pre-push] 停止ファイル（orchestration/STOP）があるためpushを拒否します
-' >&2
+    printf '\n[pre-push] 停止ファイル（orchestration/STOP）があるためpushを拒否します\n' >&2
     exit 1
 fi
 
-# backend/.venv はworktreeへ複製されない。本体のチェックアウト側にあるものへ落ちる
-# ——落ちないと、worktreeで作業しているあいだruffが黙って飛ばされ続ける。
-find_venv() {
-    for root in "$REPO_ROOT" "$(cd "$(git rev-parse --git-common-dir)/.." && pwd)"; do
-        for v in "$root/backend/.venv/Scripts/python.exe" "$root/backend/.venv/bin/python"; do
-            if [ -x "$v" ]; then printf '%s
-' "$v"; return 0; fi
-        done
-    done
-    return 1
-}
-
-# 検査する範囲は、gitが標準入力で渡す「これからpushする範囲」から決める。
-# 1行が <ローカルref> <ローカルsha> <リモートref> <リモートsha> で、リモートshaは
-# 「リモートが今持っているコミット」——そこからの差分が、まさにpushで増えるぶんになる。
-# リモートshaが全0なら新規ブランチなので、origin/masterからの差分へ落ちる。
-#
-# 手で動かすとき（git経由でない）は標準入力が空になるので、`</dev/null` を付けて呼ぶ。
-PAIRS=""
-LINES=0
-GATED_LINES=0
-CHANGED=""
-# 全0かの判定はshellの`case`で行う（`printf | grep`はそのたびにプロセスを2つ起こす。
-# この環境では1組で0.2秒前後かかり、行数ぶん積み上がる）。
-while read -r _lref lsha rref rsha; do
-    LINES=$((LINES + 1))
-    case "${rref:-}" in refs/heads/orch/*) continue ;; esac
-    GATED_LINES=$((GATED_LINES + 1))
-    [ -n "${lsha:-}" ] || continue
-    case "$lsha" in *[!0]*) ;; *) continue ;; esac  # ローカルsha全0 = ブランチの削除
-    base=""
-    case "${rsha:-}" in
-        # リモートが持つコミットがそのまま基点。存在確認はgitのpushが済ませている。
-        *[!0]*) base="$rsha" ;;
-    esac
-    # 新規ブランチ（リモートsha全0）のときだけ、origin/masterからの差分へ落ちる。
-    [ -n "$base" ] || base="$(git merge-base origin/master "$lsha" 2>/dev/null || echo "")"
-    [ -n "$base" ] || continue
-    PAIRS="$PAIRS $base..$lsha"
-    CHANGED="$CHANGED
-$(git diff --name-only --diff-filter=d "$base" "$lsha")"
+# 作業ブランチ（orch/**）だけへのpushなら、ここで終わる。gitは標準入力で
+# 「<ローカルref> <ローカルsha> <リモートref> <リモートsha>」を1行ずつ渡す。
+OTHER=0
+while read -r _lref _lsha rref _rsha; do
+    case "${rref:-}" in refs/heads/orch/*) ;; *) OTHER=1 ;; esac
 done
-
-if [ "$LINES" -gt 0 ] && [ "$GATED_LINES" -eq 0 ]; then
-    echo '[pre-push] orch/**へのpushのため検査を省きます（CIが回します）' >&2
-    exit 0
-fi
-
-# 標準入力が無い（手で実行した）ときだけ、従来どおり上流との差分で代用する。
-if [ "$LINES" -eq 0 ]; then
-    if UPSTREAM="$(git rev-parse --abbrev-ref --symbolic-full-name '@{u}' 2>/dev/null)"; then
-        BASE="$(git merge-base "$UPSTREAM" HEAD 2>/dev/null || echo "")"
-    else
-        BASE="$(git merge-base origin/master HEAD 2>/dev/null || echo "")"
-    fi
-    [ -n "$BASE" ] || exit 0
-    CHANGED="$(git diff --name-only --diff-filter=d "$BASE" HEAD)"
-fi
-
-# 空行落とし・重複除去・「docs以外があるか」の判定を1本のawkで行う
-# （パイプを繋ぐほどプロセスが増える。ここは門を通る全員が必ず通る場所）。
-CHANGED="$(printf '%s
-' "$CHANGED" | awk 'NF && !seen[$0]++')"
-[ -n "$CHANGED" ] || exit 0
-
-# 文書と台帳の整合。docsだけのpushこそ要るので、下のdocs専用の早期終了より前に置く。
-# 常に全件を見るため、masterに既に入った違反でも止まる（その違反はCIでも赤になっている）。
-PY_ANY="$(find_venv || command -v python3 || command -v python || true)"
-if [ -n "$PY_ANY" ]; then
-    if ! DOCS_OUT="$(PYTHONIOENCODING=utf-8 "$PY_ANY" scripts/review_checks.py docs)"; then
-        printf '%s\n' "$DOCS_OUT" >&2
-        printf '\n[pre-push] %s\n' "文書と台帳の整合に違反があります（python scripts/review_checks.py docs）。pushを中止しました" >&2
-        exit 1
-    fi
-else
-    printf '\n[pre-push] %s\n' "pythonが無いため文書と台帳の整合を飛ばしました（masterへのpushならCIで検査されます）" >&2
-fi
-
-# docs・markdownだけの変更は何も動かさない（.github/workflows/ci.ymlのpaths-ignoreと同じ規則）。
-printf '%s
-' "$CHANGED" | awk '!/^docs\// && !/\.md$/ { found = 1 } END { exit found ? 1 : 0 }' && exit 0
-
-fail=0
-note() { printf '\n[pre-push] %s\n' "$1" >&2; }
-
-# 一度通した範囲は通さない。同じコミットをブランチとmasterの両方へ押すと、範囲が
-# 同じまま検査だけ2回払うことになる（実測、同じ4コミットでフル検査が2回走った）。
-#
-# 鍵には**作業ツリーの状態も入れる**——prettierとtscはコミットではなく手元のファイルを
-# 見るので、範囲が同じでも手元が変わっていれば検査し直す必要がある。
-PASSED_FILE="$(git rev-parse --git-common-dir)/pre-push-passed"
-RUN_KEY="$(printf '%s|%s' "$PAIRS" "$(git status --porcelain)" | git hash-object --stdin)"
-if [ -f "$PASSED_FILE" ] && grep -qxF "$RUN_KEY" "$PASSED_FILE"; then
-    echo '[pre-push] 同じ範囲・同じ作業ツリーで既に通っています。飛ばします' >&2
-    exit 0
-fi
-
-# --- backend: ruff（変更したpyだけ） ---
-PY_FILES="$(printf '%s\n' "$CHANGED" | grep -E '^backend/.*\.py$' || true)"
-if [ -n "$PY_FILES" ]; then
-    if VENV="$(find_venv)"; then
-        printf '%s\n' "$PY_FILES" | grep -v '^$' > "$REPO_ROOT/.git-pre-push-py.$$" || true
-        if ! xargs -a "$REPO_ROOT/.git-pre-push-py.$$" "$VENV" -m ruff check; then
-            note "ruffの指摘があります"; fail=1
-        fi
-        rm -f "$REPO_ROOT/.git-pre-push-py.$$"
-    else
-        note "backend/.venv が無いためruffを飛ばしました（CIで検査されます）"
-    fi
-fi
-
-# --- frontend: prettierの書式（書き換えずに確認だけ）＋ tsc ---
-FE_FILES="$(printf '%s\n' "$CHANGED" | grep -E '^frontend/src/.*\.(ts|tsx|css)$' || true)"
-if [ -n "$FE_FILES" ] && [ -x "frontend/node_modules/.bin/prettier" ]; then
-    printf '%s\n' "$FE_FILES" | sed 's#^frontend/##' > "$REPO_ROOT/.git-pre-push-fe.$$"
-    if ! (cd frontend && xargs -a "$REPO_ROOT/.git-pre-push-fe.$$" ./node_modules/.bin/prettier --check --log-level warn); then
-        note "書式が崩れています: cd frontend && npx prettier --write <対象>"; fail=1
-    fi
-    rm -f "$REPO_ROOT/.git-pre-push-fe.$$"
-fi
-if printf '%s\n' "$CHANGED" | grep -qE '^frontend/'; then
-    if [ -d frontend/node_modules ]; then
-        # 型の波及は1ファイルへ絞れないため、frontendに触れたら全体を1回通す。重い段なので
-        # この段だけが機械全体の枠を取る（pushの一続きを包んで枠を持たない。規約「重い処理は
-        # 機械全体で1本ずつ」）。枠を持った処理の中から呼ばれたときは、lockrunがそのまま走らせる。
-        TSC_STEP='cd frontend && { ./node_modules/.bin/next typegen >/dev/null 2>&1 || true; } && ./node_modules/.bin/tsc --noEmit'
-        if [ -n "$PY_ANY" ]; then
-            "$PY_ANY" scripts/lockrun.py heavy -- "$TSC_STEP" || { note "型エラーがあります"; fail=1; }
-        elif ! sh -c "$TSC_STEP"; then
-            note "型エラーがあります"; fail=1
-        fi
-    fi
-fi
-
-# --- API契約のドリフト（backendの宣言を変えたときだけ） ---
-if printf '%s\n' "$CHANGED" | grep -qE '^backend/(app/(api|domain)/|app/config\.py|scripts/export_openapi\.py)'; then
-    if VENV="$(find_venv)" && [ -d frontend/node_modules ]; then
-        "$VENV" backend/scripts/export_openapi.py >/dev/null 2>&1 || true
-        (cd frontend && npm run --silent generate:api >/dev/null 2>&1) || true
-        if ! git diff --quiet -- frontend/src/types/generated/; then
-            note "OpenAPI生成物がずれています（再生成の結果をコミットしてください）"; fail=1
-        fi
-    fi
-fi
+[ "$OTHER" -eq 1 ] || exit 0
 
 # masterのCIが赤いままなら知らせる（pushは止めない。赤の原因が自分とは限らない）。
 for c in python python3 py; do
     if command -v "$c" >/dev/null 2>&1; then "$c" scripts/check_master_ci.py || true; break; fi
 done
-
-[ "$fail" -eq 0 ] || { note "pushを中止しました"; exit 1; }
-
-# 通ったことを覚える。古い分は捨てる（増え続けても誰も読まない）。
-echo "$RUN_KEY" >> "$PASSED_FILE"
-tail -n 50 "$PASSED_FILE" > "$PASSED_FILE.tmp" && mv "$PASSED_FILE.tmp" "$PASSED_FILE"
 exit 0

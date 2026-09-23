@@ -132,7 +132,8 @@ CronCreate等）に付随する進捗・ログ・通知メッセージも例外�
   手元の完了条件に含めない。** `.github/workflows/ci.yml`がmasterと並行実行の作業ブランチ
   （`orch/**`、docs/conventions/orchestration.md）へのpushのたびに
   backend ruff→pytest（PostGIS統合テスト込み、`-n auto --dist loadgroup`で並列）・
-  frontend eslint→tsc→vitestを実行する。手元でのフル実行はこれと**同じ答えを、
+  frontend prettier→eslint→tsc→vitestを実行し、masterでは全部通るまでbackendのデプロイを起動しない
+  （置き場の3層はdocs/conventions/testing.md「検査の置き場」）。手元でのフル実行はこれと**同じ答えを、
   並列化できない開発機で、共有のテストDBを掴みながら**出し直すことになる
   （`-m postgis`は`ridecompass_test`を共有するため、並行セッションと実際に衝突する）。
   手元でフルを回すのは次の2つだけ: **CIが落ちた失敗の再現**と、**CIへ出せない変更**。
@@ -274,7 +275,7 @@ T536でそれを置き換えた`compute_edge_costs_bulk`まで同じ理由で残
 
 **検知器（`scripts/review_checks.py docs`）を足す条件は厳しい。** 検知器はプロジェクト
 全体への一律チェックとして自動実行され、**実行タイミングも走査範囲もこちらで選べない**
-（pre-push・CI）。したがって足してよいのは、
+（CI）。したがって足してよいのは、
 **どの文脈でも絶対に正しいと保証できるものだけ**である。次のどれかに当たるものは足さない:
 
 - **許可リストが要る**——許可リストは誤検知を認めた印。「この綴りは外部の語彙だから除外」が
@@ -361,11 +362,10 @@ T536でそれを置き換えた`compute_edge_costs_bulk`まで同じ理由で残
   列挙し、何を満たせば完了で、何を根拠に残す/消すを決めるのかを、エントリだけ読んで
   再現できる状態にする**。「実測して判断する」と書いたなら、何をどう測るかまで書く。
 - **完了扱いにする前に検査器を通す**: 文書と台帳の整合は`scripts/review_checks.py docs`が
-  機械的にブロックする。push直前（`.githooks/pre-push`。docsだけのpushでも走り、CIが引き受ける
-  `orch/**`へのpushでは省く。`git config core.hooksPath .githooks`で有効化し、worktreeは
-  共有設定を継承する。**コミットは無条件で通す**——門はpushに1つだけ置く）と、
-  masterと`orch/**`へのpush・PRのCI
+  機械的にブロックする。masterと`orch/**`へのpush・PRのCI
   （`.github/workflows/docs-consistency.yml`）が自動実行する。**常に全件**を見る。
+  **コミットもpushも検査で止めない**——検査の門はCIに1つだけ置く（`.githooks/pre-push`は検査をせず、
+  停止ファイルの確認とmasterのCIが赤いときの警告だけを持つ）。
   何を見ているかの正本は`scripts/review_checks.py`であり、その中身をこのファイルへ
   書き写さない（写した側だけが古くなる）。**ここに挙がっていない整合は、機械は見ていない。**
 - **検査器にできず、人が見るしかないのは次の3つだけ**（どれも上の「修正の原則」に従い、
