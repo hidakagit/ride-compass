@@ -106,4 +106,8 @@ def main() -> int:
 
 
 if __name__ == "__main__":
+    # 標準出力はフックの出力（JSON。やり取りする符号はUTF-8と決まっている）としてClaude Codeが読み、
+    # ここは子（origin/masterの版）の出力をそのまま出し直すことがあるので、Windowsの既定（cp932）で出さない。
+    sys.stdout.reconfigure(encoding="utf-8")
+    sys.stderr.reconfigure(encoding="utf-8")
     sys.exit(main())
