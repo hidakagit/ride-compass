@@ -29,7 +29,7 @@
 丸める（`round1_array`。区間の表示とルート選びが同じ得点を使うため）。
 """
 
-from typing import Annotated, Literal, Mapping, Sequence
+from typing import Annotated, Literal, Mapping, Sequence, cast
 
 import numpy as np
 from cachetools import LRUCache
@@ -731,7 +731,8 @@ def evaluate_axis_scalar(definition: AxisDefinition, materials: Mapping[str, obj
                 if term.required:
                     return None
                 continue
-            contribution = value * term.weight
+            # 項の材料はnumeric/booleanに限られる（`axis_admin.AxisDefinitionPayload._check_materials_are_known`）。
+            contribution = cast(float, value) * term.weight
             total = contribution if total is None else total + contribution
         if total is None:
             return None

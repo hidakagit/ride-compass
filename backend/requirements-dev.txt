@@ -4,6 +4,15 @@
 # Python lint。設定はruff.toml。CI（.github/workflows/ci.yml）とpre-commit
 # （scripts/pre-commit-ruff.sh）が同じバージョンを使う。
 ruff==0.16.6
+# 型検査。設定はmypy.ini。CI（.github/workflows/ci.yml）がruffの次に走らせる。
+mypy==2.3.1
+# 型情報を配っていないライブラリの型（スタブ）。版は本体の版に合わせる——asyncpg-stubsは
+# 対応するasyncpgの版を依存に持つため、asyncpgだけを上げるとpipの解決で止まる。
+# スタブが無いライブラリはmypy.iniのignore_missing_importsで扱う。
+asyncpg-stubs==0.30.2
+types-PyYAML==6.0.12.20260906
+types-rasterio==1.5.1.20260907
+types-shapely==2.0.0.20250404
 # ベンチマーク（benchmarks/bench_t790_turn_expanded.py）が現行の自前探索と比べるために使う。
 # 本番の探索は到達時刻をラベルとして持ち回るためscipyでは表せず、webイメージには入れない。
 scipy==1.18.1

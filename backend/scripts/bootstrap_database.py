@@ -24,6 +24,7 @@ import asyncio
 import logging
 import sys
 import time
+from collections.abc import Awaitable, Callable
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -56,7 +57,7 @@ async def _derive(database_url: str, profile_path: Path | None) -> None:
     await derive_cli.run(database_url, None)
 
 
-PHASES: tuple[tuple[str, object], ...] = (
+PHASES: tuple[tuple[str, Callable[[str, Path | None], Awaitable[None]]], ...] = (
     ("schema", _schema),
     ("ingest", _ingest),
     ("derive", _derive),
@@ -96,6 +97,7 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    sys.stdout.reconfigure(encoding="utf-8")
-    sys.stderr.reconfigure(encoding="utf-8")
+    from _stdio import use_utf8_stdio
+
+    use_utf8_stdio()
     raise SystemExit(main())

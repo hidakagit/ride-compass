@@ -648,7 +648,9 @@ Pythonの仕事が無い。列の並びは`material_array_columns()`が唯一の
 （リポジトリ）と読む側が同じ並びを導く。複数タイルを結合する
 `_build_search_materials_from_tile_cache`はタイルごとの表を持ったまま
 `edge_id→タイルindex`の遅延ビュー（`_CombinedEdgeMaterials`）で委譲する——bbox全体ぶんを
-1つの配列へ連結し直すコストを払わない。`LeanRoadGraph`（トポロジ側）も`__reduce__`で
+1つの配列へ連結し直すコストを払わない。タイル単位とbbox単位で材料の型が違うため、`SearchMaterials`は
+材料の型を型引数に取る。探索フェーズ（`_RoadGraphContext.materials`）が読むのは、確定した経路の
+標高属性を引く`ElevationSource`だけである。`LeanRoadGraph`（トポロジ側）も`__reduce__`で
 Node/Edgeを列（tupleのリスト）へ分解してpickle化し、復元時に`LeanNode`/`LeanEdge`を
 コンストラクタ呼び出しで作り直す。**列はdataclassの宣言から導き、列数の合わない行は
 送出する**——手で並べると、フィールドを足して列を足し忘れたときに復元側が既定値で埋め、

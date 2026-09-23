@@ -34,6 +34,7 @@ DEPLOY_PATHS = (
     "!backend/tests/**",
     "!backend/pytest.ini",
     "!backend/ruff.toml",
+    "!backend/mypy.ini",
     "!backend/requirements-dev.txt",
     "!backend/.env.example",
     # イメージに入るが、本番プロセスが読まないもの。生成スクリプトとそれだけが読む表示値で、

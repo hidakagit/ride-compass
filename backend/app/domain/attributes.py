@@ -1,4 +1,5 @@
 from dataclasses import dataclass, field
+from typing import Protocol
 
 import numpy as np
 
@@ -24,14 +25,23 @@ class ElevationAttribute(StrictModel):
     min_grade: float | None = None
 
 
+class ElevationSource(Protocol):
+    """経路が確定した区間の標高属性を引けるもの。探索フェーズが材料から読むのはこれだけ。"""
+
+    def elevation_attribute(self, edge_id: str) -> ElevationAttribute | None: ...
+
+
 @dataclass
-class SearchMaterials:
+class SearchMaterials[M: ElevationSource]:
     """探索フェーズ（`RoadGraphEngine.prepare`）が必要とするRoad Graphのトポロジ＋
     材料一式。`GraphService.get_search_materials_for_bbox`の戻り値であり、
-    `infrastructure/graph_material_cache.py`のタイル単位キャッシュ値としても使う共通の型。"""
+    `infrastructure/graph_material_cache.py`のタイル単位キャッシュ値としても使う共通の型。
+
+    タイル単位では材料の列（`EdgeMaterialArrays`）を持ち、bbox単位ではタイルの材料を
+    列を連結せずに引くビューを持つ。"""
 
     graph: LeanRoadGraph
-    materials: "EdgeMaterialArrays"
+    materials: M
 
 
 def _none_if_nan(value) -> float | None:
@@ -92,10 +102,10 @@ class EdgeMaterialArrays:
     elevation_loss_m: np.ndarray
     elevation_max_grade: np.ndarray
     elevation_min_grade: np.ndarray
-    _row_index: dict[str, int] | None = field(default=None)
+    _row_index: dict[str, int] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
-        if self._row_index is None:
+        if not self._row_index:
             object.__setattr__(self, "_row_index", {edge_id: i for i, edge_id in enumerate(self.edge_ids)})
 
     def __len__(self) -> int:

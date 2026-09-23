@@ -46,7 +46,7 @@ def get(path: str) -> tuple[bytes, str] | None:
         return None
 
 
-def _write_atomic(final_path: Path, write: Callable[[Path], None]) -> None:
+def _write_atomic(final_path: Path, write: Callable[[Path], object]) -> None:
     """同じディレクトリへ一意な一時ファイルを書き、`os.replace`で最終パスへ差し替える。
 
     最終パスへ直接write_bytes/write_textすると、書き込み中の`get()`が「存在するが

@@ -76,7 +76,7 @@ def _rebuild_lean_road_graph(
     for row in edge_rows:
         if len(row) != len(_EDGE_COLUMNS):
             raise ValueError(f"pickled edge row has {len(row)} columns, expected {_EDGE_COLUMNS}")
-        edge = LeanEdge(*row[:_EDGE_GEOMETRY_POSITION], [], *row[_EDGE_GEOMETRY_POSITION:])
+        edge = LeanEdge(*(*row[:_EDGE_GEOMETRY_POSITION], [], *row[_EDGE_GEOMETRY_POSITION:]))
         edges[edge.edge_id] = edge
     return LeanRoadGraph(graph_version=graph_version, nodes=nodes, edges=edges)
 

@@ -255,8 +255,7 @@ async def read_osm_nodes(spec: SourceSpec, profile: SourceProfile,
                     attrs=tagged.get(node_id, {}),
                 ))
 
-        stream_ways(path, matches, sink,
-                    node_tag_filter=lambda _: True, node_sink=node_sink)
+        stream_ways(path, matches, sink, node_sink=node_sink)
 
     handoff = _Handoff()
     async for record in handoff.drain(handoff.run(work)):

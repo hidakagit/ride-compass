@@ -12,6 +12,7 @@ import time
 from collections.abc import Iterator
 from contextlib import contextmanager
 from datetime import UTC, datetime
+from typing import TypedDict
 
 logger = logging.getLogger("ridecompass.external")
 
@@ -22,9 +23,25 @@ WARN_BURST_PER_WINDOW = 5
 # 小数2桁(≈1km)へ丸めて出す。DEBUG(debug_mode時のみ)は調査精度を優先しそのまま出す。
 _ALWAYS_ON_FLOAT_PRECISION = 2
 
+
+class _CategoryStats(TypedDict):
+    calls: int
+    errors: int
+    cache_hits: int
+    cache_misses: int
+    total_ms: int
+    max_ms: int
+    error_types: dict[str, int]
+    last_error_type: str | None
+    last_error_at: str | None
+    last_success_at: str | None
+    retried_calls: int
+    retry_attempts_total: int
+    stale_fallback_used: int
+
+
 _lock = threading.Lock()
-# category -> {"calls", "errors", "cache_hits", "cache_misses", "total_ms", "max_ms"}
-_stats: dict[str, dict[str, int]] = {}
+_stats: dict[str, _CategoryStats] = {}
 # category -> 429拒否数(record_rate_limit_rejection)
 _rejections: dict[str, int] = {}
 # category -> [window_start(monotonic), emitted_count, suppressed_count]

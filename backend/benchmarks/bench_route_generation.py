@@ -69,7 +69,7 @@ class _StageCapture(logging.Handler):
 
     def __init__(self) -> None:
         super().__init__(level=logging.INFO)
-        self.stages: dict[str, dict[str, object]] = {}
+        self.stages: dict[str, dict[str, float | str]] = {}
 
     def emit(self, record: logging.LogRecord) -> None:
         """同じ段が何度も出る（脚ごと・タイルごと）。**上書きせず足し合わせる**
@@ -97,7 +97,7 @@ def _origin() -> Coordinates:
     return Coordinates(latitude=latitude, longitude=longitude)
 
 
-def _stage_lines(stages: dict[str, dict[str, object]]) -> list[str]:
+def _stage_lines(stages: dict[str, dict[str, float | str]]) -> list[str]:
     """拾った段を全部出す。時間を持つ段は`秒`へ直して先頭へ置き、残りの値も添える。"""
     lines = []
     for name in (*STAGE_ORDER, *sorted(n for n in stages if n not in STAGE_ORDER)):

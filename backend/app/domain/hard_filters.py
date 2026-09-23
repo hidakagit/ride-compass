@@ -44,7 +44,8 @@ HARD_FILTER_TAG_PREDICATE_SQL: dict[str, TagHardFilter] = {
 
 #: フィルタ名→画面に出す名前。上の2つの宣言から導く。
 HARD_FILTER_LABELS: dict[str, str] = {
-    name: spec.label for name, spec in {**HARD_FILTER_HIGHWAY_TYPES, **HARD_FILTER_TAG_PREDICATE_SQL}.items()
+    **{name: spec.label for name, spec in HARD_FILTER_HIGHWAY_TYPES.items()},
+    **{name: spec.label for name, spec in HARD_FILTER_TAG_PREDICATE_SQL.items()},
 }
 
 # APIの`hard_filters`が受け付けるキー集合の正本。**別の場所で組み立て直さないこと**

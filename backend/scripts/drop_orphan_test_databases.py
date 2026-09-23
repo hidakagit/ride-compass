@@ -18,6 +18,7 @@ import asyncio
 import os
 import sys
 from pathlib import Path
+from typing import TypeGuard
 
 import asyncpg
 
@@ -29,12 +30,15 @@ _DEFAULT_SERVER = "postgresql+asyncpg://ridecompass:ridecompass@localhost:5432"
 _NAME_PREFIX = "ridecompass_test_"
 
 
-def _is_worktree_record(comment: str | None) -> bool:
-    return bool(comment) and os.path.isabs(comment)
+def _is_worktree_record(comment: str | None) -> TypeGuard[str]:
+    """**作業ツリーの記録と言えるのは、絶対パスが書かれているものだけ**。コメントが無いDB
+    （この仕組みより前に手で作られたもの）と、パスでないコメントを持つDB（複製元の
+    テンプレート等）は判定の対象から外す——材料が無いものを消さない。"""
+    return comment is not None and os.path.isabs(comment)
 
 
-async def _collect(server: str) -> list[tuple[str, str | None, bool]]:
-    """(DB名, 記録された作業ツリー, その作業ツリーが今もあるか) の一覧。"""
+async def _collect(server: str) -> list[tuple[str, str | None]]:
+    """(DB名, DBのコメントに記録された作業ツリー) の一覧。"""
     conn = await asyncpg.connect(asyncpg_dsn(f"{server}/postgres"))
     try:
         rows = await conn.fetch(
@@ -44,13 +48,7 @@ async def _collect(server: str) -> list[tuple[str, str | None, bool]]:
         )
     finally:
         await conn.close()
-    # **作業ツリーの記録と言えるのは、絶対パスが書かれているものだけ**。コメントが無いDB
-    # （この仕組みより前に手で作られたもの）と、パスでないコメントを持つDB（複製元の
-    # テンプレート等）は判定の対象から外す——材料が無いものを消さない。
-    return [
-        (r["datname"], r["owner_path"], _is_worktree_record(r["owner_path"]))
-        for r in rows
-    ]
+    return [(r["datname"], r["owner_path"]) for r in rows]
 
 
 async def _drop(server: str, names: list[str]) -> None:
@@ -76,8 +74,8 @@ def main() -> int:
         return 0
 
     orphans = []
-    for name, comment, is_record in found:
-        if not is_record:
+    for name, comment in found:
+        if not _is_worktree_record(comment):
             print(f"  {name}: 作業ツリーの記録なし（{comment or 'コメントなし'}。手で判断すること）")
         elif os.path.isdir(comment):
             print(f"  {name}: 使用中 <- {comment}")
@@ -96,6 +94,7 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    sys.stdout.reconfigure(encoding="utf-8")
-    sys.stderr.reconfigure(encoding="utf-8")
+    from _stdio import use_utf8_stdio
+
+    use_utf8_stdio()
     raise SystemExit(main())

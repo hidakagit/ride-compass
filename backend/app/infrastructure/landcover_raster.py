@@ -30,7 +30,8 @@ pin_bundled_proj_data()
 import rasterio  # noqa: E402
 import rasterio.errors  # noqa: E402
 from rasterio.transform import from_bounds  # noqa: E402
-from rasterio.warp import Resampling, reproject, transform_bounds  # noqa: E402
+from rasterio.enums import Resampling  # noqa: E402
+from rasterio.warp import reproject, transform_bounds  # noqa: E402
 from rasterio.windows import Window, transform as window_transform  # noqa: E402
 
 logger = logging.getLogger("ridecompass.landcover_raster")

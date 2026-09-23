@@ -36,7 +36,7 @@ async def main() -> int:
                 )
             ).first()
             print("postgis (available, installed):", row)
-            size = (await conn.execute(text("SELECT pg_database_size(current_database())"))).scalar()
+            size = (await conn.execute(text("SELECT pg_database_size(current_database())"))).scalar_one()
             print(f"db_size_mb: {size / 1e6:.0f}")
         return 0
     except Exception as exc:  # noqa: BLE001 疎通チェックの失敗内容をそのまま表示する

@@ -309,7 +309,7 @@ python scripts/lockrun.py -- '<bashコマンド文字列>'
 **何を枠の下に置くか——処理の段1つで決め、包みでは決めない**:
 
 - **対象**: 単独で走らせても、複数のコアかディスクを数十秒以上使い切る段。依存の導入
-  （`npm ci`）・ビルド（`next build`・`next typegen`）・型検査（`tsc --noEmit`）・テストの実行
+  （`npm ci`）・ビルド（`next build`・`next typegen`）・型検査（`tsc --noEmit`・`mypy`）・テストの実行
   （`vitest run`・`pytest`・`playwright test`）・ディレクトリ単位のlint（`eslint`）等。
 - **対象外**: 数秒で終わる段と、ネットワーク待ちが主の段。`git`の操作（`fetch`・`rebase`・
   `push`そのもの）・`ruff`・変更ファイルだけの`prettier`・`review_checks.py docs`・
@@ -363,7 +363,7 @@ backendのPythonは作業ツリーに`.venv`が無いため、本体のチェッ
   （「作業ツリーのスロット」節。渡す側が`heavy`の枠で走らせる）。担当は自分で`npm ci`しない。
 - **フルスイートは回さない**（CIの持ち物。CLAUDE.md「テスト方針」）。
 - **確かめる検査は、作業ブランチへpushしてCIに回す**（「完了とpush」節）。手元で回すのは
-  静的検査（`ruff`・`review_checks.py docs`・prettier・`tsc --noEmit`）と、書きながら挙動を
+  静的検査（`ruff`・`mypy`・`review_checks.py docs`・prettier・`tsc --noEmit`）と、書きながら挙動を
   確かめる最小のテスト（変更が届くファイルだけ）までにする。CIのランナーは実行ごとに別の
   機械なので、何本同時に回しても開発機の`heavy`の枠を取り合わない。
 

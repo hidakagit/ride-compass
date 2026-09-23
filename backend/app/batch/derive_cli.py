@@ -16,6 +16,7 @@ import asyncio
 import logging
 import sys
 import time
+from collections.abc import Awaitable, Callable
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
@@ -38,7 +39,7 @@ from app.config import settings  # noqa: E402
 
 logger = logging.getLogger("ridecompass.derive_cli")
 
-STAGES: tuple[tuple[str, object], ...] = (
+STAGES: tuple[tuple[str, Callable[[asyncpg.Connection], Awaitable[object]]], ...] = (
     ("topology", derive_topology.derive),
     ("nodes", derive_node_materials.derive),
     ("counts", derive_counts.derive),

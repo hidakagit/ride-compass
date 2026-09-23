@@ -12,10 +12,16 @@ class LatLon(Protocol):
     型ヒントを`Coordinates`（Pydantic）固定にすると、グラフ構築や最近傍探索のような
     ホットパスで、既に手元にある生の緯度経度ペアやNodeオブジェクトから
     わざわざ`Coordinates`を構築し直す無駄が生じる。
+
+    読み取り専用のプロパティとして宣言するのは、凍結したdataclass（`LeanNode`）や
+    NamedTuple（`LatLonPoint`）も満たせるようにするため。
     """
 
-    latitude: float
-    longitude: float
+    @property
+    def latitude(self) -> float: ...
+
+    @property
+    def longitude(self) -> float: ...
 
 
 class LatLonPoint(NamedTuple):

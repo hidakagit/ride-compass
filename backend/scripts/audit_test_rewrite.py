@@ -210,6 +210,7 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    sys.stdout.reconfigure(encoding="utf-8")
-    sys.stderr.reconfigure(encoding="utf-8")
+    from _stdio import use_utf8_stdio
+
+    use_utf8_stdio()
     raise SystemExit(main())

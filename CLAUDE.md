@@ -102,7 +102,7 @@ CronCreate等）に付随する進捗・ログ・通知メッセージも例外�
 - PostGIS統合テスト（road_graph_session、conftest.py）はファイル単位でエンジン・イベントループを共有する設計。新規ファイルでは `pytestmark = pytest.mark.asyncio(loop_scope="module")` が必要（自前の追加async fixtureにも `loop_scope="module"` を明示）。CIはpytest-xdistで並列化しているため `pytest.mark.xdist_group(name="postgis")` も併せて必須（詳細はdocs/conventions/testing.md参照）
 - フロントエンドの新規テストがDOM（render/renderHook/window等）を使わない純ロジックなら、ファイル先頭へ `// @vitest-environment node` docblockを付ける（実装側関数の隠れたDOM依存にも注意、詳細はdocs/conventions/testing.md参照）
 - **検査は作業中に回さない。書き終えてから、順番を守って1回ずつ通す**: ①秒で終わる静的検査を
-  まとめて（`ruff`・`scripts/review_checks.py docs`・`tsc --noEmit`・OpenAPI生成物のドリフト）
+  まとめて（`ruff`・`mypy`・`scripts/review_checks.py docs`・`tsc --noEmit`・OpenAPI生成物のドリフト）
   → 出たものを**全部**直す → ②変更が届くテストを1回（backend・frontendそれぞれの該当
   ファイル。互いに独立なので並行してよい）。静的検査を最後に回すと、シンボルを
   消した時点で既に死んでいた参照を最後に発見し、テストを回し直すことになる。
@@ -131,7 +131,7 @@ CronCreate等）に付随する進捗・ログ・通知メッセージも例外�
 - **フルスイート（backend全体・`-m postgis`・frontendの`vitest`全体）はCIの持ち物であり、
   手元の完了条件に含めない。** `.github/workflows/ci.yml`がmasterと並行実行の作業ブランチ
   （`orch/**`、docs/conventions/orchestration.md）へのpushのたびに
-  backend ruff→pytest（PostGIS統合テスト込み、`-n auto --dist loadgroup`で並列）・
+  backend ruff→mypy→pytest（PostGIS統合テスト込み、`-n auto --dist loadgroup`で並列）・
   frontend prettier→eslint→tsc→vitestを実行し、masterでは全部通るまでbackendのデプロイを起動しない
   （置き場の3層はdocs/conventions/testing.md「検査の置き場」）。手元でのフル実行はこれと**同じ答えを、
   並列化できない開発機で、共有のテストDBを掴みながら**出し直すことになる

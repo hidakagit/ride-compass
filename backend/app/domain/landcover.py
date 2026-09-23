@@ -11,6 +11,7 @@ Esri×Impact Observatory Sentinel-2 10m Annual LULCの画素値ヒストグラ�
 import hashlib
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 from pydantic import create_model
 
@@ -87,11 +88,16 @@ PERCENT_CLASSES: tuple[tuple[str, int], ...] = tuple(
 #: 材料の割合列（`lc_*`）＋`lc_valid_pixels`と1対1のモデル。**クラスの宣言から作る**
 #: ——手で並べると、宣言したクラスに対応する項目が無いまま集計だけが走り、その列の
 #: 割合がどこへも入らない（SQLは列を吐き、読む側はその名前を知らない）。
+class _LandcoverValidPixels(StrictModel):
+    valid_pixels: int
+
+
+_PERCENT_FIELDS: dict[str, Any] = {name: (float, ...) for name, _ in PERCENT_CLASSES}
+
 LandcoverPercentages = create_model(
     "LandcoverPercentages",
-    __base__=StrictModel,
-    valid_pixels=(int, ...),
-    **{name: (float, ...) for name, _ in PERCENT_CLASSES},
+    __base__=_LandcoverValidPixels,
+    **_PERCENT_FIELDS,
 )
 
 

@@ -68,7 +68,7 @@ def module_name(path: Path) -> str:
     return ".".join(path.relative_to(BACKEND_ROOT).with_suffix("").parts)
 
 
-def _strip_docstrings(node: ast.AST) -> ast.AST:
+def _strip_docstrings[T: ast.AST](node: T) -> T:
     """docstringを落とす。**これを残すと辺が嘘になる**。
 
     docstringは名前を説明のために並べる。「この関数はもう使っていない」と書いた一文が
@@ -402,13 +402,14 @@ def main() -> int:
     for module, definitions in sorted(by_module.items()):
         print(f"\n### {module}")
         for definition in sorted(definitions, key=lambda d: d.lineno):
-            hits = referenced_by_tests.get(definition.name, 0)
-            mark = f"テスト{hits}ファイル" if hits else "**テストからも参照なし**"
+            referencing_tests = referenced_by_tests.get(definition.name, 0)
+            mark = f"テスト{referencing_tests}ファイル" if referencing_tests else "**テストからも参照なし**"
             print(f"  {definition.lineno:5d}  {definition.kind:8s} {definition.name:32s} {mark}")
     return 0
 
 
 if __name__ == "__main__":
-    sys.stdout.reconfigure(encoding="utf-8")
-    sys.stderr.reconfigure(encoding="utf-8")
+    from _stdio import use_utf8_stdio
+
+    use_utf8_stdio()
     sys.exit(main())

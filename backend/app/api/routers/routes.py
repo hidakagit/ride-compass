@@ -368,6 +368,9 @@ async def _run_generate_job(job_id: str, request: RouteGenerateRequest) -> None:
             origin = Coordinates(latitude=request.latitude, longitude=request.longitude)
             start_time = _resolve_start_time(request.start_time)
             if request.spliced_edge_ids:
+                if request.destination is None:
+                    # 要求の検証（`_check_spliced_route_has_a_destination`）を通った要求では起きない。
+                    raise RoutingError("spliced_edge_ids requires destination")
                 candidates = await setup.generator.generate_spliced_route(
                     origin=origin,
                     destination=request.destination,

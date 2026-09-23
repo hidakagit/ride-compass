@@ -15,6 +15,7 @@
 
 import logging
 from dataclasses import dataclass
+from typing import SupportsFloat, cast
 
 from cachetools import TTLCache
 
@@ -117,7 +118,7 @@ def _raw_value(shape: AxisShape, materials: dict[str, object]) -> float | None:
                 return None
             continue
         seen = True
-        total += float(value) * term.weight
+        total += float(cast(SupportsFloat, value)) * term.weight
     if not seen:
         return None
     if shape.preprocess == "abs":
@@ -190,7 +191,7 @@ async def material_value_distribution(
         return None
     sample = await _load_sample(repository)
     pairs = [
-        (length_m, float(materials[material_id]))
+        (length_m, float(cast(SupportsFloat, materials[material_id])))
         for length_m, materials in sample
         if materials.get(material_id) is not None
     ]

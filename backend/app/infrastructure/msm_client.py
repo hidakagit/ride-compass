@@ -293,7 +293,8 @@ def _read_block(variable: str, chunk_number: int, window: MsmWindow, t0: int, t1
     if not path.exists():
         raise MsmUnavailableError(f"MSMのチャンクが未同期です: {path.name}")
     with OmFileReader(str(path)) as reader:
-        return np.asarray(reader[window.lat_slice, window.lon_slice, t0:t1], dtype=np.float64)
+        block = np.asarray(reader[window.lat_slice, window.lon_slice, t0:t1], dtype=np.float64)
+    return block
 
 
 def _grid_from_meta(meta: dict, n_lat: int, n_lon: int) -> MsmGrid:
