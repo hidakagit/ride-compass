@@ -522,7 +522,7 @@ def compose_costs_from_axis_matrix(
     # （2進浮動小数点の実際の値に対する正しい丸め）と結果が食い違うことがある
     # （例えば385.949999999999988...のような値でnp.roundは386.0、round()は385.9に
     # なることがある）。
-    # スカラー版composite_difficulty/compute_cost_from_axis_scoresの`round(x, 1)`と
+    # スカラー版composite_difficultyの`round(x, 1)`と
     # 完全一致させるため、最終丸めのみ要素ごとにPythonの`round()`を適用する。
     composite = round1_array(composite)
 
