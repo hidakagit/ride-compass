@@ -4,6 +4,8 @@
 そのまま渡して判定を見る。
 """
 
+from pathlib import Path
+
 import pytest
 
 from app.infrastructure.single_process import require_single_worker, uvicorn_worker_count
@@ -28,7 +30,9 @@ _UVICORN = "/usr/local/bin/uvicorn"
             2,
             id="python -m uvicorn",
         ),
-        pytest.param([r"C:\venv\Scripts\uvicorn.exe", "app.main:app", "--workers", "2"], {}, 2, id="Windows"),
+        pytest.param(
+            [str(Path("venv") / "Scripts" / "uvicorn.exe"), "app.main:app", "--workers", "2"], {}, 2, id="拡張子つき"
+        ),
         pytest.param(["/usr/bin/pytest", "-q", "--workers", "2"], {"WEB_CONCURRENCY": "3"}, 1, id="uvicorn以外"),
     ],
 )
