@@ -189,5 +189,6 @@ CLAUDE.md参照。節見出しはタスクのテーマ分類で、日付は起�
 - [ ] [T1081](records/tasks/T1081.md). 定期確認のフックの入口（launch.py）が、子の出力をcp932で出し直して落ちうるのを直す 規模S
 - [ ] [T1083](records/tasks/T1083.md). 監査と定期確認に、作業ブランチのCIのジョブごとの所要をmasterの直近と比べる項目を足す 規模S
 - [ ] [T1084](records/tasks/T1084.md). 軸スタジオの段階プレビューの「N段階になります」が、地図で落ちる値も段として数えている 規模S
+- [ ] [T1085](records/tasks/T1085.md). 地図で段が落ちると、体感ラベルの上書きが件数不一致で黙って捨てられる 規模S
 
 見送りとして判断を記録したもの（台帳には載せない）: [T1036](records/tasks/T1036.md)・[T1037](records/tasks/T1037.md)・[T1038](records/tasks/T1038.md)・[T1039](records/tasks/T1039.md)・[T1040](records/tasks/T1040.md)
