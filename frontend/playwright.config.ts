@@ -33,7 +33,9 @@ export default defineConfig({
     // `node .next/standalone/server.js`を、同じ静的ファイルの配置（prepare-standalone.mjs）で起動する。
     command: "npm run start:standalone",
     url: E2E_ORIGIN,
-    env: { PORT: String(E2E_PORT) },
+    // standaloneのserver.jsは待ち受けるアドレスを環境変数HOSTNAMEから取る。Git Bashはこれへ機械名を
+    // exportするので、固定しないと機械名の解決先（IPv6のアドレス等）でしか待ち受けず、localhostへ届かない。
+    env: { PORT: String(E2E_PORT), HOSTNAME: "localhost" },
     timeout: 60_000,
     // 既に動いているサーバー（devサーバー・古いビルド）を使うと、いまのビルドを試さない。
     reuseExistingServer: false,
