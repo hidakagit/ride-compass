@@ -16,6 +16,15 @@ set -eu
 # 1本の呼び出しがそのまま毎回の待ち時間になる）。
 REPO_ROOT="$(pwd)"
 
+# 並行実行の停止ファイル（docs/conventions/orchestration.md「止める手段の段階」）。
+# 置かれている間はpushを拒否する——エージェントが指示に従わなくても、masterへ何も出さない。
+if [ -e "$(git rev-parse --git-common-dir)/orchestration/STOP" ]; then
+    printf '
+[pre-push] 停止ファイル（orchestration/STOP）があるためpushを拒否します
+' >&2
+    exit 1
+fi
+
 # backend/.venv はworktreeへ複製されない。本体のチェックアウト側にあるものへ落ちる
 # ——落ちないと、worktreeで作業しているあいだruffが黙って飛ばされ続ける。
 find_venv() {

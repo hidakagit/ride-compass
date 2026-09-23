@@ -83,6 +83,11 @@ def acquire(path: str, name: str) -> float:
 
 def run(name: str, command: str) -> int:
     root = lock_root()
+    stop_file = os.path.join(os.path.dirname(root), "orchestration", "STOP")
+    if os.path.exists(stop_file):
+        # 司令塔やエージェントの協力に頼らずに、重い処理とpushを止めるための札。
+        print(f"[lockrun] 停止ファイル（{stop_file}）があるため {name} を始めません", flush=True)
+        return 75
     path = os.path.join(root, name)
     start = datetime.now().astimezone().isoformat(timespec="seconds")
     wait_seconds = acquire(path, name)
