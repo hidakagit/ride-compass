@@ -226,13 +226,13 @@ function sourceOf(
           maxzoom: element.tile.maxZoom,
           attribution,
         },
-        placeholderTiles: [jmaPlaceholderTileUrl(element.tile.pathGroup, element.jmaElement)],
+        placeholderTiles: [jmaPlaceholderTileUrl(element)],
       };
     case "vectorTile":
       return {
         sourceSpec: { type: "vector", minzoom: element.tile.minZoom, maxzoom: element.tile.maxZoom, attribution },
         sourceLayer: element.tile.vectorLayer,
-        placeholderTiles: [jmaPlaceholderTileUrl(element.tile.pathGroup, element.jmaElement, "pbf")],
+        placeholderTiles: [jmaPlaceholderTileUrl(element)],
       };
     case "gridFill":
     case "gridMark":

@@ -13,10 +13,11 @@
 import weatherScales from "@/types/generated/weather-scales.json";
 import type { DynamicWeatherFrame, DynamicWeatherRenderPayload } from "@/components/Map/dynamicWeather";
 import {
+  declaredJmaElement,
   fetchJmaTargetTimes,
+  jmaTilePayload,
   parseValidtime,
   type JmaNowcastFrame,
-  jmaTileUrlTemplate,
 } from "@/components/Map/jmaNowcastFrames";
 
 export type ThunderNowcastFrame = JmaNowcastFrame;
@@ -28,7 +29,8 @@ export type ThunderNowcastFrame = JmaNowcastFrame;
  * 同居するため代表して"thns"だけ見ればよい）を含むエントリだけへ絞り込んでから使う。 */
 export async function fetchThunderNowcastFrames(): Promise<ThunderNowcastFrame[]> {
   const raw = await fetchJmaTargetTimes("nowc_N3", "雷ナウキャスト");
-  const withThunderData = raw.filter((t) => t.elements?.includes("thns"));
+  const thunderElement = declaredJmaElement("disaster/thunder").jmaElement;
+  const withThunderData = raw.filter((t) => t.elements?.includes(thunderElement));
   const frames: ThunderNowcastFrame[] = withThunderData.map((t) => ({ ...t, isForecast: t.validtime > t.basetime }));
   frames.sort((a, b) => a.validtime.localeCompare(b.validtime));
   return frames;
@@ -40,14 +42,15 @@ export function thunderFrames(frames: readonly ThunderNowcastFrame[]): DynamicWe
   return frames.map((frame, index) => ({ time: parseValidtime(frame.validtime), ref: index }));
 }
 
-function tileUrlTemplate(frame: ThunderNowcastFrame, product: "thns" | "trns"): string {
-  return jmaTileUrlTemplate({
-    group: "nowc",
-    element: product,
-    basetime: frame.basetime,
-    member: "none",
-    validtime: frame.validtime,
-  });
+function nowcastPayload(
+  key: "disaster/thunder" | "disaster/tornado",
+  frames: readonly ThunderNowcastFrame[],
+  ref: number,
+): DynamicWeatherRenderPayload | undefined {
+  const frame = frames[ref];
+  return frame
+    ? jmaTilePayload(key, { basetime: frame.basetime, member: "none", validtime: frame.validtime })
+    : undefined;
 }
 
 /** thunderFramesが返したref（frames内のindex）から、雷ナウキャストの描画ペイロードを
@@ -56,18 +59,16 @@ export function thunderRenderPayload(
   frames: readonly ThunderNowcastFrame[],
   ref: number,
 ): DynamicWeatherRenderPayload | undefined {
-  const frame = frames[ref];
-  return frame ? { kind: "rasterTile", tileUrlTemplate: tileUrlTemplate(frame, "thns") } : undefined;
+  return nowcastPayload("disaster/thunder", frames, ref);
 }
 
 /** thunderFramesと同じフレーム列・同じrefで、竜巻発生確度ナウキャストの描画ペイロードを
- * 組み立てる（プロダクトコードのみthnsからtrnsへ差し替え）。 */
+ * 組み立てる（要素だけが雷と違う）。 */
 export function tornadoRenderPayload(
   frames: readonly ThunderNowcastFrame[],
   ref: number,
 ): DynamicWeatherRenderPayload | undefined {
-  const frame = frames[ref];
-  return frame ? { kind: "rasterTile", tileUrlTemplate: tileUrlTemplate(frame, "trns") } : undefined;
+  return nowcastPayload("disaster/tornado", frames, ref);
 }
 
 // 雷活動度1〜4の凡例（地図チップ）。気象庁の解説

@@ -36,7 +36,13 @@
 //   関連製品だが、洪水キキクルのみのスコープ外として未実装のまま残す。
 
 import weatherScales from "@/types/generated/weather-scales.json";
-import { fetchJmaTargetTimes, parseValidtime, jmaTileUrlTemplate } from "@/components/Map/jmaNowcastFrames";
+import {
+  declaredJmaElement,
+  fetchJmaTargetTimes,
+  jmaTilePayload,
+  parseValidtime,
+  type JmaElementKey,
+} from "@/components/Map/jmaNowcastFrames";
 import type { DynamicWeatherFrame, DynamicWeatherRenderPayload } from "@/components/Map/dynamicWeather";
 
 // 線状降水帯予測マップ(sjfcstmap)は降水短時間予報(rasrf)と同じtargetTimes.jsonに
@@ -59,9 +65,10 @@ export interface RiskFrameRef {
   member: string;
 }
 
-/** rawの中から指定elementIdを含む最新の1件を返す（無ければnull）。全エントリが
+/** rawの中から、その要素の配信要素idを含む最新の1件を返す（無ければnull）。全エントリが
  * validtime===basetimeの単一時点データのため、basetime降順の先頭が「現在」にあたる。 */
-function latestEntry(raw: readonly RawRiskTargetTime[], elementId: string): RawRiskTargetTime | null {
+function latestEntry(raw: readonly RawRiskTargetTime[], key: JmaElementKey): RawRiskTargetTime | null {
+  const elementId = declaredJmaElement(key).jmaElement;
   const entries = raw.filter((e) => e.elements.includes(elementId));
   if (entries.length === 0) return null;
   return [...entries].sort((a, b) => b.basetime.localeCompare(a.basetime))[0];
@@ -75,11 +82,11 @@ function toFrames(entry: RawRiskTargetTime | null): DynamicWeatherFrame<RiskFram
 export interface CurrentRiskFrames {
   /** 土砂キキクル。 */
   land: DynamicWeatherFrame<RiskFrameRef>[];
-  /** 大雨キキクル（タイル要素id="rain_mesh"、properties.xmlのimageType定義に準拠）。 */
+  /** 大雨キキクル。 */
   heavyRain: DynamicWeatherFrame<RiskFrameRef>[];
   /** 浸水キキクル。 */
   inundation: DynamicWeatherFrame<RiskFrameRef>[];
-  /** 洪水キキクル（タイル要素id="flood"、他3種と異なりvectorTile）。 */
+  /** 洪水キキクル（他3種と異なりvectorTile）。 */
   flood: DynamicWeatherFrame<RiskFrameRef>[];
 }
 
@@ -88,57 +95,39 @@ export interface CurrentRiskFrames {
 export async function fetchCurrentRiskFrames(): Promise<CurrentRiskFrames> {
   const raw = await fetchJmaTargetTimes<RawRiskTargetTime>("risk", "危険度分布（キキクル）");
   return {
-    land: toFrames(latestEntry(raw, "land")),
-    heavyRain: toFrames(latestEntry(raw, "rain_mesh")),
-    inundation: toFrames(latestEntry(raw, "inund")),
-    flood: toFrames(latestEntry(raw, "flood")),
+    land: toFrames(latestEntry(raw, "disaster/landslide")),
+    heavyRain: toFrames(latestEntry(raw, "disaster/heavyRain")),
+    inundation: toFrames(latestEntry(raw, "disaster/inundation")),
+    flood: toFrames(latestEntry(raw, "disaster/flood")),
   };
 }
 
 /** 線状降水帯予測マップの「現在」フレームを取得する。 */
 export async function fetchLinearRainbandFrames(): Promise<DynamicWeatherFrame<RiskFrameRef>[]> {
   const raw = await fetchJmaTargetTimes<RawRiskTargetTime>("rasrf", "線状降水帯予測マップ");
-  return toFrames(latestEntry(raw, "sjfcstmap"));
-}
-
-function tileUrlTemplate(
-  group: "risk" | "rasrf",
-  elementId: string,
-  ref: RiskFrameRef,
-  // 洪水キキクル（flood）だけ配信元がMapbox Vector Tile（.pbf）のため拡張子が異なる。
-  // 他はすべてラスタタイル（.png）。
-  extension: "png" | "pbf" = "png",
-): string {
-  return jmaTileUrlTemplate({
-    group,
-    element: elementId,
-    basetime: ref.basetime,
-    member: ref.member,
-    validtime: ref.validtime,
-    extension,
-  });
+  return toFrames(latestEntry(raw, "precipitationNowcast/linearRainband"));
 }
 
 export function landRenderPayload(ref: RiskFrameRef): DynamicWeatherRenderPayload {
-  return { kind: "rasterTile", tileUrlTemplate: tileUrlTemplate("risk", "land", ref) };
+  return jmaTilePayload("disaster/landslide", ref);
 }
 
 export function heavyRainRenderPayload(ref: RiskFrameRef): DynamicWeatherRenderPayload {
-  return { kind: "rasterTile", tileUrlTemplate: tileUrlTemplate("risk", "rain_mesh", ref) };
+  return jmaTilePayload("disaster/heavyRain", ref);
 }
 
 export function inundationRenderPayload(ref: RiskFrameRef): DynamicWeatherRenderPayload {
-  return { kind: "rasterTile", tileUrlTemplate: tileUrlTemplate("risk", "inund", ref) };
+  return jmaTilePayload("disaster/inundation", ref);
 }
 
 /** 洪水キキクル。他3種と異なりvectorTile——source-layer名・色分けは描き方の宣言
  * （`features/map/scene/groups/weather.ts`）が持つ。 */
 export function floodRenderPayload(ref: RiskFrameRef): DynamicWeatherRenderPayload {
-  return { kind: "vectorTile", tileUrlTemplate: tileUrlTemplate("risk", "flood", ref, "pbf") };
+  return jmaTilePayload("disaster/flood", ref);
 }
 
 export function linearRainbandRenderPayload(ref: RiskFrameRef): DynamicWeatherRenderPayload {
-  return { kind: "rasterTile", tileUrlTemplate: tileUrlTemplate("rasrf", "sjfcstmap", ref) };
+  return jmaTilePayload("precipitationNowcast/linearRainband", ref);
 }
 
 // キキクル各層共通の5段階色（白/黄/赤/紫/黒、気象庁公式の危険度分布配色）。凡例HTML

@@ -85,9 +85,9 @@ export const mapDisplay = {
       "source": "main",
       "kind": "rasterTile",
       "jmaElement": "hrpns",
+      "pathGroup": "nowc",
       "attribution": "気象庁",
       "tile": {
-        "pathGroup": "nowc",
         "minZoom": 4,
         "maxZoom": 10,
         "vectorLayer": null
@@ -98,6 +98,7 @@ export const mapDisplay = {
       "source": "main",
       "kind": "gridFill",
       "jmaElement": null,
+      "pathGroup": null,
       "attribution": "気象庁MSM",
       "tile": null
     },
@@ -106,9 +107,9 @@ export const mapDisplay = {
       "source": "linearRainband",
       "kind": "rasterTile",
       "jmaElement": "sjfcstmap",
+      "pathGroup": "rasrf",
       "attribution": "気象庁",
       "tile": {
-        "pathGroup": "rasrf",
         "minZoom": 4,
         "maxZoom": 10,
         "vectorLayer": null
@@ -119,6 +120,7 @@ export const mapDisplay = {
       "source": "arrow",
       "kind": "gridMark",
       "jmaElement": null,
+      "pathGroup": null,
       "attribution": "気象庁MSM",
       "tile": null
     },
@@ -127,9 +129,9 @@ export const mapDisplay = {
       "source": "heavyRain",
       "kind": "rasterTile",
       "jmaElement": "rain_mesh",
+      "pathGroup": "risk",
       "attribution": "気象庁",
       "tile": {
-        "pathGroup": "risk",
         "minZoom": 4,
         "maxZoom": 10,
         "vectorLayer": null
@@ -140,9 +142,9 @@ export const mapDisplay = {
       "source": "landslide",
       "kind": "rasterTile",
       "jmaElement": "land",
+      "pathGroup": "risk",
       "attribution": "気象庁",
       "tile": {
-        "pathGroup": "risk",
         "minZoom": 4,
         "maxZoom": 10,
         "vectorLayer": null
@@ -153,9 +155,9 @@ export const mapDisplay = {
       "source": "inundation",
       "kind": "rasterTile",
       "jmaElement": "inund",
+      "pathGroup": "risk",
       "attribution": "気象庁",
       "tile": {
-        "pathGroup": "risk",
         "minZoom": 4,
         "maxZoom": 10,
         "vectorLayer": null
@@ -166,9 +168,9 @@ export const mapDisplay = {
       "source": "thunder",
       "kind": "rasterTile",
       "jmaElement": "thns",
+      "pathGroup": "nowc",
       "attribution": "気象庁",
       "tile": {
-        "pathGroup": "nowc",
         "minZoom": 4,
         "maxZoom": 8,
         "vectorLayer": null
@@ -179,9 +181,9 @@ export const mapDisplay = {
       "source": "tornado",
       "kind": "rasterTile",
       "jmaElement": "trns",
+      "pathGroup": "nowc",
       "attribution": "気象庁",
       "tile": {
-        "pathGroup": "nowc",
         "minZoom": 4,
         "maxZoom": 8,
         "vectorLayer": null
@@ -192,9 +194,9 @@ export const mapDisplay = {
       "source": "flood",
       "kind": "vectorTile",
       "jmaElement": "flood",
+      "pathGroup": "risk",
       "attribution": "気象庁",
       "tile": {
-        "pathGroup": "risk",
         "minZoom": 4,
         "maxZoom": 10,
         "vectorLayer": "flood"
@@ -205,6 +207,7 @@ export const mapDisplay = {
       "source": "liden",
       "kind": "gridMark",
       "jmaElement": "liden",
+      "pathGroup": "nowc",
       "attribution": "気象庁",
       "tile": null
     }

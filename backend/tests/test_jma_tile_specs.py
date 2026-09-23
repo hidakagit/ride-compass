@@ -90,3 +90,8 @@ class TestSourceZoomForInterpolation:
 
         assert source_zoom_for_interpolation("hrpns", effective_max_zoom(spec) + 1) is None
 
+
+def test_1つの配信要素の系統はタイルの仕様か非タイルの表の一方だけが持つ():
+    """両方にあると`jma_path_group`はタイルの仕様の側を返し、もう一方を直しても黙って効かない。"""
+    assert set(JMA_TILE_SPECS).isdisjoint(jma_tile_specs.JMA_NON_TILE_PATH_GROUPS)
+

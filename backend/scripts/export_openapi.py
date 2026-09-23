@@ -52,6 +52,7 @@ from app.domain.map_display import (  # noqa: E402
     WEATHER_LAYER_GROUPS,
     WeatherElement,
     weather_element_attribution,
+    weather_element_path_group,
     weather_element_tile,
     ROUTE_ARROW_HALO_SCALE,
     ROUTE_ARROW_SIZE_BY_ZOOM,
@@ -189,12 +190,13 @@ def _weather_element_entry(element: WeatherElement) -> dict:
         "source": element.source,
         "kind": element.kind,
         "jmaElement": element.jma_element,
+        # 画面のデータ層は、配信元のURLを要素idとこの系統から組み立てる。
+        "pathGroup": weather_element_path_group(element),
         "attribution": weather_element_attribution(element),
         # タイルで描くものだけが持つ。ズームの上限は配信元に実データがある範囲から導く。
         "tile": None
         if tile is None
         else {
-            "pathGroup": tile.path_group,
             "minZoom": tile.min_zoom,
             "maxZoom": effective_max_zoom(tile),
             "vectorLayer": tile.vector_layer,

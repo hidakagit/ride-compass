@@ -28,6 +28,7 @@ import {
   fetchJmaTargetTimes,
   parseValidtime,
   type JmaNowcastFrame,
+  jmaTilePayload,
   jmaTileUrlTemplate,
 } from "@/components/Map/jmaNowcastFrames";
 import { parseJstTime } from "@/components/Map/windLayer";
@@ -193,18 +194,6 @@ export const PRECIPITATION_INTENSITY_LEVELS: readonly { key: string; label: stri
   },
 ];
 
-/** 降水ナウキャストのラスタタイルURLテンプレート（{z}/{x}/{y}はMapLibreが実際の値へ
- * 展開するプレースホルダ、置換せずそのまま埋め込む）。 */
-function nowcastTileUrlTemplate(frame: NowcastFrame): string {
-  return jmaTileUrlTemplate({
-    group: "nowc",
-    element: "hrpns",
-    basetime: frame.basetime,
-    member: "none",
-    validtime: frame.validtime,
-  });
-}
-
 /** 降水短時間予報のラスタタイルURLテンプレート。ナウキャストと異なりmemberがURLパスに
  * そのまま入る（"immed"/"none"、fetchRasrfFrames参照）。 */
 function rasrfTileUrlTemplate(frame: RasrfFrame): string {
@@ -308,7 +297,13 @@ export function precipitationRenderPayload(
 ): DynamicWeatherRenderPayload | undefined {
   if (ref.source === "nowcast") {
     const frame = nowcastFrames[ref.index];
-    return frame ? { kind: "rasterTile", tileUrlTemplate: nowcastTileUrlTemplate(frame) } : undefined;
+    return frame
+      ? jmaTilePayload("precipitationNowcast/main", {
+          basetime: frame.basetime,
+          member: "none",
+          validtime: frame.validtime,
+        })
+      : undefined;
   }
   if (ref.source === "rasrf") {
     const frame = rasrfFrames[ref.index];

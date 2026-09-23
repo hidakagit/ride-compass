@@ -8,6 +8,8 @@
 import { fetchJson } from "@/lib/fetchJson";
 import { tileBaseUrl } from "@/lib/tileBaseUrl";
 import { DEFAULT_API_TIMEOUT_MS } from "@/lib/apiTimeouts";
+import { mapDisplay } from "@/types/generated/mapDisplay";
+import type { DynamicWeatherRenderPayload } from "@/components/Map/dynamicWeather";
 
 // JMA bosaiタイル系（時刻一覧JSON・ラスタタイルPNG）の共通ベースURL。
 // バックエンドのプロキシ＋キャッシュ（backend/app/infrastructure/jma_tile_client.py、
@@ -30,10 +32,68 @@ function jmaProxyUrl(path: string): string {
   return `${tileBaseUrl()}${JMA_TILE_BASE_URL}${path}`;
 }
 
+type DeclaredElement = (typeof mapDisplay.weatherElements)[number];
+
+/** 配信元から取る要素の宣言。要素idとパスの系統は源泉が持つ。 */
+type DeliveredElement = Extract<DeclaredElement, { readonly jmaElement: string }>;
+
+type JmaPathGroup = DeliveredElement["pathGroup"];
+
+type SourceKey<E> = E extends { readonly group: infer G extends string; readonly source: infer S extends string }
+  ? `${G}/${S}`
+  : never;
+
+/** 配信元から取る要素の鍵（チップ/名前付きソース）。生成物から導くため、源泉から要素が消えれば
+ * それを名指す呼び出し側の型検査が落ちる。 */
+export type JmaElementKey = SourceKey<DeliveredElement>;
+
+/** 配信元のタイルで描く要素の鍵。 */
+type JmaTileElementKey = SourceKey<Extract<DeliveredElement, { readonly kind: "rasterTile" | "vectorTile" }>>;
+
+/** 鍵に対応する源泉の宣言。 */
+export function declaredJmaElement(key: JmaElementKey): DeliveredElement {
+  const found = mapDisplay.weatherElements.find(
+    (element): element is DeliveredElement =>
+      element.jmaElement !== null && `${element.group}/${element.source}` === key,
+  );
+  if (found === undefined) throw new Error(`配信元の要素が源泉に宣言されていない: ${key}`);
+  return found;
+}
+
+/** 配信元はベクタで描く要素をMapbox Vector Tile（.pbf）、それ以外を画像（.png）で配る。 */
+function tileExtension(kind: DeliveredElement["kind"]): "png" | "pbf" {
+  return kind === "vectorTile" ? "pbf" : "png";
+}
+
+/** 配信元のタイルのフレームを決める時刻と系列。 */
+interface JmaTileTime {
+  basetime: string;
+  /** risk/rasrfはエントリ自身が持つ値、nowcは常に"none"。 */
+  member: string;
+  validtime: string;
+}
+
+/** 配信元のタイルで描く要素の、そのフレームの描画ペイロード。要素id・系統・描き方（拡張子）は源泉の宣言から引く。 */
+export function jmaTilePayload(key: JmaTileElementKey, time: JmaTileTime): DynamicWeatherRenderPayload {
+  const element = declaredJmaElement(key);
+  if (element.kind !== "rasterTile" && element.kind !== "vectorTile") {
+    throw new Error(`タイルで描かない要素のタイルを求めた: ${key}`);
+  }
+  const tileUrlTemplate = jmaTileUrlTemplate({
+    group: element.pathGroup,
+    element: element.jmaElement,
+    basetime: time.basetime,
+    member: time.member,
+    validtime: time.validtime,
+    extension: tileExtension(element.kind),
+  });
+  return { kind: element.kind, tileUrlTemplate };
+}
+
 /** 配信元のタイルパスが持つ可変部分。 */
 interface JmaTileTarget {
   /** 配信系統。`targetTimes.json`の在り処もこれで決まる。 */
-  group: "risk" | "nowc" | "rasrf";
+  group: JmaPathGroup;
   /** 要素id（`land`・`rain_mesh`・`hrpns`・`thns`等）。 */
   element: string;
   basetime: string;
@@ -96,18 +156,14 @@ export function parseJmaTileElement(url: string): JmaTileElementRef | null {
  * 実データが来る前にsourceを作るための仮の値で、中身が届くと本物のURLへ差し替わる。
  * 時刻部分は実在しない値のため、万一このまま要求されても配信元で404になる。
  */
-export function jmaPlaceholderTileUrl(
-  group: JmaTileTarget["group"],
-  element: string,
-  extension?: JmaTileTarget["extension"],
-): string {
+export function jmaPlaceholderTileUrl(element: Pick<DeliveredElement, "pathGroup" | "jmaElement" | "kind">): string {
   return jmaTileUrlTemplate({
-    group,
-    element,
+    group: element.pathGroup,
+    element: element.jmaElement,
     basetime: PLACEHOLDER_TIME,
     member: "none",
     validtime: PLACEHOLDER_TIME,
-    extension,
+    extension: tileExtension(element.kind),
   });
 }
 

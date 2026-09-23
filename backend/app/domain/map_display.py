@@ -6,7 +6,7 @@
 
 from typing import Literal, NamedTuple
 
-from app.domain.jma_tile_specs import JMA_TILE_SPECS, JmaTileSpec
+from app.domain.jma_tile_specs import JMA_TILE_SPECS, JmaTileSpec, PathGroup, jma_path_group
 from app.domain.material_catalog import PRIMARY_ATTRIBUTES
 
 
@@ -103,6 +103,11 @@ def weather_element_tile(element: WeatherElement) -> JmaTileSpec | None:
     if element.jma_element is None:
         raise ValueError(f"タイルで描く要素に配信要素idが無い: {element.group}/{element.source}")
     return JMA_TILE_SPECS[element.jma_element]
+
+
+def weather_element_path_group(element: WeatherElement) -> PathGroup | None:
+    """配信元から取る要素のパスの系統。自前のMSM格子から描く要素はNone。"""
+    return None if element.jma_element is None else jma_path_group(element.jma_element)
 
 
 def weather_element_attribution(element: WeatherElement) -> str:
