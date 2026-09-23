@@ -35,7 +35,9 @@ from app.domain.registry import AxisDisplaySpec
 from app.services.axis_registry_service import AxisRegistryAdminService
 from app.domain.strict_model import StrictModel
 
-router = APIRouter(prefix="/api/admin/axis-definitions", tags=["axis-admin"])
+router = APIRouter(
+    prefix="/api/admin/axis-definitions", tags=["axis-admin"], dependencies=[Depends(require_admin_basic_auth)]
+)
 
 _T = TypeVar("_T")
 
@@ -244,7 +246,7 @@ def _to_response(definition: AxisDefinition) -> AxisDefinitionResponse:
     return AxisDefinitionResponse(**definition.model_dump(), display=axis_display_for(definition))
 
 
-@router.get("", dependencies=[Depends(require_admin_basic_auth)])
+@router.get("")
 async def list_axis_definitions(
     service: AxisRegistryAdminService = Depends(get_axis_registry_admin_service),
 ) -> list[AxisDefinitionResponse]:
@@ -252,7 +254,7 @@ async def list_axis_definitions(
     return [_to_response(definition) for definition in definitions.values()]
 
 
-@router.get("/{axis_id}", dependencies=[Depends(require_admin_basic_auth)])
+@router.get("/{axis_id}")
 async def get_axis_definition(
     axis_id: str, service: AxisRegistryAdminService = Depends(get_axis_registry_admin_service)
 ) -> AxisDefinitionResponse:
@@ -262,7 +264,7 @@ async def get_axis_definition(
     return _to_response(definition)
 
 
-@router.post("", status_code=status.HTTP_201_CREATED, dependencies=[Depends(require_admin_basic_auth)])
+@router.post("", status_code=status.HTTP_201_CREATED)
 async def create_axis_definition(
     payload: AxisDefinitionPayload, service: AxisRegistryAdminService = Depends(get_axis_registry_admin_service)
 ) -> AxisDefinitionResponse:
@@ -274,7 +276,7 @@ async def create_axis_definition(
     return _to_response(definition)
 
 
-@router.put("/{axis_id}", dependencies=[Depends(require_admin_basic_auth)])
+@router.put("/{axis_id}")
 async def update_axis_definition(
     axis_id: str,
     payload: AxisDefinitionPayload,
@@ -296,7 +298,7 @@ async def update_axis_definition(
     return _to_response(definition)
 
 
-@router.delete("/{axis_id}", status_code=status.HTTP_204_NO_CONTENT, dependencies=[Depends(require_admin_basic_auth)])
+@router.delete("/{axis_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_axis_definition(
     axis_id: str, service: AxisRegistryAdminService = Depends(get_axis_registry_admin_service)
 ) -> None:
@@ -308,7 +310,7 @@ async def delete_axis_definition(
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
 
 
-@router.post("/{axis_id}/unpublish", dependencies=[Depends(require_admin_basic_auth)])
+@router.post("/{axis_id}/unpublish")
 async def unpublish_axis_definition(
     axis_id: str, service: AxisRegistryAdminService = Depends(get_axis_registry_admin_service)
 ) -> AxisDefinitionResponse:
@@ -353,7 +355,7 @@ class ValueDistributionResponse(StrictModel):
     zero_share: float
 
 
-@router.post("/preview-distribution", dependencies=[Depends(require_admin_basic_auth)])
+@router.post("/preview-distribution")
 async def preview_axis_distribution(
     payload: AxisPreviewRequest,
     repository: RoadGraphRepository | None = Depends(get_road_graph_repository),
@@ -397,7 +399,7 @@ class DisplayThresholdsPreviewResponse(StrictModel):
     bands_on_map: list[int]
 
 
-@router.post("/preview-display-thresholds", dependencies=[Depends(require_admin_basic_auth)])
+@router.post("/preview-display-thresholds")
 async def preview_display_thresholds(payload: DisplayThresholdsPreviewRequest) -> DisplayThresholdsPreviewResponse:
     """編集中の軸で、人が刻んだ段の境界のうち地図では効かないものと、地図に残る段を返す。
 

@@ -25,19 +25,20 @@
   （migrationは`axis_definitions`テーブルの**構造**変更のみに使う）。
 
 欠損値の表現はスカラー経路がNone、配列経路がNaN（`*_difficulty`関数・`*_difficulty_array`
-関数と同じ規約）。丸めは区分線形補間系のみ小数1桁（スカラーはPython `round()`、配列は
-`np.round`）。
+関数と同じ規約）。丸めは区分線形補間系のみ小数1桁で、配列もスカラーの`round()`と同じ値へ
+丸める（`round1_array`。区間の表示とルート選びが同じ得点を使うため）。
 """
 
-from typing import Annotated, Literal, Mapping, Sequence, Union
+from typing import Annotated, Literal, Mapping, Sequence
 
 import numpy as np
 from cachetools import LRUCache
-from pydantic import ConfigDict, Field, field_validator, model_validator
+from pydantic import BeforeValidator, ConfigDict, Field, StrictBool, StrictStr, field_validator, model_validator
 
 from app.domain.axis_templates import (
     evaluate_breakpoint_linear,
     evaluate_categorical,
+    round1_array,
 )
 from app.domain.strict_model import StrictModel
 
@@ -96,17 +97,23 @@ class BreakpointLinearShape(StrictModel):
         return value
 
 
+_FLAG_KEYS = {"true": True, "false": False}
+
+
+def _flag_or_value_name(key: object) -> object:
+    return _FLAG_KEYS.get(key, key) if isinstance(key, str) else key
+
+
 class CategoricalShape(StrictModel):
     """カテゴリ値→定数のマッピング（丸めなし。mappingの値がそのままスコアになる）。
 
     `mapping`のキーはbool（真偽2値の材料）とstr（MATERIAL_CATALOGのdtype="categorical"材料、
     3値以上）の両方を許容する（混在は想定しないが型上は許容）。
 
-    キー型は`union_mode="left_to_right"`でbool判定を先に試す（既定のsmart modeだと
-    JSON文字列"true"/"false"がboolへ強制変換されずstr型のまま残り、
-    `infrastructure/axis_definition_repository.py`のDB往復でsurface_good等の真偽値材料が
-    壊れる。"true"/"false"以外の文字列キーはbool変換に失敗してstrへフォールバックするため
-    通常のcategorical材料には影響しない）。
+    JSONのキーは常に文字列なので、真偽の材料の対応表は"true"/"false"で届く（管理APIの本文・
+    `infrastructure/axis_definition_repository.py`のDB往復）。**真偽へ読むのはこの2つの綴りだけ**
+    で、それ以外は書いたとおりの値の名前として残す——pydanticの真偽の読み方に任せると
+    "yes"・"on"・"1"等の値の名前まで真偽へ化ける。
     """
 
     model_config = _AXIS_MODEL_CONFIG
@@ -115,7 +122,7 @@ class CategoricalShape(StrictModel):
     material: str = Field(min_length=1)
     # 空の対応表はどの値も引けず、その軸を全区間で恒久的に欠損にする（`evaluate_categorical`
     # は未登録の値へNone/NaNを返すだけで、エラーもログも出さない）。登録時点で弾く。
-    mapping: dict[Annotated[Union[bool, str], Field(union_mode="left_to_right")], float] = Field(
+    mapping: dict[Annotated[StrictBool | StrictStr, BeforeValidator(_flag_or_value_name)], float] = Field(
         min_length=1
     )
 
@@ -842,7 +849,7 @@ def evaluate_axis_array(definition: AxisDefinition, materials: Mapping[str, np.n
     shape = definition.shape
     if isinstance(shape, BreakpointLinearShape):
         total, all_missing = _breakpoint_raw_total_array(shape, materials)
-        result = np.round(evaluate_breakpoint_linear(total, shape.breakpoints), 1)
+        result = round1_array(evaluate_breakpoint_linear(total, shape.breakpoints))
         result = np.where(all_missing, np.nan, result)
     else:
         # CategoricalShape。`evaluate_categorical`は`values == key`という要素ごとの比較

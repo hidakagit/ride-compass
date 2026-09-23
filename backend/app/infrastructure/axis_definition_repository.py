@@ -5,8 +5,7 @@
 
 JSONB列との(逆)シリアライズはPydanticへそのまま委ねる。`CategoricalShape.mapping`の
 `dict[bool | str, float]`キーは`mode="json"`でJSON文字列("true"/"false"、または通常の
-文字列キー)へ変換されるため、読み戻す側は`union_mode="left_to_right"`でbool判定を先に
-試す必要がある——既定のsmart mode unionでは"true"/"false"がbool化されずstrのまま残る。
+文字列キー)へ変換され、読み戻しでは`CategoricalShape`が"true"/"false"だけを真偽へ戻す。
 """
 
 from datetime import datetime, timezone

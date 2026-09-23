@@ -123,21 +123,21 @@ class TestCategoricalAxis:
         assert display(categorical("bool_unknown", {True: 10.0})) == NONE
 
     def test_named_values_are_drawn_with_unregistered_values_as_unknown(self):
-        result = display(categorical("cat_a", {"x": 0.0, "v": 50.0, "z": 50.0, "w": 100.0}))
+        result = display(categorical("cat_a", {"x": 0.0, "y": 50.0, "z": 50.0, "w": 100.0}))
 
         tile_input = TileInput(
-            property="p_cat", categories={"w": 100.0, "x": 0.0, "v": 50.0, "z": 50.0}, has_unknown_fallback=True
+            property="p_cat", categories={"w": 100.0, "x": 0.0, "y": 50.0, "z": 50.0}, has_unknown_fallback=True
         )
         assert result == ramp([tile_input], [25.0, 75.0])
 
     def test_named_values_that_all_score_the_same_have_no_band_to_draw(self):
-        assert display(categorical("cat_a", {"x": 10.0, "v": 10.0})) == NONE
+        assert display(categorical("cat_a", {"x": 10.0, "y": 10.0})) == NONE
 
     @pytest.mark.parametrize("material_id", ["cat_notile", "ref"], ids=["タイルに無い材料", "軸の参照"])
     def test_a_value_the_tile_does_not_carry_is_not_drawn(self, axes, material_id):
         axes(axis("ref", linear("num_a")))
 
-        assert display(categorical(material_id, {"x": 0.0, "v": 100.0})) == NONE
+        assert display(categorical(material_id, {"x": 0.0, "y": 100.0})) == NONE
 
 
 @pytest.mark.usefixtures("catalog", "axes")
@@ -208,10 +208,10 @@ class TestReferencedAxis:
         ]
 
     def test_a_referenced_named_value_axis_contributes_its_scores_times_the_weight(self, axes):
-        axes(axis("ref", categorical("cat_a", {"x": 10.0, "v": 30.0})))
+        axes(axis("ref", categorical("cat_a", {"x": 10.0, "y": 30.0})))
 
         assert display(self.outer(2.0)).tile_inputs == [
-            TileInput(property="p_cat", categories={"x": 20.0, "v": 60.0}, has_unknown_fallback=True)
+            TileInput(property="p_cat", categories={"x": 20.0, "y": 60.0}, has_unknown_fallback=True)
         ]
 
     def test_a_referenced_single_material_curve_is_applied_to_the_tile_value(self, axes):
@@ -224,7 +224,7 @@ class TestReferencedAxis:
     @pytest.mark.parametrize(
         "referenced",
         [
-            categorical("cat_notile", {"x": 0.0, "v": 1.0}),
+            categorical("cat_notile", {"x": 0.0, "y": 1.0}),
             linear("num_a", preprocess="abs"),
             linear("num_a", "num_b"),
             linear(term("num_a", 2.0)),
@@ -279,7 +279,7 @@ class TestBands:
         assert result.thresholds == [2.0, 5.5, 8.0]
 
     def test_overridden_thresholds_of_a_named_value_axis_are_kept_as_given(self):
-        result = display(categorical("cat_a", {"x": 0.0, "v": 100.0}), display_thresholds_override=[10.0, 20.0])
+        result = display(categorical("cat_a", {"x": 0.0, "y": 100.0}), display_thresholds_override=[10.0, 20.0])
 
         assert result.thresholds == [10.0, 20.0]
 
@@ -295,6 +295,14 @@ class TestBands:
 
         assert axis_display.bands_the_map_keeps(*args) == [0, 1, 2]
         assert axis_display.thresholds_the_map_drops(*args) == []
+
+    def test_a_draft_that_references_itself_does_not_fold_its_saved_self(self, axes):
+        """下書きのプレビューには保存前の軸が届く。保存済みの自分を材料として畳めば地図に塗れる軸になり
+        平坦部の境界5.5が落ちるが、自分を参照する軸は地図に出ないので全段が残る。"""
+        axes(axis("a", linear("num_a")))
+        args = ("a", linear(term("a"), breakpoints=self.PLATEAU), [], [5.0, 5.5, 8.0])
+
+        assert axis_display.bands_the_map_keeps(*args) == [0, 1, 2, 3]
 
     def test_band_labels_follow_the_bands_the_map_keeps(self):
         definition = axis(

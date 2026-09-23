@@ -17,7 +17,7 @@ from app.api.dependencies import get_db_status_service
 from app.domain.strict_model import StrictModel
 from app.services.db_status_service import DbStatusService
 
-router = APIRouter()
+router = APIRouter(dependencies=[Depends(require_admin_basic_auth)])
 
 
 class ImportRunEntry(StrictModel):
@@ -76,7 +76,6 @@ def _iso(value) -> str | None:
 @router.get(
     "/api/admin/db-status",
     response_model=DbStatusResponse,
-    dependencies=[Depends(require_admin_basic_auth)],
 )
 async def get_db_status(
     service: DbStatusService = Depends(get_db_status_service),

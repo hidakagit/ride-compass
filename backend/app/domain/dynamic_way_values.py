@@ -132,7 +132,8 @@ def map_value_thresholds(definition: AxisDefinition) -> list[float] | None:
         return list(display.thresholds)
     if shape.preprocess != "identity":
         # 符号を畳む軸の折れ線は材料の目盛りを写せない（負の境界が正の側へ折り返る）。
-        # ここへ渡す側が`preprocess`を見落としたまま塗ると、全区間が同じ帯に見える。
+        # 地図に塗れる軸を符号を畳まない形に限るのは`axis_display_for`で、そちらが変わったときに
+        # ルート線が全区間同じ帯へ黙って落ちないよう、ここで止める。
         raise ValueError(
             f"axis '{definition.axis_id}': ramp display on a shape that folds the sign "
             f"(preprocess={shape.preprocess!r}); its thresholds cannot be mapped"
