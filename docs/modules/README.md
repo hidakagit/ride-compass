@@ -60,6 +60,7 @@
 | 依存ライブラリのバージョン制約 | [architecture/tech-stack.md](../architecture/tech-stack.md) | 「このメジャーへ上げられない理由」。コードには「上げていない」という事実しか無く、理由は書かれていない |
 | デプロイ順序・本番反映の前後関係 | [architecture/tech-stack.md](../architecture/tech-stack.md)・[deployment-sync.md](../conventions/deployment-sync.md) | DB移行を先に済ませないと起動に失敗する変更の扱い |
 | 実行環境・プラットフォーム固有の制約 | [architecture/tech-stack.md](../architecture/tech-stack.md) | バンドラ・ホスティング・OSに由来する回避策 |
+| 外部データソースの利用条件 | [architecture/data-sources.md](../architecture/data-sources.md) | 商用利用の可否・出典と加工した旨の表記要件。提供元の公式ページにしか無い |
 | 検知器・レビュー基盤（`scripts/`） | [/review](../../.claude/commands/review.md)と`scripts/review_checks.py` | 何をどの経路で機械的にブロックするか。アプリの挙動ではなく**アプリを検査する側**のため、下の対象ファイル表の母集団にも入らない |
 
 判断の目安は**「その制約を、コードだけを読んで知れるか」**。知れないならモジュール設計書の

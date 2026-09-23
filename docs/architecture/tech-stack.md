@@ -25,7 +25,7 @@
 `tile.openstreetmap.org`は使えない。bulk／プログラム的アクセスに対するブロックポリシーを
 持ち（`x-blocked`ヘッダーで拒否）、本番はもちろん開発環境でも安定しない。MapLibre GL JS
 向けにAPIキー無しで提供されているOpenFreeMapのベクタースタイルを使っている。
-**利用規約は本番運用の節目ごとに読み直し**、必要なら専用プロバイダ（APIキー方式）へ
+**利用規約は本番運用の節目ごとに読み直し**（条件の記録は[data-sources.md](data-sources.md)）、必要なら専用プロバイダ（APIキー方式）へ
 切り替える。
 
 ## `maplibre-gl`のWorkerは自分で配る

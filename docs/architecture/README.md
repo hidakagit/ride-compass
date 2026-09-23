@@ -9,6 +9,7 @@
 |---|---|
 | [design-principles.md](design-principles.md) | 設計原則（構造仕様・UI仕様）。**規範**であり、コードがこれに従う |
 | [tech-stack.md](tech-stack.md) | 技術選定・バージョン固定の理由・実行環境の制約・デプロイの反映確認・本番PostgreSQLの設定・Docker構成 |
+| [data-sources.md](data-sources.md) | 外部データソースの利用条件（商用可否・表記の要件）と確認日 |
 | [directory-layout.md](directory-layout.md) | backend/frontendの層の役割と、層をまたぐときの約束 |
 | [api-design.md](api-design.md) | 公開しているエンドポイントの一覧と応答の形 |
 | [data-model.md](data-model.md) | API境界の型と、その正本がどこにあるか |
