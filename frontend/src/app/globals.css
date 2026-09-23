@@ -2,9 +2,7 @@
    ユーティリティクラスを併用できるようにする。既存の--space-1〜4（0.25/0.5/0.75/1rem）は
    Tailwind既定のスペーシングスケール（--spacing: 0.25rem単位）と数値一致しているため
    （T251調査で確認済み）、p-2・gap-3等の既定ユーティリティがそのままpx単位で既存トークンと
-   揃う。--color-*はダークモードを@media (prefers-color-scheme: dark)内の再定義で切り替える
-   実装のため、Tailwindの@themeへ取り込む（静的値へ固定される）とダークモード追従が壊れる。
-   取り込まずvar(--color-*)をそのまま個別クラスで参照する運用とする。 */
+   揃う。 */
 @import "tailwindcss";
 
 /* components/ui配下がTailwindユーティリティ(rounded-sm/md/lg, shadow-float)として
