@@ -1103,11 +1103,16 @@ def cmd_audit(ctx: Context, args: argparse.Namespace) -> int:
 def ci_verdicts(sha: str) -> list[tuple[str, bool]]:
     """`sha`に対するワークフローごとの最新の結論。2つめの値は、監査を通せない（失敗・結論待ち・
     取得できない・実行が無い）ことを表す。"""
-    from check_master_ci import RUNS_API, fetch_runs, is_failure, latest_per_workflow
+    from check_master_ci import RUNS_API, is_failure, latest_per_workflow
 
-    runs = fetch_runs(f"{RUNS_API}?head_sha={sha}&per_page=30")
-    if runs is None:
-        return [("CIの結論を取得できない（GitHub APIに届かない・未認証の上限超過等）", True)]
+    from orchestration.github import request_json, token
+
+    payload, limits, error = request_json(f"{RUNS_API}?head_sha={sha}&per_page=30")
+    runs = payload.get("workflow_runs") if isinstance(payload, dict) else None
+    if not isinstance(runs, list):
+        auth = "認証付き" if token() else "認証なし"
+        remaining = f"{limits.get('X-RateLimit-Remaining', '?')}/{limits.get('X-RateLimit-Limit', '?')}"
+        return [(f"CIの結論を取得できない（{error or '応答の形が違う'}、{auth}、残り{remaining}）", True)]
     latest = sorted(latest_per_workflow(runs, sha), key=lambda r: str(r.get("name")))
     if not latest:
         return [("このコミットに対するCIの実行が無い（orch/<名前>へpushしていないか、pushした先端のコミットではない）", True)]

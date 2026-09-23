@@ -198,6 +198,5 @@ CLAUDE.md参照。節見出しはタスクのテーマ分類で、日付は起�
 - [ ] [T1060](records/tasks/T1060.md). sceneが旧居（components/Map）から借りている宣言を、持ち主の置き場へ移す 規模M — トリガー: T1001段階D
 - [ ] [T1064](records/tasks/T1064.md). 本番とCIのGEOS・PROJをPGDGの版へ上げ、土地被覆を作り直す 規模M
 - [ ] [T1066](records/tasks/T1066.md). 並行実行の作業ツリーを固定数にし、消さずに使い回す 規模M
-- [ ] [T1071](records/tasks/T1071.md). 並行実行の道具がCIの結論を認証なしのAPIで読み、上限（1時間60回）に当たる 規模S
 
 見送りとして判断を記録したもの（台帳には載せない）: [T1036](records/tasks/T1036.md)・[T1037](records/tasks/T1037.md)・[T1038](records/tasks/T1038.md)・[T1039](records/tasks/T1039.md)・[T1040](records/tasks/T1040.md)

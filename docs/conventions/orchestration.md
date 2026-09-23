@@ -372,12 +372,15 @@ backendのPythonは作業ツリーに`.venv`が無いため、本体のチェッ
   2. 先端のコミットを明示してpushする: `git push origin +<sha>:refs/heads/orch/<名前>`
      （rebaseで履歴が変わるので強制で上書きする。このブランチは担当1人だけが使う）。
      docs・`*.md`だけの変更では`ci.yml`は走らず、`docs-consistency.yml`だけが走る。
-  3. CIの結論を待つ。実行全体で2〜3分かかる。結論は
-     `https://api.github.com/repos/hidakagit/ride-compass/actions/runs?head_sha=<sha>`
-     （認証なしで読める）か、下の監査コマンドの「CI」の項が出す。**認証なしのGitHub APIは
-     接続元のIPごとに1時間60回まで**で、開発機の全エージェント・masterへのpushの警告
-     （`check_master_ci.py`）が同じ枠を使う。数秒おきに問い合わせず、pushから2分ほど
-     置いて読み、未完了なら1〜2分おきに読み直す。
+  3. CIの結論を待つ。実行全体で2〜3分かかる。結論は下の監査コマンドの「CI」の項が出す
+     （`https://api.github.com/repos/hidakagit/ride-compass/actions/runs?head_sha=<sha>`を読む）。
+     GitHubへの問い合わせは`scripts/orchestration/github.py`の1か所にまとめてあり、
+     `git credential fill`でトークンが取れれば認証付き（上限は1時間5,000回。実測は
+     [T1071](../records/tasks/T1071.md)）、取れなければ認証なし（接続元のIPごとに1時間60回で、
+     開発機の全エージェント・masterへのpushの警告が同じ枠を使う）で読む。自分で問い合わせを
+     組み立てず、この関数か監査コマンドを使う。今の枠は`python scripts/orchestration/github.py`
+     で見られる。それでも数秒おきに問い合わせず、pushから2分ほど置いて読み、未完了なら1〜2分おきに
+     読み直す。
   4. 赤なら、ジョブのログで原因を取って直し（CLAUDE.md「テスト方針」のテストが落ちたときの
      直し方）、同じブランチへ積んで1.からやり直す。緑になるまで「監査待ち」にしない。
   5. 司令塔へ「監査待ち」と報告する（**コミットsha**・CIの**runのURLと結論**・検証のコマンドと
