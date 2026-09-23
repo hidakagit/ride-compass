@@ -3,8 +3,8 @@
 核（core.py）の状態の表の読み書きと、正本から導く読み出しを使う。核はこのモジュールをimportしない。
 
     python scripts/orchestrate.py prereqs <Txxx> --pending <dir>   # 手動タスクの前提と、それぞれが済んだか
-    python scripts/orchestrate.py priority <Txxx>... <高|中|低|数>  # 振り出し待ちの優先度を設定する
-    python scripts/orchestrate.py priority --prereqs-of <Txxx> --pending <dir> <高|中|低|数>  # 手動タスクの前提をまとめて
+    python scripts/orchestrate.py priority <Txxx>... <高|中|低>  # 振り出し待ちの優先度を設定する
+    python scripts/orchestrate.py priority --prereqs-of <Txxx> --pending <dir> <高|中|低>  # 手動タスクの前提をまとめて
 
 ## 前提の正本
 
@@ -23,6 +23,7 @@ from pathlib import Path
 from orchestration.core import (
     ACTIVE_STATES,
     PLAN_DOC,
+    PRIORITIES,
     STOPPED_STATES,
     Context,
     cat_files,
@@ -33,8 +34,7 @@ from orchestration.core import (
 )
 from orchestration.pending import load_pending, open_holds, prereqs_in
 
-#: 優先度の語。振り出し待ちは数の小さい順に取り出す。
-PRIORITY_WORDS = {"高": 4, "中": 5, "低": 6}
+
 def prereq_states(ctx: Context, board: dict, tasks: list[str], held: set[str]) -> dict[str, str]:
     """前提ごとの状態: 完了／稼働中／判断待ち／振り出し待ち／停止中／未着手。"""
     done = done_tasks(ctx, tasks)
@@ -84,12 +84,8 @@ def cmd_prereqs(ctx: Context, args: argparse.Namespace) -> int:
 def cmd_priority(ctx: Context, args: argparse.Namespace) -> int:
     board = load_board(ctx)
     *tasks, level = args.items
-    if level in PRIORITY_WORDS:
-        priority = PRIORITY_WORDS[level]
-    elif level.isdigit():
-        priority = int(level)
-    else:
-        raise SystemExit(f"優先度は 高・中・低 か数: {level}")
+    if level not in PRIORITIES:
+        raise SystemExit(f"優先度は {'・'.join(PRIORITIES)}: {level}")
     if args.prereqs_of:
         if not args.pending:
             raise SystemExit("--prereqs-of には --pending（ダッシュボードの書き出し）が要る")
@@ -101,9 +97,9 @@ def cmd_priority(ctx: Context, args: argparse.Namespace) -> int:
     for task in dict.fromkeys(tasks):
         hits = [i for i in items if i.get("task") == task]
         for item in hits:
-            item["priority"] = priority
+            item["priority"] = level
         if hits:
-            print(f"  {task}: 優先度 {priority}（{level}）")
+            print(f"  {task}: 優先度 {level}")
         else:
             missing.append(task)
     save_board(ctx, board)
@@ -121,7 +117,7 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("task")
     p.add_argument("--pending", required=True, help="ArtifactDataのlistでout_dirに書き出したディレクトリ")
     p = sub.add_parser("priority", help="振り出し待ちの優先度を設定する")
-    p.add_argument("items", nargs="+", help="Txxx... と、最後に 高|中|低|数")
+    p.add_argument("items", nargs="+", help="Txxx... と、最後に 高|中|低")
     p.add_argument("--prereqs-of", help="この手動タスクの前提をまとめて対象にする")
     p.add_argument("--pending", help="--prereqs-of のときの、ダッシュボードの書き出し")
     args = parser.parse_args(argv)

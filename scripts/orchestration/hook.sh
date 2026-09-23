@@ -1,10 +1,10 @@
-# PostToolUseのフック（.claude/settings.json）から`.`で読み込む。司令塔のセッションで、確認間隔を
-# 過ぎたときだけ`scripts/orchestrate.py check --if-due`を起こす。
+# PostToolUseのフック（.claude/settings.json）から`.`で読み込む。司令塔のセッション（`coordinator_session`）で、
+# 次の確認の時刻（`next_check`）を過ぎたときだけ`scripts/orchestrate.py check --if-due`を起こす。
+# `board claim`の呼び出しのときは、そのセッションを司令塔として記録させる。起こすかどうかの判定はここだけが持つ。
 #
 # 道具を使うたびに全セッション（サブエージェントを含む）で走るため、何もしないときはプロセスを
 # 1つも起こさずに抜ける（シェルの組み込みだけを使う。この開発機ではpythonの起動だけで1秒かかる）。
-# 判定の正本はorchestrate.pyの側で、ここは起こすかどうかの前段にすぎない。確認を起こすときは
-# origin/masterの版の道具で動かす（launch.py。本体のチェックアウトの道具は古いことがある）。
+# 確認を起こすときはorigin/masterの版の道具で動かす（launch.py。本体のチェックアウトの道具は古いことがある）。
 # このファイル自体は本体から読まれるので、origin/masterと違えば確認の結果に「入口が古い」と出る。
 
 IFS= read -r -d '' hook_input

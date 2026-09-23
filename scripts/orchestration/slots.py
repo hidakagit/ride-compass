@@ -3,30 +3,21 @@
 エージェントの作業ツリーは`<本体>/.claude/worktrees/slot-<N>`に固定数だけ置き、消さずに次の
 タスクへ渡し直す。数は回の上限（状態の表の`limits.concurrent`、無ければ既定）と同じ。
 
-    python scripts/orchestrate.py slot list                         # スロットごとの事実
-    python scripts/orchestrate.py slot prepare <N> --owner <名前>   # スロットを渡す（作る・初期化する）
-    python scripts/orchestrate.py slot acquire --owner <名前>       # 空きを1つ選んで渡し、パスを出す
-    python scripts/orchestrate.py slot release <N>                  # 渡した印（ロック）を外す
-    python scripts/orchestrate.py slot hook-create                  # WorktreeCreateフックの入口（標準入力がJSON）
-    python scripts/orchestrate.py slot hook-remove                  # WorktreeRemoveフックの入口
+    python scripts/orchestrate.py slot list          # スロットごとの事実
+    python scripts/orchestrate.py slot release <N>   # 渡した印（ロック）を外す
+    python scripts/orchestrate.py slot hook-create   # WorktreeCreateフックの入口（標準入力がJSON）
+    python scripts/orchestrate.py slot hook-remove   # WorktreeRemoveフックの入口
 
 ## 渡したかどうかは作業ツリー自身が持つ
 
 渡した印は`git worktree lock`の理由（`slot <名前> <時刻>`）で、状態の表には書かない。gitの
 ロックは作成が原子的なので、2本が同時に同じスロットを取りに来ても片方だけが取れる。
 
-## 印を外す契機
-
-担当が終わっても、Claude CodeはWorktreeRemoveフックを呼ばない——フックで作った作業ツリーは
-gitで中身を確かめる対象にせず、ディレクトリにファイルが1つでもあれば残す（呼ぶのは利用者が
-明示的に破棄したときだけ）。スロットは常に中身があるので、担当の終了では印が外れない。
-印は、司令塔が監査で担当を通したとき（`board set <名前> audit_done=now audit_result=通す`）に
-核（`core.release_slot`）が外す。通さずに止めた担当の印は`slot release <N>`で外す。
+印を外す契機（監査で通したとき・`slot release`）は規約「作業ツリーのスロット」節。
 
 ## 渡し直すときに止まる条件（黙って消さない）
 
-- 未コミットの変更がある（`.claude/settings.local.json`を除く。Claude Codeが許可の記録を書く
-  副産物で、渡し直しても中身を持ち越す）
+- 未コミットの変更がある
 - どのリモートの枝からも届かないコミットがある（pushしていない成果）
 - 作業ツリーの中にリンク（ジャンクション・シンボリックリンク）がある——`git worktree remove`の
   再帰削除がリンクの先を消すため、作業ツリーの中に置かない
@@ -52,7 +43,6 @@ from pathlib import Path
 from orchestration.core import (
     DEFAULT_CONCURRENT,
     EXPECTED_HOOKS_PATH,
-    IGNORED_CHANGES,
     SLOT_LOCK_PREFIX,
     Context,
     git,
@@ -143,7 +133,7 @@ def ensure_deps(path: Path) -> str:
     if mark.exists() and mark.read_text(encoding="utf-8").strip() == want:
         return "npm ciは不要（package-lock.jsonが前回と同じ）"
     lockrun = Path(__file__).resolve().parents[1] / "lockrun.py"
-    cmd = [sys.executable, str(lockrun), "heavy", "--",
+    cmd = [sys.executable, str(lockrun), "--",
            f"cd '{(path / 'frontend').as_posix()}' && npm ci --no-audit --no-fund"]
     r = subprocess.run(cmd, stdout=sys.stderr, stderr=sys.stderr, check=False)
     if r.returncode != 0:
@@ -164,22 +154,14 @@ def reset_to(path: Path, branch: str, base: str) -> None:
     problems = blockers(path)
     if problems:
         raise SlotError(f"{path.name} を渡し直せない: " + " / ".join(problems))
-    keep = path / IGNORED_CHANGES[0]
-    saved = keep.read_bytes() if keep.exists() else None
-    if saved is not None:
-        run_git(path, "checkout", "--", IGNORED_CHANGES[0])
     run_git(path, "switch", "--quiet", "-C", branch, base)
-    if saved is not None:
-        keep.write_bytes(saved)
 
 
-def prepare(ctx: Context, n: int, owner: str, base: str, fetch: bool) -> Path:
+def prepare(ctx: Context, n: int, owner: str, base: str) -> Path:
     """スロットNを最新のbaseから渡せる状態にし、ownerへ渡した印を付ける。
     止める理由があれば中身を変えずにSlotError（付けた印は外す）。"""
     path = slot_path(ctx, n)
     branch = f"{SLOT_PREFIX}{n}"
-    if fetch:
-        run_git(ctx.repo, "fetch", "--quiet", "origin", "master")
     try:
         reason = lock_reason(ctx, path)
         created = False
@@ -210,7 +192,7 @@ def acquire(ctx: Context, owner: str, base: str) -> Path:
     reasons = []
     for n in range(1, slot_count(ctx) + 1):
         try:
-            return prepare(ctx, n, owner, base, fetch=False)
+            return prepare(ctx, n, owner, base)
         except SlotError as e:
             reasons.append(str(e))
     raise SlotError("空いているスロットが無い: " + " / ".join(reasons))
@@ -279,14 +261,6 @@ def main(argv: list[str]) -> int:
     parser.add_argument("--dir", default=os.environ.get("ORCH_DIR"))
     sub = parser.add_subparsers(dest="op", required=True)
     sub.add_parser("list")
-    p = sub.add_parser("prepare")
-    p.add_argument("n", type=int)
-    p.add_argument("--owner", required=True)
-    p.add_argument("--base", default=DEFAULT_BASE)
-    p.add_argument("--no-fetch", action="store_true")
-    p = sub.add_parser("acquire")
-    p.add_argument("--owner", required=True)
-    p.add_argument("--base", default=DEFAULT_BASE)
     p = sub.add_parser("release")
     p.add_argument("n", type=int)
     sub.add_parser("hook-create")
@@ -296,12 +270,6 @@ def main(argv: list[str]) -> int:
     try:
         if args.op == "list":
             return cmd_list(ctx)
-        if args.op == "prepare":
-            print(prepare(ctx, args.n, args.owner, args.base, fetch=not args.no_fetch))
-            return 0
-        if args.op == "acquire":
-            print(acquire(ctx, args.owner, args.base))
-            return 0
         if args.op == "release":
             path = slot_path(ctx, args.n)
             if lock_reason(ctx, path):

@@ -811,8 +811,8 @@ CSSの規則が当たる。開くたびに作り直される部品（ポップ�
     取得がこのオリジンに向く）。起点は`E2E_LIVE_POINT=緯度,経度`で開発DBの取込範囲の中を与える
     （取込範囲はリポジトリに記録が無い。既定はアプリの既定地点で、範囲外なら前提不成立で止まる）。
     予報（MSM）が古ければ、時刻を入力に取る枝は「該当なし」になる。
-  - **手順**: `python scripts/lockrun.py heavy -- 'cd frontend && npm run build'` →
-    `python scripts/lockrun.py heavy -- 'cd frontend && E2E_LIVE_POINT=<緯度,経度> ./node_modules/.bin/playwright test -c playwright.live.config.ts <シナリオ>'`
+  - **手順**: `python scripts/lockrun.py -- 'cd frontend && npm run build'` →
+    `python scripts/lockrun.py -- 'cd frontend && E2E_LIVE_POINT=<緯度,経度> ./node_modules/.bin/playwright test -c playwright.live.config.ts <シナリオ>'`
     をシナリオごとに1回（`heavy`の枠の上限10分に1シナリオが収まる）。`NEXT_PUBLIC_API_URL`はビルドに
     埋め込まれるので、backendの向け先を変えたらビルドし直す。
   - **誰がいつ回すか**: 地図の描き方（`features/map/scene/`等）・タイルへ焼く値・軸カタログ・動的値の

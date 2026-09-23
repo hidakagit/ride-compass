@@ -4,7 +4,7 @@
 docs/conventions/orchestration.md「重い処理は機械全体で1本ずつ」が正本。
 
 使い方:
-    python scripts/lockrun.py heavy -- '<bashコマンド文字列>'
+    python scripts/lockrun.py -- '<bashコマンド文字列>'
     python scripts/lockrun.py --report [--since 2026-09-23T00:00]
 
 ロックはgitの共通ディレクトリ（全worktreeで共有される）の`lockrun/`に置き、ディレクトリの
@@ -13,7 +13,7 @@ mkdir（原子的）で取る。保持中は30秒ごとにmtimeを更新し、5�
 破棄したときは、保持者のpidがその時点で生きていたか・そのプロセス名を`lockrun/breaks.jsonl`へ
 追記する（生きている保持者の枠が破棄されたなら、破棄の規則のほうが誤っている）。
 
-ロック名は`heavy`だけを受け、それ以外の名前（種類別だったころの旧名を含む）は走らせずに止める。
+枠は機械全体で1つ（ロック名`heavy`）。
 
 実行のたびに待ち時間・保持時間・終了コードを`lockrun/log.jsonl`へ追記する。`--report`は
 それをロック名ごとに集計する。並行実行の運用（docs/conventions/orchestration.md）を実測で
@@ -40,8 +40,7 @@ MAX_HOLD_SECONDS = int(os.environ.get("LOCKRUN_MAX_HOLD_SECONDS", "600"))
 TIMED_OUT = 124
 HELD_ENV = "LOCKRUN_HELD"
 POLL_SECONDS = 5
-#: 機械全体で1つの枠。別の名前は別の枠になり、その下の処理は`heavy`と同時に走ってCPUを取り合う。
-#: 旧名を`heavy`と読み替えもしない——旧`git-push`はpushを包んでいたが、pushは枠に入れない。
+#: 機械全体で1つの枠の名前（ロックのディレクトリ・記録の`lock`）。
 LOCK_NAME = "heavy"
 WINDOWS_BASH = (r"C:\Program Files\Git\bin\bash.exe", r"C:\Program Files\Git\usr\bin\bash.exe")
 
@@ -135,12 +134,8 @@ def kill_tree(proc: subprocess.Popen) -> None:
         pass
 
 
-def run(name: str, command: str) -> int:
-    if name != LOCK_NAME:
-        print(f"[lockrun] ロック名 {name} は受けない。重い段は {LOCK_NAME} で呼び、軽い段（git push を含む）は"
-              "枠を通さずにそのまま走らせる（docs/conventions/orchestration.md「重い処理は機械全体で1本ずつ」）。"
-              "この名前を指示した手順があるなら、その出どころを直すこと", flush=True)
-        return 2
+def run(command: str) -> int:
+    name = LOCK_NAME
     root = lock_root()
     stop_file = os.path.join(os.path.dirname(root), "orchestration", "STOP")
     if os.path.exists(stop_file):
@@ -223,10 +218,11 @@ def main() -> int:
     if "--" in sys.argv:
         split = sys.argv.index("--")
         head, command = sys.argv[1:split], " ".join(sys.argv[split + 1:])
-        if len(head) != 1 or not command:
-            print(f"使い方: python scripts/lockrun.py {LOCK_NAME} -- '<bashコマンド文字列>'")
+        if head or not command:
+            print("使い方: python scripts/lockrun.py -- '<bashコマンド文字列>'（重い段だけを包む。"
+                  "docs/conventions/orchestration.md「重い処理は機械全体で1本ずつ」）")
             return 2
-        return run(head[0], command)
+        return run(command)
     parser = argparse.ArgumentParser(description="ロック付き実行器の記録を集計する")
     parser.add_argument("--report", action="store_true", required=True)
     parser.add_argument("--since", help="この時刻（ISO形式の前方一致比較）以降の記録だけを集計する")
