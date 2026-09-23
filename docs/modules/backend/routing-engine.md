@@ -13,9 +13,11 @@
 |---|---|
 | domain | `routing.py`・`graph.py`・`route.py`・`geo.py`・`errors.py`・`region.py`（矩形（`BoundingBox`）とXYZタイルの相互変換、Road Graphを取得する単位のズーム。タイル配信側もこの変換を共有する）・`cycling_speed.py`（自転車の走行モデル。平地・無風の巡航速度からホイール出力を逆算し、勾配・向かい風・転がり抵抗から区間ごとの速度を走行方程式で解く。速度の逆算は`v`の3次方程式になるため二分法で、numpyでベクトル化してある。候補の所要時間と基準線の探索コストがここから出る）・`tuning.py`（ルーティング評価が読む固定値の宣言。走ってみて決める値［較正値］は既定ごとここが持ち、エンジンが読む値・管理画面が並べる項目・変更が効くために何をやり直す必要があるかをそこから導く。較正値ではない固定値は載せず、使う側のモジュールが持つ）・`loop_routing.py`（周回・目的地ルートの探索結果を運ぶ型。探索の実装と候補を並べる戦略のどちらにも属さない） |
 | services | `route_generator.py`（戦略層）・`road_graph_engine.py`・`graph_service.py` |
-| infrastructure | `road_graph_models.py`・`road_graph_repository.py`（責務ごとに分割）・`graph_material_cache.py`・`tile_score_matrix_cache.py`・`search_graph_cache.py`・`tile_persistent_cache.py`・`cache_identity.py`（キャッシュ鍵の組み立て方の正本。手で書くリビジョンと、焼き込みSQL・pickleする列構成から導く署名を合成する。タイル配信側の世代も同じ関数を使う）・`derived_data_meta.py`（派生データの世代。バッチが中身を書き直すたびに進む単調カウンタで、デプロイを伴わない変化を表せる唯一の経路）・`cache_generation.py`（DBの世代とディスクへ書いた時点の記録を突き合わせる判断。軸定義と派生データが同じ実装を使う） |
+| infrastructure | `road_graph_repository.py`（責務ごとに分割）・`graph_material_cache.py`・`tile_score_matrix_cache.py`・`search_graph_cache.py`・`tile_persistent_cache.py`・`cache_identity.py`（キャッシュ鍵の組み立て方の正本。手で書くリビジョンと、焼き込みSQL・pickleする列構成から導く署名を合成する。タイル配信側の世代も同じ関数を使う）・`derived_data_meta.py`（派生データの世代。バッチが中身を書き直すたびに進む単調カウンタで、デプロイを伴わない変化を表せる唯一の経路）・`cache_generation.py`（DBの世代とディスクへ書いた時点の記録を突き合わせる判断。軸定義と派生データが同じ実装を使う） |
 | api | `routes.py` |
-| batch | `precompute_road_node_degrees.py`・`precompute_road_node_intersections.py`・`presplit_road_graph.py` |
+
+探索が読む`road_edges`と材料のテーブル（ORMの宣言）・それを作るバッチは
+[静的道路属性・タイル配信](static-road-attributes.md)の対象ファイル表が持つ。
 
 road_graphエンジンは自前Road Graph（DB由来のノード/Edge）で経路計算する。探索の状態は
 **有向区間**で、交差点でのターンに費用を付けられる（下記「一対全木の状態」節）。一対全木も
@@ -992,7 +994,7 @@ DB側の値は**その下限を上げるためだけ**に使う（bboxの外へ�
   読み先のデータを作り直した場合はこの文字列が動かないため、DBの`derived_data_meta.revision`
   （バッチの入口が進め、`services/derived_data_revision_service.py`がTTL付きで読み直す）と
   ディスクの記録を突き合わせて捨てる別経路が要る
-  （`docs/modules/backend/batch-pipeline-dependencies.md`「3. ランタイム側の読み取り元」参照）。
+  （[静的道路属性・タイル配信](static-road-attributes.md)の`_common.py: with_derived_data_revision_bump`参照）。
 - **`tile_score_matrix_cache`（タイル単位の静的Edge×公開軸スコア行列）は
   `graph_material_cache`とは別枠**——軸スタジオでの軸定義編集
   （`AxisRegistryAdminService`→`refresh_axis_definitions`）はこちらだけを対象に無効化を

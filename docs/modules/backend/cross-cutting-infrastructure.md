@@ -22,7 +22,6 @@ DB接続・マイグレーション・Redis・HTTPクライアント・レート
 | api/routers | `health.py` | `/health`・`/api/debug/stats`・`/api/debug/db-status` |
 | api/routers | `debug_admin.py` | `debug_mode`のランタイム切替・直近ログ取得 |
 | infrastructure | `database.py` | PostGIS接続（SQLAlchemy） |
-| infrastructure | `migrate.py` | 最小マイグレーション機構（番号付きSQL） |
 | infrastructure | `redis_client.py` | Redis共有クライアント |
 | infrastructure | `redis_json_cache.py` | RedisへJSONで持つcache-asideの共通骨格 |
 | infrastructure | `http_client.py` | 外部API向け共有HTTPクライアント |

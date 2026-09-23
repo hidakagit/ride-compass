@@ -73,6 +73,19 @@ CHANGED="$(printf '%s
 ' "$CHANGED" | awk 'NF && !seen[$0]++')"
 [ -n "$CHANGED" ] || exit 0
 
+# 文書と台帳の整合。docsだけのpushこそ要るので、下のdocs専用の早期終了より前に置く。
+# 常に全件を見るため、masterに既に入った違反でも止まる（その違反はCIでも赤になっている）。
+PY_ANY="$(find_venv || command -v python3 || command -v python || true)"
+if [ -n "$PY_ANY" ]; then
+    if ! DOCS_OUT="$(PYTHONIOENCODING=utf-8 "$PY_ANY" scripts/review_checks.py docs)"; then
+        printf '%s\n' "$DOCS_OUT" >&2
+        printf '\n[pre-push] %s\n' "文書と台帳の整合に違反があります（python scripts/review_checks.py docs）。pushを中止しました" >&2
+        exit 1
+    fi
+else
+    printf '\n[pre-push] %s\n' "pythonが無いため文書と台帳の整合を飛ばしました（masterへのpushならCIで検査されます）" >&2
+fi
+
 # docs・markdownだけの変更は何も動かさない（.github/workflows/ci.ymlのpaths-ignoreと同じ規則）。
 printf '%s
 ' "$CHANGED" | awk '!/^docs\// && !/\.md$/ { found = 1 } END { exit found ? 1 : 0 }' && exit 0
