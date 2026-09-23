@@ -32,6 +32,7 @@ from app.domain.accident import (  # noqa: E402
     FATAL_SQL,
 )
 from app.domain.geo import KM_PER_DEGREE_LATITUDE
+from app.domain.material_sql import nodes_lookup_sql  # noqa: E402
 from app.domain.traffic import (  # noqa: E402
     INTERSECTION_DEGREE_THRESHOLD,
     POI_CLUSTER_EPS_M,
@@ -55,7 +56,7 @@ COUNT_KIND_OF: dict[str, str] = {
 _SIGNAL_OVERRIDE = "signal"
 
 #: まとまりの代表を1点だけ残す。
-_CLUSTER_SQL = """
+_CLUSTER_SQL = f"""
 CREATE TEMP TABLE _stop_nodes ON COMMIT DROP AS
 WITH classified AS (
     SELECT nm.osm_node_id,
@@ -63,8 +64,8 @@ WITH classified AS (
                 THEN $2 ELSE k.count_kind END AS count_kind,
            n.geom
     FROM node_materials nm
-    JOIN source_features n ON n.source = 'osm_node' AND n.natural_key = nm.osm_node_id::text
-    JOIN (VALUES {kind_values}) AS k(kind, count_kind) ON k.kind = nm.kind
+    JOIN LATERAL {nodes_lookup_sql("nm.osm_node_id")} n ON true
+    JOIN (VALUES {{kind_values}}) AS k(kind, count_kind) ON k.kind = nm.kind
 ),
 clustered AS (
     SELECT osm_node_id, count_kind,

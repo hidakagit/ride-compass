@@ -91,10 +91,14 @@ uint8）で持つ。どう読むかは`attrs`が持つ（幅・型・尺度・�
 **道1本の値は区間の値から導く。** 同じ知識を2つの粒度で持つ以上、数え方が違ってはいけない
 ——地図が塗る値と評価が読む値が構造として一致する。
 
-**道の生データの読み方（`source`の値・キーの型）は`domain/material_sql.py`の
-`ways_source_sql`・`ways_lookup_sql`だけが持つ。** 派生の段もタイル配信も同じ関数から読む
-ため、取込の入れ方を変えたときに直す場所が1つで済む。材料の式が読まない列（構成ノードの
-並び`payload`等）が要る段は、列を引数で足す——別の関数を増やすと、読み方の正本が2本になる。
+**道とノードの生データの読み方（`source`の値・キーの型）は`domain/material_sql.py`の
+`ways_source_sql`・`ways_lookup_sql`・`NODES_SOURCE_SQL`・`nodes_lookup_sql`だけが持つ。**
+派生の段もタイル配信もグラフの読み出しも同じ関数から読むため、取込の入れ方を変えたときに
+直す場所が1つで済む。全件の副問い合わせ（`*_SOURCE_SQL`）は空間で絞る読み手と全件を流す段が、
+キーで引く副問い合わせ（`*_lookup_sql`、LATERALの中に置く）は区間・材料の行からたどる読み手が
+使う。前者のキー（`osm_way_id`・`osm_node_id`）で生データ側を突き合わせると主キーの索引が
+使えない（下の「API」節）。材料の式が読まない列（構成ノードの並び`payload`等）が要る段は、
+列を引数で足す——別の関数を増やすと、読み方の正本が2本になる。
 
 ### 停止要因の数え方
 
@@ -362,8 +366,9 @@ tile_cache/`）で、パスをSHA-256でハッシュ化したフラットなフ�
 
 MVTエンコードはPostGIS側（`ST_AsMVT`、`road_graph_repository.py`）で行う。タイル内の
 フィーチャーへ材料（`edge_materials`・`way_materials`）を結合するJOINは、**主キー検索に
-なる形**を保つこと——道の生データは`natural_key`（text）が主キーのため、`natural_key::bigint`
-で突き合わせると索引が使えず、道の全件に対する総当たりに落ちる（`ways_lookup_sql`）。
+なる形**を保つこと——道・ノードの生データは`natural_key`（text）が主キーのため、`natural_key::bigint`
+で突き合わせると索引が使えず、全件に対する総当たりに落ちる（`ways_lookup_sql`・`nodes_lookup_sql`）。
+POIタイルは向きが逆で、ノードの生データを空間索引で絞ってから`node_materials`を主キー（bigint）で引く。
 
 **同時実行数制限**: 路面・POIタイルは`_region_tile_semaphore`
 （`settings.road_tile_max_concurrent`）を共有する（DB接続プール上限を超えないため専用

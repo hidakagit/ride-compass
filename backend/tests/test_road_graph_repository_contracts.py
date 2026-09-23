@@ -231,8 +231,8 @@ async def test_no_edges_in_bbox_yields_no_graph():
     assert len(session.calls) == 1
 
 
-async def test_endpoint_nodes_are_looked_up_as_text_in_chunks(monkeypatch):
-    """`source_features.natural_key`はtext。数で渡すと1件も一致せず、枝が全部落ちる。"""
+async def test_endpoint_nodes_are_looked_up_in_chunks(monkeypatch):
+    """端点のノードは区切って引く（1回の問い合わせへ渡すidの数を抑える）。"""
     monkeypatch.setattr(road_graph_repository, "_ID_CHUNK_SIZE", 2)
     repo, session = _repo(
         [_edge_row(from_node=1, to_node=2), _edge_row(segment=1, from_node=2, to_node=3)],
@@ -242,7 +242,7 @@ async def test_endpoint_nodes_are_looked_up_as_text_in_chunks(monkeypatch):
 
     await repo.get_graph_topology_in_bbox(BBOX)
 
-    assert [params["node_keys"] for params in session.params[1:]] == [["1", "2"], ["3"]]
+    assert [params["node_ids"] for params in session.params[1:]] == [[1, 2], [3]]
 
 
 # --- ジオメトリ付きの取り直し -------------------------------------------------
