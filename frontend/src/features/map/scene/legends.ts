@@ -16,7 +16,7 @@ import { POINT_LAYERS, pointAxisKey, pointCategoryRadiusPx, type PointAxis } fro
 import { ROAD_TRACKS, roadTrackAxis } from "./groups/roadLines";
 
 /** 凡例1本ぶん。1つのチップが複数の軸を持つことがある（事故は当事者と重大度）。 */
-export type SceneLegendAxis = {
+type SceneLegendAxis = {
   /** 地図チップのid（＝レイヤーの役割）。 */
   readonly layerId: string;
   /** 隠した行を覚えておく鍵。 */

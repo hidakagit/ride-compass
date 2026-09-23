@@ -10,7 +10,6 @@
 // 雷・竜巻は「回避一択」の危険のため評価軸には組み込まず、rasterTile表現（気象庁が
 // 生成した画像をそのまま重ねる）のみを持つ警告表示として扱う。
 
-import weatherScales from "@/types/generated/weather-scales.json";
 import type { DynamicWeatherFrame, DynamicWeatherRenderPayload } from "@/components/Map/dynamicWeather";
 import {
   jmaDelivery,
@@ -70,21 +69,3 @@ export function tornadoRenderPayload(
 ): DynamicWeatherRenderPayload | undefined {
   return nowcastPayload("disaster/tornado", frames, ref);
 }
-
-// 雷活動度1〜4の凡例（地図チップ）。気象庁の解説
-// （https://www.jma.go.jp/jma/kishou/know/toppuu/thunder2-1.html・thunder3-1.html、
-// 2026-08-22確認）に基づく要約: 活動度1=雷雲に発達する可能性（1時間以内に発雷のおそれ）、
-// 活動度2〜4=既に積乱雲が発生し落雷の可能性がある状態（検知数が多いほど活動度が高い）。
-// 色そのものは気象庁がタイル配色のカラーコードを公開していないため、同庁のナウキャスト系
-// 地図で一般的な「弱い＝黄→強い＝紫」の配色慣習に沿った近似値であり、実際のタイル画像の
-// 色と厳密には一致しない（precipitationNowcast.tsのPRECIPITATION_COLOR_STOPSと同じ扱い）。
-export const THUNDER_ACTIVITY_LEVELS: readonly { key: string; label: string; color: string }[] =
-  weatherScales.thunder_activity;
-
-// 竜巻発生確度1・2の凡例。気象庁の解説
-// （https://www.jma.go.jp/jma/kishou/know/toppuu/tornado3-3.html、2026-08-22確認）に基づく
-// 要約: 発生確度1は見逃しを減らすよう広め・低い的中率（1〜7%）、発生確度2は気象庁の
-// 「竜巻注意」情報につながる絞り込んだ予測（的中率7〜14%）。数字は「切迫度」ではなく
-// 「可能性の程度」の違いを表す（気象庁の注記どおり）。色は雷と区別できる寒色系の近似値。
-export const TORNADO_POTENTIAL_LEVELS: readonly { key: string; label: string; color: string }[] =
-  weatherScales.tornado_potential;

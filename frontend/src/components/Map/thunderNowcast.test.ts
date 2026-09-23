@@ -1,13 +1,6 @@
 // @vitest-environment node
 import { afterEach, describe, expect, it, vi } from "vitest";
-import {
-  fetchThunderNowcastFrames,
-  thunderFrames,
-  thunderRenderPayload,
-  tornadoRenderPayload,
-  THUNDER_ACTIVITY_LEVELS,
-  TORNADO_POTENTIAL_LEVELS,
-} from "./thunderNowcast";
+import { fetchThunderNowcastFrames, thunderFrames, thunderRenderPayload, tornadoRenderPayload } from "./thunderNowcast";
 import { trimToCurrentAndFuture } from "./jmaNowcastFrames";
 // タイル配信オリジンは`@/lib/tileBaseUrl`が唯一の情報源で、その環境変数依存は
 // `src/lib/tileBaseUrl.test.ts`が検証する。ここで固定するのは、`process.env`が
@@ -134,18 +127,6 @@ describe("thunderNowcast（改善計画T204）", () => {
     it("範囲外のrefに対してはundefinedを返す（1点の欠損で表示全体を落とさない）", () => {
       expect(thunderRenderPayload(frames, 5)).toBeUndefined();
       expect(tornadoRenderPayload(frames, 5)).toBeUndefined();
-    });
-  });
-
-  describe("凡例", () => {
-    it("THUNDER_ACTIVITY_LEVELSは活動度1〜4の4段階を持つ", () => {
-      expect(THUNDER_ACTIVITY_LEVELS).toHaveLength(4);
-      expect(THUNDER_ACTIVITY_LEVELS.map((l) => l.key)).toEqual(["level1", "level2", "level3", "level4"]);
-    });
-
-    it("TORNADO_POTENTIAL_LEVELSは発生確度1・2の2段階を持つ", () => {
-      expect(TORNADO_POTENTIAL_LEVELS).toHaveLength(2);
-      expect(TORNADO_POTENTIAL_LEVELS.map((l) => l.key)).toEqual(["potential1", "potential2"]);
     });
   });
 });

@@ -22,7 +22,7 @@ import { hiddenKeysOf, presentHiddenKeys } from "./legendFilters";
 import type { HiddenLegendKeys } from "./mapLook";
 
 /** 凡例1本。`axisId`を持てば絞り込める（保存先の鍵）。 */
-export interface ChipLegend {
+interface ChipLegend {
   label: string;
   legend: readonly LegendEntry[];
   axisId?: string;

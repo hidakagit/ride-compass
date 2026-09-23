@@ -11,7 +11,9 @@ import { buildDefaultLayerVisibility, type MapLayerId } from "@/components/Map/m
 import { EMPTY_CATALOG, type AxisCatalog } from "@/lib/axisCatalog";
 
 import { catalogOf, dedicatedEntry, rampEntry } from "./__fixtures__/catalog";
-import { useMapView, type MapViewInputs } from "./useMapView";
+import { useMapView } from "./useMapView";
+
+type MapViewInputs = Parameters<typeof useMapView>[0];
 
 // 軸カタログと気象レイヤーは外部へ取りに行くため、取りに行かない代役へ差し替える（ネットワーク境界）。
 const SOURCES = vi.hoisted(() => ({ catalog: undefined as unknown as AxisCatalog }));

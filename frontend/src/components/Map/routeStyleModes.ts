@@ -18,7 +18,7 @@ import { bandColorsFor, COLOR_NO_DATA, DEFAULT_DIFFICULTY_BOUNDARIES, type MapVa
 // gradient/roadは公開軸から動的に生成されるため固定IDでは表現しきれない。
 // "difficulty"（対応する軸を持たない唯一の例外、下記DIFFICULTY_MODE参照）だけを
 // 固定文字列として残す。
-export type RouteStyleModeId = "difficulty" | "none" | (string & {});
+type RouteStyleModeId = "difficulty" | "none" | (string & {});
 
 /** レンズ（地図を何で塗るか）の識別子。`"none"`（塗らない）・`"difficulty"`（総合難易度）
  * 以外は公開軸のaxis_id。ルート前は全道路（rampタイル・専用配信）、ルート後はルート線

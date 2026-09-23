@@ -67,7 +67,8 @@ RISK_LEVEL_COLORS: tuple[LevelColor, ...] = (
     LevelColor("level4", "災害切迫（黒）", "#0c000c"),
 )
 
-#: 雷の活動度。弱い＝黄→強い＝紫というナウキャスト系の配色慣習に沿う。
+#: 雷の活動度。弱い＝黄→強い＝紫というナウキャスト系の配色慣習に沿う。気象庁はタイルの配色の
+#: カラーコードを公開していないため、雷・竜巻の色は近似値で、実際のタイル画像の色とは厳密には一致しない。
 THUNDER_ACTIVITY_LEVELS: tuple[LevelColor, ...] = (
     LevelColor("level1", "活動度1: 雷雲発達の可能性（1時間以内に発雷のおそれ）", "#fde047"),
     LevelColor("level2", "活動度2: 雷雲発生、落雷の可能性", "#fb923c"),

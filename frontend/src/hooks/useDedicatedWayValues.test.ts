@@ -1,6 +1,10 @@
 import { renderHook, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { dedicatedWayValuesFor, useDedicatedWayValues } from "./useDedicatedWayValues";
+import { useDedicatedWayValues } from "./useDedicatedWayValues";
+
+/** 取りに行っていない軸は結果を持たないため、空の結果として読む。 */
+const resultOf = (results: ReturnType<typeof useDedicatedWayValues>, axisId: string) =>
+  results.get(axisId) ?? { values: new Map<string, number>(), loading: false, error: false, hasFetched: false };
 import type { DedicatedWayValueAxis } from "@/components/Map/axisLayers";
 import { fetchDynamicWayValues } from "@/services/regionApi";
 import type { MapViewport } from "@/components/Map/windLayer";
@@ -44,8 +48,8 @@ describe("useDedicatedWayValues（専用way値配信軸のフェッチ・状態�
     const { result } = renderHook(() => useDedicatedWayValues(NO_AXES, VIEWPORT, 0, undefined));
     expect(fetchDynamicWayValues).not.toHaveBeenCalled();
     expect(result.current.size).toBe(0);
-    expect(dedicatedWayValuesFor(result.current, "wind").values.size).toBe(0);
-    expect(dedicatedWayValuesFor(result.current, "wind").hasFetched).toBe(false);
+    expect(resultOf(result.current, "wind").values.size).toBe(0);
+    expect(resultOf(result.current, "wind").hasFetched).toBe(false);
   });
 
   it("viewportがnullの間はフェッチしない", () => {
@@ -60,8 +64,8 @@ describe("useDedicatedWayValues（専用way値配信軸のフェッチ・状態�
 
     const { result } = renderHook(() => useDedicatedWayValues(WIND_ONLY, VIEWPORT, 90, at, 20));
 
-    await waitFor(() => expect(dedicatedWayValuesFor(result.current, "wind").values.size).toBe(2));
-    const wind = dedicatedWayValuesFor(result.current, "wind");
+    await waitFor(() => expect(resultOf(result.current, "wind").values.size).toBe(2));
+    const wind = resultOf(result.current, "wind");
     expect(wind.values.get("1")).toBe(2.5);
     expect(wind.values.get("2")).toBe(-1.0);
     expect(wind.error).toBe(false);
@@ -77,8 +81,8 @@ describe("useDedicatedWayValues（専用way値配信軸のフェッチ・状態�
     const { result } = renderHook(() => useDedicatedWayValues(BOTH, VIEWPORT, 45, undefined));
 
     await waitFor(() => expect(result.current.size).toBe(2));
-    expect(dedicatedWayValuesFor(result.current, "wind").values.get("1")).toBe(2.5);
-    expect(dedicatedWayValuesFor(result.current, "gradient").values.get("3")).toBe(4.5);
+    expect(resultOf(result.current, "wind").values.get("1")).toBe(2.5);
+    expect(resultOf(result.current, "gradient").values.get("3")).toBe(4.5);
   });
 
   it("時刻・想定速度は、それを必要とすると宣言した軸のリクエストにだけ載る", async () => {
@@ -117,12 +121,12 @@ describe("useDedicatedWayValues（専用way値配信軸のフェッチ・状態�
       { initialProps: { axes: WIND_ONLY } },
     );
 
-    await waitFor(() => expect(dedicatedWayValuesFor(result.current, "wind").values.size).toBe(1));
+    await waitFor(() => expect(resultOf(result.current, "wind").values.size).toBe(1));
 
     rerender({ axes: NO_AXES });
 
-    await waitFor(() => expect(dedicatedWayValuesFor(result.current, "wind").values.size).toBe(0));
-    expect(dedicatedWayValuesFor(result.current, "wind").loading).toBe(false);
+    await waitFor(() => expect(resultOf(result.current, "wind").values.size).toBe(0));
+    expect(resultOf(result.current, "wind").loading).toBe(false);
   });
 
   it("フェッチ中はloading=trueになり、応答が届くとfalseに戻る", async () => {
@@ -135,13 +139,13 @@ describe("useDedicatedWayValues（専用way値配信軸のフェッチ・状態�
 
     const { result } = renderHook(() => useDedicatedWayValues(WIND_ONLY, VIEWPORT, 0, undefined));
 
-    await waitFor(() => expect(dedicatedWayValuesFor(result.current, "wind").loading).toBe(true));
-    expect(dedicatedWayValuesFor(result.current, "wind").values.size).toBe(0);
+    await waitFor(() => expect(resultOf(result.current, "wind").loading).toBe(true));
+    expect(resultOf(result.current, "wind").values.size).toBe(0);
 
     resolveFetch({ values: { "1": 2.5 }, error: false });
 
-    await waitFor(() => expect(dedicatedWayValuesFor(result.current, "wind").loading).toBe(false));
-    expect(dedicatedWayValuesFor(result.current, "wind").values.get("1")).toBe(2.5);
+    await waitFor(() => expect(resultOf(result.current, "wind").loading).toBe(false));
+    expect(resultOf(result.current, "wind").values.get("1")).toBe(2.5);
   });
 
   it("タイル取得が本当に空（backendが正常応答でerror:falseの空values）なら、例外を投げず空の結果に収束しerrorはfalseのまま", async () => {
@@ -150,9 +154,9 @@ describe("useDedicatedWayValues（専用way値配信軸のフェッチ・状態�
     const { result } = renderHook(() => useDedicatedWayValues(WIND_ONLY, VIEWPORT, 0, undefined));
 
     await waitFor(() => expect(fetchDynamicWayValues).toHaveBeenCalled());
-    await waitFor(() => expect(dedicatedWayValuesFor(result.current, "wind").hasFetched).toBe(true));
-    expect(dedicatedWayValuesFor(result.current, "wind").values.size).toBe(0);
-    expect(dedicatedWayValuesFor(result.current, "wind").error).toBe(false);
+    await waitFor(() => expect(resultOf(result.current, "wind").hasFetched).toBe(true));
+    expect(resultOf(result.current, "wind").values.size).toBe(0);
+    expect(resultOf(result.current, "wind").error).toBe(false);
   });
 
   it("いずれかのタイルの取得が失敗（error:true）したら、その軸の結果のerrorをtrueにする", async () => {
@@ -163,7 +167,7 @@ describe("useDedicatedWayValues（専用way値配信軸のフェッチ・状態�
     // 初期状態のloading（空の結果）もfalseのため、loading===falseだけを待つと
     // フェッチ完了前に条件が満たされてしまう。フェッチが呼ばれたことをまず待つ。
     await waitFor(() => expect(fetchDynamicWayValues).toHaveBeenCalled());
-    await waitFor(() => expect(dedicatedWayValuesFor(result.current, "wind").error).toBe(true));
-    expect(dedicatedWayValuesFor(result.current, "wind").values.size).toBe(0);
+    await waitFor(() => expect(resultOf(result.current, "wind").error).toBe(true));
+    expect(resultOf(result.current, "wind").values.size).toBe(0);
   });
 });

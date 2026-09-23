@@ -24,7 +24,7 @@ import { MAP_FETCH_DEBOUNCE_MS, useDebouncedValue } from "@/hooks/useDebouncedVa
 // もviewportと同様にデバウンスする（そのまま依存配列へ入れるとドラッグ1回で可視タイル数×
 // 連続イベント数ぶんのfetchが発生してしまう）。
 
-export interface DedicatedWayValuesResult {
+interface DedicatedWayValuesResult {
   /** feature_key→値（複数タイルを統合済み）。評価軸グループのsetFeatureStateにそのまま
    * 使える（鍵は路面タイルの`feature_key`と同じ文字列）。 */
   values: ReadonlyMap<string, number>;
@@ -173,14 +173,4 @@ export function useDedicatedWayValues(
   }, [axes, debouncedViewport, debouncedBearingDeg, at, debouncedSpeedKmh]);
 
   return results;
-}
-
-/** 対象外の軸・未取得の軸を「空の結果」として扱うための読み出しヘルパー
- * （呼び出し側が`?? EMPTY`を書き散らさないため）。 */
-export function dedicatedWayValuesFor(
-  results: ReadonlyMap<string, DedicatedWayValuesResult>,
-  axisId: string | undefined,
-): DedicatedWayValuesResult {
-  if (!axisId) return EMPTY_DEDICATED_WAY_VALUES_RESULT;
-  return results.get(axisId) ?? EMPTY_DEDICATED_WAY_VALUES_RESULT;
 }

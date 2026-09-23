@@ -47,7 +47,7 @@ const LEGEND_FILTER_DEBOUNCE_MS = 400;
 const ROUTE_LAYER_ID = "route";
 const NO_HIDDEN: HiddenLegendKeys = {};
 
-export interface MapViewInputs {
+interface MapViewInputs {
   /** 候補を選んでいるか。 */
   hasSelectedRoute: boolean;
   /** 選択中の候補の区間まで確定しているか（ルート確定後）。 */
@@ -60,7 +60,7 @@ export interface MapViewInputs {
   usedWeights: Readonly<Record<string, number>> | null;
 }
 
-export interface MapViewState {
+interface MapViewState {
   look: MapLook;
   lensControl: ComponentProps<typeof LensControl>;
   overlayControls: ComponentProps<typeof MapOverlayControls>;

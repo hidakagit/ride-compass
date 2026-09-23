@@ -116,7 +116,7 @@ interface ReadOnlyLegendBlock {
 
 /** 表示専用凡例の`LegendEntry.filter`に入れるダミー。この凡例は描画へ適用されないため
  * 式自体に意味が無く、一致しない式を入れてある。 */
-export const UNUSED_LEGEND_FILTER: unknown[] = ["==", 1, 0];
+const UNUSED_LEGEND_FILTER: unknown[] = ["==", 1, 0];
 
 function readOnlyEntries(levels: readonly Omit<LegendEntry, "filter">[]): LegendEntry[] {
   return levels.map((level) => ({ ...level, filter: UNUSED_LEGEND_FILTER }));

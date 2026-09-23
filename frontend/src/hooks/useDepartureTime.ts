@@ -13,7 +13,7 @@ function steppedNow(): Date {
   return new Date(Math.floor(Date.now() / NOW_STEP_MS) * NOW_STEP_MS);
 }
 
-export interface DepartureTime {
+interface DepartureTime {
   /** 出発時刻。気象レイヤーの表示時刻・専用配信軸の`at`・生成リクエストの`start_time`が同じ値を読む。 */
   at: Date;
   /** 刻みへ丸めた現在時刻。 */
