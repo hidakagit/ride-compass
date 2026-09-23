@@ -13,7 +13,7 @@
 import * as maplibregl from "maplibre-gl";
 import type { Map as MapLibreMap } from "maplibre-gl";
 
-import type { MapViewProps } from "@/components/Map/MapView";
+import type { MapLayerVisibility } from "@/components/Map/mapLayers";
 import {
   COLOR_UNKNOWN,
   axisMapLayerId,
@@ -21,16 +21,28 @@ import {
   buildAxisRampValueExpression,
   dedicatedWayValueMapLayerId,
   rampColorForBand,
+  type DedicatedWayValueAxis,
   type RampAxis,
 } from "@/components/Map/axisLayers";
 import type { DedicatedWayValueDisplay } from "@/components/Map/dedicatedWayValueLayer";
-import type { DynamicWeatherRenderPayload } from "@/components/Map/dynamicWeather";
+import type {
+  DynamicWeatherGroupState,
+  DynamicWeatherLayerId,
+  DynamicWeatherRenderPayload,
+} from "@/components/Map/dynamicWeather";
 import { withJmaTileProtocol } from "@/components/Map/jmaTileProtocol";
 import { buildLegendFilterExpression } from "@/components/Map/legendFilter";
 import { legendBandKey } from "@/components/Map/mapColorLegend";
 import { areaLayerAnchor, runWhenStyleReady } from "@/components/Map/mapStyleOps";
 import { ROUTE_ARROW_ICON_ID, createRouteArrowIcon } from "@/components/Map/routeArrowIcon";
-import { LENS_NEUTRAL_COLOR, getRouteStyleMode } from "@/components/Map/routeStyleModes";
+import {
+  LENS_NEUTRAL_COLOR,
+  getRouteStyleMode,
+  type RouteStyleMode,
+  type RouteStyleModeId,
+} from "@/components/Map/routeStyleModes";
+import type { ExperimentSlot } from "@/types/experimentSlot";
+import type { RouteCandidate } from "@/types/route";
 import { bandColorsFor, DEFAULT_DIFFICULTY_BOUNDARIES } from "@/components/Map/valueScale";
 import { tileBaseUrl } from "@/lib/tileBaseUrl";
 import {
@@ -56,35 +68,51 @@ import type { RoutePath, RouteState } from "./groups/routes";
 import { WEATHER_ICONS, type WeatherPayload, type WeatherState } from "./groups/weather";
 import { EMPTY_MAP_SCENE, type MapScene } from "./mapScene";
 
+/** 乗り換えられる区間1本ぶんの入力。`index`は押されたときに呼び出し側が見分ける値。 */
+export interface SpliceStretchInput {
+  readonly index: number;
+  /** 相手の道を選んでいる状態。 */
+  readonly taken: boolean;
+  readonly coordinates: readonly GeoJSON.Position[];
+}
+
 /** 地図に載るもの全部の入力。**実行時にしか決まらない値だけ**をここで集め、見た目は
- * 各グループが持つ。 */
-type SceneWiringProps = Pick<
-  MapViewProps,
-  | "routes"
-  | "selectedRouteId"
-  | "routeLayerOn"
-  | "routeStyleModes"
-  | "routeStyleModeId"
-  | "hiddenRouteLegendKeys"
-  | "spliceStretches"
-  | "splicedRoute"
-  | "staticLayerVisibility"
-  | "dynamicWeather"
-  | "dedicatedWayValueVisibility"
-  | "axisVisibility"
-  | "roadHiddenKeysByMode"
-  | "staticLegendHiddenKeysByAxis"
-  | "experimentSlots"
-  | "dedicatedWayValues"
-  | "rampAxes"
-  | "dedicatedAxes"
-  | "dedicatedWayValueLoading"
-  | "dedicatedWayValueHiddenBands"
-  | "secondaryAxisCasingLayerIds"
-  | "tileVersionsReady"
-> & {
+ * 各グループが持つ。**sceneの側で宣言する**——上位の画面部品のpropsから借りると、
+ * sceneと画面部品が互いをimportし合い、sceneの語彙が画面部品の都合で決まる。 */
+type SceneWiringProps = {
+  readonly routes: readonly RouteCandidate[];
+  readonly selectedRouteId: string | null;
+  readonly routeLayerOn: boolean;
+  readonly routeStyleModes: readonly RouteStyleMode[];
+  readonly routeStyleModeId: RouteStyleModeId;
+  readonly hiddenRouteLegendKeys: readonly string[];
+  /** 比較相手が別の道を通る区間。空/未指定なら帯を出さない。 */
+  readonly spliceStretches?: readonly SpliceStretchInput[];
+  /** 編集中に「いま作っているルート」として描く座標列。 */
+  readonly splicedRoute?: readonly GeoJSON.Position[] | null;
+  readonly staticLayerVisibility: MapLayerVisibility;
+  readonly dynamicWeather: Partial<Record<DynamicWeatherLayerId, DynamicWeatherGroupState>>;
+  /** キーは`dedicatedWayValueMapLayerId`。 */
+  readonly dedicatedWayValueVisibility: Readonly<Record<string, boolean>>;
+  /** キーは`axisMapLayerId`。 */
+  readonly axisVisibility: Readonly<Record<string, boolean>>;
+  readonly roadHiddenKeysByMode: Readonly<Record<string, readonly string[]>>;
+  readonly staticLegendHiddenKeysByAxis: Readonly<Record<string, readonly string[]>>;
+  readonly experimentSlots: readonly ExperimentSlot[];
+  /** 軸id → 道の鍵 → 値。 */
+  readonly dedicatedWayValues: ReadonlyMap<string, ReadonlyMap<string, number>>;
+  readonly rampAxes: readonly RampAxis[];
+  readonly dedicatedAxes: readonly DedicatedWayValueAxis[];
+  /** 軸id → 取得中か。未設定の軸は取得中でない。 */
+  readonly dedicatedWayValueLoading?: ReadonlyMap<string, boolean>;
+  /** 軸id → 凡例で隠した段の鍵。 */
+  readonly dedicatedWayValueHiddenBands?: ReadonlyMap<string, readonly string[]>;
+  /** 材料が同時に出ているため下敷きで描くramp軸のレイヤーid。 */
+  readonly secondaryAxisCasingLayerIds: readonly string[];
+  /** タイル世代が届いたか。 */
+  readonly tileVersionsReady: boolean;
   /** 詳細を見ている道（ポップアップが開いている間だけ非null）。 */
-  inspectedWayId: number | null;
+  readonly inspectedWayId: number | null;
 };
 
 type RouteSceneInputs = Pick<

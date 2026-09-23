@@ -57,7 +57,7 @@ import {
   resetBasemapAreaLayerPreparation,
   runWhenStyleReady,
 } from "@/components/Map/mapStyleOps";
-import { applyScene, sceneInputsFrom } from "@/features/map/scene/applyToMap";
+import { applyScene, sceneInputsFrom, type SpliceStretchInput } from "@/features/map/scene/applyToMap";
 import { interactiveSceneLayerIds, sceneLayerIdsForHitTarget, type MapScene } from "@/features/map/scene/mapScene";
 import {
   ROUTE_HIT_TARGET,
@@ -72,14 +72,6 @@ import { AREA_SOURCE_ID } from "@/features/map/scene/groups/areaRasters";
 import { ROAD_LINE_SOURCE_ID } from "@/features/map/scene/groups/roadLines";
 import { sceneLayerId } from "@/features/map/scene/sceneBuilders";
 import { restoreRouteSegmentProperties, type RouteSegmentProperties } from "@/features/map/routeSegmentProperties";
-
-/** 乗り換えられる区間1本ぶんの入力。`index`は押されたときに呼び出し側が見分ける値。 */
-interface SpliceStretchFeature {
-  index: number;
-  /** 相手の道を選んでいる状態。 */
-  taken: boolean;
-  coordinates: GeoJSON.Position[];
-}
 
 /** 押された点のレイヤーidから、その点の宣言を引く。idは役割から決まるので写しではない。 */
 const POINT_LAYER_BY_SCENE_ID = new Map(
@@ -383,10 +375,10 @@ export interface MapViewProps {
   routes: RouteCandidate[];
   selectedRouteId: string | null;
   // 比較相手が別の道を通る区間。空/未指定なら帯を出さない。
-  spliceStretches?: SpliceStretchFeature[];
+  spliceStretches?: readonly SpliceStretchInput[];
   /** 編集中に「いま作っているルート」として描く座標列（編集していなければ省略）。 */
   splicedRoute?: readonly GeoJSON.Position[] | null;
-  /** 乗り換えられる区間の帯をタップしたときに呼ばれる（`SpliceStretchFeature.index`）。
+  /** 乗り換えられる区間の帯をタップしたときに呼ばれる（`SpliceStretchInput.index`）。
    * 選ぶ操作の中心を地図へ置くためのもの——パネルの行だけで選ばせると、どの行がどの帯かを
    * 目で対応づける必要がある。 */
   onSpliceStretchSelect?: (index: number) => void;

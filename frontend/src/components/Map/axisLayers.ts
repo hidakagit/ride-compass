@@ -349,10 +349,7 @@ export function rampColorForBand(index: number, bandCount: number): string {
   return rampColorForRatio(t);
 }
 
-// 「不明」（hasUnknownFallback材料のタイル欠損）専用の灰色。道路の線・点の分類が使う
-// COLOR_UNKNOWNと同じ値（既存の路面レイヤー等の「不明」表現と地図全体で統一する）。
-// 循環import回避のため値を複製している（分類側がaxisLayers.tsを
-// importする向きのため、逆方向のimportはできない）。
+/** 「不明」（評価できない・分類を持たない）を塗る色。地図全体で同じ1色を使う。 */
 export const COLOR_UNKNOWN = palette.semantic.no_data;
 
 /** hasUnknownFallbackの入力について、その道の値を「不明」とすべきかを返す式。該当する
