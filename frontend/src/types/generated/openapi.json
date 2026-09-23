@@ -2723,16 +2723,6 @@
             },
             "type": "array",
             "title": "Thresholds"
-          },
-          "unit": {
-            "type": "string",
-            "title": "Unit",
-            "default": ""
-          },
-          "note": {
-            "type": "string",
-            "title": "Note",
-            "default": ""
           }
         },
         "additionalProperties": false,

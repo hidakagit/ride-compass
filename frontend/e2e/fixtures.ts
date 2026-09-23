@@ -217,11 +217,11 @@ export async function installApiMocks(page: Page): Promise<void> {
             ...catalogAxis({
               axis_id: "fine_steps",
               label: FINE_STEP_AXIS_LABEL,
+              raw_value_unit: "箇所/km",
               display: {
                 label: FINE_STEP_AXIS_LABEL,
                 tile_inputs: [{ property: "v", weight: 1 }],
                 thresholds: [10, 20, 30, 40, 50, 60, 70, 80],
-                unit: "箇所/km",
               },
             }),
             default_weight: 0,

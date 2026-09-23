@@ -9,10 +9,12 @@ import {
   type RampAxis,
   axisLabelsFromCatalogAxes,
   axisMapLayerId,
+  buildAxisRampLegend,
   buildAxisRampValueExpression,
   rampAxesFromCatalogAxes,
   rampColorForBand,
 } from "./axisLayers";
+import { catalogAxis } from "./__fixtures__/catalogAxes";
 
 describe("axisLayers", () => {
   // 軸idを名指しせずカタログと突き合わせるのは、公開軸の集合が軸スタジオ（DB）で決まり
@@ -51,7 +53,6 @@ describe("buildAxisRampValueExpression（改善計画T292: categories/breakpoint
     tileInputs: [],
     thresholds: [50],
     unit: "",
-    note: "",
   };
 
   it("categories入力はmatch式でmapping値×weightを返す", () => {
@@ -156,8 +157,6 @@ describe("rampAxesFromCatalogAxes / axisLabelsFromCatalogAxes（改善計画T308
             { property: "maxspeed_kmh", weight: 0.5 },
           ],
           thresholds: [10.0],
-          unit: "",
-          note: "",
         },
       },
     ];
@@ -205,8 +204,6 @@ describe("rampAxesFromCatalogAxes / axisLabelsFromCatalogAxes（改善計画T308
           category: "trafficSafety",
           tile_inputs: [{ property: "dummy_per_km", weight: 1.0 }],
           thresholds: [1.0],
-          unit: "",
-          note: "開発者向けメモ",
         },
         panel_hint: "ユーザー向け説明文",
         icon_id: "incline",
@@ -229,8 +226,6 @@ describe("rampAxesFromCatalogAxes / axisLabelsFromCatalogAxes（改善計画T308
           category: "trafficSafety",
           tile_inputs: [{ property: "dummy_per_km", weight: 1.0 }],
           thresholds: [1.0],
-          unit: "",
-          note: "開発者向けメモ",
         },
       },
     ];
@@ -251,8 +246,6 @@ describe("rampAxesFromCatalogAxes / axisLabelsFromCatalogAxes（改善計画T308
           category: "trafficSafety",
           tile_inputs: [],
           thresholds: [],
-          unit: "",
-          note: "",
         },
       },
     ];
@@ -275,8 +268,6 @@ describe("rampAxesFromCatalogAxes / axisLabelsFromCatalogAxes（改善計画T308
           category: "trafficSafety",
           tile_inputs: [{ property: "accident_per_km", weight: 1.0, needs_runtime_scale: true }],
           thresholds: [0.5],
-          unit: "件/km",
-          note: "",
         },
       },
     ];
@@ -297,8 +288,6 @@ describe("rampAxesFromCatalogAxes / axisLabelsFromCatalogAxes（改善計画T308
           category: "trafficSafety",
           tile_inputs: [{ property: "accident_per_km", weight: 1.0, needs_runtime_scale: true }],
           thresholds: [0.5],
-          unit: "件/km",
-          note: "",
         },
       },
     ];
@@ -320,8 +309,6 @@ describe("rampAxesFromCatalogAxes / axisLabelsFromCatalogAxes（改善計画T308
           category: "trafficSafety",
           tile_inputs: [{ property: "poi_signal_per_km", weight: 1.0 }],
           thresholds: [1.0],
-          unit: "回/km",
-          note: "",
         },
       },
     ];
@@ -330,5 +317,21 @@ describe("rampAxesFromCatalogAxes / axisLabelsFromCatalogAxes（改善計画T308
     const rampAxes = rampAxesFromCatalogAxes(catalogAxes, { accident_per_km: 1 / 3 });
 
     expect(rampAxes[0].tileInputs[0].weight).toBe(1.0);
+  });
+});
+
+describe("ramp軸の凡例の単位", () => {
+  const rampDisplay = { tile_inputs: [{ property: "v", weight: 1 }], thresholds: [1, 2] };
+
+  it("軸カタログのraw_value_unitを段階ラベルへ添える", () => {
+    const [axis] = rampAxesFromCatalogAxes([catalogAxis({ raw_value_unit: "回/km", display: rampDisplay })]);
+
+    expect(buildAxisRampLegend(axis).map((band) => band.label)).toEqual(["1回/km未満", "1〜2回/km", "2回/km以上"]);
+  });
+
+  it("単位が定まらない軸（raw_value_unitがnull）は数値だけの段階ラベルになる", () => {
+    const [axis] = rampAxesFromCatalogAxes([catalogAxis({ raw_value_unit: null, display: rampDisplay })]);
+
+    expect(buildAxisRampLegend(axis).map((band) => band.label)).toEqual(["1未満", "1〜2", "2以上"]);
   });
 });

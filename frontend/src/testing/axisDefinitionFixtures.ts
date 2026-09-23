@@ -37,8 +37,6 @@ export function baseAxisDefinition(
       category: "trafficSafety",
       tile_inputs: [],
       thresholds: [],
-      unit: "",
-      note: "",
     },
     ...overrides,
   };

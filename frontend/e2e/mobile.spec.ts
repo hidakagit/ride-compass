@@ -83,5 +83,7 @@ test("モバイル: レンズの凡例が、段階の細かい軸でも幅に収
   });
 
   expect(rows.length).toBeGreaterThan(0);
+  // 単位は軸カタログのraw_value_unitから段階ラベルへ入る。幅を測る意味もそこにある。
+  expect(rows.filter((row) => row.label.includes("箇所/km")).length).toBeGreaterThan(0);
   expect(rows.filter((row) => row.overflowPx > 0 || row.beyondViewportPx > 0)).toEqual([]);
 });

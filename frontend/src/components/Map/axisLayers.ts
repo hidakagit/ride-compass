@@ -59,10 +59,9 @@ export interface RampAxis {
   tileInputs: readonly AxisTileInput[];
   /** 昇順の色段階境界値。値 < thresholds[0] が最も低い段階 */
   thresholds: readonly number[];
+  /** 凡例の範囲に添える単位（軸カタログの`raw_value_unit`。定まらない軸は空）。 */
   unit: string;
-  note: string;
-  /** 地図上のレイヤー一覧向けの噛み砕いた説明文（軸自身のデータ）。
-   * 未設定はnote（開発者向け実装メモ）へフォールバック（mapLayers.ts参照）。 */
+  /** 地図上のレイヤー一覧向けの噛み砕いた説明文（軸自身のデータ）。 */
   panelHint?: string;
   /** 改善計画T310: 地図チップのアイコン（axisIconPalette.tsxのicon_id）。未設定は
    * 汎用フォールバック（AxisRampIcon）。 */
@@ -138,8 +137,6 @@ export interface CatalogAxis {
     category: string;
     tile_inputs: CatalogTileInput[];
     thresholds: number[];
-    unit: string;
-    note: string;
   } | null;
   // 改善計画T308: この軸が参照する材料を一次属性idへ解決した一覧（GET /api/axis-catalogの
   // primary_attribute_ids、backend側で解決済み）。ビルド時静的json（axis-catalog.json）には
@@ -235,8 +232,7 @@ export function rampAxesFromCatalogAxes(
         breakpoints: input.breakpoints ?? undefined,
       })),
       thresholds: axis.display!.thresholds,
-      unit: axis.display!.unit,
-      note: axis.display!.note,
+      unit: axis.raw_value_unit ?? "",
       panelHint: axis.panel_hint ?? undefined,
       iconId: axis.icon_id ?? undefined,
       chipLabel: axis.chip_label ?? undefined,

@@ -29,8 +29,6 @@ export function catalogAxis(
       category: "roadCondition",
       tile_inputs: [],
       thresholds: [],
-      unit: "",
-      note: "",
       ...display,
     },
   };

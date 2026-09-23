@@ -959,16 +959,6 @@ export interface components {
             tile_inputs?: components["schemas"]["TileInputSpec"][];
             /** Thresholds */
             thresholds?: number[];
-            /**
-             * Unit
-             * @default
-             */
-            unit: string;
-            /**
-             * Note
-             * @default
-             */
-            note: string;
         };
         /** AxisInspectorAxis */
         AxisInspectorAxis: {

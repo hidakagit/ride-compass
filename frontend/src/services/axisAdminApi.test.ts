@@ -36,8 +36,6 @@ const axisResponse: AxisDefinitionResponse = {
     category: "trafficSafety",
     tile_inputs: [],
     thresholds: [],
-    unit: "",
-    note: "",
   },
 };
 

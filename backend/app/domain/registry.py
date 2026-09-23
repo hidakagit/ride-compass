@@ -171,7 +171,8 @@ class AxisDisplaySpec(StrictModel):
       `thresholds`（昇順、色段階の境界値）で色分けする汎用レイヤーを、フロントの
       レイヤーファクトリが自動生成する。新しい軸はこれを宣言するだけで地図に現れる。
     - kind="none": 専用の二次レイヤーを持たない（既存レイヤーで代替、またはデータ未整備）。
-      `note`へ理由を書く。
+
+    凡例に添える単位はここに持たず、軸カタログの`raw_value_unit`が持つ。
     """
 
     kind: Literal["ramp", "none"]
@@ -179,8 +180,6 @@ class AxisDisplaySpec(StrictModel):
     category: str = "trafficSafety"
     tile_inputs: list[TileInputSpec] = Field(default_factory=list)
     thresholds: list[float] = Field(default_factory=list)
-    unit: str = ""
-    note: str = ""
 
     @model_validator(mode="after")
     def _check_kind_carries_its_payload(self) -> "AxisDisplaySpec":

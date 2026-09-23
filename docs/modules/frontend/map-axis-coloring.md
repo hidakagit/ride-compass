@@ -69,6 +69,7 @@ backend（`domain/dynamic_way_values.py: map_value_thresholds`）が軸の折れ
 | フェッチに時刻／想定速度を載せるか | `AxisCatalogEntry.dynamic_way_value_needs_time` / `_needs_speed` | `useDedicatedWayValues`（載せない入力は依存キーからも外れるため、その入力が変わっても再フェッチしない） |
 | 符号付き材料を直接読むか／難易度を読むか | `AxisCatalogEntry.map_value_kind`（backend `domain/dynamic_way_values.py: map_value_kind`が`shape`から導出） | `routeStyleModes.ts: routeColorableModeFromAxis`・`dedicatedWayValueLayer.ts`（`DedicatedWayValueDisplay.kind`） |
 | 凡例の単位 | `AxisCatalogEntry.map_value_unit`（材料カタログの`unit`） | 同上 |
+| ramp軸（タイル焼き込み）の凡例の単位 | `AxisCatalogEntry.raw_value_unit`（段の境界は折れ点を通す前の重み付き和の目盛り。単位が定まらない軸は`null`で、数値だけの段階ラベルになる） | `axisLayers.ts: rampAxesFromCatalogAxes`が`RampAxis.unit`へ載せ、`axisRampBandLabel`が段階ラベルへ添える |
 
 公開軸は無条件でレンズの選択肢になる（`routeStyleModes.ts: routeStyleModesFromCatalogAxes`が
 公開軸すべて＋`difficulty`（総合難易度）＋`none`（塗らない）をマップする）。重み0の軸も

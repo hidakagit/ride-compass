@@ -133,8 +133,6 @@ function catalogWithGuiCreatedAxis(): AxisCatalogResponse {
           category: "trafficSafety",
           tile_inputs: [],
           thresholds: [1, 2, 3],
-          unit: "",
-          note: "",
         },
         primary_attribute_ids: [],
         icon_id: null,

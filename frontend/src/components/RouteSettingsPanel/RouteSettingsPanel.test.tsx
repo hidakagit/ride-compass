@@ -47,8 +47,6 @@ function catalogResponse(axisIds: string[]): AxisCatalogResponse {
           category: "trafficSafety",
           tile_inputs: [],
           thresholds: [],
-          unit: "",
-          note: "",
         },
         primary_attribute_ids: [],
         icon_id: null,

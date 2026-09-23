@@ -244,10 +244,6 @@ export interface MapLayerDescriptor {
   tileMinZoom?: number;
 }
 
-// ramp軸のpanelHintは軸自身のデータ（axis.panelHint、AXIS_DEFINITIONS.panel_hint）から
-// 取る。axis.note（backendレジストリの実装メモ、開発者向け）をそのまま出すと読みにくいため、
-// 未設定時のみaxis.noteへフォールバックする（下記buildMapLayersのrampAxes.map参照）。
-
 /** 収録年の言い方。連続していれば範囲で、飛んでいれば並べて出す。
  *
  * 年そのものは取込の宣言（backendの`source_runs.profile`）が正本で、
@@ -467,15 +463,9 @@ export function buildMapLayers(
       // （axisLayers.ts冒頭コメント参照）のため、常にcomposite（生データではない）。
       dataNature: "composite",
       // 路面タイルへ焼き込んだ値を読むため、世代が届くまでは他の路面系と同じく描けない。
-      // unit=""（真偽値材料由来の自動導出軸でkm単位等が無い場合）は空の[]を出さない。
+      // 単位が定まらない軸（unit=""）は空の[]を出さない。
       description: `${axis.label}${axis.unit ? `[${axis.unit}]` : ""}をway単位の事前集計から色分け表示`,
-      // axis.note（backendレジストリの実装メモ、registry_defaults.py）は開発者向けに
-      // 書かれており「way単位の事前集計（way_attribute_counts）由来」等の実装用語を
-      // 含むため、そのままpanelHintへ出すと読みにくい。「何を集計した目安か＋実地点は
-      // どこで確認できるか」という他の静的レイヤーの説明文と同じ型で言い換えたものを
-      // 軸自身のpanelHint（AXIS_DEFINITIONS.panel_hint）に持ち、優先して使う（未設定の
-      // 軸はaxis.noteへフォールバック）。
-      panelHint: axis.panelHint ?? axis.note,
+      panelHint: axis.panelHint,
     })),
     {
       // 気象庁 降水ナウキャスト。実況（過去〜現在、5分毎）と60分先までの短時間予測を

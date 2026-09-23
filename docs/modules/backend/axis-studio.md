@@ -254,6 +254,8 @@ compute_edge_axis_scores`経由、下記「呼び出し元」参照）。周回�
 `GET /api/axis-catalog`が`raw_value_unit`として配信し、
 [ルート設定・ルート結果（frontend）](../frontend/route-settings-and-results.md)が
 得点の隣へ生値を添えるのに使う。単位の無い数字は読み手が意味を取れないため出さない。
+地図のramp軸の凡例も同じ単位を段階ラベルへ添える——rampの段の境界は折れ点のx値
+（＝生値の目盛り）で、単位が定まる軸では生値と同じ量を塗っている（`axis_display.py`）。
 
 ### 材料単位への分解（`material_breakdown`）
 

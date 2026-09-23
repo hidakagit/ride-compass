@@ -122,8 +122,6 @@ function toCatalogAxis(entry: AxisCatalogEntry): CatalogAxis {
         needs_runtime_scale: input.needs_runtime_scale,
       })),
       thresholds: entry.display.thresholds ?? [],
-      unit: entry.display.unit,
-      note: entry.display.note,
     },
     primary_attribute_ids: entry.primary_attribute_ids,
     icon_id: entry.icon_id,
