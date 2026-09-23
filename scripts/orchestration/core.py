@@ -17,6 +17,11 @@
     python scripts/orchestrate.py board set <名前> k=v ...    # エージェントの行を更新
     python scripts/orchestrate.py board add <名前> k=v ...    # エージェントの行を追加
     python scripts/orchestrate.py board run k=v ...           # 回の値（limits.concurrent等）を更新
+    python scripts/orchestrate.py board run start <名前>      # 新しい回を始める（目的・母集団を空にする）
+    python scripts/orchestrate.py board run goal <文>         # 回の目的
+    python scripts/orchestrate.py board run add <Txxx>... [from=<Tyyy>]  # 母集団へ足す（派生元つき）
+    python scripts/orchestrate.py board run remove <Txxx>...  # 母集団から外す
+    python scripts/orchestrate.py board run [list]            # 回の目的と母集団の各タスクの状態（導出）
     python scripts/orchestrate.py board todo push|pop|list    # 司令塔のキュー（中断・待ちの作業）
     python scripts/orchestrate.py board dispatch push <Txxx>|pop|list  # 振り出し待ちのキュー
     python scripts/orchestrate.py board unpushed              # 監査済み・未pushのコミット（gitから導く）
@@ -33,6 +38,9 @@
   （cherry-pickでshaが変わっても、変更の中身が同じなら入ったとみなす）。前回のpushの時刻は
   origin/masterの先端のコミットの時刻。
 - 監査待ちかは、監査の記録（報告の受領`reported`が最後の`audit_done`より新しい）。
+- 回（`run`）が持つのは名前・目的・母集団（タスク番号と派生元）だけ。母集団の各タスクが完了・
+  トリガー待ち・残りのどれかと、終わりの条件1に当たっているかは、origin/masterの記録の`状態:`と
+  台帳の行から読むたびに導く（`population_view`）。
 - 担当の作業ツリーは、スロットなら渡した印（`git worktree lock`の理由`slot agent-<id> <時刻>`）、
   それ以外は作業ツリーの名前`agent-<id>`から、表の`id`で引く（`worktree_of`）。印は監査を
   通したとき（`audit_result=通す`）に、作業ツリーにしか無い成果が無ければ外す（`release_slot`）。
@@ -42,7 +50,8 @@
 （`audit_result=通す`）に外れる。差し戻しの間は同じタスクのまま着手時刻を保つ。所要の実績は
 担当が完了のコミットで`Txxx.md`へ残す（表には写さない）。
 
-写しのキー（`FORBIDDEN_KEYS`）を書こうとすると、正本の場所を添えて拒否する。
+写しのキー（`FORBIDDEN_KEYS`、回と母集団の1件は`RUN_KEYS`・`POPULATION_ITEM_KEYS`の外）を書こうと
+すると、正本の場所を添えて拒否する。手で書かれた写しのキーは check が出す（`board_copy_keys`）。
 
 `board set <名前> audit_done=now audit_result=通す`は、監査の記録（audit_log）を1件残す。
 
@@ -117,6 +126,7 @@ FORBIDDEN_KEYS = {
         "audit_findings": "回の記録 Txxx.md",
         "notes": "回の記録 Txxx.md",
         "pending_cleanup": "台帳",
+        "run": "回は board run start・goal・add・remove で書く（丸ごと置き換えると母集団へ写しを紛れ込ませられる）",
     },
     "limits": {"note": "規約"},
     "queue": {
@@ -124,6 +134,16 @@ FORBIDDEN_KEYS = {
         "note": "経緯は回の記録 Txxx.md へ",
     },
 }
+
+#: 回（`run`）が持つキー。回の各タスクの状態・残り・終わりの条件は記録と台帳から導くので、
+#: これ以外（出来事・進め方の指示の文を含む）は持たない。
+RUN_KEYS = ("name", "started", "goal", "population")
+#: 母集団の1件が持つキー。`task`と派生元`from`は表にしか無い事実、`added`は足した時刻。
+POPULATION_ITEM_KEYS = ("task", "from", "added")
+#: `board run`の語（k=v でないもの）。
+RUN_OPS = ("start", "goal", "add", "remove", "list")
+#: 台帳の行で、着手の条件を待っている（ユーザーの判断で先送りした）ことを表す印。
+TRIGGER_MARK = "— トリガー:"
 
 DEFAULT_CONCURRENT = 3
 #: 規模札の定義（CLAUDE.md「規模の目安」）の分。予算は所要の実績から計算し、これは実績の無い
@@ -529,6 +549,87 @@ def audit_pending(agent: dict) -> bool:
     return reported is not None and (done is None or done < reported)
 
 
+def run_of(board: dict) -> dict:
+    """回の値。名前だけを文字列で持っていた表も、名前だけの回として読む。"""
+    run = board.get("run")
+    if isinstance(run, dict):
+        return run
+    return {"name": run} if run else {}
+
+
+def population_view(ctx: Context, board: dict, rows: dict[str, dict]) -> dict:
+    """回の母集団の各タスクの状態を、origin/masterの記録の`状態:`と台帳の行から導く。
+
+    `完了`は記録が完了のもの、`トリガー待ち`は未完了で台帳の行に着手の条件（`— トリガー:`）が
+    あり、その条件が母集団のタスクを名指ししていないもの（ユーザーの判断で先送りした）、`残り`は
+    それ以外の未完了、`記録なし`は記録がorigin/masterに無いもの。終わりの条件1（規約「回の始まりと終わり」）は、母集団が空でなく、
+    すべて完了かトリガー待ちであること。"""
+    run = run_of(board)
+    items = [i for i in run.get("population") or [] if isinstance(i, dict) and i.get("task")]
+    tasks = [str(i["task"]) for i in items]
+    texts = cat_files(ctx.repo, [f"origin/master:{TASKS_DIR}/{t}.md" for t in tasks])
+    assigned = {str(a.get("current_task")): a for a in board.get("agents") or [] if a.get("current_task")}
+    queued = {str(q.get("task")) for q in board.get("queue") or []}
+    entries = []
+    for item in items:
+        task = str(item["task"])
+        text = texts[f"origin/master:{TASKS_DIR}/{task}.md"]
+        st = task_state(text)
+        heading = TASK_HEADING_RE.match(text.splitlines()[0]) if text else None
+        title = (rows.get(task) or {}).get("title") or (heading.group(1) if heading else "")
+        if st is None:
+            kind = "記録なし"
+        elif st == "完了":
+            kind = "完了"
+        elif st == "未完了" and TRIGGER_MARK in (rows.get(task) or {}).get("title", ""):
+            kind = "トリガー待ち"
+        else:
+            kind = "残り"
+        where = ""
+        if kind != "完了" and task in assigned:
+            where = f"担当 {assigned[task].get('name')}（{assigned[task].get('state')}）"
+        elif kind != "完了" and task in queued:
+            where = "振り出し待ち"
+        entries.append({"task": task, "from": item.get("from"), "kind": kind, "where": where, "title": title})
+    # 着手の条件が母集団のタスクを名指しするものは、先送りではなく回の中の順番なので残りに数える。
+    # 母集団の外のタスクを名指す条件は、完了を待つのか利用実績を待つのかを文から決められないので先送りのまま。
+    in_run = {e["task"] for e in entries}
+    done = {e["task"] for e in entries if e["kind"] == "完了"}
+    for e in entries:
+        if e["kind"] != "トリガー待ち":
+            continue
+        named = [t for t in dict.fromkeys(TASK_ID_RE.findall(e["title"].split(TRIGGER_MARK, 1)[1])) if t in in_run]
+        if named:
+            waiting = [t for t in named if t not in done]
+            note = "・".join(waiting) + "待ち" if waiting else "・".join(named) + "は完了"
+            e["kind"], e["where"] = "残り", note + (f"・{e['where']}" if e["where"] else "")
+    remaining = [e for e in entries if e["kind"] in ("残り", "記録なし")]
+    return {"name": run.get("name"), "goal": run.get("goal"), "entries": entries, "remaining": remaining,
+            "ended": bool(entries) and not remaining}
+
+
+def run_summary_lines(view: dict, *, detail: bool) -> list[str]:
+    """回の目的・母集団の残り・終わりの条件1の行。detailなら母集団の全件を1行ずつ出す。"""
+    lines = [f"回: {view['name'] or '-'}  目的: {view['goal'] or '未設定（board run goal <文>）'}"]
+    entries = view["entries"]
+    if not entries:
+        lines.append("母集団: 未設定（board run add <Txxx> from=<派生元>）")
+        return lines
+    counts = {k: sum(1 for e in entries if e["kind"] == k) for k in ("完了", "トリガー待ち", "残り", "記録なし")}
+    lines.append(f"母集団{len(entries)}件: " + "・".join(f"{k}{n}件" for k, n in counts.items() if n))
+    if view["ended"]:
+        lines.append("終わりの条件1に当たっている（母集団がすべて完了かトリガー待ち）。新しいタスクは振り出さない")
+    else:
+        rest = "、".join(e["task"] + (f"（{e['where']}）" if e["where"] else "") for e in view["remaining"])
+        lines.append(f"終わりの条件1には当たっていない。残り: {rest}")
+    if detail:
+        for e in entries:
+            origin = f"  派生元 {e['from']}" if e["from"] else ""
+            lines.append(f"  {e['task']}  [{e['kind']}]{origin}{'  ' + e['where'] if e['where'] else ''}"
+                         f"  {e['title'][:60]}")
+    return lines
+
+
 # ---------------------------------------------------------------- 事実の収集
 
 
@@ -867,7 +968,11 @@ def cmd_status(ctx: Context, args: argparse.Namespace) -> int:
     master_sha, _, master_ts = master.partition(" ")
 
     b = f.board
-    print(f"回: {b.get('run', '-')}  上限{f.limit}本  最終確認 {hm(parse_time(b.get('last_check')))}"
+    view = population_view(ctx, b, f.ledger)
+    for line in run_summary_lines(view, detail=False):
+        print(line)
+    population = {e["task"] for e in view["entries"]}
+    print(f"上限{f.limit}本  最終確認 {hm(parse_time(b.get('last_check')))}"
           f"  origin/master {master_sha}"
           f"（{hm(dt.datetime.fromtimestamp(int(master_ts)).astimezone()) if master_ts else '-'}。fetchはしない）")
     print(f"稼働（手元）{len(f.active())}本  監査待ち{len(f.audit_waiting())}本"
@@ -913,6 +1018,8 @@ def cmd_status(ctx: Context, args: argparse.Namespace) -> int:
             print(f"    master上の状態={states.get(task) or '記録なし'}  台帳={'あり' if task in listed else 'なし'}")
         for mark in agent_marks(f, a, states, listed):
             print(f"  {mark}")
+        if population and a.get("current_task") and a["current_task"] not in population:
+            print(f"  ? {a['current_task']}は回の母集団の外（派生なら board run add {a['current_task']} from=<派生元>）")
     if not args.target:
         owned = {f.tree(a).path for a in f.board["agents"] if f.tree(a)}
         stray = [t for t in f.trees if not t.main and t.path not in owned and t.dirty]
@@ -967,8 +1074,20 @@ def cmd_check(ctx: Context, args: argparse.Namespace) -> int:
     unpushed = audited_unpushed(ctx, f.board, f.at)
     if push_due(ctx, unpushed, f.at):
         problems.append(f"要対応: {push_due_line(ctx, unpushed, f.at)}（board unpushed）")
+    problems += [f"表に写しのキーがある: {k}" for k in board_copy_keys(f.board)]
+    view = population_view(ctx, f.board, f.ledger)
+    population = {e["task"] for e in view["entries"]}
+    if not population and any(a.get("state") in ACTIVE_STATES for a in f.board["agents"]):
+        problems.append("担当が稼働しているのに、回の目的と母集団が表に無い（board run goal・board run add）")
+    problems += [f"母集団の{e['task']}: origin/masterに記録が無い" for e in view["entries"] if e["kind"] == "記録なし"]
+    if view["ended"]:
+        problems.append("要対応: 回の終わりの条件1に当たっている（母集団がすべて完了かトリガー待ち）。新しいタスクは"
+                        "振り出さず、終わった状態を揃える（規約「回の始まりと終わり」）")
     # 門がNGで見送った振り出しは、門が開いた最初の確認で拾う（「落ち着いたら」を人の注意に頼らない）。
-    waiting_dispatch = ready_to_dispatch(ctx, f.board.get("queue") or [])
+    # 回に母集団があれば、その外のタスクは次の回の候補なので拾わない。終わりに入ったら何も拾わない。
+    waiting_dispatch = [] if view["ended"] else [
+        i for i in ready_to_dispatch(ctx, f.board.get("queue") or [])
+        if not population or str(i.get("task")) in population]
     if waiting_dispatch and not gate_reasons(f, args):
         first = str(waiting_dispatch[0].get("task"))
         problems.append(f"要対応: 振り出し待ち{len(waiting_dispatch)}件があり、門が開いている"
@@ -982,6 +1101,8 @@ def cmd_check(ctx: Context, args: argparse.Namespace) -> int:
     else:
         print(f"異常なし（{hm(f.at)}、稼働{len(active)}本/上限{f.limit}本、"
               f"監査待ち{len(f.audit_waiting())}本、CPU {cpu}）")
+    for line in run_summary_lines(view, detail=False):
+        print(line)
     print(budget_line(f.budgets))
     if args.record:
         board = load_board(ctx)
@@ -1294,14 +1415,55 @@ def parse_value(raw: str, at: dt.datetime) -> object:
         return raw
 
 
+def nested_key_reason(key: str) -> str | None:
+    """`limits.x`・`run.x`の形のキーを表に書いてはならない理由。書いてよければNone。"""
+    head, _, sub = key.partition(".")
+    leaf = sub.split(".")[0]
+    if head == "limits" and sub:
+        return FORBIDDEN_KEYS["limits"].get(sub)
+    if head == "run" and sub:
+        if leaf == "population":
+            return "母集団は board run add・remove で足し引きする（各タスクの状態は記録と台帳から導く）"
+        if leaf not in RUN_KEYS:
+            return (f"回に持つのは {'・'.join(RUN_KEYS)} だけ（母集団の状態・残り・終わりの条件は記録と台帳から"
+                    "導き、出来事とまとめは回の記録 Txxx.md へ）")
+    return None
+
+
+def board_copy_keys(board: dict) -> list[str]:
+    """状態の表にある写しのキー（手で書かれたものを含む）。コマンドを通した書き込みでは生じない。"""
+    out = []
+    for key in board:
+        if key in FORBIDDEN_KEYS["top"] and key != "run":
+            out.append(f"{key}（正本: {FORBIDDEN_KEYS['top'][key]}）")
+    for key in (board.get("limits") or {}):
+        if key in FORBIDDEN_KEYS["limits"]:
+            out.append(f"limits.{key}（正本: {FORBIDDEN_KEYS['limits'][key]}）")
+    for agent in board.get("agents") or []:
+        for key in agent:
+            if key in FORBIDDEN_KEYS["agent"]:
+                out.append(f"{agent.get('name')}.{key}（正本: {FORBIDDEN_KEYS['agent'][key]}）")
+    for item in board.get("queue") or []:
+        for key in item:
+            if key in FORBIDDEN_KEYS["queue"]:
+                out.append(f"queue {item.get('task')}.{key}（正本: {FORBIDDEN_KEYS['queue'][key]}）")
+    run = board.get("run")
+    if isinstance(run, dict):
+        out += [f"run.{k}（{nested_key_reason('run.' + k)}）" for k in run if k not in RUN_KEYS]
+        for item in run.get("population") or []:
+            out += [f"run.population {item.get('task')}.{k}（母集団の1件に持つのは"
+                    f" {'・'.join(POPULATION_ITEM_KEYS)} だけ。状態・題名は記録と台帳から導く）"
+                    for k in item if k not in POPULATION_ITEM_KEYS]
+    return out
+
+
 def apply_pairs(target: dict, pairs: list[str], at: dt.datetime, forbidden: dict[str, str] | None = None) -> None:
     for pair in pairs:
         append = "+=" in pair and pair.index("+=") < pair.index("=") + 1
         key, _, raw = pair.partition("+=" if append else "=")
         if not key or ("=" not in pair):
             raise SystemExit(f"k=v の形ではありません: {pair}")
-        reason = (forbidden or {}).get(key) or (
-            FORBIDDEN_KEYS["limits"].get(key.split(".", 1)[1]) if key.startswith("limits.") else None)
+        reason = (forbidden or {}).get(key) or nested_key_reason(key)
         if reason:
             raise SystemExit(f"{key} は表に書かない（写しになる）。正本: {reason}")
         value = parse_value(raw, at)
@@ -1366,9 +1528,13 @@ def cmd_board(ctx: Context, args: argparse.Namespace) -> int:
     if args.board_cmd == "unpushed":
         return cmd_unpushed(ctx, board, at)
     if args.board_cmd == "run":
+        if not args.pairs or args.pairs[0] in RUN_OPS:
+            return cmd_run(ctx, board, args.pairs or ["list"], at)
+        if isinstance(board.get("run"), str):
+            board["run"] = run_of(board)
         apply_pairs(board, args.pairs, at, FORBIDDEN_KEYS["top"])
         save_board(ctx, board)
-        print(json.dumps({k: v for k, v in board.items() if k != "agents"}, ensure_ascii=False, indent=1))
+        print(json.dumps({k: v for k, v in board.items() if k not in ("agents", "run")}, ensure_ascii=False, indent=1))
         return 0
     if args.board_cmd == "claim":
         # セッションの識別子は道具の側からは見えない。直後のPostToolUseのフック（check --if-due）が、
@@ -1426,6 +1592,61 @@ def cmd_board(ctx: Context, args: argparse.Namespace) -> int:
             rest = {k: v for k, v in item.items() if k not in ("what", "priority", "added")}
             print(f"{n}. [{item.get('priority', '-')}] {item.get('what')}  （{hm(parse_time(item.get('added')))}）"
                   f"{'  ' + json.dumps(rest, ensure_ascii=False) if rest else ''}")
+    return 0
+
+
+def cmd_run(ctx: Context, board: dict, words: list[str], at: dt.datetime) -> int:
+    """回の目的と母集団: start <名前> / goal <文> / add <Txxx>... [from=<Tyyy>] / remove <Txxx>... / list。"""
+    op, rest = words[0], words[1:]
+    if op == "list":
+        for line in run_summary_lines(population_view(ctx, board, ledger_rows(ctx)), detail=True):
+            print(line)
+        return 0
+    run = run_of(board)
+    if op in ("start", "goal"):
+        if not rest:
+            raise SystemExit(f"board run {op} の後に{'回の名前' if op == 'start' else '目的の文'}を書く")
+        if op == "start":
+            if run:
+                print("前の回（置き換える）: " + json.dumps(run, ensure_ascii=False))
+            run = {"name": " ".join(rest), "started": iso(at), "goal": None, "population": []}
+        else:
+            run["goal"] = " ".join(rest)
+    else:
+        origin = None
+        tasks = []
+        for word in rest:
+            if word.startswith("from="):
+                origin = word[len("from="):] or None
+            elif re.fullmatch(TASK_ID_RE, word):
+                tasks.append(word)
+            else:
+                raise SystemExit(f"タスク番号か from=<Txxx> を書く（題名・状態は台帳と記録から導く）: {word}")
+        if origin is not None and not re.fullmatch(TASK_ID_RE, origin):
+            raise SystemExit(f"派生元はタスク番号で書く: {origin}")
+        if not tasks:
+            raise SystemExit(f"board run {op} の後にタスク番号を書く")
+        population = run.setdefault("population", [])
+        present = {str(i.get("task")) for i in population}
+        if op == "add":
+            if origin is None:
+                print("注: 派生元（from=<Txxx>）が無い。回の始めに決めた母集団なら無くてよい")
+            for task in tasks:
+                if task in present:
+                    raise SystemExit(f"既に母集団にある: {task}（派生元を直すなら remove してから add）")
+                item = {"task": task, "added": iso(at)}
+                if origin:
+                    item["from"] = origin
+                population.append(item)
+        else:
+            missing = [t for t in tasks if t not in present]
+            if missing:
+                raise SystemExit(f"母集団に無い: {'・'.join(missing)}")
+            run["population"] = [i for i in population if str(i.get("task")) not in tasks]
+    board["run"] = run
+    save_board(ctx, board)
+    for line in run_summary_lines(population_view(ctx, board, ledger_rows(ctx)), detail=True):
+        print(line)
     return 0
 
 
@@ -1510,8 +1731,8 @@ def main(argv: list[str] | None = None) -> int:
         q = bsub.add_parser(name)
         q.add_argument("name")
         q.add_argument("pairs", nargs="*")
-    q = bsub.add_parser("run")
-    q.add_argument("pairs", nargs="+")
+    q = bsub.add_parser("run", help="回の値（k=v）と、回の目的・母集団（start・goal・add・remove・list）")
+    q.add_argument("pairs", nargs="*")
     bsub.add_parser("show")
     bsub.add_parser("claim", help="このセッションを司令塔として記録する（直後のフックが記録する）")
     for name, help_text in (("todo", "司令塔のキュー（中断・待ちの作業）"), ("dispatch", "振り出し待ちのキュー")):
