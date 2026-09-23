@@ -15,6 +15,14 @@
 渡した印は`git worktree lock`の理由（`slot <名前> <時刻>`）で、状態の表には書かない。gitの
 ロックは作成が原子的なので、2本が同時に同じスロットを取りに来ても片方だけが取れる。
 
+## 印を外す契機
+
+担当が終わっても、Claude CodeはWorktreeRemoveフックを呼ばない——フックで作った作業ツリーは
+gitで中身を確かめる対象にせず、ディレクトリにファイルが1つでもあれば残す（呼ぶのは利用者が
+明示的に破棄したときだけ）。スロットは常に中身があるので、担当の終了では印が外れない。
+印は、司令塔が監査で担当を通したとき（`board set <名前> audit_done=now audit_result=通す`）に
+核（`core.release_slot`）が外す。通さずに止めた担当の印は`slot release <N>`で外す。
+
 ## 渡し直すときに止まる条件（黙って消さない）
 
 - 未コミットの変更がある（`.claude/settings.local.json`を除く。Claude Codeが許可の記録を書く
@@ -45,15 +53,17 @@ from orchestration.core import (
     DEFAULT_CONCURRENT,
     EXPECTED_HOOKS_PATH,
     IGNORED_CHANGES,
+    SLOT_LOCK_PREFIX,
     Context,
     git,
     git_out,
+    list_worktrees,
     load_board,
     restore_hooks_path,
+    unsaved_work,
 )
 
 SLOT_PREFIX = "slot-"
-LOCK_PREFIX = "slot "
 NPM_MARK = "frontend/node_modules/.slot-package-lock.sha1"
 #: 作業ツリーの中にあってはならないリンクの置き場（過去に共有元を指すジャンクションが置かれた所）。
 LINK_CANDIDATES = ("frontend/node_modules", "node_modules", "backend/data", "backend/.venv")
@@ -86,20 +96,9 @@ def slot_number(ctx: Context, path: str) -> int | None:
 
 
 def registered(ctx: Context) -> dict[str, str]:
-    """登録済みの作業ツリー（正規化したパス → locked行の理由。ロックが無ければ空でない印の無い値）。"""
-    out = git_out(ctx.repo, "worktree", "list", "--porcelain") or ""
-    trees: dict[str, str] = {}
-    for block in out.split("\n\n"):
-        path, reason = None, None
-        for line in block.splitlines():
-            key, _, value = line.partition(" ")
-            if key == "worktree":
-                path = os.path.normcase(os.path.normpath(value))
-            elif key == "locked":
-                reason = value or "(理由なし)"
-        if path:
-            trees[path] = reason or ""
-    return trees
+    """登録済みの作業ツリー（正規化したパス → ロックの理由。ロックが無ければ空文字）。"""
+    return {os.path.normcase(t.path): (t.locked or "(理由なし)") if t.locked is not None else ""
+            for t in list_worktrees(ctx)}
 
 
 def lock_reason(ctx: Context, path: Path) -> str | None:
@@ -126,17 +125,8 @@ def is_link(path: Path) -> bool:
 
 def blockers(path: Path) -> list[str]:
     """渡し直しを止める事実。空なら渡し直してよい。"""
-    out = [f"作業ツリーの中にリンクがある: {rel}" for rel in LINK_CANDIDATES if is_link(path / rel)]
-    status = run_git(path, "status", "--porcelain=v1", "-z", "--no-renames", "--untracked-files=all",
-                     strip=False)
-    dirty = [e[3:] for e in status.split("\0") if len(e) > 3 and e[3:] not in IGNORED_CHANGES]
-    if dirty:
-        shown = "、".join(dirty[:5]) + (f" ほか{len(dirty) - 5}件" if len(dirty) > 5 else "")
-        out.append(f"未コミットの変更がある: {shown}")
-    unpushed = run_git(path, "rev-list", "--count", "HEAD", "--not", "--remotes=origin")
-    if unpushed != "0":
-        out.append(f"どのリモートの枝からも届かないコミットが{unpushed}件ある（pushしていない成果）")
-    return out
+    links = [f"作業ツリーの中にリンクがある: {rel}" for rel in LINK_CANDIDATES if is_link(path / rel)]
+    return links + unsaved_work(path)
 
 
 def lock_file_sha(path: Path) -> str | None:
@@ -166,7 +156,7 @@ def claim(ctx: Context, path: Path, owner: str) -> None:
     """渡した印を付ける。`git worktree lock`は既にロックがあれば失敗するので、同時に取りに来た
     2本のうち片方だけが取れる。"""
     at = dt.datetime.now().astimezone().isoformat(timespec="seconds")
-    run_git(ctx.repo, "worktree", "lock", "--reason", f"{LOCK_PREFIX}{owner} {at}", str(path))
+    run_git(ctx.repo, "worktree", "lock", "--reason", f"{SLOT_LOCK_PREFIX}{owner} {at}", str(path))
 
 
 def reset_to(path: Path, branch: str, base: str) -> None:
@@ -198,7 +188,7 @@ def prepare(ctx: Context, n: int, owner: str, base: str, fetch: bool) -> Path:
             raise SlotError(f"{path} は作業ツリーとして登録されていないのにディレクトリがある")
         run_git(ctx.repo, "worktree", "add", "--quiet", "-B", branch, str(path), base)
         reason, created = None, True
-    if reason and not reason.startswith(f"{LOCK_PREFIX}{owner} "):
+    if reason and not reason.startswith(f"{SLOT_LOCK_PREFIX}{owner} "):
         raise SlotError(f"{path.name} は渡し済み（{reason}）")
     if reason:
         run_git(ctx.repo, "worktree", "unlock", str(path))
@@ -235,10 +225,7 @@ def cmd_list(ctx: Context) -> int:
             print(f"{path.name}: 未作成")
             continue
         facts = [f"渡し先 {trees[key]}" if trees[key] else "空き（ロックなし）"]
-        try:
-            facts += blockers(path) or ["渡し直せる"]
-        except SlotError as e:
-            facts.append(str(e))
+        facts += blockers(path) or ["渡し直せる"]
         head = git_out(path, "log", "-1", "--format=%h %cd", "--date=format:%m-%d %H:%M") or "?"
         print(f"{path.name}: {head} / " + " / ".join(facts))
     extra = [p for p in trees if os.path.basename(p) not in
@@ -270,7 +257,10 @@ def hook_create(ctx: Context) -> int:
 
 
 def hook_remove(ctx: Context) -> int:
-    """WorktreeRemoveフック。スロットなら渡した印を外すだけで、ディレクトリは消さない。"""
+    """WorktreeRemoveフック。スロットなら渡した印を外すだけで、ディレクトリは消さない。
+    Claude Codeがこれを呼ぶのは利用者が作業ツリーを明示的に破棄したときだけ（担当の終了では
+    呼ばない）。登録しておく理由は、フックが無いと破棄の処理が既定の`git worktree remove`へ
+    落ち、スロットのディレクトリごと消えうること。"""
     data = read_hook_input()
     path = str(data.get("worktree_path") or "")
     n = slot_number(ctx, path) if path else None
