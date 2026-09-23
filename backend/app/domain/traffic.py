@@ -151,6 +151,16 @@ def stop_seconds(kind: str) -> float:
     return tuning_value(stop_seconds_parameter_id(kind))
 
 
+def poi_count_column(kind: str) -> str:
+    """停止要因の種別`kind`の件数を持つ列（`edge_materials`・`way_materials`）の名前。"""
+    return f"poi_{kind}"
+
+
+def poi_density_material_id(kind: str) -> str:
+    """停止要因の種別`kind`の密度（回/km）の材料id。タイルの列名も同じ名前で焼く。"""
+    return f"{poi_count_column(kind)}_per_km"
+
+
 def stop_count_material_ids() -> tuple[str, ...]:
     """停止の待ちを所要時間へ足すのに要る材料id（`POI_COUNT_KINDS`と1対1）。
 
@@ -158,7 +168,7 @@ def stop_count_material_ids() -> tuple[str, ...]:
     経路へ運ぶ既定（`evaluation.py: route_facing_material_ids`）に任せると、停止の軸を
     非公開にした瞬間に所要時間から停止の待ちが静かに消える。
     """
-    return tuple(f"poi_{kind}_per_km" for kind in POI_COUNT_KINDS)
+    return tuple(poi_density_material_id(kind) for kind in POI_COUNT_KINDS)
 
 
 # 同じ場所にある同種の点を1つの停止としてまとめる距離（m）。日本のOSMは1つの信号交差点を

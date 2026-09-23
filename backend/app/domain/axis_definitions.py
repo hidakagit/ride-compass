@@ -606,8 +606,8 @@ def topological_axis_order(definitions: dict[str, AxisDefinition]) -> list[str]:
 
 
 # リクエストごとに値が変わりうる材料id（風向・風速・走行速度由来）。`MATERIAL_CATALOG`の
-# `extractor=None`は「汎用抽出の対象外」という別の意味も持つフラグ（動的
-# データ以外の理由でもNoneになる）のため流用せず、ここに正準定義を置く。
+# `value_sql=None`は「SQLでは求められない」という別の意味も持つ（動的データ以外に、
+# 評価へ配線していない材料もNoneになる）ため流用せず、ここに正準定義を置く。
 # `dynamic_axis_topological_order`がこの集合を起点に、依存する軸を機械的に導出する
 # （軸id・材料idのハードコードを個別の軸ぶん増やさない汎用設計）。各材料の評価関数は
 # `domain/evaluation.py: DYNAMIC_MATERIAL_EVALUATORS`に1対1で登録する。

@@ -6,12 +6,11 @@
 置き場所の切り分け:
 
 - 「開発時にどう判断し、どう進めるか」というプロジェクトの進め方は
-  [.claude/commands/review/principles.md](../../.claude/commands/review.md)
-  「判断原則」節と`docs/improvement-plan.md`「進め方の原則」節が持つ。
+  [.claude/commands/review.md](../../.claude/commands/review.md)「判断原則」節が持つ。
 - 一般的なソフトウェア工学の慣習（数値定数の片側import・スキーマはORMの宣言から・
   フォールバック経路へ新機能を実装しない・空間JOINのGiST索引利用・UIの語彙表カタログ集約等）は
   RideCompass固有の仕様ではないためここに置かず、レビュー観点
-  （`.claude/commands/review/overall.md`・`complexity.md`）に集約する。
+  （`.claude/commands/review.md`「確認観点」節の全体最適・複雑度）に集約する。
 - 各原則の発見の経緯・事故の顛末は`docs/records/`が持つ。ここには**今も成り立つ契約**だけを書く。
 
 非技術者向けに同じ構造を専門用語なしで説明したものが

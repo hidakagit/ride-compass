@@ -36,7 +36,7 @@ from app.infrastructure.orm_base import Base
 # 偶然に任せないための担保である。
 from app.infrastructure import source_models  # noqa: F401
 from app.domain.landcover import PERCENT_CLASSES
-from app.domain.traffic import POI_COUNT_KINDS
+from app.domain.traffic import POI_COUNT_KINDS, poi_count_column
 
 #: NULLが「まだ計算していない」ではなく「確定して値が無い」を意味する列に付ける印。
 #: 鮮度台帳（`derived_data_freshness.py`）はこの印のある列を未計算として数えない——
@@ -58,7 +58,7 @@ def covers(source: str) -> dict[str, str]:
 
 #: 数えた値は負にならない。未計算はNULLで表すので、0と取り違える余地も無い。
 _COUNT_COLUMNS = ("accident_count", "intersection_count") + tuple(
-    f"poi_{kind}" for kind in sorted(POI_COUNT_KINDS))
+    poi_count_column(kind) for kind in sorted(POI_COUNT_KINDS))
 
 #: 土地被覆の割合の列。クラスが1つ増えてもここは変わらない。
 _LANDCOVER_COLUMNS = tuple(

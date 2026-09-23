@@ -1,7 +1,7 @@
 """動的材料（`REQUEST_DYNAMIC_MATERIAL_IDS`）のリクエスト時評価。
 
 Edgeへ永続保存せず、リクエストのたびに風・走行速度・通過予定時刻から求める材料を
-扱う。静的材料（`domain/material_catalog.py`のextractor）とは値の出どころも
+扱う。静的材料（`domain/material_catalog.py`の`value_sql`でDBが求める値）とは値の出どころも
 更新の頻度も違うため、評価本体（`domain/evaluation.py`）から分けてある。
 """
 

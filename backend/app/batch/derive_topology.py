@@ -10,26 +10,14 @@
 交差点の密度を測るのに要るのは枝の本数のほう。
 
 `node_materials`を先に入れる。`road_edges`の端点はここへの外部キーで縛られている。
-
-実行方法（backendディレクトリから）:
-    .venv\\Scripts\\python.exe -m app.batch.derive_topology
-    .venv\\Scripts\\python.exe -m app.batch.derive_topology --database-url ...
 """
 
-import argparse
-import asyncio
 import logging
-import sys
 import time
-from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+import asyncpg
 
-import asyncpg  # noqa: E402
-
-from app.batch._common import asyncpg_dsn, with_derived_data_revision_bump  # noqa: E402
-from app.config import settings  # noqa: E402
-from app.domain.material_sql import ways_source_sql  # noqa: E402
+from app.domain.material_sql import ways_source_sql
 
 logger = logging.getLogger("ridecompass.derive_topology")
 
@@ -195,26 +183,3 @@ async def derive(conn: asyncpg.Connection) -> tuple[int, int]:
     logger.info("導出完了: way %d本 → 区間 %d本 / ノード %d点 / %.1f秒",
                 ways, edge_count, node_count, time.perf_counter() - started)
     return edge_count, node_count
-
-
-async def run(database_url: str) -> int:
-    conn = await asyncpg.connect(asyncpg_dsn(database_url))
-    try:
-        await derive(conn)
-    finally:
-        await conn.close()
-    return 0
-
-
-def main() -> int:
-    logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s %(message)s")
-    parser = argparse.ArgumentParser(description="生データから道路網の形を導く")
-    parser.add_argument("--database-url", default=None)
-    args = parser.parse_args()
-    database_url = args.database_url or settings.database_url
-    return asyncio.run(with_derived_data_revision_bump(
-        run(database_url), database_url=database_url, dry_run=False))
-
-
-if __name__ == "__main__":
-    raise SystemExit(main())

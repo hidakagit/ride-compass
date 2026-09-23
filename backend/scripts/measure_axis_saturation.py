@@ -26,9 +26,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine  # noqa: E402
-
-from app.config import settings  # noqa: E402
+from app.batch._common import batch_session_factory  # noqa: E402
 from app.domain.axis_definitions import AXIS_DEFINITIONS, evaluate_axes_scalar  # noqa: E402
 from app.domain.region import BoundingBox, parse_bbox  # noqa: E402
 from app.infrastructure.road_graph_repository import RoadGraphRepository  # noqa: E402
@@ -66,16 +64,12 @@ async def run(
     limit: int,
     bbox: BoundingBox | None,
 ) -> int:
-    engine = create_async_engine(settings.database_url)
-    session_factory = async_sessionmaker(engine, expire_on_commit=False)
-    try:
+    async with batch_session_factory(None) as session_factory:
         async with session_factory() as session:
             # 軸定義はDBが唯一の正本。Python側に既定値は無いため先に読み込む。
             await refresh_axis_definitions(AxisDefinitionRepository(session))
             sample = await axis_preview_service.load_way_sample(
                 RoadGraphRepository(session), sample_percent, limit, bbox)
-    finally:
-        await engine.dispose()
 
     if not sample:
         print("サンプルが0件でした（道の生データが未取込か、--bboxの範囲に道が無い可能性）")

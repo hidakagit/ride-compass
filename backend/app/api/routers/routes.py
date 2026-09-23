@@ -109,9 +109,9 @@ class RoutePreferenceWeights(RootModel[dict[str, float]]):
 
 class HardFilterOverride(RootModel[dict[str, bool]]):
     """0次ハードフィルタ（候補にすら入れない道路種別）の個別ON/OFF上書き。
-    キーはdomain/hard_filters.py: HARD_FILTER_NAMESと同じ（'no_bicycle'/'motorway'/
-    'trunk'）。RoutePreferenceWeightsと同じ「全フィールド必須」方針（上書きするなら
-    全項目を明示する）。値がTrueのフィルタだけが有効（該当道路を探索対象から除外する）。
+    キーはdomain/hard_filters.py: HARD_FILTER_NAMESと同じ。RoutePreferenceWeightsと同じ
+    「全フィールド必須」方針（上書きするなら全項目を明示する）。値がTrueのフィルタだけが
+    有効（該当道路を探索対象から除外する）。
     """
 
     @model_validator(mode="after")

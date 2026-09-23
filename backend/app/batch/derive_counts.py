@@ -8,34 +8,25 @@
 
 **同じ種別の点は先にまとめる。**日本のOSMは1つの信号交差点を流入路ごと・横断歩道位置
 ごとの複数ノードで描くため、素直に数えると停止回数を上回る。
-
-実行方法（backendディレクトリから）:
-    .venv\\Scripts\\python.exe -m app.batch.derive_counts
 """
 
-import argparse
-import asyncio
 import logging
-import sys
 import time
-from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+import asyncpg
 
-import asyncpg  # noqa: E402
-
-from app.batch._common import asyncpg_dsn, with_derived_data_revision_bump  # noqa: E402
-from app.config import settings  # noqa: E402
-from app.domain.accident import (  # noqa: E402
+from app.domain.accident import (
     ACCIDENT_FATAL_WEIGHT,
     ACCIDENT_MATCH_MAX_DISTANCE_M,
     FATAL_SQL,
 )
 from app.domain.geo import KM_PER_DEGREE_LATITUDE
-from app.domain.material_sql import nodes_lookup_sql  # noqa: E402
-from app.domain.traffic import (  # noqa: E402
+from app.domain.material_sql import nodes_lookup_sql
+from app.domain.traffic import (
     INTERSECTION_DEGREE_THRESHOLD,
     POI_CLUSTER_EPS_M,
+    POI_COUNT_KINDS,
+    poi_count_column,
 )
 
 logger = logging.getLogger("ridecompass.derive_counts")
@@ -77,8 +68,12 @@ SELECT DISTINCT ON (count_kind, cluster_id) osm_node_id, count_kind
 FROM clustered ORDER BY count_kind, cluster_id, osm_node_id
 """
 
+#: 停止要因の件数の列。種別は`POI_COUNT_KINDS`から導く——ここで並べると、種別を足したときに
+#: 材料とタイルの列は増えるのにこの段が数えず、新しい列が未計算（NULL）のまま残る。
+_STOP_COLUMNS = {kind: poi_count_column(kind) for kind in POI_COUNT_KINDS}
+
 #: `road_edges`は区間1本に1行なので、両端をそのまま足して割ると0.5ずつになる。
-_EDGE_STOP_COUNTS = """
+_EDGE_STOP_COUNTS = f"""
 WITH ends AS (
     SELECT osm_way_id, segment_index, from_node_id AS node_id FROM road_edges
     UNION ALL
@@ -90,28 +85,20 @@ counted AS (
     GROUP BY e.osm_way_id, e.segment_index, s.count_kind
 )
 UPDATE edge_materials m SET
-    poi_signal         = COALESCE(p.signal, 0),
-    poi_crossing       = COALESCE(p.crossing, 0),
-    poi_stop           = COALESCE(p.stop, 0),
-    poi_level_crossing = COALESCE(p.level_crossing, 0),
-    poi_barrier        = COALESCE(p.barrier, 0)
+    {", ".join(f"{c} = COALESCE(p.{c}, 0)" for c in _STOP_COLUMNS.values())}
 FROM (
     SELECT osm_way_id, segment_index,
-           sum(n) FILTER (WHERE count_kind = 'signal')          AS signal,
-           sum(n) FILTER (WHERE count_kind = 'crossing')        AS crossing,
-           sum(n) FILTER (WHERE count_kind = 'stop')            AS stop,
-           sum(n) FILTER (WHERE count_kind = 'level_crossing')  AS level_crossing,
-           sum(n) FILTER (WHERE count_kind = 'barrier')         AS barrier
+           {", ".join(f"sum(n) FILTER (WHERE count_kind = '{k}') AS {c}"
+                      for k, c in _STOP_COLUMNS.items())}
     FROM counted GROUP BY osm_way_id, segment_index
 ) p
 WHERE p.osm_way_id = m.osm_way_id AND p.segment_index = m.segment_index
 """
 
 #: 停止要因が1つも無い区間も0で埋める（NULLは「未計算」を表すため）。
-_EDGE_STOP_ZERO = """
-UPDATE edge_materials SET poi_signal = 0, poi_crossing = 0, poi_stop = 0,
-                          poi_level_crossing = 0, poi_barrier = 0
-WHERE poi_signal IS NULL
+_EDGE_STOP_ZERO = f"""
+UPDATE edge_materials SET {", ".join(f"{c} = COALESCE({c}, 0)" for c in _STOP_COLUMNS.values())}
+WHERE {" OR ".join(f"{c} IS NULL" for c in _STOP_COLUMNS.values())}
 """
 
 _EDGE_INTERSECTIONS = """
@@ -157,24 +144,17 @@ DELETE FROM way_materials w
 WHERE NOT EXISTS (SELECT 1 FROM road_edges e WHERE e.osm_way_id = w.osm_way_id)
 """
 
-_WAY_FROM_EDGES = """
-INSERT INTO way_materials (osm_way_id, accident_count, intersection_count,
-                           poi_signal, poi_crossing, poi_stop, poi_level_crossing, poi_barrier,
-                           source_run_id)
-SELECT m.osm_way_id, sum(m.accident_count), sum(m.intersection_count),
-       sum(m.poi_signal), sum(m.poi_crossing), sum(m.poi_stop),
-       sum(m.poi_level_crossing), sum(m.poi_barrier), max(e.source_run_id)
+#: 道1本へ区間の和として写す列。
+_WAY_SUMMED_COLUMNS = ("accident_count", "intersection_count", *_STOP_COLUMNS.values())
+
+_WAY_FROM_EDGES = f"""
+INSERT INTO way_materials (osm_way_id, {", ".join(_WAY_SUMMED_COLUMNS)}, source_run_id)
+SELECT m.osm_way_id, {", ".join(f"sum(m.{c})" for c in _WAY_SUMMED_COLUMNS)}, max(e.source_run_id)
 FROM edge_materials m JOIN road_edges e
   ON e.osm_way_id = m.osm_way_id AND e.segment_index = m.segment_index
 GROUP BY m.osm_way_id
 ON CONFLICT (osm_way_id) DO UPDATE SET
-    accident_count = EXCLUDED.accident_count,
-    intersection_count = EXCLUDED.intersection_count,
-    poi_signal = EXCLUDED.poi_signal,
-    poi_crossing = EXCLUDED.poi_crossing,
-    poi_stop = EXCLUDED.poi_stop,
-    poi_level_crossing = EXCLUDED.poi_level_crossing,
-    poi_barrier = EXCLUDED.poi_barrier,
+    {", ".join(f"{c} = EXCLUDED.{c}" for c in _WAY_SUMMED_COLUMNS)},
     source_run_id = EXCLUDED.source_run_id
 """
 
@@ -199,26 +179,3 @@ async def derive(conn: asyncpg.Connection) -> None:
 
     logger.info("数の値を埋めた: まとめ後の停止要因 %d点 / %.1f秒",
                 clustered, time.perf_counter() - started)
-
-
-async def run(database_url: str) -> int:
-    conn = await asyncpg.connect(asyncpg_dsn(database_url))
-    try:
-        await derive(conn)
-    finally:
-        await conn.close()
-    return 0
-
-
-def main() -> int:
-    logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s %(message)s")
-    parser = argparse.ArgumentParser(description="区間と道に付く数の値を埋める")
-    parser.add_argument("--database-url", default=None)
-    args = parser.parse_args()
-    database_url = args.database_url or settings.database_url
-    return asyncio.run(with_derived_data_revision_bump(
-        run(database_url), database_url=database_url, dry_run=False))
-
-
-if __name__ == "__main__":
-    raise SystemExit(main())

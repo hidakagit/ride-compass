@@ -1,9 +1,9 @@
 @echo off
 setlocal enabledelayedexpansion
 rem backend/frontendをポート上の既存プロセスをkillしてからバックグラウンドで再起動する。
-rem docs/architecture.md「バックエンド運用上の注意（Windows: uvicorn --reload の多重プロセス）」
-rem が説明する「netstat -ano | findstr :8000 で全PIDを確認しtaskkillで終了してから再起動」
-rem という手動手順を1コマンド化したもの（改善計画T47・複雑度平衡レビュー第4回R-10で整理）。
+rem docs/architecture/tech-stack.md「Windows: uvicorn --reloadの多重プロセス」が説明する
+rem 「netstat -ano | findstr :8000 で全PIDを確認しtaskkillで終了してから再起動」という
+rem 手動手順を1コマンド化したもの。
 rem 停止のみ行いたい場合はstop-dev.batを使う。ログは.\logs\（.gitignore対象）へ出力される。
 
 set "ROOT=%~dp0"

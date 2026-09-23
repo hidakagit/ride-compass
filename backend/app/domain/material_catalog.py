@@ -52,7 +52,7 @@ from app.domain.material_sql import (
     tag_is_value_sql,
     tag_absent_is_false_sql,
 )
-from app.domain.traffic import POI_COUNT_KINDS
+from app.domain.traffic import POI_COUNT_KINDS, poi_density_material_id
 from app.domain.wind import WIND_DRAG_REFERENCE_SPEED_MS, wind_drag_ratio
 from app.domain.strict_model import StrictModel
 
@@ -1075,15 +1075,15 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
     # タイル側のプロパティ名も同じ規則で生成しており（`_POI_TILE_COLUMNS_SQL`）、材料idと
     # 一致するため地図のramp自動導出がそのまま効く。
     **{
-        f"poi_{kind}_per_km": MaterialSpec(
-            material_id=f"poi_{kind}_per_km",
+        poi_density_material_id(kind): MaterialSpec(
+            material_id=poi_density_material_id(kind),
             label=f"{label}の密度",
             description=f"進行する道路上にある{label}の、1kmあたりの数。",
             dtype="numeric",
             unit="回/km",
             additive=True,
             total_unit="回",
-            tile_property=f"poi_{kind}_per_km",
+            tile_property=poi_density_material_id(kind),
             value_sql=poi_density_value_sql(kind),
             # 行があれば載っていないキーは0件と確定できる（欠損は行そのものの不在だけ）。
             coverage=EdgeMaterialCoverageSpec(

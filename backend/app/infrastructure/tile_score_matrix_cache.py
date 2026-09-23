@@ -45,7 +45,7 @@ def _columns_match_current_predicates(matrix: StaticEdgeScoreMatrix) -> bool:
     `raw_axis_ids`/`material_ids`/`categorical_material_ids`/`hard_filter_flags`は
     `dataclasses.fields()`には
     現れない**中身で決まる列**で、鍵の署名（列名の並び）では捕まえられない。列を決める
-    述語（`axis_display.py`の生値可否判定・`MaterialSpec`の該当フィールド）はこのモジュールを
+    述語（`evaluation.py: has_route_facing_raw_value`・`MaterialSpec`の該当フィールド）はこのモジュールを
     触らずに変えられるため、版を上げ忘れると旧世代がそのまま復元される。列数が変われば
     `np.concatenate`がValueErrorで落ち、偶然一致すれば**別の軸の生値を表示する**。
 

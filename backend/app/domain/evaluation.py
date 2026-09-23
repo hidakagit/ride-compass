@@ -227,9 +227,9 @@ class BulkAxisEvaluation:
 def _empty_material_arrays(n: int) -> dict[str, np.ndarray]:
     """`MATERIAL_CATALOG`全材料ぶんの配列を、材料ごとの既定値（NaN/False/None）で確保する。
 
-    **extractorやSQL式を持たない材料の列も確保する**。持たない材料（トリガー付きDEFER）を
+    **SQL式（`value_sql`）を持たない材料の列も確保する**。持たない材料（トリガー付きDEFER）を
     `MaterialTerm`等で参照する軸は軸スタジオから素朴に作れてしまい
-    （`_check_materials_are_known`はextractorの有無を見ない）、列が無いと
+    （`_check_materials_are_known`は`value_sql`の有無を見ない）、列が無いと
     `evaluate_axis_array`の`materials[term.material]`がKeyErrorで/api/routes/generate
     自体を落とす。確保しておけば「材料はあるがデータが無い」という既存の意味論へ揃い、
     スカラー版と同じグレースフルデグレード（その軸だけ恒久的に欠損扱い）になる。
@@ -258,8 +258,8 @@ def _evaluate_axes_from_material_arrays(
 ) -> BulkAxisEvaluation:
     """材料と区間の列が揃っている状態から先（計算フェーズと軸の評価）。
 
-    材料をどこで導いたか——`MaterialSpec.value_sql`でDBが導いたか、extractorがEdgeごとに
-    導いたか——をここは知らない。呼び出し元は`material_arrays`へ**`MATERIAL_CATALOG`全材料
+    材料をどこで導いたか（`MaterialSpec.value_sql`でDBが導いた値か、リクエスト時に決まる
+    動的な値か）をここは知らない。呼び出し元は`material_arrays`へ**`MATERIAL_CATALOG`全材料
     ぶんの列**を渡す（`_empty_material_arrays`へ重ねる）。
 
     0次ハードフィルタの生フラグと区間そのものの列（距離・方位・中点）は材料ではないため
