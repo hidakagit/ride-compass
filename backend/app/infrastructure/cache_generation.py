@@ -38,9 +38,3 @@ def sync_with_revision(
     clear()
     tile_persistent_cache.set(namespace, version, zoom, x, y, current)
     return True
-
-
-def read_persisted_revision(namespace: str, version: str) -> int | None:
-    """ディスクへ最後に書いた時点の記録（テスト・診断用）。"""
-    zoom, x, y = _REVISION_MARKER_TILE
-    return tile_persistent_cache.get(namespace, version, zoom, x, y)

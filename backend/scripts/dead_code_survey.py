@@ -97,7 +97,10 @@ def _referenced_names(node: ast.AST) -> set[str]:
         elif isinstance(child, ast.Attribute):
             names.add(child.attr)
         elif isinstance(child, ast.alias):
-            names.add((child.asname or child.name).split(".")[-1])
+            # 別名だけを拾うと`import refresh as refresh_msm`で元の定義への辺が切れる。
+            names.add(child.name.split(".")[-1])
+            if child.asname:
+                names.add(child.asname)
         elif isinstance(child, ast.Constant) and isinstance(child.value, str):
             # SQL文字列やレジストリのキーに名前が埋まることがある。単語として現れたら
             # 辺を張る（曖昧なものは生きている側へ倒す方針）。

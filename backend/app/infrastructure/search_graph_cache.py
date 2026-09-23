@@ -166,11 +166,3 @@ def clear() -> None:
     _routable_index_cache.clear()
     _turn_structure_cache.clear()
     _detour_ratio_cache.clear()
-
-
-def lazy_graph_cache_size() -> int:  # テストの検証用
-    return _lazy_graph_cache.size()
-
-
-def routable_index_cache_size() -> int:  # テストの検証用
-    return _routable_index_cache.size()

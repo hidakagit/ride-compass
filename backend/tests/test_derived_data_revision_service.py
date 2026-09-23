@@ -47,7 +47,7 @@ async def test_first_call_reads_db_and_records_revision():
     await derived_data_revision_service.ensure_caches_match_db(repository)
 
     assert repository.calls == 1
-    assert graph_material_cache.read_persisted_revision() == 7
+    assert graph_material_cache.sync_disk_cache_with_derived_data_revision(7) is False
 
 
 async def test_second_call_within_ttl_does_not_read_db():
