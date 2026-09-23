@@ -35,7 +35,7 @@ Edgeコストは「タイル単位の静的Edge×公開軸スコア行列＋リ�
 なく、`prepare`/`preview_segment`が対象bbox全体ぶんの
 コスト配列を1回だけnumpyで合成し、探索へは合成済みの配列をそのまま渡す（探索中にPythonの
 関数フレームを作らない）。
-標高（勾配）は事前計算済み`elevation_attributes`をキー参照するだけで組み込み済み
+標高（勾配）は派生済みの`edge_materials`を材料として読むだけで組み込み済み
 （探索中にGSI API呼び出しは発生しない）。風は**到達時刻ごと**に効く——レグを時刻ビンへ
 刻み、ビンごとのコスト配列を探索前に合成しておいて、探索が到達時刻をラベルとして運ぶ
 （下記「レグ内の時刻ビン」）。
@@ -114,10 +114,9 @@ Edgeコストは「タイル単位の静的Edge×公開軸スコア行列＋リ�
 
 ## 戦略層（`route_generator.py: RouteGenerator`）
 
-`LoopRoutingEngine`という契約（`route_generator.py`のProtocol定義が正本。
-`prepare`・`trace_loop`・`evaluate_loops`等）を挟むことで、`RouteGenerator`自体は
-探索エンジンの内部実装を知らない設計になっている（将来別方式のエンジンを差し込める余地を持たせるための抽象化）。
-現在の実装は`RoadGraphEngine`のみ。
+`RouteGenerator`は`RoadGraphEngine`を直接受け取り、そのメソッド（`prepare`・
+`select_loop_turnarounds`・`trace_loop`・`evaluate_loops`等）を呼ぶだけで、探索の内部には
+立ち入らない。候補の中身（`TracedLoop.data`）もエンジン固有の形として読まない。
 
 候補の形は公開軸の重み配分で決まる（フロンティア方式）:
 起点からの一対全最短経路木（軸重み付きコスト）で目標距離の半分付近に到達する折返し点を
@@ -735,7 +734,7 @@ edge_idをまとめて1回・`preview_segment`が1回、いずれも逐次に呼
   含む」、常駐メモリはEdge数×8B）で持つ——`max_count`（実際の呼び出し元の上限は
   `TURNAROUND_POOL_MAX`=40・`MAX_ROUTES`=15）は64を超えられず、超える呼び出しは
   `ValueError`になる。
-- `RoadGraphEngine.is_loop_too_similar`（`LoopRoutingEngine`契約、`_loop_edge_lengths_by_
+- `RoadGraphEngine.is_loop_too_similar`（`_loop_edge_lengths_by_
   physical_segment`）: 距離フィルタ合格後の候補が、既に採用済みの候補と周回全体
   （`TracedLoop.data`、往路＋復路のedge_id列）で`LOOP_MAX_OVERLAP_RATIO`（0.7、往路のみ
   比較する`TURNAROUND_MAX_OVERLAP_RATIO`＝0.6より緩め）を超えて重複するか判定する。
@@ -757,10 +756,10 @@ edge_idをまとめて1回・`preview_segment`が1回、いずれも逐次に呼
 
 ### `domain/graph.py`
 
-- `Node`/`DirectedEdge`/`RoadGraph`（Pydantic）と、`NodeLike`/`EdgeLike`/
-  `RoadGraphLike`（Protocol）で構造的型付けする`LeanNode`/`LeanEdge`/`LeanRoadGraph`
-  （dataclass、探索専用の高速版。Pydanticのバリデーション・内部簿記コストを避けるため
-  探索フェーズに限りdataclassを使う）が並存する。
+- `LeanNode`/`LeanEdge`/`LeanRoadGraph`（dataclass）が道路網の唯一の表現。探索用グラフの
+  構築でノード・枝を数万〜十数万件作るため、Pydanticのバリデーション・内部簿記のコストを
+  避けて素のdataclassにしてある。`LeanEdge`は向きを持つ枝（A→BとB→Aは別の枝）で、
+  `geometry`は探索フェーズでは空リスト（形が要る区間だけ`get_edges_with_geometry`が埋める）。
 
 ### `domain/route.py`
 
@@ -800,11 +799,8 @@ edge_idをまとめて1回・`preview_segment`が1回、いずれも逐次に呼
 `geo.py`は球面三角法の地理計算（`haversine_distance_km`・`haversine_distance_km_array`・
 `bearing_between`・`compass_label`）を持つ。`LatLon`（`Protocol`）・
 `LatLonPoint`（`NamedTuple`）は`Coordinates`（Pydantic、API境界の入力検証用）を経由
-せずに緯度経度を扱うための軽量な構造的型で、`build_road_graph`・最近傍ノード探索のような
-ホットパスがバリデーションコストを避けるために使う。「起点から方位θへ距離d進んだ点」を
-求める`destination_point`は本番コードから参照されないため、テスト専用ヘルパー
-`tests/geo_fixtures.py`に置き（`test_road_graph_engine.py`の合成グラフ・`test_geo.py`の
-座標生成が使う）、`geo.py`には持たない。
+せずに緯度経度を扱うための軽量な構造的型で、最近傍ノード探索のような
+ホットパスがバリデーションコストを避けるために使う。
 
 `errors.py`は`RoutingError`（単一の例外クラス）のみを持つ。`RoadGraphEngine`・
 `RouteGenerator`が経路探索の失敗を表すのに共通で使う。

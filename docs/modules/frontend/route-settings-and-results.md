@@ -24,7 +24,7 @@
 | `hooks/useAxisCatalog.ts` | `GET /api/axis-catalog`取得。軸一覧・既定重み・ramp軸・軸ラベル・二次軸・ルート色分けモードを一括提供 |
 | `lib/axisCatalog.ts` | 上記フックが返すカタログを、応答から導く純関数（`axisCatalogFromResponse`）と、画面が読む較正値（`CLIENT_TUNING_IDS`・`clientTuningValue`）。フックが持つのは「いつ取りに行き、誰と共有するか」だけ |
 | `services/axisCatalogApi.ts` | 上記フックが叩くbackend APIの薄いラッパー |
-| `lib/evaluationAxes.ts` | `PREFERENCE_AXES`（ルート設定・軸別内訳の並び順）・`DEFAULT_ROUTE_PREFERENCE`（route_preference既定値） |
+| `lib/evaluationAxes.ts` | 重み一覧の1行の型（`PreferenceAxisDef`）と、カタログ1件をそれへ変える唯一の変換（`preferenceAxisFromCatalog`） |
 | `lib/difficultyLoadBar.ts` | 難易度の帯の高さ（`baselineDistanceKm`・`loadBarHeightRatio`・`LOAD_BAR_MAX_HEIGHT_RATIO`）。帯は長さが総合難易度なので、高さへ距離の倍率を与えると塗られた面積が`difficulty_load`、積み上げの色ごとの面積が軸別の負荷になる。基準（高さ1.0）は**一覧の中で最も短い候補**——目標距離やbackendの値から取ると、周回モードと目的地モードで基準の意味が変わり、同じ高さが別のことを指す。距離の比をそのまま高さにすると行が破綻するため上限で頭打ちにし、そのぶん面積は負荷に厳密比例しなくなるので数値を併記する |
 | `lib/geoDistance.ts` | 座標列の距離計算（`haversineKm`・`cumulativeDistancesKm`）。区間の位置と代替の距離差を出すのに使う |
 | `lib/routePreferenceSync.ts` | `route_preference`のキー集合をカタログへ同期する共通ロジック |
@@ -55,8 +55,7 @@ useAxisCatalog() ──→ catalog.axes（公開軸一覧、is_published=Trueの
   （[静的地図レイヤー](static-map-layers.md)「配信情報を取得できず表示できません」節）。
   告知の文面はその両方を述べる。
 - **カタログ1件→`PreferenceAxisDef`の変換は`evaluationAxes.ts: preferenceAxisFromCatalog`
-  1本**で、実行時API経路と静的フォールバックの両方がこれを通る。並び順だけを
-  `SECONDARY_AXES`からなぞり、中身は必ずカタログから組み立てる——経路ごとに組み立てを
+  1本**で、カタログから重み一覧を作る経路はすべてこれを通る——経路ごとに組み立てを
   書くと、片方にだけフィールドを書き足した状態が型検査を通ってしまう
   （`PreferenceAxisDef`のフィールドはすべてoptional）。カタログ側に値がある
   フィールドが変換後も残ることは`evaluationAxes.test.ts`が検査する。

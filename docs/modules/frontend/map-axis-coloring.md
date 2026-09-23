@@ -174,7 +174,7 @@ axis_display_for`が前の境界を決め、`domain/dynamic_way_values.py: map_v
 - **候補線からの選択**: 未選択候補の線（役割`candidateLine`、細い参考線）には透明で太い
   当たり判定（役割`candidateHit`）を重ね、押された地物の`routeId`プロパティで候補を
   切り替える（`MapViewProps.onRouteSelect`）——一覧と地図のどちらからでも選べるようにする。
-  選択中候補の区間詳細（`DETAIL_HIT_LAYER_ID`）とは別のハンドラで、一般道路網向けの
+  選択中候補の区間詳細（役割`detailHit`）とは別のハンドラで、一般道路網向けの
   ポップアップは両方の当たり判定をガードして開かない。
 - **地図上の重ね順**（`scene/groups/routes.ts`が背面から前面の順に宣言し、
   `applyMapScene`がその順へ当てる）:

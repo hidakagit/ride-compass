@@ -176,7 +176,7 @@ bbox全体ぶんのコストをリクエストにつき1回だけnumpyで合成�
   動的材料を直接参照して作ったカスタム軸を含む]でも正しく合成する」ため、
   軸名のハードコードは呼び出し側に一切現れない）。動的材料が増えたら
   `REQUEST_DYNAMIC_MATERIAL_IDS`とこの辞書へ1エントリずつ追加するだけでよい（CLAUDE.md
-  原則1、フロントの`RAMP_AXES`/`buildAxisOverlayLayers`と同種の汎用ディスパッチ）。
+  原則1、フロントがramp軸をカタログ［`axisCatalog.rampAxes`］から列挙して塗るのと同種の汎用ディスパッチ）。
   `evaluate_dynamic_material_arrays`が全動的材料を評価する唯一の経路で、静的行列への
   動的軸合成（`evaluate_dynamic_axis_arrays`）もここを通るため、式が乖離しない。
   `DynamicAxisRequestContext`は出発時点のスナップショット（`weather`）・走行速度
@@ -207,7 +207,7 @@ bbox全体ぶんのコストをリクエストにつき1回だけnumpyで合成�
 ## ルート単位の集約（`domain/difficulty.py`）
 
 区間ごとのdifficultyをルート1本の値へまとめる2つの指標を持つ。どちらも
-`route_generator.py: _with_overall_difficulty`が同じsegmentsから同時に付ける。
+`route_generator.py: SEGMENT_AGGREGATES`の宣言を`_evaluate_and_aggregate`が同じsegmentsへ同時に当てて付ける。
 
 | 指標 | 定義 | 性質 |
 |---|---|---|
@@ -294,7 +294,6 @@ MaterialSpec]`が単一ソース。
 | `value_sql` | その材料の値をDBから求めるSQL式。`None`は「SQLでは求められない」（リクエスト時に決まる風、評価へ配線していないトリガー付きDEFER） |
 | `coverage` | 欠損率の測り方。way単位・区間単位・対象外の3択で、**どれかを必ず持つ**（どちらの一覧にも載っていない材料を型として作れなくする） |
 | `bool_default` | `dtype="boolean"`の材料が欠損を取りうるときの配列上の扱い。`"false"`（真偽の行列へ載せる多数派）か`"nan"`（不明を非該当と混同しないため数値の行列へ載せる少数派）を材料ごとに固定する（数値的に等価ではない） |
-| `display_only` | 軸スタジオの材料選択肢（`GET /api/material-catalog`公開レスポンス）から除外し、地図表示専用に限定するか |
 | `value_labels` | categorical材料の値ごとの日本語ラベル対訳表（`GET /api/admin/material-catalog/{id}/values`が返す） |
 | `reference_points` | 軸スタジオの折れ点編集を助ける「値の目安」一覧（`MaterialReferencePoint`のlabel/value）。値域が直感的でない材料（風等）ほど有用で、真偽値・categorical材料や単純な材料は空リストのままでよい。換算式はbackendだけが持ち、値はここで計算済みのものを持たせる |
 
@@ -381,8 +380,8 @@ way粒度で引くときは、同じ式のまま`w`の行から同じ名前の�
 
 | 母集団 | 対象 | 判定 |
 |---|---|---|
-| `"way"` | `osm_raw_ways`全行 | `missing_condition`（`osm_raw_ways`の列・`tags` JSONBのみで構成したSQL真偽式、`domain/material_sql.py`の共有断片から組み立てる）。全way材料を`count(*) FILTER`で1回の走査にまとめる（`build_way_coverage_sql`、`FROM osm_raw_ways AS w`）。判定式は[routing-engine.md](routing-engine.md)の`_ROAD_SURFACE_TILE_MVT_SQL`と同じPython定数を参照するため、独立した2つの文字列を突き合わせる形の整合性テストは持たない（同じ定数を使う構成自体が一致を保証する） |
-| `"edge"` | `road_edges`全行 | `present_condition`（`edge_materials AS em`の1行が値を持つときに真のSQL条件式）。全edge材料を`count(*) FILTER`で1回の走査にまとめる（`build_edge_coverage_sql`）。`edge_materials.edge_id`は`road_edges`へのFK（ON DELETE CASCADE）のため、値が埋まっている行数をそのまま「値ありEdge数」として使いJOINを省く |
+| `"way"` | 生の道の全行（`WAYS_SOURCE_SQL`） | `missing_condition`（生の道の列・`tags` JSONBのみで構成したSQL真偽式、`domain/material_sql.py`の共有断片から組み立てる）。全way材料を`count(*) FILTER`で1回の走査にまとめる（`build_way_coverage_sql`、`FROM {WAYS_SOURCE_SQL} AS w`）。判定式は[routing-engine.md](routing-engine.md)の`_ROAD_SURFACE_TILE_MVT_SQL`と同じPython定数を参照するため、独立した2つの文字列を突き合わせる形の整合性テストは持たない（同じ定数を使う構成自体が一致を保証する） |
+| `"edge"` | `road_edges`全行 | `present_condition`（`edge_materials AS em`の1行が値を持つときに真のSQL条件式）。全edge材料を`count(*) FILTER`で1回の走査にまとめる（`build_edge_coverage_sql`）。`edge_materials`の`(osm_way_id, segment_index)`は`road_edges`へのFK（ON DELETE CASCADE）のため、値が埋まっている行数をそのまま「値ありEdge数」として使いJOINを省く |
 
 - **「行がある」と「値がある」を混同しない**。派生テーブルが「行が無い＝未計算」と
   「列がNULL＝算出不能」を区別するなら（土地被覆の`lc_*`がそう）、行の有無だけで数えると
@@ -414,16 +413,6 @@ way粒度で引くときは、同じ式のまま`w`の行から同じ名前の�
 `covered_weight_fraction`（全軸の
 重み合計に対する取得できた軸の重み合計の割合）をフロントの「参考値」表示に使う。
 
-
-OSMタグ由来の材料タグを正規化する純関数群（`parse_lanes`・`parse_maxspeed`・
-同じ実装を参照する正準1箇所。
-
-`bicycle_infra_flags(tags, highway)`/`bicycle_infra_flags_or_none(tags, highway)`は
-自転車インフラの4正規化フラグ（`highway_is_cycleway`・`cycleway_has_track`・
-`cycleway_has_lane`・`cycleway_has_shared`）と`shared_pedestrian_path`（河川敷サイクリング
-ロード等、highway=footway/pathかつbicycle=yes/designated）を1箇所にまとめる。`_or_none`版は
-「タグ自体が未取得」をNoneへ倒すガード条件を1箇所に集約する（呼び出し元4箇所での重複
-ガード実装を避ける）。
 
 ## RoutePreference（`domain/route_preference.py`）
 

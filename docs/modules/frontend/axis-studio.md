@@ -40,7 +40,7 @@ APIを呼ぶ）・「データ保守」タブ（派生データ鮮度台帳の�
 | `services/materialCoverageApi.ts` | `MaterialCoveragePanel`が使うAPIクライアント（`app/admin/api/material-coverage/`経由、90秒タイムアウト） |
 | `app/admin/api/material-coverage/route.ts` | `materialCoverageApi.ts`が叩くroute handler。`proxyToBackendAdmin`でbackend `GET /api/admin/material-catalog/coverage`へ転送する。全表走査を伴うため`timeoutMs`で既定（15秒）より長い転送タイムアウトを指定する |
 | `app/admin/api/material-values/[materialId]/route.ts` | `materialCatalogApi.ts: getMaterialValues`が叩くroute handler。`proxyToBackendAdmin`でbackend `GET /api/admin/material-catalog/{material_id}/values`へ転送する（Next.js 16の`params`はPromise） |
-| `components/AxisStudio/DerivedDataFreshnessPanel.tsx` | 「データ保守」タブ本体。backendの`GENERATION_FRESHNESS_SPECS`が挙げるテーブルの鮮度不整合（テーブルごとに比較対象・最新取込run・反映済み最古run・NULL件数）と、系譜列を持たない派生データの完成度（別枠、`COMPLETENESS_SPECS`が決める）を表示。集計は「集計する」ボタン押下時のみ |
+| `components/AxisStudio/DerivedDataFreshnessPanel.tsx` | 「データ保守」タブ本体。派生テーブルごとに、鮮度（最新取込runと反映済み最古run）・被覆（親に対して行が無い件数）・完成度（値の列の未計算件数）を1行へまとめて表示。対象の表・列はbackendが宣言から導く（`source_run_id`を持つ表が派生データ）。集計は「集計する」ボタン押下時のみ |
 | `components/AxisStudio/DbStatusPanel.tsx` | 「データ保守」タブ・本番DBの状態。取込runの最終実行・テーブルの実数と容量・統計とVACUUMの鮮度・接続を1件1行で出す |
 | `services/dbStatusApi.ts`・`app/admin/api/db-status/route.ts` | 上記のAPIクライアントと、/adminのBasic認証セッションを再利用する同一オリジンのroute handler |
 | `services/derivedDataFreshnessApi.ts` | `DerivedDataFreshnessPanel`が使うAPIクライアント（`app/admin/api/derived-data-freshness/`経由、90秒タイムアウト） |
@@ -51,7 +51,7 @@ APIを呼ぶ）・「データ保守」タブ（派生データ鮮度台帳の�
 | `app/admin/api/tuning/route.ts`・`[paramId]/route.ts` | `tuningApi.ts`が叩くNext.js route handler。`proxyToBackendAdmin`でbackend `/api/admin/tuning`（一覧取得・PUT更新）へそのまま転送する |
 | `services/basemapAdminApi.ts` | `TileCachePanel`が使うAPIクライアント（`app/admin/api/basemap-refresh/`経由） |
 | `app/admin/api/basemap-refresh/route.ts` | `basemapAdminApi.ts`が叩くroute handler。`proxyToBackendAdmin`でbackend `POST /api/admin/basemap/refresh`へ転送する |
-| `hooks/useMaterialCatalog.ts` | `GET /api/material-catalog`取得。取得完了まで・失敗時は`lib/axisMaterialsCatalog.ts`の静的フォールバックを返す |
+| `hooks/useMaterialCatalog.ts` | `GET /api/material-catalog`取得。静的な写しは持たず、取得完了までと失敗時は空の一覧を返し、`loaded`で読み込み中と区別する（写しで埋めると、backendへ材料を足しても古い一覧が出続ける） |
 | `hooks/useMaterialValues.ts` | `GET /api/admin/material-catalog/{material_id}/values`取得（`app/admin/api/material-values/[materialId]/`のroute handler経由）。categorical材料の候補選択セレクトに使う実データ値一覧 |
 | `services/materialCatalogApi.ts` | 上記2フックが叩くbackend APIの薄いラッパー |
 | `lib/axisMaterialsCatalog.ts` | 材料の型（`AxisMaterialOption`。一覧そのものは`hooks/useMaterialCatalog.ts`が取る）と、材料idを表示へ変える関数。`materialCatalogLabel`（論理名 - 物理名、軸スタジオ専用）/`materialCatalogName`（論理名だけ。カタログに無いidはundefinedで、呼び出し側はその材料を出さない）/`formatMaterialValue`。後の2つは軸スタジオ外（[ルート設定・結果パネル](route-settings-and-results.md)のComparisonPanel、page.tsxの区間クリック詳細）が`material_values`のラベル・単位表記に使う共用ヘルパー |
@@ -127,7 +127,7 @@ listAxisDefinitions() ──→ definitions（全軸）
 - 一覧サマリ行（`renderRowMain`）は各軸が使う材料id/軸idの両方を`labelForMaterialOrAxis`で
   人間向けラベルへ解決する。まずこの軸一覧内に該当する軸id（内部軸階層、他axis_idを
   材料として参照するケース）が無いか探し、あればその`label`を優先する。無ければ
-  `axisMaterialsCatalog.ts: materialLabel`（材料カタログの静的フォールバック一覧のみを
+  `axisMaterialsCatalog.ts: materialCatalogLabel`（`useMaterialCatalog`が取得した材料一覧を
   引く）へフォールバックし、それにも無ければ生のidをそのまま出す。
 - 最後の1軸は削除ボタンを無効化する。
 - 編集・複製・新規作成はいずれもモーダル（`components/ui/Dialog`）で`AxisComposer`を開く
@@ -347,14 +347,14 @@ default_weight等）は`draftFromExisting`が読み込んだ既存値のまま�
   メモリ上限付きで立てる`docker run`）で出す。バッチのモジュール名だけを出すと、手元へ
   コピーした人は開発DBを作り直して本番が古いまま残り、本番で稼働中のコンテナへ入って
   打った人はサービスごと止めうる。打つ場所・実行後に要る後処理はⓘの奥に置く。
-- 一覧は`generations`（世代比較）と`completeness`（完成度）を**同じ見た目の1行**へ揃える
-  （`rowsFromReport`が両方を`FreshnessRow`へ写す）。読み手が知りたいのは「作り直しが要るか」で
+- 一覧は鮮度（世代比較）・被覆・完成度を**同じ見た目の1行**へ揃える
+  （`rowsFromReport`が表ごとの`tables`を`FreshnessRow`へ写す）。読み手が知りたいのは「作り直しが要るか」で
   あり、判定方式の違いは開いた先に書けばよい。run番号・版数・担当バッチ・判定の但し書きは
   `<details>`の中で、タップしたときだけ出す。
 - **表（`<table>`）を使わない。** 列を横に並べるとモバイルでは横スクロールの中へ数字が隠れ、
   「比較対象」の列だけが見える状態になる。ラベルと値を縦に積み、値だけが折り返す形にする。
-- 対象と件数はbackendの宣言（`GENERATION_FRESHNESS_SPECS`・`COMPLETENESS_SPECS`）が決め、
-  frontendは返ってきた行を並べるだけで対象を手書きしない。
+- 対象の表と列はbackendがORMの宣言から導き（`infrastructure/derived_data_freshness.py:
+  derived_tables`）、frontendは返ってきた行を並べるだけで対象を手書きしない。
 - 集計はDB全体の走査を伴うため、`MaterialCoveragePanel`と同じく「集計する」ボタン押下時
   のみ実行する。認証情報の入力欄は持たない（`/admin`のBasic認証セッションをroute handler
   経由で再利用する）。
@@ -395,10 +395,11 @@ default_weight等）は`draftFromExisting`が読み込んだ既存値のまま�
 
 ## 材料が0件のときの防御
 
-`useMaterialCatalog()`は取得成功かつ0件のとき、静的フォールバックへは留まらず空配列を
-そのまま返す仕様（後述）。この場合`AxisComposer`はフォーム自体を表示せず、「材料
-カタログを取得できませんでした（0件の応答）」というエラー画面＋「閉じる」ボタンのみを
-出す（`emptyDraft`が`materialOptions[0]`への無条件アクセスでクラッシュするのを防ぐガード。
+`useMaterialCatalog()`は取得完了まで・失敗時・0件の応答のいずれも空配列を返し、
+取得が終わったかを`loaded`で別に持つ（後述）。`AxisComposer`は`loaded`が偽の間は読み込み中の
+表示だけを出し（通信が遅いだけのときにbackendの異常を疑わせない）、取得後も0件ならフォーム
+自体を表示せず、「材料カタログを取得できませんでした（0件の応答）」というエラー画面＋
+「閉じる」ボタンのみを出す（`emptyDraft`が`materialOptions[0]`への無条件アクセスでクラッシュするのを防ぐガード。
 フック呼び出し自体はこのガードより前で完了させ、Rules of Hooksには反しない）。
 
 ## 材料説明ポップオーバー
@@ -414,7 +415,7 @@ default_weight等）は`draftFromExisting`が読み込んだ既存値のまま�
 
 | フック | 取得先 | フォールバック | 取得成功かつ0件のとき |
 |---|---|---|---|
-| `useMaterialCatalog()` | `GET /api/material-catalog` | `AXIS_MATERIAL_OPTIONS`（静的） | フォールバックへは留まらず**空配列をそのまま返す**（「未完了/失敗」と「成功したが0件」を区別する） |
+| `useMaterialCatalog()` | `GET /api/material-catalog` | 持たない（静的な写しで埋めると、backendへ材料を足しても古い一覧が出続ける） | **空配列をそのまま返す**。「読み込み中」と「取得後に空」は`loaded`で区別する |
 | `useMaterialValues(materialId)` | `GET /api/admin/material-catalog/{id}/values` | 持たない（実データ値一覧はコード側で妥当な代替を用意できないため） | 空配列（＝呼び出し側は自由テキスト入力へフォールバック） |
 
 **暗黙の前提**: `useMaterialValues`はpropが変わった直後の1レンダー中、前の材料の値一覧を

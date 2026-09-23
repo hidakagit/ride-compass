@@ -131,11 +131,11 @@ uint8）で持つ。どう読むかは`attrs`が持つ（幅・型・尺度・�
 等距離の区間が複数あるとき（交差点のノードの真上の事故等）は、区間の鍵（道id・区間番号）が
 小さい方へ付ける——流し直すたびに付く先が変わらないようにするため。
 
-**数えるのは自転車が関与した事故だけ**（`BICYCLE_PARTY_SQL`）。自転車ルート案内で自動車
+**数えるのは自転車が関与した事故だけ**（`domain/accident.py: BICYCLE_SQL`）。自転車ルート案内で自動車
 どうしの事故まで数えると、避けるべき場所がずれる。密度は収録年数で割って「件/(km・年)」
 へ正規化する——年次を1つ足したときに全区間の値が一斉に増えないようにするため。
 
-### 通行方向の解決（`domain/traffic.py: resolve_direction`）
+### 通行方向の解決（`domain/traffic.py: direction_sql`）
 
 `oneway:bicycle`が`oneway`本体より優先し（自転車だけ逆走可という表現があるため）、
 どちらも無い・解釈できないときだけ`junction`を見る——環状交差点は構造として一方向にしか
@@ -145,7 +145,8 @@ uint8）で持つ。どう読むかは`attrs`が持つ（幅・型・尺度・�
 `oneway=reversible`/`alternating`（時間帯で向きが変わる）は両方向として扱う。時刻を持たない
 列では表せず、どちらか一方へ固定すると半分の時間帯で誤る。
 
-判定はPythonの1実装だけが持ち、結果を`way_materials.direction`へ置く。判定に使うタグを
+判定は`DIRECTION_RULES`（タグ・値・通行方向・優先順位の表）とそれを引き当てるSQL1本だけが持ち、
+派生バッチがDB内で結果を`way_materials.direction`へ置く。判定に使うタグを
 増やしたら派生を流し直せば反映される（生データはタグを全部持っているため取り直しは不要）。
 
 ### 上下線が分かれた道の片側か（`way_materials.divided`）
@@ -382,21 +383,23 @@ PBF取込時にしか変わらないため、再訪時の同一タイル再取�
 | ファイル | 役割 |
 |---|---|
 | `road.py` | 路面語彙の正準定義（`GOOD_OSM_SURFACE_TAGS`/`BAD_OSM_SURFACE_TAGS`）。材料の値式とPostGIS側MVT生成SQLが共有する単一ソース |
-| `attributes.py` | `ElevationAttribute`/`EdgeAttributeCounts`等のモデルと標高計算（[elevation.md](elevation.md)が主に扱う） |
+| `attributes.py` | `ElevationAttribute`・探索が読む材料の配列（`EdgeMaterialArrays`）と標高計算のSQL（[elevation.md](elevation.md)が主に扱う） |
 | `accident.py` | 警察庁データ取込の純関数群（度分秒座標の読み取り）と、生データの列から判定を組み立てるSQL断片・重み付けの定数 |
-| `traffic.py` | OSMタグの解釈。停止要因POI・補給休憩POIの分類（`classify_stop_poi`/`classify_supply_poi`）、信号の判定（`is_traffic_signal`）、通行方向の解決（`resolve_direction`）、交差点判定の空間マッチ半径・次数しきい値、交差点の階級（`HIGHWAY_RANK`） |
+| `traffic.py` | OSMタグの解釈。停止要因POI・補給休憩POIの種別の引き当て（`TAG_KIND_RULES`・`tag_kind_sql`）、信号の判定（`TRAFFIC_SIGNAL_SQL`）、通行方向の解決（`DIRECTION_RULES`・`direction_sql`）、交差点判定の次数しきい値、交差点の階級（`HIGHWAY_RANK`）。いずれも派生バッチへSQLとして渡す表と式で、タグを読むためだけに行を取り出さない |
 | `divided_carriageway.py` | 上下線が分かれた道の片側かを判定するしきい値 |
 
-`traffic.py: classify_stop_poi`は信号・横断歩道・一時停止・徐行（`highway=*`）・踏切
-（`railway=*`）・車止め（`barrier=*`）・減速構造（`traffic_calming=*`）を分類する。複数の
-タグが同一nodeに付きうるため優先順位は railway → highway → barrier → traffic_calming で、
+`traffic.py: TAG_KIND_RULES`は信号・横断歩道・一時停止・徐行（`highway=*`）・踏切
+（`railway=*`）・車止め（`barrier=*`）・減速構造（`traffic_calming=*`）を停止要因として、
+コンビニ・トイレ・給水・駐輪場を補給休憩として引き当てる。優先順位は表の群の並び
+（`_TAG_KIND_GROUPS`）が持ち、停止要因を補給休憩より先に当てる。複数の
+タグが同一nodeに付きうるため停止要因の順は railway → highway → barrier → traffic_calming で、
 止まる度合いが強い方を先に見る（踏切は信号・横断歩道より自転車にとって一時停止の法的
 義務が強い）。車止めは値の網羅ではなく「進行を物理的に妨げる点か」で選び、段差
 （`kerb`）・料金所（`toll_booth`）・塀の開口部（`entrance`）等は対象外
-（`_BARRIER_STOP_VALUES`）。`classify_supply_poi`はコンビニ・自販機・トイレ・給水・駐輪場を
-分類する（タグ名の名前空間がstop系と独立しているため優先順位判定は不要）。
+（`_BARRIER_STOP_VALUES`）。
 
-**自販機は`vending`（何を売るか）で3つへ分ける**（`classify_vending_machine`）。補給レイヤーの
+**自販機は`vending`（何を売るか）で3つへ分ける**（`tag_kind_sql`の自販機の分岐。`vending`の値は
+`;`で連なるため表に落とせず、式で当てて全群の後に見る）。補給レイヤーの
 点は「ここで飲み物が買える」という約束として読まれるため、たばこ・切符・パーキング券の機械は
 **取り込まない**。飲食物と分かるものと、`vending`が無く分からないものは別の種別にして、
 地図でも色とラベルを分ける——日本では飲料の自販機にこのタグを付けない慣習があり、

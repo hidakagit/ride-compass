@@ -351,7 +351,7 @@ compute_edge_axis_scores`経由、下記「呼び出し元」参照）。周回�
 |---|---|
 | create | axis_idが既存材料idと衝突していないか（衝突すると評価時に材料値を黙って上書きする）。材料の排他帰属。内部軸の誤公開防止。循環参照検出 |
 | update | 公開済みは原則拒否（`check_publish_immutability`）。ただし`candidate`引数を渡すと、表示専用フィールドのみの差分（`is_cosmetic_only_update`）なら公開済みでも許可する。材料の排他帰属。内部軸の誤公開防止。循環参照検出 |
-| delete | 最後の1軸は削除不可。`_CODE_COUPLED_AXIS_ID`（下記）に該当する軸は削除不可。公開済みは拒否 |
+| delete | 最後の1軸は削除不可（0行になると直後の`refresh_axis_definitions`が起動・反映に失敗する）。公開済みは拒否 |
 | unpublish | `is_published`のみを変更する専用操作（`update()`は使えない、公開済みは拒否されるため） |
 
 いずれの書き込みも「DB commit → `refresh_axis_definitions`呼び出し」で完結する

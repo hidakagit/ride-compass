@@ -233,7 +233,7 @@ Reactの外（モジュール評価時に初期値を決めるシングルトン
   `dedicatedWayValueVisibility`（専用way値配信軸）、ルート線は`MapView`の`routeStyleModeId`
   へ、いずれも同じ1つの値から導出する（どちらもレイヤーID→booleanの汎用Recordで、軸ごとの
   propを持たない。[地図: 軸・ルート色分け](map-axis-coloring.md)参照）。
-- `RAMP_AXES`/`axisCatalog.rampAxes`・`DEDICATED_WAY_VALUE_AXES`/`axisCatalog.dedicatedAxes`
+- `axisCatalog.rampAxes`・`axisCatalog.dedicatedAxes`
   → `buildMapLayers`とsceneのグループ宣言からレイヤー構成を組み立てる。
 - `axisCatalog.secondaryAxes`（`primaryAttributeIds`）→ `secondaryAxisCasingLayerIds`
   （二次軸の下敷き表現、[静的レイヤー・道路表示](static-map-layers.md)参照）。
@@ -242,8 +242,8 @@ Reactの外（モジュール評価時に初期値を決めるシングルトン
 
 ## モバイル/デスクトップのレイアウト分岐
 
-`useIsMobile()`（`MOBILE_BREAKPOINT_PX`=640px、`globals.css`の`@media`と一致を自動
-テストで検証）で分岐する:
+`useIsMobile()`で分岐する。幅のしきい値はCSSだけが持ち（`globals.css`の`@media`が立てる
+`--is-mobile`）、JSはその旗を読むだけで数値を写さない:
 
 - デスクトップ: サイドバー（`aside.app-sidebar`）にモバイルの下部タブと同じ2区分
   「ルート設定 / ルート結果」を同じ順序で縦積み。各区分は独立した`Disclosure`折りたたみで、

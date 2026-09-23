@@ -9,7 +9,7 @@
 
 | レイヤー | ファイル |
 |---|---|
-| domain | `attributes.py`（`ElevationValues`・`compute_elevation_values`） |
+| domain | `attributes.py`（`elevation_values_sql`。区間の頂点列から標高・勾配を出すSQLを組み立てる） |
 | services | `elevation_aggregation.py` |
 | batch | `source_adapters/gsi_dem_tile.py`（取込。手元へ写したタイルを読み、int32へ詰める。配信元は叩かない）・`dem_tile_store.py`（写したタイルの置き場と、配信元のURL・製品の優先順・どの製品にも無いことの印）・`scripts/fetch_dem_tiles.py`（取得。手元に無い分だけ取りに行く。取込と分けてあるので、失敗しても欠けた分だけ取り直せる）・`source_adapters/_raster_wkb.py`（画素の並びをPostGISの`raster`へ包む）・`derive_raster_materials.py`（派生） |
 
@@ -28,8 +28,8 @@ edge_materials（start/end・gain/loss・average/max/min）
 経路の集計（elevation_aggregation.py）
 ```
 
-値の出し方そのものは`domain/attributes.py: compute_elevation_values`が持つ。派生バッチは
-画素を読んで渡すだけで、上限も欠測の扱いもそこには無い。
+値の出し方そのものは`domain/attributes.py: elevation_values_sql`が持つ。派生バッチは
+頂点ごとの画素を読む関係を渡して実行するだけで、上限も欠測の扱いもそこには無い。
 
 ## 勾配を出さない区間
 
