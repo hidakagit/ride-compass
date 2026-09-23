@@ -1206,9 +1206,9 @@ def cmd_unpushed(ctx: Context, board: dict, args: argparse.Namespace, at: dt.dat
         # 範囲ごとに分けて取り込む（1回のcherry-pickへ並べると、範囲の和として解釈される）。
         picks = " && ".join(f"git cherry-pick {i['base']}..{i['sha']}" if i.get("base")
                             else f"git cherry-pick {i.get('sha')}" for i in items)
-        print("\n1回でpushする手順（司令塔の作業ツリーで、heavyの枠の中。衝突したら中止して担当へ差し戻す）:")
-        print(f"  python scripts/lockrun.py heavy -- 'git fetch origin master && git switch -C land origin/master"
-              f" && {picks} && git push origin \"$(git rev-parse HEAD)\":refs/heads/master'")
+        print("\n1回でpushする手順（司令塔の作業ツリーで。枠で包まない——pre-pushの重い段はフックが枠を取る。衝突したら中止して担当へ差し戻す）:")
+        print(f"  git fetch origin master && git switch -C land origin/master"
+              f" && {picks} && git push origin \"$(git rev-parse HEAD)\":refs/heads/master")
         print("  python scripts/orchestrate.py board unpushed done --all --pushed <pushしたsha>")
     return 0
 

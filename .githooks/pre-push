@@ -152,9 +152,13 @@ if [ -n "$FE_FILES" ] && [ -x "frontend/node_modules/.bin/prettier" ]; then
 fi
 if printf '%s\n' "$CHANGED" | grep -qE '^frontend/'; then
     if [ -d frontend/node_modules ]; then
-        # 型の波及は1ファイルへ絞れないため、frontendに触れたら全体を1回通す。
-        (cd frontend && npx next typegen >/dev/null 2>&1 || true)
-        if ! (cd frontend && npx tsc --noEmit); then
+        # 型の波及は1ファイルへ絞れないため、frontendに触れたら全体を1回通す。重い段なので
+        # この段だけが機械全体の枠を取る（pushの一続きを包んで枠を持たない。規約「重い処理は
+        # 機械全体で1本ずつ」）。枠を持った処理の中から呼ばれたときは、lockrunがそのまま走らせる。
+        TSC_STEP='cd frontend && { ./node_modules/.bin/next typegen >/dev/null 2>&1 || true; } && ./node_modules/.bin/tsc --noEmit'
+        if [ -n "$PY_ANY" ]; then
+            "$PY_ANY" scripts/lockrun.py heavy -- "$TSC_STEP" || { note "型エラーがあります"; fail=1; }
+        elif ! sh -c "$TSC_STEP"; then
             note "型エラーがあります"; fail=1
         fi
     fi

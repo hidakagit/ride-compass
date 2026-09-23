@@ -1,5 +1,8 @@
 """並行して動く複数のエージェントの間で、重い処理を1本ずつに絞るロック付き実行器。
 
+何をロックの下に置くか（処理の段1つで決め、包みでは決めない）・保持の上限・独占の時間帯は
+docs/conventions/orchestration.md「重い処理は機械全体で1本ずつ」が正本。
+
 使い方:
     python scripts/lockrun.py <ロック名> -- '<bashコマンド文字列>'
     python scripts/lockrun.py --report [--since 2026-09-23T00:00]
@@ -25,6 +28,11 @@ from datetime import datetime
 
 STALE_SECONDS = 300
 HEARTBEAT_SECONDS = 30
+#: 1回の保持の上限。超えたら処理を打ち切ってロックを放す——1本が枠を持ち続けると、後ろに
+#: 並んだ全員（数秒で終わるものも含む）が同じだけ待つ。npm ci・検査・テスト1段階はこの中に収まる。
+MAX_HOLD_SECONDS = int(os.environ.get("LOCKRUN_MAX_HOLD_SECONDS", "600"))
+TIMED_OUT = 124
+HELD_ENV = "LOCKRUN_HELD"
 POLL_SECONDS = 5
 WINDOWS_BASH = (r"C:\Program Files\Git\bin\bash.exe", r"C:\Program Files\Git\usr\bin\bash.exe")
 
@@ -81,6 +89,18 @@ def acquire(path: str, name: str) -> float:
             time.sleep(POLL_SECONDS)
 
 
+def kill_tree(proc: subprocess.Popen) -> None:
+    # bashの子（npm・node・pytest等）まで止めないと、ロックを放した後も機械を使い続ける。
+    if os.name == "nt":
+        subprocess.run(["taskkill", "/F", "/T", "/PID", str(proc.pid)], capture_output=True, check=False)
+    else:
+        proc.kill()
+    try:
+        proc.wait(timeout=30)
+    except subprocess.TimeoutExpired:
+        pass
+
+
 def run(name: str, command: str) -> int:
     root = lock_root()
     stop_file = os.path.join(os.path.dirname(root), "orchestration", "STOP")
@@ -88,6 +108,9 @@ def run(name: str, command: str) -> int:
         # 司令塔やエージェントの協力に頼らずに、重い処理とpushを止めるための札。
         print(f"[lockrun] 停止ファイル（{stop_file}）があるため {name} を始めません", flush=True)
         return 75
+    if name in os.environ.get(HELD_ENV, "").split(","):
+        # 枠を持った処理の中から同じ枠を取りに来た（pre-pushの重い段等）。待つと自分を待って止まる。
+        return subprocess.run([find_bash(), "-c", command], cwd=os.getcwd(), check=False).returncode
     path = os.path.join(root, name)
     start = datetime.now().astimezone().isoformat(timespec="seconds")
     wait_seconds = acquire(path, name)
@@ -107,7 +130,15 @@ def run(name: str, command: str) -> int:
             json.dump({"cwd": os.getcwd(), "cmd": command[:200], "pid": os.getpid()}, f, ensure_ascii=False)
         threading.Thread(target=heartbeat, daemon=True).start()
         print(f"[lockrun] {name} のロックを取得（待ち{int(wait_seconds)}秒）", flush=True)
-        returncode = subprocess.run([find_bash(), "-c", command], cwd=os.getcwd(), check=False).returncode
+        held = ",".join(filter(None, [os.environ.get(HELD_ENV, ""), name]))
+        proc = subprocess.Popen([find_bash(), "-c", command], cwd=os.getcwd(), env={**os.environ, HELD_ENV: held})
+        try:
+            returncode = proc.wait(timeout=MAX_HOLD_SECONDS)
+        except subprocess.TimeoutExpired:
+            kill_tree(proc)
+            returncode = TIMED_OUT
+            print(f"[lockrun] {name} の保持が上限{MAX_HOLD_SECONDS}秒を超えたため打ち切りました。"
+                  "処理を上限内に分けるか、司令塔に独占の枠を求めること", flush=True)
     finally:
         stop.set()
         shutil.rmtree(path, ignore_errors=True)
