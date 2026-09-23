@@ -31,7 +31,7 @@ def _materials() -> SearchMaterials:
 
 
 @pytest.fixture(autouse=True)
-def _reset():
+def _reset(_use_temp_tile_persistent_cache_dir):
     derived_data_revision_service.reset_for_tests()
     graph_material_cache.clear()
     tile_score_matrix_cache.clear()

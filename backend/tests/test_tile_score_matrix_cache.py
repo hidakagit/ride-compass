@@ -8,7 +8,6 @@
 import dataclasses
 
 import numpy as np
-import pytest
 
 from cachetools import LRUCache
 
@@ -73,13 +72,6 @@ def _empty_matrix() -> StaticEdgeScoreMatrix:
         mid_lat=np.zeros(0),
         mid_lon=np.zeros(0),
     )
-
-
-@pytest.fixture(autouse=True)
-def _clear_around_each_test():
-    tile_score_matrix_cache.clear()
-    yield
-    tile_score_matrix_cache.clear()
 
 
 class TestModuleLevelApi:

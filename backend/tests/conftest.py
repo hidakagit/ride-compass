@@ -47,29 +47,37 @@ def _reset_redis_circuit_breaker():
     redis_client.reset_circuit_breaker()
 
 
-@pytest.fixture(autouse=True)
-def _use_temp_tile_persistent_cache_dir(tmp_path, monkeypatch):
-    """ディスク永続化キャッシュ（改善計画T538、infrastructure/tile_persistent_cache.py）の
-    保存先をテストごとの一時ディレクトリへ差し替える。
+@pytest.fixture(autouse=True, scope="session")
+def _keep_tile_persistent_cache_out_of_the_checkout(tmp_path_factory):
+    """ディスク永続化キャッシュ（infrastructure/tile_persistent_cache.py）の置き場を、
+    ワーカーごとの一時ディレクトリへ差し替える。
 
-    `graph_material_cache.clear()`・`tile_score_matrix_cache.clear()`（本ファイル・
-    test_graph_service.py・test_graph_material_cache.py等の多数のautouse/個別フィクスチャが
-    setup/teardownの両方で呼ぶ）は改善計画T538でディスク側（`tile_persistent_cache.
-    clear_namespace`、`shutil.rmtree`相当）も削除するようになった。差し替えないと実際の
-    `backend/data/tile_persistent_cache`配下を毎テストで削除・書き込みしてしまい、
-    並行テスト実行（pytest-xdist）間の競合や、本体の作業ツリーへの意図しない副作用を招く
-    （test_tile_cache.py: use_temp_cache_dirと同じ理由・同じパターン）。他のクリア系
-    フィクスチャより先に反映される必要があるため、モジュールの先頭側に置く（pytestは
-    同scope・同conftest内で宣言順に近い順序でautouseフィクスチャをセットアップする）。
+    キャッシュを消す・書くフィクスチャはテストファイル側にも多数あり、関数スコープの
+    差し替えより前後に動くものが1つでもあると共有の`backend/data/tile_persistent_cache`を
+    開く——pytest-xdistのワーカー同士がそこで同じSQLiteを開き合うと`database is locked`で
+    落ちる。セッションスコープは関数スコープより必ず先にセットアップされ後に片付くため、
+    ここで差し替えれば順序に関わらず共有の置き場へは届かない。
     """
     original = tile_persistent_cache.CACHE_DIR
-    tile_persistent_cache.use_directory(tmp_path / "tile_persistent_cache")
+    tile_persistent_cache.use_directory(tmp_path_factory.mktemp("tile_persistent_cache"))
     yield
     tile_persistent_cache.use_directory(original)
 
 
 @pytest.fixture(autouse=True)
-def _clear_tile_score_matrix_cache():
+def _use_temp_tile_persistent_cache_dir(tmp_path, _keep_tile_persistent_cache_out_of_the_checkout):
+    """テストごとに空の置き場を渡す。キャッシュを消す・書くフィクスチャは、
+    これを引数に取ってから動く（同じスコープのautouseは宣言順ではなく名前順に
+    セットアップされるため、順序は依存で書く）。
+    """
+    worker_dir = tile_persistent_cache.CACHE_DIR
+    tile_persistent_cache.use_directory(tmp_path / "tile_persistent_cache")
+    yield
+    tile_persistent_cache.use_directory(worker_dir)
+
+
+@pytest.fixture(autouse=True)
+def _clear_tile_score_matrix_cache(_use_temp_tile_persistent_cache_dir):
     """tile_score_matrix_cache（タイル単位の静的Edge×公開軸スコア行列、改善計画T536。
     旧axis_score_cache[T534]の後継）もプロセス内グローバル状態のため、
     _reset_redis_circuit_breakerと同じ理由でテスト間の汚染を防ぐ。
