@@ -46,8 +46,7 @@ function some(node: ts.Node, predicate: (n: ts.Node) => boolean): boolean {
 function isNarrowing(node: ts.Node): boolean {
   return some(
     node,
-    (n) =>
-      ts.isCallExpression(n) && ts.isPropertyAccessExpression(n.expression) && n.expression.name.text === "filter",
+    (n) => ts.isCallExpression(n) && ts.isPropertyAccessExpression(n.expression) && n.expression.name.text === "filter",
   );
 }
 
@@ -125,7 +124,9 @@ function assertsNonempty(callback: ts.Node, name: string): boolean {
     const [argument] = n.arguments;
     if (isSubject(subject, name, false)) {
       if (matcher !== "toHaveLength") return false;
-      return negated ? argument !== undefined && ts.isNumericLiteral(argument) && argument.text === "0" : positiveNumber(argument, 1);
+      return negated
+        ? argument !== undefined && ts.isNumericLiteral(argument) && argument.text === "0"
+        : positiveNumber(argument, 1);
     }
     if (isSubject(subject, name, true) && !negated) {
       if (matcher === "toBeGreaterThan") return positiveNumber(argument, 0);
