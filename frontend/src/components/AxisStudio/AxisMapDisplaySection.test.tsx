@@ -35,6 +35,7 @@ function openSection(
     restrictedDisplayOnly?: boolean;
     mapBandColors?: (boundaries: readonly number[]) => readonly string[];
     mapValueUnit?: string;
+    thresholdsDroppedOnMap?: readonly number[];
     onThresholdErrorChange?: (error: string | null) => void;
   } = {},
 ) {
@@ -54,6 +55,7 @@ function openSection(
         restrictedDisplayOnly={options.restrictedDisplayOnly ?? false}
         mapBandColors={options.mapBandColors}
         mapValueUnit={options.mapValueUnit ?? ""}
+        thresholdsDroppedOnMap={options.thresholdsDroppedOnMap}
         onThresholdErrorChange={options.onThresholdErrorChange ?? vi.fn()}
       />
     );
@@ -128,6 +130,24 @@ describe("色分けのしきい値", () => {
     openSection({ editing: baseAxisDefinition({ display_thresholds_override: [1, 4] }) });
 
     expect(screen.getByLabelText("色分けのしきい値（まとめて入力）")).toHaveValue("1, 4");
+  });
+
+  it("地図では段にならない値を入力欄の脇に名指しする", () => {
+    openSection({
+      editing: baseAxisDefinition({ display_thresholds_override: [2, 4, 7, 12, 15, 20] }),
+      thresholdsDroppedOnMap: [15, 20],
+    });
+
+    expect(screen.getByText("地図では効かない: 15, 20")).toBeInTheDocument();
+  });
+
+  it("すべての値が地図で効くときは印を出さない", () => {
+    openSection({
+      editing: baseAxisDefinition({ display_thresholds_override: [2, 4, 7] }),
+      thresholdsDroppedOnMap: [],
+    });
+
+    expect(screen.queryByText(/地図では効かない/)).not.toBeInTheDocument();
   });
 });
 

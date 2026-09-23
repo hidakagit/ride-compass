@@ -299,10 +299,14 @@ class AxisDefinition(StrictModel):
     @field_validator("display_thresholds_override")
     @classmethod
     def _thresholds_must_be_strictly_ascending(cls, value: list[float] | None) -> list[float] | None:
+        return None if value is None else cls.check_display_thresholds_ascending(value)
+
+    @staticmethod
+    def check_display_thresholds_ascending(value: list[float]) -> list[float]:
         """段の境界を塗るのはMapLibreの`step` expression（`axisLayers.ts`）で、昇順を
         前提にする。降順・同値が混じると、地図とルート線が別の段で塗られる。
         """
-        if value is not None and any(b <= a for a, b in zip(value, value[1:])):
+        if any(b <= a for a, b in zip(value, value[1:])):
             raise ValueError(f"display_thresholds_override must be strictly ascending, got {value!r}")
         return value
 

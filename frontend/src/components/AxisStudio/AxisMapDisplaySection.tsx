@@ -11,7 +11,7 @@ import { Checkbox } from "@/components/ui/Checkbox/Checkbox";
 import { FieldLabel } from "@/components/Map/recipeControls";
 import type { AxisDefinitionResponse } from "@/types/route";
 import styles from "./AxisStudio.module.css";
-import { SectionLabel } from "./AxisFormFields";
+import { InfoPopoverButton, SectionLabel } from "./AxisFormFields";
 import { formatThresholdList, parseThresholdList, resizeBandLabels, type Draft } from "./axisDraft";
 
 interface AxisMapDisplaySectionProps {
@@ -27,6 +27,8 @@ interface AxisMapDisplaySectionProps {
   /** 段階プレビューの配色・単位（親が軸カタログから渡す）。 */
   mapBandColors?: (boundaries: readonly number[]) => readonly string[];
   mapValueUnit: string;
+  /** 入力したしきい値のうち、地図では段にならないもの（判定はbackend、親が取得して渡す）。 */
+  thresholdsDroppedOnMap?: readonly number[];
   /** まとめ入力が読めない間は保存させないため、親の検証へ伝える。 */
   onThresholdErrorChange: (error: string | null) => void;
 }
@@ -39,6 +41,7 @@ export function AxisMapDisplaySection({
   republishing = false,
   mapBandColors,
   mapValueUnit,
+  thresholdsDroppedOnMap = [],
   onThresholdErrorChange,
 }: AxisMapDisplaySectionProps) {
   const [thresholdText, setThresholdText] = useState(() => formatThresholdList(draft.displayThresholdsOverride ?? []));
@@ -178,6 +181,17 @@ export function AxisMapDisplaySection({
                 onChange={(e) => applyThresholdText(e.target.value)}
               />
               {thresholdError && <p className={styles.thresholdError}>{thresholdError}</p>}
+              {!thresholdError && thresholdsDroppedOnMap.length > 0 && (
+                <div className={styles.sectionLabelRow}>
+                  <p className={styles.thresholdError}>
+                    地図では効かない: {formatThresholdList(thresholdsDroppedOnMap)}
+                  </p>
+                  <InfoPopoverButton
+                    ariaLabel="地図では効かない値の説明"
+                    description="点数の決め方で、この値は1つ手前の境界と同じ点数になります。地図は点数が変わらない所に段を作らないため、下の段階は地図ではこの値の分だけ減ります。刻みたい場合は、点数の決め方（0点・100点にする値や折れ点）を先に広げてください。"
+                  />
+                </div>
+              )}
               {renderBandPreview()}
               <div className={styles.row}>
                 <button type="button" onClick={disableThresholdOverride}>

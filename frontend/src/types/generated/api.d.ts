@@ -468,6 +468,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/admin/axis-definitions/preview-display-thresholds": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["preview_display_thresholds_api_admin_axis_definitions_preview_display_thresholds_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/admin/tuning": {
         parameters: {
             query?: never;
@@ -1149,6 +1165,22 @@ export interface components {
             computed_at: string;
             /** Tables */
             tables: components["schemas"]["app__api__routers__derived_data_freshness__TableEntry"][];
+        };
+        /** DisplayThresholdsPreviewRequest */
+        DisplayThresholdsPreviewRequest: {
+            /** Axis Id */
+            axis_id: string;
+            /** Shape */
+            shape: components["schemas"]["BreakpointLinearShape"] | components["schemas"]["CategoricalShape"];
+            /** Priority Overrides */
+            priority_overrides?: components["schemas"]["PriorityCondition"][];
+            /** Thresholds */
+            thresholds: number[];
+        };
+        /** DisplayThresholdsPreviewResponse */
+        DisplayThresholdsPreviewResponse: {
+            /** Dropped On Map */
+            dropped_on_map: number[];
         };
         /** ExternalCallStatsResponse */
         ExternalCallStatsResponse: {
@@ -2851,6 +2883,39 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ValueDistributionResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    preview_display_thresholds_api_admin_axis_definitions_preview_display_thresholds_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DisplayThresholdsPreviewRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DisplayThresholdsPreviewResponse"];
                 };
             };
             /** @description Validation Error */

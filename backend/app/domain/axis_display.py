@@ -23,8 +23,11 @@ from typing import cast
 from app.domain.axis_definitions import (
     AXIS_DEFINITIONS,
     AxisDefinition,
+    AxisShape,
     BreakpointLinearShape,
     CategoricalShape,
+    PriorityCondition,
+    referenced_materials,
 )
 from app.domain.axis_templates import evaluate_breakpoint_linear
 from app.domain.material_catalog import MATERIAL_CATALOG, MaterialSpec
@@ -123,7 +126,7 @@ def _resolve_referenced_axis_tile_input(axis_id: str, weight: float, visited: fr
         return None
     shape = referenced.shape
     if isinstance(shape, CategoricalShape):
-        ramp = _derive_ramp_inputs(referenced, visited)
+        ramp = _derive_ramp_inputs(referenced.axis_id, referenced.shape, referenced.materials, visited)
         if ramp is None or len(ramp.tile_inputs) != 1:
             return None
         return _rescale_tile_input(ramp.tile_inputs[0], weight)
@@ -148,10 +151,11 @@ def _resolve_referenced_axis_tile_input(axis_id: str, weight: float, visited: fr
     return None
 
 
-def _derive_ramp_inputs(definition: AxisDefinition, visited_axes: frozenset[str] = frozenset()) -> RampInputs | None:
-    visited = visited_axes | {definition.axis_id}
+def _derive_ramp_inputs(
+    axis_id: str, shape: AxisShape, materials: list[str], visited_axes: frozenset[str] = frozenset()
+) -> RampInputs | None:
+    visited = visited_axes | {axis_id}
 
-    materials = definition.materials
     specs: dict[str, MaterialSpec | None] = {m: MATERIAL_CATALOG.get(m) for m in materials}
     for material_id, spec in specs.items():
         if spec is None:
@@ -162,8 +166,6 @@ def _derive_ramp_inputs(definition: AxisDefinition, visited_axes: frozenset[str]
         if spec.tile_property is None or spec.tile_property_direction_dependent:
             return None
         # 実行時スケールが要る材料はここでは弾かない——タイルの生値自体は使えるため。
-
-    shape = definition.shape
 
     if isinstance(shape, CategoricalShape):
         # 分類の軸が指せる先は材料だけ。折れ点の軸と違って参照先の軸を解決しないのは、
@@ -242,26 +244,43 @@ def _derive_ramp_inputs(definition: AxisDefinition, visited_axes: frozenset[str]
     return None
 
 
+def _map_band_thresholds(ramp: RampInputs, shape: AxisShape, override: list[float] | None) -> list[float]:
+    """段の境界は上書き（`display_thresholds_override`）があればそれを、無ければ自動導出の
+    値を使い、どちらも折れ線が同じスコアへ写す境界を落とす。**段を決めるのはここだけ**。
+    """
+    thresholds = list(override) if override is not None else list(ramp.thresholds)
+    if isinstance(shape, BreakpointLinearShape):
+        thresholds = _drop_thresholds_that_share_a_score(thresholds, shape)
+    return thresholds
+
+
 def axis_display_for(definition: AxisDefinition) -> AxisDisplaySpec:
     """軸を地図にどう出すか。塗れない軸は`kind="none"`（地図に出ない）。
 
-    段の境界は上書き（`display_thresholds_override`）があればそれを、無ければ自動導出の
-    値を使い、どちらも折れ線が同じスコアへ写す境界を落とす。**段を決めるのはここだけ**で、
     ルート確定後のルート線の境界（`dynamic_way_values.py: map_value_thresholds`）も
-    ここの値を折れ線で写して作る——段の識別子は前後で同じ保存先へ書かれるため、数が違うと
-    ルート前に隠した段が生成後に別の段へ化ける。
+    ここの段の境界を折れ線で写して作る——段の識別子は前後で同じ保存先へ書かれるため、
+    数が違うとルート前に隠した段が生成後に別の段へ化ける。
     """
-    ramp = _derive_ramp_inputs(definition)
+    ramp = _derive_ramp_inputs(definition.axis_id, definition.shape, definition.materials)
     if ramp is None:
         return AxisDisplaySpec(kind="none", label=definition.label)
-    thresholds = (
-        list(definition.display_thresholds_override)
-        if definition.display_thresholds_override is not None
-        else list(ramp.thresholds)
-    )
-    shape = definition.shape
-    if isinstance(shape, BreakpointLinearShape):
-        thresholds = _drop_thresholds_that_share_a_score(thresholds, shape)
+    thresholds = _map_band_thresholds(ramp, definition.shape, definition.display_thresholds_override)
     return AxisDisplaySpec(
         kind="ramp", label=definition.label, tile_inputs=ramp.tile_inputs, thresholds=thresholds
     )
+
+
+def thresholds_the_map_drops(
+    axis_id: str, shape: AxisShape, priority_overrides: list[PriorityCondition], thresholds: list[float]
+) -> list[float]:
+    """人が上書きした段の境界のうち、地図が段として作らないもの（`axis_display_for`と同じ規則）。
+
+    軸スタジオは保存前の下書きでこれを問うため、表示名・重みのような段に関わらない項目を
+    揃えずに、段を決めるのに要る入力だけを受け取る。ramp表示を持たない軸（地図に出ない軸・
+    専用way値配信の軸）は上書きをそのまま使うため、落ちるものは無い。
+    """
+    ramp = _derive_ramp_inputs(axis_id, shape, referenced_materials(shape, priority_overrides))
+    if ramp is None:
+        return []
+    kept = set(_map_band_thresholds(ramp, shape, thresholds))
+    return [threshold for threshold in thresholds if threshold not in kept]

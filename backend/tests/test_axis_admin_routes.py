@@ -844,3 +844,41 @@ def test_unpublish_returns_503_on_db_error(override_failing_service):
     response = client.post("/api/admin/axis-definitions/test_axis/unpublish", headers=AUTH_HEADERS)
 
     assert response.status_code == 503
+
+
+_THRESHOLDS_PREVIEW_PATH = "/api/admin/axis-definitions/preview-display-thresholds"
+_THRESHOLDS_PREVIEW_BODY = {
+    "axis_id": "test_axis",
+    "shape": _PAYLOAD["shape"],
+    "thresholds": [2.0, 12.0],
+}
+
+
+def test_preview_display_thresholds_requires_admin_auth():
+    response = client.post(_THRESHOLDS_PREVIEW_PATH, json=_THRESHOLDS_PREVIEW_BODY)
+
+    assert response.status_code == 401
+
+
+def test_preview_display_thresholds_rejects_boundaries_out_of_order(admin_credentials):
+    body = {**_THRESHOLDS_PREVIEW_BODY, "thresholds": [12.0, 2.0]}
+
+    response = client.post(_THRESHOLDS_PREVIEW_PATH, json=body, headers=AUTH_HEADERS)
+
+    assert response.status_code == 422
+
+
+def test_preview_display_thresholds_returns_what_the_map_drops(admin_credentials, monkeypatch):
+    received = {}
+
+    def _fake(axis_id, shape, priority_overrides, thresholds):
+        received.update(axis_id=axis_id, priority_overrides=priority_overrides, thresholds=thresholds)
+        return [12.0]
+
+    monkeypatch.setattr("app.api.routers.axis_admin.thresholds_the_map_drops", _fake)
+
+    response = client.post(_THRESHOLDS_PREVIEW_PATH, json=_THRESHOLDS_PREVIEW_BODY, headers=AUTH_HEADERS)
+
+    assert response.status_code == 200
+    assert response.json() == {"dropped_on_map": [12.0]}
+    assert received == {"axis_id": "test_axis", "priority_overrides": [], "thresholds": [2.0, 12.0]}

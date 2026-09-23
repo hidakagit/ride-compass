@@ -7,6 +7,7 @@
 import { useCallback, useState } from "react";
 import { FieldLabel } from "@/components/Map/recipeControls";
 import { useMaterialCatalog } from "@/hooks/useMaterialCatalog";
+import { useThresholdsDroppedOnMap } from "@/hooks/useThresholdsDroppedOnMap";
 import type { AxisDefinitionPayload, AxisDefinitionResponse } from "@/types/route";
 import type { AxisMaterialOption } from "@/lib/axisMaterialsCatalog";
 import styles from "./AxisStudio.module.css";
@@ -93,6 +94,17 @@ export default function AxisComposer({
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const isNew = editing === null;
+  const thresholds = draft.displayThresholdsOverride;
+  const thresholdsDroppedOnMap = useThresholdsDroppedOnMap(
+    thresholds && thresholds.length > 0 && materialOptions.length > 0
+      ? {
+          axis_id: draft.axisId,
+          shape: buildShape(draft, materialOptions),
+          priority_overrides: draft.passthrough.priority_overrides,
+          thresholds,
+        }
+      : null,
+  );
 
   // 材料が1件も無ければどの入力欄も選択肢を作れず、保存できない軸しか組めない。
   // フォームの代わりに状態を出して、開かせない。**読み込み中と0件は分けて出す**
@@ -332,6 +344,7 @@ export default function AxisComposer({
         republishing={republishing}
         mapBandColors={mapBandColors}
         mapValueUnit={mapValueUnit}
+        thresholdsDroppedOnMap={thresholdsDroppedOnMap}
         onThresholdErrorChange={setThresholdError}
       />
 

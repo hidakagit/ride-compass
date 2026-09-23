@@ -1425,6 +1425,51 @@
         ]
       }
     },
+    "/api/admin/axis-definitions/preview-display-thresholds": {
+      "post": {
+        "tags": [
+          "axis-admin"
+        ],
+        "operationId": "preview_display_thresholds_api_admin_axis_definitions_preview_display_thresholds_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DisplayThresholdsPreviewRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DisplayThresholdsPreviewResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBasic": []
+          }
+        ]
+      }
+    },
     "/api/admin/tuning": {
       "get": {
         "tags": [
@@ -3326,6 +3371,66 @@
           "tables"
         ],
         "title": "DerivedDataFreshnessResponse"
+      },
+      "DisplayThresholdsPreviewRequest": {
+        "properties": {
+          "axis_id": {
+            "type": "string",
+            "minLength": 1,
+            "title": "Axis Id"
+          },
+          "shape": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/BreakpointLinearShape"
+              },
+              {
+                "$ref": "#/components/schemas/CategoricalShape"
+              }
+            ],
+            "title": "Shape"
+          },
+          "priority_overrides": {
+            "items": {
+              "$ref": "#/components/schemas/PriorityCondition"
+            },
+            "type": "array",
+            "title": "Priority Overrides"
+          },
+          "thresholds": {
+            "items": {
+              "type": "number"
+            },
+            "type": "array",
+            "minItems": 1,
+            "title": "Thresholds"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "axis_id",
+          "shape",
+          "thresholds"
+        ],
+        "title": "DisplayThresholdsPreviewRequest"
+      },
+      "DisplayThresholdsPreviewResponse": {
+        "properties": {
+          "dropped_on_map": {
+            "items": {
+              "type": "number"
+            },
+            "type": "array",
+            "title": "Dropped On Map"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "dropped_on_map"
+        ],
+        "title": "DisplayThresholdsPreviewResponse"
       },
       "ExternalCallStatsResponse": {
         "properties": {

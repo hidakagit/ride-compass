@@ -11,7 +11,7 @@ from typing import Awaitable, TypeVar
 
 from dataclasses import asdict
 from fastapi import APIRouter, Depends, HTTPException, status
-from pydantic import model_validator
+from pydantic import Field, field_validator, model_validator
 from sqlalchemy.exc import DBAPIError
 
 from app.api.admin_auth import require_admin_basic_auth
@@ -26,9 +26,10 @@ from app.domain.axis_definitions import (
     AxisShape,
     BreakpointLinearShape,
     CategoricalShape,
+    PriorityCondition,
     referenced_materials,
 )
-from app.domain.axis_display import axis_display_for
+from app.domain.axis_display import axis_display_for, thresholds_the_map_drops
 from app.domain.material_catalog import is_known_material, material_dtype
 from app.domain.registry import AxisDisplaySpec
 from app.services.axis_registry_service import AxisRegistryAdminService
@@ -371,3 +372,36 @@ async def preview_axis_distribution(
         axis_raw_value_distribution(repository, payload.shape)
     )
     return ValueDistributionResponse(**asdict(distribution))
+
+
+class DisplayThresholdsPreviewRequest(StrictModel):
+    """段の境界の下書きの問い合わせ。段を決めるのに要る入力だけを受け取る
+    （`domain/axis_display.py: thresholds_the_map_drops`）。"""
+
+    axis_id: str = Field(min_length=1)
+    shape: AxisShape
+    priority_overrides: list[PriorityCondition] = Field(default_factory=list)
+    thresholds: list[float] = Field(min_length=1)
+
+    @field_validator("thresholds")
+    @classmethod
+    def _thresholds_must_be_strictly_ascending(cls, value: list[float]) -> list[float]:
+        return AxisDefinition.check_display_thresholds_ascending(value)
+
+
+class DisplayThresholdsPreviewResponse(StrictModel):
+    #: 入力のうち、地図が段として作らない境界（入力の並び順）。
+    dropped_on_map: list[float]
+
+
+@router.post("/preview-display-thresholds", dependencies=[Depends(require_admin_basic_auth)])
+async def preview_display_thresholds(payload: DisplayThresholdsPreviewRequest) -> DisplayThresholdsPreviewResponse:
+    """編集中の軸で、人が刻んだ段の境界のうち地図では効かないものを返す。
+
+    判定は保存後に地図が段を作るのと同じ関数で行い、軸スタジオは結果を印として出すだけにする。
+    """
+    return DisplayThresholdsPreviewResponse(
+        dropped_on_map=thresholds_the_map_drops(
+            payload.axis_id, payload.shape, payload.priority_overrides, payload.thresholds
+        )
+    )
