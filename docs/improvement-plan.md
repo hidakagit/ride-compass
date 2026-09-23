@@ -207,7 +207,6 @@ CLAUDE.md参照。節見出しはタスクのテーマ分類で、日付は起�
 - [ ] [T520](records/tasks/T520.md) nowcグループ（targetTimes_N3.json）の未使用element調査（liden・slmcs系）
 - [ ] [T533](records/tasks/T533.md) 過去の経緯だけで保持している冗長な分割・マージ漏れの総点検
 - [ ] [T568](records/tasks/T568.md) SearchGraphStatics/選定間引きのメモリ最適化（entry_keys撤去・int32化・ビットマスク化）
-- [ ] [T575](records/tasks/T575.md) `_tile_grid_cache`（DEMタイル解析済みグリッド）にサイズ上限が無くOOMを起こす
 
 ## フロントエンドの再構成（2026-09-22・ユーザー指摘「責務に対して実装量が明らかに過大」「数件ピックアップしてその実装のテストを確認したところ、運用に耐えられるレベルのものではなかった」から）
 

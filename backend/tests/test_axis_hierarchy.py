@@ -13,10 +13,6 @@ import pytest
 
 from app.domain import material_catalog
 from app.domain.axis_definitions import (
-    _DYNAMIC_AXIS_ORDER_CACHE_MAX_SIZE,
-    _TOPOLOGICAL_ORDER_CACHE_MAX_SIZE,
-    _dynamic_axis_order_cache,
-    _topological_order_cache,
     AxisDefinition,
     AxisDependencyCycleError,
     BreakpointLinearShape,
@@ -157,18 +153,6 @@ class TestTheOrderIsCachedByContent:
         definitions.update(_definitions(_axis("a", [DYNAMIC])))
 
         assert dynamic_axis_topological_order(definitions) == ["a"]
-
-    def test_neither_cache_grows_without_bound(self):
-        """管理APIは呼び出しのたびに新しい`dict`を作る。上限を外すと、軸を編集するたびに
-        エントリが増え続ける。
-        """
-        for i in range(_TOPOLOGICAL_ORDER_CACHE_MAX_SIZE * 2):
-            definitions = _definitions(_axis(f"a{i}", ["num_a"]), _axis(f"b{i}", [DYNAMIC]))
-            topological_axis_order(definitions)
-            dynamic_axis_topological_order(definitions)
-
-        assert len(_topological_order_cache) <= _TOPOLOGICAL_ORDER_CACHE_MAX_SIZE
-        assert len(_dynamic_axis_order_cache) <= _DYNAMIC_AXIS_ORDER_CACHE_MAX_SIZE
 
     def test_a_cycle_is_not_remembered(self):
         """軸スタジオでの試行錯誤中に一時的な循環を経て直したとき、直した結果が

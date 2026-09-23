@@ -148,7 +148,9 @@ compute_edge_axis_scores`経由、下記「呼び出し元」参照）。周回�
 | `evaluate_axes_scalar(materials)` | 全軸を依存順（`topological_axis_order`、内部軸→公開軸）で評価し、公開軸のみのdifficulty辞書と全軸を含むmaterials辞書を返す |
 
 `topological_axis_order`は深さ優先探索でトポロジカルソートし、結果を内容ベースの
-キー（各軸の`materials`）でメモ化する（FIFO上限64件、`refresh_axis_definitions`が
+キー（各軸の`materials`）でメモ化する（件数上限つきの`cachetools.LRUCache`。軸スタジオの
+管理APIは呼び出しのたびに新しい`dict`を作るため、上限が無いと軸を編集するたびに鍵が増える。
+`refresh_axis_definitions`が
 同一dictオブジェクトを`.clear()`+`.update()`で差し替えるため、オブジェクトidベースの
 キーは使えない）。循環参照は`AxisDependencyCycleError`を送出しキャッシュしない。
 

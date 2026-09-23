@@ -32,6 +32,7 @@
 from typing import Annotated, Literal, Mapping, Sequence, Union
 
 import numpy as np
+from cachetools import LRUCache
 from pydantic import ConfigDict, Field, field_validator, model_validator
 
 from app.domain.axis_templates import (
@@ -540,8 +541,7 @@ def check_internal_axis_not_published(candidate: AxisDefinition, existing: dict[
             raise AxisInternalAxisPublishError(candidate.axis_id, other_id)
 
 
-_TOPOLOGICAL_ORDER_CACHE_MAX_SIZE = 64
-_topological_order_cache: dict[tuple[tuple[str, tuple[str, ...]], ...], list[str]] = {}
+_topological_order_cache: LRUCache = LRUCache(maxsize=64)
 
 
 def _topological_axis_order_cache_key(
@@ -565,9 +565,7 @@ def topological_axis_order(definitions: dict[str, AxisDefinition]) -> list[str]:
     オブジェクトのまま中身だけ差し替えるため、オブジェクトidベースのキーだと差し替え後も
     古いキャッシュを誤って返しうる）。循環参照（`AxisDependencyCycleError`）はキャッシュ
     しない（軸スタジオでの試行錯誤中に一時的な循環を経て修正された場合の再評価を妨げない
-    ため）。キャッシュは単純なFIFOで上限を設け、無制限な増大を避ける
-    （`AxisRegistryAdminService`は呼び出しのたびに新しい`dict`を作るため、通常運用では
-    ほぼ`AXIS_DEFINITIONS`本体のキーだけがヒットし続ける）。
+    ため）。
     """
     cache_key = _topological_axis_order_cache_key(definitions)
     cached = _topological_order_cache.get(cache_key)
@@ -593,8 +591,6 @@ def topological_axis_order(definitions: dict[str, AxisDefinition]) -> list[str]:
     for axis_id in definitions:
         visit(axis_id, [])
 
-    if len(_topological_order_cache) >= _TOPOLOGICAL_ORDER_CACHE_MAX_SIZE:
-        _topological_order_cache.pop(next(iter(_topological_order_cache)))
     _topological_order_cache[cache_key] = order
     return order
 
@@ -607,8 +603,7 @@ def topological_axis_order(definitions: dict[str, AxisDefinition]) -> list[str]:
 # `domain/evaluation.py: DYNAMIC_MATERIAL_EVALUATORS`に1対1で登録する。
 REQUEST_DYNAMIC_MATERIAL_IDS = frozenset({"wind_drag_ratio"})
 
-_DYNAMIC_AXIS_ORDER_CACHE_MAX_SIZE = 64
-_dynamic_axis_order_cache: dict[tuple[tuple[str, tuple[str, ...]], ...], list[str]] = {}
+_dynamic_axis_order_cache: LRUCache = LRUCache(maxsize=64)
 
 
 def _axes_depending_on_materials(
@@ -650,8 +645,6 @@ def dynamic_axis_topological_order(definitions: dict[str, AxisDefinition]) -> li
     dynamic_ids = _axes_depending_on_materials(REQUEST_DYNAMIC_MATERIAL_IDS, definitions)
     order = [axis_id for axis_id in topological_axis_order(definitions) if axis_id in dynamic_ids]
 
-    if len(_dynamic_axis_order_cache) >= _DYNAMIC_AXIS_ORDER_CACHE_MAX_SIZE:
-        _dynamic_axis_order_cache.pop(next(iter(_dynamic_axis_order_cache)))
     _dynamic_axis_order_cache[cache_key] = order
     return order
 
