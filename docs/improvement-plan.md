@@ -220,5 +220,6 @@ CLAUDE.md参照。節見出しはタスクのテーマ分類で、日付は起�
 - [ ] [T1057](records/tasks/T1057.md). 並行実行の重い処理を機械全体で1つの枠に並べ、CPUの取り合いを無くす 規模S
 - [ ] [T1060](records/tasks/T1060.md). sceneが旧居（components/Map）から借りている宣言を、持ち主の置き場へ移す 規模M
 - [ ] [T1061](records/tasks/T1061.md). CIとdocker-composeのDB・実行環境を本番の版とアーキテクチャに揃える 規模M
+- [ ] [T1062](records/tasks/T1062.md). 検査の置き場を手元・作業ブランチCI・デプロイ前CIの3層に分け、pre-pushから重複を外す 規模M
 
 見送りとして判断を記録したもの（台帳には載せない）: [T1036](records/tasks/T1036.md)・[T1037](records/tasks/T1037.md)・[T1038](records/tasks/T1038.md)・[T1039](records/tasks/T1039.md)・[T1040](records/tasks/T1040.md)
