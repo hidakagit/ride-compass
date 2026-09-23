@@ -39,7 +39,7 @@ interface DynamicWeatherSourceState {
   payload: DynamicWeatherRenderPayload | undefined;
 }
 
-/** 動的気象のチップ。**源泉が配る**（`backend/app/domain/map_display.py: WEATHER_LAYER_GROUPS`）
+/** 動的気象のチップ。**源泉が配る**（`backend/app/domain/weather_elements.py: WEATHER_LAYER_GROUPS`）
  * ——1つのチップが複数の名前付きソースを束ねるため、どれがチップかは配信側が決める。
  *
  * 線状降水帯予測マップはrasrf系統（降水短時間予報と同じ）のため災害ではなく「降水」チップの

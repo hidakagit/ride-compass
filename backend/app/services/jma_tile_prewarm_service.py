@@ -9,10 +9,11 @@
 - ズーム上限は`domain/jma_tile_specs.py`が配信元仕様から導出する。それを超えるズームでは
   クライアントがタイルを拡大表示するだけで追加の通信が起きないため、実データの上限が
   そのままプリウォームの上限になる。
-- 予測フレームを複数持つ要素でも、温めるのは「現在（直近の実況フレーム）」の1件だけ。
-  全フレームを温めるとタイル数が桁違いに膨らむ。未来フレームを表示したままパンすると
-  オンデマンドフェッチに戻るが、予測フレームを持つのは副次的な警告表示のレイヤーだけで、
-  常時評価する軸には使われない。
+- 予測フレームを複数持つ要素でも、温めるのは要素ごとに1フレームだけ。全フレームを温めると
+  タイル数が桁違いに膨らむ。未来フレームを表示したままパンするとオンデマンドフェッチに戻る。
+- 対象の要素は動的気象の要素の宣言（`domain/weather_elements.py: WEATHER_ELEMENTS`）のうち
+  タイルで描くものの配信要素すべて。1つのソースが時刻の段ごとに別の配信要素から届く場合
+  （降水の`main`）は段ごとに温める。
 """
 
 import asyncio
@@ -28,6 +29,7 @@ from app.domain.jma_tile_specs import (
     source_zoom_for_interpolation,
 )
 from app.domain.region import BoundingBox, tiles_covering_bbox
+from app.domain.weather_elements import WEATHER_ELEMENTS, weather_element_tile
 from app.domain.wind_grid import WIND_GRID_BBOX
 from app.infrastructure.jma_tile_client import JmaTileClient
 from app.infrastructure.jma_tile_client import EmptyTile
@@ -49,15 +51,17 @@ _MAX_CONCURRENCY = 8
 
 
 class _PrewarmLayer:
-    def __init__(self, label: str, element_id: str, extension: str):
+    def __init__(self, label: str, element_id: str, previous_stage: str | None = None):
         self.label = label
         self.element_id = element_id
-        self.extension = extension
+        #: 同じソースで1つ手前の時刻の段の配信要素id。段の先頭ならNone。
+        self.previous_stage = previous_stage
         # 配信元仕様は`domain/jma_tile_specs.py`が持つ。ここで引いておくことで、
         # 登録の無い要素idを書いた時点（import時）にKeyErrorで落ちる——既定のズームへ
         # 倒すと、綴り違いのレイヤーが「1段も温まらない」だけで静かに通る。
         self.spec = JMA_TILE_SPECS[element_id]
         self.group = self.spec.path_group
+        self.extension = "pbf" if self.spec.vector_layer else "png"
         self.target_times_paths = jma_target_times_paths(element_id)
 
     @property
@@ -65,16 +69,16 @@ class _PrewarmLayer:
         return effective_max_zoom(self.spec)
 
 
-# frontendが描く動的気象レイヤーと1対1で対応させる。ここに無い要素は温まらない。
-_LAYERS: tuple[_PrewarmLayer, ...] = (
-    _PrewarmLayer("キキクル・土砂", "land", "png"),
-    _PrewarmLayer("キキクル・大雨", "rain_mesh", "png"),
-    _PrewarmLayer("キキクル・浸水", "inund", "png"),
-    _PrewarmLayer("キキクル・洪水", "flood", "pbf"),
-    _PrewarmLayer("線状降水帯予測マップ", "sjfcstmap", "png"),
-    _PrewarmLayer("雷ナウキャスト", "thns", "png"),
-    _PrewarmLayer("竜巻ナウキャスト", "trns", "png"),
-)
+def _layers_from_weather_elements() -> tuple[_PrewarmLayer, ...]:
+    return tuple(
+        _PrewarmLayer(element.label, element_id, element.jma_elements[stage - 1] if stage > 0 else None)
+        for element in WEATHER_ELEMENTS
+        if weather_element_tile(element) is not None
+        for stage, element_id in enumerate(element.jma_elements)
+    )
+
+
+_LAYERS: tuple[_PrewarmLayer, ...] = _layers_from_weather_elements()
 
 
 def _pick_current_entry(raw: list[dict], element_id: str | None) -> dict | None:
@@ -95,6 +99,32 @@ def _pick_current_entry(raw: list[dict], element_id: str | None) -> dict | None:
     if not pool:
         return None
     return max(pool, key=lambda e: e["basetime"])
+
+
+def _pick_stage_entry(raw: list[dict], element_id: str, after: str) -> dict | None:
+    """時刻の段の2段目以降で、画面がその段に入って最初に描く1件を選ぶ。
+
+    画面はこの段のフレームのうち、前の段の最後のvalidtime（`after`）より後のものだけを描く。
+    行はmemberごとに最新の完全な予報ラン（異なるvalidtimeを複数持つbasetime）に限る——同じ
+    時刻一覧には単発の中間ラン（validtime==basetime）や古いランの行も載るが、画面はそれらを
+    描かない（frontend `precipitationNowcast.ts: latestFullRunFrames`）。
+    """
+    candidates = [e for e in raw if element_id in e.get("elements", [])]
+    validtimes_by_run: dict[tuple[str, str], set[str]] = {}
+    for e in candidates:
+        validtimes_by_run.setdefault((e.get("member", "none"), e["basetime"]), set()).add(e["validtime"])
+    latest_full_run: dict[str, str] = {}
+    for (member, basetime), validtimes in validtimes_by_run.items():
+        if len(validtimes) > 1 and basetime > latest_full_run.get(member, ""):
+            latest_full_run[member] = basetime
+    upcoming = [
+        e
+        for e in candidates
+        if latest_full_run.get(e.get("member", "none")) == e["basetime"] and e["validtime"] > after
+    ]
+    if not upcoming:
+        return None
+    return min(upcoming, key=lambda e: e["validtime"])
 
 
 def _tile_paths_for_layer(layer: "_PrewarmLayer", entry: dict) -> list[str]:
@@ -150,9 +180,10 @@ async def _store_index(
 ) -> None:
     """在否インデックスを組み立てて保存する。
 
-    クライアントは「自分が描こうとしている`basetime`と一致する要素だけ」インデックスを
-    信用する必要があるため、要素ごとに`basetime`/`validtime`/`member`を持たせる
-    （risk系・nowc系・rasrf系で更新タイミングが別々のため、1つの`basetime`では表せない）。
+    クライアントは「自分が描こうとしているフレーム（`basetime`・`validtime`・`member`）と一致する
+    要素だけ」インデックスを信用する必要があるため、要素ごとにこの3つを持たせる
+    （risk系・nowc系・rasrf系で更新タイミングが別々のため、1つの`basetime`では表せない。
+    1つの`basetime`に実況と複数の予測の`validtime`が載るため、`basetime`だけでも表せない）。
     `coverage`はインデックスが網羅している地理範囲で、**この外のタイルについては在否が
     不明なので従来どおり取得する**ことをクライアントへ伝える。
     """
@@ -208,6 +239,8 @@ async def prewarm_jma_tiles(client: JmaTileClient) -> None:
     all_paths: list[str] = []
     skipped_labels: list[str] = []
     layer_entries: dict[str, dict] = {}
+    # 段の境目（前の段の最後のvalidtime）。前の段の行が無ければ後の段も選べない。
+    last_validtimes: dict[str, str] = {}
 
     for layer in _LAYERS:
         raw_entries: list[dict] = []
@@ -215,12 +248,17 @@ async def prewarm_jma_tiles(client: JmaTileClient) -> None:
             if target_times_path not in target_times_cache:
                 target_times_cache[target_times_path] = await _fetch_target_times(client, target_times_path)
             raw_entries.extend(target_times_cache[target_times_path] or [])
-        if not raw_entries:
-            skipped_labels.append(layer.label)
-            continue
-        entry = _pick_current_entry(raw_entries, layer.element_id)
+        own_validtimes = [e["validtime"] for e in raw_entries if layer.element_id in e.get("elements", [])]
+        if own_validtimes:
+            last_validtimes[layer.element_id] = max(own_validtimes)
+        if layer.previous_stage is None:
+            entry = _pick_current_entry(raw_entries, layer.element_id)
+        elif layer.previous_stage in last_validtimes:
+            entry = _pick_stage_entry(raw_entries, layer.element_id, last_validtimes[layer.previous_stage])
+        else:
+            entry = None
         if entry is None:
-            skipped_labels.append(layer.label)
+            skipped_labels.append(f"{layer.label}({layer.element_id})")
             continue
         layer_entries[layer.element_id] = entry
         all_paths.extend(_tile_paths_for_layer(layer, entry))

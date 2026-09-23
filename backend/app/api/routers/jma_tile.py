@@ -85,8 +85,9 @@ class JmaTileIndexCoverage(StrictModel):
 class JmaTileIndexElement(StrictModel):
     """要素（risk系・nowc系・rasrf系）ごとの在否。
 
-    `basetime`はクライアントが「自分が描こうとしている世代と一致するか」を確かめるために
-    使う（要素ごとに更新タイミングが異なり、1つの`basetime`では表せない）。
+    `basetime`・`validtime`・`member`はクライアントが「自分が描こうとしているフレームと一致するか」を
+    確かめるために使う（要素ごとに更新タイミングが異なり、1つの`basetime`に実況と複数の予測の
+    `validtime`が載る）。
     """
 
     basetime: str | None = None

@@ -1,7 +1,7 @@
 /** 動的気象（降水・風・災害）。
  *
  * **何を描くか（チップ・名前付きソース・描き方の種類・配信元）は源泉が配る**
- * （`mapDisplay.weatherElements`、backendの`domain/map_display.py: WEATHER_ELEMENTS`）。
+ * （`mapDisplay.weatherElements`、backendの`domain/weather_elements.py: WEATHER_ELEMENTS`）。
  * ここが持つのは描き方（paint・layout・filter・記号）だけ。
  *
  * 1つのチップ（グループ）が複数の名前付きソースを持ち、ソースごとに描き方が決まっている。

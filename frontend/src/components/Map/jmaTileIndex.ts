@@ -4,7 +4,7 @@
 // タイルは取りに行かない（`jmaTileProtocol.ts`がMapLibreのタイル要求を横取りして
 // 透明タイルを返す）ことで、平常時のリクエストをほぼゼロにする。
 //
-// **取りこぼしより空振りを選ぶ**: 判断がつかない場合（インデックス未取得・世代が違う・
+// **取りこぼしより空振りを選ぶ**: 判断がつかない場合（インデックス未取得・フレームが違う・
 // 網羅範囲外・URLを解釈できない）は必ず「取りに行く」へ倒す。誤って省くと危険情報が
 // 地図から消えるため、省けるのは「空だと確認済み」の場合だけに限る。
 
@@ -16,14 +16,16 @@ import type { JmaTileIndexResponse as JmaTileIndexResponseType } from "@/types/r
 /** 判定用に前処理した形。座標の線形探索を避けるためSetへ展開しておく。 */
 export interface JmaTileIndexLookup {
   coverage: NonNullable<JmaTileIndexResponseType["coverage"]>;
-  /** 要素id → { その要素のbasetime, "z/x/y"のSet } */
-  elements: Map<string, { basetime: string; present: Set<string> }>;
+  /** 要素id → { その要素のフレーム（`basetime/member/validtime`）, "z/x/y"のSet } */
+  elements: Map<string, { frame: string; present: Set<string> }>;
 }
 
 /** タイルURLから読み取った、在否判定に必要な情報。 */
 interface JmaTileRef {
   element: string;
-  basetime: string;
+  /** `basetime/member/validtime`。1つのbasetimeに実況と複数の予測のvalidtimeが載るため、
+   * 3つが揃って初めて同じ画像を指す。 */
+  frame: string;
   z: number;
   x: number;
   y: number;
@@ -31,13 +33,13 @@ interface JmaTileRef {
 
 // .../data/{group}/{basetime}/{member}/{validtime}/surf/{element}/{z}/{x}/{y}.{png|pbf}
 const TILE_URL_PATTERN =
-  /\/data\/[a-z]+\/(\d{14})\/[^/]+\/\d{14}\/surf\/([a-z0-9_]+)\/(\d+)\/(\d+)\/(\d+)\.(?:png|pbf)/;
+  /\/data\/[a-z]+\/(\d{14}\/[^/]+\/\d{14})\/surf\/([a-z0-9_]+)\/(\d+)\/(\d+)\/(\d+)\.(?:png|pbf)/;
 
 function parseJmaTileUrl(url: string): JmaTileRef | null {
   const match = TILE_URL_PATTERN.exec(url);
   if (!match) return null;
   return {
-    basetime: match[1],
+    frame: match[1],
     element: match[2],
     z: Number(match[3]),
     x: Number(match[4]),
@@ -47,16 +49,16 @@ function parseJmaTileUrl(url: string): JmaTileRef | null {
 
 export function buildJmaTileIndexLookup(response: JmaTileIndexResponseType | null): JmaTileIndexLookup | null {
   if (!response?.available || !response.coverage || !response.elements) return null;
-  const elements = new Map<string, { basetime: string; present: Set<string> }>();
+  const elements = new Map<string, { frame: string; present: Set<string> }>();
   for (const [elementId, entry] of Object.entries(response.elements)) {
-    // basetimeが無い要素は世代を照合できない＝インデックスを信用できないので載せない
+    // basetime・validtimeが無い要素はフレームを照合できない＝インデックスを信用できないので載せない
     // （その要素は従来どおり全タイルを取りに行く）。
-    if (!entry.basetime) continue;
+    if (!entry.basetime || !entry.validtime) continue;
     const present = new Set<string>();
     for (const [zoom, coords] of Object.entries(entry.zooms ?? {})) {
       for (const [x, y] of coords) present.add(`${zoom}/${x}/${y}`);
     }
-    elements.set(elementId, { basetime: entry.basetime, present });
+    elements.set(elementId, { frame: `${entry.basetime}/${entry.member}/${entry.validtime}`, present });
   }
   return elements.size > 0 ? { coverage: response.coverage, elements } : null;
 }
@@ -85,7 +87,7 @@ function intersectsCoverage(ref: JmaTileRef, coverage: JmaTileIndexLookup["cover
  *
  * 次のいずれかに当てはまる場合はfalse（＝取りに行く）:
  * インデックス未取得／URLを解釈できない／その要素がインデックスに無い／
- * インデックスの世代（basetime）が要求と違う／インデックスの網羅範囲外。
+ * インデックスのフレーム（basetime・validtime・member）が要求と違う／インデックスの網羅範囲外。
  */
 export function isKnownEmptyTile(lookup: JmaTileIndexLookup | null, url: string): boolean {
   if (!lookup) return false;
@@ -93,7 +95,7 @@ export function isKnownEmptyTile(lookup: JmaTileIndexLookup | null, url: string)
   if (!ref) return false;
   const entry = lookup.elements.get(ref.element);
   if (!entry) return false;
-  if (entry.basetime !== ref.basetime) return false;
+  if (entry.frame !== ref.frame) return false;
   if (!intersectsCoverage(ref, lookup.coverage)) return false;
   return !entry.present.has(`${ref.z}/${ref.x}/${ref.y}`);
 }

@@ -44,6 +44,12 @@ describe("タイルURLの読み取り", () => {
     expect(knownEmpty(tileUrl("rain_mesh", 10, 910, 403, "20260907030000"))).toBe(false);
   });
 
+  it("basetimeが同じでもvalidtime・memberが違えば別のフレームとして取りに行く", () => {
+    // 1つのbasetimeに実況と複数の予測のvalidtimeが載る。インデックスが持つのはその中の1フレームだけ。
+    expect(knownEmpty(`${BASE}/${BT}/immed0/20260907030000/surf/rain_mesh/10/910/403.png`)).toBe(false);
+    expect(knownEmpty(`${BASE}/${BT}/none/${BT}/surf/rain_mesh/10/910/403.png`)).toBe(false);
+  });
+
   it("ベクタタイル（.pbf）も解釈する", () => {
     const floodIndex = {
       elements: { flood: { basetime: BT, validtime: BT, member: "immed0", zooms: { "10": [[909, 403]] } } },
