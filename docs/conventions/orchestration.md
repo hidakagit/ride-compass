@@ -284,6 +284,12 @@ backendのPythonは作業ツリーに`.venv`が無いため、本体のチェッ
 - 1タスク（段階を切るなら1段階）を終えるごとに、手元で最新のorigin/masterへrebaseし
   （`git fetch origin master && git rebase origin/master`。pushではないので門は走らない）、
   司令塔へ「監査待ち」と報告する（**コミットsha**・検証のコマンドと観測値を添える）。
+  **報告の前に、監査の機械項目を自分で1回通す**:
+  `python scripts/lockrun.py heavy -- 'python scripts/orchestrate.py audit <名前> <sha> --base <rebase先>'`
+  で、静的検査（ruff・prettier・docs検査）の指摘が0件であることを確かめる。指摘が出たら直して
+  から報告する——書式の崩れは司令塔の監査かpre-pushで必ず止まり、差し戻しの往復になる
+  （第1回では prettier の崩れで3回差し戻した。担当の静的検査が`tsc`・`eslint`だけで、
+  pre-pushの門と同じ集合になっていなかった）。
   監査を待たずに次のタスクへ進んでよい（次のコミットは同じブランチに積む）。
 - 司令塔から「差し戻し」が来たら、指摘を直して同じブランチへ積み、新しいshaで報告し直す。
 - `docs/improvement-plan.md`は各エージェントが隣接する行を消すため衝突しやすい。
