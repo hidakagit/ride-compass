@@ -17,7 +17,6 @@ argument-hint: （引数なし）
      進めている担当（状態の表から）・件を並べ、台帳に行の無いタスクの件を「移し忘れ」として出す。状態の表が無い
      機械（クラウドのセッション・別のPC）では、その旨の1行を出して担当の様子を省く——そのまま1行で伝え、表を
      外から写して補わない。
-   - `python scripts/orchestrate.py asks` — 記録に旧い形で残っている保留・操作・改善提案。出所のタスクの下へ並べる。
    - 手動で進めているタスク（`dashboard`の出力で「ユーザーが手動で進めている」）ごとに
      `python scripts/orchestrate.py prereqs <Txxx> --pending <1.のディレクトリ>` — 前提ごとの状態と残りの件数。
 3. **出す**。先頭に「仕掛中のタスクN件・人の手を待っているものN件」と、出力の先頭の`!`（バックアップの0件の知らせ等）。
@@ -34,8 +33,7 @@ argument-hint: （引数なし）
    最後の行にページのURL（`https://claude.ai/artifact/E8G458My7xPA8RpbkU3RWF`）。ユーザーへ見せる言葉は製品の言葉で
    （`asking-user.md`「製品の言葉で書く」）。
 4. **答えを受けたら**: 操作の報告・改善案と起票案の承認/見送りは、その件の`answer`へ`済（日付）`・`承認（日付）`・
-   `見送り（日付）`の形で書く（`ArtifactData`の`update`、読んだ`version`を`if_version`に付ける）。記録にしか無い件は、
-   先にダッシュボードへ置いてから書く。記録へ移すのは、そのタスクのコミット（担当へ返すか、
+   `見送り（日付）`の形で書く（`ArtifactData`の`update`、読んだ`version`を`if_version`に付ける）。記録へ移すのは、そのタスクのコミット（担当へ返すか、
    `python scripts/orchestrate.py board todo push "<Txxx>へ<何を>書く: <答え>" --priority 5`）。承認された起票案は
    `asking-user.md`「起票は承認制」の手順で番号を振る。見送られた起票案はダッシュボードから消すだけ。
 

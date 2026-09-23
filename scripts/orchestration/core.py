@@ -120,7 +120,7 @@ FORBIDDEN_KEYS = {
         "audit": "監査の記録は reported・audit_* のキー",
     },
     "top": {
-        "decisions": "判断の問いと回答は各タスクの記録の保留節と「ユーザー決定」",
+        "decisions": "判断の問いは仕掛中のダッシュボード、答えはそのタスクのコミットで記録へ",
         "audited_unpushed": "masterに入ったかは git（board unpushed が導く）",
         "last_master_push": "origin/master の履歴",
         "last_master_push_at": "origin/master の履歴",

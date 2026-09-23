@@ -2,8 +2,8 @@
 
     python scripts/orchestrate.py <サブコマンド> ...
 
-使い方は`scripts/orchestration/core.py`の冒頭。`asks`・`dashboard`・`pending-backup`・`prereqs`・`priority`・`slot`・`ledger`・
-`effort-ci`は依頼で足した別のモジュール（`scripts/orchestration/asks.py`・`pending.py`・`queue.py`・`slots.py`・`ledger.py`・
+使い方は`scripts/orchestration/core.py`の冒頭。`dashboard`・`pending-backup`・`prereqs`・`priority`・`slot`・`ledger`・
+`effort-ci`は依頼で足した別のモジュール（`scripts/orchestration/pending.py`・`queue.py`・`slots.py`・`ledger.py`・
 `effort_ci.py`）へ渡す——核はそれらを
 importしないため、振り分けはここで行う。
 """
@@ -22,11 +22,6 @@ def main() -> int:
     i = 0
     while i < len(argv) and argv[i] in ("--repo", "--dir"):
         i += 2
-    if argv[i:i + 1] == ["asks"]:
-        from orchestration import asks
-
-        sys.stdout.reconfigure(encoding="utf-8")
-        return asks.main(argv[:i] + argv[i + 1:])
     if argv[i:i + 1] and argv[i] in ("dashboard", "pending-backup"):
         from orchestration import pending
 

@@ -11,8 +11,8 @@
 手動タスクの前提（始める前に済ませておくタスク）は、仕掛中のダッシュボードに1件ずつ置く
 （kind `前提`・`task`が手動タスク・本文の最初のタスク番号が前提。`pending.prereqs_in`）。ダッシュボードは
 `ArtifactData`でしか読めないので、呼ぶ側が書き出したディレクトリを`--pending`で渡す（`pending.py`の冒頭）。
-状態の表は、どのタスクが手動中か（`manual`のタスク番号の並び）だけを持つ。前提が判断待ちかは、前提のタスクの
-記録に未決の保留があるか（`asks.record_holds`）と、ダッシュボードに答えの出ていない問いがあるかで導く。
+状態の表は、どのタスクが手動中か（`manual`のタスク番号の並び）だけを持つ。前提が判断待ちかは、ダッシュボードに
+答えの出ていない問いがあるかで導く。
 """
 
 from __future__ import annotations
@@ -20,12 +20,10 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
-from orchestration.asks import record_holds
 from orchestration.core import (
     ACTIVE_STATES,
     PLAN_DOC,
     STOPPED_STATES,
-    TASKS_DIR,
     Context,
     cat_files,
     done_tasks,
@@ -40,9 +38,7 @@ PRIORITY_WORDS = {"高": 4, "中": 5, "低": 6}
 def prereq_states(ctx: Context, board: dict, tasks: list[str], held: set[str]) -> dict[str, str]:
     """前提ごとの状態: 完了／稼働中／判断待ち／振り出し待ち／停止中／未着手。"""
     done = done_tasks(ctx, tasks)
-    specs = [f"origin/master:{PLAN_DOC}"] + [f"origin/master:{TASKS_DIR}/{t}.md" for t in tasks]
-    blobs = cat_files(ctx.repo, specs)
-    listed = ledger_ids(blobs[f"origin/master:{PLAN_DOC}"])
+    listed = ledger_ids(cat_files(ctx.repo, [f"origin/master:{PLAN_DOC}"])[f"origin/master:{PLAN_DOC}"])
     queued = {str(i.get("task")) for i in board.get("queue") or []}
     out = {}
     for task in tasks:
@@ -54,8 +50,6 @@ def prereq_states(ctx: Context, board: dict, tasks: list[str], held: set[str]) -
         running = [str(a.get("name")) for a in holders if a.get("state") in ACTIVE_STATES]
         if running:
             out[task] = "稼働中（" + "・".join(running) + "）"
-        elif record_holds(blobs[f"origin/master:{TASKS_DIR}/{task}.md"] or ""):
-            out[task] = "判断待ち（記録に未決の保留）"
         elif task in held:
             out[task] = "判断待ち（ダッシュボードに答えの出ていない問い）"
         elif task in queued:

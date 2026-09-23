@@ -189,16 +189,26 @@ def cmd_dashboard(ctx: Context, args: argparse.Namespace) -> int:
             state = f"答え: {item.get('answer')}" if answered(item) else (
                 "待っている" if kind in WAITING_KINDS else "")
             print(f"  - [{kind}] {doc_id}{'  ' + state if state else ''}（{item.get('source') or '書き手不明'}）")
-            for line in str(item.get("text") or "").splitlines():
-                print(f"      {line}")
+            print_body(item)
     if proposals:
         print("\n## 新しいタスクの案（起票案）")
         for doc_id, item in proposals:
             state = f"答え: {item.get('answer')}" if answered(item) else "待っている"
             print(f"  - [{item.get('kind')}] {doc_id}  {state}（{item.get('source') or '書き手不明'}）")
-            for line in str(item.get("text") or "").splitlines():
-                print(f"      {line}")
+            print_body(item)
     return 0
+
+
+def print_body(item: dict) -> None:
+    """1件の見出し・選択肢（推奨に印）・細部を字下げして出す。"""
+    for line in str(item.get("text") or "").splitlines():
+        print(f"      {line}")
+    options = item.get("options") or []
+    recommend = item.get("recommend")
+    for n, option in enumerate(options, 1):
+        print(f"        ({n}) {option}{'（推奨）' if n == recommend else ''}")
+    for line in str(item.get("detail") or "").splitlines():
+        print(f"      | {line}")
 
 
 def main(argv: list[str] | None = None) -> int:
