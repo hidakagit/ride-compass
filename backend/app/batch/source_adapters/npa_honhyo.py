@@ -17,6 +17,7 @@
 import csv
 import logging
 from collections.abc import AsyncIterator
+from dataclasses import dataclass, field
 from typing import Any
 from pathlib import Path
 
@@ -52,11 +53,19 @@ def _existing_honhyo_path(year: int) -> Path:
     return path
 
 
-@register_adapter("npa_honhyo")
+@dataclass(frozen=True)
+class HonhyoRows:
+    """`npa_honhyo`の`rows`。"""
+
+    #: 取り込む年。1年が本票CSV1ファイル。
+    years: list[int] = field(default_factory=list)
+
+
+@register_adapter("npa_honhyo", rows=HonhyoRows)
 async def read_npa_honhyo(spec: SourceSpec, profile: SourceProfile,
                           origin: dict[str, Any]) -> AsyncIterator[SourceRecord]:
     target = profile.target
-    years = spec.rows.get("years") or []
+    years = spec.rows.years
     origin["files"] = []
     min_lat, min_lon, max_lat, max_lon = target.bbox
     skipped = 0

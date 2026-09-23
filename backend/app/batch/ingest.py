@@ -15,7 +15,7 @@ import json
 import logging
 import time
 from collections.abc import AsyncIterator, Callable
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -23,7 +23,7 @@ from typing import Any
 import asyncpg
 
 from app.batch._common import PROGRESS_INTERVAL_SECONDS, format_progress
-from app.batch.source_profile import SourceProfile, SourceSpec, Target
+from app.batch.source_profile import NoFields, SourceProfile, SourceSpec, Target
 
 logger = logging.getLogger("ridecompass.ingest")
 
@@ -57,14 +57,25 @@ class SourceRecord:
 #: 意味のある項目が違い、共通の型を決めるとソースを足すたびに型が増える。
 SourceAdapter = Callable[
     [SourceSpec, SourceProfile, dict[str, Any]], AsyncIterator[SourceRecord]]
-ADAPTERS: dict[str, SourceAdapter] = {}
 
 
-def register_adapter(name: str) -> Callable[[SourceAdapter], SourceAdapter]:
+@dataclass(frozen=True)
+class RegisteredAdapter:
+    read: SourceAdapter
+    #: プロファイルの`rows`/`grid`の型。読み込みはこのフィールドにある欄だけを受け付ける。
+    rows: type
+    grid: type
+
+
+ADAPTERS: dict[str, RegisteredAdapter] = {}
+
+
+def register_adapter(name: str, *, rows: type = NoFields,
+                     grid: type = NoFields) -> Callable[[SourceAdapter], SourceAdapter]:
     def decorate(fn: SourceAdapter) -> SourceAdapter:
         if name in ADAPTERS:
             raise ValueError(f"アダプタ名が重複しています: {name}")
-        ADAPTERS[name] = fn
+        ADAPTERS[name] = RegisteredAdapter(read=fn, rows=rows, grid=grid)
         return fn
 
     return decorate
@@ -137,7 +148,8 @@ def _target_dict(target: Target) -> dict[str, Any]:
 
 
 def _source_dict(spec: SourceSpec) -> dict[str, Any]:
-    return {"name": spec.name, "adapter": spec.adapter, "rows": spec.rows, "grid": spec.grid}
+    return {"name": spec.name, "adapter": spec.adapter,
+            "rows": asdict(spec.rows), "grid": asdict(spec.grid)}
 
 
 async def ingest_source(
@@ -151,9 +163,7 @@ async def ingest_source(
     （途中で落ちたら run は`failed`のまま残り、行は元のまま）。
     """
     spec = profile.source(source_name)
-    adapter = ADAPTERS.get(spec.adapter)
-    if adapter is None:
-        raise ValueError(f"未登録のアダプタです: {spec.adapter}（{source_name}）")
+    adapter = ADAPTERS[spec.adapter].read
 
     await ensure_partition(conn, spec.name)
     origin: dict[str, Any] = {}

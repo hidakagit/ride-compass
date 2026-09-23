@@ -63,7 +63,7 @@ def main() -> int:
     profile = load_source_profile(args.profile)
     years = sorted({
         int(year) for spec in profile.sources if spec.adapter == "npa_honhyo"
-        for year in (spec.rows.get("years") or [])
+        for year in spec.rows.years
     })
     if not years:
         logger.info("プロファイルに本票CSVの年の指定がありません")

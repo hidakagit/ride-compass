@@ -78,8 +78,8 @@ def main() -> int:
     profile = load_source_profile(args.profile)
     # OSMを読むソースが指すファイル。同じファイルを複数のソースが指すので重複を除く。
     names = sorted({
-        str(spec.rows["file"]) for spec in profile.sources
-        if spec.adapter.startswith("osm_pbf") and spec.rows.get("file")
+        spec.rows.file for spec in profile.sources
+        if spec.adapter.startswith("osm_pbf") and spec.rows.file
     })
     if not names:
         logger.info("プロファイルにOSMの抽出ファイルの指定がありません")
