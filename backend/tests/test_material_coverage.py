@@ -15,6 +15,7 @@ from app.infrastructure.material_coverage import (
     EdgeMaterialCoverageSpec,
     MaterialCoverageCounts,
     WayMaterialCoverageSpec,
+    build_edge_coverage_sql,
     build_way_coverage_sql,
 )
 from app.domain.material_sql import (
@@ -59,7 +60,7 @@ def test_specs_carry_source_description_and_population():
         else:
             assert isinstance(spec, EdgeMaterialCoverageSpec)
             assert spec.population == "edge"
-            assert spec.present_count_sql.lstrip().upper().startswith("SELECT COUNT(*)")
+            assert spec.present_condition.strip() != ""
 
 
 # --- way母集団の判定式は domain/material_sql.py の共有SQL断片を
@@ -111,6 +112,21 @@ def test_build_way_coverage_sql_has_one_filter_column_per_way_material_and_binds
     compiled_params = statement.compile().params
     assert "asphalt" in compiled_params["good_tags"]
     assert "gravel" in compiled_params["bad_tags"]
+
+
+def test_build_edge_coverage_sql_counts_every_edge_material_in_one_scan():
+    sql = " ".join(build_edge_coverage_sql().text.split())
+
+    edge_material_ids = [m for m, s in MATERIAL_COVERAGE_SPECS.items() if isinstance(s, EdgeMaterialCoverageSpec)]
+    # 0件だと下のループが1度も走らず、列の対応を何も確かめないまま緑になる。
+    assert edge_material_ids, "edge材料のカバレッジ仕様が1件も無い"
+    # 分母は区間の全件、分子は値の置き場を1回だけ走査する。
+    assert sql.startswith("SELECT (SELECT count(*) FROM road_edges) AS total")
+    assert sql.endswith("FROM edge_materials AS em")
+    for material_id in edge_material_ids:
+        spec = MATERIAL_COVERAGE_SPECS[material_id]
+        assert f"count(*) FILTER (WHERE {spec.present_condition}) AS {material_id}" in sql
+    assert sql.count("count(*) FILTER") == len(edge_material_ids)
 
 
 def test_build_way_coverage_sql_without_surface_good_does_not_bind_tags():

@@ -81,12 +81,13 @@ class WayMaterialCoverageSpec:
 
 @dataclass(frozen=True)
 class EdgeMaterialCoverageSpec:
-    """`road_edges`全行を母集団とする材料。`in_scope`の意味は`WayMaterialCoverageSpec`と同じ。
+    """`road_edges`全行を母集団とする材料。
 
-    `present_count_sql`は「値を持つEdge数」を1行1列で
-    返すSELECT文（派生テーブル側だけを数える。FK CASCADEにより行は必ず既存Edgeに対応する）。"""
+    `present_condition`は`edge_materials`（別名`em`）の1行が「値を持つ」ときに真になるSQL条件式。
+    Edge単位の材料は同じ表の列に並ぶため、way母集団と同じく全材料を1回の走査で数えられる
+    （FK CASCADEにより行は必ず既存Edgeに対応する）。"""
 
-    present_count_sql: str
+    present_condition: str
     source: str
     missing_semantics: MissingSemantics
     population: Population = "edge"
@@ -117,14 +118,14 @@ def _landcover_coverage(key: str) -> EdgeMaterialCoverageSpec:
     「未計算」か「算出不能（ラスタ範囲外等）」で、どちらも値が無いことに変わりはない。
     """
     return EdgeMaterialCoverageSpec(
-        present_count_sql=f"SELECT count(*) FROM edge_materials WHERE lc_{key} IS NOT NULL",
+        present_condition=f"{landcover_value_sql(key)} IS NOT NULL",
         source=f"edge_materials.lc_{key}（derive_raster_materialsの計算済み値）の有無",
         missing_semantics="unknown",
     )
 
 _CYCLEWAY_TAGS_ALL_ABSENT = " AND ".join(f"tags->>'{tag}' IS NULL" for tag in CYCLEWAY_TAG_NAMES)
 _CYCLEWAY_SOURCE = "osm_raw_ways.tags の cycleway / cycleway:left / cycleway:right / cycleway:both（いずれも無い場合に欠損）"
-_EDGE_COUNTS_PRESENT_SQL = ("SELECT count(*) FROM edge_materials WHERE intersection_count IS NOT NULL")
+_EDGE_COUNTS_PRESENT_CONDITION = "em.intersection_count IS NOT NULL"
 _EDGE_COUNTS_SOURCE = "edge_materialsの数の列が埋まっているか"
 
 
@@ -444,8 +445,9 @@ PRIMARY_ATTRIBUTES: tuple[PrimaryAttributeSpec, ...] = (
         tile_kind="road_surface",
         label="路面の種類",
         geometry="line",
-        # 網羅ではなく「走りやすさの違いが出る単位」へ束ねる。値が一覧に無いのは
-        # 見落としではなく、束ねないと決めた結果である。
+        # 行の値は正準分類（`GOOD_OSM_SURFACE_TAGS`∪`BAD_OSM_SURFACE_TAGS`）と過不足なく
+        # 一致させる——漏れた値の道は地図に出ないまま評価にだけ効く。正準分類に無いOSMの値は
+        # 評価では不明値になり、地図にも出ない。束ねる単位は「走りやすさの違いが出る単位」。
         display_axes=(
             DisplayAxisSpec(
                 key="surface",
@@ -622,7 +624,7 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
         reference_points=_GRADIENT_PERCENT_REFERENCE_POINTS,
         value_sql="em.average_grade",
         coverage=EdgeMaterialCoverageSpec(
-                present_count_sql="SELECT count(*) FROM edge_materials WHERE average_grade IS NOT NULL",
+                present_condition="em.average_grade IS NOT NULL",
                 source="edge_materials.average_grade の有無",
                 missing_semantics="unknown",
             ),
@@ -764,7 +766,7 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
         reference_points=_INTERSECTION_COUNT_PER_KM_REFERENCE_POINTS,
         value_sql="CASE WHEN re.distance_m > 0 THEN em.intersection_count / (re.distance_m / 1000.0) END",
         coverage=EdgeMaterialCoverageSpec(
-                present_count_sql=_EDGE_COUNTS_PRESENT_SQL,
+                present_condition=_EDGE_COUNTS_PRESENT_CONDITION,
                 source=_EDGE_COUNTS_SOURCE,
                 missing_semantics="unknown",
             ),
@@ -788,7 +790,7 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
         value_sql="CASE WHEN re.distance_m > 0 AND :accident_years > 0 "
         "THEN em.accident_count / (re.distance_m / 1000.0) / :accident_years END",
         coverage=EdgeMaterialCoverageSpec(
-                present_count_sql=_EDGE_COUNTS_PRESENT_SQL,
+                present_condition=_EDGE_COUNTS_PRESENT_CONDITION,
                 source=_EDGE_COUNTS_SOURCE,
                 missing_semantics="unknown",
             ),
@@ -1065,7 +1067,7 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
             value_sql=poi_density_value_sql(kind),
             # 行があれば載っていないキーは0件と確定できる（欠損は行そのものの不在だけ）。
             coverage=EdgeMaterialCoverageSpec(
-                present_count_sql=_EDGE_COUNTS_PRESENT_SQL,
+                present_condition=_EDGE_COUNTS_PRESENT_CONDITION,
                 source=_EDGE_COUNTS_SOURCE,
                 missing_semantics="unknown",
             ),

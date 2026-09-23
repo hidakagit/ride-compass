@@ -31,7 +31,7 @@ WAY_DEFINITE = WayMaterialCoverageSpec(
     missing_condition="TRUE", source="架空", missing_semantics="definite"
 )
 EDGE_UNKNOWN = EdgeMaterialCoverageSpec(
-    present_count_sql="SELECT 0", source="架空", missing_semantics="unknown"
+    present_condition="TRUE", source="架空", missing_semantics="unknown"
 )
 NOT_MEASURED = CoverageExcluded(reason="架空", missing_semantics="definite")
 

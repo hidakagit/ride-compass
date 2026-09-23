@@ -8,7 +8,7 @@ from datetime import datetime
 import logging
 from contextlib import AsyncExitStack, asynccontextmanager
 from dataclasses import dataclass
-from typing import AsyncIterator, Awaitable, Callable
+from typing import AsyncIterator, Awaitable, Callable, Protocol
 
 from fastapi import Depends, HTTPException, Request
 
@@ -255,13 +255,23 @@ async def get_region_service():
 # 軸スタジオは`dedicated_way_value_layer=true`の軸を宣言だけで作れるが、配信できる値は
 # ここに実装があるものだけ——実装の無い軸は未知のaxis_idと同じく404で返す（500にすると
 # フロントの「データなし」フォールバックが効かず、その軸のタイルが全て失敗する）。
-_DEDICATED_WAY_VALUE_SERVICES: tuple[type[WindWayService] | type[GradientWayService], ...] = (
+class DedicatedWayValueService(Protocol):
+    """way_id→動的値配信の実装が満たす形（ルーターが使うのはこれだけ）。"""
+
+    material_id: str
+
+    async def get_way_values(
+        self, z: int, x: int, y: int, at: datetime | None, bearing_deg: float | None, speed_kmh: float | None = None
+    ) -> dict[str, float]: ...
+
+
+_DEDICATED_WAY_VALUE_SERVICES = (
     WindWayService,
     GradientWayService,
 )
 
 _DEDICATED_WAY_VALUE_SERVICE_FACTORIES: dict[
-    str, Callable[[RoadGraphRepository | None, WeatherService], WindWayService | GradientWayService]
+    str, Callable[[RoadGraphRepository | None, WeatherService], DedicatedWayValueService]
 ] = {service.axis_id: service.build for service in _DEDICATED_WAY_VALUE_SERVICES}
 
 

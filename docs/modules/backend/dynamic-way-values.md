@@ -95,7 +95,10 @@ _check_dedicated_layer_is_implemented`）、既存データ等で万一そうな
 FACTORIES`は、軸id→サービス実装本体（`WindWayService`/`GradientWayService`）の
 組み立てを担う別のdict。こちらはPython実装本体（コンストラクタ）の登録のため軸スタジオの
 宣言だけでは代替できず、新しい軸を追加する際は引き続きコード変更が必要
-（`dedicated_way_value_axes()`側とは別軸・別タイミングで拡張できる）。
+（`dedicated_way_value_axes()`側とは別軸・別タイミングで拡張できる）。実装はクラス属性
+`axis_id`と統一シグネチャの`build`を持ち、インスタンスが`DedicatedWayValueService`
+（`material_id`・`get_way_values`）の形を満たせば、`_DEDICATED_WAY_VALUE_SERVICES`へ
+1行足すだけで登録される（キーは`axis_id`から取るため、名前を2箇所に書かない）。
 
 ## API（`api/routers/region.py`）
 
