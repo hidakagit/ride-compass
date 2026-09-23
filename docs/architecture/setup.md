@@ -21,6 +21,10 @@ docker compose up --build
 - Postgres(PostGIS): localhost:5432
 - Redis: localhost:6379
 
+PostgreSQLの版は本番に合わせてある（[tech-stack.md](tech-stack.md)「DBの版」）。データ形式はメジャー版の
+間で互換が無いため、ボリュームは版ごとに名前を分けており、版を上げた直後のDBは空から始まる。
+古い版のボリュームは`docker volume ls`で探して消す。
+
 ## 個別に起動する
 
 ### backend

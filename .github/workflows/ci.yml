@@ -1,8 +1,7 @@
 # CI。masterと並行実行の作業ブランチ（orch/**）へのpush・PRごとに、backend・frontendの全チェックを回す。
 #
 # - backend: ruff（lint）→ pytest（PostGIS統合テスト込み）。PostGIS統合テスト（tests/conftest.py の
-#   road_graph_session）は postgis/postgis サービスコンテナ（docker-compose.ymlと同じイメージ）+
-#   TEST_DATABASE_URL 注入で実行する。
+#   road_graph_session）は、ランナーへ直接入れたPostgreSQL＋PostGIS + TEST_DATABASE_URL 注入で実行する。
 # - api-contract: API契約のドリフト検知。DBを読まないため、postgresを持たない別ジョブにして
 #   backendジョブと並べて走らせる。
 # - frontend: eslint → tsc --noEmit → vitest の順。型エラー・lintは実行の速い順に先へ置き、
@@ -32,33 +31,36 @@ on:
 
 jobs:
   backend:
-    runs-on: ubuntu-latest
+    # 本番（Oracle Cloud VMのAmpere A1）と同じaarch64・同じUbuntu 24.04で判定する。版の正本は
+    # docs/architecture/tech-stack.md「DBの版」。
+    runs-on: ubuntu-24.04-arm
     defaults:
       run:
         working-directory: backend
-    services:
-      # docker-compose.ymlのpostgresサービスと同じイメージ・認証情報。
-      postgres:
-        image: postgis/postgis:16-3.4
-        env:
-          POSTGRES_USER: ridecompass
-          POSTGRES_PASSWORD: ridecompass
-          POSTGRES_DB: ridecompass_test
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd pg_isready
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
     env:
       TEST_DATABASE_URL: postgresql+asyncpg://ridecompass:ridecompass@localhost:5432/ridecompass_test
       DATABASE_URL: postgresql+asyncpg://ridecompass:ridecompass@localhost:5432/ridecompass_test
     steps:
       - uses: actions/checkout@v5
+      # 本番と同じ配布元（PostgreSQL公式のaptリポジトリ）から同じパッケージを入れる。
+      # postgis/postgisのイメージはamd64しか配っていないため、arm64ではサービスコンテナにできない。
+      # PGDGはGEOS・PROJの新しい版も配っており、そのままでは本番（Ubuntu本体の版を使っている）より
+      # 新しいものが入る。`/noble`でUbuntu本体のアーカイブから入れる。
+      # ランナーに入っている別の版のクラスタは5432番を塞ぐため、先に落とす。
+      - name: PostgreSQL + PostGIS（本番と同じ版）
+        run: |
+          pg_lsclusters -h | while read -r ver name _; do sudo pg_dropcluster --stop "$ver" "$name"; done
+          sudo /usr/share/postgresql-common/pgdg/apt.postgresql.org.sh -y
+          sudo apt-get install -y --no-install-recommends postgresql-18 postgresql-18-postgis-3 \
+            libgeos-c1t64/noble libproj25/noble proj-data/noble
+          sudo pg_ctlcluster 18 main start
+          sudo -u postgres psql -v ON_ERROR_STOP=1 -c "CREATE ROLE ridecompass LOGIN SUPERUSER PASSWORD 'ridecompass'"
+          sudo -u postgres createdb -O ridecompass ridecompass_test
+          sudo -u postgres psql -v ON_ERROR_STOP=1 -d ridecompass_test -c "CREATE EXTENSION postgis" -c "CREATE EXTENSION postgis_raster"
+          echo "::notice title=DB::$(sudo -u postgres psql -d ridecompass_test -Atc "SELECT version() || ' / PostGIS ' || postgis_lib_version() || ' / GEOS ' || postgis_geos_version() || ' / PROJ ' || split_part(postgis_proj_version(), ' ', 1) || ' / ' || postgis_gdal_version()")"
       - uses: actions/setup-python@v6
         with:
-          # dev環境（backend/.venv）と同じ3.12系に固定する
+          # 本番のイメージ（backend/Dockerfile）と同じ3.12系に固定する
           python-version: "3.12"
           cache: pip
           cache-dependency-path: |

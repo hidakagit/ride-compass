@@ -125,6 +125,40 @@ publicリポジトリで標準のGitHubホストランナーを使う実行を�
 だけの変更で`ci.yml`を飛ばす範囲（`paths-ignore`）、ジョブの分け方とキャッシュ、pre-pushで
 検査を省く範囲。
 
+## DBの版（本番が正本）
+
+**本番DBの版が正本で、CIと`docker-compose.yml`はそれに従う。本番の版を上げたら、同じ変更で
+CIと`docker-compose.yml`も上げる。** CIが本番と違う版で合否を決めると、関数・プランナーの
+挙動の差がCIで通って本番で違う形になる。
+
+| | PostgreSQL | PostGIS | 入れ方 |
+|---|---|---|---|
+| 本番 | 18 | 3.6 | Oracle Cloud VM（Ubuntu 24.04・aarch64）へ、PostgreSQL公式のaptリポジトリ（PGDG）のパッケージ |
+| CI（`ci.yml`のbackendジョブ） | 18 | 3.6 | `ubuntu-24.04-arm`ランナーへ、本番と同じ配布元・同じパッケージ名で入れる |
+| ローカル（`docker-compose.yml`） | 18 | 3.6 | `postgis/postgis:18-3.6`イメージ（Debian） |
+
+- **揃えるのはメジャー版まで。** パッチ・マイナーは同じ配布元の最新に追従する（CIは実行の
+  たびにその時点の最新、本番はVMでaptを更新した時点の版）。本番の実際の版は
+  `backend/scripts/run_probe.py --in-container`で`SELECT version()`・`postgis_full_version()`を
+  引いて確かめる。CIの版は実行ごとの注釈（`DB`）に出る。
+- **DB側のGEOS・PROJ（PostGISの空間演算・座標変換を担う）は、本番ではUbuntu 24.04本体の
+  アーカイブの版**で、PGDGが配る新しい版ではない。PGDGの`postgresql-18-postgis-3`はどちらでも
+  入るため、何も指定しないとCIだけ新しい版になる（PostgreSQL・PostGISが同じでもGEOSのマイナーが
+  2つ違った）。CIは`/noble`でUbuntu本体の版を指定して入れる。**本番のGEOS・PROJを入れ替えたら
+  （VMでPGDGの版へ上げる等）、この指定も同じ変更で外す。**
+- **CIのbackendジョブは本番と同じaarch64で動かす。** `postgis/postgis`のイメージはamd64しか
+  配っていない（Docker Hubの説明の「Supported architecture」）ため、arm64のランナーでは
+  サービスコンテナにできず、ランナーへ直接入れている。GitHubの標準ランナーのarm64は、
+  リポジトリがpublicである間は無料（下の「CIの実行枠」）。
+- CIは`backend/Dockerfile`のイメージの中ではなく、ランナーのPython（`setup-python`）で
+  テストする。Pythonの依存はwheelが自前のライブラリ（GEOS・PROJ等）を同梱するため本番と
+  同じものになるが、**wheelに同梱されないOSのライブラリ**（例: rasterioが要る`libexpat`）の
+  差はCIでは見えない。それは`deploy-backend.yml`がコンテナを入れ替える前の
+  `import app.main`で止まる。
+- `postgis/postgis`の18以降のイメージは、データの置き場（`VOLUME`）が`/var/lib/postgresql`で、
+  17以前（`/var/lib/postgresql/data`）と違う。データ形式もメジャー版の間で互換が無く、
+  旧版のボリュームは新しい版で開けない。
+
 ## 本番PostgreSQLの設定（既定から変えたものと、その理由）
 
 既定から変えた設定はここへ理由つきで残す。**理由の無い設定変更を増やさない**——
