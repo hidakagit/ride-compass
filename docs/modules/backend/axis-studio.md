@@ -235,6 +235,14 @@ compute_edge_axis_scores`経由、下記「呼び出し元」参照）。周回�
 表示名・重みのような下書きの途中で欠けうる項目を揃えさせない——揃えさせると、書きかけの
 軸では印が出なくなる。
 
+**段が落ちても、体感ラベルは地図の段へ引き直して配る。** 体感ラベルの上書き
+（`display_band_labels_override`）は人が刻んだ境界の段ごとに付くため、境界が落ちると件数が
+地図の段数と合わない。境界が落ちてまとまった段は、その下端で始まる入力の段として扱い、その段の
+ラベルを持つ（`bands_the_map_keeps`が地図の各段に当たる入力の段の番号を返す。下端が同じ値なので、
+地図の凡例のレンジとラベルが食い違わない）。軸カタログの`display_band_labels_override`は
+生の上書きではなくこの引き直した値（`map_band_labels`）で、件数は地図の段数と一致する。
+軸スタジオの段階プレビューも同じ番号を問い合わせの応答（`bands_on_map`）で受け取る。
+
 **暗黙の前提（重要な既知の非対称性）**: 自動導出した表示と評価側の整合性は
 `required=False`の材料でのみ厳密に一致する。`required=True`の材料が欠損している場合、
 評価側（`evaluate_axis_scalar`）は軸全体を「評価不能（None）」にするが、フロント側の
@@ -301,7 +309,7 @@ compute_edge_axis_scores`経由、下記「呼び出し元」参照）。周回�
 | `PUT /api/admin/axis-definitions/{axis_id}` | Basic認証必須 | 更新（公開済みは原則拒否。ただし表示専用フィールド[`icon_id`/`chip_label`/`panel_hint`/`show_map_icon`/`display_thresholds_override`/`display_band_labels_override`]のみの差分は例外的に許可） |
 | `DELETE /api/admin/axis-definitions/{axis_id}` | Basic認証必須 | 削除 |
 | `POST /api/admin/axis-definitions/{axis_id}/unpublish` | Basic認証必須 | 公開済み軸を下書きへ戻す（`is_published`以外は変更しない） |
-| `POST /api/admin/axis-definitions/preview-display-thresholds` | Basic認証必須 | 編集中の軸で、上書きしたしきい値のうち地図が段にしないもの（DBを読まない） |
+| `POST /api/admin/axis-definitions/preview-display-thresholds` | Basic認証必須 | 編集中の軸で、上書きしたしきい値のうち地図が段にしないものと、地図の各段に当たる入力の段（DBを読まない） |
 | `GET /api/axis-catalog` | 不要（公開） | `is_published=True`の軸のみ返す。`AxisDefinition`のほぼ全フィールドをそのまま返す |
 
 `GET /api/axis-catalog`の`material_runtime_scales`（実行時にしか決まらないスケール係数）

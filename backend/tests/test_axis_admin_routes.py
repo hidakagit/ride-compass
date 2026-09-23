@@ -876,9 +876,10 @@ def test_preview_display_thresholds_returns_what_the_map_drops(admin_credentials
         return [12.0]
 
     monkeypatch.setattr("app.api.routers.axis_admin.thresholds_the_map_drops", _fake)
+    monkeypatch.setattr("app.api.routers.axis_admin.bands_the_map_keeps", lambda *_: [0, 1])
 
     response = client.post(_THRESHOLDS_PREVIEW_PATH, json=_THRESHOLDS_PREVIEW_BODY, headers=AUTH_HEADERS)
 
     assert response.status_code == 200
-    assert response.json() == {"dropped_on_map": [12.0]}
+    assert response.json() == {"dropped_on_map": [12.0], "bands_on_map": [0, 1]}
     assert received == {"axis_id": "test_axis", "priority_overrides": [], "thresholds": [2.0, 12.0]}

@@ -12,7 +12,10 @@ import { FieldLabel } from "@/components/Map/recipeControls";
 import type { AxisDefinitionResponse } from "@/types/route";
 import styles from "./AxisStudio.module.css";
 import { InfoPopoverButton, SectionLabel } from "./AxisFormFields";
+import { NO_MAP_BANDS_JUDGEMENT } from "@/hooks/useMapBandsOfThresholds";
+import type { MapBandsOfThresholds } from "@/services/axisPreviewApi";
 import {
+  bandLabelsOnMap,
   formatThresholdList,
   parseThresholdList,
   resizeBandLabels,
@@ -33,8 +36,8 @@ interface AxisMapDisplaySectionProps {
   /** 段階プレビューの配色・単位（親が軸カタログから渡す）。 */
   mapBandColors?: (boundaries: readonly number[]) => readonly string[];
   mapValueUnit: string;
-  /** 入力したしきい値のうち、地図では段にならないもの（判定はbackend、親が取得して渡す）。 */
-  thresholdsDroppedOnMap?: readonly number[];
+  /** 入力したしきい値が地図でどの段になるか（判定はbackend、親が取得して渡す）。 */
+  mapBands?: MapBandsOfThresholds;
   /** まとめ入力が読めない間は保存させないため、親の検証へ伝える。 */
   onThresholdErrorChange: (error: string | null) => void;
 }
@@ -47,9 +50,10 @@ export function AxisMapDisplaySection({
   republishing = false,
   mapBandColors,
   mapValueUnit,
-  thresholdsDroppedOnMap = [],
+  mapBands = NO_MAP_BANDS_JUDGEMENT,
   onThresholdErrorChange,
 }: AxisMapDisplaySectionProps) {
+  const thresholdsDroppedOnMap = mapBands.droppedOnMap;
   const [thresholdText, setThresholdText] = useState(() => formatThresholdList(draft.displayThresholdsOverride ?? []));
   const [thresholdError, setThresholdErrorState] = useState<string | null>(null);
 
@@ -110,7 +114,10 @@ export function AxisMapDisplaySection({
     const boundaries = thresholdsKeptOnMap(entered, thresholdsDroppedOnMap);
     const bandCount = boundaries.length + 1;
     const colors = mapBandColors?.(boundaries) ?? Array.from({ length: bandCount }, () => "");
-    const labels = bandLabelsForBandCount(draft.displayBandLabelsOverride, bandCount);
+    const labels = bandLabelsForBandCount(
+      draft.displayBandLabelsOverride && bandLabelsOnMap(draft.displayBandLabelsOverride, mapBands.bandsOnMap),
+      bandCount,
+    );
     const bands = buildRangeLegendBands(boundaries, colors, mapValueUnit, labels);
     return (
       <div className={styles.bandPreview} aria-label={`色分けプレビュー（${bandCount}段階）`}>
@@ -230,6 +237,9 @@ export function AxisMapDisplaySection({
                       aria-label={`体感ラベル${i + 1}`}
                       onChange={(e) => updateBandLabelOverrideValue(i, e.target.value)}
                     />
+                    {mapBands.bandsOnMap && !mapBands.bandsOnMap.includes(i) && (
+                      <span className={styles.hint}>地図には出ない</span>
+                    )}
                   </div>
                 ))}
                 <button type="button" onClick={disableBandLabelsOverride}>

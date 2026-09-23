@@ -216,7 +216,8 @@ axis_display_for`が前の境界を決め、`domain/dynamic_way_values.py: map_v
   埋めると、伝播の失敗が地図の見た目に出なくなる）。
 - `dedicatedWayValueLegend(display)`: 同じ配色・しきい値から地図上の凡例
   （`mapColorLegend.ts: MapColorLegendBand[]`）を組み立てる。段階ラベル（軸スタジオの
-  `display_band_labels_override`）は`mapColorLegend.ts: bandLabelsForBandCount`が
+  `display_band_labels_override`。backendが地図の段へ引き直して配るため件数は段数と一致する）は
+  `mapColorLegend.ts: bandLabelsForBandCount`が
   「件数が段階数と一致する間だけ」に絞ってから数値レンジの前に添える——**ルート後の凡例も
   同じ関数を使う**（後述の`routeStyleModes.ts`）。単位は`display.unit`（難易度は空文字）。
   `page.tsx`が現在のレンズに応じて凡例を1つ組み立てる（`lensLegend`: ルート後はルート線

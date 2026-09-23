@@ -17,6 +17,7 @@ import { baseAxisDefinition } from "@/testing/axisDefinitionFixtures";
 import { materialCatalogFixture } from "@/testing/materialCatalogFixture";
 import type { AxisDefinitionResponse } from "@/types/route";
 import type { AxisMaterialOption } from "@/lib/axisMaterialsCatalog";
+import type { MapBandsOfThresholds } from "@/services/axisPreviewApi";
 
 const MATERIALS: readonly AxisMaterialOption[] = materialCatalogFixture().materials.map((m) => ({
   id: m.material_id,
@@ -35,7 +36,7 @@ function openSection(
     restrictedDisplayOnly?: boolean;
     mapBandColors?: (boundaries: readonly number[]) => readonly string[];
     mapValueUnit?: string;
-    thresholdsDroppedOnMap?: readonly number[];
+    mapBands?: MapBandsOfThresholds;
     onThresholdErrorChange?: (error: string | null) => void;
   } = {},
 ) {
@@ -55,7 +56,7 @@ function openSection(
         restrictedDisplayOnly={options.restrictedDisplayOnly ?? false}
         mapBandColors={options.mapBandColors}
         mapValueUnit={options.mapValueUnit ?? ""}
-        thresholdsDroppedOnMap={options.thresholdsDroppedOnMap}
+        mapBands={options.mapBands}
         onThresholdErrorChange={options.onThresholdErrorChange ?? vi.fn()}
       />
     );
@@ -135,7 +136,7 @@ describe("色分けのしきい値", () => {
   it("地図では段にならない値を入力欄の脇に名指しする", () => {
     openSection({
       editing: baseAxisDefinition({ display_thresholds_override: [2, 4, 7, 12, 15, 20] }),
-      thresholdsDroppedOnMap: [15, 20],
+      mapBands: { droppedOnMap: [15, 20], bandsOnMap: [0, 1, 2, 3, 4] },
     });
 
     expect(screen.getByText("地図では効かない: 15, 20")).toBeInTheDocument();
@@ -145,7 +146,7 @@ describe("色分けのしきい値", () => {
     // 地図は[2, 4, 7, 12]で段を作るため、凡例は5段階で最上位は「12以上」。
     openSection({
       editing: baseAxisDefinition({ display_thresholds_override: [2, 4, 7, 12, 15, 20] }),
-      thresholdsDroppedOnMap: [15, 20],
+      mapBands: { droppedOnMap: [15, 20], bandsOnMap: [0, 1, 2, 3, 4] },
     });
 
     expect(screen.getByText("5段階になります")).toBeInTheDocument();
@@ -162,7 +163,7 @@ describe("色分けのしきい値", () => {
   it("すべての値が地図で効くときは印を出さない", () => {
     openSection({
       editing: baseAxisDefinition({ display_thresholds_override: [2, 4, 7] }),
-      thresholdsDroppedOnMap: [],
+      mapBands: { droppedOnMap: [], bandsOnMap: [0, 1, 2, 3] },
     });
 
     expect(screen.queryByText(/地図では効かない/)).not.toBeInTheDocument();
@@ -213,6 +214,31 @@ describe("段階の体感ラベル", () => {
 
     expect(screen.getByDisplayValue("低")).toBeInTheDocument();
     expect(screen.getByDisplayValue("高")).toBeInTheDocument();
+  });
+
+  it("地図で段がまとまるとき、プレビューの各段には地図と同じラベルが当たり、出ないラベルの欄に印が付く", () => {
+    // 地図は[2, 4, 7, 12]で段を作り（15・20が落ちる）、「12以上」は下端12で始まる入力の段
+    // （5番目のラベル）として残る——backendの`bands_the_map_keeps`が返す番号。
+    openSection({
+      editing: baseAxisDefinition({
+        display_thresholds_override: [2, 4, 7, 12, 15, 20],
+        display_band_labels_override: ["とても楽", "楽", "ふつう", "きつい", "とてもきつい", "限界", "限界超"],
+      }),
+      mapBands: { droppedOnMap: [15, 20], bandsOnMap: [0, 1, 2, 3, 4] },
+    });
+
+    expect(screen.getAllByRole("listitem").map((item) => item.textContent)).toEqual([
+      "とても楽（2未満）",
+      "楽（2〜4）",
+      "ふつう（4〜7）",
+      "きつい（7〜12）",
+      "とてもきつい（12以上）",
+    ]);
+    const marked = screen
+      .getAllByRole("textbox", { name: /^体感ラベル/ })
+      .filter((input) => input.parentElement?.textContent?.includes("地図には出ない"))
+      .map((input) => (input as HTMLInputElement).value);
+    expect(marked).toEqual(["限界", "限界超"]);
   });
 });
 

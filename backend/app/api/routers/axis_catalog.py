@@ -39,7 +39,7 @@ from app.domain.axis_definitions import (
     primary_attribute_ids_for,
 )
 from app.domain.material_catalog import MATERIAL_CATALOG
-from app.domain.axis_display import axis_display_for
+from app.domain.axis_display import axis_display_for, map_band_labels
 from app.domain.axis_raw_value import (
     axis_material_shares,
     raw_value_total_unit,
@@ -141,8 +141,11 @@ class AxisCatalogEntry(StrictModel):
     # 返す。これは軸スタジオが編集した値そのもので、スケールは軸がramp表示を持つかで変わる
     # （`map_value_thresholds`のdocstring参照）。地図の色分けは`map_value_thresholds`を使う。
     display_thresholds_override: list[float] | None
-    # display_thresholds_overrideと対になる、段階ごとの体感ラベルの軽量な
-    # 上書き（domain/axis_definitions.py: AxisDefinition.display_band_labels_override参照）。
+    # 段階ごとの体感ラベルの上書き（domain/axis_definitions.py: AxisDefinition.
+    # display_band_labels_override）を、地図の段で引き直したもの（domain/axis_display.py:
+    # map_band_labels）。`display_thresholds_override`と違って生の値ではなく、件数は地図の段数
+    # （`map_value_thresholds`の件数+1）と一致する——上書きは人が刻んだ境界の段ごとに付くため、
+    # 地図で落ちる境界があるとそのままでは件数が合わない。
     display_band_labels_override: list[str] | None
     # 「専用のway_id→値配信レイヤー（Redis経由、ルート未確定時から
     # 地図上で視界内の全道路を線色分け表示できる）を持つか」の宣言（domain/
@@ -248,7 +251,7 @@ async def get_axis_catalog(region_service: RegionService = Depends(get_region_se
                 primary_attribute_ids=primary_attribute_ids_for(definition),
                 shape=definition.shape,
                 display_thresholds_override=definition.display_thresholds_override,
-                display_band_labels_override=definition.display_band_labels_override,
+                display_band_labels_override=map_band_labels(definition),
                 dedicated_way_value_layer=definition.dedicated_way_value_layer,
                 map_value_kind=map_value_kind(definition),
                 map_value_unit=map_value_unit(definition),

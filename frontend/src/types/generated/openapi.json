@@ -3423,12 +3423,20 @@
             },
             "type": "array",
             "title": "Dropped On Map"
+          },
+          "bands_on_map": {
+            "items": {
+              "type": "integer"
+            },
+            "type": "array",
+            "title": "Bands On Map"
           }
         },
         "additionalProperties": false,
         "type": "object",
         "required": [
-          "dropped_on_map"
+          "dropped_on_map",
+          "bands_on_map"
         ],
         "title": "DisplayThresholdsPreviewResponse"
       },

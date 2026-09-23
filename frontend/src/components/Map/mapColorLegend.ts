@@ -31,11 +31,10 @@ export const LEGEND_NO_DATA_KEY = "nodata";
  * よいかの判定。ルート前（`dedicatedWayValueLegend`）とルート後（`routeStyleModes.ts`）が
  * 同じ規則で使うため1箇所に置く。
  *
- * 件数が段階数と合わないラベルは**添えずに捨てる**。合わない軸は実在し（地図が塗る値の
- * スケールへ境界を写すと、軸の折れ線が飽和する範囲に置かれた境界が同じ値へ潰れて段階が
- * 減る。backend `domain/dynamic_way_values.py: map_value_thresholds`）、ずらして添えると
- * 「最上位の段階のラベル」が実際にはそれより広い範囲を指す嘘になる。数値レンジだけの方が
- * 読み手を誤らせない。 */
+ * 地図で落ちる境界に合わせてラベルを引き直すのはbackend（`domain/axis_display.py:
+ * map_band_labels`）で、軸カタログが配るラベルは地図の段数と一致する。それでも件数が合わない
+ * ラベルは**添えずに捨てる**——ずらして添えると「最上位の段階のラベル」が実際にはそれより
+ * 広い範囲を指す嘘になり、数値レンジだけの方が読み手を誤らせない。 */
 export function bandLabelsForBandCount(
   labels: readonly string[] | null | undefined,
   bandCount: number,
