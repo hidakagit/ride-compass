@@ -1,7 +1,7 @@
 """仕掛中のダッシュボードの件の読み込みとバックアップ。依頼で足した側の機能。
 
 ダッシュボード（非公開のArtifactのデータベース、collection `pending`）は`ArtifactData`でしか読めず、
-このスクリプトからは直接読めない。呼ぶ側（`/orchestrate:prereqs`・`/orchestrate:priority`・日次のバックアップ）が
+このスクリプトからは直接読めない。日次のバックアップ（と、最新の状態で前提を見たいとき）が
 `ArtifactData`の`list`に`out_dir`を付けて全件をファイルへ書き出し、そのディレクトリを`--pending`で渡す
 （`<out_dir>/pending/<doc_id>.json`が1件。ファイル名が件のdoc_id）。置き場と1件の形の正本は
 `docs/conventions/asking-user.md`「仕掛中のダッシュボード」節。核はこのモジュールをimportしない。
@@ -14,6 +14,7 @@ from __future__ import annotations
 import argparse
 import datetime as dt
 import json
+import os
 import re
 from pathlib import Path
 
@@ -76,6 +77,17 @@ def backups(ctx: Context) -> list[tuple[dt.date, Path]]:
         if m := BACKUP_NAME_RE.match(path.name):
             found.append((dt.date.fromisoformat(m.group(1)), path))
     return sorted(found)
+
+
+def latest_backup(ctx: Context) -> tuple[dt.date, dict[str, dict]] | None:
+    """最新のバックアップの（日付, 全件）。無い・読めなければNone。"""
+    for day, path in reversed(backups(ctx)):
+        try:
+            with open(path, encoding="utf-8") as f:
+                return day, json.load(f).get("items") or {}
+        except (OSError, ValueError):
+            continue
+    return None
 
 
 def backup_count(path: Path) -> int | None:
@@ -147,7 +159,7 @@ def cmd_backup(ctx: Context, args: argparse.Namespace) -> int:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="orchestrate.py", description="仕掛中のダッシュボードのバックアップ")
     parser.add_argument("--repo", default=str(Path(__file__).resolve().parents[2]))
-    parser.add_argument("--dir", default=None)
+    parser.add_argument("--dir", default=os.environ.get("ORCH_DIR"))
     sub = parser.add_subparsers(dest="cmd", required=True)
     p = sub.add_parser("pending-backup", help="ダッシュボードの全件を日付のファイルへ書き出す")
     p.add_argument("--pending", required=True, help="ArtifactDataのlistでout_dirに書き出したディレクトリ")

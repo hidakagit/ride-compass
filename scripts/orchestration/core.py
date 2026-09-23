@@ -1052,6 +1052,10 @@ def cmd_status(ctx: Context, args: argparse.Namespace) -> int:
     view = f.run_view
     for line in run_summary_lines(view, detail=False):
         print(line)
+    from orchestration import queue
+
+    for line in queue.manual_prereqs(ctx, b)[0]:
+        print(line)
     population = {e["task"] for e in view["entries"]}
     print(f"上限{f.limit}本  最終確認 {hm(parse_time(b.get('last_check')))}"
           f"  origin/master {master_sha}"
@@ -1221,6 +1225,10 @@ def cmd_check(ctx: Context, args: argparse.Namespace) -> int:
                         "振り出さず、終わった状態を揃える（規約「回の始まりと終わり」）")
     # 門がNGで見送った振り出しは、門が開いた最初の確認で拾う（「落ち着いたら」を人の注意に頼らない）。
     # 母集団の外のタスクは次の回の候補なので拾わない。回が始まっていない・終わりに入ったときは門が閉じている。
+    from orchestration import queue
+
+    prereq_lines, prereq_due = queue.manual_prereqs(ctx, f.board)
+    problems += prereq_due
     waiting_dispatch = [i for i in ready_to_dispatch(ctx, f.board.get("queue") or [])
                         if str(i.get("task")) in population]
     if waiting_dispatch and not gate_reasons(f):
@@ -1236,7 +1244,7 @@ def cmd_check(ctx: Context, args: argparse.Namespace) -> int:
     else:
         print(f"異常なし（{hm(f.at)}、稼働{len(active)}本/上限{f.limit}本、"
               f"監査待ち{len(f.audit_waiting())}本、CPU {cpu}）")
-    for line in run_summary_lines(view, detail=False):
+    for line in run_summary_lines(view, detail=False) + prereq_lines:
         print(line)
     print(budget_line(f.budgets))
     if args.record:

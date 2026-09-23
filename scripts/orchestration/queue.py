@@ -1,23 +1,23 @@
-"""手動タスクの前提と、振り出し待ちの優先度。依頼で足した側の機能。
+"""振り出し待ちの優先度と、手動タスクの前提の状態。依頼で足した側の機能。
 
-核（core.py）の状態の表の読み書きと、正本から導く読み出しを使う。核はこのモジュールをimportしない。
+核（core.py）の状態の表の読み書きと、正本から導く読み出しを使う。核は前提の状態を`check`・`status`で
+出すときだけ、このモジュールを遅れてimportする。
 
-    python scripts/orchestrate.py prereqs <Txxx> --pending <dir>   # 手動タスクの前提と、それぞれが済んだか
     python scripts/orchestrate.py priority <Txxx>... <高|中|低>  # 振り出し待ちの優先度を設定する
-    python scripts/orchestrate.py priority --prereqs-of <Txxx> --pending <dir> <高|中|低>  # 手動タスクの前提をまとめて
 
 ## 前提の正本
 
 手動タスクの前提（始める前に済ませておくタスク）は、仕掛中のダッシュボードに1件ずつ置く
 （kind `前提`・`task`が手動タスク・本文の最初のタスク番号が前提。`pending.prereqs_in`）。ダッシュボードは
-`ArtifactData`でしか読めないので、呼ぶ側が書き出したディレクトリを`--pending`で渡す（`pending.py`の冒頭）。
-状態の表は、どのタスクが手動中か（`manual`のタスク番号の並び）だけを持つ。前提が判断待ちかは、ダッシュボードに
+`ArtifactData`でしか読めないので、最新のバックアップ（`pending-backup`の書き出し）から読む。状態の表は、
+どのタスクが手動中か（`manual`のタスク番号の並び）だけを持つ。前提が判断待ちかは、ダッシュボードに
 答えの出ていない問いがあるかで導く。
 """
 
 from __future__ import annotations
 
 import argparse
+import os
 from pathlib import Path
 
 from orchestration.core import (
@@ -32,7 +32,7 @@ from orchestration.core import (
     load_board,
     save_board,
 )
-from orchestration.pending import load_pending, open_holds, prereqs_in
+from orchestration.pending import latest_backup, open_holds, prereqs_in
 
 
 def prereq_states(ctx: Context, board: dict, tasks: list[str], held: set[str]) -> dict[str, str]:
@@ -61,24 +61,28 @@ def prereq_states(ctx: Context, board: dict, tasks: list[str], held: set[str]) -
     return out
 
 
-def cmd_prereqs(ctx: Context, args: argparse.Namespace) -> int:
-    board = load_board(ctx)
-    items = load_pending(args.pending)
-    prereqs = prereqs_in(items, args.task)
-    manual = args.task in (board.get("manual") or [])
-    if not prereqs:
-        print(f"{args.task} の前提がダッシュボードに無い（kind `前提`・task {args.task} の件で置く。"
-              f"{'手動中' if manual else '手動中としても表に無い'}）")
-        return 1
-    states = prereq_states(ctx, board, prereqs, open_holds(items))
-    remaining = [t for t in prereqs if states[t] != "完了"]
-    print(f"{args.task} の前提 {len(prereqs)}件・残り{len(remaining)}件"
-          f"{'' if manual else '（表の手動中に無い）'}")
-    for task in prereqs:
-        print(f"  {task}: {states[task]}")
-    if not remaining:
-        print(f"→ 前提は残り0件。{args.task} を開始してよい")
-    return 0
+def manual_prereqs(ctx: Context, board: dict) -> tuple[list[str], list[str]]:
+    """(手動タスクごとの前提の状態の行, 要対応)。前提が残り0なら、開始してよいと知らせる要対応を出す。"""
+    manual = [str(t) for t in board.get("manual") or []]
+    if not manual:
+        return [], []
+    latest = latest_backup(ctx)
+    if latest is None:
+        return ["手動タスクの前提: ダッシュボードの書き出しが無い（pending-backup で書き出す）"], []
+    day, items = latest
+    lines, due = [], []
+    for task in manual:
+        prereqs = prereqs_in(items, task)
+        if not prereqs:
+            lines.append(f"手動{task}の前提: ダッシュボードに無い（{day}の書き出し）")
+            continue
+        states = prereq_states(ctx, board, prereqs, open_holds(items))
+        remaining = [t for t in prereqs if states[t] != "完了"]
+        lines.append(f"手動{task}の前提（{day}の書き出し）: {len(prereqs)}件・残り{len(remaining)}件"
+                     + "".join(f"\n  {t}: {states[t]}" for t in remaining))
+        if not remaining:
+            due.append(f"要対応: 手動{task}の前提が残り0件。開始してよいとユーザーへ知らせ、board run manual から外す")
+    return lines, due
 
 
 def cmd_priority(ctx: Context, args: argparse.Namespace) -> int:
@@ -86,12 +90,8 @@ def cmd_priority(ctx: Context, args: argparse.Namespace) -> int:
     *tasks, level = args.items
     if level not in PRIORITIES:
         raise SystemExit(f"優先度は {'・'.join(PRIORITIES)}: {level}")
-    if args.prereqs_of:
-        if not args.pending:
-            raise SystemExit("--prereqs-of には --pending（ダッシュボードの書き出し）が要る")
-        tasks = [*tasks, *prereqs_in(load_pending(args.pending), args.prereqs_of)]
     if not tasks:
-        raise SystemExit("対象のタスクが無い（Txxx を並べるか --prereqs-of Txxx）")
+        raise SystemExit("対象のタスクが無い（Txxx を並べる）")
     items = board.get("queue") or []
     missing = []
     for task in dict.fromkeys(tasks):
@@ -109,17 +109,11 @@ def cmd_priority(ctx: Context, args: argparse.Namespace) -> int:
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(prog="orchestrate.py", description="手動タスクの前提・振り出し待ちの優先度")
+    parser = argparse.ArgumentParser(prog="orchestrate.py", description="振り出し待ちの優先度")
     parser.add_argument("--repo", default=str(Path(__file__).resolve().parents[2]))
-    parser.add_argument("--dir", default=None)
+    parser.add_argument("--dir", default=os.environ.get("ORCH_DIR"))
     sub = parser.add_subparsers(dest="cmd", required=True)
-    p = sub.add_parser("prereqs", help="手動タスクの前提の一覧と、それぞれが済んだか")
-    p.add_argument("task")
-    p.add_argument("--pending", required=True, help="ArtifactDataのlistでout_dirに書き出したディレクトリ")
     p = sub.add_parser("priority", help="振り出し待ちの優先度を設定する")
     p.add_argument("items", nargs="+", help="Txxx... と、最後に 高|中|低")
-    p.add_argument("--prereqs-of", help="この手動タスクの前提をまとめて対象にする")
-    p.add_argument("--pending", help="--prereqs-of のときの、ダッシュボードの書き出し")
     args = parser.parse_args(argv)
-    ctx = Context(Path(args.repo), args.dir)
-    return cmd_prereqs(ctx, args) if args.cmd == "prereqs" else cmd_priority(ctx, args)
+    return cmd_priority(Context(Path(args.repo), args.dir), args)
