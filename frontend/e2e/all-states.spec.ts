@@ -1,117 +1,81 @@
-import { expect, test, type Browser, type Page } from "@playwright/test";
+import { expect, test } from "@playwright/test";
 import { installApiMocks } from "./fixtures";
-import { scanLayout, scanSpacingUtilities } from "./scans";
+import { scanLayout, scanPinch, scanSpacingUtilities } from "./scans";
 import {
   WIDTHS,
   assertWidthsStraddleBreakpoint,
-  listModes,
-  listSwitches,
-  openBase,
-  pressSwitch,
+  generate,
+  installPageHelpers,
+  openApp,
+  resetPhase,
+  traverse,
   type Phase,
   type WidthName,
 } from "./states";
 
-// 観点1・3（パターン4）の走査を、画面の全状態へ当てる。状態の母集団は states.ts が画面から導く
-// （幅 × モード × 段階 × 開いているシート・パネル。シート・パネルは基本の状態から2段まで開く）。
-// 観点2（ピンチ）は、地図ペインの外に開くシート・ポップオーバーをどう扱うかが決まっていない
-// （T1069）ため、まだ全状態へは当てていない。
+// 観点1〜3（パターン4）の走査を、画面の全状態へ当てる。状態は states.ts が画面から辿る
+// （幅 × 段階を土台に、最前面で押せる開閉の部品を押せる限り）。配置の検査は状態ごと、部品の検査は
+// 段階ごとに各部品1回。観点2（ピンチ）はタッチの文脈（モバイル幅）だけで見る。
+// 幅ごとに1本にしてあり、CIでは幅ごとに別のジョブで走らせる。
 
-async function newPage(browser: Browser, width: WidthName): Promise<Page> {
-  const touch = width === "mobile";
-  const context = await browser.newContext({ viewport: WIDTHS[width], isMobile: touch, hasTouch: touch });
-  const page = await context.newPage();
-  await installApiMocks(page);
-  return page;
-}
+// APIをモックして決定的に動くので、失敗時に再試行しても同じ結果になり、所要だけが倍になる。
+test.describe.configure({ retries: 0 });
 
 for (const width of Object.keys(WIDTHS) as WidthName[]) {
-  for (const phase of ["生成前", "生成後"] as Phase[]) {
-    test(`全状態の走査: ${width} / ${phase}`, async ({ browser }) => {
-      test.setTimeout(15 * 60_000);
-      const started = Date.now();
+  test(`全状態の走査: ${width}`, async ({ browser }) => {
+    test.setTimeout(150_000);
+    const started = Date.now();
+    const touch = width === "mobile";
+    const context = await browser.newContext({ viewport: WIDTHS[width], isMobile: touch, hasTouch: touch });
+    const page = await context.newPage();
+    await page.addInitScript(installPageHelpers);
+    await installApiMocks(page);
+    const client = await context.newCDPSession(page);
+    await client.send("Accessibility.enable");
+    await client.send("DOM.enable");
+    const resolved = new Map<number, string>();
 
-      const probe = await newPage(browser, width);
-      await openBase(probe, width, phase, null);
-      await assertWidthsStraddleBreakpoint(probe);
-      const modes = await listModes(probe);
-      expect(modes.length, "ヘッダーのメニューからモードが1つも見つからない").toBeGreaterThan(0);
-      await probe.context().close();
+    // 違反 → 最初に見つかった状態の道筋。
+    const problems = new Map<string, string>();
+    const counts = { widgets: 0, viaContainer: 0, spacing: 0, pinches: 0 };
+    const summary: string[] = [];
 
-      // 違反 → 最初に見つかった状態の道筋。
-      const problems = new Map<string, string>();
-      const visited: string[] = [];
-      // 2段目で押せなかった部品（1段目で開いたポップオーバー等が上に重なっている）。
-      const covered: string[] = [];
-      let checkedUtilities = 0;
-
-      for (const mode of [null, ...modes]) {
-        const page = await newPage(browser, width);
-        const inspect = async (path: string) => {
-          visited.push(path);
-          const record = (problem: string) => {
-            if (!problems.has(problem)) problems.set(problem, path);
-          };
-          (await scanLayout(page)).forEach(record);
-          const spacing = await scanSpacingUtilities(page);
-          checkedUtilities += spacing.checked;
-          spacing.problems.forEach(record);
+    await openApp(page);
+    await assertWidthsStraddleBreakpoint(page);
+    for (const phase of ["生成前", "生成後"] as Phase[]) {
+      if (phase === "生成後") await generate(page, width);
+      await resetPhase(page);
+      const phaseStarted = Date.now();
+      const result = await traverse(page, `${width} / ${phase}`, async (path) => {
+        const record = (problem: string) => {
+          if (!problems.has(problem)) problems.set(problem, path);
         };
-
-        const label = `${width} / ${phase} / ${mode ?? "モードなし"}`;
-        // 画面の状態の一部（グループの開閉等）はlocalStorageへ保存され、開き直しても残る。
-        // 基本の状態を作った時点の保存内容を控え、開き直すたびにそこへ戻す。
-        await openBase(page, width, phase, mode);
-        const baseStorage = await page.evaluate(() => Object.fromEntries(Object.entries(window.localStorage)));
-        const reopen = async () => {
-          await page.evaluate((entries) => {
-            window.localStorage.clear();
-            for (const [key, value] of Object.entries(entries)) window.localStorage.setItem(key, value);
-          }, baseStorage);
-          await openBase(page, width, phase, mode);
-        };
-        await reopen();
-        await inspect(label);
-        const first = await listSwitches(page);
-        const firstKeys = new Set(first.map((s) => s.key));
-
-        for (const s1 of first) {
-          await reopen();
-          // 基本の状態で見えていた部品は、開き直しても同じ見分けで見つかり、押せるはず。
-          // そうでなければ列挙の側が壊れている。
-          const failed1 = await pressSwitch(page, s1);
-          if (failed1) {
-            problems.set(`${s1.key} を${failed1}`, label);
-            continue;
-          }
-          await inspect(`${label} > ${s1.key}`);
-          const second = (await listSwitches(page)).filter((s) => !firstKeys.has(s.key));
-          for (const [index, s2] of second.entries()) {
-            if (index > 0) {
-              await reopen();
-              await pressSwitch(page, s1);
-            }
-            const failed2 = await pressSwitch(page, s2);
-            if (failed2) {
-              covered.push(`${label} > ${s1.key} > ${s2.key}: ${failed2}`);
-              continue;
-            }
-            await inspect(`${label} > ${s1.key} > ${s2.key}`);
-          }
+        const layout = await scanLayout(page, client, resolved);
+        counts.widgets += layout.checked;
+        counts.viaContainer += layout.viaContainer;
+        layout.problems.forEach(record);
+        const spacing = await scanSpacingUtilities(page);
+        counts.spacing += spacing.checked;
+        spacing.problems.forEach(record);
+        if (touch) {
+          const pinch = await scanPinch(page, client);
+          counts.pinches += pinch.checked;
+          pinch.problems.forEach(record);
         }
-        await page.context().close();
-      }
-
+      });
+      result.problems.forEach((problem) => problems.set(problem, `${width} / ${phase}`));
+      // 辿る部品が1つも見つからなければ、土台しか見ていない（列挙が空振りしている）。
+      expect(result.states, `${width} / ${phase}: 開いた状態が1件も無い`).toBeGreaterThan(1);
+      summary.push(`${phase} ${result.states}状態（${Math.round((Date.now() - phaseStarted) / 1000)}秒）`);
       console.log(
-        `状態 ${visited.length}件・余白ユーティリティ ${checkedUtilities}件を ${Math.round((Date.now() - started) / 1000)}秒で走査、` +
-          `2段目で押せなかった部品 ${covered.length}件（${width} / ${phase}）`,
+        `全状態の走査 ${width}: ${summary.join("・")}、横幅の検査 ${counts.widgets}件（うち横スクロールする容器で判定 ` +
+          `${counts.viaContainer}件）・余白ユーティリティ ${counts.spacing}件・ピンチ ${counts.pinches}件、` +
+          `計${Math.round((Date.now() - started) / 1000)}秒`,
       );
-      // 列挙の検算: 他のテストが前提にしている状態へ、この列挙も届いていること。
-      if (width === "mobile") expect(visited.some((path) => path.includes('"ルート結果"'))).toBe(true);
-      if (phase === "生成後") expect(visited.some((path) => path.includes('tab "比較"'))).toBe(true);
-
+      // 段階ごとに確かめる。違反が次の段階の段取り（生成）を壊すと、違反そのものが見えなくなる。
       const report = [...problems.entries()].map(([problem, path]) => `${problem} ← ${path}`);
-      expect(report).toEqual([]);
-    });
-  }
+      expect(report, `${width} / ${phase} の違反`).toEqual([]);
+    }
+    await context.close();
+  });
 }

@@ -10,7 +10,7 @@ import {
   openMobileSheet,
   seedStoredState,
 } from "./fixtures";
-import { pinchOpen, scanPinch } from "./scans";
+import { pinchOpen } from "./scans";
 
 // 地図（MapLibre）が実ブラウザでしか見せない挙動（パターン4 観点2）。単体テストの代役地図は
 // Worker・描画・スタイル検証・`idle`・canvasへの実クリックを持たないため、ここでしか確かめられない。
@@ -198,28 +198,14 @@ test("宣言された地図レイヤーを全部ONにしても、スタイル検
   expect(styleErrors).toEqual([]);
 });
 
-// ページの拡大が許されている（viewportにmaximum-scaleを置かない）ため、地図の上に重なる部品が
-// touch-action: noneを持たないと、そこから始まったピンチをブラウザがページ全体の拡大として扱う
-// （パターン4 観点2）。touch-actionはタッチの始点の要素と祖先で決まり、計算後のCSSの値を
-// 読むだけでは効いているかが分からないので、実際に2本指のタッチを送って見る。
+// 地図の上で始めたピンチは、ページではなく地図を拡大する（パターン4 観点2）。地図のcanvas以外の部品から
+// 始めたピンチがページを拡大しないことは、全状態の走査（all-states.spec.ts）がモバイル幅の全部品で見る。
+// touch-actionはタッチの始点の要素と祖先で決まり、計算後のCSSの値を読むだけでは効いているかが分からないので、
+// 実際に2本指のタッチを送って見る。
 test.describe("タッチ端末", () => {
   test.use({ viewport: MOBILE_VIEWPORT, isMobile: true, hasTouch: true });
 
-  // 母集団は、地図の範囲を格子で走査して最前面に当たった、地図のcanvas以外の部品全部。
-  test("地図の上に重なる部品から始めたピンチは、ページ全体の拡大にならない", async ({ page }) => {
-    // 部品ごとに2本指の操作を送るため、既定の30秒では足りない。
-    test.setTimeout(180_000);
-    await openMobileApp(page);
-    await expect(page.getByText("地図を読み込み中…")).toBeHidden({ timeout: 15_000 });
-
-    const client = await page.context().newCDPSession(page);
-    const { checked, problems } = await scanPinch(page, client);
-    expect(checked).toBeGreaterThan(0);
-    expect(problems).toEqual([]);
-  });
-
-  // 上の検査は部品の上のピンチを止めるだけなので、地図そのもののピンチが地図の拡大として
-  // 届き続けていることを併せて見る。地図のズームはデバッグログの"zoomend"で読む。
+  // 地図のズームはデバッグログの"zoomend"で読む。
   test("地図の上で始めたピンチは、ページではなく地図を拡大する", async ({ page }) => {
     const zoomEnds: string[] = [];
     page.on("console", (message) => {

@@ -10,6 +10,8 @@
 #   実挙動、カスケード）を見る（対象の定義は docs/conventions/testing.md パターン4）。
 #   バックエンド・外部APIには依存せず、frontend/e2e/fixtures.tsのネットワークモックで置き換える
 #   （API契約の正しさはapi-contractジョブが別途担保）。DB・APIキーが不要なため独立ジョブにできる。
+# - e2e-scan: e2eのうち全状態の走査を、幅ごとの別ジョブで走らせる（1本の中で画面の状態を辿るため、
+#   分けられる単位は幅）。
 # - deploy-backend: masterへのpushで上の全ジョブが通ったときだけ、backendを本番へ出す
 #   （出すかの判定と手順は deploy-backend.yml）。**本番へ出る前の検査はこのワークフロー**で、
 #   どれかが赤ならデプロイは起動しない。
@@ -156,21 +158,44 @@ jobs:
           cache-dependency-path: frontend/package-lock.json
       - run: npm ci
       - run: npx playwright install --with-deps chromium
-      # 全状態の走査は1回に8分前後かかり、作業ブランチへのpushのたびに全員の確認を待たせるため、
-      # masterでだけ走らせる。
-      - if: github.ref == 'refs/heads/master'
-        run: npm run test:e2e
-      - if: github.ref != 'refs/heads/master'
-        run: npm run test:e2e -- --grep-invert "全状態の走査"
+      # 全状態の走査は、下のe2e-scanが幅ごとの別ジョブで走らせる。
+      - run: npm run test:e2e -- --grep-invert "全状態の走査"
       - uses: actions/upload-artifact@v4
         if: failure()
         with:
           name: playwright-report
           path: frontend/playwright-report/
           retention-days: 7
-
+  # 全状態の走査（frontend/e2e/all-states.spec.ts）を幅ごとに別のジョブで走らせる。
+  e2e-scan:
+    strategy:
+      fail-fast: false
+      matrix:
+        width: [mobile, desktop]
+    name: e2e-scan (${{ matrix.width }})
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version-file: frontend/package.json
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - run: |
+          npm run test:e2e -- -g "全状態の走査: ${{ matrix.width }}"
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: playwright-report-scan-${{ matrix.width }}
+          path: frontend/playwright-report/
+          retention-days: 7
   deploy-backend:
-    needs: [backend, api-contract, frontend, e2e]
+    needs: [backend, api-contract, frontend, e2e, e2e-scan]
     if: github.event_name == 'push' && github.ref == 'refs/heads/master'
     uses: ./.github/workflows/deploy-backend.yml
     secrets: inherit

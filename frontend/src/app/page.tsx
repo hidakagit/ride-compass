@@ -2476,7 +2476,7 @@ export default function Home() {
           <nav ref={mobileTabBarRef} className={styles.mobileTabBar} aria-label="パネル切り替え">
             <button
               type="button"
-              aria-pressed={mobileSheet === "routeSettings"}
+              aria-expanded={mobileSheet === "routeSettings"}
               onClick={() => handleMobileTabClick("routeSettings")}
               className={
                 mobileSheet === "routeSettings" ? `${styles.tabButton} ${styles.tabButtonActive}` : styles.tabButton
@@ -2487,7 +2487,7 @@ export default function Home() {
             </button>
             <button
               type="button"
-              aria-pressed={mobileSheet === "routeOutcome"}
+              aria-expanded={mobileSheet === "routeOutcome"}
               onClick={() => handleMobileTabClick("routeOutcome")}
               className={`relative ${
                 mobileSheet === "routeOutcome" ? `${styles.tabButton} ${styles.tabButtonActive}` : styles.tabButton
