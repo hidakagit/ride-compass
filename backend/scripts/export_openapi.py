@@ -114,6 +114,7 @@ from app.domain.region import ROAD_TILE_MAX_ZOOM, ROAD_TILE_MIN_ZOOM  # noqa: E4
 from app.domain.traffic import STOP_POI_KINDS, SupplyPoiKind  # noqa: E402
 from app.services.route_generator import SPLICED_ROUTE_ID, DEFAULT_MAX_ROUTES, MAX_ROUTES  # noqa: E402
 from app.domain.tuning import client_tuning_values  # noqa: E402
+from app.infrastructure.job_registry import JOB_TTL_SECONDS  # noqa: E402
 from app.services.tile_version_service import TILE_SHAPES  # noqa: E402
 
 GENERATED_DIR = Path(__file__).resolve().parents[2] / "frontend" / "src" / "types" / "generated"
@@ -428,6 +429,9 @@ def main() -> None:
             "spliced_route_id": SPLICED_ROUTE_ID,
             "min_assumed_speed_kmh": MIN_ASSUMED_SPEED_KMH,
             "max_assumed_speed_kmh": MAX_ASSUMED_SPEED_KMH,
+            # フロントのポーリングの打ち切り。backendが結果を持つ時間より長く待つと、
+            # 掃除済みのjob_idを引いて「ジョブが見つかりません」になる。
+            "job_result_ttl_seconds": JOB_TTL_SECONDS,
             # フロントが使う較正値の**既定**（`domain/tuning.py`の宣言そのまま）。
             # 実際に効いている値はGET /api/axis-catalogが返し、これはそれを取れるまでの値。
             "client_tuning": client_tuning_values(),

@@ -95,7 +95,7 @@ class TestForgettingFinishedJobs:
     def test_a_job_finished_longer_ago_than_the_retention_is_dropped(self, clock):
         job_id = job_registry.create_job()
         job_registry.set_done(job_id, "result")
-        clock.advance(job_registry._JOB_TTL_SECONDS + 1)
+        clock.advance(job_registry.JOB_TTL_SECONDS + 1)
 
         job_registry.create_job()
 
@@ -105,7 +105,7 @@ class TestForgettingFinishedJobs:
         """フロントが取りに来る前に捨てると、出来上がったルートがそのまま404になる。"""
         job_id = job_registry.create_job()
         job_registry.set_done(job_id, "result")
-        clock.advance(job_registry._JOB_TTL_SECONDS)
+        clock.advance(job_registry.JOB_TTL_SECONDS)
 
         job_registry.create_job()
 
@@ -117,7 +117,7 @@ class TestForgettingFinishedJobs:
         """
         job_id = job_registry.create_job()
         job_registry.set_running(job_id)
-        clock.advance(job_registry._JOB_TTL_SECONDS * 10)
+        clock.advance(job_registry.JOB_TTL_SECONDS * 10)
 
         job_registry.create_job()
 

@@ -5,6 +5,7 @@ import { makeRouteCandidate } from "@/testing/routeFixtures";
 import { debugLog } from "@/lib/debugLog";
 import { generateRoutes } from "./routeApi";
 import { makeResponse } from "@/testing/fetchMocks";
+import routeGenerateConfig from "@/types/generated/route-generate-config.json";
 
 vi.mock("@/lib/debugLog", () => ({ debugLog: vi.fn() }));
 
@@ -233,15 +234,21 @@ describe("routeApi", () => {
       await expect(generateRoutes(request)).rejects.toThrow("冷パスでタイムアウトしました");
     });
 
-    it("10分経過してもdone/failedにならない場合はタイムアウトとしてrejectする", async () => {
+    it("backendが結果を持つ時間を過ぎても終わらない場合は、それ以上待たずにrejectする", async () => {
+      // 保持時間より長く待つと、掃除済みのjob_idを引いて結果の代わりに404を見る。
       vi.useFakeTimers();
       stubFetchForJob([{ status: "running" }]); // 常にrunningを返し続ける
 
       const resultPromise = generateRoutes(request);
-      resultPromise.catch(() => {}); // 未処理rejection警告を避ける（下でassertする）
-      await vi.advanceTimersByTimeAsync(650000); // MAX_POLL_DURATION_MS(600000ms)を超える
+      let rejection: unknown;
+      resultPromise.catch((error: unknown) => {
+        rejection = error;
+      });
+      // 打ち切りの判定はポーリングの合間にしか走らないため、間隔2回分だけ余分に進める。
+      await vi.advanceTimersByTimeAsync(routeGenerateConfig.job_result_ttl_seconds * 1000 + 1500 * 2);
 
-      await expect(resultPromise).rejects.toThrow("タイムアウト");
+      expect(rejection).toBeInstanceOf(Error);
+      expect((rejection as Error).message).toContain("タイムアウト");
     });
 
     it("onProgressへ渡すelapsedMsはGET応答が返った直後の最新値になる", async () => {

@@ -312,9 +312,11 @@ FastAPI側で処理済みのためここには来ない）。
 
 プロセス内メモリのみ（`dict[str, JobRecord]`）。単一プロセスデプロイ前提（軸定義の
 push型更新と同じ前提）。`JobStatus = "queued"|"running"|"done"|"failed"`。完了
-（done/failed）から`_JOB_TTL_SECONDS=600.0`秒経過したジョブは、次の`create_job()`
+（done/failed）から`JOB_TTL_SECONDS`秒経過したジョブは、次の`create_job()`
 呼び出し時に掃除する（専用の定期タスクは新設せず、`rate_limiter.py`と同じ「呼ばれた
-ついでに掃除」方式）。ルート生成に特化させず`result: Any`型で汎用化してあるため、
+ついでに掃除」方式）。**この保持時間はフロントのポーリングの打ち切りと同じ値でなければ
+ならない**（短いと、まだ待っているフロントが掃除済みのjob_idを引く）。そのためフロントは
+独立に値を持たず、生成物`route-generate-config.json`の`job_result_ttl_seconds`から受け取る。ルート生成に特化させず`result: Any`型で汎用化してあるため、
 本モジュール自体はルート生成の型を知らない（`routes.py`との循環import回避）。
 
 ## ログ集計の詳細（`debug_log.py: log_external_call`）

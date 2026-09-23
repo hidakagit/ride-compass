@@ -16,9 +16,11 @@ from typing import Any, Literal
 JobStatus = Literal["queued", "running", "done", "failed"]
 
 # 完了したジョブを保持する時間。掃除は次の`create_job()`のついでに行う（`rate_limiter.py`と
-# 同じ方式で、定期タスクを持たない）。フロントのポーリング側の最大待機時間
-# （`frontend/src/services/routeApi.ts`の`MAX_POLL_DURATION_MS`）以上である必要がある。
-_JOB_TTL_SECONDS = 600.0
+# 同じ方式で、定期タスクを持たない）。フロントはこれを生成物`route-generate-config.json`から
+# 受け取り、ポーリングの打ち切りに使う——短くすると待機上限も一緒に縮む。
+# **動かす前に docs/modules/frontend/route-settings-and-results.md「生成を待つ時間・投げる
+# 回数の根拠」を読む**。
+JOB_TTL_SECONDS = 600.0
 
 
 @dataclass
@@ -73,7 +75,7 @@ def _purge_expired() -> None:
     expired = [
         job_id
         for job_id, record in _JOBS.items()
-        if record.finished_at is not None and now - record.finished_at > _JOB_TTL_SECONDS
+        if record.finished_at is not None and now - record.finished_at > JOB_TTL_SECONDS
     ]
     for job_id in expired:
         del _JOBS[job_id]

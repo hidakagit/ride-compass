@@ -9,6 +9,7 @@ import { API_BASE_URL } from "@/lib/apiBaseUrl";
 import { debugLog } from "@/lib/debugLog";
 import { fetchJson, requestJson } from "@/lib/fetchJson";
 import { DEFAULT_API_TIMEOUT_MS } from "@/lib/apiTimeouts";
+import routeGenerateConfig from "@/types/generated/route-generate-config.json";
 
 /** ルート生成系のPOST。エラー文言はエンドポイントごとに動詞が変わる（生成・取得等）ため
  * 「リクエストに失敗しました」で統一し、詳細はbackendのdetailに委ねる。 */
@@ -43,11 +44,9 @@ export interface GenerationProgress {
 }
 
 const POLL_INTERVAL_MS = 1500;
-// 冷パス（未split・タイル未キャッシュ）の総所要時間を安全マージン込みで上回る値。
-// **動かす前に docs/modules/frontend/route-settings-and-results.md「生成を待つ時間・投げる
-// 回数の根拠」を読む**——本番と開発機で別々の最悪ケースがあり、両方を上回る必要がある。
-// DBのROUTE_GENERATION_COMMAND_TIMEOUT_SECONDSはクエリ1本ごとの上限で、この値とは独立。
-const MAX_POLL_DURATION_MS = 600000;
+// backendがジョブの結果を持つ時間そのもの。これより長く待つと掃除済みのjob_idを引くため、
+// 独立に値を持たない（値を動かすのはbackendの宣言側）。
+const MAX_POLL_DURATION_MS = routeGenerateConfig.job_result_ttl_seconds * 1000;
 // 1回のポーリング失敗（一時的なネットワーク瞬断・5xx）で生成全体を即座に失敗させず、
 // この回数まで連続失敗を許容してから
 // 諦める。バックエンド側`_run_generate_job`はジョブをキャンセルする手段が無く握ったままの
