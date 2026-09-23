@@ -328,8 +328,8 @@ class FakeDynamicWayValueService:
 @pytest.mark.parametrize(
     ("axis_id", "material_id", "speed_kmh"),
     [
-        ("wind", "wind_drag_ratio", 20.0),
-        ("gradient", "gradient_percent", None),
+        ("axis_way_value_scored", "wind_drag_ratio", 20.0),
+        ("axis_way_value_signed", "gradient_percent", None),
     ],
 )
 def test_region_dedicated_way_values_returns_map_values_json(axis_id, material_id, speed_kmh):
@@ -352,7 +352,7 @@ def test_region_dedicated_way_values_returns_map_values_json(axis_id, material_i
     assert fake.last_request == (14, 14551, 6447, None, 90.0, speed_kmh)
 
 
-@pytest.mark.parametrize("material_id", ["wind", "gradient"])
+@pytest.mark.parametrize("material_id", ["axis_way_value_scored", "axis_way_value_signed"])
 def test_region_dedicated_way_values_requires_bearing_deg_query_param(material_id):
     app.dependency_overrides[get_dedicated_way_value_service] = lambda: FakeDynamicWayValueService()
 
@@ -428,13 +428,34 @@ def test_region_dedicated_way_values_unknown_axis_id_returns_404():
     assert response.status_code == 404
 
 
+# 配信のサービスは軸の名前ではなく、軸が参照する材料で引く。実際の
+# get_dedicated_way_value_serviceを通し、初めて見る名前の軸が材料だけで配信されること・
+# 配信の実装が無い材料だけを参照する軸は404になることを見る。
+@pytest.mark.parametrize(("material", "status"), [("gradient_percent", 200), ("maxspeed_kmh", 404)])
+def test_region_dedicated_way_values_resolves_the_service_by_the_axis_material(monkeypatch, material, status):
+    axis = AxisDefinition(
+        axis_id="axis_new_name",
+        shape=BreakpointLinearShape(terms=[MaterialTerm(material=material)], breakpoints=[(0.0, 0.0), (10.0, 100.0)]),
+        default_weight=0.1,
+        label="ダミー",
+        dedicated_way_value_layer=True,
+        dynamic_way_value_needs_bearing=True,
+    )
+    monkeypatch.setitem(AXIS_DEFINITIONS, "axis_new_name", axis)
+    monkeypatch.setattr(settings, "road_graph_use_repository", False)
+
+    response = client.get("/api/region/dynamic-way-values/axis_new_name/14/14551/6447", params={"bearing_deg": 0})
+
+    assert response.status_code == status
+
+
 def test_region_dedicated_way_values_wind_passes_at_query_param():
     fake = FakeDynamicWayValueService()
     app.dependency_overrides[get_dedicated_way_value_service] = lambda: fake
 
     try:
         response = client.get(
-            "/api/region/dynamic-way-values/wind/14/14551/6447",
+            "/api/region/dynamic-way-values/axis_way_value_scored/14/14551/6447",
             params={"at": "2026-08-30T09:00:00", "bearing_deg": 0, "speed_kmh": 20.0},
         )
     finally:
@@ -450,7 +471,7 @@ def test_region_dedicated_way_values_gradient_does_not_require_at_query_param():
     app.dependency_overrides[get_dedicated_way_value_service] = lambda: fake
 
     try:
-        response = client.get("/api/region/dynamic-way-values/gradient/14/14551/6447", params={"bearing_deg": 0})
+        response = client.get("/api/region/dynamic-way-values/axis_way_value_signed/14/14551/6447", params={"bearing_deg": 0})
     finally:
         app.dependency_overrides.clear()
 
@@ -463,7 +484,7 @@ def test_region_dedicated_way_values_rejects_too_low_zoom():
 
     try:
         response = client.get(
-            "/api/region/dynamic-way-values/wind/5/10/10", params={"bearing_deg": 0, "speed_kmh": 20.0}
+            "/api/region/dynamic-way-values/axis_way_value_scored/5/10/10", params={"bearing_deg": 0, "speed_kmh": 20.0}
         )
     finally:
         app.dependency_overrides.clear()
@@ -481,7 +502,7 @@ def test_region_dedicated_way_values_rate_limit_is_independent_from_road_surface
         assert client.get("/api/region/road-surface-tiles/14/14551/6447.pbf").status_code == 429
 
         response = client.get(
-            "/api/region/dynamic-way-values/wind/14/14551/6447", params={"bearing_deg": 0, "speed_kmh": 20.0}
+            "/api/region/dynamic-way-values/axis_way_value_scored/14/14551/6447", params={"bearing_deg": 0, "speed_kmh": 20.0}
         )
     finally:
         app.dependency_overrides.clear()

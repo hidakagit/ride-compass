@@ -267,8 +267,8 @@ async def test_axis_difficulties_is_distance_weighted_average_of_segments():
         {0: 30.0},
         {
             0: [
-                make_segment(1.0, 0.0, axis_difficulties={"wind": 80.0, "axis_b": 10.0}),
-                make_segment(3.0, 100.0, axis_difficulties={"wind": 20.0}),
+                make_segment(1.0, 0.0, axis_difficulties={"axis_a": 80.0, "axis_b": 10.0}),
+                make_segment(3.0, 100.0, axis_difficulties={"axis_a": 20.0}),
             ]
         },
     )
@@ -277,7 +277,7 @@ async def test_axis_difficulties_is_distance_weighted_average_of_segments():
     candidates = await generator.generate_loops(ORIGIN, distance_km=30.0, distance_tolerance_km=5.0)
 
     # wind: (80*1.0 + 20*3.0) / 4.0 = 35.0
-    assert candidates[0].axis_difficulties["wind"] == 35.0
+    assert candidates[0].axis_difficulties["axis_a"] == 35.0
     # axis_bは片方の区間にしか無いため、持つ区間だけで平均され10.0のまま
     assert candidates[0].axis_difficulties["axis_b"] == 10.0
 
@@ -334,8 +334,8 @@ async def test_axis_contributions_is_distance_weighted_average_of_segments():
         {0: 30.0},
         {
             0: [
-                make_segment(1.0, 0.0, axis_contributions={"wind": 80.0, "axis_b": 10.0}),
-                make_segment(3.0, 100.0, axis_contributions={"wind": 20.0}),
+                make_segment(1.0, 0.0, axis_contributions={"axis_a": 80.0, "axis_b": 10.0}),
+                make_segment(3.0, 100.0, axis_contributions={"axis_a": 20.0}),
             ]
         },
     )
@@ -344,7 +344,7 @@ async def test_axis_contributions_is_distance_weighted_average_of_segments():
     candidates = await generator.generate_loops(ORIGIN, distance_km=30.0, distance_tolerance_km=5.0)
 
     # wind: (80*1.0 + 20*3.0) / 4.0 = 35.0
-    assert candidates[0].axis_contributions["wind"] == 35.0
+    assert candidates[0].axis_contributions["axis_a"] == 35.0
     # axis_bは片方の区間にしか無いため、持つ区間だけで平均され10.0のまま
     assert candidates[0].axis_contributions["axis_b"] == 10.0
 
@@ -382,11 +382,11 @@ async def test_axis_contributions_sum_matches_overall_difficulty():
             0: [
                 make_segment(
                     1.0, 60.0,
-                    axis_contributions={"wind": 40.0, "axis_b": 20.0},
+                    axis_contributions={"axis_a": 40.0, "axis_b": 20.0},
                 ),
                 make_segment(
                     3.0, 30.0,
-                    axis_contributions={"wind": 10.0, "axis_b": 20.0},
+                    axis_contributions={"axis_a": 10.0, "axis_b": 20.0},
                 ),
             ]
         },
@@ -476,13 +476,13 @@ async def test_generate_via_waypoints_also_aggregates_axis_difficulties():
     # 呼ぶ配線の検証）。
     engine = SegmentedFakeEngine(
         {None: 12.0},
-        {None: [make_segment(2.0, 0.0, axis_difficulties={"wind": 40.0})]},
+        {None: [make_segment(2.0, 0.0, axis_difficulties={"axis_a": 40.0})]},
     )
     generator = RouteGenerator(engine)
 
     candidates = await generator.generate_via_waypoints(ORIGIN, waypoints=[WAYPOINT_A], distance_km=10.0)
 
-    assert candidates[0].axis_difficulties == {"wind": 40.0}
+    assert candidates[0].axis_difficulties == {"axis_a": 40.0}
 
 
 async def test_generate_via_waypoints_also_aggregates_axis_contributions():
@@ -491,13 +491,13 @@ async def test_generate_via_waypoints_also_aggregates_axis_contributions():
     # 呼ぶ配線の検証）。
     engine = SegmentedFakeEngine(
         {None: 12.0},
-        {None: [make_segment(2.0, 0.0, axis_contributions={"wind": 40.0})]},
+        {None: [make_segment(2.0, 0.0, axis_contributions={"axis_a": 40.0})]},
     )
     generator = RouteGenerator(engine)
 
     candidates = await generator.generate_via_waypoints(ORIGIN, waypoints=[WAYPOINT_A], distance_km=10.0)
 
-    assert candidates[0].axis_contributions == {"wind": 40.0}
+    assert candidates[0].axis_contributions == {"axis_a": 40.0}
 
 
 # 基準線ルート（好みの重みをすべて0にしたときの経路＝所要時間が最短の経路）。
@@ -684,8 +684,8 @@ async def test_evaluate_loops_returning_a_different_count_is_rejected():
 async def test_generate_spliced_route_runs_the_same_aggregation_as_other_candidates():
     # 構造仕様10: 合成結果も既存候補と同じ評価経路を通す（前半・後半の値を混ぜない）。
     engine = SegmentedFakeEngine({}, {None: [
-        make_segment(12.0, 40.0, axis_difficulties={"gradient": 30.0}),
-        make_segment(8.0, 60.0, axis_difficulties={"gradient": 80.0}),
+        make_segment(12.0, 40.0, axis_difficulties={"axis_a": 30.0}),
+        make_segment(8.0, 60.0, axis_difficulties={"axis_a": 80.0}),
     ]})
     generator = RouteGenerator(engine)
 
@@ -695,4 +695,4 @@ async def test_generate_spliced_route_runs_the_same_aggregation_as_other_candida
 
     # 距離加重平均: 総合 (40*12+60*8)/20、軸別 (30*12+80*8)/20
     assert candidates[0].overall_difficulty == pytest.approx(48.0)
-    assert candidates[0].axis_difficulties["gradient"] == pytest.approx(50.0)
+    assert candidates[0].axis_difficulties["axis_a"] == pytest.approx(50.0)

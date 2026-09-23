@@ -18,7 +18,7 @@ from app.api.admin_auth import require_admin_basic_auth
 from app.api.dependencies import get_road_graph_repository
 from app.infrastructure.road_graph_repository import RoadGraphRepository
 from app.services.axis_preview_service import axis_raw_value_distribution
-from app.api.dependencies import get_axis_registry_admin_service, implemented_dedicated_way_value_axis_ids
+from app.api.dependencies import get_axis_registry_admin_service, served_dedicated_way_value_material
 from app.domain.axis_definitions import (
     AXIS_DEFINITIONS,
     REQUEST_DYNAMIC_MATERIAL_IDS,
@@ -114,21 +114,21 @@ class AxisDefinitionPayload(AxisDefinition):
 
     @model_validator(mode="after")
     def _check_dedicated_layer_is_implemented(self) -> "AxisDefinitionPayload":
-        """`dedicated_way_value_layer`は配信の実装があるaxis_idにだけ立てられる。
+        """`dedicated_way_value_layer`は、配信の実装がある材料をちょうど1つ参照する軸にだけ立てられる。
 
         way_id→値の配信はPythonのサービス本体（`api/dependencies.py`の
-        `_DEDICATED_WAY_VALUE_SERVICES`）が必要で、軸スタジオでの宣言だけでは
+        `_DEDICATED_WAY_VALUE_SERVICES`、材料ごとに1つ）が必要で、軸スタジオでの宣言だけでは
         配信できる値が無い。宣言だけを通すと、その軸のタイル要求が実装の無いまま
         呼ばれ続ける（配信側は404を返すため表示は壊れないが、地図に出ない軸の宣言が
         残り続けて「宣言したのに出ない」原因が分からなくなる）。
         """
         if not self.dedicated_way_value_layer:
             return self
-        implemented = implemented_dedicated_way_value_axis_ids()
-        if self.axis_id not in implemented:
+        materials = referenced_materials(self.shape, self.priority_overrides)
+        if served_dedicated_way_value_material(materials) is None:
             raise ValueError(
-                f"dedicated_way_value_layer requires a registered delivery implementation for "
-                f"axis_id '{self.axis_id}' (implemented: {sorted(implemented)})"
+                "dedicated_way_value_layer requires the axis to reference exactly one material with a "
+                f"registered delivery implementation (axis '{self.axis_id}' references {materials})"
             )
         return self
 

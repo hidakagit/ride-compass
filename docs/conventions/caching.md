@@ -204,9 +204,9 @@ await set_json(key, payload, ttl_seconds=TTL, category="cache:xxx")
 
 例外に当たる場合も、原則3（失敗の記録）と原則2（fail-open）は必ず満たす。
 
-**移行中の状態**: 既存の`jma_tile_redis_cache`・`dynamic_way_value_cache`は共通骨格が
-できる前に書かれたもので、各自の実装のまま動いている（[T644](../records/tasks/T644.md)で順次移行
-する）。**これらを新しいキャッシュのお手本にしない。**
+**移行中の状態**: 既存の`jma_tile_redis_cache`は共通骨格が
+できる前に書かれたもので、自前の実装のまま動いている（[T644](../records/tasks/T644.md)で順次移行
+する）。**これを新しいキャッシュのお手本にしない。**
 
 ## TTLの決め方
 

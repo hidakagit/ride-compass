@@ -357,9 +357,9 @@
   参照する材料も含める**。動的軸かどうかを判定する`_axes_depending_on_materials`が
   同じ導出を根拠にしているため、検証側だけ`shape.terms`に絞ると素通りした軸が実行時に落ちる。
 - `dedicated_way_value_layer`を立てられるのは、フィーチャー→値配信の実装
-  （`api/dependencies.py`の`_DEDICATED_WAY_VALUE_SERVICE_FACTORIES`）が登録済みの
-  `axis_id`だけ。宣言だけでは配信できる値が無い（配信側は実装の無い材料を未知の
-  `material_id`と同じく404で返す）。
+  （`api/dependencies.py`の`_DEDICATED_WAY_VALUE_SERVICE_FACTORIES`、材料ごとに登録）がある
+  材料を**ちょうど1つ**参照する軸だけ（軸の名前は問わない）。宣言だけでは配信できる値が無い
+  （配信側はそういう軸を未知の`axis_id`と同じく404で返す）。
 
 ### 書き込み時のガード（`AxisRegistryAdminService`）
 

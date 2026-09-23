@@ -11,10 +11,6 @@
 
 個々のテストがここの値を直接アサートすることは想定しない——値そのものを見たいテストは、
 そのファイル内で必要な性質だけを持つ軸を組み立てる。
-
-`wind`・`gradient`だけidが本番と同じなのは、実装がその名前で担当を宣言しているため
-（`services/wind_way_service.py: axis_id`）。名前で結ぶのをやめる作業は
-`docs/records/tasks/T1002.md`。
 """
 
 from contextlib import contextmanager
@@ -30,8 +26,8 @@ from app.domain.axis_definitions import (
 FIXTURE_AXIS_DEFINITIONS: dict[str, AxisDefinition] = {
     # 専用way値配信を持つ軸。needs_*の組み合わせが違う2本を置き、
     # 「要求が揃っていない呼び出しを落とす」経路を両方通す。
-    "wind": AxisDefinition(
-        axis_id="wind",
+    "axis_way_value_scored": AxisDefinition(
+        axis_id="axis_way_value_scored",
         shape=BreakpointLinearShape(
             terms=[MaterialTerm(material="wind_drag_ratio")],
             breakpoints=[(-1.0, 0.0), (0.0, 20.0), (4.0, 100.0)],
@@ -46,8 +42,8 @@ FIXTURE_AXIS_DEFINITIONS: dict[str, AxisDefinition] = {
         dynamic_way_value_needs_bearing=True,
         dynamic_way_value_needs_speed=True,
     ),
-    "gradient": AxisDefinition(
-        axis_id="gradient",
+    "axis_way_value_signed": AxisDefinition(
+        axis_id="axis_way_value_signed",
         shape=BreakpointLinearShape(
             terms=[MaterialTerm(material="gradient_percent")],
             preprocess="abs",
