@@ -132,6 +132,19 @@ const ROUTE_OUTCOME_SHEET_TITLE_ID = "route-outcome-sheet-title";
 
 type MobileSheet = "routeSettings" | "routeOutcome" | null;
 
+/** ルート生成の進み方。同時に成り立つのは1つだけ。 */
+type Generation =
+  { status: "idle"; message: string | null } | { status: "running"; progress: GenerationProgress | null };
+const GENERATION_IDLE: Generation = { status: "idle", message: null };
+
+/** 区間の乗り換えの進み方。 */
+type SpliceTask = { status: "idle"; error: string | null } | { status: "previewing" } | { status: "applying" };
+const SPLICE_IDLE: SpliceTask = { status: "idle", error: null };
+
+function spliceFailureMessage(error: unknown): string {
+  return error instanceof Error ? error.message : "組み合わせたルートの評価に失敗しました";
+}
+
 /** 1グループが持てる選択肢の数。`spliceFeatureIndex`がこの位取りでグループと選択肢の位置を
  *  1つの数へ畳むため、**超えると隣のグループの選択肢として引き戻される**（例外も表示の乱れも出ず、
  *  黙って別の区間へ乗り換わる）。候補は生成数の上限（画面で最大8件）で決まるため実際には
@@ -174,17 +187,16 @@ export default function Home() {
   // 編集中の元ルート。nullなら「ルート結果」は通常の一覧、非nullなら同じ場所が編集面に
   // なる（独立したタブにすると、どのルートを編集しているのかを選び直す形になる）。
   const [editingRouteId, setEditingRouteId] = useState<string | null>(null);
-  const [splicing, setSplicing] = useState(false);
+  // 区間の乗り換えの処理。評価（差分を見る）と適用（新しいルートを作る）は同時に走らない。
+  // 失敗は「ルート結果」欄の空状態には出ない（候補がある間は描かれない）ため、押した場所＝
+  // 編集パネルに出す。
+  const [spliceTask, setSpliceTask] = useState<SpliceTask>(SPLICE_IDLE);
   // 「新しいルートを作る」の実行中フラグ。stateと違い同じタスク内で即座に読めるため、
   // 連打の2回目をここで止める。
   const applyingRef = useRef(false);
   // 「差分を見る」で評価した結果。組み合わせをキーに覚える——選び直して戻ったときに
   // 投げ直さない（生成APIは1分10回の上限があり、評価自体も温で1秒前後かかる）。
   const [splicePreviews, setSplicePreviews] = useState<Record<string, RouteCandidate>>({});
-  const [previewing, setPreviewing] = useState(false);
-  // 合成の失敗は「ルート結果」欄の空状態には出ない（候補がある間は描かれない）。
-  // 押した場所＝編集パネルに出す。
-  const [spliceError, setSpliceError] = useState<string | null>(null);
   // 地図上でクリックされた区間（MapView.tsx: handleRouteSegmentClickがクリック地点の
   // 座標とともに設定するcontrolled state）。non-nullの間、「ルート結果」タブはルート
   // 全体の内訳の代わりにこの区間の内訳を表示する（下記renderRouteOutcomeSectionBody
@@ -204,13 +216,11 @@ export default function Home() {
   // 使えない。この状態は生成成功時にtrue、「ルート結果」タブを開いたらfalseにする
   // （handleGenerate/handleMobileTabClick参照）。
   const [hasUnseenResults, setHasUnseenResults] = useState(false);
-  const [loading, setLoading] = useState(false);
-  // ルート生成のバックグラウンドジョブ化に伴う進捗表示。生成中(loading)の間だけ意味を
-  // 持ち、待ち(queued)/実行中(running)の別と経過時間をボタン文言へ反映する
-  // （下のgenerationProgressLabel参照）。生成開始直後・完了直後はnull
-  // （queued/runningのどちらかが確定するまでの一瞬はloadingのみでラベルを出さない）。
-  const [generationProgress, setGenerationProgress] = useState<GenerationProgress | null>(null);
-  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  // ルート生成。実行中は待ち(queued)/実行中(running)の別と経過時間をボタン文言へ出し
+  // （progressはどちらかが確定するまでnull）、終わった後は直近の案内（候補0件の理由・失敗の
+  // 文言）を「ルート結果」欄に残す。
+  const [generation, setGeneration] = useState<Generation>(GENERATION_IDLE);
+  const loading = generation.status === "running";
 
   // 地図クリックで指定する経由地（起点→経由地1→...→起点の順で通過する単一経路を
   // 生成する）。指定があれば周回探索は行わない（handleGenerate参照）。
@@ -559,12 +569,13 @@ export default function Home() {
   const splicePreview = splicePreviews[spliceChoiceKey] ?? null;
   // 地図の帯をタップしたら、その道へ乗り換える。次に選べる区間はこの結果から求め直すため、
   // 乗り換えた先の道の上にある分かれ道がそのまま次の帯になる。
+  const clearSpliceError = () => setSpliceTask((current) => (current.status === "idle" ? SPLICE_IDLE : current));
   const handleSpliceStretchSelect = useCallback(
     (index: number) => {
       const option =
         spliceGroups[Math.floor(index / SPLICE_OPTIONS_PER_GROUP)]?.options[index % SPLICE_OPTIONS_PER_GROUP];
       if (!option) return;
-      setSpliceError(null);
+      clearSpliceError();
       setAppliedAlternatives((current) => [...current, option]);
     },
     [spliceGroups],
@@ -785,10 +796,10 @@ export default function Home() {
     // 変えてから合成したときに、その1本だけ別条件で評価された候補が同じ並びへ入る。
     const generatedInput = generatedConditions?.input;
     if (!generatedInput) return null;
-    const { routes: candidates } = await generateRoutes(
-      { ...buildGenerateRequest(generatedInput), spliced_edge_ids: splicedShape.edgeIds },
-      setGenerationProgress,
-    );
+    const { routes: candidates } = await generateRoutes({
+      ...buildGenerateRequest(generatedInput),
+      spliced_edge_ids: splicedShape.edgeIds,
+    });
     const spliced = candidates[0] ?? null;
     if (spliced) setSplicePreviews((current) => ({ ...current, [spliceChoiceKey]: spliced }));
     return spliced;
@@ -797,17 +808,13 @@ export default function Home() {
   // 作る前に「この組み合わせにすると何がどう変わるか」を見る。評価はbackendでしか出せない
   // （Edgeコストは探索と表示で同じ値を共有する、構造仕様10）ため、押したときだけ投げる。
   async function handlePreviewSplice() {
-    if (!editingRoute || appliedAlternatives.length === 0 || previewing) return;
-    setPreviewing(true);
-    setSpliceError(null);
+    if (!editingRoute || appliedAlternatives.length === 0 || spliceTask.status === "previewing") return;
+    setSpliceTask({ status: "previewing" });
     try {
       const spliced = await evaluateSplicedRoute();
-      if (!spliced) setSpliceError("組み合わせたルートを評価できませんでした");
+      setSpliceTask(spliced ? SPLICE_IDLE : { status: "idle", error: "組み合わせたルートを評価できませんでした" });
     } catch (error) {
-      setSpliceError(error instanceof Error ? error.message : "組み合わせたルートの評価に失敗しました");
-    } finally {
-      setPreviewing(false);
-      setGenerationProgress(null);
+      setSpliceTask({ status: "idle", error: spliceFailureMessage(error) });
     }
   }
 
@@ -824,13 +831,12 @@ export default function Home() {
     const generatedInput = generatedConditions?.input;
     if (!generatedInput) return;
     applyingRef.current = true;
-    setSplicing(true);
-    setErrorMessage(null);
-    setSpliceError(null);
+    setSpliceTask({ status: "applying" });
+    setGeneration((current) => (current.status === "idle" ? GENERATION_IDLE : current));
     try {
       const spliced = await evaluateSplicedRoute();
       if (!spliced) {
-        setSpliceError("組み合わせたルートを評価できませんでした");
+        setSpliceTask({ status: "idle", error: "組み合わせたルートを評価できませんでした" });
         return;
       }
       // 区間を全部その候補の道へ乗り換えると、出来上がりは既存の候補そのものになる。
@@ -849,20 +855,18 @@ export default function Home() {
       setSelectedRouteSegment(null);
       // 同じ場所が結果の一覧へ戻り、作ったルートが選ばれた状態で並ぶ。
       setEditingRouteId(null);
+      setSpliceTask(SPLICE_IDLE);
       notifyRouteOutcome();
     } catch (error) {
-      setSpliceError(error instanceof Error ? error.message : "組み合わせたルートの評価に失敗しました");
+      setSpliceTask({ status: "idle", error: spliceFailureMessage(error) });
     } finally {
       applyingRef.current = false;
-      setSplicing(false);
-      setGenerationProgress(null);
     }
   }
 
   async function handleGenerate(distanceKm: number) {
-    setLoading(true);
-    setGenerationProgress(null);
-    setErrorMessage(null);
+    setGeneration({ status: "running", progress: null });
+    let message: string | null = null;
     try {
       // 送るpayloadとdirty判定の比較キーを同じ入力から導出する（lib/generationRequest.ts）。
       // 候補数はステッパー（‹/›）操作のみで変更でき、1〜MAX_ROUTES範囲の整数文字列以外には
@@ -872,7 +876,9 @@ export default function Home() {
         routes: candidates,
         conditions,
         noCandidatesReason,
-      } = await generateRoutes(buildGenerateRequest(generationInput), setGenerationProgress);
+      } = await generateRoutes(buildGenerateRequest(generationInput), (progress) =>
+        setGeneration({ status: "running", progress }),
+      );
       // backendが目的地をアクセス可能な最寄り地点へ補正した場合、地図上のピンも実際に
       // 使われた地点へ合わせる（そのままだと地図のピン位置と生成されたルートの終点が
       // ずれて見える）。
@@ -913,9 +919,7 @@ export default function Home() {
       if (candidates.length === 0) {
         // バックエンドが原因を特定できた場合はそれを表示する（routeApi.ts:
         // generateRoutes参照）。特定できない場合のみ汎用文言。
-        setErrorMessage(
-          noCandidatesReason ?? "条件に合うルート候補が見つかりませんでした。距離を変えて試してください。",
-        );
+        message = noCandidatesReason ?? "条件に合うルート候補が見つかりませんでした。距離を変えて試してください。";
         notifyRouteOutcome();
       } else if (researchEnabled) {
         // 実験スロットへの記録は研究モード中の生成のみ（研究用機能を一般ユーザーの
@@ -938,16 +942,14 @@ export default function Home() {
         });
       }
     } catch (error) {
-      const message = error instanceof Error ? error.message : "不明なエラーが発生しました";
+      message = error instanceof Error ? error.message : "不明なエラーが発生しました";
       // generateRoutes（routeApi.ts: postJson）自体の失敗は既にそちらでdebugLog記録済みだが、
       // ここに来る他の例外（候補構築中の想定外エラー等）も含め、ルート生成ハンドラの失敗として
       // ここでも記録する（多層防御）。
       debugLog("api:route", "ルート生成ハンドラで例外", { error: message }, "error");
-      setErrorMessage(message);
       notifyRouteOutcome();
     } finally {
-      setLoading(false);
-      setGenerationProgress(null);
+      setGeneration({ status: "idle", message });
     }
   }
 
@@ -968,6 +970,7 @@ export default function Home() {
   // 「ルート生成」ボタン（page.tsx「ルート設定」見出し行）の文言。queued（同時実行数
   // 上限で順番待ち）とrunning（経過時間つき）を区別する。nullの間は
   // 既定文言（「生成中...」）に委ねる。
+  const generationProgress = generation.status === "running" ? generation.progress : null;
   const generationProgressLabel =
     generationProgress?.status === "queued"
       ? "順番待ち..."
@@ -1059,7 +1062,7 @@ export default function Home() {
     if (loading) {
       return <p className={styles.emptyHint}>{generationProgressLabel ?? "生成中..."}</p>;
     }
-    const failure = routeFormSubmit.error ?? errorMessage;
+    const failure = routeFormSubmit.error ?? (generation.status === "idle" ? generation.message : null);
     if (failure) {
       return <ErrorText>{failure}</ErrorText>;
     }
@@ -1105,7 +1108,7 @@ export default function Home() {
               // 抜ける導線を通らない。
               setAppliedAlternatives([]);
               setSplicePreviews({});
-              setSpliceError(null);
+              clearSpliceError();
               // 区間詳細（赤ピン）の置き場は候補タブの中身で、編集中はそこが編集面へ
               // 置き換わる。選択を残すと地図にピンだけが残り、消す導線も無くなる。
               setSelectedRouteSegment(null);
@@ -1394,26 +1397,26 @@ export default function Home() {
         onCancel={() => {
           setEditingRouteId(null);
           setAppliedAlternatives([]);
-          setSpliceError(null);
+          clearSpliceError();
         }}
         appliedCount={appliedAlternatives.length}
         hasAlternatives={spliceStretchFeatures.length > 0}
         onUndo={() => {
-          setSpliceError(null);
+          clearSpliceError();
           setAppliedAlternatives((current) => current.slice(0, -1));
         }}
         onReset={() => {
-          setSpliceError(null);
+          clearSpliceError();
           setAppliedAlternatives([]);
         }}
         preview={splicePreview}
-        previewing={previewing}
+        previewing={spliceTask.status === "previewing"}
         onPreview={handlePreviewSplice}
         onApply={handleApplySplice}
         axes={axisCatalog.axes}
         axisColors={axisCatalog.axisColors}
-        error={spliceError}
-        applying={splicing}
+        error={spliceTask.status === "idle" ? spliceTask.error : null}
+        applying={spliceTask.status === "applying"}
       />
     );
   }
