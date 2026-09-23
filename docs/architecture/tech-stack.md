@@ -162,11 +162,14 @@ CIと`docker-compose.yml`も上げる。** CIが本番と違う版で合否を�
   たびにその時点の最新、本番はVMでaptを更新した時点の版）。本番の実際の版は
   `backend/scripts/run_probe.py --in-container`で`SELECT version()`・`postgis_full_version()`を
   引いて確かめる。CIの版は実行ごとの注釈（`DB`）に出る。
-- **DB側のGEOS・PROJ（PostGISの空間演算・座標変換を担う）は、本番ではUbuntu 24.04本体の
-  アーカイブの版**で、PGDGが配る新しい版ではない。PGDGの`postgresql-18-postgis-3`はどちらでも
-  入るため、何も指定しないとCIだけ新しい版になる（PostgreSQL・PostGISが同じでもGEOSのマイナーが
-  2つ違った）。CIは`/noble`でUbuntu本体の版を指定して入れる。**本番のGEOS・PROJを入れ替えたら
-  （VMでPGDGの版へ上げる等）、この指定も同じ変更で外す。**
+- **DB側のGEOS・PROJ（PostGISの空間演算・座標変換を担う）も、本番・CIともPGDGの版**
+  （`libgeos-c1t64`・`libproj25`・`proj-data`）。Ubuntu本体のアーカイブにも同じパッケージ名の
+  古い版があり、PGDGの`postgresql-18-postgis-3`はどちらでも入る。**本番でaptを更新すると
+  GEOS・PROJも進む**——CIは実行のたびにPGDGの最新を入れるので、本番のaptを長く止めると
+  CIだけが先へ進む。本番の実際の版はCIの注釈`DB`と同じ関数（`postgis_full_version()`）で読める。
+- 開発機（Windows）は別の配布物で、版が揃わない（PostgreSQL 18.6・PostGIS 3.6.2・
+  GEOS 3.14.1dev・PROJ 8.2.1。2026-09-23）。GEOS・PROJの挙動差が効く検査（土地被覆の帯の形等）は
+  CIで判定する。
 - **CIのbackendジョブは本番と同じaarch64で動かす。** `postgis/postgis`のイメージはamd64しか
   配っていない（Docker Hubの説明の「Supported architecture」）ため、arm64のランナーでは
   サービスコンテナにできず、ランナーへ直接入れている。GitHubの標準ランナーのarm64は、

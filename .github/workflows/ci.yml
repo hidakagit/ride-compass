@@ -45,17 +45,15 @@ jobs:
       DATABASE_URL: postgresql+asyncpg://ridecompass:ridecompass@localhost:5432/ridecompass_test
     steps:
       - uses: actions/checkout@v5
-      # 本番と同じ配布元（PostgreSQL公式のaptリポジトリ）から同じパッケージを入れる。
+      # 本番と同じ配布元（PostgreSQL公式のaptリポジトリ）から同じパッケージを入れる。GEOS・PROJも
+      # PGDGの版（本番もPGDGの版を使っている）。
       # postgis/postgisのイメージはamd64しか配っていないため、arm64ではサービスコンテナにできない。
-      # PGDGはGEOS・PROJの新しい版も配っており、そのままでは本番（Ubuntu本体の版を使っている）より
-      # 新しいものが入る。`/noble`でUbuntu本体のアーカイブから入れる。
       # ランナーに入っている別の版のクラスタは5432番を塞ぐため、先に落とす。
       - name: PostgreSQL + PostGIS（本番と同じ版）
         run: |
           pg_lsclusters -h | while read -r ver name _; do sudo pg_dropcluster --stop "$ver" "$name"; done
           sudo /usr/share/postgresql-common/pgdg/apt.postgresql.org.sh -y
-          sudo apt-get install -y --no-install-recommends postgresql-18 postgresql-18-postgis-3 \
-            libgeos-c1t64/noble libproj25/noble proj-data/noble
+          sudo apt-get install -y --no-install-recommends postgresql-18 postgresql-18-postgis-3
           sudo pg_ctlcluster 18 main start
           sudo -u postgres psql -v ON_ERROR_STOP=1 -c "CREATE ROLE ridecompass LOGIN SUPERUSER PASSWORD 'ridecompass'"
           sudo -u postgres createdb -O ridecompass ridecompass_test
