@@ -173,11 +173,6 @@ def main() -> int:
     parser.add_argument("--remote", default="origin", help="pushするリモート名またはURL")
     parser.add_argument("--attempts", type=int, default=10, help="pushの最大試行回数")
     args = parser.parse_args()
-    try:
-        sys.stdout.reconfigure(encoding="utf-8")
-        sys.stderr.reconfigure(encoding="utf-8")
-    except AttributeError:
-        pass
 
     if not SIZE_RE.match(args.size):
         print(f"規模「{args.size}」は S・M・L か S〜M の形で指定する", file=sys.stderr)
@@ -220,4 +215,6 @@ def main() -> int:
 
 
 if __name__ == "__main__":
+    sys.stdout.reconfigure(encoding="utf-8")
+    sys.stderr.reconfigure(encoding="utf-8")
     sys.exit(main())
