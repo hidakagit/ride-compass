@@ -27,6 +27,7 @@ describe("mapLayers（改善計画T440: axis_idハードコード比較の撤去
     const withoutAxes = new Set(buildMapLayers([], []).map((layer) => layer.id));
     const added = buildMapLayers([], DEDICATED_WAY_VALUE_AXES).filter((layer) => !withoutAxes.has(layer.id));
     expect(added).toHaveLength(DEDICATED_WAY_VALUE_AXES.length);
+    expect(added).not.toHaveLength(0);
     for (const descriptor of added) expect(isAxisStudioLayer(descriptor)).toBe(true);
   });
 
