@@ -189,6 +189,7 @@ def _weather_element_entry(element: WeatherElement) -> dict:
         "group": element.group,
         "source": element.source,
         "kind": element.kind,
+        "label": element.label,
         # 時刻の段の順（近い時刻から）。画面のデータ層は、配信元のURLを要素idと系統から、
         # 時刻一覧のURLを系統とファイル名から組み立てる。
         "jmaElements": [

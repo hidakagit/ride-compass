@@ -66,19 +66,6 @@ const RISK_MAP_REFRESH_INTERVAL_MS = 10 * 60 * 1000;
 // 大雨のおそれ」という予報の意味そのものに合わせる。
 const LINEAR_RAINBAND_WINDOW_MS = 3 * 60 * 60 * 1000;
 
-// 「今」を進める刻み。出発時刻として選べる値そのものが5分刻みのため
-// （RideConditionBar/departureTimeline.ts）、これより細かく進めてもどのレイヤーが選ぶ
-// フレームも変わらないまま、共有時刻をキーに持つ取得（useDedicatedWayValues）だけが
-// 無効化される。
-const NOW_STEP_MS = 5 * 60 * 1000;
-// 刻みの境界を跨いだかを見に行く間隔。刻みそのものより短くないと境界を跨ぎ越す。
-const NOW_POLL_INTERVAL_MS = 30 * 1000;
-
-/** 現在時刻を刻みへ丸めたもの。 */
-function steppedNow(): Date {
-  return new Date(Math.floor(Date.now() / NOW_STEP_MS) * NOW_STEP_MS);
-}
-
 const EMPTY_RISK_FRAMES: DynamicWeatherFrame<RiskFrameRef>[] = [];
 const EMPTY_CURRENT_RISK_FRAMES: CurrentRiskFrames = {
   land: EMPTY_RISK_FRAMES,
@@ -103,6 +90,10 @@ interface UseDynamicWeatherLayersOptions {
    * 全要素が非表示になった系統はフェッチ自体も行わない（「表示中のものだけ叩く」方針）。 */
   hiddenDisasterSources: readonly string[];
   mapViewport: MapViewport | null;
+  /** 表示する時刻（出発時刻）と、刻みへ丸めた現在時刻（`useDepartureTime`）。各レイヤーは
+   * `at`に対応する自分のフレームを描く（刻みはレイヤーごとに違ってよい）。 */
+  at: Date;
+  now: Date;
 }
 
 interface UseDynamicWeatherLayersResult {
@@ -117,17 +108,6 @@ interface UseDynamicWeatherLayersResult {
    * ソースイベントは外部フェッチの待ち時間・失敗を観測できない（GeoJSON/ラスタ/ベクタの
    * いずれの`kind`でも、フェッチ自体はこのフックの外の世界で完結している）。 */
   dynamicWeatherDataStatus: Partial<Record<DynamicWeatherLayerId, LayerDataStatus>>;
-  /** 共有時刻を任意の時刻へ設定する（条件バーの出発時刻）。 */
-  setDynamicLayerTargetTime: (time: Date) => void;
-  /** 共有時刻を「今」への追従へ戻す（現在時刻でピン留めするのとは別）。 */
-  handleDynamicLayerNow: () => void;
-  /** 利用者が出発時刻を明示的に選んでいるか。falseの間の共有時刻は「今」に張り付いて
-   * 時間の経過とともに進むため、利用者が決めた条件としては扱えない
-   * （`lib/generationRequest.ts`の比較キー参照）。 */
-  departureTimePinned: boolean;
-  /** 評価軸グループの風（専用way値配信、backend API）が同じ[時刻]を共有するために
-   * 公開する共有時刻そのもの（`at`クエリパラメータに使う）。 */
-  dynamicLayerTargetTime: Date;
 }
 
 /** 動的気象レイヤー（降水ナウキャスト・風/延長降水予報・雷/竜巻ナウキャスト・キキクル）の
@@ -138,33 +118,13 @@ export function useDynamicWeatherLayers({
   visibility,
   hiddenDisasterSources,
   mapViewport,
+  at: dynamicLayerTargetTime,
+  now,
 }: UseDynamicWeatherLayersOptions): UseDynamicWeatherLayersResult {
   const showWindVector = visibility.windVector;
   const showPrecipitationNowcast = visibility.precipitationNowcast;
   // 災害チップ（雷・竜巻・落雷・キキクル等をまとめた1グループ）。
   const showDisaster = visibility.disaster;
-  // 動的気象レイヤーが指す対象時刻。各レイヤーはこの1点に対応する自分のフレームを
-  // 描画する（刻みはレイヤーごとに違ってよい——降水ナウキャストは5分、格子予報は1時間）。
-  // 「今」は時間の経過とともに進む。止まったままだと、実況由来のフレーム列は先頭が
-  // 前進するのに（jmaNowcastFrames.ts: trimToCurrentAndFuture）共有時刻だけが取り残され、
-  // frameIndexForTimeが範囲外を返して降水・雷・竜巻・雷放電が黙って描画を止める。
-  const [now, setNow] = useState(steppedNow);
-  // 利用者が出発時刻を選んだらその時刻を保つ（意図して決めた値を勝手に動かさない、
-  // docs/architecture/design-principles.md）。nullの間は「今」へ張り付き、「今」ボタンで張り付きへ戻る。
-  const [pinnedTargetTime, setPinnedTargetTime] = useState<Date | null>(null);
-  const dynamicLayerTargetTime = pinnedTargetTime ?? now;
-
-  useEffect(() => {
-    const timer = window.setInterval(() => {
-      setNow((previous) => {
-        const next = steppedNow();
-        return next.getTime() === previous.getTime() ? previous : next;
-      });
-    }, NOW_POLL_INTERVAL_MS);
-    return () => window.clearInterval(timer);
-  }, []);
-
-  const setDynamicLayerTargetTime = useCallback((time: Date) => setPinnedTargetTime(time), []);
 
   // 災害グループの1ソースを表示するか（チップがONで、▶パネルで非表示に選ばれていない）。
   const showDisasterSource = useCallback(
@@ -306,11 +266,6 @@ export function useDynamicWeatherLayers({
     inundation: inundationFramesList,
     flood: floodFramesList,
   } = currentRiskFrames;
-
-  const handleDynamicLayerNow = useCallback(() => {
-    setNow(steppedNow());
-    setPinnedTargetTime(null);
-  }, []);
 
   // 選択中の共有時刻（dynamicLayerTargetTime）に対応する各要素のペイロード。該当時刻が
   // その要素のデータ範囲外なら描画しない（frameIndexForTimeがnullを返す、「該当時間データが
@@ -540,9 +495,5 @@ export function useDynamicWeatherLayers({
   return {
     dynamicWeather,
     dynamicWeatherDataStatus,
-    setDynamicLayerTargetTime,
-    handleDynamicLayerNow,
-    departureTimePinned: pinnedTargetTime !== null,
-    dynamicLayerTargetTime,
   };
 }

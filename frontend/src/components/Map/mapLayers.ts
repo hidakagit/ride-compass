@@ -114,6 +114,10 @@ interface ReadOnlyLegendBlock {
  * 式自体に意味が無く、一致しない式を入れてある。 */
 export const UNUSED_LEGEND_FILTER: unknown[] = ["==", 1, 0];
 
+function readOnlyEntries(levels: readonly Omit<LegendEntry, "filter">[]): LegendEntry[] {
+  return levels.map((level) => ({ ...level, filter: UNUSED_LEGEND_FILTER }));
+}
+
 /** そのレイヤーの絵がどこから来るか。
  *
  * 取得状態（読み込み中・空・失敗）の算出はここから導く。同じタイルを読むレイヤーが
@@ -477,7 +481,7 @@ export function buildMapLayers(
       readOnlyLegend: [
         {
           label: "",
-          legend: PRECIPITATION_INTENSITY_LEVELS.map((level) => ({ ...level, filter: UNUSED_LEGEND_FILTER })),
+          legend: readOnlyEntries(PRECIPITATION_INTENSITY_LEVELS),
         },
         {
           label: "線状降水帯予測マップ（現在〜3時間先のみ）",
@@ -532,7 +536,7 @@ export function buildMapLayers(
       readOnlyLegend: [
         {
           label: "矢印（風速）",
-          legend: WIND_SPEED_LEGEND_LEVELS.map((level) => ({ ...level, filter: UNUSED_LEGEND_FILTER })),
+          legend: readOnlyEntries(WIND_SPEED_LEGEND_LEVELS),
         },
       ],
       dataSource: "ownFetch",
@@ -604,6 +608,12 @@ export function buildMapLayers(
         "した現在の危険度で、「現在の危険度」単一値のみの配信のため時刻スライダーには連動" +
         "しません。平常時は危険度ゼロの領域が透明のため、ONのままでも地図の見た目は" +
         "変わりません。非公式の内部APIを利用しているため、取得に失敗することがあります。",
+      // 危険度の読み方。配信元が色を焼き込んだ画像なので絞り込めない。キキクル4種は同じ段を使う。
+      readOnlyLegend: [
+        { label: "キキクル（土砂災害・大雨・浸水・洪水）", legend: readOnlyEntries(weatherScales.risk_levels) },
+        { label: "雷ナウキャスト（活動度）", legend: readOnlyEntries(weatherScales.thunder_activity) },
+        { label: "竜巻発生確度ナウキャスト", legend: readOnlyEntries(weatherScales.tornado_potential) },
+      ],
     },
     {
       id: "route",

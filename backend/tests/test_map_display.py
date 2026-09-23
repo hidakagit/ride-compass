@@ -44,6 +44,15 @@ def test_気象の要素はチップ_名前付きソース_描き方の組で一
     assert len(keys) == len(set(keys))
 
 
+def test_同じ名前付きソースの気象の要素は同じ呼び名を持つ() -> None:
+    """画面は名前付きソース1つを1行として呼ぶ。描き方違いの要素で名前が違うと、どちらを出すか決まらない。"""
+    labels: dict[tuple[str, str], str] = {}
+    for element in WEATHER_ELEMENTS:
+        assert labels.setdefault((element.group, element.source), element.label) == element.label, (
+            f"{element.group}/{element.source}"
+        )
+
+
 def test_タイルで描く気象の要素は配信元の仕様を持つ() -> None:
     """仕様が無いと画面はズーム範囲を知らずにソースを作ることになる。"""
     for element in WEATHER_ELEMENTS:

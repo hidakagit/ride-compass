@@ -1,5 +1,5 @@
 // @vitest-environment node
-// `overlayChips.ts`——地図上チップ1枚ずつの状態と、レイヤーのON/OFFから導く地図側の値。
+// `overlayChips.ts`——地図上チップ1枚ずつの状態と、レイヤーのON/OFFの保存形式。
 //
 // ここで見ないもの:
 // - チップの描き方・▶パネルの開閉 → `MapOverlayControls.test.tsx`
@@ -8,24 +8,15 @@ import { describe, expect, it } from "vitest";
 
 import {
   buildDefaultLayerVisibility,
+  buildMapLayers,
   type MapLayerDescriptor,
   type MapLayerId,
   type MapLayerVisibility,
 } from "@/components/Map/mapLayers";
-import type { SecondaryAxisSummary } from "@/components/Map/secondaryAxes";
-import type { OverlayLayerChip } from "@/components/MapOverlayControls/MapOverlayControls";
+import { DISASTER_LAYER_ID } from "@/features/map/scene/legends";
 import { mapDisplay } from "@/types/generated/mapDisplay";
-import { primaryAttributes } from "@/types/generated/primaryAttributes";
 
-import {
-  deserializeLayerVisibility,
-  hasVisibleLegendFilter,
-  layerVisibilityChanged,
-  overlayChips,
-  secondaryAxisCasingLayerIds,
-  serializeLayerVisibility,
-  versionMissingStatus,
-} from "./overlayChips";
+import { deserializeLayerVisibility, overlayChips } from "./overlayChips";
 
 const ICON = (() => null) as unknown as MapLayerDescriptor["icon"];
 
@@ -37,7 +28,7 @@ function layer(id: string, overrides: Partial<MapLayerDescriptor> = {}): MapLaye
     kind: "static",
     icon: ICON,
     dataSource: "ownFetch",
-    description: `${id}の説明`,
+    description: "",
     ...overrides,
   };
 }
@@ -45,43 +36,39 @@ function layer(id: string, overrides: Partial<MapLayerDescriptor> = {}): MapLaye
 function chipsOf(options: Partial<Parameters<typeof overlayChips>[0]> & { layers: MapLayerDescriptor[] }) {
   return overlayChips({
     visibility: {} as MapLayerVisibility,
-    dataStatus: {},
-    versionMissingLayerIds: [],
-    zoomTooWideLayerIds: [],
     hidden: {},
     screenLegends: {},
-    hasRoutes: true,
+    dataStatus: {},
+    zoomTooWideLayerIds: [],
+    versionMissingLayerIds: [],
+    catalogSettled: false,
+    hasSelectedRoute: true,
     ...options,
   });
 }
 
 const A = "layer_a" as MapLayerId;
 
-describe("チップの案内", () => {
-  it("世代が届いていないレイヤーには、ズーム不足より先に世代の案内を出す", () => {
+describe("世代が届いていないレイヤー", () => {
+  it("カタログを取りに行っている間は読み込み中として示し、「取得できない」とは言わない", () => {
     const [chip] = chipsOf({ layers: [layer(A)], versionMissingLayerIds: [A], zoomTooWideLayerIds: [A] });
-    expect(chip.notice).toBe("配信情報を取得できず表示できません");
-  });
-
-  it("ズーム不足のレイヤーには、ONかどうかに関わらずズームの案内を出す", () => {
-    const [chip] = chipsOf({ layers: [layer(A)], zoomTooWideLayerIds: [A] });
-    expect(chip.on).toBe(false);
+    expect(chip.dataStatus).toBe("loading");
     expect(chip.notice).toBe("ズームインすると表示されます");
   });
 
-  it("どちらでもなければ案内を出さない", () => {
-    expect(chipsOf({ layers: [layer(A)] })[0].notice).toBeNull();
+  it("取り終えたのに世代が無ければ失敗として示し、ズーム不足より先に理由を出す", () => {
+    const [chip] = chipsOf({
+      layers: [layer(A)],
+      versionMissingLayerIds: [A],
+      zoomTooWideLayerIds: [A],
+      catalogSettled: true,
+    });
+    expect(chip.dataStatus).toBe("error");
+    expect(chip.notice).toBe("配信情報を取得できず表示できません");
   });
 });
 
-describe("versionMissingStatus（世代が無いレイヤーの状態ドット）", () => {
-  it("カタログを取りに行っている間は読み込み中、取り終えたのに世代が無ければ失敗", () => {
-    expect(versionMissingStatus([A], false)).toEqual({ [A]: "loading" });
-    expect(versionMissingStatus([A], true)).toEqual({ [A]: "error" });
-  });
-});
-
-describe("チップの母集団", () => {
+describe("チップの母集団と押せる条件", () => {
   it("軸スタジオ由来のレイヤーはチップにしない", () => {
     const chips = chipsOf({
       layers: [layer(A), layer("dedicated", { axisStudioLayer: true }), layer("ramp", { dataNature: "composite" })],
@@ -89,93 +76,49 @@ describe("チップの母集団", () => {
     expect(chips.map((chip) => chip.id)).toEqual([A]);
   });
 
-  it("ルートにひもづくレイヤーは、候補が無い間は押せない", () => {
+  it("ルートにひもづくレイヤーは、候補を選ぶまで押せない", () => {
     const route = layer("route_like", { kind: "dynamic" });
-    expect(chipsOf({ layers: [route], hasRoutes: false })[0].disabled).toBe(true);
-    expect(chipsOf({ layers: [route], hasRoutes: true })[0].disabled).toBe(false);
+    expect(chipsOf({ layers: [route], hasSelectedRoute: false })[0].disabled).toBe(true);
+    expect(chipsOf({ layers: [route], hasSelectedRoute: true })[0].disabled).toBe(false);
   });
 });
 
 describe("チップの凡例（▶パネル）", () => {
-  const legend = [
-    { key: "k1", label: "1", color: "#111" },
-    { key: "k2", label: "2", color: "#222" },
-  ];
+  const legend = [{ key: "k1", label: "1", color: "#111" }];
 
-  it("絞り込める凡例には、いま凡例に実在する隠した鍵だけを渡す", () => {
+  it("保存先を持つ凡例には保存値をそのまま渡し、持たない凡例は隠した行を持たない", () => {
     const [chip] = chipsOf({
-      layers: [layer(A)],
+      layers: [layer(A, { readOnlyLegend: [{ label: "読み方", legend }] })],
       hidden: { saved: ["k1", "gone"] },
       screenLegends: { [A]: [{ label: "", legend, axisId: "saved" }] },
     });
-    expect(chip.legendDetails).toEqual([{ label: "", legend, hiddenKeys: ["k1"], axisId: "saved" }]);
+    expect(chip.legendDetails).toEqual([
+      { label: "読み方", legend, hiddenKeys: [] },
+      { label: "", legend, hiddenKeys: ["k1", "gone"], axisId: "saved" },
+    ]);
   });
 
-  it("保存先を持たない凡例は読み取り専用（隠した鍵を持たない）", () => {
-    const [chip] = chipsOf({ layers: [layer(A, { readOnlyLegend: [{ label: "見出し", legend }] })] });
-    expect(chip.legendDetails).toEqual([{ label: "見出し", legend, hiddenKeys: [] }]);
-  });
-});
-
-describe("hasVisibleLegendFilter（「絞り込みをすべて解除する」の対象があるか）", () => {
-  const legendDetails = [{ label: "", legend: [], hiddenKeys: ["k1"], axisId: "a" }];
-  const chip = (on: boolean, hiddenKeys: string[]): OverlayLayerChip => ({
-    id: A,
-    label: "",
-    icon: ICON,
-    on,
-    legendDetails: [{ ...legendDetails[0], hiddenKeys }],
-  });
-
-  it("ONのチップで行を隠していれば対象がある", () => {
-    expect(hasVisibleLegendFilter([chip(true, ["k1"])], [])).toBe(true);
-  });
-
-  it("OFFのチップで隠している行は、描いていないので数えない", () => {
-    expect(hasVisibleLegendFilter([chip(false, ["k1"])], [])).toBe(false);
-    expect(hasVisibleLegendFilter([chip(true, [])], [])).toBe(false);
-  });
-
-  it("レンズの凡例で隠していれば対象がある", () => {
-    expect(hasVisibleLegendFilter([], ["step-0"])).toBe(true);
+  it("災害チップには、源泉が宣言した災害の要素がすべて、宣言した名前で切り替えの行として並ぶ", () => {
+    const disaster = buildMapLayers([], []).filter((entry) => entry.id === DISASTER_LAYER_ID);
+    const [chip] = chipsOf({ layers: disaster });
+    const toggles = chip.legendDetails?.find((axis) => axis.axisId === DISASTER_LAYER_ID);
+    const declared = new Map(
+      mapDisplay.weatherElements
+        .filter((element) => element.group === DISASTER_LAYER_ID)
+        .map((element) => [element.source, element.label]),
+    );
+    expect(new Map(toggles?.legend.map((entry) => [entry.key, entry.label]))).toEqual(declared);
   });
 });
 
-describe("secondaryAxisCasingLayerIds（ramp軸の下敷き）", () => {
-  // 地図に表示レイヤーを持つ一次属性。材料として軸に使われうる。
-  const layerIds: readonly string[] = mapDisplay.layerIds;
-  const materials = primaryAttributes.map((attr) => attr.attr_id).filter((id) => layerIds.includes(id));
-  const material = materials[0] as MapLayerId;
-  const axes: SecondaryAxisSummary[] = [
-    { axisId: "x", label: "", description: "", chipLabel: "", layerId: "axis:x", primaryAttributeIds: [material] },
-    { axisId: "y", label: "", description: "", chipLabel: "", primaryAttributeIds: [material] },
-  ];
-
-  it("材料の表示レイヤーがONのramp軸だけを下敷きにする", () => {
-    expect(materials.length).toBeGreaterThan(0);
-    const visibility = buildDefaultLayerVisibility();
-    expect(secondaryAxisCasingLayerIds(axes, { ...visibility, [material]: true })).toEqual(["axis:x"]);
-    expect(secondaryAxisCasingLayerIds(axes, { ...visibility, [material]: false })).toEqual([]);
-  });
-});
-
-describe("レイヤーのON/OFFの保存と既定", () => {
+describe("レイヤーのON/OFFの保存値", () => {
   const defaults = buildDefaultLayerVisibility();
   const [someId] = Object.keys(defaults) as MapLayerId[];
 
-  it("既定から1つでも変えたら「まとめて元に戻す」の対象になる", () => {
-    expect(layerVisibilityChanged(defaults)).toBe(false);
-    expect(layerVisibilityChanged({ ...defaults, [someId]: !defaults[someId] })).toBe(true);
-  });
-
-  it("保存値のうち、いまのカタログにある鍵の真偽値だけを読み、無い鍵は既定のまま", () => {
+  it("いまのカタログにある鍵の真偽値だけを読み、無い鍵・形の合わない値は既定のまま", () => {
     const flipped = { ...defaults, [someId]: !defaults[someId] };
-    expect(deserializeLayerVisibility(serializeLayerVisibility(flipped))).toEqual(flipped);
+    expect(deserializeLayerVisibility(JSON.stringify(flipped))).toEqual(flipped);
     expect(deserializeLayerVisibility(JSON.stringify({ [someId]: "yes", unknown_layer: true }))).toEqual(defaults);
-  });
-
-  it("形の合わない保存値は読まない", () => {
-    expect(deserializeLayerVisibility("not json")).toBeNull();
-    expect(deserializeLayerVisibility("[]")).toBeNull();
+    expect(deserializeLayerVisibility("[]")).toEqual(defaults);
   });
 });

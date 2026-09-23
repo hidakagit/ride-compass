@@ -4,10 +4,13 @@
  * 地図とチップの色が静かに食い違う。ここはその宣言を凡例の形へ移すだけで、値を持たない。
  */
 import { COLOR_UNKNOWN } from "@/components/Map/axisLayers";
+import type { DisasterSourceKey } from "@/components/Map/dynamicWeather";
 import type { LegendEntry } from "@/components/Map/legendFilter";
 import { LEGEND_NO_DATA_KEY } from "@/components/Map/mapColorLegend";
 
+import { mapDisplay } from "@/types/generated/mapDisplay";
 import palette from "@/types/generated/palette.json";
+import weatherScales from "@/types/generated/weather-scales.json";
 
 import { POINT_LAYERS, pointAxisKey, pointCategoryRadiusPx, type PointAxis } from "./groups/points";
 import { ROAD_TRACKS, roadTrackAxis } from "./groups/roadLines";
@@ -72,4 +75,35 @@ export function pointLegendAxes(): readonly SceneLegendAxis[] {
   return POINT_LAYERS.flatMap((layer) =>
     layer.display_axes.map((axis: PointAxis, index: number) => pointAxisLegend(layer, axis, index)),
   );
+}
+
+export const DISASTER_LAYER_ID = "disaster";
+
+/** 災害の要素ごとの色見本。地図がその要素を塗る段のうち、注意を促す段の色（平常時の色を
+ * 見本にすると、どの要素も同じに見える）。鍵は源泉が配る災害のソースで、要素が増えれば
+ * 型検査が落ちる。 */
+const DISASTER_SOURCE_SWATCH: Record<DisasterSourceKey, string> = {
+  heavyRain: weatherScales.risk_levels[2].color,
+  landslide: weatherScales.risk_levels[2].color,
+  inundation: weatherScales.risk_levels[2].color,
+  flood: weatherScales.risk_levels[2].color,
+  thunder: weatherScales.thunder_activity[1].color,
+  tornado: weatherScales.tornado_potential[0].color,
+  liden: palette.semantic.lightning,
+};
+
+/** 災害チップの要素ごとの表示切替。隠した要素は取りに行かない（地図の絞り込みではなく取得を止める）。
+ * 行の並びと名前は源泉の要素の宣言のまま。 */
+export function disasterSourceLegendAxis(): SceneLegendAxis {
+  const sources = mapDisplay.weatherElements.filter((element) => element.group === DISASTER_LAYER_ID);
+  return {
+    layerId: DISASTER_LAYER_ID,
+    axisId: DISASTER_LAYER_ID,
+    label: "表示する情報",
+    entries: [...new Map(sources.map((element) => [element.source, element.label]))].map(([source, label]) => ({
+      key: source,
+      label,
+      color: DISASTER_SOURCE_SWATCH[source as DisasterSourceKey],
+    })),
+  };
 }

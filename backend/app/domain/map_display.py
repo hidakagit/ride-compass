@@ -85,6 +85,9 @@ class WeatherElement(NamedTuple):
     #: 全段が`JMA_TILE_SPECS`に仕様を持ち、ソースのズーム範囲は1つなので段の間で一致する。
     #: 自前のMSM格子から描くものは空。
     jma_elements: tuple[str, ...]
+    #: 画面で要素を呼ぶ名前（▶パネルで要素ごとに表示を切り替える行の名前）。同じ名前付き
+    #: ソースの要素は同じ名前を持つ。
+    label: str
 
 
 #: 並びが同じ段（面・線・記号）の中の重なり順になる。災害は面を下に、見落としやすい線（洪水）・
@@ -92,17 +95,17 @@ class WeatherElement(NamedTuple):
 WEATHER_ELEMENTS: tuple[WeatherElement, ...] = (
     # 降水。60分先までは降水ナウキャスト、その先15時間先までは降水短時間予報を配信元のラスタで、
     # それ以降は自前の格子を塗る。どれが届くかは選んだ時刻で決まる。
-    WeatherElement("precipitationNowcast", "main", "rasterTile", ("hrpns", "rasrf")),
-    WeatherElement("precipitationNowcast", "main", "gridFill", ()),
-    WeatherElement("precipitationNowcast", "linearRainband", "rasterTile", ("sjfcstmap",)),
-    WeatherElement("windVector", "arrow", "gridMark", ()),
-    WeatherElement("disaster", "heavyRain", "rasterTile", ("rain_mesh",)),
-    WeatherElement("disaster", "landslide", "rasterTile", ("land",)),
-    WeatherElement("disaster", "inundation", "rasterTile", ("inund",)),
-    WeatherElement("disaster", "thunder", "rasterTile", ("thns",)),
-    WeatherElement("disaster", "tornado", "rasterTile", ("trns",)),
-    WeatherElement("disaster", "flood", "vectorTile", ("flood",)),
-    WeatherElement("disaster", "liden", "gridMark", ("liden",)),
+    WeatherElement("precipitationNowcast", "main", "rasterTile", ("hrpns", "rasrf"), "降水"),
+    WeatherElement("precipitationNowcast", "main", "gridFill", (), "降水"),
+    WeatherElement("precipitationNowcast", "linearRainband", "rasterTile", ("sjfcstmap",), "線状降水帯予測"),
+    WeatherElement("windVector", "arrow", "gridMark", (), "風"),
+    WeatherElement("disaster", "heavyRain", "rasterTile", ("rain_mesh",), "大雨キキクル"),
+    WeatherElement("disaster", "landslide", "rasterTile", ("land",), "土砂災害キキクル"),
+    WeatherElement("disaster", "inundation", "rasterTile", ("inund",), "浸水キキクル"),
+    WeatherElement("disaster", "thunder", "rasterTile", ("thns",), "雷ナウキャスト"),
+    WeatherElement("disaster", "tornado", "rasterTile", ("trns",), "竜巻発生確度"),
+    WeatherElement("disaster", "flood", "vectorTile", ("flood",), "洪水キキクル（河川）"),
+    WeatherElement("disaster", "liden", "gridMark", ("liden",), "落雷（発生地点）"),
 )
 
 
@@ -146,11 +149,7 @@ HILLSHADE_LAYER_ID = "hillshade"
 
 def _static_layer_ids() -> tuple[str, ...]:
     """地図へ出す一次属性（線・点は行の定義を持つもの、面は幾何が面のもの）＋描き方の派生。"""
-    shown = [
-        attr.attr_id
-        for attr in PRIMARY_ATTRIBUTES
-        if attr.display_axes or attr.geometry == "area"
-    ]
+    shown = [attr.attr_id for attr in PRIMARY_ATTRIBUTES if attr.display_axes or attr.geometry == "area"]
     return (*shown, HILLSHADE_LAYER_ID)
 
 

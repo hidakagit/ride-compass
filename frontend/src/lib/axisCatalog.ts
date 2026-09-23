@@ -35,6 +35,8 @@ export interface AxisCatalog {
   dedicatedAxes: readonly DedicatedWayValueAxis[];
   /** axis_id→表示名の辞書。 */
   axisLabels: Record<string, string>;
+  /** axis_id→識別色。どの画面でも同じ軸は同じ色になるよう、ここで1回だけ決める。 */
+  axisColors: Readonly<Record<string, string>>;
   /** 事故データの収録年（backendの取込の宣言そのもの）。地図の説明文が範囲を書くのに使う。
    * フェッチ完了まで・エラー時は空で、その間は説明文が年に触れない。 */
   accidentYears: readonly number[];
@@ -76,6 +78,12 @@ export function clientTuningValue(catalog: AxisCatalog, id: string): number | un
   return Object.hasOwn(catalog.clientTuning, id) ? catalog.clientTuning[id] : undefined;
 }
 
+/** 軸の識別色。色に意味は持たせず、色相環を軸数で等分して表示順に割り当てる（軸数が
+ * いくつでも衝突しない）。 */
+function axisColorsOf(axes: readonly PreferenceAxisDef[]): Record<string, string> {
+  return Object.fromEntries(axes.map((axis, index) => [axis.axisId, `hsl(${(index * 360) / axes.length}, 62%, 55%)`]));
+}
+
 // 軸は`GET /api/axis-catalog`が配るものだけを使う。**ビルド時の写しを持たない**——
 // 持つと、APIが失敗したときに古い軸で地図が描かれ、伝播の失敗が見えなくなる。
 // 取得できるまでは軸が1つも無い状態で、呼び出し側は`loaded`で区別する。
@@ -86,6 +94,7 @@ export const EMPTY_CATALOG: AxisCatalog = {
   rampAxes: [],
   dedicatedAxes: [],
   axisLabels: {},
+  axisColors: {},
   accidentYears: [],
   secondaryAxes: [],
   routeStyleModes: ROUTE_STYLE_MODES_WITHOUT_AXES,
@@ -158,6 +167,7 @@ export function axisCatalogFromResponse(
     rampAxes: rampAxesFromCatalogAxes(catalogAxes, materialRuntimeScales),
     dedicatedAxes: dedicatedWayValueAxesFromCatalogAxes(catalogAxes),
     axisLabels: axisLabelsFromCatalogAxes(catalogAxes),
+    axisColors: axisColorsOf(axes),
     accidentYears,
     secondaryAxes: secondaryAxesFromCatalogAxes(catalogAxes),
     routeStyleModes: routeStyleModesFromCatalogAxes(catalogAxes),

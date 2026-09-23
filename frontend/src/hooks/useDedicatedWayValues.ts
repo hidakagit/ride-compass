@@ -24,7 +24,7 @@ import { MAP_FETCH_DEBOUNCE_MS, useDebouncedValue } from "@/hooks/useDebouncedVa
 // もviewportと同様にデバウンスする（そのまま依存配列へ入れるとドラッグ1回で可視タイル数×
 // 連続イベント数ぶんのfetchが発生してしまう）。
 
-interface DedicatedWayValuesResult {
+export interface DedicatedWayValuesResult {
   /** feature_key→値（複数タイルを統合済み）。評価軸グループのsetFeatureStateにそのまま
    * 使える（鍵は路面タイルの`feature_key`と同じ文字列）。 */
   values: ReadonlyMap<string, number>;

@@ -45,11 +45,18 @@ const EMPTY_CURRENT_RISK_FRAMES = { land: [], heavyRain: [], inundation: [], flo
 // 表示状態はレイヤーごとのbooleanではなく`MapLayerVisibility`1つで渡る。テストも
 // そのまま同じ形で組み、必要なレイヤーだけ`shown()`でONにする。
 import { buildDefaultLayerVisibility, type MapLayerId } from "@/components/Map/mapLayers";
+import { useDepartureTime } from "./useDepartureTime";
+
+const FIVE_MIN_MS = 5 * 60 * 1000;
+// 表示する時刻。実データ側のフレームも「今」を5分へ丸めた時刻から始まる。
+const NOW = new Date(Math.floor(Date.now() / FIVE_MIN_MS) * FIVE_MIN_MS);
 
 const BASE_OPTIONS = {
   visibility: buildDefaultLayerVisibility(),
   hiddenDisasterSources: [],
   mapViewport: null,
+  at: NOW,
+  now: NOW,
 };
 
 function shown(...layerIds: MapLayerId[]) {
@@ -57,8 +64,6 @@ function shown(...layerIds: MapLayerId[]) {
   for (const id of layerIds) visibility[id] = true;
   return { ...BASE_OPTIONS, visibility };
 }
-
-const FIVE_MIN_MS = 5 * 60 * 1000;
 
 /** Date → 気象庁のタイムスタンプ形式（YYYYMMDDHHmmss、UTC）。 */
 function jmaTimestamp(time: Date): string {
@@ -330,7 +335,7 @@ describe("useDynamicWeatherLayers（改善計画T425: キキクル・線状降�
   });
 });
 
-describe("共有時刻の「今」への追従（改善計画T859）", () => {
+describe("出発時刻と気象レイヤー", () => {
   const STEP_MS = FIVE_MIN_MS;
   // 5分境界ちょうどではない時刻から始め、丸めが効いていることも同時に見る。
   const T0 = Date.UTC(2026, 8, 15, 10, 2, 30);
@@ -362,56 +367,24 @@ describe("共有時刻の「今」への追従（改善計画T859）", () => {
     vi.useRealTimers();
   });
 
-  it("時間が経つと共有時刻も進む（進まないと降水が範囲外になり黙って消える）", async () => {
+  it("出発時刻が「今」へ追従して進む間は、実況が更新されても降水が消えない", async () => {
     stubHappyPath();
     vi.mocked(fetchNowcastFrames).mockImplementation(async () => nowcastFramesForNow());
 
-    const { result } = renderHook(() => useDynamicWeatherLayers(shown("precipitationNowcast")));
+    const { result } = renderHook(() => {
+      const departure = useDepartureTime();
+      return useDynamicWeatherLayers({ ...shown("precipitationNowcast"), at: departure.at, now: departure.now });
+    });
 
     await act(async () => {
       await vi.advanceTimersByTimeAsync(0);
     });
     expect(result.current.dynamicWeather.precipitationNowcast?.main?.payload).toBeDefined();
 
-    // 実況が2回更新される長さ。共有時刻が止まっていればここで範囲外へ落ちる。
+    // 実況が2回更新される長さ。時刻が止まっていればここで範囲外へ落ちる。
     await act(async () => {
       await vi.advanceTimersByTimeAsync(11 * 60 * 1000);
     });
-
     expect(result.current.dynamicWeather.precipitationNowcast?.main?.payload).toBeDefined();
-    expect(result.current.dynamicLayerTargetTime.getTime()).toBe(Math.floor((T0 + 11 * 60 * 1000) / STEP_MS) * STEP_MS);
-  });
-
-  it("利用者が選んだ出発時刻は、時間が経っても勝手に動かない", async () => {
-    stubHappyPath();
-    const chosen = new Date(T0 + 30 * 60 * 1000);
-
-    const { result } = renderHook(() => useDynamicWeatherLayers(BASE_OPTIONS));
-
-    act(() => result.current.setDynamicLayerTargetTime(chosen));
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(11 * 60 * 1000);
-    });
-
-    expect(result.current.dynamicLayerTargetTime.getTime()).toBe(chosen.getTime());
-  });
-
-  it("「今」ボタンで追従へ戻る", async () => {
-    stubHappyPath();
-
-    const { result } = renderHook(() => useDynamicWeatherLayers(BASE_OPTIONS));
-
-    act(() => result.current.setDynamicLayerTargetTime(new Date(T0 + 30 * 60 * 1000)));
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(11 * 60 * 1000);
-    });
-    act(() => result.current.handleDynamicLayerNow());
-
-    expect(result.current.dynamicLayerTargetTime.getTime()).toBe(Math.floor((T0 + 11 * 60 * 1000) / STEP_MS) * STEP_MS);
-
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(11 * 60 * 1000);
-    });
-    expect(result.current.dynamicLayerTargetTime.getTime()).toBe(Math.floor((T0 + 22 * 60 * 1000) / STEP_MS) * STEP_MS);
   });
 });

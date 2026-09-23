@@ -84,6 +84,7 @@ export const mapDisplay = {
       "group": "precipitationNowcast",
       "source": "main",
       "kind": "rasterTile",
+      "label": "降水",
       "jmaElements": [
         {
           "id": "hrpns",
@@ -112,6 +113,7 @@ export const mapDisplay = {
       "group": "precipitationNowcast",
       "source": "main",
       "kind": "gridFill",
+      "label": "降水",
       "jmaElements": [],
       "attribution": "気象庁MSM",
       "tile": null
@@ -120,6 +122,7 @@ export const mapDisplay = {
       "group": "precipitationNowcast",
       "source": "linearRainband",
       "kind": "rasterTile",
+      "label": "線状降水帯予測",
       "jmaElements": [
         {
           "id": "sjfcstmap",
@@ -140,6 +143,7 @@ export const mapDisplay = {
       "group": "windVector",
       "source": "arrow",
       "kind": "gridMark",
+      "label": "風",
       "jmaElements": [],
       "attribution": "気象庁MSM",
       "tile": null
@@ -148,6 +152,7 @@ export const mapDisplay = {
       "group": "disaster",
       "source": "heavyRain",
       "kind": "rasterTile",
+      "label": "大雨キキクル",
       "jmaElements": [
         {
           "id": "rain_mesh",
@@ -168,6 +173,7 @@ export const mapDisplay = {
       "group": "disaster",
       "source": "landslide",
       "kind": "rasterTile",
+      "label": "土砂災害キキクル",
       "jmaElements": [
         {
           "id": "land",
@@ -188,6 +194,7 @@ export const mapDisplay = {
       "group": "disaster",
       "source": "inundation",
       "kind": "rasterTile",
+      "label": "浸水キキクル",
       "jmaElements": [
         {
           "id": "inund",
@@ -208,6 +215,7 @@ export const mapDisplay = {
       "group": "disaster",
       "source": "thunder",
       "kind": "rasterTile",
+      "label": "雷ナウキャスト",
       "jmaElements": [
         {
           "id": "thns",
@@ -228,6 +236,7 @@ export const mapDisplay = {
       "group": "disaster",
       "source": "tornado",
       "kind": "rasterTile",
+      "label": "竜巻発生確度",
       "jmaElements": [
         {
           "id": "trns",
@@ -248,6 +257,7 @@ export const mapDisplay = {
       "group": "disaster",
       "source": "flood",
       "kind": "vectorTile",
+      "label": "洪水キキクル（河川）",
       "jmaElements": [
         {
           "id": "flood",
@@ -268,6 +278,7 @@ export const mapDisplay = {
       "group": "disaster",
       "source": "liden",
       "kind": "gridMark",
+      "label": "落雷（発生地点）",
       "jmaElements": [
         {
           "id": "liden",

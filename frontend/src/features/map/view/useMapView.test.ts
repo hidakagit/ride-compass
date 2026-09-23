@@ -2,7 +2,7 @@
 //
 // ここで見ないもの:
 // - 状態から値を導く規則そのもの → `lens.test.ts`・`overlayChips.test.ts`・`legendFilters.test.ts`
-// - 気象レイヤーの取得・出発時刻の追従 → `useDynamicWeatherLayers.test.ts`
+// - 気象レイヤーの取得 → `useDynamicWeatherLayers.test.ts`
 // - 専用配信の値の取得 → `useDedicatedWayValues.test.ts`
 import { act, renderHook } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -13,84 +13,93 @@ import { EMPTY_CATALOG, type AxisCatalog } from "@/lib/axisCatalog";
 import { catalogOf, dedicatedEntry, rampEntry } from "./__fixtures__/catalog";
 import { useMapView, type MapViewInputs } from "./useMapView";
 
-// 気象レイヤーは外部へ取りに行くため、取りに行かない代役へ差し替える（ネットワーク境界）。
-const WEATHER = vi.hoisted(() => ({
-  dynamicWeather: {},
-  dynamicWeatherDataStatus: {},
-  setDynamicLayerTargetTime: () => {},
-  handleDynamicLayerNow: () => {},
-  departureTimePinned: false,
-  dynamicLayerTargetTime: new Date("2026-09-01T00:00:00Z"),
+// 軸カタログと気象レイヤーは外部へ取りに行くため、取りに行かない代役へ差し替える（ネットワーク境界）。
+const SOURCES = vi.hoisted(() => ({ catalog: undefined as unknown as AxisCatalog }));
+vi.mock("@/hooks/useAxisCatalog", () => ({ useAxisCatalog: () => SOURCES.catalog }));
+vi.mock("@/hooks/useDynamicWeatherLayers", () => ({
+  useDynamicWeatherLayers: () => ({ dynamicWeather: {}, dynamicWeatherDataStatus: {} }),
 }));
-vi.mock("@/hooks/useDynamicWeatherLayers", () => ({ useDynamicWeatherLayers: () => WEATHER }));
 
 const CATALOG = catalogOf([rampEntry("r", [1]), dedicatedEntry("d", [0])]);
-const NO_WEIGHTS = {};
-const NO_COLORS = {};
-const RIDE = { travelBearingDeg: 0, assumedSpeedKmh: 20 };
+const AT = new Date("2026-09-01T00:00:00Z");
 
-function inputs(catalog: AxisCatalog, hasDetail = false): MapViewInputs {
+function inputs(hasDetail = false): MapViewInputs {
   return {
-    catalog,
-    route: { hasRoutes: hasDetail, hasDetail },
-    ride: RIDE,
-    axisWeights: NO_WEIGHTS,
-    axisColors: NO_COLORS,
+    hasSelectedRoute: hasDetail,
+    hasDetail,
+    ride: { bearingDeg: 0, at: AT, speedKmh: 20 },
+    now: AT,
+    usedWeights: null,
   };
 }
 
 describe("useMapView", () => {
-  beforeEach(() => window.localStorage.clear());
+  beforeEach(() => {
+    window.localStorage.clear();
+    SOURCES.catalog = CATALOG;
+  });
   afterEach(() => window.localStorage.clear());
 
-  it("軸を指す保存済みのレンズは、軸カタログが届いてから復元して地図を塗り分ける", () => {
+  it("軸を指す保存済みのレンズは、軸カタログが届いてから復元して、その軸で全道路を塗る", () => {
     window.localStorage.setItem("ridecompass:route-style-mode", "d");
-    const { result, rerender } = renderHook((props: MapViewInputs) => useMapView(props), {
-      initialProps: inputs(EMPTY_CATALOG),
-    });
+    SOURCES.catalog = EMPTY_CATALOG;
+    const { result, rerender } = renderHook(() => useMapView(inputs()));
     expect(result.current.lens).toBe("difficulty");
 
-    rerender(inputs(CATALOG));
-    expect(result.current.lens).toBe("d");
-    expect(result.current.look.routeStyleModeId).toBe("d");
-    expect(result.current.look.dedicatedWayValueVisibility).toEqual({ dAxis: true });
-    expect(result.current.look.axisVisibility).toEqual({ "axis:r": false });
+    SOURCES.catalog = CATALOG;
+    rerender();
+    expect(result.current.look.lens).toBe("d");
+    expect(result.current.look.paintedAxisId).toBe("d");
   });
 
   it("レンズを変えると保存し、ルート確定後に周囲を塗らない設定なら全道路の塗りだけを外す", () => {
     const { result, rerender } = renderHook((props: MapViewInputs) => useMapView(props), {
-      initialProps: inputs(CATALOG),
+      initialProps: inputs(),
     });
-    act(() => result.current.controls.lens.onLensChange("r"));
+    act(() => result.current.lensControl.onLensChange("r"));
     expect(window.localStorage.getItem("ridecompass:route-style-mode")).toBe("r");
-    expect(result.current.look.axisVisibility).toEqual({ "axis:r": true });
+    expect(result.current.look.paintedAxisId).toBe("r");
 
-    act(() => result.current.controls.lens.onKeepAfterRouteChange(false));
-    rerender(inputs(CATALOG, true));
-    expect(result.current.look.axisVisibility).toEqual({ "axis:r": false });
-    expect(result.current.look.routeStyleModeId).toBe("r");
+    act(() => result.current.lensControl.onKeepAfterRouteChange(false));
+    rerender(inputs(true));
+    expect(result.current.look.paintedAxisId).toBeNull();
+    expect(result.current.look.lens).toBe("r");
+  });
+
+  it("レンズを選ぶと、ルートのレイヤーがOFFならONにする", () => {
+    const { result } = renderHook(() => useMapView(inputs()));
+    act(() => result.current.bulk.hideAllLayers());
+    expect(result.current.look.layerVisibility.route).toBe(false);
+    act(() => result.current.lensControl.onLensChange("r"));
+    expect(result.current.look.layerVisibility.route).toBe(true);
   });
 
   it("保存したレイヤーのON/OFFを復元し、地図とチップの両方へ同じ値を渡す", () => {
     const defaults = buildDefaultLayerVisibility();
     const [someId] = Object.keys(defaults) as MapLayerId[];
     window.localStorage.setItem("ridecompass:layer-visibility", JSON.stringify({ [someId]: !defaults[someId] }));
-    const { result } = renderHook(() => useMapView(inputs(CATALOG)));
-    expect(result.current.look.staticLayerVisibility[someId]).toBe(!defaults[someId]);
-    expect(result.current.controls.overlay.layers.find((chip) => chip.id === someId)?.on).toBe(!defaults[someId]);
-    expect(result.current.controls.reset.layersChanged).toBe(true);
+    const { result } = renderHook(() => useMapView(inputs()));
+    expect(result.current.look.layerVisibility[someId]).toBe(!defaults[someId]);
+    expect(result.current.overlayControls.layers.find((chip) => chip.id === someId)?.on).toBe(!defaults[someId]);
   });
 
-  it("レンズの凡例で隠した段は、全道路の塗りとルート線の両方で隠れる", () => {
-    window.localStorage.setItem("ridecompass:route-style-mode", "d");
-    const { result } = renderHook(() => useMapView(inputs(CATALOG)));
-    act(() => result.current.controls.lens.onToggleLegendKey("step-0"));
-    expect(result.current.controls.lens.hiddenLegendKeys).toEqual(["step-0"]);
-    expect(result.current.look.dedicatedWayValueHiddenBands.get("d")).toEqual(["step-0"]);
-    expect(result.current.look.hiddenRouteLegendKeys).toEqual(["step-0"]);
-    expect(result.current.controls.reset.legendFiltered).toBe(true);
+  it("レンズの凡例で隠した段は、操作部品には即座に、地図には遅れて届き、まとめて戻せる", () => {
+    vi.useFakeTimers();
+    try {
+      window.localStorage.setItem("ridecompass:route-style-mode", "d");
+      const { result } = renderHook(() => useMapView(inputs()));
+      act(() => result.current.lensControl.onToggleLegendKey("step-0"));
+      expect(result.current.lensControl.hiddenLegendKeys).toEqual(["step-0"]);
+      expect(result.current.look.hiddenLegendKeys).toEqual({});
+      expect(result.current.bulk.anyLegendHidden).toBe(true);
 
-    act(() => result.current.controls.reset.clearLegendFilters());
-    expect(result.current.look.hiddenRouteLegendKeys).toEqual([]);
+      act(() => vi.advanceTimersByTime(400));
+      expect(result.current.look.hiddenLegendKeys).toEqual({ d: ["step-0"] });
+
+      act(() => result.current.bulk.showAllLegendRows());
+      expect(result.current.bulk.anyLegendHidden).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
