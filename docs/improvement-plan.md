@@ -178,5 +178,6 @@ CLAUDE.md参照。節見出しはタスクのテーマ分類で、日付は起�
 - [ ] [T1079](records/tasks/T1079.md). ページのピンチを止める規則を、E2Eの全状態の走査で確かめる（T1069の残り、T1078の後） 規模S — トリガー: [T1078](records/tasks/T1078.md)の完了
 - [ ] [T1085](records/tasks/T1085.md). 地図で段が落ちると、体感ラベルの上書きが件数不一致で黙って捨てられる 規模S
 - [ ] [T1086](records/tasks/T1086.md). 台帳の行は担当に消させず、監査の取り込みの後に司令塔がまとめて消す 規模S
+- [ ] [T1087](records/tasks/T1087.md). 担当の所要の1行のCI待ちを、監査のときにGitHubから取って書き足す 規模S
 
 見送りとして判断を記録したもの（台帳には載せない）: [T1036](records/tasks/T1036.md)・[T1037](records/tasks/T1037.md)・[T1038](records/tasks/T1038.md)・[T1039](records/tasks/T1039.md)・[T1040](records/tasks/T1040.md)
