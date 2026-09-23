@@ -751,6 +751,11 @@ E2Eは、**実ブラウザ・本番ビルドでしか出ず、かつ機械で判
 
 - **`npm run test:e2e`**（`npm run build`→`playwright test`）。CIのe2eジョブも同じ
   コマンドを使う。並行実行の開発機では`heavy`の枠を通す（[orchestration.md](orchestration.md)）。
+- **全状態の走査（`e2e/all-states.spec.ts`）はmasterのCIでだけ走る。** 作業ブランチ（`orch/**`）の
+  CIは`--grep-invert "全状態の走査"`で外す——1回に8分前後かかり、pushのたびに全員の確認を待たせるため
+  （[T1078](../records/tasks/T1078.md)で走査を速くしたら戻す）。作業ブランチで見た目の崩れは見えず、masterへ
+  入ってから分かる。見た目に触る変更で先に確かめたいときは、手元で
+  `./node_modules/.bin/playwright test e2e/all-states.spec.ts -g "<幅> / <段階>"`を1本ずつ回す。
 - 起動するのは、本番Dockerfileと同じ`node .next/standalone/server.js`
   （`npm run start:standalone`。`scripts/prepare-standalone.mjs`がDockerfileのCOPYと同じ
   静的ファイルの配置を作る）。`next start`・`next dev`は使わない——standalone構成に固有の

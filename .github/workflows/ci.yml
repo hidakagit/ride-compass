@@ -156,7 +156,12 @@ jobs:
           cache-dependency-path: frontend/package-lock.json
       - run: npm ci
       - run: npx playwright install --with-deps chromium
-      - run: npm run test:e2e
+      # 全状態の走査は1回に8分前後かかり、作業ブランチへのpushのたびに全員の確認を待たせるため、
+      # masterでだけ走らせる。
+      - if: github.ref == 'refs/heads/master'
+        run: npm run test:e2e
+      - if: github.ref != 'refs/heads/master'
+        run: npm run test:e2e -- --grep-invert "全状態の走査"
       - uses: actions/upload-artifact@v4
         if: failure()
         with:
