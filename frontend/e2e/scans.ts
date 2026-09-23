@@ -122,15 +122,13 @@ export interface PinchTarget {
   label: string;
 }
 
-/** 地図の範囲を8px格子で走査し、最前面に当たった地図のcanvas以外の部品（押せる要素ごとに1点）。 */
-export async function mapOverlayTargets(page: Page): Promise<PinchTarget[]> {
+/** 画面を8px格子で走査し、最前面に当たった地図のcanvas以外の部品（押せる要素ごとに1点）。 */
+export async function pinchTargets(page: Page): Promise<PinchTarget[]> {
   return page.evaluate(() => {
-    const pane = document.querySelector(".app-map-pane")?.getBoundingClientRect();
     const canvas = document.querySelector("canvas.maplibregl-canvas");
     const found = new Map<Element, { x: number; y: number; label: string }>();
-    if (!pane) return [];
-    for (let y = pane.top + 4; y < Math.min(pane.bottom, window.innerHeight); y += 8) {
-      for (let x = pane.left + 4; x < Math.min(pane.right, window.innerWidth); x += 8) {
+    for (let y = 4; y < window.innerHeight; y += 8) {
+      for (let x = 4; x < window.innerWidth; x += 8) {
         const element = document.elementFromPoint(x, y);
         if (!element || element === canvas) continue;
         const owner = element.closest("button, a, [role], label, input") ?? element;
@@ -148,11 +146,12 @@ export async function mapOverlayTargets(page: Page): Promise<PinchTarget[]> {
 }
 
 /**
- * 観点2: 地図の上に重なる部品から始めたピンチが、ページ全体の拡大にならないか。
+ * 観点2: 地図のcanvas以外の部品から始めたピンチが、ページ全体の拡大にならないか（地図の上の
+ * ピンチが地図を拡大することは map-runtime.spec.ts が見る）。
  * 拡大したら倍率を戻す（戻らなければ座標がずれるので、残りは未検査として打ち切る）。
  */
 export async function scanPinch(page: Page, client: CDPSession): Promise<{ checked: number; problems: string[] }> {
-  const targets = await mapOverlayTargets(page);
+  const targets = await pinchTargets(page);
   const problems: string[] = [];
   for (const [index, target] of targets.entries()) {
     await pinchOpen(client, target.x, target.y);

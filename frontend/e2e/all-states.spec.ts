@@ -1,6 +1,6 @@
 import { expect, test, type Browser, type Page } from "@playwright/test";
 import { installApiMocks } from "./fixtures";
-import { scanLayout, scanSpacingUtilities } from "./scans";
+import { scanLayout, scanPinch, scanSpacingUtilities } from "./scans";
 import {
   WIDTHS,
   assertWidthsStraddleBreakpoint,
@@ -12,10 +12,9 @@ import {
   type WidthName,
 } from "./states";
 
-// 観点1・3（パターン4）の走査を、画面の全状態へ当てる。状態の母集団は states.ts が画面から導く
+// 観点1〜3（パターン4）の走査を、画面の全状態へ当てる。状態の母集団は states.ts が画面から導く
 // （幅 × モード × 段階 × 開いているシート・パネル。シート・パネルは基本の状態から2段まで開く）。
-// 観点2（ピンチ）は、地図ペインの外に開くシート・ポップオーバーをどう扱うかが決まっていない
-// （T1069）ため、まだ全状態へは当てていない。
+// 観点2（ピンチ）はタッチの文脈（モバイル幅）だけで見る。
 
 async function newPage(browser: Browser, width: WidthName): Promise<Page> {
   const touch = width === "mobile";
@@ -44,9 +43,11 @@ for (const width of Object.keys(WIDTHS) as WidthName[]) {
       // 2段目で押せなかった部品（1段目で開いたポップオーバー等が上に重なっている）。
       const covered: string[] = [];
       let checkedUtilities = 0;
+      let checkedPinches = 0;
 
       for (const mode of [null, ...modes]) {
         const page = await newPage(browser, width);
+        const client = width === "mobile" ? await page.context().newCDPSession(page) : null;
         const inspect = async (path: string) => {
           visited.push(path);
           const record = (problem: string) => {
@@ -56,6 +57,11 @@ for (const width of Object.keys(WIDTHS) as WidthName[]) {
           const spacing = await scanSpacingUtilities(page);
           checkedUtilities += spacing.checked;
           spacing.problems.forEach(record);
+          if (client) {
+            const pinch = await scanPinch(page, client);
+            checkedPinches += pinch.checked;
+            pinch.problems.forEach(record);
+          }
         };
 
         const label = `${width} / ${phase} / ${mode ?? "モードなし"}`;
@@ -103,7 +109,8 @@ for (const width of Object.keys(WIDTHS) as WidthName[]) {
       }
 
       console.log(
-        `状態 ${visited.length}件・余白ユーティリティ ${checkedUtilities}件を ${Math.round((Date.now() - started) / 1000)}秒で走査、` +
+        `状態 ${visited.length}件・余白ユーティリティ ${checkedUtilities}件・ピンチ ${checkedPinches}件を ` +
+          `${Math.round((Date.now() - started) / 1000)}秒で走査、` +
           `2段目で押せなかった部品 ${covered.length}件（${width} / ${phase}）`,
       );
       // 列挙の検算: 他のテストが前提にしている状態へ、この列挙も届いていること。
