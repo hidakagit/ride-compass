@@ -201,7 +201,6 @@ CLAUDE.md参照。節見出しはタスクのテーマ分類で、日付は起�
 - [ ] [T1060](records/tasks/T1060.md). sceneが旧居（components/Map）から借りている宣言を、持ち主の置き場へ移す 規模M — トリガー: T1001段階D
 - [ ] [T1062](records/tasks/T1062.md). 検査の置き場を手元・作業ブランチCI・デプロイ前CIの3層に分け、pre-pushから重複を外す 規模M
 - [ ] [T1064](records/tasks/T1064.md). 本番とCIのGEOS・PROJをPGDGの版へ上げ、土地被覆を作り直す 規模M
-- [ ] [T1065](records/tasks/T1065.md). 状態の表から他に正本のある写しを外し、読むときに正本から導く 規模M
 - [ ] [T1066](records/tasks/T1066.md). 並行実行の作業ツリーを固定数にし、消さずに使い回す 規模M
 - [ ] [T1067](records/tasks/T1067.md). 並行実行の見込み超過の予算を、記録に残した所要の実績から計算する 規模S
 - [ ] [T1068](records/tasks/T1068.md). 地図の上の操作部品でピンチするとページ全体が拡大する 規模S

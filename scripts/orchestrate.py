@@ -2,7 +2,7 @@
 
     python scripts/orchestrate.py <サブコマンド> ...
 
-使い方は`scripts/orchestration/core.py`の冒頭。`decision`・`queue`・`prereqs`・`priority`・`slot`は
+使い方は`scripts/orchestration/core.py`の冒頭。`decision`・`prereqs`・`priority`・`slot`は
 依頼で足した別のモジュール（`scripts/orchestration/decisions.py`・`queue.py`・`slots.py`）へ渡す——核はそれらを
 importしないため、振り分けはここで行う。
 """
@@ -26,7 +26,7 @@ def main() -> int:
 
         sys.stdout.reconfigure(encoding="utf-8")
         return decisions.main(argv[:i] + argv[i + 1:])
-    if argv[i:i + 1] and argv[i] in ("queue", "prereqs", "priority"):
+    if argv[i:i + 1] and argv[i] in ("prereqs", "priority"):
         from orchestration import queue
 
         sys.stdout.reconfigure(encoding="utf-8")
