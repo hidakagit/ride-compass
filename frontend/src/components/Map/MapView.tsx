@@ -401,10 +401,10 @@ export interface MapViewProps {
    * 「ピンをつかんで動かす」操作そのものなので説明用のUIを別途持たない。 */
   onOriginSet: (coordinates: Coordinates) => void;
   /** 地図キャンバスの上に重なるUI（モバイルの下部タブバー・ボトムシート）で覆われている
-   * 辺ごとの高さ(px)。ルート生成直後のフィットで、覆われた領域の中へルートが収まって
-   * しまうのを防ぐ。MapViewはシート・タブバーの存在を知らないため、レイアウトを持つ
-   * 呼び出し側（page.tsx）が算出して渡す。 */
-  routeFitObscuredPx?: RouteFitObscuredPx;
+   * 辺ごとの高さ(px)を、いま測って返す。ルート生成直後のフィットで、覆われた領域の中へルートが
+   * 収まってしまうのを防ぐ。MapViewはシート・タブバーの存在を知らないため、レイアウトを持つ
+   * 呼び出し側が測る。 */
+  measureRouteFitObscuredPx?: () => RouteFitObscuredPx | undefined;
 }
 
 export default function MapView({
@@ -430,7 +430,7 @@ export default function MapView({
   destination,
   onDestinationClear,
   onOriginSet,
-  routeFitObscuredPx,
+  measureRouteFitObscuredPx,
 }: MapViewProps) {
   const mapContainerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<MapLibreMap | null>(null);
@@ -539,7 +539,7 @@ export default function MapView({
   const onOriginSetRef = useRef(onOriginSet);
   // フィットは「候補一覧が変わったとき」だけに限る（下部のuseEffect参照）ため、覆われて
   // いる高さの変化（シートの開閉・高さドラッグ）でフィットをやり直さないようrefで読む。
-  const routeFitObscuredPxRef = useRef(routeFitObscuredPx);
+  const measureRouteFitObscuredPxRef = useRef(measureRouteFitObscuredPx);
   // handleRouteSegmentClick（地図初期化effect内で一度だけ登録）が最新の
   // onRouteSegmentSelectを読めるようにするref。
   const onRouteSegmentSelectRef = useRef(onRouteSegmentSelect);
@@ -596,8 +596,8 @@ export default function MapView({
   }, [onOriginSet]);
 
   useEffect(() => {
-    routeFitObscuredPxRef.current = routeFitObscuredPx;
-  }, [routeFitObscuredPx]);
+    measureRouteFitObscuredPxRef.current = measureRouteFitObscuredPx;
+  }, [measureRouteFitObscuredPx]);
 
   useEffect(() => {
     onRouteSegmentSelectRef.current = onRouteSegmentSelect;
@@ -1180,7 +1180,7 @@ export default function MapView({
     if (!map) return;
 
     if (routes.length > 0) {
-      fitBoundsToRoutes(map, routes, routeFitObscuredPxRef.current);
+      fitBoundsToRoutes(map, routes, measureRouteFitObscuredPxRef.current?.());
     }
   }, [routes]);
 
