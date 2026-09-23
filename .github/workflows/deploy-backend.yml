@@ -55,7 +55,7 @@ jobs:
           fi
       - name: Deploy via SSH (native arm64 build on VM)
         if: steps.gate.outputs.deploy == 'true'
-        uses: appleboy/ssh-action@v1.2.0
+        uses: appleboy/ssh-action@v1.2.5
         with:
           host: ${{ secrets.ORACLE_VM_HOST }}
           username: ubuntu
