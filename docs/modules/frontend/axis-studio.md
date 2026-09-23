@@ -299,7 +299,7 @@ default_weight等）は`draftFromExisting`が読み込んだ既存値のまま�
   `useMaterialValues(materialId)`が`GET /api/admin/material-catalog/{id}/values`から実データ値
   一覧を取得できた場合、値は読み取り専用の候補選択（自由入力を許さない——タイプミスが
   「静かに一致しない行」として残る落とし穴を防ぐため）になる。候補一覧が空の材料
-  （bicycle_infra等、動的値一覧に未対応）だけ自由テキスト入力のまま。
+  だけ自由テキスト入力のまま。
 
 ## MaterialCoveragePanel.tsx（「材料」タブ）
 
