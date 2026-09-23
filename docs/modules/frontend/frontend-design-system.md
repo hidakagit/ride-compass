@@ -47,7 +47,7 @@
 | radius | `--radius-sm/md/lg`を`globals.css`の`@theme`へ登録済み。`rounded-sm/md/lg`で使える |
 | shadow | `--shadow-float`を`@theme`へ登録済み。`shadow-float`で使える |
 | font-size | `@theme`へは追加していない。`components/ui/`はTailwind既定の`text-*`スケールをそのまま使う（`--font-size-*`とはわずかにズレるが、両者は別ファイルに閉じており実害なし）。`*.module.css`側は素の`rem`ではなく`--font-size-*`トークンを使う |
-| **color** | **`@theme`へ統合しない。** ダークモードが`globals.css`の`@media (prefers-color-scheme: dark)`内`:root`再定義に依存しており、`@theme`に入れると値が静的に固定されダークモード追従が壊れるため。`components/ui/`のコンポーネントも色は必ず`var(--color-*)`をTailwindの任意値記法（`bg-[var(--color-surface)]`等）で参照する。**Tailwind既定パレット（`bg-white`/`text-gray-900`等）は使用禁止。** |
+| **color** | **`@theme`へ取り込んでいない。** `components/ui/`のコンポーネントも色は必ず`var(--color-*)`をTailwindの任意値記法（`bg-[var(--color-surface)]`等）で参照する。**Tailwind既定パレット（`bg-white`/`text-gray-900`等）は使用禁止。** 取り込むこと自体はダークモードの追従を壊さない——`@theme inline { --color-surface: var(--color-surface); }`の形ならユーティリティは`var(--color-surface)`参照のまま出力され、`@theme`の変数が出る`@layer theme`の`:root`より、`globals.css`のunlayeredな`:root`とダーク側の再定義が常に勝つ。壊れるのは、`@theme inline`へ色の値そのものを書いた場合（ユーティリティへ値が焼き込まれる）と、`globals.css`の`:root`に再定義の無い名前を`@theme`にだけ置いた場合。任意値記法のままでいる側の利点は綴り違いを止められること: `var(--color-*)`の綴り違いは`cssTokens.test.ts`が落とすが、短い名前（`bg-surfce`）の綴り違いはTailwindが警告なしにクラスを生成しないだけで何も止めない |
 
 ### 重なり順（z-index）
 
