@@ -188,7 +188,7 @@ const TILE_SOURCE_BY_DATA_SOURCE: Record<
 
 /** レイヤーごとのデータ取得状態の算出元。母集団はレイヤーカタログそのもの。自前のJSで取りに行くもの（`ownFetch`）は
  * MapLibreのソースイベントでは観測できないため除く（取得した側が状態を出す）。 */
-export function buildLayerDataSources(layers: readonly MapLayerDescriptor[]): readonly LayerDataSource[] {
+function buildLayerDataSources(layers: readonly MapLayerDescriptor[]): readonly LayerDataSource[] {
   return layers.flatMap((layer) =>
     layer.dataSource === "ownFetch" ? [] : [{ key: layer.id, ...TILE_SOURCE_BY_DATA_SOURCE[layer.dataSource] }],
   );
@@ -291,7 +291,7 @@ function nearestPointOnLineString(
   return best;
 }
 
-export interface MapViewProps {
+interface MapViewProps {
   routes: RouteCandidate[];
   selectedRouteId: string | null;
   // 比較相手が別の道を通る区間。空/未指定なら帯を出さない。

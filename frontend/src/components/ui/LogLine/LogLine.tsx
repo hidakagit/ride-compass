@@ -2,7 +2,7 @@ import { cva, type VariantProps } from "class-variance-authority";
 import { cn } from "@/lib/cn";
 
 // ログの1行。重大度（エラー・警告）の行だけを、左の線と色で目立たせる。
-export const logLineVariants = cva(
+const logLineVariants = cva(
   "border-l-2 border-transparent px-1 py-px font-mono text-[length:var(--font-size-xs)] leading-[1.4] whitespace-pre-wrap break-all",
   {
     variants: {

@@ -155,7 +155,7 @@ interface FetchJsonOptions {
 
 /** `errorLabel`から「◯◯の取得/解析に失敗しました」を組み立てる。GET系クライアントは
  * この1つの文言体系を共有する。 */
-export function getMessages(errorLabel: string): ApiRequestMessages {
+function getMessages(errorLabel: string): ApiRequestMessages {
   return { failure: `${errorLabel}の取得に失敗しました`, parseFailure: `${errorLabel}の解析に失敗しました` };
 }
 

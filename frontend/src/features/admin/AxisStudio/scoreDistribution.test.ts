@@ -1,3 +1,4 @@
+// @vitest-environment node
 /**
  * `scoreDistribution.ts`——分布の階級ごとの点数（backendが返す）を得点帯ごとの延長割合へまとめ、満点への張り付きと
  * 0点への偏りを警告すること。

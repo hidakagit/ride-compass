@@ -126,7 +126,6 @@ export function poiTileUrl(): string {
 // Worker制約は無いが、オリジンの決め方は他タイルと揃える（lib/tileBaseUrl.ts）。
 const LANDCOVER_TILE_PATH = "/api/region/landcover-tiles/{z}/{x}/{y}.png";
 const LANDCOVER_TILE_VERSION = regionTileConfig.landcover.tile_version;
-export const LANDCOVER_TILE_MIN_ZOOM = regionTileConfig.landcover.min_zoom;
 
 export function landcoverTileUrl(): string {
   return `${tileBaseUrl()}${LANDCOVER_TILE_PATH}?v=${LANDCOVER_TILE_VERSION}`;

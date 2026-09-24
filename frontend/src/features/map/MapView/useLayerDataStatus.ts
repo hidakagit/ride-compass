@@ -87,7 +87,7 @@ function layerDataStatusEqual(a: LayerDataStatusByLayer, b: LayerDataStatusByLay
 // 実際に変わった時にしか発火しないため、そこでのisSourceLoaded()=trueは
 // 「新しいビューポートのタイルは問題なく決着した」という意味を持てるが、同じ判定を"idle"だけに
 // 基づいて行うことはできない。
-export function clearStaleTrackedSourceErrors(map: DataStatusMapLike, erroredSourceIds: Set<string>): boolean {
+function clearStaleTrackedSourceErrors(map: DataStatusMapLike, erroredSourceIds: Set<string>): boolean {
   let changed = false;
   for (const sourceId of erroredSourceIds) {
     if (map.isSourceLoaded(sourceId)) {

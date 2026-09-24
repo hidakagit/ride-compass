@@ -33,7 +33,3 @@ export const Select = forwardRef<HTMLSelectElement, React.SelectHTMLAttributes<H
 
 /** 入力欄と、その上に置く名前を縦に並べる。 */
 export const fieldClass = "flex min-w-0 flex-col gap-0.5 text-[length:var(--font-size-sm)] text-[var(--color-muted)]";
-
-export function Field({ className, ...props }: React.LabelHTMLAttributes<HTMLLabelElement>) {
-  return <label className={cn(fieldClass, className)} {...props} />;
-}

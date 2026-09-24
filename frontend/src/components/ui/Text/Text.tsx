@@ -1,5 +1,4 @@
-import { cva, type VariantProps } from "class-variance-authority";
-import { cn } from "@/lib/cn";
+import { cva } from "class-variance-authority";
 
 // 文字の役割ごとの見た目（大きさ・太さ・色）。文字の大きさは--font-size-*の3段と、ページ見出しだけ。
 // 画面は役割を選ぶだけで、大きさや色を直に書かない。
@@ -24,14 +23,3 @@ export const textVariants = cva("", {
   },
   defaultVariants: { variant: "body" },
 });
-
-type TextTag = "p" | "span" | "h1" | "h2" | "h3" | "div" | "dt" | "dd" | "li" | "label" | "code";
-
-interface TextProps extends React.HTMLAttributes<HTMLElement>, VariantProps<typeof textVariants> {
-  as?: TextTag;
-  htmlFor?: string;
-}
-
-export function Text({ as: Tag = "p", variant, className, ...props }: TextProps) {
-  return <Tag className={cn(textVariants({ variant }), className)} {...(props as object)} />;
-}
