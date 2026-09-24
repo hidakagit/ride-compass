@@ -981,7 +981,7 @@ def composer_world(monkeypatch):
     def fake_travel(distance_m, profile, grade, headwind, crosswind, crr):
         return np.asarray(distance_m, dtype=float) / 10.0 + np.asarray(headwind, dtype=float)
 
-    def fake_compose_costs(distance_m, time_varying, weights, penalty, *, base, static_sums, with_contributions):
+    def fake_compose_costs(distance_m, time_varying, weights, penalty, *, base, static_sums):
         count = len(distance_m)
         total = np.zeros(count)
         for axis_id, values in time_varying.items():
@@ -1270,7 +1270,7 @@ class FakeWeatherService:
 
 def make_engine(graph_service, weather_service, **kwargs):
     preference = Bag(with_time_scope=lambda scopes: Bag(weights={AXIS_STATIC: 1.0, AXIS_WIND: 2.0}, scopes=scopes))
-    defaults = dict(assumed_speed_kmh=20.0, turn_cost="cost_a")
+    defaults = dict(penalty_strength=1.0, assumed_speed_kmh=20.0, turn_cost="cost_a")
     defaults.update(kwargs)
     return engine.RoadGraphEngine(graph_service, weather_service, preference, **defaults)
 

@@ -511,7 +511,7 @@ class _LegCostComposer:
         time_varying = {axis_id: resolved[axis_id] for axis_id in self._time_varying_axis_ids}
         composed = compose_costs_from_axis_matrix(
             self._score_matrix.distance_m, time_varying, self._weights, self._penalty_strength,
-            base=travel, static_sums=self._fixed_axis_sums, with_contributions=False,
+            base=travel, static_sums=self._fixed_axis_sums,
         )
         cost_array, difficulty_array = composed.cost, composed.difficulty
         cost_array = np.where(self._hard_filter_excluded, np.inf, cost_array)
@@ -645,7 +645,7 @@ class RoadGraphEngine:
         graph_service: GraphService,
         weather_service: WeatherService,
         route_preference: RoutePreference,
-        penalty_strength: float = 1.0,
+        penalty_strength: float,
         max_average_grade_percent: float | None = None,
         hard_filters: frozenset[str] | None = None,
         assumed_speed_kmh: float = ASSUMED_SPEED_KMH,
@@ -662,7 +662,7 @@ class RoadGraphEngine:
         self._weather_service = weather_service
         self._route_preference = route_preference
         # コスト式`所要時間 × (1 + P × difficulty/100)`のP＝「主観 vs 時間」の換算レート。
-        # 既定1.0は「difficulty 100の道は体感で所要時間2倍」の意味。
+        # 既定を持たない——省略時の値は呼ぶ側が`resolve_penalty_strength`で較正値から読む。
         self._penalty_strength = penalty_strength
         # 0次ハードフィルタの勾配しきい値（%、既定None＝除外しない）。
         # `domain/hard_filters.py: compute_hard_filter_excluded`参照。

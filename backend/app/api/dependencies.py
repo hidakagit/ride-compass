@@ -203,7 +203,8 @@ def get_preview_builder(
 ) -> PreviewBuilder:
     """`/api/routes/preview`（単一区間確認）向けのビルダー。
 
-    previewはリクエストボディでの評価重み上書きに対応しないため、既定値のみを使う。
+    previewはリクエストボディでの評価重み・換算レート（P）の上書きに対応しないため、
+    どちらもルート生成が省略時に使うのと同じ既定を使う。
     """
 
     async def preview(
@@ -214,6 +215,7 @@ def get_preview_builder(
             graph_service,
             weather_service,
             preference,
+            resolve_penalty_strength(None),
             assumed_speed_kmh=assumed_speed_kmh,
         )
         segment = await engine.preview_segment(origin, destination)
