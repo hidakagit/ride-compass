@@ -25,9 +25,9 @@ function legendSwatchStyle(entry: LegendEntry): CSSProperties {
 }
 
 // 凡例をチェックボックス一覧として描画する共通部品（MapOverlayControls.tsx・
-// RouteAxisProfile.tsx等で共用）。行の中身（チェックボックス+スウォッチ+ラベル）
+// LensControl.tsxで共用）。行の中身（チェックボックス+スウォッチ+ラベル）
 // だけを担い、リスト/行自体の見た目
-// （サイドバーの2列グリッドか、ポップオーバー内の単列か等）は呼び出し側がclassNameで
+// （レンズの一覧か、▶パネル内の単列か等）は呼び出し側がclassNameで
 // 指定する——文脈で項目数・レイアウトが異なるため。
 export default function LegendCheckboxList({
   legend,

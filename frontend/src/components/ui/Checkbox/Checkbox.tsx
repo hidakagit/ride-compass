@@ -1,7 +1,7 @@
 import * as RadixCheckbox from "@radix-ui/react-checkbox";
 import { cn } from "@/lib/cn";
 
-// 汎用チェックボックス。Radix Checkbox（Disclosure/LayerChip等と同じ既存のRadix採用
+// 汎用チェックボックス。Radix Checkbox（Disclosure等と同じ既存のRadix採用
 // パターンを踏襲）はindeterminate状態をネイティブのinputより表現しやすいため採用する。
 interface CheckboxProps {
   checked?: boolean;

@@ -46,7 +46,7 @@ export interface TermDraft {
   required: boolean;
 }
 
-/** categorical材料（highway/bicycle_infra等、真偽値ではなく文字列多値）を
+/** categorical材料（highway等、真偽値ではなく文字列多値）を
  * 「はい/いいえ、または種類ごとに点数を決める」で使うための(値, スコア)行。値は自由入力
  * テキストで持つ（mapping未登録の値は評価対象外[欠損]として扱われる）。
  * highway/surface/smoothnessのようにGET /api/admin/material-catalog/{material_id}/valuesが

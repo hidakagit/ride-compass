@@ -32,7 +32,7 @@ interface DisclosureProps {
   bodyClassName?: string;
   /** トリガー内に表示する見出し内容（テキスト・chevron等） */
   summary: ReactNode;
-  /** 見出し行のうち開閉トリガーの外に置く要素（LayerChip等の独立したボタン）。
+  /** 見出し行のうち開閉トリガーの外に置く要素（見出しに並べるタブ・ボタン等の独立した操作）。
    * トリガー（button）の中へネストすると button内button という無効なHTMLになるため、
    * 見出し行（h3）内のトリガーと兄弟として配置する（クリックしても開閉に巻き込まれない）。 */
   trailing?: ReactNode;
@@ -76,7 +76,7 @@ export default function Disclosure({
   return (
     <Accordion.Root id={id} type="single" collapsible className={className} {...controlledProps}>
       <Accordion.Item value={ITEM_VALUE} className="contents">
-        {/* trailing（LayerChip等）がある場合のみ、見出し行の視覚的な横並び（flex row）を
+        {/* trailing（見出しに並べるタブ・ボタン等）がある場合のみ、見出し行の視覚的な横並び（flex row）を
             担う素のdivを追加してheaderClassNameをそちらへ渡す。h3（Accordion.Header）自体は
             Triggerだけを包む薄い意味付けに留め、trailingの文言（例:「表示」）がh3の
             textContentへ混入しないようにする（h3のtextContentをテキスト完全一致で検証している

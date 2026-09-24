@@ -138,11 +138,10 @@ export function windArrows(grid: readonly WindGridPoint[], index: number): Dynam
   return { kind: "gridMark", geojson: windGridToFeatureCollection(grid, index) };
 }
 
-// 格子間隔（度）。backend/app/domain/wind_grid.pyの同名定数と一致させる必要があるが、
-// APIレスポンス自体には間隔情報が含まれない（点の配列のみ）。他の生成物
-// （axis-catalog.json等）と同じ片側importへ揃え、backend/scripts/export_openapi.pyが
-// 書き出すwind-grid-config.jsonを単一の情報源とする。降水延長予報のgridFill表現
-// （precipitationNowcast.ts）がセルの1辺の長さとして使う。
+// 格子間隔（度）。APIレスポンス自体には間隔情報が含まれない（点の配列のみ）ため、
+// backend/scripts/export_openapi.pyが書き出すwind-grid-config.json（源泉は
+// backend/app/domain/wind_grid.py）から取る。格子の降水の塗り（precipitationNowcast.ts）が
+// セルの1辺の長さとして使う。
 export const WIND_GRID_SPACING_DEG = windGridConfig.spacing_deg;
 
 export interface MapViewport {

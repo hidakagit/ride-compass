@@ -56,7 +56,7 @@ function catalogResponse(): AxisCatalogResponse {
         material_breakdown: [],
       },
       // 軸スタジオで公開されたばかりの新規GUI軸（複数材料の重み付き結合、kind=ramp）。
-      // ビルド時静的axis-catalog.jsonには存在しない、実行時APIだけが返す想定。
+      // 軸は実行時APIだけが配る（ビルド時の生成物は軸の写しを持たない）。
       {
         axis_id: "gui_published_axis",
         label: "GUI公開軸テスト",

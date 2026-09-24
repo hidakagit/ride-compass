@@ -71,7 +71,7 @@ function pointKey(delivery: JmaDelivery, frame: JmaFrame): string {
 
 interface UseDynamicWeatherLayersOptions {
   /** 全レイヤーの表示状態（`MapLayerId`→boolean）。**動的気象レイヤーを足してもこの境界は
-   * 変わらない**（`MapView`の`staticLayerVisibility`と同じ形、
+   * 変わらない**（`MapView`が受け取る`look.layerVisibility`と同じ形、
    * docs/modules/frontend/static-map-layers.md「表示状態の渡し方」）。 */
   visibility: MapLayerVisibility;
   /** チップ配下で非表示に選ばれている名前付きソース（▶パネルの「表示する情報」）。面同士が重なると

@@ -91,8 +91,8 @@ export interface OverlayLayerChip {
    * ▶パネル本体（renderRawMemberTile等）へ常時表示する用途には使わない（設定パネル
    * 内の任意開閉表示専用）。 */
   panelHint?: string;
-  /** レイヤーのデータ取得状態。ChipButtonがLayerChip（サイドバー）と同じ
-   * 「on && dataStatus != null」の間だけ小さな状態ドットを添える。 */
+  /** レイヤーのデータ取得状態。ChipButtonが「on && dataStatus != null」の間だけ小さな状態ドットを
+   * 添える。 */
   dataStatus?: LayerDataStatus;
 }
 
@@ -259,7 +259,7 @@ function renderLegendSwatch(entry: LegendEntry) {
 
 // ▶を開いたときの内訳パネル。軸に属する全カテゴリを表示中/非表示の別なく並べる
 // （「これだけで何が起きているか分かる」ことを優先する）。
-// `axisId`を持つ軸はチェックボックス付き（サイドバーと同じ`LegendCheckboxList`）で描き、
+// `axisId`を持つ軸はチェックボックス付き（レンズの凡例と同じ`LegendCheckboxList`）で描き、
 // その場で表示/非表示を切り替えられる。持たない軸——配信元が色を焼き込み済みで
 // カテゴリ単位の絞り込みができないラスタ系——は読み取り専用の一覧のまま、非表示分を
 // 薄く見せる。
@@ -275,8 +275,8 @@ function renderLegendDetails(
           {axis.axisId ? (
             // 一括ON/OFF。1つ残らず表示中のときだけチェックが入り、押すと全部隠す。
             // 1つでも隠れていれば未チェックで、押すと全部表示に戻る——狭い▶パネルに
-            // 「すべて表示」「すべて隠す」の2ボタン（サイドバー側の形）を置く余地が
-            // 無いため、1つのチェックボックスで両方向を兼ねる。
+            // 「すべて表示」「すべて隠す」の2ボタンを置く余地が無いため、1つのチェックボックスで
+            // 両方向を兼ねる。
             <label className="flex cursor-pointer items-center gap-1.5">
               <Checkbox
                 checked={axis.hiddenKeys.length === 0}
@@ -460,8 +460,8 @@ function ChipButton({
   /** 最上位グループ（道路/環境/スポット）の色分け。未指定＝どのグループにも属さない
    * 単独チップ（ルート等）は無色のまま。 */
   groupTint?: MapOverlayGroup;
-  /** レイヤーのデータ取得状態。LayerChip（サイドバー）と同じ
-   * 「active && dataStatus != null」の間だけアイコン右上へ小さな状態ドットを添える。 */
+  /** レイヤーのデータ取得状態。「active && dataStatus != null」の間だけアイコン右上へ小さな
+   * 状態ドットを添える。 */
   dataStatus?: LayerDataStatus;
   /** 凡例の絞り込みで一部を隠しているか。立っている間だけアイコン左上へ小さな印を添える
    * （絞り込みは保存されるため、次に開いたとき欠けた地図を「データが無い」と読ませない）。 */
@@ -470,7 +470,7 @@ function ChipButton({
   const arrowGlyph = expandDirection === "right" ? "▶" : "▼";
   const arrowOpenClass = expandDirection === "right" ? "rotate-90" : "rotate-180";
   const isActiveVisual = expandViaSelf ? isExpanded : active;
-  // レイヤーのデータ取得状態。LayerChip.tsxと同じ「ONの間だけ」判定（OFF中はチップ自体の
+  // レイヤーのデータ取得状態。「ONの間だけ」出す（OFF中はチップ自体の
   // 見た目でON/OFFが分かるため出さない）。
   const showStatusDot = active && dataStatus != null;
   const statusLabel = dataStatus ? LAYER_DATA_STATUS_LABELS[dataStatus] : undefined;
@@ -550,8 +550,8 @@ function ChipButton({
 }
 
 // 地図の上に重ねるのは「地図を見ながら頻繁に切り替える」ON/OFFチップと、▶で開く凡例。
-// ▶パネルの中では凡例カテゴリの絞り込みまで操作でき、保存先はサイドバー側と同じ
-// （page.tsx: hiddenLegendKeysByMode）。このコンポーネントはレイヤー
+// ▶パネルの中では凡例カテゴリの絞り込みまで操作でき、保存先はレンズの凡例と同じ
+// （`features/map/view/useMapView.ts`が持つ）。このコンポーネントはレイヤー
 // 固有の知識を持たない汎用の描画係で、レイヤーが増えてもここは変更不要（mapLayers.tsの
 // コメント参照）。
 export default function MapOverlayControls({

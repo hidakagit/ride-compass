@@ -170,9 +170,9 @@ function bindDragAwareClick(marker: maplibregl.Marker, element: HTMLElement, onC
 // 同時表示（precipitationNowcastのmain+linearRainband等）は、グループ内の別ソースとして
 // 独立にvisible/payloadを持つことで実現する（このループ自体は各ソースを独立に処理するだけ）。
 
-// interactive: クリック・カーソル判定（handleClick/handleMouseMove）の対象にするか。
-// レイヤーを足すときにその場で答えさせるため必須にしてある——別の一覧で「対象外のkey」を
-// 数え上げる形にすると、新しいレイヤーが既定でクリック対象になり、「カーソルは
+// クリック・カーソル判定（handleClick/handleMouseMove）の対象は、sceneの各レイヤーが宣言する
+// 拾う対象（`hitTargets`、省略時は対象外）から導く（`interactiveSceneLayerIds`）。別の一覧で
+// 「対象外のkey」を数え上げる形にすると、新しいレイヤーが既定でクリック対象になり、「カーソルは
 // クリック可能を示すのに実際は何も起きない」という不整合が静かに増える。
 
 type LayerDataSource = { key: MapLayerId; sourceId: string; sourceLayer?: string };

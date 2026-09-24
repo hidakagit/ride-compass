@@ -977,7 +977,7 @@ describe("MapOverlayControls", () => {
       expect(chip).toHaveAttribute("title", "選択中ルート（読み込み中です）");
     });
 
-    it("OFF中のチップはdataStatusがあってもドットを出さない（LayerChipと同じ抑制条件）", () => {
+    it("OFF中のチップはdataStatusがあってもドットを出さない", () => {
       const layers: OverlayLayerChip[] = [
         { id: "route", icon: TestIcon, label: "ルート", on: false, dataStatus: "error" },
       ];

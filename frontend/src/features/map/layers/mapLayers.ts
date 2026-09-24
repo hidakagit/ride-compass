@@ -189,12 +189,12 @@ export function mapOverlayGroupFor(layer: {
 
 export interface MapLayerDescriptor {
   id: MapLayerId;
-  /** サイドバーのセクション見出し・条件サマリ・チップのtitleで使う正式名称 */
+  /** 地図上チップのtitle・▶パネルの見出しで使う正式名称 */
   label: string;
   /** 地図上のアイコンチップ下に出す短縮表記。未指定ならlabelをそのまま使う。
    * チップ幅は文字数に連動するため、
    * 長いlabelはここで短くしてチップ幅を他レイヤーと揃える。正式名称は引き続きlabel
-   * （サイドバー見出し・条件サマリ・チップのtitle）で示すため、意味の省略は許容する。 */
+   * （チップのtitle・▶パネルの見出し）で示すため、意味の省略は許容する。 */
   chipLabel?: string;
   kind: MapLayerKind;
   /** 地図上チップ・設定パネルの行頭に出すアイコン（`icons.tsx`）。
@@ -217,10 +217,9 @@ export interface MapLayerDescriptor {
   /** 軸スタジオの軸から生成したレイヤーか（専用way値配信軸）。ramp軸は
    * dataNature==="composite"で同じ判定を受けるためこのフラグを持たない（isAxisStudioLayer参照）。 */
   axisStudioLayer?: boolean;
-  /** 地図上チップ・サイドバーどちらの最上位グルーピング（mapOverlayGroupFor）も、
-   * これ自体（`MapLayerCategory`の値）を入力の一部として
-   * 使う。合わせてサイドバーの表示順（MAP_LAYER_CATEGORY_ORDER）・地図上チップの
-   * 「道路」「環境」「スポット」各グループ内のトピック別小見出しにも使う。
+  /** 地図上チップの最上位グルーピング（mapOverlayGroupFor）は、これ自体（`MapLayerCategory`の値）を
+   * 入力の一部として使う。合わせて「道路」「環境」「スポット」各グループ内の並び順
+   * （MAP_LAYER_CATEGORY_ORDER）とトピック別小見出しにも使う。
    * どのグループにも属さないもの（ルート）は持たない。源泉の宣言から入る。 */
   category?: MapLayerCategory;
   /** 生データか推定指標（合成）か時刻で変わる動的データか（MapLayerDataNature参照）。
@@ -634,11 +633,11 @@ export function tileZoomTooWideLayerIds(zoom: number): readonly MapLayerId[] {
     .map((layer) => layer.id);
 }
 
-/** 地図チップ・サイドバーからON/OFFできるレイヤーの既定値を、記述子の`defaultOn`から導く。
+/** 地図チップからON/OFFできるレイヤーの既定値を、記述子の`defaultOn`から導く。
  *
  * 軸スタジオ由来のレイヤー（ramp軸・専用way値配信軸）のキーは持たない——表示はレンズ
- * （axisVisibility）だけが決めており、ON/OFFの入口が地図チップにもサイドバーにも無い
- * （`isAxisStudioLayer`）。そのため軸を空で呼ぶ。 */
+ * だけが決めており、ON/OFFの入口が地図チップに無い（`isAxisStudioLayer`）。そのため軸を
+ * 空で呼ぶ。 */
 export function buildDefaultLayerVisibility(): MapLayerVisibility {
   return Object.fromEntries(
     buildMapLayers([], []).map((layer) => [layer.id, layer.defaultOn === true]),

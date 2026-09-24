@@ -18,7 +18,6 @@ npm run generate:apiを実行して生成物を同じコミットに含めるこ
 import json
 import sys
 from pathlib import Path
-from typing import get_args
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
@@ -122,7 +121,6 @@ from app.services.landcover_tile_service import LANDCOVER_TILE_VERSION  # noqa: 
 from app.domain.jma_tile_specs import effective_max_zoom  # noqa: E402
 from app.domain.material_catalog import MATERIAL_CATALOG, MISSING_SEMANTICS_DISPLAY, POPULATION_LABELS  # noqa: E402
 from app.domain.region import ROAD_TILE_MAX_ZOOM, ROAD_TILE_MIN_ZOOM  # noqa: E402
-from app.domain.traffic import STOP_POI_KINDS, SupplyPoiKind  # noqa: E402
 from app.services.route_generator import (  # noqa: E402
     DEFAULT_MAX_ROUTES,
     MAX_ROUTES,
@@ -139,7 +137,6 @@ REGION_TILE_CONFIG_PATH = GENERATED_DIR / "region-tile-config.json"
 PRIMARY_ATTRIBUTES_PATH = GENERATED_DIR / "primaryAttributes.ts"
 WIND_GRID_CONFIG_PATH = GENERATED_DIR / "wind-grid-config.json"
 ROUTE_GENERATE_CONFIG_PATH = GENERATED_DIR / "route-generate-config.json"
-POI_KINDS_PATH = GENERATED_DIR / "poi-kinds.json"
 MATERIAL_CATALOG_PATH = GENERATED_DIR / "material-catalog.json"
 LANDCOVER_CLASSES_PATH = GENERATED_DIR / "landcover-classes.json"
 PALETTE_PATH = GENERATED_DIR / "palette.json"
@@ -417,17 +414,6 @@ def main() -> None:
             }
             for cls in LANDCOVER_CLASSES
         ],
-    )
-    # 停止要因POI・補給休憩POIのkind正準集合。frontendは色・ラベルを自分で持つが、
-    # **キーの一覧はここから引く**——backendがkindを足したのにfrontendのbaseFilterが
-    # 古いままだと、その地物はフィルタに弾かれて地図から完全に消える（凡例にも出ないため
-    # 「データが無い」としか見えない）。
-    _write_json(
-        POI_KINDS_PATH,
-        {
-            "stop": sorted(STOP_POI_KINDS),
-            "supply": sorted(get_args(SupplyPoiKind)),
-        },
     )
     # 軸スタジオが選べる公開材料の一覧。frontendは`GET /api/material-catalog`が失敗した
     # ときの静的フォールバックとして使う。

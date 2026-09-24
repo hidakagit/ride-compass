@@ -1,4 +1,4 @@
-import { expect, type Page } from "@playwright/test";
+import { expect, type Locator, type Page } from "@playwright/test";
 import type { RouteCandidate, RouteGenerateResponse } from "@/types/route";
 import { catalogAxis } from "@/lib/mapDisplay/__fixtures__/catalogAxes";
 import { makeRouteCandidate as makeCandidate } from "@/testing/routeFixtures";
@@ -238,7 +238,7 @@ async function rewriteRules(): Promise<{ source: string }[]> {
 // UIの中身とは無関係な段取り（シートを開く・生成の完了を待つ）で落ちて時間を使うため、
 // 1箇所へ集約する（docs/records/tasks/T768.md）。
 
-/** スマホ縦持ち相当。useIsMobile（MOBILE_BREAKPOINT_PX=640）のモバイル分岐に入る幅。 */
+/** スマホ縦持ち相当。useIsMobile（CSSの`--breakpoint-mobile`以下で立つ`--is-mobile`の旗）のモバイル分岐に入る幅。 */
 export const MOBILE_VIEWPORT = { width: 390, height: 812 };
 
 /** モバイルの下部タブバーが持つシート。値はタブのラベル兼シートのアクセシブル名。 */
@@ -297,7 +297,13 @@ export async function openMobileSheet(page: Page, name: MobileSheetName) {
 export async function generateRoutes(page: Page, { distanceKm = 20 }: { distanceKm?: number } = {}) {
   const sheet = await openMobileSheet(page, "ルート設定");
   await sheet.getByLabel("距離").fill(String(distanceKm));
-  await sheet.getByRole("button", { name: "ルート生成" }).click();
-  await expect(sheet.getByRole("button", { name: "ルート生成" })).toBeEnabled({ timeout: 60_000 });
+  await runGeneration(sheet);
   return sheet;
+}
+
+/** 「ルート生成」を押し、生成が終わってボタンが再び押せるまで待つ。`scope`はボタンを含む範囲
+ * （スマホ幅はシート、それ以外は画面）。 */
+export async function runGeneration(scope: Page | Locator): Promise<void> {
+  await scope.getByRole("button", { name: "ルート生成" }).click();
+  await expect(scope.getByRole("button", { name: "ルート生成" })).toBeEnabled({ timeout: 60_000 });
 }

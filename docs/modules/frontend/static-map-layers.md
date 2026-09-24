@@ -75,10 +75,10 @@ backendから取り、タイル本体はrewrites経由に戻る。
 
 ## 表示状態の渡し方（レイヤー専用のpropを持たない）
 
-`MapView`が受け取る静的レイヤーの表示状態は`staticLayerVisibility`
-（`MapLayerId`→boolean）1つで、**レイヤーを足してもこのpropは変わらない**。
-`axisVisibility`（ramp軸）・`dedicatedWayValueVisibility`（専用way値配信軸）と同じ形で、
-[design-principles.md](../../architecture/design-principles.md)構造仕様3に揃えてある。
+`MapView`が受け取る静的レイヤーの表示状態は`look.layerVisibility`
+（`MapLayerId`→boolean）1つで、**レイヤーを足してもこのpropは変わらない**。軸スタジオ由来の
+レイヤーの表示は塗っている軸（`look.paintedAxisId`）1つで決まり、軸ごとのpropを持たない
+（[design-principles.md](../../architecture/design-principles.md)構造仕様3）。
 
 レイヤー専用のpropを増やす形だと、型宣言・分割代入・再描画対象の列挙・依存配列・可視状態の
 対応表へ同じ名前を書き足すことになり、**1箇所でも忘れるとチップはONで凡例も出るのに地図には
@@ -586,8 +586,9 @@ E2Eの`e2e/map-runtime.spec.ts`「宣言された地図レイヤーを全部ON�
 
 分類値の一覧はbackendが正で、フロントは色とラベルを与えるだけ。**backendが種別を1つ足した
 のにフロントが古いままだと、その地物は`baseFilter`に弾かれて地図から完全に消える**（凡例にも
-出ないため「データが無い」としか見えない）ため、分ける条件は生成物（`poi-kinds.json`）から
-導く。凡例の行は種別と1対1ではない——利用者から見て区別する意味の無い種別（車道用の踏切と
+出ないため「データが無い」としか見えない）ため、分ける条件は源泉の表示の行（生成物
+`primaryAttributes.ts`の`display_axes`の値）から導き、行と種別の一覧が一致することはbackendの
+テスト（`test_primary_attribute_display.py`）が全種別で確かめる。凡例の行は種別と1対1ではない——利用者から見て区別する意味の無い種別（車道用の踏切と
 歩道・自転車道用の踏切）は1行へまとめる。色分け式には各種別がそのまま載るため、地図の
 見た目とポップアップの語彙は種別ごとに正しく出る。
 

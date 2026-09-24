@@ -1,5 +1,5 @@
 import { expect, type Page } from "@playwright/test";
-import { MOBILE_VIEWPORT, openMobileSheet } from "./fixtures";
+import { MOBILE_VIEWPORT, openMobileSheet, runGeneration } from "./fixtures";
 
 // 走査する画面の状態（docs/conventions/testing.md パターン4）。土台は幅 × 段階（ルートの生成前・生成後）。
 // 土台の上では、画面がARIAで宣言している開閉の部品（`aria-expanded`・`role="tab"`）のうち、最前面で
@@ -219,13 +219,11 @@ export async function openApp(page: Page): Promise<void> {
 export async function generate(page: Page, width: WidthName): Promise<void> {
   if (width === "mobile") {
     const sheet = await openMobileSheet(page, "ルート設定");
-    await sheet.getByRole("button", { name: "ルート生成" }).click();
-    await expect(sheet.getByRole("button", { name: "ルート生成" })).toBeEnabled({ timeout: 60_000 });
+    await runGeneration(sheet);
     await page.getByRole("button", { name: "ルート設定", exact: true }).click();
     await expect(sheet).toBeHidden();
   } else {
-    await page.getByRole("button", { name: "ルート生成" }).click();
-    await expect(page.getByRole("button", { name: "ルート生成" })).toBeEnabled({ timeout: 60_000 });
+    await runGeneration(page);
   }
   await settle(page);
 }

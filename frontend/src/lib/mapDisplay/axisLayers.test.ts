@@ -41,10 +41,9 @@ describe("rampColorForBand（改善計画T292: 可変バンド数の配色一般
   });
 });
 
-// 改善計画T308: rampAxesFromCatalogAxes/axisLabelsFromCatalogAxesは、ビルド時静的json
-// （axis-catalog.json）と実行時API（GET /api/axis-catalog）の両方から同じ形の値を
-// 組み立てるための共通関数（hooks/useAxisCatalog.tsが後者から呼ぶ）。
-describe("rampAxesFromCatalogAxes / axisLabelsFromCatalogAxes（改善計画T308）", () => {
+// rampAxesFromCatalogAxes/axisLabelsFromCatalogAxesは、実行時API（GET /api/axis-catalog）の
+// 軸から地図の値を組み立てる（hooks/useAxisCatalog.tsが呼ぶ）。
+describe("rampAxesFromCatalogAxes / axisLabelsFromCatalogAxes", () => {
   it("GUI作成軸（kind=ramp、複数材料の重み付き結合）が正しくRampAxisへ変換される", () => {
     const catalogAxes: CatalogAxis[] = [
       {

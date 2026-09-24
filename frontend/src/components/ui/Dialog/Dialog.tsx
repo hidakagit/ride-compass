@@ -8,7 +8,7 @@ import { cn } from "@/lib/cn";
 // Radix Dialogを使わない自前実装のままにしてある(docs/modules/frontend/frontend-design-system.md参照)。
 // このDialogは新規の単純なモーダル要求(ドラッグ不要な確認ダイアログ等)向けの土台。
 //
-// titleを必須propsにすることでアクセシブルな名前を型で強制する(Disclosure/LayerChipと
+// titleを必須propsにすることでアクセシブルな名前を型で強制する(Disclosureと
 // 同じ既存方針)。hideTitle指定時はTailwind組み込みのsr-onlyで視覚的にのみ隠す。
 // 重なり順はglobals.cssのスケール（--z-floating-panel）。BottomSheetより上、
 // 情報ポップオーバー（--z-top-popover、Dialogの中から開く）より下。
