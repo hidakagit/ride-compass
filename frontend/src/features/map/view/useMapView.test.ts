@@ -153,9 +153,9 @@ describe("凡例で隠した行", () => {
   it("災害の▶パネルで隠した要素を、気象レイヤーの取得へ渡す", () => {
     const { result } = render();
     act(() => result.current.overlayControls.onLegendEntryToggle(DISASTER_LAYER_ID, "thunder"));
-    expect(mocks.useDynamicWeatherLayers.mock.lastCall?.[0]).toMatchObject({ hiddenDisasterSources: ["thunder"] });
+    expect(mocks.useDynamicWeatherLayers.mock.lastCall?.[0].hiddenSources[DISASTER_LAYER_ID]).toEqual(["thunder"]);
     act(() => result.current.overlayControls.onLegendAxisSetHidden(DISASTER_LAYER_ID, []));
-    expect(mocks.useDynamicWeatherLayers.mock.lastCall?.[0]).toMatchObject({ hiddenDisasterSources: [] });
+    expect(mocks.useDynamicWeatherLayers.mock.lastCall?.[0].hiddenSources[DISASTER_LAYER_ID]).toEqual([]);
   });
 });
 

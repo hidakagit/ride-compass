@@ -14,19 +14,21 @@
  */
 import { mapDisplay } from "@/types/generated/mapDisplay";
 import palette from "@/types/generated/palette.json";
+import weatherScales from "@/types/generated/weather-scales.json";
 import type { FilterSpecification } from "maplibre-gl";
 
 import { createLidenIcon } from "@/features/map/layers/lidenIcon";
-import { LIDEN_MARK_VALUE_PROPERTY } from "@/features/map/layers/lidenLayer";
-import { jmaPlaceholderTileUrl } from "@/features/map/layers/jmaNowcastFrames";
+import { JMA_POINT_VALUE_PROPERTY, jmaPlaceholderTileUrl } from "@/features/map/layers/jmaDelivery";
 import { PRECIPITATION_COLOR_STOPS, PRECIPITATION_NONE_THRESHOLD_MM } from "@/features/map/layers/precipitationNowcast";
-import { RISK_LEVEL_COLORS } from "@/features/map/layers/riskMap";
 import { createWindArrowIcon } from "@/features/map/layers/windArrowIcon";
 import { WIND_CALM_THRESHOLD_MS, WIND_SPEED_COLOR_STOPS } from "@/features/map/layers/windLayer";
 
 import { declareGroup, type SceneLayerEntry, type SceneSourceEntry } from "@/features/map/scene/mapSceneGroups";
 import { AREA_OPACITY } from "./areaRasters";
 import { zoomScaleExpression, sceneSourceId, type SceneSourceId } from "@/features/map/scene/sceneBuilders";
+
+/** キキクルの危険度の段の色（源泉`domain/weather_display.py`）。洪水の線を段ごとに塗る。 */
+const RISK_LEVELS = weatherScales.risk_levels;
 
 const WEATHER = mapDisplay.weather;
 
@@ -163,14 +165,14 @@ const DRAWINGS: { readonly [K in DrawnKey]: Drawing } = {
         "match",
         ["to-number", ["get", "level"]],
         1,
-        RISK_LEVEL_COLORS[1].color,
+        RISK_LEVELS[1].color,
         2,
-        RISK_LEVEL_COLORS[2].color,
+        RISK_LEVELS[2].color,
         3,
-        RISK_LEVEL_COLORS[3].color,
+        RISK_LEVELS[3].color,
         4,
-        RISK_LEVEL_COLORS[4].color,
-        RISK_LEVEL_COLORS[0].color,
+        RISK_LEVELS[4].color,
+        RISK_LEVELS[0].color,
       ],
       // 低いズームで目立たせすぎず、拡大するほど個々の川筋を追えるようにする。
       "line-width": ["interpolate", ["linear"], ["zoom"], 6, 1.5, 10, 3, 14, 5],
@@ -183,7 +185,7 @@ const DRAWINGS: { readonly [K in DrawnKey]: Drawing } = {
     createIcon: createLidenIcon,
     // 落雷の強弱を配信元が持たないため、大きさはズームだけで決まる。
     color: palette.semantic.lightning,
-    valueProperty: LIDEN_MARK_VALUE_PROPERTY,
+    valueProperty: JMA_POINT_VALUE_PROPERTY,
     minScale: WEATHER.lightningIconScale,
     maxScale: WEATHER.lightningIconScale,
     fullScaleValue: 1,

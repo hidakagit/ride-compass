@@ -43,7 +43,7 @@ interface UseWeatherGridResult {
   effectiveGrid: WindGridPoint[];
   /** effectiveGridの格子間隔（度）。detailGridを使っている間はズーム依存の間隔
    * （windGridDetailSpacingDegForZoom）、gridへフォールバックしている間は
-   * WIND_GRID_SPACING_DEG。gridFillのセルサイズ（precipitationNowcast.ts: precipitationRenderPayload）が
+   * WIND_GRID_SPACING_DEG。gridFillのセルサイズ（precipitationNowcast.ts: precipitationCells）が
    * effectiveGridと矛盾しない間隔を使うために必要（実際のフェッチに使った値を返す。
    * windGridDetailSpacingDegForZoomを呼び出し側で再計算すると、フェッチ後にズームが
    * 動いていた場合に実際のデータと食い違いうる）。 */

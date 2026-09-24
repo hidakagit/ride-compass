@@ -12,17 +12,18 @@
 |---|---|
 | `features/map/layers/dynamicWeather.ts` | 共通契約（型・共有タイムライン・状態管理の型・純粋関数） |
 | `lib/time.ts` | 画面に出す時刻の扱い（日本時間の暦と時刻・書式・日時の入力欄との変換）と、時刻の並びから最も近いコマを引く関数。気象レイヤーと出発時刻は同じ表記・同じ引き方を使う |
-| `features/map/layers/precipitationNowcast.ts`・`thunderNowcast.ts`・`jmaNowcastFrames.ts` | 降水/雷/竜巻ナウキャストのフレーム列取得・統合 |
-| `features/map/layers/lidenLayer.ts`・`lidenIcon.ts` | 雷放電位置データ（liden、実際の落雷地点）のフレーム列・GeoJSON取得・Canvas 2Dアイコン描画 |
-| `features/map/layers/windLayer.ts`・`windArrowIcon.ts` | 風の矢印（gridMark）の格子データ・Canvas 2Dアイコン描画 |
-| `features/map/layers/riskMap.ts` | キキクル・線状降水帯予測マップ（未来フレームを持たない特殊系） |
+| `features/map/layers/weatherSources.ts` | 源泉の宣言（`mapDisplay.weatherElements`）を名前付きソースへ束ね、段を1本の時系列へつなぎ、源泉が要素ごとに宣言する規則で選んだ時刻に描くコマを選ぶ |
+| `features/map/layers/jmaDelivery.ts` | 気象庁の配信のパス構造・時刻一覧の取得と読み方・コマのタイルと地点（GeoJSON）のURL |
+| `features/map/layers/precipitationNowcast.ts` | 降水の色の段・凡例と、自前の格子の降水の塗り（gridFill） |
+| `features/map/layers/windLayer.ts`・`windArrowIcon.ts` | 風と降水が共有する格子の扱い（今より前を落とす・取り損ねた地点を補う・詳細格子の間隔と範囲）と、風の矢印（gridMark）・Canvas 2Dアイコン描画 |
+| `features/map/layers/lidenIcon.ts` | 落雷の地点の記号（Canvas 2Dアイコン描画） |
 | `features/map/layers/jmaTileIndex.ts` | 在否インデックスの解釈（URL解析・「空だと確認済み」の判定、純ロジック） |
 | `features/map/layers/jmaTileProtocol.ts` | `jmatile://`スキームのMapLibreプロトコル。空と分かっているタイルをネットワークへ出さずに透明タイルで返し、配信の失敗を要素ごとに記録して購読できるようにする |
 | `features/map/useJmaTileIndex.ts` | 在否インデックスの定期取得 |
 | `features/map/scene/groups/weather.ts` | 動的気象の描き方。何を描くか（チップid・名前付きソース・描き方の種類・配信元）は源泉の`mapDisplay.weatherElements`をループして受け取り、ここは要素ごとの見た目（`paint`・`layout`・`filter`・記号の絵）だけを持つ。ソース名（`weatherSourceId`）・ソースの宣言・レイヤー・記号の絵の登録（`WEATHER_ICONS`）はこの2つから導かれる |
 | `features/map/scene/applyToMap.ts`（`weatherStateFrom`・`weatherPayloadFrom`） | `dynamicWeather`（チップid→名前付きソース→表示・中身）を宣言の入力へ移す。JMAタイルのURLへ`jmatile://`スキームを付ける |
-| `features/map/useDynamicWeatherLayers.ts`・`useWeatherGrid.ts`・`features/conditions/useWeatherConditions.ts` | 状態管理・フェッチ。定期取得は`usePolledFetch`（粗い風格子を含む全系統）、現在地に追随する取得は`useWeatherConditions`内の`useLocationFetch`が骨格を持ち、個々のフェッチはfetcherだけを渡す |
-| `features/map/usePolledFetch.ts` | 「マウント時に即座に1回フェッチ＋以降intervalMsごとに再フェッチ、cancelledフラグで古いレスポンスの反映を防止」という、`useDynamicWeatherLayers.ts`内の定期取得（降水ナウキャスト・雷放電位置データ等）が共有するフェッチ骨格の共通実装 |
+| `features/map/useDynamicWeatherLayers.ts`・`useWeatherGrid.ts`・`features/conditions/useWeatherConditions.ts` | 状態管理・フェッチ。動的気象は要素を名指さず、表示中の名前付きソースをループして段の種類（配信元のタイル・配信元の地点・自前の格子）ごとに1つずつの実装で描画内容を作る。定期取得は`usePolledFetch`（配信元の時刻一覧・粗い風格子）、現在地に追随する取得は`useWeatherConditions`内の`useLocationFetch`が骨格を持ち、個々のフェッチはfetcherだけを渡す |
+| `features/map/usePolledFetch.ts` | 「マウント時に即座に1回フェッチ＋以降intervalMsごとに再フェッチ、cancelledフラグで古いレスポンスの反映を防止」という、定期取得（配信元の時刻一覧・粗い風格子）が共有するフェッチ骨格の共通実装 |
 | `features/conditions/WeatherPanel/WeatherPanel.tsx`・`amedasWeatherIcon.ts`・`weatherCode.ts`・`features/conditions/TodayOutlook/TodayOutlook.tsx`・`features/conditions/WarningBadge/WarningBadge.tsx` | UI（警報バッジの出所ごとの段階の呼び名と色は、backendの宣言`domain/warning_display.py`が生成物`vocabulary.ts`で配る） |
 | `services/weatherApi.ts`・`types/weather.ts` | API呼び出し・型定義 |
 
@@ -37,19 +38,20 @@
    重ねる`rasterTile`（気象庁ナウキャスト・降水短時間予報・雷・竜巻・キキクルの土砂/大雨/
    浸水・線状降水帯予測マップ）。加えて洪水キキクルのみ、配信元のMapbox Vector Tile
    （.pbf）をMapLibre標準のvectorソース+lineレイヤーでそのまま描画する`vectorTile`
-   （feature-state・GeoJSON変換は不要、`riskMap.ts`冒頭コメント参照）。
+   （feature-state・GeoJSON変換は不要）。
 3. **時刻は共有state1つ**: 表示時刻は走行条件の出発時刻そのもの（`features/conditions/useDepartureTime.ts`の
    `at`。条件バー`RideConditionBar`が書き換え、選ぶまでは5分刻みの「今」へ追従する）で、
    このフックは状態を持たず受け取るだけにする——出発時刻は生成リクエストと専用配信軸も読む
-   走行条件で、気象レイヤーの持ち物ではない。各レイヤーは
-   `frameIndexForTime`で選択時刻に対応する自分のフレームを求め、選択時刻が自分の
-   データ範囲外なら何も描画しない。キキクル4種・線状降水帯予測マップはこの
-   タイムラインに乗らない（下記「特殊系」参照）。
-   **予測を持たず観測だけが届くレイヤー（雷放電位置データ）は`observationIndexForTime`を
+   走行条件で、気象レイヤーの持ち物ではない。各ソースは、**源泉が要素ごとに宣言する規則**
+   （`frameRule`、backendの`domain/weather_elements.py`）で選択時刻に対応する自分のコマを選ぶ
+   （`weatherSources.ts: selectFrame`）。既定の規則（`nearest`）は`frameIndexForTime`で、
+   選択時刻が自分のデータ範囲外なら何も描画しない。「現在」の単一値だけを配る要素
+   （キキクル・線状降水帯予測マップ）はこのタイムラインに乗らない（下記「特殊系」参照）。
+   **予測を持たず観測だけが届く要素（雷放電位置データ）は`observationIndexForTime`を
    使う**——配信の遅れ（実測5〜10分）のぶん共有時刻が最新フレームより後ろに来るのが常態で、
    範囲外で描かない規約をそのまま当てると常に何も描かれない。遅れのぶんは最新の観測を出し、
    それより先（利用者が出発時刻を選んだ等）を指していれば描かない
-   （`OBSERVATION_DELAY_TOLERANCE_MS`）。
+   （遅れの幅は源泉が規則の`window_minutes`で宣言する）。
    **利用者が出発時刻を選ぶまでは「今」へ張り付き、時間の経過とともに進む**（`steppedNow`、
    5分刻み）。選んだ後はその時刻を保ち、「今」ボタンで張り付きへ戻る（`handleDynamicLayerNow`。
    **現在時刻を`setDynamicLayerTargetTime`へ渡すのでは代用にならない**——その値でピン留め
@@ -59,9 +61,11 @@
    （利用者からは「雨が降っていない」と区別がつかない）。進める刻みを5分より細かくしても、
    出発時刻として選べる値自体が5分刻みのためどのレイヤーが選ぶフレームも変わらず、
    共有時刻をキーに持つ取得（`useDedicatedWayValues`）だけが無効化される。
-4. **データ取得の差異はデータ層で吸収**: 各要素のデータ層モジュールがソース（1グループに
-   つきN個ありうる）を統合し、フレームごとの描画内容（`DynamicWeatherRenderPayload`）を
-   返す。表示層（`MapView.tsx`とsceneの`groups/weather.ts`）はペイロードの`kind`しか見ない。
+4. **データ取得の差異はデータ層で吸収**: `weatherSources.ts`が源泉の宣言から名前付きソースの
+   段（1つにつきN個ありうる）を1本の時系列へつなぎ、`useDynamicWeatherLayers.ts`が段の種類
+   （配信元のタイル・配信元の地点・自前の格子）ごとに1つずつの実装でコマの描画内容
+   （`DynamicWeatherRenderPayload`）を作る。表示層（`MapView.tsx`とsceneの`groups/weather.ts`）は
+   ペイロードの`kind`しか見ない。
 
 ## 表示層の実装（`scene/groups/weather.ts`）
 
@@ -168,15 +172,12 @@ JMAタイル系ソースの`minzoom`/`maxzoom`・パスの系統・ベクタの�
 1つの`DynamicWeatherLayerId`（チップ単位）は、`DynamicWeatherSourceId`で識別される
 複数の名前付きソースを同時に持てる。単一ソースのグループは`"main"`という1キーだけを持つ。
 
-| グループ | ソースキー | kind | データ層 |
-|---|---|---|---|
-| `precipitationNowcast` | `main` | raster（60分以内）→raster（〜15時間）→gridFill（延長予報） | `precipitationNowcast.ts` |
-| `precipitationNowcast` | `linearRainband` | raster（sjfcstmap） | `riskMap.ts: fetchLinearRainbandFrames` |
-| `windVector` | `arrow` | gridMark | `windLayer.ts`（走行方位に依存しない矢印のみ。走行方位への依存を含む向かい風/追い風の強さは[地図: 軸・ルート色分け](map-axis-coloring.md)の専用way値配信軸が担う） |
-| `disaster` | `heavyRain`/`landslide`/`inundation` | raster | `riskMap.ts: fetchCurrentRiskFrames` |
-| `disaster` | `thunder`/`tornado` | raster | `thunderNowcast.ts`（1本のフレーム列を共有、プロダクトコードのみ相違） |
-| `disaster` | `flood` | vector | `riskMap.ts: fetchCurrentRiskFrames`（`floodRenderPayload`） |
-| `disaster` | `liden` | gridMark | `lidenLayer.ts`（配信元GeoJSONをそのまま使う唯一の要素、下記参照） |
+どのチップのどの名前付きソースが、どの段から・どの読み方で・どの規則で描かれるかは源泉の宣言
+（生成物`mapDisplay.weatherElements`）が持ち、画面は一覧を持たない。代表例: 降水の`main`は配信元の
+ラスタ2段（降水ナウキャスト→降水短時間予報）の先を自前の格子の塗りが継ぎ、同じチップの
+`linearRainband`は「現在」の単一値を窓の間だけ重ねる。風の矢印は走行方位に依存しない矢印のみで、
+走行方位への依存を含む向かい風/追い風の強さは[地図: 軸・ルート色分け](map-axis-coloring.md)の
+専用way値配信軸が担う。
 
 `disaster`（災害）は源泉がチップ`disaster`として宣言したソース（`dynamicWeather.ts: DisasterSourceKey`）を1チップへまとめたグループで、全ソースが1つの`showDisaster`に
 連動する。同じ段（描き方ごとに決まる。`weather.ts: TIER_OF`）の中では源泉の宣言
@@ -191,54 +192,54 @@ JMAタイル系ソースの`minzoom`/`maxzoom`・パスの系統・ベクタの�
 「表示する情報」でソースを個別に間引ける——行（要素の呼び名）は源泉の要素の宣言
 （backend `domain/weather_elements.py: WEATHER_ELEMENTS`の`label`）から`scene/legends.ts:
 disasterSourceLegendAxis`が作り、隠したソースは他の凡例絞り込みと同じ保存先
-（`useMapView`が持つ）へ入って、`hiddenDisasterSources`としてこのフックへ渡る。
-ソースごとの`visible`だけでなく、1本の`targetTimes`JSONを共有する要素がすべて非表示なら
-そのフェッチ自体も行わない（「表示中のものだけ叩く」方針）。どのソースがどのフェッチに
-属するか（`DISASTER_FETCH_GROUP`）はデータ層のフェッチ関数ごとに決まる画面の持ち物で、
-パスの系統からは導けない（雷・竜巻と落雷は同じ`nowc`系統・同じ時刻一覧だが、表示の
-オンオフを別々に持つため別々に取りに行く）。鍵は源泉のソースから導くため、源泉に災害の
-ソースが増えて振り分けが無ければ型検査が落ちる。
+（`useMapView`が持つ。チップidを鍵にする）へ入って、`hiddenSources`としてこのフックへ渡る。
+ソースごとの`visible`だけでなく、非表示のソースが読む配信要素は、同じ配信要素を読む表示中の
+ソースが無ければ取りに行かない（「表示中のものだけ叩く」方針）。取りに行く単位は配信要素
+そのもので、画面は単位の対応表を持たない。同じ時刻一覧のファイルを読む配信要素どうしは、
+未解決の取得を共有して往復を1回に畳む（下記）。
 
-**配信元の要素id・パスの系統・時刻一覧の在り処はデータ層も源泉から引く**（`jmaNowcastFrames.ts:
-jmaDelivery`・`jmaTilePayload`・`fetchJmaTargetTimes`）。データ層は（チップ/名前付きソース）の鍵だけを
-名指し、URLの要素id・系統・拡張子（ベクタなら`.pbf`）と時刻一覧のURLは`mapDisplay.weatherElements`の
-`jmaElements`・`kind`から組み立てる。鍵の型は生成物から導くため、源泉から
-要素が消えれば名指した側の型検査が落ち、要素idが変われば画面は新しいidで取りに行く
-（手で持っていると、古いidのタイルが404→空タイルとなり地図から黙って消える）。
+**配信元の要素id・パスの系統・時刻一覧の在り処と読み方はデータ層も源泉から引く**（`jmaDelivery.ts`）。
+データ層は要素を名指さず、URLの要素id・系統・拡張子（ベクタなら`.pbf`）と時刻一覧のURLは
+`mapDisplay.weatherElements`の`jmaElements`・`kind`から組み立てる。要素idが変われば画面は新しいidで
+取りに行く（手で持っていると、古いidのタイルが404→空タイルとなり地図から黙って消える）。
 時刻一覧（`targetTimes*.json`）の中から自分の行を選ぶ`elements`の照合も同じ要素idを使う。
+行をコマにする読み方（`reader`）も源泉が配信要素ごとに宣言する——同じ系統・同じファイルでも、
+実況＋予測（その要素の行を時刻順に並べ、最新の実況より前を捨てる）・数値予報のラン（系列ごとに
+有効時刻を複数持つ最新のランだけ）・「現在」の単一値（最新の1行）で並び方が違う。
 
 **1つの名前付きソースが、選んだ時刻によって別の配信要素から届くことがある**——降水の`main`ラスタは
 60分先までが降水ナウキャスト、その先15時間先までが降水短時間予報で、配信要素も系統も時刻一覧も違う。
-源泉は`jmaElements`を時刻の段の順（近い時刻から）に並べ、データ層は段の番号
-（`precipitationNowcast.ts`の`NOWCAST_STAGE`・`SHORT_RANGE_STAGE`）で引く。MapLibreのソースは1本の
-ままURLだけが差し替わるので、ソースのズーム範囲は段の間で一致している必要があり、backendが
-生成時に確かめる（食い違えば生成が落ちる）。段ごとに時刻一覧の読み方（実況の外挿か数値予報の
-ランか）が違うため、段の番号だけは降水のデータ層が名指す。
+源泉は`jmaElements`を時刻の段の順（近い時刻から）に並べ、同じ名前付きソースを名乗る後続の要素
+（自前の格子の塗り等）がさらに先の段になる。`weatherSources.ts: sourceTimeline`は、各段について
+前の段の最後のコマより後の時刻だけを継いで1本にする（近い時刻は精度の高い前の段が持ち、二重に
+出さない。途中の段が取れていなければ、その前の段の直後から次の段が継ぐ）。MapLibreのソースは
+1本のままURLだけが差し替わるので、ソースのズーム範囲は段の間で一致している必要があり、backendが
+生成時に確かめる（食い違えば生成が落ちる）。同じ名前付きソースの要素はコマの規則も同じで、
+backendのテストが全要素で確かめる。
 
 時刻一覧が複数のファイルに分かれる要素（降水ナウキャストの実況と予測）は、`fetchJmaTargetTimes`が
 全ファイルの行をつなげて返し、一部のファイルだけ取れなければ残りで部分的な時系列を返す
 （全部取れなかったときだけ失敗）。同じファイルを同時に取りに行く要素（キキクルの各要素、
 降水短時間予報と線状降水帯予測マップ）は、未解決のフェッチを共有して往復を1回に畳む。
 
-`liden`（雷放電位置データ）は、他要素が既に手元にある格子データ・タイルURLテンプレートから
-同期的にペイロードを組み立てるのに対し、配信元が実際の落雷地点をGeoJSONで提供するため
-選択フレームが変わるたびに`lidenLayer.ts: fetchLidenGeojson`を非同期fetchする唯一の要素
-（「データ取得の差異はデータ層で吸収」という4本柱の枠内だが、取得のタイミング自体が
-「フレーム選択に追従した都度fetch」という他要素に無い形）。`features/map/useDynamicWeatherLayers.ts`
-が`frameIndexForTime`で求めた選択中refの変化を`useEffect`で監視し、取得結果を`{ref, geojson}`
-の形でstateへ保持する——保持しているrefと選択中refが一致するときだけpayloadへ反映すること
-で、scrub中に古いフェッチが後から解決しても直前の時刻のデータを新しい時刻の表示へ混ぜない。
-落雷ごとの強弱を示す値を配信元が持たないため、gridMarkが必須とする`valueProperty`
-（`LIDEN_MARK_VALUE_PROPERTY`）は固定値1を全featureへ合成し、`minScale===maxScale`により
-icon-sizeはズームのみに依存する。
+配信元から取る記号の段（`gridMark`、例: 落雷の地点）は、他の段が既に手元にある格子データ・
+タイルURLテンプレートから同期的にペイロードを組み立てるのに対し、配信元が地点をGeoJSONで
+配るため、選んだコマが変わるたびに`jmaDelivery.ts: fetchJmaPointGeojson`を非同期に取りに行く。
+`useDynamicWeatherLayers.ts`は取れた中身を配信要素と時刻の鍵で持ち、選んでいるコマの鍵と一致する
+ときだけpayloadへ反映する——scrub中に古いフェッチが後から解決しても、直前の時刻のデータを新しい
+時刻の表示へ混ぜない。地点ごとの強弱を示す値を配信元が持たないため、gridMarkが必須とする
+`valueProperty`（`JMA_POINT_VALUE_PROPERTY`）は固定値1を全featureへ合成し、`minScale===maxScale`に
+よりicon-sizeはズームのみに依存する。
 
 ## 新しい動的要素を追加する1本道
 
 1. backend: `domain/weather_elements.py: WEATHER_ELEMENTS`へ宣言を1件足す（チップid・名前付き
-   ソース・描き方の種類・気象庁の配信要素id）。タイルで描くなら`domain/jma_tile_specs.py:
+   ソース・描き方の種類・気象庁の配信要素id・選んだ時刻に描くコマの規則、自前の格子から描くなら
+   読む値）。タイルで描くなら`domain/jma_tile_specs.py:
    JMA_TILE_SPECS`へ配信元の仕様（パスの系統・ズーム・ベクタのレイヤー名）を1件足す。
    配信元から取るがタイルでは描かない要素（落雷のGeoJSON等）は、同じファイルの
-   `JMA_NON_TILE_PATH_GROUPS`へパスの系統だけを足す。
+   `JMA_NON_TILE_PATH_GROUPS`へパスの系統だけを足す。配信元から取るなら、同じファイルの
+   `JMA_TARGET_TIMES_READERS`へ時刻一覧の読み方を1件足す（無いと生成が落ちる）。
    新しいチップidを名乗ればチップも増える（`WEATHER_LAYER_GROUPS`はこの宣言から導かれ、
    生成物経由で`DynamicWeatherLayerId`・`MapLayerId`になる）。`scripts/export_openapi.py`で
    生成物（`mapDisplay.ts`の`weatherElements`）を作り直す。自前のMSM格子から描くなら、
@@ -248,16 +249,12 @@ icon-sizeはズームのみに依存する。
    （見た目は共通の1つ）。それ以外は`DRAWINGS`へ見た目（`paint`・`layout`・`filter`・記号）を
    1件足す——鍵は生成物から導かれるため、足し忘れると型検査が落ちる。ソース名・ソースの宣言・
    レイヤー・記号の絵の登録はここから導かれる
-3. データ層: 要素モジュールを新設し、フレーム列（`DynamicWeatherFrame[]`）とペイロード
-   関数を実装する。配信元のタイルなら`jmaTilePayload("<チップ>/<ソース>", 時刻)`で
-   ペイロードになる（要素id・系統を書かない）
-4. 新しいチップを足したときだけ: backendの`domain/map_display.py`へ種別・情報源（`ownFetch`）・
+3. 新しいチップを足したときだけ: backendの`domain/map_display.py`へ種別・情報源（`ownFetch`）・
    性質（`dynamic`）を1行、`mapLayers.ts`へ記述子（アイコン・凡例）を1エントリ足す
-5. `features/map/useDynamicWeatherLayers.ts`: フェッチeffect・フレーム列・payload計算・
-   `dynamicWeather`オブジェクトへの追加（1〜2と違い自動反映の仕組みは無い、手書き作業）。
-   `dynamicWeatherDataStatus`（下記「データ取得状態」節）へも同じ要素の
-   `deriveFetchLayerStatus(loading, error, payload !== undefined, hasFetched)`呼び出しを
-   1行足す。
+4. 新しい種類を足したときだけ: 時刻一覧の読み方なら`jmaDelivery.ts`の読み方の表、コマの規則なら
+   `weatherSources.ts: selectFrame`、格子の値なら`useDynamicWeatherLayers.ts: GRID_PAYLOAD`へ1つ足す
+   （種類の集合は生成物から導くため、足し忘れは型検査が落ちる）。取得・時系列・描画内容・取得状態は
+   宣言の一覧をループして作るため、要素を足すだけならフロントの手書き作業は無い。
 
 契約テスト（`MapView.state.contract.test.ts`の全部を載せた状態）の母集団も生成物の
 `mapDisplay.weatherElements`で、1で足した要素はそのまま検査の対象になる。
@@ -268,11 +265,15 @@ icon-sizeはズームのみに依存する。
 `mapLayers.ts: deriveFetchLayerStatus(loading, error, hasPayload, hasFetched)`という同じ
 純粋関数を通り、`LayerDataStatus`（"loading"/"empty"/"error"、`mapLayers.ts`）を1つ返す
 （判定順序はエラー中 > 読込中 > 未取得[undefined] > 読込済みだが値なし、
-`useLayerDataStatus.ts: computeLayerDataStatus`と同じ）。`loading`/`error`は各要素が既に
-持つフェッチフック（`usePolledFetch`の戻り値、風は`useWeatherGrid`）自身の値をそのまま
-渡し、`hasPayload`は選択中の共有時刻に対応するpayloadが`undefined`でないかで決まる。
-`hasFetched`は一度でも取得が完了したかで、初回取得前を「値なし（empty）」と誤って
-見せないために要る。
+`useLayerDataStatus.ts: computeLayerDataStatus`と同じ）。チップの表示中のソースが読む配信要素の
+読み取り結果（まだ無ければ読み込み中・失敗があれば失敗）と、格子を読むソースがあれば
+`useWeatherGrid`の状態から決め、`hasPayload`は選択中の共有時刻に対応するpayloadが`undefined`で
+ないかで決まる。`hasFetched`は一度でも取得が完了したかで、初回取得前を「値なし（empty）」と
+誤って見せないために要る。
+
+配信元の時刻一覧は、表示中のソースが読む配信要素をまとめて1本で取り直す。間隔はそのうち
+最も更新の速い系統の更新間隔（源泉の`refreshIntervalMs`、`domain/jma_tile_specs.py:
+JMA_REFRESH_INTERVAL_SECONDS`）に合わせる——遅い系統を早めに取り直すぶんには古い表示にならない。
 
 **MapLibreのソースイベント経由の系統（`MapView.tsx: buildLayerDataSources`）は
 動的気象レイヤーの対象外**——実際の外部フェッチは自前のJSコード（`usePolledFetch`等）で
@@ -284,14 +285,8 @@ payloadが`undefined`のままレイヤーが非表示になり続け、MapLibre
 発生しない）。`elevation`（国土地理院のラスタタイル、静的データで自前のJSフェッチ層を
 持たない）だけがT87の対象のまま残る。
 
-`precipitationNowcast`は「main」（ナウキャスト/短時間予報/延長予報の3段）と
-「linearRainband」（4つ目のソース）を1つのチップとして統合する——UI上のチップも
-1つのため、いずれか一方でも描画できていればloading/errorとしない
-（`nowcastLoading || linearRainbandLoading`・`nowcastError ?? linearRainbandError`・
-`precipitationPayload !== undefined || linearRainbandPayload !== undefined`）。
-`disaster`も同じくチップ1つのため、3本のフェッチ（キキクル・雷竜巻・落雷）の
-loading/errorをまとめ、`hasPayload`は7ソースのいずれか1つでも描画できていれば
-trueとする。
+チップは複数の名前付きソースを束ねるため、表示中のソースのどれかが描けていれば空とせず、
+どれかの取得が失敗していれば失敗、どれかがまだ取れていなければ読み込み中とする。
 
 **タイルの配信そのものが落ちている状態は、この経路には現れない**——`jmaTileProtocol.ts`は
 どの失敗も空タイルへ倒すため（上記「空タイル要求の間引き」参照）、MapLibreはタイルを
@@ -361,10 +356,10 @@ trueとする。
 
 ## 暗黙の前提
 
-- 各named sourceのvisibility判定（`linearRainbandVisible`のような追加条件）は汎用機構
-  （`dynamicWeather.ts`/`scene/groups/weather.ts`）の外、呼び出し側（`useDynamicWeatherLayers.ts`）が
-  都度手書きする。汎用機構自身は渡された`visible`
-  フラグをそのまま使うだけで、「なぜそのフラグなのか」を一切知らない。
+- 名前付きソースを描くかどうかの追加条件（線状降水帯予測マップの窓等）は源泉のコマの規則で
+  決まり、`useDynamicWeatherLayers.ts`がpayloadの有無へ畳む。描き方の宣言
+  （`scene/groups/weather.ts`）は渡された`visible`・`payload`をそのまま使うだけで、
+  「なぜそうなのか」を一切知らない。
 - `frameIndexForTime`の許容誤差（`FRAME_RANGE_EPSILON_MS`=1秒）は「複数フレームから
   該当する1枚を選ぶ」用途専用であり、「常に1枚だけの現在値スナップショットを表示し続ける」
   キキクル系の性質とは噛み合わない。新しい「現在値スナップショットのみ」を持つ要素は
@@ -373,10 +368,10 @@ trueとする。
 - `scene/groups/weather.ts`は「visibleとpayloadのどちらか一方でも欠ければ非表示」を
   常に守る。フェッチ未完了・取得失敗・選択時刻がデータ範囲外のいずれでも、古いフレームが
   一瞬でも見えないようにするための設計であり、この判定を呼び出し側で緩めてはならない。
-- `windVector`の`arrow`（gridMark）は`windGrid`（粗い格子）でフレーム時刻を計算するが、
-  実際の描画は`effectiveWindGrid`（詳細格子があればそちらを優先）を使う。フレーム時刻の
-  計算元と実際に塗る値の元が別グリッドである点は初見では見落としやすい。
-- **JMAプロキシ配下のURLはすべて`jmaNowcastFrames.ts: jmaProxyUrl(path)`で組み立てる**
+- 自前の格子の段は粗い格子（`useWeatherGrid`の`grid`）でコマの時刻を作るが、実際の描画は
+  `effectiveGrid`（詳細格子があればそちらを優先）を使う。コマの時刻の計算元と実際に塗る値の元が
+  別グリッドである点は初見では見落としやすい。
+- **JMAプロキシ配下のURLはすべて`jmaDelivery.ts: jmaProxyUrl(path)`で組み立てる**
   （タイルテンプレート・時刻一覧・GeoJSON・`scene/groups/weather.ts`の届く前の仮のURLの
   区別なく）。配信オリジン（`lib/tileBaseUrl.ts: tileBaseUrl()`）を付けるかどうかを
   呼び出し側の判断に委ねると、付け忘れた箇所だけがフロントのホスティング経由になる。
@@ -390,5 +385,5 @@ trueとする。
   **タイルURLは時刻一覧が返るまで確定しない**ため、ここでフロントのホスティングを経由すると
   往復1つぶんが初回表示のクリティカルパスへ直列に乗る。`tileBaseUrl()`は`window`を参照する
   ので、モジュール直下の定数ではなく呼び出し時に評価する関数
-  （`jmaNowcastFrames.ts: jmaProxyUrl(path)`。時刻一覧の系統とファイル名は源泉の
+  （`jmaDelivery.ts: jmaProxyUrl(path)`。時刻一覧の系統とファイル名は源泉の
   `jmaElements`が持つ）として持つ。

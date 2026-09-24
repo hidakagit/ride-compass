@@ -1,24 +1,15 @@
-// 風の格子点マップのデータ層。DOM/MapLibreを一切知らない純粋関数のみを持つ
-// （precipitationNowcast.tsと同型）。実際のフェッチ・地図への反映はpage.tsx/MapView.tsx
-// が行う。
+// 風と降水が共有する格子点マップの扱い（今より前の時刻を落とす・取り損ねた地点を補う・詳細格子の
+// 間隔と範囲）と、風の矢印の描き方。DOM/MapLibreを一切知らない純粋関数のみを持つ。
 //
 // 気象庁MSM（msm_client.py: read_series）を格子点へ補間した値を使い、
 // バックエンドが関東本土の固定格子点をサンプリングするAPI（GET /api/weather/wind-grid）を
 // フロントが叩き、MapLibre標準のsymbolレイヤー（矢印アイコンを独自定義、向き・長さ・色
-// すべて自由に設定可能）で描画する。
-//
-// 風・降水は共通契約（dynamicWeather.ts）に揃えてある。このファイルは
-// DynamicWeatherFrame/DynamicWeatherRenderPayloadを組み立てる薄いラッパーのみを持つ
-// （実際のGeoJSON構築・色/サイズの式化はwindFrames/windRenderPayload、MapView.tsx側）。
+// すべて自由に設定可能）で描画する。時系列は`weatherSources.ts`が源泉の宣言から作る。
 
 import palette from "@/types/generated/palette.json";
 import type { Bbox } from "@/services/weatherApi";
 import weatherScales from "@/types/generated/weather-scales.json";
-import {
-  gridToFeatureCollection,
-  type DynamicWeatherFrame,
-  type DynamicWeatherRenderPayload,
-} from "@/features/map/layers/dynamicWeather";
+import { gridToFeatureCollection, type DynamicWeatherRenderPayload } from "@/features/map/layers/dynamicWeather";
 import type { WindGridPoint } from "@/types/weather";
 import windGridConfig from "@/types/generated/wind-grid-config.json";
 import { parseJstLocalValue } from "@/lib/time";
@@ -142,19 +133,9 @@ function windGridToFeatureCollection(
   );
 }
 
-/** grid[0]の時刻配列を、動的気象レイヤー共通のフレーム列（dynamicWeather.ts参照）へ変換する。
- * refはgrid各点のtimes/wind_speed_ms/wind_direction_deg内のindexを指し、windRenderPayloadへ
- * そのまま渡す。全格子点で時刻配列が共通という前提（全点を同じMSMのrunから一括で読むため）の
- * もと、grid[0]だけを見る。 */
-export function windFrames(grid: readonly WindGridPoint[]): DynamicWeatherFrame<number>[] {
-  const times = grid[0]?.times ?? [];
-  return times.map((time, index) => ({ time: parseJstLocalValue(time), ref: index }));
-}
-
-/** windFramesが返したref（times内のindex）から、地図へ渡す描画ペイロード（gridMark、
- * 格子中央にマーク＝矢印を出す表現）を組み立てる。 */
-export function windRenderPayload(grid: readonly WindGridPoint[], ref: number): DynamicWeatherRenderPayload {
-  return { kind: "gridMark", geojson: windGridToFeatureCollection(grid, ref) };
+/** 格子の`index`番目の時刻の風を、格子点ごとの矢印（gridMark）にする。 */
+export function windArrows(grid: readonly WindGridPoint[], index: number): DynamicWeatherRenderPayload {
+  return { kind: "gridMark", geojson: windGridToFeatureCollection(grid, index) };
 }
 
 // 格子間隔（度）。backend/app/domain/wind_grid.pyの同名定数と一致させる必要があるが、

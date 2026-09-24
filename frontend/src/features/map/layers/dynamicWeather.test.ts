@@ -40,21 +40,18 @@ describe("frameIndexForTime（共有時刻に対して描くコマ）", () => {
 });
 
 describe("observationIndexForTime（観測だけが届くレイヤーのコマ）", () => {
-  it("最新の観測より後ろでも、届くまでの遅れ（20分）の間は最新の観測を出す", () => {
-    expect(observationIndexForTime(frames, at(35))).toBe(2);
-    expect(observationIndexForTime(frames, at(40))).toBe(2);
-    expect(observationIndexForTime(frames, at(40, 1))).toBeNull();
-  });
+  const delay = 20 * MINUTE;
 
-  it("遅れの幅は呼び出し側が変えられる", () => {
-    expect(observationIndexForTime(frames, at(25), 5 * MINUTE)).toBe(2);
-    expect(observationIndexForTime(frames, at(26), 5 * MINUTE)).toBeNull();
+  it("最新の観測より後ろでも、届くまでの遅れの幅の間は最新の観測を出し、それより先では描かない", () => {
+    expect(observationIndexForTime(frames, at(35), delay)).toBe(2);
+    expect(observationIndexForTime(frames, at(40), delay)).toBe(2);
+    expect(observationIndexForTime(frames, at(40, 1), delay)).toBeNull();
   });
 
   it("観測の範囲内は最も近いコマ、最初の観測より前と空は描かない", () => {
-    expect(observationIndexForTime(frames, at(12))).toBe(1);
-    expect(observationIndexForTime(frames, at(-5))).toBeNull();
-    expect(observationIndexForTime([], at(0))).toBeNull();
+    expect(observationIndexForTime(frames, at(12), delay)).toBe(1);
+    expect(observationIndexForTime(frames, at(-5), delay)).toBeNull();
+    expect(observationIndexForTime([], at(0), delay)).toBeNull();
   });
 });
 

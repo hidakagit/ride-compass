@@ -1,481 +1,260 @@
 "use client";
 
-// 動的気象レイヤー（降水ナウキャスト・風/延長降水予報・雷/竜巻ナウキャスト）のフェッチ・
-// 共有タイムライン・MapViewへ渡す描画ペイロードまでを1つのフックへ抽出したもの。
-// 降水ナウキャスト・雷竜巻ナウキャスト・useWeatherGrid経由の風/延長降水予報という
-// 3本のfetch effectと、そこから導出する共有タイムライン・条件バー向けの共有時刻・
-// MapView向けのdynamicWeatherプロパティを、この1フックへまとめてある。
+// 動的気象レイヤーの取得・選んだ時刻に描くコマ・地図へ渡す描画内容・チップの取得状態。
+// **要素を名指さない**——何を・どこから・どう読み・どのコマを描くかは源泉の宣言
+// （`weatherSources.ts: WEATHER_SOURCES`）が持ち、ここは表示中のソースをループして、段の種類
+// （配信元のタイル・配信元の地点・自前の格子）ごとに1つずつの実装で描画内容を作る。
 import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import type { MapLayerVisibility } from "@/features/map/layers/mapLayers";
+import { deriveFetchLayerStatus, type LayerDataStatus } from "@/features/map/layers/mapLayers";
 import {
-  fetchNowcastFrames,
-  fetchRasrfFrames,
-  precipitationFrames,
-  precipitationRenderPayload,
-  type RasrfFrame,
-} from "@/features/map/layers/precipitationNowcast";
-import { jmaFrameTimeline, trimToCurrentAndFuture, type JmaNowcastFrame } from "@/features/map/layers/jmaNowcastFrames";
-import { windFrames, windRenderPayload, type MapViewport } from "@/features/map/layers/windLayer";
+  fetchJmaFrames,
+  fetchJmaPointGeojson,
+  jmaTilePayload,
+  type JmaDelivery,
+  type JmaFrame,
+} from "@/features/map/layers/jmaDelivery";
 import {
-  fetchThunderNowcastFrames,
-  thunderRenderPayload,
-  tornadoRenderPayload,
-} from "@/features/map/layers/thunderNowcast";
-import { fetchLidenFrames, fetchLidenGeojson } from "@/features/map/layers/lidenLayer";
+  WEATHER_SOURCES,
+  gridStageFrames,
+  jmaStageFrames,
+  selectFrame,
+  sourceTimeline,
+  type GridValue,
+  type StageFrameRef,
+  type WeatherSource,
+} from "@/features/map/layers/weatherSources";
+import { precipitationCells } from "@/features/map/layers/precipitationNowcast";
+import { windArrows, type MapViewport } from "@/features/map/layers/windLayer";
 import {
-  fetchCurrentRiskFrames,
-  fetchLinearRainbandFrames,
-  floodRenderPayload,
-  heavyRainRenderPayload,
-  inundationRenderPayload,
-  landRenderPayload,
-  linearRainbandRenderPayload,
-  type CurrentRiskFrames,
-  type RiskFrameRef,
-} from "@/features/map/layers/riskMap";
-import type { DynamicWeatherFrame } from "@/features/map/layers/dynamicWeather";
-import {
-  disasterSourceKeys,
-  frameIndexForTime,
-  observationIndexForTime,
-  isWithinFutureWindow,
   tileDeliveryFailureLayerIds,
   type DynamicWeatherGroupState,
   type DynamicWeatherLayerId,
   type DynamicWeatherRenderPayload,
 } from "@/features/map/layers/dynamicWeather";
 import { jmaTileFailures, subscribeJmaTileFailures } from "@/features/map/layers/jmaTileProtocol";
-import { deriveFetchLayerStatus, type LayerDataStatus } from "@/features/map/layers/mapLayers";
 import { useWeatherGrid } from "@/features/map/useWeatherGrid";
 import { usePolledFetch } from "@/features/map/usePolledFetch";
+import type { WindGridPoint } from "@/types/weather";
 
-// 実況が5分毎に更新されるのに合わせた再取得間隔（降水・雷竜巻ナウキャスト共通、
-// 雷は10分毎更新のため5分より長くても足りるが、実装を単純にするため揃えている）。
-const NOWCAST_REFRESH_INTERVAL_MS = 5 * 60 * 1000;
-// 降水短時間予報の再取得間隔。直近0〜6時間の"immed"系列が最も高頻度で
-// 更新される部分（precipitationNowcast.ts: fetchRasrfFrames参照）に合わせる。
-const RASRF_REFRESH_INTERVAL_MS = 10 * 60 * 1000;
-// キキクル・線状降水帯予測マップの再取得間隔。キキクルは10分おき更新
-// （riskMap.tsのモジュールdocstring参照）に合わせる。
-const RISK_MAP_REFRESH_INTERVAL_MS = 10 * 60 * 1000;
-
-// 「降水」チップ傘下の線状降水帯予測マップを重ねて表示する時間窓。「今後3時間以内に
-// 大雨のおそれ」という予報の意味そのものに合わせる。
-const LINEAR_RAINBAND_WINDOW_MS = 3 * 60 * 60 * 1000;
-
-const EMPTY_RISK_FRAMES: DynamicWeatherFrame<RiskFrameRef>[] = [];
-const EMPTY_CURRENT_RISK_FRAMES: CurrentRiskFrames = {
-  land: EMPTY_RISK_FRAMES,
-  heavyRain: EMPTY_RISK_FRAMES,
-  inundation: EMPTY_RISK_FRAMES,
-  flood: EMPTY_RISK_FRAMES,
+/** 格子の段の描き方。読む値ごとに1つ。 */
+const GRID_PAYLOAD: Record<
+  GridValue,
+  (grid: readonly WindGridPoint[], index: number, spacingDeg: number) => DynamicWeatherRenderPayload
+> = {
+  precipitation: precipitationCells,
+  wind: windArrows,
 };
-const EMPTY_NOWCAST_FRAMES: JmaNowcastFrame[] = [];
-const EMPTY_RASRF_FRAMES: RasrfFrame[] = [];
 
-/** 「現在」の単一値だけを配る要素（キキクル・線状降水帯）の描画内容。取れていなければ描かない。 */
-function currentRiskPayload(
-  frames: readonly DynamicWeatherFrame<RiskFrameRef>[],
-  render: (ref: RiskFrameRef) => DynamicWeatherRenderPayload,
-): DynamicWeatherRenderPayload | undefined {
-  const [frame] = frames;
-  return frame && render(frame.ref);
+/** 配信要素ごとの時刻一覧の読み取り結果。 */
+type DeliveryResult = { frames: readonly JmaFrame[]; error: null } | { frames: readonly JmaFrame[]; error: string };
+
+const EMPTY_RESULTS: ReadonlyMap<string, DeliveryResult> = new Map();
+
+/** ソースが読む配信要素（重複なし）と、取得の失敗を記録するときの呼び名（最初に読むソースの名前）。 */
+function deliveriesOf(sources: readonly WeatherSource[]): { delivery: JmaDelivery; label: string }[] {
+  const byId = new Map<string, { delivery: JmaDelivery; label: string }>();
+  for (const source of sources) {
+    for (const stage of source.stages) {
+      if (stage.origin === "jma" && !byId.has(stage.delivery.id)) {
+        byId.set(stage.delivery.id, { delivery: stage.delivery, label: source.label });
+      }
+    }
+  }
+  return [...byId.values()];
+}
+
+/** 配信元の段の、選んだコマの地点を取る鍵（要素配下のURLと同じく、配信要素と時刻で決まる）。 */
+function pointKey(delivery: JmaDelivery, frame: JmaFrame): string {
+  return `${delivery.id}/${frame.basetime}/${frame.member}/${frame.validtime}`;
 }
 
 interface UseDynamicWeatherLayersOptions {
   /** 全レイヤーの表示状態（`MapLayerId`→boolean）。**動的気象レイヤーを足してもこの境界は
-   * 変わらない**——レイヤーごとのbooleanを並べる形だと、1つ足すたびに呼ぶ側の宣言・
-   * ここの宣言・分割代入へ同じ名前を書き足すことになり、どれか1つを忘れると「チップはONなのに
-   * 取りに行かない」が静かに起きる（`MapView`の`staticLayerVisibility`と同じ形、
+   * 変わらない**（`MapView`の`staticLayerVisibility`と同じ形、
    * docs/modules/frontend/static-map-layers.md「表示状態の渡し方」）。 */
   visibility: MapLayerVisibility;
-  /** 災害チップ配下で非表示に選ばれている要素のソースキー（▶パネルの「表示する情報」）。
-   * 面同士が重なると混色して危険度を読み取れないため、要素単位で間引けるようにしている。
-   * 全要素が非表示になった系統はフェッチ自体も行わない（「表示中のものだけ叩く」方針）。 */
-  hiddenDisasterSources: readonly string[];
+  /** チップ配下で非表示に選ばれている名前付きソース（▶パネルの「表示する情報」）。面同士が重なると
+   * 混色して危険度を読み取れないため、要素単位で間引けるようにしている。非表示のソースが読む配信は、
+   * 同じ配信を読む表示中のソースが無ければ取りに行かない（「表示中のものだけ叩く」方針）。 */
+  hiddenSources: Partial<Record<DynamicWeatherLayerId, readonly string[]>>;
   mapViewport: MapViewport | null;
-  /** 表示する時刻（出発時刻）と、刻みへ丸めた現在時刻（`useDepartureTime`）。各レイヤーは
-   * `at`に対応する自分のフレームを描く（刻みはレイヤーごとに違ってよい）。 */
+  /** 表示する時刻（出発時刻）と、刻みへ丸めた現在時刻（`useDepartureTime`）。各ソースは
+   * `at`に対して源泉の規則でコマを選ぶ（刻みはソースごとに違ってよい）。 */
   at: Date;
   now: Date;
 }
 
 interface UseDynamicWeatherLayersResult {
-  /** MapViewへそのまま渡す動的気象レイヤーのプロパティ。グループ内の複数ソース
-   * [raster/gridFill/gridMark]を同時に持てる形にしてある。 */
+  /** MapViewへそのまま渡す動的気象レイヤーのプロパティ（チップ→名前付きソース→表示・中身）。 */
   dynamicWeather: Partial<Record<DynamicWeatherLayerId, DynamicWeatherGroupState>>;
-  /** レイヤーごとのデータ取得状態。各要素のフェッチ（`usePolledFetch`/
-   * `useWeatherGrid`）自身が持つloading/errorと、選択中の共有時刻に対応するpayloadの
-   * 有無から直接算出する——MapLibreのソースイベント（`useLayerDataStatus.ts`）は
-   * 経由しない。これらのレイヤーは実際の外部フェッチが自前のJSコード（`usePolledFetch`等）で
-   * 行われ、結果を`map.getSource(id).setData(...)`で流し込むだけのため、MapLibre側の
-   * ソースイベントは外部フェッチの待ち時間・失敗を観測できない（GeoJSON/ラスタ/ベクタの
-   * いずれの`kind`でも、フェッチ自体はこのフックの外の世界で完結している）。 */
+  /** チップごとのデータ取得状態。MapLibreのソースイベント（`useLayerDataStatus.ts`）は経由しない
+   * ——時刻一覧・格子・地点は自前のJSで取りに行き、結果を流し込むだけのため、MapLibre側の
+   * ソースイベントはその待ち時間・失敗を観測できない。 */
   dynamicWeatherDataStatus: Partial<Record<DynamicWeatherLayerId, LayerDataStatus>>;
 }
 
-/** 動的気象レイヤー（降水ナウキャスト・風/延長降水予報・雷/竜巻ナウキャスト・キキクル）の
- * フェッチ・共有タイムライン・MapView向け描画ペイロードの管理。
- * 各要素は対応するshow*がtrueの間だけフェッチし、OFFの間はfetch自体しない
- * （他の外部APIと同じ「表示中のものだけ叩く」方針）。 */
 export function useDynamicWeatherLayers({
   visibility,
-  hiddenDisasterSources,
+  hiddenSources,
   mapViewport,
-  at: dynamicLayerTargetTime,
+  at,
   now,
 }: UseDynamicWeatherLayersOptions): UseDynamicWeatherLayersResult {
-  const showWindVector = visibility.windVector;
-  const showPrecipitationNowcast = visibility.precipitationNowcast;
-  // 災害チップ（雷・竜巻・落雷・キキクル等をまとめた1グループ）。
-  const showDisaster = visibility.disaster;
-
-  // 災害グループの1ソースを表示するか（チップがONで、▶パネルで非表示に選ばれていない）。
-  const showDisasterSource = useCallback(
-    (source: string) => showDisaster && !hiddenDisasterSources.includes(source),
-    [showDisaster, hiddenDisasterSources],
+  const isShown = useCallback(
+    (source: WeatherSource) =>
+      visibility[source.group] === true && !(hiddenSources[source.group] ?? []).includes(source.source),
+    [visibility, hiddenSources],
   );
-  // フェッチ単位（3本）ごとの有効判定。1本のtargetTimes.jsonを共有する要素がすべて
-  // 非表示なら、そのフェッチ自体を行わない。
-  const fetchRiskFrames = disasterSourceKeys("risk").some(showDisasterSource);
-  const fetchThunderFrames = disasterSourceKeys("thunder").some(showDisasterSource);
-  const fetchLidenFramesEnabled = disasterSourceKeys("liden").some(showDisasterSource);
+  const shownSources = useMemo(() => WEATHER_SOURCES.filter(isShown), [isShown]);
 
-  // 降水ナウキャストの時刻一覧。取得失敗時は例外を投げずnowcastErrorへ
-  // 記録する（precipitationNowcast.tsのfetchNowcastFramesは両方失敗時のみ例外、片方だけの
-  // 失敗は部分的な結果を返すため、ここへ来るのは両方失敗した場合のみ）。
-  // この後もwindow.setIntervalで定期的に再取得するフェイルソフト設計
-  // （下の各fetch同様）のため、単発の取得失敗は"error"ではなく"warn"とする
-  // （usePolledFetch.ts参照）。
-  const {
-    data: rawNowcastFrames,
-    loading: nowcastLoading,
-    error: nowcastError,
-    hasFetched: nowcastHasFetched,
-  } = usePolledFetch(fetchNowcastFrames, EMPTY_NOWCAST_FRAMES, {
-    enabled: showPrecipitationNowcast,
-    intervalMs: NOWCAST_REFRESH_INTERVAL_MS,
-    label: "降水ナウキャスト",
-  });
-  // 実況（targetTimes_N1）は現在時刻より前ぶんを多く含む。過去の降水を振り返る用途は
-  // アプリの性質上無いため、trimToCurrentAndFutureで「現在」より前を切り捨て、
-  // スライダーの左端（index 0）が常に「現在」になるようにする。
-  const nowcastFrames = useMemo(() => trimToCurrentAndFuture(rawNowcastFrames), [rawNowcastFrames]);
-
-  // 降水短時間予報の時刻一覧（60分〜15時間先）。「降水」チップの一部
-  // （precipitationNowcast.ts: precipitationFrames参照）のため、ナウキャストと同じ
-  // showPrecipitationNowcastで開閉する。取得失敗はnowcastと同じくグループの状態へ合流させる
-  // ——precipitationFramesがrasrfFrames=[]でも自然にextended予報へフォールバックするため
-  // 「降水」チップ自体は動作を続けるが、**6時間以降の予報だけが欠けたことを黙って隠さない**。
-  const {
-    data: rasrfFrames,
-    loading: rasrfLoading,
-    error: rasrfError,
-  } = usePolledFetch(fetchRasrfFrames, EMPTY_RASRF_FRAMES, {
-    enabled: showPrecipitationNowcast,
-    intervalMs: RASRF_REFRESH_INTERVAL_MS,
-    label: "降水短時間予報",
-  });
-
-  // 雷・竜巻の時刻一覧。同じtargetTimes_N3.json由来のため、どちらか一方でも
-  // ONの間だけ1本のfetchで両方をカバーする（nowcastFramesと同じ理由・同じ更新間隔）。
-  const {
-    data: rawThunderNowcastFrames,
-    loading: thunderNowcastLoading,
-    error: thunderNowcastError,
-    hasFetched: thunderNowcastHasFetched,
-  } = usePolledFetch(fetchThunderNowcastFrames, EMPTY_NOWCAST_FRAMES, {
-    enabled: fetchThunderFrames,
-    intervalMs: NOWCAST_REFRESH_INTERVAL_MS,
-    label: "雷・竜巻ナウキャスト",
-  });
-  const thunderNowcastFrames = useMemo(
-    () => trimToCurrentAndFuture(rawThunderNowcastFrames),
-    [rawThunderNowcastFrames],
+  // 表示中のソースが読む配信要素。同じ時刻一覧のファイルを読む要素どうしは、未解決の取得を
+  // 共有して往復を1回に畳む（`jmaDelivery.ts`）。
+  const deliveries = useMemo(() => deliveriesOf(shownSources), [shownSources]);
+  const deliveryIds = deliveries.map(({ delivery }) => delivery.id).join(",");
+  // 全部を1本で取り直す。間隔は表示中の配信のうち最も更新の速い系統に合わせる（遅い系統を
+  // 早めに取り直すぶんには古い表示にならない）。
+  const intervalMs = Math.min(...deliveries.map(({ delivery }) => delivery.refreshIntervalMs));
+  const fetchDeliveries = useCallback(
+    async (): Promise<ReadonlyMap<string, DeliveryResult>> => {
+      const settled = await Promise.allSettled(
+        deliveries.map(({ delivery, label }) => fetchJmaFrames(delivery, label)),
+      );
+      return new Map(
+        deliveries.map(({ delivery, label }, index): [string, DeliveryResult] => {
+          const result = settled[index];
+          if (result.status === "fulfilled") return [delivery.id, { frames: result.value, error: null }];
+          const message = result.reason instanceof Error ? result.reason.message : `${label}の取得に失敗しました`;
+          return [delivery.id, { frames: [], error: message }];
+        }),
+      );
+    },
+    // 配信要素の組が変わったときだけ作り直す（表示状態の再計算のたびに取り直さない）。
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [deliveryIds],
   );
-
-  // 雷放電位置データ。同じtargetTimes_N3.json由来だが、雷・竜巻とは
-  // 独立したON/OFFのため別のfetchで取得する（fetchLidenFramesがliden自体を含む
-  // エントリだけへ絞り込む、lidenLayer.ts参照）。
-  const {
-    data: rawLidenNowcastFrames,
-    loading: lidenNowcastLoading,
-    error: lidenNowcastError,
-    hasFetched: lidenNowcastHasFetched,
-  } = usePolledFetch(fetchLidenFrames, EMPTY_NOWCAST_FRAMES, {
-    enabled: fetchLidenFramesEnabled,
-    intervalMs: NOWCAST_REFRESH_INTERVAL_MS,
-    label: "雷放電位置データ",
-  });
-  const lidenNowcastFrames = useMemo(() => trimToCurrentAndFuture(rawLidenNowcastFrames), [rawLidenNowcastFrames]);
-
-  // キキクル4種（土砂災害・大雨・浸水・洪水）の「現在」フレーム。4種で1本のtargetTimes.json
-  // を共有するため（riskMap.ts参照）1本のfetchでまとめて取得する（thunderNowcastFramesと
-  // 同じ考え方で、いずれか1つでもONの間だけenabledにする）。未来方向のフレームを持たない
-  // ため取得失敗時もnowcastのような「部分結果」は無く、フェッチ自体を諦めてエラーのみ
-  // 記録する。
-  const {
-    data: currentRiskFrames,
-    loading: currentRiskLoading,
-    error: currentRiskError,
-    hasFetched: currentRiskHasFetched,
-  } = usePolledFetch(fetchCurrentRiskFrames, EMPTY_CURRENT_RISK_FRAMES, {
-    enabled: fetchRiskFrames,
-    intervalMs: RISK_MAP_REFRESH_INTERVAL_MS,
-    label: "危険度分布（キキクル）",
+  const { data: deliveryResults } = usePolledFetch(fetchDeliveries, EMPTY_RESULTS, {
+    enabled: deliveries.length > 0,
+    intervalMs: Number.isFinite(intervalMs) ? intervalMs : 0,
+    label: "気象庁の時刻一覧",
   });
 
-  // 線状降水帯予測マップ（「降水」チップ傘下）の「現在」フレーム。
-  // キキクルとはtargetTimes.json自体が別（rasrfのtargetTimes.jsonにelements違いの別行として
-  // 混在、riskMap.ts参照）。「降水」チップ（showPrecipitationNowcast）に連動する。
-  const {
-    data: linearRainbandFrames,
-    loading: linearRainbandLoading,
-    error: linearRainbandError,
-    hasFetched: linearRainbandHasFetched,
-  } = usePolledFetch(fetchLinearRainbandFrames, EMPTY_RISK_FRAMES, {
-    enabled: showPrecipitationNowcast,
-    intervalMs: RISK_MAP_REFRESH_INTERVAL_MS,
-    label: "線状降水帯予測マップ",
-  });
+  // 自前の格子（風と降水の延長予報が共有する1回の取得、`useWeatherGrid.ts`）。
+  const usesGrid = shownSources.some((source) => source.stages.some((stage) => stage.origin === "grid"));
+  const grid = useWeatherGrid(usesGrid, mapViewport);
 
-  // 風・降水延長予報（T183）が共有する格子点マップのフェッチ（useWeatherGrid.ts参照）。
-  // どちらか一方でもONならenabledにすることで両方ONのときも1本のフェッチで済む。
-  const {
-    grid: windGrid,
-    effectiveGrid: effectiveWindGrid,
-    effectiveGridSpacingDeg,
-    loading: windLoading,
-    error: windError,
-    hasFetched: windHasFetched,
-  } = useWeatherGrid(showWindVector || showPrecipitationNowcast, mapViewport);
+  // ソースごとの時系列と、選んだ時刻に描くコマ。
+  const selected = useMemo(() => {
+    const bySource = new Map<WeatherSource, StageFrameRef | undefined>();
+    for (const source of WEATHER_SOURCES) {
+      const timeline = sourceTimeline(
+        source.stages.map((stage, index) =>
+          stage.origin === "grid"
+            ? gridStageFrames(index, grid.grid)
+            : jmaStageFrames(index, deliveryResults.get(stage.delivery.id)?.frames ?? []),
+        ),
+      );
+      bySource.set(source, selectFrame(source.frameRule, timeline, at, now)?.ref);
+    }
+    return bySource;
+  }, [deliveryResults, grid.grid, at, now]);
 
-  // 各要素のフレーム列（データ層、dynamicWeather.ts: DynamicWeatherFrame[]）。表示層は
-  // ここから先、どの要素がどのデータソースから来ているかを一切意識しない
-  // （T183再設計「データ取得の差異はデータ層で吸収」）。
-  const windFramesList = useMemo(() => windFrames(windGrid), [windGrid]);
-  const precipFramesList = useMemo(
-    () => precipitationFrames(nowcastFrames, rasrfFrames, windGrid),
-    [nowcastFrames, rasrfFrames, windGrid],
-  );
-  // 雷・竜巻は同じthunderNowcastFramesを共有する1本のフレーム列。
-  const thunderFramesList = useMemo(() => jmaFrameTimeline(thunderNowcastFrames), [thunderNowcastFrames]);
-  const lidenFramesList = useMemo(() => jmaFrameTimeline(lidenNowcastFrames), [lidenNowcastFrames]);
-  // キキクル3種+線状降水帯予測マップ。riskMap.tsが既にDynamicWeatherFrame
-  // 形式で返すが、他レイヤーと異なり共有タイムライン・frameIndexForTimeには乗せない
-  // （下記の理由）。
-  const {
-    land: landFramesList,
-    heavyRain: heavyRainFramesList,
-    inundation: inundationFramesList,
-    flood: floodFramesList,
-  } = currentRiskFrames;
-
-  // 選択中の共有時刻（dynamicLayerTargetTime）に対応する各要素のペイロード。該当時刻が
-  // その要素のデータ範囲外なら描画しない（frameIndexForTimeがnullを返す、「該当時間データが
-  // ない場合、地図には描画しない」。端のフレームへクランプして古いデータを見せ続ける挙動は
-  // 持たない）。表示層（MapView.tsx）はkindしか見ないため、降水がナウキャスト由来
-  // （rasterTile）か延長予報由来（gridFill）かはここで既に吸収済み。
-  const windPayload = useMemo(() => {
-    const index = frameIndexForTime(windFramesList, dynamicLayerTargetTime);
-    if (index == null) return undefined;
-    return windRenderPayload(effectiveWindGrid, windFramesList[index].ref);
-  }, [windFramesList, dynamicLayerTargetTime, effectiveWindGrid]);
-  const precipitationPayload = useMemo(() => {
-    const index = frameIndexForTime(precipFramesList, dynamicLayerTargetTime);
-    if (index == null) return undefined;
-    return precipitationRenderPayload(effectiveWindGrid, effectiveGridSpacingDeg, precipFramesList[index].ref);
-  }, [precipFramesList, dynamicLayerTargetTime, effectiveWindGrid, effectiveGridSpacingDeg]);
-  // 雷・竜巻は同じフレーム列を共有し、要素だけが異なる（thunderNowcast.ts参照）。
-  const thunderFrame = useMemo(() => {
-    const index = frameIndexForTime(thunderFramesList, dynamicLayerTargetTime);
-    return index == null ? undefined : thunderFramesList[index].ref;
-  }, [thunderFramesList, dynamicLayerTargetTime]);
-  const thunderPayload = useMemo(() => thunderFrame && thunderRenderPayload(thunderFrame), [thunderFrame]);
-  const tornadoPayload = useMemo(() => thunderFrame && tornadoRenderPayload(thunderFrame), [thunderFrame]);
-  // 雷放電位置データ。配信元が実際の落雷地点をGeoJSONで提供するため、
-  // 他要素と異なり選択フレームが変わるたびに個別fetchが要る（lidenLayer.ts参照）。
-  // 取得済みgeojsonにそのフレームの時刻を添えて保持し、選択中のフレームと一致する
-  // ときだけpayloadへ反映する——scrub中に古いフェッチが新しいフェッチより後に解決しても、
-  // 直前に選んでいた古い時刻のデータを新しい時刻の表示へ混ぜない（時刻一覧の再取得で
-  // フレームの実体が作り直されても、同じ時刻なら同じ観測を指す）。
-  // 雷放電は予測を持たず観測だけが届くため、共有時刻は配信の遅れのぶんだけ常に最新
-  // フレームより後ろにある。範囲外で描かない規約（frameIndexForTime）をそのまま当てると
-  // 常に何も描かれないため、遅れのぶんは最新の観測を出す（observationIndexForTime）。
-  const lidenIndex = observationIndexForTime(lidenFramesList, dynamicLayerTargetTime);
-  const lidenFrame = lidenIndex == null ? undefined : lidenFramesList[lidenIndex].ref;
-  const lidenValidtime = lidenFrame?.validtime;
-  const [lidenFetched, setLidenFetched] = useState<
-    { validtime: string; geojson: GeoJSON.FeatureCollection } | undefined
-  >();
-  useEffect(() => {
-    if (!fetchLidenFramesEnabled || lidenFrame === undefined) return;
-    let cancelled = false;
-    fetchLidenGeojson(lidenFrame)
-      .then((geojson) => {
-        if (cancelled) return;
-        setLidenFetched({ validtime: lidenFrame.validtime, geojson });
-      })
-      .catch(() => {
-        // フェッチ失敗は表示しないだけに留める（他要素と同じフェイルソフト方針、
-        // fetchJson自体がdebugLogへ記録済み）。
+  // 配信元から取る記号の段（gridMark）は、配信元が地点をGeoJSONで配る。タイルで描く段は時刻一覧
+  // だけでURLが決まるが、この段は選んだコマが変わるたびに中身を取る。取れた中身を鍵（配信要素と
+  // 時刻）で持ち、選んでいるコマの鍵と一致するときだけ描く——コマを動かした後に前のコマの取得が
+  // 解決しても、別の時刻の地点を混ぜない。
+  const pointRequests = useMemo(() => {
+    const requests: { key: string; delivery: JmaDelivery; frame: JmaFrame; label: string }[] = [];
+    for (const source of shownSources) {
+      const ref = selected.get(source);
+      if (ref === undefined || !("frame" in ref)) continue;
+      const stage = source.stages[ref.stage];
+      if (stage.origin !== "jma" || stage.kind !== "gridMark") continue;
+      requests.push({
+        key: pointKey(stage.delivery, ref.frame),
+        delivery: stage.delivery,
+        frame: ref.frame,
+        label: source.label,
       });
+    }
+    return requests;
+  }, [shownSources, selected]);
+  const pointRequestKeys = pointRequests.map((request) => request.key).join(",");
+  const [points, setPoints] = useState<ReadonlyMap<string, GeoJSON.FeatureCollection>>(new Map());
+  useEffect(() => {
+    let cancelled = false;
+    const wanted = new Set(pointRequests.map((request) => request.key));
+    for (const request of pointRequests) {
+      fetchJmaPointGeojson(request.delivery, request.frame, request.label)
+        .then((geojson) => {
+          if (cancelled) return;
+          setPoints((previous) => new Map([...previous].filter(([key]) => wanted.has(key))).set(request.key, geojson));
+        })
+        .catch(() => {
+          // 取れなければ描かないだけに留める（取得の失敗はfetchJsonがdebugLogへ記録済み）。
+        });
+    }
     return () => {
       cancelled = true;
     };
-  }, [fetchLidenFramesEnabled, lidenFrame]);
-  const lidenPayload = useMemo((): DynamicWeatherRenderPayload | undefined => {
-    if (lidenValidtime === undefined || lidenFetched?.validtime !== lidenValidtime) return undefined;
-    return { kind: "gridMark", geojson: lidenFetched.geojson };
-  }, [lidenFetched, lidenValidtime]);
-  // キキクル4種は未来方向のフレームを持たず「現在の危険度」単一値のみを
-  // 配信するため、選択中の共有時刻に関わらずframes[0]（現在値）があれば表示する
-  // （riskMap.ts冒頭コメント「他の動的レイヤーと違い共有タイムライン・frameIndexForTimeには
-  // 乗せない」と対）。
-  const landslideRiskPayload = useMemo(() => currentRiskPayload(landFramesList, landRenderPayload), [landFramesList]);
-  const heavyRainRiskPayload = useMemo(
-    () => currentRiskPayload(heavyRainFramesList, heavyRainRenderPayload),
-    [heavyRainFramesList],
-  );
-  const inundationRiskPayload = useMemo(
-    () => currentRiskPayload(inundationFramesList, inundationRenderPayload),
-    [inundationFramesList],
-  );
-  // 洪水キキクルは他3種と違いvectorTile kindだが、ここでの扱いは同じ。
-  const floodRiskPayload = useMemo(() => currentRiskPayload(floodFramesList, floodRenderPayload), [floodFramesList]);
-  // 線状降水帯予測マップ（「降水」チップ傘下）。他のキキクル3種と異なり
-  // 「今後3時間以内におそれ」という予報の性質上、共有
-  // タイムラインの選択時刻が現在〜3時間先の範囲内にあるときだけ、ナウキャスト/rasrf/
-  // 延長予報のいずれかと重ねて表示する（isWithinFutureWindow、dynamicWeather.ts参照）。
-  const linearRainbandVisible = useMemo(
-    () => isWithinFutureWindow(dynamicLayerTargetTime, now, LINEAR_RAINBAND_WINDOW_MS),
-    [dynamicLayerTargetTime, now],
-  );
-  const linearRainbandPayload = useMemo(
-    () => (linearRainbandVisible ? currentRiskPayload(linearRainbandFrames, linearRainbandRenderPayload) : undefined),
-    [linearRainbandFrames, linearRainbandVisible],
+    // 取りに行く鍵の組が変わったときだけ取り直す。
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pointRequestKeys]);
+
+  const payloadOf = useCallback(
+    (source: WeatherSource): DynamicWeatherRenderPayload | undefined => {
+      const ref = selected.get(source);
+      if (ref === undefined) return undefined;
+      const stage = source.stages[ref.stage];
+      if ("index" in ref) {
+        if (stage.origin !== "grid") return undefined;
+        return GRID_PAYLOAD[stage.value](grid.effectiveGrid, ref.index, grid.effectiveGridSpacingDeg);
+      }
+      if (stage.origin !== "jma") return undefined;
+      if (stage.kind === "gridMark") {
+        const geojson = points.get(pointKey(stage.delivery, ref.frame));
+        return geojson && { kind: "gridMark", geojson };
+      }
+      if (stage.kind === "gridFill") return undefined;
+      return jmaTilePayload(stage.kind, stage.delivery, ref.frame);
+    },
+    [selected, grid.effectiveGrid, grid.effectiveGridSpacingDeg, points],
   );
 
-  // MapViewへ渡す単一プロパティ（T183再設計、旧5個のprecipitation/wind個別propsを統合）。
-  // 1グループが複数の名前付きソースを同時に持てる——precipitationNowcastは時系列3段
-  // [main]と線状降水帯[linearRainband]を同時に持つ。新しい動的気象要素を追加しても
-  // MapViewProps自体は変わらず、ここへ1エントリ足すだけでよい。
-  const dynamicWeather = useMemo(
-    () => ({
-      windVector: {
-        arrow: { visible: showWindVector, payload: windPayload },
-      },
-      precipitationNowcast: {
-        main: { visible: showPrecipitationNowcast, payload: precipitationPayload },
-        linearRainband: { visible: showPrecipitationNowcast, payload: linearRainbandPayload },
-      },
-      // 災害グループの7ソースは1つのチップ（showDisaster）でまとめてON/OFFする。時刻
-      // スライダーへの連動有無はソースごとに異なり、雷・竜巻・落雷は選択時刻が自分の
-      // フレーム範囲外ならpayloadがundefinedになって描画されない一方、キキクル4種は
-      // 「現在の危険度」単一値のため選択時刻に関わらず描画され続ける。
-      disaster: {
-        heavyRain: { visible: showDisasterSource("heavyRain"), payload: heavyRainRiskPayload },
-        landslide: { visible: showDisasterSource("landslide"), payload: landslideRiskPayload },
-        inundation: { visible: showDisasterSource("inundation"), payload: inundationRiskPayload },
-        thunder: { visible: showDisasterSource("thunder"), payload: thunderPayload },
-        tornado: { visible: showDisasterSource("tornado"), payload: tornadoPayload },
-        flood: { visible: showDisasterSource("flood"), payload: floodRiskPayload },
-        liden: { visible: showDisasterSource("liden"), payload: lidenPayload },
-      },
-    }),
-    [
-      showWindVector,
-      windPayload,
-      showPrecipitationNowcast,
-      precipitationPayload,
-      linearRainbandPayload,
-      showDisasterSource,
-      thunderPayload,
-      tornadoPayload,
-      lidenPayload,
-      landslideRiskPayload,
-      heavyRainRiskPayload,
-      inundationRiskPayload,
-      floodRiskPayload,
-    ],
-  );
+  const dynamicWeather = useMemo(() => {
+    const groups: Partial<Record<DynamicWeatherLayerId, DynamicWeatherGroupState>> = {};
+    for (const source of WEATHER_SOURCES) {
+      const group = (groups[source.group] ??= {});
+      group[source.source] = { visible: isShown(source), payload: payloadOf(source) };
+    }
+    return groups;
+  }, [isShown, payloadOf]);
 
   // 配信元のタイルが返らない状態は、空タイルで代替するぶんフェッチ側のerrorに現れない
   // （`jmaTileProtocol.ts`）。表示中のフレームのURLと突き合わせて、そのタイルを出している
   // チップだけをエラーにする。
   const tileFailures = useSyncExternalStore(subscribeJmaTileFailures, jmaTileFailures, jmaTileFailures);
 
-  // レイヤーごとのデータ取得状態。どのレイヤーも同じderiveFetchLayerStatus関数を通る——
-  // 「読込中」表示のためにレイヤーの種類（raster/gridFill/gridMark/vectorTile）を意識する
-  // 必要は無い。複数の名前付きソースを持つグループ（precipitationNowcast・disaster）は、
-  // UI上のチップが1つのため、いずれかのソースが地図に何かしら描画できていれば
-  // loading/errorとしない。
+  // チップごとの取得状態。チップは複数の名前付きソースを束ねるため、表示中のソースのどれかが
+  // 描けていれば空とせず、どれかの取得が失敗していれば失敗、どれかがまだ取れていなければ読み込み中。
   const dynamicWeatherDataStatus = useMemo(() => {
-    const status: Partial<Record<DynamicWeatherLayerId, LayerDataStatus>> = {
-      windVector: deriveFetchLayerStatus(windLoading, windError, windPayload !== undefined, windHasFetched),
-      // グループのhasFetchedはOR——loading/errorと同じく「いずれかのソースが取得を
-      // 終えていれば、そのグループについては値の有無を語ってよい」とする。
-      precipitationNowcast: deriveFetchLayerStatus(
-        nowcastLoading || linearRainbandLoading || rasrfLoading,
-        nowcastError ?? linearRainbandError ?? rasrfError,
-        precipitationPayload !== undefined || linearRainbandPayload !== undefined,
-        nowcastHasFetched || linearRainbandHasFetched,
-      ),
-      disaster: deriveFetchLayerStatus(
-        thunderNowcastLoading || lidenNowcastLoading || currentRiskLoading,
-        thunderNowcastError ?? lidenNowcastError ?? currentRiskError,
-        thunderPayload !== undefined ||
-          tornadoPayload !== undefined ||
-          lidenPayload !== undefined ||
-          landslideRiskPayload !== undefined ||
-          heavyRainRiskPayload !== undefined ||
-          inundationRiskPayload !== undefined ||
-          floodRiskPayload !== undefined,
-        thunderNowcastHasFetched || lidenNowcastHasFetched || currentRiskHasFetched,
-      ),
-    };
+    const status: Partial<Record<DynamicWeatherLayerId, LayerDataStatus>> = {};
+    const groups = new Set(WEATHER_SOURCES.map((source) => source.group));
+    for (const group of groups) {
+      const sources = shownSources.filter((source) => source.group === group);
+      const results = deliveriesOf(sources).map(({ delivery }) => deliveryResults.get(delivery.id));
+      const readsGrid = sources.some((source) => source.stages.some((stage) => stage.origin === "grid"));
+      const loading = results.some((result) => result === undefined) || (readsGrid && grid.loading);
+      const error = results.find((result) => result?.error)?.error ?? (readsGrid ? grid.error : null);
+      const hasFetched = results.some((result) => result !== undefined) || (readsGrid && grid.hasFetched);
+      const hasPayload = sources.some((source) => dynamicWeather[source.group]?.[source.source]?.payload !== undefined);
+      status[group] = deriveFetchLayerStatus(loading, error, hasPayload, hasFetched);
+    }
     // 配信が落ちている要素を出しているチップは、フェッチ側が正常でもエラーにする
-    // （deriveFetchLayerStatusと同じくエラーを最優先にする）。グループ配下を機械的に走査
-    // するため、要素やチップが増えてもここへ足すものは無い。
+    // （deriveFetchLayerStatusと同じくエラーを最優先にする）。
     for (const layerId of tileDeliveryFailureLayerIds(dynamicWeather, tileFailures)) status[layerId] = "error";
     return status;
-  }, [
-    dynamicWeather,
-    tileFailures,
-    windLoading,
-    windError,
-    windPayload,
-    nowcastLoading,
-    linearRainbandLoading,
-    nowcastError,
-    linearRainbandError,
-    rasrfLoading,
-    rasrfError,
-    precipitationPayload,
-    linearRainbandPayload,
-    thunderNowcastLoading,
-    thunderNowcastError,
-    thunderPayload,
-    tornadoPayload,
-    lidenNowcastLoading,
-    lidenNowcastError,
-    lidenPayload,
-    currentRiskLoading,
-    currentRiskError,
-    landslideRiskPayload,
-    heavyRainRiskPayload,
-    inundationRiskPayload,
-    floodRiskPayload,
-    windHasFetched,
-    nowcastHasFetched,
-    linearRainbandHasFetched,
-    thunderNowcastHasFetched,
-    lidenNowcastHasFetched,
-    currentRiskHasFetched,
-  ]);
+  }, [shownSources, deliveryResults, grid.loading, grid.error, grid.hasFetched, dynamicWeather, tileFailures]);
 
-  return {
-    dynamicWeather,
-    dynamicWeatherDataStatus,
-  };
+  return { dynamicWeather, dynamicWeatherDataStatus };
 }

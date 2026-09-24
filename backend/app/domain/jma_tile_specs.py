@@ -104,6 +104,35 @@ JMA_TARGET_TIME_FILES_BY_ELEMENT: dict[str, tuple[str, ...]] = {
 }
 
 
+#: 系統ごとの時刻一覧の更新間隔（秒）。降水・雷の実況は5分おき、キキクル・降水短時間予報・
+#: 線状降水帯予測マップは10分おきに更新される。
+JMA_REFRESH_INTERVAL_SECONDS: dict[PathGroup, int] = {
+    "nowc": 5 * 60,
+    "rasrf": 10 * 60,
+    "risk": 10 * 60,
+}
+
+#: 時刻一覧の行の並び方。要素ごとに違い、同じ系統・同じファイルでも一致しない。
+#: - `nowcast`: その要素の行が時刻順に並ぶ実況＋予測。実況（validtime==basetime）は過去へ長く続く。
+#: - `latestFullRun`: 数値予報のラン。系列（`member`）ごとに、有効時刻を複数持つ最新のラン
+#:   （単発の中間ランではないもの）だけが完全な予報になる。
+#: - `latest`: 実況と予測を配信元が統合済みの「現在」の単一値。最新の行だけが意味を持つ。
+TargetTimesReader = Literal["nowcast", "latestFullRun", "latest"]
+
+JMA_TARGET_TIMES_READERS: dict[str, TargetTimesReader] = {
+    "hrpns": "nowcast",
+    "thns": "nowcast",
+    "trns": "nowcast",
+    "liden": "nowcast",
+    "rasrf": "latestFullRun",
+    "land": "latest",
+    "rain_mesh": "latest",
+    "inund": "latest",
+    "flood": "latest",
+    "sjfcstmap": "latest",
+}
+
+
 def jma_target_time_files(element_id: str) -> tuple[str, ...]:
     """その要素の行が載る時刻一覧のファイル名（系統の`.../data/<系統>/`の直下）。
 

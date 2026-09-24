@@ -18,13 +18,14 @@
 //    色分けする）。新しい要素はこの4種のどれかを選ぶだけで、独自の描画方式は増やさない。
 // 3. **時間経過はスライドバー1本**: 気象レイヤーの取得結果に依存しない1本のタイムライン
 //    （RideConditionBar/departureTimeline.ts: buildDepartureTimeline）を共有スライダーへ渡す。
-//    各レイヤーは選択時刻に対応する自分のフレームを
-//    描画し、**選択時刻が自分のデータ範囲外なら何も描画しない**（frameIndexForTime）。
-// 4. **データ取得の差異はデータ層で吸収**: 1要素につきデータソースはN個あり得る
-//    （例: 降水=気象庁ナウキャスト+自前格子）。各要素のデータ層モジュール
-//    （precipitationNowcast.ts等）がソースを1本のフレーム列へ統合し、フレームごとの
-//    描画内容（DynamicWeatherRenderPayload）を返す。表示層（page.tsx/MapView.tsx）は
-//    ペイロードのkindしか見ず、どのソース由来かを一切意識しない。
+//    各レイヤーは選択時刻に対応する自分のフレームを、源泉が要素ごとに宣言する規則で選んで
+//    描画する（weatherSources.ts: selectFrame）。規則の既定は**選択時刻が自分のデータ範囲外なら
+//    何も描画しない**（frameIndexForTime）。
+// 4. **データ取得の差異はデータ層で吸収**: 1つの名前付きソースの段はN個あり得る
+//    （例: 降水=気象庁ナウキャスト+降水短時間予報+自前格子）。weatherSources.tsが源泉の宣言から
+//    段を1本の時系列へつなぎ、useDynamicWeatherLayers.tsがコマごとの描画内容
+//    （DynamicWeatherRenderPayload）を作る。表示層（scene/groups/weather.ts）は
+//    ペイロードのkindしか見ず、どの段由来かを一切意識しない。
 //
 // 新しい動的要素を足す手順は、docs/modules/frontend/dynamic-weather-layers.md
 // 「新しい動的要素を追加する1本道」節が持つ。
@@ -59,32 +60,8 @@ export type DynamicWeatherRenderPayload =
   | { kind: "vectorTile"; tileUrlTemplate: string };
 
 /** 災害グループの名前付きソース。**源泉が配る**（`mapDisplay.weatherElements`のうち
- * チップが`disaster`のもの）。凡例（▶パネルの「表示する情報」）・フェッチの有効判定・
- * 描画の表示状態の3つがこの型を見る。 */
+ * チップが`disaster`のもの）。凡例（▶パネルの「表示する情報」）の色見本がこの型を見る。 */
 export type DisasterSourceKey = Extract<(typeof mapDisplay.weatherElements)[number], { group: "disaster" }>["source"];
-
-/** 災害のソースを、取りに行く単位へ振り分ける。同じ単位の要素がすべて非表示なら、その
- * フェッチ自体を行わない。単位はデータ層のフェッチ関数ごとに決まる画面の持ち物で、パスの
- * 系統からは導けない（雷・竜巻と落雷は同じ系統だが、別々に取りに行く）。鍵は生成物から
- * 導くため、源泉に災害のソースが増えて振り分けが無ければ型検査が落ちる。 */
-const DISASTER_FETCH_GROUP = {
-  heavyRain: "risk",
-  landslide: "risk",
-  inundation: "risk",
-  flood: "risk",
-  thunder: "thunder",
-  tornado: "thunder",
-  liden: "liden",
-} as const satisfies Record<DisasterSourceKey, string>;
-
-type DisasterFetchGroup = (typeof DISASTER_FETCH_GROUP)[DisasterSourceKey];
-
-/** そのフェッチ単位に属するソースキー。 */
-export function disasterSourceKeys(fetchGroup: DisasterFetchGroup): readonly DisasterSourceKey[] {
-  return (Object.keys(DISASTER_FETCH_GROUP) as DisasterSourceKey[]).filter(
-    (key) => DISASTER_FETCH_GROUP[key] === fetchGroup,
-  );
-}
 
 /** 1グループ（=1 DynamicWeatherLayerId）配下の名前付きソースを識別するキー。グループ内で
  * 一意であればよい。単一ソースしか持たないグループも"main"という1キーだけを持つ
@@ -113,9 +90,6 @@ export interface DynamicWeatherFrame<TRef = unknown> {
 // フレーム列の範囲判定に使う許容幅。境界ちょうど（スライダーの目盛りがフレーム時刻そのもの）で
 // 浮動小数・ミリ秒の丸めに揺られないための小さな余裕。
 const FRAME_RANGE_EPSILON_MS = 1000;
-// 観測が届くまでの遅れとして許す幅（observationIndexForTime）。配信の遅れの実績値へ余裕を
-// 足した上限で、これを超えて先を指していれば利用者が意図して未来を選んでいるとみなす。
-const OBSERVATION_DELAY_TOLERANCE_MS = 20 * 60 * 1000;
 
 /** 対象時刻に対応するフレームのindexを返す。**対象時刻がこのレイヤーのデータ範囲
  * （先頭〜末尾フレーム）の外なら null**（=そのレイヤーは描画しない。範囲を超えた時刻で
@@ -140,13 +114,14 @@ export function frameIndexForTime(frames: readonly { time: Date }[], target: Dat
  * 常態であり、**範囲外なら描かない**という`frameIndexForTime`の規約をそのまま当てると、
  * この種のレイヤーは常に何も描かれない。
  *
- * 遅れのぶんは最新の観測を出し、それ以上先（利用者が出発時刻を選んだ等）を指していれば
- * 描かない——「1時間後の落雷」は存在せず、古い観測をその時刻の値として出すのは誤り。
+ * 遅れのぶん（`toleranceMs`、源泉が要素ごとに宣言する）は最新の観測を出し、それ以上先（利用者が
+ * 出発時刻を選んだ等）を指していれば描かない——「1時間後の落雷」は存在せず、古い観測をその時刻の
+ * 値として出すのは誤り。
  */
 export function observationIndexForTime(
   frames: readonly { time: Date }[],
   target: Date,
-  toleranceMs: number = OBSERVATION_DELAY_TOLERANCE_MS,
+  toleranceMs: number,
 ): number | null {
   if (frames.length === 0) return null;
   const lastMs = frames[frames.length - 1].time.getTime();

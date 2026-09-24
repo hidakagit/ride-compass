@@ -21,7 +21,7 @@ import {
 import type { LensId } from "@/lib/mapDisplay/routeStyleModes";
 import type { MapViewport } from "@/features/map/layers/windLayer";
 import type MapOverlayControls from "@/features/map/MapOverlayControls/MapOverlayControls";
-import { DISASTER_LAYER_ID } from "@/features/map/scene/legends";
+import { mapDisplay } from "@/types/generated/mapDisplay";
 import { useAxisCatalog } from "@/hooks/useAxisCatalog";
 import { useDebouncedValue } from "@/hooks/useDebouncedValue";
 import { useDedicatedWayValues } from "@/features/map/useDedicatedWayValues";
@@ -99,9 +99,14 @@ export function useMapView({ hasSelectedRoute, hasDetail, ride, now, usedWeights
   const [mapLayerStatus, setMapLayerStatus] = useState<LayerDataStatusByLayer>({});
   const [refreshToken, setRefreshToken] = useState(0);
 
+  // チップ配下の名前付きソースの表示切替は、チップidを凡例の保存先の鍵にする（`scene/legends.ts`）。
+  const hiddenWeatherSources = useMemo(
+    () => Object.fromEntries(mapDisplay.weatherLayerGroups.map((group) => [group, hiddenKeysOf(hidden, group)])),
+    [hidden],
+  );
   const weather = useDynamicWeatherLayers({
     visibility: layerVisibility,
-    hiddenDisasterSources: hiddenKeysOf(hidden, DISASTER_LAYER_ID),
+    hiddenSources: hiddenWeatherSources,
     mapViewport: viewport,
     at: ride.at,
     now,

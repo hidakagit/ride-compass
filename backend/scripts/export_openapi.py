@@ -213,11 +213,19 @@ def _weather_element_entry(element: WeatherElement) -> dict:
         "source": element.source,
         "kind": element.kind,
         "label": element.label,
+        "frameRule": {"kind": element.frame_rule.kind, "windowMinutes": element.frame_rule.window_minutes},
+        "gridValue": element.grid_value,
         # 時刻の段の順（近い時刻から）。画面のデータ層は、配信元のURLを要素idと系統から、
-        # 時刻一覧のURLを系統とファイル名から組み立てる。
+        # 時刻一覧のURLを系統とファイル名から組み立て、行を読み方に従ってコマにする。
         "jmaElements": [
-            {"id": element_id, "pathGroup": path_group, "targetTimeFiles": list(files)}
-            for element_id, path_group, files in weather_element_deliveries(element)
+            {
+                "id": delivery.element_id,
+                "pathGroup": delivery.path_group,
+                "targetTimeFiles": list(delivery.target_time_files),
+                "reader": delivery.reader,
+                "refreshIntervalMs": delivery.refresh_interval_seconds * 1000,
+            }
+            for delivery in weather_element_deliveries(element)
         ],
         "attribution": weather_element_attribution(element),
         # タイルで描くものだけが持つ。ズームの上限は配信元に実データがある範囲から導く。

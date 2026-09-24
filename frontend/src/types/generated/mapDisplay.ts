@@ -220,6 +220,11 @@ export const mapDisplay = {
       "source": "main",
       "kind": "rasterTile",
       "label": "降水",
+      "frameRule": {
+        "kind": "nearest",
+        "windowMinutes": null
+      },
+      "gridValue": null,
       "jmaElements": [
         {
           "id": "hrpns",
@@ -227,14 +232,18 @@ export const mapDisplay = {
           "targetTimeFiles": [
             "targetTimes_N1.json",
             "targetTimes_N2.json"
-          ]
+          ],
+          "reader": "nowcast",
+          "refreshIntervalMs": 300000
         },
         {
           "id": "rasrf",
           "pathGroup": "rasrf",
           "targetTimeFiles": [
             "targetTimes.json"
-          ]
+          ],
+          "reader": "latestFullRun",
+          "refreshIntervalMs": 600000
         }
       ],
       "attribution": "気象庁",
@@ -249,6 +258,11 @@ export const mapDisplay = {
       "source": "main",
       "kind": "gridFill",
       "label": "降水",
+      "frameRule": {
+        "kind": "nearest",
+        "windowMinutes": null
+      },
+      "gridValue": "precipitation",
       "jmaElements": [],
       "attribution": "気象庁MSM",
       "tile": null
@@ -258,13 +272,20 @@ export const mapDisplay = {
       "source": "linearRainband",
       "kind": "rasterTile",
       "label": "線状降水帯予測",
+      "frameRule": {
+        "kind": "current",
+        "windowMinutes": 180
+      },
+      "gridValue": null,
       "jmaElements": [
         {
           "id": "sjfcstmap",
           "pathGroup": "rasrf",
           "targetTimeFiles": [
             "targetTimes.json"
-          ]
+          ],
+          "reader": "latest",
+          "refreshIntervalMs": 600000
         }
       ],
       "attribution": "気象庁",
@@ -279,6 +300,11 @@ export const mapDisplay = {
       "source": "arrow",
       "kind": "gridMark",
       "label": "風",
+      "frameRule": {
+        "kind": "nearest",
+        "windowMinutes": null
+      },
+      "gridValue": "wind",
       "jmaElements": [],
       "attribution": "気象庁MSM",
       "tile": null
@@ -288,13 +314,20 @@ export const mapDisplay = {
       "source": "heavyRain",
       "kind": "rasterTile",
       "label": "大雨キキクル",
+      "frameRule": {
+        "kind": "current",
+        "windowMinutes": null
+      },
+      "gridValue": null,
       "jmaElements": [
         {
           "id": "rain_mesh",
           "pathGroup": "risk",
           "targetTimeFiles": [
             "targetTimes.json"
-          ]
+          ],
+          "reader": "latest",
+          "refreshIntervalMs": 600000
         }
       ],
       "attribution": "気象庁",
@@ -309,13 +342,20 @@ export const mapDisplay = {
       "source": "landslide",
       "kind": "rasterTile",
       "label": "土砂災害キキクル",
+      "frameRule": {
+        "kind": "current",
+        "windowMinutes": null
+      },
+      "gridValue": null,
       "jmaElements": [
         {
           "id": "land",
           "pathGroup": "risk",
           "targetTimeFiles": [
             "targetTimes.json"
-          ]
+          ],
+          "reader": "latest",
+          "refreshIntervalMs": 600000
         }
       ],
       "attribution": "気象庁",
@@ -330,13 +370,20 @@ export const mapDisplay = {
       "source": "inundation",
       "kind": "rasterTile",
       "label": "浸水キキクル",
+      "frameRule": {
+        "kind": "current",
+        "windowMinutes": null
+      },
+      "gridValue": null,
       "jmaElements": [
         {
           "id": "inund",
           "pathGroup": "risk",
           "targetTimeFiles": [
             "targetTimes.json"
-          ]
+          ],
+          "reader": "latest",
+          "refreshIntervalMs": 600000
         }
       ],
       "attribution": "気象庁",
@@ -351,13 +398,20 @@ export const mapDisplay = {
       "source": "thunder",
       "kind": "rasterTile",
       "label": "雷ナウキャスト",
+      "frameRule": {
+        "kind": "nearest",
+        "windowMinutes": null
+      },
+      "gridValue": null,
       "jmaElements": [
         {
           "id": "thns",
           "pathGroup": "nowc",
           "targetTimeFiles": [
             "targetTimes_N3.json"
-          ]
+          ],
+          "reader": "nowcast",
+          "refreshIntervalMs": 300000
         }
       ],
       "attribution": "気象庁",
@@ -372,13 +426,20 @@ export const mapDisplay = {
       "source": "tornado",
       "kind": "rasterTile",
       "label": "竜巻発生確度",
+      "frameRule": {
+        "kind": "nearest",
+        "windowMinutes": null
+      },
+      "gridValue": null,
       "jmaElements": [
         {
           "id": "trns",
           "pathGroup": "nowc",
           "targetTimeFiles": [
             "targetTimes_N3.json"
-          ]
+          ],
+          "reader": "nowcast",
+          "refreshIntervalMs": 300000
         }
       ],
       "attribution": "気象庁",
@@ -393,13 +454,20 @@ export const mapDisplay = {
       "source": "flood",
       "kind": "vectorTile",
       "label": "洪水キキクル（河川）",
+      "frameRule": {
+        "kind": "current",
+        "windowMinutes": null
+      },
+      "gridValue": null,
       "jmaElements": [
         {
           "id": "flood",
           "pathGroup": "risk",
           "targetTimeFiles": [
             "targetTimes.json"
-          ]
+          ],
+          "reader": "latest",
+          "refreshIntervalMs": 600000
         }
       ],
       "attribution": "気象庁",
@@ -414,13 +482,20 @@ export const mapDisplay = {
       "source": "liden",
       "kind": "gridMark",
       "label": "落雷（発生地点）",
+      "frameRule": {
+        "kind": "latestObservation",
+        "windowMinutes": 20
+      },
+      "gridValue": null,
       "jmaElements": [
         {
           "id": "liden",
           "pathGroup": "nowc",
           "targetTimeFiles": [
             "targetTimes_N3.json"
-          ]
+          ],
+          "reader": "nowcast",
+          "refreshIntervalMs": 300000
         }
       ],
       "attribution": "気象庁",

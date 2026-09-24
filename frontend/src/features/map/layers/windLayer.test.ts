@@ -12,9 +12,8 @@ import {
   WIND_CALM_THRESHOLD_MS,
   WIND_SPEED_COLOR_STOPS,
   WIND_SPEED_LEGEND_LEVELS,
-  windFrames,
+  windArrows,
   windGridDetailSpacingDegForZoom,
-  windRenderPayload,
 } from "./windLayer";
 
 /** 格子点1つ。時刻はbackendと同じ日本時間・オフセット無し。 */
@@ -78,22 +77,14 @@ describe("mergeWindGridKeepingStale（取り損ねた地点を前回の値で補
   });
 });
 
-describe("風の格子のコマと描き方", () => {
-  it("コマは先頭の格子点の時刻（日本時間）、refはその時刻の位置", () => {
-    expect(windFrames([point(HOURS.slice(0, 2))])).toEqual([
-      { time: jst("2026-09-24T09:00"), ref: 0 },
-      { time: jst("2026-09-24T10:00"), ref: 1 },
-    ]);
-    expect(windFrames([])).toEqual([]);
-  });
-
+describe("windArrows（風の矢印）", () => {
   it("矢印は風が吹いていく向き（風向+180度）を指し、風速か風向の欠けた地点は描かない", () => {
     const grid = [
       point(["t"], { longitude: 139, speed: [4], direction: [270] }),
       point(["t"], { longitude: 139.1, speed: [null], direction: [0] }),
       point(["t"], { longitude: 139.2, speed: [3], direction: [null] }),
     ];
-    const payload = windRenderPayload(grid, 0);
+    const payload = windArrows(grid, 0);
     expect(payload.kind).toBe("gridMark");
     const features = payload.kind === "gridMark" ? payload.geojson.features : [];
     expect(features).toEqual([

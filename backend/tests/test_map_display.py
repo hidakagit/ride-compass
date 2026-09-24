@@ -63,9 +63,30 @@ def test_配信元から取る段はすべて系統と_系統の時刻一覧に�
     """系統が無いと画面は配信元のURLを、ファイルが無いと時刻一覧を取りに行けない。系統に無い
     ファイル名は、配信元に存在しない時刻一覧を指す。"""
     for element in WEATHER_ELEMENTS:
-        for element_id, path_group, files in weather_element_deliveries(element):
-            assert files, f"{element.group}/{element.source} の {element_id}"
-            assert set(files) <= set(JMA_TARGET_TIME_FILES[path_group]), f"{element_id}: {files}"
+        for delivery in weather_element_deliveries(element):
+            files = delivery.target_time_files
+            assert files, f"{element.group}/{element.source} の {delivery.element_id}"
+            assert set(files) <= set(JMA_TARGET_TIME_FILES[delivery.path_group]), f"{delivery.element_id}: {files}"
+
+
+def test_どの要素も時刻の読み方を持つ() -> None:
+    """配信元から取る段は時刻一覧の読み方を、自前の格子から描く要素は読む値を持つ。無いと画面は
+    その要素のコマを作れない（配信元の段の読み方が無ければ`weather_element_deliveries`が落ちる）。"""
+    for element in WEATHER_ELEMENTS:
+        name = f"{element.group}/{element.source}"
+        if element.jma_elements:
+            assert weather_element_deliveries(element), name
+            assert element.grid_value is None, f"{name} は配信元から取るのに格子の値を持つ"
+        else:
+            assert element.grid_value is not None, f"{name} は読む格子の値を持たない"
+
+
+def test_同じ名前付きソースの気象の要素は同じコマの規則を持つ() -> None:
+    """1つのソースの時刻の段は1本の時系列につながる。規則が違うと、どの規則でコマを選ぶか決まらない。"""
+    rules: dict[tuple[str, str], object] = {}
+    for element in WEATHER_ELEMENTS:
+        key = (element.group, element.source)
+        assert rules.setdefault(key, element.frame_rule) == element.frame_rule, f"{element.group}/{element.source}"
 
 
 def test_配信元から取る気象の要素はチップと名前付きソースで一意() -> None:

@@ -57,9 +57,10 @@ rewritesでbackendへプロキシ）。`window`をSSR時に参照しないよう
 呼び出し時に評価する関数になっている。適用範囲は路面/POI/事故のベクタタイルに限らず、
 基礎地図のスタイルJSON（`MapView.tsx: mapStyleUrl`）・国土地理院色別標高図
 （URLは源泉が配る。`region-tile-config.json: gsi`）・土地被覆ラスタ（`regionApi.ts: landcoverTileUrl`）・JMA動的タイル
-（`riskMap.ts`・`precipitationNowcast.ts`・`thunderNowcast.ts`のURLテンプレート）も同じ
-関数でオリジンを決める。JMAの`targetTimes`
-JSONやlidenのGeoJSONのようにアプリのfetch()で読む小さなデータは対象外（相対パスのまま）。
+（`jmaDelivery.ts`のURLテンプレート）も同じ関数でオリジンを決める。JMAの`targetTimes`
+JSONや落雷の地点のGeoJSONのようにアプリのfetch()で読む小さなデータも同じオリジンを使う
+（タイルのURLは時刻一覧が返るまで決まらないため、ここでフロントのホスティングを経由すると
+往復1つぶんが初回表示へ直列に乗る。[動的気象レイヤー](dynamic-weather-layers.md)「暗黙の前提」）。
 
 **暗黙の前提（基礎地図）**: スタイルJSON内のタイル・スプライト・グリフのURLはbackendが
 `basemap_public_base_url`で書き込む（[横断基盤ではなく気象・動的レイヤー側の
