@@ -1194,3 +1194,77 @@ def test_shortest_path_reads_the_cost_of_the_bin_it_arrives_in(bin_seconds, expe
     )
     assert path is not None
     assert graph.edges[lazy.edge_ids[path[0]]].to_node_id == expected_middle
+
+
+# --- 優先度キューの伸長 ---
+
+
+@pytest.mark.parametrize("carries_g", [True, False])
+def test_heap_returns_every_entry_in_key_order_across_growth(carries_g):
+    """容量1から何度も伸ばしても、積んだエントリを1件も欠かさずキーの昇順で返す。
+
+    `g`の列を持つヒープは積んだ`g`をそのまま、持たないヒープはキーを`g`として返す。
+    `g`の列を持つヒープは、伸ばした後も全列が要素数以上の長さを持つ（JITは配列の境界を
+    検査しないため、1列だけ伸ばし忘れても出力からは見えないことがある）。
+    """
+    keys = np.random.default_rng(0).permutation(50).astype(float)
+    heap = routing._empty_heap(1, carries_g)
+    size = 0
+    for state, key in enumerate(keys):
+        if carries_g:
+            heap, size = routing._heap_push(heap, size, key, state, key * 10.0 + 0.5)
+        else:
+            heap, size = routing._heap_push(heap, size, key, state)
+    columns = heap[:3] if carries_g else heap[:2]
+    assert all(column.shape[0] >= size for column in columns)
+    popped = []
+    while size > 0:
+        g, state, size = routing._heap_pop(heap, size)
+        popped.append((keys[state], g))
+    assert [key for key, _ in popped] == sorted(keys)
+    assert [g for _, g in popped] == [key * 10.0 + 0.5 if carries_g else key for key, _ in popped]
+
+
+@pytest.fixture
+def tiny_heap(monkeypatch):
+    """優先度キューの初期容量を「種の数＋1」まで絞り、小さなグラフでも伸長を何度も通す。"""
+    monkeypatch.setattr(routing, "_HEAP_INITIAL_SLACK", 1)
+
+
+def test_tree_costs_stay_exact_while_the_queue_grows(tiny_heap):
+    """伸長をまたいでも、各Nodeのコストは起点からの区間の本数のまま（起点自身はUターン1回の2）。"""
+    lazy, _, _, tree = grid_tree(size=5)
+    for node_id, node_index in lazy.node_id_to_index.items():
+        row, col = (int(part) for part in node_id[1:].split("_"))
+        hops = row + col
+        assert tree.node_cost[node_index] == pytest.approx(hops if hops else 2), node_id
+
+
+def test_shortest_path_stays_exact_while_the_queue_grows(tiny_heap):
+    """伸長をまたいでも、A*は唯一の最安経路（1行目を東へ、最後の列を北へ）を返す。
+
+    下界（目的地までの格子の歩数×最安の区間コスト）を0でなくし、キー（`g`＋下界）と`g`を
+    別の値にする——取り出しがキーを`g`として返すと、経路が変わる。
+    `g`の列そのものが伸長で崩れないことは、部品のテスト（上）が見る。この経路では崩れた`g`が
+    前任者の輪を作り、経路の復元が止まらなくなることがあるため、ここでは確かめない。
+    """
+    size = 5
+    last = size - 1
+    graph = make_grid(size)
+    lazy, _, structure = build_all(graph)
+    states = state_index(lazy)
+    route = [f"n0_{col}>n0_{col + 1}" for col in range(last)]
+    route += [f"n{row}_{last}>n{row + 1}_{last}" for row in range(last)]
+    cost = np.full(structure.state_count, 3.0)
+    for edge_id in route:
+        cost[states[edge_id]] = 1.0
+    heuristic = np.zeros(len(lazy.index_to_node_id))
+    for node_id, node_index in lazy.node_id_to_index.items():
+        row, col = (int(part) for part in node_id[1:].split("_"))
+        heuristic[node_index] = (last - row) + (last - col)
+    path = routing.turn_expanded_shortest_path(
+        structure, cost, heuristic, out_states(lazy, "n0_0"),
+        lazy.node_id_to_index[f"n{last}_{last}"],
+        edge_seconds=np.ones(structure.state_count),
+    )
+    assert path == [states[edge_id] for edge_id in route]
