@@ -913,7 +913,7 @@ CSSの規則が当たる。開くたびに作り直される部品（ポップ�
    「修正の原則」）。E2Eは壊れていても緑で通る形になりやすい——地図のWorkerを外した
    ビルドで、DOMだけを見るテストは全て緑のまま通った。
 
-## パターン5: 外部クライアント・Redisのフェイクは共有モジュールから取る
+## パターン5: 外部クライアントのフェイクは共有モジュールから取る
 
 `backend/tests/`直下の次のモジュールが、複数のテストで同じ形になるフェイクを持つ。
 **新しいテストで同じものを書き写さず、ここからimportする**（ファイルごとに書き写すと、
@@ -923,7 +923,6 @@ CSSの規則が当たる。開くたびに作り直される部品（ポップ�
 |---|---|---|
 | `fake_tile_http.py` | `FakeResponse`・`FakeHttpClient` | タイル・バイナリをそのまま通すクライアント（`get(url)`だけを呼ぶもの） |
 | `fake_api_http.py` | 同名2つ＋`FailingHttpClient`・`HttpStatusErrorHttpClient` | `simple_api_client`経由でJSON/CSVを引くクライアント（`get(url, params, timeout)`） |
-| `fake_redis.py` | `FakeRedis`（`raise_on_get`/`raise_on_set`付き） | Redis cache-aside層。実Redis不要 |
 | `admin_auth.py` | `AUTH_HEADERS`・`basic_auth_header()` | 管理画面API。認証情報を入れるのは`conftest.py`の`admin_credentials`フィクスチャ |
 | `jma_area_fixtures.py` | 区域コード階層のサンプル＋`patch_area_lookup()` | 緯度経度→市区町村コード→area.jsonの順に引くサービス |
 | `bound_fake.py` | `bound(本物, フェイク)` | 関数を差し替えるとき、引数を読まないフェイク（`lambda *a: 値`）を本物の署名へ当てる |

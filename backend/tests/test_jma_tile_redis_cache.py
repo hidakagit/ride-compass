@@ -5,7 +5,7 @@
 - 時刻一覧とタイルの振り分け・上流フェッチ → `test_jma_tile_client.py`
 - サーキットブレーカーの開閉そのもの → `test_redis_client.py`
 
-Redisへは`tests/fake_redis.py`のフェイクを通す（実Redisは使わない）。
+Redisへは下の`FakeRedis`を通す（実Redisは使わない）。
 """
 
 import io
@@ -16,7 +16,27 @@ from PIL import Image
 
 from app.infrastructure import jma_tile_redis_cache, redis_client
 from app.infrastructure.jma_tile_redis_cache import EMPTY_TILE
-from tests.fake_redis import FakeRedis
+
+
+class FakeRedis:
+    """実装が使うコマンドは`get`/`set`だけのため、フェイクもその2つで足りる。`raise_on_get`/`raise_on_set`には
+    送出させたい例外を渡す（Redis不通時にfail-openすることの検証に使う）。"""
+
+    def __init__(self, raise_on_get=None, raise_on_set=None):
+        self.store: dict[str, str] = {}
+        self._raise_on_get = raise_on_get
+        self._raise_on_set = raise_on_set
+
+    async def get(self, key):
+        if self._raise_on_get:
+            raise self._raise_on_get
+        return self.store.get(key)
+
+    async def set(self, key, value, ex=None):
+        if self._raise_on_set:
+            raise self._raise_on_set
+        self.store[key] = value
+
 
 PNG_PATH = "bosai/jmatile/data/nowc/20260101000000/none/20260101000500/surf/hrpns/6/57/25.png"
 PBF_PATH = "bosai/jmatile/data/kkcr/20260101000000/none/20260101000000/surf/flood/6/57/25.pbf"
