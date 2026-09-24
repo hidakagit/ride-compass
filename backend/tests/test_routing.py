@@ -6,8 +6,9 @@
 - 較正値そのものの妥当性（左折が何秒か） → `domain/tuning.py`側
 - 候補ルートの並べ方・返し方 → `route_generator`側
 
-**入力の器は、このモジュールが実際に読む属性だけを持つ架空のdataclassで与える。**
-Road Graphの本物を使わない——Node/Edgeが他に何を持つかはこのファイルの責務ではない。
+**入力はRoad Graphの本物の型（`LeanNode`・`LeanEdge`・`LeanRoadGraph`）と`Coordinates`で作る。**
+どれも対象の公開シグネチャが要求する型で、作るコストも無い。値はこのモジュールが読む
+属性（位置・端Node・距離・方位）だけを指定し、残りは型の既定に任せる。
 """
 import dataclasses
 import math
@@ -16,41 +17,35 @@ import numpy as np
 import pytest
 
 from app.domain import routing
-
-# --- 入力の器（このモジュールが読む属性だけ） ---
-
-
-@dataclasses.dataclass
-class FakeNode:
-    latitude: float
-    longitude: float
-
-
-@dataclasses.dataclass
-class FakeEdge:
-    from_node_id: str
-    to_node_id: str
-    distance_m: float = 100.0
-    bearing_deg: float | None = None
-
-
-@dataclasses.dataclass
-class FakeGraph:
-    nodes: dict[str, FakeNode]
-    edges: dict[str, FakeEdge]
-
-
-@dataclasses.dataclass
-class FakePoint:
-    latitude: float
-    longitude: float
+from app.domain.graph import LeanEdge, LeanNode, LeanRoadGraph
+from app.domain.route import Coordinates
 
 
 def make_graph(nodes, edges):
-    return FakeGraph(
-        nodes={node_id: FakeNode(lat, lon) for node_id, (lat, lon) in nodes.items()},
-        edges={edge_id: FakeEdge(*spec) for edge_id, spec in edges.items()},
+    """`nodes`は`{node_id: (緯度, 経度)}`、`edges`は`{edge_id: (始点, 終点[, 距離m[, 方位]])}`。"""
+    return LeanRoadGraph(
+        graph_version="test",
+        nodes={
+            node_id: LeanNode(node_id=node_id, latitude=lat, longitude=lon)
+            for node_id, (lat, lon) in nodes.items()
+        },
+        edges={edge_id: _edge(edge_id, *spec) for edge_id, spec in edges.items()},
     )
+
+
+def _edge(edge_id, from_node_id, to_node_id, distance_m=100.0, bearing_deg=None):
+    return LeanEdge(
+        edge_id=edge_id,
+        from_node_id=from_node_id,
+        to_node_id=to_node_id,
+        geometry=[],
+        distance_m=distance_m,
+        bearing_deg=bearing_deg,
+    )
+
+
+def coords(latitude, longitude):
+    return Coordinates(latitude=latitude, longitude=longitude)
 
 
 # ターンの費用をすべて0にする仕様（ターン以外の挙動を見るとき用）。
@@ -496,16 +491,16 @@ SNAP_GRAPH = make_graph(
 def test_nearest_node_is_none_when_the_index_has_no_nodes():
     index = routing.build_node_spatial_index(make_graph({}, {}))
     assert index.cell_bounds is None
-    assert routing.find_nearest_node_indexed(index, FakePoint(35.0, 139.0)) is None
+    assert routing.find_nearest_node_indexed(index, coords(35.0, 139.0)) is None
 
 
 @pytest.mark.parametrize(
     "point",
     [
-        FakePoint(35.0650, 139.0050),   # 緯度が索引の上端より2セル外
-        FakePoint(34.9750, 139.0050),   # 緯度が下端より2セル外
-        FakePoint(35.0050, 139.0350),   # 経度が右端より2セル外
-        FakePoint(35.0050, 138.9750),   # 経度が左端より2セル外
+        coords(35.0650, 139.0050),   # 緯度が索引の上端より2セル外
+        coords(34.9750, 139.0050),   # 緯度が下端より2セル外
+        coords(35.0050, 139.0350),   # 経度が右端より2セル外
+        coords(35.0050, 138.9750),   # 経度が左端より2セル外
     ],
 )
 def test_nearest_node_is_none_far_outside_the_indexed_area(point):
@@ -521,7 +516,7 @@ def test_nearest_node_is_none_far_outside_the_indexed_area(point):
 def test_nearest_node_tolerates_a_point_just_outside_the_indexed_area():
     """範囲の縁を1セルだけ外した点は、すぐ隣の道へ寄せる（地図の端をクリックした場合）。"""
     index = routing.build_node_spatial_index(SNAP_GRAPH)
-    assert routing.find_nearest_node_indexed(index, FakePoint(35.0550, 139.0000)) == "far"
+    assert routing.find_nearest_node_indexed(index, coords(35.0550, 139.0000)) == "far"
 
 
 def test_nearest_node_keeps_expanding_rings_until_the_bound_is_safe():
@@ -530,7 +525,7 @@ def test_nearest_node_keeps_expanding_rings_until_the_bound_is_safe():
     同じセルに後から出てくる、より遠いNodeで最近傍を上書きしない。
     """
     index = routing.build_node_spatial_index(SNAP_GRAPH)
-    assert routing.find_nearest_node_indexed(index, FakePoint(35.0050, 139.0050)) == "north"
+    assert routing.find_nearest_node_indexed(index, coords(35.0050, 139.0050)) == "north"
 
 
 def test_nearest_node_skips_nodes_rejected_by_the_predicate():
@@ -538,7 +533,7 @@ def test_nearest_node_skips_nodes_rejected_by_the_predicate():
     index = routing.build_node_spatial_index(SNAP_GRAPH)
     assert (
         routing.find_nearest_node_indexed(
-            index, FakePoint(35.0050, 139.0050), predicate=lambda node_id: node_id != "north"
+            index, coords(35.0050, 139.0050), predicate=lambda node_id: node_id != "north"
         )
         == "center"
     )
@@ -549,7 +544,7 @@ def test_nearest_node_is_none_when_the_predicate_never_matches():
     index = routing.build_node_spatial_index(SNAP_GRAPH)
     assert (
         routing.find_nearest_node_indexed(
-            index, FakePoint(35.0050, 139.0050), predicate=lambda node_id: False
+            index, coords(35.0050, 139.0050), predicate=lambda node_id: False
         )
         is None
     )
@@ -558,7 +553,7 @@ def test_nearest_node_is_none_when_the_predicate_never_matches():
 def test_nearest_node_respects_max_distance_km():
     """「近くに無いなら寄せない」を距離で表す呼び出し。"""
     index = routing.build_node_spatial_index(SNAP_GRAPH)
-    point = FakePoint(35.0050, 139.0050)
+    point = coords(35.0050, 139.0050)
     assert routing.find_nearest_node_indexed(index, point, max_distance_km=0.1) is None
     assert routing.find_nearest_node_indexed(index, point, max_distance_km=5.0) == "north"
 
@@ -566,7 +561,7 @@ def test_nearest_node_respects_max_distance_km():
 def test_node_index_only_holds_the_given_node_ids():
     """`node_ids`を渡すとその集合だけが索引に入る（Hard Constraintで孤立したNodeを外す用途）。"""
     index = routing.build_node_spatial_index(SNAP_GRAPH, node_ids={"center"})
-    assert routing.find_nearest_node_indexed(index, FakePoint(35.0101, 139.0050)) == "center"
+    assert routing.find_nearest_node_indexed(index, coords(35.0101, 139.0050)) == "center"
 
 
 # --- current_turn_cost ---

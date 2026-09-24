@@ -375,10 +375,12 @@ Edgeが無いのは正常な事実だが、それを欠陥と同じ群に入れ�
 
 **区別せずに「1本だけ」と書いた結果、偽のデータ型が生まれた。** `routing`は
 `LeanRoadGraph`を引数に取るのに、`test_routing.py`は`LeanNode`/`LeanEdge`/`LeanRoadGraph`を
-duck typingした`FakeNode`/`FakeEdge`/`FakeGraph`を持っている（`routing`が`LeanRoadGraph`しか
+duck typingした`FakeNode`/`FakeEdge`/`FakeGraph`を持っていた（`routing`が`LeanRoadGraph`しか
 importしていないため、名前空間経由では中身の型へ届かなかった）。実物はfrozen dataclassで
 作るコストが無いので、偽の型は**何も買わずに「実物はこういう形だ」という仮定だけを
-抱えている**。実物が変われば黙ってずれる（設計原則 構造仕様16の「落ちない境界」）。
+抱えていた**。実物が変われば黙ってずれる（設計原則 構造仕様16の「落ちない境界」）——実測: 実物の
+`LeanEdge.distance_m`を実行時に改名すると、偽の型のテスト86件はすべて通り、実物で作る形へ置き換えた
+あとは45件が落ちた（[T1094](../records/tasks/T1094.md)）。
 
 **「実装へ入らないテスト」の検出に静的解析を使わない。** 実測2回とも誤検知した
 （`setattr(engine, ...)`の形・ヘルパ経由を数え落とす）。`--cov-context=test`で、対象
