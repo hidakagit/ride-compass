@@ -75,7 +75,7 @@ describe("RouteForm 候補数", () => {
 
   it("経由地を置いた目的地では、1件と出して増減できなくし、理由の案内を出す", () => {
     renderForm({ routeMode: "destination", waypointCount: 2, maxRoutes: "4" });
-    expect(screen.getByText("1件")).toBeInTheDocument();
+    expect(screen.getByText(`${routeGenerateConfig.routes_with_waypoints}件`)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "候補数を増やす" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "候補数を減らす" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "候補数を変えられない理由を表示" })).toBeInTheDocument();

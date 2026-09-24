@@ -12,11 +12,12 @@ const MAX_DISTANCE_KM = routeGenerateConfig.max_distance_km;
 // 唯一の情報源にする。
 const MAX_ROUTES = routeGenerateConfig.max_routes;
 
-/** 候補件数は周回モード、または経由地の無い目的地モードのときだけ生成結果へ反映される
- * （経由地を伴う目的地ルートはbackendが常に1件へ固定し無視する）。入力欄の表示・検証は
- * この条件で揃える（RouteForm.tsx・useRouteFormSubmit.tsの両方が使う単一の情報源）。 */
-export function isMaxRoutesRelevant(routeMode: RouteMode, waypointCount: number): boolean {
-  return routeMode === "loop" || waypointCount === 0;
+/** 候補数の指定を使わない生成なら、backendが返す決まった候補数。指定を使うならnull。
+ * 経由地を伴う目的地ルートは、backendが候補数の指定を使わず決まった数を返す
+ * （`route_generator.py: applied_max_routes`、数は生成物から）。入力欄の表示・検証・
+ * 送る値・「条件が変わった」の比較は、どれもこの関数で揃える。 */
+export function fixedRouteCount(routeMode: RouteMode, waypointCount: number): number | null {
+  return routeMode === "destination" && waypointCount > 0 ? routeGenerateConfig.routes_with_waypoints : null;
 }
 
 interface UseRouteFormSubmitOptions {
@@ -49,7 +50,7 @@ export function useRouteFormSubmit({
   onGenerate,
 }: UseRouteFormSubmitOptions): UseRouteFormSubmitResult {
   const [error, setError] = useState<string | null>(null);
-  const maxRoutesRelevant = isMaxRoutesRelevant(routeMode, waypointCount);
+  const maxRoutesRelevant = fixedRouteCount(routeMode, waypointCount) === null;
 
   function validateMaxRoutes(): boolean {
     const maxRoutesValue = Number(maxRoutes);

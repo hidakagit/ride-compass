@@ -312,7 +312,9 @@ import済みの参照が古い辞書を指したままになる）。
   初めて基準であり、1本だけ返すときに固定すると返る唯一の候補が常に時間最短になって
   軸の重みが結果に現れない。
 - **経由地が1つ以上ある**: レグごとに代替案が組合せで増えるためv1では対象にせず、
-  従来どおり`trace_loop`で単一経路を生成する（`max_routes`は無視される。終点到達後に
+  従来どおり`trace_loop`で単一経路を生成する（候補数は指定によらず`route_generator.py:
+  applied_max_routes`が`ROUTES_WITH_WAYPOINTS`に決め、生成条件の応答にもその値が載る。画面は同じ値を
+  生成物`route-generate-config.json`の`routes_with_waypoints`で受け取る。終点到達後に
   `id="route-destination"`/`direction_label="目的地ルート"`へ上書き、id採番はしない）。
 
 ## 候補タブの並び順

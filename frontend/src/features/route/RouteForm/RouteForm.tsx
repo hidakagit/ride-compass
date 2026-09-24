@@ -10,7 +10,7 @@ import {
 } from "@/lib/mapDisplay/pinMarks";
 import type { PinRole } from "@/types/route";
 import routeGenerateConfig from "@/types/generated/route-generate-config.json";
-import { isMaxRoutesRelevant, type RouteMode } from "./useRouteFormSubmit";
+import { fixedRouteCount, type RouteMode } from "./useRouteFormSubmit";
 import { Button } from "@/components/ui/Button/Button";
 import { Toggle } from "@/components/ui/Toggle/Toggle";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/ToggleGroup/ToggleGroup";
@@ -82,7 +82,8 @@ export default function RouteForm({
   weightsPanel,
   exclusionsPanel,
 }: RouteFormProps) {
-  const maxRoutesRelevant = isMaxRoutesRelevant(routeMode, waypointCount);
+  const fixedCount = fixedRouteCount(routeMode, waypointCount);
+  const maxRoutesRelevant = fixedCount === null;
 
   function stepMaxRoutes(delta: number) {
     const next = Math.min(MAX_ROUTES, Math.max(1, Number(maxRoutes) + delta));
@@ -178,14 +179,15 @@ export default function RouteForm({
             <ToggleGroupItem value="loop">周回</ToggleGroupItem>
             <ToggleGroupItem value="destination">目的地</ToggleGroupItem>
           </ToggleGroup>
-          {/* 経由地があるとbackendは常に1件へ固定する（route_generator.py:
-              generate_via_waypoints）。押せない状態で残す——消えると壊れて見えるうえ、
+          {/* 経由地があるとbackendは決まった数へ固定する（route_generator.py:
+              applied_max_routes）。押せない状態で残す——消えると壊れて見えるうえ、
               複数候補へ広げる予定があるため置き場を動かさない。理由は隣の(i)の奥。 */}
           <div className="flex items-center gap-2 data-[disabled=true]:opacity-55" data-disabled={!maxRoutesRelevant}>
             <span className={cn(textVariants({ variant: "hint" }), "flex-shrink-0")}>候補数</span>
             {!maxRoutesRelevant && (
               <InfoPopover triggerAriaLabel="候補数を変えられない理由">
-                経由地を置いている間は、その地点を通る経路を1本だけ引きます。候補数は経由地を 消すと使えます。
+                経由地を置いている間は、その地点を通る経路を{fixedCount}本だけ引きます。候補数は経由地を
+                消すと使えます。
               </InfoPopover>
             )}
             <div className="inline-flex items-center gap-2">
@@ -198,9 +200,7 @@ export default function RouteForm({
               >
                 ‹
               </Button>
-              <span className="min-w-[2.5em] text-center tabular-nums">
-                {maxRoutesRelevant ? `${maxRoutes}件` : "1件"}
-              </span>
+              <span className="min-w-[2.5em] text-center tabular-nums">{`${fixedCount ?? maxRoutes}件`}</span>
               <Button
                 variant="stepper"
                 size="sm"

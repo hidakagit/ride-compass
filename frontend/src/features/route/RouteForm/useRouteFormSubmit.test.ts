@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import routeGenerateConfig from "@/types/generated/route-generate-config.json";
 
-import { isMaxRoutesRelevant, useRouteFormSubmit, type RouteMode } from "./useRouteFormSubmit";
+import { fixedRouteCount, useRouteFormSubmit, type RouteMode } from "./useRouteFormSubmit";
 
 const MAX_DISTANCE_KM = routeGenerateConfig.max_distance_km;
 const MAX_ROUTES = routeGenerateConfig.max_routes;
@@ -31,12 +31,11 @@ function submit(options: {
   return { error: result.current.error, onGenerate, result };
 }
 
-describe("isMaxRoutesRelevant（候補数が生成結果へ効くか）", () => {
-  it("周回と、経由地の無い目的地では効く。経由地を伴う目的地では効かない（backendが1件へ固定する）", () => {
-    expect(isMaxRoutesRelevant("loop", 0)).toBe(true);
-    expect(isMaxRoutesRelevant("loop", 2)).toBe(true);
-    expect(isMaxRoutesRelevant("destination", 0)).toBe(true);
-    expect(isMaxRoutesRelevant("destination", 1)).toBe(false);
+describe("fixedRouteCount（候補数の指定を使わない生成の、決まった候補数）", () => {
+  it("経由地を伴う目的地だけがbackendの決まった数。周回（経由地は送らない）と経由地の無い目的地は指定を使う", () => {
+    expect(fixedRouteCount("destination", 1)).toBe(routeGenerateConfig.routes_with_waypoints);
+    expect(fixedRouteCount("destination", 0)).toBeNull();
+    expect(fixedRouteCount("loop", 2)).toBeNull();
   });
 });
 

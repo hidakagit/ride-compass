@@ -347,7 +347,8 @@ GPX出力・「ルートをクリア」、下記`renderRouteOutcomeSectionBody`�
 同じ入力（`GenerationInput`）から導出する**ため、payloadへフィールドを足したときに比較側へ
 足し忘れることが起きない。比較から外すのは`IGNORED_WHEN_COMPARING`に理由付きで列挙した
 ものだけで、現在は`lens_axis_id`（地図の見え方の選択で候補の選定には影響しない）。
-経由地を伴う目的地ルートでは`max_routes`も外す（この条件では候補数の指定が効かない）。利用者が
+候補数は実際に使う値を送って比べる（`useRouteFormSubmit.ts: fixedRouteCount`——経由地を伴う目的地ルートは
+backendの決まった数）ので、その条件で候補数の入力を変えても印は点かない。利用者が
 出発時刻を選んでいない間は`start_time`も外す——共有時刻は「今」へ5分刻みで追従するので、
 放置するだけで値が変わる（何もしていないのに印が点くと、印が合図として機能しなくなる）。
 キーは並び順に依存しない形でJSON化する——`hard_filters`・`route_preference`は保存値からの

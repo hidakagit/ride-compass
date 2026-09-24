@@ -23,8 +23,7 @@ import LensControl from "@/features/map/LensControl/LensControl";
 import { LENS_DIFFICULTY_ID, LENS_NONE_ID } from "@/lib/mapDisplay/routeStyleModes";
 import ErrorText from "@/components/ErrorText/ErrorText";
 import RouteForm, { type SettingsTab } from "@/features/route/RouteForm/RouteForm";
-import type { RouteMode } from "@/features/route/RouteForm/useRouteFormSubmit";
-import { useRouteFormSubmit } from "@/features/route/RouteForm/useRouteFormSubmit";
+import { fixedRouteCount, useRouteFormSubmit, type RouteMode } from "@/features/route/RouteForm/useRouteFormSubmit";
 import RouteSettingsPanel from "@/features/route/RouteSettingsPanel/RouteSettingsPanel";
 import HardFilterPanel, { DEFAULT_HARD_FILTERS } from "@/features/route/RouteSettingsPanel/HardFilterPanel";
 import RouteAxisProfile from "@/features/route/RouteAxisProfile/RouteAxisProfile";
@@ -738,7 +737,7 @@ export default function Home() {
               )
             : distanceKm,
         distanceToleranceKm: routeGenerateConfig.default_distance_tolerance_km,
-        maxRoutes: Number(maxRoutesInput),
+        maxRoutes: fixedRouteCount(routeMode, waypoints.length) ?? Number(maxRoutesInput),
         assumedSpeedKmh,
         startTime: departure.at,
         startTimePinned: departure.pinned,
@@ -760,7 +759,6 @@ export default function Home() {
         // 値を消さないため、地図上にピンが残っていても周回モード中は無視する）。
         waypoints: routeMode === "destination" ? waypoints : [],
         destination: routeMode === "destination" ? effectiveDestination : null,
-        maxRoutesRelevant: routeMode === "loop" || waypoints.length === 0,
       };
     },
     [

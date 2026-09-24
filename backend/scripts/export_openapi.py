@@ -121,7 +121,12 @@ from app.domain.jma_tile_specs import effective_max_zoom  # noqa: E402
 from app.domain.material_catalog import MATERIAL_CATALOG, MISSING_SEMANTICS_DISPLAY, POPULATION_LABELS  # noqa: E402
 from app.domain.region import ROAD_TILE_MAX_ZOOM, ROAD_TILE_MIN_ZOOM  # noqa: E402
 from app.domain.traffic import STOP_POI_KINDS, SupplyPoiKind  # noqa: E402
-from app.services.route_generator import SPLICED_ROUTE_ID, DEFAULT_MAX_ROUTES, MAX_ROUTES  # noqa: E402
+from app.services.route_generator import (  # noqa: E402
+    DEFAULT_MAX_ROUTES,
+    MAX_ROUTES,
+    ROUTES_WITH_WAYPOINTS,
+    SPLICED_ROUTE_ID,
+)
 from app.domain.tuning import client_tuning_values  # noqa: E402
 from app.infrastructure.job_registry import JOB_TTL_SECONDS  # noqa: E402
 from app.services.tile_version_service import TILE_SHAPES  # noqa: E402
@@ -455,6 +460,7 @@ def main() -> None:
             "max_distance_km": MAX_ROUTE_DISTANCE_KM,
             "max_routes": MAX_ROUTES,
             "default_max_routes": DEFAULT_MAX_ROUTES,
+            "routes_with_waypoints": ROUTES_WITH_WAYPOINTS,
             "default_assumed_speed_kmh": ASSUMED_SPEED_KMH,
             "default_distance_tolerance_km": DEFAULT_DISTANCE_TOLERANCE_KM,
             "spliced_route_id": SPLICED_ROUTE_ID,

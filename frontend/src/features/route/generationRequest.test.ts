@@ -15,7 +15,6 @@ const LOOP: GenerationInput = {
   routePreference: null,
   waypoints: [],
   destination: null,
-  maxRoutesRelevant: true,
   startTimePinned: true,
 };
 
@@ -84,11 +83,6 @@ describe("generationConditionsKey（「生成条件が変更されています�
 
   it("レンズの軸は比べない（地図の見え方の選択で、候補の選定に影響しない）", () => {
     expect(key({ ...LOOP, lensAxisId: "wind" })).toBe(key(LOOP));
-  });
-
-  it("候補数は、backendが無視する生成（経由地を伴う目的地）では比べない", () => {
-    const ignored = { ...DESTINATION, maxRoutesRelevant: false };
-    expect(key({ ...ignored, maxRoutes: 9 })).toBe(key(ignored));
   });
 
   it("出発時刻は、利用者が選んでいない間は比べない（「今」へ追従して勝手に進む）", () => {

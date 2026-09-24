@@ -24,7 +24,7 @@ from app.domain.wind import ASSUMED_SPEED_KMH, MAX_ASSUMED_SPEED_KMH, MIN_ASSUME
 from app.domain.route import Coordinates, RouteCandidate, RouteSegment
 from app.infrastructure import job_registry
 from app.infrastructure.debug_log import record_rate_limit_rejection
-from app.services.route_generator import DEFAULT_MAX_ROUTES, MAX_ROUTES
+from app.services.route_generator import DEFAULT_MAX_ROUTES, MAX_ROUTES, applied_max_routes
 from app.domain.strict_model import StrictModel
 
 router = APIRouter()
@@ -245,8 +245,8 @@ class GenerationConditions(StrictModel):
     max_average_grade_percent: float | None
     # 0次ハードフィルタの個別ON/OFF上書き（実際に適用された値）。
     hard_filters: HardFilterOverride
-    # 周回候補の上限件数（実際に適用された値）。経由地の無い目的地ルートにも適用される。
-    # 経由地を1つ以上伴う経由地・目的地指定時は無視される。
+    # 候補数の上限（実際に適用された値）。経由地を伴う生成では、指定によらず
+    # `route_generator.ROUTES_WITH_WAYPOINTS`。
     max_routes: int
     # 実際に適用された出発時刻（JST）。
     start_time: datetime
@@ -367,6 +367,7 @@ async def _run_generate_job(job_id: str, request: RouteGenerateRequest) -> None:
         ) as setup:
             origin = Coordinates(latitude=request.latitude, longitude=request.longitude)
             start_time = _resolve_start_time(request.start_time)
+            max_routes = applied_max_routes(request.max_routes, has_waypoints=bool(request.waypoints))
             if request.spliced_edge_ids:
                 if request.destination is None:
                     # 要求の検証（`_check_spliced_route_has_a_destination`）を通った要求では起きない。
@@ -384,7 +385,7 @@ async def _run_generate_job(job_id: str, request: RouteGenerateRequest) -> None:
                     waypoints=request.waypoints or [],
                     distance_km=request.distance_km,
                     destination=request.destination,
-                    max_routes=request.max_routes,
+                    max_routes=max_routes,
                     start_time=start_time,
                 )
             else:
@@ -392,7 +393,7 @@ async def _run_generate_job(job_id: str, request: RouteGenerateRequest) -> None:
                     origin=origin,
                     distance_km=request.distance_km,
                     distance_tolerance_km=request.distance_tolerance_km,
-                    max_routes=request.max_routes,
+                    max_routes=max_routes,
                     start_time=start_time,
                 )
             response = RouteGenerateResponse(
@@ -407,7 +408,7 @@ async def _run_generate_job(job_id: str, request: RouteGenerateRequest) -> None:
                     penalty_strength=setup.penalty_strength,
                     max_average_grade_percent=setup.max_average_grade_percent,
                     hard_filters=HardFilterOverride.from_frozenset(setup.hard_filters),
-                    max_routes=request.max_routes,
+                    max_routes=max_routes,
                     start_time=start_time,
                     assumed_speed_kmh=setup.assumed_speed_kmh,
                     waypoints=request.waypoints,

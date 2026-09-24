@@ -19,7 +19,7 @@ from app.infrastructure.road_graph_repository import RoadGraphRepository
 from app.main import app
 from app.services.evaluation_service import load_route_preference
 from app.services.graph_service import GraphService
-from app.services.route_generator import DEFAULT_MAX_ROUTES, MAX_ROUTES
+from app.services.route_generator import DEFAULT_MAX_ROUTES, MAX_ROUTES, ROUTES_WITH_WAYPOINTS
 from app.services.weather_service import WeatherService
 from app.domain.axis_definitions import AXIS_DEFINITIONS
 from tests.axis_system_fixture import axis_definition, replaced_axis_definitions
@@ -523,6 +523,20 @@ def test_generate_routes_passes_and_echoes_max_routes_override(monkeypatch):
 
     assert conditions["max_routes"] == 3
     assert generator.received_max_routes == 3
+
+
+def test_generate_routes_with_waypoints_applies_and_echoes_the_fixed_route_count(monkeypatch):
+    # 経由地を伴う生成は候補数の指定を使わない。生成条件には、要求の値ではなく実際に使った数が載る。
+    generator = FakeRouteGenerator([])
+    monkeypatch.setattr(
+        routes_module, "open_route_generation_setup", fake_open_route_generation_setup([], generator=generator)
+    )
+    waypoint = {"latitude": 35.765, "longitude": 139.745}
+
+    conditions = submit_and_await_done({**REQUEST_BODY, "max_routes": 5, "waypoints": [waypoint]})["conditions"]
+
+    assert conditions["max_routes"] == ROUTES_WITH_WAYPOINTS != 5
+    assert generator.received_max_routes == ROUTES_WITH_WAYPOINTS
 
 
 def test_generate_routes_with_spliced_edge_ids_evaluates_the_given_path_only(monkeypatch):

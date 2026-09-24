@@ -13,6 +13,7 @@ export interface GenerationInput {
   /** 実効距離（目的地モードは指定点の最遠距離から自動算出した値）。 */
   distanceKm: number;
   distanceToleranceKm: number;
+  /** 実際に使う候補数（経由地を伴う目的地ルートは決まった数、`fixedRouteCount`）。 */
   maxRoutes: number;
   assumedSpeedKmh: number;
   startTime: Date;
@@ -24,8 +25,6 @@ export interface GenerationInput {
   /** 目的地モードのときだけ値を持つ（周回モードでは常に空・null）。 */
   waypoints: readonly Coordinates[];
   destination: Coordinates | null;
-  /** 経由地を伴う目的地ルートではbackendがmax_routesを無視する（常に1件へ固定する）。 */
-  maxRoutesRelevant: boolean;
   /** 利用者が出発時刻を明示的に選んだか。falseの間の`startTime`は「今」へ張り付いて
    * 5分ごとに勝手に進むため、条件の比較には使えない（下記`generationConditionsKey`）。 */
   startTimePinned: boolean;
@@ -46,8 +45,7 @@ export function buildGenerateRequest(input: GenerationInput): RouteGenerateReque
     // ため、重み上書きのようなトグルを介さず常に送る（既定値はbackendの
     // DEFAULT_HARD_FILTERSと一致するため挙動は変わらない）。
     hard_filters: input.hardFilters,
-    // RouteGenerateRequest.max_routesは既定値を持つがrequiredのため、モードに関わらず
-    // 常に送る（経由地を伴う目的地ルートではbackendが値を無視する）。
+    // RouteGenerateRequest.max_routesは既定値を持つがrequiredのため、モードに関わらず常に送る。
     max_routes: input.maxRoutes,
     assumed_speed_kmh: input.assumedSpeedKmh,
     start_time: input.startTime.toISOString(),
@@ -89,9 +87,6 @@ function stableStringify(value: unknown): string {
  * `conditionsDirty`の比較キー。payloadと同じ入力から作るため、送る値の変更は
  * `IGNORED_WHEN_COMPARING`に挙げたもの以外すべてが差分として現れる。
  *
- * `maxRoutesRelevant=false`（経由地を伴う目的地ルート）のときは`max_routes`も外す
- * ——backendが値を無視するため、変えても表示中の候補と実際に食い違わない。
- *
  * `startTimePinned=false`（利用者が出発時刻を選んでいない）のときは`start_time`も外す
  * ——共有時刻は「今」へ5分刻みで追従するので、放置するだけで値が変わる。利用者が何も
  * していないのに「生成条件が変更されています」が点くと、印そのものが合図として機能しなくなる。
@@ -101,7 +96,6 @@ export function generationConditionsKey(input: GenerationInput): string {
   const comparable: Record<string, unknown> = {};
   for (const key of Object.keys(request)) {
     if (key in IGNORED_WHEN_COMPARING) continue;
-    if (key === "max_routes" && !input.maxRoutesRelevant) continue;
     if (key === "start_time" && !input.startTimePinned) continue;
     comparable[key] = request[key];
   }
