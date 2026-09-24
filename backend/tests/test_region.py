@@ -1,182 +1,143 @@
-"""`domain/region.py`——矩形とXYZタイルの相互変換。
+"""`domain/region.py`——緯度経度の矩形（`BoundingBox`）と、XYZタイル（Web Mercator）との行き来。
 
-タイルの配信そのもの（ズーム範囲の拒否・中身の組み立て）は`test_region_routes.py`が持つ。
+ここで見ないもの:
+- タイルのズーム範囲を使う配信の口 → `test_region_routes.py`
+- 道路グラフのタイル単位の取得 → `test_road_graph_repository_contracts.py`等
+
+タイルの期待値はWeb Mercatorの事実（z0の1枚が全世界・z1で4分割・yは北から南へ増える・緯度の上限約85.05度）から作る。
 """
-
-import math
 
 import pytest
 from pydantic import ValidationError
 
-from app.domain.region import (
-    ROAD_GRAPH_TILE_ZOOM,
-    BoundingBox,
-    parse_bbox,
-    tile_bounds_lonlat,
-    tiles_covering_bbox,
+from app.domain import region
+
+Box = region.BoundingBox
+
+
+def _box(min_lat=35.0, min_lon=139.0, max_lat=36.0, max_lon=140.0) -> region.BoundingBox:
+    return Box(min_latitude=min_lat, min_longitude=min_lon, max_latitude=max_lat, max_longitude=max_lon)
+
+
+# ---- 矩形 ----
+
+
+@pytest.mark.parametrize(
+    "corners",
+    [
+        (-90.0, -180.0, 90.0, 180.0),  # 緯度・経度とも範囲の端ちょうど
+        (35.0, 139.0, 35.000001, 139.000001),
+    ],
 )
-
-# 東京付近のz12タイル。
-TOKYO_TILE = (12, 3637, 1612)
-
-
-class TestParseBbox:
-
-    def test_it_reads_four_values_in_latitude_first_order(self):
-        bbox = parse_bbox("35.0,139.0,36.0,140.0")
-
-        assert bbox == BoundingBox(
-            min_latitude=35.0, min_longitude=139.0, max_latitude=36.0, max_longitude=140.0
-        )
-
-    def test_a_wrong_number_of_values_is_rejected(self):
-        with pytest.raises(ValueError):
-            parse_bbox("35.0,139.0,36.0")
-        with pytest.raises(ValueError):
-            parse_bbox("35.0,139.0,36.0,140.0,1.0")
-
-    def test_a_non_numeric_value_is_rejected(self):
-        with pytest.raises(ValueError):
-            parse_bbox("35.0,139.0,north,140.0")
+def test_a_box_within_the_globe_with_increasing_edges_is_accepted(corners):
+    _box(*corners)
 
 
-class TestBoundingBox:
-
-    def test_a_range_that_is_not_increasing_is_rejected(self):
-        """4値を並べて渡す形のため、minとmaxの入れ替わりは数としては通る。矩形として
-        成立しないことをここで落とさないと、`tiles_covering_bbox`が昇順へ並べ直すぶんだけ
-        「それらしいタイル一覧」になって、黙って別の場所を処理する。
-        """
-        with pytest.raises(ValidationError):
-            BoundingBox(
-                min_latitude=36.0, min_longitude=139.0, max_latitude=35.0, max_longitude=140.0
-            )
-        with pytest.raises(ValidationError):
-            BoundingBox(
-                min_latitude=35.0, min_longitude=140.0, max_latitude=36.0, max_longitude=139.0
-            )
-        with pytest.raises(ValidationError):
-            BoundingBox(
-                min_latitude=35.0, min_longitude=139.0, max_latitude=35.0, max_longitude=140.0
-            )
+@pytest.mark.parametrize(
+    "corners",
+    [
+        (-90.1, 139.0, 36.0, 140.0),
+        (35.0, 139.0, 90.1, 140.0),
+        (35.0, -180.1, 36.0, 140.0),
+        (35.0, 139.0, 36.0, 180.1),
+    ],
+)
+def test_a_box_outside_the_globe_is_rejected(corners):
+    with pytest.raises(ValidationError):
+        _box(*corners)
 
 
-class TestTileBoundsLonlat:
-
-    def test_the_world_tile_covers_the_whole_mercator_extent(self):
-        bounds = tile_bounds_lonlat(0, 0, 0)
-
-        assert bounds.min_longitude == -180.0
-        assert bounds.max_longitude == 180.0
-        assert math.isclose(bounds.max_latitude, 85.0511, abs_tol=0.001)
-        assert math.isclose(bounds.min_latitude, -85.0511, abs_tol=0.001)
-
-    def test_y_increases_southwards(self):
-        """取り違えると、南北が反転した範囲を取りに行く。"""
-        upper = tile_bounds_lonlat(4, 7, 5)
-        lower = tile_bounds_lonlat(4, 7, 6)
-
-        assert upper.min_latitude > lower.max_latitude - 1e-9
-
-    def test_x_increases_eastwards(self):
-        west = tile_bounds_lonlat(4, 7, 5)
-        east = tile_bounds_lonlat(4, 8, 5)
-
-        assert east.min_longitude >= west.max_longitude - 1e-9
-
-    def test_neighbouring_tiles_share_their_edge(self):
-        """隙間が空くと、境界上の道路がどのタイルにも入らない。"""
-        left = tile_bounds_lonlat(*TOKYO_TILE)
-        right = tile_bounds_lonlat(TOKYO_TILE[0], TOKYO_TILE[1] + 1, TOKYO_TILE[2])
-
-        assert left.max_longitude == right.min_longitude
-
-    def test_the_tile_found_for_a_point_contains_that_point(self):
-        """実在の地点（王子駅付近）で、点→タイル→範囲の往復が噛み合うことを見る。
-        南北の向きを取り違えると、ここで点が範囲の外へ出る。
-        """
-        latitude, longitude = 35.7527, 139.7380
-        spot = BoundingBox(
-            min_latitude=latitude, min_longitude=longitude,
-            max_latitude=latitude + 1e-9, max_longitude=longitude + 1e-9,
-        )
-        (x, y) = tiles_covering_bbox(spot, 14)[0]
-
-        bounds = tile_bounds_lonlat(14, x, y)
-
-        assert bounds.min_latitude <= latitude <= bounds.max_latitude
-        assert bounds.min_longitude <= longitude <= bounds.max_longitude
-
-    def test_the_bounds_are_increasing(self):
-        bounds = tile_bounds_lonlat(*TOKYO_TILE)
-
-        assert bounds.min_latitude < bounds.max_latitude
-        assert bounds.min_longitude < bounds.max_longitude
+@pytest.mark.parametrize(
+    ("corners", "axis"),
+    [
+        ((36.0, 139.0, 35.0, 140.0), "緯度"),  # 南北の入れ替わり
+        ((35.0, 139.0, 35.0, 140.0), "緯度"),  # 幅0
+        ((35.0, 140.0, 36.0, 139.0), "経度"),  # 東西の入れ替わり
+        ((35.0, 139.0, 36.0, 139.0), "経度"),
+    ],
+)
+def test_a_box_whose_edges_do_not_increase_is_rejected_naming_the_axis(corners, axis):
+    with pytest.raises(ValidationError, match=axis):
+        _box(*corners)
 
 
-class TestTilesCoveringBbox:
+# ---- CLIの--bbox ----
 
-    def test_a_tile_s_own_bounds_always_include_that_tile(self):
-        """変換と逆変換が噛み合っていることを往復で見る。**ちょうど1枚にはならない**——
-        タイルの範囲は隣と辺を共有するため、端の座標は隣のタイルにも属する。
-        """
-        z, x, y = TOKYO_TILE
 
-        assert (x, y) in tiles_covering_bbox(tile_bounds_lonlat(z, x, y), z)
+def test_the_cli_bbox_is_read_as_latitude_longitude_latitude_longitude():
+    assert region.parse_bbox("35.1,139.2,35.3,139.4") == _box(35.1, 139.2, 35.3, 139.4)
 
-    def test_a_box_strictly_inside_one_tile_returns_just_that_tile(self):
-        z, x, y = TOKYO_TILE
-        bounds = tile_bounds_lonlat(z, x, y)
-        margin_lat = (bounds.max_latitude - bounds.min_latitude) / 4
-        margin_lon = (bounds.max_longitude - bounds.min_longitude) / 4
-        inside = BoundingBox(
-            min_latitude=bounds.min_latitude + margin_lat,
-            min_longitude=bounds.min_longitude + margin_lon,
-            max_latitude=bounds.max_latitude - margin_lat,
-            max_longitude=bounds.max_longitude - margin_lon,
-        )
 
-        assert tiles_covering_bbox(inside, z) == [(x, y)]
+@pytest.mark.parametrize("text", ["35.1,139.2,35.3", "35.1,139.2,35.3,139.4,1", "a,139.2,35.3,139.4"])
+def test_a_cli_bbox_that_is_not_four_numbers_is_an_error(text):
+    with pytest.raises(ValueError):
+        region.parse_bbox(text)
 
-    def test_a_box_spanning_a_two_by_two_block_returns_all_four(self):
-        """縦横どちらにもまたがる場合。片方の軸だけで範囲を出すと2枚しか返らない。"""
-        z, x, y = TOKYO_TILE
-        top_left = tile_bounds_lonlat(z, x, y)
-        bottom_right = tile_bounds_lonlat(z, x + 1, y + 1)
-        block = BoundingBox(
-            min_latitude=(bottom_right.min_latitude + bottom_right.max_latitude) / 2,
-            min_longitude=(top_left.min_longitude + top_left.max_longitude) / 2,
-            max_latitude=(top_left.min_latitude + top_left.max_latitude) / 2,
-            max_longitude=(bottom_right.min_longitude + bottom_right.max_longitude) / 2,
-        )
 
-        assert sorted(tiles_covering_bbox(block, z)) == [
-            (x, y), (x, y + 1), (x + 1, y), (x + 1, y + 1)
-        ]
+def test_a_cli_bbox_with_swapped_values_is_rejected_by_the_box():
+    with pytest.raises(ValidationError):
+        region.parse_bbox("139.2,35.1,139.4,35.3")
 
-    def test_the_whole_world_is_covered_at_a_coarse_zoom(self):
-        world = BoundingBox(
-            min_latitude=-85.0, min_longitude=-180.0, max_latitude=85.0, max_longitude=179.999
-        )
 
-        assert len(tiles_covering_bbox(world, 2)) == 16
+# ---- タイル1枚の範囲 ----
 
-    def test_latitudes_beyond_mercator_do_not_blow_up(self):
-        beyond = BoundingBox(
-            min_latitude=-90.0, min_longitude=-180.0, max_latitude=90.0, max_longitude=180.0
-        )
 
-        tiles = tiles_covering_bbox(beyond, 2)
+def test_the_single_tile_at_zoom_zero_covers_the_whole_mercator_world():
+    bounds = region.tile_bounds_lonlat(0, 0, 0)
 
-        assert tiles
-        assert all(0 <= x < 4 and 0 <= y < 4 for x, y in tiles)
+    assert (bounds.min_longitude, bounds.max_longitude) == (-180.0, 180.0)
+    assert bounds.max_latitude == pytest.approx(85.0511, abs=1e-4)
+    assert bounds.min_latitude == pytest.approx(-85.0511, abs=1e-4)
 
-    def test_every_returned_tile_is_inside_the_grid(self):
-        tiles = tiles_covering_bbox(
-            BoundingBox(min_latitude=35.0, min_longitude=139.0, max_latitude=36.0, max_longitude=140.0),
-            ROAD_GRAPH_TILE_ZOOM,
-        )
-        n = 2**ROAD_GRAPH_TILE_ZOOM
 
-        assert tiles
-        assert all(0 <= x < n and 0 <= y < n for x, y in tiles)
+@pytest.mark.parametrize(
+    ("x", "y", "west", "east", "north_hemisphere"),
+    [(0, 0, -180.0, 0.0, True), (1, 0, 0.0, 180.0, True), (0, 1, -180.0, 0.0, False), (1, 1, 0.0, 180.0, False)],
+)
+def test_zoom_one_splits_the_world_into_quadrants_with_y_growing_southwards(x, y, west, east, north_hemisphere):
+    bounds = region.tile_bounds_lonlat(1, x, y)
+
+    assert (bounds.min_longitude, bounds.max_longitude) == (west, east)
+    assert (bounds.min_latitude >= 0.0) is north_hemisphere
+    assert (bounds.max_latitude <= 0.0) is not north_hemisphere
+
+
+def test_neighbouring_tiles_share_their_edges():
+    tile = region.tile_bounds_lonlat(12, 3637, 1612)
+    east = region.tile_bounds_lonlat(12, 3638, 1612)
+    south = region.tile_bounds_lonlat(12, 3637, 1613)
+
+    assert east.min_longitude == tile.max_longitude
+    assert south.max_latitude == pytest.approx(tile.min_latitude)
+
+
+# ---- 矩形を覆うタイル ----
+
+
+def _shrunk(bounds: region.BoundingBox, margin: float = 1e-6) -> region.BoundingBox:
+    return _box(
+        bounds.min_latitude + margin,
+        bounds.min_longitude + margin,
+        bounds.max_latitude - margin,
+        bounds.max_longitude - margin,
+    )
+
+
+@pytest.mark.parametrize(("z", "x", "y"), [(0, 0, 0), (12, 3637, 1612), (15, 29100, 12900)])
+def test_a_box_inside_one_tile_is_covered_by_that_tile_alone(z, x, y):
+    assert region.tiles_covering_bbox(_shrunk(region.tile_bounds_lonlat(z, x, y)), z) == [(x, y)]
+
+
+def test_a_box_across_a_tile_corner_is_covered_by_the_four_tiles_around_it():
+    tile = region.tile_bounds_lonlat(12, 3637, 1612)
+    corner_lat, corner_lon = tile.min_latitude, tile.max_longitude  # 南東の角
+    box = _box(corner_lat - 0.001, corner_lon - 0.001, corner_lat + 0.001, corner_lon + 0.001)
+
+    assert region.tiles_covering_bbox(box, 12) == [(3637, 1612), (3637, 1613), (3638, 1612), (3638, 1613)]
+
+
+def test_the_whole_globe_is_covered_by_every_tile_of_the_zoom_without_error():
+    # 極（±90度）はWeb Mercatorで表せないので、表せる緯度の限界へ寄せてから求める
+    tiles = region.tiles_covering_bbox(_box(-90.0, -180.0, 90.0, 180.0), 2)
+
+    assert sorted(tiles) == [(x, y) for x in range(4) for y in range(4)]

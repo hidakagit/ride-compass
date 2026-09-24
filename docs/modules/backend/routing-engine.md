@@ -822,8 +822,8 @@ edge_idをまとめて1回・`preview_segment`が1回、いずれも逐次に呼
 
 ### `domain/geo.py`・`domain/errors.py`
 
-`geo.py`は球面三角法の地理計算（`haversine_distance_km`・`haversine_distance_km_array`・
-`bearing_between`・`compass_label`）を持つ。`LatLon`（`Protocol`）・
+`geo.py`は球面三角法の地理計算——2地点の球面距離と初期方位角、それを多数の地点へまとめて求める配列版、
+角度から方位の呼び名への変換（例: `haversine_distance_km`・`compass_label`）——を持つ。`LatLon`（`Protocol`）・
 `LatLonPoint`（`NamedTuple`）は`Coordinates`（Pydantic、API境界の入力検証用）を経由
 せずに緯度経度を扱うための軽量な構造的型で、最近傍ノード探索のような
 ホットパスがバリデーションコストを避けるために使う。

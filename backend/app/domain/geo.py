@@ -54,7 +54,9 @@ def compass_label(bearing_deg: float) -> str:
 
 
 def bearing_between(origin: LatLon, destination: LatLon) -> float:
-    """originからdestinationを見た初期方位角（0=北、時計回り、0-360）を球面三角法で求める。"""
+    """originからdestinationを見た初期方位角（0=北、時計回り、0-360）を球面三角法で求める。
+
+    同じ地点どうしは向きが定まらず、例外にせず0（北）を返す（`atan2(0, 0)`）。"""
     lat1 = math.radians(origin.latitude)
     lat2 = math.radians(destination.latitude)
     dlon = math.radians(destination.longitude - origin.longitude)

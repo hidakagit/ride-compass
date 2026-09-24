@@ -1,150 +1,152 @@
-"""`domain/geo.py`——緯度経度まわりの計算。方位・距離と、そのベクトル版。"""
+"""`domain/geo.py`——球面上の距離・方位角と、方位の呼び名。
+
+ここで見ないもの:
+- 距離・方位を使う側（最近傍探索・A*のヒューリスティック・風の向かい風成分）→ それぞれの持ち主のテスト
+
+地点は`LatLonPoint`（このモジュールが持つ最小の緯度経度の型）で与える。期待値は球面幾何の事実
+（赤道上の東西・子午線上の南北・4分の1周・対蹠点）から作り、式を書き写さない。
+"""
+
+import math
+from typing import NamedTuple
 
 import numpy as np
+import pytest
 
-from app.domain.geo import (
-    COMPASS_LABELS,
-    KM_PER_DEGREE_LATITUDE,
-    LatLonPoint,
-    bearing_between,
-    bearing_between_array,
-    compass_label,
-    haversine_distance_km,
-    haversine_distance_km_array,
+from app.domain import geo
+
+P = geo.LatLonPoint
+
+
+# ---- 方位の呼び名 ----
+
+
+def test_the_compass_names_are_all_different():
+    assert len(set(geo.COMPASS_LABELS)) == len(geo.COMPASS_LABELS)
+
+
+@pytest.mark.parametrize(("bearing", "name"), [(0.0, "北"), (90.0, "東"), (180.0, "南"), (270.0, "西")])
+def test_the_four_cardinal_bearings_have_their_names(bearing, name):
+    assert geo.compass_label(bearing) == name
+
+
+@pytest.mark.parametrize("turns", [-2, -1, 1, 3])
+def test_a_bearing_outside_one_turn_is_read_within_one_turn(turns):
+    for bearing in (0.0, 45.0, 200.0):
+        assert geo.compass_label(bearing + 360.0 * turns) == geo.compass_label(bearing)
+
+
+def test_every_name_is_the_centre_of_its_own_sector():
+    width = 360 / len(geo.COMPASS_LABELS)
+
+    assert [geo.compass_label(i * width) for i in range(len(geo.COMPASS_LABELS))] == geo.COMPASS_LABELS
+
+
+@pytest.mark.parametrize("sector", range(len(geo.COMPASS_LABELS)))
+def test_a_bearing_exactly_on_a_sector_boundary_goes_to_the_next_sector(sector):
+    # 偶数丸め（組み込みのround）だと、半分の区分の境界で下の区分へ倒れるものが出る
+    width = 360 / len(geo.COMPASS_LABELS)
+    boundary = sector * width + width / 2
+    following = geo.COMPASS_LABELS[(sector + 1) % len(geo.COMPASS_LABELS)]
+
+    assert geo.compass_label(boundary) == following
+    assert geo.compass_label(boundary - 1e-9) == geo.COMPASS_LABELS[sector]
+
+
+# ---- 方位角 ----
+
+
+@pytest.mark.parametrize(
+    ("destination", "bearing"),
+    [
+        (P(1.0, 0.0), 0.0),  # 子午線を北へ
+        (P(0.0, 1.0), 90.0),  # 赤道を東へ
+        (P(-1.0, 0.0), 180.0),
+        (P(0.0, -1.0), 270.0),  # 西は負の角度にせず一周の内側で返す
+    ],
 )
-from app.domain.route import Coordinates
-
-TOKYO = LatLonPoint(latitude=35.68, longitude=139.77)
-OSAKA = LatLonPoint(latitude=34.69, longitude=135.50)
+def test_the_bearing_is_clockwise_from_north(destination, bearing):
+    assert geo.bearing_between(P(0.0, 0.0), destination) == pytest.approx(bearing)
 
 
-#: 区分の幅は呼び名の数から決まる。
-SECTOR = 360 / len(COMPASS_LABELS)
+def test_a_point_seen_from_itself_is_due_north():
+    assert geo.bearing_between(P(35.0, 139.0), P(35.0, 139.0)) == 0.0
 
 
-class TestCompassLabel:
-    def test_each_sector_centre_gets_its_own_label(self):
-        assert [compass_label(SECTOR * i) for i in range(len(COMPASS_LABELS))] == COMPASS_LABELS
+def test_the_bearing_is_the_initial_direction_of_the_great_circle():
+    # 北半球で真東の同緯度の地点へ向かう大円は、出発点では少し北を向く（等角航路の90度ではない）
+    bearing = geo.bearing_between(P(35.0, 139.0), P(35.0, 140.0))
 
-    def test_a_sector_boundary_rounds_up(self):
-        """ちょうど半分は、偶数丸めなら手前の区分、half-upなら次の区分。"""
-        assert compass_label(SECTOR / 2) == COMPASS_LABELS[1]
-        assert compass_label(SECTOR * 1.5) == COMPASS_LABELS[2]
-
-    def test_angles_outside_one_turn_are_folded(self):
-        assert compass_label(360) == compass_label(0)
-        assert compass_label(-SECTOR) == compass_label(360 - SECTOR)
-        assert compass_label(725) == compass_label(5)
-
-    def test_the_last_sector_wraps_back_to_the_first(self):
-        """最後の区分の後半は最初の区分へ入る。畳まずに索引を引くと範囲外になる。"""
-        assert compass_label(359) == COMPASS_LABELS[0]
+    assert 85.0 < bearing < 90.0
 
 
-class TestBearingBetween:
-    def test_due_east_is_ninety(self):
-        east = bearing_between(TOKYO, LatLonPoint(TOKYO.latitude, TOKYO.longitude + 1))
+def test_the_array_bearing_agrees_with_the_single_bearing():
+    origin = P(35.0, 139.0)
+    targets = [P(36.0, 139.0), P(35.0, 140.0), P(34.0, 138.5), P(35.5, 138.0), P(34.9, 139.0), origin]
 
-        assert 89.0 < east < 91.0
+    bearings = geo.bearing_between_array(
+        origin, np.array([t.latitude for t in targets]), np.array([t.longitude for t in targets])
+    )
 
-    def test_due_west_is_around_two_hundred_seventy(self):
-        """負の角度で返さず0〜360へ畳む——方位差の計算が符号で割れる。"""
-        west = bearing_between(TOKYO, LatLonPoint(TOKYO.latitude, TOKYO.longitude - 1))
-
-        assert 269.0 < west < 271.0
-
-    def test_the_same_point_has_no_direction_and_reports_north(self):
-        """距離0では向きが定まらない。例外にせず0（北）へ倒す——呼び出し側は「目的地に
-        着いている」場合も同じ式で方位を引く。
-        """
-        assert bearing_between(TOKYO, LatLonPoint(TOKYO.latitude, TOKYO.longitude)) == 0.0
-
-    def test_the_reverse_bearing_is_exactly_opposite_along_a_meridian(self):
-        """**大円では、逆方位は一般に正確な±180度にならない**（子午線が収束するため）。
-        同じ経度の2点だけは厳密に逆になる。ここを平面の直感で固定すると、東西に長い区間で
-        落ちるテストになる。
-        """
-        north = LatLonPoint(TOKYO.latitude + 1, TOKYO.longitude)
-
-        assert bearing_between(TOKYO, north) == 0.0
-        assert bearing_between(north, TOKYO) == 180.0
-
-    def test_the_reverse_bearing_stays_within_a_few_degrees_of_opposite(self):
-        """東西に離れた2点では収束のぶんだけずれる。逆向きであること自体は保つ。"""
-        there = bearing_between(TOKYO, OSAKA)
-        back = bearing_between(OSAKA, TOKYO)
-
-        assert abs((there - back) % 360 - 180) < 5.0
+    assert bearings == pytest.approx([geo.bearing_between(origin, t) for t in targets])
 
 
-class TestBearingBetweenArray:
-    def test_it_agrees_with_the_scalar_version(self):
-        targets = [LatLonPoint(35.0, 139.0), LatLonPoint(36.5, 140.5), LatLonPoint(34.0, 138.0)]
-        expected = [bearing_between(TOKYO, t) for t in targets]
-
-        actual = bearing_between_array(
-            TOKYO, np.array([t.latitude for t in targets]), np.array([t.longitude for t in targets])
-        )
-
-        assert np.allclose(actual, expected)
-
-    def test_an_empty_input_gives_an_empty_result(self):
-        result = bearing_between_array(TOKYO, np.array([]), np.array([]))
-
-        assert result.shape == (0,)
+# ---- 距離 ----
 
 
-class TestHaversineDistanceKm:
-    def test_the_same_point_is_zero_apart(self):
-        assert haversine_distance_km(TOKYO, TOKYO) == 0.0
-
-    def test_it_is_symmetric(self):
-        assert haversine_distance_km(TOKYO, OSAKA) == haversine_distance_km(OSAKA, TOKYO)
-
-    def test_a_known_distance_is_reproduced(self):
-        """東京〜大阪の大円距離は約400km。桁を取り違えると探索の打ち切りが効かなくなる。"""
-        assert 390.0 < haversine_distance_km(TOKYO, OSAKA) < 410.0
-
-    def test_one_degree_of_latitude_is_about_the_declared_constant(self):
-        """実測とかけ離れていると、空間索引のバケット分割や矩形マージンが的外れになる。"""
-        one_degree = haversine_distance_km(TOKYO, LatLonPoint(TOKYO.latitude + 1, TOKYO.longitude))
-
-        assert abs(one_degree - KM_PER_DEGREE_LATITUDE) < 1.0
+def test_a_point_is_zero_away_from_itself():
+    assert geo.haversine_distance_km(P(35.0, 139.0), P(35.0, 139.0)) == 0.0
 
 
-class TestHaversineDistanceKmArray:
-    def test_it_agrees_with_the_scalar_version(self):
-        points = [LatLonPoint(35.0, 139.0), LatLonPoint(36.5, 140.5), OSAKA]
-        expected = [haversine_distance_km(p, TOKYO) for p in points]
+def test_the_distance_is_the_same_both_ways():
+    a, b = P(35.0, 139.0), P(34.2, 140.3)
 
-        actual = haversine_distance_km_array(
-            np.array([p.latitude for p in points]), np.array([p.longitude for p in points]), TOKYO
-        )
-
-        assert np.allclose(actual, expected)
-
-    def test_an_empty_input_gives_an_empty_result(self):
-        result = haversine_distance_km_array(np.array([]), np.array([]), TOKYO)
-
-        assert result.shape == (0,)
+    assert geo.haversine_distance_km(a, b) == pytest.approx(geo.haversine_distance_km(b, a))
 
 
-class TestLatLon:
-    def test_a_different_shape_of_input_gives_the_same_answer(self):
-        as_model = Coordinates(latitude=TOKYO.latitude, longitude=TOKYO.longitude)
+@pytest.mark.parametrize(
+    ("a", "b", "fraction_of_a_turn"),
+    [
+        (P(0.0, 0.0), P(90.0, 0.0), 0.25),  # 赤道から極まで
+        (P(0.0, 0.0), P(0.0, 90.0), 0.25),  # 赤道を4分の1周
+        (P(0.0, 0.0), P(0.0, 180.0), 0.5),  # 対蹠点
+    ],
+)
+def test_distances_along_great_circles_are_fractions_of_the_circumference(a, b, fraction_of_a_turn):
+    circumference = 2 * math.pi * geo.EARTH_RADIUS_KM
 
-        assert haversine_distance_km(as_model, OSAKA) == haversine_distance_km(TOKYO, OSAKA)
-        assert bearing_between(as_model, OSAKA) == bearing_between(TOKYO, OSAKA)
+    assert geo.haversine_distance_km(a, b) == pytest.approx(circumference * fraction_of_a_turn)
 
 
-def test_the_compass_has_a_label_for_every_sector():
-    """区分の数とラベルの数がずれると、索引が別の方位を指す。"""
-    assert len(COMPASS_LABELS) == 8
-    assert len(set(COMPASS_LABELS)) == 8
-    assert {compass_label(deg) for deg in range(0, 360)} == set(COMPASS_LABELS)
+def test_the_array_distance_agrees_with_the_single_distance():
+    target = P(35.0, 139.0)
+    points = [P(35.0, 139.0), P(36.0, 139.0), P(35.0, 141.0), P(-35.0, -41.0)]
+
+    distances = geo.haversine_distance_km_array(
+        np.array([p.latitude for p in points]), np.array([p.longitude for p in points]), target
+    )
+
+    assert distances == pytest.approx([geo.haversine_distance_km(p, target) for p in points])
 
 
-def test_the_north_sector_is_centred_on_zero():
-    """北だけは区分が0度をまたぐ。片側だけで判定すると、真北の手前が「北西」になる。"""
-    assert compass_label(-22) == "北"
-    assert compass_label(22) == "北"
+def test_the_rough_length_of_a_degree_of_latitude_is_close_to_the_true_one():
+    # 目安の用途（索引の区切り・打ち切り）の値が、正確な距離から1%以上ずれていない
+    true_length = geo.haversine_distance_km(P(0.0, 0.0), P(1.0, 0.0))
+
+    assert geo.KM_PER_DEGREE_LATITUDE == pytest.approx(true_length, rel=0.01)
+
+
+# ---- 緯度経度を持つ任意の型 ----
+
+
+class _Node(NamedTuple):
+    node_id: int
+    latitude: float
+    longitude: float
+
+
+def test_anything_with_a_latitude_and_a_longitude_can_be_measured():
+    assert geo.haversine_distance_km(_Node(1, 0.0, 0.0), P(0.0, 1.0)) == pytest.approx(
+        geo.haversine_distance_km(P(0.0, 0.0), P(0.0, 1.0))
+    )
+    assert geo.bearing_between(_Node(1, 0.0, 0.0), _Node(2, 0.0, 1.0)) == pytest.approx(90.0)
