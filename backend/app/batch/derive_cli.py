@@ -18,7 +18,6 @@
 """
 
 import argparse
-import asyncio
 import logging
 import sys
 import time
@@ -36,12 +35,7 @@ from app.batch import (  # noqa: E402
     derive_topology,
     derive_way_materials,
 )
-from app.batch._common import (  # noqa: E402
-    asyncpg_dsn,
-    format_duration,
-    with_derived_data_revision_bump,
-)
-from app.config import settings  # noqa: E402
+from app.batch._common import asyncpg_dsn, format_duration, run_batch_cli  # noqa: E402
 
 logger = logging.getLogger("ridecompass.derive_cli")
 
@@ -74,15 +68,10 @@ async def run(database_url: str, start_from: str | None) -> int:
 
 
 def main() -> int:
-    logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s %(message)s")
     parser = argparse.ArgumentParser(description="生データから派生を作り直す")
-    parser.add_argument("--database-url", default=None)
     parser.add_argument("--from", dest="start_from", default=None,
                         choices=[name for name, _ in STAGES])
-    args = parser.parse_args()
-    database_url = args.database_url or settings.database_url
-    return asyncio.run(with_derived_data_revision_bump(
-        run(database_url, args.start_from), database_url=database_url, dry_run=False))
+    return run_batch_cli(parser, lambda args, database_url: run(database_url, args.start_from))
 
 
 if __name__ == "__main__":

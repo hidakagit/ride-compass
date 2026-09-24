@@ -20,7 +20,6 @@ r"""まっさらなDBを、使える状態まで立ち上げる。
 """
 
 import argparse
-import asyncio
 import logging
 import sys
 import time
@@ -32,9 +31,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from sqlalchemy.ext.asyncio import create_async_engine  # noqa: E402
 
 from app.batch import derive_cli, ingest_cli  # noqa: E402
-from app.batch._common import format_duration, with_derived_data_revision_bump  # noqa: E402
+from app.batch._common import format_duration, run_batch_cli  # noqa: E402
 from app.batch.source_profile import load_source_profile  # noqa: E402
-from app.config import settings  # noqa: E402
 from app.infrastructure.road_graph_repository import create_tables  # noqa: E402
 
 logger = logging.getLogger("ridecompass.bootstrap_database")
@@ -80,20 +78,14 @@ async def run(database_url: str, profile_path: Path | None, start_from: str | No
 
 
 def main() -> int:
-    logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s %(message)s")
     parser = argparse.ArgumentParser(description="まっさらなDBを使える状態まで立ち上げる")
-    parser.add_argument("--database-url", default=None)
     # 母集団の宣言はプロファイルが持つ。狭い範囲で試すときは別のプロファイルを指す。
     parser.add_argument("--profile", default=None, type=Path)
     parser.add_argument("--from", dest="start_from", default=None,
                         choices=[name for name, _ in PHASES],
                         help="途中から流し直す。前の段の出力が残っていることが前提")
-    args = parser.parse_args()
-
-    database_url = args.database_url or settings.database_url
-    return asyncio.run(with_derived_data_revision_bump(
-        run(database_url, args.profile, args.start_from),
-        database_url=database_url, dry_run=False))
+    return run_batch_cli(
+        parser, lambda args, database_url: run(database_url, args.profile, args.start_from))
 
 
 if __name__ == "__main__":

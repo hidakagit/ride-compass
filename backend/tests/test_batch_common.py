@@ -26,7 +26,7 @@ _logger = logging.getLogger("test.batch_common")
 class TestDerivedDataRevisionBump:
     """バッチが書いたあと、派生データの世代（`derived_data_meta.revision`）が進むこと。"""
 
-    async def _run(self, monkeypatch, *, code: int, dry_run: bool) -> list[str]:
+    async def _run(self, monkeypatch, *, code: int) -> list[str]:
         """世代更新のためにDBへ触りにいったかを記録して返す。"""
         touched: list[str] = []
 
@@ -52,24 +52,17 @@ class TestDerivedDataRevisionBump:
         async def body() -> int:
             return code
 
-        result = await _common.with_derived_data_revision_bump(
-            body(), database_url=None, dry_run=dry_run
-        )
+        result = await _common.with_derived_data_revision_bump(body(), database_url=None)
         assert result == code
         return touched
 
     @pytest.mark.asyncio
     async def test_successful_run_bumps(self, monkeypatch):
-        assert "bump" in await self._run(monkeypatch, code=0, dry_run=False)
-
-    @pytest.mark.asyncio
-    async def test_dry_run_does_not_bump(self, monkeypatch):
-        # DBを書いていないため、世代を進めるとキャッシュを無駄に捨てるだけになる。
-        assert await self._run(monkeypatch, code=0, dry_run=True) == []
+        assert "bump" in await self._run(monkeypatch, code=0)
 
     @pytest.mark.asyncio
     async def test_failed_run_does_not_bump(self, monkeypatch):
-        assert await self._run(monkeypatch, code=1, dry_run=False) == []
+        assert await self._run(monkeypatch, code=1) == []
 
     @pytest.mark.asyncio
     async def test_bump_failure_does_not_change_exit_code(self, monkeypatch):
@@ -84,7 +77,7 @@ class TestDerivedDataRevisionBump:
         async def body() -> int:
             return 0
 
-        result = await _common.with_derived_data_revision_bump(body(), database_url=None, dry_run=False)
+        result = await _common.with_derived_data_revision_bump(body(), database_url=None)
 
         assert result == 0
 
