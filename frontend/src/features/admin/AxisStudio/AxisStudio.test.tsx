@@ -77,6 +77,7 @@ function axis(overrides: Partial<AxisDefinitionResponse> = {}): AxisDefinitionRe
     axis_id: "axis_a",
     label: "軸A",
     description: "",
+    weight_share_when_published: null,
     category: "推定",
     default_weight: 0.25,
     is_published: false,

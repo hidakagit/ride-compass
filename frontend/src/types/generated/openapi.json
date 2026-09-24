@@ -2743,6 +2743,17 @@
           },
           "display": {
             "$ref": "#/components/schemas/AxisDisplaySpec"
+          },
+          "weight_share_when_published": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Weight Share When Published"
           }
         },
         "additionalProperties": false,
@@ -2752,7 +2763,8 @@
           "shape",
           "default_weight",
           "label",
-          "display"
+          "display",
+          "weight_share_when_published"
         ],
         "title": "AxisDefinitionResponse"
       },

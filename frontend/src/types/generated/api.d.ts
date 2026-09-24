@@ -956,6 +956,8 @@ export interface components {
              */
             dynamic_way_value_needs_speed: boolean;
             display: components["schemas"]["AxisDisplaySpec"];
+            /** Weight Share When Published */
+            weight_share_when_published: number | null;
         };
         /** AxisDisplaySpec */
         AxisDisplaySpec: {

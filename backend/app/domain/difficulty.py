@@ -7,6 +7,8 @@
 # （軸定義データ＋汎用評価関数）が持つ。
 
 
+from collections.abc import Iterable
+
 import numpy as np
 
 
@@ -23,6 +25,13 @@ def _available_and_weight_sum(
     if not available or weight_sum == 0:
         return None
     return available, weight_sum
+
+
+def weight_share(weight: float, other_weights: Iterable[float]) -> float | None:
+    """重み`weight`の軸を、ほかの軸（`other_weights`）と並べて合成したときに占める割合
+    （`composite_difficulty`が重みの合計で割るのと同じ分母）。合計が0以下ならNone。"""
+    total = weight + sum(other_weights)
+    return None if total <= 0 else weight / total
 
 
 def composite_difficulty(scored_weights: list[tuple[float | None, float]]) -> float | None:

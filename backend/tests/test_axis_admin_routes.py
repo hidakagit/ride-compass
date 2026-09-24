@@ -60,6 +60,11 @@ class FakeAxisRegistry:
         if name in self.errors:
             raise self.errors[name]
 
+    @property
+    def writes(self) -> list[tuple]:
+        """受けた呼び出しのうち書き込み（応答に重みの割合を添えるための一覧の読み取りを除く）。"""
+        return [call for call in self.calls if call[0] not in ("list_all", "get")]
+
     async def list_all(self):
         self._record("list_all")
         return dict(self.axes)
@@ -235,7 +240,7 @@ class TestWrite:
 
         assert response.status_code == 201
         assert response.json()["display"]["label"] == "表示:a"
-        ((name, definition),) = registry.calls
+        ((name, definition),) = registry.writes
         assert name == "create"
         assert type(definition) is axis_admin.AxisDefinition
         assert definition.chip_label == "略"
@@ -253,7 +258,7 @@ class TestWrite:
         response = client.put(BASE + "/a", json=payload(default_weight=2.0))
 
         assert response.status_code == 200
-        ((name, axis_id, definition),) = registry.calls
+        ((name, axis_id, definition),) = registry.writes
         assert (name, axis_id, type(definition), definition.default_weight) == (
             "update",
             "a",

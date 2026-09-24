@@ -162,6 +162,10 @@ listAxisDefinitions() ──→ definitions（全軸）
 | `shape_params` | 点数の決め方（`AxisScoringSection`） | 下書き軸のみ |
 | `display_publish` | 地図表示・公開（`AxisMapDisplaySection`） | 常に |
 
+既定重みの下には、公開したときに公開軸の重みの合計に占める割合を参考に出す。割合はbackendが総合難易度と同じ分母で
+返す値（`weight_share_when_published`）で、画面は計算し直さない——保存した重みで計算するため、編集中の値は保存して
+から変わる。
+
 **暗黙の前提**: 下書きは材料カタログから導くが、そのカタログは実行時フェッチで後から
 入れ替わる。**入れ替わったら導出し直す**——`useState`の初期化はマウント時に1度しか
 走らないため、ビルド時フォールバックの材料で固定されたままになる。backendをデプロイ

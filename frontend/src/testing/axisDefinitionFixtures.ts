@@ -10,6 +10,7 @@ export function baseAxisDefinition(overrides: Partial<AxisDefinitionResponse> = 
     axis_id: "axis_a",
     label: "軸A",
     description: "",
+    weight_share_when_published: null,
     category: "観測",
     default_weight: 0.2,
     is_published: false,

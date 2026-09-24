@@ -74,6 +74,7 @@ function editingAxis(kind: "ramp" | "none"): AxisDefinitionResponse {
     axis_id: "axis_x",
     label: "",
     description: "",
+    weight_share_when_published: null,
     category: "推定",
     default_weight: 0,
     is_published: false,

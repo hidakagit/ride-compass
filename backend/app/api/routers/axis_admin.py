@@ -9,6 +9,7 @@
 
 from typing import Awaitable, TypeVar
 
+from collections.abc import Mapping
 from dataclasses import asdict
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import Field, field_validator, model_validator
@@ -32,6 +33,7 @@ from app.domain.axis_definitions import (
     referenced_materials,
 )
 from app.domain.axis_display import axis_display_for, bands_the_map_keeps, thresholds_the_map_drops
+from app.domain.difficulty import weight_share
 from app.domain.material_catalog import is_known_material, material_dtype
 from app.domain.registry import AxisDisplaySpec
 from app.services.axis_registry_service import AxisRegistryAdminService
@@ -236,12 +238,29 @@ class AxisDefinitionResponse(AxisDefinition):
     レスポンスにしか無い。"""
 
     display: AxisDisplaySpec
+    #: この軸を（保存した既定の重みで）公開したとき、公開軸の既定の重みの合計に占める割合（0〜1）。公開済みの軸は
+    #: 今の割合。合計が0ならNone。総合難易度が重みの合計で割るのと同じ分母（`difficulty.weight_share`）で、
+    #: 画面は計算し直さない。
+    weight_share_when_published: float | None
 
 
-def _to_response(definition: AxisDefinition) -> AxisDefinitionResponse:
-    """`AxisDefinitionResponse`は`AxisDefinition`へ`display`を1つ足すだけなので、
-    フィールドを手書き列挙せずmodel_dump()経由で展開する。"""
-    return AxisDefinitionResponse(**definition.model_dump(), display=axis_display_for(definition))
+def _to_response(definition: AxisDefinition, definitions: Mapping[str, AxisDefinition]) -> AxisDefinitionResponse:
+    """`AxisDefinitionResponse`は`AxisDefinition`へ`display`と`weight_share_when_published`を足すだけなので、
+    フィールドを手書き列挙せずmodel_dump()経由で展開する。`definitions`は割合の分母を作る全軸。"""
+    other_published = [
+        other.default_weight
+        for axis_id, other in definitions.items()
+        if other.is_published and axis_id != definition.axis_id
+    ]
+    return AxisDefinitionResponse(
+        **definition.model_dump(),
+        display=axis_display_for(definition),
+        weight_share_when_published=weight_share(definition.default_weight, other_published),
+    )
+
+
+async def _all_definitions(service: "AxisRegistryAdminService") -> Mapping[str, AxisDefinition]:
+    return await _guard_db_errors(service.list_all())
 
 
 @router.get("")
@@ -249,7 +268,7 @@ async def list_axis_definitions(
     service: AxisRegistryAdminService = Depends(get_axis_registry_admin_service),
 ) -> list[AxisDefinitionResponse]:
     definitions = await _guard_db_errors(service.list_all())
-    return [_to_response(definition) for definition in definitions.values()]
+    return [_to_response(definition, definitions) for definition in definitions.values()]
 
 
 @router.get("/{axis_id}")
@@ -259,7 +278,7 @@ async def get_axis_definition(
     definition = await _guard_db_errors(service.get(axis_id))
     if definition is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"axis_id={axis_id} が見つかりません")
-    return _to_response(definition)
+    return _to_response(definition, await _all_definitions(service))
 
 
 @router.post("", status_code=status.HTTP_201_CREATED)
@@ -271,7 +290,7 @@ async def create_axis_definition(
         await _guard_db_errors(service.create(definition))
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
-    return _to_response(definition)
+    return _to_response(definition, await _all_definitions(service))
 
 
 @router.put("/{axis_id}")
@@ -293,7 +312,7 @@ async def update_axis_definition(
         # 公開済み軸の更新拒否（AxisPublishedImmutableError）と材料の
         # 排他チェック（AxisMaterialConflictError）の両方がここを通る。
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
-    return _to_response(definition)
+    return _to_response(definition, await _all_definitions(service))
 
 
 @router.delete("/{axis_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -327,7 +346,7 @@ async def unpublish_axis_definition(
         # なる）。unpublishが例外なく返った直後のため通常は必ず存在するが、その不変条件を
         # 常に有効な形で守る。
         raise RuntimeError(f"axis_id={axis_id} のunpublish直後にgetが空を返しました（不変条件違反）")
-    return _to_response(definition)
+    return _to_response(definition, await _all_definitions(service))
 
 
 class AxisPreviewRequest(StrictModel):

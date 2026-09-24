@@ -90,6 +90,7 @@ function axis(overrides: Partial<AxisDefinitionResponse> = {}): AxisDefinitionRe
     axis_id: "axis_edit",
     label: "名前",
     description: "",
+    weight_share_when_published: null,
     category: "推定",
     default_weight: 0.2,
     is_published: false,
@@ -378,12 +379,12 @@ describe("既定重みの参考表示", () => {
     expect(screen.getByText(/現在非公開のため/)).toBeInTheDocument();
   });
 
-  it("公開にした軸には、自分と他の公開軸の重みの合計に対する割合を出す（非公開の軸と自分の古い行は数えない）", async () => {
-    const self = axis({ axis_id: "axis_edit", is_published: false, default_weight: 0.2 });
+  it("公開にした軸には、backendが返した公開したときの割合を、公開軸の数（自分を含む）と一緒に出す", async () => {
+    const self = axis({ axis_id: "axis_edit", is_published: false, weight_share_when_published: 0.4 });
     const others = [
       self,
-      axis({ axis_id: "axis_p", is_published: true, default_weight: 0.3 }),
-      axis({ axis_id: "axis_d", is_published: false, default_weight: 5 }),
+      axis({ axis_id: "axis_p", is_published: true }),
+      axis({ axis_id: "axis_d", is_published: false }),
     ];
     const { user } = renderComposer({ editing: self, otherAxes: others });
     await user.click(screen.getByRole("button", { name: "公開にする" }));
@@ -391,8 +392,8 @@ describe("既定重みの参考表示", () => {
     expect(screen.getByText(/参考:/)).toHaveTextContent("（2軸）の重み合計に対して約40.0%");
   });
 
-  it("公開にしても重みの合計が0なら、割合を出さない", async () => {
-    const self = axis({ is_published: false, default_weight: 0 });
+  it("割合が無い（重みの合計が0）なら、割合を出さない", async () => {
+    const self = axis({ is_published: false, weight_share_when_published: null });
     const { user } = renderComposer({ editing: self, otherAxes: [self] });
     await user.click(screen.getByRole("button", { name: "公開にする" }));
 

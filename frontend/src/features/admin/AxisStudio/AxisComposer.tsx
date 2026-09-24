@@ -237,13 +237,15 @@ export default function AxisComposer({
         </p>
       );
     }
-    const publishedOthers = otherAxes.filter((a) => a.is_published && a.axis_id !== draft.axisId);
-    const total = publishedOthers.reduce((sum, a) => sum + a.default_weight, 0) + draft.defaultWeight;
-    if (total <= 0) return null;
-    const sharePercent = (draft.defaultWeight / total) * 100;
+    // 公開したときの割合はbackendが総合難易度と同じ分母で返す（保存した重みで計算するため、編集中の値は
+    // 保存してから変わる）。保存前の新しい軸は割合を持たない。
+    const share = otherAxes.find((a) => a.axis_id === draft.axisId)?.weight_share_when_published;
+    if (share == null) return null;
+    const publishedCount = otherAxes.filter((a) => a.is_published && a.axis_id !== draft.axisId).length + 1;
     return (
       <p className={textVariants({ variant: "hint" })}>
-        参考: 現在の公開軸全体（{publishedOthers.length + 1}軸）の重み合計に対して約{sharePercent.toFixed(1)}%です。
+        参考: 現在の公開軸全体（{publishedCount}軸）の重み合計に対して約{(share * 100).toFixed(1)}
+        %です（保存した重みで計算）。
       </p>
     );
   }
