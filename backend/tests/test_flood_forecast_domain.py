@@ -131,3 +131,13 @@ def test_missing_texts_become_empty_and_the_label_is_the_level_name_alone():
 
     assert (forecast.river_code, forecast.river_name, forecast.condition, forecast.report_datetime) == ("", "", "", "")
     assert forecast.label == flood_forecast.FLOOD_CODE_LEVELS[ACTIVE_CODE].suffix
+
+
+def test_null_texts_become_empty_too():
+    entry = _entry(riverCode=None, riverName=None, reportDatetime=None)
+    entry["item"]["condition"] = None
+
+    forecast = flood_forecast.extract_active_flood_forecast(entry, "1310100", "130010")
+
+    assert (forecast.river_code, forecast.river_name, forecast.condition, forecast.report_datetime) == ("", "", "", "")
+    assert forecast.label == flood_forecast.FLOOD_CODE_LEVELS[ACTIVE_CODE].suffix

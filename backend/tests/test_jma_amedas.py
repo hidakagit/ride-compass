@@ -13,8 +13,8 @@ from app.domain import jma_amedas
 # ---- 風向コード（0=静穏、1〜16=16方位） ----
 
 
-@pytest.mark.parametrize("code", [None, 0])
-def test_calm_or_missing_has_no_direction(code):
+@pytest.mark.parametrize("code", [None, 0, 17, -1])
+def test_calm_missing_or_out_of_range_has_no_direction(code):
     assert jma_amedas.wind_direction_from_jma_code(code) is None
 
 

@@ -81,13 +81,14 @@ def extract_active_flood_forecast(
     if class20_code not in class20_codes and class10_code not in class10_codes:
         return None
 
+    # 文字の項目は、キーが無くても値がnullでも空の文字として読む（1件の欠けで取り出しごと落とさない）。
     river_name = entry.get("riverName") or ""
     return ActiveFloodForecast(
-        river_code=entry.get("riverCode", ""),
+        river_code=entry.get("riverCode") or "",
         river_name=river_name,
         level=flood_level.level,
         badge_level=flood_level.badge_level,
         label=f"{river_name}{flood_level.suffix}",
-        condition=item.get("condition", ""),
-        report_datetime=entry.get("reportDatetime", ""),
+        condition=item.get("condition") or "",
+        report_datetime=entry.get("reportDatetime") or "",
     )

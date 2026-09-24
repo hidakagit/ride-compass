@@ -16,13 +16,13 @@ _SIXTEEN_POINT_LABELS = [
 def wind_direction_from_jma_code(code: int | None) -> tuple[float, str] | None:
     """JMAアメダスのwindDirectionコード（0=静穏、1〜16=16方位）を(角度, 日本語ラベル)へ
     変換する。角度は0=北・時計回り（`WeatherConditions.wind_direction_deg`と揃える）で、
-    code=16は360度ではなく0度（北）に正規化する。0（静穏、風速がほぼ0で方位不定）および
-    NoneはNoneを返す。
+    code=16は360度ではなく0度（北）に正規化する。0（静穏、風速がほぼ0で方位不定）・None・
+    1〜16の範囲外のコードはNoneを返す（範囲外を別の方位として出すと、向かい風と追い風を取り違えさせる）。
 
     角度とラベルを別々の関数で返さない——どちらも同じ1つのコードの読み替えで、分けると
     「方位がある/ない」の判定と16方位の割当が2箇所に分かれ、片方だけずれても落ちない。
     """
-    if not code:
+    if code is None or not 1 <= code <= 16:
         return None
     index = code % 16
     return index * 22.5, _SIXTEEN_POINT_LABELS[index]

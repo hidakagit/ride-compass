@@ -131,7 +131,7 @@ CLAUDE.md参照。節見出しはタスクのテーマ分類で、日付は起�
 - [ ] [T1007](records/tasks/T1007.md). 材料単位のタイル失効を、タグから実装する 規模M
 - [ ] [T1008](records/tasks/T1008.md). 時刻別・速度別の動的way値を、実際に配る 規模M
 - [ ] [T1010](records/tasks/T1010.md). 地図の宣言に対する取り決めを決め、検査で固定する 規模M — 項目2・4はT1001段階Bへ移した（項目1・3が残る）
-- [ ] [T1021](records/tasks/T1021.md). 補正後の手順で、段階1やり直しの24ファイルを起こし直す 規模L
+- [ ] [T1021](records/tasks/T1021.md). 補正後の手順で、段階1やり直しの24ファイルを起こし直す 規模L — 残り: 起こし直しで出た保留4件の答えを受けた実装の直し（段階Eと同じ形、1件ずつS） — トリガー: ダッシュボードの T1021-D3-bin-field-guard・T1021-D4-tuning-refresh-after-commit・T1021-D6-prewarm-unreachable-filter・T1021-D7-tile-edge-exact のどれかに答えが出たとき
 - [ ] [T1041](records/tasks/T1041.md). T1012の振り返りで出た4件を、裏取りしてから標準へ入れる 規模S — トリガー: [T1021](records/tasks/T1021.md)の各群の実施（提案1・5は反映済み、残る2・3・4の裏取り材料がT1021で出る）
 - [ ] [T978](records/tasks/T978.md). 標高タイルの取込が、製品を1つ選んで残りを捨てている 規模M
 - [ ] [T989](records/tasks/T989.md). docker composeで立てた環境は、手順どおりにしても使える状態にならない 規模S〜M
