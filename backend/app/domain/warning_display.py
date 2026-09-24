@@ -37,11 +37,10 @@ _WBGT_COLORS: dict[WarningBadgeLevel, str] = {
     "severe_warning": "#ea580c",
     "emergency_warning": "#b91c1c",
 }
-#: 気象庁は「厳重警戒」級を発表しないが、段階の語彙をそろえるため名前を持つ。
 _JMA_LABELS: dict[WarningBadgeLevel, str] = {
     "advisory": "注意報",
     "warning": "警報",
-    "severe_warning": "厳重警戒",
+    "severe_warning": "危険警報",
     "emergency_warning": "特別警報",
 }
 

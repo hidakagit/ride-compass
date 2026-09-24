@@ -11,9 +11,7 @@ import { textVariants } from "@/components/ui/Text/Text";
 // JMA警報・注意報バッジとWBGT警告が共有する表示コンポーネント。
 // 「地図レイヤーではなく警告バッジ」という表現形式を揃えるため、JMA固有の型
 // （ActiveWarning）ではなく汎用のitem形にしている。
-// levelは4段階。JMAは3段階（advisory/warning/emergency_warning）のみ使い、
-// WBGT（環境省の熱中症予防運動指針）は間の"severe_warning"（厳重警戒）も使う
-// （4段階のまま素直に表現し、JMAの3段階へ無理に丸め込まない）。
+// levelは4段階で、出所をまたいで共通（呼び名は出所ごと）。
 
 /** **正本はbackend**（`domain/warning_levels.py`）。契約から引く——写すと、階級が
  * 1つ増えたとき片側だけ知っている状態になる。 */

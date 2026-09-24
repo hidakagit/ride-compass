@@ -123,6 +123,7 @@ class TestMapValueKind:
         assert dynamic_way_values.map_value_unit(definition) == ""
 
 
+@pytest.mark.usefixtures("catalog")
 class TestMapValueThresholds:
     """地図に出ない軸（専用配信）は地図が塗る値そのものの境界を、地図に出る軸は地図の段を難易度の目盛りへ写した境界を返す。"""
 
@@ -148,9 +149,10 @@ class TestMapValueThresholds:
         [
             linear("grade"),
             linear("grade", "speed", preprocess="abs"),
+            linear("other_axis", preprocess="abs"),
             CategoricalShape(material="grade", mapping={"x": 1.0}),
         ],
-        ids=["符号を畳まない", "複数の項", "分類"],
+        ids=["符号を畳まない", "複数の項", "項が材料でなく軸", "分類"],
     )
     def test_other_axes_off_the_map_have_no_bands(self, map_display, shape):
         assert dynamic_way_values.map_value_thresholds(axis("a", shape)) is None

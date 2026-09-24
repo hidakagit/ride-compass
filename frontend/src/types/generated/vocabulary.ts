@@ -14,7 +14,7 @@ export const vocabulary = {
       },
       {
         "level": "severe_warning",
-        "label": "厳重警戒",
+        "label": "危険警報",
         "color": "#be123c"
       },
       {

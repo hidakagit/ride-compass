@@ -39,7 +39,7 @@ MSMは数値予報モデルの出力で観測値・公式発表の代わりに�
 | `weather.py` | 天候のPydanticモデル（`WeatherConditions`・`WeatherPeriodOutlook`）と、降水量・雲量・気温からWMO天気コードを導く`derive_weather_code` | `weather_service.py` |
 | `jma_amedas.py` | JMAアメダスの16方位コード変換・体感温度計算（BOM式）・`AmedasObservation`モデル | `jma_amedas_service.py` |
 | `jma_area.py` | 緯度経度→JMA警報エリアコード（class20→class15→class10→office）の親子関係解決 | `warning_service.py`・`flood_service.py` |
-| `jma_warning.py` | JMA警報コード表・アクティブ警報抽出 | `warning_service.py` |
+| `jma_warning.py` | JMA警報コード表・アクティブ警報抽出・警戒度の段（名称から導く。危険警報＝警戒レベル4は警報と特別警報の間の段で、氾濫危険警報と同じ段） | `warning_service.py` |
 | `wbgt.py` | WBGT警戒レベル判定（熱中症予防運動指針の5段階閾値）・提供期間判定・段階の表示名（`WBGT_LEVEL_LABELS`） | `wbgt_service.py`・`warning_display.py` |
 | `wbgt_points.py` | 緯度経度→最寄りWBGT情報提供地点（約840地点の総当たり最近傍探索） | `wbgt_service.py` |
 | `flood_forecast.py` | JMA指定河川洪水予報コード表・アクティブ予報抽出・段階の表示名（`FLOOD_LEVEL_LABELS`） | `flood_service.py`・`warning_display.py` |

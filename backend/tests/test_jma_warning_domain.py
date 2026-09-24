@@ -19,7 +19,9 @@ from app.domain import jma_warning
 @pytest.mark.parametrize(
     ("code", "level"),
     [
-        ("33", "emergency_warning"),  # 大雨特別警報
+        ("33", "emergency_warning"),  # 大雨特別警報（警戒レベル5）
+        ("43", "severe_warning"),  # 大雨危険警報（警戒レベル4）
+        ("49", "severe_warning"),  # 土砂災害危険警報（警戒レベル4）
         ("03", "warning"),  # 大雨警報
         ("10", "advisory"),  # 大雨注意報
         ("14", "advisory"),  # 雷注意報

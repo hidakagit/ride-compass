@@ -91,15 +91,13 @@ def difficulty_load(segments: list[tuple[float | None, float]]) -> float | None:
 
     difficultyがNoneの区間の扱いは平均と一致させる（平均×全区間の距離合計）。区間ごとに
     積分して欠損区間を単純に飛ばすと「データが無い区間が多いほど総量が小さい」ことに
-    なり、欠損の多いルートが有利に見えてしまう。
+    なり、欠損の多いルートが有利に見えてしまう。平均が出るのは値のある区間の距離の合計が
+    正のときだけで、区間の距離は負にならないため、平均が出れば全区間の距離合計も正になる。
     """
     average = distance_weighted_difficulty(segments)
     if average is None:
         return None
-    total_distance = sum(distance for _, distance in segments)
-    if total_distance <= 0:
-        return None
-    return round(average * total_distance, 1)
+    return round(average * sum(distance for _, distance in segments), 1)
 
 
 def distance_weighted_difficulty_array(difficulty: np.ndarray, distance_m: np.ndarray) -> float | None:

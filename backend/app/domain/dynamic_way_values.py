@@ -14,7 +14,7 @@
 """
 
 from dataclasses import dataclass
-from typing import Literal
+from typing import Literal, cast
 
 from app.domain.axis_definitions import (
     AXIS_DEFINITIONS,
@@ -123,9 +123,9 @@ def map_value_thresholds(definition: AxisDefinition) -> list[float] | None:
         override = definition.display_thresholds_override
         if override is not None:
             return list(override)
-        shape = definition.shape
-        if isinstance(shape, BreakpointLinearShape) and shape.preprocess == "abs" and len(shape.terms) == 1:
-            return _signed_thresholds_from_breakpoints(shape)
+        if map_value_kind(definition) == "signed_material":
+            # `signed_material`は折れ線の軸にしか付かない。
+            return _signed_thresholds_from_breakpoints(cast(BreakpointLinearShape, definition.shape))
         return None
     shape = definition.shape
     if not isinstance(shape, BreakpointLinearShape):
