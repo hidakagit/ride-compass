@@ -102,7 +102,7 @@ BICYCLE_NORMALIZED_SQL = normalized_tag_sql("bicycle")
 # 自転車インフラ系材料（highway_is_cycleway以外）が参照するcyclewayタグの完全な集合。
 CYCLEWAY_TAG_NAMES = ("cycleway", "cycleway:left", "cycleway:right", "cycleway:both")
 # 上記いずれかに値があるかを見るARRAY式（どのタグにも値が無い場合のみ欠損）。
-CYCLEWAY_TAGS_ARRAY_SQL = "ARRAY[" + ", ".join(f"lower(btrim(w.tags->>'{tag}'))" for tag in CYCLEWAY_TAG_NAMES) + "]"
+_CYCLEWAY_TAGS_ARRAY_SQL = "ARRAY[" + ", ".join(f"lower(btrim(w.tags->>'{tag}'))" for tag in CYCLEWAY_TAG_NAMES) + "]"
 
 
 def tag_absent_is_false_sql(condition: str) -> str:
@@ -117,7 +117,7 @@ def tag_is_value_sql(tag: str, expected: str) -> str:
 
 def cycleway_has_value_sql(*values: str) -> str:
     listed = ", ".join(f"'{v}'" for v in values)
-    return tag_absent_is_false_sql(f"{CYCLEWAY_TAGS_ARRAY_SQL} && ARRAY[{listed}]")
+    return tag_absent_is_false_sql(f"{_CYCLEWAY_TAGS_ARRAY_SQL} && ARRAY[{listed}]")
 
 
 def poi_density_value_sql(kind: str) -> str:
