@@ -128,6 +128,16 @@ def test_a_box_inside_one_tile_is_covered_by_that_tile_alone(z, x, y):
     assert region.tiles_covering_bbox(_shrunk(region.tile_bounds_lonlat(z, x, y)), z) == [(x, y)]
 
 
+@pytest.mark.parametrize(("z", "x", "y"), [(1, 0, 0), (12, 3637, 1612), (15, 29100, 12900)])
+def test_a_box_whose_east_and_south_edges_lie_on_tile_edges_also_takes_the_neighbours_there(z, x, y):
+    assert region.tiles_covering_bbox(region.tile_bounds_lonlat(z, x, y), z) == [
+        (x, y),
+        (x, y + 1),
+        (x + 1, y),
+        (x + 1, y + 1),
+    ]
+
+
 def test_a_box_across_a_tile_corner_is_covered_by_the_four_tiles_around_it():
     tile = region.tile_bounds_lonlat(12, 3637, 1612)
     corner_lat, corner_lon = tile.min_latitude, tile.max_longitude  # 南東の角

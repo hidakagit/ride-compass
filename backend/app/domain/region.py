@@ -88,10 +88,12 @@ def _lonlat_to_tile_index(lon: float, lat: float, z: int) -> tuple[int, int]:
 
 
 def tiles_covering_bbox(bbox: BoundingBox, z: int) -> list[tuple[int, int]]:
-    """bboxを覆う最小限のXYZタイル群の(x, y)一覧を返す。
+    """bboxを覆うXYZタイル群の(x, y)一覧を返す。
 
     XYZタイルはyが北から南へ増加する（緯度と逆向き）ため、北西端と南東端のタイル座標から
-    x,yそれぞれの範囲を求める。
+    x,yそれぞれの範囲を求める。bboxの東端・南端がタイルの境目ちょうどに乗るときは、境目の
+    東・南の隣のタイルも含む（境目上の点を東・南のタイルに属するとみなすため。覆い漏れの無い側へ
+    倒れ、余分に1列・1行を含むだけ）。
     """
     n = 2**z
     x_start, y_start = _lonlat_to_tile_index(bbox.min_longitude, bbox.max_latitude, z)
