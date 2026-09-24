@@ -238,7 +238,7 @@ async def get_material_coverage(
     except DBAPIError as exc:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="材料の欠損割合の集計に失敗しました（DB接続・migration適用状況を確認してください）",
+            detail="材料の欠損割合の集計に失敗しました（DB接続と、テーブルが作られているかを確認してください）",
         ) from exc
     return MaterialCoverageResponse(
         computed_at=report.computed_at,

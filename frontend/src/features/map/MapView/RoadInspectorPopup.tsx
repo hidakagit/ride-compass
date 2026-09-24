@@ -74,9 +74,6 @@ export default function RoadInspectorPopup({ properties, axes, axisColors, condi
           {state === "loading" ? "評価を取得中…" : "この道の評価を見る"}
         </Button>
       )}
-      {/* デバッグログONのときだけ道の識別子を出す。値がおかしい道を見つけたとき、
-          地図で押した1本をそのままbackendの調査（scripts/measure_gradient_outliers.py
-          --way）へ渡せるようにする。一般の利用者には読めない値のため常時は出さない。 */}
       {isDebugEnabled() && wayId != null && <p className={textVariants({ variant: "hint" })}>OSM way id: {wayId}</p>}
       {state === "error" && <p className={textVariants({ variant: "hint" })}>評価を取得できませんでした。</p>}
       {result !== null && (

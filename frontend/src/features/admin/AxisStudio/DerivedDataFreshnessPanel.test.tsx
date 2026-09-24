@@ -171,7 +171,7 @@ describe("DerivedDataFreshnessPanel", () => {
           source: null,
           latest_run_id: null,
           oldest_run_id: null,
-          coverage_parent: "osm_raw_ways",
+          coverage_parent: "osm_way",
           coverage_parent_row_count: 3000,
           missing_rows: 0,
         }),
@@ -184,7 +184,7 @@ describe("DerivedDataFreshnessPanel", () => {
     ]);
     expect(detail).toEqual([
       ["取込", "最新 - / 反映 -"],
-      ["osm_raw_ways を覆う", "欠けなし（母数 3,000）"],
+      ["osm_way を覆う", "欠けなし（母数 3,000）"],
     ]);
   });
 
