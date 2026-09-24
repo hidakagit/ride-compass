@@ -4,7 +4,7 @@
 // AxisScoringSection（点数の決め方）・AxisMapDisplaySection（地図の色分け・公開）が持ち、
 // ここは状態・検証・保存と、その組み立てだけを担う。
 
-import { useCallback, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { FieldLabel } from "@/components/ui/FieldLabel/FieldLabel";
 import { useMaterialCatalog } from "@/hooks/useMaterialCatalog";
 import { useMapBandsOfThresholds } from "@/features/admin/useMapBandsOfThresholds";
@@ -65,16 +65,16 @@ export default function AxisComposer({
   onSave,
 }: AxisComposerProps) {
   const { materials: materialOptions, loaded: catalogLoaded } = useMaterialCatalog();
+  // 軸の一覧は描画ごとに別の配列で届きうるため、idの並びが変わったときだけ作り直す。
+  const axisIdsKey = JSON.stringify((otherAxes ?? []).map((axis) => axis.axis_id));
+  const axisIds = useMemo(() => new Set<string>(JSON.parse(axisIdsKey)), [axisIdsKey]);
   const deriveDraft = useCallback((): Draft => {
-    if (editing) return draftFromExisting(editing, materialOptions);
-    if (duplicateFrom) return draftFromDuplicate(duplicateFrom, materialOptions);
+    if (editing) return draftFromExisting(editing, materialOptions, axisIds);
+    if (duplicateFrom) return draftFromDuplicate(duplicateFrom, materialOptions, axisIds);
     return emptyDraft(materialOptions);
-  }, [editing, duplicateFrom, materialOptions]);
+  }, [editing, duplicateFrom, materialOptions, axisIds]);
   // 材料カタログは実行時フェッチで後から入れ替わる。**入れ替わったら下書きを作り直す**
-  // ——`useState`の初期化はマウント時に1度しか走らないため、ビルド時フォールバックの
-  // 材料で固定されたままになる。backendをデプロイしてからfrontendをデプロイするまでの
-  // 窓では、新しい材料を使う軸の編集画面が「組み合わせる軸」の画面として開く
-  // （`axisDraft.ts: draftFromExisting`が材料として引けない項目を軸参照とみなすため）。
+  // ——`useState`の初期化はマウント時に1度しか走らないため、取得前の空の一覧で固定されたままになる。
   //
   // 作り直すのは**利用者がまだ触っていないとき**だけ（触った後に入れ替えると入力が消える）。
   // 触ったかどうかは、いまの下書きが最後に導出したものと同じ実体かで判定する。

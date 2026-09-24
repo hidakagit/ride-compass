@@ -35,6 +35,8 @@ const NUM = material("num_a", "numeric");
 const BOOL = material("bool_a", "boolean");
 const CAT = material("cat_a", "categorical");
 const MATERIALS = [NUM, BOOL, CAT];
+/** 軸の一覧にある軸id。 */
+const AXES: ReadonlySet<string> = new Set(["axis_p", "axis_q"]);
 
 function axis(overrides: Partial<AxisDefinitionResponse> = {}): AxisDefinitionResponse {
   return {
@@ -107,6 +109,7 @@ describe("draftFromExisting", () => {
         display_band_labels_override: null,
       }),
       MATERIALS,
+      AXES,
     );
     expect(draft).toMatchObject({
       axisId: "axis_keep",
@@ -133,6 +136,7 @@ describe("draftFromExisting", () => {
         display_band_labels_override: ["低", "中", "高"],
       }),
       MATERIALS,
+      AXES,
     );
     expect(draft).toMatchObject({
       iconId: "icon_a",
@@ -147,6 +151,7 @@ describe("draftFromExisting", () => {
     const draft = draftFromExisting(
       axis({ shape: { kind: "categorical", material: CAT.id, mapping: { primary: 10, residential: 70 } } }),
       MATERIALS,
+      AXES,
     );
     expect(draft.shapeKind).toBe("categorical");
     expect(draft.categoricalMaterial).toBe(CAT.id);
@@ -160,7 +165,11 @@ describe("draftFromExisting", () => {
     [{ true: 25 }, 25, 0],
     [{ false: 40 }, 0, 40],
   ])("点数の形が真偽の材料なら、該当時・非該当時の点数にする（無い側は0点）: %j", (mapping, trueScore, falseScore) => {
-    const draft = draftFromExisting(axis({ shape: { kind: "categorical", material: BOOL.id, mapping } }), MATERIALS);
+    const draft = draftFromExisting(
+      axis({ shape: { kind: "categorical", material: BOOL.id, mapping } }),
+      MATERIALS,
+      AXES,
+    );
     expect(draft).toMatchObject({ shapeKind: "categorical", categoricalMaterial: BOOL.id, trueScore, falseScore });
   });
 
@@ -168,6 +177,7 @@ describe("draftFromExisting", () => {
     const draft = draftFromExisting(
       axis({ shape: { kind: "categorical", material: "unknown", mapping: { true: 1, false: 2 } } }),
       MATERIALS,
+      AXES,
     );
     expect(draft).toMatchObject({ trueScore: 1, falseScore: 2, categoricalRows: [] });
   });
@@ -186,8 +196,8 @@ describe("draftFromExisting", () => {
       },
     });
 
-  it("折れ線の項がすべて材料の一覧に無い（ほかの軸を指す）なら、ほかの軸を組み合わせる形として開く", () => {
-    const draft = draftFromExisting(linear(terms("axis_p", "axis_q")), MATERIALS);
+  it("折れ線の項がすべて軸の一覧の軸を指すなら、ほかの軸を組み合わせる形として開く", () => {
+    const draft = draftFromExisting(linear(terms("axis_p", "axis_q")), MATERIALS, AXES);
     expect(draft.shapeKind).toBe("recipe_then_breakpoint_linear");
     expect(draft).toMatchObject({
       terms: terms("axis_p", "axis_q"),
@@ -203,8 +213,9 @@ describe("draftFromExisting", () => {
     ["すべて材料", terms(NUM.id)],
     ["材料とほかの軸が混ざる", terms(NUM.id, "axis_p")],
     ["項が無い", terms()],
+    ["軸の一覧にも材料の一覧にも無いid（材料カタログがまだ知らない新しい材料）", terms("material_new")],
   ])("折れ線の項が%sなら、材料を直接使う形として開く", (_case, termList) => {
-    const draft = draftFromExisting(linear(termList), MATERIALS);
+    const draft = draftFromExisting(linear(termList), MATERIALS, AXES);
     expect(draft.shapeKind).toBe("breakpoint_linear");
     expect(draft.terms).toEqual(termList);
   });
@@ -219,7 +230,7 @@ describe("draftFromDuplicate", () => {
       display_thresholds_override: [1, 2],
       display_band_labels_override: ["a", "b", "c"],
     });
-    const draft = draftFromDuplicate(source, MATERIALS);
+    const draft = draftFromDuplicate(source, MATERIALS, AXES);
 
     expect(draft.axisId).not.toBe("axis_source");
     expect(draft.axisId).toMatch(/^axis_/);
@@ -313,7 +324,7 @@ describe("buildShape", () => {
     ["種類の点数", axis({ shape: { kind: "categorical", material: CAT.id, mapping: { a: 1, b: 2 } } })],
     ["真偽の点数", axis({ shape: { kind: "categorical", material: BOOL.id, mapping: { true: 3, false: 4 } } })],
   ])("%s: 開いてそのまま送ると、保存済みの形に戻る", (_case, def) => {
-    expect(buildShape(draftFromExisting(def, MATERIALS), MATERIALS)).toEqual(def.shape);
+    expect(buildShape(draftFromExisting(def, MATERIALS, AXES), MATERIALS)).toEqual(def.shape);
   });
 });
 

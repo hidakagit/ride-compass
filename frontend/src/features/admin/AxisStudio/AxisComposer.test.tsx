@@ -163,26 +163,31 @@ describe("材料カタログ", () => {
     expect(onCancelEdit).toHaveBeenCalled();
   });
 
+  // 値ごとの材料か、はい/いいえの材料かは材料カタログで決まるため、カタログの入れ替わりが下書きに表れる。
+  const categoricalAxis = axis({ shape: { kind: "categorical", material: CAT.id, mapping: { primary: 80 } } });
+
   it("カタログが後から入れ替わったら、まだ触っていない下書きを作り直す", () => {
     catalog.materials = [BOOL];
-    const editing = axis();
-    const { rerender, onSave, onCancelEdit } = renderComposer({ editing });
-    expect(sections.scoring!.draft.shapeKind).toBe("recipe_then_breakpoint_linear");
+    const { rerender, onSave, onCancelEdit } = renderComposer({ editing: categoricalAxis });
+    expect(sections.scoring!.draft.categoricalRows).toEqual([]);
 
     catalog.materials = MATERIALS;
-    rerender(<AxisComposer editing={editing} duplicateFrom={null} onSave={onSave} onCancelEdit={onCancelEdit} />);
-    expect(sections.scoring!.draft.shapeKind).toBe("breakpoint_linear");
+    rerender(
+      <AxisComposer editing={categoricalAxis} duplicateFrom={null} onSave={onSave} onCancelEdit={onCancelEdit} />,
+    );
+    expect(sections.scoring!.draft.categoricalRows).toEqual([{ value: "primary", score: 80 }]);
   });
 
   it("触った後にカタログが入れ替わっても、下書きは作り直さない", async () => {
     catalog.materials = [BOOL];
-    const editing = axis();
-    const { rerender, onSave, onCancelEdit, user } = renderComposer({ editing });
+    const { rerender, onSave, onCancelEdit, user } = renderComposer({ editing: categoricalAxis });
     await user.click(screen.getByRole("button", { name: "点数の節で触る" }));
 
     catalog.materials = MATERIALS;
-    rerender(<AxisComposer editing={editing} duplicateFrom={null} onSave={onSave} onCancelEdit={onCancelEdit} />);
-    expect(sections.scoring!.draft.shapeKind).toBe("recipe_then_breakpoint_linear");
+    rerender(
+      <AxisComposer editing={categoricalAxis} duplicateFrom={null} onSave={onSave} onCancelEdit={onCancelEdit} />,
+    );
+    expect(sections.scoring!.draft.categoricalRows).toEqual([]);
   });
 });
 

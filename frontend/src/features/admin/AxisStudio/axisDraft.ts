@@ -192,7 +192,12 @@ export function emptyDraft(materialOptions: readonly AxisMaterialOption[]): Draf
   };
 }
 
-export function draftFromExisting(def: AxisDefinitionResponse, materialOptions: readonly AxisMaterialOption[]): Draft {
+/** `axisIds`は軸の一覧にある軸id。折れ線の項がすべてそこにあれば「ほかの軸を組み合わせる」画面で開く。 */
+export function draftFromExisting(
+  def: AxisDefinitionResponse,
+  materialOptions: readonly AxisMaterialOption[],
+  axisIds: ReadonlySet<string>,
+): Draft {
   const base = emptyDraft(materialOptions);
   const shape = def.shape;
   const common = {
@@ -234,12 +239,9 @@ export function draftFromExisting(def: AxisDefinitionResponse, materialOptions: 
       falseScore: shape.mapping["false"] ?? 0,
     };
   }
-  // backendはbreakpoint_linear/recipe_then_breakpoint_linearを"breakpoint_linear"1種へ
-  // 統合しているため、保存済みのkindだけでは元々どのカードで作られた軸かを判別できない。
-  // termsの構造（材料か他軸か）から表示するカードを推定し直す（domain/axis_display.pyの
-  // 構造判定と同じ考え方）。
-  const isAxisReference = (material: string) => !materialOptions.some((m) => m.id === material);
-  if (shape.terms.length > 0 && shape.terms.every((t) => isAxisReference(t.material))) {
+  // 保存済みのkindは材料を直接使う軸とほかの軸を組み合わせる軸で同じなので、項が軸の一覧の軸を指すかで決める。
+  // 材料カタログに無いかでは決めない——backendが先に新しい材料を足した窓では、その材料が軸に見える。
+  if (shape.terms.length > 0 && shape.terms.every((t) => axisIds.has(t.material))) {
     return {
       ...common,
       shapeKind: "recipe_then_breakpoint_linear",
@@ -264,9 +266,13 @@ export function draftFromExisting(def: AxisDefinitionResponse, materialOptions: 
  * 複製元のしきい値をそのまま持ち越すと自動計算(breakpointsのx値から導出)が働かなくなる。
  * displayBandLabelsOverrideも同じ理由でnullへリセットする——displayThresholdsOverrideが
  * 無いままでは段階数が決まらず対応が取れない。 */
-export function draftFromDuplicate(def: AxisDefinitionResponse, materialOptions: readonly AxisMaterialOption[]): Draft {
+export function draftFromDuplicate(
+  def: AxisDefinitionResponse,
+  materialOptions: readonly AxisMaterialOption[],
+  axisIds: ReadonlySet<string>,
+): Draft {
   return {
-    ...draftFromExisting(def, materialOptions),
+    ...draftFromExisting(def, materialOptions, axisIds),
     axisId: generateAxisId(),
     isPublished: false,
     displayThresholdsOverride: null,

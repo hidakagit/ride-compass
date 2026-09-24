@@ -148,12 +148,9 @@ listAxisDefinitions() ──→ definitions（全軸）
 返す値（`weight_share_when_published`）で、画面は計算し直さない——保存した重みで計算するため、編集中の値は保存して
 から変わる。
 
-**暗黙の前提**: 下書きは材料カタログから導くが、そのカタログは実行時フェッチで後から
-入れ替わる。**入れ替わったら導出し直す**——`useState`の初期化はマウント時に1度しか
-走らないため、ビルド時フォールバックの材料で固定されたままになる。backendをデプロイ
-してからfrontendをデプロイするまでの窓では、新しい材料を使う軸の編集画面が
-「組み合わせる軸」として開く（`axisDraft.ts: draftFromExisting`が、材料として引けない
-項目を軸参照とみなすため）。導出し直すのは**利用者がまだ触っていないとき**だけで、
+**暗黙の前提**: 下書きは材料カタログ（値ごとの材料か、はい/いいえの材料か）と軸の一覧から導くが、
+カタログは実行時フェッチで後から入れ替わる。**入れ替わったら導出し直す**——`useState`の初期化はマウント時に
+1度しか走らないため、取得前の空の一覧で固定されたままになる。導出し直すのは**利用者がまだ触っていないとき**だけで、
 判定はいまの下書きが最後に導出したものと同じ実体かで行う（触った後に入れ替えると入力が消える）。
 
 `SECTIONS`は「どの節の検証か」を指す識別子で、順番の意味を持たない。保存時に
@@ -218,8 +215,9 @@ default_weight等）は`draftFromExisting`が読み込んだ既存値のまま�
 "categorical"`）は入力欄の出し分けを決める内部の分類であり、backendの`AxisShape`型
 （`BreakpointLinearShape` | `CategoricalShape`）とは別の型**——
 `buildShape(draft, materialOptions)`が送信直前に`draft.shapeKind`を`shape.kind`
-（`"breakpoint_linear"`か`"categorical"`）へ正規化する。既存軸を編集/複製する際は、逆に`draftFromExisting`が`shape.terms`の構造（材料idか他axis_id参照か）から推定し
-直す（保存済みの`kind`だけでは判別できないため）。
+（`"breakpoint_linear"`か`"categorical"`）へ正規化する。既存軸を編集/複製する際は、逆に`draftFromExisting`が、`shape.terms`がすべて軸の一覧（`otherAxes`）の軸を指すなら
+「ほかの軸」、そうでなければ材料として開く（保存済みの`kind`だけでは判別できないため）。材料カタログに無いかでは
+決めない——backendが先に新しい材料を足した窓では、その材料が軸に見える。
 
 「ほかの軸」を選んでいる間は`materialOptions`ではなく`otherAxes`（編集中の軸自身を除く
 全軸、`AxisStudio.tsx`が渡す）を候補にする——`MaterialTerm.material`が他axis_idを指せる
