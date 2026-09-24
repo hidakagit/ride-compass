@@ -21,8 +21,8 @@ from app.services.evaluation_service import load_route_preference
 from app.services.graph_service import GraphService
 from app.services.route_generator import DEFAULT_MAX_ROUTES, MAX_ROUTES
 from app.services.weather_service import WeatherService
-from app.domain.axis_definitions import AXIS_DEFINITIONS, AxisDefinition, BreakpointLinearShape, MaterialTerm
-from tests.axis_system_fixture import replaced_axis_definitions
+from app.domain.axis_definitions import AXIS_DEFINITIONS
+from tests.axis_system_fixture import axis_definition, replaced_axis_definitions
 
 client = TestClient(app)
 
@@ -34,20 +34,16 @@ REQUEST_BODY = {
     "route_type": "loop",
 }
 
-def _published_axis(axis_id: str, default_weight: float) -> AxisDefinition:
-    return AxisDefinition(
-        axis_id=axis_id,
-        shape=BreakpointLinearShape(terms=[MaterialTerm(material="dummy")], breakpoints=[(0.0, 0.0), (1.0, 100.0)]),
-        default_weight=default_weight,
-        label="軸",
-        is_published=True,
-    )
-
 
 @pytest.fixture
 def published_axes():
     """重みの既定が互いに違う公開軸を2本置く。軸が無いと重みは空の辞書どうしで一致してしまう。"""
-    with replaced_axis_definitions({"axis_a": _published_axis("axis_a", 0.25), "axis_b": _published_axis("axis_b", 0.75)}):
+    with replaced_axis_definitions(
+        {
+            "axis_a": axis_definition("axis_a", default_weight=0.25, is_published=True),
+            "axis_b": axis_definition("axis_b", default_weight=0.75, is_published=True),
+        }
+    ):
         yield
 
 

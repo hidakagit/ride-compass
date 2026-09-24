@@ -927,6 +927,7 @@ CSSの規則が当たる。開くたびに作り直される部品（ポップ�
 | `admin_auth.py` | `AUTH_HEADERS`・`basic_auth_header()` | 管理画面API。認証情報を入れるのは`conftest.py`の`admin_credentials`フィクスチャ |
 | `jma_area_fixtures.py` | 区域コード階層のサンプル＋`patch_area_lookup()` | 緯度経度→市区町村コード→area.jsonの順に引くサービス |
 | `bound_fake.py` | `bound(本物, フェイク)` | 関数を差し替えるとき、引数を読まないフェイク（`lambda *a: 値`）を本物の署名へ当てる |
+| `axis_system_fixture.py` | `axis_definition()`・`replaced_axis_definitions()`・`axis_definitions_snapshot()` | 軸の中身が主題でないテストの軸を作り、`AXIS_DEFINITIONS`へ流し込む。shapeそのものを見るテストは自分で組み立てる |
 
 `admin_credentials`は、認証情報が設定されている前提に立つテストが引数で取る。ファイル内の
 全テストが管理画面APIを叩く場合もautouseで配らない——「誤った認証情報を拒む」は設定が無くても

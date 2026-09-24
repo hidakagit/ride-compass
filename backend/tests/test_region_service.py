@@ -1,11 +1,12 @@
 
 import pytest
 
-from app.domain.axis_definitions import AXIS_DEFINITIONS, AxisDefinition, BreakpointLinearShape, MaterialTerm
+from app.domain.axis_definitions import AXIS_DEFINITIONS, AxisDefinition
 from app.infrastructure import tile_cache
 from app.infrastructure.vector_tile import encode_empty_poi_tile, encode_empty_road_surface_tile
 from app.infrastructure.road_graph_repository import RoadGraphRepository
 from app.services.region_service import RegionService
+from tests.axis_system_fixture import axis_definition
 
 
 @pytest.fixture(autouse=True)
@@ -65,13 +66,9 @@ class _FakeWayRepository(RoadGraphRepository):
 @pytest.fixture
 def direction_dependent_axis(monkeypatch) -> AxisDefinition:
     """向きが決まらないと値の出ない軸（専用way値配信で方位を要る）を1本だけ置く。"""
-    axis = AxisDefinition(
-        axis_id="axis_needs_bearing",
-        shape=BreakpointLinearShape(
-            terms=[MaterialTerm(material="wind_drag_ratio")], breakpoints=[(0.0, 0.0), (4.0, 100.0)]
-        ),
-        default_weight=0.1,
-        label="軸",
+    axis = axis_definition(
+        "axis_needs_bearing",
+        material="wind_drag_ratio",
         is_published=True,
         dedicated_way_value_layer=True,
         dynamic_way_value_needs_bearing=True,
