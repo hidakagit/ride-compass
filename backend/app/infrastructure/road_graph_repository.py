@@ -28,22 +28,17 @@ from app.domain.landcover import PERCENT_CLASSES, LandcoverPercentages
 from app.domain.material_catalog import (
     MATERIAL_CATALOG,
     material_array_columns,
+    material_array_group,
     material_value_sql,
 )
 from app.domain.material_sql import (
-    BICYCLE_NORMALIZED_SQL,
-    BRIDGE_NORMALIZED_SQL,
-    CYCLEWAY_TAGS_ARRAY_SQL,
     HIGHWAY_SQL,
     LANES_COUNT_CASE_SQL,
-    LIT_NORMALIZED_SQL,
     MAXSPEED_KMH_CASE_SQL,
-    MOTOR_VEHICLE_NORMALIZED_SQL,
     NODES_SOURCE_SQL,
     SMOOTHNESS_NORMALIZED_SQL,
     SURFACE_GOOD_CASE_SQL,
     SURFACE_NORMALIZED_SQL,
-    TUNNEL_NORMALIZED_SQL,
     WAYS_SOURCE_SQL,
     nodes_lookup_sql,
     ways_lookup_sql,
@@ -230,6 +225,16 @@ _LANDCOVER_TILE_COLUMNS_SQL = (",\n").join(
     for name in (key.removesuffix("_percent") for key, _ in PERCENT_CLASSES)
 )
 
+#: 欠損を非該当として持つ真偽の材料の焼き込み列。条件は材料の値式をそのまま使い、
+#: 真でなければNULLへ畳んでフィーチャーからキーを省く。値式は`w`だけを読むものに限って
+#: 成り立つ——タイルのFROM句に`re`は無く、way丸ごとのフィーチャーでは`em`がNULLになる。
+_BOOLEAN_TILE_COLUMNS_SQL = (",\n").join(
+    f"                    CASE WHEN {spec.value_sql} THEN true END AS {spec.tile_property}"
+    for spec in MATERIAL_CATALOG.values()
+    if material_array_group(spec) == "boolean"
+    and spec.tile_property is not None and spec.value_sql is not None
+)
+
 #: タイルが材料を引くためのJOIN。区間単位のフィーチャーだけが`em`に一致し、way丸ごとの
 #: フィーチャーは`wm`側へ落ちる。
 _TILE_MATERIAL_JOINS = f"""
@@ -276,8 +281,7 @@ _ROAD_SURFACE_TILE_MVT_SQL = text(
                     {SURFACE_NORMALIZED_SQL} AS surface,
                     {HIGHWAY_SQL} AS highway,
                     {SMOOTHNESS_NORMALIZED_SQL} AS smoothness,
-                    CASE WHEN {TUNNEL_NORMALIZED_SQL} = 'yes' THEN true END AS tunnel,
-                    CASE WHEN {BRIDGE_NORMALIZED_SQL} = 'yes' THEN true END AS bridge,
+{_BOOLEAN_TILE_COLUMNS_SQL},
                     -- 一方通行（表示専用）。上下線が分かれた道の片側は外す——道路としては
                     -- 双方向で、逆方向は数m隣にある。
                     CASE WHEN wm.direction <> 'both' AND NOT COALESCE(wm.divided, false)
@@ -286,18 +290,6 @@ _ROAD_SURFACE_TILE_MVT_SQL = text(
                     -- integerへキャストしてから焼き込む。
                     {MAXSPEED_KMH_CASE_SQL} AS maxspeed_kmh,
                     {LANES_COUNT_CASE_SQL} AS lanes_count,
-                    CASE WHEN {MOTOR_VEHICLE_NORMALIZED_SQL} = 'no' THEN true END AS motor_vehicle_no,
-                    CASE WHEN {LIT_NORMALIZED_SQL} = 'yes' THEN true END AS lit,
-                    CASE WHEN {HIGHWAY_SQL} = 'cycleway' THEN true END AS highway_is_cycleway,
-                    CASE WHEN 'track' = ANY({CYCLEWAY_TAGS_ARRAY_SQL}) THEN true END AS cycleway_has_track,
-                    CASE WHEN 'lane' = ANY({CYCLEWAY_TAGS_ARRAY_SQL}) THEN true END AS cycleway_has_lane,
-                    CASE WHEN {CYCLEWAY_TAGS_ARRAY_SQL} && ARRAY['share_busway', 'shared_lane']
-                        THEN true END AS cycleway_has_shared,
-                    CASE
-                        WHEN {HIGHWAY_SQL} IN ('footway', 'path')
-                             AND {BICYCLE_NORMALIZED_SQL} IN ('yes', 'designated')
-                            THEN true
-                    END AS shared_pedestrian_path,
                     {_density_column_sql("accident_count", 2)} AS accident_per_km,
                     {_density_column_sql("intersection_count", 1)}
                         AS intersection_per_km,{_POI_TILE_COLUMNS_SQL}

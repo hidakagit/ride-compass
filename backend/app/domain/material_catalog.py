@@ -186,6 +186,8 @@ class MaterialSpec(StrictModel):
     total_unit: str | None = None
     # MVTタイルへ既に焼き込み済みのプロパティ名。Noneは「タイル非依存」（GSI標高の都度取得、
     # 気象の動的取得、レシピ合成値等）で、地図レイヤーのramp自動生成対象になりえない。
+    # 欠損を非該当として持つ真偽の材料は、この名前と`value_sql`からタイルの列が組み立てられる
+    # （`road_graph_repository.py: _BOOLEAN_TILE_COLUMNS_SQL`）。
     tile_property: str | None = None
     # tile_propertyの生値と材料の値がスケール不一致（実行時に変動する係数での
     # 変換が必要）な場合True。例: accident_count_per_km_yearは収録年数（実行時にDBから

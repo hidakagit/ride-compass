@@ -31,6 +31,8 @@ from app.domain.material_sql import (
     ways_lookup_sql,
     ways_source_sql,
 )
+from app.domain.region import BoundingBox
+from app.infrastructure.road_graph_repository import RoadGraphRepository
 
 pytestmark = [
     pytest.mark.asyncio(loop_scope="module"),
@@ -272,6 +274,16 @@ class TestAgainstTheRealTables:
         )
 
         assert (await road_graph_session.execute(query)).all() == []
+
+    async def test_the_road_surface_tile_resolves_too(self, road_graph_session):
+        """タイルは材料の式を自分のFROM句の中で読む。タイルに無い別名を読む式が混ざると、
+        路面タイルが1枚も焼けなくなる。取込範囲外なのでNoneが返る——列の参照は実行前に
+        検証されるため、焼く分岐を通らなくても確かめられる。"""
+        bbox = BoundingBox(min_latitude=35.0, min_longitude=139.0,
+                           max_latitude=35.01, max_longitude=139.01)
+
+        assert await RoadGraphRepository(road_graph_session).get_road_surface_tile_mvt(
+            14, 1, 2, bbox) is None
 
     async def test_the_single_way_lookup_resolves_too(self, road_graph_session):
         """区間ごとに1本だけ引く経路。別名の中身が違うと、こちらだけが落ちる。"""

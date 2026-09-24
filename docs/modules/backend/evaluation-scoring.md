@@ -33,8 +33,14 @@ APIが受け取る重みの形を変えるとき、`dynamic_materials.py`は動�
 **タイルへ焼く式だけは符号化が違う**。`CASE WHEN 条件 THEN true END`で「該当しない」を
 NULLへ畳み、フィーチャーからキーを省いてタイルを軽くする。材料の値を求める式は
 タグが無ければ非該当（false）へ畳む（`tag_absent_is_false_sql`）——wayの行は必ずある
-（`road_edges.osm_way_id`がNOT NULL + FK）。例外は`surface_good`で、`true`/`false`/NULLを
-区別する（「路面タグ不明」を「路面が悪い」と混同しないという要求が符号化より優先された）。
+（`road_edges.osm_way_id`がNOT NULL + FK）。**違うのは符号化だけで、条件は同じ式**:
+欠損を非該当として持つ真偽の材料（`material_array_group`が`"boolean"`の材料）のうち
+`tile_property`を持つものは、タイルの列を`CASE WHEN (value_sql) THEN true END`として
+カタログから組み立てる（`road_graph_repository.py: _BOOLEAN_TILE_COLUMNS_SQL`）。材料を
+1つ足せばタイルにも列が増え、条件を直せば地図と評価が一緒に変わる（タイルの形の署名も変わり、
+配信中のタイルは作り直しになる）。この形が成り立つのは値式が`w`だけを読むときで、タイルの
+FROM句に`re`は無い。例外は`surface_good`で、`true`/`false`/NULLを区別する（「路面タグ不明」を
+「路面が悪い」と混同しないという要求が符号化より優先された）ため、値式をそのまま焼く。
 
 ## 0次ハードフィルタ（`domain/hard_filters.py`）
 
