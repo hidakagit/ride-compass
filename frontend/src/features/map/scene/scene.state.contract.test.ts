@@ -1,8 +1,7 @@
 // @vitest-environment node
 /** 画面の状態を地図へ伝えたとき、**最後にどうなっているか**。
  *
- * 筋書きは[遷移表](../../../../docs/records/tasks/T1001.md)から取っている。入口は
- * 本番と同じ`sceneInputsFrom`→`buildMapScene`→`applyScene`の1本で、面・道路の線・点・
+ * 入口は本番と同じ`sceneInputsFrom`→`buildMapScene`→`applyScene`の1本で、面・道路の線・点・
  * 評価軸・気象・ルートのすべてがここを通る。
  */
 import { validateStyleMin } from "@maplibre/maplibre-gl-style-spec";

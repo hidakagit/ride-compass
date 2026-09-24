@@ -401,8 +401,8 @@ composite_difficulty`と同じ考え方で軸の重みを反映した寄与度�
 持たず、受け取った状態をsceneへ通してMapLibreへ当てる「汎用描画係」という位置づけを保っている
 （[静的レイヤー・道路表示](static-map-layers.md)・[動的気象レイヤー](dynamic-weather-layers.md)参照）。
 地図初期化用の`useEffect`は空配列依存でマウント時に1度だけ実行され、そこで登録した
-ハンドラは最新の値をref（コールバックごとの`on…Ref`・いまの宣言を持つ`sceneRef`等、
-都度同期する）経由で読む——`useEffect`の依存配列に載せると再マウントのたびにMapLibre
+ハンドラは最新の値を1つのref（`latest`。いまのprops・宣言・表示ON/OFFを描画のたびに
+書き写す）経由で読む——`useEffect`の依存配列に載せると再マウントのたびにMapLibre
 インスタンスが作り直されてしまうため。
 
 地図キャンバスはモバイルの下部タブバー・ボトムシートの下にも描画される。ルート生成直後のフィット（`fitBoundsToRoutes`）が覆われた領域へ

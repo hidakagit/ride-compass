@@ -104,7 +104,8 @@ interface UseLayerDataStatusArgs {
   /** 現在の表示ON/OFFフラグを都度読む（refを直接渡さず、呼び出し側で安定した関数として
    * 包む）。 */
   getVisibility: () => Partial<Record<MapLayerId, boolean>>;
-  onChangeRef: RefObject<(status: LayerDataStatusByLayer) => void>;
+  /** 状態が変わったときだけ呼ぶ（安定した関数で渡す）。 */
+  onChange: (status: LayerDataStatusByLayer) => void;
 }
 
 // T87: レイヤーデータ状態（loading/empty/error）の状態管理・再計算・イベント配線をまとめて
@@ -112,7 +113,7 @@ interface UseLayerDataStatusArgs {
 // "moveend"/"zoomend"/"idle", ...)自体は自分で登録し（他の関心事のハンドラと同じ
 // 巨大useEffect内に既にあるため、登録自体を切り離すとかえって複雑になる）、各ハンドラの中で
 // このフックが返す関数を呼ぶだけにする。
-export function useLayerDataStatus({ mapRef, layerDataSources, getVisibility, onChangeRef }: UseLayerDataStatusArgs) {
+export function useLayerDataStatus({ mapRef, layerDataSources, getVisibility, onChange }: UseLayerDataStatusArgs) {
   const erroredSourceIdsRef = useRef<Set<string>>(new Set());
   const lastStatusRef = useRef<LayerDataStatusByLayer>({});
   const trackedSourceIds = useMemo(() => new Set(layerDataSources.map((entry) => entry.sourceId)), [layerDataSources]);
@@ -128,8 +129,8 @@ export function useLayerDataStatus({ mapRef, layerDataSources, getVisibility, on
     const status = computeLayerDataStatus(map, erroredSourceIdsRef.current, getVisibility(), layerDataSources);
     if (layerDataStatusEqual(status, lastStatusRef.current)) return;
     lastStatusRef.current = status;
-    onChangeRef.current(status);
-  }, [mapRef, getVisibility, onChangeRef, layerDataSources]);
+    onChange(status);
+  }, [mapRef, getVisibility, onChange, layerDataSources]);
 
   // 'error'イベント用。追跡対象外のsourceId（ルート系・ハロー等）は無視する。
   const markSourceErrored = useCallback(

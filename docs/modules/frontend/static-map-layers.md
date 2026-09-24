@@ -43,7 +43,7 @@
 | `services/regionApi.ts`（`roadSurfaceTileUrl`/`poiTileUrl`/`accidentTileUrl`とタイル世代の保持） | ベクタタイルのURLテンプレート（`fetchDynamicWayValues`は[地図: 軸・ルート色分け](map-axis-coloring.md)の管轄）。世代はbackendから実行時に届き、**揃うまでURLを組み立てない**（揃ったことは`subscribeTileVersions`で購読できる） |
 | `features/map/useTileVersionsReady.ts` | タイル世代が揃ったかを購読する薄いフック。地図がソースを作れるかの判定と、チップの縮退表示がこれ1つを見る |
 | `lib/tileBaseUrl.ts` | タイル配信元オリジンの決定（既定はフロント自身のオリジン＝rewrites経由、`NEXT_PUBLIC_TILE_BASE_URL`設定時はbackend直接）。路面/POI/事故タイル・基礎地図スタイル（`MapView.tsx: mapStyleUrl`）・国土地理院色別標高図・JMA動的タイル（[動的気象レイヤー](dynamic-weather-layers.md)）が共通に使う |
-| `features/map/MapOverlayControls/` | 地図上チップ（フローティングUI）。グループの開閉キー（`group:<グループ>`）は`MAP_OVERLAY_GROUP_ORDER`から生成・逆引きし、キー文字列を手で並べない——グループを増やしたとき見出しが「グループ本体」と認識されず2件目以降がチップ列から消えるのを防ぐ |
+| `features/map/MapOverlayControls/` | 地図上チップ（フローティングUI）。グループへの束ね方と並びはレイヤーカタログ（`mapOverlayGroupFor`・`MAP_OVERLAY_GROUP_ORDER`）から導き、開いたグループ（同時に開けるのは`MAP_OVERLAY_MAX_EXPANDED_GROUPS`まで）と「表示する項目を選ぶ」で隠した項目を次の訪問でも保つ。▶・ⓘで開くパネルは`ui/Popover`（Radix）で、位置取り・画面端での縮み・外を押すと閉じる（同時に開くのは1つ）はライブラリが持つ |
 | `components/ui/InfoPopover/InfoPopover.tsx` | 見出し脇の(i)アイコン→ポップオーバーという外枠の共通部品（開閉state・開閉に追随するアクセシブル名「◯◯を表示/隠す」・任意の見出し文言を含む）。中身はchildrenで呼び出し側が渡す。`RouteSettingsPanel`・`RouteAxisProfile`・`recipeControls.tsx: FieldLabel`・軸スタジオの材料説明が共用し、(i)→Popoverの組み立てを自前で持つ箇所は無い |
 | `features/map/LegendCheckboxList/LegendCheckboxList.tsx` | 凡例のチェックボックス一覧（チェックボックス+色スウォッチ+ラベル）の共通部品。リスト/行の見た目（class名）は呼び出し側が指定する（`LensControl`・`MapOverlayControls`の▶パネルで共用） |
 
@@ -223,7 +223,7 @@ MapLibreはソースへ渡した`attribution`を**そのソースが地図に載
 
 「地図の表示を再描画」は`map.setStyle()`でスタイル全体を差し替えるため、このアプリが
 足したsource/layerは一度すべて消える。`MapView.tsx`は`style.load`を待って、いまの宣言
-（`sceneRef`）を`applyScene(map, scene, { reset: true })`で空から当て直す——画面の状態が
+（`latest.current.scene`）を`applyScene(map, scene, { reset: true })`で空から当て直す——画面の状態が
 変わるたびに通る経路と同じ宣言・同じ適用で、前回との差分を取らないことだけが違う。
 
 **暗黙の前提**: 宣言から辿れない描画は作り直されず、そのレイヤーは押した人の地図から
@@ -294,7 +294,7 @@ ON/OFFから行う（画面の側は下敷きの有無を知らない）。
 グループが返す宣言の一部として出す。宣言の外から`setPaintProperty`や`setFilter`で
 足す形を取らないため、**「当てた後に誰かが巻き戻す」という経路が無い**（当てるのは
 `applyMapScene`だけで、前回の宣言との差分しか触らない）。この性質は
-`MapView.state.contract.test.ts`の「同じ状態を伝え直しても結果が変わらない」で固定してある。
+`scene/scene.state.contract.test.ts`の「同じ状態を伝え直しても結果が変わらない」で固定してある。
 
 ## 初期表示の覆い（`initialTilesLoading`）
 
@@ -557,7 +557,7 @@ ON/OFFで入れ替わる）。
 
 **スタイル式の誤りは例外にならない。** `addLayer`や`setPaintProperty`が式を受け付けなくても
 JSの例外は飛ばず、`map.on("error")`にしか出ない。画面上は**そのレイヤーだけが黙って
-描かれない**。記録用の代役地図は式を検証しないため、`MapView.state.contract.test.ts`が
+描かれない**。記録用の代役地図は式を検証しないため、`scene/scene.state.contract.test.ts`が
 出せるものを全部出した状態の宣言（凡例の絞り込みを含む）をMapLibreと同じ版のstyle検証
 （`@maplibre/maplibre-gl-style-spec: validateStyleMin`）へ通す。実際のアプリの配線（カタログ・
 タイル世代・保存されたレイヤーのON/OFFから組まれたもの）が本物の地図の`addLayer`を通ることは、

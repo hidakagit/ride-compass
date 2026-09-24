@@ -1,177 +1,117 @@
-// useLayerDataStatus（T87、フックとしてのrecompute/markSourceErrored等の配線）のテスト。
-// computeLayerDataStatus/clearStaleTrackedSourceErrors自体（純粋関数）のテストは
-// MapView.dataStatus.test.tsに既にあるため、ここではフック側（メモ化されたrecompute呼び出し
-// 経路・エラー解除条件の呼び出し経路配線）に絞る。renderHook（@testing-library/react）は
-// react-domのcreateRootを内部で使いDOMを要求するため、既定のDOM環境のまま実行する
-// （node環境docblockは付けない。他のrenderHookを使うテスト、例えば
-// hooks/useDebouncedValue.test.tsも同様に既定環境のまま）。
+/**
+ * `useLayerDataStatus.ts`——表示中のレイヤーごとに取得状態（取得中・空・失敗）を地図のソースから数え、変わったときだけ
+ * 知らせ、失敗は新しい取得が始まったときか、範囲が動いて読み込みが落ち着いたときにだけ解除すること。
+ *
+ * 地図は状態を読む3つのメソッドだけを持つ模擬で与える。
+ */
 import { act, renderHook } from "@testing-library/react";
-import { useRef } from "react";
 import { describe, expect, it, vi } from "vitest";
+
 import type { LayerDataStatusByLayer, MapLayerId } from "@/features/map/layers/mapLayers";
 import {
-  clearStaleTrackedSourceErrors,
+  computeLayerDataStatus,
   type DataStatusMapLike,
   type LayerDataSourceEntry,
   useLayerDataStatus,
 } from "./useLayerDataStatus";
-import { createFakeDataStatusMap } from "@/testing/fakeDataStatusMap";
 
-const fakeMap = createFakeDataStatusMap([]);
+interface FakeMapState {
+  added?: string[];
+  unloaded?: string[];
+  empty?: string[];
+  queries?: string[];
+}
 
-// road/carStress/tunnel/onewayのように複数レイヤーが同じ(sourceId, sourceLayer)を
-// 共有する状況を模した最小の対応表。
-const SHARED_SOURCE_ID = "road_surface_source";
-const SHARED_SOURCE_LAYER = "road_surface";
-const SHARED_LAYER_DATA_SOURCES: readonly LayerDataSourceEntry[] = [
-  { key: "highway" as MapLayerId, sourceId: SHARED_SOURCE_ID, sourceLayer: SHARED_SOURCE_LAYER },
-  { key: "surface" as MapLayerId, sourceId: SHARED_SOURCE_ID, sourceLayer: SHARED_SOURCE_LAYER },
-  { key: "axis:axis_sample" as MapLayerId, sourceId: SHARED_SOURCE_ID, sourceLayer: SHARED_SOURCE_LAYER },
-  { key: "tunnel" as MapLayerId, sourceId: SHARED_SOURCE_ID, sourceLayer: SHARED_SOURCE_LAYER },
-  { key: "oneway" as MapLayerId, sourceId: SHARED_SOURCE_ID, sourceLayer: SHARED_SOURCE_LAYER },
+function fakeMap(state: FakeMapState): DataStatusMapLike {
+  return {
+    getSource: (id) => (state.added === undefined || state.added.includes(id) ? {} : undefined),
+    isSourceLoaded: (id) => !(state.unloaded ?? []).includes(id),
+    querySourceFeatures: (id, { sourceLayer }) => {
+      state.queries?.push(`${id}/${sourceLayer}`);
+      return (state.empty ?? []).includes(`${id}/${sourceLayer}`) ? [] : [{}];
+    },
+  };
+}
+
+const id = (key: string) => key as MapLayerId;
+/** 2つのレイヤーが同じタイルを分け合い、1つは別のタイル、1つはsource-layerの無いラスタ。 */
+const SOURCES: LayerDataSourceEntry[] = [
+  { key: id("a"), sourceId: "road", sourceLayer: "lines" },
+  { key: id("b"), sourceId: "road", sourceLayer: "lines" },
+  { key: id("c"), sourceId: "points", sourceLayer: "poi" },
+  { key: id("raster"), sourceId: "relief" },
 ];
+const ALL_ON = { a: true, b: true, c: true, raster: true } as Partial<Record<MapLayerId, boolean>>;
 
-const ALL_SHARED_KEYS_VISIBLE: Partial<Record<MapLayerId, boolean>> = {
-  highway: true,
-  surface: true,
-  "axis:axis_sample": true,
-  tunnel: true,
-  oneway: true,
-};
-
-describe("computeLayerDataStatus のメモ化", () => {
-  // computeLayerDataStatus自体（純粋関数）の同一(source, source-layer)メモ化検証は
-  // MapView.dataStatus.test.tsに既にある（ファイル冒頭コメント参照）。ここではフック経由でも
-  // 同じメモ化が効くこと（配線側の検証）のみを持つ（テスト有効性監査2026-08-31、重複削除）。
-  it("useLayerDataStatusフック経由でも、1回のrecomputeにつきquerySourceFeaturesは1回しか呼ばれない", () => {
-    const calls: { sourceId: string; sourceLayer: string }[] = [];
-    const map = fakeMap({
-      addedSourceIds: [SHARED_SOURCE_ID],
-      querySourceFeaturesCalls: calls,
+describe("computeLayerDataStatus", () => {
+  it("表示中のレイヤーだけを、失敗＞取得中＞空の順で判定し、正常なものはキーを持たない", () => {
+    const map = fakeMap({ unloaded: ["points"], empty: ["road/lines"] });
+    expect(computeLayerDataStatus(map, new Set(["relief"]), ALL_ON, SOURCES)).toEqual({
+      a: "empty",
+      b: "empty",
+      c: "loading",
+      raster: "error",
     });
-    const onChange = vi.fn<(status: LayerDataStatusByLayer) => void>();
+    expect(computeLayerDataStatus(map, new Set(), { [id("c")]: true }, SOURCES)).toEqual({ c: "loading" });
+    expect(computeLayerDataStatus(fakeMap({}), new Set(), ALL_ON, SOURCES)).toEqual({});
+  });
 
-    const { result } = renderHook(() => {
-      const mapRef = useRef<DataStatusMapLike | null>(map);
-      const onChangeRef = useRef(onChange);
-      onChangeRef.current = onChange;
-      return useLayerDataStatus({
-        mapRef,
-        layerDataSources: SHARED_LAYER_DATA_SOURCES,
-        getVisibility: () => ALL_SHARED_KEYS_VISIBLE,
-        onChangeRef,
-      });
-    });
+  it("ソースがまだ地図に無いレイヤーは数えない。source-layerの無いラスタは空と判定しない", () => {
+    const map = fakeMap({ added: ["relief"], empty: ["relief/undefined"] });
+    expect(computeLayerDataStatus(map, new Set(), ALL_ON, SOURCES)).toEqual({});
+  });
 
-    act(() => {
-      result.current.notifySourceData(SHARED_SOURCE_ID);
-    });
-
-    expect(calls).toHaveLength(1);
+  it("同じタイルを分け合うレイヤーがいくつ見えていても、地物は1回だけ数える", () => {
+    const queries: string[] = [];
+    computeLayerDataStatus(fakeMap({ queries }), new Set(), ALL_ON, SOURCES);
+    expect(queries.sort()).toEqual(["points/poi", "road/lines"]);
   });
 });
 
-describe("clearStaleTrackedSourceErrors のerror解除条件", () => {
-  // 実装コメント（useLayerDataStatus.ts）: 呼び出し元はmoveend/zoomendに限定し、"idle"から
-  // 呼んではいけない。isSourceLoaded()は'errored'状態でも「保留中の要求が無い」という理由で
-  // trueを返すため、idleでこれを解除条件に使うと進行中の障害を誤って解除してしまう
-  // （実機バグ修正）。この関数自体はisSourceLoadedの値のみを見るので、呼び出し元がmoveend/
-  // zoomendのタイミングでのみ呼ぶという契約が守られている前提でのテストになる。
-  it("isSourceLoaded=trueのときだけerrorが解除される", () => {
-    const map = fakeMap({});
-    const erroredSourceIds = new Set(["source-a"]);
+function renderStatus(state: FakeMapState) {
+  const onChange = vi.fn<(status: LayerDataStatusByLayer) => void>();
+  const map = fakeMap(state);
+  const { result } = renderHook(() =>
+    useLayerDataStatus({ mapRef: { current: map }, layerDataSources: SOURCES, getVisibility: () => ALL_ON, onChange }),
+  );
+  return { hook: () => result.current, onChange, state };
+}
 
-    const changed = clearStaleTrackedSourceErrors(map, erroredSourceIds);
-
-    expect(changed).toBe(true);
-    expect(erroredSourceIds.has("source-a")).toBe(false);
+describe("useLayerDataStatus", () => {
+  it("失敗したソースのレイヤーを失敗として知らせ、追っていないソースの失敗は無視する", () => {
+    const { hook, onChange } = renderStatus({});
+    act(() => hook().markSourceErrored("untracked"));
+    expect(onChange).not.toHaveBeenCalled();
+    act(() => hook().markSourceErrored("road"));
+    expect(onChange).toHaveBeenLastCalledWith({ a: "error", b: "error" });
   });
 
-  it("isSourceLoaded=falseのとき（進行中の障害）はerrorが解除されない", () => {
-    const map = fakeMap({ unloadedSourceIds: ["source-a"] });
-    const erroredSourceIds = new Set(["source-a"]);
-
-    const changed = clearStaleTrackedSourceErrors(map, erroredSourceIds);
-
-    expect(changed).toBe(false);
-    expect(erroredSourceIds.has("source-a")).toBe(true);
+  it("状態が変わらなければ知らせない", () => {
+    const { hook, onChange } = renderStatus({});
+    act(() => hook().markSourceErrored("road"));
+    act(() => hook().notifySourceData("road"));
+    expect(onChange).toHaveBeenCalledTimes(1);
   });
 
-  it("複数sourceのうち、isSourceLoaded=trueのものだけが個別に解除される（false側は残る）", () => {
-    const map = fakeMap({ unloadedSourceIds: ["source-loading"] });
-    const erroredSourceIds = new Set(["source-loaded", "source-loading"]);
-
-    const changed = clearStaleTrackedSourceErrors(map, erroredSourceIds);
-
-    expect(changed).toBe(true);
-    expect(erroredSourceIds.has("source-loaded")).toBe(false);
-    expect(erroredSourceIds.has("source-loading")).toBe(true);
+  it("新しい取得が始まったら、失敗を解除する", () => {
+    const { hook, onChange } = renderStatus({});
+    act(() => hook().markSourceErrored("road"));
+    act(() => hook().clearSourceLoading("road"));
+    expect(onChange).toHaveBeenLastCalledWith({});
   });
 
-  it("useLayerDataStatusのsettleViewportは、isSourceLoaded=trueのsourceに対してerroredSourceIdsを解除しonChangeを呼ぶ", () => {
-    const map = fakeMap({ addedSourceIds: [SHARED_SOURCE_ID] });
-    const onChange = vi.fn<(status: LayerDataStatusByLayer) => void>();
-
-    const { result } = renderHook(() => {
-      const mapRef = useRef<DataStatusMapLike | null>(map);
-      const onChangeRef = useRef(onChange);
-      onChangeRef.current = onChange;
-      return useLayerDataStatus({
-        mapRef,
-        layerDataSources: SHARED_LAYER_DATA_SOURCES,
-        getVisibility: () => ALL_SHARED_KEYS_VISIBLE,
-        onChangeRef,
-      });
-    });
-
-    // 'error'イベント相当でエラーを記録した状態を作る。
+  it("範囲が動いて読み込みが落ち着いたソースだけ失敗を解除し、読み込み中のソースの失敗は残す", () => {
+    const { hook, onChange, state } = renderStatus({});
     act(() => {
-      result.current.markSourceErrored(SHARED_SOURCE_ID);
+      hook().markSourceErrored("road");
+      hook().markSourceErrored("points");
     });
-    expect(onChange).toHaveBeenLastCalledWith(
-      expect.objectContaining({
-        highway: "error",
-        surface: "error",
-        "axis:axis_sample": "error",
-        tunnel: "error",
-        oneway: "error",
-      }),
-    );
+    state.unloaded = ["points"];
+    act(() => hook().settleViewport());
+    expect(onChange).toHaveBeenLastCalledWith({ c: "error" });
+
     onChange.mockClear();
-
-    // moveend/zoomend相当（isSourceLoaded=trueのまま）でsettleViewportを呼ぶと解除される。
-    act(() => {
-      result.current.settleViewport();
-    });
-    expect(onChange).toHaveBeenLastCalledWith(expect.not.objectContaining({ highway: "error" }));
-  });
-
-  it("useLayerDataStatusのsettleViewportは、isSourceLoaded=falseの間はerrorを解除せずonChangeも呼ばない", () => {
-    const map = fakeMap({ addedSourceIds: [SHARED_SOURCE_ID], unloadedSourceIds: [SHARED_SOURCE_ID] });
-    const onChange = vi.fn<(status: LayerDataStatusByLayer) => void>();
-
-    const { result } = renderHook(() => {
-      const mapRef = useRef<DataStatusMapLike | null>(map);
-      const onChangeRef = useRef(onChange);
-      onChangeRef.current = onChange;
-      return useLayerDataStatus({
-        mapRef,
-        layerDataSources: SHARED_LAYER_DATA_SOURCES,
-        getVisibility: () => ALL_SHARED_KEYS_VISIBLE,
-        onChangeRef,
-      });
-    });
-
-    act(() => {
-      result.current.markSourceErrored(SHARED_SOURCE_ID);
-    });
-    onChange.mockClear();
-
-    act(() => {
-      result.current.settleViewport();
-    });
-    // isSourceLoaded=falseのため解除条件を満たさず、changed=falseでrecomputeが呼ばれない
-    // （onChangeが呼ばれない）ことを確認する。
+    act(() => hook().settleViewport());
     expect(onChange).not.toHaveBeenCalled();
   });
 });
