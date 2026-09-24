@@ -319,7 +319,6 @@ function DetailPopover({
         </Button>
       </PopoverTrigger>
       <PopoverContent
-        tone="bare"
         side={side}
         align="start"
         collisionPadding={8}
