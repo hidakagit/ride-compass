@@ -3,7 +3,7 @@
  * 高い順の表で出すこと。どの群にも入らない材料は別の群で拾い、集計対象外の材料は理由つきで畳む。
  *
  * 群の見出し・説明と母集団の名前はbackendの宣言（生成物 `vocabulary.ts`）が配るため、期待値もそこから引く。
- * 日時の書式はOSの時間帯で変わるため、書式そのものは見ない（testing.md パターン10）。
+ * 集計のカードの骨格（押すまで集計しない・集計中・失敗の表示・集計時刻）は `ReportCard.test.tsx` が持つ。
  */
 import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -41,7 +41,7 @@ function entry(overrides: Partial<MaterialCoverageEntry>): MaterialCoverageEntry
 }
 
 function response(materials: MaterialCoverageEntry[], overrides: Partial<MaterialCoverageResponse> = {}) {
-  return { computed_at: "not-a-date", way_total: 0, edge_total: 0, materials, ...overrides };
+  return { computed_at: "2026-09-24T01:02:03Z", way_total: 0, edge_total: 0, materials, ...overrides };
 }
 
 beforeEach(() => {
@@ -65,47 +65,9 @@ function rowLabels(section: HTMLElement): (string | null)[] {
 }
 
 describe("MaterialCoveragePanel", () => {
-  it("押すまで集計しない。集計中は押せず、終わると再集計の口になる", async () => {
-    let resolve!: (value: MaterialCoverageResponse) => void;
-    api.getMaterialCoverage.mockReturnValue(new Promise<MaterialCoverageResponse>((res) => (resolve = res)));
-    const user = userEvent.setup();
-    render(<MaterialCoveragePanel />);
-    expect(api.getMaterialCoverage).not.toHaveBeenCalled();
-
-    await user.click(screen.getByRole("button", { name: "集計する" }));
-    expect(screen.getByRole("button", { name: "集計中…" })).toBeDisabled();
-
-    resolve(response([]));
-    expect(await screen.findByRole("button", { name: "再集計する" })).toBeEnabled();
-  });
-
-  it("失敗したら理由を出し、再集計が成功すれば消える。Error以外の失敗も値を出す", async () => {
-    api.getMaterialCoverage.mockRejectedValueOnce(new Error("材料の欠損割合の取得に失敗しました"));
-    const user = userEvent.setup();
-    render(<MaterialCoveragePanel />);
-
-    await user.click(screen.getByRole("button", { name: "集計する" }));
-    expect(await screen.findByText("集計失敗: 材料の欠損割合の取得に失敗しました")).toBeInTheDocument();
-
-    api.getMaterialCoverage.mockRejectedValueOnce("timeout");
-    await user.click(screen.getByRole("button", { name: "集計する" }));
-    expect(await screen.findByText("集計失敗: timeout")).toBeInTheDocument();
-
-    api.getMaterialCoverage.mockResolvedValueOnce(response([]));
-    await user.click(screen.getByRole("button", { name: "集計する" }));
-    await screen.findByRole("button", { name: "再集計する" });
-    expect(screen.queryByText(/集計失敗/)).not.toBeInTheDocument();
-  });
-
-  it("集計時刻とWay・Edgeの総数を出す", async () => {
-    await collect(response([], { computed_at: "集計時刻不明", way_total: 123456, edge_total: 789 }));
-    expect(screen.getByText(/集計時刻 集計時刻不明/)).toHaveTextContent("Way 123,456件 ・ Edge 789件");
-  });
-
-  it("集計時刻が日時として読めれば、届いた文字列のままにせず日時として出す", async () => {
-    await collect(response([], { computed_at: "2026-09-24T01:02:03Z" }));
-    expect(screen.getByText(/集計時刻/)).not.toHaveTextContent("2026-09-24T01:02:03Z");
-    expect(screen.getByText(/集計時刻/)).toHaveTextContent("2026");
+  it("集計時刻の前に、Way・Edgeの総数を出す", async () => {
+    await collect(response([], { computed_at: "2026-09-24T01:02:03Z", way_total: 123456, edge_total: 789 }));
+    expect(screen.getByText("Way 123,456件 ・ Edge 789件 ・ 9/24 10:02")).toBeInTheDocument();
   });
 
   it("欠損時の扱いごとに、宣言の見出し・説明つきの群へ分け、材料の無い群は出さない", async () => {

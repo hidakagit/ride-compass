@@ -3,8 +3,8 @@
  * 要るか」を1行へまとめ、要るなら打つコマンドを1つだけ示すこと。
  *
  * 行の組み立て（どの状態を手当て要とするか・開いた先に何を並べるか）はこのファイルの判断で、
- * 一覧の描き方そのものは `StatusRowList.test.tsx` が持つ。日時の書式はOSの時間帯で変わるため、
- * 書式そのものは見ない（testing.md パターン10）。
+ * 一覧の描き方そのものは `StatusRowList.test.tsx` が持つ。
+ * 集計のカードの骨格（押すまで集計しない・集計中・失敗の表示・集計時刻）は `ReportCard.test.tsx` が持つ。
  */
 import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -40,14 +40,8 @@ function column(overrides: Partial<Column>): Column {
   return { column: "value_a", null_count: 0, is_incomplete: false, ...overrides };
 }
 
-function report(tables: Table[], computedAt = "not-a-date"): DerivedDataFreshnessResponse {
+function report(tables: Table[], computedAt = "2026-09-24T01:02:03Z"): DerivedDataFreshnessResponse {
   return { computed_at: computedAt, tables };
-}
-
-function deferred<T>() {
-  let resolve!: (value: T) => void;
-  const promise = new Promise<T>((res) => (resolve = res));
-  return { promise, resolve };
 }
 
 beforeEach(() => {
@@ -68,49 +62,6 @@ function rowOf(tableName: string): HTMLElement {
 }
 
 describe("DerivedDataFreshnessPanel", () => {
-  it("押すまで集計しない。集計中は押せず、終わると再集計の口になる", async () => {
-    const pending = deferred<DerivedDataFreshnessResponse>();
-    api.getDerivedDataFreshness.mockReturnValue(pending.promise);
-    const user = userEvent.setup();
-    render(<DerivedDataFreshnessPanel />);
-    expect(api.getDerivedDataFreshness).not.toHaveBeenCalled();
-
-    await user.click(screen.getByRole("button", { name: "集計する" }));
-    expect(screen.getByRole("button", { name: "集計中…" })).toBeDisabled();
-
-    pending.resolve(report([]));
-    expect(await screen.findByRole("button", { name: "再集計する" })).toBeEnabled();
-  });
-
-  it("集計時刻が日時として読めなければ、届いた文字列をそのまま出す", async () => {
-    await collect(report([], "集計時刻不明"));
-    expect(screen.getByText("集計時刻不明")).toBeInTheDocument();
-  });
-
-  it("集計時刻が日時として読めれば、届いた文字列のままにせず日時として出す", async () => {
-    await collect(report([], "2026-09-24T01:02:03Z"));
-    expect(screen.queryByText("2026-09-24T01:02:03Z")).not.toBeInTheDocument();
-    expect(screen.getByText(/2026/)).toBeInTheDocument();
-  });
-
-  it("失敗したら理由を出し、再集計が成功すれば消える。Error以外の失敗も値を出す", async () => {
-    api.getDerivedDataFreshness.mockRejectedValueOnce(new Error("派生データ鮮度台帳の取得に失敗しました"));
-    const user = userEvent.setup();
-    render(<DerivedDataFreshnessPanel />);
-
-    await user.click(screen.getByRole("button", { name: "集計する" }));
-    expect(await screen.findByText("集計失敗: 派生データ鮮度台帳の取得に失敗しました")).toBeInTheDocument();
-
-    api.getDerivedDataFreshness.mockRejectedValueOnce("timeout");
-    await user.click(screen.getByRole("button", { name: "集計する" }));
-    expect(await screen.findByText("集計失敗: timeout")).toBeInTheDocument();
-
-    api.getDerivedDataFreshness.mockResolvedValueOnce(report([]));
-    await user.click(screen.getByRole("button", { name: "集計する" }));
-    await screen.findByRole("button", { name: "再集計する" });
-    expect(screen.queryByText(/集計失敗/)).not.toBeInTheDocument();
-  });
-
   it("手当て要の表が無ければ、すべて最新と言い、コマンドは出さない", async () => {
     await collect(report([table({ table_name: "fresh", columns: [column({ null_count: 5 })] })]));
 

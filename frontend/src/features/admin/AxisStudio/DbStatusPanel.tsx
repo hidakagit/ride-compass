@@ -1,28 +1,14 @@
 "use client";
 
 import { vocabulary } from "@/types/generated/vocabulary";
-import { useState } from "react";
-import { Button } from "@/components/ui/Button/Button";
-import { Card } from "@/components/ui/Card/Card";
-import InfoPopover from "@/components/ui/InfoPopover/InfoPopover";
 import { getDbStatus } from "@/features/admin/adminApi";
 import type { DbStatusResponse } from "@/types/route";
+import { formatCount, formatMoment, ReportCard } from "./ReportCard";
 import { type StatusRow, StatusRowList, StatusVerdict } from "./StatusRowList";
-import { textVariants } from "@/components/ui/Text/Text";
-
-function formatCount(value: number): string {
-  return value.toLocaleString("ja-JP");
-}
 
 function formatBytes(value: number): string {
   const mb = value / 1024 / 1024;
   return mb >= 1024 ? `${(mb / 1024).toFixed(1)} GB` : `${Math.round(mb)} MB`;
-}
-
-function formatMoment(iso: string | null): string {
-  if (!iso) return "記録なし";
-  const date = new Date(iso);
-  return Number.isNaN(date.getTime()) ? iso : date.toLocaleString("ja-JP");
 }
 
 function formatDuration(seconds: number): string {
@@ -167,61 +153,36 @@ function summaryOf(report: DbStatusResponse): string {
 
 // 「データ保守」タブ（/admin）の3枚目。派生データ鮮度台帳が拠って立つ土台の側を見る——取込runが
 // 失敗していないか、行が本当に入っているか、プランナが使う統計が取れているか、
-// トランザクションが放置されていないか。集計はDB全体の走査を伴うためボタン押下時のみ。
+// トランザクションが放置されていないか。
 export default function DbStatusPanel() {
-  const [report, setReport] = useState<DbStatusResponse | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [loading, setLoading] = useState(false);
-
-  const handleFetch = () => {
-    setLoading(true);
-    setError(null);
-    getDbStatus()
-      .then((result) => setReport(result))
-      .catch((err) => setError(err instanceof Error ? err.message : String(err)))
-      .finally(() => setLoading(false));
-  };
-
-  const attentionCount = report
-    ? groupsFromStatus(report)
-        .flatMap((group) => group.rows)
-        .filter((row) => row.flagged).length
-    : 0;
-
   return (
-    <Card className="flex flex-col gap-2">
-      <div className="flex items-center gap-1">
-        <span className={textVariants({ variant: "heading" })}>本番DBの状態</span>
-        <InfoPopover triggerAriaLabel="本番DBの状態の説明">
+    <ReportCard
+      title="本番DBの状態"
+      info={
+        <>
           派生データの鮮度が拠って立つ土台の側を見る。生データの取込そのものが失敗していないか、
           行が本当に入っているか、プランナが使う統計が取れているか、トランザクションが放置されて
           いないか。行数は統計値ではなく実数を数えるため、DB全体の走査を伴い集計には時間がかかる。
-        </InfoPopover>
-      </div>
-      <div className="flex flex-wrap items-center gap-2">
-        <Button onClick={handleFetch} disabled={loading}>
-          {loading ? "集計中…" : report ? "再集計する" : "集計する"}
-        </Button>
-        {report && (
-          <span className={textVariants({ variant: "hint" })}>
-            {summaryOf(report)} ・ {formatMoment(report.computed_at)}
-          </span>
-        )}
-      </div>
-      {error && <p className={textVariants({ variant: "error" })}>集計失敗: {error}</p>}
-      {report && (
-        <>
-          <StatusVerdict flagged={attentionCount > 0}>
-            <span>{attentionCount > 0 ? `${attentionCount}件に注意` : "注意はなし"}</span>
-          </StatusVerdict>
-          <StatusRows report={report} />
         </>
-      )}
-    </Card>
+      }
+      load={getDbStatus}
+      summary={summaryOf}
+    >
+      {(report) => <StatusRows report={report} />}
+    </ReportCard>
   );
 }
 
 /** 行の描画。取得と分けてあるのは、認証の要る画面を通さずに見え方を確かめられるようにするため。 */
 function StatusRows({ report }: { report: DbStatusResponse }) {
-  return <StatusRowList groups={groupsFromStatus(report)} flaggedLabel="注意が要る" okLabel="問題なし" />;
+  const groups = groupsFromStatus(report);
+  const attentionCount = groups.flatMap((group) => group.rows).filter((row) => row.flagged).length;
+  return (
+    <>
+      <StatusVerdict flagged={attentionCount > 0}>
+        <span>{attentionCount > 0 ? `${attentionCount}件に注意` : "注意はなし"}</span>
+      </StatusVerdict>
+      <StatusRowList groups={groups} flaggedLabel="注意が要る" okLabel="問題なし" />
+    </>
+  );
 }

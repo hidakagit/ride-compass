@@ -2,8 +2,8 @@
  * `DbStatusPanel.tsx`——本番DBの状態を押したときだけ集計し、取込・接続・テーブルの3群を同じ1行の形で並べ、
  * 注意の要る件数と母数を先頭に出すこと。テーブルは注意のあるものだけを行にし、残りは基準を名乗る1行へ畳む。
  *
- * 一覧の描き方そのものは `StatusRowList.test.tsx` が持つ。日時の書式はOSの時間帯で変わるため、
- * 書式そのものは見ない（testing.md パターン10）。
+ * 一覧の描き方そのものは `StatusRowList.test.tsx` が持つ。
+ * 集計のカードの骨格（押すまで集計しない・集計中・失敗の表示・集計時刻）は `ReportCard.test.tsx` が持つ。
  */
 import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -103,48 +103,16 @@ function listItems(): (string | null)[] {
 }
 
 describe("DbStatusPanel", () => {
-  it("押すまで集計しない。集計中は押せず、終わると再集計の口になる", async () => {
-    let resolve!: (value: DbStatusResponse) => void;
-    api.getDbStatus.mockReturnValue(new Promise<DbStatusResponse>((res) => (resolve = res)));
-    const user = userEvent.setup();
-    render(<DbStatusPanel />);
-    expect(api.getDbStatus).not.toHaveBeenCalled();
-
-    await user.click(screen.getByRole("button", { name: "集計する" }));
-    expect(screen.getByRole("button", { name: "集計中…" })).toBeDisabled();
-
-    resolve(status());
-    expect(await screen.findByRole("button", { name: "再集計する" })).toBeEnabled();
-  });
-
-  it("失敗したら理由を出し、再集計が成功すれば消える。Error以外の失敗も値を出す", async () => {
-    api.getDbStatus.mockRejectedValueOnce(new Error("DB状態の取得に失敗しました"));
-    const user = userEvent.setup();
-    render(<DbStatusPanel />);
-
-    await user.click(screen.getByRole("button", { name: "集計する" }));
-    expect(await screen.findByText("集計失敗: DB状態の取得に失敗しました")).toBeInTheDocument();
-
-    api.getDbStatus.mockRejectedValueOnce("timeout");
-    await user.click(screen.getByRole("button", { name: "集計する" }));
-    expect(await screen.findByText("集計失敗: timeout")).toBeInTheDocument();
-
-    api.getDbStatus.mockResolvedValueOnce(status());
-    await user.click(screen.getByRole("button", { name: "集計する" }));
-    await screen.findByRole("button", { name: "再集計する" });
-    expect(screen.queryByText(/集計失敗/)).not.toBeInTheDocument();
-  });
-
   it("先頭に母数（テーブル数・行数の合計・DB全体の容量）と集計時刻を出す", async () => {
     await collect(
       status({
-        computed_at: "集計時刻不明",
+        computed_at: "2026-09-24T01:02:03Z",
         tables: [tableEntry({ table_name: "a", row_count: 1500 }), tableEntry({ table_name: "b", row_count: 500 })],
         database_bytes: 3 * 1024 * MB,
       }),
     );
 
-    expect(screen.getByText("2テーブル ・ 2,000行 ・ 3.0 GB ・ 集計時刻不明")).toBeInTheDocument();
+    expect(screen.getByText("2テーブル ・ 2,000行 ・ 3.0 GB ・ 9/24 10:02")).toBeInTheDocument();
   });
 
   it("容量は1024MB未満ならMBの整数、以上ならGBの小数1桁で出す", async () => {
@@ -193,7 +161,7 @@ describe("DbStatusPanel", () => {
     expect(screen.queryByText(/^注意なし/)).not.toBeInTheDocument();
   });
 
-  it("注意のあるテーブルは、実数・容量・統計とVACUUMの時刻・不要行（あるときだけ）・注記を開いた先に出す", async () => {
+  it("注意のあるテーブルは、実数・容量・統計とVACUUMの時刻（日本時間）・不要行（あるときだけ）・注記を開いた先に出す", async () => {
     await collect(
       status({
         tables: [
@@ -203,7 +171,7 @@ describe("DbStatusPanel", () => {
             total_bytes: 5 * MB,
             dead_tuples: 300,
             analyzed_at: null,
-            vacuumed_at: "解釈できない時刻",
+            vacuumed_at: "2026-09-24T01:02:03Z",
             needs_attention: true,
             note: "autovacuumが追いついていない",
           }),
@@ -217,20 +185,11 @@ describe("DbStatusPanel", () => {
       ["行数", "4,200件（実数）"],
       ["容量", "5 MB"],
       ["統計の取得", "記録なし"],
-      ["VACUUM", "解釈できない時刻"],
+      ["VACUUM", "9/24 10:02"],
       ["不要行", "300件"],
     ]);
     expect(screen.getByText("autovacuumが追いついていない")).toBeInTheDocument();
     expect(detailOf("clean").map(([label]) => label)).not.toContain("不要行");
-  });
-
-  it("日時として読める時刻は、届いた文字列のままにせず日時として出す", async () => {
-    await collect(
-      status({ tables: [tableEntry({ table_name: "t", analyzed_at: "2026-09-24T01:02:03Z", needs_attention: true })] }),
-    );
-    const [, analyzed] = detailOf("t").find(([label]) => label === "統計の取得")!;
-    expect(analyzed).not.toBe("2026-09-24T01:02:03Z");
-    expect(analyzed).toContain("2026");
   });
 
   it("取込の行は、最新の番号と状態（成功はそう訳す）を規模に出し、開いた先に最終実行・成功した最新・件数・識別を並べる", async () => {
@@ -241,7 +200,7 @@ describe("DbStatusPanel", () => {
             label: "osm",
             latest_id: 12,
             latest_status: "succeeded",
-            latest_finished_at: "解釈できない時刻",
+            latest_finished_at: "2026-09-24T01:02:03Z",
             latest_succeeded_id: 12,
             latest_succeeded_finished_at: null,
             latest_item_count: 34567,
@@ -255,7 +214,7 @@ describe("DbStatusPanel", () => {
 
     expect(screen.getByText("osm").closest("summary")).toHaveTextContent("#12 成功");
     expect(detailOf("osm")).toEqual([
-      ["最終実行", "#12 ・ 解釈できない時刻"],
+      ["最終実行", "#12 ・ 9/24 10:02"],
       ["成功した最新", "#12 ・ 記録なし"],
       ["取込件数", "34,567件"],
       ["pbf", "kanto-latest.osm.pbf"],

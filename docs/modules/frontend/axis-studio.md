@@ -34,10 +34,11 @@ APIを呼ぶ）・「データ保守」タブ（派生データ鮮度台帳の�
 | `features/admin/useAxisValueDistribution.ts` | 編集中のshapeの生値分布を取得。取得キーに折れ点を含めないため、折れ点のドラッグ中は通信しない |
 | `features/admin/useMaterialDistribution.ts` | 材料1件の値の分布を取得。同じ材料を複数行が選んでも取得は1回で済むようモジュール内で結果を共有する |
 | `features/admin/AxisStudio/breakpointTools.ts` | 折れ点の自動生成・区分線形補間・追加位置決定・ドラッグスナップ刻み幅算出（DOM非依存の純粋関数、`AxisComposer.tsx`が使う） |
-| `features/admin/AxisStudio/MaterialCoveragePanel.tsx` | 「材料」タブ本体。材料ごとの欠損割合を「欠損時の扱い」でグループに分けた表（各グループ内は欠損割合降順）と集計対象外材料の理由一覧。グループの見出し・説明と母集団の名前はbackendの宣言（`material_catalog.py`の`MISSING_SEMANTICS_DISPLAY`・`POPULATION_LABELS`）が生成物`vocabulary.ts`で配る。集計は「集計する」ボタン押下時のみ |
-| `features/admin/AxisStudio/DerivedDataFreshnessPanel.tsx` | 「データ保守」タブ本体。派生テーブルごとに、鮮度（最新取込runと反映済み最古run）・被覆（親に対して行が無い件数）・完成度（値の列の未計算件数）を1行へまとめて表示。対象の表・列はbackendが宣言から導く（`source_run_id`を持つ表が派生データ）。集計は「集計する」ボタン押下時のみ |
+| `features/admin/AxisStudio/MaterialCoveragePanel.tsx` | 「材料」タブ本体。材料ごとの欠損割合を「欠損時の扱い」でグループに分けた表（各グループ内は欠損割合降順）と集計対象外材料の理由一覧。グループの見出し・説明と母集団の名前はbackendの宣言（`material_catalog.py`の`MISSING_SEMANTICS_DISPLAY`・`POPULATION_LABELS`）が生成物`vocabulary.ts`で配る |
+| `features/admin/AxisStudio/DerivedDataFreshnessPanel.tsx` | 「データ保守」タブ本体。派生テーブルごとに、鮮度（最新取込runと反映済み最古run）・被覆（親に対して行が無い件数）・完成度（値の列の未計算件数）を1行へまとめて表示。対象の表・列はbackendが宣言から導く（`source_run_id`を持つ表が派生データ） |
 | `features/admin/AxisStudio/DbStatusPanel.tsx` | 「データ保守」タブ・本番DBの状態。取込runの最終実行・テーブルの実数と容量・統計とVACUUMの鮮度・接続を1件1行で出す |
 | `features/admin/AxisStudio/StatusRowList.tsx` | 上記2パネルが共有する点検の行の一覧（状態の丸・名前・規模、開くと項目と値）と、結果の一言（手当てが要れば目立たせる） |
+| `features/admin/AxisStudio/ReportCard.tsx` | 集計のパネル（材料の欠損割合・派生データ鮮度台帳・本番DBの状態）が共有するカード。見出しとⓘ・「集計する」ボタン・集計中と失敗の表示・集計の時刻（日本時間）を持ち、中身の描画は各パネルが渡す。件数と時点の書式（`formatCount`・`formatMoment`）もここに置く |
 | `features/admin/AxisStudio/TileCachePanel.tsx` | 「データ保守」タブの2枚目。サーバー側のタイルファイルキャッシュ（基礎地図・路面/事故/POIタイルが共有）を全消去する操作パネル。全利用者へ影響するため入口はここだけに持つ |
 | `features/admin/AxisStudio/TuningPanel.tsx` | 「較正値」タブ本体。走ってみて決める値をデプロイなしで編集する。**並べる項目はbackendが宣言から導く**ため画面側に一覧を持たず、効き方（`effect`）ごとに見出しを分けて「変えたのに効かない」群がそれと分かるようにする。1件=1行で、説明と既定値・範囲は(i)の奥（他の管理パネルと同じ省スペースの作り）。入力は打っただけでは送らず「DBへ保存」でまとめて書き、既定と同じ値にして保存した行は上書きを消す（DBへ残るのは動かしたぶんだけ） |
 | `hooks/useMaterialCatalog.ts` | `GET /api/material-catalog`取得。静的な写しは持たず、取得完了までと失敗時は空の一覧を返し、`loaded`で読み込み中と区別する（写しで埋めると、backendへ材料を足しても古い一覧が出続ける） |
@@ -285,7 +286,7 @@ default_weight等）は`draftFromExisting`が読み込んだ既存値のまま�
 
 ## MaterialCoveragePanel.tsx（「材料」タブ）
 
-`GET /admin/api/material-coverage`（backend `GET /api/admin/material-catalog/coverage`）の
+backend `GET /api/admin/material-catalog/coverage`の
 レスポンス（`MaterialCoverageResponse`、生成型）をそのまま表にする。
 
 - 「欠損時の扱い」（`missing_semantics`）でグループに分けて表示する。見出し・説明・並びは
@@ -304,21 +305,25 @@ default_weight等）は`draftFromExisting`が読み込んだ既存値のまま�
   同じ見た目）へ畳み、常時表示の説明文は各グループ1行だけにする。
 - `excluded_reason`を持つ材料（集計対象外）は表に含めず、`<details>`の折りたたみ一覧へ
   理由つきで出す。
-- 集計はDB全体の走査を伴うため、タブを開いたとき自動では実行せず「集計する」ボタン押下時
-  のみ実行する（`DerivedDataFreshnessPanel`と同じ流儀）。
-- 認証情報の入力欄は持たない（`AxisStudio.tsx`と同じく`/admin`のBasic認証セッションを
-  route handler経由で再利用する）。
+- 集計のカードは`ReportCard`（下記「集計のカード」）。母数としてWay・Edgeの総数を集計の時刻の前に出す。
 
-## DerivedDataFreshnessPanel.tsx（「データ保守」タブ）
+## 集計のカード（`ReportCard.tsx`）
 
-`GET /admin/api/derived-data-freshness`（backend `GET /api/admin/derived-data/freshness`）の
-レスポンス（`DerivedDataFreshnessResponse`、生成型）をそのまま一覧にする。
-`MaterialCoveragePanel`（完成度、値がNULL/未取得か）とは別の切り口——行は存在するが、
-参照している生データの世代が最新の取込より古いままではないか、という鮮度を見る。
+材料の欠損割合・派生データ鮮度台帳・本番DBの状態は、どれもDB全体の走査を伴う集計なので、タブを開いたとき
+自動では実行せず「集計する」ボタン押下時のみ実行する。その骨格（見出し・ⓘ・ボタン・集計中と失敗の表示・集計の
+時刻）を`ReportCard`が1つで持ち、各パネルは取得の関数と中身の描画だけを渡す。認証情報の入力欄は持たない
+（`/admin`のBasic認証セッションを転送の口経由で再利用する）。時点は日本時間で出す（`lib/time.ts`）。
 
 **画面の説明はⓘ（`InfoPopover`）の奥に置き、ベタ書きしない**（design-principles.md
 「冗長なものは削る」。読むのは1度きりなのに場所は常に取り続ける）。集計前はボタンだけを出す
 ——押すまで一覧は無いため、そこに無いものの説明を先に読ませない。
+
+## DerivedDataFreshnessPanel.tsx（「データ保守」タブ）
+
+backend `GET /api/admin/derived-data/freshness`の
+レスポンス（`DerivedDataFreshnessResponse`、生成型）をそのまま一覧にする。
+`MaterialCoveragePanel`（完成度、値がNULL/未取得か）とは別の切り口——行は存在するが、
+参照している生データの世代が最新の取込より古いままではないか、という鮮度を見る。
 
 - 集計後の先頭に**作り直しが要る件数と、作り直しの手順の在り処**（`docs/conventions/deployment-sync.md`
   「派生データの作り直し」）を置く。**行ごとにバッチ名を散らさない**——古い理由がどれであっても利用者が
@@ -331,17 +336,14 @@ default_weight等）は`draftFromExisting`が読み込んだ既存値のまま�
   「比較対象」の列だけが見える状態になる。ラベルと値を縦に積み、値だけが折り返す形にする。
 - 対象の表と列はbackendがORMの宣言から導き（`infrastructure/derived_data_freshness.py:
   derived_tables`）、frontendは返ってきた行を並べるだけで対象を手書きしない。
-- 集計はDB全体の走査を伴うため、`MaterialCoveragePanel`と同じく「集計する」ボタン押下時
-  のみ実行する。認証情報の入力欄は持たない（`/admin`のBasic認証セッションをroute handler
-  経由で再利用する）。
 - 描画は`FreshnessReportView`（レポートを受け取る）として取得と分けてある。認証の要る画面を
   通さずに見え方を確かめられるようにするため。
 
 ## DbStatusPanel.tsx（「データ保守」タブ・本番DBの状態）
 
 `GET /api/admin/db-status`を呼び、取込runの最終実行・テーブルの実数と容量・統計とVACUUMの
-鮮度・接続の状態を出す。`DerivedDataFreshnessPanel`と同じ形（説明はⓘ、1件1行、数字は開いた
-先、集計はボタン押下時のみ）で、CSSも同じモジュールを共有する。
+鮮度・接続の状態を出す。`DerivedDataFreshnessPanel`と同じ形（集計のカード`ReportCard`、1件1行の
+`StatusRowList`、数字は開いた先）にする。
 
 - 判定の種類（取込・接続・テーブル）が違っても行の見た目は揃える。読み手が知りたいのは
   「注意が要るか」で同じだから。**揃えたぶん、何と何が並んでいるのかは群の見出しが引き受ける**
@@ -356,7 +358,7 @@ default_weight等）は`draftFromExisting`が読み込んだ既存値のまま�
 
 ## TileCachePanel.tsx（「データ保守」タブの2枚目）
 
-`POST /admin/api/basemap-refresh`（backend `POST /api/admin/basemap/refresh`）を呼び、
+backend `POST /api/admin/basemap/refresh`を呼び、
 サーバーが持つタイルのファイルキャッシュ（`tile_cache`。基礎地図のプロキシ結果と
 路面・事故・POIのベクタタイルが同じ場所を共有する）を全消去する。
 `DerivedDataFreshnessPanel`が「古いかどうかを見る」のに対し、こちらは「古いものを捨てる」

@@ -1,25 +1,13 @@
 "use client";
 
-import { useState } from "react";
-import { Button } from "@/components/ui/Button/Button";
-import { Card } from "@/components/ui/Card/Card";
-import InfoPopover from "@/components/ui/InfoPopover/InfoPopover";
 import { getDerivedDataFreshness } from "@/features/admin/adminApi";
 import type { DerivedDataFreshnessResponse } from "@/types/route";
+import { formatCount, ReportCard } from "./ReportCard";
 import { type StatusRow, StatusRowList, StatusVerdict } from "./StatusRowList";
 import { textVariants } from "@/components/ui/Text/Text";
 
 function formatRunId(value: number | null): string {
   return value === null ? "-" : `#${value}`;
-}
-
-function formatCount(value: number): string {
-  return value.toLocaleString("ja-JP");
-}
-
-function formatComputedAt(iso: string): string {
-  const date = new Date(iso);
-  return Number.isNaN(date.getTime()) ? iso : date.toLocaleString("ja-JP");
 }
 
 /** 表1つぶんの状態。「取込が新しくなったのに派生が古い」と「値の列に未計算が残っている」は
@@ -67,42 +55,24 @@ function rowsFromReport(report: DerivedDataFreshnessResponse): StatusRow[] {
 // 「データ保守」タブ（/admin）から、派生データ（precomputeバッチの出力）が作り直しを要する状態に
 // ないかを見るパネル。MaterialCoveragePanel（材料の値がNULL/未取得かという完成度）とは別の
 // 切り口——こちらは「取り込んだ生データが新しくなったのに、そこから計算した値が古いまま
-// 残っていないか」を見る。集計はDB全表走査を伴うため、ボタン押下時のみ実行する。
+// 残っていないか」を見る。
 export default function DerivedDataFreshnessPanel() {
-  const [report, setReport] = useState<DerivedDataFreshnessResponse | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [loading, setLoading] = useState(false);
-
-  const handleFetch = () => {
-    setLoading(true);
-    setError(null);
-    getDerivedDataFreshness()
-      .then((result) => setReport(result))
-      .catch((err) => setError(err instanceof Error ? err.message : String(err)))
-      .finally(() => setLoading(false));
-  };
-
   return (
-    <Card className="flex flex-col gap-2">
-      <div className="flex items-center gap-1">
-        <span className={textVariants({ variant: "heading" })}>派生データ鮮度台帳</span>
-        <InfoPopover triggerAriaLabel="派生データ鮮度台帳の説明">
+    <ReportCard
+      title="派生データ鮮度台帳"
+      info={
+        <>
           取り込んだ生データ（OSM・事故など）が新しくなったのに、そこから計算した派生データが
           古いまま残っていないかを機械判定する。対象はbackendの宣言（ORM）が決めるため、表や列が
           増減しても一覧は自動で追従する。あわせて値の列ごとに未計算の件数を数える——「確定して
           値が無い」列（橋の勾配・指定のない道など）は数に出すが作り直しの対象にはしない。
           DB全体の走査を伴うため集計には時間がかかる。
-        </InfoPopover>
-      </div>
-      <div className="flex flex-wrap items-center gap-2">
-        <Button onClick={handleFetch} disabled={loading}>
-          {loading ? "集計中…" : report ? "再集計する" : "集計する"}
-        </Button>
-        {report && <span className={textVariants({ variant: "hint" })}>{formatComputedAt(report.computed_at)}</span>}
-      </div>
-      {error && <p className={textVariants({ variant: "error" })}>集計失敗: {error}</p>}
-      {report && <FreshnessReportView report={report} />}
-    </Card>
+        </>
+      }
+      load={getDerivedDataFreshness}
+    >
+      {(report) => <FreshnessReportView report={report} />}
+    </ReportCard>
   );
 }
 
