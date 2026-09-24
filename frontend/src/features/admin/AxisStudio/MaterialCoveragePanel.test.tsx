@@ -146,7 +146,7 @@ describe("MaterialCoveragePanel", () => {
         entry({
           material_id: "m",
           label: "路面",
-          source: "osm_raw_ways.tags->surface",
+          source: "OSM wayのタグ surface",
           population: population.key as Population,
           missing: 1234,
           total: 5000,
@@ -161,7 +161,7 @@ describe("MaterialCoveragePanel", () => {
       .slice(1);
     const [name, pop, ratio] = within(row).getAllByRole("cell");
     expect(name).toHaveTextContent("路面");
-    expect(name).toHaveAttribute("title", "osm_raw_ways.tags->surface");
+    expect(name).toHaveAttribute("title", "OSM wayのタグ surface");
     expect(pop).toHaveTextContent(population.label);
     expect(ratio).toHaveTextContent("24.7%");
     expect(ratio).toHaveTextContent("1,234 / 5,000");

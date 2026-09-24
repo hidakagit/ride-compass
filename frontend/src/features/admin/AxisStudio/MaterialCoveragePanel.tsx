@@ -100,7 +100,7 @@ function CoverageTable({ entries }: { entries: readonly MaterialCoverageEntry[] 
 // 「材料」タブ（/admin）から、材料ごとの欠損割合（backend GET /api/admin/material-catalog/
 // coverage）を見るパネル。欠損データを取込側で推測して埋めるのではなく、欠損の実態を
 // 見えるようにして「埋めるかどうか」の判断を軸定義側へ委ねるための画面。
-// 集計はosm_raw_ways/road_edgesの全表走査を伴うため、開いたとき自動ではなく「集計する」
+// 集計はOSMのway・区間の全表走査を伴うため、開いたとき自動ではなく「集計する」
 // ボタン押下時のみ実行する（DerivedDataFreshnessPanelと同じ流儀）。
 export default function MaterialCoveragePanel() {
   const [report, setReport] = useState<MaterialCoverageResponse | null>(null);
@@ -132,7 +132,7 @@ export default function MaterialCoveragePanel() {
         <InfoPopover triggerAriaLabel="欠損割合の見方">
           <p className="m-0 [&+&]:mt-2">
             材料の元データ（OSMタグ、またはEdge単位の派生テーブルの行）を持たない区間の割合。母集団はWay=
-            osm_raw_ways全件、Edge=road_edges全件で、件数ベース（距離加重ではない）。
+            取り込んだOSMのway全件、Edge=道路グラフの区間全件で、件数ベース（距離加重ではない）。
           </p>
           <p className="m-0 [&+&]:mt-2">
             材料名にマウスを乗せると欠損の判定根拠（参照しているタグ・テーブル）を表示する。集計はDB全体を
