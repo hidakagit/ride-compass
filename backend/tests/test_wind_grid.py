@@ -1,159 +1,148 @@
-"""`domain/wind_grid.py`——風・降水を描くための格子点を作る。
+"""`domain/wind_grid.py`——風・降水の格子点マップの座標（固定の原点からの格子・最寄り格子点・詳細格子）。
 
-値の取得は`test_weather_service.py`、配信は`test_weather_route.py`が持つ。
+ここで見ないもの:
+- 格子点の値の取得 → `services/weather_service.py`（`test_weather_route.py`等）
+- 詳細格子の点数の上限の検査 → `api/routers/weather.py`
+
+範囲と間隔は宣言（関東の範囲・0.1度）に頼らず、テストが小さな範囲を与える。詳細格子は原点を
+モジュールの範囲（`WIND_GRID_BBOX`）から取るため、その範囲を差し替える。
 """
 
 import pytest
 
+from app.domain import wind_grid
 from app.domain.route import Coordinates
-from app.domain.wind_grid import (
-    WIND_GRID_BBOX,
-    WIND_GRID_DETAIL_ALLOWED_SPACINGS_DEG,
-    WIND_GRID_DETAIL_MAX_POINTS,
-    WIND_GRID_SPACING_DEG,
-    generate_wind_grid_detail_points,
-    generate_wind_grid_points,
-    nearest_grid_point,
+
+# (min_lon, min_lat, max_lon, max_lat)。幅0.35度は0.1度の整数倍ではない
+BBOX = (139.0, 35.0, 139.35, 35.2)
+SPACING = 0.1
+
+
+def _pairs(points: list[Coordinates]) -> set[tuple[float, float]]:
+    return {(p.latitude, p.longitude) for p in points}
+
+
+# ---- 格子点マップ ----
+
+
+def test_the_grid_starts_at_the_south_west_corner_and_stops_inside_the_bbox():
+    points = _pairs(wind_grid.generate_wind_grid_points(BBOX, SPACING))
+
+    lats = sorted({lat for lat, _ in points})
+    lons = sorted({lon for _, lon in points})
+    assert lats == [35.0, 35.1, 35.2]
+    # 幅が間隔の整数倍でないときは、端点を越えない最後の格子点で止まる
+    assert lons == [139.0, 139.1, 139.2, 139.3]
+    assert len(points) == len(lats) * len(lons)
+
+
+def test_grid_coordinates_carry_no_floating_point_drift():
+    # 端が格子線ちょうどだと、割り算の丸めで最後の1本が落ちうる（実装が許容と明記している）ため、幅は半端にする
+    points = wind_grid.generate_wind_grid_points((139.0, 35.0, 139.75, 35.0), SPACING)
+
+    assert [p.longitude for p in points] == [139.0, 139.1, 139.2, 139.3, 139.4, 139.5, 139.6, 139.7]
+
+
+# ---- 最寄り格子点 ----
+
+
+@pytest.mark.parametrize(
+    "point",
+    [(35.04, 139.06), (35.16, 139.24), (35.2, 139.35), (35.001, 139.349)],
 )
+def test_the_nearest_grid_point_is_always_a_point_of_the_same_grid(point):
+    grid = _pairs(wind_grid.generate_wind_grid_points(BBOX, SPACING))
 
-MIN_LON, MIN_LAT, MAX_LON, MAX_LAT = WIND_GRID_BBOX
-SMALL_BBOX = (10.0, 20.0, 10.5, 20.5)  # (min_lon, min_lat, max_lon, max_lat)
+    nearest = wind_grid.nearest_grid_point(Coordinates(latitude=point[0], longitude=point[1]), BBOX, SPACING)
 
-
-class TestGenerateWindGridPoints:
-    def test_the_spacing_is_kept_along_both_axes(self):
-        points = generate_wind_grid_points(SMALL_BBOX, spacing_deg=0.1)
-        latitudes = sorted({p.latitude for p in points})
-        longitudes = sorted({p.longitude for p in points})
-
-        assert latitudes == [20.0, 20.1, 20.2, 20.3, 20.4, 20.5]
-        assert longitudes == [10.0, 10.1, 10.2, 10.3, 10.4, 10.5]
-
-    def test_the_coordinates_do_not_drift(self):
-        points = generate_wind_grid_points((10.0, 20.0, 12.0, 22.0), spacing_deg=0.1)
-
-        assert all(round(p.latitude, 4) == p.latitude for p in points)
-        assert Coordinates(latitude=22.0, longitude=12.0) in points
-
-    def test_a_coarser_spacing_gives_fewer_points(self):
-        assert len(generate_wind_grid_points(SMALL_BBOX, 0.2)) < len(
-            generate_wind_grid_points(SMALL_BBOX, 0.1)
-        )
-
-    def test_the_default_box_and_spacing_produce_a_usable_grid(self):
-        points = generate_wind_grid_points()
-
-        assert points
-        assert all(MIN_LAT <= p.latitude <= MAX_LAT for p in points)
-        assert all(MIN_LON <= p.longitude <= MAX_LON for p in points)
+    assert (nearest.latitude, nearest.longitude) in grid
 
 
-class TestNearestGridPoint:
+def test_every_grid_point_is_its_own_nearest_point():
+    # 同じ格子点を2回引いても同じ鍵になる（値のキャッシュを共有する前提）
+    grid = wind_grid.generate_wind_grid_points(BBOX, SPACING)
+    assert grid
 
-    def test_a_point_is_rounded_to_the_nearest_node(self):
-        near_origin = Coordinates(latitude=MIN_LAT + 0.04, longitude=MIN_LON + 0.04)
-        past_half = Coordinates(latitude=MIN_LAT + 0.06, longitude=MIN_LON + 0.06)
-
-        assert nearest_grid_point(near_origin) == Coordinates(latitude=MIN_LAT, longitude=MIN_LON)
-        assert nearest_grid_point(past_half) == Coordinates(
-            latitude=round(MIN_LAT + WIND_GRID_SPACING_DEG, 4),
-            longitude=round(MIN_LON + WIND_GRID_SPACING_DEG, 4),
-        )
-
-    def test_nearby_points_collapse_onto_the_same_node(self):
-        a = nearest_grid_point(Coordinates(latitude=MIN_LAT + 0.01, longitude=MIN_LON + 0.01))
-        b = nearest_grid_point(Coordinates(latitude=MIN_LAT + 0.02, longitude=MIN_LON + 0.02))
-
-        assert a == b
-
-    def test_a_node_maps_to_itself(self):
-        """丸めが恒等でないと、同じ点を2回引くだけで別の鍵になる。"""
-        node = generate_wind_grid_points()[17]
-
-        assert nearest_grid_point(node) == node
-
-    def test_a_point_outside_the_box_is_clamped_first(self):
-        """範囲外を例外にすると、離島や県境のすぐ外を見ただけで風が出なくなる。"""
-        far_south_west = nearest_grid_point(Coordinates(latitude=0.0, longitude=0.0))
-        far_north_east = nearest_grid_point(Coordinates(latitude=80.0, longitude=179.0))
-
-        assert far_south_west == Coordinates(latitude=MIN_LAT, longitude=MIN_LON)
-        assert MIN_LAT <= far_north_east.latitude <= MAX_LAT
-        assert MIN_LON <= far_north_east.longitude <= MAX_LON
+    for point in grid:
+        assert wind_grid.nearest_grid_point(point, BBOX, SPACING) == point
 
 
-class TestGenerateWindGridDetailPoints:
+def test_the_nearest_grid_point_rounds_to_the_closest():
+    nearest = wind_grid.nearest_grid_point(Coordinates(latitude=35.16, longitude=139.24), BBOX, SPACING)
 
-    def test_the_lattice_is_anchored_to_the_fixed_origin(self):
-        shifted = (MIN_LON + 0.103, MIN_LAT + 0.103, MIN_LON + 0.2, MIN_LAT + 0.2)
-
-        points = generate_wind_grid_detail_points(shifted, spacing_deg=0.02)
-
-        assert points
-        for p in points:
-            steps_lat = (p.latitude - MIN_LAT) / 0.02
-            steps_lon = (p.longitude - MIN_LON) / 0.02
-            assert abs(steps_lat - round(steps_lat)) < 1e-6
-            assert abs(steps_lon - round(steps_lon)) < 1e-6
-
-    def test_a_narrow_view_s_points_are_a_subset_of_a_wider_one(self):
-        """狭い表示範囲の結果が、それを包む広い範囲の結果へ同じ座標で含まれる。含まれない
-        なら、格子が表示範囲の角を起点にしている。
-        """
-        narrow = generate_wind_grid_detail_points(
-            (MIN_LON + 0.05, MIN_LAT + 0.05, MIN_LON + 0.09, MIN_LAT + 0.09), 0.02
-        )
-        wide = generate_wind_grid_detail_points(
-            (MIN_LON, MIN_LAT, MIN_LON + 0.2, MIN_LAT + 0.2), 0.02
-        )
-
-        assert narrow
-        assert {(p.latitude, p.longitude) for p in narrow} <= {(p.latitude, p.longitude) for p in wide}
-
-    def test_a_view_outside_the_covered_area_gives_no_points(self):
-        assert generate_wind_grid_detail_points((0.0, 0.0, 1.0, 1.0)) == []
-
-    def test_a_degenerate_view_gives_no_points(self):
-        assert generate_wind_grid_detail_points((MIN_LON, MIN_LAT, MIN_LON, MIN_LAT)) == []
-
-    def test_a_view_reaching_past_the_edge_is_clipped(self):
-        """覆っていない範囲の点を返すと、値の無い座標を取りに行く。"""
-        points = generate_wind_grid_detail_points(
-            (MIN_LON - 1.0, MIN_LAT - 1.0, MIN_LON + 0.1, MIN_LAT + 0.1), 0.02
-        )
-
-        assert points
-        for p in points:
-            assert MIN_LAT <= p.latitude <= MAX_LAT
-            assert MIN_LON <= p.longitude <= MAX_LON
-
-    def test_a_view_reaching_past_the_far_edge_is_clipped(self):
-        points = generate_wind_grid_detail_points(
-            (MAX_LON - 0.1, MAX_LAT - 0.1, MAX_LON + 1.0, MAX_LAT + 1.0), 0.02
-        )
-
-        assert points
-        for p in points:
-            assert p.latitude <= MAX_LAT
-            assert p.longitude <= MAX_LON
-
-    def test_a_finer_spacing_gives_more_points(self):
-        box = (MIN_LON, MIN_LAT, MIN_LON + 0.1, MIN_LAT + 0.1)
-
-        assert len(generate_wind_grid_detail_points(box, 0.01)) > len(
-            generate_wind_grid_detail_points(box, 0.02)
-        )
-
-    def test_it_does_not_cap_the_number_of_points_itself(self):
-        """ここで黙って間引くと、画面の一部だけ風が出なくなる。"""
-        wide = generate_wind_grid_detail_points(WIND_GRID_BBOX, 0.02)
-
-        assert len(wide) > WIND_GRID_DETAIL_MAX_POINTS
+    assert (nearest.latitude, nearest.longitude) == (35.2, 139.2)
 
 
-@pytest.mark.parametrize("spacing", WIND_GRID_DETAIL_ALLOWED_SPACINGS_DEG)
-def test_every_allowed_spacing_divides_the_coarse_spacing(spacing):
-    """細かい段階が粗い格子の点を含んでいれば、ズームを切り替えても同じ座標が使い回せる。"""
-    steps = WIND_GRID_SPACING_DEG / spacing
+def test_a_point_beyond_the_last_grid_point_takes_the_last_one():
+    # 139.35へ最も近いのは139.4だが、格子は139.3で終わる
+    nearest = wind_grid.nearest_grid_point(Coordinates(latitude=35.0, longitude=139.35), BBOX, SPACING)
 
-    assert abs(steps - round(steps)) < 1e-9
+    assert nearest.longitude == 139.3
+
+
+@pytest.mark.parametrize(
+    ("point", "expected"),
+    [((34.0, 138.0), (35.0, 139.0)), ((36.0, 140.0), (35.2, 139.3))],
+)
+def test_a_point_outside_the_bbox_is_clamped_to_its_edge(point, expected):
+    nearest = wind_grid.nearest_grid_point(Coordinates(latitude=point[0], longitude=point[1]), BBOX, SPACING)
+
+    assert (nearest.latitude, nearest.longitude) == expected
+
+
+# ---- 詳細格子 ----
+
+
+@pytest.fixture
+def area(monkeypatch):
+    monkeypatch.setattr(wind_grid, "WIND_GRID_BBOX", BBOX)
+
+
+def test_detail_points_of_overlapping_views_share_the_same_coordinates(area):
+    left = _pairs(wind_grid.generate_wind_grid_detail_points((139.013, 35.013, 139.071, 35.061), 0.02))
+    right = _pairs(wind_grid.generate_wind_grid_detail_points((139.037, 35.029, 139.099, 35.087), 0.02))
+
+    # 見ている範囲の角ではなく、固定の原点から数えた格子なので、重なる範囲では同じ点になる
+    assert left & right
+    assert all(round((lat - 35.0) / 0.02, 6).is_integer() for lat, _ in left | right)
+    assert all(round((lon - 139.0) / 0.02, 6).is_integer() for _, lon in left | right)
+
+
+def test_detail_points_include_the_grid_line_at_or_before_the_view_edge(area):
+    points = _pairs(wind_grid.generate_wind_grid_detail_points((139.05, 35.05, 139.105, 35.105), 0.02))
+
+    assert sorted({lon for _, lon in points}) == [139.04, 139.06, 139.08, 139.1]
+
+
+def test_detail_points_are_clipped_to_the_service_area(area):
+    points = _pairs(wind_grid.generate_wind_grid_detail_points((138.0, 34.0, 139.04, 35.04), 0.02))
+
+    assert min(lat for lat, _ in points) == 35.0
+    assert min(lon for _, lon in points) == 139.0
+
+
+def test_detail_points_are_clipped_at_the_far_edge_too(area):
+    points = _pairs(wind_grid.generate_wind_grid_detail_points((139.3, 35.15, 140.0, 36.0), 0.02))
+
+    assert points
+    assert max(lat for lat, _ in points) <= 35.2
+    assert max(lon for _, lon in points) <= 139.35
+
+
+def test_detail_points_are_not_capped_here(area):
+    # 点数の上限は呼び出し側が確かめる。ここで黙って間引くと、画面の一部だけ風が出なくなる
+    points = wind_grid.generate_wind_grid_detail_points(BBOX, min(wind_grid.WIND_GRID_DETAIL_ALLOWED_SPACINGS_DEG))
+
+    assert len(points) > wind_grid.WIND_GRID_DETAIL_MAX_POINTS
+
+
+@pytest.mark.parametrize(
+    "view",
+    [
+        (140.0, 36.0, 141.0, 37.0),  # 範囲の外
+        (139.35, 35.0, 140.0, 35.2),  # 東の縁に接するだけ
+        (139.1, 35.2, 139.2, 36.0),  # 北の縁に接するだけ
+    ],
+)
+def test_a_view_that_does_not_overlap_the_service_area_has_no_detail_points(area, view):
+    assert wind_grid.generate_wind_grid_detail_points(view, 0.02) == []

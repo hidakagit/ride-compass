@@ -1,145 +1,133 @@
-"""`domain/flood_forecast.py`——指定河川洪水予報の電文1件を、出発地点の氾濫警戒へ変える。
+"""`domain/flood_forecast.py`——指定河川洪水予報の電文1件から、出発地点に該当する現在の氾濫予報を取り出す。
 
-電文の取得は`test_flood_client.py`、訓練電文の除外と複数河川のまとめ上げは
-`test_flood_service.py`、地域コードの解決は`test_jma_area.py`が持つ。
+ここで見ないもの:
+- 電文の取得と地点のコード解決 → `services/flood_service.py`（`test_weather_route.py`等）
+- 段階の色・呼び名の画面への配り方 → `domain/warning_display.py`
 
-対応表の典拠は実装が持つ。ここでは表を書き写さず、代表コードの意味と全件に対して
-成り立つことだけを見る。
+期待値の段・呼び名はコードの表（`FLOOD_CODE_LEVELS`）から引き、数字を書き写さない。例外は代表コードの段で、
+これは表そのものが正しいかを気象庁の電文フォーマット（表２）と5段階の警戒レベルに突き合わせる。
 """
+
+from typing import get_args
 
 import pytest
 
-from app.domain.flood_forecast import extract_active_flood_forecast
+from app.domain import flood_forecast
 
-CLASS20 = "1310100"
-CLASS10 = "130010"
+ACTIVE_CODE = next(iter(flood_forecast.FLOOD_CODE_LEVELS))
 
 
-def _entry(code: str | None = "30", **overrides) -> dict:
-    entry: dict = {
-        "item": {"code": code, "condition": "氾濫危険水位に到達"} if code is not None else {},
-        "class20Codes": [CLASS20],
-        "class10Codes": [CLASS10],
-        "riverCode": "8306050001",
-        "riverName": "荒川",
-        "reportDatetime": "2026-09-22T05:00:00+09:00",
+def _entry(code: str | None = ACTIVE_CODE, **overrides) -> dict:
+    entry = {
+        "item": {} if code is None else {"code": code, "condition": "氾濫注意水位に到達"},
+        "class20Codes": ["1310100"],
+        "class10Codes": ["130010"],
+        "riverCode": "8301",
+        "riverName": "多摩川",
+        "reportDatetime": "2026-09-24T10:00:00+09:00",
     }
     entry.update(overrides)
     return entry
 
 
-class TestWhetherAnythingIsReturned:
-    """この電文が、この地点の、いま出ている予報かを決める。"""
-
-    def test_a_downgrade_to_this_level_is_still_active(self):
-        """コード"22"は「上位の警報が解除されて当レベルへ引き下がった」。文字面の「解除」に
-        引きずられて落とすと、氾濫注意報が続いている河川が画面から消える。
-        """
-        assert extract_active_flood_forecast(_entry("22"), CLASS20, CLASS10) is not None
-
-    def test_an_unknown_code_is_dropped(self):
-        """レベルを決められないコードで何かを出すと、段の無いバッジになる。"""
-        assert extract_active_flood_forecast(_entry("99"), CLASS20, CLASS10) is None
-
-    def test_an_entry_without_an_item_is_dropped(self):
-        assert extract_active_flood_forecast({"class20Codes": [CLASS20]}, CLASS20, CLASS10) is None
-
-    def test_an_item_without_a_code_is_dropped(self):
-        assert extract_active_flood_forecast(_entry(None), CLASS20, CLASS10) is None
+# ---- 段の宣言（表全体に対する不変条件） ----
 
 
-class TestWhetherThePointIsCovered:
-    """電文は河川ごとに届き、流域の市区町村を列挙している。出発地点がその中に無ければ
-    他人事の予報になる。
-    """
+def test_every_level_in_the_code_table_has_its_display_name():
+    levels = set(flood_forecast.FLOOD_CODE_LEVELS.values())
+    assert levels, "コードの表が空"
 
-    def test_a_match_on_the_municipality_is_enough(self):
-        entry = _entry(class10Codes=["999999"])
-
-        assert extract_active_flood_forecast(entry, CLASS20, CLASS10) is not None
-
-    def test_a_match_on_the_broader_area_is_enough(self):
-        """電文がclass20（市区町村）まで下ろしていない場合がある。class10だけで諦めると、
-        その河川の予報を誰も受け取れない。
-        """
-        entry = _entry(class20Codes=["9999999"])
-
-        assert extract_active_flood_forecast(entry, CLASS20, CLASS10) is not None
-
-    def test_a_point_in_neither_list_is_dropped(self):
-        entry = _entry(class20Codes=["9999999"], class10Codes=["999999"])
-
-        assert extract_active_flood_forecast(entry, CLASS20, CLASS10) is None
-
-    def test_missing_area_lists_are_treated_as_empty(self):
-        """キーごと欠けた電文でTypeErrorにすると、1件の欠落が全河川の取得を落とす。"""
-        entry = _entry()
-        del entry["class20Codes"]
-        del entry["class10Codes"]
-
-        assert extract_active_flood_forecast(entry, CLASS20, CLASS10) is None
+    for level in levels:
+        assert flood_forecast.FLOOD_LEVEL_LABELS[level.badge_level] == level.suffix
 
 
-class TestTheBadgeContents:
-    def test_the_label_names_the_river_and_the_level(self):
-        forecast = extract_active_flood_forecast(_entry("40"), CLASS20, CLASS10)
+def test_a_higher_flood_level_never_shows_a_lighter_badge():
+    order = get_args(flood_forecast.WarningBadgeLevel)
+    levels = sorted(set(flood_forecast.FLOOD_CODE_LEVELS.values()), key=lambda lv: lv.level)
 
-        assert forecast.label == "荒川氾濫危険警報"
-
-    def test_the_bulletin_fields_are_carried_through(self):
-        forecast = extract_active_flood_forecast(_entry(), CLASS20, CLASS10)
-
-        assert forecast.river_code == "8306050001"
-        assert forecast.river_name == "荒川"
-        assert forecast.condition == "氾濫危険水位に到達"
-        assert forecast.report_datetime == "2026-09-22T05:00:00+09:00"
-
-    def test_missing_optional_fields_become_empty_strings(self):
-        """Noneを入れるとモデルが弾き、1件の欠落で全河川が落ちる。表示側は空文字を
-        そのまま書ける。
-        """
-        entry = _entry()
-        for key in ("riverCode", "riverName", "reportDatetime"):
-            del entry[key]
-        entry["item"] = {"code": "30"}
-
-        forecast = extract_active_flood_forecast(entry, CLASS20, CLASS10)
-
-        assert (forecast.river_code, forecast.river_name, forecast.condition) == ("", "", "")
-        assert forecast.report_datetime == ""
-
-    def test_a_null_river_name_does_not_leak_into_the_label(self):
-        """JSONのnullをそのまま繋ぐと「None氾濫警報」が画面に出る。"""
-        forecast = extract_active_flood_forecast(_entry(riverName=None), CLASS20, CLASS10)
-
-        assert forecast.label == "氾濫警報"
+    badge_ranks = [order.index(lv.badge_level) for lv in levels]
+    assert badge_ranks == sorted(badge_ranks)
+    assert len(set(badge_ranks)) == len(badge_ranks)
 
 
-class TestTheLevelScale:
-    """レベルは気象庁の5段階警戒レベルに揃えてある（氾濫予報は2〜5のみ）。"""
-
-    @pytest.mark.parametrize(
-        ("code", "level", "suffix"),
-        [
-            ("20", 2, "氾濫注意報"),
-            ("30", 3, "氾濫警報"),
-            ("40", 4, "氾濫危険警報"),
-            ("51", 5, "氾濫特別警報"),
-        ],
+@pytest.mark.parametrize(
+    ("code", "level", "suffix"),
+    [
+        ("20", 2, "氾濫注意報"),
+        ("30", 3, "氾濫警報"),
+        ("40", 4, "氾濫危険警報"),
+        ("51", 5, "氾濫特別警報"),
+    ],
+)
+def test_the_representative_codes_land_on_the_level_their_bulletin_means(code, level, suffix):
+    # 気象庁「指定河川洪水予報」電文の表２と、5段階の警戒レベル
+    assert (flood_forecast.FLOOD_CODE_LEVELS[code].level, flood_forecast.FLOOD_CODE_LEVELS[code].suffix) == (
+        level,
+        suffix,
     )
-    def test_the_representative_codes_land_on_the_level_their_bulletin_means(self, code, level, suffix):
-        forecast = extract_active_flood_forecast(_entry(code), CLASS20, CLASS10)
 
-        assert forecast.level == level
-        assert forecast.label.endswith(suffix)
 
-    def test_the_badge_gets_heavier_as_the_level_rises(self):
-        """段が逆転・同一視されると、バッジの色が危なさを表さなくなる。"""
-        order = ["advisory", "warning", "severe_warning", "emergency_warning"]
-        badges = [
-            extract_active_flood_forecast(_entry(code), CLASS20, CLASS10).badge_level
-            for code in ("20", "30", "40", "51")
-        ]
+# ---- 電文1件の読み取り ----
 
-        assert [order.index(b) for b in badges] == sorted(order.index(b) for b in badges)
-        assert len(set(badges)) == 4
+
+@pytest.mark.parametrize("code", sorted(flood_forecast.FLOOD_CODE_LEVELS))
+def test_an_active_code_for_the_starting_area_becomes_a_forecast(code):
+    level = flood_forecast.FLOOD_CODE_LEVELS[code]
+
+    forecast = flood_forecast.extract_active_flood_forecast(_entry(code), "1310100", "130010")
+
+    assert forecast == flood_forecast.ActiveFloodForecast(
+        river_code="8301",
+        river_name="多摩川",
+        level=level.level,
+        badge_level=level.badge_level,
+        label=f"多摩川{level.suffix}",
+        condition="氾濫注意水位に到達",
+        report_datetime="2026-09-24T10:00:00+09:00",
+    )
+
+
+@pytest.mark.parametrize("code", [None, "10", "no_such_code"])
+def test_no_code_or_a_code_that_is_not_active_gives_nothing(code):
+    # "10"は完全解除（表に載せない）。表に無いコードは現在アクティブな状態を表さない
+    assert code not in flood_forecast.FLOOD_CODE_LEVELS
+    assert flood_forecast.extract_active_flood_forecast(_entry(code), "1310100", "130010") is None
+
+
+def test_an_entry_without_an_item_gives_nothing():
+    entry = _entry()
+    del entry["item"]
+
+    assert flood_forecast.extract_active_flood_forecast(entry, "1310100", "130010") is None
+
+
+@pytest.mark.parametrize(
+    ("class20", "class10"),
+    [
+        ("1310100", "999999"),  # 市区町村の区域で当たる
+        ("9999999", "130010"),  # 二次細分区域でだけ当たる
+    ],
+)
+def test_the_starting_area_matches_by_either_area_code(class20, class10):
+    assert flood_forecast.extract_active_flood_forecast(_entry(), class20, class10) is not None
+
+
+def test_an_entry_for_another_area_gives_nothing():
+    assert flood_forecast.extract_active_flood_forecast(_entry(), "9999999", "999999") is None
+
+
+def test_an_entry_without_area_lists_matches_nothing():
+    entry = _entry()
+    del entry["class20Codes"]
+    del entry["class10Codes"]
+
+    assert flood_forecast.extract_active_flood_forecast(entry, "1310100", "130010") is None
+
+
+def test_missing_texts_become_empty_and_the_label_is_the_level_name_alone():
+    entry = {"item": {"code": ACTIVE_CODE}, "class20Codes": ["1310100"]}
+
+    forecast = flood_forecast.extract_active_flood_forecast(entry, "1310100", "130010")
+
+    assert (forecast.river_code, forecast.river_name, forecast.condition, forecast.report_datetime) == ("", "", "", "")
+    assert forecast.label == flood_forecast.FLOOD_CODE_LEVELS[ACTIVE_CODE].suffix

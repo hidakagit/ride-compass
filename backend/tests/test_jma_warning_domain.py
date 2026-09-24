@@ -1,80 +1,90 @@
-"""`domain/jma_warning.py`——気象庁の警報コードを、走行に関わるものだけへ絞る。
+"""`domain/jma_warning.py`——警報・注意報のコードの段と、1地域ぶんの発表中の警報の取り出し。
 
-電文の取得・地域の解決は`test_weather_route.py`・`test_jma_area.py`が持つ。
-コード表そのものは書き写さず、全件に対して成り立つことだけを見る。
+ここで見ないもの:
+- 電文の取得と地点の区域の解決 → `services/warning_service.py`（`test_weather_route.py`等）
+- 段の色・呼び名 → `domain/warning_display.py`
+
+段の期待値は、コードの表を読み直して作らない（名称に「特別警報」を含むか、と同じ規則で期待値を
+作ると恒真になる）。気象庁の別表3が決めている段を、代表のコードで突き合わせる。
 """
 
-from app.domain.jma_warning import (
-    WARNING_KINDS,
-    extract_active_warnings,
-    warning_level,
+import pytest
+
+from app.domain import jma_warning
+
+
+# ---- コードの段（気象庁の別表3） ----
+
+
+@pytest.mark.parametrize(
+    ("code", "level"),
+    [
+        ("33", "emergency_warning"),  # 大雨特別警報
+        ("03", "warning"),  # 大雨警報
+        ("10", "advisory"),  # 大雨注意報
+        ("14", "advisory"),  # 雷注意報
+    ],
 )
+def test_the_badge_level_follows_the_official_code_table(code, level):
+    assert jma_warning.warning_level(code) == level
 
 
-class TestWarningLevel:
-    """**実装の規則をここで書き写して突き合わせない**（恒真になる）。代表的なコードが
-    意味どおりの段へ落ちることと、段が現象の強さの順に並ぶことを見る。
-    """
-
-    def test_representative_codes_land_where_their_meaning_says(self):
-        assert warning_level("33") == "emergency_warning"  # 大雨特別警報
-        assert warning_level("03") == "warning"  # 大雨警報
-        assert warning_level("10") == "advisory"  # 大雨注意報
-
-    def test_the_same_hazard_gets_heavier_as_the_bulletin_escalates(self):
-        """注意報→警報→特別警報は同じ現象の段。逆転や同一視をすると、バッジの色が
-        強さを表さなくなる。
-        """
-        order = ["advisory", "warning", "emergency_warning"]
-
-        assert order.index(warning_level("10")) < order.index(warning_level("03"))
-        assert order.index(warning_level("03")) < order.index(warning_level("33"))
+def test_a_code_not_in_the_table_is_an_error():
+    with pytest.raises(KeyError):
+        jma_warning.warning_level("no_such_code")
 
 
-class TestExtractActiveWarnings:
+# ---- 発表中の警報の取り出し ----
 
-    @staticmethod
-    def _kind(code: str | None = "14", status: str = "発表", **extra) -> dict:
-        kind = {"status": status, **extra}
-        if code is not None:
-            kind["code"] = code
-        return kind
 
-    def test_an_issued_warning_is_returned_with_its_name_and_level(self):
-        [warning] = extract_active_warnings([self._kind("03")])
+def _relevant_code() -> str:
+    return next(code for code, kind in jma_warning.WARNING_KINDS.items() if kind.relevant_to_cycling)
 
-        assert warning.code == "03"
-        assert warning.name == WARNING_KINDS["03"].name
-        assert warning.level == warning_level("03")
 
-    def test_a_continued_warning_is_still_active(self):
-        assert extract_active_warnings([self._kind("03", status="継続")])
+@pytest.mark.parametrize("status", sorted(jma_warning.ACTIVE_STATUSES))
+def test_an_issued_or_continuing_warning_is_taken_with_its_name_level_and_additions(status):
+    code = _relevant_code()
 
-    def test_a_released_warning_is_not_active(self):
-        """出し続けると、止んだ雨の警報が残る。"""
-        assert extract_active_warnings([self._kind("03", status="解除")]) == []
+    (warning,) = jma_warning.extract_active_warnings([{"code": code, "status": status, "additions": ["土砂災害"]}])
 
-    def test_an_area_with_nothing_issued_has_no_code(self):
-        assert extract_active_warnings([{"status": "発表警報・注意報はなし"}]) == []
+    assert warning == jma_warning.ActiveWarning(
+        code=code,
+        name=jma_warning.WARNING_KINDS[code].name,
+        level=jma_warning.warning_level(code),
+        additions=["土砂災害"],
+    )
 
-    def test_a_kind_unrelated_to_cycling_is_dropped(self):
-        assert extract_active_warnings([self._kind("21")]) == []
 
-    def test_the_additions_are_carried_through(self):
-        [warning] = extract_active_warnings([self._kind("03", additions=["浸水害"])])
+def test_a_warning_without_additions_has_none():
+    (warning,) = jma_warning.extract_active_warnings([{"code": _relevant_code(), "status": "発表"}])
 
-        assert warning.additions == ["浸水害"]
+    assert warning.additions == []
 
-    def test_a_kind_without_additions_gets_an_empty_list(self):
-        """Noneで返すと、読む側がその都度Noneを見る必要が出る。"""
-        [warning] = extract_active_warnings([self._kind("03")])
 
-        assert warning.additions == []
+@pytest.mark.parametrize("status", ["解除", "発表警報・注意報はなし", None])
+def test_a_warning_that_is_not_in_force_is_left_out(status):
+    kind = {"code": _relevant_code()} if status is None else {"code": _relevant_code(), "status": status}
 
-    def test_several_kinds_are_all_returned(self):
-        kinds = [self._kind("03"), self._kind("21"), self._kind("14"), self._kind("04", status="解除")]
+    assert jma_warning.extract_active_warnings([kind]) == []
 
-        assert [w.code for w in extract_active_warnings(kinds)] == ["03", "14"]
 
-    def test_no_kinds_at_all_gives_nothing(self):
-        assert extract_active_warnings([]) == []
+def test_an_area_with_nothing_issued_has_no_code_and_gives_nothing():
+    assert jma_warning.extract_active_warnings([{"status": "発表警報・注意報はなし"}]) == []
+
+
+def test_a_code_not_in_the_table_is_left_out():
+    assert jma_warning.extract_active_warnings([{"code": "no_such_code", "status": "発表"}]) == []
+
+
+def test_every_kind_not_relevant_to_cycling_is_left_out():
+    hidden = [code for code, kind in jma_warning.WARNING_KINDS.items() if not kind.relevant_to_cycling]
+    assert hidden, "出さない種別が1つも無い"
+
+    assert jma_warning.extract_active_warnings([{"code": code, "status": "発表"} for code in hidden]) == []
+
+
+def test_warnings_keep_the_order_they_came_in():
+    shown = [code for code, kind in jma_warning.WARNING_KINDS.items() if kind.relevant_to_cycling][:3]
+    kinds = [{"code": code, "status": "発表"} for code in reversed(shown)]
+
+    assert [w.code for w in jma_warning.extract_active_warnings(kinds)] == list(reversed(shown))

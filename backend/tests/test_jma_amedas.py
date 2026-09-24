@@ -1,73 +1,72 @@
-"""`domain/jma_amedas.py`——アメダス観測値の読み替えと体感温度。
+"""`domain/jma_amedas.py`——アメダスの風向コードの読み替えと、体感温度の計算。
 
-観測値の取得・キャッシュは`test_jma_amedas_service.py`が持つ。
+ここで見ないもの:
+- 観測値の取得と最寄り観測所の選び方 → `test_jma_amedas_service.py`
+- 応答の形（`AmedasObservation`） → 型が保証する
 """
-
-import math
 
 import pytest
 
-from app.domain.jma_amedas import (
-    apparent_temperature_from_amedas,
-    wind_direction_from_jma_code,
+from app.domain import jma_amedas
+
+
+# ---- 風向コード（0=静穏、1〜16=16方位） ----
+
+
+@pytest.mark.parametrize("code", [None, 0])
+def test_calm_or_missing_has_no_direction(code):
+    assert jma_amedas.wind_direction_from_jma_code(code) is None
+
+
+@pytest.mark.parametrize(
+    ("code", "expected"),
+    [
+        (4, (90.0, "東")),
+        (8, (180.0, "南")),
+        (12, (270.0, "西")),
+        (16, (0.0, "北")),  # 一周して360度ではなく0度（北）
+    ],
 )
+def test_the_cardinal_codes_point_the_way_the_jma_table_says(code, expected):
+    assert jma_amedas.wind_direction_from_jma_code(code) == expected
 
 
-class TestWindDirectionFromJmaCode:
+def test_the_sixteen_codes_go_round_clockwise_in_equal_steps_with_distinct_names():
+    directions = [jma_amedas.wind_direction_from_jma_code(code) for code in range(1, 17)]
 
-    def test_code_one_is_north_north_east(self):
-        assert wind_direction_from_jma_code(1) == (22.5, "北北東")
-
-    def test_the_last_code_wraps_back_to_north(self):
-        """360のまま配ると、方位の比較が0と360で割れる。"""
-        assert wind_direction_from_jma_code(16) == (0.0, "北")
-
-    def test_calm_has_no_direction(self):
-        """北として配ると、無風の地点に矢印が出る。"""
-        assert wind_direction_from_jma_code(0) is None
-
-    def test_a_missing_reading_has_no_direction(self):
-        assert wind_direction_from_jma_code(None) is None
-
-    def test_every_code_maps_to_a_distinct_direction(self):
-        directions = [wind_direction_from_jma_code(code) for code in range(1, 17)]
-
-        assert len(set(directions)) == 16
+    angles = [angle for angle, _ in directions]
+    # 1（北北東）から時計回りに等間隔で進み、16で北（0度）へ戻る
+    assert angles[:-1] == sorted(angles[:-1])
+    assert len({round(b - a, 6) for a, b in zip(angles[:-1], angles[1:-1])}) == 1
+    assert angles[-1] == 0.0
+    assert len({label for _, label in directions}) == 16
 
 
-class TestApparentTemperature:
+# ---- 体感温度 ----
 
-    def test_it_reproduces_the_published_formula(self):
-        temperature, humidity, wind = 30.0, 70.0, 2.0
-        vapour = (humidity / 100) * 6.105 * math.exp(17.27 * temperature / (237.7 + temperature))
-        expected = temperature + 0.33 * vapour - 0.70 * wind - 4.00
 
-        assert apparent_temperature_from_amedas(temperature, humidity, wind) == pytest.approx(expected)
+@pytest.mark.parametrize("missing", ["temperature_c", "humidity_percent", "wind_speed_ms"])
+def test_apparent_temperature_needs_all_three_readings(missing):
+    readings = {"temperature_c": 25.0, "humidity_percent": 60.0, "wind_speed_ms": 2.0, missing: None}
 
-    def test_humid_heat_feels_hotter_than_the_air_temperature(self):
-        """蒸し暑い日（26.5℃・湿度70%・風速3.5m/s）は、湿度のぶん体感が気温を上回る。
-        符号や係数を取り違えると、ここで下回る。
-        """
-        assert apparent_temperature_from_amedas(26.5, 70.0, 3.5) > 26.5
+    assert jma_amedas.apparent_temperature_from_amedas(**readings) is None
 
-    def test_humidity_makes_it_feel_hotter(self):
-        dry = apparent_temperature_from_amedas(30.0, 30.0, 2.0)
-        humid = apparent_temperature_from_amedas(30.0, 90.0, 2.0)
 
-        assert humid > dry
+def test_humid_air_feels_hotter():
+    dry = jma_amedas.apparent_temperature_from_amedas(30.0, 30.0, 1.0)
+    humid = jma_amedas.apparent_temperature_from_amedas(30.0, 80.0, 1.0)
 
-    def test_wind_makes_it_feel_cooler(self):
-        still = apparent_temperature_from_amedas(30.0, 70.0, 0.0)
-        breezy = apparent_temperature_from_amedas(30.0, 70.0, 5.0)
+    assert humid > dry
 
-        assert breezy < still
 
-    @pytest.mark.parametrize(
-        ("temperature", "humidity", "wind"),
-        [(None, 70.0, 2.0), (30.0, None, 2.0), (30.0, 70.0, None)],
-    )
-    def test_a_missing_input_gives_no_value(self, temperature, humidity, wind):
-        """センサー未搭載・欠測。欠けた入力を0で埋めると、無風・乾燥として計算され
-        実際よりかなり低い体感温度が出る。
-        """
-        assert apparent_temperature_from_amedas(temperature, humidity, wind) is None
+def test_each_metre_per_second_of_wind_feels_seven_tenths_of_a_degree_cooler():
+    calm = jma_amedas.apparent_temperature_from_amedas(20.0, 50.0, 0.0)
+    windy = jma_amedas.apparent_temperature_from_amedas(20.0, 50.0, 10.0)
+
+    # 豪州気象局の式は風速について線形（係数0.70）
+    assert calm - windy == pytest.approx(7.0)
+
+
+def test_dry_calm_air_feels_four_degrees_cooler_than_the_thermometer():
+    # 水蒸気圧0・風速0では、式の定数項（−4.00）だけが残る
+    assert jma_amedas.apparent_temperature_from_amedas(20.0, 0.0, 0.0) == pytest.approx(16.0)
