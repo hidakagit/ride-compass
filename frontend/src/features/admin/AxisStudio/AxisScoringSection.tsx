@@ -5,12 +5,14 @@
 // ほかの軸なら係数を掛けた合計。折れ点の並びは保存形式であって入力欄ではないので、
 // 直接いじる口は詳細設定に畳んである（docs/modules/frontend/axis-studio.md参照）。
 
+import { useScoresPreview } from "@/features/admin/useScoresPreview";
+import type { ScoresPreviewRequest } from "@/features/admin/axisPreviewApi";
+import { binMidpoints } from "./scoreDistribution";
 import { useState } from "react";
 import {
   BREAKPOINT_SHAPE_OPTIONS,
   generateBreakpoints,
   insertBreakpointAtLargestGap,
-  interpolateBreakpointScore,
   generatorSettingsFrom,
   type BreakpointShape,
 } from "./breakpointTools";
@@ -44,11 +46,6 @@ interface AxisScoringSectionProps {
 /** 材料の生値を折れ点の横軸(x)の値へ変換する。backend: domain/axis_definitions.py:
  * evaluate_axis_scalarの`total = value * weight`→`abs()`（preprocess="abs"の場合）と
  * 同じ変換（`terms`が1件のbreakpoint_linear軸限定、複数termの合計は対応しない）。 */
-function toBreakpointX(value: number, weight: number, preprocess: "identity" | "abs"): number {
-  const total = value * weight;
-  return preprocess === "abs" ? Math.abs(total) : total;
-}
-
 export function AxisScoringSection({ draft, setDraft, materialOptions, axisTermOptions }: AxisScoringSectionProps) {
   const selectedCategoricalDtype = materialOptions.find((m) => m.id === draft.categoricalMaterial)?.dtype;
   const { values: categoricalMaterialValues, unavailable: categoricalValuesUnavailable } = useMaterialValues(
@@ -73,7 +70,6 @@ export function AxisScoringSection({ draft, setDraft, materialOptions, axisTermO
       ? materialOptions.find((m) => m.id === draft.terms[0].material)
       : undefined;
   const primaryMaterialReferencePoints = primaryMaterial?.referencePoints ?? [];
-  const primaryTermWeight = draft.terms[0]?.weight ?? 1;
   // 分布は「材料・重み・前処理」で決まり、折れ点では変わらない。折れ点を含めない
   // キーで取得することで、折れ点のドラッグ中に通信が走らない。
   // 分布を描くのは「値ごとのスコア」（breakpoint_linear）の折れ点エディタだけ。他の形では
@@ -85,16 +81,29 @@ export function AxisScoringSection({ draft, setDraft, materialOptions, axisTermO
   const valueDistribution = useAxisValueDistribution(distributionTermsKey !== "", distributionTermsKey, () =>
     buildShape(draft, materialOptions),
   );
-  // 参考点の値域（曲線エディタの横軸固定・効き目プレビューに使う）。参考点が無ければ
-  // undefinedのままで、曲線エディタは従来どおりbreakpoints自体から自動スケールする。
+  // 分布の階級と参考点の点数・参考点の横軸の値は、backendが評価と同じ計算で返す（折れ点を動かすたびに、
+  // 落ち着いたら問い合わせる）。届くまでは効き目の表と参考点のボタンを出さない。
+  const scoresPreview = useScoresPreview(
+    draft.shapeKind === "breakpoint_linear" && draft.terms.length > 0 && draft.breakpoints.length > 0
+      ? {
+          shape: buildShape(draft, materialOptions) as ScoresPreviewRequest["shape"],
+          xs: binMidpoints(valueDistribution.distribution),
+          material_values: primaryMaterialReferencePoints.map((p) => p.value),
+        }
+      : null,
+  );
+  const referencePoints =
+    scoresPreview && scoresPreview.material_points.length === primaryMaterialReferencePoints.length
+      ? primaryMaterialReferencePoints.map((p, i) => ({ ...p, ...scoresPreview.material_points[i] }))
+      : [];
+  // 参考点の値域（曲線エディタの横軸固定に使う）。参考点が無い・届いていなければundefinedのままで、
+  // 曲線エディタはbreakpoints自体から自動スケールする。
   const breakpointReferenceRange =
-    primaryMaterialReferencePoints.length > 0
-      ? (() => {
-          const xs = primaryMaterialReferencePoints.map((p) =>
-            toBreakpointX(p.value, primaryTermWeight, draft.preprocess),
-          );
-          return { min: Math.min(...xs), max: Math.max(...xs) };
-        })()
+    referencePoints.length > 0
+      ? {
+          min: Math.min(...referencePoints.map((p) => p.x)),
+          max: Math.max(...referencePoints.map((p) => p.x)),
+        }
       : undefined;
 
   // 点数のもとになるもの（材料、または他の軸）。**これの型が点数のつけ方を決める**ため、
@@ -431,10 +440,10 @@ export function AxisScoringSection({ draft, setDraft, materialOptions, axisTermO
                     ))}
                   </Select>
                 </div>
-                {primaryMaterial && primaryMaterialReferencePoints.length > 0 && (
+                {primaryMaterial && referencePoints.length > 0 && (
                   <div className="flex flex-wrap gap-1" role="group" aria-label="参考点から値を選ぶ">
-                    {primaryMaterialReferencePoints.map((p) => {
-                      const x = toBreakpointX(p.value, primaryTermWeight, draft.preprocess);
+                    {referencePoints.map((p) => {
+                      const x = p.x;
                       return (
                         <Button
                           size="xs"
@@ -458,7 +467,7 @@ export function AxisScoringSection({ draft, setDraft, materialOptions, axisTermO
 
                 <DistributionPreview
                   distribution={valueDistribution.distribution}
-                  breakpoints={draft.breakpoints}
+                  binScores={scoresPreview?.scores ?? null}
                   loading={valueDistribution.loading}
                   error={valueDistribution.error}
                 />
@@ -512,7 +521,7 @@ export function AxisScoringSection({ draft, setDraft, materialOptions, axisTermO
                     + 折れ点を追加
                   </Button>
                 </details>
-                {primaryMaterial && primaryMaterialReferencePoints.length > 0 && (
+                {primaryMaterial && referencePoints.length > 0 && (
                   <div className="flex flex-col gap-1">
                     <SectionLabel
                       label="効き目プレビュー"
@@ -527,19 +536,14 @@ export function AxisScoringSection({ draft, setDraft, materialOptions, axisTermO
                         </TableRow>
                       </TableHead>
                       <TableBody>
-                        {primaryMaterialReferencePoints.map((p) => (
+                        {referencePoints.map((p) => (
                           <TableRow key={p.label}>
                             <TableCell>{p.label}</TableCell>
                             <TableCell>
                               {p.value}
                               {primaryMaterial.unit}
                             </TableCell>
-                            <TableCell>
-                              {interpolateBreakpointScore(
-                                draft.breakpoints,
-                                toBreakpointX(p.value, primaryTermWeight, draft.preprocess),
-                              )}
-                            </TableCell>
+                            <TableCell>{p.score}</TableCell>
                           </TableRow>
                         ))}
                       </TableBody>

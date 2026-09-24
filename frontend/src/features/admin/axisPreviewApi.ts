@@ -56,6 +56,21 @@ export async function fetchMapBandsOfThresholds(body: DisplayThresholdsPreviewRe
   return { droppedOnMap: response.dropped_on_map, bandsOnMap: response.bands_on_map };
 }
 
+export type ScoresPreviewRequest = components["schemas"]["ScoresPreviewRequest"];
+export type ScoresPreview = components["schemas"]["ScoresPreviewResponse"];
+
+/** 編集中の折れ点で、値がそれぞれ何点になるか。点数はbackendが評価と同じ計算で出す。DBを読まないため
+ * 既定のタイムアウトで足りる。 */
+export async function fetchScoresPreview(body: ScoresPreviewRequest): Promise<ScoresPreview> {
+  return requestJson<ScoresPreview>("/admin/api/axis-definitions/preview-scores", {
+    method: "POST",
+    body,
+    timeoutMs: DEFAULT_API_TIMEOUT_MS,
+    category: "api:axisPreview",
+    messages: { failure: "点数の確認に失敗しました", parseFailure: "点数の確認結果を解析できませんでした" },
+  });
+}
+
 /** 1材料の値が実データでどの範囲に散らばっているかを取る。 */
 export async function fetchMaterialDistribution(materialId: string): Promise<MaterialDistribution> {
   return requestJson<MaterialDistribution>(`/admin/api/material-distribution/${encodeURIComponent(materialId)}`, {

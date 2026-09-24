@@ -1,8 +1,7 @@
 "use client";
 
 // 編集中のshapeに対する生値分布の取得。折れ点だけを動かしている間は再取得しない
-// （折れ点は分布の形を変えず、当てはめ方だけを変えるため。当てはめは
-// features/admin/AxisStudio/scoreDistribution.ts がクライアント側で行う）。
+// （折れ点は分布の形を変えないため。各階級の点数は軽い問い合わせの`useScoresPreview`が取る）。
 
 import { useEffect, useRef, useState } from "react";
 

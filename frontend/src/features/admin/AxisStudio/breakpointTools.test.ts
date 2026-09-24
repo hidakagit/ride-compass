@@ -1,22 +1,18 @@
 // @vitest-environment node
 /**
- * `breakpointTools.ts`——折れ点の自動生成とその逆、区分線形補間、折れ点の追加位置、ドラッグの刻み。
- *
- * 補間の期待値は backend の評価（`domain/axis_templates.py: evaluate_breakpoint_linear` が使う `np.interp`）
- * の実測値。同じ折れ点を与えた画面とbackendとで値が食い違わないことが、補間の約束である。
+ * `breakpointTools.ts`——折れ点の自動生成とその逆、折れ点の追加位置、ドラッグの刻み。
  *
  * ここで見ないもの:
- * - 生成・補間を画面のどこで使うか → `AxisScoringSection.test.tsx`
+ * - 折れ点での点数の計算 → backend（`BreakpointLinearShape.score_at`）
+ * - 生成を画面のどこで使うか → `AxisScoringSection.test.tsx`
  */
 import { describe, expect, it } from "vitest";
 
 import {
   BREAKPOINT_SHAPE_OPTIONS,
-  breakpointScore,
   generateBreakpoints,
   generatorSettingsFrom,
   insertBreakpointAtLargestGap,
-  interpolateBreakpointScore,
   niceStep,
   snapToStep,
 } from "./breakpointTools";
@@ -119,44 +115,6 @@ describe("generatorSettingsFrom", () => {
 
   it("点が2つ未満なら、端点は0と10・効き方は一定で、一致とはしない", () => {
     expect(generatorSettingsFrom([[5, 50]])).toEqual({ zeroValue: 0, hundredValue: 10, shape: "flat", matched: false });
-  });
-});
-
-describe("breakpointScore（backendの np.interp と同じ値）", () => {
-  const points: [number, number][] = [
-    [0, 0],
-    [10, 40],
-    [20, 100],
-  ];
-
-  it("範囲の外は両端の点数に留める", () => {
-    expect(breakpointScore(points, -5)).toBe(0);
-    expect(breakpointScore(points, 25)).toBe(100);
-  });
-
-  it("点の間は直線で補間し、丸めない", () => {
-    expect(breakpointScore(points, 5)).toBe(20);
-    expect(breakpointScore(points, 12.5)).toBe(55);
-    expect(breakpointScore(points, 1 / 3)).toBeCloseTo(4 / 3, 12);
-  });
-
-  it("並びが崩れた折れ点も、並べ直して補間する", () => {
-    expect(breakpointScore([points[2], points[0], points[1]], 15)).toBe(70);
-  });
-
-  it("折れ点が無ければ0点", () => {
-    expect(breakpointScore([], 3)).toBe(0);
-  });
-});
-
-describe("interpolateBreakpointScore", () => {
-  it("補間した値を小数1桁へ丸める", () => {
-    const points: [number, number][] = [
-      [0, 0],
-      [3, 10],
-    ];
-    expect(interpolateBreakpointScore(points, 1)).toBe(3.3);
-    expect(interpolateBreakpointScore(points, 2)).toBe(6.7);
   });
 });
 

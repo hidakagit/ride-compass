@@ -27,8 +27,10 @@ APIを呼ぶ）・「データ保守」タブ（派生データ鮮度台帳の�
 | `features/admin/AxisStudio/scoreDistribution.ts` | 生値の分布へ折れ点を当てはめ、得点帯ごとの延長割合と警告を求める純粋関数（DOM非依存、`DistributionPreview.tsx`が使う） |
 | `features/admin/AxisStudio/DistributionPreview.tsx` | 折れ点の下に「この折れ点での得点分布」を出すパネル。満点への張り付き・0点への偏りを警告する |
 | `features/admin/AxisStudio/MaterialRangeHint.tsx` | 材料選択行の下に、その材料が実データで取る値の分位（p50/p75/p90）を出す1行表示 |
-| `features/admin/axisPreviewApi.ts` | 分布プレビューと、しきい値が地図で効くかの問い合わせのAPIクライアント（`app/admin/api/axis-definitions/preview-distribution/`・`preview-display-thresholds/`・`app/admin/api/material-distribution/[materialId]/`経由） |
+| `features/admin/axisPreviewApi.ts` | 分布プレビューと、しきい値が地図で効くか・折れ点での点数の問い合わせのAPIクライアント（`app/admin/api/axis-definitions/preview-distribution/`・`preview-display-thresholds/`・`preview-scores/`・`app/admin/api/material-distribution/[materialId]/`経由） |
 | `app/admin/api/axis-definitions/preview-display-thresholds/route.ts` | `proxyToBackendAdmin`でbackend `POST /api/admin/axis-definitions/preview-display-thresholds`へ転送する |
+| `app/admin/api/axis-definitions/preview-scores/route.ts` | `proxyToBackendAdmin`でbackend `POST /api/admin/axis-definitions/preview-scores`へ転送する |
+| `features/admin/useScoresPreview.ts` | 下書きの折れ点で、分布の階級の代表値と材料の参考点がそれぞれ何点になるか（参考点は折れ点の横軸の値も）を取得する（下書きが落ち着いてから問い合わせる。入力を変えた直後・失敗時はnull） |
 | `features/admin/useMapBandsOfThresholds.ts` | 下書きのしきい値が地図でどの段になるか（段にならない値・地図の各段に当たる入力の段）を取得する（下書きが落ち着いてから問い合わせる。失敗時は判定なし） |
 | `app/admin/api/axis-definitions/preview-distribution/route.ts` | `proxyToBackendAdmin`でbackend `POST /api/admin/axis-definitions/preview-distribution`へ転送する。初回はWayの抽選を伴うため転送タイムアウトを長く取る |
 | `app/admin/api/material-distribution/[materialId]/route.ts` | 同じくbackend `GET /api/admin/material-catalog/{material_id}/distribution`へ転送する |
@@ -83,11 +85,12 @@ listAxisDefinitions() ──→ definitions（全軸）
 数値の入力欄だけでは折れ点の妥当性を判断できず、公開して地図とルートを見るまで結果が
 分からないため。満点への張り付きが半分を超える・0点が9割を超える場合は警告を添える。
 
-分布の取得と当てはめは役割を分ける。backendは**折れ点を通す前の生値**のヒストグラムだけを
-返し、折れ点の当てはめは`scoreDistribution.ts`がクライアントで行う——折れ点を1つ動かす
-たびに通信すると編集の手応えが失われるうえ、折れ点は区分線形の写像でしかなく、生値の
-ヒストグラムがあればクライアントで正確に求まる。取得のキー（`useAxisValueDistribution`の
-`termsKey`）に折れ点を含めないのはこのため。
+分布の取得と点数の計算は役割を分ける。分布の口（`preview-distribution`）は**折れ点を通す前の生値**の
+ヒストグラムを返す。DBから抽選して集計する重い問い合わせなので、取得のキー（`useAxisValueDistribution`の
+`termsKey`）に折れ点を含めず、折れ点を動かしても取り直さない。各階級の代表値（中央、`binMidpoints`）の
+点数は、DBを読まない軽い口（`preview-scores`）へ折れ点が落ち着くたびに問い合わせる（`useScoresPreview`）。
+点数の計算は評価と同じ1か所（`BreakpointLinearShape.score_at`）で、画面は届いた点数を帯へまとめる
+（`scoreDistribution.ts: scoreBands`）だけ——画面で計算し直すと、同じ折れ点に評価と画面で別の点数が付きうる。
 
 抽選した道が1本も値を持たない（`sample_ways=0`）ときは、全帯0%のバーではなく理由を言葉で
 出す。ルート文脈が要る材料（走行方向・時刻に依存する勾配・風）はWay単位では値が定まらず、
@@ -257,10 +260,6 @@ default_weight等）は`draftFromExisting`が読み込んだ既存値のまま�
     その軸と無関係な範囲が表示され、どれか1つに触れた瞬間に較正済みの端点が黙って消える。
     生成物と総当たりで突き合わせて一致すれば効き方まで復元し（`matched`）、手で編集された
     折れ点なら端点だけを点数の低い側/高い側から復元する。
-  - `interpolateBreakpointScore(breakpoints, x)`: 区分線形補間。backend:
-    `domain/axis_templates.py: evaluate_breakpoint_linear`（`np.interp`、両端クランプ・
-    小数1桁丸め）と同じ結果になるよう実装を揃える——効き目プレビュー表が実際の評価結果と
-    食い違わないようにするため。
   - `insertBreakpointAtLargestGap(breakpoints)`: 「+ 折れ点を追加」の挿入位置。隣接点の
     x間隔が最も広い区間の中間へ挿入する（末尾への追加では、既存の
     折れ点より横軸が小さい点を足してしまい昇順制約に即座に違反していた）。
@@ -271,10 +270,9 @@ default_weight等）は`draftFromExisting`が読み込んだ既存値のまま�
   場合にのみ、そのterm1件の材料が持つ`referencePoints`（`GET /api/material-catalog`の
   `reference_points`、下記「useMaterialCatalog.ts / useMaterialValues.ts」節参照）から出す。
   複数termの組み合わせ・他軸参照は参考点の対応が取れないため対象外
-  （`AxisScoringSection.tsx: primaryMaterial`）。参考点の生値は折れ点の横軸（`weight`を
-  掛け、`preprocess="abs"`なら絶対値を取った後の値）へ変換してから使う
-  （`AxisScoringSection.tsx: toBreakpointX`、backend: `evaluate_axis_scalar`の`total`計算と同じ
-  変換）。
+  （`AxisScoringSection.tsx: primaryMaterial`）。参考点の生値を折れ点の横軸の値（重みと前処理を当てた値）へ
+  写すのも、その点数も、backendの軽い口（`preview-scores`の`material_points`）が返す。届くまではボタンと表を
+  出さない。
 - `BreakpointCurveEditor`（`BreakpointCurveEditor.tsx`）: SVGでbreakpointsをドラッグ・
   矢印キー調整できる曲線プレビュー。
   同じ`draft.breakpoints` stateを数値入力行と共有し、常に同期する。`referenceRange`

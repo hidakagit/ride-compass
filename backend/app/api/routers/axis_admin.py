@@ -374,6 +374,44 @@ async def preview_axis_distribution(
     return ValueDistributionResponse(**asdict(distribution))
 
 
+class ScoresPreviewRequest(StrictModel):
+    """折れ点の下書きで、値がそれぞれ何点になるかの問い合わせ。点数は評価と同じ計算で出す。"""
+
+    shape: BreakpointLinearShape
+    #: 折れ点の横軸の値（項の合成・前処理の後）。分布の階級の代表値など。
+    xs: list[float] = Field(default_factory=list)
+    #: 1つ目の項の材料の値。その項の重みと前処理を当てて横軸の値にしてから点数にする（材料の参考点の効き目）。
+    material_values: list[float] = Field(default_factory=list)
+
+
+class ScorePoint(StrictModel):
+    x: float
+    score: float
+
+
+class ScoresPreviewResponse(StrictModel):
+    #: `xs`の順の点数。
+    scores: list[float]
+    #: `material_values`の順の、横軸の値と点数。
+    material_points: list[ScorePoint]
+
+
+@router.post("/preview-scores")
+async def preview_scores(payload: ScoresPreviewRequest) -> ScoresPreviewResponse:
+    """編集中の折れ点で、値がそれぞれ何点になるかを返す。DBを読まない。
+
+    軸スタジオは折れ点を動かすたびにこれを問い合わせ、分布の帯の割合と効き目の表を出す。点数の計算を
+    画面で作り直すと、評価と画面で同じ折れ点に別の点数が付きうる（同じxの点が並ぶところ等）。
+    """
+    shape = payload.shape
+    weight = shape.terms[0].weight
+    points = []
+    for value in payload.material_values:
+        x = shape.preprocessed(value * weight)
+        points.append(ScorePoint(x=x, score=shape.score_at(x)))
+    return ScoresPreviewResponse(scores=[shape.score_at(x) for x in payload.xs], material_points=points)
+
+
 class DisplayThresholdsPreviewRequest(StrictModel):
     """段の境界の下書きの問い合わせ。段を決めるのに要る入力だけを受け取る
     （`domain/axis_display.py: thresholds_the_map_drops`）。"""

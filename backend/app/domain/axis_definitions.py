@@ -107,6 +107,14 @@ class BreakpointLinearShape(StrictModel):
             raise axis_error(f"折れ点は横軸の値が小さい順に並べてください（同じ値は使えません）: {xs}")
         return value
 
+    def preprocessed(self, total: float) -> float:
+        """項を合成した値に前処理を当てた、折れ点の横軸の値。"""
+        return abs(total) if self.preprocess == "abs" else total
+
+    def score_at(self, x: float) -> float:
+        """横軸の値`x`の点数（評価と同じく小数1桁）。"""
+        return round(evaluate_breakpoint_linear(x, self.breakpoints), 1)
+
 
 _FLAG_KEYS = {"true": True, "false": False}
 
@@ -792,9 +800,7 @@ def evaluate_axis_scalar(definition: AxisDefinition, materials: Mapping[str, obj
             total = contribution if total is None else total + contribution
         if total is None:
             return None
-        if shape.preprocess == "abs":
-            total = abs(total)
-        return round(evaluate_breakpoint_linear(total, shape.breakpoints), 1)
+        return shape.score_at(shape.preprocessed(total))
     # CategoricalShape
     value = materials.get(shape.material)
     if value is None:

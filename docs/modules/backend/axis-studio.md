@@ -337,6 +337,7 @@ idの文字列ではなく宣言そのもので指す。材料が指す要素に
 | `DELETE /api/admin/axis-definitions/{axis_id}` | Basic認証必須 | 削除 |
 | `POST /api/admin/axis-definitions/{axis_id}/unpublish` | Basic認証必須 | 公開済み軸を下書きへ戻す（`is_published`以外は変更しない） |
 | `POST /api/admin/axis-definitions/preview-display-thresholds` | Basic認証必須 | 編集中の軸で、上書きしたしきい値のうち地図が段にしないものと、地図の各段に当たる入力の段（DBを読まない） |
+| `POST /api/admin/axis-definitions/preview-scores` | Basic認証必須 | 編集中の折れ点で、横軸の値の並び（分布の階級の代表値）と1つ目の項の材料の値の並び（参考点）がそれぞれ何点になるか。参考点は横軸の値（重みと前処理を当てた値）も返す。点数は評価と同じ`BreakpointLinearShape.score_at`（DBを読まない） |
 | `GET /api/axis-catalog` | 不要（公開） | `is_published=True`の軸のみ返す。`AxisDefinition`のほぼ全フィールドをそのまま返す |
 
 管理API（`/api/admin/axis-definitions`）のBasic認証はルーターの`dependencies`で1か所に宣言し、

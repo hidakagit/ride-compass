@@ -1,4 +1,4 @@
-// 折れ点(breakpoints)編集の省力化（自動生成・効き目プレビュー・エディタの補助計算）を
+// 折れ点(breakpoints)編集の省力化（自動生成・エディタの補助計算）を
 // AxisComposer.tsxから切り出した純粋関数群。DOM/Reactに依存しない（BreakpointCurveEditor.
 // test.tsxが単体で検証できるようにする、他のlib/*.ts純粋関数と同じ方針）。
 
@@ -100,30 +100,6 @@ export function generatorSettingsFrom(breakpoints: readonly [number, number][]):
 /** 折れ点をx昇順へ並べ替える（ドラッグ・数値入力・自動生成のいずれの後も呼ぶ）。 */
 function sortBreakpoints(breakpoints: readonly [number, number][]): [number, number][] {
   return [...breakpoints].sort((a, b) => a[0] - b[0]);
-}
-
-/** 区分線形補間（backend: domain/axis_templates.py: evaluate_breakpoint_linearと同じ
- * np.interpの仕様——両端でクランプ、xは昇順前提）。**丸めない**。
- *
- * 同じxを持つ折れ点が並んだときは後ろのyを返す（np.interpと同じ。前のyを返す実装が別に
- * あると、同じ折れ点を与えた画面どうしで値が食い違う）。 */
-export function breakpointScore(breakpoints: readonly [number, number][], x: number): number {
-  if (breakpoints.length === 0) return 0;
-  const sorted = sortBreakpoints(breakpoints);
-  const last = sorted[sorted.length - 1];
-  if (x < sorted[0][0]) return sorted[0][1];
-  if (x >= last[0]) return last[1];
-  let j = 0;
-  while (sorted[j + 1][0] <= x) j++;
-  const [x0, y0] = sorted[j];
-  const [x1, y1] = sorted[j + 1];
-  return y0 + ((x - x0) / (x1 - x0)) * (y1 - y0);
-}
-
-/** 効き目プレビュー表が出す得点。backendが返す値と見た目を揃えるため小数1桁へ丸める
- * （計算そのものは`breakpointScore`が持つ）。 */
-export function interpolateBreakpointScore(breakpoints: readonly [number, number][], x: number): number {
-  return Math.round(breakpointScore(breakpoints, x) * 10) / 10;
 }
 
 /** 「+ 折れ点を追加」の挿入位置。隣接点どうしのx方向の間隔が最も広い区間の中間へ挿入する

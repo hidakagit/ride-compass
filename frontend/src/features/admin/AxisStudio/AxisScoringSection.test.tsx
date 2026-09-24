@@ -20,7 +20,7 @@ import type { AxisMaterialOption } from "@/lib/axisMaterialsCatalog";
 import type { MaterialValuesResponse } from "@/types/route";
 
 import { buildShape, emptyDraft, type Draft } from "./axisDraft";
-import { generateBreakpoints, insertBreakpointAtLargestGap, interpolateBreakpointScore } from "./breakpointTools";
+import { generateBreakpoints, insertBreakpointAtLargestGap } from "./breakpointTools";
 
 const api = vi.hoisted(() => ({ getMaterialValues: vi.fn() }));
 vi.mock("@/services/materialCatalogApi", () => ({ getMaterialValues: api.getMaterialValues }));
@@ -34,6 +34,16 @@ const captured = vi.hoisted(() => ({
   },
   preview: null as Record<string, unknown> | null,
   curve: null as Record<string, unknown> | null,
+  scoresRequest: null as unknown,
+  scoresPreview: null as { scores: number[]; material_points: { x: number; score: number }[] } | null,
+}));
+// 点数と参考点の横軸の値はbackendが返す（`useScoresPreview`）。ここでは決まった値を返させ、画面がそれを
+// そのまま使うことと、問い合わせに渡すものを見る。
+vi.mock("@/features/admin/useScoresPreview", () => ({
+  useScoresPreview: (request: unknown) => {
+    captured.scoresRequest = request;
+    return captured.scoresPreview;
+  },
 }));
 vi.mock("@/features/admin/useAxisValueDistribution", () => ({
   useAxisValueDistribution: (enabled: boolean, key: string, shape: () => unknown) => {
@@ -79,6 +89,16 @@ const BOOL = option({ id: "bool_a", dtype: "boolean" });
 const CAT = option({ id: "cat_a", dtype: "categorical" });
 const MATERIALS = [NUM, NUM_PLAIN, BOOL, CAT];
 const AXIS = option({ id: "axis_other", dtype: "numeric" });
+
+/** 参考点ごとにbackendが返す横軸の値と点数（参考点の並びどおり）。 */
+const REFERENCE_POINTS = [
+  { x: 10, score: 12.5 },
+  { x: 60, score: 87.5 },
+];
+
+beforeEach(() => {
+  captured.scoresPreview = { scores: [], material_points: REFERENCE_POINTS };
+});
 
 function Harness({ initial, axes }: { initial: Draft; axes: readonly AxisMaterialOption[] }) {
   const [draft, setDraft] = useState(initial);
@@ -355,19 +375,24 @@ describe("0点・100点・効き方", () => {
     expect(draft().breakpoints).toEqual(generateBreakpoints(1, 10, "flat"));
   });
 
-  it("材料に参考点があれば、押すと0点・2回押すと100点へ、係数と絶対値を当てた値で入れる", async () => {
-    const user = renderSection(
-      linearDraft({ terms: [{ material: NUM.id, weight: 2, required: true }], preprocess: "abs" }),
-    );
+  it("材料に参考点があれば、押すと0点・2回押すと100点へ、backendが返した横軸の値で入れる", async () => {
+    const user = renderSection(linearDraft());
     const group = screen.getByRole("group", { name: "参考点から値を選ぶ" });
     const downhill = within(group).getByRole("button", { name: "下り" });
     expect(downhill).toHaveAttribute("title", "下り: -5km/h");
 
     await user.click(within(group).getByRole("button", { name: "平坦" }));
-    expect(screen.getByRole("spinbutton", { name: "0点にする値" })).toHaveValue(60);
+    expect(screen.getByRole("spinbutton", { name: "0点にする値" })).toHaveValue(REFERENCE_POINTS[1].x);
 
     await user.dblClick(downhill);
-    expect(screen.getByRole("spinbutton", { name: "100点にする値" })).toHaveValue(10);
+    expect(screen.getByRole("spinbutton", { name: "100点にする値" })).toHaveValue(REFERENCE_POINTS[0].x);
+  });
+
+  it("点数が届くまでは、参考点のボタンと効き目の表を出さない", () => {
+    captured.scoresPreview = null;
+    renderSection(linearDraft());
+    expect(screen.queryByRole("group", { name: "参考点から値を選ぶ" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("table")).not.toBeInTheDocument();
   });
 
   it.each([
@@ -387,9 +412,8 @@ describe("0点・100点・効き方", () => {
     expect(screen.queryByRole("table")).not.toBeInTheDocument();
   });
 
-  it("効き目の表は、参考点ごとに値と、いまの折れ点での点数を出す", () => {
-    const breakpoints = generateBreakpoints(0, 40, "back_loaded");
-    renderSection(linearDraft({ breakpoints, terms: [{ material: NUM.id, weight: 1, required: true }] }));
+  it("効き目の表は、参考点ごとに値と、backendが返した点数を出す", () => {
+    renderSection(linearDraft());
 
     const rows = within(screen.getByRole("table")).getAllByRole("row").slice(1);
     expect(
@@ -398,13 +422,26 @@ describe("0点・100点・効き方", () => {
           .getAllByRole("cell")
           .map((cell) => cell.textContent),
       ),
-    ).toEqual(
-      NUM.referencePoints!.map((p) => [
-        p.label,
-        `${p.value}km/h`,
-        String(interpolateBreakpointScore(breakpoints, p.value)),
-      ]),
-    );
+    ).toEqual(NUM.referencePoints!.map((p, i) => [p.label, `${p.value}km/h`, String(REFERENCE_POINTS[i].score)]));
+  });
+
+  it("点数の問い合わせには、今の形・分布の階級の代表値・参考点の値を渡し、折れ線でなければ問い合わせない", () => {
+    captured.distributionResult = {
+      distribution: { sample_ways: 1, total_km: 1, quantiles: {}, bins: [[0, 2, 1]], zero_share: 0 },
+      loading: false,
+      error: null,
+    };
+    const { unmount } = render(<Harness initial={linearDraft()} axes={[]} />);
+    expect(captured.scoresRequest).toEqual({
+      shape: buildShape(draft(), MATERIALS),
+      xs: [1],
+      material_values: NUM.referencePoints!.map((p) => p.value),
+    });
+    unmount();
+    captured.distributionResult = { distribution: null, loading: false, error: null };
+
+    renderSection(categoricalDraft(BOOL.id));
+    expect(captured.scoresRequest).toBeNull();
   });
 });
 
@@ -431,25 +468,21 @@ describe("分布と折れ点の直接編集", () => {
     expect(captured.distributionArgs.at(-1)!.slice(0, 2)).toEqual([false, ""]);
   });
 
-  it("分布の表示へ、取得の結果と今の折れ点を渡す", () => {
+  it("分布の表示へ、取得の結果と、backendが返した階級ごとの点数を渡す", () => {
     captured.distributionResult = { distribution: { sample_ways: 1 }, loading: true, error: "e" };
+    captured.scoresPreview = { scores: [40, 60], material_points: [] };
     renderSection(linearDraft());
     expect(captured.preview).toEqual({
       distribution: { sample_ways: 1 },
       loading: true,
       error: "e",
-      breakpoints: draft().breakpoints,
+      binScores: [40, 60],
     });
   });
 
-  it("曲線エディタの横軸は、参考点を係数と絶対値で写した範囲で固定し、参考点が無ければ固定しない", () => {
-    const { unmount } = render(
-      <Harness
-        initial={linearDraft({ terms: [{ material: NUM.id, weight: 2, required: true }], preprocess: "abs" })}
-        axes={[]}
-      />,
-    );
-    expect(captured.curve!.referenceRange).toEqual({ min: 10, max: 60 });
+  it("曲線エディタの横軸は、backendが返した参考点の横軸の値の範囲で固定し、参考点が無ければ固定しない", () => {
+    const { unmount } = render(<Harness initial={linearDraft()} axes={[]} />);
+    expect(captured.curve!.referenceRange).toEqual({ min: REFERENCE_POINTS[0].x, max: REFERENCE_POINTS[1].x });
     unmount();
 
     render(

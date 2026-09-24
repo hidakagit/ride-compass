@@ -1401,6 +1401,51 @@
         ]
       }
     },
+    "/api/admin/axis-definitions/preview-scores": {
+      "post": {
+        "tags": [
+          "axis-admin"
+        ],
+        "operationId": "preview_scores_api_admin_axis_definitions_preview_scores_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ScoresPreviewRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ScoresPreviewResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBasic": []
+          }
+        ]
+      }
+    },
     "/api/admin/axis-definitions/preview-display-thresholds": {
       "post": {
         "tags": [
@@ -4950,6 +4995,77 @@
           "distance_km"
         ],
         "title": "RouteSegmentDetail"
+      },
+      "ScorePoint": {
+        "properties": {
+          "x": {
+            "type": "number",
+            "title": "X"
+          },
+          "score": {
+            "type": "number",
+            "title": "Score"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "x",
+          "score"
+        ],
+        "title": "ScorePoint"
+      },
+      "ScoresPreviewRequest": {
+        "properties": {
+          "shape": {
+            "$ref": "#/components/schemas/BreakpointLinearShape"
+          },
+          "xs": {
+            "items": {
+              "type": "number"
+            },
+            "type": "array",
+            "title": "Xs"
+          },
+          "material_values": {
+            "items": {
+              "type": "number"
+            },
+            "type": "array",
+            "title": "Material Values"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "shape"
+        ],
+        "title": "ScoresPreviewRequest"
+      },
+      "ScoresPreviewResponse": {
+        "properties": {
+          "scores": {
+            "items": {
+              "type": "number"
+            },
+            "type": "array",
+            "title": "Scores"
+          },
+          "material_points": {
+            "items": {
+              "$ref": "#/components/schemas/ScorePoint"
+            },
+            "type": "array",
+            "title": "Material Points"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "scores",
+          "material_points"
+        ],
+        "title": "ScoresPreviewResponse"
       },
       "TileInputSpec": {
         "properties": {

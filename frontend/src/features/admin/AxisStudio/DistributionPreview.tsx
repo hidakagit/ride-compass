@@ -14,7 +14,8 @@ import { cardVariants } from "@/components/ui/Card/Card";
 
 interface Props {
   distribution: ValueDistribution | null;
-  breakpoints: readonly [number, number][];
+  /** 分布の階級ごとの点数（`binMidpoints`の順、backendが返す）。届くまではnull。 */
+  binScores: readonly number[] | null;
   loading: boolean;
   error: string | null;
 }
@@ -25,8 +26,8 @@ function quantilesInOrder(quantiles: Readonly<Record<string, number>>): [string,
   return Object.entries(quantiles).sort(([a], [b]) => Number(a.slice(1)) - Number(b.slice(1)));
 }
 
-export function DistributionPreview({ distribution, breakpoints, loading, error }: Props) {
-  const bands = scoreBands(distribution, breakpoints);
+export function DistributionPreview({ distribution, binScores, loading, error }: Props) {
+  const bands = scoreBands(distribution, binScores);
   const warnings = distributionWarnings(bands);
   const maxShare = Math.max(...bands.map((b) => b.share), 0.0001);
 

@@ -1,10 +1,8 @@
-import { breakpointScore } from "./breakpointTools";
-
-// 折れ点を当てはめて得点帯ごとの延長割合を求める純関数（DOM非依存）。
+// 生値の分布を得点帯ごとの延長割合へまとめる純関数（DOM非依存）。
 //
-// backendは折れ点を通す前の生値のヒストグラムだけを返し、折れ点の当てはめはここで行う
-// （折れ点を1つ動かすたびに通信すると編集の手応えが失われるうえ、折れ点は区分線形の
-// 写像でしかなく、生値のヒストグラムがあればクライアントで正確に求まる）。
+// backendは折れ点を通す前の生値のヒストグラムを返し（重い集計のため折れ点を動かしても取り直さない）、
+// 各階級の代表値の点数は別の軽い問い合わせ（`useScoresPreview`、評価と同じ計算）が返す。ここは届いた点数を
+// 帯へ振り分けるだけで、点数を計算しない。
 
 /** `GET /api/admin/material-catalog/{material_id}/distribution`の応答本体。
  *
@@ -35,23 +33,20 @@ const BAND_LABELS: readonly string[] = [
 const ZERO_BAND_INDEX = 0;
 const FULL_BAND_INDEX = BAND_LABELS.length - 1;
 
-/** 区分線形の折れ点で値を得点へ写す。計算は`breakpointTools.ts`が単一の情報源
- * （丸め方・同じxが並んだときの返り値が別実装でずれると、同じ折れ点を与えた画面どうしで
- * 値が食い違う）。 */
-const scoreForValue = (value: number, breakpoints: readonly [number, number][]): number =>
-  breakpointScore(breakpoints, value);
+/** 分布の各階級の代表値（中央）。階級幅は分布全体を等分したもので、この粒度より細かい折れ点の差は画面上の
+ * 意味を持たない。この値の点数を問い合わせ、`scoreBands`へ渡す。 */
+export function binMidpoints(distribution: ValueDistribution | null): number[] {
+  return (distribution?.bins ?? []).map(([lower, upper]) => (lower + upper) / 2);
+}
 
-/** 生値の分布へ折れ点を当てはめ、得点帯ごとの延長割合を返す。 */
-export function scoreBands(
-  distribution: ValueDistribution | null,
-  breakpoints: readonly [number, number][],
-): ScoreBand[] {
+/** 分布の階級ごとの点数（`binMidpoints`の順）を、得点帯ごとの延長割合へまとめる。点数が届いていない・階級と
+ * 数が合わない間は、全帯を0で返す（前の折れ点の点数を今の分布へ当てない）。 */
+export function scoreBands(distribution: ValueDistribution | null, binScores: readonly number[] | null): ScoreBand[] {
   const bands = BAND_LABELS.map((label) => ({ label, share: 0 }));
   if (!distribution || distribution.bins.length === 0) return bands;
-  for (const [lower, upper, share] of distribution.bins) {
-    // 階級の代表値は中央。階級幅は分布全体を等分したもので、この粒度より細かい
-    // 折れ点の差は画面上の意味を持たない。
-    const score = scoreForValue((lower + upper) / 2, breakpoints);
+  if (binScores === null || binScores.length !== distribution.bins.length) return bands;
+  for (const [i, [, , share]] of distribution.bins.entries()) {
+    const score = binScores[i];
     let index: number;
     if (score <= 0) index = ZERO_BAND_INDEX;
     else if (score >= 100) index = FULL_BAND_INDEX;

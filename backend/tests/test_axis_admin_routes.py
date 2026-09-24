@@ -161,6 +161,7 @@ ROUTE_CASES = {
         {"axis_id": "a", "shape": linear_shape("num_a"), "thresholds": [1.0]},
         200,
     ),
+    ("POST", BASE + "/preview-scores"): ({"shape": linear_shape("num_a"), "xs": [0.5]}, 200),
 }
 ROUTES = [(method, route.path) for route in axis_admin.router.routes for method in sorted(route.methods)]
 

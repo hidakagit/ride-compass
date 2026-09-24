@@ -452,6 +452,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/admin/axis-definitions/preview-scores": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["preview_scores_api_admin_axis_definitions_preview_scores_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/admin/axis-definitions/preview-display-thresholds": {
         parameters: {
             query?: never;
@@ -1684,6 +1700,28 @@ export interface components {
             /** Difficulty */
             difficulty?: number | null;
         };
+        /** ScorePoint */
+        ScorePoint: {
+            /** X */
+            x: number;
+            /** Score */
+            score: number;
+        };
+        /** ScoresPreviewRequest */
+        ScoresPreviewRequest: {
+            shape: components["schemas"]["BreakpointLinearShape"];
+            /** Xs */
+            xs?: number[];
+            /** Material Values */
+            material_values?: number[];
+        };
+        /** ScoresPreviewResponse */
+        ScoresPreviewResponse: {
+            /** Scores */
+            scores: number[];
+            /** Material Points */
+            material_points: components["schemas"]["ScorePoint"][];
+        };
         /** TileInputSpec */
         TileInputSpec: {
             /** Property */
@@ -2847,6 +2885,39 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ValueDistributionResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    preview_scores_api_admin_axis_definitions_preview_scores_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ScoresPreviewRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ScoresPreviewResponse"];
                 };
             };
             /** @description Validation Error */

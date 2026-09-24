@@ -11,10 +11,8 @@ import { describe, expect, it } from "vitest";
 import { DistributionPreview } from "./DistributionPreview";
 import { distributionWarnings, scoreBands, type ValueDistribution } from "./scoreDistribution";
 
-const BREAKPOINTS: [number, number][] = [
-  [0, 0],
-  [100, 100],
-];
+/** 既定の分布（2階級）の、backendが返す階級ごとの点数。 */
+const SCORES = [0, 50];
 
 function distribution(overrides: Partial<ValueDistribution> = {}): ValueDistribution {
   return {
@@ -31,7 +29,7 @@ function distribution(overrides: Partial<ValueDistribution> = {}): ValueDistribu
 }
 
 function renderPreview(props: Partial<Parameters<typeof DistributionPreview>[0]>) {
-  render(<DistributionPreview distribution={null} breakpoints={BREAKPOINTS} loading={false} error={null} {...props} />);
+  render(<DistributionPreview distribution={null} binScores={SCORES} loading={false} error={null} {...props} />);
   return screen.getByRole("region", { name: "折れ点の効き方" });
 }
 
@@ -68,7 +66,7 @@ describe("DistributionPreview", () => {
 
     expect(region).toHaveTextContent("1,234本");
     expect(region).toHaveTextContent("56.5km");
-    const bands = scoreBands(value, BREAKPOINTS);
+    const bands = scoreBands(value, SCORES);
     expect(bands.length).toBeGreaterThan(0);
     for (const band of bands) {
       const row = within(region).getByText(band.label).parentElement!;
@@ -83,10 +81,10 @@ describe("DistributionPreview", () => {
 
   it("帯の割合から出る警告を、そのまま並べる", () => {
     const value = distribution({ bins: [[200, 200, 1]] });
-    const warnings = distributionWarnings(scoreBands(value, BREAKPOINTS));
+    const warnings = distributionWarnings(scoreBands(value, [100]));
     expect(warnings.length).toBeGreaterThan(0);
 
-    const region = renderPreview({ distribution: value });
+    const region = renderPreview({ distribution: value, binScores: [100] });
     for (const warning of warnings) expect(within(region).getByText(warning)).toBeInTheDocument();
   });
 });
