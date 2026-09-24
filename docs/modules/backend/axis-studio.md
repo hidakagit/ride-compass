@@ -309,6 +309,15 @@ DB側の値が変わっても追従しない。軸の中身が主題でないテ
 `AXIS_DEFINITIONS`側の`check_material_exclusivity`/`AxisMaterialConflictError`（軸の書き込み時）
 だけが持つ。
 
+**語彙の正本は`domain/material_catalog.py`の`PRIMARY_ATTRIBUTES`**（材料カタログと同じファイル）で、
+`register_defaults()`はそれを登録するだけである。登録の前に、材料の`primary_attribute_id`が
+すべて`PRIMARY_ATTRIBUTES`にあることを確かめ、無ければ`ValueError`で落ちる——ビルド時
+（`export_openapi.py`）とテストで出るため、未宣言の一次属性を指す材料が軸の公開まで持ち越されない。
+既存の一次属性を指す材料を足すときは、材料の宣言だけで済む。逆向き（材料を1つも持たない一次属性）は
+許す: 地図の分類としてだけ存在し（例: 補給・休憩ポイント）、軸の`primary_attribute_ids`には
+現れないため評価に効かない。一次属性が複数の材料に共有される（例: `landcover`は土地被覆の区分ごとの材料が指す）ため、
+名前・幾何・地図の束ね方は材料ではなく一次属性の側に1回だけ書く。
+
 **暗黙の前提（最重要）**: `register_defaults()`は**FastAPIアプリの起動時には一切呼ばれない**。
 実際の呼び出し元は`scripts/export_openapi.py`（ビルド時、一次属性の名前を
 `primaryAttributes.ts`へ書き出す）とテストのみ。**軸カタログそのものにビルド時の写しは
