@@ -310,9 +310,10 @@ DB側の値が変わっても追従しない。軸の中身が主題でないテ
 だけが持つ。
 
 **語彙の正本は`domain/material_catalog.py`の`PRIMARY_ATTRIBUTES`**（材料カタログと同じファイル）で、
-`register_defaults()`はそれを登録するだけである。登録の前に、材料の`primary_attribute_id`が
-すべて`PRIMARY_ATTRIBUTES`にあることを確かめ、無ければ`ValueError`で落ちる——ビルド時
-（`export_openapi.py`）とテストで出るため、未宣言の一次属性を指す材料が軸の公開まで持ち越されない。
+`register_defaults()`はそれを登録するだけである。材料（`MaterialSpec.primary_attribute`）は一次属性を
+idの文字列ではなく宣言そのもので指す。材料が指す要素には`PRIMARY_ATTRIBUTES`の表の中で`:=`により
+名前を付け、材料はその名前を書く——名前は表の要素にしか付かないので、表に無い一次属性を指す材料は
+書けない（書けばモジュールのimport時に未定義の名前で落ち、`ruff`も未定義名として出す）。
 既存の一次属性を指す材料を足すときは、材料の宣言だけで済む。逆向き（材料を1つも持たない一次属性）は
 許す: 地図の分類としてだけ存在し（例: 補給・休憩ポイント）、軸の`primary_attribute_ids`には
 現れないため評価に効かない。一次属性が複数の材料に共有される（例: `landcover`は土地被覆の区分ごとの材料が指す）ため、

@@ -512,8 +512,8 @@ def primary_attribute_ids_for(definition: AxisDefinition) -> list[str]:
     seen: dict[str, None] = {}
     for material_id in _leaf_materials(definition):
         spec = MATERIAL_CATALOG.get(material_id)
-        if spec is not None and spec.primary_attribute_id is not None:
-            seen.setdefault(spec.primary_attribute_id, None)
+        if spec is not None and spec.primary_attribute is not None:
+            seen.setdefault(spec.primary_attribute.attr_id, None)
     return list(seen)
 
 

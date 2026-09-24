@@ -200,15 +200,15 @@ class MaterialSpec(StrictModel):
     # 方向で値が変わる材料は方向を持たないMVTプロパティへ焼き込めないため、
     # `tile_property=None`と両輪で「この材料はramp化しない」を宣言する。
     tile_property_direction_dependent: bool = False
-    # この材料の由来となる一次属性id（domain/registry.py:
-    # PrimaryAttributeSpec.attr_id、frontend側は生成物primaryAttributes.tsのattr_id）。
+    # この材料の由来となる一次属性。`PRIMARY_ATTRIBUTES`の要素を、表の中で付けた名前で指す
+    # （idの文字列で指さない——表に無い一次属性を指す材料を書けないようにするため）。
     # 材料id（例: highway_is_cycleway・maxspeed_kmh・intersection_count_per_km）と一次属性id
     # （例: cycleway・maxspeed・intersection）は名前が異なる別の名前空間のため、対応が
     # 自明でない材料には明示的にここへ書く。Noneは「対応する一次属性が無い」（動的データ
     # 由来のwind_drag_ratio、一次属性未登録のbridge/smoothness等）。GET /api/axis-catalogが
     # 軸ごとにこれを解決して返すことで、frontend側（page.tsx: 軸と観測データレイヤーの連動）が
     # 軸スタジオ作成軸に対しても同じ仕組みで動く。
-    primary_attribute_id: str | None = None
+    primary_attribute: PrimaryAttributeSpec | None = None
     # この材料の値をDBから求めるSQL式。読み出し側（`road_graph_repository.py`）が
     # エイリアス（区間なら`re`/`c`/`e`/`el`/`wl`/`d`、wayなら同名の別ソース）を用意し、
     # この式をそのまま並べる。Noneは「SQLでは求められない」——リクエスト時に決まる風、
@@ -411,11 +411,12 @@ _SMOOTHNESS_VALUE_LABELS: dict[str, str] = {
 }
 
 
-#: 一次属性の宣言。ここに無い一次属性を材料が指すと、レジストリ登録の時点で落ちる。
+#: 一次属性の宣言。材料が指す要素には、表の中で`:=`により名前を付ける——名前は表の要素にしか
+#: 付かないため、材料が表に無い一次属性を指すことは無い（指そうとすると未定義の名前で落ちる）。
 #: 材料を1つも持たない属性（どの軸からも参照されず評価に効かない）も同じ表に並ぶ——
 #: 材料を持つかどうかは材料カタログを引けば分かるため、表を分けない。
 PRIMARY_ATTRIBUTES: tuple[PrimaryAttributeSpec, ...] = (
-    PrimaryAttributeSpec(
+    _ATTR_HIGHWAY := PrimaryAttributeSpec(
         attr_id="highway",
         tile_kind="road_surface",
         label="道路の種類",
@@ -452,10 +453,10 @@ PRIMARY_ATTRIBUTES: tuple[PrimaryAttributeSpec, ...] = (
             ),
         ),
     ),
-    PrimaryAttributeSpec(attr_id="lanes", label="車線数", geometry="line"),
-    PrimaryAttributeSpec(attr_id="maxspeed", label="制限速度", geometry="line"),
-    PrimaryAttributeSpec(attr_id="cycleway", label="自転車インフラ", geometry="line"),
-    PrimaryAttributeSpec(
+    _ATTR_LANES := PrimaryAttributeSpec(attr_id="lanes", label="車線数", geometry="line"),
+    _ATTR_MAXSPEED := PrimaryAttributeSpec(attr_id="maxspeed", label="制限速度", geometry="line"),
+    _ATTR_CYCLEWAY := PrimaryAttributeSpec(attr_id="cycleway", label="自転車インフラ", geometry="line"),
+    _ATTR_SURFACE := PrimaryAttributeSpec(
         attr_id="surface",
         tile_kind="road_surface",
         label="路面の種類",
@@ -496,9 +497,9 @@ PRIMARY_ATTRIBUTES: tuple[PrimaryAttributeSpec, ...] = (
             ),
         ),
     ),
-    PrimaryAttributeSpec(attr_id="motor_vehicle_access", label="自動車通行可否", geometry="line"),
-    PrimaryAttributeSpec(attr_id="lit", label="街灯", geometry="line"),
-    PrimaryAttributeSpec(
+    _ATTR_MOTOR_VEHICLE_ACCESS := PrimaryAttributeSpec(attr_id="motor_vehicle_access", label="自動車通行可否", geometry="line"),
+    _ATTR_LIT := PrimaryAttributeSpec(attr_id="lit", label="街灯", geometry="line"),
+    _ATTR_TUNNEL := PrimaryAttributeSpec(
         attr_id="tunnel",
         tile_kind="road_surface",
         label="トンネル",
@@ -513,7 +514,7 @@ PRIMARY_ATTRIBUTES: tuple[PrimaryAttributeSpec, ...] = (
             ),
         ),
     ),
-    PrimaryAttributeSpec(
+    _ATTR_ONEWAY := PrimaryAttributeSpec(
         attr_id="oneway",
         tile_kind="road_surface",
         label="一方通行",
@@ -528,8 +529,8 @@ PRIMARY_ATTRIBUTES: tuple[PrimaryAttributeSpec, ...] = (
             ),
         ),
     ),
-    PrimaryAttributeSpec(attr_id="elevation", label="標高図", geometry="area"),
-    PrimaryAttributeSpec(
+    _ATTR_ELEVATION := PrimaryAttributeSpec(attr_id="elevation", label="標高図", geometry="area"),
+    _ATTR_STOP_POI := PrimaryAttributeSpec(
         attr_id="stop_poi",
         tile_kind="poi",
         label="停止要因",
@@ -560,7 +561,7 @@ PRIMARY_ATTRIBUTES: tuple[PrimaryAttributeSpec, ...] = (
             ),
         ),
     ),
-    PrimaryAttributeSpec(
+    _ATTR_ACCIDENT_POINT := PrimaryAttributeSpec(
         attr_id="accident_point",
         tile_kind="accident",
         label="事故[警察庁統計]",
@@ -591,8 +592,8 @@ PRIMARY_ATTRIBUTES: tuple[PrimaryAttributeSpec, ...] = (
             ),
         ),
     ),
-    PrimaryAttributeSpec(attr_id="intersection", label="交差点", geometry="point"),
-    PrimaryAttributeSpec(attr_id="landcover", label="緑と水", geometry="area"),
+    _ATTR_INTERSECTION := PrimaryAttributeSpec(attr_id="intersection", label="交差点", geometry="point"),
+    _ATTR_LANDCOVER := PrimaryAttributeSpec(attr_id="landcover", label="緑と水", geometry="area"),
     PrimaryAttributeSpec(
         attr_id="supply_poi",
         tile_kind="poi",
@@ -640,7 +641,7 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
         # `services/gradient_way_service.py`のway_id→値配信で乗せる。
         tile_property=None,
         tile_property_direction_dependent=True,
-        primary_attribute_id="elevation",
+        primary_attribute=_ATTR_ELEVATION,
         reference_points=_GRADIENT_PERCENT_REFERENCE_POINTS,
         value_sql="em.average_grade",
         coverage=EdgeMaterialCoverageSpec(
@@ -682,7 +683,7 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
         dtype="numeric",
         unit="%",
         tile_property="trees_pct",
-        primary_attribute_id="landcover",
+        primary_attribute=_ATTR_LANDCOVER,
         value_sql=landcover_value_sql("trees"),
         coverage=_landcover_coverage("trees"),
     ),
@@ -693,7 +694,7 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
         dtype="numeric",
         unit="%",
         tile_property="built_pct",
-        primary_attribute_id="landcover",
+        primary_attribute=_ATTR_LANDCOVER,
         value_sql=landcover_value_sql("built"),
         coverage=_landcover_coverage("built"),
     ),
@@ -704,7 +705,7 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
         dtype="numeric",
         unit="%",
         tile_property="crops_pct",
-        primary_attribute_id="landcover",
+        primary_attribute=_ATTR_LANDCOVER,
         value_sql=landcover_value_sql("crops"),
         coverage=_landcover_coverage("crops"),
     ),
@@ -715,7 +716,7 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
         dtype="numeric",
         unit="%",
         tile_property="rangeland_pct",
-        primary_attribute_id="landcover",
+        primary_attribute=_ATTR_LANDCOVER,
         value_sql=landcover_value_sql("rangeland"),
         coverage=_landcover_coverage("rangeland"),
     ),
@@ -726,7 +727,7 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
         dtype="numeric",
         unit="%",
         tile_property="water_pct",
-        primary_attribute_id="landcover",
+        primary_attribute=_ATTR_LANDCOVER,
         value_sql=landcover_value_sql("water"),
         coverage=_landcover_coverage("water"),
     ),
@@ -737,7 +738,7 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
         dtype="numeric",
         unit="%",
         tile_property="bare_pct",
-        primary_attribute_id="landcover",
+        primary_attribute=_ATTR_LANDCOVER,
         value_sql=landcover_value_sql("bare"),
         coverage=_landcover_coverage("bare"),
     ),
@@ -748,7 +749,7 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
         dtype="numeric",
         unit="%",
         tile_property="flooded_veg_pct",
-        primary_attribute_id="landcover",
+        primary_attribute=_ATTR_LANDCOVER,
         value_sql=landcover_value_sql("flooded_veg"),
         coverage=_landcover_coverage("flooded_veg"),
     ),
@@ -759,7 +760,7 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
         dtype="numeric",
         unit="%",
         tile_property="snow_ice_pct",
-        primary_attribute_id="landcover",
+        primary_attribute=_ATTR_LANDCOVER,
         value_sql=landcover_value_sql("snow_ice"),
         coverage=_landcover_coverage("snow_ice"),
     ),
@@ -769,7 +770,7 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
         description="OSMの路面タグ(surface)から判定した舗装の良否。true=舗装良好、false=未舗装等。",
         dtype="boolean",
         tile_property="surface_good",
-        primary_attribute_id="surface",
+        primary_attribute=_ATTR_SURFACE,
         value_sql=SURFACE_GOOD_CASE_SQL,
         coverage=WayMaterialCoverageSpec(
                 missing_condition=f"({SURFACE_GOOD_CASE_SQL}) IS NULL",
@@ -786,7 +787,7 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
         additive=True,
         total_unit="回",
         tile_property="intersection_per_km",
-        primary_attribute_id="intersection",
+        primary_attribute=_ATTR_INTERSECTION,
         reference_points=_INTERSECTION_COUNT_PER_KM_REFERENCE_POINTS,
         value_sql="CASE WHEN re.distance_m > 0 THEN em.intersection_count / (re.distance_m / 1000.0) END",
         coverage=EdgeMaterialCoverageSpec(
@@ -807,7 +808,7 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
         # ramp表示は年数での換算を実行時に行う（`tile_property_needs_runtime_scale`）。
         tile_property="accident_per_km",
         tile_property_needs_runtime_scale=True,
-        primary_attribute_id="accident_point",
+        primary_attribute=_ATTR_ACCIDENT_POINT,
         reference_points=_ACCIDENT_COUNT_PER_KM_YEAR_REFERENCE_POINTS,
         value_sql="CASE WHEN re.distance_m > 0 AND :accident_years > 0 "
         "THEN em.accident_count / (re.distance_m / 1000.0) / :accident_years END",
@@ -823,7 +824,7 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
         description="OSMの街灯タグ(lit=yes)に該当する区間はtrue。タグ不在はfalse（街灯なし扱い）。",
         dtype="boolean",
         tile_property="lit",
-        primary_attribute_id="lit",
+        primary_attribute=_ATTR_LIT,
         value_sql=tag_is_value_sql("lit", "yes"),
         coverage=WayMaterialCoverageSpec(
                 missing_condition=f"{LIT_NORMALIZED_SQL} IS NULL",
@@ -837,7 +838,7 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
         description="OSMのトンネルタグ(tunnel=yes)に該当する区間はtrue。",
         dtype="boolean",
         tile_property="tunnel",
-        primary_attribute_id="tunnel",
+        primary_attribute=_ATTR_TUNNEL,
         value_sql=tag_is_value_sql("tunnel", "yes"),
         coverage=WayMaterialCoverageSpec(
                 missing_condition=f"{TUNNEL_NORMALIZED_SQL} IS NULL",
@@ -869,7 +870,7 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
         # [domain/axis_definitions.py]でも参照される材料だが、軸合成前の生の真偽値自体は
         # 独立して材料登録していなかった）。
         tile_property="motor_vehicle_no",
-        primary_attribute_id="motor_vehicle_access",
+        primary_attribute=_ATTR_MOTOR_VEHICLE_ACCESS,
         value_sql=tag_is_value_sql("motor_vehicle", "no"),
         coverage=WayMaterialCoverageSpec(
                 missing_condition=f"{MOTOR_VEHICLE_NORMALIZED_SQL} IS NULL",
@@ -886,7 +887,7 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
         # グラフの読み出し（`road_graph_repository.py`）がforward/backward Edgeを作れるかの
         # 判定に消費するだけで、Edgeにも区間の材料列にも残らない。地図表示専用の材料。
         tile_property="oneway",
-        primary_attribute_id="oneway",
+        primary_attribute=_ATTR_ONEWAY,
         coverage=CoverageExcluded(
             reason="way_materials.directionはNOT NULL列で、タグ不在は双方向(both)に解決済み（欠損の概念が無い）",
             missing_semantics="definite",
@@ -899,7 +900,7 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
         dtype="numeric",
         unit="km/h",
         tile_property="maxspeed_kmh",
-        primary_attribute_id="maxspeed",
+        primary_attribute=_ATTR_MAXSPEED,
         reference_points=_MAXSPEED_KMH_REFERENCE_POINTS,
         value_sql=MAXSPEED_KMH_CASE_SQL,
         coverage=WayMaterialCoverageSpec(
@@ -914,7 +915,7 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
         description="OSMの車線数タグ(lanes)から解析した車線数。",
         dtype="numeric",
         tile_property="lanes_count",
-        primary_attribute_id="lanes",
+        primary_attribute=_ATTR_LANES,
         reference_points=_LANES_COUNT_REFERENCE_POINTS,
         value_sql=LANES_COUNT_CASE_SQL,
         coverage=WayMaterialCoverageSpec(
@@ -933,7 +934,7 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
         # （batch/source_profile.yamlの`osm_way`の`rows`）で許可された値のみ実際に現れる。
         # 正準の閉じた値集合はこのプロジェクトで管理していない（OSMタグの生値のため）。
         tile_property="highway",
-        primary_attribute_id="highway",
+        primary_attribute=_ATTR_HIGHWAY,
         value_labels=_HIGHWAY_VALUE_LABELS,
         value_sql=HIGHWAY_SQL,
         coverage=WayMaterialCoverageSpec(
@@ -951,7 +952,7 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
         # domain/road.py: GOOD_OSM_SURFACE_TAGS/BAD_OSM_SURFACE_TAGS参照（本材料は
         # その分類前の生タグ値そのもの。分類後の真偽値は既存材料surface_good）。
         tile_property="surface",
-        primary_attribute_id="surface",
+        primary_attribute=_ATTR_SURFACE,
         value_labels=_SURFACE_VALUE_LABELS,
         value_sql=SURFACE_NORMALIZED_SQL,
         coverage=WayMaterialCoverageSpec(
@@ -970,10 +971,8 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
         dtype="boolean",
         tile_property="highway_is_cycleway",
         # 判定式はhighway生タグを見るが、意味的にはこの群の他の材料と同じ「自転車走行環境の
-        # 分類」という1つのまとまりのため、cycleway_has_track等と同じ
-        # primary_attribute_id="cycleway"へ寄せる（highway自体は別の軸が
-        # 単独で使う一次属性のまま、排他チェック対象を維持する）。
-        primary_attribute_id="cycleway",
+        # 分類」という1つのまとまりのため、cycleway_has_track等と同じ一次属性へ寄せる。
+        primary_attribute=_ATTR_CYCLEWAY,
         value_sql=tag_absent_is_false_sql(f"{HIGHWAY_SQL} = 'cycleway'"),
         coverage=WayMaterialCoverageSpec(
                 missing_condition=f"{HIGHWAY_SQL} IS NULL",
@@ -987,7 +986,7 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
         description="車道と分離された自転車道(cycleway=track)を併設しているかどうか。",
         dtype="boolean",
         tile_property="cycleway_has_track",
-        primary_attribute_id="cycleway",
+        primary_attribute=_ATTR_CYCLEWAY,
         value_sql=cycleway_has_value_sql("track"),
         coverage=WayMaterialCoverageSpec(
                 missing_condition=_CYCLEWAY_TAGS_ALL_ABSENT,
@@ -1001,7 +1000,7 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
         description="車道上に線で区切られた自転車レーン(cycleway=lane)を併設しているかどうか。",
         dtype="boolean",
         tile_property="cycleway_has_lane",
-        primary_attribute_id="cycleway",
+        primary_attribute=_ATTR_CYCLEWAY,
         value_sql=cycleway_has_value_sql("lane"),
         coverage=WayMaterialCoverageSpec(
                 missing_condition=_CYCLEWAY_TAGS_ALL_ABSENT,
@@ -1015,7 +1014,7 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
         description="バス専用レーン共用など、簡易な自転車レーン(cycleway=share_busway/shared_lane)を併設しているかどうか。",
         dtype="boolean",
         tile_property="cycleway_has_shared",
-        primary_attribute_id="cycleway",
+        primary_attribute=_ATTR_CYCLEWAY,
         value_sql=cycleway_has_value_sql("share_busway", "shared_lane"),
         coverage=WayMaterialCoverageSpec(
                 missing_condition=_CYCLEWAY_TAGS_ALL_ABSENT,
@@ -1029,7 +1028,7 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
         description="車道と分離された歩行者道のうち、自転車の通行が認められている区間（河川敷サイクリングロード等、highway=footway/pathかつbicycle=yes/designated）かどうか。",
         dtype="boolean",
         tile_property="shared_pedestrian_path",
-        primary_attribute_id="cycleway",
+        primary_attribute=_ATTR_CYCLEWAY,
         value_sql=tag_absent_is_false_sql(
             f"{HIGHWAY_SQL} IN ('footway', 'path') "
             f"AND {BICYCLE_NORMALIZED_SQL} IN ('yes', 'designated')"
@@ -1093,7 +1092,7 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
                 source=_EDGE_COUNTS_SOURCE,
                 missing_semantics="unknown",
             ),
-            primary_attribute_id="stop_poi",
+            primary_attribute=_ATTR_STOP_POI,
             reference_points=_POI_COUNT_PER_KM_REFERENCE_POINTS,
         )
         for kind, label in POI_COUNT_KINDS.items()

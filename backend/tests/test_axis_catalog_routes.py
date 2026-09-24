@@ -234,8 +234,7 @@ def test_get_axis_catalog_display_reflects_gui_created_published_axis():
         assert display["tile_inputs"][0]["property"] == "lanes_count"
         assert display["tile_inputs"][0]["weight"] == 1.0
         assert display["thresholds"] == [10.0]
-        # 改善計画T308: lanes_count材料はprimary_attribute_id="lanes"へ解決される
-        # （material_catalog.py参照）。
+        # 材料idと一次属性idは別の名前空間（材料lanes_countは一次属性lanesを指す）。
         assert entries_by_id["gui_published_axis"]["primary_attribute_ids"] == ["lanes"]
     finally:
         del AXIS_DEFINITIONS["gui_published_axis"]
