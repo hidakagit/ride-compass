@@ -20,15 +20,19 @@
 **境界の向こうは本物を使わない。** このファイルが実際に読む属性・呼ぶ関数だけを持つ
 架空の型を与え、モジュールの名前空間ごと差し替える。実在のedge_id・軸id・材料idには
 依らない（`axis_a`・`mat_a`のような性質だけの名前を使う）。
+ただしRoad Graph（`LeanNode`・`LeanEdge`・`LeanRoadGraph`）と`Coordinates`は本物で作る——
+公開シグネチャが要求する型で、代役にしても何も切り離せず、本物が変わったときに黙ってずれるだけになる。
 """
 
 import math
-from dataclasses import dataclass, field
+from dataclasses import dataclass, replace
 from datetime import datetime, timedelta, timezone
 
 import numpy as np
 import pytest
 
+from app.domain.graph import LeanEdge, LeanNode, LeanRoadGraph
+from app.domain.route import Coordinates
 from app.services import road_graph_engine as engine
 from tests.bound_fake import bound
 
@@ -45,30 +49,20 @@ class Bag:
         self.__dict__.update(kwargs)
 
 
-@dataclass
-class FakeCoordinates:
-    latitude: float
-    longitude: float
+def coords(latitude, longitude):
+    return Coordinates(latitude=latitude, longitude=longitude)
 
 
-@dataclass
-class FakeNode:
-    latitude: float = 0.0
-    longitude: float = 0.0
-    has_traffic_signals: bool = False
-    max_highway_rank: int = 0
+def lean_node(node_id, latitude=0.0, longitude=0.0, **fields):
+    return LeanNode(node_id=node_id, latitude=latitude, longitude=longitude, **fields)
 
 
-@dataclass
-class FakeEdge:
-    edge_id: str
-    from_node_id: str = "n0"
-    to_node_id: str = "n1"
-    geometry: list = field(default_factory=list)
-    distance_m: float = 100.0
-    osm_way_id: int = 1
-    highway: str = "residential"
-    bearing_deg: float = 0.0
+def lean_edge(edge_id, from_node_id="n0", to_node_id="n1", *, distance_m=100.0, geometry=None, **fields):
+    """探索用グラフの区間と同じく、`geometry`を省くと空のプレースホルダになる。"""
+    return LeanEdge(
+        edge_id=edge_id, from_node_id=from_node_id, to_node_id=to_node_id,
+        geometry=[] if geometry is None else geometry, distance_m=distance_m, **fields,
+    )
 
 
 @dataclass
@@ -81,12 +75,6 @@ class FakeElevation:
     average_grade: float | None = None
     max_grade: float | None = None
     min_grade: float | None = None
-
-
-@dataclass
-class FakeGraph:
-    nodes: dict
-    edges: dict
 
 
 @dataclass
@@ -248,21 +236,26 @@ class FakeSearchGraphCache:
 TILES = frozenset({(12, 1, 1)})
 
 
-def make_graph(edge_specs, node_ids=None, nodes=None):
-    """`edge_specs`は`(edge_id, from, to, distance_m)`の並び。"""
+def make_graph(edge_specs, node_ids=None, nodes=None, highways=None):
+    """`edge_specs`は`(edge_id, from, to, distance_m)`の並び。
+
+    `nodes`（`LeanNode`の並び）を省くと、`node_ids`か端点の出現順に位置(0, 0)のNodeを作る。
+    `highways`は`{edge_id: 道路種別}`で、省いた区間は種別なし。
+    """
+    highways = highways or {}
     edges = {}
     seen = []
     for spec in edge_specs:
         edge_id, from_node, to_node, distance_m = spec
-        edges[edge_id] = FakeEdge(
-            edge_id=edge_id, from_node_id=from_node, to_node_id=to_node, distance_m=distance_m
+        edges[edge_id] = lean_edge(
+            edge_id, from_node, to_node, distance_m=distance_m, highway=highways.get(edge_id)
         )
         for node in (from_node, to_node):
             if node not in seen:
                 seen.append(node)
-    ids = list(node_ids) if node_ids is not None else seen
-    node_map = nodes or {node_id: FakeNode() for node_id in ids}
-    return FakeGraph(nodes=node_map, edges=edges)
+    if nodes is None:
+        nodes = [lean_node(node_id) for node_id in (list(node_ids) if node_ids is not None else seen)]
+    return LeanRoadGraph(graph_version="test", nodes={node.node_id: node for node in nodes}, edges=edges)
 
 
 def make_lazy_graph(graph, edge_ids=None, node_ids=None):
@@ -319,8 +312,8 @@ def test_representative_bin_clamps_to_the_last_bin():
 
 def test_bbox_around_point_widens_longitude_with_latitude():
     """同じkmでも高緯度ほど経度は広く取る（経度1度の実距離が縮むため）。"""
-    at_equator = engine._bbox_around_point(FakeCoordinates(0.0, 139.0), 10.0)
-    at_high = engine._bbox_around_point(FakeCoordinates(60.0, 139.0), 10.0)
+    at_equator = engine._bbox_around_point(coords(0.0, 139.0), 10.0)
+    at_high = engine._bbox_around_point(coords(60.0, 139.0), 10.0)
 
     equator_lon_margin = at_equator.max_longitude - 139.0
     equator_lat_margin = at_equator.max_latitude - 0.0
@@ -330,7 +323,7 @@ def test_bbox_around_point_widens_longitude_with_latitude():
 
 
 def test_bbox_covering_points_uses_the_extremes_plus_margin():
-    points = [FakeCoordinates(35.0, 139.0), FakeCoordinates(36.0, 140.0)]
+    points = [coords(35.0, 139.0), coords(36.0, 140.0)]
     bbox = engine._bbox_covering_points(points, 2.0)
 
     assert bbox.min_latitude < 35.0
@@ -343,9 +336,9 @@ def test_bbox_covering_points_uses_the_extremes_plus_margin():
 def test_bbox_covering_points_scales_longitude_by_the_mean_latitude():
     """経度マージンの基準は端ではなく平均緯度。端を使うと片側が足りなくなる。"""
     spread = engine._bbox_covering_points(
-        [FakeCoordinates(0.0, 139.0), FakeCoordinates(60.0, 139.0)], 2.0
+        [coords(0.0, 139.0), coords(60.0, 139.0)], 2.0
     )
-    at_mean = engine._bbox_covering_points([FakeCoordinates(30.0, 139.0)], 2.0)
+    at_mean = engine._bbox_covering_points([coords(30.0, 139.0)], 2.0)
 
     assert spread.max_longitude - 139.0 == pytest.approx(at_mean.max_longitude - 139.0)
 
@@ -358,8 +351,8 @@ def test_bbox_covering_points_scales_longitude_by_the_mean_latitude():
 def test_concat_edge_geometries_drops_the_shared_boundary_point():
     """隣接Edgeの境界点を二重に持たせない（線が同じ点で折り返して見える）。"""
     edges = [
-        FakeEdge(edge_id="e1", geometry=[(35.0, 139.0), (35.1, 139.1)]),
-        FakeEdge(edge_id="e2", geometry=[(35.1, 139.1), (35.2, 139.2)]),
+        lean_edge("e1", geometry=[[35.0, 139.0], [35.1, 139.1]]),
+        lean_edge("e2", geometry=[[35.1, 139.1], [35.2, 139.2]]),
     ]
     geometry, offsets = engine._concat_edge_geometries(edges)
 
@@ -371,8 +364,8 @@ def test_concat_edge_geometries_drops_the_shared_boundary_point():
 def test_concat_edge_geometries_offsets_slice_back_to_each_edge():
     """境界の位置は座標列からは復元できない。offsetsが各Edgeの形状を切り出せること。"""
     edges = [
-        FakeEdge(edge_id="e1", geometry=[(35.0, 139.0), (35.1, 139.1), (35.2, 139.2)]),
-        FakeEdge(edge_id="e2", geometry=[(35.2, 139.2), (35.3, 139.3)]),
+        lean_edge("e1", geometry=[[35.0, 139.0], [35.1, 139.1], [35.2, 139.2]]),
+        lean_edge("e2", geometry=[[35.2, 139.2], [35.3, 139.3]]),
     ]
     geometry, offsets = engine._concat_edge_geometries(edges)
     coordinates = geometry["coordinates"]
@@ -383,8 +376,8 @@ def test_concat_edge_geometries_offsets_slice_back_to_each_edge():
 
 def test_concat_edge_geometries_keeps_both_points_when_edges_do_not_touch():
     edges = [
-        FakeEdge(edge_id="e1", geometry=[(35.0, 139.0)]),
-        FakeEdge(edge_id="e2", geometry=[(36.0, 140.0)]),
+        lean_edge("e1", geometry=[[35.0, 139.0]]),
+        lean_edge("e2", geometry=[[36.0, 140.0]]),
     ]
     geometry, _ = engine._concat_edge_geometries(edges)
     assert geometry["coordinates"] == [[139.0, 35.0], [140.0, 36.0]]
@@ -408,7 +401,7 @@ def test_aggregate_elevation_collects_only_present_values(monkeypatch):
     monkeypatch.setattr(engine, "min_or_none", lambda values: seen.setdefault("min", list(values)))
     monkeypatch.setattr(engine, "max_or_none", lambda values: seen.setdefault("max", list(values)))
 
-    edges = [FakeEdge(edge_id="e1"), FakeEdge(edge_id="e2"), FakeEdge(edge_id="e3"), FakeEdge(edge_id="e4")]
+    edges = [lean_edge("e1"), lean_edge("e2"), lean_edge("e3"), lean_edge("e4")]
     attributes = {
         "e1": FakeElevation("e1", start_elevation_m=10.0, end_elevation_m=20.0, elevation_gain_m=10.0),
         "e2": FakeElevation("e2", start_elevation_m=None, end_elevation_m=5.0, elevation_gain_m=None),
@@ -448,8 +441,8 @@ def test_reverse_elevation_attribute_keeps_missing_grades_missing():
 
 def test_reverse_elevation_by_edge_pairs_the_path_in_reverse_order():
     """逆方向Edgeの並びは順方向の逆。対応がずれると別の坂の値が付く。"""
-    forward_edges = [FakeEdge(edge_id="f1"), FakeEdge(edge_id="f2")]
-    reverse_edges = [FakeEdge(edge_id="r2"), FakeEdge(edge_id="r1")]
+    forward_edges = [lean_edge("f1"), lean_edge("f2")]
+    reverse_edges = [lean_edge("r2"), lean_edge("r1")]
     attributes = {"f2": FakeElevation("f2", start_elevation_m=1.0, end_elevation_m=9.0)}
 
     result = engine._reverse_elevation_by_edge(forward_edges, reverse_edges, attributes)
@@ -527,20 +520,20 @@ def test_route_composite_difficulty_is_none_without_segments():
 
 def test_reverse_traced_edges_walks_the_path_backwards_through_the_opposite_edges():
     graph = make_graph([("a", "n1", "n2", 100.0), ("b", "n2", "n3", 200.0),
-                        ("a_rev", "n2", "n1", 100.0), ("b_rev", "n3", "n2", 200.0)])
-    graph.edges["a_rev"].highway = "primary"
+                        ("a_rev", "n2", "n1", 100.0), ("b_rev", "n3", "n2", 200.0)],
+                       highways={"a_rev": "primary"})
     lazy = make_lazy_graph(graph)
     path = [
-        FakeEdge(edge_id="a", from_node_id="n1", to_node_id="n2", distance_m=100.0,
-                 geometry=[(35.0, 139.0), (35.1, 139.1)]),
-        FakeEdge(edge_id="b", from_node_id="n2", to_node_id="n3", distance_m=200.0,
-                 geometry=[(35.1, 139.1), (35.2, 139.2)]),
+        lean_edge("a", "n1", "n2", distance_m=100.0,
+                  geometry=[[35.0, 139.0], [35.1, 139.1]]),
+        lean_edge("b", "n2", "n3", distance_m=200.0,
+                  geometry=[[35.1, 139.1], [35.2, 139.2]]),
     ]
 
     reversed_edges = engine._reverse_traced_edges(path, lazy, graph)
 
     assert [edge.edge_id for edge in reversed_edges] == ["b_rev", "a_rev"]
-    assert reversed_edges[0].geometry == [(35.2, 139.2), (35.1, 139.1)]
+    assert reversed_edges[0].geometry == [[35.2, 139.2], [35.1, 139.1]]
     # 進行方向に依存しない値は逆方向Edge自身から引く（順方向からの流用ではない）。
     assert reversed_edges[1].highway == "primary"
 
@@ -609,7 +602,7 @@ def make_context(**overrides):
         composer=None,
         legs=[],
         full_edge_row={},
-        origin=FakeCoordinates(35.0, 139.0),
+        origin=coords(35.0, 139.0),
         node_lat=np.zeros(1),
         node_lon=np.zeros(1),
         night_active=False,
@@ -725,10 +718,10 @@ def test_destination_states_are_the_edges_entering_the_node():
 def test_node_intersection_attributes_follow_the_lazy_node_order():
     graph = make_graph(
         [("e1", "n1", "n2", 100.0)],
-        nodes={
-            "n1": FakeNode(has_traffic_signals=True, max_highway_rank=5),
-            "n2": FakeNode(has_traffic_signals=False, max_highway_rank=2),
-        },
+        nodes=[
+            lean_node("n1", has_traffic_signals=True, max_highway_rank=5),
+            lean_node("n2", has_traffic_signals=False, max_highway_rank=2),
+        ],
     )
     lazy = make_lazy_graph(graph, node_ids=["n2", "n1"])
 
@@ -740,9 +733,8 @@ def test_node_intersection_attributes_follow_the_lazy_node_order():
 
 def test_edge_highway_ranks_follow_the_lazy_edge_order(monkeypatch):
     monkeypatch.setattr(engine, "highway_rank", lambda highway: {"primary": 5, "path": 1}[highway])
-    graph = make_graph([("e1", "n1", "n2", 100.0), ("e2", "n2", "n3", 100.0)])
-    graph.edges["e1"].highway = "primary"
-    graph.edges["e2"].highway = "path"
+    graph = make_graph([("e1", "n1", "n2", 100.0), ("e2", "n2", "n3", 100.0)],
+                       highways={"e1": "primary", "e2": "path"})
     lazy = make_lazy_graph(graph, edge_ids=["e2", "e1"])
 
     assert engine._edge_highway_ranks(graph, lazy).tolist() == [1, 5]
@@ -1101,8 +1093,8 @@ def test_compose_without_wind_series_makes_one_snapshot_shared_by_every_leg(comp
     """風の系列が無ければ時刻で変えようがない。レグごとに合成し直す理由が無い。"""
     composer = make_composer()
 
-    outbound = composer.compose("outbound", FakeCoordinates(35.0, 139.0), 0.0, +1, duration_hours=3.0)
-    inbound = composer.compose("inbound", FakeCoordinates(35.0, 139.0), 3.0, -1, duration_hours=3.0)
+    outbound = composer.compose("outbound", coords(35.0, 139.0), 0.0, +1, duration_hours=3.0)
+    inbound = composer.compose("inbound", coords(35.0, 139.0), 3.0, -1, duration_hours=3.0)
 
     assert inbound is outbound
     assert outbound.cost_bins_lazy.shape[0] == 1
@@ -1113,7 +1105,7 @@ def test_compose_without_wind_series_makes_one_snapshot_shared_by_every_leg(comp
 def test_compose_splits_a_long_leg_into_hourly_bins(composer_world):
     composer = make_composer(wind_series=Bag())
 
-    leg = composer.compose("outbound", FakeCoordinates(35.0, 139.0), 0.0, +1, duration_hours=3.0)
+    leg = composer.compose("outbound", coords(35.0, 139.0), 0.0, +1, duration_hours=3.0)
 
     assert leg.cost_bins_lazy.shape == (3, 3)
     assert leg.travel_bins_lazy.shape == (3, 3)
@@ -1125,7 +1117,7 @@ def test_compose_of_an_inbound_leg_counts_time_from_the_start_of_that_leg(compos
     """`direction=-1`の`offset_hours`はレグの終了時刻。開始時刻へ直さないと風が2時間ずれる。"""
     composer = make_composer(wind_series=Bag())
 
-    composer.compose("inbound", FakeCoordinates(35.0, 139.0), 5.0, -1, duration_hours=2.0)
+    composer.compose("inbound", coords(35.0, 139.0), 5.0, -1, duration_hours=2.0)
 
     assert [float(p[0]) for p in composer_world.passages] == [3.0, 4.0]
 
@@ -1134,7 +1126,7 @@ def test_compose_representative_arrays_come_from_the_middle_bin(composer_world):
     """表示と、時刻ラベルを持てない探索が読む値。端のビンだと実際に走る時刻と合わない。"""
     composer = make_composer(wind_series=Bag())
 
-    leg = composer.compose("outbound", FakeCoordinates(35.0, 139.0), 0.0, +1, duration_hours=3.0)
+    leg = composer.compose("outbound", coords(35.0, 139.0), 0.0, +1, duration_hours=3.0)
 
     assert leg.cost_lazy.tolist() == leg.cost_bins_lazy[1].tolist()
 
@@ -1142,8 +1134,8 @@ def test_compose_representative_arrays_come_from_the_middle_bin(composer_world):
 def test_compose_reuses_a_leg_composed_for_the_same_start_and_bins(composer_world):
     composer = make_composer(wind_series=Bag())
 
-    first = composer.compose("outbound", FakeCoordinates(35.0, 139.0), 1.0, +1, duration_hours=2.0)
-    again = composer.compose("leg1", FakeCoordinates(36.0, 140.0), 1.0, +1, duration_hours=2.0)
+    first = composer.compose("outbound", coords(35.0, 139.0), 1.0, +1, duration_hours=2.0)
+    again = composer.compose("leg1", coords(36.0, 140.0), 1.0, +1, duration_hours=2.0)
 
     assert again is first
     assert len(composer_world.passages) == 2
@@ -1154,7 +1146,7 @@ def test_compose_with_measured_passage_hours_is_a_single_bin(composer_world):
     composer = make_composer(wind_series=Bag())
     passage = np.array([0.5, 1.5, 2.5])
 
-    leg = composer.compose("inbound", FakeCoordinates(35.0, 139.0), 4.0, -1, passage_hours=passage)
+    leg = composer.compose("inbound", coords(35.0, 139.0), 4.0, -1, passage_hours=passage)
 
     assert leg.cost_bins_lazy.shape[0] == 1
     assert leg.bin_seconds == np.inf
@@ -1174,7 +1166,7 @@ def test_composed_costs_are_infinite_where_the_zeroth_filter_excludes(composer_w
     """探索から見た通行可否はコスト配列だけが表す。有限のまま残すと除外区間を通る。"""
     composer = make_composer(make_score_matrix(count=3), excluded=[False, True, False])
 
-    leg = composer.compose("outbound", FakeCoordinates(35.0, 139.0), 0.0, +1)
+    leg = composer.compose("outbound", coords(35.0, 139.0), 0.0, +1)
 
     assert np.isinf(leg.cost_lazy[1])
     assert np.isinf(leg.travel_seconds_full[1])
@@ -1185,7 +1177,7 @@ def test_composed_materials_drop_dynamic_ones_with_no_data_at_all(composer_world
     """全行NaNの動的材料をキーごと持つと、表示が「値0」と「データ無し」を取り違える。"""
     composer = make_composer()
 
-    leg = composer.compose("outbound", FakeCoordinates(35.0, 139.0), 0.0, +1)
+    leg = composer.compose("outbound", coords(35.0, 139.0), 0.0, +1)
 
     assert MAT_DYN in leg.material_arrays
     assert MAT_DYN_EMPTY not in leg.material_arrays
@@ -1205,7 +1197,7 @@ def test_travel_time_adds_the_stop_waits_of_the_materials_that_exist(composer_wo
     )
     composer = make_composer(matrix)
 
-    leg = composer.compose("outbound", FakeCoordinates(35.0, 139.0), 0.0, +1)
+    leg = composer.compose("outbound", coords(35.0, 139.0), 0.0, +1)
 
     # 100秒の走行 + 2件/km × 1km × 10秒 = 120秒。欠損は0件として扱う（NaNを伝播させない）。
     assert leg.travel_seconds_full.tolist() == [120.0, 200.0]
@@ -1214,7 +1206,7 @@ def test_travel_time_adds_the_stop_waits_of_the_materials_that_exist(composer_wo
 def test_travel_time_reads_rolling_resistance_from_the_material_arrays(composer_world):
     """転がり抵抗の材料が引けないと、路面の違いが速度に反映されないまま所要時間が出る。"""
     composer = make_composer()
-    composer.compose("outbound", FakeCoordinates(35.0, 139.0), 0.0, +1)
+    composer.compose("outbound", coords(35.0, 139.0), 0.0, +1)
 
     assert composer_world.crr_inputs[-1].tolist() == [0.004, 0.004, 0.004]
 
@@ -1223,7 +1215,7 @@ def test_fixed_axis_sums_exclude_the_time_varying_axes(composer_world):
     """時刻で変わる軸が固定側にも入ると、合成で二重に足される。"""
     composer = make_composer(wind_series=Bag())
 
-    composer.compose("outbound", FakeCoordinates(35.0, 139.0), 0.0, +1, duration_hours=3.0)
+    composer.compose("outbound", coords(35.0, 139.0), 0.0, +1, duration_hours=3.0)
 
     assert composer_world.weighted_sum_calls == [[AXIS_STATIC]]
     assert composer_world.compose_calls[0]["axes"] == [AXIS_WIND]
@@ -1278,10 +1270,10 @@ def make_engine(graph_service, weather_service, **kwargs):
 @pytest.fixture
 def search_world(monkeypatch, cache, composer_world):
     """`_build_search_graph`が触る境界をすべて架空にした一式。"""
-    graph = make_graph([("e0", "n0", "n1", 1000.0), ("e1", "n1", "n2", 1000.0), ("e2", "n2", "n0", 1000.0)])
-    for index, node_id in enumerate(graph.nodes):
-        graph.nodes[node_id].latitude = 35.0 + index
-        graph.nodes[node_id].longitude = 139.0 + index
+    graph = make_graph(
+        [("e0", "n0", "n1", 1000.0), ("e1", "n1", "n2", 1000.0), ("e2", "n2", "n0", 1000.0)],
+        nodes=[lean_node(f"n{index}", 35.0 + index, 139.0 + index) for index in range(3)],
+    )
     lazy = make_lazy_graph(graph)
     score_matrix = make_score_matrix(count=3, edge_ids=list(graph.edges))
     statics = FakeStatics(
@@ -1339,12 +1331,12 @@ async def test_build_search_graph_gives_up_when_the_area_has_no_edges(search_wor
     empty = make_graph([])
     search_world.graph_service._built = (Bag(graph=empty, materials=Bag()), search_world.score_matrix, TILES)
 
-    assert await search_world.engine._build_search_graph(Bag(), FakeCoordinates(35.0, 139.0), NOW) is None
+    assert await search_world.engine._build_search_graph(Bag(), coords(35.0, 139.0), NOW) is None
 
 
 async def test_build_search_graph_starts_the_clock_in_local_time(search_world):
     """風の時別系列はJSTのローカル時刻。揃えないと通過時刻が9時間ずれる。"""
-    search = await search_world.engine._build_search_graph(Bag(), FakeCoordinates(35.0, 139.0), NOW)
+    search = await search_world.engine._build_search_graph(Bag(), coords(35.0, 139.0), NOW)
 
     assert search.composer.start.tzinfo is None
     assert search.composer.start - NOW.replace(tzinfo=None) == timedelta(hours=9)
@@ -1353,10 +1345,10 @@ async def test_build_search_graph_starts_the_clock_in_local_time(search_world):
 async def test_build_search_graph_activates_night_scoped_axes_only_at_night(search_world, monkeypatch):
     """夜間軸の重みをそのまま使うか0倍にするかは、出発地点が薄明の外かで決まる。"""
     monkeypatch.setattr(engine, "is_night", lambda origin, now: True)
-    at_night = await search_world.engine._build_search_graph(Bag(), FakeCoordinates(35.0, 139.0), NOW)
+    at_night = await search_world.engine._build_search_graph(Bag(), coords(35.0, 139.0), NOW)
 
     monkeypatch.setattr(engine, "is_night", lambda origin, now: False)
-    by_day = await search_world.engine._build_search_graph(Bag(), FakeCoordinates(35.0, 139.0), NOW)
+    by_day = await search_world.engine._build_search_graph(Bag(), coords(35.0, 139.0), NOW)
 
     assert at_night.night_active is True
     assert by_day.night_active is False
@@ -1365,13 +1357,13 @@ async def test_build_search_graph_activates_night_scoped_axes_only_at_night(sear
 async def test_build_search_graph_prefers_a_learned_detour_ratio(search_world):
     search_world.cache.detour_ratios[TILES] = 1.77
 
-    search = await search_world.engine._build_search_graph(Bag(), FakeCoordinates(35.0, 139.0), NOW)
+    search = await search_world.engine._build_search_graph(Bag(), coords(35.0, 139.0), NOW)
 
     assert search.composer.detour_ratio == 1.77
 
 
 async def test_build_search_graph_falls_back_to_the_default_detour_ratio(search_world):
-    search = await search_world.engine._build_search_graph(Bag(), FakeCoordinates(35.0, 139.0), NOW)
+    search = await search_world.engine._build_search_graph(Bag(), coords(35.0, 139.0), NOW)
 
     assert search.composer.detour_ratio == engine.ROUTE_DETOUR_RATIO
 
@@ -1381,13 +1373,13 @@ async def test_build_search_graph_orders_node_coordinates_like_the_search_graph(
     reordered = make_lazy_graph(search_world.graph, node_ids=["n2", "n1", "n0"])
     monkeypatch.setattr(engine, "build_lazy_road_graph", lambda g: reordered)
 
-    search = await search_world.engine._build_search_graph(Bag(), FakeCoordinates(35.0, 139.0), NOW)
+    search = await search_world.engine._build_search_graph(Bag(), coords(35.0, 139.0), NOW)
 
     assert search.node_lat.tolist() == [37.0, 36.0, 35.0]
 
 
 async def test_build_search_graph_asks_the_weather_at_the_given_origin(search_world):
-    origin = FakeCoordinates(35.5, 139.5)
+    origin = coords(35.5, 139.5)
 
     await search_world.engine._build_search_graph(Bag(), origin, NOW)
 
@@ -1426,8 +1418,8 @@ async def test_routable_node_index_is_keyed_by_the_zeroth_filter_settings(search
 
 async def test_prepare_covers_the_loop_radius_plus_a_proportional_margin(search_world):
     """道なりは直線の外接矩形からはみ出る。半径に比例した余裕を足して取り直しを防ぐ。"""
-    await search_world.engine.prepare(FakeCoordinates(35.0, 139.0), 20.0, now=NOW)
-    await search_world.engine.prepare(FakeCoordinates(35.0, 139.0), 40.0, now=NOW)
+    await search_world.engine.prepare(coords(35.0, 139.0), 20.0, now=NOW)
+    await search_world.engine.prepare(coords(35.0, 139.0), 40.0, now=NOW)
     twenty, forty = search_world.graph_service.bboxes
 
     twenty_span = twenty.max_latitude - twenty.min_latitude
@@ -1438,7 +1430,7 @@ async def test_prepare_covers_the_loop_radius_plus_a_proportional_margin(search_
 
 async def test_prepare_keeps_a_minimum_margin_for_small_radii(search_world):
     """比例だけだと短距離で余裕がほぼ消え、川や線路の迂回で探索が失敗する。"""
-    await search_world.engine.prepare(FakeCoordinates(35.0, 139.0), 1.0, now=NOW)
+    await search_world.engine.prepare(coords(35.0, 139.0), 1.0, now=NOW)
     bbox = search_world.graph_service.bboxes[0]
 
     half_span_km = (bbox.max_latitude - bbox.min_latitude) / 2 * engine.KM_PER_DEGREE_LATITUDE
@@ -1447,8 +1439,8 @@ async def test_prepare_keeps_a_minimum_margin_for_small_radii(search_world):
 
 async def test_prepare_with_waypoints_covers_every_point_instead_of_the_radius(search_world):
     """経由地は半径の中にあるとは限らない。円形bboxだと指定地点が範囲外になる。"""
-    origin = FakeCoordinates(35.0, 139.0)
-    far = FakeCoordinates(35.9, 139.9)
+    origin = coords(35.0, 139.0)
+    far = coords(35.9, 139.9)
 
     await search_world.engine.prepare(origin, 1.0, now=NOW, waypoints=[far])
     bbox = search_world.graph_service.bboxes[0]
@@ -1461,17 +1453,17 @@ async def test_prepare_with_waypoints_covers_every_point_instead_of_the_radius(s
 async def test_prepare_gives_up_when_the_area_has_no_graph(search_world):
     search_world.graph_service._built = None
 
-    assert await search_world.engine.prepare(FakeCoordinates(35.0, 139.0), 10.0, now=NOW) is None
+    assert await search_world.engine.prepare(coords(35.0, 139.0), 10.0, now=NOW) is None
 
 
 async def test_prepare_gives_up_when_the_origin_cannot_be_snapped(search_world, monkeypatch):
     monkeypatch.setattr(engine, "find_nearest_node_indexed", bound(engine.find_nearest_node_indexed, lambda index, point, **kwargs: None))
 
-    assert await search_world.engine.prepare(FakeCoordinates(35.0, 139.0), 10.0, now=NOW) is None
+    assert await search_world.engine.prepare(coords(35.0, 139.0), 10.0, now=NOW) is None
 
 
 async def test_prepare_hands_on_the_outbound_leg_and_the_origin_index(search_world):
-    context = await search_world.engine.prepare(FakeCoordinates(35.0, 139.0), 10.0, now=NOW)
+    context = await search_world.engine.prepare(coords(35.0, 139.0), 10.0, now=NOW)
 
     assert context.origin_node == "n0"
     assert context.origin_index == search_world.lazy.node_id_to_index["n0"]
@@ -1487,11 +1479,11 @@ async def test_prepare_hands_on_the_outbound_leg_and_the_origin_index(search_wor
 
 async def test_preview_segment_reports_distance_and_duration_of_the_path(search_world, monkeypatch):
     monkeypatch.setattr(engine, "turn_expanded_shortest_path", bound(engine.turn_expanded_shortest_path, lambda *a: [0, 1]))
-    for edge_id, geometry in (("e0", [(35.0, 139.0), (35.1, 139.1)]), ("e1", [(35.1, 139.1), (35.2, 139.2)])):
-        search_world.graph.edges[edge_id].geometry = geometry
+    shapes = {"e0": [[35.0, 139.0], [35.1, 139.1]], "e1": [[35.1, 139.1], [35.2, 139.2]]}
+    hydrate_with_geometry(search_world.graph_service, shapes.__getitem__)
 
     segment = await search_world.engine.preview_segment(
-        FakeCoordinates(35.0, 139.0), FakeCoordinates(35.2, 139.2), now=NOW
+        coords(35.0, 139.0), coords(35.2, 139.2), now=NOW
     )
 
     assert segment.distance_km == 2.0
@@ -1503,7 +1495,7 @@ async def test_preview_segment_is_none_when_either_end_cannot_be_snapped(search_
     monkeypatch.setattr(engine, "find_nearest_node_indexed", bound(engine.find_nearest_node_indexed, lambda index, point, **kwargs: None))
 
     assert await search_world.engine.preview_segment(
-        FakeCoordinates(35.0, 139.0), FakeCoordinates(35.2, 139.2), now=NOW
+        coords(35.0, 139.0), coords(35.2, 139.2), now=NOW
     ) is None
 
 
@@ -1512,7 +1504,7 @@ async def test_preview_segment_is_none_when_no_path_exists(search_world, monkeyp
     monkeypatch.setattr(engine, "turn_expanded_shortest_path", bound(engine.turn_expanded_shortest_path, lambda *a: path))
 
     assert await search_world.engine.preview_segment(
-        FakeCoordinates(35.0, 139.0), FakeCoordinates(35.2, 139.2), now=NOW
+        coords(35.0, 139.0), coords(35.2, 139.2), now=NOW
     ) is None
 
 
@@ -1520,7 +1512,7 @@ async def test_preview_segment_is_none_when_the_area_has_no_graph(search_world):
     search_world.graph_service._built = None
 
     assert await search_world.engine.preview_segment(
-        FakeCoordinates(35.0, 139.0), FakeCoordinates(35.2, 139.2), now=NOW
+        coords(35.0, 139.0), coords(35.2, 139.2), now=NOW
     ) is None
 
 
@@ -1530,7 +1522,7 @@ async def test_preview_segment_is_none_when_the_area_has_no_graph(search_world):
 
 
 async def prepared(world, origin=None, **kwargs):
-    origin = origin or FakeCoordinates(35.0, 139.0)
+    origin = origin or coords(35.0, 139.0)
     return await world.engine.prepare(origin, 10.0, now=NOW, **kwargs)
 
 
@@ -1561,9 +1553,9 @@ async def test_trace_loop_reuses_the_snapped_origin_for_a_closed_loop(search_wor
     recorder = PathRecorder([[0, 1], [2]])
     monkeypatch.setattr(engine, "turn_expanded_shortest_path", recorder)
     monkeypatch.setattr(engine, "find_nearest_node_indexed", snap_by_latitude({36.0: "n1"}, default="n9"))
-    origin = FakeCoordinates(35.0, 139.0)
+    origin = coords(35.0, 139.0)
 
-    await search_world.engine.trace_loop(context, [origin, FakeCoordinates(36.0, 139.5), origin], 90)
+    await search_world.engine.trace_loop(context, [origin, coords(36.0, 139.5), origin], 90)
 
     assert recorder.destinations[-1] == search_world.lazy.node_id_to_index[context.origin_node]
 
@@ -1575,7 +1567,7 @@ async def test_trace_loop_snaps_a_distinct_destination_on_its_own(search_world, 
     monkeypatch.setattr(engine, "find_nearest_node_indexed", snap_by_latitude({37.0: "n2"}))
 
     await search_world.engine.trace_loop(
-        context, [FakeCoordinates(35.0, 139.0), FakeCoordinates(37.0, 139.9)], None
+        context, [coords(35.0, 139.0), coords(37.0, 139.9)], None
     )
 
     assert recorder.destinations == [search_world.lazy.node_id_to_index["n2"]]
@@ -1586,9 +1578,9 @@ async def test_trace_loop_numbers_the_legs_in_travel_order(search_world, monkeyp
     context = await prepared(search_world)
     monkeypatch.setattr(engine, "turn_expanded_shortest_path", PathRecorder([[0, 1], [2]]))
     monkeypatch.setattr(engine, "find_nearest_node_indexed", snap_by_latitude({36.0: "n1"}, default="n0"))
-    origin = FakeCoordinates(35.0, 139.0)
+    origin = coords(35.0, 139.0)
 
-    traced = await search_world.engine.trace_loop(context, [origin, FakeCoordinates(36.0, 139.5), origin], 90)
+    traced = await search_world.engine.trace_loop(context, [origin, coords(36.0, 139.5), origin], 90)
 
     assert traced.data == ["e0", "e1", "e2"]
     assert traced.leg_of_edge == [0, 0, 1]
@@ -1600,10 +1592,10 @@ async def test_trace_loop_numbers_the_legs_in_travel_order(search_world, monkeyp
 async def test_trace_loop_refuses_a_waypoint_that_cannot_be_snapped(search_world, monkeypatch):
     context = await prepared(search_world)
     monkeypatch.setattr(engine, "find_nearest_node_indexed", snap_by_latitude({}, default=None))
-    origin = FakeCoordinates(35.0, 139.0)
+    origin = coords(35.0, 139.0)
 
     with pytest.raises(engine.RoutingError, match="snap waypoints"):
-        await search_world.engine.trace_loop(context, [origin, FakeCoordinates(36.0, 139.5), origin], 90)
+        await search_world.engine.trace_loop(context, [origin, coords(36.0, 139.5), origin], 90)
 
 
 async def test_trace_loop_refuses_a_destination_that_cannot_be_snapped(search_world, monkeypatch):
@@ -1612,7 +1604,7 @@ async def test_trace_loop_refuses_a_destination_that_cannot_be_snapped(search_wo
 
     with pytest.raises(engine.RoutingError, match="snap destination"):
         await search_world.engine.trace_loop(
-            context, [FakeCoordinates(35.0, 139.0), FakeCoordinates(37.0, 139.9)], None
+            context, [coords(35.0, 139.0), coords(37.0, 139.9)], None
         )
 
 
@@ -1620,10 +1612,10 @@ async def test_trace_loop_refuses_when_a_leg_has_no_path(search_world, monkeypat
     context = await prepared(search_world)
     monkeypatch.setattr(engine, "turn_expanded_shortest_path", PathRecorder([[0], None]))
     monkeypatch.setattr(engine, "find_nearest_node_indexed", snap_by_latitude({36.0: "n1"}, default="n0"))
-    origin = FakeCoordinates(35.0, 139.0)
+    origin = coords(35.0, 139.0)
 
     with pytest.raises(engine.RoutingError, match="no path found"):
-        await search_world.engine.trace_loop(context, [origin, FakeCoordinates(36.0, 139.5), origin], 90)
+        await search_world.engine.trace_loop(context, [origin, coords(36.0, 139.5), origin], 90)
 
 
 async def test_trace_loop_refuses_a_path_made_of_no_edges(search_world, monkeypatch):
@@ -1634,7 +1626,7 @@ async def test_trace_loop_refuses_a_path_made_of_no_edges(search_world, monkeypa
 
     with pytest.raises(engine.RoutingError, match="no edges"):
         await search_world.engine.trace_loop(
-            context, [FakeCoordinates(35.0, 139.0), FakeCoordinates(37.0, 139.9)], None
+            context, [coords(35.0, 139.0), coords(37.0, 139.9)], None
         )
 
 
@@ -1646,7 +1638,7 @@ async def test_trace_loop_discards_legs_left_over_from_a_previous_trace(search_w
     monkeypatch.setattr(engine, "find_nearest_node_indexed", snap_by_latitude({37.0: "n2"}))
 
     await search_world.engine.trace_loop(
-        context, [FakeCoordinates(35.0, 139.0), FakeCoordinates(37.0, 139.9)], None
+        context, [coords(35.0, 139.0), coords(37.0, 139.9)], None
     )
 
     assert context.legs == [context.legs[0]]
@@ -1691,7 +1683,7 @@ async def test_built_path_must_reach_the_destination_when_one_is_given(search_wo
     monkeypatch.setattr(engine, "find_nearest_node_indexed", bound(engine.find_nearest_node_indexed, lambda index, point, **kwargs: "n2"))
 
     with pytest.raises(engine.RoutingError, match="目的地に着いていません"):
-        search_world.engine.build_traced_from_edge_ids(context, ["e0"], destination=FakeCoordinates(37.0, 139.9))
+        search_world.engine.build_traced_from_edge_ids(context, ["e0"], destination=coords(37.0, 139.9))
 
 
 async def test_built_path_skips_the_destination_check_when_it_cannot_be_snapped(search_world, monkeypatch):
@@ -1699,7 +1691,7 @@ async def test_built_path_skips_the_destination_check_when_it_cannot_be_snapped(
     monkeypatch.setattr(engine, "find_nearest_node_indexed", bound(engine.find_nearest_node_indexed, lambda index, point, **kwargs: None))
 
     traced = search_world.engine.build_traced_from_edge_ids(
-        context, ["e0"], destination=FakeCoordinates(37.0, 139.9)
+        context, ["e0"], destination=coords(37.0, 139.9)
     )
 
     assert traced.data == ["e0"]
@@ -1918,7 +1910,7 @@ async def test_fastest_route_searches_on_travel_time_not_on_axis_cost(search_wor
 
     monkeypatch.setattr(engine, "turn_expanded_shortest_path", fake_path)
 
-    await search_world.engine.select_fastest_route(context, FakeCoordinates(37.0, 139.9))
+    await search_world.engine.select_fastest_route(context, coords(37.0, 139.9))
 
     assert seen["costs"] is context.legs[0].travel_bins_lazy
     assert seen["rest"][0] is context.legs[0].travel_bins_lazy
@@ -1930,7 +1922,7 @@ async def test_fastest_route_splits_its_legs_by_time_not_by_distance(search_worl
     context.legs[0].travel_seconds_lazy = np.array([10.0, 10.0, 100.0])
     monkeypatch.setattr(engine, "turn_expanded_shortest_path", bound(engine.turn_expanded_shortest_path, lambda *a: [0, 1, 2]))
 
-    traced = await search_world.engine.select_fastest_route(context, FakeCoordinates(37.0, 139.9))
+    traced = await search_world.engine.select_fastest_route(context, coords(37.0, 139.9))
 
     assert traced.leg_of_edge == [0, 0, 0]
 
@@ -1940,7 +1932,7 @@ async def test_fastest_route_puts_the_boundary_after_the_edge_that_crosses_half(
     context.legs[0].travel_seconds_lazy = np.array([100.0, 100.0, 100.0])
     monkeypatch.setattr(engine, "turn_expanded_shortest_path", bound(engine.turn_expanded_shortest_path, lambda *a: [0, 1, 2]))
 
-    traced = await search_world.engine.select_fastest_route(context, FakeCoordinates(37.0, 139.9))
+    traced = await search_world.engine.select_fastest_route(context, coords(37.0, 139.9))
 
     assert traced.leg_of_edge == [0, 0, 1]
     assert traced.distance_km == 3.0
@@ -1950,7 +1942,7 @@ async def test_fastest_route_puts_the_boundary_after_the_edge_that_crosses_half(
 async def test_fastest_route_follows_a_corrected_destination(search_world, monkeypatch):
     """目的地を補正したなら基準線も補正後へ向かう。片方だけ元の座標だと比較にならない。"""
     context = await prepared(search_world)
-    context.destination_correction = FakeCoordinates(36.5, 139.5)
+    context.destination_correction = coords(36.5, 139.5)
     asked = []
     monkeypatch.setattr(
         engine, "find_nearest_node_indexed",
@@ -1958,7 +1950,7 @@ async def test_fastest_route_follows_a_corrected_destination(search_world, monke
     )
     monkeypatch.setattr(engine, "turn_expanded_shortest_path", bound(engine.turn_expanded_shortest_path, lambda *a: [0]))
 
-    await search_world.engine.select_fastest_route(context, FakeCoordinates(37.0, 139.9))
+    await search_world.engine.select_fastest_route(context, coords(37.0, 139.9))
 
     assert asked == [context.destination_correction]
 
@@ -1967,14 +1959,14 @@ async def test_fastest_route_is_none_when_the_destination_cannot_be_snapped(sear
     context = await prepared(search_world)
     monkeypatch.setattr(engine, "find_nearest_node_indexed", bound(engine.find_nearest_node_indexed, lambda index, point, **kwargs: None))
 
-    assert await search_world.engine.select_fastest_route(context, FakeCoordinates(37.0, 139.9)) is None
+    assert await search_world.engine.select_fastest_route(context, coords(37.0, 139.9)) is None
 
 
 async def test_fastest_route_is_none_when_no_path_reaches_the_destination(search_world, monkeypatch):
     context = await prepared(search_world)
     monkeypatch.setattr(engine, "turn_expanded_shortest_path", bound(engine.turn_expanded_shortest_path, lambda *a: None))
 
-    assert await search_world.engine.select_fastest_route(context, FakeCoordinates(37.0, 139.9)) is None
+    assert await search_world.engine.select_fastest_route(context, coords(37.0, 139.9)) is None
 
 
 # --------------------------------------------------------------------------------------
@@ -2160,8 +2152,8 @@ def test_material_category_shares_are_folded_before_the_segments_are_aggregated(
     search_world.engine._estimate_duration_seconds = bound(search_world.engine._estimate_duration_seconds, lambda *a: 1234.0)
     context = elevation_context(search_world, {})
     edges = [
-        FakeEdge(edge_id="e0", from_node_id="n0", to_node_id="n1", geometry=[(35.0, 139.0), (35.1, 139.1)]),
-        FakeEdge(edge_id="e1", from_node_id="n1", to_node_id="n2", geometry=[(35.1, 139.1), (35.2, 139.2)]),
+        lean_edge("e0", "n0", "n1", geometry=[[35.0, 139.0], [35.1, 139.1]]),
+        lean_edge("e1", "n1", "n2", geometry=[[35.1, 139.1], [35.2, 139.2]]),
     ]
 
     candidate = search_world.engine._build_candidate(
@@ -2218,10 +2210,10 @@ def segment_context(world, legs, edges):
 
 def two_segment_edges():
     return [
-        FakeEdge(edge_id="e0", from_node_id="n0", to_node_id="n1", distance_m=1000.0,
-                 geometry=[(35.0, 139.0), (35.1, 139.1)]),
-        FakeEdge(edge_id="e1", from_node_id="n1", to_node_id="n2", distance_m=2000.0,
-                 geometry=[(35.1, 139.1)]),
+        lean_edge("e0", "n0", "n1", distance_m=1000.0,
+                  geometry=[[35.0, 139.0], [35.1, 139.1]]),
+        lean_edge("e1", "n1", "n2", distance_m=2000.0,
+                  geometry=[[35.1, 139.1]]),
     ]
 
 
@@ -2342,7 +2334,7 @@ def ring_world(monkeypatch, cache, composer_world):
     graph = make_graph(
         [("e0", "r0", "r1", 1000.0), ("e1", "r1", "r2", 1000.0), ("e2", "r2", "r0", 1000.0)],
         node_ids=RING_NODE_IDS,
-        nodes={node_id: FakeNode(latitude=35.0 + i * 0.05, longitude=139.0) for i, node_id in enumerate(RING_NODE_IDS)},
+        nodes=[lean_node(node_id, 35.0 + i * 0.05, 139.0) for i, node_id in enumerate(RING_NODE_IDS)],
     )
     lazy = make_lazy_graph(graph, node_ids=RING_NODE_IDS)
     statics = FakeStatics(
@@ -2369,7 +2361,7 @@ def ring_world(monkeypatch, cache, composer_world):
     composer = make_composer(make_score_matrix(count=3, edge_ids=["e0", "e1", "e2"]))
     context = make_context(
         graph=graph, lazy_graph=lazy, statics=statics, turn_structure=Bag(state_count=3, target_state=[0]),
-        composer=composer, legs=[composer.compose("outbound", FakeCoordinates(35.0, 139.0), 0.0, +1)],
+        composer=composer, legs=[composer.compose("outbound", coords(35.0, 139.0), 0.0, +1)],
         origin_node="r0", origin_index=0,
         node_lat=np.array([graph.nodes[n].latitude for n in RING_NODE_IDS]),
         node_lon=np.array([graph.nodes[n].longitude for n in RING_NODE_IDS]),
@@ -2527,7 +2519,7 @@ VIA_EDGES = [
 def via_world(monkeypatch, cache, composer_world):
     graph = make_graph(
         VIA_EDGES, node_ids=VIA_NODE_IDS,
-        nodes={node_id: FakeNode(latitude=35.0 + i * 0.01, longitude=139.0) for i, node_id in enumerate(VIA_NODE_IDS)},
+        nodes=[lean_node(node_id, 35.0 + i * 0.01, 139.0) for i, node_id in enumerate(VIA_NODE_IDS)],
     )
     lazy = make_lazy_graph(graph, node_ids=VIA_NODE_IDS)
     statics = FakeStatics(
@@ -2582,7 +2574,7 @@ def via_world(monkeypatch, cache, composer_world):
     composer = make_composer(make_score_matrix(count=5, edge_ids=[spec[0] for spec in VIA_EDGES]))
     context = make_context(
         graph=graph, lazy_graph=lazy, statics=statics, turn_structure=structure, composer=composer,
-        legs=[composer.compose("outbound", FakeCoordinates(35.0, 139.0), 0.0, +1)],
+        legs=[composer.compose("outbound", coords(35.0, 139.0), 0.0, +1)],
         origin_node="v0", origin_index=0,
         node_lat=np.array([graph.nodes[n].latitude for n in VIA_NODE_IDS]),
         node_lon=np.array([graph.nodes[n].longitude for n in VIA_NODE_IDS]),
@@ -2595,7 +2587,7 @@ def via_world(monkeypatch, cache, composer_world):
     )
 
 
-DESTINATION = FakeCoordinates(35.03, 139.0)
+DESTINATION = coords(35.03, 139.0)
 
 
 async def test_via_nodes_are_empty_when_the_destination_is_off_the_routable_graph(via_world, monkeypatch):
@@ -2755,15 +2747,19 @@ async def test_via_node_selection_composes_the_inbound_leg(via_world):
 # --------------------------------------------------------------------------------------
 
 
-def hydrate_with_geometry(graph_service, geometry, distance_m):
-    """取り直した区間を、探索用グラフの空プレースホルダと区別できる形で返すようにする。"""
+def hydrate_with_geometry(graph_service, shape_of, distance_m=None):
+    """取り直した区間を、探索用グラフの空プレースホルダと区別できる形で返すようにする。
+
+    `shape_of`はedge_idから形状点列を返す。`distance_m`を渡すと距離も探索用グラフの値から変える。
+    """
 
     async def hydrate(edges):
         graph_service.hydrate_calls.append([edge.edge_id for edge in edges])
         return {
-            edge.edge_id: FakeEdge(
-                edge_id=edge.edge_id, from_node_id=edge.from_node_id, to_node_id=edge.to_node_id,
-                geometry=list(geometry), distance_m=distance_m,
+            edge.edge_id: replace(
+                edge,
+                geometry=shape_of(edge.edge_id),
+                distance_m=edge.distance_m if distance_m is None else distance_m,
             )
             for edge in edges
         }
@@ -2774,10 +2770,10 @@ def hydrate_with_geometry(graph_service, geometry, distance_m):
 async def test_preview_draws_the_refetched_shape_not_the_search_graph_placeholder(search_world, monkeypatch):
     """探索用グラフのEdgeはgeometryが空。そのまま配ると地図に線が出ない。"""
     monkeypatch.setattr(engine, "turn_expanded_shortest_path", bound(engine.turn_expanded_shortest_path, lambda *a: [0, 1]))
-    hydrate_with_geometry(search_world.graph_service, [(35.0, 139.0), (35.5, 139.5)], 500.0)
+    hydrate_with_geometry(search_world.graph_service, lambda edge_id: [[35.0, 139.0], [35.5, 139.5]], 500.0)
 
     segment = await search_world.engine.preview_segment(
-        FakeCoordinates(35.0, 139.0), FakeCoordinates(35.2, 139.2), now=NOW
+        coords(35.0, 139.0), coords(35.2, 139.2), now=NOW
     )
 
     assert segment.geometry["coordinates"] == [[139.0, 35.0], [139.5, 35.5], [139.0, 35.0], [139.5, 35.5]]
@@ -2786,7 +2782,7 @@ async def test_preview_draws_the_refetched_shape_not_the_search_graph_placeholde
 
 async def test_candidates_are_built_from_the_refetched_edges(search_world):
     context = await prepared(search_world)
-    hydrate_with_geometry(search_world.graph_service, [(35.0, 139.0), (35.5, 139.5)], 500.0)
+    hydrate_with_geometry(search_world.graph_service, lambda edge_id: [[35.0, 139.0], [35.5, 139.5]], 500.0)
     built = []
 
     async def fake_build(ctx, traced, edges_in_path, start_time):
@@ -2797,7 +2793,7 @@ async def test_candidates_are_built_from_the_refetched_edges(search_world):
 
     await search_world.engine.evaluate_loops(context, [Bag(data=["e0"], bearing=90)], NOW)
 
-    assert built == [[[(35.0, 139.0), (35.5, 139.5)]]]
+    assert built == [[[[35.0, 139.0], [35.5, 139.5]]]]
 
 
 async def test_tied_via_node_candidates_keep_a_stable_order(via_world):
