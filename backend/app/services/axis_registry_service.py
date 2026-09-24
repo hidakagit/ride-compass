@@ -62,7 +62,7 @@ async def refresh_axis_definitions(repository: AxisDefinitionRepository) -> None
         raise AxisDefinitionSyncError(f"軸定義のDB読み込みに失敗しました error={exc!r}") from exc
     if not definitions:
         raise AxisDefinitionSyncError(
-            "axis_definitionsテーブルが空です（migration未適用の可能性）"
+            "axis_definitionsテーブルが空です（軸の行はスキーマと一緒には作られず、管理API経由でしか入りません）"
         )
     unknown_references = _find_unknown_references(definitions)
     if unknown_references:

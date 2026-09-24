@@ -51,8 +51,8 @@ async def _guard_db_errors(awaitable: Awaitable[_T]) -> _T:
 
     軸スタジオ（本ルーター）のCRUDの編集対象は常にDBの実データそのものであるべきで、
     DB障害時にフォールバック値を編集画面に出すと気付かないまま上書きしてしまう危険が
-    ある。ここでは代わりに、DBAPIError（接続失敗・migration未適用による
-    カラム不在など）だけを捕捉し、未処理の素の500ではなく原因の当たりが付くメッセージを返す
+    ある。ここでは代わりに、DBAPIError（接続失敗・テーブルや列が作られていないなど）
+    だけを捕捉し、未処理の素の500ではなく原因の当たりが付くメッセージを返す
     （ValueError/KeyErrorは呼び出し元の既存except節がそのまま扱うため対象外）。
     """
     try:
@@ -61,8 +61,8 @@ async def _guard_db_errors(awaitable: Awaitable[_T]) -> _T:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail=(
-                "軸定義DBへのアクセスに失敗しました。migration未適用の可能性があります"
-                "（テーブルが作られているか確認してください）"
+                "軸定義DBへのアクセスに失敗しました"
+                "（DB接続と、テーブルが作られているかを確認してください）"
             ),
         ) from exc
 
