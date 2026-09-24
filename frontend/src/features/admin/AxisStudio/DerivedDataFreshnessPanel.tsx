@@ -57,7 +57,7 @@ function rowsFromReport(report: DerivedDataFreshnessResponse): StatusRow[] {
           label: table.source ?? "取込",
           value: `最新 ${formatRunId(table.latest_run_id)} / 反映 ${formatRunId(table.oldest_run_id)}`,
         },
-        ...(table.coverage_parent === null || table.coverage_parent === undefined
+        ...(table.coverage_parent === null
           ? []
           : [
               {

@@ -1,93 +1,113 @@
 // @vitest-environment node
+/**
+ * `scoreDistribution.ts`——生値の分布へ折れ点を当てはめ、得点帯ごとの延長割合を出し、満点への張り付きと
+ * 0点への偏りを警告すること。
+ *
+ * 帯の名前は判定と同じ並びから作られる。期待値は帯の名前（「1-25」「100点」）が表す範囲から引き、
+ * 境界の値を書き写さない。
+ *
+ * ここで見ないもの:
+ * - 折れ点での補間そのもの → `breakpointTools.test.ts`
+ * - 帯と警告を画面にどう出すか → `DistributionPreview.test.tsx`
+ */
 import { describe, expect, it } from "vitest";
 
 import { distributionWarnings, scoreBands, type ValueDistribution } from "./scoreDistribution";
 
-const BP: [number, number][] = [
+const IDENTITY: [number, number][] = [
   [0, 0],
-  [2, 25],
-  [4, 50],
-  [12, 100],
+  [100, 100],
 ];
 
-function dist(bins: [number, number, number][]): ValueDistribution {
+function distribution(bins: [number, number, number][]): ValueDistribution {
   return { sample_ways: 1, total_km: 1, quantiles: {}, bins, zero_share: 0 };
 }
 
+/** 「0点」「1-25」「100点」を、その帯が受け持つ点数の範囲へ読む。 */
+function rangeOf(label: string): [number, number] {
+  const single = /^(\d+)点$/.exec(label);
+  if (single) return [Number(single[1]), Number(single[1])];
+  const [low, high] = label.split("-").map(Number);
+  return [low, high];
+}
+
 describe("scoreBands", () => {
-  // 統合レビュー第6回の指摘I-6: 生値が負になる軸でbackendが下限0の
-  // 階級を返していたため、全量が1本の階級へ潰れ「100点 100%」＋「上限を高くしろ」という
-  // 事実と正反対の助言が出ていた。backend側で階級の下限をデータ下端から取るようにした
-  // ため、負の値域でも折れ点どおりに振り分けられる。
-  it("負の値域の階級を折れ点どおりに振り分ける", () => {
-    const breakpoints: [number, number][] = [
-      [-100, 0],
-      [-80, 30],
-      [-20, 100],
+  it("分布が無い・階級が無いときも、全帯を0で返す", () => {
+    for (const empty of [null, distribution([])]) {
+      const bands = scoreBands(empty, IDENTITY);
+      expect(bands.length).toBeGreaterThan(0);
+      expect(bands.every((band) => band.share === 0)).toBe(true);
+    }
+  });
+
+  it("0点と100点は単独の帯で、帯は0点から100点まで隙間なく並ぶ", () => {
+    const labels = scoreBands(null, IDENTITY).map((band) => band.label);
+    expect(rangeOf(labels[0])).toEqual([0, 0]);
+    expect(rangeOf(labels.at(-1)!)).toEqual([100, 100]);
+    for (let i = 1; i < labels.length; i++) {
+      expect(rangeOf(labels[i])[0]).toBe(rangeOf(labels[i - 1])[1] + 1);
+    }
+  });
+
+  it("0〜100の整数の点数は、その点数を名前の範囲に含む帯へ入る", () => {
+    const labels = scoreBands(null, IDENTITY).map((band) => band.label);
+    for (let score = 0; score <= 100; score++) {
+      const bands = scoreBands(distribution([[score, score, 1]]), IDENTITY);
+      const hit = bands.findIndex((band) => band.share === 1);
+      const [low, high] = rangeOf(labels[hit]);
+      expect(score, `点数${score}が帯「${labels[hit]}」へ入った`).toBeGreaterThanOrEqual(low);
+      expect(score).toBeLessThanOrEqual(high);
+    }
+  });
+
+  it("99点台の端数は、100点ではなく一つ手前の帯へ入る", () => {
+    const bands = scoreBands(distribution([[99.5, 99.5, 1]]), IDENTITY);
+    expect(bands.at(-1)!.share).toBe(0);
+    expect(bands.at(-2)!.share).toBe(1);
+  });
+
+  it("階級は中央の値で点数を決め、同じ帯に入った階級の割合は足し合わせる", () => {
+    const steep: [number, number][] = [
+      [0, 0],
+      [10, 100],
     ];
     const bands = scoreBands(
-      dist([
-        [-160, -140, 0.25], // 中央-150 → 下限クランプで0点
-        [-90, -70, 0.25], // 中央-80 → 30点（1-25の外、26-50）
-        [-30, -10, 0.25], // 中央-20 → 100点
-        [-10, 0, 0.25], // 中央-5 → 上限クランプで100点
+      distribution([
+        [0, 2, 0.3],
+        [8, 12, 0.2],
+        [20, 30, 0.5],
       ]),
-      breakpoints,
+      steep,
     );
-    const share = (label: string) => bands.find((b) => b.label === label)!.share;
-    expect(share("0点")).toBeCloseTo(0.25);
-    expect(share("26-50")).toBeCloseTo(0.25);
-    expect(share("100点")).toBeCloseTo(0.5);
-    // 全量が満点へ張り付いていないこと（誤った助言の起点になっていた状態）。
-    expect(share("100点")).toBeLessThan(1);
-  });
 
-  it("生値の階級を折れ点で得点帯へ振り分け、延長の割合を保つ", () => {
-    const bands = scoreBands(
-      dist([
-        [0, 0.1, 0.5], // 中央0.05 → ほぼ0点
-        [2, 2.2, 0.2], // 中央2.1 → 26-50
-        [20, 21, 0.3], // 上限超え → 100点
-      ]),
-      BP,
-    );
-    const byLabel = Object.fromEntries(bands.map((b) => [b.label, b.share]));
-    expect(byLabel["100点"]).toBeCloseTo(0.3);
-    expect(byLabel["26-50"]).toBeCloseTo(0.2);
-    expect(bands.reduce((sum, b) => sum + b.share, 0)).toBeCloseTo(1.0);
-  });
-
-  it("分布が無ければ全帯0で返す（読込中に破綻しない）", () => {
-    const bands = scoreBands(null, BP);
-    expect(bands).toHaveLength(6);
-    expect(bands.every((b) => b.share === 0)).toBe(true);
+    expect(bands[1].share).toBeCloseTo(0.3);
+    expect(bands.at(-1)!.share).toBeCloseTo(0.7);
   });
 });
 
 describe("distributionWarnings", () => {
-  // 帯は`scoreBands`が返す並びをそのまま渡す。両端は位置で引くため、ここでも同じ長さの
-  // 配列を作る（ラベル文字列で引く形に戻すと、言い換えた瞬間に警告が出なくなる）。
-  function bandsWith(zeroShare: number, fullShare: number) {
-    const bands = scoreBands(null, [
-      [0, 0],
-      [1, 100],
-    ]);
-    bands[0].share = zeroShare;
-    bands[bands.length - 1].share = fullShare;
-    return bands;
+  function bandsWith(zero: number, full: number) {
+    return scoreBands(
+      distribution([
+        [-1, -1, zero],
+        [200, 200, full],
+        [50, 50, 1 - zero - full],
+      ]),
+      IDENTITY,
+    );
   }
 
-  it("満点への張り付きが半分を超えたら警告する", () => {
-    const warnings = distributionWarnings(bandsWith(0.05, 0.92));
-    expect(warnings).toHaveLength(1);
-    expect(warnings[0]).toContain("92%");
+  it("満点が延長の半分以上なら、その割合で張り付きを警告する", () => {
+    expect(distributionWarnings(bandsWith(0, 0.5))).toEqual([expect.stringContaining("50%が満点に張り付きます")]);
+    expect(distributionWarnings(bandsWith(0, 0.49))).toEqual([]);
   });
 
-  it("ほとんどが0点でも警告する", () => {
-    expect(distributionWarnings(bandsWith(0.95, 0.0))[0]).toContain("0点");
+  it("0点が延長の9割以上なら、その割合で偏りを警告する", () => {
+    expect(distributionWarnings(bandsWith(0.9, 0))).toEqual([expect.stringContaining("90%が0点です")]);
+    expect(distributionWarnings(bandsWith(0.89, 0))).toEqual([]);
   });
 
-  it("ほどよく散らばっていれば警告しない", () => {
-    expect(distributionWarnings(bandsWith(0.6, 0.03))).toEqual([]);
+  it("警告の割合は整数の百分率へ丸める", () => {
+    expect(distributionWarnings(bandsWith(0, 0.666))).toEqual([expect.stringContaining("67%")]);
   });
 });

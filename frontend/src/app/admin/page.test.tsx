@@ -1,161 +1,86 @@
+/**
+ * `app/admin/page.tsx`——管理画面の入口の状態: 開いたときのタブ、システム状況の開閉、
+ * デバッグモード中の案内。
+ *
+ * 各タブの中身は差し替えて、目印だけを描く（中身の振る舞いはそれぞれのファイルが持つ）。
+ * どのタブにどのパネルを置くかは画面の宣言で、ここでは書き写さない。
+ */
 import { render, screen } from "@testing-library/react";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import userEvent from "@testing-library/user-event";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
-// /adminページ（改善計画T270軸スタジオ・T331でpage.tsx自体の未テストを解消、T397フォロー
-// アップ2で縦積みDisclosure3枚からタブ3枚へ再構成）。軸スタジオ・研究モード・開発者向けの
-// 各タブを束ねるだけの薄いコンテナのため、地図等の重いコンポーネントは無く子コンポーネント
-// の実体はここでは検証しない（各コンポーネント自身のテストファイルの責務）。ここでは
-// page.tsx固有のロジック——debugEnabledによる条件表示の出し分け、systemStatusOpenの
-// 開閉トグル——だけを確認する（改善計画T548: 従来はweightOverrideEnabled/scoringWeightsの
-// useStoredJsonState経由でのlocalStorage同期もここで検証していたが、total_score撤去に
-// 伴いWeightPanel自体を削除したため対応するテストも削除した）。
+const debug = vi.hoisted(() => ({ enabled: false }));
 
-vi.mock("@/features/admin/BackendStatus/BackendStatus", () => ({
-  default: () => <div data-testid="backend-status" />,
-}));
-vi.mock("@/features/admin/DebugPanel/DebugPanel", () => ({ default: () => <div data-testid="debug-panel" /> }));
-vi.mock("@/features/admin/ResearchPanel/ResearchPanel", () => ({
-  default: () => <div data-testid="research-panel" />,
-}));
-vi.mock("@/features/admin/AxisStudio/AxisStudio", () => ({ default: () => <div data-testid="axis-studio" /> }));
-vi.mock("@/features/admin/AxisStudio/MaterialCoveragePanel", () => ({
-  default: () => <div data-testid="material-coverage-panel" />,
-}));
-vi.mock("@/features/admin/AxisStudio/DerivedDataFreshnessPanel", () => ({
-  default: () => <div data-testid="derived-data-freshness-panel" />,
-}));
+vi.mock("@/hooks/useDebugLog", () => ({ useDebugEnabled: () => debug.enabled }));
+
+function marker(name: string) {
+  return { default: () => <div data-testid={name} /> };
+}
+vi.mock("@/features/admin/AxisStudio/AxisStudio", () => marker("AxisStudio"));
+vi.mock("@/features/admin/AxisStudio/MaterialCoveragePanel", () => marker("MaterialCoveragePanel"));
+vi.mock("@/features/admin/AxisStudio/DerivedDataFreshnessPanel", () => marker("DerivedDataFreshnessPanel"));
+vi.mock("@/features/admin/AxisStudio/DbStatusPanel", () => marker("DbStatusPanel"));
+vi.mock("@/features/admin/AxisStudio/TileCachePanel", () => marker("TileCachePanel"));
+vi.mock("@/features/admin/AxisStudio/TuningPanel", () => marker("TuningPanel"));
+vi.mock("@/features/admin/ResearchPanel/ResearchPanel", () => marker("ResearchPanel"));
+vi.mock("@/features/admin/DebugPanel/DebugPanel", () => marker("DebugPanel"));
+vi.mock("@/features/admin/BackendStatus/BackendStatus", () => marker("BackendStatus"));
+vi.mock("@/features/admin/BackendLogsPanel/BackendLogsPanel", () => marker("BackendLogsPanel"));
 vi.mock("@/features/admin/SystemStatusPanel/SystemStatusPanel", () => ({
-  default: ({ open, onClose }: { open: boolean; onClose: () => void }) => (
-    <div data-testid="system-status-panel" data-open={open}>
+  default: ({ open, onClose }: { open: boolean; onClose: () => void }) =>
+    open ? (
       <button type="button" onClick={onClose}>
-        close
+        パネルを閉じる
       </button>
-    </div>
-  ),
+    ) : null,
 }));
-
-const useDebugEnabledMock = vi.fn();
-vi.mock("@/hooks/useDebugLog", () => ({ useDebugEnabled: () => useDebugEnabledMock() }));
 
 import AdminPage from "./page";
 
-// 改善計画T397フォローアップ2: 軸スタジオ/研究/開発者はRadix Tabsのタブになった
-// （既定で開いているのは先頭の「軸スタジオ」のみ、Tabs.Contentは非選択中DOMへ現れない）。
-// 研究・開発者タブの中身を検証するテストは、先にタブ自体をクリックして選択する必要がある。
-async function openTab(name: "軸スタジオ" | "材料" | "データ保守" | "研究" | "開発者") {
-  const { default: userEvent } = await import("@testing-library/user-event");
+beforeEach(() => {
+  debug.enabled = false;
+});
+
+async function openDeveloperTab() {
   const user = userEvent.setup();
-  await user.click(screen.getByRole("tab", { name }));
+  render(<AdminPage />);
+  await user.click(screen.getByRole("tab", { name: "開発者" }));
   return user;
 }
 
-describe("AdminPage（/admin、改善計画T270・T272・T397）", () => {
-  beforeEach(() => {
-    window.localStorage.clear();
-    useDebugEnabledMock.mockReturnValue(false);
-  });
-
-  afterEach(() => {
-    window.localStorage.clear();
-    vi.clearAllMocks();
-  });
-
-  it("見出しとタブを並び順どおりに表示し、既定で軸スタジオタブが選択されている", () => {
+describe("AdminPage", () => {
+  it("開くと軸スタジオのタブが選ばれる", () => {
     render(<AdminPage />);
 
-    expect(screen.getByRole("heading", { name: "軸スタジオ・研究/開発者ツール" })).toBeInTheDocument();
-    expect(screen.getAllByRole("tab").map((tab) => tab.textContent)).toEqual([
-      "軸スタジオ",
-      "材料",
-      "較正値",
-      "データ保守",
-      "研究",
-      "開発者",
-    ]);
     expect(screen.getByRole("tab", { name: "軸スタジオ" })).toHaveAttribute("aria-selected", "true");
-    expect(screen.getByTestId("axis-studio")).toBeInTheDocument();
-    // 材料・データ保守・研究・開発者タブは非選択のため中身はまだDOMへ現れない。
-    expect(screen.queryByTestId("material-coverage-panel")).not.toBeInTheDocument();
-    expect(screen.queryByTestId("derived-data-freshness-panel")).not.toBeInTheDocument();
-    expect(screen.queryByTestId("research-panel")).not.toBeInTheDocument();
-    expect(screen.queryByTestId("debug-panel")).not.toBeInTheDocument();
-    expect(screen.queryByTestId("backend-status")).not.toBeInTheDocument();
+    expect(screen.getByTestId("AxisStudio")).toBeInTheDocument();
   });
 
-  it("「材料」タブを開くとMaterialCoveragePanelを表示する", async () => {
-    render(<AdminPage />);
+  it("システム状況は閉じた状態で始まり、ボタンで開閉し、パネル側から閉じても戻る", async () => {
+    const user = await openDeveloperTab();
 
-    await openTab("材料");
-
-    expect(screen.getByTestId("material-coverage-panel")).toBeInTheDocument();
-  });
-
-  it("「データ保守」タブを開くとDerivedDataFreshnessPanelを表示する", async () => {
-    render(<AdminPage />);
-
-    await openTab("データ保守");
-
-    expect(screen.getByTestId("derived-data-freshness-panel")).toBeInTheDocument();
-  });
-
-  it("「研究」タブを開くとResearchPanelを表示する", async () => {
-    render(<AdminPage />);
-
-    await openTab("研究");
-
-    expect(screen.getByTestId("research-panel")).toBeInTheDocument();
-  });
-
-  it("「開発者」タブを開くとDebugPanel/BackendStatusを表示する", async () => {
-    render(<AdminPage />);
-
-    await openTab("開発者");
-
-    expect(screen.getByTestId("debug-panel")).toBeInTheDocument();
-    expect(screen.getByTestId("backend-status")).toBeInTheDocument();
-  });
-
-  it("デバッグモードOFFの間はDebugConsole案内ヒントを表示しない", async () => {
-    useDebugEnabledMock.mockReturnValue(false);
-    render(<AdminPage />);
-    await openTab("開発者");
-
-    expect(screen.queryByText(/デバッグログの表示はトップページ/)).not.toBeInTheDocument();
-  });
-
-  it("デバッグモードONの間はDebugConsole案内ヒント（トップページのヘッダーアイコンで見る旨）を表示する", async () => {
-    useDebugEnabledMock.mockReturnValue(true);
-    render(<AdminPage />);
-
-    await openTab("開発者");
-
-    expect(screen.getByText(/デバッグログの表示はトップページ/)).toBeInTheDocument();
-  });
-
-  it("「システム状況を表示」ボタンでSystemStatusPanelのopenをトグルする", async () => {
-    render(<AdminPage />);
-    const user = await openTab("開発者");
-
-    const toggleButton = screen.getByRole("button", { name: "システム状況を表示" });
-    expect(toggleButton).toHaveAttribute("aria-pressed", "false");
-    expect(screen.getByTestId("system-status-panel")).toHaveAttribute("data-open", "false");
-
-    await user.click(toggleButton);
-
-    expect(screen.getByRole("button", { name: "システム状況を隠す" })).toHaveAttribute("aria-pressed", "true");
-    expect(screen.getByTestId("system-status-panel")).toHaveAttribute("data-open", "true");
-  });
-
-  it("SystemStatusPanelのonCloseはsystemStatusOpenをfalseへ戻す", async () => {
-    render(<AdminPage />);
-    const user = await openTab("開発者");
+    expect(screen.queryByRole("button", { name: "パネルを閉じる" })).not.toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "システム状況を表示" }));
-    expect(screen.getByTestId("system-status-panel")).toHaveAttribute("data-open", "true");
+    expect(screen.getByRole("button", { name: "パネルを閉じる" })).toBeInTheDocument();
 
-    await user.click(screen.getByRole("button", { name: "close" }));
+    await user.click(screen.getByRole("button", { name: "システム状況を隠す" }));
+    expect(screen.queryByRole("button", { name: "パネルを閉じる" })).not.toBeInTheDocument();
 
-    expect(screen.getByTestId("system-status-panel")).toHaveAttribute("data-open", "false");
-    expect(screen.getByRole("button", { name: "システム状況を表示" })).toHaveAttribute("aria-pressed", "false");
+    await user.click(screen.getByRole("button", { name: "システム状況を表示" }));
+    await user.click(screen.getByRole("button", { name: "パネルを閉じる" }));
+    expect(screen.queryByRole("button", { name: "パネルを閉じる" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "システム状況を表示" })).toBeInTheDocument();
+  });
+
+  it("デバッグモード中だけ、ログの表示はトップページで行うと案内する", async () => {
+    debug.enabled = true;
+    await openDeveloperTab();
+    expect(screen.getByText(/トップページ/)).toBeInTheDocument();
+  });
+
+  it("デバッグモードでなければ、その案内を出さない", async () => {
+    await openDeveloperTab();
+    expect(screen.queryByText(/トップページ/)).not.toBeInTheDocument();
   });
 });

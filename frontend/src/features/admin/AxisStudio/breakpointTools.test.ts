@@ -1,8 +1,18 @@
 // @vitest-environment node
+/**
+ * `breakpointTools.ts`——折れ点の自動生成とその逆、区分線形補間、折れ点の追加位置、ドラッグの刻み。
+ *
+ * 補間の期待値は backend の評価（`domain/axis_templates.py: evaluate_breakpoint_linear` が使う `np.interp`）
+ * の実測値。同じ折れ点を与えた画面とbackendとで値が食い違わないことが、補間の約束である。
+ *
+ * ここで見ないもの:
+ * - 生成・補間を画面のどこで使うか → `AxisScoringSection.test.tsx`
+ */
 import { describe, expect, it } from "vitest";
+
 import {
-  breakpointScore,
   BREAKPOINT_SHAPE_OPTIONS,
+  breakpointScore,
   generateBreakpoints,
   generatorSettingsFrom,
   insertBreakpointAtLargestGap,
@@ -11,246 +21,222 @@ import {
   snapToStep,
 } from "./breakpointTools";
 
+const shapes = BREAKPOINT_SHAPE_OPTIONS.map((option) => option.id);
+
 describe("generateBreakpoints", () => {
-  it("flat(一定)は0点〜100点まで6点を線形に生成する", () => {
-    const points = generateBreakpoints(0, 10, "flat");
-    expect(points).toEqual([
-      [0, 0],
-      [2, 20],
-      [4, 40],
-      [6, 60],
-      [8, 80],
-      [10, 100],
-    ]);
+  it("効き方の選択肢が1つ以上ある", () => {
+    expect(shapes.length).toBeGreaterThan(0);
   });
 
-  it("back_loaded(後半で急)は前半のスコアが線形より低い(下に凸)", () => {
-    const points = generateBreakpoints(0, 10, "back_loaded");
-    expect(points[0]).toEqual([0, 0]);
-    expect(points[points.length - 1]).toEqual([10, 100]);
-    expect(points[1][1]).toBeLessThan(20); // t=0.2の線形値20より低い
-  });
+  it.each(shapes)("%s: 0点の値で0点・100点の値で100点になり、点数は単調に増え、xは昇順", (shape) => {
+    const points = generateBreakpoints(2, 12, shape);
 
-  it("front_loaded(前半で急)は前半のスコアが線形より高い(上に凸)", () => {
-    const points = generateBreakpoints(0, 10, "front_loaded");
-    expect(points[1][1]).toBeGreaterThan(20);
-  });
-
-  it("s_curve(S字)は両端付近がゆるやかで中心対称(smoothstep)になる", () => {
-    const points = generateBreakpoints(0, 10, "s_curve");
-    expect(points[1][1]).toBeLessThan(20); // 立ち上がりはゆるやか(線形なら20)
-    // smoothstepは(0.5, 50)を中心に点対称——t=0.4とt=0.6のスコアの合計は必ず100になる。
-    expect(points[2][1] + points[3][1]).toBe(100);
-  });
-
-  it("zeroValue > hundredValue（値が大きいほど走りやすい）でもx昇順で返す", () => {
-    const points = generateBreakpoints(10, 0, "flat");
-    expect(points[0]).toEqual([0, 100]);
-    expect(points[points.length - 1]).toEqual([10, 0]);
+    expect(points[0]).toEqual([2, 0]);
+    expect(points.at(-1)).toEqual([12, 100]);
     for (let i = 1; i < points.length; i++) {
       expect(points[i][0]).toBeGreaterThan(points[i - 1][0]);
+      expect(points[i][1]).toBeGreaterThanOrEqual(points[i - 1][1]);
+    }
+  });
+
+  it.each(shapes)(
+    "%s: 0点の値が100点の値より大きい（値が大きいほど走りやすい軸）ときも、xは昇順で点数は下がる",
+    (shape) => {
+      const points = generateBreakpoints(80, 20, shape);
+
+      expect(points[0]).toEqual([20, 100]);
+      expect(points.at(-1)).toEqual([80, 0]);
+      for (let i = 1; i < points.length; i++) {
+        expect(points[i][0]).toBeGreaterThan(points[i - 1][0]);
+        expect(points[i][1]).toBeLessThanOrEqual(points[i - 1][1]);
+      }
+    },
+  );
+
+  it("効き方は、一定なら直線、後半で急なら直線より下、前半で急なら直線より上、S字は前半が下で後半が上", () => {
+    const inner = (shape: (typeof shapes)[number]) => generateBreakpoints(0, 100, shape).slice(1, -1);
+
+    for (const [x, y] of inner("flat")) expect(y).toBeCloseTo(x, 0);
+    for (const [x, y] of inner("back_loaded")) expect(y).toBeLessThan(x);
+    for (const [x, y] of inner("front_loaded")) expect(y).toBeGreaterThan(x);
+    const sCurve = inner("s_curve");
+    expect(sCurve.filter(([x]) => x < 50).every(([x, y]) => y < x)).toBe(true);
+    expect(sCurve.filter(([x]) => x > 50).every(([x, y]) => y > x)).toBe(true);
+  });
+
+  it("xは小数2桁、点数は整数へ丸める", () => {
+    for (const [x, y] of generateBreakpoints(0, 1 / 3, "back_loaded")) {
+      expect(Math.round(x * 100) / 100).toBe(x);
+      expect(Number.isInteger(y)).toBe(true);
     }
   });
 });
 
-describe("折れ点の並び", () => {
-  it("x昇順として扱う（渡した順に依らず同じ点を挿す・元の配列は変更しない）", () => {
-    const original: [number, number][] = [
-      [10, 100],
-      [0, 0],
-      [5, 50],
-    ];
+describe("generatorSettingsFrom", () => {
+  it.each(shapes.flatMap((shape) => [[shape, 3, 15] as const, [shape, 40, 5] as const]))(
+    "%s（0点 %d・100点 %d）で生成した折れ点からは、同じ3入力を一致として復元する",
+    (shape, zeroValue, hundredValue) => {
+      expect(generatorSettingsFrom(generateBreakpoints(zeroValue, hundredValue, shape))).toEqual({
+        zeroValue,
+        hundredValue,
+        shape,
+        matched: true,
+      });
+    },
+  );
 
-    // 並べ替えは折れ線を扱う側の途中段階。順を入れ替えて渡しても同じ結果になることで見る。
-    const inserted = insertBreakpointAtLargestGap(original);
-    const sortedInput = insertBreakpointAtLargestGap([
-      [0, 0],
-      [5, 50],
-      [10, 100],
-    ]);
+  it("並びが崩れていても、並べ直してから復元する", () => {
+    const points = generateBreakpoints(3, 15, "front_loaded").reverse();
+    expect(generatorSettingsFrom(points)).toMatchObject({ zeroValue: 3, hundredValue: 15, matched: true });
+  });
 
-    expect(inserted).toEqual(sortedInput);
-    expect(original).toEqual([
-      [10, 100],
-      [0, 0],
-      [5, 50],
-    ]);
+  it("手で直した折れ点は、一致とせず効き方を一定にし、端点は点数の低い側を0点として復元する", () => {
+    expect(
+      generatorSettingsFrom([
+        [0, 10],
+        [4, 70],
+        [9, 90],
+      ]),
+    ).toEqual({ zeroValue: 0, hundredValue: 9, shape: "flat", matched: false });
+    expect(
+      generatorSettingsFrom([
+        [0, 90],
+        [4, 30],
+        [9, 10],
+      ]),
+    ).toEqual({ zeroValue: 9, hundredValue: 0, shape: "flat", matched: false });
+  });
+
+  it("両端の点数が同じなら、xの小さい側を0点とする", () => {
+    expect(
+      generatorSettingsFrom([
+        [1, 50],
+        [5, 80],
+        [8, 50],
+      ]),
+    ).toMatchObject({ zeroValue: 1, hundredValue: 8, matched: false });
+  });
+
+  it("点が2つ未満なら、端点は0と10・効き方は一定で、一致とはしない", () => {
+    expect(generatorSettingsFrom([[5, 50]])).toEqual({ zeroValue: 0, hundredValue: 10, shape: "flat", matched: false });
+  });
+});
+
+describe("breakpointScore（backendの np.interp と同じ値）", () => {
+  const points: [number, number][] = [
+    [0, 0],
+    [10, 40],
+    [20, 100],
+  ];
+
+  it("範囲の外は両端の点数に留める", () => {
+    expect(breakpointScore(points, -5)).toBe(0);
+    expect(breakpointScore(points, 25)).toBe(100);
+  });
+
+  it("点の間は直線で補間し、丸めない", () => {
+    expect(breakpointScore(points, 5)).toBe(20);
+    expect(breakpointScore(points, 12.5)).toBe(55);
+    expect(breakpointScore(points, 1 / 3)).toBeCloseTo(4 / 3, 12);
+  });
+
+  it("並びが崩れた折れ点も、並べ直して補間する", () => {
+    expect(breakpointScore([points[2], points[0], points[1]], 15)).toBe(70);
+  });
+
+  it("折れ点が無ければ0点", () => {
+    expect(breakpointScore([], 3)).toBe(0);
   });
 });
 
 describe("interpolateBreakpointScore", () => {
-  const breakpoints: [number, number][] = [
-    [0, 0],
-    [10, 100],
-  ];
-
-  it("区間内は線形補間する", () => {
-    expect(interpolateBreakpointScore(breakpoints, 5)).toBe(50);
-    expect(interpolateBreakpointScore(breakpoints, 2.5)).toBe(25);
-  });
-
-  it("範囲外は両端でクランプする(np.interpと同じ)", () => {
-    expect(interpolateBreakpointScore(breakpoints, -5)).toBe(0);
-    expect(interpolateBreakpointScore(breakpoints, 100)).toBe(100);
-  });
-
-  it("小数1桁へ丸める(backend: evaluate_breakpoint_linearと同じ丸め)", () => {
-    expect(interpolateBreakpointScore(breakpoints, 1)).toBe(10);
-    expect(
-      interpolateBreakpointScore(
-        [
-          [0, 0],
-          [3, 1],
-        ],
-        1,
-      ),
-    ).toBeCloseTo(0.3, 5);
-  });
-
-  it("xが昇順でなくても内部でソートしてから補間する", () => {
-    const unsorted: [number, number][] = [
-      [10, 100],
+  it("補間した値を小数1桁へ丸める", () => {
+    const points: [number, number][] = [
       [0, 0],
+      [3, 10],
     ];
-    expect(interpolateBreakpointScore(unsorted, 5)).toBe(50);
+    expect(interpolateBreakpointScore(points, 1)).toBe(3.3);
+    expect(interpolateBreakpointScore(points, 2)).toBe(6.7);
   });
 });
 
 describe("insertBreakpointAtLargestGap", () => {
-  it("唯一の区間の中間へ挿入する", () => {
-    const result = insertBreakpointAtLargestGap([
-      [0, 0],
-      [10, 100],
-    ]);
-    expect(result).toEqual([
-      [0, 0],
-      [5, 50],
-      [10, 100],
-    ]);
-  });
-
-  it("最も間隔の広い区間へ挿入する(常に末尾に足すわけではない)", () => {
-    const result = insertBreakpointAtLargestGap([
+  it("隣どうしのxの間隔が最も広い区間の中点へ、xは小数2桁・点数は整数で挿す", () => {
+    const next = insertBreakpointAtLargestGap([
       [0, 0],
       [1, 10],
-      [20, 100],
+      [4.02, 55],
+      [5, 100],
     ]);
-    // [1,20]の区間(幅19)が[0,1](幅1)より広いためそちらへ挿入される。
-    expect(result).toEqual([
+    expect(next).toEqual([
       [0, 0],
       [1, 10],
-      [10.5, 55],
-      [20, 100],
+      [2.51, 33],
+      [4.02, 55],
+      [5, 100],
     ]);
   });
 
-  it("挿入後も昇順のまま保たれる", () => {
-    const result = insertBreakpointAtLargestGap([
+  it("並びが崩れていても、足した後の並びはxの昇順", () => {
+    const next = insertBreakpointAtLargestGap([
       [10, 100],
       [0, 0],
+      [2, 20],
     ]);
-    for (let i = 1; i < result.length; i++) {
-      expect(result[i][0]).toBeGreaterThan(result[i - 1][0]);
-    }
-  });
-});
-
-describe("niceStep/snapToStep", () => {
-  it("スパンに応じてきりのいい刻み幅を返す", () => {
-    expect(niceStep(100)).toBe(5);
-    expect(niceStep(10)).toBe(0.5);
-    expect(niceStep(1)).toBe(0.05);
+    expect(next.map(([x]) => x)).toEqual([0, 2, 6, 10]);
   });
 
-  it("snapToStepは指定刻みの最も近い倍数へ丸める", () => {
-    expect(snapToStep(7.3, 5)).toBe(5);
-    expect(snapToStep(8.3, 5)).toBe(10);
-    expect(snapToStep(3, 0)).toBe(3); // step<=0は素通し
-  });
-});
-describe("generatorSettingsFrom（自動生成フォームの復元）", () => {
-  // 生成フォームの3入力を固定値で持つと、既存の軸を開いたときに無関係な範囲が表示され、
-  // どれか1つに触れた瞬間にその範囲で折れ点が作り直される（較正済みの端点が黙って消える）。
-  it("自動生成した折れ点からは、生成に使った3入力をそのまま復元する", () => {
-    for (const { id } of BREAKPOINT_SHAPE_OPTIONS) {
-      const generated = generateBreakpoints(-2, 12, id);
-
-      expect(generatorSettingsFrom(generated)).toEqual({
-        zeroValue: -2,
-        hundredValue: 12,
-        shape: id,
-        matched: true,
-      });
-    }
-  });
-
-  it("値が小さいほど点数が高い軸（0点側が右）でも向きごと復元する", () => {
-    const descending = generateBreakpoints(30, 5, "front_loaded");
-
-    expect(generatorSettingsFrom(descending)).toMatchObject({
-      zeroValue: 30,
-      hundredValue: 5,
-      matched: true,
-    });
-  });
-
-  it("手で編集した折れ点は、効き方を復元できないが端点は点数から復元する", () => {
-    // 生成物と一致しない（中間点のyが生成の形と違う）。
-    const handEdited: [number, number][] = [
-      [-2, 0],
-      [3, 77],
-      [12, 100],
-    ];
-
-    expect(generatorSettingsFrom(handEdited)).toEqual({
-      zeroValue: -2,
-      hundredValue: 12,
-      shape: "flat",
-      matched: false,
-    });
-  });
-
-  it("折れ点が足りないときは既定値を返す（新規作成の初期状態）", () => {
-    expect(generatorSettingsFrom([])).toEqual({
-      zeroValue: 0,
-      hundredValue: 10,
-      shape: "flat",
-      matched: false,
-    });
-  });
-});
-
-// 折れ点から得点を引く規則。**軸スタジオの分布プレビューも、地図の段も同じものを通す**
-// ——丸め方や同じxが並んだときの返り値が実装ごとにずれると、同じ折れ点を与えた画面どうしで
-// 値が食い違う。
-describe("breakpointScore", () => {
-  const BP: [number, number][] = [
-    [0, 0],
-    [2, 25],
-    [4, 50],
-    [8, 75],
-    [12, 100],
-  ];
-
-  it("折れ点の間を線形に補間する", () => {
-    expect(breakpointScore(BP, 0)).toBe(0);
-    expect(breakpointScore(BP, 1)).toBeCloseTo(12.5);
-    expect(breakpointScore(BP, 2)).toBe(25);
-    expect(breakpointScore(BP, 3)).toBeCloseTo(37.5);
-  });
-
-  it("最初の折れ点より小さい値・最後より大きい値は端の値で頭打ちになる", () => {
-    expect(breakpointScore(BP, -5)).toBe(0);
-    expect(breakpointScore(BP, 999)).toBe(100);
-  });
-
-  it("折れ点が順不同でも並べ替えて扱う", () => {
-    const shuffled: [number, number][] = [
-      [4, 50],
+  it("最も広い間隔が複数あれば、xの小さい側に挿す", () => {
+    const next = insertBreakpointAtLargestGap([
       [0, 0],
-      [2, 25],
-    ];
+      [2, 20],
+      [4, 40],
+    ]);
+    expect(next.map(([x]) => x)).toEqual([0, 1, 2, 4]);
+  });
+});
 
-    expect(breakpointScore(shuffled, 1)).toBeCloseTo(12.5);
+describe("並べ直しは渡された配列を書き換えない（下書きの折れ点をそのまま渡すため）", () => {
+  it("折れ点を足しても、渡した下書きの折れ点は元の並びのまま", () => {
+    const points: [number, number][] = [
+      [10, 100],
+      [0, 0],
+      [4, 30],
+    ];
+    const before = structuredClone(points);
+    insertBreakpointAtLargestGap(points);
+    expect(points).toEqual(before);
+  });
+});
+
+describe("niceStep", () => {
+  it.each([
+    [20, 1],
+    [40, 2],
+    [100, 5],
+    [180, 10],
+    [0.5, 0.02],
+  ])("表示の幅 %d には、目盛り20個ぶんに近い 1・2・5×10^n の刻み %d を選ぶ", (span, step) => {
+    expect(niceStep(span)).toBeCloseTo(step, 12);
+  });
+
+  it("目盛りの数を変えれば、刻みも変わる", () => {
+    expect(niceStep(100, 10)).toBe(10);
+  });
+
+  it.each([[0], [-3], [Number.NaN], [Number.POSITIVE_INFINITY]])("幅が %d なら刻みは1", (span) => {
+    expect(niceStep(span)).toBe(1);
+  });
+});
+
+describe("snapToStep", () => {
+  it("値を刻みの倍数へ丸める", () => {
+    expect(snapToStep(7.4, 5)).toBe(5);
+    expect(snapToStep(7.6, 5)).toBe(10);
+  });
+
+  it("刻みが0以下なら丸めない", () => {
+    expect(snapToStep(7.4, 0)).toBe(7.4);
+    expect(snapToStep(7.4, -1)).toBe(7.4);
   });
 });

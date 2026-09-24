@@ -12,12 +12,17 @@ import { LogLine } from "@/components/ui/LogLine/LogLine";
 import { textVariants } from "@/components/ui/Text/Text";
 
 const DEFAULT_LIMIT = 200;
-const LOG_LEVEL_OPTIONS: readonly LogLevelName[] = ["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"];
+// 選択肢は軽い順に並べる。キーの過不足はbackendの契約から引いた型が検査する。
+const LOG_LEVELS = { DEBUG: true, INFO: true, WARNING: true, ERROR: true, CRITICAL: true } satisfies Record<
+  LogLevelName,
+  true
+>;
+const LOG_LEVEL_OPTIONS = Object.keys(LOG_LEVELS) as LogLevelName[];
 
 // フロントのDebugConsole（lib/debugLog.ts、entry.level="info"/"warn"/"error"）と同じ
 // 「レベルで色分けする」見た目に揃える。backendの整形済みログ行（request_log.py:
 // LOG_FORMAT）は先頭付近に"[LEVELNAME]"を含むため、そこから正規表現で取り出す。
-const LEVEL_PATTERN = /\[(DEBUG|INFO|WARNING|ERROR|CRITICAL)\]/;
+const LEVEL_PATTERN = new RegExp(`\\[(${LOG_LEVEL_OPTIONS.join("|")})\\]`);
 
 function logTone(level: LogLevelName | null): "error" | "warning" | "normal" {
   if (level === "ERROR" || level === "CRITICAL") return "error";
@@ -42,11 +47,6 @@ export default function BackendLogsPanel() {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const { copied, error: copyError, copy } = useCopyToClipboard();
-
-  const handleCopy = () => {
-    if (!lines) return;
-    copy(lines.join("\n"));
-  };
 
   const handleFetch = () => {
     setLoading(true);
@@ -113,7 +113,7 @@ export default function BackendLogsPanel() {
           <div className="flex justify-end">
             <Button
               variant="secondary"
-              onClick={handleCopy}
+              onClick={() => copy(lines.join("\n"))}
               aria-label={copied ? "ログ全体をコピーしました" : "ログ全体をコピー"}
               title={copied ? "コピーしました" : "ログ全体をコピー"}
             >

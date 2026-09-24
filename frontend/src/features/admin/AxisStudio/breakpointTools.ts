@@ -110,19 +110,14 @@ function sortBreakpoints(breakpoints: readonly [number, number][]): [number, num
 export function breakpointScore(breakpoints: readonly [number, number][], x: number): number {
   if (breakpoints.length === 0) return 0;
   const sorted = sortBreakpoints(breakpoints);
-  const first = sorted[0];
   const last = sorted[sorted.length - 1];
-  if (x <= first[0]) return first[1];
+  if (x < sorted[0][0]) return sorted[0][1];
   if (x >= last[0]) return last[1];
-  for (let i = 0; i < sorted.length - 1; i++) {
-    const [x0, y0] = sorted[i];
-    const [x1, y1] = sorted[i + 1];
-    if (x >= x0 && x <= x1) {
-      if (x1 === x0) return y1;
-      return y0 + ((x - x0) / (x1 - x0)) * (y1 - y0);
-    }
-  }
-  return last[1];
+  let j = 0;
+  while (sorted[j + 1][0] <= x) j++;
+  const [x0, y0] = sorted[j];
+  const [x1, y1] = sorted[j + 1];
+  return y0 + ((x - x0) / (x1 - x0)) * (y1 - y0);
 }
 
 /** 効き目プレビュー表が出す得点。backendが返す値と見た目を揃えるため小数1桁へ丸める

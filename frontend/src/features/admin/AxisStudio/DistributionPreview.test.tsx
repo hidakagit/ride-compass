@@ -1,69 +1,92 @@
-import { render, screen } from "@testing-library/react";
+/**
+ * `DistributionPreview.tsx`——折れ点での得点分布を、状態（失敗・集計中・未選択・Way単位で値が定まらない・分布あり）
+ * ごとに1つだけ出すこと。分布があれば帯ごとの割合と分位、警告を並べる。
+ *
+ * ここで見ないもの:
+ * - 帯への振り分けと警告の条件 → `scoreDistribution.test.ts`（期待値はそこの関数から引く）
+ */
+import { render, screen, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import { DistributionPreview } from "./DistributionPreview";
-import type { ValueDistribution } from "./scoreDistribution";
+import { distributionWarnings, scoreBands, type ValueDistribution } from "./scoreDistribution";
 
-const BP: [number, number][] = [
+const BREAKPOINTS: [number, number][] = [
   [0, 0],
-  [4, 100],
+  [100, 100],
 ];
 
-function dist(bins: [number, number, number][]): ValueDistribution {
-  return { sample_ways: 1722, total_km: 254.1, quantiles: { p50: 16.4 }, bins, zero_share: 0.01 };
+function distribution(overrides: Partial<ValueDistribution> = {}): ValueDistribution {
+  return {
+    sample_ways: 1234,
+    total_km: 56.5,
+    quantiles: { p99: 99, p10: 10, p50: 50 },
+    bins: [
+      [0, 0, 0.25],
+      [40, 60, 0.75],
+    ],
+    zero_share: 0.25,
+    ...overrides,
+  };
+}
+
+function renderPreview(props: Partial<Parameters<typeof DistributionPreview>[0]>) {
+  render(<DistributionPreview distribution={null} breakpoints={BREAKPOINTS} loading={false} error={null} {...props} />);
+  return screen.getByRole("region", { name: "折れ点の効き方" });
 }
 
 describe("DistributionPreview", () => {
-  // 統合レビュー第6回の指摘I-6: ルート文脈が要る材料（勾配・風）はWay単位では値が
-  // 定まらず、抽選した道が1本も値を持たない。以前は全帯0.0%のバーと「0本（0km）」を
-  // 出しており「分布はあるが全部0」と読めてしまっていた。
-  it("抽選した道が1本も値を持たないときは、分布を出せない理由を言葉で示す", () => {
-    const empty: ValueDistribution = {
-      sample_ways: 0,
-      total_km: 0,
-      quantiles: {},
-      bins: [],
-      zero_share: 0,
-    };
-    render(<DistributionPreview distribution={empty} breakpoints={BP} loading={false} error={null} />);
-
-    expect(screen.getByText(/値が定まらない/)).toBeInTheDocument();
-    expect(screen.queryByText("0.0%")).not.toBeInTheDocument();
+  it("失敗したら、分布があっても理由だけを出す", () => {
+    const region = renderPreview({ error: "分布の取得に失敗しました", distribution: distribution() });
+    expect(region).toHaveTextContent("分布の取得に失敗しました");
+    expect(within(region).queryByText(/抽選した/)).not.toBeInTheDocument();
   });
 
-  it("読込中・分布なし・失敗をそれぞれ言葉で示す（黙って空にしない）", () => {
-    const { rerender } = render(<DistributionPreview distribution={null} breakpoints={BP} loading error={null} />);
-    expect(screen.getByText(/集計中/)).toBeInTheDocument();
-
-    rerender(<DistributionPreview distribution={null} breakpoints={BP} loading={false} error={null} />);
-    expect(screen.getByText(/材料を選ぶと/)).toBeInTheDocument();
-
-    rerender(<DistributionPreview distribution={null} breakpoints={BP} loading={false} error="取得に失敗しました" />);
-    expect(screen.getByText("取得に失敗しました")).toBeInTheDocument();
+  it("まだ分布が無いまま集計中なら、集計中と出す", () => {
+    expect(renderPreview({ loading: true })).toHaveTextContent("実データを集計中");
   });
 
-  it("折れ点が実データに合っていないと警告を出す（満点への張り付き）", () => {
-    // 生値がすべて折れ点の上限を超える＝全部が満点になる分布。
-    render(<DistributionPreview distribution={dist([[10, 12, 1.0]])} breakpoints={BP} loading={false} error={null} />);
-    expect(screen.getByText(/満点に張り付きます/)).toBeInTheDocument();
-    expect(screen.getByText("100.0%")).toBeInTheDocument();
+  it("集計し直している間は、手元の分布を出したままにする", () => {
+    const region = renderPreview({ loading: true, distribution: distribution() });
+    expect(region).toHaveTextContent("1,234本");
+    expect(region).not.toHaveTextContent("集計中");
   });
 
-  it("散らばっていれば警告を出さず、母集団の規模を添える", () => {
-    render(
-      <DistributionPreview
-        distribution={dist([
-          [0, 0.1, 0.4],
-          [1, 1.2, 0.3],
-          [3, 3.2, 0.3],
-        ])}
-        breakpoints={BP}
-        loading={false}
-        error={null}
-      />,
-    );
-    expect(screen.queryByText(/満点に張り付きます/)).not.toBeInTheDocument();
-    expect(screen.getByText(/1,722本/)).toBeInTheDocument();
-    expect(screen.getByText(/254.1km/)).toBeInTheDocument();
+  it("分布が無く集計もしていなければ、材料を選ぶよう促す", () => {
+    expect(renderPreview({})).toHaveTextContent("材料を選ぶと");
+  });
+
+  it("抽選した道が1本も値を持たなければ、0%の帯ではなく理由を言葉で出す", () => {
+    const region = renderPreview({ distribution: distribution({ sample_ways: 0 }) });
+    expect(region).toHaveTextContent("Way単位では値が定まらない");
+    expect(region).not.toHaveTextContent("%");
+  });
+
+  it("分布があれば、抽選の規模と、帯ごとの割合（小数1桁）を帯の並びどおりに出す", () => {
+    const value = distribution();
+    const region = renderPreview({ distribution: value });
+
+    expect(region).toHaveTextContent("1,234本");
+    expect(region).toHaveTextContent("56.5km");
+    const bands = scoreBands(value, BREAKPOINTS);
+    expect(bands.length).toBeGreaterThan(0);
+    for (const band of bands) {
+      const row = within(region).getByText(band.label).parentElement!;
+      expect(row).toHaveTextContent(`${(band.share * 100).toFixed(1)}%`);
+    }
+  });
+
+  it("分位は小さい順に、届いたものだけを並べる", () => {
+    const region = renderPreview({ distribution: distribution() });
+    expect(within(region).getByText(/材料の合成値/)).toHaveTextContent(/p10=10\s+p50=50\s+p99=99/);
+  });
+
+  it("帯の割合から出る警告を、そのまま並べる", () => {
+    const value = distribution({ bins: [[200, 200, 1]] });
+    const warnings = distributionWarnings(scoreBands(value, BREAKPOINTS));
+    expect(warnings.length).toBeGreaterThan(0);
+
+    const region = renderPreview({ distribution: value });
+    for (const warning of warnings) expect(within(region).getByText(warning)).toBeInTheDocument();
   });
 });

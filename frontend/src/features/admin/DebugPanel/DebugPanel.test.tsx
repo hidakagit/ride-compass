@@ -1,33 +1,35 @@
-import { act, render, screen } from "@testing-library/react";
+/**
+ * `DebugPanel.tsx`——デバッグモードの今の値をチェックで示し、押すと切り替えること。
+ *
+ * ここで見ないもの:
+ * - デバッグモードの保持・画面をまたぐ共有 → `lib/debugLog.ts`
+ */
+import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { beforeEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
+
 import { isDebugEnabled, setDebugEnabled } from "@/lib/debugLog";
+
 import DebugPanel from "./DebugPanel";
 
+afterEach(() => {
+  setDebugEnabled(false);
+});
+
 describe("DebugPanel", () => {
-  beforeEach(() => {
+  it("今の値を示し、押すたびに入り切りする", async () => {
     setDebugEnabled(false);
-  });
-
-  it("初期状態でチェックボックスのaria-checkedがisDebugEnabledと一致する", () => {
-    render(<DebugPanel />);
-    const checkbox = screen.getByRole("checkbox");
-    expect(checkbox).toHaveAttribute("aria-checked", String(isDebugEnabled()));
-    expect(checkbox).toHaveAttribute("aria-checked", "false");
-  });
-
-  it("チェックボックスをクリックするとsetDebugEnabled経由で状態が反映されaria-checkedが反転する", async () => {
     const user = userEvent.setup();
     render(<DebugPanel />);
-    const checkbox = screen.getByRole("checkbox");
+    const checkbox = screen.getByRole("checkbox", { name: "デバッグログを表示" });
+    expect(checkbox).not.toBeChecked();
 
-    expect(checkbox).toHaveAttribute("aria-checked", "false");
-
-    await act(async () => {
-      await user.click(checkbox);
-    });
-
-    expect(checkbox).toHaveAttribute("aria-checked", "true");
+    await user.click(checkbox);
     expect(isDebugEnabled()).toBe(true);
+    expect(checkbox).toBeChecked();
+
+    await user.click(checkbox);
+    expect(isDebugEnabled()).toBe(false);
+    expect(checkbox).not.toBeChecked();
   });
 });

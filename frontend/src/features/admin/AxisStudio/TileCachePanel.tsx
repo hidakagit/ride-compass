@@ -44,7 +44,7 @@ export default function TileCachePanel() {
         </Button>
       </div>
       {error && <p className={textVariants({ variant: "error" })}>{error}</p>}
-      {done && !error && (
+      {done && (
         <p className={textVariants({ variant: "hint" })}>
           消去しました。各利用者の表示へは次回のタイル取得時、遅くとも既存タイルの
           Cache-Control（基礎地図は10分）が切れた時点で反映されます。

@@ -1,245 +1,473 @@
 /**
- * `AxisComposer.tsx`——軸の編集フォーム。
+ * `AxisComposer.tsx`——軸を作る1画面のフォームの状態・保存前の検証・送るpayloadの組み立てと、節の組み立て。
  *
- * ここで見るのは**このコンポーネント自身が決めていること**だけ。下書きとpayloadの変換は
- * `axisDraft.ts`（`axisDraft.test.ts`）、点数のつけ方の入力欄は`AxisScoringSection`、
- * 地図表示の入力欄は`AxisMapDisplaySection`が持つ。
+ * 節（点数の決め方・地図表示と公開）は差し替え、この画面が節へ何を渡し、節から何を受けるかだけを見る。
+ * 検証に掛ける状態は、節を操作せずに編集対象の軸（`editing`）で与える。材料カタログ（実行時に取得する）と
+ * 地図の段の判定の取得も差し替える。
+ *
+ * ここで見ないもの:
+ * - 軸と下書きの相互変換そのもの → `axisDraft.test.ts`
+ * - 節の中の入力欄 → `AxisScoringSection.test.tsx`・`AxisMapDisplaySection.test.tsx`
+ * - どのモードで開くか・保存の結果をどう扱うか → `AxisStudio.test.tsx`
  */
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 
-import { render, screen } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import AxisComposer from "./AxisComposer";
-import { baseAxisDefinition } from "@/testing/axisDefinitionFixtures";
-import type { AxisDefinitionResponse } from "@/types/route";
+import type { AxisMaterialOption } from "@/lib/axisMaterialsCatalog";
+import type { AxisDefinitionPayload, AxisDefinitionResponse } from "@/types/route";
 
-vi.mock("@/features/admin/axisPreviewApi", () => ({
-  fetchAxisValueDistribution: vi.fn().mockRejectedValue(new Error("network unavailable in test")),
-  fetchMaterialDistribution: vi.fn().mockRejectedValue(new Error("network unavailable in test")),
+import { emptyDraft, type Draft } from "./axisDraft";
+
+const catalog = vi.hoisted(() => ({ materials: [] as AxisMaterialOption[], loaded: true }));
+vi.mock("@/hooks/useMaterialCatalog", () => ({ useMaterialCatalog: () => catalog }));
+
+const bands = vi.hoisted(() => ({
+  requests: [] as unknown[],
+  result: { droppedOnMap: [], bandsOnMap: null } as unknown,
+}));
+vi.mock("@/features/admin/useMapBandsOfThresholds", () => ({
+  useMapBandsOfThresholds: (request: unknown) => {
+    bands.requests.push(request);
+    return bands.result;
+  },
 }));
 
-vi.mock("@/services/materialCatalogApi", async () => {
-  const { materialCatalogFixture } = await import("@/testing/materialCatalogFixture");
+type Props = Record<string, unknown> & { draft: Draft; setDraft: (update: (d: Draft) => Draft) => void };
+const sections = vi.hoisted(() => ({ scoring: null as Props | null, display: null as Props | null }));
+vi.mock("./AxisScoringSection", () => ({
+  AxisScoringSection: (props: Props) => {
+    sections.scoring = props;
+    return (
+      <>
+        <button type="button" onClick={() => props.setDraft((d) => ({ ...d }))}>
+          点数の節で触る
+        </button>
+        <button
+          type="button"
+          onClick={() => props.setDraft((d) => ({ ...d, categoricalRows: [{ value: "  ", score: 0 }] }))}
+        >
+          値の行を空欄で足す
+        </button>
+      </>
+    );
+  },
+}));
+vi.mock("./AxisMapDisplaySection", () => ({
+  AxisMapDisplaySection: (props: Props & { onThresholdErrorChange: (error: string | null) => void }) => {
+    sections.display = props;
+    return (
+      <>
+        <button type="button" onClick={() => props.onThresholdErrorChange("しきい値を読めません")}>
+          しきい値の誤りを伝える
+        </button>
+        <button type="button" onClick={() => props.onThresholdErrorChange(null)}>
+          しきい値の誤りなしを伝える
+        </button>
+        <button type="button" onClick={() => props.setDraft((d) => ({ ...d, isPublished: true }))}>
+          公開にする
+        </button>
+      </>
+    );
+  },
+}));
+
+import AxisComposer from "./AxisComposer";
+
+function material(id: string, dtype: AxisMaterialOption["dtype"]): AxisMaterialOption {
+  return { id, label: id, name: id, description: "", dtype, unit: "" };
+}
+const NUM = material("num_a", "numeric");
+const BOOL = material("bool_a", "boolean");
+const CAT = material("cat_a", "categorical");
+const MATERIALS = [NUM, BOOL, CAT];
+
+function axis(overrides: Partial<AxisDefinitionResponse> = {}): AxisDefinitionResponse {
   return {
-    getMaterialCatalog: vi.fn().mockResolvedValue(materialCatalogFixture()),
-    getMaterialValues: vi.fn().mockRejectedValue(new Error("network unavailable in test")),
+    axis_id: "axis_edit",
+    label: "名前",
+    description: "",
+    category: "推定",
+    default_weight: 0.2,
+    is_published: false,
+    show_map_icon: true,
+    time_scope: "always",
+    dedicated_way_value_layer: false,
+    dynamic_way_value_needs_time: false,
+    dynamic_way_value_needs_bearing: false,
+    dynamic_way_value_needs_speed: false,
+    shape: {
+      kind: "breakpoint_linear",
+      terms: [{ material: NUM.id, weight: 1, required: true }],
+      preprocess: "identity",
+      breakpoints: [
+        [0, 0],
+        [10, 100],
+      ],
+    },
+    display: { kind: "none", label: "", category: "" },
+    ...overrides,
   };
+}
+
+interface ComposerProps {
+  editing?: AxisDefinitionResponse | null;
+  duplicateFrom?: AxisDefinitionResponse | null;
+  otherAxes?: readonly AxisDefinitionResponse[];
+  republishing?: boolean;
+  mapBandColors?: (boundaries: readonly number[]) => readonly string[];
+  mapValueUnit?: string;
+}
+
+function renderComposer(props: ComposerProps = {}) {
+  const onSave = vi.fn<(payload: AxisDefinitionPayload, isNew: boolean) => Promise<void>>(async () => {});
+  const onCancelEdit = vi.fn();
+  const user = userEvent.setup();
+  const view = render(
+    <AxisComposer editing={null} duplicateFrom={null} onSave={onSave} onCancelEdit={onCancelEdit} {...props} />,
+  );
+  return { user, onSave, onCancelEdit, ...view };
+}
+
+const submitButton = () => screen.getByRole("button", { name: /作成する|更新する|保存中/ });
+
+beforeEach(() => {
+  catalog.materials = MATERIALS;
+  catalog.loaded = true;
+  bands.requests = [];
+  bands.result = { droppedOnMap: [], bandsOnMap: null };
+  sections.scoring = null;
+  sections.display = null;
 });
 
-function makeSaveSpy() {
-  return vi.fn().mockResolvedValue(undefined);
-}
+describe("材料カタログ", () => {
+  it("読み込み中は、フォームを出さずに読み込み中と言う", () => {
+    catalog.loaded = false;
+    catalog.materials = [];
+    renderComposer();
+    expect(screen.getByText(/材料カタログを読み込んでいます/)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "作成する" })).not.toBeInTheDocument();
+  });
 
-/** フォームを1つ立ち上げ、材料カタログが届くまで待つ。 */
-async function openComposer(
-  options: {
-    editing?: AxisDefinitionResponse | null;
-    otherAxes?: readonly AxisDefinitionResponse[];
-    onSave?: ReturnType<typeof makeSaveSpy>;
-    onCancelEdit?: () => void;
-  } = {},
-) {
-  const onSave = options.onSave ?? makeSaveSpy();
-  const onCancelEdit = options.onCancelEdit ?? vi.fn(() => {});
-  const user = userEvent.setup();
-  render(
-    <AxisComposer
-      editing={options.editing ?? null}
-      duplicateFrom={null}
-      otherAxes={options.otherAxes}
-      onCancelEdit={onCancelEdit}
-      onSave={onSave}
-    />,
+  it("読み込んだが0件なら、フォームを出さずに理由と閉じる口だけを出す", async () => {
+    catalog.materials = [];
+    const { user, onCancelEdit } = renderComposer();
+    expect(screen.getByText(/材料カタログを取得できませんでした/)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "作成する" })).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "閉じる" }));
+    expect(onCancelEdit).toHaveBeenCalled();
+  });
+
+  it("カタログが後から入れ替わったら、まだ触っていない下書きを作り直す", () => {
+    catalog.materials = [BOOL];
+    const editing = axis();
+    const { rerender, onSave, onCancelEdit } = renderComposer({ editing });
+    expect(sections.scoring!.draft.shapeKind).toBe("recipe_then_breakpoint_linear");
+
+    catalog.materials = MATERIALS;
+    rerender(<AxisComposer editing={editing} duplicateFrom={null} onSave={onSave} onCancelEdit={onCancelEdit} />);
+    expect(sections.scoring!.draft.shapeKind).toBe("breakpoint_linear");
+  });
+
+  it("触った後にカタログが入れ替わっても、下書きは作り直さない", async () => {
+    catalog.materials = [BOOL];
+    const editing = axis();
+    const { rerender, onSave, onCancelEdit, user } = renderComposer({ editing });
+    await user.click(screen.getByRole("button", { name: "点数の節で触る" }));
+
+    catalog.materials = MATERIALS;
+    rerender(<AxisComposer editing={editing} duplicateFrom={null} onSave={onSave} onCancelEdit={onCancelEdit} />);
+    expect(sections.scoring!.draft.shapeKind).toBe("recipe_then_breakpoint_linear");
+  });
+});
+
+describe("保存するpayload", () => {
+  const payloadKeys: string[] = Object.keys(
+    JSON.parse(readFileSync(join(__dirname, "../../../types/generated/openapi.json"), "utf-8")).components.schemas
+      .AxisDefinitionPayload.properties,
   );
-  await screen.findByRole("button", { name: /作成する|更新する/ });
-  return { user, onSave, onCancelEdit };
-}
 
-async function save(user: ReturnType<typeof userEvent.setup>) {
-  await user.click(screen.getByRole("button", { name: /作成する|更新する/ }));
-}
-
-describe("保存する値の組み立て", () => {
-  it("編集欄を持たないフィールドは既存値のまま送り返し、編集した値だけを重ねる", async () => {
-    const editing = baseAxisDefinition({
-      label: "元",
+  it("既存の軸を開いて何も変えずに保存すると、backendの契約の全項目が元の軸と同じ値で届く", async () => {
+    const editing = axis({
+      category: "観測",
+      priority_overrides: [{ material: CAT.id, equals: "x", value: 1 }],
       time_scope: "night_only",
       dedicated_way_value_layer: true,
+      dynamic_way_value_needs_time: true,
+      dynamic_way_value_needs_bearing: true,
+      dynamic_way_value_needs_speed: true,
+      icon_id: "icon_a",
+      chip_label: "略",
+      panel_hint: "補足",
+      show_map_icon: false,
+      display_thresholds_override: [1, 2],
+      display_band_labels_override: ["a", "b", "c"],
+      description: "説明",
     });
-    const { user, onSave } = await openComposer({ editing });
+    const defaults = emptyDraft(MATERIALS).passthrough;
+    for (const [key, value] of Object.entries(defaults)) {
+      expect(
+        editing[key as keyof AxisDefinitionResponse],
+        `${key}が新規の値と同じで、素通しを確かめられない`,
+      ).not.toEqual(value);
+    }
+    const { user, onSave } = renderComposer({ editing });
 
-    await user.clear(screen.getByRole("textbox", { name: "表示名" }));
-    await user.type(screen.getByRole("textbox", { name: "表示名" }), "新");
-    await save(user);
-
-    const [payload] = onSave.mock.calls[0];
-    // 編集した値は上書きされ、編集欄の無い値は落ちない。
-    expect(payload.label).toBe("新");
-    expect(payload.time_scope).toBe("night_only");
-    expect(payload.dedicated_way_value_layer).toBe(true);
+    await user.click(submitButton());
+    await waitFor(() => expect(onSave).toHaveBeenCalled());
+    const [payload, isNew] = onSave.mock.calls[0];
+    expect(isNew).toBe(false);
+    expect(payloadKeys.length).toBeGreaterThan(0);
+    for (const key of payloadKeys) {
+      expect(payload[key as keyof AxisDefinitionPayload], key).toEqual(editing[key as keyof AxisDefinitionResponse]);
+    }
   });
 
-  it("未入力の表示欄は空文字ではなくnullで送る（backendの「未設定」と同じ意味にする）", async () => {
-    const { user, onSave } = await openComposer();
+  it("表示名・略称・説明文は前後の空白を落とし、空の略称・説明文・アイコンは未設定（null）で送る", async () => {
+    const { user, onSave } = renderComposer({
+      editing: axis({ label: "  名前  ", chip_label: " 略 ", panel_hint: "   ", icon_id: "" }),
+    });
+    await user.click(submitButton());
 
-    await user.type(screen.getByRole("textbox", { name: "表示名" }), "軸");
-    await save(user);
-
-    const [payload] = onSave.mock.calls[0];
-    expect(payload.icon_id).toBeNull();
-    expect(payload.chip_label).toBeNull();
-    expect(payload.panel_hint).toBeNull();
+    await waitFor(() => expect(onSave).toHaveBeenCalled());
+    expect(onSave.mock.calls[0][0]).toMatchObject({ label: "名前", chip_label: "略", panel_hint: null, icon_id: null });
   });
 
-  it("表示名の前後の空白は落として送る", async () => {
-    const { user, onSave } = await openComposer();
+  it("表示名・説明・既定重みを下書きへ入れて送る", async () => {
+    const { user, onSave } = renderComposer({ editing: axis() });
+    const label = screen.getByRole("textbox", { name: "表示名" });
+    await user.clear(label);
+    await user.type(label, "改名");
+    await user.type(screen.getByRole("textbox", { name: "説明" }), "説明文");
+    const weight = screen.getByRole("spinbutton", { name: "既定重み" });
+    await user.clear(weight);
+    await user.type(weight, "0.5");
+    await user.click(submitButton());
 
-    await user.type(screen.getByRole("textbox", { name: "表示名" }), "  軸  ");
-    await save(user);
-
-    expect(onSave.mock.calls[0][0].label).toBe("軸");
-  });
-
-  it("保存ボタンを押すまでonSaveは呼ばれない", async () => {
-    const { user, onSave } = await openComposer();
-
-    await user.type(screen.getByRole("textbox", { name: "表示名" }), "軸");
-
-    expect(onSave).not.toHaveBeenCalled();
-    await save(user);
-    expect(onSave).toHaveBeenCalledTimes(1);
+    await waitFor(() => expect(onSave).toHaveBeenCalled());
+    expect(onSave.mock.calls[0][0]).toMatchObject({ label: "改名", description: "説明文", default_weight: 0.5 });
   });
 });
 
 describe("保存前の検証", () => {
-  it("表示名が空なら保存しない", async () => {
-    const { user, onSave } = await openComposer();
+  async function submitAndReadError(editing: AxisDefinitionResponse) {
+    const { user, onSave } = renderComposer({ editing });
+    await user.click(submitButton());
+    return { onSave, user };
+  }
 
-    await save(user);
-
-    expect(screen.getByText(/表示名を入力してください/)).toBeInTheDocument();
+  it.each([
+    ["表示名が空", axis({ label: "  " }), /表示名を入力してください/],
+    [
+      "折れ線の折れ点の横軸が小さい順でない",
+      axis({
+        shape: {
+          kind: "breakpoint_linear",
+          terms: [{ material: NUM.id, weight: 1, required: true }],
+          preprocess: "identity",
+          breakpoints: [
+            [5, 0],
+            [5, 100],
+          ],
+        },
+      }),
+      /折れ点は横軸/,
+    ],
+    [
+      "種類の材料の値ごとの点数が1件も無い",
+      axis({ shape: { kind: "categorical", material: CAT.id, mapping: {} } }),
+      /値ごとのスコアを少なくとも1件/,
+    ],
+    ["表示名が4文字を超えるのに略称が無い", axis({ label: "五文字の名", chip_label: null }), /チップの略称を設定/],
+    ["しきい値を上書きしているのに1件も無い", axis({ display_thresholds_override: [] }), /しきい値を1件以上/],
+  ])("%sなら、理由を出して送らない", async (_case, editing, message) => {
+    const { onSave } = await submitAndReadError(editing);
+    expect(await screen.findByText(message)).toBeInTheDocument();
     expect(onSave).not.toHaveBeenCalled();
   });
 
-  it("表示名が4文字を超えるのにチップの略称が無ければ保存しない", async () => {
-    const { user, onSave } = await openComposer();
+  it.each([
+    [
+      "ほかの軸を組み合わせる形（折れ点を入力させない）",
+      axis({
+        shape: {
+          kind: "breakpoint_linear",
+          terms: [{ material: "axis_other", weight: 1, required: true }],
+          preprocess: "identity",
+          breakpoints: [
+            [5, 0],
+            [5, 100],
+          ],
+        },
+      }),
+    ],
+    ["真偽の材料（値ごとの行を持たない）", axis({ shape: { kind: "categorical", material: BOOL.id, mapping: {} } })],
+    ["表示名が4文字を超えても略称がある", axis({ label: "五文字の名", chip_label: "略" })],
+  ])("%sは、その検証に掛けずに送る", async (_case, editing) => {
+    const { onSave } = await submitAndReadError(editing);
+    await waitFor(() => expect(onSave).toHaveBeenCalled());
+  });
 
-    await user.type(screen.getByRole("textbox", { name: "表示名" }), "あいうえおか");
-    await save(user);
-
-    expect(screen.getByText(/チップの略称を設定してください/)).toBeInTheDocument();
+  it("種類の材料の値の行が空欄だけなら止める", async () => {
+    const { user, onSave } = renderComposer({
+      editing: axis({ shape: { kind: "categorical", material: CAT.id, mapping: {} } }),
+    });
+    await user.click(screen.getByRole("button", { name: "値の行を空欄で足す" }));
+    await user.click(submitButton());
+    expect(await screen.findByText(/値ごとのスコアを少なくとも1件/)).toBeInTheDocument();
     expect(onSave).not.toHaveBeenCalled();
   });
 
-  it("エラーが出たあと直して保存すると通る", async () => {
-    const { user, onSave } = await openComposer();
+  it("地図表示の節が、しきい値の入力を読めないと伝えている間は、その理由で止め、読めたら送る", async () => {
+    const { user, onSave } = renderComposer({ editing: axis({ display_thresholds_override: [1] }) });
+    await user.click(screen.getByRole("button", { name: "しきい値の誤りを伝える" }));
+    await user.click(submitButton());
+    expect(await screen.findByText("しきい値を読めません")).toBeInTheDocument();
+    expect(onSave).not.toHaveBeenCalled();
 
-    await save(user);
-    await user.type(screen.getByRole("textbox", { name: "表示名" }), "軸");
-    await save(user);
+    await user.click(screen.getByRole("button", { name: "しきい値の誤りなしを伝える" }));
+    await user.click(submitButton());
+    await waitFor(() => expect(onSave).toHaveBeenCalled());
+    expect(screen.queryByText("しきい値を読めません")).not.toBeInTheDocument();
+  });
 
-    expect(onSave).toHaveBeenCalledTimes(1);
+  it("誤りが複数あれば、基本の項目（表示名）の理由を先に出す", async () => {
+    await submitAndReadError(axis({ label: "", display_thresholds_override: [] }));
+    expect(await screen.findByText(/表示名を入力してください/)).toBeInTheDocument();
+    expect(screen.queryByText(/しきい値を1件以上/)).not.toBeInTheDocument();
   });
 });
 
-describe("保存の失敗", () => {
-  it("失敗の理由を出し、もう一度押せる状態へ戻す", async () => {
-    const onSave = vi.fn().mockRejectedValue(new Error("保存できませんでした"));
-    const { user } = await openComposer({ onSave });
-
-    await user.type(screen.getByRole("textbox", { name: "表示名" }), "軸");
-    await save(user);
-
-    expect(await screen.findByText("保存できませんでした")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "作成する" })).toBeEnabled();
-  });
-});
-
-describe("公開済み軸の制限モード", () => {
-  it("地図表示の項目だけを出し、材料や重みの入力欄は出さない", async () => {
-    await openComposer({ editing: baseAxisDefinition({ is_published: true }) });
-
+describe("公開済みの軸（表示だけ編集）", () => {
+  it("表示の項目しか変えられないと言い、基本の項目と点数の節を出さず、表示の節へ制限を伝える", () => {
+    renderComposer({ editing: axis({ is_published: true }) });
     expect(screen.getByText(/地図表示に関わる項目のみ編集できます/)).toBeInTheDocument();
     expect(screen.queryByRole("textbox", { name: "表示名" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("spinbutton", { name: "既定重み" })).not.toBeInTheDocument();
+    expect(sections.scoring).toBeNull();
+    expect(sections.display!.restrictedDisplayOnly).toBe(true);
   });
 
-  it("入力欄の無い節を検証しない（表示名が空でも行き止まりにしない）", async () => {
-    const { user, onSave } = await openComposer({
-      editing: baseAxisDefinition({ is_published: true, label: "" }),
-    });
+  it("描いていない節は検証せず（表示名が空でも送る）、表示の節の検証だけを掛ける", async () => {
+    const first = await (async () => {
+      const { user, onSave, unmount } = renderComposer({ editing: axis({ is_published: true, label: "" }) });
+      await user.click(submitButton());
+      await waitFor(() => expect(onSave).toHaveBeenCalled());
+      return unmount;
+    })();
+    first();
 
-    await save(user);
-
-    expect(onSave).toHaveBeenCalledTimes(1);
-  });
-});
-
-describe("既定重みの相対表示", () => {
-  it("他の軸を渡さなければ出さない", async () => {
-    await openComposer();
-
-    expect(screen.queryByText(/重み合計に対して約/)).not.toBeInTheDocument();
-    expect(screen.queryByText(/重みはルート探索へ直接使われません/)).not.toBeInTheDocument();
-  });
-
-  it("非公開のうちは、重みが効かない旨だけを出す", async () => {
-    await openComposer({
-      editing: baseAxisDefinition({ is_published: false }),
-      otherAxes: [baseAxisDefinition({ axis_id: "other", is_published: true, default_weight: 1 })],
-    });
-
-    expect(screen.getByText(/重みはルート探索へ直接使われません/)).toBeInTheDocument();
-  });
-
-  it("公開にすると、他の公開軸との比率を出す", async () => {
-    // 比率が出るのは新規作成のときだけ——公開済みの軸を編集する画面は制限モードで、
-    // 重みの欄自体を描かない。
-    const { user } = await openComposer({
-      otherAxes: [baseAxisDefinition({ axis_id: "axis_b", is_published: true, default_weight: 3 })],
-    });
-
-    const weight = screen.getByRole("spinbutton", { name: "既定重み" });
-    await user.clear(weight);
-    await user.type(weight, "1");
-    await user.click(screen.getByRole("checkbox", { name: "公開する" }));
-
-    // 1 / (3 + 1) = 25.0%。文は数値の埋め込みで分割されるため要素の全文で見る。
-    const hint = screen.getByText(
-      (_content, element) => element?.tagName === "P" && (element.textContent ?? "").startsWith("参考:"),
-    );
-    expect(hint.textContent).toContain("約25.0%");
+    const { user, onSave } = renderComposer({ editing: axis({ is_published: true, display_thresholds_override: [] }) });
+    await user.click(submitButton());
+    expect(await screen.findByText(/しきい値を1件以上/)).toBeInTheDocument();
+    expect(onSave).not.toHaveBeenCalled();
   });
 });
 
-describe("ボタンの出し分け", () => {
-  it("新規作成では「作成する」だけを出す", async () => {
-    await openComposer();
-
+describe("保存の操作", () => {
+  it("新規は「作成する」だけ、編集は「更新する」と「編集をやめる」を置き、やめると親へ伝える", async () => {
+    const { unmount } = renderComposer();
     expect(screen.getByRole("button", { name: "作成する" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "編集をやめる" })).not.toBeInTheDocument();
+    unmount();
+
+    const { user, onCancelEdit } = renderComposer({ editing: axis() });
+    expect(screen.getByRole("button", { name: "更新する" })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "編集をやめる" }));
+    expect(onCancelEdit).toHaveBeenCalled();
   });
 
-  it("編集では「更新する」と「編集をやめる」を出し、やめるとonCancelEditが呼ばれる", async () => {
-    const { user, onCancelEdit } = await openComposer({ editing: baseAxisDefinition() });
+  it("保存中は保存もやめるも押せない", async () => {
+    const { user, onSave } = renderComposer({ editing: axis() });
+    onSave.mockReturnValue(new Promise(() => {}));
+    await user.click(submitButton());
+    expect(await screen.findByRole("button", { name: "保存中..." })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "編集をやめる" })).toBeDisabled();
+  });
 
-    await user.click(screen.getByRole("button", { name: "編集をやめる" }));
-
-    expect(screen.getByRole("button", { name: "更新する" })).toBeInTheDocument();
-    expect(onCancelEdit).toHaveBeenCalledTimes(1);
+  it.each([
+    ["Error", new Error("軸は公開済みです"), "軸は公開済みです"],
+    ["Error以外", "conflict", "conflict"],
+  ])("保存が%sで失敗したら理由を出し、もう一度押せる", async (_kind, reason, message) => {
+    const { user, onSave } = renderComposer({ editing: axis() });
+    onSave.mockRejectedValueOnce(reason);
+    await user.click(submitButton());
+    expect(await screen.findByText(message)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "更新する" })).toBeEnabled();
   });
 });
 
-// このテストは解決しないPromiseをモジュール内の実行中スロットへ残すため、最後に置くこと。
-describe("材料カタログが届くまで", () => {
-  it("入力欄ではなく読み込み中を出す", async () => {
-    const { getMaterialCatalog } = await import("@/services/materialCatalogApi");
-    vi.mocked(getMaterialCatalog).mockReturnValue(new Promise(() => {}));
+describe("節へ渡すもの", () => {
+  it("点数の節へは、材料と、編集中の軸自身を除いたほかの軸（点数の材料として）を渡す", () => {
+    const self = axis({ axis_id: "axis_edit" });
+    const other = axis({ axis_id: "axis_other", label: "ほかの軸", description: "ほかの説明" });
+    renderComposer({ editing: self, otherAxes: [self, other] });
 
-    render(<AxisComposer editing={null} duplicateFrom={null} onCancelEdit={vi.fn()} onSave={makeSaveSpy()} />);
+    expect(sections.scoring!.materialOptions).toEqual(MATERIALS);
+    expect(sections.scoring!.axisTermOptions).toEqual([
+      { id: "axis_other", label: "ほかの軸", name: "ほかの軸", description: "ほかの説明", dtype: "numeric", unit: "" },
+    ]);
+  });
 
-    expect(screen.getByText(/材料カタログを読み込んでいます/)).toBeInTheDocument();
-    expect(screen.queryByRole("textbox", { name: "表示名" })).not.toBeInTheDocument();
+  it("表示の節へは、編集中の軸・調整中か・段の配色と単位・地図の段の判定を渡す", () => {
+    const editing = axis();
+    const mapBandColors = () => [];
+    bands.result = { droppedOnMap: [3], bandsOnMap: [0] };
+    renderComposer({ editing, republishing: true, mapBandColors, mapValueUnit: "km/h" });
+
+    expect(sections.display).toMatchObject({
+      editing,
+      republishing: true,
+      restrictedDisplayOnly: false,
+      mapBandColors,
+      mapValueUnit: "km/h",
+      mapBands: { droppedOnMap: [3], bandsOnMap: [0] },
+    });
+  });
+
+  it.each([
+    ["上書きしていない", axis({ display_thresholds_override: null })],
+    ["上書きが空", axis({ display_thresholds_override: [] })],
+  ])("しきい値を%sときは、地図の段を問わない", (_case, editing) => {
+    renderComposer({ editing });
+    expect(bands.requests.at(-1)).toBeNull();
+  });
+});
+
+describe("既定重みの参考表示", () => {
+  it("ほかの軸を渡されていなければ、出さない", () => {
+    renderComposer({ editing: axis({ is_published: false }) });
+    expect(screen.queryByText(/参考:/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/現在非公開のため/)).not.toBeInTheDocument();
+  });
+
+  it("下書きの軸には、公開するまで重みが効かないと言う", () => {
+    renderComposer({ editing: axis({ is_published: false }), otherAxes: [] });
+    expect(screen.getByText(/現在非公開のため/)).toBeInTheDocument();
+  });
+
+  it("公開にした軸には、自分と他の公開軸の重みの合計に対する割合を出す（非公開の軸と自分の古い行は数えない）", async () => {
+    const self = axis({ axis_id: "axis_edit", is_published: false, default_weight: 0.2 });
+    const others = [
+      self,
+      axis({ axis_id: "axis_p", is_published: true, default_weight: 0.3 }),
+      axis({ axis_id: "axis_d", is_published: false, default_weight: 5 }),
+    ];
+    const { user } = renderComposer({ editing: self, otherAxes: others });
+    await user.click(screen.getByRole("button", { name: "公開にする" }));
+
+    expect(screen.getByText(/参考:/)).toHaveTextContent("（2軸）の重み合計に対して約40.0%");
+  });
+
+  it("公開にしても重みの合計が0なら、割合を出さない", async () => {
+    const self = axis({ is_published: false, default_weight: 0 });
+    const { user } = renderComposer({ editing: self, otherAxes: [self] });
+    await user.click(screen.getByRole("button", { name: "公開にする" }));
+
+    expect(screen.queryByText(/参考:/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/現在非公開のため/)).not.toBeInTheDocument();
   });
 });

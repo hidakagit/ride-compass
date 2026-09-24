@@ -1,195 +1,207 @@
-import { act, render, screen, within } from "@testing-library/react";
+/**
+ * `DerivedDataFreshnessPanel.tsx`——派生データの鮮度台帳を押したときだけ集計し、表ごとに「作り直しが
+ * 要るか」を1行へまとめ、要るなら打つコマンドを1つだけ示すこと。
+ *
+ * 行の組み立て（どの状態を手当て要とするか・開いた先に何を並べるか）はこのファイルの判断で、
+ * 一覧の描き方そのものは `StatusRowList.test.tsx` が持つ。日時の書式はOSの時間帯で変わるため、
+ * 書式そのものは見ない（testing.md パターン10）。
+ */
+import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
 import type { DerivedDataFreshnessResponse } from "@/types/route";
+
+const api = vi.hoisted(() => ({ getDerivedDataFreshness: vi.fn() }));
+vi.mock("@/features/admin/derivedDataFreshnessApi", () => api);
+
 import DerivedDataFreshnessPanel from "./DerivedDataFreshnessPanel";
-import { getDerivedDataFreshness } from "@/features/admin/derivedDataFreshnessApi";
 
-vi.mock("@/features/admin/derivedDataFreshnessApi", () => ({
-  getDerivedDataFreshness: vi.fn(),
-}));
+type Table = DerivedDataFreshnessResponse["tables"][number];
+type Column = Table["columns"][number];
 
-type TableEntry = DerivedDataFreshnessResponse["tables"][number];
-
-function table(overrides: Partial<TableEntry>): TableEntry {
+function table(overrides: Partial<Table>): Table {
   return {
-    table_name: "edge_materials",
-    row_count: 5000,
-    source: "osm_way",
-    oldest_run_id: 10,
-    latest_run_id: 10,
+    table_name: "derived_a",
+    row_count: 0,
+    source: null,
+    oldest_run_id: null,
+    latest_run_id: null,
     is_stale: false,
-    coverage_parent: "road_edges",
-    coverage_parent_row_count: 5000,
-    missing_rows: 0,
-    columns: [
-      { column: "accident_count", null_count: 0, is_incomplete: false },
-      // 橋・トンネルは値を持たない。件数は出すが作り直しの対象にはしない。
-      { column: "average_grade", null_count: 500, is_incomplete: false },
-    ],
+    coverage_parent: null,
+    coverage_parent_row_count: null,
+    missing_rows: null,
+    columns: [],
     ...overrides,
   };
 }
 
-const FRESH_REPORT: DerivedDataFreshnessResponse = {
-  computed_at: "2026-09-04T12:00:00+00:00",
-  tables: [table({}), table({ table_name: "way_materials" }), table({ table_name: "road_edges", columns: [] })],
-};
+function column(overrides: Partial<Column>): Column {
+  return { column: "value_a", null_count: 0, is_incomplete: false, ...overrides };
+}
 
-async function clickAggregate(user: ReturnType<typeof userEvent.setup>) {
-  await act(async () => {
-    await user.click(screen.getByRole("button", { name: "集計する" }));
-  });
+function report(tables: Table[], computedAt = "not-a-date"): DerivedDataFreshnessResponse {
+  return { computed_at: computedAt, tables };
+}
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((res) => (resolve = res));
+  return { promise, resolve };
+}
+
+beforeEach(() => {
+  api.getDerivedDataFreshness.mockReset();
+});
+
+async function collect(response: DerivedDataFreshnessResponse) {
+  api.getDerivedDataFreshness.mockResolvedValue(response);
+  const user = userEvent.setup();
+  render(<DerivedDataFreshnessPanel />);
+  await user.click(screen.getByRole("button", { name: "集計する" }));
+  await screen.findByRole("button", { name: "再集計する" });
+  return user;
+}
+
+function rowOf(tableName: string): HTMLElement {
+  return screen.getByText(tableName).closest("details")!;
 }
 
 describe("DerivedDataFreshnessPanel", () => {
-  it("開いた直後は集計せず、ボタン押下で初めてgetDerivedDataFreshnessを呼ぶ", async () => {
-    vi.mocked(getDerivedDataFreshness).mockResolvedValue(FRESH_REPORT);
+  it("押すまで集計しない。集計中は押せず、終わると再集計の口になる", async () => {
+    const pending = deferred<DerivedDataFreshnessResponse>();
+    api.getDerivedDataFreshness.mockReturnValue(pending.promise);
     const user = userEvent.setup();
     render(<DerivedDataFreshnessPanel />);
+    expect(api.getDerivedDataFreshness).not.toHaveBeenCalled();
 
-    expect(getDerivedDataFreshness).not.toHaveBeenCalled();
-    expect(screen.queryByText("edge_materials")).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "集計する" }));
+    expect(screen.getByRole("button", { name: "集計中…" })).toBeDisabled();
 
-    await clickAggregate(user);
-
-    expect(getDerivedDataFreshness).toHaveBeenCalledTimes(1);
-    expect(screen.getByText("edge_materials")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "再集計する" })).toBeInTheDocument();
+    pending.resolve(report([]));
+    expect(await screen.findByRole("button", { name: "再集計する" })).toBeEnabled();
   });
 
-  it("すべて最新なら、作り直しを促さずその旨だけを出す", async () => {
-    vi.mocked(getDerivedDataFreshness).mockResolvedValue(FRESH_REPORT);
+  it("集計時刻が日時として読めなければ、届いた文字列をそのまま出す", async () => {
+    await collect(report([], "集計時刻不明"));
+    expect(screen.getByText("集計時刻不明")).toBeInTheDocument();
+  });
+
+  it("集計時刻が日時として読めれば、届いた文字列のままにせず日時として出す", async () => {
+    await collect(report([], "2026-09-24T01:02:03Z"));
+    expect(screen.queryByText("2026-09-24T01:02:03Z")).not.toBeInTheDocument();
+    expect(screen.getByText(/2026/)).toBeInTheDocument();
+  });
+
+  it("失敗したら理由を出し、再集計が成功すれば消える。Error以外の失敗も値を出す", async () => {
+    api.getDerivedDataFreshness.mockRejectedValueOnce(new Error("派生データ鮮度台帳の取得に失敗しました"));
     const user = userEvent.setup();
     render(<DerivedDataFreshnessPanel />);
 
-    await clickAggregate(user);
+    await user.click(screen.getByRole("button", { name: "集計する" }));
+    expect(await screen.findByText("集計失敗: 派生データ鮮度台帳の取得に失敗しました")).toBeInTheDocument();
+
+    api.getDerivedDataFreshness.mockRejectedValueOnce("timeout");
+    await user.click(screen.getByRole("button", { name: "集計する" }));
+    expect(await screen.findByText("集計失敗: timeout")).toBeInTheDocument();
+
+    api.getDerivedDataFreshness.mockResolvedValueOnce(report([]));
+    await user.click(screen.getByRole("button", { name: "集計する" }));
+    await screen.findByRole("button", { name: "再集計する" });
+    expect(screen.queryByText(/集計失敗/)).not.toBeInTheDocument();
+  });
+
+  it("手当て要の表が無ければ、すべて最新と言い、コマンドは出さない", async () => {
+    await collect(report([table({ table_name: "fresh", columns: [column({ null_count: 5 })] })]));
 
     expect(screen.getByText("すべて最新")).toBeInTheDocument();
-    // 打つべきコマンドが無いときに出すと、何もしなくてよい状態が読み取れない。
     expect(screen.queryByRole("button", { name: "コピー" })).not.toBeInTheDocument();
+    expect(within(rowOf("fresh")).getByText("最新")).toBeInTheDocument();
   });
 
-  it("確定して値が無い列だけなら、作り直し待ちにしない", async () => {
-    // average_gradeのNULL（橋・トンネル）で鳴ると、直しようのない件数を毎回見ることになる。
-    vi.mocked(getDerivedDataFreshness).mockResolvedValue(FRESH_REPORT);
-    const user = userEvent.setup();
-    render(<DerivedDataFreshnessPanel />);
-
-    await clickAggregate(user);
-
-    expect(screen.getByText("すべて最新")).toBeInTheDocument();
-    const details = screen.getByText("edge_materials").closest("details") as HTMLElement;
-    expect(within(details).getByText("値なし 500件（確定）")).toBeInTheDocument();
-  });
-
-  it("行そのものが無いときも作り直し待ちにする", async () => {
-    // 鮮度（世代）でも完成度（NULL）でも表に出ない。行が無ければ古くもなければNULLでもない。
-    vi.mocked(getDerivedDataFreshness).mockResolvedValue({
-      ...FRESH_REPORT,
-      tables: [table({ missing_rows: 37, coverage_parent_row_count: 5037 })],
-    });
-    const user = userEvent.setup();
-    render(<DerivedDataFreshnessPanel />);
-
-    await clickAggregate(user);
+  it.each([
+    ["取込より古い", { is_stale: true }],
+    ["値の列に未計算が残る", { columns: [column({ null_count: 3, is_incomplete: true })] }],
+    ["親に対して行が欠ける", { coverage_parent: "road_edges", coverage_parent_row_count: 10, missing_rows: 2 }],
+  ] satisfies [string, Partial<Table>][])("%s表は、作り直し待ちとして数える", async (_case, overrides) => {
+    await collect(report([table({ table_name: "target", ...overrides }), table({ table_name: "fresh" })]));
 
     expect(screen.getByText("1件が作り直し待ち")).toBeInTheDocument();
-    const details = screen.getByText("edge_materials").closest("details") as HTMLElement;
-    expect(within(details).getByText("37件ぶん行が無い（母数 5,037）")).toBeInTheDocument();
+    expect(within(rowOf("target")).getByText("作り直しが必要")).toBeInTheDocument();
+    expect(within(rowOf("fresh")).getByText("最新")).toBeInTheDocument();
   });
 
-  it("覆うことを宣言していない表は、母数の行を出さない", async () => {
-    // node_materialsは形状頂点の行を持たない。母数を出すと欠けがあるように読める。
-    vi.mocked(getDerivedDataFreshness).mockResolvedValue({
-      ...FRESH_REPORT,
-      tables: [
+  it("作り直しが要るとき、画面に出したコマンドをそのままコピーでき、コピーしたと示す", async () => {
+    const user = await collect(report([table({ is_stale: true })]));
+
+    const command = screen.getByText(/derive_cli/).textContent;
+    await user.click(screen.getByRole("button", { name: "コピー" }));
+
+    await expect(navigator.clipboard.readText()).resolves.toBe(command);
+    expect(await screen.findByRole("button", { name: "コピーした" })).toBeInTheDocument();
+  });
+
+  it("行は表の名前と行数を出し、開いた先に取込の世代・被覆・列ごとの未計算と確定した値なしを並べる", async () => {
+    await collect(
+      report([
         table({
-          table_name: "node_materials",
-          coverage_parent: null,
-          coverage_parent_row_count: null,
-          missing_rows: null,
+          table_name: "edge_materials",
+          row_count: 12345,
+          source: "OSM",
+          latest_run_id: 9,
+          oldest_run_id: 7,
+          coverage_parent: "road_edges",
+          coverage_parent_row_count: 20000,
+          missing_rows: 1500,
+          columns: [
+            column({ column: "gradient", null_count: 42, is_incomplete: true }),
+            column({ column: "bridge_slope", null_count: 7, is_incomplete: false }),
+            column({ column: "complete_col", null_count: 0, is_incomplete: false }),
+          ],
         }),
-      ],
-    });
-    const user = userEvent.setup();
-    render(<DerivedDataFreshnessPanel />);
+      ]),
+    );
 
-    await clickAggregate(user);
-
-    expect(screen.getByText("すべて最新")).toBeInTheDocument();
-    const details = screen.getByText("node_materials").closest("details") as HTMLElement;
-    expect(within(details).queryByText(/を覆う/)).not.toBeInTheDocument();
+    const row = rowOf("edge_materials");
+    expect(within(row).getByText("12,345行")).toBeInTheDocument();
+    const detail = Array.from(row.querySelectorAll("dt")).map((dt) => [dt.textContent, dt.nextSibling?.textContent]);
+    expect(detail).toEqual([
+      ["OSM", "最新 #9 / 反映 #7"],
+      ["road_edges を覆う", "1,500件ぶん行が無い（母数 20,000）"],
+      ["gradient", "未計算 42件"],
+      ["bridge_slope", "値なし 7件（確定）"],
+    ]);
   });
 
-  it("作り直しが要る件数と、次に打つ1コマンドを出す", async () => {
-    // 古い世代と未計算の両方を数える。読み手が次に打つのはどちらでも同じ1コマンドなので、
-    // 行ごとにバッチ名を散らさない。
-    vi.mocked(getDerivedDataFreshness).mockResolvedValue({
-      ...FRESH_REPORT,
-      tables: [
-        table({ is_stale: true, oldest_run_id: 9 }),
+  it("取込の名前・世代が無い表は「取込」「-」で出し、親に欠けが無ければ母数とともにそう言う", async () => {
+    await collect(
+      report([
         table({
-          table_name: "way_materials",
-          columns: [{ column: "divided", null_count: 12, is_incomplete: true }],
+          table_name: "t",
+          source: null,
+          latest_run_id: null,
+          oldest_run_id: null,
+          coverage_parent: "osm_raw_ways",
+          coverage_parent_row_count: 3000,
+          missing_rows: 0,
         }),
-        FRESH_REPORT.tables[2],
-      ],
-    });
-    const user = userEvent.setup();
-    render(<DerivedDataFreshnessPanel />);
+      ]),
+    );
 
-    await clickAggregate(user);
-
-    expect(screen.getByText("2件が作り直し待ち")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "コピー" })).toBeInTheDocument();
-
-    // 出すコマンドは本番へ効かせる形でなければならない。稼働中コンテナの中で走らせる形
-    // （`docker exec`）や、打つ場所の分からない素のモジュール名へ戻すと、手元の開発DBを
-    // 作り直して本番が古いまま残るか、本番のサービスごと止まる。
-    // **画面に出ている文字列そのもの**を見る（利用者がコピーして打つのはこれ）。
-    const command = document.querySelector("code")?.textContent ?? "";
-    expect(command).toContain("docker run --rm");
-    expect(command).toContain("--memory=");
-    expect(command).not.toContain("docker exec");
+    const detail = Array.from(rowOf("t").querySelectorAll("dt")).map((dt) => [
+      dt.textContent,
+      dt.nextSibling?.textContent,
+    ]);
+    expect(detail).toEqual([
+      ["取込", "最新 - / 反映 -"],
+      ["osm_raw_ways を覆う", "欠けなし（母数 3,000）"],
+    ]);
   });
 
-  it("一覧は1件1行で、run番号などの数字は開くまで出さない", async () => {
-    vi.mocked(getDerivedDataFreshness).mockResolvedValue(FRESH_REPORT);
-    const user = userEvent.setup();
-    render(<DerivedDataFreshnessPanel />);
+  it("親を覆うことを宣言していない表には、被覆の項目を出さない", async () => {
+    await collect(report([table({ table_name: "plain", coverage_parent: null })]));
 
-    await clickAggregate(user);
-
-    // 名前は最初から見える（何が検査対象かが分かる）。
-    expect(screen.getByText("edge_materials")).toBeInTheDocument();
-    // 中身（比較対象の行）は畳んだ先にある。
-    const summary = screen.getByText("edge_materials").closest("summary");
-    expect(summary).not.toBeNull();
-    const details = summary?.closest("details") as HTMLDetailsElement;
-    expect(details.open).toBe(false);
-    expect(within(details).getByText(/#10/)).toBeInTheDocument();
-  });
-
-  it("一覧はbackendが返した表ぶん並ぶ（表が増えてもフロントは追従する）", async () => {
-    vi.mocked(getDerivedDataFreshness).mockResolvedValue(FRESH_REPORT);
-    const user = userEvent.setup();
-    render(<DerivedDataFreshnessPanel />);
-
-    await clickAggregate(user);
-
-    for (const entry of FRESH_REPORT.tables) {
-      expect(screen.getByText(entry.table_name)).toBeInTheDocument();
-    }
-  });
-
-  it("取得失敗時はエラーメッセージを表示する", async () => {
-    vi.mocked(getDerivedDataFreshness).mockRejectedValue(new Error("boom"));
-    const user = userEvent.setup();
-    render(<DerivedDataFreshnessPanel />);
-
-    await clickAggregate(user);
-
-    expect(screen.getByText("集計失敗: boom")).toBeInTheDocument();
+    const labels = Array.from(rowOf("plain").querySelectorAll("dt")).map((dt) => dt.textContent);
+    expect(labels).toEqual(["取込"]);
   });
 });

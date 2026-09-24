@@ -1,105 +1,144 @@
-import { render, screen } from "@testing-library/react";
+/**
+ * `BreakpointCurveEditor.tsx`——折れ点を矢印キーとドラッグで動かす口、横軸の決め方（参考点の範囲に固定するか、
+ * 折れ点から決めるか）、背景へ重ねる分布（棒・分位線・範囲外の割合）。
+ *
+ * 動かした結果は `onChangePoint` で親へ渡すだけで、折れ点そのものは親が持つ。
+ *
+ * ここで見ないもの:
+ * - 分布の按分・範囲外の割合の計算 → `curveDistributionOverlay.test.ts`（期待値はそこの関数から引く）
+ * - 刻みの選び方 → `breakpointTools.test.ts`（期待値は `niceStep` から引く）
+ */
+import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 import { BreakpointCurveEditor } from "./BreakpointCurveEditor";
+import { niceStep } from "./breakpointTools";
+import { OFF_RANGE_NOTICE_THRESHOLD } from "./curveDistributionOverlay";
 import type { ValueDistribution } from "./scoreDistribution";
 
-const BREAKPOINTS: [number, number][] = [
+const POINTS: [number, number][] = [
   [0, 0],
-  [5, 100],
+  [10, 100],
 ];
 
-function editor(distribution: ValueDistribution | null, referenceRange?: { min: number; max: number }) {
-  return render(
-    <BreakpointCurveEditor
-      breakpoints={BREAKPOINTS}
-      onChangePoint={vi.fn()}
-      referenceRange={referenceRange}
-      distribution={distribution}
-    />,
-  );
+function distribution(overrides: Partial<ValueDistribution> = {}): ValueDistribution {
+  return { sample_ways: 1, total_km: 1, quantiles: {}, bins: [], zero_share: 0, ...overrides };
 }
 
-function svg() {
-  return screen.getByRole("img", { name: /折れ点の曲線プレビュー/ });
+function renderEditor(props: Partial<Parameters<typeof BreakpointCurveEditor>[0]> = {}) {
+  const onChangePoint = vi.fn();
+  const view = render(<BreakpointCurveEditor breakpoints={POINTS} onChangePoint={onChangePoint} {...props} />);
+  return { onChangePoint, svg: screen.getByRole("img"), ...view };
 }
 
-describe("BreakpointCurveEditor の分布の重ね描き", () => {
-  it("分布が無くても曲線は描ける（分布は任意の追加情報）", () => {
-    const { container } = editor(null);
+function tickLabels(svg: HTMLElement): string[] {
+  return Array.from(svg.querySelectorAll("g > text")).map((text) => text.textContent ?? "");
+}
 
-    expect(svg()).toBeInTheDocument();
-    expect(container.querySelectorAll("polyline")).toHaveLength(1);
-    expect(container.querySelectorAll("rect")).toHaveLength(0);
+describe("BreakpointCurveEditor", () => {
+  it("折れ点ごとに、入力値とスコアを名乗る動かせる点を置く", () => {
+    renderEditor();
+    const handles = screen.getAllByRole("slider");
+    expect(handles).toHaveLength(POINTS.length);
+    expect(handles[1]).toHaveAccessibleName("折れ点2（入力値10、スコア100）");
+    expect(handles[1]).toHaveAttribute("aria-valuenow", "100");
   });
 
-  it("階級ぶんの棒と、表示範囲に入る分位線を背景へ描く", () => {
-    const { container } = editor({
-      sample_ways: 100,
-      total_km: 10,
-      quantiles: { p10: 1, p50: 2, p90: 4, p99: 4.5 },
-      bins: [
-        [0, 1, 0.2],
-        [1, 2, 0.5],
-        [2, 3, 0.3],
+  it("左右キーは横軸の刻みで、上下キーはスコア1で動かし、Shiftを押すと10倍にする", () => {
+    const { onChangePoint } = renderEditor();
+    const step = niceStep(POINTS[1][0] - POINTS[0][0]);
+    const handle = screen.getAllByRole("slider")[1];
+
+    fireEvent.keyDown(handle, { key: "ArrowRight" });
+    fireEvent.keyDown(handle, { key: "ArrowLeft", shiftKey: true });
+    fireEvent.keyDown(handle, { key: "ArrowUp" });
+    fireEvent.keyDown(handle, { key: "ArrowDown", shiftKey: true });
+    fireEvent.keyDown(handle, { key: "Enter" });
+
+    expect(onChangePoint.mock.calls).toEqual([
+      [1, 0, 10 + step],
+      [1, 0, 10 - step * 10],
+      [1, 1, 101],
+      [1, 1, 90],
+    ]);
+  });
+
+  it("ボタンを押したままドラッグすると、指の位置を横軸の刻み・整数のスコアへ丸めて渡し、動かしている間は値を出す", () => {
+    const { onChangePoint, svg } = renderEditor();
+    svg.getBoundingClientRect = () => ({ left: 0, top: 0, width: 400, height: 160 }) as DOMRect;
+    const handle = screen.getAllByRole("slider")[0];
+    handle.setPointerCapture = vi.fn();
+
+    fireEvent.pointerDown(handle, { pointerId: 1 });
+    expect(svg).toHaveTextContent("0 → 0");
+
+    // 描画域（左右の余白28を除く幅344・上下の余白を除く高さ104）の中央より少し右。横軸は刻みへ丸めて5になる。
+    fireEvent.pointerMove(handle, { buttons: 1, clientX: 28 + 172 + 3, clientY: 28 + 52 });
+    expect(onChangePoint.mock.calls).toEqual([
+      [0, 0, 5],
+      [0, 1, 50],
+    ]);
+
+    fireEvent.pointerUp(handle);
+    expect(svg).not.toHaveTextContent("0 → 0");
+  });
+
+  it("ボタンを押していない移動では動かさない", () => {
+    const { onChangePoint } = renderEditor();
+    fireEvent.pointerMove(screen.getAllByRole("slider")[0], { buttons: 0, clientX: 100, clientY: 50 });
+    expect(onChangePoint).not.toHaveBeenCalled();
+  });
+
+  it("参考点の範囲を渡すと、横軸を折れ点ではなくその範囲（前後1割の余白つき）で決める", () => {
+    const { svg } = renderEditor({ referenceRange: { min: 100, max: 200 } });
+    const labels = tickLabels(svg).map(Number);
+    expect(labels.length).toBeGreaterThan(0);
+    expect(Math.min(...labels)).toBeGreaterThanOrEqual(90);
+    expect(Math.max(...labels)).toBeLessThanOrEqual(210);
+    expect(labels).toContain(200);
+  });
+
+  it("参考点が無ければ、横軸は折れ点の範囲で決める", () => {
+    const { svg } = renderEditor();
+    const labels = tickLabels(svg).map(Number);
+    expect(Math.min(...labels)).toBe(0);
+    expect(Math.max(...labels)).toBe(10);
+  });
+
+  it("参考点が無く折れ点の横軸がすべて同じ値でも、その値に目盛りを置いて描く", () => {
+    const { svg } = renderEditor({
+      breakpoints: [
+        [5, 0],
+        [5, 100],
       ],
-      zero_share: 0,
     });
-
-    expect(container.querySelectorAll("rect")).toHaveLength(3);
-    // p10/p50/p90の3本のみ（p99は描かない）。
-    expect(screen.getByText("p10")).toBeInTheDocument();
-    expect(screen.getByText("p50")).toBeInTheDocument();
-    expect(screen.getByText("p90")).toBeInTheDocument();
-    expect(screen.queryByText("p99")).not.toBeInTheDocument();
+    expect(tickLabels(svg)).toContain("5");
   });
 
-  it("表示範囲の外にある延長を割合として出す（黙って切らない）", () => {
-    // 参考範囲0〜5に対し、延長の30%がその右側（20〜25）にある。
-    editor(
-      {
-        sample_ways: 100,
-        total_km: 10,
-        quantiles: {},
+  it("表示範囲の外にある延長は、しきい値以上なら左右に割合で出し、しきい値未満なら出さない", () => {
+    const outside = 0.3;
+    const { svg, unmount } = renderEditor({
+      distribution: distribution({
         bins: [
-          [0, 5, 0.7],
-          [20, 25, 0.3],
+          [-10, -5, outside],
+          [2, 8, 1 - outside * 2],
+          [20, 30, outside],
         ],
-        zero_share: 0,
-      },
-      { min: 0, max: 5 },
-    );
-
-    expect(screen.getByText("30%→")).toBeInTheDocument();
-  });
-
-  it("範囲外がごく僅かなら注意書きを出さない（毎回出ると意味を失う）", () => {
-    editor(
-      {
-        sample_ways: 100,
-        total_km: 10,
-        quantiles: {},
-        bins: [
-          [0, 5, 0.995],
-          [20, 25, 0.005],
-        ],
-        zero_share: 0,
-      },
-      { min: 0, max: 5 },
-    );
-
-    expect(screen.queryByText(/%→$/)).not.toBeInTheDocument();
-  });
-
-  it("折れ点は分布の背面に隠れず、操作できるsliderとして残る", () => {
-    editor({
-      sample_ways: 100,
-      total_km: 10,
-      quantiles: { p50: 2 },
-      bins: [[0, 5, 1.0]],
-      zero_share: 0,
+      }),
     });
+    expect(svg).toHaveTextContent(`←${(outside * 100).toFixed(0)}%`);
+    expect(svg).toHaveTextContent(`${(outside * 100).toFixed(0)}%→`);
+    unmount();
 
-    expect(screen.getAllByRole("slider")).toHaveLength(BREAKPOINTS.length);
+    const tiny = OFF_RANGE_NOTICE_THRESHOLD / 2;
+    const second = renderEditor({
+      distribution: distribution({
+        bins: [
+          [-10, -5, tiny],
+          [2, 8, 1 - tiny],
+        ],
+      }),
+    });
+    expect(second.svg).not.toHaveTextContent("←");
   });
 });

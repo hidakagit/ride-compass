@@ -196,8 +196,7 @@ default_weight等）は`draftFromExisting`が読み込んだ既存値のまま�
 `AxisComposer.tsx`はフォーム項目が増減したときに動く。
 
 `breakpointTools.ts`・`scoreDistribution.ts`・`curveDistributionOverlay.ts`と同じDOM非依存の
-純ロジックで、コンポーネントを起動せず直接テストできる（`axisDraft.test.ts`）。同じ性質は
-フォームを操作する`AxisComposer.test.tsx`でも押さえているが、そちらは導線の検証と混ざる。
+純ロジックで、コンポーネントを起動せず直接テストできる（`axisDraft.test.ts`）。
 
 `Draft`は「今は選ばれていないkindの入力値」も保持する（kindを切り替えて戻したときに
 打ち直しにならないようにするため）。保存時に`buildShape`が選択中のkindぶんだけを取り出す。
@@ -487,9 +486,10 @@ materialId ? state.values : []`）でリセットする——Reactの「propが�
   「表示専用フィールドだけの差分」しか通らない（backend:
   `domain/axis_definitions.py: is_cosmetic_only_update`）ため、画面に無い値を1つでも
   書き換えると、何も変えていないのに保存が拒否される。
-  **この往復を検査するテストは、実在軸のスナップショットを母集団にする**——フォームの
-  初期値と一致する軸だけを置くと、素通しフィールドが書き換わっていても差分が出ず、検査が
-  素通りする。
+  **この往復を検査するテストは、素通しの項目がすべて新規の値と違う軸を置き、そのことを
+  同じテストの中で確かめる**——フォームの初期値と一致する軸だけを置くと、素通しフィールドが
+  書き換わっていても差分が出ず、検査が素通りする。比べる項目はbackendの契約
+  （`AxisDefinitionPayload`の全項目）から取る。
 
 ## backend側との対応
 

@@ -175,7 +175,6 @@ export default function AxisStudio() {
     try {
       await deleteAxisDefinition(axisId);
       await reload();
-      if (editingAxisId === axisId) setEditingAxisId(null);
     } catch (err) {
       setListError(err instanceof Error ? err.message : String(err));
     } finally {

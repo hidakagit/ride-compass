@@ -20,9 +20,15 @@ interface ScoreBand {
   share: number;
 }
 
-/** 得点帯の並び。0点と100点は「張り付き」を見たいので単独の帯として分ける。
- * どの帯に入れるかは下の判定が決める（境界値をここへ二重に持たない）。 */
-const BAND_LABELS: readonly string[] = ["0点", "1-25", "26-50", "51-75", "76-99", "100点"];
+/** 0点と100点の間を分ける帯の上端（最後の帯は100点未満まで）。0点と100点は「張り付き」を
+ * 見たいので単独の帯として分ける。帯の名前も判定もこの並びから作る。 */
+const MIDDLE_BAND_UPPERS: readonly number[] = [25, 50, 75];
+
+const BAND_LABELS: readonly string[] = [
+  "0点",
+  ...[...MIDDLE_BAND_UPPERS, 99].map((upper, i, uppers) => `${i === 0 ? 1 : uppers[i - 1] + 1}-${upper}`),
+  "100点",
+];
 
 /** 「張り付き」を見る両端の位置。**ラベル文字列で引かない**——言い換えた瞬間に警告が
  * 一切出なくなる（出なくなったことにも気づけない）。 */
@@ -49,20 +55,20 @@ export function scoreBands(
     let index: number;
     if (score <= 0) index = ZERO_BAND_INDEX;
     else if (score >= 100) index = FULL_BAND_INDEX;
-    else if (score <= 25) index = 1;
-    else if (score <= 50) index = 2;
-    else if (score <= 75) index = 3;
-    else index = 4;
+    else {
+      const middle = MIDDLE_BAND_UPPERS.findIndex((upper) => score <= upper);
+      index = 1 + (middle === -1 ? MIDDLE_BAND_UPPERS.length : middle);
+    }
     bands[index].share += share;
   }
   return bands;
 }
 
-/** 折れ点が実データに対して極端すぎないかの警告。無ければ空配列。 */
+/** 折れ点が実データに対して極端すぎないかの警告（`scoreBands`の帯を受ける）。無ければ空配列。 */
 export function distributionWarnings(bands: readonly ScoreBand[]): string[] {
   const warnings: string[] = [];
-  const full = bands[FULL_BAND_INDEX]?.share ?? 0;
-  const zero = bands[ZERO_BAND_INDEX]?.share ?? 0;
+  const full = bands[FULL_BAND_INDEX].share;
+  const zero = bands[ZERO_BAND_INDEX].share;
   if (full >= 0.5) {
     warnings.push(`延長の${Math.round(full * 100)}%が満点に張り付きます。上限を高くしないと道の差が出ません。`);
   }

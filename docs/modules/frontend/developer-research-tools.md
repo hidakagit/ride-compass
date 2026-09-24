@@ -10,7 +10,7 @@
 
 | ファイル | 責務 | マウント先 |
 |---|---|---|
-| `app/admin/page.tsx` | `/admin`のタブ構成（軸スタジオ・材料・鮮度・研究・開発者）を束ねるコンポジションルート | 独立URL |
+| `app/admin/page.tsx` | `/admin`のタブ構成を束ねるコンポジションルート（開いたときは軸スタジオのタブ） | 独立URL |
 | `components/HeaderMenu/HeaderMenu.tsx` | 研究モードON/OFF・デバッグログ表示を1個のメニューアイコンへ集約したRadix Popover | `page.tsx`（`/`）のヘッダー |
 | `features/admin/DebugPanel/DebugPanel.tsx` | デバッグログ表示のON/OFFトグル | `/admin`「開発者」タブ |
 | `components/DebugConsole/DebugConsole.tsx` | 地図イベント・外部API呼び出しの詳細ログを時系列表示するフローティングパネル。**表示中の行をそのままの形でコピーできる**（絞り込みを無視して全件にすると、絞って見つけた数行を渡したいときに関係ない行まで混ざる） | `page.tsx`（`/`）、`HeaderMenu`から開閉 |
@@ -34,8 +34,10 @@
 app/admin/page.tsx（独立URL、Basic認証保護下）
   ├─ タブ「軸スタジオ」: AxisStudio（本モジュール対象外）
   ├─ タブ「材料」　　　: MaterialCoveragePanel（材料ごとの欠損割合、本モジュール対象外）
-  ├─ タブ「鮮度」　　　: DerivedDataFreshnessPanel（派生データの鮮度台帳）+ TileCachePanel
-  │                     （タイルファイルキャッシュの全消去、いずれも本モジュール対象外）
+  ├─ タブ「較正値」　　: TuningPanel（走ってみて決める値の編集、本モジュール対象外）
+  ├─ タブ「データ保守」: DerivedDataFreshnessPanel（派生データの鮮度台帳）+ DbStatusPanel
+  │                     （本番DBの状態）+ TileCachePanel（タイルファイルキャッシュの全消去、
+  │                     いずれも本モジュール対象外）
   ├─ タブ「研究」　　　: ResearchPanel（読み取り専用表示）
   └─ タブ「開発者」　　: DebugPanel + BackendStatus + SystemStatusPanel + BackendLogsPanel
 

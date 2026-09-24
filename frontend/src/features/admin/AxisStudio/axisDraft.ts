@@ -322,7 +322,7 @@ export function buildShape(draft: Draft, materialOptions: readonly AxisMaterialO
  * 途中の状態を打ち消さないため、その判断は呼び出し側が行う。 */
 export function parseThresholdList(text: string): { values: number[]; error: string | null } {
   const tokens = text
-    .split(/[,、\s]+/)
+    .split(/[,，、\s]+/)
     .map((token) => token.trim())
     .filter((token) => token !== "");
   const values: number[] = [];
