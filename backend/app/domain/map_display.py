@@ -6,7 +6,10 @@
 
 from typing import NamedTuple
 
+from app.domain.gsi_tiles import TERRAIN_MIN_ZOOM
+from app.domain.landcover import LANDCOVER_TILE_MIN_ZOOM
 from app.domain.material_catalog import PRIMARY_ATTRIBUTES
+from app.domain.region import ROAD_TILE_MIN_ZOOM
 from app.domain.weather_elements import WEATHER_LAYER_GROUPS
 
 
@@ -28,15 +31,27 @@ MAP_OVERLAY_GROUPS: tuple[OverlayGroup, ...] = (
     OverlayGroup("spot", "スポット"),
 )
 
+class MapLayerDataSource(NamedTuple):
+    key: str
+    #: このズーム未満では配信されない（ONにしても地図には何も出ない）。無いものはNone。
+    min_zoom: int | None = None
+
+
+#: タイルで配る一次属性の系統（`tile_version_service.py: TILE_SHAPES`の名前）。
+#: 情報源の名前にそのまま使う——世代が届くまで要求できないのは、この名前の情報源だけ。
+_TILE_KINDS: tuple[str, ...] = tuple(
+    dict.fromkeys(attr.tile_kind for attr in PRIMARY_ATTRIBUTES if attr.tile_kind is not None)
+)
+
 #: レイヤーの絵がどこから来るか。取得状態（読み込み中・空・失敗）の判定はここから導く。
-MAP_LAYER_DATA_SOURCES: tuple[str, ...] = (
-    "roadTiles",
-    "accidentTiles",
-    "poiTiles",
-    "gsiRelief",
-    "gsiTerrain",
-    "landcoverRaster",
-    "ownFetch",
+#: 最小ズームは配信の性質なので情報源の側で持つ——レイヤーごとに書くと、同じタイルを
+#: 読むレイヤーの1つだけ書き忘れても型が通り、そのチップだけ案内が出ない。
+MAP_LAYER_DATA_SOURCES: tuple[MapLayerDataSource, ...] = (
+    *(MapLayerDataSource(kind, ROAD_TILE_MIN_ZOOM) for kind in _TILE_KINDS),
+    MapLayerDataSource("gsiRelief"),
+    MapLayerDataSource("gsiTerrain", TERRAIN_MIN_ZOOM),
+    MapLayerDataSource("landcoverRaster", LANDCOVER_TILE_MIN_ZOOM),
+    MapLayerDataSource("ownFetch"),
 )
 
 #: 値の性質。生データか、計算した推定か、時刻で中身が変わるか。
@@ -73,6 +88,61 @@ def _static_layer_ids() -> tuple[str, ...]:
 
 #: 地図に載るものの名前。軸スタジオ由来の軸は実行時に増えるためここには現れない。
 MAP_LAYER_IDS: tuple[str, ...] = (*_static_layer_ids(), *WEATHER_LAYER_GROUPS, ROUTE_LAYER_ID)
+
+
+class MapLayerSpec(NamedTuple):
+    #: 絵の出所（`MAP_LAYER_DATA_SOURCES`の`key`）。
+    data_source: str
+    #: 種別（`MAP_LAYER_CATEGORIES`の`key`）。どのグループにも属さないもの（ルート）はNone。
+    category: str | None
+    kind: str = "static"
+    data_nature: str = "raw"
+    #: 利用者の操作を待たずに表示するか。**性質で決める**——明示的にONにして初めて出るのが
+    #: 地図レイヤーの原則で、既定ONの根拠になるのは防災級の情報と、探索の結果そのものだけ。
+    default_on: bool = False
+
+
+def _tile_layer(attr_id: str, category: str) -> MapLayerSpec:
+    """タイルで配る一次属性のレイヤー。情報源は属性自身が宣言するタイルの系統。"""
+    tile_kind = next(attr.tile_kind for attr in PRIMARY_ATTRIBUTES if attr.attr_id == attr_id)
+    assert tile_kind is not None, attr_id
+    return MapLayerSpec(tile_kind, category)
+
+
+#: `MAP_LAYER_IDS`の1つずつの宣言。**足りないと生成の時点で落ちる**（`MAP_LAYERS`）。
+_LAYER_SPECS: dict[str, MapLayerSpec] = {
+    "elevation": MapLayerSpec("gsiRelief", "terrain"),
+    HILLSHADE_LAYER_ID: MapLayerSpec("gsiTerrain", "terrain"),
+    "landcover": MapLayerSpec("landcoverRaster", "terrain"),
+    "highway": _tile_layer("highway", "roadCondition"),
+    "surface": _tile_layer("surface", "roadCondition"),
+    "tunnel": _tile_layer("tunnel", "roadCondition"),
+    "oneway": _tile_layer("oneway", "roadCondition"),
+    "stop_poi": _tile_layer("stop_poi", "trafficSafety"),
+    "supply_poi": _tile_layer("supply_poi", "amenity"),
+    "accident_point": _tile_layer("accident_point", "trafficSafety"),
+    "precipitationNowcast": MapLayerSpec("ownFetch", "weather", data_nature="dynamic"),
+    "windVector": MapLayerSpec("ownFetch", "weather", data_nature="dynamic"),
+    # 予兆が出てからONにするのでは手遅れになるため既定ONにする。危険度が出ている間は広い範囲が
+    # 塗られ、他の面レイヤー（緑と水・標高図）も基礎地図の色も覆われるが、危険度ゼロの領域は
+    # 配信元のタイルが透明なので、影響が出るのは警戒度が上がっている間だけ。そのときは防災の
+    # 情報を優先する（利用者はチップをOFFにすれば戻せる）。
+    "disaster": MapLayerSpec("ownFetch", "disaster", data_nature="dynamic", default_on=True),
+    # 候補を出したら見えている必要がある（探索の結果そのもの）。
+    ROUTE_LAYER_ID: MapLayerSpec("ownFetch", None, kind="dynamic", default_on=True),
+}
+
+#: 地図に載るものの宣言（`MAP_LAYER_IDS`の順）。
+MAP_LAYERS: tuple[tuple[str, MapLayerSpec], ...] = tuple(
+    (layer_id, _LAYER_SPECS[layer_id]) for layer_id in MAP_LAYER_IDS
+)
+
+#: 軸スタジオ由来の軸のレイヤー。どちらも路面タイルの道へ色を塗る。ramp軸はタイルへ焼き込んだ
+#: 一次属性を合成した値（composite）、専用配信の軸は時刻で変わる値（dynamic）を読む。
+AXIS_LAYER_SPECS: dict[str, MapLayerSpec] = {
+    "ramp": MapLayerSpec("road_surface", None, data_nature="composite"),
+    "dedicated": MapLayerSpec("road_surface", None, data_nature="dynamic"),
+}
 
 
 #: 利用者が作った線の太さ（px）。役割ごとに違うのは、同じ道の上へ重ねたときに

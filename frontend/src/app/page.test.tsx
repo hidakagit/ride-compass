@@ -2162,8 +2162,9 @@ describe("土地被覆レイヤーのズーム不足の案内", () => {
     // 以前は道路系と土地被覆で判定も配線も別々で、同じタイルを共有するのに
     // tunnel/onewayには案内が出ていなかった。
     const { buildMapLayers } = await import("@/features/map/layers/mapLayers");
+    // 広域へのズームアウト（ズーム5）より上に下限を持つもの。
     const declared = buildMapLayers([], [])
-      .filter((layer) => layer.tileMinZoom !== undefined)
+      .filter((layer) => layer.tileMinZoom !== undefined && layer.tileMinZoom > 5)
       .map((layer) => layer.id);
     expect(declared.length).toBeGreaterThan(0);
 

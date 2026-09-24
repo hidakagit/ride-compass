@@ -13,10 +13,9 @@ describe("一次属性", () => {
   });
 
   it("地図のレイヤーを持つ属性だけを、重ねずに並べる（レイヤー名は属性idそのもの）", () => {
-    const [layerId] = mapDisplay.layerIds;
-    const withoutLayer = primaryAttributes.find(
-      (attr) => !(mapDisplay.layerIds as readonly string[]).includes(attr.attr_id),
-    );
+    const layerIds: readonly string[] = mapDisplay.layers.map((layer) => layer.id);
+    const [layerId] = layerIds;
+    const withoutLayer = primaryAttributes.find((attr) => !layerIds.includes(attr.attr_id));
     expect(withoutLayer).toBeDefined();
     expect(primaryAttributeIdsToLayerIds([layerId, withoutLayer!.attr_id, layerId])).toEqual([layerId]);
   });

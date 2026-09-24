@@ -41,39 +41,174 @@ export const mapDisplay = {
     }
   ],
   "layerDataSources": [
-    "roadTiles",
-    "accidentTiles",
-    "poiTiles",
-    "gsiRelief",
-    "gsiTerrain",
-    "landcoverRaster",
-    "ownFetch"
+    {
+      "key": "road_surface",
+      "minZoom": 12
+    },
+    {
+      "key": "poi",
+      "minZoom": 12
+    },
+    {
+      "key": "accident",
+      "minZoom": 12
+    },
+    {
+      "key": "gsiRelief",
+      "minZoom": null
+    },
+    {
+      "key": "gsiTerrain",
+      "minZoom": 2
+    },
+    {
+      "key": "landcoverRaster",
+      "minZoom": 6
+    },
+    {
+      "key": "ownFetch",
+      "minZoom": null
+    }
   ],
   "layerDataNatures": [
     "raw",
     "composite",
     "dynamic"
   ],
-  "layerIds": [
-    "highway",
-    "surface",
-    "tunnel",
-    "oneway",
-    "elevation",
-    "stop_poi",
-    "accident_point",
-    "landcover",
-    "supply_poi",
-    "hillshade",
-    "precipitationNowcast",
-    "windVector",
-    "disaster",
-    "route"
-  ],
   "layerKinds": [
     "static",
     "dynamic"
   ],
+  "layers": [
+    {
+      "id": "highway",
+      "dataSource": "road_surface",
+      "category": "roadCondition",
+      "kind": "static",
+      "dataNature": "raw",
+      "defaultOn": false
+    },
+    {
+      "id": "surface",
+      "dataSource": "road_surface",
+      "category": "roadCondition",
+      "kind": "static",
+      "dataNature": "raw",
+      "defaultOn": false
+    },
+    {
+      "id": "tunnel",
+      "dataSource": "road_surface",
+      "category": "roadCondition",
+      "kind": "static",
+      "dataNature": "raw",
+      "defaultOn": false
+    },
+    {
+      "id": "oneway",
+      "dataSource": "road_surface",
+      "category": "roadCondition",
+      "kind": "static",
+      "dataNature": "raw",
+      "defaultOn": false
+    },
+    {
+      "id": "elevation",
+      "dataSource": "gsiRelief",
+      "category": "terrain",
+      "kind": "static",
+      "dataNature": "raw",
+      "defaultOn": false
+    },
+    {
+      "id": "stop_poi",
+      "dataSource": "poi",
+      "category": "trafficSafety",
+      "kind": "static",
+      "dataNature": "raw",
+      "defaultOn": false
+    },
+    {
+      "id": "accident_point",
+      "dataSource": "accident",
+      "category": "trafficSafety",
+      "kind": "static",
+      "dataNature": "raw",
+      "defaultOn": false
+    },
+    {
+      "id": "landcover",
+      "dataSource": "landcoverRaster",
+      "category": "terrain",
+      "kind": "static",
+      "dataNature": "raw",
+      "defaultOn": false
+    },
+    {
+      "id": "supply_poi",
+      "dataSource": "poi",
+      "category": "amenity",
+      "kind": "static",
+      "dataNature": "raw",
+      "defaultOn": false
+    },
+    {
+      "id": "hillshade",
+      "dataSource": "gsiTerrain",
+      "category": "terrain",
+      "kind": "static",
+      "dataNature": "raw",
+      "defaultOn": false
+    },
+    {
+      "id": "precipitationNowcast",
+      "dataSource": "ownFetch",
+      "category": "weather",
+      "kind": "static",
+      "dataNature": "dynamic",
+      "defaultOn": false
+    },
+    {
+      "id": "windVector",
+      "dataSource": "ownFetch",
+      "category": "weather",
+      "kind": "static",
+      "dataNature": "dynamic",
+      "defaultOn": false
+    },
+    {
+      "id": "disaster",
+      "dataSource": "ownFetch",
+      "category": "disaster",
+      "kind": "static",
+      "dataNature": "dynamic",
+      "defaultOn": true
+    },
+    {
+      "id": "route",
+      "dataSource": "ownFetch",
+      "category": null,
+      "kind": "dynamic",
+      "dataNature": "raw",
+      "defaultOn": true
+    }
+  ],
+  "axisLayers": {
+    "ramp": {
+      "dataSource": "road_surface",
+      "category": null,
+      "kind": "static",
+      "dataNature": "composite",
+      "defaultOn": false
+    },
+    "dedicated": {
+      "dataSource": "road_surface",
+      "category": null,
+      "kind": "static",
+      "dataNature": "dynamic",
+      "defaultOn": false
+    }
+  },
   "weatherLayerGroups": [
     "precipitationNowcast",
     "windVector",

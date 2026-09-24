@@ -187,7 +187,7 @@ test("宣言された地図レイヤーを全部ONにしても、スタイル検
   );
   await seedStoredState(page, {
     "ridecompass:debug-enabled": "1",
-    "ridecompass:layer-visibility": JSON.stringify(Object.fromEntries(mapDisplay.layerIds.map((id) => [id, true]))),
+    "ridecompass:layer-visibility": JSON.stringify(Object.fromEntries(mapDisplay.layers.map(({ id }) => [id, true]))),
     "ridecompass:route-style-mode": rampAxis.axis_id,
   });
   await page.goto("/");

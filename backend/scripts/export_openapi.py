@@ -53,9 +53,11 @@ from app.domain.weather_elements import (  # noqa: E402
 )
 from app.domain.map_display import (  # noqa: E402
     DEFAULT_DIFFICULTY_BOUNDARIES,
+    AXIS_LAYER_SPECS,
     MAP_LAYER_CATEGORIES,
-    MAP_LAYER_IDS,
+    MAP_LAYERS,
     MAP_LAYER_KINDS,
+    MapLayerSpec,
     ROUTE_ARROW_HALO_SCALE,
     ROUTE_ARROW_SIZE_BY_ZOOM,
     ROUTE_ARROW_SPACING_PX,
@@ -194,6 +196,16 @@ def _write_ts(path: Path, name: str, data: dict | list) -> None:
     print(f"wrote {path}")
 
 
+def _map_layer_entry(spec: MapLayerSpec) -> dict:
+    return {
+        "dataSource": spec.data_source,
+        "category": spec.category,
+        "kind": spec.kind,
+        "dataNature": spec.data_nature,
+        "defaultOn": spec.default_on,
+    }
+
+
 def _weather_element_entry(element: WeatherElement) -> dict:
     tile = weather_element_tile(element)
     return {
@@ -297,10 +309,14 @@ def main() -> None:
         {
             "overlayGroups": [g._asdict() for g in MAP_OVERLAY_GROUPS],
             "layerCategories": [c._asdict() for c in MAP_LAYER_CATEGORIES],
-            "layerDataSources": list(MAP_LAYER_DATA_SOURCES),
+            "layerDataSources": [
+                {"key": source.key, "minZoom": source.min_zoom} for source in MAP_LAYER_DATA_SOURCES
+            ],
             "layerDataNatures": list(MAP_LAYER_DATA_NATURES),
-            "layerIds": list(MAP_LAYER_IDS),
             "layerKinds": list(MAP_LAYER_KINDS),
+            # 地図に載るものの、描き方以外の宣言（種別・情報源・性質・既定表示）。
+            "layers": [{"id": layer_id, **_map_layer_entry(spec)} for layer_id, spec in MAP_LAYERS],
+            "axisLayers": {kind: _map_layer_entry(spec) for kind, spec in AXIS_LAYER_SPECS.items()},
             # 動的気象のチップ（1つが複数の名前付きソースを束ねる）。画面が写しを持たない。
             "weatherLayerGroups": list(WEATHER_LAYER_GROUPS),
             # 動的気象で描くもの。画面はこれをループし、描き方（paint・layout・filter・記号）だけを持つ。

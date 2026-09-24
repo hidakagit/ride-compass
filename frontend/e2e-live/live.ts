@@ -144,7 +144,7 @@ export async function openLive(page: Page, { storedState = {} }: { storedState?:
 export function allLayersOn(): Record<string, string> {
   return {
     "ridecompass:debug-enabled": "1",
-    "ridecompass:layer-visibility": JSON.stringify(Object.fromEntries(mapDisplay.layerIds.map((id) => [id, true]))),
+    "ridecompass:layer-visibility": JSON.stringify(Object.fromEntries(mapDisplay.layers.map(({ id }) => [id, true]))),
   };
 }
 

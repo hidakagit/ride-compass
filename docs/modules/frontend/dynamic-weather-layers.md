@@ -251,8 +251,8 @@ icon-sizeはズームのみに依存する。
 3. データ層: 要素モジュールを新設し、フレーム列（`DynamicWeatherFrame[]`）とペイロード
    関数を実装する。配信元のタイルなら`jmaTilePayload("<チップ>/<ソース>", 時刻)`で
    ペイロードになる（要素id・系統を書かない）
-4. 新しいチップを足したときだけ: `mapLayers.ts`へ記述子（アイコン・凡例・
-   `dataSource: "ownFetch"`）を1エントリ足す
+4. 新しいチップを足したときだけ: backendの`domain/map_display.py`へ種別・情報源（`ownFetch`）・
+   性質（`dynamic`）を1行、`mapLayers.ts`へ記述子（アイコン・凡例）を1エントリ足す
 5. `features/map/useDynamicWeatherLayers.ts`: フェッチeffect・フレーム列・payload計算・
    `dynamicWeather`オブジェクトへの追加（1〜2と違い自動反映の仕組みは無い、手書き作業）。
    `dynamicWeatherDataStatus`（下記「データ取得状態」節）へも同じ要素の

@@ -86,17 +86,18 @@ backendから取り、タイル本体はrewrites経由に戻る。
 同じ形は動的気象レイヤーのフック（`features/map/useDynamicWeatherLayers.ts`）の境界にも効いていて、
 そちらも`MapLayerVisibility`1つを受け取る。
 
-既定でONにするかも同じく記述子側の宣言（`MapLayerDescriptor.defaultOn`）で決め、
-`buildDefaultLayerVisibility()`が初期値を導く。省略時はOFF——「明示的にONにして初めて出る」
-が地図レイヤーの原則で、既定ONは防災級の情報という**性質**だけが根拠になる。
+既定でONにするかは源泉の宣言（backendの`domain/map_display.py`、記述子の`defaultOn`へ入る）で決め、
+`buildDefaultLayerVisibility()`が初期値を導く。既定はOFF——「明示的にONにして初めて出る」
+が地図レイヤーの原則で、既定ONの根拠は防災級の情報・探索の結果そのものという**性質**だけになる。
 
 ## レイヤーを1枚足すときに触る場所
 
-記述子（`mapLayers.ts: MapLayerDescriptor`）を1エントリ足し、そのレイヤーの描き方を
+源泉（backendの`domain/map_display.py`）へ描き方以外の宣言（種別・情報源・性質・既定表示）を1行、
+記述子（`mapLayers.ts: MapLayerDescriptor`）へ見せ方を1エントリ足し、そのレイヤーの描き方を
 家族の宣言（`features/map/scene/groups/*.ts`。道路の線なら`roadLines.ts`、点なら`points.ts`、
 面なら`areaRasters.ts`）へ足す。描き方の分類・色が源泉（backendの一次属性カタログ）の行で
 決まる家族では、源泉へ1行足せば宣言が導かれる。新しい家族そのものを足すときだけ、
-`buildScene.ts`の家族の並びへ1行足す。アイコン・情報源・表示専用の凡例は記述子の宣言、
+`buildScene.ts`の家族の並びへ1行足す。アイコン・表示専用の凡例は記述子、情報源は源泉の宣言、
 重なりの段は家族の宣言が持ち、**描画側に
 レイヤーidの対応表を持たない**——対応表に書き足す形だと、忘れても汎用の既定値で描けて
 しまい「他のレイヤーと見分けが付かないアイコン」「状態ドットが永久に出ない」「初回描画だけ
@@ -342,8 +343,10 @@ ON/OFFから行う（画面の側は下敷きの有無を知らない）。
 ベクタタイルは配信元が決めた最小ズーム未満では要求されないため、そのズームでは
 ONにしても何も塗られない。「データが無い地域」と区別できるよう案内を出す。
 
-対象は**記述子が`tileMinZoom`を宣言したレイヤー**で、レイヤーごとの閾値も「どれが対象か」も
-記述子が持つ。`features/map/view/useMapView.ts`が、地図から届く表示範囲（パン・ズームが確定する
+対象は**最小ズームを持つ情報源を読むレイヤー**で、閾値は情報源の側で源泉が宣言する
+（backendの`domain/map_display.py: MAP_LAYER_DATA_SOURCES`。記述子の`tileMinZoom`へ入る）
+——レイヤーごとに書くと、同じタイルを読むレイヤーの1つだけ書き忘れても型が通り、そのチップ
+だけ案内が出ない。`features/map/view/useMapView.ts`が、地図から届く表示範囲（パン・ズームが確定する
 たびに届く）の`zoom`で`mapLayers.ts: tileZoomTooWideLayerIds(zoom)`を引き、そのチップへ
 `TILE_ZOOM_TOO_WIDE_NOTICE`を出す——ズームは表示範囲の通知に含まれているため、地図から別の
 通知として上げない。▶の中身は**案内文があれば案内文、無ければ凡例**
@@ -377,10 +380,11 @@ ONにしても何も塗られない。「データが無い地域」と区別で
 backendが200で応答する窓では、カタログは取得済みなのに世代は無く、そこでURLを組み立てた側が
 例外になる。判定は`hasTileVersions()`だけが答えられる。
 
-宣言は1つ。どの情報源が世代を要るかを`mapLayers.ts: TILE_VERSION_GATED_SOURCES`が持ち、
-どのレイヤーがその情報源を読むかは記述子の`dataSource`が持つ。`MapView.tsx:
-TILE_VERSION_GATED_SOURCE_IDS`はそれを実際のMapLibreのソース名へ置き換えるだけで、
-レイヤーごとの宣言は無い——2つ持たせるとずれたときに「描けていないのにチップが黙る」。
+宣言は源泉に1つ。タイルで配る情報源は**世代を配るタイルの系統の名前**を名乗る（backendの
+`map_display.py`が一次属性の`tile_kind`から導く）ので、世代を要る情報源は系統の一覧
+（生成物`region-tile-config.json`の`tile_version_kinds`）そのものになる。どのレイヤーがその
+情報源を読むかも源泉の宣言で、レイヤーごとに「世代を要るか」は持たない——2つ持たせると
+ずれたときに「描けていないのにチップが黙る」。
 
 同じ失敗の再試行導線は[ルート設定・結果パネル](route-settings-and-results.md)にしかない
 （軸一覧の取得失敗として告知する）。地図側は理由を出すだけで、再試行ボタンは置かない。
@@ -392,9 +396,8 @@ TILE_VERSION_GATED_SOURCE_IDS`はそれを実際のMapLibreのソース名へ置
 ## 最上位グルーピング（道路/環境/スポット）
 
 `mapLayers.ts: mapOverlayGroupFor(layer)`がレイヤーIDを3グループへ分類する。
-**どのレイヤーがどの`category`かは記述子（`mapLayers.ts`）が宣言する**——源泉が配るのは
-`category`→グループの対応までで、レイヤーid→`category`は持たない。`category`は「画面で
-どう束ねるか」であって、backendが知っている事実ではないため。
+**どのレイヤーがどの`category`かは源泉が宣言する**（`domain/map_display.py`。`category`→
+グループの対応と同じ場所）——画面が持つのは描画の都合だけで、束ね方の所属はそこに入らない。
 `isAxisStudioLayer`（`dedicated_way_value_layer`軸[記述子の`axisStudioLayer`が立つ]・
 ramp軸[`dataNature==="composite"`]）に該当するものは`undefined`（地図上チップ・サイドバーの
 どちらにも一切出さない——ルート設定パネルへ移設済み、[ページ構成](page-composition.md)参照）。

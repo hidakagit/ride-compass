@@ -207,9 +207,9 @@ const TILE_SOURCE_BY_DATA_SOURCE: Record<
   Exclude<MapLayerDataSource, "ownFetch">,
   { sourceId: string; sourceLayer?: string }
 > = {
-  roadTiles: { sourceId: ROAD_LINE_SOURCE_ID, sourceLayer: ROAD_TILE_SOURCE_LAYER },
-  accidentTiles: { sourceId: pointSourceId("accident"), sourceLayer: ACCIDENT_TILE_SOURCE_LAYER },
-  poiTiles: { sourceId: pointSourceId("poi"), sourceLayer: STOP_POI_SOURCE_LAYER },
+  road_surface: { sourceId: ROAD_LINE_SOURCE_ID, sourceLayer: ROAD_TILE_SOURCE_LAYER },
+  accident: { sourceId: pointSourceId("accident"), sourceLayer: ACCIDENT_TILE_SOURCE_LAYER },
+  poi: { sourceId: pointSourceId("poi"), sourceLayer: STOP_POI_SOURCE_LAYER },
   gsiRelief: { sourceId: AREA_SOURCE_ID.elevation },
   gsiTerrain: { sourceId: AREA_SOURCE_ID.hillshade },
   landcoverRaster: { sourceId: AREA_SOURCE_ID.landcover },

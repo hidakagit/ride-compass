@@ -24,14 +24,15 @@ const catalog = catalogOf([
 const withAxes = buildMapLayers(catalog.rampAxes, catalog.dedicatedAxes, [2021, 2019, 2020]);
 const withoutAxes = buildMapLayers([], []);
 const layer = (layers: readonly MapLayerDescriptor[], id: string) => layers.find((entry) => entry.id === id)!;
+const staticLayerIds: readonly string[] = mapDisplay.layers.map((entry) => entry.id);
 
 describe("buildMapLayers（レイヤーの一覧）", () => {
   it("源泉が地図に載せると宣言したものは、どれも1つずつ記述子を持つ", () => {
-    expect(withoutAxes.map((entry) => entry.id).sort()).toEqual([...mapDisplay.layerIds].sort());
+    expect(withoutAxes.map((entry) => entry.id).sort()).toEqual([...staticLayerIds].sort());
   });
 
   it("軸を渡すと、ramp軸と専用配信軸のレイヤーが軸ごとに別の名前で加わる（どちらも軸スタジオ由来）", () => {
-    const added = withAxes.filter((entry) => !(mapDisplay.layerIds as readonly string[]).includes(entry.id));
+    const added = withAxes.filter((entry) => !staticLayerIds.includes(entry.id));
     expect(added.map((entry) => entry.id)).toEqual(["axis:ramp_a", "dedicated_bAxis"]);
     expect(added.every(isAxisStudioLayer)).toBe(true);
     expect(new Set(withAxes.map((entry) => entry.id)).size).toBe(withAxes.length);
@@ -103,7 +104,7 @@ describe("出せない理由の案内", () => {
 
 describe("buildDefaultLayerVisibility（表示の既定値）", () => {
   it("チップで切り替えられるレイヤーだけがキーを持つ（軸スタジオ由来は持たない）", () => {
-    expect(Object.keys(buildDefaultLayerVisibility()).sort()).toEqual([...mapDisplay.layerIds].sort());
+    expect(Object.keys(buildDefaultLayerVisibility()).sort()).toEqual([...staticLayerIds].sort());
   });
 });
 

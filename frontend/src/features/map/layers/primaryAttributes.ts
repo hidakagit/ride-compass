@@ -36,7 +36,7 @@ export const PRIMARY_ATTRIBUTE_LABELS: Record<string, string> = Object.fromEntri
  *
  * 表を手で持つと「新しい属性を足したのに地図へ出ない／対応表への追加漏れ」が起き、
  * それを見張る検査が要る。源泉から導けば、そもそもずれる余地が無い。 */
-const MAP_LAYER_ATTR_IDS: ReadonlySet<string> = new Set(mapDisplay.layerIds);
+const MAP_LAYER_ATTR_IDS: ReadonlySet<string> = new Set(mapDisplay.layers.map((layer) => layer.id));
 
 /** 一次属性id列のうち、表示レイヤーを持つものだけをMapLayerIdの重複無し配列で返す
  * （推定指標レイヤーON時の観測データレイヤー連動ON用）。複数の一次属性が同じ表示
