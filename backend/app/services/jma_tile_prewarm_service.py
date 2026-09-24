@@ -81,19 +81,17 @@ def _layers_from_weather_elements() -> tuple[_PrewarmLayer, ...]:
 _LAYERS: tuple[_PrewarmLayer, ...] = _layers_from_weather_elements()
 
 
-def _pick_current_entry(raw: list[dict], element_id: str | None) -> dict | None:
+def _pick_current_entry(raw: list[dict], element_id: str) -> dict | None:
     """targetTimes.jsonのエントリ群から「現在」を表す1件を選ぶ。
 
-    **`element_id`で先に絞ること。** targetTimes.jsonは、その要素のタイルが存在しない
+    **`element_id`の行だけから選ぶ。** targetTimes.jsonは、その要素のタイルが存在しない
     basetimeのエントリも持つ（`elements`配列に別の要素しか載っていないもの）。絞らずに
     最新basetimeを採ると、存在しないタイルを要求し続けて404になる。
 
     絞った候補のうち、直近の実況フレーム（validtime==basetime）でbasetime最大のものを返す。
     実況フレームが1件も無ければ、予測フレームを含む全候補から最大basetimeを返す。
     """
-    candidates = raw
-    if element_id is not None:
-        candidates = [e for e in raw if element_id in e.get("elements", [])]
+    candidates = [e for e in raw if element_id in e.get("elements", [])]
     observed = [e for e in candidates if e.get("validtime") == e.get("basetime")]
     pool = observed if observed else candidates
     if not pool:

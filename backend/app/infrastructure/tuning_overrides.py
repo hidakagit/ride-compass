@@ -96,18 +96,27 @@ async def read_overrides(session: AsyncSession) -> dict[str, float]:
     return {row.param_id: float(row.value) for row in rows}
 
 
-async def refresh_tuning_values(session: AsyncSession) -> None:
-    """DBの上書きを読み、プロセス内の`TUNING_VALUES`へ反映する。
+async def load_tuning_values(session: AsyncSession) -> dict[str, float]:
+    """DBの上書きを読み、宣言の範囲で検算して、いま効くべき値を作る（プロセスへはまだ反映しない）。"""
+    return merge_overrides(await read_overrides(session))
+
+
+def apply_tuning_values(values: dict[str, float]) -> None:
+    """`load_tuning_values`が作った値を、プロセス内の`TUNING_VALUES`へ反映する。
 
     **中身だけを差し替える**（辞書そのものを作り直すと、import済みの参照が古い辞書を
-    指したままになる）。
+    指したままになる）。読み出しも検算も済んだ値を受け取るだけなので失敗しない。
     """
-    merged = merge_overrides(await read_overrides(session))
     TUNING_VALUES.clear()
-    TUNING_VALUES.update(merged)
-    changed = {k: v for k, v in merged.items() if v != TUNING_PARAMETERS_BY_ID[k].default}
+    TUNING_VALUES.update(values)
+    changed = {k: v for k, v in values.items() if v != TUNING_PARAMETERS_BY_ID[k].default}
     if changed:
         logger.info("較正値の上書きを読み込みました count=%d ids=%s", len(changed), sorted(changed))
+
+
+async def refresh_tuning_values(session: AsyncSession) -> None:
+    """DBの上書きを読み、プロセス内の`TUNING_VALUES`へ反映する（起動時の読み込み）。"""
+    apply_tuning_values(await load_tuning_values(session))
 
 
 async def set_override(session: AsyncSession, param_id: str, value: float) -> None:
