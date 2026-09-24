@@ -391,10 +391,11 @@ def axis_contributions_at_row(
     weight_sums: np.ndarray,
     row: int,
 ) -> dict[str, float]:
-    """1区間ぶんの軸別寄与度。`compose_costs_from_axis_matrix`の配列版と同じ式。
+    """1区間ぶんの軸別寄与度（データのある軸の`値 × 重み ÷ weight_sums[row]`）。
 
-    配列版は全区間ぶん（数十万×軸数）作るが、読むのは経路上の数百区間だけのため、
-    区間表示は先に作らずここで1行だけ求める。
+    全区間ぶんは作らない——読むのは経路上の数百区間だけのため。全軸を足すと丸め前の
+    合成difficultyに一致する（`overall_difficulty`とその内訳を食い違わせないための式）。
+    区間の値は丸めない（丸めるのはルート単位へ距離加重平均した後）。
     """
     total = float(weight_sums[row])
     if total == 0 or math.isnan(total):
@@ -413,31 +414,27 @@ class AxisComposition(NamedTuple):
 
     cost: np.ndarray
     difficulty: np.ndarray
-    contributions: dict[str, np.ndarray]
-    # 区間ごとの「データのある軸の重みの合計」。軸別寄与度は`軸の値 × 重み ÷ これ`のため、
-    # 寄与度の配列を作らずに後から1行だけ求めたい呼び出し元が使う。
+    # 区間ごとの「データのある軸の重みの合計」。軸別寄与度（`axis_contributions_at_row`）の分母。
     weight_sums: np.ndarray
 
 
 def _axis_terms(
     axis_arrays: Mapping[str, np.ndarray], weights: dict[str, float]
-) -> tuple[list[np.ndarray], list[np.ndarray], list[tuple[str, np.ndarray, float, np.ndarray]]]:
-    """軸ごとの「重み付きスコアの項」「重みの項」と、寄与度の内訳に要る素材。
+) -> tuple[list[np.ndarray], list[np.ndarray]]:
+    """軸ごとの「重み付きスコアの項」「重みの項」。
 
     データ欠損（NaN）の軸はその区間だけ項を0にする＝和から外す（「データ無しは除外し
     残りの重みで再正規化」）。**この式を2箇所に書かない**——先に和だけ求める経路と合成の
-    本体で式がずれると、寄与度の内訳と合成difficultyが静かに食い違う。
+    本体で式がずれると、先に求めた和を使い回した合成だけが静かに食い違う。
     """
     score_terms: list[np.ndarray] = []
     weight_terms: list[np.ndarray] = []
-    axis_weight_valid: list[tuple[str, np.ndarray, float, np.ndarray]] = []
     for axis_id, arr in axis_arrays.items():
         weight = weights.get(axis_id, 0.0)
         valid = ~np.isnan(arr)
         score_terms.append(np.where(valid, arr * weight, 0.0))
         weight_terms.append(np.where(valid, weight, 0.0))
-        axis_weight_valid.append((axis_id, arr, weight, valid))
-    return score_terms, weight_terms, axis_weight_valid
+    return score_terms, weight_terms
 
 
 def axis_weighted_sums(
@@ -449,7 +446,7 @@ def axis_weighted_sums(
     """
     if not axis_arrays:
         return np.zeros(length), np.zeros(length)
-    score_terms, weight_terms, _ = _axis_terms(axis_arrays, weights)
+    score_terms, weight_terms = _axis_terms(axis_arrays, weights)
     return _neumaier_accumulate(score_terms), _neumaier_accumulate(weight_terms)
 
 
@@ -460,11 +457,9 @@ def compose_costs_from_axis_matrix(
     penalty_strength: float,
     base: np.ndarray | None = None,
     static_sums: tuple[np.ndarray, np.ndarray] | None = None,
-    with_contributions: bool = True,
 ) -> AxisComposition:
     """`_evaluate_axes_from_material_arrays`/`evaluate_dynamic_axis_arrays`が求めた軸別
-    スコア配列群から、重み付き合成のcost・composite difficulty配列・軸別寄与度配列を
-    求める。
+    スコア配列群から、重み付き合成のcost・composite difficulty配列を求める。
 
     `base`は割増を掛ける下地で、探索は区間ごとの所要時間（秒）を渡す——コストは
     `所要時間 × (1 + P × difficulty/100)`＝**体感の所要時間**になり、`penalty_strength`は
@@ -474,35 +469,24 @@ def compose_costs_from_axis_matrix(
     `static_sums`は`axis_arrays`に**含めなかった**軸ぶんの`(重み付きスコアの和, 重みの和)`。
     時刻ビンごとに合成し直すとき、時刻で変わらない軸の和を1回だけ求めて使い回すために渡す
     （合成の時間は軸数にほぼ比例するため、動的な軸だけを毎回足す形にすると大きく減る）。
-    `with_contributions=False`は軸別寄与度（表示用）を組み立てない——探索へ渡すだけの
-    ビンでは要らない。`static_sums`と併用できないのは、寄与度は`axis_arrays`へ渡した軸ぶん
-    しか作れず、和へ畳んだ軸の内訳が黙って欠けるため。
 
     Neumaier加算・`round1_array`はスカラー版`composite_difficulty`と
     ビット単位で一致させるために必須
     （`_neumaier_accumulate`のdocstring参照）。0次フィルタによる除外（cost=inf/None）は
     呼び出し元の責務（`compute_hard_filter_excluded`参照、Edgeの通行可否そのものであり
     軸別スコアの合成とは独立した判定のため）。戻り値は`(cost, composite_difficulty,
-    axis_contributions)`（difficultyはNaN=データ無し、costは0次フィルタを考慮しない
-    「仮に許可された場合のコスト」、axis_contributionsはaxis_id→寄与度配列
-    ——validな軸のみ`arr*weight/weighted_weight_sums`、invalidな区間はNaN。全軸の
-    寄与度を丸め前で合計すると丸め前のcompositeと一致する——`RouteCandidate.
-    overall_difficulty`とその内訳`axis_contributions`を数学的に一致させるための値
-    ）。
+    weight_sums)`（difficultyはNaN=データ無し、costは0次フィルタを考慮しない
+    「仮に許可された場合のコスト」、weight_sumsは軸別寄与度の分母）。
 
     重み付き軸がすべてデータ欠損（composite=NaN）のEdgeは、costの算出だけ`distance_m`
     加重の`domain/difficulty.py: distance_weighted_difficulty_array`で求めたbbox内平均
     difficultyを代入する（呼び出し元のリクエストごとに実データから求まる値で、
-    固定定数は使わない）。戻り値の`composite_difficulty`・`axis_contributions`
-    （表示用）はこの代入の影響を受けず、欠損なら常にNaNのまま返す。bbox内が全Edge欠損
+    固定定数は使わない）。戻り値の`composite_difficulty`（表示用）はこの代入の影響を
+    受けず、欠損なら常にNaNのまま返す。bbox内が全Edge欠損
     （代入する平均値自体が無い）ならこれまでどおりcost=distance_m（割増なし）。
     """
-    if static_sums is not None and with_contributions:
-        raise ValueError(
-            "static_sumsへ畳んだ軸の寄与度は作れないため、with_contributionsとは併用できない"
-        )
     n = len(distance_m)
-    dynamic_scores, dynamic_weights, axis_weight_valid = _axis_terms(axis_arrays, weights)
+    dynamic_scores, dynamic_weights = _axis_terms(axis_arrays, weights)
     score_terms = ([] if static_sums is None else [static_sums[0]]) + dynamic_scores
     weight_terms = ([] if static_sums is None else [static_sums[1]]) + dynamic_weights
     # 公開軸が1つも無い場合はn件ぶんのゼロ配列を直接使う（下の
@@ -526,17 +510,6 @@ def compose_costs_from_axis_matrix(
     # 完全一致させるため、最終丸めのみ要素ごとにPythonの`round()`を適用する。
     composite = round1_array(composite)
 
-    # 軸ごとの区間寄与度。compositeとは異なり、ここでは丸めない
-    # （区間単位ではなくルート単位に距離加重平均した後、そちらで最終丸めする——
-    # `RouteSegmentDetail.axis_difficulties`/`domain/route.py: merge_axis_difficulties`と
-    # 同じ「区間単位は生値、ルート単位で丸め」という既存の扱いに揃える）。
-    axis_contributions: dict[str, np.ndarray] = {}
-    if with_contributions:
-        for axis_id, arr, weight, valid in axis_weight_valid:
-            with np.errstate(invalid="ignore", divide="ignore"):
-                contribution = np.where(valid, arr * weight / weighted_weight_sums, np.nan)
-            axis_contributions[axis_id] = np.where(weighted_weight_sums == 0, np.nan, contribution)
-
     # costの算出にだけ、重み付き軸が全欠損のEdgeへbbox内平均difficultyを
     # 代入する（composite自体は表示用にNaNのまま返す、上のdocstring参照）。
     cost_base = distance_m if base is None else base
@@ -553,7 +526,7 @@ def compose_costs_from_axis_matrix(
         # 秒を下地にすると0.1秒は短い区間の数%にあたり、`cost/所要時間`からdifficultyを
         # 逆算する側（折返し点・経由Nodeの並べ替え）に丸め由来の差が現れる。
         cost = round1_array(cost)
-    return AxisComposition(cost, composite, axis_contributions, weighted_weight_sums)
+    return AxisComposition(cost, composite, weighted_weight_sums)
 
 
 

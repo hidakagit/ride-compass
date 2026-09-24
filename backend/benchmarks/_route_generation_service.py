@@ -9,6 +9,7 @@ from __future__ import annotations
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
+from app.domain.evaluation import resolve_penalty_strength
 from app.domain.route_preference import RoutePreference
 from app.domain.routing import TurnCostSpec
 from app.infrastructure.axis_definition_repository import AxisDefinitionRepository
@@ -33,15 +34,16 @@ async def route_generator_session(
     preference: RoutePreference,
     *,
     turn_cost: TurnCostSpec | None = None,
-    penalty_strength: float = 1.0,
 ) -> AsyncIterator[RouteGenerator]:
     """軸定義refresh後の`preference`を受け取り、`RouteGenerator`まで組み立てる。
     呼び出し側は`await refresh_axis_registry()`を先に済ませておくこと。
+    換算レート（P）はルート生成が省略時に使うのと同じ`resolve_penalty_strength`から読む
+    （このモジュールは`tuning_overrides`を読み込まないため、値は較正値の宣言の既定）。
     """
     async with get_route_generation_session_factory()() as graph_session:
         graph_service = GraphService(repository=RoadGraphRepository(graph_session))
         engine = RoadGraphEngine(
             graph_service, WeatherService(), preference,
-            penalty_strength=penalty_strength, turn_cost=turn_cost,
+            penalty_strength=resolve_penalty_strength(None), turn_cost=turn_cost,
         )
         yield RouteGenerator(engine)

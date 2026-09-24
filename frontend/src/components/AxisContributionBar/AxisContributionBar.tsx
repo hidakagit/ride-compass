@@ -23,7 +23,7 @@ interface AxisContributionBarProps {
   /** axis_id→重み付き寄与度（0-100スケール、合計が「総合難易度」と一致する値）。
    * ルート全体はRouteCandidate.axis_contributions、区間はRouteSegmentDetail.
    * axis_contributionsをそのまま渡す——frontendでの独自再計算は行わない
-   * （backend: domain/evaluation.py: compose_costs_from_axis_matrix参照）。backendは
+   * （backend: domain/evaluation.py: axis_contributions_at_row参照）。backendは
    * 公開軸すべてにキーを返す（重み0の軸も値0.0で含まれ、キーが省略されるのはその区間で
    * データ欠損の軸のみ）ため、値0（重み0の軸に限らず、寄与が実質無かった軸も含む）は
    * このコンポーネント側で表示から除く。 */
@@ -51,7 +51,7 @@ const FALLBACK_COLOR = palette.semantic.neutral;
 
 /** その軸に「表示すべき寄与」があるか。
  *
- * 値0（重み0の軸は常にちょうど0.0になる、backend: compose_costs_from_axis_matrix参照）は、
+ * 値0（重み0の軸は常にちょうど0.0になる、backend: axis_contributions_at_row参照）は、
  * キーが無い（欠損データ）場合と同じく無しとして扱う。負の値（クランプ前）は0ではないため
  * 残す——0-100範囲外のクランプは表示側のstyle計算で行う。
  *

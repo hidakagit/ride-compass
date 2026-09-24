@@ -198,7 +198,9 @@ bbox全体ぶんのコストをリクエストにつき1回だけnumpyで合成�
   先頭を採用する決定的な規則で解消する（コストは見ない。`LazyRoadGraph`はコストに
   依存せずタイル集合キーでキャッシュするため）。
   同じコスト配列・軸別スコア配列は`_build_segment_details`（区間表示）からも参照され、
-  探索と表示の二重計算を避ける。**唯一の例外**（探索コストのみ補完・表示は変えない、
+  探索と表示の二重計算を避ける。区間の軸別寄与度（表示用）は`axis_contributions_at_row`が
+  経路上の区間ぶんだけ、合成が返した重みの和（`AxisComposition.weight_sums`）を分母に求める
+  ——全区間ぶんは作らない。**唯一の例外**（探索コストのみ補完・表示は変えない、
   `docs/architecture/design-principles.md`「探索コストと表示difficultyの一致」参照）: 重み付き軸が
   すべて欠損（composite=NaN）のEdgeは、探索コスト算出にだけbbox内の距離加重平均
   difficultyを代入する（`compose_costs_from_axis_matrix`が内部で
