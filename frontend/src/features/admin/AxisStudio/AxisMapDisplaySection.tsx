@@ -4,6 +4,7 @@
 // 段階の並びと色を出す——色は地図の凡例と同じ関数で作るため、ここで見えているものと
 // 地図がずれない。
 
+import axisPayloadConfig from "@/types/generated/axis-payload-config.json";
 import { useState } from "react";
 import { bandLabelsForBandCount, buildRangeLegendBands } from "@/lib/mapDisplay/mapColorLegend";
 import { AXIS_ICON_PALETTE, axisIconFor } from "@/lib/mapDisplay/axisIconPalette";
@@ -27,6 +28,9 @@ import { textVariants } from "@/components/ui/Text/Text";
 import { cn } from "@/lib/cn";
 import { cardVariants } from "@/components/ui/Card/Card";
 import { fieldClass } from "@/components/ui/Input/Input";
+
+/** 地図チップの名前の上限（backendの宣言`MAP_CHIP_LABEL_MAX_LENGTH`）。 */
+const CHIP_LABEL_MAX_LENGTH = axisPayloadConfig.chip_label_max_length;
 
 interface AxisMapDisplaySectionProps {
   draft: Draft;
@@ -297,14 +301,14 @@ export function AxisMapDisplaySection({
           <div className={fieldClass}>
             <FieldLabel
               label="チップの略称"
-              description="4文字以内（地図チップは固定サイズのタイルのため必須の上限。未設定時は表示名(label)がそのまま使われるが、正式名が4文字を超える場合はここで略称を設定すること）。"
+              description={`${CHIP_LABEL_MAX_LENGTH}文字以内（地図チップは固定サイズのタイルのため必須の上限。未設定時は表示名(label)がそのまま使われるが、正式名が${CHIP_LABEL_MAX_LENGTH}文字を超える場合はここで略称を設定すること）。`}
             />
             <Input
               type="text"
               value={draft.chipLabel}
               aria-label="チップの略称"
               onChange={(e) => setDraft((d) => ({ ...d, chipLabel: e.target.value }))}
-              maxLength={4}
+              maxLength={CHIP_LABEL_MAX_LENGTH}
               placeholder="例: 未舗装"
             />
           </div>

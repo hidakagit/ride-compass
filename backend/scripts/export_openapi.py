@@ -16,6 +16,7 @@ npm run generate:apiを実行して生成物を同じコミットに含めるこ
 """
 
 import json
+from typing import get_args
 import sys
 from pathlib import Path
 
@@ -33,6 +34,9 @@ from app.domain.wind_grid import (  # noqa: E402
     WIND_GRID_SPACING_DEG,
 )
 from app.api.routers.routes import DEFAULT_DISTANCE_TOLERANCE_KM, MAX_ROUTE_DISTANCE_KM  # noqa: E402
+from app.api.routers.axis_admin import AxisDefinitionPayload  # noqa: E402
+from app.api.routers.debug_admin import LogLevelName  # noqa: E402
+from app.domain.axis_definitions import MAP_CHIP_LABEL_MAX_LENGTH  # noqa: E402
 from app.infrastructure.vector_tile import (  # noqa: E402
     ACCIDENT_LAYER_NAME,
     ROAD_SURFACE_LAYER_NAME,
@@ -137,6 +141,7 @@ REGION_TILE_CONFIG_PATH = GENERATED_DIR / "region-tile-config.json"
 PRIMARY_ATTRIBUTES_PATH = GENERATED_DIR / "primaryAttributes.ts"
 WIND_GRID_CONFIG_PATH = GENERATED_DIR / "wind-grid-config.json"
 ROUTE_GENERATE_CONFIG_PATH = GENERATED_DIR / "route-generate-config.json"
+AXIS_PAYLOAD_CONFIG_PATH = GENERATED_DIR / "axis-payload-config.json"
 MATERIAL_CATALOG_PATH = GENERATED_DIR / "material-catalog.json"
 LANDCOVER_CLASSES_PATH = GENERATED_DIR / "landcover-classes.json"
 PALETTE_PATH = GENERATED_DIR / "palette.json"
@@ -382,6 +387,8 @@ def main() -> None:
             "weatherCategories": [{"key": c.key, "label": c.label, "codes": list(c.codes)} for c in WEATHER_CATEGORIES],
             "weatherCategoryFallback": WEATHER_CATEGORY_FALLBACK,
             "materialPopulations": [{"key": key, "label": label} for key, label in POPULATION_LABELS.items()],
+            # backendのログのレベル（軽い順）。画面の絞り込みの選択肢と、ログ行からレベルを読む正規表現がこの並びを使う。
+            "logLevels": list(get_args(LogLevelName)),
             "materialMissingSemantics": [
                 {"key": key, "title": title, "hint": hint} for key, (title, hint) in MISSING_SEMANTICS_DISPLAY.items()
             ],
@@ -460,6 +467,19 @@ def main() -> None:
             "detail_spacing_deg": WIND_GRID_DETAIL_SPACING_DEG,
             "detail_allowed_spacings_deg": list(WIND_GRID_DETAIL_ALLOWED_SPACINGS_DEG),
             "detail_max_points": WIND_GRID_DETAIL_MAX_POINTS,
+        },
+    )
+    # 軸スタジオが送る軸の既定値と、地図チップの名前の上限。画面は編集欄を持たない項目を新規の軸で
+    # この既定値のまま送る（写しを持つと、backendの既定を変えたとき新規の軸だけ古い値で作られる）。
+    _write_json(
+        AXIS_PAYLOAD_CONFIG_PATH,
+        {
+            "defaults": {
+                name: field.get_default(call_default_factory=True)
+                for name, field in AxisDefinitionPayload.model_fields.items()
+                if not field.is_required()
+            },
+            "chip_label_max_length": MAP_CHIP_LABEL_MAX_LENGTH,
         },
     )
     # ルート生成の上限・既定値。frontendが独立にハードコードすると、backendだけ変えた

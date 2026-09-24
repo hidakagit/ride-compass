@@ -7,17 +7,15 @@ import { Card } from "@/components/ui/Card/Card";
 import { Input } from "@/components/ui/Input/Input";
 import { Button } from "@/components/ui/Button/Button";
 import { getRecentLogs, type LogLevelName } from "@/features/admin/debugAdminApi";
+import { vocabulary } from "@/types/generated/vocabulary";
 import { Select } from "@/components/ui/Input/Input";
 import { LogLine } from "@/components/ui/LogLine/LogLine";
 import { textVariants } from "@/components/ui/Text/Text";
 
 const DEFAULT_LIMIT = 200;
 // 選択肢は軽い順に並べる。キーの過不足はbackendの契約から引いた型が検査する。
-const LOG_LEVELS = { DEBUG: true, INFO: true, WARNING: true, ERROR: true, CRITICAL: true } satisfies Record<
-  LogLevelName,
-  true
->;
-const LOG_LEVEL_OPTIONS = Object.keys(LOG_LEVELS) as LogLevelName[];
+/** 選べるレベル（軽い順）。**backendの宣言の並びそのもの**（生成物`vocabulary.ts`の`logLevels`）。 */
+const LOG_LEVEL_OPTIONS: readonly LogLevelName[] = vocabulary.logLevels;
 
 // フロントのDebugConsole（lib/debugLog.ts、entry.level="info"/"warn"/"error"）と同じ
 // 「レベルで色分けする」見た目に揃える。backendの整形済みログ行（request_log.py:

@@ -178,6 +178,10 @@ def referenced_materials(shape: "AxisShape", priority_overrides: "Sequence[Prior
     return list(seen)
 
 
+#: 地図チップに出す名前の上限（文字数）。地図チップは固定サイズのタイルで、これを超えるとはみ出す。
+MAP_CHIP_LABEL_MAX_LENGTH = 4
+
+
 class AxisDefinition(StrictModel):
     """1つの評価軸の宣言（ADRの`AxisDefinition`スキーマ）。
 
@@ -216,6 +220,9 @@ class AxisDefinition(StrictModel):
     #: 空を許すと、ルート設定画面にも地図チップにも名前の出ない軸を登録できてしまう。
     label: str = Field(min_length=1)
     description: str = ""
+    # 軸スタジオが作る軸は常に「推定」（複数材料を判定式で合成する軸）。「観測」（タグ・POIを
+    # そのまま読む）「動的」（気象等、時々刻々変わる外部データ由来）はどちらも材料そのものの性質で、
+    # 材料を組み合わせて判定式を作る仕組みからは生み出せない。
     category: AxisCategory = "推定"
     # 公開済み軸は一般向け`GET /api/axis-catalog`（一般ユーザーの保存設定が
     # axis_idキーで再現されるため、公開後の破壊的変更・削除は他ユーザーの設定を黙って
@@ -233,7 +240,7 @@ class AxisDefinition(StrictModel):
     """地図チップのアイコン（frontend/src/components/Map/axisIconPalette.tsxの固定
     パレットからidを選ぶ。未知/未設定のidは汎用アイコン[AxisRampIcon]へフォールバック）。
     パレットへ形状を足すにはコード変更が要る。"""
-    chip_label: str | None = Field(default=None, min_length=1, max_length=4)
+    chip_label: str | None = Field(default=None, min_length=1, max_length=MAP_CHIP_LABEL_MAX_LENGTH)
     """地図チップの略称。地図チップは固定サイズのタイルで、5文字以上はレイアウトが崩れる。
     未設定はlabelをそのまま使う——labelには長さの制約が無いため、地図チップに出す軸を
     作るときはこちらを明示する（`axis_admin.py: AxisDefinitionPayload`が書き込み時に

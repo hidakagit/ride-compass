@@ -19,8 +19,11 @@ interface Props {
   error: string | null;
 }
 
-/** 分位の並び順（quantilesはdictで順序を持たないため、表示順をここで決める）。 */
-const QUANTILE_ORDER = ["p10", "p25", "p50", "p75", "p90", "p99"] as const;
+/** 届いた分位を、分位の数の順に並べる（quantilesは`p<百分位>`を鍵とするdictで順序を持たない）。
+ * どの分位を配るかはbackendが決めるため、鍵の一覧を画面で持たない。 */
+function quantilesInOrder(quantiles: Readonly<Record<string, number>>): [string, number][] {
+  return Object.entries(quantiles).sort(([a], [b]) => Number(a.slice(1)) - Number(b.slice(1)));
+}
 
 export function DistributionPreview({ distribution, breakpoints, loading, error }: Props) {
   const bands = scoreBands(distribution, breakpoints);
@@ -75,8 +78,8 @@ export function DistributionPreview({ distribution, breakpoints, loading, error 
           ))}
           <p className={cn(textVariants({ variant: "hint" }), "tabular-nums")}>
             材料の合成値:{" "}
-            {QUANTILE_ORDER.filter((q) => distribution.quantiles[q] !== undefined)
-              .map((q) => `${q}=${distribution.quantiles[q]}`)
+            {quantilesInOrder(distribution.quantiles)
+              .map(([q, value]) => `${q}=${value}`)
               .join("  ")}
           </p>
           {warnings.map((warning) => (

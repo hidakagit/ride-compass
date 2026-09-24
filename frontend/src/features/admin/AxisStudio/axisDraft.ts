@@ -10,6 +10,7 @@
 // 打ち直しにならないようにするため）。保存時に`buildShape`が選択中のkindぶんだけを
 // 取り出してpayloadへ組み立てる。
 
+import axisPayloadConfig from "@/types/generated/axis-payload-config.json";
 import type { components } from "@/types/generated/api";
 import type { AxisMaterialOption } from "@/lib/axisMaterialsCatalog";
 import type { AxisDefinitionPayload, AxisDefinitionResponse, AxisShape } from "@/types/route";
@@ -102,21 +103,12 @@ type _PayloadKeyCoverage = [
 ];
 
 /** 新規軸の素通しフィールド初期値（既存軸は`pickPassthroughFields`が実値で置き換える）。 */
-const DEFAULT_PASSTHROUGH_FIELDS: PassthroughFields = {
-  // 軸スタジオが作る軸は常に「推定」（複数材料を判定式で合成する軸）。「観測」
-  // （タグ・POIをそのまま読む）「動的」（気象等、時々刻々変わる外部データ由来）は
-  // どちらも材料そのものの性質で、材料を組み合わせて判定式を作る仕組みからは生み出せない。
-  // 既存軸を編集するときは既存の値を素通しする——この画面が編集欄を持たない以上、
-  // 定数で上書きしてよい理由が無い（「観測」の公開済み軸は、表示専用の編集でも
-  // categoryが書き換わるぶん見た目だけの更新と見なされずbackendに拒否される）。
-  category: "推定",
-  priority_overrides: [],
-  time_scope: "always",
-  dedicated_way_value_layer: false,
-  dynamic_way_value_needs_time: false,
-  dynamic_way_value_needs_bearing: false,
-  dynamic_way_value_needs_speed: false,
-};
+/** 値はbackendの宣言の既定値（生成物`axis-payload-config.json`）。既存軸を編集するときは既存の値を
+ * 素通しする——この画面が編集欄を持たない以上、既定値で上書きしてよい理由が無い（「観測」の公開済み
+ * 軸は、表示専用の編集でもcategoryが書き換わるぶん見た目だけの更新と見なされずbackendに拒否される）。 */
+const DEFAULT_PASSTHROUGH_FIELDS = Object.fromEntries(
+  PASSTHROUGH_PAYLOAD_KEYS.map((key) => [key, axisPayloadConfig.defaults[key]]),
+) as unknown as PassthroughFields;
 
 function pickPassthroughFields(def: AxisDefinitionResponse): PassthroughFields {
   const picked: Record<string, unknown> = { ...DEFAULT_PASSTHROUGH_FIELDS };

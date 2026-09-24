@@ -145,6 +145,13 @@ export const vocabulary = {
       "label": "Edge"
     }
   ],
+  "logLevels": [
+    "DEBUG",
+    "INFO",
+    "WARNING",
+    "ERROR",
+    "CRITICAL"
+  ],
   "materialMissingSemantics": [
     {
       "key": "unknown",

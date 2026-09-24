@@ -19,7 +19,7 @@ router = APIRouter(prefix="/api/admin/debug", tags=["debug-admin"], dependencies
 
 # contains（部分一致）とは別の軸として、Python標準loggingのレベル名で「このレベル以上」に
 # 絞り込めるようにする。名前→数値の対応はlogging標準のものをそのまま使う。
-_LOG_LEVEL_NAME = Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
+LogLevelName = Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
 _LOG_LEVEL_NUMBERS: dict[str, int] = {
     "DEBUG": logging.DEBUG,
     "INFO": logging.INFO,
@@ -56,7 +56,7 @@ def read_debug_mode() -> DebugModeResponse:
 def read_recent_logs(
     limit: int | None = Query(default=None, gt=0),
     contains: str | None = None,
-    min_level: _LOG_LEVEL_NAME | None = None,
+    min_level: LogLevelName | None = None,
 ) -> list[str]:
     """直近のログ行を返す（プロセス内メモリのリングバッファ、既定で最大1000件保持）。
 

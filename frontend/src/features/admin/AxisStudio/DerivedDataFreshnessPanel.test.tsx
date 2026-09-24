@@ -131,16 +131,6 @@ describe("DerivedDataFreshnessPanel", () => {
     expect(within(rowOf("fresh")).getByText("最新")).toBeInTheDocument();
   });
 
-  it("作り直しが要るとき、画面に出したコマンドをそのままコピーでき、コピーしたと示す", async () => {
-    const user = await collect(report([table({ is_stale: true })]));
-
-    const command = screen.getByText(/derive_cli/).textContent;
-    await user.click(screen.getByRole("button", { name: "コピー" }));
-
-    await expect(navigator.clipboard.readText()).resolves.toBe(command);
-    expect(await screen.findByRole("button", { name: "コピーした" })).toBeInTheDocument();
-  });
-
   it("行は表の名前と行数を出し、開いた先に取込の世代・被覆・列ごとの未計算と確定した値なしを並べる", async () => {
     await collect(
       report([

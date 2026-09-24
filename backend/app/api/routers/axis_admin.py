@@ -21,6 +21,7 @@ from app.services.axis_preview_service import axis_raw_value_distribution
 from app.api.dependencies import get_axis_registry_admin_service, served_dedicated_way_value_material
 from app.domain.axis_definitions import (
     AXIS_DEFINITIONS,
+    MAP_CHIP_LABEL_MAX_LENGTH,
     REQUEST_DYNAMIC_MATERIAL_IDS,
     AxisDefinition,
     AxisShape,
@@ -79,10 +80,10 @@ class AxisDefinitionPayload(AxisDefinition):
         （地図チップへ出ない内部軸・`show_map_icon=False`の軸にも同じ制約を課すことになる）
         ので、新しく軸を作る側へ短い名前を要求するこの入口に置く。
         """
-        if self.chip_label is None and len(self.label) > 4:
+        if self.chip_label is None and len(self.label) > MAP_CHIP_LABEL_MAX_LENGTH:
             raise ValueError(
-                f"label is longer than 4 characters ({len(self.label)}: {self.label!r}); "
-                "set chip_label explicitly (4 characters or fewer) for the map chip"
+                f"label is longer than {MAP_CHIP_LABEL_MAX_LENGTH} characters ({len(self.label)}: {self.label!r}); "
+                f"set chip_label explicitly ({MAP_CHIP_LABEL_MAX_LENGTH} characters or fewer) for the map chip"
             )
         return self
 

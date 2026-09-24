@@ -7,11 +7,29 @@ CLAUDE.md「コミット時の同期ルール」から参照される。個々�
 
 本番DBをゼロから再構築する手順（disaster recovery）は**現在ない**——T970でデータ層を
 作り直した際に旧手順が指す入口が全て入れ替わったため、バックアップの形と合わせて
-[T972](../records/tasks/T972.md)で作り直す。派生データの作り直しは
-`python -m app.batch.derive_cli`。
+[T972](../records/tasks/T972.md)で作り直す。派生データの作り直しは下の「派生データの作り直し」。
 
 軸定義を軸スタジオに何をさせるかは
 [axis-definition-maintenance-split.md](../records/decisions/axis-definition-maintenance-split.md)。
+
+## 派生データの作り直し
+
+- 対象: 管理画面の「派生データの鮮度」が作り直し待ちを出したとき（古い理由がどれであっても打つのは同じ
+  1コマンド。`app/batch/derive_cli.py`が段の順に作り直す単一の入口）。
+- ルール: **本番VM（SSHで入る）で、稼働中のbackendコンテナではなく別のコンテナをメモリ上限付きで立てて**
+  打つ:
+
+  ```
+  sudo docker run --rm --network=host --memory=4g \
+    -v /home/ubuntu/ridecompass-cache-data:/app/data \
+    --env-file /home/ubuntu/ridecompass-backend.env \
+    ridecompass-backend:latest \
+    python -m app.batch.derive_cli
+  ```
+
+- なぜ: 手元の端末で打つと、そこから見えるのは開発用のDBで、本番は古いまま変わらない。稼働中のbackendの
+  コンテナの中で走らせると、そのコンテナのメモリ上限まで使い切ったときにコンテナごとOOM killされ、
+  サービス全体が止まる。別のコンテナを`--memory`付きで立てれば、上限を超えても止まるのはバッチだけで済む。
 
 ## backendを先に出した窓では、frontendが新しい材料を知らない
 

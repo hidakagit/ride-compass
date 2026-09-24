@@ -8,23 +8,6 @@ import { getDerivedDataFreshness } from "@/features/admin/derivedDataFreshnessAp
 import type { DerivedDataFreshnessResponse } from "@/types/route";
 import { type StatusRow, StatusRowList, StatusVerdict } from "./StatusRowList";
 import { textVariants } from "@/components/ui/Text/Text";
-import { cn } from "@/lib/cn";
-
-/** 派生データを段の順に作り直す単一の入口（`backend/app/batch/derive_cli.py`）を、
- * **本番へ効かせるために実際に打つ形**で置く。古い・未計算がどれであっても打つのはこの1つ
- * なので、行ごとにバッチ名を散らさず画面に1つだけ置く。本番DBとの同期の作業標準は
- * `docs/conventions/deployment-sync.md`。
- *
- * 稼働中のbackendコンテナの中では走らせない——そのコンテナのメモリ上限まで使い切ると
- * コンテナごとOOM killされ、サービス全体が止まる。別のコンテナを`--memory`付きで立てれば、
- * 上限を超えても止まるのはバッチだけで済む。 */
-const REBUILD_COMMAND = [
-  "sudo docker run --rm --network=host --memory=4g \\",
-  "  -v /home/ubuntu/ridecompass-cache-data:/app/data \\",
-  "  --env-file /home/ubuntu/ridecompass-backend.env \\",
-  "  ridecompass-backend:latest \\",
-  "  python -m app.batch.derive_cli",
-].join("\n");
 
 function formatRunId(value: number | null): string {
   return value === null ? "-" : `#${value}`;
@@ -81,24 +64,6 @@ function rowsFromReport(report: DerivedDataFreshnessResponse): StatusRow[] {
   });
 }
 
-function CopyButton({ text }: { text: string }) {
-  const [copied, setCopied] = useState(false);
-  const handleCopy = () => {
-    navigator.clipboard
-      ?.writeText(text)
-      .then(() => {
-        setCopied(true);
-        window.setTimeout(() => setCopied(false), 1500);
-      })
-      .catch(() => setCopied(false));
-  };
-  return (
-    <Button size="xs" onClick={handleCopy}>
-      {copied ? "コピーした" : "コピー"}
-    </Button>
-  );
-}
-
 // 「データ保守」タブ（/admin）から、派生データ（precomputeバッチの出力）が作り直しを要する状態に
 // ないかを見るパネル。MaterialCoveragePanel（材料の値がNULL/未取得かという完成度）とは別の
 // 切り口——こちらは「取り込んだ生データが新しくなったのに、そこから計算した値が古いまま
@@ -153,25 +118,10 @@ function FreshnessReportView({ report }: { report: DerivedDataFreshnessResponse 
         {staleCount > 0 ? (
           <>
             <span>{staleCount}件が作り直し待ち</span>
-            <div className="flex min-w-0 flex-[1_1_100%] items-start gap-2">
-              <code
-                className={cn(
-                  textVariants({ variant: "code" }),
-                  "block min-w-0 flex-[1_1_12rem] overflow-x-auto whitespace-pre rounded-sm bg-[var(--color-surface)] px-1.5 py-0.5 text-[var(--color-muted-strong)]",
-                )}
-              >
-                {REBUILD_COMMAND}
-              </code>
-              <div className="flex flex-shrink-0 items-start gap-1">
-                <CopyButton text={REBUILD_COMMAND} />
-                <InfoPopover triggerAriaLabel="このコマンドをどこで打つかの説明">
-                  打つ場所は本番VM（SSHで入る）。手元の端末で打っても、そこから見えるのは
-                  開発用のDBで、本番は古いまま変わらない。稼働中のDBに対して実行したあとは
-                  タイル材料キャッシュの世代を上げる必要がある（上げないと、既にキャッシュ済み
-                  だったタイルだけ古い値のまま復元され続ける）。手順の正本は docs/disaster-recovery.md。
-                </InfoPopover>
-              </div>
-            </div>
+            {/* 作り直しは本番VMで打つ。打つ形と理由は運用の文書が持つ（本番の置き場所の知識を画面に持たない）。 */}
+            <span className={textVariants({ variant: "hint" })}>
+              作り直しの手順: docs/conventions/deployment-sync.md「派生データの作り直し」
+            </span>
           </>
         ) : (
           <span>すべて最新</span>
