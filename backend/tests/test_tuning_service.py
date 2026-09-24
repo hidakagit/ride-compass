@@ -13,6 +13,9 @@ import pytest
 from app.services import tuning_service
 from tests.bound_fake import bound
 
+#: 書いた後の上書きを読んで検算した結果（`load_tuning_values`の代役が返す）。
+LOADED = {"speed.crr": 0.006}
+
 
 class Session:
     """取引の区切りを記録するセッションの代役。"""
@@ -45,10 +48,14 @@ def events(monkeypatch):
 
         monkeypatch.setattr(tuning_service, name, bound(getattr(tuning_service, name), call))
 
+    def apply(values):
+        recorded.append(("apply_tuning_values", values))
+
     stub("read_overrides", {"speed.crr": 0.006, "turn.right_seconds": 9.0})
     stub("set_override")
     stub("clear_override")
-    stub("refresh_tuning_values")
+    stub("load_tuning_values", LOADED)
+    monkeypatch.setattr(tuning_service, "apply_tuning_values", bound(tuning_service.apply_tuning_values, apply))
     return recorded, failing
 
 
@@ -64,21 +71,29 @@ async def test_overridden_ids_are_the_ids_that_have_a_row(events):
         (None, ("clear_override", "speed.crr")),
     ],
 )
-async def test_saving_writes_commits_and_then_refreshes_the_running_values(events, value, write):
+async def test_saving_loads_the_values_before_commit_and_only_swaps_them_in_after(events, value, write):
     recorded, _ = events
     session = Session(recorded)
 
     await tuning_service.save_override(session, "speed.crr", value)
 
-    # 反映は取引が確定してから——DBに無い値がプロセスだけで効くことはない
-    assert recorded == [write, "commit", ("refresh_tuning_values",)]
+    # 読んで検算するのは確定の前（失敗すれば書き込みごと取り消せる）。確定の後は、その値への
+    # 差し替えだけ——DBを読み直さず、DBに無い値がプロセスだけで効くこともない
+    assert recorded == [write, ("load_tuning_values",), "commit", ("apply_tuning_values", LOADED)]
 
 
 @pytest.mark.parametrize(
     ("value", "failing_step"),
-    [(0.006, "set_override"), (None, "clear_override"), (0.006, "commit")],
+    [
+        (0.006, "set_override"),
+        (None, "clear_override"),
+        # 書いた後の上書きの読み出し・検算の失敗（例: 別の行が宣言の範囲の外）も、書き込みごと取り消す
+        (0.006, "load_tuning_values"),
+        (None, "load_tuning_values"),
+        (0.006, "commit"),
+    ],
 )
-async def test_a_failed_save_is_rolled_back_raised_and_not_refreshed(events, value, failing_step):
+async def test_a_failed_save_is_rolled_back_raised_and_not_applied(events, value, failing_step):
     recorded, failing = events
     session = Session(recorded, fail_on_commit=failing_step == "commit")
     failing.add(failing_step)
@@ -88,4 +103,5 @@ async def test_a_failed_save_is_rolled_back_raised_and_not_refreshed(events, val
 
     # 半分だけ書けた状態を反映すると、DBと動いている値が食い違う
     assert recorded[-1] == "rollback"
-    assert ("refresh_tuning_values",) not in recorded
+    assert "commit" not in recorded
+    assert ("apply_tuning_values", LOADED) not in recorded

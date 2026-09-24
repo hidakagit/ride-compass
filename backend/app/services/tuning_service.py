@@ -13,9 +13,10 @@
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.infrastructure.tuning_overrides import (
+    apply_tuning_values,
     clear_override,
+    load_tuning_values,
     read_overrides,
-    refresh_tuning_values,
     set_override,
 )
 
@@ -31,14 +32,18 @@ async def save_override(session: AsyncSession, param_id: str, value: float | Non
     値の検算は`infrastructure`側（宣言の範囲・数値であること）が行い、ここは**取引の
     区切りと、書いた値をプロセスへ反映するところまで**を持つ。失敗したら書き込みごと
     巻き戻す——半分だけ書けた状態で反映すると、DBと動いている値が食い違う。
+
+    反映する値は**確定の前に**作り、確定の後は差し替えだけにする（理由は
+    docs/modules/backend/routing-engine.md「較正値」）。
     """
     try:
         if value is None:
             await clear_override(session, param_id)
         else:
             await set_override(session, param_id, value)
+        values = await load_tuning_values(session)
         await session.commit()
     except Exception:
         await session.rollback()
         raise
-    await refresh_tuning_values(session)
+    apply_tuning_values(values)
