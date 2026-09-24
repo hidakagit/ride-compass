@@ -800,6 +800,109 @@ def build_turn_expanded_structure(
     )
 
 
+# 探索の優先度キュー（numpy配列のバイナリヒープ）。順位のキー・状態・積んだ時点のコスト`g`の列と、
+# `g`の列を使うか。`g`の列を使わないヒープはキーそのものを`g`として扱う。
+_Heap = tuple[np.ndarray, np.ndarray, np.ndarray, bool]
+
+
+@njit(cache=True, inline="always")
+def _empty_heap(capacity: int, carries_g: bool) -> _Heap:
+    """空のヒープを作る。`carries_g`はキーが`g`と別の値になる探索（A*のキーは`g`＋下界）だけが立てる。
+
+    容量は最低1にする——伸長は要素数を倍にするため、容量0からは伸びない。
+    """
+    capacity = max(capacity, 1)
+    return (
+        np.empty(capacity),
+        np.empty(capacity, dtype=np.int64),
+        np.empty(capacity if carries_g else 0),
+        carries_g,
+    )
+
+
+@njit(cache=True, inline="always")
+def _grown(values: np.ndarray, size: int) -> np.ndarray:
+    grown = np.empty(size * 2, dtype=values.dtype)
+    grown[:size] = values
+    return grown
+
+
+@njit(cache=True, inline="always")
+def _heap_push(heap: _Heap, size: int, key: float, state: int, g: float = math.nan) -> tuple[_Heap, int]:
+    """エントリを1つ積み、（伸ばしたかもしれない）ヒープと新しい要素数を返す。`g`は`g`の列を
+    使うヒープにだけ渡す（使わないヒープでは取り出しがキーを`g`として返す）。
+
+    **満杯なら倍へ伸ばす**。コストが時刻で変わると「各状態は一度だけ確定する」が成り立たず
+    （確定済みの状態が、後から別の時刻ビンを通る安い経路で更新されうる）、押し込み回数が
+    遷移数で頭打ちにならない。JITは配列の境界を検査しないため、上限を決め打つと超えた瞬間に
+    例外ではなく範囲外書き込みになる。
+    """
+    heap_key, heap_state, heap_g, carries_g = heap
+    if size == heap_key.shape[0]:
+        heap_key = _grown(heap_key, size)
+        heap_state = _grown(heap_state, size)
+        if carries_g:
+            heap_g = _grown(heap_g, size)
+    j = size
+    while j > 0:
+        parent = (j - 1) // 2
+        if heap_key[parent] <= key:
+            break
+        heap_key[j] = heap_key[parent]
+        heap_state[j] = heap_state[parent]
+        if carries_g:
+            heap_g[j] = heap_g[parent]
+        j = parent
+    heap_key[j] = key
+    heap_state[j] = state
+    if carries_g:
+        heap_g[j] = g
+    return (heap_key, heap_state, heap_g, carries_g), size + 1
+
+
+@njit(cache=True, inline="always")
+def _heap_pop(heap: _Heap, size: int) -> tuple[float, int, int]:
+    """キー最小のエントリを取り出し、その`g`・状態と新しい要素数を返す。空で呼ばない。"""
+    heap_key, heap_state, heap_g, carries_g = heap
+    g = heap_g[0] if carries_g else heap_key[0]
+    state = heap_state[0]
+    size -= 1
+    key = heap_key[size]
+    last_state = heap_state[size]
+    last_g = heap_g[size] if carries_g else key
+    j = 0
+    while True:
+        child = 2 * j + 1
+        if child >= size:
+            break
+        right = child + 1
+        if right < size and heap_key[right] < heap_key[child]:
+            child = right
+        if not heap_key[child] < key:
+            break
+        heap_key[j] = heap_key[child]
+        heap_state[j] = heap_state[child]
+        if carries_g:
+            heap_g[j] = heap_g[child]
+        j = child
+    heap_key[j] = key
+    heap_state[j] = last_state
+    if carries_g:
+        heap_g[j] = last_g
+    return g, state, size
+
+
+@njit(cache=True, inline="always")
+def _time_bin(travelled: float, bin_seconds: float, bin_count: int) -> int:
+    """出発からの経過時間`travelled`（秒）が落ちる時刻ビン。範囲外は端のビンへ寄せる。"""
+    time_bin = int(travelled / bin_seconds)
+    if time_bin >= bin_count:
+        return bin_count - 1
+    if time_bin < 0:
+        return 0
+    return time_bin
+
+
 @njit(cache=True)
 def _turn_expanded_dijkstra(
     indptr: np.ndarray,
@@ -821,11 +924,6 @@ def _turn_expanded_dijkstra(
 
     `edge_cost`・`edge_seconds`は`(時刻ビン, 状態)`。`_turn_expanded_astar`と同じ1ラベル法で、
     状態ごとにコスト最小の1本だけを保つ。
-
-    **優先度キューは満杯になったら倍へ伸ばす**。コストが時刻で変わると「各状態は一度だけ
-    確定する」が成り立たず（確定済みの状態が、後から別の時刻ビンを通る安い経路で更新され
-    うる）、押し込み回数が遷移数で頭打ちにならない。JITは配列の境界を検査しないため、
-    上限を決め打つと超えた瞬間に例外ではなく範囲外書き込みになる。
     """
     state_count = edge_length_m.shape[0]
     bin_count = edge_cost.shape[0]
@@ -833,8 +931,7 @@ def _turn_expanded_dijkstra(
     arrival = np.full(state_count, np.inf)
     length = np.full(state_count, np.nan)
     predecessor = np.full(state_count, -1, dtype=np.int64)
-    heap_key = np.empty(capacity)
-    heap_state = np.empty(capacity, dtype=np.int64)
+    heap = _empty_heap(capacity, False)
     size = 0
 
     for i in range(entry_states.shape[0]):
@@ -845,55 +942,14 @@ def _turn_expanded_dijkstra(
         best[state] = g
         arrival[state] = edge_seconds[0, state]
         length[state] = edge_length_m[state]
-        j = size
-        heap_key[j] = g
-        heap_state[j] = state
-        while j > 0:
-            parent = (j - 1) // 2
-            if heap_key[parent] <= heap_key[j]:
-                break
-            tk = heap_key[parent]
-            heap_key[parent] = heap_key[j]
-            heap_key[j] = tk
-            ts = heap_state[parent]
-            heap_state[parent] = heap_state[j]
-            heap_state[j] = ts
-            j = parent
-        size += 1
+        heap, size = _heap_push(heap, size, g, state)
 
     while size > 0:
-        g = heap_key[0]
-        state = heap_state[0]
-        size -= 1
-        heap_key[0] = heap_key[size]
-        heap_state[0] = heap_state[size]
-        j = 0
-        while True:
-            left = 2 * j + 1
-            right = left + 1
-            smallest = j
-            if left < size and heap_key[left] < heap_key[smallest]:
-                smallest = left
-            if right < size and heap_key[right] < heap_key[smallest]:
-                smallest = right
-            if smallest == j:
-                break
-            tk = heap_key[smallest]
-            heap_key[smallest] = heap_key[j]
-            heap_key[j] = tk
-            ts = heap_state[smallest]
-            heap_state[smallest] = heap_state[j]
-            heap_state[j] = ts
-            j = smallest
-
+        g, state, size = _heap_pop(heap, size)
         if g > best[state]:
             continue
         travelled = arrival[state]
-        time_bin = int(travelled / bin_seconds)
-        if time_bin >= bin_count:
-            time_bin = bin_count - 1
-        elif time_bin < 0:
-            time_bin = 0
+        time_bin = _time_bin(travelled, bin_seconds, bin_count)
         for entry in range(indptr[state], indptr[state + 1]):
             nxt = target_state[entry]
             cost = edge_cost[time_bin, nxt]
@@ -907,28 +963,7 @@ def _turn_expanded_dijkstra(
             arrival[nxt] = travelled + edge_seconds[time_bin, nxt] + wait
             length[nxt] = length[state] + edge_length_m[nxt]
             predecessor[nxt] = state
-            if size == heap_key.shape[0]:
-                grown_key = np.empty(size * 2, dtype=heap_key.dtype)
-                grown_state = np.empty(size * 2, dtype=heap_state.dtype)
-                grown_key[:size] = heap_key
-                grown_state[:size] = heap_state
-                heap_key = grown_key
-                heap_state = grown_state
-            j = size
-            heap_key[j] = next_g
-            heap_state[j] = nxt
-            while j > 0:
-                parent = (j - 1) // 2
-                if heap_key[parent] <= heap_key[j]:
-                    break
-                tk = heap_key[parent]
-                heap_key[parent] = heap_key[j]
-                heap_key[j] = tk
-                ts = heap_state[parent]
-                heap_state[parent] = heap_state[j]
-                heap_state[j] = ts
-                j = parent
-            size += 1
+            heap, size = _heap_push(heap, size, next_g, nxt)
     return best, predecessor, length, arrival
 
 
@@ -1196,11 +1231,9 @@ def _turn_expanded_astar(
 ) -> tuple[np.ndarray, int]:
     """状態＝有向区間・辺＝ターンのA*（JITコンパイル）。
 
-    優先度キューはnumpy配列のバイナリヒープとして持ち、満杯になったら倍へ伸ばす
-    （`_turn_expanded_dijkstra`と同じ理由——時刻で変わるコストでは押し込み回数が遷移数で
-    頭打ちにならず、JITは配列の境界を検査しない）。ヒープには`f = g + 目的地までの所要時間の
-    下界`と`g`の両方を積み、取り出したときに`g`が`best`より大きければ古いエントリとして
-    捨てる。戻り値は前任者の配列と、目的地へ入った状態（到達不能なら-1）。
+    ヒープには`f = g + 目的地までの所要時間の下界`をキーとして、積んだ時点の`g`と一緒に
+    積み、取り出したときに`g`が`best`より大きければ古いエントリとして捨てる。戻り値は
+    前任者の配列と、目的地へ入った状態（到達不能なら-1）。
 
     `edge_cost`・`edge_seconds`は`(時刻ビン, 状態)`の2次元で、出発からの経過時間を
     `bin_seconds`で割ったビンの行を引く。時刻に依存しない探索はビン1本で呼ぶ。
@@ -1212,9 +1245,7 @@ def _turn_expanded_astar(
     best = np.full(state_count, np.inf)
     arrival = np.full(state_count, np.inf)
     predecessor = np.full(state_count, -1, dtype=np.int64)
-    heap_f = np.empty(capacity)
-    heap_g = np.empty(capacity)
-    heap_state = np.empty(capacity, dtype=np.int64)
+    heap = _empty_heap(capacity, True)
     size = 0
 
     for i in range(origin_states.shape[0]):
@@ -1225,67 +1256,18 @@ def _turn_expanded_astar(
         best[state] = g
         arrival[state] = edge_seconds[0, state]
         f = g + node_heuristic[edge_to[state]]
-        j = size
-        heap_f[j] = f
-        heap_g[j] = g
-        heap_state[j] = state
-        while j > 0:
-            parent = (j - 1) // 2
-            if heap_f[parent] <= heap_f[j]:
-                break
-            tf = heap_f[parent]
-            heap_f[parent] = heap_f[j]
-            heap_f[j] = tf
-            tg = heap_g[parent]
-            heap_g[parent] = heap_g[j]
-            heap_g[j] = tg
-            ts = heap_state[parent]
-            heap_state[parent] = heap_state[j]
-            heap_state[j] = ts
-            j = parent
-        size += 1
+        heap, size = _heap_push(heap, size, f, state, g)
 
     goal_state = -1
     while size > 0:
-        g = heap_g[0]
-        state = heap_state[0]
-        size -= 1
-        heap_f[0] = heap_f[size]
-        heap_g[0] = heap_g[size]
-        heap_state[0] = heap_state[size]
-        j = 0
-        while True:
-            left = 2 * j + 1
-            right = left + 1
-            smallest = j
-            if left < size and heap_f[left] < heap_f[smallest]:
-                smallest = left
-            if right < size and heap_f[right] < heap_f[smallest]:
-                smallest = right
-            if smallest == j:
-                break
-            tf = heap_f[smallest]
-            heap_f[smallest] = heap_f[j]
-            heap_f[j] = tf
-            tg = heap_g[smallest]
-            heap_g[smallest] = heap_g[j]
-            heap_g[j] = tg
-            ts = heap_state[smallest]
-            heap_state[smallest] = heap_state[j]
-            heap_state[j] = ts
-            j = smallest
-
+        g, state, size = _heap_pop(heap, size)
         if g > best[state]:
             continue
         if edge_to[state] == goal_node:
             goal_state = state
             break
         travelled = arrival[state]
-        time_bin = int(travelled / bin_seconds)
-        if time_bin >= bin_count:
-            time_bin = bin_count - 1
-        elif time_bin < 0:
-            time_bin = 0
+        time_bin = _time_bin(travelled, bin_seconds, bin_count)
         for entry in range(indptr[state], indptr[state + 1]):
             nxt = target_state[entry]
             cost = edge_cost[time_bin, nxt]
@@ -1299,35 +1281,7 @@ def _turn_expanded_astar(
             arrival[nxt] = travelled + edge_seconds[time_bin, nxt] + wait
             predecessor[nxt] = state
             next_f = next_g + node_heuristic[edge_to[nxt]]
-            if size == heap_f.shape[0]:
-                grown_f = np.empty(size * 2, dtype=heap_f.dtype)
-                grown_g = np.empty(size * 2, dtype=heap_g.dtype)
-                grown_state = np.empty(size * 2, dtype=heap_state.dtype)
-                grown_f[:size] = heap_f
-                grown_g[:size] = heap_g
-                grown_state[:size] = heap_state
-                heap_f = grown_f
-                heap_g = grown_g
-                heap_state = grown_state
-            j = size
-            heap_f[j] = next_f
-            heap_g[j] = next_g
-            heap_state[j] = nxt
-            while j > 0:
-                parent = (j - 1) // 2
-                if heap_f[parent] <= heap_f[j]:
-                    break
-                tf = heap_f[parent]
-                heap_f[parent] = heap_f[j]
-                heap_f[j] = tf
-                tg = heap_g[parent]
-                heap_g[parent] = heap_g[j]
-                heap_g[j] = tg
-                ts = heap_state[parent]
-                heap_state[parent] = heap_state[j]
-                heap_state[j] = ts
-                j = parent
-            size += 1
+            heap, size = _heap_push(heap, size, next_f, nxt, next_g)
     return predecessor, goal_state
 
 
