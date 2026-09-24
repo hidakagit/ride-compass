@@ -168,9 +168,9 @@ listAxisDefinitions() ──→ definitions（全軸）
 判定はいまの下書きが最後に導出したものと同じ実体かで行う（触った後に入れ替えると入力が消える）。
 
 `SECTIONS`は「どの節の検証か」を指す識別子で、順番の意味を持たない。保存時に
-`validateSection`が各節の検証（`basic`は表示名必須、`shape_params`は折れ点のx昇順・
-categorical材料のスコア行1件以上、`display_publish`はchip_labelの4文字制限・
-display_thresholds_overrideの昇順）をまとめて行い、最初に見つかった原因を文章で出す。
+`validateSection`が入力の読み取りの誤り（しきい値が数値として読めない）だけを確かめ、原因を文章で出す。
+軸の不変条件（表示名必須・折れ点のx昇順・値の行の件数・chip_labelの文字数・しきい値の件数と昇順等）は写さない——
+backendが保存時に検証し、日本語の文で返す誤りをそのままフォームへ出す。
 
 **`noValidate`を付ける。** 検証は`validateSection`が行い原因を文章で示す。ブラウザの制約
 検証（`step`・`min`/`max`）へ任せると、小数の刻みが浮動小数の誤差で不一致と判定された
@@ -491,8 +491,8 @@ materialId ? state.values : []`）でリセットする——Reactの「propが�
 ## backend側との対応
 
 frontendのこの画面は、backendの[軸スタジオ・評価軸定義（backend）](../backend/axis-studio.md)が
-定義する`AxisDefinitionPayload`のバリデーション規則（chip_label 4文字制限・
-display_thresholds_override昇順・shape.breakpoints x昇順・材料/軸参照の既知性）の一部を
-`AxisComposer.tsx: validateSection`でも先回りしてチェックする（保存時のエラーで初めて気づく
-手戻りを避けるため）。ただし最終防衛はbackend側であり、frontendの検証はUX上の先回りに
-すぎない。
+定義する`AxisDefinitionPayload`のバリデーション規則（chip_labelの文字数・display_thresholds_overrideの
+昇順・shape.breakpointsのx昇順・材料/軸参照の既知性等）を写さない。backendは検証の文を利用者が読める
+日本語で返し（`axis_definitions.py: axis_error`。`ValueError`だと「Value error, 」の前置きが付く）、
+画面は保存の誤りとしてそのまま出す。写すと、backendの条件を変えたとき画面だけが古い条件で止める。
+入力欄の上限（略称の文字数）は契約から生成物`axis-payload-config.json`で受け取る。

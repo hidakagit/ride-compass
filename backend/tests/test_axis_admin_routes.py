@@ -310,27 +310,27 @@ class TestPayloadValidation:
     @pytest.mark.parametrize(
         ("fields", "reason"),
         [
-            ({"label": "とても長い名前"}, "longer than 4 characters"),
-            ({"shape": linear_shape("dyn_a", "num_a")}, "cannot mix"),
+            ({"label": "とても長い名前"}, "文字を超えています"),
+            ({"shape": linear_shape("dyn_a", "num_a")}, "組み合わせることはできません"),
             (
                 {
                     "shape": linear_shape("dyn_a"),
                     "priority_overrides": [{"material": "bool_a", "equals": "true", "value": 0}],
                 },
-                "cannot mix",
+                "組み合わせることはできません",
             ),
             (
                 {"dedicated_way_value_layer": True, "shape": linear_shape("num_a", "num_b")},
-                "dedicated_way_value_layer requires",
+                "専用配信の軸は",
             ),
-            ({"shape": linear_shape("ghost")}, "in shape: ['ghost']"),
-            ({"shape": linear_shape("cat_a")}, "wrong dtype"),
-            ({"shape": {"kind": "categorical", "material": "num_a", "mapping": {"x": 1}}}, "wrong dtype"),
-            ({"shape": {"kind": "categorical", "material": "bool_a", "mapping": {"x": 1}}}, "mapping keys"),
-            ({"shape": {"kind": "categorical", "material": "cat_a", "mapping": {"true": 1}}}, "mapping keys"),
+            ({"shape": linear_shape("ghost")}, "無い材料・軸を指しています: ['ghost']"),
+            ({"shape": linear_shape("cat_a")}, "この計算の形には使えません"),
+            ({"shape": {"kind": "categorical", "material": "num_a", "mapping": {"x": 1}}}, "この計算の形には使えません"),
+            ({"shape": {"kind": "categorical", "material": "bool_a", "mapping": {"x": 1}}}, "値の型が合いません"),
+            ({"shape": {"kind": "categorical", "material": "cat_a", "mapping": {"true": 1}}}, "値の型が合いません"),
             (
                 {"priority_overrides": [{"material": "ghost", "equals": "1", "value": 0}]},
-                "in priority_overrides: ['ghost']",
+                "優先条件が材料カタログに無い材料・軸を指しています: ['ghost']",
             ),
         ],
         ids=[

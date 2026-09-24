@@ -337,12 +337,6 @@ describe("parseThresholdList", () => {
     expect(result.values).toEqual([]);
     expect(result.error).toContain("abc");
   });
-
-  it.each([["3, 2"], ["1, 1"]])("小さい順でない・同じ値があれば（%j）、並べ方の誤りとして値を返さない", (text) => {
-    const result = parseThresholdList(text);
-    expect(result.values).toEqual([]);
-    expect(result.error).toMatch(/小さい順/);
-  });
 });
 
 describe("formatThresholdList", () => {

@@ -33,7 +33,18 @@ from typing import Annotated, Literal, Mapping, Sequence, cast
 
 import numpy as np
 from cachetools import LRUCache
-from pydantic import BeforeValidator, ConfigDict, Field, StrictBool, StrictStr, field_validator, model_validator
+from pydantic import (
+    BeforeValidator,
+    ConfigDict,
+    Discriminator,
+    Field,
+    StrictBool,
+    StrictStr,
+    Tag,
+    field_validator,
+    model_validator,
+)
+from pydantic_core import PydanticCustomError
 
 from app.domain.axis_templates import (
     evaluate_breakpoint_linear,
@@ -93,7 +104,7 @@ class BreakpointLinearShape(StrictModel):
         """
         xs = [x for x, _ in value]
         if any(b <= a for a, b in zip(xs, xs[1:])):
-            raise ValueError(f"breakpoints must be strictly ascending by x, got {value!r}")
+            raise axis_error(f"折れ点は横軸の値が小さい順に並べてください（同じ値は使えません）: {xs}")
         return value
 
 
@@ -126,8 +137,30 @@ class CategoricalShape(StrictModel):
         min_length=1
     )
 
+    @field_validator("mapping", mode="before")
+    @classmethod
+    def _mapping_must_not_be_empty(cls, value: object) -> object:
+        if value == {}:
+            raise axis_error("値ごとのスコアを少なくとも1件設定してください。")
+        return value
 
-AxisShape = BreakpointLinearShape | CategoricalShape
+
+def _shape_kind(value: object) -> str:
+    """計算の形の種類。`kind`で見分け、該当する形の誤りだけを返す（見分けないと、ほかの形でも試した結果の
+    誤りまで並び、保存の誤りが読めなくなる）。`kind`を持たない値は中身で決める——値の行（`mapping`）を持てば
+    種類の形。"""
+    if isinstance(value, dict):
+        kind = value.get("kind")
+        if isinstance(kind, str):
+            return kind
+        return "categorical" if "mapping" in value else "breakpoint_linear"
+    return str(getattr(value, "kind", "breakpoint_linear"))
+
+
+AxisShape = Annotated[
+    Annotated[BreakpointLinearShape, Tag("breakpoint_linear")] | Annotated[CategoricalShape, Tag("categorical")],
+    Discriminator(_shape_kind),
+]
 
 
 AxisCategory = Literal["観測", "推定", "動的"]
@@ -176,6 +209,12 @@ def referenced_materials(shape: "AxisShape", priority_overrides: "Sequence[Prior
     for m in [*shape_materials, *override_materials]:
         seen.setdefault(m, None)
     return list(seen)
+
+
+def axis_error(message: str) -> PydanticCustomError:
+    """軸の検証の誤り。文は管理画面の保存の誤りにそのまま出るので、利用者が読める日本語で書く
+    （`ValueError`は「Value error, 」の前置きが付いて返る）。"""
+    return PydanticCustomError("axis_definition", message)
 
 
 #: 地図チップに出す名前の上限（文字数）。地図チップは固定サイズのタイルで、これを超えるとはみ出す。
@@ -315,13 +354,27 @@ class AxisDefinition(StrictModel):
     def _thresholds_must_be_strictly_ascending(cls, value: list[float] | None) -> list[float] | None:
         return None if value is None else cls.check_display_thresholds_ascending(value)
 
+    @field_validator("label", mode="before")
+    @classmethod
+    def _label_must_not_be_empty(cls, value: object) -> object:
+        if value == "":
+            raise axis_error("表示名を入力してください。")
+        return value
+
+    @field_validator("display_thresholds_override", mode="before")
+    @classmethod
+    def _thresholds_override_must_not_be_empty(cls, value: object) -> object:
+        if value == []:
+            raise axis_error("色分けのしきい値を1件以上入力するか、上書きをオフにしてください。")
+        return value
+
     @staticmethod
     def check_display_thresholds_ascending(value: list[float]) -> list[float]:
         """段の境界を塗るのはMapLibreの`step` expression（`axisLayers.ts`）で、昇順を
         前提にする。降順・同値が混じると、地図とルート線が別の段で塗られる。
         """
         if any(b <= a for a, b in zip(value, value[1:])):
-            raise ValueError(f"display_thresholds_override must be strictly ascending, got {value!r}")
+            raise axis_error(f"色分けのしきい値は小さい順に並べてください（同じ値は使えません）: {value}")
         return value
 
     @model_validator(mode="after")
@@ -332,16 +385,12 @@ class AxisDefinition(StrictModel):
         if self.display_band_labels_override is None:
             return self
         if self.display_thresholds_override is None:
-            raise ValueError(
-                "display_band_labels_override requires display_thresholds_override to be set "
-                "(band count must be known and fixed)"
-            )
+            raise axis_error("段のラベルを上書きするときは、色分けのしきい値も上書きしてください（段の数が決まらないため）。")
         expected = len(self.display_thresholds_override) + 1
         if len(self.display_band_labels_override) != expected:
-            raise ValueError(
-                f"display_band_labels_override must have {expected} entries "
-                f"(display_thresholds_override has {len(self.display_thresholds_override)} thresholds), "
-                f"got {len(self.display_band_labels_override)}"
+            raise axis_error(
+                f"段のラベルは{expected}件にしてください（しきい値{len(self.display_thresholds_override)}件で"
+                f"段は{expected}つ。いまは{len(self.display_band_labels_override)}件）。"
             )
         return self
 

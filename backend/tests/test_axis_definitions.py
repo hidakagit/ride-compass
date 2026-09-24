@@ -97,7 +97,7 @@ def axes(monkeypatch):
 class TestDeclarationInvariants:
     @pytest.mark.parametrize("xs", [(0.0, 0.0), (5.0, 1.0)], ids=["同じx", "降順"])
     def test_breakpoints_must_rise_strictly_in_x(self, xs):
-        with pytest.raises(ValidationError, match="strictly ascending"):
+        with pytest.raises(ValidationError, match="小さい順に並べてください"):
             BreakpointLinearShape(terms=[term("num_a")], breakpoints=[(xs[0], 0.0), (xs[1], 100.0)])
 
     def test_a_single_breakpoint_is_a_valid_curve(self):
@@ -105,16 +105,16 @@ class TestDeclarationInvariants:
 
     @pytest.mark.parametrize("thresholds", [[1.0, 1.0], [2.0, 1.0]], ids=["同値", "降順"])
     def test_display_thresholds_must_rise_strictly(self, thresholds):
-        with pytest.raises(ValidationError, match="strictly ascending"):
+        with pytest.raises(ValidationError, match="小さい順に並べてください"):
             linear_axis("a", "num_a", display_thresholds_override=thresholds)
 
     def test_band_labels_need_fixed_thresholds(self):
-        with pytest.raises(ValidationError, match="requires display_thresholds_override"):
+        with pytest.raises(ValidationError, match="色分けのしきい値も上書きしてください"):
             linear_axis("a", "num_a", display_band_labels_override=["低", "高"])
 
     @pytest.mark.parametrize("labels", [["低"], ["低", "中", "高"]])
     def test_band_labels_must_be_one_per_band(self, labels):
-        with pytest.raises(ValidationError, match="must have 2 entries"):
+        with pytest.raises(ValidationError, match="段のラベルは2件にしてください"):
             linear_axis("a", "num_a", display_thresholds_override=[5.0], display_band_labels_override=labels)
 
     def test_band_labels_one_per_band_are_accepted(self):

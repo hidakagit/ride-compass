@@ -308,8 +308,7 @@ export function buildShape(draft: Draft, materialOptions: readonly AxisMaterialO
  * 読点のいずれでもよい——利用者は他所からコピーした並びをそのまま貼るため、区切りの
  * 種類を当てさせない。
  *
- * 昇順・重複の検査はbackendの保存時検証（`axis_definitions.py:
- * AxisDefinition._thresholds_must_be_strictly_ascending`）と同じ条件で、入力した場で返す。
+ * 昇順・重複はbackendが保存時に検証する（写さない）。
  * 空文字は「1件も無い」（`values: []`）として返し、エラーにはしない——入力欄を空にする
  * 途中の状態を打ち消さないため、その判断は呼び出し側が行う。 */
 export function parseThresholdList(text: string): { values: number[]; error: string | null } {
@@ -324,11 +323,6 @@ export function parseThresholdList(text: string): { values: number[]; error: str
       return { values: [], error: `数値として読めない値があります: ${token}` };
     }
     values.push(value);
-  }
-  for (let i = 1; i < values.length; i++) {
-    if (values[i] <= values[i - 1]) {
-      return { values: [], error: "しきい値は小さい順に並べてください（同じ値は使えません）。" };
-    }
   }
   return { values, error: null };
 }

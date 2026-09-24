@@ -22,6 +22,7 @@ from app.api.dependencies import get_axis_registry_admin_service, served_dedicat
 from app.domain.axis_definitions import (
     AXIS_DEFINITIONS,
     MAP_CHIP_LABEL_MAX_LENGTH,
+    axis_error,
     REQUEST_DYNAMIC_MATERIAL_IDS,
     AxisDefinition,
     AxisShape,
@@ -81,9 +82,9 @@ class AxisDefinitionPayload(AxisDefinition):
         ので、新しく軸を作る側へ短い名前を要求するこの入口に置く。
         """
         if self.chip_label is None and len(self.label) > MAP_CHIP_LABEL_MAX_LENGTH:
-            raise ValueError(
-                f"label is longer than {MAP_CHIP_LABEL_MAX_LENGTH} characters ({len(self.label)}: {self.label!r}); "
-                f"set chip_label explicitly ({MAP_CHIP_LABEL_MAX_LENGTH} characters or fewer) for the map chip"
+            raise axis_error(
+                f"表示名が{MAP_CHIP_LABEL_MAX_LENGTH}文字を超えています（{len(self.label)}文字）。"
+                f"地図チップの略称（{MAP_CHIP_LABEL_MAX_LENGTH}文字以内）を設定してください。"
             )
         return self
 
@@ -108,10 +109,9 @@ class AxisDefinitionPayload(AxisDefinition):
         # 軸参照（他の軸のaxis_id）は静的材料ではないため除く。
         static = {m for m in materials if is_known_material(m)} - REQUEST_DYNAMIC_MATERIAL_IDS
         if dynamic and static:
-            raise ValueError(
-                f"axis cannot mix request-time dynamic material(s) {sorted(dynamic)} with "
-                f"static material(s) {sorted(static)} in shape/priority_overrides "
-                "(the dynamic evaluation path receives only dynamic materials and published axis scores)"
+            raise axis_error(
+                f"時刻で変わる材料{sorted(dynamic)}と、変わらない材料{sorted(static)}を1つの軸で組み合わせることは"
+                "できません（時刻で変わる評価には、時刻で変わる材料と公開軸の点数しか届かないため）。"
             )
         return self
 
@@ -129,9 +129,9 @@ class AxisDefinitionPayload(AxisDefinition):
             return self
         materials = referenced_materials(self.shape, self.priority_overrides)
         if served_dedicated_way_value_material(materials) is None:
-            raise ValueError(
-                "dedicated_way_value_layer requires the axis to reference exactly one material with a "
-                f"registered delivery implementation (axis '{self.axis_id}' references {materials})"
+            raise axis_error(
+                "専用配信の軸は、配信の実装がある材料をちょうど1つだけ指す必要があります"
+                f"（この軸が指す材料: {materials}）。"
             )
         return self
 
@@ -171,14 +171,13 @@ class AxisDefinitionPayload(AxisDefinition):
             expected_dtypes = {"boolean", "categorical"}
         unknown = sorted({m for m in materials if not is_known_material(m) and m not in AXIS_DEFINITIONS})
         if unknown:
-            raise ValueError(f"unknown material(s)/axis reference(s) in shape: {unknown}")
+            raise axis_error(f"材料カタログに無い材料・軸を指しています: {unknown}")
         mismatched = sorted(
             {m for m in materials if is_known_material(m) and material_dtype(m) not in expected_dtypes}
         )
         if mismatched:
-            raise ValueError(
-                f"material(s) {mismatched} have the wrong dtype for this shape "
-                f"(expected one of {sorted(expected_dtypes)})"
+            raise axis_error(
+                f"材料{mismatched}はこの計算の形には使えません（使える材料の型: {sorted(expected_dtypes)}）。"
             )
         # 上のdtypeチェックはmaterialのdtype「クラス」（boolean/categoricalのどちらか）
         # しか見ないため、CategoricalShape.mappingの実際のキー型（bool値かstr値か）が
@@ -193,9 +192,9 @@ class AxisDefinitionPayload(AxisDefinition):
             key_types = {type(key) for key in self.shape.mapping}
             expected_key_type = bool if dtype == "boolean" else str
             if key_types and key_types != {expected_key_type}:
-                raise ValueError(
-                    f"material '{self.shape.material}' has dtype={dtype!r} but mapping keys are "
-                    f"{sorted(t.__name__ for t in key_types)} (expected all {expected_key_type.__name__})"
+                raise axis_error(
+                    f"材料「{self.shape.material}」（型 {dtype}）の値の行の値の型が合いません"
+                    f"（{sorted(t.__name__ for t in key_types)}。すべて{expected_key_type.__name__}にしてください）。"
                 )
         # priority_overrides[*].materialは上の検証（shapeが参照する材料のみ対象）の
         # 対象外のため、未知の材料id・軸id（typo等）を指定すると評価時に
@@ -212,9 +211,7 @@ class AxisDefinitionPayload(AxisDefinition):
             }
         )
         if unknown_override_materials:
-            raise ValueError(
-                f"unknown material(s)/axis reference(s) in priority_overrides: {unknown_override_materials}"
-            )
+            raise axis_error(f"優先条件が材料カタログに無い材料・軸を指しています: {unknown_override_materials}")
         return self
 
     def to_definition(self) -> AxisDefinition:

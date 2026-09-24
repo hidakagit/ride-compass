@@ -164,44 +164,12 @@ export default function AxisComposer({
   // 再マウントする方式に委ねる（このコンポーネント内でeditingの変化を検知しない）。
 
   // 保存前の検証。backend側の検証を先回りし、どの入力欄が原因かを文章で示す。
+  // 軸の不変条件（表示名・折れ点の昇順・値の行の件数・略称・しきい値の件数と昇順等）はbackendが検証し、保存の
+  // 誤りとして日本語の文を返す（`axis_definitions.py: axis_error`）。ここで写さない——写すと、backendの条件を
+  // 変えたとき画面だけが古い条件で止める。ここに残すのは、入力の読み取りの誤りだけ。
   function validateSection(target: Section): string | null {
-    if (target === "basic") {
-      if (draft.label.trim() === "") return "表示名を入力してください。";
-    }
-    if (target === "shape_params" && draft.shapeKind === "breakpoint_linear") {
-      // display_thresholds_override
-      // （色分け表示用）と同じ昇順チェックを、評価に使うdraft.breakpoints
-      // （backend: shape.breakpoints）にも先回りして適用する。backend側の対応する
-      // 検証（axis_admin.py: _check_materials_are_known内）は保存時の最終防衛のため、
-      // ここでは保存する前にユーザーへ知らせる。
-      const xs = draft.breakpoints.map((bp) => bp[0]);
-      if (xs.some((x, i) => i > 0 && x <= xs[i - 1])) {
-        return "折れ点は横軸（左の入力欄）の値が小さい順になるようにしてください（同じ値は使えません）。";
-      }
-    }
-    if (target === "shape_params" && draft.shapeKind === "categorical") {
-      // categorical材料選択時、値の行が1つも入力されていないと
-      // mapping={}のまま保存されてしまい（全区間で評価不能=欠損になるだけで保存自体は
-      // 通ってしまう）、設定し忘れに気づきにくいため事前に弾く。
-      const dtype = materialOptions.find((m) => m.id === draft.categoricalMaterial)?.dtype;
-      if (dtype === "categorical" && draft.categoricalRows.every((r) => r.value.trim() === "")) {
-        return "値ごとのスコアを少なくとも1件設定してください。";
-      }
-    }
-    if (target === "display_publish") {
-      // backend側の検証（axis_admin.py: _the_map_chip_needs_a_short_name）と同じ条件を
-      // ここでも先回りしてチェックし、保存時まで待たせない。
-      if (draft.chipLabel.trim() === "" && draft.label.trim().length > 4) {
-        return "表示名が4文字を超えています。チップの略称を設定してください。";
-      }
-      // backend側の検証（axis_definitions.py:
-      // AxisDefinition._thresholds_must_be_strictly_ascending）と同じ条件を先回りしてチェックする。
-      if (draft.displayThresholdsOverride !== null) {
-        if (thresholdError) return thresholdError;
-        if (draft.displayThresholdsOverride.length === 0) {
-          return "色分けのしきい値を1件以上入力するか、上書きをオフにしてください。";
-        }
-      }
+    if (target === "display_publish" && draft.displayThresholdsOverride !== null && thresholdError) {
+      return thresholdError;
     }
     return null;
   }

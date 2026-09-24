@@ -254,74 +254,6 @@ describe("保存するpayload", () => {
 });
 
 describe("保存前の検証", () => {
-  async function submitAndReadError(editing: AxisDefinitionResponse) {
-    const { user, onSave } = renderComposer({ editing });
-    await user.click(submitButton());
-    return { onSave, user };
-  }
-
-  it.each([
-    ["表示名が空", axis({ label: "  " }), /表示名を入力してください/],
-    [
-      "折れ線の折れ点の横軸が小さい順でない",
-      axis({
-        shape: {
-          kind: "breakpoint_linear",
-          terms: [{ material: NUM.id, weight: 1, required: true }],
-          preprocess: "identity",
-          breakpoints: [
-            [5, 0],
-            [5, 100],
-          ],
-        },
-      }),
-      /折れ点は横軸/,
-    ],
-    [
-      "種類の材料の値ごとの点数が1件も無い",
-      axis({ shape: { kind: "categorical", material: CAT.id, mapping: {} } }),
-      /値ごとのスコアを少なくとも1件/,
-    ],
-    ["表示名が4文字を超えるのに略称が無い", axis({ label: "五文字の名", chip_label: null }), /チップの略称を設定/],
-    ["しきい値を上書きしているのに1件も無い", axis({ display_thresholds_override: [] }), /しきい値を1件以上/],
-  ])("%sなら、理由を出して送らない", async (_case, editing, message) => {
-    const { onSave } = await submitAndReadError(editing);
-    expect(await screen.findByText(message)).toBeInTheDocument();
-    expect(onSave).not.toHaveBeenCalled();
-  });
-
-  it.each([
-    [
-      "ほかの軸を組み合わせる形（折れ点を入力させない）",
-      axis({
-        shape: {
-          kind: "breakpoint_linear",
-          terms: [{ material: "axis_other", weight: 1, required: true }],
-          preprocess: "identity",
-          breakpoints: [
-            [5, 0],
-            [5, 100],
-          ],
-        },
-      }),
-    ],
-    ["真偽の材料（値ごとの行を持たない）", axis({ shape: { kind: "categorical", material: BOOL.id, mapping: {} } })],
-    ["表示名が4文字を超えても略称がある", axis({ label: "五文字の名", chip_label: "略" })],
-  ])("%sは、その検証に掛けずに送る", async (_case, editing) => {
-    const { onSave } = await submitAndReadError(editing);
-    await waitFor(() => expect(onSave).toHaveBeenCalled());
-  });
-
-  it("種類の材料の値の行が空欄だけなら止める", async () => {
-    const { user, onSave } = renderComposer({
-      editing: axis({ shape: { kind: "categorical", material: CAT.id, mapping: {} } }),
-    });
-    await user.click(screen.getByRole("button", { name: "値の行を空欄で足す" }));
-    await user.click(submitButton());
-    expect(await screen.findByText(/値ごとのスコアを少なくとも1件/)).toBeInTheDocument();
-    expect(onSave).not.toHaveBeenCalled();
-  });
-
   it("地図表示の節が、しきい値の入力を読めないと伝えている間は、その理由で止め、読めたら送る", async () => {
     const { user, onSave } = renderComposer({ editing: axis({ display_thresholds_override: [1] }) });
     await user.click(screen.getByRole("button", { name: "しきい値の誤りを伝える" }));
@@ -334,12 +266,6 @@ describe("保存前の検証", () => {
     await waitFor(() => expect(onSave).toHaveBeenCalled());
     expect(screen.queryByText("しきい値を読めません")).not.toBeInTheDocument();
   });
-
-  it("誤りが複数あれば、基本の項目（表示名）の理由を先に出す", async () => {
-    await submitAndReadError(axis({ label: "", display_thresholds_override: [] }));
-    expect(await screen.findByText(/表示名を入力してください/)).toBeInTheDocument();
-    expect(screen.queryByText(/しきい値を1件以上/)).not.toBeInTheDocument();
-  });
 });
 
 describe("公開済みの軸（表示だけ編集）", () => {
@@ -351,7 +277,7 @@ describe("公開済みの軸（表示だけ編集）", () => {
     expect(sections.display!.restrictedDisplayOnly).toBe(true);
   });
 
-  it("描いていない節は検証せず（表示名が空でも送る）、表示の節の検証だけを掛ける", async () => {
+  it("描いていない節は検証せず、表示の節の入力の読み取りの誤りだけで止める", async () => {
     const first = await (async () => {
       const { user, onSave, unmount } = renderComposer({ editing: axis({ is_published: true, label: "" }) });
       await user.click(submitButton());
@@ -360,9 +286,12 @@ describe("公開済みの軸（表示だけ編集）", () => {
     })();
     first();
 
-    const { user, onSave } = renderComposer({ editing: axis({ is_published: true, display_thresholds_override: [] }) });
+    const { user, onSave } = renderComposer({
+      editing: axis({ is_published: true, display_thresholds_override: [1] }),
+    });
+    await user.click(screen.getByRole("button", { name: "しきい値の誤りを伝える" }));
     await user.click(submitButton());
-    expect(await screen.findByText(/しきい値を1件以上/)).toBeInTheDocument();
+    expect(await screen.findByText("しきい値を読めません")).toBeInTheDocument();
     expect(onSave).not.toHaveBeenCalled();
   });
 });
