@@ -57,13 +57,19 @@ function walk(dir: string, accept: (name: string) => boolean): string[] {
   });
 }
 
-/** Next.jsの`app/`規約: `app/a/[b]/route.ts`が`/a/:b`を受ける。 */
-const appRoutes = walk(APP_DIR, (name) => name === "route.ts").map((file) => {
-  const segments = relative(APP_DIR, file).split(sep).slice(0, -1);
-  const names = segments.flatMap((segment) => /^\[(.+)\]$/.exec(segment)?.[1] ?? []);
-  const pattern = new RegExp(`^/${segments.map((s) => (/^\[.+\]$/.test(s) ? "([^/]+)" : s)).join("/")}$`);
-  return { file, names, pattern };
-});
+/** Next.jsの`app/`規約: `app/a/[b]/route.ts`が`/a/:b`を受ける。**静的な区間は動的な区間より優先する**
+ * （`/a/preview`は`app/a/preview/route.ts`が受け、`app/a/[b]/route.ts`ではない）。区間を左から比べ、
+ * 最初に違う区間が静的な口を先に並べる——ディレクトリの読み出し順は環境で違う（NTFSは名前順、
+ * ext4は決まらない）ため、順番任せにすると環境によって別の口を選ぶ。 */
+const appRoutes = walk(APP_DIR, (name) => name === "route.ts")
+  .map((file) => {
+    const segments = relative(APP_DIR, file).split(sep).slice(0, -1);
+    const names = segments.flatMap((segment) => /^\[(.+)\]$/.exec(segment)?.[1] ?? []);
+    const pattern = new RegExp(`^/${segments.map((s) => (/^\[.+\]$/.test(s) ? "([^/]+)" : s)).join("/")}$`);
+    const precedence = segments.map((segment) => (/^\[.+\]$/.test(segment) ? "1" : "0")).join("");
+    return { file, names, pattern, precedence };
+  })
+  .sort((a, b) => a.precedence.localeCompare(b.precedence));
 
 const clientFiles = readdirSync(__dirname).filter((name) => /Api\.ts$/.test(name));
 
