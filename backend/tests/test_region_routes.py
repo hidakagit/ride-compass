@@ -12,7 +12,10 @@ from app.infrastructure import rate_limiter
 from app.services.tile_serving import TileResponse
 from app.domain.dynamic_way_values import transform_dedicated_way_values
 from app.main import app
+from app.api.routers import region as region_router
+from app.domain.landcover import LANDCOVER_TILE_MAX_ZOOM, LANDCOVER_TILE_MIN_ZOOM
 from tests.axis_system_fixture import replaced_axis_definitions
+from tests.bound_fake import bound
 
 client = TestClient(app)
 
@@ -633,3 +636,49 @@ def test_poi_tile_is_not_cached_when_retrieval_failed_temporarily():
 
     assert response.status_code == 200
     assert response.headers["cache-control"] == "no-store"
+
+
+# ---- 土地被覆ラスタタイル（`/api/region/landcover-tiles`） ----
+
+
+@pytest.fixture
+def landcover_tiles(monkeypatch):
+    """配信の口が呼ぶタイルの取得（サービス）の代役。返す値は`result`で決め、呼ばれた座標を`calls`に残す。"""
+    state = {"result": TileResponse(b"png-bytes"), "calls": []}
+
+    async def fake(z, x, y):
+        state["calls"].append((z, x, y))
+        return state["result"]
+
+    monkeypatch.setattr(region_router, "get_landcover_tile", bound(region_router.get_landcover_tile, fake))
+    return state
+
+
+def test_landcover_tile_endpoint_returns_the_tile_as_png(landcover_tiles):
+    response = client.get("/api/region/landcover-tiles/10/905/403.png")
+
+    assert response.status_code == 200
+    assert response.headers["content-type"] == "image/png"
+    assert response.content == b"png-bytes"
+    assert landcover_tiles["calls"] == [(10, 905, 403)]
+
+
+def test_landcover_tile_endpoint_without_raster_reports_unavailable(landcover_tiles):
+    # ラスタが1枚も無いのは「範囲外で空」ではない。空を返すと、地図のチップは正常なのに白紙になる
+    landcover_tiles["result"] = None
+
+    assert client.get("/api/region/landcover-tiles/10/905/403.png").status_code == 503
+
+
+@pytest.mark.parametrize(
+    ("z", "status"),
+    [
+        (LANDCOVER_TILE_MIN_ZOOM - 1, 400),
+        (LANDCOVER_TILE_MIN_ZOOM, 200),
+        (LANDCOVER_TILE_MAX_ZOOM, 200),
+        (LANDCOVER_TILE_MAX_ZOOM + 1, 400),
+    ],
+)
+def test_landcover_tile_endpoint_serves_only_its_own_zoom_range(landcover_tiles, z, status):
+    assert client.get(f"/api/region/landcover-tiles/{z}/1/1.png").status_code == status
+    assert (landcover_tiles["calls"] != []) is (status == 200)
