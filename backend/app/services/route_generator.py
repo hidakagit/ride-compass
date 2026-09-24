@@ -255,7 +255,6 @@ class RouteGenerator:
         candidates.sort(
             key=lambda c: round(c.overall_difficulty, 1) if c.overall_difficulty is not None else float("inf")
         )
-        candidates = candidates[:max_routes]
         # 最終順位でidを振り直す（同じ方位に複数候補が並びうるため方位由来のidは一意にならない。
         # direction_labelはエンジンが方位から付けた表示用ラベルのまま）。
         candidates = [
@@ -522,7 +521,11 @@ class RouteGenerator:
         failed: int,
         filtered_out: int,
     ) -> str:
-        """周回候補が1本も残らなかったときの、利用者へ見せる要約を組み立てる。"""
+        """周回候補が1本も残らなかったときの、利用者へ見せる要約を組み立てる。
+
+        折返し地点が1つ以上あって1本も残らないのは、失敗か距離外れが1件以上あるときだけ
+        （1本目は似すぎを問わず、求める本数は1以上）なので、どちらも0で呼ばれることは無い。
+        """
         parts = []
         if failed:
             parts.append(f"{failed}件の折返し候補で復路の探索に失敗しました（除外設定をご確認ください）")
@@ -530,7 +533,4 @@ class RouteGenerator:
             parts.append(
                 f"{filtered_out}件の周回候補は指定距離（{distance_km:.1f}km±{distance_tolerance_km:.1f}km）から外れました"
             )
-        if not parts:
-            # 候補プールが空でない限り到達しないはずの状態への保険。
-            parts.append("周回候補が得られませんでした")
         return "、".join(parts) + "。距離や除外する道路の設定を変えてお試しください。"

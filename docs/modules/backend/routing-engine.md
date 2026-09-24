@@ -173,7 +173,7 @@ RouteGenerator.generate_loops(origin, distance_km, distance_tolerance_km, max_ro
         │  1メソッドを通るため、集約を増やしてもここだけに書けば全経路へ効く
         ▼
   candidates.sort(overall_difficulty昇順[小数1桁]、同点は目標距離に近い順、Noneは末尾)
-        │  先頭max_routes件へスライスし、idをroute-00..へ振り直す
+        │  idをroute-00..へ振り直す（本数は上の逐次処理がmax_routes件で止めている）
         ▼
   RouteCandidate一覧
 ```
@@ -325,7 +325,8 @@ import済みの参照が古い辞書を指したままになる）。
 同じ値になる場合、結果は実質的に目標距離に近い順になる。異なるリクエスト間でも同じ
 絶対基準で比較できる。
 
-`generate_loops`は先頭`max_routes`件へスライスした後、idを`route-00..`へ振り直す
+`generate_loops`は並べた後、idを`route-00..`へ振り直す（本数は折返し点を試す段階で`max_routes`件に達したところで
+止めており、並べた後に切る段は無い）
 （同じ方位に複数候補が並びうるため方位由来のidは一意にならない。`direction_label`は
 エンジンが方位から付けた表示用ラベルのまま）。経由地の無い目的地ルートも同じ規約で
 idを`route-destination-00..`へ振り直すが、
