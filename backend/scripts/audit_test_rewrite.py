@@ -23,6 +23,11 @@ r"""起こし直したテストを機械で監査する。報告の自己申告�
 
 `--no-jit`は`NUMBA_DISABLE_JIT=1`を立てる。`njit`の中はcoverage.pyが追えないため、
 JITを通る対象はこれを付けないと⑤が実態より低く出る。
+
+カバレッジは対象の親ディレクトリを`--cov`に渡して測り、報告と④を対象ファイルへ絞る。
+ドット記法の`--cov`はcoverage.pyが対象の親パッケージを収集より前にimportするため、
+api層の対象ではconftestのimportでnumpyが2度読み込まれて収集ごと落ちる。ファイルのパスを
+渡すと何も報告されない。測るのは`-m "not postgis"`のテストだけ。
 """
 
 import argparse
@@ -92,32 +97,81 @@ def touched_attributes(tree: ast.AST, alias: str) -> dict[str, int]:
     return dict(touched)
 
 
-def tests_that_never_enter_the_implementation(coverage_db: Path) -> tuple[list[str], int]:
-    """`--cov-context=test`の記録から、対象モジュールの行を1度も実行しないテストを引く。
+def unresolved_attribute_calls(tree: ast.AST, alias: str) -> list[int]:
+    """`setattr(alias, name, ...)`のように属性を変数で指す呼び出しの行番号。
+
+    ③の内訳はこれを数えられない（ループで差し替える形が典型）。黙って0件にせず、
+    行番号を出して人が読む。
+    """
+    lines: list[int] = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Call):
+            name = node.func.attr if isinstance(node.func, ast.Attribute) else getattr(node.func, "id", "")
+            if name in {"setattr", "delattr", "getattr"} and len(node.args) >= 2:
+                target, attr = node.args[0], node.args[1]
+                if isinstance(target, ast.Name) and target.id == alias and not isinstance(attr, ast.Constant):
+                    lines.append(node.lineno)
+    return sorted(set(lines))
+
+
+def names_in_string_constants(tree: ast.AST, names: set[str]) -> set[str]:
+    """テストに文字列として現れる、対象モジュールの最上位の名前。
+
+    属性アクセスと`setattr`の文字列とは独立した2通り目の数え方で、変数で指して差し替える
+    名前（辞書のキーやループの並びに書かれる）はこちらにだけ現れる。
+    """
+    return {
+        node.value
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Constant) and isinstance(node.value, str) and node.value in names
+    }
+
+
+def passed_test_ids(pytest_output: str) -> set[str]:
+    """`-rA`の要約から、実行されたテストのnode idを取る。
+
+    `PASSED`の行はnode idだけを持つ。`XFAIL`・`XPASS`の行は` - 理由`が続くが、パラメータの
+    idも` - `を含みうるため、理由の区切りはこの2つにだけ当てる。
+    """
+    ids: set[str] = set()
+    for line in pytest_output.splitlines():
+        outcome, _, rest = line.partition(" ")
+        if outcome == "PASSED" and "::" in rest:
+            ids.add(rest.strip())
+        elif outcome in {"XFAIL", "XPASS"} and "::" in rest:
+            ids.add(rest.rsplit(" - ", 1)[0].strip())
+    return ids
+
+
+def tests_that_never_enter_the_implementation(
+    coverage_db: Path, implementation: str, executed: set[str]
+) -> tuple[list[str], int]:
+    """`--cov-context=test`の記録から、対象ファイルの行を1度も実行しないテストを引く。
 
     `--cov-branch`のとき記録は`line_bits`ではなく`arc`へ入る。両方を見ないと、
     「全件が実装へ入っていない」という嘘の答えが出る。
+
+    **分母は実行されたテストの一覧から取る。** coverage.pyは何も記録しなかった文脈を
+    文脈の表に残さないため、表だけを分母にすると、実装へ入らないテストほど分母からも消える。
     """
-    if not coverage_db.exists():
-        return [], 0
-    db = sqlite3.connect(coverage_db)
-    tables = {r[0] for r in db.execute("SELECT name FROM sqlite_master WHERE type='table'")}
-    counts: dict[str, int] = {}
-    for (context,) in db.execute("SELECT context FROM context"):
-        if "::" in context:
-            counts.setdefault(context.split("|")[0], 0)
-    for table in ("line_bits", "arc"):
-        if table not in tables:
-            continue
-        rows = db.execute(
-            f"SELECT ctx.context, COUNT(*) FROM {table} x"
-            " JOIN context ctx ON ctx.id = x.context_id GROUP BY ctx.context"
-        )
-        for context, n in rows:
-            if "::" in context:
-                key = context.split("|")[0]
-                counts[key] = counts.get(key, 0) + n
-    return sorted(k for k, v in counts.items() if v == 0), len(counts)
+    entered: set[str] = set()
+    if coverage_db.exists():
+        db = sqlite3.connect(coverage_db)
+        tables = {r[0] for r in db.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+        target = implementation.replace("\\", "/")
+        for table in ("line_bits", "arc"):
+            if table not in tables:
+                continue
+            rows = db.execute(
+                f"SELECT DISTINCT ctx.context, f.path FROM {table} x"
+                " JOIN context ctx ON ctx.id = x.context_id JOIN file f ON f.id = x.file_id"
+            )
+            entered.update(
+                context.split("|")[0]
+                for context, path in rows
+                if "::" in context and path.replace("\\", "/").endswith(target)
+            )
+    return sorted(executed - entered), len(executed)
 
 
 def main() -> int:
@@ -135,11 +189,13 @@ def main() -> int:
         if not path.exists():
             print(f"見つからない: {path}", file=sys.stderr)
             return 1
-    module = args.implementation.replace("\\", "/").removesuffix(".py").replace("/", ".")
+    implementation = args.implementation.replace("\\", "/")
+    module = implementation.removesuffix(".py").replace("/", ".")
+    cov_dir = implementation.rsplit("/", 1)[0]
 
     print(f"対象:     {args.implementation}")
     print(f"テスト:   {args.test}")
-    print(f"モジュール指定: {module}（--covはドット記法。パス記法だと無報告になる）")
+    print(f"--cov:    {cov_dir}（親ディレクトリで測り、対象ファイルへ絞る）")
     print("=" * 78)
 
     # --- ① 実装を変えていないか ---
@@ -179,6 +235,12 @@ def main() -> int:
                   "  ← seamか責務外かを言うこと")
         for name in unknown:
             print(f"     {alias}.{name}  （判定不能）")
+        unresolved = unresolved_attribute_calls(tree, alias)
+        if unresolved:
+            candidates = sorted(names_in_string_constants(tree, defined | set(imported)) - set(touched))
+            print(f"     属性を変数で指す呼び出し {len(unresolved)}か所（行 {', '.join(map(str, unresolved))}）"
+                  "は上の内訳に入っていない")
+            print(f"     テストに文字列で現れる {alias} の名前（上に無いもの）: {', '.join(candidates) or 'なし'}")
 
     # --- ④⑤ カバレッジ ---
     print("\n④⑤ カバレッジを測っています…")
@@ -186,19 +248,25 @@ def main() -> int:
     if args.no_jit:
         env["NUMBA_DISABLE_JIT"] = "1"
     result = subprocess.run(
-        [sys.executable, "-m", "pytest", args.test, "-q", "-m", "not postgis", "-p", "no:randomly",
-         f"--cov={module}", "--cov-branch", "--cov-context=test", "--cov-report=term-missing"],
+        [sys.executable, "-m", "pytest", args.test, "-q", "-rA", "-m", "not postgis", "-p", "no:randomly",
+         f"--cov={cov_dir}", "--cov-branch", "--cov-context=test", "--cov-report=term-missing"],
         cwd=backend, env=env, capture_output=True, text=True, encoding="utf-8", errors="replace",
     )
-    tail = module.split(".")[-1]
-    for line in result.stdout.splitlines():
-        if tail in line or " passed" in line or " failed" in line or " error" in line:
+    lines = result.stdout.splitlines()
+    for line in lines:
+        if line.replace("\\", "/").startswith(implementation + " ") or (
+            line.startswith("=") and (" passed" in line or " failed" in line or " error" in line)
+        ):
             print("     " + line.strip())
     if result.returncode != 0:
-        print("\n     テストが緑でない。監査の残りは当てにならない", file=sys.stderr)
+        print("\n     テストが緑でない。監査の残りは当てにならない。pytestの出力の末尾:", file=sys.stderr)
+        for line in (lines + result.stderr.splitlines())[-15:]:
+            print("     " + line, file=sys.stderr)
         return 1
 
-    dead, total = tests_that_never_enter_the_implementation(backend / ".coverage")
+    dead, total = tests_that_never_enter_the_implementation(
+        backend / ".coverage", implementation, passed_test_ids(result.stdout)
+    )
     print(f"\n④ 実装へ1行も入らないテスト: {len(dead)} / {total}")
     for name in dead:
         print("     " + name.split("::", 1)[1])
