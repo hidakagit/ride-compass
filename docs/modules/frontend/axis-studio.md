@@ -305,12 +305,13 @@ default_weight等）は`draftFromExisting`が読み込んだ既存値のまま�
 `GET /admin/api/material-coverage`（backend `GET /api/admin/material-catalog/coverage`）の
 レスポンス（`MaterialCoverageResponse`、生成型）をそのまま表にする。
 
-- 「欠損時の扱い」（`missing_semantics`）で2つのグループに分けて表示する:
-  「評価に影響する欠損」（`unknown`、欠損区間ではその材料を使う軸が評価対象外）と
-  「タグ不在を確定値として評価する材料（参考）」（`definite`、欠損は「該当なし」を意味し
-  評価に穴は開かない）。欠損割合の数字が同じでも意味が正反対のため同じ表へ並べない。
-  各グループは`<section aria-label>`で、見出し＋1行の説明＋表。行は欠損割合の降順
-  （`sortByMissingRatioDesc`）。`definite`の行は`data-missing-semantics`属性でバーの色を落とす。
+- 「欠損時の扱い」（`missing_semantics`）でグループに分けて表示する。見出し・説明・並びは
+  backendの宣言（`material_catalog.py: MISSING_SEMANTICS_DISPLAY`、生成物`vocabulary.ts`）。例:
+  「評価に影響する欠損」（欠損区間ではその材料を使う軸が評価対象外）と「タグ不在を確定値として
+  評価する材料（参考）」（欠損は「該当なし」を意味し評価に穴は開かない）。欠損割合の数字が同じでも
+  意味が正反対のため同じ表へ並べない。各グループは`<section aria-label>`で、見出し＋1行の説明＋表。
+  行は欠損割合の降順（`sortByMissingRatioDesc`）。宣言が「評価に効かない」とする扱いの行は
+  `data-affects-evaluation`属性でバーの色を落とす（画面は扱いの値そのものを持たない）。
 - 表の列は材料（論理名 - 物理名）・母集団（Way/Edge）・欠損割合の3列。欠損割合セルは
   数値＋バーの下に「欠損 / 総数」を小さく重ねる（材料名が2行に折り返す高さを使い、
   スマホ幅でも横スクロールなしで収める）。欠損の判定根拠（`source`）は材料セルの`title`

@@ -36,6 +36,7 @@ from app.domain.wind_grid import (  # noqa: E402
 from app.api.routers.routes import DEFAULT_DISTANCE_TOLERANCE_KM, MAX_ROUTE_DISTANCE_KM  # noqa: E402
 from app.api.routers.axis_admin import AxisDefinitionPayload  # noqa: E402
 from app.api.routers.debug_admin import LogLevelName  # noqa: E402
+from app.infrastructure.source_models import SOURCE_RUN_STATUS_LABELS  # noqa: E402
 from app.domain.axis_definitions import MAP_CHIP_LABEL_MAX_LENGTH  # noqa: E402
 from app.infrastructure.vector_tile import (  # noqa: E402
     ACCIDENT_LAYER_NAME,
@@ -390,8 +391,10 @@ def main() -> None:
             # backendのログのレベル（軽い順）。画面の絞り込みの選択肢と、ログ行からレベルを読む正規表現がこの並びを使う。
             "logLevels": list(get_args(LogLevelName)),
             "materialMissingSemantics": [
-                {"key": key, "title": title, "hint": hint} for key, (title, hint) in MISSING_SEMANTICS_DISPLAY.items()
+                {"key": key, **display._asdict()} for key, display in MISSING_SEMANTICS_DISPLAY.items()
             ],
+            # 取込のrunの状態の呼び名（DB状態の「最後の取込」）。宣言に無い状態は画面が生のまま出す。
+            "sourceRunStatuses": [{"key": key, "label": label} for key, label in SOURCE_RUN_STATUS_LABELS.items()],
         },
     )
     # 気象の値を色へ写す段（domain/weather_display.py）。危険度・雷・竜巻は配信元が

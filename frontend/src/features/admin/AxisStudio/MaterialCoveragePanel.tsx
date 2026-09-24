@@ -40,8 +40,11 @@ type MissingSemantics = NonNullable<MaterialCoverageEntry["missing_semantics"]>;
 // 「欠損時の扱い」でグループ分けする（見出しと並びはbackendの宣言）。宣言に無い扱い・null（集計対象の材料には
 // 付かないはずの値）の材料は、下の未分類グループが拾う——表から消える材料を作らない。
 const GROUP_BY_SEMANTICS = Object.fromEntries(
-  vocabulary.materialMissingSemantics.map((entry) => [entry.key, { title: entry.title, hint: entry.hint }]),
-) as Record<MissingSemantics, { title: string; hint: string }>;
+  vocabulary.materialMissingSemantics.map((entry) => [
+    entry.key,
+    { title: entry.title, hint: entry.hint, affectsEvaluation: entry.affects_evaluation },
+  ]),
+) as Record<MissingSemantics, { title: string; hint: string; affectsEvaluation: boolean }>;
 
 const GROUPS = (Object.keys(GROUP_BY_SEMANTICS) as MissingSemantics[]).map((semantics) => ({
   semantics,
@@ -60,7 +63,14 @@ function CoverageTable({ entries }: { entries: readonly MaterialCoverageEntry[] 
       </TableHead>
       <TableBody>
         {entries.map((entry) => (
-          <TableRow key={entry.material_id} data-missing-semantics={entry.missing_semantics ?? undefined}>
+          <TableRow
+            key={entry.material_id}
+            data-affects-evaluation={
+              entry.missing_semantics
+                ? String(GROUP_BY_SEMANTICS[entry.missing_semantics]?.affectsEvaluation)
+                : undefined
+            }
+          >
             <TableCell title={entry.source}>{entry.label}</TableCell>
             <TableCell>{entry.population ? POPULATION_LABELS[entry.population] : "-"}</TableCell>
             <TableCell>
@@ -70,7 +80,7 @@ function CoverageTable({ entries }: { entries: readonly MaterialCoverageEntry[] 
                     {formatPercent(entry.missing_ratio)}
                   </span>
                   <span
-                    className="block h-1.5 max-w-full rounded-full bg-[var(--color-accent)] in-data-[missing-semantics=definite]:bg-[var(--color-border-strong)]"
+                    className="block h-1.5 max-w-full rounded-full bg-[var(--color-accent)] in-data-[affects-evaluation=false]:bg-[var(--color-border-strong)]"
                     role="presentation"
                     style={{ width: `${Math.round((entry.missing_ratio ?? 0) * 100)}%` }}
                   />

@@ -1,5 +1,6 @@
 "use client";
 
+import { vocabulary } from "@/types/generated/vocabulary";
 import { useState } from "react";
 import { Button } from "@/components/ui/Button/Button";
 import { Card } from "@/components/ui/Card/Card";
@@ -38,13 +39,15 @@ interface StatusGroup {
   rows: StatusRow[];
 }
 
+/** 取込のrunの状態の呼び名（backendの宣言`SOURCE_RUN_STATUS_LABELS`）。宣言に無い状態は生のまま出す。 */
+function runStatusLabel(status: string | null): string {
+  return vocabulary.sourceRunStatuses.find((entry) => entry.key === status)?.label ?? status ?? "";
+}
+
 function groupsFromStatus(report: DbStatusResponse): StatusGroup[] {
   const imports: StatusRow[] = report.imports.map((entry) => ({
     name: entry.label,
-    scale:
-      entry.latest_id === null
-        ? "記録なし"
-        : `#${entry.latest_id} ${entry.latest_status === "succeeded" ? "成功" : entry.latest_status}`,
+    scale: entry.latest_id === null ? "記録なし" : `#${entry.latest_id} ${runStatusLabel(entry.latest_status)}`,
     flagged: entry.needs_attention,
     detail: [
       {

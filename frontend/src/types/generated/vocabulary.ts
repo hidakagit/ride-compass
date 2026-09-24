@@ -156,12 +156,24 @@ export const vocabulary = {
     {
       "key": "unknown",
       "title": "評価に影響する欠損",
-      "hint": "元データが無い区間では、この材料を使う軸が評価対象外になる。"
+      "hint": "元データが無い区間では、この材料を使う軸が評価対象外になる。",
+      "affects_evaluation": true
     },
     {
       "key": "definite",
       "title": "タグ不在を確定値として評価する材料（参考）",
-      "hint": "欠損は「該当なし」を意味し、評価に穴は開かない。"
+      "hint": "欠損は「該当なし」を意味し、評価に穴は開かない。",
+      "affects_evaluation": false
+    }
+  ],
+  "sourceRunStatuses": [
+    {
+      "key": "running",
+      "label": "実行中か中断"
+    },
+    {
+      "key": "succeeded",
+      "label": "成功"
     }
   ]
 } as const;

@@ -26,6 +26,14 @@ from sqlalchemy.orm import Mapped, mapped_column
 from app.infrastructure.orm_base import Base
 
 
+#: 取込のrunの状態と、管理画面に出す呼び名。取込は開くときに`running`、書き終えたら`succeeded`で閉じる
+#: （`batch/ingest.py`）。途中で止まったrunは`running`のまま残るため、呼び名はその両方を言う。
+SOURCE_RUN_STATUS_LABELS: dict[str, str] = {
+    "running": "実行中か中断",
+    "succeeded": "成功",
+}
+
+
 class SourceRunRow(Base):
     """取込1回ぶんの記録。
 

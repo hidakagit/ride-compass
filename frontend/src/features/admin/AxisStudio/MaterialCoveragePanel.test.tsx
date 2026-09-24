@@ -172,11 +172,20 @@ describe("MaterialCoveragePanel", () => {
     expect(blankRatio).toHaveTextContent("- / -");
   });
 
-  it("行へ欠損時の扱いを印として付ける（棒の色を扱いで変えるため）", async () => {
+  it("行へ、欠損の扱いが評価に効くかを印として付ける（効かない扱いの棒を薄く塗るため）", async () => {
     await collect(
-      response([entry({ material_id: "m", label: "印", missing_semantics: secondGroup.key as Semantics })]),
+      response(
+        semanticsGroups.map((group) =>
+          entry({ material_id: group.key, label: group.key, missing_semantics: group.key as Semantics }),
+        ),
+      ),
     );
-    expect(screen.getByText("印").closest("tr")).toHaveAttribute("data-missing-semantics", secondGroup.key);
+    for (const group of semanticsGroups) {
+      expect(screen.getByText(group.key).closest("tr")).toHaveAttribute(
+        "data-affects-evaluation",
+        String(group.affects_evaluation),
+      );
+    }
   });
 
   // backendを先に出すと、フロントの生成物にまだ無い扱いが届く。
