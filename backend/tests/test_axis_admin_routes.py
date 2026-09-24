@@ -203,7 +203,7 @@ def test_a_database_failure_becomes_a_503_on_every_route_that_reads_it(client, r
 
     assert response.status_code == ROUTE_CASES[(method, path)][1]
     if response.status_code == 503:
-        assert "migration" in response.json()["detail"]
+        assert "軸定義DBへのアクセスに失敗しました" in response.json()["detail"]
 
 
 class TestRead:

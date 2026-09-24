@@ -138,7 +138,7 @@ python scripts/review_checks.py docs
 責務・DBとappの線引き）は一度も出ていない。問う契約が無いと、問いが立たない。
 
 層（例: `backend/app`の`api`・`services`・`domain`・`infrastructure`・`batch`、DBのスキーマ
-（migrationとORM）、frontendの描画と状態、テスト、生成物）ごとに、差分に関係なく全部読み、
+（ORMの宣言）、frontendの描画と状態、テスト、生成物）ごとに、差分に関係なく全部読み、
 次を書き出す。
 
 1. **この層が実際に持っているもの**（判断・データ・外部の形・入口）を、読んだ結果から書く。
@@ -285,7 +285,7 @@ python scripts/review_checks.py docs
 | 見るもの | 読み方と起点 | 見る先と基準 |
 |---|---|---|
 | **名指しの実在** | 名前の逆引き。起点は対象範囲で消えた・改名されたもの: ファイル（`git diff --name-status --diff-filter=DR <タグ>..HEAD`）、定義名（関数・クラス・定数・テーブル・環境変数・APIのパスのうち、削除行にあって追加行に無いもの） | 維持する対象全体（`CLAUDE.md`・`docs/`・`.claude/`・ソースのコメントとdocstring。テストも含む）でgrepし、**現在形で名指ししている箇所**。断りつきで経緯を書いているなら、それは記録へ移すもの |
-| **記載漏れ** | 変更ファイルのうち新設分。起点は`git diff --name-only --diff-filter=A <タグ>..HEAD`の実装ファイルと、migrationのDDL・ORMの`__tablename__`の差分に現れた表 | 実装ファイルは`docs/modules/*.md`の対象ファイル表のどこかに載っているか。表は`docs/architecture/`がその存在を知っているか |
+| **記載漏れ** | 変更ファイルのうち新設分。起点は`git diff --name-only --diff-filter=A <タグ>..HEAD`の実装ファイルと、ORMの`__tablename__`の差分に現れた表 | 実装ファイルは`docs/modules/*.md`の対象ファイル表のどこかに載っているか。表は`docs/architecture/`がその存在を知っているか |
 | **文書の定数値** | 名前の逆引き。起点は対象範囲で値が変わった定数（削除行と追加行に同じ名前で違う値） | 維持する文書が名前の直後に書いた値が、実装と合うか（単位の読み替えは許す。[documentation.md](../../docs/conventions/documentation.md)「DBの行データ・コードの定数を名指しするとき」） |
 | **DBの行データの名指し** | 本番DBの軸定義（`GET /api/axis-catalog`）を起点にする | 維持する文書・コメントが、本番DBに無い軸id・材料idを現行として名指ししていないか |
 | **書き方** | 追加行（維持する文書とソースのコメント） | 文書: 個数・全件の一覧（[documentation.md](../../docs/conventions/documentation.md)）、経緯・タスク番号へのリンク・レビュー指摘に上げるべきもの（[docs/modules/README.md](../../docs/modules/README.md)「記載粒度」）。コメント: 経緯（[comments.md](../../docs/conventions/comments.md)の判定木）と、相手のレイヤーの挙動を断定する文（相手が変わっても書いた側は気づけない） |

@@ -135,7 +135,7 @@ async def test_配信するタイル世代は読んだ世代を前置きする()
 
 
 async def test_世代を読めないうちは印を前置きする():
-    """migration未適用のDB・DBなし構成。既定の世代を作らない——本物と区別が付かなくなる。"""
+    """世代の行が無いDB・DBなし構成。既定の世代を作らない——本物と区別が付かなくなる。"""
     derived_data_revision_service.reset_for_tests()
 
     versions = await tile_version_service.current_tile_versions(None)

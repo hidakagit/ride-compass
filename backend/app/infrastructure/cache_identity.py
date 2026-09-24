@@ -62,6 +62,6 @@ def tile_version(revision: int | None, shape: str) -> str:
     """配信するタイルの世代。`<DBの世代>-<形の署名>`。
 
     `revision`は`derived_data_meta.get_revision()`の値。Noneは世代を読めない状態
-    （migration未適用のテストDB等）で、`UNKNOWN_REVISION`を使う。
+    （世代の行が無いDB等）で、`UNKNOWN_REVISION`を使う。
     """
     return f"{UNKNOWN_REVISION if revision is None else revision}-{shape}"

@@ -21,8 +21,7 @@
   レベルdictへpushするまでは空のまま。本モジュールが持つのは型定義（`AxisDefinition`等）
   と評価用の純粋関数（`evaluate_axis_scalar`等）のみで、実データは持たない。**行データ
   （軸の新規追加・既存軸の値変更）は`api/routers/axis_admin.py`経由（create/update/
-  unpublish→再publish）で行う**
-  （migrationは`axis_definitions`テーブルの**構造**変更のみに使う）。
+  unpublish→再publish）で行う**。
 
 欠損値の表現はスカラー経路がNone、配列経路がNaN（`*_difficulty`関数・`*_difficulty_array`
 関数と同じ規約）。丸めは区分線形補間系のみ小数1桁で、配列もスカラーの`round()`と同じ値へ
