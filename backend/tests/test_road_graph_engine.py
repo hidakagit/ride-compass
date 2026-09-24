@@ -20,19 +20,30 @@
 **境界の向こうは本物を使わない。** このファイルが実際に読む属性・呼ぶ関数だけを持つ
 架空の型を与え、モジュールの名前空間ごと差し替える。実在のedge_id・軸id・材料idには
 依らない（`axis_a`・`mat_a`のような性質だけの名前を使う）。
-ただしRoad Graph（`LeanNode`・`LeanEdge`・`LeanRoadGraph`）と`Coordinates`は本物で作る——
-公開シグネチャが要求する型で、代役にしても何も切り離せず、本物が変わったときに黙ってずれるだけになる。
+ただしRoad Graph（`LeanNode`・`LeanEdge`・`LeanRoadGraph`）・`Coordinates`・探索構造
+（`LazyRoadGraph`・`SearchGraphStatics`・`TurnExpandedStructure`・`TurnExpandedTree`・`NodeJunction`等）・
+`ElevationAttribute`は本物で作る——このファイルが組み立てて渡し、読む型で、代役にしても何も切り離せず、
+本物が変わったときに黙ってずれるだけになる。
 """
 
 import math
-from dataclasses import dataclass, replace
+from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 
 import numpy as np
 import pytest
 
+from app.domain.attributes import ElevationAttribute
 from app.domain.graph import LeanEdge, LeanNode, LeanRoadGraph
 from app.domain.route import Coordinates
+from app.domain.routing import (
+    CsrGraphStructure,
+    LazyRoadGraph,
+    NodeJunction,
+    SearchGraphStatics,
+    TurnExpandedStructure,
+    TurnExpandedTree,
+)
 from app.services import road_graph_engine as engine
 from tests.bound_fake import bound
 
@@ -65,64 +76,21 @@ def lean_edge(edge_id, from_node_id="n0", to_node_id="n1", *, distance_m=100.0, 
     )
 
 
-@dataclass
-class FakeElevation:
-    edge_id: str
-    start_elevation_m: float | None = None
-    end_elevation_m: float | None = None
-    elevation_gain_m: float | None = None
-    elevation_loss_m: float | None = None
-    average_grade: float | None = None
-    max_grade: float | None = None
-    min_grade: float | None = None
+def elevation(edge_id, **fields):
+    return ElevationAttribute(edge_id=edge_id, **fields)
 
 
-@dataclass
-class FakeLazyGraph:
-    edge_ids: list
-    index_to_node_id: list
-    node_id_to_index: dict
-    edge_index_by_node_pair: dict
-
-
-@dataclass
-class FakeCsr:
-    indptr: np.ndarray
-    entry_edge_index: np.ndarray
-    node_count: int
-
-
-@dataclass
-class FakeStatics:
-    csr: FakeCsr
-    edge_length_m: np.ndarray
-
-
-@dataclass
-class FakeTurnStructure:
-    indptr: np.ndarray
-    target_state: np.ndarray
-    turn_seconds: np.ndarray
-    edge_from: np.ndarray
-    edge_to: np.ndarray
-    state_count: int
-
-
-@dataclass
-class FakeTree:
-    node_cost: np.ndarray
-    node_length_m: np.ndarray
-    node_seconds: np.ndarray
-    node_best_state: np.ndarray | None = None
-
-
-@dataclass
-class FakeJunction:
-    cost: np.ndarray
-    length_m: np.ndarray
-    seconds: np.ndarray
-    forward_state: np.ndarray
-    backward_state: np.ndarray
+def turn_tree(state_count, *, node_cost, node_length_m, node_seconds, node_best_state):
+    """一対全木。エンジンが読むのはNode側だけで、状態側を辿る経路の復元は各テストが差し替えるため、
+    状態側はどの状態にも届いていない値（inf・NaN・-1）で埋める。"""
+    predecessor = np.full(state_count, -1, dtype=np.int64)
+    return TurnExpandedTree(
+        state_cost=np.full(state_count, np.inf), predecessor=predecessor,
+        state_length_m=np.full(state_count, np.nan), state_seconds=np.full(state_count, np.nan),
+        node_cost=np.asarray(node_cost, dtype=float), node_best_state=np.asarray(node_best_state, dtype=np.int64),
+        node_length_m=np.asarray(node_length_m, dtype=float), node_seconds=np.asarray(node_seconds, dtype=float),
+        predecessor_list=predecessor.tolist(),
+    )
 
 
 class FakeScoreMatrix:
@@ -266,7 +234,7 @@ def make_lazy_graph(graph, edge_ids=None, node_ids=None):
     for index, edge_id in enumerate(edge_ids):
         edge = graph.edges[edge_id]
         pair_index[(node_id_to_index[edge.from_node_id], node_id_to_index[edge.to_node_id])] = index
-    return FakeLazyGraph(
+    return LazyRoadGraph(
         edge_ids=edge_ids,
         index_to_node_id=node_ids,
         node_id_to_index=node_id_to_index,
@@ -403,9 +371,9 @@ def test_aggregate_elevation_collects_only_present_values(monkeypatch):
 
     edges = [lean_edge("e1"), lean_edge("e2"), lean_edge("e3"), lean_edge("e4")]
     attributes = {
-        "e1": FakeElevation("e1", start_elevation_m=10.0, end_elevation_m=20.0, elevation_gain_m=10.0),
-        "e2": FakeElevation("e2", start_elevation_m=None, end_elevation_m=5.0, elevation_gain_m=None),
-        "e4": FakeElevation("e4", start_elevation_m=30.0, end_elevation_m=None, elevation_gain_m=2.0),
+        "e1": elevation("e1", start_elevation_m=10.0, end_elevation_m=20.0, elevation_gain_m=10.0),
+        "e2": elevation("e2", start_elevation_m=None, end_elevation_m=5.0, elevation_gain_m=None),
+        "e4": elevation("e4", start_elevation_m=30.0, end_elevation_m=None, elevation_gain_m=2.0),
     }
 
     result = engine._aggregate_elevation(edges, attributes)
@@ -416,7 +384,7 @@ def test_aggregate_elevation_collects_only_present_values(monkeypatch):
 
 
 def test_reverse_elevation_attribute_swaps_climb_and_descent():
-    forward = FakeElevation(
+    forward = elevation(
         "fwd", start_elevation_m=10.0, end_elevation_m=50.0,
         elevation_gain_m=40.0, elevation_loss_m=0.0,
         average_grade=4.0, max_grade=9.0, min_grade=-1.0,
@@ -432,7 +400,7 @@ def test_reverse_elevation_attribute_swaps_climb_and_descent():
 
 
 def test_reverse_elevation_attribute_keeps_missing_grades_missing():
-    forward = FakeElevation("fwd", average_grade=None, max_grade=None, min_grade=None)
+    forward = elevation("fwd", average_grade=None, max_grade=None, min_grade=None)
     reverse = engine._reverse_elevation_attribute(forward, "rev")
     assert reverse.average_grade is None
     assert reverse.max_grade is None
@@ -443,7 +411,7 @@ def test_reverse_elevation_by_edge_pairs_the_path_in_reverse_order():
     """逆方向Edgeの並びは順方向の逆。対応がずれると別の坂の値が付く。"""
     forward_edges = [lean_edge("f1"), lean_edge("f2")]
     reverse_edges = [lean_edge("r2"), lean_edge("r1")]
-    attributes = {"f2": FakeElevation("f2", start_elevation_m=1.0, end_elevation_m=9.0)}
+    attributes = {"f2": elevation("f2", start_elevation_m=1.0, end_elevation_m=9.0)}
 
     result = engine._reverse_elevation_by_edge(forward_edges, reverse_edges, attributes)
 
@@ -696,21 +664,23 @@ def test_origin_estimate_is_computed_once_per_request(monkeypatch):
 
 
 def test_origin_states_are_the_edges_leaving_the_node():
-    csr = FakeCsr(
-        indptr=np.array([0, 2, 3]),
-        entry_edge_index=np.array([7, 8, 9], dtype=np.int32),
-        node_count=2,
+    """CSRのエントリ位置ではなく、そのエントリが指すEdge indexを返す。"""
+    csr = CsrGraphStructure(
+        node_count=3,
+        indptr=np.array([0, 2, 3, 3], dtype=np.int32),
+        indices=np.array([1, 2, 0], dtype=np.int32),
+        entry_edge_index=np.array([2, 0, 1], dtype=np.int32),
     )
-    states = engine._origin_states(FakeStatics(csr=csr, edge_length_m=np.zeros(3)), 0)
+    states = engine._origin_states(SearchGraphStatics(csr=csr, edge_length_m=np.zeros(3)), 0)
 
-    assert states.tolist() == [7, 8]
+    assert states.tolist() == [2, 0]
     assert states.dtype == np.int64
 
 
 def test_destination_states_are_the_edges_entering_the_node():
-    structure = FakeTurnStructure(
-        indptr=np.array([0]), target_state=np.array([]), turn_seconds=np.array([]),
-        edge_from=np.array([0, 1, 2]), edge_to=np.array([1, 2, 1]), state_count=3,
+    structure = TurnExpandedStructure(
+        state_count=3, indptr=np.zeros(4, dtype=np.int64), target_state=np.array([], dtype=np.int64),
+        turn_seconds=np.array([]), edge_from=np.array([0, 1, 2]), edge_to=np.array([1, 2, 1]),
     )
     assert engine._destination_states(structure, 1).tolist() == [0, 2]
 
@@ -746,7 +716,7 @@ def test_edge_highway_ranks_follow_the_lazy_edge_order(monkeypatch):
 
 
 def make_junction(count):
-    return FakeJunction(
+    return NodeJunction(
         cost=np.full(count, np.inf), length_m=np.zeros(count), seconds=np.zeros(count),
         forward_state=np.full(count, -1, dtype=np.int64),
         backward_state=np.full(count, -1, dtype=np.int64),
@@ -760,9 +730,8 @@ def test_add_terminal_candidate_copies_every_field_from_the_forward_tree():
     junction.length_m[1] = 111.0
     junction.seconds[1] = 222.0
     junction.backward_state[1] = 42
-    forward = FakeTree(
-        node_cost=np.array([0.0, 5.0]), node_length_m=np.array([0.0, 60.0]),
-        node_seconds=np.array([0.0, 4.0]), node_best_state=np.array([-1, 3]),
+    forward = turn_tree(
+        4, node_cost=[0.0, 5.0], node_length_m=[0.0, 60.0], node_seconds=[0.0, 4.0], node_best_state=[-1, 3],
     )
 
     engine._add_terminal_candidate(junction, forward, 1)
@@ -776,9 +745,8 @@ def test_add_terminal_candidate_copies_every_field_from_the_forward_tree():
 
 def test_add_terminal_candidate_does_nothing_when_the_forward_tree_never_arrived():
     junction = make_junction(2)
-    forward = FakeTree(
-        node_cost=np.array([0.0, np.inf]), node_length_m=np.zeros(2),
-        node_seconds=np.zeros(2), node_best_state=np.array([-1, -1]),
+    forward = turn_tree(
+        4, node_cost=[0.0, np.inf], node_length_m=[0.0, np.nan], node_seconds=[0.0, np.nan], node_best_state=[-1, -1],
     )
 
     engine._add_terminal_candidate(junction, forward, 1)
@@ -900,7 +868,10 @@ async def test_turn_structure_cache_key_includes_the_turn_cost(cache, monkeypatc
     monkeypatch.setattr(engine, "build_turn_expanded_structure", fake_build)
     graph = make_graph([("e1", "n1", "n2", 100.0)])
     lazy = make_lazy_graph(graph)
-    statics = FakeStatics(csr=FakeCsr(np.array([0, 1, 1]), np.array([0]), 2), edge_length_m=np.zeros(1))
+    statics = SearchGraphStatics(
+        csr=CsrGraphStructure(node_count=2, indptr=np.array([0, 1, 1]), indices=np.array([1]), entry_edge_index=np.array([0])),
+        edge_length_m=np.zeros(1),
+    )
 
     first = await engine._get_or_build_turn_structure(TILES, statics, lazy, graph, "cost_a")
     again = await engine._get_or_build_turn_structure(TILES, statics, lazy, graph, "cost_a")
@@ -1276,17 +1247,20 @@ def search_world(monkeypatch, cache, composer_world):
     )
     lazy = make_lazy_graph(graph)
     score_matrix = make_score_matrix(count=3, edge_ids=list(graph.edges))
-    statics = FakeStatics(
-        csr=FakeCsr(indptr=np.array([0, 1, 2, 3]), entry_edge_index=np.array([0, 1, 2]), node_count=3),
+    statics = SearchGraphStatics(
+        csr=CsrGraphStructure(
+            node_count=3, indptr=np.array([0, 1, 2, 3]), indices=np.array([1, 2, 0]),
+            entry_edge_index=np.array([0, 1, 2]),
+        ),
         edge_length_m=np.full(3, 1000.0),
     )
-    structure = FakeTurnStructure(
+    structure = TurnExpandedStructure(
+        state_count=3,
         indptr=np.array([0, 1, 2, 3]),
         target_state=np.array([1, 2, 0]),
         turn_seconds=np.array([4.0, 6.0, 8.0]),
         edge_from=np.array([0, 1, 2]),
         edge_to=np.array([1, 2, 0]),
-        state_count=3,
     )
     built = (Bag(graph=graph, materials=Bag()), score_matrix, TILES)
     graph_service = FakeGraphService(built)
@@ -1975,13 +1949,15 @@ async def test_fastest_route_is_none_when_no_path_reaches_the_destination(search
 
 
 def make_duration_context(travel_seconds_full, turn_seconds=None, speed_kmh=36.0):
-    graph = make_graph([("e0", "n0", "n1", 1000.0), ("e1", "n1", "n2", 2000.0)])
+    """n1から出る区間はe1とe2の2本で、e0から先への遷移も2本ある（経路が通るのはe1）。"""
+    graph = make_graph([("e0", "n0", "n1", 1000.0), ("e1", "n1", "n2", 2000.0), ("e2", "n1", "n3", 500.0)])
     lazy = make_lazy_graph(graph)
-    structure = FakeTurnStructure(
-        indptr=np.array([0, 2, 2]),
-        target_state=np.array([5, 1]),
+    structure = TurnExpandedStructure(
+        state_count=3,
+        indptr=np.array([0, 2, 2, 2]),
+        target_state=np.array([2, 1]),
         turn_seconds=np.array([99.0, 7.0]) if turn_seconds is None else np.asarray(turn_seconds),
-        edge_from=np.array([0, 1]), edge_to=np.array([1, 2]), state_count=2,
+        edge_from=np.array([0, 1, 1]), edge_to=np.array([1, 2, 3]),
     )
     leg = engine.LegCostArrays(
         cost_lazy=np.zeros(2), difficulty_array=np.zeros(2),
@@ -2073,7 +2049,7 @@ def elevation_context(world, attributes):
 
 
 def test_elevation_by_edge_only_carries_the_edges_that_have_one(search_world):
-    context = elevation_context(search_world, {"e0": FakeElevation("e0", elevation_gain_m=5.0)})
+    context = elevation_context(search_world, {"e0": elevation("e0", elevation_gain_m=5.0)})
     edges = [search_world.graph.edges["e0"], search_world.graph.edges["e1"]]
 
     found = search_world.engine._elevation_by_edge(context, edges)
@@ -2251,7 +2227,7 @@ def test_segment_details_drop_values_the_leg_has_no_data_for(segment_world):
 def test_segment_details_take_the_gradient_from_the_elevation_attribute(segment_world):
     edges = two_segment_edges()
     context = segment_context(segment_world, [segment_leg()], edges)
-    attributes = {"e0": FakeElevation("e0", average_grade=3.46)}
+    attributes = {"e0": elevation("e0", average_grade=3.46)}
 
     (first, second), _categories = segment_world.engine._build_segment_details(edges, attributes, context, NOW, [0, 0])
 
@@ -2264,7 +2240,7 @@ def test_segment_details_omit_materials_the_screen_is_not_showing(monkeypatch, s
     monkeypatch.setattr(engine, "displayed_material_ids", lambda weights, lens: set())
     edges = two_segment_edges()
     context = segment_context(segment_world, [segment_leg()], edges)
-    attributes = {"e0": FakeElevation("e0", average_grade=3.4)}
+    attributes = {"e0": elevation("e0", average_grade=3.4)}
 
     (first, _second), categories = segment_world.engine._build_segment_details(
         edges, attributes, context, NOW, [0, 0]
@@ -2337,15 +2313,23 @@ def ring_world(monkeypatch, cache, composer_world):
         nodes=[lean_node(node_id, 35.0 + i * 0.05, 139.0) for i, node_id in enumerate(RING_NODE_IDS)],
     )
     lazy = make_lazy_graph(graph, node_ids=RING_NODE_IDS)
-    statics = FakeStatics(
-        csr=FakeCsr(indptr=np.array([0, 1, 2, 3, 3, 3, 3]), entry_edge_index=np.array([0, 1, 2]), node_count=6),
+    statics = SearchGraphStatics(
+        csr=CsrGraphStructure(
+            node_count=6, indptr=np.array([0, 1, 2, 3, 3, 3, 3]), indices=np.array([1, 2, 0]),
+            entry_edge_index=np.array([0, 1, 2]),
+        ),
         edge_length_m=np.full(3, 1000.0),
     )
-    tree = FakeTree(
-        node_cost=np.array([0.0, 120.0, 120.0, 120.0, 120.0, 120.0]),
-        node_length_m=np.array(RING_LENGTHS),
-        node_seconds=np.array([1.0, 100.0, 100.0, 100.0, 100.0, 100.0]),
-        node_best_state=np.zeros(6, dtype=np.int64),
+    structure = TurnExpandedStructure(
+        state_count=3, indptr=np.array([0, 1, 2, 3]), target_state=np.array([1, 2, 0]),
+        turn_seconds=np.zeros(3), edge_from=np.array([0, 1, 2]), edge_to=np.array([1, 2, 0]),
+    )
+    tree = turn_tree(
+        3,
+        node_cost=[0.0, 120.0, 120.0, 120.0, 120.0, 120.0],
+        node_length_m=RING_LENGTHS,
+        node_seconds=[1.0, 100.0, 100.0, 100.0, 100.0, 100.0],
+        node_best_state=np.zeros(6),
     )
     diverse = DiverseRecorder()
 
@@ -2360,7 +2344,7 @@ def ring_world(monkeypatch, cache, composer_world):
 
     composer = make_composer(make_score_matrix(count=3, edge_ids=["e0", "e1", "e2"]))
     context = make_context(
-        graph=graph, lazy_graph=lazy, statics=statics, turn_structure=Bag(state_count=3, target_state=[0]),
+        graph=graph, lazy_graph=lazy, statics=statics, turn_structure=structure,
         composer=composer, legs=[composer.compose("outbound", coords(35.0, 139.0), 0.0, +1)],
         origin_node="r0", origin_index=0,
         node_lat=np.array([graph.nodes[n].latitude for n in RING_NODE_IDS]),
@@ -2522,31 +2506,36 @@ def via_world(monkeypatch, cache, composer_world):
         nodes=[lean_node(node_id, 35.0 + i * 0.01, 139.0) for i, node_id in enumerate(VIA_NODE_IDS)],
     )
     lazy = make_lazy_graph(graph, node_ids=VIA_NODE_IDS)
-    statics = FakeStatics(
-        csr=FakeCsr(indptr=np.array([0, 2, 3, 4, 5]), entry_edge_index=np.array([0, 2, 1, 3, 4]), node_count=4),
+    statics = SearchGraphStatics(
+        csr=CsrGraphStructure(
+            node_count=4, indptr=np.array([0, 2, 3, 4, 5]), indices=np.array([1, 2, 3, 3, 1]),
+            entry_edge_index=np.array([0, 2, 1, 3, 4]),
+        ),
         edge_length_m=np.array([1000.0, 1000.0, 1500.0, 1500.0, 1000.0]),
     )
-    structure = FakeTurnStructure(
+    structure = TurnExpandedStructure(
+        state_count=5,
         indptr=np.array([0, 1, 2, 3, 4, 5]),
         target_state=np.array([1, 4, 3, 4, 1]),
         turn_seconds=np.zeros(5),
         edge_from=np.array([0, 1, 0, 2, 3]),
         edge_to=np.array([1, 3, 2, 3, 1]),
-        state_count=5,
     )
-    forward = FakeTree(
-        node_cost=np.array([0.0, 50.0, 60.0, 90.0]),
-        node_length_m=np.array([0.0, 1000.0, 1500.0, 900.0]),
-        node_seconds=np.array([0.0, 40.0, 50.0, 60.0]),
-        node_best_state=np.array([-1, 0, 2, 4]),
+    forward = turn_tree(
+        5,
+        node_cost=[0.0, 50.0, 60.0, 90.0],
+        node_length_m=[0.0, 1000.0, 1500.0, 900.0],
+        node_seconds=[0.0, 40.0, 50.0, 60.0],
+        node_best_state=[-1, 0, 2, 4],
     )
-    backward = FakeTree(
-        node_cost=np.array([120.0, 50.0, 70.0, 0.0]),
-        node_length_m=np.array([2000.0, 1000.0, 1500.0, 0.0]),
-        node_seconds=np.array([90.0, 40.0, 50.0, 0.0]),
-        node_best_state=np.array([1, 1, 3, -1]),
+    backward = turn_tree(
+        5,
+        node_cost=[120.0, 50.0, 70.0, 0.0],
+        node_length_m=[2000.0, 1000.0, 1500.0, 0.0],
+        node_seconds=[90.0, 40.0, 50.0, 0.0],
+        node_best_state=[1, 1, 3, -1],
     )
-    junction = FakeJunction(
+    junction = NodeJunction(
         cost=np.array([np.inf, 100.0, 130.0, np.inf]),
         length_m=np.array([0.0, 1000.0, 3000.0, 0.0]),
         seconds=np.array([0.0, 80.0, 100.0, 0.0]),
