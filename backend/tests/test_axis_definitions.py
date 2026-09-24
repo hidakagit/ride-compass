@@ -24,6 +24,7 @@ from app.domain.axis_definitions import (
     MaterialTerm,
     PriorityCondition,
 )
+from app.domain.registry import PrimaryAttributeSpec
 
 LINEAR_0_100 = [(0.0, 0.0), (10.0, 100.0)]
 
@@ -34,7 +35,9 @@ def material(material_id: str, dtype: str = "numeric", primary_attribute_id: str
         label=material_id,
         description=material_id,
         dtype=dtype,
-        primary_attribute_id=primary_attribute_id,
+        primary_attribute=None
+        if primary_attribute_id is None
+        else PrimaryAttributeSpec(attr_id=primary_attribute_id, label=primary_attribute_id, geometry="line"),
         coverage=material_catalog.CoverageExcluded(reason="テスト用", missing_semantics="unknown"),
     )
 
