@@ -3,14 +3,9 @@ import asyncio
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.domain.axis_definitions import (
-    AxisDefinition,
-    BreakpointLinearShape,
-    CategoricalShape,
-    MaterialTerm,
-    PriorityCondition,
-)
+from app.domain.axis_definitions import AxisDefinition, CategoricalShape, PriorityCondition
 from app.infrastructure.axis_definition_repository import AxisDefinitionRepository
+from tests.axis_system_fixture import axis_definition
 
 # road_graph_session（conftest.py）はファイル単位でエンジン・イベントループを共有する設計
 # のため、docs/conventions/testing.mdのパターン2どおりloop_scope="module"・xdist_group="postgis"が必須。
@@ -19,17 +14,6 @@ pytestmark = [
     pytest.mark.xdist_group(name="postgis"),
     pytest.mark.postgis,
 ]
-
-
-def _definition(axis_id: str = "test_axis", default_weight: float = 0.1) -> AxisDefinition:
-    return AxisDefinition(
-        axis_id=axis_id,
-        shape=BreakpointLinearShape(terms=[MaterialTerm(material="dummy")], breakpoints=[(0.0, 0.0), (10.0, 100.0)]),
-        default_weight=default_weight,
-        label=f"テスト軸[{axis_id}]",
-        description="テスト用ダミー軸",
-        category="推定",
-    )
 
 
 # 改善計画T469: create/update/delete/unpublish（AxisRegistryAdminService）のTOCTOUレース
@@ -62,7 +46,8 @@ async def test_list_all_returns_empty_dict_when_no_rows(road_graph_session):
 
 async def test_upsert_then_list_all_round_trips_shape_and_weight(road_graph_session):
     repository = AxisDefinitionRepository(road_graph_session)
-    definition = _definition()
+    # 既定と違う値を持たせる。既定のままだと、書き込みで落ちたフィールドが読み戻しで既定へ戻り一致してしまう。
+    definition = axis_definition("test_axis", default_weight=0.1, label="軸A", description="説明", category="観測")
 
     await repository.upsert(definition, sort_order=0)
     await repository.commit()
@@ -120,13 +105,8 @@ async def test_upsert_then_list_all_round_trips_categorical_str_keys(road_graph_
 async def test_upsert_then_list_all_round_trips_priority_overrides(road_graph_session):
     # コードレビュー指摘の修正確認: priority_overrides（0次条件）がDB往復で
     # 失われないこと（以前はカラム自体が無く、DB経由では常に空リストへ戻っていた）。
-    definition = AxisDefinition(
-        axis_id="priority_override_axis",
-        shape=BreakpointLinearShape(terms=[MaterialTerm(material="dummy")], breakpoints=[(0.0, 0.0), (10.0, 100.0)]),
-        default_weight=0.1,
-        label="テスト軸[priority_override_axis]",
-        description="",
-        category="推定",
+    definition = axis_definition(
+        "priority_override_axis",
         priority_overrides=[PriorityCondition(material="motor_vehicle_no", equals="true", value=0.0)],
     )
     repository = AxisDefinitionRepository(road_graph_session)
@@ -145,13 +125,8 @@ async def test_upsert_then_list_all_round_trips_display_fields(road_graph_sessio
     # show_map_icon）がDB往復で失われないこと（priority_overridesの0018回帰と同じ
     # パターン、先回りしてテストを用意する）。show_map_iconは既定Trueとは違う値
     # （False）を設定し、既定値と取り違えていないことを確認する。
-    definition = AxisDefinition(
-        axis_id="display_fields_axis",
-        shape=BreakpointLinearShape(terms=[MaterialTerm(material="dummy")], breakpoints=[(0.0, 0.0), (10.0, 100.0)]),
-        default_weight=0.1,
-        label="テスト軸[display_fields_axis]",
-        description="",
-        category="推定",
+    definition = axis_definition(
+        "display_fields_axis",
         icon_id="incline",
         chip_label="テスト",
         panel_hint="パネル向け説明文",
@@ -171,7 +146,7 @@ async def test_upsert_then_list_all_round_trips_display_fields_when_unset(road_g
     # 使う」の意味であり、priority_overridesの`[]`既定と違ってNoneのままdb往復する必要が
     # ある。show_map_iconはこれらと違い常に確定した真偽値（既定True）を持つフィールドの
     # ため、未設定でもTrueとして往復することを確認する（改善計画T318）。
-    definition = _definition("no_display_fields_axis")
+    definition = axis_definition("no_display_fields_axis")
     repository = AxisDefinitionRepository(road_graph_session)
 
     await repository.upsert(definition, sort_order=0)
@@ -192,13 +167,8 @@ async def test_upsert_then_list_all_round_trips_dedicated_way_value_layer(road_g
     # 戻ってしまう不具合が実際にあった（axis_admin API経由での手動確認で発覚、
     # test_axis_admin_routes.pyの往復テストはoverride_service[実DBを使わないフェイク]
     # 経由のためこの種の不具合を検出できなかった）。
-    definition = AxisDefinition(
-        axis_id="dedicated_way_value_layer_axis",
-        shape=BreakpointLinearShape(terms=[MaterialTerm(material="dummy")], breakpoints=[(0.0, 0.0), (10.0, 100.0)]),
-        default_weight=0.1,
-        label="テスト軸[dedicated_way_value_layer_axis]",
-        description="",
-        category="推定",
+    definition = axis_definition(
+        "dedicated_way_value_layer_axis",
         dedicated_way_value_layer=True,
     )
     repository = AxisDefinitionRepository(road_graph_session)
@@ -214,13 +184,8 @@ async def test_upsert_then_list_all_round_trips_dynamic_way_value_needs(road_gra
     # 改善計画T458: dynamic_way_value_needs_time/dynamic_way_value_needs_bearing
     # （非既定値）がDB往復で失われないことの回帰テスト（dedicated_way_value_layerの
     # 上記回帰テストと同型）。
-    definition = AxisDefinition(
-        axis_id="dynamic_way_value_needs_axis",
-        shape=BreakpointLinearShape(terms=[MaterialTerm(material="dummy")], breakpoints=[(0.0, 0.0), (10.0, 100.0)]),
-        default_weight=0.1,
-        label="テスト軸[dynamic_way_value_needs_axis]",
-        description="",
-        category="推定",
+    definition = axis_definition(
+        "dynamic_way_value_needs_axis",
         dedicated_way_value_layer=True,
         dynamic_way_value_needs_time=True,
         dynamic_way_value_needs_bearing=True,
@@ -237,8 +202,8 @@ async def test_upsert_then_list_all_round_trips_dynamic_way_value_needs(road_gra
 
 async def test_upsert_orders_by_sort_order_not_axis_id(road_graph_session):
     repository = AxisDefinitionRepository(road_graph_session)
-    await repository.upsert(_definition("z_axis"), sort_order=0)
-    await repository.upsert(_definition("a_axis"), sort_order=1)
+    await repository.upsert(axis_definition("z_axis"), sort_order=0)
+    await repository.upsert(axis_definition("a_axis"), sort_order=1)
     await repository.commit()
 
     assert list((await repository.list_all()).keys()) == ["z_axis", "a_axis"]
@@ -246,10 +211,10 @@ async def test_upsert_orders_by_sort_order_not_axis_id(road_graph_session):
 
 async def test_upsert_on_existing_axis_id_updates_in_place(road_graph_session):
     repository = AxisDefinitionRepository(road_graph_session)
-    await repository.upsert(_definition("test_axis", default_weight=0.1), sort_order=0)
+    await repository.upsert(axis_definition("test_axis", default_weight=0.1), sort_order=0)
     await repository.commit()
 
-    await repository.upsert(_definition("test_axis", default_weight=0.9), sort_order=0)
+    await repository.upsert(axis_definition("test_axis", default_weight=0.9), sort_order=0)
     await repository.commit()
 
     result = await repository.list_all()
@@ -259,14 +224,14 @@ async def test_upsert_on_existing_axis_id_updates_in_place(road_graph_session):
 
 async def test_get_returns_definition_and_sort_order(road_graph_session):
     repository = AxisDefinitionRepository(road_graph_session)
-    await repository.upsert(_definition("test_axis"), sort_order=3)
+    await repository.upsert(axis_definition("test_axis"), sort_order=3)
     await repository.commit()
 
     result = await repository.get("test_axis")
 
     assert result is not None
     definition, sort_order = result
-    assert definition == _definition("test_axis")
+    assert definition == axis_definition("test_axis")
     assert sort_order == 3
 
 
@@ -286,19 +251,19 @@ async def test_list_all_with_sort_order_returns_definitions_and_sort_order(road_
     # 改善計画T271のレビュー指摘の修正: AxisRegistryAdminService.create/updateが
     # 既存軸一覧の取得とsort_order算出を1回のSELECTで済ませられるよう新設したメソッド。
     repository = AxisDefinitionRepository(road_graph_session)
-    await repository.upsert(_definition("a"), sort_order=0)
-    await repository.upsert(_definition("b"), sort_order=5)
+    await repository.upsert(axis_definition("a"), sort_order=0)
+    await repository.upsert(axis_definition("b"), sort_order=5)
     await repository.commit()
 
     result = await repository.list_all_with_sort_order()
 
-    assert result["a"] == (_definition("a"), 0)
-    assert result["b"] == (_definition("b"), 5)
+    assert result["a"] == (axis_definition("a"), 0)
+    assert result["b"] == (axis_definition("b"), 5)
 
 
 async def test_delete_removes_row_and_returns_true(road_graph_session):
     repository = AxisDefinitionRepository(road_graph_session)
-    await repository.upsert(_definition("test_axis"), sort_order=0)
+    await repository.upsert(axis_definition("test_axis"), sort_order=0)
     await repository.commit()
 
     deleted = await repository.delete("test_axis")
@@ -332,7 +297,7 @@ async def test_upsert_and_delete_each_bump_revision(road_graph_session):
     road_graph_session.add(AxisRegistryMetaRow(id=1, revision=1))
     await road_graph_session.commit()
 
-    await repository.upsert(_definition("test_axis"), sort_order=0)
+    await repository.upsert(axis_definition("test_axis"), sort_order=0)
     await repository.commit()
     assert await repository.get_revision() == 2
 

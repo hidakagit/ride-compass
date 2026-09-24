@@ -14,7 +14,7 @@ from app.domain.dynamic_way_values import transform_dedicated_way_values
 from app.main import app
 from app.api.routers import region as region_router
 from app.domain.landcover import LANDCOVER_TILE_MAX_ZOOM, LANDCOVER_TILE_MIN_ZOOM
-from tests.axis_system_fixture import replaced_axis_definitions
+from tests.axis_system_fixture import axis_definition, replaced_axis_definitions
 from tests.bound_fake import bound
 
 client = TestClient(app)
@@ -413,11 +413,9 @@ def test_region_dedicated_way_values_requires_bearing_deg_query_param(material_i
 # （固定dictではないためmonkeypatch.setitemで直接差し込めない）ため、region.py側が
 # 読むAXIS_DEFINITIONS自体へダミー軸をmonkeypatchで差し込む。
 def test_region_dedicated_way_values_needs_bearing_false_does_not_require_bearing_deg(monkeypatch):
-    dummy_axis = AxisDefinition(
-        axis_id="dummy_no_bearing",
-        shape=BreakpointLinearShape(terms=[MaterialTerm(material="gradient_percent")], breakpoints=[(0.0, 0.0), (10.0, 100.0)]),
-        default_weight=0.1,
-        label="ダミー",
+    dummy_axis = axis_definition(
+        "dummy_no_bearing",
+        material="gradient_percent",
         dedicated_way_value_layer=True,
         dynamic_way_value_needs_time=False,
         dynamic_way_value_needs_bearing=False,
@@ -476,13 +474,8 @@ def test_region_dedicated_way_values_unknown_axis_id_returns_404():
 # 配信の実装が無い材料だけを参照する軸は404になることを見る。
 @pytest.mark.parametrize(("material", "status"), [("gradient_percent", 200), ("maxspeed_kmh", 404)])
 def test_region_dedicated_way_values_resolves_the_service_by_the_axis_material(monkeypatch, material, status):
-    axis = AxisDefinition(
-        axis_id="axis_new_name",
-        shape=BreakpointLinearShape(terms=[MaterialTerm(material=material)], breakpoints=[(0.0, 0.0), (10.0, 100.0)]),
-        default_weight=0.1,
-        label="ダミー",
-        dedicated_way_value_layer=True,
-        dynamic_way_value_needs_bearing=True,
+    axis = axis_definition(
+        "axis_new_name", material=material, dedicated_way_value_layer=True, dynamic_way_value_needs_bearing=True
     )
     monkeypatch.setitem(AXIS_DEFINITIONS, "axis_new_name", axis)
     monkeypatch.setattr(settings, "road_graph_use_repository", False)

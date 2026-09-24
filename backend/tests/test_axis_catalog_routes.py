@@ -13,7 +13,7 @@ from app.domain.axis_definitions import (
 from app.domain.tuning import TUNING_PARAMETERS, TuningEffect
 from app.main import app
 from app.services.region_service import RegionService
-from tests.axis_system_fixture import replaced_axis_definitions
+from tests.axis_system_fixture import axis_definition, replaced_axis_definitions
 
 client = TestClient(app)
 
@@ -136,13 +136,7 @@ def draft_axis():
     # 改善計画T271: 下書き軸（is_published=False）が公開APIから漏れないことの検証用。
     # AXIS_DEFINITIONSはプロセス全体で共有されるため、他テストへ汚染が漏れないよう
     # 必ず復元する（test_axis_registry_service.pyのrestore_axis_definitionsと同じ方針）。
-    AXIS_DEFINITIONS["draft_axis"] = AxisDefinition(
-        axis_id="draft_axis",
-        shape=BreakpointLinearShape(terms=[MaterialTerm(material="dummy")], breakpoints=[(0.0, 0.0), (10.0, 100.0)]),
-        default_weight=0.1,
-        label="下書き軸",
-        is_published=False,
-    )
+    AXIS_DEFINITIONS["draft_axis"] = axis_definition("draft_axis", is_published=False)
     yield
     del AXIS_DEFINITIONS["draft_axis"]
 
