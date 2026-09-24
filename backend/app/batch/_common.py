@@ -3,6 +3,8 @@
 特定のバッチだけが使うものは、そのバッチが持つ。
 """
 
+import argparse
+import asyncio
 import logging
 import time
 from collections.abc import AsyncIterator, Awaitable, Callable
@@ -37,9 +39,25 @@ async def batch_session_factory(database_url: str | None) -> AsyncIterator[async
         await engine.dispose()
 
 
-async def with_derived_data_revision_bump(
-    coro: Awaitable[int], *, database_url: str | None, dry_run: bool
+def run_batch_cli(
+    parser: argparse.ArgumentParser,
+    start: Callable[[argparse.Namespace, str], Awaitable[int]],
 ) -> int:
+    """DBを書くバッチの入口の骨格。ログを整え、引数を読み、本体を流して派生データの世代を進める。
+
+    `--database-url`はここで足す（省けば設定値）。`start`は読んだ引数とDBのURLを受けて
+    本体のコルーチンを返す。イベントループの外で呼ぶので、引数の検査（`parser.error`）は
+    `start`の中に置いてよい。
+    """
+    logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s %(message)s")
+    parser.add_argument("--database-url", default=None)
+    args = parser.parse_args()
+    database_url = args.database_url or settings.database_url
+    return asyncio.run(with_derived_data_revision_bump(
+        start(args, database_url), database_url=database_url))
+
+
+async def with_derived_data_revision_bump(coro: Awaitable[int], *, database_url: str | None) -> int:
     """バッチ本体を実行し、成功したら派生データの世代（`derived_data_meta.revision`）を進める。
 
     進めないと、backendがディスクへ既にキャッシュ済みの材料を「作り直されていない」と
@@ -47,12 +65,12 @@ async def with_derived_data_revision_bump(
     **どのバッチが材料に効くかを個別に判断しない**——効かないバッチで余分に進めても
     キャッシュが1度作り直されるだけだが、効くバッチで進め忘れると静かに古い値が残る。
 
-    dry-runと異常終了では進めない（DBを書いていない）。世代を進める書き込み自体が
+    異常終了では進めない（DBを書き終えていない）。世代を進める書き込み自体が
     失敗してもバッチの終了コードは変えない——データは既に書けており、キャッシュの
     追随はTTLごとの次の確認でも回復するため、ここで失敗扱いにする方が害が大きい。
     """
     code = await coro
-    if code != 0 or dry_run:
+    if code != 0:
         return code
     try:
         async with batch_session_factory(database_url) as session_factory:
