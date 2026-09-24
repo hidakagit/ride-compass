@@ -13,7 +13,7 @@ import { FieldLabel } from "@/components/ui/FieldLabel/FieldLabel";
 import type { AxisDefinitionResponse } from "@/types/route";
 import { InfoPopoverButton, SectionLabel } from "./AxisFormFields";
 import { NO_MAP_BANDS_JUDGEMENT } from "@/features/admin/useMapBandsOfThresholds";
-import type { MapBandsOfThresholds } from "@/features/admin/axisPreviewApi";
+import type { MapBandsOfThresholds } from "@/features/admin/adminApi";
 import {
   bandLabelsOnMap,
   formatThresholdList,

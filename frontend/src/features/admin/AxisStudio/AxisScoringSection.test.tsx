@@ -23,7 +23,7 @@ import { buildShape, emptyDraft, type Draft } from "./axisDraft";
 import { generateBreakpoints, insertBreakpointAtLargestGap } from "./breakpointTools";
 
 const api = vi.hoisted(() => ({ getMaterialValues: vi.fn() }));
-vi.mock("@/services/materialCatalogApi", () => ({ getMaterialValues: api.getMaterialValues }));
+vi.mock("@/features/admin/adminApi", () => ({ getMaterialValues: api.getMaterialValues }));
 
 const captured = vi.hoisted(() => ({
   distributionArgs: [] as [boolean, string, () => unknown][],

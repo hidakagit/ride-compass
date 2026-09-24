@@ -11,7 +11,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { MaterialValuesResponse } from "@/types/route";
 
 const api = vi.hoisted(() => ({ getMaterialValues: vi.fn() }));
-vi.mock("@/services/materialCatalogApi", () => ({ getMaterialValues: api.getMaterialValues }));
+vi.mock("@/features/admin/adminApi", () => ({ getMaterialValues: api.getMaterialValues }));
 
 import { useMaterialValues } from "./useMaterialValues";
 

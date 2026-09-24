@@ -22,11 +22,7 @@
 | `hooks/useCopyToClipboard.ts` | クリップボードへの書き込みと結果表示（コピー済み・失敗）。Clipboard APIは[SecureContext]のため、httpのIPアクセス等では`navigator.clipboard`自体がundefinedになる——`.catch()`はPromiseの拒否しか捕まえず、プロパティアクセスの同期TypeErrorをtryで受けないとボタンが無反応のままになる。失敗は握り潰さず文言を返す | `DebugConsole`・`BackendLogsPanel` |
 | `hooks/useDebugLog.ts`・`lib/debugLog.ts` | デバッグモードON/OFF状態・ログエントリのシングルストア（`useSyncExternalStore`） | |
 | `hooks/useResearchMode.ts`・`lib/researchMode.ts` | 研究モードON/OFF状態の同型シングルストア | |
-| `features/admin/debugStatsApi.ts`・`features/admin/versionApi.ts` | `SystemStatusPanel`が使うAPIクライアント | |
-| `features/admin/debugAdminApi.ts` | `BackendLogsPanel`が使うAPIクライアント（`app/admin/api/debug/logs/`経由、生成型を経由しない手書き型） | |
-| `app/admin/api/debug/logs/route.ts` | `debugAdminApi.ts`が叩くNext.js route handler。`proxyToBackendAdmin`でbackend `GET /api/admin/debug/logs`へ`limit`/`contains`クエリごと転送する | |
-| `features/admin/healthApi.ts` | `BackendStatus.tsx`が使う`GET /health`クライアント（`/api`接頭辞は付かない） | |
-| `app/api/version/route.ts` | `versionApi.ts`が読むフロントエンドのビルドバージョンを返すNext.js route handler | |
+| `app/api/version/route.ts` | フロントエンドのビルドバージョンを返すNext.js route handler（`SystemStatusPanel`が読む） | |
 
 ## `/admin`とpage.tsx（`/`）の境界
 

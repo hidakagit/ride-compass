@@ -77,7 +77,7 @@ backendも日本時間で扱う。`domain/time_zone.py`）。暦と時刻の取�
 2. **文言は常に日本語。** 失敗の文言の出所は、backendの`detail`（429の混雑案内を含む、
    HTTPエラー時）か、`messages.failure`（通信エラー・タイムアウト・本文の無いHTTPエラー）の
    どちらかだけにする（上記`fetchJson.ts`）。Next.js route handlerが自前で組み立てる`detail`
-   （`lib/adminApiProxy.ts`の転送失敗）も同じで、ランタイム由来の英語はサーバーのログにだけ
+   （管理APIの転送の口`app/admin/api/[...path]`の転送失敗）も同じで、ランタイム由来の英語はサーバーのログにだけ
    残す。**エラーを受け取って言い直す側は、原因を断定
    しない**——ポーリングの連続失敗のように原因が複数ありうる場所は、最後の失敗の文言を
    添える（`features/route/routeApi.ts`）。

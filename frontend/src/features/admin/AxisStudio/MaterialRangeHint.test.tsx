@@ -7,7 +7,7 @@
 import { render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
-import type { MaterialDistribution } from "@/features/admin/axisPreviewApi";
+import type { MaterialDistribution } from "@/features/admin/adminApi";
 
 const hook = vi.hoisted(() => ({ distribution: null as MaterialDistribution | null }));
 vi.mock("@/features/admin/useMaterialDistribution", () => ({

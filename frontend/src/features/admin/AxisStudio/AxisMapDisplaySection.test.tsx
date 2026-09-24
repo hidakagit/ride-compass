@@ -14,7 +14,7 @@ import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import type { MapBandsOfThresholds } from "@/features/admin/axisPreviewApi";
+import type { MapBandsOfThresholds } from "@/features/admin/adminApi";
 import { AXIS_ICON_PALETTE } from "@/lib/mapDisplay/axisIconPalette";
 import type { AxisDefinitionResponse } from "@/types/route";
 

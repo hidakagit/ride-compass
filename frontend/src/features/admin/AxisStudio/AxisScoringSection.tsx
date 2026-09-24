@@ -6,7 +6,7 @@
 // 直接いじる口は詳細設定に畳んである（docs/modules/frontend/axis-studio.md参照）。
 
 import { useScoresPreview } from "@/features/admin/useScoresPreview";
-import type { ScoresPreviewRequest } from "@/features/admin/axisPreviewApi";
+import type { ScoresPreviewRequest } from "@/features/admin/adminApi";
 import { binMidpoints } from "./scoreDistribution";
 import { useState } from "react";
 import {

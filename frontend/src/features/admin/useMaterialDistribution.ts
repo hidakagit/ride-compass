@@ -6,7 +6,7 @@
 
 import { useEffect, useState } from "react";
 
-import { fetchMaterialDistribution, type MaterialDistribution } from "@/features/admin/axisPreviewApi";
+import { fetchMaterialDistribution, type MaterialDistribution } from "@/features/admin/adminApi";
 
 interface MaterialDistributionResult {
   distribution: MaterialDistribution | null;
@@ -42,7 +42,7 @@ export function useMaterialDistribution(materialId: string | undefined): Materia
         if (!cancelled) setResult({ distribution, loading: false });
       } catch {
         // 値域は編集の補助情報のため、取得できなければ黙って出さない（他の欄の
-        // 編集を妨げない）。失敗そのものはaxisPreviewApiがdebugLogへ残す。
+        // 編集を妨げない）。失敗そのものはクライアントの骨格がdebugLogへ残す。
         cache.set(materialId, null);
         if (!cancelled) setResult({ distribution: null, loading: false });
       }

@@ -11,7 +11,7 @@ import {
   fetchMapBandsOfThresholds,
   type DisplayThresholdsPreviewRequest,
   type MapBandsOfThresholds,
-} from "@/features/admin/axisPreviewApi";
+} from "@/features/admin/adminApi";
 
 /** 判定が無い間の値。入力どおりの段で出す（落ちる値なし・全段が残る）。 */
 export const NO_MAP_BANDS_JUDGEMENT: MapBandsOfThresholds = { droppedOnMap: [], bandsOnMap: null };

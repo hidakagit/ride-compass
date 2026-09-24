@@ -3,7 +3,7 @@
  * まとめてコピーできること。
  *
  * ここで見ないもの:
- * - 絞り込みを問い合わせの項目へ組み立てること → `debugAdminApi.test.ts`
+ * - 絞り込みを問い合わせの項目へ組み立てること → `features/admin/adminApi.test.ts`
  * - クリップボードへの書き込みと失敗の文言 → `hooks/useCopyToClipboard.ts`
  * - 行の色そのもの → `components/ui/LogLine`（ここでは差し替えて、どの重さで描かせたかだけを見る）
  */
@@ -12,7 +12,7 @@ import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const api = vi.hoisted(() => ({ getRecentLogs: vi.fn() }));
-vi.mock("@/features/admin/debugAdminApi", () => api);
+vi.mock("@/features/admin/adminApi", () => api);
 vi.mock("@/components/ui/LogLine/LogLine", () => ({
   LogLine: ({ tone, children, ...rest }: { tone: string; children: React.ReactNode }) => (
     <div data-testid="log-line" data-tone={tone} {...rest}>
@@ -50,7 +50,7 @@ describe("BackendLogsPanel", () => {
 
     await user.click(screen.getByRole("button", { name: "取得" }));
 
-    expect(api.getRecentLogs).toHaveBeenCalledWith({ contains: undefined, minLevel: "WARNING", limit: 200 });
+    expect(api.getRecentLogs).toHaveBeenCalledWith({ contains: undefined, min_level: "WARNING", limit: 200 });
   });
 
   it("部分一致は前後の空白を落とし、すべてのレベルを選ぶとレベルで絞らない", async () => {
@@ -63,7 +63,7 @@ describe("BackendLogsPanel", () => {
     await user.click(screen.getByRole("button", { name: "取得" }));
 
     expect(api.getRecentLogs).toHaveBeenCalledWith(
-      expect.objectContaining({ contains: "jma-tile", minLevel: undefined }),
+      expect.objectContaining({ contains: "jma-tile", min_level: undefined }),
     );
   });
 
@@ -85,7 +85,7 @@ describe("BackendLogsPanel", () => {
 
     await user.selectOptions(screen.getByRole("combobox", { name: "最小レベル" }), "ERROR以上");
     await user.click(screen.getByRole("button", { name: "取得" }));
-    expect(api.getRecentLogs).toHaveBeenCalledWith(expect.objectContaining({ minLevel: "ERROR" }));
+    expect(api.getRecentLogs).toHaveBeenCalledWith(expect.objectContaining({ min_level: "ERROR" }));
   });
 
   it.each([["0"], [""], ["-5"]])("件数が正の数でない（%j）ときは件数で絞らない", async (typed) => {

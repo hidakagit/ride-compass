@@ -2,14 +2,14 @@
  * `TileCachePanel.tsx`——押したときだけタイルキャッシュを消し、消したこと（反映の時機つき）か失敗の理由を出す。
  *
  * ここで見ないもの:
- * - 叩く先 → `adminApiClients.test.ts`
+ * - 叩く先 → `features/admin/adminApi.test.ts`
  */
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const api = vi.hoisted(() => ({ refreshTileCache: vi.fn() }));
-vi.mock("@/features/admin/basemapAdminApi", () => api);
+vi.mock("@/features/admin/adminApi", () => api);
 
 import TileCachePanel from "./TileCachePanel";
 

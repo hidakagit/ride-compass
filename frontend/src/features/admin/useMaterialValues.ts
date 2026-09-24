@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import type { MaterialValueEntry } from "@/types/route";
-import { getMaterialValues } from "@/services/materialCatalogApi";
+import { getMaterialValues } from "@/features/admin/adminApi";
 
 interface MaterialValuesState {
   materialId: string | null;

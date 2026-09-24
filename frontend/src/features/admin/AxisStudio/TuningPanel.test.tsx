@@ -7,7 +7,7 @@
  *
  * ここで見ないもの:
  * - 数値の入力欄の途中の文字の扱い → `components/ui/NumberInput`
- * - 叩く先 → `adminApiClients.test.ts`
+ * - 叩く先 → `features/admin/adminApi.test.ts`
  */
 import { StrictMode } from "react";
 import { act, render, screen, waitFor, within } from "@testing-library/react";
@@ -15,10 +15,10 @@ import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { dotVariants } from "@/components/ui/Dot/Dot";
-import type { TuningParameter } from "@/features/admin/tuningApi";
+import type { TuningParameter } from "@/features/admin/adminApi";
 
 const api = vi.hoisted(() => ({ listTuningParameters: vi.fn(), updateTuningParameter: vi.fn() }));
-vi.mock("@/features/admin/tuningApi", () => api);
+vi.mock("@/features/admin/adminApi", () => api);
 
 import TuningPanel from "./TuningPanel";
 

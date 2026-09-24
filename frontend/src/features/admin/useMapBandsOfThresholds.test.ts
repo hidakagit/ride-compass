@@ -10,10 +10,10 @@
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import type { DisplayThresholdsPreviewRequest, MapBandsOfThresholds } from "./axisPreviewApi";
+import type { DisplayThresholdsPreviewRequest, MapBandsOfThresholds } from "./adminApi";
 
 const api = vi.hoisted(() => ({ fetchMapBandsOfThresholds: vi.fn() }));
-vi.mock("@/features/admin/axisPreviewApi", () => api);
+vi.mock("@/features/admin/adminApi", () => api);
 vi.mock("@/hooks/useDebouncedValue", () => ({ MAP_FETCH_DEBOUNCE_MS: 0, useDebouncedValue: <T>(value: T) => value }));
 
 import { NO_MAP_BANDS_JUDGEMENT, useMapBandsOfThresholds } from "./useMapBandsOfThresholds";

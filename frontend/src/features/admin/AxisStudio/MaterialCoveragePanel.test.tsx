@@ -13,7 +13,7 @@ import { vocabulary } from "@/types/generated/vocabulary";
 import type { MaterialCoverageEntry, MaterialCoverageResponse } from "@/types/route";
 
 const api = vi.hoisted(() => ({ getMaterialCoverage: vi.fn() }));
-vi.mock("@/features/admin/materialCoverageApi", () => api);
+vi.mock("@/features/admin/adminApi", () => api);
 
 import MaterialCoveragePanel from "./MaterialCoveragePanel";
 

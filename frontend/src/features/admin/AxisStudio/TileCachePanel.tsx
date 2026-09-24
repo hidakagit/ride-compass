@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { Button } from "@/components/ui/Button/Button";
 import { Card } from "@/components/ui/Card/Card";
-import { refreshTileCache } from "@/features/admin/basemapAdminApi";
+import { refreshTileCache } from "@/features/admin/adminApi";
 import { textVariants } from "@/components/ui/Text/Text";
 
 // 「データ保守」タブ（/admin）から、サーバー側のタイルファイルキャッシュを全消去するパネル。

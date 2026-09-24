@@ -6,7 +6,7 @@ import { CopyIcon } from "@/components/ui/icons/icons";
 import { Card } from "@/components/ui/Card/Card";
 import { Input } from "@/components/ui/Input/Input";
 import { Button } from "@/components/ui/Button/Button";
-import { getRecentLogs, type LogLevelName } from "@/features/admin/debugAdminApi";
+import { getRecentLogs, type LogLevelName } from "@/features/admin/adminApi";
 import { vocabulary } from "@/types/generated/vocabulary";
 import { Select } from "@/components/ui/Input/Input";
 import { LogLine } from "@/components/ui/LogLine/LogLine";
@@ -33,8 +33,7 @@ function parseLogLevel(line: string): LogLevelName | null {
 }
 
 // 「開発者」タブからbackendの直近ログ（GET /api/admin/debug/logs）を見られるパネル。
-// /adminページ自体が既にブラウザ標準のBasic認証で保護されているため、
-// 認証情報の入力欄は持たない（axisAdminApi.tsと同じ理由、debugAdminApi.tsのコメント参照）。
+// /adminページ自体が既にブラウザ標準のBasic認証で保護されているため、認証情報の入力欄は持たない。
 // 取得は開いたとき自動ではなく「取得」ボタン押下時のみ（SystemStatusPanelと同じ、
 // プロセス内スナップショットのためポーリング不要）。
 export default function BackendLogsPanel() {
@@ -52,7 +51,7 @@ export default function BackendLogsPanel() {
     const parsedLimit = Number(limit);
     getRecentLogs({
       contains: contains.trim() || undefined,
-      minLevel: minLevel || undefined,
+      min_level: minLevel || undefined,
       limit: Number.isFinite(parsedLimit) && parsedLimit > 0 ? parsedLimit : undefined,
     })
       .then((result) => setLines(result))

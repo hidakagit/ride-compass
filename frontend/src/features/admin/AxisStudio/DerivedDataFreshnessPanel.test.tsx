@@ -13,7 +13,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { DerivedDataFreshnessResponse } from "@/types/route";
 
 const api = vi.hoisted(() => ({ getDerivedDataFreshness: vi.fn() }));
-vi.mock("@/features/admin/derivedDataFreshnessApi", () => api);
+vi.mock("@/features/admin/adminApi", () => api);
 
 import DerivedDataFreshnessPanel from "./DerivedDataFreshnessPanel";
 

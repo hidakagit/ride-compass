@@ -6,18 +6,19 @@
  *
  * ここで見ないもの:
  * - 浮動パネルの開閉・移動 → `components/FloatingPanel`
- * - 取得の骨格 → `debugStatsApi.ts`・`versionApi.ts`（叩く先は `adminApiClients.test.ts`）
+ * - 叩く先 → `features/admin/adminApi.test.ts`
  */
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import type { DebugStats } from "@/features/admin/debugStatsApi";
-import type { FrontendVersion } from "@/features/admin/versionApi";
+import type { DebugStats, FrontendVersion } from "@/features/admin/adminApi";
 
 const api = vi.hoisted(() => ({ getDebugStats: vi.fn(), getFrontendVersion: vi.fn() }));
-vi.mock("@/features/admin/debugStatsApi", () => ({ getDebugStats: api.getDebugStats }));
-vi.mock("@/features/admin/versionApi", () => ({ getFrontendVersion: api.getFrontendVersion }));
+vi.mock("@/features/admin/adminApi", () => ({
+  getDebugStats: api.getDebugStats,
+  getFrontendVersion: api.getFrontendVersion,
+}));
 
 import SystemStatusPanel from "./SystemStatusPanel";
 

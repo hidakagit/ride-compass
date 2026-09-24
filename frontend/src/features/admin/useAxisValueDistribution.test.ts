@@ -14,7 +14,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { ValueDistribution } from "./AxisStudio/scoreDistribution";
 
 const api = vi.hoisted(() => ({ fetchAxisValueDistribution: vi.fn() }));
-vi.mock("@/features/admin/axisPreviewApi", () => api);
+vi.mock("@/features/admin/adminApi", () => api);
 vi.mock("@/hooks/useDebouncedValue", () => ({ MAP_FETCH_DEBOUNCE_MS: 0, useDebouncedValue: <T>(value: T) => value }));
 
 import { useAxisValueDistribution } from "./useAxisValueDistribution";

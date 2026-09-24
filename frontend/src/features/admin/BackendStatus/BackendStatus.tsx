@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { checkBackendHealth } from "@/features/admin/healthApi";
+import { checkBackendHealth } from "@/features/admin/adminApi";
 import { cn } from "@/lib/cn";
 
 export default function BackendStatus() {

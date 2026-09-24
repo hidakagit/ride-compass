@@ -5,7 +5,7 @@ import { useState } from "react";
 import { Button } from "@/components/ui/Button/Button";
 import { Card } from "@/components/ui/Card/Card";
 import InfoPopover from "@/components/ui/InfoPopover/InfoPopover";
-import { getDbStatus } from "@/features/admin/dbStatusApi";
+import { getDbStatus } from "@/features/admin/adminApi";
 import type { DbStatusResponse } from "@/types/route";
 import { type StatusRow, StatusRowList, StatusVerdict } from "./StatusRowList";
 import { textVariants } from "@/components/ui/Text/Text";

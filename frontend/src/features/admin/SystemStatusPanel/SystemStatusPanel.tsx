@@ -2,8 +2,8 @@
 
 import { useCallback, useEffect, useState } from "react";
 import FloatingPanel from "@/components/FloatingPanel/FloatingPanel";
-import { getDebugStats, type DebugStats } from "@/features/admin/debugStatsApi";
-import { getFrontendVersion, type FrontendVersion } from "@/features/admin/versionApi";
+import { getDebugStats, type DebugStats } from "@/features/admin/adminApi";
+import { getFrontendVersion, type FrontendVersion } from "@/features/admin/adminApi";
 import { Button } from "@/components/ui/Button/Button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/Table/Table";
 import { Badge } from "@/components/ui/Badge/Badge";

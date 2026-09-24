@@ -7,7 +7,7 @@
 import { useEffect, useRef, useState } from "react";
 
 import { MAP_FETCH_DEBOUNCE_MS, useDebouncedValue } from "@/hooks/useDebouncedValue";
-import { fetchScoresPreview, type ScoresPreview, type ScoresPreviewRequest } from "@/features/admin/axisPreviewApi";
+import { fetchScoresPreview, type ScoresPreview, type ScoresPreviewRequest } from "@/features/admin/adminApi";
 
 /** `request`がnullの間は問い合わせない。入力を変えた直後・取得に失敗したときはnull——前の折れ点の
  * 点数を今の折れ点のものとして出さない。 */

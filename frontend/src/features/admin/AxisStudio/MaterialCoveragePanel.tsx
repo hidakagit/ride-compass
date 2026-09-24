@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/Button/Button";
 import { Card } from "@/components/ui/Card/Card";
 import { vocabulary } from "@/types/generated/vocabulary";
 import InfoPopover from "@/components/ui/InfoPopover/InfoPopover";
-import { getMaterialCoverage } from "@/features/admin/materialCoverageApi";
+import { getMaterialCoverage } from "@/features/admin/adminApi";
 import type { MaterialCoverageEntry, MaterialCoverageResponse } from "@/types/route";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/Table/Table";
 import { textVariants } from "@/components/ui/Text/Text";

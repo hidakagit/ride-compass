@@ -11,10 +11,10 @@ import { StrictMode } from "react";
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import type { MaterialDistribution } from "./axisPreviewApi";
+import type { MaterialDistribution } from "./adminApi";
 
 const api = vi.hoisted(() => ({ fetchMaterialDistribution: vi.fn() }));
-vi.mock("@/features/admin/axisPreviewApi", () => api);
+vi.mock("@/features/admin/adminApi", () => api);
 
 import { useMaterialDistribution } from "./useMaterialDistribution";
 

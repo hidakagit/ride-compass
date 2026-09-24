@@ -25,7 +25,7 @@ const api = vi.hoisted(() => ({
   deleteAxisDefinition: vi.fn(),
   unpublishAxisDefinition: vi.fn(),
 }));
-vi.mock("@/features/admin/axisAdminApi", () => api);
+vi.mock("@/features/admin/adminApi", () => api);
 
 const catalogs = vi.hoisted(() => ({
   materials: [] as AxisMaterialOption[],

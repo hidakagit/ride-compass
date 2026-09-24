@@ -8,11 +8,9 @@ import { adminBasicAuthCredentials } from "@/lib/adminBasicAuth";
 // frontend/AGENTS.md「このNext.jsは知っているものと違う」参照）。
 //
 // HTTP Basic認証（ブラウザ標準ダイアログ）で/adminページ本体（研究/開発者ツールを含む
-// UIシェル全体）への到達自体を防ぐ。軸スタジオの管理API呼び出し（axisAdminApi.ts、
-// backendの別オリジンへ直接飛ぶためこのProxyを経由しない）は別途
-// backend/app/api/routers/axis_admin.py: require_admin_basic_authが同じ方式で保護する
-// （2箇所独立のBasic認証チェックだが、同じ資格情報[ADMIN_BASIC_AUTH_USERNAME/PASSWORD]を
-// 両側のenvへ設定して運用することで実質1つの資格情報として扱う設計）。
+// UIシェル全体と、管理APIの転送の口`/admin/api/**`）への到達自体を防ぐ。転送先のbackendの管理APIは
+// 別途backendのrequire_admin_basic_authが同じ方式で保護する（2箇所独立のBasic認証チェックだが、
+// 同じ資格情報[ADMIN_BASIC_AUTH_USERNAME/PASSWORD]を両側のenvへ設定して1つの資格情報として扱う）。
 //
 // 未設定（既定、どちらか一方でも空）の環境では常に拒否する（うっかり無保護公開しない、
 // backend側の同種ガードと同じ安全側の既定）。

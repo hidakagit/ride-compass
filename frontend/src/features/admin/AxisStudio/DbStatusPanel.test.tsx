@@ -12,7 +12,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { DbStatusResponse } from "@/types/route";
 
 const api = vi.hoisted(() => ({ getDbStatus: vi.fn() }));
-vi.mock("@/features/admin/dbStatusApi", () => api);
+vi.mock("@/features/admin/adminApi", () => api);
 
 import DbStatusPanel from "./DbStatusPanel";
 

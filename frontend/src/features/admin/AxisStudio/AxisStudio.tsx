@@ -11,7 +11,7 @@ import {
   listAxisDefinitions,
   unpublishAxisDefinition,
   updateAxisDefinition,
-} from "@/features/admin/axisAdminApi";
+} from "@/features/admin/adminApi";
 import { rampColorForBand } from "@/lib/mapDisplay/axisLayers";
 import { bandColorsFor } from "@/lib/mapDisplay/valueScale";
 import { useAxisCatalog } from "@/hooks/useAxisCatalog";

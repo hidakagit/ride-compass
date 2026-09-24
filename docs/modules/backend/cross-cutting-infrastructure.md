@@ -218,7 +218,7 @@ frontend側（`src/proxy.ts`）も同じ資格情報を別のBasic認証チェ�
 件数、いずれも併用可でAND条件）。debug_modeがOFFの間はDEBUGレベルの行自体が記録
 されない（WARNING以上は常時記録される）。フロントの「開発者」タブ
 （`BackendLogsPanel.tsx`、[軸スタジオ・評価軸定義](axis-studio.md)の
-`proxyToBackendAdmin`と同じBasic認証セッション再利用）がこのエンドポイントを叩く。
+管理APIの転送の口と同じBasic認証セッション再利用）がこのエンドポイントを叩く。
 
 `install_ring_buffer_handler()`（`debug_control.py`、`main.py`起動時に1回）が
 `_LogRingBufferHandler`（`deque(maxlen=1000)`）をルートロガーへ追加する。既存の

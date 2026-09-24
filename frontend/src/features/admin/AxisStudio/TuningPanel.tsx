@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/Button/Button";
 import { Card } from "@/components/ui/Card/Card";
 import InfoPopover from "@/components/ui/InfoPopover/InfoPopover";
-import { listTuningParameters, updateTuningParameter, type TuningParameter } from "@/features/admin/tuningApi";
+import { listTuningParameters, updateTuningParameter, type TuningParameter } from "@/features/admin/adminApi";
 import { NumberInput } from "@/components/ui/NumberInput/NumberInput";
 import { textVariants } from "@/components/ui/Text/Text";
 import { dotVariants } from "@/components/ui/Dot/Dot";

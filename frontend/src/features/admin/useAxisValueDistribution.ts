@@ -6,7 +6,7 @@
 import { useEffect, useRef, useState } from "react";
 
 import type { ValueDistribution } from "@/features/admin/AxisStudio/scoreDistribution";
-import { fetchAxisValueDistribution } from "@/features/admin/axisPreviewApi";
+import { fetchAxisValueDistribution } from "@/features/admin/adminApi";
 import { MAP_FETCH_DEBOUNCE_MS, useDebouncedValue } from "@/hooks/useDebouncedValue";
 
 interface AxisValueDistributionResult {
