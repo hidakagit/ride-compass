@@ -75,6 +75,17 @@ describe("jmatile:// プロトコル", () => {
     expect(second.buffer).not.toBe(first.buffer);
   });
 
+  it("取り直したインデックスが「無し」なら、それ以後は間引かない（古いインデックスを握り続けない）", async () => {
+    const { setJmaTileIndex, request } = await load();
+    fetchMock.mockImplementation(async () => new Response(new Uint8Array([1])));
+    setJmaTileIndex(INDEX);
+    await request(EMPTY_PNG_URL);
+    expect(fetchMock).not.toHaveBeenCalled();
+    setJmaTileIndex({ available: false });
+    await request(EMPTY_PNG_URL);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
   it("空と分かっているベクタタイルは0バイト（地物なし）", async () => {
     const { setJmaTileIndex, request } = await load();
     setJmaTileIndex(INDEX);

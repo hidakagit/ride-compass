@@ -1,5 +1,5 @@
 import { act, renderHook } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { buildDefaultLayerVisibility, type MapLayerVisibility } from "@/features/map/layers/mapLayers";
 import type { JmaDelivery, JmaFrame } from "@/features/map/layers/jmaDelivery";
@@ -279,6 +279,37 @@ describe("配信元の地点（最新の観測の規則）", () => {
 });
 
 describe("取得状態", () => {
+  it("まだ取り終えていない間は読み込み中、格子を読むチップは格子の取得の失敗をそのまま出す", async () => {
+    fetchers.fetchJmaFrames.mockImplementation(() => new Promise(() => {}));
+    fetchers.useWeatherGrid.mockReturnValue({
+      grid: [],
+      detailGrid: [],
+      effectiveGrid: [],
+      effectiveGridSpacingDeg: 0.1,
+      loading: false,
+      error: "格子を取れません",
+      hasFetched: true,
+    });
+    const { result } = render({ visibility: visibility({ disaster: true, windVector: true }) });
+    await settle();
+    expect(result.current.dynamicWeatherDataStatus).toMatchObject({ disaster: "loading", windVector: "error" });
+  });
+
+  it("OFFのチップは取りに行っていないので、何も言わない（「データが無い」と断定しない）", async () => {
+    fetchers.useWeatherGrid.mockImplementation((enabled: boolean) => ({
+      grid: [],
+      detailGrid: [],
+      effectiveGrid: [],
+      effectiveGridSpacingDeg: 0.1,
+      loading: false,
+      error: null,
+      hasFetched: enabled,
+    }));
+    const { result } = render();
+    await settle();
+    expect(Object.values(result.current.dynamicWeatherDataStatus).every((status) => status === undefined)).toBe(true);
+  });
+
   it("チップ内のどれかが描けていれば空とせず、どれも描けず取り終えていれば空", async () => {
     const { result } = render({ visibility: visibility({ disaster: true }) });
     await settle();
@@ -313,5 +344,42 @@ describe("取得状態", () => {
       fetchers.failures.listeners.forEach((listener) => listener());
     });
     expect(result.current.dynamicWeatherDataStatus.disaster).toBe("error");
+  });
+});
+
+describe("出発時刻が「今」へ追従しているとき", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("時間が経っても、定期的に取り直した時刻一覧で「今」の降水を描き続ける（過去に取り残されない）", async () => {
+    vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
+    // 配信元の「今」。取り直すたびに、その時点の実況から先の時刻一覧が返る。
+    let latest = 5;
+    const hhmm = (minute: number) => `00${String(minute).padStart(2, "0")}`;
+    fetchers.fetchJmaFrames.mockImplementation(async (delivery: JmaDelivery) =>
+      delivery.reader === "nowcast"
+        ? [frame(utc(hhmm(latest)), utc(hhmm(latest))), frame(utc(hhmm(latest + 10)), utc(hhmm(latest)))]
+        : FRAMES_BY_READER[delivery.reader],
+    );
+    const props = (at: Date): Options => ({
+      visibility: visibility({ precipitationNowcast: true }),
+      hiddenSources: {},
+      mapViewport: null,
+      at,
+      now: at,
+    });
+    const { result, rerender } = renderHook((p: Options) => useDynamicWeatherLayers(p), { initialProps: props(NOW) });
+    await settle();
+    expect(result.current.dynamicWeather.precipitationNowcast?.main?.payload).toBeDefined();
+
+    // 30分放置する。出発時刻は「今」へ追従して進み、配信元の実況も進む。
+    latest = 35;
+    act(() => vi.advanceTimersByTime(30 * 60 * 1000));
+    await settle();
+    rerender(props(new Date("2026-09-24T00:35:00Z")));
+    expect(result.current.dynamicWeather.precipitationNowcast?.main?.payload).toMatchObject({
+      tileUrlTemplate: expect.stringContaining(`/${utc("0035")}/none/${utc("0035")}/surf/`),
+    });
   });
 });
