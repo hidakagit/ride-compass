@@ -132,7 +132,6 @@ CLAUDE.md参照。節見出しはタスクのテーマ分類で、日付は起�
 - [ ] [T1008](records/tasks/T1008.md). 時刻別・速度別の動的way値を、実際に配る 規模M
 - [ ] [T1010](records/tasks/T1010.md). 地図の宣言に対する取り決めを決め、検査で固定する 規模M — 項目2・4はT1001段階Bへ移した（項目1・3が残る）
 - [ ] [T978](records/tasks/T978.md). 標高タイルの取込が、製品を1つ選んで残りを捨てている 規模M
-- [ ] [T989](records/tasks/T989.md). docker composeで立てた環境は、手順どおりにしても使える状態にならない 規模S〜M
 - [ ] [T1052](records/tasks/T1052.md). Open-Meteoと環境省WBGTの出典が画面に出ていない 規模S
 - [ ] [T1053](records/tasks/T1053.md). 利用条件を公式で確定できなかった外部ソース（逆ジオコーダ・MSMと気象業務法・WBGTの予測値API）の扱いを決める 規模S
 - [ ] [T1075](records/tasks/T1075.md). 旧car_stress一族に代わる走りにくさの軸を、指定路線の材料なしで作り直す 規模M

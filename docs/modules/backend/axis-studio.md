@@ -206,7 +206,9 @@
 
 `scripts/bootstrap_database.py`が作るのはスキーマ・取込・派生までで、`axis_definitions`の
 行は作らない。`refresh_axis_definitions`は0行を`AxisDefinitionSyncError`として扱うため、
-**新規環境は軸を1つ以上APIで登録するまでアプリが起動しない**。
+**新規環境ではアプリが起動しない**。軸を足す管理APIも起動したbackendにしか無いので、新規環境で
+軸を登録する手段は無い。新規環境（composeのDB・クラウドのセッション）はテストを回す場と決めており、
+アプリを確かめるのは本番か手元の開発機で行う（[setup.md](../../architecture/setup.md)）。
 
 テストの中でも`AXIS_DEFINITIONS`は空から始まる。軸の集合を必要とするテストは、見たい
 性質（shapeの種類・表示の上書き・専用way値配信等）だけを持つ軸をそのファイルで組み立て、
