@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { debugLog } from "@/lib/debugLog";
+import regionTileConfig from "@/types/generated/region-tile-config.json";
 
 // 成功・失敗時のdebugLogの呼び出し回数・ラベルを直接アサートするためモックする。
 vi.mock("@/lib/debugLog", () => ({ debugLog: vi.fn() }));
@@ -12,9 +13,11 @@ import {
   accidentTileUrl,
   fetchAxisInspector,
   fetchDynamicWayValues,
+  hasTileVersions,
   poiTileUrl,
   roadSurfaceTileUrl,
   setTileVersions,
+  subscribeTileVersions,
 } from "./regionApi";
 
 // タイル世代は実行時にbackendから受け取る（setTileVersions）。
@@ -27,6 +30,31 @@ describe("regionApi", () => {
 
   afterEach(() => {
     vi.unstubAllGlobals();
+  });
+
+  describe("hasTileVersions（タイルの世代が揃ったか）", () => {
+    const kinds = regionTileConfig.tile_version_kinds;
+    const all = Object.fromEntries(kinds.map((kind) => [kind, `v-${kind}`]));
+
+    it("配信される系統すべての世代があるときだけ揃ったとし、空の応答（世代を返さない版のbackend）では揃わない", () => {
+      setTileVersions({});
+      expect(hasTileVersions()).toBe(false);
+      for (const missing of kinds) {
+        setTileVersions(Object.fromEntries(Object.entries(all).filter(([kind]) => kind !== missing)));
+        expect(hasTileVersions()).toBe(false);
+      }
+      setTileVersions(all);
+      expect(hasTileVersions()).toBe(true);
+    });
+
+    it("世代を入れ替えると購読者へ知らせ、購読をやめた後は知らせない", () => {
+      const listener = vi.fn();
+      const unsubscribe = subscribeTileVersions(listener);
+      setTileVersions(all);
+      unsubscribe();
+      setTileVersions({});
+      expect(listener).toHaveBeenCalledTimes(1);
+    });
   });
 
   it("roadSurfaceTileUrlは配信オリジンとタイル世代クエリを使ったURLテンプレートを返す", () => {

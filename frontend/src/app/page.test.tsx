@@ -1,2182 +1,1736 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
-
-import type { MapViewport } from "@/features/map/layers/windLayer";
+/**
+ * トップページ（`app/page.tsx`）——画面の状態の持ち主として、何を保存し、子の部品へ何を渡し、子から上がった
+ * 操作で何を変えるか。
+ *
+ * ここで見ないもの:
+ * - 生成リクエストのpayloadと「条件が変わった」の比較キーの組み立て規則 → `features/route/generationRequest.ts`
+ * - 重み・除外の保存値を今の軸・項目へ揃える規則 → `features/route/routePreferenceSync.ts`・`hardFilterSync.ts`
+ * - 乗り換えの区間の求め方・合成した候補の並べ方 → `features/route/routeSplice.ts`
+ * - 候補の行の「最速」「+N分」・負荷の帯の高さの決め方 → `features/route/routeTabLabel.ts`・`difficultyLoadBar.ts`
+ * - 入力の検証の文言 → `features/route/RouteForm/useRouteFormSubmit.ts`
+ * - 位置の取得の並走と文言 → `hooks/useLocation.ts`
+ *
+ * 差し替えた部品と、それで見えなくなるもの:
+ * - 地図（`MapView`）・地図の見え方（`useMapView`）・レンズ（`LensControl`）・地図上チップ（`MapOverlayControls`）:
+ *   渡す値と、地図から上がる操作だけを見る。MapLibreでの描画、地図のタップがどの操作として上がるか、
+ *   レイヤー・凡例の状態の持ち方は見えない。
+ * - 下部シート（`BottomSheet`）: 開閉・見出しへの差し込み・渡す高さだけを見る。ドラッグとキー操作、
+ *   中身に合わせた高さの自動調整は見えない。
+ * - 候補の中身（`RouteAxisProfile`）・区間の内訳の帯（`AxisContributionBar`）・比較表（`ComparisonPanel`）・
+ *   重みと除外のパネル・走行方位と走行条件の部品・ヘッダーの天気と警報とメニュー・デバッグコンソール:
+ *   渡す値と、上がる操作だけを見る。部品自身の表示は見えない。
+ * - 軸カタログ・材料カタログ・天気の取得・ルート生成の通信・GPXの書き出し・位置情報（`navigator.geolocation`）・
+ *   スマホ幅の判定（`useIsMobile`）: 返す値をテストが決める。取得の失敗の扱い・CSSの`--is-mobile`との対応は見えない。
+ */
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import userEvent, { type UserEvent } from "@testing-library/user-event";
+import type { ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { AxisCatalogResponse } from "@/types/route";
-import { makeRouteCandidate } from "@/testing/routeFixtures";
 
-// layerVisibility（地図チップから操作するレイヤーのON/OFF）の永続化・復元の
-// 検証。軸スタジオ由来のレイヤーはここに含まれず、表示はレンズ（lens）だけが決める。
-//
-// page.tsxは地図・位置情報・天候等の重いコンポーネント/フックを多数使うため、本テストの
-// 関心事（layerVisibilityの永続化・復元）に無関係なものはすべて軽量スタブへ差し替える。
-// MapOverlayControlsだけは、実際に組み立てられたlayers（id・on）をそのまま可視化する
-// スタブにして、テストからlayerVisibilityの実効値を検証できるようにする。
-
-vi.mock("@/features/map/MapView/MapView", () => ({ default: () => null }));
-vi.mock("@/features/route/RouteForm/RouteForm", () => ({ default: () => null }));
-vi.mock("@/features/conditions/WeatherPanel/WeatherPanel", () => ({ default: () => null }));
-vi.mock("@/features/conditions/WarningBadge/WarningBadge", () => ({ default: () => null }));
-vi.mock("@/features/route/ComparisonPanel/ComparisonPanel", () => ({ default: () => null }));
-vi.mock("@/components/DebugConsole/DebugConsole", () => ({ default: () => null }));
-vi.mock("@/features/route/gpxExport", () => ({ downloadGpx: vi.fn() }));
-
-vi.mock("@/features/route/RouteSettingsPanel/RouteSettingsPanel", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("@/features/route/RouteSettingsPanel/RouteSettingsPanel")>();
-  return { ...actual, default: () => null };
-});
-
-// 実際に組み立てられたoverlayLayers（id・on）をテストから読み取れるようにするスタブ。
-// 改善計画T406: 排他ドメイン（道路/評価軸/環境/スポット）のON/OFF実装はpage.tsx:
-// handleLayerToggle側にあるため、そのハンドラをテストから直接クリックで駆動できるよう
-// レイヤーごとの切り替えボタンも描画する（onToggle(id, !on)を呼ぶだけの薄いスタブ）。
-vi.mock("@/features/map/MapOverlayControls/MapOverlayControls", () => ({
-  default: (props: {
-    layers: Array<{
-      id: string;
-      on: boolean;
-      title?: string;
-      notice?: string | null;
-      legendDetails?: unknown[];
-      dataStatus?: string | null;
-    }>;
-    onToggle: (id: string, on: boolean) => void;
-  }) => (
-    <>
-      {/* JSON文字列の要素自体はbutton群を子に含めない（既存テストがtextContentを丸ごと
-          JSON.parseするため、button群を同じ要素の子にするとテキストが混ざって壊れる）。 */}
-      <div data-testid="overlay-layers">{JSON.stringify(props.layers.map((l) => [l.id, l.on]))}</div>
-      {/* titleは既存の"overlay-layers"（[id, on]の2要素固定を前提にした既存の
-          exact-substring/new Map()アサーションが複数ある）とは別の独立したtestidへ出す
-          （改善計画T478、T468のisDynamicGroupLayer回帰テスト用）。 */}
-      <div data-testid="overlay-layer-titles">{JSON.stringify(props.layers.map((l) => [l.id, l.title]))}</div>
-      {/* ▶の中身は「案内文があれば案内文、無ければ凡例」で決まる。案内文が入っているかを
-          読めるようにする（凡例の件数も併記するが、案内文はそれに勝つ）。 */}
-      <div data-testid="overlay-layer-panels">
-        {JSON.stringify(props.layers.map((l) => [l.id, l.notice ?? null, l.legendDetails?.length ?? 0]))}
-      </div>
-      {/* チップ上の状態ドット。案内文とは別の経路で出るため、既存のtestidへ混ぜない。 */}
-      <div data-testid="overlay-layer-status">
-        {JSON.stringify(props.layers.map((l) => [l.id, l.dataStatus ?? null]))}
-      </div>
-      {props.layers.map((l) => (
-        <button key={l.id} type="button" onClick={() => props.onToggle(l.id, !l.on)}>
-          {`toggle:${l.id}`}
-        </button>
-      ))}
-    </>
-  ),
-}));
-
-vi.mock("@/hooks/useIsMobile", () => ({ useIsMobile: () => false }));
-vi.mock("@/hooks/useResearchMode", () => ({ useResearchEnabled: () => false }));
-vi.mock("@/hooks/useDebugLog", () => ({ useDebugEnabled: () => false }));
-
-vi.mock("@/hooks/useLocation", () => ({
-  useLocation: () => ({
-    location: { latitude: 35.7597, longitude: 139.7387 },
-    locationSource: "default",
-    locationReady: true,
-    locating: false,
-    locateError: null,
-    handleLocateMe: vi.fn(),
-  }),
-}));
-
-vi.mock("@/services/weatherApi", () => ({
-  getCurrentWeather: vi.fn().mockRejectedValue(new Error("mock: unused in this test")),
-  getAmedasObservation: vi.fn().mockRejectedValue(new Error("mock: unused in this test")),
-  getFloodForecasts: vi.fn().mockRejectedValue(new Error("mock: unused in this test")),
-  getWbgtStatus: vi.fn().mockRejectedValue(new Error("mock: unused in this test")),
-  getWeatherWarnings: vi.fn().mockRejectedValue(new Error("mock: unused in this test")),
-}));
-
-// 区間クリック詳細の材料値は、カタログの名前で出す（材料idは内部名で、画面に出さない）。
-vi.mock("@/services/materialCatalogApi", () => ({
-  getMaterialCatalog: vi.fn(async () => ({
-    materials: [
-      {
-        material_id: "wind_drag_ratio",
-        label: "風の追加負荷 - wind_drag_ratio",
-        name: "風の追加負荷",
-        description: "",
-        dtype: "numeric",
-        unit: "",
-        reference_points: [],
-      },
-    ],
-  })),
-}));
-vi.mock("@/services/axisCatalogApi", () => ({
-  getAxisCatalog: vi.fn(),
-}));
-
-vi.mock("@/hooks/useAxisCatalog", async (importOriginal) => {
-  // 共有ストアを持たない代役を当てる（本番へ初期化の口を開けないため。testing/fakeAxisCatalogHook.ts）。
-  const actual = await importOriginal<typeof import("@/hooks/useAxisCatalog")>();
-  const fake = await import("@/testing/fakeAxisCatalogHook");
-  return { ...actual, useAxisCatalog: fake.useFakeAxisCatalog, retryAxisCatalogFetch: fake.retryFakeAxisCatalogFetch };
-});
-
-import { getAxisCatalog } from "@/services/axisCatalogApi";
-import { setTileVersions } from "@/services/regionApi";
 import Home from "./page";
+import type AxisContributionBar from "@/components/AxisContributionBar/AxisContributionBar";
+import { DEFAULT_SHEET_HEIGHT_VH } from "@/components/BottomSheet/BottomSheet";
+import type BottomSheet from "@/components/BottomSheet/BottomSheet";
+import type DebugConsole from "@/components/DebugConsole/DebugConsole";
+import type HeaderMenu from "@/components/HeaderMenu/HeaderMenu";
+import type RideConditionBar from "@/features/conditions/RideConditionBar/RideConditionBar";
+import type TodayOutlook from "@/features/conditions/TodayOutlook/TodayOutlook";
+import type TravelBearingControl from "@/features/conditions/TravelBearingControl/TravelBearingControl";
+import type WarningBadgeList from "@/features/conditions/WarningBadge/WarningBadge";
+import type WeatherPanel from "@/features/conditions/WeatherPanel/WeatherPanel";
+import { useWeatherConditions } from "@/features/conditions/useWeatherConditions";
+import type LensControl from "@/features/map/LensControl/LensControl";
+import type MapOverlayControls from "@/features/map/MapOverlayControls/MapOverlayControls";
+import type MapView from "@/features/map/MapView/MapView";
+import type { useMapView } from "@/features/map/view/useMapView";
+import type ComparisonPanel from "@/features/route/ComparisonPanel/ComparisonPanel";
+import type RouteAxisProfile from "@/features/route/RouteAxisProfile/RouteAxisProfile";
+import { DEFAULT_HARD_FILTERS } from "@/features/route/RouteSettingsPanel/HardFilterPanel";
+import type HardFilterPanel from "@/features/route/RouteSettingsPanel/HardFilterPanel";
+import type RouteSettingsPanel from "@/features/route/RouteSettingsPanel/RouteSettingsPanel";
+import { downloadGpx } from "@/features/route/gpxExport";
+import { generateRoutes, type GenerationProgress } from "@/features/route/routeApi";
+import { SPLICED_ROUTE_ID_PREFIX } from "@/features/route/routeTabLabel";
+import { axisCatalogFromResponse, CLIENT_TUNING_IDS, EMPTY_CATALOG, type AxisCatalog } from "@/lib/axisCatalog";
+import { catalogEntry } from "@/lib/mapDisplay/__fixtures__/catalogAxes";
+import { LENS_DIFFICULTY_ID, LENS_NONE_ID } from "@/lib/mapDisplay/routeStyleModes";
+import { setResearchEnabled } from "@/lib/researchMode";
+import { makeRouteCandidate } from "@/testing/routeFixtures";
+import { EXPERIMENT_SLOT_COLORS, MAX_EXPERIMENT_SLOTS } from "@/types/experimentSlot";
+import routeGenerateConfig from "@/types/generated/route-generate-config.json";
+import type { Coordinates, GenerationConditions, RouteCandidate, RouteSegmentDetail } from "@/types/route";
 
-const LAYER_VISIBILITY_STORAGE_KEY = "ridecompass:layer-visibility";
-
-// 軸スタジオで新規公開されたGUI作成軸を1つだけ含むカタログ（kind="ramp"なので
-// mapLayers.ts: buildMapLayersが二次軸rampレイヤーとして拾い、axis:gui_created_axisという
-// レイヤーIDになる、axisLayers.ts: axisMapLayerId参照）。
-function catalogWithGuiCreatedAxis(): AxisCatalogResponse {
+// 差し替えた部品は、描かれている間の最新のpropsを名前で引けるようにする（外れたら引けなくなる）。
+const stubs = vi.hoisted(() => {
+  const mounted = new Map<string, { token: object; props: Record<string, unknown> }>();
   return {
-    axes: [
-      {
-        axis_id: "gui_created_axis",
-        label: "GUI作成軸",
-        description: "",
-        category: "動的",
-        default_weight: 0.1,
-        display: {
-          kind: "ramp",
-          label: "GUI作成軸",
-          category: "trafficSafety",
-          tile_inputs: [],
-          thresholds: [1, 2, 3],
-        },
-        primary_attribute_ids: [],
-        icon_id: null,
-        chip_label: null,
-        panel_hint: null,
-        show_map_icon: true,
-        shape: {
-          kind: "breakpoint_linear",
-          terms: [{ material: "lanes_count", weight: 1.0, required: true }],
-          preprocess: "identity",
-          breakpoints: [
-            [0, 0],
-            [10, 100],
-          ],
-        },
-        display_thresholds_override: null,
-        display_band_labels_override: null,
-        dedicated_way_value_layer: false,
-        map_value_kind: "difficulty",
-        map_value_unit: "",
-        map_value_thresholds: null,
-        dynamic_way_value_needs_time: false,
-        dynamic_way_value_needs_bearing: false,
-        dynamic_way_value_needs_speed: false,
-        raw_value_unit: null,
-        raw_value_total_unit: null,
-        material_breakdown: [],
-      },
-    ],
-    // 改善計画T404: material_runtime_scalesはAxisCatalogResponseの必須フィールド
-    // （既定{}だがopenapi-typescriptはdefault付きフィールドをoptionalにしない）。
-    material_runtime_scales: {},
-    accident_years: [],
-    client_tuning: {},
-    // 世代はbackendが常に返す。**空にしない**——空は「世代を返さない版が応答した」という
-    // 別の状態で、地図が1つも描けない縮退の合図になる（T938。その状態自体は下の
-    // 「タイル世代が届かないとき」で別に確かめる）。
-    tile_versions: { road_surface: "1-test", poi: "1-test", accident: "1-test" },
+    mounted,
+    catalog: null as unknown,
+    materials: [] as unknown[],
+    isMobile: false,
+    mapView: null as unknown,
+    mapViewInputs: null as unknown,
+    component(
+      react: typeof import("react"),
+      nameOf: (props: Record<string, unknown>) => string,
+      draw: (props: Record<string, unknown>) => ReactNode = () => null,
+    ) {
+      return function Stub(props: Record<string, unknown>) {
+        const [token] = react.useState(() => ({}));
+        const name = nameOf(props);
+        react.useLayoutEffect(() => {
+          mounted.set(name, { token, props });
+        });
+        react.useLayoutEffect(
+          () => () => {
+            if (mounted.get(name)?.token === token) mounted.delete(name);
+          },
+          [name, token],
+        );
+        return draw(props);
+      };
+    },
   };
+});
+
+function stubModule(name: string) {
+  return async () => ({ default: stubs.component(await import("react"), () => name) });
 }
 
-describe("Home（app/page.tsx） layerVisibilityの永続化", () => {
-  beforeEach(() => {
-    window.localStorage.clear();
-  });
-  afterEach(() => {
-    window.localStorage.clear();
-    vi.mocked(getAxisCatalog).mockReset();
-  });
-
-  it("軸スタジオ由来のレイヤーはlayerVisibilityにもチップにも現れない（表示はレンズだけが決める）", async () => {
-    vi.mocked(getAxisCatalog).mockResolvedValue(catalogWithGuiCreatedAxis());
-    // 軸レイヤーのON/OFFを持っていた頃の保存値が残っている状態を模す。
-    window.localStorage.setItem(
-      LAYER_VISIBILITY_STORAGE_KEY,
-      JSON.stringify({ route: true, "axis:gui_created_axis": true }),
-    );
-
-    render(<Home />);
-
-    await screen.findByRole("button", { name: "toggle:route" });
-    // 旧保存値があってもチップ一覧には現れない（＝「全レイヤー一括OFF」が押しても
-    // 何も変わらない項目を数えることもない）。
-    const text = screen.getByTestId("overlay-layers").textContent ?? "";
-    expect(text).not.toContain("axis:gui_created_axis");
-  });
-});
-
-// ============================================================================
-// 「ルート設定」区分のタブ（条件/重み/除外）。タブ列は見出し行、中身は本文と離れた場所に
-// 出るため、両者を繋ぐTabs.Rootが効いていること（見出し行のタブを押すと選択が変わること）は
-// page.tsxでしか確認できない。押した先の中身の出し分けはRouteForm.test.tsxが見る。
-describe("Home（app/page.tsx） ルート設定のタブ", () => {
-  beforeEach(() => {
-    window.localStorage.clear();
-  });
-  afterEach(() => {
-    window.localStorage.clear();
-    vi.mocked(getAxisCatalog).mockReset();
-  });
-
-  it("既定は「条件」タブで、見出し行のタブを押すと選択が切り替わる", async () => {
-    const user = userEvent.setup();
-    vi.mocked(getAxisCatalog).mockResolvedValue(catalogWithGuiCreatedAxis());
-
-    render(<Home />);
-
-    const exclusionsTab = await screen.findByRole("tab", { name: "除外" });
-    expect(screen.getByRole("tab", { name: "条件" })).toHaveAttribute("aria-selected", "true");
-    expect(exclusionsTab).toHaveAttribute("aria-selected", "false");
-
-    await user.click(exclusionsTab);
-
-    expect(exclusionsTab).toHaveAttribute("aria-selected", "true");
-    expect(screen.getByRole("tab", { name: "条件" })).toHaveAttribute("aria-selected", "false");
-  });
-});
-
-// ============================================================================
-// 地図上チップ（道路/環境/スポット）は複数同時にONにできる。重なって読みにくくなった
-// 場合は各チップの▶パネルで絞り込む。ここでは上のdescribeブロックと同じく
-// MapOverlayControlsを軽量スタブに差し替え、スタブが呼ぶonToggleが実際の
-// handleLayerToggleへ届くことを利用して検証する（スタブはlayers.idごとにtoggle:${id}という
-// 名前のボタンを描画し、押すとonToggle(id, !on)を呼ぶ）。
-// getAxisCatalogは解決させない（軸0件のカタログのままレイヤーカタログを固定するため）。
-describe("Home（app/page.tsx） レイヤーの同時ON/OFF", () => {
-  beforeEach(() => {
-    window.localStorage.clear();
-  });
-  afterEach(() => {
-    window.localStorage.clear();
-    vi.mocked(getAxisCatalog).mockReset();
-  });
-
-  function overlayLayersOnMap(): Map<string, boolean> {
-    const text = screen.getByTestId("overlay-layers").textContent ?? "[]";
-    const layers = JSON.parse(text) as Array<[string, boolean]>;
-    return new Map(layers);
-  }
-
-  it("同じグループのレイヤーを複数同時にONにできる（環境: 標高図・降水・災害）", async () => {
-    vi.mocked(getAxisCatalog).mockReturnValue(new Promise(() => {}));
-    render(<Home />);
-
-    fireEvent.click(await screen.findByRole("button", { name: "toggle:elevation" }));
-    fireEvent.click(screen.getByRole("button", { name: "toggle:precipitationNowcast" }));
-
-    const after = overlayLayersOnMap();
-    expect(after.get("elevation")).toBe(true);
-    expect(after.get("precipitationNowcast")).toBe(true);
-    expect(after.get("disaster")).toBe(true); // 既定ONのまま消えない
-  });
-
-  it("グループをまたいでも同時にONにできる（道路・スポット）", async () => {
-    vi.mocked(getAxisCatalog).mockReturnValue(new Promise(() => {}));
-    render(<Home />);
-
-    fireEvent.click(await screen.findByRole("button", { name: "toggle:highway" }));
-    fireEvent.click(screen.getByRole("button", { name: "toggle:stop_poi" }));
-    fireEvent.click(screen.getByRole("button", { name: "toggle:accident_point" }));
-
-    const after = overlayLayersOnMap();
-    expect(after.get("highway")).toBe(true);
-    expect(after.get("stop_poi")).toBe(true);
-    expect(after.get("accident_point")).toBe(true);
-  });
-
-  it("ルートは他のレイヤーのON操作と無関係にON/OFFできる", async () => {
-    vi.mocked(getAxisCatalog).mockReturnValue(new Promise(() => {}));
-    render(<Home />);
-
-    // routeは既定でON（DEFAULT_LAYER_VISIBILITY参照）
-    expect(overlayLayersOnMap().get("route")).toBe(true);
-
-    fireEvent.click(await screen.findByRole("button", { name: "toggle:highway" }));
-    fireEvent.click(screen.getByRole("button", { name: "toggle:stop_poi" }));
-    // route自体はどちらの操作の影響も受けずONのまま
-    expect(overlayLayersOnMap().get("route")).toBe(true);
-  });
-
-  // 災害チップは他の環境グループ気象レイヤー（既定OFF）と異なり、防災級の情報を
-  // ユーザー操作を待たず表示するため既定ONにする（DEFAULT_LAYER_VISIBILITY参照）。
-  it("災害チップは既定でON", async () => {
-    vi.mocked(getAxisCatalog).mockReturnValue(new Promise(() => {}));
-    render(<Home />);
-
-    await screen.findByRole("button", { name: "toggle:route" });
-    expect(overlayLayersOnMap().get("disaster")).toBe(true);
-  });
-
-  // 災害チップは「環境」グループに並ぶが排他ドメインには属さない（mapLayers.ts:
-  // 排他の仕組みは持たない）。他の環境レイヤーを選んでいる間も災害情報が地図から
-  // 消えてはならないため。
-  it("他の環境レイヤーをONにしても災害チップはONのまま残る", async () => {
-    vi.mocked(getAxisCatalog).mockReturnValue(new Promise(() => {}));
-    render(<Home />);
-
-    fireEvent.click(await screen.findByRole("button", { name: "toggle:precipitationNowcast" }));
-
-    const after = overlayLayersOnMap();
-    expect(after.get("precipitationNowcast")).toBe(true);
-    expect(after.get("disaster")).toBe(true);
-  });
-});
-
-// 改善計画T468回帰テスト（2026-08-31 T478で追加）: overlayLayers組み立ての
-// isDynamicGroupLayer判定が、以前はlayer.idのハードコード列挙で「動的グループ」を
-// 再判定しており、mapLayers.ts側の単一ソースdataNature==="dynamic"とズレていた
-// （動的グループのレイヤーが列挙漏れで設定への案内が誤って付与される実害があった）。
-// dataNature自体を見る形へ修正済みであることを、titleの実際の値で確認する。
-// **案内の文言そのものは固定しない**——入口が変われば文言も変わるのが正しく、
-// 固定すると誤った案内を検査が守ることになる。見るのは「付くかどうか」だけ。
-// ============================================================================
-// 改善計画T331: handleGenerateハンドラ・4並列fetch（天候・警報・WBGT・氾濫予報）の競合
-// 対策ロジックのテスト追加。上のdescribeブロックはlayerVisibilityの永続化のみを検証して
-// おり、page.tsxが持つ15個以上のハンドラのうち直接検証されているものが実質0個だった。
-// 特に無防備だった以下2点をここで追加する。実装（page.tsx）自体は変更しない。
-//   1. handleGenerate（ルート生成ボタンのハンドラ）の「0件成功」「例外による失敗」
-//      「研究モードでのスロット記録」の3分岐。
-//   2. useWeatherConditions.tsのuseLocationFetch（気象・警報・暑さ指数・洪水の各fetch）が持つ
-//      「リクエストIDで古い応答を捨てる」競合対策（page.tsx冒頭のlatestXxxRequestId ref参照）。
-//
-// 上のdescribeブロックのvi.mock群はファイル全体（このファイルの静的`import Home from
-// "./page"`）に効くため、RouteFormは常にnull・useLocationは常に固定値のままである。
-// ここで必要な「実際のRouteFormを操作する」「locationを連続変更する」「researchEnabledを
-// trueにする」といった、上とは異なる振る舞いは、vi.doMock + vi.resetModules() +
-// 動的import("./page")で1テストごとに独立したHomeを組み立てて実現する（静的importの
-// Homeや上の2テストには一切影響しない。doMockは非hoistedのため、上のvi.mock群と衝突
-// しない別レジストリ操作として扱われる）。
-// ============================================================================
-
-import { useEffect, useState } from "react";
-import { act } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
-import { generateRoutes } from "@/features/route/routeApi";
-import { downloadGpx } from "@/features/route/gpxExport";
-import {
-  getAmedasObservation,
-  getCurrentWeather,
-  getWeatherWarnings,
-  getWbgtStatus,
-  getFloodForecasts,
-} from "@/services/weatherApi";
-import type { GenerationConditions, SelectedRouteSegment } from "@/types/route";
-import type {
-  AmedasObservation,
-  WeatherConditions,
-  WeatherWarnings,
-  WbgtStatus,
-  FloodForecasts,
-} from "@/types/weather";
-
-// "@/features/route/routeApi"はこれまでどのテストもモックしていなかった新規モジュール。
-// generateRoutesは実I/O（fetch）を伴うため、既存の他サービスモックと同じくvi.fn()化する。
-vi.mock("@/features/route/routeApi", () => ({
-  generateRoutes: vi.fn(),
+vi.mock("@/features/map/MapView/MapView", stubModule("MapView"));
+vi.mock("@/features/map/LensControl/LensControl", stubModule("LensControl"));
+vi.mock("@/features/map/MapOverlayControls/MapOverlayControls", stubModule("MapOverlayControls"));
+vi.mock("@/features/route/RouteAxisProfile/RouteAxisProfile", stubModule("RouteAxisProfile"));
+vi.mock("@/features/route/ComparisonPanel/ComparisonPanel", stubModule("ComparisonPanel"));
+vi.mock("@/components/AxisContributionBar/AxisContributionBar", stubModule("AxisContributionBar"));
+vi.mock("@/features/route/RouteSettingsPanel/RouteSettingsPanel", stubModule("RouteSettingsPanel"));
+vi.mock("@/features/conditions/TravelBearingControl/TravelBearingControl", stubModule("TravelBearingControl"));
+vi.mock("@/features/conditions/RideConditionBar/RideConditionBar", stubModule("RideConditionBar"));
+vi.mock("@/features/conditions/WeatherPanel/WeatherPanel", stubModule("WeatherPanel"));
+vi.mock("@/features/conditions/TodayOutlook/TodayOutlook", stubModule("TodayOutlook"));
+vi.mock("@/features/conditions/WarningBadge/WarningBadge", stubModule("WarningBadgeList"));
+vi.mock("@/components/HeaderMenu/HeaderMenu", stubModule("HeaderMenu"));
+vi.mock("@/components/DebugConsole/DebugConsole", stubModule("DebugConsole"));
+vi.mock("@/features/route/RouteSettingsPanel/HardFilterPanel", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/features/route/RouteSettingsPanel/HardFilterPanel")>()),
+  default: stubs.component(await import("react"), () => "HardFilterPanel"),
 }));
-
-// ComparisonPanel.test.tsxのmakeCandidate/makeSlotと同じ形の最小フィクスチャ
-// （RouteCandidate/GenerationConditionsは必須フィールドが多いOpenAPI生成型のため、
-// 呼び出し側で上書きしたいフィールドだけ渡せるヘルパーにする）。
-const makeCandidate = makeRouteCandidate;
-
-/** Edge5本ぶんの座標列（境界は[0,1,2,3,4,5]）。 */
-const SPLICE_COORDINATES: GeoJSON.Position[] = [
-  [139.7, 35.7],
-  [139.71, 35.7],
-  [139.72, 35.7],
-  [139.73, 35.7],
-  [139.74, 35.7],
-  [139.75, 35.7],
-];
-
-function makeConditions(overrides: Partial<GenerationConditions> = {}): GenerationConditions {
+vi.mock("@/components/BottomSheet/BottomSheet", async (importOriginal) => {
+  const react = await import("react");
   return {
-    latitude: 35.7597,
-    longitude: 139.7387,
-    distance_km: 30,
-    distance_tolerance_km: 5,
-    route_preference: {},
-    penalty_strength: 1.0,
-    max_average_grade_percent: null,
-    hard_filters: { no_bicycle: true, motorway: true, trunk: true },
-    max_routes: 8,
-    assumed_speed_kmh: 20,
-    start_time: "2026-09-05T09:30:00+09:00",
-    waypoints: null,
-    destination: null,
-    generated_at: "2026-08-25T12:00:00+09:00",
+    ...(await importOriginal<typeof import("@/components/BottomSheet/BottomSheet")>()),
+    default: stubs.component(
+      react,
+      (props) => `BottomSheet:${String(props.title)}`,
+      (props) =>
+        props.open
+          ? react.createElement(
+              "section",
+              { "aria-label": String(props.title) },
+              props.headerLead as ReactNode,
+              props.headerAction as ReactNode,
+              props.children as ReactNode,
+            )
+          : null,
+    ),
+  };
+});
+vi.mock("@/hooks/useAxisCatalog", () => ({ useAxisCatalog: () => stubs.catalog }));
+vi.mock("@/hooks/useMaterialCatalog", () => ({
+  useMaterialCatalog: () => ({ materials: stubs.materials, loaded: true }),
+}));
+vi.mock("@/hooks/useIsMobile", () => ({ useIsMobile: () => stubs.isMobile }));
+vi.mock("@/features/map/view/useMapView", () => ({
+  useMapView: (inputs: unknown) => {
+    stubs.mapViewInputs = inputs;
+    return stubs.mapView;
+  },
+}));
+vi.mock("@/features/conditions/useWeatherConditions", () => ({ useWeatherConditions: vi.fn() }));
+vi.mock("@/features/route/routeApi", () => ({ generateRoutes: vi.fn() }));
+vi.mock("@/features/route/gpxExport", () => ({ downloadGpx: vi.fn() }));
+
+function propsOf<C extends (props: never) => unknown>(name: string): Parameters<C>[0] {
+  const entry = stubs.mounted.get(name);
+  if (!entry) throw new Error(`${name}が描かれていない`);
+  return entry.props as Parameters<C>[0];
+}
+const map = () => propsOf<typeof MapView>("MapView");
+const profile = () => propsOf<typeof RouteAxisProfile>("RouteAxisProfile");
+const comparison = () => propsOf<typeof ComparisonPanel>("ComparisonPanel");
+const weightsPanel = () => propsOf<typeof RouteSettingsPanel>("RouteSettingsPanel");
+const exclusionsPanel = () => propsOf<typeof HardFilterPanel>("HardFilterPanel");
+const bearingControl = () => propsOf<typeof TravelBearingControl>("TravelBearingControl");
+const rideBar = () => propsOf<typeof RideConditionBar>("RideConditionBar");
+const sheet = (title: string) => propsOf<typeof BottomSheet>(`BottomSheet:${title}`);
+const mapViewInputs = () => stubs.mapViewInputs as Parameters<typeof useMapView>[0];
+
+// 生成は5分刻みの「今」を出発時刻として送る。
+const NOW = new Date("2026-09-25T03:02:00Z");
+const NOW_STEPPED = new Date("2026-09-25T03:00:00Z");
+const PINNED = new Date("2026-09-26T00:30:00Z");
+
+const HERE: Coordinates = { latitude: 35, longitude: 139 };
+// 緯度0.1度はおよそ11.1km、1度はおよそ111km。
+const NEAR: Coordinates = { latitude: 35.1, longitude: 139 };
+const HALFWAY: Coordinates = { latitude: 35.05, longitude: 139 };
+const FAR: Coordinates = { latitude: 36, longitude: 139 };
+
+const AXES = [
+  catalogEntry({ axis_id: "axis_a" }),
+  catalogEntry({ axis_id: "axis_b" }),
+  catalogEntry({ axis_id: "axis_c" }),
+];
+const SPLICE_TUNING = { [CLIENT_TUNING_IDS.minStretchKm]: 0.2 };
+const catalogWith = (clientTuning: Record<string, number>): AxisCatalog =>
+  axisCatalogFromResponse(AXES, {}, clientTuning, []);
+const catalog = () => stubs.catalog as AxisCatalog;
+
+const [FIRST_FILTER] = Object.keys(DEFAULT_HARD_FILTERS);
+const FLIPPED_FILTERS = { ...DEFAULT_HARD_FILTERS, [FIRST_FILTER]: !DEFAULT_HARD_FILTERS[FIRST_FILTER] };
+const WEIGHTS = { axis_a: 0.5, axis_b: 0.25, axis_c: 0 };
+
+function route(id: string, overrides: Partial<RouteCandidate> = {}): RouteCandidate {
+  return makeRouteCandidate({ id, ...overrides });
+}
+
+function segment(overrides: Partial<RouteSegmentDetail> = {}): RouteSegmentDetail {
+  return {
+    geometry: null,
+    start_latitude: 0,
+    start_longitude: 0,
+    end_latitude: 0,
+    end_longitude: 0,
+    cumulative_distance_km: 0,
+    distance_km: 0,
+    estimated_arrival_time: null,
+    axis_difficulties: {},
+    axis_contributions: {},
+    material_values: {},
+    axis_raw_values: {},
+    difficulty: null,
     ...overrides,
   };
 }
 
-// 既定のuseLocation（上のdescribeブロックの固定値と同じ内容）。
-function defaultUseLocationDouble() {
+function conditionsOf(overrides: Partial<GenerationConditions> = {}): GenerationConditions {
   return {
-    location: { latitude: 35.7597, longitude: 139.7387 },
-    locationSource: "default" as const,
-    locationReady: true,
-    locating: false,
-    locateError: null,
-    handleLocateMe: vi.fn(),
+    latitude: 0,
+    longitude: 0,
+    distance_km: 0,
+    distance_tolerance_km: 0,
+    route_preference: {},
+    penalty_strength: 0,
+    max_average_grade_percent: null,
+    hard_filters: {},
+    max_routes: 0,
+    start_time: "",
+    assumed_speed_kmh: 0,
+    waypoints: null,
+    destination: null,
+    generated_at: "",
+    ...overrides,
   };
 }
 
-// 「地点を連続変更する」系の競合対策テスト専用のuseLocation二重体。内部でuseStateを
-// 持ち、コミット後にeffect経由で最新のsetterをモジュール変数latestLocationSetterへ記録する
-// （レンダー中の代入はReactの純粋性ルールに反するため、必ずuseEffect内で行う）。
-// テスト側はact()経由でこのsetterを呼び、location変更→依存effect再実行を発火させる
-// （これによりuseLocationFetchの各fetchが2回目の呼び出しを行う状況を再現する）。
-let latestLocationSetter: ((next: { latitude: number; longitude: number }) => void) | null = null;
-function useStatefulLocationDouble() {
-  const [location, setLocation] = useState({ latitude: 35.0, longitude: 139.0 });
-  useEffect(() => {
-    latestLocationSetter = setLocation;
-    // setLocationの参照はReactが再レンダー間で安定させることを保証しているため、
-    // マウント時に一度記録すれば十分（依存配列は空でよい）。
-  }, []);
-  return {
-    location,
-    locationSource: "default" as const,
-    locationReady: true,
-    locating: false,
-    locateError: null,
-    handleLocateMe: vi.fn(),
+type GenerateResult = Awaited<ReturnType<typeof generateRoutes>>;
+
+function respond(routes: RouteCandidate[], conditions: Partial<GenerationConditions> = {}, reason?: string) {
+  vi.mocked(generateRoutes).mockResolvedValueOnce({
+    routes,
+    conditions: conditionsOf(conditions),
+    noCandidatesReason: reason,
+  });
+}
+
+function deferred() {
+  let resolve!: (result: GenerateResult) => void;
+  const promise = new Promise<GenerateResult>((done) => {
+    resolve = done;
+  });
+  return { promise, resolve };
+}
+
+function lastRequest() {
+  const call = vi.mocked(generateRoutes).mock.lastCall;
+  if (!call) throw new Error("生成を呼んでいない");
+  return call[0];
+}
+
+const geolocation = {
+  getCurrentPosition: vi.fn<(onSuccess: PositionCallback, onError?: PositionErrorCallback | null) => void>(),
+};
+function answerHere() {
+  geolocation.getCurrentPosition.mockImplementation((onSuccess) =>
+    onSuccess({ coords: { latitude: HERE.latitude, longitude: HERE.longitude } } as GeolocationPosition),
+  );
+}
+
+function renderPage(): UserEvent {
+  const user = userEvent.setup();
+  render(<Home />);
+  return user;
+}
+
+const generateButton = () => screen.getByRole("button", { name: "ルート生成" });
+async function generate(user: UserEvent) {
+  await user.click(generateButton());
+  await waitFor(() => expect(generateButton()).toBeEnabled());
+}
+const resultTabs = () => within(screen.getByRole("tablist", { name: "ルート結果" })).getAllByRole("tab");
+const settingsSection = () => screen.getByRole("button", { name: "ルート設定" });
+const outcomeSection = () => screen.getByRole("button", { name: "ルート結果" });
+
+async function chooseDestinationMode(user: UserEvent) {
+  await user.click(screen.getByRole("radio", { name: "目的地" }));
+}
+async function generateToDestination(user: UserEvent, routes: RouteCandidate[]) {
+  await chooseDestinationMode(user);
+  act(() => map().onPinPlace("destination", NEAR));
+  respond(routes);
+  await generate(user);
+}
+
+// 3本とも同じ地点（n0〜n5）で交わる。AとCは1つ目の分かれ道だけ、AとBは両方の分かれ道で別の道を通る。
+const NODES = ["n0", "n1", "n2", "n3", "n4", "n5"];
+/** 経度・緯度を交互に並べた数の列を、座標の列にする。 */
+function pointsOf(flat: number[]): GeoJSON.Position[] {
+  return Array.from({ length: flat.length / 2 }, (_, i) => [flat[2 * i], flat[2 * i + 1]]);
+}
+const lineOf = (flat: number[]) => ({ type: "LineString" as const, coordinates: pointsOf(flat) });
+const ROUTE_A = route("route-0", {
+  distance_km: 10,
+  overall_difficulty: 30,
+  edge_ids: ["e1", "a1", "e2", "a2", "e3"],
+  node_ids: NODES,
+  edge_point_offsets: [0, 1, 2, 3, 4, 5],
+  geometry: lineOf([0, 0, 1, 0, 2, 0, 3, 0, 4, 0, 5, 0]),
+});
+const ROUTE_B = route("route-1", {
+  distance_km: 12,
+  overall_difficulty: 40,
+  edge_ids: ["e1", "b1", "e2", "b2", "e3"],
+  node_ids: NODES,
+  edge_point_offsets: [0, 1, 3, 4, 6, 7],
+  geometry: lineOf([0, 0, 1, 0, 1.5, 1, 2, 0, 3, 0, 3.5, 1, 4, 0, 5, 0]),
+});
+const ROUTE_C = route("route-2", {
+  distance_km: 11,
+  overall_difficulty: 50,
+  edge_ids: ["e1", "c1", "e2", "a2", "e3"],
+  node_ids: NODES,
+  edge_point_offsets: [0, 1, 3, 4, 5, 6],
+  geometry: lineOf([0, 0, 1, 0, 1.5, -1, 2, 0, 3, 0, 4, 0, 5, 0]),
+});
+// Bの1つ目・2つ目の分かれ道、Cの分かれ道を通る点。
+const B_FIRST: GeoJSON.Position = [1.5, 1];
+const B_SECOND: GeoJSON.Position = [3.5, 1];
+const C_FIRST: GeoJSON.Position = [1.5, -1];
+
+async function startSpliceEditing(user: UserEvent, routes = [ROUTE_A, ROUTE_B, ROUTE_C]) {
+  await generateToDestination(user, routes);
+  await user.click(screen.getByRole("button", { name: "このルートを編集" }));
+}
+function passed<T>(value: T | undefined, what: string): T {
+  if (value === undefined) throw new Error(`地図へ${what}を渡していない`);
+  return value;
+}
+const spliceStretches = () => passed(map().spliceStretches, "乗り換え先");
+const measureObscured = () => passed(map().measureRouteFitObscuredPx, "覆われた高さを測る関数")();
+function chooseStretchThrough(point: GeoJSON.Position) {
+  const found = spliceStretches().find((stretch) =>
+    stretch.coordinates.some(([x, y]) => x === point[0] && y === point[1]),
+  );
+  if (!found) throw new Error(`${point.join(",")}を通る乗り換え先が無い`);
+  const select = passed(map().onSpliceStretchSelect, "乗り換え先の選択");
+  act(() => select(found.index));
+}
+
+const EMPTY_WEATHER = {
+  weather: null,
+  weatherLoading: false,
+  weatherError: null,
+  amedas: null,
+  amedasLoading: false,
+  amedasError: null,
+  warningBadgeItems: [],
+  warningFetchFailures: [],
+};
+
+beforeEach(() => {
+  localStorage.clear();
+  vi.useFakeTimers({ toFake: ["Date"] });
+  vi.setSystemTime(NOW);
+  stubs.catalog = catalogWith(SPLICE_TUNING);
+  stubs.materials = [];
+  stubs.isMobile = false;
+  stubs.mapView = {
+    look: { marker: "見え方" },
+    lensControl: { marker: "レンズ" },
+    overlayControls: { marker: "チップ" },
+    bulk: {
+      anyLayerOn: false,
+      hideAllLayers: vi.fn(),
+      anyLegendHidden: false,
+      showAllLegendRows: vi.fn(),
+      redraw: vi.fn(),
+    },
+    lens: LENS_DIFFICULTY_ID,
   };
-}
+  vi.mocked(useWeatherConditions).mockReset().mockReturnValue(EMPTY_WEATHER);
+  vi.mocked(generateRoutes)
+    .mockReset()
+    .mockImplementation(async () => ({ routes: [route("route-0")], conditions: conditionsOf() }));
+  vi.mocked(downloadGpx).mockReset();
+  Object.defineProperty(window.navigator, "geolocation", { value: geolocation, configurable: true });
+  geolocation.getCurrentPosition.mockReset();
+  answerHere();
+  setResearchEnabled(false);
+});
 
-interface RenderFreshHomeOptions {
-  /** trueなら実際のRouteFormを使う（生成ボタンをクリックするため）。既定は上と同じnullモック。 */
-  realRouteForm?: boolean;
-  /** trueならMapViewをonDestinationSet/onWaypointAddを呼べるボタン付きスタブへ差し替える
-   * （改善計画T557: 目的地モードの生成テストは実際に地図をタップできないため、この
-   * スタブ経由で座標を確定する）。既定は上と同じnullモック。 */
-  exposeMapClickHandlers?: boolean;
-  /** trueならMapViewをonRouteSegmentSelectを呼べるボタン付きスタブへ差し替える
-   * （区間クリック詳細のテスト用。地図上のクリックを実際に再現できないためスタブ経由で
-   * 選択を確定する）。既定は上と同じnullモック。 */
-  exposeSegmentSelect?: boolean;
-  /** trueなら地点を連続変更できるstateful二重体、falseならdefaultUseLocationDoubleの固定値。 */
-  statefulLocation?: boolean;
-  researchEnabled?: boolean;
-  exposeComparisonSlots?: boolean;
-  exposeWeatherPanel?: boolean;
-  exposeWarningBadges?: boolean;
-  /** trueならMapViewを、地図のズームを変えられるボタン付きスタブへ差し替える
-   * （ズーム不足の案内は実際のビューポート通知が来て初めて成立するため）。 */
-  exposeViewportChange?: boolean;
-  /** trueならモバイルレイアウト（BottomSheet経由）でHomeを組み立てる。既定はfalse
-   * （ファイル先頭の`vi.mock("@/hooks/useIsMobile", ...)`と同じデスクトップ判定）。 */
-  mobile?: boolean;
-}
+afterEach(() => {
+  vi.useRealTimers();
+  setResearchEnabled(false);
+});
 
-// 1テストごとに独立した振る舞いのHomeを組み立てる。vi.resetModules()でモジュール
-// キャッシュを空にした上で、必要なモジュールだけvi.doMock/vi.doUnmockし直してから
-// 動的importする（実験的に確認済み: vi.mockの対象になっていないモジュール
-// [例: 上の"@/hooks/useIsMobile"のような既存の固定モック]はresetModules()後も同じ
-// モックオブジェクトを指し続けるため、ここで明示的に触らないモジュールは上の
-// describeブロックと同じ既存モックのまま動く）。
-async function renderFreshHome(options: RenderFreshHomeOptions = {}) {
-  vi.resetModules();
+describe("生成条件の保存と復元", () => {
+  it("操作した生成条件は開き直しても同じ値で送り、置いた地点と選んだ出発時刻は持ち越さない", async () => {
+    let user = renderPage();
+    fireEvent.change(screen.getByLabelText("距離"), { target: { value: "45" } });
+    await user.click(screen.getByRole("button", { name: "候補数を増やす" }));
+    act(() => weightsPanel().onOverrideEnabledChange(true));
+    act(() => weightsPanel().onRoutePreferenceChange(WEIGHTS));
+    act(() => exclusionsPanel().onHardFiltersChange(FLIPPED_FILTERS));
+    act(() => rideBar().onSpeedKmhChange(25));
+    act(() => rideBar().onDepartureTimeChange(PINNED));
+    await chooseDestinationMode(user);
+    act(() => map().onPinPlace("destination", NEAR));
+    cleanup();
 
-  // 読み込み直した実体に対して、共有ストアを持たない代役を貼り直す（`vi.mock`の
-  // ファクトリは読み込み直しに追随せず、古い実体を掴んだままになる）。
-  const freshHook = await import("@/hooks/useAxisCatalog");
-  const freshFake = await import("@/testing/fakeAxisCatalogHook");
-  vi.doMock("@/hooks/useAxisCatalog", () => ({
-    ...freshHook,
-    useAxisCatalog: freshFake.useFakeAxisCatalog,
-    retryAxisCatalogFetch: freshFake.retryFakeAxisCatalogFetch,
-  }));
-
-  if (options.realRouteForm) {
-    vi.doUnmock("@/features/route/RouteForm/RouteForm");
-  } else {
-    vi.doMock("@/features/route/RouteForm/RouteForm", () => ({ default: () => null }));
-  }
-
-  if (options.exposeViewportChange) {
-    // 実物のMapViewはパン・ズームが確定するたびにビューポート（ズームを含む）を伝える。
-    vi.doMock("@/features/map/MapView/MapView", () => ({
-      default: (props: { look: { onViewportChange: (viewport: MapViewport) => void } }) => (
-        <button onClick={() => props.look.onViewportChange({ west: 139, south: 35, east: 140, north: 36, zoom: 5 })}>
-          テスト用に広域へズームアウト
-        </button>
-      ),
-    }));
-  } else if (options.exposeMapClickHandlers || options.exposeSegmentSelect) {
-    vi.doMock("@/features/map/MapView/MapView", () => ({
-      default: (props: {
-        onPinPlace: (role: "origin" | "waypoint" | "destination", c: { latitude: number; longitude: number }) => void;
-        onRouteSegmentSelect: (selection: SelectedRouteSegment | null) => void;
-        selectedRouteSegment: SelectedRouteSegment | null;
-        onRouteSelect: (routeId: string) => void;
-        pointEditingEnabled: boolean;
-        onSpliceStretchSelect: (index: number) => void;
-      }) => (
-        <>
-          {options.exposeMapClickHandlers && (
-            <>
-              {/* 実物のMapViewはこの値でマーカーのdraggableとクリックハンドラの登録を
-                  出し分ける。地図の地点編集が使えるかを、テストから読めるようにする。 */}
-              <span data-testid="point-editing-enabled">{String(props.pointEditingEnabled)}</span>
-              <button onClick={() => props.onPinPlace("destination", { latitude: 35.681, longitude: 139.767 })}>
-                テスト用に目的地を設定
-              </button>
-              <button onClick={() => props.onPinPlace("destination", { latitude: 35.9, longitude: 139.9 })}>
-                テスト用に目的地を別の地点へ動かす
-              </button>
-              <button onClick={() => props.onPinPlace("waypoint", { latitude: 35.682, longitude: 139.768 })}>
-                テスト用に経由地を追加
-              </button>
-              <button onClick={() => props.onRouteSelect("route-01")}>テスト用に地図で他候補を選ぶ</button>
-              {/* 乗り換えは地図の帯をタップして行う（indexはグループ位置×100＋選択肢位置）。 */}
-              <button onClick={() => props.onSpliceStretchSelect(0)}>テスト用に1つ目の帯をタップ</button>
-              <button onClick={() => props.onSpliceStretchSelect(100)}>テスト用に2つ目の帯をタップ</button>
-            </>
-          )}
-          {options.exposeSegmentSelect && (
-            <button
-              onClick={() =>
-                props.onRouteSegmentSelect({
-                  latitude: 35.68,
-                  longitude: 139.76,
-                  segment: {
-                    start_latitude: 35.68,
-                    start_longitude: 139.76,
-                    end_latitude: 35.681,
-                    end_longitude: 139.761,
-                    cumulative_distance_km: 5.2,
-                    distance_km: 0.5,
-                    estimated_arrival_time: null,
-                    axis_difficulties: {},
-                    axis_raw_values: {},
-                    axis_contributions: {},
-                    material_values: { wind_drag_ratio: 1.964 },
-                    difficulty: null,
-                    geometry: null,
-                  },
-                })
-              }
-            >
-              テスト用に区間を選択
-            </button>
-          )}
-          {/* 地図へ実際に渡っている選択（＝赤ピンを立てる値）。propの受け渡しまで見ないと、
-              区間詳細パネルが出ない画面では「選べない」ことを確かめられない。 */}
-          {options.exposeSegmentSelect && (
-            <span data-testid="map-selected-segment">{props.selectedRouteSegment ? "選択中" : "なし"}</span>
-          )}
-          {/* 地点をつかんで動かせるか。地図上の挙動そのものはMapViewの中なので、
-              受け渡しで確かめる。 */}
-          <span data-testid="map-point-editing">{props.pointEditingEnabled ? "可" : "不可"}</span>
-        </>
-      ),
-    }));
-  }
-
-  vi.doMock("@/hooks/useLocation", () => ({
-    useLocation: options.statefulLocation ? useStatefulLocationDouble : defaultUseLocationDouble,
-  }));
-
-  vi.doMock("@/hooks/useResearchMode", () => ({
-    useResearchEnabled: () => options.researchEnabled ?? false,
-  }));
-
-  vi.doMock("@/hooks/useIsMobile", () => ({ useIsMobile: () => options.mobile ?? false }));
-
-  vi.doMock("@/features/route/ComparisonPanel/ComparisonPanel", () => ({
-    // slot.id自体は`slot-${generated_at}-${random}`という生成条件由来の識別子であり
-    // 候補を区別できないため、実際に記録された候補（topCandidate.id）の並びを見る。
-    default: options.exposeComparisonSlots
-      ? (props: { slots: Array<{ topCandidate: { id: string } }> }) => (
-          <div data-testid="comparison-slots">{JSON.stringify(props.slots.map((s) => s.topCandidate.id))}</div>
-        )
-      : () => null,
-  }));
-
-  vi.doMock("@/features/conditions/WeatherPanel/WeatherPanel", () => ({
-    default: options.exposeWeatherPanel
-      ? (props: { amedas: { temperature_c: number } | null }) => (
-          <div data-testid="weather-panel">{JSON.stringify({ temp: props.amedas?.temperature_c ?? null })}</div>
-        )
-      : () => null,
-  }));
-
-  vi.doMock("@/features/conditions/WarningBadge/WarningBadge", () => ({
-    default: options.exposeWarningBadges
-      ? (props: { items: Array<{ id: string; source: string; label: string }> }) => (
-          <div data-testid="warning-badges">{JSON.stringify(props.items.map((i) => [i.source, i.id, i.label]))}</div>
-        )
-      : () => null,
-  }));
-
-  const { default: HomeFresh } = await import("./page");
-  return HomeFresh;
-}
-
-// Promiseの解決タイミングをテストから制御するためのヘルパー（応答順序の入れ替え検証に使う）。
-function createDeferred<T>() {
-  let resolve!: (value: T) => void;
-  let reject!: (reason?: unknown) => void;
-  const promise = new Promise<T>((res, rej) => {
-    resolve = res;
-    reject = rej;
-  });
-  return { promise, resolve, reject };
-}
-
-describe("Home（app/page.tsx） handleGenerateハンドラ", () => {
-  beforeEach(() => {
-    window.localStorage.clear();
-    vi.mocked(getAxisCatalog).mockRejectedValue(new Error("mock: unused in this test"));
-  });
-  afterEach(() => {
-    window.localStorage.clear();
-    vi.mocked(generateRoutes).mockReset();
-    vi.mocked(getAxisCatalog).mockReset();
-    // このdescribeブロックのHomeマウントもuseLocationFetch経由の5並列fetch（改善計画T387
-    // フォローアップでamedasが独立フェッチに加わった）を必ず1回ずつ発火させる
-    // （renderFreshHomeがexposeWeatherPanel等を指定していないため未使用のレスポンスとして
-    // 握りつぶされるだけだが、getCurrentWeather等は下の「並列fetchの競合対策」
-    // describeブロックとvi.fn()インスタンスを共有している。呼び出し回数をクリアしておかないと、
-    // そちらのtoHaveBeenCalledTimes(1)がこのブロックぶんの呼び出しを含んでしまい失敗する）。
-    vi.mocked(getCurrentWeather).mockClear();
-    vi.mocked(getAmedasObservation).mockClear();
-    vi.mocked(getWeatherWarnings).mockClear();
-    vi.mocked(getWbgtStatus).mockClear();
-    vi.mocked(getFloodForecasts).mockClear();
-    latestLocationSetter = null;
-  });
-
-  // 「条件」タブの入力値（周回/目的地・距離・候補数）と想定速度は次に開いたときも引き継ぐ
-  // （毎回直す手間がそのまま毎回かかっていた）。保存値が範囲外・壊れているときは既定値のまま。
-  it("保存された距離・候補数・想定速度が生成リクエストへ反映される", async () => {
-    const user = userEvent.setup();
-    window.localStorage.setItem("ridecompass:distance-km", "55");
-    window.localStorage.setItem("ridecompass:max-routes", "3");
-    window.localStorage.setItem("ridecompass:assumed-speed-kmh", "27");
-    vi.mocked(generateRoutes).mockResolvedValueOnce({
-      routes: [makeCandidate()],
-      conditions: makeConditions(),
-    });
-    const HomeFresh = await renderFreshHome({ realRouteForm: true });
-    render(<HomeFresh />);
-
-    await user.click(screen.getByRole("button", { name: "ルート生成" }));
-
-    await waitFor(() => {
-      expect(generateRoutes).toHaveBeenCalledWith(
-        expect.objectContaining({ distance_km: 55, max_routes: 3, assumed_speed_kmh: 27 }),
-        expect.anything(),
-      );
-    });
-  });
-
-  it("範囲外の保存値は既定値のまま扱う", async () => {
-    const user = userEvent.setup();
-    window.localStorage.setItem("ridecompass:distance-km", "9999");
-    window.localStorage.setItem("ridecompass:max-routes", "0");
-    window.localStorage.setItem("ridecompass:assumed-speed-kmh", "999");
-    vi.mocked(generateRoutes).mockResolvedValueOnce({
-      routes: [makeCandidate()],
-      conditions: makeConditions(),
-    });
-    const HomeFresh = await renderFreshHome({ realRouteForm: true });
-    render(<HomeFresh />);
-
-    await user.click(screen.getByRole("button", { name: "ルート生成" }));
-
-    await waitFor(() => {
-      expect(generateRoutes).toHaveBeenCalledWith(
-        expect.objectContaining({ distance_km: 30, max_routes: 8, assumed_speed_kmh: 20 }),
-        expect.anything(),
-      );
-    });
-  });
-
-  it("改善計画T531: 生成リクエストに候補件数(max_routes)の既定値を含める", async () => {
-    const user = userEvent.setup();
-    vi.mocked(generateRoutes).mockResolvedValueOnce({
-      routes: [makeCandidate()],
-      conditions: makeConditions(),
-    });
-    const HomeFresh = await renderFreshHome({ realRouteForm: true });
-    render(<HomeFresh />);
-
-    await user.click(screen.getByRole("button", { name: "ルート生成" }));
-
-    await waitFor(() => {
-      expect(generateRoutes).toHaveBeenCalledWith(expect.objectContaining({ max_routes: 8 }), expect.anything());
-    });
-  });
-
-  // 軸カタログが未確定（取得失敗）の間は、カタログ由来の識別子（route_preference・
-  // lens_axis_id）を送らない。backendは存在しない軸idを422にせず黙って無視するため、
-  // 送ってしまうと「選んだ軸で塗られない」が手掛かり無しで起きる。
-  // 生成に関するフィードバックの置き場は「ルート結果」欄1箇所（T758）。「ルート生成」は
-  // 見出し行のボタンで、設定本文を畳んだままでも押せるため、押した結果を本文へ出すと
-  // 操作している場所から見えない。
-  it("候補0件のとき、結果欄は生成前の案内文へ戻らず理由を出す", async () => {
-    const user = userEvent.setup();
-    vi.mocked(generateRoutes).mockResolvedValueOnce({
-      routes: [],
-      conditions: makeConditions(),
-      noCandidatesReason: "条件が厳しすぎて候補がありません",
-    });
-    const HomeFresh = await renderFreshHome({ realRouteForm: true });
-    render(<HomeFresh />);
-
-    await user.click(screen.getByRole("button", { name: "ルート生成" }));
-
-    await waitFor(() => expect(screen.getByText("条件が厳しすぎて候補がありません")).toBeInTheDocument());
-    expect(screen.queryByText("「ルート生成」を押すと候補がここに並びます")).not.toBeInTheDocument();
-  });
-
-  it("生成が失敗したときも文言は1箇所（結果欄）にだけ出る", async () => {
-    const user = userEvent.setup();
-    vi.mocked(generateRoutes).mockRejectedValueOnce(new Error("ルート生成の要求が多すぎます"));
-    const HomeFresh = await renderFreshHome({ realRouteForm: true });
-    render(<HomeFresh />);
-
-    await user.click(screen.getByRole("button", { name: "ルート生成" }));
-
-    await waitFor(() => expect(screen.getAllByText("ルート生成の要求が多すぎます")).toHaveLength(1));
-    // 失敗した後の結果欄は「まだ押していない」案内へ戻らない。
-    expect(screen.queryByText("「ルート生成」を押すと候補がここに並びます")).not.toBeInTheDocument();
-  });
-
-  it("軸カタログの取得に失敗した状態ではlens_axis_id/route_preferenceを送らない", async () => {
-    const user = userEvent.setup();
-    // レンズを保存済みにしておく。軸カタログの取得が失敗する以上どのidも解決できないが、
-    // 「保存はされている」状態から送信されないことを見るために置く。
-    window.localStorage.setItem("ridecompass:route-style-mode", "gradient");
-    // 重み上書きをONにしておく（OFFのままだとカタログの成否に関わらずroute_preferenceは
-    // 送られず、下の`toBeUndefined()`がカタログ失敗を何も確かめない恒真になる）。
-    window.localStorage.setItem("ridecompass:weight-override-enabled", "true");
-    vi.mocked(getAxisCatalog).mockRejectedValue(new Error("network error"));
-    vi.mocked(generateRoutes).mockResolvedValueOnce({
-      routes: [makeCandidate()],
-      conditions: makeConditions(),
-    });
-    const HomeFresh = await renderFreshHome({ realRouteForm: true });
-    render(<HomeFresh />);
-
-    await user.click(screen.getByRole("button", { name: "ルート生成" }));
-
-    await waitFor(() => expect(generateRoutes).toHaveBeenCalled());
-    // generationRequest.tsはnullのフィールドをキーごと省く（`lens_axis_id`が
-    // undefined＝送っていない）。同ファイルのテストと同じ確かめ方。
-    const request = vi.mocked(generateRoutes).mock.calls[0][0];
-    expect(request.lens_axis_id).toBeUndefined();
-    expect(request.route_preference).toBeUndefined();
-    window.localStorage.clear();
-  });
-
-  it("軸カタログの取得に成功していればlens_axis_id/route_preferenceを送る", async () => {
-    const user = userEvent.setup();
-    window.localStorage.setItem("ridecompass:route-style-mode", "gui_created_axis");
-    window.localStorage.setItem("ridecompass:weight-override-enabled", "true");
-    vi.mocked(getAxisCatalog).mockResolvedValue(catalogWithGuiCreatedAxis());
-    vi.mocked(generateRoutes).mockResolvedValueOnce({
-      routes: [makeCandidate()],
-      conditions: makeConditions(),
-    });
-    const HomeFresh = await renderFreshHome({ realRouteForm: true });
-    render(<HomeFresh />);
-
-    await user.click(screen.getByRole("button", { name: "ルート生成" }));
-
-    await waitFor(() => {
-      expect(generateRoutes).toHaveBeenCalledWith(
-        expect.objectContaining({ lens_axis_id: "gui_created_axis" }),
-        expect.anything(),
-      );
-    });
-    // 上の失敗側テストの`route_preference`がundefinedであることに意味を持たせる対の確認
-    // （同じ条件で、カタログが取れていれば実際に送られる）。
-    const request = vi.mocked(generateRoutes).mock.calls[0][0];
-    expect(request.route_preference).toBeDefined();
-    expect(Object.keys(request.route_preference!).length).toBeGreaterThan(0);
-    window.localStorage.clear();
-  });
-
-  it("生成リクエストに巡航速度(assumed_speed_kmh)の既定値と出発時刻(start_time)を含める", async () => {
-    const user = userEvent.setup();
-    vi.mocked(generateRoutes).mockResolvedValue({
-      routes: [makeCandidate()],
-      conditions: makeConditions(),
-    });
-    const HomeFresh = await renderFreshHome({ realRouteForm: true });
-    render(<HomeFresh />);
-
-    await user.click(screen.getByRole("button", { name: "ルート生成" }));
-    await waitFor(() => {
-      expect(generateRoutes).toHaveBeenCalledWith(
-        expect.objectContaining({ assumed_speed_kmh: 20, start_time: expect.stringMatching(/^\d{4}-\d{2}-\d{2}T/) }),
-        expect.anything(),
-      );
-    });
-  });
-
-  it("改善計画T531: 候補数ステッパーを変更すると生成リクエストのmax_routesへ反映される", async () => {
-    const user = userEvent.setup();
-    vi.mocked(generateRoutes).mockResolvedValueOnce({
-      routes: [makeCandidate()],
-      conditions: makeConditions(),
-    });
-    const HomeFresh = await renderFreshHome({ realRouteForm: true });
-    render(<HomeFresh />);
-
-    // T616: 候補数の直接数値入力はステッパー（‹/›）へ置き換えた。既定値8から5回減らして3にする。
-    const decrement = screen.getByRole("button", { name: "候補数を減らす" });
-    for (let i = 0; i < 5; i++) {
-      await user.click(decrement);
-    }
-    await user.click(screen.getByRole("button", { name: "ルート生成" }));
-
-    await waitFor(() => {
-      expect(generateRoutes).toHaveBeenCalledWith(expect.objectContaining({ max_routes: 3 }), expect.anything());
-    });
-  });
-
-  it("T616: 何も指定していない状態で目的地モードへ切り替えると、ゴールボタンを押さなくても即座に目的地を指定できる状態(armed)になる", async () => {
-    const user = userEvent.setup();
-    const HomeFresh = await renderFreshHome({ realRouteForm: true });
-    render(<HomeFresh />);
-
-    await user.click(screen.getByRole("radio", { name: "目的地" }));
-
-    expect(screen.getByRole("button", { name: "目的地の指定をやめる" })).toBeInTheDocument();
-  });
-
-  it("T616: 既に目的地が指定済みの状態で目的地モードへ戻っても自動でarmedにはならない", async () => {
-    const user = userEvent.setup();
-    const HomeFresh = await renderFreshHome({ realRouteForm: true, exposeMapClickHandlers: true });
-    render(<HomeFresh />);
-
-    await user.click(screen.getByRole("radio", { name: "目的地" }));
-    await user.click(screen.getByRole("button", { name: "テスト用に目的地を設定" }));
+    user = renderPage();
+    expect(screen.getByRole("radio", { name: "目的地" })).toHaveAttribute("aria-checked", "true");
+    expect(map().destination).toBeNull();
+    expect(rideBar().departureTime).toEqual(NOW_STEPPED);
     await user.click(screen.getByRole("radio", { name: "周回" }));
-    await user.click(screen.getByRole("radio", { name: "目的地" }));
-
-    expect(screen.getByRole("button", { name: "目的地をクリア" })).toBeInTheDocument();
+    await generate(user);
+    expect(lastRequest()).toMatchObject({
+      distance_km: 45,
+      max_routes: routeGenerateConfig.default_max_routes + 1,
+      route_preference: WEIGHTS,
+      hard_filters: FLIPPED_FILTERS,
+      assumed_speed_kmh: 25,
+      start_time: NOW_STEPPED.toISOString(),
+    });
   });
 
-  // 生成後に目的地を変えたいとき、解除してから指定し直す2段階を踏ませない（T761）。
-  it("設定済みの行を押すと目的地を残したまま武装し、もう一度押すと設定済みへ戻る", async () => {
-    const user = userEvent.setup();
-    const HomeFresh = await renderFreshHome({ realRouteForm: true, exposeMapClickHandlers: true });
-    render(<HomeFresh />);
+  it.each([
+    ["下限", "1", "1", routeGenerateConfig.min_assumed_speed_kmh],
+    [
+      "上限",
+      String(routeGenerateConfig.max_distance_km),
+      String(routeGenerateConfig.max_routes),
+      routeGenerateConfig.max_assumed_speed_kmh,
+    ],
+  ])("距離・候補数・想定速度の保存値は、%sちょうどでも復元して送る", async (_bound, distance, maxRoutes, speed) => {
+    localStorage.setItem("ridecompass:distance-km", distance);
+    localStorage.setItem("ridecompass:max-routes", maxRoutes);
+    localStorage.setItem("ridecompass:assumed-speed-kmh", String(speed));
+    const user = renderPage();
+    await generate(user);
+    expect(lastRequest()).toMatchObject({
+      distance_km: Number(distance),
+      max_routes: Number(maxRoutes),
+      assumed_speed_kmh: speed,
+    });
+  });
 
-    await user.click(screen.getByRole("radio", { name: "目的地" }));
-    await user.click(screen.getByRole("button", { name: "テスト用に目的地を設定" }));
+  it.each([
+    ["距離が0", "ridecompass:distance-km", "0"],
+    ["距離が上限を超える", "ridecompass:distance-km", String(routeGenerateConfig.max_distance_km + 1)],
+    ["距離が数でない", "ridecompass:distance-km", "abc"],
+    ["候補数が0", "ridecompass:max-routes", "0"],
+    ["候補数が上限を超える", "ridecompass:max-routes", String(routeGenerateConfig.max_routes + 1)],
+    ["候補数が整数でない", "ridecompass:max-routes", "2.5"],
+    ["想定速度が下限未満", "ridecompass:assumed-speed-kmh", String(routeGenerateConfig.min_assumed_speed_kmh - 1)],
+    ["想定速度が上限を超える", "ridecompass:assumed-speed-kmh", String(routeGenerateConfig.max_assumed_speed_kmh + 1)],
+    ["想定速度が整数でない", "ridecompass:assumed-speed-kmh", "20.5"],
+    ["モードが知らない値", "ridecompass:route-mode", "circle"],
+    ["除外がJSONとして読めない", "ridecompass:hard-filters", "{"],
+  ])("%sの保存値は捨て、保存値が無いときと同じ値を送る", async (_case, key, raw) => {
+    let user = renderPage();
+    await generate(user);
+    const withoutStored = lastRequest();
+    cleanup();
 
+    localStorage.setItem(key, raw);
+    user = renderPage();
+    await generate(user);
+    expect(lastRequest()).toEqual(withoutStored);
+  });
+
+  it("保存した除外に今は無い項目が混じっていても、今の項目へ揃えて送る", async () => {
+    localStorage.setItem("ridecompass:hard-filters", JSON.stringify({ ...FLIPPED_FILTERS, retired_filter: true }));
+    const user = renderPage();
+    await generate(user);
+    expect(lastRequest().hard_filters).toEqual(FLIPPED_FILTERS);
+  });
+
+  it("区分の開閉は開き直しても保つ", async () => {
+    const user = renderPage();
+    await user.click(settingsSection());
+    await user.click(outcomeSection());
+    cleanup();
+
+    renderPage();
+    expect(settingsSection()).toHaveAttribute("aria-expanded", "false");
+    expect(outcomeSection()).toHaveAttribute("aria-expanded", "false");
+    expect(screen.queryByRole("radio", { name: "周回" })).not.toBeInTheDocument();
+  });
+});
+
+describe("生成リクエスト", () => {
+  it("周回は、いまの位置・距離・候補数・走行条件・除外を送り、地点・重み・塗る軸は送らない", async () => {
+    const user = renderPage();
+    fireEvent.change(screen.getByLabelText("距離"), { target: { value: "45" } });
+    await user.click(screen.getByRole("button", { name: "候補数を増やす" }));
+    await generate(user);
+    const request = lastRequest();
+    expect(request).toMatchObject({
+      latitude: HERE.latitude,
+      longitude: HERE.longitude,
+      distance_km: 45,
+      distance_tolerance_km: routeGenerateConfig.default_distance_tolerance_km,
+      max_routes: routeGenerateConfig.default_max_routes + 1,
+      assumed_speed_kmh: routeGenerateConfig.default_assumed_speed_kmh,
+      start_time: NOW_STEPPED.toISOString(),
+      hard_filters: DEFAULT_HARD_FILTERS,
+    });
+    expect(request.waypoints).toBeUndefined();
+    expect(request.destination).toBeUndefined();
+    expect(request.route_preference).toBeUndefined();
+    expect(request.lens_axis_id).toBeUndefined();
+  });
+
+  it("目的地は、置いた点のうち最も遠いものより長い距離（km単位へ切り上げて1km足す）と、経由地を置いた順に送る", async () => {
+    const user = renderPage();
+    await chooseDestinationMode(user);
+    await user.click(screen.getByRole("button", { name: "経由地を追加" }));
+    act(() => map().onPinPlace("waypoint", NEAR));
+    act(() => map().onPinPlace("waypoint", { latitude: 35.02, longitude: 139 }));
+    await user.click(screen.getByRole("button", { name: "目的地を地図で選ぶ" }));
+    act(() => map().onPinPlace("destination", HALFWAY));
+    await generate(user);
+    expect(lastRequest()).toMatchObject({
+      distance_km: 13,
+      waypoints: [NEAR, { latitude: 35.02, longitude: 139 }],
+      destination: HALFWAY,
+      max_routes: routeGenerateConfig.routes_with_waypoints,
+    });
+  });
+
+  it("目的地までの距離は、生成できる距離の上限で頭打ちにする", async () => {
+    const user = renderPage();
+    await chooseDestinationMode(user);
+    act(() => map().onPinPlace("destination", FAR));
+    await generate(user);
+    expect(lastRequest().distance_km).toBe(routeGenerateConfig.max_distance_km);
+  });
+
+  it("経由地の無い目的地は、候補数の入力をそのまま送る", async () => {
+    const user = renderPage();
+    await chooseDestinationMode(user);
+    act(() => map().onPinPlace("destination", NEAR));
+    await user.click(screen.getByRole("button", { name: "候補数を増やす" }));
+    await generate(user);
+    expect(lastRequest().max_routes).toBe(routeGenerateConfig.default_max_routes + 1);
+  });
+
+  it("目的地を置かず経由地だけでも、経由地から距離を決めて送り、目的地は送らない", async () => {
+    const user = renderPage();
+    await chooseDestinationMode(user);
+    await user.click(screen.getByRole("button", { name: "経由地を追加" }));
+    act(() => map().onPinPlace("waypoint", NEAR));
+    await generate(user);
+    expect(lastRequest()).toMatchObject({ distance_km: 13, waypoints: [NEAR] });
+    expect(lastRequest().destination).toBeUndefined();
+  });
+
+  it("周回へ戻すと置いた点を地図にも出さず送らず、目的地へ戻すと置いた点をそのまま出す", async () => {
+    const user = renderPage();
+    await chooseDestinationMode(user);
+    await user.click(screen.getByRole("button", { name: "経由地を追加" }));
+    act(() => map().onPinPlace("waypoint", HALFWAY));
+    act(() => map().onPinPlace("destination", NEAR));
+
+    await user.click(screen.getByRole("radio", { name: "周回" }));
+    expect(map().waypoints).toEqual([]);
+    expect(map().destination).toBeNull();
+    await generate(user);
+    expect(lastRequest().waypoints).toBeUndefined();
+    expect(lastRequest().destination).toBeUndefined();
+    expect(lastRequest().distance_km).toBe(30);
+
+    await chooseDestinationMode(user);
+    expect(map().waypoints).toEqual([HALFWAY]);
+    expect(map().destination).toEqual(NEAR);
+  });
+
+  it.each([
+    ["レンズが色分けなし", LENS_NONE_ID, true, undefined],
+    ["レンズが総合難易度", LENS_DIFFICULTY_ID, true, undefined],
+    ["軸カタログが届く前に軸を選んでいる", "axis_a", false, undefined],
+    ["軸カタログが届いてから軸を選んでいる", "axis_a", true, "axis_a"],
+  ])("塗る軸を送るか（%s）", async (_case, lens, loaded, expected) => {
+    stubs.catalog = loaded ? catalogWith(SPLICE_TUNING) : EMPTY_CATALOG;
+    (stubs.mapView as { lens: string }).lens = lens;
+    const user = renderPage();
+    await generate(user);
+    expect(lastRequest().lens_axis_id).toBe(expected);
+  });
+
+  it("重みは、利用者が上書きを有効にした後だけ送る", async () => {
+    const user = renderPage();
+    await generate(user);
+    expect(lastRequest().route_preference).toBeUndefined();
+
+    act(() => weightsPanel().onOverrideEnabledChange(true));
+    act(() => weightsPanel().onRoutePreferenceChange(WEIGHTS));
+    expect(weightsPanel()).toMatchObject({ overrideEnabled: true, routePreference: WEIGHTS });
+    await generate(user);
+    expect(lastRequest().route_preference).toEqual(WEIGHTS);
+  });
+
+  it("重みを上書きしていても、軸カタログが届いていない間は送らない（届いた軸へ合わせられない）", async () => {
+    stubs.catalog = EMPTY_CATALOG;
+    const user = renderPage();
+    act(() => weightsPanel().onOverrideEnabledChange(true));
+    act(() => weightsPanel().onRoutePreferenceChange(WEIGHTS));
+    await generate(user);
+    expect(lastRequest().route_preference).toBeUndefined();
+  });
+
+  it("「除外」タブで変えた除外を、タブへ戻しつつ送る", async () => {
+    const user = renderPage();
+    act(() => exclusionsPanel().onHardFiltersChange(FLIPPED_FILTERS));
+    expect(exclusionsPanel().hardFilters).toEqual(FLIPPED_FILTERS);
+    await generate(user);
+    expect(lastRequest().hard_filters).toEqual(FLIPPED_FILTERS);
+  });
+
+  it("走行方位・出発時刻・想定速度は、地図の見え方・地図・生成リクエストが同じ値を読む", async () => {
+    const user = renderPage();
+    expect(rideBar().departureTime).toEqual(NOW_STEPPED);
+    expect(mapViewInputs().now).toEqual(NOW_STEPPED);
+
+    act(() => bearingControl().onChange(90));
+    act(() => rideBar().onSpeedKmhChange(25));
+    act(() => rideBar().onDepartureTimeChange(PINNED));
+    const ride = { bearingDeg: 90, at: PINNED, speedKmh: 25 };
+    expect(mapViewInputs().ride).toEqual(ride);
+    expect(map().rideConditions).toEqual(ride);
+    expect(bearingControl().value).toBe(90);
+    expect(rideBar()).toMatchObject({ departureTime: PINNED, speedKmh: 25 });
+    await generate(user);
+    expect(lastRequest()).toMatchObject({ assumed_speed_kmh: 25, start_time: PINNED.toISOString() });
+
+    act(() => rideBar().onDepartureNow());
+    expect(rideBar().departureTime).toEqual(NOW_STEPPED);
+  });
+});
+
+describe("地点の指定", () => {
+  it("目的地へ切り替えたとき、まだ何も置いていなければ次のタップで目的地を置けるようにし、周回へ戻すとやめる", async () => {
+    const user = renderPage();
+    expect(map().armedPinRole).toBeNull();
+    await chooseDestinationMode(user);
+    expect(map().armedPinRole).toBe("destination");
+    await user.click(screen.getByRole("radio", { name: "周回" }));
+    expect(map().armedPinRole).toBeNull();
+  });
+
+  it.each([
+    ["目的地", "目的地を地図で選ぶ", "destination"],
+    ["経由地", "経由地を追加", "waypoint"],
+  ] as const)("%sを置いてあれば、目的地へ切り替えても自動では置けるようにしない", async (_label, rowName, role) => {
+    const user = renderPage();
+    await chooseDestinationMode(user);
+    if (role === "waypoint") await user.click(screen.getByRole("button", { name: rowName }));
+    act(() => map().onPinPlace(role, NEAR));
+    await user.click(screen.getByRole("radio", { name: "周回" }));
+    await chooseDestinationMode(user);
+    expect(map().armedPinRole).toBeNull();
+  });
+
+  it("置いてある目的地の行を押すと、目的地を消さずに次のタップで置き直せる状態にする", async () => {
+    const user = renderPage();
+    await chooseDestinationMode(user);
+    act(() => map().onPinPlace("destination", NEAR));
+    expect(map().armedPinRole).toBeNull();
     await user.click(screen.getByRole("button", { name: "目的地を置き直す" }));
-    expect(screen.getByText("地図をタップ")).toBeInTheDocument();
-
-    // 目的地は消えていない（押下が解除ではなく武装であることの確認）。
-    await user.click(screen.getByRole("button", { name: "目的地の指定をやめる" }));
-    expect(screen.getByRole("button", { name: "目的地を置き直す" })).toBeInTheDocument();
+    expect(map().armedPinRole).toBe("destination");
+    expect(map().destination).toEqual(NEAR);
   });
 
-  it("改善計画T602: backendが目的地を補正した場合、案内を表示し次回生成では補正後の地点を送る", async () => {
-    const user = userEvent.setup();
-    const correctedDestination = { latitude: 35.7, longitude: 139.7 };
-    vi.mocked(generateRoutes).mockResolvedValueOnce({
-      routes: [makeCandidate({ id: "route-destination-00", direction_label: "目的地ルート" })],
-      conditions: makeConditions({
-        destination: { latitude: 35.681, longitude: 139.767 },
-        corrected_destination: correctedDestination,
-      }),
-    });
-    const HomeFresh = await renderFreshHome({ realRouteForm: true, exposeMapClickHandlers: true });
-    render(<HomeFresh />);
+  it("出発地を地図で置くと手で決めた位置として送り、置いたら置く状態をやめる。「現在地に戻す」で取り直す", async () => {
+    const user = renderPage();
+    await chooseDestinationMode(user);
+    await user.click(screen.getByRole("button", { name: "出発地を地図で選ぶ" }));
+    expect(map().armedPinRole).toBe("origin");
+    act(() => map().onPinPlace("origin", HALFWAY));
+    expect(map().armedPinRole).toBeNull();
+    expect(map()).toMatchObject({ location: HALFWAY, locationSource: "manual" });
+    act(() => map().onPinPlace("destination", NEAR));
+    await generate(user);
+    expect(lastRequest()).toMatchObject({ latitude: HALFWAY.latitude, longitude: HALFWAY.longitude });
 
-    await user.click(screen.getByRole("radio", { name: "目的地" }));
-    await user.click(screen.getByRole("button", { name: "テスト用に目的地を設定" }));
-    await user.click(screen.getByRole("button", { name: "ルート生成" }));
-
-    expect(
-      await screen.findByText("指定した地点は自転車で行けない場所だったため、近くのアクセス可能な地点へ補正しました。"),
-    ).toBeInTheDocument();
-
-    // 地図上のピンも補正後の地点へ動いているため、次回生成では補正後の座標を送る。
-    vi.mocked(generateRoutes).mockResolvedValueOnce({
-      routes: [makeCandidate({ id: "route-destination-00", direction_label: "目的地ルート" })],
-      conditions: makeConditions({ destination: correctedDestination }),
-    });
-    await user.click(screen.getByRole("button", { name: "ルート生成" }));
-
-    await waitFor(() => {
-      expect(generateRoutes).toHaveBeenLastCalledWith(
-        expect.objectContaining({ destination: correctedDestination }),
-        expect.anything(),
-      );
-    });
+    const requestsBefore = geolocation.getCurrentPosition.mock.calls.length;
+    await user.click(screen.getByRole("button", { name: "出発地を現在地に戻す" }));
+    expect(geolocation.getCurrentPosition).toHaveBeenCalledTimes(requestsBefore + 1);
+    expect(map()).toMatchObject({ location: HERE, locationSource: "geolocation" });
   });
 
-  // 印は「本人が条件を変えた」ことだけを知らせる。生成直後から点いていると、本当に
-  // 変えたときの合図が意味を失う（T758がこの印を設計した目的そのものが損なわれる）。
-  it("目的地が補正されても、生成直後は条件変更の印が点かない", async () => {
-    const user = userEvent.setup();
-    const correctedDestination = { latitude: 35.7, longitude: 139.7 };
-    vi.mocked(generateRoutes).mockResolvedValueOnce({
-      routes: [makeCandidate({ id: "route-destination-00", direction_label: "目的地ルート" })],
-      conditions: makeConditions({
-        destination: { latitude: 35.681, longitude: 139.767 },
-        corrected_destination: correctedDestination,
-      }),
-    });
-    const HomeFresh = await renderFreshHome({ realRouteForm: true, exposeMapClickHandlers: true });
-    render(<HomeFresh />);
+  it("経由地は置いたあとも続けて置け、目的地は1つ置いたら置く状態をやめる", async () => {
+    const user = renderPage();
+    await chooseDestinationMode(user);
+    await user.click(screen.getByRole("button", { name: "経由地を追加" }));
+    act(() => map().onPinPlace("waypoint", HALFWAY));
+    expect(map().armedPinRole).toBe("waypoint");
+    act(() => map().onPinPlace("waypoint", NEAR));
+    expect(map().waypoints).toEqual([HALFWAY, NEAR]);
 
-    await user.click(screen.getByRole("radio", { name: "目的地" }));
-    await user.click(screen.getByRole("button", { name: "テスト用に目的地を設定" }));
-    await user.click(screen.getByRole("button", { name: "ルート生成" }));
-    await screen.findByText("指定した地点は自転車で行けない場所だったため、近くのアクセス可能な地点へ補正しました。");
-
-    expect(screen.queryByText("生成条件が変更されています")).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "目的地を地図で選ぶ" }));
+    act(() => map().onPinPlace("destination", FAR));
+    expect(map().armedPinRole).toBeNull();
+    expect(map().destination).toEqual(FAR);
   });
 
-  it("生成後に条件を変えると、条件変更の印が点く", async () => {
-    const user = userEvent.setup();
-    vi.mocked(generateRoutes).mockResolvedValueOnce({
-      routes: [makeCandidate({ id: "route-00", direction_label: "北" })],
-      conditions: makeConditions({}),
-    });
-    const HomeFresh = await renderFreshHome({ realRouteForm: true });
-    render(<HomeFresh />);
+  it("地図での経由地の移動・削除と目的地の削除、フォームのクリアが、地図へ渡す地点に効く", async () => {
+    const user = renderPage();
+    await chooseDestinationMode(user);
+    await user.click(screen.getByRole("button", { name: "経由地を追加" }));
+    act(() => map().onPinPlace("waypoint", HALFWAY));
+    act(() => map().onPinPlace("waypoint", NEAR));
+    act(() => map().onWaypointMove(0, FAR));
+    expect(map().waypoints).toEqual([FAR, NEAR]);
+    act(() => map().onWaypointRemove(1));
+    expect(map().waypoints).toEqual([FAR]);
+    await user.click(screen.getByRole("button", { name: "経由地をクリア" }));
+    expect(map().waypoints).toEqual([]);
 
-    await user.click(screen.getByRole("button", { name: "ルート生成" }));
-    await waitFor(() => {
-      expect(screen.getByRole("tab", { name: /^1 / })).toBeInTheDocument();
-    });
-    expect(screen.queryByText("生成条件が変更されています")).not.toBeInTheDocument();
-
-    // 距離はスライダー（range）。値を動かすと生成条件が変わる。
-    fireEvent.change(screen.getByLabelText("距離"), { target: { value: "40" } });
-
-    expect(await screen.findByText("生成条件が変更されています")).toBeInTheDocument();
+    act(() => map().onPinPlace("destination", NEAR));
+    act(() => map().onDestinationClear());
+    expect(map().destination).toBeNull();
+    act(() => map().onPinPlace("destination", NEAR));
+    await user.click(screen.getByRole("button", { name: "目的地をクリア" }));
+    expect(map().destination).toBeNull();
   });
 
-  it("改善計画T531: 候補タブに順位番号を表示し、同じ方位の候補を区別できる", async () => {
-    const user = userEvent.setup();
-    vi.mocked(generateRoutes).mockResolvedValueOnce({
-      routes: [
-        makeCandidate({ id: "route-00", direction_label: "北", distance_km: 30.1 }),
-        makeCandidate({ id: "route-01", direction_label: "北", distance_km: 31.4 }),
-      ],
-      conditions: makeConditions(),
-    });
-    const HomeFresh = await renderFreshHome({ realRouteForm: true });
-    render(<HomeFresh />);
+  it("地図で地点を扱えるのは、「ルート設定」の「条件」タブが見えている間だけ", async () => {
+    const user = renderPage();
+    await chooseDestinationMode(user);
+    expect(map()).toMatchObject({ pointEditingEnabled: true, armedPinRole: "destination" });
 
-    await user.click(screen.getByRole("button", { name: "ルート生成" }));
+    await user.click(screen.getByRole("tab", { name: "重み" }));
+    expect(map()).toMatchObject({ pointEditingEnabled: false, armedPinRole: null });
+    await user.click(screen.getByRole("tab", { name: "条件" }));
+    expect(map()).toMatchObject({ pointEditingEnabled: true, armedPinRole: "destination" });
 
-    await waitFor(() => {
-      expect(screen.getByRole("tab", { name: /^1 30\.1km/ })).toBeInTheDocument();
-      expect(screen.getByRole("tab", { name: /^2 31\.4km/ })).toBeInTheDocument();
+    await user.click(settingsSection());
+    expect(map()).toMatchObject({ pointEditingEnabled: false, armedPinRole: null });
+  });
+});
+
+describe("生成の進み方と、結果の置き場", () => {
+  it("生成の実行中は、進み方を「ルート生成」ボタンと「ルート結果」に出し、ボタンを押せなくする", async () => {
+    let report: ((progress: GenerationProgress) => void) | undefined;
+    const pending = deferred();
+    vi.mocked(generateRoutes).mockImplementationOnce((_request, onProgress) => {
+      report = onProgress;
+      return pending.promise;
     });
+    const user = renderPage();
+    await user.click(generateButton());
+    const running = screen.getByRole("button", { name: /生成中|順番待ち/ });
+    expect(running).toBeDisabled();
+    expect(running).toHaveTextContent("生成中...");
+
+    act(() => report?.({ status: "queued", elapsedMs: 0 }));
+    expect(running).toHaveTextContent("順番待ち...");
+    act(() => report?.({ status: "running", elapsedMs: 1500 }));
+    expect(screen.getAllByText("生成中...(2秒経過)")).toHaveLength(2);
+
+    await act(async () => pending.resolve({ routes: [route("route-0")], conditions: conditionsOf() }));
+    expect(generateButton()).toBeEnabled();
   });
 
-  it("改善計画T551: 目的地ルート候補タブは順位番号を付けるが「方向」は付けない", async () => {
-    const user = userEvent.setup();
-    vi.mocked(generateRoutes).mockResolvedValueOnce({
-      routes: [
-        makeCandidate({ id: "route-destination-00", direction_label: "目的地ルート", distance_km: 20.3 }),
-        makeCandidate({ id: "route-destination-01", direction_label: "目的地ルート", distance_km: 22.1 }),
-      ],
-      conditions: makeConditions(),
-    });
-    const HomeFresh = await renderFreshHome({ realRouteForm: true });
-    render(<HomeFresh />);
-
-    await user.click(screen.getByRole("button", { name: "ルート生成" }));
-
-    await waitFor(() => {
-      expect(screen.getByRole("tab", { name: /^1 20\.3km/ })).toBeInTheDocument();
-      expect(screen.getByRole("tab", { name: /^2 22\.1km/ })).toBeInTheDocument();
-    });
+  it.each([
+    ["届いた", "対象の道が見つかりません", "対象の道が見つかりません"],
+    ["届かない", undefined, "条件に合うルート候補が見つかりませんでした。距離を変えて試してください。"],
+  ])("候補0件は、理由が%sとき「ルート結果」にその理由を出し、閉じていても開く", async (_case, reason, shown) => {
+    localStorage.setItem("ridecompass:outcome-open", "false");
+    respond([], {}, reason);
+    const user = renderPage();
+    expect(outcomeSection()).toHaveAttribute("aria-expanded", "false");
+    await generate(user);
+    expect(outcomeSection()).toHaveAttribute("aria-expanded", "true");
+    expect(screen.getByRole("alert")).toHaveTextContent(shown);
   });
 
-  it("所要時間が最小の候補に「最速」、他の候補に基準線からの超過分を添える", async () => {
-    // 得点だけでは軸設定を強めるかどうかを決められない。対価（何分余計にかかるか）を
-    // 候補を見比べる場所＝タブに出す。順位番号は並び順を読むために常に残す。
-    const user = userEvent.setup();
-    vi.mocked(generateRoutes).mockResolvedValueOnce({
-      routes: [
-        makeCandidate({
-          id: "route-destination-00",
-          direction_label: "目的地ルート",
-          distance_km: 18.0,
-          estimated_duration_seconds: 3600,
-          is_fastest: true,
-        }),
-        makeCandidate({
-          id: "route-destination-01",
-          direction_label: "目的地ルート",
-          distance_km: 22.0,
-          estimated_duration_seconds: 4320,
-        }),
-      ],
-      conditions: makeConditions(),
-    });
-    const HomeFresh = await renderFreshHome({ realRouteForm: true });
-    render(<HomeFresh />);
-
-    await user.click(screen.getByRole("button", { name: "ルート生成" }));
-
-    await waitFor(() => {
-      expect(screen.getByRole("tab", { name: /^1 18\.0km 最速/ })).toBeInTheDocument();
-      expect(screen.getByRole("tab", { name: /^2 22\.0km \+12分/ })).toBeInTheDocument();
-    });
+  it.each([
+    ["Error", new Error("通信に失敗しました"), "通信に失敗しました"],
+    ["Error以外", "壊れた応答", "不明なエラーが発生しました"],
+  ])("生成が%sで失敗したら「ルート結果」に出し、閉じていても開く", async (_case, failure, shown) => {
+    localStorage.setItem("ridecompass:outcome-open", "false");
+    vi.mocked(generateRoutes).mockRejectedValueOnce(failure);
+    const user = renderPage();
+    await generate(user);
+    expect(outcomeSection()).toHaveAttribute("aria-expanded", "true");
+    expect(screen.getByRole("alert")).toHaveTextContent(shown);
   });
 
-  it("周回モードでも「最速」と超過分を出す（backendのis_fastestは付かない）", async () => {
-    // ここが効かないと、主用途である周回モードのタブに時間の比較材料が一つも出ない。
-    const user = userEvent.setup();
-    vi.mocked(generateRoutes).mockResolvedValueOnce({
-      routes: [
-        makeCandidate({ id: "route-00", distance_km: 29.2, estimated_duration_seconds: 6300 }),
-        makeCandidate({ id: "route-01", distance_km: 26.6, estimated_duration_seconds: 5820 }),
-      ],
-      conditions: makeConditions(),
-    });
-    const HomeFresh = await renderFreshHome({ realRouteForm: true });
-    render(<HomeFresh />);
+  it("入力の誤りは生成の失敗と同じ場所に出して閉じていても開き、直前の生成の案内より先に出す", async () => {
+    respond([], {}, "直前の理由");
+    const user = renderPage();
+    await generate(user);
+    await user.click(outcomeSection());
+    expect(outcomeSection()).toHaveAttribute("aria-expanded", "false");
 
-    await user.click(screen.getByRole("button", { name: "ルート生成" }));
-
-    await waitFor(() => {
-      expect(screen.getByRole("tab", { name: /^2 26\.6km 最速/ })).toBeInTheDocument();
-      expect(screen.getByRole("tab", { name: /^1 29\.2km \+8分/ })).toBeInTheDocument();
-    });
-    // 距離の「最短」は出さない——同じ列に時間と距離の2つの最上級が並ぶと、何と比べて
-    // いるのか読めなくなる。
-    expect(screen.queryByRole("tab", { name: /最短/ })).toBeNull();
+    await chooseDestinationMode(user);
+    await user.click(generateButton());
+    expect(generateRoutes).toHaveBeenCalledTimes(1);
+    expect(outcomeSection()).toHaveAttribute("aria-expanded", "true");
+    expect(screen.getByRole("alert")).not.toHaveTextContent("直前の理由");
   });
 
-  it("一覧の行のバーは、最短の候補を1.0として距離の比だけ高くなる（面積が負荷になる）", async () => {
-    // 長さは総合難易度のまま。ここが効かないと、遠回りで易しい候補と短くて難しい候補が
-    // 一覧で同じ大きさに見え、負荷の違いが数字を開くまで分からない。
-    const user = userEvent.setup();
-    vi.mocked(generateRoutes).mockResolvedValueOnce({
-      routes: [
-        makeCandidate({ id: "route-00", distance_km: 40.0, overall_difficulty: 22.0 }),
-        makeCandidate({ id: "route-01", distance_km: 20.0, overall_difficulty: 31.0 }),
-      ],
-      conditions: makeConditions(),
-    });
-    const HomeFresh = await renderFreshHome({ realRouteForm: true });
-    const { container } = render(<HomeFresh />);
-
-    await user.click(screen.getByRole("button", { name: "ルート生成" }));
-
-    await waitFor(() => {
-      expect(screen.getByRole("tab", { name: /^1 40\.0km/ })).toBeInTheDocument();
-    });
-    const tracks = screen
-      .getAllByRole("tab")
-      .map((tab) => tab.querySelector<HTMLElement>('[style*="--load-bar-height-ratio"]'))
-      .filter((track): track is HTMLElement => track !== null);
-    expect(tracks).toHaveLength(2);
-    // 40km / 20km = 2.0（上限）。基準の20kmは1.0。
-    expect(tracks[0].style.getPropertyValue("--load-bar-height-ratio")).toBe("2");
-    expect(tracks[1].style.getPropertyValue("--load-bar-height-ratio")).toBe("1");
-  });
-
-  it("区間を乗り換えて作った候補は順位番号のまま、名前で「合成」と示す", async () => {
-    // 素の結果と本質的に区別しないため並び順は同じ規約に乗せ、見分けだけ名前で付ける。
-    const user = userEvent.setup();
-    vi.mocked(generateRoutes).mockResolvedValueOnce({
-      routes: [
-        makeCandidate({ id: "route-destination-00", direction_label: "目的地ルート", distance_km: 18.0 }),
-        makeCandidate({ id: "route-spliced-1", direction_label: "組み合わせたルート", distance_km: 19.5 }),
-      ],
-      conditions: makeConditions(),
-    });
-    const HomeFresh = await renderFreshHome({ realRouteForm: true });
-    render(<HomeFresh />);
-
-    await user.click(screen.getByRole("button", { name: "ルート生成" }));
-
-    await waitFor(() => {
-      expect(screen.getByRole("tab", { name: /^1 18\.0km/ })).toBeInTheDocument();
-      expect(screen.getByRole("tab", { name: /^2 19\.5km 合成/ })).toBeInTheDocument();
-    });
-  });
-
-  it("区間の乗り換えは、表示中の候補を作った条件のまま評価する", async () => {
-    // 合成結果は素の結果と区別せず同じ並びへ差し込まれる。いまのフォーム値で評価すると、
-    // 生成後に条件を変えてから合成したときに、比較できない値で順位が決まる。
-    const user = userEvent.setup();
-    vi.mocked(generateRoutes).mockResolvedValue({
-      routes: [
-        makeCandidate({
-          id: "route-destination-00",
-          direction_label: "目的地ルート",
-          distance_km: 18.0,
-          edge_ids: ["s", "a1", "m", "a2", "e"],
-        }),
-        makeCandidate({
-          id: "route-destination-01",
-          direction_label: "目的地ルート",
-          distance_km: 19.0,
-          edge_ids: ["s", "b1", "m", "b2", "e"],
-        }),
-      ],
-      conditions: makeConditions(),
-    });
-    const HomeFresh = await renderFreshHome({ realRouteForm: true, exposeMapClickHandlers: true });
-    render(<HomeFresh />);
-
-    await user.click(screen.getByRole("radio", { name: "目的地" }));
-    await user.click(screen.getByRole("button", { name: "テスト用に目的地を設定" }));
-    await user.click(screen.getByRole("button", { name: "ルート生成" }));
-    await waitFor(() => expect(screen.getByRole("tab", { name: /^1 18\.0km/ })).toBeInTheDocument());
-
-    // 生成後に目的地を動かす（フォーム値だけが変わり、表示中の候補は古い条件のまま）
-    await user.click(screen.getByRole("button", { name: "テスト用に目的地を別の地点へ動かす" }));
-
-    await user.click(screen.getByRole("button", { name: "このルートを編集" }));
-    // 乗り換えは地図の帯をタップして行う。この候補は2箇所で道が違うため帯も2つ出る。
-    await user.click(screen.getByRole("button", { name: "テスト用に1つ目の帯をタップ" }));
-    await user.click(screen.getByRole("button", { name: "新しいルートを作る" }));
-
-    await waitFor(() => expect(vi.mocked(generateRoutes)).toHaveBeenCalledTimes(2));
-    const spliceRequest = vi.mocked(generateRoutes).mock.calls[1][0];
-    expect(spliceRequest.spliced_edge_ids).toEqual(["s", "b1", "m", "a2", "e"]);
-    // 動かした後の目的地Bではなく、生成に使った目的地Aで評価される
-    expect(spliceRequest.destination).toEqual({ latitude: 35.681, longitude: 139.767 });
-  });
-
-  it("合成したルートは一覧へ1本だけ入る", async () => {
-    const user = userEvent.setup();
-    vi.mocked(generateRoutes).mockResolvedValue({
-      routes: [
-        makeCandidate({ id: "route-00", distance_km: 18.0, edge_ids: ["s", "a1", "m", "a2", "e"] }),
-        makeCandidate({ id: "route-01", distance_km: 19.0, edge_ids: ["s", "b1", "m", "b2", "e"] }),
-      ],
-      conditions: makeConditions(),
-    });
-    const HomeFresh = await renderFreshHome({ realRouteForm: true, exposeMapClickHandlers: true });
-    render(<HomeFresh />);
-
-    await user.click(screen.getByRole("radio", { name: "目的地" }));
-    await user.click(screen.getByRole("button", { name: "テスト用に目的地を設定" }));
-    await user.click(screen.getByRole("button", { name: "ルート生成" }));
-    await waitFor(() => expect(screen.getByRole("tab", { name: /^1 18/ })).toBeInTheDocument());
-    const before = screen.getAllByRole("tab").length;
-
-    vi.mocked(generateRoutes).mockResolvedValue({
-      routes: [
-        makeCandidate({
-          id: "route-spliced",
-          direction_label: "組み合わせたルート",
-          distance_km: 18.5,
-          edge_ids: ["s", "b1", "m", "a2", "e"],
-        }),
-      ],
-      conditions: makeConditions(),
-    });
-    await user.click(screen.getByRole("button", { name: "このルートを編集" }));
-    await user.click(screen.getByRole("button", { name: "テスト用に1つ目の帯をタップ" }));
-    // 連打（再レンダーでdisabledが付く前の2回目）でも1本だけ入る
-    const create = screen.getByRole("button", { name: "新しいルートを作る" });
-    fireEvent.click(create);
-    fireEvent.click(create);
-
-    await waitFor(() => expect(screen.getAllByRole("tab")).toHaveLength(before + 1));
-    await waitFor(() => expect(screen.queryByRole("heading", { name: "区間の乗り換え" })).toBeNull());
-    expect(screen.getAllByRole("tab")).toHaveLength(before + 1);
-  });
-  // 区間を全部その候補の道へ乗り換えると、出来上がりは既存の候補そのものになる。
-  // 同じ道が2本並ぶと、利用者からは「重複して追加された」ようにしか見えない。
-  it("出来上がりが既存の候補と同じ道なら、増やさずそれを選ぶ", async () => {
-    const user = userEvent.setup();
-    vi.mocked(generateRoutes).mockResolvedValue({
-      routes: [
-        makeCandidate({ id: "route-00", distance_km: 18.0, edge_ids: ["s", "a1", "e"] }),
-        makeCandidate({ id: "route-01", distance_km: 19.0, edge_ids: ["s", "b1", "e"] }),
-      ],
-      conditions: makeConditions(),
-    });
-    const HomeFresh = await renderFreshHome({ realRouteForm: true, exposeMapClickHandlers: true });
-    render(<HomeFresh />);
-
-    await user.click(screen.getByRole("radio", { name: "目的地" }));
-    await user.click(screen.getByRole("button", { name: "テスト用に目的地を設定" }));
-    await user.click(screen.getByRole("button", { name: "ルート生成" }));
-    await waitFor(() => expect(screen.getByRole("tab", { name: /^1 18/ })).toBeInTheDocument());
-    const before = screen.getAllByRole("tab").length;
-
-    // 合成の結果はroute-01と同じ道（backendは同じ経路を評価して返す）
-    vi.mocked(generateRoutes).mockResolvedValue({
-      routes: [
-        makeCandidate({
-          id: "route-spliced",
-          direction_label: "組み合わせたルート",
-          distance_km: 19.0,
-          edge_ids: ["s", "b1", "e"],
-        }),
-      ],
-      conditions: makeConditions(),
-    });
-    await user.click(screen.getByRole("button", { name: "このルートを編集" }));
-    await user.click(screen.getByRole("button", { name: "テスト用に1つ目の帯をタップ" }));
-    await user.click(screen.getByRole("button", { name: "新しいルートを作る" }));
-
-    await waitFor(() => expect(screen.queryByRole("heading", { name: "区間の乗り換え" })).toBeNull());
-    expect(screen.getAllByRole("tab")).toHaveLength(before);
-  });
-  it("編集中は区間詳細（赤ピン）を選べない", async () => {
-    // 区間詳細の置き場は候補タブの中身で、編集中はそこが編集面へ置き換わる。受け付けると
-    // 地図にピンだけが残り、消す導線も無くなる。
-    const user = userEvent.setup();
-    vi.mocked(generateRoutes).mockResolvedValue({
-      routes: [
-        makeCandidate({ id: "route-00", distance_km: 18.0, edge_ids: ["s", "a1", "m", "a2", "e"] }),
-        makeCandidate({ id: "route-01", distance_km: 19.0, edge_ids: ["s", "b1", "m", "b2", "e"] }),
-      ],
-      conditions: makeConditions(),
-    });
-    const HomeFresh = await renderFreshHome({
-      realRouteForm: true,
-      exposeMapClickHandlers: true,
-      exposeSegmentSelect: true,
-    });
-    render(<HomeFresh />);
-
-    await user.click(screen.getByRole("radio", { name: "目的地" }));
-    await user.click(screen.getByRole("button", { name: "テスト用に目的地を設定" }));
-    await user.click(screen.getByRole("button", { name: "ルート生成" }));
-    await waitFor(() => expect(screen.getByRole("tab", { name: /^1 18\.0km/ })).toBeInTheDocument());
-
-    // 編集に入る前は選べる（赤ピンの値が地図へ渡る）
-    await user.click(screen.getByRole("button", { name: "テスト用に区間を選択" }));
-    expect(screen.getByTestId("map-selected-segment")).toHaveTextContent("選択中");
-    expect(screen.getByRole("button", { name: "区間の選択を解除" })).toBeInTheDocument();
-
-    expect(screen.getByTestId("map-point-editing")).toHaveTextContent("可");
-
-    await user.click(screen.getByRole("button", { name: "このルートを編集" }));
-    // 編集に入った時点で、それまでの選択も落ちる
-    expect(screen.getByTestId("map-selected-segment")).toHaveTextContent("なし");
-    // 編集中にできるのは乗り換え先の選択だけ。地点はつかんで動かせない
-    expect(screen.getByTestId("map-point-editing")).toHaveTextContent("不可");
-
-    await user.click(screen.getByRole("button", { name: "テスト用に区間を選択" }));
-    expect(screen.getByTestId("map-selected-segment")).toHaveTextContent("なし");
-    expect(screen.getByRole("heading", { name: "区間の乗り換え" })).toBeInTheDocument();
-  });
-
-  it("編集中は、地図で他候補を押しても元ルートが切り替わらない", async () => {
-    // パネルが示す元と、地図で強調されるルートが食い違うと、何を編集しているのか読めない。
-    const user = userEvent.setup();
-    vi.mocked(generateRoutes).mockResolvedValue({
-      routes: [
-        makeCandidate({ id: "route-00", distance_km: 18.0, edge_ids: ["s", "a1", "m", "a2", "e"] }),
-        makeCandidate({ id: "route-01", distance_km: 19.0, edge_ids: ["s", "b1", "m", "b2", "e"] }),
-      ],
-      conditions: makeConditions(),
-    });
-    const HomeFresh = await renderFreshHome({ realRouteForm: true, exposeMapClickHandlers: true });
-    render(<HomeFresh />);
-
-    await user.click(screen.getByRole("radio", { name: "目的地" }));
-    await user.click(screen.getByRole("button", { name: "テスト用に目的地を設定" }));
-    await user.click(screen.getByRole("button", { name: "ルート生成" }));
-    await waitFor(() => expect(screen.getByRole("tab", { name: /^1 18\.0km/ })).toBeInTheDocument());
-
-    // 編集に入る前は、地図で押した候補へ移る
-    await user.click(screen.getByRole("button", { name: "テスト用に地図で他候補を選ぶ" }));
-    expect(screen.getByRole("tab", { name: /^2 19\.0km/ })).toHaveAttribute("aria-selected", "true");
-
-    await user.click(screen.getByRole("tab", { name: /^1 18\.0km/ }));
-    await user.click(screen.getByRole("button", { name: "このルートを編集" }));
-    await user.click(screen.getByRole("button", { name: "テスト用に地図で他候補を選ぶ" }));
-
-    // 編集面が示す元は押す前のまま（地図で押した候補へは移らない）
-    expect(screen.getByText("18.0")).toBeInTheDocument();
-    expect(screen.queryByText("19.0")).toBeNull();
-  });
-
-  it("合成したルートをさらに編集して、別の候補の道へ乗り継げる", async () => {
-    // 「他ルートから更に他ルートへ乗り継ぐ」は、作った合成ルートを元にもう一度編集できること。
-    const user = userEvent.setup();
-    const base = makeCandidate({ id: "route-00", distance_km: 18.0, edge_ids: ["s", "a1", "m", "a2", "e"] });
-    const other = makeCandidate({ id: "route-01", distance_km: 19.0, edge_ids: ["s", "b1", "m", "b2", "e"] });
-    vi.mocked(generateRoutes).mockResolvedValue({
-      routes: [base, other],
-      conditions: makeConditions(),
-    });
-    const HomeFresh = await renderFreshHome({ realRouteForm: true, exposeMapClickHandlers: true });
-    render(<HomeFresh />);
-
-    await user.click(screen.getByRole("radio", { name: "目的地" }));
-    await user.click(screen.getByRole("button", { name: "テスト用に目的地を設定" }));
-    await user.click(screen.getByRole("button", { name: "ルート生成" }));
-    await waitFor(() => expect(screen.getByRole("tab", { name: /^1 18/ })).toBeInTheDocument());
-
-    // 1本目の区間だけ相手の道へ差し替えて作る（backendは合成結果を1件返す）
-    vi.mocked(generateRoutes).mockResolvedValue({
-      routes: [
-        makeCandidate({
-          id: "route-spliced",
-          direction_label: "組み合わせたルート",
-          distance_km: 18.5,
-          edge_ids: ["s", "b1", "m", "a2", "e"],
-        }),
-      ],
-      conditions: makeConditions(),
-    });
-    await user.click(screen.getByRole("button", { name: "このルートを編集" }));
-    await user.click(screen.getByRole("button", { name: "テスト用に1つ目の帯をタップ" }));
-    await user.click(screen.getByRole("button", { name: "新しいルートを作る" }));
-
-    // 合成結果が選ばれた状態で一覧へ戻り、そこからもう一度編集へ入れる
-    await waitFor(() => expect(screen.getByRole("button", { name: "このルートを編集" })).toBeInTheDocument());
-    await user.click(screen.getByRole("button", { name: "このルートを編集" }));
-
-    // 元は合成ルートで、そこからさらに別の候補の道へ乗り換えられる
-    expect(screen.getByRole("heading", { name: "区間の乗り換え" })).toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: "テスト用に1つ目の帯をタップ" }));
-    expect(screen.getByText("1回")).toBeInTheDocument();
-  });
-  it("周回で生成した後は、目的地ピンが残っていても区間の乗り換えを出さない", async () => {
-    // 表示中の候補を作った生成で判定する。いまの目的地ピンで判定すると、周回モードへ
-    // 戻した後もピンが残っている間は操作面が出て、合成リクエストがdestination無しになり
-    // backendに弾かれる。
-    const user = userEvent.setup();
-    vi.mocked(generateRoutes).mockResolvedValue({
-      routes: [
-        makeCandidate({ id: "route-00", distance_km: 18.0, edge_ids: ["s", "a1", "m", "a2", "e"] }),
-        makeCandidate({ id: "route-01", distance_km: 19.0, edge_ids: ["s", "b1", "m", "b2", "e"] }),
-      ],
-      conditions: makeConditions(),
-    });
-    const HomeFresh = await renderFreshHome({ realRouteForm: true, exposeMapClickHandlers: true });
-    render(<HomeFresh />);
-
-    // 目的地ピンだけ置いて、周回モードのまま生成する
-    await user.click(screen.getByRole("button", { name: "テスト用に目的地を設定" }));
-    await user.click(screen.getByRole("button", { name: "ルート生成" }));
-    await waitFor(() => expect(screen.getByRole("tab", { name: /^1 18\.0km/ })).toBeInTheDocument());
-
-    expect(screen.queryByRole("button", { name: "このルートを編集" })).toBeNull();
-  });
-
-  it("編集はルート結果の中のモードで、入口は候補の中にある", async () => {
-    // 独立した「ルート編集」の置き場を持つと、どのルートを編集しているのかを編集側で
-    // 選び直す形になる。候補を見ている場所から入り、同じ場所が
-    // 編集面へ変わる。
-    const user = userEvent.setup();
-    vi.mocked(generateRoutes).mockResolvedValue({
-      routes: [
-        // 帯は相手側の座標から作るため、乗り換えの案内が出る条件には座標とEdge境界が要る
-        // （案内は「地図に破線が出ていること」と同じ条件で出す）。
-        makeCandidate({
-          id: "route-destination-00",
-          distance_km: 18.0,
-          edge_ids: ["s", "a1", "m", "a2", "e"],
-          geometry: { type: "LineString", coordinates: SPLICE_COORDINATES },
-          edge_point_offsets: [0, 1, 2, 3, 4, 5],
-        }),
-        makeCandidate({
-          id: "route-destination-01",
-          distance_km: 19.0,
-          edge_ids: ["s", "b1", "m", "b2", "e"],
-          geometry: { type: "LineString", coordinates: SPLICE_COORDINATES },
-          edge_point_offsets: [0, 1, 2, 3, 4, 5],
-        }),
-      ],
-      conditions: makeConditions(),
-    });
-    const HomeFresh = await renderFreshHome({ realRouteForm: true, exposeMapClickHandlers: true });
-    render(<HomeFresh />);
-
-    await user.click(screen.getByRole("radio", { name: "目的地" }));
-    await user.click(screen.getByRole("button", { name: "テスト用に目的地を設定" }));
-    await user.click(screen.getByRole("button", { name: "ルート生成" }));
-    await waitFor(() => expect(screen.getByRole("tab", { name: /^1 18\.0km/ })).toBeInTheDocument());
-
-    // 入口を押すまでは編集面は出ない
-    expect(screen.queryByRole("heading", { name: "区間の乗り換え" })).toBeNull();
-
-    await user.click(screen.getByRole("button", { name: "このルートを編集" }));
-
-    // 元は押した候補に固定され、地図で乗り換える面になる
-    expect(screen.getByRole("heading", { name: "区間の乗り換え" })).toBeInTheDocument();
-    expect(screen.getByText("地図の破線をタップして乗り換えます")).toBeInTheDocument();
-
-    // 戻ると候補の一覧へ戻る
-    await user.click(screen.getByRole("button", { name: "編集をやめて候補へ戻る" }));
-    expect(screen.queryByRole("heading", { name: "区間の乗り換え" })).toBeNull();
-    expect(screen.getByRole("button", { name: "このルートを編集" })).toBeInTheDocument();
-  });
-
-  // 編集は候補があって初めて成立する。畳まずに候補だけ消すと「編集をやめて候補へ戻る」
-  // 導線ごと画面から消え、地図の地点編集・候補選択が無効のまま戻せなくなる（T874）。
-  it("編集中に候補をクリアしても、編集モードが残らない", async () => {
-    const user = userEvent.setup();
-    vi.mocked(generateRoutes).mockResolvedValue({
-      routes: [
-        makeCandidate({
-          id: "route-destination-00",
-          distance_km: 18.0,
-          edge_ids: ["s", "a1", "m", "a2", "e"],
-          geometry: { type: "LineString", coordinates: SPLICE_COORDINATES },
-          edge_point_offsets: [0, 1, 2, 3, 4, 5],
-        }),
-        makeCandidate({
-          id: "route-destination-01",
-          distance_km: 19.0,
-          edge_ids: ["s", "b1", "m", "b2", "e"],
-          geometry: { type: "LineString", coordinates: SPLICE_COORDINATES },
-          edge_point_offsets: [0, 1, 2, 3, 4, 5],
-        }),
-      ],
-      conditions: makeConditions(),
-    });
-    const HomeFresh = await renderFreshHome({ realRouteForm: true, exposeMapClickHandlers: true });
-    render(<HomeFresh />);
-
-    await user.click(screen.getByRole("radio", { name: "目的地" }));
-    await user.click(screen.getByRole("button", { name: "テスト用に目的地を設定" }));
-    await user.click(screen.getByRole("button", { name: "ルート生成" }));
-    await waitFor(() => expect(screen.getByRole("tab", { name: /^1 18\.0km/ })).toBeInTheDocument());
-    await user.click(screen.getByRole("button", { name: "このルートを編集" }));
-    expect(screen.getByRole("heading", { name: "区間の乗り換え" })).toBeInTheDocument();
-
-    await user.click(screen.getByRole("button", { name: "ルートをクリア" }));
-
-    // 編集面が残っていると、戻す導線が無いまま地図の操作だけが死ぬ
-    expect(screen.queryByRole("heading", { name: "区間の乗り換え" })).toBeNull();
-    // 地図の地点編集が戻っていること。ここが死んだままだと、目的地を置き直すことも
-    // 既存ピンを動かすこともできず、画面に理由も出ない
-    await waitFor(() => expect(screen.getByTestId("point-editing-enabled")).toHaveTextContent("true"));
-    // もう一度生成すれば、また編集へ入れる（編集モードが畳まれている証拠）
-    await user.click(screen.getByRole("button", { name: "ルート生成" }));
-    await waitFor(() => expect(screen.getByRole("tab", { name: /^1 18\.0km/ })).toBeInTheDocument());
-    expect(screen.getByRole("button", { name: "このルートを編集" })).toBeInTheDocument();
-  });
-
-  it("乗り換えできない生成では、編集の入口自体を出さない", async () => {
-    // 周回生成では候補が2件あっても乗り換えできない（起点へ戻る制約）。押しても何も
-    // できない入口を残さない。
-    const user = userEvent.setup();
-    vi.mocked(generateRoutes).mockResolvedValue({
-      routes: [
-        makeCandidate({ id: "route-00", distance_km: 18.0, edge_ids: ["s", "a1", "m", "a2", "e"] }),
-        makeCandidate({ id: "route-01", distance_km: 19.0, edge_ids: ["s", "b1", "m", "b2", "e"] }),
-      ],
-      conditions: makeConditions(),
-    });
-    const HomeFresh = await renderFreshHome({ realRouteForm: true, exposeMapClickHandlers: true });
-    render(<HomeFresh />);
-
-    await user.click(screen.getByRole("button", { name: "ルート生成" }));
-    await waitFor(() => expect(screen.getByRole("tab", { name: /^1 18\.0km/ })).toBeInTheDocument());
-
-    expect(screen.queryByRole("button", { name: "このルートを編集" })).toBeNull();
-  });
-
-  it("地図の一括操作は、レイヤーのON/OFFと絞り込みを別々に戻す", async () => {
-    // どちらも「まとめて元に戻す」だが対象が違う（レイヤーを消す／隠した項目を戻す）。
-    // 同じバツ印だと区別できないため、対象を形で示すアイコンを別々に持つ。
-    const user = userEvent.setup();
-    window.localStorage.setItem("ridecompass:hidden-legend-keys", JSON.stringify({ surface: ["asphalt"] }));
-    const HomeFresh = await renderFreshHome();
-    render(<HomeFresh />);
-
-    const clearFilters = screen.getByRole("button", { name: "絞り込みをすべて解除する" });
-    expect(clearFilters).toBeEnabled();
-
-    await user.click(clearFilters);
-
-    // 押した後は戻すものが無くなるため無効になる
-    await waitFor(() => expect(clearFilters).toBeDisabled());
-    // レイヤー側の一括OFFは別のボタンとして残る
-    expect(screen.getByRole("button", { name: "表示中のレイヤーをすべて非表示にする" })).toBeInTheDocument();
-  });
-
-  it("地図の再描画は地図側の一括操作行にあり、サイドバーには無い", async () => {
-    // 地図インスタンスを描き直す操作のため、地図の「まとめて元に戻す」行に置く。
-    const HomeFresh = await renderFreshHome();
-    render(<HomeFresh />);
-
-    expect(screen.getByRole("button", { name: "地図の表示を再描画する" })).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "地図の表示を再描画" })).toBeNull();
-  });
-
-  it("絞り込みが無ければ解除ボタンは押せない", async () => {
-    // no-opのボタンを押せる状態で置くと、押しても何も起きない操作を覚えさせることになる
-    const HomeFresh = await renderFreshHome();
-    render(<HomeFresh />);
-
-    expect(screen.getByRole("button", { name: "絞り込みをすべて解除する" })).toBeDisabled();
-  });
-
-  it("ルート結果ヘッダの操作は、パネルの閉じる✕と見分けられる形にする", async () => {
-    // 「ルートをクリア」はシートの閉じる✕の隣に並ぶ。同じバツ印だとどちらがどちらか
-    // 分からない。
-    vi.mocked(generateRoutes).mockResolvedValue({
-      routes: [makeCandidate({ id: "route-00", distance_km: 18.0 })],
-      conditions: makeConditions(),
-    });
-    const user = userEvent.setup();
-    const HomeFresh = await renderFreshHome({ realRouteForm: true });
-    render(<HomeFresh />);
-    await user.click(screen.getByRole("button", { name: "ルート生成" }));
-
-    const clear = await screen.findByRole("button", { name: "ルートをクリア" });
-    // バツ印（2本の交差線）ではなくゴミ箱を出す
-    expect(clear.querySelector("svg")?.innerHTML ?? "").not.toContain("M7.3 7.3 12.7 12.7");
-    expect(clear.querySelector("svg")?.innerHTML ?? "").toContain("M3.6 5.4h12.8");
-  });
-
-  it("T592フォローアップ: 研究モード中は区間クリック詳細に材料値(material_values)を表示する", async () => {
-    const user = userEvent.setup();
-    vi.mocked(generateRoutes).mockResolvedValueOnce({
-      routes: [makeCandidate()],
-      conditions: makeConditions(),
-    });
-    const HomeFresh = await renderFreshHome({ realRouteForm: true, exposeSegmentSelect: true, researchEnabled: true });
-    render(<HomeFresh />);
-
-    await user.click(screen.getByRole("button", { name: "ルート生成" }));
-    await waitFor(() => expect(screen.getByRole("button", { name: "テスト用に区間を選択" })).toBeInTheDocument());
-    await user.click(screen.getByRole("button", { name: "テスト用に区間を選択" }));
-
-    expect(await screen.findByText(/風の追加負荷.*1\.96/)).toBeInTheDocument();
-    expect(screen.queryByText(/wind_drag_ratio/)).not.toBeInTheDocument();
-  });
-
-  it("T592フォローアップ: 研究モードでなければ区間クリック詳細に材料値を表示しない", async () => {
-    const user = userEvent.setup();
-    vi.mocked(generateRoutes).mockResolvedValueOnce({
-      routes: [makeCandidate()],
-      conditions: makeConditions(),
-    });
-    const HomeFresh = await renderFreshHome({ realRouteForm: true, exposeSegmentSelect: true, researchEnabled: false });
-    render(<HomeFresh />);
-
-    await user.click(screen.getByRole("button", { name: "ルート生成" }));
-    await waitFor(() => expect(screen.getByRole("button", { name: "テスト用に区間を選択" })).toBeInTheDocument());
-    await user.click(screen.getByRole("button", { name: "テスト用に区間を選択" }));
-
-    expect(screen.queryByText(/風の追加負荷/)).not.toBeInTheDocument();
-  });
-
-  it("候補0件で成功したとき、専用のエラーメッセージを表示する", async () => {
-    const user = userEvent.setup();
-    vi.mocked(generateRoutes).mockResolvedValueOnce({
-      routes: [],
-      conditions: makeConditions(),
-    });
-    const HomeFresh = await renderFreshHome({ realRouteForm: true });
-    render(<HomeFresh />);
-
-    await user.click(screen.getByRole("button", { name: "ルート生成" }));
-
-    await waitFor(() => {
-      expect(screen.getByRole("alert")).toHaveTextContent(
-        "条件に合うルート候補が見つかりませんでした。距離を変えて試してください。",
-      );
-    });
-    // 候補0件はエラー表示であって例外ではないため、次に条件を変えて再試行できるよう
-    // loading状態も解除されている（ボタンが再び押せる）ことを合わせて確認する。
-    expect(screen.getByRole("button", { name: "ルート生成" })).not.toBeDisabled();
-  });
-
-  it("T597フォローアップ: モバイルでも候補0件時にデスクトップと同じ案内文を表示する", async () => {
-    const user = userEvent.setup();
-    const HomeFresh = await renderFreshHome({ mobile: true });
-    render(<HomeFresh />);
-
-    await user.click(screen.getByRole("button", { name: /ルート結果/ }));
-
+  it("生成前の「ルート結果」は、押せば候補が並ぶことを案内する", () => {
+    renderPage();
     expect(screen.getByText("「ルート生成」を押すと候補がここに並びます")).toBeInTheDocument();
   });
 
-  it("改善計画T441: バックエンドがno_candidates_reasonを返した場合、汎用文言ではなくそちらを表示する", async () => {
-    const user = userEvent.setup();
-    vi.mocked(generateRoutes).mockResolvedValueOnce({
-      routes: [],
-      conditions: makeConditions(),
-      noCandidatesReason: "5件の折返し候補で復路の探索に失敗しました。除外設定をご確認ください。",
+  it("backendが目的地を補正したら、ピンを補正後の地点へ動かして知らせ、条件が変わったとは扱わない", async () => {
+    const corrected = { latitude: 35.1001, longitude: 139.0005 };
+    const user = renderPage();
+    await chooseDestinationMode(user);
+    act(() => map().onPinPlace("destination", NEAR));
+    respond([route("route-0")], { corrected_destination: corrected });
+    await generate(user);
+    expect(map().destination).toEqual(corrected);
+    expect(
+      screen.getByText("指定した地点は自転車で行けない場所だったため、近くのアクセス可能な地点へ補正しました。"),
+    ).toBeInTheDocument();
+    expect(screen.queryByRole("img", { name: "生成条件が変更されています" })).not.toBeInTheDocument();
+  });
+});
+
+describe("候補の一覧", () => {
+  it("行には順位・距離に加え、最も早く着く候補に「最速」、他の候補にそこから余計にかかる時間を添える", async () => {
+    respond([
+      route("route-0", { distance_km: 10, estimated_duration_seconds: 3600 }),
+      route("route-1", { distance_km: 12.34, estimated_duration_seconds: 3900 }),
+      route("route-2", { distance_km: 8, estimated_duration_seconds: 3620 }),
+    ]);
+    const user = renderPage();
+    await generate(user);
+    const [first, second, third] = resultTabs();
+    expect(first).toHaveTextContent(/^1 10\.0km最速—$/);
+    expect(second).toHaveTextContent(/^2 12\.3km\+5分—$/);
+    expect(third).toHaveTextContent(/^3 8\.0km—$/);
+  });
+
+  it("経由地を通るルートは順位の代わりに名前を出す", async () => {
+    respond([route("route-waypoints", { direction_label: "経由地を通る", distance_km: 8 })]);
+    const user = renderPage();
+    await generate(user);
+    expect(resultTabs()[0]).toHaveTextContent(/^経由地を通る 8\.0km—$/);
+  });
+
+  it("総合難易度は数値と帯の長さで出し、算出できなかった候補は「—」だけにする", async () => {
+    respond([route("route-0", { overall_difficulty: 42.4 }), route("route-1", { overall_difficulty: null })]);
+    const user = renderPage();
+    await generate(user);
+    const fillOf = (tab: HTMLElement) =>
+      Array.from(tab.querySelectorAll<HTMLElement>("span")).find((span) => span.style.width !== "");
+    const [scored, unscored] = resultTabs();
+    expect(scored).toHaveTextContent(/42$/);
+    expect(fillOf(scored)?.style.width).toBe("42.4%");
+    expect(unscored).toHaveTextContent(/—$/);
+    expect(fillOf(unscored)).toBeUndefined();
+  });
+
+  it("負荷の帯の高さは一覧の最短の候補を基準にし、行と候補の中身で同じ値を使う", async () => {
+    respond([route("route-0", { distance_km: 10 }), route("route-1", { distance_km: 15 })]);
+    const user = renderPage();
+    await generate(user);
+    const ratioOf = (tab: HTMLElement) =>
+      Array.from(tab.querySelectorAll<HTMLElement>("span"))
+        .map((span) => span.style.getPropertyValue("--load-bar-height-ratio"))
+        .find((value) => value !== "");
+    const [shorter, longer] = resultTabs();
+    expect(ratioOf(shorter)).toBe("1");
+    expect(ratioOf(longer)).toBe("1.5");
+    await user.click(longer);
+    expect(profile().loadBarHeightRatio).toBe(1.5);
+  });
+
+  it("選んだ候補の中身には、その候補の値と生成に使われた重みを渡し、あとで重みを変えても変えない", async () => {
+    const shown = route("route-0", {
+      distance_km: 10,
+      overall_difficulty: 40,
+      difficulty_load: 400,
+      estimated_duration_seconds: 1800,
+      axis_difficulties: { axis_a: 50 },
+      axis_contributions: { axis_a: 40 },
+      axis_raw_values: { axis_a: 3 },
+      material_values: { mat: 1 },
+      material_category_shares: { cat: { x: 1 } },
     });
-    const HomeFresh = await renderFreshHome({ realRouteForm: true });
-    render(<HomeFresh />);
-
-    await user.click(screen.getByRole("button", { name: "ルート生成" }));
-
-    await waitFor(() => {
-      expect(screen.getByRole("alert")).toHaveTextContent(
-        "5件の折返し候補で復路の探索に失敗しました。除外設定をご確認ください。",
-      );
+    respond([shown], { route_preference: { axis_a: 0.7 } });
+    const user = renderPage();
+    await generate(user);
+    act(() => weightsPanel().onRoutePreferenceChange({ axis_a: 0.1 }));
+    expect(profile()).toEqual({
+      axes: catalog().axes,
+      weights: { axis_a: 0.7 },
+      axisDifficulties: shown.axis_difficulties,
+      axisContributions: shown.axis_contributions,
+      axisRawValues: shown.axis_raw_values,
+      materialValues: shown.material_values,
+      materialCategoryShares: shown.material_category_shares,
+      distanceKm: 10,
+      overallDifficulty: 40,
+      difficultyLoad: 400,
+      loadBarHeightRatio: 1,
+      estimatedDurationSeconds: 1800,
+      axisColors: catalog().axisColors,
     });
   });
 
-  it("改善計画T365: 「ルートをクリア」ボタンで生成済みの候補一覧をリセットできる", async () => {
-    // ここではpage.tsx側の状態（routes.length > 0で出す「ルートをクリア」ボタン自体の
-    // 表示/非表示）でhandleRoutesClearの配線を検証する（候補タブ・内訳の中身自体は
-    // RouteAxisProfile.test.tsxが別途検証済み）。
-    const user = userEvent.setup();
-    vi.mocked(generateRoutes).mockResolvedValueOnce({
-      routes: [makeCandidate()],
-      conditions: makeConditions(),
-    });
-    const HomeFresh = await renderFreshHome({ realRouteForm: true });
-    render(<HomeFresh />);
+  it("地図の見え方へは、候補を選んだか・区間まで確定したか・生成に使われた重みを渡す", async () => {
+    const user = renderPage();
+    expect(mapViewInputs()).toMatchObject({ hasSelectedRoute: false, hasDetail: false, usedWeights: null });
 
-    expect(screen.queryByRole("button", { name: "ルートをクリア" })).not.toBeInTheDocument();
+    respond([route("route-0", { segments: [] })], { route_preference: { axis_a: 0.7 } });
+    await generate(user);
+    expect(mapViewInputs()).toMatchObject({ hasSelectedRoute: true, hasDetail: false, usedWeights: { axis_a: 0.7 } });
 
-    await user.click(screen.getByRole("button", { name: "ルート生成" }));
+    respond([route("route-0", { segments: [segment()] })]);
+    await generate(user);
+    expect(mapViewInputs().hasDetail).toBe(true);
+  });
 
-    await waitFor(() => {
-      expect(screen.getByRole("button", { name: "ルートをクリア" })).toBeInTheDocument();
-    });
+  it("候補のタブと地図の候補の選択は同じ選択を動かし、地図からの選択は「ルート結果」を見ている間だけ効く", async () => {
+    respond([route("route-0"), route("route-1")]);
+    const user = renderPage();
+    await generate(user);
+    expect(map().selectedRouteId).toBe("route-0");
+
+    act(() => map().onRouteSelect("route-1"));
+    expect(map().selectedRouteId).toBe("route-1");
+    expect(resultTabs()[1]).toHaveAttribute("aria-selected", "true");
+    await user.click(resultTabs()[0]);
+    expect(map().selectedRouteId).toBe("route-0");
+
+    await user.click(outcomeSection());
+    act(() => map().onRouteSelect("route-1"));
+    expect(map().selectedRouteId).toBe("route-0");
+  });
+
+  it("「GPX出力」は選んでいる候補を書き出し、「ルートをクリア」は候補を消して生成前の案内へ戻す", async () => {
+    const first = route("route-0");
+    const second = route("route-1");
+    respond([first, second]);
+    const user = renderPage();
+    await generate(user);
+    await user.click(resultTabs()[1]);
+    await user.click(screen.getByRole("button", { name: "GPX出力" }));
+    expect(downloadGpx).toHaveBeenCalledWith(second);
 
     await user.click(screen.getByRole("button", { name: "ルートをクリア" }));
-
-    expect(screen.queryByRole("button", { name: "ルートをクリア" })).not.toBeInTheDocument();
+    expect(map()).toMatchObject({ routes: [], selectedRouteId: null });
+    expect(screen.getByText("「ルート生成」を押すと候補がここに並びます")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "GPX出力" })).not.toBeInTheDocument();
   });
 
-  it("「GPX出力」ボタンは選択中候補をdownloadGpxへ渡す", async () => {
-    const user = userEvent.setup();
-    const candidate = makeCandidate({ id: "route-042" });
-    vi.mocked(generateRoutes).mockResolvedValueOnce({
-      routes: [candidate],
-      conditions: makeConditions(),
-    });
-    const HomeFresh = await renderFreshHome({ realRouteForm: true });
-    render(<HomeFresh />);
-
-    await user.click(screen.getByRole("button", { name: "ルート生成" }));
-
-    const gpxButton = await screen.findByRole("button", { name: "GPX出力" });
-    expect(gpxButton).toBeEnabled();
-
-    await user.click(gpxButton);
-
-    expect(downloadGpx).toHaveBeenCalledWith(candidate);
+  it("「ルートをクリア」は、パネルを閉じる✕と見分けられるよう、✕の字ではなくアイコンで出す", async () => {
+    respond([route("route-0")]);
+    const user = renderPage();
+    await generate(user);
+    const clear = screen.getByRole("button", { name: "ルートをクリア" });
+    expect(clear.querySelector("svg")).not.toBeNull();
+    expect(clear).not.toHaveTextContent("✕");
   });
 
-  it("生成中に例外が投げられたとき、そのメッセージをエラー表示する", async () => {
-    const user = userEvent.setup();
-    vi.mocked(generateRoutes).mockRejectedValueOnce(new Error("バックエンドに到達できませんでした"));
-    const HomeFresh = await renderFreshHome({ realRouteForm: true });
-    render(<HomeFresh />);
+  it("候補を作った後に条件を変えると、「ルート生成」の隣と一覧に知らせ、作り直すと消す", async () => {
+    const user = renderPage();
+    await generate(user);
+    expect(screen.queryByRole("img", { name: "生成条件が変更されています" })).not.toBeInTheDocument();
 
-    await user.click(screen.getByRole("button", { name: "ルート生成" }));
+    fireEvent.change(screen.getByLabelText("距離"), { target: { value: "45" } });
+    expect(screen.getByRole("img", { name: "生成条件が変更されています" })).toBeInTheDocument();
+    expect(screen.getByText("生成条件が変更されています")).toBeInTheDocument();
 
-    await waitFor(() => {
-      expect(screen.getByRole("alert")).toHaveTextContent("バックエンドに到達できませんでした");
-    });
+    await generate(user);
+    expect(screen.queryByRole("img", { name: "生成条件が変更されています" })).not.toBeInTheDocument();
   });
 
-  it("研究モード中に生成が成功すると実験スロットへ記録され、新しい生成が先頭に積まれる", async () => {
-    const user = userEvent.setup();
-    vi.mocked(generateRoutes)
-      .mockResolvedValueOnce({
-        routes: [makeCandidate({ id: "route-a" })],
-        conditions: makeConditions(),
-      })
-      .mockResolvedValueOnce({
-        routes: [makeCandidate({ id: "route-b" })],
-        conditions: makeConditions(),
-      });
-    const HomeFresh = await renderFreshHome({
-      realRouteForm: true,
-      researchEnabled: true,
-      exposeComparisonSlots: true,
-    });
-    render(<HomeFresh />);
-
-    const generateButton = screen.getByRole("button", { name: "ルート生成" });
-    await user.click(generateButton);
-    await waitFor(() => {
-      expect(screen.getByTestId("comparison-slots")).toHaveTextContent('["route-a"]');
-    });
-
-    await user.click(generateButton);
-    await waitFor(() => {
-      // 新しいスロットが先頭に積まれる（page.tsx: handleGenerate内のsetExperimentSlots参照）。
-      expect(screen.getByTestId("comparison-slots")).toHaveTextContent('["route-b","route-a"]');
-    });
+  it("出発時刻を選ぶと、それも生成の条件として比べる", async () => {
+    const user = renderPage();
+    await generate(user);
+    act(() => rideBar().onDepartureTimeChange(PINNED));
+    expect(screen.getByRole("img", { name: "生成条件が変更されています" })).toBeInTheDocument();
   });
 
-  it("改善計画T535: 「ルートをクリア」は実験スロットも空にする（地図に残る色付き線の原因だった）", async () => {
-    // ユーザー報告「ルートをクリアしても地図に緑の線が残る」の再発防止。研究モード中の
-    // 生成はexperimentSlotsへ記録され地図へ重ね描きされるが、以前はhandleRoutesClearが
-    // experimentSlotsに触れていなかった（リポジトリ全体でも空にする経路が他に無かった）。
-    //
-    // routes=[]になるとrenderRouteOutcomeSectionBody自体がnullを返し比較タブ
-    // （comparison-slots testid）ごと一時的にアンマウントされるため、クリア直後に
-    // 直接「[]」を検証することはできない。代わりに、クリア後にもう一度生成して
-    // 新しいスロットだけが積まれる（クリア前のroute-aが残っていれば2件になるはず）
-    // ことで、experimentSlots状態が実際に空へ戻ったことを間接的に確認する。
-    const user = userEvent.setup();
-    vi.mocked(generateRoutes)
-      .mockResolvedValueOnce({
-        routes: [makeCandidate({ id: "route-a" })],
-        conditions: makeConditions(),
-      })
-      .mockResolvedValueOnce({
-        routes: [makeCandidate({ id: "route-b" })],
-        conditions: makeConditions(),
-      });
-    const HomeFresh = await renderFreshHome({
-      realRouteForm: true,
-      researchEnabled: true,
-      exposeComparisonSlots: true,
-    });
-    render(<HomeFresh />);
+  it("候補0件の後は、条件を変えても変わったとは知らせない（比べる候補が無い）", async () => {
+    respond([]);
+    const user = renderPage();
+    await generate(user);
+    fireEvent.change(screen.getByLabelText("距離"), { target: { value: "45" } });
+    expect(screen.queryByRole("img", { name: "生成条件が変更されています" })).not.toBeInTheDocument();
+  });
+});
 
-    const generateButton = screen.getByRole("button", { name: "ルート生成" });
-    await user.click(generateButton);
-    await waitFor(() => {
-      expect(screen.getByTestId("comparison-slots")).toHaveTextContent('["route-a"]');
-    });
+describe("地図で押した区間", () => {
+  const SEGMENT = segment({
+    cumulative_distance_km: 3.24,
+    estimated_arrival_time: "2026-09-25T03:04:00Z",
+    axis_contributions: { axis_a: 12 },
+    material_values: { mat_named: 1.5, mat_unnamed: 2 },
+  });
+  const pick = (picked: RouteSegmentDetail = SEGMENT) =>
+    act(() => map().onRouteSegmentSelect({ segment: picked, latitude: 0, longitude: 0 }));
 
-    await user.click(screen.getByRole("button", { name: "ルートをクリア" }));
-    // 比較タブごと一時的に消える（routes=[]でrenderRouteOutcomeSectionBodyがnullを返す）。
-    expect(screen.queryByTestId("comparison-slots")).not.toBeInTheDocument();
-
-    await user.click(generateButton);
-    await waitFor(() => {
-      // route-aが残っていれば'["route-b","route-a"]'になるはずだが、クリアで
-      // experimentSlotsが空になっているためroute-bだけになる。
-      expect(screen.getByTestId("comparison-slots")).toHaveTextContent('["route-b"]');
+  it("押した区間がある間は、候補の中身の代わりにその地点・到着予想・内訳を出し、×で戻す", async () => {
+    respond([route("route-0", { segments: [SEGMENT] })]);
+    const user = renderPage();
+    await generate(user);
+    pick();
+    expect(screen.getByText("3.2 km地点")).toBeInTheDocument();
+    expect(screen.getByText("到達予想 12:04")).toBeInTheDocument();
+    expect(propsOf<typeof AxisContributionBar>("AxisContributionBar")).toEqual({
+      axes: catalog().axes,
+      contributions: SEGMENT.axis_contributions,
+      axisColors: catalog().axisColors,
     });
+    expect(stubs.mounted.has("RouteAxisProfile")).toBe(false);
+    expect(screen.queryByRole("list")).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "区間の選択を解除" }));
+    expect(stubs.mounted.has("RouteAxisProfile")).toBe(true);
   });
 
-  // 押した操作（生成）の結果が見えないまま前の比較表が残らないようにする。
-  it("比較タブを開いたまま生成すると、新しい候補のタブが選ばれる", async () => {
-    const user = userEvent.setup();
-    vi.mocked(generateRoutes)
-      .mockResolvedValueOnce({
-        routes: [makeCandidate({ id: "route-a", distance_km: 20.3 })],
-        conditions: makeConditions(),
-      })
-      .mockResolvedValueOnce({
-        routes: [makeCandidate({ id: "route-b", distance_km: 22.4 })],
-        conditions: makeConditions(),
-      });
-    const HomeFresh = await renderFreshHome({
-      realRouteForm: true,
-      researchEnabled: true,
-      exposeComparisonSlots: true,
-    });
-    render(<HomeFresh />);
+  it("到着予想が無い区間は「不明」と出す", async () => {
+    respond([route("route-0", { segments: [SEGMENT] })]);
+    const user = renderPage();
+    await generate(user);
+    pick({ ...SEGMENT, estimated_arrival_time: null });
+    expect(screen.getByText("到達予想 不明")).toBeInTheDocument();
+  });
 
-    const generateButton = screen.getByRole("button", { name: "ルート生成" });
-    await user.click(generateButton);
-    const comparisonTab = await screen.findByRole("tab", { name: "比較" });
-    await user.click(comparisonTab);
-    expect(comparisonTab).toHaveAttribute("aria-selected", "true");
+  it("研究モードでは区間の材料の値を名前付きで並べ、名前を引けない材料は出さない", async () => {
+    setResearchEnabled(true);
+    stubs.materials = [{ id: "mat_named", label: "", name: "材料A", description: "", dtype: "numeric", unit: "m" }];
+    respond([route("route-0", { segments: [SEGMENT] })]);
+    const user = renderPage();
+    await generate(user);
+    pick();
+    const items = within(screen.getByRole("list")).getAllByRole("listitem");
+    expect(items.map((item) => item.textContent)).toEqual(["材料A: 1.50 m"]);
 
-    await user.click(generateButton);
-    await waitFor(() => {
-      expect(screen.getByRole("tab", { name: /^1 22\.4km/ })).toHaveAttribute("aria-selected", "true");
-    });
+    pick({ ...SEGMENT, material_values: {} });
+    expect(screen.queryByRole("list")).not.toBeInTheDocument();
+  });
+
+  it("「ルート結果」を見ていない間は、地図で区間を押しても選ばない", async () => {
+    respond([route("route-0", { segments: [SEGMENT] })]);
+    const user = renderPage();
+    await generate(user);
+    await user.click(outcomeSection());
+    pick();
+    await user.click(outcomeSection());
+    expect(screen.queryByRole("button", { name: "区間の選択を解除" })).not.toBeInTheDocument();
+  });
+
+  it.each([
+    [
+      "候補のタブを切り替える",
+      async (user: UserEvent) => {
+        await user.click(resultTabs()[1]);
+        await user.click(resultTabs()[0]);
+      },
+    ],
+    ["地図で候補を選ぶ", async () => act(() => map().onRouteSelect("route-0"))],
+    [
+      "作り直す",
+      async (user: UserEvent) => {
+        respond([route("route-0", { segments: [SEGMENT] }), route("route-1")]);
+        await generate(user);
+      },
+    ],
+    [
+      "消してから作り直す",
+      async (user: UserEvent) => {
+        await user.click(screen.getByRole("button", { name: "ルートをクリア" }));
+        respond([route("route-0", { segments: [SEGMENT] }), route("route-1")]);
+        await generate(user);
+      },
+    ],
+    [
+      "編集を始めてやめる",
+      async (user: UserEvent) => {
+        await user.click(screen.getByRole("button", { name: "このルートを編集" }));
+        await user.click(screen.getByRole("button", { name: "編集をやめて候補へ戻る" }));
+      },
+    ],
+  ])("区間の選択は、%sと外れる", async (_action, act_) => {
+    const user = renderPage();
+    await generateToDestination(user, [route("route-0", { segments: [SEGMENT] }), route("route-1")]);
+    pick();
+    expect(screen.getByRole("button", { name: "区間の選択を解除" })).toBeInTheDocument();
+    await act_(user);
+    expect(screen.queryByRole("button", { name: "区間の選択を解除" })).not.toBeInTheDocument();
+  });
+});
+
+describe("研究モードの比較", () => {
+  it("研究モードの生成だけを実験スロットへ新しい順に残し、並びの位置で色を振り直す", async () => {
+    setResearchEnabled(true);
+    const user = renderPage();
+    const tops: RouteCandidate[] = [];
+    for (let i = 0; i <= MAX_EXPERIMENT_SLOTS; i += 1) {
+      const top = route(`route-${i}-0`);
+      tops.push(top);
+      respond([top, route(`route-${i}-1`)], { generated_at: `t${i}` });
+      await generate(user);
+    }
     expect(screen.getByRole("tab", { name: "比較" })).toHaveAttribute("aria-selected", "false");
+    const { slots } = comparison();
+    expect(slots.map((slot) => slot.conditions.generated_at)).toEqual(
+      tops
+        .map((_, i) => `t${i}`)
+        .reverse()
+        .slice(0, MAX_EXPERIMENT_SLOTS),
+    );
+    expect(slots.map((slot) => slot.topCandidate)).toEqual(tops.slice().reverse().slice(0, MAX_EXPERIMENT_SLOTS));
+    expect(slots.map((slot) => slot.color)).toEqual(EXPERIMENT_SLOT_COLORS.slice(0, MAX_EXPERIMENT_SLOTS));
   });
 
-  it("モバイルでも、生成すると「ルート結果」に候補のタブが並ぶ", async () => {
-    const user = userEvent.setup();
-    vi.mocked(generateRoutes).mockResolvedValueOnce({
-      routes: [
-        makeCandidate({ id: "route-00", distance_km: 30.1 }),
-        makeCandidate({ id: "route-01", distance_km: 31.4 }),
-      ],
-      conditions: makeConditions(),
-    });
-    const HomeFresh = await renderFreshHome({ realRouteForm: true, mobile: true });
-    render(<HomeFresh />);
+  it("「ルートをクリア」は実験スロットも空にする（地図に比較の線が残らない）", async () => {
+    setResearchEnabled(true);
+    const user = renderPage();
+    respond([route("route-a")], { generated_at: "ta" });
+    await generate(user);
+    await user.click(screen.getByRole("button", { name: "ルートをクリア" }));
+    respond([route("route-b")], { generated_at: "tb" });
+    await generate(user);
+    expect(comparison().slots.map((slot) => slot.topCandidate.id)).toEqual(["route-b"]);
+  });
 
-    await user.click(screen.getByRole("button", { name: "ルート設定" }));
-    await user.click(await screen.findByRole("button", { name: "ルート生成" }));
-    await user.click(screen.getByRole("button", { name: /ルート結果/ }));
+  it("候補0件の生成は実験スロットに残さない", async () => {
+    setResearchEnabled(true);
+    const user = renderPage();
+    respond([route("route-0")], { generated_at: "t0" });
+    await generate(user);
+    respond([]);
+    await generate(user);
+    respond([route("route-0")], { generated_at: "t2" });
+    await generate(user);
+    expect(comparison().slots.map((slot) => slot.conditions.generated_at)).toEqual(["t2", "t0"]);
+  });
 
-    await waitFor(() => {
-      expect(screen.getByRole("tab", { name: /^1 30\.1km/ })).toBeInTheDocument();
-      expect(screen.getByRole("tab", { name: /^2 31\.4km/ })).toBeInTheDocument();
-    });
+  it("研究モードでない間は「比較」タブを出さず、その間の生成は後で研究モードにしても比較に並ばない", async () => {
+    const user = renderPage();
+    await generate(user);
+    expect(screen.queryByRole("tab", { name: "比較" })).not.toBeInTheDocument();
+    act(() => setResearchEnabled(true));
+    expect(screen.getByRole("tab", { name: "比較" })).toBeInTheDocument();
+    expect(comparison().slots).toEqual([]);
+  });
+
+  it("比較表の軸は、いずれかのスロットを作ったときの重みが正だった軸に絞る", async () => {
+    setResearchEnabled(true);
+    const user = renderPage();
+    respond([route("route-0")], { route_preference: { axis_a: 1, axis_b: 0 } });
+    await generate(user);
+    respond([route("route-0")], { route_preference: { axis_b: 0.5 } });
+    await generate(user);
+    expect(comparison().axes.map((axis) => axis.axisId)).toEqual(["axis_a", "axis_b"]);
+    expect(comparison()).toMatchObject({ axisLabels: catalog().axisLabels, materials: stubs.materials });
+  });
+
+  it("実験スロットは「比較」を見ている間だけ地図へ重ね、比較を見ている間も選んだ候補を保つ", async () => {
+    setResearchEnabled(true);
+    respond([route("route-0"), route("route-1")]);
+    const user = renderPage();
+    await generate(user);
+    await user.click(resultTabs()[1]);
+    expect(map().experimentSlots).toEqual([]);
+
+    await user.click(screen.getByRole("tab", { name: "比較" }));
+    expect(map().experimentSlots).toEqual(comparison().slots);
+    expect(map().selectedRouteId).toBe("route-1");
+
+    await user.click(resultTabs()[0]);
+    expect(map().experimentSlots).toEqual([]);
+    expect(map().selectedRouteId).toBe("route-0");
+  });
+
+  it("「比較」を開いたまま作り直すと、新しい候補のタブへ戻す", async () => {
+    setResearchEnabled(true);
+    const user = renderPage();
+    await generate(user);
+    await user.click(screen.getByRole("tab", { name: "比較" }));
+    await generate(user);
+    expect(screen.getByRole("tab", { name: "比較" })).toHaveAttribute("aria-selected", "false");
+    expect(resultTabs()[0]).toHaveAttribute("aria-selected", "true");
+    expect(map().experimentSlots).toEqual([]);
   });
 });
 
-describe("Home（app/page.tsx） 天候・警報・WBGT・氾濫予報の並列fetchの競合対策", () => {
-  function makeWeather(temperature_c: number): WeatherConditions {
-    return {
-      temperature_c,
-      wind_speed_ms: 3,
-      wind_direction_deg: 90,
-      wind_direction_label: "東",
-      precipitation_mm: null,
-      observed_at: "2026-08-25T12:00:00+09:00",
-      weather_code: null,
-      is_day: null,
-      sunrise: null,
-      sunset: null,
-      precipitation_max_mm: null,
-      wind_speed_max_ms: null,
-      temperature_max_c: null,
-      temperature_min_c: null,
-      today_periods: [],
-    };
-  }
-  function makeAmedas(temperature_c: number): AmedasObservation {
-    return {
-      station_id: "44132",
-      station_name: "東京",
-      latitude: 35.69,
-      longitude: 139.76,
-      observed_at: "2026-08-25T12:00:00+09:00",
-      temperature_c,
-      apparent_temperature_c: null,
-      wind_speed_ms: 3,
-      wind_direction_deg: 90,
-      wind_direction_label: "東",
-      precipitation_10min_mm: null,
-      sunshine_10min_minutes: null,
-      sunrise: null,
-      sunset: null,
-    };
-  }
-  function makeWarnings(name: string): WeatherWarnings {
-    return {
-      area_name: null,
-      report_datetime: null,
-      warnings: [{ code: name, name, level: "warning", additions: [] }],
-    };
-  }
-  function makeWbgt(label: string, value: number): WbgtStatus {
-    return { level: "warning", label, value, observed_at: null };
-  }
-  function makeFlood(label: string): FloodForecasts {
-    return {
-      forecasts: [
-        {
-          river_code: label,
-          river_name: label,
-          level: 1,
-          badge_level: "warning",
-          label,
-          condition: "氾濫注意情報",
-          report_datetime: "2026-08-25T12:00:00+09:00",
-        },
-      ],
-    };
-  }
+describe("区間の乗り換え", () => {
+  const editButton = () => screen.queryByRole("button", { name: "このルートを編集" });
 
-  beforeEach(() => {
-    window.localStorage.clear();
-  });
-  afterEach(() => {
-    window.localStorage.clear();
-    vi.mocked(getCurrentWeather).mockReset();
-    vi.mocked(getAmedasObservation).mockReset();
-    vi.mocked(getWeatherWarnings).mockReset();
-    vi.mocked(getWbgtStatus).mockReset();
-    vi.mocked(getFloodForecasts).mockReset();
-    vi.mocked(getAxisCatalog).mockReset();
-    latestLocationSetter = null;
+  it.each([
+    ["周回で作った2件", "loop", 2, false],
+    ["目的地で作った1件", "destination", 1, false],
+    ["目的地で作った2件", "destination", 2, true],
+  ] as const)("編集の入口を出すか（%s）", async (_case, mode, count, shown) => {
+    const routes = [ROUTE_A, ROUTE_B].slice(0, count);
+    const user = renderPage();
+    if (mode === "destination") {
+      await generateToDestination(user, routes);
+    } else {
+      respond(routes);
+      await generate(user);
+    }
+    expect(editButton() !== null).toBe(shown);
   });
 
-  it("地点を連続変更したとき、アメダス・警報・WBGT・氾濫予報の4つとも古い応答が新しい応答を上書きしない", async () => {
-    vi.mocked(getAxisCatalog).mockRejectedValue(new Error("mock: unused in this test"));
-    // WeatherPanel（本テストの対象）はgetAmedasObservationのみを参照する
-    // （getCurrentWeatherはTodayOutlook向けで本テストでは未検証のため単純に解決するだけ）。
-    vi.mocked(getCurrentWeather).mockResolvedValue(makeWeather(0));
-
-    // それぞれ「1回目(古い方)」「2回目(新しい方)」のリクエストに対応するdeferredを用意し、
-    // あとで意図的に2回目→1回目の順で解決する(応答順序の入れ替え、テスト方針#5)。
-    const amedasOld = createDeferred<AmedasObservation>();
-    const amedasNew = createDeferred<AmedasObservation>();
-    vi.mocked(getAmedasObservation)
-      .mockImplementationOnce(() => amedasOld.promise)
-      .mockImplementationOnce(() => amedasNew.promise);
-
-    const warningsOld = createDeferred<WeatherWarnings>();
-    const warningsNew = createDeferred<WeatherWarnings>();
-    vi.mocked(getWeatherWarnings)
-      .mockImplementationOnce(() => warningsOld.promise)
-      .mockImplementationOnce(() => warningsNew.promise);
-
-    const wbgtOld = createDeferred<WbgtStatus>();
-    const wbgtNew = createDeferred<WbgtStatus>();
-    vi.mocked(getWbgtStatus)
-      .mockImplementationOnce(() => wbgtOld.promise)
-      .mockImplementationOnce(() => wbgtNew.promise);
-
-    const floodOld = createDeferred<FloodForecasts>();
-    const floodNew = createDeferred<FloodForecasts>();
-    vi.mocked(getFloodForecasts)
-      .mockImplementationOnce(() => floodOld.promise)
-      .mockImplementationOnce(() => floodNew.promise);
-
-    const HomeFresh = await renderFreshHome({
-      statefulLocation: true,
-      exposeWeatherPanel: true,
-      exposeWarningBadges: true,
-    });
-    render(<HomeFresh />);
-
-    // マウント直後の1回目のfetch(古い方のリクエスト)が発火するまで待つ。
-    await waitFor(() => {
-      expect(getAmedasObservation).toHaveBeenCalledTimes(1);
-      expect(getWeatherWarnings).toHaveBeenCalledTimes(1);
-      expect(getWbgtStatus).toHaveBeenCalledTimes(1);
-      expect(getFloodForecasts).toHaveBeenCalledTimes(1);
-    });
-
-    // 地点を変更し、2件目(新しい方)のリクエストを発火させる。
-    await act(async () => {
-      latestLocationSetter?.({ latitude: 36.0, longitude: 140.0 });
-    });
-    await waitFor(() => {
-      expect(getAmedasObservation).toHaveBeenCalledTimes(2);
-      expect(getWeatherWarnings).toHaveBeenCalledTimes(2);
-      expect(getWbgtStatus).toHaveBeenCalledTimes(2);
-      expect(getFloodForecasts).toHaveBeenCalledTimes(2);
-    });
-
-    // 後から投げた(新しい)リクエストを先に解決する。
-    await act(async () => {
-      amedasNew.resolve(makeAmedas(20));
-      warningsNew.resolve(makeWarnings("新警報"));
-      wbgtNew.resolve(makeWbgt("危険", 32));
-      floodNew.resolve(makeFlood("新氾濫予報"));
-    });
-    await waitFor(() => {
-      expect(screen.getByTestId("weather-panel")).toHaveTextContent('"temp":20');
-      const badgesText = screen.getByTestId("warning-badges").textContent ?? "";
-      expect(badgesText).toContain("新警報");
-      expect(badgesText).toContain("危険");
-      expect(badgesText).toContain("新氾濫予報");
-    });
-
-    // 先に投げた(古い)リクエストが後から解決しても、新しい応答を上書きしない。
-    await act(async () => {
-      amedasOld.resolve(makeAmedas(10));
-      warningsOld.resolve(makeWarnings("旧警報"));
-      wbgtOld.resolve(makeWbgt("警戒", 28));
-      floodOld.resolve(makeFlood("旧氾濫予報"));
-    });
-    // .then内のrequestId比較チェック(マイクロタスク経由)が確実に走るのを待つ。
-    await new Promise((resolve) => setTimeout(resolve, 0));
-
-    expect(screen.getByTestId("weather-panel")).toHaveTextContent('"temp":20');
-    expect(screen.getByTestId("weather-panel")).not.toHaveTextContent('"temp":10');
-    const badgesText = screen.getByTestId("warning-badges").textContent ?? "";
-    expect(badgesText).toContain("新警報");
-    expect(badgesText).not.toContain("旧警報");
-    expect(badgesText).toContain("危険");
-    expect(badgesText).not.toContain("警戒");
-    expect(badgesText).toContain("新氾濫予報");
-    expect(badgesText).not.toContain("旧氾濫予報");
+  it("編集の入口は、作った後に周回へ切り替えても出し続け、編集中は出さない", async () => {
+    const user = renderPage();
+    await generateToDestination(user, [ROUTE_A, ROUTE_B]);
+    await user.click(screen.getByRole("radio", { name: "周回" }));
+    await user.click(screen.getByRole("button", { name: "このルートを編集" }));
+    expect(editButton()).not.toBeInTheDocument();
   });
 
-  it("アメダスfetch単体でも、2回目に投げたリクエストが先に解決すれば古い1回目の応答は無視される", async () => {
-    vi.mocked(getAxisCatalog).mockRejectedValue(new Error("mock: unused in this test"));
-    vi.mocked(getCurrentWeather).mockResolvedValue(makeWeather(0));
-    vi.mocked(getWeatherWarnings).mockResolvedValue({ area_name: null, report_datetime: null, warnings: [] });
-    vi.mocked(getWbgtStatus).mockResolvedValue({ level: null, label: null, value: null, observed_at: null });
-    vi.mocked(getFloodForecasts).mockResolvedValue({ forecasts: [] });
+  it("編集を始めると、地図に元のルートと乗り換え先を渡し、地点の操作と候補の選択を止める", async () => {
+    const user = renderPage();
+    await startSpliceEditing(user);
+    expect(map().splicedRoute).toEqual(ROUTE_A.geometry.coordinates);
+    expect(spliceStretches().map((stretch) => stretch.coordinates)).toEqual(
+      expect.arrayContaining([
+        pointsOf([1, 0, ...B_FIRST, 2, 0]),
+        pointsOf([1, 0, ...C_FIRST, 2, 0]),
+        pointsOf([3, 0, ...B_SECOND, 4, 0]),
+      ]),
+    );
+    expect(spliceStretches()).toHaveLength(3);
+    expect(map().pointEditingEnabled).toBe(false);
+    act(() => map().onRouteSelect("route-1"));
+    expect(map().selectedRouteId).toBe("route-0");
+  });
 
-    const first = createDeferred<AmedasObservation>();
-    const second = createDeferred<AmedasObservation>();
-    vi.mocked(getAmedasObservation)
-      .mockImplementationOnce(() => first.promise)
-      .mockImplementationOnce(() => second.promise);
+  it("編集中は、地図で区間を押しても区間を選ばない（区間の詳細の置き場が編集面に替わっている）", async () => {
+    const user = renderPage();
+    await startSpliceEditing(user, [{ ...ROUTE_A, segments: [segment()] }, ROUTE_B, ROUTE_C]);
+    act(() => map().onRouteSegmentSelect({ segment: segment(), latitude: 0, longitude: 0 }));
+    expect(screen.queryByRole("button", { name: "区間の選択を解除" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "編集をやめて候補へ戻る" })).toBeInTheDocument();
+  });
 
-    const HomeFresh = await renderFreshHome({ statefulLocation: true, exposeWeatherPanel: true });
-    render(<HomeFresh />);
+  it("区間を割る下限を軸カタログから引けない間は、乗り換え先を作らない", async () => {
+    stubs.catalog = catalogWith({});
+    const user = renderPage();
+    await startSpliceEditing(user);
+    expect(spliceStretches()).toEqual([]);
+  });
 
-    await waitFor(() => expect(getAmedasObservation).toHaveBeenCalledTimes(1));
-    await act(async () => {
-      latestLocationSetter?.({ latitude: 36.0, longitude: 140.0 });
-    });
-    await waitFor(() => expect(getAmedasObservation).toHaveBeenCalledTimes(2));
+  it("地図で乗り換え先を押すとその道へ乗り換え、乗り換えた経路から次の乗り換え先を出す。1つ戻す・全部戻すで戻る", async () => {
+    const user = renderPage();
+    await startSpliceEditing(user);
+    chooseStretchThrough(C_FIRST);
+    expect(map().splicedRoute).toEqual(ROUTE_C.geometry.coordinates);
+    chooseStretchThrough(B_SECOND);
+    expect(map().splicedRoute).toEqual(pointsOf([0, 0, 1, 0, ...C_FIRST, 2, 0, 3, 0, ...B_SECOND, 4, 0, 5, 0]));
+    expect(screen.getByText("2回")).toBeInTheDocument();
 
-    // 2回目(新しい方)を先に解決する(テスト方針#5: 応答順序の意図的な入れ替え)。
-    await act(async () => {
-      second.resolve(makeAmedas(25));
-    });
-    await waitFor(() => expect(screen.getByTestId("weather-panel")).toHaveTextContent('"temp":25'));
+    await user.click(screen.getByRole("button", { name: "1つ戻す" }));
+    expect(map().splicedRoute).toEqual(ROUTE_C.geometry.coordinates);
+    await user.click(screen.getByRole("button", { name: "全部戻す" }));
+    expect(map().splicedRoute).toEqual(ROUTE_A.geometry.coordinates);
+  });
 
-    // 1回目(古い方)が後から解決しても上書きされない。
-    await act(async () => {
-      first.resolve(makeAmedas(5));
-    });
-    await new Promise((resolve) => setTimeout(resolve, 0));
-    expect(screen.getByTestId("weather-panel")).toHaveTextContent('"temp":25');
-    expect(screen.getByTestId("weather-panel")).not.toHaveTextContent('"temp":5');
+  it("「差分を見る」は、表示中の候補を作った条件へ乗り換えた経路を載せて評価し、同じ組み合わせは投げ直さない", async () => {
+    const user = renderPage();
+    await startSpliceEditing(user);
+    const generated = lastRequest();
+    act(() => rideBar().onSpeedKmhChange(30));
+    chooseStretchThrough(C_FIRST);
+    respond([route("route-spliced", { distance_km: 11.5 })]);
+    await user.click(screen.getByRole("button", { name: "差分を見る" }));
+    expect(lastRequest()).toEqual({ ...generated, spliced_edge_ids: ROUTE_C.edge_ids });
+    expect(await screen.findByText("11.5km")).toBeInTheDocument();
+    const requests = vi.mocked(generateRoutes).mock.calls.length;
+
+    await user.click(screen.getByRole("button", { name: "1つ戻す" }));
+    expect(screen.queryByText("11.5km")).not.toBeInTheDocument();
+    chooseStretchThrough(C_FIRST);
+    expect(screen.getByText("11.5km")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "差分を見る" }));
+    expect(generateRoutes).toHaveBeenCalledTimes(requests);
+  });
+
+  it.each([
+    ["評価の結果が空", () => respond([]), "組み合わせたルートを評価できませんでした"],
+    ["Errorで失敗", () => vi.mocked(generateRoutes).mockRejectedValueOnce(new Error("評価に失敗")), "評価に失敗"],
+    [
+      "Error以外で失敗",
+      () => vi.mocked(generateRoutes).mockRejectedValueOnce("x"),
+      "組み合わせたルートの評価に失敗しました",
+    ],
+  ])("「差分を見る」で%sなら編集の中に理由を出し、次に乗り換え先を選ぶと消す", async (_case, fail, shown) => {
+    const user = renderPage();
+    await startSpliceEditing(user);
+    chooseStretchThrough(C_FIRST);
+    fail();
+    await user.click(screen.getByRole("button", { name: "差分を見る" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent(shown);
+    chooseStretchThrough(B_SECOND);
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
+  it("評価を待っている間に乗り換え先を選んでも、待っている表示は続ける", async () => {
+    const user = renderPage();
+    await startSpliceEditing(user);
+    chooseStretchThrough(C_FIRST);
+    const pending = deferred();
+    vi.mocked(generateRoutes).mockReturnValueOnce(pending.promise);
+    await user.click(screen.getByRole("button", { name: "差分を見る" }));
+    chooseStretchThrough(B_SECOND);
+    expect(screen.getByRole("button", { name: "差分を見る" })).toHaveAttribute("aria-busy", "true");
+    await act(async () => pending.resolve({ routes: [], conditions: conditionsOf() }));
+  });
+
+  it("評価を待っている間に編集をやめたら、あとから届いた評価で編集へ戻さず、次の編集へも持ち込まない", async () => {
+    const user = renderPage();
+    await startSpliceEditing(user);
+    chooseStretchThrough(C_FIRST);
+    const pending = deferred();
+    vi.mocked(generateRoutes).mockReturnValueOnce(pending.promise);
+    await user.click(screen.getByRole("button", { name: "差分を見る" }));
+    await user.click(screen.getByRole("button", { name: "編集をやめて候補へ戻る" }));
+    await act(async () =>
+      pending.resolve({ routes: [route("route-spliced", { distance_km: 11.5 })], conditions: conditionsOf() }),
+    );
+    expect(screen.queryByRole("button", { name: "編集をやめて候補へ戻る" })).not.toBeInTheDocument();
+    expect(resultTabs()).toHaveLength(3);
+
+    await user.click(screen.getByRole("button", { name: "このルートを編集" }));
+    chooseStretchThrough(C_FIRST);
+    expect(screen.queryByText("11.5km")).not.toBeInTheDocument();
+  });
+
+  it("「新しいルートを作る」は、評価した経路を候補の一覧へ合成として加えて選び、編集を終える", async () => {
+    const user = renderPage();
+    await startSpliceEditing(user);
+    chooseStretchThrough(B_FIRST);
+    respond([route("route-spliced", { edge_ids: ["e1", "b1", "e2", "a2", "e3"] })]);
+    await user.click(screen.getByRole("button", { name: "新しいルートを作る" }));
+    const added = `${SPLICED_ROUTE_ID_PREFIX}-3`;
+    await waitFor(() => expect(map().selectedRouteId).toBe(added));
+    expect(map().routes.map((candidate) => candidate.id)).toHaveLength(4);
+    expect(map().routes.map((candidate) => candidate.id)).toContain(added);
+    expect(screen.queryByRole("button", { name: "編集をやめて候補へ戻る" })).not.toBeInTheDocument();
+    const selected = resultTabs().find((tab) => tab.getAttribute("aria-selected") === "true");
+    expect(selected).toHaveTextContent("合成");
+  });
+
+  it("「新しいルートを作る」を続けて2回押しても、候補は1本だけ増える", async () => {
+    const user = renderPage();
+    await startSpliceEditing(user);
+    chooseStretchThrough(B_FIRST);
+    respond([
+      route("route-spliced", {
+        edge_ids: ["e1", "b1", "e2", "a2", "e3"],
+        node_ids: NODES,
+        edge_point_offsets: [0, 1, 3, 4, 5, 6],
+        geometry: lineOf([0, 0, 1, 0, 1.5, 1, 2, 0, 3, 0, 4, 0, 5, 0]),
+      }),
+    ]);
+    const create = screen.getByRole("button", { name: "新しいルートを作る" });
+    fireEvent.click(create);
+    fireEvent.click(create);
+    await waitFor(() => expect(map().routes).toHaveLength(4));
+    await waitFor(() =>
+      expect(screen.queryByRole("button", { name: "編集をやめて候補へ戻る" })).not.toBeInTheDocument(),
+    );
+    expect(map().routes).toHaveLength(4);
+  });
+
+  it("作った合成のルートから、もう一度編集して別の候補の道へ乗り継げる", async () => {
+    const user = renderPage();
+    await startSpliceEditing(user);
+    chooseStretchThrough(B_FIRST);
+    respond([
+      route("route-spliced", {
+        edge_ids: ["e1", "b1", "e2", "a2", "e3"],
+        node_ids: NODES,
+        edge_point_offsets: [0, 1, 3, 4, 5, 6],
+        geometry: lineOf([0, 0, 1, 0, 1.5, 1, 2, 0, 3, 0, 4, 0, 5, 0]),
+      }),
+    ]);
+    await user.click(screen.getByRole("button", { name: "新しいルートを作る" }));
+    await user.click(await screen.findByRole("button", { name: "このルートを編集" }));
+    chooseStretchThrough(B_SECOND);
+    expect(screen.getByText("1回")).toBeInTheDocument();
+  });
+
+  it("評価済みの組み合わせは、作るときに投げ直さない", async () => {
+    const user = renderPage();
+    await startSpliceEditing(user);
+    chooseStretchThrough(B_FIRST);
+    respond([route("route-spliced", { edge_ids: ["e1", "b1", "e2", "a2", "e3"] })]);
+    await user.click(screen.getByRole("button", { name: "差分を見る" }));
+    await screen.findByText("0.0km");
+    const requests = vi.mocked(generateRoutes).mock.calls.length;
+    await user.click(screen.getByRole("button", { name: "新しいルートを作る" }));
+    await waitFor(() => expect(map().routes).toHaveLength(4));
+    expect(generateRoutes).toHaveBeenCalledTimes(requests);
+  });
+
+  it("作った経路が既にある候補と同じ道なら、並べずにその候補を選ぶ", async () => {
+    const user = renderPage();
+    await startSpliceEditing(user);
+    chooseStretchThrough(C_FIRST);
+    respond([route("route-spliced", { edge_ids: ROUTE_C.edge_ids })]);
+    await user.click(screen.getByRole("button", { name: "新しいルートを作る" }));
+    await waitFor(() => expect(map().selectedRouteId).toBe(ROUTE_C.id));
+    expect(map().routes).toHaveLength(3);
+  });
+
+  it.each([
+    ["評価の結果が空", () => respond([]), "組み合わせたルートを評価できませんでした"],
+    ["Errorで失敗", () => vi.mocked(generateRoutes).mockRejectedValueOnce(new Error("評価に失敗")), "評価に失敗"],
+  ])("作るときの評価が%sなら、編集を続けたまま理由を出す", async (_case, fail, shown) => {
+    const user = renderPage();
+    await startSpliceEditing(user);
+    chooseStretchThrough(B_FIRST);
+    fail();
+    await user.click(screen.getByRole("button", { name: "新しいルートを作る" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent(shown);
+    expect(screen.getByRole("button", { name: "編集をやめて候補へ戻る" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "新しいルートを作る" })).toBeEnabled();
+  });
+
+  it("作ると、直前の生成の失敗の文言を残さない", async () => {
+    const user = renderPage();
+    await generateToDestination(user, [ROUTE_A, ROUTE_B, ROUTE_C]);
+    vi.mocked(generateRoutes).mockRejectedValueOnce(new Error("直前の失敗"));
+    await generate(user);
+    await user.click(screen.getByRole("button", { name: "このルートを編集" }));
+    chooseStretchThrough(B_FIRST);
+    respond([route("route-spliced", { edge_ids: ["e1", "b1", "e2", "a2", "e3"] })]);
+    await user.click(screen.getByRole("button", { name: "新しいルートを作る" }));
+    await waitFor(() => expect(map().routes).toHaveLength(4));
+    await user.click(screen.getByRole("button", { name: "ルートをクリア" }));
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
+  it("生成の実行中に作っても、生成は実行中のまま表示する", async () => {
+    const user = renderPage();
+    await startSpliceEditing(user);
+    chooseStretchThrough(B_FIRST);
+    const regeneration = deferred();
+    vi.mocked(generateRoutes).mockReturnValueOnce(regeneration.promise);
+    await user.click(generateButton());
+    respond([route("route-spliced", { edge_ids: ["e1", "b1", "e2", "a2", "e3"] })]);
+    await user.click(screen.getByRole("button", { name: "新しいルートを作る" }));
+    await waitFor(() => expect(map().routes).toHaveLength(4));
+    expect(screen.getByRole("button", { name: "生成中..." })).toBeDisabled();
+    await act(async () => regeneration.resolve({ routes: [route("route-0")], conditions: conditionsOf() }));
+    expect(generateButton()).toBeEnabled();
+  });
+
+  it("編集をやめると候補の一覧へ戻り、次に始めた編集は元のルートから始まる", async () => {
+    const user = renderPage();
+    await startSpliceEditing(user);
+    chooseStretchThrough(C_FIRST);
+    await user.click(screen.getByRole("button", { name: "編集をやめて候補へ戻る" }));
+    expect(resultTabs()).toHaveLength(3);
+    expect(map().splicedRoute).toBeNull();
+    await user.click(screen.getByRole("button", { name: "このルートを編集" }));
+    expect(map().splicedRoute).toEqual(ROUTE_A.geometry.coordinates);
+  });
+
+  it("作り直すと編集を終える", async () => {
+    const user = renderPage();
+    await startSpliceEditing(user);
+    respond([ROUTE_A, ROUTE_B]);
+    await generate(user);
+    expect(map().splicedRoute).toBeNull();
+    expect(resultTabs()).toHaveLength(2);
+  });
+
+  it("編集中に「ルートをクリア」を押すと編集も終わり、地点の操作が戻り、作り直せばまた編集に入れる", async () => {
+    const user = renderPage();
+    await startSpliceEditing(user);
+    await user.click(screen.getByRole("button", { name: "ルートをクリア" }));
+    expect(screen.queryByRole("button", { name: "編集をやめて候補へ戻る" })).not.toBeInTheDocument();
+    expect(map()).toMatchObject({ splicedRoute: null, pointEditingEnabled: true });
+    respond([ROUTE_A, ROUTE_B, ROUTE_C]);
+    await generate(user);
+    expect(screen.getByRole("button", { name: "このルートを編集" })).toBeInTheDocument();
   });
 });
 
-describe("タイル世代が届かないとき（T938）", () => {
+describe("モバイルの下部タブとシート", () => {
+  const nav = () => screen.getByRole("navigation", { name: "パネル切り替え" });
+  const navButton = (label: string) => within(nav()).getByRole("button", { name: label });
+  const hasOutcomeDot = () => navButton("ルート結果").querySelector("span[aria-hidden='true']") !== null;
+  const mapPaneSheetHeight = () =>
+    document.querySelector<HTMLElement>(".app-map-pane")?.style.getPropertyValue("--mobile-sheet-height");
+
   beforeEach(() => {
-    window.localStorage.clear();
-    // タイル世代はモジュールレベルの共有状態で、カタログのリセットでは戻らない。
-    setTileVersions({});
-    // 本テストは天候を見ない。解決しないPromiseを返して未処理の拒否を作らない
-    // （下の「土地被覆レイヤーのズーム不足の案内」と同じ扱い）。
-    for (const fetcher of [
-      getCurrentWeather,
-      getAmedasObservation,
-      getWeatherWarnings,
-      getWbgtStatus,
-      getFloodForecasts,
-    ]) {
-      vi.mocked(fetcher).mockImplementation((() => new Promise(() => {})) as never);
+    stubs.isMobile = true;
+  });
+
+  it("タブを押すとそのシートを開き、同じタブをもう一度押すと閉じる。シートは1枚ずつ開く", async () => {
+    const user = renderPage();
+    expect(screen.queryByRole("region")).not.toBeInTheDocument();
+    await user.click(navButton("ルート設定"));
+    expect(navButton("ルート設定")).toHaveAttribute("aria-expanded", "true");
+    expect(screen.getByRole("region", { name: "ルート設定" })).toBeInTheDocument();
+
+    await user.click(navButton("ルート結果"));
+    expect(screen.queryByRole("region", { name: "ルート設定" })).not.toBeInTheDocument();
+    expect(screen.getByRole("region", { name: "ルート結果" })).toBeInTheDocument();
+    await user.click(navButton("ルート結果"));
+    expect(screen.queryByRole("region")).not.toBeInTheDocument();
+  });
+
+  it.each(["ルート設定", "ルート結果"])("「%s」シートの側から閉じると、タブも閉じた状態へ戻す", async (title) => {
+    const user = renderPage();
+    await user.click(navButton(title));
+    act(() => sheet(title).onClose());
+    expect(screen.queryByRole("region", { name: title })).not.toBeInTheDocument();
+    expect(navButton(title)).toHaveAttribute("aria-expanded", "false");
+  });
+
+  it("「ルート設定」シートは見出しの行にタブと「ルート生成」を置き、「ルート結果」シートは候補がある間だけ操作を置く", async () => {
+    const user = renderPage();
+    await user.click(navButton("ルート設定"));
+    const settings = screen.getByRole("region", { name: "ルート設定" });
+    expect(within(settings).getByRole("tablist", { name: "ルート設定" })).toBeInTheDocument();
+    await generate(user);
+
+    await user.click(navButton("ルート結果"));
+    const outcome = screen.getByRole("region", { name: "ルート結果" });
+    expect(within(outcome).getByRole("button", { name: "ルートをクリア" })).toBeInTheDocument();
+    await user.click(within(outcome).getByRole("button", { name: "ルートをクリア" }));
+    expect(within(outcome).queryByRole("button", { name: "GPX出力" })).not.toBeInTheDocument();
+    expect(within(outcome).getByText("「ルート生成」を押すと候補がここに並びます")).toBeInTheDocument();
+  });
+
+  it.each([
+    ["候補が出た", () => respond([route("route-0")])],
+    ["候補0件だった", () => respond([])],
+    ["失敗した", () => vi.mocked(generateRoutes).mockRejectedValueOnce(new Error("失敗"))],
+  ])("生成して%sら「ルート結果」タブに印を付け、シートは開かず、タブを開くと消す", async (_case, prepare) => {
+    const user = renderPage();
+    await user.click(navButton("ルート設定"));
+    prepare();
+    await generate(user);
+    expect(hasOutcomeDot()).toBe(true);
+    expect(screen.queryByRole("region", { name: "ルート結果" })).not.toBeInTheDocument();
+    await user.click(navButton("ルート結果"));
+    expect(hasOutcomeDot()).toBe(false);
+  });
+
+  it("候補を作った後に条件を変えると、「ルート結果」タブに印を付ける", async () => {
+    const user = renderPage();
+    await user.click(navButton("ルート設定"));
+    await generate(user);
+    await user.click(navButton("ルート結果"));
+    await user.click(navButton("ルート設定"));
+    expect(hasOutcomeDot()).toBe(false);
+    fireEvent.change(screen.getByLabelText("距離"), { target: { value: "45" } });
+    expect(hasOutcomeDot()).toBe(true);
+  });
+
+  it("シートの高さは2枚で共有し、操作中の高さはすぐ反映し、確定した高さだけを保存して自動の調整をやめる", async () => {
+    let user = renderPage();
+    await user.click(navButton("ルート設定"));
+    expect(sheet("ルート設定")).toMatchObject({ heightVh: DEFAULT_SHEET_HEIGHT_VH, autoFitHeight: true });
+    expect(mapPaneSheetHeight()).toBe(`${DEFAULT_SHEET_HEIGHT_VH}vh`);
+
+    act(() => sheet("ルート設定").onHeightChange(33));
+    expect(sheet("ルート設定")).toMatchObject({ heightVh: 33, autoFitHeight: true });
+    expect(mapPaneSheetHeight()).toBe("33vh");
+    act(() => sheet("ルート設定").onHeightCommit(40));
+    expect(sheet("ルート設定")).toMatchObject({ heightVh: 40, autoFitHeight: false });
+    await user.click(navButton("ルート結果"));
+    expect(sheet("ルート結果")).toMatchObject({ heightVh: 40, autoFitHeight: false });
+    await user.click(navButton("ルート結果"));
+    expect(mapPaneSheetHeight()).toBe("0px");
+    cleanup();
+
+    user = renderPage();
+    await user.click(navButton("ルート結果"));
+    expect(sheet("ルート結果")).toMatchObject({ heightVh: 40, autoFitHeight: false });
+  });
+
+  it.each([
+    ["数でない", '"40"'],
+    ["有限でない", "1e999"],
+    ["JSONとして読めない", "{"],
+  ])("保存した高さが%sなら捨て、既定の高さで自動の調整を続ける", async (_case, raw) => {
+    localStorage.setItem("ridecompass:mobile-sheet-height-vh", raw);
+    const user = renderPage();
+    await user.click(navButton("ルート設定"));
+    expect(sheet("ルート設定")).toMatchObject({ heightVh: DEFAULT_SHEET_HEIGHT_VH, autoFitHeight: true });
+  });
+
+  it("「ルート設定」シートは、タブかモードが変わると中身が別物になったとして高さを合わせ直す", async () => {
+    const user = renderPage();
+    await user.click(navButton("ルート設定"));
+    const keys = [sheet("ルート設定").fitKey];
+    await chooseDestinationMode(user);
+    keys.push(sheet("ルート設定").fitKey);
+    await user.click(screen.getByRole("tab", { name: "重み" }));
+    keys.push(sheet("ルート設定").fitKey);
+    expect(new Set(keys).size).toBe(3);
+  });
+
+  it("ルートを地図へ収めるときは、下部タブとシートが覆う高さを地図へ渡す", async () => {
+    const original = Object.getOwnPropertyDescriptor(window, "innerHeight");
+    Object.defineProperty(window, "innerHeight", { value: 1000, configurable: true });
+    try {
+      const user = renderPage();
+      nav().getBoundingClientRect = () => ({ height: 56 }) as DOMRect;
+      expect(measureObscured()).toEqual({ bottom: 56 });
+      await user.click(navButton("ルート設定"));
+      act(() => sheet("ルート設定").onHeightCommit(40));
+      expect(measureObscured()).toEqual({ bottom: 56 + 400 });
+    } finally {
+      if (original) Object.defineProperty(window, "innerHeight", original);
+      else Reflect.deleteProperty(window, "innerHeight");
     }
   });
-  afterEach(() => {
-    window.localStorage.clear();
-    vi.mocked(getAxisCatalog).mockReset();
-  });
 
-  // 世代が無いあいだ地図のソースは作られない（世代の違う中身をブラウザのキャッシュへ
-  // 残さないため）。**何も出ないこと自体は正しい挙動**で、直すべきなのは理由が
-  // 画面のどこにも無いことだけ。
-  async function panelsAndStatus() {
-    // `renderFreshHome`は使わない——`vi.resetModules()`後の動的importでは先頭の
-    // `vi.mock("@/features/map/MapView/MapView")`が効かず、世代フラグを読む器が描かれない。
-    render(<Home />);
-    await act(async () => {});
-    const panels = new Map(
-      (
-        JSON.parse(screen.getByTestId("overlay-layer-panels").textContent!) as Array<[string, string | null, number]>
-      ).map((row) => [row[0], row]),
-    );
-    const status = new Map(
-      (JSON.parse(screen.getByTestId("overlay-layer-status").textContent!) as Array<[string, string | null]>).map(
-        (row) => [row[0], row[1]],
-      ),
-    );
-    return { panels, status };
-  }
+  it("地図で地点を扱えるのは「ルート設定」シートの「条件」タブを開いている間、候補を選べるのは「ルート結果」シートを開いている間", async () => {
+    const user = renderPage();
+    await user.click(navButton("ルート設定"));
+    await chooseDestinationMode(user);
+    expect(map()).toMatchObject({ pointEditingEnabled: true, armedPinRole: "destination" });
+    act(() => map().onPinPlace("destination", NEAR));
+    respond([route("route-0"), route("route-1")]);
+    await generate(user);
+    act(() => map().onRouteSelect("route-1"));
+    expect(map().selectedRouteId).toBe("route-0");
 
-  it("カタログの取得に失敗すると、世代を要るチップへ理由が出る", async () => {
-    vi.mocked(getAxisCatalog).mockRejectedValue(new Error("catalog down"));
-
-    const { panels, status } = await panelsAndStatus();
-
-    expect(panels.get("surface")?.[1]).toBe("配信情報を取得できず表示できません");
-    expect(panels.get("accident_point")?.[1]).toBe("配信情報を取得できず表示できません");
-    expect(status.get("surface")).toBe("error");
-    // 世代を持たない別系統（国土地理院のラスタ）は巻き込まない。
-    expect(panels.get("elevation")?.[1]).not.toBe("配信情報を取得できず表示できません");
-    expect(status.get("elevation")).not.toBe("error");
-  });
-
-  it("200で返っても世代が空なら同じ扱いにする（世代を返さない版が応答した窓）", async () => {
-    vi.mocked(getAxisCatalog).mockResolvedValue({ ...catalogWithGuiCreatedAxis(), tile_versions: {} });
-
-    const { panels, status } = await panelsAndStatus();
-
-    expect(panels.get("surface")?.[1]).toBe("配信情報を取得できず表示できません");
-    expect(status.get("surface")).toBe("error");
-  });
-
-  it("世代が揃えば理由は消える", async () => {
-    vi.mocked(getAxisCatalog).mockResolvedValue(catalogWithGuiCreatedAxis());
-
-    const { panels, status } = await panelsAndStatus();
-
-    expect(panels.get("surface")?.[1]).not.toBe("配信情報を取得できず表示できません");
-    expect(status.get("surface")).not.toBe("error");
+    await user.click(navButton("ルート結果"));
+    expect(map().pointEditingEnabled).toBe(false);
+    act(() => map().onRouteSelect("route-1"));
+    expect(map().selectedRouteId).toBe("route-1");
   });
 });
 
-describe("土地被覆レイヤーのズーム不足の案内", () => {
-  beforeEach(() => {
-    window.localStorage.clear();
-    // カタログは**成功させる**。失敗するとタイル世代も届かず、道路系のチップはズーム不足
-    // ではなく「配信情報を取得できず表示できません」になる（T938）。ここで見たいのは
-    // ズームの案内のほうで、縮退の側は下の describe が別に確かめる。
-    vi.mocked(getAxisCatalog).mockResolvedValue(catalogWithGuiCreatedAxis());
-    // Homeのマウントは地点まわりの並列fetchを必ず発火させる。既定のvi.fn()はundefinedを
-    // 返し、フック側の`.then`がそこで落ちて未処理の拒否になる（テスト自体は緑のまま
-    // `vitest run`の終了コードだけが1になる）。本テストは天候を見ないため、解決しない
-    // Promiseを返してそのまま放置する。
-    for (const fetcher of [
-      getCurrentWeather,
-      getAmedasObservation,
-      getWeatherWarnings,
-      getWbgtStatus,
-      getFloodForecasts,
-    ]) {
-      vi.mocked(fetcher).mockImplementation((() => new Promise(() => {})) as never);
-    }
-  });
-  afterEach(() => {
-    window.localStorage.clear();
-    vi.mocked(getAxisCatalog).mockReset();
-    vi.mocked(getCurrentWeather).mockReset();
-    vi.mocked(getAmedasObservation).mockReset();
-    vi.mocked(getWeatherWarnings).mockReset();
-    vi.mocked(getWbgtStatus).mockReset();
-    vi.mocked(getFloodForecasts).mockReset();
+describe("画面の枠と地図の周り", () => {
+  it("デスクトップでは、ルートを地図へ収めるときに覆われた高さを渡さない", () => {
+    renderPage();
+    expect(measureObscured()).toBeUndefined();
   });
 
-  it("最小ズームより広いと、凡例ではなく案内文が出る状態になる", async () => {
-    // ▶の中身は「案内文があれば案内文、無ければ凡例」で決まる（MapOverlayControls）。
-    // 案内文が入らないと、ONにしたのに何も出ない理由を知る手立てが画面から消える。
-    // 道路系（regionZoomTooWide）と同じ扱いになっていることを見る。
-    const HomeFresh = await renderFreshHome({ exposeViewportChange: true });
-    render(<HomeFresh />);
+  it("サイドバーは閉じると区分を隠し、開き直すと戻す", async () => {
+    const user = renderPage();
+    await user.click(screen.getByRole("button", { name: "パネルを閉じる" }));
+    expect(screen.queryByRole("button", { name: "ルート設定" })).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "パネルを開く" }));
+    expect(settingsSection()).toBeInTheDocument();
+  });
 
-    const readPanels = () =>
-      new Map<string, { notice: string | null; legendCount: number }>(
-        (
-          JSON.parse(screen.getByTestId("overlay-layer-panels").textContent!) as Array<[string, string | null, number]>
-        ).map(([id, notice, legendCount]) => [id, { notice, legendCount }]),
-      );
+  it("地図の見え方の値を地図・レンズ・地図上チップへそのまま渡す", () => {
+    renderPage();
+    const view = stubs.mapView as ReturnType<typeof useMapView>;
+    expect(map().look).toBe(view.look);
+    expect(propsOf<typeof LensControl>("LensControl")).toEqual(view.lensControl);
+    expect(propsOf<typeof MapOverlayControls>("MapOverlayControls")).toEqual(view.overlayControls);
+  });
 
-    const before = readPanels();
-    expect(before.get("landcover")!.notice).toBeNull();
-    expect(before.get("landcover")!.legendCount).toBeGreaterThan(0);
+  it("表示中のレイヤーも隠した段も無い間は、まとめて消す・解除するを押せない", () => {
+    renderPage();
+    expect(screen.getByRole("button", { name: "表示中のレイヤーをすべて非表示にする" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "絞り込みをすべて解除する" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "地図の表示を再描画する" })).toBeEnabled();
+  });
 
-    await act(async () => {
-      screen.getByText("テスト用に広域へズームアウト").click();
+  it("表示中のレイヤー・隠した段があれば、まとめて消す・解除する・描き直すを地図の見え方へ伝える", async () => {
+    const view = stubs.mapView as ReturnType<typeof useMapView>;
+    view.bulk.anyLayerOn = true;
+    view.bulk.anyLegendHidden = true;
+    const user = renderPage();
+    await user.click(screen.getByRole("button", { name: "表示中のレイヤーをすべて非表示にする" }));
+    await user.click(screen.getByRole("button", { name: "絞り込みをすべて解除する" }));
+    await user.click(screen.getByRole("button", { name: "地図の表示を再描画する" }));
+    expect(view.bulk.hideAllLayers).toHaveBeenCalledTimes(1);
+    expect(view.bulk.showAllLegendRows).toHaveBeenCalledTimes(1);
+    expect(view.bulk.redraw).toHaveBeenCalledTimes(1);
+  });
+
+  it("ヘッダーの天気・実測・警報は、位置が決まってからその位置で取り、取れた値をそのまま渡す", () => {
+    const weather = {
+      weather: { marker: "今日の見通し" },
+      weatherLoading: true,
+      weatherError: "見通しの誤り",
+      amedas: { marker: "実測" },
+      amedasLoading: false,
+      amedasError: "実測の誤り",
+      warningBadgeItems: [{ marker: "警報" }],
+      warningFetchFailures: [{ marker: "未取得" }],
+    } as unknown as ReturnType<typeof useWeatherConditions>;
+    vi.mocked(useWeatherConditions).mockReturnValue(weather);
+    renderPage();
+    expect(useWeatherConditions).toHaveBeenLastCalledWith(HERE, true);
+    expect(propsOf<typeof WeatherPanel>("WeatherPanel")).toEqual({
+      amedas: weather.amedas,
+      loading: weather.amedasLoading,
+      error: weather.amedasError,
     });
-
-    expect(readPanels().get("landcover")!.notice).toBe("ズームインすると表示されます");
+    expect(propsOf<typeof TodayOutlook>("TodayOutlook")).toEqual({
+      weather: weather.weather,
+      loading: weather.weatherLoading,
+      error: weather.weatherError,
+    });
+    expect(propsOf<typeof WarningBadgeList>("WarningBadgeList")).toEqual({
+      items: weather.warningBadgeItems,
+      failures: weather.warningFetchFailures,
+    });
   });
 
-  it("最小ズームを宣言したレイヤーは、どれも同じ案内になる", async () => {
-    // 以前は道路系と土地被覆で判定も配線も別々で、同じタイルを共有するのに
-    // tunnel/onewayには案内が出ていなかった。
-    const { buildMapLayers } = await import("@/features/map/layers/mapLayers");
-    // 広域へのズームアウト（ズーム5）より上に下限を持つもの。
-    const declared = buildMapLayers([], [])
-      .filter((layer) => layer.tileMinZoom !== undefined && layer.tileMinZoom > 5)
-      .map((layer) => layer.id);
-    expect(declared.length).toBeGreaterThan(0);
+  it("メニューからデバッグログを開閉し、コンソールの側からも閉じられる", () => {
+    renderPage();
+    const menu = () => propsOf<typeof HeaderMenu>("HeaderMenu");
+    const console_ = () => propsOf<typeof DebugConsole>("DebugConsole");
+    expect(console_().open).toBe(false);
+    act(() => menu().onToggleDebugConsole());
+    expect(console_().open).toBe(true);
+    expect(menu().debugConsoleOpen).toBe(true);
+    act(() => console_().onClose());
+    expect(console_().open).toBe(false);
+  });
 
-    const HomeFresh = await renderFreshHome({ exposeViewportChange: true });
-    render(<HomeFresh />);
-    await act(async () => {
-      screen.getByText("テスト用に広域へズームアウト").click();
+  it("現在地の取り直しは、待つ間は押せず、失敗したら理由を地図の上に出す", async () => {
+    const user = renderPage();
+    let fail: PositionErrorCallback | null | undefined;
+    geolocation.getCurrentPosition.mockImplementation((_onSuccess, onError) => {
+      fail = onError;
     });
-
-    const notices = new Map<string, string | null>(
-      (
-        JSON.parse(screen.getByTestId("overlay-layer-panels").textContent!) as Array<[string, string | null, number]>
-      ).map((row) => [row[0], row[1]]),
-    );
-    for (const id of declared) {
-      expect(notices.get(id)).toBe("ズームインすると表示されます");
-    }
+    const locate = () => screen.getByRole("button", { name: "現在地に移動" });
+    await user.click(locate());
+    expect(locate()).toBeDisabled();
+    expect(locate()).toHaveTextContent("…");
+    act(() => fail?.({} as GeolocationPositionError));
+    expect(locate()).toBeEnabled();
+    expect(screen.getByText(/現在地を取得できませんでした/)).toBeInTheDocument();
   });
 });
