@@ -918,23 +918,6 @@ describe("候補の一覧", () => {
     expect(mapViewInputs().hasDetail).toBe(true);
   });
 
-  it("候補のタブと地図の候補の選択は同じ選択を動かし、地図からの選択は「ルート結果」を見ている間だけ効く", async () => {
-    respond([route("route-0"), route("route-1")]);
-    const user = renderPage();
-    await generate(user);
-    expect(map().selectedRouteId).toBe("route-0");
-
-    act(() => map().onRouteSelect("route-1"));
-    expect(map().selectedRouteId).toBe("route-1");
-    expect(resultTabs()[1]).toHaveAttribute("aria-selected", "true");
-    await user.click(resultTabs()[0]);
-    expect(map().selectedRouteId).toBe("route-0");
-
-    await user.click(outcomeSection());
-    act(() => map().onRouteSelect("route-1"));
-    expect(map().selectedRouteId).toBe("route-0");
-  });
-
   it("「GPX出力」は選んでいる候補を書き出し、「ルートをクリア」は候補を消して生成前の案内へ戻す", async () => {
     const first = route("route-0");
     const second = route("route-1");
@@ -1058,7 +1041,6 @@ describe("地図で押した区間", () => {
         await user.click(resultTabs()[0]);
       },
     ],
-    ["地図で候補を選ぶ", async () => act(() => map().onRouteSelect("route-0"))],
     [
       "作り直す",
       async (user: UserEvent) => {
@@ -1226,8 +1208,6 @@ describe("区間の乗り換え", () => {
     );
     expect(spliceStretches()).toHaveLength(3);
     expect(map().pointEditingEnabled).toBe(false);
-    act(() => map().onRouteSelect("route-1"));
-    expect(map().selectedRouteId).toBe("route-0");
   });
 
   it("編集中は、地図で区間を押しても区間を選ばない（区間の詳細の置き場が編集面に替わっている）", async () => {
@@ -1617,21 +1597,21 @@ describe("モバイルの下部タブとシート", () => {
     }
   });
 
-  it("地図で地点を扱えるのは「ルート設定」シートの「条件」タブを開いている間、候補を選べるのは「ルート結果」シートを開いている間", async () => {
+  it("地図で地点を扱えるのは「ルート設定」シートの「条件」タブを開いている間、区間を選べるのは「ルート結果」シートを開いている間", async () => {
     const user = renderPage();
     await user.click(navButton("ルート設定"));
     await chooseDestinationMode(user);
     expect(map()).toMatchObject({ pointEditingEnabled: true, armedPinRole: "destination" });
     act(() => map().onPinPlace("destination", NEAR));
-    respond([route("route-0"), route("route-1")]);
+    respond([route("route-0", { segments: [segment()] }), route("route-1")]);
     await generate(user);
-    act(() => map().onRouteSelect("route-1"));
-    expect(map().selectedRouteId).toBe("route-0");
+    act(() => map().onRouteSegmentSelect({ segment: segment(), latitude: 0, longitude: 0 }));
 
     await user.click(navButton("ルート結果"));
     expect(map().pointEditingEnabled).toBe(false);
-    act(() => map().onRouteSelect("route-1"));
-    expect(map().selectedRouteId).toBe("route-1");
+    expect(screen.queryByRole("button", { name: "区間の選択を解除" })).not.toBeInTheDocument();
+    act(() => map().onRouteSegmentSelect({ segment: segment(), latitude: 0, longitude: 0 }));
+    expect(screen.getByRole("button", { name: "区間の選択を解除" })).toBeInTheDocument();
   });
 });
 
@@ -1649,21 +1629,21 @@ describe("画面の枠と地図の周り", () => {
     expect(settingsSection()).toBeInTheDocument();
   });
 
-  it("サイドバーを閉じている間は、区分が開いていても地図で地点も候補も扱わず、開き直すと戻す", async () => {
-    respond([route("route-0"), route("route-1")]);
+  it("サイドバーを閉じている間は、区分が開いていても地図で地点も区間も扱わず、開き直すと戻す", async () => {
+    respond([route("route-0", { segments: [segment()] }), route("route-1")]);
     const user = renderPage();
     await generate(user);
     expect(map().pointEditingEnabled).toBe(true);
 
     await user.click(screen.getByRole("button", { name: "パネルを閉じる" }));
     expect(map().pointEditingEnabled).toBe(false);
-    act(() => map().onRouteSelect("route-1"));
-    expect(map().selectedRouteId).toBe("route-0");
+    act(() => map().onRouteSegmentSelect({ segment: segment(), latitude: 0, longitude: 0 }));
 
     await user.click(screen.getByRole("button", { name: "パネルを開く" }));
     expect(map().pointEditingEnabled).toBe(true);
-    act(() => map().onRouteSelect("route-1"));
-    expect(map().selectedRouteId).toBe("route-1");
+    expect(screen.queryByRole("button", { name: "区間の選択を解除" })).not.toBeInTheDocument();
+    act(() => map().onRouteSegmentSelect({ segment: segment(), latitude: 0, longitude: 0 }));
+    expect(screen.getByRole("button", { name: "区間の選択を解除" })).toBeInTheDocument();
   });
 
   it("地図の見え方の値を地図・レンズ・地図上チップへそのまま渡す", () => {

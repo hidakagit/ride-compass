@@ -47,7 +47,6 @@ const SEGMENT: RoutePathShape = { path: PATH, properties: { osm_way_id: 1 } };
 const SLOT: ComparisonSlotShape = { path: PATH, color: "#16a34a" };
 
 const CANDIDATE_LINE = routeSceneLayerId("candidateLine");
-const CANDIDATE_HIT = routeSceneLayerId("candidateHit");
 const SELECTED_HALO = routeSceneLayerId("selectedHalo");
 const DETAIL_CASING = routeSceneLayerId("detailCasing");
 const DETAIL_LINE = routeSceneLayerId("detailLine");
@@ -112,7 +111,6 @@ describe("ルートの描画", () => {
     drawing.showRoutes([CANDIDATE], "a");
 
     expect(handle.layer(CANDIDATE_LINE)?.visibility).toBe("visible");
-    expect(handle.layer(CANDIDATE_HIT)?.visibility).toBe("visible");
   });
 
   // 選択中候補と区間の色分けは別のきっかけで届く。**どちらが先でも同じ重なりになること**が

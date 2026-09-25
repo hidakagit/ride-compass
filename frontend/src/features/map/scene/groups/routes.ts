@@ -22,17 +22,14 @@ const ROUTE = mapDisplay.route;
 /** 指の接地面。**見た目の線がどれだけ細くても押せる幅にする**ので、線の太さからは導けない
  * ——媒体（指の大きさ）が決める値で、配信側は知らない。 */
 const HIT_WIDTH_PX = 24;
-const CANDIDATE_HIT_WIDTH_PX = 18;
 
 const HIT_PAINT = { "line-color": palette.semantic.hit, "line-opacity": 0 } as const;
 const ROUND_CAP = { "line-cap": "round", "line-join": "round" } as const;
 
 export const ROUTE_HIT_TARGET = "route";
-export const ROUTE_HIT_TARGET_CANDIDATE = "routeCandidate";
 export const ROUTE_HIT_TARGET_SEGMENT = "routeSegment";
 export const ROUTE_HIT_TARGET_SPLICE_BAND = "routeSpliceBand";
 
-const ROUTE_ID_PROPERTY = "routeId";
 const SLOT_COLOR_PROPERTY = "slotColor";
 
 type Shape = { readonly path: RoutePath; readonly properties?: Readonly<Record<string, unknown>> };
@@ -89,7 +86,7 @@ export const routeGroup = declareGroup<RouteState>((state) => {
     {
       id: SOURCE.candidates,
       spec: { type: "geojson" },
-      data: collection(references.map((c) => line(c.path, { [ROUTE_ID_PROPERTY]: c.routeId }))),
+      data: collection(references.map((c) => line(c.path))),
     },
     {
       id: SOURCE.selected,
@@ -146,15 +143,6 @@ export const routeGroup = declareGroup<RouteState>((state) => {
         "line-width": ROUTE.lineWidthsPx.candidate,
         "line-opacity": 0.65,
       },
-    },
-    {
-      role: "candidateHit",
-      tier: "route",
-      source: SOURCE.candidates,
-      type: "line",
-      visible: state.visible,
-      paint: { ...HIT_PAINT, "line-width": CANDIDATE_HIT_WIDTH_PX },
-      hitTargets: [ROUTE_HIT_TARGET, ROUTE_HIT_TARGET_CANDIDATE],
     },
     {
       role: "slotCasing",

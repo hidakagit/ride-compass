@@ -489,7 +489,7 @@ export default function Home() {
   const [settingsTab, setSettingsTab] = useState<SettingsTab>("generate");
 
   // 地図でできることは、いま見ているパネルが持つ操作だけにする（地図を触った副作用で地点が変わらない）。
-  // 「ルート設定」の条件タブ＝地点を置く・動かす・消す、「ルート結果」＝候補の切り替えと区間の詳細、
+  // 「ルート設定」の条件タブ＝地点を置く・動かす・消す、「ルート結果」＝区間の詳細、
   // 編集中＝乗り換え先の選択だけ。モバイルはシート、デスクトップはパネルを畳んでおらず区分が開いていることが
   // 「見ているか」に当たる（畳むと区分の開閉は保ったまま中身が見えなくなる）。
   const routeSettingsActive = isMobile ? mobileSheet === "routeSettings" : !sidebarCollapsed && generateOpen;
@@ -497,15 +497,6 @@ export default function Home() {
   const pointEditingEnabled = routeSettingsActive && settingsTab === "generate" && editingRoute === null;
   const routeInspectionEnabled = routeOutcomeActive && editingRoute === null;
   const pinPlacementArmedRole = routeMode === "destination" && pointEditingEnabled ? armedPinRole : null;
-
-  const handleRouteSelectFromMap = useCallback(
-    (routeId: string) => {
-      if (!routeInspectionEnabled) return;
-      setSelectedRouteSegment(null);
-      setSelectedRouteId(routeId);
-    },
-    [routeInspectionEnabled],
-  );
 
   // 地図のチップ列は、下部の行（時刻スライダー等）の高さを知らない。地図の枠へ実測の高さをCSS変数で渡す。
   const mapPaneRef = useRef<HTMLDivElement>(null);
@@ -1231,7 +1222,6 @@ export default function Home() {
               if (!routeInspectionEnabled) return;
               setSelectedRouteSegment(selection);
             }}
-            onRouteSelect={handleRouteSelectFromMap}
             waypoints={routeMode === "destination" ? waypoints : []}
             onWaypointRemove={handleWaypointRemove}
             onWaypointMove={handleWaypointMove}

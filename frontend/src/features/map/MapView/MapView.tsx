@@ -54,7 +54,6 @@ import {
 import { interactiveSceneLayerIds, sceneLayerIdsForHitTarget, type MapScene } from "@/features/map/scene/mapScene";
 import {
   ROUTE_HIT_TARGET,
-  ROUTE_HIT_TARGET_CANDIDATE,
   ROUTE_HIT_TARGET_SEGMENT,
   ROUTE_HIT_TARGET_SPLICE_BAND,
 } from "@/features/map/scene/groups/routes";
@@ -286,8 +285,6 @@ interface MapViewProps {
   selectedRouteSegment: SelectedRouteSegment | null;
   /** ルートの区間を押したとき・印を押して選択を外したとき。 */
   onRouteSegmentSelect: (selection: SelectedRouteSegment | null) => void;
-  /** 地図上の候補線を押したときの候補切り替え。 */
-  onRouteSelect: (routeId: string) => void;
   /** 経由地（通る順）。 */
   waypoints: Coordinates[];
   /** 武装中の役割。nullの間、地図のタップはピンを置かない（地物の詳細表示のみ）。 */
@@ -324,7 +321,6 @@ export default function MapView({
   experimentSlots,
   selectedRouteSegment,
   onRouteSegmentSelect,
-  onRouteSelect,
   waypoints,
   armedPinRole,
   pointEditingEnabled,
@@ -421,7 +417,6 @@ export default function MapView({
     onDestinationClear,
     measureRouteFitObscuredPx,
     onRouteSegmentSelect,
-    onRouteSelect,
     onSpliceStretchSelect,
   };
   const latest = useRef(latestProps);
@@ -543,15 +538,6 @@ export default function MapView({
       });
     }
 
-    // ルートの線のハンドラは、レイヤーがまだ無い（ルート未生成）間に登録しても、MapLibreは発火しないだけで例外を
-    // 出さない。候補線を押したらその候補を選ぶ（選択中の候補は区間の線が受ける）。
-    function handleCandidateClick(e: MapLayerMouseEvent) {
-      const routeId = e.features?.[0]?.properties?.routeId;
-      if (typeof routeId !== "string") return;
-      popupRef.current?.remove();
-      latest.current.onRouteSelect(routeId);
-    }
-
     // 乗り換えられる区間の帯を押したら、その区間の道を選ぶ（選ぶ操作の中心を地図へ置く）。
     function handleSpliceStretchClick(e: MapLayerMouseEvent) {
       const index = e.features?.[0]?.properties?.index;
@@ -661,13 +647,13 @@ export default function MapView({
     }
 
     map.on("click", handleClick);
+    // ルートの線のハンドラは、レイヤーがまだ無い（ルート未生成）間に登録しても、MapLibreは発火しないだけで例外を
+    // 出さない。
     const routeHitLayers = {
       segment: routeHitLayerId(latest.current.scene, ROUTE_HIT_TARGET_SEGMENT),
-      candidate: routeHitLayerId(latest.current.scene, ROUTE_HIT_TARGET_CANDIDATE),
       spliceBand: routeHitLayerId(latest.current.scene, ROUTE_HIT_TARGET_SPLICE_BAND),
     };
     if (routeHitLayers.segment !== undefined) map.on("click", routeHitLayers.segment, handleRouteSegmentClick);
-    if (routeHitLayers.candidate !== undefined) map.on("click", routeHitLayers.candidate, handleCandidateClick);
     if (routeHitLayers.spliceBand !== undefined) map.on("click", routeHitLayers.spliceBand, handleSpliceStretchClick);
     map.on("mousemove", handleMouseMove);
     map.on("load", handleLoad);
@@ -691,7 +677,6 @@ export default function MapView({
       map.off("sourcedata", collapseAttribution);
       map.off("click", handleClick);
       if (routeHitLayers.segment !== undefined) map.off("click", routeHitLayers.segment, handleRouteSegmentClick);
-      if (routeHitLayers.candidate !== undefined) map.off("click", routeHitLayers.candidate, handleCandidateClick);
       if (routeHitLayers.spliceBand !== undefined)
         map.off("click", routeHitLayers.spliceBand, handleSpliceStretchClick);
       map.off("mousemove", handleMouseMove);
