@@ -24,7 +24,6 @@
 | `features/map/scene/buildScene.ts` | 地図に載るもの全部を1つのsceneへ組み立てる唯一の口（`buildMapScene`）。受け取るのは実行時にしか決まらない値だけで、見た目の値は各グループが持つ。家族を1つ足すのはここの並びへ1行足すこと |
 | `features/map/scene/applyToMap.ts` | 画面の状態を地図へ当てる唯一の入口（状態→各家族の入力`sceneInputsFrom`→`buildMapScene`→`applyMapScene`）。作り直しも同じ道を通り、空から当て直すだけが違う。**再描画で失われる表示状態（filter・feature-state・visibility）を持つ描画は、ここから辿れる位置へ置く**——辿れないものは`setStyle()`後に作り直されない。**入力の型はsceneの側で宣言する**（`MapView`のpropsから借りると、sceneと`MapView`が互いをimportし合う） |
 | `features/map/maplibreWorker.ts` | MapLibreのWorkerの場所を、ビルド前に静的配信へ複製したもの（`scripts/copy-maplibre-worker.mjs`）へ向ける。地図を作る前に呼ばないと、Workerがバンドラの解決できないURLを読みに行き、スタイル処理とタイル取得が止まる |
-| `features/map/routeSegmentProperties.ts` | 押されたルート区間から読み戻したプロパティを元の形へ戻す。MapLibreはGeoJSONの地物のプロパティをプリミティブしか保持できず、オブジェクトをJSON文字列へ直すため |
 | `lib/mapDisplay/legendFilter.ts` | 凡例の行の型（`LegendEntry`）と、凡例で隠した行を落とす絞り込み式の組み立て（ルート線のモードが使う） |
 | `features/map/layers/landcoverClasses.ts` | 土地被覆のクラス（表示名・色・割合列・地図に塗るか）。backendのレジストリ由来の生成物（`landcover-classes.json`）を読むだけの薄い層で、凡例（レイヤーの記述子）と区間インスペクタ（`RoadInspectorPopup.tsx`）が共有する。色は地図タイルの塗りと同じ値のため、凡例と地図がずれない。**凡例は塗るクラスだけ**（`LANDCOVER_PAINTED_CLASSES`）——塗らないクラスを並べると色見本があるのに地図のどこにも無い表になる。区間インスペクタは数値なので全クラスを出す |
 | `features/map/layers/primaryAttributes.ts` | 一次属性のカタログと、二次軸→一次属性の導出（軸増減時の観測データ連動表示に使用） |
@@ -675,12 +674,9 @@ HTMLでもよい（例: `pinMarks.ts`の`pinMarkHtml`）。第三者が書ける
   区間クリック時の詳細表示（地点・到達予想時刻・軸別内訳）はボトムシート側
   （[ルート設定・結果パネル](route-settings-and-results.md)のRouteAxisProfile）が持ち、
   地図上（`MapView.tsx: handleRouteSegmentClick`）は軽量なマーカーを立てるのみで
-  テキストポップアップを持たない。`handleRouteSegmentClick`が`queryRenderedFeatures`
-  経由で読み戻す`feature.properties`は、MapLibreがGeoJSONソースをvector tile相当の
-  内部表現へ変換する際にオブジェクト値をJSON文字列へ自動シリアライズするため、
-  `restoreRouteSegmentProperties`（`ROUTE_SEGMENT_OBJECT_PROPERTY_KEYS`に列挙した
-  フィールドのみ）で復元してから使う。新しいオブジェクト型フィールドを`RouteSegmentDetail`
-  へ追加するときはこの配列への追加が必須（追加漏れで文字列のまま渡り実行時エラーになる）。
+  テキストポップアップを持たない。押された区間から読み戻す`feature.properties`は、軸別内訳等の
+  入れ子のオブジェクトもオブジェクトのまま届く（MapLibre v6は内部表現へ移すときに印付きのJSON文字列へ
+  直し、読み戻すときに自分で戻す。`maplibre-gl/src/util/vectortile_to_geojson.ts`）ので、読む側で戻さない。
 - `icons.tsx`はこのモジュール（`MapOverlayControls`のアイコン辞書）専用ではなく、
   [動的気象レイヤー](dynamic-weather-layers.md)の`WeatherPanel`/`TodayOutlook`からも
   使われる、地図関連UI全体で共有するアイコン集である。

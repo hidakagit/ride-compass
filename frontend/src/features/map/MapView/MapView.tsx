@@ -63,10 +63,6 @@ import { POINT_LAYERS, pointSourceId } from "@/features/map/scene/groups/points"
 import { AREA_SOURCE_ID } from "@/features/map/scene/groups/areaRasters";
 import { ROAD_LINE_SOURCE_ID } from "@/features/map/scene/groups/roadLines";
 import { sceneLayerId } from "@/features/map/scene/sceneBuilders";
-import {
-  restoreRouteSegmentProperties,
-  type SerializedRouteSegmentProperties,
-} from "@/features/map/routeSegmentProperties";
 
 /** 押された点のレイヤーidから、その点の宣言を引く。idは役割から決まるので写しではない。 */
 const POINT_LAYER_BY_SCENE_ID = new Map(
@@ -569,8 +565,8 @@ export default function MapView({
       if (!feature) return;
       // 前に開いた点の詳細が残らないよう閉じる。
       popupRef.current?.remove();
-      const rawProperties = feature.properties as unknown as SerializedRouteSegmentProperties;
-      const segment: RouteSegmentDetail = { ...restoreRouteSegmentProperties(rawProperties), geometry: null };
+      const properties = feature.properties as unknown as Omit<RouteSegmentDetail, "geometry">;
+      const segment: RouteSegmentDetail = { ...properties, geometry: null };
       const geometry = feature.geometry as GeoJSON.Geometry | undefined;
       const lineCoordinates = geometry?.type === "LineString" ? (geometry.coordinates as [number, number][]) : [];
       const [snappedLng, snappedLat] =

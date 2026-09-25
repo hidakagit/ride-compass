@@ -1,7 +1,7 @@
 "use client";
 
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/Popover/Popover";
-import { useId, useMemo, useState } from "react";
+import { useId, useMemo, useState, useSyncExternalStore } from "react";
 import routeGenerateConfig from "@/types/generated/route-generate-config.json";
 import { clampSpeedKmh, formatDepartureLabel } from "@/features/conditions/rideConditions";
 
@@ -30,6 +30,8 @@ interface RideConditionBarProps {
   onSpeedKmhChange: (speedKmh: number) => void;
 }
 
+const subscribeNothing = () => () => {};
+
 // 地図右上の走行条件アイコン列。走行条件（出発時刻・想定速度）は評価軸の風（通過予測時刻・
 // 風の抵抗）と気象レイヤーの表示時刻の両方が参照する共有stateのため、ルート設定フォームでは
 // なく地図上に常時置き、アイコンをタップしてその場で変えられるようにする。TravelBearingControl
@@ -55,7 +57,15 @@ export default function RideConditionBar({
   const nowIndex = departureAnchor ? nearestTimeIndex(departureTimeline, departureAnchor) : 0;
   const speedInputId = useId();
   const departureInputId = useId();
-  const departureLabel = formatDepartureLabel(departureTime);
+  // 出発時刻の文言は描いた時刻で決まる。ページはビルド時に描かれるので、サーバーとハイドレーションの描画では
+  // 出さず、ハイドレーションのあとに出す（出すとビルドの時刻の文言とずれ、ハイドレーションが不一致で失敗する）。
+  const hydrated = useSyncExternalStore(
+    subscribeNothing,
+    () => true,
+    () => false,
+  );
+  const departureLabel = hydrated ? formatDepartureLabel(departureTime) : null;
+  const departureName = departureLabel ? `出発時刻: ${departureLabel}` : "出発時刻";
   const speedLabel = `${speedKmh}km/h`;
 
   return (
@@ -70,13 +80,13 @@ export default function RideConditionBar({
             variant="mapCtrl"
             size="mapCtrl"
             className="h-auto min-h-[var(--map-ctrl-button-size)] flex-col gap-px py-[3px]"
-            aria-label={`出発時刻: ${departureLabel}（タップで変更）`}
-            title={`出発時刻: ${departureLabel}`}
+            aria-label={`${departureName}（タップで変更）`}
+            title={departureName}
           >
             <ClockIcon />
             {/* 別の日は「9/24 12:40」になるため、列の幅に収まるよう日付と時刻を2行に分ける。 */}
             <span className="flex flex-col items-center text-[10px] leading-[1.1] font-semibold whitespace-nowrap">
-              {departureLabel.split(" ").map((part) => (
+              {departureLabel?.split(" ").map((part) => (
                 <span key={part} className="block">
                   {part}
                 </span>
