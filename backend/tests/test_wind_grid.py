@@ -59,7 +59,6 @@ def test_the_nearest_grid_point_is_always_a_point_of_the_same_grid(point):
 
 
 def test_every_grid_point_is_its_own_nearest_point():
-    # 同じ格子点を2回引いても同じ鍵になる（値のキャッシュを共有する前提）
     grid = wind_grid.generate_wind_grid_points(BBOX, SPACING)
     assert grid
 

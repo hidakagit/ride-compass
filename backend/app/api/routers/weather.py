@@ -162,14 +162,11 @@ async def get_wind_grid_detail(
 ) -> WindGridResponse:
     """風・降水延長予報の詳細格子（ヒートマップ等の面表現用、spacing_degでズーム依存の間隔を
     可変化）。呼び出し元（フロント）が渡した表示範囲（bbox）に交差する
-    密格子点（domain/wind_grid.py: generate_wind_grid_detail_points、固定ラティス上の座標の
-    ため近い範囲を見る別ユーザーとキャッシュを共有できる）ぶんの時間別風向・風速・降水量を
-    返す。get_wind_gridと同じく取得失敗地点は結果から除外し、時刻配列は応答トップレベルに
-    1本だけ持つ。
+    密格子点（domain/wind_grid.py: generate_wind_grid_detail_points、固定ラティス上の座標）
+    ぶんの時間別風向・風速・降水量を返す。get_wind_gridと同じく取得失敗地点は結果から除外し、
+    時刻配列は応答トップレベルに1本だけ持つ。
 
-    spacing_degはWIND_GRID_DETAIL_ALLOWED_SPACINGS_DEGの離散値のみ許可する（任意の連続値を
-    許すとユーザーごとにラティスの絶対座標がずれてキャッシュ共有が効かなくなるため、
-    フロント側windLayer.ts: windGridDetailSpacingDegForZoomと同じ段階に固定する）。
+    spacing_degはWIND_GRID_DETAIL_ALLOWED_SPACINGS_DEGの段階の値だけを受け付ける。
     全地点が失敗した場合は502を返す（_reject_if_all_points_failed参照）。"""
     enforce_rate_limit(http_request, "wind-grid-detail", settings.wind_grid_detail_rate_limit_per_minute)
     if min_lon >= max_lon or min_lat >= max_lat:
