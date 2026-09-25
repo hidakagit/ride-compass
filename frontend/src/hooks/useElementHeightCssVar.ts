@@ -3,17 +3,10 @@
 import { useEffect, type RefObject } from "react";
 
 /**
- * measureRefが指す要素の実測高さ(px)を、targetRefが指す祖先要素へCSSカスタムプロパティ
- * として反映し続ける（地図オーバーレイの▼ページ送り判定[MapOverlayControls.tsx:
- * usePagedOverflow]は、兄弟要素として重なる気象タイムラインパネル[page.tsx:
- * .bottomControlRow]の占有高さを直接は知らないため、これで補う）。
- *
- * 兄弟要素同士でDOMの高さを直接やり取りする手段が無いため、共通の祖先（page.tsxの
- * 地図の枠）へinline styleでCSS変数を書き込み、そちらを参照する側（MapOverlayControlsのチップ列）の
- * CSS計算へ反映させる（globals.cssの`--mobile-tabbar-height`と
- * 同じ「CSS変数で高さを共有する」パターン。あちらは固定値だが、こちらは
- * ResizeObserverで実測するため表示中のレイヤー数による高さの変化[.dynamicLayerSliders
- * のflex-wrap]にも追従する）。
+ * measureRefが指す要素の実測高さ(px)を、targetRefが指す祖先要素へCSSカスタムプロパティとして
+ * 書き続ける。兄弟の要素どうしは互いの高さを知る手段が無いので、共通の祖先に置いた変数を読む側の
+ * CSSが使う（例: スマホ幅の地図チップ列が、下に重なる時刻のスライダー列の高さぶん上へ逃げる）。
+ * ResizeObserverで測るので、表示中のレイヤー数で折り返しが変わっても追従する。
  */
 export function useElementHeightCssVar(
   measureRef: RefObject<HTMLElement | null>,

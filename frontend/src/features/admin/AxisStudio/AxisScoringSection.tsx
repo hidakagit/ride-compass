@@ -333,7 +333,7 @@ export function AxisScoringSection({ draft, setDraft, materialOptions, axisTermO
                     >
                       削除
                     </Button>
-                    {/* 実データの分位は行の末尾で1行を占有させる（.termRowHintがflex-basis:100%）。
+                    {/* 実データの分位は行の末尾で1行を占有させる（basis-full）。
                       操作要素の間へ挟むと、狭幅の折り返しで説明文とスライダーが混ざる。
                       他の軸を組み合わせる行が持つのは軸idで、材料の分位は引けない。 */}
                     {draft.shapeKind !== "recipe_then_breakpoint_linear" && (

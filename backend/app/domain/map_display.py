@@ -178,7 +178,7 @@ ROUTE_CASING_WIDTHS_PX: dict[str, float] = {
     role: ROUTE_LINE_WIDTHS_PX[role] + CASING_MARGIN_PX for role in ("composite", "slot", "detail")
 }
 
-ROUTE_LINE_OPACITIES: dict[str, float] = {"selectedHalo": 0.25, "splice": 0.85}
+ROUTE_LINE_OPACITIES: dict[str, float] = {"selectedHalo": 0.25, "splice": 0.75}
 
 #: 破線の刻み。実線との違いが読める最小の組み合わせ。
 ROUTE_SPLICE_DASH: tuple[float, ...] = (2, 1.5)

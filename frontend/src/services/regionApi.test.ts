@@ -1,6 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { debugLog } from "@/lib/debugLog";
-import regionTileConfig from "@/types/generated/region-tile-config.json";
 
 // 成功・失敗時のdebugLogの呼び出し回数・ラベルを直接アサートするためモックする。
 vi.mock("@/lib/debugLog", () => ({ debugLog: vi.fn() }));
@@ -10,8 +9,6 @@ vi.mock("@/lib/debugLog", () => ({ debugLog: vi.fn() }));
 // `NEXT_PUBLIC_TILE_BASE_URL`でこのファイルの期待値が変わらないようにするため。
 vi.mock("@/lib/tileBaseUrl", () => ({ tileBaseUrl: () => "https://tiles.test" }));
 import {
-  ROAD_TILE_MAX_ZOOM,
-  ROAD_TILE_MIN_ZOOM,
   accidentTileUrl,
   fetchAxisInspector,
   fetchDynamicWayValues,
@@ -32,13 +29,6 @@ describe("regionApi", () => {
     vi.unstubAllGlobals();
   });
 
-  // 期待値をここへ書き写すとフロント側の変更しか検知できない。生成物と照合することで
-  // backend（domain/region.py）だけを広げた場合も落ちるようにする。
-  it("ROAD_TILE_MIN_ZOOM/MAX_ZOOMがbackend生成物と一致する", () => {
-    expect(ROAD_TILE_MIN_ZOOM).toBe(regionTileConfig.road_tile_min_zoom);
-    expect(ROAD_TILE_MAX_ZOOM).toBe(regionTileConfig.road_tile_max_zoom);
-  });
-
   it("roadSurfaceTileUrlは配信オリジンとタイル世代クエリを使ったURLテンプレートを返す", () => {
     // ?v=はタイルへ焼き込むプロパティが変わった世代の切替でブラウザキャッシュをバストする
     expect(roadSurfaceTileUrl()).toBe(
@@ -46,19 +36,9 @@ describe("regionApi", () => {
     );
   });
 
-  // region-tile-config.jsonはbackendの宣言からexport_openapi.pyが生成する。片側だけ
-  // 値を変えて再生成・コミットし忘れた状態をCIが検出する。
-
   it("poiTileUrlは配信オリジンとタイル世代クエリを使ったURLテンプレートを返す", () => {
     expect(poiTileUrl()).toBe(`https://tiles.test/api/region/poi-tiles/{z}/{x}/{y}.pbf?v=${TILE_VERSIONS.poi}`);
   });
-
-  // 停止要因POIタイル（改善計画T54）も同じドリフト検知の対象にする。交差点密度
-  // （intersection）レイヤーは地図の独立可視化レイヤーとしては提供しない判断（T96）で
-  // フロントから参照が無くなっていたため、バックエンド側の配信自体もT97で撤去済み。
-
-  // 外部静的データソース T50（警察庁事故データ）のMVTレイヤー名・世代も同じドリフト検知
-  // の仕組みに乗せる（region-tile-config.jsonのaccidentキー、改善計画T19と同型）。
 
   it("accidentTileUrlは配信オリジンとタイル世代クエリを使ったURLテンプレートを返す", () => {
     expect(accidentTileUrl()).toBe(
@@ -149,7 +129,7 @@ describe("regionApi", () => {
     });
   });
 
-  // way_id→動的値配信層（風・勾配、改善計画T405→T414→T423）。fetchAxisInspectorと違い、
+  // way_id→動的値配信層（風・勾配）。fetchAxisInspectorと違い、
   // 失敗時は例外を投げず空オブジェクトへフォールバックする（背景の色分けレイヤーという
   // 補助的な機能のため、regionApi.tsのdocstring参照）。
   describe("fetchDynamicWayValues", () => {

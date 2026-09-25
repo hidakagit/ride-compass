@@ -31,7 +31,7 @@
 | `features/route/hardFilterSync.ts` | 保存された`hard_filters`のキー集合を正本（`routeGenerateConfig.hard_filters`）へ整合させる。backendはキー集合の完全一致を要求するため、デプロイでフィルタが増減しても保存値をまたいで送信が成立するようにする |
 | `components/ui/FieldLabel/FieldLabel.tsx` | 情報アイコン付きラベルの共有UI部品（値を変えたら上書きをONにする包みは`RouteSettingsPanel.tsx`が持つ） |
 | `features/route/RouteSplicePanel/RouteSplicePanel.tsx` | 区間の乗り換えの結果面（「ルート結果」が編集モードのときの中身）。**選ぶのは地図、パネルは結果だけ**——地図の破線が「いまの道から乗り換えられる先」・太い実線が「いま作っているルート」で、タップすると乗り換わり、その先の分かれ道が次の破線になる（次に選べる区間は`features/route/routeSplice.ts: buildSplicedShape`が組む「いまの組み合わせ」との差として求めるため、乗り換え先の道の上の分岐もそのまま現れる。候補どうしが同じ地点を通るかはbackendが返すNode id［`node_ids`］で判定し、**当てると一度通った地点へ戻る代替は選択肢に出さない**——backendは連結性しか見ず、折り返しも走れはするため落とさない）。パネルはルート結果と同じ指標（距離・所要・総合難易度・負荷）で元と編集後を**2列×2行**に並べ（1セルに「元→編集後 差」を収め、列見出しを持たない）、軸別は2本並べず**差だけの1本**（中央が0・左が楽になった側・長さが変化量・色は軸チップと同じ）。戻すのは見出し行のアイコン（1つ戻す・全部戻す）で、巻き戻せるのは直前の1手ずつ（適用済みの範囲はその時点の経路に対する位置のため、途中だけは外せない）。`edge_ids`が空の候補では「差が無い」と「そもそも出せない」を区別して伝える。使い方は画面へ書かず見出し脇の(i)の奥に置き、操作（差分を見る・新しいルートを作る）は「ルート結果」ヘッダーと同じアイコン枠へ揃える |
-| `features/map/scene/groups/routes.ts`（乗り換え帯の箇所） | 他の候補が別の道を通る区間を地図へ帯で描き、**タップでその道を選べる**（`onSpliceStretchSelect`。選ぶ操作の中心を地図へ置く——パネルの行だけで選ばせると、どの行がどの帯かを目で対応づける必要がある。帯と当たり判定は役割`spliceBand`・`spliceBandHit`として宣言する）。選んでいない区間は破線、選んだ区間は実線・太めで、選んだ側を最前面へ回す——未選択の帯が上に重なると差し替えた先が隠れて変化が見えない。破線の刻みはリテラルの配列で持つ（feature式に依存しない） |
+| `features/map/scene/groups/routes.ts`（乗り換え帯の箇所） | 他の候補が別の道を通る区間を地図へ帯で描き、**タップでその道を選べる**（`onSpliceStretchSelect`。選ぶ操作の中心を地図へ置く——パネルの行だけで選ばせると、どの行がどの帯かを目で対応づける必要がある。帯と当たり判定は役割`spliceBandLine`・`spliceBandHit`として宣言する）。帯はどれも破線で描く。タップして乗り換えた先は帯ではなく、いま作っているルート（太い実線）の一部として描かれる。破線の刻みは配列で持つ（feature式に依存しない） |
 | `features/map/scene/groups/routes.ts` | ルート候補・選択中ルート・区間色分け・乗り換え帯・比較スロットの宣言。状態から載るべきレイヤーの並びを返すだけで、地図を直接は触らない |
 
 ## RouteSettingsPanel.tsx（一般向けメイン設定面）
@@ -143,9 +143,9 @@ TravelBearingControl.tsx`（`page.tsx`から直接importされ地図上に置か
 `WindBearingSlider`を開閉する。出発時刻・想定速度と同じ走行条件の一部として常時表示する
 （風・勾配の表示状態に依存しない）。
 
-`cardinalLabel(bearingDeg)`（0〜360度→8方位の日本語ラベル）は`backend/app/domain/geo.py:
-compass_label`と同じラベル配列・丸めアルゴリズムをfrontend側に持つ。
-`WindBearingSlider.test.ts`が既知の入出力ペアでbackendとの一致を検証する。
+`cardinalLabel(bearingDeg)`（角度→方位の日本語ラベル）は、呼び名の並びを生成物
+（`mapDisplay.compassLabels`、源泉は`backend/app/domain/geo.py: COMPASS_LABELS`）から読み、区分の幅は
+その数から決める。丸め方だけを画面側に持ち、backendと同じhalf-upにする（違うと区分の境界で食い違う）。
 
 角度計算・ドラッグ処理は`RouteSettingsPanel.tsx: startBoundaryDrag`（帯グラフの境界
 ドラッグ）と同じ「pointerdown起点でwindowへ直接pointermove/upを登録する」パターンを
@@ -153,11 +153,9 @@ compass_label`と同じラベル配列・丸めアルゴリズムをfrontend側�
 理由）。ダイヤル自体（矢印の余白を含む円全体）が当たり判定になり、円のどこを触っても
 ドラッグを開始できる——特定の小さなノブや細いリングを狙う必要が無い。矢印のタップ位置を
 即座に値へ反映する（tap-to-set）ため、ドラッグ開始の初動から値が動く。矢印キー
-（`KEY_STEP_DEG`単位）でのキーボード操作にも対応する。`WindBearingSlider.component.test.tsx`
-（happy-dom）がキーボード操作・aria属性を検証する——ポインタドラッグの角度計算は
-`getBoundingClientRect()`に依存しhappy-domでは実寸を返さないため単体テストで再現できず
-（`RouteSettingsPanel.test.tsx`の帯グラフ境界ドラッグと同じ制約）、Browserペインでの
-目視確認で別途検証する。
+（`KEY_STEP_DEG`単位）でのキーボード操作にも対応する。`WindBearingSlider.test.tsx`がキーボード操作・
+読み上げと、押した点・ドラッグから角度への換算を見る（happy-domは実寸を返さないので、ダイヤルの
+`getBoundingClientRect()`だけを差し替える）。
 
 ## RouteAxisProfile.tsx（候補ごとタブの中身: 総合難易度＋軸別内訳）
 

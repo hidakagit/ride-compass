@@ -88,6 +88,8 @@ function bindCurrentImplementation(map: unknown) {
     showDetail: (segments: readonly RoutePathShape[], lineColor: string) =>
       apply({ visible: true, segments, segmentColor: lineColor }),
     showSlots: (comparisonSlots: readonly ComparisonSlotShape[]) => apply({ visible: true, comparisonSlots }),
+    /** 凡例で段を隠す（隠す段を外す絞り込みを渡す）。 */
+    hideBands: (hiddenBandFilter: RouteState["hiddenBandFilter"]) => apply({ hiddenBandFilter }),
     /** スタイルの差し替え。地図から全部消えた状態で、同じ状態を伝え直す。 */
     replaceStyle: () => {
       previous = EMPTY_MAP_SCENE;
@@ -168,6 +170,17 @@ describe("ルートの描画", () => {
     const line = handle.layer(DETAIL_LINE);
     expect(Number(casing?.paint["line-width"])).toBeGreaterThan(Number(line?.paint["line-width"]));
     expect(typeof casing?.paint["line-color"]).toBe("string");
+  });
+
+  // 3枚のどれかだけが絞られると、隠した段に縁取りだけが残るか、見えない段を押せてしまう。
+  it("凡例で段を隠すと、区間の縁取り・色分け線・当たり判定が同じ段を隠す", () => {
+    const { handle, drawing } = setup();
+    const filter = ["!=", ["get", "band"], "hard"] as RouteState["hiddenBandFilter"];
+
+    drawing.showDetail([SEGMENT], "#16a34a");
+    drawing.hideBands(filter);
+
+    for (const id of [DETAIL_CASING, DETAIL_LINE, DETAIL_HIT]) expect(handle.layer(id)?.filter).toEqual(filter);
   });
 
   it("モードを切り替えると、色分け線の色式が入れ替わる", () => {

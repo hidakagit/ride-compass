@@ -163,8 +163,7 @@ export default function AxisComposer({
   // <AxisComposer key={editing?.axis_id ?? "new"}> のようにkeyを変えてコンポーネント自体を
   // 再マウントする方式に委ねる（このコンポーネント内でeditingの変化を検知しない）。
 
-  // 保存前の検証。backend側の検証を先回りし、どの入力欄が原因かを文章で示す。
-  // 軸の不変条件（表示名・折れ点の昇順・値の行の件数・略称・しきい値の件数と昇順等）はbackendが検証し、保存の
+  // 保存前の検証。軸の不変条件（表示名・折れ点の昇順・値の行の件数・略称・しきい値の件数と昇順等）はbackendが検証し、保存の
   // 誤りとして日本語の文を返す（`axis_definitions.py: axis_error`）。ここで写さない——写すと、backendの条件を
   // 変えたとき画面だけが古い条件で止める。ここに残すのは、入力の読み取りの誤りだけ。
   function validateSection(target: Section): string | null {

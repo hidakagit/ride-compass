@@ -570,7 +570,7 @@ export const mapDisplay = {
     },
     "opacities": {
       "selectedHalo": 0.25,
-      "splice": 0.85
+      "splice": 0.75
     },
     "spliceDash": [
       2,

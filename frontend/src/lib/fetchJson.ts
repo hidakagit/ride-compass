@@ -43,7 +43,7 @@ interface ApiRequestOptions {
   logMeta?: Record<string, unknown>;
 }
 
-export interface ApiResponse {
+interface ApiResponse {
   response: Response;
   durationMs: number;
   /** バックエンドが全リクエストへ付与するリクエストID

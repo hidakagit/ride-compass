@@ -4,12 +4,8 @@ import { CloudIcon, FogIcon, RaindropIcon, SnowflakeIcon, SunIcon, ThunderIcon }
 
 // WMO天気コード（weather_code、backendが降水量・雲量・気温から導出）+ is_dayから、
 // 「今日の見通し」（TodayOutlook）の天気アイコン1個を決める。実測値ベースの常設ヘッダーは
-// 別の簡易分類を使う（amedasWeatherIcon.ts）。
-//
-// WMOコードの全パターンを個別に描き分けるのではなく、天候ヘッダーの小さい1アイコンに
-// 収まる粒度（6カテゴリ）へ意図的に粗く丸める（「晴れ時々くもり」等の細かい中間状態は
-// アイコンでは判別困難で、かえって視認性を落とすため）。
-// 天気コードの分類と名前はbackendの宣言（domain/weather_display.py: WEATHER_CATEGORIES）が配る。
+// 別の簡易分類を使う（amedasWeatherIcon.ts）。天気コードの分類と名前はbackendの宣言
+// （domain/weather_display.py: WEATHER_CATEGORIES）が配る。
 // 画面が持つのは分類ごとのアイコンだけ。
 type WeatherCodeCategory = (typeof vocabulary.weatherCategories)[number]["key"];
 
@@ -21,8 +17,7 @@ export const WEATHER_CATEGORY_LABEL = Object.fromEntries(
   vocabulary.weatherCategories.map((category) => [category.key, category.label]),
 ) as Record<WeatherCodeCategory, string>;
 
-// 「晴れ」以外は昼夜で見た目を変えない（くもり・雨・雪・霧・雷雨は昼夜どちらでも同じ
-// アイコンで十分伝わり、6カテゴリ×2でアイコン数を倍にするほどの価値が無いため）。
+// 「晴れ」以外は昼夜で見た目を変えない（昼夜どちらでも同じアイコンで伝わる）。
 export const WEATHER_CATEGORY_ICON: Record<WeatherCodeCategory, (props: { size?: number }) => ReactElement> = {
   clear: SunIcon,
   cloudy: CloudIcon,

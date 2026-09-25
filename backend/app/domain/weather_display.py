@@ -104,6 +104,8 @@ class WeatherCategory(NamedTuple):
 
 
 #: 天気コードの分類。どれにも当たらないコードは「くもり」として出す（`WEATHER_CATEGORY_FALLBACK`）。
+#: 画面は分類ごとに小さいアイコン1つで出すので、コードごとに描き分けず粗く丸める（「晴れ時々くもり」等の
+#: 中間の状態はアイコンでは見分けられない）。
 WEATHER_CATEGORIES: tuple[WeatherCategory, ...] = (
     WeatherCategory("clear", "晴れ", (0, 1)),
     WeatherCategory("cloudy", "くもり", (2, 3)),

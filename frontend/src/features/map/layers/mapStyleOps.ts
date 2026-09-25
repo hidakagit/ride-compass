@@ -25,8 +25,8 @@ const ROAD_NETWORK_SOURCE_LAYER = "transportation";
  *
  * **並び順から導いてはいけない**。基礎地図は面と線を交互に描き、道路網より後ろにも面を置く
  * （libertyでは建物のfill/fill-extrusionが道路・橋の41枚より後ろ）。「最後に面を描いた
- * レイヤーの次」を採ると位置が道路の後ろまで下がり、面が道路を覆ったまま残る（実機で
- * `boundary_3`が返った）。道路網より後ろの面は`basemapAreaLayersAfter`が前へ動かす。
+ * レイヤーの次」を採ると位置が道路の後ろまで下がり、面が道路を覆ったまま残る。道路網より後ろの面は
+ * `basemapAreaLayersAfter`が前へ動かす。
  *
  * 道路網を持たないスタイルでは-1（差し込み先が無く最前面になる）。 */
 function areaLayerAnchorIndex(layers: readonly { id: string; "source-layer"?: string }[]): number {

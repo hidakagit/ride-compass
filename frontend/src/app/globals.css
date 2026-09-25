@@ -1,8 +1,5 @@
-/* Tailwind CSS v4併用導入（T252）。既存のCSS Modulesはそのまま維持しつつ、新規/改修箇所で
-   ユーティリティクラスを併用できるようにする。既存の--space-1〜4（0.25/0.5/0.75/1rem）は
-   Tailwind既定のスペーシングスケール（--spacing: 0.25rem単位）と数値一致しているため
-   （T251調査で確認済み）、p-2・gap-3等の既定ユーティリティがそのままpx単位で既存トークンと
-   揃う。 */
+/* --space-1〜4（0.25/0.5/0.75/1rem）はTailwind既定のスペーシング（0.25rem単位）と同じ刻みなので、
+   p-2・gap-3等の既定ユーティリティがそのままトークンの値にそろう。 */
 @import "tailwindcss";
 
 /* components/ui配下がTailwindユーティリティ(rounded-sm/md/lg, shadow-float)として
@@ -28,7 +25,7 @@
   --background: #ffffff;
   --foreground: #171717;
 
-  /* 共通デザイントークン。各コンポーネントの*.module.cssから参照する。 */
+  /* 共通デザイントークン。部品はTailwindの任意値（`bg-[var(--color-surface)]`等）で読む。 */
   --color-surface: #ffffff;
   --color-danger: #dc2626;
   /* 危険の面（エラー行の下敷き）。--color-dangerの薄い版。 */
@@ -49,37 +46,23 @@
   --color-border-strong: #d1d5db;
   --color-border-muted: #cccccc;
   --color-neutral: #9ca3af;
-  /* サイドバー内で情報のまとまりを示すカード背景 */
+  /* 情報のまとまりを示すカード背景 */
   --color-surface-2: #f3f4f2;
   --color-accent-strong: #1d4ed8;
-  /* 乗り換えられる区間の帯（MapView.tsx: SPLICE_COLOR と同じ値。候補線の寒色と競合しない暖色） */
 
-  /* 地図チップの最上位グループ（MapOverlayControls.tsx: mapOverlayGroupFor）を一目で
-   * 見分けられるようにする控えめな色分け。ON状態の青（--color-accent）・展開見出しの
-   * 地味色（--color-neutral、既存の意味）とは別チャンネルとして使うため、それらと
-   * 被らない色相を選んでいる。OFF状態の枠線に使う（ダークモードでは背景に対して
-   * 見やすいよう明るめの値へ差し替える、下記@media参照）。 */
+  /* 地図チップの最上位グループを見分ける色。ON状態の青（--color-accent）・展開見出しの地味色
+   * （--color-neutral）と別の意味で使うので、それらと被らない色相にする。OFF状態の枠線に使う。 */
   --color-group-road: #0d9488;
   --color-group-environment: #b45309;
   --color-group-spot: #db2777;
-  /* ON状態の塗りつぶし背景に使う（実機フィードバック「グループごとに選択時の色、選択解除時の
-   * 色を決めてそれに揃えて」）。ライトモードでは上のOFF用トークンと同じ濃さのまま固定する。
-   * ダークモードでは--color-group-on-text（下記）と合わせて別途上書きする
-   * （実機フィードバック2026-08-31「風の背景色が凡例[環境グループの色]と合ってない」:
-   * ダークモードのOFF用トークンは背景に対する視認性を優先した明るい色へ差し替えているため、
-   * このON用トークンをライトモードの濃い値に固定したままだと、同じ環境グループなのに
-   * 展開見出し（明るい琥珀色）とメンバーのON状態（暗い琥珀色）で色相の見え方が乖離していた）。 */
+  /* ON状態の塗りつぶし背景。グループの色と同じ値にし、ダークモードでは明るく差し替えたOFF用の色へ
+   * そろえる（別の値にすると、同じグループの見出しとメンバーで色相がずれて見える）。 */
   --color-group-road-on: #0d9488;
   --color-group-environment-on: #b45309;
   --color-group-spot-on: #db2777;
-  /* 上記-onトークンに乗せる文字色。ライトモードは常に白（濃い塗りつぶしの上のため）。
-   * ダークモードは-onトークン自体をOFF用トークンと同じ明るい色へ揃えるため、白文字だと
-   * コントラストが足りなくなる（下記@media参照、黒系へ切り替える）。 */
+  /* -onの背景に乗せる文字色。ダークモードは背景が明るい色になるので黒系へ切り替える。 */
   --color-group-on-text: #ffffff;
-  /* グループ親チップ（道路/評価軸/環境/スポットの見出し）の展開中（ON）に使う薄い塗り背景
-   * （実機フィードバック「展開中は薄色でON、展開解除は灰色でOFFを示して」）。文字・枠線は
-   * 同じグループの--color-group-X（本トークンより濃い）を乗せる前提のため、上の-onトークン
-   * と違いここはライト/ダークモードで変える（--color-accent-bgと同じ考え方）。 */
+  /* グループの見出しチップを展開している間の薄い背景。文字と枠線は同じグループの濃い色を乗せる。 */
   --color-group-road-bg: #ccfbf1;
   --color-group-environment-bg: #fef3c7;
   --color-group-spot-bg: #fce7f3;
@@ -99,19 +82,15 @@
   --radius-md: 10px;
   --radius-lg: 16px;
 
-  /* モバイルの下部タブバー（page.module.css）の高さ。BottomSheet.module.cssの
-     .sheetのbottomオフセットと一致させ、シートがタブバーの上にぴったり乗るようにする
-     （モバイル実機フィードバック対応T34）。 */
+  /* モバイルの下部タブバーの高さ。下部シートはこの高さぶん上に置き、タブバーの上に乗せる。 */
   --mobile-tabbar-height: 3.5rem;
-  /* 下部シートが占める高さ（page.tsxが.mapPaneへ実値を与える。閉じている間は0）。 */
+  /* 下部シートが占める高さ（page.tsxが地図ペインへ実値を与える。閉じている間は0）。 */
   --mobile-sheet-height: 0px;
 
-  /* 重なり順の共通スケール。**画面全体で重なり合う層はここに列挙したものしか無い**
-   * ——各module.cssが素の数値を持つと、相互関係が各ファイルのコメントでしか表現されず、
-   * 新しい層を足したときに既存のどれより上/下なのかを確かめる手立てが無くなる
-   * （Radix PortalでDOM上はbody直下へ出る要素同士は、記述順ではなくこの値だけで前後が
-   * 決まる）。1つの部品の内側だけで重なる要素（読み込みオーバーレイ・sticky列見出し等）は
-   * このスケールの対象外で、素の小さい値のままでよい。 */
+  /* 重なり順の共通スケール。**画面全体で重なり合う層はここにあるものだけ**——部品ごとに素の数値を
+   * 持つと、新しい層がどれより上か下かを確かめる手立てが無くなる（Radix Portalでbody直下へ出る
+   * 要素同士は、記述順ではなくこの値だけで前後が決まる）。1つの部品の内側だけで重なる要素
+   * （読み込みオーバーレイ・sticky列見出し等）は対象外で、素の小さい値でよい。 */
   --z-map-control: 20;
   --z-map-popup: 25;
   --z-map-detail: 30;
@@ -141,16 +120,8 @@
   --is-mobile: 0;
 }
 
-/* かつては--background/--foreground以外のトークンをダークモードで再定義せず常に固定色
-   （白背景・#171717文字）にしていた。理由は、以前ダークモードだけ--foregroundが明るい色に
-   反転する一方でサーフェス背景は白固定のままだったコンポーネントで「白背景に白文字」が
-   実機（Android Chrome）で頻発したため。しかし固定色のまま運用した結果、サイドバー内の
-   カード（infoCard/legendCard等）が常に白背景のままとなり、ダークモード本体（黒背景）との
-   コントラストが強すぎて見づらいという別の問題が実機で見つかった。
-   根本原因は「サーフェス背景だけ固定・文字色だけ反転」という不一致だったため、ここでは
-   サーフェス系トークンもダークモードで正しくペアで反転させる（背景を暗く、文字はvar(--foreground)
-   の反転後の値を使う）ことで両方の問題を解消する。これに伴い、各コンポーネント側で
-   個別にcolor: #171717を固定していた箇所は不要になったため順次var(--foreground)へ戻した。 */
+/* ダークモードでは、面の色と文字色を必ず組で反転させる。片方だけ反転すると「白い面に白い文字」
+   「黒い地に白いカード」になる。部品は文字色を固定せず var(--foreground) を読む。 */
 @media (prefers-color-scheme: dark) {
   :root {
     --background: #0a0a0a;
@@ -178,11 +149,7 @@
     --color-group-road-bg: #0f2e2b;
     --color-group-environment-bg: #3a2a0f;
     --color-group-spot-bg: #3a1329;
-    /* ON状態の塗りつぶし背景（実機フィードバック2026-08-31「風の背景色が凡例と合ってない」）。
-     * ライトモード固定値のままだと、上で明るく差し替えたOFF用トークンと色相の見え方が
-     * 乖離するため、このモードでは同じ変数（上記で再定義済みの値）へ合わせる。文字色も
-     * 白のままだと明るい背景に対してコントラストが足りなくなるため、ここだけ黒系へ
-     * 切り替える。 */
+    /* ON状態の背景は明るく差し替えたOFF用の色へそろえ、その上の文字は黒系にする。 */
     --color-group-road-on: var(--color-group-road);
     --color-group-environment-on: var(--color-group-environment);
     --color-group-spot-on: var(--color-group-spot);
@@ -190,12 +157,9 @@
   }
 }
 
-/* モバイル幅（`--breakpoint-mobile`以下）は共通トークンの余白・フォントサイズを全体的に圧縮する
-   （実機フィードバック「ボタンの大きさ・余白が全体的に大きい、省スペースに統一したい」への
-   対応）。タップ領域確保（components/ui/Checkbox.tsxの1.4rem・下部タブ/.layerTitle等の
-   44px）・iOS自動ズーム防止（.app-bottom-sheet input文字サイズ16px、下記@media参照）は
-   いずれもこのトークンを参照しないハードコードされたリテラル値のため、ここを縮めても
-   影響しない（各コンポーネントの該当コメント参照）。 */
+/* スマホ幅では共通トークンの余白・文字の大きさを全体に詰める。タップ領域（チェックボックスの1.4rem・
+   主要な導線の44px）とiOSの自動ズーム防止（入力欄の16px）はトークンを読まない値なので、ここを
+   詰めても変わらない。 */
 @media (max-width: theme(--breakpoint-mobile)) {
   :root {
     --is-mobile: 1;
@@ -210,15 +174,10 @@
   }
 }
 
-/* Tailwindの@layer utilities（併用導入、T252）は、レイヤー指定なし（unlayered）のCSSに対し
-   詳細度に関係なく常に負ける（CSS Cascade Layersの仕様上、unlayeredなルールは名前付き/匿名の
-   どのレイヤーよりも優先度が高い）。この汎用リセット群（*・html・body・a・button・input）は
-   従来unlayeredのままだったため、実機検証（T252）でTailwindの`p-2`等が`padding:0`に潰される
-   ことを確認した。@layer baseへ包み、Tailwindが内部で使う`@layer theme,base,components,
-   utilities;`の同名レイヤーへ合流させることで、utilitiesレイヤーが正しく優先されるようにする。
-   一方MapLibreポップアップの配色上書き（下記、maplibre-gl.cssという別のunlayeredスタイル
-   シートに詳細度で勝つ設計）は、レイヤー化すると即座に負けてしまうため意図的にunlayeredの
-   まま維持する（このコメント直下のブロックのみが対象、それ以外は触れない）。 */
+/* レイヤー指定の無いCSSは、詳細度に関係なくどのレイヤーのCSSより強い（CSS Cascade Layersの仕様）。
+   汎用のリセットをレイヤーの外に置くと、Tailwindの`p-2`等が`padding:0`に潰されるので、Tailwindと
+   同じ名前の`@layer base`へ入れる。一方、下のMapLibreのポップアップの上書きは、レイヤーの外にある
+   maplibre-gl.cssに詳細度で勝つ設計なので、レイヤーに入れない。 */
 @layer base {
   html {
     height: 100%;
@@ -269,10 +228,8 @@
     outline-offset: 2px;
   }
 
-  /* 改善計画T505: こちらも固定値0.4rem 0.6remからトークン（--space-1/--space-2）へ置き換え、
-     モバイル圧縮に自動追従させる。.app-bottom-sheet内はglobals.css下部の別ルール
-     （min-height: 44px・font-size: 16px、iOS自動ズーム防止）がこのfont-sizeを上書きするため、
-     ここでの--font-size-md圧縮はbottom-sheet外の入力欄にのみ影響する。 */
+  /* 余白はトークンで持ち、スマホ幅の詰めに追従させる。下部シートの中の入力欄は、下の規則が
+     文字の大きさを16pxへ上書きする（iOSの自動ズーム防止）。 */
   input[type="text"],
   input[type="number"] {
     font-family: inherit;
@@ -291,12 +248,8 @@
   }
 }
 
-/* レイアウトの主要要素。インラインstyleでは@mediaクエリを表現できないため、ブレークポイントで
-   挙動を変える必要がある部分（サイドバーの位置取り・幅）だけをここに切り出す。
-   それ以外の見た目（余白・並び順など）は既存どおりコンポーネント側のインラインstyleで扱う。
-   .app-shellは常設の天候ヘッダ（page.module.css: .weatherHeader）の下に来る行のため、
-   画面高さの確保は外側の.viewport（page.module.css）が担い、.app-shell自体はflex:1で
-   残り高さを埋める（モバイル実機フィードバック対応T34/T36）。 */
+/* ページの骨組み（page.tsx）。.app-shellは常設の天候ヘッダの下の行で、画面の高さは外側が確保し、
+   ここはflex:1で残りを埋める。 */
 .app-shell {
   display: flex;
   flex: 1;
@@ -304,11 +257,8 @@
 }
 
 .app-sidebar {
-  /* 以前は340pxだったが、レイヤー操作を地図上（MapOverlayControls）へ移して
-     サイドバーの中身が減ったため、地図の視界を優先して縮小した。
-     デスクトップ専用（モバイルは下部タブバー＋部分シートへ置換済み、T34） */
-  /* ルート結果が「左に候補一覧・右にその中身」の2カラムになったぶんを足した幅
-     （page.module.cssの.outcomeTabs）。狭いままだと右の中身が1語ずつ折り返す。 */
+  /* デスクトップ専用（スマホ幅は下部タブバー＋下部シート）。ルート結果が「左に候補一覧・右に
+     その中身」の2列になるので、狭くすると右の中身が1語ずつ折り返す。 */
   width: 380px;
   flex-shrink: 0;
   overflow-y: auto;
@@ -324,29 +274,13 @@
   padding: 0.5rem 0.25rem;
 }
 
-/* スマホ幅: サイドバー（ドロワー）の代わりに下部タブバー＋部分シート（BottomSheet）を使う
-   （モバイル実機フィードバック対応T34。「編集中も地図を直接確認できない」という実機
-   フィードバックを受け、全面ドロワー＋暗幕だった旧UIを置き換えた）。 */
-/* maplibre-gl.cssの.maplibregl-popup-content既定は背景色#fff固定で文字色を指定しないため、
-   bodyのcolor（var(--foreground)）を継承する。ダークモードではvar(--foreground)が明るい色に
-   反転する一方この背景だけ白固定のままなので「白背景に薄い文字」（closeボタンの×含む）になる。
-   ここでvar(--color-surface)/var(--foreground)ペアで固定し、tipの矢印も背景色に追従させる。
-   既定のbox-shadow（0 1px 2px rgba(0,0,0,.1)）とborder-radius:3pxは淡すぎて、道路や
-   建物で色数の多い地図の上だと縁が視認しづらい（UIレビュー2026-08-16指摘）。他のカード
-   （components/ui/Card等、改善計画T299）と同じ角丸・枠線・浮き影のトークンに揃えて地図から
-   はっきり浮かせる。
-   セレクタは単一クラスの.maplibregl-popup-contentではなく、親要素込みの2クラス指定にして
-   詳細度をmaplibre-gl.css側の既定ルール（同じ単一クラス）より高くしている。Next.jsのビルドは
-   globals.css（ルートlayout.tsxが読み込む）とmaplibre-gl.css（MapView.tsxが読み込む、
-   コンポーネントツリー上はlayoutより後）の出力順を保証しないため、単一クラス同士では
-   詳細度が同点になりソース順（＝ビルドのたびに変わりうる）で決着してしまい、本番ビルドで
-   実際にmaplibre-gl.css側の#fff固定が勝って「背景が真っ白・文字が薄い」まま直らなかった
-   （実機フィードバックで確認）。詳細度で確実に勝たせることでビルド順に依存しなくする。
-   背景は不透明固定だと直下の道路・地名が完全に隠れて見えないという実機フィードバックを
-   受け、MapOverlayControls.module.cssの.detailPanel（半透明+ぼかし、同じ「地図を覆いすぎない」
-   目的のポップアップ）と同じcolor-mix+backdrop-filterの手法に揃えた。.detailPanelは
-   常時薄く見せる凡例のため78%だが、こちらは押して能動的に開く情報カードで文字量も多いため
-   可読性を優先し88%とやや不透明寄りにしている。 */
+/* 地図のポップアップの見た目。maplibre-gl.cssの既定は背景が白固定で文字色を持たないので、ダーク
+   モードで「白い面に薄い文字」になる。面と文字をトークンの組で固定し、角丸・枠線・影も他のカードに
+   そろえて色数の多い地図から浮かせる。背景は半透明にぼかしを重ね、直下の道路・地名を隠しきらない
+   （押して開く情報カードで文字量が多いので、可読性を優先して88%）。
+   セレクタを親込みの2クラスにして、maplibre-gl.cssの既定（単一クラス）より詳細度を高くする。
+   Next.jsはglobals.cssとmaplibre-gl.cssの出力順を保証しないので、同じ詳細度だとビルドごとに
+   どちらが勝つかが変わる。 */
 .maplibregl-popup > .maplibregl-popup-content {
   background: color-mix(in srgb, var(--color-surface) 88%, transparent);
   backdrop-filter: blur(6px);
@@ -365,9 +299,7 @@
   z-index: var(--z-map-popup);
 }
 
-/* 地図ポップアップの×を、詰めた本文の余白（var(--space-2) var(--space-3)）に釣り合う大きさにする。
-   セレクタの詳細度の理由は.maplibregl-popup-content側のコメントと同じ（maplibre-gl.css既定との
-   詳細度同点によるビルド順依存を避ける）。 */
+/* 地図ポップアップの×を、本文の余白に釣り合う大きさにする（セレクタの詳細度の理由は上と同じ）。 */
 .maplibregl-popup > .maplibregl-popup-close-button {
   color: var(--foreground);
   font-size: var(--font-size-md);
@@ -402,11 +334,8 @@
   /* 全<button>へ一律に44pxを掛けない（部品が意図して持つ大きさを詳細度で潰す）。44pxが要る主要な導線は、
      その部品自身が持つ（docs/modules/frontend/frontend-design-system.md 8節）。 */
 
-  /* components/ui/Checkbox（Radix製<button role="checkbox">）・ネイティブの
-     input[type=checkbox]は、モバイルでは1.4rem角（ラベルのテキスト・スウォッチを
-     含めた行全体が実質的なタップ領域になる設計、下のlabelルール参照）へ意図的に
-     拡大する（T34の元設計を踏襲）。Checkbox自身は既に自分のpadding/min-heightを
-     明示しているため（Checkbox.tsx参照）、ここではサイズの意図（1.4rem）だけを持つ。 */
+  /* 下部シートの中のチェックボックスは1.4rem角にする（ラベルを含む行全体がタップ領域になる。下の
+     labelの規則）。余白と最小の高さはCheckbox自身が持つので、ここは大きさだけを持つ。 */
   .app-bottom-sheet input[type="checkbox"],
   .app-bottom-sheet [role="checkbox"] {
     width: 1.4rem;
@@ -425,18 +354,10 @@
   }
 }
 
-/* MapLibreの帰属表示（.maplibregl-ctrl-*、ライセンス上必須）。`.app-map-pane`は
-   page.tsxが地図ペインへ付けるグローバルクラスで、地図の外にある同名のMapLibre要素
-   （もしあれば）まで巻き込まないための限定子。
-
-   CSS Modules（*.module.css）ではなくここに置く必要がある——これらのセレクタは
-   ローカルクラスを1つも含まないため、CSS Modulesの純粋性規則に反する。Turbopackは
-   通すがwebpackのcss-loaderは "Selector is not pure" でビルドを止めるので、
-   module.css側に書くとバンドラを乗り換えられなくなる。
-
-   帰属表示は地図コンテナ自身の右下・左下に絶対配置されるため、モバイルで固定表示の
-   タブバーが乗ると隠れてしまう。z-indexで競合させるのではなく、帰属表示自体を
-   タブバーの高さぶん底上げする。 */
+/* MapLibreの帰属表示（.maplibregl-ctrl-*、ライセンス上必須）。`.app-map-pane`はpage.tsxが地図ペインへ
+   付けるクラスで、地図の外の同名の要素を巻き込まないための限定子。帰属表示は地図の右下・左下に
+   絶対配置されるので、スマホ幅では下部タブバーに隠れる。重なり順で競わせず、タブバーの高さぶん
+   底上げする。 */
 @media (max-width: theme(--breakpoint-mobile)) {
   .app-map-pane .maplibregl-ctrl-bottom-left,
   .app-map-pane .maplibregl-ctrl-bottom-right {
@@ -445,7 +366,7 @@
 }
 
 /* 右上のMapLibre純正コントロール（ズーム+/−・回転）を、その下に積むアプリのボタンと同じ幅に
-   そろえて1本の列にする（高さはMapLibreのまま）。上の帰属表示と同じ理由でここに置く。 */
+   そろえて1本の列にする（高さはMapLibreのまま）。 */
 .app-map-pane .maplibregl-ctrl-top-right .maplibregl-ctrl-group button {
   width: var(--map-ctrl-column-width);
 }

@@ -16,9 +16,8 @@ def derive_weather_code(
 ) -> int | None:
     """降水量・雲量・気温からWMO天気コード（0/1/2/3・61/63/65・71/73/75）を求める。
 
-    frontendのアイコンは6カテゴリ（快晴/くもり/霧/雨/雪/雷雨）へ丸めて表示するため、
-    降水の強度3段階と雲量4段階が区別できれば足りる。霧・雷雨はMSMの配信変数からは
-    判定できないため返さない。
+    画面はコードを天気の分類（`weather_display.WEATHER_CATEGORIES`）へ丸めて出すので、降水の強度と
+    雲量の段が区別できれば足りる。霧・雷雨はMSMの配信変数からは判定できないため返さない。
     """
     if precipitation_mm is not None and precipitation_mm >= _PRECIPITATION_MIN_MM:
         snow = temperature_c is not None and temperature_c <= _SNOW_MAX_TEMPERATURE_C

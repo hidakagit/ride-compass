@@ -427,8 +427,8 @@ ramp軸[`dataNature==="composite"`]）に該当するものは`undefined`（地�
 カタログ側（`mapLayers.ts`）が決めるのは、チップ列の中身がそこから導かれるため——描画する側に
 持たせると、カタログを増やした人がこの制約に気づけない。
 
-軸スタジオ由来のレイヤー（`isAxisStudioLayer`、ramp軸・専用way値配信軸）は地図上チップにも
-サイドバーにも現れず、`layerVisibility`の対象外——表示ON/OFFはレンズ（`LensControl`）が
+軸スタジオ由来のレイヤー（`isAxisStudioLayer`、ramp軸・専用way値配信軸）は地図上チップに
+現れず、`layerVisibility`の対象外——表示ON/OFFはレンズ（`LensControl`）が
 単独で持ち、常に1つだけが選ばれる。これらは同じ道路の同じ位置をそれぞれの評価で塗り分ける
 ため、重ねると後から描画した色が前の色を完全に覆い、並行トラックのように並べて見ることも
 できない。

@@ -36,8 +36,7 @@ const subscribeNothing = () => () => {};
 // 風の抵抗）と気象レイヤーの表示時刻の両方が参照する共有stateのため、ルート設定フォームでは
 // なく地図上に常時置き、アイコンをタップしてその場で変えられるようにする。TravelBearingControl
 // と同じ列の幅のアイコンボタンに揃え、アイコンの下へ現在値を出す。表示・読み上げ
-// （aria-label）・ホバー（title）は同じ文字列から作る（page.tsx: .rideConditionColumnが
-// TravelBearingControlの直下へ積む）。
+// （aria-label）・ホバー（title）は同じ文字列から作る（page.tsxがTravelBearingControlの直下へ積む）。
 export default function RideConditionBar({
   departureTime,
   onDepartureTimeChange,

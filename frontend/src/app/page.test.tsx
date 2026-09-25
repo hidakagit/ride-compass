@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AxisCatalogResponse } from "@/types/route";
 import { makeRouteCandidate } from "@/testing/routeFixtures";
 
-// layerVisibility（地図チップ・サイドバーから操作するレイヤーのON/OFF）の永続化・復元の
+// layerVisibility（地図チップから操作するレイヤーのON/OFF）の永続化・復元の
 // 検証。軸スタジオ由来のレイヤーはここに含まれず、表示はレンズ（lens）だけが決める。
 //
 // page.tsxは地図・位置情報・天候等の重いコンポーネント/フックを多数使うため、本テストの
@@ -1092,8 +1092,7 @@ describe("Home（app/page.tsx） handleGenerateハンドラ", () => {
   });
 
   it("区間を乗り換えて作った候補は順位番号のまま、名前で「合成」と示す", async () => {
-    // 素の結果と本質的に区別しないため並び順は同じ規約に乗せ、見分けだけ名前で付ける
-    // （docs/records/tasks/T621.md）。
+    // 素の結果と本質的に区別しないため並び順は同じ規約に乗せ、見分けだけ名前で付ける。
     const user = userEvent.setup();
     vi.mocked(generateRoutes).mockResolvedValueOnce({
       routes: [
@@ -1115,8 +1114,7 @@ describe("Home（app/page.tsx） handleGenerateハンドラ", () => {
 
   it("区間の乗り換えは、表示中の候補を作った条件のまま評価する", async () => {
     // 合成結果は素の結果と区別せず同じ並びへ差し込まれる。いまのフォーム値で評価すると、
-    // 生成後に条件を変えてから合成したときに、比較できない値で順位が決まる
-    // （docs/records/tasks/T621.md）。
+    // 生成後に条件を変えてから合成したときに、比較できない値で順位が決まる。
     const user = userEvent.setup();
     vi.mocked(generateRoutes).mockResolvedValue({
       routes: [
@@ -1354,7 +1352,7 @@ describe("Home（app/page.tsx） handleGenerateハンドラ", () => {
   it("周回で生成した後は、目的地ピンが残っていても区間の乗り換えを出さない", async () => {
     // 表示中の候補を作った生成で判定する。いまの目的地ピンで判定すると、周回モードへ
     // 戻した後もピンが残っている間は操作面が出て、合成リクエストがdestination無しになり
-    // backendに弾かれる（docs/records/tasks/T621.md）。
+    // backendに弾かれる。
     const user = userEvent.setup();
     vi.mocked(generateRoutes).mockResolvedValue({
       routes: [
@@ -1376,7 +1374,7 @@ describe("Home（app/page.tsx） handleGenerateハンドラ", () => {
 
   it("編集はルート結果の中のモードで、入口は候補の中にある", async () => {
     // 独立した「ルート編集」の置き場を持つと、どのルートを編集しているのかを編集側で
-    // 選び直す形になる（docs/records/tasks/T808.md）。候補を見ている場所から入り、同じ場所が
+    // 選び直す形になる。候補を見ている場所から入り、同じ場所が
     // 編集面へ変わる。
     const user = userEvent.setup();
     vi.mocked(generateRoutes).mockResolvedValue({
@@ -1509,8 +1507,7 @@ describe("Home（app/page.tsx） handleGenerateハンドラ", () => {
   });
 
   it("地図の再描画は地図側の一括操作行にあり、サイドバーには無い", async () => {
-    // 地図インスタンスを描き直す操作のため、地図の「まとめて元に戻す」行に置く
-    // （docs/records/tasks/T769.md。サイドバーの「地図の見え方」パネルは撤去した）。
+    // 地図インスタンスを描き直す操作のため、地図の「まとめて元に戻す」行に置く。
     const HomeFresh = await renderFreshHome();
     render(<HomeFresh />);
 
@@ -1528,7 +1525,7 @@ describe("Home（app/page.tsx） handleGenerateハンドラ", () => {
 
   it("ルート結果ヘッダの操作は、パネルの閉じる✕と見分けられる形にする", async () => {
     // 「ルートをクリア」はシートの閉じる✕の隣に並ぶ。同じバツ印だとどちらがどちらか
-    // 分からない（実機フィードバック、docs/records/tasks/T774.md）。
+    // 分からない。
     vi.mocked(generateRoutes).mockResolvedValue({
       routes: [makeCandidate({ id: "route-00", distance_km: 18.0 })],
       conditions: makeConditions(),

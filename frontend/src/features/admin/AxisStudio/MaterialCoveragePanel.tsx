@@ -95,8 +95,9 @@ export default function MaterialCoveragePanel() {
       info={
         <>
           <p className="m-0 [&+&]:mt-2">
-            材料の元データ（OSMタグ、またはEdge単位の派生テーブルの行）を持たない区間の割合。母集団はWay=
-            取り込んだOSMのway全件、Edge=道路グラフの区間全件で、件数ベース（距離加重ではない）。
+            材料の元データ（OSMタグ、または区間単位の派生テーブルの行）を持たない区間の割合。母集団は
+            {POPULATION_LABELS.way}=取り込んだOSMのway全件、{POPULATION_LABELS.edge}=道路グラフの区間全件で、
+            件数ベース（距離加重ではない）。
           </p>
           <p className="m-0 [&+&]:mt-2">
             材料名にマウスを乗せると欠損の判定根拠（参照しているタグ・テーブル）を表示する。集計はDB全体を
@@ -105,7 +106,9 @@ export default function MaterialCoveragePanel() {
         </>
       }
       load={getMaterialCoverage}
-      summary={(report) => `Way ${formatCount(report.way_total)}件 ・ Edge ${formatCount(report.edge_total)}件`}
+      summary={(report) =>
+        `${POPULATION_LABELS.way} ${formatCount(report.way_total)}件 ・ ${POPULATION_LABELS.edge} ${formatCount(report.edge_total)}件`
+      }
     >
       {(report) => <CoverageReport report={report} />}
     </ReportCard>

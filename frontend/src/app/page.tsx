@@ -71,7 +71,6 @@ import { useDebugEnabled } from "@/hooks/useDebugLog";
 import { useResearchEnabled } from "@/hooks/useResearchMode";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import { useElementHeightCssVar } from "@/hooks/useElementHeightCssVar";
-import { useIsomorphicLayoutEffect } from "@/hooks/useIsomorphicLayoutEffect";
 import { useLocation } from "@/hooks/useLocation";
 import { useStoredState, useStoredBooleanState, useStoredJsonState } from "@/hooks/useStoredState";
 import { useDepartureTime } from "@/features/conditions/useDepartureTime";
@@ -372,12 +371,12 @@ export default function Home() {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   // モバイルで開いている下部シート（1つだけ。無ければ地図だけ）。
   const [mobileSheet, setMobileSheet] = useState<MobileSheet>(null);
-  // ドラッグ中は見た目だけを変え、保存は確定したときだけ（毎フレーム書き込まない）。
-  const [mobileSheetHeightVh, setMobileSheetHeightVh, commitMobileSheetHeight] = useStoredState(
+  // シートの高さは、利用者がドラッグで確定した値だけを保存する。保存値があることが「決めた」印で、決めた後は
+  // 中身に合わせた自動調整をやめる。ドラッグ中と自動調整の値は保存しない（毎フレーム書き込まない）。
+  const [chosenSheetHeightVh, setChosenSheetHeightVh] = useStoredState<number | null>(
     MOBILE_SHEET_HEIGHT_STORAGE_KEY,
-    DEFAULT_SHEET_HEIGHT_VH,
+    null,
     {
-      autoSave: false,
       serialize: (v) => JSON.stringify(v),
       deserialize: (raw) => {
         try {
@@ -389,16 +388,9 @@ export default function Home() {
       },
     },
   );
-  // 利用者がシートの高さを決めたか。決めた後は中身に合わせた自動調整をやめる。保存値があることが決めた印
-  // （自動調整は保存しない）。
-  const [sheetHeightChosen, setSheetHeightChosen] = useState(false);
-  useIsomorphicLayoutEffect(() => {
-    try {
-      setSheetHeightChosen(window.localStorage.getItem(MOBILE_SHEET_HEIGHT_STORAGE_KEY) != null);
-    } catch {
-      // localStorageを使えない環境では「決めていない」（自動調整のまま）で構わない。
-    }
-  }, []);
+  const [workingSheetHeightVh, setWorkingSheetHeightVh] = useState<number | null>(null);
+  const mobileSheetHeightVh = workingSheetHeightVh ?? chosenSheetHeightVh ?? DEFAULT_SHEET_HEIGHT_VH;
+  const sheetHeightChosen = chosenSheetHeightVh !== null;
 
   const debugEnabled = useDebugEnabled();
   const [debugConsoleOpen, setDebugConsoleOpen] = useState(false);
@@ -555,10 +547,10 @@ export default function Home() {
 
   const handleMobileSheetHeightCommit = useCallback(
     (vh: number) => {
-      setSheetHeightChosen(true);
-      commitMobileSheetHeight(vh);
+      setChosenSheetHeightVh(vh);
+      setWorkingSheetHeightVh(null);
     },
-    [commitMobileSheetHeight],
+    [setChosenSheetHeightVh, setWorkingSheetHeightVh],
   );
 
   // 今日の見通し・最寄りの実測・警報の類（位置が決まってから、位置が変わるたびに取る）。
@@ -1386,7 +1378,7 @@ export default function Home() {
               headerLead={renderSettingsTabs()}
               headerAction={renderRouteSectionHeaderActions()}
               heightVh={mobileSheetHeightVh}
-              onHeightChange={setMobileSheetHeightVh}
+              onHeightChange={setWorkingSheetHeightVh}
               onHeightCommit={handleMobileSheetHeightCommit}
               autoFitHeight={!sheetHeightChosen}
               fitKey={`${settingsTab}:${routeMode}`}
@@ -1402,7 +1394,7 @@ export default function Home() {
             titleId={ROUTE_OUTCOME_SHEET_TITLE_ID}
             headerAction={routes.length > 0 ? renderRouteResultHeaderActions() : undefined}
             heightVh={mobileSheetHeightVh}
-            onHeightChange={setMobileSheetHeightVh}
+            onHeightChange={setWorkingSheetHeightVh}
             onHeightCommit={handleMobileSheetHeightCommit}
             autoFitHeight={!sheetHeightChosen}
           >

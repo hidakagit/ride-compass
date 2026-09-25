@@ -145,9 +145,8 @@ export default function AxisStudio() {
   }
 
   async function handleUnpublish(axisId: string) {
-    // 公開済み軸を下書きへ戻す。一般ユーザー向けGET /api/axis-catalogから
-    // 即座に消えるため、フロント側の自己修復（RouteSettingsPanel）とセットで
-    // 初めて安全な操作になる（docs/records/decisions/t221-axis-registry.md「Stage D拡張3」）。
+    // 公開済み軸を下書きへ戻す。一般ユーザー向けの軸カタログから即座に消えるが、利用者の画面は保存した
+    // 重みのキーをカタログへ合わせ直す（features/route/routePreferenceSync.ts）ので、消えた軸の重みは残らない。
     setUnpublishingAxisId(axisId);
     try {
       await unpublishAxisDefinition(axisId);
@@ -335,11 +334,9 @@ export default function AxisStudio() {
           if (!open) closeComposer();
         }}
       >
-        {/* 既定のDialogContentは幅min(90vw,28rem)・高さ内容依存だが、AxisComposerは
-            材料/折れ点/フラグの可変長リストを持つ比較的大きなフォームのため、幅と
-            最大高さ+縦スクロールを拡張する。cn()のtwMergeで既定のTailwindユーティリティ
-            (w-[...]/デフォルトのoverflow無指定)を正しく上書きするため、CSS Modulesでは
-            なくここでも同じくTailwindクラス文字列を渡す。 */}
+        {/* 既定のDialogContentは幅min(90vw,28rem)・高さ内容依存だが、AxisComposerは可変長のリストを
+            持つ大きなフォームなので、幅と最大の高さ・縦スクロールを広げる（cn()のtwMergeが既定の幅を
+            上書きする）。 */}
         <DialogContent title={composerTitle} className="w-[min(94vw,42rem)] max-h-[85vh] overflow-y-auto">
           <AxisComposer
             key={editingAxisId ?? (duplicateFrom ? `duplicate-${duplicateFrom.axis_id}` : "new")}
