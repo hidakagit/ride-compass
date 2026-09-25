@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import InfoPopover from "@/components/ui/InfoPopover/InfoPopover";
-import { axisIconFor } from "@/lib/mapDisplay/axisIconPalette";
+import { axisIconFor } from "@/components/ui/icons/axisIconPalette";
 import { syncRoutePreferenceKeys } from "@/features/route/routePreferenceSync";
 import { WEIGHT_STEP, clampBoundaryDrag, totalWeight } from "@/features/route/routeWeightShare";
 import { retryAxisCatalogFetch, useAxisCatalog } from "@/hooks/useAxisCatalog";

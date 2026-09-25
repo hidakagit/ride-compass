@@ -15,7 +15,7 @@ import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { MapBandsOfThresholds } from "@/features/admin/adminApi";
-import { AXIS_ICON_PALETTE } from "@/lib/mapDisplay/axisIconPalette";
+import { AXIS_ICON_PALETTE } from "@/components/ui/icons/axisIconPalette";
 import type { AxisDefinitionResponse } from "@/types/route";
 
 import { AxisMapDisplaySection } from "./AxisMapDisplaySection";

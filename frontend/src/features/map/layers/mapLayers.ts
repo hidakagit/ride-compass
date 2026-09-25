@@ -7,7 +7,7 @@ import weatherScales from "@/types/generated/weather-scales.json";
 import { mapDisplay } from "@/types/generated/mapDisplay";
 import { primaryAttributes } from "@/types/generated/primaryAttributes";
 import regionTileConfig from "@/types/generated/region-tile-config.json";
-import { axisIconFor } from "@/lib/mapDisplay/axisIconPalette";
+import { axisIconFor } from "@/components/ui/icons/axisIconPalette";
 import {
   AccidentIcon,
   ElevationIcon,

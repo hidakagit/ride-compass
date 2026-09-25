@@ -4,7 +4,7 @@ import palette from "@/types/generated/palette.json";
 import type React from "react";
 import type { ReactNode } from "react";
 import InfoPopover from "@/components/ui/InfoPopover/InfoPopover";
-import { axisIconFor } from "@/lib/mapDisplay/axisIconPalette";
+import { axisIconFor } from "@/components/ui/icons/axisIconPalette";
 import { InfoIcon } from "@/components/ui/icons/icons";
 import type { PreferenceAxisDef } from "@/lib/evaluationAxes";
 import {

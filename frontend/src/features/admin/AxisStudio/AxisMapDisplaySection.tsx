@@ -7,7 +7,7 @@
 import axisPayloadConfig from "@/types/generated/axis-payload-config.json";
 import { useState } from "react";
 import { bandLabelsForBandCount, buildRangeLegendBands } from "@/lib/mapDisplay/mapColorLegend";
-import { AXIS_ICON_PALETTE, axisIconFor } from "@/lib/mapDisplay/axisIconPalette";
+import { AXIS_ICON_PALETTE, axisIconFor } from "@/components/ui/icons/axisIconPalette";
 import { Checkbox } from "@/components/ui/Checkbox/Checkbox";
 import { FieldLabel } from "@/components/ui/FieldLabel/FieldLabel";
 import type { AxisDefinitionResponse } from "@/types/route";

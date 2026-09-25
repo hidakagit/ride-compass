@@ -45,7 +45,7 @@ APIを呼ぶ）・「データ保守」タブ（派生データ鮮度台帳の�
 | `features/admin/useMaterialValues.ts` | `GET /api/admin/material-catalog/{material_id}/values`取得（`adminApi.ts: getMaterialValues`）。categorical材料の候補選択セレクトに使う実データ値一覧 |
 | `services/materialCatalogApi.ts` | `useMaterialCatalog`が叩く`GET /api/material-catalog`の薄いラッパー |
 | `lib/axisMaterialsCatalog.ts` | 材料の型（`AxisMaterialOption`。一覧そのものは`hooks/useMaterialCatalog.ts`が取る）と、材料idを表示へ変える関数。`materialCatalogLabel`（論理名 - 物理名、軸スタジオ専用）/`materialCatalogName`（論理名だけ。カタログに無いidはundefinedで、呼び出し側はその材料を出さない）/`formatMaterialValue`。後の2つは軸スタジオ外（[ルート設定・結果パネル](route-settings-and-results.md)のComparisonPanel、page.tsxの区間クリック詳細）が`material_values`のラベル・単位表記に使う共用ヘルパー |
-| `lib/mapDisplay/axisIconPalette.tsx` | 地図チップアイコンの固定パレット（`icon_id`→アイコンコンポーネント） |
+| `components/ui/icons/axisIconPalette.tsx` | 地図チップアイコンの固定パレット（`icon_id`→アイコンコンポーネント） |
 | `components/ui/FieldLabel/FieldLabel.tsx` | 情報アイコン付きラベルの共有UI部品（ルート設定とも共有） |
 
 ## AxisStudio.tsx（一覧・状態管理）

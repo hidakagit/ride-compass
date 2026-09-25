@@ -102,9 +102,8 @@ test("地図が描ける（Workerが動き、ソースの面が画素になる�
   await expect.poll(() => probeFillRatio(page), { timeout: 20_000 }).toBeGreaterThan(0.5);
 });
 
-// 初期表示の覆い（「地図を読み込み中…」）はMapLibreの"idle"で外すが、idleは表示中の
-// すべての取得が落ち着くまで来ない。取得が終わらないソースが1つでもあると、地図が
-// 描けていても覆いが残り「壊れている」ように見える。
+// 初期表示の覆い（「地図を読み込み中…」）は基礎地図が描けた時点（MapLibreの"load"）で外す。基礎地図の
+// タイルが終わらず"load"が来なくても、覆いが残って「壊れている」ように見えないよう、上限の時間で外れる。
 test("タイル取得が終わらなくても地図の覆いは外れる", async ({ page }) => {
   await installApiMocks(page);
   await page.route("**/api/basemap/**", (route) =>

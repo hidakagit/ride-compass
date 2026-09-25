@@ -137,8 +137,8 @@ function bindDragAwareClick(marker: maplibregl.Marker, element: HTMLElement, onC
 
 type LayerDataSource = { key: MapLayerId; sourceId: string; sourceLayer?: string };
 
-// 初期表示の覆い（「地図を読み込み中…」）を出しておく上限。"idle"は表示中のすべての取得が落ち着くまで
-// 来ないため、遅い外部データが1つあると、描けている地図を覆ったままになる。
+// 初期表示の覆い（「地図を読み込み中…」）を出しておく上限。覆いは基礎地図が描けた時点（"load"）で外すので、
+// これは基礎地図のタイルが止まって"load"が来ないときの保険。
 const INITIAL_TILES_OVERLAY_MAX_MS = 6000;
 
 /** 情報源の名前→MapLibreの(source, source-layer)。レイヤーごとではなく情報源ごとの表で、配信元を増やしたときだけ
@@ -586,9 +586,13 @@ export default function MapView({
       map.getCanvas().style.cursor = features.length > 0 ? "pointer" : "";
     }
 
+    // "load"は載っているすべてのタイルが揃った最初の描画で来る。アプリのソースは"load"の後に足す
+    // （runWhenStyleReady）ので、この時点で描けているのは基礎地図だけ——覆いはここで外す。"idle"は
+    // アプリのソースの取得まで待つので、遅い外部データが1つあると描けた地図を覆ったままになる。
     function handleLoad() {
       debugLog("map:lifecycle", "load（スタイル読み込み完了）");
       setStyleLoadFailed(false);
+      setInitialTilesLoading(false);
     }
     function handleMapError(e: MapLibreErrorEvent) {
       const sourceId = (e as unknown as { sourceId?: string }).sourceId;
@@ -605,7 +609,6 @@ export default function MapView({
     }
     function handleFirstIdle() {
       if (cancelled) return;
-      setInitialTilesLoading(false);
       recomputeLayerDataStatus();
       // 一度も動かさなくても、初期位置の範囲を取りに行けるよう伝える。
       reportViewport();
@@ -676,7 +679,9 @@ export default function MapView({
     map.on("sourcedata", handleTrackedSourceData);
     map.on("idle", handleIdleRecompute);
     map.once("idle", handleFirstIdle);
-    const initialOverlayTimer = window.setTimeout(handleFirstIdle, INITIAL_TILES_OVERLAY_MAX_MS);
+    const initialOverlayTimer = window.setTimeout(() => {
+      if (!cancelled) setInitialTilesLoading(false);
+    }, INITIAL_TILES_OVERLAY_MAX_MS);
 
     return () => {
       cancelled = true;

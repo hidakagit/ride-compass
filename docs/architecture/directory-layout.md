@@ -41,7 +41,8 @@ CI・pushフック用スクリプト）。
 ## frontend（`frontend/src/`）
 
 上から順に層になっている。**上の層は下の層を読み、下の層は上の層を読まない。機能同士も互いを
-読まない**——2つの機能が同じものを要るなら、それは下の層の持ち物である。
+読まない**——2つの機能が同じものを要るなら、それは下の層の持ち物である。共有の層の中の向きは
+`components/` → `hooks/` → `services/` → `lib/`（`lib/`が一番下で、どの層も読まない）。
 
 - **`app/`**: Next.js App Routerのページとroute handler（`/admin`配下の管理APIプロキシを含む）。
   機能を組み立てるだけで、画面の部品や計算を持たない。
@@ -51,9 +52,11 @@ CI・pushフック用スクリプト）。
 - **`components/`**: 機能をまたいで使う部品。`ui/`は見た目を持つ部品（[frontend-design-system.md]
   (../modules/frontend/frontend-design-system.md)）、それ以外は画面の枠（下部シート・浮きパネル等）と
   複数の機能が出す部品。
-- **`hooks/`・`lib/`**: 機能をまたぐ状態・純関数。`lib/mapDisplay/`は、地図と管理画面の両方が読む地図の
-  表示の語彙（段の色・凡例の段・軸のアイコン・軸カタログから作る地図向けの形）。
+- **`hooks/`**: 機能をまたぐ状態（保存する状態・軸カタログの取得等）。
 - **`services/`**: 複数の機能が使うbackend APIを叩く薄い層。
+- **`lib/`**: 機能をまたぐ純関数と、通信の骨格。`lib/mapDisplay/`は、地図と管理画面の両方が読む地図の
+  表示の語彙（段の色・凡例の段・軸カタログから作る地図向けの形）。軸のアイコンは部品なので
+  `components/ui/icons/`に置く。
 - **`types/generated/`**: `export_openapi.py`の出力（OpenAPIスキーマと、材料カタログ・
   タイル世代等の付随生成物）。コミット対象で、CI（`ci.yml`）の`api-contract`ジョブがドリフトを検知する。
   OpenAPIスキーマは**契約だけ**を持ち、docstring由来の散文は載せない。

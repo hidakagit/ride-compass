@@ -8,7 +8,6 @@
  */
 import { mapDisplay } from "@/types/generated/mapDisplay";
 import palette from "@/types/generated/palette.json";
-import type { FilterSpecification } from "maplibre-gl";
 
 import type { MapSceneFeatureStates, MapSceneFeatureStateValue } from "@/features/map/scene/mapScene";
 import { declareGroup, type SceneLayerEntry, type SceneSourceEntry } from "@/features/map/scene/mapSceneGroups";
@@ -67,16 +66,15 @@ function missingCondition(axisId: string, value: AxisValueSource): unknown {
 }
 
 /** 段ごとの色。値が無い道と、まだ来ていない道は別の色にする。値が無い道を段の色で
- * 塗らない——欠損を番兵へ倒した値で段を引くと、評価できない道が最良の段の色になる。 */
+ * 塗らない——欠損を番兵へ倒した値で段を引くと、評価できない道が最良の段の色になる。
+ * 凡例で隠した段は、値の届き方によらず透明にして下の路面の線を見せる（配信値はfeature-stateで載り、
+ * 絞り込みからは読めないため、隠し方をこれ1つにそろえる）。 */
 function colorExpression(axisId: string, axis: AxisLineState["axes"][number]): unknown {
   const value = valueExpression(axisId, axis.value);
-  const delivered = axis.value.kind === "delivered";
   const loading = axis.value.kind === "delivered" && axis.value.loading;
   const cases: unknown[] = [];
   for (const band of axis.bands) {
-    const hidden = axis.hiddenBandKeys.includes(band.key);
-    // 読めない値の段は、落とすのではなく透明にする（下の路面の線を見せる）。
-    const color = hidden && delivered ? palette.semantic.hidden : band.color;
+    const color = axis.hiddenBandKeys.includes(band.key) ? palette.semantic.hidden : band.color;
     cases.push([">=", value, band.lowerBound], color);
   }
   const missing = missingCondition(axisId, axis.value);
@@ -85,34 +83,10 @@ function colorExpression(axisId: string, axis: AxisLineState["axes"][number]): u
   // 区別できなくなる。
   const missingColor = loading
     ? palette.semantic.loading
-    : delivered && axis.hiddenBandKeys.includes(LEGEND_NO_DATA_KEY)
+    : axis.hiddenBandKeys.includes(LEGEND_NO_DATA_KEY)
       ? palette.semantic.hidden
       : COLOR_UNKNOWN;
   return ["case", missing, missingColor, ...cases, COLOR_UNKNOWN];
-}
-
-/** 絞り込みから読める値のときだけ、隠した段を落とす。段は下限だけを持つので、上限は
- * 1つ上の段の下限から決める（下限だけで落とすと、それより上の段まで一緒に消える）。 */
-function bandFilter(axis: AxisLineState["axes"][number], axisId: string): FilterSpecification | undefined {
-  if (axis.value.kind !== "tile" || axis.hiddenBandKeys.length === 0) return undefined;
-  const value = valueExpression(axisId, axis.value);
-  const missing = missingCondition(axisId, axis.value);
-  const ascending = [...axis.bands].sort((a, b) => a.lowerBound - b.lowerBound);
-  const clauses: unknown[] = [];
-  ascending.forEach((band, index) => {
-    if (!axis.hiddenBandKeys.includes(band.key)) return;
-    const upper = ascending[index + 1]?.lowerBound;
-    const inBand = [
-      "all",
-      ...(Number.isFinite(band.lowerBound) ? [[">=", value, band.lowerBound]] : []),
-      ...(upper === undefined ? [] : [["<", value, upper]]),
-    ];
-    clauses.push(missing === null ? ["!", inBand] : ["any", missing, ["!", inBand]]);
-  });
-  // 値を持たない道は段に属さないため、「値なし」の段を隠したときだけ落とす。
-  if (missing !== null && axis.hiddenBandKeys.includes(LEGEND_NO_DATA_KEY)) clauses.push(["!", missing]);
-  if (clauses.length === 0) return undefined;
-  return ["all", ...clauses] as unknown as FilterSpecification;
 }
 
 function featureStatesFor(state: AxisLineState): MapSceneFeatureStates {
@@ -139,7 +113,6 @@ export const axisLineGroup = declareGroup<AxisLineState>((state) => {
 
   const layers: readonly SceneLayerEntry[] = state.axes.map((axis) => {
     const missing = missingCondition(axis.axisId, axis.value);
-    const filter = bandFilter(axis, axis.axisId);
     return {
       role: axis.axisId,
       tier: "lensLine",
@@ -157,7 +130,6 @@ export const axisLineGroup = declareGroup<AxisLineState>((state) => {
             : ["case", missing, mapDisplay.road.unknownOpacity, mapDisplay.road.knownOpacity],
       },
       visible: axis.visible,
-      ...(filter === undefined ? {} : { filter }),
     };
   });
 

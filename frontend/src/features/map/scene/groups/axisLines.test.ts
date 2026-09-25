@@ -1,5 +1,5 @@
 // @vitest-environment node
-import { createExpression, featureFilter, type FilterSpecification } from "@maplibre/maplibre-gl-style-spec";
+import { createExpression } from "@maplibre/maplibre-gl-style-spec";
 import { describe, expect, it } from "vitest";
 
 import { LEGEND_NO_DATA_KEY } from "@/lib/mapDisplay/mapColorLegend";
@@ -82,11 +82,6 @@ function evaluate(expression: unknown, properties: Record<string, unknown>, stat
   return compiled.value.evaluateWithoutErrorHandling(GLOBALS, { type: 2, properties } as never, state);
 }
 
-function kept(filter: unknown, properties: Record<string, unknown>): boolean {
-  if (filter === undefined) return true;
-  return featureFilter(filter as FilterSpecification, "filter").filter(GLOBALS, { type: 2, properties } as never);
-}
-
 describe("タイルの材料から塗る軸", () => {
   it("評価できない道は段の色ではなく「不明」の色で、薄く塗る", () => {
     // 欠損を番兵（0）へ倒した値で段を引くと、評価できない道が最良の段の色になる。
@@ -98,32 +93,36 @@ describe("タイルの材料から塗る軸", () => {
     expect(evaluate(layer.paint?.["line-opacity"], { v: 15 })).toBe(mapDisplay.road.knownOpacity);
   });
 
-  it("中ほどの段を隠すと、その段の道だけが落ちる（上の段は残る）", () => {
-    const filter = layerFor(TILE_VALUE, ["mid"]).filter;
+  const color =
+    (value: AxisLineState["axes"][number]["value"], hidden: readonly string[]) =>
+    (properties: Record<string, unknown>) =>
+      evaluate(layerFor(value, hidden).paint?.["line-color"], properties);
 
-    expect(kept(filter, { v: 5 })).toBe(true);
-    expect(kept(filter, { v: 15 })).toBe(false);
-    expect(kept(filter, { v: 25 })).toBe(true);
-    expect(kept(filter, {})).toBe(true);
+  it("中ほどの段を隠すと、その段の道だけが透明になる（上の段は残る）", () => {
+    const of = color(TILE_VALUE, ["mid"]);
+
+    expect(of({ v: 5 })).toBe("#16a34a");
+    expect(of({ v: 15 })).toBe(TRANSPARENT);
+    expect(of({ v: 25 })).toBe("#dc2626");
+    expect(of({})).toBe(palette.semantic.no_data);
   });
 
-  it("「不明」を隠すと、評価できない道だけが落ちる", () => {
-    const filter = layerFor(TILE_VALUE, [LEGEND_NO_DATA_KEY]).filter;
+  it("「不明」を隠すと、評価できない道だけが透明になる", () => {
+    const of = color(TILE_VALUE, [LEGEND_NO_DATA_KEY]);
 
-    expect(kept(filter, {})).toBe(false);
-    expect(kept(filter, { v: 5 })).toBe(true);
+    expect(of({})).toBe(TRANSPARENT);
+    expect(of({ v: 5 })).toBe("#16a34a");
   });
 
   it("不明という状態を持たない軸は、段を隠しても全段が評価できる", () => {
-    const filter = layerFor({ ...TILE_VALUE, unknown: null }, ["low"]).filter;
+    const of = color({ ...TILE_VALUE, unknown: null }, ["low"]);
 
-    expect(kept(filter, { v: 5 })).toBe(false);
-    expect(kept(filter, { v: 15 })).toBe(true);
+    expect(of({ v: 5 })).toBe(TRANSPARENT);
+    expect(of({ v: 15 })).toBe("#f59e0b");
   });
 });
 
 describe("配信された値で塗る軸", () => {
-  // 値はfeature-stateで載る。絞り込みからは読めないため、隠すのは色を透明にして行う。
   const delivered = (loading = false) => ({ kind: "delivered" as const, values: new Map<string, number>(), loading });
   const color = (value: ReturnType<typeof delivered>, hidden: readonly string[], state: Record<string, unknown>) =>
     evaluate(layerFor(value, hidden).paint?.["line-color"], {}, state);
