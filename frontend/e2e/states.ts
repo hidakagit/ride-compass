@@ -38,7 +38,7 @@ interface Spot {
   pressable: boolean;
 }
 
-export interface PageHelpers {
+interface PageHelpers {
   /** 部品の見分け: 要素から祖先（htmlの手前）までの、タグと並べ替えたクラスの並び。同じ並びには同じCSSの規則が当たる。 */
   componentKey(el: Element): string;
   /** 部品の検査を段階ごとに1回にする。その段階でkindについて初めて見る部品ならtrue（見たことを記録する）。 */

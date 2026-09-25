@@ -4,8 +4,8 @@
 #   road_graph_session）は、ランナーへ直接入れたPostgreSQL＋PostGIS + TEST_DATABASE_URL 注入で実行する。
 # - api-contract: API契約のドリフト検知。DBを読まないため、postgresを持たない別ジョブにして
 #   backendジョブと並べて走らせる。
-# - frontend: prettier → eslint → tsc --noEmit → vitest の順。書式・lint・型エラーは実行の速い順に
-#   先へ置き、失敗を早く返す。
+# - frontend: prettier → eslint → knip → tsc --noEmit → vitest の順。書式・lint・型エラーは実行の速い順に
+#   先へ置き、失敗を早く返す。knipは本番・テスト・e2eの入口から辿れないファイル・export・依存を見る。
 # - e2e: 本番ビルドを実ブラウザで開き、実機でしか出ないもの（収まる・押せる、ブラウザと地図の
 #   実挙動、カスケード）を見る（対象の定義は docs/conventions/testing.md パターン4）。
 #   バックエンド・外部APIには依存せず、frontend/e2e/fixtures.tsのネットワークモックで置き換える
@@ -136,8 +136,10 @@ jobs:
           cache-dependency-path: frontend/package-lock.json
       - run: npm ci
       # 書式。設定はfrontend/.prettierrc.json・.prettierignore（生成物は外してある）。
-      - run: ./node_modules/.bin/prettier --check "src/**/*.{ts,tsx,css}"
+      - run: npm run format:check
       - run: npm run lint
+      # 入口（Next.jsの規約・vitest・Playwrightの設定・scripts）はknipが読み、足りない入口は frontend/knip.json が持つ。
+      - run: npm run knip
       # LayoutProps等のNext.jsが生成するグローバル型（.next/types/、tsconfigのincludeに
       # 含まれる）を作る。ローカルはnext devの実行で自然に生成済みだが、CIのクリーン
       # チェックアウトには無く、無いままだとtscが「Cannot find name 'LayoutProps'」で

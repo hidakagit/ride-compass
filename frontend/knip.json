@@ -1,0 +1,5 @@
+{
+  "$schema": "https://unpkg.com/knip@6/schema.json",
+  "entry": ["scripts/smoke-check.mjs"],
+  "playwright": { "config": ["playwright.config.ts", "playwright.live.config.ts"] }
+}

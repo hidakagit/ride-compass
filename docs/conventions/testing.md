@@ -538,7 +538,7 @@ importしていないため、名前空間経由では中身の型へ届かな�
 | 層 | 回すもの | 担うこと |
 |---|---|---|
 | 手元 | 直接触った範囲だけ: 変更したファイルへの`ruff`・`prettier`、変更が届くテストファイル、backendに触れたら`mypy`、frontendに触れたら`tsc --noEmit`、`review_checks.py docs` | 書きながら挙動を確かめる。赤を**作りにくくする** |
-| 作業ブランチ（`orch/**`）のCI | `ci.yml`の全ジョブ（prettier・eslint・tsc・vitest・ruff・mypy・pytest全件・E2E・API契約）と`docs-consistency.yml` | 触った範囲の外にある前提（フルスイート・Linuxでの結果）。masterへ入れてよいかの判定 |
+| 作業ブランチ（`orch/**`）のCI | `ci.yml`の全ジョブ（prettier・eslint・knip・tsc・vitest・ruff・mypy・pytest全件・E2E・API契約）と`docs-consistency.yml` | 触った範囲の外にある前提（フルスイート・Linuxでの結果）。masterへ入れてよいかの判定 |
 | masterのCI | 同じ`ci.yml`と`docs-consistency.yml` | 作業ブランチで個別に通ったコミットを組み合わせた木の検査。`ci.yml`が全部通るまでbackendのデプロイは起動しない（**本番へ出る前の門はここ**） |
 
 - **`.githooks/pre-push`は検査をしない。** CIと同じ検査をpushの直前に置くと、masterへのpushの
@@ -575,6 +575,18 @@ backendの型検査は、関数が受け取ると宣言した型と、呼び出�
   Windows（cp932）では非ASCIIの1文字で起動に失敗する。設定の理由はここに書く。
 - 解析結果は`backend/.mypy_cache/`に残り、2回目以降は変わったファイルだけを見直す。
   作業ツリーごとの初回は保存が無く、開発機で40〜70秒かかる（2回目以降は2〜4秒）。
+
+### 使われないコード（knip）
+
+frontendで、入口（Next.jsのファイル規約・vitestとPlaywrightの設定・`package.json`のスクリプト）から辿れない
+ファイル・export・依存と、宣言せずに読んでいる依存（別の依存が偶然入れているもの）を止める。設定は
+`frontend/knip.json`、実行は`frontend/`で`npm run knip`。
+
+- **入口を足すのは、knipが既定で見つけない設定と手動の道具だけ**（例: `-c`で指定して使う
+  `playwright.live.config.ts`）。**無視の指定（`ignore`系）を足さない**——指摘は、消すか、入口として宣言するかの
+  どちらかで解く。無視を足すと、その範囲の新しい未使用も一緒に止まらなくなる。
+- 同じファイルの中だけで使う名前も`export`を外す対象にする（既定のまま）。
+
 
 ## 開発機でのbackendテストの回し方
 

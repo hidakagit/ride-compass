@@ -17,9 +17,9 @@ export const LIVE_POINT = (() => {
   return { latitude, longitude };
 })();
 
-export const LIVE_VIEWPORT = { width: 390, height: 812 };
+const LIVE_VIEWPORT = { width: 390, height: 812 };
 
-export interface CatalogAxis {
+interface CatalogAxis {
   axis_id: string;
   label: string;
   display: { kind: string; tile_inputs: { property: string }[] };

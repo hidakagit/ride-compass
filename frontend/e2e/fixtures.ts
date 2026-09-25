@@ -101,7 +101,7 @@ export function routeGenerateResponseFixture(): RouteGenerateResponse {
 // 持たない（undefined）とE2E実行時にTypeErrorで描画が丸ごと落ちる
 // （「element was detached from the DOM, retrying」の形でCIに現れた）。型注釈により
 // 今後のフィールド追加時はtscがこのフィクスチャの更新漏れを検知する。
-export function weatherConditionsFixture(): WeatherConditions {
+function weatherConditionsFixture(): WeatherConditions {
   return {
     temperature_c: 18.5,
     wind_speed_ms: 2.1,
@@ -127,7 +127,7 @@ export function weatherConditionsFixture(): WeatherConditions {
 // /api/weather/amedasには専用ルートが必要——無いとWeatherPanel（常設ヘッダー）が
 // undefinedフィールドだらけの誤った形のデータを受け取ることになる（型注釈が無いと
 // tscでは検知できない。weatherConditionsFixtureの型注釈導入の経緯コメント参照）。
-export function amedasObservationFixture(): AmedasObservation {
+function amedasObservationFixture(): AmedasObservation {
   return {
     station_id: "44132",
     station_name: "東京",

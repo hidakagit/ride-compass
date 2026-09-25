@@ -4,7 +4,7 @@
  * 記録するのは**地図の中身を変える呼び出しと、その判断に使う問い合わせ**だけで、
  * 描画そのものは行わない。
  */
-export interface TraceEntry {
+interface TraceEntry {
   readonly call: string;
   readonly args: readonly unknown[];
 }
@@ -19,7 +19,7 @@ interface FakeLayer {
   layout: Record<string, unknown>;
 }
 
-export interface RecordingMap {
+interface RecordingMap {
   /** 出た呼び出しの列（順序を持つ）。 */
   readonly trace: readonly TraceEntry[];
   /** いま載っているレイヤーのid（背面から前面の順）。 */
