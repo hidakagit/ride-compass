@@ -1,627 +1,338 @@
-import inspect
-from contextlib import asynccontextmanager
+"""`api/routers/routes.py`——ルート生成・区間確認のHTTPの入口。
 
+確かめるのは、HTTPから見える振る舞いだけ: 要求の検証（422）、ジョブの投稿と取得（202・404）、生成の種類
+（周回・目的地・経由地・区間の乗り換え）の振り分け、実際に使った条件のエコー、候補0件の理由、失敗の伝え方、
+同時実行とレート制限（429）、区間確認（502）。
+
+裏の生成は本物の`RouteGenerator`とエンジンを、小さな格子の道路網（`tests/route_world.py`）の上で通す。
+差し替えるのはプロセス境界だけ——DBのセッション（`get_graph_service`）・天気の予報ファイル（`get_weather_service`）・
+道路網の置き場・レート制限の記録。
+
+ここで見ないもの:
+- 経路の中身（周回が閉じる・一方通行・重みの効き等） → `test_route_generation_behavior.py`
+- 候補の並べ方・理由の文面 → `test_route_generator.py`
+- レート制限の数え方そのもの → `test_rate_limiter.py`
+"""
+
+import asyncio
+from collections import defaultdict
+from datetime import datetime
+
+import httpx
 import pytest
-from fastapi import BackgroundTasks
-from fastapi.testclient import TestClient
 
-from app.api.dependencies import RouteGenerationSetup, _assemble_route_generation_setup
-from app.api.routers import routes as routes_module
-from app.api.routers.routes import _generate_semaphore
+from app.api import dependencies
+from app.api.routers import routes
 from app.config import settings
-from app.domain.evaluation import resolve_penalty_strength
-from app.domain.hard_filters import DEFAULT_HARD_FILTERS
-from app.domain.route_preference import RoutePreference
-from app.domain.route import RouteCandidate
-from app.domain.wind import ASSUMED_SPEED_KMH
-from app.infrastructure import job_registry, rate_limiter
-from app.infrastructure.road_graph_repository import RoadGraphRepository
+from app.domain.hard_filters import DEFAULT_HARD_FILTERS, HARD_FILTER_NAMES
+from app.domain.tuning import TUNING_VALUES
+from app.infrastructure import rate_limiter, road_network_store
+from app.infrastructure.road_network_store import RoadNetworkUnavailableError
 from app.main import app
-from app.services.evaluation_service import load_route_preference
 from app.services.graph_service import GraphService
-from app.services.route_generator import DEFAULT_MAX_ROUTES, MAX_ROUTES, ROUTES_WITH_WAYPOINTS
-from app.services.weather_service import WeatherService
-from app.domain.axis_definitions import AXIS_DEFINITIONS
-from tests.axis_system_fixture import axis_definition, replaced_axis_definitions
+from tests.route_world import (
+    AVOID_AXIS,
+    CENTER,
+    NORTH_EAST,
+    SOUTH_WEST,
+    NetworkRepository,
+    Weather,
+    at,
+    avoid_axis_declared,
+    grid_network,
+)
 
-client = TestClient(app)
-
-REQUEST_BODY = {
-    "latitude": 35.7597,
-    "longitude": 139.7387,
-    "distance_km": 30,
-    "distance_tolerance_km": 5,
-    "route_type": "loop",
-}
+#: ASGIの代役がHTTPの相手として名乗る番地（レート制限の鍵になる）。
+CLIENT_HOST = "127.0.0.1"
+FAR_AWAY = {"latitude": 35.80, "longitude": 139.80}  # 格子から約25km。道が無い
 
 
-@pytest.fixture
-def published_axes():
-    """重みの既定が互いに違う公開軸を2本置く。軸が無いと重みは空の辞書どうしで一致してしまう。"""
-    with replaced_axis_definitions(
-        {
-            "axis_a": axis_definition("axis_a", default_weight=0.25, is_published=True),
-            "axis_b": axis_definition("axis_b", default_weight=0.75, is_published=True),
-        }
-    ):
-        yield
+def _point(osm_node_id):
+    coordinates = at(osm_node_id)
+    return {"latitude": coordinates.latitude, "longitude": coordinates.longitude}
+
+
+class World:
+    """道路網の置き場と天気の代役。`network`を差し替えると次の生成から効く。"""
+
+    def __init__(self):
+        self.network = grid_network()
+        self.unavailable = False
+        self.weather = Weather()
+
+    def current(self):
+        if self.unavailable:
+            raise RoadNetworkUnavailableError("道路網の置き場がありません")
+        return self.network
+
+
+class GatedWeather(Weather):
+    """開くまで生成を止めておく天気の代役（同時実行の上限を観るため）。"""
+
+    def __init__(self):
+        super().__init__()
+        self.gate = asyncio.Event()
+
+    async def get_conditions(self, origin):
+        await self.gate.wait()
+        return None
 
 
 @pytest.fixture(autouse=True)
-def clear_rate_limiter():
-    # rate_limiterはプロセス内グローバルの固定窓カウンタのため、テスト間で
-    # 消し込まないと前のテストのリクエストが今のテストの上限に食い込む。
-    rate_limiter._hits.clear()
-    yield
-    rate_limiter._hits.clear()
+def world(monkeypatch):
+    world = World()
+    real_graph_service, real_weather_service = dependencies.get_graph_service, dependencies.get_weather_service
+
+    async def graph_service():
+        yield GraphService(NetworkRepository(world.network))
+
+    monkeypatch.setattr(road_network_store, "current", world.current)
+    monkeypatch.setattr(dependencies, "get_graph_service", graph_service)
+    monkeypatch.setattr(dependencies, "get_weather_service", lambda: world.weather)
+    monkeypatch.setattr(rate_limiter, "_hits", defaultdict(list))
+    app.dependency_overrides[real_graph_service] = graph_service
+    app.dependency_overrides[real_weather_service] = lambda: world.weather
+    with avoid_axis_declared():
+        yield world
+    app.dependency_overrides.clear()
 
 
-class FakeRouteGenerator:
-
-    def __init__(
-        self,
-        candidates: list[RouteCandidate],
-        no_candidates_reason: str | None = None,
-        destination_correction=None,
-    ):
-        self._candidates = candidates
-        # 改善計画T441: 実際のRouteGeneratorが持つ属性（routes.py: _run_generate_jobが
-        # candidatesが空のときだけ読む）。フェイクも同じ属性を持たせて実インターフェースに揃える。
-        self.last_no_candidates_reason = no_candidates_reason
-        # 改善計画T602: 同じく実際のRouteGeneratorが持つ属性（_run_generate_jobが常に読む）。
-        self.last_destination_correction = destination_correction
-
-    async def generate_loops(self, origin, distance_km, distance_tolerance_km, max_routes=None, start_time=None):
-        self.received_start_time = start_time
-        # 改善計画T531: routes.pyが配線するmax_routesを記録する（既定値・上書き値のエコー検証用）。
-        self.received_max_routes = max_routes
-        return self._candidates
-
-    async def generate_via_waypoints(
-        self, origin, waypoints, distance_km, destination=None, max_routes=None, start_time=None
-    ):
-        # 改善計画T602: destination/waypoints指定リクエスト（_run_generate_jobの分岐先）を
-        # 経由地・目的地ルート向けテストで使うための最小実装。generate_loopsと同じく
-        # 渡された候補をそのまま返すだけで、経路探索自体は検証しない。
-        self.received_start_time = start_time
-        self.received_max_routes = max_routes
-        return self._candidates
+@pytest.fixture
+async def client():
+    transport = httpx.ASGITransport(app=app, client=(CLIENT_HOST, 50000))
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        yield client
 
 
-def fake_open_route_generation_setup(
-    candidates: list[RouteCandidate],
-    captured: dict | None = None,
-    no_candidates_reason: str | None = None,
-    generator: FakeRouteGenerator | None = None,
-):
-    """`open_route_generation_setup`（改善計画T265、バックグラウンドジョブが使う
-    非同期コンテキストマネージャ）のフェイク版。`captured`を渡すと、ジョブへ渡された
-    重み上書き（無ければNone）を記録する。"""
-
-    @asynccontextmanager
-    async def _open(
-        preference_override=None,
-        penalty_strength: float | None = None,
-        max_average_grade_percent: float | None = None,
-        hard_filters_override: frozenset[str] | None = None,
-        assumed_speed_kmh: float = ASSUMED_SPEED_KMH,
-        lens_axis_id: str | None = None,
-    ):
-        if captured is not None:
-            captured["preference"] = preference_override
-            captured["penalty_strength"] = penalty_strength
-            captured["max_average_grade_percent"] = max_average_grade_percent
-            captured["hard_filters"] = hard_filters_override
-            captured["assumed_speed_kmh"] = assumed_speed_kmh
-            captured["lens_axis_id"] = lens_axis_id
-        yield RouteGenerationSetup(
-            generator=generator or FakeRouteGenerator(candidates, no_candidates_reason),
-            route_preference=preference_override or RoutePreference(),
-            # 本物と同じく、省略されたら較正値から解決する（フェイクだけが
-            # リテラルを持つと、その値でしか通らないテストになる）。
-            penalty_strength=resolve_penalty_strength(penalty_strength),
-            assumed_speed_kmh=assumed_speed_kmh,
-            max_average_grade_percent=max_average_grade_percent,
-            hard_filters=hard_filters_override if hard_filters_override is not None else DEFAULT_HARD_FILTERS,
-        )
-
-    return _open
+async def _post(client, **body):
+    return await client.post("/api/routes/generate", json={**_point(CENTER), "distance_km": 4.0, **body})
 
 
-def submit_and_await_done(body: dict) -> dict:
-    """POST /api/routes/generateでジョブを投稿し、GET /api/routes/generate/{job_id}で
-    status=="done"になった結果を返す。ジョブ本体は`asyncio.create_task`で起動するが、
-    `TestClient`は同じイベントループを同期的に回しきってからレスポンスを返すため、
-    ポーリングのための待機は不要——投稿直後の1回のGETで結果が確定している。"""
-    submit_response = client.post("/api/routes/generate", json=body)
-    assert submit_response.status_code == 202, submit_response.text
-    job_id = submit_response.json()["job_id"]
-    poll_response = client.get(f"/api/routes/generate/{job_id}")
-    assert poll_response.status_code == 200, poll_response.text
-    payload = poll_response.json()
-    assert payload["status"] == "done", payload
-    return payload["result"]
+async def _wait(client, job_id):
+    for _ in range(1000):
+        status = (await client.get(f"/api/routes/generate/{job_id}")).json()
+        if status["status"] in ("done", "failed"):
+            return status
+        await asyncio.sleep(0.01)
+    raise AssertionError("ジョブが終わらない")
 
 
-def test_generate_routes_returns_candidates(monkeypatch):
-    candidates = [
-        RouteCandidate(
-            id="route-000",
-            direction_label="北",
-            distance_km=29.8,
-            geometry={"type": "LineString", "coordinates": [[139.7387, 35.7597], [139.75, 35.8]]},
-        )
-    ]
-    monkeypatch.setattr(routes_module, "open_route_generation_setup", fake_open_route_generation_setup(candidates))
-
-    result = submit_and_await_done(REQUEST_BODY)
-
-    assert len(result["routes"]) == 1
-    assert result["routes"][0]["id"] == "route-000"
-    assert result["routes"][0]["direction_label"] == "北"
+async def _generate(client, **body):
+    response = await _post(client, **body)
+    assert response.status_code == 202, response.text
+    return await _wait(client, response.json()["job_id"])
 
 
-def test_generate_routes_returns_empty_list_when_no_candidates_match(monkeypatch):
-    monkeypatch.setattr(routes_module, "open_route_generation_setup", fake_open_route_generation_setup([]))
+def _ends(route):
+    return route["node_ids"][0], route["node_ids"][-1]
 
-    result = submit_and_await_done(REQUEST_BODY)
 
-    assert result["routes"] == []
+def _node(osm_node_id):
+    return f"osm-node-{osm_node_id}"
+
+
+# --- 生成の種類 ---
+
+
+async def test_a_loop_is_generated_when_neither_destination_nor_waypoints_are_given(client):
+    result = (await _generate(client))["result"]
+
+    assert result["routes"]
+    assert all(_ends(route) == (_node(CENTER), _node(CENTER)) for route in result["routes"])
     assert result["no_candidates_reason"] is None
 
 
-def test_generate_routes_echoes_no_candidates_reason(monkeypatch):
-    # 改善計画T441: 候補0件の原因（RouteGenerator.last_no_candidates_reason）が
-    # レスポンスのno_candidates_reasonへそのまま転記されることを確認する
-    # （SSHでサーバーログを見なくてもGUIから原因が分かるようにする対応）。
-    monkeypatch.setattr(
-        routes_module,
-        "open_route_generation_setup",
-        fake_open_route_generation_setup([], no_candidates_reason="道路データが未整備です"),
-    )
+async def test_a_destination_route_ends_at_the_destination_with_up_to_the_requested_count(client):
+    result = (await _generate(client, **_point(SOUTH_WEST), destination=_point(NORTH_EAST), max_routes=2))["result"]
 
-    result = submit_and_await_done(REQUEST_BODY)
-
-    assert result["routes"] == []
-    assert result["no_candidates_reason"] == "道路データが未整備です"
+    assert 1 <= len(result["routes"]) <= 2
+    assert result["conditions"]["max_routes"] == 2
+    assert all(_ends(route) == (_node(SOUTH_WEST), _node(NORTH_EAST)) for route in result["routes"])
 
 
-def test_generate_routes_no_candidates_reason_is_none_when_candidates_present(monkeypatch):
-    # 改善計画T441: 候補が1件でもあれば、（フェイクが理由をセットしていても）
-    # レスポンスのno_candidates_reasonは常にNoneになること（_run_generate_jobの
-    # `if not candidates else None`分岐）。
-    candidates = [
-        RouteCandidate(
-            id="route-000",
-            direction_label="北",
-            distance_km=29.8,
-            geometry={"type": "LineString", "coordinates": [[139.7387, 35.7597], [139.75, 35.8]]},
-        )
-    ]
-    monkeypatch.setattr(
-        routes_module,
-        "open_route_generation_setup",
-        fake_open_route_generation_setup(candidates, no_candidates_reason="無視されるはずの値"),
-    )
+async def test_a_waypoint_route_is_a_single_route_whatever_count_is_asked_for(client):
+    """経由地があるとレグごとの代替案が組合せで増えるため、常に1件。使った件数もそう返す。"""
+    status = await _generate(client, **_point(SOUTH_WEST), waypoints=[_point(NORTH_EAST)], max_routes=5)
 
-    result = submit_and_await_done(REQUEST_BODY)
-
-    assert len(result["routes"]) == 1
-    assert result["no_candidates_reason"] is None
+    assert len(status["result"]["routes"]) == 1
+    assert status["result"]["conditions"]["max_routes"] == 1
 
 
-def test_generate_routes_echoes_destination_correction(monkeypatch):
-    # 改善計画T602: RouteGenerator.last_destination_correctionがconditions.
-    # corrected_destinationへそのまま転記されることを確認する。
-    candidates = [
-        RouteCandidate(
-            id="route-destination-00",
-            direction_label="目的地ルート",
-            distance_km=12.3,
-            geometry={"type": "LineString", "coordinates": [[139.7387, 35.7597], [139.75, 35.8]]},
-        )
-    ]
-    generator = FakeRouteGenerator(candidates, destination_correction={"latitude": 35.70, "longitude": 139.70})
-    monkeypatch.setattr(
-        routes_module, "open_route_generation_setup", fake_open_route_generation_setup(candidates, generator=generator)
-    )
+async def test_a_spliced_route_is_evaluated_as_sent(client):
+    """区間を差し替えた経路は探索し直さず、そのまま1件として評価して返す。"""
+    body = {**_point(SOUTH_WEST), "destination": _point(NORTH_EAST)}
+    (route, *_) = (await _generate(client, **body, max_routes=1))["result"]["routes"]
 
-    conditions = submit_and_await_done(
-        {**REQUEST_BODY, "destination": {"latitude": 35.6999, "longitude": 139.6999}}
-    )["conditions"]
+    spliced = (await _generate(client, **body, spliced_edge_ids=route["edge_ids"]))["result"]
 
-    assert conditions["destination"] == {"latitude": 35.6999, "longitude": 139.6999}
-    assert conditions["corrected_destination"] == {"latitude": 35.70, "longitude": 139.70}
+    assert [r["edge_ids"] for r in spliced["routes"]] == [route["edge_ids"]]
 
 
-def test_generate_routes_corrected_destination_is_none_when_not_corrected(monkeypatch):
-    monkeypatch.setattr(routes_module, "open_route_generation_setup", fake_open_route_generation_setup([]))
+async def test_an_empty_result_says_why(client):
+    status = await _generate(client, distance_km=30.0, destination=FAR_AWAY)
 
-    conditions = submit_and_await_done(REQUEST_BODY)["conditions"]
+    assert status["status"] == "done"
+    assert status["result"]["routes"] == []
+    assert status["result"]["no_candidates_reason"]
 
+
+# --- 条件のエコー ---
+
+
+async def test_the_defaults_that_were_applied_are_echoed(client):
+    """画面が見る値と探索が使った値を分けない。省略した項目も、実際に使った値で返す。"""
+    conditions = (await _generate(client))["result"]["conditions"]
+
+    assert conditions["route_preference"] == {AVOID_AXIS: 0.0}
+    assert conditions["hard_filters"] == {name: name in DEFAULT_HARD_FILTERS for name in HARD_FILTER_NAMES}
+    assert conditions["max_routes"] == routes.DEFAULT_MAX_ROUTES
+    assert conditions["distance_tolerance_km"] == routes.DEFAULT_DISTANCE_TOLERANCE_KM
+    assert conditions["penalty_strength"] >= 0
+    assert conditions["waypoints"] is None and conditions["destination"] is None
     assert conditions["corrected_destination"] is None
+    assert datetime.fromisoformat(conditions["start_time"]).utcoffset().total_seconds() == 9 * 3600
 
 
-@pytest.mark.usefixtures("published_axes")
-def test_generate_routes_echoes_applied_conditions(monkeypatch):
-    # 実験の記録・再現用に、実際に適用された条件（重み含む）をレスポンスへエコーする
-    # （研究インターフェース改善 §10-6）。上書き無しの場合は既定重みがそのまま入る。
-    monkeypatch.setattr(routes_module, "open_route_generation_setup", fake_open_route_generation_setup([]))
+async def test_the_overrides_that_were_sent_are_echoed(client):
+    """保存したレスポンスの条件をそのまま送り直せば、同じ条件で生成し直せる。"""
+    hard_filters = {name: False for name in HARD_FILTER_NAMES}
+    conditions = (await _generate(
+        client, route_preference={AVOID_AXIS: 2.0}, penalty_strength=0.5, max_average_grade_percent=8.0,
+        hard_filters=hard_filters, assumed_speed_kmh=25.0, distance_tolerance_km=2.0,
+    ))["result"]["conditions"]
 
-    conditions = submit_and_await_done(REQUEST_BODY)["conditions"]
-
-    assert conditions["latitude"] == REQUEST_BODY["latitude"]
-    assert conditions["longitude"] == REQUEST_BODY["longitude"]
-    assert conditions["distance_km"] == REQUEST_BODY["distance_km"]
-    assert conditions["distance_tolerance_km"] == REQUEST_BODY["distance_tolerance_km"]
-    # 改善計画T531: 省略時は既定の候補件数（DEFAULT_MAX_ROUTES）がエコーされる。
-    assert conditions["max_routes"] == DEFAULT_MAX_ROUTES
-    # RoutePreferenceWeightsはRootModel(dict)のため、レスポンスではaxis_idキーの
-    # プレーンな辞書としてシリアライズされる（改善計画T221 Stage B）。
-    assert conditions["route_preference"] == RoutePreference().weights
-    # ISO8601（JST）。厳密な時刻は環境依存のため形式だけ確認する
-    assert "+09:00" in conditions["generated_at"]
+    assert conditions["route_preference"] == {AVOID_AXIS: 2.0}
+    assert conditions["penalty_strength"] == 0.5
+    assert conditions["max_average_grade_percent"] == 8.0
+    assert conditions["hard_filters"] == hard_filters
+    assert conditions["assumed_speed_kmh"] == 25.0
+    assert conditions["distance_tolerance_km"] == 2.0
 
 
-@pytest.mark.usefixtures("published_axes")
-def test_generate_routes_applies_weight_overrides_and_echoes_them(monkeypatch):
-    # リクエストの重み上書きがジョブへ渡り、conditionsに適用値がエコーされる
-    # （研究インターフェース改善 §10-1）。
-    captured: dict = {}
-    monkeypatch.setattr(routes_module, "open_route_generation_setup", fake_open_route_generation_setup([], captured))
-    # 上書きは**公開軸の全件**でなければ422になる。軸が増減しても書き換えずに済むよう、
-    # 今の軸集合から作る。値そのものはエコーの検証に使うだけで意味を持たない。
-    route_preference = {axis_id: 0.125 for axis_id in sorted(AXIS_DEFINITIONS)}
+async def test_an_omitted_rate_is_the_calibrated_value_at_the_time_of_generation(client, monkeypatch):
+    """管理画面で変えた較正値は、プロセスを入れ替えずに次の生成から効き、使った値として返る。"""
+    monkeypatch.setitem(TUNING_VALUES, "evaluation.penalty_strength", 0.37)
+    first = (await _generate(client))["result"]["conditions"]["penalty_strength"]
+    monkeypatch.setitem(TUNING_VALUES, "evaluation.penalty_strength", 0.61)
+    second = (await _generate(client))["result"]["conditions"]["penalty_strength"]
 
-    result = submit_and_await_done({**REQUEST_BODY, "route_preference": route_preference})
-
-    assert captured["preference"] == RoutePreference(weights=route_preference)
-    conditions = result["conditions"]
-    assert conditions["route_preference"] == route_preference
+    assert (first, second) == (0.37, 0.61)
 
 
-def test_generate_routes_echoes_default_hard_filters_when_omitted(monkeypatch):
-    # 改善計画T266: hard_filters省略時はDEFAULT_HARD_FILTERS（全フィルタ有効）が
-    # そのままconditionsへエコーされる。
-    monkeypatch.setattr(routes_module, "open_route_generation_setup", fake_open_route_generation_setup([]))
+@pytest.mark.parametrize(("sent", "applied"), [
+    ("2026-09-22T08:00:00", "2026-09-22T08:00:00+09:00"),          # 時差の無い値は日本時間
+    ("2026-09-21T23:00:00+00:00", "2026-09-22T08:00:00+09:00"),    # 時差のある値は日本時間へ直す
+])
+async def test_the_departure_time_is_read_in_japan_time(client, sent, applied):
+    conditions = (await _generate(client, start_time=sent))["result"]["conditions"]
 
-    conditions = submit_and_await_done(REQUEST_BODY)["conditions"]
-
-    assert conditions["hard_filters"] == {"no_bicycle": True, "motorway": True, "trunk": True}
-
-
-def test_generate_routes_applies_hard_filters_override_and_echoes_them(monkeypatch):
-    # 改善計画T266: hard_filtersの個別ON/OFF上書きがジョブへ渡り、conditionsへ
-    # 適用値がエコーされる。
-    captured: dict = {}
-    monkeypatch.setattr(routes_module, "open_route_generation_setup", fake_open_route_generation_setup([], captured))
-    hard_filters = {"no_bicycle": True, "motorway": True, "trunk": False}
-
-    result = submit_and_await_done({**REQUEST_BODY, "hard_filters": hard_filters})
-
-    assert captured["hard_filters"] == frozenset({"no_bicycle", "motorway"})
-    assert result["conditions"]["hard_filters"] == hard_filters
+    assert datetime.fromisoformat(conditions["start_time"]) == datetime.fromisoformat(applied)
+    assert conditions["start_time"].endswith("+09:00")
 
 
-def test_generate_routes_rejects_hard_filters_with_missing_keys():
-    # RoutePreferenceWeightsと同じ「上書きするなら全項目を明示する」方針
-    # （改善計画T266）。リクエストボディの検証はジョブ作成前に働くため、フェイクの
-    # 差し替え無しでも422になる。
-    response = client.post("/api/routes/generate", json={**REQUEST_BODY, "hard_filters": {"no_bicycle": True}})
+async def test_a_destination_moved_to_the_nearest_reachable_road_is_echoed(client, world):
+    world.network = grid_network(island=True)
+
+    conditions = (await _generate(client, **_point(SOUTH_WEST), destination=_point(91)))["result"]["conditions"]
+
+    assert conditions["corrected_destination"] == _point(NORTH_EAST)
+    assert conditions["destination"] == _point(91)
+
+
+# --- 要求の検証 ---
+
+
+@pytest.mark.parametrize("body", [
+    {"distance_km": 0},
+    {"distance_km": routes.MAX_ROUTE_DISTANCE_KM + 1},
+    {"max_routes": 0},
+    {"max_routes": routes.MAX_ROUTES + 1},
+    {"route_preference": {}},                                        # 公開軸を全部書いていない
+    {"route_preference": {AVOID_AXIS: 1.0, "no_such_axis": 1.0}},    # 知らない軸
+    {"route_preference": {AVOID_AXIS: -1.0}},
+    {"hard_filters": {}},
+    {"hard_filters": {**{name: True for name in HARD_FILTER_NAMES}, "no_such_filter": True}},
+    {"spliced_edge_ids": ["way-100-seg0-fwd"]},                       # 目的地が無い
+    {"destination": FAR_AWAY},                                       # 起点から目標距離より遠い
+    {"waypoints": [_point(CENTER)] * 9},
+])
+async def test_a_request_outside_what_can_be_generated_is_refused_before_any_job(client, body):
+    response = await _post(client, **body)
 
     assert response.status_code == 422
 
 
-def test_generate_routes_is_rate_limited_per_client():
-    # ルート生成は最も高コストなエンドポイント（外部APIクォータ・数十秒の処理時間）のため、
-    # per-IPの上限を超えたリクエストは429で拒否する（ジョブ作成前、投稿時点の同期チェック）。
+# --- ジョブ ---
+
+
+async def test_a_job_that_is_not_known_is_404(client):
+    assert (await client.get("/api/routes/generate/no-such-job")).status_code == 404
+
+
+async def test_a_failed_job_says_so_without_leaking_its_internals(client, world):
+    """例外の中身（接続先・SQL）はログだけに残す。失敗しても同時実行の枠は返る（上限より多く続けて投げても受け付ける）。"""
+    world.unavailable = True
+
+    statuses = [await _generate(client) for _ in range(settings.generate_max_concurrent + 1)]
+
+    assert {s["status"] for s in statuses} == {"failed"}
+    assert all("置き場" not in s["error"] and s["error"] for s in statuses)
+
+
+async def test_jobs_beyond_the_concurrency_limit_are_refused_at_once(client, world):
+    """待たせずに429を返す（連打やブラウザのリトライで裏の負荷を積み上げない）。枠が空けばまた受け付ける。"""
+    world.weather = GatedWeather()
+    running = [await _post(client) for _ in range(settings.generate_max_concurrent)]
+
+    # 上限を越えた投稿が枠の空きを待ってしまうと、応答が返らない。待たせないことを期限で確かめる。
+    refused = await asyncio.wait_for(_post(client), timeout=5)
+
+    world.weather.gate.set()
+    for response in running:
+        assert response.status_code == 202
+        assert (await _wait(client, response.json()["job_id"]))["status"] == "done"
+    assert refused.status_code == 429
+    assert (await _generate(client))["status"] == "done"
+
+
+async def test_too_many_requests_from_one_client_are_refused(client):
     for _ in range(settings.generate_rate_limit_per_minute - 1):
-        rate_limiter.check_rate_limit("generate:testclient", settings.generate_rate_limit_per_minute)
-    assert client.post("/api/routes/generate", json=REQUEST_BODY).status_code == 202
+        rate_limiter.check_rate_limit(f"generate:{CLIENT_HOST}", settings.generate_rate_limit_per_minute)
 
-    response = client.post("/api/routes/generate", json=REQUEST_BODY)
-
-    assert response.status_code == 429
+    assert (await _generate(client))["status"] == "done"
+    assert (await _post(client)).status_code == 429
 
 
-async def test_generate_routes_rejects_when_concurrency_limit_reached():
-    # 同時実行数の上限に達している間は待たせず429を返す（外部サービスへの負荷の積み上げ防止）。
-    # 改善計画T265: この判定はジョブ作成前・投稿時点のまま変更していない。
-    acquired = 0
-    try:
-        while not _generate_semaphore.locked():
-            await _generate_semaphore.acquire()
-            acquired += 1
-        response = client.post("/api/routes/generate", json=REQUEST_BODY)
-    finally:
-        for _ in range(acquired):
-            _generate_semaphore.release()
-
-    assert response.status_code == 429
+# --- 区間確認 ---
 
 
-def test_generate_routes_acquires_semaphore_before_scheduling_background_job(monkeypatch):
-    # 改善計画T386（T265コードレビュー指摘1件目、CONFIRMED回帰テスト）: 以前は
-    # POSTハンドラで`_generate_semaphore.locked()`を確認するだけで、実際の取得
-    # （`async with _generate_semaphore:`）は`BackgroundTasks`経由でレスポンス送出後に
-    # 実行される`_run_generate_job`側だった。両者の間にHTTPレスポンス送出という実I/Oが
-    # 挟まるため、複数リクエストがほぼ同時に届くと上限を超える数が202で受理されうる
-    # レースがあった（ASGITransport上のin-memory送受信は実I/Oを伴わずawaitでも
-    # 中断しないため、httpx.AsyncClientでの並行リクエスト再現は非現実的——このテストは
-    # 代わりに「バックグラウンドジョブが動き出す時点で、セマフォが既にPOSTハンドラ側で
-    # 減算済みである」という、レースを構造的に閉じている不変条件を直接検証する）。
-    observed_semaphore_values: list[int] = []
+async def test_preview_returns_the_road_between_two_points(client):
+    response = await client.post("/api/routes/preview", json={"origin": _point(SOUTH_WEST), "destination": _point(NORTH_EAST)})
 
-    async def _fake_run_generate_job(job_id: str, request) -> None:
-        # 本物の_run_generate_jobを丸ごと差し替える。観測した時点で既に取得済みなら、
-        # POSTハンドラ側での同期取得が効いている証拠になる。取得した分はここで解放し
-        # テスト後の状態を元に戻す（本物のfinally節と同じ役割）。
-        observed_semaphore_values.append(_generate_semaphore._value)
-        job_registry.set_done(job_id, None)
-        _generate_semaphore.release()
-
-    monkeypatch.setattr(routes_module, "_run_generate_job", _fake_run_generate_job)
-
-    response = client.post("/api/routes/generate", json=REQUEST_BODY)
-
-    assert response.status_code == 202
-    assert observed_semaphore_values == [settings.generate_max_concurrent - 1]
-    assert _generate_semaphore._value == settings.generate_max_concurrent
+    assert response.status_code == 200
+    assert response.json()["distance_km"] == pytest.approx(4.0, abs=0.1)
+    assert len(response.json()["geometry"]["coordinates"]) == 5
 
 
-def test_generate_routes_does_not_defer_job_start_to_response_lifecycle():
-    # ジョブ起動をレスポンス送出後（`BackgroundTasks`）へ委ねていないことの構造的確認。
-    # 委ねると、送出中の失敗（クライアント切断・ミドルウェアの例外）でジョブが一度も
-    # 起動せず、投稿時点で取得済みのセマフォを解放するfinallyへ到達しない。
-    # `generate_max_concurrent`回これが起きるとルート生成がプロセス再起動まで全断し、
-    # `/health`は正常を返すため外形監視にもかからない。
-    parameters = inspect.signature(routes_module.generate_routes).parameters
+async def test_preview_without_a_road_between_the_points_is_502(client):
+    response = await client.post("/api/routes/preview", json={"origin": _point(SOUTH_WEST), "destination": FAR_AWAY})
 
-    assert not any(parameter.annotation is BackgroundTasks for parameter in parameters.values())
+    assert response.status_code == 502
+    assert response.json()["detail"].startswith("ルート取得に失敗しました")
 
 
-def test_generate_routes_keeps_a_reference_to_the_running_job_task(monkeypatch):
-    # `asyncio.create_task`の戻り値を保持しないとGCが実行中のジョブごと回収しうる
-    # （そのときもセマフォは解放されない）。ジョブ本体から見て自分のタスクが
-    # `_running_generate_tasks`に載っていることを確認する。
-    tracked_task_counts: list[int] = []
-
-    async def _fake_run_generate_job(job_id: str, request) -> None:
-        tracked_task_counts.append(len(routes_module._running_generate_tasks))
-        job_registry.set_done(job_id, None)
-        _generate_semaphore.release()
-
-    monkeypatch.setattr(routes_module, "_run_generate_job", _fake_run_generate_job)
-
-    response = client.post("/api/routes/generate", json=REQUEST_BODY)
-
-    assert response.status_code == 202
-    assert tracked_task_counts == [1]
-    assert _generate_semaphore._value == settings.generate_max_concurrent
-
-
-def test_generate_job_status_returns_404_for_unknown_job_id():
-    # 改善計画T265: 完了から時間が経過して破棄された、またはそもそも存在しないjob_idは
-    # 404（例外を握りつぶさず、フロントがポーリングを打ち切れるようにする）。
-    response = client.get("/api/routes/generate/does-not-exist")
-
-    assert response.status_code == 404
-
-
-def test_generate_job_status_returns_failed_with_generic_error_message(monkeypatch):
-    # 改善計画T265: バックグラウンドジョブ内の例外はレスポンスへ伝播できないため、
-    # job_registryへ記録してポーリング側がstatus=="failed"として観測できることを確認する。
-    # 改善計画T386（T265コードレビュー指摘3件目、CONFIRMED）: 例外の生メッセージ
-    # （PostGIS/内部処理のエラー詳細を含みうる）はクライアントへ公開せず、
-    # 汎用メッセージのみを返す。詳細はlogger.exceptionでサーバーログにのみ残す。
-    @asynccontextmanager
-    async def _raise_setup(*args, **kwargs):
-        raise RuntimeError("生成中に想定外のエラー（本来ログにのみ残るべき内部詳細）")
-        yield  # このasynccontextmanagerがジェネレータであるためのダミーyield（到達しない）
-
-    monkeypatch.setattr(routes_module, "open_route_generation_setup", _raise_setup)
-
-    submit_response = client.post("/api/routes/generate", json=REQUEST_BODY)
-    assert submit_response.status_code == 202
-    job_id = submit_response.json()["job_id"]
-    poll_response = client.get(f"/api/routes/generate/{job_id}")
-
-    assert poll_response.status_code == 200
-    body = poll_response.json()
-    assert body["status"] == "failed"
-    assert "生成中に想定外のエラー" not in body["error"]
-    assert body["error"] == "ルート生成に失敗しました。時間をおいて再度お試しください。"
-
-
-def test_generate_job_failure_releases_concurrency_semaphore(monkeypatch):
-    # 改善計画T386（T265コードレビュー指摘1件目、CONFIRMED）: セマフォは投稿時点の
-    # POSTハンドラで取得するようになった（TOCTOUレース対応）ため、ジョブが例外で
-    # 終わった場合でも_run_generate_job側のfinallyで確実に解放され、リークしないことを
-    # 確認する（リークすると同時実行枠が徐々に埋まり、無関係な後続リクエストが429に
-    # なっていく）。
-    @asynccontextmanager
-    async def _raise_setup(*args, **kwargs):
-        raise RuntimeError("失敗")
-        yield  # このasynccontextmanagerがジェネレータであるためのダミーyield（到達しない）
-
-    monkeypatch.setattr(routes_module, "open_route_generation_setup", _raise_setup)
-
-    submit_response = client.post("/api/routes/generate", json=REQUEST_BODY)
-    job_id = submit_response.json()["job_id"]
-    poll_response = client.get(f"/api/routes/generate/{job_id}")
-    assert poll_response.json()["status"] == "failed"
-
-    assert not _generate_semaphore.locked()
-    assert _generate_semaphore._value == settings.generate_max_concurrent
-
-
-def _lightweight_route_generation_setup(preference_override=None):
-    # _assemble_route_generation_setupはFastAPIのDependsで解決される前提の依存を
-    # 直接渡して呼べる純粋関数（改善計画T265でget_route_generation_builderのクロージャから
-    # 抽出）。重みの既定値/上書きの反映だけを検証する。いずれの依存もコンストラクタでは
-    # I/Oを行わないため、http_client・session（RoadGraphRepository）はNoneでよい。
-    return _assemble_route_generation_setup(
-        graph_service=GraphService(repository=RoadGraphRepository(session=None)),
-        weather_service=WeatherService(),
-        preference_override=preference_override,
-    )
-
-
-@pytest.mark.parametrize(
-    "overrides",
-    [
-        {"latitude": 91},
-        {"latitude": -91},
-        {"longitude": 181},
-        {"longitude": -181},
-        {"distance_km": 0},
-        {"distance_km": -5},
-        {"distance_tolerance_km": 0},
-        # 改善計画T531: 候補件数は1〜MAX_ROUTES（15）の整数のみ。
-        {"max_routes": 0},
-        {"max_routes": MAX_ROUTES + 1},
-        {"route_type": "not-a-real-type"},
-        # 重み上書きは非負のみ許可。部分指定（フィールド欠け）は「クラス既定値が黙って入る」
-        # 事故を避けるため全フィールド必須（routes.py: RoutePreferenceWeights参照）
-        {"route_preference": {"elevation_weight": 0.5, "road_weight": -0.1, "wind_weight": 0.25}},
-        {"route_preference": {"elevation_weight": 0.5}},
-        # 区間の乗り換え（docs/records/tasks/T621.md）: 合成の対象は目的地ルートだけ。
-        {"spliced_edge_ids": ["e-0", "e-1"]},
-        {"spliced_edge_ids": []},
-    ],
-)
-def test_generate_routes_rejects_invalid_request_body(overrides):
-    # リクエストボディの検証はジョブ作成前に働くため、フェイクの差し替え無しでも422になる。
-    response = client.post("/api/routes/generate", json={**REQUEST_BODY, **overrides})
-
-    assert response.status_code == 422
-
-
-def test_generation_setup_uses_defaults_when_no_override():
-    setup = _lightweight_route_generation_setup()
-
-    assert setup.route_preference == load_route_preference()
-
-
-def test_generation_setup_uses_overrides_when_provided():
-    preference = RoutePreference(weights={axis_id: 1.0 for axis_id in sorted(AXIS_DEFINITIONS)})
-
-    setup = _lightweight_route_generation_setup(preference)
-
-    assert setup.route_preference is preference
-
-
-def test_generate_routes_passes_and_echoes_max_routes_override(monkeypatch):
-    # 改善計画T531: max_routesはgenerate_loopsへ配線され、実際に適用された値がconditionsへ
-    # エコーされる。
-    generator = FakeRouteGenerator([])
-    monkeypatch.setattr(
-        routes_module, "open_route_generation_setup", fake_open_route_generation_setup([], generator=generator)
-    )
-
-    conditions = submit_and_await_done({**REQUEST_BODY, "max_routes": 3})["conditions"]
-
-    assert conditions["max_routes"] == 3
-    assert generator.received_max_routes == 3
-
-
-def test_generate_routes_with_waypoints_applies_and_echoes_the_fixed_route_count(monkeypatch):
-    # 経由地を伴う生成は候補数の指定を使わない。生成条件には、要求の値ではなく実際に使った数が載る。
-    generator = FakeRouteGenerator([])
-    monkeypatch.setattr(
-        routes_module, "open_route_generation_setup", fake_open_route_generation_setup([], generator=generator)
-    )
-    waypoint = {"latitude": 35.765, "longitude": 139.745}
-
-    conditions = submit_and_await_done({**REQUEST_BODY, "max_routes": 5, "waypoints": [waypoint]})["conditions"]
-
-    assert conditions["max_routes"] == ROUTES_WITH_WAYPOINTS != 5
-    assert generator.received_max_routes == ROUTES_WITH_WAYPOINTS
-
-
-def test_generate_routes_with_spliced_edge_ids_evaluates_the_given_path_only(monkeypatch):
-    # 区間の乗り換え（docs/records/tasks/T621.md）: 探索をやり直さず、送られた経路だけを評価する。
-    # 生成と同じコスト曲線のため別エンドポイントにせず同じジョブ機構（202＋ポーリング）へ載る。
-    class SplicingGenerator:
-        last_no_candidates_reason = None
-        last_destination_correction = None
-
-        def __init__(self):
-            self.spliced_calls: list[list[str]] = []
-            self.other_calls: list[str] = []
-
-        async def generate_spliced_route(self, *, origin, destination, distance_km, edge_ids, start_time):
-            self.spliced_calls.append(edge_ids)
-            return [RouteCandidate(
-                id="route-spliced", direction_label="組み合わせたルート", distance_km=12.3,
-                geometry={"type": "LineString", "coordinates": []}, edge_ids=edge_ids,
-            )]
-
-        async def generate_loops(self, **kwargs):
-            self.other_calls.append("loops")
-            return []
-
-        async def generate_via_waypoints(self, **kwargs):
-            self.other_calls.append("via_waypoints")
-            return []
-
-    generator = SplicingGenerator()
-    monkeypatch.setattr(
-        routes_module, "open_route_generation_setup", fake_open_route_generation_setup([], generator=generator)
-    )
-
-    result = submit_and_await_done({
-        **REQUEST_BODY,
-        "destination": {"latitude": 35.80, "longitude": 139.80},
-        "spliced_edge_ids": ["e-0", "e-1", "e-2"],
+async def test_preview_refuses_a_speed_outside_the_model(client):
+    response = await client.post("/api/routes/preview", json={
+        "origin": _point(SOUTH_WEST), "destination": _point(NORTH_EAST), "assumed_speed_kmh": 1000.0,
     })
 
-    assert [route["id"] for route in result["routes"]] == ["route-spliced"]
-    assert result["routes"][0]["edge_ids"] == ["e-0", "e-1", "e-2"]
-    assert generator.spliced_calls == [["e-0", "e-1", "e-2"]]
-    # 探索経路は呼ばれない
-    assert generator.other_calls == []
+    assert response.status_code == 422
 
 
-class TestPenaltyStrengthDefault:
-    """主観的割増のレートを省略したとき、**必ず**較正値の解決を通ること。
+async def test_preview_has_its_own_rate_limit(client):
+    for _ in range(settings.preview_rate_limit_per_minute):
+        rate_limiter.check_rate_limit(f"preview:{CLIENT_HOST}", settings.preview_rate_limit_per_minute)
 
-    どこかにリテラルの既定値が残っていると、そこを通る呼び出しだけが別のレートで探索し、
-    悪路回避の強さが静かに食い違う。値をimport時に束ねると管理画面から変えても効かない
-    ——プロセスを入れ替えても、同じ順序で束ね直すだけで直らない。
+    response = await client.post("/api/routes/preview", json={"origin": _point(SOUTH_WEST), "destination": _point(NORTH_EAST)})
 
-    **母集団は署名から導く**。`penalty_strength`を受ける入口を1つ足したとき、リテラルの
-    既定値を置いたらここが落ちる。
-    """
-
-    def _entry_points(self):
-        """`penalty_strength`を受け取る、APIの入口になりうる関数すべて。"""
-        from app.api import dependencies
-
-        for name, obj in vars(dependencies).items():
-            if not inspect.isfunction(obj) or obj.__module__ != dependencies.__name__:
-                continue
-            parameter = inspect.signature(obj).parameters.get("penalty_strength")
-            if parameter is not None:
-                yield f"{name}()", parameter.default
-
-    def test_no_entry_point_carries_a_literal_default(self):
-        from app.api.routers.routes import RouteGenerateRequest
-
-        entry_points = list(self._entry_points())
-        entry_points.append(
-            ("RouteGenerateRequest.penalty_strength", RouteGenerateRequest.model_fields["penalty_strength"].default)
-        )
-
-        assert [name for name, default in entry_points if default not in (None, inspect.Parameter.empty)] == []
-        # 導出が空振りしていないこと（署名を変えたときに「0件だから通った」にならないように）。
-        assert len(entry_points) >= 3
-
-    def test_the_omitted_rate_comes_from_the_tuning_value(self, monkeypatch):
-        from app.domain import tuning
-        from app.domain.evaluation import resolve_penalty_strength
-
-        monkeypatch.setitem(tuning.TUNING_VALUES, "evaluation.penalty_strength", 1.25)
-
-        assert resolve_penalty_strength(None) == 1.25
-        assert resolve_penalty_strength(0.3) == 0.3
+    assert response.status_code == 429
