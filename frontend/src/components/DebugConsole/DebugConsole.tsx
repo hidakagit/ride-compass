@@ -13,24 +13,15 @@ import { textVariants } from "@/components/ui/Text/Text";
 import { cn } from "@/lib/cn";
 
 interface DebugConsoleProps {
-  /** パネル自体の開閉（デバッグモードのON/OFFとは別。常時占有させたくないため
-   * 「設定」内のボタンから開閉する） */
+  /** パネルの開閉（デバッグモードのON/OFFとは別。記録はモードがONなら常に続く）。 */
   open: boolean;
   onClose: () => void;
 }
 
-// info < warn < error の順で「この段階以上だけ表示」というしきい値フィルタにする
-// （個別レベルのON/OFFではなく段階選択にすることで、選択肢を3つの<select>に収める）。
+// 「この段階以上だけ出す」の下限で絞る。
 const LEVEL_ORDER: readonly DebugLogLevel[] = ["info", "warn", "error"];
 
-// デバッグモードON時のみ、地図の上に浮かべて表示するイベントログ。
-// マップの表示イベント（初期化・タイル/スタイル要求・パン/ズーム）と外部API呼び出し
-// （天候/ルート生成/地域レイヤー/基礎地図）を発生順に積む。DebugPanelのトグルと状態を共有する。
-// デバッグモードON＝ログの記録自体は常時有効だが、このパネル表示は別途openで制御する
-// （常時ONだと画面の目立つ面積を占有し続けるため）。
-// バックエンドの集計・commit等の「システム状況」は別パネル（SystemStatusPanel）へ
-// 分離してある（ログ本文と情報源・更新頻度が異なる別種の情報を1つのパネルに詰め込むと
-// 見づらいため）。
+/** デバッグモードのときだけ地図の上に浮かべる、地図の出来事とAPI呼び出しのログ。 */
 export default function DebugConsole({ open, onClose }: DebugConsoleProps) {
   const enabled = useDebugEnabled();
   const entries = useDebugLogEntries();
@@ -48,8 +39,7 @@ export default function DebugConsole({ open, onClose }: DebugConsoleProps) {
     if (el) el.scrollTop = el.scrollHeight;
   }, [visibleEntries]);
 
-  // 画面に出ているものをそのまま貼れる形にする（絞り込みを無視して全件にすると、絞って
-  // 見つけた数行を渡したいときに関係ない行まで混ざる）。
+  // コピーするのは絞り込んで画面に出ている行だけ（絞って見つけた数行を渡せるように）。
   const visibleEntriesText = useMemo(
     () =>
       visibleEntries
@@ -117,8 +107,7 @@ export default function DebugConsole({ open, onClose }: DebugConsoleProps) {
             data-level={entry.level}
           >
             <span className="text-[var(--color-muted)]">{entry.time}</span>{" "}
-            <span className="text-[var(--color-accent)]">[{entry.category}]</span>{" "}
-            <span className="">{entry.message}</span>
+            <span className="text-[var(--color-accent)]">[{entry.category}]</span> <span>{entry.message}</span>
             {entry.detail != null && <span className="text-[var(--color-muted)]"> {JSON.stringify(entry.detail)}</span>}
           </LogLine>
         ))}

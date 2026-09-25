@@ -5,38 +5,21 @@ import { Rnd } from "react-rnd";
 import { Button } from "@/components/ui/Button/Button";
 
 interface FloatingPanelProps {
-  /** パネル自体の開閉。呼び出し側（DebugConsole/SystemStatusPanel）が個別に持つ状態 */
   open: boolean;
   onClose: () => void;
   title: string;
-  /** ヘッダーの閉じるボタンより前に置く追加ボタン（クリア・更新など、パネルごとに異なる） */
+  /** 閉じるボタンの手前に置くパネルごとのボタン。 */
   headerButtons?: ReactNode;
   children: ReactNode;
-  /** 既定の上端位置（rem）。天候ヘッダの下から始まる高さに揃えるため既定4.25 */
+  /** 開いたときの上端（rem）。既定は天候ヘッダのすぐ下。 */
   topRem?: number;
-  /** 既定の幅（rem） */
   widthRem?: number;
-  /** 本文の最大高さ（px）。これを超える分はbody内でスクロールする */
+  /** 本文の最大の高さ（px）。超えたぶんは本文の中でスクロールする。 */
   maxHeightPx?: number;
 }
 
-// 一般ユーザーは使わない開発者向けパネル（デバッグログ・システム状況）の共通シェル。
-// サイドバー/地図に場所を固定せず、ビューポート基準で浮かせた独立パネルにする
-// （「設定」内のボタンから開閉、T43）。位置はヘッダーのつまみをドラッグして動かせる。
-// 2パネルとも同じ挙動（ドラッグ・既定位置リセット・半透明の暗い配色）を必要としたため、
-// DebugConsole単体だった実装をここへ切り出した（システム状況パネルの新設に伴う共通化）。
-//
-// ドラッグ位置管理は自前のpointerイベント実装からreact-rnd（Rnd）へ移行した（T253併用導入）。
-// dragHandleClassNameでヘッダーのつまみ（.dragHandle）に限定してドラッグを効かせ、
-// bounds="window"で画面外へドラッグして見失う（現行に無い改善）ことも防ぐ。リサイズは
-// 従来どおり提供しないためenableResizing={false}。
-//
-// 幅（widthRem）自体は従来どおりCSS側の`min(widthRem, 100vw - 2*space-3)`で応答的に
-// 決める（Rndのsize props経由の固定pxにはしない。ウィンドウ幅変更にも追従させたいため）。
-// Rndはx/y（左上原点の絶対px）でしか位置指定できずCSSの`left:50%; transform:translateX(-50%)`
-// のような相対中央寄せができないため、開いた直後にuseLayoutEffectで実際の描画幅を測って
-// 中央寄せのx座標を計算しRndへ反映する（ペイント前に同期実行されるため、ズレた位置が
-// 一瞬見える心配は無い）。
+/** 開発者向けのパネル（デバッグログ・システム状況）の共通の殻。画面に浮かべ、見出しのつまみで動かせる（画面の外へは
+ * 出ない）。幅はCSSで画面幅に追従させる（Rndの固定pxにしない）。 */
 export default function FloatingPanel({
   open,
   onClose,
@@ -50,10 +33,8 @@ export default function FloatingPanel({
   const panelRef = useRef<HTMLDivElement>(null);
   const rndRef = useRef<Rnd>(null);
 
-  // !openの間はこのコンポーネント自体がnullを返しRnd/panelRefのDOMごと毎回アンマウントする
-  // （下記参照）ため、openがfalse→trueになるたびにRndは新規マウントとなり、この
-  // useLayoutEffectも毎回走る。これにより「開き直すたびに中央寄せへ戻す」従来の挙動
-  // （ドラッグ位置は開いている間だけの一時的な配置、永続化しない）を再現できる。
+  // Rndは左上の絶対pxでしか置けないので、描いた幅を測って中央へ置く（描画の前に走るのでずれた位置は見えない）。
+  // 閉じるとアンマウントするので、開き直すたびに中央へ戻る（動かした位置は覚えない）。
   useLayoutEffect(() => {
     if (!open) return;
     const rnd = rndRef.current;
@@ -73,9 +54,7 @@ export default function FloatingPanel({
       bounds="window"
       enableResizing={false}
       dragHandleClassName="floating-panel-drag-handle"
-      // Rndの既定style（position:"absolute"）だとページスクロールに追従してしまうため、
-      // 元のCSS（.panel { position: fixed }）と同じ「常にビューポート基準」の浮遊挙動を
-      // 保つためfixedへ上書きする（Rnd内部でstyleは最後にspreadされ上書きできる）。
+      // Rndの既定のabsoluteはページのスクロールに付いて動くので、画面に固定する。
       style={{ position: "fixed", zIndex: "var(--z-floating-panel)" }}
     >
       <div

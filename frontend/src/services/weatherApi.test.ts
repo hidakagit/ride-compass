@@ -1,218 +1,71 @@
 // @vitest-environment node
+/**
+ * `weatherApi.ts`——地点を渡す取得は緯度経度をクエリに付けて応答をそのまま返し、風の格子は応答の時刻の列を各点へ
+ * 配り直すこと。失敗の扱いは共通の`fetchJson`が持つ（`lib/fetchJson.test.ts`）。
+ */
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { FloodForecasts, WbgtStatus, WeatherConditions, WeatherWarnings, WindGridPoint } from "@/types/weather";
-import {
-  getCurrentWeather,
-  getFloodForecasts,
-  getWbgtStatus,
-  getWeatherWarnings,
-  getWindGrid,
-  getWindGridDetail,
-} from "./weatherApi";
+import * as weatherApi from "./weatherApi";
 import { makeResponse } from "@/testing/fetchMocks";
 
-describe("getCurrentWeather", () => {
-  afterEach(() => {
-    vi.unstubAllGlobals();
-  });
-
-  it("成功時はlatitude/longitudeをクエリに含むURLでfetchし、JSONをそのまま返す", async () => {
-    const weather: WeatherConditions = {
-      temperature_c: 20.5,
-      wind_speed_ms: 3.2,
-      wind_direction_deg: 90,
-      wind_direction_label: "東",
-      precipitation_mm: 0.1,
-      observed_at: "2026-08-14T00:00:00Z",
-      weather_code: 1,
-      is_day: 1,
-      sunrise: "2026-08-14T05:12",
-      sunset: "2026-08-14T18:30",
-      precipitation_max_mm: 1.4,
-      wind_speed_max_ms: 6.0,
-      temperature_max_c: 30.0,
-      temperature_min_c: 24.0,
-      today_periods: [],
-    };
-    const fetchMock = vi.fn().mockResolvedValue(makeResponse({ json: async () => weather }));
-    vi.stubGlobal("fetch", fetchMock);
-
-    const result = await getCurrentWeather({ latitude: 35.1234, longitude: 139.5678 });
-
-    expect(result).toEqual(weather);
-    const [url] = fetchMock.mock.calls[0];
-    expect(String(url)).toContain("latitude=35.1234");
-    expect(String(url)).toContain("longitude=139.5678");
-  });
-
-  // ok:false時のエラーメッセージ組み立て（detail+x-request-id、json parse失敗時のフォールバック）は
-  // 全関数が共通で委譲するfetchJson側のロジックのため、lib/fetchJson.test.tsで一括検証済み。
-  // 各関数固有のエンドポイント疎通確認はgetWindGridDetailのテスト（バックエンド固有のエラー文言を
-  // 実際に使う）に代表させ、残りの重複は削除した（改善計画、テスト有効性監査2026-08-31）。
+afterEach(() => {
+  vi.unstubAllGlobals();
 });
 
-describe("getWeatherWarnings", () => {
-  afterEach(() => {
-    vi.unstubAllGlobals();
-  });
+function stubFetch(body: unknown) {
+  const fetchMock = vi.fn().mockResolvedValue(makeResponse({ json: async () => body }));
+  vi.stubGlobal("fetch", fetchMock);
+  return () => new URL(String(fetchMock.mock.calls[0][0]));
+}
 
-  it("成功時は/api/weather/warningsをlatitude/longitude付きでfetchし、JSONをそのまま返す", async () => {
-    const warnings: WeatherWarnings = {
-      area_name: "東京地方",
-      report_datetime: "2026-08-22T18:09:00+09:00",
-      warnings: [{ code: "14", name: "雷注意報", level: "advisory", additions: ["竜巻"] }],
-    };
-    const fetchMock = vi.fn().mockResolvedValue(makeResponse({ json: async () => warnings }));
-    vi.stubGlobal("fetch", fetchMock);
+const POINT_GETTERS = [
+  weatherApi.getCurrentWeather,
+  weatherApi.getAmedasObservation,
+  weatherApi.getWeatherWarnings,
+  weatherApi.getWbgtStatus,
+  weatherApi.getFloodForecasts,
+];
 
-    const result = await getWeatherWarnings({ latitude: 35.6812, longitude: 139.7671 });
-
-    expect(result).toEqual(warnings);
-    const [url] = fetchMock.mock.calls[0];
-    expect(String(url)).toContain("/api/weather/warnings");
-    expect(String(url)).toContain("latitude=35.6812");
-    expect(String(url)).toContain("longitude=139.7671");
-  });
+describe("地点を渡す取得", () => {
+  it.each(POINT_GETTERS.map((get) => [get.name, get] as const))(
+    "%s は緯度経度をクエリに付けて取り、応答をそのまま返す",
+    async (_name, get) => {
+      const body = { precipitation_mm: 0, marker: "応答" };
+      const url = stubFetch(body);
+      await expect(get({ latitude: 35.1234, longitude: 139.5678 })).resolves.toEqual(body);
+      expect(url().searchParams.get("latitude")).toBe("35.1234");
+      expect(url().searchParams.get("longitude")).toBe("139.5678");
+    },
+  );
 });
 
-describe("getWbgtStatus", () => {
-  afterEach(() => {
-    vi.unstubAllGlobals();
-  });
+describe("風の格子", () => {
+  const response = {
+    times: ["2026-08-20T12:00", "2026-08-20T13:00"],
+    points: [
+      { latitude: 35.68, longitude: 139.77, wind_speed_ms: [2.5, 3], wind_direction_deg: [90, 95] },
+      { latitude: 35.7, longitude: 139.8, wind_speed_ms: [1, 1.5], wind_direction_deg: [180, 170] },
+    ],
+  };
+  const expected = response.points.map((point) => ({ ...point, times: response.times }));
 
-  it("成功時は/api/weather/wbgtをlatitude/longitude付きでfetchし、JSONをそのまま返す", async () => {
-    const status: WbgtStatus = {
-      level: "severe_warning",
-      label: "厳重警戒",
-      value: 30.0,
-      observed_at: "2026/08/22 18:00:00",
-    };
-    const fetchMock = vi.fn().mockResolvedValue(makeResponse({ json: async () => status }));
-    vi.stubGlobal("fetch", fetchMock);
-
-    const result = await getWbgtStatus({ latitude: 35.6812, longitude: 139.7671 });
-
-    expect(result).toEqual(status);
-    const [url] = fetchMock.mock.calls[0];
-    expect(String(url)).toContain("/api/weather/wbgt");
-    expect(String(url)).toContain("latitude=35.6812");
-    expect(String(url)).toContain("longitude=139.7671");
-  });
-});
-
-describe("getFloodForecasts", () => {
-  afterEach(() => {
-    vi.unstubAllGlobals();
-  });
-
-  it("成功時は/api/weather/flood-forecastをlatitude/longitude付きでfetchし、JSONをそのまま返す", async () => {
-    const forecasts: FloodForecasts = {
-      forecasts: [
-        {
-          river_code: "830304004400",
-          river_name: "神田川",
-          level: 4,
-          badge_level: "severe_warning",
-          label: "神田川氾濫危険警報",
-          condition: "レベル４氾濫危険警報（発表）",
-          report_datetime: "2026-08-22T17:50:00+09:00",
-        },
-      ],
-    };
-    const fetchMock = vi.fn().mockResolvedValue(makeResponse({ json: async () => forecasts }));
-    vi.stubGlobal("fetch", fetchMock);
-
-    const result = await getFloodForecasts({ latitude: 35.6812, longitude: 139.7671 });
-
-    expect(result).toEqual(forecasts);
-    const [url] = fetchMock.mock.calls[0];
-    expect(String(url)).toContain("/api/weather/flood-forecast");
-    expect(String(url)).toContain("latitude=35.6812");
-    expect(String(url)).toContain("longitude=139.7671");
-  });
-});
-
-describe("getWindGrid", () => {
-  afterEach(() => {
-    vi.unstubAllGlobals();
-  });
-
-  // 改善計画T203: バックエンドはtimes配列をpoints各点からは外し、応答トップレベルに
-  // 1本だけ持つ形（WindGridResponse）で返す。フロント内部の表現（WindGridPoint、各点が
-  // timesを持つ）は変えないため、weatherApi.ts側でtimesを各点へ合成し直して返す。
-  it("成功時は/api/weather/wind-gridをfetchし、times配列を各点へ合成して返す", async () => {
-    const response = {
-      times: ["2026-08-20T12:00"],
-      points: [
-        {
-          latitude: 35.68,
-          longitude: 139.77,
-          wind_speed_ms: [2.5],
-          wind_direction_deg: [90],
-          precipitation_mm: [0.5],
-        },
-      ],
-    };
-    const expected: WindGridPoint[] = [{ ...response.points[0], times: response.times }];
-    const fetchMock = vi.fn().mockResolvedValue(makeResponse({ json: async () => response }));
-    vi.stubGlobal("fetch", fetchMock);
-
-    const result = await getWindGrid();
-
-    expect(result).toEqual(expected);
-    const [url] = fetchMock.mock.calls[0];
-    expect(String(url)).toContain("/api/weather/wind-grid");
-  });
-});
-
-describe("getWindGridDetail", () => {
-  afterEach(() => {
-    vi.unstubAllGlobals();
-  });
-
-  const bbox = { minLon: 139.7, minLat: 35.6, maxLon: 139.8, maxLat: 35.7 };
-
-  it("成功時は/api/weather/wind-grid-detailをbboxクエリ付きでfetchし、times配列を各点へ合成して返す", async () => {
-    const response = {
-      times: ["2026-08-20T12:00"],
-      points: [
-        {
-          latitude: 35.68,
-          longitude: 139.77,
-          wind_speed_ms: [2.5],
-          wind_direction_deg: [90],
-          precipitation_mm: [0.5],
-        },
-      ],
-    };
-    const expected: WindGridPoint[] = [{ ...response.points[0], times: response.times }];
-    const fetchMock = vi.fn().mockResolvedValue(makeResponse({ json: async () => response }));
-    vi.stubGlobal("fetch", fetchMock);
-
-    const result = await getWindGridDetail(bbox, 0.01);
-
-    expect(result).toEqual(expected);
-    const [url] = fetchMock.mock.calls[0];
-    expect(String(url)).toContain("/api/weather/wind-grid-detail");
-    expect(String(url)).toContain("min_lon=139.7");
-    expect(String(url)).toContain("max_lat=35.7");
-    expect(String(url)).toContain("spacing_deg=0.01");
-  });
-
-  it("ok:falseの場合はdetailとx-request-idからエラーメッセージを組み立てて投げる", async () => {
-    const headers = new Headers({ "x-request-id": "req-999" });
-    vi.stubGlobal(
-      "fetch",
-      vi.fn().mockResolvedValue(
-        makeResponse({
-          ok: false,
-          status: 400,
-          json: async () => ({ detail: "表示範囲が広すぎます。ズームインしてください。" }),
-          headers,
-        }),
-      ),
+  it("固定の格子も詳細の格子も、応答の時刻の列を各点へ配り直す", async () => {
+    stubFetch(response);
+    await expect(weatherApi.getWindGrid()).resolves.toEqual(expected);
+    stubFetch(response);
+    await expect(weatherApi.getWindGridDetail({ minLon: 0, minLat: 0, maxLon: 1, maxLat: 1 }, 0.01)).resolves.toEqual(
+      expected,
     );
+  });
 
-    await expect(getWindGridDetail(bbox, 0.02)).rejects.toThrow("表示範囲が広すぎます。ズームインしてください。");
+  it("詳細の格子は表示範囲と間隔をクエリに付ける", async () => {
+    const url = stubFetch(response);
+    await weatherApi.getWindGridDetail({ minLon: 139.7, minLat: 35.6, maxLon: 139.8, maxLat: 35.7 }, 0.02);
+    expect(Object.fromEntries(url().searchParams)).toEqual({
+      min_lon: "139.7",
+      min_lat: "35.6",
+      max_lon: "139.8",
+      max_lat: "35.7",
+      spacing_deg: "0.02",
+    });
   });
 });

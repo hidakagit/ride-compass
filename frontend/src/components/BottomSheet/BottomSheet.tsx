@@ -8,41 +8,29 @@ import { cn } from "@/lib/cn";
 interface BottomSheetProps {
   open: boolean;
   onClose: () => void;
-  /** シートの見出し（アクセシブル名にも使う） */
+  /** 見出し（シートのアクセシブル名にもなる）。 */
   title: string;
-  /** 見出しのDOM id（シートの`aria-labelledby`が指す）。 */
   titleId: string;
-  /** ヘッダ右側、閉じるボタンの手前へ差し込む任意の要素。シートごとの補足説明の
-   * 情報アイコン・アクションボタンをヘッダ右上へ集約するための差し込み口（page.tsx:
-   * 「ルート結果」シートのrenderRouteResultHeaderActions参照）。 */
+  /** 見出しの行の右、閉じるボタンの手前に置く操作。 */
   headerAction?: React.ReactNode;
-  /** 見出しのすぐ右（左寄せ）に置く差し込み口。中身を切り替えるタブのように、右上の
-   * アクション群（headerAction）と役割が違うものを、見た目でも離して置くため。 */
+  /** 見出しのすぐ右に置くもの（中身を切り替えるタブ等、右の操作と役割が違うもの）。 */
   headerLead?: React.ReactNode;
   children: React.ReactNode;
-  /** シートの高さ（vh）。シートは排他表示のため、呼び出し側（page.tsx）が1つの値を
-   * 共有して持つ。開いた時点で中身に合う高さへ合わせ直すため（下記useLayoutEffect）、
-   * この値は「いま表示している高さ」であって利用者の恒久的な設定ではない。 */
+  /** いま出している高さ（vh）。開いたときに中身へ合わせ直すので、利用者の恒久の設定ではない。 */
   heightVh: number;
-  /** ドラッグ・キー操作の途中も含めて随時呼ばれる（見た目の即時反映用）。 */
+  /** ドラッグやキー操作の途中も呼ばれる（見た目へすぐ反映する）。 */
   onHeightChange: (vh: number) => void;
-  /** ドラッグ終了・キー操作確定時にのみ呼ばれる（永続化用。ドラッグ中の連続書き込みを避ける）。 */
+  /** 操作を終えたときだけ呼ばれる（保存用）。 */
   onHeightCommit: (vh: number) => void;
-  /** 中身に合わせた高さの自動調整を行うか（既定true）。利用者が自分で高さを決めた後は
-   * falseにして、その高さをそのまま使う——地図を広く見るためにわざと低くしたシートが
-   * 中身の都合で戻されると、決めた高さを保てない。 */
+  /** 中身に合わせて高さを決めるか（既定true）。利用者が高さを決めた後はfalseにし、その高さを保つ。 */
   autoFitHeight?: boolean;
-  /** 自動調整をやり直す区切り。開いている間は合わせ直さないのが既定だが、この値が
-   * 変わったときは中身が別物になったとみなして合わせ直す（タブ・モードの切替等、利用者
-   * 自身が別の内容へ移った場合）。 */
+  /** 変わったら中身が別物になったとみなして高さを合わせ直す（タブの切り替え等）。 */
   fitKey?: string;
 }
 
 const SWIPE_CLOSE_THRESHOLD_PX = 60;
 
-// 「ちょうどいい高さ」はユーザーによって違う（片手操作か両手か、地図をどれだけ見たいか等）
-// ため固定値にせず、ハンドルドラッグ/キー操作で変えられる範囲にする。地図を完全に隠さない
-// よう上限は100vhにしない。
+// 上限は地図を隠し切らない高さにする。
 const MIN_SHEET_HEIGHT_VH = 20;
 const MAX_SHEET_HEIGHT_VH = 80;
 export const DEFAULT_SHEET_HEIGHT_VH = 50;
@@ -52,10 +40,8 @@ export function clampSheetHeightVh(vh: number): number {
   return Math.min(MAX_SHEET_HEIGHT_VH, Math.max(MIN_SHEET_HEIGHT_VH, vh));
 }
 
-/** 中身がそのまま並んだときのシートの高さ。高さ指定を一時的に外して実測する——
- * `scrollHeight`は中身が箱より低いと箱の高さを返し、子要素の合算は中身側のflexが
- * 引き伸ばされている場合に箱の高さへ一致してしまうため、どちらも縮める判断に使えない。
- * 読み書きは同じレイアウト処理の中で完結するため、途中の高さが描画されることはない。 */
+/** 中身がそのまま並んだときの高さ。高さの指定を一時的に外して測る（`scrollHeight`や子の合算は、中身が箱より
+ * 低いと箱の高さを返すので縮める判断に使えない）。読み書きは同じレイアウトの中で終わるので途中の高さは描かれない。 */
 function naturalHeightOf(sheet: HTMLElement): number {
   const specified = sheet.style.height;
   sheet.style.height = "auto";
@@ -64,16 +50,8 @@ function naturalHeightOf(sheet: HTMLElement): number {
   return natural;
 }
 
-// モバイル専用の部分高さシート（画面下部からせり上がる。高さの範囲は
-// MIN_SHEET_HEIGHT_VH〜MAX_SHEET_HEIGHT_VH）。フルスクリーンの
-// 暗幕は意図的に敷かない（シート表示中も上に見えている地図をパン/ズームできる状態を
-// 保つ）。閉じる操作は✕ボタン・下スワイプ・呼び出し側のタブ再タップの3通り。シート外
-// タップでは閉じない——地図をぐりぐり操作しながら凡例を見たい、というシート外のタップ・
-// スクロール＝地図操作をシートを開いたまま自由にできるようにするため。
-//
-// 下スワイプでの閉じる判定（handleTouchStart/handleTouchEnd）はシート内のスクロールと
-// 誤認しないよう、.body側でtouchイベントのbubbleを止める（下のJSX、.body要素の
-// onTouchStart/onTouchEnd参照）。
+/** モバイルの下からせり上がるシート。暗幕を敷かず、シートの外を押しても閉じない（開いたまま地図を動かせる）。
+ * 閉じるのは✕・下スワイプ・呼ぶ側のタブの押し直し。 */
 export default function BottomSheet({
   open,
   onClose,
@@ -92,15 +70,8 @@ export default function BottomSheet({
   const bodyRef = useRef<HTMLDivElement>(null);
   const touchStartRef = useRef<{ x: number; y: number } | null>(null);
 
-  // 開いた時点の中身にちょうど合う高さへ合わせる。シートが中身より高いと、そのぶん地図が
-  // 隠れたまま空白を見せることになる（設計原則「地図表示エリアを最大限確保する」）。
-  // **開いている間は合わせ直さない**——候補の切り替え・区間クリックのたびに地図の見える
-  // 範囲が動くと、地図を見ながらの操作が落ち着かないため。例外はfitKeyが変わったときだけで、
-  // これは利用者自身が別の内容へ移った合図として扱う。
-  // **利用者が自分で高さを決めた後（autoFitHeight=false）は一切合わせない**——決めた高さが
-  // 中身の都合で戻ると、地図を広く見るために低くしておくことができない。
-  // レイアウトを持たない実行（実寸が取れない環境）では何もしない——シート自身の高さが
-  // 0のときはヘッダ・ハンドルぶんの差分も求まらず、合わせる先が出せない。
+  // 開いたときの中身に合う高さへ合わせる（高すぎると空白で地図を隠す）。開いている間は合わせ直さない（候補や区間を
+  // 押すたびに地図の見える範囲が動かないように）。実寸が取れない環境では何もしない。
   useLayoutEffect(() => {
     if (!open || !autoFitHeight) return;
     const sheet = sheetRef.current;
@@ -111,9 +82,7 @@ export default function BottomSheet({
     if (viewportHeight <= 0 || sheet.clientHeight <= 0 || needed <= 0) return;
     onHeightChange(clampSheetHeightVh(Math.ceil((needed / viewportHeight) * 100)));
   }, [open, onHeightChange, autoFitHeight, fitKey]);
-  // ハンドルの縦ドラッグによる高さ変更。ドラッグ開始時点の高さを起点に、指の移動量(vh換算)を
-  // 足し込む。pointerIdで対象を絞るのは、まれに複数指が絡んだ場合に別指のmove/upで誤反応
-  // しないようにするため。
+  // つまみのドラッグ。始めた指（pointerId）の動きだけを見る（別の指のmove/upに反応しない）。
   const dragRef = useRef<{ pointerId: number; startClientY: number; startHeightVh: number } | null>(null);
 
   useEffect(() => {
@@ -139,8 +108,7 @@ export default function BottomSheet({
     const touch = e.changedTouches[0];
     const dy = touch.clientY - start.y;
     const dx = touch.clientX - start.x;
-    // 縦方向の下スワイプのみ閉じる対象にする（横方向の動きが大きい場合はシート内の
-    // 横スクロール要素の操作とみなして無視する。page.tsx旧ドロワーの左スワイプ判定と同じ考え方）
+    // 縦の下スワイプだけで閉じる（横の動きが大きいのはシート内の横スクロールの操作）。
     if (dy > SWIPE_CLOSE_THRESHOLD_PX && Math.abs(dy) > Math.abs(dx)) {
       onClose();
     }
@@ -154,7 +122,6 @@ export default function BottomSheet({
   function handleHandlePointerMove(e: React.PointerEvent<HTMLDivElement>) {
     const drag = dragRef.current;
     if (!drag || e.pointerId !== drag.pointerId) return;
-    // 上方向のドラッグ（clientYが減る）で高さが増えるよう符号を反転する
     const deltaVh = ((drag.startClientY - e.clientY) / window.innerHeight) * 100;
     onHeightChange(clampSheetHeightVh(drag.startHeightVh + deltaVh));
   }
@@ -166,26 +133,13 @@ export default function BottomSheet({
     onHeightCommit(heightVh);
   }
 
-  // タッチデバイスではpointerdownと別にネイティブのtouchstartも.handleからバブルするため、
-  // 何もしないとsheet側のonTouchStart（上のhandleTouchStart、下スワイプで閉じる判定）が
-  // ハンドル操作の開始点としても記録されてしまい、ドラッグ後の指離しが誤って閉じる判定に
-  // 巻き込まれることがある。ハンドル上のtouchstartはバブルを止めて競合を避ける。
-  function handleHandleTouchStart(e: React.TouchEvent) {
-    e.stopPropagation();
-  }
-
   function handleHandleKeyDown(e: React.KeyboardEvent<HTMLDivElement>) {
-    if (e.key === "ArrowUp") {
-      e.preventDefault();
-      const next = clampSheetHeightVh(heightVh + HEIGHT_KEY_STEP_VH);
-      onHeightChange(next);
-      onHeightCommit(next);
-    } else if (e.key === "ArrowDown") {
-      e.preventDefault();
-      const next = clampSheetHeightVh(heightVh - HEIGHT_KEY_STEP_VH);
-      onHeightChange(next);
-      onHeightCommit(next);
-    }
+    const direction = e.key === "ArrowUp" ? 1 : e.key === "ArrowDown" ? -1 : 0;
+    if (direction === 0) return;
+    e.preventDefault();
+    const next = clampSheetHeightVh(heightVh + direction * HEIGHT_KEY_STEP_VH);
+    onHeightChange(next);
+    onHeightCommit(next);
   }
 
   return (
@@ -215,7 +169,8 @@ export default function BottomSheet({
         onPointerDown={handleHandlePointerDown}
         onPointerMove={handleHandlePointerMove}
         onPointerUp={handleHandlePointerUp}
-        onTouchStart={handleHandleTouchStart}
+        // つまみのtouchstartがシートの下スワイプの判定まで届くと、ドラッグの後の指離しで閉じてしまう。
+        onTouchStart={(e) => e.stopPropagation()}
         onKeyDown={handleHandleKeyDown}
       />
       <div className="flex flex-shrink-0 items-center justify-between gap-2 border-b border-[var(--color-border)] px-3">
@@ -240,9 +195,7 @@ export default function BottomSheet({
           </Button>
         </div>
       </div>
-      {/* シート内容のスクロールがシート全体の下スワイプ判定（handleTouchStart/
-          handleTouchEnd）まで届かないよう、ここでbubbleを止める。止めないと、
-          スクロールで指を大きく動かしただけで「下スワイプで閉じる」と誤認されてしまう。 */}
+      {/* 本文のスクロールが下スワイプの判定まで届かないようにする（届くとスクロールしただけで閉じる）。 */}
       <div
         ref={bodyRef}
         className="flex flex-col gap-2 overflow-y-auto px-3 pt-2 pb-3"

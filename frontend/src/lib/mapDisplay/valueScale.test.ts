@@ -1,24 +1,24 @@
 // @vitest-environment node
-// 配色・段階分けの純粋関数のみを検証する（docs/conventions/testing.mdパターン3）。
+/**
+ * `valueScale.ts`——段の色が配色の端の色から段の数だけ補間され、符号付き材料は0を含む段を平坦の色にすること。
+ *
+ * 色の値はbackendの宣言（生成物の配色）から読む。
+ */
 import { describe, expect, it } from "vitest";
+import palette from "@/types/generated/palette.json";
 import { bandColorsFor } from "./valueScale";
 
-// 補間そのものを見るので、色は**テストが自分で持つ**。実装から借りると、源泉で色を
-// 調整しただけでこのテストが落ちる（自分は何も変えていないのに）。
-const LOW = "#16a34a";
-const HIGH = "#dc2626";
-/** 符号付き材料の下り側は寒色（平坦の緑とは別系統）。 */
-const DESCENT = "#0284c7";
-/** 平坦は評価の「良い」側と同じ色を使う（0付近が最も走りやすい）。 */
-const FLAT = "#16a34a";
+const LOW = palette.semantic.evaluation_good;
+const HIGH = palette.semantic.evaluation_bad;
+const DESCENT = palette.semantic.signed_descent;
+/** 平坦は評価の「良い」側と同じ色。 */
+const FLAT = palette.semantic.evaluation_good;
 
 /** 符号付き材料の段。**軸の折れ線の節を0対称に開いたもの**で、backendが軸ごとに返す
  * （`domain/dynamic_way_values.py`）。ここでは形だけを借りて色の性質を見る。 */
 const SIGNED_BANDS: readonly number[] = [-9, -6, -3, 3, 6, 9];
 
 describe("valueScale", () => {
-  // 色の補間は`bandColorsFor`の途中段階で、外へ口を持たない。段の数を変えたときに
-  // 何が起きるかは、入口が返す段の色で確かめられる。
   describe("段の数と色の並び", () => {
     it("両端は配色の端の色そのもので、間は段の数だけ埋まる", () => {
       const colors = bandColorsFor("difficulty", [20, 40, 60, 80]);
@@ -69,12 +69,6 @@ describe("valueScale", () => {
       // 境界にちょうど0がある場合は「0から始まる段階」を平坦側として扱う。
       expect(bandColorsFor("signed_material", [-2, 0, 2])[2]).toBe(FLAT);
       expect(bandColorsFor("signed_material", [])).toEqual([FLAT]);
-    });
-
-    it("難易度スケールは緑→赤のままで、符号付き材料の変更に巻き込まれない", () => {
-      const colors = bandColorsFor("difficulty", [33, 66]);
-      expect(colors[0]).toBe(LOW);
-      expect(colors[colors.length - 1]).toBe(HIGH);
     });
   });
 });

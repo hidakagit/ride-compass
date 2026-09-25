@@ -14,113 +14,41 @@ import { debugLog } from "@/lib/debugLog";
 import { fetchJson } from "@/lib/fetchJson";
 import { DEFAULT_API_TIMEOUT_MS } from "@/lib/apiTimeouts";
 
+function getAtPoint<T>(path: string, point: Coordinates, category: string, errorLabel: string): Promise<T> {
+  const params = new URLSearchParams({ latitude: String(point.latitude), longitude: String(point.longitude) });
+  return fetchJson<T>(`${API_BASE_URL}${path}?${params}`, { timeoutMs: DEFAULT_API_TIMEOUT_MS, category, errorLabel });
+}
+
 export async function getCurrentWeather(point: Coordinates): Promise<WeatherConditions> {
-  const params = new URLSearchParams({
-    latitude: String(point.latitude),
-    longitude: String(point.longitude),
-  });
-  const url = `${API_BASE_URL}/api/weather?${params}`;
-  const data = await fetchJson<WeatherConditions>(url, {
-    timeoutMs: DEFAULT_API_TIMEOUT_MS,
-    category: "api:weather",
-    errorLabel: "天候情報",
-  });
+  const data = await getAtPoint<WeatherConditions>("/api/weather", point, "api:weather", "天候情報");
   debugLog("api:weather", "詳細", { precipitation_mm: data.precipitation_mm });
   return data;
 }
 
-// 最寄りアメダス観測所の実測値。常設ヘッダー（WeatherPanel）が
-// getCurrentWeather（MSM予報、TodayOutlook専用）とは独立に呼ぶ。取得失敗時はbackendが
-// 502を返す契約（backend/app/api/routers/weather.py: get_amedas参照）。
-export async function getAmedasObservation(point: Coordinates): Promise<AmedasObservation> {
-  const params = new URLSearchParams({
-    latitude: String(point.latitude),
-    longitude: String(point.longitude),
-  });
-  const url = `${API_BASE_URL}/api/weather/amedas?${params}`;
-  return fetchJson<AmedasObservation>(url, {
-    timeoutMs: DEFAULT_API_TIMEOUT_MS,
-    category: "api:amedas",
-    errorLabel: "アメダス観測値",
-  });
-}
+export const getAmedasObservation = (point: Coordinates) =>
+  getAtPoint<AmedasObservation>("/api/weather/amedas", point, "api:amedas", "アメダス観測値");
 
-// 警報・注意報バッジ。取得失敗時もbackend側が空のwarningsで200を返す
-// 契約（backend/app/api/routers/weather.py: get_weather_warnings参照）のため、
-// ここでのエラーはネットワーク到達不能・タイムアウト等の通信エラーのみを表す。
-export async function getWeatherWarnings(point: Coordinates): Promise<WeatherWarnings> {
-  const params = new URLSearchParams({
-    latitude: String(point.latitude),
-    longitude: String(point.longitude),
-  });
-  const url = `${API_BASE_URL}/api/weather/warnings?${params}`;
-  return fetchJson<WeatherWarnings>(url, {
-    timeoutMs: DEFAULT_API_TIMEOUT_MS,
-    category: "api:weatherWarnings",
-    errorLabel: "警報・注意報",
-  });
-}
+// 警報・WBGT・河川氾濫は、取得できなかったときもbackendが空の中身で200を返す。ここで投げるのは通信の失敗だけ。
+export const getWeatherWarnings = (point: Coordinates) =>
+  getAtPoint<WeatherWarnings>("/api/weather/warnings", point, "api:weatherWarnings", "警報・注意報");
 
-// WBGT警告バッジ。提供期間外（11〜3月）・取得失敗・「ほぼ安全」のいずれも
-// backend側がlevel=nullで200を返す契約（backend/app/api/routers/weather.py: get_wbgt参照）
-// のため、ここでのエラーはネットワーク到達不能・タイムアウト等の通信エラーのみを表す。
-export async function getWbgtStatus(point: Coordinates): Promise<WbgtStatus> {
-  const params = new URLSearchParams({
-    latitude: String(point.latitude),
-    longitude: String(point.longitude),
-  });
-  const url = `${API_BASE_URL}/api/weather/wbgt?${params}`;
-  return fetchJson<WbgtStatus>(url, {
-    timeoutMs: DEFAULT_API_TIMEOUT_MS,
-    category: "api:wbgt",
-    errorLabel: "暑さ指数",
-  });
-}
+export const getWbgtStatus = (point: Coordinates) =>
+  getAtPoint<WbgtStatus>("/api/weather/wbgt", point, "api:wbgt", "暑さ指数");
 
-// 河川氾濫予報バッジ。地点解決失敗・取得失敗のいずれもbackend側が
-// forecasts=[]で200を返す契約（backend/app/api/routers/weather.py: get_flood_forecast参照）
-// のため、ここでのエラーはネットワーク到達不能・タイムアウト等の通信エラーのみを表す。
-export async function getFloodForecasts(point: Coordinates): Promise<FloodForecasts> {
-  const params = new URLSearchParams({
-    latitude: String(point.latitude),
-    longitude: String(point.longitude),
-  });
-  const url = `${API_BASE_URL}/api/weather/flood-forecast?${params}`;
-  return fetchJson<FloodForecasts>(url, {
-    timeoutMs: DEFAULT_API_TIMEOUT_MS,
-    category: "api:floodForecast",
-    errorLabel: "河川氾濫予報",
-  });
-}
+export const getFloodForecasts = (point: Coordinates) =>
+  getAtPoint<FloodForecasts>("/api/weather/flood-forecast", point, "api:floodForecast", "河川氾濫予報");
 
-// バックエンドの応答（times配列を1本だけ持つ）を、フロント内部で使う
-// 「各点がtimesを持つ」表現（WindGridPoint、windLayer.ts/useWeatherGrid.ts等の既存ロジックが
-// 前提にしている形）へ戻す。ネットワーク転送量の削減（times重複の除去）だけを目的とした
-// 変更であり、フロント内部のデータ構造・trim/mergeロジックには影響させない。
-function toWindGridPoints(response: WindGridResponse): WindGridPoint[] {
-  return response.points.map((point) => ({ ...point, times: response.times }));
-}
-
-// 風の格子点マップ。関東本土全域の固定格子点ぶんの
-// 時間別風向・風速をまとめて取得する。取得失敗地点は既にバックエンド側で除外済み
-// （backend/app/api/routers/weather.py: get_wind_grid参照）。
-export async function getWindGrid(): Promise<WindGridPoint[]> {
-  const url = `${API_BASE_URL}/api/weather/wind-grid`;
-  const data = await fetchJson<WindGridResponse>(url, {
-    timeoutMs: DEFAULT_API_TIMEOUT_MS,
-    category: "api:windGrid",
-    errorLabel: "風データ",
-  });
-  const points = toWindGridPoints(data);
-  debugLog("api:windGrid", "詳細", { points: points.length });
+// 応答は時刻の列を1本だけ持つ（転送量を減らすため）。フロントの中では各点が時刻の列を持つ形で扱う。
+async function getWindGridPoints(url: string, category: string, errorLabel: string): Promise<WindGridPoint[]> {
+  const data = await fetchJson<WindGridResponse>(url, { timeoutMs: DEFAULT_API_TIMEOUT_MS, category, errorLabel });
+  const points = data.points.map((point) => ({ ...point, times: data.times }));
+  debugLog(category, "詳細", { points: points.length });
   return points;
 }
 
-// 風の詳細格子（ヒートマップ等の面表現用、spacingDegはズーム依存で間隔可変）。
-// 表示範囲（bbox）に交差する密格子点ぶんの時間別風向・風速を取得する。
-// bboxはwindLayer.tsのclampWindDetailBboxで安全な広さへクリップ済みのものを、spacingDegは
-// windGridDetailSpacingDegForZoomで求めたものを渡す想定（呼び出し元が責務を持つ、この関数は
-// 素直にリクエストするだけ）。
+/** 風の格子点（関東の固定の格子）。取れなかった点はbackendが除いてある。 */
+export const getWindGrid = () => getWindGridPoints(`${API_BASE_URL}/api/weather/wind-grid`, "api:windGrid", "風データ");
+
 export interface Bbox {
   minLon: number;
   minLat: number;
@@ -128,7 +56,8 @@ export interface Bbox {
   maxLat: number;
 }
 
-export async function getWindGridDetail(bbox: Bbox, spacingDeg: number): Promise<WindGridPoint[]> {
+/** 表示範囲の中の詳細な格子。範囲の広さと間隔は呼ぶ側が安全な値へ決めて渡す。 */
+export function getWindGridDetail(bbox: Bbox, spacingDeg: number): Promise<WindGridPoint[]> {
   const params = new URLSearchParams({
     min_lon: String(bbox.minLon),
     min_lat: String(bbox.minLat),
@@ -136,24 +65,15 @@ export async function getWindGridDetail(bbox: Bbox, spacingDeg: number): Promise
     max_lat: String(bbox.maxLat),
     spacing_deg: String(spacingDeg),
   });
-  const url = `${API_BASE_URL}/api/weather/wind-grid-detail?${params}`;
-  const data = await fetchJson<WindGridResponse>(url, {
-    timeoutMs: DEFAULT_API_TIMEOUT_MS,
-    category: "api:windGridDetail",
-    errorLabel: "風データ(詳細)",
-  });
-  const points = toWindGridPoints(data);
-  debugLog("api:windGridDetail", "詳細", { points: points.length });
-  return points;
+  return getWindGridPoints(
+    `${API_BASE_URL}/api/weather/wind-grid-detail?${params}`,
+    "api:windGridDetail",
+    "風データ(詳細)",
+  );
 }
 
-/**
- * JMA動的タイルの在否インデックス（`GET /api/jma-tile-index`）。
- *
- * 失敗しても呼び出し元（`useJmaTileIndex`）は`null`のまま動く——インデックスが無ければ
- * タイルの間引きが効かないだけで、表示は従来どおり成立する。
- */
-export async function fetchJmaTileIndex(): Promise<JmaTileIndexResponse> {
+/** JMAの動的タイルの在否。取れなくても呼ぶ側は間引きが効かないだけで表示は成り立つ。 */
+export function fetchJmaTileIndex(): Promise<JmaTileIndexResponse> {
   return fetchJson<JmaTileIndexResponse>(`${API_BASE_URL}/api/jma-tile-index`, {
     timeoutMs: DEFAULT_API_TIMEOUT_MS,
     category: "api:jma-tile-index",

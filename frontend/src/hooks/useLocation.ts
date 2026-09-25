@@ -3,36 +3,25 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { Coordinates, LocationSource } from "@/types/route";
 
-// 開発時の初期地点フォールバック: 東京都北区・王子駅付近
+// 位置が取れないときの初期地点（東京都北区・王子駅付近）。
 const DEFAULT_LOCATION: Coordinates = { latitude: 35.7597, longitude: 139.7387 };
 const GEOLOCATION_TIMEOUT_MS = 8000;
 
 interface UseLocationResult {
   location: Coordinates;
   locationSource: LocationSource;
-  // マウント時の自動取得（成功・失敗・API非対応のいずれか）が確定したかどうか。
-  // page.tsxの天候・警報等のフェッチが、DEFAULT_LOCATIONぶんの使い捨てリクエストを
-  // 発行せず「確定した1つの地点」だけで済むよう待ち合わせるために使う。
-  // **固定時間のデバウンスはこの代わりにならない**——位置情報の許可ダイアログへの応答は
-  // どんな長さを選んでもそれを超えることがあり、結局2地点ぶん問い合わせる。
+  /** マウント時の自動取得が（成功・失敗・非対応のどれかで）決着したか。天候等の取得はこれを待ち、初期地点ぶんの
+   * 使い捨ての問い合わせをしない（許可ダイアログへの応答はどんな長さの待ちも超えうるので、時間で待たない）。 */
   locationReady: boolean;
   locating: boolean;
   locateError: string | null;
   handleLocateMe: () => void;
-  /** 出発地点マーカーをドラッグ&ドロップで手動指定する（MapView.tsx: dragendハンドラから
-   * 呼ばれる）。locationSourceを"manual"にし、まだ解決していないマウント時の自動取得や
-   * 進行中のhandleLocateMe呼び出しが後から上書きしないようリクエストIDを無効化する
-   * （handleLocateMeと同じ「後発の明示操作を優先する」パターン）。 */
+  /** 出発地点を手で決める（マーカーのドラッグ）。まだ返っていない自動取得が後から上書きしないようにする。 */
   setManualLocation: (point: Coordinates) => void;
 }
 
-// 位置情報の取得・保持を一箇所に集約するフック（マウント時の自動取得／地図上の「現在地に
-// 移動」ボタンからの再取得の2経路をまとめる）。手動緯度経度入力は持たない。
-//
-// マウント時取得（最大8秒かかりうる）とボタンからの取得は非同期に並走しうるため、後から
-// 発行したリクエストの結果を、先に発行したが遅れて返ってきたリクエストの結果が上書きして
-// しまわないよう、リクエストごとに連番を振り「一番最後に発行したリクエストの結果か」を
-// 確認してから反映する（useWeatherConditions.tsのuseLocationFetchで使っているのと同じ手法）。
+/** 位置の取得と保持。マウント時の自動取得と「現在地に移動」の取り直しは並走しうるので、最後に出した要求の結果
+ * だけを反映する。 */
 export function useLocation(): UseLocationResult {
   const [location, setLocation] = useState<Coordinates>(DEFAULT_LOCATION);
   const [locationSource, setLocationSource] = useState<LocationSource>("default");
@@ -40,87 +29,56 @@ export function useLocation(): UseLocationResult {
   const [locating, setLocating] = useState(false);
   const [locateError, setLocateError] = useState<string | null>(null);
 
-  const latestGeolocationRequestId = useRef(0);
+  const latestRequestId = useRef(0);
 
-  // 現在地取得（失敗時は王子付近のデフォルト座標のまま。エラー表示はしない）。
-  // 成功・失敗・API非対応のいずれの経路でも必ずlocationReadyをtrueにする
-  // （呼び出し側がこのフラグだけを見て「もう待つ必要は無い」と判断できるようにする）。
-  useEffect(() => {
-    if (!navigator.geolocation) {
-      // effect本体からの直接同期setState呼び出しを避け、マイクロタスク経由で実行する
-      // （react-hooks/set-state-in-effect対策、useWeatherConditions.tsのuseLocationFetchと同じ流儀）。
-      Promise.resolve().then(() => setLocationReady(true));
-      return;
-    }
-
-    const requestId = ++latestGeolocationRequestId.current;
+  const requestPosition = useCallback((onSettled: (ok: boolean) => void) => {
+    const requestId = ++latestRequestId.current;
     navigator.geolocation.getCurrentPosition(
       (position) => {
-        if (requestId !== latestGeolocationRequestId.current) return;
-        setLocation({
-          latitude: position.coords.latitude,
-          longitude: position.coords.longitude,
-        });
+        if (requestId !== latestRequestId.current) return;
+        setLocation({ latitude: position.coords.latitude, longitude: position.coords.longitude });
         setLocationSource("geolocation");
-        setLocationReady(true);
+        onSettled(true);
       },
       () => {
-        if (requestId !== latestGeolocationRequestId.current) return;
-        setLocationReady(true);
+        if (requestId !== latestRequestId.current) return;
+        onSettled(false);
       },
       { timeout: GEOLOCATION_TIMEOUT_MS },
     );
   }, []);
 
-  // 地図上の「現在地に移動」ボタン用。マウント時の自動取得とは別に、ユーザーが明示的に
-  // 押した操作として都度取得し直す（位置情報の許可をマウント後に与えた場合の再取得や、
-  // 地図を移動した後に現在地へ戻す操作を想定）。失敗時はエラーメッセージを表示する
-  // （マウント時の無言フォールバックとは異なり、ユーザー操作への直接の応答のため）。
+  // 自動取得は失敗しても初期地点のまま黙って進む。
+  useEffect(() => {
+    if (!navigator.geolocation) {
+      // effectの中で同期にsetStateしない（react-hooks/set-state-in-effect）。
+      Promise.resolve().then(() => setLocationReady(true));
+      return;
+    }
+    requestPosition(() => setLocationReady(true));
+  }, [requestPosition]);
+
+  // 利用者が押した取り直しには、失敗を知らせる。
   const handleLocateMe = useCallback(() => {
     if (!navigator.geolocation) {
       setLocateError("この端末では位置情報を取得できません。");
       return;
     }
-    const requestId = ++latestGeolocationRequestId.current;
     setLocating(true);
     setLocateError(null);
-    navigator.geolocation.getCurrentPosition(
-      (position) => {
-        if (requestId !== latestGeolocationRequestId.current) return;
-        setLocation({
-          latitude: position.coords.latitude,
-          longitude: position.coords.longitude,
-        });
-        setLocationSource("geolocation");
-        setLocating(false);
-      },
-      () => {
-        if (requestId !== latestGeolocationRequestId.current) return;
-        setLocateError("現在地を取得できませんでした。位置情報の利用が許可されているかご確認ください。");
-        setLocating(false);
-      },
-      { timeout: GEOLOCATION_TIMEOUT_MS },
-    );
-  }, []);
+    requestPosition((ok) => {
+      if (!ok) setLocateError("現在地を取得できませんでした。位置情報の利用が許可されているかご確認ください。");
+      setLocating(false);
+    });
+  }, [requestPosition]);
 
-  // 出発地点の手動指定。マウント時の自動取得・handleLocateMeによる再取得は非同期のため、
-  // 手動指定した後にそれらが遅れて解決して上書きしてしまわないよう、handleLocateMeと
-  // 同じリクエストID無効化を行う。
   const setManualLocation = useCallback((point: Coordinates) => {
-    latestGeolocationRequestId.current += 1;
+    latestRequestId.current += 1;
     setLocation(point);
     setLocationSource("manual");
     setLocating(false);
     setLocateError(null);
   }, []);
 
-  return {
-    location,
-    locationSource,
-    locationReady,
-    locating,
-    locateError,
-    handleLocateMe,
-    setManualLocation,
-  };
+  return { location, locationSource, locationReady, locating, locateError, handleLocateMe, setManualLocation };
 }

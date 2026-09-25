@@ -4,42 +4,25 @@ import * as Accordion from "@radix-ui/react-accordion";
 import type { ReactNode } from "react";
 import { cn } from "@/lib/cn";
 
-// ネイティブ<details>/<summary>の共通置き換え。
-// 常に1項目だけを持つRadix Accordion（type="single" collapsible）として実装する
-// （複数セクションを排他制御するアコーディオン群ではなく、各セクションが独立して
-// 開閉する既存の<details>と同じ挙動を再現するのが目的のため）。
-//
-// DOM構造は<details class=X><summary class=Y>...</summary><div class=Z>...</div></details>を
-// <div class=X><h3 class=Y>...</h3><div class=Z>...</div></div>（trailing無し）または
-// <div class=X><div class=Y><h3>...</h3>{trailing}</div><div class=Z>...</div></div>
-// （trailingあり、button内buttonを避けるためh3の外に置く）へ写す。Accordion.Item
-// （常に1つしか無く見た目上の意味を持たない層）はdisplay:contentsで透過させ、
-// 呼び出し側のCSS（親のflex/grid・隣接セレクタ等）への影響を最小化する。
+// 1つだけ開閉する見出しと本文（1項目だけのRadix Accordion）。各セクションは互いに独立して開閉する。項目の層は
+// display:contentsで透過させ、呼ぶ側のレイアウトに影響させない。
 interface DisclosureProps {
-  /** 開閉全体を包む要素（旧<details id>相当）のid。Trigger（button）ではなくRoot
-   * （コンテナ）へ付くため、このidで引けるのは領域全体であってトリガーではない。
-   * プログラムから開閉するときは領域内のトリガーへ`fireEvent.click`/`userEvent.click`を
-   * 当てる——開閉はReactのstate更新を伴い、act()の外からの生DOMクリックでは次の描画が
-   * 間に合わないことがある。 */
+  /** 全体を包む要素のid（トリガーではなく領域全体に付く）。 */
   id?: string;
-  /** 開閉全体を包む要素（旧<details>相当）のクラス */
   className?: string;
-  /** 見出し行（旧<summary>相当、常に1項目のためh3で描画される）のクラス */
+  /** 見出しの行のクラス。 */
   headerClassName?: string;
-  /** クリックで開閉する部分（見出しテキスト・chevron等）のクラス */
+  /** 押すと開閉する部分のクラス。 */
   triggerClassName?: string;
-  /** 本文（旧<summary>直後のdiv相当）のクラス */
   bodyClassName?: string;
-  /** トリガー内に表示する見出し内容（テキスト・chevron等） */
+  /** 押すと開閉する部分の中身。 */
   summary: ReactNode;
-  /** 見出し行のうち開閉トリガーの外に置く要素（見出しに並べるタブ・ボタン等の独立した操作）。
-   * トリガー（button）の中へネストすると button内button という無効なHTMLになるため、
-   * 見出し行（h3）内のトリガーと兄弟として配置する（クリックしても開閉に巻き込まれない）。 */
+  /** 見出しの行に並べる、開閉とは別の操作（タブ・ボタン等）。トリガー（button）の外に置く（中だとbuttonの入れ子になり、
+   * 押すと開閉に巻き込まれる）。 */
   trailing?: ReactNode;
   children: ReactNode;
-  /** 非制御時の初期状態 */
   defaultOpen?: boolean;
-  /** 呼び出し側が状態を持つ制御コンポーネントにする場合に指定（openと対で使う） */
+  /** 渡すと呼ぶ側が開閉の状態を持つ（onOpenChangeと対で使う）。 */
   open?: boolean;
   onOpenChange?: (open: boolean) => void;
 }
@@ -76,12 +59,8 @@ export default function Disclosure({
   return (
     <Accordion.Root id={id} type="single" collapsible className={className} {...controlledProps}>
       <Accordion.Item value={ITEM_VALUE} className="contents">
-        {/* trailing（見出しに並べるタブ・ボタン等）がある場合のみ、見出し行の視覚的な横並び（flex row）を
-            担う素のdivを追加してheaderClassNameをそちらへ渡す。h3（Accordion.Header）自体は
-            Triggerだけを包む薄い意味付けに留め、trailingの文言（例:「表示」）がh3の
-            textContentへ混入しないようにする（h3のtextContentをテキスト完全一致で検証している
-            既存テストが複数あるため）。trailingが無い単純な場合はheaderClassNameをh3自身へ
-            適用し、余計なラップ要素を増やさない。 */}
+        {/* trailingがあるときだけ、見出しの行を包むdivを足してそこへheaderClassNameを渡す（見出しの文言に
+            trailingの文言を混ぜない）。 */}
         {trailing ? (
           <div className={headerClassName}>
             {trigger}

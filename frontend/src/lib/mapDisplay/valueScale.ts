@@ -1,15 +1,12 @@
-// 地図が軸について塗る値のスケール（種類ごとの既定しきい値・配色）。ルート確定前の
-// 評価軸の線・ルート確定後のルート線・凡例が同じ関数を使うことで、同じ軸の色分けが
-// ルートの有無でスケール・配色を変えないことをコード上で保証する。
-// MapLibre・DOMに依存しない純粋関数のみ。
+// 地図が軸について塗る値の配色。ルート前の道路の線・ルートの線・凡例が同じ関数を通るので、同じ軸の同じ段は
+// どこでも同じ色になる。
 
 import { mapDisplay } from "@/types/generated/mapDisplay";
 import type { components } from "@/types/generated/api";
 import palette from "@/types/generated/palette.json";
 
-/** 地図がその軸について塗る値の種類。**正本はbackend**（`domain/dynamic_way_values.py:
- * map_value_kind`）。`difficulty`は軸スタジオのbreakpointsで評価済みの0〜100、
- * `signed_material`は単一材料の符号付き生値（勾配のように向きの符号が意味を持つ軸）。 */
+/** 地図がその軸について塗る値の種類（正本はbackend）。`difficulty`は評価済みの0〜100、`signed_material`は
+ * 向きの符号が意味を持つ材料1つの生値（勾配等）。 */
 export type MapValueKind = NonNullable<components["schemas"]["AxisCatalogEntry"]["map_value_kind"]>;
 
 const COLOR_EASY = palette.semantic.evaluation_good;
@@ -17,17 +14,13 @@ const COLOR_HARD = palette.semantic.evaluation_bad;
 export const COLOR_NO_DATA = palette.semantic.no_data;
 /** 符号付き材料の負側（下り坂等、走行が楽になる側）の色。 */
 const COLOR_SIGNED_LOW = palette.semantic.signed_descent;
-/** 符号付き材料の0付近（平坦）の色。難易度スケールの「易しい」と同じ緑にして、
- * 「楽な区間」の色をスケールの種類をまたいで揃える。 */
+/** 平坦の色は難易度の「易しい」と同じにして、楽な区間の色を種類をまたいで揃える。 */
 const COLOR_SIGNED_FLAT = COLOR_EASY;
-/** 符号付き材料の正側が赤へ向かう途中に置く色。段階数が増えても隣同士が見分けられるよう、
- * 色相だけでなく明度も動かす経路（緑→黄→赤→暗赤）にするための中継点。 */
 const COLOR_SIGNED_CLIMB_MID = palette.semantic.signed_climb_mid;
 const COLOR_SIGNED_CLIMB_EXTREME = palette.semantic.signed_climb_extreme;
 
-/** 符号付き材料の配色は0（平坦）を境に2方向へ分ける。1つの2色補間で全段階を塗ると、
- * 0付近の段階が両端のどちらかの色に寄り（勾配では平坦帯が濃い青になる）、段階を細かく
- * するほど隣と見分けられなくなる。 */
+/** 符号付き材料は0（平坦）を境に2方向の配色へ分ける（2色の補間1本だと0付近の段が端の色に寄る）。上り側は
+ * 色相だけでなく明度も動かし（緑→黄→赤→暗赤）、段を増やしても隣が見分けられるようにする。 */
 const SIGNED_DESCENT_ANCHORS: readonly string[] = [COLOR_SIGNED_LOW, COLOR_SIGNED_FLAT];
 const SIGNED_CLIMB_ANCHORS: readonly string[] = [
   COLOR_SIGNED_FLAT,
@@ -36,11 +29,8 @@ const SIGNED_CLIMB_ANCHORS: readonly string[] = [
   COLOR_SIGNED_CLIMB_EXTREME,
 ];
 
-/** 難易度の段の境界。軸が`map_value_thresholds`を宣言していないときに使う。**源泉が配る**
- * （`backend/app/domain/map_display.py`）。
- *
- * 符号付き材料の段はここに持たない——軸の折れ線から導いたものをbackendが必ず返すため、
- * 画面側に既定を置いても到達しない（置くと、いつか使われる顔をした写しになる）。 */
+/** 難易度の段の境界の既定（軸が宣言していないとき）。backendが配る。符号付き材料の段はbackendが軸ごとに必ず
+ * 返すので、ここに既定を持たない。 */
 export const DEFAULT_DIFFICULTY_BOUNDARIES: readonly number[] = mapDisplay.valueScale.difficultyBoundaries;
 
 function hexToRgb(hex: string): [number, number, number] {
@@ -114,14 +104,7 @@ function mixColors(colorLow: string, colorHigh: string, t: number): string {
   return rgbToHex(hslToRgb(h1 + dh * t, s1 + (s2 - s1) * t, l1 + (l2 - l1) * t));
 }
 
-/** 2色（colorLow/colorHigh）の間をHSL色空間でcount色に均等補間する。境界値の個数
- * （＝段階数）は軸スタジオが決めるため任意のcountに対応する。 */
-function interpolateColors(colorLow: string, colorHigh: string, count: number): string[] {
-  return interpolateColorStops([colorLow, colorHigh], count);
-}
-
-/** 中継点を並べた配色（anchors）の上をcount色に均等補間する。2色補間では色相が一本道に
- * なり、段階数が増えるほど隣同士が近づく——中継点を置くと同じ段階数でも色差を稼げる。 */
+/** 中継点を並べた配色の上をcount色に均等に補間する。 */
 function interpolateColorStops(anchors: readonly string[], count: number): string[] {
   if (count <= 1) return [anchors[0]];
   const segments = anchors.length - 1;
@@ -132,8 +115,8 @@ function interpolateColorStops(anchors: readonly string[], count: number): strin
   });
 }
 
-/** 符号付き材料の段階色。0を含む段階（平坦）を境に、下り側・上り側それぞれ別の配色の上を
- * 補間する。0を含む段階が無い（境界に0がある）場合は、0から始まる段階を平坦側として扱う。 */
+/** 符号付き材料の段の色。0を含む段（境界にちょうど0があるときは0から始まる段）を平坦にし、その手前と先を
+ * それぞれの配色で補間する。 */
 function signedBandColors(boundaries: readonly number[]): string[] {
   const bandCount = boundaries.length + 1;
   const firstPositive = boundaries.findIndex((boundary) => boundary > 0);
@@ -143,11 +126,8 @@ function signedBandColors(boundaries: readonly number[]): string[] {
   return [...descent, COLOR_SIGNED_FLAT, ...climb];
 }
 
-/** 種類とboundaries（未指定なら種類の既定値）から段階ごとの色配列を求める。ルート確定前の
- * 全道路の塗り・ルート確定後のルート線・凡例がいずれもこの1つの関数を通るため、同じ軸の
- * 同じ段階はどこでも同じ色になる。 */
-export function bandColorsFor(kind: MapValueKind, boundaries?: readonly number[] | null): string[] {
-  const resolved = boundaries ?? DEFAULT_DIFFICULTY_BOUNDARIES;
-  if (kind === "signed_material") return signedBandColors(resolved);
-  return interpolateColors(COLOR_EASY, COLOR_HARD, resolved.length + 1);
+/** 値の種類と段の境界から、段ごとの色を求める。 */
+export function bandColorsFor(kind: MapValueKind, boundaries: readonly number[]): string[] {
+  if (kind === "signed_material") return signedBandColors(boundaries);
+  return interpolateColorStops([COLOR_EASY, COLOR_HARD], boundaries.length + 1);
 }

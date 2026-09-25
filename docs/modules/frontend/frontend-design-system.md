@@ -144,7 +144,8 @@ Tailwindのユーティリティで書く。CSS Modulesは使わない（CSSの�
 判定に要る`pointer-events-auto`の1規則だけを`vitest.setup.ts`が置く。
 
 `Disclosure`（Radix Accordion）の本文は、閉じている間`hidden`で実際に隠れる。中身の挙動を
-見るテストは、レンダー直後にその節を開いてからクエリする。`aria-expanded`でトリガーを集める
+見るテストは、レンダー直後にその節を開いてからクエリする。開くときはトリガーへ`fireEvent.click`/`userEvent.click`を
+当てる（開閉はReactの状態の更新なので、act()の外の生のDOMクリックでは次の描画が間に合わないことがある）。`aria-expanded`でトリガーを集める
 ときは`:not([aria-haspopup])`で情報Popoverのトリガーを除く（同じ属性を持つ）。入れ子の
 `Disclosure`は、開く操作を変化が無くなるまで繰り返す。
 

@@ -3,7 +3,6 @@ import { describe, expect, it } from "vitest";
 import { routeStyleModesFromCatalogAxes } from "./routeStyleModes";
 import type { AxisCatalogEntry } from "@/types/route";
 import { catalogEntry } from "@/lib/mapDisplay/__fixtures__/catalogAxes";
-import { bandColorsFor } from "./valueScale";
 
 // 色分けの組み立てが分岐する3つの形。**その分岐を起こす性質だけ**を載せる
 // （軸idは軸スタジオでユーザーが決める任意の値なので、実物の名前を当てにしない）。
@@ -76,18 +75,6 @@ describe("routeStyleModes", () => {
       ["get", categoricalAxis.axis_id, ["get", "axis_difficulties"]],
       null,
     ]);
-  });
-
-  it("段の色は境界の個数から作る（固定の色配列を持たない）", () => {
-    // 色そのものは源泉が配るので値を書かない。**個数に追従すること**だけを見る。
-    expect(bandColorsFor("difficulty", [])).toHaveLength(1);
-    const three = bandColorsFor("difficulty", [33, 66]);
-    expect(three).toHaveLength(3);
-    const five = bandColorsFor("difficulty", [20, 40, 60, 80]);
-    expect(five).toHaveLength(5);
-    expect(new Set(five).size).toBe(5); // 全段階が異なる色になる
-    expect(five[0]).toBe(three[0]);
-    expect(five.at(-1)).toBe(three.at(-1));
   });
 
   it("軸がカタログから消える（軸スタジオでunpublish）と、対応するモードも一覧から消える", () => {

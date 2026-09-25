@@ -1,14 +1,6 @@
-// 軸の地図チップアイコンの固定パレット。`icon_id`（`AXIS_DEFINITIONS`/軸スタジオが軸自身の
-// データとして持つ、backend/app/domain/axis_definitions.py: AxisDefinition.icon_id）→
-// アイコンコンポーネントというフラットなパレット参照で、既存軸・GUI作成軸のどちらも
-// 同じ経路（軸自身のicon_idを持つ→ここで引く）でアイコンが決まる。
-//
-// GUIからの任意SVG登録（スタイル一貫性・XSSサニタイズのコストが高い）やラベル頭文字からの
-// モノグラム自動生成（既存の手描きアイコンが持つ「形だけで意味が伝わる」性質を失う）では
-// なく、固定パレットから選ぶ方式を採用している。新しいアイコン形状の追加は引き続き
-// このファイルへの1件追加＋コード変更を要する（軸スタジオ側はicon_idを選ぶだけ）。
-// 未知/未設定のicon_idはAxisRampIcon（汎用フォールバック）へ倒す——パレットに無い値でも
-// 動作は壊れない。
+// 軸のアイコンの固定のパレット（軸自身の`icon_id`→アイコン）。軸スタジオは選ぶだけで、形を足すにはここへ1件足す
+// （任意のSVGの登録は意匠の揃いと無害化の費用が高く、頭文字の自動生成は形で意味が伝わる性質を失う）。
+// 知らない・未設定の`icon_id`は汎用のアイコンにする。
 
 import {
   AccidentDensityAxisIcon,
@@ -35,8 +27,7 @@ interface AxisIconPaletteEntry {
   Icon: AxisIconComponent;
 }
 
-// 既存軸が使っていた意匠 + 新規軸向けのスペア。キー（icon_id）は形状の説明的な名前とし、
-// 特定の軸idに紐付けない（同じ形状を複数の軸が選べる、パレットの性質上当然の設計）。
+// キー（icon_id）は形の名前にし、軸idに紐付けない（同じ形を複数の軸が選べる）。
 export const AXIS_ICON_PALETTE: Record<string, AxisIconPaletteEntry> = {
   incline: { label: "傾斜線（勾配）", Icon: GradientAxisIcon },
   wave: { label: "波線（路面・質）", Icon: SurfaceQualityAxisIcon },
