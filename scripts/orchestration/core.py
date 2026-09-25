@@ -108,6 +108,8 @@ PLAN_DOC = "docs/improvement-plan.md"
 CONVENTION_DOC = "docs/conventions/orchestration.md"
 HEAVY_TARGET_PREFIX = "- **対象**:"
 HEAVY_LOCK = "heavy"
+#: forkした子の系列を途切れさせるMSYSのシェル（Git for Windowsの`usr/bin`の実行ファイル名）。
+MSYS_SHELLS = ("sh.exe", "bash.exe")
 TASKS_DIR = "docs/records/tasks"
 #: 台帳の1行（タスク番号・記録へのリンク先・題名以降）。リンク先は台帳からの相対パスで、番号ではなく
 #: リンク先で記録を引く（`T317`の2件目は`T317-2.md`を指す）。台帳の行を読み書きする道具はすべてこれを使う。
@@ -1199,6 +1201,13 @@ def heavy_outside_lock(ctx: Context) -> list[str]:
     for pid, stage in sorted(matched.items()):
         chain = procs.ancestors(table, pid)
         if any(a.pid in matched for a in chain) or any(a.pid == holder for a in chain):
+            continue
+        # MSYSのbashがforkした子は、実行ファイルへ置き換わると親の側が先に終わり、系列がMSYSのシェルで
+        # 途切れる。枠の中の段もそうなるため、枠が持たれている間は途切れた系列を枠の外と決められない。
+        # 枠の外で走らせた段は、段の語をコマンドラインに持つ包み（`bash -c '…tsc --noEmit…'`）の系列が
+        # 途切れずに残るので、そちらで出る。
+        root = chain[-1] if chain else table[pid]
+        if holder in table and root.ppid not in table and root.name.lower() in MSYS_SHELLS:
             continue
         cmd = " ".join(table[pid].cmdline.split())
         out.append(f"{stage}（pid {pid}、{table[pid].name}）: {cmd[:120]}")
