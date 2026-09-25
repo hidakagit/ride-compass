@@ -134,7 +134,6 @@ CLAUDE.md参照。節見出しはタスクのテーマ分類で、日付は起�
 - [ ] [T989](records/tasks/T989.md). docker composeで立てた環境は、手順どおりにしても使える状態にならない 規模S〜M
 - [ ] [T1052](records/tasks/T1052.md). Open-Meteoと環境省WBGTの出典が画面に出ていない 規模S
 - [ ] [T1053](records/tasks/T1053.md). 利用条件を公式で確定できなかった外部ソース（逆ジオコーダ・MSMと気象業務法・WBGTの予測値API）の扱いを決める 規模S
-- [ ] [T1059](records/tasks/T1059.md). ワーカーを複数にした起動が本番の形（Linux・Docker）で実際に止まるかを見る 規模S
 - [ ] [T1075](records/tasks/T1075.md). 旧car_stress一族に代わる走りにくさの軸を、指定路線の材料なしで作り直す 規模M
 - [ ] [T1111](records/tasks/T1111.md). backendのデプロイは、入れ替えたコンテナが /health に応答するまで待ち、応答しなければ失敗として止まる 規模S
 
