@@ -95,7 +95,7 @@ class AxisDefinitionPayload(AxisDefinition):
         """動的材料（`REQUEST_DYNAMIC_MATERIAL_IDS`）と静的材料を同じshapeで混在させない。
 
         動的軸はリクエストごとに`evaluate_dynamic_axis_arrays`（domain/dynamic_materials.py）で
-        再評価され、そこへ渡るのは「タイル単位でキャッシュ済みの公開軸スコア」と「動的材料」
+        再評価され、そこへ渡るのは「静的スコア行列の公開軸スコア」と「動的材料」
         だけである。静的材料の配列は渡らないため、混在させた軸は`evaluate_axis_array`が
         `materials[...]`でKeyErrorになり、`/api/routes/generate`ごと500になる
         （GUI操作だけで全ルート生成が落ちる）。静的材料が必要なら、その部分を別の軸へ切り出し

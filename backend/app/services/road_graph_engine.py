@@ -369,7 +369,6 @@ class _LegCostComposer:
         # 1本だけ採るため、探索用グラフに載らないEdgeがある。載らない行は-1にする。
         self._full_row_index = np.full(len(score_matrix.distance_m), -1, dtype=np.int64)
         self._full_row_index[lazy_row_index] = np.arange(len(lazy_row_index))
-        self._lazy_hard_filter_excluded: np.ndarray | None = None
         self._lens_axis_id = lens_axis_id
         # 通過予定時刻の推定に使う迂回率（道なり距離÷直線距離）。探索範囲ごとの学習値が
         # あればそれ、無ければ`ROUTE_DETOUR_RATIO`。`compose`の引数で個別に上書きできる。
@@ -414,19 +413,6 @@ class _LegCostComposer:
             if per_km is not None:
                 stops += np.nan_to_num(per_km) * (distance_m / 1000.0) * stop_seconds(kind)
         return np.where(take(self._hard_filter_excluded), np.inf, travel + stops)
-
-    @property
-    def lazy_hard_filter_excluded(self) -> np.ndarray:
-        """0次フィルタ除外フラグを区間の番号順（探索へ渡すコスト配列と
-        同じ行順）で返す。
-
-        `compose`が作る`cost_lazy`は除外Edgeを`inf`にした状態でこの行順へ並べ替えてあり、
-        探索から見た通行可否はそのコスト配列だけが表しているため、コストを使わず距離だけで
-        木を張る経路は同じ除外を自分で適用する必要がある。
-        """
-        if self._lazy_hard_filter_excluded is None:
-            self._lazy_hard_filter_excluded = self._hard_filter_excluded[self._lazy_row_index]
-        return self._lazy_hard_filter_excluded
 
     def compose(
         self,

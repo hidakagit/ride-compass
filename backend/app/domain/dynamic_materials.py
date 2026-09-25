@@ -94,7 +94,7 @@ def evaluate_dynamic_material_arrays(context: DynamicAxisRequestContext) -> dict
 def evaluate_dynamic_axis_arrays(
     static_axis_scores: Mapping[str, np.ndarray], context: DynamicAxisRequestContext,
 ) -> dict[str, np.ndarray]:
-    """タイル単位でキャッシュ済みの`StaticEdgeScoreMatrix.axis_scores`（NaN列を含む）から、
+    """探索範囲の材料から求めた`StaticEdgeScoreMatrix.axis_scores`（NaN列を含む）から、
     動的軸（`dynamic_axis_topological_order`が返す軸）だけをリクエスト時点の値で上書き
     した軸別スコア辞書を返す。戻り値には動的材料の配列も含む（呼び出し元が区間表示用に
     材料値を読めるようにするため）。
