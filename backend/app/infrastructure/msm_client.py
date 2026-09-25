@@ -256,6 +256,8 @@ async def refresh(client: httpx.AsyncClient, horizon_hours: int | None = None) -
     meta = await _fetch_meta(client)
     chunk_hours = int(meta["chunk_time_length"])
     now = int(time.time())
+    # 両端のチャンクだけを取る。配信元のチャンクは予報窓より長いため間は無いが、チャンクが
+    # 予報窓より短くなると間のチャンクを取らず、読み出しが「未同期」で失敗する。
     chunk_numbers = sorted({_chunk_number(now, chunk_hours), _chunk_number(now + horizon * 3600, chunk_hours)})
 
     etags = _load_json(_ETAGS_FILE)
