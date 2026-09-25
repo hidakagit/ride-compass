@@ -98,7 +98,9 @@ test("S1 地図の描画（生成前）", async ({ page }) => {
           const { x, y } = map.project([lng, lat]);
           const client = { x: canvas.left + x, y: canvas.top + y };
           // 地図の上に重なる部品（チップ・パネル）の下ではなく、地図そのものが押される点だけを使う。
-          if (document.elementFromPoint(client.x, client.y) === map.getCanvas()) return client;
+          if (document.elementFromPoint(client.x, client.y) !== map.getCanvas()) continue;
+          // 全レイヤーONでは道の上に点（事故・POI）が重なる。押して一番上に来るのが道である点だけを使う。
+          if (map.queryRenderedFeatures([x, y])[0]?.source === road) return client;
         }
         return null;
       }, source);
@@ -106,6 +108,9 @@ test("S1 地図の描画（生成前）", async ({ page }) => {
       const errorsBefore = watch.pageErrors.length;
       await page.mouse.click(point!.x, point!.y);
       await expect(page.locator(".maplibregl-popup")).toBeVisible({ timeout: 10_000 });
+      // 開いたのが道の詳細であること（道の詳細は路面の行を必ず持つ）。描画の例外はエラー境界（app/error.tsx）が
+      // 受けてページの例外にならないので、中身が出たかで見る。
+      await expect(page.locator(".maplibregl-popup").getByText("路面", { exact: true })).toBeVisible();
       await settleMap(page);
       expect.soft(watch.pageErrors.slice(errorsBefore), "道を押したあとのページの例外").toEqual([]);
       await expect.soft(page.locator(".maplibregl-popup").getByRole("alert")).toHaveCount(0);

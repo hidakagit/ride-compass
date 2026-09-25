@@ -92,14 +92,22 @@ test("S2 ルート生成（生成後）", async ({ page }) => {
         const dialog = [...document.querySelectorAll('[role="dialog"]')].find(
           (el) => el.getAttribute("aria-label") === "ルート結果" || el.textContent?.includes("比較"),
         );
+        // シートの中で横にスクロールする容器（表の外枠等）も数える。表が外枠の中で横に動くと、値の列が画面の外へ出る。
+        const scrollers = dialog
+          ? [dialog, ...dialog.querySelectorAll("*")].filter(
+              (el) => el === dialog || ["auto", "scroll"].includes(getComputedStyle(el).overflowX),
+            )
+          : [];
         return {
           page: document.scrollingElement!.scrollWidth,
           viewport: window.innerWidth,
-          sheet: dialog ? dialog.scrollWidth - dialog.clientWidth : 0,
+          sheet: Math.max(0, ...scrollers.map((el) => el.scrollWidth - el.clientWidth)),
         };
       });
       expect.soft(widths.page, "比較タブでページが横にスクロールする").toBeLessThanOrEqual(widths.viewport + 1);
-      expect.soft(widths.sheet, "比較タブでシートの中身が横にはみ出す").toBeLessThanOrEqual(1);
+      expect
+        .soft(widths.sheet, "比較タブでシートの中身（横にスクロールする容器を含む）が横にはみ出す")
+        .toBeLessThanOrEqual(1);
     },
     async () => {
       const sheet = page.getByRole("dialog", { name: "ルート結果" });

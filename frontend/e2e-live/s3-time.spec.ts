@@ -1,4 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
+import { mapDisplay } from "@/types/generated/mapDisplay";
 import {
   allLayersOn,
   branch,
@@ -54,12 +55,30 @@ async function imagesWithData(page: Page, bodies: Buffer[]): Promise<number> {
   );
 }
 
-/** 気象庁のタイルを、配信系統（URLからz/x/yを除いたもの）ごとにまとめる。 */
-function bySource(tiles: Watch["jmaTiles"]): Map<string, Buffer[]> {
-  const groups = new Map<string, Buffer[]>();
+/**
+ * 気象庁のタイルを偶数・奇数の両方のタイルのズームで取らせる、地図のズームの組（2段続き）。地図のズームとタイルの
+ * ズームはタイルの大きさで1段ずれうるので、2段続きで回し、取れたタイルはURLのズームで分ける。宣言
+ * （`mapDisplay.weatherElements`のタイルのズーム範囲）のすべての配信元タイルが、どちらの段でも上限を超えた拡大で
+ * 前の画像を使い回さずに取り直す組のうち最も細かいもの。
+ */
+function mapZoomsForBothParities(): [number, number] {
+  const tiles = mapDisplay.weatherElements.flatMap((element) => (element.tile ? [element.tile] : []));
+  const first = Math.min(...tiles.map((tile) => tile.maxZoom)) - 2;
+  expect(first, "偶数・奇数の両方を取り直すズームが宣言の範囲に無い").toBeGreaterThanOrEqual(
+    Math.max(...tiles.map((tile) => tile.minZoom)),
+  );
+  return [first, first + 1];
+}
+
+/** 気象庁のタイルを、配信系統（URLからz/x/yを除いたもの）ごとに、タイルのズームの偶奇で分けてまとめる。 */
+function bySource(tiles: Watch["jmaTiles"]): Map<string, { even: Buffer[]; odd: Buffer[] }> {
+  const groups = new Map<string, { even: Buffer[]; odd: Buffer[] }>();
   for (const { url, body } of tiles) {
-    const key = new URL(url).pathname.replace(/\/\d+\/\d+\/\d+\.png$/, "");
-    groups.set(key, [...(groups.get(key) ?? []), body]);
+    const match = /^(.*)\/(\d+)\/\d+\/\d+\.png$/.exec(new URL(url).pathname);
+    if (!match) continue;
+    const group = groups.get(match[1]) ?? { even: [], odd: [] };
+    (Number(match[2]) % 2 === 0 ? group.even : group.odd).push(body);
+    groups.set(match[1], group);
   }
   return groups;
 }
@@ -118,25 +137,21 @@ test("S3 時刻で変わる入力", async ({ page }) => {
     page,
     "E→F 気象庁のタイルの偶数・奇数ズーム",
     async () => {
-      const even = Math.floor(originalZoom / 2) * 2;
-      const takeAt = async (z: number) => {
-        const from = watch.jmaTiles.length;
+      // 地図の既定のズームは気象庁のタイルの上限より細かく、どの段でも同じ上限のタイルを使い回すので、宣言から選ぶ。
+      const from = watch.jmaTiles.length;
+      for (const z of mapZoomsForBothParities()) {
         await page.evaluate((target) => window.__liveMap().jumpTo({ zoom: target }), z);
         await settleMap(page);
-        return bySource(watch.jmaTiles.slice(from));
-      };
-      const atEven = await takeAt(even);
-      const atOdd = await takeAt(even + 1);
+      }
       let judged = 0;
-      for (const [source, bodies] of atEven) {
-        if ((await imagesWithData(page, bodies)) === 0) continue;
-        const oddBodies = atOdd.get(source);
-        if (!oddBodies) {
-          notApplicable(source, "奇数ズームで取り直していない（偶数ズームの画像を拡大して使っている）");
+      for (const [source, { even, odd }] of bySource(watch.jmaTiles.slice(from))) {
+        if ((await imagesWithData(page, even)) === 0) continue;
+        if (odd.length === 0) {
+          notApplicable(source, "奇数ズームのタイルを取っていない（偶数ズームの画像を拡大して使っている）");
           continue;
         }
         judged += 1;
-        expect.soft(await imagesWithData(page, oddBodies), `${source}: 奇数ズームでデータが消える`).toBeGreaterThan(0);
+        expect.soft(await imagesWithData(page, odd), `${source}: 奇数ズームでデータが消える`).toBeGreaterThan(0);
       }
       if (judged === 0)
         notApplicable("偶数・奇数ズーム", "偶数ズームでデータのある気象庁の配信系統が無い（天候による）");
