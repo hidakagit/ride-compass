@@ -21,7 +21,7 @@ describe("fetchJson", () => {
     expect(result).toEqual(payload);
   });
 
-  it("ok:falseかつdetailが文字列の場合はそのdetailだけをメッセージにし、x-request-idはエラーの属性として持つ", async () => {
+  it("ok:falseかつdetailが文字列の場合はそのdetailだけをメッセージにする（リクエストIDを混ぜない）", async () => {
     const headers = new Headers({ "x-request-id": "req-123" });
     vi.stubGlobal(
       "fetch",
@@ -38,15 +38,9 @@ describe("fetchJson", () => {
       errorLabel: "テスト",
     }).catch((e: unknown) => e);
 
-    // 受け取る側から見えるのは、投げられたErrorの中身だけ。**クラスを借りない**
-    // ——借りると、投げ方を変えたときテストも一緒に動いて「何が届くか」を誰も見なくなる。
-    const thrown = error as Error & { requestId?: unknown; status?: unknown };
-    expect(thrown).toBeInstanceOf(Error);
-    expect(thrown.name).toBe("ApiError");
-    // 画面へ出る文言（message）にはリクエストIDを混ぜない。
-    expect(thrown.message).toBe("エラー詳細");
-    expect(thrown.requestId).toBe("req-123");
-    expect(thrown.status).toBe(500);
+    // 画面へ出る文言にはリクエストIDを混ぜない。
+    expect(error).toBeInstanceOf(Error);
+    expect((error as Error).message).toBe("エラー詳細");
   });
 
   it("ok:falseかつdetailが無い場合はerrorLabelから組み立てたフォールバックメッセージになる", async () => {

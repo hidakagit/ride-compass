@@ -25,7 +25,11 @@ import { mapDisplay } from "@/types/generated/mapDisplay";
 const RAMP_AXES = rampAxesFromCatalogAxes([
   catalogEntry({
     axis_id: "ramp",
-    display: { kind: "ramp", tile_inputs: [tileInput({ property: "v", has_unknown_fallback: true })], thresholds: [50] },
+    display: {
+      kind: "ramp",
+      tile_inputs: [tileInput({ property: "v", has_unknown_fallback: true })],
+      thresholds: [50],
+    },
   }),
 ]);
 const DEDICATED_AXES = dedicatedWayValueAxesFromCatalogAxes([

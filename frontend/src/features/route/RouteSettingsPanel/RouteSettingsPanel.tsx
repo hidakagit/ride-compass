@@ -39,7 +39,7 @@ function withAutoEnable<T>(
 //
 // 軸の一覧・既定重みはuseAxisCatalog経由でGET /api/axis-catalogから取得する
 // （is_published=Trueのみ）。軸スタジオがDBへ追加した軸も、コード変更・再デプロイなしに
-// ここへ現れる（取得完了まで・失敗時は既存軸の静的フォールバックを使う）。
+// ここへ現れる（届くまで・失敗したときは軸0件）。
 
 // 帯グラフの区間へ文字を入れられる最小の取り分（%）。狭い区間は文字が収まらないため、
 // アイコン＋%→%のみ→何も出さない、の順に落とす（どの軸の%もチップ側では必ず読める）。
@@ -99,11 +99,10 @@ export default function RouteSettingsPanel({
   const [lastWeights, setLastWeights] = useState<Record<string, number>>(() => ({
     ...catalog.defaultWeights,
   }));
-  // 上記の初期値は「マウント時点のcatalog.defaultWeights」（軸カタログの実行時フェッチ
-  // 完了前は静的フォールバック値）のスナップショットで固定される。フェッチ完了後に
+  // 上記の初期値は「マウント時点のcatalog.defaultWeights」（軸カタログが届く前は空）のスナップショットで固定される。フェッチ完了後に
   // catalog.defaultWeightsが実際の値へ更新されたら、「前回の既定値のまま変更されていない」
   // 軸だけを新しい既定値へ追従させる（ユーザーが手動で操作した値は保持する）——これが
-  // 無いと、チェックを一度外して戻したときに実際の既定重みではなく古いフォールバック値へ
+  // 無いと、チェックを一度外して戻したときに実際の既定重みではなく届く前の値へ
   // 復元されてしまう。
   const previousDefaultWeightsRef = useRef(catalog.defaultWeights);
   useEffect(() => {

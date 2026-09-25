@@ -246,8 +246,7 @@ describe("Home（app/page.tsx） ルート設定のタブ", () => {
 // MapOverlayControlsを軽量スタブに差し替え、スタブが呼ぶonToggleが実際の
 // handleLayerToggleへ届くことを利用して検証する（スタブはlayers.idごとにtoggle:${id}という
 // 名前のボタンを描画し、押すとonToggle(id, !on)を呼ぶ）。
-// getAxisCatalogは解決させない（実行時カタログが未取得の間の静的フォールバックのまま
-// レイヤーカタログを固定するため）。
+// getAxisCatalogは解決させない（軸0件のカタログのままレイヤーカタログを固定するため）。
 describe("Home（app/page.tsx） レイヤーの同時ON/OFF", () => {
   beforeEach(() => {
     window.localStorage.clear();

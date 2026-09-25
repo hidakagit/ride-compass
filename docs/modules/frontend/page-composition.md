@@ -38,7 +38,7 @@ Next.js route handlerからのサーバー間fetch先を区別する（後者は
 
 `fetchJson.ts`/`apiError.ts`は全`services/*Api.ts`クライアントが共有するfetch骨格と
 エラー正規化。骨格は「fetch→通信エラーのtry/catch→`response.ok`確認→エラーボディ解析→
-`ApiError`をthrow→各段階でdebugLog記録」で、**呼び出しごとに違うのは
+`Error`をthrow→各段階でdebugLog記録」で、**呼び出しごとに違うのは
 メソッド・成功時のボディ解釈・エラー文言の3点だけ**:
 
 | 入口 | 戻り値 | 使う場面 |
@@ -47,7 +47,7 @@ Next.js route handlerからのサーバー間fetch先を区別する（後者は
 | `requestOk` | 成功時の`Response`そのもの（成功ログは呼び出し側） | 成功ログのfieldsが呼び出しごとに違う場合 |
 | `fetchJson<T>` | `requestJson`のGET向け糖衣 | 文言を`errorLabel`から「◯◯の取得/解析に失敗しました」で組み立てる |
 
-`ApiError`は`x-request-id`とHTTPステータスを**属性として**持ち、`message`には入れない。
+`x-request-id`とHTTPステータスは失敗のdebugLogに残し、投げる`Error`の`message`には入れない。
 リクエストIDは開発者向け（debugLog・`BackendLogsPanel`）の情報で、画面へ出す文言に混ぜると
 利用者に意味が無いまま長くなり、狭い幅のレイアウト（常設ヘッダー）を溢れさせる。
 

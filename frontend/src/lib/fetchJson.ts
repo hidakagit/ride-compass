@@ -51,21 +51,6 @@ export interface ApiResponse {
   requestId: string | null;
 }
 
-/** APIがエラー応答を返したときに投げる。リクエストIDは開発者向け（デバッグログ・
- * BackendLogsPanel）の情報で、画面へ出す`message`には含めない——利用者には意味が無く、
- * 文言が長くなるぶん狭い幅のレイアウトを壊す。 */
-class ApiError extends Error {
-  readonly requestId: string | null;
-  readonly status: number | null;
-
-  constructor(message: string, requestId: string | null = null, status: number | null = null) {
-    super(message);
-    this.name = "ApiError";
-    this.requestId = requestId;
-    this.status = status;
-  }
-}
-
 /** 7段のうち「fetch→通信エラー処理→ok確認→失敗時throw」まで。成功時の`Response`を
  * そのまま返し、本文の解釈と成功ログは呼び出し側が行う。 */
 export async function requestOk(url: string, options: ApiRequestOptions): Promise<ApiResponse> {
@@ -114,7 +99,8 @@ export async function requestOk(url: string, options: ApiRequestOptions): Promis
     const errorBody = await response.json().catch(() => null);
     debugLog(category, `失敗 (HTTP ${response.status})`, { ...meta, durationMs, requestId, errorBody }, "error");
     const detail = formatErrorDetail(errorBody?.detail) ?? `${messages.failure}[HTTP ${response.status}]`;
-    throw new ApiError(detail, requestId, response.status);
+    // リクエストIDは失敗のログに残し、画面へ出す文言には混ぜない（利用者には意味が無く、狭い幅を壊す）。
+    throw new Error(detail);
   }
   return { response, durationMs, requestId };
 }

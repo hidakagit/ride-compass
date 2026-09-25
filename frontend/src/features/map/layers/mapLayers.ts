@@ -158,10 +158,7 @@ const GROUP_BY_CATEGORY: Readonly<Record<string, MapOverlayGroup>> = Object.from
  * これらのレイヤーを描画対象から除外する（mapOverlayGroupForが返すundefinedは
  * 「route等、単独チップとして出す」ものと「軸スタジオ由来のため地図UIには一切出さない」
  * ものの2種類が混在するため、区別に使う専用の判定）。
- *
- * 判定をレイヤーIDの集合ではなく記述子自身のフラグで行うのは、実行時カタログ（軸スタジオで
- * 新規公開された軸を含む）から生成した記述子と、ビルド時静的json由来のID集合とが食い違うと
- * 、新規軸だけが地図チップへ漏れ出るため。 */
+ * レイヤーidの集合ではなく記述子自身のフラグで判定する（軸スタジオで新しく公開した軸も同じ判定を受ける）。 */
 export function isAxisStudioLayer(layer: {
   id: MapLayerId;
   dataNature?: MapLayerDataNature;
@@ -330,8 +327,8 @@ export function buildMapLayers(
       // 塗るのは自然被覆だけ（建物は塗らない、domain/landcover.py: LANDCOVER_CLASSES）。
       // 「土地被覆」のままだと、都心でONにしても何も出ないことが名前と食い違う。
       label: attributeLabel("landcover"),
-      // 配信元の10m画素をそのまま塗った面。道路の周囲がどう使われているか（`way_landcover`が
-      // 道1本ぶんへ畳んでいる元のデータ）を、畳む前の1画素1クラスのまま見るためのもの。
+      // 配信元の10m画素をそのまま塗った面。道ごとの材料（`way_materials`の土地被覆の割合）が道1本ぶんへ畳む元の
+      // データを、畳む前の1画素1クラスのまま見るためのもの。
       description: "周囲の緑・水辺・農地を面で重ねる[建物は塗らない]",
       panelHint:
         "衛星画像から分類した10m四方ごとの土地の使われ方です。1区画に1種類だけが入るため、" +

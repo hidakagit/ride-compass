@@ -2,58 +2,18 @@ import type { AxisInspectorResult } from "@/types/traffic";
 import { API_BASE_URL } from "@/lib/apiBaseUrl";
 import { tileBaseUrl } from "@/lib/tileBaseUrl";
 import { debugLog } from "@/lib/debugLog";
-import { requestOk, type ApiResponse } from "@/lib/fetchJson";
+import { requestOk } from "@/lib/fetchJson";
 import regionTileConfig from "@/types/generated/region-tile-config.json";
 import { DEFAULT_API_TIMEOUT_MS } from "@/lib/apiTimeouts";
-
-interface PostRequestOptions {
-  category: string;
-  /** 「{errorLabel}に失敗しました」の形でエラーメッセージに使う対象名。 */
-  errorLabel: string;
-  /** JSONボディとして送る（Content-Type: application/jsonも自動で付く）。 */
-  body: unknown;
-  timeoutMs?: number;
-}
-
-// POST系は成功時のレスポンス本体の解釈・成功ログのfieldsが呼び出し側で決まる
-// （fetchAxisInspectorはJSONボディからcompositeを追加ログする）ため、共通骨格のうち
-// `requestOk`（成功時のResponseをそのまま返す側、lib/fetchJson.ts参照）を使い、
-// 成功ログだけ呼び出し側が出す。
-function postAndCheckOk(
-  path: string,
-  { category, errorLabel, body, timeoutMs = DEFAULT_API_TIMEOUT_MS }: PostRequestOptions,
-): Promise<ApiResponse> {
-  return requestOk(`${API_BASE_URL}${path}`, {
-    method: "POST",
-    body,
-    timeoutMs,
-    category,
-    // GET系の「◯◯の取得に失敗しました」とは違い、POSTは操作の動詞をerrorLabelへ含める
-    // （「地図キャッシュの更新」「内訳取得」）。
-    messages: { failure: `${errorLabel}に失敗しました`, parseFailure: `${errorLabel}に失敗しました` },
-    requestMeta: { body },
-  });
-}
 
 const ROAD_SURFACE_TILE_PATH = "/api/region/road-surface-tiles/{z}/{x}/{y}.pbf";
 const ACCIDENT_TILE_PATH = "/api/region/accident-tiles/{z}/{x}/{y}.pbf";
 const POI_TILE_PATH = "/api/region/poi-tiles/{z}/{x}/{y}.pbf";
 
-// **世代は手で上げない。** 焼き込むSQLの署名とDBの派生データ世代からbackendが導き、
-// 実行時に配る（`GET /api/axis-catalog`の`tile_versions`、backend:
-// services/tile_version_service.py）。
-//
-// 既存プロパティの**意味自体**を変える非互換変更のときだけ、デプロイの順序に注意が要る
-// ——backendがその世代へ切り替わるより先に、変更を含むfrontendをデプロイする（逆順だと、
-// 新世代前提の凡例フィルタが全地物に一致し、対象レイヤーが一時的に全線「不明・他」表示に
-// なる。docs/architecture/tech-stack.md「デプロイの反映確認」参照）。
-//
-// ビルド時生成物には持たない——バッチがタイルの読み先を作り直してもデプロイは起きない
-// ため、生成物の値は次のデプロイまで古いままになる。
-//
-// 既定値は置かない。届く前にタイルを要求すると、世代の違う中身がブラウザのキャッシュへ
-// 載って以後ずっと残る。呼び出し側（page.tsx）はカタログの取得完了まで地図のレイヤーを
-// 作らず、`setTileVersions`で渡してから作る。
+// タイルの世代。**手で上げない**——焼き込むSQLの署名とDBの派生データ世代からbackendが導き、実行時に配る（軸カタログの
+// `tile_versions`）。ビルド時の生成物に持たないのは、バッチがタイルを作り直してもデプロイは起きないため。
+// 既定値は置かない——届く前にタイルを要求すると、世代の違う中身がブラウザのキャッシュへ載って残る。
+// 既存の属性の意味を変える変更だけはデプロイの順序に注意が要る（docs/architecture/tech-stack.md「デプロイの反映確認」）。
 let tileVersions: Readonly<Record<string, string>> | null = null;
 const tileVersionListeners = new Set<() => void>();
 
@@ -74,35 +34,26 @@ export function subscribeTileVersions(listener: () => void): () => void {
   };
 }
 
-/** 配信されるタイルの系統。1つでも欠けたら「未取得」として扱う。
- *  **源泉が配る一覧をそのまま使う**（`tile_version_service.py: TILE_SHAPES`が正本）
- *  ——写しを持つと、片側だけ系統が増えたとき足りない側が「揃った」と判定したまま
- *  配られない世代を待ち続ける。 */
+/** 配信されるタイルの系統（源泉が配る一覧）。1つでも欠けたら「未取得」。 */
 const TILE_KINDS = regionTileConfig.tile_version_kinds;
 type TileKind = (typeof TILE_KINDS)[number];
 
 export function hasTileVersions(): boolean {
-  // **空の辞書を「取得済み」と見なさない**。世代を返さない古いbackendが応答した場合
-  // （デプロイの順序が前後した窓）、取得済み扱いにするとURL組み立てで例外になる。
-  // 欠けているあいだはタイルを出さず、揃った時点で描き直す。
+  // 空の辞書を「取得済み」と見なさない（世代を返さない版のbackendが応答した窓では、URLの組み立てで例外になる）。
   return TILE_KINDS.every((kind) => Boolean(tileVersions?.[kind]));
 }
 
 function tileVersion(kind: TileKind): string {
   const version = tileVersions?.[kind];
   if (!version) {
-    // 呼ぶ側の順序が崩れた場合にだけ起きる。黙って既定値を使うと、世代の違うタイルが
-    // キャッシュへ載ったことに誰も気づけない。
+    // 呼ぶ側の順序が崩れたときだけ起きる（黙って既定値を使うと、世代の違うタイルがキャッシュへ載っても気づけない）。
     throw new Error(`タイル世代が未取得のまま${kind}のURLを組み立てようとしました`);
   }
   return version;
 }
 
-// 路面の地域レイヤー（Step10）のベクタタイルURL。オリジンは`tileBaseUrl()`
-// （lib/tileBaseUrl.ts: 既定はフロント自身のオリジン＝Next.jsのrewrites経由、
-// `NEXT_PUBLIC_TILE_BASE_URL`設定時はbackend直接）に従う。ベクタタイルの取得はMapLibreが
-// Web Worker内で行うため相対パスでは解決できず絶対URLが必要で、`window`をSSR時に参照しない
-// よう呼び出し時（クライアントサイドのみ）に評価する関数として提供する。
+// ベクタタイルのURL。MapLibreはWeb Workerの中で取るため相対パスでは解決できず、絶対URLが要る。`window`をSSRで
+// 読まないよう、呼んだとき（クライアントだけ）に組み立てる。
 export function roadSurfaceTileUrl(): string {
   return `${tileBaseUrl()}${ROAD_SURFACE_TILE_PATH}?v=${tileVersion("road_surface")}`;
 }
@@ -111,19 +62,12 @@ export function accidentTileUrl(): string {
   return `${tileBaseUrl()}${ACCIDENT_TILE_PATH}?v=${tileVersion("accident")}`;
 }
 
-// 停止要因POIと補給休憩POIは同じタイルを共有する（種別の集合で分ける）。
-
-// 停止要因POIの地域レイヤーのベクタタイルURL。
-// roadSurfaceTileUrlと同じ理由（MapLibreのWeb Worker内取得のため絶対URL化が必要）で
-// 呼び出し時に評価する関数として提供する。
+// 停止要因と補給の点は同じタイルを分け合う（種別の集合で分ける）。
 export function poiTileUrl(): string {
   return `${tileBaseUrl()}${POI_TILE_PATH}?v=${tileVersion("poi")}`;
 }
 
-// 土地被覆ラスタタイル（Esri×Impact Observatory 10m LULCをそのまま塗った面）。世代・
-// ズーム範囲の正はbackend（domain/landcover.py・services/landcover_tile_service.py）で、
-// 生成物経由で受け取る。ラスタタイルはMapLibreがメインスレッドのImage要素で取るため
-// Worker制約は無いが、オリジンの決め方は他タイルと揃える（lib/tileBaseUrl.ts）。
+// 土地被覆のラスタタイル。世代はbackendが生成物で配る。オリジンの決め方は他のタイルと揃える。
 const LANDCOVER_TILE_PATH = "/api/region/landcover-tiles/{z}/{x}/{y}.png";
 const LANDCOVER_TILE_VERSION = regionTileConfig.landcover.tile_version;
 
@@ -131,20 +75,10 @@ export function landcoverTileUrl(): string {
   return `${tileBaseUrl()}${LANDCOVER_TILE_PATH}?v=${LANDCOVER_TILE_VERSION}`;
 }
 
-// 路面タイルを要求するズーム範囲。正はbackend（domain/region.py）で、生成物経由で受け取る
-// （手書きで複製すると、backendだけ広げてもフロントが要求せずレイヤーが黙って消える）。
-// POIタイルも同じズーム範囲に準拠する（api/routers/region.py参照）。
+// 路面タイル（POIタイルも同じ）を要求するズーム範囲。正はbackendで、生成物で受け取る。
 export const ROAD_TILE_MIN_ZOOM = regionTileConfig.road_tile_min_zoom;
 export const ROAD_TILE_MAX_ZOOM = regionTileConfig.road_tile_max_zoom;
 
-// 区間インスペクタ。地図上の道路クリックで得たosm_way_id（路面タイルの
-// MVTプロパティに含まれる識別子）から一次属性・全二次軸・合成コストを
-// 取得するAPI。緯度経度の空間マッチではなくosm_way_id完全一致にしている理由は
-// backend/app/services/region_service.py: get_axis_inspectorのdocstring参照。タイルURL系
-// （roadSurfaceTileUrl等）と違いMapLibreのWeb Worker経由ではなくアプリのfetch()から
-// 直接呼ぶため、ここだけ絶対URL化（window.location.origin）が不要（weatherApi.ts等と同じ）。
-// POST+JSONボディなのはosm_way_idを本文で渡す既存の設計を踏襲（backend/app/api/routers/
-// region.py参照）。
 /** 地図が今指定している走行の条件。専用way値配信軸（風・勾配）が地図を塗るのに使うものと
  * 同じ値で、これを送らないと**1本の道が往復2方向で違う値を持つ**軸を算出できない。 */
 export interface RideConditions {
@@ -161,44 +95,42 @@ export interface AxisInspectorConditions extends RideConditions {
   y: number;
 }
 
+/** 地図で押した道（`osm_way_id`）の一次属性・全軸・合成を取る。 */
 export async function fetchAxisInspector(
   osmWayId: number,
   featureKey?: string | null,
   conditions?: AxisInspectorConditions | null,
 ): Promise<AxisInspectorResult | null> {
-  const { response, durationMs, requestId } = await postAndCheckOk("/api/region/axis-inspector", {
+  const body = {
+    osm_way_id: osmWayId,
+    // 押した地物の識別子。区間単位のズームで押した道は内訳も区間単位で計算される（地図の色と数字を揃える）。
+    ...(featureKey != null ? { feature_key: featureKey } : {}),
+    ...(conditions != null
+      ? {
+          z: conditions.z,
+          x: conditions.x,
+          y: conditions.y,
+          bearing_deg: conditions.bearingDeg,
+          ...(conditions.at != null ? { at: conditions.at.toISOString() } : {}),
+          ...(conditions.speedKmh != null ? { speed_kmh: conditions.speedKmh } : {}),
+        }
+      : {}),
+  };
+  const { response, durationMs, requestId } = await requestOk(`${API_BASE_URL}/api/region/axis-inspector`, {
+    method: "POST",
+    body,
+    timeoutMs: DEFAULT_API_TIMEOUT_MS,
     category: "api:axis-inspector",
-    errorLabel: "内訳取得",
-    // クリックされたフィーチャーの識別子。区間単位のズームで押した道は、内訳も
-    // 区間単位で計算される（送らないと地図の色と内訳の数字が食い違う）。
-    body: {
-      osm_way_id: osmWayId,
-      ...(featureKey != null ? { feature_key: featureKey } : {}),
-      ...(conditions != null
-        ? {
-            z: conditions.z,
-            x: conditions.x,
-            y: conditions.y,
-            bearing_deg: conditions.bearingDeg,
-            ...(conditions.at != null ? { at: conditions.at.toISOString() } : {}),
-            ...(conditions.speedKmh != null ? { speed_kmh: conditions.speedKmh } : {}),
-          }
-        : {}),
-    },
+    messages: { failure: "内訳の取得に失敗しました", parseFailure: "内訳の取得に失敗しました" },
+    requestMeta: { body },
   });
   const data: AxisInspectorResult | null = await response.json();
   debugLog("api:axis-inspector", "成功", { durationMs, requestId, composite: data?.composite_difficulty });
   return data;
 }
 
-// way_id→動的値配信層（風・勾配）。「評価軸」グループ向けに、指定タイル内のway_idごとの
-// 値（風=wind_drag_ratio、勾配=effective_gradient）をまとめて取得する。road-surface-tiles
-// （MapLibreのWeb Worker経由）とは別経路で、fetchAxisInspectorと同じくアプリのfetch()から
-// 直接呼ぶ（絶対URL化は不要）。バージョンクエリを持たない（road-surface-tilesと異なりブラウザHTTPキャッシュに
-// 乗せない想定の軽量JSON、値自体はbackend側のRedis TTLで新鮮さを管理するため）。
-//
-// エンドポイントパスは軸id駆動（`/api/region/dynamic-way-values/{axis_id}/{z}/{x}/{y}`）で、
-// 軸ごとの関数を持たない。
+// 専用配信の軸の、タイルの中のway_idごとの値。パスは軸idで決まり、軸ごとの関数を持たない。世代のクエリを持たない
+// （ブラウザのキャッシュに載せない軽いJSONで、新しさはbackendが持つ）。
 const DYNAMIC_WAY_VALUES_PATH = "/api/region/dynamic-way-values";
 
 interface DynamicWayValuesResult {
@@ -209,17 +141,9 @@ interface DynamicWayValuesResult {
   error: boolean;
 }
 
-/** 指定タイル（road-surface-tilesと同じz/x/y）内のway_idごとの動的値（風=wind_drag_ratio、
- * 勾配=effective_gradient）をまとめて取得する。失敗時は例外を投げず`error: true`へ
- * フォールバックする——背景の色分けレイヤーという補助的な機能のため、道路タイル自体の
- * 表示・他レイヤーを巻き込んで止めない（useWeatherGridのdetailGrid取得と同じ
- * 「補助機能はサイレントにフォールバック」方針。ただし失敗そのものは`error`で呼び出し側へ
- * 伝える——道路タイルは止めないが、道路の色分け自体が失敗したことは利用者へ示せるように
- * するため）。
- *
- * `bearingDeg`（ユーザーがコンパススライダーで指定した走行方位、0〜360度、北=0・時計回り）を
- * 必須クエリパラメータとして渡す。`at`は環境グループ（矢印・gridFill）と共有する時刻
- * （省略時はbackend側が現在時刻を使う。勾配は時刻に依存しないため常に省略）。 */
+/** 路面タイルと同じz/x/yの中のway_idごとの値。失敗しても例外にせず`error: true`を返す（色分けは補助の機能なので、
+ * 道路や他のレイヤーを巻き込んで止めない。失敗したことは利用者へ示せるよう返す）。走行方位・時刻・速度は、その軸が
+ * 要るものだけを呼ぶ側が渡す。 */
 export async function fetchDynamicWayValues(
   axisId: string,
   z: number,
@@ -232,13 +156,10 @@ export async function fetchDynamicWayValues(
   const params = new URLSearchParams();
   if (bearingDeg !== undefined) params.set("bearing_deg", String(bearingDeg));
   if (at) params.set("at", at.toISOString());
-  // 走行速度に依存する軸（needs_speed）だけがbackend側で使う。他の軸へ渡しても無視される。
   if (speedKmh !== undefined && Number.isFinite(speedKmh)) params.set("speed_kmh", String(speedKmh));
   const url = `${API_BASE_URL}${DYNAMIC_WAY_VALUES_PATH}/${axisId}/${z}/${x}/${y}?${params.toString()}`;
   const logCategory = `api:${axisId}-way-values`;
   try {
-    // 例外を投げない契約のためcatchで受けるが、fetch〜ok確認までは共通骨格（requestOk）を
-    // 通す——x-request-idの記録もこれで揃い、失敗時にサーバーログと突き合わせられる。
     const { response, durationMs, requestId } = await requestOk(url, {
       timeoutMs: DEFAULT_API_TIMEOUT_MS,
       category: logCategory,
@@ -248,8 +169,7 @@ export async function fetchDynamicWayValues(
     debugLog(logCategory, "成功", { durationMs, requestId, wayCount: Object.keys(data).length });
     return { values: data, error: false };
   } catch {
-    // 失敗の内訳（通信エラー/タイムアウト/HTTPエラー）は`requestOk`が既にdebugLogへ
-    // 記録済みのため、ここでは重ねて記録しない。
+    // 失敗の内訳は`requestOk`が記録済み。
     return { values: {}, error: true };
   }
 }
