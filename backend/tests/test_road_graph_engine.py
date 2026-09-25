@@ -1988,19 +1988,19 @@ def test_duration_is_none_for_an_empty_path(search_world):
     assert search_world.engine._estimate_duration_seconds(context, [], []) is None
 
 
-def test_turn_waits_are_zero_for_a_single_edge(search_world):
+def test_turn_waits_are_empty_for_a_single_edge(search_world):
     context, graph = make_duration_context([120.0, 240.0])
 
-    assert search_world.engine._turn_seconds_along(context, [graph.edges["e0"]]) == 0.0
+    assert search_world.engine._turn_waits_along(context, [graph.edges["e0"]]) == []
 
 
 def test_turn_waits_only_count_the_transition_actually_taken(search_world):
     """同じ区間から出る遷移は複数ある。経路が実際に通った1本だけを足す。"""
     context, graph = make_duration_context([120.0, 240.0], turn_seconds=[99.0, 7.0])
 
-    total = search_world.engine._turn_seconds_along(context, [graph.edges["e0"], graph.edges["e1"]])
+    waits = search_world.engine._turn_waits_along(context, [graph.edges["e0"], graph.edges["e1"]])
 
-    assert total == 7.0
+    assert waits == [7.0]
 
 
 # --------------------------------------------------------------------------------------
@@ -2164,11 +2164,25 @@ def segment_world(monkeypatch, search_world):
     return search_world
 
 
-def segment_context(world, legs, edges):
+def chain_turn_structure(edges, turn_wait):
+    """区間を並んだ順に1本ずつ曲がってつなぐだけの遷移（区間i→i+1の待ちが`turn_wait`秒）。"""
+    count = len(edges)
+    return TurnExpandedStructure(
+        state_count=count,
+        indptr=np.array([*range(count), count - 1]),
+        target_state=np.arange(1, count),
+        turn_seconds=np.full(count - 1, float(turn_wait)),
+        edge_from=np.zeros(count, dtype=np.int64), edge_to=np.zeros(count, dtype=np.int64),
+    )
+
+
+def segment_context(world, legs, edges, composer=None, turn_wait=0.0):
+    edge_graph = make_graph([(edge.edge_id, edge.from_node_id, edge.to_node_id, edge.distance_m) for edge in edges])
     return make_context(
         graph=world.graph, legs=legs,
         full_edge_row={edge.edge_id: i for i, edge in enumerate(edges)},
-        composer=make_composer(weights={AXIS_STATIC: 1.0}, speed_kmh=20.0),
+        composer=composer if composer is not None else make_composer(weights={AXIS_STATIC: 1.0}, speed_kmh=20.0),
+        lazy_graph=make_lazy_graph(edge_graph), turn_structure=chain_turn_structure(edges, turn_wait),
     )
 
 
@@ -2182,16 +2196,19 @@ def two_segment_edges():
 
 
 def test_segment_details_accumulate_distance_and_arrival_time(segment_world):
-    """到達予想時刻は累積距離から出す。1区間ずれると画面の時刻が全体的にずれる。"""
+    """到達予想は、所要と同じ時計（探索が使った区間の秒＋曲がる待ち）で積む。距離÷巡航速度で出すと、
+    最後の区間の到達予想が「出発＋所要」と合わない。"""
     edges = two_segment_edges()
-    context = segment_context(segment_world, [segment_leg()], edges)
+    leg = segment_leg(travel_seconds_full=np.array([180.0, 360.0]))
+    context = segment_context(segment_world, [leg], edges, turn_wait=7.0)
 
     segments, _categories = segment_world.engine._build_segment_details(edges, {}, context, NOW, [0, 0])
 
     assert [s.cumulative_distance_km for s in segments] == [0.0, 1.0]
     assert [s.distance_km for s in segments] == [1.0, 2.0]
     assert segments[0].estimated_arrival_time == NOW.isoformat()
-    assert segments[1].estimated_arrival_time == (NOW + timedelta(hours=1.0 / 20.0)).isoformat()
+    assert segments[1].estimated_arrival_time == (NOW + timedelta(seconds=187.0)).isoformat()
+    assert segment_world.engine._estimate_duration_seconds(context, edges, [0, 0]) == 180.0 + 7.0 + 360.0
 
 
 def test_segment_details_drop_values_the_leg_has_no_data_for(segment_world):
@@ -2248,6 +2265,52 @@ def test_segment_details_read_the_leg_the_edge_was_searched_on(segment_world):
 
     assert first.difficulty == 12.0
     assert second.difficulty == 88.0
+
+
+def timed_segment_world(segment_world, distances_m, duration_hours):
+    """風の時別予報のある1レグ（ビンは`duration_hours`ぶん）を、距離`distances_m`の区間で走る経路。"""
+    edges = [
+        lean_edge(f"e{i}", f"n{i}", f"n{i + 1}", distance_m=distance, geometry=[[35.0, 139.0], [35.1, 139.1]])
+        for i, distance in enumerate(distances_m)
+    ]
+    count = len(edges)
+    composer = make_composer(
+        make_score_matrix(count, distance_m=np.asarray(distances_m, dtype=float)),
+        wind_series=wind_series(), weights={AXIS_STATIC: 1.0, AXIS_WIND: 2.0},
+    )
+    leg = composer.compose("outbound", coords(35.0, 139.0), 0.0, +1, duration_hours=duration_hours)
+    return edges, leg, segment_context(segment_world, [leg], edges, composer=composer)
+
+
+def test_segment_details_read_the_bin_the_search_used_for_each_edge(composer_world, segment_world):
+    """ビンが2本以上あるレグで、区間の値を代表ビン（レグの中間）から読むと、その区間を通る時刻の風と食い違う。
+    探索と同じく、前の区間を抜けた時点の経過時間のビンで読む（偽の合成器では風の軸の値＝ビンの時刻[h]）。"""
+    edges, leg, context = timed_segment_world(segment_world, [36000.0, 1000.0], duration_hours=2.5)
+    assert len(leg.bin_start_hours) == 3
+    first_seconds = float(leg.travel_bins_lazy[0, 0])
+    assert 3600.0 <= first_seconds < 7200.0
+
+    (first, second), _categories = segment_world.engine._build_segment_details(edges, {}, context, NOW, [0, 0])
+
+    assert (first.axis_difficulties[AXIS_WIND], second.axis_difficulties[AXIS_WIND]) == (0.0, 1.0)
+    assert (first.difficulty, second.difficulty) == (0.0, 2.0)
+    assert second.estimated_arrival_time == (NOW + timedelta(seconds=first_seconds)).isoformat()
+    assert segment_world.engine._estimate_duration_seconds(context, edges, [0, 0]) == (
+        first_seconds + float(leg.travel_bins_lazy[1, 1])
+    )
+    assert (first.wind.forecast_at, second.wind.forecast_at) == ("2026-09-22T08:00", "2026-09-22T09:00")
+    assert not first.wind.extended and not second.wind.extended
+
+
+def test_segment_details_mark_edges_beyond_the_bins_of_the_leg(composer_world, segment_world):
+    """ビンの範囲の先は最後のビンの予報をそのまま使う。延ばして使っていることを区間の風に残す。"""
+    edges, leg, context = timed_segment_world(segment_world, [108000.0, 1000.0], duration_hours=2.5)
+    assert float(leg.travel_bins_lazy[0, 0]) >= 3 * 3600.0
+
+    (first, second), _categories = segment_world.engine._build_segment_details(edges, {}, context, NOW, [0, 0])
+
+    assert second.axis_difficulties[AXIS_WIND] == 2.0
+    assert (first.wind.extended, second.wind.extended) == (False, True)
 
 
 def test_segment_details_have_no_geometry_when_the_edge_is_a_single_point(segment_world):

@@ -24,7 +24,7 @@ import itertools
 import logging
 import math
 import time
-from collections.abc import Container, Mapping, Sequence
+from collections.abc import Callable, Container, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 
@@ -53,6 +53,7 @@ from app.domain.evaluation import (
     StaticEdgeScoreMatrix,
     axis_contributions_at_row,
     axis_weighted_sums,
+    AxisComposition,
     compose_costs_from_axis_matrix,
 )
 from app.domain.hard_filters import compute_hard_filter_excluded, compute_routable_node_ids
@@ -71,6 +72,7 @@ from app.domain.route import (
     RouteCandidate,
     RouteSegment,
     RouteSegmentDetail,
+    SegmentWind,
     aggregate_segments_into_bins,
     merge_material_category_shares,
 )
@@ -97,6 +99,7 @@ from app.domain.routing import (
     overlap_ratio,
     pareto_layer_index,
     select_diverse_by_overlap,
+    time_bin_of,
     turn_expanded_path_edge_indices,
     turn_expanded_path_from_state,
     turn_expanded_path_from_state_to_source,
@@ -229,10 +232,47 @@ class LegCostArrays:
     travel_bins_lazy: np.ndarray
     # ビン1本あたりの秒。ビンが1本のときは無限大（常にビン0を引く）。
     bin_seconds: float
+    # 各ビンを評価した時刻（出発からの経過[h]）。風の時別予報が無いレグ（出発時点の値で1本）と、区間ごとの
+    # 通過時刻で1本に合成したレグは空。**表示用の配列（`difficulty_array`等）は代表ビンのものだけ**なので、
+    # ビンが2本以上あるレグの区間は、経路をたどって決めたビンの時刻で経路上の行だけを合成し直して読む
+    # （`_LegCostComposer.values_at_rows`）。
+    bin_start_hours: tuple[float, ...] = ()
+    # 区間ごとの通過時刻（出発からの経過[h]、`full_edge_row`順）で1本に合成したレグ（目的地から遡る木）だけが持つ。
+    passage_hours: np.ndarray | None = None
 
     def axis_contributions_at(self, row: int) -> dict[str, float]:
         """その区間の軸別寄与度（`full_edge_row`順の行番号で引く）。"""
         return axis_contributions_at_row(self.axis_arrays, self.weights, self.weight_sums, row)
+
+
+@dataclass
+class RowValues:
+    """経路上の行だけを、ある時刻で合成し直した表示用の値。配列は`rows`と同じ並びで、`LegCostArrays`と
+    同じ名前の属性を持つ（区間の組み立ては、どちらから読んでも同じ書き方になる）。"""
+
+    rows: np.ndarray
+    difficulty_array: np.ndarray
+    axis_arrays: dict[str, np.ndarray]
+    weight_sums: np.ndarray
+    weights: dict[str, float]
+    material_arrays: dict[str, np.ndarray]
+
+    def axis_contributions_at(self, row: int) -> dict[str, float]:
+        return axis_contributions_at_row(self.axis_arrays, self.weights, self.weight_sums, row)
+
+
+@dataclass(frozen=True)
+class _EdgePassage:
+    """経路上の1区間を、探索と同じ規則でたどったときの時刻。"""
+
+    # 探索がこの区間に使った時刻ビン。
+    time_bin: int
+    # 出発から、この区間に入るまでの秒（走行と、曲がる待ちを含む）。到達予想はこれから出す。
+    elapsed_seconds: float
+    # この区間を走る秒（探索と同じビンの値。有限でなければ巡航速度で走ったものとして数える）。
+    seconds: float
+    # レグの時刻ビンの範囲の先で、最後のビンをそのまま使った区間。
+    beyond_bins: bool
 
 
 def _representative_bin(bin_count: int, duration_hours: float | None) -> int:
@@ -246,6 +286,23 @@ def _representative_bin(bin_count: int, duration_hours: float | None) -> int:
     if duration_hours is None:
         raise ValueError(f"見込み時間が無いのにビンが{bin_count}本ある")
     return min(bin_count - 1, int((duration_hours / 2) / TIME_BIN_HOURS))
+
+
+def _row_taker(rows: np.ndarray | None) -> Callable[[np.ndarray], np.ndarray]:
+    """配列から行`rows`だけを取り出す関数（Noneなら配列をそのまま返す）。"""
+    if rows is None:
+        return lambda values: values
+    return lambda values: values[rows]
+
+
+@dataclass
+class _Evaluated:
+    """`_LegCostComposer._evaluate`の途中結果。"""
+
+    published: dict[str, np.ndarray]
+    material_arrays: dict[str, np.ndarray]
+    travel: np.ndarray
+    composed: AxisComposition
 
 
 class _LegCostComposer:
@@ -318,7 +375,11 @@ class _LegCostComposer:
         self._fixed_axis_sums_cache: tuple[np.ndarray, np.ndarray] | None = None
 
     def _travel_time_seconds(
-        self, material_arrays: dict[str, np.ndarray], headwind_ms: np.ndarray, crosswind_ms: np.ndarray
+        self,
+        material_arrays: dict[str, np.ndarray],
+        headwind_ms: np.ndarray,
+        crosswind_ms: np.ndarray,
+        rows: np.ndarray | None = None,
     ) -> np.ndarray:
         """区間ごとの所要時間（秒）を`full_edge_row`順で返す。
 
@@ -327,14 +388,15 @@ class _LegCostComposer:
         足したもの。
         ターンの待ちは遷移ごとに決まるためここには含まない（探索側が足す）。
         0次フィルタで除外された区間は無限大にする（探索から見た通行可否をコストの下地だけで
-        表すため）。
+        表すため）。`rows`を渡すとその行だけ（引数の配列も同じ並び）で求める。
         """
+        take = _row_taker(rows)
         profile = RiderProfile(cruise_speed_kmh=self.speed_kmh)
-        distance_m = self._score_matrix.distance_m
+        distance_m = take(self._score_matrix.distance_m)
         # 勾配は静的スコア行列が生配列として常に持つ（0次フィルタの勾配しきい値と同じ列）。
         # `material_arrays`は「内訳として見せる材料」だけのため、勾配軸が分解されていない
         # 構成では欠ける。
-        grade = np.nan_to_num(self._score_matrix.gradient_percent) / 100.0
+        grade = np.nan_to_num(take(self._score_matrix.gradient_percent)) / 100.0
         crr = crr_for_surface(material_arrays.get(ROLLING_RESISTANCE_MATERIAL_ID), len(distance_m))
         travel = travel_seconds(distance_m, profile, grade, headwind_ms, crosswind_ms, crr)
         stops = np.zeros(len(distance_m))
@@ -344,7 +406,7 @@ class _LegCostComposer:
             per_km = material_arrays.get(material_id)
             if per_km is not None:
                 stops += np.nan_to_num(per_km) * (distance_m / 1000.0) * stop_seconds(kind)
-        return np.where(self._hard_filter_excluded, np.inf, travel + stops)
+        return np.where(take(self._hard_filter_excluded), np.inf, travel + stops)
 
     @property
     def lazy_hard_filter_excluded(self) -> np.ndarray:
@@ -435,6 +497,12 @@ class _LegCostComposer:
             cost_bins_lazy=np.vstack([b.cost_lazy for b in bins]),
             travel_bins_lazy=np.vstack([b.travel_seconds_lazy for b in bins]),
             bin_seconds=TIME_BIN_HOURS * 3600.0 if len(bins) > 1 else np.inf,
+            bin_start_hours=(
+                tuple(leg_start + k * TIME_BIN_HOURS for k in range(len(bins)))
+                if self.time_varying and passage_hours is None
+                else ()
+            ),
+            passage_hours=passage_hours if self.time_varying else None,
         )
         self._cache[key] = leg
         logger.info(
@@ -480,38 +548,96 @@ class _LegCostComposer:
             return 1
         return int(min(MAX_TIME_BINS, max(1, math.ceil(duration_hours / TIME_BIN_HOURS))))
 
-    def _compose_at(self, passage: np.ndarray | None) -> LegCostArrays:
-        """指定した通過時刻（`None`は出発時点のスナップショット）で1本ぶん合成する。"""
+    def _evaluate(self, passage: np.ndarray | None, rows: np.ndarray | None = None) -> _Evaluated:
+        """指定した通過時刻（`None`は出発時点のスナップショット）で、軸・材料・所要時間・合成を求める。
+        `rows`を渡すとその行だけで求める（`passage`も同じ並び）——探索の合成と同じ式を、経路上の数百行へ
+        当て直すために使う。"""
+        take = _row_taker(rows)
+        bearing = take(self._score_matrix.bearing_deg)
         dynamic_context = DynamicAxisRequestContext(
-            bearing_deg=self._score_matrix.bearing_deg, weather=self._weather,
+            bearing_deg=bearing, weather=self._weather,
             travel_speed_ms=kmh_to_ms(self.speed_kmh),
             wind_series=self._wind_series, start=self.start, passage_hours=passage,
         )
-        resolved = evaluate_dynamic_axis_arrays(self._static_axis_scores, dynamic_context)
+        static_scores = (
+            self._static_axis_scores if rows is None
+            else {axis_id: values[rows] for axis_id, values in self._static_axis_scores.items()}
+        )
+        resolved = evaluate_dynamic_axis_arrays(static_scores, dynamic_context)
         wind_inputs = dynamic_context.wind_inputs()
         if wind_inputs is None:
-            headwind = crosswind = np.zeros(len(self._score_matrix.bearing_deg))
+            headwind = crosswind = np.zeros(len(bearing))
         else:
-            headwind, crosswind = wind_components(*wind_inputs, self._score_matrix.bearing_deg)
+            headwind, crosswind = wind_components(*wind_inputs, bearing)
         material_arrays = {
             # 静的材料は静的スコア行列の列をそのまま指すためレグ間で共有する
             # （動的材料と違いレグごとに変わらない）。
-            **self._static_material_arrays,
+            **{material_id: take(values) for material_id, values in self._static_material_arrays.items()},
             **{
                 material_id: resolved[material_id]
                 for material_id in REQUEST_DYNAMIC_MATERIAL_IDS
                 if material_id in resolved and not np.all(np.isnan(resolved[material_id]))
             },
         }
-        travel = self._travel_time_seconds(material_arrays, headwind, crosswind)
+        travel = self._travel_time_seconds(material_arrays, headwind, crosswind, rows)
         # evaluate_dynamic_axis_arraysは内部軸も含めうるため、公開軸のみへ絞って合成する。
         # 合成へ渡すのは時刻で変わる軸だけにし、それ以外は先に求めた重み付き和を使い回す
         # （合成の時間は軸数にほぼ比例する）。表示が読む`axis_arrays`は全軸を持たせる。
         published = {axis_id: resolved[axis_id] for axis_id in self._score_matrix.axis_ids}
         time_varying = {axis_id: resolved[axis_id] for axis_id in self._time_varying_axis_ids}
+        fixed_sums, fixed_weights = self._fixed_axis_sums
         composed = compose_costs_from_axis_matrix(
-            self._score_matrix.distance_m, time_varying, self._weights, self._penalty_strength,
-            base=travel, static_sums=self._fixed_axis_sums,
+            take(self._score_matrix.distance_m), time_varying, self._weights, self._penalty_strength,
+            base=travel, static_sums=(take(fixed_sums), take(fixed_weights)),
+        )
+        return _Evaluated(published=published, material_arrays=material_arrays, travel=travel, composed=composed)
+
+    def values_at_rows(self, rows: np.ndarray, passage_hours: np.ndarray) -> RowValues:
+        """経路上の行`rows`（`full_edge_row`順の行番号）だけを、行ごとの通過時刻`passage_hours`で合成し直す。"""
+        evaluated = self._evaluate(np.asarray(passage_hours, dtype=float), np.asarray(rows, dtype=np.int64))
+        return RowValues(
+            rows=np.asarray(rows, dtype=np.int64),
+            difficulty_array=evaluated.composed.difficulty,
+            axis_arrays=evaluated.published,
+            weight_sums=evaluated.composed.weight_sums,
+            weights=self._weights,
+            material_arrays=evaluated.material_arrays,
+        )
+
+    def lazy_row(self, full_row: int) -> int:
+        """`full_edge_row`順の行番号を、探索が使う行順（`cost_lazy`の並び）へ直す。"""
+        return int(self._full_row_index[full_row])
+
+    def winds_at(self, passage_hours: list[float | None], beyond_bins: list[bool]) -> list[SegmentWind | None]:
+        """区間ごとの通過時刻（出発からの経過[h]、Noneは出発時点の値を使った区間）で引いた風。
+        `beyond_bins`はレグの時刻ビンの範囲の先で、最後のビンをそのまま使った区間。"""
+        winds: list[SegmentWind | None] = [None] * len(passage_hours)
+        timed = [i for i, passage in enumerate(passage_hours) if passage is not None]
+        if self._wind_series is not None and timed:
+            timed_hours = np.array([passage_hours[i] for i in timed], dtype=float)
+            speed, direction = self._wind_series.sample(self.start, timed_hours)
+            times, clamped = self._wind_series.sampled_times(self.start, timed_hours)
+            for j, i in enumerate(timed):
+                winds[i] = SegmentWind(
+                    speed_ms=round(float(speed[j]), 1),
+                    direction_deg=round(float(direction[j]), 1),
+                    forecast_at=times[j].isoformat(timespec="minutes"),
+                    extended=bool(clamped[j]) or beyond_bins[i],
+                )
+        if self._weather is not None:
+            for i, passage in enumerate(passage_hours):
+                if passage is None:
+                    winds[i] = SegmentWind(
+                        speed_ms=round(self._weather.wind_speed_ms, 1),
+                        direction_deg=round(self._weather.wind_direction_deg, 1),
+                    )
+        return winds
+
+    def _compose_at(self, passage: np.ndarray | None) -> LegCostArrays:
+        """指定した通過時刻（`None`は出発時点のスナップショット）で1本ぶん合成する。"""
+        evaluated = self._evaluate(passage)
+        published, material_arrays, travel, composed = (
+            evaluated.published, evaluated.material_arrays, evaluated.travel, evaluated.composed,
         )
         cost_array, difficulty_array = composed.cost, composed.difficulty
         cost_array = np.where(self._hard_filter_excluded, np.inf, cost_array)
@@ -1848,28 +1974,58 @@ class RoadGraphEngine:
     def _estimate_duration_seconds(
         self, context: _RoadGraphContext, edges: list[LeanEdge], leg_of_edge: list[int]
     ) -> float | None:
-        """候補の所要時間（秒）＝ 区間の走行時間 ＋ 停止の待ち ＋ ターンの待ち。
+        """候補の所要時間（秒）＝ 区間の走行時間 ＋ 停止の待ち ＋ ターンの待ち。経路を探索と同じ規則で
+        たどった時刻（`_route_passages`）の終わりで、区間の到達予想と同じ時計を使う。"""
+        if not edges:
+            return None
+        last = self._route_passages(context, edges, leg_of_edge)[-1]
+        return last.elapsed_seconds + last.seconds
 
-        区間ごとの秒は、探索のコストの下地になっている配列（`LegCostArrays.
-        travel_seconds_full`、走行モデル＋停止の待ち）をそのまま読む——表示の所要時間と
-        探索が使う所要時間を別々に計算すると、片方だけ直したときに静かに食い違う。
-        ターンは経路の遷移ごとの秒（`TurnExpandedStructure`）を足す。
+    def _route_passages(
+        self, context: _RoadGraphContext, edges: list[LeanEdge], leg_of_edge: list[int]
+    ) -> list[_EdgePassage]:
+        """経路を探索と同じ規則でたどり、区間ごとに時刻ビンと出発からの秒を決める。
+
+        探索（`domain/routing.py`の前向きDijkstra・A*）はレグの中の経過時間でビンを選ぶ: レグの最初の区間は
+        ビン0、次の区間は前の区間を抜けた時点（曲がる待ちを足す前）の経過時間のビン。区間ごとの秒は、探索の
+        コストの下地になっている配列（`LegCostArrays.travel_bins_lazy`、走行モデル＋停止の待ち）を
+        そのビンで読む——表示の時刻と探索の時刻を別々に計算すると、片方だけ直したときに静かに食い違う。
+        出発からの秒は、レグをまたいで走行と曲がる待ち（`TurnExpandedStructure`）を積む。
 
         走行時間が有限でない区間は巡航速度で走ったものとして数える——0にすると所要時間が
         実態より短く出る。
         """
-        if not edges:
-            return None
         fallback_ms = kmh_to_ms(context.composer.speed_kmh)
-        total = 0.0
-        for edge, leg_index in zip(edges, leg_of_edge):
+        waits = self._turn_waits_along(context, edges)
+        passages: list[_EdgePassage] = []
+        elapsed = 0.0
+        leg_elapsed = 0.0
+        previous_leg: int | None = None
+        for i, (edge, leg_index) in enumerate(zip(edges, leg_of_edge)):
             leg = context.legs[leg_index]
-            seconds = leg.travel_seconds_full[context.full_edge_row[edge.edge_id]]
-            total += float(seconds) if np.isfinite(seconds) else edge.distance_m / fallback_ms
-        return total + self._turn_seconds_along(context, edges)
+            if leg_index != previous_leg:
+                leg_elapsed = 0.0
+                previous_leg = leg_index
+            bin_count = leg.travel_bins_lazy.shape[0]
+            time_bin = time_bin_of(leg_elapsed, leg.bin_seconds, bin_count)
+            row = context.full_edge_row[edge.edge_id]
+            seconds = float(
+                leg.travel_seconds_full[row] if bin_count == 1
+                else leg.travel_bins_lazy[time_bin, context.composer.lazy_row(row)]
+            )
+            if not np.isfinite(seconds):
+                seconds = edge.distance_m / fallback_ms
+            passages.append(_EdgePassage(
+                time_bin=time_bin, elapsed_seconds=elapsed, seconds=seconds,
+                beyond_bins=bin_count > 1 and leg_elapsed >= bin_count * leg.bin_seconds,
+            ))
+            wait = waits[i] if i < len(waits) else 0.0
+            leg_elapsed += seconds + (wait if i + 1 < len(edges) and leg_of_edge[i + 1] == leg_index else 0.0)
+            elapsed += seconds + wait
+        return passages
 
-    def _turn_seconds_along(self, context: _RoadGraphContext, edges: list[LeanEdge]) -> float:
-        """経路に沿ったターンの待ち（秒）の合計。遷移は`TurnExpandedStructure`から引く。
+    def _turn_waits_along(self, context: _RoadGraphContext, edges: list[LeanEdge]) -> list[float]:
+        """経路に沿った遷移ごとのターンの待ち（秒、区間の数−1個）。遷移は`TurnExpandedStructure`から引く。
 
         Node・遷移は必ず引ける——`build_lazy_road_graph`が`graph.nodes`の全件から索引を作り、
         各区間の両端Nodeが在ることを確かめてから通すため（`domain/routing.py`参照）。
@@ -1882,13 +2038,15 @@ class RoadGraphEngine:
             ]
             for edge in edges
         ]
-        total = 0.0
+        waits: list[float] = []
         for previous, following in zip(states, states[1:]):
+            wait = 0.0
             for entry in range(structure.indptr[previous], structure.indptr[previous + 1]):
                 if structure.target_state[entry] == following:
-                    total += float(structure.turn_seconds[entry])
+                    wait = float(structure.turn_seconds[entry])
                     break
-        return total
+            waits.append(wait)
+        return waits
 
     def _build_segment_details(
         self,
@@ -1911,9 +2069,19 @@ class RoadGraphEngine:
         segment_categories: list[dict[str, str]] = []
         cumulative_km = 0.0
         active_material_ids = displayed_material_ids(context.composer._weights, context.composer._lens_axis_id)
+        passages = self._route_passages(context, edges, leg_of_edge)
+        timed = _values_at_passages(context, edges, leg_of_edge, passages)
+        winds = context.composer.winds_at(
+            [_passage_hours_of(context, edge, leg_index, passage)
+             for edge, leg_index, passage in zip(edges, leg_of_edge, passages)],
+            [passage.beyond_bins for passage in passages],
+        )
 
-        for edge, leg_index in zip(edges, leg_of_edge):
+        for index, (edge, leg_index) in enumerate(zip(edges, leg_of_edge)):
             leg = context.legs[leg_index]
+            # 時刻で変わる値（難易度・軸・材料）は、探索がこの区間に使ったビンの値。ビンが1本のレグはレグの配列、
+            # 2本以上のレグは経路上の行だけをそのビンの時刻で合成し直した値（`LegCostArrays.bin_start_hours`参照）。
+            values, value_row = timed.get(index, (leg, context.full_edge_row[edge.edge_id]))
             distance_km = edge.distance_m / 1000
             elevation_attr = elevation_by_edge.get(edge.edge_id)
 
@@ -1930,11 +2098,11 @@ class RoadGraphEngine:
             # 引けないなら探索と表示が別のEdge集合を見ているということなので、ここで落とす。
             row = context.full_edge_row[edge.edge_id]
             axis_scores = {
-                axis_id: float(arr[row])
-                for axis_id, arr in leg.axis_arrays.items()
-                if not math.isnan(arr[row])
+                axis_id: float(arr[value_row])
+                for axis_id, arr in values.axis_arrays.items()
+                if not math.isnan(arr[value_row])
             }
-            axis_contributions = leg.axis_contributions_at(row)
+            axis_contributions = values.axis_contributions_at(value_row)
             # 折れ点を通す前の生値。静的スコア行列が持つ列をそのまま読む
             # （動的材料を参照する軸は行列側で除外済み）。
             axis_raw_values = {
@@ -1942,14 +2110,14 @@ class RoadGraphEngine:
                 for axis_id, arr in leg.axis_raw_arrays.items()
                 if not math.isnan(arr[row])
             }
-            difficulty_value = leg.difficulty_array[row]
+            difficulty_value = values.difficulty_array[value_row]
             composite_difficulty_value = None if math.isnan(difficulty_value) else float(difficulty_value)
             material_values = {
                 **static_material_values,
                 **{
                     material_id: value
                     for material_id in active_material_ids
-                    if (value := _material_value_at(leg, material_id, row)) is not None
+                    if (value := _material_value_at(values, material_id, value_row)) is not None
                 },
             }
             segment_categories.append({
@@ -1958,8 +2126,7 @@ class RoadGraphEngine:
                 if material_id in active_material_ids and (raw := array[row]) is not None
             })
 
-            elapsed_hours = cumulative_km / self._assumed_speed_kmh
-            arrival_time = start_time + timedelta(hours=elapsed_hours)
+            arrival_time = start_time + timedelta(seconds=passages[index].elapsed_seconds)
 
             start_lat, start_lon = edge.geometry[0]
             end_lat, end_lon = edge.geometry[-1]
@@ -1986,6 +2153,7 @@ class RoadGraphEngine:
                     axis_contributions=axis_contributions,
                     material_values=material_values,
                     difficulty=composite_difficulty_value,
+                    wind=winds[index],
                 )
             )
             cumulative_km += distance_km
@@ -1993,7 +2161,36 @@ class RoadGraphEngine:
         return segments, segment_categories
 
 
-def _material_value_at(leg: LegCostArrays, material_id: str, row: int) -> float | None:
+def _values_at_passages(
+    context: _RoadGraphContext, edges: list[LeanEdge], leg_of_edge: list[int], passages: list[_EdgePassage]
+) -> dict[int, tuple[RowValues, int]]:
+    """ビンが2本以上あるレグの区間を、探索が使ったビンの時刻で合成し直す（区間の添字→（値, 値の中の位置））。
+    同じレグ・同じビンの区間はまとめて1回で合成する。"""
+    groups: dict[tuple[int, int], list[int]] = {}
+    for index, (leg_index, passage) in enumerate(zip(leg_of_edge, passages)):
+        if len(context.legs[leg_index].bin_start_hours) > 1:
+            groups.setdefault((leg_index, passage.time_bin), []).append(index)
+    timed: dict[int, tuple[RowValues, int]] = {}
+    for (leg_index, time_bin), indices in groups.items():
+        rows = np.array([context.full_edge_row[edges[i].edge_id] for i in indices], dtype=np.int64)
+        hours = np.full(len(rows), context.legs[leg_index].bin_start_hours[time_bin])
+        values = context.composer.values_at_rows(rows, hours)
+        for position, index in enumerate(indices):
+            timed[index] = (values, position)
+    return timed
+
+
+def _passage_hours_of(context: _RoadGraphContext, edge: LeanEdge, leg_index: int, passage: _EdgePassage) -> float | None:
+    """その区間の評価に使った通過時刻（出発からの経過[h]）。出発時点の値で合成したレグはNone。"""
+    leg = context.legs[leg_index]
+    if leg.bin_start_hours:
+        return leg.bin_start_hours[passage.time_bin]
+    if leg.passage_hours is not None:
+        return float(leg.passage_hours[context.full_edge_row[edge.edge_id]])
+    return None
+
+
+def _material_value_at(leg: LegCostArrays | RowValues, material_id: str, row: int) -> float | None:
     """レグの合成に使った材料配列から1行を読む（材料データ無し・欠損はNone）。"""
     array = leg.material_arrays.get(material_id)
     if array is None:

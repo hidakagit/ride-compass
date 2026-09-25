@@ -4994,6 +4994,16 @@
               }
             ],
             "title": "Difficulty"
+          },
+          "wind": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SegmentWind"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "additionalProperties": false,
@@ -5078,6 +5088,41 @@
           "material_points"
         ],
         "title": "ScoresPreviewResponse"
+      },
+      "SegmentWind": {
+        "properties": {
+          "speed_ms": {
+            "type": "number",
+            "title": "Speed Ms"
+          },
+          "direction_deg": {
+            "type": "number",
+            "title": "Direction Deg"
+          },
+          "forecast_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Forecast At"
+          },
+          "extended": {
+            "type": "boolean",
+            "title": "Extended",
+            "default": false
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "speed_ms",
+          "direction_deg"
+        ],
+        "title": "SegmentWind"
       },
       "TileInputSpec": {
         "properties": {

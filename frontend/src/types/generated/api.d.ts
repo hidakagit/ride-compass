@@ -1701,6 +1701,7 @@ export interface components {
             };
             /** Difficulty */
             difficulty?: number | null;
+            wind?: components["schemas"]["SegmentWind"] | null;
         };
         /** ScorePoint */
         ScorePoint: {
@@ -1723,6 +1724,20 @@ export interface components {
             scores: number[];
             /** Material Points */
             material_points: components["schemas"]["ScorePoint"][];
+        };
+        /** SegmentWind */
+        SegmentWind: {
+            /** Speed Ms */
+            speed_ms: number;
+            /** Direction Deg */
+            direction_deg: number;
+            /** Forecast At */
+            forecast_at?: string | null;
+            /**
+             * Extended
+             * @default false
+             */
+            extended: boolean;
         };
         /** TileInputSpec */
         TileInputSpec: {

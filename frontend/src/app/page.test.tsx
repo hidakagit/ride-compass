@@ -209,6 +209,7 @@ function segment(overrides: Partial<RouteSegmentDetail> = {}): RouteSegmentDetai
     material_values: {},
     axis_raw_values: {},
     difficulty: null,
+    wind: null,
     ...overrides,
   };
 }

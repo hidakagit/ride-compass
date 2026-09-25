@@ -132,6 +132,7 @@ from app.domain.material_catalog import (  # noqa: E402
     display_axis_missing_semantics,
 )
 from app.domain.region import ROAD_TILE_MAX_ZOOM, ROAD_TILE_MIN_ZOOM  # noqa: E402
+from app.services.road_graph_engine import MAX_TIME_BINS, TIME_BIN_HOURS  # noqa: E402
 from app.services.route_generator import (  # noqa: E402
     DEFAULT_MAX_ROUTES,
     MAX_ROUTES,
@@ -518,6 +519,9 @@ def main() -> None:
             # フロントのポーリングの打ち切り。backendが結果を持つ時間より長く待つと、
             # 掃除済みのjob_idを引いて「ジョブが見つかりません」になる。
             "job_result_ttl_seconds": JOB_TTL_SECONDS,
+            # 風の予報を追う長さ（レグごと、時刻ビンの本数×幅）。区間の詳細の説明が、この先は最後に追った時刻の予報を
+            # そのまま使うことを数字で示す。
+            "wind_forecast_hours_per_leg": MAX_TIME_BINS * TIME_BIN_HOURS,
             # フロントが使う較正値の**既定**（`domain/tuning.py`の宣言そのまま）。
             # 実際に効いている値はGET /api/axis-catalogが返し、これはそれを取れるまでの値。
             "client_tuning": client_tuning_values(),

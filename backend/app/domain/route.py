@@ -20,6 +20,20 @@ class RouteSegment(StrictModel):
     geometry: dict
 
 
+class SegmentWind(StrictModel):
+    """区間の評価に使った風。
+
+    `forecast_at`はその予報の時刻（JSTのローカル時刻、分まで）。風の時別予報が無く出発時点の
+    値を使ったときはNone。`extended`は、予報を追える範囲（レグごとの時刻ビンの本数・予報の期間）の
+    先で、最後に追った時刻の予報をそのまま使った区間。
+    """
+
+    speed_ms: float
+    direction_deg: float
+    forecast_at: str | None = None
+    extended: bool = False
+
+
 class RouteSegmentDetail(StrictModel):
     """周回ルートの1区間（サンプル点i→i+1）の詳細。地図上の難易度レイヤー描画に使う。
 
@@ -52,6 +66,8 @@ class RouteSegmentDetail(StrictModel):
     # 引き方に依存する相対評価のため、軸単体で経路を判断するにはこの絶対値が要る。
     axis_raw_values: dict[str, float] = Field(default_factory=dict)
     difficulty: float | None = None
+    # この区間の評価に使った風（到達予想の時刻に通るとして引いた予報）。風を持たない生成ではNone。
+    wind: SegmentWind | None = None
 
 
 class RouteCandidate(StrictModel):
@@ -281,6 +297,8 @@ BIN_FIELD_MERGERS: dict[str, Callable[[list[RouteSegmentDetail]], object]] = {
     "cumulative_distance_km": lambda segments: segments[0].cumulative_distance_km,
     "distance_km": lambda segments: round(sum(s.distance_km for s in segments), 2),
     "estimated_arrival_time": lambda segments: segments[0].estimated_arrival_time,
+    # 到達予想と同じく、ビンに入った先頭の区間の値（ビンの中で予報の時刻が変わっても、入るときの風を出す）。
+    "wind": lambda segments: segments[0].wind,
     "difficulty": lambda segments: distance_weighted_difficulty([(s.difficulty, s.distance_km) for s in segments]),
     **BIN_DICT_FIELD_MERGERS,
 }

@@ -284,11 +284,11 @@ values = {
 風の時刻はEdgeごとの通過予定時刻（基準点からの直線距離×迂回率÷仮定巡航速度、
 `domain/wind.py: estimate_passage_hours`）で起点の時別予報（`WindForecastSeries`）から
 引き、レグ（往路/復路）ごとに別のコスト配列として探索前に合成する。区間表示
-（`RouteSegmentDetail.material_values`）は探索に使ったその配列から読む（詳細は
-[routing-engine.md](routing-engine.md)「レグ別コスト配列」参照）。
+（`RouteSegmentDetail.material_values`・`wind`）は、探索がその区間に使った時刻ビンの値を読む（詳細は
+[routing-engine.md](routing-engine.md)「レグ内の時刻ビン」「レグ別コスト配列」参照）。
 
 `ASSUMED_SPEED_KMH`（`domain/wind.py`、仮定巡航速度の既定値20km/h、`MIN/MAX_ASSUMED_SPEED_KMH`
-＝5〜60）はリクエスト（`assumed_speed_kmh`）で上書きでき、通過予定時刻・区間の到達予想時刻・
-所要時間表示と、風の材料`wind_drag_ratio`の走行速度（`kmh_to_ms`でm/sへ変換して
+＝5〜60）はリクエスト（`assumed_speed_kmh`）で上書きでき、通過予定時刻・走行モデルの巡航速度
+（区間の到達予想と所要時間はこの走行モデルの秒から出る）と、風の材料`wind_drag_ratio`の走行速度（`kmh_to_ms`でm/sへ変換して
 `DynamicAxisRequestContext.travel_speed_ms`へ渡す）に使う。`ROUTE_DETOUR_RATIO`（1.3）は道なり距離／直線距離の初期値で、探索範囲ごとに往路木から
 測った実測中央値を学習して置き換える（[routing-engine.md](routing-engine.md)参照）。

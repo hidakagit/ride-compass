@@ -29,6 +29,7 @@ function makeSegment(index: number, coordinates: [number, number][]) {
     axis_raw_values: {},
     axis_contributions: {},
     difficulty: 20 + index * 30,
+    wind: null,
   };
 }
 

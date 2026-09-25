@@ -9,6 +9,7 @@
   "min_assumed_speed_kmh": 5.0,
   "max_assumed_speed_kmh": 60.0,
   "job_result_ttl_seconds": 600.0,
+  "wind_forecast_hours_per_leg": 4.0,
   "client_tuning": {
     "splice.min_stretch_km": 0.2
   },

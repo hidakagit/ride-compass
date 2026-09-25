@@ -90,14 +90,24 @@ class WindForecastSeries:
         if not math.isclose(step_hours, 1.0):
             raise ValueError(f"WindForecastSeries: expected hourly steps, got {step_hours}h")
 
+    def _sample_index(self, start: datetime, passage_hours: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+        """`start`から`passage_hours`時間後に最も近い時刻の添字と、系列の範囲の外で端へ寄せたか。"""
+        start_offset_hours = (start - self.times[0]).total_seconds() / 3600
+        raw = np.rint(start_offset_hours + np.asarray(passage_hours, dtype=float)).astype(np.int64)
+        index = np.clip(raw, 0, len(self.times) - 1)
+        return index, index != raw
+
     def sample(self, start: datetime, passage_hours: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
         """`start`（タイムゾーン無しのローカル時刻）から`passage_hours`時間後に最も近い
         時刻の（風速, 風向）配列を返す。系列の範囲外は端の値へクランプする（探索では欠損
         より端の値の方が妥当）。"""
-        start_offset_hours = (start - self.times[0]).total_seconds() / 3600
-        index = np.rint(start_offset_hours + np.asarray(passage_hours, dtype=float)).astype(np.int64)
-        index = np.clip(index, 0, len(self.times) - 1)
+        index, _clamped = self._sample_index(start, passage_hours)
         return self.speed_ms[index], self.direction_deg[index]
+
+    def sampled_times(self, start: datetime, passage_hours: np.ndarray) -> tuple[list[datetime], np.ndarray]:
+        """`sample`が引く予報の時刻と、系列の範囲の外で端の時刻へ寄せたか（予報の先を延ばして使っている）。"""
+        index, clamped = self._sample_index(start, passage_hours)
+        return [self.times[i] for i in index], clamped
 
 
 def estimate_passage_hours(

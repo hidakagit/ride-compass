@@ -28,6 +28,7 @@ import { fixedRouteCount, useRouteFormSubmit, type RouteMode } from "@/features/
 import RouteSettingsPanel from "@/features/route/RouteSettingsPanel/RouteSettingsPanel";
 import HardFilterPanel, { DEFAULT_HARD_FILTERS } from "@/features/route/RouteSettingsPanel/HardFilterPanel";
 import RouteAxisProfile from "@/features/route/RouteAxisProfile/RouteAxisProfile";
+import SegmentWind from "@/features/route/SegmentWind/SegmentWind";
 import RouteSplicePanel from "@/features/route/RouteSplicePanel/RouteSplicePanel";
 import { haversineKm } from "@/lib/geoDistance";
 import {
@@ -1003,6 +1004,7 @@ export default function Home() {
                         ×
                       </Button>
                     </div>
+                    <SegmentWind wind={selectedRouteSegment.segment.wind} />
                     <AxisContributionBar
                       axes={axisCatalog.axes}
                       contributions={selectedRouteSegment.segment.axis_contributions}

@@ -893,8 +893,9 @@ def _heap_pop(heap: _Heap, size: int) -> tuple[float, int, int]:
 
 
 @njit(cache=True, inline="always")
-def _time_bin(travelled: float, bin_seconds: float, bin_count: int) -> int:
-    """出発からの経過時間`travelled`（秒）が落ちる時刻ビン。範囲外は端のビンへ寄せる。"""
+def time_bin_of(travelled: float, bin_seconds: float, bin_count: int) -> int:
+    """出発からの経過時間`travelled`（秒）が落ちる時刻ビン。範囲外は端のビンへ寄せる。区間の表示も経路を
+    たどってこれで同じビンを選ぶ（探索と表示が別のビンを読むと、同じ区間の風が食い違う）。"""
     time_bin = int(travelled / bin_seconds)
     if time_bin >= bin_count:
         return bin_count - 1
@@ -949,7 +950,7 @@ def _turn_expanded_dijkstra(
         if g > best[state]:
             continue
         travelled = arrival[state]
-        time_bin = _time_bin(travelled, bin_seconds, bin_count)
+        time_bin = time_bin_of(travelled, bin_seconds, bin_count)
         for entry in range(indptr[state], indptr[state + 1]):
             nxt = target_state[entry]
             cost = edge_cost[time_bin, nxt]
@@ -1267,7 +1268,7 @@ def _turn_expanded_astar(
             goal_state = state
             break
         travelled = arrival[state]
-        time_bin = _time_bin(travelled, bin_seconds, bin_count)
+        time_bin = time_bin_of(travelled, bin_seconds, bin_count)
         for entry in range(indptr[state], indptr[state + 1]):
             nxt = target_state[entry]
             cost = edge_cost[time_bin, nxt]
