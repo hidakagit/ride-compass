@@ -412,7 +412,9 @@ MSM（`.om`形式、CC-BY-4.0）をローカルへ同期して読む。予報を
 **読めないときの振る舞い**: 同期が済んでいない・配信元の予報終端が現在時刻へ追いついた
 場合は`MsmUnavailableError`。`WeatherService.get_wind_grid`はこれを全地点Noneへ変換し、
 ルーターが502を返す（`_reject_if_all_points_failed`）。ルート評価の風
-（`get_wind_forecast_lattice`）はNoneを返し、呼び出し元が出発時点のスナップショットへ倒す。
+（`get_wind_forecast_lattice`）はNoneを返し、呼び出し元は出発時点の値（`get_conditions`）へ倒すが、
+そちらも同じMSMを読むため同時に読めず、**所要時間は無風で計算される**（利用者への表示は無い）。読めなかった原因は、`read_series`を囲む`log_external_call`
+（カテゴリ`msm:read`）が抑制付きWARNINGで残す。
 
 **予報の長さ**: MSMはrunごとに39時間先（00/12UTCのrunは78時間先）まで持ち、配信は
 run初期時刻から数時間遅れる。そのため現在時刻から先の長さはrunのタイミングによって
