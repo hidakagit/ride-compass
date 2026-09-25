@@ -1,13 +1,21 @@
 """仕掛中のダッシュボードの件の読み込みとバックアップ。依頼で足した側の機能。
 
 ダッシュボード（非公開のArtifactのデータベース、collection `pending`）は`ArtifactData`でしか読めず、
-このスクリプトからは直接読めない。日次のバックアップ（と、最新の状態で前提を見たいとき）が
+このスクリプトからは直接読めない。日次のバックアップと、司令塔の定期確認のたびの書き出しが
 `ArtifactData`の`list`に`out_dir`を付けて全件をファイルへ書き出し、そのディレクトリを`--pending`で渡す
 （`<out_dir>/pending/<doc_id>.json`が1件。ファイル名が件のdoc_id）。置き場と1件の形の正本は
 `docs/conventions/asking-user.md`「仕掛中のダッシュボード」節。核はこのモジュールをimportしない。
 
     python scripts/orchestrate.py pending-backup --pending <dir>   # 全件を日付のファイルへ書き出す（直近14日を残す。移し忘れを知らせる）
-    python scripts/orchestrate.py pending-inbox [--pending <dir>]  # 送った・取り込み待ちの件を、タスクごとの今の持ち主と並べる（既定: 最新のバックアップ）
+    python scripts/orchestrate.py pending-inbox [--pending <dir>]  # 取り込み待ちの件を、タスクごとの今の持ち主と並べる（既定: 最新のバックアップ）
+
+`check`は最新のバックアップから、取り込み待ちの件を持ち主ごとに要対応として出し、書き出しが確認間隔の2倍より古ければ
+それも出す（`inbox_problems`）。書き出しより後に付いた答えは見えないので、司令塔は定期確認のたびに書き出し直す。
+
+## 取り込み待ち
+
+送った件（`sent_at`があり`taken_at`がそれより前か無い）と、答えが出た件（`answer`があり、`taken_at`が無いか`answered_at`より
+前）。答えはページの「Claude に反映を頼む」を押されなくても付くので、送ったかだけを見ると答えを見落とす。
 
 ## 件の持ち主
 
@@ -77,6 +85,17 @@ def prereqs_in(items: dict[str, dict], task: str) -> list[str]:
     return out
 
 
+def answered_untaken(item: dict) -> bool:
+    """答えが出て取り込まれていないか: `answer`があり、`taken_at`が無いか`answered_at`より前。"""
+    if not answered(item):
+        return False
+    taken = parse_time(item.get("taken_at"))
+    if taken is None:
+        return True
+    at = parse_time(item.get("answered_at"))
+    return at is not None and taken < at
+
+
 def open_holds(items: dict[str, dict]) -> set[str]:
     """答えの出ていない問い（kind `保留`）を持つタスク。"""
     return {str(i.get("task")) for i in items.values() if i.get("kind") == "保留" and not answered(i)}
@@ -97,15 +116,22 @@ def backups(ctx: Context) -> list[tuple[dt.date, Path]]:
     return sorted(found)
 
 
-def latest_backup(ctx: Context) -> tuple[dt.date, dict[str, dict]] | None:
-    """最新のバックアップの（日付, 全件）。無い・読めなければNone。"""
+def latest_dump(ctx: Context) -> tuple[dt.date, dict[str, dict], dt.datetime | None] | None:
+    """最新のバックアップの（日付, 全件, 書き出した時刻）。無い・読めなければNone。"""
     for day, path in reversed(backups(ctx)):
         try:
             with open(path, encoding="utf-8") as f:
-                return day, json.load(f).get("items") or {}
+                body = json.load(f)
         except (OSError, ValueError):
             continue
+        return day, body.get("items") or {}, parse_time(body.get("saved_at"))
     return None
+
+
+def latest_backup(ctx: Context) -> tuple[dt.date, dict[str, dict]] | None:
+    """最新のバックアップの（日付, 全件）。無い・読めなければNone。"""
+    latest = latest_dump(ctx)
+    return None if latest is None else (latest[0], latest[1])
 
 
 def backup_count(path: Path) -> int | None:
@@ -157,6 +183,40 @@ def awaiting_take(item: dict) -> bool:
     return sent is not None and (taken is None or taken < sent)
 
 
+def needs_take(item: dict) -> bool:
+    """取り込み待ちか（モジュールの冒頭「取り込み待ち」）。"""
+    return awaiting_take(item) or answered_untaken(item)
+
+
+def by_owner(board: dict, items: dict[str, dict]) -> dict[str, list[str]]:
+    """取り込み待ちの件を、今の持ち主ごとに「doc_id（タスク）題名」で並べる。"""
+    out: dict[str, list[str]] = {}
+    for doc_id, item in sorted(items.items()):
+        if needs_take(item):
+            task = str(item.get("task") or "")
+            first = str(item.get("text") or "").splitlines()[0][:60] if item.get("text") else ""
+            out.setdefault(owner_of(board, task), []).append(f"{doc_id}（{task or '番号なし'}）{first}")
+    return out
+
+
+def inbox_problems(ctx: Context, board: dict, interval_min: int) -> list[str]:
+    """`check`の要対応: 書き出しが無い・古い、取り込み待ちの件（持ち主ごと）。"""
+    latest = latest_dump(ctx)
+    how = "ArtifactDataのlistにout_dirを付けて書き出し、pending-backup --pending <dir>"
+    if latest is None:
+        return [f"要対応: ダッシュボードの書き出しが無い（答えの出た問いを拾えない。{how}）"]
+    _, items, saved = latest
+    out = []
+    age = None if saved is None else int((now() - saved).total_seconds() // 60)
+    if age is None or age >= 2 * interval_min:
+        out.append(f"要対応: ダッシュボードの書き出しが{'いつか不明' if age is None else f'{age}分前'}"
+                   f"（それより後の答えは見えない。{how}）")
+    for owner, lines in by_owner(board, items).items():
+        out.append(f"要対応: 取り込み待ち{len(lines)}件 → {owner}: " + "、".join(lines)
+                   + "（渡したら taken_at・taken_note を書く）")
+    return out
+
+
 def owner_of(board: dict, task: str) -> str:
     """件の今の持ち主（モジュールの冒頭「件の持ち主」）。"""
     if not task:
@@ -189,7 +249,7 @@ def untaken(items: dict[str, dict], minutes: int = UNTAKEN_ALERT_MINUTES) -> lis
 
 
 def cmd_inbox(ctx: Context, args: argparse.Namespace) -> int:
-    """送った・取り込み待ちの件を、タスクごとの今の持ち主と並べる。書き出しを渡さなければ最新のバックアップを読む。"""
+    """取り込み待ちの件を、タスクごとの今の持ち主と並べる。書き出しを渡さなければ最新のバックアップを読む。"""
     if args.pending:
         items = load_pending(args.pending)
     else:
@@ -199,17 +259,11 @@ def cmd_inbox(ctx: Context, args: argparse.Namespace) -> int:
             return 1
         day, items = latest
         print(f"{day}のバックアップを読んだ（それより後に送られた件は、書き出して pending-backup し直すと見える）")
-    board = load_board(ctx)
-    by_owner: dict[str, list[str]] = {}
-    for doc_id, item in sorted(items.items()):
-        if awaiting_take(item):
-            task = str(item.get("task") or "")
-            first = str(item.get("text") or "").splitlines()[0][:60] if item.get("text") else ""
-            by_owner.setdefault(owner_of(board, task), []).append(f"{doc_id}（{task or '番号なし'}）{first}")
-    if not by_owner:
-        print("送った・取り込み待ちの件は無い")
+    owners = by_owner(load_board(ctx), items)
+    if not owners:
+        print("取り込み待ちの件（送った・答えが出た）は無い")
         return 0
-    for owner, lines in by_owner.items():
+    for owner, lines in owners.items():
         print(f"{owner}: {len(lines)}件")
         for line in lines:
             print(f"  {line}")
@@ -234,6 +288,8 @@ def cmd_backup(ctx: Context, args: argparse.Namespace) -> int:
     print(f"ダッシュボードの{len(items)}件を{path}へ書き出した"
           + (f"（{BACKUP_KEEP_DAYS}日より前の{'・'.join(removed)}を消した）" if removed else ""))
     alerts = [a for a in [backup_alert(ctx)] if a] + left_behind(ctx, items) + untaken(items)
+    alerts += [f"{doc_id}: 答えが出て取り込まれていない（pending-inbox で持ち主を出して回す）"
+               for doc_id, item in sorted(items.items()) if answered_untaken(item) and not awaiting_take(item)]
     for alert in alerts:
         print(f"! {alert}")
     return 1 if alerts else 0
@@ -246,7 +302,7 @@ def main(argv: list[str] | None = None) -> int:
     sub = parser.add_subparsers(dest="cmd", required=True)
     p = sub.add_parser("pending-backup", help="ダッシュボードの全件を日付のファイルへ書き出す")
     p.add_argument("--pending", required=True, help="ArtifactDataのlistでout_dirに書き出したディレクトリ")
-    p = sub.add_parser("pending-inbox", help="送った・取り込み待ちの件を、タスクごとの今の持ち主と並べる")
+    p = sub.add_parser("pending-inbox", help="取り込み待ちの件（送った・答えが出た）を、タスクごとの今の持ち主と並べる")
     p.add_argument("--pending", help="ArtifactDataのlistでout_dirに書き出したディレクトリ（既定: 最新のバックアップ）")
     args = parser.parse_args(argv)
     ctx = Context(Path(args.repo), args.dir)

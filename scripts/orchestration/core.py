@@ -1270,10 +1270,11 @@ def cmd_check(ctx: Context, args: argparse.Namespace) -> int:
                         "振り出さず、終わった状態を揃える（規約「回の始まりと終わり」）")
     # 門がNGで見送った振り出しは、門が開いた最初の確認で拾う（「落ち着いたら」を人の注意に頼らない）。
     # 母集団の外のタスクは次の回の候補なので拾わない。回が始まっていない・終わりに入ったときは門が閉じている。
-    from orchestration import queue
+    from orchestration import pending, queue
 
     prereq_lines, prereq_due = queue.manual_prereqs(ctx, f.board)
     problems += prereq_due
+    problems += pending.inbox_problems(ctx, f.board, check_interval(f.board))
     waiting_dispatch = [i for i in ready_to_dispatch(ctx, f.board.get("queue") or [])
                         if str(i.get("task")) in population]
     if waiting_dispatch and not gate_reasons(f):
