@@ -1,36 +1,6 @@
-// 動的気象レイヤー（風・降水など、時刻スライダーで表示内容が変わる格子ベースのレイヤー）の
-// 共通契約。設計の柱は4つ（詳細はdocs/modules/frontend/dynamic-weather-layers.md
-// 「共通契約（4本柱）」節参照）:
-//
-// 1. **格子単位は統一**: 全レイヤーが同じ固定ラティス（backend/app/domain/wind_grid.py:
-//    WIND_GRID_BBOX、フロント側の対応値はwindLayer.ts: WIND_GRID_SPACING_DEG/
-//    WIND_GRID_DETAIL_SPACING_DEG）を共有する。フェッチも共有（features/map/useWeatherGrid.ts、
-//    1回のMSM読み出しで全要素ぶんの値を取る）。
-// 2. **表現は限られた種類のみ**: 格子中央にマークを出す（gridMark、風パターン）、
-//    格子を指定色で塗る（gridFill、雨パターン）、配信元が描画済みの画像を重ねる
-//    （rasterTile、気象庁ナウキャスト等）に加え、配信元がMapbox Vector Tile（.pbf）で
-//    配信する地物をMapLibre標準のvectorソース+line/fillレイヤーでそのまま描画する
-//    （vectorTile、洪水キキクル）。vectorTileは配信元のタイルが地物の
-//    プロパティに表示値（例: 危険度レベル）を埋め込み済みのため、gridFill/gridMarkと違い
-//    feature-stateやGeoJSON変換によるJS側の値差し込みが不要——MapLibreのpaint式
-//    （["get", プロパティ名]）だけで色分けできる点がrasterTileとの主な違い（rasterTileは
-//    配信元が色分け済みの画像そのもの、vectorTileは配信元が地物+属性値を配信しこちら側で
-//    色分けする）。新しい要素はこの4種のどれかを選ぶだけで、独自の描画方式は増やさない。
-// 3. **時間経過はスライドバー1本**: 気象レイヤーの取得結果に依存しない1本のタイムライン
-//    （RideConditionBar/departureTimeline.ts: buildDepartureTimeline）を共有スライダーへ渡す。
-//    各レイヤーは選択時刻に対応する自分のフレームを、源泉が要素ごとに宣言する規則で選んで
-//    描画する（weatherSources.ts: selectFrame）。規則の既定は**選択時刻が自分のデータ範囲外なら
-//    何も描画しない**（frameIndexForTime）。
-// 4. **データ取得の差異はデータ層で吸収**: 1つの名前付きソースの段はN個あり得る
-//    （例: 降水=気象庁ナウキャスト+降水短時間予報+自前格子）。weatherSources.tsが源泉の宣言から
-//    段を1本の時系列へつなぎ、useDynamicWeatherLayers.tsがコマごとの描画内容
-//    （DynamicWeatherRenderPayload）を作る。表示層（scene/groups/weather.ts）は
-//    ペイロードのkindしか見ず、どの段由来かを一切意識しない。
-//
-// 新しい動的要素を足す手順は、docs/modules/frontend/dynamic-weather-layers.md
-// 「新しい動的要素を追加する1本道」節が持つ。
-//
-// このファイル自体はDOM/MapLibreを知らない純粋なデータ層（windLayer.ts等と同じ方針）。
+// 動的気象レイヤー（時刻で中身が変わる格子・タイルのレイヤー）のデータ層。共通の契約（格子の共有・表現の種類・
+// 時刻の1本のスライダー・データの差はデータ層で吸収）と、要素を足す手順は
+// docs/modules/frontend/dynamic-weather-layers.mdが持つ。
 
 import { mapDisplay } from "@/types/generated/mapDisplay";
 import { parseJmaTileElement } from "@/features/map/layers/jmaTileIndex";
@@ -41,61 +11,42 @@ interface DynamicWeatherSourceState {
   payload: DynamicWeatherRenderPayload | undefined;
 }
 
-/** 動的気象のチップ。**源泉が配る**（`backend/app/domain/weather_elements.py: WEATHER_LAYER_GROUPS`）
- * ——1つのチップが複数の名前付きソースを束ねるため、どれがチップかは配信側が決める。
- *
- * 線状降水帯予測マップはrasrf系統（降水短時間予報と同じ）のため災害ではなく「降水」チップの
- * 一部として扱う。洪水キキクルのみ配信元がベクタタイル（.pbf）形式で、vectorTile kindで描く。 */
+/** 動的気象のチップ（1つのチップが複数の名前付きソースを束ねる。どれがチップかは源泉が決める）。 */
 export type DynamicWeatherLayerId = (typeof mapDisplay.weatherLayerGroups)[number];
 
-/** フレーム1つぶんの描画内容。表示層はこのkindだけで描画方法を決める（データソースの
- * 区別はここへ到達する前にデータ層が吸収済み）。 */
+/** 1コマの描画内容。表示層はkindだけで描き方を決める（どの配信元由来かはデータ層が吸収済み）。 */
 export type DynamicWeatherRenderPayload =
   | { kind: "rasterTile"; tileUrlTemplate: string }
   | { kind: "gridFill"; geojson: GeoJSON.FeatureCollection }
   | { kind: "gridMark"; geojson: GeoJSON.FeatureCollection }
-  // 配信元のMapbox Vector Tile（.pbf）をそのままMapLibreのvectorソースへ渡す。色分けに
-  // 使うプロパティ名・source-layer名等の静的なスタイル定義は描き方の宣言
-  // （`features/map/scene/groups/weather.ts`）が持ち、ここではURLテンプレートだけを運ぶ。
+  // 配信元のベクタタイルをそのまま渡す（色分けに使うプロパティ名等は描き方の宣言が持つ）。
   | { kind: "vectorTile"; tileUrlTemplate: string };
 
-/** 災害グループの名前付きソース。**源泉が配る**（`mapDisplay.weatherElements`のうち
- * チップが`disaster`のもの）。凡例（▶パネルの「表示する情報」）の色見本がこの型を見る。 */
+/** 災害のチップの名前付きソース。 */
 export type DisasterSourceKey = Extract<(typeof mapDisplay.weatherElements)[number], { group: "disaster" }>["source"];
 
-/** 1グループ（=1 DynamicWeatherLayerId）配下の名前付きソースを識別するキー。グループ内で
- * 一意であればよい。単一ソースしか持たないグループも"main"という1キーだけを持つ
- * ——ソース1つならキー省略可、という特例は設けず呼び出し側の分岐を増やさない。 */
+/** グループの中の名前付きソースのキー。ソースが1つのグループも1キーを持つ（特例を作らない）。 */
 type DynamicWeatherSourceId = string;
 
 /** 1グループぶんの状態。ソースキー→状態。 */
 export type DynamicWeatherGroupState = Partial<Record<DynamicWeatherSourceId, DynamicWeatherSourceState>>;
 
-/** targetがnowからwindowMsミリ秒先までの範囲内か（線状降水帯予測マップ用）。
- * frameIndexForTimeと違いフレーム列を前提とせず、単発スナップショットが「表示すべき時間窓」に
- * 入っているかだけを判定する。下限側にもFRAME_RANGE_EPSILON_MSの余裕を持たせ、境界ちょうど
- * （例: targetが厳密にnowと同時刻）で浮動小数の丸めに揺られないようにする。 */
+/** 対象の時刻が今から`windowMs`先までの窓に入るか（コマの列を持たない単発の配信用）。 */
 export function isWithinFutureWindow(target: Date, now: Date, windowMs: number): boolean {
   const diffMs = target.getTime() - now.getTime();
   return diffMs >= -FRAME_RANGE_EPSILON_MS && diffMs <= windowMs;
 }
 
-/** 動的レイヤーの時刻フレーム。refはそのレイヤーのデータ層だけが解釈する内部参照
- * （降水なら「ナウキャストのindex」か「格子のindex」か等）。表示層はtimeしか見ない。 */
+/** 時刻のコマ。`ref`はそのレイヤーのデータ層だけが読む参照（表示層は`time`しか見ない）。 */
 export interface DynamicWeatherFrame<TRef = unknown> {
   time: Date;
   ref: TRef;
 }
 
-// フレーム列の範囲判定に使う許容幅。境界ちょうど（スライダーの目盛りがフレーム時刻そのもの）で
-// 浮動小数・ミリ秒の丸めに揺られないための小さな余裕。
+// 範囲の判定の許容幅（目盛りがコマの時刻そのものの境界で、丸めに揺られないように）。
 const FRAME_RANGE_EPSILON_MS = 1000;
 
-/** 対象時刻に対応するフレームのindexを返す。**対象時刻がこのレイヤーのデータ範囲
- * （先頭〜末尾フレーム）の外なら null**（=そのレイヤーは描画しない。範囲を超えた時刻で
- * 古いフレーム[例: 最後の雨雲画像]を出し続けることを避けるため）。範囲内なら最も近い
- * フレームを返す
- * （フレーム間隔の中間時刻は近い方のフレームが「その時間帯の値」を代表する）。 */
+/** 対象の時刻に最も近いコマ。データの範囲の外ならnull（描かない——範囲外で最後のコマを出し続けない）。 */
 export function frameIndexForTime(frames: readonly { time: Date }[], target: Date): number | null {
   if (frames.length === 0) return null;
   const targetMs = target.getTime();
@@ -108,16 +59,8 @@ export function frameIndexForTime(frames: readonly { time: Date }[], target: Dat
   );
 }
 
-/** 予測を持たないレイヤー（観測だけが届く）が、共有時刻に対して出すフレームのindex。
- *
- * 配信元の観測は「今」より必ず遅れて届くため、共有時刻が最新フレームより後ろになるのが
- * 常態であり、**範囲外なら描かない**という`frameIndexForTime`の規約をそのまま当てると、
- * この種のレイヤーは常に何も描かれない。
- *
- * 遅れのぶん（`toleranceMs`、源泉が要素ごとに宣言する）は最新の観測を出し、それ以上先（利用者が
- * 出発時刻を選んだ等）を指していれば描かない——「1時間後の落雷」は存在せず、古い観測をその時刻の
- * 値として出すのは誤り。
- */
+/** 観測だけが届くレイヤーのコマ。観測は必ず遅れて届くので、遅れのぶん（源泉が宣言する）は最新の観測を出し、
+ * それより先を指していれば描かない（古い観測を先の時刻の値として出さない）。 */
 export function observationIndexForTime(
   frames: readonly { time: Date }[],
   target: Date,
@@ -131,13 +74,7 @@ export function observationIndexForTime(
   return frameIndexForTime(frames, target);
 }
 
-/** 格子点配列を1件ずつ辿り、extractが値を取れた点だけをFeatureへ変換してFeatureCollection
- * へ積む共通ループ（precipitationNowcast.ts・windLayer.ts等が「格子点配列→frameIndex/ref
- * ぶんの値を抜く→欠損はスキップ→Feature push」という同型のfor文をそれぞれ使うため
- * 共通化してある）。extractがnullを返した点（値未取得・欠損）はスキップする
- * （1点の欠損で全体を落とさない方針）。ジオメトリ形状
- * （Point/Polygon）・プロパティの中身は呼び出し側のbuildFeatureに委ねるため、格子種別ごとの
- * 意味的な違いはこのファイルへ持ち込まない。 */
+/** 格子点のうち値が取れた点だけを地物にする（1点の欠けで全体を落とさない）。 */
 export function gridToFeatureCollection<TPoint, TValue, TGeometry extends GeoJSON.Geometry, TProps>(
   grid: readonly TPoint[],
   extract: (point: TPoint) => TValue | null,
@@ -152,8 +89,7 @@ export function gridToFeatureCollection<TPoint, TValue, TGeometry extends GeoJSO
   return { type: "FeatureCollection", features };
 }
 
-/** 格子点(lat, lon)を中心とする1辺spacingDegの正方形セル（閉じたリング）。gridFill表現
- * （格子を指定色で塗る）のジオメトリ生成に使う。 */
+/** 格子点を中心とする1辺`spacingDeg`の正方形（閉じたリング）。 */
 export function gridCellRing(latitude: number, longitude: number, spacingDeg: number): GeoJSON.Position[] {
   const half = spacingDeg / 2;
   return [
@@ -165,14 +101,8 @@ export function gridCellRing(latitude: number, longitude: number, spacingDeg: nu
   ];
 }
 
-/** 配信元のタイルが返らなくなっている要素を、いま表示しているグループ（チップ）。
- *
- * `failures`は要素id→失敗したフレームの要素配下URL（`jmaTileProtocol.ts`）。表示中の
- * payloadが指すURLと突き合わせるため、フレームが進んで取得できるようになった要素や、
- * そもそも表示していない要素は当たらない。
- *
- * タイルを配信元から直接引く表現（rasterTile・vectorTile）だけが対象で、格子やGeoJSONを
- * 自前のfetchで取る表現はフェッチ自身のloading/errorが既に状態を持っている。 */
+/** 配信元のタイルが返らなくなっている要素を、いま表示しているチップ。表示中のコマのURLと突き合わせるので、コマが
+ * 進んで取れるようになった要素や表示していない要素は当たらない。自前で取る表現はフェッチ自身が状態を持つので対象外。 */
 export function tileDeliveryFailureLayerIds(
   groups: Partial<Record<DynamicWeatherLayerId, DynamicWeatherGroupState>>,
   failures: ReadonlyMap<string, string>,

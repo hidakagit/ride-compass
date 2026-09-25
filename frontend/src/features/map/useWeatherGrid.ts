@@ -1,12 +1,5 @@
 "use client";
 
-// 風の格子点マップのフェッチ・マージ・detail切り替えを1つのフックへ抽出したもの
-// （風と延長降水予報が共有できる形にしてある）。
-// バックエンド（GET /api/weather/wind-grid・wind-grid-detail）は1回のフェッチで
-// 風向・風速・降水量（precipitation_mm）をまとめて返すため、風の矢印と
-// 延長降水予報アイコンは同じ格子点データを共有でき、enabledをどちらか一方でもONなら
-// trueにして呼び出すだけで両機能ぶんのフェッチを1本化できる（呼び出し側はpage.tsxが
-// 表示用に個別のFeatureCollectionへ変換する、windLayer.ts/precipitationNowcast.ts参照）。
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   clampWindDetailBbox,
@@ -22,63 +15,36 @@ import { getWindGrid, getWindGridDetail } from "@/services/weatherApi";
 import { MAP_FETCH_DEBOUNCE_MS, useDebouncedValue } from "@/hooks/useDebouncedValue";
 import { usePolledFetch } from "@/features/map/usePolledFetch";
 
-// 配信元（気象庁MSM）のrunの更新間隔（backend msm_client.py: update_interval_seconds、
-// 既定3時間）に合わせた間隔で再取得する。これより短い間隔で再取得しても新しいデータは
-// 得られず、格子点ぶんの応答（MB級）を無駄に再ダウンロードするだけになる。
+// 配信元（気象庁MSM）の更新の間隔に合わせる（短くしても新しい値は無く、MB級の応答を取り直すだけ）。
 const WEATHER_GRID_REFRESH_INTERVAL_MS = 3 * 60 * 60 * 1000;
-// usePolledFetchの初期値。毎レンダー新しい配列を渡すとdataの参照が無用に変わるため、
-// モジュールスコープの1つを共有する。
+// 初期値（描くたびに新しい配列を渡すと、dataの参照が無用に変わる）。
 const EMPTY_GRID: WindGridPoint[] = [];
-// パン・ズームのたびに（デバウンス済みとはいえ）呼ばれうるため、道路情報の絞り込み等の
-// LEGEND_FILTER_DEBOUNCE_MSより長め。地図フィルタの再適用と違いネットワーク往復を伴うため、
-// より鷹揚な間隔にしている（値自体はuseDebouncedValue.ts:
-// MAP_FETCH_DEBOUNCE_MSへ集約、他の地図系フェッチデバウンスと共有）。
 
 interface UseWeatherGridResult {
-  /** 粗い格子（関東本土全域を常時カバー、trim済み＝「現在」より前を切り捨て済み）。 */
+  /** 粗い格子（関東の全域、今より前は切り詰め済み）。 */
   grid: WindGridPoint[];
-  /** 詳細格子（ズームイン時のみ現在のビューポート付近を密にカバー、trim済み）。 */
+  /** 詳細格子（ズームしたときだけ、表示範囲の付近を密に。切り詰め済み）。 */
   detailGrid: WindGridPoint[];
-  /** 詳細格子が取得できていればそちらを優先し、無ければgridを使う（呼び出し側の既定の選択）。 */
+  /** 詳細格子があればそれ、無ければ粗い格子。 */
   effectiveGrid: WindGridPoint[];
-  /** effectiveGridの格子間隔（度）。detailGridを使っている間はズーム依存の間隔
-   * （windGridDetailSpacingDegForZoom）、gridへフォールバックしている間は
-   * WIND_GRID_SPACING_DEG。gridFillのセルサイズ（precipitationNowcast.ts: precipitationCells）が
-   * effectiveGridと矛盾しない間隔を使うために必要（実際のフェッチに使った値を返す。
-   * windGridDetailSpacingDegForZoomを呼び出し側で再計算すると、フェッチ後にズームが
-   * 動いていた場合に実際のデータと食い違いうる）。 */
+  /** effectiveGridの間隔（度）。取ったときの値を返す（呼ぶ側でズームから計算し直すと、取った後にズームが動いたとき
+   * 中身と食い違う）。 */
   effectiveGridSpacingDeg: number;
-  /** 粗い格子の初回フェッチ中かどうか。 */
   loading: boolean;
-  /** 粗い格子の取得に失敗したときのメッセージ（詳細格子側の失敗は補助的な機能のため
-   * サイレントにフォールバックするだけで、ここには反映されない）。 */
+  /** 粗い格子の取得の失敗（詳細格子の失敗は黙って粗い格子へ戻るだけ）。 */
   error: string | null;
-  /** 粗い格子を一度でも取得し終えたか（成否は問わない）。`enabled: false`の間はfalseのまま。
-   * 「まだ取りに行っていない」と「取得したが空だった」を呼び出し側が区別するために使う
-   * （`mapLayers.ts: deriveFetchLayerStatus`）。 */
+  /** 粗い格子を一度でも取り終えたか（成否は問わない）。 */
   hasFetched: boolean;
 }
 
-/** 風の矢印・延長降水予報（T183）が共有する格子点マップのフェッチ・状態管理。
- * enabledがtrueの間だけ取得し、OFFの間はfetch自体しない（他の外部APIと同じ「表示中の
- * ものだけ叩く」方針）。mapViewportはズームインしたときだけ詳細格子を追加取得するために
- * 使う（WIND_DETAIL_MIN_ZOOM未満では取得しない）。 */
+/** 風の矢印と降水の延長予報が共有する格子（1回の取得に風と降水が載る）。`enabled`の間だけ取り、ズームしたときだけ
+ * 詳細格子も取る。 */
 export function useWeatherGrid(enabled: boolean, mapViewport: MapViewport | null): UseWeatherGridResult {
-  // 再取得のたびに一部地点だけ抜け落ちることがあり、
-  // そのまま置き換えると地図上に「その地点だけ塗られていない」穴ができる。前回成功していた
-  // 地点を補って残すmergeWindGridKeepingStaleのため、trim前の生の状態をrefで持ち続ける
-  // （gridはtrim後の表示用、こちらはマージ専用の内部状態）。
+  // 取り損ねた地点を前回の値で補うための、切り詰める前の格子。
   const rawGridRef = useRef<WindGridPoint[]>([]);
-  // 粗い格子の定期取得。「即座に1回→intervalMsごと→cancelledで古い応答を捨てる」という
-  // 骨格はusePolledFetchと同型のため、そちらへ委ねる（骨格を写経すると、片方だけ
-  // エラーログを持つといった非対称が生まれる）。マージ・trimという本フック固有の処理だけを
-  // fetcherの中へ置く。
   const fetchCoarseGrid = useCallback(async () => {
     const rawGrid = mergeWindGridKeepingStale(rawGridRef.current, await getWindGrid());
     rawGridRef.current = rawGrid;
-    // 時刻配列の先頭がフェッチからの経過で過去になると、そのままだと配列の前半に
-    // 過去の時刻が並ぶ。過去の風・降水を振り返る用途はアプリの性質上無いため、
-    // trimWindGridToCurrentAndFutureで「現在」より前を切り捨てる。
     return trimWindGridToCurrentAndFuture(rawGrid);
   }, []);
   const {
@@ -96,30 +62,23 @@ export function useWeatherGrid(enabled: boolean, mapViewport: MapViewport | null
   const [detailGrid, setDetailGrid] = useState<WindGridPoint[]>([]);
   const [detailSpacingDeg, setDetailSpacingDeg] = useState(WIND_GRID_SPACING_DEG);
 
-  // ズームインして狭い範囲を見ているときだけ、現在のビューポートに交差する密な格子を取得する。
   const debouncedMapViewport = useDebouncedValue(mapViewport, MAP_FETCH_DEBOUNCE_MS);
-  // rawGridRefと同じ理由（穴あき対策のマージ用、trim前の生の状態）。ただしこちらはビューポート
-  // に応じてbboxが動くため、無限に古い地点を溜め込まないよう、マージ前に「現在のbboxに
-  // 含まれる地点だけ」へ絞り込んでから使う（bbox外の地点は既に画面外なので補う意味が無く、
-  // 絞り込まないと遠く離れたパン履歴がずっとメモリに残り続けてしまう）。
+  // 補う元の詳細格子。補うのは今の範囲の中の点だけ（範囲の外は画面の外で、溜めるとパンの跡が残り続ける）。
   const rawDetailGridRef = useRef<WindGridPoint[]>([]);
-  // 直前フェッチで使った格子間隔（T185）。ズームをまたいで間隔が変わると、古い間隔の格子点は
-  // 新しい間隔のラティスに乗らない（絶対座標が一致しない）ため、そのままmergeWindGridKeepingStale
-  // で持ち越すと2つの間隔の点が混在してgridFillのセルサイズが実データと食い違ってしまう。
-  // 間隔が変わった回だけ穴あき対策の持ち越しを諦め、新しい間隔で作り直す。
+  // 前回の間隔。間隔が変わった回は補わない（古い間隔の点は新しい格子に乗らず、セルの大きさが中身と食い違う）。
   const rawDetailGridSpacingRef = useRef<number | null>(null);
   useEffect(() => {
     let cancelled = false;
-    // setState呼び出しを含むため、effect本体からの直接同期呼び出しを避けてマイクロタスク
-    // 経由で実行する（react-hooks/set-state-in-effect対策）。
+    const dropDetail = () => {
+      rawDetailGridRef.current = [];
+      rawDetailGridSpacingRef.current = null;
+      setDetailGrid([]);
+    };
+    // effectの中で同期にsetStateしない（react-hooks/set-state-in-effect）。
     Promise.resolve().then(async () => {
       if (cancelled) return;
       if (!enabled || !debouncedMapViewport || debouncedMapViewport.zoom < WIND_DETAIL_MIN_ZOOM) {
-        // ズームアウトした・レイヤーOFFにした場合は詳細格子を捨てて粗い格子へ戻す
-        // （古いズームイン時点の詳細格子が、ズームアウト後もそのまま使われ続けるのを防ぐ）。
-        rawDetailGridRef.current = [];
-        rawDetailGridSpacingRef.current = null;
-        setDetailGrid([]);
+        dropDetail();
         return;
       }
       const spacingDeg = windGridDetailSpacingDegForZoom(debouncedMapViewport.zoom);
@@ -140,22 +99,12 @@ export function useWeatherGrid(enabled: boolean, mapViewport: MapViewport | null
         const rawGrid = mergeWindGridKeepingStale(relevantPrevious, freshGrid);
         rawDetailGridRef.current = rawGrid;
         rawDetailGridSpacingRef.current = spacingDeg;
-        // gridと同じ切り詰め（trimWindGridToCurrentAndFuture）を適用しないと、frameIndexが
-        // effectiveGridへ切り替わったときにindexの意味がずれてしまう（gridは「現在」開始、
-        // detailGridがその日の00:00開始のままだと同じindexが指す時刻が食い違う）。grid・
-        // detailGridは別々のタイミングでフェッチされるため、正時をまたいだ瞬間だけ切り詰め
-        // 開始時刻が1時間ずれる可能性はあるが、次の再取得（30分TTL・ビューポート変更時）で
-        // 自然に揃うため許容する。
-        const trimmed = trimWindGridToCurrentAndFuture(rawGrid);
-        setDetailGrid(trimmed);
+        // 粗い格子と同じく切り詰める（揃えないと、切り替えたときに同じ添字が別の時刻を指す）。
+        setDetailGrid(trimWindGridToCurrentAndFuture(rawGrid));
         setDetailSpacingDeg(spacingDeg);
       } catch {
-        // 補助的な機能のため、失敗時はエラー表示をせず静かに粗い格子へフォールバックする
-        // （リクエスト自体のログはweatherApi.ts側で既に記録済み）。
-        if (cancelled) return;
-        rawDetailGridRef.current = [];
-        rawDetailGridSpacingRef.current = null;
-        setDetailGrid([]);
+        // 補助の機能なので、失敗は知らせず粗い格子へ戻る（取得のログは記録済み）。
+        if (!cancelled) dropDetail();
       }
     });
     return () => {
@@ -163,10 +112,7 @@ export function useWeatherGrid(enabled: boolean, mapViewport: MapViewport | null
     };
   }, [enabled, debouncedMapViewport]);
 
-  // 詳細格子があるときは粗い格子を**置き換える**（重ねない）。半透明の面を2枚重ねると
-  // 重なった範囲だけ1-(1-X)^2で濃く見え、同じ階級が2つの濃さで出る。重ねて塗るなら、
-  // 粗いセルを落とす判定は中心1点の近傍ではなく**4隅すべてが詳細側に覆われているか**で
-  // 行う必要がある——中心だけを見ると、実際には覆われていないセルまで丸ごと落ちて穴があく。
+  // 詳細格子があれば粗い格子を置き換える（半透明の面を2枚重ねると、重なった所だけ濃く見える）。
   const effectiveGrid = detailGrid.length > 0 ? detailGrid : grid;
   const effectiveGridSpacingDeg = detailGrid.length > 0 ? detailSpacingDeg : WIND_GRID_SPACING_DEG;
 

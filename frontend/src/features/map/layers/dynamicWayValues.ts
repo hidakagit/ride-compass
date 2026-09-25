@@ -1,8 +1,4 @@
-// フィーチャー→動的値配信層（風・勾配）の材料非依存な共通ロジック。「評価軸」グループとして
-// 動的＋向きあり材料を道路そのものを線で塗る表示にする際、どの材料でも共通して必要になる
-// タイル座標計算・複数タイル分の応答統合をここへ集約する。材料固有の値（配色・しきい値・
-// setFeatureStateキー）はdedicatedWayValueLayer.tsが軸カタログの宣言から組み立てる
-// （このファイルはMapLibreの色・feature-state概念を一切知らない）。
+// 専用配信の値を取るタイルの座標と、複数タイルの応答の統合（軸によらない）。
 
 export interface TileXY {
   z: number;
@@ -10,12 +6,10 @@ export interface TileXY {
   y: number;
 }
 
-// Web Mercatorで表現できる緯度の限界（backend/app/domain/region.py: _MAX_MERCATOR_LATITUDEと
-// 同じ値）。クランプしないとMath.log(タンジェントが負・0)がNaN/Infinityになりうる。
+// Web Mercatorで表せる緯度の限界（backendと同じ値）。挟まないとlogがNaN/Infinityになりうる。
 const MAX_MERCATOR_LATITUDE = 85.05112878;
 
-/** 緯度経度からそれを含むXYZタイルのx,yを求める（backend/app/domain/region.py:
- * _lonlat_to_tile_indexのJS版）。 */
+/** 緯度経度を含むXYZタイルのx,y。 */
 function lonLatToTileIndex(lon: number, lat: number, z: number): [number, number] {
   const n = 2 ** z;
   const x = Math.floor(((lon + 180) / 360) * n);
@@ -25,9 +19,7 @@ function lonLatToTileIndex(lon: number, lat: number, z: number): [number, number
   return [x, y];
 }
 
-// 1回のフェッチで要求するタイル数の上限（安全弁）。ズームはminZoom〜maxZoomへクランプする
-// ため、road-surface-tiles同様ブラウザ1画面ぶんのビューポートで通常この上限に達することは
-// ない想定（極端に広いウィンドウ・低ズームでの防御的な上限）。
+// 1回に求めるタイルの数の上限（ズームは範囲へ丸めるので、ふつうの画面では届かない）。
 const MAX_TILES_PER_FETCH = 64;
 
 /** 道路タイルを引くズーム。地図のズームをタイルが存在する範囲へ丸める。 */
@@ -44,12 +36,7 @@ export function tileContainingLonLat(lon: number, lat: number, zoom: number, min
   return { z, x: Math.max(0, Math.min(x, n - 1)), y: Math.max(0, Math.min(y, n - 1)) };
 }
 
-/** 現在のビューポートを覆う道路タイル（road-surface-tilesと同じXYZ座標系）の一覧を返す。
- * ズームはminZoom〜maxZoomへクランプする（road-surface-tilesのvector source自身がminzoom/
- * maxzoom外はタイルを要求しないのと同じ理屈。backend/app/domain/region.py:
- * tiles_covering_bboxのJS版だが、呼び出し側がビューポートの実ズーム値をそのまま渡す点が
- * 異なる——サーバ側はz/x/y個別の物理タイル座標で完結するが、こちらは「今フロントに見えている
- * ズーム」から「実際に道路タイルが読み込まれるであろうズーム」を逆算する必要があるため）。 */
+/** 表示範囲を覆う道路タイル。地図のズームから、道路タイルが実際に読まれるズームを求めて使う。 */
 export function tilesCoveringViewport(
   viewport: { west: number; north: number; east: number; south: number; zoom: number },
   minZoom: number,
@@ -71,9 +58,7 @@ export function tilesCoveringViewport(
   return tiles;
 }
 
-/** 複数タイルぶんの{feature_key: 値}応答を1つのMapへ統合する。同じ鍵が隣接タイルへ跨って
- * 複数回現れても値は同じはず（backend側のキャッシュがタイル単位のため）だが、念のため
- * 後勝ちにする。
+/** 複数タイルの`{feature_key: 値}`を1つにする（隣のタイルに同じ鍵があれば後勝ち）。
  *
  * **鍵は文字列のまま扱う**。路面タイルの`feature_key`はズームによってway_idにも
  * edge_idにもなり（backendの`EDGE_UNIT_MIN_ZOOM`）、edge_idは数値ではない。数値へ

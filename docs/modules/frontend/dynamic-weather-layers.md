@@ -27,12 +27,13 @@
 | `features/conditions/WeatherPanel/WeatherPanel.tsx`・`amedasWeatherIcon.ts`・`weatherCode.ts`・`features/conditions/TodayOutlook/TodayOutlook.tsx`・`features/conditions/WarningBadge/WarningBadge.tsx` | UI（警報バッジの出所ごとの段階の呼び名と色は、backendの宣言`domain/warning_display.py`が生成物`vocabulary.ts`で配る） |
 | `services/weatherApi.ts`・`types/weather.ts` | API呼び出し・型定義 |
 
-## 共通契約（4本柱、`dynamicWeather.ts`冒頭コメント）
+## 共通契約
 
 1. **格子単位は統一**: 全レイヤーが同じ固定ラティス（`WIND_GRID_BBOX`、間隔は
    `windLayer.ts: WIND_GRID_SPACING_DEG`/`WIND_GRID_DETAIL_SPACING_DEG`）を共有する。
    フェッチも共有（`features/map/useWeatherGrid.ts`、風の矢印と降水延長予報のどちらか一方でも
-   ONなら1回のフェッチで両方をカバーする）。
+   ONなら1回のフェッチで両方をカバーする）。格子の値はbackendが気象庁MSM（手元へ同期したファイル）から
+   取り、矢印の描画は自前で持つ——GPLv2のライブラリにも気象庁の非公式の配信にも依存しない。
 2. **表現の型は決まっている**: 格子中央にマークを出す（`gridMark`、風の矢印）、格子/タイル境界を
    指定色で塗る（`gridFill`、降水延長予報の面塗り）、配信元が描画済みの画像を
    重ねる`rasterTile`（気象庁ナウキャスト・降水短時間予報・雷・竜巻・キキクルの土砂/大雨/
