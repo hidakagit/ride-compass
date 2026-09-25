@@ -99,8 +99,8 @@ export interface MapViewport {
 export const WIND_DETAIL_MIN_ZOOM = 10;
 
 // ズームに応じた詳細格子の間隔。面で塗るセルは1点が受け持つ実面積なので、表示を縮めても隙間ができるだけ——ズームする
-// ほど間隔そのものを細かくする。間隔はbackendが許す離散の値だけ（連続にすると閲覧者ごとに格子がずれ、キャッシュを
-// 共有できない）。ズームの境界は見た目の判断なのでフロントが持つ（記号の拡大と同じ刻み）。
+// ほど間隔そのものを細かくする。間隔はbackendが受け付ける段階の値だけで、宣言の並び（粗い順）をズームの段へ添字で
+// 対応させる。ズームの境界は見た目の判断なのでフロントが持つ（記号の拡大と同じ刻み）。
 const WIND_GRID_DETAIL_SPACING_ZOOM_BREAKPOINTS: readonly number[] = [WIND_DETAIL_MIN_ZOOM, 13, 16, 19];
 const WIND_GRID_DETAIL_SPACING_STOPS: readonly { zoom: number; spacingDeg: number }[] =
   WIND_GRID_DETAIL_SPACING_ZOOM_BREAKPOINTS.map((zoom, i) => ({

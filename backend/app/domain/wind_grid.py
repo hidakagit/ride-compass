@@ -28,9 +28,8 @@ WIND_GRID_SPACING_DEG = 0.1
 
 def _lattice_coordinate(origin_deg: float, index: int, spacing_deg: float) -> float:
     """ラティス上の1点の絶対座標。浮動小数の`+=`による誤差累積を避けるため整数の索引から
-    都度計算する。**この関数だけが原点からの座標と丸め桁を決める**——生成する側と最寄りを
-    求める側で別々に書くと、鍵にした座標が実際に配る格子点と一致しなくなり、派生値
-    キャッシュの共有が例外を出さないまま効かなくなる。"""
+    都度計算する。格子を生成する側と最寄りを求める側はどちらもこの関数で座標を決め、同じ
+    格子点は呼び出しをまたいで同じ値になる。"""
     return round(origin_deg + index * spacing_deg, 4)
 
 
@@ -62,9 +61,7 @@ def nearest_grid_point(
     spacing_deg: float = WIND_GRID_SPACING_DEG,
 ) -> Coordinates:
     """任意の地点から、generate_wind_grid_pointsと同じ固定ラティス（bboxの原点基準、
-    spacing_deg間隔）上の最寄り格子点を返す。タイル中心のような任意座標をそのまま使うと
-    派生値キャッシュのキーが隣接タイル間でばらついて共有できないため、常に同じ絶対座標の
-    格子点へ丸める。
+    spacing_deg間隔）上の最寄り格子点を返す。
 
     範囲外の地点はbboxの端へクランプしてから最寄りを求める（境界付近での取りこぼしを
     避ける安全側の処理）。
@@ -82,13 +79,8 @@ def nearest_grid_point(
 
 
 # 詳細格子は「表示中の範囲だけ」を対象にする（全域をこの密度で計算すると応答サイズと
-# 計算量が増すため）。
-#
-# ここで最も重要な設計判断は、詳細格子の座標を「問い合わせbboxの角」からではなく
-# WIND_GRID_BBOXの原点（固定）からのオフセットで計算すること。閲覧地点をそのまま格子の
-# 起点にすると、閲覧位置が1pxずれるだけで格子点の絶対座標も全部ずれてしまい、近い場所を
-# 見ている別ユーザーとのキャッシュ共有（緯度経度を丸めた値がキー）が効かなくなる。
-# 原点を固定すれば、bboxが多少ずれていても重なる範囲では同じ座標がヒットする。
+# 計算量が増すため）。座標は問い合わせ範囲の角ではなくWIND_GRID_BBOXの原点から数える
+# （理由はdocs/modules/backend/weather-dynamic-layers.md「詳細格子の座標と間隔」節）。
 WIND_GRID_DETAIL_SPACING_DEG = 0.02
 # 1リクエストで許容する最大点数（乱用・広すぎるbboxでの過大な同時フェッチを防ぐ）。
 # ズーム10以下では通常発生しない広さ（約60km四方）を詳細間隔で敷き詰めた点数に、
@@ -98,9 +90,8 @@ WIND_GRID_DETAIL_MAX_POINTS = 900
 # ズーム依存の格子間隔。ズームインするほど画面上に対する格子1マスの面積が広がり、
 # gridFillの色境界が段差として目立ちやすくなる。風の矢印のようにアイコンの表示サイズを
 # 大きくする補正では実面積を表すgridFillには通用しない（隙間・重なりが生まれるだけ）ため、
-# 実際の格子間隔自体をズームに応じて細かくする。連続的な間隔にすると閲覧者ごとに絶対座標の
-# ラティスが微妙にずれてしまいキャッシュ共有（generate_wind_grid_detail_pointsのdocstring
-# 参照）が効かなくなるため、離散的な段階のみを許可する。この定数（および
+# 実際の格子間隔自体をズームに応じて細かくする。詳細格子の問い合わせが受け付けるのはこの
+# 段階の間隔だけで、並びは粗い順——フロントはズームの段へ添字で対応させる。この定数（および
 # WIND_GRID_SPACING_DEG・WIND_GRID_DETAIL_SPACING_DEG・WIND_GRID_DETAIL_MAX_POINTS）は
 # scripts/export_openapi.pyがwind-grid-config.jsonへ書き出す唯一の情報源であり、フロント側
 # windLayer.tsはこのJSONをimportするだけで値を複製しない。
@@ -112,9 +103,8 @@ def generate_wind_grid_detail_points(
     spacing_deg: float = WIND_GRID_DETAIL_SPACING_DEG,
 ) -> list[Coordinates]:
     """bboxをWIND_GRID_BBOXへクリップした上で、WIND_GRID_BBOXの原点に固定されたラティス
-    （spacing_deg間隔の絶対座標グリッド）からbboxに交差する点だけを返す。原点を固定する
-    理由は上のコメント（キャッシュ共有）を参照。呼び出し元（api/routers/weather.py）が
-    点数の上限チェック（WIND_GRID_DETAIL_MAX_POINTS）を行う想定で、ここでは行わない
+    （spacing_deg間隔の絶対座標グリッド）からbboxに交差する点だけを返す。
+    呼び出し元（api/routers/weather.py）が点数の上限チェック（WIND_GRID_DETAIL_MAX_POINTS）を行う想定で、ここでは行わない
     （この関数自体は「bboxに対応する格子点を求める」ことだけに責務を絞る）。"""
     origin_lon, origin_lat, bbox_max_lon, bbox_max_lat = WIND_GRID_BBOX
     min_lon = max(bbox[0], origin_lon)

@@ -74,6 +74,15 @@ fail-open方針の非対称性: 警報・WBGT・洪水予報は失敗時に警�
 警報・WBGT・洪水予報・アメダスは`VOLATILE`（2分）、`/api/weather`は`SHORT`。502は2xxでは
 ないためミドルウェアの対象外になる。
 
+**詳細格子の座標と間隔**（`domain/wind_grid.py`）: 詳細格子の点は、問い合わせ範囲の角ではなく
+`WIND_GRID_BBOX`の原点から間隔ずつ数えた固定のラティスのうち、範囲に交差するものを選ぶ。画面は取り損ねた点を
+前回の値で補うとき点を緯度経度の一致で見分ける（`windLayer.ts: mergeWindGridKeepingStale`）ため、パンで範囲が
+ずれても重なる所が同じ座標で返ることに依っている——範囲の角から数えると、前回の点が今回の点と重ならずに
+残り、ずれた点が重なって描かれる。風の専用配信（`WindWayService`）も、タイル中心を同じラティスの格子点へ寄せる
+（`nearest_grid_point`）。受け付ける間隔は`WIND_GRID_DETAIL_ALLOWED_SPACINGS_DEG`の段階だけで、画面は
+ズームの段ごとに、その並び（粗い順）から添字で1つを選ぶ。原点と間隔を固定しても、利用者の間で共有される
+キャッシュは無い——格子点の値は毎回手元のMSMから補間し、応答の`SHORT`はURL単位で、URLは表示範囲をそのまま含む。
+
 ### JMAタイル系の共通プロキシ（`api/routers/jma_tile.py`）
 
 `GET /api/jma-tile/{path:path}`が降水ナウキャスト・rasrf・雷/竜巻ナウキャスト・
