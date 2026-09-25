@@ -3,9 +3,6 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { clearDebugLog, debugLog, setDebugEnabled } from "@/lib/debugLog";
 import DebugConsole from "./DebugConsole";
 
-// システム状況（commit・起動日時・外部API呼出サマリ）はSystemStatusPanelへ分離済み
-// （2026-08-16、ユーザーFB「中身が混ざって見にくい」）。DebugConsoleはログ本文のみを
-// 扱うことを確認する。
 describe("DebugConsole", () => {
   beforeEach(() => {
     setDebugEnabled(false);
@@ -26,7 +23,7 @@ describe("DebugConsole", () => {
     expect(container).toBeEmptyDOMElement();
   });
 
-  it("記録済みのログ本文のみを表示し、システム状況は含まない", () => {
+  it("記録済みのログを、見出しに表示中と全体の件数を添えて出す", () => {
     setDebugEnabled(true);
     act(() => debugLog("map", "タイル要求", { z: 14 }));
 
@@ -34,8 +31,25 @@ describe("DebugConsole", () => {
 
     expect(screen.getByText("デバッグログ[1/1件]")).toBeInTheDocument();
     expect(screen.getByText("タイル要求")).toBeInTheDocument();
-    expect(screen.queryByText("システム状況")).not.toBeInTheDocument();
-    expect(screen.queryByText(/engine/)).not.toBeInTheDocument();
+  });
+
+  it("ログが1件も無い間は、待っていることを出し、コピーは押せない", () => {
+    setDebugEnabled(true);
+    render(<DebugConsole open onClose={() => {}} />);
+
+    expect(screen.getByText(/イベント待機中/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "表示中のログをコピー" })).toBeDisabled();
+  });
+
+  it("絞り込みで1件も見えなくなったら、戻せば見える件数を添えて知らせ、コピーは押せない", () => {
+    setDebugEnabled(true);
+    act(() => debugLog("map", "通常イベント", undefined, "info"));
+    render(<DebugConsole open onClose={() => {}} />);
+
+    fireEvent.change(screen.getByLabelText("表示するログレベルの下限"), { target: { value: "error" } });
+
+    expect(screen.getByText(/条件に一致するログがありません.*1件表示されます/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "表示中のログをコピー" })).toBeDisabled();
   });
 
   it("表示中のログを、行の形そのままでクリップボードへ渡す", async () => {

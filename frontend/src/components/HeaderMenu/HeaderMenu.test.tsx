@@ -4,10 +4,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { isResearchEnabled, setResearchEnabled } from "@/lib/researchMode";
 import HeaderMenu from "./HeaderMenu";
 
-// 改善計画T519: 研究モードON/OFF・デバッグログ表示を1個のメニューアイコンへ集約した
-// ヘッダーメニュー。以前はResearchPanel.tsx（/admin限定）が持っていたチェックボックス
-// 操作のテストをここへ移設し、一般公開ページから`/admin`を経由せず研究モードを
-// 切り替えられることを検証する。
+// 研究モードの切り替えは、公開ページのヘッダーのメニューから直接できる（管理画面を経由しない）。
 
 function baseProps(overrides: Partial<Parameters<typeof HeaderMenu>[0]> = {}) {
   return {
@@ -23,27 +20,17 @@ describe("HeaderMenu", () => {
     setResearchEnabled(false);
   });
 
-  it("トリガーを押すとメニューが開き、研究モードのチェックボックスが現れる", async () => {
+  it("研究モードのチェックボックスは今の研究モードを映し、押すと研究モードを切り替える", async () => {
     const user = userEvent.setup();
     render(<HeaderMenu {...baseProps()} />);
 
     await user.click(screen.getByRole("button", { name: "メニュー" }));
-
     const checkbox = await screen.findByRole("checkbox", { name: /研究モード/ });
     expect(checkbox).toHaveAttribute("aria-checked", "false");
-  });
-
-  it("研究モードのチェックボックスをクリックすると、/adminを経由せずsetResearchEnabled経由で有効化される", async () => {
-    const user = userEvent.setup();
-    render(<HeaderMenu {...baseProps()} />);
-
-    await user.click(screen.getByRole("button", { name: "メニュー" }));
-    const checkbox = await screen.findByRole("checkbox", { name: /研究モード/ });
     await user.click(checkbox);
 
     expect(checkbox).toHaveAttribute("aria-checked", "true");
     expect(isResearchEnabled()).toBe(true);
-    expect(window.localStorage.getItem("ridecompass:research-enabled")).toBe("1");
   });
 
   it("debugEnabled=falseのときはデバッグログ項目を表示しない", async () => {

@@ -2,6 +2,7 @@ import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
 import type { PreferenceAxisDef } from "@/lib/evaluationAxes";
+import palette from "@/types/generated/palette.json";
 import AxisContributionBar from "./AxisContributionBar";
 
 const AXES: PreferenceAxisDef[] = [
@@ -57,9 +58,7 @@ describe("AxisContributionBar", () => {
   });
 
   it("各セグメントの幅はcontributionsの値そのもの（%）、色はaxisColorsを使う", () => {
-    const { container } = render(
-      <AxisContributionBar axes={AXES} contributions={{ axis_sample: 30, night: 5 }} axisColors={AXIS_COLORS} />,
-    );
+    render(<AxisContributionBar axes={AXES} contributions={{ axis_sample: 30, night: 5 }} axisColors={AXIS_COLORS} />);
 
     const segments = Array.from(screen.getByRole("img", { name: "難易度の内訳" }).children) as HTMLElement[];
     expect(segments).toHaveLength(2);
@@ -69,7 +68,7 @@ describe("AxisContributionBar", () => {
   });
 
   it("heightRatioは帯の高さの倍率になる（長さ＝難易度と合わせて面積が負荷になる）", () => {
-    const { container } = render(
+    render(
       <AxisContributionBar
         axes={AXES}
         contributions={{ axis_sample: 30, night: 5 }}
@@ -83,9 +82,7 @@ describe("AxisContributionBar", () => {
   });
 
   it("heightRatioを渡さない呼び出し側（距離を持たない区間の内訳）は長さだけの帯になる", () => {
-    const { container } = render(
-      <AxisContributionBar axes={AXES} contributions={{ axis_sample: 30, night: 5 }} axisColors={AXIS_COLORS} />,
-    );
+    render(<AxisContributionBar axes={AXES} contributions={{ axis_sample: 30, night: 5 }} axisColors={AXIS_COLORS} />);
 
     const bar = screen.getByRole("img", { name: "難易度の内訳" });
     expect(bar.style.getPropertyValue("--load-bar-height-ratio")).toBe("1");
@@ -145,6 +142,28 @@ describe("AxisContributionBar", () => {
     expect(screen.getByRole("button", { name: "夜間の詳細を表示" })).toBeInTheDocument();
   });
 
+  it("renderDetailがnullを返した軸は、凡例から落ちる", () => {
+    render(
+      <AxisContributionBar
+        axes={AXES}
+        contributions={{ axis_sample: 30, night: 5 }}
+        axisColors={AXIS_COLORS}
+        renderDetail={(axis) => (axis.axisId === "night" ? null : <span>{axis.label}</span>)}
+      />,
+    );
+
+    expect(screen.getByRole("button", { name: "見本の軸の詳細を表示" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "夜間の詳細を表示" })).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("夜間")).not.toBeInTheDocument();
+  });
+
+  it("色の指定が無い軸は、中立の色で描く", () => {
+    render(<AxisContributionBar axes={[AXES[0]]} contributions={{ axis_sample: 30 }} axisColors={{}} />);
+
+    const segment = screen.getByRole("img", { name: "難易度の内訳" }).firstElementChild as HTMLElement;
+    expect(segment.style.background).toBe(palette.semantic.neutral);
+  });
+
   it("renderDetailは軸あたり1回だけ呼ぶ", () => {
     // 絞り込みと本体で別々に呼ぶと、片方で組み立てたJSXがそのまま捨てられる。
     const calls: string[] = [];
@@ -164,7 +183,7 @@ describe("AxisContributionBar", () => {
   });
 
   it("値が0-100の範囲外でもクランプする", () => {
-    const { container } = render(
+    render(
       <AxisContributionBar axes={AXES} contributions={{ axis_sample: -10, night: 150 }} axisColors={AXIS_COLORS} />,
     );
 

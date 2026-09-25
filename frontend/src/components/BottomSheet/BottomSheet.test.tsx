@@ -24,32 +24,31 @@ function renderSheet(onClose: () => void) {
   );
 }
 
-// 実機フィードバック対応: シート内容のスクロールで誤って閉じる不具合の修正と、
-// 「シート外タップ・スクロール（地図操作）では閉じない」という挙動を検証する
-// （一度シート外タップでも閉じる仕様を試したが、地図を操作しながら凡例を見たいという
-// フィードバックで撤回した経緯があるため、リグレッションを防ぐテストとして残す）。
+// シートは暗幕を敷かないので、外を押しても閉じない（地図を動かしながら中身を見られる）。閉じるのは✕・Escape・
+// 下スワイプだけで、本文のスクロールとつまみのドラッグは下スワイプに数えない。
 /** 上限・下限そのもの。**値を書かずに、丸めの結果として取る**——値を書くと、上限を
  * 変えたときテストも一緒に動いて「頭打ちになる」ことを誰も見なくなる。 */
 const CEILING_VH = clampSheetHeightVh(Number.MAX_SAFE_INTEGER);
 const FLOOR_VH = clampSheetHeightVh(Number.MIN_SAFE_INTEGER);
 
 describe("BottomSheet", () => {
-  it("シート外をpointerdownしても閉じない（地図操作を妨げない）", () => {
+  it("シートの外（地図・下部タブバー）を押しても閉じない", () => {
     const onClose = vi.fn();
     renderSheet(onClose);
 
     fireEvent.pointerDown(screen.getByRole("button", { name: "地図(シート外)" }));
+    fireEvent.pointerDown(screen.getByRole("button", { name: "ルートを作る" }));
 
     expect(onClose).not.toHaveBeenCalled();
   });
 
-  it("下部タブバー（パネル切り替え）をpointerdownしても閉じない（専用トグルに任せる）", () => {
+  it("Escapeで閉じる", () => {
     const onClose = vi.fn();
     renderSheet(onClose);
 
-    fireEvent.pointerDown(screen.getByRole("button", { name: "ルートを作る" }));
+    fireEvent.keyDown(document, { key: "Escape" });
 
-    expect(onClose).not.toHaveBeenCalled();
+    expect(onClose).toHaveBeenCalledTimes(1);
   });
 
   it("✕ボタンのクリックで閉じる", async () => {
@@ -72,7 +71,7 @@ describe("BottomSheet", () => {
     expect(onClose).not.toHaveBeenCalled();
   });
 
-  it("シート自体（本文の外）での下スワイプでは引き続き閉じる", () => {
+  it("シート自体（本文の外）での下スワイプでは閉じる", () => {
     const onClose = vi.fn();
     renderSheet(onClose);
     const sheet = screen.getByRole("dialog");
@@ -82,11 +81,47 @@ describe("BottomSheet", () => {
 
     expect(onClose).toHaveBeenCalledTimes(1);
   });
+
+  it("下へ60pxちょうどまでは閉じず、それを越えると閉じる", () => {
+    const swipe = (dy: number) => {
+      const onClose = vi.fn();
+      const { unmount } = renderSheet(onClose);
+      const sheet = screen.getByRole("dialog");
+      fireEvent.touchStart(sheet, { touches: [{ clientX: 100, clientY: 100 }] });
+      fireEvent.touchEnd(sheet, { changedTouches: [{ clientX: 100, clientY: 100 + dy }] });
+      unmount();
+      return onClose.mock.calls.length;
+    };
+
+    expect(swipe(60)).toBe(0);
+    expect(swipe(61)).toBe(1);
+  });
+
+  it("横の動きが縦より大きいスワイプ（シート内の横スクロール）では閉じない", () => {
+    const onClose = vi.fn();
+    renderSheet(onClose);
+    const sheet = screen.getByRole("dialog");
+
+    fireEvent.touchStart(sheet, { touches: [{ clientX: 100, clientY: 100 }] });
+    fireEvent.touchEnd(sheet, { changedTouches: [{ clientX: 400, clientY: 300 }] });
+
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
+  it("つまみから始めた下向きの指の動きでは閉じない（高さを変える操作）", () => {
+    const onClose = vi.fn();
+    renderSheet(onClose);
+
+    fireEvent.touchStart(screen.getByRole("separator", { name: "パネルの高さを変更" }), {
+      touches: [{ clientX: 100, clientY: 100 }],
+    });
+    fireEvent.touchEnd(screen.getByRole("dialog"), { changedTouches: [{ clientX: 100, clientY: 300 }] });
+
+    expect(onClose).not.toHaveBeenCalled();
+  });
 });
 
-// 改善計画T331: 高さ調整系（ドラッグ・キーボード操作・clampSheetHeightVh）の肯定的な
-// 検証が無かったため追加。
-describe("BottomSheet 高さ調整（改善計画T331）", () => {
+describe("BottomSheet 高さ調整", () => {
   describe("clampSheetHeightVh", () => {
     it("範囲内の値はそのまま返す", () => {
       expect(clampSheetHeightVh(50)).toBe(50);
