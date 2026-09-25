@@ -39,10 +39,6 @@ interface RouteAxisProfileProps {
    * されるのに対し、こちらは距離が伸びればそのまま増えるため「遠回りした分だけ増える
    * しんどさ」を表す。候補間の相対比較に使う値で単位を持たない。 */
   difficultyLoad: number | null;
-  /** 内訳バーの高さの倍率（`features/route/difficultyLoadBar.ts: loadBarHeightRatio`、一覧の中で
-   * 最も短い候補を1.0とする距離の比）。バーの長さが総合難易度を表すため、高さへ距離を
-   * 与えると塗られた面積がdifficultyLoadになる。 */
-  loadBarHeightRatio: number;
   /** RouteCandidate.estimated_duration_seconds（走行＋停止＋ターンの見積もり）。 */
   estimatedDurationSeconds: number | null;
   /** 軸id→色ドットの色（ルート設定パネルの凡例チップと同じ色）。 */
@@ -62,7 +58,6 @@ export default function RouteAxisProfile({
   axisContributions,
   overallDifficulty,
   difficultyLoad,
-  loadBarHeightRatio,
   estimatedDurationSeconds,
   axisColors,
 }: RouteAxisProfileProps) {
@@ -149,9 +144,9 @@ export default function RouteAxisProfile({
                     難所を通っても短いルートと、遠回りで易しいルートを見比べるときに使ってください。
                   </p>
                   <p>
-                    下のバーは長さが総合難易度、高さが距離で、塗られた面積がこの負荷にあたります
-                    （色ごとの面積がその軸の負荷）。候補一覧の行のバーも同じ見方です。距離の差が
-                    大きいときは高さに上限をかけるため、面積の比は負荷の比と完全には一致しません。
+                    上のグラフは横が距離、縦が区間ごとの難易度で、塗られた面積がこの負荷にあたります
+                    （色ごとの面積がその軸の負荷）。灰色は値の無い区間で、平均の高さで数えています。
+                    候補一覧の行のバーは、長さが総合難易度・高さが距離で、面積が負荷の目安です。
                   </p>
                 </InfoPopover>
               </span>
@@ -163,7 +158,6 @@ export default function RouteAxisProfile({
               legendAxes={axes}
               contributions={axisContributions}
               axisColors={axisColors}
-              heightRatio={loadBarHeightRatio}
               renderDetail={renderAxisDetail}
             />
           ) : (

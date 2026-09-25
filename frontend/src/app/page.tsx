@@ -69,6 +69,7 @@ import {
   fastestRouteId,
 } from "@/features/route/routeTabLabel";
 import ComparisonPanel from "@/features/route/ComparisonPanel/ComparisonPanel";
+import DifficultyProfile from "@/features/route/DifficultyProfile/DifficultyProfile";
 import DebugConsole from "@/components/DebugConsole/DebugConsole";
 import { debugLog } from "@/lib/debugLog";
 import { useDebugEnabled } from "@/hooks/useDebugLog";
@@ -904,6 +905,8 @@ export default function Home() {
     const fastestRouteIdInList = fastestRouteId(routes);
     // 難易度の帯の高さ1.0とする距離（面積が負荷になる）。一覧の行と候補の中身で同じ基準を使う。
     const loadBarBaselineKm = baselineDistanceKm(routes);
+    // 道のりのグラフの横軸の右端。候補どうしで同じ物差しにし、面積（負荷）を見比べられるようにする。
+    const longestDistanceKm = Math.max(0, ...routes.map((route) => route.distance_km));
     // 重みが0の軸を「未使用」と出す判定に使う（生成に使った重み）。
     const routeWeights = generatedRoutePreference ?? routePreference;
 
@@ -996,6 +999,18 @@ export default function Home() {
             {routes.map((route) => (
               <TabsContent key={route.id} className="flex flex-col gap-2 data-[state=inactive]:hidden" value={route.id}>
                 {renderCandidateActions(route)}
+                {/* 道のりに沿った難易度。区間を選んでいる間も残す（動かして地点を選ぶ操作の置き場のため）。 */}
+                {route.segments !== null && route.segments.length > 0 && (
+                  <DifficultyProfile
+                    segments={route.segments}
+                    overallDifficulty={route.overall_difficulty}
+                    axisOrder={axisCatalog.axes.map((axis) => axis.axisId)}
+                    axisColors={axisCatalog.axisColors}
+                    scaleKm={longestDistanceKm}
+                    selected={selectedRouteSegment}
+                    onSelect={setSelectedRouteSegment}
+                  />
+                )}
                 {/* 押した区間がある間は、その区間の地点・到達予想・内訳を出す（区間は選んでいる候補にしか描かれない）。 */}
                 {selectedRouteSegment ? (
                   <div className="flex flex-col gap-2">
@@ -1050,7 +1065,6 @@ export default function Home() {
                     distanceKm={route.distance_km}
                     overallDifficulty={route.overall_difficulty}
                     difficultyLoad={route.difficulty_load ?? null}
-                    loadBarHeightRatio={loadBarHeightRatio(route.distance_km, loadBarBaselineKm)}
                     estimatedDurationSeconds={route.estimated_duration_seconds ?? null}
                     axisColors={axisCatalog.axisColors}
                   />

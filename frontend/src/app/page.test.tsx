@@ -861,7 +861,7 @@ describe("候補の一覧", () => {
     expect(fillOf(unscored)).toBeUndefined();
   });
 
-  it("負荷の帯の高さは一覧の最短の候補を基準にし、行と候補の中身で同じ値を使う", async () => {
+  it("一覧の行の負荷の帯の高さは、一覧の最短の候補を基準にする", async () => {
     respond([route("route-0", { distance_km: 10 }), route("route-1", { distance_km: 15 })]);
     const user = renderPage();
     await generate(user);
@@ -872,8 +872,6 @@ describe("候補の一覧", () => {
     const [shorter, longer] = resultTabs();
     expect(ratioOf(shorter)).toBe("1");
     expect(ratioOf(longer)).toBe("1.5");
-    await user.click(longer);
-    expect(profile().loadBarHeightRatio).toBe(1.5);
   });
 
   it("選んだ候補の中身には、その候補の値と生成に使われた重みを渡し、あとで重みを変えても変えない", async () => {
@@ -903,7 +901,6 @@ describe("候補の一覧", () => {
       distanceKm: 10,
       overallDifficulty: 40,
       difficultyLoad: 400,
-      loadBarHeightRatio: 1,
       estimatedDurationSeconds: 1800,
       axisColors: catalog().axisColors,
     });

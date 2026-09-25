@@ -26,8 +26,6 @@ interface AxisContributionBarProps {
   /** 凡例に並べる軸。省略すると帯に出る軸だけ。公開軸すべてを渡すと、寄与が0・欠損の軸も凡例に残る
    * （効くはずの軸が効かなかったことも判断の材料になる）。 */
   legendAxes?: readonly PreferenceAxisDef[];
-  /** 帯の高さの倍率。帯の長さが総合難易度なので、高さへ距離を与えると面積が負荷になる。省略時は1。 */
-  heightRatio?: number;
   /** 凡例のチップを押して開く、その軸の詳細。nullを返した軸は凡例から落ちる。省略するとどのチップも押せない。 */
   renderDetail?: (axis: PreferenceAxisDef) => ReactNode | null;
 }
@@ -48,19 +46,14 @@ export default function AxisContributionBar({
   contributions,
   axisColors,
   legendAxes,
-  heightRatio,
   renderDetail,
 }: AxisContributionBarProps) {
   const rows = axes.filter((axis) => hasContribution(contributions, axis.axisId));
   if (rows.length === 0) return null;
 
-  const barStyle: React.CSSProperties & { "--load-bar-height-ratio"?: string } = {
-    "--load-bar-height-ratio": String(heightRatio ?? 1),
-  };
-
   return (
     <div className="flex min-w-30 flex-auto flex-col gap-1">
-      <div className={stackBarClass} style={barStyle} role="img" aria-label="難易度の内訳">
+      <div className={stackBarClass} role="img" aria-label="難易度の内訳">
         {rows.map((axis) => {
           const value = Math.min(100, Math.max(0, contributions[axis.axisId]));
           const color = axisColors[axis.axisId] ?? FALLBACK_COLOR;

@@ -37,7 +37,6 @@ function renderProfile(overrides: Partial<Props> = {}) {
     distanceKm: 32.4,
     overallDifficulty: 30.8,
     difficultyLoad: 997.9,
-    loadBarHeightRatio: 1.4,
     estimatedDurationSeconds: 102 * 60,
     axisColors: {},
     ...overrides,
@@ -71,13 +70,6 @@ describe("RouteAxisProfile 見出しの数値", () => {
 });
 
 describe("RouteAxisProfile 内訳の帯", () => {
-  it("帯の高さは渡された倍率にする（塗った面積が負荷を表す）", () => {
-    renderProfile({ loadBarHeightRatio: 1.4 });
-    expect(screen.getByRole("img", { name: "難易度の内訳" }).style.getPropertyValue("--load-bar-height-ratio")).toBe(
-      "1.4",
-    );
-  });
-
   it("寄与を持つ軸が1つも無ければ、帯の代わりにその旨を出す", () => {
     renderProfile({ axisContributions: { stops: 0, surface: 0, unused: 0 } });
     expect(screen.queryByRole("img", { name: "難易度の内訳" })).not.toBeInTheDocument();

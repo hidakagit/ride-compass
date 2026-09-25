@@ -25,6 +25,7 @@
 | `lib/axisCatalog.ts` | 上記フックが返すカタログを、応答から導く純関数（`axisCatalogFromResponse`）と、画面が読む較正値（`CLIENT_TUNING_IDS`・`clientTuningValue`）。フックが持つのは「いつ取りに行き、誰と共有するか」だけ |
 | `services/axisCatalogApi.ts` | 上記フックが叩くbackend APIの薄いラッパー |
 | `lib/evaluationAxes.ts` | 重み一覧の1行の型（`PreferenceAxisDef`）と、カタログ1件をそれへ変える唯一の変換（`preferenceAxisFromCatalog`） |
+| `features/route/DifficultyProfile/DifficultyProfile.tsx`・`difficultyProfile.ts` | 候補の中身の先頭に出す、道のりに沿った難易度のグラフ。横が始点からの距離、縦が区間（edge）ごとの難易度で、区間ごとの階段を軸の寄与で色分けして下から積む。**塗った面積がルートの負荷に一致する**——値の無い区間はルートの総合難易度の高さで灰色に描く（負荷は「値のある区間の距離加重平均×全長」で、値の無い区間を平均として数えるため）。横軸の右端は**一覧の中で最も長い候補の距離**で、候補どうしで面積を見比べられる。押したまま動かす（キーボードは矢印・Home・End）と、その距離の区間と、区間の道なりの形の上で距離の割合ぶん進んだ地点を選ぶ——選択は地図で区間を押したときと同じ`selectedRouteSegment`で、地図に印が出て下に区間の詳細が出る。グラフ自体は区間を選んでいる間も残る |
 | `features/route/difficultyLoadBar.ts` | 難易度の帯の高さ（`baselineDistanceKm`・`loadBarHeightRatio`・`LOAD_BAR_MAX_HEIGHT_RATIO`）。帯は長さが総合難易度なので、高さへ距離の倍率を与えると塗られた面積が`difficulty_load`、積み上げの色ごとの面積が軸別の負荷になる。基準（高さ1.0）は**一覧の中で最も短い候補**——目標距離やbackendの値から取ると、周回モードと目的地モードで基準の意味が変わり、同じ高さが別のことを指す。距離の比をそのまま高さにすると行が破綻するため上限で頭打ちにし、そのぶん面積は負荷に厳密比例しなくなるので数値を併記する |
 | `lib/geoDistance.ts` | 座標列の距離計算（`haversineKm`・`cumulativeDistancesKm`）。区間の位置と代替の距離差を出すのに使う |
 | `features/route/routePreferenceSync.ts` | `route_preference`のキー集合をカタログへ同期する共通ロジック |
@@ -205,9 +206,8 @@ page.tsx（[ページ全体構成・状態管理](page-composition.md)参照）�
   （(i)で意味を説明する）。総合難易度が距離で正規化された平均であるのに対しこちらは総量で、
   「難所を通っても短いルート」と「遠回りで易しいルート」を見比べるための値
   （[評価・スコアリング](../backend/evaluation-scoring.md)「ルート単位の集約」節参照）。
-  候補の並び順には影響しない。**数値と併せて、下の内訳バーが面積で同じことを表す**
-  （下記`AxisContributionBar.tsx`）——負荷は総合難易度に距離を掛けただけの派生量のため、
-  独立した数値として並べるだけでは平均と総量の関係が読めない。
+  候補の並び順には影響しない。**数値と併せて、上の道のりのグラフ（`DifficultyProfile`）が面積で同じことを表す**
+  ——負荷は総合難易度に距離を掛けただけの派生量のため、独立した数値として並べるだけでは平均と総量の関係が読めない。
 - **総合難易度**: `RouteCandidate.overall_difficulty`（絶対基準0-100の軸重み付き合成値）を
   表示する。下記内訳の合計そのものであり、内訳の1項目としては扱わない。候補タブの並び順
   もこの値の昇順（backend `route_generator.py`が返す`routes`配列の並び順をそのまま使う、
@@ -219,9 +219,8 @@ page.tsx（[ページ全体構成・状態管理](page-composition.md)参照）�
   重み0の軸はキー自体は残り値が常に0.0になる（backend:
   `domain/evaluation.py: axis_contributions_at_row`参照。frontend側で値0を除外する、
   下記`AxisContributionBar.tsx`参照）を、「総合難易度」の数字の
-  隣に`AxisContributionBar`（積み上げ1本バー＋その下の凡例）でそのまま表示する。バーの
-  高さには`features/route/difficultyLoadBar.ts: loadBarHeightRatio`が返す距離の倍率を渡す（基準は
-  一覧の中で最も短い候補。`page.tsx`が一覧の行と同じ基準で計算して渡す）。合計が
+  隣に`AxisContributionBar`（積み上げ1本バー＋その下の凡例）でそのまま表示する。バーは長さだけで
+  総合難易度を表す（距離と面積は上の道のりのグラフが持つ）。合計が
   丸め誤差を除いて`overall_difficulty`と数学的に一致するため、frontend側での独自の
   重み計算は行わない。バーの各セグメントの色は`axisColors`（地図色分けチップと同じ配色）、
   幅は寄与度の値そのもの。
