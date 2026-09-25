@@ -82,6 +82,10 @@ fail-open方針の非対称性: 警報・WBGT・洪水予報は失敗時に警�
 （`nearest_grid_point`）。受け付ける間隔は`WIND_GRID_DETAIL_ALLOWED_SPACINGS_DEG`の段階だけで、画面は
 ズームの段ごとに、その並び（粗い順）から添字で1つを選ぶ。原点と間隔を固定しても、利用者の間で共有される
 キャッシュは無い——格子点の値は毎回手元のMSMから補間し、応答の`SHORT`はURL単位で、URLは表示範囲をそのまま含む。
+点数の上限（`WIND_GRID_DETAIL_MAX_POINTS`、超えれば400）は、点を作る前に索引の範囲から数えて確かめる
+（`count_wind_grid_detail_points`）。点を作る処理は同期でasyncのハンドラから呼ばれ、作っている間はイベントループが
+止まるため、作ってから数えると、最小の間隔で関東全域を渡す1回の問い合わせが（上限で断られるにもかかわらず）
+約98万点を作って数秒〜十数秒backend全体を止める。数える側と作る側は同じ索引の範囲（`_detail_index_ranges`）に従う。
 
 ### JMAタイル系の共通プロキシ（`api/routers/jma_tile.py`）
 

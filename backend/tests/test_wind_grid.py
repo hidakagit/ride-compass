@@ -135,6 +135,25 @@ def test_detail_points_are_not_capped_here(area):
     assert len(points) > wind_grid.WIND_GRID_DETAIL_MAX_POINTS
 
 
+@pytest.mark.parametrize("spacing", wind_grid.WIND_GRID_DETAIL_ALLOWED_SPACINGS_DEG)
+@pytest.mark.parametrize(
+    "view",
+    [
+        (139.013, 35.013, 139.071, 35.061),  # 範囲の内側
+        (139.04, 35.04, 139.1, 35.1),  # 縁が格子線ちょうど
+        (138.0, 34.0, 139.04, 35.04),  # 南西でクリップされる
+        (139.3, 35.15, 140.0, 36.0),  # 北東でクリップされる
+        (138.0, 34.0, 140.0, 36.0),  # 範囲全体を覆う
+        (139.35, 35.0, 140.0, 35.2),  # 東の縁に接するだけ
+    ],
+)
+def test_the_counted_detail_points_are_the_generated_ones(area, view, spacing):
+    # 呼び出し側は数えた点数で上限を確かめてから点を作るので、数と実物がずれると上限の判定がずれる
+    counted = wind_grid.count_wind_grid_detail_points(view, spacing)
+
+    assert counted == len(wind_grid.generate_wind_grid_detail_points(view, spacing))
+
+
 @pytest.mark.parametrize(
     "view",
     [
@@ -145,3 +164,4 @@ def test_detail_points_are_not_capped_here(area):
 )
 def test_a_view_that_does_not_overlap_the_service_area_has_no_detail_points(area, view):
     assert wind_grid.generate_wind_grid_detail_points(view, 0.02) == []
+    assert wind_grid.count_wind_grid_detail_points(view, 0.02) == 0

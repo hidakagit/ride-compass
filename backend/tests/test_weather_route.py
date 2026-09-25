@@ -2,10 +2,12 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.api.dependencies import get_flood_service, get_warning_service, get_wbgt_service, get_weather_service
+from app.api.routers import weather as weather_router
 from app.config import settings
 from app.domain.flood_forecast import ActiveFloodForecast
 from app.domain.jma_warning import ActiveWarning
 from app.domain.weather import WeatherConditions, WeatherPeriodOutlook
+from app.domain.wind_grid import WIND_GRID_BBOX, WIND_GRID_DETAIL_ALLOWED_SPACINGS_DEG, generate_wind_grid_detail_points
 from app.infrastructure import rate_limiter
 from app.main import app
 from app.services.flood_service import FloodForecasts
@@ -267,8 +269,6 @@ def test_get_wind_grid_detail_omits_none_points():
 
 def test_get_wind_grid_detail_returns_502_when_all_points_fail():
     # 改善計画T200。wind-gridと同じ全滅ガードがwind-grid-detailにも適用されること。
-    from app.domain.wind_grid import generate_wind_grid_detail_points
-
     bbox = (139.70, 35.60, 139.90, 35.80)
     point_count = len(generate_wind_grid_detail_points(bbox))
     app.dependency_overrides[get_weather_service] = lambda: FakeWeatherService(None, wind_grid=[None] * point_count)
@@ -299,20 +299,63 @@ def test_get_wind_grid_detail_rejects_inverted_bbox():
     assert response.status_code == 400
 
 
-def test_get_wind_grid_detail_rejects_bbox_too_large():
+def test_get_wind_grid_detail_rejects_bbox_too_large_without_building_the_points(monkeypatch):
+    # 点を作る処理は同期でイベントループを止めるので、断る範囲では作らない
+    built = []
+
+    def recording_generate(bbox, spacing_deg):
+        built.append(bbox)
+        return generate_wind_grid_detail_points(bbox, spacing_deg)
+
+    monkeypatch.setattr(weather_router, "generate_wind_grid_detail_points", recording_generate)
     app.dependency_overrides[get_weather_service] = lambda: FakeWeatherService(None, wind_grid=[])
+    min_lon, min_lat, max_lon, max_lat = WIND_GRID_BBOX
 
     try:
-        # WIND_GRID_BBOX全域を渡すと詳細間隔（0.02度）ではWIND_GRID_DETAIL_MAX_POINTSを
-        # 大幅に超える点数になるはず。
         response = client.get(
             "/api/weather/wind-grid-detail",
-            params={"min_lon": 138.35, "min_lat": 34.85, "max_lon": 140.95, "max_lat": 37.20},
+            params={
+                "min_lon": min_lon,
+                "min_lat": min_lat,
+                "max_lon": max_lon,
+                "max_lat": max_lat,
+                "spacing_deg": min(WIND_GRID_DETAIL_ALLOWED_SPACINGS_DEG),
+            },
         )
     finally:
         app.dependency_overrides.clear()
 
     assert response.status_code == 400
+    assert response.json()["detail"] == "表示範囲が広すぎます。ズームインしてください。"
+    assert built == []
+
+
+@pytest.mark.parametrize(("limit_below_points", "expected_status"), [(0, 200), (1, 400)])
+def test_get_wind_grid_detail_accepts_exactly_the_max_points_and_rejects_one_more(
+    monkeypatch, limit_below_points, expected_status
+):
+    bbox = (139.70, 35.60, 139.90, 35.80)
+    point_count = len(generate_wind_grid_detail_points(bbox))
+    monkeypatch.setattr(weather_router, "WIND_GRID_DETAIL_MAX_POINTS", point_count - limit_below_points)
+    received = []
+
+    class RecordingFakeWeatherService(FakeWeatherService):
+        async def get_wind_grid(self, points):
+            received.append(len(points))
+            return [], []
+
+    app.dependency_overrides[get_weather_service] = lambda: RecordingFakeWeatherService(None)
+
+    try:
+        response = client.get(
+            "/api/weather/wind-grid-detail",
+            params={"min_lon": bbox[0], "min_lat": bbox[1], "max_lon": bbox[2], "max_lat": bbox[3]},
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == expected_status
+    assert received == ([point_count] if expected_status == 200 else [])
 
 
 # T185: ズーム依存でspacing_degを細かくする拡張（実機フィードバック「拡大率が大きいと
