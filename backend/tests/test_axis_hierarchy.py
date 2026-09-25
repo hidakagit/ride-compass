@@ -168,7 +168,7 @@ class TestTheOrderIsCachedByContent:
 
 
 class TestWhichAxesDependOnRequestTimeMaterials:
-    """タイル単位で事前計算した行列はそのまま使い、ここが返す軸だけをリクエスト時に
+    """探索範囲の静的スコア行列はそのまま使い、ここが返す軸だけをリクエスト時に
     再評価する。取りこぼすと、その軸だけ風を織り込まない古い値が出る。
     """
 

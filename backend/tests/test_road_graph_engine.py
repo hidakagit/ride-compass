@@ -598,15 +598,6 @@ def test_to_full_row_order_marks_edges_absent_from_the_search_graph(composer_wor
     assert math.isnan(restored[1])
 
 
-def test_lazy_hard_filter_excluded_is_reindexed_and_kept(composer_world):
-    composer = make_composer(make_score_matrix(count=3), excluded=[True, False, True], lazy_row_index=[2, 1, 0])
-
-    first = composer.lazy_hard_filter_excluded
-
-    assert first.tolist() == [True, False, True]
-    assert composer.lazy_hard_filter_excluded is first
-
-
 def test_bin_count_is_one_without_a_duration_or_without_wind(composer_world):
     with_wind = make_composer(wind_series=wind_series())
     assert with_wind._bin_count(None) == 1

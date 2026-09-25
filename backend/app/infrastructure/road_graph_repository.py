@@ -748,16 +748,6 @@ def _float_array(values: list) -> np.ndarray:
     return np.array([np.nan if v is None else float(v) for v in values], dtype=np.float64)
 
 
-def _shared_strings(values: list) -> list:
-    """同じ文字列は同じオブジェクトを指すようにする。
-
-    DBドライバは行ごとに別々のstrを返すため、`asphalt`のような少数の値が区間数ぶん重複して
-    残る。pickleはオブジェクトの同一性で重複を省くので、共有させるだけでディスクの実体が縮む。
-    """
-    pool: dict[object, object] = {}
-    return [pool.setdefault(v, v) for v in values]
-
-
 def _edge_triples(edges: list[LeanEdge]) -> tuple[list[int | None], list[int | None], list[bool]]:
     return (
         [e.osm_way_id for e in edges],
@@ -885,7 +875,7 @@ class RoadGraphRepository:
             boolean_values[:, i] = [bool(v) for v in raw[material_id]]
         categorical_values = np.empty((n, len(categorical_ids)), dtype=object)
         for i, material_id in enumerate(categorical_ids):
-            categorical_values[:, i] = _shared_strings(raw[material_id])
+            categorical_values[:, i] = raw[material_id]
 
         return EdgeMaterialArrays(
             numeric_ids=numeric_ids, numeric_values=numeric_values,
