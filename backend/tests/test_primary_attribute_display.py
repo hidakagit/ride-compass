@@ -131,8 +131,8 @@ def test_分類の色は地図の地色に対してコントラスト比3以上(
 
 @pytest.mark.parametrize("where, palette, colors", _resolved_colors(), ids=lambda v: v if isinstance(v, str) else "")
 def test_軸の中の色は互いに見分けられる(where, palette, colors) -> None:
-    """列挙はどの2行も（CIE76で）20以上離す。順序は隣どうしを10以上離す——濃淡だけで
-    段を作るので、地色とのコントラストの制約の下で取れる幅が狭い。"""
+    """列挙はどの2行も（CIE76で）20以上離す。順序は隣どうしを10以上離す——順序は明度で示すので、
+    地色とのコントラストの制約の下で取れる明度の幅が狭い。"""
     if palette == "nominal":
         pairs = [(a, b) for i, a in enumerate(colors) for b in colors[i + 1 :]]
         threshold = 20.0

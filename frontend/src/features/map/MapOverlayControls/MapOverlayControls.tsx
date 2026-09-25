@@ -133,12 +133,18 @@ function readStringArray(raw: string): string[] | null {
   }
 }
 
+/** 色見本。地図と同じ地色の台に、地図と同じ形（線なら線、点なら点）で載せる——暗いパネルへ直に置くと濃い色が
+ * 沈み、台を細い輪にすると色の部分が小さくなる。大きさで意味を示す行は地図の点と同じ直径で出す。 */
 function renderSwatch(entry: LegendEntry) {
+  const mark = entry.line ? "h-1 w-4 rounded-full" : "size-2 rounded-full";
+  const size = entry.diameterPx === undefined ? {} : { width: entry.diameterPx, height: entry.diameterPx };
   return (
     <span
-      className="box-content size-[7px] flex-shrink-0 rounded-full border-2 border-[var(--swatch-ground,transparent)] shadow-[0_0_0_1px_var(--color-border-strong)]"
-      style={{ background: entry.color }}
-    />
+      aria-hidden="true"
+      className="inline-flex min-h-3 min-w-[22px] flex-shrink-0 items-center justify-center rounded-[3px] bg-[var(--swatch-ground,transparent)] px-[3px] py-[2px] shadow-[0_0_0_1px_var(--color-border-strong)]"
+    >
+      <span className={mark} style={{ background: entry.color, ...size }} />
+    </span>
   );
 }
 
@@ -188,7 +194,7 @@ function LegendDetails({
               listClassName="m-0 flex list-none flex-col gap-0.5 p-0"
               rowClassName="flex items-center gap-1.5 text-[length:var(--font-size-sm)]"
               rowFallbackClassName="mt-1 border-t border-dashed border-[var(--color-border)] pt-1"
-              swatchClassName="box-content size-[7px] flex-shrink-0 rounded-full border-2 border-[var(--swatch-ground,transparent)] shadow-[0_0_0_1px_var(--color-border-strong)]"
+              renderSwatch={renderSwatch}
             />
           ) : (
             <ul className="m-0 flex list-none flex-col gap-0.5 p-0">

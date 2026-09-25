@@ -45,8 +45,9 @@ export function roadLegendAxes(): readonly SceneLegendAxis[] {
         key: category.key,
         label: category.label,
         color: category.color,
+        line: true as const,
       })),
-      UNKNOWN_ENTRY,
+      { ...UNKNOWN_ENTRY, line: true as const },
     ],
   }));
 }

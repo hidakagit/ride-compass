@@ -1,6 +1,6 @@
 "use client";
 
-import type { CSSProperties } from "react";
+import type { CSSProperties, ReactNode } from "react";
 
 import { Checkbox } from "@/components/ui/Checkbox/Checkbox";
 import type { LegendEntry } from "@/lib/mapDisplay/legendFilter";
@@ -15,7 +15,9 @@ interface LegendCheckboxListProps {
    * 未指定の呼び出し元はisFallbackを特別扱いしない。 */
   rowFallbackClassName?: string;
   /** widthを持たないLegendEntry（色のみで区別する軸）のスウォッチに使うclass。 */
-  swatchClassName: string;
+  swatchClassName?: string;
+  /** 見本を呼び出し側が描く（`swatchClassName`の代わり）。 */
+  renderSwatch?: (entry: LegendEntry) => ReactNode;
 }
 
 /** 色見本の見た目。大きさで意味を示す行だけ、色見本の大きさを地図の点へ合わせる。 */
@@ -37,6 +39,7 @@ export default function LegendCheckboxList({
   rowClassName,
   rowFallbackClassName,
   swatchClassName,
+  renderSwatch,
 }: LegendCheckboxListProps) {
   return (
     <div className={listClassName}>
@@ -47,7 +50,11 @@ export default function LegendCheckboxList({
         return (
           <label key={entry.key} className={className}>
             <Checkbox checked={visible} onCheckedChange={() => onToggle(entry.key)} aria-label={entry.label} />
-            <span aria-hidden="true" className={swatchClassName} style={legendSwatchStyle(entry)} />
+            {renderSwatch ? (
+              renderSwatch(entry)
+            ) : (
+              <span aria-hidden="true" className={swatchClassName} style={legendSwatchStyle(entry)} />
+            )}
             {entry.label}
           </label>
         );

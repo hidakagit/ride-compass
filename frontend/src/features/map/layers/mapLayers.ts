@@ -234,11 +234,10 @@ export function buildMapLayers(
       icon: RoadIcon,
       label: attributeLabel("highway"),
       chipLabel: "道路種別",
-      description: "道路種別を線の太さで表示[幹線道路ほど太く・自転車専用道路ほど細く]",
+      description: "道路の種類を色で表示[幹線道路ほど濃い紫・農道や林道ほど明るい水色]",
       panelHint:
-        "太さに加え、「路面の種類」レイヤーがOFFの間は種別ごとの濃淡[幹線道路ほど濃く・" +
-        "自転車専用道路ほど薄く]でも表示します。「路面の種類」がONのときは、色はそちらの" +
-        "配色を優先します。",
+        "OSMのhighwayタグを区分にまとめて色分けしています。幹線道路が最も濃く、下位の道ほど明るい色です。" +
+        "「路面」「トンネル」等と一緒に表示すると、同じ道に線を横へ並べて描きます。",
     },
     {
       ...staticLayer("surface"),
@@ -246,6 +245,9 @@ export function buildMapLayers(
       label: attributeLabel("surface"),
       chipLabel: "路面",
       description: "路面の材質を色で表示[アスファルト・砂利・土など]",
+      panelHint:
+        "OSMのsurfaceタグ[路面の材質]を区分にまとめて色分けしています。タグの無い道と、区分に" +
+        "当てはまらない値の道は「不明・他」の色で薄く出します[未舗装という意味ではありません]。",
     },
     {
       ...staticLayer("tunnel"),

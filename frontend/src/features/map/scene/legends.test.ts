@@ -3,7 +3,7 @@
 import { describe, expect, it } from "vitest";
 
 import { pointGroup } from "@/features/map/scene/groups/points";
-import { pointLegendAxes } from "./legends";
+import { pointLegendAxes, roadLegendAxes } from "./legends";
 
 const TILES = {
   poi: ["https://example.test/poi/{z}/{x}/{y}"],
@@ -44,5 +44,22 @@ describe("点の凡例", () => {
       const sizes = axis.entries.flatMap((entry) => (entry.diameterPx === undefined ? [] : [entry.diameterPx]));
       expect(new Set(sizes).size).toBe(sizes.length);
     }
+  });
+});
+
+// 見本は地図と同じ形で見せる（凡例の見本の台の中身は、線の行は線、点の行は点）。
+describe("凡例の見本の形", () => {
+  it("道の線の凡例の行は、受け皿の行も含めてどれも線の見本にする", () => {
+    const entries = roadLegendAxes().flatMap((axis) => axis.entries);
+    expect(entries.length).toBeGreaterThan(0);
+    expect(entries.every((entry) => entry.line === true)).toBe(true);
+  });
+
+  it("点の凡例の行は、線の見本にしない", () => {
+    expect(
+      pointLegendAxes()
+        .flatMap((axis) => axis.entries)
+        .some((entry) => entry.line),
+    ).toBe(false);
   });
 });
