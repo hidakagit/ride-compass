@@ -125,7 +125,7 @@ export const axisLineGroup = declareGroup<AxisLineState>((state) => {
         "line-width": axis.underlay ? UNDERLAY_WIDTH_PX : mapDisplay.road.lineWidthPx,
         // 取得中は薄くしない——薄くすると「まだ来ていない」と「対象外」が区別できない。
         "line-opacity": axis.underlay
-          ? mapDisplay.road.unknownOpacity
+          ? mapDisplay.road.underlayOpacity
           : loading || missing === null
             ? mapDisplay.road.knownOpacity
             : ["case", missing, mapDisplay.road.unknownOpacity, mapDisplay.road.knownOpacity],

@@ -16,7 +16,7 @@ from typing import get_args
 import pytest
 
 from app.domain.display_palette import SEMANTIC_COLORS, resolved_display_axes
-from app.domain.map_display import ROAD_LINE_WIDTH_PX
+from app.domain.map_display import ROAD_KNOWN_OPACITY, ROAD_LINE_WIDTH_PX, ROAD_UNKNOWN_OPACITY
 from app.domain.material_catalog import display_axis_missing_semantics
 from app.domain.material_catalog import PRIMARY_ATTRIBUTES
 from app.domain.traffic import STOP_POI_KINDS, SupplyPoiKind
@@ -204,3 +204,15 @@ def test_線の太さは順序のある分類だけが持ち_並びの先頭ほ�
 def test_順序のある線の分類が少なくとも1つある() -> None:
     """上の検査が空回りしていないことの確認。"""
     assert any(p == "ordered" and g == "line" for _, p, g, _ in _resolved_widths())
+
+
+def test_値が無い道の線も地図の地色から見える() -> None:
+    """「不明」「その他」の灰の線は、分類のある道より薄く、しかし地色に対してコントラスト比1.5を割らない。
+    割ると、道があるのに線が無いように見える。"""
+    ground, gray = SEMANTIC_COLORS["basemap_ground"], SEMANTIC_COLORS["no_data"]
+    blended = "#" + "".join(
+        f"{round(ROAD_UNKNOWN_OPACITY * int(gray[i : i + 2], 16) + (1 - ROAD_UNKNOWN_OPACITY) * int(ground[i : i + 2], 16)):02x}"
+        for i in (1, 3, 5)
+    )
+    assert ROAD_UNKNOWN_OPACITY < ROAD_KNOWN_OPACITY
+    assert _contrast(blended, ground) >= 1.5, f"不明の線 {blended} が地色 {ground} に沈む"

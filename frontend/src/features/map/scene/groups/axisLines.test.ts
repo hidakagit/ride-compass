@@ -42,7 +42,7 @@ describe("レンズの線の濃さ", () => {
 
   it("材料が同時に出ているときの下敷きは、全体を薄く敷く", () => {
     expect(opacityOf({ kind: "delivered", values: new Map(), loading: false }, true)).toBe(
-      mapDisplay.road.unknownOpacity,
+      mapDisplay.road.underlayOpacity,
     );
   });
 });
