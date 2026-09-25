@@ -79,6 +79,21 @@ ROUTE_LAYER_ID = "route"
 #: 陰影は属性ではなく標高の別の描き方。源泉に属性として現れないのが正しい。
 HILLSHADE_LAYER_ID = "hillshade"
 
+#: 地図へ常に出す出典（HTML）。路面の色・評価・ルートの計算へ常に使うデータで、どのレイヤーを表示しているかと
+#: 関係なく出典が要る（レイヤーのソースに付けると、そのレイヤーを消したとき出典も消える）。地理院・警察庁の利用規約は
+#: 出典とは別に加工した旨を求め、標高からは勾配を、事故の点からは区間ごとの件数を導いている。基礎地図は配信元の
+#: TileJSONが出典を持つので入れない（入れると2回並ぶ）。データ源を足したら、利用条件（docs/architecture/data-sources.md）
+#: と合わせてここも見る。
+ALWAYS_SHOWN_ATTRIBUTIONS: tuple[str, ...] = (
+    '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noreferrer">'
+    "OpenStreetMap contributors</a>",
+    '<a href="https://maps.gsi.go.jp/development/ichiran.html" target="_blank" rel="noreferrer">'
+    "地理院タイル(標高タイル)</a>を加工して作成",
+    "交通事故統計情報（警察庁）を加工して作成",
+    '土地被覆: <a href="https://livingatlas.arcgis.com/landcover/" target="_blank" rel="noreferrer">'
+    "Esri, Impact Observatory, Microsoft</a> (CC BY 4.0)",
+)
+
 
 def _static_layer_ids() -> tuple[str, ...]:
     """地図へ出す一次属性（線・点は行の定義を持つもの、面は幾何が面のもの）＋描き方の派生。"""

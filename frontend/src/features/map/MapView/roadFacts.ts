@@ -29,9 +29,16 @@ interface RoadFactRow {
   value: string;
 }
 
-const SMOOTHNESS_LABELS: Record<string, string> =
-  (materialCatalog.find((m) => m.material_id === "smoothness")?.value_labels as
-    Record<string, string> | null | undefined) ?? {};
+const MATERIALS = new Map(materialCatalog.map((material) => [material.material_id, material]));
+const materialLabel = (materialId: string) => MATERIALS.get(materialId)?.label ?? materialId;
+const SMOOTHNESS_LABELS = (MATERIALS.get("smoothness")?.value_labels ?? {}) as Record<string, string>;
+
+/** 当てはまるときだけ「あり」と出す事実。タイルの属性と、名前を引く材料。 */
+const PRESENT_FACTS = [
+  { property: "tunnel", material: "has_tunnel" },
+  { property: "bridge", material: "bridge" },
+  { property: "oneway", material: "oneway" },
+] as const;
 
 /** 道路名。`name`（通称）と`ref`（路線番号）は独立したタグで、片方だけ持つwayが多い
  * （番号だけの国道・名前だけの市道）。両方あれば「名前[番号]」として1つに畳む。 */
@@ -52,10 +59,13 @@ export function roadFactRows(properties: RoadSurfacePopupProperties): RoadFactRo
     },
   ];
   if (properties.smoothness) {
-    rows.push({ label: "路面状態", value: SMOOTHNESS_LABELS[properties.smoothness] ?? properties.smoothness });
+    rows.push({
+      label: materialLabel("smoothness"),
+      value: SMOOTHNESS_LABELS[properties.smoothness] ?? properties.smoothness,
+    });
   }
-  if (properties.tunnel) rows.push({ label: "トンネル", value: "あり" });
-  if (properties.bridge) rows.push({ label: "橋・高架", value: "あり" });
-  if (properties.oneway) rows.push({ label: "一方通行", value: "あり" });
+  for (const fact of PRESENT_FACTS) {
+    if (properties[fact.property]) rows.push({ label: materialLabel(fact.material), value: "あり" });
+  }
   return rows;
 }

@@ -36,9 +36,9 @@
 | `features/map/layers/mapStyleOps.ts` | 地図インスタンスへの低水準操作（スタイル読み込み後の実行・面レイヤーの差し込み位置・ズーム依存のicon-size式）。このアプリのどのレイヤーかを知らないものだけを置く |
 | `features/map/layers/routeArrowIcon.ts`・`icons.tsx` | ルート矢印・アイコン集（下記「本モジュールとの関係」参照） |
 | `features/map/layers/sdfIcon.ts` | 地図の記号に使う単色シルエット（例: 風の矢印・ルート矢印）の描画の土台。白で塗った絵を`sdf: true`で登録し、色はicon-colorで付ける。canvasの2D描画が使えなければ投げる——空の絵を黙って返すと記号が地図から消えるだけで誰も気づけない。**単体テストは持たない**（テスト環境のcanvasは2D描画を実装しない。絵の中身は座標の宣言そのもので、写してもなにも守らない） |
-| `features/map/MapView/pointPopup.ts` | 点データ（事故・POI）をクリックしたときのポップアップ本文。値をテキストノードで入れたDOMを組み、`Popup.setDOMContent()`へ渡す（下記「ポップアップへOSMタグの生値を出すときはHTMLとして解釈させない」） |
+| `features/map/MapView/pointPopup.ts` | 点データ（事故・POI）をクリックしたときのポップアップ本文。「点の名前: 区分の名前」を、凡例と同じ点の宣言（`POINT_LAYERS`の`display_axes`）から組む（事故の点は発生年を添える）。値をテキストノードで入れたDOMを組み、`Popup.setDOMContent()`へ渡す（下記「ポップアップへOSMタグの生値を出すときはHTMLとして解釈させない」） |
 | `features/map/MapView/RoadInspectorPopup.tsx` | 道をクリックしたときの詳細（**Reactで描き、MapLibreのPopupへportalで差し込む**）。事実（この道の属性）を先に出し、評価は押したときだけ取りに行く（backend `POST /api/region/axis-inspector`、[静的道路属性・タイル配信](../backend/static-road-attributes.md)参照）。軸ごとの効き方は**ルート結果と同じ`AxisContributionBar`**で出す——同じものを別の見た目で見せると読み方を2つ覚えることになる。寄与度はbackendが返す値をそのまま使い、フロントで重みを掛け直さない。**デバッグログONのときだけ`osm_way_id`を出す**——値がおかしい道を見つけたとき、地図で押した1本をそのままbackendの調査へ渡せるようにする。一般の利用者には読めない値のため常時は出さない |
-| `features/map/MapView/roadFacts.ts` | クリックした道の「事実」（道路名・路面・路面状態・トンネル・橋・一方通行）をタイルのプロパティから組み立てる純関数。該当しない項目は行ごと出さない（「なし」が並ぶと該当する項目が埋もれる） |
+| `features/map/MapView/roadFacts.ts` | クリックした道の「事実」（道路名・路面・路面の状態・トンネル・橋・一方通行）をタイルのプロパティから組み立てる純関数。項目名と値の呼び名は材料カタログ（生成物`material-catalog.json`）から引く（路面の舗装の有無は、カタログに値の呼び名が無いので画面が持つ）。該当しない項目は行ごと出さない（「なし」が並ぶと該当する項目が埋もれる） |
 | `types/traffic.ts` | 停止要因POI・補給休憩POIの`kind`列挙型定義 |
 | `services/regionApi.ts`（`roadSurfaceTileUrl`/`poiTileUrl`/`accidentTileUrl`とタイル世代の保持） | ベクタタイルのURLテンプレート（`fetchDynamicWayValues`は[地図: 軸・ルート色分け](map-axis-coloring.md)の管轄）。世代はbackendから実行時に届き、**揃うまでURLを組み立てない**（揃ったことは`subscribeTileVersions`で購読できる） |
 | `features/map/useTileVersionsReady.ts` | タイル世代が揃ったかを購読する薄いフック。地図がソースを作れるかの判定と、チップの縮退表示がこれ1つを見る |
@@ -177,12 +177,13 @@ DOM/MapLibreを一切知らない。`MapView.tsx`は画面の状態をsceneの�
 **どちらの色の意味も、もう一方のON/OFFでは変わらない**。太さは全レイヤー共通で
 源泉が配る値（`mapDisplay.road.lineWidthPx`）を使い、線種は使わない。両方ONのときは下記の並列トラックが横へ分ける。
 
-## 出典表記（`MapView.tsx: MAP_BASE_ATTRIBUTION`）
+## 出典表記（`domain/map_display.py: ALWAYS_SHOWN_ATTRIBUTIONS`）
 
 MapLibreはソースへ渡した`attribution`を**そのソースが地図に載っている間だけ**出す。評価軸・
 ルートの計算へ常時使っているデータ（道路網・標高・事故・土地被覆）の出典をソース側へ付けると、
-そのレイヤーを消した瞬間に出典も消える。常時使うデータの出典はAttributionControlの
-`customAttribution`へ渡し、どのレイヤーを出しているかと関係なく出す。ソース側の`attribution`に
+そのレイヤーを消した瞬間に出典も消える。常時使うデータの出典はbackendが一覧として宣言し（生成物`mapDisplay.ts`の`alwaysShownAttributions`）、`MapView`が
+AttributionControlの`customAttribution`へ渡して、どのレイヤーを出しているかと関係なく出す。データ源を足す人は
+backendの同じ場所で出典も足す。ソース側の`attribution`に
 残すのは、そのレイヤーを表示している間だけ関係する外部データ（色別標高図・気象庁の配信物等）。
 
 地理院・警察庁の公共データ利用規約（PDL1.0）は、出典とは別に**加工した旨**の記載を求める。

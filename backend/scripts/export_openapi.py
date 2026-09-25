@@ -56,6 +56,7 @@ from app.domain.weather_elements import (  # noqa: E402
     weather_element_tile,
 )
 from app.domain.map_display import (  # noqa: E402
+    ALWAYS_SHOWN_ATTRIBUTIONS,
     DEFAULT_DIFFICULTY_BOUNDARIES,
     AXIS_LAYER_SPECS,
     MAP_LAYER_CATEGORIES,
@@ -335,6 +336,8 @@ def main() -> None:
             # 方位の呼び名。**画面が写しを持たない**——丸め規則が違うと境界で
             # ラベルが食い違うため、並びは1箇所（domain/geo.py）だけが持つ。
             "compassLabels": list(COMPASS_LABELS),
+            # 地図へ常に出す出典。
+            "alwaysShownAttributions": list(ALWAYS_SHOWN_ATTRIBUTIONS),
             "road": {
                 "lineWidthPx": ROAD_LINE_WIDTH_PX,
                 "trackOffsetStepPx": ROAD_TRACK_OFFSET_STEP_PX,

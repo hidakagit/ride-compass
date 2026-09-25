@@ -2,12 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import {
-  type AccidentPopupProperties,
-  buildAccidentPopupContent,
-  buildPoiPopupContent,
-  type PoiPopupProperties,
-} from "@/features/map/MapView/pointPopup";
+import { buildPointPopupContent } from "@/features/map/MapView/pointPopup";
 import RoadInspectorPopup from "@/features/map/MapView/RoadInspectorPopup";
 import type { RoadSurfacePopupProperties } from "@/features/map/MapView/roadFacts";
 import * as maplibregl from "maplibre-gl";
@@ -78,20 +73,12 @@ const POINT_LAYER_BY_SCENE_ID = new Map(
   POINT_LAYERS.map((layer) => [sceneLayerId(pointSourceId(layer.tile_kind), layer.attr_id), layer]),
 );
 
-/** 分類値→表示名。凡例と同じ宣言から引く。 */
-function pointValueLabels(layer: (typeof POINT_LAYERS)[number]): Record<string, string> {
-  const axis = layer.display_axes[0];
-  if (axis === undefined) return {};
-  return Object.fromEntries(
-    axis.categories.flatMap((category) => category.values.map((value) => [String(value), category.label])),
-  );
-}
-
 /** ルート線の当たり判定レイヤー。**idは scene が決める**ので、当たり判定の名前で引く。 */
 function routeHitLayerId(scene: MapScene, target: string): string | undefined {
   return sceneLayerIdsForHitTarget(scene, target)[0];
 }
 import { axisMapLayerId } from "@/lib/mapDisplay/axisLayers";
+import { mapDisplay } from "@/types/generated/mapDisplay";
 import type { MapLook } from "@/features/map/view/mapLook";
 import { useAxisCatalog } from "@/hooks/useAxisCatalog";
 import { useTileVersionsReady } from "@/features/map/useTileVersionsReady";
@@ -153,20 +140,6 @@ function bindDragAwareClick(marker: maplibregl.Marker, element: HTMLElement, onC
 }
 
 type LayerDataSource = { key: MapLayerId; sourceId: string; sourceLayer?: string };
-
-// 地図へ常時出す出典（AttributionControlのcustomAttribution）。MapLibreがソースへ渡した
-// attributionを出すのは**そのソースが地図に載っている間だけ**で、レイヤーのON/OFFで消える。
-// ここに挙げるデータは路面タイルへ焼き込むか評価軸・ルートの計算に常時使っており、どの
-// レイヤーを表示しているかと関係なく出典が要る。地理院・警察庁の公共データ利用規約（PDL1.0）
-// は出典とは別に加工した旨の記載を求めており、標高タイルからは勾配を、事故点からは区間ごとの
-// 件数を導いている。基礎地図（OpenFreeMap / OpenMapTiles）はここへ入れない——配信元の
-// TileJSONがattributionを持ち、MapLibreが同じ場所へ出す。
-const MAP_BASE_ATTRIBUTION = [
-  '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noreferrer">OpenStreetMap contributors</a>',
-  '<a href="https://maps.gsi.go.jp/development/ichiran.html" target="_blank" rel="noreferrer">地理院タイル(標高タイル)</a>を加工して作成',
-  "交通事故統計情報（警察庁）を加工して作成",
-  '土地被覆: <a href="https://livingatlas.arcgis.com/landcover/" target="_blank" rel="noreferrer">Esri, Impact Observatory, Microsoft</a> (CC BY 4.0)',
-];
 
 // 初期表示の覆い（「地図を読み込み中…」）を出しておく上限。"idle"は表示中のすべての取得が落ち着くまで
 // 来ないため、遅い外部データが1つあると、描けている地図を覆ったままになる。
@@ -504,7 +477,8 @@ export default function MapView({
       style: mapStyleUrl(),
       center: [location.longitude, location.latitude],
       zoom: 13,
-      attributionControl: { compact: true, customAttribution: MAP_BASE_ATTRIBUTION },
+      // 常に使うデータの出典は、どのレイヤーを出しているかと関係なく出す（宣言はbackend）。
+      attributionControl: { compact: true, customAttribution: [...mapDisplay.alwaysShownAttributions] },
       // デバッグモードの間、MapLibreが出す要求を種別ごとにログする（無効の間debugLogは何もしない）。
       transformRequest: (url, resourceType) => {
         debugLog("map:request", `${resourceType ?? "unknown"} ${url}`);
@@ -554,16 +528,7 @@ export default function MapView({
       // 道はルート結果と同じ「軸ごとの効き方」を見せるためReactの部品で描く。点（事故・POI）は数行の事実だけなので
       // MapLibreのPopupへ直接載せる。
       const point = POINT_LAYER_BY_SCENE_ID.get(feature.layer.id);
-      const pointContent =
-        point === undefined
-          ? null
-          : point.attr_id === "accident_point"
-            ? buildAccidentPopupContent(feature.properties as unknown as AccidentPopupProperties)
-            : buildPoiPopupContent(
-                point.label,
-                pointValueLabels(point),
-                feature.properties as unknown as PoiPopupProperties,
-              );
+      const pointContent = point === undefined ? null : buildPointPopupContent(point, feature.properties);
 
       popupRef.current?.remove();
       popupRef.current = null;
