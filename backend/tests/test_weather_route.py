@@ -303,16 +303,15 @@ def test_get_wind_grid_detail_rejects_inverted_bbox():
 
 # 下限の間隔でも、下限より粗い任意の間隔でも上限が効く
 @pytest.mark.parametrize("spacing_deg", [WIND_GRID_DETAIL_MIN_SPACING_DEG, 0.003])
-def test_get_wind_grid_detail_rejects_bbox_too_large_without_building_the_points(monkeypatch, spacing_deg):
-    # 点を作る処理は同期でイベントループを止めるので、断る範囲では作らない
-    built = []
+def test_get_wind_grid_detail_rejects_bbox_too_large_without_fetching(spacing_deg):
+    fetched = []
 
-    def recording_generate(bbox, spacing_deg):
-        built.append(bbox)
-        return generate_wind_grid_detail_points(bbox, spacing_deg)
+    class RecordingFakeWeatherService(FakeWeatherService):
+        async def get_wind_grid(self, points):
+            fetched.append(len(points))
+            return [], []
 
-    monkeypatch.setattr(weather_router, "generate_wind_grid_detail_points", recording_generate)
-    app.dependency_overrides[get_weather_service] = lambda: FakeWeatherService(None, wind_grid=[])
+    app.dependency_overrides[get_weather_service] = lambda: RecordingFakeWeatherService(None)
     min_lon, min_lat, max_lon, max_lat = WIND_GRID_BBOX
 
     try:
@@ -331,16 +330,21 @@ def test_get_wind_grid_detail_rejects_bbox_too_large_without_building_the_points
 
     assert response.status_code == 400
     assert response.json()["detail"] == "表示範囲が広すぎます。ズームインしてください。"
-    assert built == []
+    assert fetched == []
 
 
-@pytest.mark.parametrize(("limit_below_points", "expected_status"), [(0, 200), (1, 400)])
-def test_get_wind_grid_detail_accepts_exactly_the_max_points_and_rejects_one_more(
-    monkeypatch, limit_below_points, expected_status
-):
-    bbox = (139.70, 35.60, 139.90, 35.80)
-    point_count = len(generate_wind_grid_detail_points(bbox))
-    monkeypatch.setattr(weather_router, "WIND_GRID_DETAIL_MAX_POINTS", point_count - limit_below_points)
+@pytest.mark.parametrize(("extra_columns", "expected_status"), [(0, 200), (1, 400)])
+def test_get_wind_grid_detail_accepts_exactly_the_max_points_and_rejects_one_more(extra_columns, expected_status):
+    # 1行×上限ちょうどの列の範囲。端を格子点の中間に置き、浮動小数の誤差で列数が揺れないようにする。
+    spacing = WIND_GRID_DETAIL_MIN_SPACING_DEG
+    max_points = weather_router.WIND_GRID_DETAIL_MAX_POINTS
+    origin_lon, origin_lat, _, _ = WIND_GRID_BBOX
+    bbox = (
+        origin_lon + 0.5 * spacing,
+        origin_lat + 100.2 * spacing,
+        origin_lon + (max_points - 1 + extra_columns + 0.5) * spacing,
+        origin_lat + 100.8 * spacing,
+    )
     received = []
 
     class RecordingFakeWeatherService(FakeWeatherService):
@@ -353,13 +357,19 @@ def test_get_wind_grid_detail_accepts_exactly_the_max_points_and_rejects_one_mor
     try:
         response = client.get(
             "/api/weather/wind-grid-detail",
-            params={"min_lon": bbox[0], "min_lat": bbox[1], "max_lon": bbox[2], "max_lat": bbox[3]},
+            params={
+                "min_lon": bbox[0],
+                "min_lat": bbox[1],
+                "max_lon": bbox[2],
+                "max_lat": bbox[3],
+                "spacing_deg": spacing,
+            },
         )
     finally:
         app.dependency_overrides.clear()
 
     assert response.status_code == expected_status
-    assert received == ([point_count] if expected_status == 200 else [])
+    assert received == ([max_points] if expected_status == 200 else [])
 
 
 # T185: ズーム依存でspacing_degを細かくする拡張（実機フィードバック「拡大率が大きいと

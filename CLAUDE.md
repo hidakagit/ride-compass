@@ -101,6 +101,7 @@ CronCreate等）に付随する進捗・ログ・通知メッセージも例外�
 - レート制限の境界値テストは `rate_limiter.check_rate_limit` を直接呼んで上限-1件を埋め、実HTTPは境界の1〜2回に絞る（上限回数分の実HTTPループ厳禁）
 - PostGIS統合テスト（road_graph_session、conftest.py）はファイル単位でエンジン・イベントループを共有する設計。新規ファイルでは `pytestmark = pytest.mark.asyncio(loop_scope="module")` が必要（自前の追加async fixtureにも `loop_scope="module"` を明示）。CIはpytest-xdistで並列化しているため `pytest.mark.xdist_group(name="postgis")` も併せて必須（詳細はdocs/conventions/testing.md参照）
 - フロントエンドの新規テストがDOM（render/renderHook/window等）を使わない純ロジックなら、ファイル先頭へ `// @vitest-environment node` docblockを付ける（実装側関数の隠れたDOM依存にも注意、詳細はdocs/conventions/testing.md参照）
+- **振る舞いはモジュールの公開の入口で確かめる。差し替えはプロセス境界（網・ディスク・時計・外部サービス）等に限り、自分のdomainの関数・定数は本物を通す。** カバレッジは下がってよいが、下がった箇所ごとに見なくてよい理由を1行書く（書けなければ見落とし）。詳細はdocs/conventions/testing.md「確かめる高さ」
 - **検査は作業中に回さない。書き終えてから、順番を守って1回ずつ通す**: ①秒で終わる静的検査を
   まとめて（`ruff`・`mypy`・`scripts/review_checks.py docs`・`tsc --noEmit`・OpenAPI生成物のドリフト）
   → 出たものを**全部**直す → ②変更が届くテストを1回（backend・frontendそれぞれの該当
