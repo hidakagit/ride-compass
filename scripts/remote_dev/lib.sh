@@ -97,7 +97,9 @@ rc_ensure_dockerd() {
   return 1
 }
 
-rc_compose() { docker compose -f "$RC_REPO/docker-compose.yml" "$@"; }
+# プロジェクト名（ボリューム名の頭）を固定する。setup.shは一時ディレクトリへcloneした写しからも
+# 流れ、既定のディレクトリ名から決まる名前ではセッションのcloneと別のボリュームになるため。
+rc_compose() { docker compose -p ride-compass -f "$RC_REPO/docker-compose.yml" "$@"; }
 
 # DBとRedisのイメージを手元に揃える。Docker Hubは接続元ごとの取得上限で429を返すことが
 # あるため、同じイメージを配るGoogleのミラーへ切り替えて取り、元の名前を付け直す。
@@ -114,7 +116,9 @@ rc_pull_images() {
 
 rc_db() { rc_ensure_dockerd && rc_start_services; }
 
-rc_images() { rc_ensure_dockerd && rc_pull_images; }
+# キャッシュ作り用。DBのボリュームを初期化して止めた状態で保存させ、以後の開始でinitdbも
+# クラッシュリカバリも起こさないようにする。
+rc_prime_db() { rc_ensure_dockerd && rc_start_services && rc_compose stop >/dev/null 2>&1; }
 
 # postgres・redisを起動し、テストの複製元になる共有DB（conftest.pyのSHARED_TEST_DATABASE）を用意する。
 rc_start_services() {

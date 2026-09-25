@@ -52,7 +52,11 @@ docker compose run --rm backend python scripts/bootstrap_database.py --create-ex
 
   masterの浅いcloneから`setup.sh`を流す（セットアップの時点でリポジトリがどこにあるかに
   依存しないため）。backendのvenvとfrontendの`node_modules`をlockfileのダイジェストごとに
-  リポジトリの外（`/opt/ridecompass-dev`）へ作り、postgres・redisのイメージを取る。
+  リポジトリの外（`/opt/ridecompass-dev`）へ作り、postgres・redisのイメージを取る。さらにcomposeの
+  postgresを一度起動してボリュームを初期化し（テストの複製元DB`ridecompass_test`も作る）、止めてから終える。
+  ボリュームがキャッシュに無いと、毎回の開始で空のボリュームへのinitdbとPostGIS拡張の読み込み（実測で約10秒）が走る。
+  composeのプロジェクト名は`ride-compass`に固定している（一時ディレクトリのcloneから流しても、セッションの
+  cloneと同じボリュームになるように）。
 - **SessionStartフック**（`.claude/settings.json`→`scripts/remote_dev/session_start.sh`）が
   毎セッションの開始時に、`backend/.venv`と`frontend/node_modules`をそこへ繋ぎ（lockfileが
   変わっていれば入れ直す）、dockerdを起こしてcomposeのpostgres・redisを起動し、テストの
@@ -64,7 +68,7 @@ docker compose run --rm backend python scripts/bootstrap_database.py --create-ex
   ログでの観測）。SessionStartの入力は普通の開始と区別がつかないため、`Setup`フックが同じ
   session_idの印を`/tmp`に残して`setup.sh`を流し、SessionStartはその印を見てDBを起動せずに抜ける。
   DBが動いたままファイルシステムが保存されると、以後の開始でpostgresがクラッシュリカバリから
-  立ち上がる。セットアップの欄が空でも、この`Setup`フックが依存とイメージをキャッシュへ入れる。
+  立ち上がる。セットアップの欄が空でも、この`Setup`フックが依存・イメージ・DBのボリュームをキャッシュへ入れる。
 - backend・frontendは手元と同じくネイティブで動かす。クラウドのコンテナの中からは外へ
   直接出られないため、composeのbackend・frontendのイメージはそこではビルドできない
   （`apt-get`・`npm ci`が止まる）。
