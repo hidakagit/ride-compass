@@ -175,4 +175,20 @@ jobs:
               --env-file /home/ubuntu/ridecompass-backend.env \
               -e GIT_COMMIT="$GIT_COMMIT" \
               ridecompass-backend:latest
+            # 入れ替えたコンテナが今ビルドしたコミットとして/healthに応答するまで待つ。`docker run -d`は
+            # 起動の成否を見ないため、起動が止まった（作り直しや再起動を繰り返す）コンテナでもUpのまま
+            # 成功扱いになる。上限までに応答しなければ、ログの末尾を出してジョブを失敗させる。
+            # 上限は、本番で起動から応答までにかかる秒数（下の行が毎回出す）より十分長く取る。
+            HEALTH_WAIT_SECONDS=180
+            WAIT_STARTED=$SECONDS
+            until curl -fsS --max-time 5 http://localhost:8000/health 2>/dev/null | grep -qF "\"commit\":\"$GIT_COMMIT\""; do
+              if [ $((SECONDS - WAIT_STARTED)) -ge $HEALTH_WAIT_SECONDS ]; then
+                echo "入れ替えたコンテナが${HEALTH_WAIT_SECONDS}秒以内に/healthへ応答しませんでした commit=$GIT_COMMIT"
+                sudo docker inspect -f 'status={{.State.Status}} restarts={{.RestartCount}}' ridecompass-backend
+                sudo docker logs --tail 200 ridecompass-backend 2>&1
+                exit 1
+              fi
+              sleep 2
+            done
+            echo "入れ替えたコンテナが/healthに応答するまで $((SECONDS - WAIT_STARTED))秒 commit=$GIT_COMMIT"
             sudo docker image prune -f
