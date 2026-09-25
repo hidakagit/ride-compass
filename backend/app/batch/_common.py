@@ -16,7 +16,7 @@ import httpx
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from app.config import settings
-from app.infrastructure import derived_data_meta
+from app.infrastructure import derived_data_meta, road_network_store
 
 _T = TypeVar("_T")
 
@@ -43,18 +43,36 @@ def run_batch_cli(
     parser: argparse.ArgumentParser,
     start: Callable[[argparse.Namespace, str], Awaitable[int]],
 ) -> int:
-    """DBを書くバッチの入口の骨格。ログを整え、引数を読み、本体を流して派生データの世代を進める。
+    """DBを書くバッチの入口の骨格。ログを整え、引数を読み、本体を流して派生データの世代を進め、
+    その世代の道路網の配列（`infrastructure/road_network_store.py`）を作る。
 
     `--database-url`はここで足す（省けば設定値）。`start`は読んだ引数とDBのURLを受けて
     本体のコルーチンを返す。イベントループの外で呼ぶので、引数の検査（`parser.error`）は
     `start`の中に置いてよい。
+
+    道路網の配列を作れなかったときは失敗の終了コードを返す——DBは書き終えているが、
+    ルート生成は古い配列を読み続けるため、打った人が気づける形で止める。
     """
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s %(message)s")
     parser.add_argument("--database-url", default=None)
     args = parser.parse_args()
     database_url = args.database_url or settings.database_url
-    return asyncio.run(with_derived_data_revision_bump(
+    code = asyncio.run(with_derived_data_revision_bump(
         start(args, database_url), database_url=database_url))
+    if code != 0:
+        return code
+    try:
+        asyncio.run(_ensure_road_network(database_url))
+    except Exception:
+        logging.getLogger("ridecompass.batch").exception(
+            "道路網の配列を作れませんでした。scripts/build_road_network.py を打ち直してください")
+        return 1
+    return 0
+
+
+async def _ensure_road_network(database_url: str) -> None:
+    async with batch_session_factory(database_url) as session_factory:
+        await road_network_store.ensure_current(session_factory)
 
 
 async def with_derived_data_revision_bump(coro: Awaitable[int], *, database_url: str | None) -> int:

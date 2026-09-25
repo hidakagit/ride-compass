@@ -13,7 +13,8 @@
 返し、呼び出し側は安全側（キャッシュを消す）へ倒れる。
 """
 
-from sqlalchemy import Integer, select, update
+from sqlalchemy import Integer, select
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -31,18 +32,24 @@ async def get_revision(session: AsyncSession) -> int | None:
     return await session.scalar(select(DerivedDataMetaRow.revision).where(DerivedDataMetaRow.id == 1))
 
 
-async def bump_revision(session: AsyncSession) -> int | None:
-    """世代を1つ進めて新しい値を返す（行が無ければ何もせずNone）。
+async def bump_revision(session: AsyncSession) -> int:
+    """世代を1つ進めて新しい値を返す。行が無ければ作って1にする。
 
     派生データを書き換えたバッチが、書き込みをコミットしたあとに呼ぶ。読み手はこの値の
     変化だけを見るため、いくつ進んだかには意味が無い（同じバッチを2回回して2つ進んでも、
     キャッシュが1回余分に作り直されるだけで害は無い）。
+
+    **行を作るのはここだけ**——スキーマはORMの宣言から作るため、行を入れる場所が他に無い。
+    行が無いまま進めずにいると、バッチが派生を作り直しても世代が変わらず、読み手は
+    作り直されたことに気づけない。
     """
-    revision = await session.scalar(
-        update(DerivedDataMetaRow)
-        .where(DerivedDataMetaRow.id == 1)
-        .values(revision=DerivedDataMetaRow.revision + 1)
-        .returning(DerivedDataMetaRow.revision)
+    statement = pg_insert(DerivedDataMetaRow).values(id=1, revision=1)
+    result = await session.execute(
+        statement.on_conflict_do_update(
+            index_elements=[DerivedDataMetaRow.id],
+            set_={"revision": DerivedDataMetaRow.revision + 1},
+        ).returning(DerivedDataMetaRow.revision)
     )
+    revision: int = result.scalar_one()
     await session.commit()
     return revision
