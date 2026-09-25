@@ -5,13 +5,17 @@ docs/conventions/orchestration.md「重い処理は機械全体で1本ずつ」�
 
 使い方:
     python scripts/lockrun.py -- '<bashコマンド文字列>'
-    python scripts/lockrun.py --report [--since 2026-09-23T00:00]
+    python scripts/lockrun.py --report [--since 2026-09-23T00:00] [--mine]
 
 ロックはgitの共通ディレクトリ（全worktreeで共有される）の`lockrun/`に置き、ディレクトリの
 mkdir（原子的）で取る。保持中は30秒ごとにmtimeを更新し、5分以上更新の無いロックは持ち主が
 死んだものとして破棄する——ツールの時間切れでプロセスが殺されると`finally`が走らないため。
 破棄したときは、保持者のpidがその時点で生きていたか・そのプロセス名を`lockrun/breaks.jsonl`へ
 追記する（生きている保持者の枠が破棄されたなら、破棄の規則のほうが誤っている）。
+
+放すときは、ディレクトリが消えたことを確かめるまで短い間隔で消し直す。Windowsでは、待っている側が
+保持者を表示するために`owner.json`を開いている瞬間に消すと共有違反で消せず、放したはずの枠が
+更新の無いまま残って、後ろの全員が破棄の5分を待つ。消し切れなければ`breaks.jsonl`へ残す。
 
 枠は機械全体で1つ（ロック名`heavy`）。
 
@@ -40,6 +44,9 @@ MAX_HOLD_SECONDS = int(os.environ.get("LOCKRUN_MAX_HOLD_SECONDS", "600"))
 TIMED_OUT = 124
 HELD_ENV = "LOCKRUN_HELD"
 POLL_SECONDS = 5
+#: 放すときに消し直す回数と間隔。待っている側が`owner.json`を開くのは読み取りの一瞬だけ。
+RELEASE_ATTEMPTS = 20
+RELEASE_RETRY_SECONDS = 0.25
 #: 機械全体で1つの枠の名前（ロックのディレクトリ・記録の`lock`）。
 LOCK_NAME = "heavy"
 WINDOWS_BASH = (r"C:\Program Files\Git\bin\bash.exe", r"C:\Program Files\Git\usr\bin\bash.exe")
@@ -97,6 +104,25 @@ def record_break(path: str, name: str, age: float) -> None:
           f"（保持者 pid {pid} は{state}{f'、{proc.name}' if proc else ''}）", flush=True)
     with open(os.path.join(os.path.dirname(path), "breaks.jsonl"), "a", encoding="utf-8") as f:
         f.write(json.dumps(record, ensure_ascii=False) + "\n")
+
+
+def release(path: str, name: str) -> bool:
+    """枠を放す。消し切れたか。消し切れなければ知らせて`breaks.jsonl`へ残す。"""
+    for _ in range(RELEASE_ATTEMPTS):
+        shutil.rmtree(path, ignore_errors=True)
+        if not os.path.exists(path):
+            return True
+        time.sleep(RELEASE_RETRY_SECONDS)
+    left = sorted(os.listdir(path)) if os.path.isdir(path) else None
+    record = {
+        "at": datetime.now().astimezone().isoformat(timespec="seconds"), "lock": name,
+        "release_failed": True, "releaser_pid": os.getpid(), "left": left,
+    }
+    print(f"[lockrun] {name} のロックを放せなかった（{path} が残っている。"
+          f"{STALE_SECONDS}秒後に次の待ち手が破棄する）", flush=True)
+    with open(os.path.join(os.path.dirname(path), "breaks.jsonl"), "a", encoding="utf-8") as f:
+        f.write(json.dumps(record, ensure_ascii=False) + "\n")
+    return False
 
 
 def acquire(path: str, name: str) -> float:
@@ -175,7 +201,7 @@ def run(command: str) -> int:
                   "処理を上限内に分けるか、司令塔に独占の枠を求めること", flush=True)
     finally:
         stop.set()
-        shutil.rmtree(path, ignore_errors=True)
+        release(path, name)
         record = {
             "start": start, "lock": name, "cwd": os.getcwd(), "cmd": command[:200],
             "wait_s": round(wait_seconds, 1), "hold_s": round(time.monotonic() - held_from, 1),
@@ -186,7 +212,19 @@ def run(command: str) -> int:
     return returncode
 
 
-def report(since: str | None) -> int:
+def worktree_top() -> str:
+    """呼び出した作業ディレクトリが属する作業ツリーの根（比べやすい形）。"""
+    top = subprocess.run(["git", "rev-parse", "--show-toplevel"], capture_output=True, text=True,
+                         encoding="utf-8", check=True).stdout.strip()
+    return os.path.normcase(os.path.normpath(top))
+
+
+def under(cwd: str, top: str) -> bool:
+    path = os.path.normcase(os.path.normpath(cwd))
+    return path == top or path.startswith(top + os.sep)
+
+
+def report(since: str | None, mine: bool = False) -> int:
     log = os.path.join(lock_root(), "log.jsonl")
     if not os.path.exists(log):
         print("記録がありません")
@@ -197,6 +235,11 @@ def report(since: str | None) -> int:
             row = json.loads(line)
             if since is None or row["start"] >= since:
                 rows.append(row)
+    if mine:
+        # スロットは担当を替えて使い回すので、--since（依頼の時刻）と合わせて自分の分だけにする。
+        top = worktree_top()
+        rows = [r for r in rows if under(str(r.get("cwd") or ""), top)]
+        print(f"作業ツリー {top} の記録{'（' + since + ' 以降）' if since else ''}")
     by_lock: dict[str, list[dict]] = {}
     for row in rows:
         by_lock.setdefault(row["lock"], []).append(row)
@@ -226,8 +269,10 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="ロック付き実行器の記録を集計する")
     parser.add_argument("--report", action="store_true", required=True)
     parser.add_argument("--since", help="この時刻（ISO形式の前方一致比較）以降の記録だけを集計する")
+    parser.add_argument("--mine", action="store_true",
+                        help="呼び出した作業ツリー（とその下のディレクトリ）で走った記録だけを集計する")
     args = parser.parse_args()
-    return report(args.since)
+    return report(args.since, args.mine)
 
 
 if __name__ == "__main__":

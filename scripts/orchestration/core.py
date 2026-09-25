@@ -38,7 +38,10 @@
 - 監査済みのコミットがmasterへ入ったかは、監査の記録（`audit_log`の`通す`）と、そのコミットの件名の
   先頭のタスク番号から始まる件名のコミットが監査の後にorigin/masterへ入ったか。前回のpushの時刻は
   origin/masterの先端のコミットの時刻。
-- 監査待ちかは、監査の記録（報告の受領`reported`が最後の`audit_done`より新しい）。
+- 振り出し待ちの行のタスクが完了したかは、origin/masterの記録の`状態:`。完了の行は取り出さず、行は消さない
+  （`dispatchable`。開け直せば、また取り出せる）。
+- 担当がクラウドで動くかは表の`where`（`クラウド`。書かなければ手元）にしか無い事実なので表に持つ。クラウドの担当は
+  作業ツリーの検査と稼働（手元）の本数（門）から外す。
 - 回（`run`）が持つのは名前・目的・母集団（タスク番号と派生元）・打ち切りの引き継ぎ（`handover`）・
   前の回から移した引き継ぎ（`inherited`）だけ。母集団の各タスクが完了・トリガー待ち・残りのどれかと、
   終わりの条件1に当たっているかは、origin/masterの記録の`状態:`と台帳の行から読むたびに導く
@@ -122,7 +125,7 @@ STATES = ACTIVE_STATES + STOPPED_STATES
 #: ために、書けるキーを決めておく。`board_cmd`が書けるのは`SETTABLE`のキーだけで、残りは道具が書く。
 ALLOWED_KEYS = {
     "top": ("run", "limits", "check_interval_min", "manual", "agents", "last_check", "queue", "coordinator_queue"),
-    "agent": ("name", "id", "state", "current_task", "task_first_started", "reported_sha", "audit_base",
+    "agent": ("name", "id", "where", "state", "current_task", "task_first_started", "reported_sha", "audit_base",
               "audit_done", "audit_result", "audit_log"),
     "audit_log": ("task", "reported_sha", "audit_base", "audit_done", "audit_result", "urgent"),
     "limits": ("concurrent",),
@@ -131,12 +134,17 @@ ALLOWED_KEYS = {
 }
 #: `board set・add`・`board run`・`board dispatch push`の`k=v`で書けるキー。
 SETTABLE = {
-    "agent": ("id", "state", "current_task", "reported_sha", "audit_base", "audit_done", "audit_result", "urgent"),
+    "agent": ("id", "where", "state", "current_task", "reported_sha", "audit_base", "audit_done", "audit_result",
+              "urgent"),
     "top": ("limits.concurrent", "check_interval_min", "manual"),
     "queue": ("after", "agent"),
 }
 #: 振り出し待ちの優先度。この順に取り出す。
 PRIORITIES = ("高", "中", "低")
+#: 担当の`where`の語彙。書かなければ手元。クラウドの担当は開発機の作業ツリーも機械も使わないので、
+#: 作業ツリーの検査と同時本数（門）から外す。
+CLOUD = "クラウド"
+PLACES = (CLOUD,)
 
 #: 回（`run`）が持つキー。回の各タスクの状態・残り・終わりの条件は記録と台帳から導くので、
 #: これ以外（出来事・進め方の指示の文を含む）は持たない。打ち切りの引き継ぎ（`handover`）は、次の回の
@@ -319,10 +327,21 @@ def done_tasks(ctx: Context, tasks: list[str]) -> set[str]:
     return {t for t in tasks if task_state(texts[f"origin/master:{TASKS_DIR}/{t}.md"]) == "完了"}
 
 
+def queue_done(ctx: Context, items: list[dict]) -> set[str]:
+    """振り出し待ちの行のタスクと前提のうち、origin/masterの記録で完了のもの。"""
+    return done_tasks(ctx, sorted({str(i.get("task")) for i in items} | {t for i in items for t in prereqs_of_item(i)}))
+
+
+def dispatchable(item: dict, done: set[str]) -> bool:
+    """取り出してよい行か: そのタスクがまだ完了しておらず、前提がすべて完了している。
+    完了は記録の状態から導き、行は消さない（開け直せば、また取り出せる）。"""
+    return str(item.get("task")) not in done and all(t in done for t in prereqs_of_item(item))
+
+
 def ready_to_dispatch(ctx: Context, items: list[dict]) -> list[dict]:
-    """振り出し待ちのうち、前提がすべてorigin/masterで完了しているもの。"""
-    done = done_tasks(ctx, sorted({t for i in items for t in prereqs_of_item(i)}))
-    return [i for i in items if all(t in done for t in prereqs_of_item(i))]
+    """振り出し待ちのうち、まだ完了しておらず、前提がすべてorigin/masterで完了しているもの。"""
+    done = queue_done(ctx, items)
+    return [i for i in items if dispatchable(i, done)]
 
 
 def ledger_rows(ctx: Context) -> dict[str, dict]:
@@ -614,6 +633,10 @@ def start_task(agent: dict, task: str, at: dt.datetime) -> None:
     agent["task_first_started"] = iso(at)
 
 
+def in_cloud(agent: dict) -> bool:
+    return agent.get("where") == CLOUD
+
+
 def audit_pending(agent: dict) -> bool:
     """監査待ちか。報告を受けて止めた（`停止済み`）が、現在のタスクがまだ監査で通されていない。"""
     return agent.get("state") == "停止済み" and bool(agent.get("current_task"))
@@ -899,10 +922,10 @@ class Facts:
         return self.agent_trees.get(id(agent))
 
     def active(self) -> list[str]:
-        """手元で動いているものの一覧。状態の表で稼働中のもの＋最近変更のある作業ツリー。"""
+        """手元で動いているものの一覧。状態の表で稼働中のもの（クラウドの担当を除く）＋最近変更のある作業ツリー。"""
         names, seen = [], set()
         for a in self.board["agents"]:
-            if a.get("state") in ACTIVE_STATES:
+            if a.get("state") in ACTIVE_STATES and not in_cloud(a):
                 names.append(f"{a.get('name')}（表: {a.get('state')}）")
                 t = self.tree(a)
                 if t:
@@ -913,6 +936,10 @@ class Facts:
                 why = f"表では{owner}" if owner else "表に無い"
                 names.append(f"{t.label}（{why}・{hm(t.newest_change)}に変更）")
         return names
+
+    def cloud(self) -> list[str]:
+        """クラウドで稼働中の担当。開発機の枠も作業ツリーも使わないので、稼働（手元）とは別に数える。"""
+        return [str(a.get("name")) for a in self.board["agents"] if a.get("state") in ACTIVE_STATES and in_cloud(a)]
 
     def overrun(self) -> list[str]:
         out = []
@@ -1011,8 +1038,8 @@ def agent_marks(f: Facts, a: dict, states: dict[str, str | None], listed: set[st
     t, state = f.tree(a), a.get("state")
     if state not in STATES:
         marks.append(f"! 状態が語彙に無い（{state}）")
-    if state in ACTIVE_STATES and (t is None or not t.exists):
-        marks.append("! 表は稼働だが作業ツリーが無い")
+    if state in ACTIVE_STATES and not in_cloud(a) and (t is None or not t.exists):
+        marks.append("! 表は稼働だが作業ツリーが無い（クラウドで動く担当なら board set <名前> where=クラウド）")
     if state not in ACTIVE_STATES and t is not None and t.active(f.at, ACTIVE_MINUTES):
         marks.append(f"! 表は{state}だが作業ツリーが{hm(t.newest_change)}に変更されている")
     held = stale_slot(f, a)
@@ -1060,7 +1087,7 @@ def cmd_status(ctx: Context, args: argparse.Namespace) -> int:
     print(f"上限{f.limit}本  最終確認 {hm(parse_time(b.get('last_check')))}"
           f"  origin/master {master_sha}"
           f"（{hm(dt.datetime.fromtimestamp(int(master_ts)).astimezone()) if master_ts else '-'}。fetchはしない）")
-    print(f"稼働（手元）{len(f.active())}本  監査待ち{len(f.audit_waiting())}本"
+    print(f"稼働（手元）{len(f.active())}本  稼働（{CLOUD}）{len(f.cloud())}本  監査待ち{len(f.audit_waiting())}本"
           f"  停止ファイル{'あり' if f.stop else 'なし'}  core.hooksPath={f.hooks_path}")
     print(budget_line(f.budgets))
     reasons: dict[str, dict[str, int]] = {}
@@ -1080,7 +1107,9 @@ def cmd_status(ctx: Context, args: argparse.Namespace) -> int:
                         f"/予算{budget_of(a, f.ledger, f.budgets) or '-'}分")
         print(f"\n{a.get('name')}  [{state}]  着手{hm(first)}{progress}")
         t = f.tree(a)
-        if t is None:
+        if in_cloud(a):
+            print(f"  作業ツリー: {CLOUD}（手元に無い。進みは作業ブランチ orch/{a.get('name')} と報告で見る）")
+        elif t is None:
             print("  作業ツリー: 無し")
         else:
             dirty = "未取得" if t.dirty is None else f"{t.dirty}件"
@@ -1182,9 +1211,12 @@ def cmd_check(ctx: Context, args: argparse.Namespace) -> int:
     stale = dt.timedelta(minutes=STALE_COMMIT_MINUTES)
     for a in f.board["agents"]:
         t = f.tree(a)
-        if a.get("state") in ACTIVE_STATES:
+        if in_cloud(a):
+            pass  # 作業ツリーは手元に無い。進みは作業ブランチへのpushと報告で見る
+        elif a.get("state") in ACTIVE_STATES:
             if t is None or not t.exists:
-                problems.append(f"{a.get('name')}: 表は稼働だが作業ツリーが無い")
+                problems.append(f"{a.get('name')}: 表は稼働だが作業ツリーが無い"
+                                f"（クラウドで動く担当なら board set {a.get('name')} where={CLOUD}）")
             elif (t.commit_time and f.at - t.commit_time > stale and t.newest_change
                   and t.newest_change > t.commit_time):
                 problems.append(f"{a.get('name')}: {minutes(f.at - t.commit_time)}分コミットが無いまま"
@@ -1577,11 +1609,19 @@ def cmd_board(ctx: Context, args: argparse.Namespace) -> int:
         elif agent is None:
             raise SystemExit(f"状態の表に無い: {args.name}（board add で追加する）")
         keys = {p.split("+=", 1)[0].split("=", 1)[0] for p in args.pairs}
-        previous_task = agent.get("current_task")
+        previous_task, previous_where = agent.get("current_task"), agent.get("where")
         apply_pairs(agent, args.pairs, at, SETTABLE["agent"])
+        if "where" in keys:
+            if agent.get("where") in ("", None, "手元"):
+                agent.pop("where", None)
+            elif agent.get("where") not in PLACES:
+                raise SystemExit(f"where の語彙は {'・'.join(PLACES)}（書かなければ手元）: {agent.get('where')}")
         # 振り出し（current_taskの指定）で着手時刻を入れる。差し戻しで同じタスクのまま再開したときは変えない。
+        # 手元で起動できずにクラウドへ移したときも入れ直す——クラウドのセッションはユーザーが依頼文を貼って始まり、
+        # 手元で失敗した起動の時刻から数えると見込み超過を誤って出す。
         task = agent.get("current_task")
-        if "current_task" in keys and task and task != previous_task:
+        moved = "where" in keys and agent.get("where") != previous_where and task and task == previous_task
+        if ("current_task" in keys and task and task != previous_task) or moved:
             start_task(agent, str(task), at)
             if (ledger_rows(ctx).get(str(task)) or {}).get("scale") is None:
                 print(f"注: {task}は台帳に規模札のある行が無い。見込み超過をタスク単位で測れない")
@@ -1647,9 +1687,9 @@ def cmd_board(ctx: Context, args: argparse.Namespace) -> int:
         save_board(ctx, board)
         print(f"積んだ（{len(items)}件目）: {json.dumps(item, ensure_ascii=False)}")
         return 0
-    # 振り出し待ちは、前提（after）がorigin/masterで完了したものだけが取り出せる。
-    done = done_tasks(ctx, sorted({t for i in items for t in prereqs_of_item(i)})) if dispatch else set()
-    ready = [i for i in order if all(t in done for t in prereqs_of_item(items[i]))]
+    # 振り出し待ちは、まだ完了しておらず、前提（after）がorigin/masterで完了したものだけが取り出せる。
+    done = queue_done(ctx, items) if dispatch else set()
+    ready = [i for i in order if dispatchable(items[i], done)]
     # 振り出し待ちから取り出せるのは回の母集団の中だけ。回が始まっていない・終わりに入ったときは取り出さない。
     rows = ledger_rows(ctx) if dispatch else {}
     view = population_view(ctx, board, rows) if dispatch else None
@@ -1679,6 +1719,8 @@ def cmd_board(ctx: Context, args: argparse.Namespace) -> int:
             waiting = [t for t in prereqs_of_item(item) if t not in done]
             mark = "  前提待ち: " + "・".join(waiting) if waiting else "  前提: 済"
             task = str(item.get("task"))
+            if task in done:
+                mark = "  完了済み（記録）。取り出さない"
             if task not in population:
                 mark += "  回の母集団の外"
             rest = {k: v for k, v in item.items() if k not in ("task", "priority", "added", "after")}

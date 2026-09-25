@@ -7,6 +7,14 @@
 `docs/conventions/asking-user.md`「仕掛中のダッシュボード」節。核はこのモジュールをimportしない。
 
     python scripts/orchestrate.py pending-backup --pending <dir>   # 全件を日付のファイルへ書き出す（直近14日を残す。移し忘れを知らせる）
+    python scripts/orchestrate.py pending-inbox --pending <dir>    # 送った・取り込み待ちの件を、タスクごとの今の持ち主と並べる
+
+## 件の持ち主
+
+件の持ち主は、件を置いたセッションではなく件の`task`（タスク番号）で決まる（`source`は誰が書いたかの記録）。
+今の持ち主は読むたびに導く: 状態の表でそのタスクを現在のタスクに持つ担当（稼働中か監査待ち）、無ければ手動中の
+タスク（表の`manual`）なら手動のセッション、どちらでもなければ（担当が終わった・セッションが無い・起票案で
+番号が無い）今の司令塔。ページに起こされたセッションがどれであっても、この持ち主へ回す。
 """
 
 from __future__ import annotations
@@ -19,14 +27,24 @@ import re
 from pathlib import Path
 
 from orchestration.core import (
+    ACTIVE_STATES,
     TASK_ID_RE,
     TASKS_DIR,
     Context,
+    audit_pending,
     cat_files,
+    hm,
+    in_cloud,
+    load_board,
+    now,
+    parse_time,
     task_state,
 )
 
 BACKUP_KEEP_DAYS = 14
+#: 送ってからこれだけ経っても取り込まれていない件を、拾われていないとして知らせる。ページの「Claude に反映を
+#: 頼む」は起こしたセッションへすぐ届くので、1時間取り込まれなければ、受け取るセッションがいないとみなす。
+UNTAKEN_ALERT_MINUTES = 60
 BACKUP_NAME_RE = re.compile(r"^(\d{4}-\d{2}-\d{2})\.json$")
 
 
@@ -133,6 +151,59 @@ def left_behind(ctx: Context, items: dict[str, dict]) -> list[str]:
     return out
 
 
+def awaiting_take(item: dict) -> bool:
+    """送った・取り込み待ちか: `sent_at`があり、`taken_at`がそれより前か無い。"""
+    sent, taken = parse_time(item.get("sent_at")), parse_time(item.get("taken_at"))
+    return sent is not None and (taken is None or taken < sent)
+
+
+def owner_of(board: dict, task: str) -> str:
+    """件の今の持ち主（モジュールの冒頭「件の持ち主」）。"""
+    if not task:
+        return "司令塔（起票案）"
+    holders = [a for a in board.get("agents") or []
+               if a.get("current_task") == task and (a.get("state") in ACTIVE_STATES or audit_pending(a))]
+    if holders:
+        a = holders[0]
+        where = "、クラウド" if in_cloud(a) else ""
+        return f"担当 {a.get('name')}（{a.get('state')}{where}。司令塔が渡す）"
+    if task in [str(t) for t in board.get("manual") or []]:
+        return "手動のセッション（始めと区切りに自分のタスクの件を拾う）"
+    return "司令塔（持ち主の担当・セッションがいない）"
+
+
+def untaken(items: dict[str, dict], minutes: int = UNTAKEN_ALERT_MINUTES) -> list[str]:
+    """送ってから`minutes`分経っても取り込まれていない件。"""
+    at = now()
+    out = []
+    for doc_id, item in sorted(items.items()):
+        sent = parse_time(item.get("sent_at"))
+        if awaiting_take(item) and sent is not None and (at - sent).total_seconds() >= minutes * 60:
+            out.append(f"{doc_id}: 送ってから{int((at - sent).total_seconds() // 60)}分、取り込まれていない"
+                       f"（{hm(sent.astimezone())}に送った。pending-inbox で持ち主を出して回す）")
+    return out
+
+
+def cmd_inbox(ctx: Context, args: argparse.Namespace) -> int:
+    """送った・取り込み待ちの件を、タスクごとの今の持ち主と並べる。"""
+    items = load_pending(args.pending)
+    board = load_board(ctx)
+    by_owner: dict[str, list[str]] = {}
+    for doc_id, item in sorted(items.items()):
+        if awaiting_take(item):
+            task = str(item.get("task") or "")
+            first = str(item.get("text") or "").splitlines()[0][:60] if item.get("text") else ""
+            by_owner.setdefault(owner_of(board, task), []).append(f"{doc_id}（{task or '番号なし'}）{first}")
+    if not by_owner:
+        print("送った・取り込み待ちの件は無い")
+        return 0
+    for owner, lines in by_owner.items():
+        print(f"{owner}: {len(lines)}件")
+        for line in lines:
+            print(f"  {line}")
+    return 1
+
+
 def cmd_backup(ctx: Context, args: argparse.Namespace) -> int:
     items = load_pending(args.pending)
     today = dt.datetime.now().astimezone().date()
@@ -150,7 +221,7 @@ def cmd_backup(ctx: Context, args: argparse.Namespace) -> int:
             removed.append(old.name)
     print(f"ダッシュボードの{len(items)}件を{path}へ書き出した"
           + (f"（{BACKUP_KEEP_DAYS}日より前の{'・'.join(removed)}を消した）" if removed else ""))
-    alerts = [a for a in [backup_alert(ctx)] if a] + left_behind(ctx, items)
+    alerts = [a for a in [backup_alert(ctx)] if a] + left_behind(ctx, items) + untaken(items)
     for alert in alerts:
         print(f"! {alert}")
     return 1 if alerts else 0
@@ -163,6 +234,8 @@ def main(argv: list[str] | None = None) -> int:
     sub = parser.add_subparsers(dest="cmd", required=True)
     p = sub.add_parser("pending-backup", help="ダッシュボードの全件を日付のファイルへ書き出す")
     p.add_argument("--pending", required=True, help="ArtifactDataのlistでout_dirに書き出したディレクトリ")
+    p = sub.add_parser("pending-inbox", help="送った・取り込み待ちの件を、タスクごとの今の持ち主と並べる")
+    p.add_argument("--pending", required=True, help="ArtifactDataのlistでout_dirに書き出したディレクトリ")
     args = parser.parse_args(argv)
     ctx = Context(Path(args.repo), args.dir)
-    return cmd_backup(ctx, args)
+    return cmd_inbox(ctx, args) if args.cmd == "pending-inbox" else cmd_backup(ctx, args)
