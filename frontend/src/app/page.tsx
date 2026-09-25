@@ -12,6 +12,7 @@ import {
   ClearAllFiltersIcon,
   ClearAllLayersIcon,
   ClearRoutesIcon,
+  ClockIcon,
   RouteSpliceIcon,
   DownloadIcon,
   GenerateRoutesIcon,
@@ -58,6 +59,7 @@ import {
 import { routePreferenceToSend } from "@/features/route/routePreferenceSync";
 import { formatMaterialValue, materialCatalogName } from "@/lib/axisMaterialsCatalog";
 import { downloadGpx } from "@/features/route/gpxExport";
+import { formatDurationShort } from "@/features/route/formatDuration";
 import { baselineDistanceKm, loadBarHeightRatio } from "@/features/route/difficultyLoadBar";
 import {
   SPLICED_ROUTE_ID_PREFIX,
@@ -932,8 +934,10 @@ export default function Home() {
             }
           }}
         >
-          <div className="flex w-40 flex-none items-stretch border-r border-[var(--color-border)]">
-            <TabsList variant="side" aria-label="ルート結果">
+          {/* 狭幅では下部シートの高さいっぱいまで伸ばし、はみ出す候補は一覧の中だけを縦スクロールさせる——一覧に固定の
+              高さ上限を置くと、シートに余白があっても伸びずに触れない余白が残る。 */}
+          <div className="flex w-48 flex-none items-stretch border-r border-[var(--color-border)]">
+            <TabsList variant="side" className="max-mobile:min-h-0 max-mobile:overflow-y-auto" aria-label="ルート結果">
               {routes.map((route, index) => (
                 <TabsTrigger key={route.id} value={route.id}>
                   {/* 見分けるための順位番号（並び順どおり）と距離。経由地のルートは常に1件なので番号の代わりに名前。 */}
@@ -943,9 +947,17 @@ export default function Home() {
                     {isSplicedRoute(route) && (
                       <span className="ml-1 font-normal text-[var(--color-muted-strong)]">合成</span>
                     )}
-                    {/* 最速の候補と、そこから何分余計にかかるか（見比べる場所に置く）。 */}
-                    {route.id === fastestRouteIdInList ? (
-                      <span className="ml-1 font-normal text-[var(--color-muted-strong)]">最速</span>
+                    {/* 最速の候補はその所要時間を印付きで、他の候補はそこから何分余計にかかるか（見比べる場所に置く）。 */}
+                    {route.id === fastestRouteIdInList && fastestSeconds !== null ? (
+                      <span
+                        className="ml-1 inline-flex items-center gap-0.5 font-normal text-[var(--color-muted-strong)]"
+                        title="最速"
+                      >
+                        <span role="img" aria-label="最速" className="inline-flex">
+                          <ClockIcon size={11} />
+                        </span>
+                        {formatDurationShort(fastestSeconds)}
+                      </span>
                     ) : (
                       extraDurationLabel(route, fastestSeconds) && (
                         <span className="ml-1 font-normal text-[var(--color-muted-strong)]">

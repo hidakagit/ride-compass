@@ -45,8 +45,8 @@ export const buttonVariants = cva(
         md: "rounded-sm px-3.5 py-2 text-[length:var(--font-size-md)]",
         /** 四角のアイコンボタン。 */
         icon: "size-8 rounded-sm",
-        /** アイコンの下に短い名前を置くボタン。パネルの操作はすべてこの形（地図のチップと同じ並び）。 */
-        iconLabel: "min-w-11 flex-col gap-0.5 rounded-sm px-1.5 py-1 text-[length:var(--font-size-xs)] leading-[1.15]",
+        /** アイコンの横に短い名前を置くボタン。パネルの操作はすべてこの形（縦に積むより低く、下部シートの高さを取らない）。 */
+        iconLabel: "gap-1 rounded-sm px-2 py-1 text-[length:var(--font-size-xs)]",
         /** 小さい丸のアイコンボタン。 */
         iconRound: "size-6.5 rounded-full",
         /** 地図右上の列の1段。 */

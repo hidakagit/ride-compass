@@ -6,7 +6,7 @@
  * - 生成リクエストのpayloadと「条件が変わった」の比較キーの組み立て規則 → `features/route/generationRequest.ts`
  * - 重み・除外の保存値を今の軸・項目へ揃える規則 → `features/route/routePreferenceSync.ts`・`hardFilterSync.ts`
  * - 乗り換えの区間の求め方・合成した候補の並べ方 → `features/route/routeSplice.ts`
- * - 候補の行の「最速」「+N分」・負荷の帯の高さの決め方 → `features/route/routeTabLabel.ts`・`difficultyLoadBar.ts`
+ * - 候補の行の最速の印と所要時間・「+N分」・負荷の帯の高さの決め方 → `features/route/routeTabLabel.ts`・`difficultyLoadBar.ts`
  * - 入力の検証の文言 → `features/route/RouteForm/useRouteFormSubmit.ts`
  * - 位置の取得の並走と文言 → `hooks/useLocation.ts`
  *
@@ -825,7 +825,7 @@ describe("生成の進み方と、結果の置き場", () => {
 });
 
 describe("候補の一覧", () => {
-  it("行には順位・距離に加え、最も早く着く候補に「最速」、他の候補にそこから余計にかかる時間を添える", async () => {
+  it("行には順位・距離に加え、最も早く着く候補にその所要時間と「最速」の印、他の候補にそこから余計にかかる時間を添える", async () => {
     respond([
       route("route-0", { distance_km: 10, estimated_duration_seconds: 3600 }),
       route("route-1", { distance_km: 12.34, estimated_duration_seconds: 3900 }),
@@ -834,7 +834,9 @@ describe("候補の一覧", () => {
     const user = renderPage();
     await generate(user);
     const [first, second, third] = resultTabs();
-    expect(first).toHaveTextContent(/^1 10\.0km最速—$/);
+    expect(first).toHaveTextContent(/^1 10\.0km1時間0分—$/);
+    expect(within(first).getByRole("img", { name: "最速" })).toBeInTheDocument();
+    expect(within(second).queryByRole("img", { name: "最速" })).not.toBeInTheDocument();
     expect(second).toHaveTextContent(/^2 12\.3km\+5分—$/);
     expect(third).toHaveTextContent(/^3 8\.0km—$/);
   });
