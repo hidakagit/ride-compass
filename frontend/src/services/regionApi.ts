@@ -1,14 +1,15 @@
 import type { AxisInspectorResult } from "@/types/traffic";
 import { API_BASE_URL } from "@/lib/apiBaseUrl";
+import { apiPath } from "@/lib/apiPath";
 import { tileBaseUrl } from "@/lib/tileBaseUrl";
 import { debugLog } from "@/lib/debugLog";
 import { requestOk } from "@/lib/fetchJson";
 import regionTileConfig from "@/types/generated/region-tile-config.json";
 import { DEFAULT_API_TIMEOUT_MS } from "@/lib/apiTimeouts";
 
-const ROAD_SURFACE_TILE_PATH = "/api/region/road-surface-tiles/{z}/{x}/{y}.pbf";
-const ACCIDENT_TILE_PATH = "/api/region/accident-tiles/{z}/{x}/{y}.pbf";
-const POI_TILE_PATH = "/api/region/poi-tiles/{z}/{x}/{y}.pbf";
+const ROAD_SURFACE_TILE_PATH = apiPath("/api/region/road-surface-tiles/{z}/{x}/{y}.pbf");
+const ACCIDENT_TILE_PATH = apiPath("/api/region/accident-tiles/{z}/{x}/{y}.pbf");
+const POI_TILE_PATH = apiPath("/api/region/poi-tiles/{z}/{x}/{y}.pbf");
 
 // タイルの世代。**手で上げない**——焼き込むSQLの署名とDBの派生データ世代からbackendが導き、実行時に配る（軸カタログの
 // `tile_versions`）。ビルド時の生成物に持たないのは、バッチがタイルを作り直してもデプロイは起きないため。
@@ -68,7 +69,7 @@ export function poiTileUrl(): string {
 }
 
 // 土地被覆のラスタタイル。世代はbackendが生成物で配る。オリジンの決め方は他のタイルと揃える。
-const LANDCOVER_TILE_PATH = "/api/region/landcover-tiles/{z}/{x}/{y}.png";
+const LANDCOVER_TILE_PATH = apiPath("/api/region/landcover-tiles/{z}/{x}/{y}.png");
 const LANDCOVER_TILE_VERSION = regionTileConfig.landcover.tile_version;
 
 export function landcoverTileUrl(): string {
@@ -116,14 +117,17 @@ export async function fetchAxisInspector(
         }
       : {}),
   };
-  const { response, durationMs, requestId } = await requestOk(`${API_BASE_URL}/api/region/axis-inspector`, {
-    method: "POST",
-    body,
-    timeoutMs: DEFAULT_API_TIMEOUT_MS,
-    category: "api:axis-inspector",
-    messages: { failure: "内訳の取得に失敗しました", parseFailure: "内訳の取得に失敗しました" },
-    requestMeta: { body },
-  });
+  const { response, durationMs, requestId } = await requestOk(
+    `${API_BASE_URL}${apiPath("/api/region/axis-inspector")}`,
+    {
+      method: "POST",
+      body,
+      timeoutMs: DEFAULT_API_TIMEOUT_MS,
+      category: "api:axis-inspector",
+      messages: { failure: "内訳の取得に失敗しました", parseFailure: "内訳の取得に失敗しました" },
+      requestMeta: { body },
+    },
+  );
   const data: AxisInspectorResult | null = await response.json();
   debugLog("api:axis-inspector", "成功", { durationMs, requestId, composite: data?.composite_difficulty });
   return data;
@@ -131,7 +135,6 @@ export async function fetchAxisInspector(
 
 // 専用配信の軸の、タイルの中のway_idごとの値。パスは軸idで決まり、軸ごとの関数を持たない。世代のクエリを持たない
 // （ブラウザのキャッシュに載せない軽いJSONで、新しさはbackendが持つ）。
-const DYNAMIC_WAY_VALUES_PATH = "/api/region/dynamic-way-values";
 
 interface DynamicWayValuesResult {
   values: Record<string, number>;
@@ -157,7 +160,8 @@ export async function fetchDynamicWayValues(
   if (bearingDeg !== undefined) params.set("bearing_deg", String(bearingDeg));
   if (at) params.set("at", at.toISOString());
   if (speedKmh !== undefined && Number.isFinite(speedKmh)) params.set("speed_kmh", String(speedKmh));
-  const url = `${API_BASE_URL}${DYNAMIC_WAY_VALUES_PATH}/${axisId}/${z}/${x}/${y}?${params.toString()}`;
+  const path = apiPath("/api/region/dynamic-way-values/{axis_id}/{z}/{x}/{y}", { axis_id: axisId, z, x, y });
+  const url = `${API_BASE_URL}${path}?${params.toString()}`;
   const logCategory = `api:${axisId}-way-values`;
   try {
     const { response, durationMs, requestId } = await requestOk(url, {

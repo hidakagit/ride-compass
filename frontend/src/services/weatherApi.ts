@@ -10,33 +10,34 @@ import type {
 } from "@/types/weather";
 import type { JmaTileIndexResponse } from "@/types/route";
 import { API_BASE_URL } from "@/lib/apiBaseUrl";
+import { apiPath, type DeclaredApiPath } from "@/lib/apiPath";
 import { debugLog } from "@/lib/debugLog";
 import { fetchJson } from "@/lib/fetchJson";
 import { DEFAULT_API_TIMEOUT_MS } from "@/lib/apiTimeouts";
 
-function getAtPoint<T>(path: string, point: Coordinates, category: string, errorLabel: string): Promise<T> {
+function getAtPoint<T>(path: DeclaredApiPath, point: Coordinates, category: string, errorLabel: string): Promise<T> {
   const params = new URLSearchParams({ latitude: String(point.latitude), longitude: String(point.longitude) });
   return fetchJson<T>(`${API_BASE_URL}${path}?${params}`, { timeoutMs: DEFAULT_API_TIMEOUT_MS, category, errorLabel });
 }
 
 export async function getCurrentWeather(point: Coordinates): Promise<WeatherConditions> {
-  const data = await getAtPoint<WeatherConditions>("/api/weather", point, "api:weather", "天候情報");
+  const data = await getAtPoint<WeatherConditions>(apiPath("/api/weather"), point, "api:weather", "天候情報");
   debugLog("api:weather", "詳細", { precipitation_mm: data.precipitation_mm });
   return data;
 }
 
 export const getAmedasObservation = (point: Coordinates) =>
-  getAtPoint<AmedasObservation>("/api/weather/amedas", point, "api:amedas", "アメダス観測値");
+  getAtPoint<AmedasObservation>(apiPath("/api/weather/amedas"), point, "api:amedas", "アメダス観測値");
 
 // 警報・WBGT・河川氾濫は、取得できなかったときもbackendが空の中身で200を返す。ここで投げるのは通信の失敗だけ。
 export const getWeatherWarnings = (point: Coordinates) =>
-  getAtPoint<WeatherWarnings>("/api/weather/warnings", point, "api:weatherWarnings", "警報・注意報");
+  getAtPoint<WeatherWarnings>(apiPath("/api/weather/warnings"), point, "api:weatherWarnings", "警報・注意報");
 
 export const getWbgtStatus = (point: Coordinates) =>
-  getAtPoint<WbgtStatus>("/api/weather/wbgt", point, "api:wbgt", "暑さ指数");
+  getAtPoint<WbgtStatus>(apiPath("/api/weather/wbgt"), point, "api:wbgt", "暑さ指数");
 
 export const getFloodForecasts = (point: Coordinates) =>
-  getAtPoint<FloodForecasts>("/api/weather/flood-forecast", point, "api:floodForecast", "河川氾濫予報");
+  getAtPoint<FloodForecasts>(apiPath("/api/weather/flood-forecast"), point, "api:floodForecast", "河川氾濫予報");
 
 // 応答は時刻の列を1本だけ持つ（転送量を減らすため）。フロントの中では各点が時刻の列を持つ形で扱う。
 async function getWindGridPoints(url: string, category: string, errorLabel: string): Promise<WindGridPoint[]> {
@@ -47,7 +48,8 @@ async function getWindGridPoints(url: string, category: string, errorLabel: stri
 }
 
 /** 風の格子点（関東の固定の格子）。取れなかった点はbackendが除いてある。 */
-export const getWindGrid = () => getWindGridPoints(`${API_BASE_URL}/api/weather/wind-grid`, "api:windGrid", "風データ");
+export const getWindGrid = () =>
+  getWindGridPoints(`${API_BASE_URL}${apiPath("/api/weather/wind-grid")}`, "api:windGrid", "風データ");
 
 export interface Bbox {
   minLon: number;
@@ -66,7 +68,7 @@ export function getWindGridDetail(bbox: Bbox, spacingDeg: number): Promise<WindG
     spacing_deg: String(spacingDeg),
   });
   return getWindGridPoints(
-    `${API_BASE_URL}/api/weather/wind-grid-detail?${params}`,
+    `${API_BASE_URL}${apiPath("/api/weather/wind-grid-detail")}?${params}`,
     "api:windGridDetail",
     "風データ(詳細)",
   );
@@ -74,7 +76,7 @@ export function getWindGridDetail(bbox: Bbox, spacingDeg: number): Promise<WindG
 
 /** JMAの動的タイルの在否。取れなくても呼ぶ側は間引きが効かないだけで表示は成り立つ。 */
 export function fetchJmaTileIndex(): Promise<JmaTileIndexResponse> {
-  return fetchJson<JmaTileIndexResponse>(`${API_BASE_URL}/api/jma-tile-index`, {
+  return fetchJson<JmaTileIndexResponse>(`${API_BASE_URL}${apiPath("/api/jma-tile-index")}`, {
     timeoutMs: DEFAULT_API_TIMEOUT_MS,
     category: "api:jma-tile-index",
     errorLabel: "タイル在否インデックス",

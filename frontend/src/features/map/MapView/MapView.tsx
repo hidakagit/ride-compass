@@ -41,6 +41,7 @@ import {
   type LayerDataStatusByLayer,
   type MapLayerId,
 } from "@/features/map/layers/mapLayers";
+import { apiPath } from "@/lib/apiPath";
 import { tileBaseUrl } from "@/lib/tileBaseUrl";
 import { resetBasemapAreaLayerPreparation, runWhenStyleReady } from "@/features/map/layers/mapStyleOps";
 import {
@@ -86,7 +87,7 @@ import { cn } from "@/lib/cn";
 
 // 基礎地図のスタイルJSON。中のタイル・スプライト・グリフのURLはbackendがBASEMAP_PUBLIC_BASE_URLで
 // 組み立てるため、`tileBaseUrl()`と同じオリジンを指すよう揃える。
-const MAP_STYLE_PATH = "/api/basemap/styles/liberty";
+const MAP_STYLE_PATH = apiPath("/api/basemap/{path}", { path: "styles/liberty" });
 function mapStyleUrl(): string {
   return `${tileBaseUrl()}${MAP_STYLE_PATH}`;
 }

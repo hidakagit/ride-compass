@@ -4,6 +4,7 @@
 // ここは宣言を受け取って組み立てるだけ。
 
 import { fetchJson } from "@/lib/fetchJson";
+import { apiPath } from "@/lib/apiPath";
 import { tileBaseUrl } from "@/lib/tileBaseUrl";
 import { DEFAULT_API_TIMEOUT_MS } from "@/lib/apiTimeouts";
 import { mapDisplay } from "@/types/generated/mapDisplay";
@@ -13,7 +14,6 @@ import type { DynamicWeatherRenderPayload } from "@/features/map/layers/dynamicW
 // バックエンドのプロキシ＋キャッシュ（backend/app/infrastructure/jma_tile_client.py、
 // `GET /api/jma-tile/{path}`）経由にすることで、JMAの非公式内部APIへの直接アクセスを
 // 避けつつ配信する。
-const JMA_TILE_BASE_URL = "/api/jma-tile/bosai";
 
 /**
  * JMAプロキシ配下のパスを、タイル本体と同じ配信オリジンの絶対URLにする。
@@ -27,7 +27,7 @@ const JMA_TILE_BASE_URL = "/api/jma-tile/bosai";
  * 呼び出し時に評価する関数として提供する（SSRで空文字に固定されるのを避ける）。
  */
 function jmaProxyUrl(path: string): string {
-  return `${tileBaseUrl()}${JMA_TILE_BASE_URL}${path}`;
+  return `${tileBaseUrl()}${apiPath("/api/jma-tile/{path}", { path: `bosai${path}` })}`;
 }
 
 type DeclaredElement = (typeof mapDisplay.weatherElements)[number];
