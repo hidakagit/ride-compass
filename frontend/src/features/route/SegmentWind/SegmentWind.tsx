@@ -21,7 +21,7 @@ export default function SegmentWind({ wind }: { wind: RouteSegmentDetail["wind"]
       {wind.extended && <span>（予報の先を延ばして使用）</span>}
       <InfoPopover triggerAriaLabel="区間の風の説明">
         <p>
-          この区間を通る見込みの時刻の、出発地点の風の予報（1時間刻み）で評価しています。往路・復路それぞれ、走り始めてから
+          この区間を通る見込みの時刻の、その場所に最も近い予報の格子点の風（1時間刻み）で評価しています。往路・復路それぞれ、走り始めてから
           {HOURS_PER_LEG}
           時間先までを追い、その先の区間は最後に追った時刻の予報をそのまま使います（「予報の先を延ばして使用」と出ます）。
         </p>

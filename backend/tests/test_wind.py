@@ -14,6 +14,7 @@ from app.domain.wind import (
     ROUTE_DETOUR_RATIO,
     WIND_DRAG_REFERENCE_SPEED_MS,
     WindForecastSeries,
+    WindLattice,
     estimate_passage_hours,
     kmh_to_ms,
     wind_components,
@@ -127,6 +128,30 @@ class TestWindDragRatio:
         )
 
 
+class TestWindLattice:
+
+    def test_it_covers_the_north_and_east_edges(self):
+        """端の地点がどの格子点にも近くならないと、格子の外として端の点へ寄せられ、遠い点の風を引く。"""
+        lattice = WindLattice.covering(35.0, 139.0, 35.12, 139.1, 0.05, 0.0625)
+
+        latitudes, longitudes = lattice.coordinates()
+
+        assert latitudes.max() >= 35.12 and longitudes.max() >= 139.1
+
+    def test_each_place_takes_the_nearest_grid_point(self):
+        lattice = WindLattice(south=35.0, west=139.0, lat_step=0.05, lon_step=0.0625, rows=3, cols=4)
+        latitudes, longitudes = lattice.coordinates()
+
+        points = lattice.points_of(latitudes + 0.01, longitudes - 0.02)
+
+        assert points.tolist() == list(range(12))
+
+    def test_places_outside_take_the_edge_point(self):
+        lattice = WindLattice(south=35.0, west=139.0, lat_step=0.05, lon_step=0.0625, rows=3, cols=4)
+
+        assert lattice.points_of(np.array([34.0, 36.0]), np.array([138.0, 140.0])).tolist() == [0, 11]
+
+
 class TestWindForecastSeries:
 
     @staticmethod
@@ -166,6 +191,32 @@ class TestWindForecastSeries:
         speed, _ = series.sample(series.times[2], np.array([1.0]))
 
         assert speed.tolist() == [3.0]
+
+    def test_a_lattice_series_takes_the_wind_of_each_grid_point(self):
+        """格子点ごとの系列は、区間ごとに近い格子点の風を引く（1地点の系列では全区間が同じ風になる）。"""
+        start = datetime(2026, 6, 21, 9, 0)
+        lattice = WindLattice(south=35.0, west=139.0, lat_step=0.05, lon_step=0.0625, rows=1, cols=2)
+        series = WindForecastSeries(
+            times=[start, start + timedelta(hours=1)],
+            speed_ms=np.array([[1.0, 2.0], [5.0, 6.0]]),
+            direction_deg=np.zeros((2, 2)),
+            lattice=lattice,
+        )
+
+        speed, _ = series.sample(start, np.array([0.0, 1.0, 1.0]), np.array([0, 0, 1]))
+
+        assert speed.tolist() == [1.0, 2.0, 6.0]
+
+    def test_a_lattice_series_needs_the_grid_points(self):
+        start = datetime(2026, 6, 21, 9, 0)
+        lattice = WindLattice(south=35.0, west=139.0, lat_step=0.05, lon_step=0.0625, rows=1, cols=2)
+        series = WindForecastSeries(
+            times=[start, start + timedelta(hours=1)],
+            speed_ms=np.zeros((2, 2)), direction_deg=np.zeros((2, 2)), lattice=lattice,
+        )
+
+        with pytest.raises(ValueError):
+            series.sample(start, np.array([0.0]))
 
     def test_a_series_too_short_to_have_a_step_is_rejected(self):
         with pytest.raises(ValueError):

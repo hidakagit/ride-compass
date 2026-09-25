@@ -5,6 +5,7 @@ from datetime import datetime
 import numpy as np
 import pytest
 
+from app.domain.region import BoundingBox
 from app.domain.route import Coordinates
 from app.domain.weather import derive_weather_code
 from app.infrastructure import msm_client
@@ -166,21 +167,35 @@ async def test_get_wind_grid_returns_empty_for_empty_points():
     assert await WeatherService().get_wind_grid([]) == ([], [])
 
 
-async def test_get_wind_forecast_series_reads_msm(monkeypatch):
-    _patch_read_series(monkeypatch, _series(["2026-09-07T13:00", "2026-09-07T14:00"], u=[3.0, 0.0], v=[0.0, 4.0]))
+ROUTE_BBOX = BoundingBox(min_latitude=35.0, min_longitude=139.0, max_latitude=35.12, max_longitude=139.1)
 
-    series = await WeatherService().get_wind_forecast_series(POINT)
+
+async def test_get_wind_forecast_lattice_reads_msm_at_every_grid_point_of_the_area(monkeypatch):
+    asked = []
+
+    async def read_series(latitudes, longitudes, hours=None):
+        asked.append((np.asarray(latitudes), np.asarray(longitudes)))
+        times, values = _series(["2026-09-07T13:00", "2026-09-07T14:00"], u=[3.0, 0.0], v=[0.0, 4.0])
+        return times, {key: np.tile(value[0], (len(latitudes), 1)) for key, value in values.items()}
+
+    monkeypatch.setattr(msm_client, "read_series", read_series)
+
+    series = await WeatherService().get_wind_forecast_lattice(ROUTE_BBOX)
 
     assert series.times == [datetime(2026, 9, 7, 13, 0), datetime(2026, 9, 7, 14, 0)]
+    latitudes, longitudes = asked[0]
+    assert len(latitudes) == series.lattice.rows * series.lattice.cols
+    assert latitudes.min() <= 35.0 and latitudes.max() >= 35.12
+    assert longitudes.min() <= 139.0 and longitudes.max() >= 139.1
     # 西風（u=3）は270度、北向きに吹く風（v=4）は南から＝180度。
-    assert series.speed_ms.tolist() == [3.0, 4.0]
-    assert series.direction_deg.tolist() == [270.0, 180.0]
+    assert series.speed_ms[0].tolist() == [3.0, 4.0]
+    assert series.direction_deg[0].tolist() == [270.0, 180.0]
 
 
-async def test_get_wind_forecast_series_returns_none_when_msm_unavailable(monkeypatch):
+async def test_get_wind_forecast_lattice_returns_none_when_msm_unavailable(monkeypatch):
     _patch_unavailable(monkeypatch)
 
-    assert await WeatherService().get_wind_forecast_series(POINT) is None
+    assert await WeatherService().get_wind_forecast_lattice(ROUTE_BBOX) is None
 
 
 @pytest.mark.parametrize(

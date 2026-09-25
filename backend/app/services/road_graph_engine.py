@@ -354,6 +354,11 @@ class _LegCostComposer:
         self._hard_filter_excluded = hard_filter_excluded
         self._weather = weather
         self._wind_series = wind_series
+        # 格子点ごとの系列のとき、各Edgeの中点に最も近い予報の格子点（`full_edge_row`順）。
+        self._wind_points = (
+            None if wind_series is None or wind_series.lattice is None
+            else wind_series.lattice.points_of(score_matrix.mid_lat, score_matrix.mid_lon)
+        )
         self.start = start
         self.speed_kmh = speed_kmh
         self._lazy_row_index = lazy_row_index
@@ -558,6 +563,7 @@ class _LegCostComposer:
             bearing_deg=bearing, weather=self._weather,
             travel_speed_ms=kmh_to_ms(self.speed_kmh),
             wind_series=self._wind_series, start=self.start, passage_hours=passage,
+            wind_points=None if self._wind_points is None else take(self._wind_points),
         )
         static_scores = (
             self._static_axis_scores if rows is None
@@ -608,14 +614,17 @@ class _LegCostComposer:
         """`full_edge_row`順の行番号を、探索が使う行順（`cost_lazy`の並び）へ直す。"""
         return int(self._full_row_index[full_row])
 
-    def winds_at(self, passage_hours: list[float | None], beyond_bins: list[bool]) -> list[SegmentWind | None]:
-        """区間ごとの通過時刻（出発からの経過[h]、Noneは出発時点の値を使った区間）で引いた風。
-        `beyond_bins`はレグの時刻ビンの範囲の先で、最後のビンをそのまま使った区間。"""
+    def winds_at(
+        self, rows: list[int], passage_hours: list[float | None], beyond_bins: list[bool]
+    ) -> list[SegmentWind | None]:
+        """区間（`full_edge_row`順の行`rows`）ごとの通過時刻（出発からの経過[h]、Noneは出発時点の値を使った区間）で
+        引いた風。`beyond_bins`はレグの時刻ビンの範囲の先で、最後のビンをそのまま使った区間。"""
         winds: list[SegmentWind | None] = [None] * len(passage_hours)
         timed = [i for i, passage in enumerate(passage_hours) if passage is not None]
         if self._wind_series is not None and timed:
             timed_hours = np.array([passage_hours[i] for i in timed], dtype=float)
-            speed, direction = self._wind_series.sample(self.start, timed_hours)
+            points = None if self._wind_points is None else self._wind_points[[rows[i] for i in timed]]
+            speed, direction = self._wind_series.sample(self.start, timed_hours, points)
             times, clamped = self._wind_series.sampled_times(self.start, timed_hours)
             for j, i in enumerate(timed):
                 winds[i] = SegmentWind(
@@ -803,10 +812,10 @@ class RoadGraphEngine:
         self, bbox: BoundingBox, wind_and_night_origin: Coordinates, now: datetime
     ) -> _SearchGraph | None:
         """bboxに対する探索用グラフ（lazy_graph）＋bbox全体ぶんのコスト配列を構築する
-        （`prepare`・`preview_segment`共通）。wind/night軸の判定は
+        （`prepare`・`preview_segment`共通）。夜間の判定と、風の時別予報が無いときの風（出発時点の値）は
         `wind_and_night_origin`（周回ならその起点、区間確認なら起点側の座標）を基準にする
         ——探索中は到達時刻が未確定のため出発時刻の近似として使う簡略化はどちらの用途でも
-        変わらない（モジュールdocstring参照）。
+        変わらない（モジュールdocstring参照）。時別予報は`bbox`を覆う格子点ごとに引く。
 
         `GraphService.get_search_materials_for_bbox`が返す
         `StaticEdgeScoreMatrix`（タイル単位でキャッシュ済みの静的Edge×公開軸スコア行列）に
@@ -839,8 +848,8 @@ class RoadGraphEngine:
 
         weather_started = time.monotonic()
         weather = await self._weather_service.get_conditions(wind_and_night_origin)
-        # 起点の時別風予報（get_conditionsと同じ応答・キャッシュ。追加の外部API呼び出しは無い）。
-        wind_series = await self._weather_service.get_wind_forecast_series(wind_and_night_origin)
+        # 探索範囲を覆う格子点ごとの時別風予報（MSMのローカルファイルから読む。外部API呼び出しは無い）。
+        wind_series = await self._weather_service.get_wind_forecast_lattice(bbox)
         weather_ms = round((time.monotonic() - weather_started) * 1000)
         # 通過予定時刻の基準（出発時刻）。時別系列はJSTのローカル時刻のため揃える。
         start = now.astimezone(JST).replace(tzinfo=None)
@@ -2072,6 +2081,7 @@ class RoadGraphEngine:
         passages = self._route_passages(context, edges, leg_of_edge)
         timed = _values_at_passages(context, edges, leg_of_edge, passages)
         winds = context.composer.winds_at(
+            [context.full_edge_row[edge.edge_id] for edge in edges],
             [_passage_hours_of(context, edge, leg_index, passage)
              for edge, leg_index, passage in zip(edges, leg_of_edge, passages)],
             [passage.beyond_bins for passage in passages],

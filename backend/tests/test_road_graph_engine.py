@@ -49,7 +49,7 @@ from app.domain.routing import (
     TurnExpandedStructure,
     TurnExpandedTree,
 )
-from app.domain.wind import WindForecastSeries
+from app.domain.wind import WindForecastSeries, WindLattice
 from app.services import road_graph_engine as engine
 from tests.axis_system_fixture import axis_definition, replaced_axis_definitions
 from tests.bound_fake import bound
@@ -1212,8 +1212,8 @@ class FakeWeatherService:
         self.asked.append(("conditions", origin))
         return self._conditions
 
-    async def get_wind_forecast_series(self, origin):
-        self.asked.append(("series", origin))
+    async def get_wind_forecast_lattice(self, bbox):
+        self.asked.append(("lattice", bbox))
         return self._wind_series
 
 
@@ -1345,12 +1345,13 @@ async def test_build_search_graph_orders_node_coordinates_like_the_search_graph(
     assert search.node_lat.tolist() == [37.0, 36.0, 35.0]
 
 
-async def test_build_search_graph_asks_the_weather_at_the_given_origin(search_world):
+async def test_build_search_graph_asks_the_weather_at_the_origin_and_the_forecast_over_the_area(search_world):
+    """風の予報は探索範囲を覆う格子点で引く（起点1か所の予報を全区間に使うと、海沿いや山で違う風になる）。"""
     origin = coords(35.5, 139.5)
 
     await search_world.engine._build_search_graph(BBOX, origin, NOW)
 
-    assert search_world.weather_service.asked == [("conditions", origin), ("series", origin)]
+    assert search_world.weather_service.asked == [("conditions", origin), ("lattice", BBOX)]
 
 
 # --------------------------------------------------------------------------------------
@@ -2311,6 +2312,27 @@ def test_segment_details_mark_edges_beyond_the_bins_of_the_leg(composer_world, s
 
     assert second.axis_difficulties[AXIS_WIND] == 2.0
     assert (first.wind.extended, second.wind.extended) == (False, True)
+
+
+def test_each_edge_takes_the_wind_of_its_nearest_grid_point(composer_world):
+    """格子点ごとの予報では、区間ごとに中点に最も近い格子点の風で走行時間を求める（偽の走行モデルは距離/10＋風速）。"""
+    start = datetime(2026, 9, 22, 0, 0)
+    lattice = WindLattice(south=35.0, west=139.0, lat_step=0.05, lon_step=0.0625, rows=1, cols=2)
+    series = WindForecastSeries(
+        times=[start + timedelta(hours=h) for h in range(24)],
+        speed_ms=np.vstack([np.full(24, 1.0), np.full(24, 6.0)]),
+        direction_deg=np.zeros((2, 24)),
+        lattice=lattice,
+    )
+    matrix = make_score_matrix(
+        2, mid_lat=np.array([35.0, 35.0]), mid_lon=np.array([139.0, 139.0625]),
+        material_values=np.column_stack([np.zeros(2), np.full(2, 0.004)]),
+    )
+    composer = make_composer(matrix, wind_series=series)
+
+    leg = composer.compose("outbound", coords(35.0, 139.0), 0.0, +1)
+
+    assert leg.travel_seconds_full.tolist() == [1000.0 / 10.0 + 1.0, 1000.0 / 10.0 + 6.0]
 
 
 def test_segment_details_have_no_geometry_when_the_edge_is_a_single_point(segment_world):

@@ -100,9 +100,10 @@ Edgeコストは「タイル単位の静的Edge×公開軸スコア行列＋リ�
 そのまま読む。`displayed_material_ids`はリクエストの`lens_axis_id`（地図のレンズが表示を
 要求している軸）が符号付き材料の軸（`map_value_kind`が`signed_material`）を指す場合、
 その軸の材料も重みに関わらず含める（地図の色分けが重み0の軸でも成立するため）。
-逆回り候補はレグ割当ても反転する（先に走る側が往路配列、`_reverse_leg_assignment`）。レグ番号は走行順に振られるため、Edge列の反転と同時に番号自体も`max_leg - leg`へ振り直す。起点の時別風予報
-（`WeatherService.get_wind_forecast_series`、`get_conditions`と同じ応答・キャッシュ）が
-無い場合は、出発時点のスナップショットで合成した1本を全レグで共有する（追加コスト
+逆回り候補はレグ割当ても反転する（先に走る側が往路配列、`_reverse_leg_assignment`）。レグ番号は走行順に振られるため、Edge列の反転と同時に番号自体も`max_leg - leg`へ振り直す。探索範囲を覆う格子点ごとの時別風予報
+（`WeatherService.get_wind_forecast_lattice`。格子はMSMと同じ細かさ、`domain/wind.py: WindLattice`・
+`ROUTE_WIND_LAT_STEP_DEG`/`ROUTE_WIND_LON_STEP_DEG`。各Edgeは中点に最も近い格子点の風を引く、
+`_LegCostComposer`の`_wind_points`）が無い場合は、出発時点のスナップショットで合成した1本を全レグで共有する（追加コスト
 ゼロ）。**重みが0でも時刻ビンは畳まない**——走行モデル（向かい風は速度そのものを落とす）が
 時刻で変わるため、重み0を理由に時刻固定へ落とすと所要時間が狂う。ただし`lens_axis_id`が風に依存する公開軸なら、
 重み0でも区間表示のためレグごとに合成する（探索コストには影響しない、
@@ -957,7 +958,7 @@ DB側の値は**その下限を上げるためだけ**に使う（bboxの外へ�
 
 - **夜間の判定は出発時点1点で決まる**: 出発地点・出発時刻の昼夜判定をルート全体へ
   一様適用する。風は上記「レグ別コスト配列」のとおりEdgeごとの通過予定時刻で引くが、
-  風の空間変化（bbox内で風が違う）は扱わず起点1地点の時別予報を全Edgeへ使う。時刻はレグごとに
+  風の場所の違いは予報の格子（MSMと同じ細かさ）までで、それより細かい差（谷筋・ビル風）は入らない。時刻はレグごとに
   最大`MAX_TIME_BINS`本のビン（1時間刻み）までしか追わず、その先の区間は最後のビンの予報を使う
   （区間の風の`extended`）。
 - **`GraphService`の`_repository_lock`が守るのは`asyncio.gather`配下からrepositoryへ

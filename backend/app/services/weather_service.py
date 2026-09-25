@@ -8,7 +8,8 @@ from app.domain.msm import wind_speed_and_direction
 from app.domain.route import Coordinates
 from app.domain.twilight import is_night, sunrise_sunset_jst
 from app.domain.weather import WeatherConditions, WeatherPeriodOutlook, derive_weather_code
-from app.domain.wind import WindForecastSeries
+from app.domain.region import BoundingBox
+from app.domain.wind import ROUTE_WIND_LAT_STEP_DEG, ROUTE_WIND_LON_STEP_DEG, WindForecastSeries, WindLattice
 from app.domain.wind_grid import WindGridPoint
 from app.infrastructure import msm_client
 from app.infrastructure.msm_client import MsmUnavailableError
@@ -35,22 +36,29 @@ class WeatherService:
             return None
         return self._conditions_from_series(point, *result)
 
-    async def get_wind_forecast_series(self, point: Coordinates) -> WindForecastSeries | None:
-        """地点の時別風向・風速の予報系列（1時間刻み、JSTのローカル時刻）。読めなければNone。
+    async def get_wind_forecast_lattice(self, bbox: BoundingBox) -> WindForecastSeries | None:
+        """探索範囲`bbox`を覆う格子点ごとの時別風向・風速の予報系列（1時間刻み、JSTのローカル時刻）。
+        読めなければNone。
 
         MSMのローカルファイルから読むため外部APIリクエストは発生しない。
         """
-        result = await self._read_point(point)
-        if result is None or not result[0]:
-            return None
-        times, values = result
-        speed, direction = wind_speed_and_direction(
-            values["wind_u_component_10m"][0], values["wind_v_component_10m"][0]
+        lattice = WindLattice.covering(
+            bbox.min_latitude, bbox.min_longitude, bbox.max_latitude, bbox.max_longitude,
+            ROUTE_WIND_LAT_STEP_DEG, ROUTE_WIND_LON_STEP_DEG,
         )
+        latitudes, longitudes = lattice.coordinates()
+        try:
+            times, values = await msm_client.read_series(latitudes, longitudes)
+        except (MsmUnavailableError, OSError, ValueError, KeyError):
+            return None
+        if not times:
+            return None
+        speed, direction = wind_speed_and_direction(values["wind_u_component_10m"], values["wind_v_component_10m"])
         return WindForecastSeries(
             times=[datetime.fromisoformat(t) for t in times],
             speed_ms=speed,
             direction_deg=direction,
+            lattice=lattice,
         )
 
     async def get_wind_grid(self, points: list[Coordinates]) -> tuple[list[str], list[WindGridPoint | None]]:

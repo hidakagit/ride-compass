@@ -35,19 +35,21 @@ class DynamicAxisRequestContext:
     # 走行速度（m/s、リクエスト単位）。既定値を置かないのは、走行速度に依存する材料へ
     # 伝播漏れがあったとき既定値で黙って計算せず、構築時点で失敗させるため。
     travel_speed_ms: float
-    # 時刻依存の材料向け: 起点の時別予報系列と、各Edgeの通過予定時刻（`start`からの経過
+    # 時刻依存の材料向け: 時別予報系列（格子点ごと、または1地点）と、各Edgeの通過予定時刻（`start`からの経過
     # 時間[h]、`bearing_deg`と同じ行順）。3つとも揃っていればEdgeごとに通過予定時刻の値を
     # 引き、揃っていなければ`weather`（出発時点のスナップショット）を全Edgeへ一様に使う。
     wind_series: WindForecastSeries | None = None
     start: datetime | None = None
     passage_hours: np.ndarray | None = None
+    # 格子点ごとの系列のとき、各Edgeに最も近い格子点の番号（`bearing_deg`と同じ行順）。
+    wind_points: np.ndarray | None = None
 
     def wind_inputs(self) -> tuple[np.ndarray, np.ndarray] | None:
         """各Edgeに適用する（風速, 風向）。時別系列と通過予定時刻が揃っていればEdgeごとに
         その時刻の値、揃っていなければ出発時点のスナップショット（全Edge共通のスカラー）。
         風が無ければNone。"""
         if self.wind_series is not None and self.start is not None and self.passage_hours is not None:
-            return self.wind_series.sample(self.start, self.passage_hours)
+            return self.wind_series.sample(self.start, self.passage_hours, self.wind_points)
         if self.weather is None:
             return None
         return np.asarray(self.weather.wind_speed_ms, dtype=float), np.asarray(self.weather.wind_direction_deg, dtype=float)

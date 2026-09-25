@@ -252,7 +252,7 @@ URLも変わるため、ブラウザキャッシュ（`api/cache_policy.py`）�
 | メソッド | 用途 | 時刻 | daily/weather_code |
 |---|---|---|---|
 | `get_conditions(point)` | `/api/weather`エンドポイント・`RoadGraphEngine`の起点判定 | 時系列の先頭（現在時刻の正時） | 天気コードは雲量・降水・気温から導出、日の出/日没は`twilight.py`で計算 |
-| `get_wind_forecast_series(point)` | `RoadGraphEngine`の探索前コスト合成（Edgeごとの通過予定時刻の風） | 時別風向・風速の系列（JST）。MSMから読む | 対象外 |
+| `get_wind_forecast_lattice(bbox)` | `RoadGraphEngine`の探索前コスト合成（Edgeごとの通過予定時刻・最寄りの格子点の風） | 探索範囲を覆う格子点ごとの時別風向・風速の系列（JST）。MSMから読む | 対象外 |
 | `get_wind_grid(points)` | 風グリッド・降水延長予報の地図レイヤー | 予報期間ぶんの時系列。MSMから読む | 対象外 |
 
 ## その他のサービス
@@ -412,7 +412,7 @@ MSM（`.om`形式、CC-BY-4.0）をローカルへ同期して読む。予報を
 **読めないときの振る舞い**: 同期が済んでいない・配信元の予報終端が現在時刻へ追いついた
 場合は`MsmUnavailableError`。`WeatherService.get_wind_grid`はこれを全地点Noneへ変換し、
 ルーターが502を返す（`_reject_if_all_points_failed`）。ルート評価の風
-（`get_wind_forecast_series`）はNoneを返し、呼び出し元が出発時点のスナップショットへ倒す。
+（`get_wind_forecast_lattice`）はNoneを返し、呼び出し元が出発時点のスナップショットへ倒す。
 
 **予報の長さ**: MSMはrunごとに39時間先（00/12UTCのrunは78時間先）まで持ち、配信は
 run初期時刻から数時間遅れる。そのため現在時刻から先の長さはrunのタイミングによって
