@@ -10,6 +10,7 @@ import {
   mergeWindGridKeepingStale,
   trimWindGridToCurrentAndFuture,
   WIND_CALM_THRESHOLD_MS,
+  WIND_DETAIL_MIN_ZOOM,
   WIND_SPEED_COLOR_STOPS,
   WIND_SPEED_LEGEND_LEVELS,
   windArrows,
@@ -116,19 +117,18 @@ describe("風速の凡例", () => {
 });
 
 describe("詳細格子の間隔と範囲", () => {
-  const spacings = windGridConfig.detail_allowed_spacings_deg;
+  const coarsest = windGridDetailSpacingDegForZoom(WIND_DETAIL_MIN_ZOOM);
 
-  it("ズームの段（10・13・16・19）を越えるたびに、許された間隔を1段ずつ細かくする", () => {
-    expect(windGridDetailSpacingDegForZoom(10)).toBe(spacings[0]);
-    expect(windGridDetailSpacingDegForZoom(12.9)).toBe(spacings[0]);
-    expect(windGridDetailSpacingDegForZoom(13)).toBe(spacings[1]);
-    expect(windGridDetailSpacingDegForZoom(16)).toBe(spacings[2]);
-    expect(windGridDetailSpacingDegForZoom(22)).toBe(spacings[3]);
+  it("ズームを上げても間隔は粗くならず、最も拡大してもbackendが受け付ける下限を下回らない", () => {
+    const zooms = Array.from({ length: (24 - WIND_DETAIL_MIN_ZOOM) * 4 + 1 }, (_, i) => WIND_DETAIL_MIN_ZOOM + i / 4);
+    const spacings = [...zooms, Infinity].map(windGridDetailSpacingDegForZoom);
+    spacings.slice(1).forEach((spacing, i) => expect(spacing).toBeLessThanOrEqual(spacings[i]));
+    expect(Math.min(...spacings)).toBeGreaterThanOrEqual(windGridConfig.detail_min_spacing_deg);
   });
 
   it("狭い画面はそのまま、広い画面は中心から点数の上限に収まる範囲へ切る", () => {
     const small = { west: 139.7, south: 35.6, east: 139.72, north: 35.62, zoom: 15 };
-    expect(clampWindDetailBbox(small, spacings[0])).toEqual({
+    expect(clampWindDetailBbox(small, coarsest)).toEqual({
       minLon: 139.7,
       minLat: 35.6,
       maxLon: 139.72,
@@ -136,10 +136,10 @@ describe("詳細格子の間隔と範囲", () => {
     });
 
     const wide = { west: 139, south: 35, east: 141, north: 37, zoom: 10 };
-    const bbox = clampWindDetailBbox(wide, spacings[0]);
+    const bbox = clampWindDetailBbox(wide, coarsest);
     expect((bbox.minLon + bbox.maxLon) / 2).toBeCloseTo(140);
     expect((bbox.minLat + bbox.maxLat) / 2).toBeCloseTo(36);
-    const side = Math.round((bbox.maxLon - bbox.minLon) / spacings[0]) + 1;
+    const side = Math.round((bbox.maxLon - bbox.minLon) / coarsest) + 1;
     expect(side * side).toBeLessThanOrEqual(windGridConfig.detail_max_points);
   });
 });

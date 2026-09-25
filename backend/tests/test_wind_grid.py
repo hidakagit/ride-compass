@@ -130,12 +130,13 @@ def test_detail_points_are_clipped_at_the_far_edge_too(area):
 
 def test_detail_points_are_not_capped_here(area):
     # 点数の上限は呼び出し側が確かめる。ここで黙って間引くと、画面の一部だけ風が出なくなる
-    points = wind_grid.generate_wind_grid_detail_points(BBOX, min(wind_grid.WIND_GRID_DETAIL_ALLOWED_SPACINGS_DEG))
+    points = wind_grid.generate_wind_grid_detail_points(BBOX, wind_grid.WIND_GRID_DETAIL_MIN_SPACING_DEG)
 
     assert len(points) > wind_grid.WIND_GRID_DETAIL_MAX_POINTS
 
 
-@pytest.mark.parametrize("spacing", wind_grid.WIND_GRID_DETAIL_ALLOWED_SPACINGS_DEG)
+# 下限と、下限より粗い任意の間隔
+@pytest.mark.parametrize("spacing", [wind_grid.WIND_GRID_DETAIL_MIN_SPACING_DEG, 0.003, 0.0137, 0.02])
 @pytest.mark.parametrize(
     "view",
     [

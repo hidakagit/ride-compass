@@ -28,9 +28,8 @@ from app.domain.registry import (  # noqa: E402
 )
 from app.domain.registry_defaults import register_defaults  # noqa: E402
 from app.domain.wind_grid import (  # noqa: E402
-    WIND_GRID_DETAIL_ALLOWED_SPACINGS_DEG,
     WIND_GRID_DETAIL_MAX_POINTS,
-    WIND_GRID_DETAIL_SPACING_DEG,
+    WIND_GRID_DETAIL_MIN_SPACING_DEG,
     WIND_GRID_SPACING_DEG,
 )
 from app.api.routers.routes import DEFAULT_DISTANCE_TOLERANCE_KM, MAX_ROUTE_DISTANCE_KM  # noqa: E402
@@ -464,14 +463,13 @@ def main() -> None:
             for attr in all_primary_attributes()
         ],
     )
-    # 風・降水延長予報の格子間隔（domain/wind_grid.py）。APIレスポンスは間隔を含まない
-    # ため、frontend（windLayer.ts）はこのJSONから読む以外に値を知る手段がない。
+    # 風・降水延長予報の粗い格子の間隔と、詳細格子の問い合わせが受け付ける範囲（domain/wind_grid.py）。
+    # APIレスポンスは間隔を含まないため、frontend（windLayer.ts）はこのJSONから読む以外に値を知る手段がない。
     _write_json(
         WIND_GRID_CONFIG_PATH,
         {
             "spacing_deg": WIND_GRID_SPACING_DEG,
-            "detail_spacing_deg": WIND_GRID_DETAIL_SPACING_DEG,
-            "detail_allowed_spacings_deg": list(WIND_GRID_DETAIL_ALLOWED_SPACINGS_DEG),
+            "detail_min_spacing_deg": WIND_GRID_DETAIL_MIN_SPACING_DEG,
             "detail_max_points": WIND_GRID_DETAIL_MAX_POINTS,
         },
     )

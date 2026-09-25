@@ -29,8 +29,11 @@
 
 ## 共通契約
 
-1. **格子単位は統一**: 全レイヤーが同じ固定ラティス（`WIND_GRID_BBOX`、間隔は
-   `windLayer.ts: WIND_GRID_SPACING_DEG`/`WIND_GRID_DETAIL_SPACING_DEG`）を共有する。
+1. **格子単位は統一**: 全レイヤーが同じ固定ラティス（`WIND_GRID_BBOX`、間隔は粗い格子の
+   `windLayer.ts: WIND_GRID_SPACING_DEG`と、ズームの段ごとの詳細格子`windGridDetailSpacingDegForZoom`）を共有する。
+   詳細格子の段の境界と間隔は見た目の判断なので画面が持ち、backendは下限（生成物の`detail_min_spacing_deg`）以上の
+   間隔を受け付ける。連続にせず段に分けるのは、同じ段の中では間隔が変わらず、取り損ねた点を前回の値で補えるため
+   （`useWeatherGrid.ts`は間隔が変わった回だけ補わない）。
    フェッチも共有（`features/map/useWeatherGrid.ts`、風の矢印と降水延長予報のどちらか一方でも
    ONなら1回のフェッチで両方をカバーする）。格子の値はbackendが気象庁MSM（手元へ同期したファイル）から
    取り、矢印の描画は自前で持つ——GPLv2のライブラリにも気象庁の非公式の配信にも依存しない。

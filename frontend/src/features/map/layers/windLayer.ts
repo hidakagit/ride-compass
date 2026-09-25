@@ -99,14 +99,14 @@ export interface MapViewport {
 export const WIND_DETAIL_MIN_ZOOM = 10;
 
 // ズームに応じた詳細格子の間隔。面で塗るセルは1点が受け持つ実面積なので、表示を縮めても隙間ができるだけ——ズームする
-// ほど間隔そのものを細かくする。間隔はbackendが受け付ける段階の値だけで、宣言の並び（粗い順）をズームの段へ添字で
-// 対応させる。ズームの境界は見た目の判断なのでフロントが持つ（記号の拡大と同じ刻み）。
-const WIND_GRID_DETAIL_SPACING_ZOOM_BREAKPOINTS: readonly number[] = [WIND_DETAIL_MIN_ZOOM, 13, 16, 19];
-const WIND_GRID_DETAIL_SPACING_STOPS: readonly { zoom: number; spacingDeg: number }[] =
-  WIND_GRID_DETAIL_SPACING_ZOOM_BREAKPOINTS.map((zoom, i) => ({
-    zoom,
-    spacingDeg: windGridConfig.detail_allowed_spacings_deg[i],
-  }));
+// ほど間隔そのものを細かくする。段に分ける理由と下限はdocs/modules/frontend/dynamic-weather-layers.md「共通契約」1。
+// 境界は記号の拡大と同じ刻み。
+const WIND_GRID_DETAIL_SPACING_STOPS: readonly { zoom: number; spacingDeg: number }[] = [
+  { zoom: WIND_DETAIL_MIN_ZOOM, spacingDeg: 0.02 },
+  { zoom: 13, spacingDeg: 0.01 },
+  { zoom: 16, spacingDeg: 0.005 },
+  { zoom: 19, spacingDeg: 0.0025 },
+];
 
 /** そのズームで詳細格子を求める間隔（度）。 */
 export function windGridDetailSpacingDegForZoom(zoom: number): number {

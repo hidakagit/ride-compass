@@ -1,7 +1,6 @@
 import { act, renderHook } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import windGridConfig from "@/types/generated/wind-grid-config.json";
 import type { WindGridPoint } from "@/types/weather";
 
 const api = vi.hoisted(() => ({ getWindGrid: vi.fn(), getWindGridDetail: vi.fn() }));
@@ -9,7 +8,11 @@ vi.mock("@/services/weatherApi", () => api);
 // 待ち時間の間引き自体はuseDebouncedValueの持ち物。ここは値が届いた後の振る舞いを見る。
 vi.mock("@/hooks/useDebouncedValue", () => ({ MAP_FETCH_DEBOUNCE_MS: 0, useDebouncedValue: <T>(value: T) => value }));
 
-import { WIND_GRID_SPACING_DEG, type MapViewport } from "@/features/map/layers/windLayer";
+import {
+  WIND_GRID_SPACING_DEG,
+  windGridDetailSpacingDegForZoom,
+  type MapViewport,
+} from "@/features/map/layers/windLayer";
 
 import { useWeatherGrid } from "./useWeatherGrid";
 
@@ -26,7 +29,8 @@ const point = (latitude: number, longitude: number, speed = 1): WindGridPoint =>
 
 const WIDE: MapViewport = { west: 139, south: 35, east: 140, north: 36, zoom: 9 };
 const ZOOMED: MapViewport = { west: 139.7, south: 35.6, east: 139.72, north: 35.62, zoom: 12 };
-const [DETAIL_SPACING, FINER_SPACING] = windGridConfig.detail_allowed_spacings_deg;
+const DETAIL_SPACING = windGridDetailSpacingDegForZoom(ZOOMED.zoom);
+const FINER_SPACING = windGridDetailSpacingDegForZoom(13);
 
 async function settle() {
   await act(async () => {

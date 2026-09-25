@@ -1,3 +1,5 @@
+import math
+
 import pytest
 from fastapi.testclient import TestClient
 
@@ -7,7 +9,7 @@ from app.config import settings
 from app.domain.flood_forecast import ActiveFloodForecast
 from app.domain.jma_warning import ActiveWarning
 from app.domain.weather import WeatherConditions, WeatherPeriodOutlook
-from app.domain.wind_grid import WIND_GRID_BBOX, WIND_GRID_DETAIL_ALLOWED_SPACINGS_DEG, generate_wind_grid_detail_points
+from app.domain.wind_grid import WIND_GRID_BBOX, WIND_GRID_DETAIL_MIN_SPACING_DEG, generate_wind_grid_detail_points
 from app.infrastructure import rate_limiter
 from app.main import app
 from app.services.flood_service import FloodForecasts
@@ -299,7 +301,9 @@ def test_get_wind_grid_detail_rejects_inverted_bbox():
     assert response.status_code == 400
 
 
-def test_get_wind_grid_detail_rejects_bbox_too_large_without_building_the_points(monkeypatch):
+# 下限の間隔でも、下限より粗い任意の間隔でも上限が効く
+@pytest.mark.parametrize("spacing_deg", [WIND_GRID_DETAIL_MIN_SPACING_DEG, 0.003])
+def test_get_wind_grid_detail_rejects_bbox_too_large_without_building_the_points(monkeypatch, spacing_deg):
     # 点を作る処理は同期でイベントループを止めるので、断る範囲では作らない
     built = []
 
@@ -319,7 +323,7 @@ def test_get_wind_grid_detail_rejects_bbox_too_large_without_building_the_points
                 "min_lat": min_lat,
                 "max_lon": max_lon,
                 "max_lat": max_lat,
-                "spacing_deg": min(WIND_GRID_DETAIL_ALLOWED_SPACINGS_DEG),
+                "spacing_deg": spacing_deg,
             },
         )
     finally:
@@ -389,32 +393,64 @@ def test_get_wind_grid_detail_spacing_deg_defaults_to_02_when_omitted():
     assert omitted_count > 0
 
 
-def test_get_wind_grid_detail_accepts_finer_allowed_spacing_deg():
-    app.dependency_overrides[get_weather_service] = lambda: FakeWeatherService(None, wind_grid=[])
+@pytest.mark.parametrize("spacing_deg", [WIND_GRID_DETAIL_MIN_SPACING_DEG, 0.003, 0.0137, 0.03])
+def test_get_wind_grid_detail_builds_the_lattice_of_any_spacing_from_the_lower_bound(spacing_deg):
+    bbox = (139.70, 35.70, 139.72, 35.72)
+    received = []
+
+    class RecordingFakeWeatherService(FakeWeatherService):
+        async def get_wind_grid(self, points):
+            received.append(points)
+            return [], []
+
+    app.dependency_overrides[get_weather_service] = lambda: RecordingFakeWeatherService(None)
 
     try:
         response = client.get(
             "/api/weather/wind-grid-detail",
-            params={"min_lon": 139.70, "min_lat": 35.70, "max_lon": 139.72, "max_lat": 35.72, "spacing_deg": 0.005},
+            params={
+                "min_lon": bbox[0],
+                "min_lat": bbox[1],
+                "max_lon": bbox[2],
+                "max_lat": bbox[3],
+                "spacing_deg": spacing_deg,
+            },
         )
     finally:
         app.dependency_overrides.clear()
 
     assert response.status_code == 200
+    assert received == [generate_wind_grid_detail_points(bbox, spacing_deg)]
 
 
-def test_get_wind_grid_detail_rejects_spacing_deg_outside_allowed_set():
+@pytest.mark.parametrize(
+    ("spacing_deg", "expected_status"),
+    [
+        (math.nextafter(WIND_GRID_DETAIL_MIN_SPACING_DEG, 0), 400),
+        (0, 400),
+        (-0.02, 400),
+        ("inf", 422),
+        ("nan", 422),
+    ],
+)
+def test_get_wind_grid_detail_rejects_spacing_deg_below_the_lower_bound_or_not_finite(spacing_deg, expected_status):
     app.dependency_overrides[get_weather_service] = lambda: FakeWeatherService(None, wind_grid=[])
 
     try:
         response = client.get(
             "/api/weather/wind-grid-detail",
-            params={"min_lon": 139.70, "min_lat": 35.70, "max_lon": 139.72, "max_lat": 35.72, "spacing_deg": 0.03},
+            params={
+                "min_lon": 139.70,
+                "min_lat": 35.70,
+                "max_lon": 139.72,
+                "max_lat": 35.72,
+                "spacing_deg": spacing_deg,
+            },
         )
     finally:
         app.dependency_overrides.clear()
 
-    assert response.status_code == 400
+    assert response.status_code == expected_status
 
 
 def test_get_wind_grid_detail_rejects_bbox_too_large_for_finer_spacing_deg_even_when_ok_at_default():

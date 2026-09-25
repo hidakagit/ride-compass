@@ -15,8 +15,8 @@ from app.domain.jma_amedas import AmedasObservation
 from app.domain.route import Coordinates
 from app.domain.weather import WeatherConditions
 from app.domain.wind_grid import (
-    WIND_GRID_DETAIL_ALLOWED_SPACINGS_DEG,
     WIND_GRID_DETAIL_MAX_POINTS,
+    WIND_GRID_DETAIL_MIN_SPACING_DEG,
     WIND_GRID_DETAIL_SPACING_DEG,
     WindGridResponse,
     count_wind_grid_detail_points,
@@ -158,7 +158,8 @@ async def get_wind_grid_detail(
     min_lat: float = Query(ge=-90, le=90),
     max_lon: float = Query(ge=-180, le=180),
     max_lat: float = Query(ge=-90, le=90),
-    spacing_deg: float = Query(default=WIND_GRID_DETAIL_SPACING_DEG),
+    # 無限大の間隔は索引0の点の座標をNaNにする（0×inf）。
+    spacing_deg: float = Query(default=WIND_GRID_DETAIL_SPACING_DEG, allow_inf_nan=False),
     weather_service: WeatherService = Depends(get_weather_service),
 ) -> WindGridResponse:
     """風・降水延長予報の詳細格子（ヒートマップ等の面表現用、spacing_degでズーム依存の間隔を
@@ -167,12 +168,12 @@ async def get_wind_grid_detail(
     ぶんの時間別風向・風速・降水量を返す。get_wind_gridと同じく取得失敗地点は結果から除外し、
     時刻配列は応答トップレベルに1本だけ持つ。
 
-    spacing_degはWIND_GRID_DETAIL_ALLOWED_SPACINGS_DEGの段階の値だけを受け付ける。
+    spacing_degはWIND_GRID_DETAIL_MIN_SPACING_DEG以上の有限の値を受け付ける。
     全地点が失敗した場合は502を返す（_reject_if_all_points_failed参照）。"""
     enforce_rate_limit(http_request, "wind-grid-detail", settings.wind_grid_detail_rate_limit_per_minute)
     if min_lon >= max_lon or min_lat >= max_lat:
         raise HTTPException(status_code=400, detail="表示範囲が不正です。")
-    if spacing_deg not in WIND_GRID_DETAIL_ALLOWED_SPACINGS_DEG:
+    if spacing_deg < WIND_GRID_DETAIL_MIN_SPACING_DEG:
         raise HTTPException(status_code=400, detail="spacing_degの値が不正です。")
     bbox = (min_lon, min_lat, max_lon, max_lat)
     # 点を作る処理は同期でイベントループを止めるため、上限を超える範囲は作る前に断る。

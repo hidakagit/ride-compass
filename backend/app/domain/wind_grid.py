@@ -87,15 +87,9 @@ WIND_GRID_DETAIL_SPACING_DEG = 0.02
 # 少し余裕を持たせた値。
 WIND_GRID_DETAIL_MAX_POINTS = 900
 
-# ズーム依存の格子間隔。ズームインするほど画面上に対する格子1マスの面積が広がり、
-# gridFillの色境界が段差として目立ちやすくなる。風の矢印のようにアイコンの表示サイズを
-# 大きくする補正では実面積を表すgridFillには通用しない（隙間・重なりが生まれるだけ）ため、
-# 実際の格子間隔自体をズームに応じて細かくする。詳細格子の問い合わせが受け付けるのはこの
-# 段階の間隔だけで、並びは粗い順——フロントはズームの段へ添字で対応させる。この定数（および
-# WIND_GRID_SPACING_DEG・WIND_GRID_DETAIL_SPACING_DEG・WIND_GRID_DETAIL_MAX_POINTS）は
-# scripts/export_openapi.pyがwind-grid-config.jsonへ書き出す唯一の情報源であり、フロント側
-# windLayer.tsはこのJSONをimportするだけで値を複製しない。
-WIND_GRID_DETAIL_ALLOWED_SPACINGS_DEG: tuple[float, ...] = (0.02, 0.01, 0.005, 0.0025)
+# 詳細格子の問い合わせが受け付ける間隔の下限（度）。これ以上なら任意の間隔を受け付ける
+# （根拠と下げられる限界はdocs/modules/backend/weather-dynamic-layers.md「詳細格子の座標と間隔」）。
+WIND_GRID_DETAIL_MIN_SPACING_DEG = 0.0025
 
 
 def _detail_index_ranges(bbox: tuple[float, float, float, float], spacing_deg: float) -> tuple[range, range]:
