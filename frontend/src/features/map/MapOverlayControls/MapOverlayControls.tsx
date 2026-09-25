@@ -29,7 +29,6 @@ import {
   SpotDataIcon,
   type MapIconComponent,
 } from "@/components/ui/icons/icons";
-import palette from "@/types/generated/palette.json";
 import { Button } from "@/components/ui/Button/Button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/Popover/Popover";
 import { cn } from "@/lib/cn";
@@ -37,8 +36,9 @@ import { Dot } from "@/components/ui/Dot/Dot";
 import { cardVariants } from "@/components/ui/Card/Card";
 import { badgeVariants } from "@/components/ui/Badge/Badge";
 
-/** 内訳パネルの色見本を載せる台（地図の地色）。CSSは源泉の値を持てないのでここで渡す。 */
-const SWATCH_GROUND_STYLE = { "--swatch-ground": palette.semantic.basemap_ground } as CSSProperties;
+/** 色見本の点の直径と、線の見本の長さ（px）。点は色が読める大きさにする。 */
+const SWATCH_DOT_PX = 12;
+const SWATCH_LINE_LENGTH_PX = 20;
 
 /** 地図上のチップ1つ分の凡例（1軸ぶん）。 */
 export interface LegendFilterSummaryAxis {
@@ -133,22 +133,19 @@ function readStringArray(raw: string): string[] | null {
   }
 }
 
-/** 色見本。地図と同じ地色の台に、地図と同じ形（線なら線、点なら点）で載せる——暗いパネルへ直に置くと濃い色が
- * 沈み、台を細い輪にすると色の部分が小さくなる。線の行は地図と同じ太さ、大きさで意味を示す行は地図の点と同じ直径で出す。 */
+/** 色見本。パネルへ直に、地図と同じ形（線なら線、点なら点）で置く——明るい台に載せると、暗いパネルの上では台の
+ * 白が色より目立ち、明るい色は台に溶ける。線の行は地図と同じ太さで出し、太さの違う行を見比べられるようにする。
+ * 大きさで意味を示す行は地図の点と同じ直径で出す。見本の枠の幅はそろえ、ラベルの位置を行ごとにずらさない。 */
 function renderSwatch(entry: LegendEntry) {
-  const mark = entry.lineWidthPx === undefined ? "size-2 rounded-full" : "w-4 rounded-full";
   const size =
     entry.lineWidthPx !== undefined
-      ? { height: entry.lineWidthPx }
-      : entry.diameterPx === undefined
-        ? {}
-        : { width: entry.diameterPx, height: entry.diameterPx };
+      ? { width: SWATCH_LINE_LENGTH_PX, height: entry.lineWidthPx }
+      : entry.diameterPx !== undefined
+        ? { width: entry.diameterPx, height: entry.diameterPx }
+        : { width: SWATCH_DOT_PX, height: SWATCH_DOT_PX };
   return (
-    <span
-      aria-hidden="true"
-      className="inline-flex min-h-3 min-w-[22px] flex-shrink-0 items-center justify-center rounded-[3px] bg-[var(--swatch-ground,transparent)] px-[3px] py-[2px] shadow-[0_0_0_1px_var(--color-border-strong)]"
-    >
-      <span className={mark} style={{ background: legendSwatchBackground(entry), ...size }} />
+    <span aria-hidden="true" className="inline-flex w-6 flex-shrink-0 items-center justify-center">
+      <span className="rounded-full" style={{ background: legendSwatchBackground(entry), ...size }} />
     </span>
   );
 }
@@ -335,7 +332,6 @@ function DetailPopover({
         collisionPadding={8}
         aria-label={regionLabel}
         className={DETAIL_PANEL_CLASS}
-        style={SWATCH_GROUND_STYLE}
       >
         {children}
       </PopoverContent>
