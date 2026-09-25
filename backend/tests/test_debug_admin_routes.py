@@ -7,7 +7,7 @@ from fastapi.testclient import TestClient
 from app.config import settings
 from app.infrastructure.debug_control import get_recent_logs
 from app.main import app
-from tests.admin_auth import ADMIN_USERNAME, AUTH_HEADERS, basic_auth_header
+from tests.admin_auth import AUTH_HEADERS
 
 client = TestClient(app)
 
@@ -22,41 +22,6 @@ def _restore_debug_mode():
     yield
     settings.debug_mode = original_debug_mode
     logging.getLogger().setLevel(original_level)
-
-
-# --- 認可（require_admin_basic_auth、axis_admin.pyと共有） ---
-
-
-def test_update_mode_rejects_missing_credentials(admin_credentials):
-    response = client.post("/api/admin/debug/mode", json={"enabled": True})
-
-    assert response.status_code == 401
-    assert response.headers["www-authenticate"] == 'Basic realm="RideCompass admin"'
-
-
-def test_update_mode_rejects_wrong_credentials(admin_credentials):
-    response = client.post(
-        "/api/admin/debug/mode",
-        json={"enabled": True},
-        headers={"Authorization": basic_auth_header(ADMIN_USERNAME, "wrong")},
-    )
-
-    assert response.status_code == 401
-
-
-def test_update_mode_rejects_any_credentials_when_unset(monkeypatch):
-    monkeypatch.setattr(settings, "admin_basic_auth_username", "")
-    monkeypatch.setattr(settings, "admin_basic_auth_password", "")
-
-    response = client.post("/api/admin/debug/mode", json={"enabled": True}, headers=AUTH_HEADERS)
-
-    assert response.status_code == 401
-
-
-def test_read_logs_requires_auth(admin_credentials):
-    response = client.get("/api/admin/debug/logs")
-
-    assert response.status_code == 401
 
 
 # --- debug_modeのランタイム切替（再起動不要） ---

@@ -1,13 +1,11 @@
-"""`GET /api/admin/db-status`のルートテスト（認可・レスポンス形・DB例外の扱い）。"""
+"""`GET /api/admin/db-status`のルートテスト（レスポンス形・DB例外の扱い）。"""
 
 from datetime import datetime, timezone
 
-import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy.exc import DBAPIError
 
 from app.api.dependencies import get_db_status_service
-from app.api.routers import db_status
 from app.infrastructure.db_status import (
     ConnectionCounts,
     DbStatusCounts,
@@ -75,13 +73,6 @@ def _override(service: _StubService) -> None:
 
 def teardown_function() -> None:
     app.dependency_overrides.clear()
-
-
-@pytest.mark.parametrize(
-    ("method", "path"), [(method, route.path) for route in db_status.router.routes for method in sorted(route.methods)]
-)
-def test_every_route_rejects_a_request_without_credentials(admin_credentials, method, path):
-    assert client.request(method, path).status_code == 401
 
 
 def test_returns_imports_tables_and_connections(admin_credentials):

@@ -11,7 +11,6 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.api.dependencies import get_derived_data_freshness_service
-from app.api.routers import derived_data_freshness
 from app.main import app
 from app.services.derived_data_freshness_service import (
     ColumnEntry,
@@ -55,14 +54,6 @@ def override_service(admin_credentials):
         yield
     finally:
         app.dependency_overrides.clear()
-
-
-@pytest.mark.parametrize(
-    ("method", "path"),
-    [(method, route.path) for route in derived_data_freshness.router.routes for method in sorted(route.methods)],
-)
-def test_every_route_rejects_a_request_without_credentials(admin_credentials, method, path):
-    assert client.request(method, path).status_code == 401
 
 
 def test_被覆の項目がレスポンスへそのまま出る(override_service):

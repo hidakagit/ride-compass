@@ -10,7 +10,7 @@ from app.infrastructure.material_coverage import MATERIAL_COVERAGE_SPECS, Materi
 from app.main import app
 from app.services.material_coverage_service import build_material_coverage_report
 from app.services.region_service import RegionService
-from tests.admin_auth import ADMIN_USERNAME, AUTH_HEADERS, basic_auth_header
+from tests.admin_auth import AUTH_HEADERS
 
 client = TestClient(app)
 def test_get_material_catalog_reflects_material_catalog_content():
@@ -119,21 +119,6 @@ def values_url(material_id: str) -> str:
     return f"/api/admin/material-catalog/{material_id}/values"
 
 
-def test_get_material_values_requires_basic_auth(admin_credentials):
-    # coverageと同じ理由（索引の効かないSELECT DISTINCTをタイル配信と同じ接続プール上で
-    # 実行する）でadminパス側に置いてある。認可の有無が両者でずれないよう突き合わせる。
-    response = client.get(values_url("highway"))
-
-    assert response.status_code == 401
-    assert response.headers["www-authenticate"] == 'Basic realm="RideCompass admin"'
-
-
-def test_get_material_values_rejects_wrong_credentials(admin_credentials):
-    response = client.get(values_url("highway"), headers={"Authorization": basic_auth_header(ADMIN_USERNAME, "wrong")})
-
-    assert response.status_code == 401
-
-
 def test_get_material_values_returns_sorted_distinct_values_from_service(admin_credentials):
     fake = FakeRegionServiceForMaterialValues(values=["cycleway", "primary", "residential"])
     app.dependency_overrides[get_region_service] = lambda: fake
@@ -223,19 +208,6 @@ def _counts(**missing_overrides: int) -> MaterialCoverageCounts:
     missing = {material_id: 0 for material_id in MATERIAL_COVERAGE_SPECS}
     missing.update(missing_overrides)
     return MaterialCoverageCounts(way_total=200, edge_total=40, missing_by_material=missing)
-
-
-def test_get_material_coverage_requires_basic_auth(admin_credentials):
-    response = client.get(COVERAGE_URL)
-
-    assert response.status_code == 401
-    assert response.headers["www-authenticate"] == 'Basic realm="RideCompass admin"'
-
-
-def test_get_material_coverage_rejects_wrong_credentials(admin_credentials):
-    response = client.get(COVERAGE_URL, headers={"Authorization": basic_auth_header(ADMIN_USERNAME, "wrong")})
-
-    assert response.status_code == 401
 
 
 def test_get_material_coverage_returns_all_catalog_materials(admin_credentials):

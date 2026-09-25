@@ -1,9 +1,8 @@
 """分布プレビューの2エンドポイントのルーター層テスト。
 
 計算本体は`tests/test_axis_preview_service.py`が持つ。ここでは**ルーターの振る舞い**
-——認可・DB未接続時の扱い・未知の材料・サービス層の例外の変換——だけを見る。
-どちらもT686/T697で新設されたがルーター層のテストが無く、認可の付け忘れやDB未接続時の
-500がテストをすり抜けていた。
+——DB未接続時の扱い・未知の材料・サービス層の例外の変換——だけを見る。
+認可は`test_admin_route_authorization.py`が全ルートまとめて見る。
 """
 
 from dataclasses import asdict
@@ -53,12 +52,6 @@ def _override_repository():
     app.dependency_overrides.clear()
 
 
-def test_preview_distribution_requires_admin_auth():
-    response = client.post(_PREVIEW_PATH, json={"shape": _SHAPE})
-
-    assert response.status_code == 401
-
-
 def test_preview_distribution_returns_503_without_db(admin_credentials, _override_repository):
     # DB未接続構成では算出できない。500ではなく503で「今は出せない」と返す
     # （frontendはこの区別でエラー表示を出し分ける）。
@@ -85,12 +78,6 @@ def test_preview_distribution_returns_the_service_result(admin_credentials, monk
 
 def _material_path(material_id: str) -> str:
     return f"/api/admin/material-catalog/{material_id}/distribution"
-
-
-def test_material_distribution_requires_admin_auth():
-    response = client.get(_material_path("intersection_count_per_km"))
-
-    assert response.status_code == 401
 
 
 def test_material_distribution_returns_404_for_unknown_material(admin_credentials):
