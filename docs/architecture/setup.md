@@ -58,6 +58,13 @@ docker compose run --rm backend python scripts/bootstrap_database.py --create-ex
   変わっていれば入れ直す）、dockerdを起こしてcomposeのpostgres・redisを起動し、テストの
   複製元DB`ridecompass_test`を作る。`CLAUDE_CODE_REMOTE`が`true`でない（手元の）セッション
   では何もせずに抜ける。セットアップの欄が空でもフックが依存を入れる（開始が遅くなるだけ）。
+- **環境のキャッシュを作る実行**では、セットアップスクリプトのあとに基盤が`claude --init-only`を
+  走らせ、リポジトリの`Setup`フック（trigger `init`）とSessionStartフックがこの順に走る（公式の文書に
+  あるのは`--init-only`で`Setup`が走ることだけで、キャッシュ作りの中で走ることは環境マネージャの
+  ログでの観測）。SessionStartの入力は普通の開始と区別がつかないため、`Setup`フックが同じ
+  session_idの印を`/tmp`に残して`setup.sh`を流し、SessionStartはその印を見てDBを起動せずに抜ける。
+  DBが動いたままファイルシステムが保存されると、以後の開始でpostgresがクラッシュリカバリから
+  立ち上がる。セットアップの欄が空でも、この`Setup`フックが依存とイメージをキャッシュへ入れる。
 - backend・frontendは手元と同じくネイティブで動かす。クラウドのコンテナの中からは外へ
   直接出られないため、composeのbackend・frontendのイメージはそこではビルドできない
   （`apt-get`・`npm ci`が止まる）。
