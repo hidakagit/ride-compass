@@ -50,13 +50,9 @@ interface RouteFormProps {
   armedPinRole: PinRole | null;
   /** 行の操作で武装する／やめる（同じ役割をもう一度押すと解除）。 */
   onArmPinRole: (role: PinRole | null) => void;
-  /** 「重み」タブの中身（RouteSettingsPanelを含む要素一式）。「ルート設定」区分は
-   * 「条件」（本コンポーネントの距離・候補数等）・「重み」・「除外」の3タブへ分ける。
-   * タブ列（Tabs.List）と「ルート生成」ボタンはこのコンポーネントの外（page.tsx:
-   * 「ルート設定」見出し行）にあり、検証ロジックは`useRouteFormSubmit`が持つ
-   * （本コンポーネントは入力欄と各タブの中身のみ）。 */
+  /** 「重み」タブの中身。タブの列と「ルート生成」ボタンは見出しの行（page.tsx）、検証は`useRouteFormSubmit`が持つ。 */
   weightsPanel: React.ReactNode;
-  /** 「除外」タブの中身（HardFilterPanel）。将来の除外条件もこのタブへ足す。 */
+  /** 「除外」タブの中身。 */
   exclusionsPanel: React.ReactNode;
 }
 

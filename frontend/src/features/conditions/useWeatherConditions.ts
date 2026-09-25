@@ -1,9 +1,5 @@
 "use client";
 
-// 現在地の天候（WeatherPanel向け）と警告バッジ（JMA警報・注意報／WBGT／河川氾濫予報等）の
-// フェッチ・状態管理を1つのフックへまとめたもの。どれも「locationReadyになるまで待ち、
-// location変更のたびに再フェッチする」という同じ形のeffectを持ち、警告バッジは失敗時も
-// 例外を投げず「警告なし」（null/空配列）としてbackend契約どおり静かに扱う点まで共通。
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   getAmedasObservation,
@@ -17,47 +13,32 @@ import type { AmedasObservation, WeatherConditions } from "@/types/weather";
 import type { WarningBadgeItem, WarningFetchFailure } from "@/features/conditions/WarningBadge/WarningBadge";
 
 interface UseWeatherConditionsResult {
-  /** 今日の見通し（TodayOutlook向け）。気象庁MSMの予報値（日次集計・weather_code・
-   * UV指数等）で、常設ヘッダーはこれを参照しない（常設エリアは実測値、今日の見通しは
-   * 予測値という方針分離）。 */
+  /** 今日の見通し（予報）。常設のヘッダーは読まない（ヘッダーは実測、見通しは予報）。 */
   weather: WeatherConditions | null;
   weatherLoading: boolean;
   weatherError: string | null;
-  /** 最寄りアメダス観測所の実測値（WeatherPanel＝常設ヘッダー向け）。予報側の成否・
-   * 速度から独立してフェッチする。 */
+  /** 最寄りのアメダスの実測（常設のヘッダー）。予報の成否・遅さに引きずられないよう別に取る。 */
   amedas: AmedasObservation | null;
   amedasLoading: boolean;
   amedasError: string | null;
-  /** JMA警報・注意報・WBGT・河川氾濫予報を統合したバッジ一覧（WarningBadgeList向け）。 */
+  /** 警報・注意報・暑さ指数・河川氾濫予報のバッジ。 */
   warningBadgeItems: WarningBadgeItem[];
-  /** 警告バッジの取得に失敗した出所（WarningBadgeList向け）。成功している間は空。 */
+  /** 警告の取得に失敗した出所。 */
   warningFetchFailures: WarningFetchFailure[];
 }
 
-/** 現在地の天候・警告バッジ3種のフェッチ・状態管理。locationReadyが
- * trueになるまで待ち、その後はlocationが変わるたびに再フェッチする（マウント直後は
- * DEFAULT_LOCATION、Geolocationが成功すると実際の現在地でも1回走る、useLocation.ts参照）。
- * 各フェッチはリクエストごとに連番を振り、「一番最後に投げたリクエストの結果か」を
- * 確認してから反映する（古い応答が新しい応答を上書きしないようにする）。 */
 interface LocationFetchState<T> {
   data: T | null;
   loading: boolean;
   error: string | null;
 }
 
-// 取得しっぱなしにせず一定間隔で取り直す。アメダスは10分ごとの観測値で、警報・注意報は
-// 随時更新されるため、開いたままの画面が古い値のまま固定されるのを防ぐ。一度きりだと
-// 通信の一時的な失敗がそのセッション中ずっと表示に残り続けることにもなる。
+// 一定の間隔で取り直す（アメダスは10分ごと、警報は随時更新。一度きりだと、一時の失敗も残り続ける）。
 const WEATHER_REFRESH_INTERVAL_MS = 10 * 60 * 1000;
 
-/** 「locationReadyになるまで待ち、locationが変わるたびに再フェッチし、**最後に投げた
- * リクエストの結果だけ**を反映する」という共通形。本ファイルのフェッチはすべてこれを通す
- * （連番ガードを写経すると、1つだけガードを書き落としても「稀に古い応答が新しい応答を
- * 上書きする」という再現しにくい形でしか現れない）。
- *
- * 失敗しても直前に取得済みのデータは保持する（取得済みの表示を消さず、`error`を添えて
- * 呼び出し側に判断させる）。失敗時に表示ごと消したい呼び出し元は`error`を見て自分で
- * nullへ倒す。 */
+/** 位置が決まるまで待ち、位置が変わるたびに取り直し、最後に出した要求の結果だけを反映する。失敗しても前の値は残し、
+ * `error`を添える（消したい呼ぶ側は`error`を見て自分で落とす）。`fetcher`はモジュールの関数を渡す（描くたびに新しい
+ * 関数だと取り直しが止まらない）。 */
 function useLocationFetch<T>(
   fetcher: (location: Coordinates) => Promise<T>,
   location: Coordinates,
@@ -68,21 +49,13 @@ function useLocationFetch<T>(
   const [error, setError] = useState<string | null>(null);
   const latestRequestId = useRef(0);
 
-  // fetcherは呼び出し側でモジュールスコープの関数を渡す想定（毎レンダー新しい関数を
-  // 渡すと再フェッチが止まらなくなる）。
-  const fetcherRef = useRef(fetcher);
-  useEffect(() => {
-    fetcherRef.current = fetcher;
-  }, [fetcher]);
-
   useEffect(() => {
     if (!locationReady) return;
     let disposed = false;
     const run = () => {
       const requestId = ++latestRequestId.current;
       setLoading(true);
-      fetcherRef
-        .current(location)
+      fetcher(location)
         .then((result) => {
           if (disposed || requestId !== latestRequestId.current) return;
           setData(result);
@@ -98,8 +71,7 @@ function useLocationFetch<T>(
           setLoading(false);
         });
     };
-    // setState呼び出しを含むため、effect本体からの直接同期呼び出しを避けてマイクロタスク
-    // 経由で実行する（他のフックと同じreact-hooks/set-state-in-effect対策）。
+    // effectの中で同期にsetStateしない（react-hooks/set-state-in-effect）。
     Promise.resolve().then(() => {
       if (!disposed) run();
     });
@@ -108,23 +80,17 @@ function useLocationFetch<T>(
       disposed = true;
       clearInterval(timer);
     };
-  }, [locationReady, location]);
+  }, [locationReady, location, fetcher]);
 
   return { data, loading, error };
 }
 
 export function useWeatherConditions(location: Coordinates, locationReady: boolean): UseWeatherConditionsResult {
-  // 今日の見通し（MSM予報）。取得に失敗しても直前の値は残し、errorを添えて表示側
-  // （TodayOutlook）に判断させる。
   const weather = useLocationFetch(getCurrentWeather, location, locationReady);
-  // 最寄りアメダス観測所の実測値。weather（MSM予報）とは独立したフェッチ・状態にすることで、
-  // 常設ヘッダーの表示が予報側の障害・遅延から影響を受けないようにする。
   const amedas = useLocationFetch(getAmedasObservation, location, locationReady);
 
-  // 警告バッジ3種（JMA警報・注意報／WBGT／河川氾濫予報）。取得失敗の間はその出所のバッジを
-  // 出さず、代わりに失敗した出所を`warningFetchFailures`で渡す——バッジが無いことを
-  // 「警告なし」と読ませないため。backend内部の失敗は空応答（fail-open、
-  // docs/architecture/api-design.md）で届くためここでは区別できず、拾えるのは通信エラー・429等。
+  // 警告は、取れない間その出所のバッジを出さず、失敗した出所を別に渡す（バッジが無いのを「警告なし」と読ませない）。
+  // backendの中の失敗は空の応答で届くので、ここで拾えるのは通信の失敗・429等だけ。
   const warnings = useLocationFetch(getWeatherWarnings, location, locationReady);
   const wbgt = useLocationFetch(getWbgtStatus, location, locationReady);
   const flood = useLocationFetch(getFloodForecasts, location, locationReady);
@@ -147,8 +113,7 @@ export function useWeatherConditions(location: Coordinates, locationReady: boole
             .join(" / "),
         }))
       : [];
-    // WBGTはlevelがnull（提供期間外・取得失敗・「ほぼ安全」のいずれか）の間は表示しない
-    // （JMA警報が0件の場合と同じ「無ければ何も出ない」挙動）。
+    // 暑さ指数は段が無い間（提供期間外・「ほぼ安全」等）は出さない。
     const wbgtItem: WarningBadgeItem[] =
       wbgtStatus?.level && wbgtStatus.value != null
         ? [
@@ -161,7 +126,6 @@ export function useWeatherConditions(location: Coordinates, locationReady: boole
             },
           ]
         : [];
-    // 河川氾濫予報（T212）。対象河川が無い/取得失敗の間はforecasts=[]のため何も出ない。
     const floodItems: WarningBadgeItem[] = (floodForecasts?.forecasts ?? []).map((forecast) => ({
       id: `flood-${forecast.river_code}`,
       label: forecast.label,

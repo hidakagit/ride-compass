@@ -47,20 +47,15 @@ const POLL_INTERVAL_MS = 1500;
 // backendがジョブの結果を持つ時間そのもの。これより長く待つと掃除済みのjob_idを引くため、
 // 独立に値を持たない（値を動かすのはbackendの宣言側）。
 const MAX_POLL_DURATION_MS = routeGenerateConfig.job_result_ttl_seconds * 1000;
-// 1回のポーリング失敗（一時的なネットワーク瞬断・5xx）で生成全体を即座に失敗させず、
-// この回数まで連続失敗を許容してから
-// 諦める。バックエンド側`_run_generate_job`はジョブをキャンセルする手段が無く握ったままの
-// ため、早すぎる諦めは同時実行枠（既定2）を無駄に占有させる孤立ジョブを生みやすい一方、
-// 諦めが遅すぎても本当に接続が切れているケースの検知が遅れるため、POLL_INTERVAL_MS込みで
-// 数十秒程度（5回×1.5秒間隔）に収める。
+// 続けて失敗してよい回数。backendはジョブを取り消せないので、早く諦めると同時実行の枠を孤立したジョブが占める。
+// 遅すぎると本当に切れたときの検知が遅れるので、間隔と合わせて数十秒に収める。
 const MAX_CONSECUTIVE_POLL_FAILURES = 5;
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-/** ルート生成ジョブの状態を1回取得する。GET専用の共通ラッパー
- * （lib/fetchJson.ts、他のGET系APIクライアントと同じパターン）を使う。 */
+/** 生成のジョブの状態を1回取る。 */
 function pollGenerationJob(jobId: string): Promise<RouteGenerateJobStatusResponse> {
   return fetchJson<RouteGenerateJobStatusResponse>(`${API_BASE_URL}/api/routes/generate/${jobId}`, {
     timeoutMs: DEFAULT_API_TIMEOUT_MS,
@@ -96,8 +91,7 @@ export async function generateRoutes(
       );
       throw new Error("ルート生成がタイムアウトしました");
     }
-    // 初回だけsleepを挟まず即座にポーリングする。毎回ループ先頭でsleepすると、サーバー側の
-    // 生成が数百ms〜1秒程度で終わる典型的なウォームパスでも必ずPOLL_INTERVAL_MS分待たされる。
+    // 初回は待たずに問い合わせる（1秒足らずで終わる生成を毎回待たせない）。
     if (pollCount > 0) {
       await sleep(POLL_INTERVAL_MS);
     }
@@ -108,10 +102,7 @@ export async function generateRoutes(
       consecutivePollFailures = 0;
     } catch (error) {
       consecutivePollFailures += 1;
-      // 1回の一時的な失敗では生成全体を落とさず、次のポーリングでリトライする。
-      // この時点ではまだ「失敗が確定」していない（リトライで回復する可能性が高い）ため
-      // "error"ではなく"warn"にする。5回連続で失敗し諦める場合は、この関数の呼び出し元
-      // （page.tsx）が例外をcatchした時点で別途"error"として記録される。
+      // 一時の失敗は次の問い合わせで取り直す（まだ失敗が決まっていないのでwarn）。
       debugLog(
         "api:route",
         `ポーリング失敗、リトライします (${consecutivePollFailures}/${MAX_CONSECUTIVE_POLL_FAILURES})`,
@@ -125,8 +116,7 @@ export async function generateRoutes(
           { jobId, elapsedMs: performance.now() - startedAt },
           "error",
         );
-        // 原因は通信エラー・混雑（429）・ジョブ消失（404）のどれもありうるため断定せず、
-        // 最後の失敗の文言（fetch骨格が日本語へ揃え済み）を添える。
+        // 原因（通信・混雑・ジョブの消失）は断定せず、最後の失敗の文言を添える。
         const lastCause = error instanceof Error ? error.message.replace(/。$/, "") : null;
         throw new Error(
           `ルート生成の状況確認に続けて失敗しました${lastCause ? `（${lastCause}）` : ""}。時間をおいて再度お試しください。`,
@@ -136,25 +126,19 @@ export async function generateRoutes(
       continue;
     }
 
-    // onProgressへ渡す経過時間はGETの応答が返った直後（＝実際に観測できた最新時点）で
-    // 計算する。ループ先頭（sleep・GETの前）で計算すると、表示が常にPOLL_INTERVAL_MS+
-    // GET応答時間ぶん遅れてしまう。
+    // 経過時間は応答が返った直後で測る（ループの先頭で測ると、表示が待ちと応答の時間ぶん遅れる）。
     const elapsedMs = performance.now() - startedAt;
     if (status.status === "done") {
       if (!status.result) {
-        // 型上はstatus"done"でもresultがnullでありうる（RouteGenerateJobStatusResponse.
-        // result: RouteGenerateResponse | None）。backend側は常にresultと同時にdoneへ
-        // 遷移させる設計だが、万一の不整合を無視して先へ進めるよりは明示的に失敗させる。
+        // 型の上では完了でも結果がnullでありうる。黙って進めず失敗にする。
         throw new Error("ルート生成が完了しましたが結果を取得できませんでした");
       }
       const result = status.result;
       debugLog("api:route", `候補 ${result.routes.length}件`, { jobId });
-      // 候補0件の原因をwarnレベルで残す（デバッグモードでSSHを使わず確認できるように
-      // する）。1件以上あれば`no_candidates_reason`は常にnull。
+      // 候補0件の原因を残す（サーバーのログを見に行かずに分かるように）。
       if (result.routes.length === 0 && result.no_candidates_reason) {
         debugLog("api:route", result.no_candidates_reason, { jobId }, "warn");
       }
-      // conditionsは実験スロット（比較・再現用、研究インターフェース改善 §10-3/6）の入力になる。
       return {
         routes: result.routes,
         conditions: result.conditions,

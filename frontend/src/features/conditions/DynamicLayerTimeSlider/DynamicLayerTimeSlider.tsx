@@ -8,63 +8,38 @@ import { textVariants } from "@/components/ui/Text/Text";
 import { cn } from "@/lib/cn";
 import { cardVariants } from "@/components/ui/Card/Card";
 
-/** スライダーの1コマ。`label`は選んだコマの正確な日時（日付付き）で、ルーラーの上へ1行で出す
- * （目盛りの文字は日付を持たないため、日付をまたいだときの曖昧さはこの1行だけが解消する）。
- * `hourMark`は目盛りの線を太くし、コマの幅も広げる。`tickLabel`は目盛りの下の短い文字で、
- * 無ければそのコマには文字を出さない（毎コマ正時が続く区間で全コマに書くと文字が重なるため、
- * 呼び出し側が間引いて渡す）。 */
+/** スライダーの1コマ。`label`は日付付きの日時（目盛りの文字は日付を持たないので、日付をまたぐ曖昧さはこれが解く）。
+ * `hourMark`は目盛りを太く、コマを広くする。`tickLabel`は目盛りの下の短い文字（重ならないよう呼ぶ側が間引く）。 */
 export interface DynamicLayerTimeSliderFrame {
   label: string;
   hourMark?: boolean;
   tickLabel?: string;
 }
 
-// 1コマぶんの目盛り間隔（px、正時以外＝降水ナウキャストの5分刻み等の密なコマ）。
+// 目盛りの間隔（px）。正時のコマは広げる。
 const TICK_SPACING_PX = 18;
-// 正時（hourMark）ぶんの目盛り間隔（px）。延長予報区間（60分以降、全コマが正時＝1時間刻み）
-// はこちらを使う。初期画面に全コマが収まっている必要はなく、スクロールできれば足りるという
-// 前提のため、広げた分だけルーラー全体の総幅・スクロール量が伸びることは許容する。
 const TICK_SPACING_HOUR_PX = 28;
-// スクロール位置を合わせる「左端の目印」(.leftIndicator)の、ビューポート左端からの固定
-// オフセット（px）。個々のコマの幅（正時/非正時で異なる）とは独立した値のため、常に
-// TICK_SPACING_PXの半分のまま変えない。EmblaのカスタムalignもこのINDICATOR_OFFSET_PXを
-// 単一の情報源として使う（下記emblaOptions.align参照）。
+// 選んだコマを合わせる左端の目印の位置（px）。コマの幅によらない。
 const INDICATOR_OFFSET_PX = TICK_SPACING_PX / 2;
 
-/** コマ1つぶんの目盛り間隔（px）。正時（hourMark）はTICK_SPACING_HOUR_PX、それ以外は
- * TICK_SPACING_PXを使う。 */
 function frameWidth(frame: DynamicLayerTimeSliderFrame): number {
   return frame.hourMark ? TICK_SPACING_HOUR_PX : TICK_SPACING_PX;
 }
 
 interface DynamicLayerTimeSliderProps {
   frames: readonly DynamicLayerTimeSliderFrame[];
-  /** framesのindex（範囲内）。framesは1コマ以上。 */
+  /** framesの添字（framesは1コマ以上）。 */
   index: number;
   onIndexChange: (index: number) => void;
-  /** 「現在」に相当するframesのindex。「現在」ボタンを無効化する判定
-   * （index===currentIndexの間はno-op）にのみ使う。ジャンプ先の決定はonNowが担う
-   * （このindexそのものへは飛ばない、下記onNowのコメント参照）。 */
+  /** 「今」にあたる添字。「現在」ボタンを押せなくする判定にだけ使う。 */
   currentIndex: number;
-  /** 「現在」ボタンを押したときの処理。呼び出し側が実時刻（`new Date()`）へ選択中の時刻を
-   * 戻す想定。onIndexChange(currentIndex)を呼ばないのは、currentIndexはframesの目盛り
-   * 間隔に丸めた近似値であり、実時刻そのものより粗いため。 */
+  /** 「現在」ボタン。`currentIndex`へは飛ばない（目盛りへ丸めた近似で、実時刻より粗い）。 */
   onNow: () => void;
-  /** スライダー本体（role="slider"のルーラー）のaria-label。 */
   ariaLabel: string;
 }
 
-// ドラッグ/横スクロールで時刻を選ぶ汎用タイムラインUI。frames/index/onIndexChangeだけを
-// 操作し、時刻の計算・生成元（気象レイヤーのフレーム列か、それ以外の合成タイムラインか）は
-// 一切知らない。呼び出し側（`RideConditionBar`: 出発時刻ピッカー）がタイムラインの生成・
-// 現在時刻との対応付けを担う。
-//
-// Embla Carousel（+wheel-gesturesプラグイン）を使う。可変幅コマ・ホイールの横スクロール
-// 変換・離した位置への吸着はEmbla標準機能でカバーする。左端固定の目印に対する位置合わせは、
-// Emblaのカスタムalign関数（align: (viewSize, snapSize) => INDICATOR_OFFSET_PX - snapSize / 2、
-// 下記emblaOptions）で「コマの中心をINDICATOR_OFFSET_PXへ合わせる」操作感を実現する。
-// キーボード操作（Arrow/Home/End）・role="slider"のARIAはEmbla側が提供しないため自前で
-// 用意する。
+// 可変幅のコマ・ホイールの横スクロール・離した位置への吸着はEmblaが持ち、コマの中心を左端の目印へ合わせる。
+// キーボード操作とsliderのARIAはEmblaに無いので自前で持つ。
 const emblaOptions = {
   axis: "x" as const,
   align: (viewSize: number, snapSize: number) => INDICATOR_OFFSET_PX - snapSize / 2,
@@ -72,6 +47,7 @@ const emblaOptions = {
   dragFree: false,
 };
 
+/** ドラッグ・横スクロールで時刻のコマを選ぶルーラー。時刻の計算は知らない（コマの並びは呼ぶ側が作る）。 */
 export default function DynamicLayerTimeSlider({
   frames,
   index,
@@ -81,18 +57,12 @@ export default function DynamicLayerTimeSlider({
   ariaLabel,
 }: DynamicLayerTimeSliderProps) {
   const [emblaRef, emblaApi] = useEmblaCarousel(emblaOptions, [WheelGesturesPlugin({ forceWheelAxis: "x" })]);
-  // 直近に自分がonIndexChangeへ報告した（またはpropsのindexとして反映済みの）index。
-  // 確定（settle）時に検出したindexをここへ書き、「propsのindexが自分のドラッグ由来か・
-  // 現在ボタン等の外部由来か」を判定する（外部由来のときだけプログラムでスクロールし直す。
-  // 自分のドラッグが呼んだonIndexChangeでpropsが更新されるたびにまたスクロールし直す
-  // 無限ループを避けるため）。
+  // 最後に自分が報告した（または反映済みの）添字。外から変わったときだけスクロールし直す（自分のドラッグの報告で
+  // 変わるたびにスクロールすると、ループになる）。
   const syncedIndexRef = useRef(index);
-  // 初回マウント時はアニメーションさせず即座に開始位置へ合わせるための印。
+  // 初回はアニメーションさせずに合わせる。
   const hasMountedRef = useRef(false);
 
-  // propsのindexが変化したら、ルーラーのスクロール位置を合わせる（「現在」ボタン等、
-  // 自分のドラッグ操作以外でindexが変わったときだけ実際にスクロールする、上記コメント
-  // 参照）。
   useEffect(() => {
     if (!emblaApi) return;
     const alreadySynced = index === syncedIndexRef.current;
@@ -103,10 +73,8 @@ export default function DynamicLayerTimeSlider({
     hasMountedRef.current = true;
   }, [emblaApi, index]);
 
-  // 選ばれたコマが変わるたびonIndexChangeへ報告する。Emblaの`settle`イベントは高速な
-  // ドラッグの後に発火しないことがあるため使わない。`select`イベントは「最寄りのスナップ
-  // 位置（=選択中のコマ）が変わった瞬間」にのみ発火し、ドラッグ中の毎フレームでは発火しない
-  // （コマを跨いだ時だけ）ため、スクロール中に過剰報告されることもない。
+  // 選んだコマが変わるたびに報告する。`settle`は速いドラッグの後に来ないことがあるので、コマをまたいだときだけ
+  // 来る`select`を使う。
   useEffect(() => {
     if (!emblaApi) return;
     const handleSelect = () => {
@@ -122,9 +90,7 @@ export default function DynamicLayerTimeSlider({
     };
   }, [emblaApi, onIndexChange]);
 
-  // キーボード操作。ネイティブinput[type=range]ではなく横スクロールのルーラーのため、
-  // 矢印キー等の操作性はEmblaが提供しない分を自前で用意する。onIndexChangeを直接呼び、
-  // スクロール位置の追従は上のuseEffect（外部由来のindex変化）に任せる。
+  // スクロールの追従は外からの変化としてuseEffectが受ける。
   const handleKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
     let next: number | null = null;
     if (e.key === "ArrowRight") next = Math.min(frames.length - 1, index + 1);
@@ -137,13 +103,8 @@ export default function DynamicLayerTimeSlider({
     }
   };
 
-  // 1コマ戻る/進むボタン。ドラッグは大まかな位置合わせ、このボタンはピンポイントの
-  // 1コマ単位調整という役割分担。キーボードのArrowLeft/Rightと同じ移動量だが、
-  // タップ操作の主要導線として並べる。
-  const stepIndex = (delta: number) => {
-    // 端では押せないので、動かした先は必ず範囲の中。
-    onIndexChange(index + delta);
-  };
+  // 端では押せないので、動かした先は必ず範囲の中。
+  const stepIndex = (delta: number) => onIndexChange(index + delta);
 
   const frame = frames[index];
 
@@ -155,14 +116,10 @@ export default function DynamicLayerTimeSlider({
           "flex w-[min(90vw,26rem)] max-w-[min(26rem,100%)] flex-col gap-1 rounded-sm px-2 py-1.5",
         )}
       >
-        {/* 現在選択中のコマの正確な日時（日付付き）。ルーラーの上へ1行で出す。ルーラー側の
-            目盛り文字（tickLabel）は日付を持たないため、日付をまたいだときの曖昧さはこの
-            1行だけが解消する。 */}
         <div className={cn(textVariants({ variant: "heading" }), "pointer-events-auto touch-none tabular-nums")}>
           {frame.label}
         </div>
         <div className="flex items-center gap-2">
-          {/* 1つ前のコマへ（上記stepIndexコメント参照）。 */}
           <Button
             variant="stepper"
             size="sm"
@@ -174,10 +131,6 @@ export default function DynamicLayerTimeSlider({
           >
             ‹
           </Button>
-          {/* ネイティブのinput[type=range]（つまみをドラッグ・目盛りへコマ送り）ではなく、
-              横スクロールで目盛り自体を動かすルーラー。左端固定の目印（.leftIndicator）に
-              対して、スクロールでどのコマを合わせるかを選ぶ操作感になる（Emblaのalign関数で
-              実現、ファイル冒頭のemblaOptionsコメント参照）。 */}
           <div
             ref={emblaRef}
             className="pointer-events-auto relative h-8 min-w-30 flex-1 cursor-grab touch-none overflow-x-auto overflow-y-hidden select-none [-webkit-tap-highlight-color:transparent] [-webkit-user-drag:none] [scrollbar-width:none] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--color-accent)] [&::-webkit-scrollbar]:hidden"
@@ -203,9 +156,7 @@ export default function DynamicLayerTimeSlider({
                     className="h-2 w-px bg-[var(--color-border-strong)] group-data-[hour=true]:h-3.5 group-data-[hour=true]:w-0.5 group-data-[hour=true]:bg-[var(--color-muted-strong)]"
                     aria-hidden="true"
                   />
-                  {/* 空文字でも.tickLabelの高さ・行送りは常に確保する（CSS側、コマによって
-                      縦位置がガタつかないようにするコメント参照）ため、tickLabel無しのコマも
-                      このspan自体は描画する。 */}
+                  {/* 文字の無いコマも高さを確保する（縦の位置が揃うように）。 */}
                   <span className="mt-1 block h-3 max-w-9 truncate text-[0.55rem] leading-3 text-[var(--color-muted)] tabular-nums">
                     {f.tickLabel ?? ""}
                   </span>
@@ -218,7 +169,6 @@ export default function DynamicLayerTimeSlider({
               aria-hidden="true"
             />
           </div>
-          {/* 1つ次のコマへ（上記「1つ前のコマへ」ボタンと対）。 */}
           <Button
             variant="stepper"
             size="sm"
@@ -230,10 +180,6 @@ export default function DynamicLayerTimeSlider({
           >
             ›
           </Button>
-          {/* 「現在」に戻るボタン。未来・過去側を見ていたスライダー位置を、ワンタップで
-              実時刻へ戻す（onNowコメント参照）。既に「現在」を見ているときはno-opのため
-              無効化する（MapOverlayControls.tsxの全レイヤー一括OFFボタンと同じ、押しても
-              何も起きない状態を無効表示にする方針）。 */}
           <Button
             variant="stepper"
             size="sm"
