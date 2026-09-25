@@ -630,7 +630,17 @@ Road Graph（Node/Edge）と材料をPostGISから**読むだけで、作らな�
    範囲外ならNone（WARNING常時ログ）。マーカーの表は持たない——持つと取込範囲を広げたときに
    2箇所を揃える必要が生まれる（判定式は路面タイルのMVT生成と共有、下記「派生delivery系
    クエリ」）。
-3. **タイル単位の読み出し**: 下記のとおり、z12タイルごとにキャッシュを経由して結合する。
+3. **読み込む量の上限**: bboxを覆うz12タイルの外接矩形に触れる区間の数をDBで数え
+   （`count_edges_in_bbox`）、`MAX_SEARCH_ROAD_EDGES`を超えれば何も読まずに
+   `SearchAreaTooLargeError`を送出する（WARNING常時ログ）。探索素材と探索用グラフは区間の
+   数に比例してメモリを使い、backendのコンテナの上限を超えるとプロセスごと落ちて全員の
+   生成と地図が止まるため、1回の生成が読む量をここで抑える。キャッシュ済みのタイルだけで
+   足りる範囲でも数える——結合した素材・探索用グラフは範囲ごとに作り直すため、タイルが
+   メモリにあっても増えるぶんは変わらない。**タイル単位のキャッシュ自体は件数でしか
+   抑えていない**ため、範囲を変えながら生成が続くと、この上限の内側でも常駐量は積み上がる。
+   戦略層（`RouteGenerator._prepare`）はこの例外を「探索範囲の道路が多すぎる」理由付きの
+   候補0件に、区間確認API（`/api/routes/preview`）は422にする。
+4. **タイル単位の読み出し**: 下記のとおり、z12タイルごとにキャッシュを経由して結合する。
 
 ### タイル単位の探索用素材キャッシュ
 
@@ -844,8 +854,11 @@ edge_idをまとめて1回・`preview_segment`が1回、いずれも逐次に呼
 せずに緯度経度を扱うための軽量な構造的型で、最近傍ノード探索のような
 ホットパスがバリデーションコストを避けるために使う。
 
-`errors.py`は`RoutingError`（単一の例外クラス）のみを持つ。`RoadGraphEngine`・
-`RouteGenerator`が経路探索の失敗を表すのに共通で使う。
+`errors.py`は`RoutingError`と`SearchAreaTooLargeError`を持つ。`RoutingError`は
+`RoadGraphEngine`・`RouteGenerator`が経路探索の失敗を表すのに共通で使う。
+`SearchAreaTooLargeError`は経路が無いのではなく読み込む範囲が広すぎることを表し、
+`RoutingError`とは別の型にしてある——利用者へは「範囲を狭めれば作れる」と伝えるため、
+経路の失敗と同じ扱い（候補ごとの失敗として数える・502）に混ぜない。
 
 ## infrastructure層
 
@@ -907,7 +920,7 @@ ST_AsMVT丸ごと生成）・`_FEATURE_KEYS_IN_TILE_SQL`（wind、道路自身�
 
 | エンドポイント | 内容 |
 |---|---|
-| `POST /api/routes/preview` | 2点間の単純なルート取得（`get_preview_builder`経由。`RoadGraphEngine.preview_segment`を使う。`RouteGenerator`の周回戦略は使わない。重み・換算レート（P）はリクエストで上書きできず、ルート生成が省略時に使うのと同じ既定で探す） |
+| `POST /api/routes/preview` | 2点間の単純なルート取得（`get_preview_builder`経由。`RoadGraphEngine.preview_segment`を使う。`RouteGenerator`の周回戦略は使わない。重み・換算レート（P）はリクエストで上書きできず、ルート生成が省略時に使うのと同じ既定で探す。2点を覆う範囲の区間が読み込む量の上限を超えれば422） |
 | `POST /api/routes/generate` | 202を即座に返す非同期ジョブ投稿。`asyncio.create_task`でジョブ本体（`_run_generate_job`）を起動し、タスク参照を`_running_generate_tasks`が保持する（`BackgroundTasks`だとレスポンス送出の失敗でジョブが起動せず、投稿時点で取得済みのセマフォが解放されない） |
 | `GET /api/routes/generate/{job_id}` | ジョブの状態・結果を取得（`job_registry`、サーバー再起動で失われる） |
 

@@ -16,7 +16,7 @@ from app.api.dependencies import (
 )
 from app.config import settings
 from app.domain.axis_definitions import AXIS_DEFINITIONS
-from app.domain.errors import RoutingError
+from app.domain.errors import RoutingError, SearchAreaTooLargeError
 from app.domain.hard_filters import HARD_FILTER_NAMES
 from app.domain.route_preference import RoutePreference
 from app.domain.geo import haversine_distance_km
@@ -69,6 +69,9 @@ async def preview_route(
         return await preview(request.origin, request.destination, request.assumed_speed_kmh)
     except RoutingError as exc:
         raise HTTPException(status_code=502, detail=f"ルート取得に失敗しました: {exc}") from exc
+    except SearchAreaTooLargeError as exc:
+        raise HTTPException(
+            status_code=422, detail="2点が離れすぎていて、間の道路が多すぎるため確認できません。") from exc
 
 
 class RoutePreferenceWeights(RootModel[dict[str, float]]):

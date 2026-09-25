@@ -695,6 +695,13 @@ LEFT JOIN way_materials wm ON wm.osm_way_id = re.osm_way_id
 WHERE ST_Intersects(re.geom, ST_MakeEnvelope(:xmin, :ymin, :xmax, :ymax, 4326))
 """)
 
+#: 外接矩形どうしの重なりだけで数える。見積もりに使うため、区間の形が範囲へ実際に
+#: 入るかまでは確かめない。
+_COUNT_EDGES_IN_BBOX_SQL = text("""
+SELECT count(*) FROM road_edges re
+WHERE re.geom && ST_MakeEnvelope(:xmin, :ymin, :xmax, :ymax, 4326)
+""")
+
 _TOPOLOGY_NODES_SQL = text(f"""
 SELECT n.osm_node_id, ST_X(n.geom) AS longitude, ST_Y(n.geom) AS latitude,
        COALESCE(nm.has_traffic_signals, false) AS has_traffic_signals,
@@ -859,6 +866,14 @@ class RoadGraphRepository:
         return bool(row.scalar())
 
     # --- グラフ --------------------------------------------------------------
+
+    async def count_edges_in_bbox(self, bbox: BoundingBox) -> int:
+        """範囲に触れる区間（向きを持たない1本1行）の数。探索グラフを読む前の見積もりに使う。"""
+        row = await self._session.execute(_COUNT_EDGES_IN_BBOX_SQL, {
+            "xmin": bbox.min_longitude, "ymin": bbox.min_latitude,
+            "xmax": bbox.max_longitude, "ymax": bbox.max_latitude,
+        })
+        return int(row.scalar_one())
 
     async def get_graph_topology_in_bbox(self, bbox: BoundingBox) -> LeanRoadGraph | None:
         """探索用の有向グラフ。道路が1本も無ければNone。"""

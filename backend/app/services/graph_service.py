@@ -11,6 +11,7 @@ from app.domain.attributes import (
     ElevationSource,
     SearchMaterials,
 )
+from app.domain.errors import SearchAreaTooLargeError
 from app.domain.evaluation import (
     StaticEdgeScoreMatrix,
     build_static_edge_score_matrix,
@@ -28,6 +29,11 @@ logger = logging.getLogger("ridecompass.graph")
 # 起動しないための歯止め。並列化して効くのはファイルI/O部分だけで、残るCPUコストは
 # Pythonループのため結局GILで直列化される。
 _tile_cache_load_semaphore = asyncio.Semaphore(settings.tile_cache_load_max_concurrent)
+
+# 1回の生成が読み込んでよい区間（`road_edges`の行）の上限。探索素材・探索用グラフは区間1本あたり
+# 約4.6KBを使い（都心の40km周回、約53万本で最大2.6GB）、backendのコンテナの上限（6GB）を
+# 超えるとプロセスごと落ちて全員の生成と地図が止まる。1回の生成を約3GBに収める値にしてある。
+MAX_SEARCH_ROAD_EDGES = 600_000
 
 
 class _CombinedEdgeMaterials:
@@ -90,17 +96,26 @@ class GraphService:
                 bbox.min_latitude, bbox.min_longitude, bbox.max_latitude, bbox.max_longitude)
             return None
 
+        # 読み込むのはbboxを覆うタイルの全体なので、数えるのもその範囲にする。
+        tiles = tiles_covering_bbox(bbox, ROAD_GRAPH_TILE_ZOOM)
+        road_edges = await self._repository.count_edges_in_bbox(_tiles_envelope(tiles))
+        if road_edges > MAX_SEARCH_ROAD_EDGES:
+            logger.warning(
+                "探索範囲の区間が上限を超えたため読み込まない bbox=(%.2f,%.2f,%.2f,%.2f) tiles=%d road_edges=%d limit=%d",
+                bbox.min_latitude, bbox.min_longitude, bbox.max_latitude, bbox.max_longitude,
+                len(tiles), road_edges, MAX_SEARCH_ROAD_EDGES)
+            raise SearchAreaTooLargeError(road_edges, MAX_SEARCH_ROAD_EDGES)
+
         # 事故材料の年正規化に要る。タイル単位キャッシュへ入る前にここで1回だけ解決する。
         accident_years_covered = await self.get_accident_years_covered()
-        return await self._build_search_materials_from_tile_cache(bbox, accident_years_covered)
+        return await self._build_search_materials_from_tile_cache(tiles, accident_years_covered)
 
     async def _build_search_materials_from_tile_cache(
-        self, bbox: BoundingBox, accident_years_covered: int
+        self, tiles: list[tuple[int, int]], accident_years_covered: int
     ) -> tuple[SearchMaterials[ElevationSource], StaticEdgeScoreMatrix, frozenset[tuple[int, int, int]]]:
         combined_nodes: dict[str, LeanNode] = {}
         combined_edges: dict[str, LeanEdge] = {}
 
-        tiles = tiles_covering_bbox(bbox, ROAD_GRAPH_TILE_ZOOM)
         materials_stage_started = time.monotonic()
         # タイルごとの読み込み内訳を集約し、リクエスト単位の1行INFOサマリへ載せる。
         materials_read_stats: list[dict[str, object]] = [{} for _ in tiles]
@@ -234,3 +249,13 @@ class GraphService:
         """探索用グラフはgeometryをプレースホルダで持つ。その一部Edgeへ実体を後付けする。"""
         async with self._repository_lock:
             return await self._repository.get_edges_with_geometry(edges)
+
+
+def _tiles_envelope(tiles: list[tuple[int, int]]) -> BoundingBox:
+    bounds = [tile_bounds_lonlat(ROAD_GRAPH_TILE_ZOOM, x, y) for x, y in tiles]
+    return BoundingBox(
+        min_latitude=min(b.min_latitude for b in bounds),
+        min_longitude=min(b.min_longitude for b in bounds),
+        max_latitude=max(b.max_latitude for b in bounds),
+        max_longitude=max(b.max_longitude for b in bounds),
+    )

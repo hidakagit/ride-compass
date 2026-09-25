@@ -18,6 +18,7 @@ from types import SimpleNamespace
 
 import pytest
 
+from app.domain.errors import SearchAreaTooLargeError
 from app.domain.loop_routing import LoopTurnaround, TracedLoop
 from app.domain.route import Coordinates, RouteCandidate, RouteSegmentDetail
 from app.services import route_generator
@@ -89,6 +90,7 @@ class FakeEngine:
         self,
         *,
         context=_UNSET,
+        prepare_error=None,
         turnarounds=(),
         similar=(),
         candidates=None,
@@ -100,6 +102,7 @@ class FakeEngine:
         drop_evaluated=False,
     ):
         self.context = SimpleNamespace() if context is _UNSET else context
+        self.prepare_error = prepare_error
         self.turnarounds = list(turnarounds)
         self.similar = set(similar)
         self.candidates = candidates or {}
@@ -114,6 +117,8 @@ class FakeEngine:
     @_engine_method
     async def prepare(self, origin, radius_km, now=None, waypoints=None):
         self.calls["prepare"].append({"origin": origin, "radius_km": radius_km, "now": now, "waypoints": waypoints})
+        if self.prepare_error is not None:
+            raise self.prepare_error
         return self.context
 
     @_engine_method
@@ -203,6 +208,20 @@ async def test_missing_road_data_gives_no_candidates_and_says_why(entrance, phra
     assert generator.last_no_candidates_reason == f"起点{ORIGIN_LABEL}付近の道路データが未整備のため、{phrase}"
     assert _warnings(caplog)
     assert "evaluate_loops" not in engine.calls
+
+
+@pytest.mark.parametrize("entrance", sorted(ENTRANCES))
+async def test_too_large_search_area_gives_no_candidates_and_says_why(entrance, caplog):
+    engine = FakeEngine(prepare_error=SearchAreaTooLargeError(road_edges=700_000, limit=600_000))
+    generator = RouteGenerator(engine)
+
+    with caplog.at_level(logging.WARNING, logger=route_generator.logger.name):
+        assert await ENTRANCES[entrance](generator, start_time=START) == []
+
+    assert generator.last_no_candidates_reason is not None
+    assert "探索範囲の道路が多すぎる" in generator.last_no_candidates_reason
+    assert any("road_edges=700000" in r.getMessage() for r in _warnings(caplog))
+    assert set(engine.calls) == {"prepare"}
 
 
 @pytest.mark.parametrize("entrance", sorted(ENTRANCES))
