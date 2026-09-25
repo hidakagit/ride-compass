@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, type KeyboardEvent, type PointerEvent } from "react";
+import { useEffect, useRef, useState, type KeyboardEvent, type PointerEvent } from "react";
 
 import palette from "@/types/generated/palette.json";
 import type { RouteSegmentDetail, SelectedRouteSegment } from "@/types/route";
@@ -35,8 +35,10 @@ function boxesPath(boxes: readonly ProfileBox[], xOf: (km: number) => number): s
     .join("");
 }
 
-/** 道のりに沿った難易度。横が距離、縦が区間ごとの難易度で、塗った面積がルートの負荷になる。押したまま動かすと、
- * その距離の地点を選ぶ（地図に印が出て、下にその区間の詳細が出る）。 */
+/** 道のりに沿った難易度。横が距離、縦が区間ごとの難易度で、塗った面積がルートの負荷になる。1本の指（マウス）で
+ * なぞるか押して離すと、その距離の地点を選ぶ（地図に印が出て、下にその区間の詳細が出る）。**押しただけでは選ばず、
+ * 途中で2本目の指が触れた操作は選択にしない**——グラフの上で始めたピンチ（拡大しようとした操作）で区間が選ばれ、
+ * 表示が区間の詳細へ切り替わらないようにする。 */
 export default function DifficultyProfile({
   segments,
   overallDifficulty,
@@ -47,6 +49,27 @@ export default function DifficultyProfile({
   onSelect,
 }: DifficultyProfileProps) {
   const [scrubKm, setScrubKm] = useState<number | null>(null);
+  // グラフに触れている指（ポインター）と、いまの操作に2本目が加わったか。
+  const gesture = useRef<{ pointers: Set<number>; multi: boolean }>({ pointers: new Set(), multi: false });
+  // 画面のどこかに触れている指。2本目はグラフの外に触れることがあり、グラフのポインターだけでは数えられない
+  // （タッチイベントの指の数は、グラフのpointermoveより後に届くので間に合わない）。
+  const screenPointers = useRef<Set<number>>(new Set());
+  useEffect(() => {
+    const pointers = screenPointers.current;
+    const down = (event: globalThis.PointerEvent) => {
+      pointers.add(event.pointerId);
+      if (pointers.size > 1 && gesture.current.pointers.size > 0) gesture.current.multi = true;
+    };
+    const up = (event: globalThis.PointerEvent) => pointers.delete(event.pointerId);
+    window.addEventListener("pointerdown", down, true);
+    window.addEventListener("pointerup", up, true);
+    window.addEventListener("pointercancel", up, true);
+    return () => {
+      window.removeEventListener("pointerdown", down, true);
+      window.removeEventListener("pointerup", up, true);
+      window.removeEventListener("pointercancel", up, true);
+    };
+  }, []);
   const columns = profileColumns(segments);
   const routeKm = columns.length === 0 ? 0 : columns[columns.length - 1].endKm;
   const widthKm = Math.max(scaleKm, routeKm);
@@ -112,12 +135,23 @@ export default function DifficultyProfile({
         aria-valuetext={`${(cursorKm ?? selectedColumn?.startKm ?? 0).toFixed(1)} km地点`}
         onPointerDown={(event) => {
           event.currentTarget.setPointerCapture?.(event.pointerId);
-          selectAt(kmAtPointer(event));
+          gesture.current.pointers.add(event.pointerId);
+          if (gesture.current.pointers.size > 1 || screenPointers.current.size > 1) gesture.current.multi = true;
         }}
         onPointerMove={(event) => {
-          if (event.buttons === 0) return;
+          if (event.buttons === 0 || gesture.current.multi || !gesture.current.pointers.has(event.pointerId)) return;
           selectAt(kmAtPointer(event));
         }}
+        onPointerUp={(event) => {
+          if (!gesture.current.multi && gesture.current.pointers.has(event.pointerId)) selectAt(kmAtPointer(event));
+          gesture.current.pointers.delete(event.pointerId);
+          if (gesture.current.pointers.size === 0) gesture.current.multi = false;
+        }}
+        onPointerCancel={(event) => {
+          gesture.current.pointers.delete(event.pointerId);
+          if (gesture.current.pointers.size === 0) gesture.current.multi = false;
+        }}
+
         onKeyDown={handleKeyDown}
       >
         {selectedColumn !== undefined && (

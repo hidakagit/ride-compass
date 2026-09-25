@@ -40,11 +40,13 @@ function renderProfile(onSelect = vi.fn(), scaleKm = 4) {
 }
 
 describe("道のりに沿った難易度の操作", () => {
-  it("押した位置の距離の区間と、その区間の道なりの地点を選ぶ", () => {
+  it("押して離した位置の距離の区間と、その区間の道なりの地点を選ぶ", () => {
     const { slider, onSelect } = renderProfile();
 
     // 4kmを400pxで描く。250px＝2.5kmは2本目（1〜4km）の半分の地点。
     fireEvent.pointerDown(slider, { clientX: 250, buttons: 1, pointerId: 1 });
+    expect(onSelect).not.toHaveBeenCalled();
+    fireEvent.pointerUp(slider, { clientX: 250, pointerId: 1 });
 
     const selection = onSelect.mock.calls.at(-1)?.[0];
     expect(selection.segment).toBe(SEGMENTS[1]);
@@ -58,13 +60,47 @@ describe("道のりに沿った難易度の操作", () => {
     expect(onSelect).not.toHaveBeenCalled();
 
     fireEvent.pointerDown(slider, { clientX: 50, buttons: 1, pointerId: 1 });
-    fireEvent.pointerMove(slider, { clientX: 350, buttons: 1 });
+    fireEvent.pointerMove(slider, { clientX: 50, buttons: 1, pointerId: 1 });
+    fireEvent.pointerMove(slider, { clientX: 350, buttons: 1, pointerId: 1 });
     expect(onSelect.mock.calls.map(([selection]) => selection.segment)).toEqual([SEGMENTS[0], SEGMENTS[1]]);
+  });
+
+  it("2本目の指が触れた操作（ピンチ）は、動かしても離しても選ばない", () => {
+    const { slider, onSelect } = renderProfile();
+    fireEvent.pointerDown(slider, { clientX: 100, buttons: 1, pointerId: 1 });
+    fireEvent.pointerDown(slider, { clientX: 300, buttons: 1, pointerId: 2 });
+    fireEvent.pointerMove(slider, { clientX: 50, buttons: 1, pointerId: 1 });
+    fireEvent.pointerMove(slider, { clientX: 350, buttons: 1, pointerId: 2 });
+    fireEvent.pointerUp(slider, { clientX: 50, pointerId: 1 });
+    fireEvent.pointerUp(slider, { clientX: 350, pointerId: 2 });
+    expect(onSelect).not.toHaveBeenCalled();
+
+    // 指を全部離したら、次の1本指の操作はまた選べる。
+    fireEvent.pointerDown(slider, { clientX: 50, buttons: 1, pointerId: 3 });
+    fireEvent.pointerUp(slider, { clientX: 50, pointerId: 3 });
+    expect(onSelect.mock.calls.at(-1)?.[0].segment).toBe(SEGMENTS[0]);
+  });
+
+  it("2本目の指がグラフの外に触れていても、その操作は選ばない", () => {
+    const { slider, onSelect } = renderProfile();
+    // グラフから見えるポインターは1本だけ。2本目は画面の別の場所で押される。
+    fireEvent.pointerDown(slider, { clientX: 100, buttons: 1, pointerId: 1 });
+    fireEvent.pointerDown(document.body, { clientX: 500, buttons: 1, pointerId: 2 });
+    fireEvent.pointerMove(slider, { clientX: 0, buttons: 1, pointerId: 1 });
+    fireEvent.pointerUp(slider, { clientX: 0, pointerId: 1 });
+    fireEvent.pointerUp(document.body, { clientX: 500, pointerId: 2 });
+    expect(onSelect).not.toHaveBeenCalled();
+
+    // 指を全部離したら、次の1本指の操作はまた選べる。
+    fireEvent.pointerDown(slider, { clientX: 50, buttons: 1, pointerId: 3 });
+    fireEvent.pointerUp(slider, { clientX: 50, pointerId: 3 });
+    expect(onSelect.mock.calls.at(-1)?.[0].segment).toBe(SEGMENTS[0]);
   });
 
   it("横軸が候補より長いとき、候補の終わりより右を押すと終点を選ぶ", () => {
     const { slider, onSelect } = renderProfile(vi.fn(), 8);
     fireEvent.pointerDown(slider, { clientX: 390, buttons: 1, pointerId: 1 });
+    fireEvent.pointerUp(slider, { clientX: 390, pointerId: 1 });
     const selection = onSelect.mock.calls.at(-1)?.[0];
     expect(selection.segment).toBe(SEGMENTS[1]);
     expect(selection.longitude).toBeCloseTo(139.02, 6);
