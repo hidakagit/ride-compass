@@ -1,10 +1,10 @@
 {
   "semantic": {
     "evaluation_good": "#16a34a",
+    "evaluation_mid": "#eab308",
     "evaluation_bad": "#dc2626",
+    "evaluation_extreme": "#7f1d1d",
     "signed_descent": "#0284c7",
-    "signed_climb_mid": "#eab308",
-    "signed_climb_extreme": "#7f1d1d",
     "no_data": "#9ca3af",
     "loading": "#d1d5db",
     "hidden": "rgba(0,0,0,0)",

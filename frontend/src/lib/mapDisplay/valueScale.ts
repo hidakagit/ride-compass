@@ -10,24 +10,23 @@ import palette from "@/types/generated/palette.json";
 export type MapValueKind = NonNullable<components["schemas"]["AxisCatalogEntry"]["map_value_kind"]>;
 
 const COLOR_EASY = palette.semantic.evaluation_good;
-const COLOR_HARD = palette.semantic.evaluation_bad;
 export const COLOR_NO_DATA = palette.semantic.no_data;
 /** 符号付き材料の負側（下り坂等、走行が楽になる側）の色。 */
 const COLOR_SIGNED_LOW = palette.semantic.signed_descent;
 /** 平坦の色は難易度の「易しい」と同じにして、楽な区間の色を種類をまたいで揃える。 */
 const COLOR_SIGNED_FLAT = COLOR_EASY;
-const COLOR_SIGNED_CLIMB_MID = palette.semantic.signed_climb_mid;
-const COLOR_SIGNED_CLIMB_EXTREME = palette.semantic.signed_climb_extreme;
 
-/** 符号付き材料は0（平坦）を境に2方向の配色へ分ける（2色の補間1本だと0付近の段が端の色に寄る）。上り側は
- * 色相だけでなく明度も動かし（緑→黄→赤→暗赤）、段を増やしても隣が見分けられるようにする。 */
-const SIGNED_DESCENT_ANCHORS: readonly string[] = [COLOR_SIGNED_LOW, COLOR_SIGNED_FLAT];
-const SIGNED_CLIMB_ANCHORS: readonly string[] = [
-  COLOR_SIGNED_FLAT,
-  COLOR_SIGNED_CLIMB_MID,
-  COLOR_HARD,
-  COLOR_SIGNED_CLIMB_EXTREME,
+/** 評価の配色（易しい→難しい）。色相だけでなく明度も動かし（緑→黄→赤→暗赤）、段を増やしても隣が見分けられる
+ * ようにする。難易度の段と、符号付き材料の上り側が同じものを使う。 */
+const EVALUATION_ANCHORS: readonly string[] = [
+  COLOR_EASY,
+  palette.semantic.evaluation_mid,
+  palette.semantic.evaluation_bad,
+  palette.semantic.evaluation_extreme,
 ];
+
+/** 符号付き材料は0（平坦）を境に2方向の配色へ分ける（2色の補間1本だと0付近の段が端の色に寄る）。 */
+const SIGNED_DESCENT_ANCHORS: readonly string[] = [COLOR_SIGNED_LOW, COLOR_SIGNED_FLAT];
 
 /** 難易度の段の境界の既定（軸が宣言していないとき）。backendが配る。符号付き材料の段はbackendが軸ごとに必ず
  * 返すので、ここに既定を持たない。 */
@@ -122,12 +121,12 @@ function signedBandColors(boundaries: readonly number[]): string[] {
   const firstPositive = boundaries.findIndex((boundary) => boundary > 0);
   const flatIndex = firstPositive < 0 ? bandCount - 1 : firstPositive;
   const descent = interpolateColorStops(SIGNED_DESCENT_ANCHORS, flatIndex + 1).slice(0, flatIndex);
-  const climb = interpolateColorStops(SIGNED_CLIMB_ANCHORS, bandCount - flatIndex).slice(1);
+  const climb = interpolateColorStops(EVALUATION_ANCHORS, bandCount - flatIndex).slice(1);
   return [...descent, COLOR_SIGNED_FLAT, ...climb];
 }
 
 /** 値の種類と段の境界から、段ごとの色を求める。 */
 export function bandColorsFor(kind: MapValueKind, boundaries: readonly number[]): string[] {
   if (kind === "signed_material") return signedBandColors(boundaries);
-  return interpolateColorStops([COLOR_EASY, COLOR_HARD], boundaries.length + 1);
+  return interpolateColorStops(EVALUATION_ANCHORS, boundaries.length + 1);
 }

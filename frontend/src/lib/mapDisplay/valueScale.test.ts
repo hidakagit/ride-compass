@@ -9,7 +9,7 @@ import palette from "@/types/generated/palette.json";
 import { bandColorsFor } from "./valueScale";
 
 const LOW = palette.semantic.evaluation_good;
-const HIGH = palette.semantic.evaluation_bad;
+const HIGH = palette.semantic.evaluation_extreme;
 const DESCENT = palette.semantic.signed_descent;
 /** 平坦は評価の「良い」側と同じ色。 */
 const FLAT = palette.semantic.evaluation_good;
@@ -27,6 +27,15 @@ describe("valueScale", () => {
       expect(colors[0]).toBe(LOW);
       expect(colors.at(-1)).toBe(HIGH);
       expect(new Set(colors).size).toBe(colors.length);
+    });
+
+    it("段の数が配色の中継点の数と同じなら、段の色は中継点そのもの（易しい側の2段が同じ色味に寄らない）", () => {
+      expect(bandColorsFor("difficulty", [25, 50, 75])).toEqual([
+        palette.semantic.evaluation_good,
+        palette.semantic.evaluation_mid,
+        palette.semantic.evaluation_bad,
+        palette.semantic.evaluation_extreme,
+      ]);
     });
 
     it("段が1つしか無い軸では先頭の色だけになる", () => {
