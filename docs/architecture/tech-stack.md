@@ -156,7 +156,7 @@ CIと`docker-compose.yml`も上げる。** CIが本番と違う版で合否を�
 |---|---|---|---|
 | 本番 | 18 | 3.6 | Oracle Cloud VM（Ubuntu 24.04・aarch64）へ、PostgreSQL公式のaptリポジトリ（PGDG）のパッケージ |
 | CI（`ci.yml`のbackendジョブ） | 18 | 3.6 | `ubuntu-24.04-arm`ランナーへ、本番と同じ配布元・同じパッケージ名で入れる |
-| ローカル（`docker-compose.yml`） | 18 | 3.6 | `postgis/postgis:18-3.6`イメージ（Debian） |
+| ローカル・クラウドのセッション（`docker-compose.yml`） | 18 | 3.6 | `postgis/postgis:18-3.6`イメージ（Debian） |
 
 - **揃えるのはメジャー版まで。** パッチ・マイナーは同じ配布元の最新に追従する（CIは実行の
   たびにその時点の最新、本番はVMでaptを更新した時点の版）。本番の実際の版は
@@ -221,6 +221,11 @@ Redisは「TTL付きキャッシュ、または実データ源へのフォール
 
 `docker-compose.yml`（ルート直下）がローカル開発用に frontend / backend / postgres
 （`postgis/postgis`）/ redis を定義する。postgresのみ永続化ボリュームを持つ。
+クラウドのセッション（Claude Code on the web）はこのうちpostgres・redisだけを使い、
+backend・frontendはネイティブで動かす（[setup.md](setup.md)「クラウドのセッション」）。
+クラウドでは外への通信がホストのプロキシ経由でしか通らず、コンテナの中からは直接出られないため、
+`apt-get`・`npm ci`を含むbackend・frontendのイメージはビルドの途中で止まる（イメージの取得は
+dockerdが行うので通る）。
 
 本番はこの構成をそのまま使わない——backendはOracle Cloud VM上のDockerコンテナ、
 frontendはRender、PostgreSQLとRedisはVMへネイティブに置く。

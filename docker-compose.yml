@@ -19,7 +19,10 @@ services:
     env_file:
       # ROAD_GRAPH_USE_REPOSITORY/DEBUG_MODE等、下のenvironment:で上書きしない設定値は
       # ここから読み込む（無ければ空のまま起動、config.pyのデフォルト値を使う）。
-      - .env
+      # required: false が無いと、.envの無いチェックアウトではbackend以外のサービスへの
+      # `docker compose exec`まで「env file not found」で止まる。
+      - path: .env
+        required: false
     environment:
       CORS_ALLOWED_ORIGINS: http://localhost:3000
       # SQLAlchemyの非同期エンジン（asyncpgドライバ）用のURLスキーム。
@@ -66,7 +69,9 @@ services:
       # 新しい版で開けないため、ボリューム名に版を入れる。
       - postgres18-data:/var/lib/postgresql
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ridecompass"]
+      # TCPで確かめる。初期化中の一時サーバーはUnixソケットだけで待ち受けるため、
+      # ソケットで確かめると拡張の作成が終わる前にhealthyになる。
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U ridecompass"]
       interval: 5s
       timeout: 5s
       retries: 5

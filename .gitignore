@@ -7,7 +7,8 @@ npm-debug.log*
 # Python
 __pycache__/
 *.pyc
-.venv/
+# 末尾に/を付けない。クラウドのセッションではbackend/.venvがディレクトリではなくリンクになる。
+.venv
 venv/
 *.egg-info/
 .pytest_cache/

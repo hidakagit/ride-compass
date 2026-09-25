@@ -3,8 +3,9 @@ r"""まっさらなDBを、使える状態まで立ち上げる。
 **順番はここだけが持つ**: スキーマ → 取込 → 派生。手で並べると、どれかが抜けたまま
 「動いているように見える」状態ができる。
 
-**拡張は入れずに要求する。** `CREATE EXTENSION`はスーパーユーザーでしか打てないため、
-足りなければ`create_tables()`が何を実行すればよいかを告げて止まる。
+**拡張は既定では入れずに要求する。** `CREATE EXTENSION`はスーパーユーザーでしか打てないため、
+足りなければ`create_tables()`が何を実行すればよいかを告げて止まる。接続するロールがスーパーユーザーの
+環境（docker composeのDB等）では`--create-extensions`で`REQUIRED_EXTENSIONS`を入れてから進める。
 
 **外部ソースの取得は含まない。** `.pbf`・標高タイル・土地被覆のGeoTIFFは先に手元へ
 写しておく（`scripts/fetch_dem_tiles.py`・`scripts/fetch_lulc_raster.py`）——取込の
@@ -17,6 +18,7 @@ r"""まっさらなDBを、使える状態まで立ち上げる。
     .venv\Scripts\python.exe scripts\bootstrap_database.py
     .venv\Scripts\python.exe scripts\bootstrap_database.py --from ingest
     .venv\Scripts\python.exe scripts\bootstrap_database.py --profile path/to/profile.yaml
+    python scripts/bootstrap_database.py --create-extensions --to schema
 """
 
 import argparse
@@ -28,12 +30,13 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+from sqlalchemy import text  # noqa: E402
 from sqlalchemy.ext.asyncio import create_async_engine  # noqa: E402
 
 from app.batch import derive_cli, ingest_cli  # noqa: E402
 from app.batch._common import format_duration, run_batch_cli  # noqa: E402
 from app.batch.source_profile import load_source_profile  # noqa: E402
-from app.infrastructure.road_graph_repository import create_tables  # noqa: E402
+from app.infrastructure.road_graph_repository import REQUIRED_EXTENSIONS, create_tables  # noqa: E402
 
 logger = logging.getLogger("ridecompass.bootstrap_database")
 
@@ -42,6 +45,16 @@ async def _schema(database_url: str, profile_path: Path | None) -> None:
     engine = create_async_engine(database_url)
     try:
         await create_tables(engine)
+    finally:
+        await engine.dispose()
+
+
+async def _create_extensions(database_url: str) -> None:
+    engine = create_async_engine(database_url)
+    try:
+        async with engine.begin() as conn:
+            for name in REQUIRED_EXTENSIONS:
+                await conn.execute(text(f"CREATE EXTENSION IF NOT EXISTS {name}"))
     finally:
         await engine.dispose()
 
@@ -62,18 +75,24 @@ PHASES: tuple[tuple[str, Callable[[str, Path | None], Awaitable[None]]], ...] = 
 )
 
 
-async def run(database_url: str, profile_path: Path | None, start_from: str | None) -> int:
+async def run(database_url: str, profile_path: Path | None, start_from: str | None,
+              stop_at: str | None = None, create_extensions: bool = False) -> int:
     names = [name for name, _ in PHASES]
     begin = names.index(start_from) if start_from else 0
+    end = names.index(stop_at) + 1 if stop_at else len(PHASES)
+    if end <= begin:
+        raise ValueError(f"--to {stop_at} が --from {start_from} より前にある")
     started = time.perf_counter()
-    for index, (name, phase) in enumerate(PHASES[begin:], start=1):
+    if create_extensions:
+        await _create_extensions(database_url)
+    for index, (name, phase) in enumerate(PHASES[begin:end], start=1):
         phase_started = time.perf_counter()
-        logger.info("=== %s を開始（%d/%d）===", name, index, len(PHASES) - begin)
+        logger.info("=== %s を開始（%d/%d）===", name, index, end - begin)
         await phase(database_url, profile_path)
         logger.info("=== %s 完了 / %s ===", name,
                     format_duration(time.perf_counter() - phase_started))
     logger.info("DBを立ち上げた: %s / 合計 %s",
-                "→".join(names[begin:]), format_duration(time.perf_counter() - started))
+                "→".join(names[begin:end]), format_duration(time.perf_counter() - started))
     return 0
 
 
@@ -84,8 +103,14 @@ def main() -> int:
     parser.add_argument("--from", dest="start_from", default=None,
                         choices=[name for name, _ in PHASES],
                         help="途中から流し直す。前の段の出力が残っていることが前提")
+    parser.add_argument("--to", dest="stop_at", default=None,
+                        choices=[name for name, _ in PHASES],
+                        help="この段まで流して止める（例: スキーマだけ作る --to schema）")
+    parser.add_argument("--create-extensions", action="store_true",
+                        help="先にREQUIRED_EXTENSIONSを入れる（接続するロールがスーパーユーザーのときだけ通る）")
     return run_batch_cli(
-        parser, lambda args, database_url: run(database_url, args.profile, args.start_from))
+        parser, lambda args, database_url: run(
+            database_url, args.profile, args.start_from, args.stop_at, args.create_extensions))
 
 
 if __name__ == "__main__":

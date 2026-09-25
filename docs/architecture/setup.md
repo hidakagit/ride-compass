@@ -25,6 +25,43 @@ PostgreSQLの版は本番に合わせてある（[tech-stack.md](tech-stack.md)�
 間で互換が無いため、ボリュームは版ごとに名前を分けており、版を上げた直後のDBは空から始まる。
 古い版のボリュームは`docker volume ls`で探して消す。
 
+**DBは空から始まる。** スキーマは起動したあとに作る（composeのDBユーザーはスーパーユーザーなので、
+`--create-extensions`で必要な拡張もここで入る）:
+
+```bash
+docker compose run --rm backend python scripts/bootstrap_database.py --create-extensions --to schema
+```
+
+**スキーマを作っても、軸定義が0行のままではbackendは起動しない**（`refresh_axis_definitions`が
+0行を起動失敗にする。[axis-studio.md](../modules/backend/axis-studio.md)「まっさらなDBに軸の行は
+入らない」）。軸を入れる管理APIも起動したbackendにしか無いため、新しい環境へ軸を入れる手段は
+まだ無い（[T989](../records/tasks/T989.md)でユーザーの判断待ち）。テスト（`-m postgis`を含む）は
+軸を要らないので、この状態でも回せる。
+
+## クラウドのセッション（Claude Code on the web）
+
+依存の導入とDB・Redisの起動を自動で行う。本体は`scripts/remote_dev/`。
+
+- **環境のセットアップスクリプト**（claude.aiの環境設定の欄。環境の初回・スクリプトの変更時・
+  約7日ごとにだけ走り、終わった時点のファイルシステムが以後のセッションの出発点になる）へ
+  次の1行を書く:
+
+  ```bash
+  d=$(mktemp -d) && git clone -q --depth 1 https://github.com/hidakagit/ride-compass "$d" && bash "$d/scripts/remote_dev/setup.sh"; rm -rf "$d"; true
+  ```
+
+  masterの浅いcloneから`setup.sh`を流す（セットアップの時点でリポジトリがどこにあるかに
+  依存しないため）。backendのvenvとfrontendの`node_modules`をlockfileのダイジェストごとに
+  リポジトリの外（`/opt/ridecompass-dev`）へ作り、postgres・redisのイメージを取る。
+- **SessionStartフック**（`.claude/settings.json`→`scripts/remote_dev/session_start.sh`）が
+  毎セッションの開始時に、`backend/.venv`と`frontend/node_modules`をそこへ繋ぎ（lockfileが
+  変わっていれば入れ直す）、dockerdを起こしてcomposeのpostgres・redisを起動し、テストの
+  複製元DB`ridecompass_test`を作る。`CLAUDE_CODE_REMOTE`が`true`でない（手元の）セッション
+  では何もせずに抜ける。セットアップの欄が空でもフックが依存を入れる（開始が遅くなるだけ）。
+- backend・frontendは手元と同じくネイティブで動かす。クラウドのコンテナの中からは外へ
+  直接出られないため、composeのbackend・frontendのイメージはそこではビルドできない
+  （`apt-get`・`npm ci`が止まる）。
+
 ## 個別に起動する
 
 ### backend
@@ -94,7 +131,7 @@ RideCompass/
   docs/               architecture/（構成と設計原則）・modules/（実装の詳細）・
                       conventions/（規約）・improvement-plan.md（台帳）・records/（記録）
   .claude/            レビュー基盤・スキル定義
-  scripts/            リポジトリ横断の検査スクリプト
+  scripts/            リポジトリ横断の検査スクリプト・クラウドのセッションの用意（remote_dev/）
   .githooks/          push直前の門（git config core.hooksPath .githooks で有効化）
   docker-compose.yml  frontend/backend/postgres(PostGIS)/redisを一括起動
   restart-dev.bat / stop-dev.bat   Windows向けの再起動・停止（残留プロセスをkillして
