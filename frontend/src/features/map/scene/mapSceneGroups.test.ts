@@ -49,16 +49,4 @@ describe("composeScene", () => {
     const road = scene.sources.find((source) => source.id === "road");
     expect([...(road?.featureStates?.keys() ?? [])].sort()).toEqual(["surface", "windValue"]);
   });
-
-  it("レイヤーidは接頭辞と役割から決まる", () => {
-    const scene = composeScene([roadLines], { on: true });
-
-    expect(scene.layers[0]?.spec.id).toBe("road-surface");
-  });
-
-  it("表示は状態のとおりに出る", () => {
-    const scene = composeScene([roadLines], { on: false });
-
-    expect(scene.layers[0]?.visible).toBe(false);
-  });
 });

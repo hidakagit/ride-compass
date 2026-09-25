@@ -6,16 +6,14 @@ export const controlClass = cn(
   "rounded-sm border border-[var(--color-border-strong)] bg-[var(--color-surface)] px-2 py-1",
   "text-[length:var(--font-size-md)] text-[var(--foreground)]",
   "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--color-accent)]",
-  "read-only:bg-[var(--color-surface-2)] read-only:text-[var(--color-muted)] disabled:opacity-50 aria-invalid:border-[var(--color-danger)]",
+  "read-only:bg-[var(--color-surface-2)] read-only:text-[var(--color-muted)] disabled:opacity-50",
 );
 
-interface InputProps extends React.InputHTMLAttributes<HTMLInputElement> {
-  /** true時にaria-invalidを付与し赤枠にする。 */
-  invalid?: boolean;
-}
-
-export const Input = forwardRef<HTMLInputElement, InputProps>(function Input({ className, invalid, ...props }, ref) {
-  return <input ref={ref} aria-invalid={invalid || undefined} className={cn(controlClass, className)} {...props} />;
+export const Input = forwardRef<HTMLInputElement, React.InputHTMLAttributes<HTMLInputElement>>(function Input(
+  { className, ...props },
+  ref,
+) {
+  return <input ref={ref} className={cn(controlClass, className)} {...props} />;
 });
 
 export const Textarea = forwardRef<HTMLTextAreaElement, React.TextareaHTMLAttributes<HTMLTextAreaElement>>(

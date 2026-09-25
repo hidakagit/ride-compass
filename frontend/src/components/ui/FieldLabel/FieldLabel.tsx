@@ -19,8 +19,7 @@ export function FieldLabel({
   description: string;
   className?: string;
   /** trueの場合、ラベル文言はTailwindのsr-onlyで視覚的にのみ隠す（アイコン単体の見た目に
-   * したい呼び出し側向け。aria-label自体はlabelの値のまま維持されるため読み上げは変わらない）。
-   * ui/Dialog/Dialog.tsxのhideTitleと同じ既存パターン。 */
+   * したい呼び出し側向け。aria-label自体はlabelの値のまま維持されるため読み上げは変わらない）。 */
   hideLabel?: boolean;
 }) {
   return (

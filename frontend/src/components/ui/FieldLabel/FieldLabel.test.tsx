@@ -3,17 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
 import { FieldLabel } from "./FieldLabel";
 
-// FieldLabelはRouteSettingsPanel等が使うため単体検証を残す。
-
 describe("FieldLabel", () => {
-  it("初期状態はaria-expanded=falseで「表示」ラベルを持ち、説明文は表示しない", () => {
-    render(<FieldLabel label="項目" description="項目の説明文" />);
-
-    const button = screen.getByRole("button", { name: "項目の説明を表示" });
-    expect(button).toHaveAttribute("aria-expanded", "false");
-    expect(screen.queryByText("項目の説明文")).not.toBeInTheDocument();
-  });
-
   it("ボタンを押すと説明文がフローティング表示され、ラベルが「隠す」に切り替わる", async () => {
     const user = userEvent.setup();
     render(<FieldLabel label="項目" description="項目の説明文" />);

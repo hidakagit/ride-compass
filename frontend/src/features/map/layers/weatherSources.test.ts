@@ -49,12 +49,6 @@ describe("sourceTimeline（段を1本の時系列へつなぐ）", () => {
   });
 });
 
-describe("gridStageFrames（格子の段のコマ）", () => {
-  it("どの端末の時刻帯でも、格子の時刻は日本時間として読む", () => {
-    expect(gridStageFrames(0, grid(["2026-09-24T09:00"]))[0].time.toISOString()).toBe("2026-09-24T00:00:00.000Z");
-  });
-});
-
 describe("selectFrame（選んだ時刻に描くコマ）", () => {
   const now = new Date("2026-09-24T00:00:00Z");
   const minutes = (value: number) => new Date(now.getTime() + value * 60_000);

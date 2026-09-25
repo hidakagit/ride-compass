@@ -6,16 +6,14 @@ import { cn } from "@/lib/cn";
 interface CheckboxProps {
   checked?: boolean;
   onCheckedChange?: (checked: boolean) => void;
-  disabled?: boolean;
   "aria-label"?: string;
 }
 
-export function Checkbox({ checked, onCheckedChange, disabled, ...props }: CheckboxProps) {
+export function Checkbox({ checked, onCheckedChange, ...props }: CheckboxProps) {
   return (
     <RadixCheckbox.Root
       checked={checked}
       onCheckedChange={(state) => onCheckedChange?.(state === true)}
-      disabled={disabled}
       className={cn(
         // p-0/min-h-0: globals.cssの@layer baseにあるbuttonの既定paddingはTailwindの
         // utilitiesレイヤーより弱い(層として負ける)ため通常は無視できるが、padding自体は
@@ -25,7 +23,6 @@ export function Checkbox({ checked, onCheckedChange, disabled, ...props }: Check
         // 頼らず単体で正しいサイズになるようにする。
         "flex h-[1.1rem] w-[1.1rem] min-h-0 shrink-0 items-center justify-center rounded-sm border border-[var(--color-border-strong)] bg-[var(--color-surface)] p-0",
         "data-[state=checked]:border-[var(--color-accent)] data-[state=checked]:bg-[var(--color-accent)]",
-        "disabled:cursor-default disabled:opacity-55",
       )}
       {...props}
     >

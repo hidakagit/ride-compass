@@ -9,7 +9,7 @@ import { cn } from "@/lib/cn";
 // このDialogは新規の単純なモーダル要求(ドラッグ不要な確認ダイアログ等)向けの土台。
 //
 // titleを必須propsにすることでアクセシブルな名前を型で強制する(Disclosureと
-// 同じ既存方針)。hideTitle指定時はTailwind組み込みのsr-onlyで視覚的にのみ隠す。
+// 同じ既存方針)。
 // 重なり順はglobals.cssのスケール（--z-floating-panel）。BottomSheetより上、
 // 情報ポップオーバー（--z-top-popover、Dialogの中から開く）より下。
 
@@ -17,12 +17,11 @@ export const DialogRoot = RadixDialog.Root;
 
 interface DialogContentProps {
   title: string;
-  hideTitle?: boolean;
   children: React.ReactNode;
   className?: string;
 }
 
-export function DialogContent({ title, hideTitle, children, className }: DialogContentProps) {
+export function DialogContent({ title, children, className }: DialogContentProps) {
   return (
     <RadixDialog.Portal>
       <RadixDialog.Overlay className="fixed inset-0 z-[var(--z-floating-panel)] bg-black/40" />
@@ -34,9 +33,7 @@ export function DialogContent({ title, hideTitle, children, className }: DialogC
           className,
         )}
       >
-        <RadixDialog.Title className={hideTitle ? "sr-only" : "text-[length:var(--font-size-md)] font-semibold"}>
-          {title}
-        </RadixDialog.Title>
+        <RadixDialog.Title className="text-[length:var(--font-size-md)] font-semibold">{title}</RadixDialog.Title>
         <div className="mt-3">{children}</div>
         <RadixDialog.Close
           aria-label="閉じる"
