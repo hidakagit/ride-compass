@@ -792,15 +792,16 @@ edge_idをまとめて1回・`preview_segment`が1回、いずれも逐次に呼
   frontend`routeStyleModes.ts`がこの契約に依存する）・`RouteCandidate`。
 - `aggregate_segments_into_bins`（500m区間ビニング）・`merge_axis_difficulties`・
   `merge_axis_contributions`・`merge_axis_raw_values`・`merge_material_values`・
-  `merge_material_category_shares`・`_merge_segment_bin`。**`RouteSegmentDetail`の辞書
-  フィールドは、ビンへの畳み方（`BIN_DICT_FIELD_MERGERS`）を必ず宣言する**。
+  `merge_material_category_shares`・`_merge_segment_bin`。**`RouteSegmentDetail`の
+  フィールドは、ビンへの畳み方（`BIN_FIELD_MERGERS`）を必ず宣言する**。`_merge_segment_bin`は
+  この表だけからビンを組み立て、辞書フィールドの畳み方（キーごとの距離加重平均、
+  `BIN_DICT_FIELD_MERGERS`）も、形・位置・距離のように個別に畳むものも同じ表に載る。
   ビンへ引き継げない値（平均できない分類値等）はこの器に載せず、ビニングの前に
   候補全体へ畳む（`merge_material_category_shares`）。宣言の無いフィールドは
   `domain/route.py`の読み込み時に落ちる——放っておくと、型でも例外でも現れないまま
-  APIからは「そのフィールドだけ空」に見える。母集団は値の型を問わずモデルから引く
-  （`dict[str, float]`のように値型で絞ると、`dict[str, str]`のフィールドが静かに外れる）。
-  ただし数えるのは型注釈が`dict[...]`そのもののフィールドだけで、`dict[...] | None`や
-  辞書でないフィールドは数えない——宣言が無ければ、ビンでは黙って既定値になる。
+  APIからは「そのフィールドだけ既定値（空・null・0）」に見える。母集団は型を問わずモデルの
+  全フィールドから引き、表のキーを引く（型で絞ると、`dict[...] | None`や既定値つきの
+  数値・文字のフィールドが静かに外れる）。
 - **`RouteCandidate.edge_point_offsets`は、その経路のEdgeが`geometry.coordinates`の
   どこで切り替わるか**を`edge_ids`より1件多く持つ。隣接Edgeの境界点は重複させずに連結する
   （`_concat_edge_geometries`）ため、**座標列だけからはEdgeの境目を復元できない**。
