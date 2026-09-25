@@ -3,7 +3,7 @@
 import type { CSSProperties, ReactNode } from "react";
 
 import { Checkbox } from "@/components/ui/Checkbox/Checkbox";
-import type { LegendEntry } from "@/lib/mapDisplay/legendFilter";
+import { legendSwatchBackground, type LegendEntry } from "@/lib/mapDisplay/legendFilter";
 
 interface LegendCheckboxListProps {
   legend: readonly LegendEntry[];
@@ -22,8 +22,9 @@ interface LegendCheckboxListProps {
 
 /** 色見本の見た目。大きさで意味を示す行だけ、色見本の大きさを地図の点へ合わせる。 */
 function legendSwatchStyle(entry: LegendEntry): CSSProperties {
-  if (entry.diameterPx === undefined) return { background: entry.color };
-  return { background: entry.color, width: entry.diameterPx, height: entry.diameterPx };
+  const background = legendSwatchBackground(entry);
+  if (entry.diameterPx === undefined) return { background };
+  return { background, width: entry.diameterPx, height: entry.diameterPx };
 }
 
 // 凡例をチェックボックス一覧として描画する共通部品（MapOverlayControls.tsx・

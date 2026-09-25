@@ -129,8 +129,8 @@ localStorageキーは`ridecompass:route-style-mode`）。ルート前は全道�
   `hasUnknownFallback`な材料が欠けている（または分類表に無い値を持つ）道
   （`scene/groups/axisLines.ts: buildAxisRampUnknownExpression`）が該当する。ramp軸の値の式は欠損を
   番兵（0）へ倒してあるため、その値で段を引くと評価できない道が最良の段の色になる。
-  値が無い道は「データなし／不明」の色で、**取得中**（配信値でまだ一度も値を受け取っていない間）は
-  取得中の色で塗る。
+  値が無い道は「データなし／不明」の色の破線（`mapDisplay.noDataDash`）で、**取得中**（配信値でまだ一度も
+  値を受け取っていない間）は取得中の色の実線で塗る（取得中は値が無いと決まっていない）。
 - **値が無い道は薄く、値を持つ道は濃く塗る**（濃さは源泉が配る
   `mapDisplay.road.unknownOpacity`/`knownOpacity`をそのまま使い、
   地図全体の「薄い＝対象外、濃い＝分類あり」という読み方に揃える）。
@@ -166,6 +166,10 @@ axis_display_for`が前の境界を決め、`domain/dynamic_way_values.py: map_v
 道の受け皿は`LEGEND_NO_DATA_KEY`）。**軸idを綴りへ混ぜない**——非表示にした段の保存先は前後で
 同じ鍵（軸id）のため、別の綴りにすると隠した段がルート生成で黙って戻る
 。
+
+値を持たない区間（「データなし」）はルート前の道と同じく破線で描く。モードは色の式と同じ「値が無い」の判定を
+`noDataExpression`として持ち、区間の線（役割`detailLine`）がそれで破線にする。値という考えを持たない
+「なし」は持たない。
 
 段の範囲を文字にするのは`mapColorLegend.ts: rangeStepLabel`だけ。**語は述語に合わせる**——
 境界の判定は`>= lower`・`< upper`のため、最上位帯は「以上」であって「超」ではない。

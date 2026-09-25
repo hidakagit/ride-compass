@@ -87,6 +87,7 @@ from app.domain.map_display import (  # noqa: E402
     ROAD_KNOWN_OPACITY,
     ROAD_LINE_WIDTH_PX,
     ROAD_TRACK_OFFSET_STEP_PX,
+    NO_DATA_DASH,
     ROAD_UNKNOWN_OPACITY,
     MAP_LAYER_DATA_NATURES,
     MAP_LAYER_DATA_SOURCES,
@@ -124,7 +125,12 @@ from app.domain.landcover import (  # noqa: E402
 )
 from app.services.landcover_tile_service import LANDCOVER_TILE_VERSION  # noqa: E402
 from app.domain.jma_tile_specs import effective_max_zoom  # noqa: E402
-from app.domain.material_catalog import MATERIAL_CATALOG, MISSING_SEMANTICS_DISPLAY, POPULATION_LABELS  # noqa: E402
+from app.domain.material_catalog import (  # noqa: E402
+    MATERIAL_CATALOG,
+    MISSING_SEMANTICS_DISPLAY,
+    POPULATION_LABELS,
+    display_axis_missing_semantics,
+)
 from app.domain.region import ROAD_TILE_MAX_ZOOM, ROAD_TILE_MIN_ZOOM  # noqa: E402
 from app.services.route_generator import (  # noqa: E402
     DEFAULT_MAX_ROUTES,
@@ -337,6 +343,8 @@ def main() -> None:
             "compassLabels": list(COMPASS_LABELS),
             # 地図へ常に出す出典。
             "alwaysShownAttributions": list(ALWAYS_SHOWN_ATTRIBUTIONS),
+            # 値が無い線の破線（道・評価軸・ルートで共有）。
+            "noDataDash": list(NO_DATA_DASH),
             "road": {
                 "lineWidthPx": ROAD_LINE_WIDTH_PX,
                 "trackOffsetStepPx": ROAD_TRACK_OFFSET_STEP_PX,
@@ -457,9 +465,16 @@ def main() -> None:
         # （`domain/registry.py`）だけから決まり、DBを読まない。各軸の
         # `primary_attribute_ids`は実行時の`GET /api/axis-catalog`が配るため、フロントは
         # この一覧のlabel（正式名）と突き合わせて1次↔2次の双方向導出ができる。
-        # 宣言をそのまま配る。色だけは宣言に無いので`resolved_display_axes`が決める。
+        # 宣言をそのまま配る。色だけは宣言に無いので`resolved_display_axes`が決め、値が欠けたときの意味は
+        # その値を載せる材料の宣言から引く（地図の凡例が「不明」を出すかを決める）。
         [
-            {**attr.model_dump(exclude={"display_axes"}), "display_axes": resolved_display_axes(attr)}
+            {
+                **attr.model_dump(exclude={"display_axes"}),
+                "display_axes": [
+                    {**axis, "missing_semantics": display_axis_missing_semantics(attr, axis["property"])}
+                    for axis in resolved_display_axes(attr)
+                ],
+            }
             for attr in all_primary_attributes()
         ],
     )

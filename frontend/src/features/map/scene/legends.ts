@@ -13,7 +13,7 @@ import palette from "@/types/generated/palette.json";
 import weatherScales from "@/types/generated/weather-scales.json";
 
 import { POINT_LAYERS, pointAxisKey, pointCategoryRadiusPx, type PointAxis } from "@/features/map/scene/groups/points";
-import { ROAD_TRACKS, roadTrackAxis } from "@/features/map/scene/groups/roadLines";
+import { ROAD_OTHER_KEY, ROAD_TRACKS, roadTrackAxis, roadTrackHasMissing } from "@/features/map/scene/groups/roadLines";
 
 /** 凡例1本ぶん。1つのチップが複数の軸を持つことがある（事故は当事者と重大度）。 */
 type SceneLegendAxis = {
@@ -26,10 +26,16 @@ type SceneLegendAxis = {
   readonly entries: readonly LegendEntry[];
 };
 
-/** 分類に当てはまらないものの受け皿。**地図も同じ扱い**（消さずに薄く出す）。 */
-const UNKNOWN_ENTRY: LegendEntry = {
+/** 分類に当てはまらない値の道。値はあるので実線で出す。タグの不在も確定した値として載る属性（トンネル等）では、
+ * それが「該当しない」ことそのものなので呼び方を変える。 */
+function otherEntry(hasMissing: boolean): LegendEntry {
+  return { key: ROAD_OTHER_KEY, label: hasMissing ? "その他" : "該当なし", color: COLOR_UNKNOWN };
+}
+
+/** タグが無い道の受け皿。**地図も同じ扱い**（消さずに薄い破線で出す）。 */
+const NO_DATA_ENTRY: LegendEntry = {
   key: LEGEND_NO_DATA_KEY,
-  label: "不明・他",
+  label: "不明",
   color: COLOR_UNKNOWN,
   isFallback: true,
 };
@@ -47,7 +53,8 @@ export function roadLegendAxes(): readonly SceneLegendAxis[] {
         color: category.color,
         line: true as const,
       })),
-      { ...UNKNOWN_ENTRY, line: true as const },
+      { ...otherEntry(roadTrackHasMissing(track)), line: true as const },
+      ...(roadTrackHasMissing(track) ? [{ ...NO_DATA_ENTRY, line: true as const }] : []),
     ],
   }));
 }

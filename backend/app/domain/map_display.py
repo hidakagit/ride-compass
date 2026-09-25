@@ -226,6 +226,10 @@ ROAD_UNKNOWN_OPACITY = 0.15
 #: 詳細を見ている1本の強調。元の線が上に乗ったままになる太さにする。
 ROAD_INSPECTED_WIDTH_PX = 8
 
+#: 値が無い（不明・データなし）線の破線の刻み（線の太さを1とする長さ）。道の線・評価軸の線・ルートの線で共有する。
+#: 乗り換え帯の破線（`ROUTE_SPLICE_DASH`）より細かく刻み、操作の状態と見分けられるようにする。
+NO_DATA_DASH: tuple[float, ...] = (1, 2)
+
 #: 点。重大度は色ではなく大きさで示す（当事者の色と取り合わないため）。
 POINT_RADIUS_PX = 4
 POINT_FATAL_RADIUS_PX = 6

@@ -12,7 +12,7 @@ import palette from "@/types/generated/palette.json";
 import type { MapSceneFeatureStates, MapSceneFeatureStateValue } from "@/features/map/scene/mapScene";
 import { declareGroup, type SceneLayerEntry, type SceneSourceEntry } from "@/features/map/scene/mapSceneGroups";
 import type { RampAxis } from "@/lib/mapDisplay/axisLayers";
-import { COLOR_UNKNOWN } from "@/features/map/scene/sceneBuilders";
+import { COLOR_UNKNOWN, noDataDashExpression } from "@/features/map/scene/sceneBuilders";
 import { LEGEND_NO_DATA_KEY } from "@/lib/mapDisplay/mapColorLegend";
 
 import { ROAD_LINE_SOURCE_ID, ROAD_TRACKS } from "./roadLines";
@@ -113,6 +113,7 @@ export const axisLineGroup = declareGroup<AxisLineState>((state) => {
 
   const layers: readonly SceneLayerEntry[] = state.axes.map((axis) => {
     const missing = missingCondition(axis.axisId, axis.value);
+    const loading = axis.value.kind === "delivered" && axis.value.loading;
     return {
       role: axis.axisId,
       tier: "lensLine",
@@ -125,9 +126,11 @@ export const axisLineGroup = declareGroup<AxisLineState>((state) => {
         // 取得中は薄くしない——薄くすると「まだ来ていない」と「対象外」が区別できない。
         "line-opacity": axis.underlay
           ? mapDisplay.road.unknownOpacity
-          : (axis.value.kind === "delivered" && axis.value.loading) || missing === null
+          : loading || missing === null
             ? mapDisplay.road.knownOpacity
             : ["case", missing, mapDisplay.road.unknownOpacity, mapDisplay.road.knownOpacity],
+        // 取得中は破線にしない——まだ来ていないだけで、値が無いとは決まっていない。下敷きは全体を薄く敷くだけ。
+        ...(axis.underlay || loading || missing === null ? {} : { "line-dasharray": noDataDashExpression(missing) }),
       },
       visible: axis.visible,
     };

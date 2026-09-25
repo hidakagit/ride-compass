@@ -68,7 +68,8 @@ export const primaryAttributes = [
             ],
             "color": "#0d959d"
           }
-        ]
+        ],
+        "missing_semantics": "unknown"
       }
     ]
   },
@@ -163,7 +164,8 @@ export const primaryAttributes = [
             ],
             "color": "#8a7b4c"
           }
-        ]
+        ],
+        "missing_semantics": "unknown"
       }
     ]
   },
@@ -200,7 +202,8 @@ export const primaryAttributes = [
             ],
             "color": "#8e729e"
           }
-        ]
+        ],
+        "missing_semantics": "definite"
       }
     ]
   },
@@ -223,7 +226,8 @@ export const primaryAttributes = [
             ],
             "color": "#a66e5b"
           }
-        ]
+        ],
+        "missing_semantics": "definite"
       }
     ]
   },
@@ -302,7 +306,8 @@ export const primaryAttributes = [
             ],
             "color": "#7878a8"
           }
-        ]
+        ],
+        "missing_semantics": null
       }
     ]
   },
@@ -333,7 +338,8 @@ export const primaryAttributes = [
             ],
             "color": "#97764e"
           }
-        ]
+        ],
+        "missing_semantics": null
       },
       {
         "key": "severity",
@@ -354,7 +360,8 @@ export const primaryAttributes = [
               false
             ]
           }
-        ]
+        ],
+        "missing_semantics": null
       }
     ]
   },
@@ -431,7 +438,8 @@ export const primaryAttributes = [
             ],
             "color": "#25879d"
           }
-        ]
+        ],
+        "missing_semantics": null
       }
     ]
   }

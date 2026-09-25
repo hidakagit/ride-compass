@@ -1177,3 +1177,13 @@ def material_coverage_exclusions() -> dict[str, str]:
         for material_id, spec in MATERIAL_CATALOG.items()
         if isinstance(spec.coverage, CoverageExcluded)
     }
+
+
+def display_axis_missing_semantics(attr: PrimaryAttributeSpec, tile_property: str) -> MissingSemantics | None:
+    """一次属性の表示の軸（タイルのプロパティ`tile_property`）の値が欠けたときの意味。その値をタイルへ載せる材料の
+    宣言から引く——`unknown`なら値の無い道がタイルに現れうる（地図は「不明」として破線で出す）、`definite`なら
+    タグの不在も確定した値として載る。載せる材料が無ければNone。"""
+    for spec in MATERIAL_CATALOG.values():
+        if spec.primary_attribute is attr and spec.tile_property == tile_property:
+            return spec.coverage.missing_semantics
+    return None

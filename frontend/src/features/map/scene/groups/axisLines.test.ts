@@ -82,6 +82,18 @@ function evaluate(expression: unknown, properties: Record<string, unknown>, stat
   return compiled.value.evaluateWithoutErrorHandling(GLOBALS, { type: 2, properties } as never, state);
 }
 
+describe("レンズの線の線種", () => {
+  it("評価できない道だけを破線にし、値のある道は実線のまま", () => {
+    const dash = layerFor(TILE_VALUE).paint?.["line-dasharray"];
+    expect(evaluate(dash, {})).toEqual([...mapDisplay.noDataDash]);
+    expect(evaluate(dash, { v: 15 })).toEqual([1, 0]);
+  });
+
+  it("取得中は破線にしない（まだ来ていないだけで、値が無いとは決まっていない）", () => {
+    expect(layerFor({ kind: "delivered", values: new Map(), loading: true }).paint?.["line-dasharray"]).toBeUndefined();
+  });
+});
+
 describe("タイルの材料から塗る軸", () => {
   it("評価できない道は段の色ではなく「不明」の色で、薄く塗る", () => {
     // 欠損を番兵（0）へ倒した値で段を引くと、評価できない道が最良の段の色になる。

@@ -27,6 +27,8 @@ export interface RouteStyleMode {
   legend: LegendEntry[];
   /** MapLibreのline-colorに渡すスタイル式 */
   colorExpression: unknown[];
+  /** 値が無い区間で真になる式（区間の線を破線にする）。値という考えを持たないモード（「なし」）は持たない。 */
+  noDataExpression?: unknown[];
 }
 
 // 段（凡例）から色の式と絞り込み付きの凡例を組む。`boundaries[i]`は段iとi+1の境界。区間の値にはnullが明示的に入り、
@@ -36,7 +38,7 @@ function buildSteppedMode(
   valueExpression: unknown[],
   steps: { key: string; label: string; color: string }[],
   boundaries: readonly number[],
-): Pick<RouteStyleMode, "legend" | "colorExpression"> {
+): Pick<RouteStyleMode, "legend" | "colorExpression" | "noDataExpression"> {
   const value: unknown[] = ["to-number", valueExpression];
   const noData: unknown[] = ["==", valueExpression, null];
   const hasData: unknown[] = ["!=", valueExpression, null];
@@ -55,6 +57,7 @@ function buildSteppedMode(
   return {
     legend,
     colorExpression: ["case", noData, COLOR_NO_DATA, colorExpression],
+    noDataExpression: noData,
   };
 }
 

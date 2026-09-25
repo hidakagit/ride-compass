@@ -144,6 +144,9 @@ function routeStateFrom(props: SceneWiringProps): RouteState {
       };
     }),
     segmentColor: (mode?.colorExpression ?? LENS_NEUTRAL_COLOR) as maplibregl.ExpressionSpecification,
+    ...(mode?.noDataExpression === undefined
+      ? {}
+      : { segmentNoData: mode.noDataExpression as maplibregl.ExpressionSpecification }),
     ...(hiddenBandFilter === null ? {} : { hiddenBandFilter }),
     spliceBands: bands.map((band) => ({
       path: band.coordinates as unknown as RoutePath,

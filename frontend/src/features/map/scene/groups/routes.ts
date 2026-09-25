@@ -10,7 +10,7 @@ import type { ExpressionSpecification, FilterSpecification } from "maplibre-gl";
 import type { Feature, FeatureCollection, LineString } from "geojson";
 
 import { declareGroup, type SceneLayerEntry, type SceneSourceEntry } from "@/features/map/scene/mapSceneGroups";
-import { zoomScaleExpression, sceneSourceId } from "@/features/map/scene/sceneBuilders";
+import { noDataDashExpression, zoomScaleExpression, sceneSourceId } from "@/features/map/scene/sceneBuilders";
 
 /** [経度, 緯度] の並び。 */
 type RoutePoint = readonly [number, number];
@@ -41,6 +41,8 @@ export type RouteState = {
   readonly segments: readonly Shape[];
   /** 区間の色。段の切り方・配色は軸カタログが決めるため、出来上がった式のまま受け取る。 */
   readonly segmentColor: string | ExpressionSpecification;
+  /** 値が無い区間で真になる式。その区間を破線にする。値という考えを持たない塗り方（レンズ「なし」）では無い。 */
+  readonly segmentNoData?: ExpressionSpecification;
   /** 凡例で隠した段を落とす絞り込み。色分け線・縁取り・当たり判定の3枚へ同じものを当てる。 */
   readonly hiddenBandFilter?: FilterSpecification;
   readonly spliceBands: readonly Shape[];
@@ -213,7 +215,11 @@ export const routeGroup = declareGroup<RouteState>((state) => {
       source: SOURCE.segments,
       type: "line",
       visible: state.visible,
-      paint: { "line-color": state.segmentColor, "line-width": ROUTE.lineWidthsPx.detail },
+      paint: {
+        "line-color": state.segmentColor,
+        "line-width": ROUTE.lineWidthsPx.detail,
+        ...(state.segmentNoData === undefined ? {} : { "line-dasharray": noDataDashExpression(state.segmentNoData) }),
+      },
     }),
     withBandFilter({
       role: "detailHit",

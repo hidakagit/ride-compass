@@ -518,6 +518,10 @@ export const mapDisplay = {
     "交通事故統計情報（警察庁）を加工して作成",
     "土地被覆: <a href=\"https://livingatlas.arcgis.com/landcover/\" target=\"_blank\" rel=\"noreferrer\">Esri, Impact Observatory, Microsoft</a> (CC BY 4.0)"
   ],
+  "noDataDash": [
+    1,
+    2
+  ],
   "road": {
     "lineWidthPx": 3,
     "trackOffsetStepPx": 2,

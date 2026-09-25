@@ -16,6 +16,7 @@ from typing import get_args
 import pytest
 
 from app.domain.display_palette import SEMANTIC_COLORS, resolved_display_axes
+from app.domain.material_catalog import display_axis_missing_semantics
 from app.domain.material_catalog import PRIMARY_ATTRIBUTES
 from app.domain.traffic import STOP_POI_KINDS, SupplyPoiKind
 from app.domain.road import BAD_OSM_SURFACE_TAGS, GOOD_OSM_SURFACE_TAGS
@@ -167,3 +168,12 @@ def test_補給の行は種別を過不足なく覆う() -> None:
 def test_地図へ出す属性はタイルの系統を持つ(attr) -> None:
     """持たないと、画面がどのソースから読むかを自分で決めることになる。"""
     assert attr.tile_kind is not None, f"{attr.attr_id} に tile_kind が無い"
+
+
+def test_タイルに載せる線の軸は値が欠けたときの意味を持つ() -> None:
+    """地図は、値の無い道が現れうる軸（`unknown`）にだけ「不明」の行と破線を出す。意味が引けない軸は凡例を組めない。"""
+    lines = [attr for attr in DISPLAYED if attr.geometry == "line" and attr.tile_kind is not None]
+    assert lines, "タイルに載せる線の一次属性が1つも無い"
+    for attr in lines:
+        for axis in attr.display_axes:
+            assert display_axis_missing_semantics(attr, axis.property) is not None, f"{attr.attr_id}:{axis.key}"

@@ -92,3 +92,13 @@ describe("routeStyleModes", () => {
     expect(modes.map((m) => m.id)).toEqual(["difficulty", "none"]);
   });
 });
+
+// 値が無い区間を破線にするには、色の式と同じ「値が無い」の判定が要る。値という考えを持たない「なし」だけが持たない。
+describe("値が無い区間の判定", () => {
+  it("凡例を持つモードはすべて判定の式を持ち、「なし」は持たない", () => {
+    const modes = routeStyleModesFromCatalogAxes([signedAxis, difficultyAxis, categoricalAxis]);
+    for (const mode of modes) {
+      expect(mode.noDataExpression !== undefined).toBe(mode.legend.length > 0);
+    }
+  });
+});

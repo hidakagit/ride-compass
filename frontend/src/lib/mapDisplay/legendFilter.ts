@@ -13,10 +13,15 @@ export interface LegendEntry {
   /** この地物がカテゴリに属するときtrueになるMapLibre式（凡例フィルタ用の述語）。
    * 絞り込みを自分で持つレイヤー（scene のグループが宣言するもの）は持たない。 */
   filter?: unknown[];
-  /** trueなら「データ欠損・対象外」の受け皿カテゴリ（不明・他／対象外）であり、他の
-   * カテゴリのような実際の判定値ではないことを示す。凡例の描画側（▶パネル・
-   * MapOverlayControls）が区切り線＋弱調表示にすることで、数値/順序段階と受け皿カテゴリを
-   * 視覚的に分離する（凡例が「1・2・3・4・不明」の5項目に見え「1〜5評価」と
-   * 誤解されることを避ける）。 */
+  /** trueなら値が無いものの受け皿（不明・データなし）であり、他のカテゴリのような実際の判定値ではないことを示す。
+   * 凡例の描画側（▶パネル・MapOverlayControls）が区切り線＋弱調表示にすることで、数値/順序段階と受け皿を
+   * 視覚的に分離する（凡例が「1・2・3・4・不明」の5項目に見え「1〜5評価」と誤解されることを避ける）。
+   * 色見本は地図の破線と同じく途切れた形にする（`legendSwatchBackground`）。 */
   isFallback?: boolean;
+}
+
+/** 凡例の色見本の塗り。値が無い行は、地図の破線と同じく途切れた見本にする。 */
+export function legendSwatchBackground(entry: LegendEntry): string {
+  if (entry.isFallback !== true) return entry.color;
+  return `repeating-linear-gradient(90deg, ${entry.color} 0 3px, transparent 3px 5px)`;
 }

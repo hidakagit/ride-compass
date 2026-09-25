@@ -3,6 +3,9 @@
 import { describe, expect, it } from "vitest";
 
 import { pointGroup } from "@/features/map/scene/groups/points";
+import { LEGEND_NO_DATA_KEY } from "@/lib/mapDisplay/mapColorLegend";
+
+import { ROAD_OTHER_KEY, ROAD_TRACKS, roadTrackAxis } from "./groups/roadLines";
 import { pointLegendAxes, roadLegendAxes } from "./legends";
 
 const TILES = {
@@ -62,4 +65,24 @@ describe("凡例の見本の形", () => {
         .some((entry) => entry.line),
     ).toBe(false);
   });
+});
+
+// 「不明」（タグが無い）と、分類の外の値（その他・該当なし）は別の行。値が無いのは「不明」だけで、
+// 値の無い道がタイルに現れうる属性だけが「不明」の行を持つ。
+describe("道の線の凡例の受け皿", () => {
+  it.each(ROAD_TRACKS.map((track) => [track.attr_id, track] as const))(
+    "%s: 分類の後に分類の外の値の行と（値の無い道が現れうるなら）「不明」が並び、受け皿は「不明」だけで、鍵は重ならない",
+    (attrId, track) => {
+      const axis = roadLegendAxes().find((candidate) => candidate.axisId === attrId);
+      if (axis === undefined) throw new Error(`${attrId} の凡例が無い`);
+      const keys = axis.entries.map((entry) => entry.key);
+      const tail =
+        roadTrackAxis(track).missing_semantics === "unknown" ? [ROAD_OTHER_KEY, LEGEND_NO_DATA_KEY] : [ROAD_OTHER_KEY];
+      expect(keys.slice(-tail.length)).toEqual(tail);
+      expect(new Set(keys).size).toBe(keys.length);
+      expect(axis.entries.filter((entry) => entry.isFallback).map((entry) => entry.key)).toEqual(
+        roadTrackAxis(track).missing_semantics === "unknown" ? [LEGEND_NO_DATA_KEY] : [],
+      );
+    },
+  );
 });

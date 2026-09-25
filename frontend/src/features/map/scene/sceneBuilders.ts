@@ -6,6 +6,7 @@
 import type { LayerSpecification } from "maplibre-gl";
 
 import type { MapSceneSourceContent } from "./mapScene";
+import { mapDisplay } from "@/types/generated/mapDisplay";
 import palette from "@/types/generated/palette.json";
 import type { LegendEntry } from "@/lib/mapDisplay/legendFilter";
 
@@ -102,6 +103,12 @@ export function tilesContent(tiles: readonly string[]): MapSceneSourceContent {
 
 /** 「不明」（評価できない・分類を持たない）を塗る色。地図全体で同じ1色を使う。 */
 export const COLOR_UNKNOWN = palette.semantic.no_data;
+
+/** 値が無い線を破線にする式。`missing`が真の地物だけが破線で、偽なら実線のまま。**線種が運ぶのは操作の状態と
+ * 値が無いことだけ**——分類は色が運ぶ。値が無いことはどの属性・軸でも同じ意味なので、線を重ねても混ざらない。 */
+export function noDataDashExpression(missing: unknown): unknown[] {
+  return ["case", missing, ["literal", [...mapDisplay.noDataDash]], ["literal", [1, 0]]];
+}
 
 // 凡例で非表示にしたカテゴリを除外するMapLibreフィルタ式を組み立てる。
 // 全カテゴリ表示中はnull（フィルタ無し）。未知のキーは無視する（モード切替や定義変更で

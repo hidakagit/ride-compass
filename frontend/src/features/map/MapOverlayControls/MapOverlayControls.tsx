@@ -18,7 +18,7 @@ import {
   type MapLayerId,
   type MapOverlayGroup,
 } from "@/features/map/layers/mapLayers";
-import type { LegendEntry } from "@/lib/mapDisplay/legendFilter";
+import { legendSwatchBackground, type LegendEntry } from "@/lib/mapDisplay/legendFilter";
 import LegendCheckboxList from "@/features/map/LegendCheckboxList/LegendCheckboxList";
 import { Checkbox } from "@/components/ui/Checkbox/Checkbox";
 import InfoPopover from "@/components/ui/InfoPopover/InfoPopover";
@@ -143,7 +143,7 @@ function renderSwatch(entry: LegendEntry) {
       aria-hidden="true"
       className="inline-flex min-h-3 min-w-[22px] flex-shrink-0 items-center justify-center rounded-[3px] bg-[var(--swatch-ground,transparent)] px-[3px] py-[2px] shadow-[0_0_0_1px_var(--color-border-strong)]"
     >
-      <span className={mark} style={{ background: entry.color, ...size }} />
+      <span className={mark} style={{ background: legendSwatchBackground(entry), ...size }} />
     </span>
   );
 }

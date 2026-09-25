@@ -3,7 +3,7 @@
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/Popover/Popover";
 import { useState } from "react";
 import LegendCheckboxList from "@/features/map/LegendCheckboxList/LegendCheckboxList";
-import type { LegendEntry } from "@/lib/mapDisplay/legendFilter";
+import { legendSwatchBackground, type LegendEntry } from "@/lib/mapDisplay/legendFilter";
 import { LAYER_DATA_STATUS_LABELS, type LayerDataStatus } from "@/features/map/layers/mapLayers";
 import {
   FIXED_LENS_LABELS,
@@ -132,7 +132,7 @@ export default function LensControl({
                     <span
                       key={entry.key}
                       className="inline-block h-1.5 w-2.5 flex-shrink-0 rounded-[1px]"
-                      style={{ background: entry.color }}
+                      style={{ background: legendSwatchBackground(entry) }}
                       title={entry.label}
                     />
                   ))}
