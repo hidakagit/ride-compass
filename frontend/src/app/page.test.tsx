@@ -825,7 +825,7 @@ describe("生成の進み方と、結果の置き場", () => {
 });
 
 describe("候補の一覧", () => {
-  it("行には順位・距離に加え、最も早く着く候補にその所要時間と「最速」の印、他の候補にそこから余計にかかる時間を添える", async () => {
+  it("候補は所要時間の短い順に並び、行には順位・距離、最も早く着く候補にその所要時間と「最速」の印、他の候補に余計にかかる時間を添える", async () => {
     respond([
       route("route-0", { distance_km: 10, estimated_duration_seconds: 3600 }),
       route("route-1", { distance_km: 12.34, estimated_duration_seconds: 3900 }),
@@ -833,12 +833,13 @@ describe("候補の一覧", () => {
     ]);
     const user = renderPage();
     await generate(user);
+    // 並びは所要時間の短い順（backendの並びとは別）。番号は並びどおりに振り直す。
     const [first, second, third] = resultTabs();
     expect(first).toHaveTextContent(/^1 10\.0km1時間0分—$/);
     expect(within(first).getByRole("img", { name: "最速" })).toBeInTheDocument();
     expect(within(second).queryByRole("img", { name: "最速" })).not.toBeInTheDocument();
-    expect(second).toHaveTextContent(/^2 12\.3km\+5分—$/);
-    expect(third).toHaveTextContent(/^3 8\.0km—$/);
+    expect(second).toHaveTextContent(/^2 8\.0km—$/);
+    expect(third).toHaveTextContent(/^3 12\.3km\+5分—$/);
   });
 
   it("経由地を通るルートは順位の代わりに名前を出す", async () => {

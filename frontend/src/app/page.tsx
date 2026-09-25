@@ -34,7 +34,6 @@ import RouteSplicePanel from "@/features/route/RouteSplicePanel/RouteSplicePanel
 import { haversineKm } from "@/lib/geoDistance";
 import {
   buildSplicedShape,
-  insertByDifficulty,
   stretchAlternativeGroups,
   stretchCoordinateRange,
   type StretchAlternative,
@@ -67,6 +66,7 @@ import {
   isSplicedRoute,
   fastestDurationSeconds,
   fastestRouteId,
+  orderByDuration,
 } from "@/features/route/routeTabLabel";
 import ComparisonPanel from "@/features/route/ComparisonPanel/ComparisonPanel";
 import DifficultyProfile from "@/features/route/DifficultyProfile/DifficultyProfile";
@@ -677,7 +677,7 @@ export default function Home() {
       // 生成した候補と同じ並びの規約へ入れる（見分けはタブの名前）。候補数の上限では切り詰めない（上限は生成が何本
       // 探すかで、作った組み合わせを押し出す理由が無い）。
       const unique = { ...spliced, id: `${SPLICED_ROUTE_ID_PREFIX}-${routes.length}` };
-      if (!sameRoute) setRoutes(insertByDifficulty(routes, unique));
+      if (!sameRoute) setRoutes(orderByDuration([...routes, unique]));
       setSelectedRouteId(sameRoute ? sameRoute.id : unique.id);
       setSelectedRouteSegment(null);
       setSplice(null);
@@ -705,8 +705,10 @@ export default function Home() {
       if (conditions.corrected_destination) {
         setDestination(conditions.corrected_destination);
       }
-      setRoutes(candidates);
-      setSelectedRouteId(candidates[0]?.id ?? null);
+      // 一覧は所要時間の短い順。最初に選ぶのも先頭（最も早く着く候補）。
+      const ordered = orderByDuration(candidates);
+      setRoutes(ordered);
+      setSelectedRouteId(ordered[0]?.id ?? null);
       // 比較を開いたまま生成したら新しい候補へ戻す（比較表が残ると、生成が効かなかったように見える）。
       setComparisonTabActive(false);
       // 候補が入れ替わると、乗り換えの編集も押していた区間も意味を失う。
@@ -727,7 +729,8 @@ export default function Home() {
         message = noCandidatesReason ?? "条件に合うルート候補が見つかりませんでした。距離を変えて試してください。";
         notifyRouteOutcome();
       } else if (researchEnabled) {
-        // 研究モードの生成だけを実験スロットへ残す。代表は難易度が最小の候補（後で選び直しても変えない）。
+        // 研究モードの生成だけを実験スロットへ残す。代表は難易度が最小の候補（backendの並びの先頭。一覧の並びとは別で、
+        // 後で選び直しても変えない）。
         setExperimentSlots((prev) => {
           const next: ExperimentSlot = {
             id: `slot-${conditions.generated_at}-${Math.random().toString(36).slice(2, 8)}`,

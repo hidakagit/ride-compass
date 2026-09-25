@@ -80,40 +80,6 @@ function pairedStretches(displayed: readonly string[], target: readonly string[]
   return onDisplayed.map((stretch, index) => ({ displayed: stretch, target: onTarget[index] }));
 }
 
-/** 並び順の判定に使う最小限の候補の形。 */
-interface OrderableCandidate {
-  overall_difficulty: number | null;
-  is_fastest: boolean;
-}
-
-/**
- * 合成した候補を、生成候補と同じ並び順の規約へ乗せて差し込む。
- *
- * 規約はbackendが候補一覧を返すときのもの（route_generator.py:
- * `overall_difficulty`昇順［小数1桁］、算出不能は末尾、基準線（時間最短）だけは
- * 先頭固定）。**合成も素の結果と区別しない**ため、末尾へ足さず同じ位置づけで並べる。
- *
- * backendは合成結果を1件しか返さず他候補を知らないため、差し込む位置はここで決めるしかない
- * ——規約が2箇所にある状態なので、片方を変えたらもう片方も変える。
- * `max_routes`による切り詰めはしない（上限は「生成が何本探すか」の指定で、利用者が
- * 作った組み合わせを押し出す理由が無い）。
- */
-export function insertByDifficulty<T extends OrderableCandidate>(routes: readonly T[], spliced: T): T[] {
-  const rank = (route: OrderableCandidate) =>
-    route.overall_difficulty === null ? Number.POSITIVE_INFINITY : Math.round(route.overall_difficulty * 10) / 10;
-  const splicedRank = rank(spliced);
-  // 先頭固定の基準線は難易度順の外にあるため、その後ろから位置を探す
-  const pinned = routes.length > 0 && routes[0].is_fastest ? 1 : 0;
-  let at = routes.length;
-  for (let index = pinned; index < routes.length; index += 1) {
-    if (rank(routes[index]) > splicedRank) {
-      at = index;
-      break;
-    }
-  }
-  return [...routes.slice(0, at), spliced, ...routes.slice(at)];
-}
-
 /** 区間を割るために要る経路の形（`RouteCandidate`の一部。lib側は候補の型に依存しない）。 */
 interface RouteGeometryShape {
   coordinates: readonly GeoJSON.Position[];

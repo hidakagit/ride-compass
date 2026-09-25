@@ -7,6 +7,7 @@ import {
   fastestDurationSeconds,
   fastestRouteId,
   isSplicedRoute,
+  orderByDuration,
 } from "./routeTabLabel";
 
 const route = (id: string, seconds?: number | null) => ({ id, estimated_duration_seconds: seconds });
@@ -57,5 +58,21 @@ describe("extraDurationLabel（基準線より余計にかかる分）", () => {
     expect(extraDurationLabel(route("x", 900), null)).toBeNull();
     expect(extraDurationLabel(route("x", null), 600)).toBeNull();
     expect(extraDurationLabel(route("x"), 600)).toBeNull();
+  });
+});
+
+describe("orderByDuration（候補一覧の並び）", () => {
+  const candidate = (id: string, seconds: number | null) => ({ id, estimated_duration_seconds: seconds });
+  const ids = (routes: readonly { id: string }[]) => routes.map((route) => route.id);
+
+  it("所要時間の短い順に並べ、所要時間の無い候補は末尾に置く", () => {
+    const routes = [candidate("a", 3600), candidate("n", null), candidate("b", 3000), candidate("c", 4200)];
+    expect(ids(orderByDuration(routes))).toEqual(["b", "a", "c", "n"]);
+  });
+
+  it("同じ所要時間なら受け取った並び（総合難易度の昇順）を保ち、元の一覧は書き換えない", () => {
+    const routes = [candidate("easy", 3600), candidate("hard", 3600), candidate("fast", 3000)];
+    expect(ids(orderByDuration(routes))).toEqual(["fast", "easy", "hard"]);
+    expect(ids(routes)).toEqual(["easy", "hard", "fast"]);
   });
 });

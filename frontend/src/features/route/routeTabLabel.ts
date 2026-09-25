@@ -63,3 +63,18 @@ export function extraDurationLabel(
   if (extraMinutes < 1) return null;
   return `+${extraMinutes}分`;
 }
+
+/**
+ * 候補一覧の並び: 所要時間の短い順。所要時間の無い候補は末尾。同じ所要時間は受け取った並び（backendの総合難易度の
+ * 昇順）を保つので、同着なら易しい方が先。**生成の結果も、区間を乗り換えて作った候補も、同じこの並びへ入れる。**
+ */
+export function orderByDuration<T extends { estimated_duration_seconds?: number | null }>(routes: readonly T[]): T[] {
+  const secondsOf = (route: T) => {
+    const seconds = route.estimated_duration_seconds;
+    return seconds === null || seconds === undefined || !Number.isFinite(seconds) ? Number.POSITIVE_INFINITY : seconds;
+  };
+  return routes
+    .map((route, index) => ({ route, index }))
+    .sort((a, b) => secondsOf(a.route) - secondsOf(b.route) || a.index - b.index)
+    .map(({ route }) => route);
+}

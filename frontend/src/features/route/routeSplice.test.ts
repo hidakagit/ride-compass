@@ -1,7 +1,7 @@
 // @vitest-environment node
 import { describe, expect, it } from "vitest";
 
-import { buildSplicedShape, insertByDifficulty, stretchAlternativeGroups, stretchCoordinateRange } from "./routeSplice";
+import { buildSplicedShape, stretchAlternativeGroups, stretchCoordinateRange } from "./routeSplice";
 
 // 小さな道の網。地点は南北に約1.1km（緯度0.01度）おき、寄り道の地点は東へずらす。
 // 経路は地点の並びで書き、Edgeは隣り合う2地点を結ぶ1本（座標は両端の2点）。
@@ -39,40 +39,6 @@ describe("stretchCoordinateRange（区間が座標列のどこにあたるか）
     expect(stretchCoordinateRange([0, 3, 5, 9], { start: 1, end: 4 })).toBeNull();
     expect(stretchCoordinateRange([0, 5, 3], { start: 1, end: 2 })).toBeNull();
     expect(stretchCoordinateRange([], { start: 0, end: 0 })).toBeNull();
-  });
-});
-
-describe("insertByDifficulty（合成した候補を、生成候補と同じ並びへ差し込む）", () => {
-  const candidate = (id: string, overall_difficulty: number | null, is_fastest = false) => ({
-    id,
-    overall_difficulty,
-    is_fastest,
-  });
-  const ids = (routes: { id: string }[]) => routes.map((route) => route.id);
-
-  it("総合難易度の昇順の位置へ入る。比べる値は小数1桁に丸め、同じ値なら後ろへ入る", () => {
-    const routes = [candidate("a", 10), candidate("b", 20), candidate("c", 30)];
-    expect(ids(insertByDifficulty(routes, candidate("s", 25)))).toEqual(["a", "b", "s", "c"]);
-    expect(ids(insertByDifficulty(routes, candidate("s", 20.04)))).toEqual(["a", "b", "s", "c"]);
-    expect(ids(insertByDifficulty(routes, candidate("s", 5)))).toEqual(["s", "a", "b", "c"]);
-  });
-
-  it("先頭の基準線（時間最短）の前へは入らない", () => {
-    const routes = [candidate("fast", 50, true), candidate("a", 10), candidate("b", 20)];
-    expect(ids(insertByDifficulty(routes, candidate("s", 1)))).toEqual(["fast", "s", "a", "b"]);
-  });
-
-  it("総合難易度が出せない候補は末尾に並ぶ", () => {
-    const routes = [candidate("a", 10), candidate("n", null)];
-    expect(ids(insertByDifficulty(routes, candidate("s", 99)))).toEqual(["a", "s", "n"]);
-    expect(ids(insertByDifficulty(routes, candidate("s", null)))).toEqual(["a", "n", "s"]);
-  });
-
-  it("件数で切り詰めず、元の一覧は書き換えない", () => {
-    const routes = [candidate("a", 10)];
-    expect(insertByDifficulty([], candidate("s", 1))).toHaveLength(1);
-    expect(insertByDifficulty(routes, candidate("s", 20))).toHaveLength(2);
-    expect(ids(routes)).toEqual(["a"]);
   });
 });
 

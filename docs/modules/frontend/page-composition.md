@@ -19,7 +19,7 @@
 | features/map/view | `useMapView.ts`（地図の見え方の状態と、地図・操作部品へ渡す値）・`mapLook.ts`（地図へ渡す見え方の値の型）・`lens.ts`（レンズから塗る軸・凡例・選択肢を導く）・`overlayChips.ts`（地図上チップの状態とレイヤー表示の保存形式）・`legendFilters.ts`（凡例で隠した行の保存先の読み書き） |
 | features/map/MapView | `useLayerDataStatus.ts`（`layerDataStatus` stateの実装） |
 | lib | `apiBaseUrl.ts`・`apiPath.ts`（backendのAPIのパスをOpenAPIの宣言と型で照合して作る）・`apiError.ts`・`backendInternalUrl.ts`・`fetchJson.ts`・`apiTimeouts.ts`（APIリクエストのタイムアウト。呼び出しの性質ごとの名前付き定数）・`safeStorage.ts`（localStorageの読み書きで例外を外へ出さない薄いラッパ）・`paletteCssVariables.ts`（地図に塗る色と同じ色をUIにも出す箇所へ、配信された値をCSS変数として流す。`layout.tsx`がサーバー側で`:root`へ入れる。CSSが値を持つのはライト/ダークで2値を持つものだけ） |
-| features/route | `routeApi.ts`（ルート生成・プレビューAPI）・`formatDuration.ts`（秒を「1時間42分」の形にする）・`generationRequest.ts`（生成リクエストのpayloadと`conditionsDirty`の比較キーを同じ入力から導出する純関数）・`routeSplice.ts`（候補どうしが別々の道を通る区間を`edge_ids`の集合演算で求め、表示中の側と相手側を対応づけ、選んだ区間を差し替えた経路を組み立て、合成結果を生成候補と同じ並び順の規約［`overall_difficulty`昇順、基準線（所要時間が最小の候補、backendの`is_fastest`）だけは先頭固定］へ差し込む純関数。差し替えた経路の評価はbackendが行うため計算式は持たない。**並び順の規約はbackendにもある**——backendは合成結果を1件しか返さず他候補を知らないため差し込む位置をここで決めるしかなく、片方を変えたらもう片方も変える。区間を割る下限は持たず呼び出し側から受け取る［backendの較正値で、管理画面から変えられる］） |
+| features/route | `routeApi.ts`（ルート生成・プレビューAPI）・`formatDuration.ts`（秒を「1時間42分」の形にする）・`generationRequest.ts`（生成リクエストのpayloadと`conditionsDirty`の比較キーを同じ入力から導出する純関数）・`routeSplice.ts`（候補どうしが別々の道を通る区間を`edge_ids`の集合演算で求め、表示中の側と相手側を対応づけ、選んだ区間を差し替えた経路を組み立て純関数。差し替えた経路の評価はbackendが行うため計算式は持たない。合成結果も生成候補と同じ並び（所要時間の短い順、`routeTabLabel.ts: orderByDuration`）へ入れる。区間を割る下限は持たず呼び出し側から受け取る［backendの較正値で、管理画面から変えられる］） |
 | features/conditions | `useDepartureTime.ts`（出発時刻。選ぶまでは5分刻みの「今」へ追従し、選んだ時刻は動かさない）・`rideConditions.ts`（走行条件の出発時刻ラベルと想定速度の丸め。速度の上下限はbackendの`routeGenerateConfig`から読む） |
 | types | `types/route.ts`（`RouteCandidate`等の生成APIレスポンス型） |
 | components（特定モジュールの責務ではない共通部品） | `ErrorText/ErrorText.tsx`（フォームのエラー文言表示）・`BottomSheet/BottomSheet.tsx`（モバイル下部シート、下記「モバイル/デスクトップのレイアウト分岐」節参照）・`Disclosure/Disclosure.tsx`（折りたたみ表示、[ルート設定・結果パネル](route-settings-and-results.md)等が使う） |
@@ -270,9 +270,8 @@ Reactの外（モジュール評価時に初期値を決めるシングルトン
   （`features/route/difficultyLoadBar.ts`、基準は一覧の中で最も短い候補）を与える——長さが総合難易度の
   ため、塗られた面積がそのまま負荷（`difficulty_load`）になり、候補の中身の道のりのグラフ
   （`DifficultyProfile`、面積が負荷）と同じ見方で読める。行は**一覧の中で所要時間が最小の候補に
-  その所要時間と最速の印（時計のアイコン）、他の候補にはそこから何分余計にかかるか（`+8分`）を添える**——並び順は総合難易度の
-  昇順なので「最も易しい」は先頭だが、それを走る対価（時間）は別の軸で、行を開かずに
-  見比べられる必要がある。基準線は一覧の中だけで決める（backendの`is_fastest`は目的地
+  その所要時間と最速の印（時計のアイコン）、他の候補にはそこから何分余計にかかるか（`+8分`）を添える**——並び順は所要時間の短い順で、
+  易しさ（総合難易度）は行の数値と帯で見比べる。基準線は一覧の中だけで決める（backendの`is_fastest`は目的地
   モードでしか付かず、主用途の周回モードでは一度も決まらない）。時間の最上級と距離の最上級を
   同じ列へ並べると何と比べているのか読めなくなるため、**距離の「最短」は出さない**。2カラムは高さを
   揃え、狭幅では下部シートの高さいっぱいまで伸ばして余りを一覧が使う（はみ出す候補は
@@ -331,7 +330,10 @@ propでヘッダ右側・閉じるボタンの手前へ要素を差し込める�
 `routes.length === 0`の間は何も描画しない（生成前は空）。見出しは描画しない
 （デスクトップは`Disclosure`の見出し、モバイルはBottomSheetの`title`が担う）。1件以上
 生成された後は、Radix Tabs（`@radix-ui/react-tabs`）1段のフラットなタブ列を描画する。タブの並び順は
-`routes`配列の順序をそのまま使い、**フロント側では並べ替えない**（並び順は配る側が決める）。タブは
+**所要時間の短い順**（`routeTabLabel.ts: orderByDuration`。同着は受け取った並び＝backendの総合難易度の昇順を保つ）。
+生成の結果を受け取ったときと、区間を乗り換えて作った候補を足したときに並べ直してから`routes`へ入れるので、一覧・最初に
+選ぶ候補（先頭＝最も早く着く候補）・行の番号が同じ並びになる。研究モードの実験スロットの代表だけは、backendの並びの
+先頭（総合難易度が最小）を使う。タブは
 **候補ごと**（`routes`の件数ぶん、「順位番号（1始まり） 距離km」に加えて総合難易度を
 数値と長さの両方で表示する——タブを開かずに候補どうしを見比べられるようにするため。経由地
 ルート（id: `route-waypoints`）は常に1件で順位の概念が無いため、`NON_DIRECTIONAL_ROUTE_IDS`
