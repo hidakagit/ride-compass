@@ -262,7 +262,7 @@ def merge_material_category_shares(
     return shares
 
 
-#: ビンへ引き継ぐ辞書フィールドと、その畳み方。
+#: ビンへ引き継ぐ辞書フィールドと、その畳み方（キーごとの距離加重平均）。
 BIN_DICT_FIELD_MERGERS: dict[str, Callable[[list[RouteSegmentDetail]], dict[str, float]]] = {
     "axis_difficulties": merge_axis_difficulties,
     "axis_contributions": merge_axis_contributions,
@@ -270,35 +270,34 @@ BIN_DICT_FIELD_MERGERS: dict[str, Callable[[list[RouteSegmentDetail]], dict[str,
     "material_values": merge_material_values,
 }
 
-def _undeclared_dict_fields() -> list[str]:
-    """`RouteSegmentDetail`の辞書フィールドのうち、ビンへの畳み方が宣言されていないもの。"""
-    return sorted(
-        name
-        for name, model_field in RouteSegmentDetail.model_fields.items()
-        if getattr(model_field.annotation, "__origin__", None) is dict and name not in BIN_DICT_FIELD_MERGERS
-    )
+#: ビンのフィールドと、ビンに入る区間の並びからその値を作る畳み方。`_merge_segment_bin`は
+#: この表だけからビンを組み立てる。
+BIN_FIELD_MERGERS: dict[str, Callable[[list[RouteSegmentDetail]], object]] = {
+    "geometry": _concat_segment_geometries,
+    "start_latitude": lambda segments: segments[0].start_latitude,
+    "start_longitude": lambda segments: segments[0].start_longitude,
+    "end_latitude": lambda segments: segments[-1].end_latitude,
+    "end_longitude": lambda segments: segments[-1].end_longitude,
+    "cumulative_distance_km": lambda segments: segments[0].cumulative_distance_km,
+    "distance_km": lambda segments: round(sum(s.distance_km for s in segments), 2),
+    "estimated_arrival_time": lambda segments: segments[0].estimated_arrival_time,
+    "difficulty": lambda segments: distance_weighted_difficulty([(s.difficulty, s.distance_km) for s in segments]),
+    **BIN_DICT_FIELD_MERGERS,
+}
 
 
-if _undeclared_dict_fields():
-    # 宣言し忘れたフィールドはビンで空の辞書になるだけで、型でも例外でも現れない
+def _undeclared_fields() -> list[str]:
+    """`RouteSegmentDetail`のフィールドのうち、ビンへの畳み方が宣言されていないもの。"""
+    return sorted(set(RouteSegmentDetail.model_fields) - set(BIN_FIELD_MERGERS))
+
+
+if _undeclared_fields():
+    # 宣言し忘れたフィールドはビンで既定値になるだけで、型でも例外でも現れない
     # （区間インスペクタから値が消える）。読み込みの時点で止める。
     raise RuntimeError(
-        f"RouteSegmentDetail の辞書フィールド {_undeclared_dict_fields()} は、"
-        "BIN_DICT_FIELD_MERGERS（ビンへの畳み方）で宣言すること"
+        f"RouteSegmentDetail のフィールド {_undeclared_fields()} は、BIN_FIELD_MERGERS（ビンへの畳み方）で宣言すること"
     )
 
 
 def _merge_segment_bin(segments: list[RouteSegmentDetail]) -> RouteSegmentDetail:
-    first, last = segments[0], segments[-1]
-    return RouteSegmentDetail(
-        geometry=_concat_segment_geometries(segments),
-        start_latitude=first.start_latitude,
-        start_longitude=first.start_longitude,
-        end_latitude=last.end_latitude,
-        end_longitude=last.end_longitude,
-        cumulative_distance_km=first.cumulative_distance_km,
-        distance_km=round(sum(s.distance_km for s in segments), 2),
-        estimated_arrival_time=first.estimated_arrival_time,
-        difficulty=distance_weighted_difficulty([(s.difficulty, s.distance_km) for s in segments]),
-        **{name: merge(segments) for name, merge in BIN_DICT_FIELD_MERGERS.items()},
-    )
+    return RouteSegmentDetail.model_validate({name: merge(segments) for name, merge in BIN_FIELD_MERGERS.items()})

@@ -239,10 +239,20 @@ def test_zero_length_segments_do_not_count_toward_category_shares():
 # ---- 畳み方の宣言漏れの検出 ----
 
 
-def test_undeclared_dict_field_is_reported_whatever_its_value_type(monkeypatch):
-    class WithExtraField(RouteSegmentDetail):
-        road_names: dict[str, str] = {}
-
+@pytest.mark.parametrize(
+    ("annotation", "default"),
+    [
+        (dict[str, str], {}),
+        # 値が無いこともある辞書・既定値つきの数値や文字も、畳み方が無ければビンで既定値に化ける
+        (dict[str, float] | None, None),
+        (int, 0),
+        (str, ""),
+    ],
+)
+def test_undeclared_field_is_reported_whatever_its_type(monkeypatch, annotation, default):
+    WithExtraField = type(
+        "WithExtraField", (RouteSegmentDetail,), {"__annotations__": {"extra": annotation}, "extra": default}
+    )
     monkeypatch.setattr(route, "RouteSegmentDetail", WithExtraField)
 
-    assert route._undeclared_dict_fields() == ["road_names"]
+    assert route._undeclared_fields() == ["extra"]
