@@ -19,6 +19,7 @@ from app.domain.wind_grid import (
     WIND_GRID_DETAIL_MAX_POINTS,
     WIND_GRID_DETAIL_SPACING_DEG,
     WindGridResponse,
+    count_wind_grid_detail_points,
     generate_wind_grid_detail_points,
     generate_wind_grid_points,
 )
@@ -173,9 +174,11 @@ async def get_wind_grid_detail(
         raise HTTPException(status_code=400, detail="表示範囲が不正です。")
     if spacing_deg not in WIND_GRID_DETAIL_ALLOWED_SPACINGS_DEG:
         raise HTTPException(status_code=400, detail="spacing_degの値が不正です。")
-    points = generate_wind_grid_detail_points((min_lon, min_lat, max_lon, max_lat), spacing_deg)
-    if len(points) > WIND_GRID_DETAIL_MAX_POINTS:
+    bbox = (min_lon, min_lat, max_lon, max_lat)
+    # 点を作る処理は同期でイベントループを止めるため、上限を超える範囲は作る前に断る。
+    if count_wind_grid_detail_points(bbox, spacing_deg) > WIND_GRID_DETAIL_MAX_POINTS:
         raise HTTPException(status_code=400, detail="表示範囲が広すぎます。ズームインしてください。")
+    points = generate_wind_grid_detail_points(bbox, spacing_deg)
     times, grid = await weather_service.get_wind_grid(points)
     _reject_if_all_points_failed("wind-grid-detail", points, grid)
     return WindGridResponse(times=times, points=[point for point in grid if point is not None])
