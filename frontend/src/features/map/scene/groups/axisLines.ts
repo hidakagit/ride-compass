@@ -15,11 +15,11 @@ import type { RampAxis } from "@/lib/mapDisplay/axisLayers";
 import { COLOR_UNKNOWN, noDataDashExpression } from "@/features/map/scene/sceneBuilders";
 import { LEGEND_NO_DATA_KEY } from "@/lib/mapDisplay/mapColorLegend";
 
-import { ROAD_LINE_SOURCE_ID, ROAD_TRACKS_MAX_SPAN_PX } from "./roadLines";
+import { ROAD_LINE_SOURCE_ID, ROAD_TRACKS } from "./roadLines";
 
 /** 材料が同時に出ているときの下敷き。**材料の線が全部出たときの帯幅**から決まるので、
- * 線が増えても太くなっても自動で広がる（直書きすると追従しない）。 */
-const UNDERLAY_WIDTH_PX = ROAD_TRACKS_MAX_SPAN_PX;
+ * トラックが増えれば自動で広がる（直書きすると追従しない）。 */
+const UNDERLAY_WIDTH_PX = (ROAD_TRACKS.length - 1) * mapDisplay.road.trackOffsetStepPx + mapDisplay.road.lineWidthPx;
 /** 段1つぶん。境界は下限で、判定は`>= 下限`・`< 次の下限`。 */
 export type AxisBand = {
   readonly key: string;

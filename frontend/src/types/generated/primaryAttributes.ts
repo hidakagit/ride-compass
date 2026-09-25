@@ -22,8 +22,7 @@ export const primaryAttributes = [
               "primary",
               "primary_link"
             ],
-            "color": "#433176",
-            "line_width_px": 6.0
+            "color": "#433176"
           },
           {
             "key": "secondary",
@@ -34,8 +33,7 @@ export const primaryAttributes = [
               "tertiary",
               "tertiary_link"
             ],
-            "color": "#064f94",
-            "line_width_px": 5.25
+            "color": "#064f94"
           },
           {
             "key": "local",
@@ -47,8 +45,7 @@ export const primaryAttributes = [
               "service",
               "road"
             ],
-            "color": "#036793",
-            "line_width_px": 4.5
+            "color": "#036793"
           },
           {
             "key": "cycleway",
@@ -61,8 +58,7 @@ export const primaryAttributes = [
               "bridleway",
               "steps"
             ],
-            "color": "#0e7e98",
-            "line_width_px": 3.75
+            "color": "#0e7e98"
           },
           {
             "key": "track",
@@ -70,8 +66,7 @@ export const primaryAttributes = [
             "values": [
               "track"
             ],
-            "color": "#0d959d",
-            "line_width_px": 3.0
+            "color": "#0d959d"
           }
         ],
         "missing_semantics": "unknown"

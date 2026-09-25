@@ -19,6 +19,7 @@ import {
   type MapOverlayGroup,
 } from "@/features/map/layers/mapLayers";
 import { legendSwatchBackground, type LegendEntry } from "@/lib/mapDisplay/legendFilter";
+import { mapDisplay } from "@/types/generated/mapDisplay";
 import LegendCheckboxList from "@/features/map/LegendCheckboxList/LegendCheckboxList";
 import { Checkbox } from "@/components/ui/Checkbox/Checkbox";
 import InfoPopover from "@/components/ui/InfoPopover/InfoPopover";
@@ -134,15 +135,14 @@ function readStringArray(raw: string): string[] | null {
 }
 
 /** 色見本。パネルへ直に、地図と同じ形（線なら線、点なら点）で置く——明るい台に載せると、暗いパネルの上では台の
- * 白が色より目立ち、明るい色は台に溶ける。線の行は地図と同じ太さで出し、太さの違う行を見比べられるようにする。
- * 大きさで意味を示す行は地図の点と同じ直径で出す。見本の枠の幅はそろえ、ラベルの位置を行ごとにずらさない。 */
+ * 白が色より目立ち、明るい色は台に溶ける。線の行は地図と同じ太さ、大きさで意味を示す行は地図の点と同じ直径で出す。
+ * 見本の枠の幅はそろえ、ラベルの位置を行ごとにずらさない。 */
 function renderSwatch(entry: LegendEntry) {
-  const size =
-    entry.lineWidthPx !== undefined
-      ? { width: SWATCH_LINE_LENGTH_PX, height: entry.lineWidthPx }
-      : entry.diameterPx !== undefined
-        ? { width: entry.diameterPx, height: entry.diameterPx }
-        : { width: SWATCH_DOT_PX, height: SWATCH_DOT_PX };
+  const size = entry.line
+    ? { width: SWATCH_LINE_LENGTH_PX, height: mapDisplay.road.lineWidthPx }
+    : entry.diameterPx !== undefined
+      ? { width: entry.diameterPx, height: entry.diameterPx }
+      : { width: SWATCH_DOT_PX, height: SWATCH_DOT_PX };
   return (
     <span aria-hidden="true" className="inline-flex w-6 flex-shrink-0 items-center justify-center">
       <span className="rounded-full" style={{ background: legendSwatchBackground(entry), ...size }} />

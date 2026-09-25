@@ -432,7 +432,7 @@ PRIMARY_ATTRIBUTES: tuple[PrimaryAttributeSpec, ...] = (
         tile_kind="road_surface",
         label="道路の種類",
         geometry="line",
-        # 順序のある分類なので、色相ではなく濃淡で幹線→細街路を表し、線の太さも同じ順序で細くしていく。
+        # 順序のある分類なので、色相ではなく濃淡で幹線→細街路を表す。
         display_axes=(
             DisplayAxisSpec(
                 key="highway",
