@@ -9,24 +9,23 @@
 - 候補の並べ方・理由の文面（戦略層） → `test_route_generator.py`
 - 材料の値の求め方 → `test_material_values.py`
 
-道路網をエンジンへ渡す道具は`engine_over`の1つだけに置く。エンジンの入口の形が変わったら、ここだけを直す。
+道路網をエンジンへ渡す道具は`engine_over`（フィクスチャ）の1つだけに置く。エンジンの入口の形が変わったら、ここだけを直す。
 """
 
-import itertools
 import math
+from dataclasses import replace
 
 import numpy as np
 import pytest
 
-from app.domain.attributes import EdgeMaterialArrays, SearchMaterials
-from app.domain.evaluation import build_static_edge_score_matrix
 from app.domain.geo import bearing_between, haversine_distance_km
-from app.domain.graph import LeanEdge, LeanNode, LeanRoadGraph
+from app.domain.graph import node_key
 from app.domain.hard_filters import hard_filter_columns
 from app.domain.road_network import RoadNetwork
 from app.domain.route import Coordinates
 from app.domain.route_preference import RoutePreference
-from app.infrastructure.road_graph_repository import edge_key, node_key
+from app.infrastructure import road_network_store
+from app.services.graph_service import GraphService
 from app.services.road_graph_engine import RoadGraphEngine
 from app.services.route_generator import RouteGenerator
 from tests.axis_system_fixture import axis_definition, replaced_axis_definitions
@@ -99,64 +98,22 @@ def grid_network(*, bad_ways=(), oneway_ways=(), motorway_ways=()) -> RoadNetwor
 
 # --- 道路網をエンジンへ渡す道具（エンジンの入口の形が変わったら、ここだけを直す） ---
 
-_TILE_KEYS = itertools.count()
 
-
-class _NetworkGraphService:
-    """道路網の全体を、どの範囲を聞かれても返す`GraphService`の代役。"""
+class _NetworkRepository:
+    """DBの代役。道路網はどこでも取込範囲の中で、区間の形は両端のノードを結ぶ直線。"""
 
     def __init__(self, network: RoadNetwork):
-        osm = network.node_osm_id
-        nodes = {
-            node_key(int(osm[i])): LeanNode(node_id=node_key(int(osm[i])), latitude=float(network.node_lat[i]),
-                                            longitude=float(network.node_lon[i]), osm_node_id=int(osm[i]))
-            for i in range(network.node_count)
+        self._coordinates = {
+            node_key(int(osm)): [float(lat), float(lon)]
+            for osm, lat, lon in zip(network.node_osm_id, network.node_lat, network.node_lon, strict=True)
         }
-        edges = {}
-        for i in range(network.edge_count):
-            key = edge_key(int(network.edge_way_id[i]), int(network.edge_segment[i]), bool(network.edge_forward[i]))
-            edges[key] = LeanEdge(
-                edge_id=key, from_node_id=node_key(int(osm[network.edge_from[i]])),
-                to_node_id=node_key(int(osm[network.edge_to[i]])), geometry=[],
-                distance_m=float(network.distance_m[i]), osm_way_id=int(network.edge_way_id[i]),
-                segment_index=int(network.edge_segment[i]), forward=bool(network.edge_forward[i]),
-                highway=network.highway_vocab[network.edge_highway[i]], bearing_deg=float(network.bearing_deg[i]),
-            )
-        self._nodes = nodes
-        materials = EdgeMaterialArrays(
-            edge_ids=list(edges),
-            numeric_ids=network.numeric_ids, numeric_values=np.asarray(network.numeric_values),
-            boolean_ids=network.boolean_ids, boolean_values=np.asarray(network.boolean_values),
-            categorical_ids=network.categorical_ids,
-            categorical_values=np.zeros((network.edge_count, 0), dtype=object),
-            hard_filter_ids=network.hard_filter_ids, hard_filter_flags=np.asarray(network.hard_filter_flags),
-            distance_m=network.distance_m, bearing_deg=network.bearing_deg,
-            mid_lat=network.mid_lat, mid_lon=network.mid_lon, elevation_present=network.elevation_present,
-            elevation_start_m=network.elevation_start_m, elevation_end_m=network.elevation_end_m,
-            elevation_gain_m=network.elevation_gain_m, elevation_loss_m=network.elevation_loss_m,
-            elevation_max_grade=network.elevation_max_grade, elevation_min_grade=network.elevation_min_grade,
-        )
-        self._built = (
-            SearchMaterials(graph=LeanRoadGraph(graph_version="test", nodes=nodes, edges=edges), materials=materials),
-            build_static_edge_score_matrix(materials),
-            frozenset({(12, next(_TILE_KEYS), 0)}),
-        )
 
-    async def get_search_materials_for_bbox(self, bbox):
-        return self._built
-
-    async def get_accident_years_covered(self):
-        return 1
+    async def is_covered(self, bbox):
+        return True
 
     async def get_edges_with_geometry(self, edges):
         return {
-            edge.edge_id: LeanEdge(
-                edge_id=edge.edge_id, from_node_id=edge.from_node_id, to_node_id=edge.to_node_id,
-                geometry=[[self._nodes[edge.from_node_id].latitude, self._nodes[edge.from_node_id].longitude],
-                          [self._nodes[edge.to_node_id].latitude, self._nodes[edge.to_node_id].longitude]],
-                distance_m=edge.distance_m, osm_way_id=edge.osm_way_id, segment_index=edge.segment_index,
-                forward=edge.forward, highway=edge.highway, bearing_deg=edge.bearing_deg,
-            )
+            edge.edge_id: replace(edge, geometry=[self._coordinates[edge.from_node_id], self._coordinates[edge.to_node_id]])
             for edge in edges
         }
 
@@ -169,12 +126,20 @@ class _NoWeather:
         return None
 
 
-def engine_over(network: RoadNetwork, *, avoid_weight: float = 0.0) -> RouteGenerator:
-    engine = RoadGraphEngine(
-        _NetworkGraphService(network), _NoWeather(), RoutePreference(weights={AVOID_AXIS: avoid_weight}),
-        penalty_strength=1.0, assumed_speed_kmh=20.0,
-    )
-    return RouteGenerator(engine)
+@pytest.fixture
+def engine_over(monkeypatch):
+    """道路網を全体の配列として読ませ、本物の`GraphService`・エンジン・戦略層を組む。"""
+
+    def build(network: RoadNetwork, *, avoid_weight: float = 0.0) -> RouteGenerator:
+        monkeypatch.setattr(road_network_store, "current", lambda: network)
+        engine = RoadGraphEngine(
+            GraphService(_NetworkRepository(network)), _NoWeather(),
+            RoutePreference(weights={AVOID_AXIS: avoid_weight}),
+            penalty_strength=1.0, assumed_speed_kmh=20.0,
+        )
+        return RouteGenerator(engine)
+
+    return build
 
 
 # ---------------------------------------------------------------------------------------
@@ -207,7 +172,7 @@ def assert_connected(candidate, start: int, end: int) -> None:
     assert math.isclose(sum(lengths), candidate.distance_km, abs_tol=0.02)
 
 
-async def test_destination_route_runs_from_origin_to_destination():
+async def test_destination_route_runs_from_origin_to_destination(engine_over):
     generator = engine_over(grid_network())
 
     candidates = await generator.generate_via_waypoints(at(SOUTH_WEST), [], 4.0, destination=at(NORTH_EAST), max_routes=3)
@@ -220,7 +185,7 @@ async def test_destination_route_runs_from_origin_to_destination():
     assert len(fastest.edge_ids) == 4
 
 
-async def test_weight_on_an_axis_steers_the_route_away_from_what_it_scores_badly():
+async def test_weight_on_an_axis_steers_the_route_away_from_what_it_scores_badly(engine_over):
     """南の道と東の道（南西→南東→北東）だけが避けたい材料を持つ。重みを掛けると、最も易しい候補はそこを通らない。"""
     bad = {100, 101, 202, 205}  # 南の横の道2本と東の縦の道2本
     generator = engine_over(grid_network(bad_ways=bad), avoid_weight=1.0)
@@ -233,7 +198,7 @@ async def test_weight_on_an_axis_steers_the_route_away_from_what_it_scores_badly
     assert not set(ways_of(easiest)) & bad
 
 
-async def test_oneway_road_is_never_driven_against_its_direction():
+async def test_oneway_road_is_never_driven_against_its_direction(engine_over):
     """中央の縦の道（南→北だけ走れる）を、北→南の目的地ルートで逆走しない。"""
     oneway = {201, 204}
     generator = engine_over(grid_network(oneway_ways=oneway))
@@ -247,7 +212,7 @@ async def test_oneway_road_is_never_driven_against_its_direction():
         assert not [e for e in candidate.edge_ids if int(e.split("-")[1]) in oneway and e.endswith("bwd")]
 
 
-async def test_motorway_is_never_used_even_when_it_is_the_short_way():
+async def test_motorway_is_never_used_even_when_it_is_the_short_way(engine_over):
     motorway = {100, 101}  # 南の横の道
     generator = engine_over(grid_network(motorway_ways=motorway))
 
@@ -260,7 +225,7 @@ async def test_motorway_is_never_used_even_when_it_is_the_short_way():
         assert not set(ways_of(candidate)) & motorway
 
 
-async def test_loop_returns_to_its_origin_within_the_distance_tolerance():
+async def test_loop_returns_to_its_origin_within_the_distance_tolerance(engine_over):
     generator = engine_over(grid_network())
 
     candidates = await generator.generate_loops(at(CENTER), 4.0, 1.5, max_routes=3)
@@ -271,7 +236,7 @@ async def test_loop_returns_to_its_origin_within_the_distance_tolerance():
         assert abs(candidate.distance_km - 4.0) <= 1.5
 
 
-async def test_segments_cover_the_whole_route():
+async def test_segments_cover_the_whole_route(engine_over):
     generator = engine_over(grid_network())
 
     (candidate, *_) = await generator.generate_via_waypoints(
@@ -281,7 +246,7 @@ async def test_segments_cover_the_whole_route():
     assert candidate.estimated_duration_seconds is not None and candidate.estimated_duration_seconds > 0
 
 
-async def test_spliced_route_is_evaluated_as_sent_and_a_broken_one_is_refused():
+async def test_spliced_route_is_evaluated_as_sent_and_a_broken_one_is_refused(engine_over):
     generator = engine_over(grid_network())
     (candidate, *_) = await generator.generate_via_waypoints(
         at(SOUTH_WEST), [], 4.0, destination=at(NORTH_EAST), max_routes=1)

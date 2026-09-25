@@ -1,10 +1,7 @@
-from dataclasses import dataclass, field
-from typing import Protocol
+from dataclasses import dataclass
 
 import numpy as np
 
-from app.domain.graph import LeanRoadGraph
-from app.domain.material_sql import MATERIAL_ID_GRADIENT_PERCENT
 from app.domain.strict_model import StrictModel
 
 
@@ -25,29 +22,6 @@ class ElevationAttribute(StrictModel):
     min_grade: float | None = None
 
 
-class ElevationSource(Protocol):
-    """経路が確定した区間の標高属性を引けるもの。探索フェーズが材料から読むのはこれだけ。"""
-
-    def elevation_attribute(self, edge_id: str) -> ElevationAttribute | None: ...
-
-
-@dataclass
-class SearchMaterials[M: ElevationSource]:
-    """探索フェーズ（`RoadGraphEngine.prepare`）が必要とするRoad Graphのトポロジ＋
-    材料一式。`GraphService.get_search_materials_for_bbox`の戻り値であり、
-    `infrastructure/graph_material_cache.py`のタイル単位キャッシュ値としても使う共通の型。
-
-    タイル単位では材料の列（`EdgeMaterialArrays`）を持ち、bbox単位ではタイルの材料を
-    列を連結せずに引くビューを持つ。"""
-
-    graph: LeanRoadGraph
-    materials: M
-
-
-def _none_if_nan(value) -> float | None:
-    return None if value is None or np.isnan(value) else float(value)
-
-
 # 舗装された公道としてありうる平均勾配の上限（%）。世界でも最急の公道が35%前後のため、
 # これを超える値は道の起伏ではなくDEMの読み違い（両端が路面でない地物を指した等）である。
 # 超えた区間は値を持たせず「データなし」にする——0次ハードフィルタは値の無い区間を
@@ -57,29 +31,24 @@ MAX_PLAUSIBLE_AVERAGE_GRADE_PERCENT = 40.0
 
 @dataclass(frozen=True, slots=True)
 class EdgeMaterialArrays:
-    """タイル1枚ぶんの材料を、**dtypeごとに1つの2次元配列**で保持する表現。
+    """区間の材料を、**dtypeごとに1つの2次元配列**で保持する表現。
 
     値はDBが導出したものをそのまま受ける（`MaterialSpec.value_sql`）。
-    区間ごとのPythonオブジェクトを経由しないため、構築も復元もEdge数に比例しない。
+    区間ごとのPythonオブジェクトを経由しない。
 
     材料ごとに別々の配列を持たず、`StaticEdgeScoreMatrix`と同じ「値の行列＋idの並び」の形に
     する。材料が増えてもフィールドは増えず、列の追加は`*_ids`が1つ伸びるだけになる。
     dtypeで3つに分かれるのは、真偽とカテゴリを数値の行列へ混ぜられないため（分け方は
     `MaterialSpec.dtype`と`bool_default`が決める。`material_array_group`が唯一の判定）。
 
-    `*_ids`は列の並びで、**ディスクから復元したときに現在の材料集合と突き合わせるために
-    ある**。材料を1つ増やしてもdataclassのフィールドは変わらず
-    `cache_identity.shape_digest`が動かないため、鍵だけでは古い表を弾けない。
-
     0次ハードフィルタの生フラグを同じ1回のクエリで求めてここへ持たせるのは、別に引くと
-    タイルごとにもう1往復増えるため。
+    区間の束ごとにもう1往復増えるため。
 
     標高の列は**材料ではない表示用の値**で、経路が確定したあとの区間について
-    `elevation_attribute()`が`ElevationAttribute`を組み立てる。勾配そのものは材料
+    `domain/road_network.py: elevation_attribute`が`ElevationAttribute`を組み立てる。勾配そのものは材料
     `gradient_percent`にあるため、ここでは重複して持たない。
     """
 
-    edge_ids: list[str]
     numeric_ids: tuple[str, ...]
     numeric_values: np.ndarray  # shape=(n, len(numeric_ids)), float64, NaN=欠損
     boolean_ids: tuple[str, ...]
@@ -102,19 +71,9 @@ class EdgeMaterialArrays:
     elevation_loss_m: np.ndarray
     elevation_max_grade: np.ndarray
     elevation_min_grade: np.ndarray
-    _row_index: dict[str, int] = field(default_factory=dict)
-
-    def __post_init__(self) -> None:
-        if not self._row_index:
-            object.__setattr__(self, "_row_index", {edge_id: i for i, edge_id in enumerate(self.edge_ids)})
 
     def __len__(self) -> int:
-        return len(self.edge_ids)
-
-    @property
-    def material_ids(self) -> tuple[str, ...]:
-        """持っている材料の全id（復元時に現在の材料集合と突き合わせる用）。"""
-        return (*self.numeric_ids, *self.boolean_ids, *self.categorical_ids)
+        return len(self.distance_m)
 
     def columns(self) -> dict[str, np.ndarray]:
         """材料id→その列。行列の列はビューのためコピーしない。"""
@@ -127,32 +86,6 @@ class EdgeMaterialArrays:
     def hard_filter_columns(self) -> dict[str, np.ndarray]:
         """0次フィルタ名→該当フラグ。行列の列はビューのためコピーしない。"""
         return {name: self.hard_filter_flags[:, i] for i, name in enumerate(self.hard_filter_ids)}
-
-    def column(self, material_id: str) -> np.ndarray:
-        for ids, matrix in (
-            (self.numeric_ids, self.numeric_values),
-            (self.boolean_ids, self.boolean_values),
-            (self.categorical_ids, self.categorical_values),
-        ):
-            if material_id in ids:
-                return matrix[:, ids.index(material_id)]
-        raise KeyError(material_id)
-
-    def elevation_attribute(self, edge_id: str) -> ElevationAttribute | None:
-        """行が無い、または標高が未計算ならNone。"""
-        i = self._row_index.get(edge_id)
-        if i is None or not self.elevation_present[i]:
-            return None
-        return ElevationAttribute(
-            edge_id=edge_id,
-            start_elevation_m=_none_if_nan(self.elevation_start_m[i]),
-            end_elevation_m=_none_if_nan(self.elevation_end_m[i]),
-            elevation_gain_m=_none_if_nan(self.elevation_gain_m[i]),
-            elevation_loss_m=_none_if_nan(self.elevation_loss_m[i]),
-            average_grade=_none_if_nan(self.column(MATERIAL_ID_GRADIENT_PERCENT)[i]),
-            max_grade=_none_if_nan(self.elevation_max_grade[i]),
-            min_grade=_none_if_nan(self.elevation_min_grade[i]),
-        )
 
 
 def elevation_values_sql(vertices: str) -> str:

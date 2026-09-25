@@ -20,7 +20,6 @@ from app.domain.axis_definitions import (
     topological_axis_order,
 )
 from app.domain.material_catalog import is_known_material
-from app.infrastructure import tile_score_matrix_cache
 from app.infrastructure.axis_definition_repository import AxisDefinitionRepository
 
 logger = logging.getLogger("ridecompass.axis_registry")
@@ -72,13 +71,6 @@ async def refresh_axis_definitions(repository: AxisDefinitionRepository) -> None
     logger.info("軸定義をDBから読み込みました axes=%d", len(definitions))
     AXIS_DEFINITIONS.clear()
     AXIS_DEFINITIONS.update(definitions)
-    # スコア行列のキーはタイル座標だけで、軸定義が変わると古いスコアと見分けられない。
-    # 無条件に消さずrevisionで判定するのは、この関数が起動時にも必ず1回呼ばれるため
-    # ——消すとデプロイのたびにディスク上のスコア行列を丸ごと作り直すことになる。
-    # 材料そのもの（graph_material_cache）は温存し、軸編集直後の最初のリクエストが
-    # DBへ問い合わせ直さずに済むようにする。
-    revision = await repository.get_revision()
-    tile_score_matrix_cache.sync_disk_cache_with_axis_revision(revision)
 
 
 class AxisRegistryAdminService:

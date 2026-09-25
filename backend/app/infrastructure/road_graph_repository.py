@@ -23,7 +23,7 @@ from sqlalchemy.dialects.postgresql import ARRAY
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession
 
 from app.domain.attributes import EdgeMaterialArrays
-from app.domain.graph import LeanEdge, LeanNode, LeanRoadGraph
+from app.domain.graph import LeanEdge, edge_key, node_key
 from app.domain.hard_filters import HARD_FILTER_VALUE_SQL, hard_filter_columns
 from app.domain.landcover import PERCENT_CLASSES, LandcoverPercentages
 from app.domain.material_catalog import (
@@ -675,29 +675,12 @@ _EDGE_MATERIAL_ARRAYS_SQL = text(
 
 # --- グラフの読み出し ---------------------------------------------------------
 #
-# 区間は向きを持たない1行なので、**有向の枝はここで作る**。`way_materials.direction`が
-# 逆向きの枝を作ってよいかを決める。
-#
-# 空間の絞り込みは親wayのGiSTで行い、区間は主キーの先頭列で引く（`road_edges`はGiSTを
-# 持たない）。親のbboxで引くぶん区間を少し多く拾うが、グラフを読む粒度では誤差の範囲。
-#: **区間の空間索引だけで絞る。** 道の側からも絞ると、プランナが道を外側に置いた
-#: 入れ子ループを選び、範囲内の道1本ごとに区間表を引き直す（`natural_key::bigint`を
-#: 挟む結合は選択率を見積もれず`rows=1`と出るため、この形が選ばれる）。区間は道の
-#: 一部なので、区間が範囲に触れるなら道も触れる——道側の条件は結果を変えない。
-#:
-#: 道は`ways_lookup_sql`で1本ずつ引く（照合はtextのまま行う。その理由は同関数参照）。
-_TOPOLOGY_EDGES_SQL = text(f"""
-SELECT re.osm_way_id, re.segment_index, re.from_node_id, re.to_node_id,
-       re.distance_m, re.bearing_deg, re.reverse_bearing_deg,
-       w.highway, wm.direction
-FROM road_edges re
-JOIN LATERAL {ways_lookup_sql("re.osm_way_id")} w ON true
-LEFT JOIN way_materials wm ON wm.osm_way_id = re.osm_way_id
-WHERE ST_Intersects(re.geom, ST_MakeEnvelope(:xmin, :ymin, :xmax, :ymax, 4326))
-""")
+# 区間は向きを持たない1行で、**有向の枝は道路網全体の配列を作るとき**
+# （`infrastructure/road_network_store.py`）に作る。`way_materials.direction`が逆向きの枝を
+# 作ってよいかを決める。
 
-#: 取込範囲全体の区間（向きを持たない1行）。結合は`_TOPOLOGY_EDGES_SQL`と同じ——道の行が
-#: 無い区間は現れない。並びは`domain/road_network.py`の行順の前提。
+#: 取込範囲全体の区間（向きを持たない1行）。道の行が無い区間は現れない（区間は道を切って作る
+#: 派生なので、ふつうは起きない）。並びは`domain/road_network.py`の行順の前提。
 _NETWORK_EDGES_SQL = text(f"""
 SELECT re.osm_way_id, re.segment_index, re.from_node_id, re.to_node_id,
        w.highway, wm.direction,
@@ -724,22 +707,6 @@ ORDER BY nm.osm_node_id
 #: 形の署名はここから導く——材料の式を変えると、作り直すべき置き場が別名になる。
 NETWORK_SQL_SOURCES = (_NETWORK_EDGES_SQL, _NETWORK_NODES_SQL, _EDGE_MATERIAL_ARRAYS_SQL)
 
-#: 外接矩形どうしの重なりだけで数える。見積もりに使うため、区間の形が範囲へ実際に
-#: 入るかまでは確かめない。
-_COUNT_EDGES_IN_BBOX_SQL = text("""
-SELECT count(*) FROM road_edges re
-WHERE re.geom && ST_MakeEnvelope(:xmin, :ymin, :xmax, :ymax, 4326)
-""")
-
-_TOPOLOGY_NODES_SQL = text(f"""
-SELECT n.osm_node_id, ST_X(n.geom) AS longitude, ST_Y(n.geom) AS latitude,
-       COALESCE(nm.has_traffic_signals, false) AS has_traffic_signals,
-       COALESCE(nm.max_highway_rank, 0) AS max_highway_rank
-FROM unnest(CAST(:node_ids AS bigint[])) AS ids(osm_node_id)
-JOIN LATERAL {nodes_lookup_sql("ids.osm_node_id")} n ON true
-LEFT JOIN node_materials nm ON nm.osm_node_id = ids.osm_node_id
-""")
-
 _EDGE_GEOMETRIES_SQL = text("""
 SELECT re.osm_way_id, re.segment_index, re.from_node_id, re.to_node_id,
        re.distance_m, re.bearing_deg, re.reverse_bearing_deg,
@@ -749,53 +716,6 @@ FROM unnest(CAST(:way_ids AS bigint[]), CAST(:segment_indexes AS int[]))
 JOIN road_edges re
   ON re.osm_way_id = ids.osm_way_id AND re.segment_index = ids.segment_index
 """)
-
-
-def node_key(osm_node_id: int) -> str:
-    """グラフ上のノードの識別子。OSMのノードidから決まるため、同じ交差点は常に同じ鍵。"""
-    return f"osm-node-{osm_node_id}"
-
-
-def edge_key(osm_way_id: int, segment_index: int, forward: bool) -> str:
-    """グラフ上の有向な枝の識別子。DBは向きを持たないので、ここだけが向きを名前へ入れる。"""
-    return f"way-{osm_way_id}-seg{segment_index}-{'fwd' if forward else 'bwd'}"
-
-
-def _topology_rows_to_road_graph(edge_rows, node_rows) -> LeanRoadGraph:
-    """行から探索用の有向グラフを組む。
-
-    `LeanRoadGraph`（dataclass）にするのは、Pydanticでの構築が
-    17万区間規模でDBクエリ本体より支配的になるため。`geometry`はプレースホルダの空リスト
-    で、実ジオメトリが要る最終候補は`get_edges_with_geometry`が取り直す。
-    """
-    nodes = {
-        node_key(row.osm_node_id): LeanNode(
-            node_id=node_key(row.osm_node_id), latitude=row.latitude, longitude=row.longitude,
-            osm_node_id=row.osm_node_id, has_traffic_signals=row.has_traffic_signals,
-            max_highway_rank=row.max_highway_rank,
-        )
-        for row in node_rows
-    }
-    edges: dict[str, LeanEdge] = {}
-    for row in edge_rows:
-        # 一方通行は走れる向きの枝だけを作る。`direction`はタグからの判断で、
-        # `way_materials`が持つ（`derive_way_materials.py`）。
-        for forward in (True, False):
-            if row.direction == ("backward" if forward else "forward"):
-                continue
-            from_id, to_id = ((row.from_node_id, row.to_node_id) if forward
-                              else (row.to_node_id, row.from_node_id))
-            if node_key(from_id) not in nodes or node_key(to_id) not in nodes:
-                continue
-            key = edge_key(row.osm_way_id, row.segment_index, forward)
-            edges[key] = LeanEdge(
-                edge_id=key, from_node_id=node_key(from_id), to_node_id=node_key(to_id),
-                geometry=[], distance_m=row.distance_m, osm_way_id=row.osm_way_id,
-                segment_index=row.segment_index, forward=forward,
-                highway=row.highway,
-                bearing_deg=row.bearing_deg if forward else row.reverse_bearing_deg,
-            )
-    return LeanRoadGraph(graph_version=_CACHED_GRAPH_VERSION, nodes=nodes, edges=edges)
 
 
 def _rows_to_directed_edges(rows, wanted: dict[tuple[int | None, int | None], list[bool]]
@@ -908,34 +828,6 @@ class RoadGraphRepository:
         async for chunk in result.partitions(chunk_size):
             yield chunk
 
-    async def count_edges_in_bbox(self, bbox: BoundingBox) -> int:
-        """範囲に触れる区間（向きを持たない1本1行）の数。探索グラフを読む前の見積もりに使う。"""
-        row = await self._session.execute(_COUNT_EDGES_IN_BBOX_SQL, {
-            "xmin": bbox.min_longitude, "ymin": bbox.min_latitude,
-            "xmax": bbox.max_longitude, "ymax": bbox.max_latitude,
-        })
-        return int(row.scalar_one())
-
-    async def get_graph_topology_in_bbox(self, bbox: BoundingBox) -> LeanRoadGraph | None:
-        """探索用の有向グラフ。道路が1本も無ければNone。"""
-        params = {
-            "xmin": bbox.min_longitude, "ymin": bbox.min_latitude,
-            "xmax": bbox.max_longitude, "ymax": bbox.max_latitude,
-        }
-        edge_rows = (await self._session.execute(_TOPOLOGY_EDGES_SQL, params)).all()
-        if not edge_rows:
-            return None
-
-        node_ids = sorted({row.from_node_id for row in edge_rows}
-                          | {row.to_node_id for row in edge_rows})
-        node_rows: list[Row] = []
-        for id_chunk in _chunked(node_ids, _ID_CHUNK_SIZE):
-            node_rows.extend((await self._session.execute(
-                _TOPOLOGY_NODES_SQL, {"node_ids": id_chunk})).all())
-
-        # 数万〜十数万区間ぶんのオブジェクト構築はイベントループを塞ぐ長さになる。
-        return await asyncio.to_thread(_topology_rows_to_road_graph, edge_rows, node_rows)
-
     async def get_edges_with_geometry(self, edges: list[LeanEdge]) -> dict[str, LeanEdge]:
         """指定した枝ぶんだけ、実ジオメトリ込みの`LeanEdge`を取得する。
 
@@ -969,7 +861,6 @@ class RoadGraphRepository:
         （`WITH ORDINALITY`）で固定する。
         """
         numeric_ids, boolean_ids, categorical_ids = material_array_columns()
-        edge_ids = [e.edge_id for e in edges]
         raw: dict[str, list] = {name: [] for name in MATERIAL_ARRAY_COLUMN_ORDER}
         for chunk in _chunked(edges, _ID_CHUNK_SIZE):
             way_ids, segment_indexes, forwards = _edge_triples(chunk)
@@ -980,7 +871,7 @@ class RoadGraphRepository:
             for name in raw:
                 raw[name].extend(getattr(row, f"c_{name}") or [])
 
-        n = len(edge_ids)
+        n = len(edges)
         hard_filter_ids = hard_filter_columns()
         hard_filter_flags = np.empty((n, len(hard_filter_ids)), dtype=bool)
         for i, name in enumerate(hard_filter_ids):
@@ -997,7 +888,6 @@ class RoadGraphRepository:
             categorical_values[:, i] = _shared_strings(raw[material_id])
 
         return EdgeMaterialArrays(
-            edge_ids=edge_ids,
             numeric_ids=numeric_ids, numeric_values=numeric_values,
             boolean_ids=boolean_ids, boolean_values=boolean_values,
             categorical_ids=categorical_ids, categorical_values=categorical_values,

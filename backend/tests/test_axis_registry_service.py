@@ -1,6 +1,5 @@
 import logging
 
-import numpy as np
 import pytest
 
 from app.domain.axis_definitions import (
@@ -10,14 +9,6 @@ from app.domain.axis_definitions import (
     AxisMaterialConflictError,
     AxisPublishedImmutableError,
 )
-from app.domain.evaluation import (
-    StaticEdgeScoreMatrix,
-    route_facing_categorical_material_ids,
-    route_facing_material_ids,
-    route_facing_raw_axis_ids,
-)
-from app.infrastructure import tile_score_matrix_cache
-from app.infrastructure.axis_definition_models import AxisRegistryMetaRow
 from app.infrastructure.axis_definition_repository import AxisDefinitionRepository
 from app.services.axis_registry_service import (
     AxisDefinitionSyncError,
@@ -68,102 +59,6 @@ async def test_refresh_replaces_axis_definitions_with_db_content(road_graph_sess
     await refresh_axis_definitions(repository)
 
     assert set(AXIS_DEFINITIONS.keys()) == {"test_axis"}
-
-
-async def test_refresh_clears_tile_score_matrix_cache(road_graph_session):
-    # スコア行列はAXIS_DEFINITIONSと同じタイミングで捨てる必要がある——古いままだと
-    # 軸を編集しても編集前のスコアを返し続ける。
-    tile_score_matrix_cache.set(12, 1, 1, _score_matrix_with_current_columns())
-    assert tile_score_matrix_cache.get(12, 1, 1) is not None
-
-    repository = AxisDefinitionRepository(road_graph_session)
-    await repository.upsert(axis_definition("test_axis", material=CATALOG_MATERIAL), sort_order=0)
-    await repository.commit()
-
-    await refresh_axis_definitions(repository)
-
-    assert tile_score_matrix_cache.get(12, 1, 1) is None
-
-
-def _score_matrix_with_current_columns() -> StaticEdgeScoreMatrix:
-    """いまの述語どおりの列を持つ1行のスコア行列。
-
-    可変長の列（生値・材料・categorical材料）は`tile_score_matrix_cache.get`が読み出し時に
-    現在の述語と突き合わせるため、固定の列で組むと述語が増えた瞬間に「列構成が古い」として
-    ミス扱いになり、キャッシュの温存を見たいテストがその手前で落ちる。
-    """
-    raw_axis_ids = route_facing_raw_axis_ids()
-    material_ids = route_facing_material_ids()
-    categorical_material_ids = route_facing_categorical_material_ids()
-    return StaticEdgeScoreMatrix(
-        edge_ids=["edge-1"],
-        axis_ids=["axis_a"],
-        axis_scores=np.array([[50.0]]),
-        distance_m=np.array([100.0]),
-        bearing_deg=np.array([np.nan]),
-        hard_filter_flags={
-            "motorway": np.array([False]),
-            "trunk": np.array([False]),
-            "no_bicycle": np.array([False]),
-        },
-        gradient_percent=np.array([np.nan]),
-        mid_lat=np.array([35.0]),
-        mid_lon=np.array([139.0]),
-        raw_axis_ids=raw_axis_ids,
-        axis_raw_values=np.full((1, len(raw_axis_ids)), np.nan),
-        material_ids=material_ids,
-        material_values=np.full((1, len(material_ids)), np.nan),
-        categorical_material_ids=categorical_material_ids,
-        categorical_material_values=np.empty((1, len(categorical_material_ids)), dtype=object),
-    )
-
-
-async def test_refresh_preserves_tile_score_matrix_disk_cache_when_revision_unchanged(road_graph_session):
-    """軸定義が変わっていなければ、起動のたびにディスクキャッシュを捨て直さない。
-
-    `refresh_axis_definitions`は起動のたびに必ず1回呼ばれる。無条件に捨てると、デプロイの
-    たびにスコア行列だけを丸ごと作り直すことになる。
-
-    `road_graph_session`はスキーマだけを作るため`axis_registry_meta`の行を持たない。
-    revisionがNoneのままだと安全側で常にclear()する別経路へ入り、ここで見たい分岐
-    （revision一致→温存）に届かないので、行を自分で入れる。
-    """
-    road_graph_session.add(AxisRegistryMetaRow(id=1, revision=1))
-    repository = AxisDefinitionRepository(road_graph_session)
-    await repository.upsert(axis_definition("test_axis", material=CATALOG_MATERIAL), sort_order=0)
-    await repository.commit()
-
-    # 1回目のアプリ起動相当。
-    await refresh_axis_definitions(repository)
-    tile_score_matrix_cache.set(12, 2, 2, _score_matrix_with_current_columns())
-    tile_score_matrix_cache._cache.clear()  # プロセス再起動（メモリだけ空になる）を模す
-
-    # 2回目のアプリ起動相当。間に軸定義の変更（upsert/delete/publish等）は挟んでいない。
-    await refresh_axis_definitions(repository)
-
-    restored = tile_score_matrix_cache.get(12, 2, 2)
-    assert restored is not None
-    assert restored.edge_ids == ["edge-1"]
-
-
-async def test_refresh_invalidates_tile_score_matrix_disk_cache_when_revision_changes(road_graph_session):
-    """上記の対（軸定義が実際に変わった場合は、revision不一致によりディスクキャッシュも
-    正しく無効化されることの確認）。"""
-    road_graph_session.add(AxisRegistryMetaRow(id=1, revision=1))
-    repository = AxisDefinitionRepository(road_graph_session)
-    await repository.upsert(axis_definition("test_axis", material=CATALOG_MATERIAL), sort_order=0)
-    await repository.commit()
-
-    await refresh_axis_definitions(repository)
-    tile_score_matrix_cache.set(12, 3, 3, _score_matrix_with_current_columns())
-    tile_score_matrix_cache._cache.clear()
-
-    # 軸定義を実際に編集する（upsertは呼ぶたびにrevisionをインクリメントする）。
-    await repository.upsert(axis_definition("test_axis", default_weight=0.5, material=CATALOG_MATERIAL), sort_order=0)
-    await repository.commit()
-    await refresh_axis_definitions(repository)
-
-    assert tile_score_matrix_cache.get(12, 3, 3) is None
 
 
 async def test_refresh_raises_on_repository_error(road_graph_session):

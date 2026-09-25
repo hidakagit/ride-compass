@@ -212,7 +212,7 @@ async def test_missing_road_data_gives_no_candidates_and_says_why(entrance, phra
 
 @pytest.mark.parametrize("entrance", sorted(ENTRANCES))
 async def test_too_large_search_area_gives_no_candidates_and_says_why(entrance, caplog):
-    engine = FakeEngine(prepare_error=SearchAreaTooLargeError(road_edges=700_000, limit=600_000))
+    engine = FakeEngine(prepare_error=SearchAreaTooLargeError(edges=1_300_000, limit=1_200_000))
     generator = RouteGenerator(engine)
 
     with caplog.at_level(logging.WARNING, logger=route_generator.logger.name):
@@ -220,7 +220,7 @@ async def test_too_large_search_area_gives_no_candidates_and_says_why(entrance, 
 
     assert generator.last_no_candidates_reason is not None
     assert "探索範囲の道路が多すぎる" in generator.last_no_candidates_reason
-    assert any("road_edges=700000" in r.getMessage() for r in _warnings(caplog))
+    assert any("edges=1300000" in r.getMessage() for r in _warnings(caplog))
     assert set(engine.calls) == {"prepare"}
 
 

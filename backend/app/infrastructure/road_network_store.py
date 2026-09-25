@@ -24,10 +24,10 @@ from typing import Any
 import numpy as np
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from app.domain.graph import LeanEdge
+from app.domain.graph import LeanEdge, edge_key
 from app.domain.road_network import RoadNetwork
 from app.infrastructure.cache_identity import shape_digest
-from app.infrastructure.road_graph_repository import NETWORK_SQL_SOURCES, RoadGraphRepository, edge_key
+from app.infrastructure.road_graph_repository import NETWORK_SQL_SOURCES, RoadGraphRepository
 
 logger = logging.getLogger("ridecompass.road_network")
 
@@ -102,6 +102,31 @@ def load(directory: Path) -> RoadNetwork:
     return RoadNetwork(**arguments)  # type: ignore[arg-type]
 
 
+class RoadNetworkUnavailableError(RuntimeError):
+    """今のコードの形の置き場が1つも無い（デプロイの前処理かバッチが作っていない）。"""
+
+
+#: 読み込み済みの置き場とその中身。プロセスの中で全リクエストが共有する（読み取り専用）。
+_loaded: tuple[Path, RoadNetwork] | None = None
+
+
+def current() -> RoadNetwork:
+    """今の形の署名で世代が最も新しい置き場の中身。
+
+    呼ぶたびに置き場を見て、読み込み済みより新しいもの（バッチが作り直した）があれば読み直す。
+    読むのはメモリマップを開くだけなので、見るたびの費用はディレクトリの一覧程度に収まる。
+    """
+    global _loaded
+    latest = latest_directory()
+    if latest is None:
+        raise RoadNetworkUnavailableError(
+            f"道路網の置き場がありません（{ROOT}、形の署名 {NETWORK_SHAPE}）。scripts/build_road_network.py で作る")
+    if _loaded is None or _loaded[0] != latest:
+        _loaded = (latest, load(latest))
+        logger.info("道路網を読みました %s 有向の区間=%d", latest.name, _loaded[1].edge_count)
+    return _loaded[1]
+
+
 def _as_tuples(value: object) -> object:
     """JSONの配列をtupleへ戻す（`RoadNetwork`の語彙・列の並びはtupleで持つ）。"""
     if isinstance(value, list):
@@ -126,6 +151,22 @@ def prune(keep: Path) -> list[Path]:
         shutil.rmtree(path, ignore_errors=True)
         removed.append(path)
     return removed
+
+
+def prune_other_shapes() -> int:
+    """今のコードの形の署名でない置き場を消し、解放したバイト数を返す。
+
+    backendの起動後に呼ぶ——デプロイで入れ替わるまでは、旧コンテナが古い署名の置き場を読んでいる。
+    """
+    freed = 0
+    for path in ROOT.glob("*"):
+        match = _DIRECTORY_PATTERN.match(path.name)
+        if not path.is_dir() or match is None or match["shape"] == NETWORK_SHAPE:
+            continue
+        freed += sum(f.stat().st_size for f in path.iterdir() if f.is_file())
+        shutil.rmtree(path, ignore_errors=True)
+        logger.info("古い形の道路網の置き場を消しました %s", path.name)
+    return freed
 
 
 async def ensure_current(session_factory: async_sessionmaker[AsyncSession]) -> Path:
@@ -195,7 +236,7 @@ async def _read_nodes(repository: RoadGraphRepository) -> dict[str, np.ndarray]:
 
 async def _read_directed_edges(repository: RoadGraphRepository, node_osm_id: np.ndarray) -> dict[str, Any]:
     """区間を有向の行へ広げる。一方通行は走れる向きだけ、端点のノードが無い区間は落とす
-    （範囲指定の読み出し`_topology_rows_to_road_graph`と同じ規則）。"""
+    （道の行が無い区間は`_NETWORK_EDGES_SQL`の結合で既に落ちている）。"""
     highway_vocab: dict[str | None, int] = {None: 0}
     parts: dict[str, list[np.ndarray]] = {
         name: [] for name in ("way", "segment", "forward", "from", "to", "highway",

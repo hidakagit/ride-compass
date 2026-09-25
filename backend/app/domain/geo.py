@@ -7,13 +7,13 @@ EARTH_RADIUS_KM = 6371.0
 
 
 class LatLon(Protocol):
-    """緯度経度を持つ任意の型（`Coordinates`・`LeanNode`等）を受け付ける構造的型。
+    """緯度経度を持つ任意の型（`Coordinates`等）を受け付ける構造的型。
 
     型ヒントを`Coordinates`（Pydantic）固定にすると、グラフ構築や最近傍探索のような
     ホットパスで、既に手元にある生の緯度経度ペアやNodeオブジェクトから
     わざわざ`Coordinates`を構築し直す無駄が生じる。
 
-    読み取り専用のプロパティとして宣言するのは、凍結したdataclass（`LeanNode`）や
+    読み取り専用のプロパティとして宣言するのは、凍結したdataclassや
     NamedTuple（`LatLonPoint`）も満たせるようにするため。
     """
 

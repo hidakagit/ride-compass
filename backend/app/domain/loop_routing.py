@@ -27,7 +27,8 @@ class LoopTurnaround:
 @dataclass
 class TracedLoop:
     """`trace_loop`/`trace_loop_from_turnaround`の結果。距離フィルタに必要な情報と、
-    `evaluate_loops`が完全な`RouteCandidate`を組み立てるための経路（Edge id列）を運ぶ。
+    `evaluate_loops`が完全な`RouteCandidate`を組み立てるための経路（探索用グラフの区間の番号列。
+    戦略層は中身を読まない）を運ぶ。
 
     bearing=Noneは経由地(waypoints)指定ルートを表す。周回候補と異なり「向き」という
     概念を持たず、ユーザーが指定した訪問順序をそのまま保持する必要がある
@@ -36,7 +37,7 @@ class TracedLoop:
 
     bearing: int | None
     distance_km: float
-    data: list[str]
+    data: list[int]
     # 経路上の各Edgeがどのレグ（`_RoadGraphContext.legs`の添字。周回は0=往路・1=復路、
     # 経由地ルートはレグ番号）のコスト配列で探索されたか。区間表示が探索と同じ配列から
     # 値を読むために使う。既定値を持たせない——省略できると、復路まで往路の時刻で評価した

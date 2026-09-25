@@ -77,7 +77,6 @@ class FakeRepository:
         categorical = np.empty((n, 1), dtype=object)
         categorical[:, 0] = [CATEGORY[e.osm_way_id] for e in edges]
         return EdgeMaterialArrays(
-            edge_ids=[e.edge_id for e in edges],
             numeric_ids=("m_num",), numeric_values=numeric,
             boolean_ids=("m_bool",), boolean_values=np.array([[e.forward] for e in edges]),
             categorical_ids=("m_cat",), categorical_values=categorical,
@@ -191,3 +190,37 @@ def _session_factory():
             return False
 
     return _Session()
+
+
+async def test_current_reads_the_newest_revision_and_follows_a_newer_one(monkeypatch):
+    """バッチが新しい世代の置き場を作ったら、次の読み出しからそちらを使う。"""
+    monkeypatch.setattr(road_network_store, "_loaded", None)
+    road_network_store.save(await road_network_store.build(FakeRepository(revision=7)))
+    assert road_network_store.current().revision == 7
+
+    road_network_store.save(await road_network_store.build(FakeRepository(revision=8)))
+
+    assert road_network_store.current().revision == 8
+
+
+def test_no_network_for_the_current_code_is_an_error_not_an_empty_network(monkeypatch):
+    """空の道路網として振る舞うと、ルート生成が「道路データが未整備」と誤って答える。"""
+    monkeypatch.setattr(road_network_store, "_loaded", None)
+    (road_network_store.ROOT / "0123456789ab-r9").mkdir(parents=True)
+
+    with pytest.raises(road_network_store.RoadNetworkUnavailableError):
+        road_network_store.current()
+
+
+async def test_directories_of_other_shapes_are_removed_after_startup():
+    """材料の式を変えたデプロイで古い形の置き場が残り続けないよう、起動後に消す。今の形は残す。"""
+    current = road_network_store.save(await road_network_store.build(FakeRepository(revision=7)))
+    other_shape = road_network_store.ROOT / "0123456789ab-r9"
+    other_shape.mkdir()
+    (other_shape / "manifest.json").write_text("{}", encoding="utf-8")
+
+    freed = road_network_store.prune_other_shapes()
+
+    assert freed > 0
+    assert not other_shape.exists()
+    assert current.exists()

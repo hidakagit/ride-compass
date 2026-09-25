@@ -8,7 +8,7 @@ class SearchAreaTooLargeError(Exception):
     経路が無い（`RoutingError`）のとは別の理由で、利用者には範囲を狭めれば作れると伝える。
     """
 
-    def __init__(self, road_edges: int, limit: int):
-        super().__init__(f"road_edges={road_edges} limit={limit}")
-        self.road_edges = road_edges
+    def __init__(self, edges: int, limit: int):
+        super().__init__(f"edges={edges} limit={limit}")
+        self.edges = edges
         self.limit = limit

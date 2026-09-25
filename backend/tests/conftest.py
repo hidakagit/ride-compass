@@ -16,7 +16,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 
 from app.batch._common import asyncpg_dsn
-from app.infrastructure import redis_client, tile_persistent_cache, tile_score_matrix_cache
+from app.infrastructure import redis_client, tile_persistent_cache
 from app.infrastructure.orm_base import Base
 from app.infrastructure.road_graph_repository import (
     REQUIRED_EXTENSIONS,
@@ -73,25 +73,6 @@ def _use_temp_tile_persistent_cache_dir(tmp_path, _keep_tile_persistent_cache_ou
     tile_persistent_cache.use_directory(tmp_path / "tile_persistent_cache")
     yield
     tile_persistent_cache.use_directory(worker_dir)
-
-
-@pytest.fixture(autouse=True)
-def _clear_tile_score_matrix_cache(_use_temp_tile_persistent_cache_dir):
-    """tile_score_matrix_cache（タイル単位の静的Edge×公開軸スコア行列、改善計画T536。
-    旧axis_score_cache[T534]の後継）もプロセス内グローバル状態のため、
-    _reset_redis_circuit_breakerと同じ理由でテスト間の汚染を防ぐ。
-
-    多くのテストが"e1"・"e-ab"のような慣用的なedge_idを、テストごとに異なる材料
-    （way_tags・elevation_attribute等）で使い回す。本番のタイル座標は実データ由来で
-    そのタイル内のEdge材料と一意に対応するため、風以外の軸別スコアをタイル単位で
-    キャッシュしてよい設計が成立するが、テストの慣用edge_id・タイル座標はその前提を
-    満たさないため、クリアしないと別テストが積んだキャッシュを誤って再利用してしまう
-    （旧axis_score_cache時代にtest_prepare_applies_precomputed_gradient_to_search_costで
-    実際に発生・発覚した問題と同種）。
-    """
-    tile_score_matrix_cache.clear()
-    yield
-    tile_score_matrix_cache.clear()
 
 
 # road_graph_repository.pyのPostGIS統合テスト専用の接続先。開発機で稼働中の実DB

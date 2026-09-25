@@ -19,15 +19,13 @@ Road Graphのトポロジーと、既に計算済みのEdge Costのみ。
 import logging
 import math
 import time
-from collections.abc import Callable, Collection, Container, Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from typing import TypeVar
 
 import numpy as np
 from numba import njit
-from app.domain.errors import RoutingError
-from app.domain.geo import KM_PER_DEGREE_LATITUDE, bearing_between, haversine_distance_km
-from app.domain.graph import LeanRoadGraph
+from app.domain.geo import KM_PER_DEGREE_LATITUDE, bearing_between, haversine_distance_km_array
 from app.domain.route import Coordinates
 from app.domain.traffic import MAJOR_CROSSING_MIN_RANK
 from app.domain.tuning import tuning_value
@@ -39,72 +37,42 @@ logger = logging.getLogger("ridecompass.graph")
 class LazyRoadGraph:
     """探索グラフのトポロジ表現。
 
-    Node・Edgeとも整数index（`index_to_node_id`・`edge_ids`の添字）で扱い、文字列の
-    node_id/edge_idは経路確定後の変換でのみ使う。コストは持たない——リクエストごとに変わる
-    ため、探索へは別に合成した配列を渡す。並行Edge（同一Node間の複数Edge）はedge_idの昇順で
-    先頭の1本へ解消済み（`edge_index_by_node_pair`）。
+    Node・区間とも番号で扱う。区間の番号（`edge_rows`の添字）は探索の状態でもあり、
+    `(始点, 終点)`の昇順に並ぶ。コストは持たない——リクエストごとに変わるため、探索へは別に
+    合成した配列を渡す。同じノード対を結ぶ並行区間は、元の行（`edge_rows`の値）が最も小さい
+    1本だけを残す。
     """
 
-    node_id_to_index: dict[str, int]
-    index_to_node_id: list[str]
-    # edge_index（下記edge_idsの添字）→ edge_id。
-    edge_ids: list[str]
-    # (from_index, to_index) -> edge_index。並行Edge解消後の実際に採用されたペアのみ持つ。
-    edge_index_by_node_pair: dict[tuple[int, int], int]
+    node_count: int
+    # 区間の番号→元の区間の行（探索範囲の材料・スコア行列の行）。
+    edge_rows: np.ndarray
+    edge_from: np.ndarray
+    edge_to: np.ndarray
 
 
-def build_lazy_road_graph(
-    graph: LeanRoadGraph,
-) -> LazyRoadGraph:
-    """`graph`のトポロジから`LazyRoadGraph`を構築する（Hard Constraint自体は評価しない。
-    除外は呼び出し元がcost=math.infで表現する）。
+def build_lazy_road_graph(edge_from: np.ndarray, edge_to: np.ndarray, node_count: int) -> LazyRoadGraph:
+    """区間の始点・終点（元の行の順）から`LazyRoadGraph`を組む（Hard Constraint自体は
+    評価しない。除外は呼び出し元がcost=math.infで表現する）。
 
-    並行Edge（同一Node間の複数Edge）はedge_idの昇順で先頭を採用する——コストは
-    リクエストごとに変わるため、トポロジを組む時点では決められない。
-
-    **`graph`が自分の区間の両端Nodeを持つことをここで確かめ**、欠けていれば
-    `RoutingError`を送出する。飛ばすと、その道だけが探索から静かに消えて「なぜかその道を
-    通らない経路」になる。ここを通った後は、同じ`graph`と`lazy_graph`を読む側
-    （方位・ノード属性）がNodeの有無を確かめ直す必要がない。
+    並行区間の解消はコストに依らず決める——コストはリクエストごとに変わるため、トポロジを
+    組む時点では決められない。
     """
-    node_ids = list(graph.nodes.keys())
-    node_id_to_index = {node_id: i for i, node_id in enumerate(node_ids)}
+    tail = np.asarray(edge_from, dtype=np.int64)
+    head = np.asarray(edge_to, dtype=np.int64)
+    keys = tail * node_count + head
+    order = np.lexsort((np.arange(len(keys)), keys))
+    sorted_keys = keys[order]
+    first = np.ones(len(order), dtype=bool)
+    first[1:] = sorted_keys[1:] != sorted_keys[:-1]
+    kept = order[first]
+    return LazyRoadGraph(node_count=node_count, edge_rows=kept, edge_from=tail[kept], edge_to=head[kept])
 
-    # edge_idの昇順で処理する（複数の並行Edgeのうちどれを「先に登場した」とみなすかの
-    # 決定的な基準、cost比較が同点の場合のタイブレークにも使う）。
-    best_by_pair: dict[tuple[int, int], str] = {}
-    for edge_id in sorted(graph.edges.keys()):
-        edge = graph.edges[edge_id]
-        from_index = node_id_to_index.get(edge.from_node_id)
-        to_index = node_id_to_index.get(edge.to_node_id)
-        if from_index is None or to_index is None:
-            missing = edge.from_node_id if from_index is None else edge.to_node_id
-            raise RoutingError(
-                f"edge {edge_id!r} refers to node {missing!r} which is not in the graph"
-            )
-        pair = (from_index, to_index)
-        if pair not in best_by_pair:
-            best_by_pair[pair] = edge_id
-
-    edge_ids: list[str] = []
-    edge_index_by_node_pair: dict[tuple[int, int], int] = {}
-    for pair, edge_id in best_by_pair.items():
-        edge_index = len(edge_ids)
-        edge_ids.append(edge_id)
-        edge_index_by_node_pair[pair] = edge_index
-
-    return LazyRoadGraph(
-        node_id_to_index=node_id_to_index,
-        index_to_node_id=node_ids,
-        edge_ids=edge_ids,
-        edge_index_by_node_pair=edge_index_by_node_pair,
-    )
 
 # --- 一対全最短経路木（フロンティア方式の周回生成の共通基盤） ---
 
 
 # CSRのindptr/indices/entry_edge_indexに使うdtype。Node数・Edge数はint32の値域に対して
-# 桁違いに小さく、タイル集合キーのプロセス内LRUが常駐させる分の実メモリを半減できる。
+# 桁違いに小さく、生成1回ぶんの一時的なメモリを半減できる。
 _CSR_INDEX_DTYPE = np.int32
 
 # 優先度キューの初期容量（種の数＋この余裕）。満杯になれば倍へ伸びるため上限を当てる必要は
@@ -115,11 +83,10 @@ _HEAP_INITIAL_SLACK = 64
 
 @dataclass
 class CsrGraphStructure:
-    """`LazyRoadGraph`と同じNode/Edge index空間を持つCSR（圧縮行格納）表現の**構造のみ**。
+    """`LazyRoadGraph`と同じNode/区間の番号を持つCSR（圧縮行格納）表現の**構造のみ**。
 
     Edge重み（コスト）はリクエストごとに変わるため持たず、`entry_edge_index`が
-    CSRエントリ順とコスト配列の行順を結ぶ。構造はタイル集合だけで決まる純粋な派生物のため
-    `LazyRoadGraph`と同じキーでキャッシュできる。
+    CSRエントリ順とコスト配列の行順を結ぶ。各行の中は終点の昇順（`edge_index_between`が二分探索する）。
     """
 
     node_count: int
@@ -127,102 +94,48 @@ class CsrGraphStructure:
     indptr: np.ndarray
     # CSRエントリ順のto Node index（各行内で昇順）。
     indices: np.ndarray
-    # CSRエントリ順→`LazyRoadGraph.edge_ids`のEdge index（コスト配列の並べ替えに使う）。
+    # CSRエントリ順→区間の番号（コスト配列の並べ替えに使う）。
     entry_edge_index: np.ndarray
 
 
 def _build_csr_structure(lazy_graph: LazyRoadGraph) -> CsrGraphStructure:
-    """`LazyRoadGraph`（並行Edge解消後の`edge_index_by_node_pair`）からCSR構造を組む。
-
-    整列キー`from_index * node_count + to_index`は構築中の一時変数で、フィールドとしては
-    持たない（プロセス内LRUが常駐させる1エントリぶんのメモリを削る）。
-    """
-    node_count = len(lazy_graph.index_to_node_id)
-    pairs = lazy_graph.edge_index_by_node_pair
-    entry_count = len(pairs)
-    keys = np.fromiter((u * node_count + v for u, v in pairs.keys()), dtype=np.int64, count=entry_count)
-    edge_index = np.fromiter(pairs.values(), dtype=np.int64, count=entry_count)
-    order = np.argsort(keys, kind="stable")
-    keys = keys[order]
-    edge_index = edge_index[order]
+    """`LazyRoadGraph`（区間は`(始点, 終点)`の昇順）からCSR構造を組む。"""
+    node_count = lazy_graph.node_count
     indptr = np.zeros(node_count + 1, dtype=_CSR_INDEX_DTYPE)
-    if entry_count:
-        rows = keys // node_count
-        cols = keys % node_count
-        np.cumsum(np.bincount(rows, minlength=node_count), out=indptr[1:])
-    else:
-        cols = np.zeros(0, dtype=np.int64)
+    np.cumsum(np.bincount(lazy_graph.edge_from, minlength=node_count), out=indptr[1:])
     return CsrGraphStructure(
         node_count=node_count,
         indptr=indptr,
-        indices=cols.astype(_CSR_INDEX_DTYPE),
-        entry_edge_index=edge_index.astype(_CSR_INDEX_DTYPE),
+        indices=lazy_graph.edge_to.astype(_CSR_INDEX_DTYPE),
+        entry_edge_index=np.arange(len(lazy_graph.edge_to), dtype=_CSR_INDEX_DTYPE),
     )
 
 
-class LazyGraphEdgeMismatchError(RoutingError):
-    """`build_search_graph_statics`が`lazy_graph.edge_ids`のうち`graph.edges`に
-    存在しないedge_idを検出したときに送出する。"""
+def edge_index_between(csr: CsrGraphStructure, tail: int, head: int) -> int | None:
+    """`tail`→`head`の区間の番号。無ければNone（一方通行の逆向き等）。"""
+    start, stop = int(csr.indptr[tail]), int(csr.indptr[tail + 1])
+    position = start + int(np.searchsorted(csr.indices[start:stop], head))
+    if position < stop and csr.indices[position] == head:
+        return int(csr.entry_edge_index[position])
+    return None
 
 
 @dataclass
 class SearchGraphStatics:
-    """タイル集合だけで決まる、探索用グラフの静的な派生物一式。
-    `LazyRoadGraph`と同じキャッシュ寿命で保持し、リクエストごとに変わる値（コスト配列）は
-    含めない。"""
+    """探索用グラフの静的な派生物一式。リクエストごとに変わる値（コスト配列）は含めない。"""
 
     csr: CsrGraphStructure
-    # `LazyRoadGraph.edge_ids`と同じ行順の実距離（m）。一対全木に沿った実距離の積算
+    # 区間の番号順の実距離（m）。一対全木に沿った実距離の積算
     # （`TurnExpandedTree.state_length_m`）と重複率（`select_diverse_by_overlap`）に使う。
     edge_length_m: np.ndarray
 
 
-def find_missing_lazy_graph_edge_id(
-    lazy_graph: LazyRoadGraph, graph: LeanRoadGraph, *, also_required_in: Container[str] | None = None
-) -> str | None:
-    """`lazy_graph.edge_ids`のうち`graph.edges`に存在しない最初のedge_idを返す
-    （無ければNone）。
-
-    `lazy_graph.edge_ids`は`graph.edges`の部分集合である前提だが、`lazy_graph`をタイル集合
-    キーのプロセス内キャッシュから再利用し、その間に派生バッチが区間を作り直していると
-    前提が崩れる。CSR構築を伴わない軽量版のチェックで、呼び出し元は崩れていれば
-    `lazy_graph`ごと作り直す。
-
-    `also_required_in`を渡すと、そちらにも存在することを併せて確認する。各edge_idは
-    `graph.edges`だけでなく静的スコア行列の行索引（材料とは別キャッシュ）からも引かれる
-    ため、検証する集合を実際に消費する集合と一致させる。
-    """
-    return next(
-        (
-            edge_id
-            for edge_id in lazy_graph.edge_ids
-            if edge_id not in graph.edges or (also_required_in is not None and edge_id not in also_required_in)
-        ),
-        None,
+def build_search_graph_statics(lazy_graph: LazyRoadGraph, distance_m: np.ndarray) -> SearchGraphStatics:
+    """探索用の静的な派生物一式を組む。`distance_m`は元の行の順の区間の長さ。"""
+    return SearchGraphStatics(
+        csr=_build_csr_structure(lazy_graph),
+        edge_length_m=np.asarray(distance_m, dtype=float)[lazy_graph.edge_rows],
     )
-
-
-def build_search_graph_statics(
-    lazy_graph: LazyRoadGraph, graph: LeanRoadGraph
-) -> SearchGraphStatics:
-    """探索用の静的な派生物一式を組む。
-
-    `lazy_graph.edge_ids`が`graph.edges`の部分集合であることを確認し、崩れていれば
-    `LazyGraphEdgeMismatchError`を送出する——確認しないと、下の`graph.edges[edge_id]`が
-    素のKeyErrorになり、キャッシュの取り違えだと分からない。
-    """
-    missing_edge_id = find_missing_lazy_graph_edge_id(lazy_graph, graph)
-    if missing_edge_id is not None:
-        raise LazyGraphEdgeMismatchError(
-            f"lazy_graph.edge_ids contains {missing_edge_id!r} not present in graph.edges "
-            "(stale tile-set-keyed cache after re-split)"
-        )
-    edge_length_m = np.fromiter(
-        (graph.edges[edge_id].distance_m for edge_id in lazy_graph.edge_ids),
-        dtype=float,
-        count=len(lazy_graph.edge_ids),
-    )
-    return SearchGraphStatics(csr=_build_csr_structure(lazy_graph), edge_length_m=edge_length_m)
 
 def overlap_ratio(candidate_edges: np.ndarray, accepted_edges: np.ndarray, edge_length_m: np.ndarray) -> float:
     """`candidate_edges`（Edge index配列）のうち`accepted_edges`と共有する部分の距離加重
@@ -459,9 +372,12 @@ class NodeSpatialIndex:
     索引を1回だけ構築して使い回す。
     """
 
-    graph: LeanRoadGraph
+    # ノード番号順の座標（索引に載らないノードも含む）。
+    latitude: np.ndarray
+    longitude: np.ndarray
     cell_size_deg: float
-    buckets: dict[tuple[int, int], list[str]]
+    # セル→そのセルにある候補のノード番号（昇順）。
+    buckets: dict[tuple[int, int], np.ndarray]
     #: 非空セルが占める範囲（最小・最大のセル座標）。Nodeが1つも無ければNone。
     #: **探索の打ち切りに要る**——この外側にはどれだけ広げてもセルが1つも無い。
     #: 既定値を持たせない: 省略できると、渡し忘れた索引が黙って「Nodeが無い」ふるまいに
@@ -478,43 +394,46 @@ _NEIGHBOR_CELL_TOLERANCE = 1
 
 
 def build_node_spatial_index(
-    graph: LeanRoadGraph,
+    latitude: np.ndarray,
+    longitude: np.ndarray,
+    candidates: np.ndarray | None = None,
     cell_size_deg: float = _DEFAULT_NODE_INDEX_CELL_SIZE_DEG,
-    node_ids: Collection[str] | None = None,
 ) -> NodeSpatialIndex:
-    """`graph.nodes`からグリッドバケット索引を構築する。ノードが1つも無くても空の
+    """ノードの座標からグリッドバケット索引を構築する。ノードが1つも無くても空の
     bucketsを持つ索引を返す（`find_nearest_node_indexed`がNoneを返す）。
 
-    `node_ids`省略時は`graph.nodes`全件を対象にする。指定時はその集合に含まれるNodeのみを
-    索引の候補にする（Hard Constraint通過後に孤立するNodeを最近傍探索から外すために使う）。
+    `candidates`（ノード番号順の真偽）を渡すと、真のノードだけを索引の候補にする（Hard
+    Constraint通過後に孤立するNodeを最近傍探索から外すために使う）。
     """
-    ids = graph.nodes.keys() if node_ids is None else node_ids
-    buckets: dict[tuple[int, int], list[str]] = {}
-    for node_id in ids:
-        node = graph.nodes[node_id]
-        key = (math.floor(node.latitude / cell_size_deg), math.floor(node.longitude / cell_size_deg))
-        buckets.setdefault(key, []).append(node_id)
+    latitude = np.asarray(latitude, dtype=np.float64)
+    longitude = np.asarray(longitude, dtype=np.float64)
+    ids = np.arange(len(latitude)) if candidates is None else np.flatnonzero(candidates)
+    cell_lat = np.floor(latitude[ids] / cell_size_deg).astype(np.int64)
+    cell_lon = np.floor(longitude[ids] / cell_size_deg).astype(np.int64)
+    order = np.lexsort((ids, cell_lon, cell_lat))
+    ids, cell_lat, cell_lon = ids[order], cell_lat[order], cell_lon[order]
+    starts = np.flatnonzero(np.concatenate(([True], (cell_lat[1:] != cell_lat[:-1]) | (cell_lon[1:] != cell_lon[:-1]))))
+    stops = np.append(starts[1:], len(ids))
+    buckets = {
+        (int(cell_lat[start]), int(cell_lon[start])): ids[start:stop]
+        for start, stop in zip(starts.tolist(), stops.tolist(), strict=True)
+    } if len(ids) else {}
     bounds = (
-        (
-            min(key[0] for key in buckets),
-            min(key[1] for key in buckets),
-            max(key[0] for key in buckets),
-            max(key[1] for key in buckets),
-        )
-        if buckets
+        (int(cell_lat.min()), int(cell_lon.min()), int(cell_lat.max()), int(cell_lon.max()))
+        if len(ids)
         else None
     )
     return NodeSpatialIndex(
-        graph=graph, cell_size_deg=cell_size_deg, buckets=buckets, cell_bounds=bounds
+        latitude=latitude, longitude=longitude, cell_size_deg=cell_size_deg, buckets=buckets, cell_bounds=bounds
     )
 
 
 def find_nearest_node_indexed(
     index: NodeSpatialIndex,
     point: Coordinates,
-    predicate: Callable[[str], bool] | None = None,
+    allowed: np.ndarray | None = None,
     max_distance_km: float | None = None,
-) -> str | None:
+) -> int | None:
     """`build_node_spatial_index`が作った索引を使い、指定地点に最も近いNodeを総当たり
     より高速に探す。
 
@@ -526,12 +445,12 @@ def find_nearest_node_indexed(
     使うと、実際にはまだ調べていない経度方向のセルの方が近い可能性があるのに打ち切って
     しまう。
 
-    `predicate`を渡すと、それがFalseを返すNodeを最近傍候補から除外する（目的地ルートで
+    `allowed`（ノード番号順の真偽）を渡すと、偽のNodeを最近傍候補から除外する（目的地ルートで
     一番近いNodeがメインの道路網から孤立している場合に、アクセス可能な最寄りNodeへ
-    改めて絞り込むために使う）。停止条件は「見つかった最近傍（`predicate`を満たすもの
+    改めて絞り込むために使う）。停止条件は「見つかった最近傍（`allowed`が真のもの
     限定）の距離」を基準にするため、除外対象があっても安全性は変わらない。
 
-    **`predicate`が1つも真にならないとき、上の停止条件は成立しない。** そのため半径は
+    **`allowed`が1つも真にならないとき、上の停止条件は成立しない。** そのため半径は
     索引が占める範囲の外へ出た時点でも打ち切る——その外側にはどれだけ広げてもセルが
     1つも無く、走査は結果を変えずに時間だけを使う。
 
@@ -544,6 +463,8 @@ def find_nearest_node_indexed(
     リング数もその距離ぶんで打ち切るため、`predicate`が1つも真にならない場合の走査量も
     同時に抑えられる。「近くに無いなら寄せない」という意味を持つ呼び出しは、範囲の
     広さではなく距離でこれを表す。
+
+    戻り値はノード番号。
     """
     if index.cell_bounds is None:
         return None
@@ -557,7 +478,7 @@ def find_nearest_node_indexed(
     longitude_cos_factor = max(math.cos(math.radians(point.latitude)), 1e-6)
     cell_size_km_lower_bound = index.cell_size_deg * KM_PER_DEGREE_LATITUDE * longitude_cos_factor
 
-    nearest_node_id: str | None = None
+    nearest_node: int | None = None
     nearest_distance: float | None = None
     radius = 0
     # 検索セルから、非空セルが占める範囲の一番遠い角までのリング数。ここを超えると
@@ -587,22 +508,24 @@ def find_nearest_node_indexed(
             for dy in range(-radius, radius + 1):
                 if max(abs(dx), abs(dy)) != radius:
                     continue  # 内側のリングは前回までのループで調べ済み
-                for node_id in index.buckets.get((cell_lat + dx, cell_lon + dy), ()):
-                    if predicate is not None and not predicate(node_id):
+                nodes = index.buckets.get((cell_lat + dx, cell_lon + dy))
+                if nodes is None:
+                    continue
+                if allowed is not None:
+                    nodes = nodes[allowed[nodes]]
+                    if len(nodes) == 0:
                         continue
-                    node = index.graph.nodes[node_id]
-                    # nodeは既にlatitude/longitudeを持つ（geo.py: LatLon）ため、
-                    # Coordinatesへ包み直さない。
-                    distance = haversine_distance_km(point, node)
-                    if nearest_distance is None or distance < nearest_distance:
-                        nearest_distance = distance
-                        nearest_node_id = node_id
+                distances = haversine_distance_km_array(index.latitude[nodes], index.longitude[nodes], point)
+                best = int(np.argmin(distances))
+                if nearest_distance is None or distances[best] < nearest_distance:
+                    nearest_distance = float(distances[best])
+                    nearest_node = int(nodes[best])
         if nearest_distance is not None and radius * cell_size_km_lower_bound >= nearest_distance:
             break
         radius += 1
     if max_distance_km is not None and (nearest_distance is None or nearest_distance > max_distance_km):
         return None
-    return nearest_node_id
+    return nearest_node
 
 # --- ターン展開（状態＝有向Edge、辺＝ターン） ---
 
@@ -637,8 +560,6 @@ def current_turn_cost() -> TurnCostSpec:
     """いま効いている較正値で組み立てたターンの費用。
 
     **呼ぶたびに組み立てる**——プロセス内に束ねると、管理画面から変えた値が効かない。
-    値が同じなら同じ値のdataclassになるため、これを鍵にするプロセス内キャッシュ
-    （`TurnStructureKey`）は作り直されない。
     """
     return TurnCostSpec(
         left_seconds=tuning_value("turn.left_seconds"),
@@ -657,14 +578,13 @@ class TurnExpandedStructure:
     `CsrGraphStructure`と同じくEdgeの重みは持たない（リクエストごとに変わるため）。グラフを
     物理的に作り直さず、遷移は`CsrGraphStructure`から導く——ターンの費用はノード側の性質
     （方位差・信号の有無）だけで決まり、状態の数を増やさずに表せる。行＝遷移元の状態
-    （`LazyRoadGraph.edge_ids`の添字）、列＝遷移先の状態で、起点には依存しないため
-    `CsrGraphStructure`と同じキーでキャッシュできる。
+    （区間の番号）、列＝遷移先の状態で、起点には依存しない。
     """
 
     state_count: int
     # 状態ごとの遷移範囲。長さ state_count + 1。
     indptr: np.ndarray
-    # 遷移先の状態（`LazyRoadGraph.edge_ids`の添字）。
+    # 遷移先の状態（区間の番号）。
     target_state: np.ndarray
     # 遷移ごとのターンの時間損失（秒）。
     turn_seconds: np.ndarray
@@ -683,8 +603,6 @@ class TurnExpandedStructure:
         前向きの遷移「状態a→状態b、待ちw」を、後ろ向きでは「状態b→状態a、待ちw」として
         並べ替える（待ちは元の進行方向で決まるため値は変えない）。
         """
-        # プロセス内で共有される構造だが、ロックは要らない——組み直しても同じ値になり、
-        # 重なったぶんは初回だけ計算を重複して払う（結果は壊れない）。
         if self._reverse is None:
             source = np.repeat(
                 np.arange(self.state_count, dtype=np.int64), np.diff(self.indptr)
@@ -697,21 +615,18 @@ class TurnExpandedStructure:
         return self._reverse
 
 
-def edge_bearings(graph: LeanRoadGraph, lazy_graph: LazyRoadGraph) -> np.ndarray:
-    """`lazy_graph.edge_ids`順の方位（度）。`Edge.bearing_deg`（折れ線から求めた実際の向き）を
-    使い、持たないEdgeだけ両端のNode座標から補う。
-
-    Edgeとその両端Nodeが`graph`にあることは前提にする（`build_lazy_road_graph`と
-    `build_search_graph_statics`が確かめる）——ここで補うと、取り違えたグラフの区間に
-    北向き0度が入り、その区間のターンの費用が静かに狂う。
-    """
-    bearings = np.empty(len(lazy_graph.edge_ids))
-    for index, edge_id in enumerate(lazy_graph.edge_ids):
-        edge = graph.edges[edge_id]
-        value = edge.bearing_deg
-        if value is None:
-            value = bearing_between(graph.nodes[edge.from_node_id], graph.nodes[edge.to_node_id])
-        bearings[index] = float(value)
+def edge_bearings(
+    lazy_graph: LazyRoadGraph, bearing_deg: np.ndarray, node_lat: np.ndarray, node_lon: np.ndarray
+) -> np.ndarray:
+    """区間の番号順の方位（度）。`bearing_deg`（元の行の順、折れ線から求めた実際の向き）を
+    使い、NaNの区間だけ両端のNode座標から補う。"""
+    bearings = np.asarray(bearing_deg, dtype=float)[lazy_graph.edge_rows].copy()
+    for index in np.flatnonzero(np.isnan(bearings)).tolist():
+        tail, head = int(lazy_graph.edge_from[index]), int(lazy_graph.edge_to[index])
+        bearings[index] = bearing_between(
+            Coordinates(latitude=float(node_lat[tail]), longitude=float(node_lon[tail])),
+            Coordinates(latitude=float(node_lat[head]), longitude=float(node_lon[head])),
+        )
     return bearings
 
 
@@ -743,15 +658,11 @@ def build_turn_expanded_structure(
 
     ターンの費用に要る入力はすべて引数で受け取り、**`None`を受け取らない**。既定を持たせても
     実行時に`None`を許しても、渡し忘れた呼び出しが「上位の道の横断に待ちが付かない」構造を
-    黙って作る（例外もログも出ない）。`spec`についてはさらに、**この構造をキャッシュする鍵
-    （`TurnStructureKey`）が実際に使った費用と食い違う**。
+    黙って作る（例外もログも出ない）。
     """
-    state_count = len(lazy_graph.edge_ids)
-    edge_from = np.zeros(state_count, dtype=np.int64)
-    edge_to = np.zeros(state_count, dtype=np.int64)
-    for (tail, head), edge_index in lazy_graph.edge_index_by_node_pair.items():
-        edge_from[edge_index] = tail
-        edge_to[edge_index] = head
+    state_count = len(lazy_graph.edge_rows)
+    edge_from = lazy_graph.edge_from
+    edge_to = lazy_graph.edge_to
 
     indptr64 = csr.indptr.astype(np.int64)
     out_start = indptr64[edge_to]
@@ -970,7 +881,7 @@ def _turn_expanded_dijkstra(
 
 @dataclass
 class TurnExpandedTree:
-    """状態＝有向Edgeの一対全最短経路木。`state_*`は`LazyRoadGraph.edge_ids`と同じ行順、
+    """状態＝有向Edgeの一対全最短経路木。`state_*`は区間の番号順、
     `node_*`はNode index順。
 
     「起点Nodeのコスト0」という状態を持たない——状態の空間に
