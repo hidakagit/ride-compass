@@ -9,6 +9,7 @@
 
 import math
 
+from app.domain.map_display import ROAD_LINE_WIDTH_PX, ROAD_ORDERED_MAX_WIDTH_PX
 from app.domain.registry import PrimaryAttributeSpec
 
 #: 明度の上限。**基礎地図の背景（`SEMANTIC_COLORS["basemap_ground"]`）に対してコントラスト比3:1を割らない明るさ**
@@ -64,14 +65,27 @@ def _fit_chroma(lightness: float, chroma: float, hue_deg: float) -> str:
     raise ValueError(f"彩度0でも色域外: L*={lightness} h={hue_deg % 360:.0f}")
 
 
-def ordered_colors(count: int) -> list[str]:
-    """順序のある分類の色。並びの位置が意味を持つので、行数ぶんを一度に作る。"""
+def _ordered_positions(count: int) -> list[float]:
+    """順序のある分類の各行の、並びの中の位置（先頭0〜末尾1）。色と太さが同じ位置から導かれるので、2つは同じ順序を示す。"""
     if count <= 0:
         return []
+    return [0.5] if count == 1 else [i / (count - 1) for i in range(count)]
+
+
+def ordered_colors(count: int) -> list[str]:
+    """順序のある分類の色。並びの位置が意味を持つので、行数ぶんを一度に作る。"""
     (l_low, l_high), (h_start, h_end) = _ORDERED_LIGHTNESS_RANGE, _ORDERED_HUE_RANGE_DEG
-    positions = [0.5] if count == 1 else [i / (count - 1) for i in range(count)]
     return [
-        _fit_chroma(l_low + (l_high - l_low) * p, _ORDERED_CHROMA, h_start + (h_end - h_start) * p) for p in positions
+        _fit_chroma(l_low + (l_high - l_low) * p, _ORDERED_CHROMA, h_start + (h_end - h_start) * p)
+        for p in _ordered_positions(count)
+    ]
+
+
+def ordered_line_widths(count: int) -> list[float]:
+    """順序のある分類を線で描くときの太さ（px）。先頭ほど太く、末尾は他の線と同じ太さ。"""
+    return [
+        round(ROAD_ORDERED_MAX_WIDTH_PX + (ROAD_LINE_WIDTH_PX - ROAD_ORDERED_MAX_WIDTH_PX) * p, 2)
+        for p in _ordered_positions(count)
     ]
 
 
@@ -145,15 +159,20 @@ EVALUATION_RAMP_ANCHORS: tuple[tuple[float, str], ...] = (
 
 
 def resolved_display_axes(attr: PrimaryAttributeSpec) -> list[dict]:
-    """行の色を解決した表示定義。**色は宣言に無い**ので、配る直前にここで決める。
+    """行の色と太さを解決した表示定義。**どちらも宣言に無い**ので、配る直前にここで決める。
 
     色を持つのは`palette`を宣言した軸（先頭の軸）の行だけで、他の軸の行は`color`を持たない
-    ——地図が塗らない色を配ると、凡例がそれを色見本として出す。"""
+    ——地図が塗らない色を配ると、凡例がそれを色見本として出す。太さ（`line_width_px`）を持つのは、線で描く
+    属性の順序のある分類の行だけ——太さは色と同じ順序を重ねて示す手がかりで、順序を持たない分類に付けると
+    太さが意味の無い差を示す。"""
     axes = []
     for axis in attr.display_axes:
         count = len(axis.categories)
+        widths: list[float | None] = [None] * count
         if axis.palette == "ordered":
             colors: list[str | None] = list(ordered_colors(count))
+            if attr.geometry == "line":
+                widths = list(ordered_line_widths(count))
         elif axis.palette == "nominal":
             colors = list(nominal_colors(axis.hue_slot or 0, count))
         else:
@@ -162,8 +181,12 @@ def resolved_display_axes(attr: PrimaryAttributeSpec) -> list[dict]:
             {
                 **axis.model_dump(exclude={"categories", "palette", "hue_slot"}),
                 "categories": [
-                    c.model_dump() if color is None else {**c.model_dump(), "color": color}
-                    for c, color in zip(axis.categories, colors, strict=True)
+                    {
+                        **c.model_dump(),
+                        **({} if color is None else {"color": color}),
+                        **({} if width is None else {"line_width_px": width}),
+                    }
+                    for c, color, width in zip(axis.categories, colors, widths, strict=True)
                 ],
             }
         )

@@ -8,9 +8,9 @@
  * すべて**同じ路面タイルのソース**を共有する。評価軸の線も同じソースを読むため、
  * ソースの宣言は合成（`composeScene`）が1本へ畳む。
  *
- * **同じ道へ複数の線を重ねると後から描いた方が隠す**ので、出ている本数から対称に
- * 横へ割り付ける（1本なら中央）。線の太さは意味を運ばず、線種が運ぶのは値が無いこと（タグが無い道）だけ
- * ——1本の線へ2つの分類を載せると、色の意味がもう一方のON/OFFで入れ替わる。
+ * **同じ道へ複数の線を重ねると後から描いた方が隠す**ので、出ている線を横へ割り付ける（1本なら中央）。
+ * 分類を運ぶのは色で、太さは順序のある分類の行だけが色と同じ順序を重ねて示し、線種が運ぶのは値が無いこと
+ * （タグが無い道）だけ——1本の線へ2つの分類を載せると、色の意味がもう一方のON/OFFで入れ替わる。
  */
 import { sceneSourceId } from "@/features/map/scene/sceneBuilders";
 import { mapDisplay } from "@/types/generated/mapDisplay";
@@ -103,6 +103,59 @@ function colorExpression(track: RoadTrack): unknown[] {
   return ["case", ...cases, COLOR_UNKNOWN];
 }
 
+/** 太さ（px）か、道ごとに太さを決める式。行の太さは源泉が配り（順序のある分類だけが持つ）、持たない行と
+ * その他・不明は共通の太さ。 */
+type WidthPx = number | unknown[];
+
+/** 行の道を描く太さ。凡例の見本も同じ値を使う。 */
+export function roadCategoryWidthPx(category: RoadTrack["display_axes"][number]["categories"][number]): number {
+  return "line_width_px" in category ? category.line_width_px : ROAD.lineWidthPx;
+}
+
+function widthExpression(track: RoadTrack): WidthPx {
+  const categories = roadTrackAxis(track).categories;
+  if (categories.every((category) => roadCategoryWidthPx(category) === ROAD.lineWidthPx)) return ROAD.lineWidthPx;
+  const value = valueOf(track);
+  const cases = categories.flatMap((category) => [
+    ["in", value, ["literal", [...category.values]]],
+    roadCategoryWidthPx(category),
+  ]);
+  return ["case", ...cases, ROAD.lineWidthPx];
+}
+
+function roadTrackMaxWidthPx(track: RoadTrack): number {
+  return Math.max(ROAD.lineWidthPx, ...roadTrackAxis(track).categories.map(roadCategoryWidthPx));
+}
+
+/** 道路の線がすべて出て、どれも最も太いときの帯の幅。 */
+export const ROAD_TRACKS_MAX_SPAN_PX =
+  ROAD_TRACKS.reduce((total, track) => total + roadTrackMaxWidthPx(track), 0) -
+  Math.max(0, ROAD_TRACKS.length - 1) * ROAD.trackOverlapPx;
+
+function sumPx(terms: readonly WidthPx[]): WidthPx {
+  const constant = terms.reduce<number>((total, term) => (typeof term === "number" ? total + term : total), 0);
+  const variable = terms.filter((term) => typeof term !== "number");
+  return variable.length === 0 ? constant : ["+", constant, ...variable];
+}
+
+function scalePx(factor: number, term: WidthPx): WidthPx {
+  return typeof term === "number" ? factor * term : ["*", factor, term];
+}
+
+/** 出ている線それぞれの横位置。隣どうしは互いの太さの半分ずつ離し、`trackOverlapPx`だけ重ねる——太さが道ごとに
+ * 違うので、位置も道ごとの式になる。帯全体の中央を道の位置へ置く。
+ * i本目の位置 = (手前の線の太さの和 − 奥の線の太さの和)/2 + ((本数−1)/2 − i)×重ね幅。 */
+function offsetsFor(widths: readonly WidthPx[]): readonly WidthPx[] {
+  const overlap = ROAD.trackOverlapPx;
+  return widths.map((_, index) =>
+    sumPx([
+      ((widths.length - 1) / 2 - index) * overlap,
+      scalePx(0.5, sumPx(widths.slice(0, index))),
+      scalePx(-0.5, sumPx(widths.slice(index + 1))),
+    ]),
+  );
+}
+
 /** 分類に入る道は濃く、それ以外（その他・不明）は薄く（消さずに薄くする）。 */
 function opacityExpression(track: RoadTrack): unknown[] {
   return ["case", ["in", valueOf(track), ["literal", [...knownValues(track)]]], ROAD.knownOpacity, ROAD.unknownOpacity];
@@ -121,11 +174,6 @@ function trackFilter(track: RoadTrack, hiddenKeys: readonly string[]): FilterSpe
   if (hasMissing && hiddenKeys.includes(LEGEND_NO_DATA_KEY)) conditions.push(["!", missingOf(track)]);
   if (conditions.length === 0) return undefined;
   return ["all", ...conditions] as unknown as FilterSpecification;
-}
-
-/** 出ている本数から、対称に割り付けた横位置。1本なら0。 */
-function offsetsFor(visibleCount: number): readonly number[] {
-  return Array.from({ length: visibleCount }, (_, index) => (index - (visibleCount - 1) / 2) * ROAD.trackOffsetStepPx);
 }
 
 export const roadLineGroup = declareGroup<RoadLineState>((state) => {
@@ -147,7 +195,7 @@ export const roadLineGroup = declareGroup<RoadLineState>((state) => {
   ];
 
   const shown = ROAD_TRACKS.filter((track) => state.visible[track.attr_id] === true);
-  const offsets = offsetsFor(shown.length);
+  const offsets = offsetsFor(shown.map(widthExpression));
   const offsetOf = new Map(shown.map((track, index) => [track.attr_id, offsets[index] ?? 0]));
 
   const layers: SceneLayerEntry[] = ROAD_TRACKS.map((track) => ({
@@ -158,7 +206,7 @@ export const roadLineGroup = declareGroup<RoadLineState>((state) => {
     type: "line",
     paint: {
       "line-color": colorExpression(track),
-      "line-width": ROAD.lineWidthPx,
+      "line-width": widthExpression(track),
       "line-opacity": opacityExpression(track),
       ...(roadTrackHasMissing(track) ? { "line-dasharray": noDataDashExpression(missingOf(track)) } : {}),
       "line-offset": offsetOf.get(track.attr_id) ?? 0,

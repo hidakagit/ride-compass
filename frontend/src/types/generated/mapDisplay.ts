@@ -524,7 +524,7 @@ export const mapDisplay = {
   ],
   "road": {
     "lineWidthPx": 3,
-    "trackOffsetStepPx": 2,
+    "trackOverlapPx": 1,
     "knownOpacity": 0.8,
     "unknownOpacity": 0.15,
     "inspectedWidthPx": 8

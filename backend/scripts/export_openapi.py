@@ -86,7 +86,7 @@ from app.domain.map_display import (  # noqa: E402
     ROAD_INSPECTED_WIDTH_PX,
     ROAD_KNOWN_OPACITY,
     ROAD_LINE_WIDTH_PX,
-    ROAD_TRACK_OFFSET_STEP_PX,
+    ROAD_TRACK_OVERLAP_PX,
     NO_DATA_DASH,
     ROAD_UNKNOWN_OPACITY,
     MAP_LAYER_DATA_NATURES,
@@ -348,7 +348,7 @@ def main() -> None:
             "noDataDash": list(NO_DATA_DASH),
             "road": {
                 "lineWidthPx": ROAD_LINE_WIDTH_PX,
-                "trackOffsetStepPx": ROAD_TRACK_OFFSET_STEP_PX,
+                "trackOverlapPx": ROAD_TRACK_OVERLAP_PX,
                 "knownOpacity": ROAD_KNOWN_OPACITY,
                 "unknownOpacity": ROAD_UNKNOWN_OPACITY,
                 "inspectedWidthPx": ROAD_INSPECTED_WIDTH_PX,

@@ -16,6 +16,7 @@ from typing import get_args
 import pytest
 
 from app.domain.display_palette import SEMANTIC_COLORS, resolved_display_axes
+from app.domain.map_display import ROAD_LINE_WIDTH_PX
 from app.domain.material_catalog import display_axis_missing_semantics
 from app.domain.material_catalog import PRIMARY_ATTRIBUTES
 from app.domain.traffic import STOP_POI_KINDS, SupplyPoiKind
@@ -177,3 +178,29 @@ def test_タイルに載せる線の軸は値が欠けたときの意味を持�
     for attr in lines:
         for axis in attr.display_axes:
             assert display_axis_missing_semantics(attr, axis.property) is not None, f"{attr.attr_id}:{axis.key}"
+
+
+def _resolved_widths() -> list[tuple[str, str | None, str, list[float | None]]]:
+    """(属性:軸, パレット, 幾何, 行の太さ)。表示定義を持つ軸すべて。"""
+    return [
+        (f"{attr.attr_id}:{spec.key}", spec.palette, attr.geometry, [c.get("line_width_px") for c in resolved["categories"]])
+        for attr in DISPLAYED
+        for spec, resolved in zip(attr.display_axes, resolved_display_axes(attr), strict=True)
+    ]
+
+
+@pytest.mark.parametrize("where, palette, geometry, widths", _resolved_widths(), ids=lambda v: v if ":" in str(v) else "")
+def test_線の太さは順序のある分類だけが持ち_並びの先頭ほど太く_細い端は他の線と同じ(where, palette, geometry, widths) -> None:
+    """太さは色と同じ順序を重ねて示す。順序を持たない分類に太さの差を付けると、意味の無い差を読ませる。
+    細い端を他の線より細くすると、見えにくく押しにくい。"""
+    if palette != "ordered" or geometry != "line":
+        assert widths == [None] * len(widths), f"{where} は順序のある線ではないのに太さを持つ"
+        return
+    assert all(isinstance(w, float) for w in widths), f"{where} の行に太さの無いものがある"
+    assert all(a > b for a, b in zip(widths, widths[1:])), f"{where} の太さが並びの順に細くなっていない: {widths}"
+    assert widths[-1] == ROAD_LINE_WIDTH_PX, f"{where} の細い端 {widths[-1]} が他の線の太さ {ROAD_LINE_WIDTH_PX} と違う"
+
+
+def test_順序のある線の分類が少なくとも1つある() -> None:
+    """上の検査が空回りしていないことの確認。"""
+    assert any(p == "ordered" and g == "line" for _, p, g, _ in _resolved_widths())

@@ -134,10 +134,15 @@ function readStringArray(raw: string): string[] | null {
 }
 
 /** 色見本。地図と同じ地色の台に、地図と同じ形（線なら線、点なら点）で載せる——暗いパネルへ直に置くと濃い色が
- * 沈み、台を細い輪にすると色の部分が小さくなる。大きさで意味を示す行は地図の点と同じ直径で出す。 */
+ * 沈み、台を細い輪にすると色の部分が小さくなる。線の行は地図と同じ太さ、大きさで意味を示す行は地図の点と同じ直径で出す。 */
 function renderSwatch(entry: LegendEntry) {
-  const mark = entry.line ? "h-1 w-4 rounded-full" : "size-2 rounded-full";
-  const size = entry.diameterPx === undefined ? {} : { width: entry.diameterPx, height: entry.diameterPx };
+  const mark = entry.lineWidthPx === undefined ? "size-2 rounded-full" : "w-4 rounded-full";
+  const size =
+    entry.lineWidthPx !== undefined
+      ? { height: entry.lineWidthPx }
+      : entry.diameterPx === undefined
+        ? {}
+        : { width: entry.diameterPx, height: entry.diameterPx };
   return (
     <span
       aria-hidden="true"

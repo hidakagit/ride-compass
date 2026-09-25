@@ -216,10 +216,13 @@ WIND_FULL_SCALE_MS = 15
 LIGHTNING_ICON_SCALE = 0.8
 
 
-#: 道の線。太さは意味を運ばない（意味は色だけ）ので、分類の線はすべて同じ太さ。
-#: 横に分ける間隔は太さより狭くして隣どうしをわずかに重ねる——離すと1本の道が複数に見える。
+#: 道の線の太さ。分類を色だけで示す線はすべてこの太さ。順序のある分類はこれを細い端として、並びの先頭ほど
+#: `ROAD_ORDERED_MAX_WIDTH_PX`まで太くする（`display_palette.ordered_line_widths`）——細い端をこれより細くすると、
+#: 見えにくく、押しても拾いにくい（地図は押した1点に重なる線だけを拾う）。
 ROAD_LINE_WIDTH_PX = 3
-ROAD_TRACK_OFFSET_STEP_PX = 2
+ROAD_ORDERED_MAX_WIDTH_PX = 6
+#: 横に並べた隣どうしを重ねる幅。離すと1本の道が複数に見える。中心の間隔は隣り合う2本の太さから導く。
+ROAD_TRACK_OVERLAP_PX = 1
 #: 分類がある道は濃く、無い道は薄く（消さずに薄くする）。
 ROAD_KNOWN_OPACITY = 0.8
 ROAD_UNKNOWN_OPACITY = 0.15

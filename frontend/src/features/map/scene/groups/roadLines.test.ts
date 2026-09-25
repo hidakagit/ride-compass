@@ -7,7 +7,7 @@ import { describe, expect, it } from "vitest";
 import { LEGEND_NO_DATA_KEY } from "@/lib/mapDisplay/mapColorLegend";
 import { mapDisplay } from "@/types/generated/mapDisplay";
 
-import { ROAD_OTHER_KEY, ROAD_TRACKS, roadLineGroup, roadTrackAxis } from "./roadLines";
+import { ROAD_OTHER_KEY, ROAD_TRACKS, ROAD_TRACKS_MAX_SPAN_PX, roadLineGroup, roadTrackAxis } from "./roadLines";
 
 const GLOBALS = { zoom: 14 } as never;
 const SOLID = [1, 0];
@@ -90,5 +90,79 @@ describe.each(WITH_MISSING)("値の無い道が現れる線（%s）", (_id, trac
 describe.each(WITHOUT_MISSING)("値の無い道が現れない線（%s）", (_id, track) => {
   it("破線を持たない", () => {
     expect(layerOf(track).paint?.["line-dasharray"]).toBeUndefined();
+  });
+});
+
+function roadOf(track: Track, value: unknown): Record<string, unknown> {
+  return value === undefined ? {} : { [roadTrackAxis(track).property]: value };
+}
+
+/** 1本の道の、分類の各行・分類の外・値が無い場合。 */
+function casesOf(track: Track) {
+  const rows = roadTrackAxis(track).categories.map((category) => roadOf(track, category.values[0]));
+  return { rows, other: roadsOf(track).other, missing: {} };
+}
+
+// 太さは、順序のある分類の行だけが色と同じ順序を重ねて示す。
+describe.each(TRACKS)("道の線の太さ（%s）", (_id, track) => {
+  it("行の道は並びの先頭ほど太いか、どれも同じ太さで、分類の外・不明の道は他の線と同じ太さ", () => {
+    const width = layerOf(track).paint?.["line-width"];
+    const cases = casesOf(track);
+    const rows = cases.rows.map((road) => evaluate(width, road) as number);
+    const ordered = rows.every((w, index) => index === 0 || w < rows[index - 1]);
+    expect(ordered || rows.every((w) => w === mapDisplay.road.lineWidthPx)).toBe(true);
+    expect(Math.min(...rows)).toBe(mapDisplay.road.lineWidthPx);
+    expect(evaluate(width, cases.other)).toBe(mapDisplay.road.lineWidthPx);
+    expect(evaluate(width, cases.missing)).toBe(mapDisplay.road.lineWidthPx);
+  });
+});
+
+describe("道の線をすべて出したときの並び", () => {
+  const layers = roadLineGroup
+    .build({
+      tiles: { urls: ["https://example.test/{z}/{x}/{y}"], sourceLayer: "road", minZoom: 10, maxZoom: 14 },
+      visible: Object.fromEntries(ROAD_TRACKS.map((track) => [track.attr_id, true])),
+      hiddenKeys: {},
+      inspectedWayId: null,
+    })
+    .layers.filter((layer) => ROAD_TRACKS.some((track) => track.attr_id === layer.role));
+
+  /** 各線の値を1つずつ取り替えた道。どの線がどの太さになる道でも並びが崩れないことを見る。 */
+  const roads = ROAD_TRACKS.flatMap((varied) => {
+    const cases = casesOf(varied);
+    return [...cases.rows, cases.other, cases.missing].map((own) => ({
+      ...Object.assign({}, ...ROAD_TRACKS.map((track) => casesOf(track).rows[0])),
+      ...(Object.keys(own).length === 0 ? { [roadTrackAxis(varied).property]: undefined } : own),
+    }));
+  });
+
+  it.each(roads.map((road) => [JSON.stringify(road), road] as const))(
+    "%s: 隣どうしは重ね幅だけ重なって隙間なく並び、どの線も隠れきらず、帯の中央が道の位置に来る",
+    (_label, road) => {
+      const properties = Object.fromEntries(Object.entries(road).filter(([, value]) => value !== undefined));
+      const lines = layers
+        .map((layer) => ({
+          width: evaluate(layer.paint?.["line-width"], properties) as number,
+          offset: evaluate(layer.paint?.["line-offset"], properties) as number,
+        }))
+        .sort((a, b) => a.offset - b.offset);
+      const overlap = mapDisplay.road.trackOverlapPx;
+      for (let i = 1; i < lines.length; i++) {
+        const gap = lines[i].offset - lines[i].width / 2 - (lines[i - 1].offset + lines[i - 1].width / 2);
+        expect(gap).toBeCloseTo(-overlap);
+      }
+      for (const line of lines) expect(line.width - 2 * overlap).toBeGreaterThan(0);
+      const left = lines[0].offset - lines[0].width / 2;
+      const right = lines[lines.length - 1].offset + lines[lines.length - 1].width / 2;
+      expect(left + right).toBeCloseTo(0);
+      expect(right - left).toBeLessThanOrEqual(ROAD_TRACKS_MAX_SPAN_PX);
+    },
+  );
+
+  it("1本だけ出すと、太さによらず道の位置に描く", () => {
+    for (const track of ROAD_TRACKS) {
+      const offset = layerOf(track).paint?.["line-offset"];
+      for (const road of casesOf(track).rows) expect(evaluate(offset, road)).toBe(0);
+    }
   });
 });

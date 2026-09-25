@@ -13,7 +13,13 @@ import palette from "@/types/generated/palette.json";
 import weatherScales from "@/types/generated/weather-scales.json";
 
 import { POINT_LAYERS, pointAxisKey, pointCategoryRadiusPx, type PointAxis } from "@/features/map/scene/groups/points";
-import { ROAD_OTHER_KEY, ROAD_TRACKS, roadTrackAxis, roadTrackHasMissing } from "@/features/map/scene/groups/roadLines";
+import {
+  ROAD_OTHER_KEY,
+  ROAD_TRACKS,
+  roadCategoryWidthPx,
+  roadTrackAxis,
+  roadTrackHasMissing,
+} from "@/features/map/scene/groups/roadLines";
 
 /** 凡例1本ぶん。1つのチップが複数の軸を持つことがある（事故は当事者と重大度）。 */
 type SceneLegendAxis = {
@@ -51,10 +57,10 @@ export function roadLegendAxes(): readonly SceneLegendAxis[] {
         key: category.key,
         label: category.label,
         color: category.color,
-        line: true as const,
+        lineWidthPx: roadCategoryWidthPx(category),
       })),
-      { ...otherEntry(roadTrackHasMissing(track)), line: true as const },
-      ...(roadTrackHasMissing(track) ? [{ ...NO_DATA_ENTRY, line: true as const }] : []),
+      { ...otherEntry(roadTrackHasMissing(track)), lineWidthPx: mapDisplay.road.lineWidthPx },
+      ...(roadTrackHasMissing(track) ? [{ ...NO_DATA_ENTRY, lineWidthPx: mapDisplay.road.lineWidthPx }] : []),
     ],
   }));
 }
