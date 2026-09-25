@@ -84,8 +84,22 @@ rc_ensure_frontend() {
   return 0
 }
 
+# pidファイルが指すプロセスが名前どおりのものでなければファイルを消す。dockerdはpidファイルの
+# pidのプロセスが何であれ生きていれば動いていると見なし、docker.pidなら起動を拒み、containerd.pidなら
+# containerdを起動せずに接続を待って時間切れになる。保存から戻したディスクには前の回のpidファイルが
+# 残り、そのpidをこの回の別のプロセスが使っていることがある。
+rc_clear_stale_pid() {
+  local file="$1" name="$2" pid
+  pid="$(cat "$file" 2>/dev/null)" || return 0
+  [ -n "$pid" ] && [ "$(cat "/proc/$pid/comm" 2>/dev/null)" = "$name" ] && return 0
+  rc_log "古いpidファイルを消す（$file: $pid）"
+  rm -f "$file"
+}
+
 rc_ensure_dockerd() {
   docker info >/dev/null 2>&1 && return 0
+  rc_clear_stale_pid /var/run/docker.pid dockerd
+  rc_clear_stale_pid /var/run/docker/containerd/containerd.pid containerd
   rc_log "dockerdを起動する"
   setsid nohup dockerd >/var/log/ridecompass-dockerd.log 2>&1 < /dev/null &
   local i
