@@ -71,7 +71,8 @@
 
 担当は手元（開発機、Windows）のほか、クラウドのセッション（Claude Code on the web、Linux）でも
 動かせる。クラウドでは開始時のフックが依存を繋ぎ、DB（本番と同じ版のPostGIS）とRedisを起動する
-ので、`-m postgis`を含むテストを手元と同じように回せる（用意の仕組みは
+ので、`-m postgis`を含むテストを手元と同じように回せる（DBは裏で起動するので、使う前に
+`bash scripts/remote_dev/wait_db.sh`で待つ。アプリの起動はしない。用意の仕組みは
 [setup.md](../architecture/setup.md)「クラウドのセッション」）。
 
 - **クラウドへ出すもの**: Docker・Linuxが要る作業（本番と同じイメージでの観測・composeの確認等）と、

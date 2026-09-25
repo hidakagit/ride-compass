@@ -35,8 +35,9 @@ docker compose run --rm backend python scripts/bootstrap_database.py --create-ex
 **スキーマを作っても、軸定義が0行のままではbackendは起動しない**（`refresh_axis_definitions`が
 0行を起動失敗にする。[axis-studio.md](../modules/backend/axis-studio.md)「まっさらなDBに軸の行は
 入らない」）。軸を入れる管理APIも起動したbackendにしか無いため、新しい環境へ軸を入れる手段は
-まだ無い（[T989](../records/tasks/T989.md)でユーザーの判断待ち）。テスト（`-m postgis`を含む）は
-軸を要らないので、この状態でも回せる。
+無く、用意もしない——composeのDB・クラウドのセッションは**テストを回す場**であり、アプリを実データで
+確かめるのは本番か手元の開発機で行う（地図に色を出すには軸のほかに取込済みのデータも要る）。
+テスト（`-m postgis`を含む）は軸を要らないので、この状態で回せる。
 
 ## クラウドのセッション（Claude Code on the web）
 
@@ -62,11 +63,16 @@ docker compose run --rm backend python scripts/bootstrap_database.py --create-ex
   変わっていれば入れ直す）、dockerdを起こしてcomposeのpostgres・redisを起動し、テストの
   複製元DB`ridecompass_test`を作る。`CLAUDE_CODE_REMOTE`が`true`でない（手元の）セッション
   では何もせずに抜ける。セットアップの欄が空でもフックが依存を入れる（開始が遅くなるだけ）。
+  DB・Redisの起動は裏で行い、フックは待たない——保存から戻したディスクでは起動に20秒ほど
+  かかる（キャッシュからの開始の実測22秒。温まったディスクなら7〜8秒）。DBを使う前に
+  `bash scripts/remote_dev/wait_db.sh`で待つ（起動が済んでいれば即座に返り、失敗ならログの場所を出して
+  終了コード1）。
 - **環境のキャッシュを作る実行**では、セットアップスクリプトのあとに基盤が`claude --init-only`を
   走らせ、リポジトリの`Setup`フック（trigger `init`）とSessionStartフックがこの順に走る（公式の文書に
   あるのは`--init-only`で`Setup`が走ることだけで、キャッシュ作りの中で走ることは環境マネージャの
-  ログでの観測）。SessionStartの入力は普通の開始と区別がつかないため、`Setup`フックが同じ
-  session_idの印を`/tmp`に残して`setup.sh`を流し、SessionStartはその印を見てDBを起動せずに抜ける。
+  ログでの観測）。新規のセッションも`claude --init`で起動され、同じ順で同じ入力のフックが走るため、
+  フックは入力ではなくClaude Code本体（`$CLAUDE_PID`）の起動引数に`--init-only`があるかで見分ける
+  （これも観測。文書に無い）。`--init-only`のときだけ`Setup`フックが`setup.sh`を流し、SessionStartは何もしない。
   DBが動いたままファイルシステムが保存されると、以後の開始でpostgresがクラッシュリカバリから
   立ち上がる。セットアップの欄が空でも、この`Setup`フックが依存・イメージ・DBのボリュームをキャッシュへ入れる。
 - backend・frontendは手元と同じくネイティブで動かす。クラウドのコンテナの中からは外へ
