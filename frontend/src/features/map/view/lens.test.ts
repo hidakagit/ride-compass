@@ -5,22 +5,43 @@ import { describe, expect, it } from "vitest";
 import { LEGEND_NO_DATA_KEY } from "@/lib/mapDisplay/mapColorLegend";
 import { DEFAULT_DIFFICULTY_BOUNDARIES } from "@/lib/mapDisplay/valueScale";
 
-import { catalogEntry, catalogOf, dedicatedEntry, rampEntry } from "@/lib/mapDisplay/__fixtures__/catalogAxes";
+import {
+  catalogEntry,
+  catalogOf,
+  dedicatedEntry,
+  rampEntry,
+  tileInput,
+} from "@/lib/mapDisplay/__fixtures__/catalogAxes";
 import { isRouteStyleModeId, lensLegend, lensOptions, paintedAxisId } from "./lens";
 
-/** 材料`num_a`がそのまま値になるramp軸（`rampEntry`）の、材料が欠けた道を「不明」にする版。 */
-function unknownFallbackRamp(axisId: string, thresholds: number[]) {
-  const entry = rampEntry(axisId, thresholds);
-  if (entry.display.kind !== "ramp") throw new Error("ramp軸ではない");
-  entry.display.tile_inputs![0].has_unknown_fallback = true;
-  return entry;
+/** 道の値として読む材料。 */
+const VALUE = "v";
+
+/** 材料`VALUE`がそのまま値になるramp軸。`hasUnknownFallback`なら、材料が欠けた道を「不明」にする。 */
+function valueRamp(
+  axisId: string,
+  thresholds: number[],
+  overrides: Parameters<typeof catalogEntry>[0] = {},
+  hasUnknownFallback = false,
+) {
+  return catalogEntry({
+    axis_id: axisId,
+    ...overrides,
+    display: {
+      kind: "ramp",
+      label: axisId,
+      category: "roadCondition",
+      tile_inputs: [tileInput({ property: VALUE, weight: 1, has_unknown_fallback: hasUnknownFallback })],
+      thresholds,
+    },
+  });
 }
 
 const catalog = catalogOf([
-  rampEntry("ramp", [10, 20], { raw_value_unit: "%" }),
+  valueRamp("ramp", [10, 20], { raw_value_unit: "%" }),
   rampEntry("labelled", [10], { display_band_labels_override: ["平ら", "坂"] }),
   rampEntry("mislabelled", [10], { display_band_labels_override: ["1つだけ"] }),
-  unknownFallbackRamp("unknown", [10]),
+  valueRamp("unknown", [10], {}, true),
   dedicatedEntry("dedicated", [1, 3], { map_value_unit: "m/s" }),
   dedicatedEntry("defaults", [], { map_value_thresholds: null }),
 ]);
@@ -54,7 +75,7 @@ describe("lensLegend（レンズの凡例）", () => {
       [19.9, 1],
       [20, 2],
     ] as const) {
-      const hits = legend.flatMap((entry, index) => (matches(entry.filter, { num_a: value }) ? [index] : []));
+      const hits = legend.flatMap((entry, index) => (matches(entry.filter, { [VALUE]: value }) ? [index] : []));
       expect(hits).toEqual([expected]);
     }
   });
@@ -77,7 +98,7 @@ describe("lensLegend（レンズの凡例）", () => {
     const hitsFor = (properties: Record<string, unknown>) =>
       legend.flatMap((entry) => (matches(entry.filter, properties) ? [entry.key] : []));
     expect(hitsFor({})).toEqual([LEGEND_NO_DATA_KEY]);
-    expect(hitsFor({ num_a: 5 })).toEqual(["step-0"]);
+    expect(hitsFor({ [VALUE]: 5 })).toEqual(["step-0"]);
   });
 
   it("専用配信軸は、配信値の境界で段を作り、末尾に値を受け取れなかった道の行を持つ", () => {

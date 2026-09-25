@@ -10,8 +10,8 @@ type TileInput = NonNullable<AxisCatalogEntry["display"]["tile_inputs"]>[number]
 /** 数値の材料をそのまま足すタイルの入力。 */
 export function tileInput(overrides: Partial<TileInput> = {}): TileInput {
   return {
-    property: "num_a",
-    weight: 1,
+    property: "",
+    weight: 0,
     boolean: false,
     true_value: 0,
     false_value: 0,
@@ -26,7 +26,7 @@ export function catalogEntry(
   overrides: Partial<Omit<AxisCatalogEntry, "display">> & { display?: Partial<AxisCatalogEntry["display"]> } = {},
 ): AxisCatalogEntry {
   const { display, ...rest } = overrides;
-  const axisId = rest.axis_id ?? "axis";
+  const axisId = rest.axis_id ?? "";
   return {
     axis_id: axisId,
     label: axisId,
@@ -36,16 +36,13 @@ export function catalogEntry(
     icon_id: null,
     chip_label: null,
     panel_hint: null,
-    show_map_icon: true,
+    show_map_icon: false,
     primary_attribute_ids: [],
     shape: {
       kind: "breakpoint_linear",
-      terms: [{ material: "num_a", weight: 1, required: true }],
+      terms: [],
       preprocess: "identity",
-      breakpoints: [
-        [0, 0],
-        [10, 100],
-      ],
+      breakpoints: [],
     },
     display_thresholds_override: null,
     display_band_labels_override: null,

@@ -12,20 +12,23 @@ import { axisMapLayerId } from "@/lib/mapDisplay/axisLayers";
 
 import { secondaryAxesFromCatalogAxes } from "./secondaryAxes";
 
+/** 地図のアイコンを出す軸（一覧に残る側）。 */
+const shown: typeof catalogEntry = (overrides = {}) => catalogEntry({ show_map_icon: true, ...overrides });
+
 describe("secondaryAxesFromCatalogAxes", () => {
   it("地図のアイコンを出さない軸だけを外し、カタログの並びのまま出す", () => {
     const axes = secondaryAxesFromCatalogAxes([
-      catalogEntry({ axis_id: "b" }),
+      shown({ axis_id: "b" }),
       catalogEntry({ axis_id: "hidden", show_map_icon: false }),
-      catalogEntry({ axis_id: "a" }),
+      shown({ axis_id: "a" }),
     ]);
     expect(axes.map((axis) => axis.axisId)).toEqual(["b", "a"]);
   });
 
   it("略名とアイコンは軸の値を使い、略名が無ければ地図の名前を使う", () => {
     const [named, unnamed] = secondaryAxesFromCatalogAxes([
-      catalogEntry({ chip_label: "略称", icon_id: "shield", display: { label: "地図の名前" } }),
-      catalogEntry({ display: { label: "地図の名前" } }),
+      shown({ chip_label: "略称", icon_id: "shield", display: { label: "地図の名前" } }),
+      shown({ display: { label: "地図の名前" } }),
     ]);
     expect(named).toMatchObject({ chipLabel: "略称", iconId: "shield" });
     expect(unnamed).toMatchObject({ chipLabel: "地図の名前", iconId: undefined });
@@ -33,8 +36,8 @@ describe("secondaryAxesFromCatalogAxes", () => {
 
   it("地図の表示がrampの軸だけが専用のレイヤーを持つ", () => {
     const [ramp, none] = secondaryAxesFromCatalogAxes([
-      catalogEntry({ axis_id: "ramp", display: { kind: "ramp" } }),
-      catalogEntry({ axis_id: "none" }),
+      shown({ axis_id: "ramp", display: { kind: "ramp" } }),
+      shown({ axis_id: "none" }),
     ]);
     expect(ramp.layerId).toBe(axisMapLayerId("ramp"));
     expect(none.layerId).toBeUndefined();
@@ -42,7 +45,7 @@ describe("secondaryAxesFromCatalogAxes", () => {
 
   it("生値の単位・総量の単位・材料の内訳を渡す", () => {
     const [axis] = secondaryAxesFromCatalogAxes([
-      catalogEntry({
+      shown({
         raw_value_unit: "回/km",
         raw_value_total_unit: "回",
         material_breakdown: [

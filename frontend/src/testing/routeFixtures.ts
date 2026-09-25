@@ -6,12 +6,13 @@ import type { RouteCandidate } from "@/types/route";
  * `RouteCandidate`は`Omit<Required<...>>`で全フィールドが必須のため、素直に書くと
  * 構築するファイルの数だけ全フィールドの写しができ、フィールドを1つ足すたびに同じ数の
  * 差分が要る。ここを唯一の置き場にして、呼び出し側は変えたいフィールドだけ渡す。
+ * **既定値は型を満たすための空だけ。** 見たい値（id・方位・距離等）は呼び出し側が書く。
  */
 export function makeRouteCandidate(overrides: Partial<RouteCandidate> = {}): RouteCandidate {
   return {
-    id: "route-1",
-    direction_label: "北",
-    distance_km: 30,
+    id: "",
+    direction_label: "",
+    distance_km: 0,
     geometry: { type: "LineString", coordinates: [] },
     elevation_gain_m: null,
     min_elevation_m: null,

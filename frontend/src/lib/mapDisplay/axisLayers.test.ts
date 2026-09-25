@@ -35,7 +35,10 @@ describe("rampAxesFromCatalogAxes", () => {
         kind: "ramp",
         label: "地図の名前",
         category: "trafficSafety",
-        tile_inputs: [tileInput({ property: "a", weight: 0.5, categories: { x: 1 } }), tileInput({ property: "b" })],
+        tile_inputs: [
+          tileInput({ property: "a", weight: 0.5, categories: { x: 1 } }),
+          tileInput({ property: "b", weight: 1 }),
+        ],
         thresholds: [10],
       },
     });
@@ -86,7 +89,7 @@ describe("rampAxesFromCatalogAxes", () => {
       display: {
         kind: "ramp",
         tile_inputs: [
-          tileInput({ property: "scaled", needs_runtime_scale: true }),
+          tileInput({ property: "scaled", weight: 1, needs_runtime_scale: true }),
           tileInput({ property: "plain", weight: 2 }),
         ],
       },

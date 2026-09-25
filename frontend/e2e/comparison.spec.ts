@@ -31,6 +31,7 @@ test("モバイル: 比較表は、長い行見出しがあっても横スクロ
             {
               ...catalogEntry({
                 axis_id: LONG_AXIS_ID,
+                show_map_icon: true,
                 label: LONG_AXIS_LABEL,
                 display: { kind: "ramp", label: LONG_AXIS_LABEL },
               }),

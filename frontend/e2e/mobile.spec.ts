@@ -40,6 +40,7 @@ test("モバイル: レンズの凡例が、段階の細かい軸でも幅に収
             {
               ...catalogEntry({
                 axis_id: "fine_steps",
+                show_map_icon: true,
                 label: FINE_STEP_AXIS_LABEL,
                 raw_value_unit: "箇所/km",
                 display_band_labels_override: [
@@ -56,7 +57,7 @@ test("モバイル: レンズの凡例が、段階の細かい軸でも幅に収
                 display: {
                   kind: "ramp",
                   label: FINE_STEP_AXIS_LABEL,
-                  tile_inputs: [tileInput({ property: "v" })],
+                  tile_inputs: [tileInput({ property: "v", weight: 1 })],
                   thresholds: [0.125, 0.375, 0.625, 0.875, 1.125, 1.375, 1.625, 1.875],
                 },
               }),
