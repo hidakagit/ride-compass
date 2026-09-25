@@ -65,6 +65,13 @@ function missingCondition(axisId: string, value: AxisValueSource): unknown {
   return value.kind === "tile" ? value.unknown : ["==", valueExpression(axisId, value), null];
 }
 
+/** 値が無いことを、破線の刻みに渡せる形で。**配信値の軸は null**——配信値はfeature-stateに載り、MapLibreの
+ * `line-dasharray`はfeature-stateを読めない（読めない場所の式は検証も通り、どの道も値が無いものとして評価される）。
+ * 配信値の軸で値が無い道は、色と濃さだけで示す。 */
+function dashableMissingCondition(value: AxisValueSource): unknown {
+  return value.kind === "tile" ? value.unknown : null;
+}
+
 /** 段ごとの色。値が無い道と、まだ来ていない道は別の色にする。値が無い道を段の色で
  * 塗らない——欠損を番兵へ倒した値で段を引くと、評価できない道が最良の段の色になる。
  * 凡例で隠した段は、値の届き方によらず透明にして下の路面の線を見せる（配信値はfeature-stateで載り、
@@ -113,6 +120,7 @@ export const axisLineGroup = declareGroup<AxisLineState>((state) => {
 
   const layers: readonly SceneLayerEntry[] = state.axes.map((axis) => {
     const missing = missingCondition(axis.axisId, axis.value);
+    const dashableMissing = dashableMissingCondition(axis.value);
     const loading = axis.value.kind === "delivered" && axis.value.loading;
     return {
       role: axis.axisId,
@@ -129,8 +137,10 @@ export const axisLineGroup = declareGroup<AxisLineState>((state) => {
           : loading || missing === null
             ? mapDisplay.road.knownOpacity
             : ["case", missing, mapDisplay.road.unknownOpacity, mapDisplay.road.knownOpacity],
-        // 取得中は破線にしない——まだ来ていないだけで、値が無いとは決まっていない。下敷きは全体を薄く敷くだけ。
-        ...(axis.underlay || loading || missing === null ? {} : { "line-dasharray": noDataDashExpression(missing) }),
+        // 下敷きは全体を薄く敷くだけ。
+        ...(axis.underlay || dashableMissing === null
+          ? {}
+          : { "line-dasharray": noDataDashExpression(dashableMissing) }),
       },
       visible: axis.visible,
     };

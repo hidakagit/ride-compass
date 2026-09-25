@@ -132,6 +132,10 @@ localStorageキーは`ridecompass:route-style-mode`）。ルート前は全道�
   番兵（0）へ倒してあるため、その値で段を引くと評価できない道が最良の段の色になる。
   値が無い道は「データなし／不明」の色の破線（`mapDisplay.noDataDash`）で、**取得中**（配信値でまだ一度も
   値を受け取っていない間）は取得中の色の実線で塗る（取得中は値が無いと決まっていない）。
+  **配信値の軸は破線にしない**（値が無い道は「データなし」の色と薄さだけで示す）——配信値はfeature-stateに載り、
+  MapLibreの破線の刻み（`line-dasharray`）はfeature-stateを読めない。読めない場所に書いた式はスタイル検証も
+  通り、例外も出さず、どの道も値が無いものとして評価される（全部の道が破線になる）。feature-stateを読める
+  プロパティにだけ置かれていることは`scene/scene.state.contract.test.ts`が全レイヤーについて確かめる。
 - **値が無い道は薄く、値を持つ道は濃く塗る**（濃さは源泉が配る
   `mapDisplay.road.unknownOpacity`/`knownOpacity`をそのまま使い、
   地図全体の「薄い＝対象外、濃い＝分類あり」という読み方に揃える）。

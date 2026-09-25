@@ -4,7 +4,7 @@
  * 入口は本番と同じ`sceneInputsFrom`→`buildMapScene`→`applyScene`の1本で、面・道路の線・点・
  * 評価軸・気象・ルートのすべてがここを通る。
  */
-import { validateStyleMin } from "@maplibre/maplibre-gl-style-spec";
+import { latest, validateStyleMin } from "@maplibre/maplibre-gl-style-spec";
 import { beforeEach, describe, expect, it } from "vitest";
 
 import { setTileVersions } from "@/services/regionApi";
@@ -310,6 +310,37 @@ describe("レイヤーを横断する要求", () => {
     } as never);
 
     expect(errors.map((error) => error.message)).toEqual([]);
+  });
+
+  // MapLibreはfeature-stateを読めるプロパティを限っている（例: 色・不透明度は読めるが、破線の刻み・絞り込みは読めない）。
+  // 読めない場所に書いた式は検証も通り、例外も出さず、値が無いものとして評価される——配信値の軸の線が全部破線になる。
+  // 可否はstyle-specの各プロパティの`expression.parameters`が持つ。
+  it("feature-stateを読む式は、feature-stateを読めるプロパティにだけ置かれる", () => {
+    const { map, handle } = createRecordingMap();
+    rebuild(map, everythingVisible());
+    const layers = handle.trace
+      .filter((entry) => entry.call === "addLayer")
+      .map((entry) => entry.args[2] as Record<string, unknown> & { id: string; type: string });
+    const readsState = (expression: unknown): boolean =>
+      Array.isArray(expression) && (expression[0] === "feature-state" || expression.some(readsState));
+    const spec = latest as unknown as Record<string, Record<string, { expression?: { parameters?: string[] } }>>;
+
+    const misplaced: string[] = [];
+    let stateReaders = 0;
+    for (const layer of layers) {
+      if (readsState(layer.filter)) misplaced.push(`${layer.id}: filter`);
+      for (const group of ["paint", "layout"] as const) {
+        for (const [property, value] of Object.entries((layer[group] ?? {}) as Record<string, unknown>)) {
+          if (!readsState(value)) continue;
+          stateReaders += 1;
+          const parameters = spec[`${group}_${layer.type}`]?.[property]?.expression?.parameters ?? [];
+          if (!parameters.includes("feature-state")) misplaced.push(`${layer.id}: ${property}`);
+        }
+      }
+    }
+    // feature-stateを読む式が実際にあること（0件なら、この検査は何も見ていない）。
+    expect(stateReaders).toBeGreaterThan(0);
+    expect(misplaced).toEqual([]);
   });
 
   // 世代が届く前にソースを作ると、世代の違う中身がブラウザのキャッシュへ載って以後ずっと残る。

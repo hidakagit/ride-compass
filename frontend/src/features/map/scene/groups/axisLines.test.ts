@@ -89,8 +89,10 @@ describe("レンズの線の線種", () => {
     expect(evaluate(dash, { v: 15 })).toEqual([1, 0]);
   });
 
-  it("取得中は破線にしない（まだ来ていないだけで、値が無いとは決まっていない）", () => {
-    expect(layerFor({ kind: "delivered", values: new Map(), loading: true }).paint?.["line-dasharray"]).toBeUndefined();
+  it("配信値の軸は、取得中でも取得後でも破線を持たない（破線の刻みはfeature-stateを読めない）", () => {
+    for (const loading of [true, false]) {
+      expect(layerFor({ kind: "delivered", values: new Map(), loading }).paint?.["line-dasharray"]).toBeUndefined();
+    }
   });
 });
 

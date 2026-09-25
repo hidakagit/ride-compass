@@ -582,7 +582,8 @@ ON/OFFで入れ替わる）。
 「データなし」）は分類ではなく、どの属性・軸でも同じ意味なので、線を重ねても混ざらない——これは
 細かい刻みの破線（`mapDisplay.noDataDash`、`sceneBuilders.ts: noDataDashExpression`）で示し、乗り換え帯の
 破線（`mapDisplay.route.spliceDash`）と刻みで見分ける。取得中（まだ値が来ていない）は値が無いと決まって
-いないので破線にしない。分類を線種で表し始めたら、この区別が崩れている。
+いないので破線にしない。配信値（feature-state）で塗る評価軸も破線にできない（[地図: 軸・ルート色分け](map-axis-coloring.md)）。
+分類を線種で表し始めたら、この区別が崩れている。
 
 ## MapLibreの式を組むときの前提
 
