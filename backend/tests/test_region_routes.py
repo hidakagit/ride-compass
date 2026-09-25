@@ -46,8 +46,9 @@ class FakeRegionService:
         self.last_poi_request = (z, x, y)
         return TileResponse(self._tile_bytes, cacheable=self._cacheable)
 
-    async def get_axis_inspector(self, osm_way_id, edge_id=None, dynamic_materials=None):
+    async def get_axis_inspector(self, osm_way_id, edge_id=None, dynamic_materials=None, preference=None):
         self.last_axis_inspector_request = (osm_way_id, edge_id, dynamic_materials)
+        self.last_axis_inspector_preference = preference
         return self._axis_inspector_result
 
 
@@ -675,3 +676,48 @@ def test_landcover_tile_endpoint_without_raster_reports_unavailable(landcover_ti
 def test_landcover_tile_endpoint_serves_only_its_own_zoom_range(landcover_tiles, z, status):
     assert client.get(f"/api/region/landcover-tiles/{z}/1/1.png").status_code == status
     assert (landcover_tiles["calls"] != []) is (status == 200)
+
+
+#: 重みを送る検査に使う公開軸。空だと「全軸を明示したか」の検証が空の辞書で通ってしまう。
+_WEIGHTED_AXES = {
+    axis_id: axis_definition(axis_id, is_published=True) for axis_id in ("axis_p", "axis_q")
+}
+
+
+@pytest.fixture
+def weighted_axes():
+    with replaced_axis_definitions(_WEIGHTED_AXES):
+        yield
+
+
+def _published_weights(value: float) -> dict[str, float]:
+    return {axis_id: value for axis_id, definition in AXIS_DEFINITIONS.items() if definition.is_published}
+
+
+@pytest.mark.usefixtures("weighted_axes")
+def test_region_axis_inspector_uses_the_weights_it_is_sent():
+    """合成は利用者がいま設定している重みで計算する。送らなければ既定の重み。"""
+    fake = FakeRegionService(axis_inspector_result=None)
+    app.dependency_overrides[get_region_service] = lambda: fake
+    weights = _published_weights(0.0)
+    assert weights, "公開軸が1本も無いと、全軸を明示したかの検証が空で通る"
+    try:
+        sent = client.post("/api/region/axis-inspector", json={"osm_way_id": 1, "route_preference": weights})
+        sent_preference = fake.last_axis_inspector_preference
+        omitted = client.post("/api/region/axis-inspector", json={"osm_way_id": 1})
+    finally:
+        app.dependency_overrides.clear()
+
+    assert sent.status_code == 200
+    assert sent_preference.weights == weights
+    assert omitted.status_code == 200
+    assert fake.last_axis_inspector_preference is None
+
+
+@pytest.mark.usefixtures("weighted_axes")
+def test_region_axis_inspector_refuses_weights_missing_an_axis():
+    """ルート生成と同じく、重みを送るなら公開軸をすべて明示する（省略した軸へ既定値が黙って入らない）。"""
+    weights = _published_weights(1.0)
+    weights.pop(next(iter(weights)))
+    response = client.post("/api/region/axis-inspector", json={"osm_way_id": 1, "route_preference": weights})
+    assert response.status_code == 422

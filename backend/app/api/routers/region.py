@@ -10,10 +10,12 @@ from app.api.dependencies import (
     get_region_service,
 )
 from app.api.routers._tile_http import tile_response, validate_tile_coords
+from app.api.routers.routes import RoutePreferenceWeights
 from app.config import settings
 from app.domain.axis_definitions import AXIS_DEFINITIONS
 from app.domain.dynamic_way_values import dedicated_way_value_axes, transform_dedicated_way_values
 from app.domain.axis_inspector import AxisInspectorResult
+from app.domain.route_preference import RoutePreference
 from app.domain.landcover import LANDCOVER_TILE_MAX_ZOOM, LANDCOVER_TILE_MIN_ZOOM
 from app.services.landcover_tile_service import PNG_CONTENT_TYPE, get_landcover_tile
 from app.services.region_service import RegionService
@@ -178,6 +180,8 @@ class AxisInspectorRequest(StrictModel):
     bearing_deg: float | None = None
     at: datetime | None = None
     speed_kmh: float | None = None
+    # 合成に使う重み。利用者がいま設定している重み（ルート生成へ送るのと同じ形・同じ検証）を送る。省略すると既定の重み。
+    route_preference: RoutePreferenceWeights | None = None
 
 
 @router.post("/api/region/axis-inspector")
@@ -188,7 +192,7 @@ async def region_axis_inspector(
 ) -> AxisInspectorResult | None:
     """区間インスペクタ。クリックされた道路（osm_way_id）について、
     一次属性（highway/tags）→二次軸スコア（取得可能な軸のみ）→
-    合成コスト（取得可能な軸だけの参考値、既定route_preference重み）を返す。
+    合成コスト（取得可能な軸だけの参考値。重みは送られた`route_preference`、省略時は既定）を返す。
     POST+JSONボディ・osm_way_id完全一致で引く理由はRegionService.get_axis_inspectorの
     docstring参照（交差点付近での取り違え対策）。進行方向に依存する軸（勾配・風）は、
     地図が指定している走行方位・時刻・想定速度を一緒に送れば算出できる。送らなければ
@@ -201,4 +205,5 @@ async def region_axis_inspector(
     dynamic = await directional_materials(
         body.osm_way_id, body.feature_key, body.z, body.x, body.y,
         body.at, body.bearing_deg, body.speed_kmh)
-    return await region_service.get_axis_inspector(body.osm_way_id, body.feature_key, dynamic)
+    preference = None if body.route_preference is None else RoutePreference(weights=dict(body.route_preference.root))
+    return await region_service.get_axis_inspector(body.osm_way_id, body.feature_key, dynamic, preference)

@@ -2942,6 +2942,16 @@
               }
             ],
             "title": "Speed Kmh"
+          },
+          "route_preference": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RoutePreferenceWeights"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "additionalProperties": false,

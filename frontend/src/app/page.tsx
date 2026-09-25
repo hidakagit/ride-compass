@@ -1255,6 +1255,11 @@ export default function Home() {
             locationSource={locationSource}
             look={mapView.look}
             rideConditions={rideConditions}
+            routePreference={routePreferenceToSend(
+              routePreference,
+              { loaded: axisCatalog.loaded, defaultWeights: axisCatalog.defaultWeights },
+              weightOverrideEnabled,
+            )}
             // 実験スロットは「比較」を見ている間だけ地図へ重ねる（それ以外は選んだルートの色分けと紛らわしい）。
             experimentSlots={researchEnabled && comparisonTabActive ? experimentSlots : []}
             selectedRouteSegment={selectedRouteSegment}

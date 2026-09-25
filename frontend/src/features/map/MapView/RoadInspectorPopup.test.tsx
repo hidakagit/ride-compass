@@ -120,10 +120,69 @@ describe("RoadInspectorPopup", () => {
     await user.click(screen.getByRole("button", { name: "この道の評価を見る" }));
 
     await waitFor(() => expect(screen.getByText("その他のタグ")).toBeInTheDocument());
-    // 登録済みの属性は畳まずに出す。
-    expect(screen.getByText("yes")).toBeInTheDocument();
+    // 生タグは属性の中でさらに畳む。登録済みの属性（lit）は属性の畳みの中に直接並ぶ。
+    const others = screen.getByText("その他のタグ").closest("details");
+    expect(others?.textContent).toContain("明治通り");
+    expect(others?.textContent).not.toContain("yes");
   });
 
+  it("属性は畳んでおき、タイルとタグの両方が持つ項目は1度だけ出す", async () => {
+    const user = userEvent.setup();
+    vi.mocked(fetchAxisInspector).mockResolvedValue({
+      ...inspectorResult(),
+      tags: { highway: "residential", lit: "yes" },
+    });
+    render(
+      <RoadInspectorPopup properties={{ osm_way_id: 1, surface_good: true }} axes={AXES} axisColors={AXIS_COLORS} />,
+    );
+
+    const attributes = screen.getByText("この道の属性").closest("details");
+    expect(attributes).not.toHaveAttribute("open");
+    await user.click(screen.getByRole("button", { name: "この道の評価を見る" }));
+
+    await waitFor(() => expect(screen.getByText("residential")).toBeInTheDocument());
+    const labels = Array.from(attributes?.querySelectorAll("dt") ?? []).map((dt) => dt.textContent);
+    expect(labels.length).toBeGreaterThan(1);
+    expect(new Set(labels).size).toBe(labels.length);
+  });
+});
+
+describe("評価の重み", () => {
+  const WEIGHTS = { axis_sample: 0, night: 1 };
+
+  it("評価は、利用者がいま設定している重みで取りに行く", async () => {
+    const user = userEvent.setup();
+    vi.mocked(fetchAxisInspector).mockResolvedValue(inspectorResult());
+    render(
+      <RoadInspectorPopup
+        properties={{ osm_way_id: 1 }}
+        axes={AXES}
+        axisColors={AXIS_COLORS}
+        routePreference={WEIGHTS}
+      />,
+    );
+
+    await user.click(screen.getByRole("button", { name: "この道の評価を見る" }));
+
+    expect(vi.mocked(fetchAxisInspector).mock.calls.at(-1)?.[3]).toEqual(WEIGHTS);
+  });
+
+  it("重みを変えたら、前の重みで取った評価を見せずに取り直しへ戻る", async () => {
+    const user = userEvent.setup();
+    vi.mocked(fetchAxisInspector).mockResolvedValue(inspectorResult());
+    const props = { properties: { osm_way_id: 1 }, axes: AXES, axisColors: AXIS_COLORS };
+    const { rerender } = render(<RoadInspectorPopup {...props} routePreference={WEIGHTS} />);
+    await user.click(screen.getByRole("button", { name: "この道の評価を見る" }));
+    await waitFor(() => expect(screen.getByText(/この道だけで見た合成/)).toBeInTheDocument());
+
+    rerender(<RoadInspectorPopup {...props} routePreference={{ axis_sample: 1, night: 1 }} />);
+
+    expect(screen.queryByText(/この道だけで見た合成/)).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "この道の評価を見る" })).toBeInTheDocument();
+  });
+});
+
+describe("OSMの生値", () => {
   it("OSMの生値はタグとして解釈されない（第三者が編集できるデータのため）", () => {
     const attack = '<img src=x onerror="alert(1)">';
     const { container } = render(

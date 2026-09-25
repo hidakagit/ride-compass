@@ -151,6 +151,7 @@ class RegionService:
         osm_way_id: int,
         edge_id: str | None = None,
         dynamic_materials: dict[str, float] | None = None,
+        preference: RoutePreference | None = None,
     ) -> AxisInspectorResult | None:
         """区間インスペクタ。クリックされた道路について、一次属性→二次軸スコア→三次合成
         コスト（取得可能な軸だけの参考値）を返す。
@@ -162,6 +163,9 @@ class RegionService:
         `dynamic_materials`は進行方向に依存する材料（勾配・風）の値。**1本の道は往復2方向で
         値が違う**ため、方向が決まらないと算出できない。地図が指定している走行方位・時刻・
         想定速度から呼び出し側が引いて渡す（渡さなければその軸は「データなし」のまま）。
+
+        `preference`は合成に使う重み。利用者がいま設定している重みを渡す——ルート生成と同じ重みで見せないと、
+        重みを0にした軸まで効いて見える。省略すると既定の重み。
 
         `repository`未注入・該当way不在・DB例外はいずれもNoneへ倒す（タイル配信と同じ
         グレースフルデグレード方針）。
@@ -193,7 +197,7 @@ class RegionService:
             highway, tags, _surface = way_tags_result
             combined = {**(materials or {}), **(dynamic_materials or {})}
             return axis_inspector_breakdown(
-                highway, tags, combined, landcover, RoutePreference(),
+                highway, tags, combined, landcover, preference or RoutePreference(),
             )
 
     async def get_accident_years_covered(self) -> int:

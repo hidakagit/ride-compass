@@ -379,7 +379,7 @@ tile_cache/`）で、パスをSHA-256でハッシュ化したフラットなフ�
 | `GET /api/region/road-surface-tiles/{z}/{x}/{y}.pbf` | 路面・道路種別等のMVTタイル |
 | `GET /api/region/poi-tiles/{z}/{x}/{y}.pbf` | 停止要因POI・補給休憩POIのMVTタイル |
 | `GET /api/region/landcover-tiles/{z}/{x}/{y}.png` | 土地被覆ラスタのPNGタイル |
-| `POST /api/region/axis-inspector` | 区間インスペクタ（osm_way_id指定） |
+| `POST /api/region/axis-inspector` | 区間インスペクタ（osm_way_id指定）。合成は送られた重み（`route_preference`、ルート生成と同じ形・同じ検証で公開軸をすべて明示）で計算し、省略すると既定の重み |
 | `GET /api/region/accident-tiles/{z}/{x}/{y}.pbf`（`accidents.py`） | 事故のMVTタイル |
 
 MVTエンコードはPostGIS側（`ST_AsMVT`、`road_graph_repository.py`）で行う。タイル内の

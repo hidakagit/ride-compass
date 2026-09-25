@@ -2,6 +2,7 @@
 import pytest
 
 from app.domain.axis_definitions import AXIS_DEFINITIONS, AxisDefinition
+from app.domain.route_preference import RoutePreference
 from app.infrastructure import tile_cache
 from app.infrastructure.vector_tile import encode_empty_poi_tile, encode_empty_road_surface_tile
 from app.infrastructure.road_graph_repository import RoadGraphRepository
@@ -159,3 +160,22 @@ async def test_no_repository_stays_cacheable():
 
     assert tile.cacheable is True
 
+
+
+async def test_axis_inspector_combines_with_the_weights_it_is_given(direction_dependent_axis):
+    """重みを0にした軸は、値があっても合成に効かない（利用者の重みで見せる）。"""
+    axis = direction_dependent_axis
+    service = RegionService(repository=_FakeWayRepository())
+    materials = {material: 3.0 for material in axis.materials}
+
+    weighted = await service.get_axis_inspector(
+        12345, dynamic_materials=materials, preference=RoutePreference(weights={axis.axis_id: 1.0})
+    )
+    ignored = await service.get_axis_inspector(
+        12345, dynamic_materials=materials, preference=RoutePreference(weights={axis.axis_id: 0.0})
+    )
+
+    assert _inspected_axis(weighted, axis.axis_id).weight == 1.0
+    assert _inspected_axis(weighted, axis.axis_id).contribution not in (None, 0)
+    assert _inspected_axis(ignored, axis.axis_id).weight == 0.0
+    assert not _inspected_axis(ignored, axis.axis_id).contribution

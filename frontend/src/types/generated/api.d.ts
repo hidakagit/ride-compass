@@ -1009,6 +1009,7 @@ export interface components {
             at?: string | null;
             /** Speed Kmh */
             speed_kmh?: number | null;
+            route_preference?: components["schemas"]["RoutePreferenceWeights"] | null;
         };
         /** AxisInspectorResult */
         AxisInspectorResult: {

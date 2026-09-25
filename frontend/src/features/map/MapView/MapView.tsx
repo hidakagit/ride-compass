@@ -21,6 +21,7 @@ import type {
   LocationSource,
   PinRole,
   RouteCandidate,
+  RoutePreferenceWeights,
   RouteSegmentDetail,
   SelectedRouteSegment,
 } from "@/types/route";
@@ -279,6 +280,8 @@ interface MapViewProps {
   look: MapLook;
   /** 地図を塗るのに使っている走行の条件。道を押したときの内訳にも同じ値を渡す（揃えないと色と数字が食い違う）。 */
   rideConditions?: RideConditions;
+  /** 利用者がいま設定している重み（ルート生成へ送るのと同じもの）。道の詳細の評価に使う。nullなら既定の重み。 */
+  routePreference?: RoutePreferenceWeights | null;
   /** 実験スロット。デバッグモードOFFの間は空。 */
   experimentSlots: ExperimentSlot[];
   /** 押して選んでいる区間。地図は押した地点に印を立てるだけで、内訳は下部のシートが出す（地図上の
@@ -319,6 +322,7 @@ export default function MapView({
   locationSource,
   look,
   rideConditions,
+  routePreference = null,
   experimentSlots,
   selectedRouteSegment,
   onRouteSegmentSelect,
@@ -872,9 +876,15 @@ export default function MapView({
       .setDOMContent(container)
       .addTo(map);
     setRoadPopupContainer(container);
+    // 中身が伸び縮みしたら（評価を取る・畳みを開く）、置く向きを決め直す。MapLibreは地図が動いたときにしか
+    // 決め直さないので、開いた後に伸びた中身が画面の外へはみ出す。
+    const resize =
+      typeof ResizeObserver === "undefined" ? null : new ResizeObserver(() => popup.setLngLat(popup.getLngLat()));
+    resize?.observe(container);
     const close = () => setRoadPopup(null);
     popup.on("close", close);
     return () => {
+      resize?.disconnect();
       popup.off("close", close);
       popup.remove();
       setRoadPopupContainer(null);
@@ -926,6 +936,7 @@ export default function MapView({
             axes={catalog.axes}
             axisColors={catalog.axisColors}
             conditions={rideConditions != null ? { ...rideConditions, ...roadPopup.tile } : null}
+            routePreference={routePreference}
           />,
           roadPopupContainer,
         )}

@@ -1,4 +1,5 @@
 import type { AxisInspectorResult } from "@/types/traffic";
+import type { RoutePreferenceWeights } from "@/types/route";
 import { API_BASE_URL } from "@/lib/apiBaseUrl";
 import { apiPath } from "@/lib/apiPath";
 import { tileBaseUrl } from "@/lib/tileBaseUrl";
@@ -101,9 +102,12 @@ export async function fetchAxisInspector(
   osmWayId: number,
   featureKey?: string | null,
   conditions?: AxisInspectorConditions | null,
+  routePreference?: RoutePreferenceWeights | null,
 ): Promise<AxisInspectorResult | null> {
   const body = {
     osm_way_id: osmWayId,
+    // 合成に使う重み（利用者がいま設定しているもの）。送らなければbackendの既定の重み。
+    ...(routePreference != null ? { route_preference: routePreference } : {}),
     // 押した地物の識別子。区間単位のズームで押した道は内訳も区間単位で計算される（地図の色と数字を揃える）。
     ...(featureKey != null ? { feature_key: featureKey } : {}),
     ...(conditions != null
