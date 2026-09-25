@@ -15,7 +15,7 @@
 |---|---|
 | domain | `wind.py`・`wind_grid.py`・`gradient.py`・`dynamic_way_values.py` |
 | services | `wind_way_service.py`・`gradient_way_service.py` |
-| infrastructure | `dynamic_way_value_cache.py`（勾配のみ。ディスク経由） |
+| infrastructure | `dynamic_way_value_cache.py`（勾配のみ。ディスク経由）・`tile_persistent_cache.py`（呼び出し元が設計したタプルの鍵でPythonオブジェクトを置く汎用のディスクキャッシュ。`diskcache`の包み） |
 | api | `region.py`（`GET /api/region/dynamic-way-values/{axis_id}/...`）・`dependencies.py`（`get_dedicated_way_value_service`） |
 
 勾配材料の入力（`edge_materials.average_grade`・`road_edges.bearing_deg`）を

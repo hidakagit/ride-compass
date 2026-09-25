@@ -194,13 +194,6 @@
   ため**（ルート設定パネルのプリセット・重みは`localStorage`に`axis_id`で残る）。公開後に
   破壊的な変更・削除を許すと、他の利用者の設定を黙って壊す。改良したいときは複製して
   新しい`axis_id`の下書きを作り、そちらを検証して公開する。
-- `axis_registry_meta.revision`（DB1行、id=1固定）は書き込み（`upsert`/`delete`）ごとに
-  インクリメントされる。`AXIS_DEFINITIONS`自体の無効化には使われていない（`AXIS_
-  DEFINITIONS`は`refresh_axis_definitions`が毎回`.clear()`+`.update()`で全面更新するため
-  無効化の概念自体が無い）が、`infrastructure/tile_score_matrix_cache.py:
-  sync_disk_cache_with_axis_revision`が、アプリ起動時にも必ず1回呼ばれる`refresh_axis_
-  definitions`から見て軸定義が実際に変わったかどうかの判定に使う（`AxisRegistryMetaRow`
-  docstring参照）。将来のマルチプロセス対応・監査用の記録としても存在する。
 
 ### まっさらなDBに軸の行は入らない
 
