@@ -1649,6 +1649,23 @@ describe("画面の枠と地図の周り", () => {
     expect(settingsSection()).toBeInTheDocument();
   });
 
+  it("サイドバーを閉じている間は、区分が開いていても地図で地点も候補も扱わず、開き直すと戻す", async () => {
+    respond([route("route-0"), route("route-1")]);
+    const user = renderPage();
+    await generate(user);
+    expect(map().pointEditingEnabled).toBe(true);
+
+    await user.click(screen.getByRole("button", { name: "パネルを閉じる" }));
+    expect(map().pointEditingEnabled).toBe(false);
+    act(() => map().onRouteSelect("route-1"));
+    expect(map().selectedRouteId).toBe("route-0");
+
+    await user.click(screen.getByRole("button", { name: "パネルを開く" }));
+    expect(map().pointEditingEnabled).toBe(true);
+    act(() => map().onRouteSelect("route-1"));
+    expect(map().selectedRouteId).toBe("route-1");
+  });
+
   it("地図の見え方の値を地図・レンズ・地図上チップへそのまま渡す", () => {
     renderPage();
     const view = stubs.mapView as ReturnType<typeof useMapView>;

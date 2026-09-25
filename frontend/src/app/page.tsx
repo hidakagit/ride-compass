@@ -490,9 +490,10 @@ export default function Home() {
 
   // 地図でできることは、いま見ているパネルが持つ操作だけにする（地図を触った副作用で地点が変わらない）。
   // 「ルート設定」の条件タブ＝地点を置く・動かす・消す、「ルート結果」＝候補の切り替えと区間の詳細、
-  // 編集中＝乗り換え先の選択だけ。モバイルはシート、デスクトップは区分の開閉が「見ているか」に当たる。
-  const routeSettingsActive = isMobile ? mobileSheet === "routeSettings" : generateOpen;
-  const routeOutcomeActive = isMobile ? mobileSheet === "routeOutcome" : outcomeOpen;
+  // 編集中＝乗り換え先の選択だけ。モバイルはシート、デスクトップはパネルを畳んでおらず区分が開いていることが
+  // 「見ているか」に当たる（畳むと区分の開閉は保ったまま中身が見えなくなる）。
+  const routeSettingsActive = isMobile ? mobileSheet === "routeSettings" : !sidebarCollapsed && generateOpen;
+  const routeOutcomeActive = isMobile ? mobileSheet === "routeOutcome" : !sidebarCollapsed && outcomeOpen;
   const pointEditingEnabled = routeSettingsActive && settingsTab === "generate" && editingRoute === null;
   const routeInspectionEnabled = routeOutcomeActive && editingRoute === null;
   const pinPlacementArmedRole = routeMode === "destination" && pointEditingEnabled ? armedPinRole : null;
