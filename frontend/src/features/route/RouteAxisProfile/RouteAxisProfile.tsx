@@ -109,50 +109,54 @@ export default function RouteAxisProfile({
   return (
     <div className="flex flex-col">
       {overallDifficulty != null && (
-        <div className="mx-0.5 mt-0.5 mb-1 flex flex-wrap items-center gap-x-3 gap-y-0.5">
-          <span className="inline-flex flex-shrink-0 items-baseline gap-0.5">
-            <span className={textVariants({ variant: "hint" })}>総合難易度</span>
-            <span className="text-[1.05rem] font-semibold">{Math.round(overallDifficulty)}</span>
-            <span className={textVariants({ variant: "hint" })}>/100</span>
-            <InfoPopover triggerAriaLabel="総合難易度の説明">
-              <p>
-                区間ごとの難しさを距離で重みづけて平均した値です。長く走っても難しさが同じなら増えません。
-                軸の重み配分を反映していて、下の内訳の合計とほぼ一致します。候補タブはこの値が小さい順に並びます。
-              </p>
-            </InfoPopover>
-          </span>
-          {estimatedDurationSeconds != null && (
+        <div className="mx-0.5 mt-0.5 mb-1 flex flex-col gap-1">
+          {/* 数値の行と内訳のバーを分ける——同じ折り返しの行へ入れると、数値の文字数（所要の「58分」と「1時間5分」等）で
+              バーが数値の横へ入るか次の行へ落ちるかが変わり、候補ごとにバーの長さが揃わない。 */}
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5">
             <span className="inline-flex flex-shrink-0 items-baseline gap-0.5">
-              <span className={textVariants({ variant: "hint" })}>所要</span>
-              <span className="text-[1.05rem] font-semibold">{formatDurationShort(estimatedDurationSeconds)}</span>
-              <InfoPopover triggerAriaLabel="所要時間の説明">
+              <span className={textVariants({ variant: "hint" })}>総合難易度</span>
+              <span className="text-[1.05rem] font-semibold">{Math.round(overallDifficulty)}</span>
+              <span className={textVariants({ variant: "hint" })}>/100</span>
+              <InfoPopover triggerAriaLabel="総合難易度の説明">
                 <p>
-                  走行時間（勾配・風・想定した巡航速度から区間ごとに計算）に、信号などで止まる
-                  待ちと、交差点で曲がる待ちを足した見積もりです。実際の信号のタイミングや 走り方で変わります。
+                  区間ごとの難しさを距離で重みづけて平均した値です。長く走っても難しさが同じなら増えません。
+                  軸の重み配分を反映していて、下の内訳の合計とほぼ一致します。候補タブはこの値が小さい順に並びます。
                 </p>
               </InfoPopover>
             </span>
-          )}
-          {difficultyLoad != null && (
-            <span className="inline-flex flex-shrink-0 items-baseline gap-0.5">
-              {/* 「難易度×距離」という中身は説明（ⓘ）が持つ。狭い右カラムで折り返す
+            {estimatedDurationSeconds != null && (
+              <span className="inline-flex flex-shrink-0 items-baseline gap-0.5">
+                <span className={textVariants({ variant: "hint" })}>所要</span>
+                <span className="text-[1.05rem] font-semibold">{formatDurationShort(estimatedDurationSeconds)}</span>
+                <InfoPopover triggerAriaLabel="所要時間の説明">
+                  <p>
+                    走行時間（勾配・風・想定した巡航速度から区間ごとに計算）に、信号などで止まる
+                    待ちと、交差点で曲がる待ちを足した見積もりです。実際の信号のタイミングや 走り方で変わります。
+                  </p>
+                </InfoPopover>
+              </span>
+            )}
+            {difficultyLoad != null && (
+              <span className="inline-flex flex-shrink-0 items-baseline gap-0.5">
+                {/* 「難易度×距離」という中身は説明（ⓘ）が持つ。狭い右カラムで折り返す
                   ぶんだけ縦を食うため、見出しは短い語に留める。 */}
-              <span className={textVariants({ variant: "hint" })}>負荷</span>
-              <span className="text-[1.05rem] font-semibold">{Math.round(difficultyLoad)}</span>
-              <InfoPopover triggerAriaLabel="負荷の説明">
-                <p>
-                  総合難易度に距離を掛けた総量で、走り切るまでのしんどさの目安です。
-                  平均は遠回りして難所を避けるほど下がりますが、負荷は走った分だけ増えます。
-                  難所を通っても短いルートと、遠回りで易しいルートを見比べるときに使ってください。
-                </p>
-                <p>
-                  下のバーは長さが総合難易度、高さが距離で、塗られた面積がこの負荷にあたります
-                  （色ごとの面積がその軸の負荷）。候補一覧の行のバーも同じ見方です。距離の差が
-                  大きいときは高さに上限をかけるため、面積の比は負荷の比と完全には一致しません。
-                </p>
-              </InfoPopover>
-            </span>
-          )}
+                <span className={textVariants({ variant: "hint" })}>負荷</span>
+                <span className="text-[1.05rem] font-semibold">{Math.round(difficultyLoad)}</span>
+                <InfoPopover triggerAriaLabel="負荷の説明">
+                  <p>
+                    総合難易度に距離を掛けた総量で、走り切るまでのしんどさの目安です。
+                    平均は遠回りして難所を避けるほど下がりますが、負荷は走った分だけ増えます。
+                    難所を通っても短いルートと、遠回りで易しいルートを見比べるときに使ってください。
+                  </p>
+                  <p>
+                    下のバーは長さが総合難易度、高さが距離で、塗られた面積がこの負荷にあたります
+                    （色ごとの面積がその軸の負荷）。候補一覧の行のバーも同じ見方です。距離の差が
+                    大きいときは高さに上限をかけるため、面積の比は負荷の比と完全には一致しません。
+                  </p>
+                </InfoPopover>
+              </span>
+            )}
+          </div>
           {contributionRows.length > 0 ? (
             <AxisContributionBar
               axes={contributionRows}

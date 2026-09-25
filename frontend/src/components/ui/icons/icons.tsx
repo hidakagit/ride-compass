@@ -464,6 +464,15 @@ export function RouteDiffIcon({ size = 16 }: IconProps) {
   );
 }
 
+/** 条件からルートの候補を作る: 実行の三角。 */
+export function GenerateRoutesIcon({ size = 16 }: IconProps) {
+  return (
+    <svg width={size} height={size} {...svgProps}>
+      <path d="M6.5 4.5v11l8.5-5.5Z" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
 /** 選んだ組み合わせで新しい候補を作る: 道＋追加。`RouteSpliceIcon`と同じ道の形へ
  * ＋を添えることで、同じ編集の中の「実行」であることを示す。 */
 export function NewRouteIcon({ size = 16 }: IconProps) {

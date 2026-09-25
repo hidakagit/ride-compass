@@ -169,8 +169,7 @@ export default function RouteSplicePanel({
         {/* 使い方は画面へ書かずここへ置く（設計原則「冗長なものは削る」）。 */}
         <InfoPopover triggerAriaLabel="区間の乗り換えの説明">
           地図の破線が、いまの道から乗り換えられる先です。タップするとそこへ乗り換わり、その先に
-          分かれ道があれば次の破線が出ます。太い線が、いま作っているルートです。天秤は結果を
-          評価するボタン、その隣は新しい候補として作るボタンです。軸の棒は中央が0で、左（−）へ
+          分かれ道があれば次の破線が出ます。太い線が、いま作っているルートです。軸の棒は中央が0で、左（−）へ
           伸びた軸ほど難易度が下がり、右（＋）へ伸びた軸ほど上がっています。
         </InfoPopover>
         {appliedCount > 0 && <span className={cn(textVariants({ variant: "hint" }), "ml-1")}>{appliedCount}回</span>}
@@ -178,33 +177,36 @@ export default function RouteSplicePanel({
           <div className="ml-auto flex items-center gap-1.5">
             {appliedCount > 0 && (
               <>
-                <Button size="icon" onClick={onUndo} disabled={busy} aria-label="1つ戻す" title="1つ戻す">
+                <Button size="iconLabel" onClick={onUndo} disabled={busy}>
                   <UndoIcon size={18} />
+                  1つ戻す
                 </Button>
-                <Button size="icon" onClick={onReset} disabled={busy} aria-label="全部戻す" title="全部戻す">
+                <Button size="iconLabel" onClick={onReset} disabled={busy}>
                   <UndoAllIcon size={18} />
+                  全部戻す
                 </Button>
               </>
             )}
             <Button
-              size="icon"
+              size="iconLabel"
               onClick={onPreview}
               disabled={appliedCount === 0 || busy}
               aria-busy={previewing}
               aria-label="差分を見る"
-              title="差分を見る"
             >
               <RouteDiffIcon size={18} />
+              差分
             </Button>
             <Button
-              size="icon"
+              size="iconLabel"
               onClick={onApply}
               disabled={appliedCount === 0 || busy}
               aria-busy={applying}
-              aria-label="新しいルートを作る"
-              title="新しいルートを作る"
+              aria-label="新しいルートを作成"
+              title="新しい候補として一覧へ加える"
             >
               <NewRouteIcon size={18} />
+              作成
             </Button>
           </div>
         )}
@@ -311,7 +313,7 @@ export default function RouteSplicePanel({
                   </span>
                 ))
               : appliedCount > 0
-                ? "天秤を押すと、乗り換えた結果が出ます"
+                ? "「差分」を押すと、乗り換えた結果が出ます"
                 : hasAlternatives
                   ? "地図の破線をタップして乗り換えます"
                   : "他の候補と別の道を通る区間がありません。"}

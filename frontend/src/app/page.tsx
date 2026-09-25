@@ -14,6 +14,7 @@ import {
   ClearRoutesIcon,
   RouteSpliceIcon,
   DownloadIcon,
+  GenerateRoutesIcon,
   RedrawMapIcon,
   RouteIcon,
   RouteSettingsIcon,
@@ -789,8 +790,15 @@ export default function Home() {
             title="生成条件が変更されています"
           />
         )}
-        <Button variant="primary" size="sm" type="button" disabled={loading} onClick={routeFormSubmit.handleSubmit}>
-          {loading ? (generationProgressLabel ?? "生成中...") : "ルート生成"}
+        <Button
+          variant="primary"
+          size="iconLabel"
+          disabled={loading}
+          onClick={routeFormSubmit.handleSubmit}
+          aria-label={loading ? (generationProgressLabel ?? "生成中...") : "ルート生成"}
+        >
+          <GenerateRoutesIcon size={18} />
+          {loading ? (generationProgress?.status === "queued" ? "順番待ち" : "生成中") : "生成"}
         </Button>
       </div>
     );
@@ -839,42 +847,45 @@ export default function Home() {
     if (failure) {
       return <ErrorText>{failure}</ErrorText>;
     }
-    return <p className={textVariants({ variant: "hint" })}>「ルート生成」を押すと候補がここに並びます</p>;
+    return <p className={textVariants({ variant: "hint" })}>「生成」を押すと候補がここに並びます</p>;
   }
 
-  // 「ルート結果」の見出しの操作（編集・GPX出力・クリア）。候補がある間だけ呼ばれる。
+  // 「ルート結果」の見出しの操作。候補すべてに効く操作だけを置き、候補1本への操作はその候補のタブの中に置く
+  // （見出しに並べると、どれが選んでいる1本だけに効くのか見分けられない）。候補がある間だけ呼ばれる。
   function renderRouteResultHeaderActions() {
     return (
-      <>
-        {/* 編集の入口。乗り換えできない生成（周回・候補1件）では出さない。 */}
-        {canSpliceDisplayedRoute() && editingRoute === null && (
+      <Button size="iconLabel" onClick={handleRoutesClear} aria-label="候補を全消去" title="候補をすべて消す">
+        <ClearRoutesIcon size={18} />
+        全消去
+      </Button>
+    );
+  }
+
+  // 候補1本への操作（合成・GPX出力）。その候補のタブの中身の先頭に置く。
+  function renderCandidateActions(route: RouteCandidate) {
+    return (
+      <div className="flex items-center gap-1.5">
+        {/* 合成（区間の乗り換え）の入口。乗り換えできない生成（周回・候補1件）では出さない。 */}
+        {canSpliceDisplayedRoute() && (
           <Button
-            size="icon"
+            size="iconLabel"
             onClick={() => {
-              if (!selectedCandidate) return;
-              setSplice({ routeId: selectedCandidate.id, applied: [], previews: {}, task: SPLICE_IDLE });
+              setSplice({ routeId: route.id, applied: [], previews: {}, task: SPLICE_IDLE });
               // 区間の詳細の置き場は編集面に置き換わるため、選択を外す（地図に印だけが残らない）。
               setSelectedRouteSegment(null);
             }}
-            title="このルートを編集（区間の乗り換え）"
-            aria-label="このルートを編集"
+            aria-label="ルートを合成"
+            title="区間を別の候補の道へ乗り換えて、新しいルートを作る"
           >
             <RouteSpliceIcon size={18} />
+            合成
           </Button>
         )}
-        <Button
-          size="icon"
-          disabled={!selectedCandidate}
-          onClick={() => selectedCandidate && downloadGpx(selectedCandidate)}
-          title="GPX出力"
-          aria-label="GPX出力"
-        >
+        <Button size="iconLabel" onClick={() => downloadGpx(route)} aria-label="GPX出力" title="GPXファイルで書き出す">
           <DownloadIcon size={18} />
+          GPX
         </Button>
-        <Button size="icon" onClick={handleRoutesClear} title="ルートをクリア" aria-label="ルートをクリア">
-          <ClearRoutesIcon size={18} />
-        </Button>
-      </>
+      </div>
     );
   }
 
@@ -971,6 +982,7 @@ export default function Home() {
           <div className="min-w-0 flex-auto">
             {routes.map((route) => (
               <TabsContent key={route.id} className="flex flex-col gap-2 data-[state=inactive]:hidden" value={route.id}>
+                {renderCandidateActions(route)}
                 {/* 押した区間がある間は、その区間の地点・到達予想・内訳を出す（区間は選んでいる候補にしか描かれない）。 */}
                 {selectedRouteSegment ? (
                   <div className="flex flex-col gap-2">

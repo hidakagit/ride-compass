@@ -329,7 +329,7 @@ const C_FIRST: GeoJSON.Position = [1.5, -1];
 
 async function startSpliceEditing(user: UserEvent, routes = [ROUTE_A, ROUTE_B, ROUTE_C]) {
   await generateToDestination(user, routes);
-  await user.click(screen.getByRole("button", { name: "このルートを編集" }));
+  await user.click(screen.getByRole("button", { name: "ルートを合成" }));
 }
 function passed<T>(value: T | undefined, what: string): T {
   if (value === undefined) throw new Error(`地図へ${what}を渡していない`);
@@ -752,12 +752,13 @@ describe("生成の進み方と、結果の置き場", () => {
     await user.click(generateButton());
     const running = screen.getByRole("button", { name: /生成中|順番待ち/ });
     expect(running).toBeDisabled();
-    expect(running).toHaveTextContent("生成中...");
+    expect(running).toHaveTextContent("生成中");
 
     act(() => report?.({ status: "queued", elapsedMs: 0 }));
-    expect(running).toHaveTextContent("順番待ち...");
+    expect(running).toHaveTextContent("順番待ち");
     act(() => report?.({ status: "running", elapsedMs: 1500 }));
-    expect(screen.getAllByText("生成中...(2秒経過)")).toHaveLength(2);
+    expect(running).toHaveAccessibleName("生成中...(2秒経過)");
+    expect(screen.getByText("生成中...(2秒経過)")).toBeInTheDocument();
 
     await act(async () => pending.resolve({ routes: [route("route-0")], conditions: conditionsOf() }));
     expect(generateButton()).toBeEnabled();
@@ -804,7 +805,7 @@ describe("生成の進み方と、結果の置き場", () => {
 
   it("生成前の「ルート結果」は、押せば候補が並ぶことを案内する", () => {
     renderPage();
-    expect(screen.getByText("「ルート生成」を押すと候補がここに並びます")).toBeInTheDocument();
+    expect(screen.getByText("「生成」を押すと候補がここに並びます")).toBeInTheDocument();
   });
 
   it("backendが目的地を補正したら、ピンを補正後の地点へ動かして知らせ、条件が変わったとは扱わない", async () => {
@@ -918,7 +919,7 @@ describe("候補の一覧", () => {
     expect(mapViewInputs().hasDetail).toBe(true);
   });
 
-  it("「GPX出力」は選んでいる候補を書き出し、「ルートをクリア」は候補を消して生成前の案内へ戻す", async () => {
+  it("「GPX出力」は選んでいる候補を書き出し、「全消去」は候補を消して生成前の案内へ戻す", async () => {
     const first = route("route-0");
     const second = route("route-1");
     respond([first, second]);
@@ -928,17 +929,17 @@ describe("候補の一覧", () => {
     await user.click(screen.getByRole("button", { name: "GPX出力" }));
     expect(downloadGpx).toHaveBeenCalledWith(second);
 
-    await user.click(screen.getByRole("button", { name: "ルートをクリア" }));
+    await user.click(screen.getByRole("button", { name: "候補を全消去" }));
     expect(map()).toMatchObject({ routes: [], selectedRouteId: null });
-    expect(screen.getByText("「ルート生成」を押すと候補がここに並びます")).toBeInTheDocument();
+    expect(screen.getByText("「生成」を押すと候補がここに並びます")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "GPX出力" })).not.toBeInTheDocument();
   });
 
-  it("「ルートをクリア」は、パネルを閉じる✕と見分けられるよう、✕の字ではなくアイコンで出す", async () => {
+  it("「全消去」は、パネルを閉じる✕と見分けられるよう、✕の字ではなくアイコンで出す", async () => {
     respond([route("route-0")]);
     const user = renderPage();
     await generate(user);
-    const clear = screen.getByRole("button", { name: "ルートをクリア" });
+    const clear = screen.getByRole("button", { name: "候補を全消去" });
     expect(clear.querySelector("svg")).not.toBeNull();
     expect(clear).not.toHaveTextContent("✕");
   });
@@ -1051,7 +1052,7 @@ describe("地図で押した区間", () => {
     [
       "消してから作り直す",
       async (user: UserEvent) => {
-        await user.click(screen.getByRole("button", { name: "ルートをクリア" }));
+        await user.click(screen.getByRole("button", { name: "候補を全消去" }));
         respond([route("route-0", { segments: [SEGMENT] }), route("route-1")]);
         await generate(user);
       },
@@ -1059,7 +1060,7 @@ describe("地図で押した区間", () => {
     [
       "編集を始めてやめる",
       async (user: UserEvent) => {
-        await user.click(screen.getByRole("button", { name: "このルートを編集" }));
+        await user.click(screen.getByRole("button", { name: "ルートを合成" }));
         await user.click(screen.getByRole("button", { name: "編集をやめて候補へ戻る" }));
       },
     ],
@@ -1096,12 +1097,12 @@ describe("研究モードの比較", () => {
     expect(slots.map((slot) => slot.color)).toEqual(EXPERIMENT_SLOT_COLORS.slice(0, MAX_EXPERIMENT_SLOTS));
   });
 
-  it("「ルートをクリア」は実験スロットも空にする（地図に比較の線が残らない）", async () => {
+  it("「全消去」は実験スロットも空にする（地図に比較の線が残らない）", async () => {
     setResearchEnabled(true);
     const user = renderPage();
     respond([route("route-a")], { generated_at: "ta" });
     await generate(user);
-    await user.click(screen.getByRole("button", { name: "ルートをクリア" }));
+    await user.click(screen.getByRole("button", { name: "候補を全消去" }));
     respond([route("route-b")], { generated_at: "tb" });
     await generate(user);
     expect(comparison().slots.map((slot) => slot.topCandidate.id)).toEqual(["route-b"]);
@@ -1169,7 +1170,7 @@ describe("研究モードの比較", () => {
 });
 
 describe("区間の乗り換え", () => {
-  const editButton = () => screen.queryByRole("button", { name: "このルートを編集" });
+  const editButton = () => screen.queryByRole("button", { name: "ルートを合成" });
 
   it.each([
     ["周回で作った2件", "loop", 2, false],
@@ -1191,7 +1192,7 @@ describe("区間の乗り換え", () => {
     const user = renderPage();
     await generateToDestination(user, [ROUTE_A, ROUTE_B]);
     await user.click(screen.getByRole("radio", { name: "周回" }));
-    await user.click(screen.getByRole("button", { name: "このルートを編集" }));
+    await user.click(screen.getByRole("button", { name: "ルートを合成" }));
     expect(editButton()).not.toBeInTheDocument();
   });
 
@@ -1305,17 +1306,17 @@ describe("区間の乗り換え", () => {
     expect(screen.queryByRole("button", { name: "編集をやめて候補へ戻る" })).not.toBeInTheDocument();
     expect(resultTabs()).toHaveLength(3);
 
-    await user.click(screen.getByRole("button", { name: "このルートを編集" }));
+    await user.click(screen.getByRole("button", { name: "ルートを合成" }));
     chooseStretchThrough(C_FIRST);
     expect(screen.queryByText("11.5km")).not.toBeInTheDocument();
   });
 
-  it("「新しいルートを作る」は、評価した経路を候補の一覧へ合成として加えて選び、編集を終える", async () => {
+  it("「作成」は、評価した経路を候補の一覧へ合成として加えて選び、編集を終える", async () => {
     const user = renderPage();
     await startSpliceEditing(user);
     chooseStretchThrough(B_FIRST);
     respond([route("route-spliced", { edge_ids: ["e1", "b1", "e2", "a2", "e3"] })]);
-    await user.click(screen.getByRole("button", { name: "新しいルートを作る" }));
+    await user.click(screen.getByRole("button", { name: "新しいルートを作成" }));
     const added = `${SPLICED_ROUTE_ID_PREFIX}-3`;
     await waitFor(() => expect(map().selectedRouteId).toBe(added));
     expect(map().routes.map((candidate) => candidate.id)).toHaveLength(4);
@@ -1325,7 +1326,7 @@ describe("区間の乗り換え", () => {
     expect(selected).toHaveTextContent("合成");
   });
 
-  it("「新しいルートを作る」を続けて2回押しても、候補は1本だけ増える", async () => {
+  it("「作成」を続けて2回押しても、候補は1本だけ増える", async () => {
     const user = renderPage();
     await startSpliceEditing(user);
     chooseStretchThrough(B_FIRST);
@@ -1337,7 +1338,7 @@ describe("区間の乗り換え", () => {
         geometry: lineOf([0, 0, 1, 0, 1.5, 1, 2, 0, 3, 0, 4, 0, 5, 0]),
       }),
     ]);
-    const create = screen.getByRole("button", { name: "新しいルートを作る" });
+    const create = screen.getByRole("button", { name: "新しいルートを作成" });
     fireEvent.click(create);
     fireEvent.click(create);
     await waitFor(() => expect(map().routes).toHaveLength(4));
@@ -1359,8 +1360,8 @@ describe("区間の乗り換え", () => {
         geometry: lineOf([0, 0, 1, 0, 1.5, 1, 2, 0, 3, 0, 4, 0, 5, 0]),
       }),
     ]);
-    await user.click(screen.getByRole("button", { name: "新しいルートを作る" }));
-    await user.click(await screen.findByRole("button", { name: "このルートを編集" }));
+    await user.click(screen.getByRole("button", { name: "新しいルートを作成" }));
+    await user.click(await screen.findByRole("button", { name: "ルートを合成" }));
     chooseStretchThrough(B_SECOND);
     expect(screen.getByText("1回")).toBeInTheDocument();
   });
@@ -1373,7 +1374,7 @@ describe("区間の乗り換え", () => {
     await user.click(screen.getByRole("button", { name: "差分を見る" }));
     await screen.findByText("0.0km");
     const requests = vi.mocked(generateRoutes).mock.calls.length;
-    await user.click(screen.getByRole("button", { name: "新しいルートを作る" }));
+    await user.click(screen.getByRole("button", { name: "新しいルートを作成" }));
     await waitFor(() => expect(map().routes).toHaveLength(4));
     expect(generateRoutes).toHaveBeenCalledTimes(requests);
   });
@@ -1383,7 +1384,7 @@ describe("区間の乗り換え", () => {
     await startSpliceEditing(user);
     chooseStretchThrough(C_FIRST);
     respond([route("route-spliced", { edge_ids: ROUTE_C.edge_ids })]);
-    await user.click(screen.getByRole("button", { name: "新しいルートを作る" }));
+    await user.click(screen.getByRole("button", { name: "新しいルートを作成" }));
     await waitFor(() => expect(map().selectedRouteId).toBe(ROUTE_C.id));
     expect(map().routes).toHaveLength(3);
   });
@@ -1396,10 +1397,10 @@ describe("区間の乗り換え", () => {
     await startSpliceEditing(user);
     chooseStretchThrough(B_FIRST);
     fail();
-    await user.click(screen.getByRole("button", { name: "新しいルートを作る" }));
+    await user.click(screen.getByRole("button", { name: "新しいルートを作成" }));
     expect(await screen.findByRole("alert")).toHaveTextContent(shown);
     expect(screen.getByRole("button", { name: "編集をやめて候補へ戻る" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "新しいルートを作る" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "新しいルートを作成" })).toBeEnabled();
   });
 
   it("作ると、直前の生成の失敗の文言を残さない", async () => {
@@ -1407,12 +1408,12 @@ describe("区間の乗り換え", () => {
     await generateToDestination(user, [ROUTE_A, ROUTE_B, ROUTE_C]);
     vi.mocked(generateRoutes).mockRejectedValueOnce(new Error("直前の失敗"));
     await generate(user);
-    await user.click(screen.getByRole("button", { name: "このルートを編集" }));
+    await user.click(screen.getByRole("button", { name: "ルートを合成" }));
     chooseStretchThrough(B_FIRST);
     respond([route("route-spliced", { edge_ids: ["e1", "b1", "e2", "a2", "e3"] })]);
-    await user.click(screen.getByRole("button", { name: "新しいルートを作る" }));
+    await user.click(screen.getByRole("button", { name: "新しいルートを作成" }));
     await waitFor(() => expect(map().routes).toHaveLength(4));
-    await user.click(screen.getByRole("button", { name: "ルートをクリア" }));
+    await user.click(screen.getByRole("button", { name: "候補を全消去" }));
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
 
@@ -1424,7 +1425,7 @@ describe("区間の乗り換え", () => {
     vi.mocked(generateRoutes).mockReturnValueOnce(regeneration.promise);
     await user.click(generateButton());
     respond([route("route-spliced", { edge_ids: ["e1", "b1", "e2", "a2", "e3"] })]);
-    await user.click(screen.getByRole("button", { name: "新しいルートを作る" }));
+    await user.click(screen.getByRole("button", { name: "新しいルートを作成" }));
     await waitFor(() => expect(map().routes).toHaveLength(4));
     expect(screen.getByRole("button", { name: "生成中..." })).toBeDisabled();
     await act(async () => regeneration.resolve({ routes: [route("route-0")], conditions: conditionsOf() }));
@@ -1438,7 +1439,7 @@ describe("区間の乗り換え", () => {
     await user.click(screen.getByRole("button", { name: "編集をやめて候補へ戻る" }));
     expect(resultTabs()).toHaveLength(3);
     expect(map().splicedRoute).toBeNull();
-    await user.click(screen.getByRole("button", { name: "このルートを編集" }));
+    await user.click(screen.getByRole("button", { name: "ルートを合成" }));
     expect(map().splicedRoute).toEqual(ROUTE_A.geometry.coordinates);
   });
 
@@ -1451,15 +1452,15 @@ describe("区間の乗り換え", () => {
     expect(resultTabs()).toHaveLength(2);
   });
 
-  it("編集中に「ルートをクリア」を押すと編集も終わり、地点の操作が戻り、作り直せばまた編集に入れる", async () => {
+  it("編集中に「全消去」を押すと編集も終わり、地点の操作が戻り、作り直せばまた編集に入れる", async () => {
     const user = renderPage();
     await startSpliceEditing(user);
-    await user.click(screen.getByRole("button", { name: "ルートをクリア" }));
+    await user.click(screen.getByRole("button", { name: "候補を全消去" }));
     expect(screen.queryByRole("button", { name: "編集をやめて候補へ戻る" })).not.toBeInTheDocument();
     expect(map()).toMatchObject({ splicedRoute: null, pointEditingEnabled: true });
     respond([ROUTE_A, ROUTE_B, ROUTE_C]);
     await generate(user);
-    expect(screen.getByRole("button", { name: "このルートを編集" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "ルートを合成" })).toBeInTheDocument();
   });
 });
 
@@ -1505,10 +1506,10 @@ describe("モバイルの下部タブとシート", () => {
 
     await user.click(navButton("ルート結果"));
     const outcome = screen.getByRole("region", { name: "ルート結果" });
-    expect(within(outcome).getByRole("button", { name: "ルートをクリア" })).toBeInTheDocument();
-    await user.click(within(outcome).getByRole("button", { name: "ルートをクリア" }));
+    expect(within(outcome).getByRole("button", { name: "候補を全消去" })).toBeInTheDocument();
+    await user.click(within(outcome).getByRole("button", { name: "候補を全消去" }));
     expect(within(outcome).queryByRole("button", { name: "GPX出力" })).not.toBeInTheDocument();
-    expect(within(outcome).getByText("「ルート生成」を押すと候補がここに並びます")).toBeInTheDocument();
+    expect(within(outcome).getByText("「生成」を押すと候補がここに並びます")).toBeInTheDocument();
   });
 
   it.each([

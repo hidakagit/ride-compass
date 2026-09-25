@@ -280,7 +280,7 @@ Reactの外（モジュール評価時に初期値を決めるシングルトン
   **ルートの編集は「ルート結果」の中のモード**（`splice`。編集の元の候補・適用した乗り換え・
   評価結果の控え・処理状態を1つに持ち、抜けると中身ごと消える）で、独立した置き場を
   持たない——別の置き場にすると、どのルートを編集しているのかを編集側で選び直す形になる。
-  入口は「ルート結果」ヘッダの操作アイコン列（`renderRouteResultHeaderActions`）で、
+  入口は候補のタブの中身の先頭にある「合成」（`renderCandidateActions`）で、
   乗り換えできない生成（周回・候補1件）と編集中には出さない——押しても何もできない入口を
   残さない。編集の元は押した候補に固定し、作ったら同じ場所が一覧へ戻る
   （[route-settings-and-results.md](route-settings-and-results.md)参照）。
@@ -316,7 +316,7 @@ Reactの外（モジュール評価時に初期値を決めるシングルトン
 判断に使えない。合わせた高さはドラッグで上書きでき、その値は次に開くまで有効
 （`onHeightCommit`の保存は、実寸が取れない実行のフォールバックとして残る）。任意の`headerAction`
 propでヘッダ右側・閉じるボタンの手前へ要素を差し込める（「ルート結果」シートの
-GPX出力・「ルートをクリア」、下記`renderRouteOutcomeSectionBody`参照）。
+「全消去」、下記`renderRouteOutcomeSectionBody`参照）。
 
 ## `renderRouteOutcomeSectionBody`（生成結果、デスクトップ「ルート結果」区分・
 モバイル「ルート結果」タブ共通）
@@ -363,11 +363,10 @@ destinationCorrected`）。補正時は地図上の目的地ピンも
 `handleGenerate`が実際に使われた地点（`conditions.corrected_destination`）へ動かす
 （ピンの位置と生成されたルートの終点がずれて見えないようにする）。
 
-「ルート結果」ヘッダの操作枠は`renderRouteResultHeaderActions()`という1つのヘルパーで、
-**選択中の候補に対する操作**を横並びにする（区間の乗り換えの入口・「GPX出力」・
-「ルートをクリア」）。「GPX出力」（`DownloadIcon`、`selectedCandidate`をタップで
-`features/route/gpxExport.ts: downloadGpx`へ渡す）は候補が未選択の間はdisabled。「ルートをクリア」
-（`ClearRoutesIcon`＝ゴミ箱のアイコンボタン、`handleRoutesClear`）に**バツ印は使わない**
+「ルート結果」ヘッダの操作枠（`renderRouteResultHeaderActions()`）には**候補すべてに効く操作だけ**を置く
+（「全消去」、`ClearRoutesIcon`、`handleRoutesClear`）。候補1本に効く操作（「合成」＝区間の乗り換えの入口・
+「GPX」＝`features/route/gpxExport.ts: downloadGpx`）は`renderCandidateActions(route)`がその候補のタブの中身の
+先頭に置く——見出しに並べると、どれが選んでいる1本だけに効くのか見分けられない。「全消去」に**バツ印は使わない**
 ——シートの閉じる✕の隣に並ぶため、同じ形だとどちらがどちらか分からない。総合難易度の説明は
 `RouteAxisProfile`側（総合難易度の表示の隣、`InfoPopover`）にあり、候補タブごとに
 繰り返し表示される。デスクトップは「ルート結果」`Disclosure`の`trailing`、モバイルは

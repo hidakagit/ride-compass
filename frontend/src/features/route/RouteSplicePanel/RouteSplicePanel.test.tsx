@@ -68,7 +68,7 @@ describe("RouteSplicePanel 操作", () => {
     expect(screen.queryByRole("button", { name: "1つ戻す" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "全部戻す" })).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "差分を見る" })).toBeDisabled();
-    expect(screen.getByRole("button", { name: "新しいルートを作る" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "新しいルートを作成" })).toBeDisabled();
   });
 
   it("乗り換えたら回数を出し、戻す・差分・作成の操作をそれぞれの処理へつなぐ", async () => {
@@ -77,7 +77,7 @@ describe("RouteSplicePanel 操作", () => {
     await userEvent.click(screen.getByRole("button", { name: "1つ戻す" }));
     await userEvent.click(screen.getByRole("button", { name: "全部戻す" }));
     await userEvent.click(screen.getByRole("button", { name: "差分を見る" }));
-    await userEvent.click(screen.getByRole("button", { name: "新しいルートを作る" }));
+    await userEvent.click(screen.getByRole("button", { name: "新しいルートを作成" }));
     expect(props.onUndo).toHaveBeenCalled();
     expect(props.onReset).toHaveBeenCalled();
     expect(props.onPreview).toHaveBeenCalled();
@@ -86,17 +86,17 @@ describe("RouteSplicePanel 操作", () => {
 
   it("評価を待っている間は、どの操作も押せず、待っている操作に待ち中の印を付ける", () => {
     renderPanel({ appliedCount: 1, previewing: true });
-    for (const name of ["1つ戻す", "全部戻す", "差分を見る", "新しいルートを作る"]) {
+    for (const name of ["1つ戻す", "全部戻す", "差分を見る", "新しいルートを作成"]) {
       expect(screen.getByRole("button", { name })).toBeDisabled();
     }
     expect(screen.getByRole("button", { name: "差分を見る" })).toHaveAttribute("aria-busy", "true");
-    expect(screen.getByRole("button", { name: "新しいルートを作る" })).toHaveAttribute("aria-busy", "false");
+    expect(screen.getByRole("button", { name: "新しいルートを作成" })).toHaveAttribute("aria-busy", "false");
   });
 
   it("作成を待っている間も同じ（作成の側に待ち中の印）", () => {
     renderPanel({ appliedCount: 1, applying: true });
     expect(screen.getByRole("button", { name: "1つ戻す" })).toBeDisabled();
-    expect(screen.getByRole("button", { name: "新しいルートを作る" })).toHaveAttribute("aria-busy", "true");
+    expect(screen.getByRole("button", { name: "新しいルートを作成" })).toHaveAttribute("aria-busy", "true");
   });
 
   it("失敗の理由を、押した場所から見える所に出す", () => {
@@ -191,7 +191,7 @@ describe("RouteSplicePanel 軸ごとの差", () => {
 
   it("乗り換えた後、評価する前は、評価のしかたを出す", () => {
     renderPanel({ appliedCount: 1 });
-    expect(screen.getByText("天秤を押すと、乗り換えた結果が出ます")).toBeInTheDocument();
+    expect(screen.getByText("「差分」を押すと、乗り換えた結果が出ます")).toBeInTheDocument();
   });
 
   it("乗り換える前は、乗り換えられる区間があるかで一言が変わる", () => {
