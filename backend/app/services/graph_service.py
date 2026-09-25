@@ -2,20 +2,33 @@ import asyncio
 import logging
 import time
 
+from app.config import settings
 from app.domain.errors import SearchAreaTooLargeError
 from app.domain.evaluation import StaticEdgeScoreMatrix, build_static_edge_score_matrix
 from app.domain.graph import LeanEdge
 from app.domain.region import ROAD_GRAPH_TILE_ZOOM, BoundingBox, tile_bounds_lonlat, tiles_covering_bbox
 from app.domain.road_network import RoadSlice, material_arrays_of, slice_network
-from app.infrastructure import road_network_store
+from app.infrastructure import container_memory, road_network_store
 from app.infrastructure.road_graph_repository import RoadGraphRepository
 
 logger = logging.getLogger("ridecompass.graph")
 
-# 1回の生成が切り出してよい有向の区間の上限。探索素材と探索用グラフは区間の数に比例してメモリを
-# 使い、backendのコンテナの上限（6GB）を超えるとプロセスごと落ちて全員の生成と地図が止まる。
-# 都心の40km周回（有向約100万本）が収まり、60km（約200万本）が断られる値にしてある。
-MAX_SEARCH_EDGES = 1_200_000
+#: 生成以外（地図タイルの配信・プロセスの常駐分）のために取り置くメモリ。
+_RESERVED_BYTES = 2 * 1024**3
+#: 1件の生成が、切り出した有向の区間1本あたりに使うメモリ（探索用グラフ・コスト配列・ターン構造・候補の評価の合計）。
+_BYTES_PER_EDGE = 1050
+
+
+def _max_search_edges() -> int | None:
+    """1回の生成が切り出してよい有向の区間の上限。コンテナのメモリ上限が無ければNone（断らない）。
+
+    同時に動く生成（`generate_max_concurrent`）がそろって上限いっぱいの範囲を組んでも、取り置きを残して
+    メモリ上限に収まる本数にする。上限を超えるとプロセスごと落ち、全員の生成と地図が止まる。
+    """
+    limit = container_memory.memory_limit_bytes()
+    if limit is None:
+        return None
+    return max(0, (limit - _RESERVED_BYTES) // settings.generate_max_concurrent // _BYTES_PER_EDGE)
 
 
 class GraphService:
@@ -49,12 +62,13 @@ class GraphService:
         network = await asyncio.to_thread(road_network_store.current)
         road = slice_network(
             network, envelope.min_longitude, envelope.min_latitude, envelope.max_longitude, envelope.max_latitude)
-        if road.edge_count > MAX_SEARCH_EDGES:
+        limit = _max_search_edges()
+        if limit is not None and road.edge_count > limit:
             logger.warning(
                 "探索範囲の区間が上限を超えたため使わない bbox=(%.2f,%.2f,%.2f,%.2f) tiles=%d edges=%d limit=%d",
                 bbox.min_latitude, bbox.min_longitude, bbox.max_latitude, bbox.max_longitude,
-                len(tiles), road.edge_count, MAX_SEARCH_EDGES)
-            raise SearchAreaTooLargeError(road.edge_count, MAX_SEARCH_EDGES)
+                len(tiles), road.edge_count, limit)
+            raise SearchAreaTooLargeError(road.edge_count, limit)
         slice_ms = round((time.monotonic() - started) * 1000)
         matrix = await asyncio.to_thread(build_static_edge_score_matrix, material_arrays_of(road))
         logger.info(

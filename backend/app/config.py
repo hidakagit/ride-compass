@@ -45,6 +45,7 @@ class Settings(BaseSettings):
     weather_amedas_rate_limit_per_minute: int = 30
     # ルート生成は最も高コストなエンドポイント（コールド時のRoad Graph再構築で
     # 数十秒〜最大300秒超）のため、per-IPレート制限に加えプロセス全体の同時実行数も絞る。
+    # 1回の生成が扱える探索範囲の上限（`graph_service`）は、メモリ上限をこの件数で割って決まる。
     generate_rate_limit_per_minute: int = 10
     generate_max_concurrent: int = 2
     # タイル処理の律速はDB側の同時クエリ負荷とSQLAlchemyの接続プール

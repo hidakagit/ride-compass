@@ -6,14 +6,14 @@
 - 断られたときに利用者へ出す理由 → `test_route_generator.py`
 
 リポジトリは代役で、各メソッドを`RoadGraphRepository`の同名メソッドの署名へ当ててから呼ぶ（`bound`）。
-道路網全体の配列は`road_network_store.current`を差し替えて与える。
+道路網全体の配列は`road_network_store.current`を、コンテナのメモリ上限はcgroupのファイルの置き場を差し替えて与える。
 """
 
 import pytest
 
 from app.domain.errors import SearchAreaTooLargeError
 from app.domain.region import BoundingBox
-from app.infrastructure import road_network_store
+from app.infrastructure import container_memory, road_network_store
 from app.infrastructure.road_graph_repository import RoadGraphRepository
 from app.services import graph_service
 from app.services.graph_service import GraphService
@@ -55,8 +55,17 @@ async def test_the_range_is_cut_along_the_tiles_covering_the_bbox_and_scored_row
     assert tile_set and all(zoom == 12 for zoom, _x, _y in tile_set)
 
 
-async def test_a_range_over_the_limit_is_refused_before_it_is_scored(monkeypatch):
-    monkeypatch.setattr(graph_service, "MAX_SEARCH_EDGES", 2)
+def _memory_limit(monkeypatch, tmp_path, content):
+    """コンテナのメモリ上限（cgroupの`memory.max`）。Noneならファイルが無い環境（開発機）。"""
+    path = tmp_path / "memory.max"
+    if content is not None:
+        path.write_text(content)
+    monkeypatch.setattr(container_memory, "CGROUP_MEMORY_MAX", path)
+
+
+async def test_a_range_too_large_for_the_memory_limit_is_refused_before_it_is_scored(monkeypatch, tmp_path):
+    """取り置きぶんしか無いメモリ上限では、どの範囲も組めない。"""
+    _memory_limit(monkeypatch, tmp_path, str(2 * 1024**3))
 
     def score_must_not_run(materials):
         raise AssertionError("上限を超えた範囲のスコア行列を作りに来た")
@@ -66,4 +75,25 @@ async def test_a_range_over_the_limit_is_refused_before_it_is_scored(monkeypatch
     with pytest.raises(SearchAreaTooLargeError) as raised:
         await GraphService(FakeRepository()).get_search_slice(BBOX)
 
-    assert (raised.value.edges, raised.value.limit) == (3, 2)
+    assert (raised.value.edges, raised.value.limit) == (3, 0)
+
+
+async def test_the_limit_grows_with_the_memory_limit(monkeypatch, tmp_path):
+    """メモリを増やせば、上限の数字を直さなくても同じ範囲が通るようになる。"""
+    _memory_limit(monkeypatch, tmp_path, str(2 * 1024**3 + 1))
+    with pytest.raises(SearchAreaTooLargeError):
+        await GraphService(FakeRepository()).get_search_slice(BBOX)
+
+    _memory_limit(monkeypatch, tmp_path, str(8 * 1024**3))
+    road, _matrix, _tiles = await GraphService(FakeRepository()).get_search_slice(BBOX)
+
+    assert road.edge_count == 3
+
+
+@pytest.mark.parametrize("content", ["max\n", None], ids=["上限なし", "cgroupの外"])
+async def test_without_a_memory_limit_no_range_is_refused(monkeypatch, tmp_path, content):
+    _memory_limit(monkeypatch, tmp_path, content)
+
+    road, _matrix, _tiles = await GraphService(FakeRepository()).get_search_slice(BBOX)
+
+    assert road.edge_count == 3
