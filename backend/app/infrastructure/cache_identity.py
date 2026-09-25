@@ -12,11 +12,6 @@ import hashlib
 # 上げる（画素が変わるのにURLが変わらないため）。
 LANDCOVER_REVISION = "1"
 
-# 静的Edge×公開軸スコア行列。同じ材料・同じ列から違う値を作るようになったとき
-# （`domain/evaluation.py: build_static_edge_score_matrix`の計算式変更）に上げる。
-SCORE_MATRIX_REVISION = "12"
-
-
 def bound_values(source: object) -> list[tuple[str, str]]:
     """SQLのバインドパラメータのうち、定義時点で値が決まっているもの（名前と値）。
 

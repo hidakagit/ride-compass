@@ -2,45 +2,94 @@
 
 ここで見ないもの:
 - Edge Costの中身（勾配・路面・風がどう秒へ化けるか） → `domain/evaluation.py`側
-- Road Graphの構築・永続化・タイル集合キャッシュの寿命 → `road_graph_*`側
+- 道路網全体の配列の作り方・範囲の切り出し → `test_road_network*.py`
 - 較正値そのものの妥当性（左折が何秒か） → `domain/tuning.py`側
 - 候補ルートの並べ方・返し方 → `route_generator`側
 
-**入力はRoad Graphの本物の型（`LeanNode`・`LeanEdge`・`LeanRoadGraph`）と`Coordinates`で作る。**
-どれも対象の公開シグネチャが要求する型で、作るコストも無い。値はこのモジュールが読む
-属性（位置・端Node・距離・方位）だけを指定し、残りは型の既定に任せる。
+**対象の入力は番号の配列だが、テストは名前で書く。** `make_graph`がノードと区間に名前を付けた
+小さな道路網を配列へ直し（区間の行は渡した順）、`lazy_of`・`build_all`が探索用グラフの区間の番号と
+名前を結ぶ。値はこのモジュールが読む列（位置・端点・距離・方位）だけを指定する。
 """
 import dataclasses
 import math
+from typing import NamedTuple
 
 import numpy as np
 import pytest
 
 from app.domain import routing
-from app.domain.graph import LeanEdge, LeanNode, LeanRoadGraph
 from app.domain.route import Coordinates
+
+
+class EdgeSpec(NamedTuple):
+    from_node_id: str
+    to_node_id: str
+    distance_m: float
+
+
+@dataclasses.dataclass
+class Net:
+    """名前付きの小さな道路網と、それを直した配列（区間の行は渡した順）。"""
+
+    node_ids: list[str]
+    node_id_to_index: dict[str, int]
+    # 行の順の区間の名前。
+    edge_ids: list[str]
+    edges: dict[str, EdgeSpec]
+    latitude: np.ndarray
+    longitude: np.ndarray
+    edge_from: np.ndarray
+    edge_to: np.ndarray
+    distance_m: np.ndarray
+    # 方位を持たない区間はNaN。
+    bearing_deg: np.ndarray
 
 
 def make_graph(nodes, edges):
     """`nodes`は`{node_id: (緯度, 経度)}`、`edges`は`{edge_id: (始点, 終点[, 距離m[, 方位]])}`。"""
-    return LeanRoadGraph(
-        graph_version="test",
-        nodes={
-            node_id: LeanNode(node_id=node_id, latitude=lat, longitude=lon)
-            for node_id, (lat, lon) in nodes.items()
-        },
-        edges={edge_id: _edge(edge_id, *spec) for edge_id, spec in edges.items()},
+    node_ids = list(nodes)
+    index = {node_id: i for i, node_id in enumerate(node_ids)}
+    specs = {edge_id: _edge(*spec) for edge_id, spec in edges.items()}
+    bearings = [spec[3] if len(spec) > 3 and spec[3] is not None else math.nan for spec in edges.values()]
+    return Net(
+        node_ids=node_ids,
+        node_id_to_index=index,
+        edge_ids=list(edges),
+        edges={edge_id: EdgeSpec(*spec[:3]) for edge_id, spec in specs.items()},
+        latitude=np.array([lat for lat, _ in nodes.values()], dtype=float),
+        longitude=np.array([lon for _, lon in nodes.values()], dtype=float),
+        edge_from=np.array([index[spec[0]] for spec in specs.values()], dtype=np.int64),
+        edge_to=np.array([index[spec[1]] for spec in specs.values()], dtype=np.int64),
+        distance_m=np.array([spec[2] for spec in specs.values()], dtype=float),
+        bearing_deg=np.array(bearings, dtype=float),
     )
 
 
-def _edge(edge_id, from_node_id, to_node_id, distance_m=100.0, bearing_deg=None):
-    return LeanEdge(
-        edge_id=edge_id,
-        from_node_id=from_node_id,
-        to_node_id=to_node_id,
-        geometry=[],
-        distance_m=distance_m,
-        bearing_deg=bearing_deg,
+def _edge(from_node_id, to_node_id, distance_m=100.0, bearing_deg=None):
+    return (from_node_id, to_node_id, distance_m, bearing_deg)
+
+
+@dataclasses.dataclass
+class NamedLazy:
+    """探索用グラフと、その区間の番号順の名前。"""
+
+    graph: routing.LazyRoadGraph
+    edge_ids: list[str]
+    node_id_to_index: dict[str, int]
+    index_to_node_id: list[str]
+
+    @property
+    def node_count(self):
+        return self.graph.node_count
+
+
+def lazy_of(net):
+    graph = routing.build_lazy_road_graph(net.edge_from, net.edge_to, len(net.node_ids))
+    return NamedLazy(
+        graph=graph,
+        edge_ids=[net.edge_ids[row] for row in graph.edge_rows.tolist()],
+        node_id_to_index=net.node_id_to_index,
+        index_to_node_id=net.node_ids,
     )
 
 
@@ -66,12 +115,12 @@ def build_all(graph, spec=FLAT_SPEC, edge_rank=None, node_has_signal=None, node_
     ターンの費用に要る3つの列は`None`を渡せない（渡し忘れが「上位の道の横断に待ちが付かない」
     構造を黙って作るため）。省略したときは、待ちが付かない値——階級0・信号なし——で埋める。
     """
-    lazy = routing.build_lazy_road_graph(graph)
-    statics = routing.build_search_graph_statics(lazy, graph)
-    bearings = routing.edge_bearings(graph, lazy)
-    node_count = len(lazy.index_to_node_id)
+    lazy = lazy_of(graph)
+    statics = routing.build_search_graph_statics(lazy.graph, graph.distance_m)
+    bearings = routing.edge_bearings(lazy.graph, graph.bearing_deg, graph.latitude, graph.longitude)
+    node_count = lazy.node_count
     structure = routing.build_turn_expanded_structure(
-        statics.csr, lazy, bearings,
+        statics.csr, lazy.graph, bearings,
         np.zeros(len(lazy.edge_ids), dtype=np.int64) if edge_rank is None else edge_rank,
         spec,
         np.zeros(node_count, dtype=bool) if node_has_signal is None else node_has_signal,
@@ -150,115 +199,64 @@ def make_grid(size, cell=0.01, base_lat=35.0, base_lon=139.0):
 
 def out_states(lazy, node_id):
     node_index = lazy.node_id_to_index[node_id]
-    return np.array(
-        [index for (tail, _), index in lazy.edge_index_by_node_pair.items() if tail == node_index],
-        dtype=np.int64,
-    )
+    return np.flatnonzero(lazy.graph.edge_from == node_index).astype(np.int64)
 
 
 # --- build_lazy_road_graph ---
 
 
-def test_parallel_edges_resolve_to_the_lowest_edge_id():
-    """同一Node対に複数のEdgeがあるとき、採用されるのはedge_id昇順の先頭の1本。
+def test_parallel_edges_resolve_to_the_lowest_row():
+    """同一Node対に複数の区間があるとき、採用されるのは元の行が最も小さい1本。
 
-    ここが入力順（辞書の並び）に依ると、同じタイル集合・同じ設定でも呼ぶたびに別の区間が
-    探索へ出て、返るルートが揺れる。
+    ここが並べ替えの揺れに依ると、同じ範囲・同じ設定でも呼ぶたびに別の区間が探索へ出て、
+    返るルートが揺れる。
     """
     graph = make_graph(
         {"a": (35.0, 139.0), "b": (35.0, 139.01)},
-        {"z_edge": ("a", "b"), "a_edge": ("a", "b"), "m_edge": ("a", "b")},
+        {"first": ("a", "b"), "second": ("a", "b"), "third": ("a", "b")},
     )
-    lazy = routing.build_lazy_road_graph(graph)
-    assert lazy.edge_ids == ["a_edge"]
-    assert list(lazy.edge_index_by_node_pair) == [(lazy.node_id_to_index["a"], lazy.node_id_to_index["b"])]
+    lazy = lazy_of(graph)
+    assert lazy.edge_ids == ["first"]
+    assert list(lazy.graph.edge_rows) == [0]
 
 
 def test_opposite_directions_are_kept_as_separate_edges():
-    """(a,b)と(b,a)は別の対として両方残る（並行Edgeの解消は向きを区別する）。"""
+    """(a,b)と(b,a)は別の対として両方残る（並行区間の解消は向きを区別する）。"""
     graph = make_graph(
         {"a": (35.0, 139.0), "b": (35.0, 139.01)},
         {"forward": ("a", "b"), "backward": ("b", "a")},
     )
-    lazy = routing.build_lazy_road_graph(graph)
+    lazy = lazy_of(graph)
     assert sorted(lazy.edge_ids) == ["backward", "forward"]
 
 
-@pytest.mark.parametrize(
-    ("spec", "missing"),
-    [(("ghost", "b"), "ghost"), (("a", "ghost"), "ghost")],
-)
-def test_edge_referring_to_an_absent_node_raises(spec, missing):
-    """区間の端Nodeがグラフに無ければRoutingError。
-
-    ここで黙って飛ばすと、その道だけが探索から消えて「なぜかその道を通らない経路」になる。
-    始点側・終点側のどちらが欠けても、欠けたnode_idがメッセージに出る。
-    """
-    graph = make_graph({"a": (35.0, 139.0), "b": (35.0, 139.01)}, {"e1": spec})
-    with pytest.raises(routing.RoutingError) as excinfo:
-        routing.build_lazy_road_graph(graph)
-    assert missing in str(excinfo.value)
-    assert "e1" in str(excinfo.value)
+def test_edges_are_numbered_in_ascending_order_of_their_endpoints():
+    """区間の番号は`(始点, 終点)`の昇順。CSRの行がこの並びをそのまま使う。"""
+    lazy = lazy_of(make_graph(PLUS_NODES, PLUS_EDGES))
+    pairs = list(zip(lazy.graph.edge_from.tolist(), lazy.graph.edge_to.tolist(), strict=True))
+    assert pairs == sorted(pairs)
 
 
-# --- find_missing_lazy_graph_edge_id / build_search_graph_statics ---
+# --- build_search_graph_statics ---
 
 
-def test_missing_edge_id_is_none_when_graph_matches():
-    graph = make_graph(LINE_NODES, LINE_EDGES)
-    lazy = routing.build_lazy_road_graph(graph)
-    assert routing.find_missing_lazy_graph_edge_id(lazy, graph) is None
-
-
-def test_missing_edge_id_reports_the_first_absent_edge_in_edge_ids_order():
-    """`edge_ids`の並び順で最初に見つかったものを返す（2本欠けていても先頭側）。"""
-    graph = make_graph(LINE_NODES, LINE_EDGES)
-    lazy = routing.build_lazy_road_graph(graph)
-    dropped = {lazy.edge_ids[1], lazy.edge_ids[3]}
-    stale = make_graph(LINE_NODES, {k: v for k, v in LINE_EDGES.items() if k not in dropped})
-    assert routing.find_missing_lazy_graph_edge_id(lazy, stale) == lazy.edge_ids[1]
-
-
-def test_missing_edge_id_also_checks_the_second_required_collection():
-    """`also_required_in`を渡すと、graph.edgesにあってもそちらに無いedge_idを検出する。
-
-    静的スコア行列は材料とは別キャッシュのため、片方だけ新しいと行が引けない。
-    """
-    graph = make_graph(LINE_NODES, LINE_EDGES)
-    lazy = routing.build_lazy_road_graph(graph)
-    partial = set(lazy.edge_ids) - {lazy.edge_ids[2]}
-    assert routing.find_missing_lazy_graph_edge_id(lazy, graph, also_required_in=partial) == lazy.edge_ids[2]
-    assert routing.find_missing_lazy_graph_edge_id(lazy, graph, also_required_in=set(lazy.edge_ids)) is None
-
-
-def test_statics_rejects_a_stale_lazy_graph_with_a_named_error():
-    """`lazy_graph`が古くてgraph.edgesに無いedge_idを持つと、素のKeyErrorではなく
-    どのedge_idかを言う専用の例外で止まる。"""
-    graph = make_graph(LINE_NODES, LINE_EDGES)
-    lazy = routing.build_lazy_road_graph(graph)
-    stale = make_graph(LINE_NODES, {k: v for k, v in LINE_EDGES.items() if k != "BC"})
-    with pytest.raises(routing.LazyGraphEdgeMismatchError) as excinfo:
-        routing.build_search_graph_statics(lazy, stale)
-    assert "BC" in str(excinfo.value)
-
-
-def test_statics_carry_edge_length_in_edge_ids_order():
+def test_statics_carry_edge_length_in_edge_number_order():
     edges = dict(LINE_EDGES)
     edges["AB"] = ("A", "B", 250.0, 90.0)
     edges["BC"] = ("B", "C", 70.0, 90.0)
     graph = make_graph(LINE_NODES, edges)
-    lazy = routing.build_lazy_road_graph(graph)
-    statics = routing.build_search_graph_statics(lazy, graph)
+    lazy = lazy_of(graph)
+    statics = routing.build_search_graph_statics(lazy.graph, graph.distance_m)
     expected = [graph.edges[edge_id].distance_m for edge_id in lazy.edge_ids]
     assert list(statics.edge_length_m) == expected
 
 
 def test_csr_rows_hold_the_outgoing_edges_of_each_node_in_ascending_order():
-    """CSRの行は「そのNodeから出る区間」で、entry_edge_index経由でedge_idへ戻れる。
-    行内の遷移先Nodeは昇順（探索の隣接走査がこの並びを前提にする）。"""
+    """CSRの行は「そのNodeから出る区間」で、entry_edge_index経由で区間へ戻れる。
+    行内の遷移先Nodeは昇順（探索の隣接走査と`edge_index_between`がこの並びを前提にする）。"""
     graph = make_graph(PLUS_NODES, PLUS_EDGES)
-    lazy = routing.build_lazy_road_graph(graph)
-    csr = routing.build_search_graph_statics(lazy, graph).csr
+    lazy = lazy_of(graph)
+    csr = routing.build_search_graph_statics(lazy.graph, graph.distance_m).csr
     for node_id, node_index in lazy.node_id_to_index.items():
         start, end = int(csr.indptr[node_index]), int(csr.indptr[node_index + 1])
         row = [(int(csr.indices[k]), lazy.edge_ids[int(csr.entry_edge_index[k])]) for k in range(start, end)]
@@ -275,14 +273,30 @@ def test_csr_rows_hold_the_outgoing_edges_of_each_node_in_ascending_order():
 
 
 def test_csr_of_a_graph_without_edges_is_empty():
-    """Edgeが1本も無くても（道の無いタイル集合）構造は組める。"""
+    """Edgeが1本も無くても（道の無い範囲）構造は組める。"""
     graph = make_graph({"a": (35.0, 139.0)}, {})
-    lazy = routing.build_lazy_road_graph(graph)
-    statics = routing.build_search_graph_statics(lazy, graph)
+    lazy = lazy_of(graph)
+    statics = routing.build_search_graph_statics(lazy.graph, graph.distance_m)
     assert statics.csr.node_count == 1
     assert list(statics.csr.indptr) == [0, 0]
     assert len(statics.csr.indices) == 0
     assert len(statics.edge_length_m) == 0
+
+
+# --- edge_index_between ---
+
+
+def test_edge_between_finds_each_direction_and_nothing_where_no_road_runs():
+    """両端のノードから区間の番号を引く。一方通行の逆向きや繋がっていない対はNone。"""
+    graph = make_graph(ONE_WAY_NODES, ONE_WAY_EDGES)
+    lazy = lazy_of(graph)
+    csr = routing.build_search_graph_statics(lazy.graph, graph.distance_m).csr
+    node = lazy.node_id_to_index
+    for edge_id, edge in graph.edges.items():
+        found = routing.edge_index_between(csr, node[edge.from_node_id], node[edge.to_node_id])
+        assert found is not None and lazy.edge_ids[found] == edge_id
+    assert routing.edge_index_between(csr, node["N"], node["C"]) is None
+    assert routing.edge_index_between(csr, node["N"], node["E"]) is None
 
 
 # --- overlap_ratio ---
@@ -488,8 +502,21 @@ SNAP_GRAPH = make_graph(
 )
 
 
+def node_index_of(net, only=None):
+    """`only`（ノード名の集合）を渡すと、そのノードだけを索引の候補にする。"""
+    candidates = None if only is None else np.array([node_id in only for node_id in net.node_ids])
+    return routing.build_node_spatial_index(net.latitude, net.longitude, candidates)
+
+
+def nearest(net, index, point, allowed_names=None, **kwargs):
+    """最寄りノードの名前（無ければNone）。`allowed_names`は候補にしてよいノード名の集合。"""
+    allowed = None if allowed_names is None else np.array([node_id in allowed_names for node_id in net.node_ids])
+    found = routing.find_nearest_node_indexed(index, point, allowed, **kwargs)
+    return None if found is None else net.node_ids[found]
+
+
 def test_nearest_node_is_none_when_the_index_has_no_nodes():
-    index = routing.build_node_spatial_index(make_graph({}, {}))
+    index = node_index_of(make_graph({}, {}))
     assert index.cell_bounds is None
     assert routing.find_nearest_node_indexed(index, coords(35.0, 139.0)) is None
 
@@ -509,14 +536,14 @@ def test_nearest_node_is_none_far_outside_the_indexed_area(point):
     ここを通すと、何十kmも離れた道へ黙って寄せた結果が「利用者が指した地点」として扱われ、
     指した覚えのない場所を通るルートになる。
     """
-    index = routing.build_node_spatial_index(SNAP_GRAPH)
+    index = node_index_of(SNAP_GRAPH)
     assert routing.find_nearest_node_indexed(index, point) is None
 
 
 def test_nearest_node_tolerates_a_point_just_outside_the_indexed_area():
     """範囲の縁を1セルだけ外した点は、すぐ隣の道へ寄せる（地図の端をクリックした場合）。"""
-    index = routing.build_node_spatial_index(SNAP_GRAPH)
-    assert routing.find_nearest_node_indexed(index, coords(35.0550, 139.0000)) == "far"
+    index = node_index_of(SNAP_GRAPH)
+    assert nearest(SNAP_GRAPH, index, coords(35.0550, 139.0000)) == "far"
 
 
 def test_nearest_node_keeps_expanding_rings_until_the_bound_is_safe():
@@ -524,44 +551,35 @@ def test_nearest_node_keeps_expanding_rings_until_the_bound_is_safe():
 
     同じセルに後から出てくる、より遠いNodeで最近傍を上書きしない。
     """
-    index = routing.build_node_spatial_index(SNAP_GRAPH)
-    assert routing.find_nearest_node_indexed(index, coords(35.0050, 139.0050)) == "north"
+    index = node_index_of(SNAP_GRAPH)
+    assert nearest(SNAP_GRAPH, index, coords(35.0050, 139.0050)) == "north"
 
 
-def test_nearest_node_skips_nodes_rejected_by_the_predicate():
-    """`predicate`が偽のNodeは最近傍候補にしない（本線から孤立したNodeを外すため）。"""
-    index = routing.build_node_spatial_index(SNAP_GRAPH)
-    assert (
-        routing.find_nearest_node_indexed(
-            index, coords(35.0050, 139.0050), predicate=lambda node_id: node_id != "north"
-        )
-        == "center"
-    )
+def test_nearest_node_skips_nodes_that_are_not_allowed():
+    """`allowed`が偽のNodeは最近傍候補にしない（本線から孤立したNodeを外すため）。"""
+    index = node_index_of(SNAP_GRAPH)
+    allowed = set(SNAP_GRAPH.node_ids) - {"north"}
+    assert nearest(SNAP_GRAPH, index, coords(35.0050, 139.0050), allowed) == "center"
 
 
-def test_nearest_node_is_none_when_the_predicate_never_matches():
+def test_nearest_node_is_none_when_no_node_is_allowed():
     """1件も真にならないときも索引の範囲を出た時点で止まる（走査が終わる）。"""
-    index = routing.build_node_spatial_index(SNAP_GRAPH)
-    assert (
-        routing.find_nearest_node_indexed(
-            index, coords(35.0050, 139.0050), predicate=lambda node_id: False
-        )
-        is None
-    )
+    index = node_index_of(SNAP_GRAPH)
+    assert nearest(SNAP_GRAPH, index, coords(35.0050, 139.0050), set()) is None
 
 
 def test_nearest_node_respects_max_distance_km():
     """「近くに無いなら寄せない」を距離で表す呼び出し。"""
-    index = routing.build_node_spatial_index(SNAP_GRAPH)
+    index = node_index_of(SNAP_GRAPH)
     point = coords(35.0050, 139.0050)
     assert routing.find_nearest_node_indexed(index, point, max_distance_km=0.1) is None
-    assert routing.find_nearest_node_indexed(index, point, max_distance_km=5.0) == "north"
+    assert nearest(SNAP_GRAPH, index, point, max_distance_km=5.0) == "north"
 
 
-def test_node_index_only_holds_the_given_node_ids():
-    """`node_ids`を渡すとその集合だけが索引に入る（Hard Constraintで孤立したNodeを外す用途）。"""
-    index = routing.build_node_spatial_index(SNAP_GRAPH, node_ids={"center"})
-    assert routing.find_nearest_node_indexed(index, coords(35.0101, 139.0050)) == "center"
+def test_node_index_only_holds_the_candidate_nodes():
+    """`candidates`を渡すとその真のノードだけが索引に入る（Hard Constraintで孤立したNodeを外す用途）。"""
+    index = node_index_of(SNAP_GRAPH, only={"center"})
+    assert nearest(SNAP_GRAPH, index, coords(35.0101, 139.0050)) == "center"
 
 
 # --- current_turn_cost ---
@@ -587,8 +605,10 @@ def test_edge_bearings_prefer_the_stored_value_and_fall_back_to_the_node_pair():
         {"a": (35.0, 139.0), "b": (35.0, 139.01)},
         {"stored": ("a", "b", 100.0, 123.0), "derived": ("b", "a", 100.0, None)},
     )
-    lazy = routing.build_lazy_road_graph(graph)
-    bearings = dict(zip(lazy.edge_ids, routing.edge_bearings(graph, lazy)))
+    lazy = lazy_of(graph)
+    bearings = dict(
+        zip(lazy.edge_ids, routing.edge_bearings(lazy.graph, graph.bearing_deg, graph.latitude, graph.longitude))
+    )
     assert bearings["stored"] == pytest.approx(123.0)
     assert bearings["derived"] == pytest.approx(270.0, abs=1.0)
 
@@ -641,7 +661,7 @@ def test_crossing_a_higher_ranked_road_adds_a_wait_split_by_straight_or_turning(
     """信号の無い交差点で上位の道と交わるとき、横断（直進）と右左折で別の秒数を足す。"""
     major = major_threshold
     graph = make_graph(PLUS_NODES, PLUS_EDGES)
-    lazy = routing.build_lazy_road_graph(graph)
+    lazy = lazy_of(graph)
     _, _, structure = build_all(
         graph, spec=TURN_SPEC, edge_rank=_plus_ranks(lazy, major, major - 1)
     )
@@ -660,7 +680,7 @@ def test_crossing_wait_needs_the_rank_to_reach_the_major_threshold(major_thresho
     """「自分より上位」だけでは足りない——待ちの要る階級に達していなければ足さない。"""
     major = major_threshold
     graph = make_graph(PLUS_NODES, PLUS_EDGES)
-    lazy = routing.build_lazy_road_graph(graph)
+    lazy = lazy_of(graph)
     _, _, structure = build_all(
         graph, spec=TURN_SPEC, edge_rank=_plus_ranks(lazy, major - 1, major - 2)
     )
@@ -673,8 +693,8 @@ def test_crossing_wait_is_not_added_where_a_signal_exists(major_threshold):
     """信号のある交差点の待ちは停止密度の材料が運ぶ。ここで足すと同じ待ちを二重に数える。"""
     major = major_threshold
     graph = make_graph(PLUS_NODES, PLUS_EDGES)
-    lazy = routing.build_lazy_road_graph(graph)
-    signals = np.zeros(len(lazy.index_to_node_id), dtype=bool)
+    lazy = lazy_of(graph)
+    signals = np.zeros(lazy.node_count, dtype=bool)
     signals[lazy.node_id_to_index["C"]] = True
     _, _, structure = build_all(
         graph, spec=TURN_SPEC, edge_rank=_plus_ranks(lazy, major, major - 1), node_has_signal=signals
@@ -688,12 +708,12 @@ def test_db_node_rank_raises_a_rank_the_partial_graph_cannot_show(major_threshol
     """bboxの外へはみ出した上位の道は部分グラフに現れない。DB側の集計値があれば大きい方を採る。"""
     major = major_threshold
     graph = make_graph(PLUS_NODES, PLUS_EDGES)
-    lazy = routing.build_lazy_road_graph(graph)
+    lazy = lazy_of(graph)
     flat_ranks = _plus_ranks(lazy, major - 1, major - 1)
     _, _, without_db = build_all(graph, spec=TURN_SPEC, edge_rank=flat_ranks)
     assert transition_seconds(lazy, without_db)[("WC", "CE")] == pytest.approx(0.0)
 
-    db_rank = np.zeros(len(lazy.index_to_node_id), dtype=np.int64)
+    db_rank = np.zeros(lazy.node_count, dtype=np.int64)
     db_rank[lazy.node_id_to_index["C"]] = major
     _, _, with_db = build_all(
         graph, spec=TURN_SPEC, edge_rank=flat_ranks, node_db_rank=db_rank
@@ -709,8 +729,8 @@ def test_db_node_rank_never_lowers_the_rank_derived_from_the_graph(major_thresho
     打ち消すと、バッチ未実行のDBでは上位の道の待ちが本番から丸ごと消える。
     """
     graph = make_graph(PLUS_NODES, PLUS_EDGES)
-    lazy = routing.build_lazy_road_graph(graph)
-    unaggregated = np.zeros(len(lazy.index_to_node_id), dtype=np.int64)
+    lazy = lazy_of(graph)
+    unaggregated = np.zeros(lazy.node_count, dtype=np.int64)
     _, _, structure = build_all(
         graph, spec=TURN_SPEC,
         edge_rank=_plus_ranks(lazy, major_threshold, major_threshold - 1),
@@ -732,7 +752,7 @@ def test_node_rank_comes_from_roads_that_leave_the_node_too(major_threshold):
     一方通行の幹線が出ていくだけの交差点でも、渡るときの待ちが付く。
     """
     graph = make_graph(ONE_WAY_NODES, ONE_WAY_EDGES)
-    lazy = routing.build_lazy_road_graph(graph)
+    lazy = lazy_of(graph)
     ranks = rank_array(
         lazy,
         {
@@ -774,7 +794,7 @@ def grid_tree(size=GRID_SIZE, **kwargs):
     cost = np.ones(structure.state_count)
     tree = routing.build_turn_expanded_tree(
         structure, cost, statics.edge_length_m, out_states(lazy, "n0_0"),
-        len(lazy.index_to_node_id), **kwargs,
+        lazy.node_count, **kwargs,
         edge_seconds=np.ones(structure.state_count),
     )
     return lazy, statics, structure, tree
@@ -806,7 +826,7 @@ def test_tree_seeds_start_from_the_cost_of_their_own_edge():
         cost[states[edge_id]] = value
     tree = routing.build_turn_expanded_tree(
         structure, cost, statics.edge_length_m, out_states(lazy, "C"),
-        len(lazy.index_to_node_id),
+        lazy.node_count,
         edge_seconds=np.ones(structure.state_count),
     )
     for edge_id, value in seed_cost.items():
@@ -820,7 +840,7 @@ def test_tree_seconds_come_from_the_plain_travel_time_not_from_the_cost():
     states = state_index(lazy)
     tree = routing.build_turn_expanded_tree(
         structure, np.full(structure.state_count, 5.0), statics.edge_length_m,
-        np.array([states["AB"]], dtype=np.int64), len(lazy.index_to_node_id),
+        np.array([states["AB"]], dtype=np.int64), lazy.node_count,
         edge_seconds=np.full(structure.state_count, 2.0),
     )
     assert tree.state_cost[states["BC"]] == pytest.approx(10.0)
@@ -846,7 +866,7 @@ def test_tree_never_enters_a_non_finite_cost_edge():
     cost[blocked] = np.inf
     tree = routing.build_turn_expanded_tree(
         structure, cost, statics.edge_length_m, out_states(lazy, "n0_0"),
-        len(lazy.index_to_node_id),
+        lazy.node_count,
         edge_seconds=np.ones(structure.state_count),
     )
     assert not np.isfinite(tree.state_cost[blocked])
@@ -859,7 +879,7 @@ def test_tree_marks_unreachable_states_and_nodes():
     cost = np.ones(structure.state_count)
     tree = routing.build_turn_expanded_tree(
         structure, cost, statics.edge_length_m, out_states(lazy, "A"),
-        len(lazy.index_to_node_id),
+        lazy.node_count,
         edge_seconds=np.ones(structure.state_count),
     )
     isolated = lazy.node_id_to_index["Z"]
@@ -878,7 +898,7 @@ def test_tree_adds_the_turn_wait_to_both_cost_and_seconds():
     seconds = np.full(structure.state_count, 10.0)
     tree = routing.build_turn_expanded_tree(
         structure, cost, statics.edge_length_m, np.array([states["WC"]], dtype=np.int64),
-        len(lazy.index_to_node_id), edge_seconds=seconds, bin_seconds=1000.0,
+        lazy.node_count, edge_seconds=seconds, bin_seconds=1000.0,
     )
     assert tree.state_cost[states["CN"]] == pytest.approx(1.0 + TURN_SPEC.left_seconds + 1.0)
     assert tree.state_seconds[states["CN"]] == pytest.approx(10.0 + TURN_SPEC.left_seconds + 10.0)
@@ -902,7 +922,7 @@ def test_tree_picks_the_time_bin_by_elapsed_seconds(bin_seconds, expected):
     lazy, statics, structure, states, cost, seconds = _line_bins()
     tree = routing.build_turn_expanded_tree(
         structure, cost, statics.edge_length_m, np.array([states["AB"]], dtype=np.int64),
-        len(lazy.index_to_node_id), edge_seconds=seconds, bin_seconds=bin_seconds,
+        lazy.node_count, edge_seconds=seconds, bin_seconds=bin_seconds,
     )
     assert tree.state_cost[states["BC"]] == pytest.approx(expected)
 
@@ -912,7 +932,7 @@ def test_tree_clamps_an_elapsed_time_beyond_the_last_bin():
     lazy, statics, structure, states, cost, seconds = _line_bins()
     tree = routing.build_turn_expanded_tree(
         structure, cost, statics.edge_length_m, np.array([states["AB"]], dtype=np.int64),
-        len(lazy.index_to_node_id), edge_seconds=seconds, bin_seconds=2.0,
+        lazy.node_count, edge_seconds=seconds, bin_seconds=2.0,
     )
     assert tree.state_cost[states["BC"]] == pytest.approx(1.0 + 99.0)
 
@@ -924,7 +944,7 @@ def test_reverse_tree_measures_the_cost_from_each_state_to_the_destination():
     states = state_index(lazy)
     tree = routing.build_turn_expanded_tree(
         structure, np.ones(structure.state_count), statics.edge_length_m,
-        np.array([states["BC"]], dtype=np.int64), len(lazy.index_to_node_id), reverse=True,
+        np.array([states["BC"]], dtype=np.int64), lazy.node_count, reverse=True,
         edge_seconds=np.ones(structure.state_count),
     )
     assert tree.state_cost[states["AB"]] == pytest.approx(2.0)
@@ -938,7 +958,7 @@ def test_reverse_tree_rejects_time_bins():
     with pytest.raises(ValueError):
         routing.build_turn_expanded_tree(
             structure, cost, statics.edge_length_m, np.array([states["BC"]], dtype=np.int64),
-            len(lazy.index_to_node_id), reverse=True, edge_seconds=seconds, bin_seconds=5.0,
+            lazy.node_count, reverse=True, edge_seconds=seconds, bin_seconds=5.0,
         )
 
 
@@ -951,7 +971,7 @@ def test_forward_path_runs_from_the_tree_source_to_the_state():
     states = state_index(lazy)
     tree = routing.build_turn_expanded_tree(
         structure, np.ones(structure.state_count), statics.edge_length_m,
-        np.array([states["AB"]], dtype=np.int64), len(lazy.index_to_node_id),
+        np.array([states["AB"]], dtype=np.int64), lazy.node_count,
         edge_seconds=np.ones(structure.state_count),
     )
     assert routing.turn_expanded_path_from_state(tree, states["BC"]) == [states["AB"], states["BC"]]
@@ -967,7 +987,7 @@ def test_backward_path_is_already_in_travel_order():
     states = state_index(lazy)
     tree = routing.build_turn_expanded_tree(
         structure, np.ones(structure.state_count), statics.edge_length_m,
-        np.array([states["BC"]], dtype=np.int64), len(lazy.index_to_node_id), reverse=True,
+        np.array([states["BC"]], dtype=np.int64), lazy.node_count, reverse=True,
         edge_seconds=np.ones(structure.state_count),
     )
     assert routing.turn_expanded_path_from_state_to_source(tree, states["AB"]) == [
@@ -986,16 +1006,16 @@ def test_junction_includes_the_turn_cost_at_the_meeting_node():
     cost = np.ones(structure.state_count)
     forward = routing.build_turn_expanded_tree(
         structure, cost, statics.edge_length_m, np.array([states["WC"]], dtype=np.int64),
-        len(lazy.index_to_node_id),
+        lazy.node_count,
         edge_seconds=np.ones(structure.state_count),
     )
     backward = routing.build_turn_expanded_tree(
         structure, cost, statics.edge_length_m, np.array([states["CN"]], dtype=np.int64),
-        len(lazy.index_to_node_id), reverse=True,
+        lazy.node_count, reverse=True,
         edge_seconds=np.ones(structure.state_count),
     )
     junction = routing.combine_forward_backward_at_nodes(
-        structure, forward, backward, len(lazy.index_to_node_id)
+        structure, forward, backward, lazy.node_count
     )
     center = lazy.node_id_to_index["C"]
     assert junction.cost[center] == pytest.approx(1.0 + TURN_SPEC.left_seconds + 1.0)
@@ -1010,7 +1030,7 @@ def test_junction_leaves_unreachable_nodes_empty():
     lazy, statics, structure = build_all(graph)
     states = state_index(lazy)
     cost = np.ones(structure.state_count)
-    node_count = len(lazy.index_to_node_id)
+    node_count = lazy.node_count
     forward = routing.build_turn_expanded_tree(
         structure, cost, statics.edge_length_m, np.array([states["AB"]], dtype=np.int64), node_count,
         edge_seconds=np.ones(structure.state_count),
@@ -1083,7 +1103,7 @@ def test_shortest_path_returns_edge_indices_in_travel_order():
     lazy, _, structure = build_all(graph)
     path = routing.turn_expanded_shortest_path(
         structure, np.ones(structure.state_count),
-        np.zeros(len(lazy.index_to_node_id)), out_states(lazy, "n0_0"),
+        np.zeros(lazy.node_count), out_states(lazy, "n0_0"),
         lazy.node_id_to_index[goal],
         edge_seconds=np.ones(structure.state_count),
     )
@@ -1103,7 +1123,7 @@ def test_shortest_path_of_a_single_entry_edge_is_that_edge():
     lazy, _, structure = build_all(graph)
     states = state_index(lazy)
     path = routing.turn_expanded_shortest_path(
-        structure, np.ones(structure.state_count), np.zeros(len(lazy.index_to_node_id)),
+        structure, np.ones(structure.state_count), np.zeros(lazy.node_count),
         np.array([states["AB"]], dtype=np.int64), lazy.node_id_to_index["B"],
         edge_seconds=np.ones(structure.state_count),
     )
@@ -1121,7 +1141,7 @@ def test_shortest_path_ignores_non_finite_costs_among_seeds_and_successors():
     cost[states["CN"]] = 1.0
     cost[states["CS"]] = 2.0
     path = routing.turn_expanded_shortest_path(
-        structure, cost, np.zeros(len(lazy.index_to_node_id)), out_states(lazy, "C"),
+        structure, cost, np.zeros(lazy.node_count), out_states(lazy, "C"),
         lazy.node_id_to_index["E"],
         edge_seconds=np.ones(structure.state_count),
     )
@@ -1133,7 +1153,7 @@ def test_shortest_path_is_none_when_the_goal_cannot_be_reached():
     lazy, _, structure = build_all(graph)
     states = state_index(lazy)
     path = routing.turn_expanded_shortest_path(
-        structure, np.ones(structure.state_count), np.zeros(len(lazy.index_to_node_id)),
+        structure, np.ones(structure.state_count), np.zeros(lazy.node_count),
         np.array([states["AB"]], dtype=np.int64), lazy.node_id_to_index["Z"],
         edge_seconds=np.ones(structure.state_count),
     )
@@ -1166,7 +1186,7 @@ def test_shortest_path_pays_for_turns_not_only_for_edges():
     cost = np.ones(structure.state_count)
     cost[states["BC"]] = 2.0
     path = routing.turn_expanded_shortest_path(
-        structure, cost, np.zeros(len(lazy.index_to_node_id)),
+        structure, cost, np.zeros(lazy.node_count),
         out_states(lazy, "A"), lazy.node_id_to_index["C"],
         edge_seconds=np.ones(structure.state_count),
     )
@@ -1184,7 +1204,7 @@ def test_shortest_path_reads_the_cost_of_the_bin_it_arrives_in(bin_seconds, expe
     cost[1, states["BC"]] = 100.0
     seconds = np.full((2, structure.state_count), 10.0)
     path = routing.turn_expanded_shortest_path(
-        structure, cost, np.zeros(len(lazy.index_to_node_id)), out_states(lazy, "A"),
+        structure, cost, np.zeros(lazy.node_count), out_states(lazy, "A"),
         lazy.node_id_to_index["C"], edge_seconds=seconds, bin_seconds=bin_seconds,
     )
     assert path is not None
@@ -1253,7 +1273,7 @@ def test_shortest_path_stays_exact_while_the_queue_grows(tiny_heap):
     cost = np.full(structure.state_count, 3.0)
     for edge_id in route:
         cost[states[edge_id]] = 1.0
-    heuristic = np.zeros(len(lazy.index_to_node_id))
+    heuristic = np.zeros(lazy.node_count)
     for node_id, node_index in lazy.node_id_to_index.items():
         row, col = (int(part) for part in node_id[1:].split("_"))
         heuristic[node_index] = (last - row) + (last - col)

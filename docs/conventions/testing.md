@@ -373,8 +373,8 @@ Edgeが無いのは正常な事実だが、それを欠陥と同じ群に入れ�
 割った値へ同じ定数を掛けており、定数が何であれ通る）と、例外クラスへの直結。後者は、同じ
 ファイルの旧テスト2,982行が`domain/graph`の型3つの撤去で全滅したのと同じ経路である。
 
-**区別せずに「1本だけ」と書いた結果、偽のデータ型が生まれた。** `routing`は
-`LeanRoadGraph`を引数に取るのに、`test_routing.py`は`LeanNode`/`LeanEdge`/`LeanRoadGraph`を
+**区別せずに「1本だけ」と書いた結果、偽のデータ型が生まれた。** `routing`が
+`LeanRoadGraph`を引数に取っていた当時、`test_routing.py`は`LeanNode`/`LeanEdge`/`LeanRoadGraph`を
 duck typingした`FakeNode`/`FakeEdge`/`FakeGraph`を持っていた（`routing`が`LeanRoadGraph`しか
 importしていないため、名前空間経由では中身の型へ届かなかった）。実物はfrozen dataclassで
 作るコストが無いので、偽の型は**何も買わずに「実物はこういう形だ」という仮定だけを

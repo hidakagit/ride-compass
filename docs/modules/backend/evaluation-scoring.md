@@ -157,21 +157,17 @@ Python組み込み`sum()`（Python 3.12以降、Neumaier補償加算を使う）
 `/api/routes/generate`自体を落とす（スカラー版`evaluate_axes_scalar`は
 `materials.get(...)`のためこの経路では発生しない非対称性がある）。
 
-## タイル単位の静的スコア行列と動的軸合成（探索コストの既定経路）
+## 探索範囲の静的スコア行列と動的軸合成（探索コストの既定経路）
 
 `RoadGraphEngine`（[routing-engine.md](routing-engine.md)参照）が実際に使う探索コスト
 算出の既定経路。探索中にEdge1本ごとにPythonのコスト計算コールバックを呼ぶ構造を避け、
 bbox全体ぶんのコストをリクエストにつき1回だけnumpyで合成することで、A*本体へは配列への
 `list.__getitem__`だけを渡す。
 
-- **`build_static_edge_score_matrix`**: タイル読込時（`GraphService.
-  _get_or_build_tile_materials`）に1回だけ呼び、材料の行列から`StaticEdgeScoreMatrix`（Edge×公開軸の静的スコア行列＋distance_m・
-  bearing_deg・0次フィルタ判定用の生配列）を構築する。`infrastructure/
-  tile_score_matrix_cache.py`（タイル単位、`graph_material_cache`とは別枠のLRU）へ
-  キャッシュされる。
-- **`combine_static_edge_score_matrices`**: 複数タイルの`StaticEdgeScoreMatrix`を
-  bbox全体1件へ結合する（後勝ちセマンティクス、Edge単位のPythonループを持ち込まない
-  numpy fancy indexingで行う）。
+- **`build_static_edge_score_matrix`**: 生成のたびに、切り出した探索範囲の材料
+  （`GraphService.get_search_slice`）から`StaticEdgeScoreMatrix`（Edge×公開軸の静的スコア行列＋distance_m・
+  bearing_deg・0次フィルタ判定用の生配列、行は切り出した区間の順）を構築する。キャッシュしない——
+  軸定義の編集がそのまま次の生成に効く。
 - **`DynamicAxisRequestContext`/`DYNAMIC_MATERIAL_EVALUATORS`/
   `evaluate_dynamic_material_arrays`/`evaluate_dynamic_axis_arrays`**: リクエスト時点で
   風などの動的材料（`REQUEST_DYNAMIC_MATERIAL_IDS`）を実際の値へ差し替える。
@@ -260,19 +256,6 @@ categorical材料は数値列に載せられないため、対になる別の列
 `merge_material_category_shares`（距離加重で「値ごとの延長割合」へ畳む。分母はその材料の値を
 持つ区間だけで、値の無い区間は分母にも入れない）→`RouteCandidate.material_category_shares`。
 真偽値材料を0/1で運んで平均が割合になるのと同じ考え方を、値が3つ以上ある材料へ広げたもの。
-
-**可変長の列はキャッシュ鍵で守れない**。`raw_axis_ids`/`material_ids`/
-`categorical_material_ids`は`dataclasses.fields()`に現れない「中身で決まる列」で、
-`cache_identity`の署名（列名の並び）は変化しない。集合を決める述語
-（`route_facing_raw_axis_ids`・`route_facing_material_ids`・
-`route_facing_categorical_material_ids`）は`evaluation.py`を触らずに変えられるため、
-守りは2つ置いてある:
-
-- `tile_score_matrix_cache.get()`が復元した行列の3つのidリストを現在の述語と突き合わせ、
-  一致しなければ**キャッシュミス扱い**にする（呼び出し側が作り直すだけで済む）。
-- `combine_static_edge_score_matrices`が全タイルの列の一致を確かめてから`np.concatenate`する。
-  列数が違えばValueErrorで落ちるが、偶然一致して意味だけ入れ替わると例外にならず
-  **別の軸の生値を表示する**——後者を捕まえるために名前で突き合わせる。
 
 **丸めは値の種類で分ける**。距離加重平均そのものは`weighted_mean_by_distance`
 （`domain/difficulty.py`、丸めない）が求め、丸め方は呼び出し側が決める——

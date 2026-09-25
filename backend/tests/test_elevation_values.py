@@ -1,7 +1,7 @@
 """`domain/attributes.py: elevation_values_sql`——区間の頂点列から標高と勾配を出す。
 
 頂点列を作る側は`test_derive_topology.py`、出た値をEdgeへ配る側は
-`test_graph_material_cache.py`、勾配を材料として読む側は`test_material_values.py`が持つ。
+`test_road_network.py`（標高属性）、勾配を材料として読む側は`test_material_values.py`が持つ。
 
 **判定はDB側で行うため、DBへ通して確かめる。**距離は`ST_Distance`のgeography計算に
 依存するので、期待値は緯度1ステップの実距離をDBに聞いてから組む——自前の距離式を持つと、

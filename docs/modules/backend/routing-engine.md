@@ -4,9 +4,10 @@
 
 出発地点（＋任意で経由地・目的地）から、周回または経由地ルートの候補を複数生成し、
 距離・難易度でスコアリングして返す。実際の経路計算・軸評価はroad_graphエンジン
-（自前Road Graph + 辺基準グラフのlazy探索）が担う。Road Graph（ノード・Edge）をPostGISから
-読み出し、探索用のグラフ・空間索引へ組んでキャッシュするところまでがこのモジュールの範囲で、
-交差点で切った区間そのものは取込・派生バッチが範囲全体ぶん先に作る（web側は作らない）。
+（自前Road Graph + 辺基準グラフのlazy探索）が担う。取込範囲全体の道路網をPostGISから
+番号の配列として作って常駐させ、生成のたびに範囲を切り出して探索用のグラフ・空間索引へ組む
+ところまでがこのモジュールの範囲で、交差点で切った区間そのものは取込・派生バッチが範囲全体ぶん
+先に作る（web側は作らない）。
 
 **対象ファイル**
 
@@ -14,7 +15,7 @@
 |---|---|
 | domain | `road_network.py`（取込範囲全体の道路網を、有向の区間とノードの番号で引ける列の配列として持つ型。行の並び・分類の材料を語彙への番号で持つことはそのdocstringが持つ）・`routing.py`・`graph.py`・`route.py`・`geo.py`・`errors.py`・`region.py`（矩形（`BoundingBox`）とXYZタイルの相互変換、Road Graphを取得する単位のズーム。タイル配信側もこの変換を共有する）・`cycling_speed.py`（自転車の走行モデル。平地・無風の巡航速度からホイール出力を逆算し、勾配・向かい風・転がり抵抗から区間ごとの速度を走行方程式で解く。速度の逆算は`v`の3次方程式になるため二分法で、numpyでベクトル化してある。候補の所要時間と基準線の探索コストがここから出る）・`tuning.py`（ルーティング評価が読む固定値の宣言。走ってみて決める値［較正値］は既定ごとここが持ち、エンジンが読む値・管理画面が並べる項目・変更が効くために何をやり直す必要があるかをそこから導く。較正値ではない固定値は載せず、使う側のモジュールが持つ）・`loop_routing.py`（周回・目的地ルートの探索結果を運ぶ型。探索の実装と候補を並べる戦略のどちらにも属さない） |
 | services | `route_generator.py`（戦略層）・`road_graph_engine.py`・`graph_service.py` |
-| infrastructure | `road_graph_repository.py`（道路網・材料の読み出し専用）・`road_network_store.py`（道路網全体の配列をDBから作り、ディスクへ置き、読む）・`graph_material_cache.py`・`tile_score_matrix_cache.py`・`search_graph_cache.py`・`tile_persistent_cache.py`・`cache_identity.py`（キャッシュ鍵の組み立て方の正本。手で書くリビジョンと、焼き込みSQL・pickleする列構成から導く署名を合成する。タイル配信側の世代も同じ関数を使う）・`derived_data_meta.py`（派生データの世代。バッチが中身を書き直すたびに進む単調カウンタで、デプロイを伴わない変化を表せる唯一の経路）・`cache_generation.py`（DBの世代とディスクへ書いた時点の記録を突き合わせる判断。軸定義と派生データが同じ実装を使う） |
+| infrastructure | `road_graph_repository.py`（道路網・材料の読み出し専用）・`road_network_store.py`（道路網全体の配列をDBから作り、ディスクへ置き、読む）・`search_graph_cache.py`（探索範囲ごとに学習した迂回率）・`cache_identity.py`（キャッシュ鍵の組み立て方の正本。手で書くリビジョンと、焼き込みSQL・列構成から導く署名を合成する。道路網の置き場の形の署名とタイル配信側の世代も同じ関数を使う）・`derived_data_meta.py`（派生データの世代。バッチが中身を書き直すたびに進む単調カウンタで、デプロイを伴わない変化を表せる唯一の経路） |
 | api | `routes.py` |
 
 探索が読む`road_edges`と材料のテーブル（ORMの宣言）・それを作るバッチは
@@ -32,7 +33,7 @@ road_graphエンジンは自前Road Graph（DB由来のノード/Edge）で経�
 大きさ×進行方向の相対風速に比例し、横風は相対風速の大きさにだけ効く——同じ強さの向かい風ほどは
 遅くならない。
 
-Edgeコストは「タイル単位の静的Edge×公開軸スコア行列＋リクエスト時ベクトル計算」方式で
+Edgeコストは「探索範囲の静的Edge×公開軸スコア行列＋リクエスト時ベクトル計算」方式で
 算出する——探索が実際に訪れたEdgeに対してPythonのコスト計算コールバックを都度呼ぶのでは
 なく、`prepare`/`preview_segment`が対象bbox全体ぶんの
 コスト配列を1回だけnumpyで合成し、探索へは合成済みの配列をそのまま渡す（探索中にPythonの
@@ -77,9 +78,9 @@ Edgeコストは「タイル単位の静的Edge×公開軸スコア行列＋リ�
 `_LegCostComposer`を作り、`compose(label, anchor, offset_hours, direction)`がレグごとに
 風の列だけを引き直して合成する（`domain/wind.py: estimate_passage_hours`、
 `direction=+1`は基準点から離れるレグ、`-1`は基準点へ向かうレグで`offset_hours`が
-到着予定時刻）。合成結果`LegCostArrays`は`cost_lazy`（`lazy_graph.edge_ids`順）と表示用の
+到着予定時刻）。合成結果`LegCostArrays`は`cost_lazy`（区間の番号順）と表示用の
 `difficulty_array`/`axis_arrays`/`weight_sums`/`material_arrays`（動的材料id→
-`full_edge_row`順配列の辞書、`evaluate_dynamic_material_arrays`が返す全材料のうち値がある
+切り出した区間の順の配列の辞書、`evaluate_dynamic_material_arrays`が返す全材料のうち値がある
 ものだけ）を持ち、`_RoadGraphContext.legs`に添字順で並ぶ。`compose`は
 `DynamicAxisRequestContext`へ風の入力と走行速度（`speed_kmh`を`kmh_to_ms`でm/sへ変換）を
 渡し、風の材料（`wind_drag_ratio`）はこのcontextから求まる:
@@ -111,7 +112,7 @@ Edgeコストは「タイル単位の静的Edge×公開軸スコア行列＋リ�
 仮定巡航速度は`RouteGenerateRequest.assumed_speed_kmh`（既定`ASSUMED_SPEED_KMH`）で
 リクエストごとに変えられ、通過予定時刻と風の材料`wind_drag_ratio`（走行速度依存）の
 両方に効く。迂回率（道なり距離÷直線距離）は定数ではなく実測値を使う。直線距離を走行時間へ直す係数
-として使うもので、`prepare`が同じ探索範囲（タイル集合）で前回学習した値
+として使うもので、`prepare`が同じ探索範囲（範囲を覆うz12タイル集合を鍵にする）で前回学習した値
 （無ければ`ROUTE_DETOUR_RATIO`）を合成器へ渡す。往路木を求めるたびに実測の中央値
 （周回はリングNode、目的地ルートは起点から1km以上の到達Node）を測って
 `search_graph_cache.set_detour_ratio`へ学習値として保存し（`_median_detour_ratio`・
@@ -217,11 +218,12 @@ RouteGenerator.generate_loops(origin, distance_km, distance_tolerance_km, max_ro
 
 **別エンドポイントにしていない**のは、合成も生成と同じコスト曲線だから——経路は確定済み
 でも`prepare`は通る（評価は`_RoadGraphContext`のコスト配列から読む。design-principles.md
-構造仕様10）。`prepare`は温まっていても1秒前後、タイル材料が冷たいと数十秒かかるため、
+構造仕様10）。`prepare`は範囲の切り出しと探索素材の組み立てを毎回行い、区間数に比例して時間がかかるため、
 202＋ポーリングのジョブ機構がそのまま要る。
 
 送られたEdge id列が**実在し・順につながり・起点から始まり・目的地へ着く**ことは
-`engine.build_traced_from_edge_ids`が確かめ、成立しなければ`RoutingError`で落とす
+`engine.build_traced_from_edge_ids`が確かめ（鍵は`_lazy_index_of`で区間の番号へ戻す。探索範囲に無い・
+探索用グラフに載らない区間は実在しない扱い）、成立しなければ`RoutingError`で落とす
 （グラフを知るのはエンジンのため戦略層には置けない）。終点は起点と同じ
 `find_nearest_node_indexed`で解くため、比べる相手は元の候補が実際に終わったNodeになる
 ——目的地が孤立していて補正した場合、補正後の地点を条件として返す。
@@ -371,12 +373,11 @@ idを`route-destination-00..`へ振り直すが、
 - **waypoints指定（経由地・目的地）**: `_bbox_covering_points(origin, waypoints, ...)`
   （起点＋全経由地＋目的地を包含する矩形）。
 
-`GraphService.get_search_materials_for_bbox`でトポロジ＋材料（`EdgeMaterialArrays`、
-DBが`MaterialSpec.value_sql`で導出した値をdtypeごとの行列で持つ）
-＋`StaticEdgeScoreMatrix`（タイル単位で
-キャッシュ済みの「Edge×公開軸」静的スコア行列）をまとめて取得し、`_build_search_graph`が
-探索用グラフ（`domain/routing.py: LazyRoadGraph`、`NodeSpatialIndex`）とbbox全体ぶんの
-コスト配列を構築する。データ未整備（取込の宣言した範囲の外）ならNoneを返し、呼び出し元
+`GraphService.get_search_slice`で探索範囲の区間（`domain/road_network.py: RoadSlice`）と、
+その材料から求めた「Edge×公開軸」静的スコア行列（`StaticEdgeScoreMatrix`、行は切り出した区間の順）を
+受け取り、`_build_search_graph`が探索用グラフ（`domain/routing.py: LazyRoadGraph`）とbbox全体ぶんの
+コスト配列を、`_build_search_structures`が最寄りNodeの索引（`NodeSpatialIndex`）・CSR・ターン構造を
+リクエストごとに組む。データ未整備（取込の宣言した範囲の外）ならNoneを返し、呼び出し元
 （`RouteGenerator`）が候補0件として扱う。
 
 `_build_search_graph`は、`StaticEdgeScoreMatrix`（風などリクエストごとに変わる動的軸の列は
@@ -384,12 +385,12 @@ NaN）へ動的軸（風、`domain/dynamic_materials.py: evaluate_dynamic_axis_a
 関数の登録制`DYNAMIC_MATERIAL_EVALUATORS`で軸名をハードコードしない汎用実装）と重み
 ベクトルを適用し、`compose_costs_from_axis_matrix`・`compute_hard_filter_excluded`で
 コスト配列を1回だけ合成する。合成結果はレグ（往路/復路）ごとに`LegCostArrays`
-（`cost_lazy`[`lazy_graph.edge_ids`と同じ行順]・`difficulty_array`・`axis_arrays`）へ
+（`cost_lazy`[区間の番号順]・`difficulty_array`・`axis_arrays`[切り出した区間の順]）へ
 まとまり、`_RoadGraphContext.legs`が保持する（下記「レグ別コスト配列」節）。並行Edge
-（同一Node間の複数Edge）は、`build_lazy_road_graph`がedge_idの昇順で先頭を採用する
-決定的な規則で解消する（`LazyRoadGraph`がコストに依存せずタイル集合キーでキャッシュ
-されるための制約、次節参照）。同じ`LegCostArrays`は`_build_segment_details`（区間表示）
-からも`full_edge_row`経由で参照され、探索コストと表示の二重計算を避ける。
+（同一Node間の複数Edge）は、`build_lazy_road_graph`が元の行（切り出した区間の順＝道路網全体の行の昇順）が
+最も小さい1本を採る決定的な規則で解消する——コストはリクエストごとに変わるため、トポロジを組む時点では
+コストで選べない。同じ`LegCostArrays`は`_build_segment_details`（区間表示）からも区間の番号→切り出した
+区間の行（`_slice_row`）で参照され、探索コストと表示の二重計算を避ける。
 
 **走行モデルが読む入力は軸の構成に依存しない**。勾配は静的スコア行列が常に持つ生配列
 （0次フィルタの勾配しきい値と同じ列）から、停止の回数は
@@ -433,48 +434,22 @@ Nodeごとのコストは、そのNodeへ入る区間の最小を採る（木を
 無いため。前向き木と後ろ向き木をNodeで繋ぐときは`combine_forward_backward_at_nodes`を
 通す。Nodeごとのコストを単に足すと、そのNodeで曲がる費用が抜ける。
 
-### 探索・索引構築のキャッシュ（`infrastructure/search_graph_cache.py`）
+### 番号と区間の鍵（探索範囲の中の持ち方）
 
-`LazyRoadGraph`（探索用グラフ）・`SearchGraphStatics`（一対全最短経路木
-用のCSR構造＋Edge実距離配列）・`NodeSpatialIndex`（routable Node空間索引）と、
-探索範囲ごとに学習した迂回率（float 1個、「レグ別コスト配列」節参照）は、
-タイル集合キーのプロセス内LRUへキャッシュする。同じタイル集合への2回目以降の
-リクエストはこれらの構築を丸ごと省略する。**上限件数は`LazyRoadGraph`/
-`NodeSpatialIndex`が`DEFAULT_MAX_ENTRIES`（64）、`SearchGraphStatics`は
-`SEARCH_STATICS_MAX_ENTRIES`（16）と別立てにしてある**——1エントリがCSR構造
-一式（`indptr`/`indices`/`entry_edge_index`）を保持し他の2種より重いため、同じ上限を
-共有すると常駐メモリが不必要に大きくなりうる。
+探索範囲の中では、ノードは切り出しの中の番号（`RoadSlice.nodes`の添字）、区間は探索用グラフの番号
+（`LazyRoadGraph.edge_rows`の添字、`TracedLoop.data`もこの番号列）で持つ。区間の文字列の鍵
+（`edge_id`、`domain/graph.py: edge_key`）とノードの鍵は、**経路に載った区間の分だけ**番号から作る
+（`_lean_edge`・`_node_key_of`）——範囲全体ぶんの鍵や区間オブジェクトを作ると、範囲の区間数に比例した
+メモリを生成のたびに払うため。クライアントが送り返す鍵（区間の乗り換え）は`_lazy_index_of`が番号へ戻す。
+並行区間の採られなかった側・探索範囲の外の区間は番号を持たない（None）。
 
-- **キー**: `LazyRoadGraph`・`SearchGraphStatics`は
-  `frozenset[(zoom,x,y)]`（bboxを覆うz12タイル集合）のみ。`NodeSpatialIndex`はこれに
-  `hard_filters`・`max_average_grade_percent`（0次フィルタ、`RoadGraphEngine`の
-  コンストラクタ引数）を加えたタプル。`GraphService.get_search_materials_for_bbox`が
-  返すgraphは常に「bboxを覆う全z12タイルの材料キャッシュをそのまま結合したもの」で、
-  同じタイル集合なら中身も同じになる——タイル集合がそのまま鍵として十分な理由はこれである。
-- `SearchGraphStatics`が持つCSR構造（`indptr`/`indices`とCSRエントリ順→Edge indexの
-  並べ替え表）はタイル集合だけで決まる派生物のためキャッシュに含めるが、リクエストごとに
-  変わるコスト配列は含めない——`select_loop_turnarounds`が一対全木を求めるたびに
-  コスト配列は探索へnumpy配列のまま渡す。
-  `SearchGraphStatics`は一対全木を実際に使う`prepare`（`_get_or_build_search_statics`）
-  だけが構築・キャッシュする——`preview_segment`は2点間の直接A*のみで一対全木を使わない
-  ため、`LazyRoadGraph`はキャッシュしても`SearchGraphStatics`は構築しない。
-- **ターン展開構造**（`TurnExpandedStructure`）は`TurnStructureKey`（タイル集合と
-  `TurnCostSpec`の組）でキャッシュする。遷移とターンの費用はこの2つだけで決まるため、
-  同じタイル集合・同じターン費用なら作り直す必要がない（ノード側の信号・階級もタイル集合
-  から来るため、この鍵に含まれている）。
-- **無効化はプロセス寿命とLRUだけ**で、軸定義の変更とは無関係（探索コストの値自体を
-  持たないため）。派生バッチが区間を作り直すと、材料キャッシュは世代の突き合わせで捨てられる
-  （「タイル単位の探索用素材キャッシュ」節）がこのキャッシュは残るため、キャッシュ済み
-  `LazyRoadGraph.edge_ids`が新しい`graph.edges`に存在しなくなる不整合が起こりうる。
-  これはプロセス再起動を待たずリクエスト内で自己修復する——
-  `RoadGraphEngine._build_search_graph`（`prepare`・`preview_segment`共通）が
-  `_ensure_lazy_graph_consistent`で`domain/routing.py: find_missing_lazy_graph_edge_id`
-  （CSR構築を伴わない軽量チェック）を毎回呼び、不整合を検知したら該当タイル集合の
-  キャッシュ（`LazyRoadGraph`・`SearchGraphStatics`・`NodeSpatialIndex`）を破棄して
-  `LazyRoadGraph`ごと`graph`から作り直す
-  （`search_graph_cache.invalidate_tile_set`）。
-- `_reverse_traced_edges`（逆回り候補、後述）は、キャッシュ済み`LazyRoadGraph.
-  edge_index_by_node_pair`を経路上のEdgeだけに対する遅延引きとして使う。
+探索用グラフ・CSR・索引・ターン構造はキャッシュしない（リクエストごとに組む）。範囲ごとに
+キャッシュすると範囲の数だけ常駐が積み上がり、コンテナのメモリ上限へ届くため。範囲をまたいで
+持つのは、探索範囲（範囲を覆うz12タイル集合）ごとに学習した迂回率（実数1個、
+`infrastructure/search_graph_cache.py`、「レグ別コスト配列」節）だけである。
+
+`_reverse_traced_edges`（逆回り候補、後述）は、経路上の各区間の逆向きを
+`domain/routing.py: edge_index_between`（CSRの行を二分探索）で引く。
 
 ### `select_loop_turnarounds`（折返し点選定）
 
@@ -573,12 +548,12 @@ A*のヒューリスティックも秒の下界にする（直線距離÷出せ�
 
 `select_loop_turnarounds`/`trace_loop_from_turnaround`は周回候補（フロンティア方式）
 専用で、経由地・目的地指定ルート（`generate_via_waypoints`）は本メソッドが指定地点列を
-順にA*で結ぶ（`bearing=None`固定、戻り値の`data`は経路上のedge_id列）。
+順にA*で結ぶ（`bearing=None`固定、戻り値の`data`は経路上の区間の番号列）。
 
 ### `evaluate_loops`（実ジオメトリ取得・評価）
 
-距離フィルタを通過した全候補ぶんのedge_idを1つにまとめ、`GraphService.
-get_edges_with_geometry`を**1回のクエリ**で呼んで実ジオメトリを取得する（棄却済み候補への
+距離フィルタを通過した全候補ぶんの区間（番号から`_lean_edge`で作った形の無い枝）を1つにまとめ、
+`GraphService.get_edges_with_geometry`を**1回のクエリ**で呼んで実ジオメトリを取得する（棄却済み候補への
 DB問い合わせを避ける2段階分割を維持したまま、候補ごとには問い合わせない）。
 取得後は候補ごとに`_build_best_candidate`を`asyncio.gather`で並行評価する（標高取得・
 segments構築はEdge単位の軽量な計算のため並行化してよい。復路探索のような共有状態の
@@ -615,113 +590,53 @@ segments構築はEdge単位の軽量な計算のため並行化してよい。�
 
 ## GraphService（`services/graph_service.py`）
 
-Road Graph（Node/Edge）と材料をPostGISから**読むだけで、作らない**。道路網は取込・派生
-バッチ（[静的道路属性・タイル配信](static-road-attributes.md)）が取込範囲全体ぶん先に作る
-ため、ここには「無ければ作る」経路が無い。外部（Overpass等）へのフォールバックも持たない。
+探索範囲の道路網を、取込範囲全体の配列（`infrastructure/road_network_store.py`）から**切り出すだけで、
+作らない**。道路網は取込・派生バッチ（[静的道路属性・タイル配信](static-road-attributes.md)）が取込範囲
+全体ぶん先に作り、配列の置き場はバッチとデプロイの前処理が作る（下記「道路網全体の配列」節）ため、
+ここには「無ければ作る」経路が無い。外部（Overpass等）へのフォールバックも持たない。
 
-### 取得の入口（`get_search_materials_for_bbox`）
+### 取得の入口（`get_search_slice`）
 
-1. **派生データ世代の突き合わせ**: `derived_data_revision_service.ensure_caches_match_db`が
-   TTL付きでDBの`derived_data_meta.revision`を読み直し、変わっていれば材料・スコア行列の
-   キャッシュを捨てる。材料のディスクキャッシュを読むのはこの経路なので、突き合わせもここに
-   置く（他所へ移すと定常状態では一度も発火しない）。
-2. **カバレッジ判定**: `RoadGraphRepository.is_covered`が、bboxが取込の宣言した範囲
+1. **カバレッジ判定**: `RoadGraphRepository.is_covered`が、bboxが取込の宣言した範囲
    （成功した`osm_way`取込の`source_runs.profile`のtarget.bbox）に触れるかを1クエリで判定する。
    範囲外ならNone（WARNING常時ログ）。マーカーの表は持たない——持つと取込範囲を広げたときに
    2箇所を揃える必要が生まれる（判定式は路面タイルのMVT生成と共有、下記「派生delivery系
    クエリ」）。
-3. **読み込む量の上限**: bboxを覆うz12タイルの外接矩形に触れる区間の数をDBで数え
-   （`count_edges_in_bbox`）、`MAX_SEARCH_ROAD_EDGES`を超えれば何も読まずに
-   `SearchAreaTooLargeError`を送出する（WARNING常時ログ）。探索素材と探索用グラフは区間の
-   数に比例してメモリを使い、backendのコンテナの上限を超えるとプロセスごと落ちて全員の
-   生成と地図が止まるため、1回の生成が読む量をここで抑える。キャッシュ済みのタイルだけで
-   足りる範囲でも数える——結合した素材・探索用グラフは範囲ごとに作り直すため、タイルが
-   メモリにあっても増えるぶんは変わらない。**タイル単位のキャッシュ自体は件数でしか
-   抑えていない**ため、範囲を変えながら生成が続くと、この上限の内側でも常駐量は積み上がる。
-   戦略層（`RouteGenerator._prepare`）はこの例外を「探索範囲の道路が多すぎる」理由付きの
-   候補0件に、区間確認API（`/api/routes/preview`）は422にする。
-4. **タイル単位の読み出し**: 下記のとおり、z12タイルごとにキャッシュを経由して結合する。
+2. **切り出し**: bboxを覆うz12タイルの外接矩形に、区間の形の外接矩形が重なる区間を取り出す
+   （`domain/road_network.py: slice_network`。範囲の外へはみ出す区間も端点ごと含む）。道路網は
+   `road_network_store.current()`が返すプロセス内で1つの配列で、生成のたびに増えない。切り出しの
+   単位をタイルの外接矩形にしているのは、同じ範囲が同じタイル集合で指せるため（学習した迂回率の鍵）。
+3. **読み込む量の上限**: 切り出した有向の区間の数が`MAX_SEARCH_EDGES`を超えれば
+   `SearchAreaTooLargeError`を送出する（WARNING常時ログ）。探索用グラフ・コスト配列・ターン構造は
+   区間の数に比例してメモリを使い、backendのコンテナの上限を超えるとプロセスごと落ちて全員の
+   生成と地図が止まるため、1回の生成が組む量をここで抑える。戦略層（`RouteGenerator._prepare`）は
+   この例外を「探索範囲の道路が多すぎる」理由付きの候補0件に、区間確認API（`/api/routes/preview`）は
+   422にする。
+4. **静的スコア行列**: 切り出した区間の材料（`material_arrays_of`、分類の材料は語彙の値へ戻す）から
+   `build_static_edge_score_matrix`で求める。キャッシュしない——軸定義の編集がそのまま次の生成に効き、
+   軸定義の世代を突き合わせる仕組みが要らない。
 
-### タイル単位の探索用素材キャッシュ
+戻り値は`(RoadSlice, StaticEdgeScoreMatrix, タイル集合)`。スコア行列の行は切り出した区間の順。
 
-bboxをz12タイルへ分解し、`graph_material_cache`（材料、プロセス内LRU、上限2,000タイル）と
-`tile_score_matrix_cache`（`StaticEdgeScoreMatrix`、材料キャッシュとは別枠の
-プロセス内LRU）をタイル単位で経由する。全タイルがキャッシュ済みならDBへの問い合わせも
-Edge単位の軸別スコア算出も発生しない（`_get_or_build_tile_materials`・
-`_get_or_build_tile_score_matrix`）。キャッシュmissのタイルは`get_graph_topology_in_bbox`
-（トポロジ）と`get_edge_material_arrays`（材料）でDBから読む。道路の無いタイルも空の結果として
-キャッシュする（毎回問い合わせ直さないため）。戻り値は
-`tuple[SearchMaterials, StaticEdgeScoreMatrix, frozenset[tuple[int, int, int]]]`——
-複数タイルにまたがる場合は`domain/evaluation.py: combine_static_edge_score_matrices`が
-後勝ちセマンティクスで1つに結合する（`combined_edges.update(...)`と同じ結合順序）。
-3要素目（タイル集合）はbboxを覆う全z12タイルの集合で、`RoadGraphEngine`が
-`infrastructure/search_graph_cache.py`（探索用グラフ・索引のタイル集合キーLRU）のキーとして
-使う。タイルごとの読み出し元（memory/disk/db/computed）と所要時間は1行INFOサマリ
-（`_build_search_materials_from_tile_cache`）に出る。
-
-**暗黙の前提**: `graph_material_cache`・`tile_score_matrix_cache`はプロセス内メモリLRUに
-加え、`infrastructure/tile_persistent_cache.py`へディスク永続化する（`backend/data/
-tile_persistent_cache/`、DEMタイルディスクキャッシュ`tile_cache.py`と同じ考え方）。
-メモリmissでもディスクがあればDBへ問い合わせずに復元し、復元した値はメモリへも載せ直す。
-ディスク側の鍵の組み立て方と、何が変わったら捨てるかは
-`infrastructure/cache_identity.py`が正本（このモジュールはその結果を使うだけ）。
-**このモジュール側の前提は「スコア行列は材料からの派生物」という点**——材料の`edge_id`集合が
-変わればスコア行列は必ず無効で、材料だけ世代が上がった状態を許すと`graph`には在るが
-`score_matrix.edge_ids`には無い`edge_id`が生じ、`full_edge_row`引きがbbox単位で
-KeyErrorになる。軸定義の編集で捨てる粒度は材料とスコア行列で異なり、そちらは
-`tile_score_matrix_cache.sync_disk_cache_with_axis_revision`が持つ。
-
-**キャッシュ表現**: `graph_material_cache`が保持する`SearchMaterials.materials`は
-`domain/attributes.py: EdgeMaterialArrays`（dtypeごとの2次元配列＋列id）。Edge単位の
-オブジェクトを持たないため、復元はnumpy配列のunpickleだけで済み、区間数に比例する
-Pythonの仕事が無い。列の並びは`material_array_columns()`が唯一の定義元で、組み立てる側
-（リポジトリ）と読む側が同じ並びを導く。複数タイルを結合する
-`_build_search_materials_from_tile_cache`はタイルごとの表を持ったまま
-`edge_id→タイルindex`の遅延ビュー（`_CombinedEdgeMaterials`）で委譲する——bbox全体ぶんを
-1つの配列へ連結し直すコストを払わない。タイル単位とbbox単位で材料の型が違うため、`SearchMaterials`は
-材料の型を型引数に取る。探索フェーズ（`_RoadGraphContext.materials`）が読むのは、確定した経路の
-標高属性を引く`ElevationSource`だけである。`LeanRoadGraph`（トポロジ側）も`__reduce__`で
-Node/Edgeを列（tupleのリスト）へ分解してpickle化し、復元時に`LeanNode`/`LeanEdge`を
-コンストラクタ呼び出しで作り直す。**列はdataclassの宣言から導き、列数の合わない行は
-送出する**——手で並べると、フィールドを足して列を足し忘れたときに復元側が既定値で埋め、
-キャッシュを通った値だけが黙って消える（`geometry`だけは載せない。pickleするのは
-タイルキャッシュのグラフに限られ、そこでは常に空リストのため）。
-
-**並列度設定が効く範囲**: `config.py: tile_cache_load_max_concurrent`（既定
-`min(4, os.cpu_count())`）が、`graph_service.py`の`_get_or_build_tile_materials`・
-`_get_or_build_tile_score_matrix`が行うディスク永続化キャッシュ読み込み
-（`asyncio.to_thread`経由）の同時実行数を縛る。材料側は列のまま復元するが、グラフ側の
-Edgeの再構築は`LeanEdge`のコンストラクタ呼び出しを伴うPythonループのためGILで直列化される
-——この設定が効くのはファイルI/O・numpy配列の復元部分のみで、コア数に比例して線形に
-速くなるのはグラフ側も完全列指向化する将来の別案（`LeanEdge`オブジェクト自体を持たない
-設計）まで進めた場合に限る。
-
-### `get_edges_with_geometry`の同時実行ロック
-
-`GraphService.__init__`が持つ`self._repository_lock`（`asyncio.Lock`）は、同一
-`AsyncSession`への同時アクセス（未定義動作/例外を招く）を防ぐため、`asyncio.gather`配下から
-repositoryへ到達しうる経路を直列化する。実際に同時実行されるのは
-`_get_or_build_tile_materials`のキャッシュmiss時のDB問い合わせ（タイルごとにgatherで並行）
-で、`get_edges_with_geometry`は`RoadGraphEngine.evaluate_loops`が距離フィルタ通過候補ぶんの
-edge_idをまとめて1回・`preview_segment`が1回、いずれも逐次に呼ぶだけのため、同じロックを
-取るのは将来の並列化に対する保険にすぎない（`GraphService`はリクエストごとに新規生成される
-ため複数リクエスト間で共有されることも無い）。
+`get_edges_with_geometry`は確定した経路の区間へ形を後付けする（リポジトリへそのまま委ねる）。
+`RoadGraphEngine.evaluate_loops`が距離フィルタ通過候補ぶんの区間をまとめて1回・
+`preview_segment`が1回、いずれも逐次に呼ぶ。
 
 ## domain層
 
 ### `domain/routing.py`
 
-- `LazyRoadGraph`/`build_lazy_road_graph`: 探索用グラフ。Node/Edgeの識別は整数index
-  （Edge index=`edge_ids`の添字）で、探索はコストをnumpy配列のまま受け取る（探索中に
-  Pythonのコールバックを作らない設計の核心）。並行Edge（同じnode対の重複辺）はedge_idの
-  昇順で先頭を採用する決定的な選択で解消する（タイル集合キーでキャッシュするための制約、
-  「探索・索引構築のキャッシュ」節参照）。**両端Nodeを持たない区間があれば`RoutingError`**
-  ——飛ばすとその道だけが探索から静かに消える。ここを通った後の消費者（方位・ノード属性）は
-  Nodeの有無を確かめ直さない。
+- `LazyRoadGraph`/`build_lazy_road_graph`: 探索用グラフ。区間の始点・終点（ノード番号）の配列から組み、
+  区間の番号（`edge_rows`の添字＝探索の状態）は`(始点, 終点)`の昇順に並ぶ。`edge_rows`が番号→元の行
+  （切り出した区間の順）を結ぶ。探索はコストをnumpy配列のまま受け取る（探索中に
+  Pythonのコールバックを作らない設計の核心）。並行Edge（同じnode対の重複辺）は元の行が最も
+  小さい1本を採る決定的な選択で解消する（コストはリクエストごとに変わるため、コストでは選べない）。
+  区間の両端は切り出し（`slice_network`）が必ずノードの行を持つ形で作るため、ここでは確かめない。
 - **`CsrGraphStructure`/`_build_csr_structure`・`SearchGraphStatics`/
-  `build_search_graph_statics`**: `LazyRoadGraph`と同じNode/Edge index
-  空間のCSR（圧縮行格納）**構造のみ**（Edge重みは持たない。タイル集合だけで決まる
-  純粋な派生物のため`LazyRoadGraph`と同じキーでキャッシュされる）。`SearchGraphStatics`は
+  `build_search_graph_statics`**: `LazyRoadGraph`と同じNode/区間の番号を持つ
+  CSR（圧縮行格納）**構造のみ**（Edge重みは持たない）。区間の番号が既に`(始点, 終点)`の昇順のため、
+  行ごとの範囲を数えるだけで組め、各行の中は終点の昇順になる（`edge_index_between`がこの並びを
+  二分探索して、両端のノードから区間の番号を引く）。`SearchGraphStatics`は
   この構造とEdge実距離配列（m）を束ねる。**どちらも転置は返さない**——逆向きが要るのは
   Nodeではなく辺基準の遷移で、そちらは`TurnExpandedStructure.reverse_transitions()`が
   最初に必要になった時点で1度だけ作って保持する。`indptr`/`indices`/
@@ -731,11 +646,11 @@ edge_idをまとめて1回・`preview_segment`が1回、いずれも逐次に呼
 - **`TurnCostSpec`/`TurnExpandedStructure`/`build_turn_expanded_structure`**:
   状態＝有向区間・辺＝ターンの遷移構造（「探索の状態」節参照）。`CsrGraphStructure`と
   同じくEdge重みは持たず、遷移とターンの秒だけを持つ。グラフを物理的に展開せず遷移を
-  `CsrGraphStructure`から導くため、`LazyRoadGraph`と同じキーでキャッシュできる。
-  `edge_bearings`（区間の方位）・`_turn_seconds_for`（方位差→秒）が入力になる。
+  `CsrGraphStructure`から導く。
+  `edge_bearings`（区間の方位。折れ線から求めた値が無い区間だけ両端Nodeの座標から補う）・
+  `_turn_seconds_for`（方位差→秒）が入力になる。
   **ターンの費用に効く入力はすべて引数で必須**——既定を持たせると、渡し忘れが
-  「上位の道の横断に待ちが付かない」構造を黙って作り、`TurnCostSpec`については
-  キャッシュの鍵（`TurnStructureKey`）と実際に使った費用が食い違う。
+  「上位の道の横断に待ちが付かない」構造を黙って作る。
 - **`TurnExpandedTree`/`build_turn_expanded_tree`**: 起点からの一対全Dijkstra
   （numba、前任者付き、`cost_limit`で打ち切り可能）。実距離と素の所要時間は緩和のたびに
   そのまま積むため、前任者を遡り直す積算が要らない。状態ごとの値に加え、Nodeごとの
@@ -781,30 +696,30 @@ edge_idをまとめて1回・`preview_segment`が1回、いずれも逐次に呼
   `ValueError`になる。
 - `RoadGraphEngine.is_loop_too_similar`（`_loop_edge_lengths_by_
   physical_segment`）: 距離フィルタ合格後の候補が、既に採用済みの候補と周回全体
-  （`TracedLoop.data`、往路＋復路のedge_id列）で`LOOP_MAX_OVERLAP_RATIO`（0.7、往路のみ
+  （`TracedLoop.data`、往路＋復路の区間の番号列）で`LOOP_MAX_OVERLAP_RATIO`（0.7、往路のみ
   比較する`TURNAROUND_MAX_OVERLAP_RATIO`＝0.6より緩め）を超えて重複するか判定する。
-  edge_idを`{from_node_id, to_node_id}`のfrozensetへ正規化し進行方向を無視して比較する
+  区間を両端のノード番号のfrozensetへ正規化し進行方向を無視して比較する
   ため、「同じ周回の逆回り」・「往路は違うが復路が同じ裏道へ収束する」周回のどちらも
   同じ判定で弾ける。
 - `NodeSpatialIndex`/`build_node_spatial_index`/`find_nearest_node_indexed`:
-  グリッドバケットによる最近傍ノード探索。
-- `compute_routable_node_ids`（`domain/hard_filters.py`）: 最近傍ノード探索は「0次
+  グリッドバケットによる最近傍ノード探索。ノードの座標配列から組み、候補（ノード番号順の真偽）を
+  渡すとそのノードだけを載せる。戻り値はノード番号。
+- `compute_routable_nodes`（`domain/hard_filters.py`）: 最近傍ノード探索は「0次
   ハードフィルタを通過したEdgeが最低1本残るノード」だけに制限する（制限しないと孤立
   ノード——幹線道路にしか面していない駅等——が最近傍として選ばれ、経路探索が失敗しうる）。
   lazy評価ではEdgeコストを事前計算しないため、Hard Constraintだけを軽量に評価する
   専用関数として0次フィルタのモジュール（`domain/hard_filters.py`）に置く
   （`domain/routing.py`側には持たない）。
-  入力は材料の表ではなく、`StaticEdgeScoreMatrix`の生配列
-  （`edge_ids`＋`compute_hard_filter_excluded`が返す`excluded`配列、`_build_search_graph`が
-  コスト配列を`inf`にするのに使うのと同じ配列）——タイル材料キャッシュの復元コストと
-  完全に独立している。
+  入力は区間の始点・終点と、`compute_hard_filter_excluded`が返す`excluded`配列
+  （`_build_search_graph`がコスト配列を`inf`にするのに使うのと同じ配列）で、ノード番号順の真偽を返す。
 
 ### `domain/graph.py`
 
-- `LeanNode`/`LeanEdge`/`LeanRoadGraph`（dataclass）が道路網の唯一の表現。探索用グラフの
-  構築でノード・枝を数万〜十数万件作るため、Pydanticのバリデーション・内部簿記のコストを
-  避けて素のdataclassにしてある。`LeanEdge`は向きを持つ枝（A→BとB→Aは別の枝）で、
-  `geometry`は探索フェーズでは空リスト（形が要る区間だけ`get_edges_with_geometry`が埋める）。
+- `LeanEdge`（dataclass）は**確定した経路の区間の分だけ**作る向きを持つ枝（A→BとB→Aは別の枝）。
+  探索は区間の番号で動き、このオブジェクトを作らない。`geometry`は作った時点では空リストで、
+  表示のために`get_edges_with_geometry`が取り直して埋める。
+- 区間とノードの文字列の鍵（`edge_key`・`node_key`）と、区間の鍵の読み戻し（`parse_edge_key`）は
+  ここだけが持つ。APIが運ぶ鍵とDBの`(osm_way_id, segment_index, forward)`の対応がここで決まる。
 
 ### `domain/route.py`
 
@@ -869,15 +784,18 @@ edge_idをまとめて1回・`preview_segment`が1回、いずれも逐次に呼
 経路は無い（表の宣言は`derived_models.py`・`source_models.py`、[静的道路属性・タイル配信](static-road-attributes.md)
 の管轄）。
 
-区間（`road_edges`）は**向きを持たない1本1行**で、有向の枝は探索がメモリ上で組む
-（`get_graph_topology_in_bbox`。一方通行は`way_materials.direction`を見て走れる向きの枝だけを
+区間（`road_edges`）は**向きを持たない1本1行**で、有向の枝は道路網全体の配列を作るときに組む
+（`road_network_store.py`。一方通行は`way_materials.direction`を見て走れる向きの枝だけを
 作る）。DBへ向きを伝えるのは`(osm_way_id, segment_index, forward)`の3つ組で、向きで変わる値
 （方位・標高）はSQLが入れ替え・符号反転して返す（`reversed_material_expression`）。材料の値の
 求め方は`domain/material_sql.py`・`domain/material_catalog.py`が持ち、リポジトリは式が前提に
 する別名（`w`/`re`/`em`/`wm`）のFROM句を組み立てるだけで式を書かない。
 
-探索用グラフの枝はジオメトリを空のプレースホルダで持つ。実ジオメトリが要る確定した経路だけを
+探索用グラフは形を持たない。実ジオメトリが要る確定した経路だけを
 `get_edges_with_geometry`が取り直す（逆向きの枝は形状点列を逆順にする）。
+
+**道を結合して区間を範囲で絞るSQLは、区間の空間索引だけで絞る**——道の側からも範囲で絞ると、
+プランナが道を外側にした入れ子ループを選んで遅くなる。
 
 #### 派生delivery系クエリ（wind/gradient/road surface/POI）
 
@@ -912,9 +830,15 @@ ST_AsMVT丸ごと生成）・`_FEATURE_KEYS_IN_TILE_SQL`（wind、道路自身�
 デプロイでは署名が変わり、前処理が新しい置き場を作る。作ったときは同じ署名で世代の古い置き場を消し、
 **署名の違う置き場は消さない**（入れ替え前の旧コンテナがそれを読んでいる）。
 
-材料は範囲指定の読み出しと同じ`get_edge_material_arrays`で引く（材料の式を2か所に持たない）。区間の
-並び・一方通行の扱い・端点の無い区間を落とす規則も、範囲指定の読み出し（`_topology_rows_to_road_graph`）と
-同じにしてある。
+材料は`get_edge_material_arrays`で引き、式はタイル配信・軸スタジオと同じ`domain/material_sql.py`の断片を
+使う（材料の式を2か所に持たない）。端点のノードが無い区間は落とす（道の行が無い区間は読み出しの結合で
+既に落ちている）。
+
+backendは置き場を読むだけで、読むのは`current()`の1か所である。呼ぶたびに置き場を見て、読み込み済みより
+新しい世代（バッチが作り直した）があれば読み直す——読むのは配列をメモリマップで開くだけなので、
+見るたびの費用はディレクトリの一覧程度。今の形の置き場が1つも無ければ`RoadNetworkUnavailableError`を送出する
+（生成は失敗する。作るのは前処理かバッチ）。起動後に、今の形の署名でない置き場を消す（`prune_other_shapes`。
+入れ替わるまでは旧コンテナが読んでいるため、起動後にだけ消す）。
 
 ### キャッシュ（ルート生成はRedisを使わない）
 
@@ -922,15 +846,19 @@ ST_AsMVT丸ごと生成）・`_FEATURE_KEYS_IN_TILE_SQL`（wind、道路自身�
 
 | 層 | 対象 | 実装 |
 |---|---|---|
-| プロセス内（件数上限LRU） | 探索用グラフ・タイル材料・静的スコア行列 | `search_graph_cache.py`・`graph_material_cache.py`・`tile_score_matrix_cache.py` |
-| ディスク | タイル材料・静的スコア行列（プロセス再起動をまたぐ） | `tile_persistent_cache.py`（`diskcache`の包み。容量上限とLRU退避をライブラリが持つ） |
+| プロセス内（1つだけ、全リクエストが共有） | 道路網全体の配列（メモリマップ） | `road_network_store.py: current` |
+| プロセス内（件数上限LRU） | 探索範囲ごとに学習した迂回率 | `search_graph_cache.py` |
+| ディスク | 道路網全体の配列（プロセス再起動をまたぐ。世代ごとの置き場） | `road_network_store.py` |
 | ディスク | 標高DEMタイル | `tile_cache.py` |
+
+探索用グラフ・CSR・索引・ターン構造・静的スコア行列はキャッシュせず、生成のたびに切り出しから組む。
+範囲ごとに持つと、範囲を変えながら生成が続くだけで常駐が積み上がるため。
 
 カバレッジ判定（`is_covered`、`source_runs`への1クエリ）はキャッシュせず毎回PostGISへ
 問い合わせる。エッジの実ジオメトリ（`get_edges_with_geometry`）も同様に毎回読む。
 判断をキャッシュしない理由は[docs/conventions/caching.md](../../conventions/caching.md)参照——別プロセスのバッチが
 取込の記録を書き換えるため、判断を保持すると古い範囲で答えうる。派生データそのものの
-書き換えへは、キャッシュを捨てる側（`derived_data_meta.revision`の突き合わせ）で追随する。
+書き換えへは、道路網の置き場の世代（バッチが世代を進めた直後に作り直す）で追随する。
 
 ## API（`api/routers/routes.py`）
 
@@ -960,7 +888,7 @@ ST_AsMVT丸ごと生成）・`_FEATURE_KEYS_IN_TILE_SQL`（wind、道路自身�
 
 ターンの費用が読むノードの値（`node_materials.has_traffic_signals`・`max_highway_rank`）は
 派生バッチ`derive_node_materials.py`が埋める（バッチ自体は[静的道路属性・タイル配信](static-road-attributes.md)
-の管轄。ここには探索側から見た前提だけを書く）。行の無いノードは`get_graph_topology_in_bbox`が
+の管轄。ここには探索側から見た前提だけを書く）。行の無いノードは道路網全体の配列を作るときに
 既定値（信号なし・階級0）で読む。
 
 **信号の有無はノード単位でしか表せない**。ターンの費用は「進入した道より上位の道と交わる
@@ -990,33 +918,3 @@ DB側の値は**その下限を上げるためだけ**に使う（bboxの外へ�
   風の場所の違いは予報の格子（MSMと同じ細かさ）までで、それより細かい差（谷筋・ビル風）は入らない。時刻はレグごとに
   最大`MAX_TIME_BINS`本のビン（1時間刻み）までしか追わず、その先の区間は最後のビンの予報を使う
   （区間の風の`extended`）。
-- **`GraphService`の`_repository_lock`が守るのは`asyncio.gather`配下からrepositoryへ
-  到達する経路だけ**（`_get_or_build_tile_materials`のDB問い合わせと、保険としての
-  `get_edges_with_geometry`）——他のメソッドは常に逐次実行段階でしか呼ばれないため
-  ロック不要という前提に立っている。`evaluate_loops`の`asyncio.gather`
-  （`_build_best_candidate`の並行評価）内からrepositoryへ到達する呼び出しを新たに
-  追加する場合は、同じロックを取らない限りこの前提が崩れることに注意。
-- **`graph_material_cache`・`tile_score_matrix_cache`はプロセス内メモリLRU＋
-  `tile_persistent_cache.py`によるディスク永続化の2段構成**——ディスクの無効化は
-  `TILE_MATERIALS_CACHE_VERSION`/`TILE_SCORE_MATRIX_CACHE_VERSION`のバージョン文字列で行う
-  （`infrastructure/cache_identity.py`が列構成の署名から導出する）。形が変わらないまま
-  読み先のデータを作り直した場合はこの文字列が動かないため、DBの`derived_data_meta.revision`
-  （バッチの入口が進め、`services/derived_data_revision_service.py`がTTL付きで読み直す）と
-  ディスクの記録を突き合わせて捨てる別経路が要る
-  （[静的道路属性・タイル配信](static-road-attributes.md)の`_common.py: with_derived_data_revision_bump`参照）。
-- **`tile_score_matrix_cache`（タイル単位の静的Edge×公開軸スコア行列）は
-  `graph_material_cache`とは別枠**——軸スタジオでの軸定義編集
-  （`AxisRegistryAdminService`→`refresh_axis_definitions`）はこちらだけを対象に無効化を
-  判定し、材料キャッシュ（DBアクセスを伴う取得）は常に温存する。編集直後の最初の
-  リクエストがDBへ再問い合わせせずに済む設計上の分離。`sync_disk_cache_with_axis_
-  revision`は`axis_registry_meta.revision`が前回ディスクへ永続化した時点と一致するかで
-  判定する——`refresh_axis_definitions`はアプリ起動時にも必ず1回呼ばれるため、軸定義が
-  実際には変わっていない起動のたびにディスクキャッシュを丸ごと再構築しないための区別
-  （不一致時はメモリ・ディスク両方を即座に削除、バージョン文字列は据え置いたまま。
-  軸編集はデプロイを伴わない実行時操作のため）。
-- **`search_graph_cache`（探索用グラフ・索引）はタイル集合キー**——
-  `graph_material_cache`/`tile_score_matrix_cache`（いずれもタイル単位のキー）とは
-  粒度が異なる。`GraphService.get_search_materials_for_bbox`は常に「タイルキャッシュを
-  そのまま結合したgraph」を返すため、タイル集合だけで中身が決まる。材料キャッシュが
-  派生データ世代で捨てられてもこのキャッシュは残るため、区間の作り直し後の食い違いは
-  `_ensure_lazy_graph_consistent`が検知して作り直す（「探索・索引構築のキャッシュ」節）。
