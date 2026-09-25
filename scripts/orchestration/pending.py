@@ -7,7 +7,7 @@
 `docs/conventions/asking-user.md`「仕掛中のダッシュボード」節。核はこのモジュールをimportしない。
 
     python scripts/orchestrate.py pending-backup --pending <dir>   # 全件を日付のファイルへ書き出す（直近14日を残す。移し忘れを知らせる）
-    python scripts/orchestrate.py pending-inbox --pending <dir>    # 送った・取り込み待ちの件を、タスクごとの今の持ち主と並べる
+    python scripts/orchestrate.py pending-inbox [--pending <dir>]  # 送った・取り込み待ちの件を、タスクごとの今の持ち主と並べる（既定: 最新のバックアップ）
 
 ## 件の持ち主
 
@@ -165,8 +165,12 @@ def owner_of(board: dict, task: str) -> str:
                if a.get("current_task") == task and (a.get("state") in ACTIVE_STATES or audit_pending(a))]
     if holders:
         a = holders[0]
-        where = "、クラウド" if in_cloud(a) else ""
-        return f"担当 {a.get('name')}（{a.get('state')}{where}。司令塔が渡す）"
+        if in_cloud(a):
+            # クラウドのセッションはダッシュボードの答えを取りに来ないので、司令塔が片方向で届ける。
+            to = (f"宛先: {a['session']}" if a.get("session")
+                  else f"宛先のセッション名が表に無い。board set {a.get('name')} session=<セッション名>")
+            return f"担当 {a.get('name')}（{a.get('state')}、クラウド。司令塔がSendMessageで届ける（{to}））"
+        return f"担当 {a.get('name')}（{a.get('state')}。司令塔が渡す）"
     if task in [str(t) for t in board.get("manual") or []]:
         return "手動のセッション（始めと区切りに自分のタスクの件を拾う）"
     return "司令塔（持ち主の担当・セッションがいない）"
@@ -185,8 +189,16 @@ def untaken(items: dict[str, dict], minutes: int = UNTAKEN_ALERT_MINUTES) -> lis
 
 
 def cmd_inbox(ctx: Context, args: argparse.Namespace) -> int:
-    """送った・取り込み待ちの件を、タスクごとの今の持ち主と並べる。"""
-    items = load_pending(args.pending)
+    """送った・取り込み待ちの件を、タスクごとの今の持ち主と並べる。書き出しを渡さなければ最新のバックアップを読む。"""
+    if args.pending:
+        items = load_pending(args.pending)
+    else:
+        latest = latest_backup(ctx)
+        if latest is None:
+            print("ダッシュボードのバックアップが無い（ArtifactDataのlistにout_dirを付けて書き出し、pending-backup --pending <dir>）")
+            return 1
+        day, items = latest
+        print(f"{day}のバックアップを読んだ（それより後に送られた件は、書き出して pending-backup し直すと見える）")
     board = load_board(ctx)
     by_owner: dict[str, list[str]] = {}
     for doc_id, item in sorted(items.items()):
@@ -235,7 +247,7 @@ def main(argv: list[str] | None = None) -> int:
     p = sub.add_parser("pending-backup", help="ダッシュボードの全件を日付のファイルへ書き出す")
     p.add_argument("--pending", required=True, help="ArtifactDataのlistでout_dirに書き出したディレクトリ")
     p = sub.add_parser("pending-inbox", help="送った・取り込み待ちの件を、タスクごとの今の持ち主と並べる")
-    p.add_argument("--pending", required=True, help="ArtifactDataのlistでout_dirに書き出したディレクトリ")
+    p.add_argument("--pending", help="ArtifactDataのlistでout_dirに書き出したディレクトリ（既定: 最新のバックアップ）")
     args = parser.parse_args(argv)
     ctx = Context(Path(args.repo), args.dir)
     return cmd_inbox(ctx, args) if args.cmd == "pending-inbox" else cmd_backup(ctx, args)

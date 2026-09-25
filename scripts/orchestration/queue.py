@@ -85,6 +85,26 @@ def manual_prereqs(ctx: Context, board: dict) -> tuple[list[str], list[str]]:
     return lines, due
 
 
+def idle_work(ctx: Context, board: dict, view: dict, *, gate_open: bool) -> list[str]:
+    """稼働0本のときに司令塔が進められるもの: 門が開いていれば、母集団の残りのうち担当・手動・判断待ち・
+    母集団の中の前提待ちのどれでもないもの。門によらず、司令塔の作業待ち。"""
+    out = []
+    if gate_open:
+        taken = {str(a.get("current_task")) for a in board.get("agents") or [] if a.get("current_task")}
+        taken |= {str(t) for t in board.get("manual") or []}
+        latest = latest_backup(ctx)
+        if latest:
+            taken |= open_holds(latest[1])
+        free = [e["task"] for e in view["remaining"]
+                if e["kind"] == "残り" and not e["blocked"] and e["task"] not in taken]
+        if free:
+            out.append(f"母集団の残り{len(free)}件（{'、'.join(free)}）に担当も判断待ちも無い")
+    todo = board.get("coordinator_queue") or []
+    if todo:
+        out.append(f"司令塔の作業待ち{len(todo)}件がある（board todo list。済んだものは board todo done <番号>）")
+    return out
+
+
 def cmd_priority(ctx: Context, args: argparse.Namespace) -> int:
     board = load_board(ctx)
     *tasks, level = args.items

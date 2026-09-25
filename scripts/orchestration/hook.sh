@@ -2,7 +2,7 @@
 # 次の確認の時刻（`next_check`）を過ぎたときだけ`scripts/orchestrate.py check --if-due`を起こす。
 # `board claim`の呼び出しのときは、そのセッションを司令塔として記録させる。起こすかどうかの判定はここだけが持つ。
 #
-# 道具を使うたびに全セッション（サブエージェントを含む）で走るため、何もしないときはプロセスを
+# 道具を使うたびに全セッション（サブエージェントの呼び出しを含む）で走るため、何もしないときはプロセスを
 # 1つも起こさずに抜ける（シェルの組み込みだけを使う。この開発機ではpythonの起動だけで1秒かかる）。
 # 確認を起こすときはorigin/masterの版の道具で動かす（launch.py。本体のチェックアウトの道具は古いことがある）。
 # このファイル自体は本体から読まれるので、origin/masterと違えば確認の結果に「入口が古い」と出る。
@@ -36,8 +36,11 @@ orch_run() {
     fi
     exit 0
 }
-case "$hook_input" in *"orchestrate.py board claim"*) orch_run ;; esac
+# 担当（サブエージェント）の呼び出しは司令塔と同じsession_idを持つので、入力の`agent_id`（サブエージェントの
+# 呼び出しにだけ付く）で最初に外す。司令塔の記録は、道具に渡したコマンド（`tool_input.command`）が
+# `board claim`のときだけ——入力全体で探すと、そのコマンドの文を含むファイルや出力を読んだ呼び出しでも走る。
 case "$hook_input" in *'"agent_id"'*) exit 0 ;; esac
+[[ $hook_input =~ \"command\"[[:space:]]*:[[:space:]]*\"[^\"]*orchestrate\.py[[:space:]]+board[[:space:]]+claim ]] && orch_run
 [ -f "$orch_dir/coordinator_session" ] || exit 0
 IFS= read -r orch_session < "$orch_dir/coordinator_session"
 orch_session="${orch_session%$'\r'}"

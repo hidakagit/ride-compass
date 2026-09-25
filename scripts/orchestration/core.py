@@ -24,6 +24,7 @@
     python scripts/orchestrate.py board run handover <文>     # 打ち切りの引き継ぎ（次の start が次の回へ移す）
     python scripts/orchestrate.py board run [list]            # 回の目的と母集団の各タスクの状態（導出）
     python scripts/orchestrate.py board todo push|pop|list    # 司令塔のキュー（中断・待ちの作業）
+    python scripts/orchestrate.py board todo done <番号>      # 済んだ作業を list の番号で外す
     python scripts/orchestrate.py board dispatch push <Txxx>|pop|list  # 振り出し待ちのキュー
     python scripts/orchestrate.py board unpushed              # 監査済み・未pushのコミット（gitから導く）と取り込みの手順
 
@@ -125,7 +126,7 @@ STATES = ACTIVE_STATES + STOPPED_STATES
 #: ために、書けるキーを決めておく。`board_cmd`が書けるのは`SETTABLE`のキーだけで、残りは道具が書く。
 ALLOWED_KEYS = {
     "top": ("run", "limits", "check_interval_min", "manual", "agents", "last_check", "queue", "coordinator_queue"),
-    "agent": ("name", "id", "where", "state", "current_task", "task_first_started", "reported_sha", "audit_base",
+    "agent": ("name", "id", "where", "session", "state", "current_task", "task_first_started", "reported_sha", "audit_base",
               "audit_done", "audit_result", "audit_log"),
     "audit_log": ("task", "reported_sha", "audit_base", "audit_done", "audit_result", "urgent"),
     "limits": ("concurrent",),
@@ -134,7 +135,7 @@ ALLOWED_KEYS = {
 }
 #: `board set・add`・`board run`・`board dispatch push`の`k=v`で書けるキー。
 SETTABLE = {
-    "agent": ("id", "where", "state", "current_task", "reported_sha", "audit_base", "audit_done", "audit_result",
+    "agent": ("id", "where", "session", "state", "current_task", "reported_sha", "audit_base", "audit_done", "audit_result",
               "urgent"),
     "top": ("limits.concurrent", "check_interval_min", "manual"),
     "queue": ("after", "agent"),
@@ -142,7 +143,8 @@ SETTABLE = {
 #: 振り出し待ちの優先度。この順に取り出す。
 PRIORITIES = ("高", "中", "低")
 #: 担当の`where`の語彙。書かなければ手元。クラウドの担当は開発機の作業ツリーも機械も使わないので、
-#: 作業ツリーの検査と同時本数（門）から外す。
+#: 作業ツリーの検査と同時本数（門）から外す。クラウドの担当はダッシュボードの答えを自分で取りに来ないので、
+#: 司令塔が`SendMessage`で届ける宛先（セッション名）を`session`に持つ。
 CLOUD = "クラウド"
 PLACES = (CLOUD,)
 
@@ -679,7 +681,8 @@ def population_view(ctx: Context, board: dict, rows: dict[str, dict]) -> dict:
             where = f"担当 {assigned[task].get('name')}（{assigned[task].get('state')}）"
         elif kind != "完了" and task in queued:
             where = "振り出し待ち"
-        entries.append({"task": task, "from": item.get("from"), "kind": kind, "where": where, "title": title})
+        entries.append({"task": task, "from": item.get("from"), "kind": kind, "where": where, "title": title,
+                        "blocked": False})
     # 着手の条件が母集団のタスクを名指しするものは、先送りではなく回の中の順番なので残りに数える。
     # 母集団の外のタスクを名指す条件は、完了を待つのか利用実績を待つのかを文から決められないので先送りのまま。
     in_run = {e["task"] for e in entries}
@@ -692,6 +695,7 @@ def population_view(ctx: Context, board: dict, rows: dict[str, dict]) -> dict:
             waiting = [t for t in named if t not in done]
             note = "・".join(waiting) + "待ち" if waiting else "・".join(named) + "は完了"
             e["kind"], e["where"] = "残り", note + (f"・{e['where']}" if e["where"] else "")
+            e["blocked"] = bool(waiting)
     remaining = [e for e in entries if e["kind"] in ("残り", "記録なし")]
     inherited = run.get("inherited") if isinstance(run.get("inherited"), dict) else None
     if inherited:
@@ -1267,6 +1271,12 @@ def cmd_check(ctx: Context, args: argparse.Namespace) -> int:
         first = str(waiting_dispatch[0].get("task"))
         problems.append(f"要対応: 振り出し待ち{len(waiting_dispatch)}件があり、門が開いている"
                         f"（例: {first} {task_title(ctx, first, f.ledger)}。board dispatch pop で取り出して振り出す）")
+    # 振り出し待ちの列が空でも、稼働0本で進められるものが残っていれば、司令塔が止まっている。
+    if not active and not f.cloud() and not waiting_dispatch:
+        idle = queue.idle_work(ctx, f.board, view, gate_open=not gate_reasons(f))
+        if idle:
+            problems.append("要対応: 稼働0本で、" + "・".join(idle) + "。次の振り出しを決める"
+                            "（振り出せないものは、理由を判断待ちとしてダッシュボードへ置くか振り出し待ちの前提にする）")
 
     cpu = "未取得" if f.cpu is None else f"{f.cpu:.0f}%"
     if problems:
@@ -1687,6 +1697,13 @@ def cmd_board(ctx: Context, args: argparse.Namespace) -> int:
         save_board(ctx, board)
         print(f"積んだ（{len(items)}件目）: {json.dumps(item, ensure_ascii=False)}")
         return 0
+    if args.op == "done":
+        if not 1 <= args.index <= len(order):
+            raise SystemExit(f"番号は1〜{len(order)}（board todo list の番号）: {args.index}")
+        item = items.pop(order[args.index - 1])
+        save_board(ctx, board)
+        print(f"済んだので外した: {json.dumps(item, ensure_ascii=False)}")
+        return 0
     # 振り出し待ちは、まだ完了しておらず、前提（after）がorigin/masterで完了したものだけが取り出せる。
     done = queue_done(ctx, items) if dispatch else set()
     ready = [i for i in order if dispatchable(items[i], done)]
@@ -1896,6 +1913,9 @@ def main(argv: list[str] | None = None) -> int:
         r.add_argument("pairs", nargs="*")
         r = ops.add_parser("pop")
         r.add_argument("index", nargs="?", type=int, help="listの番号（既定: 先頭）")
+        if name == "todo":
+            r = ops.add_parser("done", help="済んだ作業を、listの番号で外す")
+            r.add_argument("index", type=int, help="listの番号")
         ops.add_parser("list")
     bsub.add_parser("unpushed", help="監査を通したコミットのうちmasterに入っていないもの（gitから導く）")
 
