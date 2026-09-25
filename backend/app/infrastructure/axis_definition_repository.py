@@ -1,4 +1,4 @@
-"""評価軸定義（axis_definitions/axis_registry_meta）のPostGIS永続化層。
+"""評価軸定義（axis_definitions）のPostGIS永続化層。
 
 書き込みメソッドは一切commitしない（road_graph_repository.pyと同じ規約。呼び出し側
 [services/axis_registry_service.py]が操作のまとまりごとに`commit()`を呼んで確定する）。
@@ -11,12 +11,12 @@ JSONB列との(逆)シリアライズはPydanticへそのまま委ねる。`Cate
 from datetime import datetime, timezone
 
 from pydantic import TypeAdapter
-from sqlalchemy import delete, func, select, text, update
+from sqlalchemy import delete, select, text
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.domain.axis_definitions import AxisDefinition, AxisShape, PriorityCondition
-from app.infrastructure.axis_definition_models import AxisDefinitionRow, AxisRegistryMetaRow
+from app.infrastructure.axis_definition_models import AxisDefinitionRow
 
 _SHAPE_ADAPTER: TypeAdapter[AxisShape] = TypeAdapter(AxisShape)
 _PRIORITY_OVERRIDES_ADAPTER: TypeAdapter[list[PriorityCondition]] = TypeAdapter(list[PriorityCondition])
@@ -141,43 +141,10 @@ class AxisDefinitionRepository:
             },
         )
         await self._session.execute(stmt)
-        await self._bump_revision()
 
     async def delete(self, axis_id: str) -> bool:
         result = await self._session.execute(delete(AxisDefinitionRow).where(AxisDefinitionRow.axis_id == axis_id))
-        deleted = bool(result.rowcount)
-        if deleted:
-            await self._bump_revision()
-        return deleted
-
-    async def count(self) -> int:
-        """行数のみ（一括投入の前に、テーブルが空かどうかを確認する経路が使う）。"""
-        return await self._session.scalar(select(func.count()).select_from(AxisDefinitionRow)) or 0
-
-    async def delete_all(self) -> int:
-        """全行を削除する（一括投入の前にテーブルを空にするために使う）。
-
-        `upsert`/`delete`と違いrevisionを進めない——呼び出し側が一括投入の締めくくりで
-        `set_revision`するため、途中のrevision操作に意味が無い。
-        """
-        result = await self._session.execute(delete(AxisDefinitionRow))
-        return result.rowcount or 0
-
-    async def get_revision(self) -> int | None:
-        return await self._session.scalar(select(AxisRegistryMetaRow.revision).where(AxisRegistryMetaRow.id == 1))
-
-    async def set_revision(self, revision: int) -> None:
-        """revisionを指定値へ直接セットする（一括投入がダンプ時点の値を復元するために使う）。"""
-        await self._session.execute(
-            update(AxisRegistryMetaRow).where(AxisRegistryMetaRow.id == 1).values(revision=revision)
-        )
-
-    async def _bump_revision(self) -> None:
-        await self._session.execute(
-            update(AxisRegistryMetaRow)
-            .where(AxisRegistryMetaRow.id == 1)
-            .values(revision=AxisRegistryMetaRow.revision + 1)
-        )
+        return bool(result.rowcount)
 
     async def commit(self) -> None:
         await self._session.commit()

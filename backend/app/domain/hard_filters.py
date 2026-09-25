@@ -10,7 +10,6 @@ from typing import Mapping, NamedTuple
 
 import numpy as np
 
-from app.domain.graph import LeanRoadGraph
 from app.domain.material_sql import BICYCLE_NORMALIZED_SQL, HIGHWAY_SQL
 
 
@@ -76,33 +75,25 @@ def hard_filter_columns() -> tuple[str, ...]:
     return tuple(sorted(HARD_FILTER_VALUE_SQL))
 
 
-def compute_routable_node_ids(
-    graph: LeanRoadGraph,
-    edge_ids: list[str],
+def compute_routable_nodes(
+    edge_from: np.ndarray,
+    edge_to: np.ndarray,
     hard_filter_excluded: np.ndarray,
-) -> set[str]:
-    """0次ハードフィルタで除外されなかった（`hard_filter_excluded[i]`がFalse）Edgeが
-    1本以上あるNode ID集合を返す。
+    node_count: int,
+) -> np.ndarray:
+    """0次ハードフィルタで除外されなかった区間が1本以上あるノード（ノード番号順の真偽）。
 
     探索用グラフ（`domain/routing.py: LazyRoadGraph`）はHard Constraintをグラフ構造では
     なくコスト（`math.inf`）で表現するため、「実際に経路探索可能なNode」はここで別途
     求める必要がある。
 
     `hard_filter_excluded`は呼び出し元が探索コストを`inf`にするのに使うのと同じ配列を
-    そのまま渡す想定で、本関数は材料の表を参照しない。`edge_ids`は
-    `hard_filter_excluded`と**同じ行順・同じ長さ**——短い方に合わせて黙って切ると、
-    切られたEdgeのNodeが出発点・目的地の候補から静かに消える。
+    そのまま渡す想定で、`edge_from`・`edge_to`と**同じ行順・同じ長さ**。
     """
-    routable: set[str] = set()
-    edges = graph.edges
-    for edge_id, excluded in zip(edge_ids, hard_filter_excluded.tolist(), strict=True):
-        if excluded:
-            continue
-        edge = edges.get(edge_id)
-        if edge is None:
-            continue
-        routable.add(edge.from_node_id)
-        routable.add(edge.to_node_id)
+    kept = ~np.asarray(hard_filter_excluded, dtype=bool)
+    routable = np.zeros(node_count, dtype=bool)
+    routable[np.asarray(edge_from)[kept]] = True
+    routable[np.asarray(edge_to)[kept]] = True
     return routable
 
 

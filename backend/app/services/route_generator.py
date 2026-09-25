@@ -153,8 +153,8 @@ class RouteGenerator:
             context = await self._engine.prepare(origin, radius_km, waypoints=waypoints, now=start_time)
         except SearchAreaTooLargeError as exc:
             logger.warning(
-                "%s origin=%s %s -> search area too large road_edges=%d limit=%d prepare_ms=%d",
-                log_label, origin_label, log_detail, exc.road_edges, exc.limit,
+                "%s origin=%s %s -> search area too large edges=%d limit=%d prepare_ms=%d",
+                log_label, origin_label, log_detail, exc.edges, exc.limit,
                 round((time.monotonic() - started) * 1000),
             )
             self.last_no_candidates_reason = (

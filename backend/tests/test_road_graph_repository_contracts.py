@@ -29,6 +29,7 @@ from app.domain.landcover import LandcoverPercentages
 from app.domain.material_catalog import material_array_columns
 from app.domain.region import BoundingBox
 from app.infrastructure import road_graph_repository
+from app.domain.graph import edge_key, node_key
 from app.infrastructure.road_graph_repository import (
     MATERIAL_ARRAY_COLUMN_ORDER,
     RoadGraphRepository,
@@ -36,8 +37,6 @@ from app.infrastructure.road_graph_repository import (
     _SAMPLE_WAY_MATERIAL_VALUES_IN_BBOX_SQL,
     _SAMPLE_WAY_MATERIAL_VALUES_SQL,
     _way_from_clause,
-    edge_key,
-    node_key,
     parse_edge_feature_key,
     reversed_material_expression,
 )
@@ -177,74 +176,6 @@ def test_way_from_clause_joins_only_what_the_expression_reads():
 # --- 行からグラフを組む -------------------------------------------------------
 
 
-def _edge_row(way_id=1, segment=0, from_node=1, to_node=2, direction=None):
-    return _Row(osm_way_id=way_id, segment_index=segment,
-                from_node_id=from_node, to_node_id=to_node,
-                distance_m=100.0, bearing_deg=10.0, reverse_bearing_deg=190.0,
-                highway="highway_a", direction=direction)
-
-
-def _node_row(osm_node_id):
-    return _Row(osm_node_id=osm_node_id, longitude=139.0, latitude=35.0,
-                has_traffic_signals=False, max_highway_rank=0)
-
-
-async def test_two_way_segment_becomes_two_directed_edges():
-    """DBの区間は向きを持たない1行で、有向の枝はここだけが作る。"""
-    repo, _ = _repo([_edge_row(direction="both")], [_node_row(1), _node_row(2)])
-
-    graph = await repo.get_graph_topology_in_bbox(BBOX)
-
-    forward = graph.edges[edge_key(1, 0, True)]
-    backward = graph.edges[edge_key(1, 0, False)]
-    assert (forward.from_node_id, forward.to_node_id) == (node_key(1), node_key(2))
-    assert (backward.from_node_id, backward.to_node_id) == (node_key(2), node_key(1))
-    assert (forward.bearing_deg, backward.bearing_deg) == (10.0, 190.0)
-    assert forward.geometry == [] and backward.geometry == []
-    assert set(graph.nodes) == {node_key(1), node_key(2)}
-
-
-@pytest.mark.parametrize(("direction", "travellable"), [("forward", True), ("backward", False)])
-async def test_one_way_keeps_only_the_travellable_direction(direction, travellable):
-    """逆走する枝を作ると、通れない向きの経路を候補として出す。"""
-    repo, _ = _repo([_edge_row(direction=direction)], [_node_row(1), _node_row(2)])
-
-    graph = await repo.get_graph_topology_in_bbox(BBOX)
-
-    assert list(graph.edges) == [edge_key(1, 0, travellable)]
-
-
-async def test_edge_whose_endpoint_is_missing_is_dropped():
-    """端のノードが無い枝を残すと、探索が存在しないノードを辿って落ちる。"""
-    repo, _ = _repo([_edge_row()], [_node_row(1)])
-
-    graph = await repo.get_graph_topology_in_bbox(BBOX)
-
-    assert graph.edges == {}
-
-
-async def test_no_edges_in_bbox_yields_no_graph():
-    """道路が1本も無ければノードも引かない（呼び出し側は候補なしとして扱う）。"""
-    repo, session = _repo([])
-
-    assert await repo.get_graph_topology_in_bbox(BBOX) is None
-    assert len(session.calls) == 1
-
-
-async def test_endpoint_nodes_are_looked_up_in_chunks(monkeypatch):
-    """端点のノードは区切って引く（1回の問い合わせへ渡すidの数を抑える）。"""
-    monkeypatch.setattr(road_graph_repository, "_ID_CHUNK_SIZE", 2)
-    repo, session = _repo(
-        [_edge_row(from_node=1, to_node=2), _edge_row(segment=1, from_node=2, to_node=3)],
-        [_node_row(1), _node_row(2)],
-        [_node_row(3)],
-    )
-
-    await repo.get_graph_topology_in_bbox(BBOX)
-
-    assert [params["node_ids"] for params in session.params[1:]] == [[1, 2], [3]]
-
-
 # --- ジオメトリ付きの取り直し -------------------------------------------------
 
 
@@ -305,11 +236,11 @@ async def test_material_values_land_in_the_matrix_of_their_dtype():
 
     arrays = await repo.get_edge_material_arrays([_lean_edge(), _lean_edge(segment=1)], 5)
 
-    assert arrays.column(numeric)[0] == 1.5
+    assert arrays.columns()[numeric][0] == 1.5
     # 欠損は0ではなくNaN。0で埋めると「値が無い」が「一番良い値」として採点される。
-    assert np.isnan(arrays.column(numeric)[1])
-    assert arrays.column(boolean).tolist() == [True, False]
-    first, second = arrays.column(categorical)
+    assert np.isnan(arrays.columns()[numeric][1])
+    assert arrays.columns()[boolean].tolist() == [True, False]
+    first, second = arrays.columns()[categorical]
     assert first == "value_a"
     # 同じ文字列は1つのオブジェクトを指す（pickleが重複を省き、ディスクの実体が縮む）。
     assert first is second
@@ -335,7 +266,6 @@ async def test_rows_keep_the_order_of_the_given_edges_across_chunks(monkeypatch)
 
     arrays = await repo.get_edge_material_arrays(edges, 1)
 
-    assert arrays.edge_ids == [edge.edge_id for edge in edges]
     assert arrays.distance_m.tolist() == [10.0, 20.0]
     assert [params["way_ids"] for params in session.params] == [[1], [2]]
     assert [params["segment_indexes"] for params in session.params] == [[0], [3]]

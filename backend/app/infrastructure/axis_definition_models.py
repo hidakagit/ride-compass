@@ -49,19 +49,3 @@ class AxisDefinitionRow(Base):
     dynamic_way_value_needs_bearing: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="false")
     dynamic_way_value_needs_speed: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="false")
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default="now()")
-
-
-class AxisRegistryMetaRow(Base):
-    """軸レジストリ全体の版数（1行のみ、id=1固定）。
-
-    管理API（api/routers/axis_admin.py）の書き込みごとにインクリメントする。
-    `infrastructure/tile_score_matrix_cache.py: sync_disk_cache_with_axis_revision`が、
-    アプリ起動のたびに呼ばれる`refresh_axis_definitions`から見て軸定義が実際に変わったか
-    どうかを、この値で判定する。行が無い環境では`get_revision()`がNoneを返し、呼び出し側は
-    安全側（常に無効化）へ倒れる。
-    """
-
-    __tablename__ = "axis_registry_meta"
-
-    id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    revision: Mapped[int] = mapped_column(Integer, nullable=False)

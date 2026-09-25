@@ -4,7 +4,7 @@ Road Attribute（`domain/attributes.py`）とRoute PreferenceからEdge Costを�
 Route Engineから独立させ、Route Engine自身は「勾配がきつい」「路面が悪い」といった
 評価の中身を一切知らないようにする。
 
-評価はタイル単位の静的スコア行列（`build_static_edge_score_matrix`）へ一本化してある。
+評価は探索範囲ごとの静的スコア行列（`build_static_edge_score_matrix`）へ一本化してある。
 入力はDBが導出した材料の行列（`EdgeMaterialArrays`）で、このモジュールは材料の値を
 どう求めるかを知らない。way1本を指す区間インスペクタだけがスカラーで評価する
 （`domain/axis_inspector.py`→`evaluate_axes_scalar`）。
@@ -43,9 +43,6 @@ from app.domain.axis_definitions import (
 from app.domain.axis_raw_value import axis_material_shares, raw_value_unit
 from app.domain.axis_templates import round1_array
 from app.domain.difficulty import distance_weighted_difficulty_array
-from app.domain.hard_filters import (
-    HARD_FILTER_NAMES,
-)
 from app.domain.material_catalog import (
     MATERIAL_CATALOG,
 )
@@ -79,12 +76,7 @@ def _neumaier_accumulate(terms: list[np.ndarray]) -> np.ndarray:
 
 
 def has_route_facing_raw_value(definition: AxisDefinition) -> bool:
-    """その軸の生値を静的スコア行列の列として持つか。
-
-    空タイル（列だけを揃える分岐）と通常のタイルが**別々にこの条件を書く**と、片方だけ
-    変えた瞬間に列数・列順が食い違い、`combine_static_edge_score_matrices`の
-    `np.concatenate`がタイルをまたいで失敗する（またはずれた列で合成される）。
-    述語はここ1箇所だけが持つ。
+    """その軸の生値を静的スコア行列の列として持つか。述語はここ1箇所だけが持つ。
 
     - 単位が定まらない軸（`raw_value_unit`がNone）は、数字を添えても読み手が意味を取れない。
     - 動的材料（風）を参照する軸は対象外——静的スコア行列は`weather=None`で組み立てるため
@@ -96,13 +88,7 @@ def has_route_facing_raw_value(definition: AxisDefinition) -> bool:
 
 
 def route_facing_raw_axis_ids() -> list[str]:
-    """静的スコア行列が生値の列として持つ軸id（**並びも含めた唯一の定義元**）。
-
-    空タイルの分岐・通常タイルの構築・キャッシュ読み出し時の列検証が別々にこの条件を
-    書くと、片方だけ変えた瞬間に列数・列順が食い違い、
-    `combine_static_edge_score_matrices`の`np.concatenate`がタイルをまたいで失敗する
-    （または、ずれた列で合成されて別の軸の生値を表示する）。
-    """
+    """静的スコア行列が生値の列として持つ軸id（**並びも含めた唯一の定義元**）。"""
     return [
         axis_id
         for axis_id in topological_axis_order(AXIS_DEFINITIONS)
@@ -115,8 +101,7 @@ def route_facing_raw_axis_ids() -> list[str]:
 def _published_axis_leaf_material_ids() -> list[str]:
     """公開軸を依存順に辿り、分解された葉の材料idを安定順で返す。
 
-    下の2本（数値列とcategorical列）が同じ順序で列を組み立てるための土台。順序が2本で
-    違うと、一方の列だけがタイル間でずれる。
+    下の2本（数値列とcategorical列）が同じ順序で列を組み立てるための土台。
     """
     seen: dict[str, None] = {}
     for axis_id in topological_axis_order(AXIS_DEFINITIONS):
@@ -135,11 +120,6 @@ def route_facing_material_ids() -> list[str]:
     載らず、得点だけしか出せない。材料まで分解すれば較正に依存しない絶対の事実を出せる
     （`axis_raw_value.py: axis_material_shares`）ため、分解された葉の材料を軸の生値と
     同じ形で列として持つ。
-
-    `has_route_facing_raw_value`と同じ理由でこの述語は**ここ1箇所だけが持つ**——空タイル
-    （列だけを揃える分岐）と通常のタイルが別々に条件を書くと、片方だけ変えた瞬間に
-    列数・列順が食い違い、`combine_static_edge_score_matrices`の`np.concatenate`が
-    タイルをまたいで失敗する（またはずれた列で合成される）。
 
     対象外:
 
@@ -173,9 +153,6 @@ def route_facing_categorical_material_ids() -> list[str]:
     `route_facing_material_ids`のcategorical版。数値行列には文字列を載せられないため、
     列は別に持つ（`StaticEdgeScoreMatrix.categorical_material_values`）。区間ごとの値を
     ルート集約で「値ごとの延長割合」へ畳むのは`merge_material_category_shares`。
-
-    述語をここ1箇所に置く理由は`has_route_facing_raw_value`と同じ——空タイル（列だけを
-    揃える分岐）と通常のタイルが別々に条件を書くと列がずれる。
     """
     seen: dict[str, None] = {}
     for material_id in _published_axis_leaf_material_ids():
@@ -199,13 +176,12 @@ class BulkAxisEvaluation:
     `compute_hard_filter_excluded`が別途行う。
     """
 
-    edge_ids: list[str]
     distance_m: np.ndarray
     bearing_deg: np.ndarray
     # 0次フィルタ名→該当フラグ（`HARD_FILTER_NAMES`と同じキー集合）。リクエストごとに
     # 変わる有効/無効の絞り込みは`compute_hard_filter_excluded`が行う。
     # フィルタを1つ増やしてもこの構造は変わらない——専用フィールドへ潰すと、
-    # dataclass・結合・受け渡しの全段で1本ずつ追加が要る。
+    # dataclass・受け渡しの全段で1本ずつ追加が要る。
     hard_filter_flags: dict[str, np.ndarray]
     gradient_percent: np.ndarray
     # Edge中点の緯度経度（from/toノードの平均）。探索前に各Edgeの通過予定時刻を基準点からの
@@ -247,7 +223,6 @@ def _empty_material_arrays(n: int) -> dict[str, np.ndarray]:
 
 
 def _evaluate_axes_from_material_arrays(
-    edge_ids: list[str],
     material_arrays: dict[str, np.ndarray],
     *,
     hard_filter_flags: Mapping[str, np.ndarray],
@@ -265,54 +240,10 @@ def _evaluate_axes_from_material_arrays(
     0次ハードフィルタの生フラグと区間そのものの列（距離・方位・中点）は材料ではないため
     別に受け取る。フィルタは`HARD_FILTER_NAMES`と同じキー集合の辞書で渡す。
 
-    **動的材料（風）の列は常にNaN**。風は区間の通過時刻で変わるため、タイル単位で1回だけ
-    組むこの行列では値を持てず、リクエストごとに`evaluate_dynamic_axis_arrays`が該当列を
-    上書きする。
+    **動的材料（風）の列は常にNaN**。風は区間の通過時刻で変わるため、この行列では値を持てず、
+    `evaluate_dynamic_axis_arrays`が該当列を通過時刻ごとに上書きする。
     """
-    n = len(edge_ids)
-
-    if n == 0:
-        # axis_arraysを空dict{}のまま返すと、build_static_edge_score_matrixが構築する
-        # axis_scoresの列数が0になり、他タイル（列数=公開軸数、例えば8）と
-        # combine_static_edge_score_matricesでnp.concatenateする際に「dimension 1の
-        # サイズ不一致」でValueErrorになる（bbox内の1タイルがEdge0件[空タイル、道路
-        # データが疎らな区画]の場合に起こりうる）。Edge0件でも「公開軸それぞれに対応
-        # する長さ0の配列」を持たせることで、他タイルと同じ列数（shape=(0, 公開軸数)）に
-        # 揃える。列の並び順は非空タイルの計算フェーズ（下記for文）と同じ
-        # topological_axis_orderを使い、is_published判定も同じにする——
-        # combine_static_edge_score_matricesは最初のタイルのaxis_idsをそのまま全体の
-        # axis_idsとして採用するため、列の並びが全タイルで一致している必要がある。
-        empty_axis_arrays = {
-            axis_id: np.array([])
-            for axis_id in topological_axis_order(AXIS_DEFINITIONS)
-            if AXIS_DEFINITIONS[axis_id].is_published
-        }
-        empty_raw_arrays = {axis_id: np.array([]) for axis_id in route_facing_raw_axis_ids()}
-        return BulkAxisEvaluation(
-            edge_ids=[],
-            distance_m=np.array([]),
-            bearing_deg=np.array([]),
-            hard_filter_flags={name: np.array([], dtype=bool) for name in HARD_FILTER_NAMES},
-            gradient_percent=np.array([]),
-            mid_lat=np.array([]),
-            mid_lon=np.array([]),
-            axis_arrays=empty_axis_arrays,
-            axis_raw_arrays=empty_raw_arrays,
-            # **非空タイルと同じ絞り込みを掛ける**（下の計算フェーズと同じ
-            # `in MATERIAL_CATALOG`）。片方だけ素通しにすると、空タイルだけが余分な列を
-            # 持ち、`combine_static_edge_score_matrices`が列の対応を取れなくなる
-            # ——上の軸の列で書いたのと同じ形の食い違いが、材料の列で起きる。
-            material_value_arrays={
-                material_id: np.array([])
-                for material_id in route_facing_material_ids()
-                if material_id in MATERIAL_CATALOG
-            },
-            categorical_material_arrays={
-                material_id: np.array([], dtype=object)
-                for material_id in route_facing_categorical_material_ids()
-                if material_id in MATERIAL_CATALOG
-            },
-        )
+    n = len(distance_m)
     # --- 計算フェーズ（Pythonループ無し） ---
     material_arrays.update({material_id: np.full(n, np.nan) for material_id in REQUEST_DYNAMIC_MATERIAL_IDS})
     # スカラー版（`axis_definitions.py: evaluate_axes_scalar`）と同じ依存順評価
@@ -330,15 +261,12 @@ def _evaluate_axes_from_material_arrays(
         material_arrays_with_axes[axis_id] = arr
         if definition.is_published:
             axis_arrays[axis_id] = arr
-    # 生値の列は`route_facing_raw_axis_ids`が決める（空タイル分岐・読み出し時検証と同じ
-    # 定義元を使う。ここで条件を書き直すと、片方だけ変えたときに列がずれる）。
+    # 生値の列は`route_facing_raw_axis_ids`が決める。
     for axis_id in route_facing_raw_axis_ids():
         raw = axis_raw_value_array(AXIS_DEFINITIONS[axis_id], material_arrays_with_axes)
         assert raw is not None, f"route_facing_raw_axis_idsが返した{axis_id}の生値が作れない"
         axis_raw_arrays[axis_id] = raw
 
-    # 絞り込みの条件は空タイル分岐（上）と同じにする——`material_arrays`はここで
-    # `MATERIAL_CATALOG`全材料ぶん確保しているため、両者は同じ集合を指す。
     material_value_arrays = {
         material_id: material_arrays[material_id].astype(float, copy=False)
         for material_id in route_facing_material_ids()
@@ -351,7 +279,6 @@ def _evaluate_axes_from_material_arrays(
     }
 
     return BulkAxisEvaluation(
-        edge_ids=edge_ids,
         distance_m=distance_m,
         bearing_deg=bearing_deg,
         hard_filter_flags=dict(hard_filter_flags),
@@ -532,9 +459,8 @@ def compose_costs_from_axis_matrix(
 
 @dataclass(frozen=True, slots=True)
 class StaticEdgeScoreMatrix:
-    """タイル単位でキャッシュする「Edge×公開軸」の静的スコア行列＋0次フィルタ・A*
-    ヒューリスティック用の生配列。全ての配列は`edge_ids`と同じ行順で揃う（Edge単位の
-    辞書キャッシュに比べ、本行列はEdgeあたり軸の数×8バイト程度で収まる）。
+    """探索範囲の区間ごとの「Edge×公開軸」の静的スコア行列＋0次フィルタ・A*
+    ヒューリスティック用の生配列。全ての配列は同じ行順（切り出した区間の順）で揃う。
 
     `axis_scores`の列（`axis_ids`）は風などREQUEST_DYNAMIC_MATERIAL_IDSに依存する軸を
     含む全公開軸だが、そのような軸の列は常にNaN（`_evaluate_axes_from_material_arrays`が
@@ -545,9 +471,8 @@ class StaticEdgeScoreMatrix:
     動的材料と静的材料を混ぜる軸はこの形では表現できない。
     """
 
-    edge_ids: list[str]
     axis_ids: list[str]
-    axis_scores: np.ndarray  # shape (len(edge_ids), len(axis_ids))
+    axis_scores: np.ndarray  # shape (区間, len(axis_ids))
     distance_m: np.ndarray
     bearing_deg: np.ndarray
     # 0次フィルタ名→該当フラグ（`HARD_FILTER_NAMES`と同じキー集合）。リクエストごとに
@@ -573,13 +498,12 @@ class StaticEdgeScoreMatrix:
     categorical_material_values: np.ndarray = field(default_factory=lambda: np.empty((0, 0), dtype=object))
 
     def __post_init__(self) -> None:
-        """行と列が`edge_ids`・id列と揃っていることを、組み立てた場所で確かめる。
+        """行と列が揃っていることを、組み立てた場所で確かめる。
 
         揃っていないまま先へ進むと、行がずれた区間のコストと難易度を**別のEdgeのもの**として
-        返し、列がずれれば別の軸の生値を表示する。どちらも例外にならないため、キャッシュへ
-        焼き付いた後に地図と一覧が食い違う形でしか現れない。
+        返し、列がずれれば別の軸の生値を表示する。どちらも例外にならない。
         """
-        rows = len(self.edge_ids)
+        rows = len(self.distance_m)
         matrices = (
             ("axis_scores", self.axis_scores, self.axis_ids),
             ("axis_raw_values", self.axis_raw_values, self.raw_axis_ids),
@@ -621,19 +545,19 @@ def _static_edge_score_matrix_from(evaluation: BulkAxisEvaluation) -> StaticEdge
     axis_scores = (
         np.stack([evaluation.axis_arrays[axis_id] for axis_id in axis_ids], axis=1)
         if axis_ids
-        else np.empty((len(evaluation.edge_ids), 0))
+        else np.empty((len(evaluation.distance_m), 0))
     )
     raw_axis_ids = list(evaluation.axis_raw_arrays.keys())
     axis_raw_values = (
         np.stack([evaluation.axis_raw_arrays[axis_id] for axis_id in raw_axis_ids], axis=1)
         if raw_axis_ids
-        else np.empty((len(evaluation.edge_ids), 0))
+        else np.empty((len(evaluation.distance_m), 0))
     )
     material_ids = list(evaluation.material_value_arrays.keys())
     material_values = (
         np.stack([evaluation.material_value_arrays[material_id] for material_id in material_ids], axis=1)
         if material_ids
-        else np.empty((len(evaluation.edge_ids), 0))
+        else np.empty((len(evaluation.distance_m), 0))
     )
     categorical_material_ids = list(evaluation.categorical_material_arrays.keys())
     categorical_material_values = (
@@ -642,10 +566,9 @@ def _static_edge_score_matrix_from(evaluation: BulkAxisEvaluation) -> StaticEdge
             axis=1,
         )
         if categorical_material_ids
-        else np.empty((len(evaluation.edge_ids), 0), dtype=object)
+        else np.empty((len(evaluation.distance_m), 0), dtype=object)
     )
     return StaticEdgeScoreMatrix(
-        edge_ids=evaluation.edge_ids,
         axis_ids=axis_ids,
         axis_scores=axis_scores,
         raw_axis_ids=raw_axis_ids,
@@ -664,8 +587,7 @@ def _static_edge_score_matrix_from(evaluation: BulkAxisEvaluation) -> StaticEdge
 
 
 def build_static_edge_score_matrix(materials: EdgeMaterialArrays) -> StaticEdgeScoreMatrix:
-    """タイル読込時（`GraphService._get_or_build_tile_materials`）に1回だけ呼び、
-    `StaticEdgeScoreMatrix`を構築する。
+    """切り出した範囲の材料から`StaticEdgeScoreMatrix`を構築する（生成のたびに1回）。
 
     材料はDBが導出済み（`MaterialSpec.value_sql`）で、事故の収録年数による正規化もその
     導出の中で既に効いている。動的軸（風）の列はここではNaNのままで、リクエスト時に
@@ -675,7 +597,6 @@ def build_static_edge_score_matrix(materials: EdgeMaterialArrays) -> StaticEdgeS
     arrays.update(materials.columns())
     return _static_edge_score_matrix_from(
         _evaluate_axes_from_material_arrays(
-            materials.edge_ids,
             arrays,
             hard_filter_flags=materials.hard_filter_columns(),
             distance_m=materials.distance_m,
@@ -683,91 +604,4 @@ def build_static_edge_score_matrix(materials: EdgeMaterialArrays) -> StaticEdgeS
             mid_lat=materials.mid_lat,
             mid_lon=materials.mid_lon,
         )
-    )
-
-
-def combine_static_edge_score_matrices(matrices: list[StaticEdgeScoreMatrix]) -> StaticEdgeScoreMatrix:
-    """複数タイルぶんの`StaticEdgeScoreMatrix`を、bbox全体1件分へ結合する
-    （`GraphService._build_search_materials_from_tile_cache`が複数z12タイルを1つの探索用
-    グラフへ結合するのと同じタイミングで使う）。
-
-    タイル同士でEdgeが重複する場合（境界付近等、稀）は**後のタイルを優先**する
-    （`combined_edges.update(tile.graph.edges)`と同じ「後勝ち」セマンティクスに揃える）。
-    行の並べ替えはEdge数十万件規模でもO(N)のnumpy fancy indexingで済み、Edge単位の
-    Pythonループ（探索のホットパスで避けたい処理そのもの）はここでは発生しない
-    （タイル→結合Edge indexの対応付けだけがPython dictループだが、これは`dict.update`
-    ベースの既存のグラフ結合処理と同じオーダーの一度きりのコスト）。
-    """
-    if not matrices:
-        return StaticEdgeScoreMatrix(
-            edge_ids=[], axis_ids=[], axis_scores=np.empty((0, 0)),
-            distance_m=np.array([]), bearing_deg=np.array([]),
-            hard_filter_flags={name: np.array([], dtype=bool) for name in HARD_FILTER_NAMES}, gradient_percent=np.array([]),
-            mid_lat=np.array([]), mid_lon=np.array([]),
-        )
-    if len(matrices) == 1:
-        return matrices[0]
-
-    axis_ids = matrices[0].axis_ids
-    raw_axis_ids = matrices[0].raw_axis_ids
-    material_ids = matrices[0].material_ids
-    categorical_material_ids = matrices[0].categorical_material_ids
-    # 先頭タイルの列をそのまま全体の列として採用する以上、全タイルで一致していることを
-    # ここで確かめる。食い違ったまま`np.concatenate`すると、列数が違えばValueErrorで落ち、
-    # 偶然一致すれば**別の軸の生値を表示する**（後者は例外にならないぶん質が悪い）。
-    for index, matrix in enumerate(matrices[1:], start=1):
-        mismatched = [
-            name
-            for name, first, other in (
-                ("axis_ids", axis_ids, matrix.axis_ids),
-                ("raw_axis_ids", raw_axis_ids, matrix.raw_axis_ids),
-                ("material_ids", material_ids, matrix.material_ids),
-                ("categorical_material_ids", categorical_material_ids, matrix.categorical_material_ids),
-            )
-            if first != other
-        ]
-        if mismatched:
-            raise ValueError(
-                f"静的スコア行列の列がタイル間で一致しません index={index} 不一致={mismatched}"
-            )
-    all_edge_ids = [edge_id for matrix in matrices for edge_id in matrix.edge_ids]
-    axis_scores = np.concatenate([matrix.axis_scores for matrix in matrices], axis=0)
-    axis_raw_values = np.concatenate([matrix.axis_raw_values for matrix in matrices], axis=0)
-    material_values = np.concatenate([matrix.material_values for matrix in matrices], axis=0)
-    categorical_material_values = np.concatenate(
-        [matrix.categorical_material_values for matrix in matrices], axis=0
-    )
-    distance_m = np.concatenate([matrix.distance_m for matrix in matrices])
-    bearing_deg = np.concatenate([matrix.bearing_deg for matrix in matrices])
-    # フィルタ名の集合は全タイルで同じ（`HARD_FILTER_NAMES`から一律に作る）ため、
-    # 先頭タイルのキーで揃える。
-    hard_filter_flags = {
-        name: np.concatenate([matrix.hard_filter_flags[name] for matrix in matrices])
-        for name in matrices[0].hard_filter_flags
-    }
-    gradient_percent = np.concatenate([matrix.gradient_percent for matrix in matrices])
-    mid_lat = np.concatenate([matrix.mid_lat for matrix in matrices])
-    mid_lon = np.concatenate([matrix.mid_lon for matrix in matrices])
-
-    # 重複edge_idは後勝ち（後から登場した行のindexで上書き）。
-    last_index_for_edge_id: dict[str, int] = {edge_id: i for i, edge_id in enumerate(all_edge_ids)}
-    final_edge_ids = list(last_index_for_edge_id.keys())
-    final_indices = np.array(list(last_index_for_edge_id.values()), dtype=int)
-
-    return StaticEdgeScoreMatrix(
-        edge_ids=final_edge_ids,
-        axis_ids=axis_ids,
-        axis_scores=axis_scores[final_indices],
-        raw_axis_ids=raw_axis_ids,
-        axis_raw_values=axis_raw_values[final_indices],
-        material_ids=material_ids,
-        material_values=material_values[final_indices],
-        categorical_material_ids=categorical_material_ids,
-        categorical_material_values=categorical_material_values[final_indices],
-        distance_m=distance_m[final_indices],
-        bearing_deg=bearing_deg[final_indices],
-        hard_filter_flags={name: flags[final_indices] for name, flags in hard_filter_flags.items()},
-        gradient_percent=gradient_percent[final_indices],
-        mid_lat=mid_lat[final_indices],
-        mid_lon=mid_lon[final_indices],
     )

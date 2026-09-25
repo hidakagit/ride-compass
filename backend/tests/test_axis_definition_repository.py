@@ -277,30 +277,3 @@ async def test_delete_returns_false_for_unknown_axis_id(road_graph_session):
     repository = AxisDefinitionRepository(road_graph_session)
 
     assert await repository.delete("unknown") is False
-
-
-# --- axis_registry_meta.revision（改善計画T221 Stage D、将来のマルチプロセス対応・監査用） ---
-
-
-async def test_get_revision_is_none_before_meta_row_exists(road_graph_session):
-    repository = AxisDefinitionRepository(road_graph_session)
-
-    assert await repository.get_revision() is None
-
-
-async def test_upsert_and_delete_each_bump_revision(road_graph_session):
-    repository = AxisDefinitionRepository(road_graph_session)
-    # `create_tables()`はaxis_registry_metaの行を作らず、行が無いと版数は進まない。
-    # 版数が進むことを見るため、行がある状態をここで作る。
-    from app.infrastructure.axis_definition_models import AxisRegistryMetaRow
-
-    road_graph_session.add(AxisRegistryMetaRow(id=1, revision=1))
-    await road_graph_session.commit()
-
-    await repository.upsert(axis_definition("test_axis"), sort_order=0)
-    await repository.commit()
-    assert await repository.get_revision() == 2
-
-    await repository.delete("test_axis")
-    await repository.commit()
-    assert await repository.get_revision() == 3
