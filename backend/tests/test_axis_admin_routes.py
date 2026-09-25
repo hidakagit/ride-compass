@@ -1,12 +1,11 @@
-"""`api/routers/axis_admin.py`——軸スタジオの管理API（認可・書き込み時の検証・例外の変換）。
+"""`api/routers/axis_admin.py`——軸スタジオの管理API（書き込み時の検証・例外の変換）。
 
 ここで見ないもの:
 - 軸そのものの不変条件（折れ点・段の境界・段ラベル）と公開の不変性・材料の排他 → `test_axis_definitions.py`
 - 書き込みの本体（DBへの反映と`AXIS_DEFINITIONS`の差し替え） → `test_axis_registry_service.py`
 - 地図表示の導出・段が落ちるかの判定 → `test_axis_display.py`
 - 分布の計算 → `test_axis_preview_service.py`
-- Basic認証の判定そのもの → 認証情報の照合は`api/admin_auth.py`の責務。ここではどの口も
-  それを通すことだけを見る
+- 認可（どの口もBasic認証の依存を持つこと・その依存が拒むこと） → `test_admin_route_authorization.py`
 
 **ルーターが名前空間に持つ外向きの参照は差し替える**——材料カタログ（`is_known_material`・
 `material_dtype`）・軸の集合・動的材料の集合・配信実装の有無・地図表示の導出・分布の計算。
@@ -174,16 +173,6 @@ ROUTES = [(method, route.path) for route in axis_admin.router.routes for method 
 def send(client, method, path):
     body, _ = ROUTE_CASES[(method, path)]
     return client.request(method, path.replace("{axis_id}", "a"), json=body)
-
-
-@pytest.mark.parametrize(("method", "path"), ROUTES)
-def test_every_route_rejects_a_request_without_credentials(app, admin_credentials, registry, method, path):
-    registry.axes["a"] = stored(is_published=True)
-
-    response = send(TestClient(app), method, path)
-
-    assert response.status_code == 401
-    assert registry.calls == []
 
 
 @pytest.mark.parametrize(("method", "path"), ROUTES)

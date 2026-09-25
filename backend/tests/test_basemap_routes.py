@@ -87,15 +87,3 @@ def test_basemap_refresh_clears_tile_cache(tmp_path, monkeypatch, admin_credenti
 
     assert response.status_code == 200
     assert tile_cache.get("styles/liberty") is None
-
-
-def test_basemap_refresh_requires_admin_auth(tmp_path, monkeypatch, admin_credentials):
-    # 全利用者のタイルキャッシュを消す操作のため、認可の外から叩けてはならない
-    # （T639でこのエンドポイントを一般公開UIから管理画面へ移した理由そのもの）。
-    monkeypatch.setattr(tile_cache, "CACHE_DIR", tmp_path / "tile_cache")
-    tile_cache.set("styles/liberty", b"cached", "application/json")
-
-    response = client.post(REFRESH_PATH)
-
-    assert response.status_code == 401
-    assert tile_cache.get("styles/liberty") is not None
