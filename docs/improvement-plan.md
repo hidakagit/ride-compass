@@ -136,7 +136,6 @@ CLAUDE.md参照。節見出しはタスクのテーマ分類で、日付は起�
 - [ ] [T1053](records/tasks/T1053.md). 利用条件を公式で確定できなかった外部ソース（逆ジオコーダ・MSMと気象業務法・WBGTの予測値API）の扱いを決める 規模S
 - [ ] [T1059](records/tasks/T1059.md). ワーカーを複数にした起動が本番の形（Linux・Docker）で実際に止まるかを見る 規模S
 - [ ] [T1075](records/tasks/T1075.md). 旧car_stress一族に代わる走りにくさの軸を、指定路線の材料なしで作り直す 規模M
-- [ ] [T1097](records/tasks/T1097.md). 経路探索エンジンのテストに残るFakeScoreMatrixとBagによる代役（NodeSpatialIndex・SearchMaterials・材料・_LegCostComposer等）を、本物の型で作る形へ置き換える 規模M
 
 ## 完了扱いにしたが作業が残っていたもの（2026-09-21・タスクの状態表記を「完了／未完了」の2語へ揃えた際に判明）
 
