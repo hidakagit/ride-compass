@@ -17,47 +17,47 @@
   （`infrastructure/search_graph_cache.py`）・`GraphService`／`WeatherService`の中身
   → それぞれの持ち主のテストが持つ。
 
-**境界の向こうは本物を使わない。** このファイルが実際に読む属性・呼ぶ関数だけを持つ
-架空の型を与え、モジュールの名前空間ごと差し替える。実在のedge_id・軸id・材料idには
+**境界の向こうは本物を使わない。** 他モジュールの関数・サービス・キャッシュは、このファイルが
+実際に呼ぶものだけを架空の実装へ差し替える。実在のedge_id・軸id・材料idには
 依らない（`axis_a`・`mat_a`のような性質だけの名前を使う）。
-ただしRoad Graph（`LeanNode`・`LeanEdge`・`LeanRoadGraph`）・`Coordinates`・探索構造
-（`LazyRoadGraph`・`SearchGraphStatics`・`TurnExpandedStructure`・`TurnExpandedTree`・`NodeJunction`等）・
-`ElevationAttribute`は本物で作る——このファイルが組み立てて渡し、読む型で、代役にしても何も切り離せず、
-本物が変わったときに黙ってずれるだけになる。
+ただしこのファイルが組み立てて渡し、読むデータ型（Road Graph・`Coordinates`・探索構造・
+`StaticEdgeScoreMatrix`・`_LegCostComposer`・`TracedLoop`・`RouteCandidate`等）は本物で作る——
+代役にしても何も切り離せず、本物が変わったときに黙ってずれるだけになる。
 """
 
 import math
 from dataclasses import replace
 from datetime import datetime, timedelta, timezone
+from types import SimpleNamespace
 
 import numpy as np
 import pytest
 
-from app.domain.attributes import ElevationAttribute
+from app.domain.attributes import ElevationAttribute, SearchMaterials
+from app.domain.evaluation import AxisComposition, StaticEdgeScoreMatrix
 from app.domain.graph import LeanEdge, LeanNode, LeanRoadGraph
-from app.domain.route import Coordinates
+from app.domain.loop_routing import LoopTurnaround, TracedLoop
+from app.domain.region import BoundingBox
+from app.domain.route import Coordinates, RouteCandidate, RouteSegmentDetail
+from app.domain.route_preference import RoutePreference
 from app.domain.routing import (
     CsrGraphStructure,
     LazyRoadGraph,
     NodeJunction,
+    NodeSpatialIndex,
     SearchGraphStatics,
     TurnExpandedStructure,
     TurnExpandedTree,
 )
+from app.domain.wind import WindForecastSeries
 from app.services import road_graph_engine as engine
+from tests.axis_system_fixture import axis_definition, replaced_axis_definitions
 from tests.bound_fake import bound
 
 
 # --------------------------------------------------------------------------------------
-# 架空の世界（このファイルが読む属性・呼ぶ関数だけを持つ）
+# 架空の世界（本物の型を、そのテストが読む値だけ埋めて作る）
 # --------------------------------------------------------------------------------------
-
-
-class Bag:
-    """任意のキーワードをそのまま属性にする器（このファイルが組み立てて返す型の代役）。"""
-
-    def __init__(self, **kwargs):
-        self.__dict__.update(kwargs)
 
 
 def coords(latitude, longitude):
@@ -93,61 +93,59 @@ def turn_tree(state_count, *, node_cost, node_length_m, node_seconds, node_best_
     )
 
 
-class FakeScoreMatrix:
-    """`GraphService`が返す静的スコア行列のうち、このファイルが読む列だけを持つ。"""
+class ElevationTable:
+    """`ElevationSource`（エンジンが材料から読む唯一の口。Protocol）を、区間ごとの標高属性の表で満たす。"""
 
-    def __init__(
-        self,
-        *,
-        edge_ids,
-        distance_m,
-        gradient_percent=None,
-        bearing_deg=None,
-        axis_ids=(),
-        axis_columns=None,
-        raw_axis_ids=(),
-        axis_raw_values=None,
-        material_ids=(),
-        material_values=None,
-        categorical_material_ids=(),
-        categorical_material_values=None,
-        hard_filter_flags=None,
-        mid_lat=None,
-        mid_lon=None,
-    ):
-        count = len(edge_ids)
-        self.edge_ids = list(edge_ids)
-        self.distance_m = np.asarray(distance_m, dtype=float)
-        self.gradient_percent = (
-            np.zeros(count) if gradient_percent is None else np.asarray(gradient_percent, dtype=float)
-        )
-        self.bearing_deg = np.zeros(count) if bearing_deg is None else np.asarray(bearing_deg, dtype=float)
-        self.axis_ids = list(axis_ids)
-        self._axis_columns = dict(axis_columns or {})
-        self.raw_axis_ids = list(raw_axis_ids)
-        self.axis_raw_values = (
-            np.zeros((count, len(self.raw_axis_ids)))
-            if axis_raw_values is None
-            else np.asarray(axis_raw_values, dtype=float)
-        )
-        self.material_ids = list(material_ids)
-        self.material_values = (
-            np.zeros((count, len(self.material_ids)))
-            if material_values is None
-            else np.asarray(material_values, dtype=float)
-        )
-        self.categorical_material_ids = list(categorical_material_ids)
-        self.categorical_material_values = (
-            np.empty((count, len(self.categorical_material_ids)), dtype=object)
-            if categorical_material_values is None
-            else np.asarray(categorical_material_values, dtype=object)
-        )
-        self.hard_filter_flags = hard_filter_flags
-        self.mid_lat = np.zeros(count) if mid_lat is None else np.asarray(mid_lat, dtype=float)
-        self.mid_lon = np.zeros(count) if mid_lon is None else np.asarray(mid_lon, dtype=float)
+    def __init__(self, attributes=None):
+        self._attributes = dict(attributes or {})
 
-    def axis_arrays(self):
-        return dict(self._axis_columns)
+    def elevation_attribute(self, edge_id):
+        return self._attributes.get(edge_id)
+
+
+def node_index(graph):
+    """Nodeを1つも持たない索引。最寄りNodeの探索（`find_nearest_node_indexed`）は各テストが差し替える。"""
+    return NodeSpatialIndex(graph=graph, cell_size_deg=0.01, buckets={}, cell_bounds=None)
+
+
+def wind_series(hours=24, speed_ms=3.0, direction_deg=5.0):
+    """時別の風の予報。合成が見るのは「系列があるか」で、中身は動的軸の文脈へ渡るだけ。"""
+    start = datetime(2026, 9, 22, 0, 0)
+    return WindForecastSeries(
+        times=[start + timedelta(hours=h) for h in range(hours)],
+        speed_ms=np.full(hours, speed_ms), direction_deg=np.full(hours, direction_deg),
+    )
+
+
+def route_preference(weights):
+    """`weights`の軸を公開軸として宣言した間に組む（`RoutePreference`は宣言に無い軸を拒む）。"""
+    declared = {
+        axis_id: axis_definition(axis_id, material=f"mat_of_{axis_id}", is_published=True) for axis_id in weights
+    }
+    with replaced_axis_definitions(declared):
+        return RoutePreference(weights=weights)
+
+
+def segment_detail(difficulty, distance_km):
+    return RouteSegmentDetail(
+        start_latitude=35.0, start_longitude=139.0, end_latitude=35.0, end_longitude=139.0,
+        cumulative_distance_km=0.0, distance_km=distance_km, difficulty=difficulty,
+    )
+
+
+def route_candidate(name, segments=()):
+    """`name`は候補を見分けるためだけのid。"""
+    return RouteCandidate(id=name, direction_label=name, distance_km=1.0, geometry={}, segments=list(segments))
+
+
+def traced_loop(data, bearing=90, *, distance_km=1.0, leg_of_edge=None):
+    return TracedLoop(
+        bearing=bearing, distance_km=distance_km, data=list(data),
+        leg_of_edge=[0] * len(data) if leg_of_edge is None else list(leg_of_edge),
+    )
+
+
+BBOX = BoundingBox(min_latitude=34.9, min_longitude=138.9, max_latitude=35.1, max_longitude=139.1)
 
 
 class FakeSearchGraphCache:
@@ -435,8 +433,8 @@ def test_pick_better_candidate_prefers_the_lower_difficulty(monkeypatch):
     monkeypatch.setattr(
         engine, "distance_weighted_difficulty", lambda pairs: pairs[0][0] if pairs else None
     )
-    forward = Bag(segments=[Bag(difficulty=5.0, distance_km=1.0)])
-    reverse = Bag(segments=[Bag(difficulty=3.0, distance_km=1.0)])
+    forward = route_candidate("forward", segments=[segment_detail(5.0, 1.0)])
+    reverse = route_candidate("reverse", segments=[segment_detail(3.0, 1.0)])
 
     assert engine._pick_better_candidate(forward, reverse) is reverse
     assert engine._pick_better_candidate(reverse, forward) is reverse
@@ -447,8 +445,8 @@ def test_pick_better_candidate_falls_back_to_forward_when_reverse_cannot_be_scor
     monkeypatch.setattr(
         engine, "distance_weighted_difficulty", lambda pairs: pairs[0][0] if pairs else None
     )
-    forward = Bag(segments=[Bag(difficulty=5.0, distance_km=1.0)])
-    reverse = Bag(segments=[])
+    forward = route_candidate("forward", segments=[segment_detail(5.0, 1.0)])
+    reverse = route_candidate("reverse", segments=[])
 
     assert engine._pick_better_candidate(forward, reverse) is forward
 
@@ -457,8 +455,8 @@ def test_pick_better_candidate_takes_reverse_when_only_forward_is_unscorable(mon
     monkeypatch.setattr(
         engine, "distance_weighted_difficulty", lambda pairs: pairs[0][0] if pairs else None
     )
-    forward = Bag(segments=[])
-    reverse = Bag(segments=[Bag(difficulty=7.0, distance_km=1.0)])
+    forward = route_candidate("forward", segments=[])
+    reverse = route_candidate("reverse", segments=[segment_detail(7.0, 1.0)])
 
     assert engine._pick_better_candidate(forward, reverse) is reverse
 
@@ -471,14 +469,14 @@ def test_route_composite_difficulty_feeds_difficulty_and_distance_pairs(monkeypa
         return 1.5
 
     monkeypatch.setattr(engine, "distance_weighted_difficulty", record)
-    candidate = Bag(segments=[Bag(difficulty=2.0, distance_km=0.5), Bag(difficulty=None, distance_km=0.3)])
+    candidate = route_candidate("candidate", segments=[segment_detail(2.0, 0.5), segment_detail(None, 0.3)])
 
     assert engine._route_composite_difficulty(candidate) == 1.5
     assert captured["pairs"] == [(2.0, 0.5), (None, 0.3)]
 
 
 def test_route_composite_difficulty_is_none_without_segments():
-    assert engine._route_composite_difficulty(Bag(segments=[])) is None
+    assert engine._route_composite_difficulty(route_candidate("candidate")) is None
 
 
 # --------------------------------------------------------------------------------------
@@ -559,13 +557,14 @@ def test_material_value_at_distinguishes_absent_from_missing_from_present():
 
 def make_context(**overrides):
     """`_RoadGraphContext`を、そのテストが読むフィールドだけ実体を入れて組む。"""
+    graph = overrides["graph"] if "graph" in overrides else make_graph([("e1", "n1", "n2", 100.0)])
     defaults = dict(
-        graph=make_graph([("e1", "n1", "n2", 100.0)]),
-        materials=Bag(),
+        graph=graph,
+        materials=ElevationTable(),
         accident_years_covered=1,
         weather=None,
         origin_node="n1",
-        node_index=Bag(),
+        node_index=node_index(graph),
         lazy_graph=None,
         composer=None,
         legs=[],
@@ -607,7 +606,7 @@ def test_median_detour_ratio_is_nan_when_every_target_is_at_zero_distance(monkey
 
 
 def test_learn_detour_ratio_stores_a_usable_measurement(cache):
-    context = make_context(composer=Bag(detour_ratio=1.4))
+    context = make_context(composer=make_composer(detour_ratio=1.4))
 
     assert engine._learn_detour_ratio(context, 1.9) == 1.9
     assert cache.detour_ratios[TILES] == 1.9
@@ -616,7 +615,7 @@ def test_learn_detour_ratio_stores_a_usable_measurement(cache):
 @pytest.mark.parametrize("measured", [float("nan"), 0.0])
 def test_learn_detour_ratio_keeps_the_current_value_for_unusable_measurements(cache, measured):
     """学習値が0や負になると、到着予定時刻が0秒や負の時刻になって画面へ出る。"""
-    context = make_context(composer=Bag(detour_ratio=1.4))
+    context = make_context(composer=make_composer(detour_ratio=1.4))
 
     assert engine._learn_detour_ratio(context, measured) == 1.4
     assert cache.detour_ratios == {}
@@ -911,18 +910,6 @@ class ComposerWorld:
 def composer_world(monkeypatch):
     world = ComposerWorld()
 
-    class FakeDynamicContext:
-        def __init__(self, *, bearing_deg, weather, travel_speed_ms, wind_series, start, passage_hours):
-            self.bearing_deg = bearing_deg
-            self.weather = weather
-            self.travel_speed_ms = travel_speed_ms
-            self.wind_series = wind_series
-            self.start = start
-            self.passage_hours = passage_hours
-
-        def wind_inputs(self):
-            return None if self.wind_series is None else (3.0, 5.0)
-
     def fake_evaluate(static_axis_scores, context):
         world.passages.append(None if context.passage_hours is None else np.asarray(context.passage_hours).copy())
         count = len(context.bearing_deg)
@@ -952,7 +939,7 @@ def composer_world(monkeypatch):
         world.compose_calls.append(
             {"axes": sorted(time_varying), "penalty": penalty, "static_sums": static_sums}
         )
-        return Bag(
+        return AxisComposition(
             cost=np.asarray(base, dtype=float) + total,
             difficulty=total.copy(),
             weight_sums=np.full(count, float(len(time_varying))),
@@ -965,12 +952,10 @@ def composer_world(monkeypatch):
     monkeypatch.setattr(engine, "AXIS_DEFINITIONS", {})
     monkeypatch.setattr(engine, "dynamic_axis_topological_order", lambda definitions: [AXIS_WIND])
     monkeypatch.setattr(engine, "REQUEST_DYNAMIC_MATERIAL_IDS", (MAT_DYN, MAT_DYN_EMPTY))
-    monkeypatch.setattr(engine, "DynamicAxisRequestContext", FakeDynamicContext)
     monkeypatch.setattr(engine, "evaluate_dynamic_axis_arrays", fake_evaluate)
     monkeypatch.setattr(engine, "wind_components", fake_wind_components)
     monkeypatch.setattr(engine, "crr_for_surface", fake_crr)
     monkeypatch.setattr(engine, "travel_seconds", fake_travel)
-    monkeypatch.setattr(engine, "RiderProfile", lambda **kwargs: Bag(**kwargs))
     monkeypatch.setattr(engine, "ROLLING_RESISTANCE_MATERIAL_ID", MAT_CRR)
     monkeypatch.setattr(engine, "POI_COUNT_KINDS", ("kind_a", "kind_b"))
     monkeypatch.setattr(engine, "stop_count_material_ids", lambda: [MAT_STOP_A, MAT_STOP_B])
@@ -982,15 +967,16 @@ def composer_world(monkeypatch):
 
 
 def make_score_matrix(count=3, **overrides):
-    columns = {
-        AXIS_STATIC: np.full(count, 1.0),
-        AXIS_WIND: np.full(count, 0.0),
-    }
     defaults = dict(
         edge_ids=["e%d" % i for i in range(count)],
         distance_m=np.full(count, 1000.0),
+        bearing_deg=np.zeros(count),
+        gradient_percent=np.zeros(count),
+        mid_lat=np.zeros(count),
+        mid_lon=np.zeros(count),
+        hard_filter_flags={},
         axis_ids=[AXIS_STATIC, AXIS_WIND],
-        axis_columns=columns,
+        axis_scores=np.column_stack([np.full(count, 1.0), np.full(count, 0.0)]),
         raw_axis_ids=[AXIS_STATIC],
         axis_raw_values=np.arange(count, dtype=float).reshape(count, 1),
         material_ids=[MAT_STOP_A, MAT_CRR],
@@ -999,7 +985,7 @@ def make_score_matrix(count=3, **overrides):
         categorical_material_values=np.array([["paved"]] * count, dtype=object),
     )
     defaults.update(overrides)
-    return FakeScoreMatrix(**defaults)
+    return StaticEdgeScoreMatrix(**defaults)
 
 
 def make_composer(score_matrix=None, *, weights=None, excluded=None, lazy_row_index=None,
@@ -1022,7 +1008,7 @@ def make_composer(score_matrix=None, *, weights=None, excluded=None, lazy_row_in
 
 def test_composer_is_time_varying_only_when_an_hourly_wind_series_exists(composer_world):
     assert make_composer().time_varying is False
-    assert make_composer(wind_series=Bag()).time_varying is True
+    assert make_composer(wind_series=wind_series()).time_varying is True
 
 
 def test_to_full_row_order_marks_edges_absent_from_the_search_graph(composer_world):
@@ -1046,14 +1032,14 @@ def test_lazy_hard_filter_excluded_is_reindexed_and_kept(composer_world):
 
 
 def test_bin_count_is_one_without_a_duration_or_without_wind(composer_world):
-    with_wind = make_composer(wind_series=Bag())
+    with_wind = make_composer(wind_series=wind_series())
     assert with_wind._bin_count(None) == 1
     assert make_composer()._bin_count(5.0) == 1
 
 
 def test_bin_count_covers_the_duration_up_to_the_ceiling(composer_world):
     """ビン1本ごとにbbox全体の合成が1回走るため、長いレグでも上限で頭打ちにする。"""
-    composer = make_composer(wind_series=Bag())
+    composer = make_composer(wind_series=wind_series())
 
     assert composer._bin_count(0.1) == 1
     assert composer._bin_count(engine.TIME_BIN_HOURS * 2 + 0.01) == 3
@@ -1074,7 +1060,7 @@ def test_compose_without_wind_series_makes_one_snapshot_shared_by_every_leg(comp
 
 
 def test_compose_splits_a_long_leg_into_hourly_bins(composer_world):
-    composer = make_composer(wind_series=Bag())
+    composer = make_composer(wind_series=wind_series())
 
     leg = composer.compose("outbound", coords(35.0, 139.0), 0.0, +1, duration_hours=3.0)
 
@@ -1086,7 +1072,7 @@ def test_compose_splits_a_long_leg_into_hourly_bins(composer_world):
 
 def test_compose_of_an_inbound_leg_counts_time_from_the_start_of_that_leg(composer_world):
     """`direction=-1`の`offset_hours`はレグの終了時刻。開始時刻へ直さないと風が2時間ずれる。"""
-    composer = make_composer(wind_series=Bag())
+    composer = make_composer(wind_series=wind_series())
 
     composer.compose("inbound", coords(35.0, 139.0), 5.0, -1, duration_hours=2.0)
 
@@ -1095,7 +1081,7 @@ def test_compose_of_an_inbound_leg_counts_time_from_the_start_of_that_leg(compos
 
 def test_compose_representative_arrays_come_from_the_middle_bin(composer_world):
     """表示と、時刻ラベルを持てない探索が読む値。端のビンだと実際に走る時刻と合わない。"""
-    composer = make_composer(wind_series=Bag())
+    composer = make_composer(wind_series=wind_series())
 
     leg = composer.compose("outbound", coords(35.0, 139.0), 0.0, +1, duration_hours=3.0)
 
@@ -1103,7 +1089,7 @@ def test_compose_representative_arrays_come_from_the_middle_bin(composer_world):
 
 
 def test_compose_reuses_a_leg_composed_for_the_same_start_and_bins(composer_world):
-    composer = make_composer(wind_series=Bag())
+    composer = make_composer(wind_series=wind_series())
 
     first = composer.compose("outbound", coords(35.0, 139.0), 1.0, +1, duration_hours=2.0)
     again = composer.compose("leg1", coords(36.0, 140.0), 1.0, +1, duration_hours=2.0)
@@ -1114,7 +1100,7 @@ def test_compose_reuses_a_leg_composed_for_the_same_start_and_bins(composer_worl
 
 def test_compose_with_measured_passage_hours_is_a_single_bin(composer_world):
     """後ろ向き木は時刻ラベルを持てない。前向き木の実到達時間を区間ごとに渡す。"""
-    composer = make_composer(wind_series=Bag())
+    composer = make_composer(wind_series=wind_series())
     passage = np.array([0.5, 1.5, 2.5])
 
     leg = composer.compose("inbound", coords(35.0, 139.0), 4.0, -1, passage_hours=passage)
@@ -1126,7 +1112,7 @@ def test_compose_with_measured_passage_hours_is_a_single_bin(composer_world):
 
 def test_compose_keeps_composing_by_time_even_without_an_anchor(composer_world):
     """風は軸である前に走行モデルの入力。系列があれば基準点の有無に関わらず時刻で引く。"""
-    composer = make_composer(wind_series=Bag())
+    composer = make_composer(wind_series=wind_series())
 
     leg = composer.compose("outbound", None, 0.0, +1, duration_hours=3.0)
 
@@ -1184,7 +1170,7 @@ def test_travel_time_reads_rolling_resistance_from_the_material_arrays(composer_
 
 def test_fixed_axis_sums_exclude_the_time_varying_axes(composer_world):
     """時刻で変わる軸が固定側にも入ると、合成で二重に足される。"""
-    composer = make_composer(wind_series=Bag())
+    composer = make_composer(wind_series=wind_series())
 
     composer.compose("outbound", coords(35.0, 139.0), 0.0, +1, duration_hours=3.0)
 
@@ -1232,7 +1218,7 @@ class FakeWeatherService:
 
 
 def make_engine(graph_service, weather_service, **kwargs):
-    preference = Bag(with_time_scope=lambda scopes: Bag(weights={AXIS_STATIC: 1.0, AXIS_WIND: 2.0}, scopes=scopes))
+    preference = route_preference({AXIS_STATIC: 1.0, AXIS_WIND: 2.0})
     defaults = dict(penalty_strength=1.0, assumed_speed_kmh=20.0, turn_cost="cost_a")
     defaults.update(kwargs)
     return engine.RoadGraphEngine(graph_service, weather_service, preference, **defaults)
@@ -1262,9 +1248,14 @@ def search_world(monkeypatch, cache, composer_world):
         edge_from=np.array([0, 1, 2]),
         edge_to=np.array([1, 2, 0]),
     )
-    built = (Bag(graph=graph, materials=Bag()), score_matrix, TILES)
+    built = (SearchMaterials(graph=graph, materials=ElevationTable()), score_matrix, TILES)
     graph_service = FakeGraphService(built)
     weather_service = FakeWeatherService()
+    node_index_requests = []
+
+    def build_node_index(g, node_ids=None):
+        node_index_requests.append(list(node_ids))
+        return node_index(g)
 
     monkeypatch.setattr(engine, "is_night", lambda origin, now: False)
     monkeypatch.setattr(engine, "compute_hard_filter_excluded", bound(engine.compute_hard_filter_excluded, lambda *a: np.zeros(3, dtype=bool)))
@@ -1275,17 +1266,17 @@ def search_world(monkeypatch, cache, composer_world):
     monkeypatch.setattr(engine, "edge_bearings", lambda g, lz: np.zeros(len(lz.edge_ids)))
     monkeypatch.setattr(engine, "highway_rank", lambda highway: 1)
     monkeypatch.setattr(engine, "compute_routable_node_ids", lambda g, ids, excluded: list(g.nodes))
-    monkeypatch.setattr(engine, "build_node_spatial_index", lambda g, node_ids: Bag(node_ids=list(node_ids)))
+    monkeypatch.setattr(engine, "build_node_spatial_index", bound(engine.build_node_spatial_index, build_node_index))
     monkeypatch.setattr(engine, "find_nearest_node_indexed", bound(engine.find_nearest_node_indexed, lambda index, point, **kwargs: "n0"))
     monkeypatch.setattr(engine, "haversine_distance_km_array", lambda lat, lon, target: np.ones(len(lat)))
     monkeypatch.setattr(engine, "haversine_distance_km", lambda a, b: 5.0)
     monkeypatch.setattr(engine, "tuning_value", lambda key: {"speed.walking_kmh": 4.0, "speed.max_descent_kmh": 60.0}[key])
     monkeypatch.setattr(engine, "current_turn_cost", lambda: "cost_default")
 
-    return Bag(
+    return SimpleNamespace(
         graph=graph, lazy=lazy, score_matrix=score_matrix, statics=statics, structure=structure,
         graph_service=graph_service, weather_service=weather_service, cache=cache, world=composer_world,
-        engine=make_engine(graph_service, weather_service),
+        node_index_requests=node_index_requests, engine=make_engine(graph_service, weather_service),
     )
 
 
@@ -1303,14 +1294,16 @@ def test_turn_cost_defaults_to_the_calibrated_value(search_world):
 
 async def test_build_search_graph_gives_up_when_the_area_has_no_edges(search_world):
     empty = make_graph([])
-    search_world.graph_service._built = (Bag(graph=empty, materials=Bag()), search_world.score_matrix, TILES)
+    search_world.graph_service._built = (
+        SearchMaterials(graph=empty, materials=ElevationTable()), search_world.score_matrix, TILES
+    )
 
-    assert await search_world.engine._build_search_graph(Bag(), coords(35.0, 139.0), NOW) is None
+    assert await search_world.engine._build_search_graph(BBOX, coords(35.0, 139.0), NOW) is None
 
 
 async def test_build_search_graph_starts_the_clock_in_local_time(search_world):
     """風の時別系列はJSTのローカル時刻。揃えないと通過時刻が9時間ずれる。"""
-    search = await search_world.engine._build_search_graph(Bag(), coords(35.0, 139.0), NOW)
+    search = await search_world.engine._build_search_graph(BBOX, coords(35.0, 139.0), NOW)
 
     assert search.composer.start.tzinfo is None
     assert search.composer.start - NOW.replace(tzinfo=None) == timedelta(hours=9)
@@ -1319,10 +1312,10 @@ async def test_build_search_graph_starts_the_clock_in_local_time(search_world):
 async def test_build_search_graph_activates_night_scoped_axes_only_at_night(search_world, monkeypatch):
     """夜間軸の重みをそのまま使うか0倍にするかは、出発地点が薄明の外かで決まる。"""
     monkeypatch.setattr(engine, "is_night", lambda origin, now: True)
-    at_night = await search_world.engine._build_search_graph(Bag(), coords(35.0, 139.0), NOW)
+    at_night = await search_world.engine._build_search_graph(BBOX, coords(35.0, 139.0), NOW)
 
     monkeypatch.setattr(engine, "is_night", lambda origin, now: False)
-    by_day = await search_world.engine._build_search_graph(Bag(), coords(35.0, 139.0), NOW)
+    by_day = await search_world.engine._build_search_graph(BBOX, coords(35.0, 139.0), NOW)
 
     assert at_night.night_active is True
     assert by_day.night_active is False
@@ -1331,13 +1324,13 @@ async def test_build_search_graph_activates_night_scoped_axes_only_at_night(sear
 async def test_build_search_graph_prefers_a_learned_detour_ratio(search_world):
     search_world.cache.detour_ratios[TILES] = 1.77
 
-    search = await search_world.engine._build_search_graph(Bag(), coords(35.0, 139.0), NOW)
+    search = await search_world.engine._build_search_graph(BBOX, coords(35.0, 139.0), NOW)
 
     assert search.composer.detour_ratio == 1.77
 
 
 async def test_build_search_graph_falls_back_to_the_default_detour_ratio(search_world):
-    search = await search_world.engine._build_search_graph(Bag(), coords(35.0, 139.0), NOW)
+    search = await search_world.engine._build_search_graph(BBOX, coords(35.0, 139.0), NOW)
 
     assert search.composer.detour_ratio == engine.ROUTE_DETOUR_RATIO
 
@@ -1347,7 +1340,7 @@ async def test_build_search_graph_orders_node_coordinates_like_the_search_graph(
     reordered = make_lazy_graph(search_world.graph, node_ids=["n2", "n1", "n0"])
     monkeypatch.setattr(engine, "build_lazy_road_graph", lambda g: reordered)
 
-    search = await search_world.engine._build_search_graph(Bag(), coords(35.0, 139.0), NOW)
+    search = await search_world.engine._build_search_graph(BBOX, coords(35.0, 139.0), NOW)
 
     assert search.node_lat.tolist() == [37.0, 36.0, 35.0]
 
@@ -1355,7 +1348,7 @@ async def test_build_search_graph_orders_node_coordinates_like_the_search_graph(
 async def test_build_search_graph_asks_the_weather_at_the_given_origin(search_world):
     origin = coords(35.5, 139.5)
 
-    await search_world.engine._build_search_graph(Bag(), origin, NOW)
+    await search_world.engine._build_search_graph(BBOX, origin, NOW)
 
     assert search_world.weather_service.asked == [("conditions", origin), ("series", origin)]
 
@@ -1365,24 +1358,18 @@ async def test_build_search_graph_asks_the_weather_at_the_given_origin(search_wo
 # --------------------------------------------------------------------------------------
 
 
-async def test_routable_node_index_is_keyed_by_the_zeroth_filter_settings(search_world, monkeypatch):
+async def test_routable_node_index_is_keyed_by_the_zeroth_filter_settings(search_world):
     """索引は除外後のNodeに絞ってある。設定が変われば別物で、使い回すと通れない道を通る。"""
-    built = []
-    monkeypatch.setattr(
-        engine, "build_node_spatial_index",
-        lambda g, node_ids: built.append(1) or Bag(node_ids=list(node_ids)),
-    )
     lenient = make_engine(search_world.graph_service, search_world.weather_service, max_average_grade_percent=None)
     strict = make_engine(search_world.graph_service, search_world.weather_service, max_average_grade_percent=8.0)
     args = (TILES, search_world.graph, search_world.score_matrix.edge_ids, np.zeros(3, dtype=bool))
 
-    first, hit_first = await lenient._get_or_build_node_index(*args)
+    _first, hit_first = await lenient._get_or_build_node_index(*args)
     _again, hit_again = await lenient._get_or_build_node_index(*args)
     _other, hit_other = await strict._get_or_build_node_index(*args)
 
     assert (hit_first, hit_again, hit_other) == (False, True, False)
-    assert len(built) == 2
-    assert first.node_ids == ["n0", "n1", "n2"]
+    assert search_world.node_index_requests == [["n0", "n1", "n2"], ["n0", "n1", "n2"]]
 
 
 # --------------------------------------------------------------------------------------
@@ -1713,8 +1700,8 @@ def test_a_loop_is_too_similar_when_it_shares_most_of_its_length():
     context = make_similarity_context(
         [("a", "n1", "n2", 800.0), ("b", "n2", "n3", 200.0), ("c", "n3", "n4", 200.0)]
     )
-    candidate = Bag(bearing=90, data=["a", "b"])
-    accepted = [Bag(bearing=180, data=["a", "c"])]
+    candidate = traced_loop(["a", "b"], 90)
+    accepted = [traced_loop(["a", "c"], 180)]
 
     assert engine.RoadGraphEngine.is_loop_too_similar(None, context, candidate, accepted) is True
 
@@ -1723,8 +1710,8 @@ def test_a_loop_that_shares_little_is_kept():
     context = make_similarity_context(
         [("a", "n1", "n2", 200.0), ("b", "n2", "n3", 800.0), ("c", "n3", "n4", 200.0)]
     )
-    candidate = Bag(bearing=90, data=["a", "b"])
-    accepted = [Bag(bearing=180, data=["a", "c"])]
+    candidate = traced_loop(["a", "b"], 90)
+    accepted = [traced_loop(["a", "c"], 180)]
 
     assert engine.RoadGraphEngine.is_loop_too_similar(None, context, candidate, accepted) is False
 
@@ -1734,8 +1721,8 @@ def test_a_loop_ridden_the_other_way_round_counts_as_the_same_loop():
     context = make_similarity_context(
         [("a", "n1", "n2", 500.0), ("b", "n2", "n1", 500.0)]
     )
-    candidate = Bag(bearing=90, data=["a"])
-    accepted = [Bag(bearing=270, data=["b"])]
+    candidate = traced_loop(["a"], 90)
+    accepted = [traced_loop(["b"], 270)]
 
     assert engine.RoadGraphEngine.is_loop_too_similar(None, context, candidate, accepted) is True
 
@@ -1743,12 +1730,12 @@ def test_a_loop_ridden_the_other_way_round_counts_as_the_same_loop():
 def test_an_empty_candidate_is_never_too_similar():
     context = make_similarity_context([("a", "n1", "n2", 500.0)])
 
-    assert engine.RoadGraphEngine.is_loop_too_similar(None, context, Bag(bearing=None, data=[]), []) is False
+    assert engine.RoadGraphEngine.is_loop_too_similar(None, context, traced_loop([], None), []) is False
 
 
 def test_a_zero_length_candidate_is_never_too_similar():
     context = make_similarity_context([("a", "n1", "n2", 0.0)])
-    candidate = Bag(bearing=90, data=["a"])
+    candidate = traced_loop(["a"], 90)
 
     assert engine.RoadGraphEngine.is_loop_too_similar(None, context, candidate, [candidate]) is False
 
@@ -1778,7 +1765,7 @@ async def loop_context(world, monkeypatch):
 
 
 def turnaround(node_id="n1", outbound=(0,), length_m=5000.0, bearing=90):
-    return Bag(
+    return LoopTurnaround(
         bearing=bearing,
         outbound_difficulty=1.0,
         data=engine._TurnaroundData(
@@ -1969,7 +1956,7 @@ def make_duration_context(travel_seconds_full, turn_seconds=None, speed_kmh=36.0
     )
     return make_context(
         graph=graph, lazy_graph=lazy, turn_structure=structure, legs=[leg],
-        full_edge_row={"e0": 0, "e1": 1}, composer=Bag(speed_kmh=speed_kmh),
+        full_edge_row={"e0": 0, "e1": 1}, composer=make_composer(speed_kmh=speed_kmh),
     ), graph
 
 
@@ -2028,22 +2015,22 @@ async def test_geometry_is_fetched_once_for_every_candidate_together(search_worl
 
     async def fake_build(ctx, traced, edges_in_path, start_time):
         built.append([edge.edge_id for edge in edges_in_path])
-        return Bag(traced=traced)
+        return route_candidate("+".join(traced.data))
 
     search_world.engine._build_best_candidate = fake_build
-    traced = [Bag(data=["e0", "e1"], bearing=90), Bag(data=["e1", "e2"], bearing=270)]
+    traced = [traced_loop(["e0", "e1"], 90), traced_loop(["e1", "e2"], 270)]
 
     candidates = await search_world.engine.evaluate_loops(context, traced, NOW)
 
     assert search_world.graph_service.hydrate_calls == [["e0", "e1", "e2"]]
     assert built == [["e0", "e1"], ["e1", "e2"]]
-    assert [c.traced for c in candidates] == traced
+    assert [c.id for c in candidates] == ["e0+e1", "e1+e2"]
 
 
 def elevation_context(world, attributes):
     return make_context(
         graph=world.graph,
-        materials=Bag(elevation_attribute=lambda edge_id: attributes.get(edge_id)),
+        materials=ElevationTable(attributes),
         lazy_graph=world.lazy,
     )
 
@@ -2061,25 +2048,25 @@ async def test_a_waypoint_route_is_never_flipped(search_world, monkeypatch):
     """経由地ルートは訪問順序そのものが要件。逆回りは別のルートになる。"""
     context = elevation_context(search_world, {})
     monkeypatch.setattr(engine, "_reverse_traced_edges", lambda *a: pytest.fail("逆回りを作ってはいけない"))
-    search_world.engine._build_candidate = bound(search_world.engine._build_candidate, lambda *a, **k: Bag(name="forward", segments=[]))
+    search_world.engine._build_candidate = bound(search_world.engine._build_candidate, lambda *a, **k: route_candidate("forward"))
 
     result = await search_world.engine._build_best_candidate(
-        context, Bag(bearing=None, leg_of_edge=[0]), [search_world.graph.edges["e0"]], NOW
+        context, traced_loop(["e0"], None), [search_world.graph.edges["e0"]], NOW
     )
 
-    assert result.name == "forward"
+    assert result.id == "forward"
 
 
 async def test_a_one_way_loop_stays_in_its_original_direction(search_world, monkeypatch):
     context = elevation_context(search_world, {})
     monkeypatch.setattr(engine, "_reverse_traced_edges", bound(engine._reverse_traced_edges, lambda *a: None))
-    search_world.engine._build_candidate = bound(search_world.engine._build_candidate, lambda *a, **k: Bag(name="forward", segments=[]))
+    search_world.engine._build_candidate = bound(search_world.engine._build_candidate, lambda *a, **k: route_candidate("forward"))
 
     result = await search_world.engine._build_best_candidate(
-        context, Bag(bearing=90, leg_of_edge=[0]), [search_world.graph.edges["e0"]], NOW
+        context, traced_loop(["e0"], 90), [search_world.graph.edges["e0"]], NOW
     )
 
-    assert result.name == "forward"
+    assert result.id == "forward"
 
 
 async def test_a_reversible_loop_keeps_the_easier_direction(search_world, monkeypatch):
@@ -2093,21 +2080,22 @@ async def test_a_reversible_loop_keeps_the_easier_direction(search_world, monkey
     def fake_build(ctx, traced, edges_in_path, attributes, start_time, leg_of_edge):
         built.append(leg_of_edge)
         difficulty = 9.0 if edges_in_path[0].edge_id == "e0" else 2.0
-        return Bag(name=edges_in_path[0].edge_id, segments=[Bag(difficulty=difficulty, distance_km=1.0)])
+        return route_candidate(edges_in_path[0].edge_id, segments=[segment_detail(difficulty, 1.0)])
 
     search_world.engine._build_candidate = fake_build
 
     result = await search_world.engine._build_best_candidate(
-        context, Bag(bearing=90, leg_of_edge=[0, 1]), [search_world.graph.edges["e0"]], NOW
+        context, traced_loop(["e0", "e1"], 90, leg_of_edge=[0, 1]),
+        [search_world.graph.edges["e0"], search_world.graph.edges["e1"]], NOW
     )
 
-    assert result.name == "e1"
+    assert result.id == "e1"
     assert built == [[0, 1], [0, 1]]
 
 
 def test_material_category_shares_are_folded_before_the_segments_are_aggregated(search_world, monkeypatch):
     """集約後に畳むと、割合がビンの粒度へ量子化される。"""
-    detailed = [Bag(difficulty=1.0, distance_km=1.0), Bag(difficulty=2.0, distance_km=3.0)]
+    detailed = [segment_detail(1.0, 1.0), segment_detail(2.0, 3.0)]
     categories = [{"cat_a": "paved"}, {}]
     folded = {}
 
@@ -2133,7 +2121,7 @@ def test_material_category_shares_are_folded_before_the_segments_are_aggregated(
     ]
 
     candidate = search_world.engine._build_candidate(
-        context, Bag(bearing=90, distance_km=2.0), edges, {}, NOW, [0, 0]
+        context, traced_loop(["e0", "e1"], 90, distance_km=2.0), edges, {}, NOW, [0, 0]
     )
 
     assert folded["pairs"] == [(1.0, {"cat_a": "paved"}), (3.0, {})]
@@ -2180,7 +2168,7 @@ def segment_context(world, legs, edges):
     return make_context(
         graph=world.graph, legs=legs,
         full_edge_row={edge.edge_id: i for i, edge in enumerate(edges)},
-        composer=Bag(_weights={AXIS_STATIC: 1.0}, _lens_axis_id=None, speed_kmh=20.0),
+        composer=make_composer(weights={AXIS_STATIC: 1.0}, speed_kmh=20.0),
     )
 
 
@@ -2351,7 +2339,7 @@ def ring_world(monkeypatch, cache, composer_world):
         node_lon=np.array([graph.nodes[n].longitude for n in RING_NODE_IDS]),
         full_edge_row={"e0": 0, "e1": 1, "e2": 2},
     )
-    return Bag(
+    return SimpleNamespace(
         graph=graph, lazy=lazy, statics=statics, tree=tree, diverse=diverse, context=context,
         cache=cache, engine=make_engine(FakeGraphService(None), FakeWeatherService()),
     )
@@ -2569,7 +2557,7 @@ def via_world(monkeypatch, cache, composer_world):
         node_lon=np.array([graph.nodes[n].longitude for n in VIA_NODE_IDS]),
         full_edge_row={spec[0]: i for i, spec in enumerate(VIA_EDGES)},
     )
-    return Bag(
+    return SimpleNamespace(
         graph=graph, lazy=lazy, forward=forward, backward=backward, junction=junction, diverse=diverse,
         context=context, cache=cache, forward_paths=forward_paths, backward_paths=backward_paths,
         engine=make_engine(FakeGraphService(None), FakeWeatherService()),
@@ -2776,11 +2764,11 @@ async def test_candidates_are_built_from_the_refetched_edges(search_world):
 
     async def fake_build(ctx, traced, edges_in_path, start_time):
         built.append([edge.geometry for edge in edges_in_path])
-        return Bag()
+        return route_candidate("candidate")
 
     search_world.engine._build_best_candidate = fake_build
 
-    await search_world.engine.evaluate_loops(context, [Bag(data=["e0"], bearing=90)], NOW)
+    await search_world.engine.evaluate_loops(context, [traced_loop(["e0"], 90)], NOW)
 
     assert built == [[[[35.0, 139.0], [35.5, 139.5]]]]
 
