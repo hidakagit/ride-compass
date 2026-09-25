@@ -5,7 +5,7 @@
 // RoutePreferenceWeightsはaxis_idキーの辞書で、キーの綴り違いは型検査で落ちない。キーは
 // 実行時の軸カタログ（`defaultWeights`）からだけ作り、送る前に`syncRoutePreferenceKeys`で
 // カタログのキー集合へ揃える。
-import type { CatalogAxis } from "@/lib/mapDisplay/axisLayers";
+import type { AxisCatalogEntry } from "@/types/route";
 import type { MapValueKind } from "@/lib/mapDisplay/valueScale";
 import type { AxisMaterialBreakdown } from "@/lib/secondaryAxes";
 import { materialBreakdownFromCatalog } from "@/lib/secondaryAxes";
@@ -50,23 +50,18 @@ export interface PreferenceAxisDef {
 // 後者を落とすと、軸スタジオで地図アイコンをOFFにした軸が重み一覧からも消える。
 
 /** カタログ1件を重み一覧の1行へ。 */
-export function preferenceAxisFromCatalog(axis: CatalogAxis): PreferenceAxisDef {
+export function preferenceAxisFromCatalog(axis: AxisCatalogEntry): PreferenceAxisDef {
   return {
     axisId: axis.axis_id,
     label: axis.label,
-    iconId: axis.icon_id ?? null,
-    chipLabel: axis.chip_label ?? null,
-    description: axis.description ?? "",
-    dedicatedWayValueLayer: axis.dedicated_way_value_layer ?? false,
+    iconId: axis.icon_id,
+    chipLabel: axis.chip_label,
+    description: axis.description,
+    dedicatedWayValueLayer: axis.dedicated_way_value_layer,
     mapValueKind: axis.map_value_kind,
     mapValueUnit: axis.map_value_unit,
-    rawValueUnit: axis.raw_value_unit ?? null,
-    rawValueTotalUnit: axis.raw_value_total_unit ?? null,
+    rawValueUnit: axis.raw_value_unit,
+    rawValueTotalUnit: axis.raw_value_total_unit,
     materialBreakdown: materialBreakdownFromCatalog(axis.material_breakdown),
   };
 }
-
-// 軸の分類（観測/推定/動的）は一般向けルート設定画面（RouteSettingsPanel）の表示では
-// 使わず、公開済みの軸をフラットな1本のリストとして扱う。分類データ自体（backend側の
-// `category`フィールド、GET /api/axis-catalogのAxisCatalogEntry.category）は他用途の
-// ため引き続き存在する。

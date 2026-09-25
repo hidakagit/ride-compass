@@ -9,7 +9,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 
 import { setTileVersions } from "@/services/regionApi";
 import { createRecordingMap } from "@/testing/mapTrace/recordingMap";
-import { catalogAxis } from "@/lib/mapDisplay/__fixtures__/catalogAxes";
+import { catalogEntry, tileInput } from "@/lib/mapDisplay/__fixtures__/catalogAxes";
 import { dedicatedWayValueAxesFromCatalogAxes, rampAxesFromCatalogAxes } from "@/lib/mapDisplay/axisLayers";
 import { AREA_SOURCE_ID } from "@/features/map/scene/groups/areaRasters";
 import { POINT_LAYERS, pointSourceId } from "@/features/map/scene/groups/points";
@@ -23,14 +23,14 @@ import { sceneLayerId } from "@/features/map/scene/sceneBuilders";
 import { mapDisplay } from "@/types/generated/mapDisplay";
 
 const RAMP_AXES = rampAxesFromCatalogAxes([
-  catalogAxis({
+  catalogEntry({
     axis_id: "ramp",
-    display: { tile_inputs: [{ property: "v", weight: 1, has_unknown_fallback: true }], thresholds: [50] },
+    display: { kind: "ramp", tile_inputs: [tileInput({ property: "v", has_unknown_fallback: true })], thresholds: [50] },
   }),
 ]);
 const DEDICATED_AXES = dedicatedWayValueAxesFromCatalogAxes([
-  catalogAxis({ axis_id: "ded1", dedicated_way_value_layer: true }),
-  catalogAxis({ axis_id: "ded2", dedicated_way_value_layer: true }),
+  catalogEntry({ axis_id: "ded1", dedicated_way_value_layer: true }),
+  catalogEntry({ axis_id: "ded2", dedicated_way_value_layer: true }),
 ]);
 
 type State = SceneState;

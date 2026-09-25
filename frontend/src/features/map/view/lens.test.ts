@@ -5,7 +5,7 @@ import { describe, expect, it } from "vitest";
 import { LEGEND_NO_DATA_KEY } from "@/lib/mapDisplay/mapColorLegend";
 import { DEFAULT_DIFFICULTY_BOUNDARIES } from "@/lib/mapDisplay/valueScale";
 
-import { catalogEntry, catalogOf, dedicatedEntry, rampEntry } from "./__fixtures__/catalog";
+import { catalogEntry, catalogOf, dedicatedEntry, rampEntry } from "@/lib/mapDisplay/__fixtures__/catalogAxes";
 import { isRouteStyleModeId, lensLegend, lensOptions, paintedAxisId } from "./lens";
 
 /** 材料`num_a`がそのまま値になるramp軸（`rampEntry`）の、材料が欠けた道を「不明」にする版。 */

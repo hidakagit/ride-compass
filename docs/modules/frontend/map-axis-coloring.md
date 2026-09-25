@@ -18,7 +18,7 @@
 | `features/map/scene/groups/axisLines.ts` | ルート確定前に評価軸（ramp軸・専用way値配信軸）で道を塗る線の宣言と、ramp軸の値・不明のMapLibre式（`buildAxisRampValueExpression`・`buildAxisRampUnknownExpression`）。段の色、値が無い道・取得中の道の色と濃さ、凡例で隠した段の落とし方（下記「評価軸の線」） |
 | `features/map/layers/dynamicWayValues.ts` | タイル座標計算・複数タイル応答の統合（材料非依存の共通部分） |
 | `lib/mapDisplay/axisLayers.ts` | `rampColorForBand`（ramp軸の段の色。地図と管理画面が共有）。「不明」の色`COLOR_UNKNOWN`は地図の描画（`features/map/scene/sceneBuilders.ts`）が持つ。ramp軸自体の全面的な生成ロジックは主に[地図: 静的レイヤー・道路表示](static-map-layers.md)の管轄 |
-| `lib/mapDisplay/__fixtures__/catalogAxes.ts` | 軸カタログの変換関数へ渡す合成入力（テスト専用）。**実際の公開軸を入力に使わない**——公開軸はDBが持ち軸スタジオで増減するため、実物を当てにすると変換の正しさではなく「いま何が公開されているか」を検証するテストになる |
+| `lib/mapDisplay/__fixtures__/catalogAxes.ts` | 軸カタログの軸（backendの契約から生成した型そのもの）を組む雛形（テスト専用。e2eのモックも使う）。**実際の公開軸を入力に使わない**——軸の集合はDBが持つ。既定値は型を満たすための空だけで、見たい性質は呼び出し側が書く |
 | `lib/mapDisplay/mapColorLegend.ts` | 地図上の色分け凡例（`MapColorLegendBand`型・`buildRangeLegendBands`・`rangeStepLabel`）の共通ロジック。凡例を作る関数（`features/map/view/lens.ts`）と管理画面が使う |
 | `features/map/LensControl/LensControl.tsx` | レンズ（地図を何で塗るか）の唯一の入口。地図上部中央のピルが現在のレンズと凡例を示し、タップで単一選択の一覧（なし／総合難易度／評価に使用中の軸／未使用の軸）と「ルート後も周囲の道路を薄く塗る」トグルを開く（`page.tsx`が選択肢・凡例を組み立てる） |
 | `features/map/layers/mapLayers.ts` | `isAxisStudioLayer`（レイヤーID判定）・専用配信軸のレイヤーIDの導出（`dedicatedWayValueMapLayerId`） |

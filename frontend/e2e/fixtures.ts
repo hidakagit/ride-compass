@@ -1,6 +1,6 @@
 import { expect, type Locator, type Page } from "@playwright/test";
 import type { RouteCandidate, RouteGenerateResponse } from "@/types/route";
-import { catalogAxis } from "@/lib/mapDisplay/__fixtures__/catalogAxes";
+import { catalogEntry, tileInput } from "@/lib/mapDisplay/__fixtures__/catalogAxes";
 import { makeRouteCandidate as makeCandidate } from "@/testing/routeFixtures";
 import type { AmedasObservation, WeatherConditions } from "@/types/weather";
 import nextConfig from "../next.config";
@@ -154,7 +154,7 @@ function emptyMapStyleFixture() {
 }
 
 /** `GET /api/axis-catalog`の応答。軸以外（世代・尺度・調整値）は空で返す。 */
-export function axisCatalogFixture(axes: Array<ReturnType<typeof catalogAxis> & { default_weight: number }>) {
+export function axisCatalogFixture(axes: ReturnType<typeof catalogEntry>[]) {
   return { axes, tile_versions: {}, material_runtime_scales: {}, client_tuning: {} };
 }
 
@@ -197,9 +197,9 @@ export async function installApiMocks(page: Page): Promise<void> {
     route.fulfill({
       json: axisCatalogFixture([
         {
-          ...catalogAxis({
+          ...catalogEntry({
             axis_id: "ramp",
-            display: { tile_inputs: [{ property: "v", weight: 1 }], thresholds: [50] },
+            display: { kind: "ramp", tile_inputs: [tileInput({ property: "v" })], thresholds: [50] },
           }),
           default_weight: 0,
         },

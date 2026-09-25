@@ -1,5 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
-import { catalogAxis } from "@/lib/mapDisplay/__fixtures__/catalogAxes";
+import { catalogEntry, tileInput } from "@/lib/mapDisplay/__fixtures__/catalogAxes";
 import { mapDisplay } from "@/types/generated/mapDisplay";
 import regionTileConfig from "@/types/generated/region-tile-config.json";
 import {
@@ -171,9 +171,9 @@ test("宣言された地図レイヤーを全部ONにしても、スタイル検
 
   await installApiMocks(page);
   const rampAxis = {
-    ...catalogAxis({
+    ...catalogEntry({
       axis_id: "ramp",
-      display: { tile_inputs: [{ property: "v", weight: 1 }], thresholds: [50] },
+      display: { kind: "ramp", tile_inputs: [tileInput({ property: "v" })], thresholds: [50] },
     }),
     default_weight: 0,
   };

@@ -7,8 +7,7 @@
 
 import palette from "@/types/generated/palette.json";
 import type { DedicatedWayValueDisplay } from "./dedicatedWayValueLayer";
-import type { MapValueKind } from "./valueScale";
-import type { AxisShape } from "@/types/route";
+import type { AxisCatalogEntry } from "@/types/route";
 
 interface AxisTileInput {
   property: string;
@@ -46,7 +45,7 @@ export interface RampAxis {
   /** 地図チップのアイコン（axisIconPalette.tsxのicon_id）。未設定は
    * 汎用フォールバック（AxisRampIcon）。 */
   iconId?: string;
-  /** 地図チップの略名（4文字以下、CatalogAxis.chip_label由来）。未設定はlabel（正式名）へ
+  /** 地図チップの略名（4文字以下、軸カタログの`chip_label`由来）。未設定はlabel（正式名）へ
    * フォールバックする（mapLayers.ts参照）。 */
   chipLabel?: string;
   /** 段階ごとの体感ラベル（軸自身のデータ、display_band_labels_override由来）。要素数が
@@ -55,108 +54,10 @@ export interface RampAxis {
   bandLabelsOverride?: readonly string[];
 }
 
-interface CatalogTileInput {
-  property: string;
-  weight: number;
-  boolean?: boolean;
-  true_value?: number;
-  false_value?: number;
-  has_unknown_fallback?: boolean;
-  // `GET /api/axis-catalog`はpydanticの未設定optionalフィールドを
-  // undefinedではなくnullとしてシリアライズするため、nullも許容する。
-  categories?: Record<string, number> | null;
-  breakpoints?: (readonly [number, number])[] | null;
-  /** このtile_inputのタイル生値が、実行時にしか決まらないスケール定数での変換を要する場合true
-   * （registry.py: TileInputSpec.needs_runtime_scale参照、例: accident_per_km→件/(km・年)への年数正規化）。
-   * `rampAxesFromCatalogAxes`がweightへ掛け合わせて解決するため、地図の式はこのフラグを見ない。 */
-  needs_runtime_scale?: boolean | null;
-}
-
-export interface CatalogAxis {
-  axis_id: string;
-  // 軸自身の表示名（トップレベル、display.labelとは独立）。display（地図ramp表示の宣言）が
-  // kind="none"の軸（例: wind）でも設定される。
-  // routeStyleModesFromCatalogAxes（routeStyleModes.ts）が公開軸のルート色分けモードの
-  // ラベルとして使う。
-  label: string;
-  // 軸自身の説明文（1〜2文の要約、GET /api/axis-catalogのdescriptionと同じ値）。
-  // ルート設定パネルの重み一覧が軸の説明として出す。
-  description?: string;
-  // 折れ点を通す前の生値の単位（GET /api/axis-catalogのraw_value_unit）。単位が定まる
-  // 軸だけが持つ。ルート結果が得点の隣に生値を出すために使う。
-  raw_value_unit?: string | null;
-  // 生値へ走行距離を掛けた総量の単位（GET /api/axis-catalogのraw_value_total_unit）。
-  // 総量を出しても判断が変わらない軸はnullで、フロントは単位の綴りから可否を判断しない。
-  raw_value_total_unit?: string | null;
-  // 生値の単位が定まらない軸の内訳（GET /api/axis-catalogのmaterial_breakdown）。
-  // 材料まで分解した並びで、正規化重みの降順。フロントは並べ替えを持たず先頭から出す。
-  material_breakdown?: readonly {
-    material_id: string;
-    label: string;
-    dtype: string;
-    unit: string;
-    share: number;
-    // categorical材料の「タグ生値→論理名」対訳。他の型では空。
-    value_labels?: Record<string, string>;
-  }[];
-  // 軸自身の分類（観測/推定/動的）。display.category（地図レイヤーパネルのグルーピング用
-  // 「terrain」「trafficSafety」等、別語彙）とは異なる概念。
-  category?: string;
-  display: {
-    kind: string;
-    label: string;
-    category: string;
-    tile_inputs: CatalogTileInput[];
-    thresholds: number[];
-  } | null;
-  // この軸が参照する材料を一次属性idへ解決した一覧（GET /api/axis-catalogの
-  // primary_attribute_ids、backend側で解決済み）。
-  primary_attribute_ids?: string[];
-  // 地図チップ表示要素（軸自身のデータ）。全てnull/undefined可
-  // （未設定は各消費側の汎用フォールバックに委ねる）。
-  icon_id?: string | null;
-  chip_label?: string | null;
-  panel_hint?: string | null;
-  // falseならこの軸を地図上チップから丸ごと除外する
-  // （secondaryAxes.ts: secondaryAxesFromCatalogAxes()参照）。未設定は
-  // 「表示する」（true相当）として扱う。
-  show_map_icon?: boolean;
-  // 軸の折れ線の形。routeStyleModes.tsが、axis_idの分岐ではなくこのデータから
-  // 「符号付き値を直接読むべきか」「その場合どの材料id（≒RouteSegmentDetailのフィールド名）を
-  // 読むか」を判定する（map_value_kind・buildRangeSteppedMode参照）。
-  shape?: AxisShape;
-  // 軸スタジオが編集した生の上書き値（地図タイルramp表示のdisplay.thresholdsとは別）。地図の色分けは
-  // `map_value_thresholds`（スケールを揃えた側）を使う。
-  display_thresholds_override?: number[] | null;
-  // display_thresholds_overrideと対になる、段階ごとの体感ラベルの上書き（domain/axis_definitions.py: AxisDefinition.display_band_labels_override参照）。
-  display_band_labels_override?: string[] | null;
-  // この軸が専用のway_id→値配信レイヤー（Redis経由）を持つかの宣言
-  // （domain/axis_definitions.py: AxisDefinition.dedicated_way_value_layer参照）。
-  // mapLayers.ts（isAxisStudioLayer）はaxis_idではなくこのデータで判定する。
-  dedicated_way_value_layer?: boolean;
-  // 地図がこの軸について塗る値の種類と単位（backend domain/dynamic_way_values.py:
-  // map_value_kind/map_value_unit）。ルート確定前の専用way値レイヤーとルート確定後の
-  // ルート線色分けが同じスケールで解釈する。
-  map_value_kind?: MapValueKind;
-  map_value_unit?: string;
-  // `map_value_kind`が示すスケールでの段階境界（backend domain/dynamic_way_values.py:
-  // map_value_thresholds）。地図の色分けはルート前後ともこれを使う。
-  // `display_thresholds_override`は軸スタジオが編集した生値で、ramp表示を持つ軸では
-  // 材料の重み付き和のスケールなので難易度と直接比べられない。
-  map_value_thresholds?: number[] | null;
-  // 専用way値配信API（`GET /api/region/dynamic-way-values/{axis_id}`）がこの軸について
-  // 必要とするクエリパラメータの宣言（backend domain/axis_definitions.py:
-  // AxisDefinition.dynamic_way_value_needs_time / _needs_bearing / _needs_speed）。
-  // `dedicated_way_value_layer`がtrueの軸だけが意味を持つ。
-  dynamic_way_value_needs_time?: boolean;
-  dynamic_way_value_needs_bearing?: boolean;
-  dynamic_way_value_needs_speed?: boolean;
-}
-
 /** 公開軸の表示名の辞書（軸id→軸定義の`label`）。**ここに無い軸idを画面へ出さない**——
  * 引けなかったときに軸idで埋めると、内部名（例: `wind`）がそのまま画面に出る。
  * 軸の名前は軸定義の`label`だけが持つ（地図表示の`display.label`は地図に出る軸にしか無い）。 */
-export function axisLabelsFromCatalogAxes(axes: readonly CatalogAxis[]): Record<string, string> {
+export function axisLabelsFromCatalogAxes(axes: readonly AxisCatalogEntry[]): Record<string, string> {
   return Object.fromEntries(axes.map((axis) => [axis.axis_id, axis.label]));
 }
 
@@ -167,16 +68,16 @@ export function axisLabelsFromCatalogAxes(axes: readonly CatalogAxis[]): Record<
  * backendがキーを含めなかった場合）はweight=0として寄与を無くす（安全側のデグレード。
  * RegionService.get_accident_years_coveredのdocstring参照）。 */
 export function rampAxesFromCatalogAxes(
-  axes: readonly CatalogAxis[],
+  axes: readonly AxisCatalogEntry[],
   runtimeScales: Readonly<Record<string, number>> = {},
 ): RampAxis[] {
   return axes
-    .filter((axis) => axis.display?.kind === "ramp")
+    .filter((axis) => axis.display.kind === "ramp")
     .map((axis) => ({
       axisId: axis.axis_id,
-      label: axis.display!.label,
-      category: axis.display!.category,
-      tileInputs: axis.display!.tile_inputs.map((input) => ({
+      label: axis.display.label,
+      category: axis.display.category,
+      tileInputs: (axis.display.tile_inputs ?? []).map((input) => ({
         property: input.property,
         weight: input.needs_runtime_scale ? input.weight * (runtimeScales[input.property] ?? 0) : input.weight,
         boolean: input.boolean,
@@ -186,7 +87,7 @@ export function rampAxesFromCatalogAxes(
         categories: input.categories ?? undefined,
         breakpoints: input.breakpoints ?? undefined,
       })),
-      thresholds: axis.display!.thresholds,
+      thresholds: axis.display.thresholds ?? [],
       unit: axis.raw_value_unit ?? "",
       panelHint: axis.panel_hint ?? undefined,
       iconId: axis.icon_id ?? undefined,
@@ -224,9 +125,7 @@ export interface DedicatedWayValueAxis {
   display: DedicatedWayValueDisplay;
 }
 
-/** ビルド時静的json（CatalogAxis[]）・実行時APIのどちらからでも同じ形へ変換する共通関数
- * （rampAxesFromCatalogAxesと同じ片側importの方針）。 */
-export function dedicatedWayValueAxesFromCatalogAxes(axes: readonly CatalogAxis[]): DedicatedWayValueAxis[] {
+export function dedicatedWayValueAxesFromCatalogAxes(axes: readonly AxisCatalogEntry[]): DedicatedWayValueAxis[] {
   return axes
     .filter((axis) => axis.dedicated_way_value_layer)
     .map((axis) => ({

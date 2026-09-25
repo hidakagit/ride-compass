@@ -1,13 +1,13 @@
 // @vitest-environment node
 import { describe, expect, it } from "vitest";
 import { routeStyleModesFromCatalogAxes } from "./routeStyleModes";
-import type { CatalogAxis } from "./axisLayers";
-import { catalogAxis } from "@/lib/mapDisplay/__fixtures__/catalogAxes";
+import type { AxisCatalogEntry } from "@/types/route";
+import { catalogEntry } from "@/lib/mapDisplay/__fixtures__/catalogAxes";
 import { bandColorsFor } from "./valueScale";
 
 // 色分けの組み立てが分岐する3つの形。**その分岐を起こす性質だけ**を載せる
 // （軸idは軸スタジオでユーザーが決める任意の値なので、実物の名前を当てにしない）。
-const signedAxis = catalogAxis({
+const signedAxis = catalogEntry({
   map_value_kind: "signed_material",
   map_value_thresholds: [-8, -4, 4, 8],
   // 符号付きで読む材料は`shape.terms[0]`が決める（この宣言が経路の分岐そのもの）。
@@ -18,13 +18,13 @@ const signedAxis = catalogAxis({
     breakpoints: [],
   },
 });
-const difficultyAxis = catalogAxis({ map_value_kind: "difficulty" });
-const categoricalAxis = catalogAxis({
+const difficultyAxis = catalogEntry({ map_value_kind: "difficulty" });
+const categoricalAxis = catalogEntry({
   shape: { kind: "categorical", material: "surface", mapping: { asphalt: 100 } },
 });
 
 /** 軸1本ぶんのモード。入口（軸カタログ→モード一覧）を通し、その軸のidで引く。 */
-function modeFor(axis: CatalogAxis) {
+function modeFor(axis: AxisCatalogEntry) {
   const mode = routeStyleModesFromCatalogAxes([axis]).find((candidate) => candidate.id === axis.axis_id);
   if (mode === undefined) throw new Error(`${axis.axis_id}のモードが無い`);
   return mode;
@@ -44,7 +44,7 @@ describe("routeStyleModes", () => {
   });
 
   it("改善計画T440: 境界値が2個(3段階)しか無い場合でもクラッシュせず、その数に応じたラベル・色を生成する", () => {
-    const axis: CatalogAxis = {
+    const axis: AxisCatalogEntry = {
       ...signedAxis,
       axis_id: "gradient_test",
       map_value_thresholds: [0, 5],
@@ -91,8 +91,8 @@ describe("routeStyleModes", () => {
   });
 
   it("軸がカタログから消える（軸スタジオでunpublish）と、対応するモードも一覧から消える", () => {
-    const kept = catalogAxis({ axis_id: "kept" });
-    const dropped = catalogAxis({ axis_id: "dropped" });
+    const kept = catalogEntry({ axis_id: "kept" });
+    const dropped = catalogEntry({ axis_id: "dropped" });
 
     const modes = routeStyleModesFromCatalogAxes([kept]);
 

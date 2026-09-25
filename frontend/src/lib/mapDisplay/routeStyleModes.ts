@@ -11,7 +11,7 @@
 import palette from "@/types/generated/palette.json";
 import type { LegendEntry } from "./legendFilter";
 import { bandLabelsForBandCount, LEGEND_NO_DATA_KEY, legendBandKey, rangeStepLabel } from "./mapColorLegend";
-import type { CatalogAxis } from "./axisLayers";
+import type { AxisCatalogEntry } from "@/types/route";
 import { bandColorsFor, COLOR_NO_DATA, DEFAULT_DIFFICULTY_BOUNDARIES, type MapValueKind } from "./valueScale";
 
 // gradient/roadは公開軸から動的に生成されるため固定IDでは表現しきれない。
@@ -118,7 +118,7 @@ function buildRangeSteppedMode(options: {
 // 種類（符号付き材料か難易度か）・単位・既定しきい値はbackendの`map_value_kind`/
 // `map_value_unit`（domain/dynamic_way_values.py）とvalueScale.tsが決め、ルート確定前の
 // 専用way値レイヤー（dedicatedWayValueLayer.ts）と同じスケール・配色になる。
-function routeColorableModeFromAxis(axis: CatalogAxis): RouteStyleMode {
+function routeColorableModeFromAxis(axis: AxisCatalogEntry): RouteStyleMode {
   const kind: MapValueKind = axis.map_value_kind ?? "difficulty";
   const boundaries = axis.map_value_thresholds ?? DEFAULT_DIFFICULTY_BOUNDARIES;
   // backendは`map_value_kind`が`signed_material`になる条件としてterms 1件を要求するが
@@ -189,7 +189,7 @@ export const FIXED_LENS_LABELS: Record<string, string> = {
 // useAxisCatalog（hooks/useAxisCatalog.ts）が、実行時API取得結果・ビルド時静的
 // フォールバックの両方からこの関数で同じ形の一覧を作る（axisLayers.ts:
 // rampAxesFromCatalogAxes等と同じ片側importパターン）。
-export function routeStyleModesFromCatalogAxes(axes: readonly CatalogAxis[]): RouteStyleMode[] {
+export function routeStyleModesFromCatalogAxes(axes: readonly AxisCatalogEntry[]): RouteStyleMode[] {
   const dynamicModes = axes.map(routeColorableModeFromAxis);
   return [...dynamicModes, DIFFICULTY_MODE, NONE_MODE];
 }

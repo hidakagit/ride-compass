@@ -13,9 +13,13 @@ interface IconProps {
  * カタログ（mapLayers.ts）のどちらもこの型で持つ。 */
 export type MapIconComponent = (props: IconProps) => ReactElement;
 
+// 線の色・太さ・端は親に置き、子は既定と違うときだけ書く（線を持たない形は`stroke="none"`）。
 const svgProps = {
   viewBox: "0 0 20 20",
   fill: "none" as const,
+  stroke: "currentColor",
+  strokeWidth: 1.6,
+  strokeLinecap: "round" as const,
   "aria-hidden": true as const,
 };
 
@@ -25,10 +29,8 @@ export function ElevationIcon({ size = 16 }: IconProps) {
     <svg width={size} height={size} {...svgProps}>
       <path
         d="M1.5 15.5 6 8l3 3.5 2.5-4 5.5 8H1.5Z"
-        stroke="currentColor"
-        strokeWidth="1.6"
+
         strokeLinejoin="round"
-        strokeLinecap="round"
       />
     </svg>
   );
@@ -42,10 +44,8 @@ export function HillshadeIcon({ size = 16 }: IconProps) {
       <path d="M1.5 15.5 6 8l3 3.5 2.5-4 5.5 8H1.5Z" fill="currentColor" opacity="0.28" stroke="none" />
       <path
         d="M1.5 15.5 6 8l3 3.5 2.5-4 5.5 8H1.5Z"
-        stroke="currentColor"
-        strokeWidth="1.6"
+
         strokeLinejoin="round"
-        strokeLinecap="round"
       />
       <path d="M6 8 1.5 15.5h4.7Z" fill="currentColor" stroke="none" />
       <path d="M11.5 7.5 9 11.5h5Z" fill="currentColor" stroke="none" />
@@ -57,10 +57,10 @@ export function HillshadeIcon({ size = 16 }: IconProps) {
 export function LandcoverIcon({ size = 16 }: IconProps) {
   return (
     <svg width={size} height={size} {...svgProps}>
-      <rect x="2.5" y="2.5" width="6.5" height="6.5" rx="1" stroke="currentColor" strokeWidth="1.4" />
-      <rect x="11" y="2.5" width="6.5" height="4" rx="1" stroke="currentColor" strokeWidth="1.4" />
-      <rect x="2.5" y="11" width="4" height="6.5" rx="1" stroke="currentColor" strokeWidth="1.4" />
-      <rect x="8.5" y="8.5" width="9" height="9" rx="1" stroke="currentColor" strokeWidth="1.4" />
+      <rect x="2.5" y="2.5" width="6.5" height="6.5" rx="1" strokeWidth="1.4" strokeLinecap="butt" />
+      <rect x="11" y="2.5" width="6.5" height="4" rx="1" strokeWidth="1.4" strokeLinecap="butt" />
+      <rect x="2.5" y="11" width="4" height="6.5" rx="1" strokeWidth="1.4" strokeLinecap="butt" />
+      <rect x="8.5" y="8.5" width="9" height="9" rx="1" strokeWidth="1.4" strokeLinecap="butt" />
     </svg>
   );
 }
@@ -72,12 +72,7 @@ export function LandcoverIcon({ size = 16 }: IconProps) {
 export function AxisRampIcon({ size = 16 }: IconProps) {
   return (
     <svg width={size} height={size} {...svgProps}>
-      <path
-        d="M3.5 16.5v-4M8 16.5v-7M12.5 16.5V6M17 16.5V3.5"
-        stroke="currentColor"
-        strokeWidth="1.6"
-        strokeLinecap="round"
-      />
+      <path d="M3.5 16.5v-4M8 16.5v-7M12.5 16.5V6M17 16.5V3.5" />
     </svg>
   );
 }
@@ -88,9 +83,9 @@ export function AxisRampIcon({ size = 16 }: IconProps) {
 export function GradientAxisIcon({ size = 16 }: IconProps) {
   return (
     <svg width={size} height={size} {...svgProps}>
-      <path d="M2.5 16.5h15" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
-      <path d="M3.5 16.5 13.5 5.5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
-      <path d="M9.5 5.5h4v4" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M2.5 16.5h15" />
+      <path d="M3.5 16.5 13.5 5.5" />
+      <path d="M9.5 5.5h4v4" strokeLinejoin="round" />
     </svg>
   );
 }
@@ -103,9 +98,7 @@ export function SurfaceQualityAxisIcon({ size = 16 }: IconProps) {
     <svg width={size} height={size} {...svgProps}>
       <path
         d="M2 14c1.8-3.4 3.6-3.4 5.4 0s3.6 3.4 5.4 0 3.6-3.4 5.4 0"
-        stroke="currentColor"
-        strokeWidth="1.6"
-        strokeLinecap="round"
+
         strokeLinejoin="round"
       />
     </svg>
@@ -118,10 +111,8 @@ export function NightAxisIcon({ size = 16 }: IconProps) {
     <svg width={size} height={size} {...svgProps}>
       <path
         d="M17.5 10.66A7.5 7.5 0 1 1 9.34 2.5 5.83 5.83 0 0 0 17.5 10.66Z"
-        stroke="currentColor"
-        strokeWidth="1.6"
+
         strokeLinejoin="round"
-        strokeLinecap="round"
       />
     </svg>
   );
@@ -133,9 +124,9 @@ export function NightAxisIcon({ size = 16 }: IconProps) {
 export function StopDensityAxisIcon({ size = 16 }: IconProps) {
   return (
     <svg width={size} height={size} {...svgProps}>
-      <circle cx="10" cy="4.6" r="1.3" fill="currentColor" />
-      <circle cx="10" cy="9.6" r="1.9" fill="currentColor" />
-      <circle cx="10" cy="15.4" r="2.6" fill="currentColor" />
+      <circle cx="10" cy="4.6" r="1.3" fill="currentColor" stroke="none" />
+      <circle cx="10" cy="9.6" r="1.9" fill="currentColor" stroke="none" />
+      <circle cx="10" cy="15.4" r="2.6" fill="currentColor" stroke="none" />
     </svg>
   );
 }
@@ -147,10 +138,10 @@ export function StopDensityAxisIcon({ size = 16 }: IconProps) {
 export function AccidentDensityAxisIcon({ size = 16 }: IconProps) {
   return (
     <svg width={size} height={size} {...svgProps}>
-      <circle cx="5.5" cy="13.5" r="1.6" fill="currentColor" />
-      <circle cx="11" cy="7" r="2.3" fill="currentColor" />
-      <circle cx="15.5" cy="14.5" r="1.3" fill="currentColor" />
-      <circle cx="8" cy="16.3" r="1" fill="currentColor" />
+      <circle cx="5.5" cy="13.5" r="1.6" fill="currentColor" stroke="none" />
+      <circle cx="11" cy="7" r="2.3" fill="currentColor" stroke="none" />
+      <circle cx="15.5" cy="14.5" r="1.3" fill="currentColor" stroke="none" />
+      <circle cx="8" cy="16.3" r="1" fill="currentColor" stroke="none" />
     </svg>
   );
 }
@@ -159,8 +150,8 @@ export function AccidentDensityAxisIcon({ size = 16 }: IconProps) {
 export function RoadIcon({ size = 16 }: IconProps) {
   return (
     <svg width={size} height={size} {...svgProps}>
-      <path d="M7 2 3 18M13 2l4 16" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
-      <path d="M10 5v2M10 9.3v2M10 13.6v2" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+      <path d="M7 2 3 18M13 2l4 16" />
+      <path d="M10 5v2M10 9.3v2M10 13.6v2" />
     </svg>
   );
 }
@@ -169,12 +160,12 @@ export function RoadIcon({ size = 16 }: IconProps) {
 export function RoadSurfaceIcon({ size = 16 }: IconProps) {
   return (
     <svg width={size} height={size} {...svgProps}>
-      <rect x="2.5" y="6" width="15" height="8" rx="1.5" stroke="currentColor" strokeWidth="1.4" />
-      <circle cx="6" cy="8.6" r="0.9" fill="currentColor" />
-      <circle cx="10" cy="11.4" r="0.9" fill="currentColor" />
-      <circle cx="14" cy="8.6" r="0.9" fill="currentColor" />
-      <circle cx="6.5" cy="11.6" r="0.7" fill="currentColor" />
-      <circle cx="14" cy="11.6" r="0.7" fill="currentColor" />
+      <rect x="2.5" y="6" width="15" height="8" rx="1.5" strokeWidth="1.4" strokeLinecap="butt" />
+      <circle cx="6" cy="8.6" r="0.9" fill="currentColor" stroke="none" />
+      <circle cx="10" cy="11.4" r="0.9" fill="currentColor" stroke="none" />
+      <circle cx="14" cy="8.6" r="0.9" fill="currentColor" stroke="none" />
+      <circle cx="6.5" cy="11.6" r="0.7" fill="currentColor" stroke="none" />
+      <circle cx="14" cy="11.6" r="0.7" fill="currentColor" stroke="none" />
     </svg>
   );
 }
@@ -183,9 +174,9 @@ export function RoadSurfaceIcon({ size = 16 }: IconProps) {
 export function WarningTriangleIcon({ size = 16 }: IconProps) {
   return (
     <svg width={size} height={size} {...svgProps}>
-      <path d="M10 2 18.5 17H1.5L10 2Z" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round" />
-      <path d="M10 8v4" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
-      <circle cx="10" cy="14.4" r="0.9" fill="currentColor" />
+      <path d="M10 2 18.5 17H1.5L10 2Z" strokeLinejoin="round" strokeLinecap="butt" />
+      <path d="M10 8v4" />
+      <circle cx="10" cy="14.4" r="0.9" fill="currentColor" stroke="none" />
     </svg>
   );
 }
@@ -194,12 +185,10 @@ export function TunnelIcon({ size = 16 }: IconProps) {
     <svg width={size} height={size} {...svgProps}>
       <path
         d="M3 17V9a7 7 0 0 1 14 0v8"
-        stroke="currentColor"
-        strokeWidth="1.6"
-        strokeLinecap="round"
+
         strokeLinejoin="round"
       />
-      <path d="M3 17h14" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+      <path d="M3 17h14" />
     </svg>
   );
 }
@@ -208,12 +197,10 @@ export function TunnelIcon({ size = 16 }: IconProps) {
 export function OnewayIcon({ size = 16 }: IconProps) {
   return (
     <svg width={size} height={size} {...svgProps}>
-      <path d="M3 10h13" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+      <path d="M3 10h13" />
       <path
         d="M12 5.5 17 10l-5 4.5"
-        stroke="currentColor"
-        strokeWidth="1.6"
-        strokeLinecap="round"
+
         strokeLinejoin="round"
         fill="none"
       />
@@ -225,13 +212,8 @@ export function OnewayIcon({ size = 16 }: IconProps) {
 export function AccidentIcon({ size = 16 }: IconProps) {
   return (
     <svg width={size} height={size} {...svgProps}>
-      <path
-        d="M10 1.5v5M10 13.5v5M1.5 10h5M13.5 10h5M4 4l3.5 3.5M16 4l-3.5 3.5M4 16l3.5-3.5M16 16l-3.5-3.5"
-        stroke="currentColor"
-        strokeWidth="1.6"
-        strokeLinecap="round"
-      />
-      <circle cx="10" cy="10" r="2.3" fill="currentColor" />
+      <path d="M10 1.5v5M10 13.5v5M1.5 10h5M13.5 10h5M4 4l3.5 3.5M16 4l-3.5 3.5M4 16l3.5-3.5M16 16l-3.5-3.5" />
+      <circle cx="10" cy="10" r="2.3" fill="currentColor" stroke="none" />
     </svg>
   );
 }
@@ -240,11 +222,11 @@ export function AccidentIcon({ size = 16 }: IconProps) {
 export function StopPoiIcon({ size = 16 }: IconProps) {
   return (
     <svg width={size} height={size} {...svgProps}>
-      <rect x="7" y="2" width="6" height="13" rx="2" stroke="currentColor" strokeWidth="1.5" />
-      <circle cx="10" cy="5.3" r="1" fill="currentColor" />
-      <circle cx="10" cy="8.5" r="1" fill="currentColor" />
-      <circle cx="10" cy="11.7" r="1" fill="currentColor" />
-      <path d="M10 15v3" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+      <rect x="7" y="2" width="6" height="13" rx="2" strokeWidth="1.5" strokeLinecap="butt" />
+      <circle cx="10" cy="5.3" r="1" fill="currentColor" stroke="none" />
+      <circle cx="10" cy="8.5" r="1" fill="currentColor" stroke="none" />
+      <circle cx="10" cy="11.7" r="1" fill="currentColor" stroke="none" />
+      <path d="M10 15v3" strokeWidth="1.5" />
     </svg>
   );
 }
@@ -255,11 +237,12 @@ export function SupplyPoiIcon({ size = 16 }: IconProps) {
     <svg width={size} height={size} {...svgProps}>
       <path
         d="M5 7h10l-1 10a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1L5 7Z"
-        stroke="currentColor"
+
         strokeWidth="1.5"
         strokeLinejoin="round"
+        strokeLinecap="butt"
       />
-      <path d="M7.5 7V5a2.5 2.5 0 0 1 5 0v2" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+      <path d="M7.5 7V5a2.5 2.5 0 0 1 5 0v2" strokeWidth="1.5" />
     </svg>
   );
 }
@@ -271,10 +254,8 @@ export function EnvironmentDataIcon({ size = 16 }: IconProps) {
     <svg width={size} height={size} {...svgProps}>
       <path
         d="M6 15a3.3 3.3 0 0 1 .4-6.58A4.6 4.6 0 0 1 15.3 9.6 3 3 0 0 1 14.7 15H6Z"
-        stroke="currentColor"
-        strokeWidth="1.6"
+
         strokeLinejoin="round"
-        strokeLinecap="round"
       />
     </svg>
   );
@@ -287,11 +268,11 @@ export function SpotDataIcon({ size = 16 }: IconProps) {
     <svg width={size} height={size} {...svgProps}>
       <path
         d="M10 18s6-6.7 6-11a6 6 0 0 0-12 0c0 4.3 6 11 6 11Z"
-        stroke="currentColor"
-        strokeWidth="1.6"
+
         strokeLinejoin="round"
+        strokeLinecap="butt"
       />
-      <circle cx="10" cy="7" r="1.8" fill="currentColor" />
+      <circle cx="10" cy="7" r="1.8" fill="currentColor" stroke="none" />
     </svg>
   );
 }
@@ -302,13 +283,11 @@ export function RouteIcon({ size = 16 }: IconProps) {
     <svg width={size} height={size} {...svgProps}>
       <path
         d="M3.5 16c2.8-1 2.8-5.2 6-6s3.2-5.2 6-6"
-        stroke="currentColor"
-        strokeWidth="1.6"
-        strokeLinecap="round"
+
         strokeDasharray="0.2 3"
       />
-      <circle cx="3.5" cy="16" r="1.6" fill="currentColor" />
-      <circle cx="15.5" cy="4" r="1.6" fill="currentColor" />
+      <circle cx="3.5" cy="16" r="1.6" fill="currentColor" stroke="none" />
+      <circle cx="15.5" cy="4" r="1.6" fill="currentColor" stroke="none" />
     </svg>
   );
 }
@@ -317,8 +296,8 @@ export function RouteIcon({ size = 16 }: IconProps) {
 export function LogIcon({ size = 16 }: IconProps) {
   return (
     <svg width={size} height={size} {...svgProps}>
-      <rect x="2" y="2.5" width="16" height="15" rx="2" stroke="currentColor" strokeWidth="1.6" />
-      <path d="M5 7h10M5 10.2h10M5 13.4h6" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+      <rect x="2" y="2.5" width="16" height="15" rx="2" strokeLinecap="butt" />
+      <path d="M5 7h10M5 10.2h10M5 13.4h6" strokeWidth="1.4" />
     </svg>
   );
 }
@@ -327,9 +306,9 @@ export function LogIcon({ size = 16 }: IconProps) {
 export function WindIcon({ size = 16 }: IconProps) {
   return (
     <svg width={size} height={size} {...svgProps}>
-      <path d="M2 6.5h11a2.5 2.5 0 1 0-2.2-3.7" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
-      <path d="M2 10.5h14.5a2.5 2.5 0 1 1-2.2 3.7" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
-      <path d="M2 14.5h8a2 2 0 1 1-1.8 2.9" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+      <path d="M2 6.5h11a2.5 2.5 0 1 0-2.2-3.7" />
+      <path d="M2 10.5h14.5a2.5 2.5 0 1 1-2.2 3.7" />
+      <path d="M2 14.5h8a2 2 0 1 1-1.8 2.9" />
     </svg>
   );
 }
@@ -341,9 +320,7 @@ export function WindDirectionArrowIcon({ size = 16 }: IconProps) {
     <svg width={size} height={size} {...svgProps}>
       <path
         d="M10 2v14M10 2 5 8M10 2l5 6"
-        stroke="currentColor"
-        strokeWidth="1.6"
-        strokeLinecap="round"
+
         strokeLinejoin="round"
       />
     </svg>
@@ -356,12 +333,10 @@ export function ThermometerIcon({ size = 16 }: IconProps) {
     <svg width={size} height={size} {...svgProps}>
       <path
         d="M9 3.2v8.75a3 3 0 1 0 2 0V3.2a1 1 0 0 0-2 0Z"
-        stroke="currentColor"
-        strokeWidth="1.6"
+
         strokeLinejoin="round"
-        strokeLinecap="round"
       />
-      <circle cx="10" cy="15" r="1.2" fill="currentColor" />
+      <circle cx="10" cy="15" r="1.2" fill="currentColor" stroke="none" />
     </svg>
   );
 }
@@ -372,10 +347,8 @@ export function RaindropIcon({ size = 16 }: IconProps) {
     <svg width={size} height={size} {...svgProps}>
       <path
         d="M10 2.8C7.2 7 4.8 10.2 4.8 12.8a5.2 5.2 0 0 0 10.4 0C15.2 10.2 12.8 7 10 2.8Z"
-        stroke="currentColor"
-        strokeWidth="1.6"
+
         strokeLinejoin="round"
-        strokeLinecap="round"
       />
     </svg>
   );
@@ -387,12 +360,10 @@ export function ThunderIcon({ size = 16 }: IconProps) {
     <svg width={size} height={size} {...svgProps}>
       <path
         d="M6 8.5a4 4 0 0 1 7.6-1.7A3.2 3.2 0 0 1 13 13H6.5a3.5 3.5 0 0 1-.5-6.95"
-        stroke="currentColor"
-        strokeWidth="1.6"
+
         strokeLinejoin="round"
-        strokeLinecap="round"
       />
-      <path d="M10.5 12 8 16.5h2.6L9.5 20l4-6h-2.6L12.5 12Z" fill="currentColor" />
+      <path d="M10.5 12 8 16.5h2.6L9.5 20l4-6h-2.6L12.5 12Z" fill="currentColor" stroke="none" />
     </svg>
   );
 }
@@ -401,13 +372,8 @@ export function ThunderIcon({ size = 16 }: IconProps) {
 export function SunIcon({ size = 16 }: IconProps) {
   return (
     <svg width={size} height={size} {...svgProps}>
-      <circle cx="10" cy="10" r="3.6" stroke="currentColor" strokeWidth="1.6" />
-      <path
-        d="M10 2.5v2.2M10 15.3v2.2M17.5 10h-2.2M4.7 10H2.5M15.3 4.7l-1.6 1.6M6.3 13.7l-1.6 1.6M15.3 15.3l-1.6-1.6M6.3 6.3 4.7 4.7"
-        stroke="currentColor"
-        strokeWidth="1.6"
-        strokeLinecap="round"
-      />
+      <circle cx="10" cy="10" r="3.6" strokeLinecap="butt" />
+      <path d="M10 2.5v2.2M10 15.3v2.2M17.5 10h-2.2M4.7 10H2.5M15.3 4.7l-1.6 1.6M6.3 13.7l-1.6 1.6M15.3 15.3l-1.6-1.6M6.3 6.3 4.7 4.7" />
     </svg>
   );
 }
@@ -418,10 +384,8 @@ export function MoonIcon({ size = 16 }: IconProps) {
     <svg width={size} height={size} {...svgProps}>
       <path
         d="M17.4 10.6A7.4 7.4 0 1 1 9.3 2.5 5.8 5.8 0 0 0 17.4 10.6Z"
-        stroke="currentColor"
-        strokeWidth="1.6"
+
         strokeLinejoin="round"
-        strokeLinecap="round"
       />
     </svg>
   );
@@ -433,10 +397,8 @@ export function CloudIcon({ size = 16 }: IconProps) {
     <svg width={size} height={size} {...svgProps}>
       <path
         d="M6.3 14.6a3.3 3.3 0 0 1 .4-6.6 4.3 4.3 0 0 1 8.1-1.3 3.6 3.6 0 0 1-.4 7.9H6.3Z"
-        stroke="currentColor"
-        strokeWidth="1.6"
+
         strokeLinejoin="round"
-        strokeLinecap="round"
       />
     </svg>
   );
@@ -446,7 +408,7 @@ export function CloudIcon({ size = 16 }: IconProps) {
 export function FogIcon({ size = 16 }: IconProps) {
   return (
     <svg width={size} height={size} {...svgProps}>
-      <path d="M3 7h11M3 10.2h14M3 13.4h9" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+      <path d="M3 7h11M3 10.2h14M3 13.4h9" />
     </svg>
   );
 }
@@ -455,7 +417,7 @@ export function FogIcon({ size = 16 }: IconProps) {
 export function SnowflakeIcon({ size = 16 }: IconProps) {
   return (
     <svg width={size} height={size} {...svgProps}>
-      <path d="M10 3v14M4.5 6.5l11 7M15.5 6.5l-11 7" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+      <path d="M10 3v14M4.5 6.5l11 7M15.5 6.5l-11 7" />
     </svg>
   );
 }
@@ -468,19 +430,18 @@ export function RouteSpliceIcon({ size = 16 }: IconProps) {
     <svg width={size} height={size} {...svgProps}>
       <path
         d="M3 15.5c2.6 0 3.4-3 5-5.5s2.4-5.5 5-5.5"
-        stroke="currentColor"
+
         strokeWidth="1.2"
-        strokeLinecap="round"
+
         opacity="0.55"
       />
       <path
         d="M3 15.5c2.6 0 4.6 0 6.2-2.2 1.6-2.2 2-8.8 4.6-8.8"
-        stroke="currentColor"
+
         strokeWidth="1.8"
-        strokeLinecap="round"
       />
-      <circle cx="3" cy="15.5" r="1.5" fill="currentColor" />
-      <circle cx="13.8" cy="4.5" r="1.5" fill="currentColor" />
+      <circle cx="3" cy="15.5" r="1.5" fill="currentColor" stroke="none" />
+      <circle cx="13.8" cy="4.5" r="1.5" fill="currentColor" stroke="none" />
     </svg>
   );
 }
@@ -490,13 +451,14 @@ export function RouteSpliceIcon({ size = 16 }: IconProps) {
 export function RouteDiffIcon({ size = 16 }: IconProps) {
   return (
     <svg width={size} height={size} {...svgProps}>
-      <path d="M10 3v11M4.4 5.4h11.2M5.6 13.4h8.8" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+      <path d="M10 3v11M4.4 5.4h11.2M5.6 13.4h8.8" strokeWidth="1.4" />
       <path
         d="M4.4 5.4 2.2 10.2h4.4zM15.6 5.4 13.4 10.2h4.4z"
-        stroke="currentColor"
+
         strokeWidth="1.3"
         strokeLinejoin="round"
         fill="none"
+        strokeLinecap="butt"
       />
     </svg>
   );
@@ -507,15 +469,10 @@ export function RouteDiffIcon({ size = 16 }: IconProps) {
 export function NewRouteIcon({ size = 16 }: IconProps) {
   return (
     <svg width={size} height={size} {...svgProps}>
-      <path
-        d="M2.6 15.4c2.4 0 3.2-2.6 4.7-5s2.2-5 4.6-5"
-        stroke="currentColor"
-        strokeWidth="1.6"
-        strokeLinecap="round"
-      />
-      <circle cx="2.6" cy="15.4" r="1.4" fill="currentColor" />
-      <circle cx="11.9" cy="5.4" r="1.4" fill="currentColor" />
-      <path d="M15.4 11.4v5M12.9 13.9h5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+      <path d="M2.6 15.4c2.4 0 3.2-2.6 4.7-5s2.2-5 4.6-5" />
+      <circle cx="2.6" cy="15.4" r="1.4" fill="currentColor" stroke="none" />
+      <circle cx="11.9" cy="5.4" r="1.4" fill="currentColor" stroke="none" />
+      <path d="M15.4 11.4v5M12.9 13.9h5" />
     </svg>
   );
 }
@@ -526,16 +483,12 @@ export function UndoIcon({ size = 16 }: IconProps) {
     <svg width={size} height={size} {...svgProps}>
       <path
         d="M4.2 8.4h6.6a4.2 4.2 0 0 1 0 8.4H6.4"
-        stroke="currentColor"
-        strokeWidth="1.6"
-        strokeLinecap="round"
+
         fill="none"
       />
       <path
         d="M7.4 4.6 3.6 8.4l3.8 3.8"
-        stroke="currentColor"
-        strokeWidth="1.6"
-        strokeLinecap="round"
+
         strokeLinejoin="round"
         fill="none"
       />
@@ -549,20 +502,16 @@ export function UndoAllIcon({ size = 16 }: IconProps) {
     <svg width={size} height={size} {...svgProps}>
       <path
         d="M6.6 8.4h5.2a4.2 4.2 0 0 1 0 8.4H8"
-        stroke="currentColor"
-        strokeWidth="1.6"
-        strokeLinecap="round"
+
         fill="none"
       />
       <path
         d="M9.4 4.6 5.8 8.4l3.6 3.8"
-        stroke="currentColor"
-        strokeWidth="1.6"
-        strokeLinecap="round"
+
         strokeLinejoin="round"
         fill="none"
       />
-      <path d="M3.2 3.6v9.6" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+      <path d="M3.2 3.6v9.6" strokeWidth="1.8" />
     </svg>
   );
 }
@@ -572,10 +521,10 @@ export function UndoAllIcon({ size = 16 }: IconProps) {
 export function ClearRoutesIcon({ size = 16 }: IconProps) {
   return (
     <svg width={size} height={size} {...svgProps}>
-      <path d="M3.6 5.4h12.8" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
-      <path d="M7.9 5.4V3.9h4.2v1.5" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round" />
-      <path d="M5.7 5.4h8.6l-.7 10.7H6.4L5.7 5.4Z" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round" />
-      <path d="M8.6 8.6v4.6M11.4 8.6v4.6" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+      <path d="M3.6 5.4h12.8" />
+      <path d="M7.9 5.4V3.9h4.2v1.5" strokeLinejoin="round" strokeLinecap="butt" />
+      <path d="M5.7 5.4h8.6l-.7 10.7H6.4L5.7 5.4Z" strokeLinejoin="round" strokeLinecap="butt" />
+      <path d="M8.6 8.6v4.6M11.4 8.6v4.6" strokeWidth="1.4" />
     </svg>
   );
 }
@@ -586,14 +535,9 @@ export function ClearRoutesIcon({ size = 16 }: IconProps) {
 export function ClearAllLayersIcon({ size = 16 }: IconProps) {
   return (
     <svg width={size} height={size} {...svgProps}>
-      <path d="M7.5 2.6 13.6 6 7.5 9.4 1.4 6 7.5 2.6Z" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round" />
-      <path d="M1.4 9.6 7.5 13" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
-      <path
-        d="M12.4 12.4 17.6 17.6M17.6 12.4 12.4 17.6"
-        stroke="currentColor"
-        strokeWidth="1.6"
-        strokeLinecap="round"
-      />
+      <path d="M7.5 2.6 13.6 6 7.5 9.4 1.4 6 7.5 2.6Z" strokeLinejoin="round" strokeLinecap="butt" />
+      <path d="M1.4 9.6 7.5 13" />
+      <path d="M12.4 12.4 17.6 17.6M17.6 12.4 12.4 17.6" />
     </svg>
   );
 }
@@ -605,16 +549,11 @@ export function ClearAllFiltersIcon({ size = 16 }: IconProps) {
     <svg width={size} height={size} {...svgProps}>
       <path
         d="M1.8 3.4h11.4L8.9 8.3v4.4L6.1 14V8.3L1.8 3.4Z"
-        stroke="currentColor"
-        strokeWidth="1.6"
+
         strokeLinejoin="round"
+        strokeLinecap="butt"
       />
-      <path
-        d="M12.4 12.4 17.6 17.6M17.6 12.4 12.4 17.6"
-        stroke="currentColor"
-        strokeWidth="1.6"
-        strokeLinecap="round"
-      />
+      <path d="M12.4 12.4 17.6 17.6M17.6 12.4 12.4 17.6" />
     </svg>
   );
 }
@@ -623,9 +562,9 @@ export function ClearAllFiltersIcon({ size = 16 }: IconProps) {
 export function InfoIcon({ size = 14 }: IconProps) {
   return (
     <svg width={size} height={size} {...svgProps}>
-      <circle cx="10" cy="10" r="7.5" stroke="currentColor" strokeWidth="1.6" />
-      <circle cx="10" cy="6.6" r="0.9" fill="currentColor" />
-      <path d="M10 9.4v5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+      <circle cx="10" cy="10" r="7.5" strokeLinecap="butt" />
+      <circle cx="10" cy="6.6" r="0.9" fill="currentColor" stroke="none" />
+      <path d="M10 9.4v5" />
     </svg>
   );
 }
@@ -634,8 +573,8 @@ export function InfoIcon({ size = 14 }: IconProps) {
 export function CopyIcon({ size = 16 }: IconProps) {
   return (
     <svg width={size} height={size} {...svgProps}>
-      <rect x="7" y="7" width="10" height="11" rx="1.6" stroke="currentColor" strokeWidth="1.6" />
-      <path d="M13 4.5H4.6A1.6 1.6 0 0 0 3 6.1v8.4" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+      <rect x="7" y="7" width="10" height="11" rx="1.6" strokeLinecap="butt" />
+      <path d="M13 4.5H4.6A1.6 1.6 0 0 0 3 6.1v8.4" />
     </svg>
   );
 }
@@ -644,12 +583,10 @@ export function CopyIcon({ size = 16 }: IconProps) {
 export function RedrawMapIcon({ size = 16 }: IconProps) {
   return (
     <svg width={size} height={size} {...svgProps}>
-      <path d="M16 10a6 6 0 1 1-1.8-4.3" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+      <path d="M16 10a6 6 0 1 1-1.8-4.3" />
       <path
         d="M16.4 2.6v3.6h-3.6"
-        stroke="currentColor"
-        strokeWidth="1.6"
-        strokeLinecap="round"
+
         strokeLinejoin="round"
       />
     </svg>
@@ -660,10 +597,10 @@ export function RedrawMapIcon({ size = 16 }: IconProps) {
 export function RouteSettingsIcon({ size = 16 }: IconProps) {
   return (
     <svg width={size} height={size} {...svgProps}>
-      <path d="M3 6h14M3 10h14M3 14h14" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
-      <circle cx="7" cy="6" r="1.8" fill="currentColor" />
-      <circle cx="13" cy="10" r="1.8" fill="currentColor" />
-      <circle cx="9" cy="14" r="1.8" fill="currentColor" />
+      <path d="M3 6h14M3 10h14M3 14h14" />
+      <circle cx="7" cy="6" r="1.8" fill="currentColor" stroke="none" />
+      <circle cx="13" cy="10" r="1.8" fill="currentColor" stroke="none" />
+      <circle cx="9" cy="14" r="1.8" fill="currentColor" stroke="none" />
     </svg>
   );
 }
@@ -680,10 +617,8 @@ export function ShieldIcon({ size = 16 }: IconProps) {
     <svg width={size} height={size} {...svgProps}>
       <path
         d="M10 2.5 16.5 5v5c0 4.2-2.9 6.8-6.5 7.5-3.6-.7-6.5-3.3-6.5-7.5V5L10 2.5Z"
-        stroke="currentColor"
-        strokeWidth="1.6"
+
         strokeLinejoin="round"
-        strokeLinecap="round"
       />
     </svg>
   );
@@ -693,9 +628,9 @@ export function ShieldIcon({ size = 16 }: IconProps) {
 export function TargetIcon({ size = 16 }: IconProps) {
   return (
     <svg width={size} height={size} {...svgProps}>
-      <circle cx="10" cy="10" r="7" stroke="currentColor" strokeWidth="1.6" />
-      <circle cx="10" cy="10" r="4" stroke="currentColor" strokeWidth="1.6" />
-      <circle cx="10" cy="10" r="1.2" fill="currentColor" />
+      <circle cx="10" cy="10" r="7" strokeLinecap="butt" />
+      <circle cx="10" cy="10" r="4" strokeLinecap="butt" />
+      <circle cx="10" cy="10" r="1.2" fill="currentColor" stroke="none" />
     </svg>
   );
 }
@@ -704,8 +639,8 @@ export function TargetIcon({ size = 16 }: IconProps) {
 export function ClockIcon({ size = 16 }: IconProps) {
   return (
     <svg width={size} height={size} {...svgProps}>
-      <circle cx="10" cy="10" r="7.5" stroke="currentColor" strokeWidth="1.6" />
-      <path d="M10 6v4.2l3 2" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+      <circle cx="10" cy="10" r="7.5" strokeLinecap="butt" />
+      <path d="M10 6v4.2l3 2" strokeLinejoin="round" />
     </svg>
   );
 }
@@ -716,17 +651,13 @@ export function LayersStackIcon({ size = 16 }: IconProps) {
     <svg width={size} height={size} {...svgProps}>
       <path
         d="M10 3 17 7.5 10 12 3 7.5 10 3Z"
-        stroke="currentColor"
-        strokeWidth="1.6"
+
         strokeLinejoin="round"
-        strokeLinecap="round"
       />
       <path
         d="M3 11 10 15.5 17 11"
-        stroke="currentColor"
-        strokeWidth="1.6"
+
         strokeLinejoin="round"
-        strokeLinecap="round"
       />
     </svg>
   );
@@ -738,9 +669,9 @@ export function LayersStackIcon({ size = 16 }: IconProps) {
 export function MenuIcon({ size = 16 }: IconProps) {
   return (
     <svg width={size} height={size} {...svgProps}>
-      <circle cx="10" cy="5" r="1.5" fill="currentColor" />
-      <circle cx="10" cy="10" r="1.5" fill="currentColor" />
-      <circle cx="10" cy="15" r="1.5" fill="currentColor" />
+      <circle cx="10" cy="5" r="1.5" fill="currentColor" stroke="none" />
+      <circle cx="10" cy="10" r="1.5" fill="currentColor" stroke="none" />
+      <circle cx="10" cy="15" r="1.5" fill="currentColor" stroke="none" />
     </svg>
   );
 }
@@ -752,9 +683,7 @@ export function DownloadIcon({ size = 16 }: IconProps) {
       <path
         d="M10 3v9m0 0-3.5-3.5M10 12l3.5-3.5M4 15v2h12v-2"
         fill="none"
-        stroke="currentColor"
-        strokeWidth="1.6"
-        strokeLinecap="round"
+
         strokeLinejoin="round"
       />
     </svg>
@@ -765,9 +694,9 @@ export function DownloadIcon({ size = 16 }: IconProps) {
 export function SpeedGaugeIcon({ size = 16 }: IconProps) {
   return (
     <svg width={size} height={size} {...svgProps}>
-      <path d="M3 14a7 7 0 0 1 14 0" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
-      <path d="M10 14 13 9" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
-      <circle cx="10" cy="14" r="1.3" fill="currentColor" />
+      <path d="M3 14a7 7 0 0 1 14 0" />
+      <path d="M10 14 13 9" />
+      <circle cx="10" cy="14" r="1.3" fill="currentColor" stroke="none" />
     </svg>
   );
 }

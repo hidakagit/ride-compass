@@ -24,7 +24,7 @@ import {
 import { DISASTER_LAYER_ID } from "@/features/map/scene/legends";
 import { LENS_DIFFICULTY_ID } from "@/lib/mapDisplay/routeStyleModes";
 
-import { catalogOf, dedicatedEntry, rampEntry } from "./__fixtures__/catalog";
+import { catalogOf, dedicatedEntry, rampEntry } from "@/lib/mapDisplay/__fixtures__/catalogAxes";
 import { useMapView } from "./useMapView";
 
 const CATALOG: AxisCatalog = {

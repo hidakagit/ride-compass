@@ -11,7 +11,6 @@ import {
   axisLabelsFromCatalogAxes,
   dedicatedWayValueAxesFromCatalogAxes,
   rampAxesFromCatalogAxes,
-  type CatalogAxis,
   type DedicatedWayValueAxis,
   type RampAxis,
 } from "@/lib/mapDisplay/axisLayers";
@@ -102,54 +101,6 @@ export const EMPTY_CATALOG: AxisCatalog = {
   failed: false,
 };
 
-/** GET /api/axis-catalogのAxisCatalogEntry（displayが必ず非null）を、axisLayers.ts/
- * secondaryAxes.tsの変換関数が受け取れるCatalogAxis形（displayが`{...} | null`、
- * ビルド時静的json由来）へ合わせる。tile_inputs/thresholdsはbackendで既定値付き
- * （常に配列で返るが、OpenAPI生成型は既定値ありのフィールドをoptionalとしてマークするため
- * 型上はundefinedを許容する）ため、undefined時は空配列を補う。 */
-function toCatalogAxis(entry: AxisCatalogEntry): CatalogAxis {
-  return {
-    axis_id: entry.axis_id,
-    label: entry.label,
-    description: entry.description,
-    raw_value_unit: entry.raw_value_unit,
-    material_breakdown: entry.material_breakdown,
-    category: entry.category,
-    display: {
-      kind: entry.display.kind,
-      label: entry.display.label,
-      category: entry.display.category,
-      tile_inputs: (entry.display.tile_inputs ?? []).map((input) => ({
-        property: input.property,
-        weight: input.weight,
-        boolean: input.boolean,
-        true_value: input.true_value,
-        false_value: input.false_value,
-        has_unknown_fallback: input.has_unknown_fallback,
-        categories: input.categories ?? null,
-        breakpoints: input.breakpoints ?? null,
-        needs_runtime_scale: input.needs_runtime_scale,
-      })),
-      thresholds: entry.display.thresholds ?? [],
-    },
-    primary_attribute_ids: entry.primary_attribute_ids,
-    icon_id: entry.icon_id,
-    chip_label: entry.chip_label,
-    panel_hint: entry.panel_hint,
-    show_map_icon: entry.show_map_icon,
-    shape: entry.shape,
-    display_thresholds_override: entry.display_thresholds_override,
-    display_band_labels_override: entry.display_band_labels_override,
-    dedicated_way_value_layer: entry.dedicated_way_value_layer,
-    map_value_kind: entry.map_value_kind,
-    map_value_unit: entry.map_value_unit,
-    map_value_thresholds: entry.map_value_thresholds,
-    dynamic_way_value_needs_time: entry.dynamic_way_value_needs_time,
-    dynamic_way_value_needs_bearing: entry.dynamic_way_value_needs_bearing,
-    dynamic_way_value_needs_speed: entry.dynamic_way_value_needs_speed,
-  };
-}
-
 export function axisCatalogFromResponse(
   entries: readonly AxisCatalogEntry[],
   materialRuntimeScales: Readonly<Record<string, number>>,
@@ -158,19 +109,18 @@ export function axisCatalogFromResponse(
 ): AxisCatalog {
   const defaultWeights: RoutePreferenceWeights = {};
   for (const entry of entries) defaultWeights[entry.axis_id] = entry.default_weight;
-  const catalogAxes = entries.map(toCatalogAxis);
-  const axes: PreferenceAxisDef[] = catalogAxes.map(preferenceAxisFromCatalog);
+  const axes: PreferenceAxisDef[] = entries.map(preferenceAxisFromCatalog);
   return {
     clientTuning,
     axes,
     defaultWeights,
-    rampAxes: rampAxesFromCatalogAxes(catalogAxes, materialRuntimeScales),
-    dedicatedAxes: dedicatedWayValueAxesFromCatalogAxes(catalogAxes),
-    axisLabels: axisLabelsFromCatalogAxes(catalogAxes),
+    rampAxes: rampAxesFromCatalogAxes(entries, materialRuntimeScales),
+    dedicatedAxes: dedicatedWayValueAxesFromCatalogAxes(entries),
+    axisLabels: axisLabelsFromCatalogAxes(entries),
     axisColors: axisColorsOf(axes),
     accidentYears,
-    secondaryAxes: secondaryAxesFromCatalogAxes(catalogAxes),
-    routeStyleModes: routeStyleModesFromCatalogAxes(catalogAxes),
+    secondaryAxes: secondaryAxesFromCatalogAxes(entries),
+    routeStyleModes: routeStyleModesFromCatalogAxes(entries),
     loaded: true,
     failed: false,
   };

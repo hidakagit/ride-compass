@@ -8,7 +8,8 @@
 // 正式名・略名・アイコンは軸自身のデータ（正本は本番DBの軸定義）をそのまま使う。
 // 合成軸もkind="ramp"で、他のkind="ramp"軸と同じくaxisMapLayerId経由で専用レイヤーを持つ。
 
-import { axisMapLayerId, type AxisMapLayerId, type CatalogAxis } from "@/lib/mapDisplay/axisLayers";
+import { axisMapLayerId, type AxisMapLayerId } from "@/lib/mapDisplay/axisLayers";
+import type { AxisCatalogEntry } from "@/types/route";
 
 // CatalogAxis型はaxisLayers.tsと共有する（同じ形の入力を両ファイルの変換関数が
 // 受け取るため、別々に定義しない）。
@@ -43,10 +44,10 @@ export interface SecondaryAxisSummary {
   /** 折れ点を通す前の生値の単位（GET /api/axis-catalogのraw_value_unit）。単位が定まる
    * 軸だけが持ち、それ以外はnull。 */
   rawValueUnit?: string | null;
-  /** 生値へ走行距離を掛けた総量の単位（CatalogAxis.raw_value_total_unit）。総量を出しても
+  /** 生値へ走行距離を掛けた総量の単位（AxisCatalogEntry.raw_value_total_unit）。総量を出しても
    * 判断が変わらない軸はnull。 */
   rawValueTotalUnit?: string | null;
-  /** 生値の単位が定まらない軸の内訳（CatalogAxis.material_breakdown）。材料まで分解した
+  /** 生値の単位が定まらない軸の内訳（AxisCatalogEntry.material_breakdown）。材料まで分解した
    * 絶対量の並びで、正規化重みの降順。単位が定まる軸は空配列。 */
   materialBreakdown?: readonly AxisMaterialBreakdown[];
 }
@@ -56,15 +57,14 @@ export interface SecondaryAxisSummary {
  * 軸のビューモデルを組み立てる箇所が複数ある（`secondaryAxesFromCatalogAxes`・
  * `evaluationAxes.ts: preferenceAxisFromCatalog`）ため、この変換だけを共有する
  * ——フィールドを1つ足したときに片方だけ取り残されるのを防ぐ。 */
-export function materialBreakdownFromCatalog(entries: CatalogAxis["material_breakdown"]): AxisMaterialBreakdown[] {
-  return (entries ?? []).map((entry) => ({
+export function materialBreakdownFromCatalog(entries: AxisCatalogEntry["material_breakdown"]): AxisMaterialBreakdown[] {
+  return entries.map((entry) => ({
     materialId: entry.material_id,
     label: entry.label,
     dtype: entry.dtype,
     unit: entry.unit,
     share: entry.share,
-    // 生成json由来のため値ごとに別のリテラル型になる。対訳表としての形は同じ。
-    valueLabels: (entry.value_labels ?? {}) as Record<string, string>,
+    valueLabels: entry.value_labels,
   }));
 }
 
@@ -84,8 +84,8 @@ export interface AxisMaterialBreakdown {
 // kind==="ramp"の軸の専用レイヤーidはaxisMapLayerId(axis_id)で機械的に求まる（軸が
 // 増えてもここへ追記しない）。kind==="none"（例: gradient、材料がタイル非依存）は
 // undefined（専用レイヤー無し）のまま。
-function layerIdFor(axis: CatalogAxis): AxisMapLayerId | undefined {
-  if (axis.display!.kind === "ramp") return axisMapLayerId(axis.axis_id);
+function layerIdFor(axis: AxisCatalogEntry): AxisMapLayerId | undefined {
+  if (axis.display.kind === "ramp") return axisMapLayerId(axis.axis_id);
   return undefined;
 }
 
@@ -96,24 +96,21 @@ function layerIdFor(axis: CatalogAxis): AxisMapLayerId | undefined {
  * 軸も、コード側の軸id・categoryの名指しではなくこのフラグで外す——軸の属性は
  * 軸スタジオから変えられるため、コード側で特定の値を名指しすると、値が変わった時点で
  * 黙って効かなくなる。 */
-export function secondaryAxesFromCatalogAxes(axes: readonly CatalogAxis[]): SecondaryAxisSummary[] {
-  return (
-    axes
-      // display===nullは非公開軸（カタログに載るが表示情報を持たない）。
-      .filter((axis) => axis.display !== null && axis.show_map_icon !== false)
-      .map((axis) => ({
-        axisId: axis.axis_id,
-        label: axis.display!.label,
-        description: axis.description ?? "",
-        chipLabel: axis.chip_label ?? axis.display!.label,
-        layerId: layerIdFor(axis),
-        primaryAttributeIds: axis.primary_attribute_ids ?? [],
-        iconId: axis.icon_id ?? undefined,
-        panelHint: axis.panel_hint ?? undefined,
-        dedicatedWayValueLayer: axis.dedicated_way_value_layer ?? false,
-        rawValueUnit: axis.raw_value_unit ?? null,
-        rawValueTotalUnit: axis.raw_value_total_unit ?? null,
-        materialBreakdown: materialBreakdownFromCatalog(axis.material_breakdown),
-      }))
-  );
+export function secondaryAxesFromCatalogAxes(axes: readonly AxisCatalogEntry[]): SecondaryAxisSummary[] {
+  return axes
+    .filter((axis) => axis.show_map_icon)
+    .map((axis) => ({
+      axisId: axis.axis_id,
+      label: axis.display.label,
+      description: axis.description,
+      chipLabel: axis.chip_label ?? axis.display.label,
+      layerId: layerIdFor(axis),
+      primaryAttributeIds: axis.primary_attribute_ids,
+      iconId: axis.icon_id ?? undefined,
+      panelHint: axis.panel_hint ?? undefined,
+      dedicatedWayValueLayer: axis.dedicated_way_value_layer,
+      rawValueUnit: axis.raw_value_unit,
+      rawValueTotalUnit: axis.raw_value_total_unit,
+      materialBreakdown: materialBreakdownFromCatalog(axis.material_breakdown),
+    }));
 }
