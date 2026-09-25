@@ -12,9 +12,9 @@
 
 | レイヤー | ファイル |
 |---|---|
-| domain | `routing.py`・`graph.py`・`route.py`・`geo.py`・`errors.py`・`region.py`（矩形（`BoundingBox`）とXYZタイルの相互変換、Road Graphを取得する単位のズーム。タイル配信側もこの変換を共有する）・`cycling_speed.py`（自転車の走行モデル。平地・無風の巡航速度からホイール出力を逆算し、勾配・向かい風・転がり抵抗から区間ごとの速度を走行方程式で解く。速度の逆算は`v`の3次方程式になるため二分法で、numpyでベクトル化してある。候補の所要時間と基準線の探索コストがここから出る）・`tuning.py`（ルーティング評価が読む固定値の宣言。走ってみて決める値［較正値］は既定ごとここが持ち、エンジンが読む値・管理画面が並べる項目・変更が効くために何をやり直す必要があるかをそこから導く。較正値ではない固定値は載せず、使う側のモジュールが持つ）・`loop_routing.py`（周回・目的地ルートの探索結果を運ぶ型。探索の実装と候補を並べる戦略のどちらにも属さない） |
+| domain | `road_network.py`（取込範囲全体の道路網を、有向の区間とノードの番号で引ける列の配列として持つ型。行の並び・分類の材料を語彙への番号で持つことはそのdocstringが持つ）・`routing.py`・`graph.py`・`route.py`・`geo.py`・`errors.py`・`region.py`（矩形（`BoundingBox`）とXYZタイルの相互変換、Road Graphを取得する単位のズーム。タイル配信側もこの変換を共有する）・`cycling_speed.py`（自転車の走行モデル。平地・無風の巡航速度からホイール出力を逆算し、勾配・向かい風・転がり抵抗から区間ごとの速度を走行方程式で解く。速度の逆算は`v`の3次方程式になるため二分法で、numpyでベクトル化してある。候補の所要時間と基準線の探索コストがここから出る）・`tuning.py`（ルーティング評価が読む固定値の宣言。走ってみて決める値［較正値］は既定ごとここが持ち、エンジンが読む値・管理画面が並べる項目・変更が効くために何をやり直す必要があるかをそこから導く。較正値ではない固定値は載せず、使う側のモジュールが持つ）・`loop_routing.py`（周回・目的地ルートの探索結果を運ぶ型。探索の実装と候補を並べる戦略のどちらにも属さない） |
 | services | `route_generator.py`（戦略層）・`road_graph_engine.py`・`graph_service.py` |
-| infrastructure | `road_graph_repository.py`（道路網・材料の読み出し専用）・`graph_material_cache.py`・`tile_score_matrix_cache.py`・`search_graph_cache.py`・`tile_persistent_cache.py`・`cache_identity.py`（キャッシュ鍵の組み立て方の正本。手で書くリビジョンと、焼き込みSQL・pickleする列構成から導く署名を合成する。タイル配信側の世代も同じ関数を使う）・`derived_data_meta.py`（派生データの世代。バッチが中身を書き直すたびに進む単調カウンタで、デプロイを伴わない変化を表せる唯一の経路）・`cache_generation.py`（DBの世代とディスクへ書いた時点の記録を突き合わせる判断。軸定義と派生データが同じ実装を使う） |
+| infrastructure | `road_graph_repository.py`（道路網・材料の読み出し専用）・`road_network_store.py`（道路網全体の配列をDBから作り、ディスクへ置き、読む）・`graph_material_cache.py`・`tile_score_matrix_cache.py`・`search_graph_cache.py`・`tile_persistent_cache.py`・`cache_identity.py`（キャッシュ鍵の組み立て方の正本。手で書くリビジョンと、焼き込みSQL・pickleする列構成から導く署名を合成する。タイル配信側の世代も同じ関数を使う）・`derived_data_meta.py`（派生データの世代。バッチが中身を書き直すたびに進む単調カウンタで、デプロイを伴わない変化を表せる唯一の経路）・`cache_generation.py`（DBの世代とディスクへ書いた時点の記録を突き合わせる判断。軸定義と派生データが同じ実装を使う） |
 | api | `routes.py` |
 
 探索が読む`road_edges`と材料のテーブル（ORMの宣言）・それを作るバッチは
@@ -899,6 +899,22 @@ ST_AsMVT丸ごと生成）・`_FEATURE_KEYS_IN_TILE_SQL`（wind、道路自身�
 `_ROAD_SURFACE_TILE_MVT_SQL`・`material_coverage.py`
 （[evaluation-scoring.md](evaluation-scoring.md)）と共通で参照する。詳細は
 [axis-studio.md](axis-studio.md)参照。
+
+### 道路網全体の配列（`road_network_store.py`）
+
+取込範囲全体の道路網（有向の区間とノード、区間ごとの材料）を列の配列として1つ持ち、ディスクの
+`data/road_network/<形の署名>-r<派生データの世代>/`へ置く。**DBから作るのに数分かかる**（本番の
+有向500万本で、材料の読み出しだけで約3分）ため、作るのはデータを書くバッチの入口（`run_batch_cli`が
+世代を進めた直後）と、デプロイの前処理（`scripts/build_road_network.py`、旧コンテナを止める前）だけに
+する。どちらも、今の世代・今の形の置き場が既にあれば作らない。
+
+形の署名は`RoadNetwork`の列と読み出しのSQL（材料の式を含む）から導く——材料の式を変えたコードの
+デプロイでは署名が変わり、前処理が新しい置き場を作る。作ったときは同じ署名で世代の古い置き場を消し、
+**署名の違う置き場は消さない**（入れ替え前の旧コンテナがそれを読んでいる）。
+
+材料は範囲指定の読み出しと同じ`get_edge_material_arrays`で引く（材料の式を2か所に持たない）。区間の
+並び・一方通行の扱い・端点の無い区間を落とす規則も、範囲指定の読み出し（`_topology_rows_to_road_graph`）と
+同じにしてある。
 
 ### キャッシュ（ルート生成はRedisを使わない）
 

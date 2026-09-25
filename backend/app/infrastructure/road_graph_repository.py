@@ -14,6 +14,7 @@
 
 import asyncio
 import logging
+from collections.abc import AsyncIterator, Sequence
 
 import numpy as np
 import shapely
@@ -695,6 +696,34 @@ LEFT JOIN way_materials wm ON wm.osm_way_id = re.osm_way_id
 WHERE ST_Intersects(re.geom, ST_MakeEnvelope(:xmin, :ymin, :xmax, :ymax, 4326))
 """)
 
+#: 取込範囲全体の区間（向きを持たない1行）。結合は`_TOPOLOGY_EDGES_SQL`と同じ——道の行が
+#: 無い区間は現れない。並びは`domain/road_network.py`の行順の前提。
+_NETWORK_EDGES_SQL = text(f"""
+SELECT re.osm_way_id, re.segment_index, re.from_node_id, re.to_node_id,
+       w.highway, wm.direction,
+       ST_XMin(re.geom) AS min_lon, ST_YMin(re.geom) AS min_lat,
+       ST_XMax(re.geom) AS max_lon, ST_YMax(re.geom) AS max_lat
+FROM road_edges re
+JOIN LATERAL {ways_lookup_sql("re.osm_way_id")} w ON true
+LEFT JOIN way_materials wm ON wm.osm_way_id = re.osm_way_id
+ORDER BY re.osm_way_id, re.segment_index
+""")
+
+#: 区間の端点になりうるノード全件（`road_edges`の端点は`node_materials`に行を持つ）。
+#: 座標はノードの生データから読み、生データが無いノードは現れない。
+_NETWORK_NODES_SQL = text(f"""
+SELECT nm.osm_node_id, ST_X(n.geom) AS longitude, ST_Y(n.geom) AS latitude,
+       COALESCE(nm.has_traffic_signals, false) AS has_traffic_signals,
+       COALESCE(nm.max_highway_rank, 0) AS max_highway_rank
+FROM node_materials nm
+JOIN LATERAL {nodes_lookup_sql("nm.osm_node_id")} n ON true
+ORDER BY nm.osm_node_id
+""")
+
+#: 取込範囲全体の道路網（`infrastructure/road_network_store.py`）を作る読み出し。置き場の
+#: 形の署名はここから導く——材料の式を変えると、作り直すべき置き場が別名になる。
+NETWORK_SQL_SOURCES = (_NETWORK_EDGES_SQL, _NETWORK_NODES_SQL, _EDGE_MATERIAL_ARRAYS_SQL)
+
 #: 外接矩形どうしの重なりだけで数える。見積もりに使うため、区間の形が範囲へ実際に
 #: 入るかまでは確かめない。
 _COUNT_EDGES_IN_BBOX_SQL = text("""
@@ -866,6 +895,18 @@ class RoadGraphRepository:
         return bool(row.scalar())
 
     # --- グラフ --------------------------------------------------------------
+
+    async def stream_network_edges(self, chunk_size: int) -> AsyncIterator[Sequence[Row]]:
+        """取込範囲全体の区間を`chunk_size`行ずつ流す（`_NETWORK_EDGES_SQL`の並び）。"""
+        result = await self._session.stream(_NETWORK_EDGES_SQL)
+        async for chunk in result.partitions(chunk_size):
+            yield chunk
+
+    async def stream_network_nodes(self, chunk_size: int) -> AsyncIterator[Sequence[Row]]:
+        """区間の端点になりうるノード全件を`chunk_size`行ずつ流す（`osm_node_id`の昇順）。"""
+        result = await self._session.stream(_NETWORK_NODES_SQL)
+        async for chunk in result.partitions(chunk_size):
+            yield chunk
 
     async def count_edges_in_bbox(self, bbox: BoundingBox) -> int:
         """範囲に触れる区間（向きを持たない1本1行）の数。探索グラフを読む前の見積もりに使う。"""
