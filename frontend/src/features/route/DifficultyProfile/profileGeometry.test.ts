@@ -1,7 +1,7 @@
 // @vitest-environment node
 import { describe, expect, it } from "vitest";
 
-import { columnAtKm, pointAlongSegment, profileBoxes, profileColumns } from "./difficultyProfile";
+import { columnAtKm, pointAlongSegment, profileBoxes, profileColumns } from "./profileGeometry";
 
 type Segment = Parameters<typeof profileColumns>[0][number];
 
