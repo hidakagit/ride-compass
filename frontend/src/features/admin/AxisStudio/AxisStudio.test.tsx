@@ -367,47 +367,13 @@ describe("非公開に戻す", () => {
 });
 
 describe("削除", () => {
-  it("ほかの軸から参照されていなければ、確かめずに削除して一覧を取り直す", async () => {
-    const confirm = vi.fn();
-    vi.stubGlobal("confirm", confirm);
+  it("削除して一覧を取り直す", async () => {
     const user = await renderStudio();
     await screen.findByText("下書きの軸");
     await user.click(within(rowOf("下書きの軸")).getByRole("button", { name: "削除" }));
 
     await waitFor(() => expect(api.listAxisDefinitions).toHaveBeenCalledTimes(2));
     expect(api.deleteAxisDefinition).toHaveBeenCalledWith(DRAFT.axis_id);
-    expect(confirm).not.toHaveBeenCalled();
-  });
-
-  it("ほかの軸から材料として参照されていれば、参照元の名前を出して確かめ、やめれば削除しない", async () => {
-    api.listAxisDefinitions.mockResolvedValue([
-      DRAFT,
-      axis({ axis_id: "axis_user1", label: "使う軸1", shape: termsOf(DRAFT.axis_id) }),
-      axis({
-        axis_id: "axis_user2",
-        label: "使う軸2",
-        shape: { kind: "categorical", material: DRAFT.axis_id, mapping: {} },
-      }),
-    ]);
-    const confirm = vi.fn().mockReturnValueOnce(false).mockReturnValueOnce(true);
-    vi.stubGlobal("confirm", confirm);
-    const user = await renderStudio();
-    await screen.findByText("下書きの軸");
-
-    await user.click(within(rowOf("下書きの軸")).getByRole("button", { name: "削除" }));
-    expect(confirm).toHaveBeenLastCalledWith(expect.stringContaining("使う軸1・使う軸2"));
-    expect(api.deleteAxisDefinition).not.toHaveBeenCalled();
-
-    await user.click(within(rowOf("下書きの軸")).getByRole("button", { name: "削除" }));
-    await waitFor(() => expect(api.deleteAxisDefinition).toHaveBeenCalledWith(DRAFT.axis_id));
-  });
-
-  it("最後の1軸は削除できない", async () => {
-    api.listAxisDefinitions.mockResolvedValue([DRAFT]);
-    await renderStudio();
-    const button = within(await waitFor(() => rowOf("下書きの軸"))).getByRole("button", { name: "削除" });
-    expect(button).toBeDisabled();
-    expect(button).toHaveAttribute("title", "最後の1軸は削除できません");
   });
 
   it("削除している間はその軸の削除を押せず、失敗したら理由を出す", async () => {

@@ -456,8 +456,15 @@ idの文字列ではなく宣言そのもので指す。材料が指す要素に
 |---|---|
 | create | axis_idが既存材料idと衝突していないか（衝突すると評価時に材料値を黙って上書きする）。材料の排他帰属。内部軸の誤公開防止。循環参照検出 |
 | update | 公開済みは原則拒否（`check_publish_immutability`）。ただし`candidate`引数を渡すと、表示専用フィールドのみの差分（`is_cosmetic_only_update`）なら公開済みでも許可する。材料の排他帰属。内部軸の誤公開防止。循環参照検出 |
-| delete | 最後の1軸は削除不可（0行になると直後の`refresh_axis_definitions`が起動・反映に失敗する）。公開済みは拒否 |
+| delete | 公開済みは拒否 |
 | unpublish | `is_published`のみを変更する専用操作（`update()`は使えない、公開済みは拒否されるため） |
+
+create/update/deleteは、確定する前に**書いた後の全軸**を起動時の読み込みと同じ判定
+（`services/axis_registry_service.py: _loading_problem`。0行と、`check_axis_definition`に通らない軸）へ通し、通らなければ確定しない。
+確定してから反映（`refresh_axis_definitions`）で通らないと分かっても、行は既にDBにあり、次の起動が止まる。
+削除では、ほかの軸（材料・0次条件のどちらでも）が参照している軸と最後の1軸がこれで止まる——内部軸を
+整理するときは、参照している軸を先に直すか消す。判定を別に持たないので、読み込みの規則が増えれば
+書き込みも同じだけ止まる。
 
 いずれの書き込みも「DB commit → `refresh_axis_definitions`呼び出し」で完結する
 （1操作=1トランザクション）。

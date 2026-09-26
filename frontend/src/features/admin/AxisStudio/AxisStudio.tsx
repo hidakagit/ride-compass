@@ -36,13 +36,6 @@ function labelForMaterialOrAxis(id: string, definitions: readonly AxisDefinition
   return definitions.find((d) => d.axis_id === id)?.label ?? materialCatalogLabel(id, MATERIAL_CATALOG);
 }
 
-// 「この軸を削除しようとしたら、他の軸から材料として参照されていた」という事実が
-// 見えないまま削除できてしまう問題への対応。削除の可否は制限せず、削除前に参照元と
-// その影響をユーザーへ明示する。
-function axesReferencing(axisId: string, definitions: readonly AxisDefinitionResponse[]): AxisDefinitionResponse[] {
-  return definitions.filter((d) => d.axis_id !== axisId && materialIdsOf(d.shape).includes(axisId));
-}
-
 // 軸スタジオのトップレベルコンポーネント。一覧取得・作成・更新・削除の状態管理をここに
 // 集約し、フォーム自体はAxisComposerへ委ねる。認証・route handler経由の詳細は
 // docs/modules/frontend/axis-studio.md「AxisStudio.tsx（一覧・状態管理）」節参照。
@@ -150,18 +143,8 @@ export default function AxisStudio() {
     }
   }
 
+  // 消せるか（ほかの軸が参照している・最後の1軸）はbackendが判定し、断った理由をそのまま出す。
   async function handleDelete(axisId: string) {
-    // 削除しようとしている軸が他の軸から材料として参照されている場合、その事実と
-    // 影響を確認ダイアログで明示する（一律拒否はしない——内部軸を整理・再設計するために
-    // 意図的に削除したい場面もありうるため、最終判断はユーザーに委ねる）。
-    const referencing = definitions ? axesReferencing(axisId, definitions) : [];
-    if (referencing.length > 0) {
-      const names = referencing.map((d) => d.label).join("・");
-      const confirmed = window.confirm(
-        `この軸は次の軸から材料として参照されています: ${names}\n削除すると、それらの軸が正しく評価できなくなります（評価対象外になります）。\n本当に削除しますか？`,
-      );
-      if (!confirmed) return;
-    }
     setDeletingAxisId(axisId);
     try {
       await deleteAxisDefinition(axisId);
@@ -252,8 +235,7 @@ export default function AxisStudio() {
                   variant="danger"
                   size="sm"
                   onClick={() => handleDelete(def.axis_id)}
-                  disabled={deletingAxisId === def.axis_id || (definitions?.length ?? 0) <= 1}
-                  title={(definitions?.length ?? 0) <= 1 ? "最後の1軸は削除できません" : undefined}
+                  disabled={deletingAxisId === def.axis_id}
                 >
                   削除
                 </Button>

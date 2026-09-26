@@ -349,10 +349,42 @@ async def test_delete_rejects_removing_the_last_remaining_axis(road_graph_sessio
     service = AxisRegistryAdminService(repository)
     await service.create(axis_definition("test_axis", material=CATALOG_MATERIAL))
 
-    with pytest.raises(ValueError, match="最後の1軸"):
+    with pytest.raises(ValueError, match="空です"):
         await service.delete("test_axis")
 
     assert "test_axis" in AXIS_DEFINITIONS  # 削除されず、キャッシュも変わっていない
+
+
+async def test_delete_rejects_axis_another_axis_still_refers_to(road_graph_session):
+    # 参照している軸を残して消すと、残った軸が存在しない軸を指し、次の起動の読み込みが止まる。
+    # 参照している側を先に消せば、参照されていた軸も消せる。
+    repository = AxisDefinitionRepository(road_graph_session)
+    service = AxisRegistryAdminService(repository)
+    await service.create(axis_definition("base_axis", material="oneway"))
+    await service.create(axis_definition("dependent_axis", material="base_axis"))
+
+    with pytest.raises(ValueError, match="dependent_axis"):
+        await service.delete("base_axis")
+
+    assert await repository.get("base_axis") is not None
+    await refresh_axis_definitions(repository)  # 次の起動と同じ読み込みが通る
+
+    await service.delete("dependent_axis")
+    await service.create(axis_definition("other_axis", material=CATALOG_MATERIAL))
+    await service.delete("base_axis")
+
+    assert set(AXIS_DEFINITIONS) == {"other_axis"}
+
+
+async def test_create_rejects_axis_the_startup_loading_would_reject(road_graph_session):
+    # 管理APIの本文の検証を通らずにサービスへ来た軸も、確定する前に起動時の読み込みと同じ判定で止まる。
+    repository = AxisDefinitionRepository(road_graph_session)
+    service = AxisRegistryAdminService(repository)
+
+    with pytest.raises(ValueError, match="deleted_material"):
+        await service.create(axis_definition("test_axis", material="deleted_material"))
+
+    assert await repository.get("test_axis") is None
 
 
 async def test_get_returns_none_for_unknown_axis_id(road_graph_session):
