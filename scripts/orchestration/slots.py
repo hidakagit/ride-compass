@@ -18,7 +18,10 @@
 ## 渡し直すときに止まる条件（黙って消さない）
 
 - 未コミットの変更がある
-- どのリモートの枝からも届かないコミットがある（pushしていない成果）
+- どのリモートの枝からも届かないコミットがある（pushしていない成果）。ただし取り込み済みのもの——監査で
+  通した報告のshaから届き、そのタスクが監査の後にmasterへ入ったもの——は数えない。masterへは畳み直した
+  別のコミットが入り、作業ブランチも消えるので、担当の元のコミットはどの枝からも届かなくなる
+  （判定は`core.unlanded_commits`で、`board unpushed`のmasterへ入ったかの判定と同じもの）
 - 作業ツリーの中にリンク（ジャンクション・シンボリックリンク）がある——`git worktree remove`の
   再帰削除がリンクの先を消すため、作業ツリーの中に置かない
 
@@ -113,10 +116,10 @@ def is_link(path: Path) -> bool:
     return os.path.islink(path) or bool(getattr(os.path, "isjunction", lambda _: False)(path))
 
 
-def blockers(path: Path) -> list[str]:
+def blockers(ctx: Context, path: Path) -> list[str]:
     """渡し直しを止める事実。空なら渡し直してよい。"""
     links = [f"作業ツリーの中にリンクがある: {rel}" for rel in LINK_CANDIDATES if is_link(path / rel)]
-    return links + unsaved_work(path)
+    return links + unsaved_work(ctx, path)
 
 
 def lock_file_sha(path: Path) -> str | None:
@@ -149,9 +152,9 @@ def claim(ctx: Context, path: Path, owner: str) -> None:
     run_git(ctx.repo, "worktree", "lock", "--reason", f"{SLOT_LOCK_PREFIX}{owner} {at}", str(path))
 
 
-def reset_to(path: Path, branch: str, base: str) -> None:
+def reset_to(ctx: Context, path: Path, branch: str, base: str) -> None:
     """止める理由が無いことを確かめてから、作業用の枝をbaseから作り直す。"""
-    problems = blockers(path)
+    problems = blockers(ctx, path)
     if problems:
         raise SlotError(f"{path.name} を渡し直せない: " + " / ".join(problems))
     run_git(path, "switch", "--quiet", "-C", branch, base)
@@ -177,7 +180,7 @@ def prepare(ctx: Context, n: int, owner: str, base: str) -> Path:
     claim(ctx, path, owner)
     try:
         if not created:
-            reset_to(path, branch, base)
+            reset_to(ctx, path, branch, base)
         print(f"[slot] {path.name}: {ensure_deps(path)}", file=sys.stderr)
     except SlotError:
         run_git(ctx.repo, "worktree", "unlock", str(path))
@@ -207,7 +210,7 @@ def cmd_list(ctx: Context) -> int:
             print(f"{path.name}: 未作成")
             continue
         facts = [f"渡し先 {trees[key]}" if trees[key] else "空き（ロックなし）"]
-        facts += blockers(path) or ["渡し直せる"]
+        facts += blockers(ctx, path) or ["渡し直せる"]
         head = git_out(path, "log", "-1", "--format=%h %cd", "--date=format:%m-%d %H:%M") or "?"
         print(f"{path.name}: {head} / " + " / ".join(facts))
     extra = [p for p in trees if os.path.basename(p) not in
