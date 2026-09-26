@@ -447,14 +447,10 @@ way粒度で引くときは、同じ式のまま`w`の行から同じ名前の�
 （研究のスクリプト・テスト）も同じ検査を通る。「上書きするなら公開軸を全部書く」は要求の形で、
 `api/routers/routes.py: RoutePreferenceWeights`が持ち、値の検査は同じ`check_axis_weights`を呼ぶ。
 
-- `with_weight(axis_id, value)`: 1軸の重みだけを差し替えたコピーを返す。`axis_id`が
-  現在の`weights`（＝現在の公開軸集合）に無い場合は無変更の`self`を返す。
-- `with_time_scope(active_scopes)`: `time_scope`が`"always"`以外の軸のうち
-  `active_scopes`に含まれないものの重みを0倍にしたコピーを返す（night軸の動的重み
-  付けが使う、[routing-engine.md](routing-engine.md)参照）。
-
-いずれもリクエスト間で共有するインスタンスを汚染しない生成ヘルパーとして、新しい
-`RoutePreference`インスタンスを返す（`self`を書き換えない）。
+`with_time_scope(active_scopes)`は、`time_scope`が`"always"`以外の軸のうち
+`active_scopes`に含まれないものの重みを0倍にしたコピーを返す（night軸の動的重み
+付けが使う、[routing-engine.md](routing-engine.md)参照）。リクエスト間で共有するインスタンスを
+汚染しないよう、新しい`RoutePreference`インスタンスを返す（`self`を書き換えない）。
 
 ## 評価のオーケストレーション（`services/evaluation_service.py`）
 

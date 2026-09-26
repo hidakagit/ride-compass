@@ -862,9 +862,8 @@ def time_scoped_weights(weights: Mapping[str, float], active_scopes: frozenset[s
     エンジン側は「この性質を持つ軸を探して掛け替える」という汎用ロジックだけを持つため、
     軸を足すときに要るのはその軸の`time_scope`を設定することだけになる。
 
-    `weights`に無いaxis_id（内部軸への重み・非公開化された軸等）は無視する
-    （`RoutePreference.with_weight`の「対象軸が存在しなければ無変更」という既定動作と
-    同じ理由）。"""
+    `weights`に無いaxis_id（内部軸・非公開化された軸等）は重みを持たないため、キーを足さずに
+    無視する。"""
     overrides = {
         axis_id: 0.0
         for axis_id, definition in AXIS_DEFINITIONS.items()
