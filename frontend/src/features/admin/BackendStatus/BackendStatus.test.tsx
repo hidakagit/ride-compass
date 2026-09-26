@@ -2,7 +2,7 @@
  * `BackendStatus.tsx`——backendの疎通を、確認中・OK・接続できないの3つで出すこと。
  *
  * ここで見ないもの:
- * - 疎通の判定（応答の読み方・失敗を偽にすること） → `features/admin/adminApi.test.ts`
+ * - 疎通の判定（応答の読み方・失敗を偽にすること） → `app/admin/adminApi.test.ts`
  */
 import { StrictMode } from "react";
 import { act, render, screen } from "@testing-library/react";

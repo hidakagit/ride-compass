@@ -2,7 +2,7 @@ import { act, fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
-import { cardinalLabel } from "@/features/conditions/cardinalLabel";
+import { cardinalLabel } from "@/lib/cardinalLabel";
 
 import WindBearingSlider from "./WindBearingSlider";
 

@@ -6,7 +6,7 @@
  *
  * ここで見ないもの:
  * - 浮動パネルの開閉・移動 → `components/FloatingPanel`
- * - 叩く先 → `features/admin/adminApi.test.ts`
+ * - 叩く先 → `app/admin/adminApi.test.ts`
  */
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";

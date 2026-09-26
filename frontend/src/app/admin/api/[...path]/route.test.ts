@@ -6,7 +6,7 @@
  * 母集団はbackendの契約（生成物`openapi.json`）にある管理APIの操作の全部。
  *
  * ここで見ないもの:
- * - 管理画面のクライアントが叩く先・待ち時間 → `features/admin/adminApi.test.ts`
+ * - 管理画面のクライアントが叩く先・待ち時間 → `app/admin/adminApi.test.ts`
  * - 資格情報の「片方だけ設定」の扱い → `lib/adminBasicAuth.ts`
  */
 import { readFileSync } from "node:fs";

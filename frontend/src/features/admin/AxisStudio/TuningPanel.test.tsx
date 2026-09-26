@@ -7,7 +7,7 @@
  *
  * ここで見ないもの:
  * - 数値の入力欄の途中の文字の扱い → `components/ui/NumberInput`
- * - 叩く先 → `features/admin/adminApi.test.ts`
+ * - 叩く先 → `app/admin/adminApi.test.ts`
  */
 import { StrictMode } from "react";
 import { act, render, screen, waitFor, within } from "@testing-library/react";

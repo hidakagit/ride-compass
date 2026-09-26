@@ -83,7 +83,7 @@ import { useLayerDataStatus } from "@/features/map/MapView/useLayerDataStatus";
 import { useJmaTileIndex } from "@/features/map/useJmaTileIndex";
 import { registerJmaTileProtocol } from "@/features/map/layers/jmaTileProtocol";
 import { debugLog } from "@/lib/debugLog";
-import { MAP_OVERLAY_EDGE_ATTRIBUTE, measureMapOverlayEdges } from "@/features/map/MapView/mapOverlayEdges";
+import { MAP_OVERLAY_EDGE_ATTRIBUTE, measureMapOverlayEdges, type RouteFitObscuredPx } from "@/lib/mapOverlayEdges";
 import { textVariants } from "@/components/ui/Text/Text";
 import { cn } from "@/lib/cn";
 
@@ -189,14 +189,6 @@ const MAP_UI_LOCALE: Record<string, string> = {
 const ROUTE_FIT_BASE_PADDING_PX = 40;
 // フィット後に必ず残す可視領域の幅・高さ。覆うUIが大きいと、余白同士が地図を食い尽くしてズームが破綻する。
 const ROUTE_FIT_MIN_VISIBLE_PX = 80;
-
-/** 地図キャンバスの上に重なるUIで覆われている辺ごとの高さ(px)。 */
-export interface RouteFitObscuredPx {
-  top?: number;
-  bottom?: number;
-  left?: number;
-  right?: number;
-}
 
 /** 覆われている高さを基本余白へ足したフィット用paddingを返す。対向する2辺の合計が
  * 地図の幅・高さを食い尽くす場合は、可視領域がROUTE_FIT_MIN_VISIBLE_PX残るところまで
