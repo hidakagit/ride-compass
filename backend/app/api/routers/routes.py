@@ -296,10 +296,9 @@ class RouteGenerateResponse(StrictModel):
 class RouteGenerateJobCreatedResponse(StrictModel):
     """`POST /api/routes/generate`の応答。
 
-    冷パス（未splitな新規エリアへの初回アクセス、数十秒〜最大316秒規模）が
-    ブラウザのfetchを長時間ブロックしないよう、実際の生成はバックグラウンドジョブへ
-    切り出した。この応答は即座（数百ms）に返る。結果は`GET /api/routes/generate/
-    {job_id}`をポーリングして取得する（frontend services/routeApi.ts参照）。
+    生成は数秒〜数十秒かかる（探索範囲が広いほど長い）ため、ブラウザのfetchを塞がないよう
+    バックグラウンドジョブで走らせ、この応答は即座に返る。結果は`GET /api/routes/generate/
+    {job_id}`をポーリングして取得する（frontend `features/route/routeApi.ts`）。
     """
 
     job_id: str
