@@ -60,6 +60,7 @@ from app.domain.map_display import (  # noqa: E402
     AXIS_LAYER_SPECS,
     MAP_LAYER_CATEGORIES,
     MAP_LAYERS,
+    map_layer_label,
     MAP_LAYER_KINDS,
     MapLayerSpec,
     ROUTE_ARROW_HALO_SCALE,
@@ -345,7 +346,10 @@ def main() -> None:
             "layerDataNatures": list(MAP_LAYER_DATA_NATURES),
             "layerKinds": list(MAP_LAYER_KINDS),
             # 地図に載るものの、描き方以外の宣言（種別・情報源・性質・既定表示）。
-            "layers": [{"id": layer_id, **_map_layer_entry(spec)} for layer_id, spec in MAP_LAYERS],
+            "layers": [
+                {"id": layer_id, "label": map_layer_label(layer_id, spec), **_map_layer_entry(spec)}
+                for layer_id, spec in MAP_LAYERS
+            ],
             "axisLayers": {kind: _map_layer_entry(spec) for kind, spec in AXIS_LAYER_SPECS.items()},
             # 動的気象のチップ（1つが複数の名前付きソースを束ねる）。画面が写しを持たない。
             "weatherLayerGroups": list(WEATHER_LAYER_GROUPS),

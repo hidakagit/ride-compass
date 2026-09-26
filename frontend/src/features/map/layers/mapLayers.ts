@@ -5,7 +5,6 @@
 
 import weatherScales from "@/types/generated/weather-scales.json";
 import { mapDisplay } from "@/types/generated/mapDisplay";
-import { primaryAttributes } from "@/types/generated/primaryAttributes";
 import regionTileConfig from "@/types/generated/region-tile-config.json";
 import { axisIconFor } from "@/components/ui/icons/axisIconPalette";
 import {
@@ -36,11 +35,6 @@ import {
   type DedicatedWayValueAxis,
   type RampAxis,
 } from "@/lib/mapDisplay/axisLayers";
-
-/** 一次属性を描くレイヤーの名前。**名前は源泉の一次属性の宣言が持つ**（同じものを画面で名付け直さない）。 */
-function attributeLabel(attrId: (typeof primaryAttributes)[number]["attr_id"]): string {
-  return primaryAttributes.find((attr) => attr.attr_id === attrId)!.label;
-}
 
 /** チップの説明文へ差し込む種別名の並び（凡例と同じ宣言から作る）。 */
 function pointKindList(role: string): string {
@@ -170,8 +164,10 @@ function declaredLayer(spec: {
   };
 }
 
-function staticLayer(id: StaticMapLayerId): { id: StaticMapLayerId } & LayerDeclaration {
-  return { id, ...declaredLayer(mapDisplay.layers.find((layer) => layer.id === id)!) };
+/** 源泉が宣言するレイヤー。名前も源泉が持つ（一次属性を描くものは属性の名前）。 */
+function staticLayer(id: StaticMapLayerId): { id: StaticMapLayerId; label: string } & LayerDeclaration {
+  const layer = mapDisplay.layers.find((candidate) => candidate.id === id)!;
+  return { id, label: layer.label, ...declaredLayer(layer) };
 }
 
 /** 収録年の言い方（連続なら範囲、飛んでいれば並べる）。年は取込の宣言が正本で、軸カタログが運ぶ。 */
@@ -194,15 +190,12 @@ export function buildMapLayers(
     {
       ...staticLayer("elevation"),
       icon: ElevationIcon,
-      label: attributeLabel("elevation"),
       description: "国土地理院の色別標高図を重ねる",
       panelHint: "国土地理院の色別標高図を重ねる",
     },
     {
       ...staticLayer("hillshade"),
       icon: HillshadeIcon,
-      // 標高図（何mか）と区別できる名前にする（坂の在りかだけを塗る）。
-      label: "起伏",
       description: "斜面に陰影を付ける[平地は塗らない]",
       panelHint: "国土地理院の標高データから斜面の陰影を作る。平らな所は塗らないため、下の地図の色が残る",
     },
@@ -220,7 +213,6 @@ export function buildMapLayers(
         },
       ],
       icon: LandcoverIcon,
-      label: attributeLabel("landcover"),
       description: "周囲の緑・水辺・農地を面で重ねる[建物は塗らない]",
       panelHint:
         "衛星画像から分類した10m四方ごとの土地の使われ方です。1区画に1種類だけが入るため、" +
@@ -232,7 +224,6 @@ export function buildMapLayers(
     {
       ...staticLayer("highway"),
       icon: RoadIcon,
-      label: attributeLabel("highway"),
       chipLabel: "道路種別",
       description: "道路の種類を色で表示[幹線道路ほど濃い紫・農道や林道ほど明るい水色]",
       panelHint:
@@ -242,7 +233,6 @@ export function buildMapLayers(
     {
       ...staticLayer("surface"),
       icon: RoadSurfaceIcon,
-      label: attributeLabel("surface"),
       chipLabel: "路面",
       description: "路面の材質を色で表示[アスファルト・砂利・土など]",
       panelHint:
@@ -252,7 +242,6 @@ export function buildMapLayers(
     {
       ...staticLayer("tunnel"),
       icon: TunnelIcon,
-      label: attributeLabel("tunnel"),
       description: "トンネル区間[OSMのtunnelタグ]を色分け表示",
       panelHint:
         "OSMのtunnelタグが該当する区間です。「夜間」軸[推定グループ]の材料の1つとして、" +
@@ -261,7 +250,6 @@ export function buildMapLayers(
     {
       ...staticLayer("oneway"),
       icon: OnewayIcon,
-      label: attributeLabel("oneway"),
       description: "来た道を戻れない区間を色分け表示",
       panelHint:
         "その向きにしか通れない区間です。上下線が分かれているだけの道（逆方向が数m隣にある）" +
@@ -271,7 +259,6 @@ export function buildMapLayers(
     {
       ...staticLayer("stop_poi"),
       icon: StopPoiIcon,
-      label: attributeLabel("stop_poi"),
       description: `${pointKindList("stop_poi")}の位置を種別ごとに色分け表示`,
       panelHint:
         `${pointKindList("stop_poi")}の位置です。評価の「停止密度」軸が近傍のこれらを` +
@@ -280,7 +267,6 @@ export function buildMapLayers(
     {
       ...staticLayer("supply_poi"),
       icon: SupplyPoiIcon,
-      label: attributeLabel("supply_poi"),
       chipLabel: "補給休憩",
       description: `${pointKindList("supply_poi")}の位置を種別ごとに色分け表示`,
       // 鮮度の差の根拠は`backend/scripts/measure_poi_freshness.py`（OSMの最終編集日時）で測る。
@@ -295,7 +281,6 @@ export function buildMapLayers(
     {
       ...staticLayer("accident_point"),
       icon: AccidentIcon,
-      label: attributeLabel("accident_point"),
       chipLabel: "事故",
       description: `警察庁交通事故統計オープンデータ${accidentCoverage ? `[${accidentCoverage}]` : ""}の発生地点を表示`,
       panelHint:
@@ -336,7 +321,6 @@ export function buildMapLayers(
         },
       ],
       icon: RaindropIcon,
-      label: "降水ナウキャスト",
       chipLabel: "降水",
       description:
         "気象庁の降水ナウキャスト・降水短時間予報・延長予報・線状降水帯予測マップを重ねて表示" +
@@ -358,7 +342,7 @@ export function buildMapLayers(
     },
     {
       ...staticLayer("windVector"),
-      // 道路の色分け（向かい風・追い風）と別の配色なので「矢印（風速）」と明示する。
+      // 道路の色分け（向かい風・追い風）と別の配色なので、凡例は「矢印（風速）」と明示する。
       readOnlyLegend: [
         {
           label: "矢印（風速）",
@@ -366,7 +350,6 @@ export function buildMapLayers(
         },
       ],
       icon: WindIcon,
-      label: "風（矢印）",
       chipLabel: "風",
       description: "気象庁MSMの風向・風速予報を矢印で表示[1〜3日先まで]",
       panelHint:
@@ -391,7 +374,6 @@ export function buildMapLayers(
       // 回避するしかない危険なので、評価軸には入れず表示だけにする。
       ...staticLayer("disaster"),
       icon: ShieldIcon,
-      label: "災害",
       chipLabel: "災害",
       description:
         "気象庁の雷・竜巻・落雷とキキクル4種（土砂災害・大雨・浸水・洪水）をまとめて表示" +
@@ -414,7 +396,6 @@ export function buildMapLayers(
     {
       ...staticLayer("route"),
       icon: RouteIcon,
-      label: "ルート",
       description: "選択中ルート沿いの情報[風・勾配・路面・総合難易度]を色分け表示",
     },
   ];

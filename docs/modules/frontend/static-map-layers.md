@@ -92,7 +92,8 @@ backendから取り、タイル本体はrewrites経由に戻る。
 
 ## レイヤーを1枚足すときに触る場所
 
-源泉（backendの`domain/map_display.py`）へ描き方以外の宣言（種別・情報源・性質・既定表示）を1行、
+源泉（backendの`domain/map_display.py`）へ描き方以外の宣言（種別・情報源・性質・既定表示・名前。一次属性を描く
+レイヤーの名前は属性の名前で、書かない）を1行、
 記述子（`mapLayers.ts: MapLayerDescriptor`）へ見せ方を1エントリ足し、そのレイヤーの描き方を
 家族の宣言（`features/map/scene/groups/*.ts`。道路の線なら`roadLines.ts`、点なら`points.ts`、
 面なら`areaRasters.ts`）へ足す。描き方の分類・色が源泉（backendの一次属性カタログ）の行で

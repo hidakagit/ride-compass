@@ -6,13 +6,18 @@
 """
 
 from app.domain.jma_tile_specs import JMA_TARGET_TIME_FILES
-from app.domain.map_display import MAP_LAYER_CATEGORIES, MAP_OVERLAY_GROUPS
+from app.domain.map_display import MAP_LAYER_CATEGORIES, MAP_LAYERS, MAP_OVERLAY_GROUPS, map_layer_label
 from app.domain.weather_elements import WEATHER_ELEMENTS, weather_element_deliveries, weather_element_tile
 
 
 def test_グループの鍵は重複しない() -> None:
     keys = [group.key for group in MAP_OVERLAY_GROUPS]
     assert len(keys) == len(set(keys))
+
+
+def test_どの地図レイヤーも空でない名前を持つ() -> None:
+    for layer_id, spec in MAP_LAYERS:
+        assert map_layer_label(layer_id, spec).strip(), layer_id
 
 
 def test_種別の鍵は重複しない() -> None:
