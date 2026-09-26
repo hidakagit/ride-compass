@@ -17,7 +17,7 @@
 | services | `axis_registry_service.py`・`axis_preview_service.py` |
 | infrastructure | `axis_definition_models.py`・`axis_definition_repository.py` |
 | api | `axis_admin.py`・`axis_catalog.py` |
-| scripts | `measure_axis_saturation.py` |
+| scripts | `measure_axis_saturation.py`・`axis_apply.py` |
 
 ## 分布プレビュー（`services/axis_preview_service.py`）
 
@@ -67,6 +67,24 @@
 `--bbox`（`min_lat,min_lon,max_lat,max_lon`）でその地域だけを母集団にできる。bbox指定時は
 抽選（`TABLESAMPLE`）を併用しない——表全体のページから抽選するため、狭い範囲を重ねると
 当たるページがほとんど残らず、標本が範囲の広さに関係なく数本まで落ちる。
+
+## 軸の定義をファイルから本番へ入れる（`scripts/axis_apply.py`）
+
+軸スタジオの画面を通さずに、軸1本の定義のJSON（管理APIの単体取得と同じ項目）を本番の管理APIへ入れる手元の道具。
+書く口は管理APIだけで、DBへ直接は書かない（書き込みのガードと`AXIS_DEFINITIONS`の差し替えを画面と同じく通す）。
+
+- **既定は差の表示だけ**。今の定義は管理APIの単体取得から読む——公開の軸カタログは下書きの軸・0次条件・時間帯を持たず、
+  体感ラベルも地図の段へ引き直した値なので、差の「前」には使えない。差は入れ子（`shape`等）の葉の項目ごとに「前 → 後」で出す。
+- 書く操作は今の状態から決まる（無ければ追加、下書きなら更新1回、公開済みなら公開の取り消し→更新。削除は公開済みなら
+  取り消してから）。公開済みの軸は更新も削除も拒まれる（上の「書き込み時のガード」）ため、取り消しを挟む。
+- **書くのは差を出したときの指紋を渡したときだけ**。指紋は今の定義と書く定義から作るので、差を見てから書くまでに本番が
+  変わっていれば一致せず、何も書かない。
+- 取り消しの後の段で失敗したら、元の定義へ戻す（戻せなければ元の定義を出して止まる）。書いた後は、管理APIの単体取得が
+  書いた定義と一致することと、軸カタログに公開なら同じ内容で載り・下書きか削除なら載らないことを確かめる。
+  軸カタログで確かめられるのは、backendが1プロセスで動き、書いたプロセスが配るから（`single_process.py`）。
+- 宛先と認証情報は`backend/.env.oracle.local`の`BACKEND_ORIGIN`・`ADMIN_BASIC_AUTH_USERNAME`・`ADMIN_BASIC_AUTH_PASSWORD`
+  から読む（`_prod_env.py`）。引数に取らず、出力にも出さない。
+
 ## データモデル（`domain/axis_definitions.py`）
 
 ### `AxisDefinition`（1軸の宣言、`frozen=True`）

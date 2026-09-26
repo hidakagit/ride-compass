@@ -14,6 +14,7 @@
 |---|---|
 | `tasks/` | タスクの記録。`Txxx.md` が1件=1ファイル。日付名のものは、タスク単位に分ける前の実施記録 |
 | `decisions/` | 決定の記録 |
+| `axis-changes/` | タスクが本番の軸へ入れる変更（軸1本の定義のJSON、`<タスク番号>-<axis_id>.json`）。`backend/scripts/axis_apply.py`が読む。本番の軸の写しではない（`../conventions/deployment-sync.md`） |
 
 現在の状態を知りたいときは記録ではなく、台帳（`../improvement-plan.md`）と正本
 （`../architecture.md`・`../modules/`・`../conventions/`）を見る。

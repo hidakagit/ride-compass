@@ -74,14 +74,30 @@ CLAUDE.md「コミット時の同期ルール」から参照される。個々�
 - なぜ黙って起きるか: 画面はエラーを出さない（引けない材料は「無い」として扱われる）ため、
   開いた人には壊れて見えず、保存すると**軸の中身が変わって書き戻る**。
 
-## 本番へ効かせたい軸定義の変更は、本番の管理画面で行う
+## 本番へ効かせたい軸定義の変更は、本番の管理APIへ入れる
 
-- 対象: `axis_admin`のAPI（各環境の軸スタジオGUI、または直接API呼び出し）経由で
+- 対象: `axis_admin`のAPI（各環境の軸スタジオGUI、直接API呼び出し、または下の道具）経由で
   `axis_definitions`等のDB行データを変更する全ての作業。
 - ルール: **DBは環境ごとに独立していて、その環境の管理画面がそのDBをメンテナンスする**。
   開発DBへの変更は開発環境にしか効かないため、開発DBだけ変えてタスクを完了扱いにしない
-  ——本番へ効かせるなら本番の軸スタジオで行う。環境間で内容を転送する仕組みは持たない
+  ——本番へ効かせるなら本番の軸スタジオか、次の道具で行う。環境間で内容を転送する仕組みは持たない
   （上記の決定文書参照）。**リポジトリは軸の写しを持たない**ため、再ダンプの手順は無い。
+- 変える中身が決まっている変更（タスクで値を決めた軸の書き換え・追加・削除）は、軸1本の定義のJSONを
+  `docs/records/axis-changes/<タスク番号>-<axis_id>.json`に置き、`backend/scripts/axis_apply.py`で入れる
+  （仕組みは[axis-studio.md](../modules/backend/axis-studio.md)「軸の定義をファイルから本番へ入れる」）:
+
+  ```
+  python scripts/axis_apply.py ../docs/records/axis-changes/T1234-foo.json               # 差を出すだけ
+  python scripts/axis_apply.py ../docs/records/axis-changes/T1234-foo.json --apply <指紋>  # 書く
+  python scripts/axis_apply.py --delete <axis_id> [--apply <指紋>]
+  ```
+
+  差（項目ごとの「前 → 後」）と指紋を見て承認してから、同じ指紋で書く。宛先と認証情報は
+  `backend/.env.oracle.local`の`BACKEND_ORIGIN`（本番backendの直接のオリジン）・`ADMIN_BASIC_AUTH_USERNAME`・
+  `ADMIN_BASIC_AUTH_PASSWORD`に置く。JSONは1回当てたら役目を終える記録で、本番の写しとして直し続けない
+  （次に変えるときは本番の今の定義から新しいJSONを作る）。
+- 完了の条件: 道具が「反映を確かめました」を出したこと（管理APIと公開の軸カタログの両方で見ている）。
+  画面で変えたときは、本番の`GET /api/axis-catalog`で変えた軸を確かめる。
 - 背景: 開発DBのみ反映してタスクを完了扱いにした結果、本番だけ古い軸定義のまま取り残される
   反映漏れが繰り返し発生した実績（T294・T353・T360・T396・T440系列[T455で発覚・修正]・
   T458[過去`[x]`タスクの監査で発覚・修正]、計6回）。
