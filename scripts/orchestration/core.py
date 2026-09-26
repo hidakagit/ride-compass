@@ -224,7 +224,7 @@ TASK_HEADING_RE = re.compile(r"^# T\d+[a-z0-9-]*\.\s*(.*)$")
 EXPECTED_HOOKS_PATH = ".githooks"
 #: スロット（scripts/orchestration/slots.py）を渡した印は`git worktree lock`の理由
 #: `slot <渡し先> <時刻>`。渡し先はClaude CodeがWorktreeCreateフックへ渡す名前（`agent-<id>`）か、
-#: 渡す前に依存を入れている間の`warm-<pid>`。
+#: 空いたスロットを温める処理が作り直している間の`warm-<pid>`。
 SLOT_LOCK_PREFIX = "slot "
 
 #: 監査の同期ルール（CLAUDE.md「コミット時の同期ルール」）で、生成物の再生成を要する宣言の場所。
@@ -1030,7 +1030,7 @@ class Facts:
         return [a for a in self.board["agents"] if audit_pending(a)]
 
     def held_slots(self) -> list[str]:
-        """渡した印の付いたスロット（上限の番号まで。温めている途中の印は、温め終われば渡せるので数えない）。
+        """渡した印の付いたスロット（上限の番号まで。温める処理の印は、作り直し終われば渡せるので数えない）。
         監査待ちの担当のスロットも、差し戻しで同じ担当が再開するため監査を通すまで印が残り、ここに入る。"""
         out = []
         for t in self.trees:
@@ -1441,7 +1441,7 @@ def cmd_check(ctx: Context, args: argparse.Namespace) -> int:
     for line in f.overrun(acked=True):
         print(f"見込み超過: {line}")
     print(budget_line(f.budgets))
-    # masterのpackage-lock.jsonが変わったら、空いているスロットを渡す前に温めておく（渡すその場のnpm ciを避ける）。
+    # masterのpackage-lock.jsonが変わったら、空いているスロットを渡す前に温めておく（担当の入り終わりの待ちを減らす）。
     warmed = slots.start_warm(ctx)
     if warmed:
         print(f"スロットの温め: {warmed}")
