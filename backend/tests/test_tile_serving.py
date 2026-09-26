@@ -2,7 +2,7 @@
 
 ここで見ないもの:
 - 各タイル種別のキャッシュの鍵・取得の仕方 → `test_landcover_tile.py`等、種別ごとのテスト
-- キャッシュのファイルの読み書き → `test_tile_cache.py`
+- ディスクのキャッシュの読み書き → `test_tile_cache.py`
 - 記録した項目のログ・統計への出し方 → `test_debug_log.py`
 
 ディスクのキャッシュ（`tile_cache`の読み書き）と、記録の口（`log_external_call`）は代役へ差し替え、

@@ -71,8 +71,7 @@ def test_basemap_proxy_is_rate_limited_per_client():
     assert response.status_code == 429
 
 
-def test_basemap_refresh_clears_tile_cache(tmp_path, monkeypatch, admin_credentials):
-    monkeypatch.setattr(tile_cache, "CACHE_DIR", tmp_path / "tile_cache")
+def test_basemap_refresh_clears_tile_cache(admin_credentials):
     tile_cache.set("styles/liberty", b"cached", "application/json")
 
     response = client.post(REFRESH_PATH, auth=(ADMIN_USERNAME, ADMIN_PASSWORD))

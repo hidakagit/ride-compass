@@ -1,14 +1,5 @@
-import pytest
-
-from app.infrastructure import tile_cache
 from app.infrastructure.vector_tile import encode_empty_accident_tile
 from app.services.accident_service import AccidentService
-
-
-@pytest.fixture(autouse=True)
-def use_temp_tile_cache(tmp_path, monkeypatch):
-    monkeypatch.setattr(tile_cache, "CACHE_DIR", tmp_path / "tile_cache")
-    yield
 
 
 Z, X, Y = 14, 14551, 6447

@@ -3,17 +3,10 @@ import pytest
 
 from app.domain.axis_definitions import AXIS_DEFINITIONS, AxisDefinition
 from app.domain.route_preference import RoutePreference
-from app.infrastructure import tile_cache
 from app.infrastructure.vector_tile import encode_empty_poi_tile, encode_empty_road_surface_tile
 from app.infrastructure.road_graph_repository import RoadGraphRepository
 from app.services.region_service import RegionService
 from tests.axis_system_fixture import axis_definition
-
-
-@pytest.fixture(autouse=True)
-def use_temp_tile_cache(tmp_path, monkeypatch):
-    monkeypatch.setattr(tile_cache, "CACHE_DIR", tmp_path / "tile_cache")
-    yield
 
 
 Z, X, Y = 14, 14551, 6447

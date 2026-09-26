@@ -7,7 +7,7 @@ TTLが切れるまでDBを読み直さないこと、読めないときも前回
 import pytest
 
 from app.config import settings
-from app.infrastructure import cache_identity, tile_cache
+from app.infrastructure import cache_identity
 from app.services import derived_data_revision_service, tile_version_service
 from app.services.region_service import RegionService
 
@@ -82,13 +82,12 @@ class TileRepository(FakeRepository):
         return b"tile"
 
 
-async def test_世代が変わると焼き済みタイルを使わずに焼き直す(tmp_path, monkeypatch):
+async def test_世代が変わると焼き済みタイルを使わずに焼き直す(monkeypatch):
     """世代の変化はSQLが読むテーブルの中身が作り直されたことを表す。
 
     **鍵に世代が入っていないと、同じ鍵で古い中身を配り続ける。** 世代を読み直すのはタイルを配る経路
     自身で、バッチが世代を進めた後は、カタログを誰も取らなくてもTTLの後のタイルから新しい世代で配る。
     """
-    monkeypatch.setattr(tile_cache, "CACHE_DIR", tmp_path / "tile_cache")
     monkeypatch.setattr(settings, "derived_data_revision_check_interval_seconds", 0.0)
     repository = TileRepository(5)
     service = RegionService(repository=repository)

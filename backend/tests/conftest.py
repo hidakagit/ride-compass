@@ -16,7 +16,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 
 from app.batch._common import asyncpg_dsn
-from app.infrastructure import rate_limiter, redis_client, tile_persistent_cache
+from app.infrastructure import rate_limiter, redis_client, tile_cache, tile_persistent_cache
 from app.infrastructure.orm_base import Base
 from app.infrastructure.road_graph_repository import (
     REQUIRED_EXTENSIONS,
@@ -94,33 +94,40 @@ def rate_limit_clock(_rate_limit_clock_for_the_session) -> RateLimitClock:
     return clock
 
 
+_DISK_CACHES = {"tile_persistent_cache": tile_persistent_cache, "tile_cache": tile_cache}
+
+
 @pytest.fixture(autouse=True, scope="session")
-def _keep_tile_persistent_cache_out_of_the_checkout(tmp_path_factory):
-    """ディスク永続化キャッシュ（infrastructure/tile_persistent_cache.py）の置き場を、
+def _keep_disk_caches_out_of_the_checkout(tmp_path_factory):
+    """ディスクのキャッシュ（infrastructure/tile_persistent_cache.py・tile_cache.py）の置き場を、
     ワーカーごとの一時ディレクトリへ差し替える。
 
     キャッシュを消す・書くフィクスチャはテストファイル側にも多数あり、関数スコープの
-    差し替えより前後に動くものが1つでもあると共有の`backend/data/tile_persistent_cache`を
+    差し替えより前後に動くものが1つでもあると共有の`backend/data/`の置き場を
     開く——pytest-xdistのワーカー同士がそこで同じSQLiteを開き合うと`database is locked`で
     落ちる。セッションスコープは関数スコープより必ず先にセットアップされ後に片付くため、
     ここで差し替えれば順序に関わらず共有の置き場へは届かない。
     """
-    original = tile_persistent_cache.CACHE_DIR
-    tile_persistent_cache.use_directory(tmp_path_factory.mktemp("tile_persistent_cache"))
+    originals = {name: module.CACHE_DIR for name, module in _DISK_CACHES.items()}
+    for name, module in _DISK_CACHES.items():
+        module.use_directory(tmp_path_factory.mktemp(name))
     yield
-    tile_persistent_cache.use_directory(original)
+    for name, module in _DISK_CACHES.items():
+        module.use_directory(originals[name])
 
 
 @pytest.fixture(autouse=True)
-def _use_temp_tile_persistent_cache_dir(tmp_path, _keep_tile_persistent_cache_out_of_the_checkout):
+def _use_temp_disk_cache_dirs(tmp_path, _keep_disk_caches_out_of_the_checkout):
     """テストごとに空の置き場を渡す。キャッシュを消す・書くフィクスチャは、
     これを引数に取ってから動く（同じスコープのautouseは宣言順ではなく名前順に
     セットアップされるため、順序は依存で書く）。
     """
-    worker_dir = tile_persistent_cache.CACHE_DIR
-    tile_persistent_cache.use_directory(tmp_path / "tile_persistent_cache")
+    worker_dirs = {name: module.CACHE_DIR for name, module in _DISK_CACHES.items()}
+    for name, module in _DISK_CACHES.items():
+        module.use_directory(tmp_path / name)
     yield
-    tile_persistent_cache.use_directory(worker_dir)
+    for name, module in _DISK_CACHES.items():
+        module.use_directory(worker_dirs[name])
 
 
 # road_graph_repository.pyのPostGIS統合テスト専用の接続先。開発機で稼働中の実DB

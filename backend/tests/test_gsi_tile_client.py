@@ -1,7 +1,7 @@
 """`infrastructure/gsi_tile_client.py`——地理院タイルのプロキシとディスクキャッシュ。
 
 ここで見ないもの:
-- ディスクキャッシュそのものの読み書き（アトミック書き込み・容量上限） → `test_tile_cache.py`
+- ディスクキャッシュそのものの読み書き → `test_tile_cache.py`
 - 標高タイルをMapLibreが読む形へ移す変換 → `services/terrain_tile_service.py`側
 - 整備区域外の記憶を入れる器の大きさ（`NOT_FOUND_MAX_ENTRIES`の使い道） → `api/dependencies.py`側
 

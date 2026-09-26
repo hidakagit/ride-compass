@@ -5,10 +5,10 @@
 """
 
 import base64
+import hashlib
 
 from app.infrastructure.jma_tile_content import is_empty_tile
 from app.infrastructure.redis_json_cache import get_json, set_json
-from app.infrastructure.tile_cache import cache_key
 
 _KEY_PREFIX = "jma:tile"
 _CATEGORY = "cache:jma-tile-redis"
@@ -41,7 +41,7 @@ def _extension(path: str) -> str:
 
 
 def _key(path: str) -> str:
-    return f"{_KEY_PREFIX}:{cache_key(path)}"
+    return f"{_KEY_PREFIX}:{hashlib.sha256(path.encode('utf-8')).hexdigest()}"
 
 
 async def get(path: str) -> tuple[bytes, str] | EmptyTile | None:
