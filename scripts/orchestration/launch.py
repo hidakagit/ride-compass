@@ -4,7 +4,7 @@
 から読まれ、本体はmasterが進んでも手で早送りしない限り古いままである。本体を自動で書き換えるのは
 ユーザーの作業ツリーを触ることになるので、ここではフックがこのファイルをorigin/masterから取り出して
 動かし、このファイルが道具一式（`scripts/orchestrate.py`・`scripts/orchestration/`・
-`scripts/check_master_ci.py`）をorigin/masterの版で`<gitの共通ディレクトリ>/orchestration/tools/<sha>/`へ
+`scripts/check_master_ci.py`・`scripts/lockrun.py`）をorigin/masterの版で`<gitの共通ディレクトリ>/orchestration/tools/<sha>/`へ
 書き出して、そこから動かす。書き出しはshaごとに1回で、別のshaの書き出しは消す。
 
 フックの入口そのもの（本体の`hook.sh`と`.claude/settings.json`）はここから直せないので、本体の
@@ -23,8 +23,8 @@ import sys
 import tempfile
 from pathlib import Path
 
-#: origin/masterから書き出す道具（定期確認が読み込むもの）。
-TOOL_PATHS = ("scripts/orchestrate.py", "scripts/check_master_ci.py", "scripts/orchestration")
+#: origin/masterから書き出す道具（定期確認が読み込むもの・定期確認が裏で起こすスロットの温めが呼ぶ枠）。
+TOOL_PATHS = ("scripts/orchestrate.py", "scripts/check_master_ci.py", "scripts/lockrun.py", "scripts/orchestration")
 HOOK_PATH = "scripts/orchestration/hook.sh"
 GIT_TIMEOUT_SECONDS = 60
 
