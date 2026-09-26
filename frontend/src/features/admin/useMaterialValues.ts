@@ -7,7 +7,7 @@ import { getMaterialValues } from "@/features/admin/adminApi";
 interface MaterialValuesState {
   materialId: string | null;
   values: readonly MaterialValueEntry[];
-  /** 候補を**出せなかった**（DB未接続・DB障害・タイムアウト・通信失敗）。
+  /** 候補を**出せなかった**（DB障害・タイムアウト・通信失敗）。
    * 「候補が無い」（取得できて0件）と区別する——同じ空配列へ倒すと、DBのタイムアウトが
    * 「この材料には値が無い」として静かに表示される。 */
   unavailable: boolean;
@@ -25,7 +25,7 @@ interface MaterialValuesState {
  * 値の一覧は材料ごとに異なる実データそのものであり、コード側で妥当なフォールバック値を
  * 用意できないため）。
  *
- * DB未接続・DB障害・通信失敗は`unavailable`で区別して返す。フォールバックの動きは同じでも、
+ * DB障害・通信失敗は`unavailable`で区別して返す。フォールバックの動きは同じでも、
  * **利用者に見せる理由が違う**（候補が無いのか、出せなかったのか）。
  */
 export function useMaterialValues(materialId: string | null): {

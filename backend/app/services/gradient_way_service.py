@@ -28,11 +28,11 @@ class GradientWayService:
     #: 返す生値の材料id。この材料を参照する軸の配信を担当し、キャッシュの名前空間にもなる。
     material_id = "gradient_percent"
 
-    def __init__(self, repository: RoadGraphRepository | None):
+    def __init__(self, repository: RoadGraphRepository):
         self._repository = repository
 
     @classmethod
-    def build(cls, repository: RoadGraphRepository | None, weather_service: object) -> "GradientWayService":
+    def build(cls, repository: RoadGraphRepository, weather_service: object) -> "GradientWayService":
         """登録テーブルから呼ぶための統一シグネチャ。勾配は天候を要らない。"""
         return cls(repository=repository)
 
@@ -41,7 +41,7 @@ class GradientWayService:
     ) -> dict[str, float]:
         """指定タイル内のフィーチャーごとの実効勾配（正=登り・負=下り）を返す。
 
-        repository未接続・取込範囲外・DB障害はいずれも空dictへ倒す。
+        取込範囲外・DB障害はいずれも空dictへ倒す。
 
         `at`・`speed_kmh`は材料非依存な呼び出し口と形を揃えるためだけに受け取り、勾配の
         計算には使わない。`bearing_deg`も同じ理由で`float | None`だが、勾配はこれが無いと
@@ -49,8 +49,6 @@ class GradientWayService:
         """
         if bearing_deg is None:
             raise ValueError("GradientWayService.get_way_valuesにはbearing_degが必須です")
-        if self._repository is None:
-            return {}
         bbox = tile_bounds_lonlat(z, x, y)
 
         with log_external_call("region:gradient-way-values", z=z, x=x, y=y) as fields:

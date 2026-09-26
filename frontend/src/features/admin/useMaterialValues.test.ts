@@ -39,7 +39,7 @@ describe("useMaterialValues", () => {
     expect(api.getMaterialValues).toHaveBeenCalledWith("cat_a");
   });
 
-  it("backendが値一覧を出せない（DB未接続等）と答えたら、出せなかったとして返す", async () => {
+  it("backendが値一覧を出せない（DB障害等）と答えたら、出せなかったとして返す", async () => {
     api.getMaterialValues.mockResolvedValue(response([], false));
     const { result } = renderHook(() => useMaterialValues("cat_a"));
     await waitFor(() => expect(result.current.unavailable).toBe(true));

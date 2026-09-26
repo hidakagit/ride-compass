@@ -263,7 +263,6 @@ NULLの意味は列によって違う。「まだ計算していない」と「�
 | 取得不可の理由 | `fields["postgis"]` | `cacheable` | 応答の`Cache-Control` |
 |---|---|---|---|
 | 取込範囲外（恒久的にデータが無い） | `"uncovered"` | True | `BATCH_TILE`（1時間） |
-| `repository`未接続（設定由来、起動中は不変） | 未設定 | True | 同上 |
 | DB障害・混雑（一時的） | `"error"` | **False** | **`no-store`**（ルーターが明示） |
 
 一時的な失敗で返した空タイルを長期キャッシュさせると、サーバーが回復した後も利用者の
@@ -290,9 +289,9 @@ NULLの意味は列によって違う。「まだ計算していない」と「�
 
 ### RegionService（路面・POIタイル、区間インスペクタ）
 
-`repository`（`RoadGraphRepository`）を渡すと、要求タイルが取込の宣言した範囲に入って
+`repository`（`RoadGraphRepository`、必須）から、要求タイルが取込の宣言した範囲に入って
 いれば、MVTエンコードまで含めてPostGIS側（ST_AsMVT）でタイルを丸ごと生成する。範囲外・
-DB障害時、`repository`未接続時は空タイルを返す。
+DB障害時は空タイルを返す。
 
 - **カバレッジはマーカーの表ではなく取込の宣言から決まる**（`source_runs.profile`の
   `target.bbox`）。道路網は取込・派生バッチが範囲全体ぶん先に作るため、タイル配信側に
@@ -327,15 +326,15 @@ DB障害時、`repository`未接続時は空タイルを返す。
   （`RoadGraphRepository.get_distinct_material_values`への薄い委譲）。
 - `get_accident_years_covered()`: [軸スタジオ](axis-studio.md)の`GET /api/axis-catalog`が
   地図表示の実行時スケール定数を組み立てるために使う。
-- `repository`未接続・DB障害はいずれも安全側（空タイル/None/0/空リスト）へ倒す一貫した
+- DB障害はいずれも安全側（空タイル/None/0/空リスト）へ倒す一貫した
   グレースフルデグレード方針。DB障害として捕まえるのは`DB_UNAVAILABLE_ERRORS`だけで、
   実装の誤りは500になる（[横断インフラ](cross-cutting-infrastructure.md)「DB障害として扱う例外」節）。
 
 ### AccidentService（事故タイル）
 
-`repository`（`AccidentTileQuery`）を渡すとPostGIS側でMVTを生成する。road_surfaceと違い
+`repository`（`AccidentTileQuery`、必須）からPostGIS側でMVTを生成する。road_surfaceと違い
 「取込範囲の一部だけ取得済み」という状態が無い（取込が対象範囲を一括で入れる）ため、
-カバレッジ判定は行わない。`repository`未接続・DB障害時は空タイルを返す。
+カバレッジ判定は行わない。DB障害時は空タイルを返す。
 
 ### 土地被覆ラスタタイル（`landcover_raster.py`・`landcover_tile_service.py`）
 

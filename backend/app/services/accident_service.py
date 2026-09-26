@@ -19,18 +19,15 @@ class AccidentService:
     """警察庁交通事故統計データをXYZベクタタイルとして配る。
 
     road_surfaceと違い「取込範囲の一部だけ取得済み」という状態が無い（バッチが対象地域を
-    一括で入れる）ため、カバレッジ判定を持たない。repository未接続・DB障害時は例外にせず
+    一括で入れる）ため、カバレッジ判定を持たない。DB障害時は例外にせず
     空タイルを返し、地図表示全体を落とさない。
     """
 
-    def __init__(self, repository: AccidentTileQuery | None = None):
+    def __init__(self, repository: AccidentTileQuery):
         self._repository = repository
 
     async def get_accident_tile(self, z: int, x: int, y: int) -> TileResponse:
         async def fetch_tile(fields: dict) -> bytes | None:
-            if self._repository is None:
-                logger.warning("事故タイルがrepository未接続のため空タイルを返しました z=%d x=%d y=%d", z, x, y)
-                return None
             try:
                 tile_bytes = await self._repository.get_accident_tile_mvt(z, x, y, tile_bounds_lonlat(z, x, y))
             except DB_UNAVAILABLE_ERRORS as exc:

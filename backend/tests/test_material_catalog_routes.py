@@ -9,7 +9,6 @@ from app.domain.material_catalog import MATERIAL_CATALOG
 from app.infrastructure.material_coverage import MATERIAL_COVERAGE_SPECS, MaterialCoverageCounts
 from app.main import app
 from app.services.material_coverage_service import build_material_coverage_report
-from app.services.region_service import RegionService
 from tests.admin_auth import AUTH_HEADERS
 
 client = TestClient(app)
@@ -106,8 +105,8 @@ def test_get_material_catalog_response_excludes_internal_tile_fields():
 
 
 class FakeRegionServiceForMaterialValues:
-    def __init__(self, values: list[str] | None = None):
-        self._values = values if values is not None else []
+    def __init__(self, values: list[str] | None):
+        self._values = values
         self.last_material_id: str | None = None
 
     async def get_material_values(self, material_id: str) -> list[str] | None:
@@ -165,16 +164,8 @@ def test_get_material_values_known_material_without_dynamic_support_returns_empt
     assert fake.last_material_id == "tracktype"
 
 
-def test_get_material_values_without_db_repository_is_unavailable(admin_credentials):
-    # DB未接続構成（RegionService()、repository=None）を明示的に強制する。
-    # 以前は「このファイルのclientはdependency_overrides未設定→get_region_serviceの
-    # 既定分岐（settings.road_graph_use_repository）に委ねる」という設計だったが、
-    # この既定分岐はDB接続の可否ではなく環境変数road_graph_use_repositoryの値で決まる
-    # ため、DB接続済みのdev機（road_graph_use_repository=true）ではrepository付きの
-    # RegionServiceが注入され実データが返り、本テストが環境依存で失敗していた
-    # （2026-08-28指摘）。他のテスト（本ファイル上部）と同じdependency_overridesパターンで
-    # 明示的にrepository無しのRegionServiceを注入し、環境非依存にする。
-    app.dependency_overrides[get_region_service] = lambda: RegionService()
+def test_get_material_values_the_service_could_not_read_is_unavailable(admin_credentials):
+    app.dependency_overrides[get_region_service] = lambda: FakeRegionServiceForMaterialValues(values=None)
 
     try:
         response = client.get(values_url("smoothness"), headers=AUTH_HEADERS)
@@ -182,7 +173,7 @@ def test_get_material_values_without_db_repository_is_unavailable(admin_credenti
         app.dependency_overrides.clear()
 
     assert response.status_code == 200
-    # DB未接続は「候補を出せなかった」——「値が無い」と同じ形にしない。
+    # 出せなかったのは「候補を出せなかった」——「値が無い」と同じ形にしない。
     assert response.json() == {"available": False, "values": []}
 
 

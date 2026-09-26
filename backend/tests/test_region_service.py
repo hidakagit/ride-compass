@@ -19,30 +19,51 @@ def use_temp_tile_cache(tmp_path, monkeypatch):
 Z, X, Y = 14, 14551, 6447
 
 
-async def test_no_repository_returns_empty_mvt():
-    # repository未接続（DBなし構成）では路面レイヤーは常に空タイルになる
-    service = RegionService()
+class _TileRepository:
+    """路面・POIのMVTを焼く口だけを持つフェイク。取込範囲外はNone、DB障害は例外。"""
 
-    tile = await service.get_road_surface_tile(Z, X, Y)
+    def __init__(self, tile: bytes | None = None, error: Exception | None = None):
+        self._tile = tile
+        self._error = error
 
-    assert tile.content == encode_empty_road_surface_tile()
+    async def _answer(self):
+        if self._error is not None:
+            raise self._error
+        return self._tile
+
+    async def get_road_surface_tile_mvt(self, z, x, y, bbox):
+        return await self._answer()
+
+    async def get_poi_tile_mvt(self, z, x, y, bbox):
+        return await self._answer()
 
 
-async def test_poi_tile_no_repository_returns_empty_mvt():
-    service = RegionService()
+TILE_KINDS = [
+    ("get_road_surface_tile", encode_empty_road_surface_tile()),
+    ("get_poi_tile", encode_empty_poi_tile()),
+]
 
-    tile = await service.get_poi_tile(Z, X, Y)
 
-    assert tile.content == encode_empty_poi_tile()
+@pytest.mark.parametrize(("method", "empty_tile"), TILE_KINDS)
+async def test_uncovered_tile_is_empty_and_browsers_may_keep_it(method, empty_tile):
+    service = RegionService(repository=_TileRepository(tile=None))
+
+    tile = await getattr(service, method)(Z, X, Y)
+
+    assert (tile.content, tile.cacheable) == (empty_tile, True)
+
+
+@pytest.mark.parametrize(("method", "empty_tile"), TILE_KINDS)
+async def test_db_error_tile_is_empty_and_browsers_must_not_keep_it(method, empty_tile):
+    # 一時的な失敗の空タイルをブラウザが持つと、回復した後もその区画の空白が残る。
+    service = RegionService(repository=_TileRepository(error=ConnectionRefusedError("db down")))
+
+    tile = await getattr(service, method)(Z, X, Y)
+
+    assert (tile.content, tile.cacheable) == (empty_tile, False)
 
 
 # --- 区間インスペクタ ---
-
-
-async def test_axis_inspector_no_repository_returns_none():
-    service = RegionService()
-
-    assert await service.get_axis_inspector(12345) is None
 
 
 class _FakeWayRepository(RoadGraphRepository):
@@ -106,21 +127,25 @@ async def test_axis_inspector_uses_the_direction_dependent_materials_it_is_given
 # --- 材料の実データ値一覧 ---
 
 
-async def test_material_values_without_a_repository_are_unavailable_not_empty():
+class _MaterialValuesRepository:
+    """材料の値一覧だけを答えるフェイク。"""
+
+    def __init__(self, error: Exception):
+        self._error = error
+
+    async def get_distinct_material_values(self, material_id):
+        raise self._error
+
+
+async def test_material_values_the_db_could_not_read_are_unavailable_not_empty():
     # 「候補が無い」と「候補を出せなかった」を区別する。両方を空リストへ倒すと、
     # DBのタイムアウトが「この材料には値が無い」として静かに表示される。
-    service = RegionService()
+    service = RegionService(repository=_MaterialValuesRepository(ConnectionRefusedError("db down")))
 
     assert await service.get_material_values("highway") is None
 
 
 # --- 事故データ収録年数 ---
-
-
-async def test_accident_years_covered_no_repository_returns_zero():
-    service = RegionService()
-
-    assert await service.get_accident_years_covered() == 0
 
 
 class _AccidentYearsRepository:
@@ -151,14 +176,6 @@ async def test_accident_years_fall_back_to_empty_on_db_error():
     assert await service.get_accident_years() == []
     assert await service.get_accident_years_covered() == 0
 
-
-async def test_no_repository_stays_cacheable():
-    # repository未接続は設定由来で、プロセスが生きている間は変わらない。
-    service = RegionService(repository=None)
-
-    tile = await service.get_road_surface_tile(Z, X, Y)
-
-    assert tile.cacheable is True
 
 
 

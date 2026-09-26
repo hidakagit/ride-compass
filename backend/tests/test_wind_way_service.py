@@ -68,24 +68,16 @@ AT = datetime(2026, 8, 30, 9, 0)
 TIMES = ["2026-08-30T08:00", "2026-08-30T09:00", "2026-08-30T10:00"]
 
 
-async def test_repository_none_returns_empty_dict():
-    service = WindWayService(repository=None, weather_service=FakeWeatherService([], None))
-
-    result = await service.get_way_values(Z, X, Y, AT, 0.0, SPEED_KMH)
-
-    assert result == {}
-
-
 # 型が`float | None`なのは呼び出し口の形を揃えるためで、Noneのまま計算へ進ませない。
 async def test_bearing_deg_none_raises_value_error():
-    service = WindWayService(repository=None, weather_service=FakeWeatherService([], None))
+    service = WindWayService(repository=FakeWayIdsRepository(way_ids=None), weather_service=FakeWeatherService([], None))
 
     with pytest.raises(ValueError, match="bearing_deg"):
         await service.get_way_values(Z, X, Y, AT, None, SPEED_KMH)
 
 
 async def test_speed_kmh_none_raises_value_error():
-    service = WindWayService(repository=None, weather_service=FakeWeatherService([], None))
+    service = WindWayService(repository=FakeWayIdsRepository(way_ids=None), weather_service=FakeWeatherService([], None))
 
     with pytest.raises(ValueError, match="speed_kmh"):
         await service.get_way_values(Z, X, Y, AT, 0.0)

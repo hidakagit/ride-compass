@@ -15,8 +15,8 @@ GUIから行わない（`domain/material_catalog.py`へのコード変更＋デ�
 `GET /api/admin/material-catalog/{material_id}/values`（読み取り専用だがHTTP Basic認可要）は、
 highway/surface/smoothnessのようなOSMタグの生値でオープンエンドな材料について、DBに
 実際に取り込まれている値を動的取得し返す（`AxisComposer.tsx`の値入力欄がタグ生値を
-暗記して手入力せずに選べるようにする）。DB未接続構成（`road_graph_use_repository=False`）
-では空リストを返し、呼び出し側（フロント）が自由テキスト入力へフォールバックする。
+暗記して手入力せずに選べるようにする）。値を出せないとき（DB障害・タイムアウト）は
+`available=false`を返し、呼び出し側（フロント）が自由テキスト入力へフォールバックする。
 
 `values.label`（`MaterialSpec.value_label`）は材料の値ごとの日本語ラベル対訳表
 （`MaterialSpec.value_labels`、`domain/material_catalog.py`、材料定義自体の一部）を
@@ -98,7 +98,7 @@ class MaterialValueEntry(StrictModel):
 
 
 class MaterialValuesResponse(StrictModel):
-    """`available=False`は「候補を出せなかった」（DB未接続・DB障害・タイムアウト）。
+    """`available=False`は「候補を出せなかった」（DB障害・タイムアウト）。
     `available=True`で`values`が空なら「取得できたが値が無い」。画面はこの2つを
     区別して出す（区別しないと、DBのタイムアウトが「値が無い」として静かに表示される）。
     """
@@ -134,7 +134,7 @@ class MaterialCoverageResponse(StrictModel):
 
 
 class MaterialDistributionResponse(StrictModel):
-    """材料の値の分布（延長で重み付け）。`available=false`は数値材料でない・DB未接続。"""
+    """材料の値の分布（延長で重み付け）。`available=false`は数値材料でない。"""
 
     available: bool
     sample_ways: int = 0
@@ -170,7 +170,7 @@ async def get_material_catalog() -> MaterialCatalogResponse:
 )
 async def get_material_distribution(
     material_id: str,
-    repository: RoadGraphRepository | None = Depends(get_road_graph_repository),
+    repository: RoadGraphRepository = Depends(get_road_graph_repository),
 ) -> MaterialDistributionResponse:
     """材料の値が実データでどの範囲に散らばっているかを返す（軸スタジオ）。
 
@@ -180,8 +180,6 @@ async def get_material_distribution(
     """
     if not is_known_material(material_id):
         raise HTTPException(status_code=404, detail=f"unknown material '{material_id}'")
-    if repository is None:
-        return MaterialDistributionResponse(available=False)
     distribution = await material_value_distribution(repository, material_id)
     if distribution is None:
         return MaterialDistributionResponse(available=False)
@@ -200,7 +198,7 @@ async def get_material_values(
     """材料idに対応する実データの値一覧（ソート済み、重複無し）を返す。
     未知の材料idは404（フロントのタイプミス検知用）。値一覧を持たない材料（カテゴリ以外の
     真偽・数値の材料と、値の求め方を持たない材料）は`available=true`の空リスト、
-    DB未接続・DB障害・タイムアウトは`available=false`を返す
+    DB障害・タイムアウトは`available=false`を返す
     （`RegionService.get_material_values`参照。「候補が無い」と「候補を出せなかった」を
     画面が区別できるようにするため、両方を空リストへ倒さない）。
 

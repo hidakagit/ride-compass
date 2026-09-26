@@ -17,15 +17,15 @@ def _encode_empty_tile(layer_name: str) -> bytes:
 
 
 def encode_empty_road_surface_tile() -> bytes:
-    """フィーチャを持たない空のMVT（カバレッジ外・DB障害・repository未接続時）。"""
+    """フィーチャを持たない空のMVT（カバレッジ外・DB障害時）。"""
     return _encode_empty_tile(ROAD_SURFACE_LAYER_NAME)
 
 
 def encode_empty_accident_tile() -> bytes:
-    """フィーチャを持たない空のMVT（DB障害・repository未接続時）。"""
+    """フィーチャを持たない空のMVT（DB障害時）。"""
     return _encode_empty_tile(ACCIDENT_LAYER_NAME)
 
 
 def encode_empty_poi_tile() -> bytes:
-    """フィーチャを持たない空のMVT（カバレッジ外・DB障害・repository未接続時）。"""
+    """フィーチャを持たない空のMVT（カバレッジ外・DB障害時）。"""
     return _encode_empty_tile(STOP_POI_LAYER_NAME)

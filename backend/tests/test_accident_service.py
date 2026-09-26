@@ -77,12 +77,3 @@ async def test_postgis_error_returns_empty_mvt_that_browsers_must_not_keep():
     assert response.cacheable is False
     # ディスクにも残さない（次のリクエストで作り直せるように）
     assert tile_cache.get(_tile_cache_path(Z, X, Y)) is None
-
-
-async def test_no_repository_returns_empty_mvt():
-    # road_graph_use_repository無効（DBなし構成）ではrepository自体が注入されない
-    service = AccidentService()
-
-    response = await service.get_accident_tile(Z, X, Y)
-
-    assert response.content == encode_empty_accident_tile()
