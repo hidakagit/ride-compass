@@ -713,6 +713,17 @@ def build_turn_expanded_structure(
 _Heap = tuple[np.ndarray, np.ndarray, np.ndarray, bool]
 
 
+def _kernel_array(values: np.ndarray, dtype: type) -> np.ndarray:
+    """JITした探索へ渡す配列を、1つの型（dtype・C順・書き込み可）へ揃える。揃っている配列は写さない。
+
+    numbaは引数の型（dtype・並び・読み取り専用か）ごとに別々にコンパイルする。揃えずに渡すと、
+    イメージの組み立てで焼いたコンパイル結果（`compile_search_kernels`）と型の違う呼び出しが、
+    本番の最初のルート生成でコンパイルを払う。
+    """
+    array: np.ndarray = np.ascontiguousarray(values, dtype=dtype)
+    return array if array.flags.writeable else array.copy()
+
+
 @njit(cache=True, inline="always")
 def _empty_heap(capacity: int, carries_g: bool) -> _Heap:
     """空のヒープを作る。`carries_g`はキーが`g`と別の値になる探索（A*のキーは`g`＋下界）だけが立てる。
@@ -948,9 +959,11 @@ def build_turn_expanded_tree(
         )
     started = time.perf_counter()
     state_cost, predecessor, state_length_m, state_seconds = _turn_expanded_dijkstra(
-        indptr, target_state, transition_seconds, cost_bins, seconds_bins,
-        np.asarray(edge_length_m, dtype=np.float64), float(bin_seconds),
-        np.asarray(entry_state_indices, dtype=np.int64), float(cost_limit),
+        _kernel_array(indptr, np.int64), _kernel_array(target_state, np.int64),
+        _kernel_array(transition_seconds, np.float64),
+        _kernel_array(cost_bins, np.float64), _kernel_array(seconds_bins, np.float64),
+        _kernel_array(edge_length_m, np.float64), float(bin_seconds),
+        _kernel_array(entry_state_indices, np.int64), float(cost_limit),
         len(entry_state_indices) + _HEAP_INITIAL_SLACK,
     )
     dijkstra_ms = (time.perf_counter() - started) * 1000
@@ -1220,10 +1233,11 @@ def turn_expanded_shortest_path(
     )
     capacity = len(origin_states) + _HEAP_INITIAL_SLACK
     predecessor, goal_state = _turn_expanded_astar(
-        structure.indptr, structure.target_state, structure.turn_seconds, structure.edge_to,
-        cost_bins, seconds_bins, float(bin_seconds),
-        np.asarray(node_heuristic, dtype=np.float64),
-        np.asarray(origin_states, dtype=np.int64), int(goal_node_index), capacity,
+        _kernel_array(structure.indptr, np.int64), _kernel_array(structure.target_state, np.int64),
+        _kernel_array(structure.turn_seconds, np.float64), _kernel_array(structure.edge_to, np.int64),
+        _kernel_array(cost_bins, np.float64), _kernel_array(seconds_bins, np.float64), float(bin_seconds),
+        _kernel_array(node_heuristic, np.float64),
+        _kernel_array(origin_states, np.int64), int(goal_node_index), capacity,
     )
     if goal_state < 0:
         return None
@@ -1234,3 +1248,25 @@ def turn_expanded_shortest_path(
         state = int(predecessor[state])
     edges.reverse()
     return edges
+
+
+def compile_search_kernels() -> None:
+    """一対全木と2点間探索のJITを、最小の道路網で1回ずつ呼んでコンパイルする。
+
+    `@njit(cache=True)`の結果はこのファイルの隣の`__pycache__`に残り、別のプロセスはそこから読む。
+    イメージの組み立て（`backend/Dockerfile`）で呼び、入れ替えたコンテナの最初のルート生成が
+    コンパイルを待たないようにする。探索の入口が引数の型を揃える（`_kernel_array`）ため、ここで
+    作る入力は形が合えばよい。
+    """
+    lazy_graph = build_lazy_road_graph(np.array([0, 1]), np.array([1, 0]), 2)
+    statics = build_search_graph_statics(lazy_graph, np.ones(2))
+    structure = build_turn_expanded_structure(
+        statics.csr, lazy_graph, np.zeros(2), np.zeros(2, dtype=np.int64), current_turn_cost(),
+        np.zeros(2, dtype=bool), np.zeros(2, dtype=np.int64),
+    )
+    cost = np.ones((1, 2))
+    origin_states = np.array([0])
+    build_turn_expanded_tree(
+        structure, cost, statics.edge_length_m, origin_states, lazy_graph.node_count, edge_seconds=cost
+    )
+    turn_expanded_shortest_path(structure, cost, np.zeros(2), origin_states, 0, edge_seconds=cost)

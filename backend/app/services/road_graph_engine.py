@@ -291,6 +291,12 @@ def _representative_bin(bin_count: int, duration_hours: float | None) -> int:
     return min(bin_count - 1, int((duration_hours / 2) / TIME_BIN_HOURS))
 
 
+def _timed_leg_key(leg_start_hours: float, bin_count: int, duration_hours: float | None) -> tuple:
+    """時刻で引き直すレグの使い回しの鍵。代表ビンも入れる——同じ開始時刻・同じビン数でも、
+    見込み所要時間が違えば代表（表示が読むビン）は変わりうる。"""
+    return (round(leg_start_hours, 3), bin_count, _representative_bin(bin_count, duration_hours))
+
+
 def _row_taker(rows: np.ndarray | None) -> Callable[[np.ndarray], np.ndarray]:
     """配列から行`rows`だけを取り出す関数（Noneなら配列をそのまま返す）。"""
     if rows is None:
@@ -452,9 +458,7 @@ class _LegCostComposer:
             key = ("passage", round(offset_hours, 3), direction, float(np.nansum(passage_hours)))
             bin_count = 1
         else:
-            # 代表ビンもキーに入れる——同じ開始時刻・同じビン数でも、見込み所要時間が違えば
-            # 代表（表示が読むビン）は変わりうる。
-            key = (round(leg_start, 3), bin_count, _representative_bin(bin_count, duration_hours))
+            key = _timed_leg_key(leg_start, bin_count, duration_hours)
         cached = self._cache.get(key)
         if cached is not None:
             # 同じ内容を使い回すのは正しい（風が時刻で変わらないレグは1本で足りる）が、
@@ -464,15 +468,23 @@ class _LegCostComposer:
             return cached
 
         started = time.monotonic()
+        reused_bins = 0
         if not self.time_varying:
             bins = [self._compose_at(None)]
         elif passage_hours is not None:
             bins = [self._compose_at(passage_hours)]
         else:
-            bins = [
-                self._compose_at(np.full(edge_count, leg_start + k * TIME_BIN_HOURS))
-                for k in range(bin_count)
-            ]
+            bins = []
+            for k in range(bin_count):
+                bin_start = leg_start + k * TIME_BIN_HOURS
+                # 同じ時刻のビン1本のレグを合成済みなら、それがこのビンと同じ中身になる（周回・目的地ルートの
+                # 往路の先頭のビンは、`prepare`が見込み時間なしで合成した1本と同じ時刻から始まる）。
+                single = self._cache.get(_timed_leg_key(bin_start, 1, None))
+                if single is not None:
+                    reused_bins += 1
+                    bins.append(single)
+                else:
+                    bins.append(self._compose_at(np.full(edge_count, bin_start)))
 
         # 代表はレグの中間地点が入るビン（ビンはレグの見込み時間より長く張られることがあり、
         # 単純な中央の添字だと終盤のビンへ寄る）。
@@ -500,9 +512,9 @@ class _LegCostComposer:
         )
         self._cache[key] = leg
         logger.info(
-            "compose_leg_costs leg=%s mode=%s bins=%d compose_ms=%d",
+            "compose_leg_costs leg=%s mode=%s bins=%d reused_bins=%d compose_ms=%d",
             label, "time_varying" if self.time_varying and anchor is not None else "snapshot",
-            len(bins), round((time.monotonic() - started) * 1000),
+            len(bins), reused_bins, round((time.monotonic() - started) * 1000),
         )
         return leg
 

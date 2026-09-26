@@ -627,6 +627,19 @@ def test_compose_reuses_a_leg_composed_for_the_same_start_and_bins(composer_worl
     assert len(composer_world.passages) == 2
 
 
+def test_compose_takes_a_bin_from_a_single_bin_leg_of_the_same_time(composer_world):
+    """周回の往路は、見込み時間なしで先に合成した1本と同じ時刻から始まる。ビン1本ぶんの合成は
+    範囲の区間の全体を走るため、同じ時刻のビンを2度作らない。"""
+    composer = make_composer(wind_series=wind_series())
+
+    single = composer.compose("outbound", coords(35.0, 139.0), 0.0, +1)
+    binned = composer.compose("outbound", coords(35.0, 139.0), 0.0, +1, duration_hours=2.0)
+
+    assert [float(p[0]) for p in composer_world.passages] == [0.0, 1.0]
+    assert binned.cost_bins_lazy[0].tolist() == single.cost_lazy.tolist()
+    assert binned.cost_bins_lazy[1].tolist() != single.cost_lazy.tolist()
+
+
 def test_compose_with_measured_passage_hours_is_a_single_bin(composer_world):
     """後ろ向き木は時刻ラベルを持てない。前向き木の実到達時間を区間ごとに渡す。"""
     composer = make_composer(wind_series=wind_series())

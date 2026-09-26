@@ -14,6 +14,7 @@ import dataclasses
 import math
 from typing import NamedTuple
 
+import numba
 import numpy as np
 import pytest
 
@@ -1283,3 +1284,41 @@ def test_shortest_path_stays_exact_while_the_queue_grows(tiny_heap):
         edge_seconds=np.ones(structure.state_count),
     )
     assert path == [states[edge_id] for edge_id in route]
+
+
+# --- 探索のJITの型 ---
+
+
+def test_each_search_compiles_once_whatever_arrays_the_caller_passes():
+    """イメージの組み立てで焼いたコンパイル結果（`compile_search_kernels`）は、型の同じ呼び出しにしか効かない。
+    探索の入口が型を揃えるため、呼び出し側の配列のdtype・並び・読み取り専用かに依らず、探索1つにつき
+    コンパイルは1本で済む——本番の最初のルート生成がコンパイルを払わない。"""
+    if numba.config.DISABLE_JIT:
+        pytest.skip("JITを切って測っている（numbaの型がそもそも無い）")
+    routing.compile_search_kernels()
+    lazy, statics, structure = build_all(make_grid(3))
+    state_count = structure.state_count
+    read_only = np.ones((2, state_count))
+    read_only.flags.writeable = False
+    costs = [
+        np.ones(state_count, dtype=np.float32),
+        np.ones((state_count, 2)).T,  # C順でない
+        read_only,
+    ]
+    origin_states = out_states(lazy, "n0_0").astype(np.int32)
+    for cost in costs:
+        routing.build_turn_expanded_tree(
+            structure, cost, statics.edge_length_m.astype(np.float32), origin_states, lazy.node_count,
+            edge_seconds=cost, bin_seconds=3600.0,
+        )
+        routing.turn_expanded_shortest_path(
+            structure, cost, np.zeros(lazy.node_count, dtype=np.float32), origin_states,
+            lazy.node_id_to_index["n2_2"], edge_seconds=cost, bin_seconds=3600.0,
+        )
+    routing.build_turn_expanded_tree(
+        structure, costs[0], statics.edge_length_m, origin_states, lazy.node_count,
+        reverse=True, edge_seconds=costs[0],
+    )
+
+    assert len(routing._turn_expanded_dijkstra.signatures) == 1
+    assert len(routing._turn_expanded_astar.signatures) == 1
