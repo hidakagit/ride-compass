@@ -106,16 +106,14 @@ class WayMaterialCoverageSpec:
     """道の生データ全行（`WAYS_SOURCE_SQL`）を母集団とする材料。`missing_condition`はその列・
     JSONB参照のみで構成したSQL真偽式（trueなら欠損）で、外部入力を連結しない。
 
-    `in_scope`は担当バッチが処理できる行の条件。**対象外の行を欠損に数えると、欠損率が
-    構造的に0へ到達しない**——運用者は「もう一度流せば0になるはず」と読むが決してならず、
-    未実行なのか対象外なのかを画面から区別できない（母集団は全件のままにする。
-    `derived_data_freshness.py`の完成度と同じ扱い）。"""
+    欠損は生データの全行について数える。値を埋めるバッチが一部の行しか処理しない材料では、
+    **対象外の行まで欠損に数えられ、欠損率が構造的に0へ到達しない**——運用者は「もう一度流せば
+    0になるはず」と読むが決してならず、未実行なのか対象外なのかを画面から区別できない。"""
 
     missing_condition: str
     source: str
     missing_semantics: MissingSemantics
     population: Population = "way"
-    in_scope: str = "TRUE"
 
 
 @dataclass(frozen=True)

@@ -57,7 +57,7 @@ def build_way_coverage_sql(specs: dict[str, MaterialCoverageSpec] = MATERIAL_COV
     列別名は材料id（内部定数のみ、外部入力を連結しない）。"""
     way_specs = {material_id: spec for material_id, spec in specs.items() if isinstance(spec, WayMaterialCoverageSpec)}
     columns = ", ".join(
-        f"count(*) FILTER (WHERE ({spec.in_scope}) AND ({spec.missing_condition})) AS {material_id}"
+        f"count(*) FILTER (WHERE {spec.missing_condition}) AS {material_id}"
         for material_id, spec in way_specs.items()
     )
     # 元データの引き方は`domain/material_sql.py`が持つ。ここで書き写すと、生データの

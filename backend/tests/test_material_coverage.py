@@ -210,27 +210,3 @@ async def test_service_builds_report_from_repository_counts():
     surface = next(e for e in report.materials if e.material_id == "surface")
     assert surface.missing_ratio == pytest.approx(0.85)
     assert report.computed_at.tzinfo is not None
-
-
-def test_way_coverage_counts_only_rows_the_batch_can_process():
-    """欠損は担当バッチの対象行に限って数える。
-
-    対象外の行を数えると欠損率が構造的に0へ到達せず、運用者は「もう一度流せば0になるはず」と
-    読むが決してならない。母集団（分母）は全件のままにする——「全体のうち何件か」を読む数のため。
-    """
-    scoped = WayMaterialCoverageSpec(
-        missing_condition="w.tags->>'surface' IS NULL",
-        source="テスト",
-        missing_semantics="unknown",
-        in_scope="w.highway IS NOT NULL",
-    )
-    sql = " ".join(str(build_way_coverage_sql({"scoped": scoped})).split())
-
-    # 分母は全件（絞り込みはFILTER側だけに掛かる）。
-    assert sql.startswith("SELECT count(*) AS total")
-    assert f"FROM {' '.join(WAYS_SOURCE_SQL.split())} AS w" in sql
-    # 絞り込みはFILTER側だけに掛かる（FROMの後ろにWHEREを付けない）。
-    assert "AS w WHERE" not in sql
-    assert "count(*) FILTER (WHERE (w.highway IS NOT NULL) AND (w.tags->>'surface' IS NULL)) AS scoped" in sql
-
-
