@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import argparse
 import datetime as dt
+import io
 import json
 import os
 import re
@@ -213,13 +214,15 @@ def transition(place: Place, issue: dict, to: str, note: str, hold: dict | None 
     """表にある遷移だけを書く。欄を書いてから、何がなぜ動いたかを issue のコメントに残し、選択肢があれば問う。
     ② から出る行き先は ② へ入ったときの戻り先だけ（to に BACK を渡せば戻り先へ）。"""
     frm, fields = state_of(issue), issue["fields"]
+    if frm is None:
+        raise FlowError(f"状態の欄が無い（{issue['title']}）")
     key = (frm, to)
     if frm == "②" and to != "②":
         back = state_key(fields.get(BACK))
-        if to not in (BACK, back):
+        if back is None or to not in (BACK, back):
             raise FlowError(f"② の戻り先は {back}（{issue['title']}）")
         to, key = back, ("②", BACK)
-    if key not in TRANSITIONS or to is None:
+    if key not in TRANSITIONS:
         raise FlowError(f"{frm} → {to} は遷移の表に無い（{issue['title']}）")
     if to == "②":
         count = int(fields.get("延ばした回数") or 0) + 1 if frm == "②" else 0
@@ -272,10 +275,11 @@ def admit(place: Place, issue: dict) -> str:
         gh("issue", "edit", str(issue["number"]), "-R", place.repo, "--title", f"{stage}: {issue['title']}")
     place.set(issue, "段", stage)
     prereq = re.search(r"^前提: (T\d+-[A-Z])$", issue["body"] or "", re.M)
-    waiting = prereq and not any(i["title"].startswith(f"{prereq.group(1)}:") and i["state"] == "CLOSED"
-                                 for i in place.issues())
+    waiting = prereq.group(1) if prereq else None
+    if waiting and any(i["title"].startswith(f"{waiting}:") and i["state"] == "CLOSED" for i in place.issues()):
+        waiting = None
     review = (dt.date.today() + dt.timedelta(days=PREREQ_REVIEW_DAYS)).isoformat()
-    hold = {"次に動かす人": "司令塔", "欠けているもの": prereq.group(1), "見直す日": review} if waiting else None
+    hold = {"次に動かす人": "司令塔", "欠けているもの": waiting, "見直す日": review} if waiting else None
     transition(place, issue, "②" if hold else "③", f"承認済み。{stage} を振った", hold)
     return stage
 
@@ -378,7 +382,7 @@ def cmd_land(place: Place, args: argparse.Namespace) -> None:
     print(f"{args.stage}: {sha} を master へ入れた")
 
 
-def cmd_ci(_: Place | None, args: argparse.Namespace) -> None:
+def cmd_ci(args: argparse.Namespace) -> None:
     deadline = time.monotonic() + CI_WAIT_SECONDS
     while True:
         runs = json.loads(gh("run", "list", "--commit", args.sha, "--json", "name,status,conclusion,url"))
@@ -393,7 +397,7 @@ def cmd_ci(_: Place | None, args: argparse.Namespace) -> None:
         raise FlowError("緑でない実行がある（落ちたジョブのログは gh run view <id> --log-failed）")
 
 
-def cmd_setup(_: Place | None, args: argparse.Namespace) -> None:
+def cmd_setup(args: argparse.Namespace) -> None:
     """Project の欄を作る gh のコマンド。欄の名前と選択肢はこのファイルの宣言から出す。"""
     repo, owner = args.repo, args.repo.split("/")[0]
     print(f'gh project create --owner {owner} --title "RideCompass の段"   # 出た番号を N とする')
@@ -462,7 +466,7 @@ def hook_input() -> dict:
     return json.loads(raw) if raw.strip() else {}
 
 
-def cmd_hook_create(_: Place | None, args: argparse.Namespace) -> None:
+def cmd_hook_create(args: argparse.Namespace) -> None:
     """空いたスロットを origin/master に戻して貸し、パスを標準出力に返す。git のロックは既にあれば失敗するので、
     同時に取りに来た2本のうち片方だけが取れる。"""
     # `worktree list --porcelain` は ASCII でない理由を引用符と8進の形に書き換える（`-z` は git 2.36 から）。
@@ -488,7 +492,7 @@ def cmd_hook_create(_: Place | None, args: argparse.Namespace) -> None:
     raise FlowError("空いたスロットが無い" + (f"（{' / '.join(reasons)}）" if reasons else ""))
 
 
-def cmd_hook_remove(_: Place | None, args: argparse.Namespace) -> None:
+def cmd_hook_remove(args: argparse.Namespace) -> None:
     """スロットのディレクトリは消さず、失う作業が無ければ印を外す。"""
     path = hook_input().get("worktree_path")
     if path:
@@ -519,11 +523,13 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     if getattr(args, "stage", None) and not STAGE_RE.match(args.stage):
         parser.error(f"段は T1234-A の形: {args.stage}")
-    handlers = {"propose": cmd_propose, "take": cmd_take, "move": cmd_move, "land": cmd_land, "ci": cmd_ci,
-                "setup": cmd_setup, "hook-create": cmd_hook_create, "hook-remove": cmd_hook_remove}
+    placed = {"propose": cmd_propose, "take": cmd_take, "move": cmd_move, "land": cmd_land}
+    local = {"ci": cmd_ci, "setup": cmd_setup, "hook-create": cmd_hook_create, "hook-remove": cmd_hook_remove}
     try:
-        place = Place() if args.cmd in ("propose", "take", "move", "land") else None
-        handlers[args.cmd](place, args)
+        if args.cmd in placed:
+            placed[args.cmd](Place(), args)
+        else:
+            local[args.cmd](args)
     except FlowError as e:
         print(f"[flow] {e}", file=sys.stderr)
         return 1
@@ -531,6 +537,7 @@ def main(argv: list[str] | None = None) -> int:
 
 
 if __name__ == "__main__":
-    sys.stdout.reconfigure(encoding="utf-8")
-    sys.stderr.reconfigure(encoding="utf-8")
+    for stream in (sys.stdout, sys.stderr):
+        if isinstance(stream, io.TextIOWrapper):
+            stream.reconfigure(encoding="utf-8")
     sys.exit(main())
