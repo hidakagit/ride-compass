@@ -346,19 +346,14 @@ def test_get_axis_catalog_includes_material_breakdown(catalog_axes):
 def test_タイル世代はDBの派生データ世代を前置きして配る():
     """フロントはこの世代でブラウザのキャッシュを分ける。
 
-    世代を読む経路はルート生成の材料取得のため、**カタログ側が自分で読み直しを促さないと**
-    「まだ誰も読んでいない」印（`x-`）のまま配ってしまう（起動直後に取られるのがこの
-    エンドポイントであるため、実際にそうなった）。
+    カタログは起動直後に取られるため、**カタログ側が自分で読み直しを促さないと**
+    「まだ誰も読んでいない」印（`x-`）のまま配ってしまう。
     """
-    from app.services import derived_data_revision_service
-
-    derived_data_revision_service.reset_for_tests()
     app.dependency_overrides[get_region_service] = lambda: RegionService(repository=_CatalogRepository(revision=42))
     try:
         versions = client.get("/api/axis-catalog").json()["tile_versions"]
     finally:
         app.dependency_overrides[get_region_service] = lambda: RegionService(repository=_CatalogRepository())
-        derived_data_revision_service.reset_for_tests()
 
     assert versions, "タイル世代が配られていない"
     for name, version in versions.items():

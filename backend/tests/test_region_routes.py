@@ -476,6 +476,9 @@ def test_region_dedicated_way_values_unknown_axis_id_returns_404():
 class UncoveredRepository:
     """どのタイルも取込範囲外と答えるDBの代役。"""
 
+    async def get_derived_data_revision(self):
+        return 1
+
     async def get_feature_gradient_inputs_in_tile(self, *args, **kwargs):
         inspect.signature(RoadGraphRepository.get_feature_gradient_inputs_in_tile).bind(self, *args, **kwargs)
         return None

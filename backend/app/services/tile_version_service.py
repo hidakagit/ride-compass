@@ -15,8 +15,10 @@
 世代そのものの読み直しは`derived_data_revision_service`が持つ。ここはTTLを持たず、読む前に
 読み直しを促すだけ。
 
-**促さずに読むと`x-`（まだ誰も読んでいない印）を配る。** このカタログは起動直後に取られるため、
-促さない限り誰も読んでいない状態になる。
+**世代を使う経路（カタログ・タイルの配信）はどれも、読む前に自分で促す。** 促す場所を1つに寄せると、
+そこが呼ばれるまで世代が読まれない——起動後にまだ誰もカタログを取っていなければ`x-`（まだ誰も
+読んでいない印）の鍵で配り、タイルはディスクへ残らない。バッチが世代を進めた後も、そこが呼ばれるまで
+古い世代の鍵のまま配り続ける。
 """
 
 from app.infrastructure.accident_repository import ACCIDENT_TILE_SHAPE
@@ -24,13 +26,16 @@ from app.infrastructure.cache_identity import tile_version
 from app.infrastructure.road_graph_repository import POI_TILE_SHAPE, ROAD_SURFACE_TILE_SHAPE
 from app.services import derived_data_revision_service
 
-def served_tile_version(shape: str) -> str:
-    """いま配信している世代（`<DBの世代>-<形の署名>`）。
+async def served_tile_version(repository, shape: str) -> str:
+    """いま配信している世代（`<DBの世代>-<形の署名>`）。TTLが切れていれば世代を読み直してから組む。
 
     **ブラウザのURLへ入る値と、サーバー側のディスクキャッシュの鍵は同じ文字列にする。**
     形の署名だけを鍵にすると、SQLが同じままバッチが中身を作り直したとき（世代だけが動く）
     に鍵が変わらず、古い中身を配り続ける。
+
+    `repository`はDBの世代を読める口（`get_derived_data_revision`）。
     """
+    await derived_data_revision_service.refresh_current_revision(repository)
     return tile_version(derived_data_revision_service.current_revision(), shape)
 
 

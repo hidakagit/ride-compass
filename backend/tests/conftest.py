@@ -24,6 +24,7 @@ from app.infrastructure.road_graph_repository import (
     create_tables,
 )
 from app.config import settings
+from app.services import derived_data_revision_service
 from tests.admin_auth import ADMIN_PASSWORD, ADMIN_USERNAME
 
 
@@ -44,6 +45,15 @@ def _reset_redis_circuit_breaker():
     redis_client.reset_circuit_breaker()
     yield
     redis_client.reset_circuit_breaker()
+
+
+@pytest.fixture(autouse=True)
+def _reset_derived_data_revision():
+    """読んだ派生データの世代とTTLはプロセス内のモジュール変数に残る。前のテストが読んだ世代のまま
+    TTLの内側に入ると、後のテストのリポジトリは世代を聞かれず、鍵もディスクへ残すかも前のテストで決まる。"""
+    derived_data_revision_service.reset_for_tests()
+    yield
+    derived_data_revision_service.reset_for_tests()
 
 
 @pytest.fixture(autouse=True, scope="session")

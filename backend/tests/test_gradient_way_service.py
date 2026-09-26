@@ -4,6 +4,7 @@ import inspect
 
 import pytest
 
+from app.config import settings
 from app.domain.gradient import GradientCalculator
 from app.infrastructure.road_graph_repository import RoadGraphRepository
 from app.services.gradient_way_service import GradientWayService
@@ -22,6 +23,10 @@ class FakeGradientInputsRepository:
         self._inputs = inputs
         self._error = error
         self.calls: list[tuple] = []
+        self.revision = 1
+
+    async def get_derived_data_revision(self):
+        return self.revision
 
     async def get_feature_gradient_inputs_in_tile(self, *args, **kwargs):
         inspect.signature(RoadGraphRepository.get_feature_gradient_inputs_in_tile).bind(self, *args, **kwargs)
@@ -115,6 +120,20 @@ async def test_different_bearing_bucket_recomputes():
 
     assert first != second
     # 値が違うことだけでなく、向きバケットが違えば実際に作り直していることを見る。
+    assert len(repository.calls) == 2
+
+
+async def test_a_new_derived_data_revision_recomputes_without_the_catalog(monkeypatch):
+    """勾配の鍵は派生データの世代を持つ。世代はこの経路が自分で読み直すため、バッチが世代を進めれば、
+    カタログを誰も取らなくてもTTLの後から作り直す（前の世代の値は路面タイルの鍵と一致しない）。"""
+    monkeypatch.setattr(settings, "derived_data_revision_check_interval_seconds", 0.0)
+    repository = FakeGradientInputsRepository(inputs={1: (5.0, 30.0)})
+    service = GradientWayService(repository=repository)
+    await service.get_way_values(Z, X, Y, None, 0.0)
+
+    repository.revision = 2
+    await service.get_way_values(Z, X, Y, None, 0.0)
+
     assert len(repository.calls) == 2
 
 

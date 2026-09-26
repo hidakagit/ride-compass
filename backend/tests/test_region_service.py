@@ -20,13 +20,18 @@ Z, X, Y = 14, 14551, 6447
 
 
 class _TileRepository:
-    """路面・POIのMVTを焼く口だけを持つフェイク。取込範囲外はNone、DB障害は例外。"""
+    """路面・POIのMVTを焼く口と派生データの世代だけを持つフェイク。取込範囲外はNone、DB障害は例外。"""
 
     def __init__(self, tile: bytes | None = None, error: Exception | None = None):
         self._tile = tile
         self._error = error
+        self.tile_calls = 0
+
+    async def get_derived_data_revision(self):
+        return 1
 
     async def _answer(self):
+        self.tile_calls += 1
         if self._error is not None:
             raise self._error
         return self._tile
@@ -61,6 +66,19 @@ async def test_db_error_tile_is_empty_and_browsers_must_not_keep_it(method, empt
     tile = await getattr(service, method)(Z, X, Y)
 
     assert (tile.content, tile.cacheable) == (empty_tile, False)
+
+
+@pytest.mark.parametrize(("method", "empty_tile"), TILE_KINDS)
+async def test_tile_is_kept_on_disk_without_anyone_fetching_the_catalog_first(method, empty_tile):
+    """世代はタイルを配る経路が自分で読む。起動後に誰もカタログを取っていなくても、焼いたタイルは
+    世代付きの鍵でディスクへ残り、同じタイルの2回目はDBへ行かない。"""
+    repository = _TileRepository(tile=b"tile")
+    service = RegionService(repository=repository)
+
+    await getattr(service, method)(Z, X, Y)
+    await getattr(service, method)(Z, X, Y)
+
+    assert repository.tile_calls == 1
 
 
 # --- 区間インスペクタ ---

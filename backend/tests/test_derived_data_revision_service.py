@@ -6,8 +6,10 @@ TTLが切れるまでDBを読み直さないこと、読めないときも前回
 
 import pytest
 
-from app.infrastructure import cache_identity
-from app.services import derived_data_revision_service, region_service, tile_version_service
+from app.config import settings
+from app.infrastructure import cache_identity, tile_cache
+from app.services import derived_data_revision_service, tile_version_service
+from app.services.region_service import RegionService
 
 pytestmark = pytest.mark.asyncio
 
@@ -22,13 +24,6 @@ class FakeRepository:
     async def get_derived_data_revision(self) -> int | None:
         self.calls += 1
         return self.revision
-
-
-@pytest.fixture(autouse=True)
-def _reset():
-    derived_data_revision_service.reset_for_tests()
-    yield
-    derived_data_revision_service.reset_for_tests()
 
 
 async def test_first_call_reads_db_and_records_revision():
@@ -75,17 +70,36 @@ async def test_db_failure_keeps_the_last_revision():
     assert derived_data_revision_service.current_revision() == 7
 
 
-async def test_世代が変わると焼き済みタイルの鍵も変わる():
+class TileRepository(FakeRepository):
+    """世代と路面タイルを返すリポジトリ。タイルを焼いた回数を数える。"""
+
+    def __init__(self, revision: int | None):
+        super().__init__(revision)
+        self.tile_calls = 0
+
+    async def get_road_surface_tile_mvt(self, z, x, y, bbox):
+        self.tile_calls += 1
+        return b"tile"
+
+
+async def test_世代が変わると焼き済みタイルを使わずに焼き直す(tmp_path, monkeypatch):
     """世代の変化はSQLが読むテーブルの中身が作り直されたことを表す。
 
-    **鍵に世代が入っていないと、同じ鍵で古い中身を配り続ける。**
+    **鍵に世代が入っていないと、同じ鍵で古い中身を配り続ける。** 世代を読み直すのはタイルを配る経路
+    自身で、バッチが世代を進めた後は、カタログを誰も取らなくてもTTLの後のタイルから新しい世代で配る。
     """
-    await derived_data_revision_service.refresh_current_revision(FakeRepository(5), force=True)
-    before = region_service._tile_cache_path(12, 5, 6)
-    await derived_data_revision_service.refresh_current_revision(FakeRepository(6), force=True)
-    after = region_service._tile_cache_path(12, 5, 6)
+    monkeypatch.setattr(tile_cache, "CACHE_DIR", tmp_path / "tile_cache")
+    monkeypatch.setattr(settings, "derived_data_revision_check_interval_seconds", 0.0)
+    repository = TileRepository(5)
+    service = RegionService(repository=repository)
+    await service.get_road_surface_tile(12, 5, 6)
+    await service.get_road_surface_tile(12, 5, 6)
+    assert repository.tile_calls == 1, "同じ世代のタイルを焼き直している"
 
-    assert before != after, "世代が変わったのに焼き済みタイルの鍵が同じ"
+    repository.revision = 6
+    await service.get_road_surface_tile(12, 5, 6)
+
+    assert repository.tile_calls == 2, "世代が変わったのに焼き済みタイルを配った"
 
 
 async def test_配信するタイル世代は読んだ世代を前置きする():
