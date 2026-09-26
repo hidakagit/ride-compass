@@ -46,18 +46,16 @@ class OsmWayRows:
 
     #: 採るwayの条件。どれか1つに合えば採る。1つの条件はタグ名→許容値（`*`は値を問わない）のAND。
     any_of: list[dict[str, Any]] = field(default_factory=list)
-    #: 読むPBF（`data/pbf/`の下）。省略すると関東の抽出。
-    file: str | None = None
+    #: 読むPBF（`data/pbf/`の下）。
+    file: str = "kanto-latest.osm.pbf"
 
 
 @dataclass(frozen=True)
 class OsmNodeRows:
     """`osm_pbf_node`の`rows`。"""
 
-    #: 頂点を採るwayのソース。そのソースの条件とPBFを受け継ぐ。省略すると全wayの頂点。
-    referenced_by: str | None = None
-    #: 読むPBF。`referenced_by`があればそちらのものを使う。
-    file: str | None = None
+    #: 頂点を採るwayのソース。そのソースの条件とPBFを受け継ぐ。
+    referenced_by: str
 
 
 def _matches(tags: dict[str, str], rule: dict[str, Any]) -> bool:
@@ -84,12 +82,12 @@ def _way_matcher(rows: OsmWayRows):
     return matches
 
 
-def _pbf_path(spec: SourceSpec) -> Path:
+def _pbf_path(rows: OsmWayRows) -> Path:
     """PBFの場所。**pyosmiumへ渡すのは、可能なら現在位置からの相対パス**。
 
     非ASCIIを含む絶対パスを渡すとpyosmiumがファイルを開けない。
     """
-    path = DATA_DIR / (spec.rows.file or "kanto-latest.osm.pbf")
+    path = DATA_DIR / rows.file
     if not path.exists():
         raise FileNotFoundError(f"PBFがありません: {path}")
     try:
@@ -173,7 +171,7 @@ async def read_osm_ways(spec: SourceSpec, profile: SourceProfile,
                         origin: dict[str, Any]) -> AsyncIterator[SourceRecord]:
     from app.batch.pbf_source import stream_ways
 
-    path = _pbf_path(spec)
+    path = _pbf_path(spec.rows)
     origin.update(_pbf_origin(path))
     matches = _way_matcher(spec.rows)
     bbox = profile.target.bbox
@@ -226,11 +224,14 @@ async def read_osm_nodes(spec: SourceSpec, profile: SourceProfile,
     referenced_by = spec.rows.referenced_by
     # 参照先からは**どのwayを採るかと、どのファイルから採るか**の両方を受け継ぐ。
     # 片方だけ受け継ぐと、既定以外のPBFを指したプロファイルで頂点だけ別のファイルを読む。
-    source_spec = profile.source(referenced_by) if referenced_by else spec
-    path = _pbf_path(source_spec)
+    way_rows = profile.source(referenced_by).rows
+    if not isinstance(way_rows, OsmWayRows):
+        raise ValueError(f"{spec.name} の rows.referenced_by は osm_pbf_way のソースを指してください"
+                         f"（指しているもの: {referenced_by}）")
+    path = _pbf_path(way_rows)
     origin.update(_pbf_origin(path))
-    matches = _way_matcher(source_spec.rows) if referenced_by else (lambda _: True)
-    logger.info("OSM node: %s（%s の頂点）", path.name, referenced_by or "全way")
+    matches = _way_matcher(way_rows)
+    logger.info("OSM node: %s（%s の頂点）", path.name, referenced_by)
 
     def work(handoff: _Handoff) -> None:
         # PBFはノードがwayより先に来るため、wayを処理する時点でタグは揃っている。

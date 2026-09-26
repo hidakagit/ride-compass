@@ -27,8 +27,6 @@ class LulcGrid:
     """`io_lulc_tile`の`grid`。"""
 
     zoom: int
-    product: str = "io-lulc"
-    year: int | None = None
 
 
 @register_adapter("io_lulc_tile", grid=LulcGrid)
@@ -43,9 +41,7 @@ async def read_lulc_tiles(spec: SourceSpec, profile: SourceProfile,
             "土地被覆のGeoTIFFが設定されていません（settings.lulc_raster_paths）")
 
     zoom = int(spec.grid.zoom)
-    product = str(spec.grid.product)
-    year = spec.grid.year
-    origin.update({"product": product, "year": year, "zoom": zoom,
+    origin.update({"zoom": zoom,
                    "rasters": [file_origin(Path(raster)) for raster in opened_raster_paths()]})
     min_lat, min_lon, max_lat, max_lon = profile.target.bbox
     tiles = tiles_covering_bbox(
@@ -53,7 +49,7 @@ async def read_lulc_tiles(spec: SourceSpec, profile: SourceProfile,
                     max_latitude=max_lat, max_longitude=max_lon),
         zoom,
     )
-    logger.info("土地被覆タイル: product=%s zoom=%d 対象%d枚", product, zoom, len(tiles))
+    logger.info("土地被覆タイル: zoom=%d 対象%d枚", zoom, len(tiles))
 
     uncovered = 0
     for x, y in tiles:
@@ -62,11 +58,11 @@ async def read_lulc_tiles(spec: SourceSpec, profile: SourceProfile,
             uncovered += 1
             continue
         yield SourceRecord(
-            natural_key=f"{product}/{year}/{zoom}/{x}/{y}",
+            natural_key=f"{zoom}/{x}/{y}",
             geom_wkb=tile_bbox_wkb(zoom, x, y),
             # 型・欠測値・位置はrasterの値自身が持つため書かない。幅は画素の番地を
             # 出すのに要る（rasterから読むと画素が実体化される）。
-            attrs={"product": product, "year": year, "z": zoom, "x": x, "y": y,
+            attrs={"z": zoom, "x": x, "y": y,
                    "width": _TILE_SIZE},
             rast=tile_raster_wkb(
                 classes.tobytes(), zoom=zoom, x=x, y=y,
