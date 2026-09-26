@@ -1,0 +1,19 @@
+# Layer contract of backend/app. What each layer owns and why the order is this one:
+# docs/architecture/directory-layout.md "backend". Keep this file ASCII only
+# (import-linter reads it with the OS default encoding, cp932 on Japanese Windows).
+[importlinter]
+root_package = app
+
+[importlinter:contract:layers]
+name = backend layers (docs/architecture/directory-layout.md)
+type = layers
+containers =
+    app
+layers =
+    main
+    api
+    services | batch
+    infrastructure
+    config | version
+    domain
+exhaustive = true
