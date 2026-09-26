@@ -13,9 +13,7 @@
 （`app`パッケージのある場所）を環境変数から受け取る。コンテナ実行の場合は
 `app.config.settings.database_url`をそのまま使えばよい。
 
-接続情報は`backend/.env.oracle.local`（リポジトリに入れないため各自が置く）の
-`DATABASE_URL`と`SSH_COMMAND`から読む。worktreeから実行したときは本体のチェックアウト側を
-見る——gitignore対象のファイルはworktreeへコピーされないため。
+接続情報は`backend/.env.oracle.local`の`DATABASE_URL`と`SSH_COMMAND`から読む（在処の探し方は`_prod_env.py`）。
 """
 
 import argparse
@@ -24,46 +22,16 @@ import pathlib
 import subprocess
 import sys
 
-from dotenv import dotenv_values
+from _prod_env import read_prod_env
 
 _BACKEND_DIR = pathlib.Path(__file__).resolve().parent.parent
 _CONTAINER = "ridecompass-backend"
 
 
-def _env_file() -> pathlib.Path:
-    """`.env.oracle.local`の在処。worktreeに無ければ本体のチェックアウトを見る。"""
-    here = _BACKEND_DIR / ".env.oracle.local"
-    if here.exists():
-        return here
-    result = subprocess.run(
-        ["git", "rev-parse", "--git-common-dir"],
-        cwd=_BACKEND_DIR, capture_output=True, check=False,
-    )
-    # 出力はパスのみ。環境の既定エンコーディングに左右されないようbytesで受ける
-    # （日本語を含むパスでcp932のdecodeに失敗する）。
-    common = result.stdout.decode("utf-8", "replace").strip()
-    if common:
-        main_checkout = (_BACKEND_DIR / common).resolve().parent
-        candidate = main_checkout / "backend" / ".env.oracle.local"
-        if candidate.exists():
-            return candidate
-    return here
-
-
-def _read_env(key: str) -> str:
-    path = _env_file()
-    if not path.exists():
-        raise SystemExit(f"{path} がない。本番への接続情報が要る")
-    value = dotenv_values(path, encoding="utf-8").get(key)
-    if not value:
-        raise SystemExit(f"{path} に {key} が無い")
-    return value
-
-
 def _run_locally(probe: pathlib.Path) -> int:
     env = {
         **os.environ,
-        "PROBE_DATABASE_URL": _read_env("DATABASE_URL"),
+        "PROBE_DATABASE_URL": read_prod_env("DATABASE_URL"),
         "BACKEND_DIR": str(_BACKEND_DIR),
         "PYTHONIOENCODING": "utf-8",
     }
@@ -72,7 +40,7 @@ def _run_locally(probe: pathlib.Path) -> int:
 
 def _run_in_container(probe: pathlib.Path) -> int:
     """プローブの本文を標準入力でコンテナ内のPythonへ流す（VMにもコンテナにもファイルを残さない）。"""
-    ssh = _read_env("SSH_COMMAND").split()
+    ssh = read_prod_env("SSH_COMMAND").split()
     remote = f"sudo docker exec -i -w /app -e PYTHONPATH=/app {_CONTAINER} python -"
     with probe.open("rb") as source:
         return subprocess.call([*ssh, remote], stdin=source)

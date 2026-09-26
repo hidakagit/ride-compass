@@ -1,0 +1,33 @@
+{
+  "axis_id": "surface_q",
+  "shape": {
+    "kind": "categorical",
+    "material": "surface_estimate",
+    "mapping": {
+      "paved": 0.0,
+      "compacted": 40.0,
+      "gravel": 80.0,
+      "soil": 100.0,
+      "cobblestone": 60.0,
+      "unknown_track": 40.0,
+      "unknown_road": 0.0
+    }
+  },
+  "default_weight": 0.0,
+  "label": "舗装質",
+  "description": "舗装路であるほど易しい",
+  "category": "観測",
+  "is_published": true,
+  "priority_overrides": [],
+  "icon_id": "wave",
+  "chip_label": "舗装",
+  "panel_hint": null,
+  "show_map_icon": true,
+  "time_scope": "always",
+  "display_thresholds_override": null,
+  "display_band_labels_override": null,
+  "dedicated_way_value_layer": false,
+  "dynamic_way_value_needs_time": false,
+  "dynamic_way_value_needs_bearing": false,
+  "dynamic_way_value_needs_speed": false
+}
