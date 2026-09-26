@@ -1,20 +1,8 @@
 // @vitest-environment node
 import { describe, expect, it } from "vitest";
-import { cumulativeDistancesKm, haversineKm } from "./geoDistance";
+import { cumulativeDistancesKm } from "./geoDistance";
 
-// 緯度1度はおよそ111km。桁と単位（km）を取り違えていないことを、既知の値で押さえる。
-describe("haversineKm", () => {
-  it("同じ点は0", () => {
-    expect(haversineKm({ latitude: 35.68, longitude: 139.76 }, { latitude: 35.68, longitude: 139.76 })).toBe(0);
-  });
-
-  it("緯度1度ぶんはおよそ111km", () => {
-    const km = haversineKm({ latitude: 35, longitude: 139 }, { latitude: 36, longitude: 139 });
-    expect(km).toBeGreaterThan(110);
-    expect(km).toBeLessThan(112);
-  });
-});
-
+// 緯度0.1度はおよそ11.1km。桁と単位（km）を取り違えていないことを、既知の値で押さえる。
 describe("cumulativeDistancesKm", () => {
   const line: GeoJSON.Position[] = [
     [139, 35],

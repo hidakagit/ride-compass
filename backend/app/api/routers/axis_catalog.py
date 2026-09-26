@@ -48,6 +48,7 @@ from app.domain.axis_raw_value import (
 from app.domain.dynamic_way_values import (
     MapValueKind,
     map_value_kind,
+    map_value_material,
     map_value_thresholds,
     map_value_unit,
 )
@@ -157,6 +158,8 @@ class AxisCatalogEntry(StrictModel):
     # map_value_unit）。ルート確定前の専用way値配信・ルート確定後のルート線色分けの両方が
     # これに従う。
     map_value_kind: MapValueKind
+    # `signed_material`のとき生値を塗る材料のid（それ以外はnull）。画面は軸の形から読み直さない。
+    map_value_material: str | None
     map_value_unit: str
     # 上の`map_value_kind`が示すスケールでの段階境界（domain/dynamic_way_values.py:
     # map_value_thresholds）。地図の色分けはルート前後ともこれを使う——
@@ -254,6 +257,7 @@ async def get_axis_catalog(region_service: RegionService = Depends(get_region_se
                 display_band_labels_override=map_band_labels(definition),
                 dedicated_way_value_layer=definition.dedicated_way_value_layer,
                 map_value_kind=map_value_kind(definition),
+                map_value_material=map_value_material(definition),
                 map_value_unit=map_value_unit(definition),
                 map_value_thresholds=map_value_thresholds(definition),
                 raw_value_unit=raw_value_unit(definition),

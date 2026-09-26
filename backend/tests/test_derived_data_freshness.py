@@ -196,6 +196,22 @@ def test_レポートは母数と欠けをそのまま渡す():
         "osm_way", 12029, 3)
 
 
+@pytest.mark.parametrize(("table", "expected"), [
+    (_table(2, 2), False),
+    (_table(1, 2), True),   # 取込より古い
+    (replace(_table(2, 2), coverage=Coverage(parent="osm_way", parent_row_count=10, missing_rows=1)), True),
+    (replace(_table(2, 2), columns=(ColumnCompleteness(column="c", null_count=3, counts_as_uncalculated=True),)),
+     True),                 # 値の列に未計算が残る
+    (replace(_table(2, 2), columns=(ColumnCompleteness(column="c", null_count=3, counts_as_uncalculated=False),)),
+     False),                # 確定した値なしは作り直しでは埋まらない
+], ids=["最新", "古い", "行が欠ける", "未計算", "確定した値なし"])
+def test_作り直しが要るかはレポートが決める(table, expected):
+    entry = build_freshness_report(DerivedDataFreshness(tables=(table,)),
+                                   datetime(2026, 1, 1, tzinfo=timezone.utc)).tables[0]
+
+    assert entry.needs_rebuild is expected
+
+
 def test_覆わない表はNoneのまま渡る():
     entry = build_freshness_report(
         DerivedDataFreshness(tables=(_table(1, 1),)),

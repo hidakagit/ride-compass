@@ -312,6 +312,8 @@ import済みの参照が古い辞書を指したままになる）。書き込�
 
 `generate_loops`の折返し点選定・距離フィルタとは独立した経路生成。
 `destination`省略時は起点に戻る周回（常に1件）。
+距離（`distance_km`）はここでは探索の範囲で、要求の検証（`api/routers/routes.py: RouteGenerateRequest._resolve_distance`）が
+置いた点のうち最も遠いものより必ず長く決める——画面は送らず、送られても使わない。
 
 `destination`指定時は、経由地の有無で分岐する:
 

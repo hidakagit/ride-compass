@@ -40,6 +40,8 @@ class TableEntry:
     #: 親にあって行が無い件数。覆うはずの表で1件でもあれば作り直しが要る。
     missing_rows: int | None
     columns: list[ColumnEntry]
+    #: 作り直しが要る（取込より古い・値の列に未計算が残る・親に対して行が欠ける のどれか）。
+    needs_rebuild: bool
 
 
 @dataclass(frozen=True)
@@ -73,6 +75,11 @@ def build_freshness_report(
                     )
                     for column in table.columns
                 ],
+                needs_rebuild=(
+                    table.is_stale
+                    or table.has_missing_rows
+                    or any(column.counts_as_uncalculated and column.null_count > 0 for column in table.columns)
+                ),
             )
             for table in freshness.tables
         ],

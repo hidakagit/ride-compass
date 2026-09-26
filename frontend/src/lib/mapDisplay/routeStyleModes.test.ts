@@ -9,13 +9,7 @@ import { catalogEntry } from "@/lib/mapDisplay/__fixtures__/catalogAxes";
 const signedAxis = catalogEntry({
   map_value_kind: "signed_material",
   map_value_thresholds: [-8, -4, 4, 8],
-  // 符号付きで読む材料は`shape.terms[0]`が決める（この宣言が経路の分岐そのもの）。
-  shape: {
-    kind: "breakpoint_linear",
-    terms: [{ material: "signed_value", weight: 1, required: true }],
-    preprocess: "identity",
-    breakpoints: [],
-  },
+  map_value_material: "signed_value",
 });
 const difficultyAxis = catalogEntry({ map_value_kind: "difficulty" });
 const categoricalAxis = catalogEntry({

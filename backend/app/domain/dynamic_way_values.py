@@ -146,13 +146,18 @@ def map_value_thresholds(definition: AxisDefinition) -> list[float] | None:
     ]
 
 
+def map_value_material(definition: AxisDefinition) -> str | None:
+    """`signed_material`の軸が生値を塗る材料のid。難易度を塗る軸はNone。"""
+    if map_value_kind(definition) != "signed_material":
+        return None
+    # `signed_material`は折れ線の軸にしか付かない。
+    return cast(BreakpointLinearShape, definition.shape).terms[0].material
+
+
 def map_value_unit(definition: AxisDefinition) -> str:
     """地図の凡例に添える単位。難易度は無次元（空文字）、符号付き材料は材料カタログの単位。"""
-    if map_value_kind(definition) != "signed_material":
-        return ""
-    shape = definition.shape
-    assert isinstance(shape, BreakpointLinearShape)
-    return MATERIAL_CATALOG[shape.terms[0].material].unit
+    material = map_value_material(definition)
+    return "" if material is None else MATERIAL_CATALOG[material].unit
 
 
 def transform_dedicated_way_values(

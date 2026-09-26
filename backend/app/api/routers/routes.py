@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import math
 from datetime import datetime
 from typing import Literal
 
@@ -150,7 +151,9 @@ MAX_SPLICED_EDGES = 5000
 class RouteGenerateRequest(StrictModel):
     latitude: float = Field(ge=-90, le=90)
     longitude: float = Field(ge=-180, le=180)
-    distance_km: float = Field(gt=0, le=MAX_ROUTE_DISTANCE_KM)
+    # 周回の目標距離。経由地・目的地を置いたときは探索の範囲になり、置いた点からbackendが決める
+    # （`_resolve_distance`。送られた値は使わない）ため省略できる。
+    distance_km: float | None = Field(default=None, gt=0, le=MAX_ROUTE_DISTANCE_KM)
     distance_tolerance_km: float = Field(gt=0, le=50, default=DEFAULT_DISTANCE_TOLERANCE_KM)
     route_type: Literal["loop"] = "loop"
     # 評価重みのリクエスト単位の上書き（研究用）。省略時はAXIS_DEFINITIONS由来の既定値
@@ -210,15 +213,27 @@ class RouteGenerateRequest(StrictModel):
         return self
 
     @model_validator(mode="after")
-    def _check_waypoints_within_range(self) -> "RouteGenerateRequest":
+    def _resolve_distance(self) -> "RouteGenerateRequest":
+        # 経由地・目的地を置いたときの距離は探索の範囲と「点が遠すぎないか」の検査に使う値で、最も遠い点より
+        # 必ず長くする。周回では距離が目標そのものなので送られた値が要る。
         points = [*(self.waypoints or []), *([self.destination] if self.destination else [])]
         if not points:
+            if self.distance_km is None:
+                raise ValueError("distance_km is required without waypoints/destination")
             return self
         origin = Coordinates(latitude=self.latitude, longitude=self.longitude)
-        for point in points:
-            if haversine_distance_km(origin, point) > self.distance_km:
-                raise ValueError("waypoints/destination must be within distance_km of the origin")
+        farthest_km = max(haversine_distance_km(origin, point) for point in points)
+        if farthest_km > MAX_ROUTE_DISTANCE_KM:
+            raise ValueError("waypoints/destination must be within the maximum distance of the origin")
+        self.distance_km = min(MAX_ROUTE_DISTANCE_KM, math.ceil(farthest_km) + 1)
         return self
+
+    @property
+    def resolved_distance_km(self) -> float:
+        """`_resolve_distance`を通った距離（周回は目標距離、経由地・目的地は探索の範囲）。"""
+        if self.distance_km is None:
+            raise RoutingError("distance_km was not resolved")
+        return self.distance_km
 
 
 def _resolve_start_time(value: datetime | None) -> datetime:
@@ -378,7 +393,7 @@ async def _run_generate_job(job_id: str, request: RouteGenerateRequest) -> None:
                 candidates = await setup.generator.generate_spliced_route(
                     origin=origin,
                     destination=request.destination,
-                    distance_km=request.distance_km,
+                    distance_km=request.resolved_distance_km,
                     edge_ids=request.spliced_edge_ids,
                     start_time=start_time,
                 )
@@ -386,7 +401,7 @@ async def _run_generate_job(job_id: str, request: RouteGenerateRequest) -> None:
                 candidates = await setup.generator.generate_via_waypoints(
                     origin=origin,
                     waypoints=request.waypoints or [],
-                    distance_km=request.distance_km,
+                    distance_km=request.resolved_distance_km,
                     destination=request.destination,
                     max_routes=max_routes,
                     start_time=start_time,
@@ -394,7 +409,7 @@ async def _run_generate_job(job_id: str, request: RouteGenerateRequest) -> None:
             else:
                 candidates = await setup.generator.generate_loops(
                     origin=origin,
-                    distance_km=request.distance_km,
+                    distance_km=request.resolved_distance_km,
                     distance_tolerance_km=request.distance_tolerance_km,
                     max_routes=max_routes,
                     start_time=start_time,
@@ -405,7 +420,7 @@ async def _run_generate_job(job_id: str, request: RouteGenerateRequest) -> None:
                 conditions=GenerationConditions(
                     latitude=request.latitude,
                     longitude=request.longitude,
-                    distance_km=request.distance_km,
+                    distance_km=request.resolved_distance_km,
                     distance_tolerance_km=request.distance_tolerance_km,
                     route_preference=RoutePreferenceWeights(setup.route_preference.weights),
                     penalty_strength=setup.penalty_strength,
