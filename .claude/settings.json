@@ -41,7 +41,7 @@
           {
             "type": "command",
             "timeout": 1800,
-            "command": "python \"$CLAUDE_PROJECT_DIR/scripts/orchestrate.py\" slot hook-create"
+            "command": "d=$(git -C \"$CLAUDE_PROJECT_DIR\" rev-parse --path-format=absolute --git-common-dir)/orchestration && mkdir -p \"$d\" && f=\"$d/launch-$$.py\" && git -C \"$CLAUDE_PROJECT_DIR\" show origin/master:scripts/orchestration/launch.py > \"$f\" && python \"$f\" --project \"$CLAUDE_PROJECT_DIR\" slot hook-create; r=$?; rm -f \"$f\"; exit $r"
           }
         ]
       }
@@ -52,7 +52,7 @@
           {
             "type": "command",
             "timeout": 60,
-            "command": "python \"$CLAUDE_PROJECT_DIR/scripts/orchestrate.py\" slot hook-remove"
+            "command": "d=$(git -C \"$CLAUDE_PROJECT_DIR\" rev-parse --path-format=absolute --git-common-dir)/orchestration && mkdir -p \"$d\" && f=\"$d/launch-$$.py\" && git -C \"$CLAUDE_PROJECT_DIR\" show origin/master:scripts/orchestration/launch.py > \"$f\" && python \"$f\" --project \"$CLAUDE_PROJECT_DIR\" slot hook-remove; r=$?; rm -f \"$f\"; exit $r"
           }
         ]
       }
