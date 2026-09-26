@@ -1,6 +1,7 @@
 # PostToolUseのフック（.claude/settings.json）から`.`で読み込む。司令塔のセッション（`coordinator_session`）で、
 # 次の確認の時刻（`next_check`）を過ぎたときだけ`scripts/orchestrate.py check --if-due`を起こす。
-# `board claim`の呼び出しのときは、そのセッションを司令塔として記録させる。起こすかどうかの判定はここだけが持つ。
+# `board claim`が置いた`claim_pending`があるときも起こす（司令塔の記録と、記録できなかったことの知らせ）。
+# 起こすかどうかの判定はここだけが持つ。
 #
 # 道具を使うたびに全セッション（サブエージェントの呼び出しを含む）で走るため、何もしないときはプロセスを
 # 1つも起こさずに抜ける（シェルの組み込みだけを使う。この開発機ではpythonの起動だけで1秒かかる）。
@@ -18,7 +19,8 @@ while IFS= read -r orch_line; do
 done
 hook_input="$hook_input$orch_line"
 
-# orch_restをJSONのキーの直後に置いて呼ぶ。その値が文字列ならorch_valueへ入れる（`\"`は値の終わりとみなす）。
+# orch_restをJSONのキーの直後に置いて呼ぶ。その値が文字列ならorch_valueへ入れる（`\"`は値の終わりとみなすので、
+# エスケープを含みうる値——道具に渡したコマンド等——は読まない）。
 orch_string_value() {
     orch_value=$orch_rest
     while case "$orch_value" in [[:space:]]*) true ;; *) false ;; esac; do orch_value=${orch_value#?}; done
@@ -56,24 +58,12 @@ orch_run() {
     exit 0
 }
 # 担当（サブエージェント）の呼び出しは司令塔と同じsession_idを持つので、入力の`agent_id`（サブエージェントの
-# 呼び出しにだけ付く）で最初に外す。司令塔の記録は、シェルの道具（Bash・PowerShell）に渡したコマンド（`tool_input.command`）が
-# `board claim`のときだけ——入力全体で探すと、そのコマンドの文を含むファイルや出力を読んだ呼び出しでも走る。
+# 呼び出しにだけ付く）で最初に外す。
 case "$hook_input" in *'"agent_id"'*) exit 0 ;; esac
+# `board claim`は`claim_pending`を置いて終わる。置かれていれば、入力をJSONとして読むpythonの側が、この呼び出しが
+# `board claim`なら司令塔として記録し、違えば記録できなかったことを知らせる（どちらでも消す）。
+[ -f "$orch_dir/claim_pending" ] && orch_run
 orch_head=${hook_input%%'"tool_response"'*}
-case "$orch_head" in
-    *'"tool_name"'*'"command"'*)
-        orch_rest=${orch_head#*'"tool_name"'}
-        orch_string_value || orch_value=
-        case "$orch_value" in
-            Bash | PowerShell)
-                orch_rest=${orch_head#*'"command"'}
-                if orch_string_value; then
-                    case "$orch_value" in *orchestrate.py[[:space:]]board[[:space:]]claim*) orch_run ;; esac
-                fi
-                ;;
-        esac
-        ;;
-esac
 [ -f "$orch_dir/coordinator_session" ] || exit 0
 IFS= read -r orch_session < "$orch_dir/coordinator_session"
 orch_session=${orch_session%%[!0-9A-Za-z_-]*}

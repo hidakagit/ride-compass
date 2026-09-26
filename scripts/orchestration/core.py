@@ -77,7 +77,8 @@
 `--dir`（または環境変数`ORCH_DIR`）でorchestrationディレクトリを差し替えると、ロックの記録も
 その隣の`lockrun/`を読む——試験で実物の表を壊さないため。`--repo`は調べるgitリポジトリ。
 定期確認の間隔は表の`check_interval_min`（既定20分）で、次の確認の時刻をフックが読む`next_check`へ、
-司令塔のセッションをフックが読む`coordinator_session`へ、同じディレクトリに置く。
+司令塔のセッションをフックが読む`coordinator_session`へ、`board claim`の頼み（直後のフックが記録して消す）を
+`claim_pending`へ、同じディレクトリに置く。
 
 ## 軽さ
 
@@ -1353,18 +1354,39 @@ def write_next_check(orch_dir: Path, board: dict) -> None:
 
 
 def check_if_due(args: argparse.Namespace) -> int:
-    """PostToolUseのフックの入口。司令塔のセッションか・確認の時刻を過ぎたかはフック（hook.sh）が判定済みで、
-    ここは司令塔の記録（`board claim`の直後）か、確認を走らせて結果を文脈へ返すだけ。"""
+    """PostToolUseのフックの入口。フック（hook.sh）が、`claim_pending`があるか、司令塔のセッションで確認の時刻を
+    過ぎたときに呼ぶ。ここは司令塔の記録（`board claim`の呼び出し）と、記録できなかったことの知らせと、確認を
+    走らせて結果を文脈へ返すことだけを持つ。"""
     try:
         hook = json.load(sys.stdin) if not sys.stdin.isatty() else {}
     except ValueError:
         hook = {}
     ctx = Context(Path(args.repo), args.dir)
     session = hook.get("session_id")
-    if session and "orchestrate.py board claim" in str((hook.get("tool_input") or {}).get("command", "")):
-        (ctx.dir / "coordinator_session").write_text(f"{session}\n", encoding="utf-8", newline="\n")
+    coordinator = ctx.dir / "coordinator_session"
+    pending = ctx.dir / "claim_pending"
+    command = str((hook.get("tool_input") or {}).get("command", ""))
+    if (session and hook.get("tool_name") in ("Bash", "PowerShell")
+            and re.search(r"orchestrate\.py\s+board\s+claim\b", command)):
+        # 書けたあとで消す。書けずに落ちたら`claim_pending`が残り、次の呼び出しが記録されていないことを知らせる。
+        coordinator.write_text(f"{session}\n", encoding="utf-8", newline="\n")
+        pending.unlink(missing_ok=True)
         hook_context("このセッションを司令塔として記録した（定期確認はこのセッションで走る）")
         return 0
+    try:
+        pending.unlink()
+    except FileNotFoundError:
+        pass
+    else:
+        # `board claim`の呼び出しのPostToolUseは走らなかった: 公式にPostToolUseは成功した道具の呼び出しの後にだけ走るので、
+        # claimを含むコマンドが0以外で終わると走らない。サブエージェントの中からの呼び出しもフックが外す。
+        hook_context("`board claim`が司令塔として記録されていない（coordinator_sessionは"
+                     f"{read_first_line(coordinator) or '無し'}のまま。定期確認は走らない）。"
+                     "`python scripts/orchestrate.py board claim`を単独のコマンドとして司令塔のセッションで実行し直す"
+                     "（claimを含むコマンドが0以外で終わると、直後のフックが走らない）")
+        return 0
+    if session != read_first_line(coordinator):
+        return 0  # `claim_pending`を見て起こされたが、先に別の呼び出しが消した（司令塔でないセッション）
     # 同時に走った別の道具の呼び出しが重ねて確認しないよう、確認の前に次の時刻を書く。
     write_next_check(ctx.dir, load_board(ctx))
     r = subprocess.run([sys.executable, str(ENTRY), "--repo", args.repo,
@@ -1373,6 +1395,13 @@ def check_if_due(args: argparse.Namespace) -> int:
     text = (r.stdout + r.stderr).decode("utf-8", errors="replace").strip()
     hook_context(f"[定期確認 orchestrate.py check]\n{text}")
     return 0
+
+
+def read_first_line(path: Path) -> str:
+    try:
+        return path.read_text(encoding="utf-8").splitlines()[0].strip()
+    except (OSError, IndexError):
+        return ""
 
 
 def hook_context(text: str) -> None:
@@ -1716,9 +1745,12 @@ def cmd_board(ctx: Context, args: argparse.Namespace) -> int:
         print(json.dumps({k: v for k, v in board.items() if k not in ("agents", "run")}, ensure_ascii=False, indent=1))
         return 0
     if args.board_cmd == "claim":
-        # セッションの識別子は道具の側からは見えない。直後のPostToolUseのフック（check --if-due）が、
-        # この呼び出しのコマンド文字列を見て、自分のsession_idを司令塔として記録する。
-        print("このセッションを司令塔として記録する（直後のフックが記録し、文脈へ知らせる）")
+        # セッションの識別子は道具の側からは見えない。`claim_pending`を見て起きた直後のPostToolUseのフック
+        # （check --if-due）が、この呼び出しのコマンド文字列を見て、自分のsession_idを司令塔として記録する。
+        ctx.dir.mkdir(parents=True, exist_ok=True)
+        (ctx.dir / "claim_pending").write_text(f"{iso(at)}\n", encoding="utf-8", newline="\n")
+        print("このセッションを司令塔として記録するよう頼んだ。直後のフックが記録すると「記録した」と文脈へ知らせ、"
+              "記録できなければ次の道具の呼び出しで「記録されていない」と知らせる")
         return 0
     if args.board_cmd == "show":
         print(json.dumps(board, ensure_ascii=False, indent=1))
