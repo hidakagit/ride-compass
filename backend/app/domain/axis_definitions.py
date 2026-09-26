@@ -118,7 +118,8 @@ class BreakpointLinearShape(StrictModel):
 _FLAG_KEYS = {"true": True, "false": False}
 
 
-def _flag_or_value_name(key: object) -> object:
+def flag_or_value_name(key: object) -> object:
+    """材料の値を書いた文字列の読み方。対応表のキーと0次条件の`equals`が同じ読み方をする。"""
     return _FLAG_KEYS.get(key, key) if isinstance(key, str) else key
 
 
@@ -140,7 +141,7 @@ class CategoricalShape(StrictModel):
     material: str = Field(min_length=1)
     # 空の対応表はどの値も引けず、その軸を全区間で恒久的に欠損にする（`evaluate_categorical`
     # は未登録の値へNone/NaNを返すだけで、エラーもログも出さない）。登録時点で弾く。
-    mapping: dict[Annotated[StrictBool | StrictStr, BeforeValidator(_flag_or_value_name)], float] = Field(
+    mapping: dict[Annotated[StrictBool | StrictStr, BeforeValidator(flag_or_value_name)], float] = Field(
         min_length=1
     )
 
@@ -758,16 +759,16 @@ def time_scoped_weights(weights: Mapping[str, float], active_scopes: frozenset[s
     return {**weights, **overrides}
 
 
-def _priority_override_matches_scalar(value: object, equals: str) -> bool:
-    """スカラー材料値がPriorityCondition.equals（str固定）と一致するか判定する。
+def _priority_override_mask(values: np.ndarray, equals: str) -> np.ndarray:
+    """0次条件が材料の値のどの要素に当たるか。**一致の判定はここだけが持つ**——スカラー版は
+    長さ1の配列にして呼ぶ。
 
-    bool材料（`materials`に生のPython bool値がそのまま入る、例: motor_vehicle_no）は
-    `True == "True"`が常にFalseになるため、"true"/"false"（大文字小文字を無視）の
-    文字列表現へ正規化して比較する。categorical材料（str値）はそのまま比較する。
+    `equals`は`CategoricalShape.mapping`のキーと同じ読み方をする（"true"/"false"だけを真偽へ読み、
+    それ以外は書いたとおりの値の名前）。真偽の材料は、欠損を持たないものは真偽の配列、「不明」を
+    持つものは1.0/0.0/NaNの数値の配列で届く（`material_catalog.material_array_group`）が、
+    どちらも真偽との`==`で同じ答えになる。欠損（None・NaN）はどの`equals`にも当たらない。
     """
-    if isinstance(value, bool):
-        return equals.strip().lower() == str(value).lower()
-    return value == equals
+    return np.asarray(values == flag_or_value_name(equals), dtype=bool)
 
 
 def evaluate_axis_scalar(definition: AxisDefinition, materials: Mapping[str, object]) -> float | None:
@@ -783,7 +784,7 @@ def evaluate_axis_scalar(definition: AxisDefinition, materials: Mapping[str, obj
     この機構は使わない）。
     """
     for override in definition.priority_overrides:
-        if _priority_override_matches_scalar(materials.get(override.material), override.equals):
+        if _priority_override_mask(np.array([materials.get(override.material)]), override.equals)[0]:
             return override.value
     shape = definition.shape
     if isinstance(shape, BreakpointLinearShape):
@@ -920,10 +921,6 @@ def evaluate_axis_array(definition: AxisDefinition, materials: Mapping[str, np.n
         # bool材料をfloatキーへ変換する特別扱いは不要だった。
         result = evaluate_categorical(materials[shape.material], shape.mapping)
     for override in reversed(definition.priority_overrides):
-        values = materials[override.material]
-        # bool配列（フラグ材料、例: motor_vehicle_no）は"true"/"false"の文字列表現へ
-        # 正規化して比較する（スカラー版_priority_override_matches_scalarと同じ理由:
-        # bool配列とstr型のequalsをそのまま==比較すると常にFalseになる）。
-        mask = values == (override.equals.strip().lower() == "true") if values.dtype == bool else values == override.equals
+        mask = _priority_override_mask(materials[override.material], override.equals)
         result = np.where(mask, override.value, result)
     return result

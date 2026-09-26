@@ -215,15 +215,45 @@ class TestPriorityConditions:
     def _axis_with_override(*conditions: PriorityCondition) -> AxisDefinition:
         return _axis("axis", ["num_a"], priority_overrides=list(conditions))
 
-    def test_a_matching_condition_skips_the_normal_calculation(self):
-        axis = self._axis_with_override(PriorityCondition(material="num_b", equals="x", value=3.0))
+    @staticmethod
+    def _scores(axis: AxisDefinition, scalar_values: list, array_values: np.ndarray) -> tuple[list, list]:
+        """区間の内訳が通るスカラーの入口と、ルート選びが通る配列の入口の両方の得点。"""
+        scalar = [evaluate_axis_scalar(axis, {"num_a": 1.0, "num_b": value}) for value in scalar_values]
+        array = evaluate_axis_array(axis, {"num_a": np.ones(len(array_values)), "num_b": array_values})
+        return scalar, array.tolist()
 
-        assert evaluate_axis_scalar(axis, {"num_a": 1.0, "num_b": "x"}) == 3.0
+    @pytest.mark.parametrize(
+        ("equals", "scalar_values", "array_values", "expected"),
+        [
+            ("x", ["x", "y", None], np.array(["x", "y", None], dtype=object), [3.0, 100.0, 100.0]),
+            ("true", [True, False], np.array([True, False]), [3.0, 100.0]),
+            ("false", [True, False], np.array([True, False]), [100.0, 3.0]),
+            ("true", [True, False, None], np.array([1.0, 0.0, np.nan]), [3.0, 100.0, 100.0]),
+            ("false", [True, False, None], np.array([1.0, 0.0, np.nan]), [100.0, 3.0, 100.0]),
+            ("yes", [True, False], np.array([True, False]), [100.0, 100.0]),
+            ("True", [True, False], np.array([True, False]), [100.0, 100.0]),
+            ("1", [True, False, None], np.array([1.0, 0.0, np.nan]), [100.0, 100.0, 100.0]),
+        ],
+        ids=[
+            "分類の値の名前",
+            "真偽の材料にtrue",
+            "真偽の材料にfalse",
+            "不明を持つ真偽の材料にtrue",
+            "不明を持つ真偽の材料にfalse",
+            "真偽と読まない綴りyes",
+            "真偽と読まない綴りTrue",
+            "不明を持つ真偽の材料に真偽と読まない綴り",
+        ],
+    )
+    def test_the_inspector_and_the_route_decide_the_same_roads(self, equals, scalar_values, array_values, expected):
+        """材料の値は入口ごとに別の形で届く（スカラーはPythonの値、配列は材料の型ごとの配列で、
+        「不明」を持つ真偽の材料は1.0/0.0/NaNの数値の配列）。形によって答えが変わると、区間を押して
+        見える得点とルート選びが使う得点が同じ道で食い違う。`equals`は対応表のキーと同じく
+        "true"/"false"だけを真偽と読み、欠損はどの条件にも当たらない。
+        """
+        axis = self._axis_with_override(PriorityCondition(material="num_b", equals=equals, value=3.0))
 
-    def test_the_normal_calculation_runs_when_nothing_matches(self):
-        axis = self._axis_with_override(PriorityCondition(material="num_b", equals="x", value=3.0))
-
-        assert evaluate_axis_scalar(axis, {"num_a": 1.0, "num_b": "y"}) == 100.0
+        assert self._scores(axis, scalar_values, array_values) == (expected, expected)
 
     def test_a_material_that_is_not_there_does_not_match(self):
         """欠損を一致として扱うと、値を持たない区間がすべて優先確定へ落ちる。"""
@@ -232,77 +262,15 @@ class TestPriorityConditions:
         assert evaluate_axis_scalar(axis, {"num_a": 1.0}) == 100.0
 
     def test_the_first_condition_that_matches_decides(self):
-        """後のものを採用すると、宣言の並びが意味を持たなくなる。"""
+        """後のものを採用すると、宣言の並びが意味を持たなくなる。配列の入口は要素ごとのマスクを
+        重ねるため、重ねる順を誤ると後の条件が勝つ。
+        """
         axis = self._axis_with_override(
             PriorityCondition(material="num_b", equals="x", value=3.0),
             PriorityCondition(material="num_b", equals="x", value=9.0),
         )
 
-        assert evaluate_axis_scalar(axis, {"num_a": 1.0, "num_b": "x"}) == 3.0
-
-    @pytest.mark.parametrize("equals", ["true", "True", " TRUE "])
-    def test_a_boolean_material_is_compared_as_a_word(self, equals):
-        """条件の値は文字列でしか書けない。真偽の材料値とそのまま比べると`True == "true"`が
-        常に偽になり、自動車通行不可の区間が優先確定を受けられない。
-        """
-        axis = self._axis_with_override(
-            PriorityCondition(material="num_b", equals=equals, value=3.0)
-        )
-
-        assert evaluate_axis_scalar(axis, {"num_a": 1.0, "num_b": True}) == 3.0
-
-    def test_a_boolean_that_is_false_does_not_match_true(self):
-        axis = self._axis_with_override(
-            PriorityCondition(material="num_b", equals="true", value=3.0)
-        )
-
-        assert evaluate_axis_scalar(axis, {"num_a": 1.0, "num_b": False}) == 100.0
-
-
-class TestPriorityConditionsOnArrays:
-    """配列経路（静的スコア行列の構築）もスカラーと同じ答えを出す必要がある。"""
-
-    @staticmethod
-    def _axis_with_override(equals: str) -> AxisDefinition:
-        return _axis(
-            "axis",
-            ["num_a"],
-            priority_overrides=[PriorityCondition(material="num_b", equals=equals, value=3.0)],
-        )
-
-    def test_only_the_matching_elements_are_decided_in_advance(self):
-        axis = self._axis_with_override("x")
-        materials = {
-            "num_a": np.array([1.0, 1.0]),
-            "num_b": np.array(["x", "y"], dtype=object),
-        }
-
-        assert evaluate_axis_array(axis, materials).tolist() == [3.0, 100.0]
-
-    def test_the_first_condition_that_matches_decides(self):
-        """配列経路は要素ごとのマスクを重ねる。後の条件で上書きすると、スカラーと
-        違う答えを返す。
-        """
-        axis = _axis(
-            "axis",
-            ["num_a"],
-            priority_overrides=[
-                PriorityCondition(material="num_b", equals="x", value=3.0),
-                PriorityCondition(material="num_b", equals="x", value=9.0),
-            ],
-        )
-        materials = {"num_a": np.array([1.0]), "num_b": np.array(["x"], dtype=object)}
-
-        assert evaluate_axis_array(axis, materials).tolist() == [3.0]
-
-    def test_a_boolean_array_is_compared_as_a_word(self):
-        """真偽の配列とstrをそのまま`==`で比べると全要素が偽になり、配列経路だけが
-        優先確定を落とす。
-        """
-        axis = self._axis_with_override("true")
-        materials = {"num_a": np.array([1.0, 1.0]), "num_b": np.array([True, False])}
-
-        assert evaluate_axis_array(axis, materials).tolist() == [3.0, 100.0]
+        assert self._scores(axis, ["x"], np.array(["x"], dtype=object)) == ([3.0], [3.0])
 
 
 class TestCategoricalKeys:

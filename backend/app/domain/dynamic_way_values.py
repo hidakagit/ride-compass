@@ -80,10 +80,12 @@ def dedicated_way_value_axes() -> dict[str, DedicatedWayValueAxis]:
 def map_value_kind(definition: AxisDefinition) -> MapValueKind:
     """**`terms[0].material`は材料idと軸idの2つの名前空間を跨ぐ**（`axis_definitions.py`）。
     材料を指しているときだけ生値を塗れる——軸を指す項の値は参照先の得点で、符号にも単位にも
-    材料の意味が無い。"""
+    材料の意味が無い。0次条件を持つ軸も生値を塗らない——条件の当たる道でも生値は生値のままで、
+    評価（条件の値）と食い違う。"""
     shape = definition.shape
     if (
-        isinstance(shape, BreakpointLinearShape)
+        not definition.priority_overrides
+        and isinstance(shape, BreakpointLinearShape)
         and shape.preprocess == "abs"
         and len(shape.terms) == 1
         and shape.terms[0].material in MATERIAL_CATALOG
@@ -164,6 +166,9 @@ def transform_dedicated_way_values(
     """
     if map_value_kind(definition) == "signed_material":
         return values
+    if any(override.material != material_id for override in definition.priority_overrides):
+        # 配信が値を持つのは`material_id`だけで、ほかの材料に置いた0次条件は当たるかどうかを決められない。
+        return {}
     evaluated: dict[float, float | None] = {}
     result: dict[str, float] = {}
     for feature_key, value in values.items():
