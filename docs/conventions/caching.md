@@ -206,9 +206,10 @@ await set_json(key, payload, ttl_seconds=TTL, category="cache:xxx")
 
 例外に当たる場合も、原則3（失敗の記録）と原則2（fail-open）は必ず満たす。
 
-**移行中の状態**: 既存の`jma_tile_redis_cache`は共通骨格が
-できる前に書かれたもので、自前の実装のまま動いている（[T644](../records/tasks/T644.md)で順次移行
-する）。**これを新しいキャッシュのお手本にしない。**
+**バイナリでも、base64にしてJSONへ包むなら例外に当たらない**: 気象庁タイル本体
+（`jma_tile_redis_cache`、PNG/PBF）はbase64の文字列をJSONへ包み、`get_json`/`set_json`で読み書きしている。
+例外に当たるのは、生のバイト列で持ってデコードと容量の無駄を実際に省くときだけである
+（タイルでそうするかは[T636](../records/tasks/T636.md)）。
 
 ## TTLの決め方
 
@@ -325,8 +326,8 @@ push型の無効化はfail-openと組み合わさると「伝え漏れても誰�
 ## 直接使ってよい場所
 
 `get_redis_client_or_none`・`record_redis_failure`・`record_redis_success`・`redis_available`を
-直接呼んでよいファイルは`backend/tests/test_redis_skeleton.py`の`ALLOWED`が持つ（骨格そのもの・
-その接続本体と、単一キーのJSON読み書きでは表現できない2つ）。ここに無いファイルで使うと
+直接呼んでよいファイルは`backend/tests/structure/test_redis_skeleton.py`の`ALLOWED`が持つ（骨格そのもの・
+その接続本体と、単一キーのJSON読み書きでは表現できないもの）。ここに無いファイルで使うと
 テストが落ちる。寄せられない事情があるなら、理由とともに`ALLOWED`へ足すこと。
 
 **寄せ終わったのに`ALLOWED`へ残っている場合も落ちる**——列挙が実態から離れると、

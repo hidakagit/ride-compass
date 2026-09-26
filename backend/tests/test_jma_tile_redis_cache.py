@@ -14,7 +14,7 @@ import pytest
 import redis
 from PIL import Image
 
-from app.infrastructure import jma_tile_redis_cache, redis_client
+from app.infrastructure import jma_tile_redis_cache, redis_client, redis_json_cache
 from app.infrastructure.jma_tile_redis_cache import EMPTY_TILE
 
 
@@ -46,7 +46,7 @@ TILE_BYTES = b"\x89PNG\r\n\x1a\n\xff\xfe\x00binary"
 @pytest.fixture
 def fake_redis(monkeypatch):
     fake = FakeRedis()
-    monkeypatch.setattr(jma_tile_redis_cache, "get_redis_client_or_none", lambda: fake)
+    monkeypatch.setattr(redis_json_cache, "get_redis_client_or_none", lambda: fake)
     return fake
 
 
@@ -98,7 +98,7 @@ async def test_entry_that_cannot_be_decoded_is_treated_as_uncached(fake_redis):
 
 async def test_read_failure_falls_back_to_uncached(monkeypatch):
     monkeypatch.setattr(
-        jma_tile_redis_cache, "get_redis_client_or_none", lambda: FakeRedis(raise_on_get=redis.RedisError("down"))
+        redis_json_cache, "get_redis_client_or_none", lambda: FakeRedis(raise_on_get=redis.RedisError("down"))
     )
     assert await jma_tile_redis_cache.get(PNG_PATH) is None
     assert redis_client.redis_available() is False
@@ -106,7 +106,7 @@ async def test_read_failure_falls_back_to_uncached(monkeypatch):
 
 async def test_write_failure_is_not_raised_to_the_caller(monkeypatch):
     monkeypatch.setattr(
-        jma_tile_redis_cache, "get_redis_client_or_none", lambda: FakeRedis(raise_on_set=redis.RedisError("down"))
+        redis_json_cache, "get_redis_client_or_none", lambda: FakeRedis(raise_on_set=redis.RedisError("down"))
     )
     await jma_tile_redis_cache.set(PNG_PATH, TILE_BYTES, "image/png")
     assert redis_client.redis_available() is False
@@ -123,6 +123,6 @@ async def test_failure_stops_further_calls_until_the_cooldown_passes(fake_redis)
 
 
 async def test_missing_client_is_treated_as_no_cache(monkeypatch):
-    monkeypatch.setattr(jma_tile_redis_cache, "get_redis_client_or_none", lambda: None)
+    monkeypatch.setattr(redis_json_cache, "get_redis_client_or_none", lambda: None)
     await jma_tile_redis_cache.set(PNG_PATH, TILE_BYTES, "image/png")
     assert await jma_tile_redis_cache.get(PNG_PATH) is None
