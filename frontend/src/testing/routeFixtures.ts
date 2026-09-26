@@ -21,6 +21,8 @@ export function makeRouteCandidate(overrides: Partial<RouteCandidate> = {}): Rou
     overall_difficulty: null,
     difficulty_load: null,
     estimated_duration_seconds: null,
+    wind_unavailable: false,
+    missing_travel_data_share: null,
     axis_difficulties: {},
     material_values: {},
     material_category_shares: {},

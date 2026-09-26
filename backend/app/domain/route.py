@@ -97,6 +97,11 @@ class RouteCandidate(StrictModel):
     # 所要時間の見積もり（秒）。区間の走行時間（走行モデル: 巡航速度・勾配・風から求めた
     # 速度）＋停止の待ち＋ターンの待ち。経路の選び方には使っておらず、表示のためだけに持つ。
     estimated_duration_seconds: float | None = None
+    # 所要時間の見積もりで風を使えなかった（風の予報が読めず、無風として計算した）。画面が利用者へ知らせる。
+    wind_unavailable: bool = False
+    # 所要時間の見積もりで、勾配か停止要因の件数の値が無く、既定（平地・待ち無し）で数えた区間の距離の割合（0〜1）。
+    # 数えるのはビンへ畳む前のEdge単位。画面が「データの無い区間が◯%」と知らせる。区間が無ければNone。
+    missing_travel_data_share: float | None = None
     axis_difficulties: dict[str, float] = Field(default_factory=dict)
     # 合計は丸め誤差を除いて`overall_difficulty`と一致する。フロントの「内訳（重み付き
     # 寄与度）」表示はこれをそのまま使い、ルート設定の重みを使った独自再計算はしない。

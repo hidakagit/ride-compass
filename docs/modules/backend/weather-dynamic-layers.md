@@ -413,7 +413,8 @@ MSM（`.om`形式、CC-BY-4.0）をローカルへ同期して読む。予報を
 場合は`MsmUnavailableError`。`WeatherService.get_wind_grid`はこれを全地点Noneへ変換し、
 ルーターが502を返す（`_reject_if_all_points_failed`）。ルート評価の風
 （`get_wind_forecast_lattice`）はNoneを返し、呼び出し元は出発時点の値（`get_conditions`）へ倒すが、
-そちらも同じMSMを読むため同時に読めず、**所要時間は無風で計算される**（利用者への表示は無い）。読めなかった原因は、`read_series`を囲む`log_external_call`
+そちらも同じMSMを読むため同時に読めず、**所要時間は無風で計算される**。候補はそのことを`wind_unavailable`で持ち、画面が候補の中身で知らせる
+（`road_graph_engine.py: _LegCostComposer.wind_unavailable`。時別の系列も出発時点の値も無いとき）。読めなかった原因は、`read_series`を囲む`log_external_call`
 （カテゴリ`msm:read`）が抑制付きWARNINGで残す。
 
 **予報の長さ**: MSMはrunごとに39時間先（00/12UTCのrunは78時間先）まで持ち、配信は

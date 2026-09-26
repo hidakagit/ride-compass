@@ -315,6 +315,23 @@ async def test_a_segment_without_data_does_not_show_the_axis_as_zero(engine_over
     assert second.axis_difficulties[AVOID_AXIS] == 0.0
 
 
+@pytest.mark.parametrize("missing", ["no_gradient_ways", "no_stop_count_ways"])
+async def test_the_share_of_the_route_timed_without_data_is_reported(engine_over, missing):
+    """勾配の値が無い道は平地、停止要因の件数が無い道は待ち無しとして所要時間を出す。その距離の割合を候補が持ち、
+    画面が利用者へ知らせる。南西→南東の最速は同じ長さの2本の道で、1本目だけ値が無い。"""
+    generator = engine_over(grid_network(**{missing: {100}}))
+
+    candidates = await generator.generate_via_waypoints(
+        at(SOUTH_WEST), [], 3.0, destination=at(SOUTH_EAST), max_routes=3)
+
+    fastest = next(c for c in candidates if c.is_fastest)
+    assert ways_of(fastest)[0] == 100
+    assert fastest.missing_travel_data_share == pytest.approx(0.5, abs=0.01)
+    complete = await engine_over(grid_network()).generate_via_waypoints(
+        at(SOUTH_WEST), [], 3.0, destination=at(SOUTH_EAST), max_routes=3)
+    assert next(c for c in complete if c.is_fastest).missing_travel_data_share == 0.0
+
+
 def _wind(times: list[datetime], speed_by_point: list[float]) -> WindForecastSeries:
     """格子の角4点（南西・南東・北西・北東）に置いた時別の風。風速は時刻によらず点ごとに一定。"""
     lattice = WindLattice(south=BASE_LAT, west=BASE_LON, lat_step=2 * LAT_STEP, lon_step=2 * LON_STEP, rows=2, cols=2)
@@ -355,6 +372,17 @@ async def test_each_segment_takes_the_wind_of_the_grid_point_nearest_to_it(engin
 
     fastest = next(c for c in candidates if c.is_fastest)
     assert [s.wind.speed_ms for s in fastest.segments] == [2.0, 8.0]
+
+
+async def test_a_route_timed_without_the_wind_forecast_says_so(engine_over):
+    """風の予報が読めないときは無風として所要時間を出す。出したことを候補が持ち、画面が利用者へ知らせる。"""
+    without = await engine_over(grid_network()).generate_via_waypoints(
+        at(SOUTH_WEST), [], 4.0, destination=at(NORTH_EAST), max_routes=1, start_time=DEPARTURE)
+    with_wind = await engine_over(grid_network(), wind=_wind(HOURS_OF_THE_DAY, [3.0] * 4)).generate_via_waypoints(
+        at(SOUTH_WEST), [], 4.0, destination=at(NORTH_EAST), max_routes=1, start_time=DEPARTURE)
+
+    assert all(c.wind_unavailable for c in without)
+    assert not any(c.wind_unavailable for c in with_wind)
 
 
 # --- 2点間の区間確認 ---

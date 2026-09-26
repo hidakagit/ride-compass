@@ -1536,6 +1536,13 @@ export interface components {
             difficulty_load?: number | null;
             /** Estimated Duration Seconds */
             estimated_duration_seconds?: number | null;
+            /**
+             * Wind Unavailable
+             * @default false
+             */
+            wind_unavailable: boolean;
+            /** Missing Travel Data Share */
+            missing_travel_data_share?: number | null;
             /** Axis Difficulties */
             axis_difficulties?: {
                 [key: string]: number;

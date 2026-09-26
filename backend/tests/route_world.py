@@ -14,6 +14,8 @@ import numpy as np
 from app.domain.geo import bearing_between, haversine_distance_km
 from app.domain.graph import node_key
 from app.domain.hard_filters import hard_filter_columns
+from app.domain.material_sql import MATERIAL_ID_GRADIENT_PERCENT
+from app.domain.traffic import stop_count_material_ids
 from app.domain.road_network import RoadNetwork
 from app.domain.route import Coordinates
 from app.domain.route_preference import RoutePreference
@@ -50,9 +52,12 @@ def _coordinates(osm_node_id: int) -> tuple[float, float]:
     return {**COORDINATES, **ISLAND_NODES}[osm_node_id]
 
 
-def grid_network(*, bad_ways=(), unknown_ways=(), oneway_ways=(), motorway_ways=(), island=False) -> RoadNetwork:
+def grid_network(
+    *, bad_ways=(), unknown_ways=(), oneway_ways=(), motorway_ways=(), island=False, no_gradient_ways=(), no_stop_count_ways=()
+) -> RoadNetwork:
     """3×3の格子。`bad_ways`は避けたい材料が1（それ以外は0）、`unknown_ways`はその材料のデータが無い、
-    `oneway_ways`は始点→終点だけ走れる、`motorway_ways`は高速道路。`island`で格子とつながらない道を足す。"""
+    `oneway_ways`は始点→終点だけ走れる、`motorway_ways`は高速道路。`island`で格子とつながらない道を足す。
+    勾配はどの道も平ら（0%）で、`no_gradient_ways`だけ値が無い。停止要因（信号・一時停止等）はどの道にも無い（0件）で、`no_stop_count_ways`だけ件数の値が無い。"""
     ways = dict(WAYS)
     if island:
         ways[ISLAND_WAY] = tuple(ISLAND_NODES)
@@ -78,6 +83,8 @@ def grid_network(*, bad_ways=(), unknown_ways=(), oneway_ways=(), motorway_ways=
     nan = np.full(n, np.nan)
     bad = np.isin(ways, list(bad_ways)).astype(float)
     bad[np.isin(ways, list(unknown_ways))] = np.nan
+    gradient = np.where(np.isin(ways, list(no_gradient_ways)), np.nan, 0.0)
+    stop_count = np.where(np.isin(ways, list(no_stop_count_ways)), np.nan, 0.0)
     return RoadNetwork(
         revision=1,
         node_osm_id=node_ids, node_lat=lat, node_lon=lon,
@@ -88,8 +95,8 @@ def grid_network(*, bad_ways=(), unknown_ways=(), oneway_ways=(), motorway_ways=
         edge_highway=np.ones(n, dtype=np.int16), highway_vocab=(None, "residential"),
         edge_min_lon=np.minimum(lon[tail], lon[head]), edge_min_lat=np.minimum(lat[tail], lat[head]),
         edge_max_lon=np.maximum(lon[tail], lon[head]), edge_max_lat=np.maximum(lat[tail], lat[head]),
-        numeric_ids=(BAD_MATERIAL,),
-        numeric_values=bad.reshape(-1, 1),
+        numeric_ids=(BAD_MATERIAL, MATERIAL_ID_GRADIENT_PERCENT, *stop_count_material_ids()),
+        numeric_values=np.column_stack([bad, gradient, *(stop_count for _ in stop_count_material_ids())]),
         boolean_ids=(), boolean_values=np.zeros((n, 0), dtype=bool),
         categorical_ids=(), categorical_codes=np.zeros((n, 0), dtype=np.int16), categorical_vocab=(),
         hard_filter_ids=hard_filter_ids, hard_filter_flags=flags,

@@ -1069,6 +1069,8 @@ export default function Home() {
                     overallDifficulty={route.overall_difficulty}
                     difficultyLoad={route.difficulty_load ?? null}
                     estimatedDurationSeconds={route.estimated_duration_seconds ?? null}
+                    windUnavailable={route.wind_unavailable}
+                    missingTravelDataShare={route.missing_travel_data_share}
                     axisColors={axisCatalog.axisColors}
                   />
                 )}

@@ -4534,6 +4534,22 @@
             ],
             "title": "Estimated Duration Seconds"
           },
+          "wind_unavailable": {
+            "type": "boolean",
+            "title": "Wind Unavailable",
+            "default": false
+          },
+          "missing_travel_data_share": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Missing Travel Data Share"
+          },
           "axis_difficulties": {
             "additionalProperties": {
               "type": "number"

@@ -38,6 +38,8 @@ function renderProfile(overrides: Partial<Props> = {}) {
     overallDifficulty: 30.8,
     difficultyLoad: 997.9,
     estimatedDurationSeconds: 102 * 60,
+    windUnavailable: false,
+    missingTravelDataShare: 0,
     axisColors: {},
     ...overrides,
   };
@@ -116,5 +118,22 @@ describe("RouteAxisProfile 軸の詳細", () => {
     renderProfile({ axisDifficulties: { surface: 20 } });
     await openDetail("停止");
     expect((await screen.findByText("停止の説明文")).parentElement).toHaveTextContent("データなし");
+  });
+});
+
+describe("RouteAxisProfile 所要時間の前提", () => {
+  it("風の予報を使えず無風で出した所要時間は、そう知らせる", () => {
+    renderProfile({ windUnavailable: true });
+    expect(screen.getByText(/風の予報を使えなかったため、無風として所要時間を出しています/)).toBeInTheDocument();
+  });
+
+  it("データの無い区間の割合を知らせ、丸めて0%なら出さない", () => {
+    const { unmount } = renderProfile({ missingTravelDataShare: 0.234 });
+    expect(screen.getByText(/データの無い区間が23%/)).toBeInTheDocument();
+    unmount();
+
+    renderProfile({ missingTravelDataShare: 0.004 });
+    expect(screen.queryByText(/データの無い区間/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/風の予報を使えなかった/)).not.toBeInTheDocument();
   });
 });

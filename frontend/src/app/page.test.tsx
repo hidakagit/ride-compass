@@ -903,6 +903,8 @@ describe("候補の一覧", () => {
       overallDifficulty: 40,
       difficultyLoad: 400,
       estimatedDurationSeconds: 1800,
+      windUnavailable: false,
+      missingTravelDataShare: null,
       axisColors: catalog().axisColors,
     });
   });

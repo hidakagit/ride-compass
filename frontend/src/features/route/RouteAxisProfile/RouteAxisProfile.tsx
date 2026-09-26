@@ -7,6 +7,7 @@ import type { RoutePreferenceWeights } from "@/types/route";
 import AxisContributionBar, { hasContribution } from "@/components/AxisContributionBar/AxisContributionBar";
 import { formatAxisRawValue, formatCategoryBreakdown, formatMaterialBreakdown } from "./axisRawValue";
 import { textVariants } from "@/components/ui/Text/Text";
+import { cn } from "@/lib/cn";
 
 interface RouteAxisProfileProps {
   /** 公開軸すべて（軸カタログの順序・ラベルの正本）。重みによる絞り込みは行わない。 */
@@ -41,6 +42,11 @@ interface RouteAxisProfileProps {
   difficultyLoad: number | null;
   /** RouteCandidate.estimated_duration_seconds（走行＋停止＋ターンの見積もり）。 */
   estimatedDurationSeconds: number | null;
+  /** 所要時間を、風の予報を使えず無風として出した（RouteCandidate.wind_unavailable）。 */
+  windUnavailable: boolean;
+  /** 所要時間を、勾配か停止要因の値が無く平地・待ち無しとして出した区間の距離の割合（0〜1、
+   * RouteCandidate.missing_travel_data_share）。 */
+  missingTravelDataShare: number | null;
   /** 軸id→色ドットの色（ルート設定パネルの凡例チップと同じ色）。 */
   axisColors: Record<string, string>;
 }
@@ -59,6 +65,8 @@ export default function RouteAxisProfile({
   overallDifficulty,
   difficultyLoad,
   estimatedDurationSeconds,
+  windUnavailable,
+  missingTravelDataShare,
   axisColors,
 }: RouteAxisProfileProps) {
   const contributionRows = axes.filter((axis) => hasContribution(axisContributions, axis.axisId));
@@ -152,6 +160,18 @@ export default function RouteAxisProfile({
               </span>
             )}
           </div>
+          {/* 所要時間の前提が崩れていることは、所要時間のすぐ下で知らせる（黙って短い所要時間を見せない）。
+              値の無い区間は丸めて1%以上のときだけ出す——0%を並べても判断の材料にならない。 */}
+          {windUnavailable && (
+            <p className={cn(textVariants({ variant: "hint" }), "m-0 text-[var(--color-warning-strong)]")}>
+              風の予報を使えなかったため、無風として所要時間を出しています
+            </p>
+          )}
+          {missingTravelDataShare != null && Math.round(missingTravelDataShare * 100) >= 1 && (
+            <p className={cn(textVariants({ variant: "hint" }), "m-0 text-[var(--color-warning-strong)]")}>
+              {`データの無い区間が${Math.round(missingTravelDataShare * 100)}%（坂・信号の無い道として所要時間を出しています）`}
+            </p>
+          )}
           {contributionRows.length > 0 ? (
             <AxisContributionBar
               axes={contributionRows}

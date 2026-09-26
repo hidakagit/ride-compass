@@ -620,6 +620,25 @@ class _LegCostComposer:
         """切り出した区間の順の行番号を、探索が使う行順（`cost_lazy`の並び）へ直す。"""
         return int(self._full_row_index[full_row])
 
+    @property
+    def wind_unavailable(self) -> bool:
+        """風の予報が無く、所要時間を無風で計算しているか（時別系列も出発時点の値も無い）。"""
+        return self._weather is None and self._wind_series is None
+
+    def missing_travel_data_share(self, rows: np.ndarray) -> float | None:
+        """切り出した区間の順の行`rows`のうち、所要時間の計算で勾配か停止要因の件数の値が無く、既定（平地・待ち無し）で
+        数えた区間の距離の割合。`_travel_time_seconds`が欠けを置き換えるのと同じ列を見る。距離の合計が0ならNone。"""
+        distance = self._score_matrix.distance_m[rows]
+        total = float(distance.sum())
+        if total <= 0:
+            return None
+        missing = np.isnan(self._score_matrix.gradient_percent[rows])
+        for material_id in stop_count_material_ids():
+            per_km = self._static_material_arrays.get(material_id)
+            if per_km is not None:
+                missing |= np.isnan(per_km[rows])
+        return round(float(distance[missing].sum()) / total, 4)
+
     def winds_at(
         self, rows: list[int], passage_hours: list[float | None], beyond_bins: list[bool]
     ) -> list[SegmentWind | None]:
@@ -1837,6 +1856,7 @@ class RoadGraphEngine:
         segments, segment_categories = self._build_segment_details(
             edges_in_path, path, elevation_by_edge, context, start_time, leg_of_edge
         )
+        rows = np.asarray([_slice_row(context, index) for index in path], dtype=np.int64)
         # categorical材料の延長割合は**集約より前に**Edge単位の値から畳む。集約後に
         # 計算すると、ビンの代表値を1つ選ぶ形になり割合がビンの粒度へ量子化される。
         material_category_shares = merge_material_category_shares(
@@ -1858,6 +1878,8 @@ class RoadGraphEngine:
             segments=segments,
             material_category_shares=material_category_shares,
             estimated_duration_seconds=self._estimate_duration_seconds(context, edges_in_path, path, leg_of_edge),
+            wind_unavailable=context.composer.wind_unavailable,
+            missing_travel_data_share=context.composer.missing_travel_data_share(rows) if len(rows) else None,
             **elevation_stats,
         )
 
