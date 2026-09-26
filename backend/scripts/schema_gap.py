@@ -2,7 +2,11 @@
 
 **正本は実DBで、ORMの宣言は「あるべき姿」である。**一致は誰も保証していないので測る。
 
-比べるのは表・列・NULL許容・外部キー。列名だけでは足りない——ずれるのは制約の側でもある。
+比較はalembicの`compare_metadata`が行う（表・列・型・NULL許容・既定値・インデックス・一意制約・
+外部キー）。migrationのファイルは作らず、比較の部品としてだけ使う。
+
+母集団から外すのは、アプリのスキーマではない表——拡張が持ち込む表（PostGISの`spatial_ref_sys`等）と、
+取込が作る子パーティション（ORMは親の表だけを宣言する）。どちらも名前ではなく実DBのカタログから引く。
 
 実行方法（backendディレクトリから）:
     .venv\\Scripts\\python.exe scripts\\schema_gap.py                    # settings.database_url
@@ -20,91 +24,84 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+from alembic.autogenerate import compare_metadata  # noqa: E402
+from alembic.migration import MigrationContext  # noqa: E402
 from sqlalchemy import text  # noqa: E402
 from sqlalchemy.ext.asyncio import create_async_engine  # noqa: E402
 
 from app.infrastructure.orm_base import declared_metadata  # noqa: E402
 
-#: PostGISが持ち込む表。アプリのスキーマではないので母集団から外す。
-_NOT_OURS = frozenset({"spatial_ref_sys"})
-
-_TABLES = """
+_NOT_OURS = """
 SELECT c.relname FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
-WHERE n.nspname = 'public' AND c.relkind IN ('r', 'p')
-"""
-_COLUMNS = """
-SELECT table_name, column_name, is_nullable
-FROM information_schema.columns WHERE table_schema = 'public'
-"""
-_FKS = """
-SELECT conrelid::regclass::text AS tbl, pg_get_constraintdef(oid) AS cdef
-FROM pg_constraint WHERE contype = 'f' AND connamespace = 'public'::regnamespace
+WHERE n.nspname = 'public' AND (c.relispartition OR EXISTS (
+    SELECT 1 FROM pg_depend d
+    WHERE d.classid = 'pg_class'::regclass AND d.objid = c.oid AND d.deptype = 'e'))
 """
 
-
-def _orm_fk_signatures(table) -> set[str]:
-    """ORMが宣言する外部キーを、実DB側と突き合わせられる形（列→参照先.列）にする。"""
-    return {
-        f"{fk.parent.name}->{fk.column.table.name}.{fk.column.name}"
-        for fk in table.foreign_keys
-    }
+_SIDE = {"add": "ORMが宣言しているが実DBに無い", "remove": "実DBにあるがORMが宣言していない"}
+_WHAT = {
+    "table": "表", "column": "列", "index": "インデックス", "fk": "外部キー", "constraint": "制約",
+    "type": "型", "nullable": "NULL許容", "default": "既定値",
+}
 
 
-def _db_fk_signatures(defs: list[str]) -> set[str]:
-    """`FOREIGN KEY (a) REFERENCES t(b) ...` を同じ形へ直す。"""
-    out: set[str] = set()
-    for d in defs:
-        try:
-            cols = d.split("(", 1)[1].split(")", 1)[0]
-            ref = d.split("REFERENCES", 1)[1].strip()
-            ref_table = ref.split("(", 1)[0].strip()
-            ref_cols = ref.split("(", 1)[1].split(")", 1)[0]
-        except IndexError:
-            continue
-        for col, rcol in zip(cols.split(","), ref_cols.split(",")):
-            out.add(f"{col.strip()}->{ref_table}.{rcol.strip()}")
-    return out
+def _label(obj) -> str:
+    """表・インデックス・制約を「表(列) 名前」の形で示す。"""
+    table = getattr(obj, "table", None)
+    if table is None:
+        return obj.name
+    cols = ",".join(c.name for c in obj.columns)
+    refs = getattr(obj, "elements", None)
+    target = f" -> {refs[0].target_fullname.rsplit('.', 1)[0]}" if refs else ""
+    return f"{table.name}({cols}){target} {obj.name or ''}".rstrip()
+
+
+def _show(value) -> str:
+    """既定値（`DefaultClause`）は中の式を、型はそのままの表記で出す。"""
+    arg = getattr(value, "arg", value)
+    return str(getattr(arg, "text", arg))
+
+
+def _describe(diff) -> list[str]:
+    if isinstance(diff, list):
+        return [line for d in diff for line in _describe(d)]
+    op, *rest = diff
+    verb, _, what = op.partition("_")
+    label = _WHAT.get(what, what)
+    if verb == "modify":
+        table, column, _existing, db_value, orm_value = rest[1:]
+        return [f"{table}.{column}: {label}が違う（実DB={_show(db_value)} ORM={_show(orm_value)}）"]
+    if verb not in _SIDE:
+        return [repr(diff)]
+    obj = rest[-1]
+    name = f"{rest[1]}.{obj.name}" if what == "column" else _label(obj)
+    return [f"{name}: {_SIDE[verb]}{label}"]
 
 
 async def _collect(url: str) -> list[str]:
     engine = create_async_engine(url)
     try:
         async with engine.connect() as conn:
-            db_tables = {r[0] for r in (await conn.execute(text(_TABLES))).all()} - _NOT_OURS
-            db_cols: dict[str, dict[str, bool]] = {}
-            for table_name, column, nullable in (await conn.execute(text(_COLUMNS))).all():
-                db_cols.setdefault(table_name, {})[column] = nullable == "YES"
-            db_fks: dict[str, list[str]] = {}
-            for table_name, cdef in (await conn.execute(text(_FKS))).all():
-                db_fks.setdefault(table_name, []).append(cdef)
+            not_ours = set((await conn.execute(text(_NOT_OURS))).scalars())
+
+            def include_name(name, type_, parent_names) -> bool:
+                return not (type_ == "table" and name in not_ours)
+
+            def compare(sync_conn):
+                context = MigrationContext.configure(sync_conn, opts={
+                    "include_name": include_name,
+                    "compare_server_default": True,
+                })
+                return compare_metadata(context, declared_metadata())
+
+            diffs = await conn.run_sync(compare)
     finally:
         await engine.dispose()
-
-    orm_tables = set(declared_metadata().tables)
-    gaps: list[str] = []
-    for name in sorted(db_tables - orm_tables):
-        gaps.append(f"{name}: 実DBにあるがORMが宣言していない表")
-    for name in sorted(orm_tables - db_tables):
-        gaps.append(f"{name}: ORMが宣言しているが実DBに無い表")
-
-    for name in sorted(orm_tables & db_tables):
-        table = declared_metadata().tables[name]
-        orm_c = {c.name: bool(c.nullable) for c in table.columns}
-        db_c = db_cols.get(name, {})
-        for col in sorted(set(orm_c) - set(db_c)):
-            gaps.append(f"{name}.{col}: ORMが宣言しているが実DBに無い列")
-        for col in sorted(set(db_c) - set(orm_c)):
-            gaps.append(f"{name}.{col}: 実DBにあるがORMが宣言していない列")
-        for col in sorted(set(orm_c) & set(db_c)):
-            if orm_c[col] != db_c[col]:
-                gaps.append(f"{name}.{col}: NULL許容が違う（ORM={orm_c[col]} 実DB={db_c[col]}）")
-        orm_f = _orm_fk_signatures(table)
-        db_f = _db_fk_signatures(db_fks.get(name, []))
-        for sig in sorted(db_f - orm_f):
-            gaps.append(f"{name}: 実DBにあるがORMが宣言していない外部キー {sig}")
-        for sig in sorted(orm_f - db_f):
-            gaps.append(f"{name}: ORMが宣言しているが実DBに無い外部キー {sig}")
-    return gaps
+    # 片側にしか無い表について、alembicはその表のインデックスも1件ずつ出す。表の1行で足りる。
+    whole = {d[1].name for d in diffs if isinstance(d, tuple) and d[0] in ("add_table", "remove_table")}
+    diffs = [d for d in diffs if not (isinstance(d, tuple) and d[0] in ("add_index", "remove_index")
+                                      and d[1].table.name in whole)]
+    return sorted(line for diff in diffs for line in _describe(diff))
 
 
 def main() -> int:

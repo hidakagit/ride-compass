@@ -12,6 +12,8 @@ asyncpg-stubs==0.30.2
 types-PyYAML==6.0.12.20260906
 types-rasterio==1.5.1.20260907
 types-shapely==2.0.0.20250404
+# 実DBとORMの宣言の比較（scripts/schema_gap.py）。migrationは持たず、比較の部品としてだけ使う。
+alembic==1.20.0
 # ベンチマーク（benchmarks/bench_t790_turn_expanded.py）が現行の自前探索と比べるために使う。
 # 本番の探索は到達時刻をラベルとして持ち回るためscipyでは表せず、webイメージには入れない。
 scipy==1.18.1

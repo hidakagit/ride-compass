@@ -37,7 +37,7 @@ DB接続・Redis・HTTPクライアント・レート制限・ログ・デバッ
 | api | `tuning_admin.py` | 較正値の一覧・更新（管理画面用、`require_admin_basic_auth`の内側）。並べる項目も、効き方ごとの見出しと並び順も宣言から導く |
 | infrastructure | `admin_data_backup.py` | 取り直せない管理データの表の書き出しと戻し。母集団は表の印（`orm_base.IRREPLACEABLE`）から導く |
 | scripts | `admin_data_backup.py` | その入口（`dump`・`restore`）。書き出しも戻しも、アプリの起動時と同じ読み込みで検算する |
-| scripts | `schema_gap.py` | 実DBのスキーマとORMの宣言（`orm_base.declared_metadata`）の差を出す |
+| scripts | `schema_gap.py` | 実DBのスキーマとORMの宣言（`orm_base.declared_metadata`）の差を、alembicの`compare_metadata`で出す（開発用の依存。本番のイメージには入らないので、本番DBへは`run_probe.py`の手元実行で当てる） |
 | scripts | `_stdio.py` | `scripts/`の実行口が共通で使う、標準出力・標準エラーのUTF-8化 |
 
 ## Pydanticモデルの基底（`domain/strict_model.py`）
