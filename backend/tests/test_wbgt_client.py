@@ -1,13 +1,13 @@
 """`infrastructure/wbgt_client.py`——環境省 熱中症予防情報サイトの地点マスタ(CSV)と
-暑さ指数予測値(JSON)の取得。
+暑さ指数予測値(JSON)を取得し、形を解く。
 
 ここで見ないもの:
 - キャッシュ参照・形の検査・例外をNoneへ倒す骨格 → `test_simple_api_client.py`
-- 最寄り地点の選び方・予測値の読み替え（10倍された整数文字列の割り戻し・最新発表回の
-  選択） → `domain/wbgt_points.py`・`wbgt_service.py`側
+- 最寄り地点の選び方・最新発表回の選択 → `domain/wbgt_points.py`・`test_wbgt_service.py`
 """
 
 import logging
+from datetime import datetime
 
 import pytest
 from cachetools import TTLCache
@@ -164,13 +164,70 @@ async def test_point_master_http_error_returns_none():
     assert await wbgt_client.fetch_point_master(HttpStatusErrorHttpClient()) is None
 
 
-async def test_forecast_requests_a_continuous_range_and_returns_the_series():
+def _forecast_row(**overrides):
+    """予測値APIの`data`の1件（項目は2026-09-27に取得した応答の形のまま）。"""
+    row = {
+        "reference_time": "2026/07/01 08:00:00",
+        "wbgt_no": 44132,
+        "forecast_val": "280",
+        "forecast_time": "2026/07/01 09:00:00",
+        "flag": 0,
+    }
+    row.update(overrides)
+    return row
+
+
+def _success(*rows):
+    return FakeHttpClient({"status": "success", "data": list(rows)})
+
+
+async def test_a_forecast_is_read_into_its_times_and_the_index_divided_by_ten():
+    """配信元は暑さ指数を10倍した整数文字列で返す（"280"→28.0）。"""
+    (forecast,) = await wbgt_client.fetch_forecast(_success(_forecast_row()), "44132", _RANGE_FROM, _RANGE_TO)
+
+    assert forecast == wbgt_client.WbgtForecast(
+        reference_time="2026/07/01 08:00:00",
+        forecast_time=datetime(2026, 7, 1, 9, 0, 0),
+        forecast_time_text="2026/07/01 09:00:00",
+        wbgt=28.0,
+    )
+
+
+@pytest.mark.parametrize("reference_time", [None, ""])
+async def test_a_forecast_without_a_reference_time_is_left_out(reference_time):
+    result = await wbgt_client.fetch_forecast(
+        _success(_forecast_row(reference_time=reference_time)), "44132", _RANGE_FROM, _RANGE_TO
+    )
+
+    assert result == []
+
+
+@pytest.mark.parametrize("forecast_time", [None, "", "2026-07-01T09:00:00"])
+async def test_a_forecast_time_that_cannot_be_read_is_absent_but_the_row_stays(forecast_time):
+    """行は最新の発表回を決めるのに数える。落とすと、古い発表回の値を今の値として選びうる。"""
+    (forecast,) = await wbgt_client.fetch_forecast(
+        _success(_forecast_row(forecast_time=forecast_time)), "44132", _RANGE_FROM, _RANGE_TO
+    )
+
+    assert forecast.forecast_time is None
+    assert forecast.reference_time == "2026/07/01 08:00:00"
+
+
+@pytest.mark.parametrize("value", [None, "", "abc"])
+async def test_a_value_that_cannot_be_read_is_absent(value):
+    (forecast,) = await wbgt_client.fetch_forecast(
+        _success(_forecast_row(forecast_val=value)), "44132", _RANGE_FROM, _RANGE_TO
+    )
+
+    assert forecast.wbgt is None
+
+
+async def test_forecast_requests_a_continuous_range():
     """`date_search_type=3`（特定時刻）は発表が無いと空を返すため、連続期間で引く。"""
-    client = FakeHttpClient({"status": "success", "data": [{"forecast_val": "280"}]})
+    client = _success(_forecast_row())
 
-    result = await wbgt_client.fetch_forecast(client, "44132", _RANGE_FROM, _RANGE_TO)
+    await wbgt_client.fetch_forecast(client, "44132", _RANGE_FROM, _RANGE_TO)
 
-    assert result == [{"forecast_val": "280"}]
     assert client.last_params == {
         "location_type": 1,
         "date_search_type": 1,
@@ -181,7 +238,7 @@ async def test_forecast_requests_a_continuous_range_and_returns_the_series():
 
 
 async def test_forecast_rejects_unsuccessful_status():
-    client = FakeHttpClient({"status": "error", "data": [{"forecast_val": "280"}]})
+    client = FakeHttpClient({"status": "error", "data": [_forecast_row()]})
 
     assert await wbgt_client.fetch_forecast(client, "44132", _RANGE_FROM, _RANGE_TO) is None
 
@@ -194,7 +251,7 @@ async def test_forecast_without_a_data_series_returns_none():
 
 async def test_forecast_cache_key_is_the_point_number_only():
     """地点ごとに1時間キャッシュする。検索範囲を変えても、その間は同じ発表が返る。"""
-    client = FakeHttpClient({"status": "success", "data": [{"forecast_val": "280"}]})
+    client = _success(_forecast_row())
 
     await wbgt_client.fetch_forecast(client, "44132", _RANGE_FROM, _RANGE_TO)
     await wbgt_client.fetch_forecast(client, "44132", "20260701030000", "20260701120000")

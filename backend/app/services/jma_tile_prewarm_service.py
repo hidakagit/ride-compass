@@ -19,13 +19,13 @@
 """
 
 import asyncio
-import json
 import logging
 import time
 
 from app.domain.jma_tile_specs import (
     JMA_TILE_SPECS,
     JmaFrame,
+    TargetTimesRow,
     effective_max_zoom,
     has_native_tile,
     jma_target_times_paths,
@@ -41,8 +41,7 @@ from app.domain.weather_elements import (
     weather_element_tile,
 )
 from app.domain.wind_grid import WIND_GRID_BBOX
-from app.infrastructure.jma_tile_client import JmaTileClient
-from app.infrastructure.jma_tile_client import EmptyTile
+from app.infrastructure.jma_tile_client import EmptyTile, JmaTileClient, get_target_times
 from app.infrastructure.jma_tile_content import is_empty_tile
 from app.infrastructure.jma_tile_index import set_index
 from app.infrastructure.jma_tile_interpolation import parse_tile_path
@@ -177,17 +176,6 @@ async def _store_index(
     await set_index(payload)
 
 
-async def _fetch_target_times(client: JmaTileClient, path: str) -> list[dict] | None:
-    raw = await client.get(path)
-    if raw is None or isinstance(raw, EmptyTile):
-        return None
-    content, _content_type = raw
-    try:
-        return json.loads(content)
-    except (ValueError, TypeError):
-        return None
-
-
 async def prewarm_jma_tiles(client: JmaTileClient) -> None:
     """対象範囲のタイルを列挙し、`JmaTileClient.get()`で取得する。
 
@@ -195,7 +183,7 @@ async def prewarm_jma_tiles(client: JmaTileClient) -> None:
     ——持つと、通常の取得経路とキャッシュの形が分かれる。
     """
     started = time.monotonic()
-    target_times_cache: dict[str, list[dict] | None] = {}
+    target_times_cache: dict[str, list[TargetTimesRow] | None] = {}
     all_paths: list[str] = []
     skipped_labels: list[str] = []
     layer_frames: dict[str, JmaFrame] = {}
@@ -203,10 +191,10 @@ async def prewarm_jma_tiles(client: JmaTileClient) -> None:
     for stages in _STAGES:
         stage_frames: list[list[JmaFrame]] = []
         for layer in stages:
-            rows: list[dict] = []
+            rows: list[TargetTimesRow] = []
             for target_times_path in layer.target_times_paths:
                 if target_times_path not in target_times_cache:
-                    target_times_cache[target_times_path] = await _fetch_target_times(client, target_times_path)
+                    target_times_cache[target_times_path] = await get_target_times(client, target_times_path)
                 rows.extend(target_times_cache[target_times_path] or [])
             stage_frames.append(read_target_times(layer.reader, rows, layer.element_id))
         for layer, frame in zip(stages, stage_first_frames(stage_frames), strict=True):

@@ -10,7 +10,7 @@ from app.domain.warning_levels import WarningBadgeLevel
 from app.domain.route import Coordinates
 from app.domain.wbgt import is_within_provision_period, wbgt_level
 from app.domain.wbgt_points import nearest_point
-from app.infrastructure.wbgt_client import fetch_forecast, fetch_point_master
+from app.infrastructure.wbgt_client import WbgtForecast, fetch_forecast, fetch_point_master
 from app.domain.strict_model import StrictModel
 
 # 発表（reference_time）は概ね毎時だが遅延もありうるため、直近この時間幅で発表時刻を
@@ -53,54 +53,38 @@ class WbgtService:
 
         range_to = now.strftime("%Y%m%d%H%M%S")
         range_from = (now - timedelta(hours=_FORECAST_SEARCH_WINDOW_HOURS)).strftime("%Y%m%d%H%M%S")
-        data = await fetch_forecast(self._http_client, nearest.no, range_from, range_to)
-        if not data:
+        forecasts = await fetch_forecast(self._http_client, nearest.no, range_from, range_to)
+        if not forecasts:
             return _empty_status()
 
-        entry = _pick_nearest_forecast(data, now)
-        if entry is None:
+        forecast = _pick_nearest_forecast(forecasts, now)
+        if forecast is None or forecast.wbgt is None:
             return _empty_status()
 
-        try:
-            value = float(entry["forecast_val"]) / 10.0
-        except (KeyError, TypeError, ValueError):
-            return _empty_status()
-
-        level_info = wbgt_level(value)
+        level_info = wbgt_level(forecast.wbgt)
         if level_info is None:
             return _empty_status()
         level, label = level_info
-        return WbgtStatus(level=level, label=label, value=value, observed_at=entry.get("forecast_time"))
+        return WbgtStatus(level=level, label=label, value=forecast.wbgt, observed_at=forecast.forecast_time_text)
 
 
-def _pick_nearest_forecast(data: list[dict], now: datetime) -> dict | None:
-    """最新の発表回に絞ったうえで、現在時刻に最も近いforecast_timeを選ぶ。
+def _pick_nearest_forecast(forecasts: list[WbgtForecast], now: datetime) -> WbgtForecast | None:
+    """最新の発表回に絞ったうえで、現在時刻に最も近い対象時刻の予測を選ぶ。
 
     検索窓を広げて取得したレスポンスには発表回（reference_time）が複数混ざる。絞らずに
     「現在時刻に最も近い」を選ぶと、新しい発表回で既に置き換わっている値を拾いうる。
     """
-    latest_reference_time: str | None = None
-    for entry in data:
-        reference_time = entry.get("reference_time")
-        if reference_time and (latest_reference_time is None or reference_time > latest_reference_time):
-            latest_reference_time = reference_time
-    if latest_reference_time is None:
+    if not forecasts:
         return None
+    latest_reference_time = max(forecast.reference_time for forecast in forecasts)
 
     now_naive = now.replace(tzinfo=None)
-    best: dict | None = None
+    best: WbgtForecast | None = None
     best_diff: float | None = None
-    for entry in data:
-        if entry.get("reference_time") != latest_reference_time:
+    for forecast in forecasts:
+        if forecast.reference_time != latest_reference_time or forecast.forecast_time is None:
             continue
-        raw_time = entry.get("forecast_time")
-        if not raw_time:
-            continue
-        try:
-            forecast_time = datetime.strptime(raw_time, "%Y/%m/%d %H:%M:%S")
-        except ValueError:
-            continue
-        diff = abs((forecast_time - now_naive).total_seconds())
+        diff = abs((forecast.forecast_time - now_naive).total_seconds())
         if best_diff is None or diff < best_diff:
-            best, best_diff = entry, diff
+            best, best_diff = forecast, diff
     return best

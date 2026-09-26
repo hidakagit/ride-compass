@@ -228,7 +228,8 @@ URLも変わるため、ブラウザキャッシュ（`api/cache_policy.py`）�
 宣言から導く（プリウォーム側に要素idの一覧を持たない。宣言へ1件足せば温まる）。
 予報フレームを複数持つ要素（降水・雷・竜巻）も、温めるのは時刻の段ごとに1フレームだけ——
 全フレームを温めるとタイル数が桁違いに膨らむ。選ぶのは**画面がその段で最初に描くフレーム**で、
-画面と同じ手順で求める: 時刻一覧の行を、画面へ配るのと同じ読み方の宣言（`weather_element_deliveries()`の
+画面と同じ手順で求める: 時刻一覧を`jma_tile_client.py: get_target_times`が行（コマと、そのコマのタイルがある
+配信要素）へ解き、画面へ配るのと同じ読み方の宣言（`weather_element_deliveries()`の
 `reader`）に従って`jma_tile_specs.read_target_times()`がコマにし、`weather_elements.stage_first_frames()`が
 画面の`sourceTimeline`と同じつなぎ方で段をつないで、各段の最初のコマを返す。先頭の段では時系列の左端
 （実況＋予測なら最新の実況、「現在」の単一値なら最新の行）、2段目以降（降水短時間予報）では前の段の最後の
@@ -306,7 +307,9 @@ URLも変わるため、ブラウザキャッシュ（`api/cache_policy.py`）�
   API呼び出しを避けるためだけの判定で、正確性の最終防線ではない）。複数の発表回
   （`reference_time`）が検索窓に混在しうるため、まず最新の発表回に絞ってから現在時刻に
   最も近い`forecast_time`を選ぶ2段階選択を行う。現在時刻は呼び出し側（`/api/weather/wbgt`）が
-  JSTで渡し、サービスは時計を読まない。
+  JSTで渡し、サービスは時計を読まない。予測値の形（キー名・時刻の表記・10倍された暑さ指数）は
+  `wbgt_client.py: WbgtForecast`へ解く。発表時刻の無い行は載せず、対象時刻・値が読めない行は
+  その項目をNoneで持つ（最新の発表回を決めるのには数え、選ぶ対象からは外れる）。
 
 - **`FloodService`**: 河川洪水予報。`WarningService`と同じ`jma_area.resolve_area`を
   再利用して地点解決する。JMA洪水予報はstatus文字列ではなく`item.code`自体が発表/継続/

@@ -11,9 +11,9 @@ MapLibreの`maxzoom`（frontendへは`domain/weather_elements.py: WEATHER_ELEMEN
 （`services/jma_tile_prewarm_service.py`）は、いずれも`effective_max_zoom()`でこの1箇所から導く。
 """
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import Any, Literal, NamedTuple, assert_never
+from typing import Literal, NamedTuple, assert_never
 
 #: 配信元がタイルを生成するズームの偶奇。`"all"`は偶奇の制約が無いことを表す。
 ZoomUse = Literal["even", "odd", "all"]
@@ -144,19 +144,21 @@ class JmaFrame(NamedTuple):
     validtime: str
 
 
-def read_target_times(
-    reader: TargetTimesReader, rows: Sequence[Mapping[str, Any]], element_id: str
-) -> list[JmaFrame]:
+class TargetTimesRow(NamedTuple):
+    """時刻一覧の1行（1つのコマと、そのコマのタイルがある配信要素）。"""
+
+    frame: JmaFrame
+    elements: tuple[str, ...]
+
+
+def read_target_times(reader: TargetTimesReader, rows: Sequence[TargetTimesRow], element_id: str) -> list[JmaFrame]:
     """時刻一覧の行を、その要素のコマ（`validtime`の順）にする。
 
     画面（frontend `jmaDelivery.ts`の`READERS`）と同じ読み方をする——温めるフレームと在否インデックスの
     フレームは、画面が描くフレームと一致しないと役に立たない（インデックスは一致したフレームにしか使われない）。
-    1つの時刻一覧には別の要素の行も載るため、先にその要素の行へ絞る。"""
-    frames = [
-        JmaFrame(row["basetime"], row.get("member", "none"), row["validtime"])
-        for row in rows
-        if element_id in row.get("elements", [])
-    ]
+    1つの時刻一覧には別の要素の行も載るため、先にその要素の行へ絞る。時刻一覧の形は
+    `infrastructure/jma_tile_client.py`が行へ解く。"""
+    frames = [row.frame for row in rows if element_id in row.elements]
     match reader:
         case "nowcast":
             return _read_nowcast(frames)

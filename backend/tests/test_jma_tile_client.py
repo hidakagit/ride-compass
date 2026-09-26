@@ -1,4 +1,4 @@
-"""`infrastructure/jma_tile_client.py`——JMA bosaiのプロキシ、2系統のキャッシュ、上流への秒間上限。
+"""`infrastructure/jma_tile_client.py`——JMA bosaiのプロキシ、2系統のキャッシュ、上流への秒間上限、時刻一覧を行へ解くこと。
 
 ここで見ないもの:
 - 共有キャッシュ（Redis）の格納形式・TTL・空タイルの表し方 → `test_jma_tile_redis_cache.py`
@@ -10,10 +10,12 @@
 実時間を消費させず、待った長さだけを記録する。
 """
 
+import json
 import time
 
 import pytest
 
+from app.domain.jma_tile_specs import JmaFrame, TargetTimesRow
 from app.infrastructure import jma_tile_client
 from tests.fake_external_log import record_external_calls
 from tests.fake_tile_http import FakeHttpClient
@@ -350,3 +352,45 @@ async def test_a_failed_fetch_stays_a_failure(monkeypatch, sleeps):
     result = await jma_tile_client.JmaTileClient(http_client).get(TILE_PATH)
 
     assert result is None
+
+
+# --- 時刻一覧を行へ解く ---------------------------------------------------------------
+
+
+async def _target_time_rows(monkeypatch, content: bytes):
+    install_fakes(monkeypatch)
+    client = jma_tile_client.JmaTileClient(FakeHttpClient(content, "application/json"))
+    return await jma_tile_client.get_target_times(client, TARGET_TIMES_PATH)
+
+
+async def test_a_time_listing_row_becomes_a_frame_and_the_elements_it_has_tiles_for(monkeypatch, sleeps):
+    # 行の形は2026-09-27に取得した時刻一覧のまま（降水短時間予報は`member`を持ち、ナウキャストは持たない）。
+    content = json.dumps([
+        {"basetime": "20260926220000", "validtime": "20260927130000", "member": "none",
+         "elements": ["rasrf", "rasrf_point", "rasrf_nd"]},
+        {"basetime": "20260926224000", "validtime": "20260926224000", "elements": ["hrpns", "hrpns_nd"]},
+    ]).encode()
+
+    rows = await _target_time_rows(monkeypatch, content)
+
+    assert rows == [
+        TargetTimesRow(JmaFrame("20260926220000", "none", "20260927130000"), ("rasrf", "rasrf_point", "rasrf_nd")),
+        TargetTimesRow(JmaFrame("20260926224000", "none", "20260926224000"), ("hrpns", "hrpns_nd")),
+    ]
+
+
+async def test_rows_without_the_frame_times_are_skipped(monkeypatch, sleeps):
+    content = json.dumps([
+        {"basetime": "20260926224000", "elements": ["hrpns"]},
+        "broken",
+        {"basetime": "20260926224000", "validtime": "20260926224000"},
+    ]).encode()
+
+    rows = await _target_time_rows(monkeypatch, content)
+
+    assert rows == [TargetTimesRow(JmaFrame("20260926224000", "none", "20260926224000"), ())]
+
+
+@pytest.mark.parametrize("content", [b"<html>maintenance</html>", b'{"basetime": "20260926224000"}'])
+async def test_a_time_listing_that_is_not_a_json_array_reads_as_nothing(monkeypatch, sleeps, content):
+    assert await _target_time_rows(monkeypatch, content) is None

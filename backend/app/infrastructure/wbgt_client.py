@@ -4,12 +4,15 @@
 `man15NH/wbgt_data_api_service_manual.pdf`）を叩く。サイト側の利用上の注意
 （wbgt_data_download.php）に「自動化ツールからの高頻度アクセスは控えて」と明記されて
 いるため、再試行は設けずTTLキャッシュで呼び出し頻度自体を抑える。取得失敗はNoneを返し、
-呼び出し元（wbgt_service.py）が「警告なし」として扱う。
+呼び出し元（wbgt_service.py）が「警告なし」として扱う。応答の形（CSVの列・JSONのキー・
+度と分の座標・10倍された暑さ指数）はここで解き、呼び出し元へは`WbgtPoint`・`WbgtForecast`で渡す。
 """
 
 import csv
 import io
 import logging
+from dataclasses import dataclass
+from datetime import datetime
 
 import httpx
 from cachetools import TTLCache
@@ -101,7 +104,42 @@ def _parse_point_master(csv_text: str) -> list[WbgtPoint]:
     return points
 
 
-async def fetch_forecast(client: httpx.AsyncClient, wbgt_no: str, range_from: str, range_to: str) -> list[dict] | None:
+@dataclass(frozen=True)
+class WbgtForecast:
+    """暑さ指数の予測値1件。発表時刻の無い行は載せない。"""
+
+    #: 発表時刻（配信元の表記。同じ表記どうしの大小がそのまま時刻の前後になる）。
+    reference_time: str
+    #: 予測の対象時刻（JSTの素の時刻）。読めない行はNone。
+    forecast_time: datetime | None
+    #: 対象時刻の配信元の表記（応答へそのまま出す）。
+    forecast_time_text: str | None
+    #: 暑さ指数。値が無い・読めない行はNone。
+    wbgt: float | None
+
+
+def _parse_forecast(entry: dict) -> WbgtForecast | None:
+    reference_time = entry.get("reference_time")
+    if not reference_time:
+        return None
+    raw_time = entry.get("forecast_time")
+    try:
+        forecast_time = datetime.strptime(raw_time, "%Y/%m/%d %H:%M:%S") if raw_time else None
+    except ValueError:
+        forecast_time = None
+    try:
+        # 配信元は暑さ指数を10倍した整数文字列で返す（例: "280"→28.0）。
+        wbgt: float | None = float(entry["forecast_val"]) / 10.0
+    except (KeyError, TypeError, ValueError):
+        wbgt = None
+    return WbgtForecast(
+        reference_time=reference_time, forecast_time=forecast_time, forecast_time_text=raw_time, wbgt=wbgt
+    )
+
+
+async def fetch_forecast(
+    client: httpx.AsyncClient, wbgt_no: str, range_from: str, range_to: str
+) -> list[WbgtForecast] | None:
     """指定地点の暑さ指数予測値列（3時間刻み、翌々日まで）を取得する。
 
     `range_from`/`range_to`はYYYYMMDDHHMMSS形式（発表時刻=reference_timeの検索範囲。
@@ -111,8 +149,7 @@ async def fetch_forecast(client: httpx.AsyncClient, wbgt_no: str, range_from: st
     19時発表がヒットする、等）。発表は概ね毎時行われるが遅延もありうるため、
     date_search_type=1（連続期間指定）で直近の発表を幅広く取得し、複数の発表回
     （reference_time）が返ってきた場合は呼び出し元（wbgt_service.py）が最新の発表回
-    だけを使う。レスポンスの`forecast_val`は暑さ指数を10倍した整数文字列（例:
-    東京地点でforecast_val="280"→暑さ指数28.0）のため、呼び出し元で10で割ること。
+    だけを使う。
     """
     params: dict[str, str | int] = {
         "location_type": 1,
@@ -122,19 +159,25 @@ async def fetch_forecast(client: httpx.AsyncClient, wbgt_no: str, range_from: st
         "range_date_to": range_to,
     }
 
-    async def fetch() -> list[dict]:
+    async def fetch() -> list[WbgtForecast]:
         response = await client.get(WBGT_FORECAST_API_URL, params=params, timeout=REQUEST_TIMEOUT)
         response.raise_for_status()
         body = response.json()
-        if body.get("status") != "success":
+        if not isinstance(body, dict) or body.get("status") != "success":
             raise UnexpectedShapeError("wbgt forecast response is not successful")
-        return body.get("data")
+        data = body.get("data")
+        if not isinstance(data, list):
+            raise UnexpectedShapeError(f"wbgt forecast data is {type(data).__name__}")
+        return [
+            forecast
+            for entry in data
+            if isinstance(entry, dict) and (forecast := _parse_forecast(entry)) is not None
+        ]
 
     return await cached_fetch(
         "weather:wbgt-forecast",
         fetch,
         cache=_forecast_cache,
         key=wbgt_no,
-        expect=list,
         wbgt_no=wbgt_no,
     )

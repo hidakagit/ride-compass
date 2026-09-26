@@ -1,4 +1,5 @@
 import asyncio
+import json
 import re
 import time
 
@@ -6,6 +7,7 @@ import httpx
 from cachetools import TTLCache
 
 from app.config import settings
+from app.domain.jma_tile_specs import JmaFrame, TargetTimesRow
 from app.infrastructure import jma_tile_redis_cache
 from app.infrastructure.debug_log import error_type_label, log_external_call
 from app.infrastructure.jma_tile_redis_cache import EmptyTile
@@ -174,3 +176,29 @@ class JmaTileClient:
             return await self.fetch(path)
         except JmaTileNotFoundError:
             return jma_tile_redis_cache.EMPTY_TILE
+
+
+async def get_target_times(client: JmaTileClient, path: str) -> list[TargetTimesRow] | None:
+    """時刻一覧（`targetTimes*.json`）を`client.get`で引き、行へ解く。取れない・JSONの配列でない
+    ときはNone。コマの時刻を欠く行は読み飛ばす。
+
+    画面へは同じ時刻一覧を中継するだけで、解くのはbackendがコマを選ぶ（プリウォーム）ときだけ。"""
+    raw = await client.get(path)
+    if raw is None or isinstance(raw, EmptyTile):
+        return None
+    content, _content_type = raw
+    try:
+        payload = json.loads(content)
+    except (ValueError, TypeError):
+        return None
+    if not isinstance(payload, list):
+        return None
+    return [
+        TargetTimesRow(
+            # 系列を持たない行（nowc）には`member`が無い。タイルのパスでは"none"と書く。
+            frame=JmaFrame(row["basetime"], row.get("member", "none"), row["validtime"]),
+            elements=tuple(row.get("elements", ())),
+        )
+        for row in payload
+        if isinstance(row, dict) and "basetime" in row and "validtime" in row
+    ]
