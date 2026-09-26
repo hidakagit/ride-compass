@@ -10,7 +10,7 @@ from app.services.accident_service import AccidentService
 router = APIRouter()
 
 # 同時実行数の上限（settings.accident_tile_max_concurrent）。road-surface-tilesの
-# 同時実行制限（routers/region.py）と同じ理由（キャッシュミスのバーストが遠隔DBへ
+# 同時実行制限（routers/region.py）と同じ理由（キャッシュミスのバーストがDBへ
 # 無制限に並ぶのを防ぐ歯止め）で、待たせて全件処理する方式も揃える。
 _accident_tile_semaphore = asyncio.Semaphore(settings.accident_tile_max_concurrent)
 
