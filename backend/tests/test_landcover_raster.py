@@ -28,7 +28,17 @@ _TILE_Z, _TILE_X, _TILE_Y = 14, 14548, 6451
 
 
 @pytest.fixture
-def synthetic_raster(tmp_path, monkeypatch):
+def unopened_sources(monkeypatch):
+    """開いたラスタはプロセス内のモジュール変数に残り、以後は設定を読み直さない。設定したラスタを
+    読ませるため、まだ開いていない状態から始め、テストが開いたものは閉じる。"""
+    monkeypatch.setattr(landcover_raster, "_sources", None)
+    yield
+    for source in landcover_raster._sources or []:
+        source.dataset.close()
+
+
+@pytest.fixture
+def synthetic_raster(tmp_path, monkeypatch, unopened_sources):
     """左半分が樹木・右半分が建物の合成ラスタを設定へ差し込む。"""
     path = tmp_path / "54S_synthetic.tif"
     data = np.full((_SIZE_PX, _SIZE_PX), LULC_TREES, dtype=np.uint8)
@@ -48,9 +58,7 @@ def synthetic_raster(tmp_path, monkeypatch):
         dataset.write(data, 1)
 
     monkeypatch.setattr(settings, "lulc_raster_paths", str(path))
-    landcover_raster.reset_sources_for_testing()
-    yield path
-    landcover_raster.reset_sources_for_testing()
+    return path
 
 
 def _colors(png: bytes) -> set[tuple[int, int, int, int]]:
@@ -95,10 +103,7 @@ def test_render_tile_outside_raster_returns_none(synthetic_raster):
     assert landcover_raster.render_tile(_TILE_Z, 0, 0) is None
 
 
-def test_render_tile_without_raster_configured(monkeypatch):
+def test_render_tile_without_raster_configured(monkeypatch, unopened_sources):
     monkeypatch.setattr(settings, "lulc_raster_paths", "")
-    landcover_raster.reset_sources_for_testing()
-    try:
-        assert landcover_raster.has_sources() is False
-    finally:
-        landcover_raster.reset_sources_for_testing()
+
+    assert landcover_raster.has_sources() is False

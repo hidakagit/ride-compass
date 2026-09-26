@@ -64,9 +64,3 @@ def record_redis_failure() -> None:
 def record_redis_success() -> None:
     global _last_failure_at
     _last_failure_at = None
-
-
-def reset_circuit_breaker() -> None:
-    """テスト用: サーキットブレーカーの状態をクリアする。"""
-    global _last_failure_at
-    _last_failure_at = None

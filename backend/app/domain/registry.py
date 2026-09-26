@@ -1,15 +1,10 @@
-"""一次属性のレジストリと、地図表示の宣言の型。
+"""一次属性と、地図表示の宣言の型。
 
-レジストリが保証するのは**一次属性の語彙が一意であること**だけである——同じ`attr_id`を
-2度登録できず、登録した語彙は`all_primary_attributes()`が返す（ビルド時生成物
-`primaryAttributes.ts`の元）。軸は登録しない（実行時の軸カタログは
-`GET /api/axis-catalog`が配り、材料が2つの軸へ跨がらないことは
-`axis_definitions.AxisMaterialConflictError`が軸の書き込み時に拒む）。
+一次属性の語彙そのものは`domain/material_catalog.py`の`PRIMARY_ATTRIBUTES`が宣言する
+（ビルド時生成物`primaryAttributes.ts`の元）。
 
-`AxisDisplaySpec`/`TileInputSpec`はレジストリの状態ではなく、地図が軸をどう塗るかの
-宣言の型で、`domain/axis_display.py`が組み立て`GET /api/axis-catalog`がそのまま配る。
-
-登録そのものはここでは行わない（`domain/registry_defaults.py`が呼ぶ）。
+`AxisDisplaySpec`/`TileInputSpec`は地図が軸をどう塗るかの宣言の型で、
+`domain/axis_display.py`が組み立て`GET /api/axis-catalog`がそのまま配る。
 """
 
 from typing import Literal
@@ -195,21 +190,3 @@ class AxisDisplaySpec(StrictModel):
             # 昇順でない段はフロントのstep式が読めず、境界が1つ先の帯へ吸われる。
             raise ValueError(f"display '{self.label}' thresholds are not ascending: {self.thresholds}")
         return self
-
-
-_PRIMARY_ATTRIBUTES: dict[str, PrimaryAttributeSpec] = {}
-
-
-def register_primary_attribute(spec: PrimaryAttributeSpec) -> None:
-    if spec.attr_id in _PRIMARY_ATTRIBUTES:
-        raise ValueError(f"primary attribute already registered: {spec.attr_id}")
-    _PRIMARY_ATTRIBUTES[spec.attr_id] = spec
-
-
-def all_primary_attributes() -> list[PrimaryAttributeSpec]:
-    return list(_PRIMARY_ATTRIBUTES.values())
-
-
-def reset_registry_for_testing() -> None:
-    """テスト用: グローバルなレジストリ状態を空に戻す。本体コードからは呼ばない。"""
-    _PRIMARY_ATTRIBUTES.clear()

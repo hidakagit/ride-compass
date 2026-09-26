@@ -13,7 +13,7 @@
 
 | レイヤー | ファイル |
 |---|---|
-| domain | `axis_definitions.py`・`axis_display.py`・`axis_raw_value.py`・`axis_templates.py`・`registry.py`・`registry_defaults.py` |
+| domain | `axis_definitions.py`・`axis_display.py`・`axis_raw_value.py`・`axis_templates.py`・`registry.py` |
 | services | `axis_registry_service.py`・`axis_preview_service.py` |
 | infrastructure | `axis_definition_models.py`・`axis_definition_repository.py` |
 | api | `axis_admin.py`・`axis_catalog.py` |
@@ -314,16 +314,15 @@ DB側の値が変わっても追従しない。軸の中身が主題でないテ
 `GET /api/axis-catalog`が`material_breakdown`として、材料id・表示名・型・単位・
 正規化重みの並びで配信する（フロントは材料の対応表も並べ替えも持たない）。
 
-## 一次属性レジストリ（`domain/registry.py`・`registry_defaults.py`、別系統）
+## 一次属性の語彙（`domain/material_catalog.py: PRIMARY_ATTRIBUTES`、別系統）
 
-**`AXIS_DEFINITIONS`とは別の、一次属性の語彙だけを持つレジストリ**。
-`register_primary_attribute()`が`_PRIMARY_ATTRIBUTES`（モジュールレベルdict）へ登録し、
-同じ`attr_id`の二重登録を拒む。軸は登録しない——材料が2つの軸へ跨がらないことの検査は
-`AXIS_DEFINITIONS`側の`check_material_exclusivity`/`AxisMaterialConflictError`（軸の書き込み時）
-だけが持つ。
+**`AXIS_DEFINITIONS`とは別の、一次属性の語彙**。型（`PrimaryAttributeSpec`）は`domain/registry.py`が持つ。
+語彙は材料カタログと同じファイルのタプル`PRIMARY_ATTRIBUTES`が宣言し、同じ`attr_id`を2度宣言すると
+モジュールのimport時に落ちる（読む側はidで1件を引くため、後の宣言が黙って消える）。軸は含まない——
+材料が2つの軸へ跨がらないことの検査は`AXIS_DEFINITIONS`側の`check_material_exclusivity`/
+`AxisMaterialConflictError`（軸の書き込み時）だけが持つ。
 
-**語彙の正本は`domain/material_catalog.py`の`PRIMARY_ATTRIBUTES`**（材料カタログと同じファイル）で、
-`register_defaults()`はそれを登録するだけである。材料（`MaterialSpec.primary_attribute`）は一次属性を
+材料（`MaterialSpec.primary_attribute`）は一次属性を
 idの文字列ではなく宣言そのもので指す。材料が指す要素には`PRIMARY_ATTRIBUTES`の表の中で`:=`により
 名前を付け、材料はその名前を書く——名前は表の要素にしか付かないので、表に無い一次属性を指す材料は
 書けない（書けばモジュールのimport時に未定義の名前で落ち、`ruff`も未定義名として出す）。
@@ -332,9 +331,8 @@ idの文字列ではなく宣言そのもので指す。材料が指す要素に
 現れないため評価に効かない。一次属性が複数の材料に共有される（例: `landcover`は土地被覆の区分ごとの材料が指す）ため、
 名前・幾何・地図の束ね方は材料ではなく一次属性の側に1回だけ書く。
 
-**暗黙の前提（最重要）**: `register_defaults()`は**FastAPIアプリの起動時には一切呼ばれない**。
-実際の呼び出し元は`scripts/export_openapi.py`（ビルド時、一次属性の名前を
-`primaryAttributes.ts`へ書き出す）とテストのみ。**軸カタログそのものにビルド時の写しは
+語彙をフロントへ届けるのはビルド時の`scripts/export_openapi.py`
+（一次属性の名前を`primaryAttributes.ts`へ書き出す）。**軸カタログそのものにビルド時の写しは
 無い**——frontendは`GET /api/axis-catalog`が返したものだけを使う
 （[設計原則](../../architecture/design-principles.md)構造仕様9）。ビルド時には
 `AXIS_DEFINITIONS`が空（DBから埋めるのは実行時の`refresh_axis_definitions`だけ）なので、

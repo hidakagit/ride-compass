@@ -182,14 +182,6 @@ def get_stats() -> dict:
         return {"external": external, "rate_limit_rejections": dict(_rejections)}
 
 
-def reset_stats() -> None:
-    """集計とWARNING抑制窓をクリアする(テスト用)。"""
-    with _lock:
-        _stats.clear()
-        _rejections.clear()
-        _warn_windows.clear()
-
-
 @contextmanager
 def log_external_call(category: str, **fields: object) -> Iterator[dict]:
     """外部API呼び出し・キャッシュアクセスをカテゴリ単位でログ・集計する。

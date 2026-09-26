@@ -103,15 +103,6 @@ def _open_sources() -> list[_RasterSource]:
         return _sources
 
 
-def reset_sources_for_testing() -> None:
-    """開いたラスタを閉じて未初期化へ戻す（設定を差し替えるテスト用）。"""
-    global _sources
-    with _sources_lock:
-        for source in _sources or []:
-            source.dataset.close()
-        _sources = None
-
-
 def _read_decimated(source: _RasterSource, bounds: tuple[float, float, float, float]):
     """ラスタ`source`から`bounds`（そのラスタのCRS）を覆う部分を、必要なら間引いて読む。
 

@@ -21,6 +21,7 @@ _ROAD_SURFACE_TILE_MVT_SQL`）に既に焼き込まれているプロパティ�
 タイル非依存＝地図レイヤーのramp自動生成が不可能なことを表す）。
 """
 
+from collections import Counter
 from dataclasses import dataclass
 
 from typing import Literal, NamedTuple
@@ -634,6 +635,10 @@ PRIMARY_ATTRIBUTES: tuple[PrimaryAttributeSpec, ...] = (
         ),
     ),
 )
+# 読む側はidで1件を引く（`next(...)`）ため、同じidを2度宣言すると後の宣言が黙って消える。
+_REPEATED_ATTR_IDS = sorted(attr_id for attr_id, n in Counter(a.attr_id for a in PRIMARY_ATTRIBUTES).items() if n > 1)
+if _REPEATED_ATTR_IDS:
+    raise ValueError(f"primary attribute declared more than once: {_REPEATED_ATTR_IDS}")
 
 
 def stop_poi_map_group_sql(alias: str) -> str:
@@ -714,8 +719,8 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
         ),
         dtype="numeric",
         # 気象は動的データ（出発時刻依存）のためタイルに焼き込めない（`domain/wind.py:
-        # wind_drag_ratio_array`がリクエスト時に計算する）。対応する一次属性も未登録
-        # （動的気象は一次属性レジストリの対象外）。
+        # wind_drag_ratio_array`がリクエスト時に計算する）。対応する一次属性も持たない
+        # （動的気象は`PRIMARY_ATTRIBUTES`の対象外）。
         tile_property=None,
         tile_property_direction_dependent=True,
         reference_points=[

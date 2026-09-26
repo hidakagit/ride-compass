@@ -63,9 +63,8 @@ export function axisLabelsFromCatalogAxes(axes: readonly AxisCatalogEntry[]): Re
 /** `runtimeScales`（GET /api/axis-catalogのmaterial_runtime_scales、tile property名→スケール係数）は、
  * `needs_runtime_scale`なtile_inputの`weight`へ構築時に一度だけ掛け合わせて解決する（地図の式は
  * 解決済みのweightだけを見る）。
- * 該当するtile propertyのスケール係数がまだ解決できていない場合（収録年数0件等で
- * backendがキーを含めなかった場合）はweight=0として寄与を無くす（安全側のデグレード。
- * RegionService.get_accident_years_coveredのdocstring参照）。 */
+ * 該当するtile propertyのスケール係数がまだ解決できていない場合（事故データの収録年を
+ * 読めず、backendがキーを含めなかった場合）はweight=0として寄与を無くす（安全側のデグレード）。 */
 export function rampAxesFromCatalogAxes(
   axes: readonly AxisCatalogEntry[],
   runtimeScales: Readonly<Record<string, number>> = {},

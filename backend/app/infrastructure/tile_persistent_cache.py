@@ -36,15 +36,6 @@ def cache() -> diskcache.Cache:
     return _cache
 
 
-def use_directory(directory) -> None:
-    """キャッシュ先ディレクトリを差し替える（テスト専用）。開いていたキャッシュは閉じる。"""
-    global _cache, CACHE_DIR
-    if _cache is not None:
-        _cache.close()
-        _cache = None
-    CACHE_DIR = directory
-
-
 def get_by_key(key: tuple) -> Any | None:
     """任意のタプルキーで読む。キーの設計は呼び出し元が持つ（先頭要素をnamespaceにする）。
     未キャッシュ・破損時はNone。"""

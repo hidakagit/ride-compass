@@ -3,15 +3,10 @@
 import pytest
 from fastapi.testclient import TestClient
 
-from app.infrastructure.debug_log import log_external_call, record_rate_limit_rejection, reset_stats
+from app.infrastructure.debug_log import log_external_call, record_rate_limit_rejection
 from app.main import app
 
-
-@pytest.fixture(autouse=True)
-def _clean_stats():
-    reset_stats()
-    yield
-    reset_stats()
+pytestmark = pytest.mark.usefixtures("empty_debug_counters")
 
 
 def test_debug_stats_returns_snapshot():

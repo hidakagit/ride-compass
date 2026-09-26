@@ -45,27 +45,17 @@ async def test_second_call_within_ttl_does_not_read_db():
     assert repository.calls == 1
 
 
-async def test_force_reads_db_even_within_ttl():
-    repository = FakeRepository(7)
-    await derived_data_revision_service.refresh_current_revision(repository)
-    repository.revision = 8
-
-    await derived_data_revision_service.refresh_current_revision(repository, force=True)
-
-    assert repository.calls == 2
-    assert derived_data_revision_service.current_revision() == 8
-
-
-async def test_db_failure_keeps_the_last_revision():
+async def test_db_failure_keeps_the_last_revision(monkeypatch):
     """世代を読めないことは、配信を止める理由にはならない。前回読んだ値のまま配る。"""
 
     class ExplodingRepository:
         async def get_derived_data_revision(self):
             raise ConnectionRefusedError("DBに触れない")
 
+    monkeypatch.setattr(settings, "derived_data_revision_check_interval_seconds", 0.0)
     await derived_data_revision_service.refresh_current_revision(FakeRepository(7))
 
-    await derived_data_revision_service.refresh_current_revision(ExplodingRepository(), force=True)
+    await derived_data_revision_service.refresh_current_revision(ExplodingRepository())
 
     assert derived_data_revision_service.current_revision() == 7
 

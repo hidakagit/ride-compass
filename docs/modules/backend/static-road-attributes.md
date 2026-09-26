@@ -384,8 +384,9 @@ DB障害時は空タイルを返す。
   二次軸スコア・三次合成コスト（取得可能な軸だけの参考値）を返す。
 - `get_material_values(material_id)`: [軸スタジオ](axis-studio.md)向けの材料値動的列挙
   （`RoadGraphRepository.get_distinct_material_values`への薄い委譲）。
-- `get_accident_years_covered()`: [軸スタジオ](axis-studio.md)の`GET /api/axis-catalog`が
-  地図表示の実行時スケール定数を組み立てるために使う。
+- `get_accident_years()`: 事故データの収録年（取込プロファイルの宣言）。[軸スタジオ](axis-studio.md)の
+  `GET /api/axis-catalog`がそのまま地図の説明文へ配り、年の数で割る実行時スケール定数も
+  ここから組み立てる（読めず空なら定数を配らない）。
 - DB障害はいずれも安全側（空タイル/None/0/空リスト）へ倒す一貫した
   グレースフルデグレード方針。DB障害として捕まえるのは`DB_UNAVAILABLE_ERRORS`だけで、
   実装の誤りは500になる（[横断インフラ](cross-cutting-infrastructure.md)「DB障害として扱う例外」節）。

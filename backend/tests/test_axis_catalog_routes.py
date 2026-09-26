@@ -275,9 +275,8 @@ def test_get_axis_catalog_marks_accident_tile_input_as_needing_runtime_scale(cat
     assert accident_tile_inputs[0]["needs_runtime_scale"] is True
 
     # material_runtime_scalesは常にレスポンスへ含まれる（テスト環境はroad_graph_use_
-    # repository=Falseのためrepository未注入、RegionService.get_accident_years_coveredが
-    # 0を返し、0除算を避けてキー自体を含めない安全側の挙動になる——本番相当のDB接続時の
-    # 挙動はtest_region_service.pyのget_accident_years_covered系テスト参照）。
+    # repository=Falseのためrepository未注入、RegionService.get_accident_yearsが
+    # 空を返し、0除算を避けてキー自体を含めない安全側の挙動になる）。
     assert "material_runtime_scales" in body
     assert isinstance(body["material_runtime_scales"], dict)
 

@@ -22,11 +22,6 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from app.domain.registry import (  # noqa: E402
-    all_primary_attributes,
-    reset_registry_for_testing,
-)
-from app.domain.registry_defaults import register_defaults  # noqa: E402
 from app.domain.wind_grid import (  # noqa: E402
     WIND_GRID_DETAIL_MAX_POINTS,
     WIND_GRID_DETAIL_MIN_SPACING_DEG,
@@ -131,6 +126,7 @@ from app.domain.material_catalog import (  # noqa: E402
     MATERIAL_CATALOG,
     MISSING_SEMANTICS_DISPLAY,
     POPULATION_LABELS,
+    PRIMARY_ATTRIBUTES,
     display_axis_missing_semantics,
 )
 from app.domain.region import ROAD_TILE_MAX_ZOOM, ROAD_TILE_MIN_ZOOM  # noqa: E402
@@ -487,13 +483,11 @@ def main() -> None:
     # **軸そのものはここへ書き出さない。** 軸定義の正本は本番DBで、実行時の
     # `GET /api/axis-catalog`が配る。ビルド時に写しを持つと、API障害時に古い軸で
     # 地図が描かれ、伝播の失敗が見えなくなる。
-    reset_registry_for_testing()
-    register_defaults()
     _write_ts(
         PRIMARY_ATTRIBUTES_PATH,
         "primaryAttributes",
-        # 一次属性カタログ（地図レイヤー階層の次数反転）。レジストリ
-        # （`domain/registry.py`）だけから決まり、DBを読まない。各軸の
+        # 一次属性カタログ（地図レイヤー階層の次数反転）。宣言
+        # （`domain/material_catalog.py: PRIMARY_ATTRIBUTES`）だけから決まり、DBを読まない。各軸の
         # `primary_attribute_ids`は実行時の`GET /api/axis-catalog`が配るため、フロントは
         # この一覧のlabel（正式名）と突き合わせて1次↔2次の双方向導出ができる。
         # 宣言をそのまま配る。色だけは宣言に無いので`resolved_display_axes`が決め、値が欠けたときの意味は
@@ -506,7 +500,7 @@ def main() -> None:
                     for axis in resolved_display_axes(attr)
                 ],
             }
-            for attr in all_primary_attributes()
+            for attr in PRIMARY_ATTRIBUTES
         ],
     )
     # 風・降水延長予報の粗い格子の間隔と、詳細格子の問い合わせが受け付ける範囲（domain/wind_grid.py）。

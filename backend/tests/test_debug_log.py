@@ -17,6 +17,8 @@ from app.infrastructure import debug_log
 
 LOGGER_NAME = "ridecompass.external"
 
+pytestmark = pytest.mark.usefixtures("empty_debug_counters")
+
 
 class _Clock:
     def __init__(self) -> None:
@@ -34,13 +36,6 @@ def clock(monkeypatch):
     fake = _Clock()
     monkeypatch.setattr(debug_log, "time", fake)
     return fake
-
-
-@pytest.fixture(autouse=True)
-def _clean_counters():
-    debug_log.reset_stats()
-    yield
-    debug_log.reset_stats()
 
 
 @pytest.fixture

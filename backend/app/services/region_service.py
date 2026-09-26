@@ -189,15 +189,6 @@ class RegionService:
                 highway, tags, combined, landcover, preference or RoutePreference(),
             )
 
-    async def get_accident_years_covered(self) -> int:
-        """事故データの収録年数。タイルへ焼き込んだ年正規化前の生値を、フロントが
-        `1/この値`倍して件/(km・年)へ直す。
-
-        取得できなければ0へ倒す。呼び出し元は0を「解決不能」として扱い、スケール定数を
-        配らない（0除算を避ける）。
-        """
-        return len(await self.get_accident_years())
-
     async def get_accident_years(self) -> list[int]:
         """事故データの収録年。地図の説明文へ配る。
 

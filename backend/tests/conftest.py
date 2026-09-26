@@ -2,6 +2,7 @@ import asyncio
 import hashlib
 import os
 import re
+from contextlib import contextmanager
 from pathlib import Path
 
 from app.infrastructure.proj_data import pin_bundled_proj_data
@@ -16,7 +17,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 
 from app.batch._common import asyncpg_dsn
-from app.infrastructure import rate_limiter, redis_client, tile_cache, tile_persistent_cache
+from app.infrastructure import debug_log, rate_limiter, redis_client, tile_cache, tile_persistent_cache
 from app.infrastructure.orm_base import Base
 from app.infrastructure.road_graph_repository import (
     REQUIRED_EXTENSIONS,
@@ -35,25 +36,31 @@ def admin_credentials(monkeypatch):
     monkeypatch.setattr(settings, "admin_basic_auth_password", ADMIN_PASSWORD)
 
 @pytest.fixture(autouse=True)
-def _reset_redis_circuit_breaker():
-    """redis_client.pyのサーキットブレーカー状態をテスト間でリセットする（改善計画T387）。
+def _closed_redis_circuit_breaker(monkeypatch):
+    """redis_client.pyのサーキットブレーカーは閉じた状態から始める。
 
-    グローバル状態（プロセス内モジュール変数）のため、Redis疎通不能をシミュレートする
-    テストが1つでも実行されると、リセットせずに残る限り無関係な後続テスト（正常系の
-    フェイクRedisを使うテスト）まで「クールダウン中」と誤判定されてしまう。
+    状態はプロセス内のモジュール変数に残るため、Redis疎通不能をシミュレートするテストが
+    1つでも実行されると、無関係な後続テスト（正常系のフェイクRedisを使うテスト）まで
+    「クールダウン中」と誤判定されてしまう。
     """
-    redis_client.reset_circuit_breaker()
-    yield
-    redis_client.reset_circuit_breaker()
+    monkeypatch.setattr(redis_client, "_last_failure_at", None)
 
 
 @pytest.fixture(autouse=True)
-def _reset_derived_data_revision():
-    """読んだ派生データの世代とTTLはプロセス内のモジュール変数に残る。前のテストが読んだ世代のまま
-    TTLの内側に入ると、後のテストのリポジトリは世代を聞かれず、鍵もディスクへ残すかも前のテストで決まる。"""
-    derived_data_revision_service.reset_for_tests()
-    yield
-    derived_data_revision_service.reset_for_tests()
+def _unread_derived_data_revision(monkeypatch):
+    """派生データの世代はまだ読んでいない状態から始める。読んだ世代とTTLはプロセス内のモジュール変数に
+    残り、前のテストが読んだ世代のままTTLの内側に入ると、後のテストのリポジトリは世代を聞かれず、鍵も
+    ディスクへ残すかも前のテストで決まる。"""
+    monkeypatch.setattr(derived_data_revision_service, "_next_check_at", 0.0)
+    monkeypatch.setattr(derived_data_revision_service, "_current_revision", None)
+
+
+@pytest.fixture
+def empty_debug_counters(monkeypatch):
+    """外部I/Oの集計と警告の抑制窓（infrastructure/debug_log.py）を空から始める。
+    どちらもプロセス内のモジュール変数で、前のテストが数えた分が残る。"""
+    for name in ("_stats", "_rejections", "_warn_windows"):
+        monkeypatch.setattr(debug_log, name, {})
 
 
 class RateLimitClock:
@@ -97,6 +104,24 @@ def rate_limit_clock(_rate_limit_clock_for_the_session) -> RateLimitClock:
 _DISK_CACHES = {"tile_persistent_cache": tile_persistent_cache, "tile_cache": tile_cache}
 
 
+@contextmanager
+def _disk_caches_in(patch: pytest.MonkeyPatch, directory_of):
+    """ディスクのキャッシュの置き場を差し替え、抜けるときに開いたキャッシュを閉じる。
+
+    キャッシュは最初に使われたときに開かれ、モジュール変数に残る。閉じずに置き場を戻すと、
+    開いたままのSQLiteが次の置き場を使うはずの呼び出しへそのまま渡る。
+    """
+    for name, module in _DISK_CACHES.items():
+        patch.setattr(module, "CACHE_DIR", directory_of(name))
+        patch.setattr(module, "_cache", None)
+    try:
+        yield
+    finally:
+        for module in _DISK_CACHES.values():
+            if module._cache is not None:
+                module._cache.close()
+
+
 @pytest.fixture(autouse=True, scope="session")
 def _keep_disk_caches_out_of_the_checkout(tmp_path_factory):
     """ディスクのキャッシュ（infrastructure/tile_persistent_cache.py・tile_cache.py）の置き場を、
@@ -108,26 +133,18 @@ def _keep_disk_caches_out_of_the_checkout(tmp_path_factory):
     落ちる。セッションスコープは関数スコープより必ず先にセットアップされ後に片付くため、
     ここで差し替えれば順序に関わらず共有の置き場へは届かない。
     """
-    originals = {name: module.CACHE_DIR for name, module in _DISK_CACHES.items()}
-    for name, module in _DISK_CACHES.items():
-        module.use_directory(tmp_path_factory.mktemp(name))
-    yield
-    for name, module in _DISK_CACHES.items():
-        module.use_directory(originals[name])
+    with pytest.MonkeyPatch.context() as patch, _disk_caches_in(patch, tmp_path_factory.mktemp):
+        yield
 
 
 @pytest.fixture(autouse=True)
-def _use_temp_disk_cache_dirs(tmp_path, _keep_disk_caches_out_of_the_checkout):
+def _use_temp_disk_cache_dirs(tmp_path, monkeypatch, _keep_disk_caches_out_of_the_checkout):
     """テストごとに空の置き場を渡す。キャッシュを消す・書くフィクスチャは、
     これを引数に取ってから動く（同じスコープのautouseは宣言順ではなく名前順に
     セットアップされるため、順序は依存で書く）。
     """
-    worker_dirs = {name: module.CACHE_DIR for name, module in _DISK_CACHES.items()}
-    for name, module in _DISK_CACHES.items():
-        module.use_directory(tmp_path / name)
-    yield
-    for name, module in _DISK_CACHES.items():
-        module.use_directory(worker_dirs[name])
+    with _disk_caches_in(monkeypatch, lambda name: tmp_path / name):
+        yield
 
 
 # road_graph_repository.pyのPostGIS統合テスト専用の接続先。開発機で稼働中の実DB

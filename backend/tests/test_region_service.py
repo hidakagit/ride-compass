@@ -177,15 +177,12 @@ async def test_accident_years_come_from_the_import_profile():
     service = RegionService(repository=_AccidentYearsRepository([2023, 2024]))
 
     assert await service.get_accident_years() == [2023, 2024]
-    # 年数は年の数から導く（同じ値を二重に持たない）。
-    assert await service.get_accident_years_covered() == 2
 
 
 async def test_accident_years_fall_back_to_empty_on_db_error():
     service = RegionService(repository=_AccidentYearsRepository(error=ConnectionRefusedError("db down")))
 
     assert await service.get_accident_years() == []
-    assert await service.get_accident_years_covered() == 0
 
 
 

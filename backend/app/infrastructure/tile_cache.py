@@ -33,15 +33,6 @@ def _opened() -> diskcache.Cache:
     return _cache
 
 
-def use_directory(directory: Path) -> None:
-    """キャッシュ先ディレクトリを差し替える（テスト専用）。開いていたキャッシュは閉じる。"""
-    global _cache, CACHE_DIR
-    if _cache is not None:
-        _cache.close()
-        _cache = None
-    CACHE_DIR = directory
-
-
 def get(path: str) -> tuple[bytes, str] | None:
     """キャッシュ済みなら(内容, Content-Type)を返す。未キャッシュ・読めないときはNone（呼び出し元が取り直す）。"""
     try:

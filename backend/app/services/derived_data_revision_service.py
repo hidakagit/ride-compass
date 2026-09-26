@@ -29,25 +29,16 @@ _next_check_at: float = 0.0
 _current_revision: int | None = None
 
 
-def reset_for_tests() -> None:
-    global _next_check_at, _current_revision
-    _next_check_at = 0.0
-    _current_revision = None
-
-
 def current_revision() -> int | None:
     """最後に読んだ派生データ世代。読めていなければNone。"""
     return _current_revision
 
 
-async def refresh_current_revision(repository, *, force: bool = False) -> None:
-    """TTLが切れていればDBの世代を読み直す。
-
-    `force`はTTLを待たず必ず確かめたい場合に使う（現在の呼び出し元はテストのみ）。
-    """
+async def refresh_current_revision(repository) -> None:
+    """TTLが切れていればDBの世代を読み直す。"""
     global _next_check_at, _current_revision
     now = time.monotonic()
-    if not force and now < _next_check_at:
+    if now < _next_check_at:
         return
     _next_check_at = now + settings.derived_data_revision_check_interval_seconds
 
