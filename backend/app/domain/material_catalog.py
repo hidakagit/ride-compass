@@ -30,7 +30,15 @@ from typing import Literal, NamedTuple
 
 from pydantic import ConfigDict, Field, model_validator
 
-from app.domain.landcover import LANDCOVER_RING_OUTER_M
+from app.domain.landcover import (
+    LANDCOVER_CLASSES,
+    LANDCOVER_RING_OUTER_M,
+    LULC_BARE,
+    LULC_FLOODED_VEG,
+    LandcoverClass,
+    landcover_key,
+    landcover_tile_property,
+)
 from app.domain.registry import DisplayAxisSpec, DisplayCategorySpec, PrimaryAttributeSpec
 
 from app.domain.material_sql import (
@@ -403,33 +411,6 @@ _HIGHWAY_VALUE_LABELS: dict[str, str] = {
     "track": "農道・林道",
 }
 
-_SURFACE_VALUE_LABELS: dict[str, str] = {
-    "asphalt": "アスファルト",
-    "paved": "舗装（種別不明）",
-    "chipseal": "チップシール舗装",
-    "concrete": "コンクリート",
-    "concrete:plates": "コンクリート版",
-    "concrete:lanes": "コンクリート帯（轍部のみ舗装）",
-    "paving_stones": "石畳（切石）",
-    "sett": "石畳（玉石）",
-    "cobblestone": "玉石舗装",
-    "unhewn_cobblestone": "玉石舗装（未加工）",
-    "bricks": "レンガ舗装",
-    "gravel": "砂利",
-    "fine_gravel": "細砂利",
-    "compacted": "締固め砂利",
-    "pebblestone": "小石敷き",
-    "rock": "岩盤",
-    "unpaved": "未舗装（種別不明）",
-    "dirt": "土",
-    "ground": "地面（土・砂利混合）",
-    "earth": "土（地表面）",
-    "mud": "泥",
-    "sand": "砂",
-    "grass": "芝・草地",
-    "woodchips": "ウッドチップ",
-}
-
 _SMOOTHNESS_VALUE_LABELS: dict[str, str] = {
     "excellent": "非常に良好（ロードバイク推奨）",
     "good": "良好",
@@ -671,10 +652,19 @@ def stop_poi_map_group_sql(alias: str) -> str:
     return kind_map_sql(kind, row_of, otherwise=kind)
 
 
-_LANDCOVER_DESCRIPTION_HEAD = (
-    "衛星画像の土地被覆データ（Esri×Impact Observatory）から算出した、"
-    f"道路周囲{LANDCOVER_RING_OUTER_M:g}mリング内の"
-)
+#: 表示名だけでは何を含むか読み取れないクラスの補足。材料の説明文で表示名の後ろへ括弧書きで添える。
+_LANDCOVER_CLASS_NOTES: dict[int, str] = {
+    LULC_BARE: "河川敷・造成地等",
+    LULC_FLOODED_VEG: "冠水植生",
+}
+
+
+def _landcover_description(cls: LandcoverClass) -> str:
+    note = _LANDCOVER_CLASS_NOTES.get(cls.value)
+    return (
+        "衛星画像の土地被覆データ（Esri×Impact Observatory）から算出した、"
+        f"道路周囲{LANDCOVER_RING_OUTER_M:g}mリング内の{cls.label}{f'（{note}）' if note else ''}の割合(%)。"
+    )
 
 
 #: コードが名指しで読む材料のid。カタログのキーにも同じ定数を使う——綴りを別々に書くと、
@@ -765,94 +755,21 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
         tile_property=None,
         coverage=_RAIN_COVERAGE,
     ),
-    "trees_percent": MaterialSpec(
-        material_id="trees_percent",
-        label="樹木被覆率",
-        description=f"{_LANDCOVER_DESCRIPTION_HEAD}樹木被覆の割合(%)。",
-        dtype="numeric",
-        unit="%",
-        tile_property="trees_pct",
-        primary_attribute=_ATTR_LANDCOVER,
-        value_sql=landcover_value_sql("trees"),
-        coverage=_landcover_coverage("trees"),
-    ),
-    "built_percent": MaterialSpec(
-        material_id="built_percent",
-        label="建物被覆率",
-        description=f"{_LANDCOVER_DESCRIPTION_HEAD}建物被覆の割合(%)。",
-        dtype="numeric",
-        unit="%",
-        tile_property="built_pct",
-        primary_attribute=_ATTR_LANDCOVER,
-        value_sql=landcover_value_sql("built"),
-        coverage=_landcover_coverage("built"),
-    ),
-    "crops_percent": MaterialSpec(
-        material_id="crops_percent",
-        label="農地被覆率",
-        description=f"{_LANDCOVER_DESCRIPTION_HEAD}農地の割合(%)。",
-        dtype="numeric",
-        unit="%",
-        tile_property="crops_pct",
-        primary_attribute=_ATTR_LANDCOVER,
-        value_sql=landcover_value_sql("crops"),
-        coverage=_landcover_coverage("crops"),
-    ),
-    "rangeland_percent": MaterialSpec(
-        material_id="rangeland_percent",
-        label="草地被覆率",
-        description=f"{_LANDCOVER_DESCRIPTION_HEAD}草地の割合(%)。",
-        dtype="numeric",
-        unit="%",
-        tile_property="rangeland_pct",
-        primary_attribute=_ATTR_LANDCOVER,
-        value_sql=landcover_value_sql("rangeland"),
-        coverage=_landcover_coverage("rangeland"),
-    ),
-    "water_percent": MaterialSpec(
-        material_id="water_percent",
-        label="水面被覆率",
-        description=f"{_LANDCOVER_DESCRIPTION_HEAD}水面の割合(%)。",
-        dtype="numeric",
-        unit="%",
-        tile_property="water_pct",
-        primary_attribute=_ATTR_LANDCOVER,
-        value_sql=landcover_value_sql("water"),
-        coverage=_landcover_coverage("water"),
-    ),
-    "bare_percent": MaterialSpec(
-        material_id="bare_percent",
-        label="裸地被覆率",
-        description=f"{_LANDCOVER_DESCRIPTION_HEAD}裸地（河川敷・造成地等）の割合(%)。",
-        dtype="numeric",
-        unit="%",
-        tile_property="bare_pct",
-        primary_attribute=_ATTR_LANDCOVER,
-        value_sql=landcover_value_sql("bare"),
-        coverage=_landcover_coverage("bare"),
-    ),
-    "flooded_veg_percent": MaterialSpec(
-        material_id="flooded_veg_percent",
-        label="湿地被覆率",
-        description=f"{_LANDCOVER_DESCRIPTION_HEAD}湿地（冠水植生）の割合(%)。",
-        dtype="numeric",
-        unit="%",
-        tile_property="flooded_veg_pct",
-        primary_attribute=_ATTR_LANDCOVER,
-        value_sql=landcover_value_sql("flooded_veg"),
-        coverage=_landcover_coverage("flooded_veg"),
-    ),
-    "snow_ice_percent": MaterialSpec(
-        material_id="snow_ice_percent",
-        label="雪氷被覆率",
-        description=f"{_LANDCOVER_DESCRIPTION_HEAD}雪氷の割合(%)。",
-        dtype="numeric",
-        unit="%",
-        tile_property="snow_ice_pct",
-        primary_attribute=_ATTR_LANDCOVER,
-        value_sql=landcover_value_sql("snow_ice"),
-        coverage=_landcover_coverage("snow_ice"),
-    ),
+    # --- 土地被覆のクラス別の割合。`domain/landcover.py: LANDCOVER_CLASSES`から生成する ---
+    **{
+        cls.percent_field: MaterialSpec(
+            material_id=cls.percent_field,
+            label=f"{cls.label}被覆率",
+            description=_landcover_description(cls),
+            dtype="numeric",
+            unit="%",
+            tile_property=landcover_tile_property(cls.percent_field),
+            primary_attribute=_ATTR_LANDCOVER,
+            value_sql=landcover_value_sql(landcover_key(cls.percent_field)),
+            coverage=_landcover_coverage(landcover_key(cls.percent_field)),
+        )
+        for cls in LANDCOVER_CLASSES
+    },
     SURFACE_GOOD: MaterialSpec(
         material_id=SURFACE_GOOD,
         label="舗装良否",
@@ -1040,7 +957,7 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
         # 区分へ束ねる前のタグの値そのもの（正規化: lower/btrim）。束ねた値は材料surface_class。
         tile_property="surface",
         primary_attribute=_ATTR_SURFACE,
-        value_labels=_SURFACE_VALUE_LABELS,
+        value_labels={tag: label for c in SURFACE_CLASSES for tag, label in c.tags.items()},
         value_sql=SURFACE_NORMALIZED_SQL,
         coverage=WayMaterialCoverageSpec(
                 missing_condition=f"{SURFACE_NORMALIZED_SQL} IS NULL",

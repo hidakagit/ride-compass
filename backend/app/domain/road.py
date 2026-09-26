@@ -1,6 +1,7 @@
 # OSMの路面を表すタグ（自由記述に近い文字列）の読み方。材料の値式・MVT生成SQL・地図の表示行・
-# 材料の値の呼び名は、すべてここの宣言から導く。
+# 材料の値の呼び名（区分の名前・タグの値の呼び名）は、すべてここの宣言から導く。
 
+from collections.abc import Mapping
 from typing import NamedTuple
 
 
@@ -9,12 +10,13 @@ class SurfaceClass(NamedTuple):
     体系ではなく、稀な値は区分を持たない側（その他）へ落とす。
 
     `paved`は材料「舗装良否」の真偽で、舗装良否はこの区分から導く（区分と良否を別々に宣言すると、
-    同じタグの判定が2か所に分かれる）。"""
+    同じタグの判定が2か所に分かれる）。`tags`は区分に属するタグの値→その値の呼び名で、タグの値の
+    呼び名もここにしか書かない（対訳を別の表に持つと、区分へ足したタグに呼び名が無いまま生の値で画面に出る）。"""
 
     key: str
     label: str
     paved: bool
-    tags: tuple[str, ...]
+    tags: Mapping[str, str]
 
 
 #: 並びが地図の凡例の並び。
@@ -24,17 +26,49 @@ SURFACE_CLASSES: tuple[SurfaceClass, ...] = (
         "paved",
         "舗装",
         True,
-        (
-            "asphalt", "paved", "chipseal", "concrete", "concrete:plates", "concrete:lanes",
-            "paving_stones", "bricks",
-        ),
+        {
+            "asphalt": "アスファルト",
+            "paved": "舗装（種別不明）",
+            "chipseal": "チップシール舗装",
+            "concrete": "コンクリート",
+            "concrete:plates": "コンクリート版",
+            "concrete:lanes": "コンクリート帯（轍部のみ舗装）",
+            "paving_stones": "石畳（切石）",
+            "bricks": "レンガ舗装",
+        },
     ),
-    SurfaceClass("compacted", "締め固め・細砂利", False, ("compacted", "fine_gravel")),
-    SurfaceClass("gravel", "砂利・未舗装", False, ("gravel", "pebblestone", "rock", "unpaved")),
     SurfaceClass(
-        "soil", "土・草・泥・砂", False, ("dirt", "ground", "earth", "mud", "sand", "grass", "woodchips")
+        "compacted",
+        "締め固め・細砂利",
+        False,
+        {"compacted": "締固め砂利", "fine_gravel": "細砂利"},
     ),
-    SurfaceClass("cobblestone", "石畳", False, ("sett", "cobblestone", "unhewn_cobblestone")),
+    SurfaceClass(
+        "gravel",
+        "砂利・未舗装",
+        False,
+        {"gravel": "砂利", "pebblestone": "小石敷き", "rock": "岩盤", "unpaved": "未舗装（種別不明）"},
+    ),
+    SurfaceClass(
+        "soil",
+        "土・草・泥・砂",
+        False,
+        {
+            "dirt": "土",
+            "ground": "地面（土・砂利混合）",
+            "earth": "土（地表面）",
+            "mud": "泥",
+            "sand": "砂",
+            "grass": "芝・草地",
+            "woodchips": "ウッドチップ",
+        },
+    ),
+    SurfaceClass(
+        "cobblestone",
+        "石畳",
+        False,
+        {"sett": "石畳（玉石）", "cobblestone": "玉石舗装", "unhewn_cobblestone": "玉石舗装（未加工）"},
+    ),
 )
 
 #: タグはあるが、どの区分にも当てはまらない値の道の区分。舗装良否は不明（良い・悪いのどちらにも倒さない）。

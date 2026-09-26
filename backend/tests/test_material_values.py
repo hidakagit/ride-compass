@@ -69,7 +69,10 @@ async def _way_value(session, expr: str, tags: dict[str, str], *, surface=None, 
 GOOD_A = "good_a"
 BAD_A = "bad_a"
 #: 区分は架空の2つで与える。実在の区分が正しいかは`road.py`側の話。
-CLASSES = (SurfaceClass("class_good", "良", True, (GOOD_A,)), SurfaceClass("class_bad", "悪", False, (BAD_A,)))
+CLASSES = (
+    SurfaceClass("class_good", "良", True, {GOOD_A: "良A"}),
+    SurfaceClass("class_bad", "悪", False, {BAD_A: "悪A"}),
+)
 
 
 async def _surface_class(session, surface: str | None):

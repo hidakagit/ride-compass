@@ -35,7 +35,7 @@ from app.infrastructure.orm_base import Base
 # `Base.metadata.sorted_tables`が解決できずに落ちる——このimportが、それをimport順の
 # 偶然に任せないための担保である。
 from app.infrastructure import source_models  # noqa: F401
-from app.domain.landcover import PERCENT_CLASSES
+from app.domain.landcover import PERCENT_CLASSES, landcover_key
 from app.domain.traffic import POI_COUNT_KINDS, poi_count_column
 
 #: NULLが「まだ計算していない」ではなく「確定して値が無い」を意味する列に付ける印。
@@ -62,7 +62,7 @@ _COUNT_COLUMNS = ("accident_count", "intersection_count") + tuple(
 
 #: 土地被覆の割合の列。クラスが1つ増えてもここは変わらない。
 _LANDCOVER_COLUMNS = tuple(
-    "lc_" + name.removesuffix("_percent") for name, _ in PERCENT_CLASSES)
+    "lc_" + landcover_key(name) for name, _ in PERCENT_CLASSES)
 
 #: 割合の合計が100からずれてよい幅。REALの丸めだけを吸収する幅で、実際の値はちょうど
 #: 100になる。

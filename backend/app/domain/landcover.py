@@ -90,6 +90,16 @@ PERCENT_CLASSES: tuple[tuple[str, int], ...] = tuple(
     sorted(((cls.percent_field, cls.value) for cls in LANDCOVER_CLASSES), key=lambda pair: pair[1])
 )
 
+
+def landcover_key(percent_field: str) -> str:
+    """割合列の名前（`crops_percent`）から、材料の列（`lc_crops`）・集計SQLの別名が使うクラスの鍵（`crops`）。"""
+    return percent_field.removesuffix("_percent")
+
+
+def landcover_tile_property(percent_field: str) -> str:
+    """材料の`tile_property`と、路面タイルへ焼き込む列の名前（`crops_pct`）。両者が同じ名前で初めて地図が塗れる。"""
+    return f"{landcover_key(percent_field)}_pct"
+
 #: 材料の割合列（`lc_*`）＋`lc_valid_pixels`と1対1のモデル。**クラスの宣言から作る**
 #: ——手で並べると、宣言したクラスに対応する項目が無いまま集計だけが走り、その列の
 #: 割合がどこへも入らない（SQLは列を吐き、読む側はその名前を知らない）。
@@ -138,10 +148,10 @@ def class_percentages_sql(counts: str) -> str:
     """
     invalid = ", ".join(str(v) for v in sorted(LULC_INVALID_VALUES))
     tally = ",\n           ".join(
-        f"sum(n) FILTER (WHERE cls = {value}) AS {name.removesuffix('_percent')}"
+        f"sum(n) FILTER (WHERE cls = {value}) AS {landcover_key(name)}"
         for name, value in PERCENT_CLASSES)
     percents = ",\n       ".join(
-        f"100.0 * coalesce({name.removesuffix('_percent')}, 0) / valid_pixels AS {name}"
+        f"100.0 * coalesce({landcover_key(name)}, 0) / valid_pixels AS {name}"
         for name, _ in PERCENT_CLASSES)
     return f"""
 WITH counted AS ({counts}),

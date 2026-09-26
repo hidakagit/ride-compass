@@ -99,22 +99,22 @@
     "tile_property": null
   },
   {
-    "material_id": "trees_percent",
-    "label": "樹木被覆率",
-    "description": "衛星画像の土地被覆データ（Esri×Impact Observatory）から算出した、道路周囲100mリング内の樹木被覆の割合(%)。",
-    "dtype": "numeric",
-    "unit": "%",
-    "value_labels": null,
-    "tile_property": "trees_pct"
-  },
-  {
     "material_id": "built_percent",
     "label": "建物被覆率",
-    "description": "衛星画像の土地被覆データ（Esri×Impact Observatory）から算出した、道路周囲100mリング内の建物被覆の割合(%)。",
+    "description": "衛星画像の土地被覆データ（Esri×Impact Observatory）から算出した、道路周囲100mリング内の建物の割合(%)。",
     "dtype": "numeric",
     "unit": "%",
     "value_labels": null,
     "tile_property": "built_pct"
+  },
+  {
+    "material_id": "trees_percent",
+    "label": "樹木被覆率",
+    "description": "衛星画像の土地被覆データ（Esri×Impact Observatory）から算出した、道路周囲100mリング内の樹木の割合(%)。",
+    "dtype": "numeric",
+    "unit": "%",
+    "value_labels": null,
+    "tile_property": "trees_pct"
   },
   {
     "material_id": "crops_percent",
@@ -144,15 +144,6 @@
     "tile_property": "water_pct"
   },
   {
-    "material_id": "bare_percent",
-    "label": "裸地被覆率",
-    "description": "衛星画像の土地被覆データ（Esri×Impact Observatory）から算出した、道路周囲100mリング内の裸地（河川敷・造成地等）の割合(%)。",
-    "dtype": "numeric",
-    "unit": "%",
-    "value_labels": null,
-    "tile_property": "bare_pct"
-  },
-  {
     "material_id": "flooded_veg_percent",
     "label": "湿地被覆率",
     "description": "衛星画像の土地被覆データ（Esri×Impact Observatory）から算出した、道路周囲100mリング内の湿地（冠水植生）の割合(%)。",
@@ -160,6 +151,15 @@
     "unit": "%",
     "value_labels": null,
     "tile_property": "flooded_veg_pct"
+  },
+  {
+    "material_id": "bare_percent",
+    "label": "裸地被覆率",
+    "description": "衛星画像の土地被覆データ（Esri×Impact Observatory）から算出した、道路周囲100mリング内の裸地（河川敷・造成地等）の割合(%)。",
+    "dtype": "numeric",
+    "unit": "%",
+    "value_labels": null,
+    "tile_property": "bare_pct"
   },
   {
     "material_id": "snow_ice_percent",
@@ -306,13 +306,10 @@
       "concrete:plates": "コンクリート版",
       "concrete:lanes": "コンクリート帯（轍部のみ舗装）",
       "paving_stones": "石畳（切石）",
-      "sett": "石畳（玉石）",
-      "cobblestone": "玉石舗装",
-      "unhewn_cobblestone": "玉石舗装（未加工）",
       "bricks": "レンガ舗装",
-      "gravel": "砂利",
-      "fine_gravel": "細砂利",
       "compacted": "締固め砂利",
+      "fine_gravel": "細砂利",
+      "gravel": "砂利",
       "pebblestone": "小石敷き",
       "rock": "岩盤",
       "unpaved": "未舗装（種別不明）",
@@ -322,7 +319,10 @@
       "mud": "泥",
       "sand": "砂",
       "grass": "芝・草地",
-      "woodchips": "ウッドチップ"
+      "woodchips": "ウッドチップ",
+      "sett": "石畳（玉石）",
+      "cobblestone": "玉石舗装",
+      "unhewn_cobblestone": "玉石舗装（未加工）"
     },
     "tile_property": "surface"
   },

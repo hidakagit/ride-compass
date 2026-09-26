@@ -29,6 +29,7 @@ from app.domain.landcover import (
     LANDCOVER_RING_OUTER_M,
     PERCENT_CLASSES,
     class_percentages_sql,
+    landcover_key,
 )
 from app.domain.region import tile_position_sql
 from app.domain.material_sql import (
@@ -195,7 +196,7 @@ GROUP BY r.osm_way_id, r.segment_index, (vc).value
 
 def _landcover_columns() -> list[tuple[str, str]]:
     """(割合の項目名, `edge_materials`の列名) の対応。"""
-    return [(name, "lc_" + name.removesuffix("_percent")) for name, _ in PERCENT_CLASSES]
+    return [(name, "lc_" + landcover_key(name)) for name, _ in PERCENT_CLASSES]
 
 
 def _reset_landcover_sql(table: str) -> str:
