@@ -1,6 +1,8 @@
 // 地図の色分けの凡例の段（ラベル・色・安定キーだけ）と、段の範囲の書き方。専用配信の軸の値はfeature-stateで入り、
 // MapLibreのfilterはfeature-stateを読めないため、段の表示ON/OFFは色の式の側で透明にする——そのため述語を持たない。
 
+import palette from "@/types/generated/palette.json";
+
 export interface MapColorLegendBand {
   /** 段階の安定識別子（表示ON/OFFの保存キー）。`legendBandKey`が唯一の出どころ。 */
   key: string;
@@ -19,6 +21,15 @@ export function legendBandKey(index: number): string {
 
 /** 値が無い地物（取得済みだが値が無い）の段階キー。数値段階と同じ仕組みで非表示にできる。 */
 export const LEGEND_NO_DATA_KEY = "nodata";
+
+/** 値が無い地物の受け皿の行。道の属性・評価軸（ルート前）・ルートの線のどれでも**同じ行**（鍵・呼び方・色）にする
+ * ——同じ鍵の行が凡例ごとに違う名前で出ると、ルートを出す前と後で同じ行が別物に見える。 */
+export const NO_DATA_LEGEND_BAND: MapColorLegendBand = {
+  key: LEGEND_NO_DATA_KEY,
+  label: "データなし",
+  color: palette.semantic.no_data,
+  isFallback: true,
+};
 
 /** 段の体感ラベルを、その段の数へ添えてよいか。地図の段に合わせてラベルを引き直すのはbackendで、件数が合わない
  * ラベルは**添えずに捨てる**（ずらして添えると、ラベルが実際より広い範囲を指す嘘になる）。 */

@@ -5,7 +5,6 @@
 // 見えなくなる。取得できるまでは軸0件で描く（`hooks/useAxisCatalog.ts`）。軸は軸スタジオで公開すれば、
 // 材料がタイルにある限り再デプロイなしに地図のレイヤーとして現れる。
 
-import palette from "@/types/generated/palette.json";
 import type { DedicatedWayValueDisplay } from "./dedicatedWayValueLayer";
 import type { AxisCatalogEntry } from "@/types/route";
 
@@ -143,54 +142,4 @@ export function dedicatedWayValueAxesFromCatalogAxes(axes: readonly AxisCatalogE
         bandLabels: axis.display_band_labels_override ?? undefined,
       },
     }));
-}
-
-// 共有ランプ配色（低→高、緑→黄→橙→赤）のアンカー。全ramp軸が同じ配色系統を使うことで
-// 「低=緑〜高=赤」という読み方を1回覚えれば全軸に通用させる（軸ごとに独自配色を作らない）。
-// 段階数（バンド数）は軸によって異なりうる（複数材料の組み合わせは
-// thresholdsが4個ちょうどに収まるとは限らない）。rampColorForBandはこの4色をアンカーとして
-// bandCount段階ぶんの色を線形補間で生成するため、bandCount=4のときは既存の4色と完全に
-// 一致し（axisLayers.test.ts参照）、bandCount≠4の軸でも同じ緑→赤の配色系統のまま段階数
-// ぶんの色を自動生成できる。
-const RAMP_COLOR_ANCHORS: readonly [number, string][] = palette.evaluation_ramp_anchors.map((anchor) => [
-  anchor.position,
-  anchor.color,
-]);
-
-function hexToRgb(hex: string): [number, number, number] {
-  const n = parseInt(hex.slice(1), 16);
-  return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
-}
-
-function rgbToHex(rgb: readonly [number, number, number]): string {
-  return "#" + rgb.map((v) => Math.round(v).toString(16).padStart(2, "0")).join("");
-}
-
-function lerpColor(a: string, b: string, t: number): string {
-  const [ar, ag, ab] = hexToRgb(a);
-  const [br, bg, bb] = hexToRgb(b);
-  return rgbToHex([ar + (br - ar) * t, ag + (bg - ag) * t, ab + (bb - ab) * t]);
-}
-
-/** RAMP_COLOR_ANCHORS（緑(0)→赤(1)）をt（0〜1の相対位置）で線形補間する共通ロジック。
- * rampColorForBand（段階index/bandCountからの離散色）がこれを経由することで、
- * アンカー定義（緑→黄→橙→赤の4点）を1箇所だけに保つ（定数の片側import）。 */
-function rampColorForRatio(t: number): string {
-  const clamped = Math.min(1, Math.max(0, t));
-  for (let i = 0; i < RAMP_COLOR_ANCHORS.length - 1; i++) {
-    const [t0, c0] = RAMP_COLOR_ANCHORS[i];
-    const [t1, c1] = RAMP_COLOR_ANCHORS[i + 1];
-    if (clamped <= t1 || i === RAMP_COLOR_ANCHORS.length - 2) {
-      const localT = t1 === t0 ? 0 : Math.min(1, Math.max(0, (clamped - t0) / (t1 - t0)));
-      return lerpColor(c0, c1, localT);
-    }
-  }
-  return RAMP_COLOR_ANCHORS[RAMP_COLOR_ANCHORS.length - 1][1];
-}
-
-/** bandCount段階中index番目(0始まり)の色。RAMP_COLOR_ANCHORSを緑(0)→赤(1)の相対位置で
- * 線形補間する。 */
-export function rampColorForBand(index: number, bandCount: number): string {
-  const t = bandCount <= 1 ? 0 : index / (bandCount - 1);
-  return rampColorForRatio(t);
 }

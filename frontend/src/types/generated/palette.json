@@ -32,23 +32,5 @@
     "#16a34a",
     "#ea580c",
     "#9333ea"
-  ],
-  "evaluation_ramp_anchors": [
-    {
-      "position": 0.0,
-      "color": "#4caf50"
-    },
-    {
-      "position": 0.3333333333333333,
-      "color": "#ffb300"
-    },
-    {
-      "position": 0.6666666666666666,
-      "color": "#fb8c00"
-    },
-    {
-      "position": 1.0,
-      "color": "#e53935"
-    }
   ]
 }

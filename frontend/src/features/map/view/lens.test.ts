@@ -17,7 +17,7 @@ import { isRouteStyleModeId, lensLegend, lensOptions, paintedAxisId } from "./le
 /** 道の値として読む材料。 */
 const VALUE = "v";
 
-/** 材料`VALUE`がそのまま値になるramp軸。`hasUnknownFallback`なら、材料が欠けた道を「不明」にする。 */
+/** 材料`VALUE`がそのまま値になるramp軸。`hasUnknownFallback`なら、材料が欠けた道を「データなし」にする。 */
 function valueRamp(
   axisId: string,
   thresholds: number[],
@@ -92,9 +92,9 @@ describe("lensLegend（レンズの凡例）", () => {
     expect(lensLegend("mislabelled", false, catalog).map((entry) => entry.label)).toEqual(["10未満", "10以上"]);
   });
 
-  it("材料が欠けて評価できない道は、数値の段ではなく末尾の「不明」だけに当てはまる", () => {
+  it("材料が欠けて評価できない道は、数値の段ではなく末尾の「データなし」だけに当てはまる", () => {
     const legend = lensLegend("unknown", false, catalog);
-    expect(legend.at(-1)).toMatchObject({ key: LEGEND_NO_DATA_KEY, label: "不明", isFallback: true });
+    expect(legend.at(-1)).toMatchObject({ key: LEGEND_NO_DATA_KEY, label: "データなし", isFallback: true });
     const hitsFor = (properties: Record<string, unknown>) =>
       legend.flatMap((entry) => (matches(entry.filter, properties) ? [entry.key] : []));
     expect(hitsFor({})).toEqual([LEGEND_NO_DATA_KEY]);
@@ -116,6 +116,24 @@ describe("lensLegend（レンズの凡例）", () => {
     expect(lensLegend(mode.id, true, catalog)).toBe(mode.legend);
     expect(lensLegend("missing", true, catalog)).toEqual([]);
     expect(lensLegend("missing", false, catalog)).toEqual([]);
+  });
+});
+
+describe("同じ軸の同じ段は、ルートを出す前と後で同じ行", () => {
+  // 前後の段の数はbackendが揃えて配る（前は重み付き和の目盛り、後は難易度の目盛りで、同じ数の境界）。
+  const sameBands = catalogOf([
+    valueRamp("ramp", [1, 2, 3, 4], { map_value_thresholds: [20, 40, 60, 80] }, true),
+    dedicatedEntry("dedicated", [20, 40, 60, 80]),
+    dedicatedEntry("signed", [-6, -2, 2, 6], { map_value_kind: "signed_material", map_value_material: VALUE }),
+  ]);
+  const paintable = [...sameBands.rampAxes, ...sameBands.dedicatedAxes].map((axis) => axis.axisId);
+
+  it.each(paintable)("%s: 段の鍵・色と、値が無い行の呼び方・色が前後で同じ", (axisId) => {
+    const shape = (hasDetail: boolean) =>
+      lensLegend(axisId, hasDetail, sameBands).map(({ key, color, isFallback, label }) =>
+        isFallback ? { key, color, label } : { key, color },
+      );
+    expect(shape(false)).toEqual(shape(true));
   });
 });
 

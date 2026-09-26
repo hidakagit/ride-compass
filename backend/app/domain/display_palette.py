@@ -134,15 +134,6 @@ SEMANTIC_COLORS: dict[str, str] = {
 #: 比較スロットの色。並べて見分けられることだけが要件で、順序の意味は持たない。
 COMPARISON_SLOT_COLORS: tuple[str, ...] = ("#16a34a", "#ea580c", "#9333ea")
 
-#: 評価（2次）の段を作る中継点。段数が変わっても同じ系統のまま増減する。
-EVALUATION_RAMP_ANCHORS: tuple[tuple[float, str], ...] = (
-    (0.0, "#4caf50"),
-    (1 / 3, "#ffb300"),
-    (2 / 3, "#fb8c00"),
-    (1.0, "#e53935"),
-)
-
-
 def resolved_display_axes(attr: PrimaryAttributeSpec) -> list[dict]:
     """行の色を解決した表示定義。**色は宣言に無い**ので、配る直前にここで決める。
 

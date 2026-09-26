@@ -14,16 +14,14 @@ import * as maplibregl from "maplibre-gl";
 import type { Map as MapLibreMap } from "maplibre-gl";
 
 import type { MapLayerVisibility } from "@/features/map/layers/mapLayers";
-import { rampColorForBand, type DedicatedWayValueAxis, type RampAxis } from "@/lib/mapDisplay/axisLayers";
+import type { DedicatedWayValueAxis, RampAxis } from "@/lib/mapDisplay/axisLayers";
 import { debugLog } from "@/lib/debugLog";
-import type { DedicatedWayValueDisplay } from "@/lib/mapDisplay/dedicatedWayValueLayer";
 import type {
   DynamicWeatherGroupState,
   DynamicWeatherLayerId,
   DynamicWeatherRenderPayload,
 } from "@/features/map/layers/dynamicWeather";
 import { withJmaTileProtocol } from "@/features/map/layers/jmaTileProtocol";
-import { legendBandKey } from "@/lib/mapDisplay/mapColorLegend";
 import { areaLayerAnchor, prepareBasemapForAreaLayers, runWhenStyleReady } from "@/features/map/layers/mapStyleOps";
 import { primaryAttributeIdsToLayerIds } from "@/features/map/layers/primaryAttributes";
 import { ROUTE_ARROW_ICON_ID, createRouteArrowIcon } from "@/features/map/layers/routeArrowIcon";
@@ -31,7 +29,7 @@ import { LENS_NEUTRAL_COLOR, type LensId, type RouteStyleMode } from "@/lib/mapD
 import type { SecondaryAxisSummary } from "@/lib/secondaryAxes";
 import type { ExperimentSlot } from "@/types/experimentSlot";
 import type { RouteCandidate } from "@/types/route";
-import { bandColorsFor, DEFAULT_DIFFICULTY_BOUNDARIES } from "@/lib/mapDisplay/valueScale";
+import { dedicatedAxisBands, rampAxisBands, type ValueBand } from "@/lib/mapDisplay/valueScale";
 import { tileBaseUrl } from "@/lib/tileBaseUrl";
 import {
   ROAD_TILE_MAX_ZOOM,
@@ -51,7 +49,7 @@ export const STOP_POI_SOURCE_LAYER = regionTileConfig.poi.stop_poi_layer_name;
 
 import { applyMapScene } from "./applyMapScene";
 import { buildAxisRampUnknownExpression, buildAxisRampValueExpression } from "./groups/axisLines";
-import { buildLegendFilterExpression, COLOR_UNKNOWN } from "./sceneBuilders";
+import { buildLegendFilterExpression } from "./sceneBuilders";
 import type { SceneInputs } from "./buildScene";
 import type { AxisBand, AxisLineState } from "@/features/map/scene/groups/axisLines";
 import type { RoutePath, RouteState } from "@/features/map/scene/groups/routes";
@@ -161,24 +159,9 @@ function routeStateFrom(props: SceneWiringProps): RouteState {
   };
 }
 
-/** 評価軸の段。**上の段から順に**並べる——色式は最初に当たった段を採るため。 */
-function rampAxisBands(axis: RampAxis): AxisBand[] {
-  const count = axis.thresholds.length + 1;
-  return Array.from({ length: count }, (_, index) => ({
-    key: legendBandKey(index),
-    lowerBound: index === 0 ? Number.NEGATIVE_INFINITY : (axis.thresholds[index - 1] as number),
-    color: rampColorForBand(index, count),
-  })).reverse();
-}
-
-function dedicatedAxisBands(display: DedicatedWayValueDisplay): AxisBand[] {
-  const boundaries = display.boundaries ?? DEFAULT_DIFFICULTY_BOUNDARIES;
-  const colors = bandColorsFor(display.kind, boundaries);
-  return Array.from({ length: boundaries.length + 1 }, (_, index) => ({
-    key: legendBandKey(index),
-    lowerBound: index === 0 ? Number.NEGATIVE_INFINITY : (boundaries[index - 1] as number),
-    color: colors[index] ?? COLOR_UNKNOWN,
-  })).reverse();
+/** 評価軸の段を線の宣言へ渡す形にする。**上の段から順に**並べる——色式は最初に当たった段を採るため。 */
+function axisLineBands(bands: readonly ValueBand[]): AxisBand[] {
+  return bands.map(({ key, lowerBound, color }) => ({ key, lowerBound, color })).reverse();
 }
 
 /** 下敷きで描くramp軸。その軸の材料（一次属性の表示レイヤー）が1つでも出ている間は、材料の
@@ -199,7 +182,7 @@ function axisStateFrom(props: SceneWiringProps, sourceLayer: string | null): Axi
   const ramp = props.catalog.rampAxes.map((axis) => ({
     axisId: axis.axisId,
     visible: axis.axisId === look.paintedAxisId,
-    bands: rampAxisBands(axis),
+    bands: axisLineBands(rampAxisBands(axis)),
     value: {
       kind: "tile" as const,
       expression: buildAxisRampValueExpression(axis),
@@ -213,7 +196,7 @@ function axisStateFrom(props: SceneWiringProps, sourceLayer: string | null): Axi
     return {
       axisId: axis.axisId,
       visible: axis.axisId === look.paintedAxisId,
-      bands: dedicatedAxisBands(axis.display),
+      bands: axisLineBands(dedicatedAxisBands(axis.display)),
       value: {
         kind: "delivered" as const,
         values: delivered?.values ?? new Map<string, number>(),

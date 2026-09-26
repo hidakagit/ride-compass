@@ -12,8 +12,7 @@ import {
   unpublishAxisDefinition,
   updateAxisDefinition,
 } from "@/features/admin/adminApi";
-import { rampColorForBand } from "@/lib/mapDisplay/axisLayers";
-import { bandColorsFor } from "@/lib/mapDisplay/valueScale";
+import { bandColorsFor, RAMP_AXIS_VALUE_KIND } from "@/lib/mapDisplay/valueScale";
 import { useAxisCatalog } from "@/hooks/useAxisCatalog";
 import type { AxisDefinitionPayload, AxisDefinitionResponse, AxisShape } from "@/types/route";
 import AxisComposer from "./AxisComposer";
@@ -182,23 +181,20 @@ export default function AxisStudio() {
   }
 
   const editingDefinition = definitions?.find((d) => d.axis_id === editingAxisId) ?? null;
-  // 編集中の軸を地図がどの配色で塗るかは、軸の形ではなく「どの経路で地図に出ているか」で
-  // 決まる（ramp軸はタイルの重み付き和をrampColorForBandで、専用way値配信軸は
-  // 地図表示値の種類ごとの配色をbandColorsForで塗る）。判定を持たずに軸カタログの
-  // 実際の分類をそのまま引くことで、しきい値プレビューの色が地図とずれない。
+  // 編集中の軸を地図がどの値の種類で塗るかは、軸の形ではなく「どの経路で地図に出ているか」で
+  // 決まる（ramp軸はタイルの重み付き和を、専用way値配信軸は地図表示値を塗る）。判定を持たずに
+  // 軸カタログの実際の分類をそのまま引き、地図と同じ`bandColorsFor`を通すことで、しきい値
+  // プレビューの色が地図とずれない。
   const catalog = useAxisCatalog();
   const previewAxisId = editingAxisId ?? duplicateFrom?.axis_id ?? null;
   const previewCatalogAxis = catalog.axes.find((axis) => axis.axisId === previewAxisId);
   const previewIsRamp = catalog.rampAxes.some((axis) => axis.axisId === previewAxisId);
-  const previewMapValueKind = previewCatalogAxis?.mapValueKind;
+  const previewMapValueKind = previewIsRamp ? RAMP_AXIS_VALUE_KIND : previewCatalogAxis?.mapValueKind;
   // 軸カタログの分類をそのまま引くだけの軽い導出のため、参照の安定化はしない
   // （渡し先は節のコンポーネントで、再描画の重さは持たない）。
-  const mapBandColors = previewIsRamp
-    ? (boundaries: readonly number[]) =>
-        Array.from({ length: boundaries.length + 1 }, (_, index) => rampColorForBand(index, boundaries.length + 1))
-    : previewMapValueKind
-      ? (boundaries: readonly number[]) => bandColorsFor(previewMapValueKind, boundaries)
-      : undefined;
+  const mapBandColors = previewMapValueKind
+    ? (boundaries: readonly number[]) => bandColorsFor(previewMapValueKind, boundaries)
+    : undefined;
   const mapValueUnit = previewCatalogAxis?.mapValueUnit ?? "";
   const composerTitle = editingDefinition
     ? editingDefinition.is_published
