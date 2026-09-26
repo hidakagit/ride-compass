@@ -85,7 +85,8 @@ export function gridStageFrames(stage: number, grid: readonly WindGridPoint[]): 
 
 /** 段のコマを1本の時系列へつなぐ。各段は前の段の最後のコマより後の時刻だけを継ぐ——近い時刻は
  * 精度の高い前の段が持ち、二重に出さない。ある段が空（取れていない等）なら、次の段がその前の
- * 段の直後から継ぐ。 */
+ * 段の直後から継ぐ。backendのプリウォームも同じつなぎ方で段ごとに温めるフレームを選ぶ
+ * （`domain/weather_elements.py: stage_first_frames`）。 */
 export function sourceTimeline(
   stages: readonly (readonly DynamicWeatherFrame<StageFrameRef>[])[],
 ): DynamicWeatherFrame<StageFrameRef>[] {

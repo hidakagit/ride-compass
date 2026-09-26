@@ -1,11 +1,13 @@
 """動的気象で地図に描くものの宣言。画面（生成物経由）とプリウォーム（本番プロセス）の両方が読む。"""
 
+from collections.abc import Sequence
 from typing import Literal, NamedTuple
 
 from app.domain.jma_tile_specs import (
     JMA_REFRESH_INTERVAL_SECONDS,
     JMA_TARGET_TIMES_READERS,
     JMA_TILE_SPECS,
+    JmaFrame,
     JmaTileSpec,
     PathGroup,
     TargetTimesReader,
@@ -138,6 +140,21 @@ def weather_element_deliveries(element: WeatherElement) -> list[WeatherDelivery]
             )
         )
     return deliveries
+
+
+def stage_first_frames(stage_frames: Sequence[Sequence[JmaFrame]]) -> list[JmaFrame | None]:
+    """時刻の段（近い時刻から、各段のコマは`validtime`の順）を1本の時系列へつないだとき、各段が最初に描くコマ。
+    時系列に1コマも残らない段はNone。
+
+    つなぎ方は画面（frontend `weatherSources.ts: sourceTimeline`）と同じ: 各段は前の段までの最後のコマより後の
+    時刻だけを継ぎ、途中の段が空なら、その前の段の直後から次の段が継ぐ。"""
+    first_frames: list[JmaFrame | None] = []
+    last_validtime = ""
+    for frames in stage_frames:
+        continuing = [frame for frame in frames if frame.validtime > last_validtime]
+        first_frames.append(continuing[0] if continuing else None)
+        last_validtime = max([last_validtime, *(frame.validtime for frame in continuing)])
+    return first_frames
 
 
 def weather_element_attribution(element: WeatherElement) -> str:

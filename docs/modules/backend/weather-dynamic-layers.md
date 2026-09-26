@@ -27,7 +27,7 @@ MSMは数値予報モデルの出力で観測値・公式発表の代わりに�
 
 | レイヤー | ファイル |
 |---|---|
-| domain | `msm.py`（MSM格子の幾何・双一次補間）・`jma_tile_specs.py`（配信元の要素ごとの仕様レジストリ。パスの系統・ズーム・ベクタのレイヤー名・時刻一覧の読み方と、系統ごとの時刻一覧の更新間隔）・`weather_elements.py`（動的気象で地図に描くものの宣言。要素ごとに、選んだ時刻に描くコマの規則と、自前の格子から描くなら読む値も持つ。画面へは生成物で届き、本番プロセスではプリウォームが温める要素をここから導く。**本番が読むため**、本番が読まない表示値の宣言`map_display.py`とは別のファイルに置く——デプロイの要否はファイル単位で決まる）・`weather.py`・`jma_amedas.py`・`jma_area.py`・`jma_warning.py`・`wbgt.py`・`wbgt_points.py`・`twilight.py`・`flood_forecast.py`・`terrain_rgb.py`（標高タイルのエンコード変換、純関数）・`gsi_tiles.py`（国土地理院タイルの製品ごとの事実——実データを持つズーム範囲・上流のパス・出典表記。中継ルートと画面へ配るURLもここから導く）・`weather_display.py`（気象の値を色へ写す段と、天気コードの分類と名前。段は値の昇順でなければ読み込んだ時点で落とす——画面はこの順のまま塗り分けの式を組み、MapLibreの`step`式は昇順でないと式ごと失敗してレイヤーが黙って消える。**本番プロセスは読まず**、`scripts/export_openapi.py`の生成物を経由してだけ画面へ届く）・`warning_display.py`（警戒度バッジの出所ごとの段階の呼び名と色。暑さ指数・氾濫の呼び名はそれぞれの段階の宣言から読む。本番プロセスは読まず、生成物`vocabulary.ts`だけが届く） |
+| domain | `msm.py`（MSM格子の幾何・双一次補間）・`jma_tile_specs.py`（配信元の要素ごとの仕様レジストリ。パスの系統・ズーム・ベクタのレイヤー名・時刻一覧の読み方と、系統ごとの時刻一覧の更新間隔。読み方に従って時刻一覧の行をコマにする`read_target_times`も持つ）・`weather_elements.py`（動的気象で地図に描くものの宣言。要素ごとに、選んだ時刻に描くコマの規則と、自前の格子から描くなら読む値も持つ。時刻の段をつないだとき各段が最初に描くコマを求める`stage_first_frames`も持つ。画面へは生成物で届き、本番プロセスではプリウォームが温める要素をここから導く。**本番が読むため**、本番が読まない表示値の宣言`map_display.py`とは別のファイルに置く——デプロイの要否はファイル単位で決まる）・`weather.py`・`jma_amedas.py`・`jma_area.py`・`jma_warning.py`・`wbgt.py`・`wbgt_points.py`・`twilight.py`・`flood_forecast.py`・`terrain_rgb.py`（標高タイルのエンコード変換、純関数）・`gsi_tiles.py`（国土地理院タイルの製品ごとの事実——実データを持つズーム範囲・上流のパス・出典表記。中継ルートと画面へ配るURLもここから導く）・`weather_display.py`（気象の値を色へ写す段と、天気コードの分類と名前。段は値の昇順でなければ読み込んだ時点で落とす——画面はこの順のまま塗り分けの式を組み、MapLibreの`step`式は昇順でないと式ごと失敗してレイヤーが黙って消える。**本番プロセスは読まず**、`scripts/export_openapi.py`の生成物を経由してだけ画面へ届く）・`warning_display.py`（警戒度バッジの出所ごとの段階の呼び名と色。暑さ指数・氾濫の呼び名はそれぞれの段階の宣言から読む。本番プロセスは読まず、生成物`vocabulary.ts`だけが届く） |
 | services | `weather_service.py`・`jma_amedas_service.py`・`wbgt_service.py`・`warning_service.py`・`flood_service.py`・`jma_tile_prewarm_service.py`（定期プリウォームバッチ）・`terrain_tile_service.py`（地理院の標高タイルをTerrain-RGBへ変換して配信） |
 | infrastructure | `msm_client.py`（MSMの同期・読み出し）・`jma_tile_client.py`・`jma_tile_redis_cache.py`（タイル本体のRedis cache-aside）・`jma_tile_interpolation.py`（配信元が持たないズームの補間）・`jma_tile_index.py`（在否インデックス）・`jma_tile_content.py`（タイルが空かどうかの判定。キャッシュと在否インデックスが共有する）・`jma_amedas_client.py`・`jma_warning_client.py`・`wbgt_client.py`・`flood_client.py`・`basemap_client.py`・`gsi_tile_client.py`・`simple_api_client.py`（後者4クライアントが共有する定型文、後述）・`jma_area_boundaries.py`（地点→区域のコード。気象庁の区域の境界をディスクから読む、後述） |
 | api | `weather.py`・`jma_tile.py`・`basemap.py`・`gsi_tile.py` |
@@ -225,16 +225,17 @@ URLも変わるため、ブラウザキャッシュ（`api/cache_policy.py`）�
 ズームはMapLibreがクライアント側で拡大表示するだけで追加の通信が発生しないため。
 温める要素は動的気象の要素の宣言（`WEATHER_ELEMENTS`）のうちタイルで描くものの配信要素すべてで、
 宣言から導く（プリウォーム側に要素idの一覧を持たない。宣言へ1件足せば温まる）。
-予報フレームを複数持つ要素（降水・雷・竜巻）も、温めるのは要素ごとに1フレームだけ——
-全フレームを温めるとタイル数が桁違いに膨らむ。選ぶのは、時刻の段の先頭の配信要素
-（降水ナウキャスト・雷・竜巻・キキクル等）では直近の実況フレーム、2段目以降（降水短時間予報）では
-**画面がその段に入って最初に描くフレーム**（前の段の最後の`validtime`より後で、`member`ごとの
-最新の完全な予報ラン＝異なる`validtime`を複数持つ`basetime`の、最も近い`validtime`）。
-2段目以降の時刻一覧には単発の中間ラン（`validtime`=`basetime`）や古いランの行も載るため、
-実況を選ぶ規則をそのまま当てると画面が描かないフレームを温める。前の段の時刻一覧が取れなければ
-段の境目が分からないため、後の段も温めない。1つの時刻一覧には別の配信要素の行も載る（例: 降水短時間予報と
-線状降水帯予測マップは同じ系統の1ファイルを共有する）ため、温めるフレームも段の境目（前の段の最後の
-`validtime`）も、その配信要素の行だけから求める。
+予報フレームを複数持つ要素（降水・雷・竜巻）も、温めるのは時刻の段ごとに1フレームだけ——
+全フレームを温めるとタイル数が桁違いに膨らむ。選ぶのは**画面がその段で最初に描くフレーム**で、
+画面と同じ手順で求める: 時刻一覧の行を、画面へ配るのと同じ読み方の宣言（`weather_element_deliveries()`の
+`reader`）に従って`jma_tile_specs.read_target_times()`がコマにし、`weather_elements.stage_first_frames()`が
+画面の`sourceTimeline`と同じつなぎ方で段をつないで、各段の最初のコマを返す。先頭の段では時系列の左端
+（実況＋予測なら最新の実況、「現在」の単一値なら最新の行）、2段目以降（降水短時間予報）では前の段の最後の
+`validtime`より後の最初のコマになる。前の段が取れなければ、画面と同じく後の段が最初から継ぐ。
+**読み方もつなぎ方も画面と1つでも違えば、在否インデックスのフレームが画面のフレームと一致せず、画面は
+インデックスを使わずに全タイルを取りに行く**（表示は壊れず、黙って遅くなる）。frontend（`jmaDelivery.ts`の
+`READERS`・`weatherSources.ts: sourceTimeline`）とbackendは言語が違うため同じ手順を両方が持つ。読み方の種類を
+足すときは両方に足す（backendは`read_target_times`の`match`が`assert_never`で、足し忘れをmypyが止める）。
 
 **JMAへの実フェッチの秒間上限**: `jma_tile.py`の300/分（クライアント単位）とは別に、
 `JmaTileClient.fetch`自身が実際にJMAへ問い合わせる直前で、プロセス全体で共有する
