@@ -203,7 +203,8 @@ SCALE_LABEL_RE = re.compile(r"規模([SML])(?:〜([SML]))?")
 TASK_HEADING_RE = re.compile(r"^# T\d+[a-z0-9-]*\.\s*(.*)$")
 EXPECTED_HOOKS_PATH = ".githooks"
 #: スロット（scripts/orchestration/slots.py）を渡した印は`git worktree lock`の理由
-#: `slot <渡し先> <時刻>`。渡し先はClaude CodeがWorktreeCreateフックへ渡す名前（`agent-<id>`）。
+#: `slot <渡し先> <時刻>`。渡し先はClaude CodeがWorktreeCreateフックへ渡す名前（`agent-<id>`）か、
+#: 渡す前に依存を入れている間の`warm-<pid>`。
 SLOT_LOCK_PREFIX = "slot "
 
 #: 監査の同期ルール（CLAUDE.md「コミット時の同期ルール」）で、生成物の再生成を要する宣言の場所。
@@ -1310,7 +1311,7 @@ def cmd_check(ctx: Context, args: argparse.Namespace) -> int:
                         "振り出さず、終わった状態を揃える（規約「回の始まりと終わり」）")
     # 門がNGで見送った振り出しは、門が開いた最初の確認で拾う（「落ち着いたら」を人の注意に頼らない）。
     # 母集団の外のタスクは次の回の候補なので拾わない。回が始まっていない・終わりに入ったときは門が閉じている。
-    from orchestration import pending, queue
+    from orchestration import pending, queue, slots
 
     prereq_lines, prereq_due = queue.manual_prereqs(ctx, f.board)
     problems += prereq_due
@@ -1339,6 +1340,10 @@ def cmd_check(ctx: Context, args: argparse.Namespace) -> int:
     for line in run_summary_lines(view, detail=False) + prereq_lines:
         print(line)
     print(budget_line(f.budgets))
+    # masterのpackage-lock.jsonが変わったら、空いているスロットを渡す前に温めておく（渡すその場のnpm ciを避ける）。
+    warmed = slots.start_warm(ctx)
+    if warmed:
+        print(f"スロットの温め: {warmed}")
     if args.record:
         board = load_board(ctx)
         board["last_check"] = iso(f.at)
