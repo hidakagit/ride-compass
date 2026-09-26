@@ -129,6 +129,20 @@ class TestWindLattice:
 
         assert latitudes.max() >= 35.12 and longitudes.max() >= 139.1
 
+    def test_a_place_takes_the_same_grid_point_whatever_area_covers_it(self):
+        """ルートを出す前の地図（タイル）とルートの区間（探索範囲）は別の範囲に格子を敷く。範囲の角から
+        数えると、同じ道が範囲ごとに別の予報の点の風を引き、前後で値が食い違う。"""
+        latitudes, longitudes = np.array([35.6612, 35.7391]), np.array([139.7013, 139.8288])
+        narrow = WindLattice.covering(35.65, 139.69, 35.75, 139.84, 0.05, 0.0625)
+        wide = WindLattice.covering(35.3137, 139.2071, 36.0913, 140.3329, 0.05, 0.0625)
+
+        def taken(lattice):
+            lat, lon = lattice.coordinates()
+            points = lattice.points_of(latitudes, longitudes)
+            return np.round(lat[points], 9).tolist(), np.round(lon[points], 9).tolist()
+
+        assert taken(narrow) == taken(wide) == ([35.65, 35.75], [139.6875, 139.8125])
+
     def test_each_place_takes_the_nearest_grid_point(self):
         lattice = WindLattice(south=35.0, west=139.0, lat_step=0.05, lon_step=0.0625, rows=3, cols=4)
         latitudes, longitudes = lattice.coordinates()
