@@ -19,7 +19,8 @@ argument-hint: [--concurrent N（同時に動かす上限。既定3）] [対象�
 機械で回す手続き（詳細は規約の該当節）:
 
 - 起動したら`python scripts/orchestrate.py board claim`を1回実行する（このセッションを司令塔として
-  記録し、道具を使うたびの定期確認がこのセッションで走るようにする）。
+  記録し、道具を使うたびの定期確認がこのセッションで走るようにする）。直後のフックが「記録した」と
+  知らせなければ登録されていない（「記録されていない」と出たら、単独のコマンドで実行し直す）。
 - **振り出す前に毎回`python scripts/orchestrate.py gate`。NGなら振り出さない**（理由を返す）。
 - 定期確認は`python scripts/orchestrate.py check`（フックが確認間隔ごとに自動で走らせる）。
 - 状態の表は手で書かず`python scripts/orchestrate.py board ...`で更新する。
