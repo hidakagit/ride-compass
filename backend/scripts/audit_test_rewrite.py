@@ -33,11 +33,12 @@ api層の対象ではconftestのimportでnumpyが2度読み込まれて収集ご
 import argparse
 import ast
 import os
-import sqlite3
 import subprocess
 import sys
 from collections import defaultdict
 from pathlib import Path
+
+from coverage import CoverageData
 
 
 def module_symbols(path: Path) -> tuple[set[str], dict[str, str]]:
@@ -148,29 +149,22 @@ def tests_that_never_enter_the_implementation(
 ) -> tuple[list[str], int]:
     """`--cov-context=test`の記録から、対象ファイルの行を1度も実行しないテストを引く。
 
-    `--cov-branch`のとき記録は`line_bits`ではなく`arc`へ入る。両方を見ないと、
-    「全件が実装へ入っていない」という嘘の答えが出る。
-
     **分母は実行されたテストの一覧から取る。** coverage.pyは何も記録しなかった文脈を
-    文脈の表に残さないため、表だけを分母にすると、実装へ入らないテストほど分母からも消える。
+    記録に残さないため、記録だけを分母にすると、実装へ入らないテストほど分母からも消える。
     """
     entered: set[str] = set()
     if coverage_db.exists():
-        db = sqlite3.connect(coverage_db)
-        tables = {r[0] for r in db.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+        data = CoverageData(basename=str(coverage_db))
+        data.read()
         target = implementation.replace("\\", "/")
-        for table in ("line_bits", "arc"):
-            if table not in tables:
-                continue
-            rows = db.execute(
-                f"SELECT DISTINCT ctx.context, f.path FROM {table} x"
-                " JOIN context ctx ON ctx.id = x.context_id JOIN file f ON f.id = x.file_id"
-            )
-            entered.update(
-                context.split("|")[0]
-                for context, path in rows
-                if "::" in context and path.replace("\\", "/").endswith(target)
-            )
+        for path in data.measured_files():
+            if path.replace("\\", "/").endswith(target):
+                entered.update(
+                    context.split("|")[0]
+                    for contexts in data.contexts_by_lineno(path).values()
+                    for context in contexts
+                    if "::" in context
+                )
     return sorted(executed - entered), len(executed)
 
 

@@ -12,7 +12,6 @@
 
 # testing
 /coverage
-/scripts/.smoke-check-screenshot.png
 /playwright-report/
 /test-results/
 /blob-report/

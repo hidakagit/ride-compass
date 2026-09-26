@@ -112,8 +112,8 @@ Windowsでは`uvicorn --reload`がリローダー親プロセスとワーカー�
 - **CIを待つぶん、反映はpushからCIの所要だけ遅れる。** 急ぎの修正でも待つ。待たずに出す手段は
   `deploy-backend.yml`の手動起動（`workflow_dispatch`）で、選んだrefの先端を判定なしで出す。
 
-振り分けの一覧（`deploy_backend_gate.py`の`DEPLOY_PATHS`。GitHubの`paths`と同じ規則で読む）は
-`backend/**`から、イメージに入らないもの（テスト・lint設定等）と、イメージには入るが本番
+振り分けの一覧（`deploy_backend_gate.py`の`DEPLOY_PATHS`と`NOT_DEPLOYED`。gitのpathspecとして
+`git diff --name-only`に当てさせる）は`backend/**`から、イメージに入らないもの（テスト・lint設定等）と、イメージには入るが本番
 プロセスが読まないもの（`export_openapi.py`とそれだけが読む表示値の宣言）を外している。
 表示値の変更は生成物（`frontend/src/types/generated/`）を経由してfrontendのデプロイで
 画面へ届くため、backendのコンテナを入れ替える理由にならない。**外したモジュールを本番側が

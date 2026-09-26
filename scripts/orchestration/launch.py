@@ -20,11 +20,13 @@ origin/masterの版で`<gitの共通ディレクトリ>/orchestration/tools/<sha
 from __future__ import annotations
 
 import argparse
+import io
 import json
 import os
 import shutil
 import subprocess
 import sys
+import tarfile
 import tempfile
 import time
 from pathlib import Path
@@ -56,19 +58,13 @@ def export_tools(project: Path, common: Path, sha: str) -> Path | None:
     if (target / "scripts" / "orchestrate.py").exists():
         os.utime(target)
         return target
-    names = git(project, "ls-tree", "-r", "--name-only", sha, "--", *TOOL_PATHS)
-    if not names:
+    archive = git(project, "archive", "--format=tar", sha, "--", *TOOL_PATHS)
+    if not archive:
         return None
-    paths = [p for p in names.decode("utf-8").splitlines() if p.endswith((".py", ".sh"))]
     root.mkdir(parents=True, exist_ok=True)
     staging = Path(tempfile.mkdtemp(prefix=f"{sha}.", dir=str(root)))
-    for path in paths:
-        blob = git(project, "show", f"{sha}:{path}")
-        if blob is None:
-            shutil.rmtree(staging, ignore_errors=True)
-            return None
-        (staging / path).parent.mkdir(parents=True, exist_ok=True)
-        (staging / path).write_bytes(blob)
+    with tarfile.open(fileobj=io.BytesIO(archive)) as tar:
+        tar.extractall(staging, filter="data")
     try:
         staging.rename(target)
     except OSError:

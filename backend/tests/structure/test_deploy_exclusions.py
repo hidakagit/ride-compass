@@ -1,7 +1,7 @@
 """backendのデプロイ対象から外したファイルが、本番で読まれていないことの検査。
 
-`scripts/deploy_backend_gate.py`の`DEPLOY_PATHS`は、本番プロセスに届かない変更でコンテナを
-入れ替えないよう、一部のファイルを`!`で外している。外したファイルを本番側のコードが
+`scripts/deploy_backend_gate.py`は、本番プロセスに届かない変更でコンテナを入れ替えないよう、
+一部のファイルを`NOT_DEPLOYED`で外している。外したファイルを本番側のコードが
 importすると、**そのファイルの変更だけが本番へ届かなくなる**。エラーにはならず、古い値で
 動き続ける。
 
@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import ast
 import importlib.util
+import subprocess
 from pathlib import Path
 
 BACKEND = Path(__file__).resolve().parents[2]
@@ -22,10 +23,6 @@ REPO = BACKEND.parent
 _SPEC = importlib.util.spec_from_file_location("deploy_backend_gate", REPO / "scripts" / "deploy_backend_gate.py")
 _GATE = importlib.util.module_from_spec(_SPEC)
 _SPEC.loader.exec_module(_GATE)
-
-
-def _excluded_patterns() -> list[str]:
-    return [p[1:] for p in _GATE.DEPLOY_PATHS if p.startswith("!")]
 
 
 def _image_code_dirs() -> list[Path]:
@@ -39,11 +36,15 @@ def _image_code_dirs() -> list[Path]:
 
 
 def _excluded_files() -> dict[str, list[Path]]:
-    # pathlibの`**`はディレクトリにしか当たらない（GitHubの`**`は配下のファイルにも当たる）。
-    return {
-        pattern: sorted(p for p in REPO.glob(pattern + "/*" if pattern.endswith("**") else pattern) if p.is_file())
-        for pattern in _excluded_patterns()
-    }
+    """外したパターンごとの、当たる追跡中のファイル（当て方はゲートと同じgitのpathspec）。"""
+    files = {}
+    for pattern in _GATE.NOT_DEPLOYED:
+        listed = subprocess.run(
+            ["git", "ls-files", "-z", "--", *_GATE.pathspec((pattern,), ())],
+            cwd=REPO, check=True, capture_output=True, text=True, encoding="utf-8",
+        ).stdout
+        files[pattern] = sorted(REPO / name for name in listed.split("\0") if name)
+    return files
 
 
 def _module_name(path: Path) -> str:
@@ -93,6 +94,6 @@ def test_excluded_code_in_the_image_is_not_referenced_by_production_code() -> No
                 violations.append(f"{path.relative_to(BACKEND).as_posix()} -> {name}")
 
     assert violations == [], (
-        "deploy_backend_gate.pyのDEPLOY_PATHSで外したモジュールを本番側のコードが参照している。"
-        "参照を残すならDEPLOY_PATHSの除外を外す:\n" + "\n".join(violations)
+        "deploy_backend_gate.pyのNOT_DEPLOYEDで外したモジュールを本番側のコードが参照している。"
+        "参照を残すならNOT_DEPLOYEDから外す:\n" + "\n".join(violations)
     )

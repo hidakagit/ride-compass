@@ -10,7 +10,8 @@ npm run lint     # eslint
 npx tsc --noEmit # type check
 ```
 
-UIの実機確認には `node scripts/smoke-check.mjs` （`npm run dev`起動後、headless ChromiumでトップページをスクリーンショットするPlaywrightスモークスクリプト）が使える。
+UIの実機確認には、`npm run dev`起動後に Playwright の CLI で headless Chromium のスクリーンショットを撮れる:
+`./node_modules/.bin/playwright screenshot --viewport-size="390,844" http://localhost:3000 <出力先.png>`（PowerShellでは`,`が配列になるので引用符が要る）
 
 ## Getting Started
 

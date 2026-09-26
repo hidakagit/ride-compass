@@ -19,11 +19,12 @@
 """
 
 import argparse
-import base64
 import os
 import pathlib
 import subprocess
 import sys
+
+from dotenv import dotenv_values
 
 _BACKEND_DIR = pathlib.Path(__file__).resolve().parent.parent
 _CONTAINER = "ridecompass-backend"
@@ -53,10 +54,10 @@ def _read_env(key: str) -> str:
     path = _env_file()
     if not path.exists():
         raise SystemExit(f"{path} がない。本番への接続情報が要る")
-    for line in path.read_text(encoding="utf-8").splitlines():
-        if line.startswith(f"{key}="):
-            return line[len(key) + 1 :].strip().strip('"')
-    raise SystemExit(f"{path} に {key} が無い")
+    value = dotenv_values(path, encoding="utf-8").get(key)
+    if not value:
+        raise SystemExit(f"{path} に {key} が無い")
+    return value
 
 
 def _run_locally(probe: pathlib.Path) -> int:
@@ -70,21 +71,11 @@ def _run_locally(probe: pathlib.Path) -> int:
 
 
 def _run_in_container(probe: pathlib.Path) -> int:
-    """VMへ転送してコンテナ内で走らせる。
-
-    パイプやリダイレクトを含むコマンドを`eval`で組むと引用が崩れて黙って空になるため、
-    base64で1つの引数へ畳んでから展開する。
-    """
+    """プローブの本文を標準入力でコンテナ内のPythonへ流す（VMにもコンテナにもファイルを残さない）。"""
     ssh = _read_env("SSH_COMMAND").split()
-    encoded = base64.b64encode(probe.read_bytes()).decode("ascii")
-    name = probe.name
-    remote = (
-        f"printf %s '{encoded}' > /tmp/{name}.b64 && base64 -d /tmp/{name}.b64 > /tmp/{name}"
-        f" && sudo docker cp /tmp/{name} {_CONTAINER}:/tmp/{name}"
-        f" && sudo docker exec -w /app -e PYTHONPATH=/app {_CONTAINER} python /tmp/{name}"
-        f"; sudo docker exec {_CONTAINER} rm -f /tmp/{name}; rm -f /tmp/{name} /tmp/{name}.b64"
-    )
-    return subprocess.call([*ssh, remote])
+    remote = f"sudo docker exec -i -w /app -e PYTHONPATH=/app {_CONTAINER} python -"
+    with probe.open("rb") as source:
+        return subprocess.call([*ssh, remote], stdin=source)
 
 
 def main(argv: list[str] | None = None) -> int:
