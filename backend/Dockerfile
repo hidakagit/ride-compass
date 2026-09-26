@@ -26,17 +26,12 @@ COPY scripts ./scripts
 EXPOSE 8000
 
 
-# RenderはWebサービスの手前に自前のリバースプロキシ/ロードバランサーを置くため、
-# コンテナから見ると全リクエストがRenderの内部プロキシから接続してきたように見える。
-# uvicornの--proxy-headers（既定で有効）はX-Forwarded-Forを見てrequest.client.hostを
-# 実際の訪問者IPに書き換えられるが、信頼するピアIPの既定値は127.0.0.1のみのため、
-# Renderの内部プロキシは信頼されずヘッダーが無視されてしまう。結果として
-# infrastructure/rate_limiter.pyの_client_idが「実際の訪問者ごと」ではなく
-# 「Renderの内部プロキシ」という単一の値になり、路面タイル/basemapタイルのレート制限を
-# デプロイ先の全アクセスがひとつのカウンタで共有してしまい、通常のパン/ズーム操作だけで
-# 上限に達して429になる不具合が実機で確認された（ローカルはリバースプロキシを挟まないため
-# 再現しない）。コンテナへの着信経路はRenderのプロキシ経由のみのため、
-# --forwarded-allow-ips='*'で信頼してよい。
+# --proxy-headers・--forwarded-allow-ips: per-IPのレート制限のキー（app/api/dependencies.py:
+# client_id）はrequest.client.hostで、前段のプロキシを通った要求はX-Forwarded-Forを信頼させないと
+# 全員がプロキシのIP1つへ潰れ、共有した上限に地図の操作だけで当たって429になる。uvicornが既定で
+# 信頼する接続元は127.0.0.1だけ。'*'は接続元を問わずヘッダーを信頼するため、前段を通らずに
+# このポートへ届く経路があると、X-Forwarded-Forを偽ってレート制限のキーを選べる（前段の
+# プロキシと着信の制限はVM側の設定で、リポジトリには無い）。
 # --no-access-log: アクセスログはapp側のミドルウェア(infrastructure/request_log.py)が
 # リクエストID・所要時間付きの1行サマリとして出すため、uvicorn標準のアクセスログは
 # 二重になるだけの上に情報が少ない(IDも所要時間も無い)ので止める。

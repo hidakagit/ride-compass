@@ -31,6 +31,7 @@
 | `features/map/layers/mapLayers.ts` | レイヤーカタログ本体（`MapLayerDescriptor[]`）・地図上チップの最上位グループ（`MAP_OVERLAY_GROUP_ORDER`が正本。現在は道路/環境/スポット）判定・軸スタジオ由来レイヤーの除外判定・`deriveFetchLayerStatus`（MapLibreのソースイベントを経由しないレイヤーのデータ状態判定） |
 | `features/map/scene/mapScene.ts` | 地図に載っているべきものの宣言の型（ソース・レイヤー・feature-state）と、重なりの段（`MAP_SCENE_TIERS`）・押せるレイヤーの引き方 |
 | `features/map/scene/applyMapScene.ts` | 宣言を地図へ当てる唯一の実装（`addSource`/`addLayer`/`setPaintProperty`/`setFilter`/`setFeatureState`）。前回の宣言との差分だけを当て、段の順に差し込む |
+| `features/map/scene/__fixtures__/sceneState.ts` | sceneの入口（`sceneInputsFrom`）へ渡す状態の雛形（テスト専用。sceneの契約テストが使う）。既定は何も出していない空だけで、見たい性質は呼び出し側が上書きで書く |
 | `features/map/MapView/MapView.tsx`（静的レイヤーの箇所のみ） | 画面の状態をsceneの入力へ渡す配線・押された点や道の判定とポップアップ・レイヤーのデータ取得状態の算出元（`buildLayerDataSources`）。レイヤーの描画コードは持たない |
 | `features/map/layers/mapStyleOps.ts` | 地図インスタンスへの低水準操作（スタイル読み込み後の実行・面レイヤーの差し込み位置・ズーム依存のicon-size式）。このアプリのどのレイヤーかを知らないものだけを置く |
 | `features/map/layers/routeArrowIcon.ts`・`icons.tsx` | ルート矢印・アイコン集（下記「本モジュールとの関係」参照） |
@@ -127,6 +128,21 @@ backendから取り、タイル本体はrewrites経由に戻る。
 `scene/groups/*.ts`は色分け式・分類の**宣言**のみを持ち、
 DOM/MapLibreを一切知らない。`MapView.tsx`は画面の状態をsceneの入力へ渡すだけで、
 レイヤーを直接は触らない。
+
+**前回の宣言との差分は自前で取り、依存に既にある`@maplibre/maplibre-gl-style-spec`の`diff()`は使わない。**
+`diff()`はスタイル全体どうしを比べて地図への操作の列を返すもので、このアプリの当て方と次の点で合わない
+（`diff.ts`・`util/deep_equal.ts`、版は`frontend/package.json`）:
+
+- **feature-stateを扱わない**。返す操作にfeature-stateの設定・解除が無い（スタイルの一部ではない）ため、
+  配信値で塗る線の差分は結局別に取ることになる。
+- **比べる相手がスタイル全体**。基礎地図のレイヤーまで含めた完成形を毎回組み、その中でこのアプリの面を
+  道路網の手前へ挿す位置も組む側が決める必要があり、差し込み位置の判断（下記`areaLayerAnchor`）は残る。
+- **タイルのURLが変わるとソースを作り直す**。GeoJSON以外のソースの変更は、ソースとそれを使うレイヤーを
+  消して足し直す操作になる。`setTiles`で入れ替えれば残る取得済みのタイルを捨てることになる
+  （`scene/sceneBuilders.ts: tilesContent`）。
+- **比較が参照の一致を先に見ない**。`deepEqual`は同じオブジェクトどうしでも中身を全部たどるので、変わって
+  いない大きなGeoJSON（ルートの形等）を状態が変わるたびに走査する。自前の比較は同じ参照なら
+  そこで終える。
 
 **面で塗るレイヤーは基礎地図の道路網より下に入る**（`mapStyleOps.ts`）。段が面なら
 `areaLayerAnchor`の返す位置を`beforeId`にする——判断は`applyMapScene`1箇所にあり、
