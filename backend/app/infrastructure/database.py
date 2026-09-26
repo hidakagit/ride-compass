@@ -40,11 +40,9 @@ def get_session_factory() -> async_sessionmaker[AsyncSession]:
     return _session_factory
 
 
-# ルート生成専用（GraphService/ElevationAttributeService）。未splitエリアへの初回タッチは
-# 生データからの再構築を伴い、タイル配信用の20秒では途中でキャンセルされる。タイル配信側の
-# ハング検知を損なわないよう、上限を緩めるのではなく別エンジン・別プールへ分ける。
-# 180秒は観測された最悪値（密集都心部の20km初回split、175.8秒）に余裕を持たせた値で、
-# 正常系は数秒〜数十秒のため、ここに達すること自体が異常のシグナルになる。
+# ルート生成と、全表走査を伴う管理APIの集計が使う。生成は1件の間ずっと1本の接続を持つため、
+# タイル配信とはプールを分ける。上限が長いのは集計がタイル配信用の20秒では最後まで走らない
+# ためで、生成のクエリ（取込範囲の判定・確定した経路の形の取り直し）はこの上限に近づかない。
 ROUTE_GENERATION_COMMAND_TIMEOUT_SECONDS = 180
 
 _route_generation_engine: AsyncEngine | None = None

@@ -127,8 +127,6 @@ class RouteGenerationSetup:
 
 
 async def get_graph_service():
-    # 未splitエリアの初回タッチで発生しうる重い再構築が、タイル配信保護用の短い
-    # command_timeoutでキャンセルされないよう、ルート生成用のセッション工場を使う。
     async with get_route_generation_session_factory()() as session:
         yield GraphService(repository=RoadGraphRepository(session))
 
