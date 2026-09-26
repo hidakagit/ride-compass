@@ -104,12 +104,11 @@ def route_facing_material_ids() -> list[str]:
     - 分解しない軸（参照材料が1件）。軸単位の生値（`axis_raw_arrays`）で足りる。
 
     軸が1つも参照していなくても、走行モデルが所要時間の算出に使う材料（停止の待ちは
-    `domain/traffic.py: stop_count_material_ids`、転がり抵抗は
-    `domain/cycling_speed.py: ROLLING_RESISTANCE_MATERIAL_ID`）は常に含める——軸の
+    `domain/traffic.py: stop_count_material_ids`）は常に含める——軸の
     公開/非公開で所要時間の中身が変わってはいけない。
     """
     seen: dict[str, None] = {}
-    for material_id in (*stop_count_material_ids(), ROLLING_RESISTANCE_MATERIAL_ID):
+    for material_id in stop_count_material_ids():
         seen.setdefault(material_id, None)
     for material_id in _published_axis_leaf_material_ids():
         spec = MATERIAL_CATALOG.get(material_id)
@@ -127,8 +126,11 @@ def route_facing_categorical_material_ids() -> list[str]:
     `route_facing_material_ids`のcategorical版。数値行列には文字列を載せられないため、
     列は別に持つ（`StaticEdgeScoreMatrix.categorical_material_values`）。区間ごとの値を
     ルート集約で「値ごとの延長割合」へ畳むのは`merge_material_category_shares`。
+
+    走行モデルが転がり抵抗に使う材料（`domain/cycling_speed.py: ROLLING_RESISTANCE_MATERIAL_ID`）は、
+    軸が参照していなくても常に含める（理由は`route_facing_material_ids`の停止の待ちと同じ）。
     """
-    seen: dict[str, None] = {}
+    seen: dict[str, None] = {ROLLING_RESISTANCE_MATERIAL_ID: None}
     for material_id in _published_axis_leaf_material_ids():
         spec = MATERIAL_CATALOG.get(material_id)
         if spec is None or spec.dtype != "categorical":

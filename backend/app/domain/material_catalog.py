@@ -47,6 +47,7 @@ from app.domain.material_sql import (
     MAXSPEED_KMH_CASE_SQL,
     SMOOTHNESS_NORMALIZED_SQL,
     SURFACE_CLASS_SQL,
+    SURFACE_ESTIMATE_SQL,
     SURFACE_GOOD_CASE_SQL,
     SURFACE_NORMALIZED_SQL,
     TRACKTYPE_NORMALIZED_SQL,
@@ -68,7 +69,13 @@ from app.domain.traffic import (
     poi_density_material_id,
     stop_kind_sql,
 )
-from app.domain.road import SURFACE_CLASSES, SURFACE_OTHER_KEY, SURFACE_OTHER_LABEL, TRACK_GRADES
+from app.domain.road import (
+    SURFACE_CLASSES,
+    SURFACE_ESTIMATES,
+    SURFACE_OTHER_KEY,
+    SURFACE_OTHER_LABEL,
+    TRACK_GRADES,
+)
 from app.domain.rain import HOURS_SINCE_RAIN, RAIN_HISTORY_HOURS, RAIN_WINDOW_HOURS, rain_window_material_id
 from app.domain.weather import PRECIPITATION_MIN_MM
 from app.domain.wind import WIND_DRAG_REFERENCE_SPEED_MS, wind_drag_ratio
@@ -672,6 +679,7 @@ def _landcover_description(cls: LandcoverClass) -> str:
 GRADIENT_PERCENT = "gradient_percent"
 WIND_DRAG_RATIO = "wind_drag_ratio"
 SURFACE_GOOD = "surface_good"
+SURFACE_ESTIMATE = "surface_estimate"
 ACCIDENT_COUNT_PER_KM_YEAR = "accident_count_per_km_year"
 
 
@@ -773,14 +781,17 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
     SURFACE_GOOD: MaterialSpec(
         material_id=SURFACE_GOOD,
         label="舗装良否",
-        description="路面の区分から判定した舗装の良否。true=舗装、false=それ以外の区分。区分に当てはまらない値とタグの無い道は不明。",
+        description=(
+            "路面の見込みから判定した舗装の良否。true=舗装、false=それ以外の区分。"
+            "見込みが「不明」の道（surfaceタグの区分も農道・林道の等級も無い道）は不明。"
+        ),
         dtype="boolean",
         tile_property="surface_good",
         primary_attribute=_ATTR_SURFACE,
         value_sql=SURFACE_GOOD_CASE_SQL,
         coverage=WayMaterialCoverageSpec(
                 missing_condition=f"({SURFACE_GOOD_CASE_SQL}) IS NULL",
-                source="OSM wayのタグ surface（路面の区分に当てはまらない値も欠損に含む）",
+                source="OSM wayのタグ surface・tracktype（見込みが「不明」の道を欠損に数える）",
                 missing_semantics="unknown",
             ),
     ),
@@ -986,6 +997,26 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
             missing_semantics="unknown",
         ),
     ),
+    SURFACE_ESTIMATE: MaterialSpec(
+        material_id=SURFACE_ESTIMATE,
+        label="路面の見込み",
+        description=(
+            "路面の区分（surfaceタグ）を優先し、無ければ農道・林道の等級（tracktype）から見込んだ区分"
+            "（等級1→舗装、2・3→砂利・未舗装、4・5→土・草・泥・砂）。どちらも無い道は「不明」で、"
+            "農道・林道とそれ以外の道を分けます。走行モデルの転がり抵抗もこの値から決まります。"
+        ),
+        dtype="categorical",
+        tile_property=SURFACE_ESTIMATE,
+        primary_attribute=_ATTR_SURFACE,
+        value_labels={estimate.key: estimate.label for estimate in SURFACE_ESTIMATES},
+        value_sql=SURFACE_ESTIMATE_SQL,
+        # 路面を示すタグの無い道も「不明」の区分として値を持つ。
+        coverage=WayMaterialCoverageSpec(
+            missing_condition=f"({SURFACE_ESTIMATE_SQL}) IS NULL",
+            source="OSM wayのタグ surface・tracktype・highway",
+            missing_semantics="definite",
+        ),
+    ),
     # 自転車インフラの分類を、評価軸ではなく材料の側で正規化したフラグ群。軸はこれらを
     # 重み付き線形結合するだけで、タグの読み方を知らない。それぞれ専用のtile_propertyを
     # 持ち、MVTタイルへ焼き込む。
@@ -1086,7 +1117,7 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
         label="農道・林道の等級",
         description=(
             "OSMの農道・林道の路面等級タグ(tracktype)の値（grade1=固く締まった路面〜grade5=柔らかい土・草）。"
-            "路面の区分とは別のタグで、区分へは写しません。"
+            "路面の区分とは別のタグです。surfaceタグの無い道では、路面の見込みを等級から決めます。"
         ),
         dtype="categorical",
         tile_property="tracktype",

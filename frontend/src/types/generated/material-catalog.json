@@ -173,7 +173,7 @@
   {
     "material_id": "surface_good",
     "label": "舗装良否",
-    "description": "路面の区分から判定した舗装の良否。true=舗装、false=それ以外の区分。区分に当てはまらない値とタグの無い道は不明。",
+    "description": "路面の見込みから判定した舗装の良否。true=舗装、false=それ以外の区分。見込みが「不明」の道（surfaceタグの区分も農道・林道の等級も無い道）は不明。",
     "dtype": "boolean",
     "unit": "",
     "value_labels": null,
@@ -343,6 +343,23 @@
     "tile_property": "surface_class"
   },
   {
+    "material_id": "surface_estimate",
+    "label": "路面の見込み",
+    "description": "路面の区分（surfaceタグ）を優先し、無ければ農道・林道の等級（tracktype）から見込んだ区分（等級1→舗装、2・3→砂利・未舗装、4・5→土・草・泥・砂）。どちらも無い道は「不明」で、農道・林道とそれ以外の道を分けます。走行モデルの転がり抵抗もこの値から決まります。",
+    "dtype": "categorical",
+    "unit": "",
+    "value_labels": {
+      "paved": "舗装",
+      "compacted": "締め固め・細砂利",
+      "gravel": "砂利・未舗装",
+      "soil": "土・草・泥・砂",
+      "cobblestone": "石畳",
+      "unknown_track": "不明（農道・林道）",
+      "unknown_road": "不明（一般の道）"
+    },
+    "tile_property": "surface_estimate"
+  },
+  {
     "material_id": "highway_is_cycleway",
     "label": "道路種別が自転車道",
     "description": "道路種別(highway)自体が自転車道(cycleway)かどうか。",
@@ -408,7 +425,7 @@
   {
     "material_id": "tracktype",
     "label": "農道・林道の等級",
-    "description": "OSMの農道・林道の路面等級タグ(tracktype)の値（grade1=固く締まった路面〜grade5=柔らかい土・草）。路面の区分とは別のタグで、区分へは写しません。",
+    "description": "OSMの農道・林道の路面等級タグ(tracktype)の値（grade1=固く締まった路面〜grade5=柔らかい土・草）。路面の区分とは別のタグです。surfaceタグの無い道では、路面の見込みを等級から決めます。",
     "dtype": "categorical",
     "unit": "",
     "value_labels": {

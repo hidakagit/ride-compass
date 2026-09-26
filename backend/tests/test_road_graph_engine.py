@@ -461,9 +461,9 @@ def composer_world(monkeypatch):
         resolved[MAT_DYN_EMPTY] = np.full(count, np.nan)
         return resolved
 
-    def fake_crr(values, count):
+    def fake_crr(values):
         world.crr_inputs.append(values)
-        return np.full(count, 0.005)
+        return np.full(len(values), 0.005)
 
     class FakeSpeedModel:
         """10mにつき1秒、向かい風1m/sにつき1秒を足す走行モデル（値を手で追えるように）。"""
@@ -500,10 +500,10 @@ def make_score_matrix(count=3, **overrides):
         axis_scores=np.column_stack([np.full(count, 1.0), np.full(count, 0.0)]),
         raw_axis_ids=[AXIS_STATIC],
         axis_raw_values=np.arange(count, dtype=float).reshape(count, 1),
-        material_ids=[MAT_STOP_A, MAT_CRR],
-        material_values=np.column_stack([np.full(count, 2.0), np.full(count, 0.004)]),
-        categorical_material_ids=["cat_a"],
-        categorical_material_values=np.array([["paved"]] * count, dtype=object),
+        material_ids=[MAT_STOP_A],
+        material_values=np.full((count, 1), 2.0),
+        categorical_material_ids=[MAT_CRR],
+        categorical_material_values=np.array([["surface_x"]] * count, dtype=object),
     )
     defaults.update(overrides)
     return StaticEdgeScoreMatrix(**defaults)
@@ -671,8 +671,8 @@ def test_travel_time_adds_the_stop_waits_of_the_materials_that_exist(composer_wo
     matrix = make_score_matrix(
         count=2,
         distance_m=np.array([1000.0, 2000.0]),
-        material_ids=[MAT_STOP_A, MAT_CRR],
-        material_values=np.column_stack([np.array([2.0, np.nan]), np.array([0.004, 0.004])]),
+        material_ids=[MAT_STOP_A],
+        material_values=np.array([[2.0], [np.nan]]),
         axis_raw_values=np.zeros((2, 1)),
         categorical_material_values=np.array([["paved"], ["paved"]], dtype=object),
     )
@@ -689,7 +689,7 @@ def test_travel_time_reads_rolling_resistance_from_the_material_arrays(composer_
     composer = make_composer()
     composer.compose("outbound", coords(35.0, 139.0), 0.0, +1)
 
-    assert composer_world.crr_inputs[-1].tolist() == [0.004, 0.004, 0.004]
+    assert composer_world.crr_inputs[-1].tolist() == ["surface_x", "surface_x", "surface_x"]
 
 
 def hourly_wind_composer(wind_weight):
@@ -700,7 +700,7 @@ def hourly_wind_composer(wind_weight):
         distance_m=np.array([1000.0, 2000.0]),
         axis_scores=np.column_stack([np.array([40.0, 80.0]), np.full(2, np.nan)]),
         axis_raw_values=np.zeros((2, 1)),
-        material_values=np.column_stack([np.full(2, 2.0), np.full(2, 0.004)]),
+        material_values=np.full((2, 1), 2.0),
         categorical_material_values=np.array([["paved"], ["paved"]], dtype=object),
     )
     return make_composer(

@@ -410,8 +410,11 @@ NaN）へ動的軸（風、`domain/dynamic_materials.py: evaluate_dynamic_axis_a
 
 **走行モデルが読む入力は軸の構成に依存しない**。勾配は静的スコア行列が常に持つ生配列
 （0次フィルタの勾配しきい値と同じ列）から、停止の回数は
-`domain/traffic.py: stop_count_material_ids`が宣言する材料から読む——「内訳として画面へ
-見せる材料」だけを運ぶ既定に任せると、軸を非公開にした瞬間に所要時間の中身が静かに変わる。
+`domain/traffic.py: stop_count_material_ids`が宣言する材料から、転がり抵抗は路面の見込み
+（`domain/cycling_speed.py: ROLLING_RESISTANCE_MATERIAL_ID`。分類の材料なので分類の列で運ぶ）から読む——
+「内訳として画面へ見せる材料」だけを運ぶ既定に任せると、軸を非公開にした瞬間に所要時間の中身が静かに変わる。
+見込みの値を転がり抵抗へ写すのは区間ごとのPythonの引き当てで、開発機で100万区間あたり約0.1秒かかる
+（リクエストに1回。数値の列から引いていた舗装良否のときは数ミリ秒）。
 
 ### 探索の状態（`domain/routing.py: TurnExpandedStructure`）
 

@@ -175,13 +175,35 @@ TUNING_PARAMETERS: tuple[TuningParameter, ...] = (
     TuningParameter(
         "speed.crr",
         "転がり抵抗（舗装路）", "", 0.005, 0.001, 0.05, TuningEffect.IMMEDIATE,
-        "舗装路の23〜28mmタイヤの標準値。",
+        "舗装路の23〜28mmタイヤの標準値。路面の分からない一般の道（農道・林道以外）もこの値で見積もる。",
+    ),
+    # 路面の区分ごとの転がり抵抗。どの区分がどの値を使うかは`domain/road.py`の区分の宣言が持つ。
+    TuningParameter(
+        "speed.crr_compacted",
+        "転がり抵抗（締め固め・細砂利）", "", 0.010, 0.001, 0.1, TuningEffect.IMMEDIATE,
+        "締め固めた路面の計測値が見当たらないため、舗装（speed.crr）と砂利（speed.crr_gravel）の中間に置く。",
     ),
     TuningParameter(
-        "speed.unpaved_crr",
-        "転がり抵抗（未舗装）", "", 0.015, 0.001, 0.1, TuningEffect.IMMEDIATE,
-        "砂利・締固めの値域（0.012〜0.020）の中ほど。"
+        "speed.crr_gravel",
+        "転がり抵抗（砂利・未舗装）", "", 0.015, 0.001, 0.1, TuningEffect.IMMEDIATE,
+        "未舗装の値域（0.012〜0.020）の中ほどで、舗装の約3倍（惰行試験で砂利は舗装の約3倍）。"
         "平地・無風で巡航20km/hの人が約14km/hになる。",
+    ),
+    TuningParameter(
+        "speed.crr_soil",
+        "転がり抵抗（土・草・泥・砂）", "", 0.018, 0.001, 0.1, TuningEffect.IMMEDIATE,
+        "草は舗装の約3.5倍（惰行試験）。砂はさらに大きいが、区分の中では土・草が多いため未舗装の値域の上寄りに置く。",
+    ),
+    TuningParameter(
+        "speed.crr_cobblestone",
+        "転がり抵抗（石畳）", "", 0.008, 0.001, 0.1, TuningEffect.IMMEDIATE,
+        "模擬石畳の試験台で空気圧を最適にしたロードバイクのタイヤが約0.0055。実際の玉石は凹凸が大きく"
+        "空気圧も合わせないため、それより上で、舗装と締め固めの間に置く。",
+    ),
+    TuningParameter(
+        "speed.crr_unknown",
+        "転がり抵抗（路面不明の農道・林道）", "", 0.010, 0.001, 0.1, TuningEffect.IMMEDIATE,
+        "舗装の道も未舗装の道も多いため、舗装（speed.crr）と砂利（speed.crr_gravel）の中間に置く。",
     ),
     TuningParameter(
         "speed.mass_kg",

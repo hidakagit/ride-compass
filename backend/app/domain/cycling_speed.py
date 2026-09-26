@@ -23,7 +23,8 @@ from dataclasses import dataclass, field
 
 import numpy as np
 
-from app.domain.material_catalog import SURFACE_GOOD
+from app.domain.material_catalog import SURFACE_ESTIMATE
+from app.domain.road import SURFACE_ESTIMATES
 from app.domain.tuning import tuning_value
 
 AIR_DENSITY_KG_M3 = 1.225
@@ -38,25 +39,23 @@ GRAVITY_M_S2 = 9.80665
 # 一方、反復の中で配列を確保し直さないため回数を減らしても速くならない（実測）。
 SPEED_SOLVE_ITERATIONS = 12
 
-# 路面の良否を持つ材料id。走行モデルはこれを**軸の構成と無関係に**必要とする
+# 路面の見込みを持つ材料id。走行モデルはこれを**軸の構成と無関係に**必要とする
 # （`domain/traffic.py: stop_count_material_ids`と同じ理由）。
-ROLLING_RESISTANCE_MATERIAL_ID = SURFACE_GOOD
+ROLLING_RESISTANCE_MATERIAL_ID = SURFACE_ESTIMATE
 
 
-def crr_for_surface(surface_good: np.ndarray | None, length: int) -> np.ndarray:
-    """路面の良否（True=舗装良好）から区間ごとの転がり抵抗を、`length`件返す。
+def crr_for_surface(surface_estimate: np.ndarray) -> np.ndarray:
+    """路面の見込み（`domain/road.py: SurfaceEstimate`の鍵）から、区間ごとの転がり抵抗を返す。
 
-    値が無い区間（路面タグ不明、材料そのものが無い）は舗装路として扱う——「タグが無い」を
-    「路面が悪い」と読み替えないための既定（`material_catalog.py`の`surface_good`は
-    この区別のためだけに`bool_default="nan"`を持つ）。
+    宣言に無い値（値なしを含む）は送出する。材料の式はどの道にも見込みを与えるため、来るのは式と
+    宣言が食い違ったときだけで、舗装へ倒すと路面の違いが黙って所要時間から消える。
     """
-    paved = tuning_value("speed.crr")
-    if surface_good is None:
-        return np.full(length, paved)
-    values = np.asarray(surface_good, dtype=np.float64)
-    if values.shape != (length,):
-        raise ValueError(f"路面の材料が区間数と揃っていません 材料={values.shape} 区間={length}")
-    return np.where(values == 0.0, tuning_value("speed.unpaved_crr"), paved)
+    table = {estimate.key: tuning_value(estimate.rolling_resistance) for estimate in SURFACE_ESTIMATES}
+    values = np.asarray(surface_estimate, dtype=object)
+    try:
+        return np.fromiter((table[value] for value in values), dtype=np.float64, count=len(values))
+    except KeyError as error:
+        raise ValueError(f"路面の見込みに宣言に無い値がある: {error.args[0]!r}") from None
 
 
 @dataclass(frozen=True)

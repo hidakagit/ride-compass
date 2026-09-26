@@ -15,7 +15,9 @@ import numpy as np
 from app.domain.geo import bearing_between, haversine_distance_km
 from app.domain.graph import node_key
 from app.domain.hard_filters import hard_filter_columns
+from app.domain.cycling_speed import ROLLING_RESISTANCE_MATERIAL_ID
 from app.domain.material_catalog import GRADIENT_PERCENT
+from app.domain.road import UNKNOWN_ROAD_SURFACE
 from app.domain.traffic import stop_count_material_ids
 from app.domain.road_network import RoadNetwork
 from app.domain.route import Coordinates
@@ -58,7 +60,8 @@ def grid_network(
 ) -> RoadNetwork:
     """3×3の格子。`bad_ways`は避けたい材料が1（それ以外は0）、`unknown_ways`はその材料のデータが無い、
     `oneway_ways`は始点→終点だけ走れる、`motorway_ways`は高速道路。`island`で格子とつながらない道を足す。
-    勾配はどの道も平ら（0%）で、`no_gradient_ways`だけ値が無い。停止要因（信号・一時停止等）はどの道にも無い（0件）で、`no_stop_count_ways`だけ件数の値が無い。"""
+    勾配はどの道も平ら（0%）で、`no_gradient_ways`だけ値が無い。停止要因（信号・一時停止等）はどの道にも無い（0件）で、`no_stop_count_ways`だけ件数の値が無い。
+    路面はどの道も、路面のタグの無い一般の道（取込んだ道の大半がこれ）。"""
     ways = dict(WAYS)
     if island:
         ways[ISLAND_WAY] = tuple(ISLAND_NODES)
@@ -99,7 +102,8 @@ def grid_network(
         numeric_ids=(BAD_MATERIAL, GRADIENT_PERCENT, *stop_count_material_ids()),
         numeric_values=np.column_stack([bad, gradient, *(stop_count for _ in stop_count_material_ids())]),
         boolean_ids=(), boolean_values=np.zeros((n, 0), dtype=bool),
-        categorical_ids=(), categorical_codes=np.zeros((n, 0), dtype=np.int16), categorical_vocab=(),
+        categorical_ids=(ROLLING_RESISTANCE_MATERIAL_ID,), categorical_codes=np.ones((n, 1), dtype=np.int16),
+        categorical_vocab=((None, UNKNOWN_ROAD_SURFACE.key),),
         hard_filter_ids=hard_filter_ids, hard_filter_flags=flags,
         distance_m=np.array([haversine_distance_km(a, b) * 1000 for a, b in points]),
         bearing_deg=np.array([bearing_between(a, b) for a, b in points]),

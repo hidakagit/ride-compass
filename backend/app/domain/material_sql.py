@@ -21,7 +21,17 @@
 
 from collections.abc import Iterable, Sequence
 
-from app.domain.road import SURFACE_CLASSES, SURFACE_OTHER_KEY, SurfaceClass
+from app.domain.road import (
+    SURFACE_CLASSES,
+    SURFACE_OTHER_KEY,
+    TRACK_GRADES,
+    TRACK_HIGHWAY,
+    UNKNOWN_ROAD_SURFACE,
+    UNKNOWN_TRACK_SURFACE,
+    SurfaceClass,
+    TrackGrade,
+    surface_estimates,
+)
 from app.domain.traffic import poi_count_column
 
 
@@ -87,32 +97,53 @@ def positive_integer_tag_sql(tag: str) -> str:
 
 HIGHWAY_SQL = "w.highway"
 SURFACE_NORMALIZED_SQL = "lower(btrim(w.surface))"
+TRACKTYPE_NORMALIZED_SQL = normalized_tag_sql("tracktype")
 
 
 def _sql_literals(values: Iterable[str]) -> str:
     return ", ".join("'" + value.replace("'", "''") + "'" for value in values)
 
 
-def surface_class_sql(classes: Sequence[SurfaceClass]) -> str:
-    """surfaceタグの路面区分。タグが無ければNULL、区分に無い値は`SURFACE_OTHER_KEY`。"""
-    branches = " ".join(
+def _surface_class_branches(classes: Sequence[SurfaceClass]) -> str:
+    return " ".join(
         f"WHEN {SURFACE_NORMALIZED_SQL} IN ({_sql_literals(c.tags)}) THEN '{c.key}'" for c in classes if c.tags
     )
-    return f"CASE {branches} WHEN {SURFACE_NORMALIZED_SQL} IS NOT NULL THEN '{SURFACE_OTHER_KEY}' END"
 
 
-def surface_good_sql(classes: Sequence[SurfaceClass]) -> str:
-    """舗装良否。路面区分から導き、区分に無い値とタグの無い道は不明（NULL）のまま残す。"""
-    surface_class = surface_class_sql(classes)
-    paved = _sql_literals(c.key for c in classes if c.paved)
-    unpaved = _sql_literals(c.key for c in classes if not c.paved)
-    return f"CASE WHEN ({surface_class}) IN ({paved}) THEN true WHEN ({surface_class}) IN ({unpaved}) THEN false END"
+def surface_class_sql(classes: Sequence[SurfaceClass]) -> str:
+    """surfaceタグの路面区分。タグが無ければNULL、区分に無い値は`SURFACE_OTHER_KEY`。"""
+    return (
+        f"CASE {_surface_class_branches(classes)} "
+        f"WHEN {SURFACE_NORMALIZED_SQL} IS NOT NULL THEN '{SURFACE_OTHER_KEY}' END"
+    )
+
+
+def surface_estimate_sql(classes: Sequence[SurfaceClass], grades: Sequence[TrackGrade]) -> str:
+    """路面の見込み（`domain/road.py: SurfaceEstimate`）。surfaceの区分、無ければ等級から写した区分、
+    どちらも無ければ道路種別で分けた「不明」。どの道も値を持つ。"""
+    grade_branches = " ".join(
+        f"WHEN {TRACKTYPE_NORMALIZED_SQL} = '{g.value}' THEN '{g.surface_class}'" for g in grades
+    )
+    return (
+        f"CASE {_surface_class_branches(classes)} {grade_branches} "
+        f"WHEN {HIGHWAY_SQL} = '{TRACK_HIGHWAY}' THEN '{UNKNOWN_TRACK_SURFACE.key}' "
+        f"ELSE '{UNKNOWN_ROAD_SURFACE.key}' END"
+    )
+
+
+def surface_good_sql(classes: Sequence[SurfaceClass], grades: Sequence[TrackGrade]) -> str:
+    """舗装良否。路面の見込みから導き、「不明」の道は不明（NULL）のまま残す。"""
+    estimate = surface_estimate_sql(classes, grades)
+    estimates = surface_estimates(tuple(classes))
+    paved = _sql_literals(e.key for e in estimates if e.paved is True)
+    unpaved = _sql_literals(e.key for e in estimates if e.paved is False)
+    return f"CASE WHEN ({estimate}) IN ({paved}) THEN true WHEN ({estimate}) IN ({unpaved}) THEN false END"
 
 
 SURFACE_CLASS_SQL = surface_class_sql(SURFACE_CLASSES)
-SURFACE_GOOD_CASE_SQL = surface_good_sql(SURFACE_CLASSES)
+SURFACE_ESTIMATE_SQL = surface_estimate_sql(SURFACE_CLASSES, TRACK_GRADES)
+SURFACE_GOOD_CASE_SQL = surface_good_sql(SURFACE_CLASSES, TRACK_GRADES)
 SMOOTHNESS_NORMALIZED_SQL = normalized_tag_sql("smoothness")
-TRACKTYPE_NORMALIZED_SQL = normalized_tag_sql("tracktype")
 MAXSPEED_KMH_CASE_SQL = positive_integer_tag_sql("maxspeed")
 LANES_COUNT_CASE_SQL = positive_integer_tag_sql("lanes")
 LIT_NORMALIZED_SQL = normalized_tag_sql("lit")

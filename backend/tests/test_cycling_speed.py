@@ -18,13 +18,18 @@ import pytest
 
 from app.domain import cycling_speed
 from app.domain.cycling_speed import RiderProfile, SegmentSpeedModel
+from app.domain.road import SURFACE_ESTIMATES
 from app.domain.tuning import TUNING_PARAMETERS
 from tests.bound_fake import bound
 
 TUNING = {
     "speed.cda_m2": 0.4,
     "speed.crr": 0.005,
-    "speed.unpaved_crr": 0.012,
+    # 路面の見込みが読む転がり抵抗はどれも別の値にする（取り違えを見分けるため）。
+    **{
+        param_id: 0.006 + 0.001 * i
+        for i, param_id in enumerate(sorted({e.rolling_resistance for e in SURFACE_ESTIMATES} - {"speed.crr"}))
+    },
     "speed.mass_kg": 80.0,
     "speed.walking_kmh": 5.0,
     "speed.max_descent_kmh": 50.0,
@@ -151,31 +156,39 @@ def test_the_extra_climbing_power_makes_climbs_faster(tuning):
     assert _speed(20.0, grade=0.03) > constant_power
 
 
-PAVED = TUNING["speed.crr"]
-UNPAVED = TUNING["speed.unpaved_crr"]
+def test_each_surface_estimate_rolls_with_its_own_calibrated_resistance(tuning):
+    keys = np.array([e.key for e in SURFACE_ESTIMATES], dtype=object)
+
+    crr = cycling_speed.crr_for_surface(keys)
+
+    assert crr.tolist() == [tuning[e.rolling_resistance] for e in SURFACE_ESTIMATES]
 
 
-def test_unknown_surface_counts_as_paved_and_only_bad_surface_as_unpaved(tuning):
-    crr = cycling_speed.crr_for_surface(np.array([1.0, 0.0, np.nan]), 3)
+def test_a_changed_calibration_takes_effect_on_the_next_call(tuning):
+    estimate = SURFACE_ESTIMATES[-1]
+    tuning[estimate.rolling_resistance] = 0.02
 
-    assert crr.tolist() == [PAVED, UNPAVED, PAVED]
-
-
-def test_without_a_surface_material_every_segment_is_paved(tuning):
-    assert cycling_speed.crr_for_surface(None, 2).tolist() == [PAVED, PAVED]
+    assert cycling_speed.crr_for_surface(np.array([estimate.key], dtype=object)).tolist() == [0.02]
 
 
-def test_unpaved_segments_are_slower(tuning):
-    paved, unpaved = SegmentSpeedModel(RiderProfile(20.0), np.zeros(2), crr=np.array([PAVED, UNPAVED])).speed_ms(
+@pytest.mark.parametrize("value", [None, "no_such_estimate"])
+def test_a_value_outside_the_declared_estimates_is_rejected(tuning, value):
+    """舗装へ倒すと、式と宣言が食い違ったときに路面の違いが黙って所要時間から消える。"""
+    with pytest.raises(ValueError, match="宣言に無い値"):
+        cycling_speed.crr_for_surface(np.array([SURFACE_ESTIMATES[0].key, value], dtype=object))
+
+
+def test_rougher_surfaces_are_slower(tuning):
+    paved, rough = SegmentSpeedModel(RiderProfile(20.0), np.zeros(2), crr=np.array([0.005, 0.015])).speed_ms(
         np.zeros(2)
     )
 
-    assert unpaved < paved
+    assert rough < paved
 
 
 def test_rolling_resistance_defaults_to_the_paved_value(tuning):
-    assert _speed(20.0, grade=0.02) == _speed(20.0, grade=0.02, crr=np.array([PAVED]))
-    assert _speed(20.0, grade=0.02) != _speed(20.0, grade=0.02, crr=np.array([UNPAVED]))
+    assert _speed(20.0, grade=0.02) == _speed(20.0, grade=0.02, crr=np.array([tuning["speed.crr"]]))
+    assert _speed(20.0, grade=0.02) != _speed(20.0, grade=0.02, crr=np.array([0.015]))
 
 
 # ---- 速度の上下限（較正値で頭打ちになる） ----
@@ -249,11 +262,6 @@ def test_segment_arrays_of_a_different_length_are_rejected(tuning, name, kwargs)
 
     with pytest.raises(ValueError, match=name):
         SegmentSpeedModel(RiderProfile(20.0), np.zeros(3), crr).speed_ms(**arguments)
-
-
-def test_surface_values_of_a_different_length_are_rejected(tuning):
-    with pytest.raises(ValueError):
-        cycling_speed.crr_for_surface(np.array([1.0]), 3)
 
 
 def test_distances_of_a_different_length_are_rejected(tuning):
