@@ -13,7 +13,7 @@
 
 | レイヤー | ファイル |
 |---|---|
-| domain | `road_network.py`（取込範囲全体の道路網を、有向の区間とノードの番号で引ける列の配列として持つ型。行の並び・分類の材料を語彙への番号で持つことはそのdocstringが持つ）・`routing.py`・`graph.py`・`route.py`・`geo.py`・`errors.py`・`region.py`（矩形（`BoundingBox`）と地点を覆う矩形の組み立て、XYZタイルとの相互変換（緯度経度・Web Mercatorのメートル・同じ式のSQL）。タイル配信・取込・派生バッチもこの変換を共有する）・`cycling_speed.py`（自転車の走行モデル。平地・無風の巡航速度からホイール出力を逆算し、勾配・向かい風・転がり抵抗から区間ごとの速度を走行方程式で解く。速度の逆算は`v`の3次方程式になるため二分法で、numpyでベクトル化してある。候補の所要時間と基準線の探索コストがここから出る）・`tuning.py`（ルーティング評価が読む固定値の宣言。走ってみて決める値［較正値］は既定ごとここが持ち、エンジンが読む値・管理画面が並べる項目・変更が効くために何をやり直す必要があるかをそこから導く。較正値ではない固定値は載せず、使う側のモジュールが持つ）・`loop_routing.py`（周回・目的地ルートの探索結果を運ぶ型。探索の実装と候補を並べる戦略のどちらにも属さない） |
+| domain | `road_network.py`（取込範囲全体の道路網を、有向の区間とノードの番号で引ける列の配列として持つ型。行の並び・分類の材料を語彙への番号で持つことはそのdocstringが持つ）・`routing.py`・`graph.py`・`route.py`・`geo.py`・`errors.py`・`region.py`（矩形（`BoundingBox`）と地点を覆う矩形の組み立て、XYZタイルとの相互変換（緯度経度・Web Mercatorのメートル・同じ式のSQL）。タイル配信・取込・派生バッチもこの変換を共有する）・`cycling_speed.py`（自転車の走行モデル。平地・無風の巡航速度からホイール出力を逆算し、勾配・向かい風・転がり抵抗から区間ごとの速度を走行方程式で解く。速度の逆算は`v`の3次方程式になるため二分法で、numpyでベクトル化してある。候補の所要時間と基準線の探索コストがここから出る）・`tuning.py`（ルーティング評価が読む固定値の宣言。走ってみて決める値［較正値］は既定ごとここが持ち、エンジンが読む値・管理画面が並べる項目・変更が効くために何をやり直す必要があるかをそこから導く。較正値ではない固定値は載せず、使う側のモジュールが持つ）・`loop_routing.py`（周回・目的地ルートの探索結果を運ぶ型。探索の実装と候補を並べる戦略のどちらにも属さない）・`leg_costs.py`（レグごとのコスト配列の合成。静的スコア行列・重み・0次フィルタ・風の予報から、探索のコストと区間の表示が読む配列を時刻ビンごとに作る。外部とやり取りせず配列だけを受け取るので、エンジンの途中状態を組まずに確かめられる。下記「レグ別コスト配列」） |
 | services | `route_generator.py`（戦略層）・`road_graph_engine.py`・`graph_service.py` |
 | infrastructure | `road_graph_repository.py`（道路網・材料の読み出し専用）・`road_network_store.py`（道路網全体の配列をDBから作り、ディスクへ置き、読む）・`detour_ratio_cache.py`（探索範囲ごとに学習した迂回率）・`cache_identity.py`（キャッシュ鍵の組み立て方の正本。手で書くリビジョンと、焼き込みSQL・列構成から導く署名を合成する。道路網の置き場の形の署名とタイル配信側の世代も同じ関数を使う）・`container_memory.py`（このプロセスのコンテナのメモリ上限。読み込む量の上限を導く）・`derived_data_meta.py`（派生データの世代。バッチが中身を書き直すたびに進む単調カウンタで、デプロイを伴わない変化を表せる唯一の経路） |
 | api | `routes.py` |
@@ -75,7 +75,7 @@ Edgeコストは「探索範囲の静的Edge×公開軸スコア行列＋リク�
 経過時間のビン、区間の秒はそのビンの`travel_bins_lazy`）、区間ごとに探索が使ったビンを決める。
 到達予想と所要はこのたどりの時計（走行モデル＋停止の待ち＋曲がる待ち）で出すので、最後の区間の
 到達予想＋その区間の秒が所要に一致する。ビンが2本以上あるレグの区間は、経路上の行だけをそのビンの
-時刻で合成し直して読む（`_LegCostComposer.values_at_rows`、合成と同じ`_evaluate`を行で切って使う）
+時刻で合成し直して読む（`LegCostComposer.values_at_rows`、合成と同じ`_evaluate`を行で切って使う）
 ——全ビンの表示用配列をリクエストの間持ち続けないため。区間の評価に使った風（予報の時刻・風向風速・
 ビンや予報の範囲の先で延ばして使ったか）は`RouteSegmentDetail.wind`に載る（`winds_at`）。
 ビンの本数の上限（レグごとに`MAX_TIME_BINS`×`TIME_BIN_HOURS`時間）は、区間の詳細の説明が
@@ -88,12 +88,12 @@ Edgeコストは「探索範囲の静的Edge×公開軸スコア行列＋リク�
 風の時別系列があれば、**風に依存する軸の重みが0でも**時刻で引き直す。風は「避けたい度合い」
 である前に走行モデルの入力（向かい風で実際に遅くなる）のため。
 
-### レグ別コスト配列（`_LegCostComposer`・`LegCostArrays`）
+### レグ別コスト配列（`domain/leg_costs.py`: `LegCostComposer`・`LegCostArrays`）
 
 探索アルゴリズムは時刻を知らない（配列への`list.__getitem__`しか行わない）ため、
 「いつ通過するか」は探索前に配列を合成する側で決める。`_build_search_graph`は静的スコア
 行列・重み・0次フィルタ・`lazy_graph`行順の対応表をリクエストにつき1回だけ用意した
-`_LegCostComposer`を作り、`compose(label, anchor, offset_hours, direction)`がレグごとに合成する
+`LegCostComposer`を作り、`compose(label, anchor, offset_hours, direction)`がレグごとに合成する
 （`direction=+1`は基準点から離れるレグ、`-1`は基準点へ向かうレグで`offset_hours`が到着予定時刻）。
 ビンを刻むレグは各ビンの開始時刻を全区間の通過時刻として合成し、時刻ラベルを持てない目的地から遡る木だけは
 区間ごとの通過時刻（`passage_hours`。前向き木の実際の到達時間、届かない区間だけ
@@ -124,7 +124,7 @@ Edgeコストは「探索範囲の静的Edge×公開軸スコア行列＋リク�
 `RouteSegmentDetail.material_values`/`RouteCandidate.material_values`（重み>0の公開軸が
 参照する材料id→値、`AXIS_DEFINITIONS`の`materials`プロパティから導出、
 `axis_raw_value.py: displayed_material_ids`が集合を決める）は、動的材料（風等）は`material_arrays`から
-（`_material_value_at`）、静的材料（`gradient_percent`）はEdgeごとに計算済みの値を
+（`material_value_at`）、静的材料（`gradient_percent`）はEdgeごとに計算済みの値を
 そのまま読む。`displayed_material_ids`はリクエストの`lens_axis_id`（地図のレンズが表示を
 要求している軸）が符号付き材料の軸（`map_value_kind`が`signed_material`）を指す場合、
 その軸の材料も重みに関わらず含める（地図の色分けが重み0の軸でも成立するため）。
@@ -132,7 +132,7 @@ Edgeコストは「探索範囲の静的Edge×公開軸スコア行列＋リク�
 （`WeatherService.get_wind_forecast_lattice`。格子はMSMと同じ細かさ、`domain/wind.py: WindLattice`・
 `WIND_FORECAST_LAT_STEP_DEG`/`WIND_FORECAST_LON_STEP_DEG`。格子は緯度・経度0度から数えた固定の線に揃い、
 探索範囲に依らない。各Edgeは中点に最も近い格子点の風を引く——ルートを出す前の地図も同じ点を引く、
-`_LegCostComposer`の`_wind_points`）が無い場合は、出発時点のスナップショットで合成した1本を全レグで共有する（追加コスト
+`LegCostComposer`の`_wind_points`）が無い場合は、出発時点のスナップショットで合成した1本を全レグで共有する（追加コスト
 ゼロ）。**重みが0でも時刻ビンは畳まない**——走行モデル（向かい風は速度そのものを落とす）が
 時刻で変わるため、重み0を理由に時刻固定へ落とすと所要時間が狂う。時別系列があれば重みにもレンズにも依らず
 時刻で合成し、`lens_axis_id`が効くのは区間に載せる材料の集合（`displayed_material_ids`）だけである。
@@ -327,7 +327,7 @@ import済みの参照が古い辞書を指したままになる）。書き込�
 
 - 読み込んだグラフが覆う範囲の外を指した点は寄せない（索引のセル境界＋1セルの余裕で
   判定する。範囲の縁をわずかに外した点は、すぐ隣の道へ寄せる）。
-- 目的地が起点から到達できないときの補正（`MAX_DESTINATION_CORRECTION_KM`）は、
+- 目的地が起点から到達できないときの補正（`_MAX_DESTINATION_CORRECTION_KM`）は、
   そこから一定距離の中に到達できるNodeが無ければ補正せず、候補なしとして
   `no_candidates_side="destination"`を立てる。
 
@@ -414,11 +414,11 @@ idを`route-destination-00..`へ振り直すが、
 リクエストごとに組む。データ未整備（取込の宣言した範囲の外）ならNoneを返し、呼び出し元
 （`RouteGenerator`）が候補0件として扱う。
 
-`_build_search_graph`は、`StaticEdgeScoreMatrix`（風などリクエストごとに変わる動的軸の列は
+`_build_search_graph`は0次フィルタの除外（`compute_hard_filter_excluded`）と夜間の重みを決めて
+`LegCostComposer`を組む。合成器は`StaticEdgeScoreMatrix`（風などリクエストごとに変わる動的軸の列は
 NaN）へ動的軸（風、`domain/dynamic_materials.py: evaluate_dynamic_axis_arrays`。材料id→evaluator
 関数の登録制`DYNAMIC_MATERIAL_EVALUATORS`で軸名をハードコードしない汎用実装）と重み
-ベクトルを適用し、`compose_costs_from_axis_matrix`・`compute_hard_filter_excluded`で
-コスト配列を1回だけ合成する。合成結果はレグ（往路/復路）ごとに`LegCostArrays`
+ベクトルを適用し、`compose_costs_from_axis_matrix`でコスト配列を1回だけ合成する。合成結果はレグ（往路/復路）ごとに`LegCostArrays`
 （`cost_lazy`[区間の番号順]・`difficulty_array`・`axis_arrays`[切り出した区間の順]）へ
 まとまり、`_RoadGraphContext.legs`が保持する（下記「レグ別コスト配列」節）。並行Edge
 （同一Node間の複数Edge）は、`build_lazy_road_graph`が元の行（切り出した区間の順＝道路網全体の行の昇順）が
@@ -513,7 +513,7 @@ Nodeを「リング」として抽出する。**距離は最短実距離では�
 
 往路は一対全木上の経路そのもの（`turn_expanded_path_edge_indices`で復元、A*での再探索はしない
 ——同じコスト配列でA*をかけ直しても同じ経路になるため）。復路探索の間だけ、往路Edge＋
-同一Node対の逆方向Edgeのコストを共有`cost_lazy`上で`RETRACE_PENALTY_MULTIPLIER`倍へ
+同一Node対の逆方向Edgeのコストを共有`cost_lazy`上で`_RETRACE_PENALTY_MULTIPLIER`倍へ
 **差し替え**（infにはしない——復路が往路を戻る以外に道が無い区間[袋小路等]は通れる必要が
 ある）、A*（復路の目的地は常に起点のため、ヒューリスティック配列はリクエストで1回だけ
 計算し全候補で共有する）で探索した後、`try`/`finally`で元の値へ復元する。この差し替えはawaitを挟まない同期区間で完結し、復路探索が同期・直列実行
@@ -530,7 +530,7 @@ Nodeを「リング」として抽出する。**距離は最短実距離では�
    目的地に一番近いNode（`find_nearest_node_indexed`、次数1以上のみが候補[T256]）が
    この前向き木で到達不能な場合（歩道橋・私有地内通路等、メインの道路網から孤立した
    小さな塊へスナップされたケース）、`find_nearest_node_indexed`へ「前向き木が届くNode」
-   だけを候補にする`allowed`と、補正の上限`MAX_DESTINATION_CORRECTION_KM`を渡して再スナップする（実際の座標は
+   だけを候補にする`allowed`と、補正の上限`_MAX_DESTINATION_CORRECTION_KM`を渡して再スナップする（実際の座標は
    `_RoadGraphContext.destination_correction`に残り
    `RouteGenerator.last_destination_correction`→`GenerationConditions.
    corrected_destination`経由でレスポンスへエコーされる）。再スナップも失敗した場合は
@@ -545,18 +545,18 @@ Nodeを「リング」として抽出する。**距離は最短実距離では�
 3. 全Nodeについて経由路長と合成コストを`combine_forward_backward_at_nodes`で求め
    （そのNodeで曲がる費用を含む）、
    合成コスト最小のNode（＝経由地無しの従来の単一生成が返す経路、"最良路"）の長さの
-   `ALTERNATIVE_MAX_STRETCH`（1.3）倍以内のNodeだけを候補にする。
+   `_ALTERNATIVE_MAX_STRETCH`（1.3）倍以内のNodeだけを候補にする。
 4. 平均difficulty`(合成コスト/経由路長-1)/P`昇順に並べる。ただし最良路のNodeは常に
    先頭へ回す——伸び率の許す範囲でより平均difficultyの低い経路が他に存在すれば難易度順
    ではそちらが上位に来うるため、「最良路は必ず結果に含まれる」をランキングとは独立に
-   保証する。並べた後に`MAX_VIA_NODE_CANDIDATES_EXAMINED`件で打ち切る（周回の折返し点
+   保証する。並べた後に`_MAX_VIA_NODE_CANDIDATES_EXAMINED`件で打ち切る（周回の折返し点
    選定と同じ規則。**並べる前に切ると**Node index順の任意の集合を残すことになり、良い
    候補が理由なく落ちる）。打ち切ったときはWARNINGを出す。
 5. `domain/routing.py: select_diverse_by_overlap`で、前向き経路・後ろ向き経路が同じ
    物理区間を共有するNode（行って戻る形、`_loop_edge_lengths_by_physical_segment`で
    進行方向を無視した判定——単純なEdge index集合の比較だと同じ道の逆方向Edgeを
-   見逃す）を除外しつつ、採用済み候補との重複率が`VIA_NODE_MAX_OVERLAP_RATIO`
-   （`TURNAROUND_MAX_OVERLAP_RATIO`と同値の0.6、埋まらなければ0.85へ緩和）を超える
+   見逃す）を除外しつつ、採用済み候補との重複率が`_VIA_NODE_MAX_OVERLAP_RATIO`
+   （`_TURNAROUND_MAX_OVERLAP_RATIO`と同値の0.6、埋まらなければ0.85へ緩和）を超える
    ものを飛ばして`max_routes`件採る。
 
 `trace_loop_from_turnaround`と違い、選ばれたNodeの経路（前向き＋後ろ向きの経路復元の
@@ -759,8 +759,8 @@ segments構築はEdge単位の軽量な計算のため並行化してよい。�
   `ValueError`になる。
 - `RoadGraphEngine.is_loop_too_similar`（`_loop_edge_lengths_by_
   physical_segment`）: 距離フィルタ合格後の候補が、既に採用済みの候補と周回全体
-  （`TracedLoop.data`、往路＋復路の区間の番号列）で`LOOP_MAX_OVERLAP_RATIO`（0.7、往路のみ
-  比較する`TURNAROUND_MAX_OVERLAP_RATIO`＝0.6より緩め）を超えて重複するか判定する。
+  （`TracedLoop.data`、往路＋復路の区間の番号列）で`_LOOP_MAX_OVERLAP_RATIO`（0.7、往路のみ
+  比較する`_TURNAROUND_MAX_OVERLAP_RATIO`＝0.6より緩め）を超えて重複するか判定する。
   区間を両端のノード番号のfrozensetへ正規化し進行方向を無視して比較する
   ため、「同じ周回の逆回り」・「往路は違うが復路が同じ裏道へ収束する」周回のどちらも
   同じ判定で弾ける。

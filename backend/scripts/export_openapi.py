@@ -125,7 +125,7 @@ from app.domain.material_catalog import (  # noqa: E402
     display_axis_missing_semantics,
 )
 from app.domain.region import ROAD_TILE_MAX_ZOOM, ROAD_TILE_MIN_ZOOM  # noqa: E402
-from app.services.road_graph_engine import MAX_TIME_BINS, TIME_BIN_HOURS  # noqa: E402
+from app.domain.leg_costs import MAX_TIME_BINS, TIME_BIN_HOURS  # noqa: E402
 from app.services.route_generator import (  # noqa: E402
     DEFAULT_MAX_ROUTES,
     MAX_ROUTES,
