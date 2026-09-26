@@ -67,6 +67,27 @@ Windowsでは`uvicorn --reload`がリローダー親プロセスとワーカー�
 - 複数ファイルを短時間に連続編集すると`watchfiles`の再読み込みが1回分しか発火せず、
   古いコードのまま動き続けることがある。挙動が古いままに見えたら再起動する。
 
+## 本番の宛先（frontendのオリジンからbackendへ届くのは一部だけ）
+
+| | 宛先 | 中身 |
+|---|---|---|
+| frontend | `https://ride-compass-frontend.onrender.com` | Render。backendのCORSの許可に無ければ、`deploy-backend.yml`がデプロイのたびに足す |
+| backend | `https://193-123-166-150.sslip.io` | Oracle Cloud VM。VMのnginxがTLS（certbot）を終端し、`127.0.0.1:8000`のコンテナへ渡す。名前はVMの公開IPをsslip.ioで引けるようにしたもので、**IPが変わると宛先も変わる** |
+
+**画面がbackendを呼ぶ宛先はリポジトリに無い。** ブラウザからのAPIは`NEXT_PUBLIC_API_URL`、タイルは
+`NEXT_PUBLIC_TILE_BASE_URL`（[static-map-layers.md](../modules/frontend/static-map-layers.md)）で、どちらも
+Renderのダッシュボードの環境変数にあり、ビルドのときにJSへ埋め込まれる。
+
+**frontendのオリジンからbackendへ届くのは、`frontend/next.config.ts`のrewritesにあるタイル類と、管理画面の
+転送（`/admin/api/…`→backendの`/api/admin/…`、Basic認証をサーバー側で付ける）だけ。** それ以外のAPI
+（例: `/api/axis-catalog`・`/api/region/dynamic-way-values/…`・`/health`）をfrontendのオリジンへ投げると、
+Next.jsのHTMLの404が返る（backendの404はJSON）。本番のAPIを手で叩くとき・道具から引くときは、backendの
+宛先へ直接投げる。frontend自身の口（`/api/version`）はfrontendのオリジンにだけある。
+
+**手元の道具は、backendの宛先を`backend/.env.oracle.local`の`BACKEND_ORIGIN`から読む**（読み方は
+`backend/scripts/_prod_env.py`。例: `axis_apply.py`）。道具のコードに宛先を書き込まない——IPが変わったとき、
+道具の側で直すのが各自の`BACKEND_ORIGIN`だけで済むようにするため。
+
 ## デプロイの反映確認（backend/frontendで注入元が異なる）
 
 デプロイが実際にサービスへ反映されたかを、デプロイ操作をしたブラウザ以外からでも確認
