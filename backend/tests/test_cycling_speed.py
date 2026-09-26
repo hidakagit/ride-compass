@@ -61,11 +61,16 @@ def declared_defaults(monkeypatch):
     return _read_from(monkeypatch, {p.id: p.default for p in TUNING_PARAMETERS})
 
 
+def _model(profile: RiderProfile, grade: np.ndarray, crr=None) -> SegmentSpeedModel:
+    """路面を指定しなければ、全区間が乗り手の標準の転がり抵抗（舗装）の道。"""
+    return SegmentSpeedModel(profile, grade, np.full(grade.shape, profile.crr) if crr is None else crr)
+
+
 def _speed(
-    cruise_kmh: float, grade: float = 0.0, headwind: float = 0.0, crosswind_ms=None, crr=None
+    cruise_kmh: float, grade: float = 0.0, headwind: float = 0.0, crosswind: float = 0.0, crr=None
 ) -> float:
-    model = SegmentSpeedModel(RiderProfile(cruise_kmh), np.array([grade]), crr)
-    (value,) = model.speed_ms(np.array([headwind]), crosswind_ms)
+    model = _model(RiderProfile(cruise_kmh), np.array([grade]), crr)
+    (value,) = model.speed_ms(np.array([headwind]), np.array([crosswind]))
     return float(value)
 
 
@@ -112,15 +117,15 @@ def test_headwind_slows_and_tailwind_speeds_up(tuning):
 
 def test_one_model_solves_each_wind_on_its_own(tuning):
     # ルート生成は1つのモデルを時刻ビンの数だけ解く。前の風で解いた値が次の解に残ってはいけない
-    model = SegmentSpeedModel(RiderProfile(20.0), np.zeros(1))
-    model.speed_ms(np.array([8.0]))
+    model = _model(RiderProfile(20.0), np.zeros(1))
+    model.speed_ms(np.array([8.0]), np.zeros(1))
 
-    assert model.speed_ms(np.array([0.0]))[0] == pytest.approx(20.0 / 3.6, abs=SOLVE_TOLERANCE_MS)
+    assert model.speed_ms(np.array([0.0]), np.zeros(1))[0] == pytest.approx(20.0 / 3.6, abs=SOLVE_TOLERANCE_MS)
 
 
 def test_crosswind_slows_the_rider_less_than_the_same_headwind(tuning):
     # 横風は相対風速の大きさにだけ効き、進行方向の成分としては効かない
-    assert _speed(20.0, headwind=6.0) < _speed(20.0, crosswind_ms=np.array([6.0])) < _speed(20.0)
+    assert _speed(20.0, headwind=6.0) < _speed(20.0, crosswind=6.0) < _speed(20.0)
 
 
 def test_the_same_headwind_takes_a_bigger_share_from_a_slower_rider(tuning):
@@ -188,15 +193,10 @@ def test_only_the_values_of_the_given_rows_are_checked(tuning):
 
 def test_rougher_surfaces_are_slower(tuning):
     paved, rough = SegmentSpeedModel(RiderProfile(20.0), np.zeros(2), crr=np.array([0.005, 0.015])).speed_ms(
-        np.zeros(2)
+        np.zeros(2), np.zeros(2)
     )
 
     assert rough < paved
-
-
-def test_rolling_resistance_defaults_to_the_paved_value(tuning):
-    assert _speed(20.0, grade=0.02) == _speed(20.0, grade=0.02, crr=np.array([tuning["speed.crr"]]))
-    assert _speed(20.0, grade=0.02) != _speed(20.0, grade=0.02, crr=np.array([0.015]))
 
 
 # ---- 速度の上下限（較正値で頭打ちになる） ----
@@ -220,7 +220,7 @@ def test_a_steep_descent_tops_out_at_the_descent_limit(tuning):
 
 
 def test_travel_time_is_distance_over_speed(tuning):
-    seconds = SegmentSpeedModel(RiderProfile(18.0), np.zeros(2)).travel_seconds(
+    seconds = _model(RiderProfile(18.0), np.zeros(2)).travel_seconds(
         np.array([1000.0, 2000.0]), np.zeros(2), np.zeros(2)
     )
 
@@ -249,7 +249,7 @@ def test_climbing_speeds_stay_realistic_because_riders_push_harder(declared_defa
 
 
 def _speed_of(profile: RiderProfile, grade: float) -> float:
-    return float(SegmentSpeedModel(profile, np.array([grade])).speed_ms(np.array([0.0]))[0])
+    return float(_model(profile, np.array([grade])).speed_ms(np.array([0.0]), np.zeros(1))[0])
 
 
 # ---- 区間の配列の長さ ----
@@ -265,13 +265,13 @@ def _speed_of(profile: RiderProfile, grade: float) -> float:
 )
 def test_segment_arrays_of_a_different_length_are_rejected(tuning, name, kwargs):
     # 長さ1の配列はブロードキャストで全区間へ黙って広がる（1区間の風が全区間に効く）
-    arguments = {"headwind_ms": np.zeros(3), **kwargs}
+    arguments = {"headwind_ms": np.zeros(3), "crosswind_ms": np.zeros(3), **kwargs}
     crr = arguments.pop("crr", None)
 
     with pytest.raises(ValueError, match=name):
-        SegmentSpeedModel(RiderProfile(20.0), np.zeros(3), crr).speed_ms(**arguments)
+        _model(RiderProfile(20.0), np.zeros(3), crr).speed_ms(**arguments)
 
 
 def test_distances_of_a_different_length_are_rejected(tuning):
     with pytest.raises(ValueError):
-        SegmentSpeedModel(RiderProfile(20.0), np.zeros(3)).travel_seconds(np.array([100.0]), np.zeros(3), np.zeros(3))
+        _model(RiderProfile(20.0), np.zeros(3)).travel_seconds(np.array([100.0]), np.zeros(3), np.zeros(3))

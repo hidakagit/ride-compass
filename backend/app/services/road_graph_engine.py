@@ -366,9 +366,9 @@ class _LegCostComposer:
         self._hard_filter_excluded = hard_filter_excluded
         self._weather = weather
         self._wind_series = wind_series
-        # 格子点ごとの系列のとき、各Edgeの中点に最も近い予報の格子点（切り出した区間の順）。
+        # 各Edgeの中点に最も近い予報の格子点（切り出した区間の順）。
         self._wind_points = (
-            None if wind_series is None or wind_series.lattice is None
+            None if wind_series is None
             else wind_series.lattice.points_of(score_matrix.mid_lat, score_matrix.mid_lon)
         )
         self.start = start
@@ -696,9 +696,9 @@ class _LegCostComposer:
         引いた風。`beyond_bins`はレグの時刻ビンの範囲の先で、最後のビンをそのまま使った区間。"""
         winds: list[SegmentWind | None] = [None] * len(passage_hours)
         timed = [i for i, passage in enumerate(passage_hours) if passage is not None]
-        if self._wind_series is not None and timed:
+        if self._wind_series is not None and self._wind_points is not None and timed:
             timed_hours = np.array([passage_hours[i] for i in timed], dtype=float)
-            points = None if self._wind_points is None else self._wind_points[[rows[i] for i in timed]]
+            points = self._wind_points[[rows[i] for i in timed]]
             speed, direction = self._wind_series.sample(self.start, timed_hours, points)
             times, clamped = self._wind_series.sampled_times(self.start, timed_hours)
             for j, i in enumerate(timed):
@@ -999,13 +999,11 @@ class RoadGraphEngine:
         self,
         origin: Coordinates,
         radius_km: float,
-        now: datetime | None = None,
+        now: datetime,
         waypoints: list[Coordinates] | None = None,
     ) -> _RoadGraphContext | None:
-        # nowはnight軸判定用（省略時は実際の現在時刻）。テストが任意の時刻を
-        # 注入できるよう引数化した（wind同様、探索中は到達時刻が未確定のためprepare実行時点を
-        # 出発時刻の近似として使う簡略化、詳細は_build_search_graph参照）。
-        now = now or datetime.now(timezone.utc)
+        # nowは出発時刻。night軸判定にも使う（wind同様、探索中は到達時刻が未確定のため
+        # 出発時刻を近似として使う簡略化、詳細は_build_search_graph参照）。
         if waypoints:
             # ユーザー指定の経由地は起点から半径radius_km以内とは限らない
             # ため、周回探索の円を覆う矩形ではなく、preview_segmentと

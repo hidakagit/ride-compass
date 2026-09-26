@@ -104,14 +104,10 @@ class SegmentSpeedModel:
     numpyのブロードキャストで全区間へ黙って広がるため、揃っていることをここで確かめる。
     """
 
-    def __init__(self, profile: RiderProfile, grade: np.ndarray, crr: np.ndarray | None = None) -> None:
-        """`grade`は勾配（0.05なら5%）。`crr`を渡すと区間ごとに転がり抵抗を変えられる（未舗装等）。"""
+    def __init__(self, profile: RiderProfile, grade: np.ndarray, crr: np.ndarray) -> None:
+        """`grade`は勾配（0.05なら5%）、`crr`は区間ごとの転がり抵抗（`crr_for_surface`）。"""
         grade = np.asarray(grade, dtype=np.float32)
-        rolling_crr = (
-            np.full(grade.shape, tuning_value("speed.crr"), dtype=np.float32)
-            if crr is None
-            else np.asarray(crr, dtype=np.float32)
-        )
+        rolling_crr = np.asarray(crr, dtype=np.float32)
         if rolling_crr.shape != grade.shape:
             raise ValueError(f"区間の配列の長さが揃っていません grade={grade.shape} crr={rolling_crr.shape}")
         self._shape = grade.shape
@@ -124,7 +120,7 @@ class SegmentSpeedModel:
         self._lowest_ms = tuning_value("speed.walking_kmh") / 3.6
         self._highest_ms = tuning_value("speed.max_descent_kmh") / 3.6
 
-    def speed_ms(self, headwind_ms: np.ndarray, crosswind_ms: np.ndarray | None = None) -> np.ndarray:
+    def speed_ms(self, headwind_ms: np.ndarray, crosswind_ms: np.ndarray) -> np.ndarray:
         """区間ごとの走行速度（m/s）。`headwind_ms`は進行方向への向かい風成分（正が向かい風）、
         `crosswind_ms`は横成分。
 
@@ -137,11 +133,7 @@ class SegmentSpeedModel:
         （0.003m/s）より4桁細かい。
         """
         headwind = np.asarray(headwind_ms, dtype=np.float32)
-        cross = (
-            np.zeros(self._shape, dtype=np.float32)
-            if crosswind_ms is None
-            else np.asarray(crosswind_ms, dtype=np.float32)
-        )
+        cross = np.asarray(crosswind_ms, dtype=np.float32)
         mismatched = {
             name: array.shape
             for name, array in (("headwind_ms", headwind), ("crosswind_ms", cross))
@@ -181,7 +173,7 @@ class SegmentSpeedModel:
         return middle.astype(np.float64)
 
     def travel_seconds(
-        self, distance_m: np.ndarray, headwind_ms: np.ndarray, crosswind_ms: np.ndarray | None = None
+        self, distance_m: np.ndarray, headwind_ms: np.ndarray, crosswind_ms: np.ndarray
     ) -> np.ndarray:
         """区間ごとの走行時間（秒）。停止・ターンの待ちは含まない（別に足す）。"""
         distance = np.asarray(distance_m, dtype=np.float64)

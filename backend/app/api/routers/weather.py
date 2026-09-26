@@ -1,4 +1,5 @@
 import logging
+from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 
@@ -13,6 +14,7 @@ from app.api.dependencies import (
 from app.config import settings
 from app.domain.jma_amedas import AmedasObservation
 from app.domain.route import Coordinates
+from app.domain.time_zone import JST
 from app.domain.weather import WeatherConditions
 from app.domain.wind_grid import (
     WIND_GRID_DETAIL_MAX_POINTS,
@@ -82,7 +84,7 @@ async def get_wbgt(
     いずれも例外にせず空（level=None）を返す（wbgt_service.py参照。警報・
     注意報バッジと同じfail-open方針のため502は返さない）。"""
     enforce_rate_limit(http_request, "weather-wbgt", settings.weather_wbgt_rate_limit_per_minute)
-    return await wbgt_service.get_status(Coordinates(latitude=latitude, longitude=longitude))
+    return await wbgt_service.get_status(Coordinates(latitude=latitude, longitude=longitude), datetime.now(JST))
 
 
 @router.get("/api/weather/flood-forecast", response_model=FloodForecasts)

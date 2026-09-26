@@ -60,7 +60,7 @@ def _wind_uv(latitudes, longitudes, hour_index):
 def _patch_msm(monkeypatch, times: list[str] = TIMES) -> list[tuple[np.ndarray, np.ndarray]]:
     asked: list[tuple[np.ndarray, np.ndarray]] = []
 
-    async def read_series(latitudes, longitudes, hours=None):
+    async def read_series(latitudes, longitudes):
         asked.append((np.asarray(latitudes), np.asarray(longitudes)))
         u, v = zip(*(_wind_uv(latitudes, longitudes, h) for h in range(len(times))))
         count = len(latitudes)
@@ -184,7 +184,7 @@ async def test_second_call_reads_the_forecast_again(monkeypatch):
 
 
 async def test_forecast_unavailable_returns_empty_dict(monkeypatch):
-    async def unavailable(latitudes, longitudes, hours=None):
+    async def unavailable(latitudes, longitudes):
         raise MsmUnavailableError("未同期")
 
     monkeypatch.setattr(msm_client, "read_series", unavailable)

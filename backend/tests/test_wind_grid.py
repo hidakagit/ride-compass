@@ -4,7 +4,7 @@
 - 格子点の値の取得 → `services/weather_service.py`（`test_weather_route.py`等）
 - 詳細格子の点数の上限の検査 → `api/routers/weather.py`
 
-範囲と間隔は宣言（関東の範囲・0.1度）に頼らず、テストが小さな範囲を与える。詳細格子は原点を
+格子点マップは宣言した範囲と間隔そのもので確かめる。詳細格子はテストが小さな範囲を与える——原点を
 モジュールの範囲（`WIND_GRID_BBOX`）から取るため、その範囲を差し替える。
 """
 
@@ -15,7 +15,6 @@ from app.domain.route import Coordinates
 
 # (min_lon, min_lat, max_lon, max_lat)。幅0.35度は0.1度の整数倍ではない
 BBOX = (139.0, 35.0, 139.35, 35.2)
-SPACING = 0.1
 
 
 def _pairs(points: list[Coordinates]) -> set[tuple[float, float]]:
@@ -25,22 +24,33 @@ def _pairs(points: list[Coordinates]) -> set[tuple[float, float]]:
 # ---- 格子点マップ ----
 
 
-def test_the_grid_starts_at_the_south_west_corner_and_stops_inside_the_bbox():
-    points = _pairs(wind_grid.generate_wind_grid_points(BBOX, SPACING))
-
+def _grid_lines() -> tuple[list[float], list[float]]:
+    points = _pairs(wind_grid.generate_wind_grid_points())
     lats = sorted({lat for lat, _ in points})
     lons = sorted({lon for _, lon in points})
-    assert lats == [35.0, 35.1, 35.2]
-    # 幅が間隔の整数倍でないときは、端点を越えない最後の格子点で止まる
-    assert lons == [139.0, 139.1, 139.2, 139.3]
     assert len(points) == len(lats) * len(lons)
+    return lats, lons
+
+
+def test_the_grid_starts_at_the_south_west_corner_and_stops_inside_the_bbox():
+    lats, lons = _grid_lines()
+    min_lon, min_lat, max_lon, max_lat = wind_grid.WIND_GRID_BBOX
+
+    assert (lats[0], lons[0]) == (min_lat, min_lon)
+    # 端点を越えない最後の格子点で止まる（端が格子線ちょうどのとき、割り算の丸めで最後の1本が
+    # 落ちうることは実装が許容と明記している）
+    spacing = wind_grid.WIND_GRID_SPACING_DEG
+    assert lats[-1] <= max_lat and max_lat - lats[-1] <= spacing + 1e-9
+    assert lons[-1] <= max_lon and max_lon - lons[-1] <= spacing + 1e-9
 
 
 def test_grid_coordinates_carry_no_floating_point_drift():
-    # 端が格子線ちょうどだと、割り算の丸めで最後の1本が落ちうる（実装が許容と明記している）ため、幅は半端にする
-    points = wind_grid.generate_wind_grid_points((139.0, 35.0, 139.75, 35.0), SPACING)
+    lats, lons = _grid_lines()
 
-    assert [p.longitude for p in points] == [139.0, 139.1, 139.2, 139.3, 139.4, 139.5, 139.6, 139.7]
+    # 足し算を重ねた誤差（139.29999999…）が残らず、隣どうしの間隔が揃う
+    for line in (lats, lons):
+        assert all(value == round(value, 4) for value in line)
+        assert [round(b - a, 4) for a, b in zip(line, line[1:])] == [wind_grid.WIND_GRID_SPACING_DEG] * (len(line) - 1)
 
 
 # ---- 詳細格子 ----

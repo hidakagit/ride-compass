@@ -16,13 +16,12 @@ from collections.abc import Callable
 from datetime import datetime
 from typing import TYPE_CHECKING, Any
 
-from app.domain.time_zone import JST
 from app.domain.difficulty import difficulty_load, distance_weighted_difficulty
 from app.domain.errors import RoutingError, SearchAreaTooLargeError
 from app.domain.loop_routing import TracedLoop
 
 if TYPE_CHECKING:
-    from app.services.road_graph_engine import RoadGraphEngine
+    from app.services.road_graph_engine import RoadGraphEngine, _RoadGraphContext
 from app.domain.route import (
     merge_axis_raw_values,
     Coordinates,
@@ -107,7 +106,7 @@ class RouteGenerator:
         self.last_destination_correction: Coordinates | None = None
 
     async def _evaluate_and_aggregate(
-        self, context: Any, traced: list[TracedLoop], start_time: datetime
+        self, context: "_RoadGraphContext", traced: list[TracedLoop], start_time: datetime
     ) -> list[RouteCandidate]:
         """エンジンの評価を通し、区間から候補単位へ集約した完成形の`RouteCandidate`を返す。
 
@@ -142,7 +141,7 @@ class RouteGenerator:
         log_label: str,
         log_detail: str,
         failure_phrase: str,
-    ) -> Any | None:
+    ) -> "_RoadGraphContext | None":
         """探索の土台を作る。作れなければ、ログと利用者向けの理由を残してNoneを返す。
 
         生成の入口ごとに写経すると、文言を直したときに片方だけ古くなる。**どの入口で
@@ -175,8 +174,8 @@ class RouteGenerator:
         origin: Coordinates,
         distance_km: float,
         distance_tolerance_km: float,
-        max_routes: int = DEFAULT_MAX_ROUTES,
-        start_time: datetime | None = None,
+        max_routes: int,
+        start_time: datetime,
     ) -> list[RouteCandidate]:
         radius_km = distance_km * TURNAROUND_RADIUS_RATIO
         started = time.monotonic()
@@ -184,7 +183,6 @@ class RouteGenerator:
         origin_label = f"({origin.latitude:.2f},{origin.longitude:.2f})"
         self.last_no_candidates_reason = None
 
-        start_time = start_time or datetime.now(JST)
         context = await self._prepare(
             origin, radius_km, start_time, None, origin_label=origin_label,
             log_label="generate(loops)", log_detail=f"target_km={distance_km:.1f}",
@@ -303,9 +301,9 @@ class RouteGenerator:
         origin: Coordinates,
         waypoints: list[Coordinates],
         distance_km: float,
-        destination: Coordinates | None = None,
-        max_routes: int = 1,
-        start_time: datetime | None = None,
+        destination: Coordinates | None,
+        max_routes: int,
+        start_time: datetime,
     ) -> list[RouteCandidate]:
         """ユーザーが指定した経由地（中継地）を順に通る経路を生成する。
 
@@ -331,7 +329,6 @@ class RouteGenerator:
         # bboxが目的地もカバーするよう、prepareへ渡す点集合に含める。
         bbox_points = [*waypoints, destination] if destination is not None else waypoints
 
-        start_time = start_time or datetime.now(JST)
         context = await self._prepare(
             origin, radius_km, start_time, bbox_points, origin_label=origin_label,
             log_label="generate(via_waypoints)",
@@ -379,7 +376,7 @@ class RouteGenerator:
         destination: Coordinates,
         distance_km: float,
         edge_ids: list[str],
-        start_time: datetime | None = None,
+        start_time: datetime,
     ) -> list[RouteCandidate]:
         """クライアントが区間を差し替えて組み立てた経路を、既存候補と同じ経路で評価し直す。
 
@@ -394,7 +391,6 @@ class RouteGenerator:
         self.last_no_candidates_reason = None
         self.last_destination_correction = None
 
-        start_time = start_time or datetime.now(JST)
         context = await self._prepare(
             origin, radius_km, start_time, [destination], origin_label=origin_label,
             log_label="generate(spliced)", log_detail=f"edges={len(edge_ids)}",
@@ -442,7 +438,7 @@ class RouteGenerator:
         destination: Coordinates,
         distance_km: float,
         max_routes: int,
-        start_time: datetime | None = None,
+        start_time: datetime,
     ) -> list[RouteCandidate]:
         """経由地の無い目的地ルートを、via-node方式で`max_routes`件まで生成する。
 
@@ -459,7 +455,6 @@ class RouteGenerator:
         self.last_no_candidates_reason = None
         self.last_destination_correction = None
 
-        start_time = start_time or datetime.now(JST)
         context = await self._prepare(
             origin, radius_km, start_time, [destination], origin_label=origin_label,
             log_label="generate(destination)", log_detail=f"max_routes={max_routes}",
@@ -471,11 +466,10 @@ class RouteGenerator:
         select_started = time.monotonic()
         traced = await self._engine.select_via_nodes(context, destination, max_routes)
         select_ms = round((time.monotonic() - select_started) * 1000)
-        # engineが目的地をアクセス可能な最寄りNodeへ補正した場合、その座標を引き継ぐ
-        # （contextはengine実装ごとに異なりうるAny型のため、無い場合はNoneのまま）。
-        self.last_destination_correction = getattr(context, "destination_correction", None)
+        # engineが目的地をアクセス可能な最寄りNodeへ補正した場合、その座標を引き継ぐ。
+        self.last_destination_correction = context.destination_correction
         if not traced:
-            side = getattr(context, "no_candidates_side", None)
+            side = context.no_candidates_side
             logger.warning(
                 "generate(destination) origin=%s max_routes=%d -> no via-node candidates "
                 "side=%s prepare_ms=%d select_ms=%d",

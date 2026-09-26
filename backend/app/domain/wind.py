@@ -134,19 +134,17 @@ class WindLattice:
 
 @dataclass(frozen=True)
 class WindForecastSeries:
-    """時別風向・風速の予報系列（1時間刻み、`times`はタイムゾーン無しのローカル時刻[JST]）。探索前に各Edgeの
-    通過予定時刻へ対応する風を引くために使う。
-
-    `lattice`があれば格子点ごとの系列で、`speed_ms`・`direction_deg`は（格子点, 時刻）。無ければ1地点の系列で（時刻,）。
+    """格子点ごとの時別風向・風速の予報系列（1時間刻み、`times`はタイムゾーン無しのローカル時刻[JST]）。探索前に
+    各Edgeの通過予定時刻へ対応する風を引くために使う。`speed_ms`・`direction_deg`は（格子点, 時刻）。
     """
 
     times: list[datetime]
     speed_ms: np.ndarray
     direction_deg: np.ndarray
-    lattice: WindLattice | None = None
+    lattice: WindLattice
 
     def __post_init__(self) -> None:
-        expected = (len(self.times),) if self.lattice is None else (self.lattice.rows * self.lattice.cols, len(self.times))
+        expected = (self.lattice.rows * self.lattice.cols, len(self.times))
         if len(self.times) < 2 or self.speed_ms.shape != expected or self.direction_deg.shape != expected:
             raise ValueError(
                 f"WindForecastSeries: speed_ms/direction_deg must have the shape {expected} with >= 2 times"
@@ -163,16 +161,12 @@ class WindForecastSeries:
         return index, index != raw
 
     def sample(
-        self, start: datetime, passage_hours: np.ndarray, points: np.ndarray | None = None
+        self, start: datetime, passage_hours: np.ndarray, points: np.ndarray
     ) -> tuple[np.ndarray, np.ndarray]:
         """`start`（タイムゾーン無しのローカル時刻）から`passage_hours`時間後に最も近い
-        時刻の（風速, 風向）配列を返す。系列の範囲外は端の値へクランプする（探索では欠損
-        より端の値の方が妥当）。格子点ごとの系列では`points`（`passage_hours`と同じ並びの格子点の番号）が要る。"""
+        時刻の（風速, 風向）配列を、`points`（`passage_hours`と同じ並びの格子点の番号、`lattice.points_of`）
+        ごとに返す。系列の範囲外は端の値へクランプする（探索では欠損より端の値の方が妥当）。"""
         index, _clamped = self._sample_index(start, passage_hours)
-        if self.lattice is None:
-            return self.speed_ms[index], self.direction_deg[index]
-        if points is None:
-            raise ValueError("WindForecastSeries.sample: a lattice series needs the grid point of each passage")
         return self.speed_ms[points, index], self.direction_deg[points, index]
 
     def sampled_times(self, start: datetime, passage_hours: np.ndarray) -> tuple[list[datetime], np.ndarray]:

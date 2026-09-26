@@ -62,19 +62,13 @@ def _load_json(path: Path) -> dict:
         return {}
 
 
-#: 配信元のメタ情報が未同期のときに使うrun更新間隔。同期後はメタ情報の値が優先する。
+#: 配信元のメタ情報がrun更新間隔を持たない（使えない値の）ときに使う間隔。
 DEFAULT_UPDATE_INTERVAL_SECONDS = 3 * 60 * 60
 
 
-def _update_interval_seconds_from(meta: dict, default: int = DEFAULT_UPDATE_INTERVAL_SECONDS) -> int:
+def _update_interval_seconds_from(meta: dict) -> int:
     value = meta.get("update_interval_seconds")
-    return int(value) if isinstance(value, (int, float)) and value > 0 else default
-
-
-def update_interval_seconds(default: int = DEFAULT_UPDATE_INTERVAL_SECONDS) -> int:
-    """配信元のrun更新間隔。MSM由来の派生値をキャッシュするTTLの基準になる（これより長く
-    保持すると新しいrunが出ても古い値を返し続ける）。未同期のときは既定値を返す。"""
-    return _update_interval_seconds_from(_load_json(_META_FILE), default)
+    return int(value) if isinstance(value, (int, float)) and value > 0 else DEFAULT_UPDATE_INTERVAL_SECONDS
 
 
 # 配信が止まったと見なす境目は「公開の更新を何本連続で落としたか」。間隔そのものは
@@ -250,13 +244,13 @@ def _prune(keep: set[Path]) -> None:
                 path.unlink(missing_ok=True)
 
 
-async def refresh(client: httpx.AsyncClient, horizon_hours: int | None = None) -> int:
+async def refresh(client: httpx.AsyncClient) -> int:
     """配信元と同期する。実際に取得したファイル数を返す。
 
-    現在時刻から`horizon_hours`先までを覆うチャンク（通常1〜2個）を変数ごとに取得する。
+    現在時刻から`settings.msm_forecast_hours`先までを覆うチャンク（通常1〜2個）を変数ごとに取得する。
     内容が変わっていないチャンクはETagによる条件付きGETで転送自体が起きない。
     """
-    horizon = horizon_hours if horizon_hours is not None else settings.msm_forecast_hours
+    horizon = settings.msm_forecast_hours
     meta = await _fetch_meta(client)
     chunk_hours = int(meta["chunk_time_length"])
     now = int(time.time())
@@ -349,16 +343,14 @@ def _read_series_sync(
     return times, {variable: np.concatenate(parts, axis=1) for variable, parts in series.items()}
 
 
-async def read_series(
-    latitudes: np.ndarray, longitudes: np.ndarray, hours: int | None = None
-) -> tuple[list[str], dict[str, np.ndarray]]:
-    """地点ごとの時系列（現在時刻の正時から`hours`時間ぶん）を返す。
+async def read_series(latitudes: np.ndarray, longitudes: np.ndarray) -> tuple[list[str], dict[str, np.ndarray]]:
+    """地点ごとの時系列（現在時刻の正時から`settings.msm_forecast_hours`時間ぶん）を返す。
 
     戻り値は(時刻列, 変数ごとの[地点数, 時刻数]配列)。時刻はJSTのISO文字列
     （分まで、タイムゾーン指定なし）で、フロントの既存パーサの入力形式と揃える。
     同期が済んでいない・予報が現在時刻へ追いついていない場合は`MsmUnavailableError`。
     """
-    requested = hours if hours is not None else settings.msm_forecast_hours
+    requested = settings.msm_forecast_hours
     with log_external_call("msm:read", locations=len(latitudes), hours=requested) as fields:
         fields["cache"] = "hit"
         try:

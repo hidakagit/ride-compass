@@ -553,7 +553,7 @@ class FakeWbgtService:
     def __init__(self, status: WbgtStatus):
         self._status = status
 
-    async def get_status(self, point, now=None):
+    async def get_status(self, point, now):
         return self._status
 
 

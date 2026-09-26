@@ -5,12 +5,13 @@
 - 距離加重平均そのもの（欠損の除外・再正規化の計算） → `domain/difficulty.py`のテスト
 - モデルのフィールド制約（緯度経度の範囲・未知フィールドの拒否） → 型が保証する
 
-ビンの幅は既定値に頼らず、テストごとに渡す。
+区間の長さはビンの幅の宣言（`SEGMENT_BIN_DISTANCE_KM`）に対する割合で組み立てる。
 """
 
 import pytest
 
 from app.domain import route
+from app.domain.route import SEGMENT_BIN_DISTANCE_KM as WIDTH
 from app.domain.route import RouteSegmentDetail
 
 
@@ -35,28 +36,29 @@ def _line(*points: tuple[float, float]) -> dict:
 
 
 def test_no_segments_make_no_bins():
-    assert route.aggregate_segments_into_bins([], bin_distance_km=0.5) == []
+    assert route.aggregate_segments_into_bins([]) == []
 
 
 @pytest.mark.parametrize(
     ("distances", "expected_bin_distances"),
     [
         # 累積がちょうど幅に届いた時点で閉じ、残りは幅に満たなくても最後のビンとして残す
-        ([0.2, 0.3, 0.2], [0.5, 0.2]),
+        ([0.4, 0.6, 0.4], [1.0, 0.4]),
         # 最後の区間でちょうど閉じたときは、空のビンを足さない
-        ([0.5, 0.5], [0.5, 0.5]),
+        ([1.0, 1.0], [1.0, 1.0]),
         # 幅に届かないまま終わった区間も1つのビンになる（経路全体の距離が合うため）
-        ([0.1, 0.1], [0.2]),
+        ([0.2, 0.2], [0.4]),
     ],
 )
 def test_bins_close_when_accumulated_distance_reaches_bin_width(distances, expected_bin_distances):
-    bins = route.aggregate_segments_into_bins([_segment(d) for d in distances], bin_distance_km=0.5)
+    # 距離はビンの幅に対する割合
+    bins = route.aggregate_segments_into_bins([_segment(d * WIDTH) for d in distances])
 
-    assert [b.distance_km for b in bins] == expected_bin_distances
+    assert [b.distance_km for b in bins] == pytest.approx([d * WIDTH for d in expected_bin_distances])
 
 
 def test_bin_takes_its_start_from_first_segment_and_end_from_last():
-    first = _segment(0.123).model_copy(
+    first = _segment(0.246 * WIDTH).model_copy(
         update={
             "start_latitude": 35.1,
             "start_longitude": 139.1,
@@ -66,7 +68,7 @@ def test_bin_takes_its_start_from_first_segment_and_end_from_last():
             "end_longitude": 139.2,
         }
     )
-    last = _segment(0.456).model_copy(
+    last = _segment(0.912 * WIDTH).model_copy(
         update={
             "start_latitude": 35.2,
             "start_longitude": 139.2,
@@ -77,28 +79,28 @@ def test_bin_takes_its_start_from_first_segment_and_end_from_last():
         }
     )
 
-    (merged,) = route.aggregate_segments_into_bins([first, last], bin_distance_km=10.0)
+    (merged,) = route.aggregate_segments_into_bins([first, last])
 
     assert (merged.start_latitude, merged.start_longitude) == (35.1, 139.1)
     assert (merged.end_latitude, merged.end_longitude) == (35.3, 139.3)
     assert merged.cumulative_distance_km == 4.0
     assert merged.estimated_arrival_time == "09:00"
-    assert merged.distance_km == 0.58  # 0.579を小数2桁へ
+    assert merged.distance_km == round(first.distance_km + last.distance_km, 2)  # 小数2桁へ
 
 
 # ---- ビンの値 ----
 
 
 def test_bin_difficulty_is_distance_weighted_over_segments_with_a_value():
-    segments = [_segment(1.0, 10.0), _segment(1.0, None), _segment(2.0, 40.0)]
+    segments = [_segment(WIDTH / 4, 10.0), _segment(WIDTH / 4, None), _segment(WIDTH / 2, 40.0)]
 
-    (merged,) = route.aggregate_segments_into_bins(segments, bin_distance_km=10.0)
+    (merged,) = route.aggregate_segments_into_bins(segments)
 
     assert merged.difficulty == 30.0  # (10×1 + 40×2) / 3。値の無い区間は分母にも入れない
 
 
 def test_bin_difficulty_is_missing_when_no_segment_has_one():
-    (merged,) = route.aggregate_segments_into_bins([_segment(1.0, None), _segment(1.0, None)], bin_distance_km=10.0)
+    (merged,) = route.aggregate_segments_into_bins([_segment(WIDTH / 4, None), _segment(WIDTH / 4, None)])
 
     assert merged.difficulty is None
 
@@ -107,11 +109,11 @@ def test_bin_difficulty_is_missing_when_no_segment_has_one():
 def test_every_declared_dict_field_is_carried_into_bins_per_key(field):
     # 母集団は宣言から取る: ビンへ引き継ぐと宣言したフィールドはすべて、キーごとの距離加重平均で残る
     segments = [
-        _segment(1.0, **{field: {"a": 10.0}}),
-        _segment(2.0, **{field: {"a": 40.0, "b": 7.0}}),
+        _segment(WIDTH / 4, **{field: {"a": 10.0}}),
+        _segment(WIDTH / 2, **{field: {"a": 40.0, "b": 7.0}}),
     ]
 
-    (merged,) = route.aggregate_segments_into_bins(segments, bin_distance_km=10.0)
+    (merged,) = route.aggregate_segments_into_bins(segments)
 
     # "b"は2つ目の区間にしか無い——キーを持たない区間は、そのキーの分母に入れない
     assert getattr(merged, field) == {"a": 30.0, "b": 7.0}
@@ -119,30 +121,30 @@ def test_every_declared_dict_field_is_carried_into_bins_per_key(field):
 
 def test_bin_geometry_joins_segments_without_repeating_the_shared_point():
     segments = [
-        _segment(0.1, geometry=_line((0, 0), (1, 1))),
-        _segment(0.1, geometry=_line((1, 1), (2, 2))),
+        _segment(WIDTH / 5, geometry=_line((0, 0), (1, 1))),
+        _segment(WIDTH / 5, geometry=_line((1, 1), (2, 2))),
     ]
 
-    (merged,) = route.aggregate_segments_into_bins(segments, bin_distance_km=10.0)
+    (merged,) = route.aggregate_segments_into_bins(segments)
 
     assert merged.geometry == _line((0, 0), (1, 1), (2, 2))
 
 
 def test_bin_geometry_keeps_both_points_where_segments_do_not_touch():
     segments = [
-        _segment(0.1, geometry=_line((0, 0), (1, 1))),
-        _segment(0.1, geometry=_line((5, 5), (6, 6))),
+        _segment(WIDTH / 5, geometry=_line((0, 0), (1, 1))),
+        _segment(WIDTH / 5, geometry=_line((5, 5), (6, 6))),
     ]
 
-    (merged,) = route.aggregate_segments_into_bins(segments, bin_distance_km=10.0)
+    (merged,) = route.aggregate_segments_into_bins(segments)
 
     assert merged.geometry == _line((0, 0), (1, 1), (5, 5), (6, 6))
 
 
 def test_bin_geometry_skips_segments_without_a_shape():
-    segments = [_segment(0.1), _segment(0.1, geometry=_line((1, 1), (2, 2)))]
+    segments = [_segment(WIDTH / 5), _segment(WIDTH / 5, geometry=_line((1, 1), (2, 2)))]
 
-    (merged,) = route.aggregate_segments_into_bins(segments, bin_distance_km=10.0)
+    (merged,) = route.aggregate_segments_into_bins(segments)
 
     assert merged.geometry == _line((1, 1), (2, 2))
 
@@ -156,9 +158,9 @@ def test_bin_geometry_skips_segments_without_a_shape():
     ],
 )
 def test_bin_has_no_geometry_when_fewer_than_two_points_remain(geometries):
-    segments = [_segment(0.1, geometry=g) for g in geometries]
+    segments = [_segment(WIDTH / 5, geometry=g) for g in geometries]
 
-    (merged,) = route.aggregate_segments_into_bins(segments, bin_distance_km=10.0)
+    (merged,) = route.aggregate_segments_into_bins(segments)
 
     assert merged.geometry is None
 

@@ -7,7 +7,6 @@ from datetime import datetime, timedelta
 import httpx
 
 from app.domain.warning_levels import WarningBadgeLevel
-from app.domain.time_zone import JST
 from app.domain.route import Coordinates
 from app.domain.wbgt import is_within_provision_period, wbgt_level
 from app.domain.wbgt_points import nearest_point
@@ -34,14 +33,13 @@ class WbgtService:
     def __init__(self, http_client: httpx.AsyncClient):
         self._http_client = http_client
 
-    async def get_status(self, point: Coordinates, now: datetime | None = None) -> WbgtStatus:
-        """出発地点の暑さ指数警戒レベルを取得する。
+    async def get_status(self, point: Coordinates, now: datetime) -> WbgtStatus:
+        """出発地点の`now`（JST）時点の暑さ指数警戒レベルを取得する。
 
         提供期間外は取得自体を行わない。地点解決・予測値取得のどこで失敗しても例外にせず
         空を返す（他の警報系バッジと共有するfail-open方針）。警告として意味を持たない低い
         レベルも空へ倒す。
         """
-        now = now or datetime.now(JST)
         if not is_within_provision_period(now):
             return _empty_status()
 
