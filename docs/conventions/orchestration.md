@@ -338,7 +338,9 @@
 `python scripts/orchestrate.py slot ...`で、渡し方・止まる条件・依存の入れ直しの正本は
 `scripts/orchestration/slots.py`の冒頭。
 
-- **渡すのはClaude CodeのWorktreeCreateフック**（本体の`.claude/settings.json`に登録）。
+- **渡すのはClaude CodeのWorktreeCreateフック**（本体の`.claude/settings.json`に登録）。フックの行は
+  定期確認と同じ起動役（`scripts/orchestration/launch.py`）をorigin/masterから取り出して動かし、渡すかどうかの判定は
+  origin/masterの版の道具で行う（本体のチェックアウトの道具は古いことがある。「管理のループ」節の定期確認の項）。
   `isolation: "worktree"`で起動すると、フックが空いているスロットを最新のorigin/masterから
   作り直して渡し、渡した印（`git worktree lock`の理由`slot agent-<id> <時刻>`）を付ける。
   前の担当の未コミットの変更・pushしていないコミットが残っていれば、そのスロットは渡さない
@@ -649,8 +651,9 @@ backendのPythonは作業ツリーに`.venv`が無いため、本体のチェッ
   `date`を1本起こす（司令塔の道具の呼び出しごとに1本。他のセッションでは起こさない）。フックは`$CLAUDE_PROJECT_DIR`（セッションを始めた本体のチェックアウト。
   作業ツリーへ入っても動かない）から読まれ、本体はmasterが進んでも早送りしない限り古いままなので、
   確認そのものは**origin/masterの版の道具**で走る（`scripts/orchestration/launch.py`がgitの中から
-  `<gitの共通ディレクトリ>/orchestration/tools/<sha>/`へ書き出して動かす。本体は書き換えない）。
-  入口の`hook.sh`だけは本体から読まれるので、origin/masterの版と違えば確認の結果に
+  `<gitの共通ディレクトリ>/orchestration/tools/<sha>/`へ書き出して動かす。本体は書き換えない。書き出せなければ
+  本体の道具へは落とさず、走らせない）。
+  入口（`hook.sh`と`.claude/settings.json`）だけは本体から読まれるので、origin/masterの版と違えば確認の結果に
   「フックの入口が古い」と出る——出たら本体のチェックアウトを早送りする。
   待機中は`CronCreate`の定期実行（振り出しと同時に設定する）が確認を回す。
 - 異常があれば下の是正の段階へ進む。

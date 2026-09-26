@@ -8,6 +8,8 @@
     python scripts/orchestrate.py slot hook-create   # WorktreeCreateフックの入口（標準入力がJSON）
     python scripts/orchestrate.py slot hook-remove   # WorktreeRemoveフックの入口
 
+フックはこの2つを起動役（`launch.py`）経由で、origin/masterの版の道具として動かす。
+
 ## 渡したかどうかは作業ツリー自身が持つ
 
 渡した印は`git worktree lock`の理由（`slot <名前> <時刻>`）で、状態の表には書かない。gitの

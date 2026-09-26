@@ -46,14 +46,13 @@ orch_dir="$orch_git/orchestration"
 
 orch_run() {
     # 本体のチェックアウトは古いことがあるので、起動役（launch.py）をorigin/masterから取り出して動かす。
-    # 起動役が道具一式もorigin/masterの版で動かす。取り出せない（origin/masterに無い）ときだけ本体の道具で。
+    # 起動役が道具一式もorigin/masterの版で動かす。
     orch_launch="$orch_dir/launch.py"
-    if git -C "${CLAUDE_PROJECT_DIR:-.}" show origin/master:scripts/orchestration/launch.py > "$orch_launch.tmp" 2>/dev/null; then
+    if git -C "${CLAUDE_PROJECT_DIR:-.}" show origin/master:scripts/orchestration/launch.py > "$orch_launch.tmp"; then
         mv -f "$orch_launch.tmp" "$orch_launch"
         printf '%s' "$hook_input" | python "$orch_launch" --project "${CLAUDE_PROJECT_DIR:-.}"
     else
         rm -f "$orch_launch.tmp"
-        printf '%s' "$hook_input" | python "${CLAUDE_PROJECT_DIR:-.}/scripts/orchestrate.py" check --if-due
     fi
     exit 0
 }
