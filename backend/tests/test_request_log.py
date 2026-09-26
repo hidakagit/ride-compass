@@ -1,68 +1,59 @@
-"""リクエストIDミドルウェア・アクセスサマリログ(infrastructure/request_log.py)のテスト。
+"""リクエストID・アクセスサマリログ(infrastructure/request_log.py)のテスト。
 
 docs/conventions/logging.mdの方針のうち「全レスポンスにX-Request-IDが付く」「クライアント指定の
 X-Request-IDを引き継ぐ」「アクセスサマリのレベルはステータス・経路で変わる」
 「未処理例外はスタックトレース付きERRORで残る」を守る。ログ行の時刻がJSTで、
 オフセットを名乗ることも併せて検査する（書式はこのモジュールが1つだけ持つ）。
+
+ここで見ないもの: IDの形式の確かめ方・発行の仕方 → `asgi_correlation_id`の持ち物
 """
 
 import calendar
 import logging
 
 import pytest
+from asgi_correlation_id import CorrelationIdMiddleware
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from app.main import app as main_app
 from app.infrastructure.request_log import (
-    LOG_FORMAT,
-    JstLogFormatter,
-    RequestIdLogFilter,
+    format_log_lines,
     request_log_middleware,
     unhandled_exception_handler,
 )
+
+CLIENT_REQUEST_ID = "0f8fad5bd9cb469fa16570867728950e"
 
 
 def test_response_has_generated_request_id():
     client = TestClient(main_app)
     response = client.get("/health")
     assert response.status_code == 200
-    request_id = response.headers.get("X-Request-ID")
-    assert request_id
-    assert len(request_id) == 12
+    assert response.headers.get("X-Request-ID")
 
 
 def test_incoming_request_id_is_propagated():
     client = TestClient(main_app)
-    response = client.get("/health", headers={"X-Request-ID": "my-debug-id-1"})
-    assert response.headers["X-Request-ID"] == "my-debug-id-1"
+    response = client.get("/health", headers={"X-Request-ID": CLIENT_REQUEST_ID})
+    assert response.headers["X-Request-ID"] == CLIENT_REQUEST_ID
 
 
-def test_access_log_line_with_request_id(caplog):
+def test_access_log_line_carries_the_request_id(caplog):
+    """アクセスログの行にも応答と同じIDが載る。載らないと、利用者の手元のIDで行を探せない。"""
     caplog.set_level(logging.INFO, logger="ridecompass.access")
+    format_log_lines(caplog.handler)
     client = TestClient(main_app)
-    client.get("/health", headers={"X-Request-ID": "req-for-log-1"})
+    client.get("/health", headers={"X-Request-ID": CLIENT_REQUEST_ID})
 
     records = [r for r in caplog.records if r.name == "ridecompass.access"]
     assert len(records) == 1
     record = records[0]
     assert record.levelno == logging.INFO
-    message = record.getMessage()
-    assert "GET /health -> 200" in message
-    assert "ms client=" in message
-
-
-def test_request_id_filter_injects_contextvar():
-    # main.pyのフォーマット文字列%(request_id)sが参照する属性をfilterが全レコードへ注入する
-    from app.infrastructure.request_log import RequestIdLogFilter, request_id_var
-
-    record = logging.LogRecord("any", logging.INFO, __file__, 1, "msg", None, None)
-    token = request_id_var.set("ctx-req-42")
-    try:
-        assert RequestIdLogFilter().filter(record) is True
-        assert record.request_id == "ctx-req-42"
-    finally:
-        request_id_var.reset(token)
+    line = caplog.handler.format(record)
+    assert f"[req:{CLIENT_REQUEST_ID}]" in line
+    assert "GET /health -> 200" in line
+    assert "ms client=" in line
 
 
 def test_access_level_policy():
@@ -105,6 +96,7 @@ def test_unhandled_exception_logged_as_error_with_traceback(caplog):
 def test_unhandled_exception_response_has_request_id_header():
     test_app = FastAPI()
     test_app.middleware("http")(request_log_middleware)
+    test_app.add_middleware(CorrelationIdMiddleware)
     test_app.add_exception_handler(Exception, unhandled_exception_handler)
 
     @test_app.get("/boom")
@@ -112,10 +104,10 @@ def test_unhandled_exception_response_has_request_id_header():
         raise RuntimeError("kaboom")
 
     client = TestClient(test_app, raise_server_exceptions=False)
-    response = client.get("/boom", headers={"X-Request-ID": "req-for-500-1"})
+    response = client.get("/boom", headers={"X-Request-ID": CLIENT_REQUEST_ID})
 
     assert response.status_code == 500
-    assert response.headers["X-Request-ID"] == "req-for-500-1"
+    assert response.headers["X-Request-ID"] == CLIENT_REQUEST_ID
 
 
 def _formatted_line(created_utc: tuple[int, int, int, int, int, int], msecs: float) -> str:
@@ -123,8 +115,10 @@ def _formatted_line(created_utc: tuple[int, int, int, int, int, int], msecs: flo
     record = logging.LogRecord("ridecompass.test", logging.INFO, "/x", 1, "本文", (), None)
     record.created = calendar.timegm((*created_utc, 0, 0, 0)) + msecs / 1000
     record.msecs = msecs
-    RequestIdLogFilter().filter(record)
-    return JstLogFormatter(LOG_FORMAT).format(record)
+    handler = logging.Handler()
+    format_log_lines(handler)
+    handler.filter(record)
+    return handler.format(record)
 
 
 def test_log_time_is_written_in_jst():

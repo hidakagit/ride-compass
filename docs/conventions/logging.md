@@ -11,7 +11,7 @@ RideCompassのログはRender（本番）のログストリームだけで障害
 2. **1リクエスト=1行のサマリを常時(INFO)、イベント単位の詳細はdebug_mode時(DEBUG)。**
    タイル系は通常操作でも毎分数百イベントになるため、イベント単位ログを常時出すとRenderの
    ログが埋まる。常時出す行は「あとで数えなくて済む」集約済みの情報にする。
-3. **すべてのログにリクエストIDが付く。** `%(request_id)s`はフォーマッタが自動で付ける
+3. **すべてのログにリクエストIDが付く。** `%(correlation_id)s`はフォーマッタが自動で付ける
    （`infrastructure/request_log.py`）ので、個々のログにIDを書き込む必要はない。
 4. **常時出るログ(INFO以上)の座標は小数2桁(≈1km)へ丸める。** ユーザーの現在地を必要以上に
    残さないため。DEBUGは調査精度を優先しそのまま出してよい。APIキー・認証ヘッダは
@@ -63,10 +63,11 @@ RideCompassのログはRender（本番）のログストリームだけで障害
 
 ### リクエストID
 
-- ミドルウェア（`request_log.py`）が全リクエストへ付与し、レスポンスの`X-Request-ID`で返す。
-- フロントの`services/*.ts`はレスポンスヘッダから読み、DebugConsoleのdetailと
-  失敗時のエラーメッセージ（`（req: xxx）`）に含める。ユーザー報告のreq値でRenderのログを
-  検索すれば当該リクエストの全ログが引ける。
+- ミドルウェア（`asgi_correlation_id`の`CorrelationIdMiddleware`、`main.py`で登録）が全リクエストへ
+  付与し、レスポンスの`X-Request-ID`で返す。
+- フロントの`lib/fetchJson.ts`はレスポンスヘッダから読み、DebugConsoleのdetailに含める
+  （画面へ出す失敗の文言には混ぜない）。DebugConsoleのreq値でbackendのログを検索すれば
+  当該リクエストの全ログが引ける。
 - 新しいfetch呼び出しを追加する場合も同じパターンでrequestIdをdebugLogへ含めること。
 
 ### ログの時刻

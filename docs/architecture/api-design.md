@@ -36,7 +36,7 @@ backendが公開するHTTP APIの**全体の形**と、エンドポイントを�
   「送った覚えのない条件で生成された」状態になる。公開軸はDBが正本で軸スタジオから
   増減するため、**現在のキー集合は`GET /api/axis-catalog`で引く**。
 - **レート制限は経路ごとに別枠**（`infrastructure/rate_limiter.py`、プロセス内メモリの
-  固定窓）。上限値の正本は`backend/app/config.py: Settings`。地図を眺めてタイルを引いた
+  移動窓）。上限値の正本は`backend/app/config.py: Settings`。地図を眺めてタイルを引いた
   だけで区間インスペクタが引けなくなる、といった巻き添えを避けるため枠を結合しない。
 - **`Cache-Control`は`api/cache_policy.py`が一元管理する**。新規エンドポイントの
   追加漏れは`tests/test_cache_policy.py`が全ルート走査で検出する。

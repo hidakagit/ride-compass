@@ -8,7 +8,7 @@ import logging
 from collections import deque
 
 from app.config import settings
-from app.infrastructure.request_log import LOG_FORMAT, JstLogFormatter, RequestIdLogFilter
+from app.infrastructure.request_log import format_log_lines
 
 # 直近何件のログレコードをメモリに保持するか。1レコード=数百バイト程度のため、
 # 1000件でも数百KB規模に収まる（プロセス再起動でリセットされる、既存の
@@ -33,8 +33,7 @@ class _LogRingBufferHandler(logging.Handler):
 
 
 _ring_buffer_handler = _LogRingBufferHandler(_RING_BUFFER_MAX_SIZE)
-_ring_buffer_handler.setFormatter(JstLogFormatter(LOG_FORMAT))
-_ring_buffer_handler.addFilter(RequestIdLogFilter())
+format_log_lines(_ring_buffer_handler)
 
 
 def install_ring_buffer_handler() -> None:

@@ -25,8 +25,8 @@ DB接続・Redis・HTTPクライアント・レート制限・ログ・デバッ
 | infrastructure | `redis_client.py` | Redis共有クライアント |
 | infrastructure | `redis_json_cache.py` | RedisへJSONで持つcache-asideの共通骨格 |
 | infrastructure | `http_client.py` | 外部API向け共有HTTPクライアント |
-| infrastructure | `rate_limiter.py` | プロセス内メモリのみの固定窓レート制限 |
-| infrastructure | `request_log.py` | リクエストIDの付与、1リクエスト=1行のHTTPアクセスサマリログ、ログ1行の書式とJSTでの時刻整形 |
+| infrastructure | `rate_limiter.py` | プロセス内メモリのみの移動窓レート制限 |
+| infrastructure | `request_log.py` | 1リクエスト=1行のHTTPアクセスサマリログ、ログ1行の書式（リクエストIDの差し込みとJSTでの時刻整形）、500応答へのリクエストIDの付与 |
 | infrastructure | `response_compression.py` | 応答のgzip圧縮（対象content-typeのみ） |
 | infrastructure | `debug_log.py` | 外部I/O（外部API・タイル/標高キャッシュ）イベントのログと集計 |
 | infrastructure | `debug_control.py` | `debug_mode`のランタイム切替・直近ログの保持 |
@@ -75,6 +75,7 @@ FastAPI(lifespan=lifespan)
         ├─ (2') 同じセッションで refresh_tuning_values() を呼び、較正値の上書きを重ねる
         │       （[ルーティングエンジン](routing-engine.md)参照）。行が無い・テーブルが
         │       無い場合は宣言の既定値のまま進み、値が壊れている行だけが起動を止める
+        ├─ (2'') スケジューラへ失敗の受け口（EVENT_JOB_ERROR）を付ける（下記「定期ジョブの失敗」）
         ├─ (3) APSchedulerでJMAアメダス定期更新ジョブを登録（interval分ごと＋
         │       next_run_time=nowで起動直後にも1回即時実行、コールドスタート対策）
         ├─ (4) 同じくAPSchedulerでJMA動的タイルの定期プリウォームジョブを登録
@@ -90,7 +91,8 @@ FastAPI(lifespan=lifespan)
         ▼
   CORSMiddleware → ContentTypeGZipMiddleware（応答のgzip圧縮）
             → CachePolicyMiddleware（Cache-Control付与、下記「Cache-Controlの一元化」節）
-            → request_log_middleware（リクエストID付与・アクセスログ、最も外側）
+            → request_log_middleware（アクセスログ）
+            → CorrelationIdMiddleware（リクエストID付与、最も外側）
         ▼
   api_router（api/routers/__init__.py、全routerを集約）
         ▼
@@ -107,6 +109,15 @@ FastAPI(lifespan=lifespan)
   外部呼び出しの記録は`debug_log.py: log_external_call`が別途担う）。
 - 未処理例外（500）発生時も`unhandled_exception_handler`（`request_log.py`）経由で
   `X-Request-ID`ヘッダを付けて返す（通常レスポンスと同じ追跡性を保つ）。
+
+### 定期ジョブの失敗
+
+ジョブ本体は例外を捕まえない。APSchedulerが捕まえて次の実行を続け、失敗を
+`apscheduler.executors.default`へスタックトレース付きのERRORで出す。そのうえで`main.py`の
+`_log_job_failure`（`EVENT_JOB_ERROR`の受け口）が`ridecompass.scheduler`へジョブidと例外を
+1行のWARNINGで出す——APScheduler側の名前は接頭辞`ridecompass.`から外れ、接頭辞単位で
+レベルを絞ると漏れるため（[logging.md](../../conventions/logging.md)「その他の運用上の注意」）。
+受け口はlifespanで付けるので、テストがスケジューラを差し替えても同じ受け口が付く。
 
 ## 1プロセスの境界（`single_process.py`）
 
@@ -310,10 +321,22 @@ Basic認証必須）はサーバー側のファイルキャッシュしか消せ
 
 ## リクエストIDとアクセスログ（`request_log.py`）
 
-`request_log_middleware`が全リクエストへリクエストID（`X-Request-ID`ヘッダを引き継ぐか、
-無ければ`uuid4().hex[:12]`で生成）を割り当て、`contextvars`経由で保持する。
-`RequestIdLogFilter`が全ログレコードへ`request_id`属性を注入するため、1リクエスト中に
-出た外部API呼び出しログ・ルート生成ステージログ等がすべて同じIDで紐づく。
+リクエストIDは`asgi_correlation_id`の`CorrelationIdMiddleware`（`main.py`で最も外側に登録、
+既定の設定のまま）が割り当てる。クライアントが送った`X-Request-ID`はUUIDの形（32桁の16進、
+ハイフンの有無は問わない）のときだけ引き継ぎ、無い・形が違うときは`uuid4().hex`で作り直す
+（作り直したときはライブラリの`asgi_correlation_id`ロガーがWARNINGを出す）。長さも文字種も
+確かめずにログと応答ヘッダへ流すと、任意の文字列を行へ差し込める。IDは`contextvars`で持たれ、
+応答の`X-Request-ID`にも付く。
+
+`format_log_lines`がハンドラへ付ける`CorrelationIdFilter`が全ログレコードへ`correlation_id`
+属性を注入するため、1リクエスト中に出た外部API呼び出しログ・ルート生成ステージログ等が
+すべて同じIDで紐づく（リクエストの外で出た行は`-`）。
+
+500応答は`ServerErrorMiddleware`（ミドルウェアの最も外）が作るため、ミドルウェアはそこへ
+ヘッダを付けられない。`unhandled_exception_handler`がIDを読んでヘッダ付きの応答を組み立てる。
+ミドルウェアはcontextvarを巻き戻さないので、そこでもIDが読める。
+
+`request_log_middleware`は1リクエスト=1行のアクセスログを出す。
 
 アクセスログのレベルは`_access_level`が動的に決める:
 
