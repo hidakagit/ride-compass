@@ -30,6 +30,10 @@ interface AxisTileInput {
    * 区分線形breakpointsでタイルプロパティの生値をinterpolateした値×weightを
    * 寄与値とする（registry.py: TileInputSpec.breakpoints参照）。 */
   breakpoints?: readonly (readonly [number, number])[];
+  /** true=タイルの生値を材料の値へ換算する係数（`material_runtime_scales`）が届いていない。どの道でも
+   * この材料の寄与を出せないので、どの道でも軸の値が「不明」になる（寄与0として塗ると、材料が無いのに
+   * 最良側の色で塗る）。 */
+  scaleMissing?: boolean;
 }
 
 /** 地図のramp表示を持つ軸。凡例の範囲に添える単位は`rawValueUnit`（定まらない軸はnull）。 */
@@ -54,8 +58,9 @@ export function axisLabelsFromCatalogAxes(axes: readonly AxisCatalogEntry[]): Re
 /** `runtimeScales`（GET /api/axis-catalogのmaterial_runtime_scales、tile property名→スケール係数）は、
  * `needs_runtime_scale`なtile_inputの`weight`へ構築時に一度だけ掛け合わせて解決する（地図の式は
  * 解決済みのweightだけを見る）。
- * 該当するtile propertyのスケール係数がまだ解決できていない場合（事故データの収録年を
- * 読めず、backendがキーを含めなかった場合）はweight=0として寄与を無くす（安全側のデグレード）。 */
+ * 該当するtile propertyのスケール係数が届いていない場合（事故データの収録年を読めず、backendが
+ * キーを含めなかった場合）は、その入力を`scaleMissing`にする——寄与を0にすると、材料の値が無いのに
+ * 最良側の色で塗る。 */
 export function rampAxesFromCatalogAxes(
   axes: readonly AxisCatalogEntry[],
   runtimeScales: Readonly<Record<string, number>> = {},
@@ -67,7 +72,11 @@ export function rampAxesFromCatalogAxes(
       category: axis.display.category,
       tileInputs: (axis.display.tile_inputs ?? []).map((input) => ({
         property: input.property,
-        weight: input.needs_runtime_scale ? input.weight * (runtimeScales[input.property] ?? 0) : input.weight,
+        ...(input.needs_runtime_scale
+          ? Object.hasOwn(runtimeScales, input.property)
+            ? { weight: input.weight * runtimeScales[input.property] }
+            : { weight: 0, scaleMissing: true }
+          : { weight: input.weight }),
         boolean: input.boolean,
         trueValue: input.true_value,
         falseValue: input.false_value,

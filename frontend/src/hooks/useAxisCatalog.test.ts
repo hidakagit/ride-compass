@@ -9,7 +9,7 @@ vi.mock("@/services/axisCatalogApi", () => ({
   getAxisCatalog: vi.fn(),
 }));
 
-import { CLIENT_TUNING_IDS } from "@/lib/axisCatalog";
+import { CLIENT_TUNING_IDS, clientTuningValue } from "@/lib/axisCatalog";
 
 // 届いたカタログは共有のキャッシュ（`lib/queryClient.ts`）に残る。**テストごとに読み込み直して
 // 空のキャッシュから始める**——本番へ「テストのために戻す」口を置かないため（設計原則 構造仕様15）。
@@ -150,24 +150,22 @@ describe("useAxisCatalog（改善計画T308: rampAxes/axisLabels/secondaryAxes�
     expect(guiSecondaryAxis?.primaryAttributeIds).toEqual(["lanes"]);
   });
 
-  it("取得できるまではビルド時の既定を、取得後はbackendの値を較正値として返す", async () => {
+  it("取得できるまでは較正値を引けず（ビルド時の既定で埋めない）、取得後はbackendの値を返す", async () => {
     // 管理画面から変えた値を再デプロイなしに画面へ届けるための経路。
     vi.mocked(getAxisCatalog).mockResolvedValue({
       ...catalogResponse(),
-      client_tuning: { "splice.min_stretch_km": 0.5 },
+      client_tuning: { [CLIENT_TUNING_IDS.minStretchKm]: 0.5 },
     });
 
     const { result } = renderHook(() => mod.useAxisCatalog());
 
-    expect(result.current.clientTuning["splice.min_stretch_km"]).toBe(
-      routeGenerateConfig.client_tuning["splice.min_stretch_km"],
-    );
-    await waitFor(() => expect(result.current.clientTuning["splice.min_stretch_km"]).toBe(0.5));
+    expect(clientTuningValue(result.current, CLIENT_TUNING_IDS.minStretchKm)).toBeUndefined();
+    await waitFor(() => expect(clientTuningValue(result.current, CLIENT_TUNING_IDS.minStretchKm)).toBe(0.5));
   });
 
   it("フロントが読む較正値は、どれもビルド時生成物に在る", () => {
     // backendの宣言（domain/tuning.py）から消す・綴りを変えると、フロントは引けないまま
-    // 黙って別の値で動く。生成物はexport_openapi.pyが宣言から作るため、ここで突き合わせると
+    // その値を使う機能を黙って出さなくなる。生成物はexport_openapi.pyが宣言から作るため、ここで突き合わせると
     // その変更がフロント側のCIで落ちる。
     const ids = Object.values(CLIENT_TUNING_IDS);
 

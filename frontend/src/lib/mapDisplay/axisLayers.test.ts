@@ -60,7 +60,8 @@ describe("rampAxesFromCatalogAxes", () => {
     });
   });
 
-  it("実行時の係数が要る入力は重みへ係数を掛け、係数が届いていなければ寄与を0にする。要らない入力は変えない", () => {
+  // 係数が届いていないときの塗り方は、凡例の段への当てはまりで見る（`features/map/view/lens.test.ts`）。
+  it("実行時の係数が要る入力は重みへ係数を掛け、要らない入力は変えない", () => {
     const axis = catalogEntry({
       display: {
         kind: "ramp",
@@ -73,7 +74,6 @@ describe("rampAxesFromCatalogAxes", () => {
     const weights = (scales: Record<string, number>) =>
       rampAxesFromCatalogAxes([axis], scales)[0].tileInputs.map((input) => input.weight);
     expect(weights({ scaled: 1 / 3, plain: 5 })).toEqual([1 / 3, 2]);
-    expect(weights({})).toEqual([0, 2]);
   });
 });
 

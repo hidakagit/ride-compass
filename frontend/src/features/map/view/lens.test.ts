@@ -2,6 +2,7 @@
 import { featureFilter, type FilterSpecification } from "@maplibre/maplibre-gl-style-spec";
 import { describe, expect, it } from "vitest";
 
+import { axisCatalogFromResponse } from "@/lib/axisCatalog";
 import { LEGEND_NO_DATA_KEY } from "@/lib/mapDisplay/mapColorLegend";
 import { DEFAULT_DIFFICULTY_BOUNDARIES } from "@/lib/mapDisplay/valueScale";
 
@@ -99,6 +100,26 @@ describe("lensLegend（レンズの凡例）", () => {
       legend.flatMap((entry) => (matches(entry.filter, properties) ? [entry.key] : []));
     expect(hitsFor({})).toEqual([LEGEND_NO_DATA_KEY]);
     expect(hitsFor({ [VALUE]: 5 })).toEqual(["step-0"]);
+  });
+
+  it("換算の係数が届いていない材料を使う軸は、どの道も「データなし」だけに当てはまる（届けば換算した値の段に入る）", () => {
+    const scaled = catalogEntry({
+      axis_id: "scaled",
+      display: {
+        kind: "ramp",
+        label: "scaled",
+        category: "roadCondition",
+        tile_inputs: [tileInput({ property: VALUE, weight: 1, needs_runtime_scale: true })],
+        thresholds: [10],
+      },
+    });
+    const hitsFor = (scales: Record<string, number>, properties: Record<string, unknown>) =>
+      lensLegend("scaled", false, axisCatalogFromResponse([scaled], scales, {}, [])).flatMap((entry) =>
+        matches(entry.filter, properties) ? [entry.key] : [],
+      );
+    expect(hitsFor({}, { [VALUE]: 5 })).toEqual([LEGEND_NO_DATA_KEY]);
+    expect(hitsFor({}, {})).toEqual([LEGEND_NO_DATA_KEY]);
+    expect(hitsFor({ [VALUE]: 3 }, { [VALUE]: 5 })).toEqual(["step-1"]);
   });
 
   it("専用配信軸は、配信値の境界で段を作り、末尾に値を受け取れなかった道の行を持つ", () => {

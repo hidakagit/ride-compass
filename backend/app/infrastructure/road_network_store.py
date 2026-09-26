@@ -205,7 +205,10 @@ async def build(repository: RoadGraphRepository, revision: int | None) -> RoadNe
     node_osm_id = node_columns["osm_node_id"]
     edges = await _read_directed_edges(repository, node_osm_id)
     topology_s = time.monotonic() - started
-    logger.info("道路網のつながりを読みました ノード=%d 有向の区間=%d %.0f秒", len(node_osm_id), len(edges["way"]), topology_s)
+    logger.info(
+        "道路網のつながりを読みました ノード=%d 有向の区間=%d 端点のノードが無く落とした有向の区間=%d %.0f秒",
+        len(node_osm_id), len(edges["way"]), edges["dropped_without_endpoint"], topology_s,
+    )
 
     materials = await _read_materials(repository, edges["way"], edges["segment"], edges["forward"])
     logger.info("道路網の材料を読みました 有向の区間=%d %.0f秒", len(edges["way"]), time.monotonic() - started - topology_s)
@@ -244,9 +247,10 @@ async def _read_nodes(repository: RoadGraphRepository) -> dict[str, np.ndarray]:
 
 
 async def _read_directed_edges(repository: RoadGraphRepository, node_osm_id: np.ndarray) -> dict[str, Any]:
-    """区間を有向の行へ広げる。一方通行は走れる向きだけ、端点のノードが無い区間は落とす
-    （道の行が無い区間は`_NETWORK_EDGES_SQL`の結合で既に落ちている）。"""
+    """区間を有向の行へ広げる。一方通行は走れる向きだけ、端点のノードが無い区間は落とし、落とした
+    有向の行の数を`dropped_without_endpoint`で返す（道の行が無い区間は`_NETWORK_EDGES_SQL`の結合で既に落ちている）。"""
     highway_vocab: dict[str | None, int] = {None: 0}
+    dropped_without_endpoint = 0
     parts: dict[str, list[np.ndarray]] = {
         name: [] for name in ("way", "segment", "forward", "from", "to", "highway",
                               "min_lon", "min_lat", "max_lon", "max_lat")
@@ -274,6 +278,7 @@ async def _read_directed_edges(repository: RoadGraphRepository, node_osm_id: np.
         tail_row, tail_found = _rows_of(node_osm_id, tail)
         head_row, head_found = _rows_of(node_osm_id, head)
         found = tail_found & head_found
+        dropped_without_endpoint += int((~found).sum())
         source, is_forward = source[found], is_forward[found]
 
         parts["way"].append(way[source])
@@ -290,6 +295,7 @@ async def _read_directed_edges(repository: RoadGraphRepository, node_osm_id: np.
               "max_lat": np.float64}
     result: dict[str, Any] = {name: _concatenate(values, dtypes[name]) for name, values in parts.items()}
     result["highway_vocab"] = tuple(sorted(highway_vocab, key=highway_vocab.__getitem__))
+    result["dropped_without_endpoint"] = dropped_without_endpoint
     return result
 
 

@@ -150,7 +150,8 @@ export const axisLineGroup = declareGroup<AxisLineState>((state) => {
 });
 
 /** hasUnknownFallbackの入力について、その道の値を「不明」とすべきかを返す式。該当する
- * 入力を持たない軸はnull（不明という状態を持たない）。
+ * 入力を持たない軸はnull（不明という状態を持たない）。換算の係数が届いていない入力
+ * （`scaleMissing`）は、どの道でも不明にする。
  *
  * 分類材料（N値文字列、例: highway）は、プロパティの欠損に加えて**値はあるが分類表に
  * 無い**ときも不明に含める。backendの評価（`domain/axis_templates.py:
@@ -160,10 +161,11 @@ export const axisLineGroup = declareGroup<AxisLineState>((state) => {
  * 欠損は`null`のままにせず、同じ型の番兵へ倒してから式へ入れる（文字列なら
  * `"__unknown__"`、数値なら0）。**出力の型が混ざる`case`/`match`を作らない**ための流儀で、
  * 式の評価が落ちてもMapLibreは例外を投げずそのレイヤーだけ黙って描かれなくなる。 */
-export function buildAxisRampUnknownExpression(axis: RampAxis): unknown[] | null {
+export function buildAxisRampUnknownExpression(axis: RampAxis): unknown[] | true | null {
   const checks = axis.tileInputs
-    .filter((input) => input.hasUnknownFallback)
+    .filter((input) => input.hasUnknownFallback || input.scaleMissing)
     .map((input) => {
+      if (input.scaleMissing) return true;
       if (input.categories) {
         const knownValuePairs = Object.keys(input.categories).flatMap((key) => [key, false]);
         return ["match", ["coalesce", ["get", input.property], "__unknown__"], ...knownValuePairs, true];

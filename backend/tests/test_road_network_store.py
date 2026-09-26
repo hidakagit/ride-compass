@@ -104,9 +104,10 @@ def _directed(network: RoadNetwork) -> list[tuple[int, int, bool, int, int]]:
     ]
 
 
-async def test_edges_become_directed_rows_in_way_and_segment_order():
-    """区間は順方向・逆方向の行になる。一方通行は走れる向きだけ、端点のノードが無い区間は落ちる。"""
-    network = await road_network_store.build(FakeRepository(), 7)
+async def test_edges_become_directed_rows_in_way_and_segment_order(caplog):
+    """区間は順方向・逆方向の行になる。一方通行は走れる向きだけ、端点のノードが無い区間は落ち、落とした数をログに出す。"""
+    with caplog.at_level("INFO", logger=road_network_store.logger.name):
+        network = await road_network_store.build(FakeRepository(), 7)
 
     assert _directed(network) == [
         (10, 0, True, 1, 2),
@@ -114,6 +115,8 @@ async def test_edges_become_directed_rows_in_way_and_segment_order():
         (10, 1, True, 2, 3),
         (20, 0, False, 4, 3),
     ]
+    # 道30（双方向）の終点99はノードに無いので、両向きの2行を落とす。
+    assert "端点のノードが無く落とした有向の区間=2" in caplog.text
 
 
 async def test_materials_follow_the_directed_rows():

@@ -17,11 +17,14 @@ interface UseRouteFormSubmitOptions {
   waypointCount: number;
   /** 目的地を置いてあるか。 */
   destinationSet: boolean;
+  /** 出発地が実際の位置か（現在地を取れたか、地図で置いたか）。偽の間の出発地は決まった仮の地点で、そこから
+   * 作ったルートは利用者のいる場所と関係が無い。 */
+  originKnown: boolean;
   onGenerate: (distanceKm: number) => void;
 }
 
 interface UseRouteFormSubmitResult {
-  /** 生成できない理由（目的地モードで地点が1つも無い）。生成結果の失敗と同じ場所
+  /** 生成できない理由（出発地が分からない・目的地モードで地点が1つも無い）。生成結果の失敗と同じ場所
    * （「ルート結果」欄）へ出す——押した場所とは別のどこかに出ると見落とすため。 */
   error: string | null;
   handleSubmit: () => void;
@@ -34,11 +37,16 @@ export function useRouteFormSubmit({
   routeMode,
   waypointCount,
   destinationSet,
+  originKnown,
   onGenerate,
 }: UseRouteFormSubmitOptions): UseRouteFormSubmitResult {
   const [error, setError] = useState<string | null>(null);
 
   function handleSubmit() {
+    if (!originKnown) {
+      setError("現在地が分かりません。位置情報を許可するか、地図で出発地を選んでください。");
+      return;
+    }
     if (routeMode === "destination" && waypointCount === 0 && !destinationSet) {
       setError("地図をタップして目的地か経由地を指定してください。");
       return;

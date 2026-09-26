@@ -197,8 +197,8 @@ class AxisCatalogResponse(StrictModel):
     # material_id→スケール係数（タイル生値に掛けると材料スケールへ変換できる倍率）。
     # `TileInputSpec.needs_runtime_scale=True`なtile_inputのタイル生値へ、受け取る側が
     # この係数を掛ける。値が解決できない材料（現状はaccident_count_per_km_year、収録年数が
-    # 0件のとき）はキー自体を含めない——フロント側はキーが無い場合、その材料の寄与を
-    # 0として扱う（RegionService.get_accident_yearsのdocstring参照）。
+    # 0件のとき）はキー自体を含めない——フロント側はキーが無い場合、その材料を使う軸を
+    # どの道でも「データなし」として塗る（寄与0にすると、値が無いのに最良側の色になる）。
     material_runtime_scales: dict[str, float] = {}
     # フロントが使う較正値（id → いま効いている値、`domain/tuning.py`が宣言）。管理画面から
     # 変えた値を**再デプロイなしに**画面へ届けるため、起動時に1回取るこのカタログへ相乗り

@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { Coordinates, LocationSource } from "@/types/route";
 
-// 位置が取れないときの初期地点（東京都北区・王子駅付近）。
+// 位置が取れないときの初期地点（東京都北区・王子駅付近）。ここからはルートを生成しない。
 const DEFAULT_LOCATION: Coordinates = { latitude: 35.7597, longitude: 139.7387 };
 const GEOLOCATION_TIMEOUT_MS = 8000;
 
@@ -48,7 +48,7 @@ export function useLocation(): UseLocationResult {
     );
   }, []);
 
-  // 自動取得は失敗しても初期地点のまま黙って進む。
+  // 自動取得の失敗は文を出さず、初期地点のまま`locationSource`が"default"で残る（読み手はそれで仮の地点と分かる）。
   useEffect(() => {
     if (!navigator.geolocation) {
       // effectの中で同期にsetStateしない（react-hooks/set-state-in-effect）。

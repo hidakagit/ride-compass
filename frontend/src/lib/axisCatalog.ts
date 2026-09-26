@@ -5,7 +5,6 @@
  */
 import { catalogAxisFromEntry, type CatalogAxis } from "@/lib/catalogAxis";
 import type { AxisCatalogEntry, RoutePreferenceWeights } from "@/types/route";
-import routeGenerateConfig from "@/types/generated/route-generate-config.json";
 import {
   axisLabelsFromCatalogAxes,
   dedicatedWayValueAxesFromCatalogAxes,
@@ -45,8 +44,8 @@ export interface AxisCatalog {
    * モードだけ（`ROUTE_STYLE_MODES_WITHOUT_AXES`）。 */
   routeStyleModes: readonly RouteStyleMode[];
   /** フロントが使う較正値（id → いま効いている値）。backendの`domain/tuning.py`が宣言し、
-   * 管理画面から変えた値が再デプロイなしにここへ届く。取得できるまではビルド時生成物
-   * （route-generate-config.json）の既定。 */
+   * 管理画面から変えた値が再デプロイなしにここへ届く。**取得できるまでは空**——ビルド時生成物の既定で
+   * 埋めると、管理画面で較正したのとは別の値で黙って動く。読み手は引けない間その機能を出さない。 */
   clientTuning: Readonly<Record<string, number>>;
   /** GET /api/axis-catalogの取得が成功し、他フィールドが実際のDB由来の値であることを表す。
    * falseの間（未取得・取得失敗）は他フィールドが空のため、「軸スタジオの現在の公開軸集合と
@@ -59,13 +58,13 @@ export interface AxisCatalog {
    * この状態では他フィールドが空のため、`loaded`を要求する処理
    * （route_preference・lens_axis_idの送信）は黙って省略される。利用者へ何も知らせないと
    * 「重みを設定したのに反映されない」ことに気づけないため、UIはこのフラグで失敗と
-   * 再試行導線を見せる（RouteSettingsPanel.tsx）。 */
+   * 再試行導線を見せる（常設ヘッダーの「未取得」の印と、重みタブ）。 */
   failed: boolean;
 }
 
 /** フロントが読む較正値のid。**ここに並んだidは、ビルド時生成物
  * （route-generate-config.json）に必ず在る**ことをテストが固定する——backendの宣言から
- * 消す/綴りを変えると、フロントは引けないまま黙って別の値で動くため。 */
+ * 消す/綴りを変えると、フロントは引けないまま、その値を使う機能を黙って出さなくなるため。 */
 export const CLIENT_TUNING_IDS = {
   /** 区間を割る下限（km）。これ未満の共有区間では割らない（`features/route/routeSplice.ts`）。 */
   minStretchKm: "splice.min_stretch_km",
@@ -87,7 +86,7 @@ function axisColorsOf(axes: readonly CatalogAxis[]): Record<string, string> {
 // 持つと、APIが失敗したときに古い軸で地図が描かれ、伝播の失敗が見えなくなる。
 // 取得できるまでは軸が1つも無い状態で、呼び出し側は`loaded`で区別する。
 export const EMPTY_CATALOG: AxisCatalog = {
-  clientTuning: routeGenerateConfig.client_tuning,
+  clientTuning: {},
   axes: [],
   defaultWeights: {},
   rampAxes: [],

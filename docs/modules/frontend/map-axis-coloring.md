@@ -136,7 +136,10 @@ localStorageキーは`ridecompass:route-style-mode`）。ルート前は全道�
 
 - **値が無い道は段の色で塗らない。** 配信値ではfeature-stateが未設定（null）の道、ramp軸では
   `hasUnknownFallback`な材料が欠けている（または分類表に無い値を持つ）道
-  （`scene/groups/axisLines.ts: buildAxisRampUnknownExpression`）が該当する。ramp軸の値の式は欠損を
+  （`scene/groups/axisLines.ts: buildAxisRampUnknownExpression`）が該当する。タイルの生値を材料の値へ換算する
+  係数（軸カタログの`material_runtime_scales`）が届いていない材料を使うramp軸は、どの道も該当する
+  （`lib/mapDisplay/axisLayers.ts: rampAxesFromCatalogAxes`が`scaleMissing`を付ける）——寄与0で塗ると、
+  値が無いのに最良側の色になる。ramp軸の値の式は欠損を
   番兵（0）へ倒してあるため、その値で段を引くと評価できない道が最良の段の色になる。
   値が無い道は「データなし」の色の破線（`mapDisplay.noDataDash`）で、**取得中**（配信値でまだ一度も
   値を受け取っていない間）は取得中の色の実線で塗る（取得中は値が無いと決まっていない）。

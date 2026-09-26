@@ -10,6 +10,7 @@ function submit(options: {
   routeMode?: RouteMode;
   waypointCount?: number;
   destinationSet?: boolean;
+  originKnown?: boolean;
 }) {
   const onGenerate = vi.fn();
   const { result } = renderHook(() =>
@@ -18,6 +19,7 @@ function submit(options: {
       routeMode: "loop",
       waypointCount: 0,
       destinationSet: false,
+      originKnown: true,
       ...options,
       onGenerate,
     }),
@@ -42,6 +44,17 @@ describe("useRouteFormSubmit 周回", () => {
   });
 });
 
+describe("useRouteFormSubmit 出発地", () => {
+  it.each(["loop", "destination"] as const)(
+    "出発地が仮の地点のままなら（%s）、生成せずに位置情報の許可か地図での指定を促す",
+    (routeMode) => {
+      const { error, onGenerate } = submit({ routeMode, destinationSet: true, originKnown: false });
+      expect(error).toBe("現在地が分かりません。位置情報を許可するか、地図で出発地を選んでください。");
+      expect(onGenerate).not.toHaveBeenCalled();
+    },
+  );
+});
+
 describe("useRouteFormSubmit 目的地", () => {
   it("目的地も経由地も無ければ生成せず、地図で指定するよう促す", () => {
     const { error, onGenerate } = submit({ routeMode: "destination" });
@@ -58,7 +71,14 @@ describe("useRouteFormSubmit 目的地", () => {
     const onGenerate = vi.fn();
     let destinationSet = false;
     const { result, rerender } = renderHook(() =>
-      useRouteFormSubmit({ distance: "20", routeMode: "destination", waypointCount: 0, destinationSet, onGenerate }),
+      useRouteFormSubmit({
+        distance: "20",
+        routeMode: "destination",
+        waypointCount: 0,
+        destinationSet,
+        originKnown: true,
+        onGenerate,
+      }),
     );
     act(() => result.current.handleSubmit());
     expect(result.current.error).not.toBeNull();
