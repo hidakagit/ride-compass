@@ -61,14 +61,6 @@ class RoutePreference(StrictModel):
         self.weights = {axis_id: merged[axis_id] for axis_id in AXIS_DEFINITIONS if axis_id in published}
         return self
 
-    def with_weight(self, axis_id: str, value: float) -> "RoutePreference":
-        """1軸の重みだけを差し替えたコピーを返す（リクエスト間で共有するインスタンスを
-        汚染しないための生成ヘルパー）。公開軸に無い`axis_id`なら無変更の`self`を返す。
-        """
-        if axis_id not in self.weights:
-            return self
-        return RoutePreference(weights={**self.weights, axis_id: value})
-
     def with_time_scope(self, active_scopes: frozenset[str]) -> "RoutePreference":
         """time_scopeが"always"以外の軸のうち、`active_scopes`に含まれないものの重みを
         0倍にしたコピーを返す。
