@@ -262,9 +262,8 @@ def _weather_element_entry(element: WeatherElement) -> dict:
 def main() -> None:
     GENERATED_DIR.mkdir(parents=True, exist_ok=True)
     _write_json(OUTPUT_PATH, _strip_prose(app.openapi()))  # type: ignore[arg-type]
-    # 地域ベクタタイルのレイヤー名・世代。フロントの手書き定数（MapView.tsxのソース
-    # レイヤー名、regionApi.ts: roadSurfaceTileUrl()等の?v=）がこのJSONとregionApi.test.tsで
-    # 突き合わされる（CIのapi-contractジョブがドリフト検知）。
+    # 地域タイルのレイヤー名・ズーム範囲等。画面はこのJSONを読み、値を手で写さない
+    # （生成物と宣言のずれはCIのapi-contractジョブが検知する）。
     _write_json(
         REGION_TILE_CONFIG_PATH,
         {

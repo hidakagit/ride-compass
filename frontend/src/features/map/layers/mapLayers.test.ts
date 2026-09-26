@@ -33,8 +33,10 @@ describe("buildMapLayers（レイヤーの一覧）", () => {
 
   it("軸を渡すと、ramp軸と専用配信軸のレイヤーが軸ごとに別の名前で加わる（どちらも軸スタジオ由来）", () => {
     const added = withAxes.filter((entry) => !staticLayerIds.includes(entry.id));
-    expect(added.map((entry) => entry.id)).toEqual(["axis:ramp_a", "dedicated_bAxis"]);
-    expect(added.every(isAxisStudioLayer)).toBe(true);
+    expect(added.map((entry) => [entry.id, isAxisStudioLayer(entry)])).toEqual([
+      ["axis:ramp_a", true],
+      ["dedicated_bAxis", true],
+    ]);
     expect(new Set(withAxes.map((entry) => entry.id)).size).toBe(withAxes.length);
   });
 

@@ -56,8 +56,12 @@ describe("generateBreakpoints", () => {
     for (const [x, y] of inner("back_loaded")) expect(y).toBeLessThan(x);
     for (const [x, y] of inner("front_loaded")) expect(y).toBeGreaterThan(x);
     const sCurve = inner("s_curve");
-    expect(sCurve.filter(([x]) => x < 50).every(([x, y]) => y < x)).toBe(true);
-    expect(sCurve.filter(([x]) => x > 50).every(([x, y]) => y > x)).toBe(true);
+    const firstHalf = sCurve.filter(([x]) => x < 50);
+    const secondHalf = sCurve.filter(([x]) => x > 50);
+    expect(firstHalf).not.toHaveLength(0);
+    expect(secondHalf).not.toHaveLength(0);
+    for (const [x, y] of firstHalf) expect(y).toBeLessThan(x);
+    for (const [x, y] of secondHalf) expect(y).toBeGreaterThan(x);
   });
 
   it("xは小数2桁、点数は整数へ丸める", () => {

@@ -34,9 +34,10 @@ def test_a_missing_hour_inside_a_window_leaves_that_window_without_a_value():
     hourly = _history(1.0, 2.0, np.nan)
     values = rain_material_values(hourly)
     assert values[rain_window_material_id(1)][0] == 1.0
-    for hours in RAIN_WINDOW_HOURS:
-        if hours >= 3:
-            assert np.isnan(values[rain_window_material_id(hours)][0])
+    covering = [hours for hours in RAIN_WINDOW_HOURS if hours >= 3]
+    assert covering, "欠測の時間を含む窓が1つも無い"
+    for hours in covering:
+        assert np.isnan(values[rain_window_material_id(hours)][0])
 
 
 def test_hours_since_rain_counts_back_to_the_last_rainy_hour():

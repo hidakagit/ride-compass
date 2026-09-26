@@ -31,9 +31,10 @@ describe("降水強度の凡例", () => {
     expect(PRECIPITATION_INTENSITY_LEVELS.map((level) => level.color)).toEqual(
       PRECIPITATION_COLOR_STOPS.map((stop) => stop.color),
     );
-    PRECIPITATION_INTENSITY_LEVELS.forEach((level, i) => {
-      const next = PRECIPITATION_COLOR_STOPS[i + 1];
-      if (next) expect(level.label).toContain(`${next.mmPerHour}mm/h`);
+    const bounded = PRECIPITATION_INTENSITY_LEVELS.slice(0, -1);
+    expect(bounded).not.toHaveLength(0);
+    bounded.forEach((level, i) => {
+      expect(level.label).toContain(`${PRECIPITATION_COLOR_STOPS[i + 1].mmPerHour}mm/h`);
     });
   });
 });

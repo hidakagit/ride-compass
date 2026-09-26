@@ -533,6 +533,7 @@ describe("分布と折れ点の直接編集", () => {
 
     const rowDeletes = () =>
       screen.getAllByRole("button", { name: "削除" }).filter((button) => button.closest("details") !== null);
+    expect(rowDeletes()).not.toHaveLength(0);
     expect(rowDeletes().every((button) => button.hasAttribute("disabled"))).toBe(true);
 
     await user.click(screen.getByRole("button", { name: "+ 折れ点を追加" }));

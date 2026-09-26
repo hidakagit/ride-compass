@@ -171,10 +171,11 @@ def test_build_report_marks_excluded_materials_with_reason():
 def test_build_report_returns_none_ratio_when_population_is_empty():
     report = build_material_coverage_report(_counts(way_total=0, edge_total=0), COMPUTED_AT)
 
-    for entry in report.materials:
-        if entry.excluded_reason is None:
-            assert entry.total == 0
-            assert entry.missing_ratio is None
+    measured = [entry for entry in report.materials if entry.excluded_reason is None]
+    assert measured, "測る材料が1つも無い"
+    for entry in measured:
+        assert entry.total == 0
+        assert entry.missing_ratio is None
 
 
 def test_build_report_fails_fast_when_material_is_registered_nowhere(monkeypatch):
@@ -212,21 +213,24 @@ async def test_service_builds_report_from_repository_counts():
 
 
 def test_way_coverage_counts_only_rows_the_batch_can_process():
-    """欠損は担当バッチの対象行に限って数える（改善計画T820）。
+    """欠損は担当バッチの対象行に限って数える。
 
     対象外の行を数えると欠損率が構造的に0へ到達せず、運用者は「もう一度流せば0になるはず」と
     読むが決してならない。母集団（分母）は全件のままにする——「全体のうち何件か」を読む数のため。
     """
-    sql = " ".join(str(build_way_coverage_sql()).split())
+    scoped = WayMaterialCoverageSpec(
+        missing_condition="w.tags->>'surface' IS NULL",
+        source="テスト",
+        missing_semantics="unknown",
+        in_scope="w.highway IS NOT NULL",
+    )
+    sql = " ".join(str(build_way_coverage_sql({"scoped": scoped})).split())
 
     # 分母は全件（絞り込みはFILTER側だけに掛かる）。
     assert sql.startswith("SELECT count(*) AS total")
     assert f"FROM {' '.join(WAYS_SOURCE_SQL.split())} AS w" in sql
     # 絞り込みはFILTER側だけに掛かる（FROMの後ろにWHEREを付けない）。
     assert "AS w WHERE" not in sql
-    for material_id, spec in MATERIAL_COVERAGE_SPECS.items():
-        if not isinstance(spec, WayMaterialCoverageSpec) or spec.in_scope == "TRUE":
-            continue
-        assert f"count(*) FILTER (WHERE ({spec.in_scope}) AND (" in sql, material_id
+    assert "count(*) FILTER (WHERE (w.highway IS NOT NULL) AND (w.tags->>'surface' IS NULL)) AS scoped" in sql
 
 

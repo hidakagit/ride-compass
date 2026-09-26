@@ -1007,18 +1007,13 @@ CSSの規則が当たる。開くたびに作り直される部品（ポップ�
 
 ## パターン5: 外部クライアントのフェイクは共有モジュールから取る
 
-`backend/tests/`直下の次のモジュールが、複数のテストで同じ形になるフェイクを持つ。
-**新しいテストで同じものを書き写さず、ここからimportする**（ファイルごとに書き写すと、
-上流の契約が変わったときの直し漏れがそのまま残る）。
-
-| モジュール | 中身 | 使う場面 |
-|---|---|---|
-| `fake_tile_http.py` | `FakeResponse`・`FakeHttpClient` | タイル・バイナリをそのまま通すクライアント（`get(url)`だけを呼ぶもの） |
-| `fake_api_http.py` | 同名2つ＋`FailingHttpClient`・`HttpStatusErrorHttpClient` | `simple_api_client`経由でJSON/CSVを引くクライアント（`get(url, params, timeout)`） |
-| `admin_auth.py` | `AUTH_HEADERS`・`basic_auth_header()` | 管理画面API。認証情報を入れるのは`conftest.py`の`admin_credentials`フィクスチャ |
-| `jma_area_fixtures.py` | 区域コード階層のサンプル＋`patch_area_lookup()` | 緯度経度→市区町村コード→area.jsonの順に引くサービス |
-| `bound_fake.py` | `bound(本物, フェイク)` | 関数を差し替えるとき、引数を読まないフェイク（`lambda *a: 値`）を本物の署名へ当てる |
-| `axis_system_fixture.py` | `axis_definition()`・`replaced_axis_definitions()`・`axis_definitions_snapshot()` | 軸の中身が主題でないテストの軸を作り、`AXIS_DEFINITIONS`へ流し込む。shapeそのものを見るテストは自分で組み立てる |
+`backend/tests/`直下の、`test_`で始まらないモジュール（`conftest.py`を除く）が、複数のテストで
+同じ形になるフェイク・足場を持つ。何を持ち、どの場面で使うかは各モジュールの先頭のdocstringが
+書く（例: `fake_tile_http.py`はタイル・バイナリをそのまま通すクライアントの、`fake_api_http.py`は
+`simple_api_client`経由でJSON/CSVを引くクライアントのフェイク）。新しいフェイクを書く前に、
+この直下を一覧してdocstringを読む。**新しいテストで同じものを書き写さず、ここからimportする**
+（ファイルごとに書き写すと、上流の契約が変わったときの直し漏れがそのまま残る）。
+複数のテストで要る足場を新しく置くときも、この直下に置き、用途を先頭のdocstringに書く。
 
 `admin_credentials`は、認証情報が設定されている前提に立つテストが引数で取る。ファイル内の
 全テストが管理画面APIを叩く場合もautouseで配らない——「誤った認証情報を拒む」は設定が無くても
@@ -1029,12 +1024,9 @@ CSSの規則が当たる。開くたびに作り直される部品（ポップ�
 セットアップされる（pytestが`dir()`で集めるため）。宣言順に頼ると、名前を1つ変えた
 だけで順序が入れ替わる。確かめるには`pytest <対象> --setup-plan`でセットアップ順を出す。
 
-frontendは`frontend/src/testing/`が同じ役割を持つ。
-
-| モジュール | 中身 | 使う場面 |
-|---|---|---|
-| `fetchMocks.ts` | `makeResponse()` | `vi.stubGlobal("fetch", ...)`へ渡すレスポンス |
-| `routeFixtures.ts` | `makeRouteCandidate()` | ルート候補を組み立てるすべての場所（`e2e/fixtures.ts`も同じものを使う）。`RouteCandidate`は全フィールドが必須のため、置き場を分けるとフィールドが増えるたびに同じ数の差分が要る |
+frontendは`frontend/src/testing/`配下が同じ役割を持ち、用途は各ファイルの先頭のコメントが書く
+（例: `routeFixtures.ts`の`makeRouteCandidate()`は、`e2e/fixtures.ts`も含めてルート候補を組み立てる
+すべての場所が使う）。
 
 ## パターン6: 絞り込んだ母集団をループするテストは、空でないことを確かめる
 
@@ -1059,13 +1051,20 @@ for (const color of expressionColors) { expect(legendColors.has(color)).toBe(tru
 空でないことの主張は**同じテストの中**に置く（別のテストにある主張は、このテストが
 空振りしないことの根拠にならない）。
 
+欠陥の性質は「絞り込んだ後の要素にしか届かないアサーション」で、絞り込みの書き方は問わない。
+ループの中の条件で要素を選ぶ形（`if`の片側にだけアサーションを置く・`continue`で飛ばす）と、
+空なら真になる量化（`assert all(...)`・`assert not any(...)`・`expect(xs.every(...)).toBe(true)`）も
+同じ性質を持つ。どれも、絞り込んだ一覧を名前へ束ね、空でないことを主張してから検査する。
+
 `backend/tests/structure/test_vacuous_loops.py`（Python、AST）と
-`frontend/src/structure/vacuousLoops.test.ts`（TypeScriptの構文木）が、この形の混入を止める。
-どちらも「ループ本体にアサーションがあり、反復対象が絞り込み（`if`付きの内包表記・`filter`）を
-経ていて、同じテストに空でないことの主張が無い」ループを落とす。**読めるのは上の例の形の
-主張だけ**で、別の形（`assert set(picked) == {...}`等）で確かめていても違反として出る——
-そのときは上の形の主張を1行足す。反復対象が関数の引数（parametrize等）のループは、母集団を
-呼び出し側が決めるため見ない。
+`frontend/src/structure/vacuousLoops.test.ts`（TypeScriptの構文木）が、この性質の混入を止める。
+どちらも要素ごとの検査（本体にアサーションがあるループ・上の量化）について、①反復対象が
+その場で絞り込み（`if`付きの内包表記・`filter`）を経ている、②ループ本体の条件を通らないと
+アサーションへ届かない、③反復対象の名前が絞り込みで束ねられていて同じテストに空でないことの
+主張が無い、のどれかに当たるものを落とす。①②は絞り込んだ後の母集団に名前が無いため常に違反になる。
+**読めるのは上の例の形の主張だけ**で、別の形（`assert set(picked) == {...}`等）で確かめていても
+違反として出る——そのときは上の形の主張を1行足す。反復対象が関数の引数（parametrize等）の
+ループは、母集団を呼び出し側が決めるため見ない。
 
 ## パターン7: 環境変数に依存する挙動のテスト → 判断を純関数へ出し、テストは環境変数に触らない
 
