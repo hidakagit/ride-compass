@@ -46,11 +46,13 @@ async def test_outside_the_ingested_area_there_is_no_search_range():
     assert await GraphService(FakeRepository(covered=False)).get_search_slice(BBOX) is None
 
 
-async def test_the_range_is_cut_along_the_tiles_covering_the_bbox_and_scored_row_by_row():
-    """切り出しはbboxではなくそれを覆うz12タイルの外接矩形——同じタイル集合なら同じ範囲になる。"""
-    road, matrix, tile_set = await GraphService(FakeRepository()).get_search_slice(BBOX)
+async def test_the_range_is_cut_along_the_bbox_itself_and_scored_row_by_row():
+    """切り出しはbboxそのもの——同じz12タイル（138.955〜139.043E）の中でも、bboxの外の道20は取らない。
+    タイル集合は迂回率の鍵としてz12で返る。"""
+    narrow = BoundingBox(min_latitude=34.99, min_longitude=138.99, max_latitude=35.01, max_longitude=139.005)
+    road, matrix, tile_set = await GraphService(FakeRepository()).get_search_slice(narrow)
 
-    assert road.rows.tolist() == [0, 1, 2]
+    assert road.rows.tolist() == [0, 1]
     assert len(matrix.distance_m) == road.edge_count
     assert tile_set and all(zoom == 12 for zoom, _x, _y in tile_set)
 
