@@ -1,7 +1,6 @@
 """`scripts/deploy_backend_gate.py`の判定テスト（本番・ネットワークには触れない）。
 
-照合の規則はGitHubの`paths`と同じ（上から当て、最後に当たったものが勝つ。`*`は`/`を跨がず、
-`**`は跨ぐ）。本物の一覧ではなく、規則を確かめるための一覧で当てる。
+履歴は一時的なgitリポジトリで作り、振り分けの一覧は本物（`DEPLOY_PATHS`・`NOT_DEPLOYED`）を当てる。
 """
 
 import importlib.util
@@ -18,52 +17,29 @@ gate = importlib.util.module_from_spec(_SPEC)
 sys.modules["deploy_backend_gate"] = gate
 _SPEC.loader.exec_module(gate)
 
-PATTERNS = ("app/**", "!app/tests/**", "!app/*.ini", "app/tests/keep.py", "ci.yml")
-
 
 @pytest.mark.parametrize(
-    ("path", "expected"),
-    [
-        ("app/main.py", True),
-        ("app/deep/er/x.py", True),
-        ("app/tests/test_x.py", False),  # 後の否定が勝つ
-        ("app/tests/keep.py", True),  # さらに後の肯定が勝つ
-        ("app/pytest.ini", False),
-        ("app/sub/pytest.ini", True),  # `*`は`/`を跨がない
-        ("ci.yml", True),
-        ("docs/ci.yml", False),  # 先頭から当てる
-        ("frontend/app/main.py", False),
-    ],
-)
-def test_matches_follows_github_paths_rules(path, expected):
-    assert gate.matches(path, PATTERNS) is expected
-
-
-def test_pattern_with_symbols_of_other_meaning_is_rejected():
-    with pytest.raises(ValueError):
-        gate.matches("app/a.py", ("app/?.py",))
-
-
-@pytest.mark.parametrize(
-    ("relation", "changed", "expected"),
+    ("relation", "hits", "expected"),
     [
         ("unknown", [], True),
-        ("same", ["app/main.py"], False),
-        ("older", ["app/main.py"], False),
+        ("same", ["backend/app/main.py"], False),
+        ("older", ["backend/app/main.py"], False),
         ("diverged", [], True),
-        ("newer", ["app/tests/test_x.py", "docs/a.md"], False),
-        ("newer", ["docs/a.md", "app/main.py"], True),
+        ("newer", [], False),
+        ("newer", ["backend/app/main.py"], True),
     ],
 )
-def test_decide(relation, changed, expected):
-    assert gate.decide(relation, changed, PATTERNS)[0] is expected
+def test_decide(relation, hits, expected):
+    assert gate.decide(relation, hits)[0] is expected
 
 
-def _commit(repo: Path, name: str) -> str:
-    (repo / name).write_text(name, encoding="utf-8")
-    subprocess.run(["git", "add", name], cwd=repo, check=True)
+def _commit(repo: Path, *names: str) -> str:
+    for name in names:
+        (repo / name).parent.mkdir(parents=True, exist_ok=True)
+        (repo / name).write_text(name, encoding="utf-8")
+    subprocess.run(["git", "add", *names], cwd=repo, check=True)
     subprocess.run(
-        ["git", "-c", "user.name=t", "-c", "user.email=t@example.invalid", "commit", "-q", "-m", name],
+        ["git", "-c", "user.name=t", "-c", "user.email=t@example.invalid", "commit", "-q", "-m", names[0]],
         cwd=repo,
         check=True,
     )
@@ -86,3 +62,25 @@ def test_relation_reads_ancestry(tmp_path, monkeypatch):
     assert gate._relation(second, first) == "older"
     assert gate._relation(first, second) == "newer"
     assert gate._relation(second, side) == "diverged"
+
+
+def test_only_changes_that_reach_the_image_deploy(tmp_path, monkeypatch):
+    subprocess.run(["git", "init", "-q", str(tmp_path)], check=True)
+    deployed = _commit(tmp_path, "README.md")
+    # 外したものと対象の外（根から当てるので、下の階層にある同じ名前のディレクトリも外）だけが変わった。
+    unchanged_image = _commit(
+        tmp_path,
+        "backend/tests/test_x.py",
+        "backend/benchmarks/deep/bench.py",
+        "backend/app/domain/map_display.py",
+        "frontend/backend/app.py",
+        "docs/a.md",
+    )
+    changed_image = _commit(tmp_path, "backend/app/main.py")
+    output = tmp_path / "github_output"
+    monkeypatch.setenv("GITHUB_OUTPUT", str(output))
+    monkeypatch.chdir(tmp_path / "backend")  # 当てる先は作業ディレクトリによらずリポジトリの根から
+
+    assert gate.main(["gate", deployed, unchanged_image]) == 0
+    assert gate.main(["gate", deployed, changed_image]) == 0
+    assert output.read_text(encoding="utf-8").splitlines() == ["deploy=false", "deploy=true"]

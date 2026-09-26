@@ -61,7 +61,6 @@
     "knip": "^6.38.0",
     "openapi-typescript": "^7.13.0",
     "pbf": "^5.1.2",
-    "playwright": "^1.62.1",
     "prettier": "3.9.6",
     "tailwindcss": "^4.3.3",
     "typescript": "^5",
