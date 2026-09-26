@@ -2,7 +2,10 @@
 
 import math
 
+from pydantic import computed_field
+
 from app.domain.strict_model import StrictModel
+from app.domain.weather import derive_observed_weather_code
 
 # JMAアメダスのwindDirectionは0=静穏、1〜16が16方位（1=北北東からcode*22.5度で時計回りに
 # 進み、16=北[360度=0度]で一周する）という特有の割当のため、domain/geo.pyの8方位
@@ -65,10 +68,18 @@ class AmedasObservation(StrictModel):
     wind_direction_deg: float | None
     wind_direction_label: str | None
     precipitation_10min_mm: float | None
-    # 直近10分間の日照時間（分、0〜10）。天気アイコンの簡易分類
-    # （晴れ/くもり/雨/雪、frontend側）が降水量と組み合わせて使う。
+    # 直近10分間の日照時間（分、0〜10）。降水量と組み合わせて`weather_code`を決める。
     sunshine_10min_minutes: float | None
     # 最寄り観測所ではなくリクエストのlatitude/longitudeそのものに対する、当日（JST）の値。
     # 外部には問い合わせず、domain/twilight.py: sunrise_sunset_jstのローカル天文計算で求める。
     sunrise: str | None
     sunset: str | None
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def weather_code(self) -> int | None:
+        """実測から導いたWMO天気コード（`weather.derive_observed_weather_code`）。保存した観測値からいつでも
+        導けるため、Redisには持たない。"""
+        return derive_observed_weather_code(
+            self.precipitation_10min_mm, self.sunshine_10min_minutes, self.temperature_c
+        )

@@ -728,6 +728,8 @@ export interface components {
             sunrise: string | null;
             /** Sunset */
             sunset: string | null;
+            /** Weather Code */
+            readonly weather_code: number | null;
         };
         /** AxisCatalogEntry */
         AxisCatalogEntry: {

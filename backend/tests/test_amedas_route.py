@@ -54,6 +54,8 @@ def test_get_amedas_returns_observation_on_success():
     body = response.json()
     assert body["station_name"] == "東京"
     assert body["wind_direction_label"] == "南"
+    # 降水なし・日照ありの実測は、画面が分類を引くWMOコードの「晴れ」で届く
+    assert body["weather_code"] == 0
 
 
 def test_get_amedas_returns_502_when_unavailable():
