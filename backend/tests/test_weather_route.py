@@ -19,15 +19,6 @@ from app.services.wbgt_service import WbgtStatus
 client = TestClient(app)
 
 
-@pytest.fixture(autouse=True)
-def clear_rate_limiter():
-    # rate_limiterはプロセス内グローバルの固定窓カウンタのため、テスト間で
-    # 消し込まないと前のテストのリクエストが今のテストの上限に食い込む。
-    rate_limiter._hits.clear()
-    yield
-    rate_limiter._hits.clear()
-
-
 class FakeWeatherService:
     def __init__(self, conditions, wind_grid=None, wind_times=None):
         self._conditions = conditions

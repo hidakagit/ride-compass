@@ -16,7 +16,6 @@
 
 import asyncio
 import math
-from collections import defaultdict
 from datetime import datetime
 
 import httpx
@@ -92,7 +91,6 @@ def world(monkeypatch):
     monkeypatch.setattr(road_network_store, "current", world.current)
     monkeypatch.setattr(dependencies, "get_graph_service", graph_service)
     monkeypatch.setattr(dependencies, "get_weather_service", lambda: world.weather)
-    monkeypatch.setattr(rate_limiter, "_hits", defaultdict(list))
     app.dependency_overrides[real_graph_service] = graph_service
     app.dependency_overrides[real_weather_service] = lambda: world.weather
     with avoid_axis_declared():

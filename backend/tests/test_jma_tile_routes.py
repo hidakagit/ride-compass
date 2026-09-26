@@ -1,4 +1,3 @@
-import pytest
 from fastapi.testclient import TestClient
 
 from app.api.dependencies import get_jma_tile_client
@@ -9,13 +8,6 @@ import mapbox_vector_tile
 from shapely.geometry import LineString
 
 client = TestClient(app)
-
-
-@pytest.fixture(autouse=True)
-def clear_rate_limiter():
-    rate_limiter._hits.clear()
-    yield
-    rate_limiter._hits.clear()
 
 
 class FakeJmaTileClient:

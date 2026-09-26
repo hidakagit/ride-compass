@@ -1,4 +1,3 @@
-import pytest
 from fastapi.testclient import TestClient
 
 from app.api.dependencies import get_accident_service, get_region_service
@@ -8,13 +7,6 @@ from app.services.tile_serving import TileResponse
 from app.main import app
 
 client = TestClient(app)
-
-
-@pytest.fixture(autouse=True)
-def clear_rate_limiter():
-    rate_limiter._hits.clear()
-    yield
-    rate_limiter._hits.clear()
 
 
 class FakeAccidentService:

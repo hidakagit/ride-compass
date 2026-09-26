@@ -1,4 +1,3 @@
-import pytest
 from fastapi.testclient import TestClient
 
 from app.api.dependencies import get_gsi_tile_client
@@ -7,13 +6,6 @@ from app.infrastructure import rate_limiter
 from app.main import app
 
 client = TestClient(app)
-
-
-@pytest.fixture(autouse=True)
-def clear_rate_limiter():
-    rate_limiter._hits.clear()
-    yield
-    rate_limiter._hits.clear()
 
 
 class FakeGsiTileClient:

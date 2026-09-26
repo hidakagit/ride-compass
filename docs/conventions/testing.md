@@ -779,8 +779,14 @@ def test_xxx_is_rate_limited_per_client():
 `test_client_ip_behind_proxy.py`で検証済み）。キーのprefixは各routerの
 `check_rate_limit(f"{prefix}:{client_id(request)}", ...)`呼び出しに合わせる。
 
+**テストは回数0から始まる。** 回数制限が読む時計は`conftest.py`が止めた時計へ替えてあり、
+autouseの`rate_limit_clock`がテストごとに1窓ぶん進めて前のテストの回数を窓の外へ出す。
+回数の記録（`rate_limiter`の内部）は消し込まない・差し替えない——記録の持ち方を変えると
+テストが道連れになる。窓の境界を確かめるテストは`rate_limit_clock`を引数に取って進める
+（`test_rate_limiter.py`）。
+
 実例: test_region_routes.py, test_weather_route.py, test_basemap_routes.py,
-test_accident_routes.py, test_routes_preview.py, test_routes_generate.py
+test_accident_routes.py, test_routes_generate.py
 
 ## パターン2: PostGIS統合テスト（road_graph_session）→ ファイル単位でエンジン・イベントループを共有
 

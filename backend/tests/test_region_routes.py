@@ -1,5 +1,4 @@
 import inspect
-from collections import defaultdict
 from datetime import datetime, timezone
 
 import pytest
@@ -21,13 +20,6 @@ from tests.axis_system_fixture import axis_definition, replaced_axis_definitions
 from tests.bound_fake import bound
 
 client = TestClient(app)
-
-
-@pytest.fixture(autouse=True)
-def clear_rate_limiter():
-    rate_limiter._hits.clear()
-    yield
-    rate_limiter._hits.clear()
 
 
 class FakeRegionService:
@@ -565,13 +557,12 @@ def test_region_dedicated_way_values_rate_limit_is_independent_from_road_surface
     assert response.status_code == 200
 
 
-def test_road_surface_tile_rate_limit_is_independent_from_basemap_rate_limit(monkeypatch):
+def test_road_surface_tile_rate_limit_is_independent_from_basemap_rate_limit():
     # 回帰テスト: check_rate_limitのキーが両エンドポイントとも生のクライアントIPだけだった頃は
     # 路面タイル(120/分)とbasemapタイル(300/分)が同じカウンタを共有していた。地図初期化・パン/ズームで
     # 継続的に発生するbasemapタイルの取得だけで路面タイルの上限を先に使い切ってしまい、路面レイヤーの
     # チェックボックスをONにしても地図に何も描画されなくなる不具合があった("road-tile:"/"basemap:"の
     # プレフィックスで分離して修正済み)。
-    monkeypatch.setattr(rate_limiter, "_hits", defaultdict(list))
     for _ in range(130):
         rate_limiter.check_rate_limit("basemap:testclient", max_requests=300)
 
