@@ -93,6 +93,14 @@ SEGMENT_AGGREGATES: dict[str, Callable[[list[Any]], Any]] = {
 }
 
 
+def _difficulty_order(candidate: RouteCandidate) -> float:
+    """候補を返す並びの鍵。周回・目的地とも総合難易度（小数1桁で比較）の昇順で、先頭が
+    最も易しい候補という契約で配る。算出不能の候補は末尾へ回す。"""
+    if candidate.overall_difficulty is None:
+        return float("inf")
+    return round(candidate.overall_difficulty, 1)
+
+
 class RouteGenerator:
     """周回ルート候補の生成戦略。折返し点の選定・経路計算・評価はengineへ委譲する。"""
 
@@ -272,12 +280,8 @@ class RouteGenerator:
         evaluate_started = time.monotonic()
         candidates = await self._evaluate_and_aggregate(context, traced, start_time)
 
-        # 候補タブの並び順はoverall_difficulty（絶対基準0-100の総合難易度）昇順
-        # （易しい候補が先頭）。算出不能（None）の候補は末尾へ回す。小数1桁で比較し、
         # 同点は上記の「目標距離に近い順」を安定ソートで引き継ぐ。
-        candidates.sort(
-            key=lambda c: round(c.overall_difficulty, 1) if c.overall_difficulty is not None else float("inf")
-        )
+        candidates.sort(key=_difficulty_order)
         # 最終順位でidを振り直す（同じ方位に複数候補が並びうるため方位由来のidは一意にならない。
         # direction_labelはエンジンが方位から付けた表示用ラベルのまま）。
         candidates = [
@@ -445,9 +449,9 @@ class RouteGenerator:
         `select_via_nodes`が確定済みの経路だけを返すため、候補ごとの再探索・失敗スキップが
         無く「選定→評価」の2段で済む。
 
-        所要時間が最短の経路を基準線として必ず1本含め、先頭へ固定する。軸の重みをすべて0に
-        したときの経路であり、軸設定に沿った候補が何分余計にかかるかを対価として読める
-        ようにするため。
+        所要時間が最短の経路を基準線として必ず1本含める（件数を切るときも残す）。軸の重みを
+        すべて0にしたときの経路であり、軸設定に沿った候補が何分余計にかかるかを対価として
+        読めるようにするため。並びは周回と同じ総合難易度の昇順で、基準線も難易度の位置に並ぶ。
         """
         radius_km = distance_km * TURNAROUND_RADIUS_RATIO
         started = time.monotonic()
@@ -483,7 +487,7 @@ class RouteGenerator:
             )
             return []
 
-        # 距離だけで選んだ最短経路を基準線として必ず1本含める。軸設定に沿った候補と
+        # 所要時間だけで選んだ経路を基準線として必ず1本含める。軸設定に沿った候補と
         # 同じ経路になることもあるため、その場合は候補を増やさず既存の1本へ印を付ける。
         fastest = await self._engine.select_fastest_route(context, destination)
         fastest_index: int | None = None
@@ -501,21 +505,17 @@ class RouteGenerator:
             candidates[fastest_index] = candidates[fastest_index].model_copy(
                 update={"is_fastest": True}
             )
-        # generate_loopsと同じ規約: overall_difficulty昇順（算出不能はNone→末尾）。
-        candidates.sort(
-            key=lambda c: round(c.overall_difficulty, 1) if c.overall_difficulty is not None else float("inf")
-        )
-        # 基準線だけは難易度順の外へ出して先頭へ固定する（他の候補が何分余計にかかるかを
-        # 読むための基準であり、難易度で沈むと基準として使えない）。sortは安定なため
-        # 残りの難易度順は保たれる。max_routesを超えないよう末尾を切るが、先頭にいる
-        # 基準線は必ず残る。
-        #
-        # ただし`max_routes`が1のときは固定しない。基準線は**比べる相手があって初めて
-        # 基準**であり、1本だけ返すなら比べる相手が無い。固定すると返る唯一の候補が常に
-        # 距離最短になり、軸の重みが結果に一切現れない（利用者から見ると「設定が効かない」）。
-        if max_routes >= 2:
-            candidates.sort(key=lambda c: not c.is_fastest)
-        candidates = candidates[:max_routes]
+        candidates.sort(key=_difficulty_order)
+        # max_routesを超えたぶんは難易度の高い側から切るが、基準線は難易度で最下位でも残す。
+        # ただし`max_routes`が1のときは残さない。基準線は**比べる相手があって初めて基準**
+        # であり、1本だけ返すなら比べる相手が無い。残すと返る唯一の候補が常に時間最短に
+        # なり、軸の重みが結果に一切現れない（利用者から見ると「設定が効かない」）。
+        excess = len(candidates) - max_routes
+        if excess > 0:
+            keep_fastest = max_routes >= 2
+            droppable = [i for i, c in enumerate(candidates) if not (keep_fastest and c.is_fastest)]
+            dropped = set(droppable[-excess:])
+            candidates = [c for i, c in enumerate(candidates) if i not in dropped]
         candidates = [
             candidate.model_copy(update={"id": f"route-destination-{rank:02d}", "direction_label": "目的地ルート"})
             for rank, candidate in enumerate(candidates)
