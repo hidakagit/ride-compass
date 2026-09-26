@@ -868,6 +868,11 @@ Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -like '*\.claude\w
 - **遅いときは環境を先に疑う**。プロセス1つの起動に秒単位かかるなら、コードではなく
   ウイルス対策の走査・CPUの飽和を測る（`Get-Counter`でプロセス別のCPU使用率）。第三者製のウイルス対策が
   並行実行中にCPUの2〜4割を使い、`git status`が5倍遅くなった実測がある（[T1049](../records/tasks/T1049.md)）。
+- **道具（`scripts/`）が要る部品は`scripts/requirements.txt`に宣言する**。フックは道具をシステムの
+  Pythonで動かすので、司令塔を動かす機械では`python -m pip install -r scripts/requirements.txt`でシステムの
+  Pythonへ入れる。部品が入っていないPythonでは、それを読むコマンド（定期確認・門・スロットを渡すフック等）が
+  入れ方の1行を示して止まる。部品を読まないコマンド（監査・状態の表の読み書き等）は入っていなくても動く。
+  CIのテストへは`backend/requirements-dev.txt`が同じファイルを取り込む。
 - `core.hooksPath`は相対パス（`.githooks`）にする。絶対パスだと全作業ツリーが本体の
   チェックアウトにあるフックを走らせ、作業ツリーで直したフックが効かない。
 

@@ -70,6 +70,7 @@ jobs:
             backend/requirements.txt
             backend/requirements-batch.txt
             backend/requirements-dev.txt
+            scripts/requirements.txt
       # requirements-batch.txt（-r requirements.txtを内包、+osmium）を入れる。tests/には
       # test_import_pbf.py・test_pbf_source.pyというPBF取込バッチ（app/batch/）専用の
       # テストが存在し無条件でosmiumをimportするため、requirements.txtのみのインストール
