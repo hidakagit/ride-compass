@@ -1106,8 +1106,9 @@ frontendのvitestは`pool: "vmThreads"`で走るため、**`process.env`はテ�
 差し替える（`process.env = { ...ORIGINAL }`）と`vi.stubEnv`の復元も壊れる。
 
 **判断を、環境変数を引数で受ける純関数へ出す**。環境変数を読むのは分岐を持たない薄い関数だけに
-し、テストはその純関数を呼ぶ（`lib/tileBaseUrl.ts: resolveTileBaseUrl`・
-`lib/adminBasicAuth.ts: resolveAdminBasicAuth`）。
+し、テストはその純関数を呼ぶ（`lib/tileBaseUrl.ts: resolveTileBaseUrl`）。本番から呼ばれるのは薄い関数の側だけで、
+純関数の`export`はテストのためにある——これは構造仕様15（appはテストの都合の口を持たない）の例外で、
+環境変数を他の実装も読む場合に限る。
 
 ```ts
 export function tileBaseUrl(): string {
@@ -1126,7 +1127,8 @@ vi.mock("@/lib/tileBaseUrl", () => ({ tileBaseUrl: () => "" }));
 `process.env`ごとの差し替えを避ける。**漏れたかどうかは`vitest.setup.ts`が実行時に見る**
 ——テストファイルの終わりに`process.env`が開始時と違えば落ちる（`vi.stubEnv`のように
 復元されるものは通る）。`process.env`ごとの差し替えは束縛を固定して止めてある。自分のテスト対象だけが読む環境変数
-（`app/api/version/route.ts`の`RENDER_GIT_COMMIT`等）は、他へ波及しないため対象外。
+（`app/api/version/route.ts`の`RENDER_GIT_COMMIT`・`lib/adminBasicAuth.ts`の資格情報等）は、他へ波及しないため
+対象外で、`vi.stubEnv`で立てて公開の入口を呼ぶ（使う側のテストは読み取り口のモジュールをモックして、その値を読まない）。
 
 
 ## パターン8: テストが用意する状態は、本番で起こりうるものに限る

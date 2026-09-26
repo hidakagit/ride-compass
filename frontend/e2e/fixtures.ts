@@ -1,5 +1,5 @@
 import { expect, type Locator, type Page } from "@playwright/test";
-import type { RouteCandidate, RouteGenerateResponse } from "@/types/route";
+import type { RouteCandidate, RouteGenerateJobStatusResponse } from "@/types/route";
 import { catalogEntry, tileInput } from "@/lib/mapDisplay/__fixtures__/catalogAxes";
 import { makeRouteCandidate as makeCandidate } from "@/testing/routeFixtures";
 import type { AmedasObservation, WeatherConditions } from "@/types/weather";
@@ -66,12 +66,9 @@ function makeRouteCandidate(id: string, directionLabel: string, distanceKm: numb
   });
 }
 
-// 戻り値にRouteGenerateResponse型注釈を付け、バックエンドの実際の必須フィールド
-// （GenerationConditions等）が増えてもTypeScriptがこのモックの欠落を検知できるようにする
-// （consistencyレビュー2026-08-23 F-2: 型注釈が無かったため、T225でconditionsへ
-// penalty_strength/max_average_grade_percentが必須化された際もこのモックだけ
-// 追従漏れになっていた）。
-export function routeGenerateResponseFixture(): RouteGenerateResponse {
+// 戻り値に画面が受け取る生成結果の型を付け、backendの必須フィールド（GenerationConditions等）が
+// 増えたときに、このモックの欠落を型検査が知らせるようにする。
+export function routeGenerateResponseFixture(): NonNullable<RouteGenerateJobStatusResponse["result"]> {
   return {
     routes: [makeRouteCandidate("route-1", "北", 20.3), makeRouteCandidate("route-2", "南", 19.8)],
     no_candidates_reason: null,

@@ -79,7 +79,7 @@ export function pointLegendAxes(): readonly SceneLegendAxis[] {
   );
 }
 
-export const DISASTER_LAYER_ID = "disaster";
+const DISASTER_LAYER_ID = "disaster";
 
 /** 災害の要素ごとの色見本。地図がその要素を塗る段のうち、注意を促す段の色（平常時の色を
  * 見本にすると、どの要素も同じに見える）。鍵は源泉が配る災害のソースで、要素が増えれば

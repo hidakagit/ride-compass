@@ -104,7 +104,6 @@ beforeEach(() => {
     }));
   fetchers.useWeatherGrid.mockReset().mockReturnValue({
     grid: GRID,
-    detailGrid: [],
     effectiveGrid: GRID,
     effectiveGridSpacingDeg: 0.1,
     loading: false,
@@ -321,7 +320,6 @@ describe("取得状態", () => {
     fetchers.fetchJmaTargetTimesFile.mockImplementation(() => new Promise(() => {}));
     fetchers.useWeatherGrid.mockReturnValue({
       grid: [],
-      detailGrid: [],
       effectiveGrid: [],
       effectiveGridSpacingDeg: 0.1,
       loading: false,
@@ -336,7 +334,6 @@ describe("取得状態", () => {
   it("OFFのチップは取りに行っていないので、何も言わない（「データが無い」と断定しない）", async () => {
     fetchers.useWeatherGrid.mockImplementation((enabled: boolean) => ({
       grid: [],
-      detailGrid: [],
       effectiveGrid: [],
       effectiveGridSpacingDeg: 0.1,
       loading: false,

@@ -39,7 +39,7 @@ describe("useStoredState", () => {
     expect(result.current[0]).toBe(1);
   });
 
-  it("setterはstateを更新しlocalStorageへ即保存する(既定autoSave=true)", () => {
+  it("setterはstateを更新しlocalStorageへ即保存する", () => {
     const { result } = renderHook(() => useStoredState("k", 1, jsonOptions));
     act(() => result.current[1](5));
     expect(result.current[0]).toBe(5);
@@ -57,17 +57,6 @@ describe("useStoredState", () => {
 
     act(() => result.current[1]("a"));
     expect(window.localStorage.getItem("k2")).toBe("a");
-  });
-
-  it("autoSave=falseのときsetterは保存せず、commitを呼んだときだけ保存する(ドラッグ中の分離保存)", () => {
-    const { result } = renderHook(() => useStoredState("k", 1, { ...jsonOptions, autoSave: false }));
-
-    act(() => result.current[1](9));
-    expect(result.current[0]).toBe(9);
-    expect(window.localStorage.getItem("k")).toBeNull();
-
-    act(() => result.current[2](9));
-    expect(window.localStorage.getItem("k")).toBe("9");
   });
 
   // 実バグ修正の回帰テスト（デッドコード監査、2026-08-25）: app/page.tsxのlayerVisibility

@@ -15,7 +15,8 @@ import { AREA_SOURCE_ID } from "@/features/map/scene/groups/areaRasters";
 import { POINT_LAYERS, pointSourceId } from "@/features/map/scene/groups/points";
 import { ROAD_LINE_SOURCE_ID, ROAD_TRACKS } from "@/features/map/scene/groups/roadLines";
 import { pointLegendAxes, roadLegendAxes } from "@/features/map/scene/legends";
-import { LEGEND_NO_DATA_KEY, legendBandKey } from "@/lib/mapDisplay/mapColorLegend";
+import { LEGEND_NO_DATA_KEY } from "@/lib/mapDisplay/mapColorLegend";
+import { dedicatedAxisBands, rampAxisBands } from "@/lib/mapDisplay/valueScale";
 import { applyScene, sceneInputsFrom } from "@/features/map/scene/applyToMap";
 import { sceneState, type SceneState, type SceneStateOverrides } from "@/features/map/scene/__fixtures__/sceneState";
 import { buildMapScene } from "@/features/map/scene/buildScene";
@@ -255,7 +256,7 @@ describe("レイヤーを横断する要求", () => {
     // 絞り込みの式も検証の対象にするため、凡例の先頭の行と「値なし」を隠しておく。
     const firstKeyHidden = (axes: readonly { axisId: string; entries: readonly { key: string }[] }[]) =>
       Object.fromEntries(axes.map((axis) => [axis.axisId, axis.entries.slice(0, 1).map((entry) => entry.key)]));
-    const bandsHidden = [legendBandKey(0), LEGEND_NO_DATA_KEY];
+    const firstBandAndNoData = (bands: readonly { key: string }[]) => [bands[0].key, LEGEND_NO_DATA_KEY];
     // 評価軸は一度に1本しか塗らないが、どの軸のレイヤーも常に宣言され、塗るかは表示だけが変わる。
     return sceneState({
       catalog: { ...CATALOG, routeStyleModes: [mode] as never },
@@ -266,7 +267,10 @@ describe("レイヤーを横断する要求", () => {
         hiddenLegendKeys: {
           ...firstKeyHidden(roadLegendAxes()),
           ...firstKeyHidden(pointLegendAxes()),
-          ...Object.fromEntries([...RAMP_AXES, ...DEDICATED_AXES].map((axis) => [axis.axisId, bandsHidden])),
+          ...Object.fromEntries(RAMP_AXES.map((axis) => [axis.axisId, firstBandAndNoData(rampAxisBands(axis))])),
+          ...Object.fromEntries(
+            DEDICATED_AXES.map((axis) => [axis.axisId, firstBandAndNoData(dedicatedAxisBands(axis.display))]),
+          ),
         },
         dynamicWeather: everyWeatherGroupState() as never,
       },

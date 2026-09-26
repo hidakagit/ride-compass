@@ -49,7 +49,7 @@ export interface SelectedRouteSegment {
 
 export type RouteGenerateRequest = Schemas["RouteGenerateRequest"];
 
-export type RouteGenerateResponse = Omit<Required<Schemas["RouteGenerateResponse"]>, "routes"> & {
+type RouteGenerateResponse = Omit<Required<Schemas["RouteGenerateResponse"]>, "routes"> & {
   routes: RouteCandidate[];
 };
 
