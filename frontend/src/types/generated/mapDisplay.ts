@@ -82,6 +82,7 @@ export const mapDisplay = {
   "layers": [
     {
       "id": "highway",
+      "label": "道路の種類",
       "dataSource": "road_surface",
       "category": "roadCondition",
       "kind": "static",
@@ -90,6 +91,7 @@ export const mapDisplay = {
     },
     {
       "id": "surface",
+      "label": "路面の種類",
       "dataSource": "road_surface",
       "category": "roadCondition",
       "kind": "static",
@@ -98,6 +100,7 @@ export const mapDisplay = {
     },
     {
       "id": "tunnel",
+      "label": "トンネル",
       "dataSource": "road_surface",
       "category": "roadCondition",
       "kind": "static",
@@ -106,6 +109,7 @@ export const mapDisplay = {
     },
     {
       "id": "oneway",
+      "label": "一方通行",
       "dataSource": "road_surface",
       "category": "roadCondition",
       "kind": "static",
@@ -114,6 +118,7 @@ export const mapDisplay = {
     },
     {
       "id": "elevation",
+      "label": "標高図",
       "dataSource": "gsiRelief",
       "category": "terrain",
       "kind": "static",
@@ -122,6 +127,7 @@ export const mapDisplay = {
     },
     {
       "id": "stop_poi",
+      "label": "停止要因",
       "dataSource": "poi",
       "category": "trafficSafety",
       "kind": "static",
@@ -130,6 +136,7 @@ export const mapDisplay = {
     },
     {
       "id": "accident_point",
+      "label": "事故[警察庁統計]",
       "dataSource": "accident",
       "category": "trafficSafety",
       "kind": "static",
@@ -138,6 +145,7 @@ export const mapDisplay = {
     },
     {
       "id": "landcover",
+      "label": "緑と水",
       "dataSource": "landcoverRaster",
       "category": "terrain",
       "kind": "static",
@@ -146,6 +154,7 @@ export const mapDisplay = {
     },
     {
       "id": "supply_poi",
+      "label": "補給・休憩ポイント",
       "dataSource": "poi",
       "category": "amenity",
       "kind": "static",
@@ -154,6 +163,7 @@ export const mapDisplay = {
     },
     {
       "id": "hillshade",
+      "label": "起伏",
       "dataSource": "gsiTerrain",
       "category": "terrain",
       "kind": "static",
@@ -162,6 +172,7 @@ export const mapDisplay = {
     },
     {
       "id": "precipitationNowcast",
+      "label": "降水ナウキャスト",
       "dataSource": "ownFetch",
       "category": "weather",
       "kind": "static",
@@ -170,6 +181,7 @@ export const mapDisplay = {
     },
     {
       "id": "windVector",
+      "label": "風（矢印）",
       "dataSource": "ownFetch",
       "category": "weather",
       "kind": "static",
@@ -178,6 +190,7 @@ export const mapDisplay = {
     },
     {
       "id": "disaster",
+      "label": "災害",
       "dataSource": "ownFetch",
       "category": "disaster",
       "kind": "static",
@@ -186,6 +199,7 @@ export const mapDisplay = {
     },
     {
       "id": "route",
+      "label": "ルート",
       "dataSource": "ownFetch",
       "category": null,
       "kind": "dynamic",

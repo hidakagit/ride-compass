@@ -115,6 +115,8 @@ class MapLayerSpec(NamedTuple):
     #: 利用者の操作を待たずに表示するか。**性質で決める**——明示的にONにして初めて出るのが
     #: 地図レイヤーの原則で、既定ONの根拠になるのは防災級の情報と、探索の結果そのものだけ。
     default_on: bool = False
+    #: 名前。一次属性を描くレイヤーは書かない——属性の名前をそのまま使う（`map_layer_label`）。
+    label: str | None = None
 
 
 def _tile_layer(attr_id: str, category: str) -> MapLayerSpec:
@@ -127,7 +129,8 @@ def _tile_layer(attr_id: str, category: str) -> MapLayerSpec:
 #: `MAP_LAYER_IDS`の1つずつの宣言。**足りないと生成の時点で落ちる**（`MAP_LAYERS`）。
 _LAYER_SPECS: dict[str, MapLayerSpec] = {
     "elevation": MapLayerSpec("gsiRelief", "terrain"),
-    HILLSHADE_LAYER_ID: MapLayerSpec("gsiTerrain", "terrain"),
+    # 標高図（何mか）と区別できる名前にする（坂の在りかだけを塗る）。
+    HILLSHADE_LAYER_ID: MapLayerSpec("gsiTerrain", "terrain", label="起伏"),
     "landcover": MapLayerSpec("landcoverRaster", "terrain"),
     "highway": _tile_layer("highway", "roadCondition"),
     "surface": _tile_layer("surface", "roadCondition"),
@@ -136,16 +139,27 @@ _LAYER_SPECS: dict[str, MapLayerSpec] = {
     "stop_poi": _tile_layer("stop_poi", "trafficSafety"),
     "supply_poi": _tile_layer("supply_poi", "amenity"),
     "accident_point": _tile_layer("accident_point", "trafficSafety"),
-    "precipitationNowcast": MapLayerSpec("ownFetch", "weather", data_nature="dynamic"),
-    "windVector": MapLayerSpec("ownFetch", "weather", data_nature="dynamic"),
+    "precipitationNowcast": MapLayerSpec("ownFetch", "weather", data_nature="dynamic", label="降水ナウキャスト"),
+    # 道路の色分け（向かい風・追い風）と見分けられる名前にする。
+    "windVector": MapLayerSpec("ownFetch", "weather", data_nature="dynamic", label="風（矢印）"),
     # 予兆が出てからONにするのでは手遅れになるため既定ONにする。危険度が出ている間は広い範囲が
     # 塗られ、他の面レイヤー（緑と水・標高図）も基礎地図の色も覆われるが、危険度ゼロの領域は
     # 配信元のタイルが透明なので、影響が出るのは警戒度が上がっている間だけ。そのときは防災の
     # 情報を優先する（利用者はチップをOFFにすれば戻せる）。
-    "disaster": MapLayerSpec("ownFetch", "disaster", data_nature="dynamic", default_on=True),
+    "disaster": MapLayerSpec("ownFetch", "disaster", data_nature="dynamic", default_on=True, label="災害"),
     # 候補を出したら見えている必要がある（探索の結果そのもの）。
-    ROUTE_LAYER_ID: MapLayerSpec("ownFetch", None, kind="dynamic", default_on=True),
+    ROUTE_LAYER_ID: MapLayerSpec("ownFetch", None, kind="dynamic", default_on=True, label="ルート"),
 }
+
+
+def map_layer_label(layer_id: str, spec: MapLayerSpec) -> str:
+    """レイヤーの名前。一次属性を描くレイヤーは属性の名前で、どちらも無ければ生成の時点で落とす。"""
+    if spec.label is not None:
+        return spec.label
+    attribute = next((attr for attr in PRIMARY_ATTRIBUTES if attr.attr_id == layer_id), None)
+    if attribute is None:
+        raise ValueError(f"地図レイヤー'{layer_id}'に名前が無い（一次属性でもない）")
+    return attribute.label
 
 #: 地図に載るものの宣言（`MAP_LAYER_IDS`の順）。
 MAP_LAYERS: tuple[tuple[str, MapLayerSpec], ...] = tuple(

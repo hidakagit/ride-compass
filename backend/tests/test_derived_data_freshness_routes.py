@@ -31,12 +31,14 @@ REPORT = DerivedDataFreshnessReport(
             oldest_run_id=1, latest_run_id=2, is_stale=True,
             coverage_parent="osm_node", coverage_parent_row_count=12, missing_rows=2,
             columns=[ColumnEntry(column="branch_count", null_count=3, is_incomplete=True)],
+            needs_rebuild=True,
         ),
         TableEntry(
             table_name="way_materials", row_count=5, source="osm_way",
             oldest_run_id=3, latest_run_id=3, is_stale=False,
             coverage_parent=None, coverage_parent_row_count=None, missing_rows=None,
             columns=[ColumnEntry(column="lc_water", null_count=0, is_incomplete=False)],
+            needs_rebuild=False,
         ),
     ],
 )
@@ -64,6 +66,7 @@ def test_被覆の項目がレスポンスへそのまま出る(override_service
     assert tables["node_materials"]["coverage_parent"] == "osm_node"
     assert tables["node_materials"]["coverage_parent_row_count"] == 12
     assert tables["node_materials"]["missing_rows"] == 2
+    assert tables["node_materials"]["needs_rebuild"] is True
 
 
 def test_覆いを宣言しない表はNoneのまま出る(override_service):
