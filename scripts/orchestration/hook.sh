@@ -74,7 +74,7 @@ orch_string_value || exit 0
 if [ -f "$orch_dir/next_check" ]; then
     IFS= read -r orch_due < "$orch_dir/next_check"
     orch_due=${orch_due%%[!0-9]*}
-    # bash（開発機の/bin/sh）は変数で今の時刻を持つ。無いshだけdateを起こす（ここへ来るのは司令塔のセッションだけ）。
+    # EPOCHSECONDSはbash 5.0からで、dashと開発機のGit Bash（4.4）には無い。無ければdateを起こす（ここへ来るのは司令塔のセッションだけ）。
     orch_now=${EPOCHSECONDS:-}
     [ -n "$orch_now" ] || orch_now=$(date +%s)
     [ "$orch_now" -ge "${orch_due:-0}" ] || exit 0
