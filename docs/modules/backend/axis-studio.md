@@ -222,7 +222,7 @@ Pythonの値、ルート選びは材料の型ごとの配列で、分類の材�
         ▼
   AXIS_DEFINITIONS（モジュールレベルdict）
         │
-        ├──→ road_graph_engine.py
+        ├──→ leg_costs.py（ルート探索のコストの合成）
         └──→ axis_catalog.py（GET /api/axis-catalog、実行時・即座に反映）
 ```
 
