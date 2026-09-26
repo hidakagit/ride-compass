@@ -950,6 +950,39 @@ def evaluate_axes_values(materials: Mapping[str, Sequence[object]], length: int)
     評価できなかった公開軸も、キーを残して値をNoneにする（区間インスペクタの`available=False`・
     合成の分母からの除外がこれを前提にする）。
     """
+    evaluated = evaluate_axes_array(_axes_python_value_columns(materials, length))
+    return {
+        axis_id: _scores_or_none(evaluated[axis_id])
+        for axis_id in topological_axis_order(AXIS_DEFINITIONS)
+        if AXIS_DEFINITIONS[axis_id].is_published
+    }
+
+
+def evaluate_axes_inputs(materials: Mapping[str, Sequence[object]], length: int) -> dict[str, list[object]]:
+    """公開軸ごとの、得点へ写す前の値（欠損=None）。折れ点の軸は生値、対応表の軸は引く材料の値。
+    形の入力は`evaluate_axes_values`と同じ。
+
+    この値が同じ道は、折れ点・対応表をどう置いても同じ得点になる（0次条件が当たる道を除く）。
+    """
+    columns = _axes_python_value_columns(materials, length)
+    with_axes: dict[str, MaterialColumn] = {**columns, **evaluate_axes_array(columns)}
+    inputs: dict[str, list[object]] = {}
+    for axis_id in topological_axis_order(AXIS_DEFINITIONS):
+        definition = AXIS_DEFINITIONS[axis_id]
+        if not definition.is_published:
+            continue
+        shape = definition.shape
+        if isinstance(shape, BreakpointLinearShape):
+            inputs[axis_id] = list(_scores_or_none(_breakpoint_raw_value_array(shape, with_axes)))
+        else:
+            column = with_axes[shape.material]
+            assert isinstance(column, np.ndarray)  # Pythonの値の入口は分類の番号の列を作らない
+            inputs[axis_id] = [None if isinstance(v, float) and math.isnan(v) else v for v in column.tolist()]
+    return inputs
+
+
+def _axes_python_value_columns(materials: Mapping[str, Sequence[object]], length: int) -> dict[str, np.ndarray]:
+    """全軸が読む葉の材料（他の軸を除く）を、`evaluate_axes_array`が受け取る形の配列へ並べ替える。"""
     definitions = AXIS_DEFINITIONS.values()
     leaf_ids = {
         material_id
@@ -957,13 +990,7 @@ def evaluate_axes_values(materials: Mapping[str, Sequence[object]], length: int)
         for material_id in definition.materials
         if material_id not in AXIS_DEFINITIONS
     }
-    columns = _python_value_columns(materials, leaf_ids, _term_material_ids(definitions), length)
-    evaluated = evaluate_axes_array(columns)
-    return {
-        axis_id: _scores_or_none(evaluated[axis_id])
-        for axis_id in topological_axis_order(AXIS_DEFINITIONS)
-        if AXIS_DEFINITIONS[axis_id].is_published
-    }
+    return _python_value_columns(materials, leaf_ids, _term_material_ids(definitions), length)
 
 
 def evaluate_axes_array(materials: Mapping[str, MaterialColumn]) -> dict[str, np.ndarray]:
