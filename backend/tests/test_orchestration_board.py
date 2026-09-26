@@ -1,5 +1,5 @@
-"""`scripts/orchestrate.py`の門（見込み超過の是正済みの印）と振り出し待ち（後始末の印）を、一時的なgitリポジトリで
-入口のコマンドから確かめる。
+"""`scripts/orchestrate.py`の状態の表・門・定期確認・監査の機械項目を、一時的なgitリポジトリで入口のコマンドから
+確かめる（監査だけは同じプロセスで回し、GitHubへの問い合わせを差し替える）。
 
 台帳・記録はorigin/masterから読まれるので、一時的なリポジトリのmasterに台帳の行と記録を置いてpushする。状態の表は
 `--dir`で一時的なディレクトリへ向け、実物の表に触れない。
@@ -29,7 +29,9 @@ def write(root: Path, rel: str, text: str) -> None:
 
 
 def ago(minutes: int) -> str:
-    return (dt.datetime.now().astimezone() - dt.timedelta(minutes=minutes)).isoformat(timespec="minutes")
+    """`minutes`分前の時刻。秒まで書く——分へ切り捨てると最大59秒古くなり、道具が経過を分へ切り捨てて出す値が
+    分の終わり近くで1分ずれる。"""
+    return (dt.datetime.now().astimezone() - dt.timedelta(minutes=minutes)).isoformat(timespec="seconds")
 
 
 @pytest.fixture
@@ -230,25 +232,127 @@ def test_idle_slot_with_waiting_dispatch_is_raised_after_five_minutes_even_with_
     assert "6分続いている（門: " in later and "停止ファイル" in later
 
 
-def test_check_says_which_dashboard_dump_it_read_and_when_that_is_stale(world):
-    main, orch = world
+ITEM = {"task": "T1", "kind": "保留", "text": "コメントで答えた問い", "comments": [{"text": "半分だけ残す", "at": ago(200)}]}
+
+
+def check_with_dump(orch: Path, main: Path, minutes: int) -> str:
     backup = orch / "pending-backup"
-    backup.mkdir()
-    item = {"task": "T1", "kind": "保留", "text": "コメントで答えた問い",
-            "comments": [{"text": "半分だけ残す", "at": ago(200)}]}
+    backup.mkdir(exist_ok=True)
+    (backup / f"{dt.date.today().isoformat()}.json").write_text(
+        json.dumps({"saved_at": ago(minutes), "items": {"T1-q": ITEM}}, ensure_ascii=False), encoding="utf-8")
+    return orchestrate(main, orch, "check").stdout
 
-    def check_with_dump(minutes: int) -> str:
-        day = dt.date.today().isoformat()
-        (backup / f"{day}.json").write_text(json.dumps({"saved_at": ago(minutes), "items": {"T1-q": item}},
-                                                       ensure_ascii=False), encoding="utf-8")
-        return orchestrate(main, orch, "check").stdout
 
-    fresh, stale = check_with_dump(1), check_with_dump(120)
+def test_check_counts_the_items_of_a_recent_dump_without_listing_them(world):
+    main, orch = world
 
-    assert "確認中1件 → " in fresh and "（1分前）の書き出し）" in fresh, fresh
-    assert "古い" not in fresh
-    assert "（120分前）の書き出し。古いので書き出し直してから扱う" in stale, stale
-    assert "既に消えているかもしれない" in stale
+    fresh = check_with_dump(orch, main, 1)
+
+    assert "（1分前）の書き出しに確認中1件" in fresh, fresh
+    assert "T1-q" not in fresh and "コメントで答えた問い" not in fresh
+
+
+def test_check_only_asks_to_dump_again_when_the_dump_is_stale(world):
+    main, orch = world
+
+    stale = check_with_dump(orch, main, 120)
+
+    assert "（120分前）で古い" in stale, stale
+    assert "確認中1件" not in stale and "T1-q" not in stale
+
+
+def test_backup_lists_the_current_items_by_owner(world, tmp_path):
+    main, orch = world
+    dump = tmp_path / "dump" / "pending"
+    dump.mkdir(parents=True)
+    (dump / "T1-q.json").write_text(json.dumps(ITEM, ensure_ascii=False), encoding="utf-8")
+
+    backup = orchestrate(main, orch, "pending-backup", "--pending", str(dump.parent))
+
+    assert "確認中1件 → 司令塔（持ち主の担当・セッションがいない）: T1-q（T1）コメントで答えた問い" in backup.stdout, backup.stdout
+
+
+def test_add_renews_the_stopped_row_of_an_earlier_dispatch_and_keeps_its_audit_log(world):
+    main, orch = world
+    assert orchestrate(main, orch, "board", "add", "A", "current_task=T1", "id=a1").returncode == 0
+    assert orchestrate(main, orch, "board", "set", "A", "reported_sha=1234567", "audit_done=now",
+                       "audit_result=通す").returncode == 0
+
+    again = orchestrate(main, orch, "board", "add", "A", "current_task=T1", "id=a2")
+
+    assert again.returncode == 0, again.stderr
+    agent = load(orch)["agents"][0]
+    assert (agent["state"], agent["id"], agent["current_task"]) == ("稼働", "a2", "T1")
+    assert "reported_sha" not in agent and "audit_result" not in agent
+    assert [e["reported_sha"] for e in agent["audit_log"]] == ["1234567"]
+
+
+def test_add_refuses_a_running_row_and_a_row_whose_slot_is_still_marked(world):
+    main, orch = world
+    assert orchestrate(main, orch, "board", "add", "A", "current_task=T1", "id=a1").returncode == 0
+    board = load(orch)
+    board["agents"].append({"name": "B", "id": "b1", "state": "強制停止"})
+    save(orch, board)
+    slot(main, 1, "agent-b1")
+
+    running = orchestrate(main, orch, "board", "add", "A", "current_task=T1", "id=a2")
+    marked = orchestrate(main, orch, "board", "add", "B", "current_task=T1", "id=b2")
+
+    assert running.returncode != 0 and "既にある: A（稼働）" in running.stderr, running.stderr
+    assert marked.returncode != 0 and "slot release" in marked.stderr, marked.stderr
+    assert [a.get("id") for a in load(orch)["agents"]] == ["a1", "b1"]
+
+
+def audit(main: Path, orch: Path, name: str, sha: str, monkeypatch, capsys) -> str:
+    """`audit`を同じプロセスで回す。GitHubへの問い合わせ（網の境界）だけを「実行が無い」に差し替える。"""
+    monkeypatch.syspath_prepend(str(ENTRY.parent))
+    from orchestration import core, github
+
+    monkeypatch.setattr(github, "actions_runs", lambda *_args, **_kwargs: ([], ""))
+    capsys.readouterr()
+    core.main(["--repo", str(main), "--dir", str(orch), "audit", name, sha])
+    return capsys.readouterr().out
+
+
+def touch_other_record(main: Path, t3_after: str) -> str:
+    """masterに未完了のT3を置き、担当の枝で自分のT1と、T3を`t3_after`へ変えたコミットのsha。"""
+    write(main, "docs/improvement-plan.md", PLAN + "- [ ] [T3](records/tasks/T3.md). 別のタスク 規模S\n")
+    write(main, "docs/records/tasks/T3.md", T3_BEFORE)
+    git(main, "add", "docs")
+    git(main, "commit", "--quiet", "-m", "T0: T3")
+    git(main, "push", "--quiet", "origin", "master")
+    git(main, "switch", "--quiet", "-c", "work")
+    write(main, "docs/records/tasks/T1.md", "# T1. 走っているタスク\n\n状態: 未完了\n\n実施した\n")
+    write(main, "docs/records/tasks/T3.md", t3_after)
+    git(main, "add", "docs")
+    git(main, "commit", "--quiet", "-m", "T1: 実施")
+    return git(main, "rev-parse", "HEAD")
+
+
+T3_BEFORE = "# T3. 別のタスク\n\n状態: 未完了\n\n本文の行\n"
+T3_NOTE = "前提の変化: X を撤去した（T1）"
+
+
+@pytest.mark.parametrize(("t3_after", "holder", "expected", "unexpected"), [
+    (T3_BEFORE + T3_NOTE + "\n", None, "? 他のタスクの記録への追記: T3（+1行。", "! "),
+    (T3_BEFORE + T3_NOTE + "\n", "B", "! 仕掛中のタスクの記録へ追記している: T3（担当 B（稼働））", "? 他のタスク"),
+    (T3_BEFORE.replace("本文の行", "書き直した行"), None, "! 担当のタスク外の記録を書き換えている: T3", "? 他のタスク"),
+])
+def test_audit_lets_an_append_to_an_idle_task_record_through_and_flags_the_rest(
+        world, monkeypatch, capsys, t3_after, holder, expected, unexpected):
+    main, orch = world
+    sha = touch_other_record(main, t3_after)
+    board = load(orch)
+    board["agents"] = [{"name": "A", "state": "稼働", "current_task": "T1"}]
+    if holder:
+        board["agents"].append({"name": holder, "state": "稼働", "current_task": "T3"})
+    save(orch, board)
+
+    out = audit(main, orch, "A", sha, monkeypatch, capsys)
+
+    records = out[out.index("2. 記録の整合"):out.index("4. 検証の証拠")]
+    assert expected in records, out
+    assert unexpected not in records, out
 
 
 def test_rules_prints_the_block_of_the_convention_with_the_agent_name(world):
