@@ -1,16 +1,23 @@
 {
-  "_": "個別に交渉した規模の閾値。これは測定値ではなく決定なので保存する（測定値=前回行数は periodic-review タグが指すコミットから導く）。ユーザー承認を経て変える。1,000行以上のファイルはここに載るまで毎回発火し、縮んで到達率が50%を割ったエントリは size の『閾値の見直し』に出る。",
+  "_": "個別に交渉した規模の閾値。これは測定値ではなく決定なので保存する（測定値=前回行数は periodic-review タグが指すコミットから導く）。ユーザー承認を経て変える。1,000行以上のファイルはここに載るまで毎回発火し、縮んで到達率が50%を割ったエントリは size の『閾値の見直し』に出る。on_fire は発火したときの既定の対応として決めてあるもので、size が発火の一覧の下に出す。",
   "thresholds": {
-    "backend/app/domain/evaluation.py": 1150,
+    "backend/app/domain/evaluation.py": 500,
     "backend/app/domain/material_catalog.py": 1400,
     "backend/app/domain/routing.py": 1400,
     "backend/app/infrastructure/road_graph_repository.py": 1400,
     "backend/app/services/road_graph_engine.py": 2700,
     "backend/tests/test_routing.py": 1500,
-    "frontend/src/app/page.tsx": 2600,
+    "docs/conventions/testing.md": 1400,
+    "frontend/src/app/page.test.tsx": 2000,
+    "frontend/src/app/page.tsx": 1700,
     "frontend/src/features/admin/AxisStudio/AxisScoringSection.tsx": 900,
-    "frontend/src/features/map/MapView/MapView.tsx": 1900,
     "frontend/src/components/ui/icons/icons.tsx": 1000,
-    "frontend/src/features/map/MapOverlayControls/MapOverlayControls.tsx": 1400
+    "frontend/src/features/map/MapOverlayControls/MapOverlayControls.tsx": 800,
+    "frontend/src/types/generated/api.d.ts": 3800,
+    "scripts/orchestration/core.py": 2300
+  },
+  "on_fire": {
+    "backend/app/domain/material_catalog.py": "一次属性の表（PRIMARY_ATTRIBUTESとその型）を別モジュールへ出す",
+    "docs/conventions/testing.md": "運用の節（開発機での回し方・検査の置き場等）を別文書へ出す"
   }
 }
