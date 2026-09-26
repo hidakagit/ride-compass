@@ -37,6 +37,22 @@ def derive_weather_code(
     return 3
 
 
+def derive_observed_weather_code(
+    precipitation_10min_mm: float | None, sunshine_10min_minutes: float | None, temperature_c: float | None
+) -> int | None:
+    """アメダスの10分間の実測（降水量・日照時間・気温）からWMO天気コードを求める。
+
+    降水があれば10分間量を1時間あたりへ直して`derive_weather_code`と同じ段で雨/雪と強さを決める
+    ——雨と雪の境を予報と観測で1つにするため。降水が無ければ日照の有無だけで晴れ（0）/くもり（3）に
+    分け、霧・雷雨は実測の項目からは判定できないため返さない。降水量も日照時間も無ければNone。
+    """
+    if precipitation_10min_mm is not None and precipitation_10min_mm > 0:
+        return derive_weather_code(precipitation_10min_mm * 6, None, temperature_c)
+    if sunshine_10min_minutes is None:
+        return None
+    return 0 if sunshine_10min_minutes > 0 else 3
+
+
 class WeatherPeriodOutlook(StrictModel):
     """「今日の見通し」パネルの時間帯別の天気の流れ1コマぶん。
 

@@ -16,6 +16,7 @@ const observation = (overrides: Partial<AmedasObservation> = {}) =>
     wind_direction_label: "東",
     precipitation_10min_mm: 0,
     sunshine_10min_minutes: 10,
+    weather_code: 0,
     sunrise: "2026-09-24T05:30:00+09:00",
     sunset: "2026-09-24T17:40:00+09:00",
     ...overrides,
@@ -97,7 +98,7 @@ describe("WeatherPanel 観測値", () => {
     expect(screen.queryByText("降水量:")).not.toBeInTheDocument();
   });
 
-  it("天気は実測から分類し、日の出から日の入りまでを昼とする", () => {
+  it("天気はbackendが実測から導いたコードで出し、日の出から日の入りまでを昼とする", () => {
     const { unmount } = render(<WeatherPanel amedas={observation()} loading={false} error={null} />);
     expect(screen.getByText(/^天気:/).parentElement!.querySelector("svg")).not.toBeNull();
     const dayIcon = screen.getByText(/^天気:/).parentElement!.innerHTML;
@@ -122,7 +123,7 @@ describe("WeatherPanel 観測値", () => {
   it("天気を決められなければ、天気は出さない", () => {
     render(
       <WeatherPanel
-        amedas={observation({ precipitation_10min_mm: null, sunshine_10min_minutes: null })}
+        amedas={observation({ precipitation_10min_mm: null, sunshine_10min_minutes: null, weather_code: null })}
         loading={false}
         error={null}
       />,

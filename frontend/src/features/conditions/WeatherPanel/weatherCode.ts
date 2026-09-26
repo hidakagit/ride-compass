@@ -2,10 +2,8 @@ import type { ReactElement } from "react";
 import { vocabulary } from "@/types/generated/vocabulary";
 import { CloudIcon, FogIcon, RaindropIcon, SnowflakeIcon, SunIcon, ThunderIcon } from "@/components/ui/icons/icons";
 
-// WMO天気コード（weather_code、backendが降水量・雲量・気温から導出）+ is_dayから、
-// 「今日の見通し」（TodayOutlook）の天気アイコン1個を決める。実測値ベースの常設ヘッダーは
-// 別の簡易分類を使う（amedasWeatherIcon.ts）。天気コードの分類と名前はbackendの宣言
-// （domain/weather_display.py: WEATHER_CATEGORIES）が配る。
+// WMO天気コード（weather_code。予報も観測もbackendが導出する）から天気アイコン1個を決める。
+// 天気コードの分類と名前はbackendの宣言（domain/weather_display.py: WEATHER_CATEGORIES）が配る。
 // 画面が持つのは分類ごとのアイコンだけ。
 type WeatherCodeCategory = (typeof vocabulary.weatherCategories)[number]["key"];
 
@@ -39,6 +37,10 @@ interface WeatherCodeDisplay {
  * （観測側で昼夜を持つのは`amedasWeatherIcon.ts`）。 */
 export function getWeatherCodeDisplay(weatherCode: number | null): WeatherCodeDisplay | null {
   if (weatherCode == null) return null;
-  const category = CATEGORY_BY_CODE.get(weatherCode) ?? vocabulary.weatherCategoryFallback;
+  const category = weatherCategoryOf(weatherCode);
   return { Icon: WEATHER_CATEGORY_ICON[category], label: WEATHER_CATEGORY_LABEL[category] };
+}
+
+export function weatherCategoryOf(weatherCode: number): WeatherCodeCategory {
+  return CATEGORY_BY_CODE.get(weatherCode) ?? vocabulary.weatherCategoryFallback;
 }

@@ -2138,6 +2138,18 @@
               }
             ],
             "title": "Sunset"
+          },
+          "weather_code": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Weather Code",
+            "readOnly": true
           }
         },
         "additionalProperties": false,
@@ -2156,7 +2168,8 @@
           "precipitation_10min_mm",
           "sunshine_10min_minutes",
           "sunrise",
-          "sunset"
+          "sunset",
+          "weather_code"
         ],
         "title": "AmedasObservation"
       },

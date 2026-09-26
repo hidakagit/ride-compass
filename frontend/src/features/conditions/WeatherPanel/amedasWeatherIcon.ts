@@ -1,47 +1,18 @@
 import type { ReactElement } from "react";
 import { MoonIcon, SunIcon } from "@/components/ui/icons/icons";
 
-// 常設ヘッダーの天気アイコンは予報由来のweather_codeではなく
-// アメダス実測値ベースの簡易分類を使う。weatherCode.ts（予報のWMOコードの分類）と違い、
-// アメダスの速報値レスポンスには天気概況コードが実質使えない形でしか無い
-// （sunshine_10min_minutes[10分間日照時間]・precipitation_10min_mm[10分間降水量]・
-// temperature_cのみを根拠にする）ため、霧・雷雨は判別できず晴れ/くもり/雨/雪に留める。
-import { WEATHER_CATEGORY_ICON, WEATHER_CATEGORY_LABEL } from "./weatherCode";
-
-type AmedasWeatherCategory = "clear" | "cloudy" | "rain" | "snow";
-
-// 降水がある場合に雨/雪を分ける気温しきい値（℃）。気象庁の目安（地上気温2℃前後が
-// 雨/雪の境目）に基づく簡易な近似——みぞれ等の中間状態は判別しない。
-const SNOW_TEMPERATURE_THRESHOLD_C = 2;
-
-/** アメダスの生値から天気カテゴリを判定する。降水量・日照時間のいずれも無ければ
- * 判定材料が無いためnullを返す（呼び出し元はチップ自体を出さない）。 */
-export function classifyAmedasWeather(
-  precipitation10minMm: number | null,
-  sunshine10minMinutes: number | null,
-  temperatureC: number | null,
-): AmedasWeatherCategory | null {
-  if (precipitation10minMm != null && precipitation10minMm > 0) {
-    return temperatureC != null && temperatureC <= SNOW_TEMPERATURE_THRESHOLD_C ? "snow" : "rain";
-  }
-  if (sunshine10minMinutes != null) {
-    return sunshine10minMinutes > 0 ? "clear" : "cloudy";
-  }
-  return null;
-}
+import { WEATHER_CATEGORY_ICON, WEATHER_CATEGORY_LABEL, weatherCategoryOf } from "./weatherCode";
 
 interface AmedasWeatherDisplay {
   Icon: (props: { size?: number }) => ReactElement;
   label: string;
 }
 
-/** カテゴリ+昼夜フラグから天気アイコン+ラベルを決める（weatherCode.tsのgetWeatherCodeDisplay
- * と同じ構成）。category=nullの場合はnullを返す。 */
-export function getAmedasWeatherDisplay(
-  category: AmedasWeatherCategory | null,
-  isDay: boolean,
-): AmedasWeatherDisplay | null {
-  if (category == null) return null;
+/** アメダスの実測からbackendが導いた天気コード+昼夜フラグから天気アイコン+ラベルを決める
+ * （weatherCode.tsのgetWeatherCodeDisplayと同じ構成）。コードが無ければnullを返す。 */
+export function getAmedasWeatherDisplay(weatherCode: number | null, isDay: boolean): AmedasWeatherDisplay | null {
+  if (weatherCode == null) return null;
+  const category = weatherCategoryOf(weatherCode);
   const label = WEATHER_CATEGORY_LABEL[category];
   // 「晴れ」だけは実測のis_dayで昼夜を切り替える（アメダスはコマ単位の昼夜を持つ）。
   if (category === "clear") {

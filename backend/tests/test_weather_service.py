@@ -7,7 +7,7 @@ import pytest
 
 from app.domain.region import BoundingBox
 from app.domain.route import Coordinates
-from app.domain.weather import derive_weather_code
+from app.domain.weather import derive_observed_weather_code, derive_weather_code
 from app.infrastructure import msm_client
 from app.infrastructure.msm_client import MsmUnavailableError
 from app.services.weather_service import WeatherService
@@ -240,3 +240,29 @@ def test_derive_weather_code_only_returns_the_documented_codes():
 
 def test_derive_weather_code_returns_none_without_cloud_cover():
     assert derive_weather_code(0.0, None, 20.0) is None
+
+
+@pytest.mark.parametrize(
+    ("precipitation_10min", "sunshine_10min", "temperature", "expected"),
+    [
+        (0.0, 10.0, 20.0, 0),  # 降水なし・日が差している
+        (0.0, 0.0, 20.0, 3),  # 降水なし・日照なし
+        (None, 0.0, 20.0, 3),
+        (0.5, 10.0, 20.0, 63),  # 10分0.5mm＝1時間3mm相当。日照より降水を先に見る
+        (0.5, None, -1.0, 73),
+        (0.0, None, 20.0, None),  # 降水なしで日照が欠測なら判定材料が無い
+        (None, None, 20.0, None),
+    ],
+)
+def test_derive_observed_weather_code(precipitation_10min, sunshine_10min, temperature, expected):
+    assert derive_observed_weather_code(precipitation_10min, sunshine_10min, temperature) == expected
+
+
+def test_observed_and_forecast_split_rain_and_snow_at_the_same_temperature():
+    """常設ヘッダー（観測）と「今日の見通し」（予報）が、同じ気温で雨と雪を違えて出さない。"""
+    snow_codes = {71, 73, 75}
+    for tenths in range(-50, 51):
+        temperature = tenths / 10
+        observed = derive_observed_weather_code(0.5, None, temperature) in snow_codes
+        forecast = derive_weather_code(3.0, 100.0, temperature) in snow_codes
+        assert observed == forecast, temperature

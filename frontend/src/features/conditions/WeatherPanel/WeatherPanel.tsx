@@ -1,6 +1,6 @@
 import { RaindropIcon, ThermometerIcon, WindDirectionArrowIcon } from "@/components/ui/icons/icons";
 import type { AmedasObservation } from "@/types/weather";
-import { classifyAmedasWeather, getAmedasWeatherDisplay } from "./amedasWeatherIcon";
+import { getAmedasWeatherDisplay } from "./amedasWeatherIcon";
 import { textVariants } from "@/components/ui/Text/Text";
 
 interface WeatherPanelProps {
@@ -16,7 +16,7 @@ interface WeatherPanelProps {
 // アメダスは観測専用APIのため、降水確率・weather_code（予報由来）はそのままでは
 // 表示できない。代わりに:
 // - 降水確率 → 実測の10分間降水量（precipitation_10min_mm）
-// - 天気アイコン → 10分間日照時間・降水量・気温から簡易分類（amedasWeatherIcon.ts）
+// - 天気アイコン → backendが10分間日照時間・降水量・気温から導いた天気コード（weather_code）
 // - 突風 → アメダスの速報値レスポンスに突風フィールドが存在しないため非表示
 //
 // 日の出/日没は1日1個の値のため、このバーではなく「今日」パネル（TodayOutlook）が持つ
@@ -47,12 +47,7 @@ export default function WeatherPanel({ amedas, loading, error }: WeatherPanelPro
     amedas.apparent_temperature_c != null ? `体感 ${amedas.apparent_temperature_c.toFixed(1)}℃` : undefined;
   const windTitle = amedas.wind_direction_label != null ? `${amedas.wind_direction_label}の風` : undefined;
 
-  const weatherCategory = classifyAmedasWeather(
-    amedas.precipitation_10min_mm,
-    amedas.sunshine_10min_minutes,
-    amedas.temperature_c,
-  );
-  const weatherDisplay = getAmedasWeatherDisplay(weatherCategory, isCurrentlyDay(amedas.sunrise, amedas.sunset));
+  const weatherDisplay = getAmedasWeatherDisplay(amedas.weather_code, isCurrentlyDay(amedas.sunrise, amedas.sunset));
 
   return (
     // 気温・風向風速・降水量・天気アイコンをアイコン+数値だけの統計チップとして1行に並べる

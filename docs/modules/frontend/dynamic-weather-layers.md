@@ -346,8 +346,8 @@ payloadが`undefined`のままレイヤーが非表示になり続け、MapLibre
 
 ## 常設ヘッダーの天候表示（`WeatherPanel`）との違い
 
-`WeatherPanel`（常設ヘッダー、`amedasWeatherIcon.ts`が天気分類を担う）は**アメダス実測値**
-のみで構成し、予報とは独立にフェッチする。`TodayOutlook`（`weatherCode.ts`がWMOコードを
+`WeatherPanel`（常設ヘッダー）は**アメダス実測値**のみで構成し（天気はbackendが実測から導いたWMOコードで届き、
+`amedasWeatherIcon.ts`は「晴れ」を昼夜で描き分けるだけ）、予報とは独立にフェッチする。`TodayOutlook`（`weatherCode.ts`がWMOコードを
 分類。分類と名前はbackendの宣言〔`domain/weather_display.py: WEATHER_CATEGORIES`〕が生成物`vocabulary.ts`で配り、
 画面が持つのは分類ごとのアイコンだけ）は**MSM予報**（今日の最大降水量・最大風速・気温レンジ・日の出日没・天気の流れ）を
 扱う。両者は別APIに依存する独立コンポーネントで、本モジュールの動的地図レイヤーとは別の
