@@ -14,11 +14,13 @@
 どの製品をどのズームで読むかはプロファイルが持ち、実装は持たない。
 """
 
+import io
 import logging
-import struct
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
 from typing import Any
+
+import numpy as np
 
 from app.batch import dem_tile_store
 from app.batch.ingest import SourceRecord, register_adapter
@@ -47,18 +49,13 @@ NODATA = -2147483648
 
 def _pack(text: str) -> tuple[bytes, int]:
     """タイル本文（カンマ区切りのテキスト）をint32の配列へ詰める。"""
-    values: list[int] = []
-    missing = 0
-    for line in text.strip("\n").split("\n"):
-        if not line:
-            continue
-        for cell in line.split(","):
-            if cell == _DEM_MISSING_MARKER:
-                values.append(NODATA)
-                missing += 1
-            else:
-                values.append(int(round(float(cell) * SCALE)))
-    return struct.pack(f"<{len(values)}i", *values), missing
+    # 値は小数第二位までの10進表記で指数を含まないため、`e`は欠測の印にしか現れない。
+    # 指数表記が来れば`1nan5`のような字句になり、黙って欠測にならず読み込みで止まる。
+    meters = np.loadtxt(io.StringIO(text.replace(_DEM_MISSING_MARKER, "nan")),
+                        delimiter=",", dtype=np.float64, ndmin=1).ravel()
+    missing = np.isnan(meters)
+    packed = np.where(missing, NODATA, np.rint(meters * SCALE)).astype("<i4")
+    return packed.tobytes(), int(missing.sum())
 
 
 @dataclass(frozen=True)
