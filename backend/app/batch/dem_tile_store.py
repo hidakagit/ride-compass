@@ -7,8 +7,11 @@
 本文を解釈せずにgzipで置く——配信元が返すのは数字を並べたテキストで、そのままでは嵩む。
 取得側は中身について何も決めなくて済み、どう読むかは取込の側が持つ。
 
-**区域外は印を置く。**どの製品にも無いタイルは恒久的に無いので、`.none`を置いて
-次からは叩かない。これが無いと、再実行のたびに同じ区域外タイルを取りに行き続ける。
+**製品ごとに置く。**配信元は製品ごとに整備範囲が違い、同じタイル座標に複数の製品が値を
+持つ。どれを採るかは画素ごとに派生が決めるので、ここでは返ってきたものを全部持つ。
+
+**区域外は製品ごとに印を置く。**その製品が持たないタイルは恒久的に無いので、`.none`を
+置いて次からは叩かない。これが無いと、再実行のたびに同じ区域外タイルを取りに行き続ける。
 """
 
 import gzip
@@ -18,11 +21,13 @@ TILE_ROOT = Path(__file__).resolve().parents[2] / "data" / "dem"
 
 TILE_URL = "https://cyberjapandata.gsi.go.jp/xyz/{product}/{z}/{x}/{y}.txt"
 
-#: 粗い側へ落ちていく順。配信元が細かい製品を全域では持たない。
+#: 画素ごとに値を採る順。配信元が「最も計測精度の良い標高タイル」から順に参照すると
+#: 定める順（DEM5A→DEM5B→DEM5C→DEM10B）。
+#: 出典: https://maps.gsi.go.jp/development/hyokochi.html
 PRODUCT_PRIORITY = ("dem5a", "dem5b", "dem5c", "dem")
 
 TILE_SUFFIX = ".txt.gz"
-#: どの製品にも無いことの印。
+#: その製品が持たないことの印。
 ABSENT_SUFFIX = ".none"
 
 
@@ -30,20 +35,16 @@ def tile_path(root: Path, product: str, zoom: int, x: int, y: int) -> Path:
     return root / product / str(zoom) / str(x) / f"{y}{TILE_SUFFIX}"
 
 
-def absent_path(root: Path, zoom: int, x: int, y: int) -> Path:
-    """どの製品にも無いことの印。製品を跨ぐ判断なので製品名を含めない。"""
-    return root / "_absent" / str(zoom) / str(x) / f"{y}{ABSENT_SUFFIX}"
+def absent_path(root: Path, product: str, zoom: int, x: int, y: int) -> Path:
+    return root / "_absent" / product / str(zoom) / str(x) / f"{y}{ABSENT_SUFFIX}"
 
 
-def stored_product(root: Path, zoom: int, x: int, y: int) -> str | None:
-    for product in PRODUCT_PRIORITY:
-        if tile_path(root, product, zoom, x, y).exists():
-            return product
-    return None
+def is_stored(root: Path, product: str, zoom: int, x: int, y: int) -> bool:
+    return tile_path(root, product, zoom, x, y).exists()
 
 
-def is_absent(root: Path, zoom: int, x: int, y: int) -> bool:
-    return absent_path(root, zoom, x, y).exists()
+def is_absent(root: Path, product: str, zoom: int, x: int, y: int) -> bool:
+    return absent_path(root, product, zoom, x, y).exists()
 
 
 def read_tile(root: Path, product: str, zoom: int, x: int, y: int) -> str:
@@ -59,7 +60,7 @@ def write_tile(root: Path, product: str, zoom: int, x: int, y: int, text: str) -
     temporary.replace(path)
 
 
-def mark_absent(root: Path, zoom: int, x: int, y: int) -> None:
-    path = absent_path(root, zoom, x, y)
+def mark_absent(root: Path, product: str, zoom: int, x: int, y: int) -> None:
+    path = absent_path(root, product, zoom, x, y)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.touch()

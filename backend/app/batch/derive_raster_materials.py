@@ -8,6 +8,10 @@
 （`ST_Value`）、土地被覆は帯に重なる画素を数える（`ST_Clip` + `ST_ValueCount`）——
 どちらもPostGISのrasterが持っている操作である。
 
+標高は同じ地点に複数の製品のタイルがありうる。**どの製品の値を採るかは画素ごとに決める**
+——配信元の定める精度の順（`dem_tile_store.PRODUCT_PRIORITY`）に見て、値のある最初の製品を
+採る。どの製品にも値が無い画素は欠測のまま残る。
+
 値の出し方そのものはdomainが持つ（`elevation_values_sql`・`class_percentages_sql`）。
 このバッチは画素の引き方を組み立てるだけで、勾配の上限や有効画素数の下限を持たない。
 """
@@ -17,6 +21,7 @@ import time
 
 import asyncpg
 
+from app.batch.dem_tile_store import PRODUCT_PRIORITY
 from app.domain.attributes import elevation_values_sql
 from app.domain.landcover import (
     LANDCOVER_RING_INNER_M,
@@ -49,39 +54,58 @@ def _tiles(source: str) -> str:
 # --- 標高 -------------------------------------------------------------------
 
 
-#: 頂点のタイル座標（小数）の式。`$1`はタイルのズーム。
-_VERTEX_TILE_X, _VERTEX_TILE_Y = tile_position_sql("ST_X(dp.geom)", "ST_Y(dp.geom)", "$1")
-
 #: 頂点を一度実体にしてからタイルへ結合する。関数から直に結合すると行数を見積もれず、
 #: プランナがタイル側を入れ子で読み直す計画を選ぶ。
+_VERTICES = f"""
+CREATE TEMP TABLE _vertex ON COMMIT DROP AS
+SELECT row_number() OVER () AS vid, s.osm_way_id, s.segment_index, dp.path[1] AS ord,
+       ST_X(dp.geom) AS lon, ST_Y(dp.geom) AS lat, s.on_structure
+FROM ({_EDGE_SHAPES}) s
+CROSS JOIN LATERAL ST_DumpPoints(s.geom) AS dp
+"""
+
+#: 頂点ごとに採った標高。値のある画素だけを入れるので、行の無い頂点はまだどの製品でも
+#: 値が見つかっていない。
+_VERTEX_ELEVATION_TABLE = """
+CREATE TEMP TABLE _vertex_elev (vid bigint PRIMARY KEY, elev double precision) ON COMMIT DROP
+"""
+
+#: 頂点のタイル座標（小数）の式。`$2`は製品のズーム。
+_VERTEX_TILE_X, _VERTEX_TILE_Y = tile_position_sql("v.lon", "v.lat", "$2")
+
+#: 1製品ぶん、まだ値の無い頂点に画素を引く。**製品を優先順に1つずつ流す**ので、上の製品に
+#: 値のある頂点は下の製品を読まない——読む画素は欠けた頂点の分だけ増える。
 #:
 #: **どのタイルのどの画素かは算術で出す。**`ST_Intersects(rast, 点)`で絞ると当たり判定の
 #: たびにタイルの画素が実体化され、外枠だけで絞ると境界線上の点が隣のタイルへ割り当たる。
-#: 番地で決めれば、rasterに触らずに1枚・1画素へ確定する。
-_VERTICES = f"""
-CREATE TEMP TABLE _vertex ON COMMIT DROP AS
-SELECT s.osm_way_id, s.segment_index, dp.path[1] AS ord,
-       ST_X(dp.geom) AS lon, ST_Y(dp.geom) AS lat, s.on_structure,
-       floor(a.fx)::int AS tx, floor(a.fy)::int AS ty, a.fx, a.fy
-FROM ({_EDGE_SHAPES}) s
-CROSS JOIN LATERAL ST_DumpPoints(s.geom) AS dp
-CROSS JOIN LATERAL (
-  SELECT {_VERTEX_TILE_X} AS fx, {_VERTEX_TILE_Y} AS fy) a
+#: 番地で決めれば、rasterに触らずに1枚・1画素へ確定する。製品ごとにズームが違っても、
+#: その製品のズームで番地を出せば同じ式で済む。
+#:
+#: 標高は`scale`で割って戻す（取込が整数へ詰めているため。尺度だけはrasterが持てない）。
+#: 幅は`attrs`が持つ——rasterから読むと、そのたびに画素が実体化される。
+_FILL_FROM_PRODUCT = f"""
+INSERT INTO _vertex_elev (vid, elev)
+SELECT vid, elev FROM (
+  SELECT a.vid,
+         ST_Value(t.rast, 1,
+                  least(w.n, floor((a.fx - a.tx) * w.n)::int + 1),
+                  least(w.n, floor((a.fy - a.ty) * w.n)::int + 1))
+         / (t.attrs->>'scale')::float AS elev
+  FROM (SELECT v.vid, p.fx, p.fy, floor(p.fx)::int AS tx, floor(p.fy)::int AS ty
+        FROM _vertex v
+        CROSS JOIN LATERAL (SELECT {_VERTEX_TILE_X} AS fx, {_VERTEX_TILE_Y} AS fy) p
+        WHERE NOT EXISTS (SELECT 1 FROM _vertex_elev e WHERE e.vid = v.vid)) a
+  JOIN {_tiles("dem")}
+    ON t.attrs->>'product' = $1
+   AND (t.attrs->>'x')::int = a.tx AND (t.attrs->>'y')::int = a.ty
+  CROSS JOIN LATERAL (SELECT (t.attrs->>'width')::int AS n) w
+) s
+WHERE elev IS NOT NULL
 """
 
-#: 標高は`scale`で割って戻す（取込が整数へ詰めているため。尺度だけはrasterが持てない）。
-#: 画素の位置はタイル内の小数部から出す。幅は`attrs`が持つ——rasterから読むと、そのたびに
-#: 画素が実体化される。
-_VERTEX_ELEVATIONS = f"""
-SELECT v.osm_way_id, v.segment_index, v.ord, v.lon, v.lat, v.on_structure,
-       ST_Value(t.rast, 1,
-                least(w.n, floor((v.fx - v.tx) * w.n)::int + 1),
-                least(w.n, floor((v.fy - v.ty) * w.n)::int + 1))
-       / (t.attrs->>'scale')::float AS elev
-FROM _vertex v
-LEFT JOIN {_tiles("dem")}
-  ON (t.attrs->>'x')::int = v.tx AND (t.attrs->>'y')::int = v.ty
-CROSS JOIN LATERAL (SELECT (t.attrs->>'width')::int AS n) w
+_VERTEX_ELEVATIONS = """
+SELECT v.osm_way_id, v.segment_index, v.ord, v.lon, v.lat, v.on_structure, e.elev
+FROM _vertex v LEFT JOIN _vertex_elev e ON e.vid = v.vid
 """
 
 _UPDATE_ELEVATION = f"""
@@ -95,19 +119,44 @@ WHERE v.osm_way_id = m.osm_way_id AND v.segment_index = m.segment_index
 """
 
 
+async def _products_in_priority(conn: asyncpg.Connection) -> list[tuple[str, int]]:
+    """取り込まれた製品とそのズームを、画素の値を採る順に並べる。
+
+    順を知らない製品や、1製品に2つのズームがあれば止める——どちらも、どの値を採るかを
+    決められない。
+    """
+    rows = await conn.fetch(
+        "SELECT attrs->>'product' AS product, array_agg(DISTINCT (attrs->>'z')::int) AS zooms"
+        " FROM source_features WHERE source = 'dem' GROUP BY 1")
+    zooms = {r["product"]: r["zooms"] for r in rows}
+    unknown = sorted(set(zooms) - set(PRODUCT_PRIORITY))
+    mixed = sorted(p for p, z in zooms.items() if len(z) != 1)
+    if unknown or mixed:
+        raise ValueError(f"標高タイルの製品を並べられません: 順を知らない {unknown}"
+                         f" / ズームが複数 {mixed}")
+    return [(p, zooms[p][0]) for p in PRODUCT_PRIORITY if p in zooms]
+
+
 async def derive_elevation(conn: asyncpg.Connection) -> int:
     started = time.perf_counter()
-    if not await conn.fetchval("SELECT count(*) FROM source_features WHERE source = 'dem'"):
+    products = await _products_in_priority(conn)
+    if not products:
         logger.warning("標高タイルが1枚も取り込まれていません")
         return 0
 
-    zoom = await conn.fetchval(
-        "SELECT DISTINCT (attrs->>'z')::int FROM source_features WHERE source = 'dem'")
-    await conn.execute(_VERTICES, zoom)
+    await conn.execute(_VERTICES)
     await conn.execute("ANALYZE _vertex")
-    logger.info("標高: 頂点 %d点の番地を出した。画素を引く",
-                await conn.fetchval("SELECT count(*) FROM _vertex"))
+    await conn.execute(_VERTEX_ELEVATION_TABLE)
+    vertices = await conn.fetchval("SELECT count(*) FROM _vertex")
+    remaining = vertices
+    for product, zoom in products:
+        filled = int((await conn.execute(_FILL_FROM_PRODUCT, product, zoom)).split()[-1])
+        remaining -= filled
+        logger.info("標高: %s（z%d）で頂点 %d点に値が付いた / 残り %d/%d点",
+                    product, zoom, filled, remaining, vertices)
+        await conn.execute("ANALYZE _vertex_elev")
     updated = int((await conn.execute(_UPDATE_ELEVATION)).split()[-1])
+    await conn.execute("DROP TABLE _vertex_elev")
     await conn.execute("DROP TABLE _vertex")
 
     edges = await conn.fetchval("SELECT count(*) FROM road_edges")

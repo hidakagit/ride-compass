@@ -55,12 +55,17 @@ sources:
 
   # --- ラスタ ---------------------------------------------------------------
   # ズームは元データの分解能から導く。UIの都合で決めない。
-  # 配信元がそれ以上を持たないことは実測で確認済み（z16以降は404）。
+  # 標高は製品ごとに、配信元が公表する最大ズームで取る（https://maps.gsi.go.jp/development/hyokochi.html）。
+  # どの製品の値を採るかは画素ごとに派生が決める（順は dem_tile_store.PRODUCT_PRIORITY）。
+  # DEM1Aを取らない理由は docs/modules/backend/elevation.md。
   - name: dem
     adapter: gsi_dem_tile
     grid:
-      product: dem5a       # 5mメッシュ
-      zoom: 15             # 3.86 m/画素。元データとほぼ同じ細かさ
+      products:
+        dem5a: 15          # 5mメッシュ（航空レーザ）。3.86 m/画素
+        dem5b: 15          # 5mメッシュ（写真測量）
+        dem5c: 15          # 5mメッシュ（写真測量）
+        dem: 14            # 10mメッシュ（DEM10B）。7.73 m/画素
 
   - name: lulc
     adapter: io_lulc_tile
