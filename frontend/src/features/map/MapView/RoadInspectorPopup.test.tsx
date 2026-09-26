@@ -138,6 +138,10 @@ describe("RoadInspectorPopup", () => {
 
     const attributes = screen.getByText("この道の属性").closest("details");
     expect(attributes).not.toHaveAttribute("open");
+    expect(screen.getByText("路面")).not.toBeVisible();
+    // 畳みを開くと、評価を取る前からタイルの事実が読める。
+    await user.click(screen.getByText("この道の属性"));
+    expect(screen.getByText("路面")).toBeVisible();
     await user.click(screen.getByRole("button", { name: "この道の評価を見る" }));
 
     await waitFor(() => expect(screen.getByText("residential")).toBeInTheDocument());
