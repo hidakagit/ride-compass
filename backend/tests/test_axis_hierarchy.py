@@ -12,6 +12,7 @@ import numpy as np
 import pytest
 
 from app.domain import material_catalog
+from app.domain.attributes import CategoricalColumn
 from app.domain.axis_definitions import (
     AxisDefinition,
     AxisDependencyCycleError,
@@ -230,7 +231,8 @@ class TestPriorityConditions:
     @pytest.mark.parametrize(
         ("equals", "scalar_values", "array_values", "expected"),
         [
-            ("x", ["x", "y", None], np.array(["x", "y", None], dtype=object), [3.0, 100.0, 100.0]),
+            ("x", ["x", "y", None], CategoricalColumn.encode(["x", "y", None]), [3.0, 100.0, 100.0]),
+            ("w", ["x", "y", None], CategoricalColumn.encode(["x", "y", None]), [100.0, 100.0, 100.0]),
             ("true", [True, False], np.array([True, False]), [3.0, 100.0]),
             ("false", [True, False], np.array([True, False]), [100.0, 3.0]),
             ("true", [True, False, None], np.array([1.0, 0.0, np.nan]), [3.0, 100.0, 100.0]),
@@ -241,6 +243,7 @@ class TestPriorityConditions:
         ],
         ids=[
             "分類の値の名前",
+            "どの道にも無い分類の値の名前",
             "真偽の材料にtrue",
             "真偽の材料にfalse",
             "不明を持つ真偽の材料にtrue",
@@ -252,7 +255,7 @@ class TestPriorityConditions:
     )
     def test_the_inspector_and_the_route_decide_the_same_roads(self, equals, scalar_values, array_values, expected):
         """材料の値は入口ごとに別の形で届く（スカラーはPythonの値、配列は材料の型ごとの配列で、
-        「不明」を持つ真偽の材料は1.0/0.0/NaNの数値の配列）。形によって答えが変わると、区間を押して
+        分類の材料は語彙への番号の列、「不明」を持つ真偽の材料は1.0/0.0/NaNの数値の配列）。形によって答えが変わると、区間を押して
         見える得点とルート選びが使う得点が同じ道で食い違う。`equals`は対応表のキーと同じく
         "true"/"false"だけを真偽と読み、欠損はどの条件にも当たらない。
         """
@@ -275,7 +278,7 @@ class TestPriorityConditions:
             PriorityCondition(material="num_b", equals="x", value=9.0),
         )
 
-        assert self._scores(axis, ["x"], np.array(["x"], dtype=object)) == ([3.0], [3.0])
+        assert self._scores(axis, ["x"], CategoricalColumn.encode(["x"])) == ([3.0], [3.0])
 
 
 class TestCategoricalKeys:

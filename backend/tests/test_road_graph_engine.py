@@ -30,7 +30,7 @@ from datetime import datetime, timedelta
 import numpy as np
 import pytest
 
-from app.domain.attributes import ElevationAttribute
+from app.domain.attributes import CategoricalColumn, ElevationAttribute
 from app.domain.evaluation import StaticEdgeScoreMatrix
 from app.domain.graph import LeanEdge
 from app.domain.route import Coordinates, RouteCandidate, RouteSegmentDetail
@@ -503,7 +503,7 @@ def make_score_matrix(count=3, **overrides):
         material_ids=[MAT_STOP_A],
         material_values=np.full((count, 1), 2.0),
         categorical_material_ids=[MAT_CRR],
-        categorical_material_values=np.array([["surface_x"]] * count, dtype=object),
+        categorical_material_columns=[CategoricalColumn.encode(["surface_x"] * count)],
     )
     defaults.update(overrides)
     return StaticEdgeScoreMatrix(**defaults)
@@ -674,7 +674,7 @@ def test_travel_time_adds_the_stop_waits_of_the_materials_that_exist(composer_wo
         material_ids=[MAT_STOP_A],
         material_values=np.array([[2.0], [np.nan]]),
         axis_raw_values=np.zeros((2, 1)),
-        categorical_material_values=np.array([["paved"], ["paved"]], dtype=object),
+        categorical_material_columns=[CategoricalColumn.encode(["paved", "paved"])],
     )
     composer = make_composer(matrix)
 
@@ -689,7 +689,8 @@ def test_travel_time_reads_rolling_resistance_from_the_material_arrays(composer_
     composer = make_composer()
     composer.compose("outbound", coords(35.0, 139.0), 0.0, +1)
 
-    assert composer_world.crr_inputs[-1].tolist() == ["surface_x", "surface_x", "surface_x"]
+    surface = composer_world.crr_inputs[-1]
+    assert [surface.value_at(row) for row in range(len(surface))] == ["surface_x", "surface_x", "surface_x"]
 
 
 def hourly_wind_composer(wind_weight):
@@ -701,7 +702,7 @@ def hourly_wind_composer(wind_weight):
         axis_scores=np.column_stack([np.array([40.0, 80.0]), np.full(2, np.nan)]),
         axis_raw_values=np.zeros((2, 1)),
         material_values=np.full((2, 1), 2.0),
-        categorical_material_values=np.array([["paved"], ["paved"]], dtype=object),
+        categorical_material_columns=[CategoricalColumn.encode(["paved", "paved"])],
     )
     return make_composer(
         matrix, weights={AXIS_STATIC: 1.0, AXIS_WIND: wind_weight}, penalty=0.5,

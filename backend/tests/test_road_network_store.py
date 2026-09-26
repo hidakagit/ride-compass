@@ -13,7 +13,7 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 
-from app.domain.attributes import EdgeMaterialArrays
+from app.domain.attributes import CategoricalColumn, EdgeMaterialArrays
 from app.domain.road_network import RoadNetwork
 from app.infrastructure import road_network_store
 from app.infrastructure.road_graph_repository import RoadGraphRepository
@@ -28,8 +28,8 @@ EDGES = [
     (20, 0, 3, 4, "backward", None),
     (30, 0, 4, 99, None, "residential"),
 ]
-#: 道ごとの分類の材料の値（Noneは値なし）。
-CATEGORY = {10: "asphalt", 20: None}
+#: (道, 区間)ごとの分類の材料の値（Noneは値なし）。束ごとに現れる値の順が違う（束の中の番号が全体の番号と違う）。
+CATEGORY = {(10, 0): "asphalt", (10, 1): "gravel", (20, 0): None}
 
 
 def _numeric(way: int, segment: int, forward: bool) -> float:
@@ -72,15 +72,13 @@ class FakeRepository:
     async def get_edge_material_arrays(self, way_ids, segment_indexes, forwards, accident_years_covered):
         self.material_calls += 1
         edges = list(zip(way_ids, segment_indexes, forwards, strict=True))
-        n = len(edges)
         numeric = np.array([[_numeric(w, s, f)] for w, s, f in edges])
         column = np.array([w * 1.0 for w, _, _ in edges])
-        categorical = np.empty((n, 1), dtype=object)
-        categorical[:, 0] = [CATEGORY[w] for w, _, _ in edges]
         return EdgeMaterialArrays(
             numeric_ids=("m_num",), numeric_values=numeric,
             boolean_ids=("m_bool",), boolean_values=np.array([[f] for _, _, f in edges]),
-            categorical_ids=("m_cat",), categorical_values=categorical,
+            categorical_ids=("m_cat",),
+            categorical_columns=(CategoricalColumn.encode(CATEGORY[w, s] for w, s, _ in edges),),
             hard_filter_ids=("hf",), hard_filter_flags=np.array([[s == 0] for _, s, _ in edges]),
             distance_m=column, bearing_deg=column, mid_lat=column, mid_lon=column,
             elevation_present=np.array([f for _, _, f in edges]),
@@ -133,7 +131,8 @@ async def test_categorical_values_are_codes_into_a_vocabulary_that_starts_with_n
     (vocab,) = network.categorical_vocab
     assert vocab[0] is None
     decoded = [vocab[code] for code in network.categorical_codes[:, 0]]
-    assert decoded == [CATEGORY[int(way)] for way in network.edge_way_id]
+    assert decoded == [CATEGORY[int(way), int(segment)] for way, segment in zip(
+        network.edge_way_id, network.edge_segment, strict=True)]
 
 
 async def test_highway_is_a_code_into_its_vocabulary():

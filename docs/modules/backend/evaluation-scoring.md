@@ -136,9 +136,9 @@ way1本を指す区間インスペクタも同じ評価・合成を長さ1の配
   `select_fastest_route`が返す基準線と同じ物差し）、Pを上げるほど悪路が強く避けられる。
   `cost >= 下地`という不変条件はP>=0の間常に成り立つ（下地は探索では区間ごとの
   所要時間、Edge単位の評価では距離）。
-- **`_evaluate_axes_from_material_arrays`**: `AXIS_DEFINITIONS`を軸ごとに適用して
-  difficulty配列を求める（`BulkAxisEvaluation`: 公開軸別配列に加え、0次フィルタ判定用の
-  生フラグ`hard_filter_flags`/`gradient_percent`も返す——`hard_filters`はリクエストごとに
+- **`build_static_edge_score_matrix`**: `AXIS_DEFINITIONS`を軸ごとに適用して
+  difficulty配列を求める（`StaticEdgeScoreMatrix`: 公開軸別配列に加え、0次フィルタ判定用の
+  生フラグ`hard_filter_flags`/`gradient_percent`も持つ——`hard_filters`はリクエストごとに
   変わりうるため、除外判定そのものはここでは確定させない）。動的材料
   （`REQUEST_DYNAMIC_MATERIAL_IDS`、風）の列はNaNのままで、それに依存する軸の列も自然に
   NaNへ伝播する（動的軸の特別扱いが不要）。
@@ -158,7 +158,7 @@ way1本を指す区間インスペクタも同じ評価・合成を長さ1の配
 （`evaluate_axis_array`）も同じ`round1_array`で丸める。
 
 **暗黙の前提**: 軸が読む材料の配列は`MATERIAL_CATALOG`の全材料ぶん確保する
-（`value_sql`を持たない材料も既定値[NaN/False]で確保）。確保しないと、値式が無い材料を
+（`value_sql`を持たない材料も既定値[NaN/False/値なし]で確保）。確保しないと、値式が無い材料を
 軸スタジオでGUI作成した軸を評価した際に`evaluate_axis_array`が`KeyError`で
 `/api/routes/generate`自体を落とす（Pythonの値の入口`evaluate_axes_values`は、無い材料を
 全要素欠損の列として埋めてから配列へ通す）。
@@ -174,6 +174,10 @@ bbox全体ぶんのコストをリクエストにつき1回だけnumpyで合成�
   （`GraphService.get_search_slice`）から`StaticEdgeScoreMatrix`（Edge×公開軸の静的スコア行列＋distance_m・
   bearing_deg・0次フィルタ判定用の生配列、行は切り出した区間の順）を構築する。キャッシュしない——
   軸定義の編集がそのまま次の生成に効く。
+  分類の材料（`highway`・路面の見込み等）は、道路網の置き場が持つ語彙への番号の列
+  （`domain/attributes.py: CategoricalColumn`）のまま受け取って運ぶ。軸の対応表・0次条件・走行モデルの
+  転がり抵抗は、語彙の値ごとに1回引いた表を番号で配る——区間ごとに値の文字列へ戻して1件ずつ引くと、
+  区間数に比例したPythonの仕事になり、探索範囲の広い生成では1回に数秒単位で効く。
 - **`DynamicAxisRequestContext`/`DYNAMIC_MATERIAL_EVALUATORS`/
   `evaluate_dynamic_material_arrays`/`evaluate_dynamic_axis_arrays`**: リクエスト時点で
   風などの動的材料（`REQUEST_DYNAMIC_MATERIAL_IDS`）を実際の値へ差し替える。
@@ -236,7 +240,7 @@ bbox全体ぶんのコストをリクエストにつき1回だけnumpyで合成�
 数µsから十数µsへ増え（区間5〜20件で2〜4µs→10〜14µs）、ビンごと・値の種類ごとに呼ぶルートの
 集約で積み上がるため、2本のままにしている。
 
-同じ集約を軸の**生値**（折れ点を通す前の値、`BulkAxisEvaluation.axis_raw_arrays`）にも
+同じ集約を軸の**生値**（折れ点を通す前の値、`StaticEdgeScoreMatrix.axis_raw_values`）にも
 掛ける（`RouteSegmentDetail.axis_raw_values`→`merge_axis_raw_values`→
 `RouteCandidate.axis_raw_values`）。得点0-100は目盛りの引き方に依存する相対評価のため、
 軸単体で経路を判断するには絶対値が要る。生値を持つのは単位が定まる軸
@@ -262,8 +266,8 @@ bbox全体ぶんのコストをリクエストにつき1回だけnumpyで合成�
 `merge_material_values`→`RouteCandidate.material_values`。真偽値材料は0/1のfloatで持つため、
 距離加重平均がそのまま「該当区間の延長割合」になり、割合専用の機構を持たずに済む。
 categorical材料は数値列に載せられないため、対になる別の列で運ぶ:
-`StaticEdgeScoreMatrix.categorical_material_ids`/`categorical_material_values`
-（文字列のobject配列、列を決める述語は`route_facing_categorical_material_ids`）→
+`StaticEdgeScoreMatrix.categorical_material_ids`/`categorical_material_columns`
+（語彙への番号の列、列を決める述語は`route_facing_categorical_material_ids`）→
 区間ごとの値（`road_graph_engine.py: _build_segment_details`が区間の並びと対で返す。
 区間の器`RouteSegmentDetail`は約500mのビンへ畳まれ、分類値はビンの代表値1つにすると
 割合がビンの粒度へ量子化されるため、器には載せない）→

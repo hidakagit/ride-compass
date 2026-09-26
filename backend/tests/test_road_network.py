@@ -72,13 +72,14 @@ class TestSlice:
         assert road.node_count == 2
         assert sorted(road.node_lat.tolist()) == [36.0, 36.0]
 
-    def test_materials_follow_the_rows_of_the_range_and_categories_become_values_again(self):
+    def test_materials_follow_the_rows_of_the_range_and_categories_keep_their_values(self):
         road = slice_network(network(grades=[1.0, 2.0, 3.0, 4.0, 5.0]), 139.99, 35.99, 140.02, 36.01)
 
         materials = material_arrays_of(road)
 
         assert materials.numeric_values[:, 0].tolist() == [4.0, 5.0]
-        assert materials.categorical_values[:, 0].tolist() == ["y", "y"]
+        (column,) = materials.categorical_columns
+        assert [column.value_at(row) for row in range(len(column))] == ["y", "y"]
 
 
 class TestEdgeRow:

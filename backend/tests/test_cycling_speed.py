@@ -17,6 +17,7 @@ import numpy as np
 import pytest
 
 from app.domain import cycling_speed
+from app.domain.attributes import CategoricalColumn
 from app.domain.cycling_speed import RiderProfile, SegmentSpeedModel
 from app.domain.road import SURFACE_ESTIMATES
 from app.domain.tuning import TUNING_PARAMETERS
@@ -157,25 +158,32 @@ def test_the_extra_climbing_power_makes_climbs_faster(tuning):
 
 
 def test_each_surface_estimate_rolls_with_its_own_calibrated_resistance(tuning):
-    keys = np.array([e.key for e in SURFACE_ESTIMATES], dtype=object)
+    keys = [e.key for e in SURFACE_ESTIMATES]
 
-    crr = cycling_speed.crr_for_surface(keys)
+    crr = cycling_speed.crr_for_surface(CategoricalColumn.encode(reversed(keys)))
 
-    assert crr.tolist() == [tuning[e.rolling_resistance] for e in SURFACE_ESTIMATES]
+    assert crr.tolist() == [tuning[e.rolling_resistance] for e in reversed(SURFACE_ESTIMATES)]
 
 
 def test_a_changed_calibration_takes_effect_on_the_next_call(tuning):
     estimate = SURFACE_ESTIMATES[-1]
     tuning[estimate.rolling_resistance] = 0.02
 
-    assert cycling_speed.crr_for_surface(np.array([estimate.key], dtype=object)).tolist() == [0.02]
+    assert cycling_speed.crr_for_surface(CategoricalColumn.encode([estimate.key])).tolist() == [0.02]
 
 
 @pytest.mark.parametrize("value", [None, "no_such_estimate"])
 def test_a_value_outside_the_declared_estimates_is_rejected(tuning, value):
     """舗装へ倒すと、式と宣言が食い違ったときに路面の違いが黙って所要時間から消える。"""
     with pytest.raises(ValueError, match="宣言に無い値"):
-        cycling_speed.crr_for_surface(np.array([SURFACE_ESTIMATES[0].key, value], dtype=object))
+        cycling_speed.crr_for_surface(CategoricalColumn.encode([SURFACE_ESTIMATES[0].key, value]))
+
+
+def test_only_the_values_of_the_given_rows_are_checked(tuning):
+    """語彙は道路網全体のもので、切り出した範囲の区間が使わない値も持つ。"""
+    column = CategoricalColumn.encode([SURFACE_ESTIMATES[0].key, "no_such_estimate"]).take(np.array([0]))
+
+    assert cycling_speed.crr_for_surface(column).tolist() == [tuning[SURFACE_ESTIMATES[0].rolling_resistance]]
 
 
 def test_rougher_surfaces_are_slower(tuning):

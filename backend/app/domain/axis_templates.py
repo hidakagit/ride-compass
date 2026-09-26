@@ -20,6 +20,8 @@ from __future__ import annotations
 
 import numpy as np
 
+from app.domain.attributes import CategoricalColumn, MaterialColumn
+
 
 def evaluate_breakpoint_linear(value, breakpoints: list[tuple[float, float]]):
     """区分線形補間（breakpointsはx昇順の(x, y)組、両端でクランプ）。
@@ -36,10 +38,12 @@ def evaluate_breakpoint_linear(value, breakpoints: list[tuple[float, float]]):
     return float(np.interp(value, xp, fp))
 
 
-def evaluate_categorical(value: np.ndarray, mapping: dict) -> np.ndarray:
+def evaluate_categorical(value: MaterialColumn, mapping: dict) -> np.ndarray:
     """カテゴリ値の配列→定数のマッピング。引けない値（欠損、および`mapping`に無い値）は
     「評価不能」としてNaNを返す。欠損の表現は材料により異なり、dtype=object の配列はNoneで表す。
 
+    分類の材料の列（`CategoricalColumn`、ルート選びの経路）は語彙ごとに1回引いて番号で配る。
+    それ以外（真偽の材料の配列と、Pythonの値から作ったobjectの配列）は
     キーでソートした`np.searchsorted`（二分探索）で該当インデックスを求める
     （mappingの各キーごとに配列全体を走査するO(要素数×キー数)ではなく、
     highway等キー数が多い多値categorical材料でもO(要素数×log(キー数))で済む）。
@@ -49,6 +53,8 @@ def evaluate_categorical(value: np.ndarray, mapping: dict) -> np.ndarray:
     「一致した」ことにしてしまう——`missing`マスクを別途保持し、検索結果とは無関係に
     強制的に不一致にする。
     """
+    if isinstance(value, CategoricalColumn):
+        return value.lookup(mapping)
     keys = sorted(mapping.keys())
     key_scores = np.array([mapping[key] for key in keys], dtype=float)
     keys_array = np.array(keys, dtype=value.dtype if value.dtype != object else object)

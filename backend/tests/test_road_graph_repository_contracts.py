@@ -23,6 +23,7 @@ import numpy as np
 import pytest
 import shapely
 
+from app.domain.attributes import CategoricalColumn
 from app.domain.graph import LeanEdge
 from app.domain.hard_filters import hard_filter_columns
 from app.domain.landcover import LandcoverPercentages, landcover_key
@@ -229,7 +230,7 @@ async def test_material_values_land_in_the_matrix_of_their_dtype():
     assert numeric_ids and boolean_ids and categorical_ids, "dtypeごとの材料が揃っていない"
     numeric, boolean, categorical = numeric_ids[0], boolean_ids[0], categorical_ids[0]
     repo, _ = _repo([_arrays_row(2, {numeric: [1.5, None], boolean: [True, None],
-                                     categorical: ["value_a", "value_a"]})])
+                                     categorical: ["value_a", None]})])
 
     arrays = await repo.get_edge_material_arrays([1, 1], [0, 1], [True, True], 5)
 
@@ -237,7 +238,10 @@ async def test_material_values_land_in_the_matrix_of_their_dtype():
     # 欠損は0ではなくNaN。0で埋めると「値が無い」が「一番良い値」として採点される。
     assert np.isnan(arrays.columns()[numeric][1])
     assert arrays.columns()[boolean].tolist() == [True, False]
-    assert arrays.columns()[categorical].tolist() == ["value_a", "value_a"]
+    # 分類の材料は語彙への番号の列で、値へ戻すと行ごとの値（値なしはNone）になる。
+    column = arrays.columns()[categorical]
+    assert isinstance(column, CategoricalColumn)
+    assert [column.value_at(row) for row in range(len(column))] == ["value_a", None]
 
 
 async def test_hard_filter_flags_are_named_by_their_filter():
