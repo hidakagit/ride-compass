@@ -35,6 +35,9 @@ DB接続・Redis・HTTPクライアント・レート制限・ログ・デバッ
 | infrastructure | `tuning_overrides.py` | 較正値の上書き（宣言の既定値から動かしたぶんだけをDBへ持つ）。起動時と管理APIの書き込み直後にプロセス内へ読み込む |
 | services | `tuning_service.py` | 較正値の上書きの取引境界（構造仕様7）。書いた直後にプロセス内の値まで反映するところまでを持つ |
 | api | `tuning_admin.py` | 較正値の一覧・更新（管理画面用、`require_admin_basic_auth`の内側）。並べる項目も、効き方ごとの見出しと並び順も宣言から導く |
+| infrastructure | `admin_data_backup.py` | 取り直せない管理データの表の書き出しと戻し。母集団は表の印（`orm_base.IRREPLACEABLE`）から導く |
+| scripts | `admin_data_backup.py` | その入口（`dump`・`restore`）。書き出しも戻しも、アプリの起動時と同じ読み込みで検算する |
+| scripts | `schema_gap.py` | 実DBのスキーマとORMの宣言（`orm_base.declared_metadata`）の差を出す |
 | scripts | `_stdio.py` | `scripts/`の実行口が共通で使う、標準出力・標準エラーのUTF-8化 |
 
 ## Pydanticモデルの基底（`domain/strict_model.py`）
@@ -339,6 +342,25 @@ FastAPI側で処理済みのためここには来ない）。
 
 コンテナの`TZ`ではなく整形する側を変える。`TZ`を動かすと素の`datetime.now()`の意味まで
 変わり、スケジューラ・DBへ書く時刻へ波及する。
+
+## 取り直せない管理データのバックアップ（`admin_data_backup.py`）
+
+管理画面で人が積み上げた行（軸の定義・較正値の上書き等）は、外部から取り直せず派生からも作り直せない。
+DBを失ったときに戻せるよう、`scripts/admin_data_backup.py dump`が1つのJSONへ書き出し、
+`restore`がまっさらなDBへ戻す（手順は[deployment-sync.md](../../conventions/deployment-sync.md)
+「本番DBを失ったとき」）。
+
+- **対象は表の印から導く**。ORMの表に`__table_args__ = {"info": IRREPLACEABLE}`を付けると、書き出しにも
+  戻しにも入る。書き出したJSONは平文なので、**印を付ける表に個人情報・認証情報の列を置かない**。
+- **書き出しも戻しも、アプリが起動時に行う読み込み（`load_axis_definitions`・`load_tuning_values`）を
+  通す**。書き出しは、アプリが起動できない中身（軸が0行・未知の材料参照・範囲の外の較正値）なら何も出さずに
+  失敗する——手元の最新のバックアップを、戻せない中身で上書きしないため。戻しは同じ検算に通るまで
+  確定せず、通らなければロールバックする。管理APIの入口だけにある検査（`axis_admin.py`のvalidator）は
+  通らない——戻す行は、書かれた時点でその検査を通った行である。
+- **戻しは既定で空の表にだけ入れる**。行が残っていれば何も書かずに止まり、`--replace`で同じトランザクションの
+  中で消してから入れる。バックアップに無い表（書き出した後で印を付けた表）は空のまま進み、宣言に無い表・列が
+  あれば止める（捨てて進むと、戻したつもりの値が黙って欠ける）。
+- 稼働中のbackendは戻した行を読み直さない（読み込みは起動時と管理APIの書き込み直後だけ）。戻したら再起動する。
 
 ## 非同期ジョブレジストリ詳細（`job_registry.py`）
 

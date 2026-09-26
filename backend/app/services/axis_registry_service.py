@@ -49,11 +49,10 @@ def _find_unknown_references(definitions: dict[str, AxisDefinition]) -> dict[str
     return unknown
 
 
-async def refresh_axis_definitions(repository: AxisDefinitionRepository) -> None:
-    """DBの内容でAXIS_DEFINITIONSをin-place更新する。
+async def load_axis_definitions(repository: AxisDefinitionRepository) -> dict[str, AxisDefinition]:
+    """DBの軸を読み、アプリが起動時に受け入れる状態かを検算する（プロセスへはまだ反映しない）。
 
-    DBが全軸の唯一の正本で、これが唯一のロード経路。Python側に既定値は無い。読めない・
-    0行・未知参照のいずれも`AxisDefinitionSyncError`で、起動時はそのまま起動失敗になる。
+    読めない・0行・未知参照のいずれも`AxisDefinitionSyncError`。
     """
     try:
         definitions = await repository.list_all()
@@ -61,13 +60,24 @@ async def refresh_axis_definitions(repository: AxisDefinitionRepository) -> None
         raise AxisDefinitionSyncError(f"軸定義のDB読み込みに失敗しました error={exc!r}") from exc
     if not definitions:
         raise AxisDefinitionSyncError(
-            "axis_definitionsテーブルが空です（軸の行はスキーマと一緒には作られず、管理API経由でしか入りません）"
+            "axis_definitionsテーブルが空です（軸の行はスキーマと一緒には作られない。入る経路は管理APIと、"
+            "バックアップからの復元 scripts/admin_data_backup.py restore）"
         )
     unknown_references = _find_unknown_references(definitions)
     if unknown_references:
         raise AxisDefinitionSyncError(
             f"軸定義DBに未知の材料/軸参照を検出しました unknown={unknown_references}"
         )
+    return definitions
+
+
+async def refresh_axis_definitions(repository: AxisDefinitionRepository) -> None:
+    """DBの内容でAXIS_DEFINITIONSをin-place更新する。
+
+    DBが全軸の唯一の正本で、これが唯一のロード経路。Python側に既定値は無い。検算に通らなければ
+    `AxisDefinitionSyncError`で、起動時はそのまま起動失敗になる。
+    """
+    definitions = await load_axis_definitions(repository)
     logger.info("軸定義をDBから読み込みました axes=%d", len(definitions))
     AXIS_DEFINITIONS.clear()
     AXIS_DEFINITIONS.update(definitions)
