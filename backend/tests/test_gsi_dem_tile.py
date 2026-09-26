@@ -42,3 +42,28 @@ def test_負の標高を扱える():
 def test_行をまたいで並ぶ():
     payload, _ = _pack("1.00,2.00\n3.00,4.00")
     assert [v / SCALE for v in _unpack(payload)] == [1.0, 2.0, 3.0, 4.0]
+
+
+def test_欠測を含む1枚を画素の順に詰める():
+    """配信元と同じ形（256行×256列、末尾に改行）の1枚。先頭の行と対角線が欠測。"""
+    size = 256
+
+    def expected(r: int, c: int) -> int | None:
+        if r == 0 or r == c:
+            return None
+        return (r * size + c) * 7 - 50_000  # 0.01m単位。負の値と富士山を超える値を含む
+
+    def cell(r: int, c: int) -> str:
+        v = expected(r, c)
+        if v is None:
+            return "e"
+        sign = "-" if v < 0 else ""
+        return f"{sign}{abs(v) // 100}.{abs(v) % 100:02d}"
+
+    text = "".join(",".join(cell(r, c) for c in range(size)) + "\n" for r in range(size))
+
+    payload, missing = _pack(text)
+
+    want = [expected(r, c) for r in range(size) for c in range(size)]
+    assert _unpack(payload) == [NODATA if v is None else v for v in want]
+    assert missing == size + size - 1
