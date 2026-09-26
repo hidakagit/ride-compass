@@ -1,12 +1,15 @@
 """段の状態を動かす唯一の口と、作業ツリーのスロットの貸し借り。規約は docs/conventions/flow.md。
 
-仕掛の置き場（非公開のリポジトリの Issues と、その持ち主の Project）は git の設定で持つ:
+仕掛の置き場（非公開のリポジトリの Issues と、その持ち主の Project）と回答ページは git の設定で持つ:
 
     git config flow.repo <持ち主>/<リポジトリ>
     git config flow.project <Project の番号>
+    git config flow.answer <回答ページの URL>
+
+ユーザーへの問いは道具用の別アカウントが書く（環境変数 FLOW_ASK_TOKEN）。それ以外の操作は gh のアカウントのまま。
 
     python scripts/flow.py propose "<題名>" [--task T1253] [--body "<本文>"]
-    python scripts/flow.py take                # ユーザーの操作（承認・見送りのラベル、選択肢のチェック）を取り込む
+    python scripts/flow.py take                # ユーザーの回答（承認・見送り・問いへの答え）を取り込む
     python scripts/flow.py move <段> <②|③|④|⑤> [--reason …] [--by … --missing … --review … --choice …]
     python scripts/flow.py land <段>
     python scripts/flow.py ci <40桁のsha>
@@ -27,6 +30,7 @@ import re
 import subprocess
 import sys
 import time
+import urllib.parse
 from pathlib import Path
 
 STATES = {"①": "① 提案", "②": "② 保留", "③": "③ 未着手", "④": "④ 進行中", "⑤": "⑤ 検証中"}
@@ -34,11 +38,15 @@ DONE = "⑥"
 ACTORS = ("司令塔", "ユーザー", "担当")
 #: 状態ごとの次に動かす人。② だけは止めている人を遷移のたびに受け取る。
 NEXT_ACTOR = {"①": "ユーザー", "③": "司令塔", "④": "担当", "⑤": "司令塔"}
+#: ② へ入ったときに記録する戻り先。② → ② は今の戻り先を引き継ぐ。
+RETURN_TO = {"①": "③", "④": "③", "⑤": "⑤"}
+BACK = "戻り先"
 #: 遷移の表。docs/conventions/flow.md の遷移の表と同じ行を持つ（テストが突き合わせる）。
 TRANSITIONS = {
-    ("①", "③"): ("入口", "「承認」のラベルがあり、前提が欠けていない"),
-    ("①", "②"): ("入口", "「承認」のラベルがあり、本文の「前提:」の段がまだ⑥でない"),
-    ("②", "③"): ("止めている人", "欠けていたものが満たされた（ユーザーの問いは選択肢のチェック、前提の段は⑥）"),
+    ("①", "③"): ("入口", "「承認」の回答があり、前提が欠けていない"),
+    ("①", "②"): ("入口", "「承認」の回答があり、本文の「前提:」の段がまだ⑥でない"),
+    ("②", BACK): ("止めている人（前提の段が⑥になったら出口）",
+                  "欠けていたものが満たされた（ユーザーの問いは回答、前提の段は⑥）。行き先は ② へ入ったときの戻り先（①・④ からは ③、⑤ からは ⑤）"),
     ("②", "②"): ("止めている人", "見直す日を延ばす。1回だけ"),
     ("③", "④"): ("司令塔", "空いたスロットがある"),
     ("④", "⑤"): ("担当", "作業ブランチの master より先のコミットがあり、件名がすべて段で始まる"),
@@ -46,9 +54,13 @@ TRANSITIONS = {
     ("⑤", "④"): ("司令塔", "差し戻しの理由"),
     ("⑤", "②"): ("司令塔", "ユーザーの操作・目視が要る"),
     ("⑤", "⑥"): ("出口", "④→⑤の条件に加え、コミットの本文に検証の結果があり、CI が緑で、master から早送りできる"),
-    ("①〜⑤", "⑥"): ("ユーザー（見送り）", "「見送り」のラベル"),
+    ("①〜⑤", "⑥"): ("ユーザー（見送り）", "「見送り」の回答"),
 }
-APPROVAL_LABEL, DROP_LABEL = "承認", "見送り"
+APPROVE, DROP = "承認", "見送り"
+ASK_TOKEN_ENV = "FLOW_ASK_TOKEN"
+#: 回答ページ（tools/answer-form/worker.js）が書くコメントの1行目。答えは括弧の中の選択肢。
+ANSWER_RE = re.compile(r"^回答: [A-Z]（(.+)）\s*$")
+QUESTION_RE = re.compile(r"^@\S+ 問い: ")
 #: 入口が前提の段を待たせるときの見直す日（承認の日から）。
 PREREQ_REVIEW_DAYS = 30
 PASSING = ("success", "skipped", "neutral")
@@ -57,10 +69,10 @@ SLOT_LOCK = "slot "
 CI_WAIT_SECONDS, CI_POLL_SECONDS = 20 * 60, 30
 #: Project の欄（名前 → gh の型）。single select の選択肢は SELECT_OPTIONS。
 FIELDS = {"状態": "SINGLE_SELECT", "段": "TEXT", "次に動かす人": "SINGLE_SELECT", "欠けているもの": "TEXT",
-          "見直す日": "DATE", "延ばした回数": "NUMBER"}
-SELECT_OPTIONS = {"状態": list(STATES.values()), "次に動かす人": list(ACTORS)}
+          "見直す日": "DATE", "延ばした回数": "NUMBER", BACK: "SINGLE_SELECT"}
+SELECT_OPTIONS = {"状態": list(STATES.values()), "次に動かす人": list(ACTORS),
+                  BACK: sorted({STATES[s] for s in RETURN_TO.values()})}
 STAGE_RE = re.compile(r"^T\d+-[A-Z]$")
-CHECKBOX_RE = re.compile(r"^\s*- \[([ xX])\] (.+?)\s*$", re.M)
 #: `gh project item-list` の JSON は欄の名前の頭の1バイトを小文字にして鍵にするため、日本語の欄の名前が壊れる。
 #: GraphQL で名前をそのまま読む。
 _VALUE = "field { ... on ProjectV2FieldCommon { name } }"
@@ -79,8 +91,9 @@ class FlowError(Exception):
     pass
 
 
-def run(cmd: list[str], cwd: Path | None = None) -> str:
-    r = subprocess.run(cmd, cwd=cwd, capture_output=True, text=True, encoding="utf-8", errors="replace", check=False)
+def run(cmd: list[str], cwd: Path | None = None, env: dict | None = None) -> str:
+    r = subprocess.run(cmd, cwd=cwd, env=env, capture_output=True, text=True, encoding="utf-8", errors="replace",
+                       check=False)
     if r.returncode != 0:
         raise FlowError(f"{' '.join(cmd[:3])} が失敗: {(r.stderr or r.stdout).strip()}")
     return r.stdout
@@ -90,8 +103,15 @@ def git(*args: str, cwd: Path | None = None) -> str:
     return run(["git", *args], cwd).strip()
 
 
-def gh(*args: str) -> str:
-    return run(["gh", *args])
+def gh(*args: str, token: str | None = None) -> str:
+    return run(["gh", *args], env={**os.environ, "GH_TOKEN": token} if token else None)
+
+
+def ask_token() -> str:
+    token = os.environ.get(ASK_TOKEN_ENV)
+    if not token:
+        raise FlowError(f"ユーザーへの問いを書く別アカウントのトークン（環境変数 {ASK_TOKEN_ENV}）が無い")
+    return token
 
 
 class Place:
@@ -100,7 +120,16 @@ class Place:
     def __init__(self) -> None:
         self.repo = git("config", "--get", "flow.repo")
         self.project = git("config", "--get", "flow.project")
+        self.answer = git("config", "--get", "flow.answer").rstrip("/")
         self.owner = self.repo.split("/")[0]
+
+    def answer_url(self, number: int, choices: list[str]) -> str:
+        return f"{self.answer}/answer?" + urllib.parse.urlencode([("issue", number), *(("o", c) for c in choices)])
+
+    def open_comments(self) -> dict[int, list[str]]:
+        rows = json.loads(gh("issue", "list", "-R", self.repo, "--state", "open", "--limit", "1000",
+                             "--json", "number,comments"))
+        return {r["number"]: [c["body"] for c in r["comments"]] for r in rows}
 
     def issues(self) -> list[dict]:
         """全部の issue（閉じたものを含む）と、その Project の欄 `fields`（欄の名前 → 値）。"""
@@ -131,27 +160,45 @@ class Place:
     def comment(self, issue: dict, text: str) -> None:
         gh("issue", "comment", str(issue["number"]), "-R", self.repo, "--body", text)
 
+    def ask(self, number: int, question: str, choices: list[str]) -> None:
+        """ユーザーへの問い。別アカウントが書いて本文で名指しするので、ユーザーに通知が届く。"""
+        body = (f"@{self.owner} 問い: {question}\n\n選択肢: {' ／ '.join(choices)}\n\n"
+                f"答える: {self.answer_url(number, choices)}")
+        gh("issue", "comment", str(number), "-R", self.repo, "--body", body, token=ask_token())
+
 
 def state_of(issue: dict) -> str | None:
     if issue["state"] == "CLOSED":
         return DONE
-    name = issue["fields"].get("状態")
+    return state_key(issue["fields"].get("状態"))
+
+
+def state_key(name: str | None) -> str | None:
     return next((key for key, value in STATES.items() if value == name), None)
 
 
-def labels_of(issue: dict) -> set[str]:
-    return {label["name"] for label in issue["labels"]}
+def answers(comments: list[str]) -> list[str]:
+    """回答ページが書いた答え（選択肢）。古い順。"""
+    return [m.group(1) for c in comments if (m := ANSWER_RE.match(c.splitlines()[0] if c else ""))]
+
+
+def latest_answer(comments: list[str]) -> str | None:
+    """最後の問いより後の答えのうち最後のもの。前の問いへの答えを次の問いの答えにしない。"""
+    last = max((i for i, c in enumerate(comments) if QUESTION_RE.match(c)), default=-1)
+    return next(iter(reversed(answers(comments[last + 1:]))), None)
 
 
 def hold_values(args: argparse.Namespace, issue: dict | None = None) -> dict:
     """② の欄。止めている人・欠けているもの・見直す日はどれも欠かせない（延長では今の値を引き継ぐ）。
-    ユーザーが止めるなら、答えを押すだけで済むよう選択肢（--choice）も欠かせない。"""
+    ユーザーが止めるなら、回答ページで選ぶだけで済むよう選択肢（--choice）と、問いを書く別アカウントも欠かせない。"""
     old = (issue or {}).get("fields", {})
     by, missing = args.by or old.get("次に動かす人"), args.missing or old.get("欠けているもの")
     if by not in ACTORS or not missing or not args.review:
         raise FlowError(f"② には --by（{'・'.join(ACTORS)}）・--missing・--review（見直す日）が要る")
-    if by == "ユーザー" and not issue and not args.choice:
-        raise FlowError("ユーザーが止める ② には選択肢（--choice を1つ以上）が要る")
+    if by == "ユーザー" and not issue:
+        if not args.choice:
+            raise FlowError("ユーザーが止める ② には選択肢（--choice を1つ以上）が要る")
+        ask_token()
     try:
         review = dt.date.fromisoformat(args.review)
     except ValueError as e:
@@ -163,23 +210,32 @@ def hold_values(args: argparse.Namespace, issue: dict | None = None) -> dict:
 
 def transition(place: Place, issue: dict, to: str, note: str, hold: dict | None = None,
                choices: list[str] | None = None) -> None:
-    """表にある遷移だけを書く。欄を書いてから、何がなぜ動いたか（と、ユーザーへの問い）を issue のコメントに残す。"""
-    frm = state_of(issue)
-    if (frm, to) not in TRANSITIONS:
+    """表にある遷移だけを書く。欄を書いてから、何がなぜ動いたかを issue のコメントに残し、選択肢があれば問う。
+    ② から出る行き先は ② へ入ったときの戻り先だけ（to に BACK を渡せば戻り先へ）。"""
+    frm, fields = state_of(issue), issue["fields"]
+    key = (frm, to)
+    if frm == "②" and to != "②":
+        back = state_key(fields.get(BACK))
+        if to not in (BACK, back):
+            raise FlowError(f"② の戻り先は {back}（{issue['title']}）")
+        to, key = back, ("②", BACK)
+    if key not in TRANSITIONS or to is None:
         raise FlowError(f"{frm} → {to} は遷移の表に無い（{issue['title']}）")
     if to == "②":
-        count = int(issue["fields"].get("延ばした回数") or 0) + 1 if frm == "②" else 0
+        count = int(fields.get("延ばした回数") or 0) + 1 if frm == "②" else 0
         if count > 1:
             raise FlowError("見直す日を延ばせるのは1回だけ。2回目は見送るかをユーザーに問う")
         values = {**(hold or {}), "延ばした回数": count}
+        if frm != "②":
+            values[BACK] = STATES[RETURN_TO[frm]]
     else:
-        values = {"次に動かす人": NEXT_ACTOR[to], "欠けているもの": None, "見直す日": None, "延ばした回数": None}
+        values = {"次に動かす人": NEXT_ACTOR[to], "欠けているもの": None, "見直す日": None, "延ばした回数": None,
+                  BACK: None}
     for name, value in {"状態": STATES[to], **values}.items():
         place.set(issue, name, value)
-    text = f"{frm} → {to}" + (f": {note}" if note else "")
+    place.comment(issue, f"{frm} → {to}" + (f": {note}" if note else ""))
     if choices:
-        text += f"\n\n問い: {values['欠けているもの']}\n" + "".join(f"- [ ] {c}\n" for c in choices)
-    place.comment(issue, text)
+        place.ask(issue["number"], values["欠けているもの"], choices)
 
 
 # --- 入口と、ユーザーの操作の取り込み ------------------------------------------------
@@ -202,10 +258,13 @@ def next_stage(issues: list[dict], task: str | None) -> str:
 
 
 def admit(place: Place, issue: dict) -> str:
-    """入口。番号を振って題名の頭と欄「段」に書き、以後変えない。本文の「前提: T1234-A」の段がまだ⑥でなければ②へ。"""
+    """入口。番号を振って題名の頭と欄「段」に書き、以後変えない。本文の「前提: T1234-A」の段がまだ⑥でなければ②へ。
+    本文には、ユーザーがいつでも見送れるよう「見送り」の回答ページへのリンクを置く。"""
     task = re.search(r"^タスク: (T\d+)$", issue["body"] or "", re.M)
     stage = next_stage(place.issues(), task.group(1) if task else None)
-    gh("issue", "edit", str(issue["number"]), "-R", place.repo, "--title", f"{stage}: {issue['title']}")
+    body = f"{issue['body'] or ''}\n\n見送る: {place.answer_url(issue['number'], [DROP])}"
+    gh("issue", "edit", str(issue["number"]), "-R", place.repo, "--title", f"{stage}: {issue['title']}",
+       "--body", body)
     # 採番は読んでから書くので、同時に振った別の issue と同じ番号になりうる。番号の若い issue が勝ち、こちらが振り直す。
     while not task and any(i["number"] < issue["number"] and i["title"].startswith(stage[:-1])
                            for i in place.issues()):
@@ -221,44 +280,36 @@ def admit(place: Place, issue: dict) -> str:
     return stage
 
 
-def checked_answer(place: Place, issue: dict) -> str | None:
-    """最後に選択肢を並べた本文かコメントで、チェックがちょうど1つ入っていればその選択肢。"""
-    view = json.loads(gh("issue", "view", str(issue["number"]), "-R", place.repo, "--json", "body,comments"))
-    for text in reversed([view["body"] or ""] + [c["body"] for c in view["comments"]]):
-        boxes = CHECKBOX_RE.findall(text)
-        if boxes:
-            checked = [choice for mark, choice in boxes if mark != " "]
-            return checked[0] if len(checked) == 1 else None
-    return None
-
-
 def cmd_take(place: Place, args: argparse.Namespace) -> None:
+    """回答ページの答えを取り込む。見送りはどの段でも、承認は ① で、それ以外の答えはユーザーが止める ② で読む。"""
+    comments = place.open_comments()
     for issue in place.issues():
-        state = state_of(issue)
+        state, texts = state_of(issue), comments.get(issue["number"], [])
         if state in (None, DONE):
             continue
-        if DROP_LABEL in labels_of(issue):
+        answer = latest_answer(texts)
+        if DROP in answers(texts):
             gh("issue", "close", str(issue["number"]), "-R", place.repo, "--reason", "not planned",
-               "--comment", f"{state} → ⑥: 見送り（ユーザーの「{DROP_LABEL}」のラベル）")
+               "--comment", f"{state} → ⑥: 見送り（ユーザーの回答）")
             print(f"#{issue['number']} {issue['title']}: {state} → ⑥（見送り）")
-        elif state == "①" and APPROVAL_LABEL in labels_of(issue):
+        elif state == "①" and answer == APPROVE:
             print(f"#{issue['number']}: {admit(place, issue)}")
-        elif state == "②" and issue["fields"].get("次に動かす人") == "ユーザー":
-            answer = checked_answer(place, issue)
-            if answer:
-                transition(place, issue, "③", f"答え: {answer}")
-                print(f"{issue['title']}: ② → ③（答え: {answer}）")
+        elif state == "②" and issue["fields"].get("次に動かす人") == "ユーザー" and answer:
+            transition(place, issue, BACK, f"答え: {answer}")
+            print(f"{issue['title']}: ② → {BACK}（答え: {answer}）")
 
 
 def cmd_propose(place: Place, args: argparse.Namespace) -> None:
     if args.task and not re.fullmatch(r"T\d+", args.task):
         raise FlowError(f"--task は T1234 の形: {args.task}")
+    ask_token()
     body = (f"タスク: {args.task}\n\n" if args.task else "") + (args.body or "")
     url = gh("issue", "create", "-R", place.repo, "--title", args.title, "--body", body).strip().splitlines()[-1]
     gh("project", "item-add", place.project, "--owner", place.owner, "--url", url)
     issue = {"url": url}
     place.set(issue, "状態", STATES["①"])
     place.set(issue, "次に動かす人", NEXT_ACTOR["①"])
+    place.ask(int(url.rstrip("/").rsplit("/", 1)[1]), f"この提案「{args.title}」を承認するか", [APPROVE, DROP])
     print(url)
 
 
@@ -279,7 +330,7 @@ def ahead_commits(stage: str) -> list[tuple[str, ...]]:
 
 def cmd_move(place: Place, args: argparse.Namespace) -> None:
     if args.to not in STATES or args.to == "①":
-        raise FlowError("move の行き先は ②〜⑤。完成は land、見送りはユーザーの「見送り」のラベル")
+        raise FlowError("move の行き先は ②〜⑤。完成は land、見送りはユーザーの「見送り」の回答")
     issue = place.find(args.stage)
     frm = state_of(issue)
     if frm not in ("②", "③", "④", "⑤"):
@@ -322,8 +373,8 @@ def cmd_land(place: Place, args: argparse.Namespace) -> None:
         print(f"[flow] 作業ブランチを消せなかった: {e}", file=sys.stderr)
     for other in place.issues():
         if state_of(other) == "②" and other["fields"].get("欠けているもの") == args.stage:
-            transition(place, other, "③", f"前提の {args.stage} が⑥になった")
-            print(f"{other['title']}: ② → ③")
+            transition(place, other, BACK, f"前提の {args.stage} が⑥になった")
+            print(f"{other['title']}: ② → {BACK}")
     print(f"{args.stage}: {sha} を master へ入れた")
 
 
@@ -343,17 +394,16 @@ def cmd_ci(_: Place | None, args: argparse.Namespace) -> None:
 
 
 def cmd_setup(_: Place | None, args: argparse.Namespace) -> None:
-    """Project の欄とラベルを作る gh のコマンド。欄の名前と選択肢はこのファイルの宣言から出す。"""
+    """Project の欄を作る gh のコマンド。欄の名前と選択肢はこのファイルの宣言から出す。"""
     repo, owner = args.repo, args.repo.split("/")[0]
     print(f'gh project create --owner {owner} --title "RideCompass の段"   # 出た番号を N とする')
     print(f"gh project link N --owner {owner} --repo {repo}")
     for name, kind in FIELDS.items():
         options = f' --single-select-options "{",".join(SELECT_OPTIONS[name])}"' if name in SELECT_OPTIONS else ""
         print(f'gh project field-create N --owner {owner} --name "{name}" --data-type {kind}{options}')
-    for label, meaning in ((APPROVAL_LABEL, "① の提案を承認した"), (DROP_LABEL, "この段を見送る")):
-        print(f'gh label create "{label}" -R {repo} --description "ユーザーが{meaning}"')
     print(f"git config flow.repo {repo}")
     print("git config flow.project N")
+    print("git config flow.answer <回答ページの URL>")
 
 
 # --- 作業ツリーのスロット ----------------------------------------------------------
@@ -452,7 +502,7 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("title")
     p.add_argument("--task", help="段を足すタスク（T1234）。無ければ新しいタスク")
     p.add_argument("--body", default="", help="本文。前提の段を待たせるなら「前提: T1234-A」の行を入れる")
-    sub.add_parser("take", help="ユーザーの操作（承認・見送りのラベル、選択肢のチェック）を取り込む")
+    sub.add_parser("take", help="ユーザーの回答（承認・見送り・問いへの答え）を取り込む")
     p = sub.add_parser("move", help="表にある遷移")
     p.add_argument("stage")
     p.add_argument("to")
