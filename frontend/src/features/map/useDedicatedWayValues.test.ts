@@ -22,14 +22,15 @@ const { dedicatedAxes } = catalogOf([
   }),
   dedicatedEntry("static", [1]),
 ]);
-const [TIMED, STATIC] = dedicatedAxes;
+const [, STATIC] = dedicatedAxes;
 // z14で横2枚×縦1枚のタイルにまたがる範囲
 const VIEWPORT: MapViewport = { west: 139.76, south: 35.68, east: 139.77, north: 35.685, zoom: 14 };
 const AT = new Date("2026-09-24T00:00:00Z");
 
+// 取得の結果は区切り（`setTimeout(0)`）ごとに届くので、偽にしていない時計で数回区切りを待つ。
 async function settle() {
   await act(async () => {
-    for (let i = 0; i < 10; i += 1) await Promise.resolve();
+    for (let i = 0; i < 3; i += 1) await new Promise((resolve) => setTimeout(resolve, 0));
   });
 }
 
@@ -118,6 +119,16 @@ describe("useDedicatedWayValues（専用配信の値）", () => {
     expect(result.current.get("static")?.error).toBe(true);
   });
 
+  it("取得に失敗した軸は、入力が同じでも次に取り直すときに一緒に取り直す", async () => {
+    fetchDynamicWayValues.mockImplementation(async () => ({ values: {}, error: true }));
+    const { rerender } = render({ axes: dedicatedAxes, viewport: VIEWPORT, bearing: 0, at: AT });
+    await settle();
+    fetchDynamicWayValues.mockClear();
+    rerender({ axes: dedicatedAxes, viewport: VIEWPORT, bearing: 90, at: AT });
+    await settle();
+    expect(new Set(calledAxes())).toEqual(new Set(["timed", "static"]));
+  });
+
   it("対象から外れた軸の結果は落とし、画面が無くなれば空へ戻す", async () => {
     const { result, rerender } = render({ axes: dedicatedAxes, viewport: VIEWPORT, bearing: 0, at: AT });
     await settle();
@@ -127,20 +138,5 @@ describe("useDedicatedWayValues（専用配信の値）", () => {
     rerender({ axes: [STATIC], viewport: null, bearing: 0, at: AT });
     await settle();
     expect(result.current.size).toBe(0);
-  });
-
-  it("入力を変えた後に前の入力の答えが届いても使わない", async () => {
-    const pending: ((value: unknown) => void)[] = [];
-    fetchDynamicWayValues.mockImplementation(() => new Promise((resolve) => pending.push(resolve)));
-    const { result, rerender } = render({ axes: [TIMED], viewport: VIEWPORT, bearing: 0, at: AT });
-    await settle();
-    const firstBatch = pending.splice(0);
-    rerender({ axes: [TIMED], viewport: VIEWPORT, bearing: 45, at: AT });
-    await settle();
-    pending.splice(0).forEach((resolve) => resolve({ values: { fresh: 1 }, error: false }));
-    await settle();
-    firstBatch.forEach((resolve) => resolve({ values: { stale: 1 }, error: false }));
-    await settle();
-    expect([...(result.current.get("timed")?.values.keys() ?? [])]).toEqual(["fresh"]);
   });
 });

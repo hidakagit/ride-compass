@@ -5,8 +5,10 @@ import { makeResponse } from "@/testing/fetchMocks";
 import { mapDisplay } from "@/types/generated/mapDisplay";
 
 import {
-  fetchJmaFrames,
   fetchJmaPointGeojson,
+  fetchJmaTargetTimesFile,
+  jmaFramesOf,
+  jmaTargetTimesPaths,
   JMA_POINT_VALUE_PROPERTY,
   jmaPlaceholderTileUrl,
   jmaTilePayload,
@@ -47,39 +49,38 @@ const row = (basetime: string, validtime: string, elements: string[], member?: s
 
 describe("読み方: 実況＋予測（nowcast）", () => {
   const delivery = withReader("nowcast");
-  const rows = (entries: ReturnType<typeof row>[]) => stubFiles(Object.fromEntries([[fileOf(delivery), entries]]));
+  const read = (entries: ReturnType<typeof row>[]) => jmaFramesOf(delivery, entries);
 
-  it("その要素の行だけを時刻順に並べ、最新の実況より前（過去）を捨てる", async () => {
-    rows([
-      row("20260924001000", "20260924002000", [delivery.id]),
-      row("20260924001000", "20260924001000", [delivery.id]),
-      row("20260924000000", "20260924000000", [delivery.id]),
-      row("20260924001500", "20260924001500", ["other"]),
-    ]);
-    expect(await fetchJmaFrames(delivery, "要素")).toEqual([
+  it("その要素の行だけを時刻順に並べ、最新の実況より前（過去）を捨てる", () => {
+    expect(
+      read([
+        row("20260924001000", "20260924002000", [delivery.id]),
+        row("20260924001000", "20260924001000", [delivery.id]),
+        row("20260924000000", "20260924000000", [delivery.id]),
+        row("20260924001500", "20260924001500", ["other"]),
+      ]),
+    ).toEqual([
       { basetime: "20260924001000", member: "none", validtime: "20260924001000" },
       { basetime: "20260924001000", member: "none", validtime: "20260924002000" },
     ]);
   });
 
-  it("実況が1つも無ければ何も捨てない", async () => {
-    rows([
-      row("20260924001000", "20260924003000", [delivery.id]),
-      row("20260924001000", "20260924002000", [delivery.id]),
-    ]);
-    expect((await fetchJmaFrames(delivery, "要素")).map((frame) => frame.validtime)).toEqual([
-      "20260924002000",
-      "20260924003000",
-    ]);
+  it("実況が1つも無ければ何も捨てない", () => {
+    expect(
+      read([
+        row("20260924001000", "20260924003000", [delivery.id]),
+        row("20260924001000", "20260924002000", [delivery.id]),
+      ]).map((frame) => frame.validtime),
+    ).toEqual(["20260924002000", "20260924003000"]);
   });
 });
 
 describe("読み方: 数値予報のラン（latestFullRun）", () => {
   const delivery = withReader("latestFullRun");
-  const rows = (entries: ReturnType<typeof row>[]) => stubFiles(Object.fromEntries([[fileOf(delivery), entries]]));
+  const read = (entries: ReturnType<typeof row>[]) => jmaFramesOf(delivery, entries);
 
-  it("系列ごとに、有効時刻を複数持つ最新のランだけを使う——単発の中間ラン・古いラン・別の要素の行は使わない", async () => {
-    rows([
+  it("系列ごとに、有効時刻を複数持つ最新のランだけを使う——単発の中間ラン・古いラン・別の要素の行は使わない", () => {
+    const frames = read([
       row("20260924000000", "20260924010000", [delivery.id], "immed"),
       row("20260924000000", "20260924020000", [delivery.id], "immed"),
       row("20260924001000", "20260924001000", [delivery.id], "immed"),
@@ -88,97 +89,53 @@ describe("読み方: 数値予報のラン（latestFullRun）", () => {
       row("20260924002000", "20260924011000", ["other"], "immed"),
       row("20260924002000", "20260924021000", ["other"], "immed"),
     ]);
-    expect(await fetchJmaFrames(delivery, "要素")).toEqual([
+    expect(frames).toEqual([
       { basetime: "20260924000000", member: "immed", validtime: "20260924010000" },
       { basetime: "20260924000000", member: "immed", validtime: "20260924020000" },
     ]);
   });
 
-  it("系列どうしを1本の時刻順につなぎ、同じ有効時刻は新しいランを採る", async () => {
-    rows([
+  it("系列どうしを1本の時刻順につなぎ、同じ有効時刻は新しいランを採る", () => {
+    const frames = read([
       row("20260924000000", "20260924080000", [delivery.id], "none"),
       row("20260924000000", "20260924060000", [delivery.id], "none"),
       row("20260924001000", "20260924050000", [delivery.id], "immed"),
       row("20260924001000", "20260924060000", [delivery.id], "immed"),
     ]);
-    expect((await fetchJmaFrames(delivery, "要素")).map((frame) => [frame.validtime, frame.member])).toEqual([
+    expect(frames.map((frame) => [frame.validtime, frame.member])).toEqual([
       ["20260924050000", "immed"],
       ["20260924060000", "immed"],
       ["20260924080000", "none"],
     ]);
   });
 
-  it("完全なランが無ければ空", async () => {
-    rows([row("20260924001000", "20260924001000", [delivery.id], "immed")]);
-    expect(await fetchJmaFrames(delivery, "要素")).toEqual([]);
+  it("完全なランが無ければ空", () => {
+    expect(read([row("20260924001000", "20260924001000", [delivery.id], "immed")])).toEqual([]);
   });
 });
 
 describe("読み方: 現在の単一値（latest）", () => {
   const delivery = withReader("latest");
 
-  it("その要素の最新の1行だけを、系列付きで1コマにする（無ければ空）", async () => {
-    stubFiles({
-      [fileOf(delivery)]: [
+  it("その要素の最新の1行だけを、系列付きで1コマにする（無ければ空）", () => {
+    expect(
+      jmaFramesOf(delivery, [
         row("20260924000000", "20260924000000", [delivery.id, "other"], "none"),
         row("20260924001000", "20260924001000", [delivery.id], "immed"),
         row("20260924002000", "20260924002000", ["other"], "none"),
-      ],
-    });
-    expect(await fetchJmaFrames(delivery, "要素")).toEqual([
-      { basetime: "20260924001000", member: "immed", validtime: "20260924001000" },
-    ]);
-
-    stubFiles({ [fileOf(delivery)]: [row("20260924002000", "20260924002000", ["other"], "none")] });
-    expect(await fetchJmaFrames(delivery, "要素")).toEqual([]);
+      ]),
+    ).toEqual([{ basetime: "20260924001000", member: "immed", validtime: "20260924001000" }]);
+    expect(jmaFramesOf(delivery, [row("20260924002000", "20260924002000", ["other"], "none")])).toEqual([]);
   });
 });
 
 describe("時刻一覧のファイル", () => {
-  const split = DELIVERIES.find((delivery) => delivery.targetTimeFiles.length > 1)!;
-  const observed = row("20260924000000", "20260924000000", [split.id]);
-  const forecast = row("20260924000000", "20260924001000", [split.id]);
-
-  it("複数のファイルに分かれる要素は、全ファイルの行を合わせて読む", async () => {
-    stubFiles({ [fileOf(split, 0)]: [observed], [fileOf(split, 1)]: [forecast] });
-    expect((await fetchJmaFrames(split, "降水")).map((frame) => frame.validtime)).toEqual([
-      observed.validtime,
-      forecast.validtime,
-    ]);
-  });
-
-  it("一部のファイルだけ取れなくても残りで読み、全部取れないときだけ投げる", async () => {
-    stubFiles({ [fileOf(split, 1)]: [forecast] });
-    expect((await fetchJmaFrames(split, "降水")).map((frame) => frame.validtime)).toEqual([forecast.validtime]);
-
-    stubFiles({});
-    await expect(fetchJmaFrames(split, "降水")).rejects.toThrow("降水の時刻一覧");
-  });
-
   it("配列でない応答は形式の誤りとして失敗に数える", async () => {
     const delivery = DELIVERIES[0];
-    stubFiles(Object.fromEntries(delivery.targetTimeFiles.map((_, index) => [fileOf(delivery, index), {}])));
-    await expect(fetchJmaFrames(delivery, "要素")).rejects.toThrow("要素の時刻一覧の形式が想定と異なります");
-  });
-
-  it("同じファイルを同時に取りに行く要素は往復を1回に畳み、終わった後は取り直す", async () => {
-    const [first, second] = DELIVERIES.filter(
-      (delivery, _, all) => all.filter((other) => fileOf(other) === fileOf(delivery)).length > 1,
+    stubFiles({ [fileOf(delivery)]: {} });
+    await expect(fetchJmaTargetTimesFile(jmaTargetTimesPaths(delivery)[0], "要素")).rejects.toThrow(
+      "要素の時刻一覧の形式が想定と異なります",
     );
-    expect(fileOf(first)).toBe(fileOf(second));
-    const fetchMock = stubFiles({ [fileOf(first)]: [] });
-    await Promise.all([fetchJmaFrames(first, "一方"), fetchJmaFrames(second, "他方")]);
-    expect(fetchMock).toHaveBeenCalledTimes(first.targetTimeFiles.length);
-    await fetchJmaFrames(first, "一方");
-    expect(fetchMock).toHaveBeenCalledTimes(first.targetTimeFiles.length * 2);
-  });
-
-  it("失敗した取得も共有を解き、次の呼び出しは取り直す", async () => {
-    const delivery = DELIVERIES[0];
-    const fetchMock = stubFiles({});
-    await expect(fetchJmaFrames(delivery, "要素")).rejects.toThrow();
-    await expect(fetchJmaFrames(delivery, "要素")).rejects.toThrow();
-    expect(fetchMock).toHaveBeenCalledTimes(delivery.targetTimeFiles.length * 2);
   });
 });
 

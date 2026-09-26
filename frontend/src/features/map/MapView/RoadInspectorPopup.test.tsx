@@ -212,6 +212,38 @@ describe("評価の重み", () => {
   });
 });
 
+describe("評価の走行の条件", () => {
+  const CONDITIONS = { bearingDeg: 0, at: new Date("2026-09-24T00:00:00Z"), z: 14, x: 1, y: 2 };
+  const props = { properties: { osm_way_id: 1 }, axes: AXES, axisColors: AXIS_COLORS };
+
+  it("開いている間に出発時刻が進んでも、押したときの条件で取った評価を出し続ける", async () => {
+    const user = userEvent.setup();
+    vi.mocked(fetchAxisInspector).mockResolvedValue(inspectorResult());
+    const { rerender } = render(<RoadInspectorPopup {...props} conditions={CONDITIONS} />);
+    await user.click(screen.getByRole("button", { name: "この道の評価を見る" }));
+    await screen.findByText(/この道だけで見た合成/);
+
+    rerender(<RoadInspectorPopup {...props} conditions={{ ...CONDITIONS, at: new Date("2026-09-24T00:05:00Z") }} />);
+
+    expect(screen.getByText(/この道だけで見た合成/)).toBeInTheDocument();
+  });
+
+  it("同じ道を同じ条件・重みで開き直したときは、取り直さずに前の評価を出す", async () => {
+    const user = userEvent.setup();
+    vi.mocked(fetchAxisInspector).mockResolvedValue(inspectorResult());
+    const first = render(<RoadInspectorPopup {...props} conditions={CONDITIONS} />);
+    await user.click(screen.getByRole("button", { name: "この道の評価を見る" }));
+    await screen.findByText(/この道だけで見た合成/);
+    first.unmount();
+    vi.mocked(fetchAxisInspector).mockClear();
+
+    render(<RoadInspectorPopup {...props} conditions={{ ...CONDITIONS }} />);
+
+    expect(screen.getByText(/この道だけで見た合成/)).toBeInTheDocument();
+    expect(fetchAxisInspector).not.toHaveBeenCalled();
+  });
+});
+
 describe("OSMの生値", () => {
   it("OSMの生値はタグとして解釈されない（第三者が編集できるデータのため）", () => {
     const attack = '<img src=x onerror="alert(1)">';
