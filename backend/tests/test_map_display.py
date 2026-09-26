@@ -55,9 +55,9 @@ def test_同じ名前付きソースの気象の要素は同じ呼び名を持�
 
 def test_タイルで描く気象の要素は配信元の仕様を持つ() -> None:
     """仕様が無いと画面はズーム範囲を知らずにソースを作ることになる。"""
-    for element in WEATHER_ELEMENTS:
-        if element.kind not in ("rasterTile", "vectorTile"):
-            continue
+    tiled = [element for element in WEATHER_ELEMENTS if element.kind in ("rasterTile", "vectorTile")]
+    assert tiled, "タイルで描く気象の要素が1つも無い"
+    for element in tiled:
         tile = weather_element_tile(element)
         assert tile is not None, f"{element.group}/{element.source}"
         if element.kind == "vectorTile":

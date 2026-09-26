@@ -140,20 +140,19 @@ def test_覆うことを宣言した表だけが母数を持つ():
     """印の無い表まで測ると、設計どおり行を作らなかったぶんが欠けとして鳴り続ける。"""
     declared = {table.name for table in DERIVED if covered_source(table)}
     assert declared, "coversを宣言した表が1つも無い"
-    for table in DERIVED:
-        if covered_source(table) is None and parent_derived_table(table) is None:
-            assert build_coverage_sql(table) is None
-            assert coverage_parent(table) is None
+    uncovered = [t for t in DERIVED if covered_source(t) is None and parent_derived_table(t) is None]
+    assert uncovered, "覆うことを宣言していない表が1つも無い"
+    for table in uncovered:
+        assert build_coverage_sql(table) is None
+        assert coverage_parent(table) is None
 
 
 def test_親は自分の主キーが指す先だけ():
     """主キー以外の列のFK（区間の端点→ノード）を母数にすると、覆っていない側を欠けとして
     数える。`road_edges`は端点で`node_materials`を指すが、親ではない。"""
-    for table in DERIVED:
-        parent = parent_derived_table(table)
-        if parent is None:
-            continue
-        _, columns = parent
+    children = [(table, parent) for table in DERIVED if (parent := parent_derived_table(table)) is not None]
+    assert children, "親を持つ派生表が1つも無い"
+    for table, (_, columns) in children:
         assert [child for _, child in columns] == [c.name for c in table.primary_key.columns]
 
 
