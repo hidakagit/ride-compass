@@ -3,8 +3,13 @@
 
 規約（docs/conventions/orchestration.md）のうち、司令塔の注意に頼ると崩れる手続きを
 コマンドにしたもの。判断の基準と運用の正本は規約の側にあり、ここは事実を集めて突き合わせる。
-依頼で足す機能は別のモジュールに置き、`load_board`・`save_board`・`Context`等を使って状態の表を
-読み書きする（このモジュールからそれらをimportしない）。
+値（間隔・閾値・既定値）の正本はこのモジュールの定数で、規約はその判断と根拠を持つ。
+
+依存の向き（`scripts/orchestration/__init__.py`）: 核は下の層（`gitio`・`ledger`・`github`・`ci_duration`）を
+読む。依頼で足した機能（`queue`・`pending`・`slots`）は核の`load_board`・`save_board`・`Context`等を使って
+状態の表を読み書きし、核はそれらを、結果を並べる`check`・`status`の中でだけ遅れて読む（先頭で読むと、
+それらが核を読むので循環する）。`procs`（psutil）は要るコマンドの中でだけ読む——入っていないPythonでも、
+監査と状態の表の読み書きは動く。
 
 ## 使い方
 
@@ -115,10 +120,33 @@ from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
+from orchestration import ci_duration as cd
+from orchestration import github
+from orchestration.gitio import cat_files, git, git_out, is_ancestor
+from orchestration.ledger import (
+    DONE,
+    DONE_WITH_ROW,
+    OPEN,
+    OPEN_WITHOUT_ROW,
+    PLAN_DOC,
+    TASK_DOC_RE,
+    TASK_ID_RE,
+    TRIGGER_MARK,
+    Row,
+    done_tasks,
+    effort_records,
+    plan_at,
+    record_path,
+    record_title,
+    records_at,
+    row_mismatch,
+    rows_by_task,
+    task_state,
+)
+
 REPO_ROOT = Path(__file__).resolve().parents[2]
 #: コマンドの入口（scripts/orchestrate.py）。フックから確認を起こすときに使う。
 ENTRY = REPO_ROOT / "scripts" / "orchestrate.py"
-PLAN_DOC = "docs/improvement-plan.md"
 #: 重い段の定義（「重い処理は機械全体で1本ずつ」節の「対象」の項目）を持つ規約。
 CONVENTION_DOC = "docs/conventions/orchestration.md"
 HEAVY_TARGET_PREFIX = "- **対象**:"
@@ -127,12 +155,6 @@ RULES_MARK = "よく抜ける規則」を毎回そのまま添える"
 HEAVY_LOCK = "heavy"
 #: forkした子の系列を途切れさせるMSYSのシェル（Git for Windowsの`usr/bin`の実行ファイル名）。
 MSYS_SHELLS = ("sh.exe", "bash.exe")
-TASKS_DIR = "docs/records/tasks"
-#: 台帳の1行（タスク番号・記録へのリンク先・題名以降）。リンク先は台帳からの相対パスで、番号ではなく
-#: リンク先で記録を引く（`T317`の2件目は`T317-2.md`を指す）。台帳の行を読み書きする道具はすべてこれを使う。
-LEDGER_ROW_RE = re.compile(r"^- \[ \] \[(T\d+[a-z0-9-]*)\]\(([^)]+)\)\.?\s*(.*)$")
-TASK_ID_RE = re.compile(r"T\d+[a-z0-9-]*")
-TASK_DOC_RE = re.compile(r"^docs/records/tasks/(T\d+[a-z0-9-]*)\.md$")
 #: コミットの件名の先頭のタスク番号の並び（CLAUDE.md「1タスク=1コミット」の件名）。
 SUBJECT_TASKS_RE = re.compile(r"^(T\d+[a-z0-9-]*(?:・T\d+[a-z0-9-]*)*)[:： ]")
 #: 記録だけを変えるコミットの決まった件名（docs/conventions/asking-user.md「記録だけを変えるコミットの例外」）。
@@ -190,21 +212,12 @@ HANDOVER_KEYS = ("text", "written")
 INHERITED_KEYS = ("run", "goal", "population", *HANDOVER_KEYS)
 #: `board run`の語（k=v でないもの）。
 RUN_OPS = ("start", "goal", "add", "remove", "handover", "list")
-#: 台帳の行で、着手の条件を待っている（ユーザーの判断で先送りした）ことを表す印。
-TRIGGER_MARK = "— トリガー:"
 
 DEFAULT_CONCURRENT = 3
 DEFAULT_CHECK_INTERVAL_MINUTES = 20
-#: 規模札の定義（CLAUDE.md「規模の目安」）の分。予算は所要の実績から計算し、これは実績の無い
+#: 規模札ごとの見立ての分（人が作業する前提の見立て）。予算は所要の実績から計算し、これは実績の無い
 #: 規模札の補い（隣の規模札との比と、最後の既定値）にだけ使う。
 SCALE_BUDGET_MINUTES = {"S": 60, "M": 240, "L": 480}
-#: 所要の行（規約「完了とpush」の書式）。
-EFFORT_PREFIX = "所要（並行実行）"
-EFFORT_REAL_RE = re.compile(r"完了[^（(]*[（(]約?(\d+)分")
-EFFORT_FRAME_RE = re.compile(r"枠待ち約?(\d+)分")
-EFFORT_CI_RE = re.compile(r"CI待ち約?(\d+)分")
-EFFORT_SCALE_RE = re.compile(r"規模札([SML])(?:〜([SML]))?")
-EFFORT_REASON_RE = re.compile(r"超過[:：]\s*([^、。）\n]+)")
 BUDGET_PERCENTILE = 0.8
 #: これより少ない件数の規模札は、その件数だけで予算を決めない。
 BUDGET_MIN_SAMPLES = 5
@@ -216,7 +229,6 @@ LOCK_WINDOW_MINUTES = 30
 LOCK_WAIT_LIMIT_MINUTES = 10
 CPU_SATURATED_PERCENT = 90
 CPU_SAMPLE_SECONDS = 2.0
-GIT_TIMEOUT_SECONDS = 60
 #: 監査を通したコミットは溜めてmasterへ1回でpushする（masterへのpushのたびにCIとbackendの
 #: デプロイ＝本番の再起動が走るため、回数を減らす）。
 PUSH_BATCH_SIZE = 2
@@ -225,8 +237,6 @@ PUSH_INTERVAL_MINUTES = 60
 UNPUSHED_LOOKBACK_HOURS = 48
 #: CIの所要の基準にするmasterの実行を、対象のコミットの祖先から選ぶときに辿るコミット数。
 CI_ANCESTRY_DEPTH = 500
-SCALE_LABEL_RE = re.compile(r"規模([SML])(?:〜([SML]))?")
-TASK_HEADING_RE = re.compile(r"^# T\d+[a-z0-9-]*\.\s*(.*)$")
 EXPECTED_HOOKS_PATH = ".githooks"
 #: スロット（scripts/orchestration/slots.py）を渡した印は`git worktree lock`の理由
 #: `slot <渡し先> <時刻>`。渡し先はClaude CodeがWorktreeCreateフックへ渡す名前（`agent-<id>`）か、
@@ -287,63 +297,6 @@ def minutes(delta: dt.timedelta) -> int:
     return int(delta.total_seconds() // 60)
 
 
-def git(repo: Path, *args: str, stdin: bytes | None = None,
-        timeout: float = GIT_TIMEOUT_SECONDS) -> subprocess.CompletedProcess[bytes] | None:
-    env = dict(os.environ, GIT_OPTIONAL_LOCKS="0")
-    try:
-        return subprocess.run(["git", *args], cwd=str(repo), input=stdin, capture_output=True,
-                              env=env, timeout=timeout, check=False)
-    except (subprocess.TimeoutExpired, OSError):
-        return None
-
-
-def git_out(repo: Path, *args: str) -> str | None:
-    r = git(repo, *args)
-    if r is None or r.returncode != 0:
-        return None
-    return r.stdout.decode("utf-8", errors="replace").strip()
-
-
-def is_ancestor(repo: Path, older: str, newer: str) -> bool:
-    r = git(repo, "merge-base", "--is-ancestor", older, newer)
-    return r is not None and r.returncode == 0
-
-
-def cat_files(repo: Path, specs: list[str]) -> dict[str, str | None]:
-    """`<rev>:<path>`の中身を1回の`git cat-file --batch`でまとめて読む。無ければNone。"""
-    if not specs:
-        return {}
-    r = git(repo, "cat-file", "--batch", stdin=("\n".join(specs) + "\n").encode("utf-8"))
-    out: dict[str, str | None] = dict.fromkeys(specs)
-    if r is None or r.returncode != 0:
-        return out
-    data, pos = r.stdout, 0
-    for spec in specs:
-        end = data.index(b"\n", pos)
-        header = data[pos:end].decode("utf-8", errors="replace").split()
-        pos = end + 1
-        if len(header) == 3 and header[1] == "blob":
-            size = int(header[2])
-            out[spec] = data[pos:pos + size].decode("utf-8", errors="replace")
-            pos += size + 1
-        elif len(header) == 3:
-            pos += int(header[2]) + 1
-    return out
-
-
-def task_state(text: str | None) -> str | None:
-    if text is None:
-        return None
-    line = next((l for l in text.splitlines() if l.startswith("状態:")), None)
-    if line is None:
-        return "状態行なし"
-    value = line[len("状態:"):].strip()
-    for word in ("未完了", "完了"):
-        if value.startswith(word):
-            return word
-    return value[:10]
-
-
 def prereqs_of_item(item: dict) -> list[str]:
     """振り出し待ちの1行の前提（`after`）。1件の文字列でも、配列でもよい。"""
     after = item.get("after")
@@ -363,15 +316,10 @@ def commit_time(ctx: Context, sha: str) -> dt.datetime | None:
     return dt.datetime.fromtimestamp(int(out)).astimezone() if out else None
 
 
-def done_tasks(ctx: Context, tasks: list[str]) -> set[str]:
-    """origin/masterのタスク記録で`状態: 完了`のもの。"""
-    texts = cat_files(ctx.repo, [f"origin/master:{TASKS_DIR}/{t}.md" for t in tasks])
-    return {t for t in tasks if task_state(texts[f"origin/master:{TASKS_DIR}/{t}.md"]) == "完了"}
-
-
 def queue_done(ctx: Context, items: list[dict]) -> set[str]:
     """振り出し待ちの行のタスクと前提のうち、origin/masterの記録で完了のもの。"""
-    return done_tasks(ctx, sorted({str(i.get("task")) for i in items} | {t for i in items for t in prereqs_of_item(i)}))
+    tasks = sorted({str(i.get("task")) for i in items} | {t for i in items for t in prereqs_of_item(i)})
+    return done_tasks(ctx.repo, tasks)
 
 
 def dispatchable(item: dict, done: set[str]) -> bool:
@@ -387,65 +335,9 @@ def ready_to_dispatch(ctx: Context, items: list[dict]) -> list[dict]:
     return [i for i in items if dispatchable(i, done)]
 
 
-def ledger_rows(ctx: Context) -> dict[str, dict]:
-    """台帳（origin/master）の未完了の行: タスク → 題名・規模札（幅があれば大きい側）。"""
-    plan = cat_files(ctx.repo, [f"origin/master:{PLAN_DOC}"])[f"origin/master:{PLAN_DOC}"] or ""
-    rows = {}
-    for line in plan.splitlines():
-        m = LEDGER_ROW_RE.match(line)
-        if m:
-            s = SCALE_LABEL_RE.search(m.group(3))
-            rows[m.group(1)] = {"title": m.group(3).strip(), "scale": (s.group(2) or s.group(1)) if s else None}
-    return rows
-
-
-def find_section(plan: str, needle: str) -> tuple[int | None, list[str]]:
-    """台帳の、needleを含む`## `見出しの行番号。一意でなければNoneと候補を返す。"""
-    headings = [(i, line) for i, line in enumerate(plan.splitlines()) if line.startswith("## ")]
-    hits = [(i, line) for i, line in headings if needle in line]
-    if len(hits) == 1:
-        return hits[0][0], []
-    return None, [line for _, line in (hits or headings)]
-
-
-def insert_ledger_row(plan: str, heading_index: int, row: str) -> str:
-    """台帳の節の最後のタスク行の直後へ行を入れる。タスク行が無ければ見出しの直後へ。"""
-    nl = "\r\n" if "\r\n" in plan else "\n"
-    lines = plan.split(nl)
-    end = next((i for i in range(heading_index + 1, len(lines)) if lines[i].startswith("## ")), len(lines))
-    items = [i for i in range(heading_index + 1, end) if lines[i].startswith("- [")]
-    if items:
-        lines.insert(items[-1] + 1, row)
-    else:
-        lines[heading_index + 1:heading_index + 1] = ["", row]
-    return nl.join(lines)
-
-
-def parse_effort(task: str, text: str) -> dict:
-    """所要の1行（規約「完了とpush」の書式）を読む。読めない値はNone（「不明」も同じ）。"""
-    def minutes_of(rx: re.Pattern) -> int | None:
-        m = rx.search(text)
-        return int(m.group(1)) if m else None
-
-    s = EFFORT_SCALE_RE.search(text)
-    real, frame, ci = minutes_of(EFFORT_REAL_RE), minutes_of(EFFORT_FRAME_RE), minutes_of(EFFORT_CI_RE)
-    reason = EFFORT_REASON_RE.search(text)
-    return {"task": task, "scale": (s.group(2) or s.group(1)) if s else None, "real": real,
-            "work": real - frame - ci if None not in (real, frame, ci) else None,
-            "reason": reason.group(1).strip() if reason else None}
-
-
-def effort_records(ctx: Context) -> list[dict]:
-    """origin/masterのタスク記録にある所要の行（1回のgit grepで取る）。"""
-    out = git_out(ctx.repo, "grep", "--no-color", "-e", f"^{EFFORT_PREFIX}", "origin/master", "--",
-                  f"{TASKS_DIR}/*.md") or ""
-    records = []
-    for line in out.splitlines():
-        _, path, text = line.split(":", 2)
-        m = TASK_DOC_RE.match(path)
-        if m:
-            records.append(parse_effort(m.group(1), text))
-    return records
+def ledger_rows(ctx: Context) -> dict[str, Row]:
+    """台帳（origin/master）の未完了の行: タスク → 行（題名・規模札）。"""
+    return rows_by_task(plan_at(ctx.repo, "origin/master"))
 
 
 def percentile(values: list[int], q: float) -> int:
@@ -494,16 +386,14 @@ def budget_line(stats: dict[str, dict]) -> str:
         measured = (f"実時間p80 {s['real'] if s['real'] is not None else '-'}分/{s['n_real']}件・作業p80 "
                     f"{s['work'] if s['work'] is not None else '-'}分/{s['n_work']}件")
         parts.append(f"{scale} {s['value']}分（{s['basis']}。{measured}）")
-    return "予算（所要の実績の80パーセンタイル）: " + " ／ ".join(parts)
+    return f"予算（所要の実績の{round(BUDGET_PERCENTILE * 100)}パーセンタイル）: " + " ／ ".join(parts)
 
 
-def task_title(ctx: Context, task: str, rows: dict[str, dict]) -> str:
+def task_title(ctx: Context, task: str, rows: dict[str, Row]) -> str:
     """タスクの題名。台帳に行があればその行、無ければ（閉じたタスク等）記録の見出し。"""
     if task in rows:
-        return rows[task]["title"]
-    text = cat_files(ctx.repo, [f"origin/master:{TASKS_DIR}/{task}.md"])[f"origin/master:{TASKS_DIR}/{task}.md"]
-    m = TASK_HEADING_RE.match((text or "").splitlines()[0]) if text else None
-    return m.group(1) if m else "（台帳にも記録にも無い）"
+        return rows[task].title
+    return record_title(records_at(ctx.repo, "origin/master", [task])[task]) or "（台帳にも記録にも無い）"
 
 
 def master_tip_time(ctx: Context) -> dt.datetime | None:
@@ -575,12 +465,6 @@ def audited_unpushed(ctx: Context, board: dict, at: dt.datetime) -> list[dict]:
              "urgent": bool(entry.get("urgent"))}
             for agent, entry, done in passed_audits(board)
             if done >= since and not has_landed(audited_keys(ctx, entry), done, landed)]
-
-
-def ledger_ids(plan_text: str | None) -> set[str]:
-    if plan_text is None:
-        return set()
-    return {m.group(1) for line in plan_text.splitlines() if (m := LEDGER_ROW_RE.match(line))}
 
 
 # ---------------------------------------------------------------- 置き場所と状態の表
@@ -665,10 +549,11 @@ def check_interval(board: dict) -> int:
     return value if isinstance(value, int) else DEFAULT_CHECK_INTERVAL_MINUTES
 
 
-def budget_of(agent: dict, rows: dict[str, dict], budgets: dict[str, dict]) -> int | None:
+def budget_of(agent: dict, rows: dict[str, Row], budgets: dict[str, dict]) -> int | None:
     """担当の現在のタスクの予算（分）: 台帳の規模札の、所要の実績から計算した予算（台帳に行が無ければ不明）。"""
     task = agent.get("current_task")
-    scale = (rows.get(str(task)) or {}).get("scale") if task else None
+    row = rows.get(str(task)) if task else None
+    scale = row.scale if row else None
     return budgets[scale]["value"] if scale in budgets else None
 
 
@@ -722,7 +607,7 @@ def run_of(board: dict) -> dict:
     return board.get("run") or {}
 
 
-def population_view(ctx: Context, board: dict, rows: dict[str, dict]) -> dict:
+def population_view(ctx: Context, board: dict, rows: dict[str, Row]) -> dict:
     """回の母集団の各タスクの状態を、origin/masterの記録の`状態:`と台帳の行から導く。
 
     `完了`は記録が完了のもの、`トリガー待ち`は未完了で台帳の行に着手の条件（`— トリガー:`）が
@@ -732,21 +617,21 @@ def population_view(ctx: Context, board: dict, rows: dict[str, dict]) -> dict:
     run = run_of(board)
     items = [i for i in run.get("population") or [] if isinstance(i, dict) and i.get("task")]
     tasks = [str(i["task"]) for i in items]
-    texts = cat_files(ctx.repo, [f"origin/master:{TASKS_DIR}/{t}.md" for t in tasks])
+    texts = records_at(ctx.repo, "origin/master", tasks)
     assigned = {str(a.get("current_task")): a for a in board.get("agents") or [] if a.get("current_task")}
     queued = {str(q.get("task")) for q in board.get("queue") or []}
     entries = []
     for item in items:
         task = str(item["task"])
-        text = texts[f"origin/master:{TASKS_DIR}/{task}.md"]
+        text = texts[task]
         st = task_state(text)
-        heading = TASK_HEADING_RE.match(text.splitlines()[0]) if text else None
-        title = (rows.get(task) or {}).get("title") or (heading.group(1) if heading else "")
+        row = rows.get(task)
+        title = (row.title if row else "") or record_title(text) or ""
         if st is None:
             kind = "記録なし"
-        elif st == "完了":
+        elif st == DONE:
             kind = "完了"
-        elif st == "未完了" and TRIGGER_MARK in (rows.get(task) or {}).get("title", ""):
+        elif st == OPEN and row and TRIGGER_MARK in row.title:
             kind = "トリガー待ち"
         else:
             kind = "残り"
@@ -993,7 +878,7 @@ class Facts:
         self.lock_records = self._recent_locks()
         self.lock_holders = self._lock_holders()
         self.ledger = ledger_rows(ctx)
-        self.budgets = effort_budgets(effort_records(ctx))
+        self.budgets = effort_budgets(effort_records(ctx.repo))
         self.run_view = population_view(ctx, self.board, self.ledger)
 
     def _recent_locks(self) -> list[dict]:
@@ -1168,14 +1053,9 @@ def agent_marks(f: Facts, a: dict, states: dict[str, str | None], listed: set[st
     if held:
         marks.append(f"! {held}")
     task = a.get("current_task")
-    if task:
-        st, in_ledger = states.get(task), task in listed
-        if st is None:
-            marks.append(f"! {task}: origin/masterにタスク記録が無い")
-        elif st == "完了" and in_ledger:
-            marks.append(f"! {task}: 完了なのに台帳に行がある")
-        elif st == "未完了" and not in_ledger:
-            marks.append(f"! {task}: 未完了なのに台帳に行が無い")
+    problem = row_mismatch(states.get(task), task in listed) if task else None
+    if problem:
+        marks.append(f"! {task}: {problem}（origin/master）")
     return marks
 
 
@@ -1190,10 +1070,8 @@ def cmd_status(ctx: Context, args: argparse.Namespace) -> int:
             print(f"該当するエージェントがありません: {args.target}")
             return 1
     tasks = sorted({a["current_task"] for a in agents if a.get("current_task")})
-    specs = [f"origin/master:{TASKS_DIR}/{t}.md" for t in tasks] + [f"origin/master:{PLAN_DOC}"]
-    blobs = cat_files(ctx.repo, specs)
-    states = {t: task_state(blobs[f"origin/master:{TASKS_DIR}/{t}.md"]) for t in tasks}
-    listed = ledger_ids(blobs[f"origin/master:{PLAN_DOC}"])
+    states = {t: task_state(text) for t, text in records_at(ctx.repo, "origin/master", tasks).items()}
+    listed = set(f.ledger)
     master = git_out(ctx.repo, "log", "-1", "--format=%h %ct", "origin/master") or ""
     master_sha, _, master_ts = master.partition(" ")
 
@@ -1213,7 +1091,7 @@ def cmd_status(ctx: Context, args: argparse.Namespace) -> int:
           f"  停止ファイル{'あり' if f.stop else 'なし'}  core.hooksPath={f.hooks_path}")
     print(budget_line(f.budgets))
     reasons: dict[str, dict[str, int]] = {}
-    for r in effort_records(ctx):
+    for r in effort_records(ctx.repo):
         if r["reason"]:
             by_scale = reasons.setdefault(r["scale"] or "規模札なし", {})
             by_scale[r["reason"]] = by_scale.get(r["reason"], 0) + 1
@@ -1619,27 +1497,26 @@ def cmd_audit(ctx: Context, args: argparse.Namespace) -> int:
         statuses = {p: s for s, p in changes}
         for task in touched_tasks:
             if task not in queue:
-                other_record(repo, board, agent, base, sha, task, statuses.get(f"{TASKS_DIR}/{task}.md"), flag)
-    specs = ([f"{rev}:{TASKS_DIR}/{t}.md" for t in touched_tasks for rev in (sha, base)]
-             + [f"{sha}:{PLAN_DOC}"])
-    blobs = cat_files(repo, specs)
-    listed = ledger_ids(blobs[f"{sha}:{PLAN_DOC}"])
+                other_record(repo, board, agent, base, sha, task, statuses.get(record_path(task)), flag)
+    after, before = records_at(repo, sha, touched_tasks), records_at(repo, base, touched_tasks)
+    listed = set(rows_by_task(plan_at(repo, sha)))
     if not [t for t in touched_tasks if not queue or t in queue]:
         flag(f"担当のタスク{'・'.join(queue)}の記録を触っていない" if queue
              else "タスク記録（docs/records/tasks/Txxx.md）を1件も触っていない")
+    # 作業ブランチでは担当が状態だけを変え、台帳の行は取り込みで ledger sync が直すので、閉じた・開け直した食い違いは通す。
     for task in touched_tasks:
-        st = task_state(blobs[f"{sha}:{TASKS_DIR}/{task}.md"])
-        row = task in listed
+        st, row = task_state(after[task]), task in listed
+        problem = row_mismatch(st, row)
         line = f"{task}: 状態={st or '削除'}  台帳={'あり' if row else 'なし'}"
-        if st == "完了" and not row:
+        if st == DONE and not row:
             print(f"  ? {line} → 担当が台帳の行を消している（台帳の行は取り込みで ledger sync が消す。"
                   "隣の行を消した担当と取り込みで衝突しうる）")
-        elif st == "未完了" and not row and task_state(blobs[f"{base}:{TASKS_DIR}/{task}.md"]) == "完了":
+        elif problem == DONE_WITH_ROW:
+            print(f"  {line} → 閉じた（台帳の行は取り込みで ledger sync が消す）")
+        elif problem == OPEN_WITHOUT_ROW and task_state(before[task]) == DONE:
             print(f"  {line} → 閉じたタスクの開け直し（台帳の行は取り込みで ledger sync が戻す）")
-        elif st == "未完了" and not row:
-            flag(line + " → 未完了なのに台帳に行が無い")
-        elif st not in ("完了", "未完了"):
-            flag(line + " → 状態行が完了/未完了で始まらない")
+        elif problem:
+            flag(f"{line} → {problem}")
         else:
             print(f"  {line}")
 
@@ -1709,7 +1586,7 @@ def other_record(repo: Path, board: dict, agent: dict, base: str, sha: str, task
     """担当が触った他のタスクの記録。書いてよいのは、撤去・改名で前提が変わった未完了タスクへの追記だけ
     （CLAUDE.md「検査器にできず…」の3.）。行を消した・直した・作った、仕掛中のタスクへ書いた、を指摘し、
     追記は足した行を並べて司令塔に見せる（前提の変化の追記かは中身を読まないと決まらない）。"""
-    path = f"{TASKS_DIR}/{task}.md"
+    path = record_path(task)
     added, deleted = diff_lines(repo, base, sha, path)
     holder = holder_of(board, task, besides=agent)
     if status != "M" or deleted:
@@ -1729,22 +1606,13 @@ def other_record(repo: Path, board: dict, agent: dict, base: str, sha: str, task
 def ci_verdicts(sha: str) -> tuple[list[tuple[str, bool]], list[dict]]:
     """(`sha`に対するワークフローごとの最新の結論、その実行)。結論の2つめの値は、監査を通せない
     （失敗・結論待ち・取得できない・実行が無い）ことを表す。"""
-    from check_master_ci import is_failure, latest_per_workflow
-
-    from orchestration.github import actions_runs
-
-    runs, error = actions_runs(f"head_sha={sha}&per_page=30")
-    if runs is None:
+    latest, error = github.latest_runs(sha)
+    if latest is None:
         return [(f"CIの結論を取得できない（{error}）", True)], []
-    latest = sorted(latest_per_workflow(runs, sha), key=lambda r: str(r.get("name")))
     if not latest:
         return [("このコミットに対するCIの実行が無い（orch/<名前>へpushしていないか、pushした先端のコミットではない）", True)], []
-    verdicts = []
-    for run in latest:
-        done = run.get("status") == "completed"
-        state = run.get("conclusion") if done else f"結論待ち（{run.get('status')}）"
-        verdicts.append((f"{run.get('name')}: {state}  {run.get('html_url', '')}", is_failure(run) or not done))
-    return verdicts, latest
+    return [(github.verdict_line(run), github.is_failure(run) or run.get("status") != "completed")
+            for run in latest], latest
 
 
 def ancestors_of(ctx: Context, sha: str) -> set[str] | None:
@@ -1755,8 +1623,6 @@ def ancestors_of(ctx: Context, sha: str) -> set[str] | None:
 
 def audit_ci_duration(ctx: Context, sha: str, latest: list[dict]) -> bool:
     """監査の項目10の機械の比較を出す。ユーザー確認に当たればTrue。"""
-    from orchestration import ci_duration as cd
-
     print(f"\n10. 共有資源への波及（CIのジョブごとの所要を、合流点までのmasterの直近{cd.BASELINE_RUNS}回の成功の"
           f"同じジョブの最大値と比べる。{cd.MARGIN_SECONDS}秒以上長ければユーザー確認）")
     target = next((r for r in latest if str(r.get("path", "")).endswith(f"/{cd.CI_WORKFLOW}")), None)
@@ -1785,14 +1651,11 @@ def audit_ci_duration(ctx: Context, sha: str, latest: list[dict]) -> bool:
 def ci_duration_problems(ctx: Context, board: dict) -> list[str]:
     """定期確認: 稼働中・監査待ちの担当の作業ブランチ（orch/<名前>）の直近の成功したCIで、masterの基準より
     伸びたジョブ。取得できなければ異常にしない（ネットワークの都合で定期確認を鳴らさない）。"""
-    from orchestration import ci_duration as cd
-    from orchestration.github import actions_runs
-
     branches = {f"orch/{a.get('name')}" for a in board.get("agents") or []
                 if a.get("state") in ACTIVE_STATES or audit_pending(a)}
     if not branches:
         return []
-    runs, _ = actions_runs(f"status=completed&per_page={cd.BRANCH_LISTING}", cd.CI_WORKFLOW)
+    runs, _ = github.actions_runs(f"status=completed&per_page={cd.BRANCH_LISTING}", cd.CI_WORKFLOW)
     latest: dict[str, dict] = {}
     for run in runs or []:
         latest.setdefault(str(run.get("head_branch")), run)
@@ -1928,7 +1791,8 @@ def cmd_board(ctx: Context, args: argparse.Namespace) -> int:
         moved = "where" in keys and agent.get("where") != previous_where and task and task == previous_task
         if ("current_task" in keys and task and task != previous_task) or moved:
             start_task(agent, str(task), at)
-            if (ledger_rows(ctx).get(str(task)) or {}).get("scale") is None:
+            row = ledger_rows(ctx).get(str(task))
+            if row is None or row.scale is None:
                 print(f"注: {task}は台帳に規模札のある行が無い。見込み超過をタスク単位で測れない")
         if agent.get("state") == "稼働":
             restore_hooks_path(ctx)

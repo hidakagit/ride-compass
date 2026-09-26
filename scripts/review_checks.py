@@ -9,7 +9,10 @@
 この要件から、次が導かれる。
 
 - **走査範囲を絞る仕組みを持たない。** 不変条件なら、全件でも差分でも同じ答えになる。
-  「新しく入った分だけを咎める」必要があるなら、それは不変条件ではない
+  「新しく入った分だけを咎める」必要があるなら、それは不変条件ではない。例外は1つで、
+  答えが**どの木を検査しているか**で変わる: 台帳の行と記録の状態の対応はmasterの木でだけ
+  成り立つ（作業ブランチでは担当が状態だけを変え、行は取り込みで司令塔が直す）ので、masterでは
+  違反、それ以外のブランチでは参考として出す（`find_task_state_problems`）
 - **許可リストを持たない。** 許可リストは誤検知を認めた印である。「この綴りは外部の
   語彙だから除外する」が必要なら、その検査は事実を見ていない
 - **母集団を手で書かない。** 「どのファイルが対象か」を人が列挙すると、実装が動いた
@@ -45,8 +48,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from orchestration.core import LEDGER_ROW_RE, PLAN_DOC
-from orchestration.core import TASKS_DIR as TASKS_REL
+from orchestration import ledger
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 #: 台帳の行を閉じた（消した）状態が揃っているべきブランチ。並行実行の作業ブランチでは、
@@ -68,10 +70,6 @@ TRIGGER_IMPL_LINES = 20_000
 MARKDOWN_LINK_RE = re.compile(r"\[[^\]]*\]\(([^)\s#]+)(?:#[^)]*)?\)")
 #: 雛形の綴り。「タスク番号1件=1ファイル」等を説明するためのもので、実在しなくてよい。
 PLACEHOLDER_RE = re.compile(r"Txxx|YYYY-MM-DD|<[^>]+>")
-TASKS_DIR = REPO_ROOT / TASKS_REL
-STATE_RE = re.compile(r"^状態: *(完了|未完了)")
-#: タスク記録のファイル名。日付名の実施記録や索引と区別する。
-TASK_FILE_RE = re.compile(r"^T\d+[a-z0-9-]*\.md$")
 
 CODE_SUFFIXES = (".py", ".ts", ".tsx")
 #: 総量の「実装」のうち、製品の挙動を持たない部分。製品の増減が生成物・運用の道具の増減に
@@ -169,22 +167,18 @@ def find_plan_entry_problems() -> list[str]:
     （`T317` と `T317-2.md` が実例）、逆に番号が違っても同じ先を指していれば、どちらの
     行を読めばよいか決まらない。
     """
-    plan = REPO_ROOT / PLAN_DOC
+    plan = REPO_ROOT / ledger.PLAN_DOC
     if not plan.exists():
-        return [f"{PLAN_DOC} が無い（台帳が無ければエントリの一意性を検査できない）"]
+        return [f"{ledger.PLAN_DOC} が無い（台帳が無ければエントリの一意性を検査できない）"]
     seen: dict[str, int] = {}
     out = []
-    for lineno, line in enumerate(read(plan).splitlines(), 1):
-        m = LEDGER_ROW_RE.match(line)
-        if not m:
-            continue
-        target = m.group(2)
-        if not (plan.parent / target).exists():
-            out.append(f"{PLAN_DOC}:{lineno}: リンク先 {target} が無い")
-        elif target in seen:
-            out.append(f"{PLAN_DOC}:{lineno}: {target} を {seen[target]}行目も指している")
+    for row in ledger.rows(read(plan)):
+        if not (plan.parent / row.target).exists():
+            out.append(f"{ledger.PLAN_DOC}:{row.lineno}: リンク先 {row.target} が無い")
+        elif row.target in seen:
+            out.append(f"{ledger.PLAN_DOC}:{row.lineno}: {row.target} を {seen[row.target]}行目も指している")
         else:
-            seen[target] = lineno
+            seen[row.target] = row.lineno
     return out
 
 
@@ -214,24 +208,19 @@ def find_task_state_problems(on_main: bool) -> tuple[list[str], list[str]]:
     1行ずつ触る共有のファイルで、別々のブランチが隣り合った行を変えると取り込みで衝突するため、
     並行実行の担当は`状態:`だけを変え（閉じる・開け直す）、行は司令塔が取り込みで直す
     （`scripts/orchestrate.py ledger sync`）。masterへ入る時点で行が揃っていることは、
-    masterへのpushのCIがこの検査で見る。
+    masterへのpushのCIがこの検査で見る。状態の解釈と食い違いの判定は`orchestration/ledger.py`が持つ。
     """
-    plan = REPO_ROOT / PLAN_DOC
-    listed = {m.group(2) for line in read(plan).splitlines()
-              if (m := LEDGER_ROW_RE.match(line))} if plan.exists() else set()
+    listed = set(ledger.rows_by_task(read(REPO_ROOT / ledger.PLAN_DOC)))
+    why = {ledger.OPEN_WITHOUT_ROW: "（誤ってクローズしたか、開け直した）", ledger.DONE_WITH_ROW: "（閉じ忘れ）"}
     out, notes = [], []
-    for f in sorted(f for f in TASKS_DIR.glob("*.md") if TASK_FILE_RE.match(f.name)):
-        rel_target = f"records/tasks/{f.name}"
-        state = next((l for l in read(f).splitlines() if l.startswith("状態:")), None)
-        if state is None or not STATE_RE.match(state):
-            out.append(f"{rel_target}: 状態行が「完了」「未完了」で始まっていない"
-                       f"（{state or '状態行が無い'}）")
-            continue
-        done = STATE_RE.match(state).group(1) == "完了"
-        if not done and rel_target not in listed:
-            (out if on_main else notes).append(f"{rel_target}: 未完了なのに台帳に行が無い（誤ってクローズしたか、開け直した）")
-        if done and rel_target in listed:
-            (out if on_main else notes).append(f"{rel_target}: 完了なのに台帳に行がある（閉じ忘れ）")
+    for f in ledger.record_files(REPO_ROOT):
+        rel = f.relative_to(REPO_ROOT).as_posix()
+        state = ledger.task_state(read(f))
+        problem = ledger.row_mismatch(state, f.stem in listed)
+        if problem == ledger.BAD_STATE:
+            out.append(f"{rel}: {problem}（{state}）")
+        elif problem:
+            (out if on_main else notes).append(f"{rel}: {problem}{why.get(problem, '')}")
     return out, notes
 
 

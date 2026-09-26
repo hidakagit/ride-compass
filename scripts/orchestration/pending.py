@@ -4,13 +4,13 @@
 このスクリプトからは直接読めない。日次のバックアップと、司令塔の定期確認のたびの書き出しが
 `ArtifactData`の`list`に`out_dir`を付けて全件をファイルへ書き出し、そのディレクトリを`--pending`で渡す
 （`<out_dir>/pending/<doc_id>.json`が1件。ファイル名が件のdoc_id）。置き場と1件の形の正本は
-`docs/conventions/asking-user.md`「仕掛中のダッシュボード」節。核はこのモジュールをimportしない。
+`docs/conventions/asking-user.md`「仕掛中のダッシュボード」節。核は`check`の中でだけこのモジュールを遅れて読む。
 
     python scripts/orchestrate.py pending-backup --pending <dir>   # 全件を日付のファイルへ書き出す（直近14日を残す。移し忘れと、確認中・取り込み待ちの件を持ち主ごとに知らせる）
     python scripts/orchestrate.py pending-inbox [--pending <dir>]  # 確認中・取り込み待ちの件を、タスクごとの今の持ち主と並べる（既定: 最新のバックアップ）
     python scripts/orchestrate.py pending-waiting [--pending <dir>]  # タブごとの件数と、回答待ちの件（下の「タブの定義」）
 
-`check`は最新のバックアップを読み、書き出しが無い・確認間隔の2倍より古いときは「書き出し直す」とだけ、そうでなく
+`check`は最新のバックアップを読み、書き出しが無い・古い（`STALE_DUMP_INTERVALS`）ときは「書き出し直す」とだけ、そうでなく
 確認中・取り込み待ちの件があればその件数と書き出しの時刻を要対応として出す（`inbox_problems`）。件そのものは並べない
 ——書き出しの後に取り込まれてダッシュボードから消えた件を、要対応として出し続けないため。件は、書き出し直した
 `pending-backup`が今の持ち主ごとに出す。書き出しより後に付いた答えは見えないので、司令塔は定期確認のたびに書き出し直す。
@@ -49,20 +49,20 @@ from pathlib import Path
 
 from orchestration.core import (
     PRIORITIES,
-    TASK_ID_RE,
-    TASKS_DIR,
     Context,
-    cat_files,
     hm,
     in_cloud,
     load_board,
     now,
     parse_time,
     task_holders,
-    task_state,
 )
+from orchestration.ledger import DONE, TASK_ID_RE, records_at, task_state
 
 BACKUP_KEEP_DAYS = 14
+#: 書き出しが確認間隔のこの倍より古ければ、件を数えずに書き出し直させる（司令塔は確認ごとに書き出すので、
+#: 1回分の抜けでは鳴らさない）。
+STALE_DUMP_INTERVALS = 2
 #: 送ってからこれだけ経っても取り込まれていない件を、拾われていないとして知らせる。ページの「Claude に反映を
 #: 頼む」は起こしたセッションへすぐ届くので、1時間取り込まれなければ、受け取るセッションがいないとみなす。
 UNTAKEN_ALERT_MINUTES = 60
@@ -169,8 +169,7 @@ def left_behind(ctx: Context, items: dict[str, dict]) -> list[str]:
     閉じたタスク（記録が完了）に残ってよいのは、答えを待っている問い・お願いだけ。答えが出た件は記録へ移し
     （作業が生まれるなら開け直す）、件名はコミットで、前提は手動タスクが閉じたら消す。"""
     tasks = sorted({str(i.get("task")) for i in items.values() if i.get("task")})
-    texts = cat_files(ctx.repo, [f"origin/master:{TASKS_DIR}/{t}.md" for t in tasks])
-    states = {t: task_state(texts[f"origin/master:{TASKS_DIR}/{t}.md"]) for t in tasks}
+    states = {t: task_state(text) for t, text in records_at(ctx.repo, "origin/master", tasks).items()}
     out = []
     for doc_id, item in sorted(items.items()):
         task, kind = str(item.get("task") or ""), item.get("kind")
@@ -178,7 +177,7 @@ def left_behind(ctx: Context, items: dict[str, dict]) -> list[str]:
             continue
         if states[task] is None:
             out.append(f"{doc_id}: {task}の記録がorigin/masterに無い（台帳にも記録にも無いタスクの件）")
-        elif states[task] == "完了" and (kind in ("件名", "前提") or answered(item)):
+        elif states[task] == DONE and (kind in ("件名", "前提") or answered(item)):
             what = {"件名": "件名（コミットしたら消す）", "前提": "前提（手動タスクが閉じたら消す）"}.get(
                 kind, "答え（作業が生まれるなら開け直し、生まれないなら `記録: 答え …` で記録へ移す）")
             out.append(f"{doc_id}: 閉じた{task}に{what}が残っている")
@@ -302,7 +301,7 @@ def inbox_problems(ctx: Context, board: dict, interval_min: int) -> list[str]:
     _, items, saved = latest
     age = None if saved is None else int((now() - saved).total_seconds() // 60)
     when = "いつか不明" if saved is None else f"{hm(saved.astimezone())}（{age}分前）"
-    if age is None or age >= 2 * interval_min:
+    if age is None or age >= STALE_DUMP_INTERVALS * interval_min:
         return [f"要対応: ダッシュボードの書き出しが{when}で古い（それより後の答えは見えない。{how}）"]
     counts = [f"{stage}{n}件" for stage in (CHECK, INTAKE) if (n := sum(stage_of(i) == stage for i in items.values()))]
     if not counts:

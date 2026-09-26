@@ -22,28 +22,24 @@ from pathlib import Path
 
 from orchestration.core import (
     ACTIVE_STATES,
-    PLAN_DOC,
     PRIORITIES,
     STOPPED_STATES,
     Context,
-    cat_files,
-    done_tasks,
-    ledger_ids,
     load_board,
     save_board,
 )
+from orchestration.ledger import done_tasks
 from orchestration.pending import latest_backup, open_holds, prereqs_in
 
 
 def prereq_states(ctx: Context, board: dict, tasks: list[str], held: set[str]) -> dict[str, str]:
-    """前提ごとの状態: 完了／稼働中／判断待ち／振り出し待ち／停止中／未着手。"""
-    done = done_tasks(ctx, tasks)
-    listed = ledger_ids(cat_files(ctx.repo, [f"origin/master:{PLAN_DOC}"])[f"origin/master:{PLAN_DOC}"])
+    """前提ごとの状態: 完了／稼働中／判断待ち／振り出し待ち／停止中／未着手。完了はorigin/masterの記録の状態
+    （`ledger.DONE`。振り出し待ちの前提と同じ判定）。"""
+    done = done_tasks(ctx.repo, tasks)
     queued = {str(i.get("task")) for i in board.get("queue") or []}
     out = {}
     for task in tasks:
-        # 完了は記録の状態と台帳の両方で見る（閉じ忘れで台帳に行が残っているものは完了に数えない）。
-        if task in done and task not in listed:
+        if task in done:
             out[task] = "完了"
             continue
         holders = [a for a in board.get("agents") or [] if a.get("current_task") == task]

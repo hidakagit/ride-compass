@@ -6,8 +6,9 @@
 [T835](docs/records/tasks/T835.md)）。**既に赤いCIには新しい赤が埋もれ、「CIが通ったこと」を完了の
 根拠にできなくなる。**
 
-`gh`は入っていない環境があるため、GitHubのREST APIを直接読む（問い合わせは
-`scripts/orchestration/github.py`の1か所。トークンが取れれば認証付き、取れなければ認証なし）。
+`gh`は入っていない環境があるため、GitHubのREST APIを直接読む（問い合わせと、実行の結論の読み方——
+ワークフローごとの最新・何を失敗と呼ぶか——は`scripts/orchestration/github.py`の1か所。トークンが取れれば
+認証付き、取れなければ認証なし）。
 **ネットワークに触れるので、取得できない・遅い・形が違うときは黙って素通しする**——CIの状態を
 知るための補助が、コミットやpushを止める理由になってはいけない。
 
@@ -20,7 +21,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from orchestration.github import API_ROOT, REPO, TIMEOUT_SECONDS, get_json
+from orchestration.github import API_ROOT, REPO, TIMEOUT_SECONDS, get_json, is_failure, latest_per_workflow
 
 RUNS_API = f"{API_ROOT}/repos/{REPO}/actions/runs"
 API = f"{RUNS_API}?branch=master&per_page=30"
@@ -42,38 +43,6 @@ def failing_workflows(runs: list[dict]) -> list[dict]:
     if not runs:
         return []
     return [run for run in latest_per_workflow(runs, runs[0].get("head_sha")) if is_failure(run)]
-
-
-def latest_per_workflow(runs: list[dict], head_sha: str | None) -> list[dict]:
-    """`head_sha`に対する実行を、ワークフローごとに最も新しい1件へ絞る。
-
-    同じコミットに複数の実行が混ざりうる（手動の再実行・concurrency設定に打ち切られた実行）。
-    並びは`created_at`の降順で先頭が新しいが、**同じ秒に作られた実行どうしの順序は保証
-    されない**ため、`run_number`（ワークフロー内で単調に増える）が大きい方を採る。値が無い
-    応答では並び順のまま先頭を残す。
-    """
-    latest: dict[str, dict] = {}
-    for run in runs:
-        if run.get("head_sha") != head_sha:
-            continue
-        name = run.get("name")
-        if not isinstance(name, str):
-            continue
-        previous = latest.get(name)
-        if previous is None or run_number(run) > run_number(previous):
-            latest[name] = run
-    return list(latest.values())
-
-
-def is_failure(run: dict) -> bool:
-    """完了していて成功ではない実行。実行中のものは結論が出ていないので含めない。"""
-    return run.get("status") == "completed" and run.get("conclusion") not in ("success", "skipped", "neutral", None)
-
-
-def run_number(run: dict) -> int:
-    """ワークフロー内で単調に増える実行番号。持たない応答は最古として扱う。"""
-    value = run.get("run_number")
-    return value if isinstance(value, int) else -1
 
 
 def format_warning(failures: list[dict]) -> str:

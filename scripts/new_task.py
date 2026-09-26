@@ -53,7 +53,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from orchestration.core import PLAN_DOC, TASKS_DIR, find_section, insert_ledger_row
+from orchestration.ledger import PLAN_DOC, TASKS_DIR, find_section, insert_row, new_record, new_row, record_path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 REMOTE = "origin"
@@ -104,10 +104,8 @@ def build_commit(base: str, first: int, tasks: list[argparse.Namespace], today: 
         heading_index, _ = find_section(plan, task.section)
         if heading_index is None:
             raise GitError(f"節「{task.section}」が土台 {base[:8]} で一意に決まらない")
-        plan = insert_ledger_row(plan, heading_index, f"- [ ] [{tid}](records/tasks/{tid}.md). {task.title} 規模{task.size}")
-        stub = (f"# {tid}. {task.title}\n\n状態: 未完了（{today}起票）\n\n## 背景\n\n"
-                + (f"{task.background.strip()}\n" if task.background.strip() else ""))
-        files.append((f"{TASKS_DIR}/{tid}.md", stub))
+        plan = insert_row(plan, heading_index, new_row(tid, task.title, task.size))
+        files.append((record_path(tid), new_record(tid, task.title, today, task.background)))
         ids.append(tid)
     files.append((PLAN_DOC, plan))
 

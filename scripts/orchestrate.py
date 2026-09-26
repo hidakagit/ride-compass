@@ -2,9 +2,9 @@
 
     python scripts/orchestrate.py <サブコマンド> ...
 
-使い方は`scripts/orchestration/core.py`の冒頭。`pending-backup`・`pending-inbox`・`pending-waiting`・`priority`・`slot`・`ledger`は依頼で足した
-別のモジュール（`scripts/orchestration/pending.py`・`queue.py`・`slots.py`・`ledger.py`）へ渡す——核はそれらを
-importしないため、振り分けはここで行う。
+使い方は`scripts/orchestration/core.py`の冒頭。`pending-backup`・`pending-inbox`・`pending-waiting`・`priority`・`slot`・`ledger`は
+別のモジュール（`scripts/orchestration/pending.py`・`queue.py`・`slots.py`・`ledger.py`）へ渡す——核の外の
+モジュールで、核はそれらを先頭で読まない（依存の向きは`scripts/orchestration/__init__.py`）ので、振り分けはここで行う。
 """
 
 import sys
