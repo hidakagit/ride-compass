@@ -21,8 +21,8 @@ diskcache==5.6.3
 # 切り出して拡大するために使う。土地被覆ラスタタイル（infrastructure/landcover_raster.py）の
 # PNG書き出しも使う。
 pillow==12.3.0
-# 土地被覆ラスタ（GeoTIFF）の読み取り・再投影。バッチ（precompute_way_landcover.py）と
-# 地図タイル配信（infrastructure/landcover_raster.py）の両方が使うため本体側に置く。
+# 土地被覆ラスタ（GeoTIFF）の読み取り・再投影（infrastructure/landcover_raster.py）。地図タイル配信と
+# 取込（batch/source_adapters/io_lulc_tile.py）の両方がそこを通るため本体側に置く。
 # wheelがGDAL/PROJを同梱しており、本番VM（ARM64）でもビルドなしで入る。
 rasterio==1.5.1
 # 気象庁MSMの前処理済みデータ（Open-Meteoが公開する.om形式）を読む公式リーダー。
