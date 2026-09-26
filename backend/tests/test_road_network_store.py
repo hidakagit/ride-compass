@@ -69,20 +69,21 @@ class FakeRepository:
             yield rows[start:start + chunk_size]
 
     @_repository_method
-    async def get_edge_material_arrays(self, edges, accident_years_covered):
+    async def get_edge_material_arrays(self, way_ids, segment_indexes, forwards, accident_years_covered):
         self.material_calls += 1
+        edges = list(zip(way_ids, segment_indexes, forwards, strict=True))
         n = len(edges)
-        numeric = np.array([[_numeric(e.osm_way_id, e.segment_index, e.forward)] for e in edges])
-        column = np.array([e.osm_way_id * 1.0 for e in edges])
+        numeric = np.array([[_numeric(w, s, f)] for w, s, f in edges])
+        column = np.array([w * 1.0 for w, _, _ in edges])
         categorical = np.empty((n, 1), dtype=object)
-        categorical[:, 0] = [CATEGORY[e.osm_way_id] for e in edges]
+        categorical[:, 0] = [CATEGORY[w] for w, _, _ in edges]
         return EdgeMaterialArrays(
             numeric_ids=("m_num",), numeric_values=numeric,
-            boolean_ids=("m_bool",), boolean_values=np.array([[e.forward] for e in edges]),
+            boolean_ids=("m_bool",), boolean_values=np.array([[f] for _, _, f in edges]),
             categorical_ids=("m_cat",), categorical_values=categorical,
-            hard_filter_ids=("hf",), hard_filter_flags=np.array([[e.segment_index == 0] for e in edges]),
+            hard_filter_ids=("hf",), hard_filter_flags=np.array([[s == 0] for _, s, _ in edges]),
             distance_m=column, bearing_deg=column, mid_lat=column, mid_lon=column,
-            elevation_present=np.array([e.forward for e in edges]),
+            elevation_present=np.array([f for _, _, f in edges]),
             elevation_start_m=column, elevation_end_m=column, elevation_gain_m=column,
             elevation_loss_m=column, elevation_max_grade=column, elevation_min_grade=column,
         )

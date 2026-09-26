@@ -903,7 +903,7 @@ class TurnExpandedTree:
     predecessor: np.ndarray
     # 木に沿った実距離（m）の積算。到達不能はNaN。
     state_length_m: np.ndarray
-    # 木に沿った所要時間（秒）の積算。`edge_seconds`を渡さなかった場合は全てNaN。
+    # 木に沿った所要時間（秒）の積算。到達不能はinf。
     state_seconds: np.ndarray
     # Nodeごとの最小コストと、そのコストでNodeへ入る状態（到達不能は-1）。
     node_cost: np.ndarray
@@ -926,7 +926,7 @@ def build_turn_expanded_tree(
     *,
     reverse: bool = False,
     cost_limit: float = np.inf,
-    edge_seconds: np.ndarray | None = None,
+    edge_seconds: np.ndarray,
     bin_seconds: float = np.inf,
 ) -> TurnExpandedTree:
     """状態＝有向Edgeの一対全Dijkstra（numba、前任者付き）。
@@ -934,9 +934,9 @@ def build_turn_expanded_tree(
     `reverse=True`は遷移の向きだけを反転する（ターンの待ちは元の進行方向のまま）。
     「その区間から目的地まで」のコストが求まる。
 
-    `edge_cost`は1次元（時刻に依存しない）か`(時刻ビン, 状態)`の2次元。2次元で渡すときは
-    `edge_seconds`と`bin_seconds`も渡す（`turn_expanded_shortest_path`と同じ契約）。
-    **逆向きの木は時刻ビンを使えない**——目的地から遡るため各状態の到達時刻が決まらない。
+    `edge_cost`は1次元（時刻に依存しない）か`(時刻ビン, 状態)`の2次元で、素の所要時間
+    `edge_seconds`を同じ形で渡す。ビンが2本以上なら`bin_seconds`も渡す（`turn_expanded_shortest_path`と
+    同じ契約）。**逆向きの木は時刻ビンを使えない**——目的地から遡るため各状態の到達時刻が決まらない。
     呼び出し元は1本のビンで呼ぶこと（`reverse=True`へ複数ビンを渡すと`ValueError`）。
     """
     state_count = structure.state_count
@@ -1105,24 +1105,18 @@ def _as_time_bins(caller: str, values: np.ndarray) -> np.ndarray:
 
 
 def _time_bin_arrays(
-    caller: str, edge_cost: np.ndarray, edge_seconds: np.ndarray | None, bin_seconds: float
+    caller: str, edge_cost: np.ndarray, edge_seconds: np.ndarray, bin_seconds: float
 ) -> tuple[np.ndarray, np.ndarray]:
     """コスト配列と素の所要時間配列を`(時刻ビン, 状態)`へ揃え、時刻で引く契約を確かめる。
 
-    ビンが2本以上あるとき、探索は出発からの経過時間でビンを選ぶ。そのため素の所要時間
-    （主観的割増を掛ける前の秒）とビンの幅が要り、欠けると**時刻ごとの風が黙って効かなく
-    なる**——所要時間の代わりにコストで時計を進める、あるいは全区間が先頭のビンに落ちる、
-    という形で、例外もNaNも出さずに結果だけが変わる。
+    ビンが2本以上あるとき、探索は出発からの経過時間でビンを選ぶ。そのためビンの幅が要り、
+    欠けると全区間が先頭のビンに落ちて**時刻ごとの風が黙って効かなくなる**——例外もNaNも
+    出さずに結果だけが変わる。
 
     2つの配列の形が違えば送出する。JITした探索は配列の境界を検査しないため、ビン数が
     食い違うと範囲外の読み出しになる。
     """
     cost_bins = _as_time_bins(caller, edge_cost)
-    if edge_seconds is None:
-        raise ValueError(
-            f"{caller}: edge_cost needs edge_seconds "
-            "(without it the arrival clock advances by cost, not by seconds)"
-        )
     if cost_bins.shape[0] > 1:
         if not math.isfinite(bin_seconds) or bin_seconds <= 0:
             raise ValueError(
@@ -1213,7 +1207,7 @@ def turn_expanded_shortest_path(
     node_heuristic: np.ndarray,
     origin_states: np.ndarray,
     goal_node_index: int,
-    edge_seconds: np.ndarray | None = None,
+    edge_seconds: np.ndarray,
     bin_seconds: float = np.inf,
 ) -> list[int] | None:
     """起点から出る区間`origin_states`から`goal_node_index`までの最小コスト経路を、
@@ -1224,9 +1218,9 @@ def turn_expanded_shortest_path(
     「直線距離 ÷ 出せる最大速度」から作る——実経路は直線より長く、実際の速度は上限以下の
     ため下界になる。
 
-    `edge_cost`は1次元（時刻に依存しない）か`(時刻ビン, 状態)`の2次元。2次元で渡すときは
-    素の所要時間`edge_seconds`（同じ形）とビンの幅`bin_seconds`も渡す——探索が出発からの
-    経過時間を持ち回り、その時刻のビンからコストと所要時間を引く。
+    `edge_cost`は1次元（時刻に依存しない）か`(時刻ビン, 状態)`の2次元で、素の所要時間
+    `edge_seconds`を同じ形で渡す——探索が出発からの経過時間を持ち回り、その時刻のビンから
+    コストと所要時間を引く。ビンが2本以上なら幅`bin_seconds`も渡す。
     """
     cost_bins, seconds_bins = _time_bin_arrays(
         "turn_expanded_shortest_path", edge_cost, edge_seconds, bin_seconds

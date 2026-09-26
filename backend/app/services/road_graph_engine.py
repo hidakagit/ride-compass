@@ -27,7 +27,7 @@ import logging
 import math
 import time
 from collections.abc import Callable, Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime, timedelta, timezone
 
 import numpy as np
@@ -117,7 +117,7 @@ from app.domain.wind import (
     kmh_to_ms,
     wind_components,
 )
-from app.infrastructure import search_graph_cache
+from app.infrastructure import detour_ratio_cache
 from app.services.elevation_aggregation import max_or_none, min_or_none, sum_or_none
 from app.services.graph_service import GraphService
 from app.domain.loop_routing import LoopTurnaround, TracedLoop, candidate_identity
@@ -878,7 +878,7 @@ class RoadGraphEngine:
         graph_ms = round((time.monotonic() - graph_started) * 1000)
 
         # 迂回率は同じ探索範囲で前回の往路木から学習した値があればそれを使う（無ければ既定値）。
-        learned_detour_ratio = search_graph_cache.get_detour_ratio(tile_set)
+        learned_detour_ratio = detour_ratio_cache.get_detour_ratio(tile_set)
         composer = _LegCostComposer(
             score_matrix, weights, self._penalty_strength, hard_filter_excluded, weather, wind_series,
             start, self._assumed_speed_kmh, lazy_graph.edge_rows,
@@ -2125,7 +2125,6 @@ def _lean_edge(road: RoadSlice, lazy_graph: LazyRoadGraph, index: int) -> LeanEd
     """区間の番号から、形を持たない`LeanEdge`（区間の文字列の鍵・両端のノードの鍵付き）を作る。"""
     network = road.network
     row = int(road.rows[lazy_graph.edge_rows[index]])
-    bearing = float(network.bearing_deg[row])
     return LeanEdge(
         edge_id=edge_key(int(network.edge_way_id[row]), int(network.edge_segment[row]), bool(network.edge_forward[row])),
         from_node_id=_node_key_of(road, int(lazy_graph.edge_from[index])),
@@ -2135,8 +2134,6 @@ def _lean_edge(road: RoadSlice, lazy_graph: LazyRoadGraph, index: int) -> LeanEd
         osm_way_id=int(network.edge_way_id[row]),
         segment_index=int(network.edge_segment[row]),
         forward=bool(network.edge_forward[row]),
-        highway=network.highway_vocab[int(network.edge_highway[row])],
-        bearing_deg=None if math.isnan(bearing) else bearing,
     )
 
 
@@ -2210,7 +2207,7 @@ def _learn_detour_ratio(context: _RoadGraphContext, measured: float) -> float:
     無効（NaN・非正）なら合成に使っている現在の値（学習値または既定値）を返す。"""
     if not math.isfinite(measured) or measured <= 0:
         return context.composer.detour_ratio
-    search_graph_cache.set_detour_ratio(context.tile_set, measured)
+    detour_ratio_cache.set_detour_ratio(context.tile_set, measured)
     return measured
 
 
@@ -2305,20 +2302,7 @@ def _reverse_traced_edges(
         if reverse_index is None:
             return None
         topology = _lean_edge(context.road, lazy_graph, reverse_index)
-        reverse_edges.append(
-            LeanEdge(
-                edge_id=topology.edge_id,
-                from_node_id=topology.from_node_id,
-                to_node_id=topology.to_node_id,
-                geometry=list(reversed(edge.geometry)),
-                distance_m=topology.distance_m,
-                osm_way_id=topology.osm_way_id,
-                segment_index=topology.segment_index,
-                forward=topology.forward,
-                highway=topology.highway,
-                bearing_deg=topology.bearing_deg,
-            )
-        )
+        reverse_edges.append(replace(topology, geometry=list(reversed(edge.geometry))))
         reverse_path.append(reverse_index)
     return reverse_edges, reverse_path
 

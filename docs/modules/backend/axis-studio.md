@@ -399,7 +399,7 @@ idの文字列ではなく宣言そのもので指す。材料が指す要素に
   値の名前）。
 - リクエスト時に評価される動的材料（`REQUEST_DYNAMIC_MATERIAL_IDS`）と静的材料を同じ軸で
   混在させないこと。動的軸の再評価経路（`domain/dynamic_materials.py:
-  evaluate_dynamic_axis_arrays`）へ渡るのは「タイル単位でキャッシュ済みの公開軸スコア」と
+  evaluate_dynamic_axis_arrays`）へ渡るのは「探索範囲の静的スコア行列の公開軸スコア」と
   「動的材料」だけで、静的材料の配列は渡らない——混在させた軸は`evaluate_axis_array`が
   KeyErrorになり`/api/routes/generate`ごと失敗する。静的材料が必要なら別の軸へ切り出して
   軸参照で合成する。

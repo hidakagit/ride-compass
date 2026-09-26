@@ -1,7 +1,5 @@
-import os
 from pathlib import Path
 
-from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 # 相対パス".env"はプロセスのカレントディレクトリ基準になるため、backend/をcwdにしない
@@ -61,11 +59,6 @@ class Settings(BaseSettings):
     # 行う。律速がCPUとディスクI/Oになるため、DB向けのタイル上限とは別に持つ。
     # `asyncio.to_thread`の既定スレッドプールを1画面ぶんのタイルで埋めないための値。
     landcover_tile_max_concurrent: int = 4
-    # 地図タイル閲覧起点の道路グラフ構築。数十秒〜数分DBセッションを保持するため、
-    # タイル配信ぶんと合わせて接続プール上限（15）を食い潰さないよう低く抑える
-    # （枯渇すると無関係な他タイル・API呼び出しまで502化する）。完全なバックグラウンド
-    # 処理で待たされても実害が無い。
-    graph_build_max_concurrent: int = 1
     basemap_rate_limit_per_minute: int = 300
     jma_tile_rate_limit_per_minute: int = 300
     gsi_tile_rate_limit_per_minute: int = 300
@@ -97,20 +90,15 @@ class Settings(BaseSettings):
     # --network=hostで起動するためこの既定値のまま到達できる。
     redis_url: str = "redis://localhost:6379/0"
 
-    # ディスク永続キャッシュの容量上限（MB）。上限に達するとdiskcacheが古いものから
-    # 退避する。関東の運用範囲でタイル材料1世代が約310MBのため、2世代ぶんに余裕を持たせた
-    # 値（本番VMのディスクは48GB）。
+    # ディスク永続キャッシュ（way_id別の動的値）の容量上限（MB）。上限に達するとdiskcacheが
+    # 古いものから退避する。置く値は鍵ごとの失効（expire）で入れ替わるため、上限は伸び続けた
+    # ときの頭打ちとして置いている（本番VMのディスクは48GB）。
     tile_persistent_cache_size_limit_mb: int = 1024
 
     # 焼き済みタイル・外部タイルの置き場の容量上限（MB）。この置き場は鍵に世代を持たない
     # ため、形の署名が変わった旧世代は書かれなくなるだけで残り続ける。起動時に古い順で
     # 上限まで落とす。本番の実測は数十MB規模で、上限は伸び続けたときの頭打ちとして置いている。
     tile_cache_size_limit_mb: int = 512
-
-    # タイル材料キャッシュのディスク読み込みの同時実行数上限。復元に残るCPUコストは
-    # Pythonオブジェクトの再構築ループでGILに直列化されるため、コア数を増やして効くのは
-    # ファイルI/O・numpy部分だけ。コア数が少ない環境で過剰にスレッドを起動しないよう抑える。
-    tile_cache_load_max_concurrent: int = Field(default_factory=lambda: min(4, os.cpu_count() or 4))
 
     # ディスクキャッシュをDBの派生データ世代へ追随させる確認の間隔（秒）。派生バッチは
     # backendを再起動させないため、材料を使う経路からこの間隔で読み直す。バッチ自体が

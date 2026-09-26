@@ -6,8 +6,7 @@
 
 import dataclasses
 
-from app.domain.attributes import EdgeMaterialArrays
-from app.domain.evaluation import StaticEdgeScoreMatrix
+from app.domain.road_network import RoadNetwork
 from app.infrastructure import cache_identity as ci
 
 
@@ -20,25 +19,24 @@ def _with_extra_column(source: type) -> type:
 
 class TestShapeDigest:
     def test_adding_a_column_changes_the_digest(self):
-        # pickleは状態を列の位置で持つため、列が1つ増えたコードが古いキャッシュを復元すると
-        # 最後の列が設定されないまま実体化し、最初にその列へ触れた場所でAttributeErrorになる。
-        for table in (EdgeMaterialArrays, StaticEdgeScoreMatrix):
-            assert ci.shape_digest(table) != ci.shape_digest(_with_extra_column(table))
+        # 道路網の置き場は列ごとのファイルを列名で読むため、列が1つ増えたコードが古い置き場を
+        # 選ぶと、その列のファイルが無いまま読みに行く。
+        assert ci.shape_digest(RoadNetwork) != ci.shape_digest(_with_extra_column(RoadNetwork))
 
     def test_reordering_columns_changes_the_digest(self):
         reordered = dataclasses.make_dataclass(
             "Reordered",
-            [(f.name, object) for f in reversed(dataclasses.fields(EdgeMaterialArrays))],
+            [(f.name, object) for f in reversed(dataclasses.fields(RoadNetwork))],
             frozen=True, slots=True)
 
-        assert ci.shape_digest(EdgeMaterialArrays) != ci.shape_digest(reordered)
+        assert ci.shape_digest(RoadNetwork) != ci.shape_digest(reordered)
 
     def test_changing_the_sql_changes_the_digest(self):
         assert ci.shape_digest("SELECT a FROM t") != ci.shape_digest("SELECT a, b FROM t")
 
     def test_the_same_shape_gives_the_same_digest(self):
         # 鍵が安定しないと、内容が変わっていないのにデプロイのたびに冷パスを踏む。
-        assert ci.shape_digest(EdgeMaterialArrays) == ci.shape_digest(EdgeMaterialArrays)
+        assert ci.shape_digest(RoadNetwork) == ci.shape_digest(RoadNetwork)
 
     def test_sources_are_separated(self):
         # 区切り無しで連結すると、("ab", "c")と("a", "bc")が同じ鍵になる。

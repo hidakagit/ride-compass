@@ -24,7 +24,6 @@ from typing import Any
 import numpy as np
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from app.domain.graph import LeanEdge, edge_key
 from app.domain.road_network import RoadNetwork
 from app.infrastructure.cache_identity import shape_digest
 from app.infrastructure.road_graph_repository import NETWORK_SQL_SOURCES, RoadGraphRepository
@@ -295,7 +294,7 @@ def _rows_of(sorted_ids: np.ndarray, ids: np.ndarray) -> tuple[np.ndarray, np.nd
 async def _read_materials(
     repository: RoadGraphRepository, way: np.ndarray, segment: np.ndarray, forward: np.ndarray
 ) -> dict[str, Any]:
-    """材料は範囲指定の読み出しと同じ`get_edge_material_arrays`で引く（材料の式を2か所に持たない）。
+    """材料は`get_edge_material_arrays`で引く（式はタイル配信・軸スタジオと同じ`material_sql`の断片で、2か所に持たない）。
 
     書き込み先の配列を先に確保し、区間の束ごとに埋める——束ごとの配列を最後に連結すると、
     全体ぶんを2度持つ瞬間ができる。
@@ -307,12 +306,8 @@ async def _read_materials(
     ids: dict[str, tuple[str, ...]] = {}
     for start in range(0, edge_count, _MATERIAL_BATCH):
         stop = min(start + _MATERIAL_BATCH, edge_count)
-        batch = [
-            LeanEdge(edge_id=edge_key(int(w), int(s), bool(f)), from_node_id="", to_node_id="", geometry=[],
-                     distance_m=0.0, osm_way_id=int(w), segment_index=int(s), forward=bool(f))
-            for w, s, f in zip(way[start:stop], segment[start:stop], forward[start:stop], strict=True)
-        ]
-        materials = await repository.get_edge_material_arrays(batch, accident_years_covered)
+        materials = await repository.get_edge_material_arrays(
+            way[start:stop].tolist(), segment[start:stop].tolist(), forward[start:stop].tolist(), accident_years_covered)
         if not arrays:
             ids = {"numeric_ids": materials.numeric_ids, "boolean_ids": materials.boolean_ids,
                    "categorical_ids": materials.categorical_ids, "hard_filter_ids": materials.hard_filter_ids}

@@ -49,7 +49,7 @@ RideCompassのログはRender（本番）のログストリームだけで障害
   正しく計上される（`fields["lookup"]`等resultを避ける専用フィールド名にして集計自体を
   諦める必要はない）。あわせて`fields["error_type"] = error_type_label(exc)`も設定し、
   `error_types`集計が`"unknown"`一色にならないようにする。
-- **例外（`log_external_call`を使わないキャッシュ）**: `infrastructure/search_graph_cache.py`
+- **例外（`log_external_call`を使わないキャッシュ）**: `infrastructure/detour_ratio_cache.py`
   （プロセス内メモリのみのLRU）は、外部I/O自体を持たず失敗しうる経路が無いため対象外。
   `tile_persistent_cache.py`（ディスクI/O、失敗しうる）は`log_external_call`を経由せず専用loggerで
   直接「成功DEBUG・失敗WARNING常時」の同じ方針を実装している——呼び出し元

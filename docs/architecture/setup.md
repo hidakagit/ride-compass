@@ -103,8 +103,10 @@ curl -X POST http://localhost:8000/api/routes/generate -H "Content-Type: applica
   -d '{"latitude":35.7597,"longitude":139.7387,"distance_km":15,"distance_tolerance_km":5,"route_type":"loop"}'
 ```
 
-対象エリアが取込範囲の外なら候補0件になる。範囲内でも、タイル材料のキャッシュが冷えている
-（初回・派生データの作り直し直後）とDBからの読み出しが乗り、数十秒以上かかることがある。
+対象エリアが取込範囲の外なら候補0件になる。範囲内でも、道路網全体の配列の置き場
+（`backend/data/road_network/`）が今のコードの形で無いと生成は失敗する。置き場はDBを書くバッチ
+（取込・派生・`scripts/bootstrap_database.py`）の最後に作られ、材料の式を変えたコードへ
+切り替えたときは`python scripts/build_road_network.py`で作り直す（DBから数分）。
 レート制限・同時実行数の上限に達すると429が返る。
 
 **`.env`を変えたらプロセスを止めて起動し直す。** `uvicorn --reload`はPythonファイルの変更は

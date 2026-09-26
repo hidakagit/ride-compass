@@ -28,10 +28,9 @@ def bound_values(source: object) -> list[tuple[str, str]]:
 def shape_digest(*sources: object) -> str:
     """形の署名。dataclassは列名の並び、それ以外は文字列化した内容とバインド済みの値で決まる。
 
-    dataclassを列名の並びで署名するのは、pickleが状態を**列の位置**で持つため
-    （`dataclasses._dataclass_setstate`がfieldsとstateをzipする）。列を足す・消す・
-    並べ替えると、古いキャッシュを復元したときに後ろの列が欠けたまま実体化し、最初に
-    その列へ触れた場所でAttributeErrorになる。
+    dataclassを列名で署名するのは、道路網の置き場（`road_network_store.py`）が列ごとの
+    ファイルを列名で読み書きするため。列を足す・消す・改名したコードが古い置き場を選ぶと、
+    足した列のファイルが無いまま読みに行く。
     """
     parts = []
     for source in sources:

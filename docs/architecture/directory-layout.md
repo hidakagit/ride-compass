@@ -27,8 +27,8 @@ CI・フック・開発環境の用意のスクリプト）。
   鍵の組み立ては`cache_identity.py`が唯一の正本。
 - **`batch/`**: 外部ソースの取込（`ingest*`・`source_adapters/`）と派生の生成
   （`derive_*`）。**実行順は`derive_cli.py`だけが持つ**。書き込みに成功したバッチは
-  `derived_data_meta.revision`（DB）を進め、backendのディスクキャッシュがこれに追随する
-  ——バッチはデプロイを伴わないため、コード内の定数では表せない。
+  `derived_data_meta.revision`（DB）を進め、道路網全体の配列の置き場と配信する地図タイルの
+  世代がこれに追随する——バッチはデプロイを伴わないため、コード内の定数では表せない。
 
 スキーマは`infrastructure/`のORM宣言から`create_tables()`が作る。`backend/scripts/`は
 運用・生成スクリプトで、`export_openapi.py`がfrontend向けの生成物を書き出し、

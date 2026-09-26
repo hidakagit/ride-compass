@@ -53,11 +53,13 @@ def coords(latitude, longitude):
     return Coordinates(latitude=latitude, longitude=longitude)
 
 
-def lean_edge(edge_id, from_node_id="n0", to_node_id="n1", *, distance_m=100.0, geometry=None, **fields):
-    """探索用グラフの区間と同じく、`geometry`を省くと空のプレースホルダになる。"""
+def lean_edge(edge_id, from_node_id="n0", to_node_id="n1", *, distance_m=100.0, geometry=None):
+    """探索用グラフの区間と同じく、`geometry`を省くと空のプレースホルダになる。DBの区間の番号は
+    ここを通るテストが読まないため、どの区間にも同じ値を入れる。"""
     return LeanEdge(
         edge_id=edge_id, from_node_id=from_node_id, to_node_id=to_node_id,
-        geometry=[] if geometry is None else geometry, distance_m=distance_m, **fields,
+        geometry=[] if geometry is None else geometry, distance_m=distance_m,
+        osm_way_id=1, segment_index=0, forward=True,
     )
 
 

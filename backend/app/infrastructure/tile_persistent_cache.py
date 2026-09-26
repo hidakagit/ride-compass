@@ -2,8 +2,7 @@
 （保持層の選び方・無効化の方針は docs/conventions/caching.md）。
 
 保存の実体は`diskcache`（SQLite＋ファイル）で、32KBを超える値はライブラリがファイルへ、
-以下はSQLite内へ格納する。シリアライズはpickle（`diskcache`の既定）——対象はPydantic
-モデル・frozen dataclass・numpy配列が混在する構造でJSON化に適さない。
+以下はSQLite内へ格納する。シリアライズはpickle（`diskcache`の既定）。
 
 世代・失効は鍵と`expire`で呼び出し側が表す。容量上限を超えればライブラリが古いものから退避する。
 """
