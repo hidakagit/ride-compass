@@ -54,6 +54,14 @@ class TestDistribution:
             for v in values:
                 assert _bins_cover(result.bins, v), f"{v}がどの階級にも入らない（{values}）"
 
+    def test_outliers_above_the_drawn_range_land_in_the_last_bin(self):
+        # 描画範囲はp99の少し上まで。その外の延長も割合から落とさない。
+        pairs = [(100.0, 1.0)] * 99 + [(50.0, 1000.0)]
+        result = _distribution(pairs)
+        assert result.bins[-1][1] < 1000.0
+        assert result.bins[-1][2] == pytest.approx(50.0 / 9950.0, abs=1e-5)
+        assert sum(b[2] for b in result.bins) == pytest.approx(1.0, abs=1e-4)
+
     def test_quantiles_and_bins_agree_on_sign(self):
         # 分位が負を返しているのにヒストグラムが正の範囲しか持たない、という
         # 画面上で矛盾する2つの数字が出ないこと。

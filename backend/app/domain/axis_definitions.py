@@ -628,9 +628,11 @@ def _topological_axis_order_cache_key(
 def topological_axis_order(definitions: dict[str, AxisDefinition]) -> list[str]:
     """軸を「依存先（参照される軸）が先」の順序に並べ替える（深さ優先探索による
     トポロジカルソート）。循環参照があれば`AxisDependencyCycleError`を
-    送出する。依存を持たない軸同士の相対順序は`definitions`の挿入順を保つ（Neumaier加算の
-    ビット一致要件——3次合成の対象は公開軸のみだが、軸単位のdifficulty
-    計算自体の再現性のため安定ソートにする）。
+    送出する。どの軸からも参照されない軸（公開軸）同士の相対順序は`definitions`の挿入順
+    （`sort_order`）を保つ——公開軸だけに絞ったこの並びが静的スコア行列の列の並びで、
+    合成（`difficulty.py`のNeumaier加算）の加算順になる。標準ライブラリの
+    `graphlib.TopologicalSorter`は準備のできた軸から幅優先で出すため、内部軸を参照する
+    公開軸が参照しない公開軸の後ろへ回り、この順序を保たない。
 
     スカラー評価がEdge単位（1ルート候補あたり
     最大数百回）で呼ぶホットパスのため、結果をプロセス内メモリでメモ化する。キーは

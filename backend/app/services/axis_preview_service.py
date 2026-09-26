@@ -17,6 +17,7 @@ import logging
 from dataclasses import dataclass
 from typing import SupportsFloat, cast
 
+import numpy as np
 from cachetools import TTLCache
 
 from app.domain.axis_definitions import AxisShape, raw_values, referenced_materials
@@ -76,23 +77,13 @@ async def load_way_sample(
 def weighted_quantiles(
     pairs: list[tuple[float, float]], targets: list[tuple[str, float]], digits: int
 ) -> dict[str, float]:
-    """`(延長m, 値)`から延長で重み付けた分位点を返す。`targets`は比率の昇順であること。"""
+    """`(延長m, 値)`から延長で重み付けた分位点を返す（累積の延長の割合が初めて比率に達する値）。"""
     if not pairs:
         return {}
-    total_m = sum(m for m, _ in pairs)
-    ordered = sorted(pairs, key=lambda p: p[1])
-    result: dict[str, float] = {}
-    acc = 0.0
-    index = 0
-    for length_m, value in ordered:
-        acc += length_m
-        while index < len(targets) and acc / total_m >= targets[index][1]:
-            result[targets[index][0]] = round(value, digits)
-            index += 1
-    while index < len(targets):
-        result[targets[index][0]] = round(ordered[-1][1], digits)
-        index += 1
-    return result
+    lengths, values = np.asarray(pairs, dtype=float).T
+    points = np.quantile(values, [q for _, q in targets], weights=lengths, method="inverted_cdf")
+    # `round`はnumpyの浮動小数へ当てると`np.round`になり、端数がちょうど`.x5`の値を別の側へ丸める。
+    return {name: round(float(point), digits) for (name, _), point in zip(targets, points, strict=True)}
 
 
 async def _load_sample(repository: RoadGraphRepository) -> list[tuple[float, dict[str, object]]]:
@@ -109,8 +100,8 @@ def _distribution(pairs: list[tuple[float, float]]) -> ValueDistribution:
     """`(長さm, 値)`から延長で重み付けた分布を組み立てる。"""
     if not pairs:
         return ValueDistribution(0, 0.0, {}, [], 0.0)
-    total_m = sum(m for m, _ in pairs)
-    ordered = sorted(pairs, key=lambda p: p[1])
+    lengths, values = np.asarray(pairs, dtype=float).T
+    total_m = float(lengths.sum())
     targets = [("p10", 0.10), ("p25", 0.25), ("p50", 0.50), ("p75", 0.75), ("p90", 0.90), ("p99", 0.99)]
     quantiles = weighted_quantiles(pairs, targets, digits=3)
 
@@ -118,28 +109,27 @@ def _distribution(pairs: list[tuple[float, float]]) -> ValueDistribution:
     # （termsの重みがすべて負の軸）で全サンプルが階級0へ潰れ、「1本だけの棒＝全量が
     # 同じ値」という実態と異なる分布になる。0は常に範囲へ含める（「値0の道がどれだけ
     # あるか」は折れ点を当てる際の基準になる）。
-    lower = min(0.0, ordered[0][1])
+    lower = min(0.0, float(values.min()))
     # 上端の外れ値でヒストグラムが潰れないよう、p99の少し上までを描画範囲にする
     # （下端側は分位を持たないためデータ下端をそのまま使う）。
-    upper = quantiles["p99"] * 1.2 if quantiles["p99"] > 0 else max(0.0, ordered[-1][1])
+    upper = quantiles["p99"] * 1.2 if quantiles["p99"] > 0 else max(0.0, float(values.max()))
     span = upper - lower
     if span <= 0:
         # 全サンプルが同じ値（かつ0）のとき。幅0だと除算できないため名目上の1を置く。
         span = 1.0
-        upper = lower + span
     width = span / HISTOGRAM_BINS
-    buckets = [0.0] * HISTOGRAM_BINS
-    for m, value in ordered:
-        i = min(HISTOGRAM_BINS - 1, int((value - lower) / width))
-        buckets[max(0, i)] += m
+    # 描画範囲の外（p99の上の外れ値）は端の階級へ寄せる。捨てると割合の合計が1に満たない。
+    indices = np.clip(((values - lower) / width).astype(int), 0, HISTOGRAM_BINS - 1)
+    buckets = np.bincount(indices, weights=lengths, minlength=HISTOGRAM_BINS)
+    edges = lower + np.arange(HISTOGRAM_BINS + 1) * width
     bins = [
-        (round(lower + i * width, 4), round(lower + (i + 1) * width, 4), round(b / total_m, 5))
-        for i, b in enumerate(buckets)
+        (round(float(low), 4), round(float(high), 4), round(float(b) / total_m, 5))
+        for low, high, b in zip(edges[:-1], edges[1:], buckets, strict=True)
     ]
     # 「ゼロ」は値がちょうど0であること。`v <= 0`にすると負の生値を持つ軸で
     # 「下り勾配の道」「開けていない道」まで0として数えられ、表示（「ゼロX%」）が
     # 意味と食い違う。
-    zero_share = sum(m for m, v in ordered if v == 0) / total_m
+    zero_share = float(lengths[values == 0].sum()) / total_m
     return ValueDistribution(
         sample_ways=len(pairs),
         total_km=round(total_m / 1000, 1),
