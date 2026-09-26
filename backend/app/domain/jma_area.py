@@ -1,19 +1,19 @@
-"""緯度経度→JMA警報エリアコードの解決。
+"""地点が属する区域（class20）から、JMA警報エリアの親子関係を解決する。
 
 JMA警報API（r8スキーマ）は府県予報区単位（例: 東京都全体）でしか個別に問い合わせられ
 ないが、レスポンス内の`class10Items`/`class20Items`は都道府県内の細分区域ごとに警報を
 持つ（例: 東京地方 vs 伊豆諸島北部 vs 小笠原諸島）。地点を正しい細分区域まで解決する
 ために、気象庁が公開する地域マスタ（area.json）の親子関係
 （class20=市区町村等 → class15 → class10=一次細分区域 → offices=府県予報区）を辿る。
-
-class20のエリアコードは、国土地理院リバースジオコーダが返すJIS市区町村コード（5桁）の
-末尾に"00"を付けたものと一致する（公式仕様書に明記は無く、実データの突合から導いた規則）。
-これにより、GSIの市区町村名と気象庁の地域名を文字列突合する必要がない。
+地点→class20は区域の境界（`infrastructure/jma_area_boundaries.py`）が引く。
 """
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
+
+logger = logging.getLogger("ridecompass.jma_area")
 
 
 @dataclass(frozen=True)
@@ -24,21 +24,17 @@ class ResolvedArea:
     class10_name: str
 
 
-def municipality_code_to_class20_code(muni_cd: str) -> str:
-    return f"{muni_cd}00"
-
-
-def resolve_area(muni_cd: str, area_data: dict) -> ResolvedArea | None:
-    """area.json（気象庁の地域マスタ）を使い、JIS市区町村コードからJMA警報エリア
-    （class20/class10/office）を解決する。muni_cdがarea.jsonのclass20に存在しない
-    （例: 海外・データ不整合）場合はNoneを返す。"""
+def resolve_area(class20_code: str, area_data: dict) -> ResolvedArea | None:
+    """area.json（気象庁の地域マスタ）を使い、区域のコードからJMA警報エリア
+    （class20/class10/office）を解決する。辿れなければNoneを返す。"""
     class20s = area_data.get("class20s", {})
     class15s = area_data.get("class15s", {})
     class10s = area_data.get("class10s", {})
 
-    class20_code = municipality_code_to_class20_code(muni_cd)
     class20 = class20s.get(class20_code)
     if class20 is None:
+        # 区域の境界と地域マスタは別々に配られるため、片方だけが区域の変更に追いついていると起きる。
+        logger.warning("区域の境界が返したコードが地域マスタ(area.json)に無い class20=%s", class20_code)
         return None
 
     # class15→class10まで親を辿る。区域によってはclass20の親が既にclass10自身になっている

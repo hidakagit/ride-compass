@@ -1016,7 +1016,7 @@ CSSの規則が当たる。開くたびに作り直される部品（ポップ�
 | `fake_tile_http.py` | `FakeResponse`・`FakeHttpClient` | タイル・バイナリをそのまま通すクライアント（`get(url)`だけを呼ぶもの） |
 | `fake_api_http.py` | 同名2つ＋`FailingHttpClient`・`HttpStatusErrorHttpClient` | `simple_api_client`経由でJSON/CSVを引くクライアント（`get(url, params, timeout)`） |
 | `admin_auth.py` | `AUTH_HEADERS`・`basic_auth_header()` | 管理画面API。認証情報を入れるのは`conftest.py`の`admin_credentials`フィクスチャ |
-| `jma_area_fixtures.py` | 区域コード階層のサンプル＋`patch_area_lookup()` | 緯度経度→市区町村コード→area.jsonの順に引くサービス |
+| `jma_area_fixtures.py` | 区域コード階層のサンプル＋`patch_area_lookup()`（区域の境界は`tmp_path`へ書いた本物を読む） | 緯度経度→区域の境界→area.jsonの順に引くサービス |
 | `bound_fake.py` | `bound(本物, フェイク)` | 関数を差し替えるとき、引数を読まないフェイク（`lambda *a: 値`）を本物の署名へ当てる |
 | `axis_system_fixture.py` | `axis_definition()`・`replaced_axis_definitions()`・`axis_definitions_snapshot()` | 軸の中身が主題でないテストの軸を作り、`AXIS_DEFINITIONS`へ流し込む。shapeそのものを見るテストは自分で組み立てる |
 

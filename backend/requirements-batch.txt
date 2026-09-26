@@ -1,6 +1,8 @@
-# 取込バッチ（app/batch/source_adapters/）だけが使う追加依存。
+# 取込バッチ（app/batch/source_adapters/）と取得スクリプト（scripts/fetch_*.py）だけが使う追加依存。
 # webの応答経路は読まないため分けてあるが、**イメージには入れる**——バッチは本番の
 # コンテナの中で動く（DBを立ち上げ直すのも、外部ソースを取り込むのもそこ）。
 -r requirements.txt
 osmium==4.1.1
 pyproj==3.7.2
+# 気象庁の区域の境界（シェープファイル）を読む。取得スクリプト（scripts/fetch_jma_area_boundaries.py）だけが使う。
+pyshp==3.1.6

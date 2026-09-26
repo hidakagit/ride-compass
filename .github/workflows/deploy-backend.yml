@@ -100,7 +100,7 @@ jobs:
               ridecompass-backend:latest \
               python -c "import app.main"
             # backend/data配下（DEM・基礎地図のタイルキャッシュ・way_id別の動的値のディスク
-            # キャッシュ・道路網全体の配列の置き場）はコンテナの書き込み可能レイヤーに置かれ、
+            # キャッシュ・道路網全体の配列・警報の区域の境界の置き場）はコンテナの書き込み可能レイヤーに置かれ、
             # ボリュームマウントが無いとdocker rm時に消える。ホスト側ディレクトリへマウントして
             # デプロイをまたいで残す。
             sudo mkdir -p /home/ubuntu/ridecompass-cache-data
@@ -129,6 +129,18 @@ jobs:
               --env-file /home/ubuntu/ridecompass-backend.env \
               ridecompass-backend:latest \
               python scripts/fetch_lulc_raster.py
+            # 警報・洪水予報の区域を引く境界（気象庁の区域の境界データ）の取得。今のコードが指す版が
+            # 既にあれば何もしないため、実際に効くのは初回と、コードが版を上げたときだけ（取得と変換で
+            # 数分）。ラスタと同じく旧コンテナを止めるより前に置き、落ちたら止める——境界無しで起動
+            # すると警報・洪水予報だけが黙って出なくなる。上限付きにするのは、変換が元の境界全体
+            # （開発機の実測でピーク約660MB）を読むため。
+            sudo docker run --rm \
+              --network=host \
+              --memory=2g --memory-swap=2g \
+              -v /home/ubuntu/ridecompass-cache-data:/app/data \
+              --env-file /home/ubuntu/ridecompass-backend.env \
+              ridecompass-backend:latest \
+              python scripts/fetch_jma_area_boundaries.py
             # 取込範囲全体の道路網の配列（ルート生成が読む）。今の世代・今のコードの形の
             # 置き場が既にあれば何もしない。材料の式を変えたコードでは作り直しに数分かかる
             # ため、**旧コンテナを止めるより前に置く**——その間も旧コンテナは古い置き場で動く。

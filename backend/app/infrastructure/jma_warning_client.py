@@ -1,6 +1,6 @@
-"""JMA警報・注意報API、地域マスタ(area.json)、国土地理院逆ジオコーダのクライアント。
+"""JMA警報・注意報API、地域マスタ(area.json)のクライアント。
 
-いずれも更新頻度が低い（area.jsonは行政区画変更でしか変わらず、
+どちらも更新頻度が低い（area.jsonは行政区画変更でしか変わらず、
 警報自体も分単位では動かない）ため、429前提の再試行は設けない。取得失敗はNoneを返し、呼び出し元
 （warning_service.py）が「警報なし」として扱う（安全側ではない既知のトレードオフを
 WBGTと共有する）。
@@ -11,50 +11,22 @@ from cachetools import TTLCache
 
 from app.infrastructure.simple_api_client import cached_fetch
 
-GSI_REVERSE_GEOCODER_URL = "https://mreversegeocoder.gsi.go.jp/reverse-geocoder/LonLatToAddress"
 JMA_AREA_JSON_URL = "https://www.jma.go.jp/bosai/common/const/area.json"
 JMA_WARNING_URL_TEMPLATE = "https://www.jma.go.jp/bosai/warning/data/r8/{office_code}.json"
-
-# 緯度経度→市区町村は数百m単位でしか変わらないため、天候(2桁丸め)よりやや細かく丸める。
-_MUNI_CACHE_PRECISION = 3
-_MUNI_CACHE_TTL_SECONDS = 24 * 60 * 60
 
 # area.jsonは行政区画変更でしか変わらない静的に近いデータのため長いTTL。
 _AREA_DATA_CACHE_TTL_SECONDS = 24 * 60 * 60
 
-# 警報は数分〜数十分単位で更新されうるため、他の2つより短いTTL。
+# 警報は数分〜数十分単位で更新されうるため、area.jsonより短いTTL。
 _WARNING_CACHE_TTL_SECONDS = 10 * 60
 
 REQUEST_TIMEOUT = httpx.Timeout(connect=3.0, read=5.0, write=5.0, pool=5.0)
 
-# maxsizeは実運用で想定されるキー数（市区町村約1,700・府県予報区約50）に十分な余裕を
-# 持たせた上限（LRU的なサイズ超過退避が実質発生しない値。TTL切れによる鮮度管理が主）。
-_muni_code_cache: TTLCache = TTLCache(maxsize=4096, ttl=_MUNI_CACHE_TTL_SECONDS)
+# maxsizeは実運用で想定されるキー数（府県予報区約50）に十分な余裕を持たせた上限
+# （LRU的なサイズ超過退避が実質発生しない値。TTL切れによる鮮度管理が主）。
 _area_data_cache: TTLCache = TTLCache(maxsize=1, ttl=_AREA_DATA_CACHE_TTL_SECONDS)
 _warning_cache: TTLCache = TTLCache(maxsize=256, ttl=_WARNING_CACHE_TTL_SECONDS)
 _AREA_DATA_CACHE_KEY = "area"
-
-
-async def fetch_municipality_code(client: httpx.AsyncClient, lat: float, lon: float) -> str | None:
-    """国土地理院の逆ジオコーダで緯度経度→JIS市区町村コード（5桁）を引く。"""
-    key = (round(lat, _MUNI_CACHE_PRECISION), round(lon, _MUNI_CACHE_PRECISION))
-
-    async def fetch() -> str | None:
-        response = await client.get(GSI_REVERSE_GEOCODER_URL, params={"lat": lat, "lon": lon}, timeout=REQUEST_TIMEOUT)
-        response.raise_for_status()
-        data = response.json()
-        return data.get("results", {}).get("muniCd")
-
-    return await cached_fetch(
-        "weather:gsi-reverse-geocode",
-        fetch,
-        cache=_muni_code_cache,
-        key=key,
-        # 逆ジオコーダが`results`の形を変えても、天候の応答ごと落とさない。
-        catch=(httpx.HTTPError, ValueError, AttributeError),
-        lat=key[0],
-        lon=key[1],
-    )
 
 
 async def fetch_area_data(client: httpx.AsyncClient) -> dict | None:

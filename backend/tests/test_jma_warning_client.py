@@ -1,5 +1,4 @@
-"""`infrastructure/jma_warning_client.py`——JMA警報電文・地域マスタ(area.json)・
-国土地理院逆ジオコーダの取得。
+"""`infrastructure/jma_warning_client.py`——JMA警報電文・地域マスタ(area.json)の取得。
 
 ここで見ないもの:
 - キャッシュ参照・形の検査・例外をNoneへ倒す骨格 → `test_simple_api_client.py`
@@ -10,7 +9,7 @@ import pytest
 from cachetools import TTLCache
 
 from app.infrastructure import jma_warning_client
-from tests.fake_api_http import FailingHttpClient, FakeHttpClient, HttpStatusErrorHttpClient
+from tests.fake_api_http import FakeHttpClient, HttpStatusErrorHttpClient
 
 
 @pytest.fixture(autouse=True)
@@ -20,41 +19,6 @@ def _clear_module_caches():
     for value in vars(jma_warning_client).values():
         if isinstance(value, TTLCache):
             value.clear()
-
-
-async def test_municipality_code_reads_muni_cd():
-    client = FakeHttpClient({"results": {"muniCd": "13101"}})
-
-    assert await jma_warning_client.fetch_municipality_code(client, 35.6812, 139.7671) == "13101"
-    assert client.last_params == {"lat": 35.6812, "lon": 139.7671}
-
-
-async def test_municipality_code_without_results_returns_none():
-    client = FakeHttpClient({})
-
-    assert await jma_warning_client.fetch_municipality_code(client, 35.6812, 139.7671) is None
-
-
-async def test_municipality_code_from_non_mapping_payload_returns_none():
-    """逆ジオコーダが`results`の形を変えても、天候の応答ごと落とさない。"""
-    client = FakeHttpClient([{"muniCd": "13101"}])
-
-    assert await jma_warning_client.fetch_municipality_code(client, 35.6812, 139.7671) is None
-
-
-async def test_municipality_code_connection_failure_returns_none():
-    assert await jma_warning_client.fetch_municipality_code(FailingHttpClient(), 35.6812, 139.7671) is None
-
-
-async def test_municipality_code_cache_key_rounds_to_three_decimals():
-    client = FakeHttpClient({"results": {"muniCd": "13101"}})
-
-    await jma_warning_client.fetch_municipality_code(client, 35.68123, 139.76712)
-    await jma_warning_client.fetch_municipality_code(client, 35.68149, 139.76748)
-    assert client.call_count == 1
-
-    await jma_warning_client.fetch_municipality_code(client, 35.68250, 139.76712)
-    assert client.call_count == 2
 
 
 async def test_area_data_is_cached_across_calls():

@@ -19,8 +19,8 @@
 
 「外部データソース」は、取込バッチ・backendの実行時・frontendのいずれかが**ネットワーク越しに
 取得するデータの提供元**すべてを指す。取込アダプタ（`backend/app/batch/source_adapters/`の
-`@register_adapter`）だけでは足りない——実行時に取りに行くもの（気象・防災・基礎地図・
-逆ジオコーダ等）はアダプタを持たない。棚卸しはコードに現れる外部ホストから取る:
+`@register_adapter`）だけでは足りない——実行時に取りに行くもの（気象・防災・基礎地図等）と、
+取得スクリプトだけが取りに行くもの（警報の区域の境界等）はアダプタを持たない。棚卸しはコードに現れる外部ホストから取る:
 
 ```bash
 git grep -h -o -E "https?://[a-zA-Z0-9.-]+" -- backend/app backend/scripts frontend/src | sort -u
@@ -35,7 +35,7 @@ git grep -h -o -E "https?://[a-zA-Z0-9.-]+" -- backend/app backend/scripts front
 |---|---|---|---|---|---|---|
 | OpenStreetMap（Geofabrikの抽出PBF） | `backend/scripts/fetch_osm_pbf.py`、アダプタ`osm_pbf_way`・`osm_pbf_node` | ODbL 1.0 | 可 | 「© OpenStreetMap contributors」と、ODbLで提供されている旨（`/copyright`へのリンクで可）。DBそのものを配布するなら同じライセンスで出す義務がある | [copyright](https://www.openstreetmap.org/copyright) | 2026-09-23 |
 | 地理院タイル（標高タイル・色別標高図） | アダプタ`gsi_dem_tile`、`backend/app/batch/dem_tile_store.py`、`backend/app/infrastructure/gsi_tile_client.py` | 国土地理院コンテンツ利用規約（公共データ利用規約PDL1.0準拠） | 可 | 出典（「地理院タイル」＋一覧ページへのリンク）。加工した場合は出典とは別に**加工した旨**。アプリからの実時間読み込みは申請不要 | [利用規約](https://www.gsi.go.jp/kikakuchousei/kikakuchousei40182.html)・[タイル一覧](https://maps.gsi.go.jp/development/ichiran.html) | 2026-09-23 |
-| 国土地理院 逆ジオコーダ（`mreversegeocoder`） | `backend/app/infrastructure/jma_warning_client.py`（警報・洪水予報の区域を引く） | **公式の文書では決まらない**——APIとしての利用規約が無い。「自分のシステムへ組み込んでよいか」という問いへの国土地理院の回答（よくあるご質問）は、禁止はせず、主に地理院地図からの利用を想定している・常に長期に提供するとは限らない・仕様は予告なく変わる、と書くだけで、商用利用には触れていない。代わりの手段として東京大学CSISのシンプルジオコーディングを挙げている | 要確認 | 要確認 | [gsimaps README](https://github.com/gsi-cyberjapan/gsimaps)・[よくあるご質問](https://github.com/gsi-cyberjapan/gsimaps/issues/29) | 2026-09-26 |
+| 気象庁 予報区等GISデータ（「市町村等（気象警報等）」の区域の境界） | `backend/scripts/fetch_jma_area_boundaries.py`（取得・変換）、`backend/app/infrastructure/jma_area_boundaries.py`（警報・洪水予報の区域を引く） | 配布ページが「気象庁ホームページの利用規約を遵守」と明記し、その規約（PDL1.0準拠）に従う。GISデータについての別段の定めは規約に無い。境界は簡略化して使う（加工に当たる） | 可 | 出典＋**加工した旨**（規約の記載例: 「気象庁『図・写真等の名称』（当該ページのURL）を加工して作成」） | [予報区等GISデータ](https://www.data.jma.go.jp/developer/gis.html)・[利用規約](https://www.jma.go.jp/jma/kishou/info/coment.html) | 2026-09-27 |
 | 交通事故統計オープンデータ（警察庁） | `backend/scripts/fetch_accident_csv.py`、アダプタ`npa_honhyo` | 警察庁ウェブサイト利用規約（PDL1.0準拠） | 可 | 出典＋**加工した旨** | [利用規約](https://www.npa.go.jp/rules/index.html) | 2026-09-23 |
 | 10m Annual Land Use Land Cover（Impact Observatory・Microsoft・Esri） | アダプタ`io_lulc_tile`、`backend/scripts/fetch_lulc_raster.py` | CC BY 4.0 | 可 | 作成者の表示 | [AWS Open Data Registry](https://registry.opendata.aws/io-lulc/) | 2026-09-23 |
 | 基礎地図（OpenFreeMap） | `backend/app/infrastructure/basemap_client.py` | 無料・登録不要・利用回数の制限なし（データはOSM、スキーマはOpenMapTiles） | 可 | 「OpenFreeMap © OpenMapTiles Data from OpenStreetMap」（MapLibreは配信元のTileJSONから自動で出す） | [openfreemap.org](https://openfreemap.org/) | 2026-09-23 |

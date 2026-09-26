@@ -29,8 +29,9 @@ MSMは数値予報モデルの出力で観測値・公式発表の代わりに�
 |---|---|
 | domain | `msm.py`（MSM格子の幾何・双一次補間）・`jma_tile_specs.py`（配信元の要素ごとの仕様レジストリ。パスの系統・ズーム・ベクタのレイヤー名・時刻一覧の読み方と、系統ごとの時刻一覧の更新間隔）・`weather_elements.py`（動的気象で地図に描くものの宣言。要素ごとに、選んだ時刻に描くコマの規則と、自前の格子から描くなら読む値も持つ。画面へは生成物で届き、本番プロセスではプリウォームが温める要素をここから導く。**本番が読むため**、本番が読まない表示値の宣言`map_display.py`とは別のファイルに置く——デプロイの要否はファイル単位で決まる）・`weather.py`・`jma_amedas.py`・`jma_area.py`・`jma_warning.py`・`wbgt.py`・`wbgt_points.py`・`twilight.py`・`flood_forecast.py`・`terrain_rgb.py`（標高タイルのエンコード変換、純関数）・`gsi_tiles.py`（国土地理院タイルの製品ごとの事実——実データを持つズーム範囲・上流のパス・出典表記。中継ルートと画面へ配るURLもここから導く）・`weather_display.py`（気象の値を色へ写す段と、天気コードの分類と名前。段は値の昇順でなければ読み込んだ時点で落とす——画面はこの順のまま塗り分けの式を組み、MapLibreの`step`式は昇順でないと式ごと失敗してレイヤーが黙って消える。**本番プロセスは読まず**、`scripts/export_openapi.py`の生成物を経由してだけ画面へ届く）・`warning_display.py`（警戒度バッジの出所ごとの段階の呼び名と色。暑さ指数・氾濫の呼び名はそれぞれの段階の宣言から読む。本番プロセスは読まず、生成物`vocabulary.ts`だけが届く） |
 | services | `weather_service.py`・`jma_amedas_service.py`・`wbgt_service.py`・`warning_service.py`・`flood_service.py`・`jma_tile_prewarm_service.py`（定期プリウォームバッチ）・`terrain_tile_service.py`（地理院の標高タイルをTerrain-RGBへ変換して配信） |
-| infrastructure | `msm_client.py`（MSMの同期・読み出し）・`jma_tile_client.py`・`jma_tile_redis_cache.py`（タイル本体のRedis cache-aside）・`jma_tile_interpolation.py`（配信元が持たないズームの補間）・`jma_tile_index.py`（在否インデックス）・`jma_tile_content.py`（タイルが空かどうかの判定。キャッシュと在否インデックスが共有する）・`jma_amedas_client.py`・`jma_warning_client.py`・`wbgt_client.py`・`flood_client.py`・`basemap_client.py`・`gsi_tile_client.py`・`simple_api_client.py`（後者4クライアントが共有する定型文、後述） |
+| infrastructure | `msm_client.py`（MSMの同期・読み出し）・`jma_tile_client.py`・`jma_tile_redis_cache.py`（タイル本体のRedis cache-aside）・`jma_tile_interpolation.py`（配信元が持たないズームの補間）・`jma_tile_index.py`（在否インデックス）・`jma_tile_content.py`（タイルが空かどうかの判定。キャッシュと在否インデックスが共有する）・`jma_amedas_client.py`・`jma_warning_client.py`・`wbgt_client.py`・`flood_client.py`・`basemap_client.py`・`gsi_tile_client.py`・`simple_api_client.py`（後者4クライアントが共有する定型文、後述）・`jma_area_boundaries.py`（地点→区域のコード。気象庁の区域の境界をディスクから読む、後述） |
 | api | `weather.py`・`jma_tile.py`・`basemap.py`・`gsi_tile.py` |
+| scripts | `fetch_jma_area_boundaries.py`（気象庁の区域の境界を取得し、`jma_area_boundaries.py`が読む形で置く。デプロイが呼ぶ） |
 
 ## domain層: 2つの異なる役割
 
@@ -38,7 +39,7 @@ MSMは数値予報モデルの出力で観測値・公式発表の代わりに�
 |---|---|---|
 | `weather.py` | 天候のPydanticモデル（`WeatherConditions`・`WeatherPeriodOutlook`）と、降水量・雲量・気温からWMO天気コードを導く`derive_weather_code`・アメダスの10分間の実測から同じコードを導く`derive_observed_weather_code`（「降っていない」の境`PRECIPITATION_MIN_MM`は、画面の予想降水量の「-」と地図の降水の塗りにも生成物で届く）（雨と雪の境・降水の強さの段は予報と共有する——常設ヘッダーと「今日の見通し」が同じ気温で雨と雪を違えて出さないため） | `weather_service.py`・`jma_amedas.py` |
 | `jma_amedas.py` | JMAアメダスの16方位コード変換（静穏・欠測・範囲外のコードは方位なし）・体感温度計算（BOM式）・`AmedasObservation`モデル（天気コード`weather_code`は保存した実測から応答のたびに導き、Redisには持たない） | `jma_amedas_service.py` |
-| `jma_area.py` | 緯度経度→JMA警報エリアコード（class20→class15→class10→office）の親子関係解決 | `warning_service.py`・`flood_service.py` |
+| `jma_area.py` | 区域（class20）のコード→JMA警報エリア（class20→class15→class10→office）の親子関係解決 | `warning_service.py`・`flood_service.py` |
 | `jma_warning.py` | JMA警報コード表・アクティブ警報抽出・警戒度の段（名称から導く。危険警報＝警戒レベル4は警報と特別警報の間の段で、氾濫危険警報と同じ段） | `warning_service.py` |
 | `wbgt.py` | WBGT警戒レベル判定（熱中症予防運動指針の5段階閾値）・提供期間判定・段階の表示名（`WBGT_LEVEL_LABELS`） | `wbgt_service.py`・`warning_display.py` |
 | `wbgt_points.py` | 緯度経度→最寄りWBGT情報提供地点（約840地点の総当たり最近傍探索） | `wbgt_service.py` |
@@ -288,7 +289,7 @@ URLも変わるため、ブラウザキャッシュ（`api/cache_policy.py`）�
   時点では決定できない）。
 
 - **`WarningService`**: 気象庁警報・注意報XML/JSONを地域コード（`ResolvedArea`）で解決。
-  地点→市区町村（GSI逆ジオコーダ）→JMA警報エリア（`jma_area.resolve_area`）→電文取得の
+  地点→区域（下の「警報の区域の境界」）→JMA警報エリア（`jma_area.resolve_area`）→電文取得の
   3段階すべてが失敗しうる箇所で、どこで失敗しても例外にせず空警報を返す。JMAは大雨・
   土砂災害・高潮・暴風/暴風雪・波浪・大雪・その他の注意報を別電文（VPWW55〜61）として
   発表するため、`_build_warnings`は電文配列全件を走査してcode単位で重複排除する。
@@ -302,6 +303,31 @@ URLも変わるため、ブラウザキャッシュ（`api/cache_policy.py`）�
 - **`FloodService`**: 河川洪水予報。`WarningService`と同じ`jma_area.resolve_area`を
   再利用して地点解決する。JMA洪水予報はstatus文字列ではなく`item.code`自体が発表/継続/
   解除/引き下げを区別する。`status != "通常"`（訓練・試験電文）は明示的に除外する。
+
+### 警報の区域の境界（`infrastructure/jma_area_boundaries.py`・`scripts/fetch_jma_area_boundaries.py`）
+
+地点が属する区域（area.jsonの`class20s`のキー）は、気象庁が「予報区等GISデータ」として配る
+「市町村等（気象警報等）」の境界から手元で引く。区域は市町村と1対1ではない——市町村を分割した
+区域（例: 仙台市東部・西部、奈良市西部・東部）があり、そのコードは市町村コードの末尾へ`00`を
+付けた形にならない。市町村コードから区域を組み立てる方式ではこうした区域を1つも引けないため、
+区域そのものの境界を持つ。
+
+| 項目 | 内容 |
+|---|---|
+| 配布元の版 | `jma_area_boundaries.SOURCE_URL`（配布ページの版ごとのzip。ファイル名が版を表す） |
+| 置き場 | `backend/data/jma_area/<版の名前>.json`（本番はホスト側へマウントされ、デプロイをまたいで残る）。区域のコード→境界（WKB） |
+| 作る時機 | `scripts/fetch_jma_area_boundaries.py`。置き場に今の版があれば何もしない。デプロイがコンテナを入れ替える前に毎回呼ぶので、本番で効くのは初回と版を上げたときだけ。開発機では手で1回打つ（打つまで警報・洪水予報は出ず、引くたびにWARNINGが出る） |
+| 変換 | 配布元のシェープファイルを読み、コードが空の図形（北方領土・帰属の決まっていない埋立地等）を落とし、区域ごとに許容誤差`SIMPLIFY_TOLERANCE_DEG`で簡略化する。元の頂点は1,400万を超え、そのままではbackendのメモリを数百MB使う（簡略化後は置き場のファイルが約66MB、読み込むと常駐が約80MB増え、読み込みに5〜10秒。開発機の実測） |
+| 引き方 | 含む区域を引き、無ければ`NEAREST_LIMIT_DEG`以内の最寄りの区域へ寄せる。簡略化で隣の区域との間に隙間ができるうえ、海岸の区域は岸壁・橋の上を含まないことがある。寄せる距離を超えて離れた地点（遠い海上）は区域なし |
+| 読み込み | 最初に引いたときにプロセス内へ1回だけ読む（イベントループの外で）。読めなければWARNINGを出して区域なしを返す |
+
+**版の上げ方**（区域の変更・市町村の合併）: 配布ページの更新履歴に「市町村等（気象警報等）」の
+更新が載ったら、`SOURCE_URL`を新しい版のzipへ書き換えてデプロイする。置き場の名前が変わるため
+デプロイが新しい版を取り直し、古い版のファイルは同じスクリプトが消す。区域の境界と地域マスタ
+（area.json、実行時に取得）は別々に配られるため、境界だけが古いと、境界が返したコードを地域マスタで
+辿れなくなる——このとき`jma_area.resolve_area`がWARNING（「地域マスタ(area.json)に無い」）を出す。
+配布ページは発表区域の変更の前に、変更後の版を「以降」の注記付きで先に置くことがある。版を
+選ぶときは注記の日付と、今の地域マスタのコードに合う版かを見る。
 
 ## レート制限（`config.py`）の設計方針
 
@@ -322,8 +348,8 @@ URLも変わるため、ブラウザキャッシュ（`api/cache_policy.py`）�
 検証）だけを渡す。フォーマット不正（配列であるべきなのにそうでない等）は
 `UnexpectedShapeError`（`ValueError`のサブクラス）を`fetch`内から送出すると、常に
 固定文字列`error_type="unexpected_shape"`として記録される。呼び出し元によって
-捕捉すべき例外の範囲が異なる（例: `fetch_municipality_code`は`AttributeError`も対象に
-含める）ため、`catch`引数で個別に指定できる。`jma_tile_client.py`/
+捕捉すべき例外の範囲が異なる（例: `.json()`を呼ばないアメダスの最新時刻は`httpx.HTTPError`だけを
+対象にする）ため、`catch`引数で個別に指定できる。`jma_tile_client.py`/
 `basemap_client.py`/`gsi_tile_client.py`（TTLCache以外のキャッシュバックエンド）は
 対象外のまま各自の実装を維持する。
 

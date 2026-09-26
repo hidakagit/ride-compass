@@ -1,37 +1,37 @@
 from app.services import flood_service
 from app.services.flood_service import FloodService
-from tests.jma_area_fixtures import CHIYODA_POINT, CLASS10_CODE, CLASS20_CODE, patch_area_lookup
+from tests.jma_area_fixtures import CHIYODA_POINT, CLASS10_CODE, CLASS20_CODE, OFFSHORE_POINT, patch_area_lookup
 
 
-def _patch(monkeypatch, **kwargs):
-    patch_area_lookup(monkeypatch, flood_service, "fetch_flood_documents", **kwargs)
+def _patch(monkeypatch, tmp_path, **kwargs):
+    patch_area_lookup(monkeypatch, tmp_path, flood_service, "fetch_flood_documents", **kwargs)
 
 
-async def test_get_forecasts_returns_empty_when_municipality_code_lookup_fails(monkeypatch):
-    _patch(monkeypatch, muni_cd=None)
+async def test_get_forecasts_returns_empty_when_the_point_is_in_no_area(monkeypatch, tmp_path):
+    _patch(monkeypatch, tmp_path)
+    result = await FloodService(http_client=None).get_forecasts(OFFSHORE_POINT)
+    assert result.forecasts == []
+
+
+async def test_get_forecasts_returns_empty_when_area_data_fetch_fails(monkeypatch, tmp_path):
+    _patch(monkeypatch, tmp_path, area_data=None)
     result = await FloodService(http_client=None).get_forecasts(CHIYODA_POINT)
     assert result.forecasts == []
 
 
-async def test_get_forecasts_returns_empty_when_area_data_fetch_fails(monkeypatch):
-    _patch(monkeypatch, area_data=None)
+async def test_get_forecasts_returns_empty_when_area_resolution_fails(monkeypatch, tmp_path):
+    _patch(monkeypatch, tmp_path, class20_code="9999900")
     result = await FloodService(http_client=None).get_forecasts(CHIYODA_POINT)
     assert result.forecasts == []
 
 
-async def test_get_forecasts_returns_empty_when_area_resolution_fails(monkeypatch):
-    _patch(monkeypatch, muni_cd="99999")
+async def test_get_forecasts_returns_empty_when_flood_documents_fetch_fails(monkeypatch, tmp_path):
+    _patch(monkeypatch, tmp_path, documents=None)
     result = await FloodService(http_client=None).get_forecasts(CHIYODA_POINT)
     assert result.forecasts == []
 
 
-async def test_get_forecasts_returns_empty_when_flood_documents_fetch_fails(monkeypatch):
-    _patch(monkeypatch, documents=None)
-    result = await FloodService(http_client=None).get_forecasts(CHIYODA_POINT)
-    assert result.forecasts == []
-
-
-async def test_get_forecasts_returns_matching_active_forecast(monkeypatch):
+async def test_get_forecasts_returns_matching_active_forecast(monkeypatch, tmp_path):
     documents = [
         {
             "status": "通常",
@@ -43,7 +43,7 @@ async def test_get_forecasts_returns_matching_active_forecast(monkeypatch):
             "class10Codes": [CLASS10_CODE],
         }
     ]
-    _patch(monkeypatch, documents=documents)
+    _patch(monkeypatch, tmp_path, documents=documents)
 
     result = await FloodService(http_client=None).get_forecasts(CHIYODA_POINT)
 
@@ -52,7 +52,7 @@ async def test_get_forecasts_returns_matching_active_forecast(monkeypatch):
     assert result.forecasts[0].badge_level == "severe_warning"
 
 
-async def test_get_forecasts_ignores_cleared_and_non_matching_and_test_operation_entries(monkeypatch):
+async def test_get_forecasts_ignores_cleared_and_non_matching_and_test_operation_entries(monkeypatch, tmp_path):
     documents = [
         # 解除済み（対象外）
         {
@@ -85,14 +85,14 @@ async def test_get_forecasts_ignores_cleared_and_non_matching_and_test_operation
             "class10Codes": [CLASS10_CODE],
         },
     ]
-    _patch(monkeypatch, documents=documents)
+    _patch(monkeypatch, tmp_path, documents=documents)
 
     result = await FloodService(http_client=None).get_forecasts(CHIYODA_POINT)
 
     assert result.forecasts == []
 
 
-async def test_get_forecasts_returns_multiple_rivers_when_both_match(monkeypatch):
+async def test_get_forecasts_returns_multiple_rivers_when_both_match(monkeypatch, tmp_path):
     documents = [
         {
             "status": "通常",
@@ -113,7 +113,7 @@ async def test_get_forecasts_returns_multiple_rivers_when_both_match(monkeypatch
             "class10Codes": [CLASS10_CODE],
         },
     ]
-    _patch(monkeypatch, documents=documents)
+    _patch(monkeypatch, tmp_path, documents=documents)
 
     result = await FloodService(http_client=None).get_forecasts(CHIYODA_POINT)
 
