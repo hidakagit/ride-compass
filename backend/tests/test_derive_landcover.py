@@ -15,7 +15,7 @@ from app.batch import derive_counts, derive_raster_materials, derive_topology
 from app.batch._common import asyncpg_dsn
 from app.batch.ingest import ensure_partition
 from app.batch.source_adapters._raster_wkb import tile_bbox_wkb, tile_raster_wkb
-from app.domain.landcover import PERCENT_CLASSES
+from app.domain.landcover import PERCENT_CLASSES, landcover_key
 from app.domain.region import tile_bounds_lonlat
 from tests.conftest import postgis_database_url
 
@@ -84,7 +84,7 @@ async def landcover_conn(road_graph_engine):
 async def test_rerun_on_pixels_left_out_keeps_no_share_on_segments_or_ways(landcover_conn):
     """画素が欠測になって流し直すと、区間も道も割合を持たない（有効画素が足りない）。"""
     conn = landcover_conn
-    first = PERCENT_CLASSES[0][0].removesuffix("_percent")
+    first = landcover_key(PERCENT_CLASSES[0][0])
 
     async def shares() -> list[tuple[int | None, float | None]]:
         """区間と道それぞれの (有効画素数, 塗ったクラスの割合)。"""

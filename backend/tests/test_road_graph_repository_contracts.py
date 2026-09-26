@@ -25,7 +25,7 @@ import shapely
 
 from app.domain.graph import LeanEdge
 from app.domain.hard_filters import hard_filter_columns
-from app.domain.landcover import LandcoverPercentages
+from app.domain.landcover import LandcoverPercentages, landcover_key
 from app.domain.material_catalog import material_array_columns
 from app.domain.region import BoundingBox
 from app.infrastructure import road_graph_repository
@@ -374,7 +374,7 @@ def _landcover_row(valid_pixels=100, missing: str | None = None) -> _Row:
     values: dict[str, object] = {"lc_valid_pixels": valid_pixels}
     for name in LandcoverPercentages.model_fields:
         if name.endswith("_percent"):
-            values[f"lc_{name.removesuffix('_percent')}"] = None if name == missing else 12.5
+            values[f"lc_{landcover_key(name)}"] = None if name == missing else 12.5
     return _Row(**values)
 
 

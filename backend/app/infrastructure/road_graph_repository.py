@@ -25,7 +25,7 @@ from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession
 from app.domain.attributes import EdgeMaterialArrays
 from app.domain.graph import LeanEdge, edge_feature_key_sql, edge_key, node_key, parse_edge_feature_key
 from app.domain.hard_filters import HARD_FILTER_VALUE_SQL, hard_filter_columns
-from app.domain.landcover import PERCENT_CLASSES, LandcoverPercentages
+from app.domain.landcover import PERCENT_CLASSES, LandcoverPercentages, landcover_key, landcover_tile_property
 from app.domain.material_catalog import (
     MATERIAL_CATALOG,
     material_array_columns,
@@ -193,13 +193,14 @@ _POI_TILE_COLUMNS_SQL = "".join(
     for kind in POI_COUNT_KINDS
 )
 
-#: 土地被覆の焼き込み列。材料の`tile_property`（`crops_pct`等）と同じ名前にし、クラスの
+#: 土地被覆の焼き込み列。材料の`tile_property`と同じ名前（`landcover_tile_property`）にし、クラスの
 #: 宣言（`domain/landcover.py: PERCENT_CLASSES`）から組み立てる——手で並べると、クラスを
 #: 1つ足したときに「材料は地図レンズを持つのに列が無い」形で静かに空になる。
 _LANDCOVER_TILE_COLUMNS_SQL = (",\n").join(
     f"                        (CASE WHEN src.segment_index IS NOT NULL "
-    f"THEN em.lc_{name} ELSE wm.lc_{name} END)::double precision AS {name}_pct"
-    for name in (key.removesuffix("_percent") for key, _ in PERCENT_CLASSES)
+    f"THEN em.lc_{landcover_key(field)} ELSE wm.lc_{landcover_key(field)} END)::double precision"
+    f" AS {landcover_tile_property(field)}"
+    for field, _ in PERCENT_CLASSES
 )
 
 #: 欠損を非該当として持つ真偽の材料の焼き込み列。条件は材料の値式をそのまま使い、
@@ -914,9 +915,8 @@ class RoadGraphRepository:
         できないときはway1本の値を使う——切り替えの規則はタイルと同じもので、揃えないと
         同じ場所で地図の色と内訳の数字が食い違う。
         """
-        names = [key.removesuffix("_percent") for key in LandcoverPercentages.model_fields
-                 if key.endswith("_percent")]
-        columns = ["lc_valid_pixels"] + [f"lc_{name}" for name in names]
+        fields = [key for key in LandcoverPercentages.model_fields if key.endswith("_percent")]
+        columns = ["lc_valid_pixels"] + [f"lc_{landcover_key(field)}" for field in fields]
         segment = parse_edge_feature_key(feature_key) if feature_key else None
         if segment is not None and segment[0] == osm_way_id:
             row = (await self._session.execute(
@@ -929,8 +929,7 @@ class RoadGraphRepository:
                 {"osm_way_id": osm_way_id})).first()
         if row is None or row.lc_valid_pixels is None:
             return None
-        values = {name: getattr(row, f"lc_{name.removesuffix('_percent')}")
-                  for name in LandcoverPercentages.model_fields if name.endswith("_percent")}
+        values = {field: getattr(row, f"lc_{landcover_key(field)}") for field in fields}
         if any(value is None for value in values.values()):
             return None
         return LandcoverPercentages(valid_pixels=row.lc_valid_pixels, **values)
