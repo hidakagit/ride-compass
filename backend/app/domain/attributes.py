@@ -1,4 +1,6 @@
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
+from typing import Any
 
 import numpy as np
 
@@ -30,6 +32,49 @@ MAX_PLAUSIBLE_AVERAGE_GRADE_PERCENT = 40.0
 
 
 @dataclass(frozen=True, slots=True)
+class CategoricalColumn:
+    """分類の材料1列を、区間ごとの語彙への番号（`codes`）と語彙（`vocab`）で持つ。番号0は値なしで、
+    `vocab[0]`は必ずNone。
+
+    区間ごとに値の文字列を持たない。値から数を引く（軸の対応表・転がり抵抗）のは語彙の大きさの表を
+    作って番号で引くだけになり、区間ごとにPythonの辞書を引かずに済む。
+    """
+
+    codes: np.ndarray  # 整数（道路網の置き場はint16）
+    vocab: tuple[str | None, ...]
+
+    @classmethod
+    def encode(cls, values: Iterable[str | None]) -> "CategoricalColumn":
+        """値の並び（値なしはNone）を、現れた順に番号を振った列にする。"""
+        code_of: dict[str | None, int] = {None: 0}
+        codes = np.fromiter((code_of.setdefault(value, len(code_of)) for value in values), dtype=np.int16)
+        return cls(codes, tuple(code_of))
+
+    def __len__(self) -> int:
+        return len(self.codes)
+
+    def take(self, rows: np.ndarray) -> "CategoricalColumn":
+        return CategoricalColumn(self.codes[rows], self.vocab)
+
+    def value_at(self, row: int) -> str | None:
+        return self.vocab[int(self.codes[row])]
+
+    def lookup(self, table: Mapping[Any, float]) -> np.ndarray:
+        """区間ごとに、値を`table`で引いた数（float64）。値なしと`table`に無い値はNaN。"""
+        per_code = np.array([np.nan if value is None else table.get(value, np.nan) for value in self.vocab])
+        return per_code[self.codes]
+
+    def equals(self, value: object) -> np.ndarray:
+        """区間ごとに、値が`value`と一致するか。値なしはどの`value`にも一致しない。"""
+        matching = [code for code, known in enumerate(self.vocab) if known is not None and known == value]
+        return np.isin(self.codes, matching)
+
+
+# 材料1列の配列の形。分類の材料は`CategoricalColumn`、それ以外は数値・真偽のnumpy配列。
+MaterialColumn = np.ndarray | CategoricalColumn
+
+
+@dataclass(frozen=True, slots=True)
 class EdgeMaterialArrays:
     """区間の材料を、**dtypeごとに1つの2次元配列**で保持する表現。
 
@@ -40,6 +85,7 @@ class EdgeMaterialArrays:
     する。材料が増えてもフィールドは増えず、列の追加は`*_ids`が1つ伸びるだけになる。
     dtypeで3つに分かれるのは、真偽とカテゴリを数値の行列へ混ぜられないため（分け方は
     `MaterialSpec.dtype`と`bool_default`が決める。`material_array_group`が唯一の判定）。
+    カテゴリは列ごとに語彙が違うため、行列ではなく列ごとの`CategoricalColumn`で持つ。
 
     0次ハードフィルタの生フラグを同じ1回のクエリで求めてここへ持たせるのは、別に引くと
     区間の束ごとにもう1往復増えるため。
@@ -54,7 +100,7 @@ class EdgeMaterialArrays:
     boolean_ids: tuple[str, ...]
     boolean_values: np.ndarray  # shape=(n, len(boolean_ids)), bool
     categorical_ids: tuple[str, ...]
-    categorical_values: np.ndarray  # shape=(n, len(categorical_ids)), object
+    categorical_columns: tuple[CategoricalColumn, ...]  # categorical_idsと同じ並び
     # 0次ハードフィルタの生フラグ。フィルタ名がそのまま列で、`domain/hard_filters.py:
     # HARD_FILTER_VALUE_SQL`から生成する。**フィルタごとに専用のフィールドを作らない**。
     hard_filter_ids: tuple[str, ...]
@@ -75,12 +121,12 @@ class EdgeMaterialArrays:
     def __len__(self) -> int:
         return len(self.distance_m)
 
-    def columns(self) -> dict[str, np.ndarray]:
+    def columns(self) -> dict[str, MaterialColumn]:
         """材料id→その列。行列の列はビューのためコピーしない。"""
         return {
             **{m: self.numeric_values[:, i] for i, m in enumerate(self.numeric_ids)},
             **{m: self.boolean_values[:, i] for i, m in enumerate(self.boolean_ids)},
-            **{m: self.categorical_values[:, i] for i, m in enumerate(self.categorical_ids)},
+            **dict(zip(self.categorical_ids, self.categorical_columns, strict=True)),
         }
 
     def hard_filter_columns(self) -> dict[str, np.ndarray]:

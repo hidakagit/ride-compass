@@ -28,7 +28,9 @@ from typing import Mapping, NamedTuple
 import numpy as np
 
 from app.domain.attributes import (
+    CategoricalColumn,
     EdgeMaterialArrays,
+    MaterialColumn,
 )
 from app.domain.axis_definitions import (
     AXIS_DEFINITIONS,
@@ -124,7 +126,7 @@ def route_facing_categorical_material_ids() -> list[str]:
     """内訳として経路へ運ぶcategorical材料id（安定順）。
 
     `route_facing_material_ids`のcategorical版。数値行列には文字列を載せられないため、
-    列は別に持つ（`StaticEdgeScoreMatrix.categorical_material_values`）。区間ごとの値を
+    列は別に持つ（`StaticEdgeScoreMatrix.categorical_material_columns`）。区間ごとの値を
     ルート集約で「値ごとの延長割合」へ畳むのは`merge_material_category_shares`。
 
     走行モデルが転がり抵抗に使う材料（`domain/cycling_speed.py: ROLLING_RESISTANCE_MATERIAL_ID`）は、
@@ -139,8 +141,8 @@ def route_facing_categorical_material_ids() -> list[str]:
     return list(seen)
 
 
-def _empty_material_arrays(n: int) -> dict[str, np.ndarray]:
-    """`MATERIAL_CATALOG`全材料ぶんの配列を、材料ごとの既定値（NaN/False/None）で確保する。
+def _empty_material_arrays(n: int) -> dict[str, MaterialColumn]:
+    """`MATERIAL_CATALOG`全材料ぶんの配列を、材料ごとの既定値（NaN/False/値なし）で確保する。
 
     **SQL式（`value_sql`）を持たない材料の列も確保する**。持たない材料（トリガー付きDEFER）を
     `MaterialTerm`等で参照する軸は軸スタジオから素朴に作れてしまい
@@ -149,11 +151,10 @@ def _empty_material_arrays(n: int) -> dict[str, np.ndarray]:
     自体を落とす。確保しておけば「材料はあるがデータが無い」という既存の意味論へ揃い、
     その軸だけ恒久的に欠損扱いになる（`evaluate_axis_values`が無い材料を欠損として扱うのと同じ）。
     """
-    arrays: dict[str, np.ndarray] = {}
+    arrays: dict[str, MaterialColumn] = {}
     for spec in MATERIAL_CATALOG.values():
         if spec.dtype == "categorical":
-            # np.emptyのdtype=objectは要素をNone初期化する（Python object配列のcalloc特性）。
-            arrays[spec.material_id] = np.empty(n, dtype=object)
+            arrays[spec.material_id] = CategoricalColumn(np.zeros(n, dtype=np.int16), (None,))
         elif spec.dtype == "boolean" and spec.bool_default == "false":
             arrays[spec.material_id] = np.zeros(n, dtype=bool)
         else:  # numeric、またはbool_default="nan"のboolean（surface_good等）
@@ -289,10 +290,10 @@ class StaticEdgeScoreMatrix:
     # 持ち、距離加重平均が「該当区間の延長割合」になる。
     material_ids: list[str]
     material_values: np.ndarray
-    # 内訳として見せるcategorical材料の値（文字列のobject配列、列は
-    # `categorical_material_ids`の順）。数値の行列へは載せられないため別に持つ。
+    # 内訳として見せるcategorical材料の値（語彙への番号の列、`categorical_material_ids`の順）。
+    # 数値の行列へは載せられないため別に持つ。
     categorical_material_ids: list[str]
-    categorical_material_values: np.ndarray
+    categorical_material_columns: list[CategoricalColumn]
 
     def __post_init__(self) -> None:
         """行と列が揃っていることを、組み立てた場所で確かめる。
@@ -305,11 +306,13 @@ class StaticEdgeScoreMatrix:
             ("axis_scores", self.axis_scores, self.axis_ids),
             ("axis_raw_values", self.axis_raw_values, self.raw_axis_ids),
             ("material_values", self.material_values, self.material_ids),
-            ("categorical_material_values", self.categorical_material_values, self.categorical_material_ids),
         )
         wrong_columns = {
             name: (matrix.shape[1], len(ids)) for name, matrix, ids in matrices if matrix.shape[1] != len(ids)
         }
+        if len(self.categorical_material_columns) != len(self.categorical_material_ids):
+            wrong_columns["categorical_material_columns"] = (
+                len(self.categorical_material_columns), len(self.categorical_material_ids))
         if wrong_columns:
             raise ValueError(f"静的スコア行列の列数がid列と違います（列数, id数）= {wrong_columns}")
         wrong_rows = {
@@ -322,6 +325,8 @@ class StaticEdgeScoreMatrix:
                 ("mid_lon", self.mid_lon),
                 *((f"hard_filter_flags[{name}]", flags) for name, flags in self.hard_filter_flags.items()),
                 *((name, matrix) for name, matrix, _ in matrices),
+                *((f"categorical_material_columns[{material_id}]", column.codes) for material_id, column in zip(
+                    self.categorical_material_ids, self.categorical_material_columns)),
             )
             if array.shape[0] != rows
         }
@@ -334,10 +339,10 @@ class StaticEdgeScoreMatrix:
         return {axis_id: self.axis_scores[:, i] for i, axis_id in enumerate(self.axis_ids)}
 
 
-def _stack_columns(columns: dict[str, np.ndarray], rows: int, dtype: type = np.float64) -> tuple[list[str], np.ndarray]:
+def _stack_columns(columns: dict[str, np.ndarray], rows: int) -> tuple[list[str], np.ndarray]:
     """id→列の辞書を、idの並びと`(行, id)`の行列へ束ねる。"""
     ids = list(columns)
-    matrix = np.stack([columns[i] for i in ids], axis=1) if ids else np.empty((rows, 0), dtype=dtype)
+    matrix = np.stack([columns[i] for i in ids], axis=1) if ids else np.empty((rows, 0), dtype=np.float64)
     return ids, matrix
 
 
@@ -359,34 +364,34 @@ def build_static_edge_score_matrix(materials: EdgeMaterialArrays) -> StaticEdgeS
     material_arrays = _empty_material_arrays(n)
     material_arrays.update(materials.columns())
     material_arrays.update({material_id: np.full(n, np.nan) for material_id in REQUEST_DYNAMIC_MATERIAL_IDS})
+    axis_scores_by_id = evaluate_axes_array(material_arrays)
     # 合成の対象（axis_arrays）は公開軸だけ。内部軸は公開軸の材料として読まれるだけで、
     # 利用者の重みの対象ではない。
-    material_arrays_with_axes = evaluate_axes_array(material_arrays)
     axis_arrays = {
-        axis_id: material_arrays_with_axes[axis_id]
+        axis_id: axis_scores_by_id[axis_id]
         for axis_id in topological_axis_order(AXIS_DEFINITIONS)
         if AXIS_DEFINITIONS[axis_id].is_published
     }
+    material_arrays_with_axes = {**material_arrays, **axis_scores_by_id}
     axis_raw_arrays: dict[str, np.ndarray] = {}
     for axis_id in route_facing_raw_axis_ids():
         raw = axis_raw_value_array(AXIS_DEFINITIONS[axis_id], material_arrays_with_axes)
         assert raw is not None, f"route_facing_raw_axis_idsが返した{axis_id}の生値が作れない"
         axis_raw_arrays[axis_id] = raw
     material_value_arrays = {
-        material_id: material_arrays[material_id].astype(float, copy=False)
+        material_id: np.asarray(values, dtype=float)
         for material_id in route_facing_material_ids()
-        if material_id in material_arrays
+        if isinstance(values := material_arrays.get(material_id), np.ndarray)
     }
-    categorical_material_arrays = {
-        material_id: material_arrays[material_id]
+    categorical_material_columns = {
+        material_id: column
         for material_id in route_facing_categorical_material_ids()
-        if material_id in material_arrays
+        if isinstance(column := material_arrays.get(material_id), CategoricalColumn)
     }
 
     axis_ids, axis_scores = _stack_columns(axis_arrays, n)
     raw_axis_ids, axis_raw_values = _stack_columns(axis_raw_arrays, n)
     material_ids, material_values = _stack_columns(material_value_arrays, n)
-    categorical_material_ids, categorical_material_values = _stack_columns(categorical_material_arrays, n, object)
     return StaticEdgeScoreMatrix(
         axis_ids=axis_ids,
         axis_scores=axis_scores,
@@ -394,12 +399,12 @@ def build_static_edge_score_matrix(materials: EdgeMaterialArrays) -> StaticEdgeS
         axis_raw_values=axis_raw_values,
         material_ids=material_ids,
         material_values=material_values,
-        categorical_material_ids=categorical_material_ids,
-        categorical_material_values=categorical_material_values,
+        categorical_material_ids=list(categorical_material_columns),
+        categorical_material_columns=list(categorical_material_columns.values()),
         distance_m=materials.distance_m,
         bearing_deg=materials.bearing_deg,
         hard_filter_flags=materials.hard_filter_columns(),
-        gradient_percent=material_arrays[GRADIENT_PERCENT],
+        gradient_percent=np.asarray(material_arrays[GRADIENT_PERCENT]),
         mid_lat=materials.mid_lat,
         mid_lon=materials.mid_lon,
     )

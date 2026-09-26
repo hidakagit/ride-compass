@@ -46,6 +46,7 @@ from pydantic import (
 )
 from pydantic_core import PydanticCustomError
 
+from app.domain.attributes import CategoricalColumn, MaterialColumn
 from app.domain.axis_templates import (
     evaluate_breakpoint_linear,
     evaluate_categorical,
@@ -762,14 +763,17 @@ def time_scoped_weights(weights: Mapping[str, float], active_scopes: frozenset[s
     return {**weights, **overrides}
 
 
-def _priority_override_mask(values: np.ndarray, equals: str) -> np.ndarray:
+def _priority_override_mask(values: MaterialColumn, equals: str) -> np.ndarray:
     """0次条件が材料の値のどの要素に当たるか。**一致の判定はここだけが持つ**。
 
     `equals`は`CategoricalShape.mapping`のキーと同じ読み方をする（"true"/"false"だけを真偽へ読み、
     それ以外は書いたとおりの値の名前）。真偽の材料は、欠損を持たないものは真偽の配列、「不明」を
     持つものは1.0/0.0/NaNの数値の配列で届く（`material_catalog.material_array_group`）が、
-    どちらも真偽との`==`で同じ答えになる。欠損（None・NaN）はどの`equals`にも当たらない。
+    どちらも真偽との`==`で同じ答えになる。分類の材料はルート選びでは`CategoricalColumn`で届き、
+    語彙の値と比べる。欠損（None・NaN）はどの`equals`にも当たらない。
     """
+    if isinstance(values, CategoricalColumn):
+        return values.equals(flag_or_value_name(equals))
     return np.asarray(values == flag_or_value_name(equals), dtype=bool)
 
 
@@ -851,14 +855,24 @@ def evaluate_axes_values(materials: Mapping[str, Sequence[object]], length: int)
     }
 
 
-def evaluate_axes_array(materials: Mapping[str, np.ndarray]) -> dict[str, np.ndarray]:
-    """`AXIS_DEFINITIONS`の全軸を依存順（内部軸→公開軸）で評価し、`materials`へ全軸の得点を
-    足した辞書を返す。評価した軸の得点は、後の軸の材料として読まれる（他の軸を材料にする軸）。
+def evaluate_axes_array(materials: Mapping[str, MaterialColumn]) -> dict[str, np.ndarray]:
+    """`AXIS_DEFINITIONS`の全軸を依存順（内部軸→公開軸）で評価し、軸id→得点の辞書を返す。
+    評価した軸の得点は、後の軸の材料として読まれる（他の軸を材料にする軸）。
     """
-    with_axes = dict(materials)
+    with_axes: dict[str, MaterialColumn] = dict(materials)
+    scores: dict[str, np.ndarray] = {}
     for axis_id in topological_axis_order(AXIS_DEFINITIONS):
-        with_axes[axis_id] = evaluate_axis_array(AXIS_DEFINITIONS[axis_id], with_axes)
-    return with_axes
+        scores[axis_id] = with_axes[axis_id] = evaluate_axis_array(AXIS_DEFINITIONS[axis_id], with_axes)
+    return scores
+
+
+def _term_values(materials: Mapping[str, MaterialColumn], material_id: str) -> np.ndarray:
+    """項の材料の配列。項の材料はnumeric/booleanに限られ（`axis_admin.AxisDefinitionPayload.
+    _check_materials_are_known`）、分類の材料の列は来ない。"""
+    values = materials[material_id]
+    if isinstance(values, CategoricalColumn):
+        raise TypeError(f"項の材料{material_id}が分類の材料です（項は数値・真偽の材料だけを読む）")
+    return values
 
 
 def _missing_material_mask(values: np.ndarray) -> np.ndarray:
@@ -873,7 +887,7 @@ def _missing_material_mask(values: np.ndarray) -> np.ndarray:
 
 
 def _breakpoint_raw_total_array(
-    shape: BreakpointLinearShape, materials: Mapping[str, np.ndarray]
+    shape: BreakpointLinearShape, materials: Mapping[str, MaterialColumn]
 ) -> tuple[np.ndarray, np.ndarray]:
     """`terms`の重み付き和（`preprocess`まで適用）と、全termの材料が欠損している要素の
     マスクを返す。折れ点を通す前の値で、`evaluate_axis_array`と`axis_raw_value_array`が
@@ -881,7 +895,7 @@ def _breakpoint_raw_total_array(
     total: np.ndarray | None = None
     all_missing: np.ndarray | None = None
     for term in shape.terms:
-        values = materials[term.material]
+        values = _term_values(materials, term.material)
         missing = _missing_material_mask(values)
         all_missing = missing if all_missing is None else all_missing & missing
         if not term.required:
@@ -896,7 +910,7 @@ def _breakpoint_raw_total_array(
 
 
 def axis_raw_value_array(
-    definition: AxisDefinition, materials: Mapping[str, np.ndarray]
+    definition: AxisDefinition, materials: Mapping[str, MaterialColumn]
 ) -> np.ndarray | None:
     """折れ点を通す前の生値（欠損=NaN）。`CategoricalShape`の軸はNoneを返す。
 
@@ -910,7 +924,7 @@ def axis_raw_value_array(
     return _breakpoint_raw_value_array(shape, materials)
 
 
-def _breakpoint_raw_value_array(shape: BreakpointLinearShape, materials: Mapping[str, np.ndarray]) -> np.ndarray:
+def _breakpoint_raw_value_array(shape: BreakpointLinearShape, materials: Mapping[str, MaterialColumn]) -> np.ndarray:
     total, all_missing = _breakpoint_raw_total_array(shape, materials)
     return np.where(all_missing, np.nan, total)
 
@@ -934,11 +948,12 @@ def has_axis_raw_value_array(definition: AxisDefinition) -> bool:
     return isinstance(definition.shape, BreakpointLinearShape)
 
 
-def evaluate_axis_array(definition: AxisDefinition, materials: Mapping[str, np.ndarray]) -> np.ndarray:
+def evaluate_axis_array(definition: AxisDefinition, materials: Mapping[str, MaterialColumn]) -> np.ndarray:
     """材料の配列から要素ごとの軸の得点を求める（欠損=NaN）。軸の評価はこれ1本。
 
-    `materials`は材料id→同一形状のnumpy配列（フラグ材料はbool配列、それ以外はfloat配列で
-    欠損はNaN。categorical材料はdtype=object の配列で欠損はNone）。requiredな材料のNaNは演算で
+    `materials`は材料id→同じ長さの列（フラグ材料はbool配列、それ以外はfloat配列で
+    欠損はNaN。categorical材料はルート選びでは`CategoricalColumn`、Pythonの値の入口では
+    dtype=object の配列で欠損はNone）。requiredな材料のNaNは演算で
     自然に伝播し、required=Falseの材料のNaNは0へ置き換えて寄与なしとして扱う。ただし全termの
     材料が欠損している要素はNaN（評価不能）を返す——寄与が1件も無い状態へ「NaNは0とみなす」
     規則を適用すると「材料が1つも観測されていない」ことと「観測した結果が0だった」ことが
@@ -954,10 +969,8 @@ def evaluate_axis_array(definition: AxisDefinition, materials: Mapping[str, np.n
         result = round1_array(evaluate_breakpoint_linear(total, shape.breakpoints))
         result = np.where(all_missing, np.nan, result)
     else:
-        # CategoricalShape。`evaluate_categorical`は`values == key`という要素ごとの比較
-        # のみでbool配列・str(dtype=object)配列のどちらも正しく動く（`bool配列 ==
-        # True/False`は`bool配列 == 1.0/0.0`と同じ結果になる、実データ検証済み）ため、
-        # bool材料をfloatキーへ変換する特別扱いは不要だった。
+        # CategoricalShape。真偽の材料は真偽の配列でも1.0/0.0の数値配列でも、真偽のキーとの
+        # 一致が同じ答えになるため、キーをfloatへ変えない。
         result = evaluate_categorical(materials[shape.material], shape.mapping)
     for override in reversed(definition.priority_overrides):
         mask = _priority_override_mask(materials[override.material], override.equals)

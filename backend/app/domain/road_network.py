@@ -16,7 +16,7 @@ from dataclasses import dataclass, fields
 
 import numpy as np
 
-from app.domain.attributes import EdgeMaterialArrays, ElevationAttribute
+from app.domain.attributes import CategoricalColumn, EdgeMaterialArrays, ElevationAttribute
 from app.domain.material_catalog import GRADIENT_PERCENT
 
 
@@ -158,11 +158,8 @@ def slice_network(
 
 
 def material_arrays_of(road: RoadSlice) -> EdgeMaterialArrays:
-    """切り出した区間の材料（行は`road.rows`の順）。分類の材料は語彙の値へ戻す。"""
+    """切り出した区間の材料（行は`road.rows`の順）。分類の材料は語彙への番号のまま渡す。"""
     network, rows = road.network, road.rows
-    categorical = np.empty((len(rows), len(network.categorical_ids)), dtype=object)
-    for column, vocab in enumerate(network.categorical_vocab):
-        categorical[:, column] = np.array(vocab, dtype=object)[network.categorical_codes[rows, column]]
 
     def take(values: np.ndarray) -> np.ndarray:
         return np.asarray(values[rows])
@@ -170,7 +167,11 @@ def material_arrays_of(road: RoadSlice) -> EdgeMaterialArrays:
     return EdgeMaterialArrays(
         numeric_ids=network.numeric_ids, numeric_values=take(network.numeric_values),
         boolean_ids=network.boolean_ids, boolean_values=take(network.boolean_values),
-        categorical_ids=network.categorical_ids, categorical_values=categorical,
+        categorical_ids=network.categorical_ids,
+        categorical_columns=tuple(
+            CategoricalColumn(np.asarray(network.categorical_codes[rows, column]), vocab)
+            for column, vocab in enumerate(network.categorical_vocab)
+        ),
         hard_filter_ids=network.hard_filter_ids, hard_filter_flags=take(network.hard_filter_flags),
         distance_m=take(network.distance_m), bearing_deg=take(network.bearing_deg),
         mid_lat=take(network.mid_lat), mid_lon=take(network.mid_lon),

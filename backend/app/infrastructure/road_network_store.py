@@ -318,9 +318,10 @@ async def _read_materials(
                 arrays[name] = np.empty((edge_count, *value.shape[1:]), dtype=value.dtype)
         for name in _MATERIAL_ARRAY_FIELDS:
             arrays[name][start:stop] = getattr(materials, name)
-        for column, values in enumerate(materials.categorical_values.T):
+        for column, values in enumerate(materials.categorical_columns):
             codes = vocab[column]
-            arrays["categorical_codes"][start:stop, column] = [codes.setdefault(v, len(codes)) for v in values]
+            to_network_code = np.array([codes.setdefault(v, len(codes)) for v in values.vocab], dtype=np.int16)
+            arrays["categorical_codes"][start:stop, column] = to_network_code[values.codes]
         logger.info("材料 %d/%d", stop, edge_count)
     if not arrays:
         raise ValueError("道路網に区間が1本もありません")
@@ -331,7 +332,8 @@ async def _read_materials(
     }
 
 
-#: `EdgeMaterialArrays`から、そのまま行を写す配列の列（分類の値は番号へ直すので含めない）。
+#: `EdgeMaterialArrays`から、そのまま行を写す配列の列（分類の材料は束ごとの語彙の番号を全体の語彙の番号へ
+#: 付け替えるので含めない）。
 _MATERIAL_ARRAY_FIELDS = (
     "numeric_values", "boolean_values", "hard_filter_flags", "distance_m", "bearing_deg", "mid_lat", "mid_lon",
     "elevation_present", "elevation_start_m", "elevation_end_m", "elevation_gain_m", "elevation_loss_m",

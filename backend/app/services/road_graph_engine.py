@@ -41,7 +41,7 @@ from app.domain.cycling_speed import (
 )
 from app.domain.traffic import stop_count_material_ids, POI_COUNT_KINDS, highway_rank, stop_seconds
 from app.domain.tuning import tuning_value
-from app.domain.attributes import ElevationAttribute
+from app.domain.attributes import CategoricalColumn, ElevationAttribute
 from app.domain.axis_definitions import (
     AXIS_DEFINITIONS,
     REQUEST_DYNAMIC_MATERIAL_IDS,
@@ -220,9 +220,9 @@ class LegCostArrays:
     # （`route_facing_material_ids`、静的スコア行列の列）の両方を持つ。区間表示・
     # `material_values`の集計が、探索コストの合成と同じ入力から求めた値を読むために保持する。
     material_arrays: dict[str, np.ndarray]
-    # 切り出した区間の順のcategorical材料id→値の配列（静的スコア行列の列をそのまま指すため
+    # 切り出した区間の順のcategorical材料id→語彙への番号の列（静的スコア行列の列をそのまま指すため
     # レグ間で共有する）。区間表示の内訳が値ごとの延長割合を出すために保持する。
-    categorical_material_arrays: dict[str, np.ndarray]
+    categorical_material_arrays: dict[str, CategoricalColumn]
     # 区間ごとの所要時間（秒）。`travel_seconds_lazy`は`cost_lazy`と同じ行順で、探索の
     # コストの下地になる。ターンの待ちは遷移ごとに決まるためどちらにも含まない。
     travel_seconds_full: np.ndarray
@@ -347,12 +347,10 @@ class _LegCostComposer:
             material_id: score_matrix.material_values[:, i]
             for i, material_id in enumerate(score_matrix.material_ids)
         }
-        # 同じくcategorical材料（値が文字列のため別の列で運ぶ、
-        # `route_facing_categorical_material_ids`）。
-        self._categorical_material_arrays = {
-            material_id: score_matrix.categorical_material_values[:, i]
-            for i, material_id in enumerate(score_matrix.categorical_material_ids)
-        }
+        # 同じくcategorical材料（語彙への番号の列で別に運ぶ、`route_facing_categorical_material_ids`）。
+        self._categorical_material_arrays = dict(
+            zip(score_matrix.categorical_material_ids, score_matrix.categorical_material_columns, strict=True)
+        )
         self._static_axis_scores = score_matrix.axis_arrays()
         # 時刻で変わる（風に依存する）公開軸と、それ以外。ビンごとの合成では後者の重み付き和を
         # 使い回す——合成の時間は軸数にほぼ比例するため、毎回全軸を足し直すと本数ぶん効く。
@@ -410,7 +408,8 @@ class _LegCostComposer:
         # 勾配は静的スコア行列が生配列として常に持つ（0次フィルタの勾配しきい値と同じ列）。
         # 内訳として見せる材料だけを運ぶ`material_arrays`では、勾配軸が分解されていない構成で欠ける。
         grade = np.nan_to_num(take(self._score_matrix.gradient_percent)) / 100.0
-        crr = crr_for_surface(take(self._categorical_material_arrays[ROLLING_RESISTANCE_MATERIAL_ID]))
+        surface = self._categorical_material_arrays[ROLLING_RESISTANCE_MATERIAL_ID]
+        crr = crr_for_surface(surface if rows is None else surface.take(rows))
         model = SegmentSpeedModel(RiderProfile(cruise_speed_kmh=self.speed_kmh), grade, crr)
         stops = np.zeros(len(distance_m))
         # 材料idの綴りは`stop_count_material_ids()`が単一の情報源。ここで組み立て直すと、
@@ -2059,9 +2058,9 @@ class RoadGraphEngine:
                 },
             }
             segment_categories.append({
-                material_id: str(raw)
-                for material_id, array in leg.categorical_material_arrays.items()
-                if material_id in active_material_ids and (raw := array[row]) is not None
+                material_id: raw
+                for material_id, column in leg.categorical_material_arrays.items()
+                if material_id in active_material_ids and (raw := column.value_at(row)) is not None
             })
 
             arrival_time = start_time + timedelta(seconds=passages[index].elapsed_seconds)

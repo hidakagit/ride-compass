@@ -11,6 +11,7 @@ import numpy as np
 import pytest
 
 from app.domain import axis_templates
+from app.domain.attributes import CategoricalColumn
 
 BREAKPOINTS = [(0.0, 0.0), (10.0, 100.0)]
 
@@ -39,6 +40,15 @@ class TestEvaluateCategorical:
 
         assert result[:2].tolist() == [20.0, 10.0]
         assert np.isnan(result[2:]).all()
+
+    def test_a_coded_column_scores_by_value_and_leaves_missing_and_unregistered_values_missing(self):
+        """ルート選びの分類の材料は語彙への番号の列で届く。番号ではなく語彙の値で引く。"""
+        column = CategoricalColumn.encode(["z", "b", None, "a", "b"])
+
+        result = axis_templates.evaluate_categorical(column, self.MAPPING)
+
+        assert result[[1, 3, 4]].tolist() == [20.0, 10.0, 20.0]
+        assert np.isnan(result[[0, 2]]).all()
 
     def test_array_of_booleans_scores_both_values(self):
         result = axis_templates.evaluate_categorical(np.array([True, False]), {False: 0.0, True: 30.0})

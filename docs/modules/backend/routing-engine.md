@@ -426,8 +426,8 @@ NaN）へ動的軸（風、`domain/dynamic_materials.py: evaluate_dynamic_axis_a
 `domain/traffic.py: stop_count_material_ids`が宣言する材料から、転がり抵抗は路面の見込み
 （`domain/cycling_speed.py: ROLLING_RESISTANCE_MATERIAL_ID`。分類の材料なので分類の列で運ぶ）から読む——
 「内訳として画面へ見せる材料」だけを運ぶ既定に任せると、軸を非公開にした瞬間に所要時間の中身が静かに変わる。
-見込みの値を転がり抵抗へ写すのは区間ごとのPythonの引き当てで、開発機で100万区間あたり約0.1秒かかる
-（リクエストに1回。数値の列から引いていた舗装良否のときは数ミリ秒）。
+見込みは語彙への番号の列で届き、転がり抵抗へ写すのは語彙の値ごとに1回だけ引いた表を番号で配る形になる
+（開発機で100万区間あたり約0.02秒、リクエストに1回）。
 
 ### 探索の状態（`domain/routing.py: TurnExpandedStructure`）
 
@@ -652,7 +652,7 @@ segments構築はEdge単位の軽量な計算のため並行化してよい。�
    外で動くため、枠いっぱいの生成と重なったときは取り置きから使う。
    戦略層（`RouteGenerator._prepare`）はこの例外を「探索範囲の道路が多すぎる」理由付きの候補0件に、
    区間確認APIは422にする。
-4. **静的スコア行列**: 切り出した区間の材料（`material_arrays_of`、分類の材料は語彙の値へ戻す）から
+4. **静的スコア行列**: 切り出した区間の材料（`material_arrays_of`、分類の材料は語彙への番号のまま）から
    `build_static_edge_score_matrix`で求める。キャッシュしない——軸定義の編集がそのまま次の生成に効き、
    軸定義の世代を突き合わせる仕組みが要らない。
 

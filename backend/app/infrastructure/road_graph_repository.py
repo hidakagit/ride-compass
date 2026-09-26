@@ -22,7 +22,7 @@ from sqlalchemy import Float, Row, Text, bindparam, text
 from sqlalchemy.dialects.postgresql import ARRAY
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession
 
-from app.domain.attributes import EdgeMaterialArrays
+from app.domain.attributes import CategoricalColumn, EdgeMaterialArrays
 from app.domain.graph import LeanEdge, edge_feature_key_sql, edge_key, node_key, parse_edge_feature_key
 from app.domain.hard_filters import HARD_FILTER_VALUE_SQL, hard_filter_columns
 from app.domain.landcover import PERCENT_CLASSES, LandcoverPercentages, landcover_key, landcover_tile_property
@@ -829,14 +829,12 @@ class RoadGraphRepository:
         boolean_values = np.empty((n, len(boolean_ids)), dtype=bool)
         for i, material_id in enumerate(boolean_ids):
             boolean_values[:, i] = [bool(v) for v in raw[material_id]]
-        categorical_values = np.empty((n, len(categorical_ids)), dtype=object)
-        for i, material_id in enumerate(categorical_ids):
-            categorical_values[:, i] = raw[material_id]
 
         return EdgeMaterialArrays(
             numeric_ids=numeric_ids, numeric_values=numeric_values,
             boolean_ids=boolean_ids, boolean_values=boolean_values,
-            categorical_ids=categorical_ids, categorical_values=categorical_values,
+            categorical_ids=categorical_ids,
+            categorical_columns=tuple(CategoricalColumn.encode(raw[material_id]) for material_id in categorical_ids),
             hard_filter_ids=hard_filter_ids, hard_filter_flags=hard_filter_flags,
             distance_m=_float_array(raw["distance_m"]),
             bearing_deg=_float_array(raw["bearing_deg"]),

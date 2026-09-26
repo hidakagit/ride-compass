@@ -121,10 +121,12 @@
   評価する。ただし全termが欠損した場合は、残る項が無く「寄与0の合計＝0」と「観測値が0」を
   区別できないため、`required`の有無によらず軸全体が欠損になる。
 - `CategoricalShape`: 単一`material`の値を`mapping`（カテゴリ値→スコア）で引く。
-  `evaluate_categorical`は配列入力を`np.searchsorted`の二分探索で解決する（O(要素数×
-  log(キー数))、多値categorical材料での高速化）。配列は材料によって3つの形で届く——
-  分類材料の文字列配列（欠損は`None`）、欠損を持たない真偽配列、欠損を「不明」とする真偽材料の
+  材料の列は材料と入口によって別の形で届く——ルート選びの分類材料は語彙への番号の列
+  （`domain/attributes.py: CategoricalColumn`。欠損は番号0）、Pythonの値の入口（区間の内訳・専用way値配信）の
+  分類材料は文字列のobject配列（欠損は`None`）、欠損を持たない真偽配列、欠損を「不明」とする真偽材料の
   数値配列（1.0/0.0、欠損は`NaN`。`material_catalog.material_array_group`が数値の行列へ載せる）。
+  `evaluate_categorical`は、番号の列なら語彙の値ごとに1回引いた表を番号で配り、それ以外は
+  `np.searchsorted`の二分探索で解決する（O(要素数×log(キー数))）。
   真偽のキーの対応表は、真偽配列と数値配列の両方で引かれる。
   JSONのキーは文字列なので、真偽の材料の対応表は`"true"`/`"false"`で届く。真偽として読むのは
   この2つの綴りだけで、それ以外（`"yes"`・`"on"`・`"1"`等、pydanticなら真偽と読む綴りを含む）は
@@ -141,8 +143,8 @@
 
 **一致の判定は1本**（`_priority_override_mask`）で、Pythonの値で持つ入口（区間の内訳・専用way値配信）も
 材料の値を配列にして同じ関数を通す。材料の値は入口ごとに別の形で届く——区間の内訳と配信は
-Pythonの値、ルート選びは材料の型ごとの配列で、「不明」を持つ真偽の材料（`surface_good`等）は1.0/0.0/NaNの
-数値の配列になる。判定を2本持つと、この形の違いで区間の内訳とルート選びが同じ道に違う答えを出す。
+Pythonの値、ルート選びは材料の型ごとの配列で、分類の材料は語彙への番号の列、「不明」を持つ真偽の材料
+（`surface_good`等）は1.0/0.0/NaNの数値の配列になる。判定を2本持つと、この形の違いで区間の内訳とルート選びが同じ道に違う答えを出す。
 `equals`は`CategoricalShape.mapping`のキーと同じ読み方（`flag_or_value_name`）で、`"true"`/`"false"`だけを
 真偽と読み、それ以外は書いたとおりの値の名前として比べる。欠損（None・NaN）はどの条件にも当たらない。
 
@@ -163,7 +165,7 @@ Pythonの値、ルート選びは材料の型ごとの配列で、「不明」�
 |---|---|
 | `evaluate_axis_values(definition, materials, length)` | 材料id→Pythonの値の並びから要素ごとの得点。欠損はNone。配列へ並べ替えて`evaluate_axis_array`を通す |
 | `evaluate_axis_array(definition, materials)` | 軸の評価の本体（numpy配列、欠損はNaN）。どの入口もここを通る |
-| `evaluate_axes_array(materials)` | 全軸を依存順（`topological_axis_order`、内部軸→公開軸）で評価し、材料へ全軸の得点を足した辞書を返す |
+| `evaluate_axes_array(materials)` | 全軸を依存順（`topological_axis_order`、内部軸→公開軸）で評価し、軸id→得点の辞書を返す（評価した軸の得点は後の軸の材料として読まれる） |
 | `evaluate_axes_values(materials, length)` | `evaluate_axes_array`をPythonの値の並びから通し、公開軸だけの得点を返す（評価できない公開軸もキーを残してNone） |
 | `raw_values(shape, materials, length)` | 折れ点を通す前の生値をPythonの値の並びから求める。保存前の`shape`を受け取れるため分布プレビューが使う |
 

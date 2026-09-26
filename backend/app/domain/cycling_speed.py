@@ -23,6 +23,7 @@ from dataclasses import dataclass, field
 
 import numpy as np
 
+from app.domain.attributes import CategoricalColumn
 from app.domain.material_catalog import SURFACE_ESTIMATE
 from app.domain.road import SURFACE_ESTIMATES
 from app.domain.tuning import tuning_value
@@ -44,18 +45,18 @@ SPEED_SOLVE_ITERATIONS = 12
 ROLLING_RESISTANCE_MATERIAL_ID = SURFACE_ESTIMATE
 
 
-def crr_for_surface(surface_estimate: np.ndarray) -> np.ndarray:
+def crr_for_surface(surface_estimate: CategoricalColumn) -> np.ndarray:
     """路面の見込み（`domain/road.py: SurfaceEstimate`の鍵）から、区間ごとの転がり抵抗を返す。
 
     宣言に無い値（値なしを含む）は送出する。材料の式はどの道にも見込みを与えるため、来るのは式と
     宣言が食い違ったときだけで、舗装へ倒すと路面の違いが黙って所要時間から消える。
     """
     table = {estimate.key: tuning_value(estimate.rolling_resistance) for estimate in SURFACE_ESTIMATES}
-    values = np.asarray(surface_estimate, dtype=object)
-    try:
-        return np.fromiter((table[value] for value in values), dtype=np.float64, count=len(values))
-    except KeyError as error:
-        raise ValueError(f"路面の見込みに宣言に無い値がある: {error.args[0]!r}") from None
+    crr = surface_estimate.lookup(table)
+    unknown = np.flatnonzero(np.isnan(crr))
+    if len(unknown):
+        raise ValueError(f"路面の見込みに宣言に無い値がある: {surface_estimate.value_at(int(unknown[0]))!r}")
+    return crr
 
 
 @dataclass(frozen=True)
