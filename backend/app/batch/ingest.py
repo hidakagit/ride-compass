@@ -27,9 +27,6 @@ from app.batch.source_profile import NoFields, SourceProfile, SourceSpec
 
 logger = logging.getLogger("ridecompass.ingest")
 
-#: 1回のCOPYへ積む件数。大きすぎるとメモリが膨らみ、小さすぎると往復が増える。
-COPY_CHUNK = 20_000
-
 
 @dataclass(frozen=True)
 class SourceRecord:
@@ -171,30 +168,24 @@ async def ingest_source(
                        "ON COMMIT DROP")
 
     written = 0
-    last_report = started
-    batch: list[tuple[str, bytes, str, bytes | None, bytes | None]] = []
-    seen = 0
-    async for record in adapter(spec, profile, origin):
-        # 読んだ数で出す。`written`はCOPYを流したときしか増えないので、1回で収まる量の
-        # ソースでは最後まで0のままになり、進捗が止まって見える。
-        seen += 1
-        now = time.perf_counter()
-        if now - last_report >= PROGRESS_INTERVAL_SECONDS:
-            last_report = now
-            logger.info("取込中 source=%s %s", spec.name,
-                        format_progress(seen, None, now - started))
-        batch.append((record.natural_key, record.geom_wkb, _json(record.attrs),
-                      record.payload, record.rast))
-        if len(batch) >= COPY_CHUNK:
-            await conn.copy_records_to_table(
-                staging, records=batch,
-                columns=["natural_key", "geom_wkb", "attrs", "payload", "rast"])
-            written += len(batch)
-            batch.clear()
-    if batch:
-        await conn.copy_records_to_table(
-            staging, records=batch, columns=["natural_key", "geom_wkb", "attrs", "payload", "rast"])
-        written += len(batch)
+
+    async def rows() -> AsyncIterator[tuple[str, bytes, str, bytes | None, bytes | None]]:
+        nonlocal written
+        last_report = started
+        async for record in adapter(spec, profile, origin):
+            written += 1
+            now = time.perf_counter()
+            if now - last_report >= PROGRESS_INTERVAL_SECONDS:
+                last_report = now
+                logger.info("取込中 source=%s %s", spec.name,
+                            format_progress(written, None, now - started))
+            yield (record.natural_key, record.geom_wkb, _json(record.attrs),
+                   record.payload, record.rast)
+
+    # 行を溜めずに1本のCOPYへ流す。asyncpgは非同期のイテラブルを一定の大きさずつ送るため、
+    # 取込が抱えるのは送りかけの分だけで、件数にも1件の大きさにもよらない。
+    await conn.copy_records_to_table(
+        staging, records=rows(), columns=["natural_key", "geom_wkb", "attrs", "payload", "rast"])
 
     # そのソースぶんだけを入れ替える。パーティションを切ってあるので他のソースへ触らない。
     await conn.execute(f'TRUNCATE "{partition_table_name(spec.name)}"')
