@@ -12,10 +12,10 @@ from typing import Awaitable, TypeVar
 from collections.abc import Mapping
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import Field, field_validator, model_validator
-from sqlalchemy.exc import DBAPIError
 
 from app.api.admin_auth import require_admin_basic_auth
 from app.api.dependencies import get_road_graph_repository
+from app.infrastructure.database import DB_UNAVAILABLE_ERRORS
 from app.infrastructure.road_graph_repository import RoadGraphRepository
 from app.services.axis_preview_service import ValueDistribution, axis_raw_value_distribution
 from app.api.dependencies import get_axis_registry_admin_service, served_dedicated_way_value_material
@@ -47,13 +47,14 @@ async def _guard_db_errors(awaitable: Awaitable[_T]) -> _T:
 
     軸スタジオ（本ルーター）のCRUDの編集対象は常にDBの実データそのものであるべきで、
     DB障害時にフォールバック値を編集画面に出すと気付かないまま上書きしてしまう危険が
-    ある。ここでは代わりに、DBAPIError（接続失敗・テーブルや列が作られていないなど）
-    だけを捕捉し、未処理の素の500ではなく原因の当たりが付くメッセージを返す
-    （ValueError/KeyErrorは呼び出し元の既存except節がそのまま扱うため対象外）。
+    ある。ここでは代わりに、DB障害として扱う例外（`DB_UNAVAILABLE_ERRORS`。接続失敗・
+    タイムアウト・テーブルや列が作られていないなど）だけを捕捉し、未処理の素の500ではなく
+    原因の当たりが付くメッセージを返す（ValueError/KeyErrorは呼び出し元の既存except節が
+    そのまま扱うため対象外）。
     """
     try:
         return await awaitable
-    except DBAPIError as exc:
+    except DB_UNAVAILABLE_ERRORS as exc:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail=(

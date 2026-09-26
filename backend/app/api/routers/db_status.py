@@ -10,10 +10,10 @@
 """
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy.exc import DBAPIError
 
 from app.api.admin_auth import require_admin_basic_auth
 from app.api.dependencies import get_db_status_service
+from app.infrastructure.database import DB_UNAVAILABLE_ERRORS
 from app.services.db_status_service import DbStatusReport, DbStatusService
 
 router = APIRouter(dependencies=[Depends(require_admin_basic_auth)])
@@ -28,7 +28,7 @@ async def get_db_status(
 ) -> DbStatusReport:
     try:
         return await service.get_status_report()
-    except DBAPIError as exc:
+    except DB_UNAVAILABLE_ERRORS as exc:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="DB状態の集計に失敗しました（DB接続と、テーブルが作られているかを確認してください）",

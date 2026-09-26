@@ -6,6 +6,7 @@ import pytest
 
 from app.config import settings
 from app.domain.gradient import GradientCalculator
+from app.infrastructure import debug_log
 from app.infrastructure.road_graph_repository import RoadGraphRepository
 from app.services.gradient_way_service import GradientWayService
 
@@ -92,6 +93,7 @@ async def test_perpendicular_way_is_omitted_instead_of_zero():
     assert result[2] == 15.0
 
 
+@pytest.mark.usefixtures("empty_debug_counters")
 async def test_second_call_with_same_bearing_bucket_is_served_from_cache():
     # 直角に落ちない向きにする（空の結果同士を比べても、キャッシュの検査にならない）。
     repository = FakeGradientInputsRepository(inputs={1: (5.0, 30.0)})
@@ -105,6 +107,9 @@ async def test_second_call_with_same_bearing_bucket_is_served_from_cache():
     # （wind_way_serviceと異なりway一覧の取得自体もキャッシュされた値に含まれるため、
     # 2回目はrepositoryを一切呼ばない）。
     assert len(repository.calls) == 1
+    # 外した1回と当たった1回が、運用の統計のヒット率に載る。
+    stats = debug_log.get_stats()["external"]["region:gradient-way-values"]
+    assert (stats["cache_misses"], stats["cache_hits"]) == (1, 1)
 
 
 async def test_different_bearing_bucket_recomputes():

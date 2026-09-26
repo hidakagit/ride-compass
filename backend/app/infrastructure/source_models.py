@@ -4,8 +4,8 @@
 範囲＋属性＋実体」に収まる。取込の経路は1本で、ソースごとに違うのは外部の形を読む
 アダプタだけである。
 
-DBの起動時初期化（`create_tables`の`Base.metadata.create_all`）へ乗せるため、
-他のORMと同じ`Base`（`orm_base.py`）を使う。
+まっさらなDBのスキーマ作成（`create_tables`）と実DBとの突き合わせは`declared_metadata()`の
+全表を見るため、他のORMと同じ`Base`（`orm_base.py`）を使う。
 """
 
 from datetime import datetime

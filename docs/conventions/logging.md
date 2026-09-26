@@ -52,9 +52,9 @@ RideCompassのログはRender（本番）のログストリームだけで障害
 - **例外（`log_external_call`を使わないキャッシュ）**: `infrastructure/detour_ratio_cache.py`
   （プロセス内メモリのみのLRU）は、外部I/O自体を持たず失敗しうる経路が無いため対象外。
   `tile_persistent_cache.py`（ディスクI/O、失敗しうる）は`log_external_call`を経由せず専用loggerで
-  直接「成功DEBUG・失敗WARNING常時」の同じ方針を実装している——呼び出し元
-  （`dynamic_way_value_cache.py`）が`log_external_call`で囲み、そちらがhit/missを数えるため、
-  下の層で二重に数えない。
+  直接「成功DEBUG・失敗WARNING常時」の同じ方針を実装している——`dynamic_way_value_cache.py`を
+  読む配信サービス（`gradient_way_service.py`等）が`log_external_call`で囲み、そちらがhit/missを
+  数えるため、下の層で二重に数えない。
 
 ### 429拒否 → `record_rate_limit_rejection`
 

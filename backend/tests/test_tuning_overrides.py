@@ -117,17 +117,24 @@ async def test_the_row_records_when_it_was_changed(road_graph_session: AsyncSess
     """
     default = TUNING_PARAMETERS_BY_ID[_PARAM].default
     before = datetime.now(UTC)
-    try:
-        await set_override(road_graph_session, _PARAM, default + 3.0)
-        await road_graph_session.commit()
 
-        row = (
+    async def updated_at() -> datetime:
+        return (
             await road_graph_session.execute(
-                select(TuningOverrideRow).where(TuningOverrideRow.param_id == _PARAM)
+                select(TuningOverrideRow.updated_at).where(TuningOverrideRow.param_id == _PARAM)
             )
         ).scalar_one()
 
-        assert row.updated_at >= before
+    try:
+        await set_override(road_graph_session, _PARAM, default + 3.0)
+        await road_graph_session.commit()
+        first = await updated_at()
+        assert first >= before
+
+        # 既にある行の値を動かしたときも、動かした時刻へ進む（列の既定は挿入にしか効かない）。
+        await set_override(road_graph_session, _PARAM, default + 4.0)
+        await road_graph_session.commit()
+        assert await updated_at() > first
     finally:
         await clear_override(road_graph_session, _PARAM)
         await road_graph_session.commit()
