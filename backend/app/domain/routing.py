@@ -376,8 +376,12 @@ class NodeSpatialIndex:
     latitude: np.ndarray
     longitude: np.ndarray
     cell_size_deg: float
-    # セル→そのセルにある候補のノード番号（昇順）。
-    buckets: dict[tuple[int, int], np.ndarray]
+    #: 候補のノード番号をセルの順（`cell_bounds`の範囲を緯度・経度の順に行優先で数えた番号）に並べたもの。
+    #: 同じセルの中は番号の昇順。
+    cell_nodes: np.ndarray
+    #: セルの番号`k`のノードは`cell_nodes[cell_starts[k]:cell_starts[k + 1]]`。問い合わせはセルを1つずつ
+    #: 引くため、numpyの要素を1つずつ取り出すより速いlistで持つ。
+    cell_starts: list[int]
     #: 非空セルが占める範囲（最小・最大のセル座標）。Nodeが1つも無ければNone。
     #: **探索の打ち切りに要る**——この外側にはどれだけ広げてもセルが1つも無い。
     #: 既定値を持たせない: 省略できると、渡し忘れた索引が黙って「Nodeが無い」ふるまいに
@@ -400,7 +404,7 @@ def build_node_spatial_index(
     cell_size_deg: float = _DEFAULT_NODE_INDEX_CELL_SIZE_DEG,
 ) -> NodeSpatialIndex:
     """ノードの座標からグリッドバケット索引を構築する。ノードが1つも無くても空の
-    bucketsを持つ索引を返す（`find_nearest_node_indexed`がNoneを返す）。
+    索引を返す（`find_nearest_node_indexed`がNoneを返す）。
 
     `candidates`（ノード番号順の真偽）を渡すと、真のノードだけを索引の候補にする（Hard
     Constraint通過後に孤立するNodeを最近傍探索から外すために使う）。
@@ -408,24 +412,46 @@ def build_node_spatial_index(
     latitude = np.asarray(latitude, dtype=np.float64)
     longitude = np.asarray(longitude, dtype=np.float64)
     ids = np.arange(len(latitude)) if candidates is None else np.flatnonzero(candidates)
-    cell_lat = np.floor(latitude[ids] / cell_size_deg).astype(np.int64)
-    cell_lon = np.floor(longitude[ids] / cell_size_deg).astype(np.int64)
-    order = np.lexsort((ids, cell_lon, cell_lat))
-    ids, cell_lat, cell_lon = ids[order], cell_lat[order], cell_lon[order]
-    starts = np.flatnonzero(np.concatenate(([True], (cell_lat[1:] != cell_lat[:-1]) | (cell_lon[1:] != cell_lon[:-1]))))
-    stops = np.append(starts[1:], len(ids))
-    buckets = {
-        (int(cell_lat[start]), int(cell_lon[start])): ids[start:stop]
-        for start, stop in zip(starts.tolist(), stops.tolist(), strict=True)
-    } if len(ids) else {}
-    bounds = (
-        (int(cell_lat.min()), int(cell_lon.min()), int(cell_lat.max()), int(cell_lon.max()))
-        if len(ids)
-        else None
-    )
+    if len(ids) == 0:
+        return NodeSpatialIndex(
+            latitude=latitude, longitude=longitude, cell_size_deg=cell_size_deg,
+            cell_nodes=ids, cell_starts=[0], cell_bounds=None,
+        )
+    # セルの座標は問い合わせと同じ`floor(度 / セルの一辺)`で求める。整数値のまま浮動小数で
+    # 番号まで組み、整数へは最後に1回だけ直す（値は2**53より十分小さく、どの段も丸めない）。
+    row = latitude[ids]
+    np.floor(np.divide(row, cell_size_deg, out=row), out=row)
+    column = longitude[ids]
+    np.floor(np.divide(column, cell_size_deg, out=column), out=column)
+    bounds = (int(row.min()), int(column.min()), int(row.max()), int(column.max()))
+    width = bounds[3] - bounds[1] + 1
+    cell_count = (bounds[2] - bounds[0] + 1) * width
+    row -= bounds[0]
+    row *= width
+    column -= bounds[1]
+    cell = (row + column).astype(np.int64)
+    order = _stable_order_of_cells(cell, cell_count)
+    counts = np.bincount(cell, minlength=cell_count)
     return NodeSpatialIndex(
-        latitude=latitude, longitude=longitude, cell_size_deg=cell_size_deg, buckets=buckets, cell_bounds=bounds
+        latitude=latitude, longitude=longitude, cell_size_deg=cell_size_deg,
+        cell_nodes=ids[order], cell_starts=[0, *np.cumsum(counts).tolist()], cell_bounds=bounds,
     )
+
+
+def _stable_order_of_cells(cell: np.ndarray, cell_count: int) -> np.ndarray:
+    """`0`以上`cell_count`未満のセルの番号を昇順に並べる添字（同じ番号の中は元の順を保つ）。
+
+    16ビットずつ下の桁から安定に並べ直す（LSDの基数ソート）。numpyは16ビット以下の整数を
+    安定に並べるときだけ基数ソートを使い、それより広い整数では比較ソートになる——セルの番号を
+    そのまま並べると、組む費用の大半がこの並べ替えになる。
+    """
+    order = np.argsort((cell & 0xFFFF).astype(np.uint16), kind="stable")
+    shift = 16
+    while (cell_count - 1) >> shift:
+        digit = ((cell[order] >> shift) & 0xFFFF).astype(np.uint16)
+        order = order[np.argsort(digit, kind="stable")]
+        shift += 16
+    return order
 
 
 def find_nearest_node_indexed(
@@ -488,6 +514,7 @@ def find_nearest_node_indexed(
         or cell_lon > max_cell_lon + _NEIGHBOR_CELL_TOLERANCE
     ):
         return None
+    height, width = max_cell_lat - min_cell_lat + 1, max_cell_lon - min_cell_lon + 1
     max_radius = max(
         abs(cell_lat - min_cell_lat),
         abs(cell_lat - max_cell_lat),
@@ -505,9 +532,14 @@ def find_nearest_node_indexed(
             for dy in range(-radius, radius + 1):
                 if max(abs(dx), abs(dy)) != radius:
                     continue  # 内側のリングは前回までのループで調べ済み
-                nodes = index.buckets.get((cell_lat + dx, cell_lon + dy))
-                if nodes is None:
+                row, column = cell_lat + dx - min_cell_lat, cell_lon + dy - min_cell_lon
+                if not (0 <= row < height and 0 <= column < width):
                     continue
+                cell = row * width + column
+                start, stop = index.cell_starts[cell], index.cell_starts[cell + 1]
+                if start == stop:
+                    continue
+                nodes = index.cell_nodes[start:stop]
                 if allowed is not None:
                     nodes = nodes[allowed[nodes]]
                     if len(nodes) == 0:

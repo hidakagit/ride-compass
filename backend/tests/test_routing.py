@@ -22,6 +22,7 @@ import pytest
 from numba.core.registry import CPUDispatcher
 
 from app.domain import routing
+from app.domain.geo import haversine_distance_km_array
 from app.domain.route import Coordinates
 from app.domain.wind import WindForecastSeries, WindLattice
 from app.services.route_generator import RouteGenerator
@@ -591,6 +592,30 @@ def test_nearest_node_respects_max_distance_km():
     point = coords(35.0050, 139.0050)
     assert routing.find_nearest_node_indexed(index, point, max_distance_km=0.1) is None
     assert nearest(SNAP_GRAPH, index, point, max_distance_km=5.0) == "north"
+
+
+@pytest.mark.parametrize(
+    "span_deg",
+    [
+        0.3,  # セルの番号が16ビットに収まる（都心の周回の探索範囲と同じくらいの広さ）
+        3.0,  # 収まらない（並べ替えが桁を2回に分ける）
+    ],
+)
+def test_nearest_node_is_the_closest_candidate_by_great_circle_distance(span_deg):
+    """散らしたノードのどこを指しても、候補（と`allowed`）のうち球面距離で一番近いノードを返す。"""
+    rng = np.random.default_rng(1194)
+    node_count = 3000
+    latitude = 35.0 + rng.random(node_count) * span_deg
+    longitude = 139.0 + rng.random(node_count) * span_deg
+    candidates = rng.random(node_count) < 0.9
+    allowed = rng.random(node_count) < 0.6
+    index = routing.build_node_spatial_index(latitude, longitude, candidates)
+    for _ in range(40):
+        point = coords(float(35.0 + rng.random() * span_deg), float(139.0 + rng.random() * span_deg))
+        distances = haversine_distance_km_array(latitude, longitude, point)
+        for mask in (candidates, candidates & allowed):
+            expected = int(np.flatnonzero(mask)[np.argmin(distances[mask])])
+            assert routing.find_nearest_node_indexed(index, point, None if mask is candidates else allowed) == expected
 
 
 def test_node_index_only_holds_the_candidate_nodes():
