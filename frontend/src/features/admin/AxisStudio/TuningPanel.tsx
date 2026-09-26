@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { useState } from "react";
 import { Button } from "@/components/ui/Button/Button";
 import { Card } from "@/components/ui/Card/Card";
 import InfoPopover from "@/components/ui/InfoPopover/InfoPopover";
@@ -9,6 +10,9 @@ import { NumberInput } from "@/components/ui/NumberInput/NumberInput";
 import { textVariants } from "@/components/ui/Text/Text";
 import { dotVariants } from "@/components/ui/Dot/Dot";
 import { cn } from "@/lib/cn";
+import { getQueryClient } from "@/lib/queryClient";
+
+const TUNING_QUERY_KEY = ["tuning-parameters"];
 
 /** 1件ぶんの行。入力中の値は親がまとめて持ち、この行は表示だけを担う
  * （保存はDBへの書き込みのため、押した時にまとめて送る）。
@@ -74,36 +78,19 @@ function TuningRow({
  * DBに残るのは既定から動かしたぶんだけになる。
  */
 export default function TuningPanel() {
-  const [parameters, setParameters] = useState<TuningParameter[] | null>(null);
+  const client = getQueryClient();
+  const query = useQuery({ queryKey: TUNING_QUERY_KEY, queryFn: listTuningParameters }, client);
+  const parameters = query.data ?? null;
   // 入力中の値（id → 値）。触った行だけを持ち、触っていない行はbackendの値を映す。
   const [drafts, setDrafts] = useState<Record<string, number>>({});
-  const [error, setError] = useState<string | null>(null);
-  // 開いた時点で取りに行くため、最初から読み込み中で始める。
-  const [loading, setLoading] = useState(true);
+  const [saveError, setSaveError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
-  const [reloadToken, setReloadToken] = useState(0);
-
-  // 取得はeffectの中で完結させ、**状態を書くのはawaitの後だけ**にする（effectの中で同期に
-  // 書くと描画の連鎖を呼ぶ）。読み込み直しは合図（reloadToken）を進めてこのeffectへ戻す。
-  useEffect(() => {
-    let cancelled = false;
-    void (async () => {
-      try {
-        const rows = await listTuningParameters();
-        if (cancelled) return;
-        setParameters(rows);
-        setError(null);
-      } catch (err) {
-        if (cancelled) return;
-        setError(err instanceof Error ? err.message : "較正値の取得に失敗しました");
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [reloadToken]);
+  const loadError = query.error
+    ? query.error instanceof Error
+      ? query.error.message
+      : "較正値の取得に失敗しました"
+    : null;
+  const error = saveError ?? loadError;
 
   const rows = parameters ?? [];
   const draftOf = (parameter: TuningParameter) => drafts[parameter.id] ?? parameter.value;
@@ -121,17 +108,19 @@ export default function TuningPanel() {
         const next = drafts[parameter.id]!;
         // 既定と同じ値に戻したら上書きを消す（DBに持つのは動かしたぶんだけ）。
         const updated = await updateTuningParameter(parameter.id, next === parameter.default ? null : next);
-        setParameters((prev) => prev?.map((p) => (p.id === updated.id ? updated : p)) ?? prev);
+        client.setQueryData<TuningParameter[]>(TUNING_QUERY_KEY, (prev) =>
+          prev?.map((p) => (p.id === updated.id ? updated : p)),
+        );
         setDrafts((prev) => {
           const rest = { ...prev };
           delete rest[updated.id];
           return rest;
         });
       }
-      setError(null);
+      setSaveError(null);
     } catch (err) {
       // 打った値は消さない（範囲外なら直して押し直せる）。
-      setError(err instanceof Error ? err.message : "保存に失敗しました");
+      setSaveError(err instanceof Error ? err.message : "保存に失敗しました");
     } finally {
       setSaving(false);
     }
@@ -169,14 +158,14 @@ export default function TuningPanel() {
           </Button>
         )}
         {edited.length > 0 && <span className={textVariants({ variant: "note" })}>{edited.length}件が未保存</span>}
-        {loading && <span className={textVariants({ variant: "note" })}>読み込み中…</span>}
+        {query.isFetching && <span className={textVariants({ variant: "note" })}>読み込み中…</span>}
       </div>
 
       {error && (
         <p className={cn(textVariants({ variant: "error" }), "flex flex-wrap items-center gap-2")}>
           {error}
           {parameters === null && (
-            <Button className="flex-none" size="sm" onClick={() => setReloadToken((token) => token + 1)}>
+            <Button className="flex-none" size="sm" onClick={() => void query.refetch()}>
               読み込み直す
             </Button>
           )}

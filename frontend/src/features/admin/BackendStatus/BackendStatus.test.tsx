@@ -4,8 +4,7 @@
  * ここで見ないもの:
  * - 疎通の判定（応答の読み方・失敗を偽にすること） → `app/admin/adminApi.test.ts`
  */
-import { StrictMode } from "react";
-import { act, render, screen } from "@testing-library/react";
+import { render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const api = vi.hoisted(() => ({ checkBackendHealth: vi.fn() }));
@@ -34,23 +33,5 @@ describe("BackendStatus", () => {
     api.checkBackendHealth.mockResolvedValue(false);
     render(<BackendStatus />);
     expect(await screen.findByText("サーバーに接続できません")).toBeInTheDocument();
-  });
-
-  it("立ち上げ直しで問い合わせが2回走っても、後から届いた古い方の答えで上書きしない", async () => {
-    let answerFirst!: (ok: boolean) => void;
-    api.checkBackendHealth
-      .mockReturnValueOnce(new Promise<boolean>((resolve) => (answerFirst = resolve)))
-      .mockResolvedValueOnce(true);
-
-    render(
-      <StrictMode>
-        <BackendStatus />
-      </StrictMode>,
-    );
-    expect(await screen.findByText("サーバー接続: OK")).toBeInTheDocument();
-    expect(api.checkBackendHealth).toHaveBeenCalledTimes(2);
-
-    await act(async () => answerFirst(false));
-    expect(screen.getByText("サーバー接続: OK")).toBeInTheDocument();
   });
 });

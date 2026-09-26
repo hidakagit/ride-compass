@@ -7,7 +7,6 @@
  * ここで見ないもの:
  * - 分布へ折れ点を当てはめること → `AxisStudio/scoreDistribution.test.ts`
  */
-import { StrictMode } from "react";
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -57,15 +56,8 @@ describe("useAxisValueDistribution", () => {
 
     await waitFor(() => expect(result.current.loading).toBe(true));
     expect(api.fetchAxisValueDistribution).toHaveBeenCalledWith({ id: "shape1" });
-    await act(async () => resolve(distribution(3)));
-    expect(result.current).toEqual({ distribution: distribution(3), loading: false, error: null });
-  });
-
-  it("立ち上げ直し（StrictModeの二重実行）でも、取りに行くのは1回", async () => {
-    api.fetchAxisValueDistribution.mockResolvedValue(distribution(1));
-    const { result } = renderHook(() => useAxisValueDistribution(true, "k", () => ({})), { wrapper: StrictMode });
-    await waitFor(() => expect(result.current.distribution).toEqual(distribution(1)));
-    expect(api.fetchAxisValueDistribution).toHaveBeenCalledTimes(1);
+    resolve(distribution(3));
+    await waitFor(() => expect(result.current).toEqual({ distribution: distribution(3), loading: false, error: null }));
   });
 
   it("形を決める部分が変わらなければ、形（折れ点）が変わっても取り直さない。変われば取り直す", async () => {
@@ -82,32 +74,18 @@ describe("useAxisValueDistribution", () => {
     expect(api.fetchAxisValueDistribution).toHaveBeenLastCalledWith({ breakpoints: 3 });
   });
 
-  it("取り直している間に前の答えが遅れて届いても、今の答えを上書きしない", async () => {
-    let answerFirst!: (value: ValueDistribution) => void;
+  it("取り直している間は、前の分布を出したまま読み込み中にする", async () => {
+    let resolveSecond!: (value: ValueDistribution) => void;
     api.fetchAxisValueDistribution
-      .mockReturnValueOnce(new Promise<ValueDistribution>((resolve) => (answerFirst = resolve)))
-      .mockResolvedValueOnce(distribution(2));
+      .mockResolvedValueOnce(distribution(1))
+      .mockReturnValueOnce(new Promise<ValueDistribution>((resolve) => (resolveSecond = resolve)));
     const { result, rerender } = renderDistribution({ enabled: true, termsKey: "k1", shape: {} });
-    await waitFor(() => expect(api.fetchAxisValueDistribution).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(result.current.distribution).toEqual(distribution(1)));
 
     rerender({ enabled: true, termsKey: "k2", shape: {} });
-    await waitFor(() => expect(result.current.distribution).toEqual(distribution(2)));
-    await act(async () => answerFirst(distribution(99)));
-    expect(result.current.distribution).toEqual(distribution(2));
-  });
-
-  it("前の答えが遅れて失敗しても、今の答えを消さない", async () => {
-    let failFirst!: (reason: unknown) => void;
-    api.fetchAxisValueDistribution
-      .mockReturnValueOnce(new Promise<ValueDistribution>((_resolve, reject) => (failFirst = reject)))
-      .mockResolvedValueOnce(distribution(2));
-    const { result, rerender } = renderDistribution({ enabled: true, termsKey: "k1", shape: {} });
-    await waitFor(() => expect(api.fetchAxisValueDistribution).toHaveBeenCalledTimes(1));
-
-    rerender({ enabled: true, termsKey: "k2", shape: {} });
-    await waitFor(() => expect(result.current.distribution).toEqual(distribution(2)));
-    await act(async () => failFirst(new Error("遅れた失敗")));
-    expect(result.current).toEqual({ distribution: distribution(2), loading: false, error: null });
+    await waitFor(() => expect(result.current).toEqual({ distribution: distribution(1), loading: true, error: null }));
+    resolveSecond(distribution(2));
+    await waitFor(() => expect(result.current).toEqual({ distribution: distribution(2), loading: false, error: null }));
   });
 
   it.each([

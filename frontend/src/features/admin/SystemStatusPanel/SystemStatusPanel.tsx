@@ -1,10 +1,10 @@
 "use client";
 
+import { useQuery } from "@tanstack/react-query";
 import { formatJstDateTime } from "@/lib/time";
-import { useCallback, useEffect, useState } from "react";
 import FloatingPanel from "@/components/FloatingPanel/FloatingPanel";
-import { getDebugStats, type DebugStats } from "@/features/admin/adminApi";
-import { getFrontendVersion, type FrontendVersion } from "@/features/admin/adminApi";
+import { getDebugStats, getFrontendVersion } from "@/features/admin/adminApi";
+import { getQueryClient } from "@/lib/queryClient";
 import { Button } from "@/components/ui/Button/Button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/Table/Table";
 import { Badge } from "@/components/ui/Badge/Badge";
@@ -14,6 +14,11 @@ import { cn } from "@/lib/cn";
 interface SystemStatusPanelProps {
   open: boolean;
   onClose: () => void;
+}
+
+function errorText(error: unknown): string | null {
+  if (error === null) return null;
+  return error instanceof Error ? error.message : String(error);
 }
 
 function formatStartedAt(iso: string): string {
@@ -32,42 +37,22 @@ function formatLastError(type: string | null, at: string | null): string {
 // プロセス内カウンタ（バックエンド）・モジュール評価時刻（フロント）のスナップショットのため、
 // ポーリングはせず開いたときと「更新」ボタン押下時にだけ取得する。
 export default function SystemStatusPanel({ open, onClose }: SystemStatusPanelProps) {
-  const [backend, setBackend] = useState<DebugStats | null>(null);
-  const [frontend, setFrontend] = useState<FrontendVersion | null>(null);
-  const [backendError, setBackendError] = useState<string | null>(null);
-  const [frontendError, setFrontendError] = useState<string | null>(null);
-  const [loading, setLoading] = useState(false);
-
-  const fetchAll = useCallback(() => {
-    setLoading(true);
-    // getDebugStats()（バックエンド、ネットワーク往復を伴い所要時間が読めない）と
-    // getFrontendVersion()（フロント自身のモジュール評価時刻、実質即時）を別々に
-    // .finally()でsetLoading(false)すると、片方だけ先に解決した時点で「更新」ボタンが
-    // 押せる状態へ戻りloading表示が消えてしまう。両方が完了するまでloadingを維持する
-    // ようPromise.allでまとめる（下記の理由により失敗ケースも含めPromise.allで足りる）。
-    const backendFetch = getDebugStats()
-      .then((data) => {
-        setBackend(data);
-        setBackendError(null);
-      })
-      .catch((error) => setBackendError(error instanceof Error ? error.message : String(error)));
-    const frontendFetch = getFrontendVersion()
-      .then((data) => {
-        setFrontend(data);
-        setFrontendError(null);
-      })
-      .catch((error) => setFrontendError(error instanceof Error ? error.message : String(error)));
-    // backendFetch/frontendFetchはいずれも自前で.catch()済みで拒否しないため、
-    // Promise.allで両方の完了を待てば十分（片方が失敗しても他方の完了を待たずに
-    // loadingが解除される事故を防げる）。
-    Promise.all([backendFetch, frontendFetch]).then(() => setLoading(false));
-  }, []);
-
-  // effect本体からの直接同期setState呼び出しを避け、マイクロタスク経由で実行する
-  // （react-hooks/set-state-in-effect対策、useWeatherConditions.tsのuseLocationFetchと同じ流儀）。
-  useEffect(() => {
-    if (open) Promise.resolve().then(() => fetchAll());
-  }, [open, fetchAll]);
+  const client = getQueryClient();
+  const backendQuery = useQuery({ queryKey: ["debug-stats"], queryFn: getDebugStats, enabled: open }, client);
+  const frontendQuery = useQuery(
+    { queryKey: ["frontend-version"], queryFn: getFrontendVersion, enabled: open },
+    client,
+  );
+  const backend = backendQuery.data ?? null;
+  const frontend = frontendQuery.data ?? null;
+  const backendError = errorText(backendQuery.error);
+  const frontendError = errorText(frontendQuery.error);
+  // 「更新」は両方が届くまで押せない（速い方が先に届いた時点で押せると、遅い方の取得中に重ねて取りに行く）。
+  const loading = backendQuery.isFetching || frontendQuery.isFetching;
+  const fetchAll = () => {
+    void backendQuery.refetch();
+    void frontendQuery.refetch();
+  };
 
   const externalEntries = backend ? Object.entries(backend.external) : [];
   const rejectionEntries = backend ? Object.entries(backend.rate_limit_rejections) : [];

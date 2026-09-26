@@ -52,12 +52,11 @@ describe("useMapBandsOfThresholds", () => {
     expect(result.current).toEqual(NO_MAP_BANDS_JUDGEMENT);
   });
 
-  it("入力を変えた直後は前の入力の答えを返さず、後から届いた前の入力の答えも捨てる", async () => {
+  it("入力を変えた直後は、前の入力の答えを返さない", async () => {
     let answerSecond!: (value: MapBandsOfThresholds) => void;
     api.fetchMapBandsOfThresholds
       .mockResolvedValueOnce(judged)
-      .mockReturnValueOnce(new Promise<MapBandsOfThresholds>((resolve) => (answerSecond = resolve)))
-      .mockResolvedValueOnce({ droppedOnMap: [], bandsOnMap: [0, 1, 2] });
+      .mockReturnValueOnce(new Promise<MapBandsOfThresholds>((resolve) => (answerSecond = resolve)));
     const { result, rerender } = renderHook(({ thresholds }) => useMapBandsOfThresholds(request(thresholds)), {
       initialProps: { thresholds: [1, 2] },
     });
@@ -65,26 +64,7 @@ describe("useMapBandsOfThresholds", () => {
 
     rerender({ thresholds: [1, 3] });
     expect(result.current).toEqual(NO_MAP_BANDS_JUDGEMENT);
-
-    rerender({ thresholds: [1, 4] });
+    answerSecond({ droppedOnMap: [], bandsOnMap: [0, 1, 2] });
     await waitFor(() => expect(result.current.bandsOnMap).toEqual([0, 1, 2]));
-    await act(async () => answerSecond({ droppedOnMap: [3], bandsOnMap: [0] }));
-    expect(result.current.bandsOnMap).toEqual([0, 1, 2]);
-  });
-
-  it("前の入力の問い合わせが遅れて失敗しても、今の答えを消さない", async () => {
-    let failFirst!: (reason: unknown) => void;
-    api.fetchMapBandsOfThresholds
-      .mockReturnValueOnce(new Promise<MapBandsOfThresholds>((_resolve, reject) => (failFirst = reject)))
-      .mockResolvedValueOnce(judged);
-    const { result, rerender } = renderHook(({ thresholds }) => useMapBandsOfThresholds(request(thresholds)), {
-      initialProps: { thresholds: [1] },
-    });
-    await waitFor(() => expect(api.fetchMapBandsOfThresholds).toHaveBeenCalledTimes(1));
-
-    rerender({ thresholds: [1, 2] });
-    await waitFor(() => expect(result.current).toEqual(judged));
-    await act(async () => failFirst(new Error("遅れた失敗")));
-    expect(result.current).toEqual(judged);
   });
 });

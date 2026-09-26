@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { useState } from "react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/Tabs/Tabs";
 import { DialogContent, DialogRoot } from "@/components/ui/Dialog/Dialog";
 import { MATERIAL_CATALOG, materialCatalogLabel } from "@/lib/axisMaterialsCatalog";
@@ -19,6 +20,7 @@ import { Button } from "@/components/ui/Button/Button";
 import { textVariants } from "@/components/ui/Text/Text";
 import { cn } from "@/lib/cn";
 import { cardVariants } from "@/components/ui/Card/Card";
+import { getQueryClient } from "@/lib/queryClient";
 
 // shapeが参照する材料id一覧（`kind`ごとにフィールド名が異なるため統一する）。この中には
 // 材料カタログの材料idだけでなく、他axis_idを指すもの（他axis_idを材料として参照する
@@ -45,8 +47,17 @@ function axesReferencing(axisId: string, definitions: readonly AxisDefinitionRes
 // 集約し、フォーム自体はAxisComposerへ委ねる。認証・route handler経由の詳細は
 // docs/modules/frontend/axis-studio.md「AxisStudio.tsx（一覧・状態管理）」節参照。
 export default function AxisStudio() {
-  const [definitions, setDefinitions] = useState<AxisDefinitionResponse[] | null>(null);
-  const [listError, setListError] = useState<string | null>(null);
+  const definitionsQuery = useQuery({ queryKey: ["axis-definitions"], queryFn: listAxisDefinitions }, getQueryClient());
+  const definitions = definitionsQuery.data ?? null;
+  // 作成・更新以外の操作（下書きへ戻す・削除）の失敗。一覧を読み直すと消える。
+  const [actionError, setActionError] = useState<string | null>(null);
+  const listError =
+    actionError ??
+    (definitionsQuery.error
+      ? definitionsQuery.error instanceof Error
+        ? definitionsQuery.error.message
+        : String(definitionsQuery.error)
+      : null);
   const [editingAxisId, setEditingAxisId] = useState<string | null>(null);
   const [deletingAxisId, setDeletingAxisId] = useState<string | null>(null);
   const [unpublishingAxisId, setUnpublishingAxisId] = useState<string | null>(null);
@@ -66,21 +77,9 @@ export default function AxisStudio() {
   const composerOpen = editingAxisId !== null || duplicateFrom !== null || creatingNew;
 
   async function reload() {
-    setListError(null);
-    try {
-      const list = await listAxisDefinitions();
-      setDefinitions(list);
-    } catch (err) {
-      setListError(err instanceof Error ? err.message : String(err));
-    }
+    setActionError(null);
+    await definitionsQuery.refetch();
   }
-
-  // effect本体からの直接同期setState呼び出しを避け、マイクロタスク経由で実行する
-  // （react-hooks/set-state-in-effect対策、SystemStatusPanel.tsxと同じ流儀）。
-  // マウント時に一度だけ読み込む。
-  useEffect(() => {
-    Promise.resolve().then(() => reload());
-  }, []);
 
   /** モーダルを閉じる。`republished`は「保存で公開へ戻したか」で、**呼び出し側が渡す**
    * ——`setRepublishAxisId(null)`の直後に呼んでも、この関数が読む`republishAxisId`は
@@ -125,7 +124,7 @@ export default function AxisStudio() {
       setRepublishAxisId(def.axis_id);
       setEditingAxisId(def.axis_id);
     } catch (err) {
-      setListError(err instanceof Error ? err.message : String(err));
+      setActionError(err instanceof Error ? err.message : String(err));
     } finally {
       setUnpublishingAxisId(null);
     }
@@ -145,7 +144,7 @@ export default function AxisStudio() {
       await unpublishAxisDefinition(axisId);
       await reload();
     } catch (err) {
-      setListError(err instanceof Error ? err.message : String(err));
+      setActionError(err instanceof Error ? err.message : String(err));
     } finally {
       setUnpublishingAxisId(null);
     }
@@ -168,7 +167,7 @@ export default function AxisStudio() {
       await deleteAxisDefinition(axisId);
       await reload();
     } catch (err) {
-      setListError(err instanceof Error ? err.message : String(err));
+      setActionError(err instanceof Error ? err.message : String(err));
     } finally {
       setDeletingAxisId(null);
     }

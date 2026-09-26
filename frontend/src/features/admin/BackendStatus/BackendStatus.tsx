@@ -1,25 +1,13 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { checkBackendHealth } from "@/features/admin/adminApi";
 import { cn } from "@/lib/cn";
+import { getQueryClient } from "@/lib/queryClient";
 
 export default function BackendStatus() {
-  const [status, setStatus] = useState<"checking" | "ok" | "ng">("checking");
-
-  useEffect(() => {
-    // React 18 Strict Mode（開発時）はこの副作用をマウント→クリーンアップ→再マウントで
-    // 2回実行する。クリーンアップ済みの古い方の結果が後から届いて新しい結果を上書きする
-    // 競合が実機で発生した（例: 新しい方がok→古い方がタイムアウトでngになりngのまま固定）
-    // ため、クリーンアップ後は結果を反映しないようにガードする。
-    let cancelled = false;
-    checkBackendHealth().then((ok) => {
-      if (!cancelled) setStatus(ok ? "ok" : "ng");
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
+  const { data: healthy } = useQuery({ queryKey: ["backend-health"], queryFn: checkBackendHealth }, getQueryClient());
+  const status = healthy === undefined ? "checking" : healthy ? "ok" : "ng";
 
   // 正常時は静かに（小さく・淡く）、異常時だけ目立たせる。常時「OK」を主張する必要は無く、
   // ユーザーが気にすべきは「使えない理由」があるときだけという考え方。
