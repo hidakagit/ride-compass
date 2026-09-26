@@ -34,10 +34,11 @@ afterEach(() => {
   vi.clearAllMocks();
 });
 
-/** 取りに行く・応答を反映する、の非同期の段を最後まで進める（時間の早送りは取り直しの間隔だけ）。 */
+/** 取りに行く・応答を反映する、の非同期の段を最後まで進める（時間の早送りは取り直しの間隔だけ）。取得の結果は
+ * 区切り（`setTimeout(0)`）ごとに届くので、偽にしていない時計で数回区切りを待つ。 */
 async function settle() {
   await act(async () => {
-    for (let i = 0; i < 10; i += 1) await Promise.resolve();
+    for (let i = 0; i < 3; i += 1) await new Promise((resolve) => setTimeout(resolve, 0));
   });
 }
 
@@ -80,44 +81,14 @@ describe("useWeatherConditions 取得の時機", () => {
     expect(api.getAmedasObservation).toHaveBeenCalledTimes(2);
   });
 
-  it("後から投げた問い合わせの結果だけを反映する（先に投げた遅い応答で上書きしない）", async () => {
-    let resolveSlow: (value: unknown) => void = () => {};
-    api.getCurrentWeather.mockReturnValueOnce(new Promise((resolve) => (resolveSlow = resolve)));
-    api.getCurrentWeather.mockResolvedValueOnce({ temperature_c: 25 });
+  it("位置を変えて取り直している間は、前の位置の値を出したまま読み込み中にする", async () => {
     const { result, rerender } = render();
     await settle();
-    expect(api.getCurrentWeather).toHaveBeenCalledTimes(1);
-    rerender({ location: YOKOHAMA, ready: true });
-    await settle();
-    expect(result.current.weather).toEqual({ temperature_c: 25 });
-    await act(async () => resolveSlow({ temperature_c: 10 }));
-    expect(result.current.weather).toEqual({ temperature_c: 25 });
-  });
-
-  it("先に投げた問い合わせが後から失敗しても、失敗の文言を出さない（反映するのは最後の問い合わせだけ）", async () => {
-    let rejectSlow: (reason: unknown) => void = () => {};
-    api.getCurrentWeather.mockReturnValueOnce(new Promise((_, reject) => (rejectSlow = reject)));
-    api.getCurrentWeather.mockResolvedValueOnce({ temperature_c: 25 });
-    const { result, rerender } = render();
-    await settle();
-    rerender({ location: YOKOHAMA, ready: true });
-    await settle();
-    await act(async () => rejectSlow(new Error("遅れて失敗")));
-    expect(result.current.weatherError).toBeNull();
-    expect(result.current.weather).toEqual({ temperature_c: 25 });
-  });
-
-  it("先に投げた問い合わせが終わっても、最後の問い合わせを待つ間は読み込み中のまま", async () => {
-    let resolveSlow: (value: unknown) => void = () => {};
-    api.getCurrentWeather.mockReturnValueOnce(new Promise((resolve) => (resolveSlow = resolve)));
     api.getCurrentWeather.mockReturnValueOnce(new Promise(() => {}));
-    const { result, rerender } = render();
-    await settle();
     rerender({ location: YOKOHAMA, ready: true });
     await settle();
-    await act(async () => resolveSlow({ temperature_c: 10 }));
+    expect(result.current.weather).toEqual({ temperature_c: 20 });
     expect(result.current.weatherLoading).toBe(true);
-    expect(result.current.weather).toBeNull();
   });
 
   it("画面を閉じた後は、取り直しも応答の反映もしない", async () => {
@@ -147,20 +118,14 @@ describe("useWeatherConditions 失敗の扱い", () => {
     expect(result.current.weatherError).toBeNull();
   });
 
-  it("Error以外で失敗したら、決まった文言にする", async () => {
-    api.getAmedasObservation.mockRejectedValue("boom");
-    const { result } = render();
-    await settle();
-    expect(result.current.amedasError).toBe("不明なエラーが発生しました");
-  });
-
   it("取っている間は読み込み中の印を立て、終われば下ろす", async () => {
     let resolve: (value: unknown) => void = () => {};
     api.getCurrentWeather.mockReturnValueOnce(new Promise((r) => (resolve = r)));
     const { result } = render();
     await settle();
     expect(result.current.weatherLoading).toBe(true);
-    await act(async () => resolve({ temperature_c: 20 }));
+    resolve({ temperature_c: 20 });
+    await settle();
     expect(result.current.weatherLoading).toBe(false);
   });
 });

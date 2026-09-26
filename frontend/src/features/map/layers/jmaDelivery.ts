@@ -150,52 +150,22 @@ interface RawTargetTime {
   elements: string[];
 }
 
-// 未解決のフェッチだけを時刻一覧のパスごとに共有する（解決したら即座に捨てる）。
-const inFlightTargetTimes = new Map<string, Promise<unknown[]>>();
-
-/** 時刻一覧のファイル1つを取得する。同じパスを同時に取りに行く呼び出し元（降水短時間予報と
- * 線状降水帯予測マップ、キキクルの各要素等）は、未解決のフェッチを共有して往復を1回に畳む。
- * 解決後はキャッシュしない——時刻一覧は数分で更新され、古い値を返すと表示が止まる。
- * エラー文言に載る`label`は先に呼んだ側のものになる（同じURLの同じ失敗を指すため実害はない）。
- * **共有の登録は同期的に済ませる**——同じ瞬間に並べて呼んだ側が、先の登録を見られるように。 */
-function fetchTargetTimesFile(path: string, label: string): Promise<unknown[]> {
-  const existing = inFlightTargetTimes.get(path);
-  if (existing) return existing;
-
-  const request = (async () => {
-    const data = await fetchJson<unknown>(jmaProxyUrl(path), {
-      timeoutMs: DEFAULT_API_TIMEOUT_MS,
-      category: "api:jma-nowcast-times",
-      errorLabel: `${label}の時刻一覧`,
-    });
-    if (!Array.isArray(data)) throw new Error(`${label}の時刻一覧の形式が想定と異なります`);
-    return data as unknown[];
-  })();
-  inFlightTargetTimes.set(path, request);
-  void request.then(
-    () => inFlightTargetTimes.delete(path),
-    () => inFlightTargetTimes.delete(path),
-  );
-  return request;
+/** 配信要素の時刻一覧（`targetTimes*.json`）のファイルのパス（宣言の順）。在り処（系統とファイル名）は源泉の宣言が
+ * 持ち、ここは`.../data/<系統>/<ファイル>`というパス構造だけを知る。時刻一覧が複数のファイルに分かれる要素（降水
+ * ナウキャストの実況と予測）は複数、同じファイルを読む要素（キキクルの各要素等）どうしは同じパスになる。 */
+export function jmaTargetTimesPaths(delivery: JmaDelivery): string[] {
+  return delivery.targetTimeFiles.map((file) => `/jmatile/data/${delivery.pathGroup}/${file}`);
 }
 
-/** 配信要素の時刻一覧（`targetTimes*.json`）の行。在り処（系統とファイル名）は源泉の宣言が持ち、
- * ここは`.../data/<系統>/<ファイル>`というパス構造だけを知る。`label`はエラーメッセージに使う
- * 対象名（「の時刻一覧」は本関数が付ける）。
- *
- * 時刻一覧が複数のファイルに分かれる要素（降水ナウキャストの実況と予測）は、全ファイルの行を
- * 宣言の順につなげて返す。一部のファイルだけ取れなくても残りで部分的な時系列を返し、
- * 全部取れなかったときだけ最初の失敗を投げる。 */
-async function fetchJmaTargetTimes(delivery: JmaDelivery, label: string): Promise<RawTargetTime[]> {
-  const results = await Promise.allSettled(
-    delivery.targetTimeFiles.map((file) => fetchTargetTimesFile(`/jmatile/data/${delivery.pathGroup}/${file}`, label)),
-  );
-  const fulfilled = results.filter((result) => result.status === "fulfilled");
-  if (fulfilled.length === 0) {
-    const [firstFailure] = results;
-    throw firstFailure?.status === "rejected" ? firstFailure.reason : new Error(`${label}の時刻一覧が宣言されていない`);
-  }
-  return fulfilled.flatMap((result) => result.value) as RawTargetTime[];
+/** 時刻一覧のファイル1つの行。`label`はエラーメッセージに使う対象名（「の時刻一覧」は本関数が付ける）。 */
+export async function fetchJmaTargetTimesFile(path: string, label: string): Promise<unknown[]> {
+  const data = await fetchJson<unknown>(jmaProxyUrl(path), {
+    timeoutMs: DEFAULT_API_TIMEOUT_MS,
+    category: "api:jma-nowcast-times",
+    errorLabel: `${label}の時刻一覧`,
+  });
+  if (!Array.isArray(data)) throw new Error(`${label}の時刻一覧の形式が想定と異なります`);
+  return data;
 }
 
 function toFrame(row: RawTargetTime): JmaFrame {
@@ -265,9 +235,10 @@ const READERS: Record<JmaDelivery["reader"], (rows: readonly RawTargetTime[], el
   latest: readLatest,
 };
 
-/** 段のコマ（時刻順）。時刻一覧の読み方は源泉の宣言が決める。 */
-export async function fetchJmaFrames(delivery: JmaDelivery, label: string): Promise<JmaFrame[]> {
-  return READERS[delivery.reader](await fetchJmaTargetTimes(delivery, label), delivery.id);
+/** 時刻一覧の行（読めたファイルの行を宣言の順につないだもの）から、その配信要素の段のコマ（時刻順）を読む。
+ * 読み方は源泉の宣言が決める。 */
+export function jmaFramesOf(delivery: JmaDelivery, rows: readonly unknown[]): JmaFrame[] {
+  return READERS[delivery.reader](rows as readonly RawTargetTime[], delivery.id);
 }
 
 /** "YYYYMMDDHHmmss"（UTC）形式のvalidtime → Date。 */

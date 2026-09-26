@@ -3,10 +3,17 @@ import { isServer, QueryClient } from "@tanstack/react-query";
 // 取り直す契機は各フックの宣言（マウント・依存の変化・`refetchInterval`）だけにする。既定の自動の再試行と
 // 画面へ戻ったときの取り直しは切る——再試行は失敗の表示を数秒遅らせ、backendのレート上限（429）へ重ねて当たる。
 // 取り直しは走行中のスマホでアプリを行き来するたびに通信を足す。
+// 定期の取り直し（`refetchInterval`）は画面が裏にある間も続ける——戻ったときに取り直さないので、裏で止めると
+// 戻ってから次の周期まで古い値（雨雲・警報）が残る。
 function makeQueryClient(): QueryClient {
   return new QueryClient({
     defaultOptions: {
-      queries: { retry: false, refetchOnWindowFocus: false, refetchOnReconnect: false },
+      queries: {
+        retry: false,
+        refetchOnWindowFocus: false,
+        refetchOnReconnect: false,
+        refetchIntervalInBackground: true,
+      },
     },
   });
 }

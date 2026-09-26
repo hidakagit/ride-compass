@@ -22,8 +22,7 @@
 | `features/map/useJmaTileIndex.ts` | 在否インデックスの定期取得 |
 | `features/map/scene/groups/weather.ts` | 動的気象の描き方。何を描くか（チップid・名前付きソース・描き方の種類・配信元）は源泉の`mapDisplay.weatherElements`をループして受け取り、ここは要素ごとの見た目（`paint`・`layout`・`filter`・記号の絵）だけを持つ。ソース名（`weatherSourceId`）・ソースの宣言・レイヤー・記号の絵の登録（`WEATHER_ICONS`）はこの2つから導かれる |
 | `features/map/scene/applyToMap.ts`（`weatherStateFrom`・`weatherPayloadFrom`） | `dynamicWeather`（チップid→名前付きソース→表示・中身）を宣言の入力へ移す。JMAタイルのURLへ`jmatile://`スキームを付ける |
-| `features/map/useDynamicWeatherLayers.ts`・`useWeatherGrid.ts`・`features/conditions/useWeatherConditions.ts` | 状態管理・フェッチ。動的気象は要素を名指さず、表示中の名前付きソースをループして段の種類（配信元のタイル・配信元の地点・自前の格子）ごとに1つずつの実装で描画内容を作る。定期取得は`usePolledFetch`（配信元の時刻一覧・粗い風格子）、現在地に追随する取得は`useWeatherConditions`内の`useLocationFetch`が骨格を持ち、個々のフェッチはfetcherだけを渡す。取り直す間隔（アメダス・在否インデックス・風格子）はbackendの宣言が生成物`refresh-intervals.json`で配る（新しい値が出る間隔そのもの。配信元の時刻一覧の間隔は`jmaElements[].refreshIntervalMs`）。「降っていない」「無風」の境も生成物`weather-scales.json`から読み、画面は持たない |
-| `features/map/usePolledFetch.ts` | 「マウント時に即座に1回フェッチ＋以降intervalMsごとに再フェッチ、cancelledフラグで古いレスポンスの反映を防止」という、定期取得（配信元の時刻一覧・粗い風格子）が共有するフェッチ骨格の共通実装 |
+| `features/map/useDynamicWeatherLayers.ts`・`useWeatherGrid.ts`・`features/conditions/useWeatherConditions.ts` | 状態管理・フェッチ。動的気象は要素を名指さず、表示中の名前付きソースをループして段の種類（配信元のタイル・配信元の地点・自前の格子）ごとに1つずつの実装で描画内容を作る。取得の骨格（重複排除・定期の取り直し・読み込み中と失敗の状態）はTanStack Queryが持ち（[ページ全体構成](page-composition.md)「データ取得の骨格」）、配信元の時刻一覧・粗い風格子・在否インデックスは`refetchInterval`で、現在地に追随する取得は`useWeatherConditions`内の`useLocationFetch`（キーに位置を持つ）で取り直す。取り直す間隔（アメダス・在否インデックス・風格子）はbackendの宣言が生成物`refresh-intervals.json`で配る（新しい値が出る間隔そのもの。配信元の時刻一覧の間隔は`jmaElements[].refreshIntervalMs`）。「降っていない」「無風」の境も生成物`weather-scales.json`から読み、画面は持たない |
 | `features/conditions/WeatherPanel/WeatherPanel.tsx`・`amedasWeatherIcon.ts`・`weatherCode.ts`・`features/conditions/TodayOutlook/TodayOutlook.tsx`・`features/conditions/WarningBadge/WarningBadge.tsx` | UI（警報バッジの出所ごとの段階の呼び名と色は、backendの宣言`domain/warning_display.py`が生成物`vocabulary.ts`で配る） |
 | `services/weatherApi.ts`・`types/weather.ts` | API呼び出し・型定義 |
 
@@ -33,7 +32,7 @@
    `windLayer.ts: WIND_GRID_SPACING_DEG`と、ズームの段ごとの詳細格子`windGridDetailSpacingDegForZoom`）を共有する。
    詳細格子の段の境界と間隔は見た目の判断なので画面が持ち、backendは下限（生成物の`detail_min_spacing_deg`）以上の
    間隔を受け付ける。連続にせず段に分けるのは、同じ段の中では間隔が変わらず、取り損ねた点を前回の値で補えるため
-   （`useWeatherGrid.ts`は間隔が変わった回だけ補わない）。
+   （`useWeatherGrid.ts`は同じ間隔で最後に届いた詳細格子から、今の範囲の中の点だけを補う。間隔の違う格子からは補わない）。
    フェッチも共有（`features/map/useWeatherGrid.ts`、風の矢印と降水延長予報のどちらか一方でも
    ONなら1回のフェッチで両方をカバーする）。格子の値はbackendが気象庁MSM（手元へ同期したファイル）から
    取り、矢印の描画は自前で持つ——GPLv2のライブラリにも気象庁の非公式の配信にも依存しない。
@@ -199,8 +198,8 @@ disasterSourceLegendAxis`が作り、隠したソースは他の凡例絞り込�
 （`useMapView`が持つ。チップidを鍵にする）へ入って、`hiddenSources`としてこのフックへ渡る。
 ソースごとの`visible`だけでなく、非表示のソースが読む配信要素は、同じ配信要素を読む表示中の
 ソースが無ければ取りに行かない（「表示中のものだけ叩く」方針）。取りに行く単位は配信要素
-そのもので、画面は単位の対応表を持たない。同じ時刻一覧のファイルを読む配信要素どうしは、
-未解決の取得を共有して往復を1回に畳む（下記）。
+そのもので、画面は単位の対応表を持たない。時刻一覧を取る単位はファイルで、同じファイルを読む
+配信要素どうしは1つの取得を共有する（下記）。
 
 **配信元の要素id・パスの系統・時刻一覧の在り処と読み方はデータ層も源泉から引く**（`jmaDelivery.ts`）。
 データ層は要素を名指さず、URLの要素id・系統・拡張子（ベクタなら`.pbf`）と時刻一覧のURLは
@@ -221,10 +220,11 @@ disasterSourceLegendAxis`が作り、隠したソースは他の凡例絞り込�
 生成時に確かめる（食い違えば生成が落ちる）。同じ名前付きソースの要素はコマの規則も同じで、
 backendのテストが全要素で確かめる。
 
-時刻一覧が複数のファイルに分かれる要素（降水ナウキャストの実況と予測）は、`fetchJmaTargetTimes`が
-全ファイルの行をつなげて返し、一部のファイルだけ取れなければ残りで部分的な時系列を返す
-（全部取れなかったときだけ失敗）。同じファイルを同時に取りに行く要素（キキクルの各要素、
-降水短時間予報と線状降水帯予測マップ）は、未解決のフェッチを共有して往復を1回に畳む。
+時刻一覧はファイル（`jmaDelivery.ts: jmaTargetTimesPaths`）ごとにキャッシュのキーを持ち、同じファイルを読む要素
+（キキクルの各要素、降水短時間予報と線状降水帯予測マップ）は1つの取得と1つの取り直しの周期を共有する——要素ごとに
+取ると、後から表示した要素の周期がずれて同じファイルを周期ごとに2回取る。時刻一覧が複数のファイルに分かれる要素
+（降水ナウキャストの実況と予測）は、`useDynamicWeatherLayers.ts`が読めたファイルの行を宣言の順につないで
+`jmaFramesOf`で読み、一部のファイルだけ取れなければ残りで部分的な時系列を作る（全部取れなかったときだけ失敗）。
 
 配信元から取る記号の段（`gridMark`、例: 落雷の地点）は、他の段が既に手元にある格子データ・
 タイルURLテンプレートから同期的にペイロードを組み立てるのに対し、配信元が地点をGeoJSONで
@@ -277,12 +277,18 @@ backendのテストが全要素で確かめる。
 ないかで決まる。`hasFetched`は一度でも取得が完了したかで、初回取得前を「値なし（empty）」と
 誤って見せないために要る。
 
-配信元の時刻一覧は、表示中のソースが読む配信要素をまとめて1本で取り直す。間隔はそのうち
+配信元の時刻一覧はファイルごとに取り直す。間隔はそのファイルを読む表示中の配信要素のうち
 最も更新の速い系統の更新間隔（源泉の`refreshIntervalMs`、`domain/jma_tile_specs.py:
 JMA_REFRESH_INTERVAL_SECONDS`）に合わせる——遅い系統を早めに取り直すぶんには古い表示にならない。
+取り直しに失敗している間は、そのファイルの前の行を使わずに失敗として数える（古い一覧のコマは表示時刻から外れていく）。
+格子は失敗しても前の格子を残し、失敗の文言を添える。
+
+**チップを消している間は「まだ取りに行っていない」**（`hasFetched`が偽）で、再び出したときは前に取った時刻一覧・格子
+（キャッシュに残る間。読み手が消えてから既定の5分）をすぐに出し、裏で取り直す——読み込み中を経ない。前の値は
+定期の取り直しの周期の間に出している値と同じ種類の古さで、取り直しが届けば置き換わる。
 
 **MapLibreのソースイベント経由の系統（`MapView.tsx: buildLayerDataSources`）は
-動的気象レイヤーの対象外**——実際の外部フェッチは自前のJSコード（`usePolledFetch`等）で
+動的気象レイヤーの対象外**——実際の外部フェッチはアプリ自身の取得（TanStack Query）で
 行われ、結果を`map.getSource(id).setData(...)`/`setTiles(...)`で流し込むだけのため、
 MapLibre側のソースイベントはフェッチの待ち時間・失敗を観測できない（`kind`が
 raster/vectorTile[実タイル取得がMapLibre自身の責務]であっても、フレーム一覧

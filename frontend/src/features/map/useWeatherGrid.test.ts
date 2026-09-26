@@ -32,9 +32,10 @@ const ZOOMED: MapViewport = { west: 139.7, south: 35.6, east: 139.72, north: 35.
 const DETAIL_SPACING = windGridDetailSpacingDegForZoom(ZOOMED.zoom);
 const FINER_SPACING = windGridDetailSpacingDegForZoom(13);
 
+// 取得の結果は区切り（`setTimeout(0)`）ごとに届くので、偽にしていない時計で数回区切りを待つ。
 async function settle() {
   await act(async () => {
-    for (let i = 0; i < 10; i += 1) await Promise.resolve();
+    for (let i = 0; i < 3; i += 1) await new Promise((resolve) => setTimeout(resolve, 0));
   });
 }
 
@@ -81,6 +82,20 @@ describe("useWeatherGrid（風・延長降水予報の格子）", () => {
       [35, 5],
       [35.1, 1],
     ]);
+  });
+
+  it("無効の間は「まだ取りに行っていない」とし、再び有効にしたら前に取った格子をすぐ出して裏で取り直す", async () => {
+    const { result, rerender } = render(true, WIDE);
+    await settle();
+    rerender({ enabled: false, viewport: WIDE });
+    expect(result.current).toMatchObject({ grid: [], loading: false, hasFetched: false });
+
+    api.getWindGrid.mockClear();
+    rerender({ enabled: true, viewport: WIDE });
+    expect(result.current.grid).toHaveLength(1);
+    expect(result.current).toMatchObject({ loading: false, hasFetched: true });
+    await settle();
+    expect(api.getWindGrid).toHaveBeenCalledTimes(1);
   });
 
   it("粗い格子が取れなければ文言を出す", async () => {
@@ -145,17 +160,14 @@ describe("useWeatherGrid（風・延長降水予報の格子）", () => {
     expect(result.current.effectiveGridSpacingDeg).toBe(FINER_SPACING);
   });
 
-  it("画面を動かした後に前の範囲の答えが届いても使わない", async () => {
-    let resolveFirst!: (grid: WindGridPoint[]) => void;
-    api.getWindGridDetail
-      .mockImplementationOnce(() => new Promise((resolve) => (resolveFirst = resolve)))
-      .mockResolvedValueOnce([point(35.61, 139.71, 3)]);
+  it("画面を動かして取り直している間は、前の範囲の詳細格子とその間隔を出したまま", async () => {
     const { result, rerender } = render(true, ZOOMED);
     await settle();
-    rerender({ enabled: true, viewport: { ...ZOOMED, north: 35.63 } });
+    api.getWindGridDetail.mockReturnValueOnce(new Promise(() => {}));
+    rerender({ enabled: true, viewport: { ...ZOOMED, zoom: 13 } });
     await settle();
-    resolveFirst([point(35.61, 139.71, 8)]);
-    await settle();
-    expect(result.current.detailGrid.map((p) => p.wind_speed_ms[0])).toEqual([3]);
+    expect(api.getWindGridDetail).toHaveBeenLastCalledWith(expect.anything(), FINER_SPACING);
+    expect(result.current.detailGrid).toHaveLength(1);
+    expect(result.current.effectiveGridSpacingDeg).toBe(DETAIL_SPACING);
   });
 });

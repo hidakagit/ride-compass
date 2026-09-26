@@ -2,20 +2,20 @@ import { act, renderHook } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { buildDefaultLayerVisibility, type MapLayerVisibility } from "@/features/map/layers/mapLayers";
-import type { JmaDelivery, JmaFrame } from "@/features/map/layers/jmaDelivery";
+import { jmaTargetTimesPaths, type JmaDelivery, type JmaFrame } from "@/features/map/layers/jmaDelivery";
 import { WEATHER_SOURCES, type WeatherSource } from "@/features/map/layers/weatherSources";
 import type { WindGridPoint } from "@/types/weather";
 
-// 配信元への取得は差し替え、段のつなぎ・コマの選び方・描画内容の組み立ては本物を通す。
+// 配信元への取得は差し替え、時刻一覧の読み方・段のつなぎ・コマの選び方・描画内容の組み立ては本物を通す。
 const fetchers = vi.hoisted(() => ({
-  fetchJmaFrames: vi.fn(),
+  fetchJmaTargetTimesFile: vi.fn(),
   fetchJmaPointGeojson: vi.fn(),
   useWeatherGrid: vi.fn(),
   failures: { current: new Map<string, string>() as ReadonlyMap<string, string>, listeners: new Set<() => void>() },
 }));
 vi.mock("@/features/map/layers/jmaDelivery", async (importOriginal) => ({
   ...(await importOriginal<object>()),
-  fetchJmaFrames: fetchers.fetchJmaFrames,
+  fetchJmaTargetTimesFile: fetchers.fetchJmaTargetTimesFile,
   fetchJmaPointGeojson: fetchers.fetchJmaPointGeojson,
 }));
 vi.mock("@/features/map/useWeatherGrid", () => ({ useWeatherGrid: fetchers.useWeatherGrid }));
@@ -33,8 +33,8 @@ const source = (group: string, name: string) =>
   WEATHER_SOURCES.find((entry) => entry.group === group && entry.source === name)!;
 const jmaDeliveries = (entry: WeatherSource) =>
   entry.stages.flatMap((stage) => (stage.origin === "jma" ? [stage.delivery] : []));
-const idsOf = (sources: readonly WeatherSource[]) =>
-  [...new Set(sources.flatMap(jmaDeliveries).map((d) => d.id))].sort();
+const pathsOf = (sources: readonly WeatherSource[]) =>
+  [...new Set(sources.flatMap(jmaDeliveries).flatMap(jmaTargetTimesPaths))].sort();
 const inGroup = (group: string) => WEATHER_SOURCES.filter((entry) => entry.group === group);
 
 // 日本時間 9:05（協定世界時 0:05）の出発時刻。
@@ -49,6 +49,26 @@ const FRAMES_BY_READER: Record<JmaDelivery["reader"], JmaFrame[]> = {
   latestFullRun: [],
   latest: CURRENT,
 };
+const framesByReader = (delivery: JmaDelivery) => FRAMES_BY_READER[delivery.reader];
+
+const DELIVERIES = WEATHER_SOURCES.flatMap(jmaDeliveries);
+/** そのファイルの時刻一覧。そのファイルを最初の在り処とする配信要素ごとに、`framesOf`のコマを行にして並べる
+ * （1つのファイルに複数の要素の行が載る）。 */
+function rowsOf(path: string, framesOf: (delivery: JmaDelivery) => readonly JmaFrame[]) {
+  const owners = new Map(
+    DELIVERIES.filter((delivery) => jmaTargetTimesPaths(delivery)[0] === path).map((delivery) => [
+      delivery.id,
+      delivery,
+    ]),
+  );
+  return [...owners.values()].flatMap((delivery) =>
+    framesOf(delivery).map((ownFrame) => ({ ...ownFrame, elements: [delivery.id] })),
+  );
+}
+/** 時刻一覧を、配信要素ごとに`framesOf`のコマを返す内容にする。 */
+function respondWith(framesOf: (delivery: JmaDelivery) => readonly JmaFrame[]) {
+  fetchers.fetchJmaTargetTimesFile.mockImplementation(async (path: string) => rowsOf(path, framesOf));
+}
 
 const gridPoint = (times: string[]): WindGridPoint =>
   ({
@@ -61,9 +81,10 @@ const gridPoint = (times: string[]): WindGridPoint =>
   }) as WindGridPoint;
 const GRID = [gridPoint(["2026-09-24T09:00", "2026-09-24T10:00"])];
 
+// 取得の結果は区切り（`setTimeout(0)`）ごとに届くので、偽にしていない時計で数回区切りを待つ。
 async function settle() {
   await act(async () => {
-    for (let i = 0; i < 10; i += 1) await Promise.resolve();
+    for (let i = 0; i < 3; i += 1) await new Promise((resolve) => setTimeout(resolve, 0));
   });
 }
 
@@ -72,9 +93,8 @@ function visibility(on: Partial<MapLayerVisibility>): MapLayerVisibility {
 }
 
 beforeEach(() => {
-  fetchers.fetchJmaFrames
-    .mockReset()
-    .mockImplementation(async (delivery: JmaDelivery) => FRAMES_BY_READER[delivery.reader]);
+  fetchers.fetchJmaTargetTimesFile.mockReset();
+  respondWith(framesByReader);
   fetchers.fetchJmaPointGeojson
     .mockReset()
     .mockImplementation(async (_delivery: JmaDelivery, pointFrame: JmaFrame) => ({
@@ -106,28 +126,28 @@ function render(options: Partial<Options> = {}) {
   };
   return renderHook((props: Options) => useDynamicWeatherLayers(props), { initialProps });
 }
-const fetchedIds = () =>
-  [...new Set(fetchers.fetchJmaFrames.mock.calls.map((call) => (call[0] as JmaDelivery).id))].sort();
+const fetchedPaths = () =>
+  [...new Set(fetchers.fetchJmaTargetTimesFile.mock.calls.map((call) => call[0] as string))].sort();
 
 describe("取りに行くかどうか", () => {
   it("チップがOFFの間は何も取りに行かない", async () => {
     render();
     await settle();
-    expect(fetchers.fetchJmaFrames).not.toHaveBeenCalled();
+    expect(fetchers.fetchJmaTargetTimesFile).not.toHaveBeenCalled();
     expect(fetchers.useWeatherGrid).toHaveBeenLastCalledWith(false, null);
   });
 
   it("ONにしたチップのソースが読む配信要素と、格子を読むソースがあれば格子を取りに行く", async () => {
     const precipitation = render({ visibility: visibility({ precipitationNowcast: true }) });
     await settle();
-    expect(fetchedIds()).toEqual(idsOf(inGroup("precipitationNowcast")));
+    expect(fetchedPaths()).toEqual(pathsOf(inGroup("precipitationNowcast")));
     expect(fetchers.useWeatherGrid).toHaveBeenLastCalledWith(true, null);
     precipitation.unmount();
 
-    fetchers.fetchJmaFrames.mockClear();
+    fetchers.fetchJmaTargetTimesFile.mockClear();
     render({ visibility: visibility({ windVector: true }) });
     await settle();
-    expect(fetchers.fetchJmaFrames).not.toHaveBeenCalled();
+    expect(fetchers.fetchJmaTargetTimesFile).not.toHaveBeenCalled();
     expect(fetchers.useWeatherGrid).toHaveBeenLastCalledWith(true, null);
   });
 
@@ -138,7 +158,7 @@ describe("取りに行くかどうか", () => {
       hiddenSources: { disaster: hidden.map((entry) => entry.source) },
     });
     await settle();
-    expect(fetchedIds()).toEqual(idsOf([kept]));
+    expect(fetchedPaths()).toEqual(pathsOf([kept]));
   });
 });
 
@@ -192,9 +212,7 @@ describe("選んだ時刻に描くもの", () => {
 
   it("現在の規則: 選んだ時刻に関わらず現在のコマを描き、取れていないソースは描かない", async () => {
     const [missing] = jmaDeliveries(source("disaster", "inundation"));
-    fetchers.fetchJmaFrames.mockImplementation(async (delivery: JmaDelivery) =>
-      delivery.id === missing.id ? [] : FRAMES_BY_READER[delivery.reader],
-    );
+    respondWith((delivery) => (delivery.id === missing.id ? [] : framesByReader(delivery)));
     const { result } = render({ visibility: visibility({ disaster: true }), at: new Date("2026-09-24T12:00:00Z") });
     await settle();
     const disaster = result.current.dynamicWeather.disaster ?? {};
@@ -257,30 +275,50 @@ describe("配信元の地点（最新の観測の規則）", () => {
     expect(result.current.dynamicWeather.disaster?.liden?.payload).toBeUndefined();
   });
 
-  it("コマを動かした後に前のコマの地点が届いても使わず、取得の失敗では描かない", async () => {
-    let resolveEarlier!: (geojson: unknown) => void;
-    fetchers.fetchJmaPointGeojson
-      .mockImplementationOnce(() => new Promise((resolve) => (resolveEarlier = resolve)))
-      .mockRejectedValueOnce(new Error("取れません"));
-    const { result, rerender } = liden(NOW);
+  it("地点の取得に失敗したコマは描かない", async () => {
+    fetchers.fetchJmaPointGeojson.mockRejectedValue(new Error("取れません"));
+    const { result } = liden(NOW);
     await settle();
-    rerender({
-      visibility: visibility({ disaster: true }),
-      hiddenSources: { disaster: others },
-      mapViewport: null,
-      at: new Date("2026-09-24T00:15:00Z"),
-      now: NOW,
-    });
-    await settle();
-    resolveEarlier({ type: "FeatureCollection", features: [], id: "stale" });
-    await settle();
+    expect(fetchers.fetchJmaPointGeojson).toHaveBeenCalled();
     expect(result.current.dynamicWeather.disaster?.liden?.payload).toBeUndefined();
+  });
+});
+
+describe("時刻一覧が複数のファイルに分かれる要素", () => {
+  const split = DELIVERIES.find((delivery) => delivery.targetTimeFiles.length > 1)!;
+  const owner = WEATHER_SOURCES.find((entry) => jmaDeliveries(entry).includes(split))!;
+  const others = inGroup(owner.group)
+    .filter((entry) => entry !== owner)
+    .map((entry) => entry.source);
+  const show = () =>
+    render({ visibility: visibility({ [owner.group]: true }), hiddenSources: { [owner.group]: others } });
+  const splitFiles = jmaTargetTimesPaths(split);
+  const failFiles = (failing: readonly string[]) =>
+    fetchers.fetchJmaTargetTimesFile.mockImplementation(async (path: string) => {
+      if (failing.includes(path)) throw new Error("取れません");
+      if (splitFiles.includes(path)) return NOWCAST.map((ownFrame) => ({ ...ownFrame, elements: [split.id] }));
+      return rowsOf(path, framesByReader);
+    });
+
+  it("一部のファイルだけ取れなくても、残りのファイルの行で描く", async () => {
+    failFiles(splitFiles.slice(0, 1));
+    const { result } = show();
+    await settle();
+    expect(result.current.dynamicWeather[owner.group]?.[owner.source]?.payload).toBeDefined();
+    expect(result.current.dynamicWeatherDataStatus[owner.group]).toBeUndefined();
+  });
+
+  it("全部のファイルが取れないときだけ失敗", async () => {
+    failFiles(splitFiles);
+    const { result } = show();
+    await settle();
+    expect(result.current.dynamicWeatherDataStatus[owner.group]).toBe("error");
   });
 });
 
 describe("取得状態", () => {
   it("まだ取り終えていない間は読み込み中、格子を読むチップは格子の取得の失敗をそのまま出す", async () => {
-    fetchers.fetchJmaFrames.mockImplementation(() => new Promise(() => {}));
+    fetchers.fetchJmaTargetTimesFile.mockImplementation(() => new Promise(() => {}));
     fetchers.useWeatherGrid.mockReturnValue({
       grid: [],
       detailGrid: [],
@@ -315,17 +353,17 @@ describe("取得状態", () => {
     await settle();
     expect(result.current.dynamicWeatherDataStatus.disaster).toBeUndefined();
 
-    fetchers.fetchJmaFrames.mockResolvedValue([]);
+    respondWith(() => []);
     const empty = render({ visibility: visibility({ disaster: true }) });
     await settle();
     expect(empty.result.current.dynamicWeatherDataStatus.disaster).toBe("empty");
   });
 
   it("チップ内のどの取得が失敗しても失敗", async () => {
-    const [failing] = idsOf(inGroup("precipitationNowcast"));
-    fetchers.fetchJmaFrames.mockImplementation(async (delivery: JmaDelivery) => {
-      if (delivery.id === failing) throw new Error("取れません");
-      return FRAMES_BY_READER[delivery.reader];
+    const failing = jmaTargetTimesPaths(inGroup("precipitationNowcast").flatMap(jmaDeliveries)[0]);
+    fetchers.fetchJmaTargetTimesFile.mockImplementation(async (path: string) => {
+      if (failing.includes(path)) throw new Error("取れません");
+      return rowsOf(path, framesByReader);
     });
     const { result } = render({ visibility: visibility({ precipitationNowcast: true }) });
     await settle();
@@ -357,10 +395,10 @@ describe("出発時刻が「今」へ追従しているとき", () => {
     // 配信元の「今」。取り直すたびに、その時点の実況から先の時刻一覧が返る。
     let latest = 5;
     const hhmm = (minute: number) => `00${String(minute).padStart(2, "0")}`;
-    fetchers.fetchJmaFrames.mockImplementation(async (delivery: JmaDelivery) =>
+    respondWith((delivery) =>
       delivery.reader === "nowcast"
         ? [frame(utc(hhmm(latest)), utc(hhmm(latest))), frame(utc(hhmm(latest + 10)), utc(hhmm(latest)))]
-        : FRAMES_BY_READER[delivery.reader],
+        : framesByReader(delivery),
     );
     const props = (at: Date): Options => ({
       visibility: visibility({ precipitationNowcast: true }),

@@ -1,4 +1,4 @@
-import { act, renderHook } from "@testing-library/react";
+import { renderHook, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({ fetchJmaTileIndex: vi.fn(), setJmaTileIndex: vi.fn() }));
@@ -13,9 +13,6 @@ describe("useJmaTileIndex", () => {
     mocks.fetchJmaTileIndex.mockResolvedValue(index);
     renderHook(() => useJmaTileIndex());
     expect(mocks.setJmaTileIndex).toHaveBeenLastCalledWith(null);
-    await act(async () => {
-      for (let i = 0; i < 10; i += 1) await Promise.resolve();
-    });
-    expect(mocks.setJmaTileIndex).toHaveBeenLastCalledWith(index);
+    await waitFor(() => expect(mocks.setJmaTileIndex).toHaveBeenLastCalledWith(index));
   });
 });

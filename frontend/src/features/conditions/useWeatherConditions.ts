@@ -1,6 +1,8 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { keepPreviousData, useQuery } from "@tanstack/react-query";
+import { useMemo } from "react";
+import { getQueryClient } from "@/lib/queryClient";
 import {
   getAmedasObservation,
   getCurrentWeather,
@@ -37,64 +39,37 @@ interface LocationFetchState<T> {
 // 一定の間隔で取り直す（間隔はアメダスの更新に合わせる。警報は随時更新。一度きりだと、一時の失敗も残り続ける）。
 const WEATHER_REFRESH_INTERVAL_MS = refreshIntervals.amedas_seconds * 1000;
 
-/** 位置が決まるまで待ち、位置が変わるたびに取り直し、最後に出した要求の結果だけを反映する。失敗しても前の値は残し、
- * `error`を添える（消したい呼ぶ側は`error`を見て自分で落とす）。`fetcher`はモジュールの関数を渡す（描くたびに新しい
- * 関数だと取り直しが止まらない）。 */
+/** 位置が決まるまで待ち、位置が変わるたびに取り直す。位置を変えて取り直している間と、取り直しに失敗した後は前の値を
+ * 残し、失敗には`error`を添える（消したい呼ぶ側は`error`を見て自分で落とす）。`key`は取得の種類の名前（同じ位置の
+ * 同じ種類は画面をまたいで1つの取得を共有する）。 */
 function useLocationFetch<T>(
+  key: string,
   fetcher: (location: Coordinates) => Promise<T>,
   location: Coordinates,
   locationReady: boolean,
 ): LocationFetchState<T> {
-  const [data, setData] = useState<T | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const latestRequestId = useRef(0);
-
-  useEffect(() => {
-    if (!locationReady) return;
-    let disposed = false;
-    const run = () => {
-      const requestId = ++latestRequestId.current;
-      setLoading(true);
-      fetcher(location)
-        .then((result) => {
-          if (disposed || requestId !== latestRequestId.current) return;
-          setData(result);
-          // 取り直せたら前回の失敗表示は役目を終える。
-          setError(null);
-        })
-        .catch((cause: unknown) => {
-          if (disposed || requestId !== latestRequestId.current) return;
-          setError(cause instanceof Error ? cause.message : "不明なエラーが発生しました");
-        })
-        .finally(() => {
-          if (disposed || requestId !== latestRequestId.current) return;
-          setLoading(false);
-        });
-    };
-    // effectの中で同期にsetStateしない（react-hooks/set-state-in-effect）。
-    Promise.resolve().then(() => {
-      if (!disposed) run();
-    });
-    const timer = setInterval(run, WEATHER_REFRESH_INTERVAL_MS);
-    return () => {
-      disposed = true;
-      clearInterval(timer);
-    };
-  }, [locationReady, location, fetcher]);
-
-  return { data, loading, error };
+  const { data, error, isFetching } = useQuery(
+    {
+      queryKey: ["location-weather", key, location.latitude, location.longitude],
+      queryFn: () => fetcher(location),
+      enabled: locationReady,
+      placeholderData: keepPreviousData,
+      refetchInterval: WEATHER_REFRESH_INTERVAL_MS,
+    },
+    getQueryClient(),
+  );
+  return { data: data ?? null, loading: isFetching, error: error?.message ?? null };
 }
 
 export function useWeatherConditions(location: Coordinates, locationReady: boolean): UseWeatherConditionsResult {
-  const weather = useLocationFetch(getCurrentWeather, location, locationReady);
-  const amedas = useLocationFetch(getAmedasObservation, location, locationReady);
+  const weather = useLocationFetch("forecast", getCurrentWeather, location, locationReady);
+  const amedas = useLocationFetch("amedas", getAmedasObservation, location, locationReady);
 
   // 警告は、取れない間その出所のバッジを出さず、失敗した出所を別に渡す（バッジが無いのを「警告なし」と読ませない）。
   // backendの中の失敗は空の応答で届くので、ここで拾えるのは通信の失敗・429等だけ。
-  const warnings = useLocationFetch(getWeatherWarnings, location, locationReady);
-  const wbgt = useLocationFetch(getWbgtStatus, location, locationReady);
-  const flood = useLocationFetch(getFloodForecasts, location, locationReady);
+  const warnings = useLocationFetch("warnings", getWeatherWarnings, location, locationReady);
+  const wbgt = useLocationFetch("wbgt", getWbgtStatus, location, locationReady);
+  const flood = useLocationFetch("flood", getFloodForecasts, location, locationReady);
   const weatherWarnings = warnings.error ? null : warnings.data;
   const wbgtStatus = wbgt.error ? null : wbgt.data;
   const floodForecasts = flood.error ? null : flood.data;

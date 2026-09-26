@@ -1,9 +1,11 @@
 "use client";
 
+import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import AxisContributionBar from "@/components/AxisContributionBar/AxisContributionBar";
 import type { PreferenceAxisDef } from "@/lib/evaluationAxes";
 import { isDebugEnabled } from "@/lib/debugLog";
+import { getQueryClient } from "@/lib/queryClient";
 import { fetchAxisInspector, type AxisInspectorConditions } from "@/services/regionApi";
 import type { AxisInspectorResult } from "@/types/traffic";
 import type { RoutePreferenceWeights } from "@/types/route";
@@ -40,28 +42,48 @@ export default function RoadInspectorPopup({
   conditions,
   routePreference = null,
 }: RoadInspectorPopupProps) {
-  // 取った評価は、取ったときの重みと一緒に持つ——重みを変えたら、古い重みの評価を見せずに取り直しへ戻す。
+  // 評価は道・走行の条件・重みごとに持つ。重みを変えたら、古い重みの評価を見せずに取り直しへ戻す。条件は押したときの
+  // ものに留める——出発時刻は「今」へ5分刻みで進むので、今の条件で引き直すと開いている間に評価が消える。
   const weightsKey = JSON.stringify(routePreference);
-  const [loaded, setLoaded] = useState<{ weightsKey: string; result: AxisInspectorResult } | null>(null);
-  const [state, setState] = useState<"idle" | "loading" | "error">("idle");
-  const result = loaded !== null && loaded.weightsKey === weightsKey ? loaded.result : null;
+  const conditionsKey = JSON.stringify(conditions ?? null);
+  const [pressed, setPressed] = useState<{
+    weightsKey: string;
+    conditionsKey: string;
+    conditions: AxisInspectorConditions | null | undefined;
+  } | null>(null);
+  const pinned = pressed !== null && pressed.weightsKey === weightsKey ? pressed : null;
   const name = roadDisplayName(properties);
   const wayId = properties.osm_way_id;
+  const inspector = useQuery(
+    {
+      queryKey: [
+        "axis-inspector",
+        wayId,
+        properties.feature_key ?? null,
+        pinned?.conditionsKey ?? conditionsKey,
+        weightsKey,
+      ],
+      queryFn: async () => {
+        const value = await fetchAxisInspector(
+          wayId!,
+          properties.feature_key,
+          pinned !== null ? pinned.conditions : conditions,
+          routePreference,
+        );
+        if (value === null) throw new Error("評価が返りませんでした");
+        return value;
+      },
+      enabled: pinned !== null && wayId != null,
+      // 同じ道を同じ条件・重みで開き直したときは、前に取った評価を出す（押すたびに引くとレート制限に当たる）。
+      staleTime: Infinity,
+    },
+    getQueryClient(),
+  );
+  const result: AxisInspectorResult | null = inspector.data ?? null;
 
   const load = () => {
-    if (wayId == null) return;
-    setState("loading");
-    const requestedKey = weightsKey;
-    fetchAxisInspector(wayId, properties.feature_key, conditions, routePreference)
-      .then((value) => {
-        if (value === null) {
-          setState("error");
-          return;
-        }
-        setLoaded({ weightsKey: requestedKey, result: value });
-        setState("idle");
-      })
-      .catch(() => setState("error"));
+    if (pinned !== null) void inspector.refetch();
+    else setPressed({ weightsKey, conditionsKey, conditions });
   };
 
   // 寄与度はbackendが返す（軸ごとの重み付き寄与、合計が合成スコアと一致する）。
@@ -76,11 +98,11 @@ export default function RoadInspectorPopup({
     <div className="max-h-[min(22rem,45vh)] max-w-68 overflow-y-auto text-[length:var(--font-size-md)] leading-[1.4]">
       {name !== null && <div className="mb-1 font-semibold">{name}</div>}
       {wayId != null && result === null && (
-        <Button size="sm" className="disabled:cursor-progress" onClick={load} disabled={state === "loading"}>
-          {state === "loading" ? "評価を取得中…" : "この道の評価を見る"}
+        <Button size="sm" className="disabled:cursor-progress" onClick={load} disabled={inspector.isFetching}>
+          {inspector.isFetching ? "評価を取得中…" : "この道の評価を見る"}
         </Button>
       )}
-      {state === "error" && <p className={textVariants({ variant: "hint" })}>評価を取得できませんでした。</p>}
+      {inspector.isError && <p className={textVariants({ variant: "hint" })}>評価を取得できませんでした。</p>}
       {result !== null && (
         <div className="grid gap-1">
           {Object.keys(contributions).length > 0 ? (

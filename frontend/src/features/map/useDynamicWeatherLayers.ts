@@ -4,12 +4,15 @@
 // **要素を名指さない**——何を・どこから・どう読み・どのコマを描くかは源泉の宣言
 // （`weatherSources.ts: WEATHER_SOURCES`）が持ち、ここは表示中のソースをループして、段の種類
 // （配信元のタイル・配信元の地点・自前の格子）ごとに1つずつの実装で描画内容を作る。
-import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from "react";
+import { useQueries, type UseQueryResult } from "@tanstack/react-query";
+import { useCallback, useMemo, useSyncExternalStore } from "react";
 import type { MapLayerVisibility } from "@/features/map/layers/mapLayers";
 import { deriveFetchLayerStatus, type LayerDataStatus } from "@/features/map/layers/mapLayers";
 import {
-  fetchJmaFrames,
   fetchJmaPointGeojson,
+  fetchJmaTargetTimesFile,
+  jmaFramesOf,
+  jmaTargetTimesPaths,
   jmaTilePayload,
   type JmaDelivery,
   type JmaFrame,
@@ -34,7 +37,7 @@ import {
 } from "@/features/map/layers/dynamicWeather";
 import { jmaTileFailures, subscribeJmaTileFailures } from "@/features/map/layers/jmaTileProtocol";
 import { useWeatherGrid } from "@/features/map/useWeatherGrid";
-import { usePolledFetch } from "@/features/map/usePolledFetch";
+import { getQueryClient } from "@/lib/queryClient";
 import type { WindGridPoint } from "@/types/weather";
 
 /** 格子の段の描き方。読む値ごとに1つ。 */
@@ -49,7 +52,48 @@ const GRID_PAYLOAD: Record<
 /** 配信要素ごとの時刻一覧の読み取り結果。 */
 type DeliveryResult = { frames: readonly JmaFrame[]; error: null } | { frames: readonly JmaFrame[]; error: string };
 
-const EMPTY_RESULTS: ReadonlyMap<string, DeliveryResult> = new Map();
+/** 時刻一覧のファイル1つの取り方。間隔はそのファイルを読む表示中の要素のうち最も更新の速い系統に合わせる（遅い系統を
+ * 早めに取り直すぶんには古い表示にならない）。失敗の文言に載る呼び名は最初に読む要素のもの（同じURLの同じ失敗を指す）。 */
+interface TargetTimesFile {
+  path: string;
+  label: string;
+  refreshIntervalMs: number;
+}
+
+/** ファイルの読み取りの状態。行も失敗も無ければ、まだ一度も届いていない。取り直しに失敗している間は、前に届いた行を
+ * 使わずに失敗として数える（時刻一覧は数分で更新され、古い一覧のコマは表示時刻から外れていく）。 */
+interface FileState {
+  rows: readonly unknown[] | undefined;
+  error: string | undefined;
+}
+
+const PENDING_FILE: FileState = { rows: undefined, error: undefined };
+
+function fileStatesOf(results: readonly UseQueryResult<unknown[]>[]): FileState[] {
+  return results.map((result) => ({
+    rows: result.status === "success" ? result.data : undefined,
+    error: result.status === "error" ? result.error.message : undefined,
+  }));
+}
+
+function dataOf<T>(results: readonly UseQueryResult<T>[]): (T | undefined)[] {
+  return results.map((result) => result.data);
+}
+
+function targetTimesFilesOf(deliveries: readonly { delivery: JmaDelivery; label: string }[]): TargetTimesFile[] {
+  const byPath = new Map<string, TargetTimesFile>();
+  for (const { delivery, label } of deliveries) {
+    for (const path of jmaTargetTimesPaths(delivery)) {
+      const known = byPath.get(path);
+      byPath.set(path, {
+        path,
+        label: known?.label ?? label,
+        refreshIntervalMs: Math.min(known?.refreshIntervalMs ?? Infinity, delivery.refreshIntervalMs),
+      });
+    }
+  }
+  return [...byPath.values()];
+}
 
 /** ソースが読む配信要素（重複なし）と、取得の失敗を記録するときの呼び名（最初に読むソースの名前）。 */
 function deliveriesOf(sources: readonly WeatherSource[]): { delivery: JmaDelivery; label: string }[] {
@@ -108,36 +152,46 @@ export function useDynamicWeatherLayers({
   );
   const shownSources = useMemo(() => WEATHER_SOURCES.filter(isShown), [isShown]);
 
-  // 表示中のソースが読む配信要素。同じ時刻一覧のファイルを読む要素どうしは、未解決の取得を
-  // 共有して往復を1回に畳む（`jmaDelivery.ts`）。
+  // 表示中のソースが読む配信要素と、その時刻一覧のファイル。取りに行く単位はファイルで、同じファイルを読む要素
+  // どうし（キキクルの各要素等）は1つの取得を共有する。
   const deliveries = useMemo(() => deliveriesOf(shownSources), [shownSources]);
-  const deliveryIds = deliveries.map(({ delivery }) => delivery.id).join(",");
-  // 全部を1本で取り直す。間隔は表示中の配信のうち最も更新の速い系統に合わせる（遅い系統を
-  // 早めに取り直すぶんには古い表示にならない）。
-  const intervalMs = Math.min(...deliveries.map(({ delivery }) => delivery.refreshIntervalMs));
-  const fetchDeliveries = useCallback(
-    async (): Promise<ReadonlyMap<string, DeliveryResult>> => {
-      const settled = await Promise.allSettled(
-        deliveries.map(({ delivery, label }) => fetchJmaFrames(delivery, label)),
-      );
-      return new Map(
-        deliveries.map(({ delivery, label }, index): [string, DeliveryResult] => {
-          const result = settled[index];
-          if (result.status === "fulfilled") return [delivery.id, { frames: result.value, error: null }];
-          const message = result.reason instanceof Error ? result.reason.message : `${label}の取得に失敗しました`;
-          return [delivery.id, { frames: [], error: message }];
-        }),
-      );
+  const files = useMemo(() => targetTimesFilesOf(deliveries), [deliveries]);
+  const client = getQueryClient();
+  const fileStates = useQueries(
+    {
+      queries: files.map((file) => ({
+        queryKey: ["jma-target-times", file.path],
+        queryFn: () => fetchJmaTargetTimesFile(file.path, file.label),
+        refetchInterval: file.refreshIntervalMs,
+      })),
+      combine: fileStatesOf,
     },
-    // 配信要素の組が変わったときだけ作り直す（表示状態の再計算のたびに取り直さない）。
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [deliveryIds],
+    client,
   );
-  const { data: deliveryResults } = usePolledFetch(fetchDeliveries, EMPTY_RESULTS, {
-    enabled: deliveries.length > 0,
-    intervalMs: Number.isFinite(intervalMs) ? intervalMs : 0,
-    label: "気象庁の時刻一覧",
-  });
+  const deliveryResults = useMemo(() => {
+    const byPath = new Map(files.map((file, index) => [file.path, fileStates[index]]));
+    const results = new Map<string, DeliveryResult>();
+    for (const { delivery, label } of deliveries) {
+      const states = jmaTargetTimesPaths(delivery).map((path) => byPath.get(path) ?? PENDING_FILE);
+      // 読み込み中の間は結果を持たない（どれかのファイルがまだ一度も届いていない）。
+      if (states.some((state) => state.rows === undefined && state.error === undefined)) continue;
+      // 一部のファイルだけ取れなくても残りで部分的な時系列を作り、全部取れなかったときだけ最初の失敗を出す。
+      const loaded = states.filter((state) => state.rows !== undefined);
+      results.set(
+        delivery.id,
+        loaded.length > 0
+          ? {
+              frames: jmaFramesOf(
+                delivery,
+                loaded.flatMap((state) => state.rows!),
+              ),
+              error: null,
+            }
+          : { frames: [], error: states.find((state) => state.error)?.error ?? `${label}の時刻一覧が宣言されていない` },
+      );
+    }
+    return results;
+  }, [files, fileStates, deliveries]);
 
   // 自前の格子（風と降水の延長予報が共有する1回の取得、`useWeatherGrid.ts`）。
   const usesGrid = shownSources.some((source) => source.stages.some((stage) => stage.origin === "grid"));
@@ -179,27 +233,27 @@ export function useDynamicWeatherLayers({
     }
     return requests;
   }, [shownSources, selected]);
-  const pointRequestKeys = pointRequests.map((request) => request.key).join(",");
-  const [points, setPoints] = useState<ReadonlyMap<string, GeoJSON.FeatureCollection>>(new Map());
-  useEffect(() => {
-    let cancelled = false;
-    const wanted = new Set(pointRequests.map((request) => request.key));
-    for (const request of pointRequests) {
-      fetchJmaPointGeojson(request.delivery, request.frame, request.label)
-        .then((geojson) => {
-          if (cancelled) return;
-          setPoints((previous) => new Map([...previous].filter(([key]) => wanted.has(key))).set(request.key, geojson));
-        })
-        .catch(() => {
-          // 取れなければ描かないだけに留める（取得の失敗はfetchJsonがdebugLogへ記録済み）。
-        });
-    }
-    return () => {
-      cancelled = true;
-    };
-    // 取りに行く鍵の組が変わったときだけ取り直す。
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pointRequestKeys]);
+  // 取れなければ描かないだけに留める（取得の失敗はfetchJsonがdebugLogへ記録済み）。
+  const pointData = useQueries(
+    {
+      queries: pointRequests.map((request) => ({
+        queryKey: ["jma-points", request.key],
+        queryFn: () => fetchJmaPointGeojson(request.delivery, request.frame, request.label),
+      })),
+      combine: dataOf,
+    },
+    client,
+  );
+  const points = useMemo(
+    () =>
+      new Map(
+        pointRequests.flatMap((request, index): [string, GeoJSON.FeatureCollection][] => {
+          const geojson = pointData[index];
+          return geojson === undefined ? [] : [[request.key, geojson]];
+        }),
+      ),
+    [pointRequests, pointData],
+  );
 
   const payloadOf = useCallback(
     (source: WeatherSource): DynamicWeatherRenderPayload | undefined => {

@@ -1,10 +1,8 @@
 "use client";
 
 // 専用way値配信軸（`dedicated_way_value_layer=true`の軸）のフィーチャー→値フェッチ・状態管理。
-// useWeatherGrid.ts（風の詳細格子）のdetailGrid取得effectと同じ「viewportをデバウンスして
-// から、タイル単位でまとめてfetchする」パターンを踏襲する——パン・ズームのたびに個別way_idを
-// 都度問い合わせず、表示中のタイル範囲ぶんをまとめて1回のリクエストで取得する。取得対象の
-// 軸が0件の間はfetchせず（他の外部APIと同じ「表示中のものだけ叩く」方針）、結果も空へ戻す。
+// viewportをデバウンスしてから、表示中のタイル範囲ぶんをまとめて取る——パン・ズームのたびに個別way_idを
+// 都度問い合わせない。取得対象の軸が0件の間はfetchせず（他の外部APIと同じ「表示中のものだけ叩く」方針）、結果も空へ戻す。
 //
 // 対象の軸ごとに別インスタンスを持たず、1つのフックが軸の配列を受け取って全軸ぶんを賄う
 // （Reactのフック規則により、実行時に増減しうる軸の件数だけフックを呼ぶことはできない
@@ -13,12 +11,14 @@
 // （`needsTime`/`needsBearing`/`needsSpeed`）から決め、載せない軸はその入力が変わっても
 // 再フェッチしない（キーが変わらないため）。
 
-import { useEffect, useRef, useState } from "react";
+import { keepPreviousData, useQuery, type QueryClient } from "@tanstack/react-query";
+import { useMemo } from "react";
 import { mergeDynamicWayValues, tilesCoveringViewport, type TileXY } from "@/features/map/layers/dynamicWayValues";
 import type { DedicatedWayValueAxis } from "@/lib/mapDisplay/axisLayers";
 import type { MapViewport } from "@/features/map/layers/windLayer";
 import { fetchDynamicWayValues, ROAD_TILE_MAX_ZOOM, ROAD_TILE_MIN_ZOOM } from "@/services/regionApi";
 import { MAP_FETCH_DEBOUNCE_MS, useDebouncedValue } from "@/hooks/useDebouncedValue";
+import { getQueryClient } from "@/lib/queryClient";
 
 // コンパススライダー（WindBearingSlider）はドラッグ中onChangeを連続発火するため、bearingDeg
 // もviewportと同様にデバウンスする（そのまま依存配列へ入れるとドラッグ1回で可視タイル数×
@@ -51,25 +51,61 @@ const EMPTY_DEDICATED_WAY_VALUES_RESULT: DedicatedWayValuesResult = {
 
 const EMPTY_RESULTS: ReadonlyMap<string, DedicatedWayValuesResult> = new Map();
 
-/** その軸の1回のフェッチを一意に決める入力（軸id＋その軸へ載せるクエリパラメータ＋
- * 対象タイル集合）。同じキーの間は再フェッチしない——時刻に依存しない軸は時刻が
- * 変わってもキーが変わらないため、時刻スライダーの操作で巻き添えの再取得が起きない。 */
-function requestKey(
-  axisId: string,
-  at: Date | undefined,
-  speedKmh: number | undefined,
-  bearingDeg: number | undefined,
-  tiles: readonly TileXY[],
-): string {
+const ALL_AXES_KEY = "dedicated-way-values";
+const AXIS_KEY = "dedicated-way-value";
+
+/** 1軸ぶんの取得の入力。 */
+interface AxisRequest {
+  axisId: string;
+  at: Date | undefined;
+  bearingDeg: number | undefined;
+  speedKmh: number | undefined;
+  tiles: readonly TileXY[];
+  /** その軸の1回のフェッチを一意に決める入力（軸id＋その軸へ載せるクエリパラメータ＋対象タイル集合）。 */
+  key: string;
+}
+
+function requestKey({ axisId, at, speedKmh, bearingDeg, tiles }: Omit<AxisRequest, "key">): string {
   const tileKey = tiles.map((tile) => `${tile.z}/${tile.x}/${tile.y}`).join(",");
   return [axisId, at?.toISOString() ?? "", speedKmh ?? "", bearingDeg ?? "", tileKey].join("|");
 }
 
+async function fetchAxis(request: AxisRequest): Promise<DedicatedWayValuesResult> {
+  const responses = await Promise.all(
+    request.tiles.map((tile) =>
+      fetchDynamicWayValues(request.axisId, tile.z, tile.x, tile.y, request.bearingDeg, request.at, request.speedKmh),
+    ),
+  );
+  return {
+    values: mergeDynamicWayValues(responses.map((response) => response.values)),
+    loading: false,
+    error: responses.some((response) => response.error),
+    hasFetched: true,
+  };
+}
+
+/** 全軸ぶんを取る。軸ごとの答えは軸の入力キーでキャッシュに置き、キーが変わっていない軸は取り直さない——時刻に
+ * 依存しない軸は時刻が変わってもキーが変わらないため、時刻スライダーの操作で巻き添えの再取得が起きない。失敗を
+ * 含む答えは取っておかず、次に全体を取るときに取り直す。 */
+async function fetchAllAxes(
+  client: QueryClient,
+  requests: readonly AxisRequest[],
+): Promise<ReadonlyMap<string, DedicatedWayValuesResult>> {
+  const results = await Promise.all(
+    requests.map((request) =>
+      client.fetchQuery({
+        queryKey: [AXIS_KEY, request.key],
+        queryFn: () => fetchAxis(request),
+        staleTime: (query) => (query.state.data?.error ? 0 : Infinity),
+      }),
+    ),
+  );
+  return new Map(requests.map((request, index) => [request.axisId, results[index]]));
+}
+
 /** `axes`（取得対象の専用way値配信軸。呼び出し側がuseMemoで安定した参照を渡すこと）について、
  * 現在のビューポート（デバウンス済み）を覆う道路タイル分をまとめて取得し、軸id→結果のMapを
- * 返す。連続する呼び出しの間に古いリクエストが後から解決しても新しい結果を上書きしないよう、
- * リクエストの世代（seq）で最新のものだけを反映する（useWeatherGridのcancelledパターンと
- * 同じ意図、複数タイルのPromise.allをまたぐため世代番号で判定する）。
+ * 返す。取り直している軸は前の値を残したまま`loading`を立てる。
  *
  * `at`（時刻）・`bearingDeg`（向き）・`speedKmh`（想定速度）は全軸で共有の入力で、実際に
  * リクエストへ載るのはそれを必要とすると宣言した軸（`needsTime`/`needsBearing`/`needsSpeed`）だけ。
@@ -81,89 +117,57 @@ export function useDedicatedWayValues(
   at: Date | undefined,
   speedKmh?: number,
 ): ReadonlyMap<string, DedicatedWayValuesResult> {
-  const [results, setResults] = useState<ReadonlyMap<string, DedicatedWayValuesResult>>(EMPTY_RESULTS);
   const debouncedViewport = useDebouncedValue(mapViewport, MAP_FETCH_DEBOUNCE_MS);
   const debouncedBearingDeg = useDebouncedValue(bearingDeg, MAP_FETCH_DEBOUNCE_MS);
   // 想定速度の入力欄も連続入力されるため、向きと同じくデバウンスする。
   const debouncedSpeedKmh = useDebouncedValue(speedKmh, MAP_FETCH_DEBOUNCE_MS);
-  const requestSeqRef = useRef(0);
-  // 軸ごとに「直近に取得済みの入力キー」を覚え、変わっていない軸は再フェッチしない。
-  const fetchedKeysRef = useRef<Map<string, string>>(new Map());
+  const client = getQueryClient();
 
-  useEffect(() => {
-    let cancelled = false;
-    // setState呼び出しを含むため、effect本体からの直接同期呼び出しを避けてマイクロタスク
-    // 経由で実行する（useWeatherGridと同じreact-hooks/set-state-in-effect対策）。
-    Promise.resolve().then(async () => {
-      if (cancelled) return;
-      if (!debouncedViewport || axes.length === 0) {
-        fetchedKeysRef.current = new Map();
-        setResults((prev) => (prev.size === 0 ? prev : EMPTY_RESULTS));
-        return;
-      }
-      const tiles: TileXY[] = tilesCoveringViewport(debouncedViewport, ROAD_TILE_MIN_ZOOM, ROAD_TILE_MAX_ZOOM);
-      const params = axes.map((axis) => ({
-        axisId: axis.axisId,
-        at: axis.needsTime ? at : undefined,
-        bearingDeg: axis.needsBearing ? debouncedBearingDeg : undefined,
-        speedKmh: axis.needsSpeed ? debouncedSpeedKmh : undefined,
-      }));
-      const keys = new Map(
-        params.map((param) => [
-          param.axisId,
-          requestKey(param.axisId, param.at, param.speedKmh, param.bearingDeg, tiles),
-        ]),
+  const tiles = useMemo(
+    () => (debouncedViewport ? tilesCoveringViewport(debouncedViewport, ROAD_TILE_MIN_ZOOM, ROAD_TILE_MAX_ZOOM) : []),
+    [debouncedViewport],
+  );
+  const requests: AxisRequest[] =
+    tiles.length === 0
+      ? []
+      : axes.map((axis) => {
+          const request = {
+            axisId: axis.axisId,
+            at: axis.needsTime ? at : undefined,
+            bearingDeg: axis.needsBearing ? debouncedBearingDeg : undefined,
+            speedKmh: axis.needsSpeed ? debouncedSpeedKmh : undefined,
+            tiles,
+          };
+          return { ...request, key: requestKey(request) };
+        });
+  const requestsKey = requests.map((request) => request.key).join("\n");
+
+  const { data, isFetching, isPlaceholderData } = useQuery(
+    {
+      queryKey: [ALL_AXES_KEY, requestsKey],
+      queryFn: () => fetchAllAxes(client, requests),
+      enabled: requests.length > 0,
+      placeholderData: keepPreviousData,
+    },
+    client,
+  );
+
+  // 入力キーが同じなら同じ結果の参照を返す（参照が変わるとMapView側のsetFeatureState反映が無用に走り直す）。
+  return useMemo(() => {
+    if (requests.length === 0) return EMPTY_RESULTS;
+    const results = new Map<string, DedicatedWayValuesResult>();
+    for (const request of requests) {
+      const current = isPlaceholderData ? undefined : data?.get(request.axisId);
+      // 入力の変わっていない軸は、全体の取り直しの間も手元の答えのまま（キャッシュにある）。
+      const unchanged = client.getQueryData<DedicatedWayValuesResult>([AXIS_KEY, request.key]);
+      const settled = current ?? (unchanged?.error === false ? unchanged : undefined);
+      results.set(
+        request.axisId,
+        settled ?? { ...(data?.get(request.axisId) ?? EMPTY_DEDICATED_WAY_VALUES_RESULT), loading: isFetching },
       );
-      const stale = params.filter((param) => fetchedKeysRef.current.get(param.axisId) !== keys.get(param.axisId));
-      // 取得済みで入力も変わっていない軸だけが残っている（＝対象軸の集合も同じ）なら、
-      // 新しいMapを作らずに現在の結果をそのまま使う（参照が変わるとMapView側の
-      // setFeatureState反映effectが無用に再実行されるため）。
-      if (stale.length === 0 && results.size === params.length) return;
-      // 対象から外れた軸を落とし、再取得する軸だけloading=trueにする。
-      setResults((prev) => {
-        const next = new Map<string, DedicatedWayValuesResult>();
-        for (const param of params) {
-          const previous = prev.get(param.axisId) ?? EMPTY_DEDICATED_WAY_VALUES_RESULT;
-          const isStale = stale.some((target) => target.axisId === param.axisId);
-          next.set(param.axisId, isStale ? { ...previous, loading: true } : previous);
-        }
-        return next;
-      });
-      if (stale.length === 0) return;
-      const seq = ++requestSeqRef.current;
-      const fetched = await Promise.all(
-        stale.map(async (param) => ({
-          axisId: param.axisId,
-          responses: await Promise.all(
-            tiles.map((tile) =>
-              fetchDynamicWayValues(param.axisId, tile.z, tile.x, tile.y, param.bearingDeg, param.at, param.speedKmh),
-            ),
-          ),
-        })),
-      );
-      if (cancelled || seq !== requestSeqRef.current) return;
-      fetchedKeysRef.current = keys;
-      setResults((prev) => {
-        const next = new Map<string, DedicatedWayValuesResult>();
-        for (const param of params) next.set(param.axisId, prev.get(param.axisId) ?? EMPTY_DEDICATED_WAY_VALUES_RESULT);
-        for (const entry of fetched) {
-          next.set(entry.axisId, {
-            values: mergeDynamicWayValues(entry.responses.map((response) => response.values)),
-            loading: false,
-            error: entry.responses.some((response) => response.error),
-            hasFetched: true,
-          });
-        }
-        return next;
-      });
-    });
-    return () => {
-      cancelled = true;
-    };
-    // resultsは「同じ結果を作り直さない」ための早期returnの判定にのみ使うため、依存には含めない
-    // （含めると自身のsetResultsで再実行され続ける）。
+    }
+    return results;
+    // `requests`は描くたびに作り直す配列で、中身は`requestsKey`で決まる。
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [axes, debouncedViewport, debouncedBearingDeg, at, debouncedSpeedKmh]);
-
-  return results;
+  }, [requestsKey, data, isFetching, isPlaceholderData, client]);
 }
