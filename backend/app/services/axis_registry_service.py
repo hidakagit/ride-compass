@@ -51,10 +51,11 @@ def _rejected_axes(definitions: dict[str, AxisDefinition]) -> dict[str, str]:
     return rejected
 
 
-async def load_axis_definitions(repository: AxisDefinitionRepository) -> dict[str, AxisDefinition]:
-    """DBの軸を読み、アプリが起動時に受け入れる状態かを検算する（プロセスへはまだ反映しない）。
+async def refresh_axis_definitions(repository: AxisDefinitionRepository) -> None:
+    """DBの内容でAXIS_DEFINITIONSをin-place更新する。
 
-    読めない・0行・値の不変条件に通らない軸のいずれも`AxisDefinitionSyncError`。
+    DBが全軸の唯一の正本で、これが唯一のロード経路。Python側に既定値は無い。読めない・0行・
+    値の不変条件に通らない軸のいずれも`AxisDefinitionSyncError`で、起動時はそのまま起動失敗になる。
     """
     try:
         definitions = await repository.list_all()
@@ -63,21 +64,11 @@ async def load_axis_definitions(repository: AxisDefinitionRepository) -> dict[st
     if not definitions:
         raise AxisDefinitionSyncError(
             "axis_definitionsテーブルが空です（軸の行はスキーマと一緒には作られない。入る経路は管理APIと、"
-            "バックアップからの復元 scripts/admin_data_backup.py restore）"
+            "バックアップからの復元 docs/conventions/deployment-sync.md「本番DBを失ったとき」）"
         )
     rejected = _rejected_axes(definitions)
     if rejected:
         raise AxisDefinitionSyncError(f"軸定義DBにアプリが受け入れない軸があります rejected={rejected}")
-    return definitions
-
-
-async def refresh_axis_definitions(repository: AxisDefinitionRepository) -> None:
-    """DBの内容でAXIS_DEFINITIONSをin-place更新する。
-
-    DBが全軸の唯一の正本で、これが唯一のロード経路。Python側に既定値は無い。検算に通らなければ
-    `AxisDefinitionSyncError`で、起動時はそのまま起動失敗になる。
-    """
-    definitions = await load_axis_definitions(repository)
     logger.info("軸定義をDBから読み込みました axes=%d", len(definitions))
     AXIS_DEFINITIONS.clear()
     AXIS_DEFINITIONS.update(definitions)

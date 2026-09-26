@@ -5,8 +5,8 @@ CLAUDE.md「コミット時の同期ルール」から参照される。個々�
 ここに書かない（`docs/modules/*.md`が正）。ここに書くのは「作業として何を完了条件に
 含めるべきか」という運用ルールのみ。
 
-本番DBを失ったときの作り直しは下の「本番DBを失ったとき」、派生データの作り直しは
-「派生データの作り直し」。
+本番DBを失ったときの作り直しは下の「本番DBを失ったとき」（その材料は「管理データのバックアップ」）、
+派生データの作り直しは「派生データの作り直し」。
 
 軸定義を軸スタジオに何をさせるかは
 [axis-definition-maintenance-split.md](../records/decisions/axis-definition-maintenance-split.md)。
@@ -36,33 +36,73 @@ CLAUDE.md「コミット時の同期ルール」から参照される。個々�
   コンテナの中で走らせると、そのコンテナのメモリ上限まで使い切ったときにコンテナごとOOM killされ、
   サービス全体が止まる。別のコンテナを`--memory`付きで立てれば、上限を超えても止まるのはバッチだけで済む。
 
+## 管理データのバックアップ
+
+- 対象: 取り直せない管理データ（軸の定義・較正値の上書き等。ORMで`IRREPLACEABLE`の印を持つ表）。
+  仕組みは[横断基盤](../modules/backend/cross-cutting-infrastructure.md)「取り直せない管理データのバックアップ」。
+- ルール: 本番VMのsystemdのtimerが毎日03:17（日本時間）に、その表を`pg_dump`してOracle Cloud Object Storageの
+  非公開バケットへ`admin-data/<UTCの時刻>.dump`として置く。**VMを作り直したら、下の登録をやり直す**（timerの
+  登録とバケットへ書く権限は、VMとそのインスタンスのOCIDに付く）。
+- 登録（1回。Oracle Cloudのコンソールと、VMにSSHで入って打つ）:
+  1. バケットを作る: コンソールの Storage → Buckets で、ホームリージョン（無料枠はホームリージョンだけ）に
+     標準の層・既定の見え方（公開しない）で作る（例: `ridecompass-admin-data`）。ネームスペースは同じ画面か、
+     テナンシの詳細の「Object Storage namespace」に出る。
+  2. VMを動的グループに入れる: Identity → Dynamic groups で、ルール`instance.id = '<VMのインスタンスのOCID>'`
+     の動的グループを作る（例: `ridecompass-vm`。OCIDはコンソールのインスタンスの詳細に出る）。
+  3. 書く権限を1つだけ与える: Identity → Policies で、バケットのあるコンパートメントに次の1文のポリシーを作る。
+     ```
+     Allow dynamic-group ridecompass-vm to manage objects in compartment <コンパートメント名> where all {target.bucket.name='ridecompass-admin-data', request.permission='OBJECT_CREATE'}
+     ```
+     動的グループをDefault以外のアイデンティティ・ドメインに作ったときは、`dynamic-group '<ドメイン名>'/'ridecompass-vm'`と書く。
+  4. VMで設定ファイルを置き、ユニットを登録し、1回打って確かめてからtimerを有効にする（ユニットはデプロイが
+     揃える作業コピーのものを`systemctl link`で指す）:
+     ```
+     sudo mkdir -p /etc/ridecompass
+     printf 'OCI_NAMESPACE=%s\nBACKUP_BUCKET=%s\n' '<ネームスペース>' 'ridecompass-admin-data' | sudo tee /etc/ridecompass/admin-data-backup.env
+     sudo systemctl link /home/ubuntu/ridecompass-repo/backend/ops/ridecompass-admin-data-backup.service \
+       /home/ubuntu/ridecompass-repo/backend/ops/ridecompass-admin-data-backup.timer
+     sudo systemctl start ridecompass-admin-data-backup.service
+     sudo journalctl -u ridecompass-admin-data-backup.service -n 30 --no-pager
+     sudo systemctl enable --now ridecompass-admin-data-backup.timer
+     systemctl list-timers ridecompass-admin-data-backup.timer
+     ```
+     `journalctl`の最後に「管理データを置きました object=admin-data/…」が出て、コンソールのバケットにそのオブジェクトが
+     見えれば済み。
+- 動いているかを見る: VMで`systemctl list-timers ridecompass-admin-data-backup.timer`（前回・次回）と
+  `sudo journalctl -u ridecompass-admin-data-backup.service --since -2d`。失敗しても知らせは来ない。
+- `backend/ops/`のユニットの中身を変えたコミットがデプロイされたら、VMで`sudo systemctl daemon-reload`を打つ
+  （シェルの中身は次の回から新しいものが読まれる）。
+
 ## 本番DBを失ったとき
 
 - 対象: 本番DB（またはVMごと）を失った・管理データの表を誤操作で壊したとき。
 - 戻る材料: 生データは外部に正本があり取り直せる。派生データは生データから作り直せる。**取り直せないのは
-  管理データ（軸の定義・較正値の上書き等）だけ**で、これは`scripts/admin_data_backup.py dump`が書き出した
-  JSON（管理データのバックアップ）から戻す。書き出しはアプリが起動できない中身では失敗するので、書き出した
-  JSONは書き出した時点のコードでは戻せる。軸の形を変えるコードの変更の後は、戻すときの検算で止まりうる
-  （止まれば何も書かれない。[横断基盤](../modules/backend/cross-cutting-infrastructure.md)
-  「取り直せない管理データのバックアップ」）。
-- 手元へ書き出す（VMにSSHで入れるとき）:
-
-  ```
-  ssh <VM> "sudo docker run --rm --network=host --env-file /home/ubuntu/ridecompass-backend.env \
-    ridecompass-backend:latest python scripts/admin_data_backup.py dump" > admin-data.json
-  ```
-
-- 作り直しの順番（本番VMでは、上の「派生データの作り直し」と同じ形の使い捨てのコンテナで打つ。
-  JSONは`-v <置いた場所>:/tmp/admin-data.json:ro`で渡す）:
+  管理データだけ**で、これは上の「管理データのバックアップ」がバケットに置いた`pg_dump`のファイルから戻す。
+- 戻すファイルを取る: コンソールの Storage → Buckets → バケット → `admin-data/`で、一番新しいオブジェクトを
+  ダウンロードし、`scp`でVMの`/tmp/admin-data.dump`へ送る（VMにはバケットを読む権限を与えていない）。
+- 作り直しの順番（本番VMで。1.と3.は上の「派生データの作り直し」と同じ形の使い捨てのコンテナで打つ）:
   1. スキーマを作る: `python scripts/bootstrap_database.py --to schema`（拡張が無ければ、何をスーパーユーザーで
      打てばよいかを言って止まる）
-  2. 管理データを戻す: `python scripts/admin_data_backup.py restore /tmp/admin-data.json`
+  2. 管理データを戻す（ホストで。DB名は`/home/ubuntu/ridecompass-backend.env`の`DATABASE_URL`の最後の部分）:
+     ```
+     sudo chmod 644 /tmp/admin-data.dump
+     sudo -u postgres pg_restore --clean --if-exists --single-transaction --dbname=<DB名> /tmp/admin-data.dump
+     ```
   3. 取り込んで派生を作る: `python scripts/bootstrap_database.py --from ingest`（外部ソースのファイルは先に
      手元へ写しておく。何を写すかは`bootstrap_database.py`の冒頭）
-  4. backendのコンテナを起動し直す（軸と較正値は起動時に読む）
-- 管理データの表だけを誤操作で壊したとき: 2.を`--replace`付きで打ち（同じトランザクションの中で消して
-  から入れる）、4.だけを行う。
-- なぜこの順か: 2.は表があれば通り、取込・派生とは互いに読まない。backendは軸が0行だと起動しない
+  4. backendのコンテナを起動し直し（`sudo docker restart ridecompass-backend`、コンテナが無ければ
+     `deploy-backend.yml`を`workflow_dispatch`で打つ）、戻ったことを確かめる:
+     ```
+     curl -fsS http://localhost:8000/health
+     curl -fsS http://localhost:8000/api/axis-catalog | head -c 300
+     sudo docker logs --tail 50 ridecompass-backend 2>&1 | grep -E '軸定義|AxisDefinitionSyncError|TuningOverrideError'
+     ```
+     `/health`が応答し、ログに「軸定義をDBから読み込みました axes=<戻した軸の数>」が出ていれば済み。軸・較正値が
+     アプリの検査に通らなければ起動が止まり（`AxisDefinitionSyncError`等）、`/health`は応答しない——そのときは
+     1つ前の日のファイルで2.からやり直す。
+- 管理データの表だけを誤操作で壊したとき: 2.と4.だけを行う（2.は表を消して作り直してから入れるのを1つの
+  トランザクションで行うので、途中で落ちれば何も変わらない）。
+- なぜこの順か: 2.は表を作り直すので1.の後でも通り、取込・派生とは互いに読まない。backendは軸が0行だと起動しない
   （[axis-studio.md](../modules/backend/axis-studio.md)「まっさらなDBに軸の行は入らない」）ので、4.より前に
   2.を済ませる。
 
