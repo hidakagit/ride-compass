@@ -39,7 +39,7 @@ git grep -h -o -E "https?://[a-zA-Z0-9.-]+" -- backend/app backend/scripts front
 | 交通事故統計オープンデータ（警察庁） | `backend/scripts/fetch_accident_csv.py`、アダプタ`npa_honhyo` | 警察庁ウェブサイト利用規約（PDL1.0準拠） | 可 | 出典＋**加工した旨** | [利用規約](https://www.npa.go.jp/rules/index.html) | 2026-09-23 |
 | 10m Annual Land Use Land Cover（Impact Observatory・Microsoft・Esri） | アダプタ`io_lulc_tile`、`backend/scripts/fetch_lulc_raster.py` | CC BY 4.0 | 可 | 作成者の表示 | [AWS Open Data Registry](https://registry.opendata.aws/io-lulc/) | 2026-09-23 |
 | 基礎地図（OpenFreeMap） | `backend/app/infrastructure/basemap_client.py` | 無料・登録不要・利用回数の制限なし（データはOSM、スキーマはOpenMapTiles） | 可 | 「OpenFreeMap © OpenMapTiles Data from OpenStreetMap」（MapLibreは配信元のTileJSONから自動で出す） | [openfreemap.org](https://openfreemap.org/) | 2026-09-23 |
-| 気象庁MSM（Open-MeteoがAWS Open Dataで公開する前処理済みデータ） | `backend/app/infrastructure/msm_client.py`（`msm_base_url`） | 配布物はCC BY 4.0（Open-Meteo）。元データは気象庁の利用条件（PDL1.0）に従い、**気象業務法の制約**（第17条 予報業務の許可）が別にかかる——格子の値をどう扱えば許可が要るかは下の「気象業務法の予報業務許可」節 | Open-Meteo分は可。気象業務法との関係は**要確認**（公式の文書で決まらない部分があり、気象庁への照会が要る） | Open-Meteoへのクレジット（表示箇所の近くにリンク）＋気象庁の出典 | [Open-Meteo licence](https://open-meteo.com/en/licence)・[open-data](https://github.com/open-meteo/open-data)・[気象庁 copyright](https://www.jma.go.jp/jma/en/copyright.html)・[予報業務許可Q&A](https://www.jma.go.jp/jma/kishou/minkan/q_a_m.html) | 2026-09-26 |
+| 気象庁MSM（Open-MeteoがAWS Open Dataで公開する前処理済みデータ） | `backend/app/infrastructure/msm_client.py`（`msm_base_url`） | 配布物はCC BY 4.0（Open-Meteo）。元データは気象庁の利用条件（PDL1.0）に従い、**気象業務法の制約**（第17条 予報業務の許可）が別にかかる——格子の値をどう扱えば許可が要るかは下の「気象業務法の予報業務許可」節 | Open-Meteo分は可。気象業務法との関係は**要確認**（公式の文書で決まらない部分があり、気象庁への照会が要る。許可の要否は有償・無償で変わらないため、無償で公開している今も同じ問い） | Open-Meteoへのクレジット（表示箇所の近くにリンク）＋気象庁の出典 | [Open-Meteo licence](https://open-meteo.com/en/licence)・[open-data](https://github.com/open-meteo/open-data)・[気象庁 copyright](https://www.jma.go.jp/jma/en/copyright.html)・[予報業務許可Q&A](https://www.jma.go.jp/jma/kishou/minkan/q_a_m.html) | 2026-09-26 |
 | 気象庁ホームページの防災情報（アメダス・警報・ナウキャスト・キキクル・洪水予報等のJSON・タイル） | `backend/app/infrastructure/`の`jma_*`・`flood_client.py` | 気象庁ホームページ利用規約（PDL1.0準拠）。**気象業務法の制約**（第17条 予報業務の許可・第23条 警報の制限）が別にかかる。アメダスの観測を累計して評価の材料（雨の材料）にするのは加工に当たり、規約は出典と加工した旨の記載で加工を認める（観測値の加工についての別段の定めは無い）。出発時刻の予報で延ばす使い方は、下の「気象業務法の予報業務許可」節の確認が先 | 可（気象業務法の範囲で） | 出典。加工した場合は**加工した旨** | [利用規約](https://www.jma.go.jp/jma/kishou/info/coment.html) | 2026-09-26 |
 | 暑さ指数（WBGT、環境省 熱中症予防情報サイト） | `backend/app/infrastructure/wbgt_client.py`（予測値API・情報提供地点マスタCSV） | サイトの利用規約（PDL1.0準拠）。規約が適用外として挙げるのはメール配信サービスと「電子情報提供サービス」（事業者向けのCSVファイル提供）で、使っている予測値API（`api/v1/getForecastData`）と地点マスタCSVは別の「暑さ指数の実況値・予測値ダウンロード」の側にあり、適用外に挙がっていない。同サイトのよくある質問は、アプリで使うならこのWebAPIを案内している。自動化ツールからの高頻度アクセスは控えるよう求めている | 可 | 出典（例: 「出典：環境省熱中症予防情報サイト（当該ページのURL）」）。加工した場合は出典とは別に加工した旨 | [ご利用にあたって](https://www.wbgt.env.go.jp/tos.php)・[実況値・予測値ダウンロード](https://www.wbgt.env.go.jp/wbgt_data_download.php)・[API仕様書](https://www.wbgt.env.go.jp/man15NH/wbgt_data_api_service_manual.pdf)・[よくある質問](https://www.wbgt.env.go.jp/faq2.php)・[電子情報提供サービス](https://www.wbgt.env.go.jp/data_service.php) | 2026-09-26 |
 
@@ -54,12 +54,16 @@ git grep -h -o -E "https?://[a-zA-Z0-9.-]+" -- backend/app backend/scripts front
 現象の予想の発表」（第2条第6項）で、気象庁の説明では「時」と「場所」を特定して今後生じる自然現象の
 状況を予想し利用者へ提供すること、「業務」は定時・非定時に反復・継続して行うことを指す。「地象」には
 気象に密接に関連する地面の諸現象が入る（第2条第2項）。気象・地象の予報業務には気象予報士の設置も要る
-（第19条の2）。予報を行う者の所在が国外でも、日本向けの予報なら許可が要る。
+（第19条の2）。予報を行う者の所在が国外でも、日本向けの予報なら許可が要る。許可は個人でも取れる。
 
 気象庁の公式の説明（[予報業務許可Q&A](https://www.jma.go.jp/jma/kishou/minkan/q_a_m.html)・
 [予報業務を行うためのガイドブック](https://www.jma.go.jp/jma/kishou/minkan/pamphlet.pdf)・
-[根拠規定](https://www.jma.go.jp/jma/kishou/minkan/hourei.pdf)、2026-09-26確認）に**書いてあること**:
+[根拠規定](https://www.jma.go.jp/jma/kishou/minkan/hourei.pdf)、2026-09-26・2026-09-27確認）に**書いてあること**:
 
+- 有償か無償かで区別しない。「業務」の定義（Q&A）は反復・継続して行う行為で、対価に触れない。
+  ガイドブックは、自ら作成した予報を「ブログやSNSで広く公表する」ことを対象、所属する会社や家庭内で
+  使うことを対象外として例示する。予報業務の目的の「不特定多数の者」は「あらゆる利用者」を指す（Q&A）。
+  したがって、無償で公開しているウェブアプリでも、予報に当たるかどうかの判定は変わらない。
 - 気象庁や許可事業者の予報をそのまま伝える・解説するだけなら許可は要らない。
 - 数値予報モデルの格子点値（GPV。MSMを含む）は予報を行うための資料で、それ自体は予報ではない。
   そのまま描画・提供するのは許可が要らない。その際、予報ではなく数値予報モデルの結果で大きな誤差を
@@ -67,6 +71,8 @@ git grep -h -o -E "https?://[a-zA-Z0-9.-]+" -- backend/app backend/scripts front
 - GPVから特定の地点の値を抜き出すときに空間内挿・高度補正等の加工をすると、独自の予報とみなされる
   可能性がある（Q&A）。ガイドブックは「独自の加工を行ったり、予報と称して提供する場合は許可が必要」と
   書く。加工しなくても、予報と称して出せば独自の予報とみなされる。
+- 数値予報資料から明日の天気や気温などを自動で計算するソフトウェアで予報を行う場合も、「どのような
+  予測の方法であっても」許可が要り、現象の予想は気象予報士に行わせる必要がある（Q&A）。
 - 降水・降雪・気温の影響による地面の状態の変化（乾燥・ぬかるみ・アイスバーン等）や地面温度の予報は、
   地象の予報業務許可が要る。
 - 大気の諸現象と一対一に対応づけられない指数（値から一定の式で気温等を逆算できないもの）の予想は
@@ -77,6 +83,8 @@ git grep -h -o -E "https?://[a-zA-Z0-9.-]+" -- backend/app backend/scripts front
 
 - 格子の値を周囲の格子点から補間して、経路上の地点・通過予定時刻ごとの値として画面に出すこと、
   および値を画面に出さずに経路の探索（所要時間・難易度）にだけ使うことが、上の「加工」に当たるか。
+- 格子の雲量・降水量・気温から、自前のしきい値で天気の分類（晴れ・くもり・雨・雪等）を決めて出すことが、
+  上のソフトウェアの問いの「予報を行う」に当たるか（「予報」と呼ばず、モデルの計算値と明示した場合を含む）。
 - 観測（アメダス等）から今の路面の状態を推定して示すことが予報に当たるか（定義は今後生じる現象の予想）。
 
 ## 使わないと決めたソース
