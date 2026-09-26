@@ -26,6 +26,11 @@ from app.domain.axis_definitions import (
 )
 from app.domain.registry import PrimaryAttributeSpec
 
+
+def score_of_one(definition, materials):
+    """1区間ぶんの材料（Pythonの値）の得点。区間インスペクタ・地図の値配信と同じ入口を長さ1で通す。"""
+    return axis_definitions.evaluate_axis_values(definition, {k: [v] for k, v in materials.items()}, 1)[0]
+
 LINEAR_0_100 = [(0.0, 0.0), (10.0, 100.0)]
 
 
@@ -305,45 +310,45 @@ class TestWeights:
         assert axis_definitions.time_scoped_weights({"day": 1.0}, frozenset()) == {"day": 1.0}
 
 
-class TestEvaluateAxisScalar:
+class TestEvaluateAxisValues:
     def test_linear_axis_scores_the_weighted_sum_rounded_to_one_decimal(self):
         definition = linear_axis(
             "a", "num_a", term("num_b", weight=2.0), term("bool_a", weight=0.25), breakpoints=[(0.0, 0.0), (3.0, 10.0)]
         )
 
-        assert axis_definitions.evaluate_axis_scalar(definition, {"num_a": 0.5, "num_b": 0.25, "bool_a": True}) == 4.2
+        assert score_of_one(definition, {"num_a": 0.5, "num_b": 0.25, "bool_a": True}) == 4.2
 
     def test_a_missing_required_material_leaves_the_axis_unevaluated(self):
         definition = linear_axis("a", "num_a", "num_b")
 
-        assert axis_definitions.evaluate_axis_scalar(definition, {"num_a": 1.0}) is None
+        assert score_of_one(definition, {"num_a": 1.0}) is None
 
     def test_a_missing_optional_material_contributes_nothing(self):
         definition = linear_axis("a", "num_a", term("num_b", required=False))
 
-        assert axis_definitions.evaluate_axis_scalar(definition, {"num_a": 1.0}) == 10.0
+        assert score_of_one(definition, {"num_a": 1.0}) == 10.0
 
     def test_an_axis_whose_materials_are_all_missing_is_unevaluated_even_if_optional(self):
         definition = linear_axis("a", term("num_a", required=False), term("num_b", required=False))
 
-        assert axis_definitions.evaluate_axis_scalar(definition, {}) is None
+        assert score_of_one(definition, {}) is None
 
     def test_abs_preprocessing_scores_the_magnitude(self):
         definition = linear_axis("a", "num_a", preprocess="abs")
 
-        assert axis_definitions.evaluate_axis_scalar(definition, {"num_a": -3.0}) == 30.0
+        assert score_of_one(definition, {"num_a": -3.0}) == 30.0
 
     @pytest.mark.parametrize(("materials", "expected"), [({"cat_a": "x"}, 40.0), ({"cat_a": "y"}, None), ({}, None)])
     def test_categorical_axis_scores_registered_values_only(self, materials, expected):
         definition = categorical_axis("a", "cat_a", {"x": 40.0})
 
-        assert axis_definitions.evaluate_axis_scalar(definition, materials) == expected
+        assert score_of_one(definition, materials) == expected
 
 
 @pytest.mark.parametrize(
     "evaluate",
     [
-        lambda definition, value: axis_definitions.evaluate_axis_scalar(definition, {"num_a": value}),
+        lambda definition, value: score_of_one(definition, {"num_a": value}),
         lambda definition, value: axis_definitions.evaluate_axis_array(definition, {"num_a": np.array([value])})[0],
     ],
     ids=["区間1本", "配列"],
@@ -356,7 +361,7 @@ def test_a_score_on_a_tenths_boundary_rounds_by_its_actual_binary_value(evaluate
     assert evaluate(definition, value) == expected
 
 
-class TestEvaluateAxesScalar:
+class TestEvaluateAxesValues:
     def test_scores_published_axes_after_the_axes_they_read(self, axes):
         """公開軸だけを返し、評価できなかった公開軸もNoneとして残す。評価できた軸は次の軸の
         材料として混ぜ込まれる。"""
@@ -366,10 +371,9 @@ class TestEvaluateAxesScalar:
             linear_axis("unevaluated", "num_b", is_published=True),
         )
 
-        scores, materials = axis_definitions.evaluate_axes_scalar({"num_a": 5.0})
+        scores = axis_definitions.evaluate_axes_values({"num_a": [5.0, None]}, 2)
 
-        assert scores == {"pub": 50.0, "unevaluated": None}
-        assert materials == {"num_a": 5.0, "inner": 50.0, "pub": 50.0}
+        assert scores == {"pub": [50.0, None], "unevaluated": [None, None]}
 
 
 class TestEvaluateAxisArray:

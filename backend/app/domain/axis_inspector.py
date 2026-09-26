@@ -10,8 +10,8 @@ Edge単位の評価（`domain/evaluation.py`）とは入力の粒度が違う（
 """
 
 
-from app.domain.axis_definitions import evaluate_axes_scalar
-from app.domain.difficulty import composite_contributions, composite_difficulty
+from app.domain.axis_definitions import evaluate_axes_values
+from app.domain.difficulty import composite_difficulty
 from app.domain.landcover import LandcoverPercentages
 from app.domain.route_preference import RoutePreference
 from app.domain.strict_model import StrictModel
@@ -62,22 +62,23 @@ def axis_inspector_breakdown(
     画面へ出たまま誰も気づかない。
     """
     weights = preference.weights
-    scores, _ = evaluate_axes_scalar(materials)
+    scores = {
+        axis_id: values[0]
+        for axis_id, values in evaluate_axes_values({key: [value] for key, value in materials.items()}, 1).items()
+    }
 
-    scored_weights = [(score, weights.get(axis_id, 0.0)) for axis_id, score in scores.items()]
-    contributions = composite_contributions(scored_weights)
+    composite, contributions = composite_difficulty(scores, weights)
     axes = [
         AxisInspectorAxis(
             axis_id=axis_id,
             difficulty=score,
             weight=weights.get(axis_id, 0.0),
             available=score is not None,
-            contribution=contribution,
+            contribution=contributions[axis_id],
         )
-        for (axis_id, score), contribution in zip(scores.items(), contributions, strict=True)
+        for axis_id, score in scores.items()
     ]
 
-    composite = composite_difficulty(scored_weights)
     total_weight = sum(weights.values())
     covered_weight = sum(weights.get(axis_id, 0.0) for axis_id, score in scores.items() if score is not None)
     covered_fraction = round(covered_weight / total_weight, 3) if total_weight > 0 else None

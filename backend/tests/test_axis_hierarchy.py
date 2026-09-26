@@ -23,11 +23,16 @@ from app.domain.axis_definitions import (
     axis_dependencies,
     dynamic_axis_topological_order,
     evaluate_axis_array,
-    evaluate_axis_scalar,
+    evaluate_axis_values,
     topological_axis_order,
 )
 
 DYNAMIC = next(iter(REQUEST_DYNAMIC_MATERIAL_IDS))
+
+
+def score_of_one(definition, materials):
+    """1区間ぶんの材料（Pythonの値）の得点。区間インスペクタ・地図の値配信と同じ入口を長さ1で通す。"""
+    return evaluate_axis_values(definition, {k: [v] for k, v in materials.items()}, 1)[0]
 
 
 @pytest.fixture
@@ -218,7 +223,7 @@ class TestPriorityConditions:
     @staticmethod
     def _scores(axis: AxisDefinition, scalar_values: list, array_values: np.ndarray) -> tuple[list, list]:
         """区間の内訳が通るスカラーの入口と、ルート選びが通る配列の入口の両方の得点。"""
-        scalar = [evaluate_axis_scalar(axis, {"num_a": 1.0, "num_b": value}) for value in scalar_values]
+        scalar = [score_of_one(axis, {"num_a": 1.0, "num_b": value}) for value in scalar_values]
         array = evaluate_axis_array(axis, {"num_a": np.ones(len(array_values)), "num_b": array_values})
         return scalar, array.tolist()
 
@@ -259,7 +264,7 @@ class TestPriorityConditions:
         """欠損を一致として扱うと、値を持たない区間がすべて優先確定へ落ちる。"""
         axis = self._axis_with_override(PriorityCondition(material="num_b", equals="x", value=3.0))
 
-        assert evaluate_axis_scalar(axis, {"num_a": 1.0}) == 100.0
+        assert score_of_one(axis, {"num_a": 1.0}) == 100.0
 
     def test_the_first_condition_that_matches_decides(self):
         """後のものを採用すると、宣言の並びが意味を持たなくなる。配列の入口は要素ごとのマスクを
@@ -291,16 +296,7 @@ class TestCategoricalKeys:
     def test_a_categorical_material_is_looked_up_by_its_value(self):
         axis = _categorical_axis({"asphalt": 10.0, "gravel": 20.0})
 
-        assert evaluate_axis_scalar(axis, {"num_b": "gravel"}) == 20.0
-
-    def test_the_array_path_looks_up_the_same_table(self):
-        """静的スコア行列の構築は配列で通る。片方だけ直すと、区間インスペクタと地図で
-        違う段が出る。
-        """
-        axis = _categorical_axis({"asphalt": 10.0, "gravel": 20.0})
-        values = np.array(["asphalt", "gravel"], dtype=object)
-
-        assert evaluate_axis_array(axis, {"num_b": values}).tolist() == [10.0, 20.0]
+        assert score_of_one(axis, {"num_b": "gravel"}) == 20.0
 
     def test_the_array_path_also_normalises_the_boolean_keys(self):
         axis = _categorical_axis({"true": 10.0, "false": 20.0})
@@ -313,5 +309,5 @@ class TestCategoricalKeys:
     def test_a_boolean_material_is_looked_up_through_the_normalised_keys(self):
         axis = _categorical_axis({"true": 10.0, "false": 20.0})
 
-        assert evaluate_axis_scalar(axis, {"num_b": True}) == 10.0
-        assert evaluate_axis_scalar(axis, {"num_b": False}) == 20.0
+        assert score_of_one(axis, {"num_b": True}) == 10.0
+        assert score_of_one(axis, {"num_b": False}) == 20.0

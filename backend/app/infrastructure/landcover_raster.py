@@ -23,6 +23,7 @@ from PIL import Image
 
 from app.config import settings
 from app.domain.landcover import LANDCOVER_CLASSES
+from app.domain.region import tile_bounds_3857
 from app.infrastructure.proj_data import pin_bundled_proj_data
 
 pin_bundled_proj_data()
@@ -38,9 +39,6 @@ logger = logging.getLogger("ridecompass.landcover_raster")
 
 TILE_SIZE = 256
 TILE_CRS = "EPSG:3857"
-
-# Web Mercatorの座標系が覆う範囲の半幅（m）。z/x/yからタイルの矩形を出すのに使う。
-_WEB_MERCATOR_HALF_M = 20037508.342789244
 
 # 1回の読み取りで扱う元画素の上限（1辺）。低ズームのタイルほど元画素を多く覆うため、
 # これを超える場合は間引いて読む（GDAL側で間引かれ、メモリは常にこの辺長の2乗で収まる）。
@@ -112,14 +110,6 @@ def reset_sources_for_testing() -> None:
         for source in _sources or []:
             source.dataset.close()
         _sources = None
-
-
-def tile_bounds_3857(z: int, x: int, y: int) -> tuple[float, float, float, float]:
-    """XYZタイルが覆う範囲（Web Mercatorのメートル、west/south/east/north）。"""
-    size = 2 * _WEB_MERCATOR_HALF_M / (2**z)
-    west = -_WEB_MERCATOR_HALF_M + x * size
-    north = _WEB_MERCATOR_HALF_M - y * size
-    return west, north - size, west + size, north
 
 
 def _read_decimated(source: _RasterSource, bounds: tuple[float, float, float, float]):

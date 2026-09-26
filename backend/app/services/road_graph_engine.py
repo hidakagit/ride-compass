@@ -48,17 +48,17 @@ from app.domain.axis_definitions import (
     dynamic_axis_topological_order,
 )
 from app.domain.axis_raw_value import displayed_material_ids
-from app.domain.difficulty import distance_weighted_difficulty
+from app.domain.difficulty import axis_contributions_at_row, axis_weighted_sums, distance_weighted_difficulty
 from app.domain.errors import RoutingError
 from app.domain.dynamic_materials import DynamicAxisRequestContext, evaluate_dynamic_axis_arrays
 from app.domain.evaluation import (
     StaticEdgeScoreMatrix,
-    axis_contributions_at_row,
-    axis_weighted_sums,
     AxisComposition,
     compose_costs_from_axis_matrix,
+    difficulty_from_cost,
 )
 from app.domain.hard_filters import compute_hard_filter_excluded, compute_routable_nodes
+from app.domain.material_catalog import GRADIENT_PERCENT
 from app.domain.route_preference import RoutePreference
 from app.domain.geo import (
     KM_PER_DEGREE_LATITUDE,
@@ -66,9 +66,10 @@ from app.domain.geo import (
     bearing_between_array,
     haversine_distance_km,
     haversine_distance_km_array,
+    km_per_degree_longitude,
 )
 from app.domain.graph import LeanEdge, edge_key, node_key, parse_edge_key
-from app.domain.region import BoundingBox
+from app.domain.region import BoundingBox, bbox_covering_points
 from app.domain.road_network import RoadSlice, edge_row_of, elevation_attribute
 from app.domain.route import (
     Coordinates,
@@ -958,12 +959,13 @@ class RoadGraphEngine:
         now = now or datetime.now(timezone.utc)
         if waypoints:
             # ユーザー指定の経由地は起点から半径radius_km以内とは限らない
-            # ため、周回探索の円形bbox（_bbox_around_point）ではなく、preview_segmentと
+            # ため、周回探索の円を覆う矩形ではなく、preview_segmentと
             # 同じ「複数点の外接矩形+固定マージン」を使う。
-            bbox = _bbox_covering_points([origin, *waypoints], PREVIEW_BBOX_MARGIN_KM)
+            bbox = bbox_covering_points([origin, *waypoints], PREVIEW_BBOX_MARGIN_KM)
         else:
+            # 起点を中心とした円を覆う矩形。折返し点がどの方位に選ばれても、この1回の取得で足りる。
             margin_km = max(BBOX_MARGIN_MIN_KM, radius_km * BBOX_MARGIN_RATIO)
-            bbox = _bbox_around_point(origin, radius_km + margin_km)
+            bbox = bbox_covering_points([origin], radius_km + margin_km)
 
         search = await self._build_search_graph(bbox, origin, now)
         if search is None:
@@ -1001,7 +1003,7 @@ class RoadGraphEngine:
         経路が見つからない場合はNone。
         """
         now = now or datetime.now(timezone.utc)
-        bbox = _bbox_covering_points([origin, destination], PREVIEW_BBOX_MARGIN_KM)
+        bbox = bbox_covering_points([origin, destination], PREVIEW_BBOX_MARGIN_KM)
 
         search = await self._build_search_graph(bbox, origin, now)
         if search is None:
@@ -1197,14 +1199,7 @@ class RoadGraphEngine:
             duration_hours=distance_km / 2 / context.composer.speed_kmh,
         )
         context.legs = [context.legs[0], inbound]
-        if self._penalty_strength > 0:
-            # コスト式`所要時間 × (1 + P × difficulty/100)`の逆算。
-            with np.errstate(invalid="ignore", divide="ignore"):
-                difficulty = (tree.node_cost[ring] / tree.node_seconds[ring] - 1.0) / self._penalty_strength * 100.0
-            difficulty = np.where(np.isfinite(difficulty), difficulty, 0.0)
-        else:
-            # P=0はコスト＝所要時間（難易度を一切考慮しない）なので全候補同点。
-            difficulty = np.zeros(len(ring))
+        difficulty = difficulty_from_cost(tree.node_cost[ring], tree.node_seconds[ring], self._penalty_strength)
         difficulty_key = np.round(difficulty, 1)
         closeness_key = np.abs(ring_length - ring_center_m)
         # 「リング中心からのずれ」「往路difficulty」の2指標で非優越ソートし、パレート層の
@@ -1263,7 +1258,7 @@ class RoadGraphEngine:
         # 引くのは`ranked`のNodeだけなので、座標変換もそのぶんに限る。
         min_separation_sq = MIN_TURNAROUND_SEPARATION_KM ** 2
         lat0 = float(context.node_lat[context.origin_node])
-        km_per_deg_lon = KM_PER_DEGREE_LATITUDE * math.cos(math.radians(lat0))
+        km_per_deg_lon = km_per_degree_longitude(lat0)
         ranked_lat = context.node_lat[ranked] * KM_PER_DEGREE_LATITUDE
         ranked_lon = context.node_lon[ranked] * km_per_deg_lon
         node_y = dict(zip(ranked_list, ranked_lat.tolist()))
@@ -1464,16 +1459,7 @@ class RoadGraphEngine:
         # 切ると、良い候補が後ろのindexに居るだけで検討対象から外れる。
         candidates = np.flatnonzero(within_stretch)
 
-        if self._penalty_strength > 0:
-            with np.errstate(invalid="ignore", divide="ignore"):
-                difficulty = (
-                    (combined_cost[candidates] / combined_seconds[candidates] - 1.0)
-                    / self._penalty_strength * 100.0
-                )
-            difficulty = np.where(np.isfinite(difficulty), difficulty, 0.0)
-        else:
-            # P=0はコスト＝所要時間（難易度を一切考慮しない）なので全候補同点。
-            difficulty = np.zeros(len(candidates))
+        difficulty = difficulty_from_cost(combined_cost[candidates], combined_seconds[candidates], self._penalty_strength)
         difficulty_key = np.round(difficulty, 1)
         # 周回の折返し点選定と同じく、経路長・difficultyのパレート非劣解を先に並べる
         # （難易度は距離加重平均のため、遠回りするほど下がる。目的地ルートは目標距離を
@@ -1994,8 +1980,8 @@ class RoadGraphEngine:
             # 勾配だけは`leg.material_arrays`ではなくこのループが持つ値から載せる
             # （標高属性として既に引いてあり、改めて計算する必要が無いため）。
             static_material_values = (
-                {"gradient_percent": round(gradient_percent, 1)}
-                if "gradient_percent" in active_material_ids and gradient_percent is not None
+                {GRADIENT_PERCENT: round(gradient_percent, 1)}
+                if GRADIENT_PERCENT in active_material_ids and gradient_percent is not None
                 else {}
             )
 
@@ -2396,33 +2382,6 @@ def _pick_better_candidate(forward: RouteCandidate, reverse: RouteCandidate) -> 
     if reverse_difficulty is not None and (forward_difficulty is None or reverse_difficulty < forward_difficulty):
         return reverse
     return forward
-
-
-def _bbox_around_point(center: Coordinates, radius_km: float) -> BoundingBox:
-    """centerを中心とした半径radius_kmの円を覆う矩形bboxを求める（周回ルートの探索範囲。
-    折返し点候補がどの方位に選ばれても1回のRoad Graph取得でカバーできるよう、起点1つに
-    対して1回だけ計算する）。"""
-    lat_margin_deg = radius_km / KM_PER_DEGREE_LATITUDE
-    lon_margin_deg = radius_km / (KM_PER_DEGREE_LATITUDE * math.cos(math.radians(center.latitude)))
-    return BoundingBox(
-        min_latitude=center.latitude - lat_margin_deg,
-        max_latitude=center.latitude + lat_margin_deg,
-        min_longitude=center.longitude - lon_margin_deg,
-        max_longitude=center.longitude + lon_margin_deg,
-    )
-
-
-def _bbox_covering_points(points: list[Coordinates], margin_km: float) -> BoundingBox:
-    """複数地点すべてを覆う外接矩形に、margin_kmの余裕を足したbboxを求める。"""
-    center_lat = sum(p.latitude for p in points) / len(points)
-    lat_margin_deg = margin_km / KM_PER_DEGREE_LATITUDE
-    lon_margin_deg = margin_km / (KM_PER_DEGREE_LATITUDE * max(math.cos(math.radians(center_lat)), 1e-6))
-    return BoundingBox(
-        min_latitude=min(p.latitude for p in points) - lat_margin_deg,
-        max_latitude=max(p.latitude for p in points) + lat_margin_deg,
-        min_longitude=min(p.longitude for p in points) - lon_margin_deg,
-        max_longitude=max(p.longitude for p in points) + lon_margin_deg,
-    )
 
 
 def _concat_edge_geometries(edges: list[LeanEdge]) -> tuple[dict, list[int]]:

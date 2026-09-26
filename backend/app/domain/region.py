@@ -1,7 +1,9 @@
 import math
+from collections.abc import Sequence
 
 from pydantic import Field, model_validator
 
+from app.domain.geo import KM_PER_DEGREE_LATITUDE, LatLon, km_per_degree_longitude
 from app.domain.strict_model import StrictModel
 
 # 路面の地域レイヤーが配信されるXYZズームの範囲。MapLibreはminzoom未満でタイルを
@@ -42,6 +44,20 @@ class BoundingBox(StrictModel):
         return self
 
 
+def bbox_covering_points(points: Sequence[LatLon], margin_km: float) -> BoundingBox:
+    """複数地点すべてを覆う外接矩形に、`margin_km`の余裕を足したもの。経度方向の余裕は
+    地点の平均緯度で度へ換算する。"""
+    center_lat = sum(p.latitude for p in points) / len(points)
+    lat_margin_deg = margin_km / KM_PER_DEGREE_LATITUDE
+    lon_margin_deg = margin_km / km_per_degree_longitude(center_lat)
+    return BoundingBox(
+        min_latitude=min(p.latitude for p in points) - lat_margin_deg,
+        max_latitude=max(p.latitude for p in points) + lat_margin_deg,
+        min_longitude=min(p.longitude for p in points) - lon_margin_deg,
+        max_longitude=max(p.longitude for p in points) + lon_margin_deg,
+    )
+
+
 def parse_bbox(text: str) -> BoundingBox:
     """CLIの--bbox（"min_lat,min_lon,max_lat,max_lon"）をBoundingBoxへ変換する。
 
@@ -71,6 +87,18 @@ def tile_bounds_lonlat(z: int, x: int, y: int) -> BoundingBox:
     )
 
 
+#: Web Mercator（EPSG:3857）が世界を写す正方形の一辺の半分（m）。
+WEB_MERCATOR_HALF_M = 20037508.342789244
+
+
+def tile_bounds_3857(z: int, x: int, y: int) -> tuple[float, float, float, float]:
+    """XYZタイルが覆う範囲（Web Mercatorのメートル、west/south/east/north）。"""
+    size = 2 * WEB_MERCATOR_HALF_M / (2**z)
+    west = -WEB_MERCATOR_HALF_M + x * size
+    north = WEB_MERCATOR_HALF_M - y * size
+    return west, north - size, west + size, north
+
+
 # Web Mercatorで表現できる緯度の限界。極ではmath.tan(lat)と1/math.cos(lat)が打ち消し合い、
 # _lonlat_to_tile_indexのmath.logが非正の値を受けてmath domain errorになる。
 # BoundingBoxが許す±90度まではこの限界の外側にあるため、クランプしてから使う。
@@ -84,6 +112,16 @@ def _lonlat_to_tile_index(lon: float, lat: float, z: int) -> tuple[int, int]:
     clamped_lat = max(-_MAX_MERCATOR_LATITUDE, min(lat, _MAX_MERCATOR_LATITUDE))
     lat_rad = math.radians(clamped_lat)
     y = int((1.0 - math.log(math.tan(lat_rad) + 1.0 / math.cos(lat_rad)) / math.pi) / 2.0 * n)
+    return x, y
+
+
+def tile_position_sql(lon: str, lat: str, zoom: str) -> tuple[str, str]:
+    """`_lonlat_to_tile_index`と同じ式をSQLで書いたもの。経度・緯度の式`lon`・`lat`と
+    ズームの式`zoom`から、タイル座標を小数のまま返す`(x, y)`の式（整数部がタイルの番号、
+    小数部がタイルの中の位置）。緯度は丸めないため、Web Mercatorの限界の外を渡さないこと。"""
+    scale = f"(2::double precision ^ {zoom})"
+    x = f"({lon} + 180.0) / 360.0 * {scale}"
+    y = f"(1.0 - ln(tan(radians({lat})) + 1.0 / cos(radians({lat}))) / pi()) / 2.0 * {scale}"
     return x, y
 
 

@@ -11,11 +11,9 @@
 材料id・他軸のaxis_idのどちらも区別なく指せることから生じる（`axis_definitions.py:
 topological_axis_order`が依存順の評価を担う）。
 
-各関数はスカラー（Python float/bool/int）とnumpy配列の両方を受け付ける。スカラー入力には
-Pythonのfloat/boolを、配列入力には同じ形状のnumpy配列を返す（欠損値はNaNで表現・伝播する）。
-1エッジずつ呼ばれるスカラー経路（`evaluate_axis_scalar`）と、静的スコア行列の構築が使う
-ベクトル化された一括経路（`evaluate_axis_array`）が同じこの実装を通ることで、軸のロジックが
-2箇所へ分かれない。
+軸の評価（`axis_definitions.py: evaluate_axis_array`）は配列で呼ぶ（欠損値はNaNで表現・伝播する）。
+`evaluate_breakpoint_linear`だけはスカラーも受け付ける——軸スタジオの折れ点のプレビューと地図の段の
+しきい値が、1点の得点を求めるのに使う。
 """
 
 from __future__ import annotations
@@ -38,12 +36,11 @@ def evaluate_breakpoint_linear(value, breakpoints: list[tuple[float, float]]):
     return float(np.interp(value, xp, fp))
 
 
-def evaluate_categorical(value, mapping: dict):
-    """カテゴリ値→定数のマッピング。引けない値（欠損、および`mapping`に無い値）は
-    「評価不能」として、スカラーはNone・配列はNaNを返す。欠損の表現は材料により異なり、
-    dtype=object の文字列配列はNoneで表す。
+def evaluate_categorical(value: np.ndarray, mapping: dict) -> np.ndarray:
+    """カテゴリ値の配列→定数のマッピング。引けない値（欠損、および`mapping`に無い値）は
+    「評価不能」としてNaNを返す。欠損の表現は材料により異なり、dtype=object の配列はNoneで表す。
 
-    配列入力はキーでソートした`np.searchsorted`（二分探索）で該当インデックスを求める
+    キーでソートした`np.searchsorted`（二分探索）で該当インデックスを求める
     （mappingの各キーごとに配列全体を走査するO(要素数×キー数)ではなく、
     highway等キー数が多い多値categorical材料でもO(要素数×log(キー数))で済む）。
     欠損（None）は`keys[0]`の位置へ一時的に
@@ -52,17 +49,14 @@ def evaluate_categorical(value, mapping: dict):
     「一致した」ことにしてしまう——`missing`マスクを別途保持し、検索結果とは無関係に
     強制的に不一致にする。
     """
-    if isinstance(value, np.ndarray):
-        fill = np.nan
-        keys = sorted(mapping.keys())
-        key_scores = np.array([mapping[key] for key in keys], dtype=float)
-        keys_array = np.array(keys, dtype=value.dtype if value.dtype != object else object)
-        missing = value == None  # noqa: E711 (numpy配列の要素ごと比較、`is`では動かない)
-        safe_value = np.where(missing, keys[0], value)
-        idx = np.clip(np.searchsorted(keys_array, safe_value), 0, len(keys) - 1)
-        matched = (keys_array[idx] == safe_value) & ~missing
-        return np.where(matched, key_scores[idx], fill)
-    return mapping.get(value)
+    keys = sorted(mapping.keys())
+    key_scores = np.array([mapping[key] for key in keys], dtype=float)
+    keys_array = np.array(keys, dtype=value.dtype if value.dtype != object else object)
+    missing = value == None  # noqa: E711 (numpy配列の要素ごと比較、`is`では動かない)
+    safe_value = np.where(missing, keys[0], value)
+    idx = np.clip(np.searchsorted(keys_array, safe_value), 0, len(keys) - 1)
+    matched = (keys_array[idx] == safe_value) & ~missing
+    return np.where(matched, key_scores[idx], np.nan)
 
 
 def round1_array(values: np.ndarray) -> np.ndarray:

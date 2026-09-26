@@ -17,7 +17,7 @@ from dataclasses import dataclass, fields
 import numpy as np
 
 from app.domain.attributes import EdgeMaterialArrays, ElevationAttribute
-from app.domain.material_sql import MATERIAL_ID_GRADIENT_PERCENT
+from app.domain.material_catalog import GRADIENT_PERCENT
 
 
 @dataclass(frozen=True, eq=False)
@@ -183,10 +183,11 @@ def material_arrays_of(road: RoadSlice) -> EdgeMaterialArrays:
 
 
 def elevation_attribute(network: RoadNetwork, row: int, edge_id: str) -> ElevationAttribute | None:
-    """全体の行`row`の区間の標高属性。標高が未計算ならNone。平均勾配は材料`gradient_percent`の値。"""
+    """全体の行`row`の区間の標高属性。標高が未計算ならNone。平均勾配は材料`gradient_percent`の値
+    （表示用の標高列と重複して持たないため、勾配だけは材料の列から読む）。"""
     if not network.elevation_present[row]:
         return None
-    grade_column = network.numeric_ids.index(MATERIAL_ID_GRADIENT_PERCENT)
+    grade_column = network.numeric_ids.index(GRADIENT_PERCENT)
     return ElevationAttribute(
         edge_id=edge_id,
         start_elevation_m=_none_if_nan(network.elevation_start_m[row]),

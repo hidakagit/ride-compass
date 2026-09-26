@@ -10,7 +10,7 @@
 
 import numpy as np
 
-from app.domain.material_sql import MATERIAL_ID_GRADIENT_PERCENT
+from app.domain.material_catalog import GRADIENT_PERCENT
 from app.domain.road_network import RoadNetwork, edge_row_of, elevation_attribute, material_arrays_of, slice_network
 
 CAT_A = "cat_a"
@@ -41,7 +41,7 @@ def network(*, grades=None, elevation_present=None, starts=None) -> RoadNetwork:
         edge_highway=np.zeros(n, dtype=np.int16), highway_vocab=(None,),
         edge_min_lon=np.minimum(lon[tail], lon[head]), edge_min_lat=np.minimum(lat[tail], lat[head]),
         edge_max_lon=np.maximum(lon[tail], lon[head]), edge_max_lat=np.maximum(lat[tail], lat[head]),
-        numeric_ids=(MATERIAL_ID_GRADIENT_PERCENT,), numeric_values=np.array(grades, dtype=float).reshape(-1, 1),
+        numeric_ids=(GRADIENT_PERCENT,), numeric_values=np.array(grades, dtype=float).reshape(-1, 1),
         boolean_ids=(), boolean_values=np.zeros((n, 0), dtype=bool),
         categorical_ids=(CAT_A,), categorical_codes=np.array([[1], [1], [0], [2], [2]], dtype=np.int16),
         categorical_vocab=((None, "x", "y"),),

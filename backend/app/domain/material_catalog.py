@@ -638,11 +638,19 @@ PRIMARY_ATTRIBUTES: tuple[PrimaryAttributeSpec, ...] = (
 )
 
 
+#: コードが名指しで読む材料のid。カタログのキーにも同じ定数を使う——綴りを別々に書くと、
+#: ずれたときに読む側が材料を見つけられず、黙って欠損として扱う。
+GRADIENT_PERCENT = "gradient_percent"
+WIND_DRAG_RATIO = "wind_drag_ratio"
+SURFACE_GOOD = "surface_good"
+ACCIDENT_COUNT_PER_KM_YEAR = "accident_count_per_km_year"
+
+
 # 軸が参照する材料と、MVTタイルへ焼き込み済みだが評価軸には未使用の生データの両方を持つ
 # （モジュール冒頭の注記参照）。
 MATERIAL_CATALOG: dict[str, MaterialSpec] = {
-    "gradient_percent": MaterialSpec(
-        material_id="gradient_percent",
+    GRADIENT_PERCENT: MaterialSpec(
+        material_id=GRADIENT_PERCENT,
         label="勾配（符号付き）",
         description="国土地理院の標高データから算出した進行方向の勾配（%）。登り坂はプラス、下り坂はマイナスです。",
         dtype="numeric",
@@ -661,8 +669,8 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
                 missing_semantics="unknown",
             ),
     ),
-    "wind_drag_ratio": MaterialSpec(
-        material_id="wind_drag_ratio",
+    WIND_DRAG_RATIO: MaterialSpec(
+        material_id=WIND_DRAG_RATIO,
         label="風の追加負荷(倍率)",
         description=(
             "出発時刻の気象予報・ルートの進行方向・想定速度から、相対風速の二乗則で求めた空気抵抗の増分"
@@ -775,8 +783,8 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
         value_sql=landcover_value_sql("snow_ice"),
         coverage=_landcover_coverage("snow_ice"),
     ),
-    "surface_good": MaterialSpec(
-        material_id="surface_good",
+    SURFACE_GOOD: MaterialSpec(
+        material_id=SURFACE_GOOD,
         label="舗装良否",
         description="OSMの路面タグ(surface)から判定した舗装の良否。true=舗装良好、false=未舗装等。",
         dtype="boolean",
@@ -807,8 +815,8 @@ MATERIAL_CATALOG: dict[str, MaterialSpec] = {
                 missing_semantics="unknown",
             ),
     ),
-    "accident_count_per_km_year": MaterialSpec(
-        material_id="accident_count_per_km_year",
+    ACCIDENT_COUNT_PER_KM_YEAR: MaterialSpec(
+        material_id=ACCIDENT_COUNT_PER_KM_YEAR,
         label="事故密度",
         description="警察庁の事故データに基づく、1kmあたり・1年あたりの人身事故件数。",
         dtype="numeric",

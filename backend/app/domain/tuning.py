@@ -86,10 +86,15 @@ class TuningParameter:
             )
 
 
+def stop_seconds_parameter_id(kind: str) -> str:
+    """停止要因の種別から較正値のid（綴りを組み立てる場所を1つにする）。"""
+    return f"stop.{kind}_seconds"
+
+
 def _stop_parameter(kind: str, label: str, default: float, description: str) -> TuningParameter:
     """停止要因1種別ぶんの宣言。idは種別の綴りから導く（`POI_COUNT_KINDS`と1対1）。"""
     return TuningParameter(
-        id=f"stop.{kind}_seconds",
+        id=stop_seconds_parameter_id(kind),
         label=f"{label}の待ち",
         unit="秒",
         default=default,
@@ -259,11 +264,6 @@ def client_tuning_values() -> dict[str, float]:
         for p in TUNING_PARAMETERS
         if p.effect is TuningEffect.CLIENT_RELOAD
     }
-
-
-def stop_seconds_parameter_id(kind: str) -> str:
-    """停止要因の種別から較正値のid（綴りを組み立てる場所を1つにする）。"""
-    return f"stop.{kind}_seconds"
 
 
 __all__ = [

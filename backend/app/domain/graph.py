@@ -44,3 +44,24 @@ def parse_edge_key(key: str) -> tuple[int, int, bool] | None:
     if match is None:
         return None
     return int(match["way"]), int(match["segment"]), match["direction"] == "fwd"
+
+
+#: 路面タイルのフィーチャーの鍵（区間単位）の区切り。`edge_key`と違い向きを持たない——タイルの
+#: 線は1本の区間を往復で共有する。way丸ごとのフィーチャーは区切りを持たない（way idだけ）。
+_FEATURE_KEY_SEPARATOR = "-"
+
+
+def edge_feature_key_sql(osm_way_id: str, segment_index: str) -> str:
+    """区間単位のフィーチャーの鍵をSQLで組み立てる式（引数は列の式）。"""
+    return f"{osm_way_id}::text || '{_FEATURE_KEY_SEPARATOR}' || {segment_index}::text"
+
+
+def parse_edge_feature_key(key: str) -> tuple[int, int] | None:
+    """`edge_feature_key_sql`の逆（`(osm_way_id, segment_index)`）。way丸ごとの鍵（区切りが無い）はNone。"""
+    way_id, separator, segment = key.partition(_FEATURE_KEY_SEPARATOR)
+    if not separator:
+        return None
+    try:
+        return int(way_id), int(segment)
+    except ValueError:
+        return None

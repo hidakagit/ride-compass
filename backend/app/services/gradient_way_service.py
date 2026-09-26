@@ -10,6 +10,7 @@ import logging
 from datetime import datetime
 
 from app.domain.gradient import GradientCalculator
+from app.domain.material_catalog import GRADIENT_PERCENT
 from app.domain.region import tile_bounds_lonlat
 from app.infrastructure.database import DB_UNAVAILABLE_ERRORS
 from app.infrastructure.debug_log import log_external_call
@@ -26,7 +27,7 @@ GRADIENT_TILE_VALUES_TTL_SECONDS = 24 * 3600
 
 class GradientWayService:
     #: 返す生値の材料id。この材料を参照する軸の配信を担当し、キャッシュの名前空間にもなる。
-    material_id = "gradient_percent"
+    material_id = GRADIENT_PERCENT
 
     def __init__(self, repository: RoadGraphRepository):
         self._repository = repository

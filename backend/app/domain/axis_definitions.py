@@ -6,9 +6,9 @@
 どのパラメータで通すか」だけを持つ。
 
 - 既存テンプレート＋既存材料の組み合わせで表現できる新しい軸は、`AXIS_DEFINITIONS`へ
-  1エントリ追加するだけで、スカラー評価（区間インスペクタ）と
-  配列評価（`build_static_edge_score_matrix`）の両方へ同時に反映される
-  （`evaluate_axis_scalar`/`evaluate_axis_array`が同じ定義データを読む）。
+  1エントリ追加するだけで、区間インスペクタ・地図の値配信・ルート選び
+  （`build_static_edge_score_matrix`）のすべてへ同時に反映される。評価は
+  `evaluate_axis_array`1本で、Pythonの値で持つ入口（`evaluate_axis_values`）も配列にして通す。
 - breakpoints等の変換パラメータの単一ソースはここ（定数の片側import原則）。
 - 材料（material）はOSM生タグそのものではなく「評価直前まで解決済みの値」
   （勾配%・風ペナルティm/s・舗装良否・km正規化済み密度・レシピ計算済みレベル・
@@ -19,16 +19,17 @@
 - `axis_definitions`DBテーブルが全軸の唯一の正本。起動時（`app/services/
   axis_registry_service.py: refresh_axis_definitions`）にDBから読み込みこのモジュール
   レベルdictへpushするまでは空のまま。本モジュールが持つのは型定義（`AxisDefinition`等）
-  と評価用の純粋関数（`evaluate_axis_scalar`等）のみで、実データは持たない。**行データ
+  と評価用の純粋関数（`evaluate_axis_array`等）のみで、実データは持たない。**行データ
   （軸の新規追加・既存軸の値変更）は`api/routers/axis_admin.py`経由（create/update/
   unpublish→再publish）で行う**。
 
-欠損値の表現はスカラー経路がNone、配列経路がNaN（`*_difficulty`関数・`*_difficulty_array`
-関数と同じ規約）。丸めは区分線形補間系のみ小数1桁で、配列もスカラーの`round()`と同じ値へ
-丸める（`round1_array`。区間の表示とルート選びが同じ得点を使うため）。
+欠損値の表現はPythonの値で持つ入口がNone、配列がNaN。丸めは区分線形補間系のみ小数1桁で、
+Pythonの`round()`と同じ値へ丸める（`round1_array`。2進の実際の値で丸める）。
 """
 
-from typing import Annotated, Literal, Mapping, Sequence, cast
+import math
+from collections.abc import Collection, Iterable
+from typing import Annotated, Literal, Mapping, Sequence, SupportsFloat, cast
 
 import numpy as np
 from cachetools import LRUCache
@@ -50,6 +51,7 @@ from app.domain.axis_templates import (
     evaluate_categorical,
     round1_array,
 )
+from app.domain.material_catalog import WIND_DRAG_RATIO
 from app.domain.strict_model import StrictModel
 
 
@@ -140,7 +142,7 @@ class CategoricalShape(StrictModel):
     kind: Literal["categorical"] = "categorical"
     material: str = Field(min_length=1)
     # 空の対応表はどの値も引けず、その軸を全区間で恒久的に欠損にする（`evaluate_categorical`
-    # は未登録の値へNone/NaNを返すだけで、エラーもログも出さない）。登録時点で弾く。
+    # は未登録の値へNaNを返すだけで、エラーもログも出さない）。登録時点で弾く。
     mapping: dict[Annotated[StrictBool | StrictStr, BeforeValidator(flag_or_value_name)], float] = Field(
         min_length=1
     )
@@ -246,8 +248,7 @@ class AxisDefinition(StrictModel):
     **軸の階層**: `shape`の`MaterialTerm.material`/`CategoricalShape.
     material`等は、`MATERIAL_CATALOG`の材料idだけでなく**他の軸のaxis_id**も指せる
     （評価時、既に計算済みの軸のdifficulty値が`materials`辞書へ材料と同じ扱いで
-    混ぜ込まれる。`evaluate_axis_scalar`/`evaluate_axis_array`のシグネチャ・実装は
-    無変更、呼び出し側が依存順に評価して結果を`materials`へ書き足すだけ）。これにより
+    混ぜ込まれる。`evaluate_axes_array`が依存順に評価して結果を`materials`へ書き足す）。これにより
     「highway基準値」「自転車インフラ」等の細かい推定軸（`is_published=False`、
     一般ユーザーには非公開）を、さらに1段合成した「翻訳結果」として公開軸
     （`is_published=True`）を作る、という階層構造を表現できる。`materials`プロパティは
@@ -675,7 +676,7 @@ def topological_axis_order(definitions: dict[str, AxisDefinition]) -> list[str]:
 # `dynamic_axis_topological_order`がこの集合を起点に、依存する軸を機械的に導出する
 # （軸id・材料idのハードコードを個別の軸ぶん増やさない汎用設計）。各材料の評価関数は
 # `domain/evaluation.py: DYNAMIC_MATERIAL_EVALUATORS`に1対1で登録する。
-REQUEST_DYNAMIC_MATERIAL_IDS = frozenset({"wind_drag_ratio"})
+REQUEST_DYNAMIC_MATERIAL_IDS = frozenset({WIND_DRAG_RATIO})
 
 _dynamic_axis_order_cache: LRUCache = LRUCache(maxsize=64)
 
@@ -760,8 +761,7 @@ def time_scoped_weights(weights: Mapping[str, float], active_scopes: frozenset[s
 
 
 def _priority_override_mask(values: np.ndarray, equals: str) -> np.ndarray:
-    """0次条件が材料の値のどの要素に当たるか。**一致の判定はここだけが持つ**——スカラー版は
-    長さ1の配列にして呼ぶ。
+    """0次条件が材料の値のどの要素に当たるか。**一致の判定はここだけが持つ**。
 
     `equals`は`CategoricalShape.mapping`のキーと同じ読み方をする（"true"/"false"だけを真偽へ読み、
     それ以外は書いたとおりの値の名前）。真偽の材料は、欠損を持たないものは真偽の配列、「不明」を
@@ -771,68 +771,92 @@ def _priority_override_mask(values: np.ndarray, equals: str) -> np.ndarray:
     return np.asarray(values == flag_or_value_name(equals), dtype=bool)
 
 
-def evaluate_axis_scalar(definition: AxisDefinition, materials: Mapping[str, object]) -> float | None:
-    """1Edge/1区間分の材料値から軸別difficultyを算出する（欠損=None）。
+def _numeric_column(values: Sequence[object]) -> np.ndarray:
+    """項の材料の値の並び（欠損=None）を数値の配列へ（真偽は1.0/0.0、欠損はNaN）。項の材料は
+    numeric/booleanに限られる（`axis_admin.AxisDefinitionPayload._check_materials_are_known`）。"""
+    return np.array([np.nan if v is None else float(cast(SupportsFloat, v)) for v in values], dtype=float)
 
-    `materials`は材料id→解決済みスカラー値（float/bool/int/None）。定義が参照しない
-    材料が含まれていてもよい（呼び出し元は既知の全材料をまとめて渡してよい）。
 
-    `definition.priority_overrides`が1件でも一致すれば、shapeの通常計算を
-    スキップしその条件のvalueをそのまま返す（定義順で最初に一致したものを採用。探索除外の
-    ハードフィルタとは別に「評価を優先確定する」ための機構、適用例はmotor_vehicle_no
-    =true。自転車通行禁止は既存の0次ハードフィルタ`no_bicycle`で既にカバー済みのため
-    この機構は使わない）。
+def _value_column(values: Sequence[object]) -> np.ndarray:
+    """項以外で読む材料（分類の材料・0次条件の材料）の値の並びを、値のままのobjectの配列へ
+    （欠損はNone）。文字列を固定長の文字列の配列にすると、対応表の長いキーが切り詰められる。"""
+    column = np.empty(len(values), dtype=object)
+    column[:] = list(values)
+    return column
+
+
+def _python_value_columns(
+    materials: Mapping[str, Sequence[object]], material_ids: Iterable[str], numeric_ids: Collection[str], length: int
+) -> dict[str, np.ndarray]:
+    """Pythonの値の並び（欠損=None）を、`evaluate_axis_array`が材料の型ごとに受け取る形の配列へ
+    並べ替える。`materials`に無い材料は全要素欠損。"""
+    missing: Sequence[object] = [None] * length
+    return {
+        material_id: (_numeric_column if material_id in numeric_ids else _value_column)(
+            materials.get(material_id, missing)
+        )
+        for material_id in material_ids
+    }
+
+
+def _term_material_ids(definitions: Iterable[AxisDefinition]) -> set[str]:
+    return {
+        term.material
+        for definition in definitions
+        if isinstance(definition.shape, BreakpointLinearShape)
+        for term in definition.shape.terms
+    }
+
+
+def _scores_or_none(scores: np.ndarray) -> list[float | None]:
+    return [None if math.isnan(score) else score for score in scores.tolist()]
+
+
+def evaluate_axis_values(
+    definition: AxisDefinition, materials: Mapping[str, Sequence[object]], length: int
+) -> list[float | None]:
+    """材料id→Pythonの値の並び（長さ`length`、欠損=None）から、要素ごとの軸の得点を求める
+    （評価できない要素はNone）。評価は配列へ並べ替えて`evaluate_axis_array`が行う——入口ごとに
+    評価を書くと、区間を押して見える得点とルート選びが使う得点が同じ道で食い違う。
+
+    定義が参照しない材料が含まれていてもよく、参照する材料が無ければ全要素欠損として扱う。
     """
-    for override in definition.priority_overrides:
-        if _priority_override_mask(np.array([materials.get(override.material)]), override.equals)[0]:
-            return override.value
-    shape = definition.shape
-    if isinstance(shape, BreakpointLinearShape):
-        total: float | None = None
-        for term in shape.terms:
-            value = materials.get(term.material)
-            if value is None:
-                if term.required:
-                    return None
-                continue
-            # 項の材料はnumeric/booleanに限られる（`axis_admin.AxisDefinitionPayload._check_materials_are_known`）。
-            contribution = cast(float, value) * term.weight
-            total = contribution if total is None else total + contribution
-        if total is None:
-            return None
-        return shape.score_at(shape.preprocessed(total))
-    # CategoricalShape
-    value = materials.get(shape.material)
-    if value is None:
-        return None
-    return evaluate_categorical(value, shape.mapping)
+    columns = _python_value_columns(
+        materials, definition.materials, _term_material_ids([definition]), length
+    )
+    return _scores_or_none(evaluate_axis_array(definition, columns))
 
 
-def evaluate_axes_scalar(materials: Mapping[str, object]) -> tuple[dict[str, float | None], dict[str, object]]:
-    """`AXIS_DEFINITIONS`の全軸を依存順（内部軸→公開軸）で評価する共通ループ
-    （同じ「`topological_axis_order`で依存順に並べ、
-    `evaluate_axis_scalar`の結果を次の軸のmaterialとして混ぜ込みながら進め、公開軸だけを
-    返す」という組み立てを、`axis_inspector_breakdown`[domain/axis_inspector.py]・
-    `evaluate_axes_scalar`の呼び出し元
-    [domain/difficulty.py]が共有する）。
+def evaluate_axes_values(materials: Mapping[str, Sequence[object]], length: int) -> dict[str, list[float | None]]:
+    """`evaluate_axis_values`の全軸版。公開軸だけを依存順（`topological_axis_order`）に返す。
 
-    戻り値は`(公開軸のみのdifficulty辞書, 評価済みの内部軸も含む全materials辞書)`。
-    前者は内部軸（`is_published=False`）を含まないが、値が算出不能だった公開軸は
-    `None`のままキーを残す（`axis_inspector_breakdown`の`available=False`判定・
-    呼び出し元の`composite_difficulty`への受け渡しがこれを前提にする
-    ため、値がNoneのキーを黙って落とさない）。呼び出し元でNoneのキー自体を除きたい場合は
-    呼び出し側でフィルタする。
+    評価できなかった公開軸も、キーを残して値をNoneにする（区間インスペクタの`available=False`・
+    合成の分母からの除外がこれを前提にする）。
     """
-    scores: dict[str, float | None] = {}
-    materials_with_axes: dict[str, object] = dict(materials)
+    definitions = AXIS_DEFINITIONS.values()
+    leaf_ids = {
+        material_id
+        for definition in definitions
+        for material_id in definition.materials
+        if material_id not in AXIS_DEFINITIONS
+    }
+    columns = _python_value_columns(materials, leaf_ids, _term_material_ids(definitions), length)
+    evaluated = evaluate_axes_array(columns)
+    return {
+        axis_id: _scores_or_none(evaluated[axis_id])
+        for axis_id in topological_axis_order(AXIS_DEFINITIONS)
+        if AXIS_DEFINITIONS[axis_id].is_published
+    }
+
+
+def evaluate_axes_array(materials: Mapping[str, np.ndarray]) -> dict[str, np.ndarray]:
+    """`AXIS_DEFINITIONS`の全軸を依存順（内部軸→公開軸）で評価し、`materials`へ全軸の得点を
+    足した辞書を返す。評価した軸の得点は、後の軸の材料として読まれる（他の軸を材料にする軸）。
+    """
+    with_axes = dict(materials)
     for axis_id in topological_axis_order(AXIS_DEFINITIONS):
-        definition = AXIS_DEFINITIONS[axis_id]
-        value = evaluate_axis_scalar(definition, materials_with_axes)
-        if definition.is_published:
-            scores[axis_id] = value
-        if value is not None:
-            materials_with_axes[axis_id] = value
-    return scores, materials_with_axes
+        with_axes[axis_id] = evaluate_axis_array(AXIS_DEFINITIONS[axis_id], with_axes)
+    return with_axes
 
 
 def _missing_material_mask(values: np.ndarray) -> np.ndarray:
@@ -881,8 +905,22 @@ def axis_raw_value_array(
     if not has_axis_raw_value_array(definition):
         return None
     assert isinstance(shape, BreakpointLinearShape)
+    return _breakpoint_raw_value_array(shape, materials)
+
+
+def _breakpoint_raw_value_array(shape: BreakpointLinearShape, materials: Mapping[str, np.ndarray]) -> np.ndarray:
     total, all_missing = _breakpoint_raw_total_array(shape, materials)
     return np.where(all_missing, np.nan, total)
+
+
+def raw_values(shape: "AxisShape", materials: Mapping[str, Sequence[object]], length: int) -> list[float | None]:
+    """`axis_raw_value_array`をPythonの値の並び（`evaluate_axis_values`と同じ形）から求める。
+    保存前の`shape`も渡せるよう軸の定義ではなく形を受け取る。`CategoricalShape`は全要素None。"""
+    if not isinstance(shape, BreakpointLinearShape):
+        return [None] * length
+    term_ids = [term.material for term in shape.terms]
+    columns = _python_value_columns(materials, term_ids, term_ids, length)
+    return _scores_or_none(_breakpoint_raw_value_array(shape, columns))
 
 
 def has_axis_raw_value_array(definition: AxisDefinition) -> bool:
@@ -895,19 +933,18 @@ def has_axis_raw_value_array(definition: AxisDefinition) -> bool:
 
 
 def evaluate_axis_array(definition: AxisDefinition, materials: Mapping[str, np.ndarray]) -> np.ndarray:
-    """`evaluate_axis_scalar`の配列版（欠損=NaN、静的スコア行列の構築で使う）。
+    """材料の配列から要素ごとの軸の得点を求める（欠損=NaN）。軸の評価はこれ1本。
 
     `materials`は材料id→同一形状のnumpy配列（フラグ材料はbool配列、それ以外はfloat配列で
-    欠損はNaN。categorical材料はdtype=object の文字列配列）。requiredな材料のNaNは演算で
-    自然に伝播し、required=Falseの材料のNaNは0へ置き換えて寄与なしとして扱う（スカラー版の
-    None規約と対応）。ただし全termの材料が欠損している要素はNaN（評価不能）を返す——
-    寄与が1件も無い状態へ「NaNは0とみなす」規則を適用すると「材料が1つも観測されて
-    いない」ことと「観測した結果が0だった」ことが区別できないため（スカラー版が
-    `total is None`でNoneを返すのと対応する）。
+    欠損はNaN。categorical材料はdtype=object の配列で欠損はNone）。requiredな材料のNaNは演算で
+    自然に伝播し、required=Falseの材料のNaNは0へ置き換えて寄与なしとして扱う。ただし全termの
+    材料が欠損している要素はNaN（評価不能）を返す——寄与が1件も無い状態へ「NaNは0とみなす」
+    規則を適用すると「材料が1つも観測されていない」ことと「観測した結果が0だった」ことが
+    区別できないため。
 
     `definition.priority_overrides`はshape計算の結果へ後から重ねる
-    （`np.where`をpriority_overridesの逆順に重ねることで、先頭の条件が最終的に最優先になる
-    ——スカラー版の「定義順で最初に一致したものを採用」と同じ優先順位）。
+    （`np.where`をpriority_overridesの逆順に重ねることで、定義順で最初に一致した条件が
+    最優先になる）。
     """
     shape = definition.shape
     if isinstance(shape, BreakpointLinearShape):

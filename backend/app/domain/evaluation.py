@@ -6,8 +6,8 @@ Route Engineから独立させ、Route Engine自身は「勾配がきつい」�
 
 評価は探索範囲ごとの静的スコア行列（`build_static_edge_score_matrix`）へ一本化してある。
 入力はDBが導出した材料の行列（`EdgeMaterialArrays`）で、このモジュールは材料の値を
-どう求めるかを知らない。way1本を指す区間インスペクタだけがスカラーで評価する
-（`domain/axis_inspector.py`→`evaluate_axes_scalar`）。
+どう求めるかを知らない。way1本を指す区間インスペクタは、同じ評価を長さ1の配列で通す
+（`domain/axis_inspector.py`→`evaluate_axes_values`）。
 
 三次（重み付き合成）は`compose_costs_from_axis_matrix`が単独で使える——軸別スコアが
 既にあるなら、材料からやり直さずここだけを呼ぶ。
@@ -23,7 +23,6 @@ Score（難易度換算）は`domain/difficulty.py`（0-100、値が大きいほ
 """
 
 from dataclasses import dataclass, field
-import math
 from typing import Mapping, NamedTuple
 
 import numpy as np
@@ -37,13 +36,13 @@ from app.domain.axis_definitions import (
     AxisDefinition,
     axis_raw_value_array,
     has_axis_raw_value_array,
-    evaluate_axis_array,
+    evaluate_axes_array,
     topological_axis_order,
 )
 from app.domain.axis_raw_value import axis_material_shares, raw_value_unit
-from app.domain.axis_templates import round1_array
-from app.domain.difficulty import distance_weighted_difficulty_array
+from app.domain.difficulty import composite_difficulty_array, distance_weighted_difficulty_array
 from app.domain.material_catalog import (
+    GRADIENT_PERCENT,
     MATERIAL_CATALOG,
 )
 from app.domain.cycling_speed import ROLLING_RESISTANCE_MATERIAL_ID
@@ -54,25 +53,6 @@ from app.domain.tuning import tuning_value
 
 
 
-
-
-def _neumaier_accumulate(terms: list[np.ndarray]) -> np.ndarray:
-    """`terms`を先頭から順に加算する（Neumaier補償加算、Kahan加算の改良版）。
-
-    Python組み込み`sum()`はfloat列をNeumaier補償加算で合計する（丸め誤差を打ち消す
-    補正項を別途積算し、最後に本体へ足し込む）。スカラー版`composite_difficulty`と
-    この配列側をビット単位で一致させるには同じ加算が要る——単純な逐次`+=`では補正が
-    再現できず、ちょうど.X5境界の値で最終丸めが1桁目から食い違う。本関数はNeumaier加算を
-    n件分まとめて配列演算で行い、Edge数万件規模でもPythonループ無しで`sum()`へ揃える。
-    """
-    total = np.zeros_like(terms[0], dtype=float)
-    compensation = np.zeros_like(terms[0], dtype=float)
-    for term in terms:
-        t = total + term
-        correction = np.where(np.abs(total) >= np.abs(term), (total - t) + term, (term - t) + total)
-        compensation += correction
-        total = t
-    return total + compensation
 
 
 def has_route_facing_raw_value(definition: AxisDefinition) -> bool:
@@ -135,8 +115,7 @@ def route_facing_material_ids() -> list[str]:
     """
     seen: dict[str, None] = {}
     for material_id in (*stop_count_material_ids(), ROLLING_RESISTANCE_MATERIAL_ID):
-        if material_id in MATERIAL_CATALOG:
-            seen.setdefault(material_id, None)
+        seen.setdefault(material_id, None)
     for material_id in _published_axis_leaf_material_ids():
         spec = MATERIAL_CATALOG.get(material_id)
         if spec is None or spec.dtype == "categorical":
@@ -208,7 +187,7 @@ def _empty_material_arrays(n: int) -> dict[str, np.ndarray]:
     （`_check_materials_are_known`は`value_sql`の有無を見ない）、列が無いと
     `evaluate_axis_array`の`materials[term.material]`がKeyErrorで/api/routes/generate
     自体を落とす。確保しておけば「材料はあるがデータが無い」という既存の意味論へ揃い、
-    スカラー版と同じグレースフルデグレード（その軸だけ恒久的に欠損扱い）になる。
+    その軸だけ恒久的に欠損扱いになる（`evaluate_axis_values`が無い材料を欠損として扱うのと同じ）。
     """
     arrays: dict[str, np.ndarray] = {}
     for spec in MATERIAL_CATALOG.values():
@@ -246,21 +225,15 @@ def _evaluate_axes_from_material_arrays(
     n = len(distance_m)
     # --- 計算フェーズ（Pythonループ無し） ---
     material_arrays.update({material_id: np.full(n, np.nan) for material_id in REQUEST_DYNAMIC_MATERIAL_IDS})
-    # スカラー版（`axis_definitions.py: evaluate_axes_scalar`）と同じ依存順評価
-    # （軸が他の軸のdifficultyをmaterialとして参照できる階層構造）。
-    # material_arrays_with_axesへは内部軸も含め全軸の結果を混ぜ込む（公開軸が内部軸を
-    # materialとして参照できる必要があるため）が、axis_arrays（下の合成対象）は
-    # 公開軸のみに絞る（内部軸のdefault_weight=0.0のため合成結果への影響自体は無いが、
-    # スカラー版のフィルタと揃えておく）。
-    axis_arrays: dict[str, np.ndarray] = {}
+    # 合成の対象（axis_arrays）は公開軸だけ。内部軸は公開軸の材料として読まれるだけで、
+    # 利用者の重みの対象ではない。
+    material_arrays_with_axes = evaluate_axes_array(material_arrays)
+    axis_arrays = {
+        axis_id: material_arrays_with_axes[axis_id]
+        for axis_id in topological_axis_order(AXIS_DEFINITIONS)
+        if AXIS_DEFINITIONS[axis_id].is_published
+    }
     axis_raw_arrays: dict[str, np.ndarray] = {}
-    material_arrays_with_axes: dict[str, np.ndarray] = dict(material_arrays)
-    for axis_id in topological_axis_order(AXIS_DEFINITIONS):
-        definition = AXIS_DEFINITIONS[axis_id]
-        arr = evaluate_axis_array(definition, material_arrays_with_axes)
-        material_arrays_with_axes[axis_id] = arr
-        if definition.is_published:
-            axis_arrays[axis_id] = arr
     # 生値の列は`route_facing_raw_axis_ids`が決める。
     for axis_id in route_facing_raw_axis_ids():
         raw = axis_raw_value_array(AXIS_DEFINITIONS[axis_id], material_arrays_with_axes)
@@ -282,7 +255,7 @@ def _evaluate_axes_from_material_arrays(
         distance_m=distance_m,
         bearing_deg=bearing_deg,
         hard_filter_flags=dict(hard_filter_flags),
-        gradient_percent=material_arrays["gradient_percent"],
+        gradient_percent=material_arrays[GRADIENT_PERCENT],
         mid_lat=mid_lat,
         mid_lon=mid_lon,
         axis_arrays=axis_arrays,
@@ -312,30 +285,6 @@ def resolve_penalty_strength(requested: float | None) -> float:
     return tuning_value("evaluation.penalty_strength")
 
 
-def axis_contributions_at_row(
-    axis_arrays: Mapping[str, np.ndarray],
-    weights: Mapping[str, float],
-    weight_sums: np.ndarray,
-    row: int,
-) -> dict[str, float]:
-    """1区間ぶんの軸別寄与度（データのある軸の`値 × 重み ÷ weight_sums[row]`）。
-
-    全区間ぶんは作らない——読むのは経路上の数百区間だけのため。全軸を足すと丸め前の
-    合成difficultyに一致する（`overall_difficulty`とその内訳を食い違わせないための式）。
-    区間の値は丸めない（丸めるのはルート単位へ距離加重平均した後）。
-    """
-    total = float(weight_sums[row])
-    if total == 0 or math.isnan(total):
-        return {}
-    values: dict[str, float] = {}
-    for axis_id, arr in axis_arrays.items():
-        value = arr[row]
-        if math.isnan(value):
-            continue
-        values[axis_id] = float(value) * weights.get(axis_id, 0.0) / total
-    return values
-
-
 class AxisComposition(NamedTuple):
     """`compose_costs_from_axis_matrix`の戻り値。"""
 
@@ -345,44 +294,13 @@ class AxisComposition(NamedTuple):
     weight_sums: np.ndarray
 
 
-def _axis_terms(
-    axis_arrays: Mapping[str, np.ndarray], weights: dict[str, float]
-) -> tuple[list[np.ndarray], list[np.ndarray]]:
-    """軸ごとの「重み付きスコアの項」「重みの項」。
-
-    データ欠損（NaN）の軸はその区間だけ項を0にする＝和から外す（「データ無しは除外し
-    残りの重みで再正規化」）。**この式を2箇所に書かない**——先に和だけ求める経路と合成の
-    本体で式がずれると、先に求めた和を使い回した合成だけが静かに食い違う。
-    """
-    score_terms: list[np.ndarray] = []
-    weight_terms: list[np.ndarray] = []
-    for axis_id, arr in axis_arrays.items():
-        weight = weights.get(axis_id, 0.0)
-        valid = ~np.isnan(arr)
-        score_terms.append(np.where(valid, arr * weight, 0.0))
-        weight_terms.append(np.where(valid, weight, 0.0))
-    return score_terms, weight_terms
-
-
-def axis_weighted_sums(
-    axis_arrays: Mapping[str, np.ndarray], weights: dict[str, float], length: int
-) -> tuple[np.ndarray, np.ndarray]:
-    """`compose_costs_from_axis_matrix`の`static_sums`へ渡す`(重み付きスコアの和, 重みの和)`。
-
-    データ欠損（NaN）の軸はその区間だけ和から外す（項の作り方は`_axis_terms`が単一の情報源）。
-    """
-    if not axis_arrays:
-        return np.zeros(length), np.zeros(length)
-    score_terms, weight_terms = _axis_terms(axis_arrays, weights)
-    return _neumaier_accumulate(score_terms), _neumaier_accumulate(weight_terms)
-
-
 def compose_costs_from_axis_matrix(
     distance_m: np.ndarray,
     axis_arrays: Mapping[str, np.ndarray],
     weights: dict[str, float],
     penalty_strength: float,
-    base: np.ndarray | None = None,
+    *,
+    base: np.ndarray,
     static_sums: tuple[np.ndarray, np.ndarray] | None = None,
 ) -> AxisComposition:
     """`_evaluate_axes_from_material_arrays`/`evaluate_dynamic_axis_arrays`が求めた軸別
@@ -390,56 +308,30 @@ def compose_costs_from_axis_matrix(
 
     `base`は割増を掛ける下地で、探索は区間ごとの所要時間（秒）を渡す——コストは
     `所要時間 × (1 + P × difficulty/100)`＝**体感の所要時間**になり、`penalty_strength`は
-    「difficulty 100の道は体感で何倍の時間に感じるか−1」を意味する。省略時は`distance_m`
-    を下地にする（距離そのものを下地にしたいとき）。difficultyの合成自体は下地に依らない。
+    「difficulty 100の道は体感で何倍の時間に感じるか−1」を意味する（逆算は
+    `difficulty_from_cost`）。difficultyの合成自体（`composite_difficulty_array`）は下地に依らない。
+    costは丸めない——0.1秒は短い区間の所要時間の数%にあたり、逆算した値に丸めの差が現れる。
 
     `static_sums`は`axis_arrays`に**含めなかった**軸ぶんの`(重み付きスコアの和, 重みの和)`。
     時刻ビンごとに合成し直すとき、時刻で変わらない軸の和を1回だけ求めて使い回すために渡す
     （合成の時間は軸数にほぼ比例するため、動的な軸だけを毎回足す形にすると大きく減る）。
 
-    Neumaier加算・`round1_array`はスカラー版`composite_difficulty`と
-    ビット単位で一致させるために必須
-    （`_neumaier_accumulate`のdocstring参照）。0次フィルタによる除外（cost=inf/None）は
-    呼び出し元の責務（`compute_hard_filter_excluded`参照、Edgeの通行可否そのものであり
-    軸別スコアの合成とは独立した判定のため）。戻り値は`(cost, composite_difficulty,
-    weight_sums)`（difficultyはNaN=データ無し、costは0次フィルタを考慮しない
-    「仮に許可された場合のコスト」、weight_sumsは軸別寄与度の分母）。
+    0次フィルタによる除外（cost=inf/None）は呼び出し元の責務（`compute_hard_filter_excluded`
+    参照、Edgeの通行可否そのものであり軸別スコアの合成とは独立した判定のため）。戻り値の
+    difficultyはNaN=データ無し、costは0次フィルタを考慮しない「仮に許可された場合のコスト」、
+    weight_sumsは軸別寄与度の分母。
 
     重み付き軸がすべてデータ欠損（composite=NaN）のEdgeは、costの算出だけ`distance_m`
     加重の`domain/difficulty.py: distance_weighted_difficulty_array`で求めたbbox内平均
     difficultyを代入する（呼び出し元のリクエストごとに実データから求まる値で、
     固定定数は使わない）。戻り値の`composite_difficulty`（表示用）はこの代入の影響を
     受けず、欠損なら常にNaNのまま返す。bbox内が全Edge欠損
-    （代入する平均値自体が無い）ならこれまでどおりcost=distance_m（割増なし）。
+    （代入する平均値自体が無い）ならcost=下地（割増なし）。
     """
-    n = len(distance_m)
-    dynamic_scores, dynamic_weights = _axis_terms(axis_arrays, weights)
-    score_terms = ([] if static_sums is None else [static_sums[0]]) + dynamic_scores
-    weight_terms = ([] if static_sums is None else [static_sums[1]]) + dynamic_weights
-    # 公開軸が1つも無い場合はn件ぶんのゼロ配列を直接使う（下の
-    # weighted_weight_sums==0判定が既にNaN合成へ倒す設計のため、この分岐を通しても
-    # 後続処理は変更不要）。
-    if score_terms:
-        weighted_scores = _neumaier_accumulate(score_terms)
-        weighted_weight_sums = _neumaier_accumulate(weight_terms)
-    else:
-        weighted_scores = np.zeros(n)
-        weighted_weight_sums = np.zeros(n)
-    with np.errstate(invalid="ignore", divide="ignore"):
-        composite = weighted_scores / weighted_weight_sums
-    composite = np.where(weighted_weight_sums == 0, np.nan, composite)
-    # np.roundは内部で「×10→rint→÷10」という段階を踏むため、その中間の掛け算で
-    # 丸め誤差が混入し、ちょうど.X5の境界にある値でPythonの`round(x, 1)`
-    # （2進浮動小数点の実際の値に対する正しい丸め）と結果が食い違うことがある
-    # （例えば385.949999999999988...のような値でnp.roundは386.0、round()は385.9に
-    # なることがある）。
-    # スカラー版composite_difficultyの`round(x, 1)`と
-    # 完全一致させるため、最終丸めのみ要素ごとにPythonの`round()`を適用する。
-    composite = round1_array(composite)
+    composite, weight_sums = composite_difficulty_array(axis_arrays, weights, len(distance_m), static_sums)
 
     # costの算出にだけ、重み付き軸が全欠損のEdgeへbbox内平均difficultyを
     # 代入する（composite自体は表示用にNaNのまま返す、上のdocstring参照）。
-    cost_base = distance_m if base is None else base
     bbox_mean = distance_weighted_difficulty_array(composite, distance_m)
     if bbox_mean is None:
         cost_difficulty = composite
@@ -447,13 +339,20 @@ def compose_costs_from_axis_matrix(
         cost_difficulty = np.where(np.isnan(composite), bbox_mean, composite)
     # difficultyがNaN(None相当)ならcostは下地そのもの（割増なし）。
     penalty_multiplier = np.where(np.isnan(cost_difficulty), 1.0, 1.0 + penalty_strength * (cost_difficulty / 100))
-    cost = cost_base * penalty_multiplier
-    if base is None:
-        # 下地が距離のときだけ0.1m単位へ丸める（スカラー版のオラクルと一致させるため）。
-        # 秒を下地にすると0.1秒は短い区間の数%にあたり、`cost/所要時間`からdifficultyを
-        # 逆算する側（折返し点・経由Nodeの並べ替え）に丸め由来の差が現れる。
-        cost = round1_array(cost)
-    return AxisComposition(cost, composite, weighted_weight_sums)
+    return AxisComposition(base * penalty_multiplier, composite, weight_sums)
+
+
+def difficulty_from_cost(cost: np.ndarray, seconds: np.ndarray, penalty_strength: float) -> np.ndarray:
+    """コスト`所要時間 × (1 + P × difficulty/100)`（`compose_costs_from_axis_matrix`）から、
+    所要時間あたりのdifficultyを逆算する。求まらない要素（所要時間0・到達不能）は0。
+
+    P<=0ではコストが所要時間そのもので難易度を含まないため、全要素0（全候補同点）。
+    """
+    if penalty_strength <= 0:
+        return np.zeros(len(cost))
+    with np.errstate(invalid="ignore", divide="ignore"):
+        difficulty = (cost / seconds - 1.0) / penalty_strength * 100.0
+    return np.where(np.isfinite(difficulty), difficulty, 0.0)
 
 
 

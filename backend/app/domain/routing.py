@@ -25,7 +25,7 @@ from typing import TypeVar
 
 import numpy as np
 from numba import njit
-from app.domain.geo import KM_PER_DEGREE_LATITUDE, bearing_between, haversine_distance_km_array
+from app.domain.geo import bearing_between, haversine_distance_km_array, km_per_degree_longitude
 from app.domain.route import Coordinates
 from app.domain.traffic import MAJOR_CROSSING_MIN_RANK
 from app.domain.tuning import tuning_value
@@ -473,10 +473,7 @@ def find_nearest_node_indexed(
     cell_lon = math.floor(point.longitude / index.cell_size_deg)
     # 経度方向1度あたりの物理距離（cos補正込み）を安全マージンに使う——2方向のうち
     # 常に短い（＝より保守的な）方でなければ、リング内に未探索の近い点が残りうる。
-    # 極では`cos`が0へ落ちる。下限を置かないとセル幅が0になり、リング数の見積もりが
-    # ゼロ除算になる。
-    longitude_cos_factor = max(math.cos(math.radians(point.latitude)), 1e-6)
-    cell_size_km_lower_bound = index.cell_size_deg * KM_PER_DEGREE_LATITUDE * longitude_cos_factor
+    cell_size_km_lower_bound = index.cell_size_deg * km_per_degree_longitude(point.latitude)
 
     nearest_node: int | None = None
     nearest_distance: float | None = None

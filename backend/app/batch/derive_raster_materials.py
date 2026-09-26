@@ -19,6 +19,7 @@ import asyncpg
 
 from app.domain.attributes import elevation_values_sql
 from app.domain.landcover import PERCENT_CLASSES, class_percentages_sql
+from app.domain.region import tile_position_sql
 from app.domain.material_sql import (
     BRIDGE_NORMALIZED_SQL,
     TUNNEL_NORMALIZED_SQL,
@@ -47,6 +48,9 @@ def _tiles(source: str) -> str:
 # --- 標高 -------------------------------------------------------------------
 
 
+#: 頂点のタイル座標（小数）の式。`$1`はタイルのズーム。
+_VERTEX_TILE_X, _VERTEX_TILE_Y = tile_position_sql("ST_X(dp.geom)", "ST_Y(dp.geom)", "$1")
+
 #: 頂点を一度実体にしてからタイルへ結合する。関数から直に結合すると行数を見積もれず、
 #: プランナがタイル側を入れ子で読み直す計画を選ぶ。
 #:
@@ -61,10 +65,7 @@ SELECT s.osm_way_id, s.segment_index, dp.path[1] AS ord,
 FROM ({_EDGE_SHAPES}) s
 CROSS JOIN LATERAL ST_DumpPoints(s.geom) AS dp
 CROSS JOIN LATERAL (
-  SELECT (ST_X(dp.geom) + 180.0) / 360.0 * (2::double precision ^ $1) AS fx,
-         (1.0 - ln(tan(radians(ST_Y(dp.geom)))
-                   + 1.0 / cos(radians(ST_Y(dp.geom)))) / pi()) / 2.0
-         * (2::double precision ^ $1) AS fy) a
+  SELECT {_VERTEX_TILE_X} AS fx, {_VERTEX_TILE_Y} AS fy) a
 """
 
 #: 標高は`scale`で割って戻す（取込が整数へ詰めているため。尺度だけはrasterが持てない）。

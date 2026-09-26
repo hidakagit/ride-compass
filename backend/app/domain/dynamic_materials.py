@@ -17,6 +17,7 @@ from app.domain.axis_definitions import (
     dynamic_axis_topological_order,
     evaluate_axis_array,
 )
+from app.domain.material_catalog import WIND_DRAG_RATIO
 from app.domain.weather import WeatherConditions
 from app.domain.wind import WindForecastSeries, wind_drag_ratio_array
 
@@ -69,7 +70,7 @@ def _evaluate_wind_drag_ratio_array(context: DynamicAxisRequestContext) -> np.nd
 # 軸名をハードコードせず、動的材料さえ埋まればどんな軸でも合成できるため——軸スタジオで
 # 作られたカスタム軸もこの登録だけでカバーされる。
 DYNAMIC_MATERIAL_EVALUATORS: dict[str, Callable[[DynamicAxisRequestContext], np.ndarray]] = {
-    "wind_drag_ratio": _evaluate_wind_drag_ratio_array,
+    WIND_DRAG_RATIO: _evaluate_wind_drag_ratio_array,
 }
 
 if set(DYNAMIC_MATERIAL_EVALUATORS) != set(REQUEST_DYNAMIC_MATERIAL_IDS):

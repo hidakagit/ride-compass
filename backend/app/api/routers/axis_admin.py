@@ -148,14 +148,14 @@ class AxisDefinitionPayload(AxisDefinition):
 
         あわせて、材料のdtype（numeric/boolean/categorical）がshape種別の前提と
         一致するかも検証する（`CategoricalShape`にnumeric材料[例: maxspeed_kmh]を
-        指定すると、`axis_templates.evaluate_categorical`はmapping.get(value, None)で
-        マッピング済みキーしか引けないため、想定外dtypeの値は常にNone/NaNとなり、
+        指定すると、`axis_templates.evaluate_categorical`は対応表のキーと一致する値
+        しか引けないため、想定外dtypeの値は常にNaNとなり、
         その軸は全Edgeで恒久的に欠損扱いになる——エラーもログも一切出ないまま）。
         `CategoricalShape`はboolean/categorical材料（str多値対応）、
         `BreakpointLinearShape`はnumeric/boolean材料を前提とする（
-        `evaluate_axis_scalar`の計算は`value * term.weight`という単純な乗算のため、
+        項の計算（`evaluate_axis_array`）は`value * term.weight`という単純な乗算のため、
         bool値でも`True==1.0`/`False==0.0`として数値的に正しく計算される——
-        CategoricalShapeのmapping.get(value)のような「想定外dtypeが静かに欠損化する」
+        CategoricalShapeの表引きのような「想定外dtypeが静かに欠損化する」
         問題はBreakpointLinearShapeには無い。全termがboolean材料であることの構造上の
         強制は無く、numeric/boolean混在も許容する（公開軸`bicycle_infra_quality`が
         boolean材料5件、`night`が2件をtermsに使う）。

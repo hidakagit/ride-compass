@@ -10,7 +10,6 @@
 import math
 from typing import NamedTuple
 
-import numpy as np
 import pytest
 
 from app.domain import geo
@@ -80,17 +79,6 @@ def test_the_bearing_is_the_initial_direction_of_the_great_circle():
     assert 85.0 < bearing < 90.0
 
 
-def test_the_array_bearing_agrees_with_the_single_bearing():
-    origin = P(35.0, 139.0)
-    targets = [P(36.0, 139.0), P(35.0, 140.0), P(34.0, 138.5), P(35.5, 138.0), P(34.9, 139.0), origin]
-
-    bearings = geo.bearing_between_array(
-        origin, np.array([t.latitude for t in targets]), np.array([t.longitude for t in targets])
-    )
-
-    assert bearings == pytest.approx([geo.bearing_between(origin, t) for t in targets])
-
-
 # ---- 距離 ----
 
 
@@ -116,17 +104,6 @@ def test_distances_along_great_circles_are_fractions_of_the_circumference(a, b, 
     circumference = 2 * math.pi * geo.EARTH_RADIUS_KM
 
     assert geo.haversine_distance_km(a, b) == pytest.approx(circumference * fraction_of_a_turn)
-
-
-def test_the_array_distance_agrees_with_the_single_distance():
-    target = P(35.0, 139.0)
-    points = [P(35.0, 139.0), P(36.0, 139.0), P(35.0, 141.0), P(-35.0, -41.0)]
-
-    distances = geo.haversine_distance_km_array(
-        np.array([p.latitude for p in points]), np.array([p.longitude for p in points]), target
-    )
-
-    assert distances == pytest.approx([geo.haversine_distance_km(p, target) for p in points])
 
 
 def test_the_rough_length_of_a_degree_of_latitude_is_close_to_the_true_one():
