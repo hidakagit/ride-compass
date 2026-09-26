@@ -21,12 +21,15 @@
     python scripts/orchestrate.py board run goal <文>         # 回の目的
     python scripts/orchestrate.py board run add <Txxx>... [from=<Tyyy>]  # 母集団へ足す（派生元つき）
     python scripts/orchestrate.py board run remove <Txxx>...  # 母集団から外す
-    python scripts/orchestrate.py board run handover <文>     # 打ち切りの引き継ぎ（次の start が次の回へ移す）
+    python scripts/orchestrate.py board run handover <文>     # 引き継ぎ（セッションの交代・打ち切り。次の start が次の回へ移す）
     python scripts/orchestrate.py board run [list]            # 回の目的と母集団の各タスクの状態（導出）
     python scripts/orchestrate.py board todo push|pop|list    # 司令塔のキュー（中断・待ちの作業）
     python scripts/orchestrate.py board todo done <番号>      # 済んだ作業を list の番号で外す
     python scripts/orchestrate.py board dispatch push <Txxx>|pop|list  # 振り出し待ちのキュー
     python scripts/orchestrate.py board unpushed              # 監査済み・未pushのコミット（gitから導く）と取り込みの手順
+    python scripts/orchestrate.py board audit-fix <名前> [<番号> k=v ...]  # 監査の記録の書き損じを直す（番号が無ければ並べる）
+    python scripts/orchestrate.py paths                       # 置き場（状態の表・司令塔の作業物等）
+    python scripts/orchestrate.py rules <名前>                # 依頼文へ添える「よく抜ける規則」（規約から出す）
 
 ## 表に持つもの、正本から導くもの
 
@@ -49,7 +52,7 @@
   タスクが替わるか監査を通すと外れる。
 - 担当がクラウドで動くかは表の`where`（`クラウド`。書かなければ手元）にしか無い事実なので表に持つ。クラウドの担当は
   作業ツリーの検査と稼働（手元）の本数（門）から外す。
-- 回（`run`）が持つのは名前・目的・母集団（タスク番号と派生元）・打ち切りの引き継ぎ（`handover`）・
+- 回（`run`）が持つのは名前・目的・母集団（タスク番号と派生元）・引き継ぎ（`handover`。セッションの交代・打ち切り）・
   前の回から移した引き継ぎ（`inherited`）だけ。母集団の各タスクが完了・トリガー待ち・残りのどれかと、
   終わりの条件1に当たっているかは、origin/masterの記録の`状態:`と台帳の行から読むたびに導く
   （`population_view`）。`board run start`は前の回の引き継ぎを、前の回の名前・目的・母集団と一緒に
@@ -72,13 +75,15 @@
 
 `board set <名前> audit_done=now audit_result=通す`は、監査の記録（audit_log）を1件残す。
 
-`k=v`の値は、`now`なら現在時刻、JSONとして読めればその値（数値・配列）、それ以外は文字列。
+`k=v`の値は、`now`なら現在時刻、識別子のキー（sha・id等、`TEXT_KEYS`）なら書いたままの文字列、JSONとして
+読めればその値（数値・配列）、それ以外は文字列。監査の記録の書き損じは`board audit-fix`で直す。
 `k+=v`は配列へ足す。キーは`limits.concurrent`のように`.`で入れ子を指せる。
 
 ## 置き場所
 
 状態の表は`<gitの共通ディレクトリ>/orchestration/board.json`、停止ファイルは同じディレクトリの
-`STOP`、ロックの記録は`<gitの共通ディレクトリ>/lockrun/log.jsonl`（scripts/lockrun.py）。
+`STOP`、司令塔が回の間に作る作業物は同じディレクトリの`coordinator/`（`paths`が出す）、
+ロックの記録は`<gitの共通ディレクトリ>/lockrun/log.jsonl`（scripts/lockrun.py）。
 `--dir`（または環境変数`ORCH_DIR`）でorchestrationディレクトリを差し替えると、ロックの記録も
 その隣の`lockrun/`を読む——試験で実物の表を壊さないため。`--repo`は調べるgitリポジトリ。
 定期確認の間隔は表の`check_interval_min`（既定20分）で、次の確認の時刻をフックが読む`next_check`へ、
@@ -114,6 +119,8 @@ PLAN_DOC = "docs/improvement-plan.md"
 #: 重い段の定義（「重い処理は機械全体で1本ずつ」節の「対象」の項目）を持つ規約。
 CONVENTION_DOC = "docs/conventions/orchestration.md"
 HEAVY_TARGET_PREFIX = "- **対象**:"
+#: 規約「起動のしかた」で、依頼文へ毎回添える規則のコードブロックの直前の文。
+RULES_MARK = "よく抜ける規則」を毎回そのまま添える"
 HEAVY_LOCK = "heavy"
 #: forkした子の系列を途切れさせるMSYSのシェル（Git for Windowsの`usr/bin`の実行ファイル名）。
 MSYS_SHELLS = ("sh.exe", "bash.exe")
@@ -134,7 +141,8 @@ STATES = ACTIVE_STATES + STOPPED_STATES
 #: 状態の表に持ってよいキー（表にしか無い事実）。他に正本がある事実の写し・規則や記録の文を持たせない
 #: ために、書けるキーを決めておく。`board_cmd`が書けるのは`SETTABLE`のキーだけで、残りは道具が書く。
 ALLOWED_KEYS = {
-    "top": ("run", "limits", "check_interval_min", "manual", "agents", "last_check", "queue", "coordinator_queue"),
+    "top": ("run", "limits", "check_interval_min", "manual", "agents", "last_check", "idle_since", "queue",
+            "coordinator_queue"),
     "agent": ("name", "id", "where", "session", "state", "current_task", "task_first_started", "overrun_ack", "reported_sha",
               "audit_base", "audit_done", "audit_result", "audit_log"),
     "audit_log": ("task", "reported_sha", "audit_base", "audit_done", "audit_result", "urgent"),
@@ -149,7 +157,13 @@ SETTABLE = {
     "top": ("limits.concurrent", "check_interval_min", "manual"),
     "queue": ("after", "agent", "cleanup"),
 }
-#: 振り出し待ちの優先度。この順に取り出す。
+#: 値を常に文字列で持つキー（識別子）。数字だけのsha（`447131473413`）・指数に読める sha（`12e45678`）を
+#: JSONとして読むと数に化け、先頭の0や桁が失われる。
+TEXT_KEYS = ("id", "session", "current_task", "reported_sha", "audit_base", "task")
+#: 監査の記録の1件で、後から書き直せるキー（書き損じの訂正。`board audit-fix`）。
+AUDIT_FIXABLE = ("reported_sha", "audit_base", "task")
+#: 振り出し待ちがあるのに稼働が上限未満の状態がこれだけ続いたら、門の理由によらず要対応にする。
+IDLE_SLOT_MINUTES = 5
 PRIORITIES = ("高", "中", "低")
 #: 担当の`where`の語彙。書かなければ手元。クラウドの担当は開発機の作業ツリーも機械も使わないので、
 #: 作業ツリーの検査と同時本数（門）から外す。クラウドの担当はダッシュボードの答えを自分で取りに来ないので、
@@ -158,8 +172,8 @@ CLOUD = "クラウド"
 PLACES = (CLOUD,)
 
 #: 回（`run`）が持つキー。回の各タスクの状態・残り・終わりの条件は記録と台帳から導くので、
-#: これ以外（出来事・進め方の指示の文を含む）は持たない。打ち切りの引き継ぎ（`handover`）は、次の回の
-#: 司令塔が最初に読む文で、他のどこにも無い（規約・道具の変更が無い回は回の記録を残さない）ので表に置く。
+#: これ以外（出来事・進め方の指示の文を含む）は持たない。引き継ぎ（`handover`）は、交代した次の
+#: 司令塔（回の途中の交代でも、打ち切った次の回でも）が最初に読む文で、他のどこにも無い（規約・道具の変更が無い回は回の記録を残さない）ので表に置く。
 RUN_KEYS = ("name", "started", "goal", "population", "handover", "inherited")
 #: 母集団の1件が持つキー。`task`と派生元`from`は表にしか無い事実、`added`は足した時刻。
 POPULATION_ITEM_KEYS = ("task", "from", "added")
@@ -580,6 +594,8 @@ class Context:
         self.board_path = self.dir / "board.json"
         self.stop_path = self.dir / "STOP"
         self.lock_root = self.dir.parent / "lockrun"
+        #: 司令塔が回の間に作る作業物の置き場。セッションのscratchpadはセッションと一緒に消えるので置かない。
+        self.coordinator_dir = self.dir / "coordinator"
 
 
 def load_board(ctx: Context) -> dict:
@@ -762,7 +778,7 @@ def run_summary_lines(view: dict, *, detail: bool) -> list[str]:
                      f"（{inherited.get('written') or '時刻不明'}）: {inherited.get('text')}")
         lines.append(f"  前の回の母集団の残り: {rest or 'なし'}")
     if view["handover"]:
-        lines.append(f"この回の引き継ぎ（{view['handover'].get('written')}、次の board run start が次の回へ移す）: "
+        lines.append(f"この回の引き継ぎ（{view['handover'].get('written')}、セッションを替えたら最初に読む。次の board run start が次の回へ移す）: "
                      f"{view['handover'].get('text')}")
     entries = view["entries"]
     if not entries:
@@ -1025,6 +1041,19 @@ class Facts:
     def audit_waiting(self) -> list[dict]:
         return [a for a in self.board["agents"] if audit_pending(a)]
 
+    def held_slots(self) -> list[str]:
+        """渡した印の付いたスロット（上限の番号まで。温めている途中の印は、温め終われば渡せるので数えない）。
+        監査待ちの担当のスロットも、差し戻しで同じ担当が再開するため監査を通すまで印が残り、ここに入る。"""
+        out = []
+        for t in self.trees:
+            name, owner = os.path.basename(t.path), slot_owner(t)
+            number = name.removeprefix("slot-")
+            if (name.startswith("slot-") and number.isdigit() and int(number) <= self.limit
+                    and owner and not owner.startswith("warm-")):
+                waiting = next((a.get("name") for a in self.audit_waiting() if self.tree(a) is t), None)
+                out.append(f"{name}（{'監査待ち ' + str(waiting) if waiting else owner}）")
+        return out
+
     def lock_wait_problems(self) -> list[str]:
         out = []
         for row in self.lock_records:
@@ -1051,9 +1080,11 @@ def gate_reasons(f: Facts) -> list[str]:
     active = f.active()
     if len(active) >= f.limit:
         ng.append(f"稼働が上限に達している（{len(active)}本 / 上限{f.limit}本）")
-    waiting = f.audit_waiting()
-    if waiting:
-        ng.append("監査待ちがある: " + "、".join(str(a.get("name")) for a in waiting))
+    # 監査待ちだけでは閉じない（報告を受けて空いた枠へは、監査より先に振り出す）。閉じるのは、監査待ちの担当が
+    # スロットの印を持っていて渡せるスロットが残っていないときだけ——そのときは監査で通すと空く。
+    held = f.held_slots()
+    if len(active) < f.limit and len(held) >= f.limit:
+        ng.append("空いているスロットが無い: " + "、".join(held) + "（監査待ちの印は監査で通すと外れる）")
     over = f.overrun()
     if over:
         ng.append("見込み超過がある: " + "、".join(over))
@@ -1227,6 +1258,40 @@ def heavy_stages(convention: str) -> list[str]:
     return []
 
 
+def dispatch_rules(convention: str) -> str | None:
+    """規約「起動のしかた」の、依頼文へ毎回そのまま添える「よく抜ける規則」のコードブロック。写しは持たない。"""
+    lines = convention.splitlines()
+    start = next((i for i, line in enumerate(lines) if RULES_MARK in line), None)
+    if start is None:
+        return None
+    fence = [i for i in range(start + 1, len(lines)) if lines[i].strip().startswith("```")][:2]
+    if len(fence) < 2:
+        return None
+    return "\n".join(line.strip() for line in lines[fence[0] + 1:fence[1]])
+
+
+def cmd_rules(ctx: Context, args: argparse.Namespace) -> int:
+    """依頼文の「よく抜ける規則」を、origin/masterの規約から担当の名前を入れて出す（司令塔の依頼文の組み立てが使う）。"""
+    spec = f"origin/master:{CONVENTION_DOC}"
+    rules = dispatch_rules(cat_files(ctx.repo, [spec])[spec] or "")
+    if rules is None:
+        print(f"よく抜ける規則を規約から読めない（{spec}の「{RULES_MARK}」の後のコードブロック）", file=sys.stderr)
+        return 1
+    print(rules.replace("<名前>", args.name))
+    return 0
+
+
+def cmd_paths(ctx: Context, args: argparse.Namespace) -> int:
+    """並行実行の置き場。司令塔の作業物の置き場はここで作る。"""
+    ctx.coordinator_dir.mkdir(parents=True, exist_ok=True)
+    for label, path in (("状態の表", ctx.board_path), ("停止ファイル", ctx.stop_path),
+                        ("司令塔の作業物（依頼文の組み立て・保存した依頼文・前提の調査メモ・計測の道具）", ctx.coordinator_dir),
+                        ("ダッシュボードの書き出し", ctx.dir / "pending-backup"),
+                        ("ロックの記録", ctx.lock_root / "log.jsonl")):
+        print(f"{label}: {path}")
+    return 0
+
+
 def stage_pattern(stage: str) -> re.Pattern:
     """段の語が、1つのコマンドの中にこの順で現れるか。先頭の語はパスの末尾・拡張子付きでもよい
     （`node .../typescript/bin/tsc --noEmit`・`vitest.mjs run`）。"""
@@ -1340,13 +1405,24 @@ def cmd_check(ctx: Context, args: argparse.Namespace) -> int:
     problems += pending.inbox_problems(ctx, f.board, check_interval(f.board))
     waiting_dispatch = [i for i in ready_to_dispatch(ctx, f.board.get("queue") or [])
                         if str(i.get("task")) in population]
-    if waiting_dispatch and not gate_reasons(f):
+    closed_by = gate_reasons(f)
+    # 枠が空いたまま振り出し待ちがある状態の始まり。確認をまたいで続いた長さは表にしか無いので、表に持つ。
+    idle_since = None
+    if len(active) < f.limit and waiting_dispatch:
+        idle_since = parse_time(f.board.get("idle_since")) or f.at
+    idle_min = minutes(f.at - idle_since) if idle_since else 0
+    lasted = f"。{hm(idle_since)}から{idle_min}分続いている" if idle_min >= IDLE_SLOT_MINUTES else ""
+    if waiting_dispatch and not closed_by:
         first = str(waiting_dispatch[0].get("task"))
-        problems.append(f"要対応: 振り出し待ち{len(waiting_dispatch)}件があり、門が開いている"
+        problems.append(f"要対応: 振り出し待ち{len(waiting_dispatch)}件があり、門が開いている{lasted}"
                         f"（例: {first} {task_title(ctx, first, f.ledger)}。board dispatch pop で取り出して振り出す）")
+    elif lasted:
+        problems.append(f"要対応: 稼働が上限未満（{len(active)}本 / 上限{f.limit}本）で振り出し待ち{len(waiting_dispatch)}件"
+                        f"がある状態が、{hm(idle_since)}から{idle_min}分続いている（門: {'・'.join(closed_by)}）。"
+                        "空いた枠への振り出しを監査・取り込みより先にする（規約「司令塔の作業の優先順位」）")
     # 振り出し待ちの列が空でも、稼働0本で進められるものが残っていれば、司令塔が止まっている。
     if not active and not f.cloud() and not waiting_dispatch:
-        idle = queue.idle_work(ctx, f.board, view, gate_open=not gate_reasons(f))
+        idle = queue.idle_work(ctx, f.board, view, gate_open=not closed_by)
         if idle:
             problems.append("要対応: 稼働0本で、" + "・".join(idle) + "。次の振り出しを決める"
                             "（振り出せないものは、理由を判断待ちとしてダッシュボードへ置くか振り出し待ちの前提にする）")
@@ -1371,14 +1447,23 @@ def cmd_check(ctx: Context, args: argparse.Namespace) -> int:
     if args.record:
         board = load_board(ctx)
         board["last_check"] = iso(f.at)
+        if idle_since:
+            board["idle_since"] = iso(idle_since)
+        else:
+            board.pop("idle_since", None)
         save_board(ctx, board)
-        write_next_check(ctx.dir, board)
+        # 枠が空いたまま振り出し待ちがあるなら、確認間隔を待たずに、続いたかを見に来る。
+        write_next_check(ctx.dir, board, sooner=(idle_since + dt.timedelta(minutes=IDLE_SLOT_MINUTES)
+                                                 if idle_since and not lasted else None))
     return 1 if problems else 0
 
 
-def write_next_check(orch_dir: Path, board: dict) -> None:
-    """次の確認の時刻（エポック秒）を、フック（hook.sh）がpythonを起こさずに読む`next_check`へ書く。"""
+def write_next_check(orch_dir: Path, board: dict, sooner: dt.datetime | None = None) -> None:
+    """次の確認の時刻（エポック秒）を、フック（hook.sh）がpythonを起こさずに読む`next_check`へ書く。
+    `sooner`が確認間隔より早ければ、その時刻にする。"""
     due = int(time.time()) + check_interval(board) * 60
+    if sooner is not None:
+        due = min(due, math.ceil(sooner.timestamp()))
     (orch_dir / "next_check").write_text(f"{due}\n", encoding="ascii", newline="\n")
 
 
@@ -1656,9 +1741,11 @@ def ci_duration_problems(ctx: Context, board: dict) -> list[str]:
 # ---------------------------------------------------------------- board
 
 
-def parse_value(raw: str, at: dt.datetime) -> object:
+def parse_value(raw: str, at: dt.datetime, key: str = "") -> object:
     if raw == "now":
         return iso(at)
+    if key.rsplit(".", 1)[-1] in TEXT_KEYS:
+        return raw
     try:
         return json.loads(raw)
     except ValueError:
@@ -1696,7 +1783,7 @@ def apply_pairs(target: dict, pairs: list[str], at: dt.datetime, allowed: tuple[
         if key not in allowed:
             raise SystemExit(f"{key} は書けない（書けるのは {'・'.join(allowed) or 'なし'}）。表に持つのは表にしか"
                              "無い事実だけで、他に正本がある事実は写さない（規約「状態の表」）")
-        value = parse_value(raw, at)
+        value = parse_value(raw, at, key)
         if key == "state" and value not in STATES:
             raise SystemExit(f"状態の語彙に無い: {value}（使えるのは {'・'.join(STATES)}。"
                              "監査待ちは 停止済み と現在のタスクから導く）")
@@ -1759,12 +1846,17 @@ def cmd_board(ctx: Context, args: argparse.Namespace) -> int:
                 agent["current_task"] = None
                 agent["task_first_started"] = None
                 agent.pop("overrun_ack", None)
+                # 通す＝その担当の終わり。報告の受領（state=停止済み）より先に通しても、止めてスロットを外す。
+                if agent.get("state") in ACTIVE_STATES:
+                    agent["state"] = "停止済み"
         save_board(ctx, board)
         print(json.dumps(agent, ensure_ascii=False, indent=1))
         # 差し戻しでは同じ担当が同じスロットで再開するので、印は監査を通すまで外さない。
-        if passed and agent.get("state") in STOPPED_STATES:
+        if passed:
             release_slot(ctx, agent)
         return 0
+    if args.board_cmd == "audit-fix":
+        return cmd_audit_fix(ctx, board, args)
     if args.board_cmd == "unpushed":
         return cmd_unpushed(ctx, board, at)
     if args.board_cmd == "run":
@@ -1860,6 +1952,39 @@ def cmd_board(ctx: Context, args: argparse.Namespace) -> int:
             rest = {k: v for k, v in item.items() if k not in ("what", "priority", "added")}
             print(f"{n}. [{item.get('priority', '-')}] {item.get('what')}  （{hm(parse_time(item.get('added')))}）"
                   f"{'  ' + json.dumps(rest, ensure_ascii=False) if rest else ''}")
+    return 0
+
+
+def cmd_audit_fix(ctx: Context, board: dict, args: argparse.Namespace) -> int:
+    """監査の記録（audit_log）の1件の書き損じを直す。番号が無ければ、番号を付けて並べるだけ。
+    shaはgitで引けるものだけを受け付ける（直した値がまた書き損じにならないように）。"""
+    agent = find_agent(board, args.name)
+    if agent is None:
+        raise SystemExit(f"状態の表に無い: {args.name}")
+    log = agent.get("audit_log") or []
+    if args.index is None:
+        if not log:
+            print(f"{args.name}の監査の記録は無い")
+        for n, entry in enumerate(log, 1):
+            print(f"{n}. " + json.dumps(entry, ensure_ascii=False))
+        return 0
+    if not 1 <= args.index <= len(log):
+        raise SystemExit(f"番号は1〜{len(log)}（board audit-fix {args.name} で並べた番号）: {args.index}")
+    if not args.pairs:
+        raise SystemExit(f"直す値を k=v で書く（書けるのは {'・'.join(AUDIT_FIXABLE)}）")
+    entry = log[args.index - 1]
+    before = dict(entry)
+    apply_pairs(entry, args.pairs, now(), AUDIT_FIXABLE)
+    for key in ("reported_sha", "audit_base"):
+        value = entry.get(key)
+        if key in before and value == before[key]:
+            continue
+        if not re.fullmatch(r"[0-9a-f]{7,40}", str(value)) or git_out(
+                ctx.repo, "rev-parse", "--verify", "--quiet", f"{value}^{{commit}}") is None:
+            raise SystemExit(f"{key}={value} はこのリポジトリのコミットとして引けない（何も書いていない）")
+    save_board(ctx, board)
+    print(f"直した（{args.name}の監査の記録{args.index}）: {json.dumps(before, ensure_ascii=False)}\n"
+          f"  → {json.dumps(entry, ensure_ascii=False)}")
     return 0
 
 
@@ -1994,6 +2119,9 @@ def main(argv: list[str] | None = None) -> int:
     sub = parser.add_subparsers(dest="cmd", required=True)
 
     sub.add_parser("gate", help="振り出してよいか")
+    sub.add_parser("paths", help="並行実行の置き場（状態の表・司令塔の作業物等）")
+    p = sub.add_parser("rules", help="依頼文へ添える「よく抜ける規則」を、規約から担当の名前を入れて出す")
+    p.add_argument("name")
     p = sub.add_parser("status", help="状態の表と事実の突き合わせ")
     p.add_argument("target", nargs="?", help="エージェント名またはTxxx")
     p = sub.add_parser("check", help="定期確認（異常だけを出す）")
@@ -2014,6 +2142,10 @@ def main(argv: list[str] | None = None) -> int:
     q = bsub.add_parser("run", help="回の値（k=v）と、回の目的・母集団（start・goal・add・remove・list）")
     q.add_argument("pairs", nargs="*")
     bsub.add_parser("show")
+    q = bsub.add_parser("audit-fix", help="監査の記録の1件の書き損じ（sha・タスク）を直す。番号が無ければ並べる")
+    q.add_argument("name")
+    q.add_argument("index", nargs="?", type=int, help="番号を付けずに呼んだときの番号")
+    q.add_argument("pairs", nargs="*")
     bsub.add_parser("claim", help="このセッションを司令塔として記録する（直後のフックが記録する）")
     for name, help_text in (("todo", "司令塔のキュー（中断・待ちの作業）"), ("dispatch", "振り出し待ちのキュー")):
         q = bsub.add_parser(name, help=help_text)
@@ -2035,8 +2167,8 @@ def main(argv: list[str] | None = None) -> int:
     if args.cmd == "check" and args.if_due:
         return check_if_due(args)
     ctx = Context(Path(args.repo), args.dir)
-    handler = {"gate": cmd_gate, "status": cmd_status, "check": cmd_check,
-               "audit": cmd_audit, "board": cmd_board}[args.cmd]
+    handler = {"gate": cmd_gate, "status": cmd_status, "check": cmd_check, "audit": cmd_audit,
+               "board": cmd_board, "paths": cmd_paths, "rules": cmd_rules}[args.cmd]
     return handler(ctx, args)
 
 
