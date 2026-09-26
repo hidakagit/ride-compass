@@ -2,8 +2,8 @@
  * `AxisComposer.tsx`——軸を作る1画面のフォームの状態・保存前の検証・送るpayloadの組み立てと、節の組み立て。
  *
  * 節（点数の決め方・地図表示と公開）は差し替え、この画面が節へ何を渡し、節から何を受けるかだけを見る。
- * 検証に掛ける状態は、節を操作せずに編集対象の軸（`editing`）で与える。材料カタログ（実行時に取得する）と
- * 地図の段の判定の取得も差し替える。
+ * 検証に掛ける状態は、節を操作せずに編集対象の軸（`editing`）で与える。地図の段の判定の取得も差し替える。
+ * 材料は本物の一覧（生成物）を通す。
  *
  * ここで見ないもの:
  * - 軸と下書きの相互変換そのもの → `axisDraft.test.ts`
@@ -17,13 +17,10 @@ import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import type { AxisMaterialOption } from "@/lib/axisMaterialsCatalog";
+import { MATERIAL_CATALOG, type AxisMaterialOption } from "@/lib/axisMaterialsCatalog";
 import type { AxisDefinitionPayload, AxisDefinitionResponse } from "@/types/route";
 
 import { emptyDraft, type Draft } from "./axisDraft";
-
-const catalog = vi.hoisted(() => ({ materials: [] as AxisMaterialOption[], loaded: true }));
-vi.mock("@/hooks/useMaterialCatalog", () => ({ useMaterialCatalog: () => catalog }));
 
 const bands = vi.hoisted(() => ({
   requests: [] as unknown[],
@@ -41,19 +38,7 @@ const sections = vi.hoisted(() => ({ scoring: null as Props | null, display: nul
 vi.mock("./AxisScoringSection", () => ({
   AxisScoringSection: (props: Props) => {
     sections.scoring = props;
-    return (
-      <>
-        <button type="button" onClick={() => props.setDraft((d) => ({ ...d }))}>
-          点数の節で触る
-        </button>
-        <button
-          type="button"
-          onClick={() => props.setDraft((d) => ({ ...d, categoricalRows: [{ value: "  ", score: 0 }] }))}
-        >
-          値の行を空欄で足す
-        </button>
-      </>
-    );
+    return null;
   },
 }));
 vi.mock("./AxisMapDisplaySection", () => ({
@@ -77,13 +62,9 @@ vi.mock("./AxisMapDisplaySection", () => ({
 
 import AxisComposer from "./AxisComposer";
 
-function material(id: string, dtype: AxisMaterialOption["dtype"]): AxisMaterialOption {
-  return { id, label: id, name: id, description: "", dtype, unit: "" };
-}
-const NUM = material("num_a", "numeric");
-const BOOL = material("bool_a", "boolean");
-const CAT = material("cat_a", "categorical");
-const MATERIALS = [NUM, BOOL, CAT];
+const materialOf = (dtype: AxisMaterialOption["dtype"]) => MATERIAL_CATALOG.find((m) => m.dtype === dtype)!;
+const NUM = materialOf("numeric");
+const CAT = materialOf("categorical");
 
 function axis(overrides: Partial<AxisDefinitionResponse> = {}): AxisDefinitionResponse {
   return {
@@ -136,59 +117,10 @@ function renderComposer(props: ComposerProps = {}) {
 const submitButton = () => screen.getByRole("button", { name: /作成する|更新する|保存中/ });
 
 beforeEach(() => {
-  catalog.materials = MATERIALS;
-  catalog.loaded = true;
   bands.requests = [];
   bands.result = { droppedOnMap: [], bandsOnMap: null };
   sections.scoring = null;
   sections.display = null;
-});
-
-describe("材料カタログ", () => {
-  it("読み込み中は、フォームを出さずに読み込み中と言う", () => {
-    catalog.loaded = false;
-    catalog.materials = [];
-    renderComposer();
-    expect(screen.getByText(/材料カタログを読み込んでいます/)).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "作成する" })).not.toBeInTheDocument();
-  });
-
-  it("読み込んだが0件なら、フォームを出さずに理由と閉じる口だけを出す", async () => {
-    catalog.materials = [];
-    const { user, onCancelEdit } = renderComposer();
-    expect(screen.getByText(/材料カタログを取得できませんでした/)).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "作成する" })).not.toBeInTheDocument();
-
-    await user.click(screen.getByRole("button", { name: "閉じる" }));
-    expect(onCancelEdit).toHaveBeenCalled();
-  });
-
-  // 値ごとの材料か、はい/いいえの材料かは材料カタログで決まるため、カタログの入れ替わりが下書きに表れる。
-  const categoricalAxis = axis({ shape: { kind: "categorical", material: CAT.id, mapping: { primary: 80 } } });
-
-  it("カタログが後から入れ替わったら、まだ触っていない下書きを作り直す", () => {
-    catalog.materials = [BOOL];
-    const { rerender, onSave, onCancelEdit } = renderComposer({ editing: categoricalAxis });
-    expect(sections.scoring!.draft.categoricalRows).toEqual([]);
-
-    catalog.materials = MATERIALS;
-    rerender(
-      <AxisComposer editing={categoricalAxis} duplicateFrom={null} onSave={onSave} onCancelEdit={onCancelEdit} />,
-    );
-    expect(sections.scoring!.draft.categoricalRows).toEqual([{ value: "primary", score: 80 }]);
-  });
-
-  it("触った後にカタログが入れ替わっても、下書きは作り直さない", async () => {
-    catalog.materials = [BOOL];
-    const { rerender, onSave, onCancelEdit, user } = renderComposer({ editing: categoricalAxis });
-    await user.click(screen.getByRole("button", { name: "点数の節で触る" }));
-
-    catalog.materials = MATERIALS;
-    rerender(
-      <AxisComposer editing={categoricalAxis} duplicateFrom={null} onSave={onSave} onCancelEdit={onCancelEdit} />,
-    );
-    expect(sections.scoring!.draft.categoricalRows).toEqual([]);
-  });
 });
 
 describe("保存するpayload", () => {
@@ -214,7 +146,7 @@ describe("保存するpayload", () => {
       display_band_labels_override: ["a", "b", "c"],
       description: "説明",
     });
-    const defaults = emptyDraft(MATERIALS).passthrough;
+    const defaults = emptyDraft(MATERIAL_CATALOG).passthrough;
     for (const [key, value] of Object.entries(defaults)) {
       expect(
         editing[key as keyof AxisDefinitionResponse],
@@ -341,7 +273,7 @@ describe("節へ渡すもの", () => {
     const other = axis({ axis_id: "axis_other", label: "ほかの軸", description: "ほかの説明" });
     renderComposer({ editing: self, otherAxes: [self, other] });
 
-    expect(sections.scoring!.materialOptions).toEqual(MATERIALS);
+    expect(sections.scoring!.materialOptions).toEqual(MATERIAL_CATALOG);
     expect(sections.scoring!.axisTermOptions).toEqual([
       { id: "axis_other", label: "ほかの軸", name: "ほかの軸", description: "ほかの説明", dtype: "numeric", unit: "" },
     ]);

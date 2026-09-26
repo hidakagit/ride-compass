@@ -1,11 +1,13 @@
-// 軸スタジオ・ルート結果が扱う材料の型と、材料idを表示へ変える関数。
-// 一覧そのものは`hooks/useMaterialCatalog.ts`が`GET /api/material-catalog`から取る。
+// 軸スタジオ・ルート結果が扱う材料の一覧と、材料idを表示へ変える関数。
+// 一覧はbackendの材料の宣言をビルド時に書き出した生成物から作る（材料はコードで決まり、
+// 再デプロイでしか変わらない）。実行時に取りに行かないので、読み込み中も取得失敗も無い。
 
-/** 材料の値の種類。**正本はbackend**（`domain/registry.py: MaterialDType`）で、
- * ここは契約から引くだけ——写すと、種類が1つ増えたとき片側だけ知っている状態になる。 */
 import type { components } from "@/types/generated/api";
+import materialCatalog from "@/types/generated/material-catalog.json";
 
-type AxisMaterialDType = NonNullable<components["schemas"]["MaterialCatalogEntry"]["dtype"]>;
+/** 材料の値の種類。**正本はbackend**（`domain/material_catalog.py: MaterialDType`）で、
+ * ここは契約から引くだけ——写すと、種類が1つ増えたとき片側だけ知っている状態になる。 */
+type AxisMaterialDType = components["schemas"]["MaterialCoverageEntry"]["dtype"];
 
 /** 軸スタジオの折れ点編集を助ける「値の目安」1点。 */
 interface AxisMaterialReferencePoint {
@@ -28,6 +30,18 @@ export interface AxisMaterialOption {
   unit: string;
   referencePoints?: readonly AxisMaterialReferencePoint[];
 }
+
+/** 材料の一覧（backendの`MATERIAL_CATALOG`の登録順）。 */
+export const MATERIAL_CATALOG: readonly AxisMaterialOption[] = materialCatalog.map((material) => ({
+  id: material.material_id,
+  label: material.label,
+  name: material.name,
+  description: material.description,
+  // JSONの生成物は型が`string`へ広がる。値は契約の`MaterialDType`と同じ宣言から書き出される。
+  dtype: material.dtype as AxisMaterialDType,
+  unit: material.unit,
+  referencePoints: material.reference_points,
+}));
 
 /** 選択肢へ出す材料の表記。**単位は`unit`が唯一の正**で、ラベルには入れない——ラベルへ
  *  埋めると、単位を別に添える画面で「制限速度(km/h) 35km/h」のように二重になる。 */

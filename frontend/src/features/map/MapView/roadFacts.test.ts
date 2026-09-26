@@ -7,7 +7,7 @@ import { roadDisplayName, roadFactRows } from "./roadFacts";
 
 /** 項目名は材料カタログの名前（テストでも書き写さない）。 */
 const materialOf = (materialId: string) => materialCatalog.find((m) => m.material_id === materialId)!;
-const labelOf = (materialId: string) => materialOf(materialId).label;
+const labelOf = (materialId: string) => materialOf(materialId).name;
 /** 材料の値のうち、呼び名を持つ最初の1つ（値も呼び名も書き写さない）。 */
 const labeledValueOf = (materialId: string): [string, string] =>
   Object.entries(materialOf(materialId).value_labels ?? {}).find(

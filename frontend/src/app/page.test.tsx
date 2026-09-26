@@ -52,6 +52,7 @@ import { downloadGpx } from "@/features/route/gpxExport";
 import { generateRoutes, type GenerationProgress } from "@/features/route/routeApi";
 import { SPLICED_ROUTE_ID_PREFIX } from "@/features/route/routeTabLabel";
 import { axisCatalogFromResponse, CLIENT_TUNING_IDS, EMPTY_CATALOG, type AxisCatalog } from "@/lib/axisCatalog";
+import { MATERIAL_CATALOG } from "@/lib/axisMaterialsCatalog";
 import { catalogEntry } from "@/lib/mapDisplay/__fixtures__/catalogAxes";
 import { LENS_DIFFICULTY_ID, LENS_NONE_ID } from "@/lib/mapDisplay/routeStyleModes";
 import { setResearchEnabled } from "@/lib/researchMode";
@@ -66,7 +67,6 @@ const stubs = vi.hoisted(() => {
   return {
     mounted,
     catalog: null as unknown,
-    materials: [] as unknown[],
     isMobile: false,
     mapView: null as unknown,
     mapViewInputs: null as unknown,
@@ -136,9 +136,6 @@ vi.mock("@/components/BottomSheet/BottomSheet", async (importOriginal) => {
   };
 });
 vi.mock("@/hooks/useAxisCatalog", () => ({ useAxisCatalog: () => stubs.catalog }));
-vi.mock("@/hooks/useMaterialCatalog", () => ({
-  useMaterialCatalog: () => ({ materials: stubs.materials, loaded: true }),
-}));
 vi.mock("@/hooks/useIsMobile", () => ({ useIsMobile: () => stubs.isMobile }));
 vi.mock("@/features/map/view/useMapView", () => ({
   useMapView: (inputs: unknown) => {
@@ -363,7 +360,6 @@ beforeEach(() => {
   vi.useFakeTimers({ toFake: ["Date"] });
   vi.setSystemTime(NOW);
   stubs.catalog = catalogWith(SPLICE_TUNING);
-  stubs.materials = [];
   stubs.isMobile = false;
   stubs.mapView = {
     look: { marker: "見え方" },
@@ -994,11 +990,12 @@ describe("候補の一覧", () => {
 });
 
 describe("地図で押した区間", () => {
+  const NAMED = MATERIAL_CATALOG.find((material) => material.dtype === "numeric" && material.unit)!;
   const SEGMENT = segment({
     cumulative_distance_km: 3.24,
     estimated_arrival_time: "2026-09-25T03:04:00Z",
     axis_contributions: { axis_a: 12 },
-    material_values: { mat_named: 1.5, mat_unnamed: 2 },
+    material_values: { [NAMED.id]: 1.5, mat_unnamed: 2 },
   });
   const pick = (picked: RouteSegmentDetail = SEGMENT) =>
     act(() => map().onRouteSegmentSelect({ segment: picked, latitude: 0, longitude: 0 }));
@@ -1032,13 +1029,12 @@ describe("地図で押した区間", () => {
 
   it("研究モードでは区間の材料の値を名前付きで並べ、名前を引けない材料は出さない", async () => {
     setResearchEnabled(true);
-    stubs.materials = [{ id: "mat_named", label: "", name: "材料A", description: "", dtype: "numeric", unit: "m" }];
     respond([route("route-0", { segments: [SEGMENT] })]);
     const user = renderPage();
     await generate(user);
     pick();
     const items = within(screen.getByRole("list")).getAllByRole("listitem");
-    expect(items.map((item) => item.textContent)).toEqual(["材料A: 1.50 m"]);
+    expect(items.map((item) => item.textContent)).toEqual([`${NAMED.name}: 1.50 ${NAMED.unit}`]);
 
     pick({ ...SEGMENT, material_values: {} });
     expect(screen.queryByRole("list")).not.toBeInTheDocument();
@@ -1157,7 +1153,7 @@ describe("研究モードの比較", () => {
     respond([route("route-0")], { route_preference: { axis_b: 0.5 } });
     await generate(user);
     expect(comparison().axes.map((axis) => axis.axisId)).toEqual(["axis_a", "axis_b"]);
-    expect(comparison()).toMatchObject({ axisLabels: catalog().axisLabels, materials: stubs.materials });
+    expect(comparison()).toMatchObject({ axisLabels: catalog().axisLabels, materials: MATERIAL_CATALOG });
   });
 
   it("実験スロットは「比較」を見ている間だけ地図へ重ね、比較を見ている間も選んだ候補を保つ", async () => {

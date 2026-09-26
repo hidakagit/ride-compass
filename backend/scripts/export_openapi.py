@@ -461,8 +461,7 @@ def main() -> None:
             for cls in LANDCOVER_CLASSES
         ],
     )
-    # 軸スタジオが選べる公開材料の一覧。frontendは`GET /api/material-catalog`が失敗した
-    # ときの静的フォールバックとして使う。
+    # 材料の一覧。frontendが材料を知る唯一の経路（材料はコードの宣言で決まり、再デプロイでしか変わらない）。
     # value_labels（smoothness等の値→日本語ラベル）も含める——同じ対訳表をfrontendが
     # 独自に持つと、地図のポップアップと軸スタジオで同じ値の呼び方が食い違う。
     _write_json(
@@ -470,10 +469,14 @@ def main() -> None:
         [
             {
                 "material_id": spec.material_id,
-                "label": spec.label,
+                # 「論理名 - 物理名」（軸スタジオ向け）。論理名だけは`name`。frontendで`name`と
+                # idから組み立て直さない——組み立て方の正本は`MaterialSpec.full_label`。
+                "label": spec.full_label(),
+                "name": spec.label,
                 "description": spec.description,
                 "dtype": spec.dtype,
                 "unit": spec.unit,
+                "reference_points": [{"label": p.label, "value": p.value} for p in spec.reference_points],
                 "value_labels": dict(spec.value_labels) if spec.value_labels else None,
                 # 路面タイルがこの材料を載せる属性の名前（載せない材料はnull）。
                 "tile_property": spec.tile_property,

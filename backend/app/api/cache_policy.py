@@ -57,8 +57,6 @@ BATCH_TILE = CachePolicy(max_age_seconds=60 * 60)
 #: ブラウザの保持分へ手が届かないため、消した効果が各利用者の画面へ現れるのはこの
 #: `max-age`ぶん遅れる。押す頻度と表示速度の釣り合いで10分にしてある。
 BASEMAP = CachePolicy(max_age_seconds=10 * 60)
-#: コード変更＋デプロイでしか変わらないカタログ、およびDB取込頻度が月単位の値一覧。
-CATALOG = CachePolicy(max_age_seconds=60 * 60)
 #: 数分の再利用で表示が古くならないもの（例: 風グリッド・材料タイル・天候予報）。
 SHORT = CachePolicy(max_age_seconds=5 * 60)
 #: 数分で変わりうる警戒情報・実測値。
@@ -111,7 +109,6 @@ _ROUTE_POLICIES: Final[tuple[tuple[str, CachePolicy], ...]] = (
     ("/api/region/dynamic-way-values/", SHORT),
     # カタログ・設定
     ("/api/axis-catalog", LIVE),
-    ("/api/material-catalog", CATALOG),
     # 天候（URLに緯度経度を含むため地点ごとに別エントリになる）
     ("/api/weather/wind-grid", SHORT),
     ("/api/weather/warnings", VOLATILE),

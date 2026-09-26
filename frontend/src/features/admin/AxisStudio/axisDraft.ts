@@ -159,11 +159,6 @@ export interface Draft {
 }
 
 export function emptyDraft(materialOptions: readonly AxisMaterialOption[]): Draft {
-  // materialOptionsが空配列（useMaterialCatalogが取得成功したがmaterials0件の場合）の
-  // とき、`materialOptions[0].id`を無条件参照するとマウント直後にTypeErrorでクラッシュ
-  // する。空文字列(""へ)フォールバックし、呼び出し元(AxisComposer本体)が
-  // materialOptions.length === 0 のとき早期にエラー状態UIへ切り替えてこの空文字列の
-  // draftをそもそも画面に出さないようにする。
   const firstBoolean = materialOptions.find((m) => m.dtype === "boolean")?.id ?? materialOptions[0]?.id ?? "";
   return {
     axisId: generateAxisId(),

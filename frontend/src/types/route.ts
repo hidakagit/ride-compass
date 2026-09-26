@@ -82,10 +82,6 @@ type BreakpointLinearShape = Schemas["BreakpointLinearShape"];
 type CategoricalShape = Schemas["CategoricalShape"];
 export type AxisShape = BreakpointLinearShape | CategoricalShape;
 
-// 材料カタログ。GET /api/material-catalogのレスポンス。軸スタジオの
-// 材料選択候補を、材料自体の追加時にコード変更・再デプロイだけで反映する。
-export type MaterialCatalogResponse = Schemas["MaterialCatalogResponse"];
-
 // JMA動的タイルの在否インデックス。GET /api/jma-tile-indexのレスポンス。
 // 平常時に空タイルを取りに行かないための「どのタイルに中身があるか」の一覧
 // （features/map/layers/jmaTileIndex.tsが解釈する）。

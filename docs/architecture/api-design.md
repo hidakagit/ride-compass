@@ -20,7 +20,7 @@ backendが公開するHTTP APIの**全体の形**と、エンドポイントを�
 | ルート生成 | `/api/routes/generate`・`/api/routes/preview` | 不要 | ジョブの`error`／502 |
 | 天候・防災バッジ | `/api/weather/*` | 不要 | 予報・実測は502、警報系は空応答（fail-open） |
 | 地図タイル | `/api/region/*-tiles`・`/api/basemap/*`・`/api/jma-tile/*`・`/api/gsi-*-tile/*` | 不要 | 空タイル／502 |
-| 軸・材料カタログ | `/api/axis-catalog`・`/api/material-catalog` | 不要（読み取り専用） | 502 |
+| 軸カタログ | `/api/axis-catalog` | 不要（読み取り専用） | 502 |
 | 管理 | `/api/admin/*` | HTTP Basic必須 | 401／404／422 |
 
 ## 全体に効く約束
