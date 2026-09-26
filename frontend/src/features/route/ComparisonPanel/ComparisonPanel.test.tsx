@@ -2,19 +2,16 @@ import { render, screen, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import type { AxisMaterialOption } from "@/lib/axisMaterialsCatalog";
-import type { PreferenceAxisDef } from "@/lib/evaluationAxes";
+import { catalogAxisFromEntry, type CatalogAxis } from "@/lib/catalogAxis";
+import { catalogEntry } from "@/lib/mapDisplay/__fixtures__/catalogAxes";
 import { makeRouteCandidate } from "@/testing/routeFixtures";
 import type { ExperimentSlot } from "@/types/experimentSlot";
 import type { GenerationConditions, RouteCandidate } from "@/types/route";
 
 import ComparisonPanel from "./ComparisonPanel";
 
-const axis = (axisId: string, label: string): PreferenceAxisDef => ({
-  axisId,
-  label,
-  description: "",
-  dedicatedWayValueLayer: false,
-});
+const axis = (axisId: string, label: string): CatalogAxis =>
+  catalogAxisFromEntry(catalogEntry({ axis_id: axisId, label }));
 const AXES = [axis("wind", "風"), axis("slope", "勾配"), axis("night", "夜道")];
 
 const material = (id: string, name: string, unit: string): AxisMaterialOption => ({

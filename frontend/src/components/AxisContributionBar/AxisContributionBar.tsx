@@ -6,7 +6,7 @@ import type { ReactNode } from "react";
 import InfoPopover from "@/components/ui/InfoPopover/InfoPopover";
 import { axisIconFor } from "@/components/ui/icons/axisIconPalette";
 import { InfoIcon } from "@/components/ui/icons/icons";
-import type { PreferenceAxisDef } from "@/lib/evaluationAxes";
+import type { CatalogAxis } from "@/lib/catalogAxis";
 import {
   legendChipBodyClass,
   legendChipClass,
@@ -18,16 +18,16 @@ import { cn } from "@/lib/cn";
 
 interface AxisContributionBarProps {
   /** 帯に出す軸（順序と名前の正本）。寄与が無い軸はここで除くので、呼ぶ側で絞らなくてよい。 */
-  axes: readonly PreferenceAxisDef[];
+  axes: readonly CatalogAxis[];
   /** 軸id→重み付きの寄与（0-100、合計が総合難易度）。backendの値をそのまま渡す（フロントで計算し直さない）。 */
   contributions: Record<string, number>;
   /** 軸id→色（同じ軸は画面のどこでも同じ色）。 */
   axisColors: Record<string, string>;
   /** 凡例に並べる軸。省略すると帯に出る軸だけ。公開軸すべてを渡すと、寄与が0・欠損の軸も凡例に残る
    * （効くはずの軸が効かなかったことも判断の材料になる）。 */
-  legendAxes?: readonly PreferenceAxisDef[];
+  legendAxes?: readonly CatalogAxis[];
   /** 凡例のチップを押して開く、その軸の詳細。nullを返した軸は凡例から落ちる。省略するとどのチップも押せない。 */
-  renderDetail?: (axis: PreferenceAxisDef) => ReactNode | null;
+  renderDetail?: (axis: CatalogAxis) => ReactNode | null;
 }
 
 const FALLBACK_COLOR = palette.semantic.neutral;

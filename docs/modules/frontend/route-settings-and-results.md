@@ -25,7 +25,7 @@
 | `hooks/useAxisCatalog.ts` | `GET /api/axis-catalog`取得。軸一覧・既定重み・ramp軸・軸ラベル・二次軸・ルート色分けモードを一括提供 |
 | `lib/axisCatalog.ts` | 上記フックが返すカタログを、応答から導く純関数（`axisCatalogFromResponse`）と、画面が読む較正値（`CLIENT_TUNING_IDS`・`clientTuningValue`）。フックが持つのは「いつ取りに行き、誰と共有するか」だけ |
 | `services/axisCatalogApi.ts` | 上記フックが叩くbackend APIの薄いラッパー |
-| `lib/evaluationAxes.ts` | 重み一覧の1行の型（`PreferenceAxisDef`）と、カタログ1件をそれへ変える唯一の変換（`preferenceAxisFromCatalog`） |
+| `lib/catalogAxis.ts` | 軸カタログの1行を画面が読む形へ移す型（`CatalogAxis`）と唯一の変換（`catalogAxisFromEntry`）。重み一覧の1行はこの型そのもので、ramp軸・専用配信の軸・地図のチップの軸はこれに用途の項目を足した型 |
 | `features/route/DifficultyProfile/DifficultyProfile.tsx`・`profileGeometry.ts` | 候補の中身の先頭に出す、道のりに沿った難易度のグラフ。横が始点からの距離、縦が区間ごとの難易度で、区間ごとの階段を軸の寄与で色分けして下から積む。区間はbackendがEdgeを約500mのビンへ畳んだもの（`aggregate_segments_into_bins`）で、Edge 1本ずつではない。**塗った面積がルートの負荷にほぼ一致する**——値の無い区間はルートの総合難易度の高さで灰色に描く（負荷は「値のある区間の距離加重平均×全長」で、値の無い区間を平均として数えるため）。ほぼなのは、ビンの中で値の無いEdgeがそのビンの平均で数えられるため。横軸の右端は**一覧の中で最も長い候補の距離**で、候補どうしで面積を見比べられる。押したまま動かす（キーボードは矢印・Home・End）と、その距離の区間と、区間の道なりの形の上で距離の割合ぶん進んだ地点を選ぶ——選択は地図で区間を押したときと同じ`selectedRouteSegment`で、地図に印が出て下に区間の詳細が出る。グラフ自体は区間を選んでいる間も残る |
 | `features/route/difficultyLoadBar.ts` | 難易度の帯の高さ（`baselineDistanceKm`・`loadBarHeightRatio`・`LOAD_BAR_MAX_HEIGHT_RATIO`）。帯は長さが総合難易度なので、高さへ距離の倍率を与えると塗られた面積が`difficulty_load`、積み上げの色ごとの面積が軸別の負荷になる。基準（高さ1.0）は**一覧の中で最も短い候補**——目標距離やbackendの値から取ると、周回モードと目的地モードで基準の意味が変わり、同じ高さが別のことを指す。距離の比をそのまま高さにすると行が破綻するため上限で頭打ちにし、そのぶん面積は負荷に厳密比例しなくなるので数値を併記する |
 | `lib/geoDistance.ts` | 座標列の距離計算（`cumulativeDistancesKm`）。区間の位置と代替の距離差を出すのに使う |
@@ -57,10 +57,10 @@ useAxisCatalog() ──→ catalog.axes（公開軸一覧、is_published=Trueの
   重み配分だけではない——同じ応答がタイル世代も運ぶため、地図の道路・POI・事故も出ない
   （[静的地図レイヤー](static-map-layers.md)「配信情報を取得できず表示できません」節）。
   告知の文面はその両方を述べる。
-- **カタログ1件→`PreferenceAxisDef`の変換は`evaluationAxes.ts: preferenceAxisFromCatalog`
-  1本**で、カタログから重み一覧を作る経路はすべてこれを通る——経路ごとに組み立てを
-  書くと、片方にだけフィールドを書き足した状態が型検査を通ってしまう
-  （`PreferenceAxisDef`のフィールドはすべてoptional）。
+- **カタログ1件→画面の軸の変換は`catalogAxis.ts: catalogAxisFromEntry`1本**で、重み一覧も、
+  ramp軸・専用配信の軸・地図のチップの軸（`axisLayers.ts`・`secondaryAxes.ts`）の共通の項目も
+  これを通る——経路ごとに行を写すと、同じ行の略名の補い方（`chip_label`が無いときに名前で埋めるか）が
+  経路ごとに食い違う。略名は`chipLabel`に名前で埋めた値が必ず入り、読み手は補わない。
 - カテゴリ（観測/推定/動的）によるグルーピング表示は行わない。軸スタジオは常に
   `category="推定"`固定で軸を作るため、フラットな1本のリストで表示する。
 - **軸が増えてもパネルの高さが変わらない構成**にする（走行中のスマホで扱うため）。

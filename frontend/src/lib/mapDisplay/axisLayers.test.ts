@@ -6,21 +6,20 @@
  */
 import { describe, expect, it } from "vitest";
 
+import { catalogAxisFromEntry } from "@/lib/catalogAxis";
+
 import { catalogEntry, tileInput } from "./__fixtures__/catalogAxes";
 import { axisLabelsFromCatalogAxes, rampAxesFromCatalogAxes } from "./axisLayers";
 
 describe("rampAxesFromCatalogAxes", () => {
-  it("地図の表示がrampの軸だけを、タイルの入力・境界・単位・地図のチップの表示と一緒に移す", () => {
+  it("地図の表示がrampの軸だけを、軸の共通の項目にタイルの入力・境界・段の名前を足して移す", () => {
     const ramp = catalogEntry({
       axis_id: "ramp",
+      label: "軸の名前",
       raw_value_unit: "件/km",
-      panel_hint: "説明",
-      icon_id: "incline",
-      chip_label: "略",
       display_band_labels_override: ["少", "多"],
       display: {
         kind: "ramp",
-        label: "地図の名前",
         category: "trafficSafety",
         tile_inputs: [
           tileInput({ property: "a", weight: 0.5, categories: { x: 1 } }),
@@ -32,8 +31,7 @@ describe("rampAxesFromCatalogAxes", () => {
     const [axis, ...rest] = rampAxesFromCatalogAxes([ramp, catalogEntry({ axis_id: "none" })]);
     expect(rest).toEqual([]);
     expect(axis).toEqual({
-      axisId: "ramp",
-      label: "地図の名前",
+      ...catalogAxisFromEntry(ramp),
       category: "trafficSafety",
       tileInputs: [
         {
@@ -58,17 +56,8 @@ describe("rampAxesFromCatalogAxes", () => {
         },
       ],
       thresholds: [10],
-      unit: "件/km",
-      panelHint: "説明",
-      iconId: "incline",
-      chipLabel: "略",
       bandLabelsOverride: ["少", "多"],
     });
-  });
-
-  it("地図のチップの表示が無い軸は未設定のまま渡す（呼び出し側の既定に任せる）", () => {
-    const [axis] = rampAxesFromCatalogAxes([catalogEntry({ display: { kind: "ramp" } })]);
-    expect(axis).toMatchObject({ unit: "", panelHint: undefined, iconId: undefined, chipLabel: undefined });
   });
 
   it("実行時の係数が要る入力は重みへ係数を掛け、係数が届いていなければ寄与を0にする。要らない入力は変えない", () => {

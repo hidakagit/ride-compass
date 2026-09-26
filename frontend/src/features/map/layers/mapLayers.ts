@@ -300,8 +300,8 @@ export function buildMapLayers(
       label: axis.label,
       chipLabel: axis.chipLabel,
       category: axis.category as MapLayerCategory,
-      // 単位が定まらない軸（unit=""）は空の[]を出さない。
-      description: `${axis.label}${axis.unit ? `[${axis.unit}]` : ""}をway単位の事前集計から色分け表示`,
+      // 単位が定まらない軸は空の[]を出さない。
+      description: `${axis.label}${axis.rawValueUnit ? `[${axis.rawValueUnit}]` : ""}をway単位の事前集計から色分け表示`,
       panelHint: axis.panelHint,
     })),
     {

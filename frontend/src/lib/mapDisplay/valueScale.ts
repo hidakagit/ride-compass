@@ -161,7 +161,7 @@ export function valueBands(
 
 /** ramp軸の段。境界は軸の地図表示のしきい値（重み付き和の目盛り）。 */
 export function rampAxisBands(axis: RampAxis): ValueBand[] {
-  return valueBands(RAMP_AXIS_VALUE_KIND, axis.thresholds, axis.unit, axis.bandLabelsOverride);
+  return valueBands(RAMP_AXIS_VALUE_KIND, axis.thresholds, axis.rawValueUnit ?? "", axis.bandLabelsOverride);
 }
 
 /** 専用配信の軸の段。境界を宣言していない軸は難易度の既定の境界で切る。 */

@@ -5,7 +5,7 @@ import InfoPopover from "@/components/ui/InfoPopover/InfoPopover";
 import { axisIconFor } from "@/components/ui/icons/axisIconPalette";
 import { WEIGHT_STEP, clampBoundaryDrag, totalWeight } from "@/features/route/routeWeightShare";
 import { retryAxisCatalogFetch, useAxisCatalog } from "@/hooks/useAxisCatalog";
-import type { PreferenceAxisDef } from "@/lib/evaluationAxes";
+import type { CatalogAxis } from "@/lib/catalogAxis";
 import type { RoutePreferenceWeights } from "@/types/route";
 import { Button } from "@/components/ui/Button/Button";
 import { Toggle } from "@/components/ui/Toggle/Toggle";
@@ -42,7 +42,7 @@ export default function RouteSettingsPanel({
   };
 
   // `const Icon = axisIconFor(...); <Icon/>`を本体の直下に書くとreact-hooks/static-componentsが誤検知するので、関数を通す。
-  function AxisIcon({ axis, size = 14 }: { axis: PreferenceAxisDef; size?: number }) {
+  function AxisIcon({ axis, size = 14 }: { axis: CatalogAxis; size?: number }) {
     const Icon = axisIconFor(axis.iconId);
     return <Icon size={size} />;
   }
@@ -144,10 +144,10 @@ export default function RouteSettingsPanel({
     handlePairWeightChange(axisIdA, next.weightA, axisIdB, next.weightB);
   }
 
-  function renderLegendChip(axis: PreferenceAxisDef, weight: number) {
+  function renderLegendChip(axis: CatalogAxis, weight: number) {
     const checked = weight > 0;
     const color = catalog.axisColors[axis.axisId];
-    const label = axis.chipLabel ?? axis.label;
+    const label = axis.chipLabel;
     return (
       <span key={axis.axisId} className={legendChipClass} data-checked={checked}>
         <Toggle

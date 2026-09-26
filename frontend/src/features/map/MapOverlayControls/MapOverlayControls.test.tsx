@@ -36,7 +36,7 @@ const ROAD_LABEL = MAP_OVERLAY_GROUP_LABELS[ROAD];
 const ENVIRONMENT_LABEL = MAP_OVERLAY_GROUP_LABELS[ENVIRONMENT];
 
 function chip(id: string, overrides: Partial<OverlayLayerChip> = {}): OverlayLayerChip {
-  return { id: id as MapLayerId, icon: TestIcon, label: id, on: false, ...overrides };
+  return { id: id as MapLayerId, icon: TestIcon, label: id, chipLabel: id, on: false, ...overrides };
 }
 
 /** 道路グループの1件目のカテゴリに属するレイヤー。 */

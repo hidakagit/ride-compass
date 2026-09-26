@@ -5,7 +5,7 @@ import { Fragment } from "react";
 import ErrorText from "@/components/ErrorText/ErrorText";
 import InfoPopover from "@/components/ui/InfoPopover/InfoPopover";
 import { NewRouteIcon, RouteDiffIcon, UndoAllIcon, UndoIcon } from "@/components/ui/icons/icons";
-import type { PreferenceAxisDef } from "@/lib/evaluationAxes";
+import type { CatalogAxis } from "@/lib/catalogAxis";
 import { formatDurationShort } from "@/features/route/formatDuration";
 import type { RouteCandidate } from "@/types/route";
 import { Button } from "@/components/ui/Button/Button";
@@ -38,7 +38,7 @@ interface RouteSplicePanelProps {
   /** 編集をやめて候補の一覧へ戻る。 */
   onCancel: () => void;
   /** 公開軸すべて（差分バーのラベルの正本）。 */
-  axes: readonly PreferenceAxisDef[];
+  axes: readonly CatalogAxis[];
   /** 軸id→色（ルート設定パネルの軸チップと同じ色）。 */
   axisColors: Record<string, string>;
 }
@@ -68,7 +68,7 @@ function formatDelta(value: number, digits: number): string {
 function contributionDeltas(
   base: Record<string, number>,
   after: Record<string, number>,
-  axes: readonly PreferenceAxisDef[],
+  axes: readonly CatalogAxis[],
 ): { axisId: string; label: string; delta: number }[] {
   return axes
     .map((axis) => ({

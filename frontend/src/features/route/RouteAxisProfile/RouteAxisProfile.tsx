@@ -1,7 +1,7 @@
 "use client";
 
 import InfoPopover from "@/components/ui/InfoPopover/InfoPopover";
-import type { PreferenceAxisDef } from "@/lib/evaluationAxes";
+import type { CatalogAxis } from "@/lib/catalogAxis";
 import { formatDurationShort } from "@/features/route/formatDuration";
 import type { RoutePreferenceWeights } from "@/types/route";
 import AxisContributionBar, { hasContribution } from "@/components/AxisContributionBar/AxisContributionBar";
@@ -11,7 +11,7 @@ import { cn } from "@/lib/cn";
 
 interface RouteAxisProfileProps {
   /** 公開軸すべて（軸カタログの順序・ラベルの正本）。重みによる絞り込みは行わない。 */
-  axes: readonly PreferenceAxisDef[];
+  axes: readonly CatalogAxis[];
   /** この候補を実際に評価した重み（生成時点のroute_preference）。0の軸は畳んだ1行へまとめる。 */
   weights: RoutePreferenceWeights;
   /** RouteCandidate.axis_difficulties（axis_id→距離加重平均の難易度0-100）。評価できなかった
@@ -26,7 +26,7 @@ interface RouteAxisProfileProps {
    * この絶対値が要る。 */
   axisRawValues: Record<string, number>;
   /** RouteCandidate.material_values（材料id→距離加重平均の値）。生値の単位が定まらない軸は、
-   * 軸の内訳（PreferenceAxisDef.materialBreakdown）が挙げる材料の値をここから引いて出す。
+   * 軸の内訳（CatalogAxis.materialBreakdown）が挙げる材料の値をここから引いて出す。
    * 真偽値材料は0/1で運ばれるため、平均がそのまま該当区間の延長割合になる。 */
   materialValues: Record<string, number>;
   /** RouteCandidate.material_category_shares（categorical材料id→{値: 延長割合}）。
@@ -74,7 +74,7 @@ export default function RouteAxisProfile({
   // 評価に使っていない軸（重み0）はnullを返し、AxisContributionBarの凡例から落とす。
   // 内訳は候補ごとに縦へ伸びるため、使っていない軸まで並べると狭い幅で「このルートで
   // 何が効いたか」が読めなくなる（設計原則「消さずに薄くする」の例外）。
-  const renderAxisDetail = (axis: PreferenceAxisDef) => {
+  const renderAxisDetail = (axis: CatalogAxis) => {
     if ((weights[axis.axisId] ?? 0) <= 0) return null;
     const difficulty = axisDifficulties[axis.axisId];
     // 折れ点を通す前の生値。単位が定まらない軸（合成軸等）はbackendがrawValueUnitを
@@ -86,7 +86,7 @@ export default function RouteAxisProfile({
       distanceKm,
     );
     // backendがmaterialBreakdownで並び順ごと返すため、ここでは並べ替えない。
-    const breakdownTexts = (axis.materialBreakdown ?? [])
+    const breakdownTexts = axis.materialBreakdown
       .map((entry) =>
         entry.dtype === "categorical"
           ? formatCategoryBreakdown(entry, materialCategoryShares[entry.materialId])

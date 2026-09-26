@@ -4,7 +4,8 @@ import { useState } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { EMPTY_CATALOG, type AxisCatalog } from "@/lib/axisCatalog";
-import type { PreferenceAxisDef } from "@/lib/evaluationAxes";
+import { catalogAxisFromEntry, type CatalogAxis } from "@/lib/catalogAxis";
+import { catalogEntry } from "@/lib/mapDisplay/__fixtures__/catalogAxes";
 import type { RoutePreferenceWeights } from "@/types/route";
 
 import RouteSettingsPanel from "./RouteSettingsPanel";
@@ -16,13 +17,10 @@ vi.mock("@/hooks/useAxisCatalog", () => ({
   retryAxisCatalogFetch: hook.retry,
 }));
 
-const axis = (axisId: string, label: string, chipLabel: string | null = null): PreferenceAxisDef => ({
-  axisId,
-  label,
-  chipLabel,
-  description: `${label}の説明文`,
-  dedicatedWayValueLayer: false,
-});
+const axis = (axisId: string, label: string, chipLabel: string | null = null): CatalogAxis =>
+  catalogAxisFromEntry(
+    catalogEntry({ axis_id: axisId, label, chip_label: chipLabel, description: `${label}の説明文` }),
+  );
 
 const AXES = [axis("surface", "路面の質", "路面"), axis("traffic", "交通量"), axis("slope", "勾配")];
 
