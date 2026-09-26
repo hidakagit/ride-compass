@@ -11,6 +11,8 @@ r8警報API（jma_warning_client.py）が返す電文配列の全件を走査す
 
 from __future__ import annotations
 
+from collections.abc import Iterable
+from dataclasses import dataclass
 from typing import NamedTuple
 
 from app.domain.warning_levels import WarningBadgeLevel
@@ -107,17 +109,22 @@ class ActiveWarning(StrictModel):
     additions: list[str]
 
 
-def extract_active_warnings(kinds: list[dict]) -> list[ActiveWarning]:
-    """JMA r8警報JSONの1地域ぶんの`kinds`配列から、サイクリングに関連し現在発表中の
-    警報・注意報だけを取り出す。
+@dataclass(frozen=True)
+class AreaWarningKind:
+    """電文の1地域ぶんの1種別。警報が何も無い地域は、コードを持たず状態が
+    「発表警報・注意報はなし」の1件で表される。"""
 
-    `kinds`の要素は`{"code": "14", "status": "発表", "additions": [...]}`（発表中）、
-    または警報が何も無い地域の`{"status": "発表警報・注意報はなし"}`（codeキー自体が
-    無い）のいずれか。"""
+    code: str | None
+    status: str | None
+    additions: tuple[str, ...]
+
+
+def extract_active_warnings(kinds: Iterable[AreaWarningKind]) -> list[ActiveWarning]:
+    """電文の1地域ぶんの種別から、サイクリングに関連し現在発表中の警報・注意報だけを取り出す。"""
     result: list[ActiveWarning] = []
     for kind in kinds:
-        code = kind.get("code")
-        if code is None or kind.get("status") not in ACTIVE_STATUSES:
+        code = kind.code
+        if code is None or kind.status not in ACTIVE_STATUSES:
             continue
         registered = WARNING_KINDS.get(code)
         if registered is None or not registered.relevant_to_cycling:
@@ -127,7 +134,7 @@ def extract_active_warnings(kinds: list[dict]) -> list[ActiveWarning]:
                 code=code,
                 name=registered.name,
                 level=warning_level(code),
-                additions=kind.get("additions", []),
+                additions=list(kind.additions),
             )
         )
     return result

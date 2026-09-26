@@ -31,23 +31,21 @@ class FloodService:
         if class20_code is None:
             return FloodForecasts(forecasts=[])
 
-        area_data = await fetch_area_data(self._http_client)
-        if area_data is None:
+        area_master = await fetch_area_data(self._http_client)
+        if area_master is None:
             return FloodForecasts(forecasts=[])
 
-        resolved = resolve_area(class20_code, area_data)
+        resolved = resolve_area(class20_code, area_master)
         if resolved is None:
             return FloodForecasts(forecasts=[])
 
-        documents = await fetch_flood_documents(self._http_client)
-        if documents is None:
+        bulletins = await fetch_flood_documents(self._http_client)
+        if bulletins is None:
             return FloodForecasts(forecasts=[])
 
         forecasts: list[ActiveFloodForecast] = []
-        for entry in documents:
-            if not isinstance(entry, dict) or entry.get("status") != "通常":
-                continue  # status"通常"以外は訓練・試験電文
-            forecast = extract_active_flood_forecast(entry, resolved.class20_code, resolved.class10_code)
+        for bulletin in bulletins:
+            forecast = extract_active_flood_forecast(bulletin, resolved.class20_code, resolved.class10_code)
             if forecast is not None:
                 forecasts.append(forecast)
         return FloodForecasts(forecasts=forecasts)

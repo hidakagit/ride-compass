@@ -5,7 +5,8 @@ JMA警報API（r8スキーマ）は府県予報区単位（例: 東京都全体�
 持つ（例: 東京地方 vs 伊豆諸島北部 vs 小笠原諸島）。地点を正しい細分区域まで解決する
 ために、気象庁が公開する地域マスタ（area.json）の親子関係
 （class20=市区町村等 → class15 → class10=一次細分区域 → offices=府県予報区）を辿る。
-地点→class20は区域の境界（`infrastructure/jma_area_boundaries.py`）が引く。
+地点→class20は区域の境界（`infrastructure/jma_area_boundaries.py`）が引き、area.jsonの形は
+`infrastructure/jma_warning_client.py`が`AreaMaster`へ解く。
 """
 
 from __future__ import annotations
@@ -24,14 +25,27 @@ class ResolvedArea:
     class10_name: str
 
 
-def resolve_area(class20_code: str, area_data: dict) -> ResolvedArea | None:
-    """area.json（気象庁の地域マスタ）を使い、区域のコードからJMA警報エリア
-    （class20/class10/office）を解決する。辿れなければNoneを返す。"""
-    class20s = area_data.get("class20s", {})
-    class15s = area_data.get("class15s", {})
-    class10s = area_data.get("class10s", {})
+@dataclass(frozen=True)
+class AreaEntry:
+    """地域マスタの1区域。親・名前の無い区域もある（外部のデータのため）。"""
 
-    class20 = class20s.get(class20_code)
+    parent: str | None
+    name: str | None
+
+
+@dataclass(frozen=True)
+class AreaMaster:
+    """地域マスタ（area.json）のうち、警報エリアの解決に使う階層。区域のコード→区域。"""
+
+    class20s: dict[str, AreaEntry]
+    class15s: dict[str, AreaEntry]
+    class10s: dict[str, AreaEntry]
+
+
+def resolve_area(class20_code: str, master: AreaMaster) -> ResolvedArea | None:
+    """地域マスタを使い、区域のコードからJMA警報エリア（class20/class10/office）を解決する。
+    辿れなければNoneを返す。"""
+    class20 = master.class20s.get(class20_code)
     if class20 is None:
         # 区域の境界と地域マスタは別々に配られるため、片方だけが区域の変更に追いついていると起きる。
         logger.warning("区域の境界が返したコードが地域マスタ(area.json)に無い class20=%s", class20_code)
@@ -39,27 +53,24 @@ def resolve_area(class20_code: str, area_data: dict) -> ResolvedArea | None:
 
     # class15→class10まで親を辿る。区域によってはclass20の親が既にclass10自身になっている
     # （細分がそれ以上分かれない）ため、class10sに見つかるまでループする。
-    # area.jsonは外部データのため、キー欠如はKeyErrorを投げずNoneへ倒す。
-    code = class20.get("parent")
+    code = class20.parent
     if code is None:
         return None
     seen = {code}
-    while code not in class10s:
-        parent_entry = class15s.get(code)
-        if parent_entry is None:
+    while code not in master.class10s:
+        parent_entry = master.class15s.get(code)
+        if parent_entry is None or parent_entry.parent is None:
             return None
-        parent = parent_entry.get("parent")
-        if parent is None:
-            return None
+        parent = parent_entry.parent
         if parent in seen:
             # 循環参照は本来あり得ないが、外部データを無限ループさせないための安全弁。
             return None
         seen.add(parent)
         code = parent
 
-    class10 = class10s[code]
-    office_code = class10.get("parent")
-    class10_name = class10.get("name")
+    class10 = master.class10s[code]
+    office_code = class10.parent
+    class10_name = class10.name
     if office_code is None or class10_name is None:
         return None
     return ResolvedArea(

@@ -12,6 +12,7 @@ JMA警報（jma_warning.py）と異なり、このAPIはstatus文字列（"発�
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import NamedTuple
 
 from app.domain.warning_levels import WarningBadgeLevel
@@ -60,35 +61,42 @@ class ActiveFloodForecast(StrictModel):
     report_datetime: str
 
 
-def extract_active_flood_forecast(
-    entry: dict, class20_code: str, class10_code: str
-) -> ActiveFloodForecast | None:
-    """r8指定河川洪水予報の電文1件から、出発地点に該当し現在アクティブな氾濫予報を取り出す。
+@dataclass(frozen=True)
+class FloodBulletin:
+    """指定河川洪水予報の電文1件（1河川の最新の状態）。文字の項目は、電文に無ければ空の文字。"""
 
-    `entry`は`flood_xml.json`配列の1要素（`item.code`・`class20Codes`・`class10Codes`・
-    `riverCode`・`riverName`・`reportDatetime`を持つ）。地点の該当判定は出発地点の
-    class20Code（優先）またはclass10Codeが電文のclass20Codes/class10Codesに含まれるかで行う
-    （行政区画の親子関係を辿るjma_area.resolve_areaで解決済みの値を渡す想定）。
+    #: 発表・継続・解除・引き下げを区別するコード（電文の`item.code`）。
+    code: str | None
+    #: 予報の対象の区域（市区町村等）と二次細分区域のコード。
+    class20_codes: tuple[str, ...]
+    class10_codes: tuple[str, ...]
+    river_code: str
+    river_name: str
+    condition: str
+    report_datetime: str
+
+
+def extract_active_flood_forecast(
+    bulletin: FloodBulletin, class20_code: str, class10_code: str
+) -> ActiveFloodForecast | None:
+    """電文1件から、出発地点に該当し現在アクティブな氾濫予報を取り出す。
+
+    地点の該当判定は出発地点のclass20（優先）またはclass10が電文の対象の区域に含まれるかで行う
+    （行政区画の親子関係を辿る`jma_area.resolve_area`で解決済みの値を渡す想定）。
     """
-    item = entry.get("item") or {}
-    code = item.get("code")
-    flood_level = FLOOD_CODE_LEVELS.get(code) if code is not None else None
+    flood_level = FLOOD_CODE_LEVELS.get(bulletin.code) if bulletin.code is not None else None
     if flood_level is None:
         return None
 
-    class20_codes = entry.get("class20Codes") or []
-    class10_codes = entry.get("class10Codes") or []
-    if class20_code not in class20_codes and class10_code not in class10_codes:
+    if class20_code not in bulletin.class20_codes and class10_code not in bulletin.class10_codes:
         return None
 
-    # 文字の項目は、キーが無くても値がnullでも空の文字として読む（1件の欠けで取り出しごと落とさない）。
-    river_name = entry.get("riverName") or ""
     return ActiveFloodForecast(
-        river_code=entry.get("riverCode") or "",
-        river_name=river_name,
+        river_code=bulletin.river_code,
+        river_name=bulletin.river_name,
         level=flood_level.level,
         badge_level=flood_level.badge_level,
-        label=f"{river_name}{flood_level.suffix}",
-        condition=item.get("condition") or "",
-        report_datetime=entry.get("reportDatetime") or "",
+        label=f"{bulletin.river_name}{flood_level.suffix}",
+        condition=bulletin.condition,
+        report_datetime=bulletin.report_datetime,
     )

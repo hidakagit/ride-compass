@@ -40,11 +40,11 @@ MSMは数値予報モデルの出力で観測値・公式発表の代わりに�
 |---|---|---|
 | `weather.py` | 天候のPydanticモデル（`WeatherConditions`・`WeatherPeriodOutlook`）と、降水量・雲量・気温からWMO天気コードを導く`derive_weather_code`・アメダスの10分間の実測から同じコードを導く`derive_observed_weather_code`（「降っていない」の境`PRECIPITATION_MIN_MM`は、画面の予想降水量の「-」と地図の降水の塗りにも生成物で届く）（雨と雪の境・降水の強さの段は予報と共有する——常設ヘッダーと「今日の見通し」が同じ気温で雨と雪を違えて出さないため） | `weather_service.py`・`jma_amedas.py` |
 | `jma_amedas.py` | JMAアメダスの16方位コード変換（静穏・欠測・範囲外のコードは方位なし。JMA特有なのは番号の割当だけで、呼び名は`domain/geo.py: SIXTEEN_POINT_LABELS`から引く）・体感温度計算（BOM式）・`AmedasObservation`モデル（天気コード`weather_code`は保存した実測から応答のたびに導き、Redisには持たない） | `jma_amedas_service.py` |
-| `jma_area.py` | 区域（class20）のコード→JMA警報エリア（class20→class15→class10→office）の親子関係解決 | `warning_service.py`・`flood_service.py` |
-| `jma_warning.py` | JMA警報コード表・アクティブ警報抽出・警戒度の段（名称から導く。危険警報＝警戒レベル4は警報と特別警報の間の段で、氾濫危険警報と同じ段） | `warning_service.py` |
+| `jma_area.py` | 区域（class20）のコード→JMA警報エリア（class20→class15→class10→office）の親子関係解決。辿る地域マスタは`AreaMaster`（area.jsonの形は`jma_warning_client.py`が解く） | `warning_service.py`・`flood_service.py` |
+| `jma_warning.py` | JMA警報コード表・アクティブ警報抽出（電文の1地域ぶんの種別`AreaWarningKind`から）・警戒度の段（名称から導く。危険警報＝警戒レベル4は警報と特別警報の間の段で、氾濫危険警報と同じ段） | `warning_service.py` |
 | `wbgt.py` | WBGT警戒レベル判定（熱中症予防運動指針の5段階閾値）・提供期間判定・段階の表示名（`WBGT_LEVEL_LABELS`） | `wbgt_service.py`・`warning_display.py` |
 | `wbgt_points.py` | 緯度経度→最寄りWBGT情報提供地点（約840地点の総当たり最近傍探索） | `wbgt_service.py` |
-| `flood_forecast.py` | JMA指定河川洪水予報コード表・アクティブ予報抽出・段階の表示名（`FLOOD_LEVEL_LABELS`） | `flood_service.py`・`warning_display.py` |
+| `flood_forecast.py` | JMA指定河川洪水予報コード表・アクティブ予報抽出（電文1件`FloodBulletin`から。電文の形は`flood_client.py`が解く）・段階の表示名（`FLOOD_LEVEL_LABELS`） | `flood_service.py`・`warning_display.py` |
 | `twilight.py` | 市民薄明による夜間判定（`is_night`）・日の出日没計算（`sunrise_sunset_jst`） | `jma_amedas_service.py`（表示用）・[routing-engine.md](routing-engine.md)のroad_graphエンジン（night軸の動的化） |
 
 `twilight.py`は外部APIに依存しないローカルの天文計算のみで、
@@ -298,6 +298,8 @@ URLも変わるため、ブラウザキャッシュ（`api/cache_policy.py`）�
   3段階すべてが失敗しうる箇所で、どこで失敗しても例外にせず空警報を返す。JMAは大雨・
   土砂災害・高潮・暴風/暴風雪・波浪・大雪・その他の注意報を別電文（VPWW55〜61）として
   発表するため、`_build_warnings`は電文配列全件を走査してcode単位で重複排除する。
+  電文の形（`warning.class20Items`等）は`jma_warning_client.py: WarningBulletin`が地域→種別へ解く。
+  区域の項目がある電文はその中身（「なし」でも）を使い、区域の項目が無い電文だけを二次細分区域で探す。
 
 - **`WbgtService`**: 環境省WBGT予報から最も近い時刻の値を選ぶ（`_pick_nearest_forecast`）。
   提供期間外（月単位の粗い判定、4〜10月）は取得自体を行わない事前フィルタを持つ（無駄な
@@ -308,7 +310,8 @@ URLも変わるため、ブラウザキャッシュ（`api/cache_policy.py`）�
 
 - **`FloodService`**: 河川洪水予報。`WarningService`と同じ`jma_area.resolve_area`を
   再利用して地点解決する。JMA洪水予報はstatus文字列ではなく`item.code`自体が発表/継続/
-  解除/引き下げを区別する。`status != "通常"`（訓練・試験電文）は明示的に除外する。
+  解除/引き下げを区別する。`status`が「通常」でない電文（訓練・試験）は`flood_client.py`が
+  電文を解く時点で落とし、サービスへ渡さない。
 
 ### 警報の区域の境界（`infrastructure/jma_area_boundaries.py`・`scripts/fetch_jma_area_boundaries.py`）
 

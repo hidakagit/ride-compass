@@ -1,7 +1,8 @@
 """`domain/flood_forecast.py`——指定河川洪水予報の電文1件から、出発地点に該当する現在の氾濫予報を取り出す。
 
 ここで見ないもの:
-- 電文の取得と地点のコード解決 → `services/flood_service.py`（`test_weather_route.py`等）
+- 電文を解く（項目の欠け・訓練電文） → `test_flood_client.py`
+- 地点のコード解決 → `test_flood_service.py`
 - 段階の色・呼び名の画面への配り方 → `domain/warning_display.py`
 
 期待値の段・呼び名はコードの表（`FLOOD_CODE_LEVELS`）から引き、数字を書き写さない。例外は代表コードの段で、
@@ -17,17 +18,18 @@ from app.domain import flood_forecast
 ACTIVE_CODE = next(iter(flood_forecast.FLOOD_CODE_LEVELS))
 
 
-def _entry(code: str | None = ACTIVE_CODE, **overrides) -> dict:
-    entry = {
-        "item": {} if code is None else {"code": code, "condition": "氾濫注意水位に到達"},
-        "class20Codes": ["1310100"],
-        "class10Codes": ["130010"],
-        "riverCode": "8301",
-        "riverName": "多摩川",
-        "reportDatetime": "2026-09-24T10:00:00+09:00",
+def _bulletin(code: str | None = ACTIVE_CODE, **overrides) -> flood_forecast.FloodBulletin:
+    fields = {
+        "code": code,
+        "class20_codes": ("1310100",),
+        "class10_codes": ("130010",),
+        "river_code": "8301",
+        "river_name": "多摩川",
+        "condition": "氾濫注意水位に到達",
+        "report_datetime": "2026-09-24T10:00:00+09:00",
     }
-    entry.update(overrides)
-    return entry
+    fields.update(overrides)
+    return flood_forecast.FloodBulletin(**fields)
 
 
 # ---- 段の宣言（表全体に対する不変条件） ----
@@ -74,7 +76,7 @@ def test_the_representative_codes_land_on_the_level_their_bulletin_means(code, l
 def test_an_active_code_for_the_starting_area_becomes_a_forecast(code):
     level = flood_forecast.FLOOD_CODE_LEVELS[code]
 
-    forecast = flood_forecast.extract_active_flood_forecast(_entry(code), "1310100", "130010")
+    forecast = flood_forecast.extract_active_flood_forecast(_bulletin(code), "1310100", "130010")
 
     assert forecast == flood_forecast.ActiveFloodForecast(
         river_code="8301",
@@ -91,14 +93,7 @@ def test_an_active_code_for_the_starting_area_becomes_a_forecast(code):
 def test_no_code_or_a_code_that_is_not_active_gives_nothing(code):
     # "10"は完全解除（表に載せない）。表に無いコードは現在アクティブな状態を表さない
     assert code not in flood_forecast.FLOOD_CODE_LEVELS
-    assert flood_forecast.extract_active_flood_forecast(_entry(code), "1310100", "130010") is None
-
-
-def test_an_entry_without_an_item_gives_nothing():
-    entry = _entry()
-    del entry["item"]
-
-    assert flood_forecast.extract_active_flood_forecast(entry, "1310100", "130010") is None
+    assert flood_forecast.extract_active_flood_forecast(_bulletin(code), "1310100", "130010") is None
 
 
 @pytest.mark.parametrize(
@@ -109,35 +104,20 @@ def test_an_entry_without_an_item_gives_nothing():
     ],
 )
 def test_the_starting_area_matches_by_either_area_code(class20, class10):
-    assert flood_forecast.extract_active_flood_forecast(_entry(), class20, class10) is not None
+    assert flood_forecast.extract_active_flood_forecast(_bulletin(), class20, class10) is not None
 
 
 def test_an_entry_for_another_area_gives_nothing():
-    assert flood_forecast.extract_active_flood_forecast(_entry(), "9999999", "999999") is None
+    assert flood_forecast.extract_active_flood_forecast(_bulletin(), "9999999", "999999") is None
 
 
 def test_an_entry_without_area_lists_matches_nothing():
-    entry = _entry()
-    del entry["class20Codes"]
-    del entry["class10Codes"]
+    bulletin = _bulletin(class20_codes=(), class10_codes=())
 
-    assert flood_forecast.extract_active_flood_forecast(entry, "1310100", "130010") is None
+    assert flood_forecast.extract_active_flood_forecast(bulletin, "1310100", "130010") is None
 
 
-def test_missing_texts_become_empty_and_the_label_is_the_level_name_alone():
-    entry = {"item": {"code": ACTIVE_CODE}, "class20Codes": ["1310100"]}
+def test_a_bulletin_without_a_river_name_is_labelled_by_the_level_name_alone():
+    forecast = flood_forecast.extract_active_flood_forecast(_bulletin(river_name=""), "1310100", "130010")
 
-    forecast = flood_forecast.extract_active_flood_forecast(entry, "1310100", "130010")
-
-    assert (forecast.river_code, forecast.river_name, forecast.condition, forecast.report_datetime) == ("", "", "", "")
-    assert forecast.label == flood_forecast.FLOOD_CODE_LEVELS[ACTIVE_CODE].suffix
-
-
-def test_null_texts_become_empty_too():
-    entry = _entry(riverCode=None, riverName=None, reportDatetime=None)
-    entry["item"]["condition"] = None
-
-    forecast = flood_forecast.extract_active_flood_forecast(entry, "1310100", "130010")
-
-    assert (forecast.river_code, forecast.river_name, forecast.condition, forecast.report_datetime) == ("", "", "", "")
     assert forecast.label == flood_forecast.FLOOD_CODE_LEVELS[ACTIVE_CODE].suffix
