@@ -61,7 +61,7 @@ class RegionService:
         """
         try:
             # カバレッジ判定（取込の宣言した範囲か）はMVT生成と同じ1クエリへ畳み込まれて
-            # いる（遠隔DBの往復1回分を節約。repository側のdocstring参照）。
+            # いる（DBの往復1回分を節約。repository側のdocstring参照）。
             tile_bytes = await getattr(self._repository, repository_method)(
                 z, x, y, tile_bounds_lonlat(z, x, y)
             )
